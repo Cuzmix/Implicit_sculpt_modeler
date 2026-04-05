@@ -1,0 +1,4 @@
+<Project>
+  <!-- Disable Avalonia's build-time telemetry task so local builds don't fail when AppData is locked down. -->
+  <Target Name="AvaloniaStats" />
+</Project>

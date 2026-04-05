@@ -1,0 +1,14 @@
+<Project>
+  <PropertyGroup Condition="'$(OS)' == 'Windows_NT'">
+    <_DefaultAndroidSdkDirectory>$(USERPROFILE)\android-sdk</_DefaultAndroidSdkDirectory>
+    <_DefaultJavaSdkDirectory>$(USERPROFILE)\jdk</_DefaultJavaSdkDirectory>
+
+    <!-- Prefer explicit MSBuild properties or environment variables, then fall back to the per-user install paths we provision locally. -->
+    <AndroidSdkDirectory Condition="'$(AndroidSdkDirectory)' == '' and '$(ANDROID_SDK_ROOT)' != ''">$(ANDROID_SDK_ROOT)</AndroidSdkDirectory>
+    <AndroidSdkDirectory Condition="'$(AndroidSdkDirectory)' == '' and '$(ANDROID_HOME)' != ''">$(ANDROID_HOME)</AndroidSdkDirectory>
+    <AndroidSdkDirectory Condition="'$(AndroidSdkDirectory)' == '' and Exists('$(_DefaultAndroidSdkDirectory)')">$(_DefaultAndroidSdkDirectory)</AndroidSdkDirectory>
+
+    <JavaSdkDirectory Condition="'$(JavaSdkDirectory)' == '' and '$(JAVA_HOME)' != ''">$(JAVA_HOME)</JavaSdkDirectory>
+    <JavaSdkDirectory Condition="'$(JavaSdkDirectory)' == '' and Exists('$(_DefaultJavaSdkDirectory)')">$(_DefaultJavaSdkDirectory)</JavaSdkDirectory>
+  </PropertyGroup>
+</Project>
