@@ -51,13 +51,17 @@ Shaders are recompiled when `glslangValidator` (Vulkan SDK) is on PATH; otherwis
 
 ## App flags
 
-`--vertices=N` start with a geodesic sphere of about N vertices (the Scene panel adds spheres or remeshes the selected one at any typed vertex count), `--subdiv=N` icosphere level when `--vertices` is not given (default 6: 40,962 vertices), `--threads=N` sculpt threads including the main one (default: one per core), `--frames=N` exit after N frames, `--bench-stroke=N` synthetic brush stroke over N frames then print stats, `--gpu-debug` GPU debug/validation mode, `--width`, `--height`.
+`--vertices=N` start with a geodesic sphere of about N vertices (the Scene panel adds spheres or remeshes the selected one at any typed vertex count), `--subdiv=N` icosphere level when `--vertices` is not given (default 6: 40,962 vertices), `--threads=N` sculpt threads including the main one (default: one per core), `--frames=N` exit after N frames, `--spheres=N` start with N spheres of that size side by side, `--no-cache` draw every object every frame instead of caching idle ones (for A/B timing; also a checkbox in the Stats panel), `--bench-stroke=N` synthetic brush stroke over N frames across the first sphere, then print stats, `--gpu-debug` GPU debug/validation mode, `--width`, `--height`.
 
 ## Benchmark
 
-`build/bench [vertex counts...] [--threads=N] [--node=N] [--prefault=MB]` builds a sphere of each size, prepares it for sculpting, runs the same 77-dab stroke with a large (r=0.13) and a small (r=0.04) brush, and prints a markdown table. A frame is 4 dabs plus the normal update and is what the app does per frame during a fast stroke. On cloud VMs, pass `--prefault=3000` so the VM's slow first touch of fresh memory does not dominate setup times.
+`build/bench [vertex counts...] [--meshes=N] [--threads=N] [--node=N] [--prefault=MB]` builds a sphere of each size (N of them with `--meshes`, only the first sculpted; with no sizes given it also runs 10M with a second idle sphere), prepares it for sculpting, runs the same 77-dab stroke with a large (r=0.13) and a small (r=0.04) brush, and prints a markdown table. A frame is 4 dabs plus the normal update and is what the app does per frame during a fast stroke. On cloud VMs, pass `--prefault=3000` so the VM's slow first touch of fresh memory does not dominate setup times.
 
 The SDF/voxel comparison spike from step 3 builds separately: `deps/odin/odin build src/sdf_trial -o:speed -collection:deps=deps`.
+
+## Idle objects
+
+Only the selected object is sculpted or moved, so the viewport draws every other object once into a cached colour + depth image and reuses it while the camera and those objects stay put (all through a brush stroke). Each frame then costs a screen-sized copy plus the selected object's triangles, however many idle objects there are. Orbiting, panning, zooming, selecting another object or changing an idle one redraws the cache. On the CPU side idle objects already cost nothing per frame (`build/bench` with `--meshes=2`).
 
 ## Controls
 

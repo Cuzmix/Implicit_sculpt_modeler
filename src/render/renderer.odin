@@ -3,6 +3,7 @@
 // then displays; it never reads or writes UI state.
 package render
 
+import "core:hash"
 import "core:log"
 import "core:slice"
 import sdl "vendor:sdl3"
@@ -18,6 +19,7 @@ Renderer :: struct {
 	window:        ^sdl.Window,
 	depth_format:  sdl.GPUTextureFormat,
 	mesh_pipeline: ^sdl.GPUGraphicsPipeline,
+	last_version:  u64, // source of Mesh_Buffers.version
 }
 
 // Offscreen colour + depth pair the 3D viewport renders into. Recreated on resize.
@@ -26,6 +28,17 @@ Viewport_Target :: struct {
 	depth:  ^sdl.GPUTexture,
 	width:  u32,
 	height: u32,
+	cache:  Static_Cache,
+}
+
+// Colour and depth of everything that is not `live`, as last drawn. While the camera
+// and those objects stay put (all through a brush stroke), each frame copies this in
+// and draws only the live objects on top, so idle meshes cost a screen-sized copy
+// instead of all their triangles.
+Static_Cache :: struct {
+	color: ^sdl.GPUTexture,
+	depth: ^sdl.GPUTexture,
+	key:   u64, // hash of what the textures hold; 0 when they hold nothing
 }
 
 // GPU copy of a geom.Mesh. Positions and normals live in separate vertex buffers so
@@ -39,6 +52,7 @@ Mesh_Buffers :: struct {
 	transfer_size:   u32,
 	vertex_capacity: u32,
 	index_count:     u32,
+	version:         u64, // changes whenever the buffers' contents do
 }
 
 // 16 MB holds positions and normals for ~700k vertices: far more than a frame of
@@ -53,10 +67,19 @@ Frame_Uniforms :: struct {
 }
 
 // One mesh to draw this frame: where it sits in the world and its clay colour.
+// `live` marks the object being worked on; everything else may come from the cache.
 Draw_Item :: struct {
 	mesh:  ^Mesh_Buffers,
 	model: Mat4,
 	color: [4]f32,
+	live:  bool,
+}
+
+// What render_viewport did this frame, for the stats panel.
+Viewport_Stats :: struct {
+	triangles:     u64,  // triangles submitted
+	cache_used:    bool, // idle objects came from the cache
+	cache_redrawn: bool, // ...which had to be redrawn first
 }
 
 // Matches Material_Uniforms in mesh.frag.
@@ -188,7 +211,33 @@ viewport_target_resize :: proc(r: ^Renderer, vt: ^Viewport_Target, requested_wid
 viewport_target_destroy :: proc(r: ^Renderer, vt: ^Viewport_Target) {
 	if vt.color != nil do sdl.ReleaseGPUTexture(r.device, vt.color)
 	if vt.depth != nil do sdl.ReleaseGPUTexture(r.device, vt.depth)
+	if vt.cache.color != nil do sdl.ReleaseGPUTexture(r.device, vt.cache.color)
+	if vt.cache.depth != nil do sdl.ReleaseGPUTexture(r.device, vt.cache.depth)
 	vt^ = {}
+}
+
+// Creates the cache textures on first use, at the target's size. They are released
+// with the target, so a resize recreates them.
+@(private)
+static_cache_ensure :: proc(r: ^Renderer, vt: ^Viewport_Target) -> bool {
+	if vt.cache.color != nil do return true
+	vt.cache.color = sdl.CreateGPUTexture(r.device, {
+		type = .D2, format = VIEWPORT_COLOR_FORMAT, usage = {.COLOR_TARGET},
+		width = vt.width, height = vt.height, layer_count_or_depth = 1, num_levels = 1,
+	})
+	vt.cache.depth = sdl.CreateGPUTexture(r.device, {
+		type = .D2, format = r.depth_format, usage = {.DEPTH_STENCIL_TARGET},
+		width = vt.width, height = vt.height, layer_count_or_depth = 1, num_levels = 1,
+	})
+	vt.cache.key = 0
+	if vt.cache.color == nil || vt.cache.depth == nil {
+		log.errorf("viewport cache creation failed: %s", sdl.GetError())
+		if vt.cache.color != nil do sdl.ReleaseGPUTexture(r.device, vt.cache.color)
+		if vt.cache.depth != nil do sdl.ReleaseGPUTexture(r.device, vt.cache.depth)
+		vt.cache = {}
+		return false
+	}
+	return true
 }
 
 // Creates the GPU buffers for `mesh` and uploads all of it, in chunks through the
@@ -201,6 +250,8 @@ mesh_buffers_create :: proc(r: ^Renderer, mesh: geom.Mesh) -> (mb: Mesh_Buffers,
 
 	mb.vertex_capacity = vcount
 	mb.index_count = icount
+	r.last_version += 1
+	mb.version = r.last_version
 	mb.transfer_size = TRANSFER_BUFFER_SIZE
 	mb.positions = sdl.CreateGPUBuffer(r.device, {usage = {.VERTEX}, size = vbytes})
 	mb.normals = sdl.CreateGPUBuffer(r.device, {usage = {.VERTEX}, size = vbytes})
@@ -253,6 +304,10 @@ mesh_buffers_destroy :: proc(r: ^Renderer, mb: ^Mesh_Buffers) {
 // Ranges are packed into the transfer buffer, which is cycled so an upload never
 // stalls on the previous frame's copy; if they do not fit, they go in several batches.
 mesh_buffers_upload_ranges :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: ^Mesh_Buffers, mesh: geom.Mesh, ranges: []geom.Vertex_Range) {
+	if len(ranges) > 0 {
+		r.last_version += 1
+		mb.version = r.last_version
+	}
 	VERTEX_BYTES :: 2 * size_of(geom.Vec3)
 	capacity := mb.transfer_size / VERTEX_BYTES // vertices per batch
 	pending := ranges
@@ -302,29 +357,96 @@ mesh_buffers_upload_ranges :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb:
 	}
 }
 
-// Records the viewport render pass: clear, then draw each item with the clay material.
-render_viewport :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item) {
+// Records the viewport: the live items over everything else. With `use_cache`, the
+// other items are drawn into the cache only when they, the camera or the target size
+// changed since the cache was filled; otherwise every item is drawn every frame.
+render_viewport :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, view, proj: Mat4, items: []Draw_Item, use_cache: bool) -> (stats: Viewport_Stats) {
+	live := 0
+	for item in items do live += int(item.live)
+	// With nothing live (or nothing idle) there is nothing to reuse.
+	if !use_cache || live == 0 || live == len(items) || !static_cache_ensure(r, vt) {
+		vt.cache.key = 0
+		pass := begin_mesh_pass(r, cmd, vt.color, vt.depth, load = false, keep_depth = false)
+		stats.triangles = draw_items(r, cmd, pass, view, proj, items, live = nil)
+		sdl.EndGPURenderPass(pass)
+		return
+	}
+	stats.cache_used = true
+
+	key := static_key(vt^, view, proj, items)
+	if key != vt.cache.key {
+		pass := begin_mesh_pass(r, cmd, vt.cache.color, vt.cache.depth, load = false, keep_depth = true)
+		stats.triangles = draw_items(r, cmd, pass, view, proj, items, live = false)
+		sdl.EndGPURenderPass(pass)
+		vt.cache.key = key
+		stats.cache_redrawn = true
+	}
+
+	copy_pass := sdl.BeginGPUCopyPass(cmd)
+	for pair in ([2][2]^sdl.GPUTexture{{vt.cache.color, vt.color}, {vt.cache.depth, vt.depth}}) {
+		sdl.CopyGPUTextureToTexture(copy_pass, {texture = pair[0]}, {texture = pair[1]}, vt.width, vt.height, 1, cycle = true)
+	}
+	sdl.EndGPUCopyPass(copy_pass)
+
+	pass := begin_mesh_pass(r, cmd, vt.color, vt.depth, load = true, keep_depth = false)
+	stats.triangles += draw_items(r, cmd, pass, view, proj, items, live = true)
+	sdl.EndGPURenderPass(pass)
+	return
+}
+
+// Identifies the cache contents: the target size, camera, and every idle item's
+// buffers (by identity and version), transform and colour.
+@(private)
+static_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item) -> u64 {
+	Keyed :: struct {
+		mesh:    ^Mesh_Buffers,
+		version: u64,
+		model:   Mat4,
+		color:   [4]f32,
+	}
+	Header :: struct {
+		view, proj:    Mat4,
+		width, height: u32,
+	}
+	header := Header{view, proj, vt.width, vt.height}
+	h := hash.fnv64a(slice.bytes_from_ptr(&header, size_of(header)))
+	for item in items {
+		if item.live do continue
+		k := Keyed{item.mesh, item.mesh.version, item.model, item.color}
+		h = hash.fnv64a(slice.bytes_from_ptr(&k, size_of(k)), h)
+	}
+	return max(h, 1) // 0 means empty
+}
+
+@(private)
+begin_mesh_pass :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, color_tex, depth_tex: ^sdl.GPUTexture, load, keep_depth: bool) -> ^sdl.GPURenderPass {
 	color := sdl.GPUColorTargetInfo {
-		texture     = vt.color,
+		texture     = color_tex,
 		clear_color = {0.16, 0.17, 0.19, 1},
-		load_op     = .CLEAR,
+		load_op     = .LOAD if load else .CLEAR,
 		store_op    = .STORE,
-		cycle       = true,
+		cycle       = !load,
 	}
 	depth := sdl.GPUDepthStencilTargetInfo {
-		texture          = vt.depth,
+		texture          = depth_tex,
 		clear_depth      = 1,
-		load_op          = .CLEAR,
-		store_op         = .DONT_CARE,
+		load_op          = .LOAD if load else .CLEAR,
+		store_op         = .STORE if keep_depth else .DONT_CARE,
 		stencil_load_op  = .DONT_CARE,
 		stencil_store_op = .DONT_CARE,
-		cycle            = true,
+		cycle            = !load,
 	}
 	pass := sdl.BeginGPURenderPass(cmd, &color, 1, &depth)
-	defer sdl.EndGPURenderPass(pass)
 	sdl.BindGPUGraphicsPipeline(pass, r.mesh_pipeline)
+	return pass
+}
 
+// Draws the items whose `live` flag matches (all of them when `live` is nil) with the
+// clay material. Returns the number of triangles drawn.
+@(private)
+draw_items :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURenderPass, view, proj: Mat4, items: []Draw_Item, live: Maybe(bool)) -> (triangles: u64) {
 	for item in items {
+		if want, filtered := live.?; filtered && item.live != want do continue
 		frame := Frame_Uniforms{view_proj = proj * view, view = view, model = item.model}
 		material := Material_Uniforms{base_color = item.color, params = {0.08, 0.2, 40, 0}}
 		sdl.PushGPUVertexUniformData(cmd, 0, &frame, size_of(frame))
@@ -334,5 +456,7 @@ render_viewport :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, vt: Viewport_T
 		sdl.BindGPUVertexBuffers(pass, 0, &vbufs[0], len(vbufs))
 		sdl.BindGPUIndexBuffer(pass, {buffer = mb.indices}, ._32BIT)
 		sdl.DrawGPUIndexedPrimitives(pass, mb.index_count, 1, 0, 0, 0)
+		triangles += u64(mb.index_count / 3)
 	}
+	return
 }

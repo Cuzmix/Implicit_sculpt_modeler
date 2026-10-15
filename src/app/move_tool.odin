@@ -111,3 +111,16 @@ focus_selected :: proc(app: ^App) {
 	app.camera.target = obj.transform.position
 	app.camera.distance = clamp(3.5 * obj.transform.scale, camera.MIN_DISTANCE, camera.MAX_DISTANCE)
 }
+
+// Points the camera at the middle of all objects, far enough back to see them all.
+frame_all :: proc(app: ^App) {
+	if len(app.scene.objects) == 0 do return
+	lo, hi := Vec3(max(f32)), Vec3(min(f32))
+	for obj in app.scene.objects {
+		t := obj.transform
+		lo = linalg.min(lo, t.position - t.scale)
+		hi = linalg.max(hi, t.position + t.scale)
+	}
+	app.camera.target = (lo + hi) / 2
+	app.camera.distance = clamp(1.75 * linalg.length(hi - lo), camera.MIN_DISTANCE, camera.MAX_DISTANCE)
+}
