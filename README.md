@@ -27,7 +27,7 @@ See `scripts/versions.env`: Odin `dev-2026-10`, SDL `3.4.18` (Linux; Windows use
 
 ./build.sh            # debug build with allocation tracking -> build/sculpt
 ./build.sh release    # optimized build
-./build.sh test       # unit tests (geom, camera)
+./build.sh test       # unit tests (geom, camera, sculpt)
 ./build.sh run -- --subdiv=7
 ./build.sh smoke      # 300 frames in GPU debug mode; non-zero exit on assert, GPU error or leak
 ./build.sh bench      # mesh brush benchmark (synthetic stroke) + SDF/voxel comparison

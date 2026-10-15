@@ -25,6 +25,7 @@ if "%MODE%"=="release" (
 if "%MODE%"=="test" (
 	"%ODIN%" test "%ROOT%src\geom" -out:"%ROOT%build\test_geom.exe" %COMMON% || exit /b 1
 	"%ODIN%" test "%ROOT%src\camera" -out:"%ROOT%build\test_camera.exe" %COMMON% || exit /b 1
+	"%ODIN%" test "%ROOT%src\sculpt" -out:"%ROOT%build\test_sculpt.exe" %COMMON% || exit /b 1
 	exit /b 0
 )
 "%ODIN%" build "%ROOT%src\app" -out:"%ROOT%build\sculpt.exe" -debug %COMMON% || exit /b 1
