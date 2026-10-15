@@ -10,6 +10,8 @@ A performance-focused sculpting prototype in Odin, using SDL3 + SDL_GPU for rend
 | `src/render` | Every GPU object the app creates: device, pipeline, viewport target, mesh buffers, shaders |
 | `src/geom` | CPU sculpt geometry (structure-of-arrays triangle mesh); no rendering or UI imports |
 | `src/camera` | Orbit camera math; no rendering or UI imports |
+| `src/sculpt` | Brush dabs on a `geom.Mesh`: raycast, draw/smooth, local normal updates, dirty vertex range |
+| `src/sdf_trial` | Standalone SDF/voxel comparison spike (not linked into the app) |
 
 The 3D viewport is rendered by `render` into an offscreen texture that the `Viewport` panel displays. ImGui never owns sculpt state: panels read and edit `App` fields through pointers each frame, and the viewport panel reports mouse input as a plain struct the camera (and later the brush) consumes.
 
@@ -28,6 +30,7 @@ See `scripts/versions.env`: Odin `dev-2026-10`, SDL `3.4.18` (Linux; Windows use
 ./build.sh test       # unit tests (geom, camera)
 ./build.sh run -- --subdiv=7
 ./build.sh smoke      # 300 frames in GPU debug mode; non-zero exit on assert, GPU error or leak
+./build.sh bench      # mesh brush benchmark (synthetic stroke) + SDF/voxel comparison
 ```
 
 Headless (CI or containers): run under `Xvfb` with Mesa's llvmpipe Vulkan driver (`mesa-vulkan-drivers`).
@@ -45,8 +48,8 @@ Shaders are recompiled when `glslangValidator` (Vulkan SDK) is on PATH; otherwis
 
 ## App flags
 
-`--frames=N` exit after N frames, `--gpu-debug` GPU debug/validation mode, `--subdiv=N` icosphere level (default 6: 40,962 vertices), `--width`, `--height`.
+`--frames=N` exit after N frames, `--bench-stroke=N` synthetic brush stroke over N frames then print stats, `--gpu-debug` GPU debug/validation mode, `--subdiv=N` icosphere level (default 6: 40,962 vertices), `--width`, `--height`.
 
 ## Controls
 
-Orbit: right drag or Alt + left drag. Pan: middle drag or Shift + right drag. Zoom: mouse wheel. Left drag is reserved for the brush.
+Sculpt: left drag (Shift smooths, Ctrl inverts). Orbit: right drag or Alt + left drag. Pan: middle drag or Shift + right drag. Zoom: mouse wheel.

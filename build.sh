@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
-# Usage: ./build.sh [debug|release|test|run|smoke] [-- app args]
+# Usage: ./build.sh [debug|release|test|run|smoke|bench] [-- app args]
 #   debug   (default) debug build with allocation tracking -> build/sculpt
 #   release optimized build -> build/sculpt
 #   test    run all package tests
 #   run     debug build, then run it with the remaining args
+#   bench   release build, then the mesh brush benchmark (needs a display) and the
+#           SDF/voxel comparison spike at 128^3 and 256^3
 #   smoke   debug build, then run 300 frames with GPU debug mode; fails on any
 #           SDL assert, GPU error or leaked allocation (needs a display, e.g. Xvfb)
 set -euo pipefail
@@ -32,9 +34,20 @@ case "$mode" in
 		if [ "$mode" = run ]; then exec "$ROOT/build/sculpt" "$@"; fi
 		if [ "$mode" = smoke ]; then SDL_ASSERT=abort exec "$ROOT/build/sculpt" --frames=300 --gpu-debug "$@"; fi
 		;;
-	release)
+	release|bench)
 		compile_shaders
 		"$ODIN" build "$ROOT/src/app" -out:"$ROOT/build/sculpt" -o:speed "${common[@]}"
+		if [ "$mode" = bench ]; then
+			"$ODIN" build "$ROOT/src/sdf_trial" -out:"$ROOT/build/sdf_trial" -o:speed "${common[@]}"
+			for level in 6 7; do
+				echo "== mesh brush, icosphere level $level"
+				"$ROOT/build/sculpt" --bench-stroke=240 --subdiv=$level --width=1280 --height=800 "$@"
+			done
+			for n in 128 256; do
+				echo "== SDF trial, $n^3"
+				"$ROOT/build/sdf_trial" $n
+			done
+		fi
 		;;
 	test)
 		compile_shaders
