@@ -2,6 +2,8 @@ package main
 
 import "core:slice"
 
+import "../render"
+
 HISTORY :: 240
 
 // Fixed-size ring of samples: recording never allocates.
@@ -37,4 +39,6 @@ Frame_Stats :: struct {
 	upload_kb:  Sample_Ring,
 	latency_ms: Sample_Ring, // newest input event to command buffer submit
 	dabs_total: int,
+	viewport:      render.Viewport_Stats, // last frame
+	cache_redraws: int,
 }

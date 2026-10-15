@@ -100,12 +100,25 @@ mouse_ray :: proc(c: camera.Orbit, pos, size: [2]f32) -> (origin, dir: sculpt.Ve
 	return
 }
 
-// Synthetic input for --bench-stroke: a wavy left-to-right drag across the viewport.
-bench_input :: proc(frame, total: int, size: [2]f32) -> Viewport_Input {
+// Synthetic input for --bench-stroke: a wavy left-to-right drag across the first
+// object, as it appears on screen.
+bench_input :: proc(app: ^App, frame, total: int, size: [2]f32) -> Viewport_Input {
 	t := f32(frame) / f32(max(total - 1, 1))
+	center, radius := size * 0.5, size.y * 0.3
+	if len(app.scene.objects) > 0 {
+		obj := app.scene.objects[0]
+		view_proj := camera.orbit_proj(app.camera, size.x / size.y) * camera.orbit_view(app.camera)
+		to_px :: proc(m: matrix[4, 4]f32, p: Vec3, size: [2]f32) -> [2]f32 {
+			c := m * [4]f32{p.x, p.y, p.z, 1}
+			return {(c.x / c.w * 0.5 + 0.5) * size.x, (0.5 - c.y / c.w * 0.5) * size.y}
+		}
+		center = to_px(view_proj, obj.transform.position, size)
+		up := Vec3{0, obj.transform.scale, 0}
+		radius = linalg.length(to_px(view_proj, obj.transform.position + up, size) - center)
+	}
 	return Viewport_Input {
 		size      = size,
-		mouse_pos = {size.x * (0.3 + 0.4 * t), size.y * (0.5 + 0.15 * math.sin(t * 4 * math.PI))},
+		mouse_pos = center + radius * [2]f32{-0.6 + 1.2 * t, 0.3 * math.sin(t * 4 * math.PI)},
 		hovered   = true,
 		dragging  = true,
 		primary   = true,

@@ -26,6 +26,8 @@ Options :: struct {
 	threads:   int `usage:"Worker threads for sculpting, including the main thread (default: one per core)."`,
 	width:     int `usage:"Initial window width (default 1600)."`,
 	height:    int `usage:"Initial window height (default 900)."`,
+	spheres:   int `usage:"Start with this many spheres side by side, all of the starting size (default 1)."`,
+	no_cache:  bool `usage:"Draw every object every frame instead of caching the idle ones (for comparison)."`,
 	bench_stroke: int `usage:"Run a synthetic brush stroke over this many frames, print brush stats, then exit."`,
 }
 
@@ -42,6 +44,7 @@ App :: struct {
 	camera:   camera.Orbit,
 	ui:       Ui_State,
 	stats:    Frame_Stats,
+	cache_idle: bool, // draw unselected objects from the viewport cache while they stay put
 	running:  bool,
 }
 
@@ -55,7 +58,7 @@ main :: proc() {
 		context.allocator = mem.tracking_allocator(&tracking)
 	}
 
-	opts := Options{subdiv = 6, width = 1600, height = 900}
+	opts := Options{subdiv = 6, width = 1600, height = 900, spheres = 1}
 	flags.parse_or_exit(&opts, os.args, .Unix)
 	ok := run(opts)
 
@@ -98,8 +101,11 @@ run :: proc(opts: Options) -> bool {
 	defer jobs.pool_destroy(&app.pool)
 	log.infof("sculpt threads: %d", jobs.pool_size(&app.pool))
 	app.scene.selected = -1
-	if !scene_add_sphere(&app, opts.vertices, opts.subdiv, {scale = 1}) do return false
 	defer scene_destroy(&app)
+	for _ in 0 ..< max(opts.spheres, 1) {
+		if !scene_add_sphere(&app, opts.vertices, opts.subdiv, {position = next_free_position(&app), scale = 1}) do return false
+	}
+	app.scene.selected = 0
 	defer render.viewport_target_destroy(&app.renderer, &app.target)
 
 	// Dear ImGui. Its context and backends are torn down before the renderer (defers run LIFO).
@@ -124,6 +130,8 @@ run :: proc(opts: Options) -> bool {
 	defer imgui_impl_sdlgpu3.Shutdown()
 
 	app.camera = camera.orbit_default()
+	if len(app.scene.objects) > 1 do frame_all(&app)
+	app.cache_idle = !opts.no_cache
 	app.ui = ui_state_default()
 	app.brush = {kind = .Draw, radius_px = 60, strength = 0.5}
 	app.tool = .Brush
@@ -159,7 +167,7 @@ run :: proc(opts: Options) -> bool {
 		imgui.NewFrame()
 		input := ui_draw(&app)
 		if opts.bench_stroke > 0 {
-			input = bench_input(frame_index, opts.bench_stroke, {f32(app.target.width), f32(app.target.height)})
+			input = bench_input(&app, frame_index, opts.bench_stroke, {f32(app.target.width), f32(app.target.height)})
 			last_input_ns = sdl.GetTicksNS()
 		}
 		camera_apply_input(&app.camera, input)
@@ -185,13 +193,15 @@ run :: proc(opts: Options) -> bool {
 			normals_ms += time.duration_milliseconds(time.tick_since(t_flush))
 			render.mesh_buffers_upload_ranges(&app.renderer, cmd, &obj.mesh_gpu, obj.mesh, ranges)
 			for r in ranges do uploaded += r.count
-			// The selected object is in clay; the others are a muted grey.
-			color := [4]f32{0.55, 0.40, 0.32, 1} if i == app.scene.selected else {0.42, 0.42, 0.44, 1}
-			draws[i] = {mesh = &obj.mesh_gpu, model = transform_matrix(obj.transform), color = color}
+			// The selected object is in clay; the others are a muted grey. Only the
+			// selected one is sculpted or moved, so the rest can come from the cache.
+			selected := i == app.scene.selected
+			color := [4]f32{0.55, 0.40, 0.32, 1} if selected else {0.42, 0.42, 0.44, 1}
+			draws[i] = {mesh = &obj.mesh_gpu, model = transform_matrix(obj.transform), color = color, live = selected}
 		}
 		aspect := f32(app.target.width) / f32(app.target.height)
-		render.render_viewport(&app.renderer, cmd, app.target,
-			camera.orbit_view(app.camera), camera.orbit_proj(app.camera, aspect), draws)
+		drawn := render.render_viewport(&app.renderer, cmd, &app.target,
+			camera.orbit_view(app.camera), camera.orbit_proj(app.camera, aspect), draws, app.cache_idle)
 
 		swapchain: ^sdl.GPUTexture
 		if !sdl.WaitAndAcquireGPUSwapchainTexture(cmd, window, &swapchain, nil, nil) {
@@ -221,6 +231,8 @@ run :: proc(opts: Options) -> bool {
 
 		ring_push(&app.stats.frame_ms, time.duration_milliseconds(time.tick_since(frame_start)))
 		ring_push(&app.stats.cpu_ms, time.duration_milliseconds(time.tick_diff(frame_start, cpu_done)))
+		app.stats.viewport = drawn
+		app.stats.cache_redraws += int(drawn.cache_redrawn)
 		if sculpted.dabs > 0 {
 			ring_push(&app.stats.raycast_ms, sculpted.raycast_ms)
 			ring_push(&app.stats.brush_ms, sculpted.brush_ms)
@@ -244,6 +256,7 @@ run :: proc(opts: Options) -> bool {
 	vertices: int
 	for obj in app.scene.objects do vertices += geom.mesh_vertex_count(obj.mesh)
 	fmt.printfln("frames=%d dabs=%d objects=%d vertices=%d", frame_index, app.stats.dabs_total, len(app.scene.objects), vertices)
+	fmt.printfln("idle_cache=%v cache_redraws=%d last_frame_triangles=%d", app.cache_idle, app.stats.cache_redraws, app.stats.viewport.triangles)
 	print_stat("frame_ms", app.stats.frame_ms)
 	if app.stats.dabs_total > 0 {
 		print_stat("raycast_ms", app.stats.raycast_ms)

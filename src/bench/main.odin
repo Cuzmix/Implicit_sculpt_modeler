@@ -7,7 +7,10 @@
 // then runs the same strokes for a large and a small brush and prints one table row
 // per brush. A frame is DABS_PER_FRAME dabs (each with its raycast) plus the flush
 // that recomputes normals; GPU upload is the bytes of the dirty vertex ranges per frame.
+// By default the 10M size runs a second time with an idle second sphere in the scene,
+// flushed every frame as the app does, to show that idle meshes add no CPU cost.
 //
+//   --meshes=N   spheres per size, all sculpt-ready; only the first is sculpted
 //   --threads=N  worker count including the caller (default: every core)
 //   --node=N     triangles per sculpt node
 //   --prefault=MB touch this much memory first (see prefault)
@@ -34,6 +37,7 @@ DABS_PER_FRAME :: 4 // a fast stroke lands several dabs per frame
 node_triangles: u32 = sculpt.NODE_TRIANGLES
 threads := 0
 prefault_mb := 0
+meshes := 0 // 0: the default cases
 
 main :: proc() {
 	targets := make([dynamic]int)
@@ -43,13 +47,25 @@ main :: proc() {
 			node_triangles = u32(strconv.parse_int(arg[7:]) or_else int(sculpt.NODE_TRIANGLES))
 		} else if strings.has_prefix(arg, "--prefault=") {
 			prefault_mb = strconv.parse_int(arg[11:]) or_else 0
+		} else if strings.has_prefix(arg, "--meshes=") {
+			meshes = max(strconv.parse_int(arg[9:]) or_else 1, 1)
 		} else if strings.has_prefix(arg, "--threads=") {
 			threads = strconv.parse_int(arg[10:]) or_else 0
 		} else if v, ok := strconv.parse_int(arg); ok {
 			append(&targets, v)
 		}
 	}
-	if len(targets) == 0 do append(&targets, 500_000, 1_000_000, 5_000_000, 7_000_000, 10_000_000)
+	Case :: struct {
+		vertices, meshes: int,
+	}
+	cases := make([dynamic]Case)
+	defer delete(cases)
+	if len(targets) == 0 {
+		for v in ([]int{500_000, 1_000_000, 5_000_000, 7_000_000, 10_000_000}) do append(&cases, Case{v, max(meshes, 1)})
+		if meshes == 0 do append(&cases, Case{10_000_000, 2})
+	} else {
+		for v in targets do append(&cases, Case{v, max(meshes, 1)})
+	}
 	if prefault_mb > 0 do prefault(prefault_mb)
 	// --threads=1 runs everything on the calling thread; 0 (default) uses every core.
 	pool_storage: jobs.Pool
@@ -61,23 +77,40 @@ main :: proc() {
 	defer if pool != nil do jobs.pool_destroy(pool)
 	fmt.printfln("threads: %d, node triangles: %d", jobs.pool_size(pool) if pool != nil else 1, node_triangles)
 
-	fmt.println("| Vertices | Triangles | Setup s | Mesh MB | RSS MB | Brush | Verts/dab | Raycast ms | Dab ms | Normals ms/frame | Frame ms | Frame ms max | Upload MB/frame |")
-	fmt.println("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
-	for target in targets {
-		run(target, pool)
+	fmt.println("| Meshes | Vertices | Triangles | Setup s | Mesh MB | RSS MB | Brush | Verts/dab | Raycast ms | Dab ms | Normals ms/frame | Frame ms | Frame ms max | Upload MB/frame |")
+	fmt.println("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+	for c in cases {
+		run(c.vertices, c.meshes, pool)
 	}
 	if prefault_mb == 0 do fmt.printfln("peak RSS: %.0f MB", peak_rss_mb())
 }
 
-run :: proc(target: int, pool: ^jobs.Pool) {
+// Mesh and sculptor of one bench sphere, heap allocated because the sculptor keeps a
+// pointer to the mesh.
+Sphere :: struct {
+	mesh:     geom.Mesh,
+	sculptor: sculpt.Sculptor,
+}
+
+run :: proc(target, mesh_count: int, pool: ^jobs.Pool) {
 	t0 := time.tick_now()
-	m := geom.geodesic_sphere(geom.geodesic_frequency_for(target), pool)
-	defer geom.mesh_destroy(&m)
-	s: sculpt.Sculptor
-	sculpt.sculptor_init(&s, &m, pool, node_triangles)
-	defer sculpt.sculptor_destroy(&s)
-	free_all(context.temp_allocator)
-	setup_s := time.duration_seconds(time.tick_since(t0))
+	spheres := make([]^Sphere, mesh_count)
+	for &sp in spheres {
+		sp = new(Sphere)
+		sp.mesh = geom.geodesic_sphere(geom.geodesic_frequency_for(target), pool)
+		sculpt.sculptor_init(&sp.sculptor, &sp.mesh, pool, node_triangles)
+		free_all(context.temp_allocator)
+	}
+	defer {
+		for sp in spheres {
+			sculpt.sculptor_destroy(&sp.sculptor)
+			geom.mesh_destroy(&sp.mesh)
+			free(sp)
+		}
+		delete(spheres)
+	}
+	m, s := &spheres[0].mesh, &spheres[0].sculptor
+	setup_s := time.duration_seconds(time.tick_since(t0)) / f64(mesh_count)
 	rss := rss_mb()
 
 	vcount, tcount := len(m.positions), len(m.indices) / 3
@@ -103,23 +136,26 @@ run :: proc(target: int, pool: ^jobs.Pool) {
 			k := f32(i) / (DABS - 1)
 			target_point := linalg.normalize(Vec3{-0.6 + 1.2 * k, 0.3 * math.sin(k * 4 * math.PI), 1})
 			ta := time.tick_now()
-			hit, ok := sculpt.sculptor_raycast(&s, eye, linalg.normalize(target_point - eye))
+			hit, ok := sculpt.sculptor_raycast(s, eye, linalg.normalize(target_point - eye))
 			raycast[i] = time.duration_milliseconds(time.tick_since(ta))
 			if !ok do hit = target_point
 			tb := time.tick_now()
-			touched_total += sculpt.apply_dab(&s, {kind = .Draw, radius = radius, strength = 0.3}, hit)
+			touched_total += sculpt.apply_dab(s, {kind = .Draw, radius = radius, strength = 0.3}, hit)
 			dab[i] = time.duration_milliseconds(time.tick_since(tb))
 			f := i / DABS_PER_FRAME
 			frame[f] += raycast[i] + dab[i]
 			if i % DABS_PER_FRAME == DABS_PER_FRAME - 1 || i == DABS - 1 {
 				tc := time.tick_now()
-				for r in sculpt.sculptor_flush(&s) do upload_bytes += int(r.count) * 2 * size_of(Vec3)
+				// Every sphere is flushed, as the app does each frame; idle ones have nothing to do.
+				for sp in spheres {
+					for r in sculpt.sculptor_flush(&sp.sculptor) do upload_bytes += int(r.count) * 2 * size_of(Vec3)
+				}
 				flush[f] = time.duration_milliseconds(time.tick_since(tc))
 				frame[f] += flush[f]
 			}
 		}
-		fmt.printfln("| %s | %s | %.1f | %.0f | %.0f | r=%.2f | %d | %.3f | %.3f | %.3f | %.2f | %.2f | %.2f |",
-			thousands(vcount), thousands(tcount), setup_s, f64(cpu_bytes) / (1 << 20), rss, radius,
+		fmt.printfln("| %d | %s | %s | %.1f | %.0f | %.0f | r=%.2f | %d | %.3f | %.3f | %.3f | %.2f | %.2f | %.2f |",
+			mesh_count, thousands(vcount), thousands(tcount), setup_s, f64(cpu_bytes) / (1 << 20), rss, radius,
 			touched_total / DABS, median(raycast), median(dab), median(flush), median(frame), slice.max(frame),
 			f64(upload_bytes) / f64(frames) / (1 << 20))
 	}
