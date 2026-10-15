@@ -2,9 +2,11 @@ package sculpt
 
 import "core:math"
 import "core:math/linalg"
+import "core:slice"
 import "core:testing"
 
 import "../geom"
+import "../jobs"
 
 @(test)
 raycast_hits_front_of_sphere :: proc(t: ^testing.T) {
@@ -21,13 +23,12 @@ raycast_hits_front_of_sphere :: proc(t: ^testing.T) {
 draw_dab_raises_only_inside_radius :: proc(t: ^testing.T) {
 	m := geom.icosphere(4)
 	defer geom.mesh_destroy(&m)
-	geom.mesh_sort_vertices_spatially(&m)
+	s: Sculptor
+	sculptor_init(&s, &m, nil, 64)
+	defer sculptor_destroy(&s)
 	before := make([]Vec3, len(m.positions), context.temp_allocator)
 	copy(before, m.positions[:])
-
-	s: Sculptor
-	sculptor_init(&s, &m)
-	defer sculptor_destroy(&s)
+	_ = sculptor_flush(&s)
 
 	center := Vec3{0, 0, 1}
 	moved := apply_dab(&s, {kind = .Draw, radius = 0.3, strength = 1}, center)
@@ -41,15 +42,110 @@ draw_dab_raises_only_inside_radius :: proc(t: ^testing.T) {
 		}
 	}
 
-	first, count := sculptor_take_dirty(&s)
-	testing.expect(t, count > 0 && count < u32(len(m.positions)), "dirty range should be partial")
+	ranges := sculptor_flush(&s)
+	covered: u32
+	for r in ranges do covered += r.count
+	testing.expect(t, covered > 0 && covered < u32(len(m.positions)), "dirty ranges should be partial")
 	for i in 0 ..< u32(len(m.positions)) {
-		if m.positions[i] != before[i] {
-			testing.expect(t, i >= first && i < first + count, "moved vertex outside dirty range")
+		if m.positions[i] == before[i] do continue
+		inside := false
+		for r in ranges do inside ||= i >= r.first && i < r.first + r.count
+		testing.expect(t, inside, "moved vertex outside the dirty ranges")
+	}
+	testing.expect_value(t, len(sculptor_flush(&s)), 0)
+}
+
+@(test)
+nodes_own_contiguous_vertex_ranges :: proc(t: ^testing.T) {
+	m := geom.icosphere(5)
+	defer geom.mesh_destroy(&m)
+	s: Sculptor
+	sculptor_init(&s, &m, nil, 128)
+	defer sculptor_destroy(&s)
+	next: u32
+	for n in s.nodes {
+		testing.expect_value(t, n.vert_first, next)
+		next += n.vert_count
+	}
+	testing.expect_value(t, int(next), len(m.positions))
+
+	// A leaf's triangles use exactly its owned and shared vertices, and the owner list
+	// names the node owning each shared vertex.
+	for leaf, b_index in s.bvh.nodes {
+		if leaf.count == 0 do continue
+		id := s.node_of[b_index]
+		n := s.nodes[id]
+		shared := s.shared[n.shared_first:][:n.shared_count]
+		owners := s.owners[n.owner_first:][:n.owner_count]
+		for k in leaf.first ..< leaf.first + leaf.count {
+			for c in 0 ..< u32(3) {
+				v := m.indices[3 * k + c]
+				if v >= n.vert_first && v < n.vert_first + n.vert_count do continue
+				_, found := slice.linear_search(shared, v)
+				testing.expect(t, found, "triangle vertex is neither owned nor shared")
+			}
+		}
+		for v in shared {
+			owner := owner_node(s.nodes, v)
+			_, found := slice.linear_search(owners, owner)
+			testing.expect(t, found && owner != id, "shared vertex owner missing")
 		}
 	}
-	_, again := sculptor_take_dirty(&s)
-	testing.expect_value(t, again, 0)
+}
+
+// After any sequence of dabs, incremental normals and BVH bounds must equal a full
+// recompute, and the parallel path must give the same mesh as the serial one.
+@(test)
+incremental_updates_match_full_recompute :: proc(t: ^testing.T) {
+	pool: jobs.Pool
+	jobs.pool_init(&pool, 3)
+	defer jobs.pool_destroy(&pool)
+
+	run :: proc(pool: ^jobs.Pool) -> geom.Mesh {
+		m := geom.icosphere(5)
+		s: Sculptor
+		sculptor_init(&s, &m, pool, 96)
+		defer sculptor_destroy(&s)
+		for i in 0 ..< 40 {
+			a := f32(i) * 0.37
+			center := linalg.normalize(Vec3{math.cos(a), 0.3 * math.sin(3 * a), math.sin(a)})
+			kind := Brush_Kind.Smooth if i % 4 == 3 else .Draw
+			apply_dab(&s, {kind = kind, radius = 0.12 + 0.1 * f32(i % 3), strength = 0.8, invert = i % 5 == 0}, center)
+			if i % 3 == 2 do sculptor_flush(&s)
+		}
+		sculptor_flush(&s)
+		for node in s.bvh.nodes {
+			if node.count == 0 do continue
+			want := geom.leaf_bounds(s.bvh, m, node)
+			if node.bounds != want do panic("stale leaf bounds after dabs")
+		}
+		return m
+	}
+	serial := run(nil)
+	defer geom.mesh_destroy(&serial)
+	parallel := run(&pool)
+	defer geom.mesh_destroy(&parallel)
+	for p, i in serial.positions {
+		testing.expect_value(t, parallel.positions[i], p)
+	}
+
+	full := geom.Mesh{
+		positions = slice_to_dynamic(serial.positions[:]),
+		normals = make([dynamic]Vec3, len(serial.normals)),
+		indices = slice_to_dynamic(serial.indices[:]),
+	}
+	defer geom.mesh_destroy(&full)
+	geom.mesh_recompute_normals(&full)
+	for n, i in serial.normals {
+		testing.expect(t, linalg.dot(n, full.normals[i]) > 0.99999, "stale normal after dabs")
+	}
+}
+
+@(private = "file")
+slice_to_dynamic :: proc(s: $S/[]$T) -> [dynamic]T {
+	d := make([dynamic]T, len(s))
+	copy(d[:], s)
+	return d
 }
 
 @(test)
@@ -57,7 +153,7 @@ smooth_dab_reduces_bump :: proc(t: ^testing.T) {
 	m := geom.icosphere(4)
 	defer geom.mesh_destroy(&m)
 	s: Sculptor
-	sculptor_init(&s, &m)
+	sculptor_init(&s, &m, nil, 64)
 	defer sculptor_destroy(&s)
 
 	center := Vec3{0, 0, 1}
@@ -80,7 +176,7 @@ bvh_raycast_matches_brute_force_after_sculpting :: proc(t: ^testing.T) {
 	defer geom.mesh_destroy(&m)
 	geom.mesh_sort_vertices_spatially(&m)
 	s: Sculptor
-	sculptor_init(&s, &m)
+	sculptor_init(&s, &m, nil, 64)
 	defer sculptor_destroy(&s)
 
 	// Sculpt a few strong dabs so refit has real work to get right.
@@ -111,7 +207,7 @@ bvh_gather_matches_linear_scan :: proc(t: ^testing.T) {
 	m := geom.icosphere(5)
 	defer geom.mesh_destroy(&m)
 	s: Sculptor
-	sculptor_init(&s, &m)
+	sculptor_init(&s, &m, nil, 64)
 	defer sculptor_destroy(&s)
 
 	center := linalg.normalize(Vec3{0.3, 0.5, 0.8})

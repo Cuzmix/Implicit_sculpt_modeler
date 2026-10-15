@@ -1,8 +1,10 @@
 package geom
 
-import "core:math"
 import "base:intrinsics"
+import "core:math"
 import "core:math/linalg"
+
+import "../jobs"
 
 Aabb :: struct {
 	lo, hi: Vec3,
@@ -44,6 +46,7 @@ Bvh :: struct {
 	tri_leaf:  []u32, // triangle id -> leaf node index
 	stack:     [dynamic]u32, // traversal scratch, reused
 	dirty:     []u64,        // refit scratch: one bit per node, all zero between refits
+	leaf_size: u32,          // max triangles per leaf
 }
 
 bvh_destroy :: proc(b: ^Bvh) {
@@ -64,10 +67,11 @@ tri_bounds :: #force_inline proc(m: Mesh, tri: u32) -> Aabb {
 }
 
 // Builds with binned surface area heuristic splits on the widest centroid axis.
-bvh_build :: proc(m: Mesh, allocator := context.allocator) -> Bvh {
+bvh_build :: proc(m: Mesh, leaf_size: u32 = BVH_LEAF_SIZE, allocator := context.allocator) -> Bvh {
 	tcount := len(m.indices) / 3
 	b := Bvh {
-		nodes     = make([dynamic]Bvh_Node, 0, max(2 * tcount / BVH_LEAF_SIZE, 1), allocator),
+		leaf_size = max(leaf_size, 1),
+		nodes     = make([dynamic]Bvh_Node, 0, max(2 * tcount / int(max(leaf_size, 1)), 1), allocator),
 		tri_order = make([]u32, tcount, allocator),
 		tri_leaf  = make([]u32, tcount, allocator),
 		stack     = make([dynamic]u32, 0, 64, allocator),
@@ -107,7 +111,7 @@ subdivide :: proc(b: ^Bvh, node_index: u32, centroids: []Vec3, bounds: []Aabb) {
 			b.tri_leaf[b.tri_order[i]] = node_index
 		}
 	}
-	if count <= BVH_LEAF_SIZE {
+	if count <= b.leaf_size {
 		make_leaf(b, node_index, first, count)
 		return
 	}
@@ -189,10 +193,18 @@ subdivide :: proc(b: ^Bvh, node_index: u32, centroids: []Vec3, bounds: []Aabb) {
 // Recomputes the bounds of every leaf holding one of `tris`, then of their ancestors,
 // each node once. Cost scales with the triangles changed, not with the mesh.
 bvh_refit_triangles :: proc(b: ^Bvh, m: Mesh, tris: []u32) {
+	leaves := make([dynamic]u32, 0, len(tris), context.temp_allocator)
+	for t in tris do append(&leaves, b.tri_leaf[t])
+	bvh_refit_leaves(b, m, leaves[:])
+}
+
+// Recomputes the bounds of the given leaves (duplicates allowed) from their triangles,
+// then of every ancestor, each node once.
+bvh_refit_leaves :: proc(b: ^Bvh, m: Mesh, leaves: []u32, recompute_leaves := true) {
 	lo_word, hi_word := len(b.dirty), 0
-	for t in tris {
-		// Walk up until reaching a node another triangle already marked.
-		for n := b.tri_leaf[t]; n != BVH_NONE; n = b.nodes[n].parent {
+	for leaf in leaves {
+		// Walk up until reaching a node another leaf already marked.
+		for n := leaf; n != BVH_NONE; n = b.nodes[n].parent {
 			word, bit := n >> 6, u64(1) << (n & 63)
 			if b.dirty[word] & bit != 0 do break
 			b.dirty[word] |= bit
@@ -207,16 +219,21 @@ bvh_refit_triangles :: proc(b: ^Bvh, m: Mesh, tris: []u32) {
 			bits &~= u64(1) << top
 			node := &b.nodes[w * 64 + int(top)]
 			if node.count > 0 {
-				node.bounds = AABB_EMPTY
-				for i in node.first ..< node.first + node.count {
-					node.bounds = aabb_union(node.bounds, tri_bounds(m, b.tri_order[i]))
-				}
+				if recompute_leaves do node.bounds = leaf_bounds(b^, m, node^)
 			} else {
 				node.bounds = aabb_union(b.nodes[node.first].bounds, b.nodes[node.first + 1].bounds)
 			}
 		}
 		b.dirty[w] = 0
 	}
+}
+
+leaf_bounds :: proc(b: Bvh, m: Mesh, node: Bvh_Node) -> Aabb {
+	bounds := AABB_EMPTY
+	for i in node.first ..< node.first + node.count {
+		bounds = aabb_union(bounds, tri_bounds(m, b.tri_order[i]))
+	}
+	return bounds
 }
 
 @(private)
@@ -305,5 +322,185 @@ bvh_query_sphere :: proc(b: ^Bvh, center: Vec3, radius: f32, out: ^[dynamic]u32)
 		} else {
 			append(&b.stack, node.first, node.first + 1)
 		}
+	}
+}
+
+// Appends the index of every leaf whose bounds overlap the sphere.
+bvh_query_leaves :: proc(b: ^Bvh, center: Vec3, radius: f32, out: ^[dynamic]u32) {
+	if len(b.nodes) == 0 do return
+	r2 := radius * radius
+	clear(&b.stack)
+	append(&b.stack, 0)
+	for len(b.stack) > 0 {
+		n := pop(&b.stack)
+		node := b.nodes[n]
+		closest := linalg.clamp(center, node.bounds.lo, node.bounds.hi)
+		d := closest - center
+		if linalg.dot(d, d) > r2 do continue
+		if node.count > 0 {
+			append(out, n)
+		} else {
+			append(&b.stack, node.first, node.first + 1)
+		}
+	}
+}
+
+// Linear BVH build: sorts triangles along a Morton curve with a radix sort and splits
+// ranges at the highest differing code bit. Linear time apart from the sort, so it
+// builds 20M triangles in well under a second; split quality is lower than SAH, which
+// matters little with large leaves that are scanned linearly anyway.
+bvh_build_morton :: proc(m: Mesh, leaf_size: u32 = BVH_LEAF_SIZE, pool: ^jobs.Pool = nil, allocator := context.allocator) -> Bvh {
+	tcount := len(m.indices) / 3
+	leaf := max(leaf_size, 1)
+	b := Bvh {
+		leaf_size = leaf,
+		nodes     = make([dynamic]Bvh_Node, 0, max(4 * tcount / int(leaf), 1), allocator),
+		tri_order = make([]u32, tcount, allocator),
+		tri_leaf  = make([]u32, tcount, allocator),
+		stack     = make([dynamic]u32, 0, 64, allocator),
+	}
+	if tcount == 0 {
+		b.dirty = make([]u64, 1, allocator)
+		return b
+	}
+
+	Codes :: struct {
+		m:      Mesh,
+		b:      ^Bvh,
+		codes:  []u32,
+		lo:     Vec3,
+		scale:  f32,
+		bounds: []Aabb, // per chunk of positions
+	}
+	c := Codes{m = m, b = &b, codes = make([]u32, tcount, context.temp_allocator)}
+	c.bounds = make([]Aabb, (len(m.positions) + RANGE_GRAIN - 1) / RANGE_GRAIN, context.temp_allocator)
+	jobs.parallel_ranges(pool, len(m.positions), &c, proc(data: rawptr, lo, hi: int) {
+		c := cast(^Codes)data
+		bounds := AABB_EMPTY
+		for p in c.m.positions[lo:hi] do aabb_grow(&bounds, p)
+		c.bounds[lo / RANGE_GRAIN] = bounds
+	}, RANGE_GRAIN)
+	scene := AABB_EMPTY
+	for bounds in c.bounds do scene = aabb_union(scene, bounds)
+	extent := scene.hi - scene.lo
+	c.lo, c.scale = scene.lo, 1023 / max(extent.x, extent.y, extent.z, 1e-12)
+	jobs.parallel_ranges(pool, tcount, &c, proc(data: rawptr, lo, hi: int) {
+		c := cast(^Codes)data
+		m := c.m
+		for t in lo ..< hi {
+			p0, p1, p2 := m.positions[m.indices[3 * t]], m.positions[m.indices[3 * t + 1]], m.positions[m.indices[3 * t + 2]]
+			q := ((p0 + p1 + p2) * (1.0 / 3) - c.lo) * c.scale
+			c.codes[t] = morton3(u32(q.x), u32(q.y), u32(q.z))
+			c.b.tri_order[t] = u32(t)
+		}
+	}, RANGE_GRAIN)
+	radix_sort_pairs(c.codes, b.tri_order, 30, pool)
+
+	append(&b.nodes, Bvh_Node{first = 0, count = u32(tcount), parent = BVH_NONE})
+	build_morton_node(&b, m, c.codes, 0)
+	b.dirty = make([]u64, (len(b.nodes) + 63) / 64, allocator)
+	return b
+}
+
+// Chunk size for flat parallel loops over vertices or triangles.
+RANGE_GRAIN :: 1 << 16
+
+@(private)
+build_morton_node :: proc(b: ^Bvh, m: Mesh, codes: []u32, node_index: u32) {
+	node := b.nodes[node_index]
+	first, count := node.first, node.count
+	if count <= b.leaf_size {
+		bounds := AABB_EMPTY
+		for i in first ..< first + count {
+			bounds = aabb_union(bounds, tri_bounds(m, b.tri_order[i]))
+			b.tri_leaf[b.tri_order[i]] = node_index
+		}
+		b.nodes[node_index].bounds = bounds
+		return
+	}
+	last := first + count - 1
+	split := first + count / 2 // identical codes: split in the middle
+	if diff := codes[first] ~ codes[last]; diff != 0 {
+		bit := u32(1) << (31 - intrinsics.count_leading_zeros(diff))
+		// First index whose code has `bit` set; codes are sorted, so binary search.
+		lo, hi := first, last
+		for lo < hi {
+			mid := (lo + hi) / 2
+			if codes[mid] & bit != 0 {
+				hi = mid
+			} else {
+				lo = mid + 1
+			}
+		}
+		split = lo
+	}
+	children := u32(len(b.nodes))
+	append(&b.nodes, Bvh_Node{first = first, count = split - first, parent = node_index})
+	append(&b.nodes, Bvh_Node{first = split, count = first + count - split, parent = node_index})
+	b.nodes[node_index].first, b.nodes[node_index].count = children, 0
+	build_morton_node(b, m, codes, children)
+	build_morton_node(b, m, codes, children + 1)
+	b.nodes[node_index].bounds = aabb_union(b.nodes[children].bounds, b.nodes[children + 1].bounds)
+}
+
+// Stable LSD radix sort of (key, value) pairs by the low `key_bits` bits of key, 10
+// bits per pass. Each pass splits the input into chunks: chunks count their buckets in
+// parallel, then scatter in parallel to offsets that keep the order stable.
+@(private)
+radix_sort_pairs :: proc(keys: []u32, values: []u32, key_bits: u32, pool: ^jobs.Pool) {
+	RADIX :: 10
+	BUCKETS :: 1 << RADIX
+	Pass :: struct {
+		src_k, src_v, dst_k, dst_v: []u32,
+		shift:                      u32,
+		chunk:                      int,
+		counts:                     [][BUCKETS]u32, // per chunk; turned into write offsets
+	}
+	n := len(keys)
+	chunks := max(1, min(n / 4096, 4 * (jobs.pool_size(pool) if pool != nil else 1)))
+	ps := Pass {
+		src_k  = keys,
+		src_v  = values,
+		dst_k  = make([]u32, n, context.temp_allocator),
+		dst_v  = make([]u32, n, context.temp_allocator),
+		chunk  = (n + chunks - 1) / chunks,
+		counts = make([][BUCKETS]u32, chunks, context.temp_allocator),
+	}
+	passes := 0
+	for ps.shift = 0; ps.shift < key_bits; ps.shift += RADIX {
+		jobs.parallel_for(pool, chunks, &ps, proc(data: rawptr, c: int) {
+			ps := cast(^Pass)data
+			counts := &ps.counts[c]
+			counts^ = {}
+			lo := min(c * ps.chunk, len(ps.src_k))
+			for k in ps.src_k[lo:min(lo + ps.chunk, len(ps.src_k))] do counts[(k >> ps.shift) & (BUCKETS - 1)] += 1
+		})
+		sum: u32
+		for bucket in 0 ..< BUCKETS {
+			for c in 0 ..< chunks {
+				count := ps.counts[c][bucket]
+				ps.counts[c][bucket] = sum
+				sum += count
+			}
+		}
+		jobs.parallel_for(pool, chunks, &ps, proc(data: rawptr, c: int) {
+			ps := cast(^Pass)data
+			offsets := &ps.counts[c]
+			lo := min(c * ps.chunk, len(ps.src_k))
+			for i in lo ..< min(lo + ps.chunk, len(ps.src_k)) {
+				k := ps.src_k[i]
+				bucket := (k >> ps.shift) & (BUCKETS - 1)
+				ps.dst_k[offsets[bucket]] = k
+				ps.dst_v[offsets[bucket]] = ps.src_v[i]
+				offsets[bucket] += 1
+			}
+		})
+		ps.src_k, ps.dst_k = ps.dst_k, ps.src_k
+		ps.src_v, ps.dst_v = ps.dst_v, ps.src_v
+		passes += 1
+	}
+	if passes % 2 == 1 {
+		copy(keys, ps.src_k)
+		copy(values, ps.src_v)
 	}
 }

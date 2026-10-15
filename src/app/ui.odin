@@ -11,6 +11,26 @@ Ui_State :: struct {
 	viewport_request: [2]f32, // pixel size the viewport panel wants its render target to be
 	layout_built:     bool,
 	show_demo:        bool,
+	mesh_choice:      i32,
+	// Set by the Mesh panel; the app rebuilds the mesh at the start of the next frame.
+	mesh_request:     Mesh_Request,
+}
+
+Mesh_Request :: struct {
+	vertices: int,
+	subdiv:   int,
+}
+
+MESH_SIZES := [?]struct {
+	label:   cstring,
+	request: Mesh_Request,
+} {
+	{"Icosphere 41k", {subdiv = 6}},
+	{"500k vertices", {vertices = 500_000}},
+	{"1M vertices", {vertices = 1_000_000}},
+	{"5M vertices", {vertices = 5_000_000}},
+	{"7M vertices", {vertices = 7_000_000}},
+	{"10M vertices", {vertices = 10_000_000}},
 }
 
 // What the viewport panel saw this frame, in viewport-local pixels. This is the only
@@ -153,6 +173,13 @@ draw_tools_panel :: proc(app: ^App) {
 	imgui.SeparatorText("Mesh")
 	imgui.Text("Vertices:  %d", i32(geom.mesh_vertex_count(app.mesh)))
 	imgui.Text("Triangles: %d", i32(geom.mesh_triangle_count(app.mesh)))
+	if imgui.BeginCombo("Size", MESH_SIZES[app.ui.mesh_choice].label) {
+		for size, i in MESH_SIZES {
+			if imgui.Selectable(size.label, i32(i) == app.ui.mesh_choice) do app.ui.mesh_choice = i32(i)
+		}
+		imgui.EndCombo()
+	}
+	if imgui.Button("New sphere") do app.ui.mesh_request = MESH_SIZES[app.ui.mesh_choice].request
 }
 
 @(private = "file")
@@ -170,6 +197,7 @@ draw_stats_panel :: proc(app: ^App) {
 	imgui.SeparatorText("While sculpting")
 	row("Raycast", s.raycast_ms, "ms")
 	row("Brush", s.brush_ms, "ms")
+	row("Normals", s.normals_ms, "ms")
 	row("Upload", s.upload_kb, "KB")
 	row("Input->submit", s.latency_ms, "ms")
 	imgui.Text("Dabs %d   Viewport %d x %d px", i32(s.dabs_total), i32(app.target.width), i32(app.target.height))

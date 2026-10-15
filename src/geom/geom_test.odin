@@ -151,3 +151,47 @@ bvh_refit_tracks_moved_vertices :: proc(t: ^testing.T) {
 	bvh_refit_triangles(&b, m, moved[:])
 	testing.expect(t, bvh_bounds_valid(b, m), "refit left stale bounds")
 }
+
+@(test)
+geodesic_sphere_is_closed_with_expected_counts :: proc(t: ^testing.T) {
+	for f in 1 ..= 9 {
+		m := geodesic_sphere(f)
+		defer mesh_destroy(&m)
+		testing.expect_value(t, len(m.positions), 10 * f * f + 2)
+		testing.expect_value(t, len(m.indices), 60 * f * f)
+		edges := make(map[u64]int, context.temp_allocator)
+		for tri := 0; tri < len(m.indices); tri += 3 {
+			p0, p1, p2 := m.positions[m.indices[tri]], m.positions[m.indices[tri + 1]], m.positions[m.indices[tri + 2]]
+			testing.expect(t, linalg.dot(linalg.cross(p1 - p0, p2 - p0), p0 + p1 + p2) > 0, "inward-facing triangle")
+			for k in 0 ..< 3 {
+				a, b := m.indices[tri + k], m.indices[tri + (k + 1) % 3]
+				edges[u64(a) << 32 | u64(b)] += 1
+			}
+		}
+		for key, count in edges {
+			testing.expect_value(t, count, 1)
+			a, b := key >> 32, key & 0xffff_ffff
+			testing.expect(t, (b << 32 | a) in edges, "open edge: faces do not share vertices")
+		}
+		for p in m.positions do testing.expect(t, math.abs(linalg.length(p) - 1) < 1e-5, "vertex off sphere")
+	}
+	testing.expect_value(t, geodesic_frequency_for(10_000_000), 1000)
+}
+
+@(test)
+morton_bvh_is_valid_and_raycasts :: proc(t: ^testing.T) {
+	m := geodesic_sphere(20)
+	defer mesh_destroy(&m)
+	b := bvh_build_morton(m, 16)
+	defer bvh_destroy(&b)
+	seen := make([]bool, len(m.indices) / 3, context.temp_allocator)
+	for node in b.nodes {
+		if node.count == 0 do continue
+		testing.expect(t, node.count <= 16, "leaf too large")
+		for i in node.first ..< node.first + node.count do seen[b.tri_order[i]] = true
+	}
+	for s in seen do testing.expect(t, s, "triangle missing from BVH")
+	testing.expect(t, bvh_bounds_valid(b, m), "bounds do not nest")
+	tri_t, _, ok := bvh_raycast(&b, m, {0.1, 0.2, 5}, {0, 0, -1})
+	testing.expect(t, ok && math.abs(tri_t - (5 - math.sqrt(f32(0.95)))) < 0.01, "ray should hit the front of the sphere")
+}

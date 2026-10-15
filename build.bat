@@ -1,5 +1,5 @@
 @echo off
-rem Usage: build.bat [debug|release|test|run|smoke]   (see build.sh for what each does)
+rem Usage: build.bat [debug|release|test|run|smoke|bench]   (see build.sh for what each does)
 rem Run scripts\setup_deps.bat first, from an x64 Native Tools Command Prompt.
 setlocal
 set ROOT=%~dp0
@@ -19,13 +19,19 @@ if not exist "%ROOT%build" mkdir "%ROOT%build"
 copy /y "%DEPS%\odin\vendor\sdl3\SDL3.dll" "%ROOT%build\" >nul
 
 if "%MODE%"=="release" (
-	"%ODIN%" build "%ROOT%src\app" -out:"%ROOT%build\sculpt.exe" -o:speed %COMMON% || exit /b 1
+	"%ODIN%" build "%ROOT%src\app" -out:"%ROOT%build\sculpt.exe" -o:speed -no-bounds-check %COMMON% || exit /b 1
+	exit /b 0
+)
+if "%MODE%"=="bench" (
+	"%ODIN%" build "%ROOT%src\bench" -out:"%ROOT%build\bench.exe" -o:speed -no-bounds-check %COMMON% || exit /b 1
+	"%ROOT%build\bench.exe" %2 %3 %4 %5 %6
 	exit /b 0
 )
 if "%MODE%"=="test" (
 	"%ODIN%" test "%ROOT%src\geom" -out:"%ROOT%build\test_geom.exe" %COMMON% || exit /b 1
 	"%ODIN%" test "%ROOT%src\camera" -out:"%ROOT%build\test_camera.exe" %COMMON% || exit /b 1
 	"%ODIN%" test "%ROOT%src\sculpt" -out:"%ROOT%build\test_sculpt.exe" %COMMON% || exit /b 1
+	"%ODIN%" test "%ROOT%src\jobs" -out:"%ROOT%build\test_jobs.exe" %COMMON% || exit /b 1
 	exit /b 0
 )
 "%ODIN%" build "%ROOT%src\app" -out:"%ROOT%build\sculpt.exe" -debug %COMMON% || exit /b 1

@@ -15,6 +15,12 @@ Mesh :: struct {
 	indices:   [dynamic]u32, // 3 per triangle, counter-clockwise when viewed from outside
 }
 
+// A run of consecutive vertices, e.g. the part of a mesh that changed.
+Vertex_Range :: struct {
+	first: u32,
+	count: u32,
+}
+
 mesh_destroy :: proc(m: ^Mesh) {
 	delete(m.positions)
 	delete(m.normals)

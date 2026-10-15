@@ -4,6 +4,7 @@
 package render
 
 import "core:log"
+import "core:slice"
 import sdl "vendor:sdl3"
 
 import "../geom"
@@ -28,15 +29,21 @@ Viewport_Target :: struct {
 }
 
 // GPU copy of a geom.Mesh. Positions and normals live in separate vertex buffers so
-// either can be re-uploaded alone; the transfer buffer is sized for a full upload.
+// either can be re-uploaded alone. The transfer buffer is sized for typical per-frame
+// sculpt updates, not the whole mesh; bigger uploads go through it in chunks.
 Mesh_Buffers :: struct {
 	positions:       ^sdl.GPUBuffer,
 	normals:         ^sdl.GPUBuffer,
 	indices:         ^sdl.GPUBuffer,
 	transfer:        ^sdl.GPUTransferBuffer,
+	transfer_size:   u32,
 	vertex_capacity: u32,
 	index_count:     u32,
 }
+
+// 16 MB holds positions and normals for ~700k vertices: far more than a frame of
+// sculpting changes, even with a large brush on a 10M vertex mesh.
+TRANSFER_BUFFER_SIZE :: 16 << 20
 
 // Matches Frame_Uniforms in mesh.vert (std140: two column-major mat4).
 Frame_Uniforms :: struct {
@@ -176,6 +183,8 @@ viewport_target_destroy :: proc(r: ^Renderer, vt: ^Viewport_Target) {
 	vt^ = {}
 }
 
+// Creates the GPU buffers for `mesh` and uploads all of it, in chunks through the
+// transfer buffer, waiting for the GPU after each chunk. For loading, not per frame.
 mesh_buffers_create :: proc(r: ^Renderer, mesh: geom.Mesh) -> (mb: Mesh_Buffers, ok: bool) {
 	vcount := u32(len(mesh.positions))
 	icount := u32(len(mesh.indices))
@@ -184,27 +193,44 @@ mesh_buffers_create :: proc(r: ^Renderer, mesh: geom.Mesh) -> (mb: Mesh_Buffers,
 
 	mb.vertex_capacity = vcount
 	mb.index_count = icount
+	mb.transfer_size = TRANSFER_BUFFER_SIZE
 	mb.positions = sdl.CreateGPUBuffer(r.device, {usage = {.VERTEX}, size = vbytes})
 	mb.normals = sdl.CreateGPUBuffer(r.device, {usage = {.VERTEX}, size = vbytes})
 	mb.indices = sdl.CreateGPUBuffer(r.device, {usage = {.INDEX}, size = ibytes})
-	// Large enough for positions + normals, or for the index data on first upload.
-	mb.transfer = sdl.CreateGPUTransferBuffer(r.device, {usage = .UPLOAD, size = max(2 * vbytes, ibytes)})
+	mb.transfer = sdl.CreateGPUTransferBuffer(r.device, {usage = .UPLOAD, size = mb.transfer_size})
 	if mb.positions == nil || mb.normals == nil || mb.indices == nil || mb.transfer == nil {
 		log.errorf("mesh buffer creation failed: %s", sdl.GetError())
 		mesh_buffers_destroy(r, &mb)
 		return {}, false
 	}
+	ok = upload_blocking(r, &mb, mb.indices, slice.to_bytes(mesh.indices[:])) &&
+		upload_blocking(r, &mb, mb.positions, slice.to_bytes(mesh.positions[:])) &&
+		upload_blocking(r, &mb, mb.normals, slice.to_bytes(mesh.normals[:]))
+	if !ok {
+		log.errorf("mesh upload failed: %s", sdl.GetError())
+		mesh_buffers_destroy(r, &mb)
+		return {}, false
+	}
+	return mb, true
+}
 
-	// One-off upload of the index buffer on its own command buffer.
-	cmd := sdl.AcquireGPUCommandBuffer(r.device)
-	dst := cast([^]u32)sdl.MapGPUTransferBuffer(r.device, mb.transfer, false)
-	copy(dst[:icount], mesh.indices[:])
-	sdl.UnmapGPUTransferBuffer(r.device, mb.transfer)
-	pass := sdl.BeginGPUCopyPass(cmd)
-	sdl.UploadToGPUBuffer(pass, {transfer_buffer = mb.transfer}, {buffer = mb.indices, size = ibytes}, false)
-	sdl.EndGPUCopyPass(pass)
-	ok = sdl.SubmitGPUCommandBuffer(cmd)
-	return mb, ok
+// Copies `data` to the start of `buffer` one transfer buffer at a time.
+@(private)
+upload_blocking :: proc(r: ^Renderer, mb: ^Mesh_Buffers, buffer: ^sdl.GPUBuffer, data: []u8) -> bool {
+	for offset := 0; offset < len(data); offset += int(mb.transfer_size) {
+		chunk := data[offset:min(offset + int(mb.transfer_size), len(data))]
+		dst := sdl.MapGPUTransferBuffer(r.device, mb.transfer, false)
+		if dst == nil do return false
+		copy(([^]u8)(dst)[:len(chunk)], chunk)
+		sdl.UnmapGPUTransferBuffer(r.device, mb.transfer)
+		cmd := sdl.AcquireGPUCommandBuffer(r.device)
+		if cmd == nil do return false
+		pass := sdl.BeginGPUCopyPass(cmd)
+		sdl.UploadToGPUBuffer(pass, {transfer_buffer = mb.transfer}, {buffer = buffer, offset = u32(offset), size = u32(len(chunk))}, false)
+		sdl.EndGPUCopyPass(pass)
+		if !sdl.SubmitGPUCommandBuffer(cmd) || !sdl.WaitForGPUIdle(r.device) do return false
+	}
+	return true
 }
 
 mesh_buffers_destroy :: proc(r: ^Renderer, mb: ^Mesh_Buffers) {
@@ -215,23 +241,57 @@ mesh_buffers_destroy :: proc(r: ^Renderer, mb: ^Mesh_Buffers) {
 	mb^ = {}
 }
 
-// Records a copy of vertices [first, first+count) of positions and normals into `cmd`.
-// The transfer buffer is cycled so an upload never stalls on the previous frame's copy.
-mesh_buffers_upload_vertices :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: ^Mesh_Buffers, mesh: geom.Mesh, first, count: u32) {
-	if count == 0 do return
-	assert(first + count <= mb.vertex_capacity)
-	bytes := count * size_of(geom.Vec3)
-	offset := first * size_of(geom.Vec3)
+// Records copies of the positions and normals of every vertex in `ranges` into `cmd`.
+// Ranges are packed into the transfer buffer, which is cycled so an upload never
+// stalls on the previous frame's copy; if they do not fit, they go in several batches.
+mesh_buffers_upload_ranges :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: ^Mesh_Buffers, mesh: geom.Mesh, ranges: []geom.Vertex_Range) {
+	VERTEX_BYTES :: 2 * size_of(geom.Vec3)
+	capacity := mb.transfer_size / VERTEX_BYTES // vertices per batch
+	pending := ranges
+	split: geom.Vertex_Range // remainder of a range cut at a batch boundary
+	for len(pending) > 0 || split.count > 0 {
+		// Plan a batch: whole ranges, then part of the next if it does not fit.
+		Planned :: struct {
+			r:   geom.Vertex_Range,
+			dst: u32,
+		}
+		batch: [dynamic; 256]Planned
+		used: u32
+		for used < capacity && len(batch) < cap(batch) {
+			next: geom.Vertex_Range
+			if split.count > 0 {
+				next, split = split, {}
+			} else if len(pending) > 0 {
+				next, pending = pending[0], pending[1:]
+			} else {
+				break
+			}
+			assert(next.first + next.count <= mb.vertex_capacity)
+			if next.count > capacity - used {
+				split = {next.first + (capacity - used), next.count - (capacity - used)}
+				next.count = capacity - used
+			}
+			append(&batch, Planned{next, used})
+			used += next.count
+		}
 
-	dst := cast([^]geom.Vec3)sdl.MapGPUTransferBuffer(r.device, mb.transfer, true)
-	copy(dst[:count], mesh.positions[first:first + count])
-	copy(dst[count:2 * count], mesh.normals[first:first + count])
-	sdl.UnmapGPUTransferBuffer(r.device, mb.transfer)
-
-	pass := sdl.BeginGPUCopyPass(cmd)
-	sdl.UploadToGPUBuffer(pass, {transfer_buffer = mb.transfer, offset = 0}, {buffer = mb.positions, offset = offset, size = bytes}, false)
-	sdl.UploadToGPUBuffer(pass, {transfer_buffer = mb.transfer, offset = bytes}, {buffer = mb.normals, offset = offset, size = bytes}, false)
-	sdl.EndGPUCopyPass(pass)
+		// Positions for the batch first, then normals, each packed by range.
+		dst := cast([^]geom.Vec3)sdl.MapGPUTransferBuffer(r.device, mb.transfer, true)
+		for p in batch {
+			copy(dst[p.dst:][:p.r.count], mesh.positions[p.r.first:][:p.r.count])
+			copy(dst[used + p.dst:][:p.r.count], mesh.normals[p.r.first:][:p.r.count])
+		}
+		sdl.UnmapGPUTransferBuffer(r.device, mb.transfer)
+		pass := sdl.BeginGPUCopyPass(cmd)
+		for p in batch {
+			bytes := p.r.count * size_of(geom.Vec3)
+			offset := p.r.first * size_of(geom.Vec3)
+			src := p.dst * size_of(geom.Vec3)
+			sdl.UploadToGPUBuffer(pass, {transfer_buffer = mb.transfer, offset = src}, {buffer = mb.positions, offset = offset, size = bytes}, false)
+			sdl.UploadToGPUBuffer(pass, {transfer_buffer = mb.transfer, offset = src + used * size_of(geom.Vec3)}, {buffer = mb.normals, offset = offset, size = bytes}, false)
+		}
+		sdl.EndGPUCopyPass(pass)
+	}
 }
 
 // Records the viewport render pass: clear, then draw the mesh with the clay material.

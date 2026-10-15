@@ -1,14 +1,32 @@
 // Package sculpt applies brush strokes to a geom.Mesh. It knows nothing about the GPU
 // or the UI: callers pass rays and brush settings in, and read back which vertex
-// range changed so they can upload just that.
+// ranges changed so they can upload just those.
+//
+// The mesh is partitioned into nodes (the leaves of a coarse BVH, a few hundred to a
+// thousand triangles each). Vertices are renumbered so each node owns one contiguous
+// vertex range, which gives three things at once:
+//   - a dab touches only the nodes its sphere overlaps, scanning their vertices linearly;
+//   - nodes are independent units of parallel work, since each vertex has one owner;
+//   - GPU updates are per-node contiguous ranges, not one wide dirty span.
 package sculpt
 
+import "base:runtime"
 import "core:math"
 import "core:math/linalg"
+import "core:slice"
+import "core:sync"
 
 import "../geom"
+import "../jobs"
 
 Vec3 :: geom.Vec3
+
+NODE_TRIANGLES :: 1024
+// Below this many candidate vertices a dab runs on the calling thread: waking workers
+// costs more than the work itself.
+PARALLEL_MIN_VERTS :: 2048
+// Largest node whose face normals job_node_normals caches on the stack (48 KB).
+MAX_CACHED_FACES :: 4096
 
 Brush_Kind :: enum {
 	Draw,   // push the surface out along the local average normal (inverted pulls in)
@@ -22,62 +40,319 @@ Brush :: struct {
 	invert:   bool,
 }
 
-// Working state for sculpting one mesh. All scratch buffers are allocated once and
-// reused, so applying a dab does not allocate once they have grown to fit.
-Sculptor :: struct {
-	mesh:      ^geom.Mesh,
-	faces:     geom.Vertex_Faces,
-	bvh:       geom.Bvh,
-	candidates: [dynamic]u32, // triangles from the BVH query, then refit list
-	touched:   [dynamic]u32, // vertices moved by the current dab
-	weights:   [dynamic]f32, // falloff weight per touched vertex
-	affected:  [dynamic]u32, // vertices whose normal must be recomputed
-	stamp:     []u32,        // per-vertex marker used to deduplicate `affected`
-	stamp_id:  u32,
-	tri_stamp: []u32,        // per-triangle marker: face_n is current for this dab
-	face_n:    []Vec3,       // unnormalized face normals, valid where tri_stamp matches
-	smooth_to: [dynamic]Vec3,
-
-	// Union of vertex indices changed since the last call to sculptor_take_dirty.
-	dirty_lo:  u32,
-	dirty_hi:  u32, // exclusive; dirty_lo >= dirty_hi means clean
+Node :: struct {
+	tri_first:    u32, // triangles of this node (a BVH leaf), contiguous
+	tri_count:    u32,
+	vert_first:   u32, // owned vertices: the contiguous range this node alone writes
+	vert_count:   u32,
+	shared_first: u32, // into Sculptor.shared: vertices of this node's triangles owned by other nodes
+	shared_count: u32,
+	owner_first:  u32, // into Sculptor.owners: the nodes owning those shared vertices
+	owner_count:  u32,
 }
 
-sculptor_init :: proc(s: ^Sculptor, mesh: ^geom.Mesh, allocator := context.allocator) {
+Vertex_Range :: geom.Vertex_Range
+
+// Per-hit-leaf results of one dab phase, reduced on the calling thread.
+@(private)
+Partial :: struct {
+	normal_sum: Vec3,
+	moved:      u32,  // owned vertices moved
+	touched:    bool, // a shared vertex lies inside the brush, so it moves too
+}
+
+Sculptor :: struct {
+	mesh:        ^geom.Mesh,
+	pool:        ^jobs.Pool,
+	faces:       geom.Vertex_Faces,
+	bvh:         geom.Bvh,
+	nodes:       []Node, // indexed by node id
+	node_of:     []u32,  // BVH node index -> node id (only meaningful for leaves)
+	shared:      [dynamic]u32,
+	owners:      [dynamic]u32,
+
+	// Per-dab scratch, reused.
+	hit:         [dynamic]u32, // BVH leaves overlapping the brush
+	changed:     [dynamic]u32, // hit leaves with a moved vertex
+	partials:    [dynamic]Partial,
+	offsets:     [dynamic]u32, // per hit leaf: start of its slots in smooth_to
+	smooth_to:   [dynamic]Vec3,
+
+	// Nodes whose vertex normals and GPU data are stale since the last sculptor_flush.
+	dirty:       []bool,
+	dirty_nodes: [dynamic]u32,
+	ranges:      [dynamic]Vertex_Range,
+}
+
+// Partitions and renumbers `mesh` in place (vertex order and triangle order change),
+// then builds the acceleration structures. Upload the mesh to the GPU after this.
+sculptor_init :: proc(s: ^Sculptor, mesh: ^geom.Mesh, pool: ^jobs.Pool, node_triangles: u32 = NODE_TRIANGLES, allocator := context.allocator) {
 	s.mesh = mesh
-	s.faces = geom.vertex_faces_build(mesh^, allocator)
-	s.bvh = geom.bvh_build(mesh^, allocator)
-	s.candidates = make([dynamic]u32, 0, 8192, allocator)
-	s.stamp = make([]u32, len(mesh.positions), allocator)
-	s.tri_stamp = make([]u32, len(mesh.indices) / 3, allocator)
-	s.face_n = make([]Vec3, len(mesh.indices) / 3, allocator)
-	s.touched = make([dynamic]u32, 0, 4096, allocator)
-	s.weights = make([dynamic]f32, 0, 4096, allocator)
-	s.affected = make([dynamic]u32, 0, 8192, allocator)
-	s.smooth_to = make([dynamic]Vec3, 0, 4096, allocator)
-	s.dirty_lo, s.dirty_hi = max(u32), 0
+	s.pool = pool
+	s.bvh = geom.bvh_build_morton(mesh^, node_triangles, pool, allocator)
+	reorder_by_nodes(s, allocator)
+	s.faces = geom.vertex_faces_build(mesh^, pool, allocator)
+	s.hit = make([dynamic]u32, 0, 256, allocator)
+	s.changed = make([dynamic]u32, 0, 256, allocator)
+	s.partials = make([dynamic]Partial, 0, 256, allocator)
+	s.offsets = make([dynamic]u32, 0, 256, allocator)
+	s.smooth_to = make([dynamic]Vec3, 0, 16384, allocator)
+	s.dirty = make([]bool, len(s.nodes), allocator)
+	s.dirty_nodes = make([dynamic]u32, 0, 256, allocator)
+	s.ranges = make([dynamic]Vertex_Range, 0, 256, allocator)
 }
 
 sculptor_destroy :: proc(s: ^Sculptor) {
 	geom.vertex_faces_destroy(&s.faces)
 	geom.bvh_destroy(&s.bvh)
-	delete(s.candidates)
-	delete(s.stamp)
-	delete(s.tri_stamp)
-	delete(s.face_n)
-	delete(s.touched)
-	delete(s.weights)
-	delete(s.affected)
+	delete(s.nodes)
+	delete(s.node_of)
+	delete(s.shared)
+	delete(s.owners)
+	delete(s.hit)
+	delete(s.changed)
+	delete(s.partials)
+	delete(s.offsets)
 	delete(s.smooth_to)
+	delete(s.dirty)
+	delete(s.dirty_nodes)
+	delete(s.ranges)
 	s^ = {}
 }
 
-// Returns and clears the changed vertex range as (first, count).
-sculptor_take_dirty :: proc(s: ^Sculptor) -> (first, count: u32) {
-	if s.dirty_lo >= s.dirty_hi do return 0, 0
-	first, count = s.dirty_lo, s.dirty_hi - s.dirty_lo
-	s.dirty_lo, s.dirty_hi = max(u32), 0
-	return
+// Reorders triangles so each BVH leaf's triangles are contiguous, then renumbers
+// vertices so each leaf owns a contiguous vertex range. A vertex used by several
+// leaves is owned by the one with the lowest node id; the others list it as shared.
+// Every step is parallel over triangles, vertices or nodes.
+@(private)
+reorder_by_nodes :: proc(s: ^Sculptor, allocator := context.allocator) {
+	Reorder :: struct {
+		s:           ^Sculptor,
+		leaves:      []u32,   // node id -> BVH leaf
+		old_indices: []u32,
+		positions:   []Vec3,
+		normals:     []Vec3,
+		unique:      [][]u32, // per node: distinct old vertices of its triangles
+		owner:       []u32,   // per old vertex: lowest node id using it
+		old_to_new:  []u32,
+		shared:      [][]u32, // per node: new indices of shared vertices
+		owners:      [][]u32, // per node: owner node ids of those, deduplicated
+		// Per-node lists are made and freed on different threads, so they use the
+		// thread-safe heap rather than whatever allocator each thread's context has.
+		heap:        runtime.Allocator,
+	}
+	m := s.mesh
+	b := &s.bvh
+	tcount := len(m.indices) / 3
+	vcount := len(m.positions)
+	r := Reorder {
+		s           = s,
+		heap        = runtime.heap_allocator(),
+		old_indices = slice.clone(m.indices[:], context.temp_allocator),
+		owner       = make([]u32, vcount, context.temp_allocator),
+		old_to_new  = make([]u32, vcount, context.temp_allocator),
+	}
+
+	// Triangles: position k in tri_order becomes triangle k.
+	jobs.parallel_ranges(s.pool, tcount, &r, proc(data: rawptr, lo, hi: int) {
+		r := cast(^Reorder)data
+		m, b := r.s.mesh, &r.s.bvh
+		for k in lo ..< hi {
+			t := b.tri_order[k]
+			m.indices[3 * k + 0] = r.old_indices[3 * t + 0]
+			m.indices[3 * k + 1] = r.old_indices[3 * t + 1]
+			m.indices[3 * k + 2] = r.old_indices[3 * t + 2]
+			b.tri_order[k] = u32(k)
+		}
+	}, geom.RANGE_GRAIN)
+
+	// Leaves in triangle order, so node ids follow memory order.
+	leaves := make([dynamic]u32, 0, tcount / int(b.leaf_size) + 1, context.temp_allocator)
+	for node, i in b.nodes {
+		if node.count > 0 do append(&leaves, u32(i))
+	}
+	sort_leaves_by_first(b, leaves[:])
+	r.leaves = leaves[:]
+	nodes := len(leaves)
+	s.nodes = make([]Node, nodes, allocator)
+	s.node_of = make([]u32, len(b.nodes), allocator)
+	for &x in s.node_of do x = geom.BVH_NONE
+	for leaf, id in leaves {
+		s.node_of[leaf] = u32(id)
+		s.nodes[id] = {tri_first = b.nodes[leaf].first, tri_count = b.nodes[leaf].count}
+	}
+	for &x in r.owner do x = geom.BVH_NONE
+	r.unique = make([][]u32, nodes, context.temp_allocator)
+	r.shared = make([][]u32, nodes, context.temp_allocator)
+	r.owners = make([][]u32, nodes, context.temp_allocator)
+
+	// Each node's distinct vertices in order of first use; the lowest node id claims
+	// each vertex.
+	jobs.parallel_for(s.pool, nodes, &r, proc(data: rawptr, id: int) {
+		r := cast(^Reorder)data
+		s := r.s
+		n := s.nodes[id]
+		corners := s.mesh.indices[3 * n.tri_first:][:3 * n.tri_count]
+		r.unique[id] = distinct_in_order(corners, r.heap)
+		for k in n.tri_first ..< n.tri_first + n.tri_count do s.bvh.tri_leaf[k] = r.leaves[id]
+		for v in r.unique[id] do atomic_min_u32(&r.owner[v], u32(id))
+	})
+	jobs.parallel_for(s.pool, nodes, &r, proc(data: rawptr, id: int) {
+		r := cast(^Reorder)data
+		count: u32
+		for v in r.unique[id] do count += u32(r.owner[v] == u32(id))
+		r.s.nodes[id].vert_count = count
+	})
+	next: u32
+	for &n in s.nodes {
+		n.vert_first = next
+		next += n.vert_count
+	}
+	assert(int(next) == vcount, "mesh has vertices no triangle uses")
+	jobs.parallel_for(s.pool, nodes, &r, proc(data: rawptr, id: int) {
+		r := cast(^Reorder)data
+		next := r.s.nodes[id].vert_first
+		for v in r.unique[id] {
+			if r.owner[v] != u32(id) do continue
+			r.old_to_new[v] = next
+			next += 1
+		}
+	})
+	// Shared vertices in new numbering, and the nodes owning them.
+	jobs.parallel_for(s.pool, nodes, &r, proc(data: rawptr, id: int) {
+		r := cast(^Reorder)data
+		shared := make([dynamic]u32, 0, 64, r.heap)
+		owners := make([dynamic]u32, 0, 8, r.heap)
+		for v in r.unique[id] {
+			owner := r.owner[v]
+			if owner == u32(id) do continue
+			append(&shared, r.old_to_new[v])
+			if !slice.contains(owners[:], owner) do append(&owners, owner)
+		}
+		delete(r.unique[id], r.heap)
+		r.shared[id], r.owners[id] = shared[:], owners[:]
+	})
+	shared_total, owners_total := 0, 0
+	for id in 0 ..< nodes {
+		shared_total += len(r.shared[id])
+		owners_total += len(r.owners[id])
+	}
+	s.shared = make([dynamic]u32, 0, shared_total, allocator)
+	s.owners = make([dynamic]u32, 0, owners_total, allocator)
+	for &n, id in s.nodes {
+		n.shared_first, n.shared_count = u32(len(s.shared)), u32(len(r.shared[id]))
+		n.owner_first, n.owner_count = u32(len(s.owners)), u32(len(r.owners[id]))
+		append(&s.shared, ..r.shared[id])
+		append(&s.owners, ..r.owners[id])
+		delete(r.shared[id], r.heap)
+		delete(r.owners[id], r.heap)
+	}
+
+	// Move vertex data to the new numbering and remap the triangles.
+	r.positions = slice.clone(m.positions[:], context.temp_allocator)
+	r.normals = slice.clone(m.normals[:], context.temp_allocator)
+	jobs.parallel_ranges(s.pool, vcount, &r, proc(data: rawptr, lo, hi: int) {
+		r := cast(^Reorder)data
+		m := r.s.mesh
+		for old in lo ..< hi {
+			new_index := r.old_to_new[old]
+			m.positions[new_index] = r.positions[old]
+			m.normals[new_index] = r.normals[old]
+		}
+	}, geom.RANGE_GRAIN)
+	jobs.parallel_ranges(s.pool, len(m.indices), &r, proc(data: rawptr, lo, hi: int) {
+		r := cast(^Reorder)data
+		for &i in r.s.mesh.indices[lo:hi] do i = r.old_to_new[i]
+	}, geom.RANGE_GRAIN)
+}
+
+@(private)
+sort_leaves_by_first :: proc(b: ^geom.Bvh, leaves: []u32) {
+	Keyed :: struct {
+		first: u32,
+		leaf:  u32,
+	}
+	keyed := make([]Keyed, len(leaves), context.temp_allocator)
+	for leaf, i in leaves do keyed[i] = {b.nodes[leaf].first, leaf}
+	slice.sort_by_key(keyed, proc(k: Keyed) -> u32 {return k.first})
+	for k, i in keyed do leaves[i] = k.leaf
+}
+
+// Distinct values of `values` in order of first appearance, using an open-addressing
+// set (sorting a few thousand values per node is several times slower).
+@(private)
+distinct_in_order :: proc(values: []u32, allocator: runtime.Allocator) -> []u32 {
+	EMPTY :: max(u32)
+	size := 64
+	for size < 2 * len(values) do size *= 2
+	stack: [8192]u32 = ---
+	table := stack[:size] if size <= len(stack) else make([]u32, size, allocator)
+	defer if size > len(stack) do delete(table, allocator)
+	slice.fill(table, EMPTY)
+	out := make([dynamic]u32, 0, len(values) / 2 + 16, allocator)
+	for v in values {
+		slot := int((v * 0x9E3779B1) >> 7) & (size - 1)
+		for table[slot] != EMPTY && table[slot] != v do slot = (slot + 1) & (size - 1)
+		if table[slot] == EMPTY {
+			table[slot] = v
+			append(&out, v)
+		}
+	}
+	return out[:]
+}
+
+@(private)
+atomic_min_u32 :: proc(p: ^u32, v: u32) {
+	current := sync.atomic_load(p)
+	for v < current {
+		ok: bool
+		if current, ok = sync.atomic_compare_exchange_weak(p, current, v); ok do return
+	}
+}
+
+// Node owning vertex v: binary search over the nodes' contiguous ranges.
+@(private)
+owner_node :: proc(nodes: []Node, v: u32) -> u32 {
+	lo, hi := 0, len(nodes) - 1
+	for lo < hi {
+		mid := (lo + hi + 1) / 2
+		if nodes[mid].vert_first <= v {
+			lo = mid
+		} else {
+			hi = mid - 1
+		}
+	}
+	return u32(lo)
+}
+
+// Finishes the deferred work of every dab since the last call, then returns the vertex
+// ranges whose positions or normals changed, coalesced and sorted. Call once per frame
+// before uploading; the slice is valid until the next call.
+//
+// Vertex normals are recomputed here rather than per dab: a fast stroke lands several
+// overlapping dabs per frame, and each region's normals only need computing once.
+sculptor_flush :: proc(s: ^Sculptor) -> []Vertex_Range {
+	clear(&s.ranges)
+	if len(s.dirty_nodes) == 0 do return s.ranges[:]
+	slice.sort(s.dirty_nodes[:])
+	verts: u32
+	for id in s.dirty_nodes do verts += s.nodes[id].vert_count
+	jobs.parallel_for(s.pool if verts >= PARALLEL_MIN_VERTS else nil, len(s.dirty_nodes), s, job_node_normals)
+
+	for id in s.dirty_nodes {
+		s.dirty[id] = false
+		n := s.nodes[id]
+		if len(s.ranges) > 0 {
+			last := &s.ranges[len(s.ranges) - 1]
+			if last.first + last.count == n.vert_first {
+				last.count += n.vert_count
+				continue
+			}
+		}
+		append(&s.ranges, Vertex_Range{n.vert_first, n.vert_count})
+	}
+	clear(&s.dirty_nodes)
+	return s.ranges[:]
 }
 
 // Smooth bump: 1 at the centre, 0 at the rim, zero slope at both ends.
@@ -87,130 +362,232 @@ falloff :: #force_inline proc(x: f32) -> f32 {
 	return t * t
 }
 
-// Applies one dab centred on `center`. Returns how many vertices moved.
-apply_dab :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
-	m := s.mesh
-	clear(&s.touched)
-	clear(&s.weights)
+// Everything a dab phase needs, shared read-only by the worker threads.
+@(private)
+Dab :: struct {
+	s:        ^Sculptor,
+	brush:    Brush,
+	center:   Vec3,
+	r2:       f32,
+	inv_r:    f32,
+	normal:   Vec3, // Draw: area normal
+	amount:   f32,  // Draw: signed displacement at the centre
+}
 
-	// Gather vertices inside the brush: the BVH narrows the search to triangles near
-	// the sphere, then each of their vertices is tested once.
-	r2 := brush.radius * brush.radius
-	inv_r := 1 / brush.radius
-	clear(&s.candidates)
-	geom.bvh_query_sphere(&s.bvh, center, brush.radius, &s.candidates)
-	stamp := next_stamp(s)
-	for tri in s.candidates {
-		for c in 0 ..< u32(3) {
-			v := m.indices[3 * tri + c]
-			if s.stamp[v] == stamp do continue
-			s.stamp[v] = stamp
-			d := m.positions[v] - center
-			d2 := linalg.dot(d, d)
-			if d2 < r2 {
-				append(&s.touched, v)
-				append(&s.weights, falloff(math.sqrt(d2) * inv_r))
-			}
-		}
+// Applies one dab centred on `center`. Returns how many vertices moved. Positions and
+// BVH bounds are current when it returns; vertex normals catch up in sculptor_flush.
+apply_dab :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
+	d := Dab {
+		s      = s,
+		brush  = brush,
+		center = center,
+		r2     = brush.radius * brush.radius,
+		inv_r  = 1 / brush.radius,
 	}
-	if len(s.touched) == 0 do return 0
+	clear(&s.hit)
+	geom.bvh_query_leaves(&s.bvh, center, brush.radius, &s.hit)
+	if len(s.hit) == 0 do return 0
+	resize(&s.partials, len(s.hit))
+	slice.zero(s.partials[:])
+	candidates: u32
+	for leaf in s.hit do candidates += s.nodes[s.node_of[leaf]].vert_count
+	pool := s.pool if candidates >= PARALLEL_MIN_VERTS else nil
 
 	switch brush.kind {
 	case .Draw:
-		area_normal: Vec3
-		for v, k in s.touched {
-			area_normal += m.normals[v] * s.weights[k]
-		}
-		area_normal = linalg.normalize0(area_normal)
-		amount := brush.radius * brush.strength * 0.1
-		if brush.invert do amount = -amount
-		for v, k in s.touched {
-			m.positions[v] += area_normal * (amount * s.weights[k])
-		}
+		jobs.parallel_for(pool, len(s.hit), &d, job_area_normal)
+		for p in s.partials do d.normal += p.normal_sum
+		d.normal = linalg.normalize0(d.normal)
+		d.amount = brush.radius * brush.strength * 0.1
+		if brush.invert do d.amount = -d.amount
+		jobs.parallel_for(pool, len(s.hit), &d, job_draw)
 	case .Smooth:
-		// Jacobi step: compute every target first so results do not depend on order.
-		resize(&s.smooth_to, len(s.touched))
-		for v, k in s.touched {
-			sum: Vec3
-			n: f32
-			for f in geom.vertex_faces_of(s.faces, v) {
-				sum += m.positions[m.indices[3 * f]] + m.positions[m.indices[3 * f + 1]] + m.positions[m.indices[3 * f + 2]]
-				n += 3
-			}
-			s.smooth_to[k] = sum / n
+		// Jacobi step: every target is computed from unmoved positions first.
+		resize(&s.offsets, len(s.hit))
+		total: u32
+		for leaf, i in s.hit {
+			s.offsets[i] = total
+			total += s.nodes[s.node_of[leaf]].vert_count
 		}
-		for v, k in s.touched {
-			t := clamp(brush.strength * s.weights[k], 0, 1)
-			m.positions[v] = linalg.lerp(m.positions[v], s.smooth_to[k], t)
-		}
+		resize(&s.smooth_to, int(total))
+		jobs.parallel_for(pool, len(s.hit), &d, job_smooth_targets)
+		jobs.parallel_for(pool, len(s.hit), &d, job_smooth_apply)
 	}
 
-	update_normals_around_touched(s)
-	return len(s.touched)
+	// A leaf changed if one of its triangles has a moved vertex, owned or shared. Every
+	// such triangle is in a hit leaf: its leaf's bounds held the vertex before the move.
+	moved: int
+	clear(&s.changed)
+	for p, i in s.partials {
+		moved += int(p.moved)
+		if p.moved == 0 && !p.touched do continue
+		leaf := s.hit[i]
+		append(&s.changed, leaf)
+		// The normals of all this leaf's vertices may change, including the shared ones.
+		id := s.node_of[leaf]
+		mark_dirty(s, id)
+		n := s.nodes[id]
+		for owner in s.owners[n.owner_first:][:n.owner_count] do mark_dirty(s, owner)
+	}
+	if len(s.changed) == 0 do return 0
+	jobs.parallel_for(pool, len(s.changed), &d, job_leaf_bounds)
+	geom.bvh_refit_leaves(&s.bvh, s.mesh^, s.changed[:], recompute_leaves = false)
+	return moved
 }
 
-// Recomputes normals for every vertex sharing a triangle with a moved vertex, refits
-// the BVH over the moved triangles, and widens the dirty range. Each face normal is
-// computed once per dab and shared by the vertices around it.
 @(private)
-update_normals_around_touched :: proc(s: ^Sculptor) {
+mark_dirty :: #force_inline proc(s: ^Sculptor, id: u32) {
+	if !s.dirty[id] {
+		s.dirty[id] = true
+		append(&s.dirty_nodes, id)
+	}
+}
+
+@(private)
+owned :: #force_inline proc(s: ^Sculptor, leaf: u32) -> (first, last: u32) {
+	n := s.nodes[s.node_of[leaf]]
+	return n.vert_first, n.vert_first + n.vert_count
+}
+
+@(private)
+shared_of :: #force_inline proc(s: ^Sculptor, leaf: u32) -> []u32 {
+	n := s.nodes[s.node_of[leaf]]
+	return s.shared[n.shared_first:][:n.shared_count]
+}
+
+// Whether any of the leaf's shared vertices lies inside the brush. Called before the
+// move, since afterwards their owners may have moved them.
+@(private)
+shared_inside :: #force_inline proc(d: ^Dab, leaf: u32) -> bool {
+	m := d.s.mesh
+	for v in shared_of(d.s, leaf) {
+		delta := m.positions[v] - d.center
+		if linalg.dot(delta, delta) < d.r2 do return true
+	}
+	return false
+}
+
+@(private)
+job_area_normal :: proc(data: rawptr, i: int) {
+	d := cast(^Dab)data
+	s := d.s
 	m := s.mesh
-	stamp := next_stamp(s)
-	clear(&s.affected)
-	clear(&s.candidates) // reused as the list of triangles that moved
-	for v in s.touched {
-		for f in geom.vertex_faces_of(s.faces, v) {
-			if s.tri_stamp[f] == stamp do continue
-			s.tri_stamp[f] = stamp
-			s.face_n[f] = face_normal(m^, f)
-			append(&s.candidates, f)
-			for c in 0 ..< u32(3) {
-				w := m.indices[3 * f + c]
-				if s.stamp[w] != stamp {
-					s.stamp[w] = stamp
-					append(&s.affected, w)
-				}
-			}
-		}
+	first, last := owned(s, s.hit[i])
+	sum: Vec3
+	for v in first ..< last {
+		delta := m.positions[v] - d.center
+		d2 := linalg.dot(delta, delta)
+		if d2 < d.r2 do sum += m.normals[v] * falloff(math.sqrt(d2) * d.inv_r)
 	}
-	geom.bvh_refit_triangles(&s.bvh, m^, s.candidates[:])
-
-	lo, hi := s.dirty_lo, s.dirty_hi
-	for v in s.affected {
-		n: Vec3
-		for f in geom.vertex_faces_of(s.faces, v) {
-			// Faces on the rim of the region did not move but still need a normal.
-			if s.tri_stamp[f] != stamp {
-				s.tri_stamp[f] = stamp
-				s.face_n[f] = face_normal(m^, f)
-			}
-			n += s.face_n[f]
-		}
-		m.normals[v] = linalg.normalize0(n)
-		lo = min(lo, v)
-		hi = max(hi, v + 1)
-	}
-	s.dirty_lo, s.dirty_hi = lo, hi
+	s.partials[i].normal_sum = sum
+	s.partials[i].touched = shared_inside(d, s.hit[i])
 }
 
-// Unnormalized: its length is twice the triangle area, which area-weights vertex normals.
 @(private)
-face_normal :: #force_inline proc(m: geom.Mesh, f: u32) -> Vec3 {
+job_draw :: proc(data: rawptr, i: int) {
+	d := cast(^Dab)data
+	s := d.s
+	m := s.mesh
+	first, last := owned(s, s.hit[i])
+	moved: u32
+	for v in first ..< last {
+		delta := m.positions[v] - d.center
+		d2 := linalg.dot(delta, delta)
+		if d2 < d.r2 {
+			w := falloff(math.sqrt(d2) * d.inv_r)
+			m.positions[v] += d.normal * (d.amount * w)
+			moved += 1
+		}
+	}
+	s.partials[i].moved = moved
+}
+
+@(private)
+job_smooth_targets :: proc(data: rawptr, i: int) {
+	d := cast(^Dab)data
+	s := d.s
+	m := s.mesh
+	first, last := owned(s, s.hit[i])
+	out := s.smooth_to[s.offsets[i]:]
+	for v in first ..< last {
+		delta := m.positions[v] - d.center
+		if linalg.dot(delta, delta) >= d.r2 do continue
+		sum: Vec3
+		n: f32
+		for f in geom.vertex_faces_of(s.faces, v) {
+			sum += m.positions[m.indices[3 * f]] + m.positions[m.indices[3 * f + 1]] + m.positions[m.indices[3 * f + 2]]
+			n += 3
+		}
+		out[v - first] = sum / n
+	}
+	s.partials[i].touched = shared_inside(d, s.hit[i])
+}
+
+@(private)
+job_smooth_apply :: proc(data: rawptr, i: int) {
+	d := cast(^Dab)data
+	s := d.s
+	m := s.mesh
+	first, last := owned(s, s.hit[i])
+	targets := s.smooth_to[s.offsets[i]:]
+	moved: u32
+	for v in first ..< last {
+		delta := m.positions[v] - d.center
+		d2 := linalg.dot(delta, delta)
+		if d2 >= d.r2 do continue
+		t := clamp(d.brush.strength * falloff(math.sqrt(d2) * d.inv_r), 0, 1)
+		m.positions[v] = linalg.lerp(m.positions[v], targets[v - first], t)
+		moved += 1
+	}
+	s.partials[i].moved = moved
+}
+
+// A leaf's triangles use exactly its owned vertices plus its shared ones, so their
+// bounds are the leaf's bounds, without touching the triangles.
+@(private)
+job_leaf_bounds :: proc(data: rawptr, i: int) {
+	d := cast(^Dab)data
+	s := d.s
+	m := s.mesh
+	leaf := s.changed[i]
+	first, last := owned(s, leaf)
+	bounds := geom.AABB_EMPTY
+	for v in first ..< last do geom.aabb_grow(&bounds, m.positions[v])
+	for v in shared_of(s, leaf) do geom.aabb_grow(&bounds, m.positions[v])
+	s.bvh.nodes[leaf].bounds = bounds
+}
+
+// Recomputes the normals of every vertex a dirty node owns, from its adjacent faces.
+// Most of those faces are the node's own, so their normals are computed once up front
+// instead of once per corner.
+@(private)
+job_node_normals :: proc(data: rawptr, i: int) {
+	s := cast(^Sculptor)data
+	m := s.mesh
+	n := s.nodes[s.dirty_nodes[i]]
+	face_n: [MAX_CACHED_FACES]Vec3 = ---
+	cached := n.tri_count if n.tri_count <= MAX_CACHED_FACES else 0
+	for k in 0 ..< cached do face_n[k] = face_normal(m, n.tri_first + k)
+	for v in n.vert_first ..< n.vert_first + n.vert_count {
+		sum: Vec3
+		for f in geom.vertex_faces_of(s.faces, v) {
+			if local := f - n.tri_first; local < cached {
+				sum += face_n[local]
+			} else {
+				sum += face_normal(m, f)
+			}
+		}
+		m.normals[v] = linalg.normalize0(sum)
+	}
+}
+
+// Unnormalized: its length is twice the triangle's area, which weights vertex normals.
+@(private)
+face_normal :: #force_inline proc(m: ^geom.Mesh, f: u32) -> Vec3 {
 	p0 := m.positions[m.indices[3 * f]]
 	p1 := m.positions[m.indices[3 * f + 1]]
 	p2 := m.positions[m.indices[3 * f + 2]]
 	return linalg.cross(p1 - p0, p2 - p0)
-}
-
-@(private)
-next_stamp :: proc(s: ^Sculptor) -> u32 {
-	s.stamp_id += 1
-	if s.stamp_id == 0 { 	// wrapped: reset markers
-		for &x in s.stamp do x = 0
-		for &x in s.tri_stamp do x = 0
-		s.stamp_id = 1
-	}
-	return s.stamp_id
 }
 
 // Closest intersection of a ray with the sculpted mesh, using the BVH.

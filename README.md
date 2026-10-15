@@ -8,9 +8,11 @@ A performance-focused sculpting prototype in Odin, using SDL3 + SDL_GPU for rend
 | --- | --- |
 | `src/app` | Entry point, frame loop, ImGui panels, input routing into `Viewport_Input` |
 | `src/render` | Every GPU object the app creates: device, pipeline, viewport target, mesh buffers, shaders |
-| `src/geom` | CPU sculpt geometry (structure-of-arrays triangle mesh); no rendering or UI imports |
+| `src/geom` | CPU sculpt geometry (structure-of-arrays triangle mesh, BVH, test spheres); no rendering or UI imports |
 | `src/camera` | Orbit camera math; no rendering or UI imports |
-| `src/sculpt` | Brush dabs on a `geom.Mesh`: raycast, draw/smooth, local normal updates, dirty vertex range |
+| `src/sculpt` | Brush dabs on a `geom.Mesh`: mesh split into nodes that own contiguous vertex ranges, parallel draw/smooth, per-frame normal updates, dirty vertex ranges for upload |
+| `src/jobs` | Persistent worker pool (`parallel_for`) used by sculpt and mesh setup |
+| `src/bench` | Headless sculpt benchmark at chosen mesh sizes (no window or GPU) |
 | `src/sdf_trial` | Standalone SDF/voxel comparison spike (not linked into the app) |
 
 The 3D viewport is rendered by `render` into an offscreen texture that the `Viewport` panel displays. ImGui never owns sculpt state: panels read and edit `App` fields through pointers each frame, and the viewport panel reports mouse input as a plain struct the camera (and later the brush) consumes.
@@ -27,10 +29,10 @@ See `scripts/versions.env`: Odin `dev-2026-10`, SDL `3.4.18` (Linux; Windows use
 
 ./build.sh            # debug build with allocation tracking -> build/sculpt
 ./build.sh release    # optimized build
-./build.sh test       # unit tests (geom, camera, sculpt)
-./build.sh run -- --subdiv=7
+./build.sh test       # unit tests (geom, camera, sculpt, jobs)
+./build.sh run -- --vertices=10000000
 ./build.sh smoke      # 300 frames in GPU debug mode; non-zero exit on assert, GPU error or leak
-./build.sh bench      # mesh brush benchmark (synthetic stroke) + SDF/voxel comparison
+./build.sh bench      # headless sculpt benchmark at 500k, 1M, 5M, 7M, 10M vertices
 ```
 
 Headless (CI or containers): run under `Xvfb` with Mesa's llvmpipe Vulkan driver (`mesa-vulkan-drivers`).
@@ -41,14 +43,20 @@ From an "x64 Native Tools Command Prompt for VS" with git and python on PATH:
 
 ```bat
 scripts\setup_deps.bat
-build.bat            :: or: build.bat release | test | run | smoke
+build.bat            :: or: build.bat release | test | run | smoke | bench
 ```
 
 Shaders are recompiled when `glslangValidator` (Vulkan SDK) is on PATH; otherwise the committed `.spv` files are used.
 
 ## App flags
 
-`--frames=N` exit after N frames, `--bench-stroke=N` synthetic brush stroke over N frames then print stats, `--gpu-debug` GPU debug/validation mode, `--subdiv=N` icosphere level (default 6: 40,962 vertices), `--width`, `--height`.
+`--vertices=N` start with a geodesic sphere of about N vertices (the Tools panel can also make a new sphere at 41k to 10M), `--subdiv=N` icosphere level when `--vertices` is not given (default 6: 40,962 vertices), `--threads=N` sculpt threads including the main one (default: one per core), `--frames=N` exit after N frames, `--bench-stroke=N` synthetic brush stroke over N frames then print stats, `--gpu-debug` GPU debug/validation mode, `--width`, `--height`.
+
+## Benchmark
+
+`build/bench [vertex counts...] [--threads=N] [--node=N] [--prefault=MB]` builds a sphere of each size, prepares it for sculpting, runs the same 77-dab stroke with a large (r=0.13) and a small (r=0.04) brush, and prints a markdown table. A frame is 4 dabs plus the normal update and is what the app does per frame during a fast stroke. On cloud VMs, pass `--prefault=3000` so the VM's slow first touch of fresh memory does not dominate setup times.
+
+The SDF/voxel comparison spike from step 3 builds separately: `deps/odin/odin build src/sdf_trial -o:speed -collection:deps=deps`.
 
 ## Controls
 

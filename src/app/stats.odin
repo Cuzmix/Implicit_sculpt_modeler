@@ -32,7 +32,8 @@ Frame_Stats :: struct {
 	cpu_ms:     Sample_Ring, // events + UI
 	// Recorded only on frames where the brush changed the mesh:
 	raycast_ms: Sample_Ring,
-	brush_ms:   Sample_Ring, // dabs + normal updates, excluding the raycast
+	brush_ms:   Sample_Ring, // dabs, excluding the raycast
+	normals_ms: Sample_Ring, // the per-frame flush that recomputes normals
 	upload_kb:  Sample_Ring,
 	latency_ms: Sample_Ring, // newest input event to command buffer submit
 	dabs_total: int,

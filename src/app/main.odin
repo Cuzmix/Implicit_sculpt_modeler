@@ -14,6 +14,7 @@ import "deps:odin-imgui/imgui_impl_sdlgpu3"
 
 import "../camera"
 import "../geom"
+import "../jobs"
 import "../render"
 import "../sculpt"
 
@@ -21,6 +22,8 @@ Options :: struct {
 	frames:    int `usage:"Exit after this many frames (0 runs until the window closes)."`,
 	gpu_debug: bool `usage:"Create the GPU device in debug mode (enables validation where available)."`,
 	subdiv:    int `usage:"Icosphere subdivision level (default 6)."`,
+	vertices:  int `usage:"Start with a geodesic sphere of about this many vertices instead (e.g. 10000000)."`,
+	threads:   int `usage:"Worker threads for sculpting, including the main thread (default: one per core)."`,
 	width:     int `usage:"Initial window width (default 1600)."`,
 	height:    int `usage:"Initial window height (default 900)."`,
 	bench_stroke: int `usage:"Run a synthetic brush stroke over this many frames, print brush stats, then exit."`,
@@ -29,6 +32,7 @@ Options :: struct {
 // Everything the app owns. ImGui only ever sees copies or pointers handed to it per frame.
 App :: struct {
 	renderer: render.Renderer,
+	pool:     jobs.Pool,
 	target:   render.Viewport_Target,
 	mesh:     geom.Mesh,
 	mesh_gpu: render.Mesh_Buffers,
@@ -90,21 +94,11 @@ run :: proc(opts: Options) -> bool {
 	if !render.renderer_init(&app.renderer, window, opts.gpu_debug) do return false
 	defer render.renderer_destroy(&app.renderer)
 
-	build_start := time.tick_now()
-	app.mesh = geom.icosphere(opts.subdiv)
-	defer geom.mesh_destroy(&app.mesh)
-	geom.mesh_sort_vertices_spatially(&app.mesh)
-	sculpt.sculptor_init(&app.sculptor, &app.mesh)
-	defer sculpt.sculptor_destroy(&app.sculptor)
-	log.infof("icosphere level %d: %d vertices, %d triangles, ready to sculpt in %.2f ms",
-		opts.subdiv, geom.mesh_vertex_count(app.mesh), geom.mesh_triangle_count(app.mesh),
-		time.duration_milliseconds(time.tick_since(build_start)))
-	free_all(context.temp_allocator)
-
-	mesh_gpu, mesh_ok := render.mesh_buffers_create(&app.renderer, app.mesh)
-	if !mesh_ok do return false
-	app.mesh_gpu = mesh_gpu
-	defer render.mesh_buffers_destroy(&app.renderer, &app.mesh_gpu)
+	jobs.pool_init(&app.pool, opts.threads - 1 if opts.threads > 0 else 0)
+	defer jobs.pool_destroy(&app.pool)
+	log.infof("sculpt threads: %d", jobs.pool_size(&app.pool))
+	if !load_mesh(&app, opts.vertices, opts.subdiv) do return false
+	defer unload_mesh(&app)
 	defer render.viewport_target_destroy(&app.renderer, &app.target)
 
 	// Dear ImGui. Its context and backends are torn down before the renderer (defers run LIFO).
@@ -133,11 +127,15 @@ run :: proc(opts: Options) -> bool {
 	app.brush = {kind = .Draw, radius_px = 60, strength = 0.5}
 	app.running = true
 	last_input_ns: u64 // SDL timestamp of the newest mouse event, for latency
-	upload_all := true
 	frame_index := 0
 
 	for app.running {
 		frame_start := time.tick_now()
+		if request := app.ui.mesh_request; request.vertices != 0 || request.subdiv != 0 {
+			app.ui.mesh_request = {}
+			unload_mesh(&app)
+			if !load_mesh(&app, request.vertices, request.subdiv) do return false
+		}
 
 		e: sdl.Event
 		for sdl.PollEvent(&e) {
@@ -170,13 +168,12 @@ run :: proc(opts: Options) -> bool {
 
 		cpu_done := time.tick_now()
 		cmd := sdl.AcquireGPUCommandBuffer(app.renderer.device)
-		first, count := sculpt.sculptor_take_dirty(&app.sculptor)
-		if upload_all {
-			render.mesh_buffers_upload_vertices(&app.renderer, cmd, &app.mesh_gpu, app.mesh, 0, u32(len(app.mesh.positions)))
-			upload_all = false
-		} else {
-			render.mesh_buffers_upload_vertices(&app.renderer, cmd, &app.mesh_gpu, app.mesh, first, count)
-		}
+		t_flush := time.tick_now()
+		ranges := sculpt.sculptor_flush(&app.sculptor)
+		normals_ms := time.duration_milliseconds(time.tick_since(t_flush))
+		render.mesh_buffers_upload_ranges(&app.renderer, cmd, &app.mesh_gpu, app.mesh, ranges)
+		uploaded: u32
+		for r in ranges do uploaded += r.count
 		aspect := f32(app.target.width) / f32(app.target.height)
 		render.render_viewport(&app.renderer, cmd, app.target, app.mesh_gpu,
 			camera.orbit_view(app.camera), camera.orbit_proj(app.camera, aspect))
@@ -212,7 +209,8 @@ run :: proc(opts: Options) -> bool {
 		if sculpted.dabs > 0 {
 			ring_push(&app.stats.raycast_ms, sculpted.raycast_ms)
 			ring_push(&app.stats.brush_ms, sculpted.brush_ms)
-			ring_push(&app.stats.upload_kb, f64(2 * count * size_of(geom.Vec3)) / 1024)
+			ring_push(&app.stats.normals_ms, normals_ms)
+			ring_push(&app.stats.upload_kb, f64(2 * uploaded * size_of(geom.Vec3)) / 1024)
 			ring_push(&app.stats.latency_ms, f64(submitted_ns - last_input_ns) / 1e6)
 			app.stats.dabs_total += sculpted.dabs
 		}
@@ -233,10 +231,48 @@ run :: proc(opts: Options) -> bool {
 	if app.stats.dabs_total > 0 {
 		print_stat("raycast_ms", app.stats.raycast_ms)
 		print_stat("brush_ms", app.stats.brush_ms)
+		print_stat("normals_ms", app.stats.normals_ms)
 		print_stat("upload_kb", app.stats.upload_kb)
 		print_stat("latency_ms", app.stats.latency_ms)
 	}
 	return true
+}
+
+// Builds the sphere to sculpt (a geodesic sphere of about `vertices` vertices, or an
+// icosphere of `subdiv` levels when vertices is 0), prepares it, and uploads it.
+load_mesh :: proc(app: ^App, vertices, subdiv: int) -> bool {
+	start := time.tick_now()
+	if vertices > 0 {
+		app.mesh = geom.geodesic_sphere(geom.geodesic_frequency_for(vertices), &app.pool)
+	} else {
+		app.mesh = geom.icosphere(subdiv)
+	}
+	sculpt.sculptor_init(&app.sculptor, &app.mesh, &app.pool)
+	free_all(context.temp_allocator)
+	ready := time.tick_now()
+	mesh_gpu, ok := render.mesh_buffers_create(&app.renderer, app.mesh)
+	if !ok {
+		sculpt.sculptor_destroy(&app.sculptor)
+		geom.mesh_destroy(&app.mesh)
+		return false
+	}
+	app.mesh_gpu = mesh_gpu
+	log.infof("mesh: %d vertices, %d triangles; ready to sculpt in %.0f ms, uploaded in %.0f ms",
+		geom.mesh_vertex_count(app.mesh), geom.mesh_triangle_count(app.mesh),
+		time.duration_milliseconds(time.tick_diff(start, ready)), time.duration_milliseconds(time.tick_since(ready)))
+	app.stats = {}
+	app.ui.mesh_choice = 0
+	for size, i in MESH_SIZES {
+		if size.request == {vertices, subdiv if vertices == 0 else 0} do app.ui.mesh_choice = i32(i)
+	}
+	return true
+}
+
+unload_mesh :: proc(app: ^App) {
+	_ = sdl.WaitForGPUIdle(app.renderer.device)
+	render.mesh_buffers_destroy(&app.renderer, &app.mesh_gpu)
+	sculpt.sculptor_destroy(&app.sculptor)
+	geom.mesh_destroy(&app.mesh)
 }
 
 camera_apply_input :: proc(c: ^camera.Orbit, in_: Viewport_Input) {
