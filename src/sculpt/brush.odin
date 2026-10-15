@@ -49,6 +49,7 @@ Node :: struct {
 	shared_count: u32,
 	owner_first:  u32, // into Sculptor.owners: the nodes owning those shared vertices
 	owner_count:  u32,
+	leaf:         u32, // this node's BVH leaf
 }
 
 Vertex_Range :: geom.Vertex_Range
@@ -67,6 +68,9 @@ Sculptor :: struct {
 	faces:       geom.Vertex_Faces,
 	bvh:         geom.Bvh,
 	nodes:       []Node, // indexed by node id
+	// Per node id, in index-buffer order: bounds and normal cone for view culling.
+	// Kept current by sculptor_flush for every node it reports as changed.
+	chunks:      []geom.Chunk,
 	node_of:     []u32,  // BVH node index -> node id (only meaningful for leaves)
 	shared:      [dynamic]u32,
 	owners:      [dynamic]u32,
@@ -100,12 +104,17 @@ sculptor_init :: proc(s: ^Sculptor, mesh: ^geom.Mesh, pool: ^jobs.Pool, node_tri
 	s.dirty = make([]bool, len(s.nodes), allocator)
 	s.dirty_nodes = make([dynamic]u32, 0, 256, allocator)
 	s.ranges = make([dynamic]Vertex_Range, 0, 256, allocator)
+	s.chunks = make([]geom.Chunk, len(s.nodes), allocator)
+	jobs.parallel_for(s.pool, len(s.nodes), s, proc(data: rawptr, id: int) {
+		update_chunk(cast(^Sculptor)data, u32(id), nil)
+	})
 }
 
 sculptor_destroy :: proc(s: ^Sculptor) {
 	geom.vertex_faces_destroy(&s.faces)
 	geom.bvh_destroy(&s.bvh)
 	delete(s.nodes)
+	delete(s.chunks)
 	delete(s.node_of)
 	delete(s.shared)
 	delete(s.owners)
@@ -181,7 +190,7 @@ reorder_by_nodes :: proc(s: ^Sculptor, allocator := context.allocator) {
 	for &x in s.node_of do x = geom.BVH_NONE
 	for leaf, id in leaves {
 		s.node_of[leaf] = u32(id)
-		s.nodes[id] = {tri_first = b.nodes[leaf].first, tri_count = b.nodes[leaf].count}
+		s.nodes[id] = {tri_first = b.nodes[leaf].first, tri_count = b.nodes[leaf].count, leaf = leaf}
 	}
 	for &x in r.owner do x = geom.BVH_NONE
 	r.unique = make([][]u32, nodes, context.temp_allocator)
@@ -584,6 +593,36 @@ job_node_normals :: proc(data: rawptr, i: int) {
 			}
 		}
 		m.normals[v] = linalg.normalize0(sum)
+	}
+	update_chunk(s, s.dirty_nodes[i], face_n[:cached])
+}
+
+// Refreshes a node's chunk from its BVH leaf bounds and its face normals, given in
+// `face_n` when the caller already has them (computed here otherwise). Overwrites
+// `face_n` with the unit normals.
+@(private)
+update_chunk :: proc(s: ^Sculptor, id: u32, face_n: []Vec3) {
+	n := s.nodes[id]
+	normals := face_n
+	scratch: [MAX_CACHED_FACES]Vec3 = ---
+	heap: []Vec3
+	defer delete(heap, runtime.heap_allocator())
+	if u32(len(normals)) != n.tri_count {
+		if n.tri_count <= MAX_CACHED_FACES {
+			normals = scratch[:n.tri_count]
+		} else {
+			heap = make([]Vec3, n.tri_count, runtime.heap_allocator())
+			normals = heap
+		}
+		for k in 0 ..< n.tri_count do normals[k] = face_normal(s.mesh, n.tri_first + k)
+	}
+	axis, cutoff := geom.normal_cone(normals)
+	s.chunks[id] = {
+		bounds      = s.bvh.nodes[n.leaf].bounds,
+		cone_axis   = axis,
+		cone_cutoff = cutoff,
+		first_index = 3 * n.tri_first,
+		index_count = 3 * n.tri_count,
 	}
 }
 

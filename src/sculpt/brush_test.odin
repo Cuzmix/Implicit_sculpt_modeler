@@ -219,3 +219,69 @@ bvh_gather_matches_linear_scan :: proc(t: ^testing.T) {
 	got := apply_dab(&s, {kind = .Smooth, radius = radius, strength = 0}, center)
 	testing.expect_value(t, got, expected)
 }
+
+// Culling may skip a chunk only if none of its triangles could be drawn: every
+// triangle facing the eye with a corner inside the view must be in a drawn range.
+@(test)
+culling_keeps_every_visible_triangle :: proc(t: ^testing.T) {
+	m := geom.icosphere(5)
+	defer geom.mesh_destroy(&m)
+	s: Sculptor
+	sculptor_init(&s, &m, nil, 64)
+	defer sculptor_destroy(&s)
+	for k in 0 ..< 20 {
+		a := f32(k) * 0.3
+		_ = apply_dab(&s, {kind = .Draw, radius = 0.25, strength = 1, invert = k % 3 == 0}, linalg.normalize(Vec3{math.cos(a), 0.4, math.sin(a)}))
+	}
+	_ = sculptor_flush(&s)
+
+	// Incremental chunks match chunks built from scratch.
+	fresh := make([]geom.Chunk, len(s.nodes), context.temp_allocator)
+	copy(fresh, s.chunks)
+	for id in 0 ..< len(s.nodes) do update_chunk(&s, u32(id), nil)
+	for c, id in fresh do testing.expect_value(t, c, s.chunks[id])
+
+	eyes := [?]Vec3{{0, 0, 3.5}, {2, 1.5, -2}, {0, 0, 1.3}, {0.3, 0.2, 0.1}}
+	out: [dynamic]geom.Index_Range
+	defer delete(out)
+	culled_any := false
+	for eye in eyes {
+		view := look_at(eye, {0, 0, 0} if eye != {0.3, 0.2, 0.1} else {1, 0, 0})
+		f := 1 / math.tan(f32(0.35))
+		proj := geom.Mat4{f, 0, 0, 0, 0, f, 0, 0, 0, 0, -1, -0.01, 0, 0, -1, 0}
+		clip := proj * view
+		clear(&out)
+		stats := geom.cull_chunks(s.chunks, clip, eye, &out)
+		culled_any ||= stats.frustum + stats.backface > 0
+		drawn := make([]bool, len(m.indices) / 3, context.temp_allocator)
+		for r in out do for tri in r.first_index / 3 ..< (r.first_index + r.index_count) / 3 do drawn[tri] = true
+		for tri in 0 ..< len(m.indices) / 3 {
+			p0, p1, p2 := m.positions[m.indices[3 * tri]], m.positions[m.indices[3 * tri + 1]], m.positions[m.indices[3 * tri + 2]]
+			n := linalg.cross(p1 - p0, p2 - p0)
+			if linalg.dot(n, p0 - eye) >= 0 do continue // faces away
+			inside := false
+			for p in ([3]Vec3{p0, p1, p2}) {
+				c := clip * [4]f32{p.x, p.y, p.z, 1}
+				inside ||= c.w > 0 && abs(c.x) <= c.w && abs(c.y) <= c.w && c.z >= 0 && c.z <= c.w
+			}
+			if inside && !drawn[tri] {
+				testing.expectf(t, false, "visible triangle %d culled from eye %v", tri, eye)
+				return
+			}
+		}
+	}
+	testing.expect(t, culled_any, "nothing was ever culled")
+}
+
+@(private = "file")
+look_at :: proc(eye, target: Vec3) -> geom.Mat4 {
+	f := linalg.normalize(target - eye)
+	r := linalg.normalize(linalg.cross(f, Vec3{0, 1, 0}))
+	u := linalg.cross(r, f)
+	return geom.Mat4{
+		r.x, r.y, r.z, -linalg.dot(r, eye),
+		u.x, u.y, u.z, -linalg.dot(u, eye),
+		-f.x, -f.y, -f.z, linalg.dot(f, eye),
+		0, 0, 0, 1,
+	}
+}
