@@ -50,7 +50,7 @@ Shaders are recompiled when `glslangValidator` (Vulkan SDK) is on PATH; otherwis
 
 ## App flags
 
-`--vertices=N` start with a geodesic sphere of about N vertices (the Tools panel can also make a new sphere at 41k to 10M), `--subdiv=N` icosphere level when `--vertices` is not given (default 6: 40,962 vertices), `--threads=N` sculpt threads including the main one (default: one per core), `--frames=N` exit after N frames, `--bench-stroke=N` synthetic brush stroke over N frames then print stats, `--gpu-debug` GPU debug/validation mode, `--width`, `--height`.
+`--vertices=N` start with a geodesic sphere of about N vertices (the Tools panel can also make a new sphere at 41k to 25M), `--subdiv=N` icosphere level when `--vertices` is not given (default 6: 40,962 vertices), `--threads=N` sculpt threads including the main one (default: one per core), `--frames=N` exit after N frames, `--bench-stroke=N` synthetic brush stroke over N frames then print stats, `--gpu-debug` GPU debug/validation mode, `--width`, `--height`.
 
 ## Benchmark
 

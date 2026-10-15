@@ -129,9 +129,9 @@ reorder_by_nodes :: proc(s: ^Sculptor, allocator := context.allocator) {
 	Reorder :: struct {
 		s:           ^Sculptor,
 		leaves:      []u32,   // node id -> BVH leaf
-		old_indices: []u32,
-		positions:   []Vec3,
-		normals:     []Vec3,
+		indices:     [dynamic]u32,  // triangles in node order (replaces the mesh's)
+		positions:   [dynamic]Vec3, // vertex data in new numbering (replaces the mesh's)
+		normals:     [dynamic]Vec3,
 		unique:      [][]u32, // per node: distinct old vertices of its triangles
 		owner:       []u32,   // per old vertex: lowest node id using it
 		old_to_new:  []u32,
@@ -148,7 +148,7 @@ reorder_by_nodes :: proc(s: ^Sculptor, allocator := context.allocator) {
 	r := Reorder {
 		s           = s,
 		heap        = runtime.heap_allocator(),
-		old_indices = slice.clone(m.indices[:], context.temp_allocator),
+		indices     = make([dynamic]u32, len(m.indices), m.indices.allocator),
 		owner       = make([]u32, vcount, context.temp_allocator),
 		old_to_new  = make([]u32, vcount, context.temp_allocator),
 	}
@@ -159,12 +159,14 @@ reorder_by_nodes :: proc(s: ^Sculptor, allocator := context.allocator) {
 		m, b := r.s.mesh, &r.s.bvh
 		for k in lo ..< hi {
 			t := b.tri_order[k]
-			m.indices[3 * k + 0] = r.old_indices[3 * t + 0]
-			m.indices[3 * k + 1] = r.old_indices[3 * t + 1]
-			m.indices[3 * k + 2] = r.old_indices[3 * t + 2]
+			r.indices[3 * k + 0] = m.indices[3 * t + 0]
+			r.indices[3 * k + 1] = m.indices[3 * t + 1]
+			r.indices[3 * k + 2] = m.indices[3 * t + 2]
 			b.tri_order[k] = u32(k)
 		}
 	}, geom.RANGE_GRAIN)
+	delete(m.indices)
+	m.indices = r.indices
 
 	// Leaves in triangle order, so node ids follow memory order.
 	leaves := make([dynamic]u32, 0, tcount / int(b.leaf_size) + 1, context.temp_allocator)
@@ -249,17 +251,21 @@ reorder_by_nodes :: proc(s: ^Sculptor, allocator := context.allocator) {
 	}
 
 	// Move vertex data to the new numbering and remap the triangles.
-	r.positions = slice.clone(m.positions[:], context.temp_allocator)
-	r.normals = slice.clone(m.normals[:], context.temp_allocator)
+	// Fresh arrays rather than copies of the old ones: the threads fill them directly.
+	r.positions = make([dynamic]Vec3, vcount, m.positions.allocator)
+	r.normals = make([dynamic]Vec3, vcount, m.normals.allocator)
 	jobs.parallel_ranges(s.pool, vcount, &r, proc(data: rawptr, lo, hi: int) {
 		r := cast(^Reorder)data
 		m := r.s.mesh
 		for old in lo ..< hi {
 			new_index := r.old_to_new[old]
-			m.positions[new_index] = r.positions[old]
-			m.normals[new_index] = r.normals[old]
+			r.positions[new_index] = m.positions[old]
+			r.normals[new_index] = m.normals[old]
 		}
 	}, geom.RANGE_GRAIN)
+	delete(m.positions)
+	delete(m.normals)
+	m.positions, m.normals = r.positions, r.normals
 	jobs.parallel_ranges(s.pool, len(m.indices), &r, proc(data: rawptr, lo, hi: int) {
 		r := cast(^Reorder)data
 		for &i in r.s.mesh.indices[lo:hi] do i = r.old_to_new[i]

@@ -31,6 +31,7 @@ MESH_SIZES := [?]struct {
 	{"5M vertices", {vertices = 5_000_000}},
 	{"7M vertices", {vertices = 7_000_000}},
 	{"10M vertices", {vertices = 10_000_000}},
+	{"25M vertices", {vertices = 25_000_000}},
 }
 
 // What the viewport panel saw this frame, in viewport-local pixels. This is the only

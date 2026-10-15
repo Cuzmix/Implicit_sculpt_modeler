@@ -396,8 +396,32 @@ bvh_build_morton :: proc(m: Mesh, leaf_size: u32 = BVH_LEAF_SIZE, pool: ^jobs.Po
 	}, RANGE_GRAIN)
 	radix_sort_pairs(c.codes, b.tri_order, 30, pool)
 
+	// Topology first (cheap, serial), then leaf bounds in parallel, then internal
+	// bounds bottom-up: children always have higher indices than their parent.
 	append(&b.nodes, Bvh_Node{first = 0, count = u32(tcount), parent = BVH_NONE})
-	build_morton_node(&b, m, c.codes, 0)
+	Leaves :: struct {
+		m:      Mesh,
+		b:      ^Bvh,
+		leaves: [dynamic]u32,
+	}
+	l := Leaves{m = m, b = &b, leaves = make([dynamic]u32, 0, tcount / int(leaf) * 2 + 1, context.temp_allocator)}
+	build_morton_node(&b, c.codes, 0, &l.leaves)
+	jobs.parallel_for(pool, len(l.leaves), &l, proc(data: rawptr, i: int) {
+		l := cast(^Leaves)data
+		leaf := l.leaves[i]
+		node := &l.b.nodes[leaf]
+		bounds := AABB_EMPTY
+		for k in node.first ..< node.first + node.count {
+			t := l.b.tri_order[k]
+			bounds = aabb_union(bounds, tri_bounds(l.m, t))
+			l.b.tri_leaf[t] = leaf
+		}
+		node.bounds = bounds
+	})
+	for i := len(b.nodes) - 1; i >= 0; i -= 1 {
+		node := &b.nodes[i]
+		if node.count == 0 do node.bounds = aabb_union(b.nodes[node.first].bounds, b.nodes[node.first + 1].bounds)
+	}
 	b.dirty = make([]u64, (len(b.nodes) + 63) / 64, allocator)
 	return b
 }
@@ -405,17 +429,14 @@ bvh_build_morton :: proc(m: Mesh, leaf_size: u32 = BVH_LEAF_SIZE, pool: ^jobs.Po
 // Chunk size for flat parallel loops over vertices or triangles.
 RANGE_GRAIN :: 1 << 16
 
+// Splits node_index's triangle range at the highest bit where its Morton codes differ,
+// recursively, appending leaves to `leaves`. Bounds are filled in afterwards.
 @(private)
-build_morton_node :: proc(b: ^Bvh, m: Mesh, codes: []u32, node_index: u32) {
+build_morton_node :: proc(b: ^Bvh, codes: []u32, node_index: u32, leaves: ^[dynamic]u32) {
 	node := b.nodes[node_index]
 	first, count := node.first, node.count
 	if count <= b.leaf_size {
-		bounds := AABB_EMPTY
-		for i in first ..< first + count {
-			bounds = aabb_union(bounds, tri_bounds(m, b.tri_order[i]))
-			b.tri_leaf[b.tri_order[i]] = node_index
-		}
-		b.nodes[node_index].bounds = bounds
+		append(leaves, node_index)
 		return
 	}
 	last := first + count - 1
@@ -438,9 +459,8 @@ build_morton_node :: proc(b: ^Bvh, m: Mesh, codes: []u32, node_index: u32) {
 	append(&b.nodes, Bvh_Node{first = first, count = split - first, parent = node_index})
 	append(&b.nodes, Bvh_Node{first = split, count = first + count - split, parent = node_index})
 	b.nodes[node_index].first, b.nodes[node_index].count = children, 0
-	build_morton_node(b, m, codes, children)
-	build_morton_node(b, m, codes, children + 1)
-	b.nodes[node_index].bounds = aabb_union(b.nodes[children].bounds, b.nodes[children + 1].bounds)
+	build_morton_node(b, codes, children, leaves)
+	build_morton_node(b, codes, children + 1, leaves)
 }
 
 // Stable LSD radix sort of (key, value) pairs by the low `key_bits` bits of key, 10
