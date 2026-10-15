@@ -93,3 +93,61 @@ spatial_sort_preserves_geometry :: proc(t: ^testing.T) {
 		testing.expect_value(t, m.positions[i], before[k])
 	}
 }
+
+// Every triangle must lie inside its leaf, and every node inside its parent.
+@(private = "file")
+bvh_bounds_valid :: proc(b: Bvh, m: Mesh) -> bool {
+	inside :: proc(inner, outer: Aabb) -> bool {
+		eps :: 1e-6
+		return inner.lo.x >= outer.lo.x - eps && inner.lo.y >= outer.lo.y - eps && inner.lo.z >= outer.lo.z - eps &&
+			inner.hi.x <= outer.hi.x + eps && inner.hi.y <= outer.hi.y + eps && inner.hi.z <= outer.hi.z + eps
+	}
+	for tri in 0 ..< u32(len(m.indices) / 3) {
+		if !inside(tri_bounds(m, tri), b.nodes[b.tri_leaf[tri]].bounds) do return false
+	}
+	for node in b.nodes {
+		if node.parent != BVH_NONE && !inside(node.bounds, b.nodes[node.parent].bounds) do return false
+	}
+	return true
+}
+
+@(test)
+bvh_build_covers_every_triangle_once :: proc(t: ^testing.T) {
+	m := icosphere(4)
+	defer mesh_destroy(&m)
+	b := bvh_build(m)
+	defer bvh_destroy(&b)
+	seen := make([]bool, len(m.indices) / 3, context.temp_allocator)
+	for node in b.nodes {
+		if node.count == 0 do continue
+		testing.expect(t, node.count <= BVH_LEAF_SIZE, "leaf too large")
+		for i in node.first ..< node.first + node.count {
+			testing.expect(t, !seen[b.tri_order[i]], "triangle in two leaves")
+			seen[b.tri_order[i]] = true
+		}
+	}
+	for s in seen do testing.expect(t, s, "triangle missing from BVH")
+	testing.expect(t, bvh_bounds_valid(b, m), "bounds do not nest")
+}
+
+@(test)
+bvh_refit_tracks_moved_vertices :: proc(t: ^testing.T) {
+	m := icosphere(4)
+	defer mesh_destroy(&m)
+	b := bvh_build(m)
+	defer bvh_destroy(&b)
+	vf := vertex_faces_build(m)
+	defer vertex_faces_destroy(&vf)
+
+	// Pull a patch of vertices far outward, then refit only their triangles.
+	moved := make([dynamic]u32, context.temp_allocator)
+	for &p, v in m.positions {
+		if p.z > 0.8 {
+			p *= 1.6
+			append(&moved, ..vertex_faces_of(vf, u32(v)))
+		}
+	}
+	testing.expect(t, !bvh_bounds_valid(b, m), "test should invalidate bounds before refit")
+	bvh_refit_triangles(&b, m, moved[:])
+	testing.expect(t, bvh_bounds_valid(b, m), "refit left stale bounds")
+}

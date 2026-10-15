@@ -38,7 +38,7 @@ sculpt_frame :: proc(app: ^App, input: Viewport_Input) -> (res: Sculpt_Frame_Res
 
 	origin, dir := mouse_ray(app.camera, input.mouse_pos, input.size)
 	t0 := time.tick_now()
-	hit, ok := sculpt.raycast(app.mesh, origin, dir)
+	hit, ok := sculpt.sculptor_raycast(&app.sculptor, origin, dir)
 	res.raycast_ms = time.duration_milliseconds(time.tick_since(t0))
 	if !ok do return // off the surface: keep the stroke alive so re-entry continues it
 

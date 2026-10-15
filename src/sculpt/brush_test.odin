@@ -73,3 +73,53 @@ max_radius :: proc(m: geom.Mesh) -> f32 {
 	for p in m.positions do r = max(r, linalg.length(p))
 	return r
 }
+
+@(test)
+bvh_raycast_matches_brute_force_after_sculpting :: proc(t: ^testing.T) {
+	m := geom.icosphere(5)
+	defer geom.mesh_destroy(&m)
+	geom.mesh_sort_vertices_spatially(&m)
+	s: Sculptor
+	sculptor_init(&s, &m)
+	defer sculptor_destroy(&s)
+
+	// Sculpt a few strong dabs so refit has real work to get right.
+	for i in 0 ..< 20 {
+		a := f32(i) * 0.3
+		apply_dab(&s, {kind = .Draw, radius = 0.3, strength = 1, invert = i % 3 == 0}, linalg.normalize(Vec3{math.cos(a), 0.4, math.sin(a)}))
+	}
+
+	misses := 0
+	for i in 0 ..< 500 {
+		a, b := f32(i) * 0.61803, f32(i) * 0.2914
+		origin := 4 * Vec3{math.cos(a) * math.cos(b), math.sin(b), math.sin(a) * math.cos(b)}
+		target := Vec3{math.sin(f32(i)), math.cos(f32(i) * 1.3), math.sin(f32(i) * 0.7)} * 1.2
+		dir := linalg.normalize(target - origin)
+		want, want_ok := raycast(m, origin, dir)
+		got, got_ok := sculptor_raycast(&s, origin, dir)
+		testing.expect_value(t, got_ok, want_ok)
+		if want_ok && got_ok {
+			testing.expect(t, linalg.length(got - want) < 1e-4, "BVH hit differs from brute force")
+		}
+		if !want_ok do misses += 1
+	}
+	testing.expect(t, misses > 0 && misses < 500, "rays should include hits and misses")
+}
+
+@(test)
+bvh_gather_matches_linear_scan :: proc(t: ^testing.T) {
+	m := geom.icosphere(5)
+	defer geom.mesh_destroy(&m)
+	s: Sculptor
+	sculptor_init(&s, &m)
+	defer sculptor_destroy(&s)
+
+	center := linalg.normalize(Vec3{0.3, 0.5, 0.8})
+	radius: f32 = 0.27
+	expected := 0
+	for p in m.positions {
+		if linalg.length(p - center) < radius do expected += 1
+	}
+	got := apply_dab(&s, {kind = .Smooth, radius = radius, strength = 0}, center)
+	testing.expect_value(t, got, expected)
+}
