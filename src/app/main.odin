@@ -34,9 +34,9 @@ App :: struct {
 	renderer: render.Renderer,
 	pool:     jobs.Pool,
 	target:   render.Viewport_Target,
-	mesh:     geom.Mesh,
-	mesh_gpu: render.Mesh_Buffers,
-	sculptor: sculpt.Sculptor,
+	scene:    Scene,
+	tool:     Tool,
+	move:     Move_Tool,
 	brush:    Brush_Settings,
 	stroke:   Stroke,
 	camera:   camera.Orbit,
@@ -97,8 +97,9 @@ run :: proc(opts: Options) -> bool {
 	jobs.pool_init(&app.pool, opts.threads - 1 if opts.threads > 0 else 0)
 	defer jobs.pool_destroy(&app.pool)
 	log.infof("sculpt threads: %d", jobs.pool_size(&app.pool))
-	if !load_mesh(&app, opts.vertices, opts.subdiv) do return false
-	defer unload_mesh(&app)
+	app.scene.selected = -1
+	if !scene_add_sphere(&app, opts.vertices, opts.subdiv, {scale = 1}) do return false
+	defer scene_destroy(&app)
 	defer render.viewport_target_destroy(&app.renderer, &app.target)
 
 	// Dear ImGui. Its context and backends are torn down before the renderer (defers run LIFO).
@@ -125,16 +126,16 @@ run :: proc(opts: Options) -> bool {
 	app.camera = camera.orbit_default()
 	app.ui = ui_state_default()
 	app.brush = {kind = .Draw, radius_px = 60, strength = 0.5}
+	app.tool = .Brush
 	app.running = true
 	last_input_ns: u64 // SDL timestamp of the newest mouse event, for latency
 	frame_index := 0
 
 	for app.running {
 		frame_start := time.tick_now()
-		if request := app.ui.mesh_request; request.vertices != 0 || request.subdiv != 0 {
-			app.ui.mesh_request = {}
-			unload_mesh(&app)
-			if !load_mesh(&app, request.vertices, request.subdiv) do return false
+		if command := app.ui.scene_command; command.kind != .None {
+			app.ui.scene_command = {}
+			if !scene_apply(&app, command) do return false
 		}
 
 		e: sdl.Event
@@ -157,26 +158,40 @@ run :: proc(opts: Options) -> bool {
 		imgui_impl_sdl3.NewFrame()
 		imgui.NewFrame()
 		input := ui_draw(&app)
-		imgui.Render()
-
 		if opts.bench_stroke > 0 {
 			input = bench_input(frame_index, opts.bench_stroke, {f32(app.target.width), f32(app.target.height)})
 			last_input_ns = sdl.GetTicksNS()
 		}
 		camera_apply_input(&app.camera, input)
-		sculpted := sculpt_frame(&app, input)
+		sculpted: Sculpt_Frame_Result
+		switch app.tool {
+		case .Brush:
+			sculpted = sculpt_frame(&app, input)
+		case .Move:
+			app.stroke.active = false
+			move_tool_frame(&app, input)
+		}
+		draw_viewport_overlay(&app, input)
+		imgui.Render()
 
 		cpu_done := time.tick_now()
 		cmd := sdl.AcquireGPUCommandBuffer(app.renderer.device)
-		t_flush := time.tick_now()
-		ranges := sculpt.sculptor_flush(&app.sculptor)
-		normals_ms := time.duration_milliseconds(time.tick_since(t_flush))
-		render.mesh_buffers_upload_ranges(&app.renderer, cmd, &app.mesh_gpu, app.mesh, ranges)
 		uploaded: u32
-		for r in ranges do uploaded += r.count
+		normals_ms: f64
+		draws := make([]render.Draw_Item, len(app.scene.objects), context.temp_allocator)
+		for obj, i in app.scene.objects {
+			t_flush := time.tick_now()
+			ranges := sculpt.sculptor_flush(&obj.sculptor)
+			normals_ms += time.duration_milliseconds(time.tick_since(t_flush))
+			render.mesh_buffers_upload_ranges(&app.renderer, cmd, &obj.mesh_gpu, obj.mesh, ranges)
+			for r in ranges do uploaded += r.count
+			// The selected object is in clay; the others are a muted grey.
+			color := [4]f32{0.55, 0.40, 0.32, 1} if i == app.scene.selected else {0.42, 0.42, 0.44, 1}
+			draws[i] = {mesh = &obj.mesh_gpu, model = transform_matrix(obj.transform), color = color}
+		}
 		aspect := f32(app.target.width) / f32(app.target.height)
-		render.render_viewport(&app.renderer, cmd, app.target, app.mesh_gpu,
-			camera.orbit_view(app.camera), camera.orbit_proj(app.camera, aspect))
+		render.render_viewport(&app.renderer, cmd, app.target,
+			camera.orbit_view(app.camera), camera.orbit_proj(app.camera, aspect), draws)
 
 		swapchain: ^sdl.GPUTexture
 		if !sdl.WaitAndAcquireGPUSwapchainTexture(cmd, window, &swapchain, nil, nil) {
@@ -226,7 +241,9 @@ run :: proc(opts: Options) -> bool {
 		p50, p99 := ring_percentiles(r)
 		fmt.printfln("%s_p50=%.3f %s_p99=%.3f", name, p50, name, p99)
 	}
-	fmt.printfln("frames=%d dabs=%d vertices=%d", frame_index, app.stats.dabs_total, len(app.mesh.positions))
+	vertices: int
+	for obj in app.scene.objects do vertices += geom.mesh_vertex_count(obj.mesh)
+	fmt.printfln("frames=%d dabs=%d objects=%d vertices=%d", frame_index, app.stats.dabs_total, len(app.scene.objects), vertices)
 	print_stat("frame_ms", app.stats.frame_ms)
 	if app.stats.dabs_total > 0 {
 		print_stat("raycast_ms", app.stats.raycast_ms)
@@ -238,46 +255,9 @@ run :: proc(opts: Options) -> bool {
 	return true
 }
 
-// Builds the sphere to sculpt (a geodesic sphere of about `vertices` vertices, or an
-// icosphere of `subdiv` levels when vertices is 0), prepares it, and uploads it.
-load_mesh :: proc(app: ^App, vertices, subdiv: int) -> bool {
-	start := time.tick_now()
-	if vertices > 0 {
-		app.mesh = geom.geodesic_sphere(geom.geodesic_frequency_for(vertices), &app.pool)
-	} else {
-		app.mesh = geom.icosphere(subdiv)
-	}
-	sculpt.sculptor_init(&app.sculptor, &app.mesh, &app.pool)
-	free_all(context.temp_allocator)
-	ready := time.tick_now()
-	mesh_gpu, ok := render.mesh_buffers_create(&app.renderer, app.mesh)
-	if !ok {
-		sculpt.sculptor_destroy(&app.sculptor)
-		geom.mesh_destroy(&app.mesh)
-		return false
-	}
-	app.mesh_gpu = mesh_gpu
-	log.infof("mesh: %d vertices, %d triangles; ready to sculpt in %.0f ms, uploaded in %.0f ms",
-		geom.mesh_vertex_count(app.mesh), geom.mesh_triangle_count(app.mesh),
-		time.duration_milliseconds(time.tick_diff(start, ready)), time.duration_milliseconds(time.tick_since(ready)))
-	app.stats = {}
-	app.ui.mesh_choice = 0
-	for size, i in MESH_SIZES {
-		if size.request == {vertices, subdiv if vertices == 0 else 0} do app.ui.mesh_choice = i32(i)
-	}
-	return true
-}
-
-unload_mesh :: proc(app: ^App) {
-	_ = sdl.WaitForGPUIdle(app.renderer.device)
-	render.mesh_buffers_destroy(&app.renderer, &app.mesh_gpu)
-	sculpt.sculptor_destroy(&app.sculptor)
-	geom.mesh_destroy(&app.mesh)
-}
-
 camera_apply_input :: proc(c: ^camera.Orbit, in_: Viewport_Input) {
 	if !in_.hovered && !in_.dragging do return
-	if in_.stroke do return
+	if in_.primary do return
 	switch {
 	case in_.orbit_drag:
 		camera.orbit_rotate(c, in_.mouse_delta)

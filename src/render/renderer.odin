@@ -45,10 +45,18 @@ Mesh_Buffers :: struct {
 // sculpting changes, even with a large brush on a 10M vertex mesh.
 TRANSFER_BUFFER_SIZE :: 16 << 20
 
-// Matches Frame_Uniforms in mesh.vert (std140: two column-major mat4).
+// Matches Frame_Uniforms in mesh.vert (std140: column-major mat4s). Pushed per draw.
 Frame_Uniforms :: struct {
 	view_proj: Mat4,
 	view:      Mat4,
+	model:     Mat4,
+}
+
+// One mesh to draw this frame: where it sits in the world and its clay colour.
+Draw_Item :: struct {
+	mesh:  ^Mesh_Buffers,
+	model: Mat4,
+	color: [4]f32,
 }
 
 // Matches Material_Uniforms in mesh.frag.
@@ -294,8 +302,8 @@ mesh_buffers_upload_ranges :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb:
 	}
 }
 
-// Records the viewport render pass: clear, then draw the mesh with the clay material.
-render_viewport :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, vt: Viewport_Target, mb: Mesh_Buffers, view, proj: Mat4) {
+// Records the viewport render pass: clear, then draw each item with the clay material.
+render_viewport :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item) {
 	color := sdl.GPUColorTargetInfo {
 		texture     = vt.color,
 		clear_color = {0.16, 0.17, 0.19, 1},
@@ -314,15 +322,17 @@ render_viewport :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, vt: Viewport_T
 	}
 	pass := sdl.BeginGPURenderPass(cmd, &color, 1, &depth)
 	defer sdl.EndGPURenderPass(pass)
-
-	frame := Frame_Uniforms{view_proj = proj * view, view = view}
-	material := Material_Uniforms{base_color = {0.55, 0.40, 0.32, 1}, params = {0.08, 0.2, 40, 0}}
-	sdl.PushGPUVertexUniformData(cmd, 0, &frame, size_of(frame))
-	sdl.PushGPUFragmentUniformData(cmd, 0, &material, size_of(material))
-
 	sdl.BindGPUGraphicsPipeline(pass, r.mesh_pipeline)
-	vbufs := [2]sdl.GPUBufferBinding{{buffer = mb.positions}, {buffer = mb.normals}}
-	sdl.BindGPUVertexBuffers(pass, 0, &vbufs[0], len(vbufs))
-	sdl.BindGPUIndexBuffer(pass, {buffer = mb.indices}, ._32BIT)
-	sdl.DrawGPUIndexedPrimitives(pass, mb.index_count, 1, 0, 0, 0)
+
+	for item in items {
+		frame := Frame_Uniforms{view_proj = proj * view, view = view, model = item.model}
+		material := Material_Uniforms{base_color = item.color, params = {0.08, 0.2, 40, 0}}
+		sdl.PushGPUVertexUniformData(cmd, 0, &frame, size_of(frame))
+		sdl.PushGPUFragmentUniformData(cmd, 0, &material, size_of(material))
+		mb := item.mesh
+		vbufs := [2]sdl.GPUBufferBinding{{buffer = mb.positions}, {buffer = mb.normals}}
+		sdl.BindGPUVertexBuffers(pass, 0, &vbufs[0], len(vbufs))
+		sdl.BindGPUIndexBuffer(pass, {buffer = mb.indices}, ._32BIT)
+		sdl.DrawGPUIndexedPrimitives(pass, mb.index_count, 1, 0, 0, 0)
+	}
 }

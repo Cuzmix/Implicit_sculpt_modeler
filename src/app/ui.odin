@@ -1,9 +1,12 @@
 package main
 
+import "core:fmt"
+
 import imgui "deps:odin-imgui"
 
 import "../camera"
 import "../geom"
+import "../gizmo"
 
 // UI-only state. Sculpt and render state live in App; panels edit them through pointers
 // handed over each frame and never keep references between frames.
@@ -11,28 +14,31 @@ Ui_State :: struct {
 	viewport_request: [2]f32, // pixel size the viewport panel wants its render target to be
 	layout_built:     bool,
 	show_demo:        bool,
-	mesh_choice:      i32,
-	// Set by the Mesh panel; the app rebuilds the mesh at the start of the next frame.
-	mesh_request:     Mesh_Request,
+	sphere_vertices:  i32, // vertex count typed into the Scene panel for Add and Remesh
+	// Set by the Scene panel; the app applies it at the start of the next frame.
+	scene_command:    Scene_Command,
+	// Where the viewport image was drawn this frame, so the overlay (brush circle,
+	// gizmo) can be added after the tools have run.
+	viewport_draw_list: ^imgui.DrawList,
+	viewport_origin:    imgui.Vec2,
 }
 
-Mesh_Request :: struct {
-	vertices: int,
-	subdiv:   int,
-}
-
-MESH_SIZES := [?]struct {
-	label:   cstring,
-	request: Mesh_Request,
+SPHERE_PRESETS := [?]struct {
+	label:    cstring,
+	vertices: i32,
 } {
-	{"Icosphere 41k", {subdiv = 6}},
-	{"500k vertices", {vertices = 500_000}},
-	{"1M vertices", {vertices = 1_000_000}},
-	{"5M vertices", {vertices = 5_000_000}},
-	{"7M vertices", {vertices = 7_000_000}},
-	{"10M vertices", {vertices = 10_000_000}},
-	{"25M vertices", {vertices = 25_000_000}},
+	{"41k", 40_962},
+	{"500k", 500_000},
+	{"1M", 1_000_000},
+	{"5M", 5_000_000},
+	{"10M", 10_000_000},
+	{"25M", 25_000_000},
 }
+
+MIN_SPHERE_VERTICES :: 12
+MAX_SPHERE_VERTICES :: 100_000_000
+// Measured at 25M vertices: mesh, sculpt nodes and topology together.
+BYTES_PER_VERTEX :: 108
 
 // What the viewport panel saw this frame, in viewport-local pixels. This is the only
 // thing the camera (and later the brush) reads; neither touches ImGui directly.
@@ -45,13 +51,14 @@ Viewport_Input :: struct {
 	dragging:    bool, // a drag that started in the viewport, even if the cursor has left it
 	orbit_drag:  bool, // right mouse, or Alt + left mouse
 	pan_drag:    bool, // middle mouse, or Shift + right mouse
-	stroke:      bool, // left mouse without Alt: sculpt
+	primary:     bool, // left mouse without Alt: drives the active tool
+	press:       bool, // the left button went down in the viewport this frame
 	smooth:      bool, // Shift held during a stroke: smooth brush
 	invert:      bool, // Ctrl held during a stroke: invert the brush
 }
 
 ui_state_default :: proc() -> Ui_State {
-	return {viewport_request = {1280, 720}}
+	return {viewport_request = {1280, 720}, sphere_vertices = 500_000}
 }
 
 ui_draw :: proc(app: ^App) -> Viewport_Input {
@@ -64,7 +71,9 @@ ui_draw :: proc(app: ^App) -> Viewport_Input {
 	draw_menu_bar(app)
 	input := draw_viewport(app)
 	draw_tools_panel(app)
+	draw_scene_panel(app)
 	draw_stats_panel(app)
+	handle_shortcuts(app)
 	if app.ui.show_demo {
 		imgui.ShowDemoWindow(&app.ui.show_demo)
 	}
@@ -83,10 +92,12 @@ build_default_layout :: proc(dockspace: imgui.ID) {
 	right: imgui.ID
 	main := dockspace
 	imgui.DockBuilderSplitNode(main, .Right, 0.24, &right, &main)
-	right_bottom: imgui.ID
-	imgui.DockBuilderSplitNode(right, .Down, 0.5, &right_bottom, &right)
+	right_bottom, right_middle: imgui.ID
+	imgui.DockBuilderSplitNode(right, .Down, 0.66, &right_bottom, &right)
+	imgui.DockBuilderSplitNode(right_bottom, .Down, 0.4, &right_bottom, &right_middle)
 	imgui.DockBuilderDockWindow("Viewport", main)
 	imgui.DockBuilderDockWindow("Tools", right)
+	imgui.DockBuilderDockWindow("Scene", right_middle)
 	imgui.DockBuilderDockWindow("Stats", right_bottom)
 	imgui.DockBuilderFinish(dockspace)
 }
@@ -101,6 +112,7 @@ draw_menu_bar :: proc(app: ^App) {
 	}
 	if imgui.BeginMenu("View") {
 		if imgui.MenuItem("Reset camera") do app.camera = camera.orbit_default()
+		if imgui.MenuItem("Focus selected", "F") do focus_selected(app)
 		if imgui.MenuItem("ImGui demo", nil, app.ui.show_demo) do app.ui.show_demo = !app.ui.show_demo
 		imgui.EndMenu()
 	}
@@ -140,28 +152,67 @@ draw_viewport :: proc(app: ^App) -> (input: Viewport_Input) {
 	if input.dragging {
 		input.orbit_drag = (right && !io.KeyShift) || (left && io.KeyAlt)
 		input.pan_drag = middle || (right && io.KeyShift)
-		input.stroke = left && !io.KeyAlt
-		input.smooth = input.stroke && io.KeyShift
-		input.invert = input.stroke && io.KeyCtrl
+		input.primary = left && !io.KeyAlt
+		input.press = input.primary && imgui.IsMouseClicked(.Left)
+		input.smooth = input.primary && io.KeyShift
+		input.invert = input.primary && io.KeyCtrl
 	}
-	if input.hovered || input.dragging {
-		center := imgui.Vec2{io.MousePos.x, io.MousePos.y}
-		color := imgui.ColorConvertFloat4ToU32({1, 1, 1, 0.6} if !input.stroke else {1, 0.8, 0.4, 0.9})
-		imgui.DrawList_AddCircle(imgui.GetWindowDrawList(), center, app.brush.radius_px, color, 48, 1.5)
-	}
+	app.ui.viewport_draw_list = imgui.GetWindowDrawList()
+	app.ui.viewport_origin = origin
 	return
+}
+
+// Draws the brush circle or the move gizmo over the viewport image. Runs after the
+// tools have handled this frame's input, so the overlay matches what gets rendered.
+draw_viewport_overlay :: proc(app: ^App, input: Viewport_Input) {
+	list := app.ui.viewport_draw_list
+	if list == nil do return
+	app.ui.viewport_draw_list = nil
+	o := app.ui.viewport_origin
+	imgui.DrawList_PushClipRect(list, o, o + input.size)
+	defer imgui.DrawList_PopClipRect(list)
+	rgba :: proc(c: [4]f32) -> u32 {return imgui.ColorConvertFloat4ToU32(c)}
+
+	switch app.tool {
+	case .Brush:
+		if input.hovered || input.dragging {
+			color := rgba({1, 1, 1, 0.6} if !input.primary else {1, 0.8, 0.4, 0.9})
+			imgui.DrawList_AddCircle(list, o + input.mouse_pos, app.brush.radius_px, color, 48, 1.5)
+		}
+	case .Move:
+		gv := gizmo_view(app, input.size)
+		if !gv.ok do return
+		active := app.move.drag.handle if app.move.drag.handle != .None else app.move.hover
+		AXIS_COLORS := [3][4]f32{{0.95, 0.3, 0.3, 1}, {0.4, 0.85, 0.35, 1}, {0.35, 0.55, 1, 1}}
+		HIGHLIGHT :: [4]f32{1, 0.85, 0.3, 1}
+		c := o + gv.center
+		for i in 0 ..< 3 {
+			if !gv.tip_ok[i] do continue
+			color := rgba(HIGHLIGHT if active == gizmo.Handle(i + 1) else AXIS_COLORS[i])
+			tip := o + gv.tips[i]
+			imgui.DrawList_AddLine(list, c, tip, color, 3)
+			imgui.DrawList_AddCircleFilled(list, tip, 5, color)
+		}
+		r := f32(gizmo.CENTER_PX)
+		center_color := rgba(HIGHLIGHT if active == .View else {1, 1, 1, 0.85})
+		imgui.DrawList_AddRect(list, c - r, c + r, center_color, 0, 2)
+	}
 }
 
 @(private = "file")
 draw_tools_panel :: proc(app: ^App) {
 	defer imgui.End()
 	if !imgui.Begin("Tools") do return
-	imgui.SeparatorText("Camera")
-	imgui.Text("Orbit: right drag, or Alt + left drag")
-	imgui.Text("Pan: middle drag, or Shift + right drag")
-	imgui.Text("Zoom: mouse wheel")
-	imgui.SliderFloat("Distance", &app.camera.distance, camera.MIN_DISTANCE, 20, "%.2f", {.Logarithmic})
-	if imgui.Button("Reset camera") do app.camera = camera.orbit_default()
+	imgui.SeparatorText("Tool")
+	if imgui.RadioButton("Select / Move (W)", app.tool == .Move) do app.tool = .Move
+	imgui.SameLine()
+	if imgui.RadioButton("Brush (B)", app.tool == .Brush) do app.tool = .Brush
+	switch app.tool {
+	case .Move:
+		imgui.TextDisabled("Click selects. Drag an object, or a gizmo arm\nto move along that axis.")
+	case .Brush:
+		imgui.TextDisabled("Left drag sculpts the object under the cursor.\nShift smooths, Ctrl inverts.")
+	}
 
 	imgui.SeparatorText("Brush")
 	if imgui.RadioButton("Draw", app.brush.kind == .Draw) do app.brush.kind = .Draw
@@ -169,18 +220,87 @@ draw_tools_panel :: proc(app: ^App) {
 	if imgui.RadioButton("Smooth", app.brush.kind == .Smooth) do app.brush.kind = .Smooth
 	imgui.SliderFloat("Radius (px)", &app.brush.radius_px, 5, 300, "%.0f")
 	imgui.SliderFloat("Strength", &app.brush.strength, 0.01, 1, "%.2f")
-	imgui.TextDisabled("Left drag sculpts. Shift smooths, Ctrl inverts.")
 
-	imgui.SeparatorText("Mesh")
-	imgui.Text("Vertices:  %d", i32(geom.mesh_vertex_count(app.mesh)))
-	imgui.Text("Triangles: %d", i32(geom.mesh_triangle_count(app.mesh)))
-	if imgui.BeginCombo("Size", MESH_SIZES[app.ui.mesh_choice].label) {
-		for size, i in MESH_SIZES {
-			if imgui.Selectable(size.label, i32(i) == app.ui.mesh_choice) do app.ui.mesh_choice = i32(i)
+	imgui.SeparatorText("Camera")
+	imgui.Text("Orbit: right drag, or Alt + left drag")
+	imgui.Text("Pan: middle drag, or Shift + right drag")
+	imgui.Text("Zoom: mouse wheel.  Focus selected: F")
+	imgui.SliderFloat("Distance", &app.camera.distance, camera.MIN_DISTANCE, 20, "%.2f", {.Logarithmic})
+	if imgui.Button("Reset camera") do app.camera = camera.orbit_default()
+}
+
+@(private = "file")
+draw_scene_panel :: proc(app: ^App) {
+	defer imgui.End()
+	if !imgui.Begin("Scene") do return
+	scene := &app.scene
+
+	total: int
+	for obj in scene.objects do total += geom.mesh_vertex_count(obj.mesh)
+	imgui.Text("%d object%s, %d vertices in total", i32(len(scene.objects)), cstring("" if len(scene.objects) == 1 else "s"), i32(total))
+	if imgui.BeginListBox("##objects", {-1, 4.25 * imgui.GetTextLineHeightWithSpacing()}) {
+		for obj, i in scene.objects {
+			label := fmt.ctprintf("Sphere %d  (%s vertices)", obj.id, count_label(geom.mesh_vertex_count(obj.mesh)))
+			if imgui.Selectable(label, i == scene.selected) do scene.selected = i
 		}
-		imgui.EndCombo()
+		imgui.EndListBox()
 	}
-	if imgui.Button("New sphere") do app.ui.mesh_request = MESH_SIZES[app.ui.mesh_choice].request
+
+	if obj := selected_object(app); obj != nil {
+		imgui.SeparatorText(fmt.ctprintf("Sphere %d", obj.id))
+		imgui.DragFloat3("Position", &obj.transform.position, 0.01, 0, 0, "%.3f")
+		imgui.DragFloat("Scale", &obj.transform.scale, 0.005, 0.01, 100, "%.3f", {.Logarithmic})
+		obj.transform.scale = clamp(obj.transform.scale, 0.01, 100)
+		imgui.Text("%d vertices, %d triangles", i32(geom.mesh_vertex_count(obj.mesh)), i32(geom.mesh_triangle_count(obj.mesh)))
+	}
+
+	imgui.SeparatorText("Sphere resolution")
+	imgui.SetNextItemWidth(-90)
+	imgui.InputInt("Vertices", &app.ui.sphere_vertices, 10_000, 1_000_000)
+	app.ui.sphere_vertices = clamp(app.ui.sphere_vertices, MIN_SPHERE_VERTICES, MAX_SPHERE_VERTICES)
+	for preset, i in SPHERE_PRESETS {
+		if i > 0 do imgui.SameLine()
+		if imgui.SmallButton(preset.label) do app.ui.sphere_vertices = preset.vertices
+	}
+	// Geodesic spheres come in steps of 10*f^2 + 2 vertices; show what will be built.
+	f := geom.geodesic_frequency_for(int(app.ui.sphere_vertices))
+	actual := 10 * f * f + 2
+	imgui.TextDisabled("Builds %d vertices, about %s of memory", i32(actual), bytes_label(actual * BYTES_PER_VERTEX))
+
+	requested := int(app.ui.sphere_vertices)
+	if imgui.Button("Add sphere") do app.ui.scene_command = {kind = .Add, vertices = requested}
+	imgui.SameLine()
+	imgui.BeginDisabled(selected_object(app) == nil)
+	if imgui.Button("Remesh selected") do app.ui.scene_command = {kind = .Remesh, vertices = requested}
+	imgui.SameLine()
+	if imgui.Button("Delete selected") do app.ui.scene_command = {kind = .Delete}
+	imgui.EndDisabled()
+	imgui.TextDisabled("Remesh rebuilds the sphere at this count;\nsculpted detail is not kept yet.")
+}
+
+@(private = "file")
+handle_shortcuts :: proc(app: ^App) {
+	if imgui.GetIO().WantTextInput do return
+	if imgui.IsKeyPressed(.W, false) do app.tool = .Move
+	if imgui.IsKeyPressed(.B, false) do app.tool = .Brush
+	if imgui.IsKeyPressed(.F, false) do focus_selected(app)
+}
+
+@(private = "file")
+count_label :: proc(n: int) -> string {
+	switch {
+	case n >= 1_000_000:
+		return fmt.tprintf("%.1fM", f64(n) / 1e6)
+	case n >= 1_000:
+		return fmt.tprintf("%dk", n / 1000)
+	}
+	return fmt.tprintf("%d", n)
+}
+
+@(private = "file")
+bytes_label :: proc(n: int) -> string {
+	if n >= 1 << 30 do return fmt.tprintf("%.1f GB", f64(n) / f64(1 << 30))
+	return fmt.tprintf("%d MB", max(n >> 20, 1))
 }
 
 @(private = "file")

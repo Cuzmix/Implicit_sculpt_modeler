@@ -17,7 +17,7 @@ Brush_Settings :: struct {
 
 Stroke :: struct {
 	active: bool,
-	last:   sculpt.Vec3, // where the previous dab landed; dabs are spaced from here
+	last:   sculpt.Vec3, // where the previous dab landed, in the object's local space
 }
 
 Sculpt_Frame_Result :: struct {
@@ -29,31 +29,46 @@ Sculpt_Frame_Result :: struct {
 DAB_SPACING :: 0.25 // fraction of the brush radius between dabs
 MAX_DABS_PER_FRAME :: 64
 
-// Turns this frame's viewport input into brush dabs on the mesh.
+// Turns this frame's viewport input into brush dabs. A stroke sculpts the object it
+// started on, which becomes the selected object; dabs are placed in its local space.
 sculpt_frame :: proc(app: ^App, input: Viewport_Input) -> (res: Sculpt_Frame_Result) {
-	if !input.stroke || input.size.x <= 0 || input.size.y <= 0 {
+	if !input.primary || input.size.x <= 0 || input.size.y <= 0 {
 		app.stroke.active = false
 		return
 	}
 
 	origin, dir := mouse_ray(app.camera, input.mouse_pos, input.size)
 	t0 := time.tick_now()
-	hit, ok := sculpt.sculptor_raycast(&app.sculptor, origin, dir)
+	obj: ^Object
+	hit: Vec3
+	ok: bool
+	if !app.stroke.active {
+		index: int
+		index, hit, ok = scene_raycast(app, origin, dir)
+		if ok {
+			app.scene.selected = index
+			obj = selected_object(app)
+			hit = to_local(obj.transform, hit)
+		}
+	} else if obj = selected_object(app); obj != nil {
+		hit, ok = sculpt.sculptor_raycast(&obj.sculptor, to_local(obj.transform, origin), dir)
+	}
 	res.raycast_ms = time.duration_milliseconds(time.tick_since(t0))
 	if !ok do return // off the surface: keep the stroke alive so re-entry continues it
 
-	dist := linalg.length(hit - camera.orbit_eye(app.camera))
+	t := obj.transform
+	dist := linalg.length(to_world(t, hit) - camera.orbit_eye(app.camera))
 	world_per_px := 2 * dist * math.tan(app.camera.fov_y / 2) / input.size.y
 	brush := sculpt.Brush {
 		kind     = .Smooth if input.smooth else app.brush.kind,
-		radius   = app.brush.radius_px * world_per_px,
+		radius   = app.brush.radius_px * world_per_px / t.scale,
 		strength = app.brush.strength,
 		invert   = input.invert,
 	}
 
 	t1 := time.tick_now()
 	if !app.stroke.active {
-		sculpt.apply_dab(&app.sculptor, brush, hit)
+		sculpt.apply_dab(&obj.sculptor, brush, hit)
 		app.stroke = {active = true, last = hit}
 		res.dabs = 1
 	} else {
@@ -65,7 +80,7 @@ sculpt_frame :: proc(app: ^App, input: Viewport_Input) -> (res: Sculpt_Frame_Res
 			step := delta * (spacing / length)
 			for _ in 0 ..< steps {
 				app.stroke.last += step
-				sculpt.apply_dab(&app.sculptor, brush, app.stroke.last)
+				sculpt.apply_dab(&obj.sculptor, brush, app.stroke.last)
 			}
 			res.dabs = steps
 		}
@@ -93,6 +108,6 @@ bench_input :: proc(frame, total: int, size: [2]f32) -> Viewport_Input {
 		mouse_pos = {size.x * (0.3 + 0.4 * t), size.y * (0.5 + 0.15 * math.sin(t * 4 * math.PI))},
 		hovered   = true,
 		dragging  = true,
-		stroke    = true,
+		primary   = true,
 	}
 }
