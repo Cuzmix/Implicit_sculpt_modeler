@@ -3,7 +3,7 @@ package main
 import "core:flags"
 import "core:fmt"
 import "core:log"
-import "core:mem"
+@(require) import "core:mem" // only used when ODIN_DEBUG
 import "core:os"
 import "core:time"
 import sdl "vendor:sdl3"
@@ -15,6 +15,7 @@ import "deps:odin-imgui/imgui_impl_sdlgpu3"
 import "../camera"
 import "../geom"
 import "../render"
+import "../sculpt"
 
 Options :: struct {
 	frames:    int `usage:"Exit after this many frames (0 runs until the window closes)."`,
@@ -22,6 +23,7 @@ Options :: struct {
 	subdiv:    int `usage:"Icosphere subdivision level (default 6)."`,
 	width:     int `usage:"Initial window width (default 1600)."`,
 	height:    int `usage:"Initial window height (default 900)."`,
+	bench_stroke: int `usage:"Run a synthetic brush stroke over this many frames, print brush stats, then exit."`,
 }
 
 // Everything the app owns. ImGui only ever sees copies or pointers handed to it per frame.
@@ -30,6 +32,9 @@ App :: struct {
 	target:   render.Viewport_Target,
 	mesh:     geom.Mesh,
 	mesh_gpu: render.Mesh_Buffers,
+	sculptor: sculpt.Sculptor,
+	brush:    Brush_Settings,
+	stroke:   Stroke,
 	camera:   camera.Orbit,
 	ui:       Ui_State,
 	stats:    Frame_Stats,
@@ -88,7 +93,10 @@ run :: proc(opts: Options) -> bool {
 	build_start := time.tick_now()
 	app.mesh = geom.icosphere(opts.subdiv)
 	defer geom.mesh_destroy(&app.mesh)
-	log.infof("icosphere level %d: %d vertices, %d triangles in %.2f ms",
+	geom.mesh_sort_vertices_spatially(&app.mesh)
+	sculpt.sculptor_init(&app.sculptor, &app.mesh)
+	defer sculpt.sculptor_destroy(&app.sculptor)
+	log.infof("icosphere level %d: %d vertices, %d triangles, ready to sculpt in %.2f ms",
 		opts.subdiv, geom.mesh_vertex_count(app.mesh), geom.mesh_triangle_count(app.mesh),
 		time.duration_milliseconds(time.tick_since(build_start)))
 	free_all(context.temp_allocator)
@@ -122,7 +130,9 @@ run :: proc(opts: Options) -> bool {
 
 	app.camera = camera.orbit_default()
 	app.ui = ui_state_default()
+	app.brush = {kind = .Draw, radius_px = 60, strength = 0.5}
 	app.running = true
+	last_input_ns: u64 // SDL timestamp of the newest mouse event, for latency
 	upload_all := true
 	frame_index := 0
 
@@ -135,6 +145,8 @@ run :: proc(opts: Options) -> bool {
 			#partial switch e.type {
 			case .QUIT, .WINDOW_CLOSE_REQUESTED:
 				app.running = false
+			case .MOUSE_MOTION, .MOUSE_BUTTON_DOWN:
+				last_input_ns = e.common.timestamp
 			}
 		}
 
@@ -149,13 +161,21 @@ run :: proc(opts: Options) -> bool {
 		input := ui_draw(&app)
 		imgui.Render()
 
+		if opts.bench_stroke > 0 {
+			input = bench_input(frame_index, opts.bench_stroke, {f32(app.target.width), f32(app.target.height)})
+			last_input_ns = sdl.GetTicksNS()
+		}
 		camera_apply_input(&app.camera, input)
+		sculpted := sculpt_frame(&app, input)
 
 		cpu_done := time.tick_now()
 		cmd := sdl.AcquireGPUCommandBuffer(app.renderer.device)
+		first, count := sculpt.sculptor_take_dirty(&app.sculptor)
 		if upload_all {
 			render.mesh_buffers_upload_vertices(&app.renderer, cmd, &app.mesh_gpu, app.mesh, 0, u32(len(app.mesh.positions)))
 			upload_all = false
+		} else {
+			render.mesh_buffers_upload_vertices(&app.renderer, cmd, &app.mesh_gpu, app.mesh, first, count)
 		}
 		aspect := f32(app.target.width) / f32(app.target.height)
 		render.render_viewport(&app.renderer, cmd, app.target, app.mesh_gpu,
@@ -185,24 +205,43 @@ run :: proc(opts: Options) -> bool {
 			return false
 		}
 
-		frame_stats_push(&app.stats,
-			time.duration_milliseconds(time.tick_since(frame_start)),
-			time.duration_milliseconds(time.tick_diff(frame_start, cpu_done)))
+		submitted_ns := sdl.GetTicksNS()
+
+		ring_push(&app.stats.frame_ms, time.duration_milliseconds(time.tick_since(frame_start)))
+		ring_push(&app.stats.cpu_ms, time.duration_milliseconds(time.tick_diff(frame_start, cpu_done)))
+		if sculpted.dabs > 0 {
+			ring_push(&app.stats.raycast_ms, sculpted.raycast_ms)
+			ring_push(&app.stats.brush_ms, sculpted.brush_ms)
+			ring_push(&app.stats.upload_kb, f64(2 * count * size_of(geom.Vec3)) / 1024)
+			ring_push(&app.stats.latency_ms, f64(submitted_ns - last_input_ns) / 1e6)
+			app.stats.dabs_total += sculpted.dabs
+		}
 		free_all(context.temp_allocator)
 
 		frame_index += 1
-		if opts.frames > 0 && frame_index >= opts.frames {
+		if (opts.frames > 0 && frame_index >= opts.frames) || (opts.bench_stroke > 0 && frame_index >= opts.bench_stroke) {
 			app.running = false
 		}
 	}
 
-	p50, p99 := frame_stats_percentiles(&app.stats)
-	fmt.printfln("frames=%d frame_ms_p50=%.3f frame_ms_p99=%.3f", frame_index, p50, p99)
+	print_stat :: proc(name: string, r: Sample_Ring) {
+		p50, p99 := ring_percentiles(r)
+		fmt.printfln("%s_p50=%.3f %s_p99=%.3f", name, p50, name, p99)
+	}
+	fmt.printfln("frames=%d dabs=%d vertices=%d", frame_index, app.stats.dabs_total, len(app.mesh.positions))
+	print_stat("frame_ms", app.stats.frame_ms)
+	if app.stats.dabs_total > 0 {
+		print_stat("raycast_ms", app.stats.raycast_ms)
+		print_stat("brush_ms", app.stats.brush_ms)
+		print_stat("upload_kb", app.stats.upload_kb)
+		print_stat("latency_ms", app.stats.latency_ms)
+	}
 	return true
 }
 
 camera_apply_input :: proc(c: ^camera.Orbit, in_: Viewport_Input) {
 	if !in_.hovered && !in_.dragging do return
+	if in_.stroke do return
 	switch {
 	case in_.orbit_drag:
 		camera.orbit_rotate(c, in_.mouse_delta)

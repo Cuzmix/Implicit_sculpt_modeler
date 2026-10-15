@@ -62,3 +62,34 @@ recomputed_normals_match_sphere :: proc(t: ^testing.T) {
 		testing.expect(t, linalg.dot(m.normals[i], linalg.normalize(p)) > 0.999, "normal deviates from radial")
 	}
 }
+
+@(test)
+vertex_faces_cover_every_corner :: proc(t: ^testing.T) {
+	m := icosphere(2)
+	defer mesh_destroy(&m)
+	vf := vertex_faces_build(m)
+	defer vertex_faces_destroy(&vf)
+	testing.expect_value(t, len(vf.tris), len(m.indices))
+	for v in 0 ..< u32(len(m.positions)) {
+		faces := vertex_faces_of(vf, v)
+		testing.expect(t, len(faces) == 5 || len(faces) == 6, "icosphere valence should be 5 or 6")
+		for f in faces {
+			ok := m.indices[3 * f] == v || m.indices[3 * f + 1] == v || m.indices[3 * f + 2] == v
+			testing.expect(t, ok, "face does not contain its vertex")
+		}
+	}
+}
+
+@(test)
+spatial_sort_preserves_geometry :: proc(t: ^testing.T) {
+	m := icosphere(3)
+	defer mesh_destroy(&m)
+	before := make([]Vec3, len(m.indices), context.temp_allocator)
+	for i, k in m.indices {
+		before[k] = m.positions[i]
+	}
+	mesh_sort_vertices_spatially(&m)
+	for i, k in m.indices {
+		testing.expect_value(t, m.positions[i], before[k])
+	}
+}

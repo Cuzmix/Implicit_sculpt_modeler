@@ -24,7 +24,9 @@ Viewport_Input :: struct {
 	dragging:    bool, // a drag that started in the viewport, even if the cursor has left it
 	orbit_drag:  bool, // right mouse, or Alt + left mouse
 	pan_drag:    bool, // middle mouse, or Shift + right mouse
-	stroke:      bool, // left mouse without modifiers: reserved for the brush
+	stroke:      bool, // left mouse without Alt: sculpt
+	smooth:      bool, // Shift held during a stroke: smooth brush
+	invert:      bool, // Ctrl held during a stroke: invert the brush
 }
 
 ui_state_default :: proc() -> Ui_State {
@@ -117,7 +119,14 @@ draw_viewport :: proc(app: ^App) -> (input: Viewport_Input) {
 	if input.dragging {
 		input.orbit_drag = (right && !io.KeyShift) || (left && io.KeyAlt)
 		input.pan_drag = middle || (right && io.KeyShift)
-		input.stroke = left && !io.KeyAlt && !io.KeyShift && !io.KeyCtrl
+		input.stroke = left && !io.KeyAlt
+		input.smooth = input.stroke && io.KeyShift
+		input.invert = input.stroke && io.KeyCtrl
+	}
+	if input.hovered || input.dragging {
+		center := imgui.Vec2{io.MousePos.x, io.MousePos.y}
+		color := imgui.ColorConvertFloat4ToU32({1, 1, 1, 0.6} if !input.stroke else {1, 0.8, 0.4, 0.9})
+		imgui.DrawList_AddCircle(imgui.GetWindowDrawList(), center, app.brush.radius_px, color, 48, 1.5)
 	}
 	return
 }
@@ -133,6 +142,14 @@ draw_tools_panel :: proc(app: ^App) {
 	imgui.SliderFloat("Distance", &app.camera.distance, camera.MIN_DISTANCE, 20, "%.2f", {.Logarithmic})
 	if imgui.Button("Reset camera") do app.camera = camera.orbit_default()
 
+	imgui.SeparatorText("Brush")
+	if imgui.RadioButton("Draw", app.brush.kind == .Draw) do app.brush.kind = .Draw
+	imgui.SameLine()
+	if imgui.RadioButton("Smooth", app.brush.kind == .Smooth) do app.brush.kind = .Smooth
+	imgui.SliderFloat("Radius (px)", &app.brush.radius_px, 5, 300, "%.0f")
+	imgui.SliderFloat("Strength", &app.brush.strength, 0.01, 1, "%.2f")
+	imgui.TextDisabled("Left drag sculpts. Shift smooths, Ctrl inverts.")
+
 	imgui.SeparatorText("Mesh")
 	imgui.Text("Vertices:  %d", i32(geom.mesh_vertex_count(app.mesh)))
 	imgui.Text("Triangles: %d", i32(geom.mesh_triangle_count(app.mesh)))
@@ -143,9 +160,17 @@ draw_stats_panel :: proc(app: ^App) {
 	defer imgui.End()
 	if !imgui.Begin("Stats") do return
 	s := &app.stats
-	p50, p99 := frame_stats_percentiles(s)
-	imgui.Text("Frame  p50 %.2f ms   p99 %.2f ms", p50, p99)
-	imgui.Text("CPU (events + UI) last %.2f ms", s.cpu_ms[(s.head + FRAME_HISTORY - 1) % FRAME_HISTORY])
-	imgui.Text("Viewport %d x %d px", i32(app.target.width), i32(app.target.height))
-	imgui.PlotLines("##frame_ms", &s.frame_ms[0], FRAME_HISTORY, i32(s.head), "frame ms", 0, 33.3, {0, 80})
+	row :: proc(label: cstring, r: Sample_Ring, unit: cstring) {
+		p50, p99 := ring_percentiles(r)
+		imgui.Text("%-14s p50 %7.2f  p99 %7.2f %s", label, p50, p99, unit)
+	}
+	row("Frame", s.frame_ms, "ms")
+	row("CPU (UI)", s.cpu_ms, "ms")
+	imgui.PlotLines("##frame_ms", &s.frame_ms.values[0], HISTORY, i32(s.frame_ms.head), "frame ms", 0, 33.3, {0, 80})
+	imgui.SeparatorText("While sculpting")
+	row("Raycast", s.raycast_ms, "ms")
+	row("Brush", s.brush_ms, "ms")
+	row("Upload", s.upload_kb, "KB")
+	row("Input->submit", s.latency_ms, "ms")
+	imgui.Text("Dabs %d   Viewport %d x %d px", i32(s.dabs_total), i32(app.target.width), i32(app.target.height))
 }

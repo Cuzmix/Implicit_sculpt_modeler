@@ -2,30 +2,38 @@ package main
 
 import "core:slice"
 
-FRAME_HISTORY :: 240
+HISTORY :: 240
 
-// Fixed-size ring buffers: recording a frame never allocates.
-Frame_Stats :: struct {
-	frame_ms: [FRAME_HISTORY]f32,
-	cpu_ms:   [FRAME_HISTORY]f32,
-	head:     int,
-	count:    int,
+// Fixed-size ring of samples: recording never allocates.
+Sample_Ring :: struct {
+	values: [HISTORY]f32,
+	head:   int,
+	count:  int,
 }
 
-frame_stats_push :: proc(s: ^Frame_Stats, frame_ms, cpu_ms: f64) {
-	s.frame_ms[s.head] = f32(frame_ms)
-	s.cpu_ms[s.head] = f32(cpu_ms)
-	s.head = (s.head + 1) % FRAME_HISTORY
-	s.count = min(s.count + 1, FRAME_HISTORY)
+ring_push :: proc(r: ^Sample_Ring, v: f64) {
+	r.values[r.head] = f32(v)
+	r.head = (r.head + 1) % HISTORY
+	r.count = min(r.count + 1, HISTORY)
 }
 
-// Median and 99th percentile of the recorded frame times, sorted on the stack.
-frame_stats_percentiles :: proc(s: ^Frame_Stats) -> (p50, p99: f32) {
-	if s.count == 0 do return
-	sorted: [FRAME_HISTORY]f32
-	n := s.count
+// Median and 99th percentile, sorted on the stack.
+ring_percentiles :: proc(r: Sample_Ring) -> (p50, p99: f32) {
+	if r.count == 0 do return
 	// Until the ring wraps, samples occupy the first `count` slots.
-	copy(sorted[:n], s.frame_ms[:n])
+	sorted := r.values
+	n := r.count
 	slice.sort(sorted[:n])
 	return sorted[n / 2], sorted[min(n - 1, n * 99 / 100)]
+}
+
+Frame_Stats :: struct {
+	frame_ms:   Sample_Ring, // whole frame, start of event polling to after submit
+	cpu_ms:     Sample_Ring, // events + UI
+	// Recorded only on frames where the brush changed the mesh:
+	raycast_ms: Sample_Ring,
+	brush_ms:   Sample_Ring, // dabs + normal updates, excluding the raycast
+	upload_kb:  Sample_Ring,
+	latency_ms: Sample_Ring, // newest input event to command buffer submit
+	dabs_total: int,
 }

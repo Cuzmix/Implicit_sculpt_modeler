@@ -38,7 +38,7 @@ case "$mode" in
 		;;
 	test)
 		compile_shaders
-		for pkg in geom camera; do
+		for pkg in geom camera sculpt; do
 			"$ODIN" test "$ROOT/src/$pkg" -out:"$ROOT/build/test_$pkg" "${common[@]}"
 		done
 		;;
