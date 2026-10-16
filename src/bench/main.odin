@@ -6,7 +6,10 @@
 // For each target vertex count it builds a geodesic sphere, prepares it for sculpting,
 // then runs the same strokes for a large and a small brush and prints one table row
 // per brush. A frame is DABS_PER_FRAME dabs (each with its raycast) plus the flush
-// that recomputes normals; GPU upload is the bytes of the dirty vertex ranges per frame.
+// that recomputes normals; GPU upload is the bytes of the dirty vertex ranges per frame
+// (16 bytes a vertex: float3 position, octahedral snorm16x2 normal).
+// A second table shows view culling of the sculpted mesh from three cameras: what share
+// of triangles would be drawn, in how many draw commands, and the CPU time to cull.
 // By default the 10M size runs a second time with an idle second sphere in the scene,
 // flushed every frame as the app does, to show that idle meshes add no CPU cost.
 //
@@ -25,6 +28,7 @@ import "core:strconv"
 import "core:strings"
 import "core:time"
 
+import "../camera"
 import "../geom"
 import "../jobs"
 import "../sculpt"
@@ -33,6 +37,10 @@ Vec3 :: geom.Vec3
 
 DABS :: 77
 DABS_PER_FRAME :: 4 // a fast stroke lands several dabs per frame
+VERTEX_BYTES :: 16  // per vertex on the GPU, as render.VERTEX_BYTES
+INDIRECT_BYTES :: 20 // per indirect draw command
+
+cull_rows: [dynamic]string
 
 node_triangles: u32 = sculpt.NODE_TRIANGLES
 threads := 0
@@ -82,6 +90,10 @@ main :: proc() {
 	for c in cases {
 		run(c.vertices, c.meshes, pool)
 	}
+	fmt.println()
+	fmt.println("| Vertices | GPU MB | View | Chunks | Triangles drawn | Draws | Cull ms |")
+	fmt.println("| --- | --- | --- | --- | --- | --- | --- |")
+	for row in cull_rows do fmt.println(row)
 	if prefault_mb == 0 do fmt.printfln("peak RSS: %.0f MB", peak_rss_mb())
 }
 
@@ -116,7 +128,7 @@ run :: proc(target, mesh_count: int, pool: ^jobs.Pool) {
 	vcount, tcount := len(m.positions), len(m.indices) / 3
 	cpu_bytes := vcount * (2 * size_of(Vec3) + 4) + // positions, normals, vertex-face offsets
 		tcount * (3 * 4 + 3 * 4 + 4 + 4) + // indices, face lists, bvh order/leaf
-		len(s.bvh.nodes) * (size_of(geom.Bvh_Node) + 4) + len(s.nodes) * size_of(sculpt.Node) +
+		len(s.bvh.nodes) * (size_of(geom.Bvh_Node) + 4) + len(s.nodes) * (size_of(sculpt.Node) + size_of(geom.Chunk)) +
 		(len(s.shared) + len(s.owners)) * 4
 
 	// Large brush ~ a 60 px brush on a full-screen head; small ~ a 20 px detail brush.
@@ -148,7 +160,7 @@ run :: proc(target, mesh_count: int, pool: ^jobs.Pool) {
 				tc := time.tick_now()
 				// Every sphere is flushed, as the app does each frame; idle ones have nothing to do.
 				for sp in spheres {
-					for r in sculpt.sculptor_flush(&sp.sculptor) do upload_bytes += int(r.count) * 2 * size_of(Vec3)
+					for r in sculpt.sculptor_flush(&sp.sculptor) do upload_bytes += int(r.count) * VERTEX_BYTES
 				}
 				flush[f] = time.duration_milliseconds(time.tick_since(tc))
 				frame[f] += flush[f]
@@ -158,6 +170,37 @@ run :: proc(target, mesh_count: int, pool: ^jobs.Pool) {
 			mesh_count, thousands(vcount), thousands(tcount), setup_s, f64(cpu_bytes) / (1 << 20), rss, radius,
 			touched_total / DABS, median(raycast), median(dab), median(flush), median(frame), slice.max(frame),
 			f64(upload_bytes) / f64(frames) / (1 << 20))
+	}
+	if mesh_count == 1 do bench_culling(s, vcount, tcount)
+}
+
+// Culls the sculpted sphere from the app's default camera, a close-up of the stroked
+// area, and a detail view almost touching the surface, as the renderer would.
+bench_culling :: proc(s: ^sculpt.Sculptor, vcount, tcount: int) {
+	gpu_mb := f64(vcount * VERTEX_BYTES + tcount * 3 * 4 + len(s.chunks) * INDIRECT_BYTES) / (1 << 20)
+	views := [3]struct {
+		name:     string,
+		distance: f32,
+	}{{"whole (3.5)", 3.5}, {"close (1.6)", 1.6}, {"detail (1.15)", 1.15}}
+	out: [dynamic]geom.Index_Range
+	defer delete(out)
+	for v in views {
+		c := camera.orbit_default()
+		c.yaw, c.pitch, c.distance = 0, 0.1, v.distance
+		view := camera.orbit_view(c)
+		proj := camera.orbit_proj(c, 16.0 / 9.0)
+		best := max(f64)
+		stats: geom.Cull_Stats
+		for _ in 0 ..< 5 {
+			clear(&out)
+			t := time.tick_now()
+			stats = geom.cull_chunks(s.chunks, proj * view, camera.orbit_eye(c), &out)
+			best = min(best, time.duration_milliseconds(time.tick_since(t)))
+		}
+		drawn := 0
+		for r in out do drawn += int(r.index_count / 3)
+		append(&cull_rows, fmt.aprintf("| %s | %.0f | %s | %d | %.0f%% (%s) | %d | %.3f |",
+			thousands(vcount), gpu_mb, v.name, stats.chunks, 100 * f64(drawn) / f64(tcount), thousands(drawn), len(out), best))
 	}
 }
 

@@ -28,6 +28,7 @@ Options :: struct {
 	height:    int `usage:"Initial window height (default 900)."`,
 	spheres:   int `usage:"Start with this many spheres side by side, all of the starting size (default 1)."`,
 	no_cache:  bool `usage:"Draw every object every frame instead of caching the idle ones (for comparison)."`,
+	no_cull:   bool `usage:"Draw every triangle instead of skipping off-screen and back-facing chunks (for comparison)."`,
 	bench_stroke: int `usage:"Run a synthetic brush stroke over this many frames, print brush stats, then exit."`,
 }
 
@@ -132,6 +133,7 @@ run :: proc(opts: Options) -> bool {
 	app.camera = camera.orbit_default()
 	if len(app.scene.objects) > 1 do frame_all(&app)
 	app.cache_idle = !opts.no_cache
+	app.renderer.cull = !opts.no_cull
 	app.ui = ui_state_default()
 	app.brush = {kind = .Draw, radius_px = 60, strength = 0.5}
 	app.tool = .Brush
@@ -197,7 +199,7 @@ run :: proc(opts: Options) -> bool {
 			// selected one is sculpted or moved, so the rest can come from the cache.
 			selected := i == app.scene.selected
 			color := [4]f32{0.55, 0.40, 0.32, 1} if selected else {0.42, 0.42, 0.44, 1}
-			draws[i] = {mesh = &obj.mesh_gpu, model = transform_matrix(obj.transform), color = color, live = selected}
+			draws[i] = {mesh = &obj.mesh_gpu, model = transform_matrix(obj.transform), color = color, live = selected, chunks = obj.sculptor.chunks}
 		}
 		aspect := f32(app.target.width) / f32(app.target.height)
 		drawn := render.render_viewport(&app.renderer, cmd, &app.target,
@@ -237,7 +239,7 @@ run :: proc(opts: Options) -> bool {
 			ring_push(&app.stats.raycast_ms, sculpted.raycast_ms)
 			ring_push(&app.stats.brush_ms, sculpted.brush_ms)
 			ring_push(&app.stats.normals_ms, normals_ms)
-			ring_push(&app.stats.upload_kb, f64(2 * uploaded * size_of(geom.Vec3)) / 1024)
+			ring_push(&app.stats.upload_kb, f64(uploaded * render.VERTEX_BYTES) / 1024)
 			ring_push(&app.stats.latency_ms, f64(submitted_ns - last_input_ns) / 1e6)
 			app.stats.dabs_total += sculpted.dabs
 		}
@@ -257,6 +259,8 @@ run :: proc(opts: Options) -> bool {
 	for obj in app.scene.objects do vertices += geom.mesh_vertex_count(obj.mesh)
 	fmt.printfln("frames=%d dabs=%d objects=%d vertices=%d", frame_index, app.stats.dabs_total, len(app.scene.objects), vertices)
 	fmt.printfln("idle_cache=%v cache_redraws=%d last_frame_triangles=%d", app.cache_idle, app.stats.cache_redraws, app.stats.viewport.triangles)
+	v := app.stats.viewport
+	fmt.printfln("cull=%v last_frame_draws=%d chunks=%d culled_view=%d culled_back=%d cull_ms=%.3f", app.renderer.cull, v.draws, v.chunks, v.culled_view, v.culled_back, v.cull_ms)
 	print_stat("frame_ms", app.stats.frame_ms)
 	if app.stats.dabs_total > 0 {
 		print_stat("raycast_ms", app.stats.raycast_ms)

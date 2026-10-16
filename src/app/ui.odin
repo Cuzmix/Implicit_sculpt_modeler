@@ -315,7 +315,11 @@ draw_stats_panel :: proc(app: ^App) {
 	row("Frame", s.frame_ms, "ms")
 	row("CPU (UI)", s.cpu_ms, "ms")
 	imgui.PlotLines("##frame_ms", &s.frame_ms.values[0], HISTORY, i32(s.frame_ms.head), "frame ms", 0, 33.3, {0, 80})
-	imgui.Text("Triangles drawn %s", fmt.ctprintf("%s", count_label(int(s.viewport.triangles))))
+	v := s.viewport
+	imgui.Text("Triangles drawn %s in %d draws", fmt.ctprintf("%s", count_label(int(v.triangles))), i32(v.draws))
+	imgui.Checkbox("Skip hidden chunks", &app.renderer.cull)
+	imgui.SameLine()
+	imgui.TextDisabled("(%d off, %d back, %.2f ms)", i32(v.culled_view), i32(v.culled_back), v.cull_ms)
 	imgui.Checkbox("Cache idle objects", &app.cache_idle)
 	imgui.SameLine()
 	imgui.TextDisabled("(%s, redrawn %d times)", cstring("in use" if s.viewport.cache_used else "not in use"), i32(s.cache_redraws))

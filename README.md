@@ -7,8 +7,8 @@ A performance-focused sculpting prototype in Odin, using SDL3 + SDL_GPU for rend
 | Path | Owns |
 | --- | --- |
 | `src/app` | Entry point, frame loop, scene of sculptable objects, Move and Brush tools, ImGui panels, input routing into `Viewport_Input` |
-| `src/render` | Every GPU object the app creates: device, pipeline, viewport target, mesh buffers, shaders |
-| `src/geom` | CPU sculpt geometry (structure-of-arrays triangle mesh, BVH, test spheres); no rendering or UI imports |
+| `src/render` | Every GPU object the app creates: device, pipeline, viewport target, mesh buffers (16 bytes a vertex: float3 position, octahedral normal), per-mesh indirect draws of the visible chunks, shaders |
+| `src/geom` | CPU sculpt geometry (structure-of-arrays triangle mesh, BVH, test spheres) and view-culling math (chunk bounds and normal cones, frustum and back-face tests); no rendering or UI imports |
 | `src/camera` | Orbit camera math; no rendering or UI imports |
 | `src/gizmo` | Move gizmo math: projection, handle picking, axis and view-plane drags; no rendering or UI imports |
 | `src/sculpt` | Brush dabs on a `geom.Mesh`: mesh split into nodes that own contiguous vertex ranges, parallel draw/smooth, per-frame normal updates, dirty vertex ranges for upload |
@@ -51,11 +51,11 @@ Shaders are recompiled when `glslangValidator` (Vulkan SDK) is on PATH; otherwis
 
 ## App flags
 
-`--vertices=N` start with a geodesic sphere of about N vertices (the Scene panel adds spheres or remeshes the selected one at any typed vertex count), `--subdiv=N` icosphere level when `--vertices` is not given (default 6: 40,962 vertices), `--threads=N` sculpt threads including the main one (default: one per core), `--frames=N` exit after N frames, `--spheres=N` start with N spheres of that size side by side, `--no-cache` draw every object every frame instead of caching idle ones (for A/B timing; also a checkbox in the Stats panel), `--bench-stroke=N` synthetic brush stroke over N frames across the first sphere, then print stats, `--gpu-debug` GPU debug/validation mode, `--width`, `--height`.
+`--vertices=N` start with a geodesic sphere of about N vertices (the Scene panel adds spheres or remeshes the selected one at any typed vertex count), `--subdiv=N` icosphere level when `--vertices` is not given (default 6: 40,962 vertices), `--threads=N` sculpt threads including the main one (default: one per core), `--frames=N` exit after N frames, `--spheres=N` start with N spheres of that size side by side, `--no-cache` draw every object every frame instead of caching idle ones (for A/B timing; also a checkbox in the Stats panel), `--bench-stroke=N` synthetic brush stroke over N frames across the first sphere, then print stats, `--gpu-debug` GPU debug/validation mode, `--no-cull` draw every triangle instead of skipping off-screen and back-facing chunks (for A/B timing; also a checkbox in the Stats panel), `--width`, `--height`.
 
 ## Benchmark
 
-`build/bench [vertex counts...] [--meshes=N] [--threads=N] [--node=N] [--prefault=MB]` builds a sphere of each size (N of them with `--meshes`, only the first sculpted; with no sizes given it also runs 10M with a second idle sphere), prepares it for sculpting, runs the same 77-dab stroke with a large (r=0.13) and a small (r=0.04) brush, and prints a markdown table. A frame is 4 dabs plus the normal update and is what the app does per frame during a fast stroke. On cloud VMs, pass `--prefault=3000` so the VM's slow first touch of fresh memory does not dominate setup times.
+`build/bench [vertex counts...] [--meshes=N] [--threads=N] [--node=N] [--prefault=MB]` builds a sphere of each size (N of them with `--meshes`, only the first sculpted; with no sizes given it also runs 10M with a second idle sphere), prepares it for sculpting, runs the same 77-dab stroke with a large (r=0.13) and a small (r=0.04) brush, and prints a markdown table. A frame is 4 dabs plus the normal update and is what the app does per frame during a fast stroke. A second table culls the sculpted sphere from three cameras (whole sphere, close-up, detail) and reports the share of triangles that would be drawn, the number of indirect draw commands, and the CPU time to cull. On cloud VMs, pass `--prefault=3000` so the VM's slow first touch of fresh memory does not dominate setup times.
 
 The SDF/voxel comparison spike from step 3 builds separately: `deps/odin/odin build src/sdf_trial -o:speed -collection:deps=deps`.
 

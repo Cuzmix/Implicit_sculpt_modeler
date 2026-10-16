@@ -5,6 +5,7 @@ package render
 
 import "core:hash"
 import "core:log"
+import "core:math/linalg"
 import "core:slice"
 import sdl "vendor:sdl3"
 
@@ -19,7 +20,8 @@ Renderer :: struct {
 	window:        ^sdl.Window,
 	depth_format:  sdl.GPUTextureFormat,
 	mesh_pipeline: ^sdl.GPUGraphicsPipeline,
-	last_version:  u64, // source of Mesh_Buffers.version
+	last_version:  u64,  // source of Mesh_Buffers.version
+	cull:          bool, // skip off-screen and back-facing chunks of items that have them
 }
 
 // Offscreen colour + depth pair the 3D viewport renders into. Recreated on resize.
@@ -41,9 +43,10 @@ Static_Cache :: struct {
 	key:   u64, // hash of what the textures hold; 0 when they hold nothing
 }
 
-// GPU copy of a geom.Mesh. Positions and normals live in separate vertex buffers so
-// either can be re-uploaded alone. The transfer buffer is sized for typical per-frame
-// sculpt updates, not the whole mesh; bigger uploads go through it in chunks.
+// GPU copy of a geom.Mesh. Positions (3 floats) and normals (octahedral, 2 snorm16)
+// live in separate vertex buffers: 16 bytes a vertex. The transfer buffer is sized for
+// typical per-frame sculpt updates, not the whole mesh; bigger uploads go through it
+// in chunks.
 Mesh_Buffers :: struct {
 	positions:       ^sdl.GPUBuffer,
 	normals:         ^sdl.GPUBuffer,
@@ -53,9 +56,20 @@ Mesh_Buffers :: struct {
 	vertex_capacity: u32,
 	index_count:     u32,
 	version:         u64, // changes whenever the buffers' contents do
+
+	// Culled drawing: one indirect draw command per visible run of chunks, rebuilt
+	// each frame the mesh is drawn. Created on first use, sized for every chunk.
+	indirect:          ^sdl.GPUBuffer,
+	indirect_transfer: ^sdl.GPUTransferBuffer,
+	indirect_capacity: u32, // commands
+	draw_count:        u32, // commands recorded this frame
+	visible:           [dynamic]geom.Index_Range, // scratch
 }
 
-// 16 MB holds positions and normals for ~700k vertices: far more than a frame of
+Normal_Packed :: [2]i16
+VERTEX_BYTES :: size_of(geom.Vec3) + size_of(Normal_Packed)
+
+// 16 MB holds positions and normals for 1M vertices: far more than a frame of
 // sculpting changes, even with a large brush on a 10M vertex mesh.
 TRANSFER_BUFFER_SIZE :: 16 << 20
 
@@ -68,16 +82,25 @@ Frame_Uniforms :: struct {
 
 // One mesh to draw this frame: where it sits in the world and its clay colour.
 // `live` marks the object being worked on; everything else may come from the cache.
+// With `chunks` (in index-buffer order, covering the mesh) and Renderer.cull, only the
+// chunks that can be seen are drawn; `model` must then be translation plus uniform
+// scale, as the culling transforms the eye into the mesh's space with its inverse.
 Draw_Item :: struct {
-	mesh:  ^Mesh_Buffers,
-	model: Mat4,
-	color: [4]f32,
-	live:  bool,
+	mesh:   ^Mesh_Buffers,
+	model:  Mat4,
+	color:  [4]f32,
+	live:   bool,
+	chunks: []geom.Chunk,
 }
 
 // What render_viewport did this frame, for the stats panel.
 Viewport_Stats :: struct {
 	triangles:     u64,  // triangles submitted
+	draws:         u64,  // draw commands (indirect ones counted one by one)
+	chunks:        u64,  // chunks considered for culling
+	culled_view:   u64,  // ...outside the view
+	culled_back:   u64,  // ...facing away
+	cull_ms:       f64,  // CPU time spent culling and writing draw commands
 	cache_used:    bool, // idle objects came from the cache
 	cache_redrawn: bool, // ...which had to be redrawn first
 }
@@ -151,11 +174,11 @@ create_mesh_pipeline :: proc(r: ^Renderer) -> ^sdl.GPUGraphicsPipeline {
 
 	buffers := [2]sdl.GPUVertexBufferDescription {
 		{slot = 0, pitch = size_of(geom.Vec3), input_rate = .VERTEX},
-		{slot = 1, pitch = size_of(geom.Vec3), input_rate = .VERTEX},
+		{slot = 1, pitch = size_of(Normal_Packed), input_rate = .VERTEX},
 	}
 	attributes := [2]sdl.GPUVertexAttribute {
 		{location = 0, buffer_slot = 0, format = .FLOAT3},
-		{location = 1, buffer_slot = 1, format = .FLOAT3},
+		{location = 1, buffer_slot = 1, format = .SHORT2_NORM},
 	}
 	color_targets := [1]sdl.GPUColorTargetDescription{{format = VIEWPORT_COLOR_FORMAT}}
 
@@ -246,6 +269,7 @@ mesh_buffers_create :: proc(r: ^Renderer, mesh: geom.Mesh) -> (mb: Mesh_Buffers,
 	vcount := u32(len(mesh.positions))
 	icount := u32(len(mesh.indices))
 	vbytes := vcount * size_of(geom.Vec3)
+	nbytes := vcount * size_of(Normal_Packed)
 	ibytes := icount * size_of(u32)
 
 	mb.vertex_capacity = vcount
@@ -254,7 +278,7 @@ mesh_buffers_create :: proc(r: ^Renderer, mesh: geom.Mesh) -> (mb: Mesh_Buffers,
 	mb.version = r.last_version
 	mb.transfer_size = TRANSFER_BUFFER_SIZE
 	mb.positions = sdl.CreateGPUBuffer(r.device, {usage = {.VERTEX}, size = vbytes})
-	mb.normals = sdl.CreateGPUBuffer(r.device, {usage = {.VERTEX}, size = vbytes})
+	mb.normals = sdl.CreateGPUBuffer(r.device, {usage = {.VERTEX}, size = nbytes})
 	mb.indices = sdl.CreateGPUBuffer(r.device, {usage = {.INDEX}, size = ibytes})
 	mb.transfer = sdl.CreateGPUTransferBuffer(r.device, {usage = .UPLOAD, size = mb.transfer_size})
 	if mb.positions == nil || mb.normals == nil || mb.indices == nil || mb.transfer == nil {
@@ -264,7 +288,7 @@ mesh_buffers_create :: proc(r: ^Renderer, mesh: geom.Mesh) -> (mb: Mesh_Buffers,
 	}
 	ok = upload_blocking(r, &mb, mb.indices, slice.to_bytes(mesh.indices[:])) &&
 		upload_blocking(r, &mb, mb.positions, slice.to_bytes(mesh.positions[:])) &&
-		upload_blocking(r, &mb, mb.normals, slice.to_bytes(mesh.normals[:]))
+		upload_normals_blocking(r, &mb, mesh.normals[:])
 	if !ok {
 		log.errorf("mesh upload failed: %s", sdl.GetError())
 		mesh_buffers_destroy(r, &mb)
@@ -292,11 +316,35 @@ upload_blocking :: proc(r: ^Renderer, mb: ^Mesh_Buffers, buffer: ^sdl.GPUBuffer,
 	return true
 }
 
+// Packs and copies every normal, one transfer buffer at a time.
+@(private)
+upload_normals_blocking :: proc(r: ^Renderer, mb: ^Mesh_Buffers, normals: []geom.Vec3) -> bool {
+	per_batch := int(mb.transfer_size / size_of(Normal_Packed))
+	for first := 0; first < len(normals); first += per_batch {
+		batch := normals[first:min(first + per_batch, len(normals))]
+		dst := cast([^]Normal_Packed)sdl.MapGPUTransferBuffer(r.device, mb.transfer, false)
+		if dst == nil do return false
+		for n, i in batch do dst[i] = geom.oct_encode(n)
+		sdl.UnmapGPUTransferBuffer(r.device, mb.transfer)
+		cmd := sdl.AcquireGPUCommandBuffer(r.device)
+		if cmd == nil do return false
+		pass := sdl.BeginGPUCopyPass(cmd)
+		size := u32(len(batch) * size_of(Normal_Packed))
+		sdl.UploadToGPUBuffer(pass, {transfer_buffer = mb.transfer}, {buffer = mb.normals, offset = u32(first * size_of(Normal_Packed)), size = size}, false)
+		sdl.EndGPUCopyPass(pass)
+		if !sdl.SubmitGPUCommandBuffer(cmd) || !sdl.WaitForGPUIdle(r.device) do return false
+	}
+	return true
+}
+
 mesh_buffers_destroy :: proc(r: ^Renderer, mb: ^Mesh_Buffers) {
 	if mb.positions != nil do sdl.ReleaseGPUBuffer(r.device, mb.positions)
 	if mb.normals != nil do sdl.ReleaseGPUBuffer(r.device, mb.normals)
 	if mb.indices != nil do sdl.ReleaseGPUBuffer(r.device, mb.indices)
 	if mb.transfer != nil do sdl.ReleaseGPUTransferBuffer(r.device, mb.transfer)
+	if mb.indirect != nil do sdl.ReleaseGPUBuffer(r.device, mb.indirect)
+	if mb.indirect_transfer != nil do sdl.ReleaseGPUTransferBuffer(r.device, mb.indirect_transfer)
+	delete(mb.visible)
 	mb^ = {}
 }
 
@@ -308,7 +356,6 @@ mesh_buffers_upload_ranges :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb:
 		r.last_version += 1
 		mb.version = r.last_version
 	}
-	VERTEX_BYTES :: 2 * size_of(geom.Vec3)
 	capacity := mb.transfer_size / VERTEX_BYTES // vertices per batch
 	pending := ranges
 	split: geom.Vertex_Range // remainder of a range cut at a batch boundary
@@ -338,20 +385,21 @@ mesh_buffers_upload_ranges :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb:
 			used += next.count
 		}
 
-		// Positions for the batch first, then normals, each packed by range.
-		dst := cast([^]geom.Vec3)sdl.MapGPUTransferBuffer(r.device, mb.transfer, true)
+		// Positions for the batch first, then packed normals, each laid out by range.
+		mapped := cast([^]u8)sdl.MapGPUTransferBuffer(r.device, mb.transfer, true)
+		dst_p := cast([^]geom.Vec3)mapped
+		dst_n := cast([^]Normal_Packed)(mapped[used * size_of(geom.Vec3):])
 		for p in batch {
-			copy(dst[p.dst:][:p.r.count], mesh.positions[p.r.first:][:p.r.count])
-			copy(dst[used + p.dst:][:p.r.count], mesh.normals[p.r.first:][:p.r.count])
+			copy(dst_p[p.dst:][:p.r.count], mesh.positions[p.r.first:][:p.r.count])
+			for n, k in mesh.normals[p.r.first:][:p.r.count] do dst_n[p.dst + u32(k)] = geom.oct_encode(n)
 		}
 		sdl.UnmapGPUTransferBuffer(r.device, mb.transfer)
 		pass := sdl.BeginGPUCopyPass(cmd)
 		for p in batch {
-			bytes := p.r.count * size_of(geom.Vec3)
-			offset := p.r.first * size_of(geom.Vec3)
-			src := p.dst * size_of(geom.Vec3)
-			sdl.UploadToGPUBuffer(pass, {transfer_buffer = mb.transfer, offset = src}, {buffer = mb.positions, offset = offset, size = bytes}, false)
-			sdl.UploadToGPUBuffer(pass, {transfer_buffer = mb.transfer, offset = src + used * size_of(geom.Vec3)}, {buffer = mb.normals, offset = offset, size = bytes}, false)
+			src_p := p.dst * size_of(geom.Vec3)
+			src_n := used * size_of(geom.Vec3) + p.dst * size_of(Normal_Packed)
+			sdl.UploadToGPUBuffer(pass, {transfer_buffer = mb.transfer, offset = src_p}, {buffer = mb.positions, offset = p.r.first * size_of(geom.Vec3), size = p.r.count * size_of(geom.Vec3)}, false)
+			sdl.UploadToGPUBuffer(pass, {transfer_buffer = mb.transfer, offset = src_n}, {buffer = mb.normals, offset = p.r.first * size_of(Normal_Packed), size = p.r.count * size_of(Normal_Packed)}, false)
 		}
 		sdl.EndGPUCopyPass(pass)
 	}
@@ -366,17 +414,20 @@ render_viewport :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_
 	// With nothing live (or nothing idle) there is nothing to reuse.
 	if !use_cache || live == 0 || live == len(items) || !static_cache_ensure(r, vt) {
 		vt.cache.key = 0
+		prepare_draws(r, cmd, view, proj, items, nil, &stats)
 		pass := begin_mesh_pass(r, cmd, vt.color, vt.depth, load = false, keep_depth = false)
-		stats.triangles = draw_items(r, cmd, pass, view, proj, items, live = nil)
+		draw_items(r, cmd, pass, view, proj, items, nil, &stats)
 		sdl.EndGPURenderPass(pass)
 		return
 	}
 	stats.cache_used = true
 
 	key := static_key(vt^, view, proj, items)
-	if key != vt.cache.key {
+	redraw := key != vt.cache.key
+	prepare_draws(r, cmd, view, proj, items, nil if redraw else true, &stats)
+	if redraw {
 		pass := begin_mesh_pass(r, cmd, vt.cache.color, vt.cache.depth, load = false, keep_depth = true)
-		stats.triangles = draw_items(r, cmd, pass, view, proj, items, live = false)
+		draw_items(r, cmd, pass, view, proj, items, false, &stats)
 		sdl.EndGPURenderPass(pass)
 		vt.cache.key = key
 		stats.cache_redrawn = true
@@ -389,9 +440,65 @@ render_viewport :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_
 	sdl.EndGPUCopyPass(copy_pass)
 
 	pass := begin_mesh_pass(r, cmd, vt.color, vt.depth, load = true, keep_depth = false)
-	stats.triangles += draw_items(r, cmd, pass, view, proj, items, live = true)
+	draw_items(r, cmd, pass, view, proj, items, true, &stats)
 	sdl.EndGPURenderPass(pass)
 	return
+}
+
+// For every item that will be drawn this frame (those whose `live` matches, all of
+// them when `live` is nil) and can be culled, culls its chunks against the camera and
+// uploads one indirect draw command per visible run. Must run before the render
+// passes, since uploads need a copy pass.
+@(private)
+prepare_draws :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, view, proj: Mat4, items: []Draw_Item, live: Maybe(bool), stats: ^Viewport_Stats) {
+	if !r.cull do return
+	t0 := sdl.GetTicksNS()
+	defer stats.cull_ms += f64(sdl.GetTicksNS() - t0) / 1e6
+	eye_world := linalg.inverse(view) * [4]f32{0, 0, 0, 1}
+	copy_pass: ^sdl.GPUCopyPass
+	for item in items {
+		if want, filtered := live.?; filtered && item.live != want do continue
+		mb := item.mesh
+		if len(item.chunks) == 0 || !indirect_ensure(r, mb, u32(len(item.chunks))) do continue
+		eye := linalg.inverse(item.model) * eye_world
+		clear(&mb.visible)
+		cs := geom.cull_chunks(item.chunks, proj * view * item.model, eye.xyz, &mb.visible)
+		stats.chunks += u64(cs.chunks)
+		stats.culled_view += u64(cs.frustum)
+		stats.culled_back += u64(cs.backface)
+		mb.draw_count = u32(len(mb.visible))
+		if mb.draw_count == 0 do continue
+		dst := cast([^]sdl.GPUIndexedIndirectDrawCommand)sdl.MapGPUTransferBuffer(r.device, mb.indirect_transfer, true)
+		for v, i in mb.visible {
+			dst[i] = {num_indices = v.index_count, num_instances = 1, first_index = v.first_index}
+		}
+		sdl.UnmapGPUTransferBuffer(r.device, mb.indirect_transfer)
+		if copy_pass == nil do copy_pass = sdl.BeginGPUCopyPass(cmd)
+		size := mb.draw_count * size_of(sdl.GPUIndexedIndirectDrawCommand)
+		sdl.UploadToGPUBuffer(copy_pass, {transfer_buffer = mb.indirect_transfer}, {buffer = mb.indirect, size = size}, true)
+	}
+	if copy_pass != nil do sdl.EndGPUCopyPass(copy_pass)
+}
+
+// Creates the mesh's indirect command buffer for up to `commands` draws. On failure
+// the mesh is drawn whole.
+@(private)
+indirect_ensure :: proc(r: ^Renderer, mb: ^Mesh_Buffers, commands: u32) -> bool {
+	if mb.indirect != nil && mb.indirect_capacity >= commands do return true
+	if mb.indirect != nil do sdl.ReleaseGPUBuffer(r.device, mb.indirect)
+	if mb.indirect_transfer != nil do sdl.ReleaseGPUTransferBuffer(r.device, mb.indirect_transfer)
+	size := commands * size_of(sdl.GPUIndexedIndirectDrawCommand)
+	mb.indirect = sdl.CreateGPUBuffer(r.device, {usage = {.INDIRECT}, size = size})
+	mb.indirect_transfer = sdl.CreateGPUTransferBuffer(r.device, {usage = .UPLOAD, size = size})
+	mb.indirect_capacity = commands
+	if mb.indirect == nil || mb.indirect_transfer == nil {
+		log.errorf("indirect buffer creation failed: %s", sdl.GetError())
+		if mb.indirect != nil do sdl.ReleaseGPUBuffer(r.device, mb.indirect)
+		if mb.indirect_transfer != nil do sdl.ReleaseGPUTransferBuffer(r.device, mb.indirect_transfer)
+		mb.indirect, mb.indirect_transfer, mb.indirect_capacity = nil, nil, 0
+		return false
+	}
+	return true
 }
 
 // Identifies the cache contents: the target size, camera, and every idle item's
@@ -442,9 +549,9 @@ begin_mesh_pass :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, color_tex, dep
 }
 
 // Draws the items whose `live` flag matches (all of them when `live` is nil) with the
-// clay material. Returns the number of triangles drawn.
+// clay material: the visible runs prepare_draws found, or the whole mesh.
 @(private)
-draw_items :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURenderPass, view, proj: Mat4, items: []Draw_Item, live: Maybe(bool)) -> (triangles: u64) {
+draw_items :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURenderPass, view, proj: Mat4, items: []Draw_Item, live: Maybe(bool), stats: ^Viewport_Stats) {
 	for item in items {
 		if want, filtered := live.?; filtered && item.live != want do continue
 		frame := Frame_Uniforms{view_proj = proj * view, view = view, model = item.model}
@@ -455,8 +562,14 @@ draw_items :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURende
 		vbufs := [2]sdl.GPUBufferBinding{{buffer = mb.positions}, {buffer = mb.normals}}
 		sdl.BindGPUVertexBuffers(pass, 0, &vbufs[0], len(vbufs))
 		sdl.BindGPUIndexBuffer(pass, {buffer = mb.indices}, ._32BIT)
-		sdl.DrawGPUIndexedPrimitives(pass, mb.index_count, 1, 0, 0, 0)
-		triangles += u64(mb.index_count / 3)
+		if r.cull && len(item.chunks) > 0 && mb.indirect != nil {
+			if mb.draw_count > 0 do sdl.DrawGPUIndexedPrimitivesIndirect(pass, mb.indirect, 0, mb.draw_count)
+			for v in mb.visible do stats.triangles += u64(v.index_count / 3)
+			stats.draws += u64(mb.draw_count)
+		} else {
+			sdl.DrawGPUIndexedPrimitives(pass, mb.index_count, 1, 0, 0, 0)
+			stats.triangles += u64(mb.index_count / 3)
+			stats.draws += 1
+		}
 	}
-	return
 }
