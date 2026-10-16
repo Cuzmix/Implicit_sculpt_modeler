@@ -85,8 +85,8 @@ main :: proc() {
 	defer if pool != nil do jobs.pool_destroy(pool)
 	fmt.printfln("threads: %d, node triangles: %d", jobs.pool_size(pool) if pool != nil else 1, node_triangles)
 
-	fmt.println("| Meshes | Vertices | Triangles | Setup s | Mesh MB | RSS MB | Brush | Verts/dab | Raycast ms | Dab ms | Normals ms/frame | Frame ms | Frame ms max | Upload MB/frame |")
-	fmt.println("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+	fmt.println("| Meshes | Vertices | Triangles | Setup s | Mesh MB | RSS MB | Brush | Verts/dab | Raycast ms | Dab ms | Normals ms/frame | Frame ms | Frame ms max | Upload MB/frame | Undo MB/stroke | Undo ms | Redo ms |")
+	fmt.println("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
 	for c in cases {
 		run(c.vertices, c.meshes, pool)
 	}
@@ -143,6 +143,8 @@ run :: proc(target, mesh_count: int, pool: ^jobs.Pool) {
 		touched_total := 0
 		upload_bytes := 0
 		eye := Vec3{0, 0, 3.5}
+		// One stroke, recorded for undo as the app does.
+		sculpt.sculptor_stroke_begin(s)
 		for i in 0 ..< DABS {
 			// Wavy stroke across the front of the sphere, as in the app's --bench-stroke.
 			k := f32(i) / (DABS - 1)
@@ -166,10 +168,22 @@ run :: proc(target, mesh_count: int, pool: ^jobs.Pool) {
 				frame[f] += flush[f]
 			}
 		}
-		fmt.printfln("| %d | %s | %s | %.1f | %.0f | %.0f | r=%.2f | %d | %.3f | %.3f | %.3f | %.2f | %.2f | %.2f |",
+		_ = sculpt.sculptor_stroke_end(s)
+		undo_mb := f64(sculpt.sculptor_undo_bytes(s)) / (1 << 20)
+		// Undo and redo the stroke, each with the normal update that follows it.
+		tu := time.tick_now()
+		_ = sculpt.sculptor_undo(s)
+		_ = sculpt.sculptor_flush(s)
+		undo_ms := time.duration_milliseconds(time.tick_since(tu))
+		tr := time.tick_now()
+		_ = sculpt.sculptor_redo(s)
+		_ = sculpt.sculptor_flush(s)
+		redo_ms := time.duration_milliseconds(time.tick_since(tr))
+		sculpt.sculptor_clear_history(s) // so the next brush measures its own stroke
+		fmt.printfln("| %d | %s | %s | %.1f | %.0f | %.0f | r=%.2f | %d | %.3f | %.3f | %.3f | %.2f | %.2f | %.2f | %.1f | %.2f | %.2f |",
 			mesh_count, thousands(vcount), thousands(tcount), setup_s, f64(cpu_bytes) / (1 << 20), rss, radius,
 			touched_total / DABS, median(raycast), median(dab), median(flush), median(frame), slice.max(frame),
-			f64(upload_bytes) / f64(frames) / (1 << 20))
+			f64(upload_bytes) / f64(frames) / (1 << 20), undo_mb, undo_ms, redo_ms)
 	}
 	if mesh_count == 1 do bench_culling(s, vcount, tcount)
 }

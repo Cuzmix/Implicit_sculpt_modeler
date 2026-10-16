@@ -175,6 +175,8 @@ object_build :: proc(app: ^App, obj: ^Object, vertices, subdiv: int) -> bool {
 // Frees the mesh, sculptor and GPU buffers. The caller waits for the GPU first.
 @(private = "file")
 object_release_mesh :: proc(app: ^App, obj: ^Object) {
+	if app.stroke.object == obj.id do app.stroke.active = false
+	history_forget(app, obj.id)
 	render.mesh_buffers_destroy(&app.renderer, &obj.mesh_gpu)
 	sculpt.sculptor_destroy(&obj.sculptor)
 	geom.mesh_destroy(&obj.mesh)
