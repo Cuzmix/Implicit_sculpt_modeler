@@ -17,6 +17,7 @@ Brush_Settings :: struct {
 
 Stroke :: struct {
 	active: bool,
+	object: int, // id of the object being sculpted
 	last:   sculpt.Vec3, // where the previous dab landed, in the object's local space
 }
 
@@ -33,7 +34,7 @@ MAX_DABS_PER_FRAME :: 64
 // started on, which becomes the selected object; dabs are placed in its local space.
 sculpt_frame :: proc(app: ^App, input: Viewport_Input) -> (res: Sculpt_Frame_Result) {
 	if !input.primary || input.size.x <= 0 || input.size.y <= 0 {
-		app.stroke.active = false
+		stroke_finish(app)
 		return
 	}
 
@@ -68,8 +69,9 @@ sculpt_frame :: proc(app: ^App, input: Viewport_Input) -> (res: Sculpt_Frame_Res
 
 	t1 := time.tick_now()
 	if !app.stroke.active {
+		sculpt.sculptor_stroke_begin(&obj.sculptor)
 		sculpt.apply_dab(&obj.sculptor, brush, hit)
-		app.stroke = {active = true, last = hit}
+		app.stroke = {active = true, object = obj.id, last = hit}
 		res.dabs = 1
 	} else {
 		spacing := brush.radius * DAB_SPACING

@@ -7,6 +7,7 @@ import imgui "deps:odin-imgui"
 import "../camera"
 import "../geom"
 import "../gizmo"
+import "../sculpt"
 
 // UI-only state. Sculpt and render state live in App; panels edit them through pointers
 // handed over each frame and never keep references between frames.
@@ -108,6 +109,11 @@ draw_menu_bar :: proc(app: ^App) {
 	defer imgui.EndMainMenuBar()
 	if imgui.BeginMenu("File") {
 		if imgui.MenuItem("Quit", "Alt+F4") do app.running = false
+		imgui.EndMenu()
+	}
+	if imgui.BeginMenu("Edit") {
+		if imgui.MenuItem("Undo stroke", "Ctrl+Z", false, history_can_undo(app)) do history_undo(app)
+		if imgui.MenuItem("Redo stroke", "Ctrl+Shift+Z", false, history_can_redo(app)) do history_redo(app)
 		imgui.EndMenu()
 	}
 	if imgui.BeginMenu("View") {
@@ -280,7 +286,13 @@ draw_scene_panel :: proc(app: ^App) {
 
 @(private = "file")
 handle_shortcuts :: proc(app: ^App) {
-	if imgui.GetIO().WantTextInput do return
+	io := imgui.GetIO()
+	if io.WantTextInput do return
+	if io.KeyCtrl && imgui.IsKeyPressed(.Z, true) {
+		if io.KeyShift do history_redo(app)
+		else do history_undo(app)
+	}
+	if io.KeyCtrl && imgui.IsKeyPressed(.Y, true) do history_redo(app)
 	if imgui.IsKeyPressed(.W, false) do app.tool = .Move
 	if imgui.IsKeyPressed(.B, false) do app.tool = .Brush
 	if imgui.IsKeyPressed(.F, false) do focus_selected(app)
@@ -330,4 +342,7 @@ draw_stats_panel :: proc(app: ^App) {
 	row("Upload", s.upload_kb, "KB")
 	row("Input->submit", s.latency_ms, "ms")
 	imgui.Text("Dabs %d   Viewport %d x %d px", i32(s.dabs_total), i32(app.target.width), i32(app.target.height))
+	undo_bytes := 0
+	for obj in app.scene.objects do undo_bytes += sculpt.sculptor_undo_bytes(&obj.sculptor)
+	imgui.Text("Undo %d strokes, %.1f MB", i32(len(app.history.done)), f64(undo_bytes) / (1 << 20))
 }

@@ -45,6 +45,7 @@ App :: struct {
 	camera:   camera.Orbit,
 	ui:       Ui_State,
 	stats:    Frame_Stats,
+	history:  History,
 	cache_idle: bool, // draw unselected objects from the viewport cache while they stay put
 	running:  bool,
 }
@@ -103,6 +104,7 @@ run :: proc(opts: Options) -> bool {
 	log.infof("sculpt threads: %d", jobs.pool_size(&app.pool))
 	app.scene.selected = -1
 	defer scene_destroy(&app)
+	defer history_destroy(&app.history)
 	for _ in 0 ..< max(opts.spheres, 1) {
 		if !scene_add_sphere(&app, opts.vertices, opts.subdiv, {position = next_free_position(&app), scale = 1}) do return false
 	}
@@ -178,7 +180,7 @@ run :: proc(opts: Options) -> bool {
 		case .Brush:
 			sculpted = sculpt_frame(&app, input)
 		case .Move:
-			app.stroke.active = false
+			stroke_finish(&app)
 			move_tool_frame(&app, input)
 		}
 		draw_viewport_overlay(&app, input)
@@ -268,6 +270,21 @@ run :: proc(opts: Options) -> bool {
 		print_stat("normals_ms", app.stats.normals_ms)
 		print_stat("upload_kb", app.stats.upload_kb)
 		print_stat("latency_ms", app.stats.latency_ms)
+	}
+	if opts.bench_stroke > 0 {
+		// The synthetic stroke never lifts the button: end it, then time undo and redo
+		// of the whole stroke, each including the normal update that follows.
+		stroke_finish(&app)
+		undo_bytes := 0
+		for obj in app.scene.objects do undo_bytes += sculpt.sculptor_undo_bytes(&obj.sculptor)
+		t0 := time.tick_now()
+		history_undo(&app)
+		for obj in app.scene.objects do _ = sculpt.sculptor_flush(&obj.sculptor)
+		t1 := time.tick_now()
+		history_redo(&app)
+		for obj in app.scene.objects do _ = sculpt.sculptor_flush(&obj.sculptor)
+		fmt.printfln("undo_mb=%.2f undo_ms=%.3f redo_ms=%.3f", f64(undo_bytes) / (1 << 20),
+			time.duration_milliseconds(time.tick_diff(t0, t1)), time.duration_milliseconds(time.tick_since(t1)))
 	}
 	return true
 }

@@ -86,6 +86,8 @@ Sculptor :: struct {
 	dirty:       []bool,
 	dirty_nodes: [dynamic]u32,
 	ranges:      [dynamic]Vertex_Range,
+
+	history:     Undo_History,
 }
 
 // Partitions and renumbers `mesh` in place (vertex order and triangle order change),
@@ -104,6 +106,7 @@ sculptor_init :: proc(s: ^Sculptor, mesh: ^geom.Mesh, pool: ^jobs.Pool, node_tri
 	s.dirty = make([]bool, len(s.nodes), allocator)
 	s.dirty_nodes = make([dynamic]u32, 0, 256, allocator)
 	s.ranges = make([dynamic]Vertex_Range, 0, 256, allocator)
+	history_init(&s.history, len(s.nodes), allocator)
 	s.chunks = make([]geom.Chunk, len(s.nodes), allocator)
 	jobs.parallel_for(s.pool, len(s.nodes), s, proc(data: rawptr, id: int) {
 		update_chunk(cast(^Sculptor)data, u32(id), nil)
@@ -111,6 +114,7 @@ sculptor_init :: proc(s: ^Sculptor, mesh: ^geom.Mesh, pool: ^jobs.Pool, node_tri
 }
 
 sculptor_destroy :: proc(s: ^Sculptor) {
+	history_destroy(&s.history)
 	geom.vertex_faces_destroy(&s.faces)
 	geom.bvh_destroy(&s.bvh)
 	delete(s.nodes)
@@ -407,6 +411,7 @@ apply_dab :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
 	candidates: u32
 	for leaf in s.hit do candidates += s.nodes[s.node_of[leaf]].vert_count
 	pool := s.pool if candidates >= PARALLEL_MIN_VERTS else nil
+	if s.history.recording do record_hit(s)
 
 	switch brush.kind {
 	case .Draw:
@@ -445,6 +450,7 @@ apply_dab :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
 		for owner in s.owners[n.owner_first:][:n.owner_count] do mark_dirty(s, owner)
 	}
 	if len(s.changed) == 0 do return 0
+	if s.history.recording do record_changed(s)
 	jobs.parallel_for(pool, len(s.changed), &d, job_leaf_bounds)
 	geom.bvh_refit_leaves(&s.bvh, s.mesh^, s.changed[:], recompute_leaves = false)
 	return moved
