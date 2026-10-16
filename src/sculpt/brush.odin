@@ -86,6 +86,9 @@ Sculptor :: struct {
 	dirty:       []bool,
 	dirty_nodes: [dynamic]u32,
 	ranges:      [dynamic]Vertex_Range,
+	// Box around everything the last sculptor_flush reported as changed, before and
+	// after the change (AABB_EMPTY when nothing changed), for partial redraws.
+	changed_bounds: geom.Aabb,
 
 	history:     Undo_History,
 }
@@ -107,6 +110,7 @@ sculptor_init :: proc(s: ^Sculptor, mesh: ^geom.Mesh, pool: ^jobs.Pool, node_tri
 	s.dirty_nodes = make([dynamic]u32, 0, 256, allocator)
 	s.ranges = make([dynamic]Vertex_Range, 0, 256, allocator)
 	history_init(&s.history, len(s.nodes), allocator)
+	s.changed_bounds = geom.AABB_EMPTY
 	s.chunks = make([]geom.Chunk, len(s.nodes), allocator)
 	jobs.parallel_for(s.pool, len(s.nodes), s, proc(data: rawptr, id: int) {
 		update_chunk(cast(^Sculptor)data, u32(id), nil)
@@ -352,13 +356,16 @@ owner_node :: proc(nodes: []Node, v: u32) -> u32 {
 // overlapping dabs per frame, and each region's normals only need computing once.
 sculptor_flush :: proc(s: ^Sculptor) -> []Vertex_Range {
 	clear(&s.ranges)
+	s.changed_bounds = geom.AABB_EMPTY
 	if len(s.dirty_nodes) == 0 do return s.ranges[:]
 	slice.sort(s.dirty_nodes[:])
+	for id in s.dirty_nodes do s.changed_bounds = geom.aabb_union(s.changed_bounds, s.chunks[id].bounds)
 	verts: u32
 	for id in s.dirty_nodes do verts += s.nodes[id].vert_count
 	jobs.parallel_for(s.pool if verts >= PARALLEL_MIN_VERTS else nil, len(s.dirty_nodes), s, job_node_normals)
 
 	for id in s.dirty_nodes {
+		s.changed_bounds = geom.aabb_union(s.changed_bounds, s.chunks[id].bounds)
 		s.dirty[id] = false
 		n := s.nodes[id]
 		if len(s.ranges) > 0 {

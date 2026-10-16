@@ -29,6 +29,8 @@ Options :: struct {
 	spheres:   int `usage:"Start with this many spheres side by side, all of the starting size (default 1)."`,
 	no_cache:  bool `usage:"Draw every object every frame instead of caching the idle ones (for comparison)."`,
 	no_cull:   bool `usage:"Draw every triangle instead of skipping off-screen and back-facing chunks (for comparison)."`,
+	dump_viewport: string `usage:"On exit, write the last viewport image to this path as a binary PPM (for checking renders)."`,
+	no_partial: bool `usage:"Redraw the whole viewport every frame instead of only what changed (for comparison)."`,
 	bench_stroke: int `usage:"Run a synthetic brush stroke over this many frames, print brush stats, then exit."`,
 }
 
@@ -136,6 +138,7 @@ run :: proc(opts: Options) -> bool {
 	if len(app.scene.objects) > 1 do frame_all(&app)
 	app.cache_idle = !opts.no_cache
 	app.renderer.cull = !opts.no_cull
+	app.renderer.partial = !opts.no_partial
 	app.ui = ui_state_default()
 	app.brush = {kind = .Draw, radius_px = 60, strength = 0.5}
 	app.tool = .Brush
@@ -201,7 +204,7 @@ run :: proc(opts: Options) -> bool {
 			// selected one is sculpted or moved, so the rest can come from the cache.
 			selected := i == app.scene.selected
 			color := [4]f32{0.55, 0.40, 0.32, 1} if selected else {0.42, 0.42, 0.44, 1}
-			draws[i] = {mesh = &obj.mesh_gpu, model = transform_matrix(obj.transform), color = color, live = selected, chunks = obj.sculptor.chunks}
+			draws[i] = {mesh = &obj.mesh_gpu, model = transform_matrix(obj.transform), color = color, live = selected, chunks = obj.sculptor.chunks, damage = obj.sculptor.changed_bounds}
 		}
 		aspect := f32(app.target.width) / f32(app.target.height)
 		drawn := render.render_viewport(&app.renderer, cmd, &app.target,
@@ -237,6 +240,7 @@ run :: proc(opts: Options) -> bool {
 		ring_push(&app.stats.cpu_ms, time.duration_milliseconds(time.tick_diff(frame_start, cpu_done)))
 		app.stats.viewport = drawn
 		app.stats.cache_redraws += int(drawn.cache_redrawn)
+		app.stats.partial_frames += int(drawn.partial)
 		if sculpted.dabs > 0 {
 			ring_push(&app.stats.raycast_ms, sculpted.raycast_ms)
 			ring_push(&app.stats.brush_ms, sculpted.brush_ms)
@@ -253,6 +257,13 @@ run :: proc(opts: Options) -> bool {
 		}
 	}
 
+	if opts.dump_viewport != "" {
+		pixels := render.viewport_download(&app.renderer, &app.target, context.temp_allocator)
+		if pixels == nil || !write_ppm(opts.dump_viewport, pixels, int(app.target.width), int(app.target.height)) {
+			log.errorf("could not write %s", opts.dump_viewport)
+		}
+	}
+
 	print_stat :: proc(name: string, r: Sample_Ring) {
 		p50, p99 := ring_percentiles(r)
 		fmt.printfln("%s_p50=%.3f %s_p99=%.3f", name, p50, name, p99)
@@ -263,6 +274,7 @@ run :: proc(opts: Options) -> bool {
 	fmt.printfln("idle_cache=%v cache_redraws=%d last_frame_triangles=%d", app.cache_idle, app.stats.cache_redraws, app.stats.viewport.triangles)
 	v := app.stats.viewport
 	fmt.printfln("cull=%v last_frame_draws=%d chunks=%d culled_view=%d culled_back=%d cull_ms=%.3f", app.renderer.cull, v.draws, v.chunks, v.culled_view, v.culled_back, v.cull_ms)
+	fmt.printfln("partial=%v partial_frames=%d last_frame_partial=%v last_frame_redrawn_px=%d viewport_px=%d", app.renderer.partial, app.stats.partial_frames, v.partial, v.redrawn_px, app.target.width * app.target.height)
 	print_stat("frame_ms", app.stats.frame_ms)
 	if app.stats.dabs_total > 0 {
 		print_stat("raycast_ms", app.stats.raycast_ms)
@@ -301,4 +313,12 @@ camera_apply_input :: proc(c: ^camera.Orbit, in_: Viewport_Input) {
 	if in_.hovered && in_.wheel != 0 {
 		camera.orbit_zoom(c, in_.wheel)
 	}
+}
+
+// Writes RGBA8 pixels as a binary PPM (alpha dropped).
+write_ppm :: proc(path: string, rgba: []u8, width, height: int) -> bool {
+	out := make([dynamic]u8, 0, width * height * 3 + 32, context.temp_allocator)
+	append(&out, ..transmute([]u8)fmt.tprintf("P6\n%d %d\n255\n", width, height))
+	for i := 0; i < len(rgba); i += 4 do append(&out, rgba[i], rgba[i + 1], rgba[i + 2])
+	return os.write_entire_file(path, out[:]) == nil
 }

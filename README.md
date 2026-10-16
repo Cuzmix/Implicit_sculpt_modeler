@@ -7,7 +7,7 @@ A performance-focused sculpting prototype in Odin, using SDL3 + SDL_GPU for rend
 | Path | Owns |
 | --- | --- |
 | `src/app` | Entry point, frame loop, scene of sculptable objects, Move and Brush tools, ImGui panels, input routing into `Viewport_Input` |
-| `src/render` | Every GPU object the app creates: device, pipeline, viewport target, mesh buffers (16 bytes a vertex: float3 position, octahedral normal), per-mesh indirect draws of the visible chunks, shaders |
+| `src/render` | Every GPU object the app creates: device, pipeline, viewport target, mesh buffers (16 bytes a vertex: float3 position, octahedral normal), per-mesh indirect draws of the visible chunks, partial redraws (while the camera and objects stay put, the last frame is kept and only the screen rectangle around what changed is cleared and redrawn), shaders |
 | `src/geom` | CPU sculpt geometry (structure-of-arrays triangle mesh, BVH, test spheres) and view-culling math (chunk bounds and normal cones, frustum and back-face tests); no rendering or UI imports |
 | `src/camera` | Orbit camera math; no rendering or UI imports |
 | `src/gizmo` | Move gizmo math: projection, handle picking, axis and view-plane drags; no rendering or UI imports |
@@ -51,7 +51,7 @@ Shaders are recompiled when `glslangValidator` (Vulkan SDK) is on PATH; otherwis
 
 ## App flags
 
-`--vertices=N` start with a geodesic sphere of about N vertices (the Scene panel adds spheres or remeshes the selected one at any typed vertex count), `--subdiv=N` icosphere level when `--vertices` is not given (default 6: 40,962 vertices), `--threads=N` sculpt threads including the main one (default: one per core), `--frames=N` exit after N frames, `--spheres=N` start with N spheres of that size side by side, `--no-cache` draw every object every frame instead of caching idle ones (for A/B timing; also a checkbox in the Stats panel), `--bench-stroke=N` synthetic brush stroke over N frames across the first sphere, then print stats, `--gpu-debug` GPU debug/validation mode, `--no-cull` draw every triangle instead of skipping off-screen and back-facing chunks (for A/B timing; also a checkbox in the Stats panel), `--width`, `--height`.
+`--vertices=N` start with a geodesic sphere of about N vertices (the Scene panel adds spheres or remeshes the selected one at any typed vertex count), `--subdiv=N` icosphere level when `--vertices` is not given (default 6: 40,962 vertices), `--threads=N` sculpt threads including the main one (default: one per core), `--frames=N` exit after N frames, `--spheres=N` start with N spheres of that size side by side, `--no-cache` draw every object every frame instead of caching idle ones (for A/B timing; also a checkbox in the Stats panel), `--bench-stroke=N` synthetic brush stroke over N frames across the first sphere, then print stats, `--gpu-debug` GPU debug/validation mode, `--no-partial` redraw the whole viewport every frame (also a Stats panel checkbox), `--dump-viewport=PATH` write the last viewport image as a PPM on exit (for comparing renders), `--no-cull` draw every triangle instead of skipping off-screen and back-facing chunks (for A/B timing; also a checkbox in the Stats panel), `--width`, `--height`.
 
 ## Benchmark
 

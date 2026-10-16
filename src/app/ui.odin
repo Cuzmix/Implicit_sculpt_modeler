@@ -329,6 +329,13 @@ draw_stats_panel :: proc(app: ^App) {
 	imgui.PlotLines("##frame_ms", &s.frame_ms.values[0], HISTORY, i32(s.frame_ms.head), "frame ms", 0, 33.3, {0, 80})
 	v := s.viewport
 	imgui.Text("Triangles drawn %s in %d draws", fmt.ctprintf("%s", count_label(int(v.triangles))), i32(v.draws))
+	imgui.Checkbox("Redraw only changes", &app.renderer.partial)
+	imgui.SameLine()
+	if v.partial {
+		imgui.TextDisabled("(last frame: %.1f%% of the viewport)", 100 * f64(v.redrawn_px) / f64(max(app.target.width * app.target.height, 1)))
+	} else {
+		imgui.TextDisabled("(last frame: full redraw)")
+	}
 	imgui.Checkbox("Skip hidden chunks", &app.renderer.cull)
 	imgui.SameLine()
 	imgui.TextDisabled("(%d off, %d back, %.2f ms)", i32(v.culled_view), i32(v.culled_back), v.cull_ms)

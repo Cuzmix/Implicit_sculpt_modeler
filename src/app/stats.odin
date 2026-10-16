@@ -41,4 +41,5 @@ Frame_Stats :: struct {
 	dabs_total: int,
 	viewport:      render.Viewport_Stats, // last frame
 	cache_redraws: int,
+	partial_frames: int, // frames that kept the previous image and redrew only what changed
 }
