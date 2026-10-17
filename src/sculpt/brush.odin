@@ -27,6 +27,10 @@ NODE_TRIANGLES :: 1024
 PARALLEL_MIN_VERTS :: 2048
 // Largest node whose face normals job_node_normals caches on the stack (48 KB).
 MAX_CACHED_FACES :: 4096
+// Normal cones held back during a stroke that a flush works out once the stroke has
+// ended; the rest wait for the next flushes, so the frame a long stroke ends in stays
+// short. Until then those chunks are just never back-face culled.
+CONE_BATCH :: 512
 
 Brush_Kind :: enum {
 	Draw,   // push the surface out along the local average normal (inverted pulls in)
@@ -54,6 +58,14 @@ Node :: struct {
 
 Vertex_Range :: geom.Vertex_Range
 
+// How much of a node sculptor_flush has to bring up to date.
+@(private)
+Stale :: enum u8 {
+	None,
+	Edge,  // a neighbour's triangles moved: the normals of its vertices on that border
+	Shape, // its own triangles moved: all its normals, its bounds and its normal cone
+}
+
 // Per-hit-leaf results of one dab phase, reduced on the calling thread.
 @(private)
 Partial :: struct {
@@ -69,7 +81,9 @@ Sculptor :: struct {
 	bvh:         geom.Bvh,
 	nodes:       []Node, // indexed by node id
 	// Per node id, in index-buffer order: bounds and normal cone for view culling.
-	// Kept current by sculptor_flush for every node it reports as changed.
+	// Kept current by sculptor_flush for every node it reports as changed, except that
+	// during a stroke a changed node's cone is left open (never back-face culled) and
+	// computed once the stroke ends.
 	chunks:      []geom.Chunk,
 	node_of:     []u32,  // BVH node index -> node id (only meaningful for leaves)
 	shared:      [dynamic]u32,
@@ -82,9 +96,13 @@ Sculptor :: struct {
 	offsets:     [dynamic]u32, // per hit leaf: start of its slots in smooth_to
 	smooth_to:   [dynamic]Vec3,
 
-	// Nodes whose vertex normals and GPU data are stale since the last sculptor_flush.
-	dirty:       []bool,
+	// Nodes whose vertex normals and GPU data are stale since the last sculptor_flush,
+	// and how stale each node is.
+	stale:       []Stale,
 	dirty_nodes: [dynamic]u32,
+	// Nodes whose normal cone waits for the end of the stroke.
+	cone_waiting: []bool,
+	waiting_cones: [dynamic]u32,
 	ranges:      [dynamic]Vertex_Range,
 	// Box around everything the last sculptor_flush reported as changed, before and
 	// after the change (AABB_EMPTY when nothing changed), for partial redraws.
@@ -106,8 +124,10 @@ sculptor_init :: proc(s: ^Sculptor, mesh: ^geom.Mesh, pool: ^jobs.Pool, node_tri
 	s.partials = make([dynamic]Partial, 0, 256, allocator)
 	s.offsets = make([dynamic]u32, 0, 256, allocator)
 	s.smooth_to = make([dynamic]Vec3, 0, 16384, allocator)
-	s.dirty = make([]bool, len(s.nodes), allocator)
+	s.stale = make([]Stale, len(s.nodes), allocator)
 	s.dirty_nodes = make([dynamic]u32, 0, 256, allocator)
+	s.cone_waiting = make([]bool, len(s.nodes), allocator)
+	s.waiting_cones = make([dynamic]u32, 0, 256, allocator)
 	s.ranges = make([dynamic]Vertex_Range, 0, 256, allocator)
 	history_init(&s.history, len(s.nodes), allocator)
 	s.changed_bounds = geom.AABB_EMPTY
@@ -131,8 +151,10 @@ sculptor_destroy :: proc(s: ^Sculptor) {
 	delete(s.partials)
 	delete(s.offsets)
 	delete(s.smooth_to)
-	delete(s.dirty)
+	delete(s.stale)
 	delete(s.dirty_nodes)
+	delete(s.cone_waiting)
+	delete(s.waiting_cones)
 	delete(s.ranges)
 	s^ = {}
 }
@@ -354,19 +376,36 @@ owner_node :: proc(nodes: []Node, v: u32) -> u32 {
 //
 // Vertex normals are recomputed here rather than per dab: a fast stroke lands several
 // overlapping dabs per frame, and each region's normals only need computing once.
+// Normal cones, which only back-face culling uses, wait for the end of a stroke: until
+// then a changed chunk is never back-face culled, which costs the GPU little since the
+// brush works on what faces the camera.
 sculptor_flush :: proc(s: ^Sculptor) -> []Vertex_Range {
 	clear(&s.ranges)
 	s.changed_bounds = geom.AABB_EMPTY
-	if len(s.dirty_nodes) == 0 do return s.ranges[:]
-	slice.sort(s.dirty_nodes[:])
-	for id in s.dirty_nodes do s.changed_bounds = geom.aabb_union(s.changed_bounds, s.chunks[id].bounds)
-	verts: u32
-	for id in s.dirty_nodes do verts += s.nodes[id].vert_count
-	jobs.parallel_for(s.pool if verts >= PARALLEL_MIN_VERTS else nil, len(s.dirty_nodes), s, job_node_normals)
+	if len(s.dirty_nodes) > 0 {
+		slice.sort(s.dirty_nodes[:])
+		for id in s.dirty_nodes do s.changed_bounds = geom.aabb_union(s.changed_bounds, s.chunks[id].bounds)
+		if s.history.recording {
+			for id in s.dirty_nodes {
+				if s.stale[id] != .Shape || s.cone_waiting[id] do continue
+				s.cone_waiting[id] = true
+				append(&s.waiting_cones, id)
+			}
+		}
+		verts: u32
+		for id in s.dirty_nodes do verts += s.nodes[id].vert_count
+		jobs.parallel_for(s.pool if verts >= PARALLEL_MIN_VERTS else nil, len(s.dirty_nodes), s, job_node_normals)
+	}
+	if !s.history.recording && len(s.waiting_cones) > 0 {
+		count := min(len(s.waiting_cones), CONE_BATCH)
+		jobs.parallel_for(s.pool, count, s, job_waiting_cone)
+		for id in s.waiting_cones[len(s.waiting_cones) - count:] do s.cone_waiting[id] = false
+		resize(&s.waiting_cones, len(s.waiting_cones) - count)
+	}
 
 	for id in s.dirty_nodes {
 		s.changed_bounds = geom.aabb_union(s.changed_bounds, s.chunks[id].bounds)
-		s.dirty[id] = false
+		s.stale[id] = .None
 		n := s.nodes[id]
 		if len(s.ranges) > 0 {
 			last := &s.ranges[len(s.ranges) - 1]
@@ -450,11 +489,7 @@ apply_dab :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
 		if p.moved == 0 && !p.touched do continue
 		leaf := s.hit[i]
 		append(&s.changed, leaf)
-		// The normals of all this leaf's vertices may change, including the shared ones.
-		id := s.node_of[leaf]
-		mark_dirty(s, id)
-		n := s.nodes[id]
-		for owner in s.owners[n.owner_first:][:n.owner_count] do mark_dirty(s, owner)
+		mark_shape_changed(s, s.node_of[leaf])
 	}
 	if len(s.changed) == 0 do return 0
 	if s.history.recording do record_changed(s)
@@ -463,12 +498,19 @@ apply_dab :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
 	return moved
 }
 
+// The node's triangles moved: all its normals are stale, and so are those of the
+// vertices it shares with the nodes that own them.
 @(private)
-mark_dirty :: #force_inline proc(s: ^Sculptor, id: u32) {
-	if !s.dirty[id] {
-		s.dirty[id] = true
-		append(&s.dirty_nodes, id)
-	}
+mark_shape_changed :: proc(s: ^Sculptor, id: u32) {
+	mark_stale(s, id, .Shape)
+	n := s.nodes[id]
+	for owner in s.owners[n.owner_first:][:n.owner_count] do mark_stale(s, owner, .Edge)
+}
+
+@(private)
+mark_stale :: #force_inline proc(s: ^Sculptor, id: u32, level: Stale) {
+	if s.stale[id] == .None do append(&s.dirty_nodes, id)
+	if level > s.stale[id] do s.stale[id] = level
 }
 
 @(private)
@@ -585,14 +627,20 @@ job_leaf_bounds :: proc(data: rawptr, i: int) {
 	s.bvh.nodes[leaf].bounds = bounds
 }
 
-// Recomputes the normals of every vertex a dirty node owns, from its adjacent faces.
-// Most of those faces are the node's own, so their normals are computed once up front
-// instead of once per corner.
+// Recomputes the stale normals of a dirty node from its vertices' adjacent faces: all
+// of them if its own triangles moved, otherwise only those on its border with a node
+// whose triangles moved. For a moved node, most faces are its own, so their normals
+// are computed once up front instead of once per corner.
 @(private)
 job_node_normals :: proc(data: rawptr, i: int) {
 	s := cast(^Sculptor)data
 	m := s.mesh
-	n := s.nodes[s.dirty_nodes[i]]
+	id := s.dirty_nodes[i]
+	n := s.nodes[id]
+	if s.stale[id] == .Edge {
+		edge_normals(s, n)
+		return
+	}
 	face_n: [MAX_CACHED_FACES]Vec3 = ---
 	cached := n.tri_count if n.tri_count <= MAX_CACHED_FACES else 0
 	for k in 0 ..< cached do face_n[k] = face_normal(m, n.tri_first + k)
@@ -607,7 +655,44 @@ job_node_normals :: proc(data: rawptr, i: int) {
 		}
 		m.normals[v] = linalg.normalize0(sum)
 	}
-	update_chunk(s, s.dirty_nodes[i], face_n[:cached])
+	if s.history.recording {
+		// Bounds stay current for frustum culling; the cone waits for the end of the stroke.
+		s.chunks[id].bounds = s.bvh.nodes[n.leaf].bounds
+		s.chunks[id].cone_cutoff = 1
+	} else {
+		update_chunk(s, id, face_n[:cached])
+	}
+}
+
+// A node whose own triangles did not move: a vertex's normal is stale only if one of
+// its faces belongs to a node whose triangles moved.
+@(private)
+edge_normals :: proc(s: ^Sculptor, n: Node) {
+	m := s.mesh
+	for v in n.vert_first ..< n.vert_first + n.vert_count {
+		faces := geom.vertex_faces_of(s.faces, v)
+		stale := false
+		for f in faces {
+			if f - n.tri_first < n.tri_count do continue // its own triangle
+			if s.stale[s.node_of[s.bvh.tri_leaf[f]]] == .Shape {
+				stale = true
+				break
+			}
+		}
+		if !stale do continue
+		sum: Vec3
+		for f in faces do sum += face_normal(m, f)
+		m.normals[v] = linalg.normalize0(sum)
+	}
+}
+
+// The cone of a node whose shape changed during a stroke that has ended, unless this
+// flush already recomputed it. Takes the newest waiting nodes first.
+@(private)
+job_waiting_cone :: proc(data: rawptr, i: int) {
+	s := cast(^Sculptor)data
+	id := s.waiting_cones[len(s.waiting_cones) - 1 - i]
+	if s.stale[id] != .Shape do update_chunk(s, id, nil)
 }
 
 // Refreshes a node's chunk from its BVH leaf bounds and its face normals, given in

@@ -141,6 +141,72 @@ incremental_updates_match_full_recompute :: proc(t: ^testing.T) {
 	}
 }
 
+// After every flush, every vertex normal is what a recompute from scratch gives, so
+// updating only the border vertices of nodes next to moved ones misses none.
+@(test)
+flush_leaves_no_stale_normal :: proc(t: ^testing.T) {
+	m := geom.icosphere(5)
+	defer geom.mesh_destroy(&m)
+	s: Sculptor
+	sculptor_init(&s, &m, nil, 64)
+	defer sculptor_destroy(&s)
+	// Start from face-weighted normals everywhere, as the flush computes them.
+	for id in 0 ..< len(s.nodes) do mark_stale(&s, u32(id), .Shape)
+	_ = sculptor_flush(&s)
+	for i in 0 ..< 30 {
+		a := f32(i) * 0.41
+		center := linalg.normalize(Vec3{math.cos(a), 0.5 * math.sin(2 * a), math.sin(a)})
+		kind := Brush_Kind.Smooth if i % 4 == 3 else .Draw
+		_ = apply_dab(&s, {kind = kind, radius = 0.05 + 0.04 * f32(i % 4), strength = 0.9}, center)
+		if i % 2 == 0 do continue
+		_ = sculptor_flush(&s)
+		for v in 0 ..< u32(len(m.positions)) {
+			sum: Vec3
+			for f in geom.vertex_faces_of(s.faces, v) do sum += face_normal(s.mesh, f)
+			if m.normals[v] != linalg.normalize0(sum) {
+				testing.expectf(t, false, "stale normal at vertex %d after dab %d", v, i)
+				return
+			}
+		}
+	}
+}
+
+// During a stroke a changed chunk keeps current bounds but an open cone. Once the
+// stroke ends, flushes work out the cones CONE_BATCH at a time, giving every chunk
+// what a rebuild from scratch gives.
+@(test)
+cones_wait_for_the_end_of_a_stroke :: proc(t: ^testing.T) {
+	m := geom.icosphere(6)
+	defer geom.mesh_destroy(&m)
+	s: Sculptor
+	sculptor_init(&s, &m, nil, 32)
+	defer sculptor_destroy(&s)
+	sculptor_stroke_begin(&s)
+	for k in 0 ..< 24 {
+		a := f32(k) * 0.26
+		_ = apply_dab(&s, {kind = .Draw, radius = 0.5, strength = 1}, Vec3{math.cos(a), 0, math.sin(a)})
+		_ = sculptor_flush(&s)
+	}
+	open := 0
+	for c, id in s.chunks {
+		testing.expect_value(t, c.bounds, s.bvh.nodes[s.nodes[id].leaf].bounds)
+		if c.cone_cutoff >= 1 do open += 1
+	}
+	testing.expect(t, open > CONE_BATCH && open < len(s.chunks), "the stroke's chunks, and only those, should have open cones")
+	_ = sculptor_stroke_end(&s)
+	flushes := 0
+	for len(s.waiting_cones) > 0 && flushes < 100 {
+		before := len(s.waiting_cones)
+		_ = sculptor_flush(&s)
+		testing.expect_value(t, before - len(s.waiting_cones), min(before, CONE_BATCH))
+		flushes += 1
+	}
+	testing.expect(t, flushes > 1, "the cones should take more than one flush")
+	got := slice.clone(s.chunks, context.temp_allocator)
+	for id in 0 ..< len(s.nodes) do update_chunk(&s, u32(id), nil)
+	for c, id in got do testing.expect_value(t, c, s.chunks[id])
+}
+
 @(private = "file")
 slice_to_dynamic :: proc(s: $S/[]$T) -> [dynamic]T {
 	d := make([dynamic]T, len(s))

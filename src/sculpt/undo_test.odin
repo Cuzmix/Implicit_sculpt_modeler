@@ -56,7 +56,7 @@ undo_and_redo_restore_exact_state :: proc(t: ^testing.T) {
 	defer sculptor_destroy(&s)
 	// The sphere comes with analytic normals; undo restores face-weighted ones, so
 	// start from those.
-	for id in 0 ..< len(s.nodes) do mark_dirty(&s, u32(id))
+	for id in 0 ..< len(s.nodes) do mark_stale(&s, u32(id), .Shape)
 
 	start := snapshot(&s)
 	stroke(&s, .Draw, 0)
