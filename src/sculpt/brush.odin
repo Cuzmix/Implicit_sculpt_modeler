@@ -11,7 +11,6 @@
 package sculpt
 
 import "base:runtime"
-import "core:math"
 import "core:math/linalg"
 import "core:slice"
 import "core:sync"
@@ -70,6 +69,7 @@ Stale :: enum u8 {
 @(private)
 Partial :: struct {
 	normal_sum: Vec3,
+	bounds:     geom.Aabb, // of the owned vertices after the move
 	moved:      u32,  // owned vertices moved
 	touched:    bool, // a shared vertex lies inside the brush, so it moves too
 }
@@ -420,10 +420,12 @@ sculptor_flush :: proc(s: ^Sculptor) -> []Vertex_Range {
 	return s.ranges[:]
 }
 
-// Smooth bump: 1 at the centre, 0 at the rim, zero slope at both ends.
-falloff :: #force_inline proc(x: f32) -> f32 {
-	if x >= 1 do return 0
-	t := 1 - x * x
+// Smooth bump over the squared distance from the centre in radii: 1 at the centre, 0
+// at the rim, zero slope at both ends. Taking the squared distance spares a square
+// root per vertex.
+falloff :: #force_inline proc(x2: f32) -> f32 {
+	if x2 >= 1 do return 0
+	t := 1 - x2
 	return t * t
 }
 
@@ -434,7 +436,7 @@ Dab :: struct {
 	brush:    Brush,
 	center:   Vec3,
 	r2:       f32,
-	inv_r:    f32,
+	inv_r2:   f32,
 	normal:   Vec3, // Draw: area normal
 	amount:   f32,  // Draw: signed displacement at the centre
 }
@@ -447,7 +449,7 @@ apply_dab :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
 		brush  = brush,
 		center = center,
 		r2     = brush.radius * brush.radius,
-		inv_r  = 1 / brush.radius,
+		inv_r2 = 1 / (brush.radius * brush.radius),
 	}
 	clear(&s.hit)
 	geom.bvh_query_leaves(&s.bvh, center, brush.radius, &s.hit)
@@ -493,7 +495,7 @@ apply_dab :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
 	}
 	if len(s.changed) == 0 do return 0
 	if s.history.recording do record_changed(s)
-	jobs.parallel_for(pool, len(s.changed), &d, job_leaf_bounds)
+	jobs.parallel_for(pool, len(s.hit), &d, job_hit_bounds)
 	geom.bvh_refit_leaves(&s.bvh, s.mesh^, s.changed[:], recompute_leaves = false)
 	return moved
 }
@@ -547,7 +549,7 @@ job_area_normal :: proc(data: rawptr, i: int) {
 	for v in first ..< last {
 		delta := m.positions[v] - d.center
 		d2 := linalg.dot(delta, delta)
-		if d2 < d.r2 do sum += m.normals[v] * falloff(math.sqrt(d2) * d.inv_r)
+		if d2 < d.r2 do sum += m.normals[v] * falloff(d2 * d.inv_r2)
 	}
 	s.partials[i].normal_sum = sum
 	s.partials[i].touched = shared_inside(d, s.hit[i])
@@ -560,16 +562,19 @@ job_draw :: proc(data: rawptr, i: int) {
 	m := s.mesh
 	first, last := owned(s, s.hit[i])
 	moved: u32
+	bounds := geom.AABB_EMPTY
 	for v in first ..< last {
 		delta := m.positions[v] - d.center
 		d2 := linalg.dot(delta, delta)
 		if d2 < d.r2 {
-			w := falloff(math.sqrt(d2) * d.inv_r)
+			w := falloff(d2 * d.inv_r2)
 			m.positions[v] += d.normal * (d.amount * w)
 			moved += 1
 		}
+		geom.aabb_grow(&bounds, m.positions[v])
 	}
 	s.partials[i].moved = moved
+	s.partials[i].bounds = bounds
 }
 
 @(private)
@@ -601,19 +606,37 @@ job_smooth_apply :: proc(data: rawptr, i: int) {
 	first, last := owned(s, s.hit[i])
 	targets := s.smooth_to[s.offsets[i]:]
 	moved: u32
+	bounds := geom.AABB_EMPTY
 	for v in first ..< last {
 		delta := m.positions[v] - d.center
 		d2 := linalg.dot(delta, delta)
-		if d2 >= d.r2 do continue
-		t := clamp(d.brush.strength * falloff(math.sqrt(d2) * d.inv_r), 0, 1)
-		m.positions[v] = linalg.lerp(m.positions[v], targets[v - first], t)
-		moved += 1
+		if d2 < d.r2 {
+			t := clamp(d.brush.strength * falloff(d2 * d.inv_r2), 0, 1)
+			m.positions[v] = linalg.lerp(m.positions[v], targets[v - first], t)
+			moved += 1
+		}
+		geom.aabb_grow(&bounds, m.positions[v])
 	}
 	s.partials[i].moved = moved
+	s.partials[i].bounds = bounds
 }
 
 // A leaf's triangles use exactly its owned vertices plus its shared ones, so their
-// bounds are the leaf's bounds, without touching the triangles.
+// bounds are the leaf's bounds, without touching the triangles. After a dab the owned
+// vertices are already bounded by the pass that moved them; their shared ones, moved
+// by other leaves' owners, are added here.
+@(private)
+job_hit_bounds :: proc(data: rawptr, i: int) {
+	d := cast(^Dab)data
+	s := d.s
+	p := s.partials[i]
+	if p.moved == 0 && !p.touched do return
+	bounds := p.bounds
+	for v in shared_of(s, s.hit[i]) do geom.aabb_grow(&bounds, s.mesh.positions[v])
+	s.bvh.nodes[s.hit[i]].bounds = bounds
+}
+
+// The same for leaves an undo or redo changed, from scratch.
 @(private)
 job_leaf_bounds :: proc(data: rawptr, i: int) {
 	d := cast(^Dab)data

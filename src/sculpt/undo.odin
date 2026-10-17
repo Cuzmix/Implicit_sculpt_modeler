@@ -1,5 +1,6 @@
 package sculpt
 
+import "base:runtime"
 import "core:slice"
 
 import "../geom"
@@ -11,6 +12,7 @@ import "../jobs"
 // the mesh. Undo and redo swap those positions back in place, which turns the step
 // into its own inverse.
 Undo_History :: struct {
+	allocator: runtime.Allocator, // for the saved positions
 	done:      [dynamic]Undo_Step,
 	undone:    [dynamic]Undo_Step,
 	current:   Undo_Step,
@@ -25,14 +27,15 @@ Undo_History :: struct {
 }
 
 Undo_Step :: struct {
-	saved:     [dynamic]Saved_Node,
-	positions: [dynamic]Vec3, // owned positions of the saved nodes, back to back
-	leaves:    [dynamic]u32,  // BVH leaves whose triangles moved: bounds to refit, normals to update
+	saved:  [dynamic]Saved_Node,
+	leaves: [dynamic]u32, // BVH leaves whose triangles moved: bounds to refit, normals to update
 }
 
+// A node's owned positions from before the stroke moved them. Each node has its own
+// allocation, so a growing stroke never copies what it already saved.
 Saved_Node :: struct {
-	node:   u32,
-	offset: u32, // into Undo_Step.positions
+	node:      u32,
+	positions: []Vec3,
 }
 
 // Default cap on undo memory per sculptor: about 40 large strokes on a 10M mesh.
@@ -40,6 +43,7 @@ UNDO_LIMIT_BYTES :: 512 << 20
 
 @(private)
 history_init :: proc(h: ^Undo_History, nodes: int, allocator := context.allocator) {
+	h.allocator = allocator
 	h.limit = UNDO_LIMIT_BYTES
 	h.saved = make([]u32, nodes, allocator)
 	h.changed = make([]u32, nodes, allocator)
@@ -49,7 +53,7 @@ history_init :: proc(h: ^Undo_History, nodes: int, allocator := context.allocato
 history_destroy :: proc(h: ^Undo_History) {
 	clear_steps(h, &h.done)
 	clear_steps(h, &h.undone)
-	step_destroy(&h.current)
+	step_destroy(h, &h.current)
 	delete(h.done)
 	delete(h.undone)
 	delete(h.saved)
@@ -77,7 +81,7 @@ sculptor_stroke_end :: proc(s: ^Sculptor) -> bool {
 	if !h.recording do return false
 	h.recording = false
 	if len(h.current.leaves) == 0 {
-		step_reset(&h.current)
+		step_reset(h, &h.current)
 		return false
 	}
 	clear_steps(h, &h.undone)
@@ -86,7 +90,7 @@ sculptor_stroke_end :: proc(s: ^Sculptor) -> bool {
 	h.bytes += step_bytes(h.done[len(h.done) - 1])
 	for h.bytes > h.limit && len(h.done) > 1 {
 		h.bytes -= step_bytes(h.done[0])
-		step_destroy(&h.done[0])
+		step_destroy(h, &h.done[0])
 		ordered_remove(&h.done, 0)
 	}
 	return true
@@ -118,8 +122,7 @@ step_move :: proc(s: ^Sculptor, from, to: ^[dynamic]Undo_Step) -> bool {
 	for sv in step.saved {
 		n := s.nodes[sv.node]
 		live := m.positions[n.vert_first:][:n.vert_count]
-		kept := step.positions[sv.offset:][:n.vert_count]
-		for &p, i in live do p, kept[i] = kept[i], p
+		for &p, i in live do p, sv.positions[i] = sv.positions[i], p
 	}
 	d := Dab{s = s}
 	clear(&s.changed)
@@ -143,8 +146,7 @@ record_hit :: proc(s: ^Sculptor) {
 		if h.saved[id] == h.stamp do continue
 		h.saved[id] = h.stamp
 		n := s.nodes[id]
-		append(&h.current.saved, Saved_Node{id, u32(len(h.current.positions))})
-		append(&h.current.positions, ..s.mesh.positions[n.vert_first:][:n.vert_count])
+		append(&h.current.saved, Saved_Node{id, slice.clone(s.mesh.positions[n.vert_first:][:n.vert_count], h.allocator)})
 	}
 }
 
@@ -163,20 +165,22 @@ record_changed :: proc(s: ^Sculptor) {
 
 @(private)
 step_bytes :: proc(step: Undo_Step) -> int {
-	return len(step.positions) * size_of(Vec3) + len(step.saved) * size_of(Saved_Node) + len(step.leaves) * size_of(u32)
+	bytes := len(step.saved) * size_of(Saved_Node) + len(step.leaves) * size_of(u32)
+	for sv in step.saved do bytes += len(sv.positions) * size_of(Vec3)
+	return bytes
 }
 
 @(private)
-step_reset :: proc(step: ^Undo_Step) {
+step_reset :: proc(h: ^Undo_History, step: ^Undo_Step) {
+	for sv in step.saved do delete(sv.positions, h.allocator)
 	clear(&step.saved)
-	clear(&step.positions)
 	clear(&step.leaves)
 }
 
 @(private)
-step_destroy :: proc(step: ^Undo_Step) {
+step_destroy :: proc(h: ^Undo_History, step: ^Undo_Step) {
+	for sv in step.saved do delete(sv.positions, h.allocator)
 	delete(step.saved)
-	delete(step.positions)
 	delete(step.leaves)
 	step^ = {}
 }
@@ -185,7 +189,7 @@ step_destroy :: proc(step: ^Undo_Step) {
 clear_steps :: proc(h: ^Undo_History, steps: ^[dynamic]Undo_Step) {
 	for &step in steps {
 		h.bytes -= step_bytes(step)
-		step_destroy(&step)
+		step_destroy(h, &step)
 	}
 	clear(steps)
 }
