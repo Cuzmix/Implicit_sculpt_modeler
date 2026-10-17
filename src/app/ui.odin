@@ -56,6 +56,7 @@ Viewport_Input :: struct {
 	press:       bool, // the left button went down in the viewport this frame
 	smooth:      bool, // Shift held during a stroke: smooth brush
 	invert:      bool, // Ctrl held during a stroke: invert the brush
+	samples:     []Input_Sample, // every pointer sample this frame, oldest first
 }
 
 ui_state_default :: proc() -> Ui_State {
@@ -149,6 +150,8 @@ draw_viewport :: proc(app: ^App) -> (input: Viewport_Input) {
 	input.hovered = imgui.IsItemHovered()
 	input.dragging = imgui.IsItemActive()
 	input.mouse_pos = {io.MousePos.x - origin.x, io.MousePos.y - origin.y}
+	input.samples = make([]Input_Sample, len(app.samples), context.temp_allocator)
+	for s, i in app.samples do input.samples[i] = {s.pos - {origin.x, origin.y}, s.pressure, s.kind}
 	input.mouse_delta = {io.MouseDelta.x, io.MouseDelta.y}
 	input.wheel = io.MouseWheel
 
@@ -183,7 +186,13 @@ draw_viewport_overlay :: proc(app: ^App, input: Viewport_Input) {
 	case .Brush:
 		if input.hovered || input.dragging {
 			color := rgba({1, 1, 1, 0.6} if !input.primary else {1, 0.8, 0.4, 0.9})
-			imgui.DrawList_AddCircle(list, o + input.mouse_pos, app.brush.radius_px, color, 48, 1.5)
+			center := input.mouse_pos
+			if app.stroke.active && app.brush.lazy_px > 0 {
+				// The brush trails the cursor: draw it where it is, on its string.
+				center = app.stroke.pos
+				imgui.DrawList_AddLine(list, o + center, o + input.mouse_pos, color, 1)
+			}
+			imgui.DrawList_AddCircle(list, o + center, app.brush.radius_px, color, 48, 1.5)
 		}
 	case .Move:
 		gv := gizmo_view(app, input.size)
@@ -226,6 +235,14 @@ draw_tools_panel :: proc(app: ^App) {
 	if imgui.RadioButton("Smooth", app.brush.kind == .Smooth) do app.brush.kind = .Smooth
 	imgui.SliderFloat("Radius (px)", &app.brush.radius_px, 5, 300, "%.0f")
 	imgui.SliderFloat("Strength", &app.brush.strength, 0.01, 1, "%.2f")
+	imgui.SliderFloat("Lazy mouse (px)", &app.brush.lazy_px, 0, 150, "%.0f")
+	imgui.Checkbox("Pressure sets strength", &app.brush.pressure_strength)
+	imgui.Checkbox("Pressure sets size", &app.brush.pressure_size)
+	if app.pen_seen {
+		imgui.TextDisabled("Pen pressure %.2f", app.pen_pressure)
+	} else {
+		imgui.TextDisabled("No pen seen yet; a mouse always has full pressure.")
+	}
 
 	imgui.SeparatorText("Camera")
 	imgui.Text("Orbit: right drag, or Alt + left drag")
@@ -242,11 +259,13 @@ draw_scene_panel :: proc(app: ^App) {
 	scene := &app.scene
 
 	total: int
-	for obj in scene.objects do total += geom.mesh_vertex_count(obj.mesh)
-	imgui.Text("%d object%s, %d vertices in total", i32(len(scene.objects)), cstring("" if len(scene.objects) == 1 else "s"), i32(total))
+	for obj in scene.objects do total += geom.mesh_vertex_count(object_mesh(obj)^)
+	imgui.Text("%d object%s, %d vertices shown", i32(len(scene.objects)), cstring("" if len(scene.objects) == 1 else "s"), i32(total))
 	if imgui.BeginListBox("##objects", {-1, 4.25 * imgui.GetTextLineHeightWithSpacing()}) {
 		for obj, i in scene.objects {
-			label := fmt.ctprintf("Sphere %d  (%s vertices)", obj.id, count_label(geom.mesh_vertex_count(obj.mesh)))
+			levels := ""
+			if n := len(obj.levels.levels); n > 1 do levels = fmt.tprintf(", level %d of %d", obj.levels.current + 1, n)
+			label := fmt.ctprintf("Sphere %d  (%s vertices%s)", obj.id, count_label(geom.mesh_vertex_count(object_mesh(obj)^)), levels)
 			if imgui.Selectable(label, i == scene.selected) do scene.selected = i
 		}
 		imgui.EndListBox()
@@ -257,7 +276,8 @@ draw_scene_panel :: proc(app: ^App) {
 		imgui.DragFloat3("Position", &obj.transform.position, 0.01, 0, 0, "%.3f")
 		imgui.DragFloat("Scale", &obj.transform.scale, 0.005, 0.01, 100, "%.3f", {.Logarithmic})
 		obj.transform.scale = clamp(obj.transform.scale, 0.01, 100)
-		imgui.Text("%d vertices, %d triangles", i32(geom.mesh_vertex_count(obj.mesh)), i32(geom.mesh_triangle_count(obj.mesh)))
+		imgui.Text("%d vertices, %d triangles", i32(geom.mesh_vertex_count(object_mesh(obj)^)), i32(geom.mesh_triangle_count(object_mesh(obj)^)))
+		draw_levels_section(app, obj)
 	}
 
 	imgui.SeparatorText("Sphere resolution")
@@ -271,7 +291,7 @@ draw_scene_panel :: proc(app: ^App) {
 	// Geodesic spheres come in steps of 10*f^2 + 2 vertices; show what will be built.
 	f := geom.geodesic_frequency_for(int(app.ui.sphere_vertices))
 	actual := 10 * f * f + 2
-	imgui.TextDisabled("Builds %d vertices, about %s of memory", i32(actual), bytes_label(actual * BYTES_PER_VERTEX))
+	imgui.TextDisabled("Builds %d vertices, about %s of memory", i32(actual), fmt.ctprintf("%s", bytes_label(actual * BYTES_PER_VERTEX)))
 
 	requested := int(app.ui.sphere_vertices)
 	if imgui.Button("Add sphere") do app.ui.scene_command = {kind = .Add, vertices = requested}
@@ -281,7 +301,42 @@ draw_scene_panel :: proc(app: ^App) {
 	imgui.SameLine()
 	if imgui.Button("Delete selected") do app.ui.scene_command = {kind = .Delete}
 	imgui.EndDisabled()
-	imgui.TextDisabled("Remesh rebuilds the sphere at this count;\nsculpted detail is not kept yet.")
+	imgui.TextDisabled("Remesh rebuilds the sphere at this count, with one\nlevel; sculpted detail is not kept yet.")
+}
+
+// Subdivision levels of the selected object, numbered from 1 as in ZBrush.
+@(private = "file")
+draw_levels_section :: proc(app: ^App, obj: ^Object) {
+	levels := &obj.levels
+	count := len(levels.levels)
+	imgui.SeparatorText("Subdivision levels")
+	level := i32(levels.current + 1)
+	imgui.BeginDisabled(count < 2)
+	imgui.SetNextItemWidth(-90)
+	if imgui.SliderInt("Level", &level, 1, i32(max(count, 2)), fmt.ctprintf("%%d of %d", count)) {
+		app.ui.scene_command = {kind = .Set_Level, level = int(level) - 1}
+	}
+	imgui.EndDisabled()
+
+	vertices, _, bytes := sculpt.levels_subdivide_estimate(levels)
+	imgui.BeginDisabled(count >= sculpt.MAX_LEVELS || bytes > MAX_SUBDIVIDE_BYTES)
+	if imgui.Button("Subdivide") do app.ui.scene_command = {kind = .Subdivide}
+	imgui.EndDisabled()
+	imgui.SameLine()
+	imgui.TextDisabled("%s", fmt.ctprintf("adds a level of %s vertices, about %s", count_label(vertices), bytes_label(bytes)))
+	imgui.BeginDisabled(levels.current == 0)
+	if imgui.Button("Delete lower") do app.ui.scene_command = {kind = .Delete_Lower}
+	imgui.EndDisabled()
+	imgui.SameLine()
+	imgui.BeginDisabled(levels.current == count - 1)
+	if imgui.Button("Delete higher") do app.ui.scene_command = {kind = .Delete_Higher}
+	imgui.EndDisabled()
+	imgui.SameLine()
+	imgui.TextDisabled("(clears its undo)")
+	imgui.TextDisabled("Ctrl+D subdivides; D and Shift+D go up and down.\nAll levels use %s of memory.", fmt.ctprintf("%s", bytes_label(sculpt.levels_bytes(levels))))
+	if s := app.stats; s.level_sync_ms + s.level_show_ms > 0 {
+		imgui.TextDisabled("Last change: %.0f ms to update levels, %.0f ms to show", s.level_sync_ms, s.level_show_ms)
+	}
 }
 
 @(private = "file")
@@ -296,6 +351,16 @@ handle_shortcuts :: proc(app: ^App) {
 	if imgui.IsKeyPressed(.W, false) do app.tool = .Move
 	if imgui.IsKeyPressed(.B, false) do app.tool = .Brush
 	if imgui.IsKeyPressed(.F, false) do focus_selected(app)
+	if obj := selected_object(app); obj != nil && imgui.IsKeyPressed(.D, false) {
+		switch {
+		case io.KeyCtrl:
+			app.ui.scene_command = {kind = .Subdivide}
+		case io.KeyShift:
+			app.ui.scene_command = {kind = .Set_Level, level = obj.levels.current - 1}
+		case:
+			app.ui.scene_command = {kind = .Set_Level, level = obj.levels.current + 1}
+		}
+	}
 }
 
 @(private = "file")
@@ -365,6 +430,6 @@ draw_stats_panel :: proc(app: ^App) {
 	row("Input->submit", s.latency_ms, "ms")
 	imgui.Text("Dabs %d   Viewport %d x %d px", i32(s.dabs_total), i32(app.target.width), i32(app.target.height))
 	undo_bytes := 0
-	for obj in app.scene.objects do undo_bytes += sculpt.sculptor_undo_bytes(&obj.sculptor)
+	for obj in app.scene.objects do for lv in obj.levels.levels do undo_bytes += sculpt.sculptor_undo_bytes(&lv.sculptor)
 	imgui.Text("Undo %d strokes, %.1f MB", i32(len(app.history.done)), f64(undo_bytes) / (1 << 20))
 }

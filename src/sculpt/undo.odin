@@ -1,5 +1,6 @@
 package sculpt
 
+import "base:runtime"
 import "core:slice"
 
 import "../geom"
@@ -11,6 +12,7 @@ import "../jobs"
 // the mesh. Undo and redo swap those positions back in place, which turns the step
 // into its own inverse.
 Undo_History :: struct {
+	allocator: runtime.Allocator, // for the saved positions
 	done:      [dynamic]Undo_Step,
 	undone:    [dynamic]Undo_Step,
 	current:   Undo_Step,
@@ -21,20 +23,19 @@ Undo_History :: struct {
 	// and listed once per step without clearing anything between steps.
 	saved:     []u32,
 	changed:   []u32,
-	dirty:     []u32,
 	stamp:     u32,
 }
 
 Undo_Step :: struct {
-	saved:     [dynamic]Saved_Node,
-	positions: [dynamic]Vec3, // owned positions of the saved nodes, back to back
-	leaves:    [dynamic]u32,  // BVH leaves whose triangles moved: bounds to refit
-	nodes:     [dynamic]u32,  // nodes whose normals and GPU data change
+	saved:  [dynamic]Saved_Node,
+	leaves: [dynamic]u32, // BVH leaves whose triangles moved: bounds to refit, normals to update
 }
 
+// A node's owned positions from before the stroke moved them. Each node has its own
+// allocation, so a growing stroke never copies what it already saved.
 Saved_Node :: struct {
-	node:   u32,
-	offset: u32, // into Undo_Step.positions
+	node:      u32,
+	positions: []Vec3,
 }
 
 // Default cap on undo memory per sculptor: about 40 large strokes on a 10M mesh.
@@ -42,22 +43,21 @@ UNDO_LIMIT_BYTES :: 512 << 20
 
 @(private)
 history_init :: proc(h: ^Undo_History, nodes: int, allocator := context.allocator) {
+	h.allocator = allocator
 	h.limit = UNDO_LIMIT_BYTES
 	h.saved = make([]u32, nodes, allocator)
 	h.changed = make([]u32, nodes, allocator)
-	h.dirty = make([]u32, nodes, allocator)
 }
 
 @(private)
 history_destroy :: proc(h: ^Undo_History) {
 	clear_steps(h, &h.done)
 	clear_steps(h, &h.undone)
-	step_destroy(&h.current)
+	step_destroy(h, &h.current)
 	delete(h.done)
 	delete(h.undone)
 	delete(h.saved)
 	delete(h.changed)
-	delete(h.dirty)
 	h^ = {}
 }
 
@@ -70,7 +70,6 @@ sculptor_stroke_begin :: proc(s: ^Sculptor) {
 	if h.stamp == 0 { 	// wrapped: stamps from long ago would look current
 		slice.zero(h.saved)
 		slice.zero(h.changed)
-		slice.zero(h.dirty)
 		h.stamp = 1
 	}
 }
@@ -82,7 +81,7 @@ sculptor_stroke_end :: proc(s: ^Sculptor) -> bool {
 	if !h.recording do return false
 	h.recording = false
 	if len(h.current.leaves) == 0 {
-		step_reset(&h.current)
+		step_reset(h, &h.current)
 		return false
 	}
 	clear_steps(h, &h.undone)
@@ -91,7 +90,7 @@ sculptor_stroke_end :: proc(s: ^Sculptor) -> bool {
 	h.bytes += step_bytes(h.done[len(h.done) - 1])
 	for h.bytes > h.limit && len(h.done) > 1 {
 		h.bytes -= step_bytes(h.done[0])
-		step_destroy(&h.done[0])
+		step_destroy(h, &h.done[0])
 		ordered_remove(&h.done, 0)
 	}
 	return true
@@ -123,8 +122,7 @@ step_move :: proc(s: ^Sculptor, from, to: ^[dynamic]Undo_Step) -> bool {
 	for sv in step.saved {
 		n := s.nodes[sv.node]
 		live := m.positions[n.vert_first:][:n.vert_count]
-		kept := step.positions[sv.offset:][:n.vert_count]
-		for &p, i in live do p, kept[i] = kept[i], p
+		for &p, i in live do p, sv.positions[i] = sv.positions[i], p
 	}
 	d := Dab{s = s}
 	clear(&s.changed)
@@ -133,7 +131,7 @@ step_move :: proc(s: ^Sculptor, from, to: ^[dynamic]Undo_Step) -> bool {
 	for leaf in s.changed do verts += s.nodes[s.node_of[leaf]].vert_count
 	jobs.parallel_for(s.pool if verts >= PARALLEL_MIN_VERTS else nil, len(s.changed), &d, job_leaf_bounds)
 	geom.bvh_refit_leaves(&s.bvh, m^, s.changed[:], recompute_leaves = false)
-	for id in step.nodes do mark_dirty(s, id)
+	for leaf in step.leaves do mark_shape_changed(s, s.node_of[leaf])
 	append(to, step)
 	return true
 }
@@ -148,55 +146,42 @@ record_hit :: proc(s: ^Sculptor) {
 		if h.saved[id] == h.stamp do continue
 		h.saved[id] = h.stamp
 		n := s.nodes[id]
-		append(&h.current.saved, Saved_Node{id, u32(len(h.current.positions))})
-		append(&h.current.positions, ..s.mesh.positions[n.vert_first:][:n.vert_count])
+		append(&h.current.saved, Saved_Node{id, slice.clone(s.mesh.positions[n.vert_first:][:n.vert_count], h.allocator)})
 	}
 }
 
-// Called by apply_dab once s.changed is known: lists the leaves to refit and the
-// nodes to mark dirty when the step is undone or redone.
+// Called by apply_dab once s.changed is known: lists the leaves to refit and update
+// when the step is undone or redone.
 @(private)
 record_changed :: proc(s: ^Sculptor) {
 	h := &s.history
 	for leaf in s.changed {
 		id := s.node_of[leaf]
-		if h.changed[id] != h.stamp {
-			h.changed[id] = h.stamp
-			append(&h.current.leaves, leaf)
-		}
-		n := s.nodes[id]
-		record_dirty(h, id)
-		for owner in s.owners[n.owner_first:][:n.owner_count] do record_dirty(h, owner)
+		if h.changed[id] == h.stamp do continue
+		h.changed[id] = h.stamp
+		append(&h.current.leaves, leaf)
 	}
 }
 
 @(private)
-record_dirty :: #force_inline proc(h: ^Undo_History, id: u32) {
-	if h.dirty[id] == h.stamp do return
-	h.dirty[id] = h.stamp
-	append(&h.current.nodes, id)
-}
-
-@(private)
 step_bytes :: proc(step: Undo_Step) -> int {
-	return len(step.positions) * size_of(Vec3) + len(step.saved) * size_of(Saved_Node) +
-		(len(step.leaves) + len(step.nodes)) * size_of(u32)
+	bytes := len(step.saved) * size_of(Saved_Node) + len(step.leaves) * size_of(u32)
+	for sv in step.saved do bytes += len(sv.positions) * size_of(Vec3)
+	return bytes
 }
 
 @(private)
-step_reset :: proc(step: ^Undo_Step) {
+step_reset :: proc(h: ^Undo_History, step: ^Undo_Step) {
+	for sv in step.saved do delete(sv.positions, h.allocator)
 	clear(&step.saved)
-	clear(&step.positions)
 	clear(&step.leaves)
-	clear(&step.nodes)
 }
 
 @(private)
-step_destroy :: proc(step: ^Undo_Step) {
+step_destroy :: proc(h: ^Undo_History, step: ^Undo_Step) {
+	for sv in step.saved do delete(sv.positions, h.allocator)
 	delete(step.saved)
-	delete(step.positions)
 	delete(step.leaves)
-	delete(step.nodes)
 	step^ = {}
 }
 
@@ -204,7 +189,7 @@ step_destroy :: proc(step: ^Undo_Step) {
 clear_steps :: proc(h: ^Undo_History, steps: ^[dynamic]Undo_Step) {
 	for &step in steps {
 		h.bytes -= step_bytes(step)
-		step_destroy(&step)
+		step_destroy(h, &step)
 	}
 	clear(steps)
 }

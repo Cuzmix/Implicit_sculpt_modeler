@@ -13,6 +13,7 @@
 // By default the 10M size runs a second time with an idle second sphere in the scene,
 // flushed every frame as the app does, to show that idle meshes add no CPU cost.
 //
+//   --levels     instead, the subdivision levels table (see run_levels)
 //   --meshes=N   spheres per size, all sculpt-ready; only the first is sculpted
 //   --threads=N  worker count including the caller (default: every core)
 //   --node=N     triangles per sculpt node
@@ -46,6 +47,7 @@ node_triangles: u32 = sculpt.NODE_TRIANGLES
 threads := 0
 prefault_mb := 0
 meshes := 0 // 0: the default cases
+levels := false
 
 main :: proc() {
 	targets := make([dynamic]int)
@@ -57,6 +59,8 @@ main :: proc() {
 			prefault_mb = strconv.parse_int(arg[11:]) or_else 0
 		} else if strings.has_prefix(arg, "--meshes=") {
 			meshes = max(strconv.parse_int(arg[9:]) or_else 1, 1)
+		} else if arg == "--levels" {
+			levels = true
 		} else if strings.has_prefix(arg, "--threads=") {
 			threads = strconv.parse_int(arg[10:]) or_else 0
 		} else if v, ok := strconv.parse_int(arg); ok {
@@ -84,9 +88,15 @@ main :: proc() {
 	}
 	defer if pool != nil do jobs.pool_destroy(pool)
 	fmt.printfln("threads: %d, node triangles: %d", jobs.pool_size(pool) if pool != nil else 1, node_triangles)
+	if levels {
+		levels_header()
+		for c in cases do if c.meshes == 1 do run_levels(c.vertices, pool)
+		if prefault_mb == 0 do fmt.printfln("peak RSS: %.0f MB", peak_rss_mb())
+		return
+	}
 
-	fmt.println("| Meshes | Vertices | Triangles | Setup s | Mesh MB | RSS MB | Brush | Verts/dab | Raycast ms | Dab ms | Normals ms/frame | Frame ms | Frame ms max | Upload MB/frame | Undo MB/stroke | Undo ms | Redo ms |")
-	fmt.println("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+	fmt.println("| Meshes | Vertices | Triangles | Setup s | Mesh MB | RSS MB | Brush | Verts/dab | Raycast ms | Dab ms | Normals ms/frame | Frame ms | Frame ms max | Upload MB/frame | Stroke end ms | Undo MB/stroke | Undo ms | Redo ms |")
+	fmt.println("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
 	for c in cases {
 		run(c.vertices, c.meshes, pool)
 	}
@@ -169,6 +179,12 @@ run :: proc(target, mesh_count: int, pool: ^jobs.Pool) {
 			}
 		}
 		_ = sculpt.sculptor_stroke_end(s)
+		// The app flushes again in the frame the stroke ends, which starts on the normal
+		// cones held back during the stroke; later frames finish them.
+		te := time.tick_now()
+		for sp in spheres do _ = sculpt.sculptor_flush(&sp.sculptor)
+		end_ms := time.duration_milliseconds(time.tick_since(te))
+		for len(s.waiting_cones) > 0 do _ = sculpt.sculptor_flush(s)
 		undo_mb := f64(sculpt.sculptor_undo_bytes(s)) / (1 << 20)
 		// Undo and redo the stroke, each with the normal update that follows it.
 		tu := time.tick_now()
@@ -180,10 +196,10 @@ run :: proc(target, mesh_count: int, pool: ^jobs.Pool) {
 		_ = sculpt.sculptor_flush(s)
 		redo_ms := time.duration_milliseconds(time.tick_since(tr))
 		sculpt.sculptor_clear_history(s) // so the next brush measures its own stroke
-		fmt.printfln("| %d | %s | %s | %.1f | %.0f | %.0f | r=%.2f | %d | %.3f | %.3f | %.3f | %.2f | %.2f | %.2f | %.1f | %.2f | %.2f |",
+		fmt.printfln("| %d | %s | %s | %.1f | %.0f | %.0f | r=%.2f | %d | %.3f | %.3f | %.3f | %.2f | %.2f | %.2f | %.2f | %.1f | %.2f | %.2f |",
 			mesh_count, thousands(vcount), thousands(tcount), setup_s, f64(cpu_bytes) / (1 << 20), rss, radius,
 			touched_total / DABS, median(raycast), median(dab), median(flush), median(frame), slice.max(frame),
-			f64(upload_bytes) / f64(frames) / (1 << 20), undo_mb, undo_ms, redo_ms)
+			f64(upload_bytes) / f64(frames) / (1 << 20), end_ms, undo_mb, undo_ms, redo_ms)
 	}
 	if mesh_count == 1 do bench_culling(s, vcount, tcount)
 }

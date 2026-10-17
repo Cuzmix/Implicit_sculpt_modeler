@@ -12,9 +12,11 @@ Aabb :: struct {
 
 AABB_EMPTY :: Aabb{{max(f32), max(f32), max(f32)}, {min(f32), min(f32), min(f32)}}
 
+// Plain compares rather than min and max, whose NaN handling costs several
+// instructions a component: bounds are grown for every vertex a brush scans.
 aabb_grow :: #force_inline proc(b: ^Aabb, p: Vec3) {
-	b.lo = linalg.min(b.lo, p)
-	b.hi = linalg.max(b.hi, p)
+	b.lo = {p.x if p.x < b.lo.x else b.lo.x, p.y if p.y < b.lo.y else b.lo.y, p.z if p.z < b.lo.z else b.lo.z}
+	b.hi = {p.x if p.x > b.hi.x else b.hi.x, p.y if p.y > b.hi.y else b.hi.y, p.z if p.z > b.hi.z else b.hi.z}
 }
 
 aabb_union :: #force_inline proc(a, b: Aabb) -> Aabb {

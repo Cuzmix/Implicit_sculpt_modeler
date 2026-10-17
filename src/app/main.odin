@@ -27,11 +27,15 @@ Options :: struct {
 	width:     int `usage:"Initial window width (default 1600)."`,
 	height:    int `usage:"Initial window height (default 900)."`,
 	spheres:   int `usage:"Start with this many spheres side by side, all of the starting size (default 1)."`,
+	subdivide: int `usage:"Give each starting sphere this many subdivision levels above it, as Ctrl+D does (e.g. --vertices=40000 --subdivide=4 tops out at 10M)."`,
+	level:     int `usage:"Start on this subdivision level, 1 being the base (default: the top one)."`,
 	no_cache:  bool `usage:"Draw every object every frame instead of caching the idle ones (for comparison)."`,
 	no_cull:   bool `usage:"Draw every triangle instead of skipping off-screen and back-facing chunks (for comparison)."`,
 	dump_viewport: string `usage:"On exit, write the last viewport image to this path as a binary PPM (for checking renders)."`,
 	no_partial: bool `usage:"Redraw the whole viewport every frame instead of only what changed (for comparison)."`,
 	bench_stroke: int `usage:"Run a synthetic brush stroke over this many frames, print brush stats, then exit."`,
+	bench_samples: int `usage:"Give each --bench-stroke frame this many pointer samples along the path, like a high-rate mouse (default: one position a frame)."`,
+	bench_loops: int `usage:"Make --bench-stroke this many circles around the middle of the sphere instead of a wavy line."`,
 	no_vsync:  bool `usage:"Show each frame as soon as it is ready instead of waiting for the display's refresh, so frame times are not capped at the refresh rate."`,
 	time_gpu:  bool `usage:"Measure the GPU time of the 3D viewport every frame. Waits for the GPU each frame, so frames no longer overlap."`,
 	gpubench:  string `usage:"Time the GPU and CPU while orbiting and sculpting one sphere at 500k, 1M, 5M, 7M and 10M vertices (only --vertices when given), with each speed setting on and off; write the markdown tables to this path and exit."`,
@@ -48,6 +52,9 @@ App :: struct {
 	move:     Move_Tool,
 	brush:    Brush_Settings,
 	stroke:   Stroke,
+	samples:  [dynamic]Input_Sample, // this frame's pointer samples, in window coordinates
+	pen_pressure: f32, // the pen's latest pressure
+	pen_seen: bool,
 	camera:   camera.Orbit,
 	ui:       Ui_State,
 	stats:    Frame_Stats,
@@ -121,8 +128,21 @@ run :: proc(opts: Options) -> bool {
 	app.scene.selected = -1
 	defer scene_destroy(&app)
 	defer history_destroy(&app.history)
+	defer delete(app.samples)
+	defer delete(app.stroke.pending)
 	for _ in 0 ..< max(opts.spheres, 1) {
 		if !scene_add_sphere(&app, opts.vertices, opts.subdiv, {position = next_free_position(&app), scale = 1}) do return false
+		obj := app.scene.objects[len(app.scene.objects) - 1]
+		if opts.subdivide <= 0 && opts.level <= 0 do continue
+		start := time.tick_now()
+		for _ in 0 ..< opts.subdivide {
+			if !sculpt.levels_subdivide(&obj.levels) do break
+			free_all(context.temp_allocator)
+		}
+		log.infof("levels: %d, top level %d vertices, built in %.0f ms", len(obj.levels.levels),
+			geom.mesh_vertex_count(object_mesh(obj)^), time.duration_milliseconds(time.tick_since(start)))
+		if opts.level > 0 do sculpt.levels_set_current(&obj.levels, opts.level - 1)
+		if !object_show_level(&app, obj, start) do return false
 	}
 	app.scene.selected = 0
 	defer render.viewport_target_destroy(&app.renderer, &app.target)
@@ -156,7 +176,7 @@ run :: proc(opts: Options) -> bool {
 	app.vsync = !opts.no_vsync && opts.gpubench == ""
 	app.time_gpu = opts.time_gpu || opts.gpubench != ""
 	app.ui = ui_state_default()
-	app.brush = {kind = .Draw, radius_px = 60, strength = 0.5}
+	app.brush = {kind = .Draw, radius_px = 60, strength = 0.5, pressure_strength = true}
 	app.tool = .Brush
 	app.running = true
 	last_input_ns: u64 // SDL timestamp of the newest mouse event, for latency
@@ -202,14 +222,31 @@ run :: proc(opts: Options) -> bool {
 		}
 		waited := time.tick_since(wait_start)
 
+		// Every pointer sample, not only where the pointer ended up, so the brush can
+		// follow the whole path. A pen also sends mouse events, marked PEN_MOUSEID; its
+		// pressure arrives separately as an axis event.
+		clear(&app.samples)
 		e: sdl.Event
 		for sdl.PollEvent(&e) {
 			imgui_impl_sdl3.ProcessEvent(&e)
 			#partial switch e.type {
 			case .QUIT, .WINDOW_CLOSE_REQUESTED:
 				app.running = false
-			case .MOUSE_MOTION, .MOUSE_BUTTON_DOWN:
+			case .MOUSE_MOTION:
 				last_input_ns = e.common.timestamp
+				pressure := app.pen_pressure if e.motion.which == sdl.PEN_MOUSEID else 1
+				append(&app.samples, Input_Sample{{e.motion.x, e.motion.y}, pressure, .Move})
+			case .MOUSE_BUTTON_DOWN, .MOUSE_BUTTON_UP:
+				if e.button.down do last_input_ns = e.common.timestamp
+				if e.button.button == sdl.BUTTON_LEFT {
+					pressure := app.pen_pressure if e.button.which == sdl.PEN_MOUSEID else 1
+					append(&app.samples, Input_Sample{{e.button.x, e.button.y}, pressure, .Press if e.button.down else .Release})
+				}
+			case .PEN_AXIS:
+				if e.paxis.axis == .PRESSURE {
+					app.pen_pressure = e.paxis.value
+					app.pen_seen = true
+				}
 			}
 		}
 
@@ -223,7 +260,7 @@ run :: proc(opts: Options) -> bool {
 		imgui.NewFrame()
 		input := ui_draw(&app)
 		if opts.bench_stroke > 0 {
-			input = bench_input(&app, frame_index, opts.bench_stroke, {f32(app.target.width), f32(app.target.height)})
+			input = bench_input(&app, frame_index, opts.bench_stroke, opts.bench_samples, opts.bench_loops, {f32(app.target.width), f32(app.target.height)})
 			last_input_ns = sdl.GetTicksNS()
 		} else if opts.gpubench != "" {
 			input = gpubench_input(&app, &bench, {f32(app.target.width), f32(app.target.height)})
@@ -253,16 +290,17 @@ run :: proc(opts: Options) -> bool {
 		normals_ms: f64
 		draws := make([]render.Draw_Item, len(app.scene.objects), context.temp_allocator)
 		for obj, i in app.scene.objects {
+			lv := object_level(obj)
 			t_flush := time.tick_now()
-			ranges := sculpt.sculptor_flush(&obj.sculptor)
+			ranges := sculpt.sculptor_flush(&lv.sculptor)
 			normals_ms += time.duration_milliseconds(time.tick_since(t_flush))
-			render.mesh_buffers_upload_ranges(&app.renderer, cmd, &obj.mesh_gpu, obj.mesh, ranges)
+			render.mesh_buffers_upload_ranges(&app.renderer, cmd, object_gpu(obj), lv.mesh, ranges)
 			for r in ranges do uploaded += r.count
 			// The selected object is in clay; the others are a muted grey. Only the
 			// selected one is sculpted or moved, so the rest can come from the cache.
 			selected := i == app.scene.selected
 			color := [4]f32{0.55, 0.40, 0.32, 1} if selected else {0.42, 0.42, 0.44, 1}
-			draws[i] = {mesh = &obj.mesh_gpu, model = transform_matrix(obj.transform), color = color, live = selected, chunks = obj.sculptor.chunks, damage = obj.sculptor.changed_bounds}
+			draws[i] = {mesh = object_gpu(obj), model = transform_matrix(obj.transform), color = color, live = selected, chunks = lv.sculptor.chunks, damage = lv.sculptor.changed_bounds}
 		}
 		aspect := f32(app.target.width) / f32(app.target.height)
 		drawn := render.render_viewport(&app.renderer, cmd, &app.target,
@@ -364,7 +402,7 @@ run :: proc(opts: Options) -> bool {
 		fmt.printfln("%s_p50=%.3f %s_p99=%.3f", name, p50, name, p99)
 	}
 	vertices: int
-	for obj in app.scene.objects do vertices += geom.mesh_vertex_count(obj.mesh)
+	for obj in app.scene.objects do vertices += geom.mesh_vertex_count(object_mesh(obj)^)
 	fmt.printfln("frames=%d dabs=%d objects=%d vertices=%d", frame_index, app.stats.dabs_total, len(app.scene.objects), vertices)
 	fmt.printfln("idle_cache=%v cache_redraws=%d last_frame_triangles=%d", app.cache_idle, app.stats.cache_redraws, app.stats.viewport.triangles)
 	v := app.stats.viewport
@@ -386,15 +424,29 @@ run :: proc(opts: Options) -> bool {
 		// of the whole stroke, each including the normal update that follows.
 		stroke_finish(&app)
 		undo_bytes := 0
-		for obj in app.scene.objects do undo_bytes += sculpt.sculptor_undo_bytes(&obj.sculptor)
+		for obj in app.scene.objects do undo_bytes += sculpt.sculptor_undo_bytes(object_sculptor(obj))
 		t0 := time.tick_now()
 		history_undo(&app)
-		for obj in app.scene.objects do _ = sculpt.sculptor_flush(&obj.sculptor)
+		for obj in app.scene.objects do _ = sculpt.sculptor_flush(object_sculptor(obj))
 		t1 := time.tick_now()
 		history_redo(&app)
-		for obj in app.scene.objects do _ = sculpt.sculptor_flush(&obj.sculptor)
+		for obj in app.scene.objects do _ = sculpt.sculptor_flush(object_sculptor(obj))
 		fmt.printfln("undo_mb=%.2f undo_ms=%.3f redo_ms=%.3f", f64(undo_bytes) / (1 << 20),
 			time.duration_milliseconds(time.tick_diff(t0, t1)), time.duration_milliseconds(time.tick_since(t1)))
+		// With levels: step down to the base, carrying the stroke along, then jump back.
+		// Each change prints the time to update the levels plus the time to show the new one.
+		obj := app.scene.objects[0]
+		if start := obj.levels.current; len(obj.levels.levels) > 1 {
+			fmt.printf("level_changes_ms=")
+			for to := start - 1; to >= -1; to -= 1 {
+				from := obj.levels.current
+				target := to if to >= 0 else start
+				if !object_set_level(&app, obj, target) do return false
+				fmt.printf("%d->%d:%.1f+%.1f ", from + 1, target + 1, app.stats.level_sync_ms, app.stats.level_show_ms)
+				free_all(context.temp_allocator)
+			}
+			fmt.println()
+		}
 	}
 	return true
 }
