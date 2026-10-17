@@ -325,8 +325,23 @@ draw_stats_panel :: proc(app: ^App) {
 		imgui.Text("%-14s p50 %7.2f  p99 %7.2f %s", label, p50, p99, unit)
 	}
 	row("Frame", s.frame_ms, "ms")
-	row("CPU (UI)", s.cpu_ms, "ms")
+	row("CPU", s.cpu_ms, "ms")
+	if app.time_gpu do row("GPU (3D)", s.gpu_ms, "ms")
+	row("Display wait", s.wait_ms, "ms")
 	imgui.PlotLines("##frame_ms", &s.frame_ms.values[0], HISTORY, i32(s.frame_ms.head), "frame ms", 0, 33.3, {0, 80})
+	imgui.Checkbox("VSync", &app.vsync)
+	imgui.SameLine()
+	switch app.renderer.present_mode {
+	case .VSYNC:
+		imgui.TextDisabled("(frame rate capped at the display's)")
+	case .MAILBOX:
+		imgui.TextDisabled("(off: mailbox)")
+	case .IMMEDIATE:
+		imgui.TextDisabled("(off: immediate, may tear)")
+	}
+	if imgui.Checkbox("Time GPU work", &app.time_gpu) do s.gpu_ms = {}
+	imgui.SameLine()
+	imgui.TextDisabled("(waits for the GPU every frame)")
 	v := s.viewport
 	imgui.Text("Triangles drawn %s in %d draws", fmt.ctprintf("%s", count_label(int(v.triangles))), i32(v.draws))
 	imgui.Checkbox("Redraw only changes", &app.renderer.partial)

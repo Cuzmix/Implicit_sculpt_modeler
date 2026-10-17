@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Usage: ./build.sh [debug|release|test|run|smoke|bench] [-- app args]
+# Usage: ./build.sh [debug|release|test|run|smoke|bench|gpubench] [-- app args]
 #   debug   (default) debug build with allocation tracking -> build/sculpt
 #   release optimized build without bounds checks -> build/sculpt
 #   test    run all package tests
@@ -8,6 +8,10 @@
 #           needed); extra args go to build/bench, e.g. 2000000 --threads=1
 #   smoke   debug build, then run 300 frames with GPU debug mode; fails on any
 #           SDL assert, GPU error or leaked allocation (needs a display, e.g. Xvfb)
+#   gpubench release build, then time the GPU and CPU while orbiting and sculpting a
+#           sphere at 500k, 1M, 5M, 7M and 10M vertices, with each speed setting on and
+#           off; prints markdown tables and writes them to build/gpubench.md (needs a
+#           display; use a real GPU for meaningful numbers)
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 DEPS="$ROOT/deps"
@@ -34,9 +38,10 @@ case "$mode" in
 		if [ "$mode" = run ]; then exec "$ROOT/build/sculpt" "$@"; fi
 		if [ "$mode" = smoke ]; then SDL_ASSERT=abort exec "$ROOT/build/sculpt" --frames=300 --gpu-debug "$@"; fi
 		;;
-	release)
+	release|gpubench)
 		compile_shaders
 		"$ODIN" build "$ROOT/src/app" -out:"$ROOT/build/sculpt" -o:speed -no-bounds-check "${common[@]}"
+		if [ "$mode" = gpubench ]; then exec "$ROOT/build/sculpt" --gpubench "$ROOT/build/gpubench.md" "$@"; fi
 		;;
 	bench)
 		"$ODIN" build "$ROOT/src/bench" -out:"$ROOT/build/bench" -o:speed -no-bounds-check "${common[@]}"

@@ -3,6 +3,7 @@
 // then displays; it never reads or writes UI state.
 package render
 
+import "core:fmt"
 import "core:hash"
 import "core:log"
 import "core:math"
@@ -26,6 +27,7 @@ Renderer :: struct {
 	last_version:   u64,  // source of Mesh_Buffers.version
 	cull:           bool, // skip off-screen and back-facing chunks of items that have them
 	partial:        bool, // while the camera and objects stay put, redraw only what changed
+	present_mode:   sdl.GPUPresentMode, // how frames reach the screen; see renderer_set_vsync
 }
 
 // Viewport background, linear values written as-is (like the mesh shader's output).
@@ -145,7 +147,7 @@ renderer_init :: proc(r: ^Renderer, window: ^sdl.Window, debug: bool) -> bool {
 		log.errorf("CreateGPUDevice failed: %s", sdl.GetError())
 		return false
 	}
-	log.infof("GPU driver: %s", sdl.GetGPUDeviceDriver(r.device))
+	log.infof("GPU: %s", gpu_description(r))
 	if !sdl.ClaimWindowForGPUDevice(r.device, window) {
 		log.errorf("ClaimWindowForGPUDevice failed: %s", sdl.GetError())
 		return false
@@ -159,6 +161,45 @@ renderer_init :: proc(r: ^Renderer, window: ^sdl.Window, debug: bool) -> bool {
 	r.mesh_pipeline = create_mesh_pipeline(r)
 	r.clear_pipeline = create_clear_pipeline(r)
 	return r.mesh_pipeline != nil && r.clear_pipeline != nil
+}
+
+// The GPU's name, backend and driver version, for logs and benchmark reports.
+// Temp-allocated.
+gpu_description :: proc(r: ^Renderer) -> string {
+	props := sdl.GetGPUDeviceProperties(r.device)
+	name := sdl.GetStringProperty(props, sdl.PROP_GPU_DEVICE_NAME_STRING, "unknown GPU")
+	version := sdl.GetStringProperty(props, sdl.PROP_GPU_DEVICE_DRIVER_VERSION_STRING, "unknown")
+	return fmt.tprintf("%s (%s, driver %s)", name, sdl.GetGPUDeviceDriver(r.device), version)
+}
+
+// Picks how frames reach the screen. With vsync (the default), a frame waits for the
+// display's refresh: no tearing, and the frame rate is capped at the refresh rate.
+// Without, a frame is shown as soon as it is ready: mailbox where the window offers it
+// (no tearing; a newer frame replaces one still waiting), else immediate (may tear).
+// Returns false, keeping the current mode, when the window offers neither or the
+// change fails. Recreates the swapchain, so it must not be called while a swapchain
+// texture is acquired.
+renderer_set_vsync :: proc(r: ^Renderer, vsync: bool) -> bool {
+	mode := sdl.GPUPresentMode.VSYNC
+	if !vsync {
+		switch {
+		case sdl.WindowSupportsGPUPresentMode(r.device, r.window, .MAILBOX):
+			mode = .MAILBOX
+		case sdl.WindowSupportsGPUPresentMode(r.device, r.window, .IMMEDIATE):
+			mode = .IMMEDIATE
+		case:
+			log.warn("vsync stays on: the display offers no other present mode")
+			return false
+		}
+	}
+	if mode == r.present_mode do return true
+	if !sdl.SetGPUSwapchainParameters(r.device, r.window, .SDR, mode) {
+		log.errorf("SetGPUSwapchainParameters failed: %s", sdl.GetError())
+		return false
+	}
+	r.present_mode = mode
+	log.infof("present mode: %v", mode)
+	return true
 }
 
 // Waits for the GPU, then releases everything the renderer created, in reverse order.

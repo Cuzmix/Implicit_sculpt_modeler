@@ -106,23 +106,28 @@ mouse_ray :: proc(c: camera.Orbit, pos, size: [2]f32) -> (origin, dir: sculpt.Ve
 // object, as it appears on screen.
 bench_input :: proc(app: ^App, frame, total: int, size: [2]f32) -> Viewport_Input {
 	t := f32(frame) / f32(max(total - 1, 1))
-	center, radius := size * 0.5, size.y * 0.3
-	if len(app.scene.objects) > 0 {
-		obj := app.scene.objects[0]
-		view_proj := camera.orbit_proj(app.camera, size.x / size.y) * camera.orbit_view(app.camera)
-		to_px :: proc(m: matrix[4, 4]f32, p: Vec3, size: [2]f32) -> [2]f32 {
-			c := m * [4]f32{p.x, p.y, p.z, 1}
-			return {(c.x / c.w * 0.5 + 0.5) * size.x, (0.5 - c.y / c.w * 0.5) * size.y}
-		}
-		center = to_px(view_proj, obj.transform.position, size)
-		up := Vec3{0, obj.transform.scale, 0}
-		radius = linalg.length(to_px(view_proj, obj.transform.position + up, size) - center)
+	center, radius := first_object_on_screen(app, size)
+	return bench_drag(size, center + radius * [2]f32{-0.6 + 1.2 * t, 0.3 * math.sin(t * 4 * math.PI)})
+}
+
+// A left-button drag at `pos`, as the viewport panel would report it.
+bench_drag :: proc(size, pos: [2]f32) -> Viewport_Input {
+	return {size = size, mouse_pos = pos, hovered = true, dragging = true, primary = true}
+}
+
+// Centre and radius in pixels of the first object's bounding sphere (a unit sphere in
+// its local space), or a circle in the middle of the viewport when there is none.
+first_object_on_screen :: proc(app: ^App, size: [2]f32) -> (center: [2]f32, radius: f32) {
+	center, radius = size * 0.5, size.y * 0.3
+	if len(app.scene.objects) == 0 do return
+	obj := app.scene.objects[0]
+	view_proj := camera.orbit_proj(app.camera, size.x / size.y) * camera.orbit_view(app.camera)
+	to_px :: proc(m: matrix[4, 4]f32, p: Vec3, size: [2]f32) -> [2]f32 {
+		c := m * [4]f32{p.x, p.y, p.z, 1}
+		return {(c.x / c.w * 0.5 + 0.5) * size.x, (0.5 - c.y / c.w * 0.5) * size.y}
 	}
-	return Viewport_Input {
-		size      = size,
-		mouse_pos = center + radius * [2]f32{-0.6 + 1.2 * t, 0.3 * math.sin(t * 4 * math.PI)},
-		hovered   = true,
-		dragging  = true,
-		primary   = true,
-	}
+	center = to_px(view_proj, obj.transform.position, size)
+	up := Vec3{0, obj.transform.scale, 0}
+	radius = linalg.length(to_px(view_proj, obj.transform.position + up, size) - center)
+	return
 }

@@ -30,8 +30,10 @@ ring_percentiles :: proc(r: Sample_Ring) -> (p50, p99: f32) {
 }
 
 Frame_Stats :: struct {
-	frame_ms:   Sample_Ring, // whole frame, start of event polling to after submit
-	cpu_ms:     Sample_Ring, // events + UI
+	frame_ms:   Sample_Ring, // whole frame, waits included
+	cpu_ms:     Sample_Ring, // the frame minus its waits
+	wait_ms:    Sample_Ring, // waiting for the display (and, while timing the GPU, for the previous frame)
+	gpu_ms:     Sample_Ring, // GPU time of the 3D viewport's uploads and drawing; only while timing the GPU
 	// Recorded only on frames where the brush changed the mesh:
 	raycast_ms: Sample_Ring,
 	brush_ms:   Sample_Ring, // dabs, excluding the raycast
