@@ -56,6 +56,7 @@ Viewport_Input :: struct {
 	press:       bool, // the left button went down in the viewport this frame
 	smooth:      bool, // Shift held during a stroke: smooth brush
 	invert:      bool, // Ctrl held during a stroke: invert the brush
+	samples:     []Input_Sample, // every pointer sample this frame, oldest first
 }
 
 ui_state_default :: proc() -> Ui_State {
@@ -149,6 +150,8 @@ draw_viewport :: proc(app: ^App) -> (input: Viewport_Input) {
 	input.hovered = imgui.IsItemHovered()
 	input.dragging = imgui.IsItemActive()
 	input.mouse_pos = {io.MousePos.x - origin.x, io.MousePos.y - origin.y}
+	input.samples = make([]Input_Sample, len(app.samples), context.temp_allocator)
+	for s, i in app.samples do input.samples[i] = {s.pos - {origin.x, origin.y}, s.pressure, s.kind}
 	input.mouse_delta = {io.MouseDelta.x, io.MouseDelta.y}
 	input.wheel = io.MouseWheel
 
@@ -183,7 +186,13 @@ draw_viewport_overlay :: proc(app: ^App, input: Viewport_Input) {
 	case .Brush:
 		if input.hovered || input.dragging {
 			color := rgba({1, 1, 1, 0.6} if !input.primary else {1, 0.8, 0.4, 0.9})
-			imgui.DrawList_AddCircle(list, o + input.mouse_pos, app.brush.radius_px, color, 48, 1.5)
+			center := input.mouse_pos
+			if app.stroke.active && app.brush.lazy_px > 0 {
+				// The brush trails the cursor: draw it where it is, on its string.
+				center = app.stroke.pos
+				imgui.DrawList_AddLine(list, o + center, o + input.mouse_pos, color, 1)
+			}
+			imgui.DrawList_AddCircle(list, o + center, app.brush.radius_px, color, 48, 1.5)
 		}
 	case .Move:
 		gv := gizmo_view(app, input.size)
@@ -226,6 +235,14 @@ draw_tools_panel :: proc(app: ^App) {
 	if imgui.RadioButton("Smooth", app.brush.kind == .Smooth) do app.brush.kind = .Smooth
 	imgui.SliderFloat("Radius (px)", &app.brush.radius_px, 5, 300, "%.0f")
 	imgui.SliderFloat("Strength", &app.brush.strength, 0.01, 1, "%.2f")
+	imgui.SliderFloat("Lazy mouse (px)", &app.brush.lazy_px, 0, 150, "%.0f")
+	imgui.Checkbox("Pressure sets strength", &app.brush.pressure_strength)
+	imgui.Checkbox("Pressure sets size", &app.brush.pressure_size)
+	if app.pen_seen {
+		imgui.TextDisabled("Pen pressure %.2f", app.pen_pressure)
+	} else {
+		imgui.TextDisabled("No pen seen yet; a mouse always has full pressure.")
+	}
 
 	imgui.SeparatorText("Camera")
 	imgui.Text("Orbit: right drag, or Alt + left drag")

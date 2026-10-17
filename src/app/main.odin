@@ -32,6 +32,8 @@ Options :: struct {
 	dump_viewport: string `usage:"On exit, write the last viewport image to this path as a binary PPM (for checking renders)."`,
 	no_partial: bool `usage:"Redraw the whole viewport every frame instead of only what changed (for comparison)."`,
 	bench_stroke: int `usage:"Run a synthetic brush stroke over this many frames, print brush stats, then exit."`,
+	bench_samples: int `usage:"Give each --bench-stroke frame this many pointer samples along the path, like a high-rate mouse (default: one position a frame)."`,
+	bench_loops: int `usage:"Make --bench-stroke this many circles around the middle of the sphere instead of a wavy line."`,
 	no_vsync:  bool `usage:"Show each frame as soon as it is ready instead of waiting for the display's refresh, so frame times are not capped at the refresh rate."`,
 	time_gpu:  bool `usage:"Measure the GPU time of the 3D viewport every frame. Waits for the GPU each frame, so frames no longer overlap."`,
 	gpubench:  string `usage:"Time the GPU and CPU while orbiting and sculpting one sphere at 500k, 1M, 5M, 7M and 10M vertices (only --vertices when given), with each speed setting on and off; write the markdown tables to this path and exit."`,
@@ -48,6 +50,9 @@ App :: struct {
 	move:     Move_Tool,
 	brush:    Brush_Settings,
 	stroke:   Stroke,
+	samples:  [dynamic]Input_Sample, // this frame's pointer samples, in window coordinates
+	pen_pressure: f32, // the pen's latest pressure
+	pen_seen: bool,
 	camera:   camera.Orbit,
 	ui:       Ui_State,
 	stats:    Frame_Stats,
@@ -121,6 +126,8 @@ run :: proc(opts: Options) -> bool {
 	app.scene.selected = -1
 	defer scene_destroy(&app)
 	defer history_destroy(&app.history)
+	defer delete(app.samples)
+	defer delete(app.stroke.pending)
 	for _ in 0 ..< max(opts.spheres, 1) {
 		if !scene_add_sphere(&app, opts.vertices, opts.subdiv, {position = next_free_position(&app), scale = 1}) do return false
 	}
@@ -156,7 +163,7 @@ run :: proc(opts: Options) -> bool {
 	app.vsync = !opts.no_vsync && opts.gpubench == ""
 	app.time_gpu = opts.time_gpu || opts.gpubench != ""
 	app.ui = ui_state_default()
-	app.brush = {kind = .Draw, radius_px = 60, strength = 0.5}
+	app.brush = {kind = .Draw, radius_px = 60, strength = 0.5, pressure_strength = true}
 	app.tool = .Brush
 	app.running = true
 	last_input_ns: u64 // SDL timestamp of the newest mouse event, for latency
@@ -202,14 +209,31 @@ run :: proc(opts: Options) -> bool {
 		}
 		waited := time.tick_since(wait_start)
 
+		// Every pointer sample, not only where the pointer ended up, so the brush can
+		// follow the whole path. A pen also sends mouse events, marked PEN_MOUSEID; its
+		// pressure arrives separately as an axis event.
+		clear(&app.samples)
 		e: sdl.Event
 		for sdl.PollEvent(&e) {
 			imgui_impl_sdl3.ProcessEvent(&e)
 			#partial switch e.type {
 			case .QUIT, .WINDOW_CLOSE_REQUESTED:
 				app.running = false
-			case .MOUSE_MOTION, .MOUSE_BUTTON_DOWN:
+			case .MOUSE_MOTION:
 				last_input_ns = e.common.timestamp
+				pressure := app.pen_pressure if e.motion.which == sdl.PEN_MOUSEID else 1
+				append(&app.samples, Input_Sample{{e.motion.x, e.motion.y}, pressure, .Move})
+			case .MOUSE_BUTTON_DOWN, .MOUSE_BUTTON_UP:
+				if e.button.down do last_input_ns = e.common.timestamp
+				if e.button.button == sdl.BUTTON_LEFT {
+					pressure := app.pen_pressure if e.button.which == sdl.PEN_MOUSEID else 1
+					append(&app.samples, Input_Sample{{e.button.x, e.button.y}, pressure, .Press if e.button.down else .Release})
+				}
+			case .PEN_AXIS:
+				if e.paxis.axis == .PRESSURE {
+					app.pen_pressure = e.paxis.value
+					app.pen_seen = true
+				}
 			}
 		}
 
@@ -223,7 +247,7 @@ run :: proc(opts: Options) -> bool {
 		imgui.NewFrame()
 		input := ui_draw(&app)
 		if opts.bench_stroke > 0 {
-			input = bench_input(&app, frame_index, opts.bench_stroke, {f32(app.target.width), f32(app.target.height)})
+			input = bench_input(&app, frame_index, opts.bench_stroke, opts.bench_samples, opts.bench_loops, {f32(app.target.width), f32(app.target.height)})
 			last_input_ns = sdl.GetTicksNS()
 		} else if opts.gpubench != "" {
 			input = gpubench_input(&app, &bench, {f32(app.target.width), f32(app.target.height)})
