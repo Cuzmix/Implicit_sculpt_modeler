@@ -1,5 +1,5 @@
 @echo off
-rem Usage: build.bat [debug|release|test|run|smoke|bench]   (see build.sh for what each does)
+rem Usage: build.bat [debug|release|test|run|smoke|bench|gpubench]   (see build.sh for what each does)
 rem Run scripts\setup_deps.bat first, from an x64 Native Tools Command Prompt.
 setlocal
 set ROOT=%~dp0
@@ -21,6 +21,11 @@ copy /y "%DEPS%\odin\vendor\sdl3\SDL3.dll" "%ROOT%build\" >nul
 if "%MODE%"=="release" (
 	"%ODIN%" build "%ROOT%src\app" -out:"%ROOT%build\sculpt.exe" -o:speed -no-bounds-check %COMMON% || exit /b 1
 	exit /b 0
+)
+if "%MODE%"=="gpubench" (
+	"%ODIN%" build "%ROOT%src\app" -out:"%ROOT%build\sculpt.exe" -o:speed -no-bounds-check %COMMON% || exit /b 1
+	"%ROOT%build\sculpt.exe" --gpubench "%ROOT%build\gpubench.md" %2 %3 %4 %5 %6
+	exit /b
 )
 if "%MODE%"=="bench" (
 	"%ODIN%" build "%ROOT%src\bench" -out:"%ROOT%build\bench.exe" -o:speed -no-bounds-check %COMMON% || exit /b 1

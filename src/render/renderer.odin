@@ -3,8 +3,10 @@
 // then displays; it never reads or writes UI state.
 package render
 
+import "core:fmt"
 import "core:hash"
 import "core:log"
+import "core:math"
 import "core:math/linalg"
 import "core:slice"
 import sdl "vendor:sdl3"
@@ -12,6 +14,7 @@ import sdl "vendor:sdl3"
 import "../geom"
 
 Mat4 :: matrix[4, 4]f32
+IDENTITY :: Mat4(1)
 
 VIEWPORT_COLOR_FORMAT :: sdl.GPUTextureFormat.R8G8B8A8_UNORM
 
@@ -19,10 +22,20 @@ Renderer :: struct {
 	device:        ^sdl.GPUDevice,
 	window:        ^sdl.Window,
 	depth_format:  sdl.GPUTextureFormat,
-	mesh_pipeline: ^sdl.GPUGraphicsPipeline,
-	last_version:  u64,  // source of Mesh_Buffers.version
-	cull:          bool, // skip off-screen and back-facing chunks of items that have them
+	mesh_pipeline:  ^sdl.GPUGraphicsPipeline,
+	clear_pipeline: ^sdl.GPUGraphicsPipeline, // clears a scissored rectangle to the background
+	last_version:   u64,  // source of Mesh_Buffers.version
+	cull:           bool, // skip off-screen and back-facing chunks of items that have them
+	partial:        bool, // while the camera and objects stay put, redraw only what changed
+	present_mode:   sdl.GPUPresentMode, // how frames reach the screen; see renderer_set_vsync
 }
+
+// Viewport background, linear values written as-is (like the mesh shader's output).
+BACKGROUND :: [4]f32{0.16, 0.17, 0.19, 1}
+
+// A partial redraw is skipped in favour of a full one when the changed rectangle
+// covers more than this share of the viewport.
+PARTIAL_MAX_AREA :: 0.6
 
 // Offscreen colour + depth pair the 3D viewport renders into. Recreated on resize.
 Viewport_Target :: struct {
@@ -31,6 +44,10 @@ Viewport_Target :: struct {
 	width:  u32,
 	height: u32,
 	cache:  Static_Cache,
+	// Identifies what color and depth hold: camera, size, and every item's identity,
+	// transform and colour (not its contents, which Draw_Item.damage accounts for).
+	// 0 when they hold nothing reusable.
+	frame_key: u64,
 }
 
 // Colour and depth of everything that is not `live`, as last drawn. While the camera
@@ -56,6 +73,7 @@ Mesh_Buffers :: struct {
 	vertex_capacity: u32,
 	index_count:     u32,
 	version:         u64, // changes whenever the buffers' contents do
+	drawn_version:   u64, // version when last drawn into the viewport
 
 	// Culled drawing: one indirect draw command per visible run of chunks, rebuilt
 	// each frame the mesh is drawn. Created on first use, sized for every chunk.
@@ -91,6 +109,10 @@ Draw_Item :: struct {
 	color:  [4]f32,
 	live:   bool,
 	chunks: []geom.Chunk,
+	// Mesh-space box around everything that changed since the previous frame, before
+	// and after the change; empty (lo > hi) when nothing did. A mesh whose buffers
+	// changed without a damage box makes the next frame a full redraw.
+	damage: geom.Aabb,
 }
 
 // What render_viewport did this frame, for the stats panel.
@@ -101,6 +123,8 @@ Viewport_Stats :: struct {
 	culled_view:   u64,  // ...outside the view
 	culled_back:   u64,  // ...facing away
 	cull_ms:       f64,  // CPU time spent culling and writing draw commands
+	partial:       bool, // kept the previous frame and redrew only `redrawn_px` pixels
+	redrawn_px:    u64,
 	cache_used:    bool, // idle objects came from the cache
 	cache_redrawn: bool, // ...which had to be redrawn first
 }
@@ -113,6 +137,8 @@ Material_Uniforms :: struct {
 
 MESH_VERT_SPV :: #load("shaders/mesh.vert.spv")
 MESH_FRAG_SPV :: #load("shaders/mesh.frag.spv")
+CLEAR_VERT_SPV :: #load("shaders/clear.vert.spv")
+CLEAR_FRAG_SPV :: #load("shaders/clear.frag.spv")
 
 renderer_init :: proc(r: ^Renderer, window: ^sdl.Window, debug: bool) -> bool {
 	r.window = window
@@ -121,7 +147,7 @@ renderer_init :: proc(r: ^Renderer, window: ^sdl.Window, debug: bool) -> bool {
 		log.errorf("CreateGPUDevice failed: %s", sdl.GetError())
 		return false
 	}
-	log.infof("GPU driver: %s", sdl.GetGPUDeviceDriver(r.device))
+	log.infof("GPU: %s", gpu_description(r))
 	if !sdl.ClaimWindowForGPUDevice(r.device, window) {
 		log.errorf("ClaimWindowForGPUDevice failed: %s", sdl.GetError())
 		return false
@@ -133,7 +159,47 @@ renderer_init :: proc(r: ^Renderer, window: ^sdl.Window, debug: bool) -> bool {
 	}
 
 	r.mesh_pipeline = create_mesh_pipeline(r)
-	return r.mesh_pipeline != nil
+	r.clear_pipeline = create_clear_pipeline(r)
+	return r.mesh_pipeline != nil && r.clear_pipeline != nil
+}
+
+// The GPU's name, backend and driver version, for logs and benchmark reports.
+// Temp-allocated.
+gpu_description :: proc(r: ^Renderer) -> string {
+	props := sdl.GetGPUDeviceProperties(r.device)
+	name := sdl.GetStringProperty(props, sdl.PROP_GPU_DEVICE_NAME_STRING, "unknown GPU")
+	version := sdl.GetStringProperty(props, sdl.PROP_GPU_DEVICE_DRIVER_VERSION_STRING, "unknown")
+	return fmt.tprintf("%s (%s, driver %s)", name, sdl.GetGPUDeviceDriver(r.device), version)
+}
+
+// Picks how frames reach the screen. With vsync (the default), a frame waits for the
+// display's refresh: no tearing, and the frame rate is capped at the refresh rate.
+// Without, a frame is shown as soon as it is ready: mailbox where the window offers it
+// (no tearing; a newer frame replaces one still waiting), else immediate (may tear).
+// Returns false, keeping the current mode, when the window offers neither or the
+// change fails. Recreates the swapchain, so it must not be called while a swapchain
+// texture is acquired.
+renderer_set_vsync :: proc(r: ^Renderer, vsync: bool) -> bool {
+	mode := sdl.GPUPresentMode.VSYNC
+	if !vsync {
+		switch {
+		case sdl.WindowSupportsGPUPresentMode(r.device, r.window, .MAILBOX):
+			mode = .MAILBOX
+		case sdl.WindowSupportsGPUPresentMode(r.device, r.window, .IMMEDIATE):
+			mode = .IMMEDIATE
+		case:
+			log.warn("vsync stays on: the display offers no other present mode")
+			return false
+		}
+	}
+	if mode == r.present_mode do return true
+	if !sdl.SetGPUSwapchainParameters(r.device, r.window, .SDR, mode) {
+		log.errorf("SetGPUSwapchainParameters failed: %s", sdl.GetError())
+		return false
+	}
+	r.present_mode = mode
+	log.infof("present mode: %v", mode)
+	return true
 }
 
 // Waits for the GPU, then releases everything the renderer created, in reverse order.
@@ -141,6 +207,7 @@ renderer_destroy :: proc(r: ^Renderer) {
 	if r.device == nil do return
 	_ = sdl.WaitForGPUIdle(r.device)
 	if r.mesh_pipeline != nil do sdl.ReleaseGPUGraphicsPipeline(r.device, r.mesh_pipeline)
+	if r.clear_pipeline != nil do sdl.ReleaseGPUGraphicsPipeline(r.device, r.clear_pipeline)
 	sdl.ReleaseWindowFromGPUDevice(r.device, r.window)
 	sdl.DestroyGPUDevice(r.device)
 	r^ = {}
@@ -203,6 +270,43 @@ create_mesh_pipeline :: proc(r: ^Renderer) -> ^sdl.GPUGraphicsPipeline {
 	})
 	if pipeline == nil {
 		log.errorf("CreateGPUGraphicsPipeline failed: %s", sdl.GetError())
+	}
+	return pipeline
+}
+
+@(private)
+create_clear_pipeline :: proc(r: ^Renderer) -> ^sdl.GPUGraphicsPipeline {
+	vert := sdl.CreateGPUShader(r.device, {
+		code_size = len(CLEAR_VERT_SPV), code = raw_data(CLEAR_VERT_SPV), entrypoint = "main",
+		format = {.SPIRV}, stage = .VERTEX,
+	})
+	frag := sdl.CreateGPUShader(r.device, {
+		code_size = len(CLEAR_FRAG_SPV), code = raw_data(CLEAR_FRAG_SPV), entrypoint = "main",
+		format = {.SPIRV}, stage = .FRAGMENT, num_uniform_buffers = 1,
+	})
+	defer if vert != nil do sdl.ReleaseGPUShader(r.device, vert)
+	defer if frag != nil do sdl.ReleaseGPUShader(r.device, frag)
+	if vert == nil || frag == nil {
+		log.errorf("CreateGPUShader failed: %s", sdl.GetError())
+		return nil
+	}
+	color_targets := [1]sdl.GPUColorTargetDescription{{format = VIEWPORT_COLOR_FORMAT}}
+	pipeline := sdl.CreateGPUGraphicsPipeline(r.device, {
+		vertex_shader = vert,
+		fragment_shader = frag,
+		primitive_type = .TRIANGLELIST,
+		rasterizer_state = {fill_mode = .FILL, cull_mode = .NONE},
+		// Writes far-plane depth everywhere it lands, whatever was there.
+		depth_stencil_state = {compare_op = .ALWAYS, enable_depth_test = true, enable_depth_write = true},
+		target_info = {
+			color_target_descriptions = &color_targets[0],
+			num_color_targets = len(color_targets),
+			depth_stencil_format = r.depth_format,
+			has_depth_stencil_target = true,
+		},
+	})
+	if pipeline == nil {
+		log.errorf("CreateGPUGraphicsPipeline (clear) failed: %s", sdl.GetError())
 	}
 	return pipeline
 }
@@ -408,15 +512,139 @@ mesh_buffers_upload_ranges :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb:
 // Records the viewport: the live items over everything else. With `use_cache`, the
 // other items are drawn into the cache only when they, the camera or the target size
 // changed since the cache was filled; otherwise every item is drawn every frame.
+//
+// With Renderer.partial, a frame whose camera, size and items match the previous one
+// keeps the previous colour and depth and redraws only the screen rectangle the items'
+// damage boxes cover, or nothing at all when nothing changed.
 render_viewport :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, view, proj: Mat4, items: []Draw_Item, use_cache: bool) -> (stats: Viewport_Stats) {
+	key := frame_key(vt^, view, proj, items)
+	defer {
+		vt.frame_key = key
+		for item in items do item.mesh.drawn_version = item.mesh.version
+	}
+	if r.partial && key == vt.frame_key {
+		if rect, ok := damage_rect(vt^, view, proj, items); ok {
+			stats.partial = true
+			if rect.w > 0 && rect.h > 0 do render_rect(r, cmd, vt, view, proj, items, rect, &stats)
+			return
+		}
+	}
+	render_full(r, cmd, vt, view, proj, items, use_cache, &stats)
+	return
+}
+
+// Pixel rectangle, top-left origin.
+@(private)
+Rect :: struct {
+	x, y, w, h: i32,
+}
+
+// The viewport rectangle covering every item's damage box, padded by a couple of
+// pixels; zero-sized when nothing on screen changed. ok is false when a full redraw is
+// needed instead: an item changed without saying where, a box reaches behind the
+// eye, or the rectangle is too large to be worth it.
+@(private)
+damage_rect :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item) -> (rect: Rect, ok: bool) {
+	W, H := f32(vt.width), f32(vt.height)
+	lo := [2]f32{max(f32), max(f32)}
+	hi := [2]f32{min(f32), min(f32)}
+	for item in items {
+		b := item.damage
+		damaged := b.lo.x <= b.hi.x
+		if !damaged {
+			if item.mesh.version != item.mesh.drawn_version do return {}, false
+			continue
+		}
+		clip := proj * view * item.model
+		for corner in 0 ..< 8 {
+			p := [4]f32 {
+				b.hi.x if corner & 1 != 0 else b.lo.x,
+				b.hi.y if corner & 2 != 0 else b.lo.y,
+				b.hi.z if corner & 4 != 0 else b.lo.z,
+				1,
+			}
+			c := clip * p
+			if c.w <= 1e-4 do return {}, false
+			px := [2]f32{(c.x / c.w * 0.5 + 0.5) * W, (0.5 - c.y / c.w * 0.5) * H}
+			lo = linalg.min(lo, px)
+			hi = linalg.max(hi, px)
+		}
+	}
+	if lo.x > hi.x do return {}, true // nothing changed
+	PAD :: 2
+	x0 := i32(clamp(math.floor(lo.x) - PAD, 0, W))
+	y0 := i32(clamp(math.floor(lo.y) - PAD, 0, H))
+	x1 := i32(clamp(math.ceil(hi.x) + PAD, 0, W))
+	y1 := i32(clamp(math.ceil(hi.y) + PAD, 0, H))
+	if x1 <= x0 || y1 <= y0 do return {}, true // changed only off screen
+	if f32((x1 - x0) * (y1 - y0)) > PARTIAL_MAX_AREA * W * H do return {}, false
+	return {x0, y0, x1 - x0, y1 - y0}, true
+}
+
+// Redraws one rectangle of the previous frame: clears it, then draws the chunks of
+// every item that fall inside it, scissored to it.
+@(private)
+render_rect :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, view, proj: Mat4, items: []Draw_Item, rect: Rect, stats: ^Viewport_Stats) {
+	// Maps the rectangle to the whole of clip space, so culling against the narrowed
+	// frustum keeps only the chunks that can touch it.
+	W, H := f32(vt.width), f32(vt.height)
+	nx0, nx1 := 2 * f32(rect.x) / W - 1, 2 * f32(rect.x + rect.w) / W - 1
+	ny0, ny1 := 1 - 2 * f32(rect.y + rect.h) / H, 1 - 2 * f32(rect.y) / H
+	cx, hx := (nx0 + nx1) / 2, (nx1 - nx0) / 2
+	cy, hy := (ny0 + ny1) / 2, (ny1 - ny0) / 2
+	narrow := Mat4{
+		1 / hx, 0, 0, -cx / hx,
+		0, 1 / hy, 0, -cy / hy,
+		0, 0, 1, 0,
+		0, 0, 0, 1,
+	}
+	prepare_draws(r, cmd, view, proj, items, nil, stats, narrow)
+	pass := begin_mesh_pass(r, cmd, vt.color, vt.depth, load = true, keep_depth = true)
+	sdl.SetGPUScissor(pass, {rect.x, rect.y, rect.w, rect.h})
+	sdl.BindGPUGraphicsPipeline(pass, r.clear_pipeline)
+	background := BACKGROUND
+	sdl.PushGPUFragmentUniformData(cmd, 0, &background, size_of(background))
+	sdl.DrawGPUPrimitives(pass, 3, 1, 0, 0)
+	sdl.BindGPUGraphicsPipeline(pass, r.mesh_pipeline)
+	draw_items(r, cmd, pass, view, proj, items, nil, stats)
+	sdl.EndGPURenderPass(pass)
+	stats.redrawn_px = u64(rect.w) * u64(rect.h)
+}
+
+// Hash of what frame_key in Viewport_Target describes.
+@(private)
+frame_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item) -> u64 {
+	Keyed :: struct {
+		mesh:  ^Mesh_Buffers,
+		model: Mat4,
+		color: [4]f32,
+	}
+	Header :: struct {
+		view, proj:    Mat4,
+		width, height: u32,
+		items:         int,
+	}
+	header := Header{view, proj, vt.width, vt.height, len(items)}
+	h := hash.fnv64a(slice.bytes_from_ptr(&header, size_of(header)))
+	for item in items {
+		k := Keyed{item.mesh, item.model, item.color}
+		h = hash.fnv64a(slice.bytes_from_ptr(&k, size_of(k)), h)
+	}
+	return max(h, 1)
+}
+
+// Redraws the whole viewport: the live items over the idle ones, which come from the
+// cache when `use_cache` and they, the camera and the size are unchanged.
+@(private)
+render_full :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, view, proj: Mat4, items: []Draw_Item, use_cache: bool, stats: ^Viewport_Stats) {
 	live := 0
 	for item in items do live += int(item.live)
 	// With nothing live (or nothing idle) there is nothing to reuse.
 	if !use_cache || live == 0 || live == len(items) || !static_cache_ensure(r, vt) {
 		vt.cache.key = 0
-		prepare_draws(r, cmd, view, proj, items, nil, &stats)
-		pass := begin_mesh_pass(r, cmd, vt.color, vt.depth, load = false, keep_depth = false)
-		draw_items(r, cmd, pass, view, proj, items, nil, &stats)
+		prepare_draws(r, cmd, view, proj, items, nil, stats)
+		pass := begin_mesh_pass(r, cmd, vt.color, vt.depth, load = false, keep_depth = true)
+		draw_items(r, cmd, pass, view, proj, items, nil, stats)
 		sdl.EndGPURenderPass(pass)
 		return
 	}
@@ -424,10 +652,10 @@ render_viewport :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_
 
 	key := static_key(vt^, view, proj, items)
 	redraw := key != vt.cache.key
-	prepare_draws(r, cmd, view, proj, items, nil if redraw else true, &stats)
+	prepare_draws(r, cmd, view, proj, items, nil if redraw else true, stats)
 	if redraw {
 		pass := begin_mesh_pass(r, cmd, vt.cache.color, vt.cache.depth, load = false, keep_depth = true)
-		draw_items(r, cmd, pass, view, proj, items, false, &stats)
+		draw_items(r, cmd, pass, view, proj, items, false, stats)
 		sdl.EndGPURenderPass(pass)
 		vt.cache.key = key
 		stats.cache_redrawn = true
@@ -439,18 +667,18 @@ render_viewport :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_
 	}
 	sdl.EndGPUCopyPass(copy_pass)
 
-	pass := begin_mesh_pass(r, cmd, vt.color, vt.depth, load = true, keep_depth = false)
-	draw_items(r, cmd, pass, view, proj, items, true, &stats)
+	pass := begin_mesh_pass(r, cmd, vt.color, vt.depth, load = true, keep_depth = true)
+	draw_items(r, cmd, pass, view, proj, items, true, stats)
 	sdl.EndGPURenderPass(pass)
-	return
 }
 
 // For every item that will be drawn this frame (those whose `live` matches, all of
 // them when `live` is nil) and can be culled, culls its chunks against the camera and
 // uploads one indirect draw command per visible run. Must run before the render
 // passes, since uploads need a copy pass.
+// `narrow` maps clip space to a smaller frustum to cull against (see render_rect).
 @(private)
-prepare_draws :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, view, proj: Mat4, items: []Draw_Item, live: Maybe(bool), stats: ^Viewport_Stats) {
+prepare_draws :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, view, proj: Mat4, items: []Draw_Item, live: Maybe(bool), stats: ^Viewport_Stats, narrow := IDENTITY) {
 	if !r.cull do return
 	t0 := sdl.GetTicksNS()
 	defer stats.cull_ms += f64(sdl.GetTicksNS() - t0) / 1e6
@@ -462,7 +690,7 @@ prepare_draws :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, view, proj: Mat4
 		if len(item.chunks) == 0 || !indirect_ensure(r, mb, u32(len(item.chunks))) do continue
 		eye := linalg.inverse(item.model) * eye_world
 		clear(&mb.visible)
-		cs := geom.cull_chunks(item.chunks, proj * view * item.model, eye.xyz, &mb.visible)
+		cs := geom.cull_chunks(item.chunks, narrow * proj * view * item.model, eye.xyz, &mb.visible)
 		stats.chunks += u64(cs.chunks)
 		stats.culled_view += u64(cs.frustum)
 		stats.culled_back += u64(cs.backface)
@@ -529,7 +757,7 @@ static_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item) ->
 begin_mesh_pass :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, color_tex, depth_tex: ^sdl.GPUTexture, load, keep_depth: bool) -> ^sdl.GPURenderPass {
 	color := sdl.GPUColorTargetInfo {
 		texture     = color_tex,
-		clear_color = {0.16, 0.17, 0.19, 1},
+		clear_color = sdl.FColor(BACKGROUND),
 		load_op     = .LOAD if load else .CLEAR,
 		store_op    = .STORE,
 		cycle       = !load,
@@ -572,4 +800,25 @@ draw_items :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURende
 			stats.draws += 1
 		}
 	}
+}
+
+// Reads the viewport colour back to the CPU (RGBA8, rows top to bottom), waiting for
+// the GPU. For tests and debugging, not per frame. Returns nil on failure.
+viewport_download :: proc(r: ^Renderer, vt: ^Viewport_Target, allocator := context.allocator) -> []u8 {
+	size := vt.width * vt.height * 4
+	transfer := sdl.CreateGPUTransferBuffer(r.device, {usage = .DOWNLOAD, size = size})
+	if transfer == nil do return nil
+	defer sdl.ReleaseGPUTransferBuffer(r.device, transfer)
+	cmd := sdl.AcquireGPUCommandBuffer(r.device)
+	if cmd == nil do return nil
+	pass := sdl.BeginGPUCopyPass(cmd)
+	sdl.DownloadFromGPUTexture(pass, {texture = vt.color, w = vt.width, h = vt.height, d = 1}, {transfer_buffer = transfer})
+	sdl.EndGPUCopyPass(pass)
+	if !sdl.SubmitGPUCommandBuffer(cmd) || !sdl.WaitForGPUIdle(r.device) do return nil
+	src := sdl.MapGPUTransferBuffer(r.device, transfer, false)
+	if src == nil do return nil
+	pixels := make([]u8, size, allocator)
+	copy(pixels, ([^]u8)(src)[:size])
+	sdl.UnmapGPUTransferBuffer(r.device, transfer)
+	return pixels
 }
