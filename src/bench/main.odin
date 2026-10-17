@@ -13,6 +13,7 @@
 // By default the 10M size runs a second time with an idle second sphere in the scene,
 // flushed every frame as the app does, to show that idle meshes add no CPU cost.
 //
+//   --levels     instead, the subdivision levels table (see run_levels)
 //   --meshes=N   spheres per size, all sculpt-ready; only the first is sculpted
 //   --threads=N  worker count including the caller (default: every core)
 //   --node=N     triangles per sculpt node
@@ -46,6 +47,7 @@ node_triangles: u32 = sculpt.NODE_TRIANGLES
 threads := 0
 prefault_mb := 0
 meshes := 0 // 0: the default cases
+levels := false
 
 main :: proc() {
 	targets := make([dynamic]int)
@@ -57,6 +59,8 @@ main :: proc() {
 			prefault_mb = strconv.parse_int(arg[11:]) or_else 0
 		} else if strings.has_prefix(arg, "--meshes=") {
 			meshes = max(strconv.parse_int(arg[9:]) or_else 1, 1)
+		} else if arg == "--levels" {
+			levels = true
 		} else if strings.has_prefix(arg, "--threads=") {
 			threads = strconv.parse_int(arg[10:]) or_else 0
 		} else if v, ok := strconv.parse_int(arg); ok {
@@ -84,6 +88,12 @@ main :: proc() {
 	}
 	defer if pool != nil do jobs.pool_destroy(pool)
 	fmt.printfln("threads: %d, node triangles: %d", jobs.pool_size(pool) if pool != nil else 1, node_triangles)
+	if levels {
+		levels_header()
+		for c in cases do if c.meshes == 1 do run_levels(c.vertices, pool)
+		if prefault_mb == 0 do fmt.printfln("peak RSS: %.0f MB", peak_rss_mb())
+		return
+	}
 
 	fmt.println("| Meshes | Vertices | Triangles | Setup s | Mesh MB | RSS MB | Brush | Verts/dab | Raycast ms | Dab ms | Normals ms/frame | Frame ms | Frame ms max | Upload MB/frame | Stroke end ms | Undo MB/stroke | Undo ms | Redo ms |")
 	fmt.println("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")

@@ -116,7 +116,7 @@ gpubench_end_frame :: proc(app: ^App, b: ^Gpubench, gpu_ms, cpu_ms: f64, dabs: i
 	if b.frame < GPUBENCH_WARMUP + b.frames do return false
 
 	if b.kase == 0 {
-		append(&b.rows, Gpubench_Row{vertices = geom.mesh_vertex_count(app.scene.objects[0].mesh)})
+		append(&b.rows, Gpubench_Row{vertices = geom.mesh_vertex_count(object_mesh(app.scene.objects[0])^)})
 	}
 	row := &b.rows[len(b.rows) - 1]
 	cell := &row.cells[b.kase]

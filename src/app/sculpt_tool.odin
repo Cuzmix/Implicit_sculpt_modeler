@@ -169,10 +169,10 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 	st.active, st.object = true, obj.id
 	st.pos, st.pressure, st.travel, st.size = s.pos, s.pressure, 0, input.size
 	clear(&st.pending)
-	sculpt.sculptor_stroke_begin(&obj.sculptor)
+	sculpt.sculptor_stroke_begin(object_sculptor(obj))
 	local := to_local(obj.transform, hit)
 	t1 := time.tick_now()
-	sculpt.apply_dab(&obj.sculptor, brush_at(app, input, obj.transform, local, s.pressure), local)
+	sculpt.apply_dab(object_sculptor(obj), brush_at(app, input, obj.transform, local, s.pressure), local)
 	res.brush_ms += time.duration_milliseconds(time.tick_since(t1))
 	res.dabs += 1
 }
@@ -213,11 +213,11 @@ stroke_dab :: proc(app: ^App, obj: ^Object, input: Viewport_Input, inv: matrix[4
 	origin, dir := ray_through(inv, pos, input.size)
 	t := obj.transform
 	t0 := time.tick_now()
-	hit, ok := sculpt.sculptor_raycast(&obj.sculptor, to_local(t, origin), dir)
+	hit, ok := sculpt.sculptor_raycast(object_sculptor(obj), to_local(t, origin), dir)
 	res.raycast_ms += time.duration_milliseconds(time.tick_since(t0))
 	if !ok do return
 	t1 := time.tick_now()
-	sculpt.apply_dab(&obj.sculptor, brush_at(app, input, t, hit, pressure), hit)
+	sculpt.apply_dab(object_sculptor(obj), brush_at(app, input, t, hit, pressure), hit)
 	res.brush_ms += time.duration_milliseconds(time.tick_since(t1))
 	res.dabs += 1
 }

@@ -107,17 +107,22 @@ Sculptor :: struct {
 	// Box around everything the last sculptor_flush reported as changed, before and
 	// after the change (AABB_EMPTY when nothing changed), for partial redraws.
 	changed_bounds: geom.Aabb,
+	// Nodes whose triangles moved since sculptor_clear_edited last emptied the list:
+	// what subdivision levels still have to carry to the levels above and below.
+	edited:       []bool,
+	edited_nodes: [dynamic]u32,
 
 	history:     Undo_History,
 }
 
 // Partitions and renumbers `mesh` in place (vertex order and triangle order change),
 // then builds the acceleration structures. Upload the mesh to the GPU after this.
-sculptor_init :: proc(s: ^Sculptor, mesh: ^geom.Mesh, pool: ^jobs.Pool, node_triangles: u32 = NODE_TRIANGLES, allocator := context.allocator) {
+// With `old_to_new` (one entry per vertex), it receives each vertex's new number.
+sculptor_init :: proc(s: ^Sculptor, mesh: ^geom.Mesh, pool: ^jobs.Pool, node_triangles: u32 = NODE_TRIANGLES, old_to_new: []u32 = nil, allocator := context.allocator) {
 	s.mesh = mesh
 	s.pool = pool
 	s.bvh = geom.bvh_build_morton(mesh^, node_triangles, pool, allocator)
-	reorder_by_nodes(s, allocator)
+	reorder_by_nodes(s, old_to_new, allocator)
 	s.faces = geom.vertex_faces_build(mesh^, pool, allocator)
 	s.hit = make([dynamic]u32, 0, 256, allocator)
 	s.changed = make([dynamic]u32, 0, 256, allocator)
@@ -129,6 +134,8 @@ sculptor_init :: proc(s: ^Sculptor, mesh: ^geom.Mesh, pool: ^jobs.Pool, node_tri
 	s.cone_waiting = make([]bool, len(s.nodes), allocator)
 	s.waiting_cones = make([dynamic]u32, 0, 256, allocator)
 	s.ranges = make([dynamic]Vertex_Range, 0, 256, allocator)
+	s.edited = make([]bool, len(s.nodes), allocator)
+	s.edited_nodes = make([dynamic]u32, 0, 256, allocator)
 	history_init(&s.history, len(s.nodes), allocator)
 	s.changed_bounds = geom.AABB_EMPTY
 	s.chunks = make([]geom.Chunk, len(s.nodes), allocator)
@@ -156,6 +163,8 @@ sculptor_destroy :: proc(s: ^Sculptor) {
 	delete(s.cone_waiting)
 	delete(s.waiting_cones)
 	delete(s.ranges)
+	delete(s.edited)
+	delete(s.edited_nodes)
 	s^ = {}
 }
 
@@ -164,7 +173,7 @@ sculptor_destroy :: proc(s: ^Sculptor) {
 // leaves is owned by the one with the lowest node id; the others list it as shared.
 // Every step is parallel over triangles, vertices or nodes.
 @(private)
-reorder_by_nodes :: proc(s: ^Sculptor, allocator := context.allocator) {
+reorder_by_nodes :: proc(s: ^Sculptor, old_to_new: []u32, allocator := context.allocator) {
 	Reorder :: struct {
 		s:           ^Sculptor,
 		leaves:      []u32,   // node id -> BVH leaf
@@ -309,6 +318,7 @@ reorder_by_nodes :: proc(s: ^Sculptor, allocator := context.allocator) {
 		r := cast(^Reorder)data
 		for &i in r.s.mesh.indices[lo:hi] do i = r.old_to_new[i]
 	}, geom.RANGE_GRAIN)
+	if old_to_new != nil do copy(old_to_new, r.old_to_new)
 }
 
 @(private)
@@ -505,6 +515,10 @@ apply_dab :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
 @(private)
 mark_shape_changed :: proc(s: ^Sculptor, id: u32) {
 	mark_stale(s, id, .Shape)
+	if !s.edited[id] {
+		s.edited[id] = true
+		append(&s.edited_nodes, id)
+	}
 	n := s.nodes[id]
 	for owner in s.owners[n.owner_first:][:n.owner_count] do mark_stale(s, owner, .Edge)
 }
@@ -648,6 +662,48 @@ job_leaf_bounds :: proc(data: rawptr, i: int) {
 	for v in first ..< last do geom.aabb_grow(&bounds, m.positions[v])
 	for v in shared_of(s, leaf) do geom.aabb_grow(&bounds, m.positions[v])
 	s.bvh.nodes[leaf].bounds = bounds
+}
+
+// Brings the BVH and the next flush up to date after the owned positions of `nodes`
+// changed outside a dab (subdivision levels moving one level to match another). As
+// after a dab, every node with a triangle on a moved vertex counts as changed.
+sculptor_nodes_moved :: proc(s: ^Sculptor, nodes: []u32) {
+	if len(nodes) == 0 do return
+	moved := make([]bool, len(s.nodes), context.temp_allocator)
+	for id in nodes do moved[id] = true
+	clear(&s.changed)
+	verts: u32
+	for n, id in s.nodes {
+		hit := moved[id]
+		if !hit {
+			for owner in s.owners[n.owner_first:][:n.owner_count] {
+				if moved[owner] {
+					hit = true
+					break
+				}
+			}
+		}
+		if !hit do continue
+		append(&s.changed, n.leaf)
+		verts += n.vert_count
+	}
+	d := Dab{s = s}
+	jobs.parallel_for(s.pool if verts >= PARALLEL_MIN_VERTS else nil, len(s.changed), &d, job_leaf_bounds)
+	geom.bvh_refit_leaves(&s.bvh, s.mesh^, s.changed[:], recompute_leaves = false)
+	for leaf in s.changed do mark_shape_changed(s, s.node_of[leaf])
+}
+
+// Recomputes every normal, bound and normal cone, for a mesh that arrived without
+// normals (a new subdivision level).
+sculptor_recompute_all :: proc(s: ^Sculptor) {
+	for id in 0 ..< len(s.nodes) do mark_stale(s, u32(id), .Shape)
+	_ = sculptor_flush(s)
+}
+
+// Empties the list of edited nodes, once subdivision levels have carried the edits over.
+sculptor_clear_edited :: proc(s: ^Sculptor) {
+	for id in s.edited_nodes do s.edited[id] = false
+	clear(&s.edited_nodes)
 }
 
 // Recomputes the stale normals of a dirty node from its vertices' adjacent faces: all

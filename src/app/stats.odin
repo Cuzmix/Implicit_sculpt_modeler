@@ -44,4 +44,8 @@ Frame_Stats :: struct {
 	viewport:      render.Viewport_Stats, // last frame
 	cache_redraws: int,
 	partial_frames: int, // frames that kept the previous image and redrew only what changed
+	// The last change of subdivision level: bringing the levels up to date (or building
+	// a new one), then the new level's normals and GPU buffers.
+	level_sync_ms:  f64,
+	level_show_ms:  f64,
 }
