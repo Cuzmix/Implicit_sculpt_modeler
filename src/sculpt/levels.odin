@@ -111,8 +111,8 @@ levels_subdivide_estimate :: proc(l: ^Levels) -> (vertices, triangles, bytes: in
 	v, t := len(top.mesh.positions), len(top.mesh.indices) / 3
 	vertices, triangles = v + 3 * t / 2, 4 * t // a closed mesh has 3/2 edges per triangle
 	// Per vertex: position, normal, face list offset, owner node, parents, detail. Per
-	// triangle: indices, face list entries, BVH order and leaf.
-	bytes = vertices * (12 + 12 + 4 + 4 + 16 + 12) + triangles * (12 + 12 + 8) + v * 4
+	// triangle: indices, face list entries, BVH order and leaf, simplified copies.
+	bytes = vertices * (12 + 12 + 4 + 4 + 16 + 12) + triangles * (12 + 12 + 8 + 5) + v * 4
 	return
 }
 
@@ -134,7 +134,8 @@ levels_delete_lower :: proc(l: ^Levels) {
 	l.current = 0
 }
 
-// CPU bytes of the meshes, sculptors (without undo history) and level links.
+// CPU bytes of the meshes, sculptors (without undo history, with simplified copies) and
+// level links.
 levels_bytes :: proc(l: ^Levels) -> int {
 	total := 0
 	for lv in l.levels {
@@ -145,6 +146,7 @@ levels_bytes :: proc(l: ^Levels) -> int {
 		total += (len(s.shared) + len(s.owners) + len(lv.node_of_vertex) + len(lv.even_of)) * size_of(u32)
 		total += len(lv.parents) * size_of([4]u32) + len(lv.detail) * size_of(Vec3)
 		total += (len(lv.deps.offsets) + len(lv.deps.items) + len(lv.dependents.offsets) + len(lv.dependents.items)) * size_of(u32)
+		total += cap(s.lod.indices) * size_of(u32) + len(s.lod.tree.groups) * size_of(geom.Lod_Group) + len(s.lod.parent) * size_of(u32)
 	}
 	return total
 }

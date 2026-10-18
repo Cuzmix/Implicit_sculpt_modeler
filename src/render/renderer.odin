@@ -28,6 +28,10 @@ Renderer :: struct {
 	cull:           bool, // skip off-screen and back-facing chunks of items that have them
 	partial:        bool, // while the camera and objects stay put, redraw only what changed
 	present_mode:   sdl.GPUPresentMode, // how frames reach the screen; see renderer_set_vsync
+	// How far, in pixels, a full redraw may draw a group of chunks from its simplified
+	// copy instead (see Draw_Item.lod); 0 draws everything at full detail. The app
+	// sets it while the view moves.
+	lod_px:         f32,
 }
 
 // Viewport background, linear values written as-is (like the mesh shader's output).
@@ -82,6 +86,13 @@ Mesh_Buffers :: struct {
 	indirect_capacity: u32, // commands
 	draw_count:        u32, // commands recorded this frame
 	visible:           [dynamic]geom.Index_Range, // scratch
+
+	// Simplified copies of groups of chunks (see Draw_Item.lod), drawn with indirect
+	// commands that follow the draw_count full-detail ones. Created on first upload.
+	lod_indices:    ^sdl.GPUBuffer,
+	lod_capacity:   u32, // indices
+	lod_draw_count: u32, // commands recorded this frame
+	lod_visible:    [dynamic]geom.Index_Range, // scratch
 }
 
 Normal_Packed :: [2]i16
@@ -113,6 +124,10 @@ Draw_Item :: struct {
 	// and after the change; empty (lo > hi) when nothing did. A mesh whose buffers
 	// changed without a damage box makes the next frame a full redraw.
 	damage: geom.Aabb,
+	// The mesh's simplification tree over `chunks`, whose copies are in the mesh's LOD
+	// buffer (mesh_buffers_upload_lod). While Renderer.lod_px is above 0, full redraws
+	// draw a group's copy instead of its chunks wherever that strays less than lod_px.
+	lod:    geom.Lod,
 }
 
 // What render_viewport did this frame, for the stats panel.
@@ -122,6 +137,7 @@ Viewport_Stats :: struct {
 	chunks:        u64,  // chunks considered for culling
 	culled_view:   u64,  // ...outside the view
 	culled_back:   u64,  // ...facing away
+	simplified:    u64,  // groups of chunks drawn from their simplified copies
 	cull_ms:       f64,  // CPU time spent culling and writing draw commands
 	partial:       bool, // kept the previous frame and redrew only `redrawn_px` pixels
 	redrawn_px:    u64,
@@ -448,7 +464,9 @@ mesh_buffers_destroy :: proc(r: ^Renderer, mb: ^Mesh_Buffers) {
 	if mb.transfer != nil do sdl.ReleaseGPUTransferBuffer(r.device, mb.transfer)
 	if mb.indirect != nil do sdl.ReleaseGPUBuffer(r.device, mb.indirect)
 	if mb.indirect_transfer != nil do sdl.ReleaseGPUTransferBuffer(r.device, mb.indirect_transfer)
+	if mb.lod_indices != nil do sdl.ReleaseGPUBuffer(r.device, mb.lod_indices)
 	delete(mb.visible)
+	delete(mb.lod_visible)
 	mb^ = {}
 }
 
@@ -509,6 +527,70 @@ mesh_buffers_upload_ranges :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb:
 	}
 }
 
+// Records copies of the `ranges` of `indices`, the mesh's simplified copies, into its
+// LOD buffer; all of `indices` when `all`, or when the buffer has to be created or
+// grown to hold them (first to `expected` indices, then by half again). Packs ranges
+// into the transfer buffer like mesh_buffers_upload_ranges. On failure the buffer is
+// dropped, so the mesh is drawn at full detail until a later upload succeeds.
+mesh_buffers_upload_lod :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: ^Mesh_Buffers, indices: []u32, ranges: []geom.Index_Range, all: bool, expected := 0) {
+	ranges, all := ranges, all
+	if mb.lod_indices == nil || u32(len(indices)) > mb.lod_capacity {
+		if mb.lod_indices != nil do sdl.ReleaseGPUBuffer(r.device, mb.lod_indices)
+		capacity := max(u32(len(indices)) + u32(len(indices)) / 2, u32(expected), 1024)
+		mb.lod_indices = sdl.CreateGPUBuffer(r.device, {usage = {.INDEX}, size = capacity * size_of(u32)})
+		mb.lod_capacity = capacity if mb.lod_indices != nil else 0
+		if mb.lod_indices == nil {
+			log.errorf("LOD index buffer creation failed: %s", sdl.GetError())
+			return
+		}
+		all = true
+	}
+	whole := [1]geom.Index_Range{{0, u32(len(indices))}}
+	if all do ranges = whole[:]
+	capacity := mb.transfer_size / size_of(u32) // indices per batch
+	split: geom.Index_Range // remainder of a range cut at a batch boundary
+	for len(ranges) > 0 || split.index_count > 0 {
+		Planned :: struct {
+			r:   geom.Index_Range,
+			dst: u32,
+		}
+		batch: [dynamic; 256]Planned
+		used: u32
+		for used < capacity && len(batch) < cap(batch) {
+			next: geom.Index_Range
+			if split.index_count > 0 {
+				next, split = split, {}
+			} else if len(ranges) > 0 {
+				next, ranges = ranges[0], ranges[1:]
+			} else {
+				break
+			}
+			if next.index_count == 0 do continue
+			if next.index_count > capacity - used {
+				split = {next.first_index + (capacity - used), next.index_count - (capacity - used)}
+				next.index_count = capacity - used
+			}
+			append(&batch, Planned{next, used})
+			used += next.index_count
+		}
+		if len(batch) == 0 do break
+		dst := cast([^]u32)sdl.MapGPUTransferBuffer(r.device, mb.transfer, true)
+		if dst == nil {
+			log.errorf("LOD upload failed: %s", sdl.GetError())
+			sdl.ReleaseGPUBuffer(r.device, mb.lod_indices)
+			mb.lod_indices, mb.lod_capacity = nil, 0
+			return
+		}
+		for p in batch do copy(dst[p.dst:][:p.r.index_count], indices[p.r.first_index:][:p.r.index_count])
+		sdl.UnmapGPUTransferBuffer(r.device, mb.transfer)
+		pass := sdl.BeginGPUCopyPass(cmd)
+		for p in batch {
+			sdl.UploadToGPUBuffer(pass, {transfer_buffer = mb.transfer, offset = p.dst * size_of(u32)}, {buffer = mb.lod_indices, offset = p.r.first_index * size_of(u32), size = p.r.index_count * size_of(u32)}, false)
+		}
+		sdl.EndGPUCopyPass(pass)
+	}
+}
+
 // Records the viewport: the live items over everything else. With `use_cache`, the
 // other items are drawn into the cache only when they, the camera or the target size
 // changed since the cache was filled; otherwise every item is drawn every frame.
@@ -517,7 +599,7 @@ mesh_buffers_upload_ranges :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb:
 // keeps the previous colour and depth and redraws only the screen rectangle the items'
 // damage boxes cover, or nothing at all when nothing changed.
 render_viewport :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, view, proj: Mat4, items: []Draw_Item, use_cache: bool) -> (stats: Viewport_Stats) {
-	key := frame_key(vt^, view, proj, items)
+	key := frame_key(vt^, view, proj, items, r.lod_px)
 	defer {
 		vt.frame_key = key
 		for item in items do item.mesh.drawn_version = item.mesh.version
@@ -613,18 +695,19 @@ render_rect :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Targ
 
 // Hash of what frame_key in Viewport_Target describes.
 @(private)
-frame_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item) -> u64 {
+frame_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lod_px: f32) -> u64 {
 	Keyed :: struct {
 		mesh:  ^Mesh_Buffers,
 		model: Mat4,
 		color: [4]f32,
 	}
-	Header :: struct {
+	Header :: struct { // no padding: every byte is hashed
 		view, proj:    Mat4,
 		width, height: u32,
-		items:         int,
+		items:         u32,
+		lod_px:        f32,
 	}
-	header := Header{view, proj, vt.width, vt.height, len(items)}
+	header := Header{view, proj, vt.width, vt.height, u32(len(items)), lod_px}
 	h := hash.fnv64a(slice.bytes_from_ptr(&header, size_of(header)))
 	for item in items {
 		k := Keyed{item.mesh, item.model, item.color}
@@ -637,12 +720,14 @@ frame_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item) -> 
 // cache when `use_cache` and they, the camera and the size are unchanged.
 @(private)
 render_full :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, view, proj: Mat4, items: []Draw_Item, use_cache: bool, stats: ^Viewport_Stats) {
+	// Pixels a mesh unit covers one unit in front of the eye (perspective only).
+	lod := Lod_View{r.lod_px, proj[1, 1] * f32(vt.height) / 2} if r.lod_px > 0 && proj[3, 3] == 0 else {}
 	live := 0
 	for item in items do live += int(item.live)
 	// With nothing live (or nothing idle) there is nothing to reuse.
 	if !use_cache || live == 0 || live == len(items) || !static_cache_ensure(r, vt) {
 		vt.cache.key = 0
-		prepare_draws(r, cmd, view, proj, items, nil, stats)
+		prepare_draws(r, cmd, view, proj, items, nil, stats, lod = lod)
 		pass := begin_mesh_pass(r, cmd, vt.color, vt.depth, load = false, keep_depth = true)
 		draw_items(r, cmd, pass, view, proj, items, nil, stats)
 		sdl.EndGPURenderPass(pass)
@@ -650,9 +735,9 @@ render_full :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Targ
 	}
 	stats.cache_used = true
 
-	key := static_key(vt^, view, proj, items)
+	key := static_key(vt^, view, proj, items, r.lod_px)
 	redraw := key != vt.cache.key
-	prepare_draws(r, cmd, view, proj, items, nil if redraw else true, stats)
+	prepare_draws(r, cmd, view, proj, items, nil if redraw else true, stats, lod = lod)
 	if redraw {
 		pass := begin_mesh_pass(r, cmd, vt.cache.color, vt.cache.depth, load = false, keep_depth = true)
 		draw_items(r, cmd, pass, view, proj, items, false, stats)
@@ -672,13 +757,21 @@ render_full :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Targ
 	sdl.EndGPURenderPass(pass)
 }
 
+// How much a full redraw may simplify: Renderer.lod_px, and how many pixels a mesh
+// unit covers one unit in front of the eye. All zero for full detail.
+@(private)
+Lod_View :: struct {
+	max_px, px_per_unit: f32,
+}
+
 // For every item that will be drawn this frame (those whose `live` matches, all of
 // them when `live` is nil) and can be culled, culls its chunks against the camera and
-// uploads one indirect draw command per visible run. Must run before the render
-// passes, since uploads need a copy pass.
+// uploads one indirect draw command per visible run. With `lod`, groups of chunks
+// that may be simplified get one command per run of their copies, after the others.
+// Must run before the render passes, since uploads need a copy pass.
 // `narrow` maps clip space to a smaller frustum to cull against (see render_rect).
 @(private)
-prepare_draws :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, view, proj: Mat4, items: []Draw_Item, live: Maybe(bool), stats: ^Viewport_Stats, narrow := IDENTITY) {
+prepare_draws :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, view, proj: Mat4, items: []Draw_Item, live: Maybe(bool), stats: ^Viewport_Stats, narrow := IDENTITY, lod := Lod_View{}) {
 	if !r.cull do return
 	t0 := sdl.GetTicksNS()
 	defer stats.cull_ms += f64(sdl.GetTicksNS() - t0) / 1e6
@@ -687,22 +780,39 @@ prepare_draws :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, view, proj: Mat4
 	for item in items {
 		if want, filtered := live.?; filtered && item.live != want do continue
 		mb := item.mesh
-		if len(item.chunks) == 0 || !indirect_ensure(r, mb, u32(len(item.chunks))) do continue
+		mb.lod_draw_count = 0
+		simplify := lod.max_px > 0 && len(item.lod.groups) > 0 && mb.lod_indices != nil
+		commands := len(item.chunks) + (len(item.lod.groups) if simplify else 0)
+		if len(item.chunks) == 0 || !indirect_ensure(r, mb, u32(commands)) do continue
 		eye := linalg.inverse(item.model) * eye_world
+		clip := narrow * proj * view * item.model
 		clear(&mb.visible)
-		cs := geom.cull_chunks(item.chunks, narrow * proj * view * item.model, eye.xyz, &mb.visible)
-		stats.chunks += u64(cs.chunks)
-		stats.culled_view += u64(cs.frustum)
-		stats.culled_back += u64(cs.backface)
+		clear(&mb.lod_visible)
+		if simplify {
+			ls := geom.cull_lod(item.chunks, item.lod, clip, eye.xyz, lod.px_per_unit, lod.max_px, &mb.visible, &mb.lod_visible)
+			stats.chunks += u64(ls.units)
+			stats.culled_view += u64(ls.frustum)
+			stats.culled_back += u64(ls.backface)
+			stats.simplified += u64(ls.groups)
+		} else {
+			cs := geom.cull_chunks(item.chunks, clip, eye.xyz, &mb.visible)
+			stats.chunks += u64(cs.chunks)
+			stats.culled_view += u64(cs.frustum)
+			stats.culled_back += u64(cs.backface)
+		}
 		mb.draw_count = u32(len(mb.visible))
-		if mb.draw_count == 0 do continue
+		mb.lod_draw_count = u32(len(mb.lod_visible))
+		if mb.draw_count + mb.lod_draw_count == 0 do continue
 		dst := cast([^]sdl.GPUIndexedIndirectDrawCommand)sdl.MapGPUTransferBuffer(r.device, mb.indirect_transfer, true)
 		for v, i in mb.visible {
 			dst[i] = {num_indices = v.index_count, num_instances = 1, first_index = v.first_index}
 		}
+		for v, i in mb.lod_visible {
+			dst[int(mb.draw_count) + i] = {num_indices = v.index_count, num_instances = 1, first_index = v.first_index}
+		}
 		sdl.UnmapGPUTransferBuffer(r.device, mb.indirect_transfer)
 		if copy_pass == nil do copy_pass = sdl.BeginGPUCopyPass(cmd)
-		size := mb.draw_count * size_of(sdl.GPUIndexedIndirectDrawCommand)
+		size := (mb.draw_count + mb.lod_draw_count) * size_of(sdl.GPUIndexedIndirectDrawCommand)
 		sdl.UploadToGPUBuffer(copy_pass, {transfer_buffer = mb.indirect_transfer}, {buffer = mb.indirect, size = size}, true)
 	}
 	if copy_pass != nil do sdl.EndGPUCopyPass(copy_pass)
@@ -729,10 +839,10 @@ indirect_ensure :: proc(r: ^Renderer, mb: ^Mesh_Buffers, commands: u32) -> bool 
 	return true
 }
 
-// Identifies the cache contents: the target size, camera, and every idle item's
-// buffers (by identity and version), transform and colour.
+// Identifies the cache contents: the target size, camera, simplification, and every
+// idle item's buffers (by identity and version), transform and colour.
 @(private)
-static_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item) -> u64 {
+static_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lod_px: f32) -> u64 {
 	Keyed :: struct {
 		mesh:    ^Mesh_Buffers,
 		version: u64,
@@ -742,8 +852,9 @@ static_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item) ->
 	Header :: struct {
 		view, proj:    Mat4,
 		width, height: u32,
+		lod_px:        f32,
 	}
-	header := Header{view, proj, vt.width, vt.height}
+	header := Header{view, proj, vt.width, vt.height, lod_px}
 	h := hash.fnv64a(slice.bytes_from_ptr(&header, size_of(header)))
 	for item in items {
 		if item.live do continue
@@ -792,8 +903,13 @@ draw_items :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURende
 		sdl.BindGPUIndexBuffer(pass, {buffer = mb.indices}, ._32BIT)
 		if r.cull && len(item.chunks) > 0 && mb.indirect != nil {
 			if mb.draw_count > 0 do sdl.DrawGPUIndexedPrimitivesIndirect(pass, mb.indirect, 0, mb.draw_count)
+			if mb.lod_draw_count > 0 {
+				sdl.BindGPUIndexBuffer(pass, {buffer = mb.lod_indices}, ._32BIT)
+				sdl.DrawGPUIndexedPrimitivesIndirect(pass, mb.indirect, mb.draw_count * size_of(sdl.GPUIndexedIndirectDrawCommand), mb.lod_draw_count)
+			}
 			for v in mb.visible do stats.triangles += u64(v.index_count / 3)
-			stats.draws += u64(mb.draw_count)
+			for v in mb.lod_visible do stats.triangles += u64(v.index_count / 3)
+			stats.draws += u64(mb.draw_count + mb.lod_draw_count)
 		} else {
 			sdl.DrawGPUIndexedPrimitives(pass, mb.index_count, 1, 0, 0, 0)
 			stats.triangles += u64(mb.index_count / 3)

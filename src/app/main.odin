@@ -2,9 +2,12 @@ package main
 
 import "core:flags"
 import "core:fmt"
+import "core:hash"
 import "core:log"
+import "core:math"
 @(require) import "core:mem" // only used when ODIN_DEBUG
 import "core:os"
+import "core:slice"
 import "core:time"
 import sdl "vendor:sdl3"
 
@@ -33,6 +36,8 @@ Options :: struct {
 	no_cull:   bool `usage:"Draw every triangle instead of skipping off-screen and back-facing chunks (for comparison)."`,
 	dump_viewport: string `usage:"On exit, write the last viewport image to this path as a binary PPM (for checking renders)."`,
 	no_partial: bool `usage:"Redraw the whole viewport every frame instead of only what changed (for comparison)."`,
+	no_simplify: bool `usage:"Draw every chunk at full detail while the view moves too, instead of simplified copies of the far ones (for comparison)."`,
+	orbit:     bool `usage:"Turn the camera around the scene by itself, once every 240 frames (to watch or time drawing while the view moves)."`,
 	bench_stroke: int `usage:"Run a synthetic brush stroke over this many frames, print brush stats, then exit."`,
 	bench_samples: int `usage:"Give each --bench-stroke frame this many pointer samples along the path, like a high-rate mouse (default: one position a frame)."`,
 	bench_loops: int `usage:"Make --bench-stroke this many circles around the middle of the sphere instead of a wavy line."`,
@@ -60,6 +65,13 @@ App :: struct {
 	stats:    Frame_Stats,
 	history:  History,
 	cache_idle: bool, // draw unselected objects from the viewport cache while they stay put
+	// While the view moves, draw far groups of chunks from simplified copies that stray
+	// at most simplify_px pixels; full detail once it has stayed put for LOD_SETTLE.
+	simplify:    bool,
+	simplify_px: f32,
+	lod_finish:  bool, // build every pending copy each frame, not a batch (gpubench)
+	view_key:    u64,       // camera, viewport size and object transforms last frame
+	view_moved:  time.Tick, // when view_key last changed
 	vsync:    bool, // wanted present mode, applied at the start of the next frame
 	time_gpu: bool, // wait for each frame's 3D work, to measure its GPU time
 	running:  bool,
@@ -173,6 +185,8 @@ run :: proc(opts: Options) -> bool {
 	app.cache_idle = !opts.no_cache
 	app.renderer.cull = !opts.no_cull
 	app.renderer.partial = !opts.no_partial
+	app.simplify = !opts.no_simplify
+	app.simplify_px = 1
 	app.vsync = !opts.no_vsync && opts.gpubench == ""
 	app.time_gpu = opts.time_gpu || opts.gpubench != ""
 	app.ui = ui_state_default()
@@ -267,6 +281,7 @@ run :: proc(opts: Options) -> bool {
 			last_input_ns = sdl.GetTicksNS()
 		}
 		camera_apply_input(&app.camera, input)
+		if opts.orbit do app.camera.yaw += 2 * math.PI / 240
 		sculpted: Sculpt_Frame_Result
 		switch app.tool {
 		case .Brush:
@@ -288,23 +303,36 @@ run :: proc(opts: Options) -> bool {
 		}
 		uploaded: u32
 		normals_ms: f64
+		lod_ms := -1.0 // time building simplified copies; none built when negative
 		draws := make([]render.Draw_Item, len(app.scene.objects), context.temp_allocator)
 		for obj, i in app.scene.objects {
 			lv := object_level(obj)
 			t_flush := time.tick_now()
 			ranges := sculpt.sculptor_flush(&lv.sculptor)
 			normals_ms += time.duration_milliseconds(time.tick_since(t_flush))
-			render.mesh_buffers_upload_ranges(&app.renderer, cmd, object_gpu(obj), lv.mesh, ranges)
+			gpu := object_gpu(obj)
+			render.mesh_buffers_upload_ranges(&app.renderer, cmd, gpu, lv.mesh, ranges)
 			for r in ranges do uploaded += r.count
+			// Simplified copies are built a batch a frame, for one object at a time, and
+			// never during a stroke, whose frames should stay as short as they can be.
+			if app.simplify && !app.stroke.active && lod_ms < 0 && sculpt.sculptor_lod_pending(&lv.sculptor) > 0 {
+				t_lod := time.tick_now()
+				lod_ranges, all := sculpt.sculptor_lod_update(&lv.sculptor, app.lod_finish)
+				render.mesh_buffers_upload_lod(&app.renderer, cmd, gpu, lv.sculptor.lod.indices[:], lod_ranges, all, len(lv.mesh.indices) / 2)
+				lod_ms = time.duration_milliseconds(time.tick_since(t_lod))
+			}
 			// The selected object is in clay; the others are a muted grey. Only the
 			// selected one is sculpted or moved, so the rest can come from the cache.
 			selected := i == app.scene.selected
 			color := [4]f32{0.55, 0.40, 0.32, 1} if selected else {0.42, 0.42, 0.44, 1}
-			draws[i] = {mesh = object_gpu(obj), model = transform_matrix(obj.transform), color = color, live = selected, chunks = lv.sculptor.chunks, damage = lv.sculptor.changed_bounds}
+			draws[i] = {mesh = gpu, model = transform_matrix(obj.transform), color = color, live = selected, chunks = lv.sculptor.chunks, damage = lv.sculptor.changed_bounds, lod = lv.sculptor.lod.tree}
 		}
 		aspect := f32(app.target.width) / f32(app.target.height)
-		drawn := render.render_viewport(&app.renderer, cmd, &app.target,
-			camera.orbit_view(app.camera), camera.orbit_proj(app.camera, aspect), draws, app.cache_idle)
+		view, proj := camera.orbit_view(app.camera), camera.orbit_proj(app.camera, aspect)
+		if view_changed(&app, view, proj) do app.view_moved = time.tick_now()
+		moving := time.tick_since(app.view_moved) < LOD_SETTLE
+		app.renderer.lod_px = app.simplify_px if app.simplify && moving else 0
+		drawn := render.render_viewport(&app.renderer, cmd, &app.target, view, proj, draws, app.cache_idle)
 
 		gpu_wait: time.Duration
 		if app.time_gpu {
@@ -366,6 +394,7 @@ run :: proc(opts: Options) -> bool {
 		app.stats.viewport = drawn
 		app.stats.cache_redraws += int(drawn.cache_redrawn)
 		app.stats.partial_frames += int(drawn.partial)
+		if lod_ms >= 0 do ring_push(&app.stats.lod_ms, lod_ms)
 		if sculpted.dabs > 0 {
 			ring_push(&app.stats.raycast_ms, sculpted.raycast_ms)
 			ring_push(&app.stats.brush_ms, sculpted.brush_ms)
@@ -408,6 +437,10 @@ run :: proc(opts: Options) -> bool {
 	v := app.stats.viewport
 	fmt.printfln("cull=%v last_frame_draws=%d chunks=%d culled_view=%d culled_back=%d cull_ms=%.3f", app.renderer.cull, v.draws, v.chunks, v.culled_view, v.culled_back, v.cull_ms)
 	fmt.printfln("partial=%v partial_frames=%d last_frame_partial=%v last_frame_redrawn_px=%d viewport_px=%d", app.renderer.partial, app.stats.partial_frames, v.partial, v.redrawn_px, app.target.width * app.target.height)
+	lod_pending := 0
+	for obj in app.scene.objects do lod_pending += sculpt.sculptor_lod_pending(object_sculptor(obj))
+	fmt.printfln("simplify=%v last_frame_lod_px=%.2f last_frame_simplified=%d lod_pending=%d", app.simplify, app.renderer.lod_px, v.simplified, lod_pending)
+	if app.stats.lod_ms.count > 0 do print_stat("lod_build_ms", app.stats.lod_ms)
 	print_stat("frame_ms", app.stats.frame_ms)
 	print_stat("cpu_ms", app.stats.cpu_ms)
 	print_stat("wait_ms", app.stats.wait_ms)
@@ -449,6 +482,27 @@ run :: proc(opts: Options) -> bool {
 		}
 	}
 	return true
+}
+
+// How long the view has to stay put before simplified drawing gives way to full detail.
+LOD_SETTLE :: 250 * time.Millisecond
+
+// Whether the camera, the viewport size or any object's transform changed since the
+// last call.
+view_changed :: proc(app: ^App, view, proj: render.Mat4) -> bool {
+	Key :: struct {
+		view, proj:    render.Mat4,
+		width, height: u32,
+	}
+	key := Key{view, proj, app.target.width, app.target.height}
+	h := hash.fnv64a(slice.bytes_from_ptr(&key, size_of(key)))
+	for obj in app.scene.objects {
+		t := obj.transform
+		h = hash.fnv64a(slice.bytes_from_ptr(&t, size_of(t)), h)
+	}
+	changed := h != app.view_key
+	app.view_key = h
+	return changed
 }
 
 camera_apply_input :: proc(c: ^camera.Orbit, in_: Viewport_Input) {

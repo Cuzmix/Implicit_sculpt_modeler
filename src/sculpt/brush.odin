@@ -113,6 +113,8 @@ Sculptor :: struct {
 	edited_nodes: [dynamic]u32,
 
 	history:     Undo_History,
+	// Simplified copies for drawing while the view moves (lod.odin).
+	lod:         Lod_State,
 }
 
 // Partitions and renumbers `mesh` in place (vertex order and triangle order change),
@@ -142,6 +144,7 @@ sculptor_init :: proc(s: ^Sculptor, mesh: ^geom.Mesh, pool: ^jobs.Pool, node_tri
 	jobs.parallel_for(s.pool, len(s.nodes), s, proc(data: rawptr, id: int) {
 		update_chunk(cast(^Sculptor)data, u32(id), nil)
 	})
+	lod_init(s, allocator = allocator)
 }
 
 sculptor_destroy :: proc(s: ^Sculptor) {
@@ -165,6 +168,7 @@ sculptor_destroy :: proc(s: ^Sculptor) {
 	delete(s.ranges)
 	delete(s.edited)
 	delete(s.edited_nodes)
+	lod_destroy(&s.lod)
 	s^ = {}
 }
 
@@ -515,6 +519,7 @@ apply_dab :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
 @(private)
 mark_shape_changed :: proc(s: ^Sculptor, id: u32) {
 	mark_stale(s, id, .Shape)
+	lod_mark_stale(s, id)
 	if !s.edited[id] {
 		s.edited[id] = true
 		append(&s.edited_nodes, id)
