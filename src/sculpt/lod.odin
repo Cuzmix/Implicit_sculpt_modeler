@@ -23,8 +23,9 @@ LOD_MIN_TRIANGLES :: 1 << 18
 LOD_FANOUT :: 4
 // A copy aims for this fraction of the triangles it is made from.
 LOD_REDUCTION :: 4
-// geom.simplify's error runs below the largest distance between a copy and what it
-// stands for, by up to 1.4 times on a bumpy sphere; this keeps the estimate above it.
+// geom.simplify's error can run below the largest distance between a copy and what it
+// stands for: by up to 1.4 times on a bumpy sphere, about 1.5 on small patches. This
+// brings the estimate up to that distance.
 LOD_ERROR_SCALE :: 1.5
 // Time one sculptor_lod_update call spends building copies when not asked to finish
 // (at least one batch): they are built a little each frame.
@@ -148,10 +149,11 @@ sculptor_lod_pending :: proc(s: ^Sculptor) -> int {
 }
 
 // Rebuilds the copies of stale groups, lowest first (a group is made from its
-// children's copies), in batches while another as long as the last one still fits in
-// LOD_FRAME_BUDGET, or until none is left with `finish`. Does nothing during a stroke, while its groups keep changing.
-// Returns the ranges of `lod.indices` it rewrote, for upload; `all` when slots moved
-// and all of `lod.indices` needs uploading.
+// children's copies), in parallel batches: with `finish` until none is left, else
+// while one more batch as long as the last would still end within LOD_FRAME_BUDGET.
+// Does nothing during a stroke, while its groups keep changing. Returns the ranges of
+// `lod.indices` it rewrote, for upload; `all` when slots moved and all of
+// `lod.indices` needs uploading.
 sculptor_lod_update :: proc(s: ^Sculptor, finish := false) -> (ranges: []geom.Index_Range, all: bool) {
 	l := &s.lod
 	clear(&l.uploads)
