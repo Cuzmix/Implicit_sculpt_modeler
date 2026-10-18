@@ -422,6 +422,20 @@ draw_stats_panel :: proc(app: ^App) {
 	imgui.Checkbox("Cache idle objects", &app.cache_idle)
 	imgui.SameLine()
 	imgui.TextDisabled("(%s, redrawn %d times)", cstring("in use" if s.viewport.cache_used else "not in use"), i32(s.cache_redraws))
+	imgui.Checkbox("Simplify while moving", &app.simplify)
+	imgui.SameLine()
+	pending := 0
+	for obj in app.scene.objects do pending += sculpt.sculptor_lod_pending(object_sculptor(obj))
+	if pending > 0 && app.simplify {
+		imgui.TextDisabled("(%d groups to build)", i32(pending))
+	} else {
+		imgui.TextDisabled("(last frame: %d groups simplified)", i32(v.simplified))
+	}
+	if app.simplify {
+		imgui.SetNextItemWidth(160)
+		imgui.SliderFloat("Largest error (px)", &app.simplify_px, 0.25, 4, "%.2f")
+		row("Build", s.lod_ms, "ms")
+	}
 	imgui.SeparatorText("While sculpting")
 	row("Raycast", s.raycast_ms, "ms")
 	row("Brush", s.brush_ms, "ms")

@@ -14,6 +14,7 @@
 // flushed every frame as the app does, to show that idle meshes add no CPU cost.
 //
 //   --levels     instead, the subdivision levels table (see run_levels)
+//   --lod        instead, the simplified drawing table (see run_lod)
 //   --meshes=N   spheres per size, all sculpt-ready; only the first is sculpted
 //   --threads=N  worker count including the caller (default: every core)
 //   --node=N     triangles per sculpt node
@@ -48,6 +49,7 @@ threads := 0
 prefault_mb := 0
 meshes := 0 // 0: the default cases
 levels := false
+lod := false
 
 main :: proc() {
 	targets := make([dynamic]int)
@@ -61,6 +63,8 @@ main :: proc() {
 			meshes = max(strconv.parse_int(arg[9:]) or_else 1, 1)
 		} else if arg == "--levels" {
 			levels = true
+		} else if arg == "--lod" {
+			lod = true
 		} else if strings.has_prefix(arg, "--threads=") {
 			threads = strconv.parse_int(arg[10:]) or_else 0
 		} else if v, ok := strconv.parse_int(arg); ok {
@@ -92,6 +96,11 @@ main :: proc() {
 		levels_header()
 		for c in cases do if c.meshes == 1 do run_levels(c.vertices, pool)
 		if prefault_mb == 0 do fmt.printfln("peak RSS: %.0f MB", peak_rss_mb())
+		return
+	}
+	if lod {
+		lod_header()
+		for c in cases do if c.meshes == 1 do run_lod(c.vertices, pool)
 		return
 	}
 

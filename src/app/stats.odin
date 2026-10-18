@@ -34,6 +34,7 @@ Frame_Stats :: struct {
 	cpu_ms:     Sample_Ring, // the frame minus its waits
 	wait_ms:    Sample_Ring, // waiting for the display (and, while timing the GPU, for the previous frame)
 	gpu_ms:     Sample_Ring, // GPU time of the 3D viewport's uploads and drawing; only while timing the GPU
+	lod_ms:     Sample_Ring, // building and uploading simplified copies, on frames that did
 	// Recorded only on frames where the brush changed the mesh:
 	raycast_ms: Sample_Ring,
 	brush_ms:   Sample_Ring, // dabs, excluding the raycast
