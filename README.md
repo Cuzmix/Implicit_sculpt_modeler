@@ -30,16 +30,17 @@ See `scripts/versions.env`: Odin `dev-2026-10`, SDL `3.4.18` (Linux; Windows use
 
 ./build.sh            # debug build with allocation tracking -> build/sculpt
 ./build.sh release    # optimized build
-./build.sh test       # unit tests (geom, camera, sculpt, jobs)
+./build.sh test       # unit tests (geom, camera, sculpt, jobs, gizmo)
 ./build.sh run -- --vertices=10000000
 ./build.sh smoke      # 300 frames in GPU debug mode; non-zero exit on assert, GPU error or leak
 ./build.sh bench      # headless sculpt benchmark at 500k, 1M, 5M, 7M, 10M vertices
 ./build.sh gpubench   # GPU and CPU frame times while orbiting and sculpting, same sizes
+./build.sh wincheck   # compile app and bench for Windows x64 (no link) to catch Windows-only errors
 ```
 
 Headless (CI or containers): run under `Xvfb` with Mesa's llvmpipe Vulkan driver (`mesa-vulkan-drivers`).
 
-## Windows (untested so far)
+## Windows (not yet run on Windows; `./build.sh wincheck` compiles it from Linux)
 
 From an "x64 Native Tools Command Prompt for VS" with git and python on PATH:
 
