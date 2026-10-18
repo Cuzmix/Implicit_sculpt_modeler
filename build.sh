@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Usage: ./build.sh [debug|release|test|run|smoke|bench|gpubench] [-- app args]
+# Usage: ./build.sh [debug|release|test|run|smoke|bench|gpubench|wincheck] [-- app args]
 #   debug   (default) debug build with allocation tracking -> build/sculpt
 #   release optimized build without bounds checks -> build/sculpt
 #   test    run all package tests
@@ -12,6 +12,8 @@
 #           sphere at 500k, 1M, 5M, 7M and 10M vertices, with each speed setting on and
 #           off; prints markdown tables and writes them to build/gpubench.md (needs a
 #           display; use a real GPU for meaningful numbers)
+#   wincheck compile the app and bench for Windows (x64) to object files, without
+#           linking, so Windows-only compile errors show up on Linux too
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 DEPS="$ROOT/deps"
@@ -52,6 +54,17 @@ case "$mode" in
 		for pkg in geom camera sculpt jobs gizmo; do
 			"$ODIN" test "$ROOT/src/$pkg" -out:"$ROOT/build/test_$pkg" "${common[@]}"
 		done
+		;;
+	wincheck)
+		# Object files need no Windows SDK; the empty root only satisfies the flag.
+		out="$ROOT/build/wincheck"
+		mkdir -p "$out/sdk"
+		for pkg in app bench; do
+			"$ODIN" build "$ROOT/src/$pkg" -target:windows_amd64 -build-mode:obj \
+				-windows-sdk-root:"$out/sdk" -out:"$out/$pkg.obj" \
+				-collection:deps="$DEPS" -vet -strict-style -warnings-as-errors
+		done
+		echo "wincheck: app and bench compile for windows_amd64"
 		;;
 	*) echo "unknown mode: $mode"; exit 1 ;;
 esac
