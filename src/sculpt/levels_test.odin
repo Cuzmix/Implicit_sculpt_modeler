@@ -47,9 +47,9 @@ max_distance :: proc(a, b: []Vec3) -> f32 {
 @(private = "file")
 expect_decoded :: proc(t: ^testing.T, l: ^Levels, loc := #caller_location) {
 	for j in 1 ..< len(l.levels) {
-		lv, below := l.levels[j], l.levels[j - 1]
+		lv, below := l.levels[j], level_base(l.levels[j - 1])
 		for p, u in lv.mesh.positions {
-			off := linalg.length(p - frame_point(frame_at(below, lv.parents[u]), lv.detail[u]))
+			off := linalg.length(p - frame_point(frame_at(&below, lv.parents[u]), lv.detail[u]))
 			if off > 1e-6 {
 				testing.expectf(t, false, "level %d vertex %d is %v off its decoded position", j, u, off, loc = loc)
 				return

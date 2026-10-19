@@ -269,6 +269,59 @@ cull_lod_selects_by_error :: proc(t: ^testing.T) {
 	testing.expect(t, triangles(fine[:]) + triangles(coarse[:]) < triangles(plain[:]), "the selection should draw fewer triangles")
 }
 
+// Hidden chunks are never drawn, nor any group over one (it would cover them), while
+// everything else is drawn as usual.
+@(test)
+cull_lod_leaves_out_hidden :: proc(t: ^testing.T) {
+	s: Sculptor
+	m: geom.Mesh
+	lod_sphere(&s, &m, 5, 32)
+	defer geom.mesh_destroy(&m)
+	defer sculptor_destroy(&s)
+	_, _ = sculptor_lod_update(&s, finish = true)
+	nodes := len(s.nodes)
+	hidden := make([]bool, nodes + len(s.lod.tree.groups), context.temp_allocator)
+	for id in 0 ..< nodes / 4 { // node ids follow the BVH, so this is one patch of the sphere
+		unit := u32(id)
+		hidden[unit] = true
+		for s.lod.parent[unit] != LOD_NO_PARENT {
+			unit = u32(nodes) + s.lod.parent[unit]
+			hidden[unit] = true
+		}
+	}
+	eye := Vec3{0.4, 0.8, 3.2}
+	f := 1 / math.tan(f32(0.35))
+	proj := geom.Mat4{f, 0, 0, 0, 0, f, 0, 0, 0, 0, -1, -0.01, 0, 0, -1, 0}
+	clip := proj * lod_look_at(eye, {0, 0, 0})
+	overlaps :: proc(ranges: []geom.Index_Range, first, count: u32) -> bool {
+		for r in ranges do if r.first_index < first + count && first < r.first_index + r.index_count do return true
+		return false
+	}
+
+	plain, fine, coarse: [dynamic]geom.Index_Range
+	defer delete(plain)
+	defer delete(fine)
+	defer delete(coarse)
+	_ = geom.cull_chunks(s.chunks, clip, eye, &plain, hidden = hidden[:nodes])
+	_ = geom.cull_lod(s.chunks, s.lod.tree, clip, eye, 500, 0, &fine, &coarse, hidden)
+	testing.expect_value(t, triangles(fine[:]), triangles(plain[:]))
+	testing.expect(t, len(plain) > 0, "everything was left out")
+	for c, id in s.chunks {
+		if hidden[id] do testing.expect(t, !overlaps(plain[:], c.first_index, c.index_count), "plain culling drew a hidden chunk")
+	}
+
+	clear(&fine)
+	clear(&coarse)
+	stats := geom.cull_lod(s.chunks, s.lod.tree, clip, eye, 500, 1e9, &fine, &coarse, hidden)
+	testing.expect(t, stats.groups > 0, "no group drawn simplified")
+	for c, id in s.chunks {
+		if hidden[id] do testing.expect(t, !overlaps(fine[:], c.first_index, c.index_count), "a hidden chunk was drawn")
+	}
+	for g, i in s.lod.tree.groups {
+		if hidden[nodes + i] do testing.expect(t, !overlaps(coarse[:], g.first_index, g.index_count), "a group over a hidden chunk was drawn")
+	}
+}
+
 @(private = "file")
 triangles :: proc(ranges: []geom.Index_Range) -> (n: int) {
 	for r in ranges do n += int(r.index_count / 3)

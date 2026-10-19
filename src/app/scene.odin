@@ -33,7 +33,8 @@ to_local :: #force_inline proc(t: Transform, p: Vec3) -> Vec3 {return (p - t.pos
 to_world :: #force_inline proc(t: Transform, p: Vec3) -> Vec3 {return p * t.scale + t.position}
 
 // One sculptable mesh in the scene, with its subdivision levels: only the current
-// level is shown and sculpted.
+// level is shown and sculpted, or while sculpting HD, a window of the HD level over the
+// top level (see object_hd_enter).
 Object :: struct {
 	id:        int, // shown as "Sphere <id>"; never reused
 	transform: Transform,
@@ -42,12 +43,18 @@ Object :: struct {
 	// level's buffers catch up with what changed while it was not current when it is
 	// shown again (see object_show_level).
 	gpu:       [sculpt.MAX_LEVELS]render.Mesh_Buffers,
+	hd_gpu:    render.Mesh_Buffers, // the HD window's, while one is open
 }
 
-object_level :: proc(obj: ^Object) -> ^sculpt.Level {return sculpt.levels_current(&obj.levels)}
-object_sculptor :: proc(obj: ^Object) -> ^sculpt.Sculptor {return &sculpt.levels_current(&obj.levels).sculptor}
-object_mesh :: proc(obj: ^Object) -> ^geom.Mesh {return &sculpt.levels_current(&obj.levels).mesh}
-object_gpu :: proc(obj: ^Object) -> ^render.Mesh_Buffers {return &obj.gpu[obj.levels.current]}
+// The level being sculpted: the HD window while one is open.
+object_level :: proc(obj: ^Object) -> ^sculpt.Level {return sculpt.levels_active(&obj.levels)}
+object_sculptor :: proc(obj: ^Object) -> ^sculpt.Sculptor {return &object_level(obj).sculptor}
+object_mesh :: proc(obj: ^Object) -> ^geom.Mesh {return &object_level(obj).mesh}
+object_gpu :: proc(obj: ^Object) -> ^render.Mesh_Buffers {
+	if object_in_hd(obj) do return &obj.hd_gpu
+	return &obj.gpu[obj.levels.current]
+}
+object_in_hd :: proc(obj: ^Object) -> bool {return obj.levels.hd.window != nil}
 
 Scene :: struct {
 	objects:  [dynamic]^Object,
@@ -59,9 +66,11 @@ Scene :: struct {
 // applied at the start of the next frame so no panel ever draws an object (or GPU
 // buffer) freed during the same frame.
 Scene_Command :: struct {
-	kind:     enum u8 {None, Add, Remesh, Delete, Subdivide, Set_Level, Delete_Higher, Delete_Lower},
+	kind:     enum u8 {None, Add, Remesh, Delete, Subdivide, Set_Level, Delete_Higher, Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete},
 	vertices: int,
-	level:    int, // Set_Level
+	level:    int, // Set_Level; HD steps for Hd_Steps
+	at:       [2]f32, // Hd_Enter: the viewport point to open the window around
+	size:     [2]f32, // ...in a viewport of this size
 }
 
 scene_destroy :: proc(app: ^App) {
@@ -126,18 +135,43 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 		}
 	case .Delete:
 		scene_delete_selected(app)
+	case .Hd_Enter:
+		origin, dir := mouse_ray(app.camera, cmd.at, cmd.size)
+		index, hit, ok := scene_raycast(app, origin, dir)
+		if !ok {
+			log.info("HD: point at an object to sculpt HD around that point")
+			return true
+		}
+		app.scene.selected = index
+		return object_hd_enter(app, selected_object(app), to_local(selected_object(app).transform, hit))
+	case .Hd_Leave:
+		if obj := selected_object(app); obj != nil do object_hd_leave(app, obj)
+	case .Hd_Steps, .Hd_Delete:
+		obj := selected_object(app)
+		if obj == nil do return true
+		object_hd_leave(app, obj)
+		if cmd.kind == .Hd_Delete {
+			sculpt.levels_hd_delete(&obj.levels)
+		} else if !sculpt.levels_hd_set_steps(&obj.levels, cmd.level) {
+			log.warn("HD: steps change only while no HD detail is stored, on a closed mesh with every edge between two triangles")
+		}
 	case .Subdivide, .Set_Level, .Delete_Higher, .Delete_Lower:
 		obj := selected_object(app)
 		if obj == nil do return true
 		if cmd.kind == .Delete_Lower && obj.levels.current == 0 do return true
 		if cmd.kind == .Delete_Higher && obj.levels.current == len(obj.levels.levels) - 1 do return true
 		stroke_finish(app)
+		if cmd.kind != .Set_Level do object_hd_leave(app, obj)
 		start := time.tick_now()
 		levels := &obj.levels
 		#partial switch cmd.kind {
 		case .Subdivide:
 			if _, _, bytes := sculpt.levels_subdivide_estimate(levels); bytes > MAX_SUBDIVIDE_BYTES {
 				log.warnf("subdivide: the new level would need about %d MB; the limit is %d MB", bytes >> 20, MAX_SUBDIVIDE_BYTES >> 20)
+				return true
+			}
+			if levels.hd.steps > 0 {
+				log.warn("subdivide: delete the HD level first; its detail is tied to the top level as it is")
 				return true
 			}
 			if !sculpt.levels_subdivide(levels) {
@@ -168,8 +202,9 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 }
 
 // Makes `level` the object's current level, carrying the edits on the one it leaves to
-// all the others. Returns false on a GPU failure.
+// all the others, after leaving any HD window. Returns false on a GPU failure.
 object_set_level :: proc(app: ^App, obj: ^Object, level: int) -> bool {
+	object_hd_leave(app, obj)
 	if clamp(level, 0, len(obj.levels.levels) - 1) == obj.levels.current do return true
 	start := time.tick_now()
 	sculpt.levels_set_current(&obj.levels, level)
@@ -205,6 +240,48 @@ object_show_level :: proc(app: ^App, obj: ^Object, start: time.Tick) -> bool {
 	}
 	render.mesh_buffers_upload_ranges(&app.renderer, cmd, gpu, lv.mesh, ranges)
 	return sdl.SubmitGPUCommandBuffer(cmd)
+}
+
+// Starts sculpting the object's HD level in a window around `at` (in the object's
+// space), on its top level: the window is what brushes reach, and what is drawn there.
+// Does nothing without an HD level. Returns false on a GPU failure.
+object_hd_enter :: proc(app: ^App, obj: ^Object, at: Vec3) -> bool {
+	if obj.levels.hd.steps == 0 {
+		log.info("HD: add an HD level first (Divide HD)")
+		return true
+	}
+	stroke_finish(app)
+	// One window at a time, since each can hold millions of vertices.
+	for other in app.scene.objects do if other != obj do object_hd_leave(app, other)
+	if !object_set_level(app, obj, len(obj.levels.levels) - 1) do return false
+	start := time.tick_now()
+	if !sculpt.levels_hd_enter(&obj.levels, at, app.hd_window_vertices) do return true
+	built := time.tick_now()
+	ok: bool
+	obj.hd_gpu, ok = render.mesh_buffers_create(&app.renderer, object_mesh(obj)^)
+	if !ok {
+		sculpt.levels_hd_leave(&obj.levels)
+		return false
+	}
+	render.viewport_invalidate(&app.target)
+	app.stats.hd_open_ms = time.duration_milliseconds(time.tick_diff(start, built))
+	app.stats.hd_upload_ms = time.duration_milliseconds(time.tick_since(built))
+	log.infof("HD: window of %d vertices built in %.0f ms, uploaded in %.0f ms", geom.mesh_vertex_count(object_mesh(obj)^), app.stats.hd_open_ms, app.stats.hd_upload_ms)
+	return true
+}
+
+// Stores what the HD window changed and closes it, dropping its strokes from the undo
+// history. Does nothing outside HD.
+object_hd_leave :: proc(app: ^App, obj: ^Object) {
+	if !object_in_hd(obj) do return
+	if app.stroke.object == obj.id do stroke_finish(app)
+	start := time.tick_now()
+	_ = sdl.WaitForGPUIdle(app.renderer.device)
+	render.mesh_buffers_destroy(&app.renderer, &obj.hd_gpu)
+	sculpt.levels_hd_leave(&obj.levels)
+	history_forget_level(app, obj.id, HD_LEVEL)
+	render.viewport_invalidate(&app.target)
+	app.stats.hd_leave_ms = time.duration_milliseconds(time.tick_since(start))
 }
 
 // Just to the right of everything already in the scene, so a new sphere never lands
@@ -264,6 +341,7 @@ object_release_mesh :: proc(app: ^App, obj: ^Object) {
 	if app.stroke.object == obj.id do app.stroke.active = false
 	history_forget(app, obj.id)
 	for &gpu in obj.gpu do render.mesh_buffers_destroy(&app.renderer, &gpu)
+	render.mesh_buffers_destroy(&app.renderer, &obj.hd_gpu)
 	sculpt.levels_destroy(&obj.levels)
 }
 

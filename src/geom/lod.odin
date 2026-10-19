@@ -45,8 +45,12 @@ Lod_Stats :: struct {
 // pixels from the full mesh, skipping what lies outside the frustum of `clip` or faces
 // away from `eye` (both in the mesh's space). `px_per_unit` is how many pixels one
 // mesh unit covers seen from one unit away. Ranges adjacent in their buffer are merged.
-cull_lod :: proc(chunks: []Chunk, lod: Lod, clip: Mat4, eye: Vec3, px_per_unit, max_error_px: f32, fine, coarse: ^[dynamic]Index_Range) -> (stats: Lod_Stats) {
+// Units marked in `hidden` (one entry per unit, or nil) are left out: a hidden chunk is
+// not drawn, and a hidden group never stands in for its children (whose hidden ones
+// are left out in turn).
+cull_lod :: proc(chunks: []Chunk, lod: Lod, clip: Mat4, eye: Vec3, px_per_unit, max_error_px: f32, fine, coarse: ^[dynamic]Index_Range, hidden: []bool = nil) -> (stats: Lod_Stats) {
 	w := Lod_Walk {
+		hidden    = hidden,
 		chunks    = chunks,
 		lod       = lod,
 		planes    = frustum_planes(clip),
@@ -69,12 +73,15 @@ Lod_Walk :: struct {
 	threshold:    f32, // largest error per unit of distance from the eye
 	fine, coarse: ^[dynamic]Index_Range,
 	stats:        ^Lod_Stats,
+	hidden:       []bool,
 }
 
 @(private = "file")
 lod_visit :: proc(w: ^Lod_Walk, unit: u32) {
 	w.stats.units += 1
+	hidden := w.hidden != nil && w.hidden[unit]
 	if int(unit) < len(w.chunks) {
+		if hidden do return
 		c := w.chunks[unit]
 		switch {
 		case aabb_outside(&w.planes, c.bounds):
@@ -92,7 +99,7 @@ lod_visit :: proc(w: ^Lod_Walk, unit: u32) {
 			w.stats.frustum += 1
 			return
 		}
-		if g.error != LOD_NONE && g.error <= w.threshold * box_distance(g.bounds, w.eye) {
+		if !hidden && g.error != LOD_NONE && g.error <= w.threshold * box_distance(g.bounds, w.eye) {
 			if chunk_backfacing({bounds = g.bounds, cone_axis = g.cone_axis, cone_cutoff = g.cone_cutoff}, w.eye) {
 				w.stats.backface += 1
 			} else {
@@ -103,15 +110,6 @@ lod_visit :: proc(w: ^Lod_Walk, unit: u32) {
 		}
 	}
 	for child in w.lod.units[g.child_first:][:g.child_count] do lod_visit(w, child)
-}
-
-@(private = "file")
-append_range :: #force_inline proc(out: ^[dynamic]Index_Range, first, count: u32) {
-	if n := len(out); n > 0 && out[n - 1].first_index + out[n - 1].index_count == first {
-		out[n - 1].index_count += count
-		return
-	}
-	append(out, Index_Range{first, count})
 }
 
 // Distance from p to the nearest point of the box; 0 inside it.

@@ -128,6 +128,9 @@ Draw_Item :: struct {
 	// buffer (mesh_buffers_upload_lod). While Renderer.lod_px is above 0, full redraws
 	// draw a group's copy instead of its chunks wherever that strays less than lod_px.
 	lod:    geom.Lod,
+	// Per chunk, then per group of `lod`: left out, whether culling is on or not (another
+	// item draws that part, as an HD window does); nil to draw everything.
+	hidden: []bool,
 }
 
 // What render_viewport did this frame, for the stats panel.
@@ -615,6 +618,13 @@ render_viewport :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_
 	return
 }
 
+// Makes the next frame redraw everything, cache included: for changes the frame keys
+// cannot see, such as which chunks of an item are hidden.
+viewport_invalidate :: proc(vt: ^Viewport_Target) {
+	vt.frame_key = 0
+	vt.cache.key = 0
+}
+
 // Pixel rectangle, top-left origin.
 @(private)
 Rect :: struct {
@@ -772,30 +782,39 @@ Lod_View :: struct {
 // `narrow` maps clip space to a smaller frustum to cull against (see render_rect).
 @(private)
 prepare_draws :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, view, proj: Mat4, items: []Draw_Item, live: Maybe(bool), stats: ^Viewport_Stats, narrow := IDENTITY, lod := Lod_View{}) {
-	if !r.cull do return
+	if !r.cull {
+		// Only items with hidden parts need runs of chunks then.
+		any_hidden := false
+		for item in items do any_hidden ||= item.hidden != nil
+		if !any_hidden do return
+	}
 	t0 := sdl.GetTicksNS()
 	defer stats.cull_ms += f64(sdl.GetTicksNS() - t0) / 1e6
 	eye_world := linalg.inverse(view) * [4]f32{0, 0, 0, 1}
 	copy_pass: ^sdl.GPUCopyPass
 	for item in items {
 		if want, filtered := live.?; filtered && item.live != want do continue
+		if !r.cull && item.hidden == nil do continue
 		mb := item.mesh
 		mb.lod_draw_count = 0
-		simplify := lod.max_px > 0 && len(item.lod.groups) > 0 && mb.lod_indices != nil
+		simplify := r.cull && lod.max_px > 0 && len(item.lod.groups) > 0 && mb.lod_indices != nil
 		commands := len(item.chunks) + (len(item.lod.groups) if simplify else 0)
 		if len(item.chunks) == 0 || !indirect_ensure(r, mb, u32(commands)) do continue
 		eye := linalg.inverse(item.model) * eye_world
 		clip := narrow * proj * view * item.model
 		clear(&mb.visible)
 		clear(&mb.lod_visible)
-		if simplify {
-			ls := geom.cull_lod(item.chunks, item.lod, clip, eye.xyz, lod.px_per_unit, lod.max_px, &mb.visible, &mb.lod_visible)
+		switch {
+		case !r.cull:
+			geom.chunks_shown(item.chunks, item.hidden, &mb.visible)
+		case simplify:
+			ls := geom.cull_lod(item.chunks, item.lod, clip, eye.xyz, lod.px_per_unit, lod.max_px, &mb.visible, &mb.lod_visible, item.hidden)
 			stats.chunks += u64(ls.units)
 			stats.culled_view += u64(ls.frustum)
 			stats.culled_back += u64(ls.backface)
 			stats.simplified += u64(ls.groups)
-		} else {
-			cs := geom.cull_chunks(item.chunks, clip, eye.xyz, &mb.visible)
+		case:
+			cs := geom.cull_chunks(item.chunks, clip, eye.xyz, &mb.visible, hidden = item.hidden)
 			stats.chunks += u64(cs.chunks)
 			stats.culled_view += u64(cs.frustum)
 			stats.culled_back += u64(cs.backface)
@@ -901,7 +920,7 @@ draw_items :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURende
 		vbufs := [2]sdl.GPUBufferBinding{{buffer = mb.positions}, {buffer = mb.normals}}
 		sdl.BindGPUVertexBuffers(pass, 0, &vbufs[0], len(vbufs))
 		sdl.BindGPUIndexBuffer(pass, {buffer = mb.indices}, ._32BIT)
-		if r.cull && len(item.chunks) > 0 && mb.indirect != nil {
+		if (r.cull || item.hidden != nil) && len(item.chunks) > 0 && mb.indirect != nil {
 			if mb.draw_count > 0 do sdl.DrawGPUIndexedPrimitivesIndirect(pass, mb.indirect, 0, mb.draw_count)
 			if mb.lod_draw_count > 0 {
 				sdl.BindGPUIndexBuffer(pass, {buffer = mb.lod_indices}, ._32BIT)
