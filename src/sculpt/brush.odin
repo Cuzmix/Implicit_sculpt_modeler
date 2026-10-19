@@ -115,6 +115,9 @@ Sculptor :: struct {
 	history:     Undo_History,
 	// Simplified copies for drawing while the view moves (lod.odin).
 	lod:         Lod_State,
+	// Per vertex: how far brushes move it, from 0 (not at all: an HD window's border,
+	// which meets the level drawn around it) to 255 (fully); nil when all move fully.
+	fade:        []u8,
 }
 
 // Partitions and renumbers `mesh` in place (vertex order and triangle order change),
@@ -169,6 +172,7 @@ sculptor_destroy :: proc(s: ^Sculptor) {
 	delete(s.edited)
 	delete(s.edited_nodes)
 	lod_destroy(&s.lod)
+	delete(s.fade)
 	s^ = {}
 }
 
@@ -580,13 +584,15 @@ job_draw :: proc(data: rawptr, i: int) {
 	s := d.s
 	m := s.mesh
 	first, last := owned(s, s.hit[i])
+	fade := s.fade
 	moved: u32
 	bounds := geom.AABB_EMPTY
 	for v in first ..< last {
 		delta := m.positions[v] - d.center
 		d2 := linalg.dot(delta, delta)
-		if d2 < d.r2 {
+		if d2 < d.r2 && (fade == nil || fade[v] != 0) {
 			w := falloff(d2 * d.inv_r2)
+			if fade != nil do w *= f32(fade[v]) * (1.0 / 255)
 			m.positions[v] += d.normal * (d.amount * w)
 			moved += 1
 		}
@@ -624,13 +630,15 @@ job_smooth_apply :: proc(data: rawptr, i: int) {
 	m := s.mesh
 	first, last := owned(s, s.hit[i])
 	targets := s.smooth_to[s.offsets[i]:]
+	fade := s.fade
 	moved: u32
 	bounds := geom.AABB_EMPTY
 	for v in first ..< last {
 		delta := m.positions[v] - d.center
 		d2 := linalg.dot(delta, delta)
-		if d2 < d.r2 {
+		if d2 < d.r2 && (fade == nil || fade[v] != 0) {
 			t := clamp(d.brush.strength * falloff(d2 * d.inv_r2), 0, 1)
+			if fade != nil do t *= f32(fade[v]) * (1.0 / 255)
 			m.positions[v] = linalg.lerp(m.positions[v], targets[v - first], t)
 			moved += 1
 		}

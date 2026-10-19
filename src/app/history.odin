@@ -14,8 +14,10 @@ History :: struct {
 
 History_Entry :: struct {
 	id:    int, // object
-	level: int,
+	level: int, // or HD_LEVEL: the object's HD window
 }
+
+HD_LEVEL :: -1
 
 history_destroy :: proc(h: ^History) {
 	delete(h.done)
@@ -34,7 +36,7 @@ stroke_finish :: proc(app: ^App) {
 		if s := entry_sculptor(app, e); s != nil do sculpt.sculptor_clear_redo(s)
 	}
 	clear(&app.history.undone)
-	append(&app.history.done, History_Entry{obj.id, obj.levels.current})
+	append(&app.history.done, History_Entry{obj.id, HD_LEVEL if object_in_hd(obj) else obj.levels.current})
 }
 
 history_can_undo :: proc(app: ^App) -> bool {return !app.stroke.active && len(app.history.done) > 0}
@@ -56,7 +58,9 @@ history_step :: proc(app: ^App, from, to: ^[dynamic]History_Entry, can, step: pr
 		e := pop(from)
 		s := entry_sculptor(app, e)
 		if s == nil || !can(s) do continue
-		if !object_set_level(app, object_by_id(app, e.id), e.level) do app.running = false // GPU failure
+		// A stroke from outside HD leaves the window first; one inside it is only listed
+		// while the window is open.
+		if e.level != HD_LEVEL && !object_set_level(app, object_by_id(app, e.id), e.level) do app.running = false // GPU failure
 		_ = step(s)
 		append(to, e)
 		return
@@ -67,16 +71,30 @@ history_step :: proc(app: ^App, from, to: ^[dynamic]History_Entry, can, step: pr
 @(private = "file")
 entry_sculptor :: proc(app: ^App, e: History_Entry) -> ^sculpt.Sculptor {
 	obj := object_by_id(app, e.id)
-	if obj == nil || e.level >= len(obj.levels.levels) do return nil
+	switch {
+	case obj == nil:
+		return nil
+	case e.level == HD_LEVEL:
+		return &obj.levels.hd.window.sculptor if object_in_hd(obj) else nil
+	case e.level >= len(obj.levels.levels):
+		return nil
+	}
 	return &obj.levels.levels[e.level].sculptor
 }
 
 // Drops an object's entries, when its sculptors (and so its strokes) go away.
 history_forget :: proc(app: ^App, id: int) {
+	history_forget_level(app, id, nil)
+}
+
+// Drops an object's entries on one level (all levels when nil): for the HD window,
+// whose strokes go when it closes, since its detail is then stored.
+history_forget_level :: proc(app: ^App, id: int, level: Maybe(int)) {
 	for list in ([2]^[dynamic]History_Entry{&app.history.done, &app.history.undone}) {
 		kept := 0
 		for e in list {
-			if e.id != id {
+			only, one := level.?
+			if e.id != id || (one && e.level != only) {
 				list[kept] = e
 				kept += 1
 			}

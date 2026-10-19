@@ -5,6 +5,7 @@ import "core:fmt"
 import "core:hash"
 import "core:log"
 import "core:math"
+import "core:math/linalg"
 @(require) import "core:mem" // only used when ODIN_DEBUG
 import "core:os"
 import "core:slice"
@@ -32,6 +33,9 @@ Options :: struct {
 	spheres:   int `usage:"Start with this many spheres side by side, all of the starting size (default 1)."`,
 	subdivide: int `usage:"Give each starting sphere this many subdivision levels above it, as Ctrl+D does (e.g. --vertices=40000 --subdivide=4 tops out at 10M)."`,
 	level:     int `usage:"Start on this subdivision level, 1 being the base (default: the top one)."`,
+	hd:        int `usage:"Give each starting sphere an HD level this many Loop steps (1 to 3) above its top level, as Divide HD does."`,
+	hd_open:   bool `usage:"Start sculpting HD on the first sphere, in a window around the side facing the camera (needs --hd)."`,
+	hd_window: int `usage:"Vertices an HD window holds (default 4000000)."`,
 	no_cache:  bool `usage:"Draw every object every frame instead of caching the idle ones (for comparison)."`,
 	no_cull:   bool `usage:"Draw every triangle instead of skipping off-screen and back-facing chunks (for comparison)."`,
 	dump_viewport: string `usage:"On exit, write the last viewport image to this path as a binary PPM (for checking renders)."`,
@@ -65,6 +69,7 @@ App :: struct {
 	stats:    Frame_Stats,
 	history:  History,
 	cache_idle: bool, // draw unselected objects from the viewport cache while they stay put
+	hd_window_vertices: int, // size of the HD windows the A key opens
 	// While the view moves, draw far groups of chunks from simplified copies that stray
 	// at most simplify_px pixels; full detail once it has stayed put for LOD_SETTLE.
 	simplify:    bool,
@@ -142,9 +147,11 @@ run :: proc(opts: Options) -> bool {
 	defer history_destroy(&app.history)
 	defer delete(app.samples)
 	defer delete(app.stroke.pending)
+	app.hd_window_vertices = opts.hd_window if opts.hd_window > 0 else sculpt.HD_WINDOW_VERTICES
 	for _ in 0 ..< max(opts.spheres, 1) {
 		if !scene_add_sphere(&app, opts.vertices, opts.subdiv, {position = next_free_position(&app), scale = 1}) do return false
 		obj := app.scene.objects[len(app.scene.objects) - 1]
+		defer if opts.hd > 0 && !sculpt.levels_hd_set_steps(&obj.levels, opts.hd) do log.warn("HD: the top level is not a closed manifold mesh")
 		if opts.subdivide <= 0 && opts.level <= 0 do continue
 		start := time.tick_now()
 		for _ in 0 ..< opts.subdivide {
@@ -158,6 +165,12 @@ run :: proc(opts: Options) -> bool {
 	}
 	app.scene.selected = 0
 	defer render.viewport_target_destroy(&app.renderer, &app.target)
+	app.camera = camera.orbit_default()
+	if opts.hd_open {
+		obj := app.scene.objects[0]
+		toward := camera.orbit_eye(app.camera) - obj.transform.position
+		if !object_hd_enter(&app, obj, linalg.normalize(toward)) do return false
+	}
 
 	// Dear ImGui. Its context and backends are torn down before the renderer (defers run LIFO).
 	imgui.CHECKVERSION()
@@ -180,7 +193,6 @@ run :: proc(opts: Options) -> bool {
 	}
 	defer imgui_impl_sdlgpu3.Shutdown()
 
-	app.camera = camera.orbit_default()
 	if len(app.scene.objects) > 1 do frame_all(&app)
 	app.cache_idle = !opts.no_cache
 	app.renderer.cull = !opts.no_cull
@@ -304,35 +316,49 @@ run :: proc(opts: Options) -> bool {
 		uploaded: u32
 		normals_ms: f64
 		lod_ms := -1.0 // time building simplified copies; none built when negative
-		draws := make([]render.Draw_Item, len(app.scene.objects), context.temp_allocator)
+		draws := make([dynamic]render.Draw_Item, 0, 2 * len(app.scene.objects), context.temp_allocator)
 		for obj, i in app.scene.objects {
-			lv := object_level(obj)
-			t_flush := time.tick_now()
-			ranges := sculpt.sculptor_flush(&lv.sculptor)
-			normals_ms += time.duration_milliseconds(time.tick_since(t_flush))
-			gpu := object_gpu(obj)
-			render.mesh_buffers_upload_ranges(&app.renderer, cmd, gpu, lv.mesh, ranges)
-			for r in ranges do uploaded += r.count
-			// Simplified copies are built a batch a frame, for one object at a time, and
-			// never during a stroke, whose frames should stay as short as they can be.
-			if app.simplify && !app.stroke.active && lod_ms < 0 && sculpt.sculptor_lod_pending(&lv.sculptor) > 0 {
-				t_lod := time.tick_now()
-				lod_ranges, all := sculpt.sculptor_lod_update(&lv.sculptor, app.lod_finish)
-				render.mesh_buffers_upload_lod(&app.renderer, cmd, gpu, lv.sculptor.lod.indices[:], lod_ranges, all, len(lv.mesh.indices) / 2)
-				lod_ms = time.duration_milliseconds(time.tick_since(t_lod))
+			// An object sculpting HD shows its top level around the window.
+			parts := [2]^sculpt.Level{sculpt.levels_current(&obj.levels), obj.levels.hd.window}
+			gpus := [2]^render.Mesh_Buffers{&obj.gpu[obj.levels.current], &obj.hd_gpu}
+			for lv, part in parts {
+				if lv == nil do continue
+				gpu := gpus[part]
+				t_flush := time.tick_now()
+				ranges := sculpt.sculptor_flush(&lv.sculptor)
+				normals_ms += time.duration_milliseconds(time.tick_since(t_flush))
+				render.mesh_buffers_upload_ranges(&app.renderer, cmd, gpu, lv.mesh, ranges)
+				for r in ranges do uploaded += r.count
+				// Simplified copies are built a batch a frame, for one level at a time, and
+				// never during a stroke, whose frames should stay as short as they can be.
+				if app.simplify && !app.stroke.active && lod_ms < 0 && sculpt.sculptor_lod_pending(&lv.sculptor) > 0 {
+					t_lod := time.tick_now()
+					lod_ranges, all := sculpt.sculptor_lod_update(&lv.sculptor, app.lod_finish)
+					render.mesh_buffers_upload_lod(&app.renderer, cmd, gpu, lv.sculptor.lod.indices[:], lod_ranges, all, len(lv.mesh.indices) / 2)
+					lod_ms = time.duration_milliseconds(time.tick_since(t_lod))
+				}
+				// The selected object is in clay; the others are a muted grey. Only the
+				// selected one is sculpted or moved, so the rest can come from the cache.
+				selected := i == app.scene.selected
+				color := [4]f32{0.55, 0.40, 0.32, 1} if selected else {0.42, 0.42, 0.44, 1}
+				append(&draws, render.Draw_Item {
+					mesh   = gpu,
+					model  = transform_matrix(obj.transform),
+					color  = color,
+					live   = selected,
+					chunks = lv.sculptor.chunks,
+					damage = lv.sculptor.changed_bounds,
+					lod    = lv.sculptor.lod.tree,
+					hidden = sculpt.levels_hd_hidden(&obj.levels) if part == 0 else nil,
+				})
 			}
-			// The selected object is in clay; the others are a muted grey. Only the
-			// selected one is sculpted or moved, so the rest can come from the cache.
-			selected := i == app.scene.selected
-			color := [4]f32{0.55, 0.40, 0.32, 1} if selected else {0.42, 0.42, 0.44, 1}
-			draws[i] = {mesh = gpu, model = transform_matrix(obj.transform), color = color, live = selected, chunks = lv.sculptor.chunks, damage = lv.sculptor.changed_bounds, lod = lv.sculptor.lod.tree}
 		}
 		aspect := f32(app.target.width) / f32(app.target.height)
 		view, proj := camera.orbit_view(app.camera), camera.orbit_proj(app.camera, aspect)
 		if view_changed(&app, view, proj) do app.view_moved = time.tick_now()
 		moving := time.tick_since(app.view_moved) < LOD_SETTLE
 		app.renderer.lod_px = app.simplify_px if app.simplify && moving else 0
-		drawn := render.render_viewport(&app.renderer, cmd, &app.target, view, proj, draws, app.cache_idle)
+		drawn := render.render_viewport(&app.renderer, cmd, &app.target, view, proj, draws[:], app.cache_idle)
 
 		gpu_wait: time.Duration
 		if app.time_gpu {

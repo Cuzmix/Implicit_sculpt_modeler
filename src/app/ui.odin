@@ -22,6 +22,10 @@ Ui_State :: struct {
 	// gizmo) can be added after the tools have run.
 	viewport_draw_list: ^imgui.DrawList,
 	viewport_origin:    imgui.Vec2,
+	// The pointer over the viewport this frame, for shortcuts that act where it points.
+	viewport_mouse:     [2]f32,
+	viewport_size:      [2]f32,
+	viewport_hovered:   bool,
 }
 
 SPHERE_PRESETS := [?]struct {
@@ -168,6 +172,7 @@ draw_viewport :: proc(app: ^App) -> (input: Viewport_Input) {
 	}
 	app.ui.viewport_draw_list = imgui.GetWindowDrawList()
 	app.ui.viewport_origin = origin
+	app.ui.viewport_mouse, app.ui.viewport_size, app.ui.viewport_hovered = input.mouse_pos, input.size, input.hovered
 	return
 }
 
@@ -319,11 +324,15 @@ draw_levels_section :: proc(app: ^App, obj: ^Object) {
 	imgui.EndDisabled()
 
 	vertices, _, bytes := sculpt.levels_subdivide_estimate(levels)
-	imgui.BeginDisabled(count >= sculpt.MAX_LEVELS || bytes > MAX_SUBDIVIDE_BYTES)
+	imgui.BeginDisabled(count >= sculpt.MAX_LEVELS || bytes > MAX_SUBDIVIDE_BYTES || levels.hd.steps > 0)
 	if imgui.Button("Subdivide") do app.ui.scene_command = {kind = .Subdivide}
 	imgui.EndDisabled()
 	imgui.SameLine()
-	imgui.TextDisabled("%s", fmt.ctprintf("adds a level of %s vertices, about %s", count_label(vertices), bytes_label(bytes)))
+	if levels.hd.steps > 0 {
+		imgui.TextDisabled("(delete the HD level first)")
+	} else {
+		imgui.TextDisabled("%s", fmt.ctprintf("adds a level of %s vertices, about %s", count_label(vertices), bytes_label(bytes)))
+	}
 	imgui.BeginDisabled(levels.current == 0)
 	if imgui.Button("Delete lower") do app.ui.scene_command = {kind = .Delete_Lower}
 	imgui.EndDisabled()
@@ -337,6 +346,44 @@ draw_levels_section :: proc(app: ^App, obj: ^Object) {
 	if s := app.stats; s.level_sync_ms + s.level_show_ms > 0 {
 		imgui.TextDisabled("Last change: %.0f ms to update levels, %.0f ms to show", s.level_sync_ms, s.level_show_ms)
 	}
+	draw_hd_section(app, obj)
+}
+
+// HD detail above the top level, sculpted a window at a time, as in ZBrush.
+@(private = "file")
+draw_hd_section :: proc(app: ^App, obj: ^Object) {
+	levels := &obj.levels
+	hd := sculpt.levels_hd_stats(levels)
+	steps := levels.hd.steps
+	imgui.SeparatorText("HD detail")
+	imgui.BeginDisabled(steps >= sculpt.HD_MAX_STEPS || hd.stored_nodes > 0)
+	if imgui.Button("Divide HD") do app.ui.scene_command = {kind = .Hd_Steps, level = steps + 1}
+	imgui.EndDisabled()
+	imgui.SameLine()
+	imgui.BeginDisabled(steps == 0)
+	if imgui.Button("Delete HD") do app.ui.scene_command = {kind = .Hd_Delete}
+	imgui.EndDisabled()
+	imgui.SameLine()
+	if steps == 0 {
+		imgui.TextDisabled("(sculpt finer than the top level)")
+		return
+	}
+	imgui.TextDisabled("%s", fmt.ctprintf("%d step%s up: %s vertices", steps, "" if steps == 1 else "s", count_label(sculpt.levels_hd_vertices(levels))))
+	if object_in_hd(obj) {
+		if imgui.Button("Leave HD (A)") do app.ui.scene_command = {kind = .Hd_Leave}
+		imgui.SameLine()
+		imgui.TextDisabled("%s", fmt.ctprintf("window of %s vertices, opened in %.0f + %.0f ms", count_label(hd.window_vertices), app.stats.hd_open_ms, app.stats.hd_upload_ms))
+	} else {
+		// From the button, the window opens around the middle of the viewport.
+		if imgui.Button("Sculpt HD (A)") do app.ui.scene_command = {kind = .Hd_Enter, at = app.ui.viewport_size * 0.5, size = app.ui.viewport_size}
+		imgui.SameLine()
+		imgui.TextDisabled("A opens a window where the pointer is")
+	}
+	millions := i32(app.hd_window_vertices / 1_000_000)
+	imgui.SetNextItemWidth(-140)
+	if imgui.SliderInt("Window (M vertices)", &millions, 1, 16) do app.hd_window_vertices = int(millions) * 1_000_000
+	imgui.TextDisabled("%s", fmt.ctprintf("Stored: %d of %d top-level nodes, %s. Leaving a window stores it.", hd.stored_nodes, len(levels.levels[len(levels.levels) - 1].sculptor.nodes), bytes_label(hd.stored_bytes)))
+	if app.stats.hd_leave_ms > 0 do imgui.TextDisabled("Last window stored in %.0f ms", app.stats.hd_leave_ms)
 }
 
 @(private = "file")
@@ -351,6 +398,14 @@ handle_shortcuts :: proc(app: ^App) {
 	if imgui.IsKeyPressed(.W, false) do app.tool = .Move
 	if imgui.IsKeyPressed(.B, false) do app.tool = .Brush
 	if imgui.IsKeyPressed(.F, false) do focus_selected(app)
+	if imgui.IsKeyPressed(.A, false) && !io.KeyCtrl {
+		// Toggles HD sculpting: a window opens where the pointer is, on the object there.
+		if obj := selected_object(app); obj != nil && object_in_hd(obj) {
+			app.ui.scene_command = {kind = .Hd_Leave}
+		} else if app.ui.viewport_hovered {
+			app.ui.scene_command = {kind = .Hd_Enter, at = app.ui.viewport_mouse, size = app.ui.viewport_size}
+		}
+	}
 	if obj := selected_object(app); obj != nil && imgui.IsKeyPressed(.D, false) {
 		switch {
 		case io.KeyCtrl:
@@ -444,6 +499,9 @@ draw_stats_panel :: proc(app: ^App) {
 	row("Input->submit", s.latency_ms, "ms")
 	imgui.Text("Dabs %d   Viewport %d x %d px", i32(s.dabs_total), i32(app.target.width), i32(app.target.height))
 	undo_bytes := 0
-	for obj in app.scene.objects do for lv in obj.levels.levels do undo_bytes += sculpt.sculptor_undo_bytes(&lv.sculptor)
+	for obj in app.scene.objects {
+		for lv in obj.levels.levels do undo_bytes += sculpt.sculptor_undo_bytes(&lv.sculptor)
+		if w := obj.levels.hd.window; w != nil do undo_bytes += sculpt.sculptor_undo_bytes(&w.sculptor)
+	}
 	imgui.Text("Undo %d strokes, %.1f MB", i32(len(app.history.done)), f64(undo_bytes) / (1 << 20))
 }

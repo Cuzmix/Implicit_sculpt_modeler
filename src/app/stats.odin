@@ -49,4 +49,8 @@ Frame_Stats :: struct {
 	// a new one), then the new level's normals and GPU buffers.
 	level_sync_ms:  f64,
 	level_show_ms:  f64,
+	// The last HD window: building it, uploading it, and storing it on leaving.
+	hd_open_ms:     f64,
+	hd_upload_ms:   f64,
+	hd_leave_ms:    f64,
 }

@@ -52,6 +52,7 @@ Levels :: struct {
 	// Sync scratch, kept between syncs: memory fresh from the system costs a page fault
 	// on its first use, which made the first sync of a large edit several times slower.
 	residual:       [dynamic]Vec3,
+	hd:             Hd, // detail above the top level (hd.odin)
 }
 
 // parents[2] of a vertex that continues a vertex of the level below: {that vertex, a
@@ -74,6 +75,7 @@ levels_init :: proc(l: ^Levels, mesh: geom.Mesh, pool: ^jobs.Pool, node_triangle
 }
 
 levels_destroy :: proc(l: ^Levels) {
+	levels_hd_delete(l)
 	for lv in l.levels do level_free(l, lv)
 	delete(l.levels)
 	delete(l.residual)
@@ -85,8 +87,9 @@ levels_current :: proc(l: ^Levels) -> ^Level {
 }
 
 // Makes level `index` the one to sculpt and show, after bringing every level up to date
-// with the edits on the current one. End any stroke first.
+// with the edits on the current one. End any stroke, and leave any HD window, first.
 levels_set_current :: proc(l: ^Levels, index: int) {
+	assert(l.hd.window == nil, "leave the HD window first")
 	target := clamp(index, 0, len(l.levels) - 1)
 	if target == l.current do return
 	levels_sync(l)
@@ -94,9 +97,10 @@ levels_set_current :: proc(l: ^Levels, index: int) {
 }
 
 // Adds a level above the top one and makes it current. Returns false, changing
-// nothing, when MAX_LEVELS are in use or the top level is not a closed manifold mesh.
+// nothing, when MAX_LEVELS are in use, the top level is not a closed manifold mesh, or
+// there is an HD level (whose detail is tied to the top level as it is).
 levels_subdivide :: proc(l: ^Levels) -> bool {
-	if len(l.levels) >= MAX_LEVELS do return false
+	if len(l.levels) >= MAX_LEVELS || l.hd.steps > 0 do return false
 	levels_sync(l)
 	lv, ok := level_above(l, l.levels[len(l.levels) - 1])
 	if !ok do return false
@@ -110,20 +114,28 @@ levels_subdivide_estimate :: proc(l: ^Levels) -> (vertices, triangles, bytes: in
 	top := l.levels[len(l.levels) - 1]
 	v, t := len(top.mesh.positions), len(top.mesh.indices) / 3
 	vertices, triangles = v + 3 * t / 2, 4 * t // a closed mesh has 3/2 edges per triangle
-	// Per vertex: position, normal, face list offset, owner node, parents, detail. Per
-	// triangle: indices, face list entries, BVH order and leaf, simplified copies.
-	bytes = vertices * (12 + 12 + 4 + 4 + 16 + 12) + triangles * (12 + 12 + 8 + 5) + v * 4
-	return
+	return vertices, triangles, level_estimate_bytes(vertices, triangles, v)
 }
 
-// Deletes every level above the current one.
+// CPU bytes of a level of that many vertices and triangles over a level of `below`
+// vertices. Per vertex: position, normal, face list offset, owner node, parents,
+// detail. Per triangle: indices, face list entries, BVH order and leaf, simplified
+// copies. Per vertex below: the vertex it became.
+level_estimate_bytes :: proc(vertices, triangles, below: int) -> int {
+	return vertices * (12 + 12 + 4 + 4 + 16 + 12) + triangles * (12 + 12 + 8 + 5) + below * 4
+}
+
+// Deletes every level above the current one, and with the top level any HD level.
 levels_delete_higher :: proc(l: ^Levels) {
+	assert(l.hd.window == nil, "leave the HD window first")
+	if len(l.levels) > l.current + 1 do levels_hd_delete(l)
 	for len(l.levels) > l.current + 1 do level_free(l, pop(&l.levels))
 	levels_sync(l)
 }
 
 // Deletes every level below the current one, which becomes the base.
 levels_delete_lower :: proc(l: ^Levels) {
+	assert(l.hd.window == nil, "leave the HD window first")
 	k := l.current
 	if k == 0 do return
 	sync_levels(l, down = false)
@@ -134,20 +146,25 @@ levels_delete_lower :: proc(l: ^Levels) {
 	l.current = 0
 }
 
-// CPU bytes of the meshes, sculptors (without undo history, with simplified copies) and
-// level links.
+// CPU bytes of the meshes, sculptors (without undo history, with simplified copies),
+// level links and HD detail, with any HD window.
 levels_bytes :: proc(l: ^Levels) -> int {
 	total := 0
-	for lv in l.levels {
-		m, s := &lv.mesh, &lv.sculptor
-		total += len(m.positions) * 2 * size_of(Vec3) + len(m.indices) * size_of(u32)
-		total += (len(s.faces.offsets) + len(s.faces.tris) + len(s.bvh.tri_order) + len(s.bvh.tri_leaf)) * size_of(u32)
-		total += len(s.bvh.nodes) * size_of(geom.Bvh_Node) + len(s.nodes) * (size_of(Node) + size_of(geom.Chunk))
-		total += (len(s.shared) + len(s.owners) + len(lv.node_of_vertex) + len(lv.even_of)) * size_of(u32)
-		total += len(lv.parents) * size_of([4]u32) + len(lv.detail) * size_of(Vec3)
-		total += (len(lv.deps.offsets) + len(lv.deps.items) + len(lv.dependents.offsets) + len(lv.dependents.items)) * size_of(u32)
-		total += cap(s.lod.indices) * size_of(u32) + len(s.lod.tree.groups) * size_of(geom.Lod_Group) + len(s.lod.parent) * size_of(u32)
-	}
+	for lv in l.levels do total += level_bytes(lv)
+	hd := levels_hd_stats(l)
+	return total + hd.stored_bytes + hd.window_bytes
+}
+
+@(private)
+level_bytes :: proc(lv: ^Level) -> int {
+	m, s := &lv.mesh, &lv.sculptor
+	total := len(m.positions) * 2 * size_of(Vec3) + len(m.indices) * size_of(u32)
+	total += (len(s.faces.offsets) + len(s.faces.tris) + len(s.bvh.tri_order) + len(s.bvh.tri_leaf)) * size_of(u32)
+	total += len(s.bvh.nodes) * size_of(geom.Bvh_Node) + len(s.nodes) * (size_of(Node) + size_of(geom.Chunk))
+	total += (len(s.shared) + len(s.owners) + len(lv.node_of_vertex) + len(lv.even_of)) * size_of(u32)
+	total += len(lv.parents) * size_of([4]u32) + len(lv.detail) * size_of(Vec3)
+	total += (len(lv.deps.offsets) + len(lv.deps.items) + len(lv.dependents.offsets) + len(lv.dependents.items)) * size_of(u32)
+	total += cap(s.lod.indices) * size_of(u32) + len(s.lod.tree.groups) * size_of(geom.Lod_Group) + len(s.lod.parent) * size_of(u32)
 	return total
 }
 
@@ -189,6 +206,7 @@ sync_levels :: proc(l: ^Levels, down: bool) {
 @(private)
 Push :: struct {
 	fine, coarse: ^Level,
+	base:         Loop_Base, // the coarse level's
 	changed:      []u32,  // nodes of the fine level
 	slot:         []u32,  // per fine node: where its vertices' residuals start, or NO_SLOT
 	residual:     []Vec3, // per vertex of a changed node: its position minus its decoded position
@@ -207,6 +225,7 @@ NO_SLOT :: max(u32)
 @(private)
 push_down :: proc(l: ^Levels, j: int, changed: []u32) -> []u32 {
 	p := Push{fine = l.levels[j], coarse = l.levels[j - 1], changed = changed}
+	p.base = level_base(p.coarse)
 	fine_nodes := p.fine.sculptor.nodes
 	p.slot = make([]u32, len(fine_nodes), context.temp_allocator)
 	slice.fill(p.slot, NO_SLOT)
@@ -224,7 +243,7 @@ push_down :: proc(l: ^Levels, j: int, changed: []u32) -> []u32 {
 		n := lv.sculptor.nodes[p.changed[i]]
 		out := p.residual[p.slot[p.changed[i]]:]
 		for u in n.vert_first ..< n.vert_first + n.vert_count {
-			out[u - n.vert_first] = lv.mesh.positions[u] - frame_point(frame_at(p.coarse, lv.parents[u]), lv.detail[u])
+			out[u - n.vert_first] = lv.mesh.positions[u] - frame_point(frame_at(&p.base, lv.parents[u]), lv.detail[u])
 		}
 	})
 
@@ -302,11 +321,12 @@ with_dependents :: proc(lv: ^Level, nodes, below_nodes: []u32) -> []u32 {
 @(private)
 recode_level :: proc(l: ^Levels, j: int, nodes: []u32, encode: bool) {
 	Recode :: struct {
-		lv, below: ^Level,
-		nodes:     []u32,
-		encode:    bool,
+		lv:     ^Level,
+		below:  Loop_Base,
+		nodes:  []u32,
+		encode: bool,
 	}
-	r := Recode{l.levels[j], l.levels[j - 1], nodes, encode}
+	r := Recode{l.levels[j], level_base(l.levels[j - 1]), nodes, encode}
 	verts: u32
 	for id in nodes do verts += r.lv.sculptor.nodes[id].vert_count
 	jobs.parallel_for(l.pool if verts >= PARALLEL_MIN_VERTS else nil, len(nodes), &r, proc(data: rawptr, i: int) {
@@ -314,7 +334,7 @@ recode_level :: proc(l: ^Levels, j: int, nodes: []u32, encode: bool) {
 		lv := r.lv
 		n := lv.sculptor.nodes[r.nodes[i]]
 		for u in n.vert_first ..< n.vert_first + n.vert_count {
-			f := frame_at(r.below, lv.parents[u])
+			f := frame_at(&r.below, lv.parents[u])
 			if r.encode {
 				off := lv.mesh.positions[u] - f.origin
 				lv.detail[u] = {linalg.dot(f.t, off), linalg.dot(f.b, off), linalg.dot(f.n, off)}
@@ -331,21 +351,35 @@ Frame :: struct {
 	origin, t, b, n: Vec3,
 }
 
+// The mesh Loop points and their frames are read from: the level below, or for HD
+// detail a patch of a finer subdivision of the top level (hd.odin).
+@(private)
+Loop_Base :: struct {
+	positions: []Vec3,
+	indices:   []u32,
+	faces:     geom.Vertex_Faces,
+}
+
+@(private)
+level_base :: proc(lv: ^Level) -> Loop_Base {
+	return {lv.mesh.positions[:], lv.mesh.indices[:], lv.sculptor.faces}
+}
+
 // Where Loop subdivision puts a vertex given its parents on the level below, with a
 // frame there from the surface below: its normal, and a tangent along one of its edges.
 // Never inlined, nor is frame_point, so every caller gets the same bits for the same
 // inputs, whatever the compiler does around the call.
 @(private)
-frame_at :: #force_no_inline proc(below: ^Level, par: [4]u32) -> Frame {
-	P := below.mesh.positions[:]
+frame_at :: #force_no_inline proc(below: ^Loop_Base, par: [4]u32) -> Frame {
+	P := below.positions
 	origin, normal, tangent: Vec3
 	if par[2] == EVEN {
 		v := par[0]
 		p := P[v]
 		ring: Vec3
-		faces := geom.vertex_faces_of(below.sculptor.faces, v)
+		faces := geom.vertex_faces_of(below.faces, v)
 		for f in faces {
-			o1, o2 := others(below.mesh.indices[:], f, v)
+			o1, o2 := others(below.indices, f, v)
 			q1, q2 := P[o1], P[o2]
 			ring += q1 + q2 // each neighbour twice
 			normal += linalg.cross(q1 - p, q2 - p)
@@ -413,6 +447,7 @@ corner_of :: #force_inline proc(indices: []u32, f, v: u32) -> u32 {
 level_above :: proc(l: ^Levels, below: ^Level) -> (^Level, bool) {
 	Build :: struct {
 		below:       ^Level,
+		base:        Loop_Base, // below's
 		edge_first:  []u32,    // per vertex below: its first edge; an edge is numbered at its lower end
 		corner_edge: []u32,    // per triangle corner below: the edge from it to the next corner
 		parents:     [][4]u32, // per new vertex, numbered as built: vertices below first, then edges
@@ -423,7 +458,7 @@ level_above :: proc(l: ^Levels, below: ^Level) -> (^Level, bool) {
 		bad:         bool,     // atomic: the mesh below is not closed and manifold
 	}
 	vcount, tcount := len(below.mesh.positions), len(below.mesh.indices) / 3
-	b := Build{below = below}
+	b := Build{below = below, base = level_base(below)}
 	b.edge_first = make([]u32, vcount + 1, context.temp_allocator)
 	b.corner_edge = make([]u32, 3 * tcount, context.temp_allocator)
 
@@ -506,7 +541,7 @@ level_above :: proc(l: ^Levels, below: ^Level) -> (^Level, bool) {
 	b.mesh = m
 	jobs.parallel_ranges(l.pool, fine_count, &b, proc(data: rawptr, lo, hi: int) {
 		b := cast(^Build)data
-		for i in lo ..< hi do b.mesh.positions[i] = frame_point(frame_at(b.below, b.parents[i]), {})
+		for i in lo ..< hi do b.mesh.positions[i] = frame_point(frame_at(&b.base, b.parents[i]), {})
 	}, geom.RANGE_GRAIN)
 	jobs.parallel_ranges(l.pool, tcount, &b, proc(data: rawptr, lo, hi: int) {
 		b := cast(^Build)data

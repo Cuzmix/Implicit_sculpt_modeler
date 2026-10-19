@@ -93,11 +93,13 @@ chunk_backfacing :: #force_inline proc(c: Chunk, eye: Vec3) -> bool {
 
 // Appends the index ranges of the chunks that may be visible from `eye` through the
 // frustum of `clip` (both in the chunks' space) to `out`, merging chunks that are
-// adjacent in the index buffer. Chunks must be sorted by first_index.
-cull_chunks :: proc(chunks: []Chunk, clip: Mat4, eye: Vec3, out: ^[dynamic]Index_Range, backface := true) -> (stats: Cull_Stats) {
+// adjacent in the index buffer. Chunks must be sorted by first_index. Chunks marked in
+// `hidden` (one entry per chunk, or nil) are left out.
+cull_chunks :: proc(chunks: []Chunk, clip: Mat4, eye: Vec3, out: ^[dynamic]Index_Range, backface := true, hidden: []bool = nil) -> (stats: Cull_Stats) {
 	planes := frustum_planes(clip)
 	stats.chunks = len(chunks)
-	for c in chunks {
+	for c, i in chunks {
+		if hidden != nil && hidden[i] do continue
 		if aabb_outside(&planes, c.bounds) {
 			stats.frustum += 1
 			continue
@@ -106,16 +108,24 @@ cull_chunks :: proc(chunks: []Chunk, clip: Mat4, eye: Vec3, out: ^[dynamic]Index
 			stats.backface += 1
 			continue
 		}
-		if n := len(out); n > 0 {
-			last := &out[n - 1]
-			if last.first_index + last.index_count == c.first_index {
-				last.index_count += c.index_count
-				continue
-			}
-		}
-		append(out, Index_Range{c.first_index, c.index_count})
+		append_range(out, c.first_index, c.index_count)
 	}
 	return
+}
+
+// Appends the index ranges of every chunk not marked in `hidden`, merging chunks that
+// are adjacent in the index buffer: what to draw without culling.
+chunks_shown :: proc(chunks: []Chunk, hidden: []bool, out: ^[dynamic]Index_Range) {
+	for c, i in chunks do if !hidden[i] do append_range(out, c.first_index, c.index_count)
+}
+
+// Appends a range, merged into the last one when it follows on from it.
+append_range :: #force_inline proc(out: ^[dynamic]Index_Range, first, count: u32) {
+	if n := len(out); n > 0 && out[n - 1].first_index + out[n - 1].index_count == first {
+		out[n - 1].index_count += count
+		return
+	}
+	append(out, Index_Range{first, count})
 }
 
 // Octahedral encoding of a unit normal into two signed 16-bit values, read back by the

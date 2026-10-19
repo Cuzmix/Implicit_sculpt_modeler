@@ -71,17 +71,18 @@ run_levels :: proc(target: int, pool: ^jobs.Pool) {
 		top_frame, down_ms, base_normals_ms, base_frame, up_ms, top_normals_ms, f64(upload) / (1 << 20))
 }
 
-// The bench's wavy stroke on the current level, DABS_PER_FRAME dabs and a flush per
+// The bench's wavy stroke on the active level (an HD window while one is open), across
+// `width` either side of the front of the sphere, DABS_PER_FRAME dabs and a flush per
 // frame. Returns the median frame time.
-levels_stroke :: proc(l: ^sculpt.Levels, radius: f32) -> f64 {
-	s := &sculpt.levels_current(l).sculptor
+levels_stroke :: proc(l: ^sculpt.Levels, radius: f32, width: f32 = 0.6) -> f64 {
+	s := &sculpt.levels_active(l).sculptor
 	frames := make([dynamic]f64, 0, DABS / DABS_PER_FRAME + 1, context.temp_allocator)
 	eye := Vec3{0, 0, 3.5}
 	sculpt.sculptor_stroke_begin(s)
 	frame_start := time.tick_now()
 	for i in 0 ..< DABS {
 		k := f32(i) / (DABS - 1)
-		target := linalg.normalize(Vec3{-0.6 + 1.2 * k, 0.3 * math.sin(k * 4 * math.PI), 1})
+		target := linalg.normalize(Vec3{width * (2 * k - 1), 0.5 * width * math.sin(k * 4 * math.PI), 1})
 		hit, ok := sculpt.sculptor_raycast(s, eye, linalg.normalize(target - eye))
 		if !ok do hit = target
 		_ = sculpt.apply_dab(s, {kind = .Draw, radius = radius, strength = 0.3}, hit)
