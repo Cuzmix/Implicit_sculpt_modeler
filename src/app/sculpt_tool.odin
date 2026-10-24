@@ -5,6 +5,7 @@ import "core:math/linalg"
 import "core:time"
 
 import "../camera"
+import "../geom"
 import "../sculpt"
 
 // Brush settings as the user edits them. Radius is in screen pixels, converted to
@@ -15,6 +16,8 @@ Brush_Settings :: struct {
 	strength:          f32,
 	pressure_strength: bool, // pen pressure scales the strength
 	pressure_size:     bool, // pen pressure scales the radius
+	pressure_curve:    geom.Curve, // what each pen pressure counts as (geom.curve_at)
+	tilt_strength:     f32, // 0 to 1: how far a leaning pen turns the brush (camera.orbit_tilt)
 	lazy_px:           f32,  // lazy mouse: the brush trails the cursor by this many pixels; 0 is off
 	symmetry:          sculpt.Symmetry, // mirror strokes across these planes of the object
 	// On objects with dynamic topology: edges under the brush longer than this many
@@ -31,6 +34,7 @@ Input_Sample :: struct {
 	pos:      [2]f32,
 	pressure: f32, // 0 to 1 from a pen; 1 from a mouse
 	kind:     Sample_Kind,
+	tilt:     [2]f32, // the pen's lean in degrees (x right, y down); zero from a mouse
 }
 
 Sample_Kind :: enum u8 {
@@ -44,6 +48,7 @@ Stroke :: struct {
 	object:   int, // id of the object being sculpted
 	pos:      [2]f32, // viewport position the stroke has reached; trails the cursor with lazy mouse
 	pressure: f32, // pen pressure at pos
+	tilt:     [2]f32, // pen lean at pos
 	travel:   f32, // pixels moved since the last dab
 	size:     [2]f32, // viewport size the positions above are in
 	pending:  [dynamic]Input_Sample, // samples left for the next frame once one reaches MAX_DABS_PER_FRAME
@@ -76,7 +81,7 @@ sculpt_frame :: proc(app: ^App, input: Viewport_Input) -> (res: Sculpt_Frame_Res
 		return
 	}
 	samples := input.samples
-	cursor := [1]Input_Sample{{pos = input.mouse_pos, pressure = 1}}
+	cursor := [1]Input_Sample{{pos = input.mouse_pos, pressure = 1, tilt = input.pen_tilt}}
 	if len(samples) == 0 do samples = cursor[:] // synthetic input has only the cursor position
 
 	if !input.primary {
@@ -126,7 +131,7 @@ stroke_follow :: proc(app: ^App, input: Viewport_Input, samples: []Input_Sample,
 		// stroke picks up where the pointer is now.
 		clear(&st.pending)
 		if len(samples) == 0 do return
-		st.pos, st.pressure, st.travel, st.size = samples[0].pos, samples[0].pressure, 0, input.size
+		st.pos, st.pressure, st.tilt, st.travel, st.size = samples[0].pos, samples[0].pressure, samples[0].tilt, 0, input.size
 	}
 	queue := samples
 	if len(st.pending) > 0 {
@@ -159,7 +164,7 @@ stroke_follow :: proc(app: ^App, input: Viewport_Input, samples: []Input_Sample,
 			if l <= lazy do continue
 			target = st.pos + d * (1 - lazy / l)
 		}
-		if !stroke_walk(app, obj, input, inv, target, s.pressure, res) {
+		if !stroke_walk(app, obj, input, inv, target, s.pressure, s.tilt, res) {
 			rest := queue[i:]
 			if len(rest) > MAX_PENDING_SAMPLES do rest = rest[len(rest) - MAX_PENDING_SAMPLES:]
 			append(&st.pending, ..rest)
@@ -181,11 +186,11 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 	obj := selected_object(app)
 	st := &app.stroke
 	st.active, st.object = true, obj.id
-	st.pos, st.pressure, st.travel, st.size = s.pos, s.pressure, 0, input.size
+	st.pos, st.pressure, st.tilt, st.travel, st.size = s.pos, s.pressure, s.tilt, 0, input.size
 	clear(&st.pending)
 	sculpt.sculptor_stroke_begin(object_sculptor(obj))
 	local := to_local(obj.transform, hit)
-	brush := brush_at(app, input, obj.transform, local, s.pressure)
+	brush := brush_at(app, input, obj.transform, local, s.pressure, s.tilt)
 	st.grab, st.anchor = brush.kind == .Grab, hit
 	t1 := time.tick_now()
 	if st.grab {
@@ -222,10 +227,11 @@ grab_follow :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, pos:
 }
 
 // Moves the stroke in a straight line on screen to `target`, where the pressure is
-// `pressure`, with a dab every spacing pixels. Returns false, with the stroke stopped
-// partway, once the frame has used MAX_DABS_PER_FRAME dabs or MAX_BRUSH_MS_PER_FRAME.
+// `pressure` and the pen leans `tilt`, with a dab every spacing pixels. Returns false,
+// with the stroke stopped partway, once the frame has used MAX_DABS_PER_FRAME dabs or
+// MAX_BRUSH_MS_PER_FRAME.
 @(private = "file")
-stroke_walk :: proc(app: ^App, obj: ^Object, input: Viewport_Input, inv: matrix[4, 4]f32, target: [2]f32, pressure: f32, res: ^Sculpt_Frame_Result) -> bool {
+stroke_walk :: proc(app: ^App, obj: ^Object, input: Viewport_Input, inv: matrix[4, 4]f32, target: [2]f32, pressure: f32, tilt: [2]f32, res: ^Sculpt_Frame_Result) -> bool {
 	st := &app.stroke
 	for {
 		d := target - st.pos
@@ -235,7 +241,7 @@ stroke_walk :: proc(app: ^App, obj: ^Object, input: Viewport_Input, inv: matrix[
 		need := max(DAB_SPACING * brush_radius_px(app, st.pressure), MIN_DAB_SPACING_PX) - st.travel
 		if l < need {
 			st.travel += l
-			st.pos, st.pressure = target, pressure
+			st.pos, st.pressure, st.tilt = target, pressure, tilt
 			return true
 		}
 		if res.dabs >= MAX_DABS_PER_FRAME || res.brush_ms + res.raycast_ms >= MAX_BRUSH_MS_PER_FRAME do return false
@@ -243,9 +249,10 @@ stroke_walk :: proc(app: ^App, obj: ^Object, input: Viewport_Input, inv: matrix[
 			f := need / l
 			st.pos += d * f
 			st.pressure += (pressure - st.pressure) * f
+			st.tilt += (tilt - st.tilt) * f
 		}
 		st.travel = 0
-		stroke_dab(app, obj, input, inv, st.pos, st.pressure, res)
+		stroke_dab(app, obj, input, inv, st.pos, st.pressure, st.tilt, res)
 	}
 }
 
@@ -253,7 +260,7 @@ stroke_walk :: proc(app: ^App, obj: ^Object, input: Viewport_Input, inv: matrix[
 // A point off the object is skipped; the stroke carries on and resumes where the path
 // meets the surface again.
 @(private = "file")
-stroke_dab :: proc(app: ^App, obj: ^Object, input: Viewport_Input, inv: matrix[4, 4]f32, pos: [2]f32, pressure: f32, res: ^Sculpt_Frame_Result) {
+stroke_dab :: proc(app: ^App, obj: ^Object, input: Viewport_Input, inv: matrix[4, 4]f32, pos: [2]f32, pressure: f32, tilt: [2]f32, res: ^Sculpt_Frame_Result) {
 	origin, dir := ray_through(inv, pos, input.size)
 	t := obj.transform
 	t0 := time.tick_now()
@@ -261,19 +268,23 @@ stroke_dab :: proc(app: ^App, obj: ^Object, input: Viewport_Input, inv: matrix[4
 	res.raycast_ms += time.duration_milliseconds(time.tick_since(t0))
 	if !ok do return
 	t1 := time.tick_now()
-	sculpt.apply_dab(object_sculptor(obj), brush_at(app, input, t, hit, pressure), hit)
+	sculpt.apply_dab(object_sculptor(obj), brush_at(app, input, t, hit, pressure, tilt), hit)
 	res.brush_ms += time.duration_milliseconds(time.tick_since(t1))
 	res.dabs += 1
 }
 
 // The brush for a dab at `hit` (in the object's local space): the radius in pixels,
-// scaled by pen pressure if set, becomes world units at the hit's distance.
+// scaled by pen pressure if set, becomes world units at the hit's distance, and a
+// leaning pen turns it as far as the tilt strength says. Transforms have no rotation,
+// so the turn in world space is the turn in the object's.
 @(private = "file")
-brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pressure: f32) -> sculpt.Brush {
+brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pressure: f32, tilt: [2]f32) -> sculpt.Brush {
 	dist := linalg.length(to_world(t, hit) - camera.orbit_eye(app.camera))
 	world_per_px := 2 * dist * math.tan(app.camera.fov_y / 2) / input.size.y
 	strength := app.brush.strength
-	if app.brush.pressure_strength do strength *= pressure
+	if app.brush.pressure_strength do strength *= pressure_curved(app, pressure)
+	turn: matrix[3, 3]f32
+	if app.brush.tilt_strength > 0 && tilt != {} do turn = camera.orbit_tilt(app.camera, tilt, app.brush.tilt_strength)
 	return sculpt.Brush {
 		kind     = .Smooth if input.smooth else app.brush.kind,
 		radius   = brush_radius_px(app, pressure) * world_per_px / t.scale,
@@ -282,12 +293,18 @@ brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pres
 		symmetry = app.brush.symmetry,
 		detail   = app.brush.detail_px / brush_radius_px(app, pressure),
 		collapse = app.brush.collapse,
+		tilt     = turn,
 	}
 }
 
 brush_radius_px :: proc(app: ^App, pressure: f32) -> f32 {
 	if !app.brush.pressure_size do return app.brush.radius_px
-	return app.brush.radius_px * max(pressure, MIN_PRESSURE_SIZE)
+	return app.brush.radius_px * max(pressure_curved(app, pressure), MIN_PRESSURE_SIZE)
+}
+
+// What a pen pressure counts as, through the pressure curve. A mouse's 1 stays 1.
+pressure_curved :: proc(app: ^App, pressure: f32) -> f32 {
+	return geom.curve_at(app.brush.pressure_curve, pressure)
 }
 
 // World-space ray through a viewport point (origin at the top-left).
@@ -308,8 +325,9 @@ ray_through :: proc(inv: matrix[4, 4]f32, pos, size: [2]f32) -> (origin, dir: sc
 // Synthetic input for --bench-stroke: a wavy left-to-right drag across the first
 // object as it appears on screen, or with `loops`, that many circles around its
 // middle. With `samples_per_frame` above 1, each frame also carries that many pointer
-// samples along the path since the previous frame, like a high-rate mouse.
-bench_input :: proc(app: ^App, frame, total, samples_per_frame, loops: int, size: [2]f32) -> Viewport_Input {
+// samples along the path since the previous frame, like a high-rate mouse. The pen
+// leans `tilt` throughout.
+bench_input :: proc(app: ^App, frame, total, samples_per_frame, loops: int, tilt: [2]f32, size: [2]f32) -> Viewport_Input {
 	center, radius := first_object_on_screen(app, size)
 	steps := f32(max(total - 1, 1))
 	path :: proc(center: [2]f32, radius, t: f32, loops: int) -> [2]f32 {
@@ -320,11 +338,12 @@ bench_input :: proc(app: ^App, frame, total, samples_per_frame, loops: int, size
 		return center + radius * [2]f32{-0.6 + 1.2 * t, 0.3 * math.sin(t * 4 * math.PI)}
 	}
 	input := bench_drag(size, path(center, radius, f32(frame) / steps, loops))
+	input.pen_tilt = tilt
 	if samples_per_frame > 1 && frame > 0 {
 		samples := make([]Input_Sample, samples_per_frame, context.temp_allocator)
 		for &s, j in samples {
 			t := (f32(frame - 1) + f32(j + 1) / f32(samples_per_frame)) / steps
-			s = {pos = path(center, radius, t, loops), pressure = 1}
+			s = {pos = path(center, radius, t, loops), pressure = 1, tilt = tilt}
 		}
 		input.samples = samples
 	}

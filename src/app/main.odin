@@ -52,6 +52,8 @@ Options :: struct {
 	remesh:    int `usage:"Voxel remesh the first sphere to about this many vertices before starting, as Remesh selected does (after --subdivide and --level)."`,
 	dyntopo:   bool `usage:"Turn dynamic topology on for the first sphere before starting (after --remesh), as Ctrl+T does."`,
 	detail:    f32 `usage:"Dynamic topology detail: edges longer than this many pixels on screen split (default 10)."`,
+	tilt_strength: f32 `usage:"How far a leaning pen turns the brush, 0 to 1 (default 0: not at all), as the Tools panel's Tilt slider sets."`,
+	bench_tilt: f32 `usage:"Lean the synthetic pen of --bench-stroke this many degrees to the right (with --tilt-strength)."`,
 	no_vsync:  bool `usage:"Show each frame as soon as it is ready instead of waiting for the display's refresh, so frame times are not capped at the refresh rate."`,
 	time_gpu:  bool `usage:"Measure the GPU time of the 3D viewport every frame. Waits for the GPU each frame, so frames no longer overlap."`,
 	gpubench:  string `usage:"Time the GPU and CPU while orbiting and sculpting one sphere at 500k, 1M, 5M, 7M and 10M vertices (only --vertices when given), with each speed setting on and off; write the markdown tables to this path and exit."`,
@@ -74,6 +76,7 @@ App :: struct {
 	stroke:   Stroke,
 	samples:  [dynamic]Input_Sample, // this frame's pointer samples, in window coordinates
 	pen_pressure: f32, // the pen's latest pressure
+	pen_tilt: [2]f32, // the pen's latest lean in degrees, x to the right and y down
 	pen_seen: bool,
 	camera:   camera.Orbit,
 	ui:       Ui_State,
@@ -242,8 +245,9 @@ run :: proc(opts: Options) -> bool {
 	app.vsync = !opts.no_vsync && opts.gpubench == ""
 	app.time_gpu = opts.time_gpu || opts.gpubench != ""
 	app.ui = ui_state_default()
-	app.brush = {kind = .Draw, radius_px = 60, strength = 0.5, pressure_strength = true, detail_px = 10, collapse = true}
+	app.brush = {kind = .Draw, radius_px = 60, strength = 0.5, pressure_strength = true, pressure_curve = geom.CURVE_LINEAR, detail_px = 10, collapse = true}
 	if opts.detail > 0 do app.brush.detail_px = opts.detail
+	app.brush.tilt_strength = clamp(opts.tilt_strength, 0, 1)
 	if opts.brush != "" {
 		kind, found := brush_by_name(opts.brush)
 		if !found {
@@ -318,25 +322,42 @@ run :: proc(opts: Options) -> bool {
 		clear(&app.samples)
 		e: sdl.Event
 		for sdl.PollEvent(&e) {
+			// Space over the viewport is the brush pie's (pie.odin) and never reaches
+			// ImGui, whose keyboard navigation would also take it as a press of whatever
+			// widget has focus. Once it went down there, its release is the pie's too.
+			if (e.type == .KEY_DOWN || e.type == .KEY_UP) && e.key.scancode == .SPACE {
+				pie := &app.ui.pie
+				if pie.space_down || (e.key.down && app.ui.viewport_hovered && !imgui.GetIO().WantTextInput) {
+					if e.key.down && !e.key.repeat do pie.space_pressed = true
+					if !e.key.down do pie.space_released = true
+					pie.space_down = e.key.down
+					continue
+				}
+			}
 			imgui_impl_sdl3.ProcessEvent(&e)
 			#partial switch e.type {
 			case .QUIT, .WINDOW_CLOSE_REQUESTED:
 				app.running = false
 			case .MOUSE_MOTION:
 				last_input_ns = e.common.timestamp
-				pressure := app.pen_pressure if e.motion.which == sdl.PEN_MOUSEID else 1
-				append(&app.samples, Input_Sample{{e.motion.x, e.motion.y}, pressure, .Move})
+				pen := e.motion.which == sdl.PEN_MOUSEID
+				append(&app.samples, Input_Sample{{e.motion.x, e.motion.y}, app.pen_pressure if pen else 1, .Move, app.pen_tilt if pen else {}})
 			case .MOUSE_BUTTON_DOWN, .MOUSE_BUTTON_UP:
 				if e.button.down do last_input_ns = e.common.timestamp
 				if e.button.button == sdl.BUTTON_LEFT {
-					pressure := app.pen_pressure if e.button.which == sdl.PEN_MOUSEID else 1
-					append(&app.samples, Input_Sample{{e.button.x, e.button.y}, pressure, .Press if e.button.down else .Release})
+					pen := e.button.which == sdl.PEN_MOUSEID
+					append(&app.samples, Input_Sample{{e.button.x, e.button.y}, app.pen_pressure if pen else 1, .Press if e.button.down else .Release, app.pen_tilt if pen else {}})
 				}
 			case .PEN_AXIS:
-				if e.paxis.axis == .PRESSURE {
+				#partial switch e.paxis.axis {
+				case .PRESSURE:
 					app.pen_pressure = e.paxis.value
-					app.pen_seen = true
+				case .XTILT:
+					app.pen_tilt.x = e.paxis.value
+				case .YTILT:
+					app.pen_tilt.y = e.paxis.value
 				}
+				app.pen_seen = true
 			}
 		}
 
@@ -350,7 +371,7 @@ run :: proc(opts: Options) -> bool {
 		imgui.NewFrame()
 		input := ui_draw(&app)
 		if opts.bench_stroke > 0 {
-			input = bench_input(&app, frame_index, opts.bench_stroke, opts.bench_samples, opts.bench_loops, {f32(app.target.width), f32(app.target.height)})
+			input = bench_input(&app, frame_index, opts.bench_stroke, opts.bench_samples, opts.bench_loops, {opts.bench_tilt, 0}, {f32(app.target.width), f32(app.target.height)})
 			last_input_ns = sdl.GetTicksNS()
 		} else if opts.gpubench != "" {
 			input = gpubench_input(&app, &bench, {f32(app.target.width), f32(app.target.height)})

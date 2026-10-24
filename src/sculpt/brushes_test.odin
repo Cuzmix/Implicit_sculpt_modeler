@@ -164,6 +164,28 @@ symmetric_dabs_mirror :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(mirrors({.Y})), 2)
 }
 
+// A tilted Draw pushes along the turned normal, and its mirror image the mirrored way.
+@(test)
+tilt_turns_the_push_and_mirrors :: proc(t: ^testing.T) {
+	sp := sphere_make(4)
+	defer sphere_free(sp)
+	mirror := mirror_map(sp.mesh, .X)
+	center := linalg.normalize(Vec3{0.5, 0.3, 0.8})
+	turn := linalg.matrix3_rotate(f32(0.5), Vec3{0, 1, 0}) // about 29 degrees about +Y
+	_ = apply_dab(&sp.sculptor, {kind = .Draw, radius = 0.3, strength = 1, symmetry = {.X}, tilt = turn}, center)
+	near := nearest(sp.before, center)
+	push := linalg.normalize(sp.mesh.positions[near] - sp.before[near])
+	// The untilted push is about the surface normal there, the centre's direction.
+	testing.expectf(t, linalg.dot(push, linalg.normalize(turn * center)) > 0.99, "pushed along %v, not the turned normal", push)
+	testing.expect(t, linalg.dot(push, center) < 0.93, "the push did not turn")
+	worst: f32
+	for p, i in sp.mesh.positions {
+		q := sp.mesh.positions[mirror[i]]
+		worst = max(worst, linalg.length(p - Vec3{-q.x, q.y, q.z}))
+	}
+	testing.expectf(t, worst < 1e-5, "mirror images differ by %v", worst)
+}
+
 @(test)
 grab_drags_by_the_offset :: proc(t: ^testing.T) {
 	sp := sphere_make(4)
