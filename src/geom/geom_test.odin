@@ -30,27 +30,9 @@ icosphere_on_sphere_with_unit_normals :: proc(t: ^testing.T) {
 icosphere_is_closed_and_outward :: proc(t: ^testing.T) {
 	m := icosphere(2)
 	defer mesh_destroy(&m)
-
-	// Closed manifold: every directed edge appears once and its reverse appears once.
-	edges := make(map[u64]int, context.temp_allocator)
-	for tri := 0; tri < len(m.indices); tri += 3 {
-		for k in 0 ..< 3 {
-			a, b := m.indices[tri + k], m.indices[tri + (k + 1) % 3]
-			edges[u64(a) << 32 | u64(b)] += 1
-		}
-	}
-	for key, count in edges {
-		testing.expect_value(t, count, 1)
-		a, b := key >> 32, key & 0xffff_ffff
-		testing.expect(t, (b << 32 | a) in edges, "edge without a twin")
-	}
-
-	// Counter-clockwise winding from outside: face normal points away from the centre.
-	for tri := 0; tri < len(m.indices); tri += 3 {
-		p0, p1, p2 := m.positions[m.indices[tri]], m.positions[m.indices[tri + 1]], m.positions[m.indices[tri + 2]]
-		fn := linalg.cross(p1 - p0, p2 - p0)
-		testing.expect(t, linalg.dot(fn, p0 + p1 + p2) > 0, "inward-facing triangle")
-	}
+	// Closed, consistently wound and facing outward (a positive signed volume).
+	r := mesh_check(m)
+	testing.expectf(t, mesh_report_ok(r), "%v", r)
 }
 
 @(test)
@@ -159,20 +141,9 @@ geodesic_sphere_is_closed_with_expected_counts :: proc(t: ^testing.T) {
 		defer mesh_destroy(&m)
 		testing.expect_value(t, len(m.positions), 10 * f * f + 2)
 		testing.expect_value(t, len(m.indices), 60 * f * f)
-		edges := make(map[u64]int, context.temp_allocator)
-		for tri := 0; tri < len(m.indices); tri += 3 {
-			p0, p1, p2 := m.positions[m.indices[tri]], m.positions[m.indices[tri + 1]], m.positions[m.indices[tri + 2]]
-			testing.expect(t, linalg.dot(linalg.cross(p1 - p0, p2 - p0), p0 + p1 + p2) > 0, "inward-facing triangle")
-			for k in 0 ..< 3 {
-				a, b := m.indices[tri + k], m.indices[tri + (k + 1) % 3]
-				edges[u64(a) << 32 | u64(b)] += 1
-			}
-		}
-		for key, count in edges {
-			testing.expect_value(t, count, 1)
-			a, b := key >> 32, key & 0xffff_ffff
-			testing.expect(t, (b << 32 | a) in edges, "open edge: faces do not share vertices")
-		}
+		// Closed (faces share their vertices), consistently wound and facing outward.
+		r := mesh_check(m)
+		testing.expectf(t, mesh_report_ok(r), "frequency %d: %v", f, r)
 		for p in m.positions do testing.expect(t, math.abs(linalg.length(p) - 1) < 1e-5, "vertex off sphere")
 	}
 	testing.expect_value(t, geodesic_frequency_for(10_000_000), 1000)

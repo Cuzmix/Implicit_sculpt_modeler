@@ -70,14 +70,8 @@ subdivide_builds_loop_levels :: proc(t: ^testing.T) {
 		testing.expect_value(t, len(m.positions), want_vertices[j])
 		testing.expect_value(t, len(m.indices) / 3, 320 * (1 << uint(2 * j)))
 		// Closed and consistently oriented: each directed edge once, and its reverse too.
-		edges := make(map[[2]u32]int, len(m.indices), context.temp_allocator)
-		for tri := 0; tri < len(m.indices); tri += 3 {
-			for c in 0 ..< 3 do edges[{m.indices[tri + c], m.indices[tri + (c + 1) % 3]}] += 1
-		}
-		for e, count in edges {
-			testing.expect_value(t, count, 1)
-			testing.expect_value(t, edges[{e[1], e[0]}], 1)
-		}
+		r := geom.mesh_check(m^)
+		testing.expectf(t, r.closed, "level %d: %v", j, r)
 		// Loop subdivision of the unit icosphere stays just inside the unit sphere.
 		for p in m.positions {
 			r := linalg.length(p)

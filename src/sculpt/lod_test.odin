@@ -36,17 +36,6 @@ random_cut :: proc(s: ^Sculptor, unit: u32, coarse: f32, out: ^[dynamic]u32) -> 
 	return
 }
 
-// Whether every edge has exactly one triangle on each side, wound opposite ways.
-@(private = "file")
-closed :: proc(indices: []u32) -> bool {
-	count := make(map[[2]u32]int, context.temp_allocator)
-	for t := 0; t < len(indices); t += 3 {
-		for k in 0 ..< 3 do count[{indices[t + k], indices[t + (k + 1) % 3]}] += 1
-	}
-	for e, c in count do if c != 1 || count[{e[1], e[0]}] != 1 do return false
-	return true
-}
-
 @(private = "file")
 expect_closed_cuts :: proc(t: ^testing.T, s: ^Sculptor, loc := #caller_location) {
 	cut: [dynamic]u32
@@ -56,7 +45,8 @@ expect_closed_cuts :: proc(t: ^testing.T, s: ^Sculptor, loc := #caller_location)
 			clear(&cut)
 			groups := 0
 			for root in s.lod.tree.roots do groups += random_cut(s, root, coarse, &cut)
-			testing.expectf(t, closed(cut[:]), "a cut drawing %d groups has a crack or overlap", groups, loc = loc)
+			closed := geom.mesh_check_indices(s.mesh.positions[:], cut[:]).closed
+			testing.expectf(t, closed, "a cut drawing %d groups has a crack or overlap", groups, loc = loc)
 			if coarse == 0 do testing.expect_value(t, len(cut), len(s.mesh.indices), loc = loc)
 		}
 	}
