@@ -359,7 +359,10 @@ draw_scene_panel :: proc(app: ^App) {
 	imgui.SameLine()
 	if imgui.Button("Delete selected") do app.ui.scene_command = {kind = .Delete}
 	imgui.EndDisabled()
-	imgui.TextDisabled("Remesh rebuilds the sphere at this count, with one\nlevel; sculpted detail is not kept yet.")
+	imgui.TextDisabled("Remesh rebuilds the selected object as an even mesh of\nabout this many vertices that keeps its shape, like\nDynaMesh. Ctrl+R does it at the object's own vertex\ncount. Levels, HD detail, mask and undo history go.")
+	if s := app.stats; s.remesh_ms > 0 {
+		imgui.TextDisabled("Last remesh: %.0f ms, then %.0f ms to sculpt-ready", s.remesh_ms, s.remesh_setup_ms)
+	}
 }
 
 // Subdivision levels of the selected object, numbered from 1 as in ZBrush.
@@ -461,6 +464,9 @@ handle_shortcuts :: proc(app: ^App) {
 		if imgui.IsKeyPressed(.X, false) do app.brush.symmetry ~= {.X}
 	}
 	if io.KeyAlt && imgui.IsKeyPressed(.M, false) do mask_command(app, .Clear)
+	if obj := selected_object(app); obj != nil && io.KeyCtrl && imgui.IsKeyPressed(.R, false) {
+		app.ui.scene_command = {kind = .Remesh, vertices = geom.mesh_vertex_count(object_mesh(obj)^)}
+	}
 	if io.KeyCtrl && imgui.IsKeyPressed(.I, false) do mask_command(app, .Invert)
 	if imgui.IsKeyPressed(.F, false) do focus_selected(app)
 	if imgui.IsKeyPressed(.A, false) && !io.KeyCtrl {

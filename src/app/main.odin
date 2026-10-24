@@ -48,6 +48,7 @@ Options :: struct {
 	bench_loops: int `usage:"Make --bench-stroke this many circles around the middle of the sphere instead of a wavy line."`,
 	brush:     string `usage:"Start with this brush: draw, smooth, clay, flatten, inflate, pinch, crease, grab or mask (also what --bench-stroke uses)."`,
 	symmetry:  string `usage:"Start with brush symmetry across these axes, e.g. x or xz."`,
+	remesh:    int `usage:"Voxel remesh the first sphere to about this many vertices before starting, as Remesh selected does (after --subdivide and --level)."`,
 	no_vsync:  bool `usage:"Show each frame as soon as it is ready instead of waiting for the display's refresh, so frame times are not capped at the refresh rate."`,
 	time_gpu:  bool `usage:"Measure the GPU time of the 3D viewport every frame. Waits for the GPU each frame, so frames no longer overlap."`,
 	gpubench:  string `usage:"Time the GPU and CPU while orbiting and sculpting one sphere at 500k, 1M, 5M, 7M and 10M vertices (only --vertices when given), with each speed setting on and off; write the markdown tables to this path and exit."`,
@@ -167,6 +168,7 @@ run :: proc(opts: Options) -> bool {
 		if !object_show_level(&app, obj, start) do return false
 	}
 	app.scene.selected = 0
+	if opts.remesh > 0 && !object_remesh(&app, app.scene.objects[0], opts.remesh) do return false
 	defer render.viewport_target_destroy(&app.renderer, &app.target)
 	app.camera = camera.orbit_default()
 	if opts.hd_open {
