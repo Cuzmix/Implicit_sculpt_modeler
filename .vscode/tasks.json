@@ -1,0 +1,99 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "build: debug",
+			"detail": "build.bat debug -> build\\sculpt.exe with debug info",
+			"type": "process",
+			"command": "cmd.exe",
+			"args": ["/d", "/c", "${workspaceFolder}\\build.bat", "debug"],
+			"options": { "cwd": "${workspaceFolder}" },
+			"group": { "kind": "build", "isDefault": true },
+			"problemMatcher": {
+				"owner": "odin",
+				"fileLocation": "absolute",
+				"pattern": {
+					"regexp": "^(.+\\.odin)\\((\\d+):(\\d+)\\)\\s+(?:Syntax )?(Error|Warning):\\s*(.*)$",
+					"file": 1, "line": 2, "column": 3, "severity": 4, "message": 5
+				}
+			}
+		},
+		{
+			"label": "build: release",
+			"detail": "build.bat release -> optimized build\\sculpt.exe (no debug info)",
+			"type": "process",
+			"command": "cmd.exe",
+			"args": ["/d", "/c", "${workspaceFolder}\\build.bat", "release"],
+			"options": { "cwd": "${workspaceFolder}" },
+			"group": "build",
+			"problemMatcher": {
+				"owner": "odin",
+				"fileLocation": "absolute",
+				"pattern": {
+					"regexp": "^(.+\\.odin)\\((\\d+):(\\d+)\\)\\s+(?:Syntax )?(Error|Warning):\\s*(.*)$",
+					"file": 1, "line": 2, "column": 3, "severity": 4, "message": 5
+				}
+			}
+		},
+		{
+			"label": "build: bench (debug)",
+			"detail": "src\\bench with debug info -> build\\bench_debug.exe",
+			"type": "process",
+			"command": "${workspaceFolder}\\deps\\odin\\odin.exe",
+			"args": [
+				"build", "src\\bench",
+				"-out:build\\bench_debug.exe",
+				"-debug",
+				"-collection:deps=${workspaceFolder}\\deps",
+				"-vet", "-strict-style", "-warnings-as-errors"
+			],
+			"options": { "cwd": "${workspaceFolder}" },
+			"group": "build",
+			"problemMatcher": {
+				"owner": "odin",
+				"fileLocation": "absolute",
+				"pattern": {
+					"regexp": "^(.+\\.odin)\\((\\d+):(\\d+)\\)\\s+(?:Syntax )?(Error|Warning):\\s*(.*)$",
+					"file": 1, "line": 2, "column": 3, "severity": 4, "message": 5
+				}
+			}
+		},
+		{
+			"label": "build: tests (debug)",
+			"detail": "every package's tests with debug info -> build\\test_<pkg>_debug.exe",
+			"type": "process",
+			"command": "cmd.exe",
+			"args": [
+				"/d", "/c",
+				"for %p in (geom camera sculpt jobs gizmo) do @(deps\\odin\\odin.exe build src\\%p -build-mode:test -out:build\\test_%p_debug.exe -debug -collection:deps=deps -vet -strict-style -warnings-as-errors || exit /b 1)"
+			],
+			"options": { "cwd": "${workspaceFolder}" },
+			"group": "test",
+			"problemMatcher": {
+				"owner": "odin",
+				"fileLocation": "absolute",
+				"pattern": {
+					"regexp": "^(.+\\.odin)\\((\\d+):(\\d+)\\)\\s+(?:Syntax )?(Error|Warning):\\s*(.*)$",
+					"file": 1, "line": 2, "column": 3, "severity": 4, "message": 5
+				}
+			}
+		},
+		{
+			"label": "test: all",
+			"detail": "build.bat test",
+			"type": "process",
+			"command": "cmd.exe",
+			"args": ["/d", "/c", "${workspaceFolder}\\build.bat", "test"],
+			"options": { "cwd": "${workspaceFolder}" },
+			"group": { "kind": "test", "isDefault": true },
+			"problemMatcher": {
+				"owner": "odin",
+				"fileLocation": "absolute",
+				"pattern": {
+					"regexp": "^(.+\\.odin)\\((\\d+):(\\d+)\\)\\s+(?:Syntax )?(Error|Warning):\\s*(.*)$",
+					"file": 1, "line": 2, "column": 3, "severity": 4, "message": 5
+				}
+			}
+		}
+	]
+}

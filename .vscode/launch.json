@@ -1,0 +1,86 @@
+{
+	// Odin emits MSVC PDBs on Windows, so these use the C/C++ extension's Visual Studio debugger.
+	// App flags are listed under "App flags" in README.md.
+	"version": "0.2.0",
+	"configurations": [
+		{
+			"name": "Sculpt (debug)",
+			"type": "cppvsdbg",
+			"request": "launch",
+			"program": "${workspaceFolder}\\build\\sculpt.exe",
+			"args": [],
+			"cwd": "${workspaceFolder}",
+			"console": "integratedTerminal",
+			"preLaunchTask": "build: debug"
+		},
+		{
+			"name": "Sculpt (debug, 1M vertices, 2 levels)",
+			"type": "cppvsdbg",
+			"request": "launch",
+			"program": "${workspaceFolder}\\build\\sculpt.exe",
+			"args": ["--vertices=1000000", "--subdivide=2"],
+			"cwd": "${workspaceFolder}",
+			"console": "integratedTerminal",
+			"preLaunchTask": "build: debug"
+		},
+		{
+			"name": "Sculpt (debug, GPU validation)",
+			"type": "cppvsdbg",
+			"request": "launch",
+			"program": "${workspaceFolder}\\build\\sculpt.exe",
+			"args": ["--gpu-debug"],
+			"cwd": "${workspaceFolder}",
+			"environment": [{ "name": "SDL_ASSERT", "value": "break" }],
+			"console": "integratedTerminal",
+			"preLaunchTask": "build: debug"
+		},
+		{
+			"name": "Sculpt (debug, no rebuild)",
+			"type": "cppvsdbg",
+			"request": "launch",
+			"program": "${workspaceFolder}\\build\\sculpt.exe",
+			"args": [],
+			"cwd": "${workspaceFolder}",
+			"console": "integratedTerminal"
+		},
+		{
+			"name": "Sculpt (release, run only)",
+			"type": "cppvsdbg",
+			"request": "launch",
+			"program": "${workspaceFolder}\\build\\sculpt.exe",
+			"args": ["--no-vsync"],
+			"cwd": "${workspaceFolder}",
+			"console": "integratedTerminal",
+			"preLaunchTask": "build: release"
+		},
+		{
+			"name": "Bench (debug)",
+			"type": "cppvsdbg",
+			"request": "launch",
+			"program": "${workspaceFolder}\\build\\bench_debug.exe",
+			"args": ["500000", "--threads=1"],
+			"cwd": "${workspaceFolder}",
+			"console": "integratedTerminal",
+			"preLaunchTask": "build: bench (debug)"
+		},
+		{
+			"name": "Tests (debug, pick package)",
+			"type": "cppvsdbg",
+			"request": "launch",
+			"program": "${workspaceFolder}\\build\\test_${input:testPackage}_debug.exe",
+			"args": [],
+			"cwd": "${workspaceFolder}",
+			"console": "integratedTerminal",
+			"preLaunchTask": "build: tests (debug)"
+		}
+	],
+	"inputs": [
+		{
+			"id": "testPackage",
+			"type": "pickString",
+			"description": "Package to test",
+			"options": ["geom", "camera", "sculpt", "jobs", "gizmo"],
+			"default": "sculpt"
+		}
+	]
+}
