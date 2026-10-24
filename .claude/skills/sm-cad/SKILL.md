@@ -6,18 +6,26 @@ description: CAD-style mesh tools inside this app on geom.Mesh — primitives, b
 # CAD-style tools
 
 ## What exists today (so nothing is assumed)
-- Objects are spheres only (`object_build`, `src/app/scene.odin:314-336`); Remesh builds a fresh sphere and drops the
-  sculpted detail (`object_remesh`, `:105-111`); there are no booleans, trims or primitives, no rotation (`Transform` is
-  position plus uniform scale, `:12-18`, and `Draw_Item.model` must stay so, `src/render/renderer.odin:112-116`), no
-  import or export, no measurement or snapping. Undo stores positions per node (`src/sculpt/undo.odin:9-13`), nothing
-  about topology. The only CSG anywhere is the SDF spike's smooth union (sm-sdf).
+- Objects are spheres (`object_build`) or meshes from a file (`scene_add_mesh`, `src/app/scene.odin:122`, which goes
+  through `object_build_from`); Remesh is a voxel remesh to a vertex count (`geom.remesh_voxel`,
+  `src/geom/remesh.odin:57`; `object_remesh`, `scene.odin:147`). There are no booleans, trims or primitives, no
+  rotation (`Transform` is position plus uniform scale, and `Draw_Item.model` must stay so,
+  `src/render/renderer.odin:112-116`), no measurement or snapping. Undo stores positions per node
+  (`src/sculpt/undo.odin:9-13`), or whole nodes under dynamic topology, nothing else about topology. The only CSG
+  anywhere is the SDF spike's smooth union (sm-sdf).
+- Files (`src/app/files.odin`, README "Files"): OBJ and PLY in and out (`geom.mesh_read_obj`, `mesh_read_ply`,
+  `mesh_write_obj`, `mesh_write_ply`, `src/geom/mesh_file.odin`), an import cleanup (`mesh_clean`, `mesh_normalize`,
+  `mesh_edges`, `mesh_flip`), and the native `.sculpt` scene (`scene_save`/`scene_open`, levels through
+  `sculpt.levels_write`/`levels_read`). `Object.file` keeps where an import was in its file, for export. A new
+  per-object field that should survive a save goes in both `scene_save` and `scene_open` with a `SCENE_VERSION` bump,
+  and `scene_open` must keep reading the older versions. Every file action ends in one `file_note`.
 
 ## Three kinds of tool, three plug-in paths
 | Kind | Examples | Path |
 |---|---|---|
 | positions only, topology kept | mirror or symmetrise, relax or smooth all, taper, bend, snap to a surface | keep the sculptor: change `mesh.positions` for whole nodes (a vertex's node is `Level.node_of_vertex`, `src/sculpt/levels.odin:37`), then `sculpt.sculptor_nodes_moved(s, nodes)` (`src/sculpt/brush.odin:680-707`) so bounds, normals, LOD staleness and `edited` catch up and `levels_sync` carries it; upload through `object_show_level` (`scene.odin:221-243`). Undo: only dabs record today, so add a `sculptor_record_nodes(s, nodes)` that exposes `record_hit`/`record_changed` (`undo.odin`) between `sculptor_stroke_begin` and `sculptor_stroke_end`; the tool then is one stroke, and the cross-object `History` works unchanged (`src/app/history.odin:29-40`) |
 | topology changes on an object | boolean, trim or slice, extrude, inset, bevel, remesh, decimate | follow Remesh (`scene.odin:107-111, 340-346`): `stroke_finish`, `object_hd_leave`, `_ = sdl.WaitForGPUIdle`, `history_forget`, destroy `obj.gpu[*]` and `hd_gpu`, `levels_destroy`, then `levels_init(&obj.levels, new_mesh, &app.pool)` and `mesh_buffers_create` as `object_build` does, `app.stats = {}`. Levels, HD detail and the stroke history are gone, and the tool itself is not undoable until the `Mesh_Swap` entry in [references/undo-and-topology.md](references/undo-and-topology.md) exists: write that design first |
-| a new object | cube, cylinder, torus, plane with options; import | a `geom.<primitive>(…, allocator)` builder shaped like `icosphere`, then a `scene_add_mesh(app, mesh, transform)` modelled on `scene_add_sphere` (`scene.odin:91-103`): `new(Object)`, `levels_init`, `mesh_buffers_create`, `next_id`, select; place it with `next_free_position` (`:289-296`) |
+| a new object | cube, cylinder, torus, plane with options | a `geom.<primitive>(…, allocator)` builder shaped like `icosphere`, then `scene_add_mesh(app, mesh, name, file = {scale = 1}, t, start)` (`scene.odin:122`), as `scene_import` does (`files.odin:200`); place it with `next_free_position` (`scene.odin:422`) |
 
 ## Plug-in checklist (every item names the file to copy from)
 1. Geometry in `src/geom/<tool>.odin`, pure: imports only `core:` and `../jobs`, `allocator := context.allocator` last,

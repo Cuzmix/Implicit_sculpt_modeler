@@ -63,7 +63,15 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
   called through `touch` before any edit) and `dyn_step_swap` swaps them. The flush also fills `sculptor_index_ranges`
   (whole changed pages) for the app to upload. `sculptor_vertex_count`/`triangle_count` count used slots; the mesh's
   array lengths do not. `sculptor_dyn_enable/disable` (levels: `levels_dyn_enable/disable`, single level, no HD);
-  `sculptor_compact_mesh` gives the plain mesh. No LOD copies while on.
+  `sculptor_compact_mesh` gives the plain mesh. No LOD copies while on. Open surfaces work: `split_edge` splits a
+  border edge's one triangle (`split_border_edge`), `collapse_edge` refuses when either end is on the border
+  (`on_border`) or when its worst triangle would get worse and stay under `DYN_MIN_QUALITY` (0.3, `triangle_quality`
+  = 2√3·|cross|/Σ|e|²); enable is refused on non-manifold or inconsistently wound edges (`edges_manifold`).
+- Levels in files (`src/sculpt/levels_file.odin`): `levels_write`/`levels_read` store every level as positions, the
+  base in its own order and each level above in `level_canon` order (vertices continuing the level below at their
+  places, then edge vertices by their ends' places), since `sculptor_init` renumbers on every build. Reading
+  subdivides, moves the vertices where they were and encodes the detail again (`recode_level(encode = true)`); HD
+  detail is not stored (it follows node numbers), only the HD steps. A damaged file returns false, never asserts.
 - App side (`src/app/sculpt_tool.odin`): `Brush_Settings` with the radius in pixels (`:12-19`); `Input_Sample{pos, pressure,
   kind}`, every motion event of a frame kept (`:21-35`); `DAB_SPACING 0.25` radii, `MIN_DAB_SPACING_PX 1`,
   `MAX_DABS_PER_FRAME 64`, `MAX_PENDING_SAMPLES 4096` (`:53-57`); `sculpt_frame` → `stroke_follow` (lazy mouse `:141-147`;

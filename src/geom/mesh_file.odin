@@ -1,0 +1,1254 @@
+package geom
+
+import "base:runtime"
+import "core:bytes"
+import "core:math"
+import "core:math/linalg"
+import "core:mem"
+import "core:slice"
+import "core:strconv"
+import "core:strings"
+
+import "../jobs"
+
+// Meshes in and out of files: OBJ (text; positions and polygons, everything else
+// ignored) and PLY (text or binary, either byte order), read in parallel where the
+// format allows. mesh_clean makes what was read sculptable and mesh_normalize sizes it
+// like the app's spheres. Everything works on bytes in memory: the caller reads and
+// writes the file, and tests need none.
+
+Mesh_File_Error :: enum u8 {
+	None,
+	Not_Recognised, // not the format asked for
+	Bad_Header,     // a PLY header this reader cannot follow, or one without x, y and z
+	Bad_Number,     // a coordinate, count or index that does not parse
+	Bad_Index,      // a face corner of 0 or past the vertices
+	Truncated,      // less binary data than the header promises
+	Not_Finite,     // a NaN or infinite coordinate
+	Too_Large,      // more vertices than 32-bit indices reach
+	Empty,          // no triangles
+	Not_Clean,      // a triangle with a repeated corner, or a vertex no triangle uses
+}
+
+MESH_FILE_ERROR_TEXT := [Mesh_File_Error]string {
+	.None           = "no error",
+	.Not_Recognised = "not a file of that format",
+	.Bad_Header     = "a PLY header without a vertex element with x, y and z, or one this reader does not follow",
+	.Bad_Number     = "a number that does not parse",
+	.Bad_Index      = "a face corner that is 0 or past the vertices",
+	.Truncated      = "less data than the header says",
+	.Not_Finite     = "a NaN or infinite coordinate",
+	.Too_Large      = "more vertices than 32-bit indices reach",
+	.Empty          = "no triangles",
+	.Not_Clean      = "a triangle with a repeated corner, or a vertex no triangle uses",
+}
+
+// Bytes of OBJ text one parse job takes: enough lines to be worth a job, few enough
+// that a large file spreads over every core.
+OBJ_CHUNK :: 4 << 20
+
+// Reads the `v` and `f` lines of an OBJ file, ignoring every other line and the
+// texture and normal parts of face corners (a, a/b, a/b/c and a//c all give a);
+// negative indices count back from the last vertex so far, and polygons are split into
+// fans. Chunks of `chunk_bytes` parse in parallel and join in file order, so the
+// result is the same whatever the pool. `line` is where an error was found (0 when no
+// one line is to blame). Normals are left zero.
+mesh_read_obj :: proc(data: []u8, pool: ^jobs.Pool, chunk_bytes := OBJ_CHUNK, allocator := context.allocator) -> (m: Mesh, err: Mesh_File_Error, line: int) {
+	starts := make([dynamic]int, 0, len(data) / max(chunk_bytes, 1) + 2, context.temp_allocator)
+	append(&starts, 0)
+	for {
+		at := starts[len(starts) - 1] + max(chunk_bytes, 1)
+		if at >= len(data) do break
+		nl := bytes.index_byte(data[at:], '\n')
+		if nl < 0 || at + nl + 1 >= len(data) do break
+		append(&starts, at + nl + 1)
+	}
+	job := Obj_Job{chunks = make([]Obj_Chunk, len(starts), context.temp_allocator)}
+	for &c, i in job.chunks {
+		c.start = starts[i]
+		c.text = data[starts[i]:starts[i + 1] if i + 1 < len(starts) else len(data)]
+	}
+	defer for &c in job.chunks {
+		delete(c.positions)
+		delete(c.indices)
+		delete(c.relative)
+	}
+	jobs.parallel_for(pool, len(job.chunks), &job, job_obj_chunk)
+	vertices, corners := 0, 0
+	for &c in job.chunks {
+		if c.err != .None do return {}, c.err, 1 + bytes.count(data[:c.start + c.err_at], []u8{'\n'})
+		c.first_vertex, c.first_index = vertices, corners
+		vertices += len(c.positions)
+		corners += len(c.indices)
+	}
+	if vertices >= int(max(u32)) do return {}, .Too_Large, 0
+	m.positions = make([dynamic]Vec3, vertices, allocator)
+	m.normals = make([dynamic]Vec3, vertices, allocator)
+	m.indices = make([dynamic]u32, corners, allocator)
+	job.m = &m
+	jobs.parallel_for(pool, len(job.chunks), &job, proc(data: rawptr, i: int) {
+		job := cast(^Obj_Job)data
+		c := &job.chunks[i]
+		copy(job.m.positions[c.first_vertex:], c.positions[:])
+		out := job.m.indices[c.first_index:][:len(c.indices)]
+		copy(out, c.indices[:])
+		// A negative index was stored counted from the chunk's first vertex; wrapping
+		// arithmetic gives the right index whenever the true one is in range.
+		for k in c.relative do out[k] += u32(c.first_vertex)
+	})
+	if !indices_in_range(m.indices[:], vertices, pool) {
+		mesh_destroy(&m)
+		return {}, .Bad_Index, 0
+	}
+	if corners == 0 {
+		mesh_destroy(&m)
+		return {}, .Empty, 0
+	}
+	return m, .None, 0
+}
+
+@(private = "file")
+Obj_Chunk :: struct {
+	text:         []u8,
+	start:        int, // of text, in the file
+	positions:    [dynamic]Vec3,
+	indices:      [dynamic]u32,
+	relative:     [dynamic]u32, // entries of indices counted from this chunk's first vertex
+	err:          Mesh_File_Error,
+	err_at:       int, // where in text the failing line starts
+	first_vertex: int,
+	first_index:  int,
+}
+
+@(private = "file")
+Obj_Job :: struct {
+	chunks: []Obj_Chunk,
+	m:      ^Mesh,
+}
+
+@(private = "file")
+job_obj_chunk :: proc(data: rawptr, i: int) {
+	c := &(cast(^Obj_Job)data).chunks[i]
+	heap := runtime.heap_allocator()
+	text := c.text
+	n := len(text)
+	c.positions = make([dynamic]Vec3, 0, n / 128, heap)
+	c.indices = make([dynamic]u32, 0, n / 32, heap)
+	c.relative = make([dynamic]u32, heap)
+	corners := make([dynamic]u32, 0, 16, heap)
+	defer delete(corners)
+	relative := make([dynamic]bool, 0, 16, heap)
+	defer delete(relative)
+	at := 0
+	for at < n {
+		line_start := at
+		skip_blanks(text, &at)
+		if at + 1 < n && is_blank(text[at + 1]) && (text[at] == 'v' || text[at] == 'f') {
+			kind := text[at]
+			at += 2
+			if kind == 'v' {
+				p: Vec3
+				for k in 0 ..< 3 {
+					skip_blanks(text, &at)
+					value, ok := parse_float(text, &at)
+					if !ok || !ends_token(text, at) {
+						c.err, c.err_at = .Bad_Number, line_start
+						return
+					}
+					p[k] = value
+				}
+				append(&c.positions, p)
+			} else {
+				clear(&corners)
+				clear(&relative)
+				for {
+					skip_blanks(text, &at)
+					if at >= n || text[at] == '\n' || text[at] == '\r' || text[at] == '#' do break
+					index, ok := parse_int(text, &at)
+					if ok && at < n && text[at] == '/' {
+						for at < n && !is_space(text[at]) do at += 1
+					}
+					if !ok || !ends_token(text, at) {
+						c.err, c.err_at = .Bad_Number, line_start
+						return
+					}
+					switch {
+					case index > 0 && index <= i64(max(u32)):
+						append(&corners, u32(index - 1))
+						append(&relative, false)
+					case index < 0 && index >= -i64(max(u32)):
+						append(&corners, u32(i64(len(c.positions)) + index))
+						append(&relative, true)
+					case:
+						c.err, c.err_at = .Bad_Index, line_start
+						return
+					}
+				}
+				for k in 1 ..< max(len(corners) - 1, 1) {
+					for j in ([3]int{0, k, k + 1}) {
+						if relative[j] do append(&c.relative, u32(len(c.indices)))
+						append(&c.indices, corners[j])
+					}
+				}
+			}
+		}
+		nl := bytes.index_byte(text[at:], '\n')
+		at = n if nl < 0 else at + nl + 1
+	}
+}
+
+// Element and property names and types of a PLY header.
+@(private = "file")
+Ply_Type :: enum u8 {
+	None,
+	I8,
+	U8,
+	I16,
+	U16,
+	I32,
+	U32,
+	F32,
+	F64,
+}
+
+@(private = "file")
+PLY_TYPE_SIZE := [Ply_Type]int {
+	.None = 0,
+	.I8   = 1,
+	.U8   = 1,
+	.I16  = 2,
+	.U16  = 2,
+	.I32  = 4,
+	.U32  = 4,
+	.F32  = 4,
+	.F64  = 8,
+}
+
+@(private = "file")
+Ply_Property :: struct {
+	name:       string,
+	type:       Ply_Type, // of the value, or of a list's items
+	count_type: Ply_Type, // of a list's length; None for a single value
+}
+
+@(private = "file")
+Ply_Element :: struct {
+	name:  string,
+	count: int,
+	props: [dynamic]Ply_Property,
+}
+
+@(private = "file")
+Ply_Format :: enum u8 {
+	Ascii,
+	Little,
+	Big,
+}
+
+// Reads the vertices (x, y and z) and faces (vertex_indices or vertex_index) of a PLY
+// file, text or binary in either byte order, with any property types; other elements
+// and properties are skipped. Binary vertices, and binary faces that are all
+// triangles, are read in parallel. Polygons are split into fans; normals are left zero.
+mesh_read_ply :: proc(data: []u8, pool: ^jobs.Pool, allocator := context.allocator) -> (m: Mesh, err: Mesh_File_Error, line: int) {
+	if !bytes.has_prefix(data, transmute([]u8)string("ply")) do return {}, .Not_Recognised, 1
+	head := string(data[:min(len(data), 1 << 20)])
+	end := strings.index(head, "end_header")
+	if end < 0 do return {}, .Bad_Header, 0
+	body := end + bytes.index_byte(data[end:], '\n') + 1
+	if body <= end do return {}, .Bad_Header, 0
+
+	format: Maybe(Ply_Format)
+	elements := make([dynamic]Ply_Element, context.temp_allocator)
+	header := head[:end]
+	for raw, n in strings.split_lines(header, context.temp_allocator) {
+		fields := strings.fields(raw, context.temp_allocator)
+		if len(fields) == 0 do continue
+		switch fields[0] {
+		case "format":
+			if len(fields) < 2 do return {}, .Bad_Header, n + 1
+			switch fields[1] {
+			case "ascii": format = .Ascii
+			case "binary_little_endian": format = .Little
+			case "binary_big_endian": format = .Big
+			case: return {}, .Bad_Header, n + 1
+			}
+		case "element":
+			if len(fields) != 3 do return {}, .Bad_Header, n + 1
+			count, ok := strconv.parse_int(fields[2])
+			if !ok || count < 0 do return {}, .Bad_Header, n + 1
+			append(&elements, Ply_Element{name = fields[1], count = count, props = make([dynamic]Ply_Property, context.temp_allocator)})
+		case "property":
+			if len(elements) == 0 do return {}, .Bad_Header, n + 1
+			p: Ply_Property
+			if len(fields) == 5 && fields[1] == "list" {
+				p = {fields[4], ply_type(fields[3]), ply_type(fields[2])}
+				if p.count_type == .None || p.count_type == .F32 || p.count_type == .F64 do return {}, .Bad_Header, n + 1
+			} else if len(fields) == 3 {
+				p = {fields[2], ply_type(fields[1]), .None}
+			}
+			if p.type == .None do return {}, .Bad_Header, n + 1
+			append(&elements[len(elements) - 1].props, p)
+		}
+	}
+	if format == nil do return {}, .Bad_Header, 0
+
+	r := Ply_Reader{data = data, at = body, format = format.?, pool = pool}
+	vertices, faces := -1, -1
+	for e, i in elements {
+		if e.name == "vertex" do vertices = i
+		if e.name == "face" do faces = i
+	}
+	if vertices < 0 do return {}, .Bad_Header, 0
+	for name, axis in ([3]string{"x", "y", "z"}) {
+		k := ply_property(elements[vertices], name)
+		if k < 0 || elements[vertices].props[k].count_type != .None do return {}, .Bad_Header, 0
+		r.xyz[axis] = k
+	}
+	if faces >= 0 {
+		r.list = ply_property(elements[faces], "vertex_indices")
+		if r.list < 0 do r.list = ply_property(elements[faces], "vertex_index")
+		if r.list < 0 || elements[faces].props[r.list].count_type == .None do return {}, .Bad_Header, 0
+	}
+	if elements[vertices].count >= int(max(u32)) do return {}, .Too_Large, 0
+
+	m.positions = make([dynamic]Vec3, elements[vertices].count, allocator)
+	m.normals = make([dynamic]Vec3, elements[vertices].count, allocator)
+	m.indices = make([dynamic]u32, allocator)
+	r.m = &m
+	for e, i in elements {
+		err = ply_element(&r, e, i == vertices, i == faces)
+		if err != .None {
+			if r.format == .Ascii do line = 1 + bytes.count(data[:min(r.at, len(data))], []u8{'\n'})
+			mesh_destroy(&m)
+			return {}, err, line
+		}
+		if i >= vertices && i >= faces do break // nothing after them is read
+	}
+	if !indices_in_range(m.indices[:], len(m.positions), pool) {
+		mesh_destroy(&m)
+		return {}, .Bad_Index, 0
+	}
+	if len(m.indices) == 0 {
+		mesh_destroy(&m)
+		return {}, .Empty, 0
+	}
+	return m, .None, 0
+}
+
+@(private = "file")
+Ply_Reader :: struct {
+	data:      []u8,
+	at:        int,
+	format:    Ply_Format,
+	pool:      ^jobs.Pool,
+	m:         ^Mesh,
+	xyz:       [3]int, // the vertex element's x, y and z properties
+	list:      int, // the face element's index list property
+}
+
+@(private = "file")
+ply_type :: proc(name: string) -> Ply_Type {
+	switch name {
+	case "char", "int8": return .I8
+	case "uchar", "uint8": return .U8
+	case "short", "int16": return .I16
+	case "ushort", "uint16": return .U16
+	case "int", "int32": return .I32
+	case "uint", "uint32": return .U32
+	case "float", "float32": return .F32
+	case "double", "float64": return .F64
+	}
+	return .None
+}
+
+@(private = "file")
+ply_property :: proc(e: Ply_Element, name: string) -> int {
+	for p, k in e.props do if p.name == name do return k
+	return -1
+}
+
+// Reads one element's rows, keeping the positions or the triangles when it is the
+// vertex or face element.
+@(private = "file")
+ply_element :: proc(r: ^Ply_Reader, e: Ply_Element, is_vertex, is_face: bool) -> Mesh_File_Error {
+	if r.format == .Ascii do return ply_element_ascii(r, e, is_vertex, is_face)
+	big := r.format == .Big
+	stride, fixed := 0, true
+	for p in e.props {
+		if p.count_type != .None do fixed = false
+		stride += PLY_TYPE_SIZE[p.type]
+	}
+	if fixed {
+		if (len(r.data) - r.at) / max(stride, 1) < e.count do return .Truncated
+		if is_vertex {
+			Rows :: struct {
+				r:       ^Ply_Reader,
+				offsets: [3]int,
+				types:   [3]Ply_Type,
+				stride:  int,
+				big:     bool,
+			}
+			rows := Rows{r = r, stride = stride, big = big}
+			for k in 0 ..< 3 {
+				p := e.props[r.xyz[k]]
+				rows.types[k] = p.type
+				for q in e.props[:r.xyz[k]] do rows.offsets[k] += PLY_TYPE_SIZE[q.type]
+			}
+			jobs.parallel_ranges(r.pool, e.count, &rows, proc(data: rawptr, lo, hi: int) {
+				rows := cast(^Rows)data
+				r := rows.r
+				for v in lo ..< hi {
+					row := r.at + v * rows.stride
+					for k in 0 ..< 3 do r.m.positions[v][k] = f32(ply_value(r.data, row + rows.offsets[k], rows.types[k], rows.big))
+				}
+			}, RANGE_GRAIN)
+		}
+		r.at += e.count * stride
+		return .None
+	}
+	if is_face && len(e.props) == 1 && e.props[0].count_type == .U8 && (e.props[0].type == .I32 || e.props[0].type == .U32) {
+		if ply_triangles_fast(r, e.count) do return .None
+	}
+	for _ in 0 ..< e.count {
+		for p, k in e.props {
+			if p.count_type == .None {
+				r.at += PLY_TYPE_SIZE[p.type]
+				continue
+			}
+			if r.at + PLY_TYPE_SIZE[p.count_type] > len(r.data) do return .Truncated
+			count := int(ply_value(r.data, r.at, p.count_type, big))
+			r.at += PLY_TYPE_SIZE[p.count_type]
+			size := PLY_TYPE_SIZE[p.type]
+			if count < 0 || (len(r.data) - r.at) / size < count do return .Truncated
+			if is_face && k == r.list && count >= 3 {
+				first := ply_index(r.data, r.at, p.type, big)
+				for c in 1 ..< count - 1 {
+					append(&r.m.indices, first, ply_index(r.data, r.at + c * size, p.type, big), ply_index(r.data, r.at + (c + 1) * size, p.type, big))
+				}
+			}
+			r.at += count * size
+		}
+		if r.at > len(r.data) do return .Truncated
+	}
+	return .None
+}
+
+// Binary faces that are all triangles (a count byte of 3 and three 32-bit indices)
+// have a fixed size, so they read in parallel. Returns false, having read nothing,
+// when any face is not a triangle.
+@(private = "file")
+ply_triangles_fast :: proc(r: ^Ply_Reader, count: int) -> bool {
+	ROW :: 13
+	if (len(r.data) - r.at) / ROW < count do return false
+	Rows :: struct {
+		r:      ^Ply_Reader,
+		base:   int, // first index of these triangles in r.m.indices
+		others: []bool, // per range: a face that is not a triangle
+	}
+	rows := Rows{r = r, base = len(r.m.indices), others = make([]bool, (count + RANGE_GRAIN - 1) / RANGE_GRAIN, context.temp_allocator)}
+	resize(&r.m.indices, rows.base + 3 * count)
+	jobs.parallel_ranges(r.pool, count, &rows, proc(data: rawptr, lo, hi: int) {
+		rows := cast(^Rows)data
+		r := rows.r
+		big := r.format == .Big
+		for f in lo ..< hi {
+			row := r.at + f * ROW
+			if r.data[row] != 3 {
+				rows.others[lo / RANGE_GRAIN] = true
+				return
+			}
+			for c in 0 ..< 3 do r.m.indices[rows.base + 3 * f + c] = ply_index(r.data, row + 1 + 4 * c, .U32, big)
+		}
+	}, RANGE_GRAIN)
+	for other in rows.others {
+		if other {
+			resize(&r.m.indices, rows.base)
+			return false
+		}
+	}
+	r.at += count * ROW
+	return true
+}
+
+// One binary value as an f64, which holds every type exactly but the 64-bit float's
+// own NaNs.
+@(private = "file")
+ply_value :: #force_inline proc(data: []u8, at: int, t: Ply_Type, big: bool) -> f64 {
+	raw: [8]u8
+	size := PLY_TYPE_SIZE[t]
+	copy(raw[:size], data[at:][:size])
+	if big do slice.reverse(raw[:size])
+	switch t {
+	case .None: return 0
+	case .I8: return f64(cast(i8)raw[0])
+	case .U8: return f64(raw[0])
+	case .I16: return f64((transmute([4]i16)raw)[0])
+	case .U16: return f64((transmute([4]u16)raw)[0])
+	case .I32: return f64((transmute([2]i32)raw)[0])
+	case .U32: return f64((transmute([2]u32)raw)[0])
+	case .F32: return f64((transmute([2]f32)raw)[0])
+	case .F64: return transmute(f64)raw
+	}
+	return 0
+}
+
+// A face corner; a negative one becomes max(u32), which the range check refuses.
+@(private = "file")
+ply_index :: #force_inline proc(data: []u8, at: int, t: Ply_Type, big: bool) -> u32 {
+	v := ply_value(data, at, t, big)
+	return u32(v) if v >= 0 && v < f64(max(u32)) else max(u32)
+}
+
+@(private = "file")
+ply_element_ascii :: proc(r: ^Ply_Reader, e: Ply_Element, is_vertex, is_face: bool) -> Mesh_File_Error {
+	text := r.data
+	corners := make([dynamic]u32, 0, 16, context.temp_allocator)
+	for row in 0 ..< e.count {
+		for p, k in e.props {
+			skip_space(text, &r.at)
+			if p.count_type == .None {
+				value, ok := parse_float(text, &r.at)
+				if !ok || !ends_token(text, r.at) do return .Bad_Number
+				if is_vertex {
+					for x, axis in r.xyz do if x == k do r.m.positions[row][axis] = value
+				}
+				continue
+			}
+			count, ok := parse_int(text, &r.at)
+			if !ok || !ends_token(text, r.at) || count < 0 do return .Bad_Number
+			clear(&corners)
+			for _ in 0 ..< count {
+				skip_space(text, &r.at)
+				index, index_ok := parse_int(text, &r.at)
+				if !index_ok || !ends_token(text, r.at) do return .Bad_Number
+				append(&corners, u32(index) if index >= 0 && index < i64(max(u32)) else max(u32))
+			}
+			if is_face && k == r.list {
+				for c in 1 ..< max(len(corners) - 1, 1) do append(&r.m.indices, corners[0], corners[c], corners[c + 1])
+			}
+		}
+	}
+	return .None
+}
+
+// Whether every index is below `vertices`.
+indices_in_range :: proc(indices: []u32, vertices: int, pool: ^jobs.Pool) -> bool {
+	Check :: struct {
+		indices:  []u32,
+		vertices: u32,
+		bad:      []bool, // per range
+	}
+	c := Check{indices, u32(vertices), make([]bool, (len(indices) + RANGE_GRAIN - 1) / RANGE_GRAIN, context.temp_allocator)}
+	jobs.parallel_ranges(pool, len(indices), &c, proc(data: rawptr, lo, hi: int) {
+		c := cast(^Check)data
+		for i in c.indices[lo:hi] {
+			if i >= c.vertices {
+				c.bad[lo / RANGE_GRAIN] = true
+				return
+			}
+		}
+	}, RANGE_GRAIN)
+	return !slice.contains(c.bad, true)
+}
+
+// What mesh_clean changed.
+Mesh_Clean_Report :: struct {
+	welded:            int, // vertices merged into an earlier one at exactly the same place
+	dropped_triangles: int, // triangles left with a repeated corner
+	dropped_vertices:  int, // vertices no triangle used (welded ones included)
+}
+
+// Makes a mesh read from a file sculptable: merges vertices at exactly the same place
+// (files that list a vertex once per triangle, or once per side of a UV seam, would
+// otherwise come apart under the brush), then drops triangles left with a repeated
+// corner and vertices no triangle uses, keeping the order of what stays. Refuses NaN
+// and infinite coordinates. Normals become zero, for the sculptor to compute.
+mesh_clean :: proc(m: ^Mesh, pool: ^jobs.Pool) -> (report: Mesh_Clean_Report, err: Mesh_File_Error) {
+	n := len(m.positions)
+	if !positions_finite(m.positions[:], pool) do return {}, .Not_Finite
+
+	// Weld: sort the vertices by a hash of their bits; within a run of equal hashes,
+	// each vertex joins the first earlier one at the same place.
+	Weld :: struct {
+		positions: []Vec3,
+		keys:      []u32,
+		order:     []u32,
+		rep:       []u32,
+		indices:   []u32,
+	}
+	w := Weld {
+		positions = m.positions[:],
+		keys      = make([]u32, n, context.temp_allocator),
+		order     = make([]u32, n, context.temp_allocator),
+		rep       = make([]u32, n, context.temp_allocator),
+		indices   = m.indices[:],
+	}
+	jobs.parallel_ranges(pool, n, &w, proc(data: rawptr, lo, hi: int) {
+		w := cast(^Weld)data
+		for v in lo ..< hi {
+			w.keys[v] = position_hash(w.positions[v])
+			w.order[v] = u32(v)
+		}
+	}, RANGE_GRAIN)
+	radix_sort_pairs(w.keys, w.order, 32, pool)
+	places := make([dynamic]u32, 0, 8, context.temp_allocator)
+	for lo := 0; lo < n; {
+		hi := lo + 1
+		for hi < n && w.keys[hi] == w.keys[lo] do hi += 1
+		clear(&places)
+		run: for v in w.order[lo:hi] {
+			for d in places {
+				if same_place(w.positions[d], w.positions[v]) {
+					w.rep[v] = d
+					report.welded += 1
+					continue run
+				}
+			}
+			w.rep[v] = v
+			append(&places, v)
+		}
+		lo = hi
+	}
+	if report.welded > 0 {
+		jobs.parallel_ranges(pool, len(w.indices), &w, proc(data: rawptr, lo, hi: int) {
+			w := cast(^Weld)data
+			for &i in w.indices[lo:hi] do i = w.rep[i]
+		}, RANGE_GRAIN)
+	}
+
+	// Drop triangles with a repeated corner, in place and in order.
+	kept := 0
+	for t := 0; t < len(m.indices); t += 3 {
+		a, b, c := m.indices[t], m.indices[t + 1], m.indices[t + 2]
+		if a == b || b == c || c == a do continue
+		m.indices[kept], m.indices[kept + 1], m.indices[kept + 2] = a, b, c
+		kept += 3
+	}
+	report.dropped_triangles = (len(m.indices) - kept) / 3
+	resize(&m.indices, kept)
+
+	// Drop unused vertices: number the used ones in order, then move them down.
+	new_of := w.rep // reused: no longer needed
+	slice.fill(new_of, max(u32))
+	for i in m.indices do new_of[i] = 0
+	next: u32
+	for &k, v in new_of {
+		if k == max(u32) do continue
+		k = next
+		m.positions[next] = m.positions[v]
+		next += 1
+	}
+	report.dropped_vertices = n - int(next)
+	if report.dropped_vertices > 0 {
+		w.rep, w.indices = new_of, m.indices[:]
+		jobs.parallel_ranges(pool, len(w.indices), &w, proc(data: rawptr, lo, hi: int) {
+			w := cast(^Weld)data
+			for &i in w.indices[lo:hi] do i = w.rep[i]
+		}, RANGE_GRAIN)
+		resize(&m.positions, int(next))
+	}
+	resize(&m.normals, len(m.positions))
+	slice.zero(m.normals[:])
+	if len(m.indices) == 0 do return report, .Empty
+	return report, .None
+}
+
+// Whether a mesh meets what a sculptor needs of it (see sculptor_init): triangles of
+// three different vertices in range, every vertex used, every position finite. For a
+// mesh read from a file that mesh_clean has not seen.
+mesh_sculptable :: proc(m: Mesh, pool: ^jobs.Pool) -> Mesh_File_Error {
+	if len(m.indices) == 0 || len(m.indices) % 3 != 0 do return .Empty
+	if !positions_finite(m.positions[:], pool) do return .Not_Finite
+	if !indices_in_range(m.indices[:], len(m.positions), pool) do return .Bad_Index
+	used := make([]bool, len(m.positions), context.temp_allocator)
+	for t := 0; t < len(m.indices); t += 3 {
+		a, b, c := m.indices[t], m.indices[t + 1], m.indices[t + 2]
+		if a == b || b == c || c == a do return .Not_Clean
+		used[a], used[b], used[c] = true, true, true
+	}
+	if slice.contains(used, false) do return .Not_Clean
+	return .None
+}
+
+@(private = "file")
+positions_finite :: proc(positions: []Vec3, pool: ^jobs.Pool) -> bool {
+	Check :: struct {
+		positions: []Vec3,
+		bad:       []bool, // per range
+	}
+	c := Check{positions, make([]bool, (len(positions) + RANGE_GRAIN - 1) / RANGE_GRAIN, context.temp_allocator)}
+	jobs.parallel_ranges(pool, len(positions), &c, proc(data: rawptr, lo, hi: int) {
+		c := cast(^Check)data
+		for p in c.positions[lo:hi] {
+			for x in p {
+				if math.is_nan(x) || math.is_inf(x) {
+					c.bad[lo / RANGE_GRAIN] = true
+					return
+				}
+			}
+		}
+	}, RANGE_GRAIN)
+	return !slice.contains(c.bad, true)
+}
+
+// Bits of a position, with -0 and +0 the same, mixed into 32 (an FNV-1a step per
+// coordinate, then a final avalanche so the radix sort's low bits spread).
+@(private = "file")
+position_hash :: #force_inline proc(p: Vec3) -> u32 {
+	h: u32 = 2166136261
+	for x in p {
+		bits := transmute(u32)x
+		if bits == 0x8000_0000 do bits = 0
+		h = (h ~ bits) * 16777619
+	}
+	h ~= h >> 16
+	h *= 0x7feb352d
+	h ~= h >> 15
+	return h
+}
+
+@(private = "file")
+same_place :: #force_inline proc(a, b: Vec3) -> bool {return a == b}
+
+// What a mesh's edges are, counted in parallel from each vertex's triangles rather
+// than by mesh_check's sort, which takes seconds at 10M vertices.
+Mesh_Edges :: struct {
+	border:  int, // edges with one triangle: the mesh is open there
+	bad:     int, // edges run twice the same way (a flipped triangle) or in more than two triangles
+	volume:  f64, // signed, as mesh_check's: negative for a closed mesh facing inward
+}
+
+mesh_edges_closed :: proc(e: Mesh_Edges) -> bool {return e.border == 0 && e.bad == 0}
+
+mesh_edges :: proc(m: Mesh, pool: ^jobs.Pool) -> Mesh_Edges {
+	Count :: struct {
+		m:      Mesh,
+		faces:  Vertex_Faces,
+		border: []int, // per range
+		bad:    []int,
+		volume: []f64,
+	}
+	ranges := (len(m.positions) + RANGE_GRAIN - 1) / RANGE_GRAIN
+	c := Count{m = m, faces = vertex_faces_build(m, pool, context.temp_allocator)}
+	c.border = make([]int, ranges, context.temp_allocator)
+	c.bad = make([]int, ranges, context.temp_allocator)
+	c.volume = make([]f64, (len(m.indices) / 3 + RANGE_GRAIN - 1) / RANGE_GRAIN, context.temp_allocator)
+	jobs.parallel_ranges(pool, len(m.positions), &c, proc(data: rawptr, lo, hi: int) {
+		c := cast(^Count)data
+		idx := c.m.indices[:]
+		next :: #force_inline proc(idx: []u32, f, v: u32) -> (after, before: u32) {
+			t := idx[3 * f:][:3]
+			if t[0] == v do return t[1], t[2]
+			if t[1] == v do return t[2], t[0]
+			return t[0], t[1]
+		}
+		for v in u32(lo) ..< u32(hi) {
+			faces := vertex_faces_of(c.faces, v)
+			for f in faces {
+				w, _ := next(idx, f, v)
+				same, back := 0, 0
+				for g in faces {
+					a, b := next(idx, g, v)
+					same += int(a == w)
+					back += int(b == w)
+				}
+				if same > 1 || back > 1 do c.bad[lo / RANGE_GRAIN] += 1
+				if back == 0 do c.border[lo / RANGE_GRAIN] += 1
+			}
+		}
+	}, RANGE_GRAIN)
+	jobs.parallel_ranges(pool, len(m.indices) / 3, &c, proc(data: rawptr, lo, hi: int) {
+		c := cast(^Count)data
+		p := c.m.positions[:]
+		idx := c.m.indices[:]
+		sum: f64
+		for t in lo ..< hi {
+			p0, p1, p2 := p[idx[3 * t]], p[idx[3 * t + 1]], p[idx[3 * t + 2]]
+			sum += f64(linalg.dot(p0, linalg.cross(p1, p2)))
+		}
+		c.volume[lo / RANGE_GRAIN] = sum
+	}, RANGE_GRAIN)
+	e: Mesh_Edges
+	for n in c.border do e.border += n
+	for n in c.bad do e.bad += n
+	for x in c.volume do e.volume += x / 6
+	return e
+}
+
+// Turns every triangle the other way round.
+mesh_flip :: proc(m: ^Mesh, pool: ^jobs.Pool) {
+	jobs.parallel_ranges(pool, len(m.indices) / 3, m, proc(data: rawptr, lo, hi: int) {
+		m := cast(^Mesh)data
+		for t in lo ..< hi do m.indices[3 * t + 1], m.indices[3 * t + 2] = m.indices[3 * t + 2], m.indices[3 * t + 1]
+	}, RANGE_GRAIN)
+}
+
+// Moves the mesh to a centre near the middle of its bounds and scales it so the
+// farthest vertex is 1 away, which is how big the app expects an object to be (its
+// camera, focus and brush sizes are set for that). On each axis the centre is the
+// file's own origin when that lies in the middle half of the bounds, so a model built
+// around a symmetry plane through its origin keeps the plane symmetric brushes mirror
+// across; otherwise it is the middle of the bounds. Returns what undoes it: a file
+// position is center + radius * p.
+mesh_normalize :: proc(m: ^Mesh, pool: ^jobs.Pool) -> (center: Vec3, radius: f32) {
+	Norm :: struct {
+		positions: []Vec3,
+		boxes:     []Aabb, // per range
+		far:       []f32, // per range: largest squared distance from center
+		center:    Vec3,
+		inv:       f32,
+	}
+	ranges := (len(m.positions) + RANGE_GRAIN - 1) / RANGE_GRAIN
+	nm := Norm{positions = m.positions[:], boxes = make([]Aabb, ranges, context.temp_allocator), far = make([]f32, ranges, context.temp_allocator)}
+	jobs.parallel_ranges(pool, len(nm.positions), &nm, proc(data: rawptr, lo, hi: int) {
+		nm := cast(^Norm)data
+		box := AABB_EMPTY
+		for p in nm.positions[lo:hi] do aabb_grow(&box, p)
+		nm.boxes[lo / RANGE_GRAIN] = box
+	}, RANGE_GRAIN)
+	box := AABB_EMPTY
+	for b in nm.boxes do box = aabb_union(box, b)
+	for k in 0 ..< 3 {
+		lo, hi := box.lo[k], box.hi[k]
+		quarter := (hi - lo) * 0.25
+		nm.center[k] = 0 if lo + quarter <= 0 && 0 <= hi - quarter else (lo + hi) * 0.5
+	}
+	jobs.parallel_ranges(pool, len(nm.positions), &nm, proc(data: rawptr, lo, hi: int) {
+		nm := cast(^Norm)data
+		far: f32
+		for p in nm.positions[lo:hi] do far = max(far, linalg.length2(p - nm.center))
+		nm.far[lo / RANGE_GRAIN] = far
+	}, RANGE_GRAIN)
+	far: f32
+	for f in nm.far do far = max(far, f)
+	radius = math.sqrt(far)
+	if !(radius > 0) do radius = 1
+	nm.inv = 1 / radius
+	jobs.parallel_ranges(pool, len(nm.positions), &nm, proc(data: rawptr, lo, hi: int) {
+		nm := cast(^Norm)data
+		for &p in nm.positions[lo:hi] do p = (p - nm.center) * nm.inv
+	}, RANGE_GRAIN)
+	return nm.center, radius
+}
+
+// Appends the mesh as OBJ text: a comment, a `v` line per vertex and an `f` line per
+// triangle, each position written as `scale * p + offset`. Coordinates have nine
+// significant digits, which read back as the same f32 bits, with trailing zeros left
+// out. Formatted in parallel, in ranges joined in order.
+mesh_write_obj :: proc(out: ^[dynamic]u8, positions: []Vec3, indices: []u32, scale: f32 = 1, offset := Vec3{}, pool: ^jobs.Pool = nil) {
+	Parts :: struct {
+		positions: []Vec3,
+		indices:   []u32,
+		scale:     f32,
+		offset:    Vec3,
+		parts:     [][dynamic]u8, // per range: vertex ranges, then triangle ranges
+		vranges:   int,
+	}
+	triangles := len(indices) / 3
+	p := Parts{positions = positions, indices = indices, scale = scale, offset = offset}
+	p.vranges = (len(positions) + RANGE_GRAIN - 1) / RANGE_GRAIN
+	p.parts = make([][dynamic]u8, p.vranges + (triangles + RANGE_GRAIN - 1) / RANGE_GRAIN, context.temp_allocator)
+	jobs.parallel_ranges(pool, len(positions), &p, proc(data: rawptr, lo, hi: int) {
+		p := cast(^Parts)data
+		buf := make([dynamic]u8, 0, 40 * (hi - lo), runtime.heap_allocator())
+		tmp: [32]u8
+		for v in lo ..< hi {
+			q := p.positions[v]
+			if p.scale != 1 || p.offset != {} do q = q * p.scale + p.offset // only then, which keeps -0
+			append(&buf, 'v')
+			for x in q {
+				append(&buf, ' ')
+				append(&buf, ..tmp[:format_f32(tmp[:], x)])
+			}
+			append(&buf, '\n')
+		}
+		p.parts[lo / RANGE_GRAIN] = buf
+	}, RANGE_GRAIN)
+	jobs.parallel_ranges(pool, triangles, &p, proc(data: rawptr, lo, hi: int) {
+		p := cast(^Parts)data
+		buf := make([dynamic]u8, 0, 28 * (hi - lo), runtime.heap_allocator())
+		tmp: [16]u8
+		for t in lo ..< hi {
+			append(&buf, 'f')
+			for c in 0 ..< 3 {
+				append(&buf, ' ')
+				append(&buf, ..tmp[:format_u32(tmp[:], p.indices[3 * t + c] + 1)])
+			}
+			append(&buf, '\n')
+		}
+		p.parts[p.vranges + lo / RANGE_GRAIN] = buf
+	}, RANGE_GRAIN)
+	// Joined in parallel too: copying hundreds of megabytes on one thread, into memory
+	// touched for the first time, would take as long as formatting them.
+	Join :: struct {
+		parts: [][dynamic]u8,
+		at:    []int, // where each part goes in out
+		out:   []u8,
+	}
+	head := "# Sculpt\n"
+	append(out, head)
+	j := Join{parts = p.parts, at = make([]int, len(p.parts) + 1, context.temp_allocator)}
+	j.at[0] = len(out)
+	for part, i in p.parts do j.at[i + 1] = j.at[i] + len(part)
+	non_zero_resize(out, j.at[len(p.parts)])
+	j.out = out[:]
+	jobs.parallel_for(pool, len(p.parts), &j, proc(data: rawptr, i: int) {
+		j := cast(^Join)data
+		copy(j.out[j.at[i]:j.at[i + 1]], j.parts[i][:])
+		delete(j.parts[i])
+	})
+}
+
+// Appends the mesh as binary little-endian PLY: float x, y and z per vertex, each
+// written as `scale * p + offset`, and a uchar count with three int indices per face.
+mesh_write_ply :: proc(out: ^[dynamic]u8, positions: []Vec3, indices: []u32, scale: f32 = 1, offset := Vec3{}, pool: ^jobs.Pool = nil) {
+	assert(len(positions) < int(max(i32)), "PLY faces store int indices")
+	triangles := len(indices) / 3
+	head := strings.concatenate({
+		"ply\nformat binary_little_endian 1.0\ncomment Sculpt\nelement vertex ", int_text(len(positions)),
+		"\nproperty float x\nproperty float y\nproperty float z\nelement face ", int_text(triangles),
+		"\nproperty list uchar int vertex_indices\nend_header\n",
+	}, context.temp_allocator)
+	start := len(out)
+	append(out, head)
+	Fill :: struct {
+		positions: []Vec3,
+		indices:   []u32,
+		scale:     f32,
+		offset:    Vec3,
+		vertices:  []u8,
+		faces:     []u8,
+	}
+	resize(out, start + len(head) + 12 * len(positions) + 13 * triangles)
+	body := out[start + len(head):]
+	f := Fill{positions, indices, scale, offset, body[:12 * len(positions)], body[12 * len(positions):]}
+	jobs.parallel_ranges(pool, len(positions), &f, proc(data: rawptr, lo, hi: int) {
+		f := cast(^Fill)data
+		for v in lo ..< hi {
+			q := f.positions[v]
+			if f.scale != 1 || f.offset != {} do q = q * f.scale + f.offset // only then, which keeps -0
+			mem.copy(&f.vertices[12 * v], &q, 12)
+		}
+	}, RANGE_GRAIN)
+	jobs.parallel_ranges(pool, triangles, &f, proc(data: rawptr, lo, hi: int) {
+		f := cast(^Fill)data
+		for t in lo ..< hi {
+			row := f.faces[13 * t:]
+			row[0] = 3
+			mem.copy(&row[1], &f.indices[3 * t], 12)
+		}
+	}, RANGE_GRAIN)
+}
+
+@(private = "file")
+int_text :: proc(n: int) -> string {
+	buf := make([]u8, 24, context.temp_allocator)
+	return strconv.write_int(buf, i64(n), 10)
+}
+
+// Writes x with nine significant digits, enough for any f32 to read back exactly,
+// without trailing zeros: plain below 1e9 and down to 1e-5, otherwise with an
+// exponent. Returns the length; buf needs 16 bytes.
+@(private)
+format_f32 :: proc(buf: []u8, x: f32) -> int {
+	n := 0
+	if math.sign_bit(x) {
+		buf[0] = '-'
+		n = 1
+	}
+	a := abs(f64(x))
+	if a == 0 {
+		buf[n] = '0'
+		return n + 1
+	}
+	// Nine digits of a, as an integer in [1e8, 1e9), and the power of ten of the first.
+	e := int(math.floor(math.log10(a)))
+	if s := scale10(a, 8 - e); s >= 1e9 {
+		e += 1
+	} else if s < 1e8 {
+		e -= 1
+	}
+	digits := u64(math.round(scale10(a, 8 - e)))
+	if digits >= 1_000_000_000 {
+		// 999999999.5 and up round to the next power of ten.
+		digits /= 10
+		e += 1
+	}
+	d: [9]u8
+	for k := 8; k >= 0; k -= 1 {
+		d[k] = u8('0' + digits % 10)
+		digits /= 10
+	}
+	nd := 9
+	for nd > 1 && d[nd - 1] == '0' do nd -= 1
+	switch {
+	case e >= 0 && e < 9:
+		// Integer part, then any fraction.
+		for k in 0 ..= e {
+			buf[n] = d[k] if k < nd else '0'
+			n += 1
+		}
+		if nd > e + 1 {
+			buf[n] = '.'
+			n += 1
+			for k in e + 1 ..< nd {
+				buf[n] = d[k]
+				n += 1
+			}
+		}
+	case e < 0 && e >= -5:
+		buf[n], buf[n + 1] = '0', '.'
+		n += 2
+		for _ in 0 ..< -e - 1 {
+			buf[n] = '0'
+			n += 1
+		}
+		for k in 0 ..< nd {
+			buf[n] = d[k]
+			n += 1
+		}
+	case:
+		buf[n] = d[0]
+		n += 1
+		if nd > 1 {
+			buf[n] = '.'
+			n += 1
+			for k in 1 ..< nd {
+				buf[n] = d[k]
+				n += 1
+			}
+		}
+		buf[n] = 'e'
+		n += 1
+		if e < 0 {
+			buf[n] = '-'
+			n += 1
+		}
+		n += format_u32(buf[n:], u32(abs(e)))
+	}
+	return n
+}
+
+// Writes n in decimal and returns the length; buf needs 10 bytes.
+@(private)
+format_u32 :: proc(buf: []u8, n: u32) -> int {
+	tmp: [10]u8
+	k := 10
+	for v := n; ; v /= 10 {
+		k -= 1
+		tmp[k] = u8('0' + v % 10)
+		if v < 10 do break
+	}
+	copy(buf, tmp[k:])
+	return 10 - k
+}
+
+// The powers of ten an f64 holds exactly.
+@(private = "file", rodata)
+POW10 := [23]f64{1e0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11, 1e12, 1e13, 1e14, 1e15, 1e16, 1e17, 1e18, 1e19, 1e20, 1e21, 1e22}
+
+// a * 10^k, with exact powers of ten where f64 has them.
+@(private = "file")
+scale10 :: proc(a: f64, k: int) -> f64 {
+	v, k := a, k
+	for k > 22 {
+		v *= 1e22
+		k -= 22
+	}
+	for k < -22 {
+		v /= 1e22
+		k += 22
+	}
+	return v * POW10[k] if k >= 0 else v / POW10[-k]
+}
+
+// Parses a decimal number ([-+]digits[.digits][e[-+]digits], digits on at least one
+// side of the point) at text[at^:], moving at past it. The first nineteen significant
+// digits count, then one scaling by a power of ten: exact for anything format_f32
+// writes and within an f32 rounding of the true value otherwise.
+@(private)
+parse_float :: proc(text: []u8, at: ^int) -> (value: f32, ok: bool) {
+	i, n := at^, len(text)
+	neg := false
+	if i < n && (text[i] == '-' || text[i] == '+') {
+		neg = text[i] == '-'
+		i += 1
+	}
+	mantissa: u64
+	digits, exp := 0, 0
+	seen := false
+	for i < n && text[i] >= '0' && text[i] <= '9' {
+		d := u64(text[i] - '0')
+		if digits < 19 {
+			if mantissa != 0 || d != 0 {
+				mantissa = mantissa * 10 + d
+				digits += 1
+			}
+		} else {
+			exp += 1
+		}
+		seen = true
+		i += 1
+	}
+	if i < n && text[i] == '.' {
+		i += 1
+		for i < n && text[i] >= '0' && text[i] <= '9' {
+			d := u64(text[i] - '0')
+			if digits < 19 {
+				if mantissa != 0 || d != 0 {
+					mantissa = mantissa * 10 + d
+					digits += 1
+				}
+				exp -= 1
+			}
+			seen = true
+			i += 1
+		}
+	}
+	if !seen do return 0, false
+	if i < n && (text[i] == 'e' || text[i] == 'E') {
+		i += 1
+		eneg := false
+		if i < n && (text[i] == '-' || text[i] == '+') {
+			eneg = text[i] == '-'
+			i += 1
+		}
+		e, any := 0, false
+		for i < n && text[i] >= '0' && text[i] <= '9' {
+			if e < 100_000 do e = e * 10 + int(text[i] - '0')
+			any = true
+			i += 1
+		}
+		if !any do return 0, false
+		exp += -e if eneg else e
+	}
+	at^ = i
+	v := f64(mantissa)
+	switch {
+	case mantissa == 0: v = 0
+	case exp < -400: v = 0
+	case exp > 400: v = math.inf_f64(1)
+	case: v = scale10(v, exp)
+	}
+	return f32(-v if neg else v), true
+}
+
+// Parses [-+]digits at text[at^:], moving at past it.
+@(private)
+parse_int :: proc(text: []u8, at: ^int) -> (value: i64, ok: bool) {
+	i, n := at^, len(text)
+	neg := false
+	if i < n && (text[i] == '-' || text[i] == '+') {
+		neg = text[i] == '-'
+		i += 1
+	}
+	digits := 0
+	for i < n && text[i] >= '0' && text[i] <= '9' {
+		if digits < 18 do value = value * 10 + i64(text[i] - '0')
+		digits += 1
+		i += 1
+	}
+	if digits == 0 || digits > 18 do return 0, false
+	at^ = i
+	return -value if neg else value, true
+}
+
+@(private = "file")
+is_blank :: #force_inline proc(c: u8) -> bool {return c == ' ' || c == '\t'}
+
+@(private = "file")
+is_space :: #force_inline proc(c: u8) -> bool {return c == ' ' || c == '\t' || c == '\n' || c == '\r'}
+
+@(private = "file")
+skip_blanks :: #force_inline proc(text: []u8, at: ^int) {
+	for at^ < len(text) && is_blank(text[at^]) do at^ += 1
+}
+
+@(private = "file")
+skip_space :: #force_inline proc(text: []u8, at: ^int) {
+	for at^ < len(text) && is_space(text[at^]) do at^ += 1
+}
+
+// Whether a number ending at text[at] ends its token: at the end, before a space or a
+// line end, or before a comment.
+@(private = "file")
+ends_token :: #force_inline proc(text: []u8, at: int) -> bool {
+	return at >= len(text) || is_space(text[at]) || text[at] == '#'
+}
+
+// Little-endian values in and out of bytes, for the native scene file. Readers check
+// every length and turn `ok` false on the first short read, which every later read
+// then returns zero for, so a caller checks once at the end of a section.
+#assert(ODIN_ENDIAN == .Little)
+
+Byte_Reader :: struct {
+	data: []u8,
+	at:   int,
+	ok:   bool,
+}
+
+byte_reader :: proc(data: []u8) -> Byte_Reader {return {data, 0, true}}
+
+byte_put :: proc(out: ^[dynamic]u8, v: $T) {
+	v := v
+	append(out, ..mem.ptr_to_bytes(&v))
+}
+
+byte_put_slice :: proc(out: ^[dynamic]u8, s: []$T) {
+	append(out, ..slice.to_bytes(s))
+}
+
+byte_put_string :: proc(out: ^[dynamic]u8, s: string) {
+	byte_put(out, u32(len(s)))
+	append(out, s)
+}
+
+byte_get :: proc(r: ^Byte_Reader, $T: typeid) -> (v: T) {
+	if !r.ok || len(r.data) - r.at < size_of(T) {
+		r.ok = false
+		return
+	}
+	mem.copy(&v, &r.data[r.at], size_of(T))
+	r.at += size_of(T)
+	return
+}
+
+// Fills dst from the next len(dst) values.
+byte_get_slice :: proc(r: ^Byte_Reader, dst: []$T) {
+	size := len(dst) * size_of(T)
+	if !r.ok || len(r.data) - r.at < size {
+		r.ok = false
+		return
+	}
+	if size > 0 do mem.copy(raw_data(dst), &r.data[r.at], size)
+	r.at += size
+}
+
+// The next `size` bytes, to read in place (nil, and `ok` false, when fewer are left).
+byte_get_bytes :: proc(r: ^Byte_Reader, size: int) -> []u8 {
+	if !r.ok || size < 0 || len(r.data) - r.at < size {
+		r.ok = false
+		return nil
+	}
+	b := r.data[r.at:][:size]
+	r.at += size
+	return b
+}
+
+// Grows `out` by `size` bytes and returns them, for the caller to fill in place.
+byte_put_bytes :: proc(out: ^[dynamic]u8, size: int) -> []u8 {
+	at := len(out)
+	non_zero_resize(out, at + size)
+	return out[at:]
+}
+
+byte_get_string :: proc(r: ^Byte_Reader, allocator := context.allocator) -> string {
+	size := int(byte_get(r, u32))
+	if !r.ok || len(r.data) - r.at < size {
+		r.ok = false
+		return ""
+	}
+	s := strings.clone(string(r.data[r.at:][:size]), allocator)
+	r.at += size
+	return s
+}

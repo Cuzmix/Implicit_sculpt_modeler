@@ -19,6 +19,7 @@
 //   --brushes    instead, a stroke with each brush kind (see run_brushes)
 //   --remesh     instead, voxel remesh of a stretched sphere (see run_remesh)
 //   --dyntopo    instead, dynamic topology strokes (see run_dyntopo)
+//   --files      instead, OBJ, PLY and scene files written and read (see run_files)
 //   --meshes=N   spheres per size, all sculpt-ready; only the first is sculpted
 //   --threads=N  worker count including the caller (default: every core)
 //   --node=N     triangles per sculpt node
@@ -58,6 +59,7 @@ hd := false
 brushes := false
 remesh := false
 dyntopo := false
+files := false
 
 main :: proc() {
 	targets := make([dynamic]int)
@@ -81,6 +83,8 @@ main :: proc() {
 			remesh = true
 		} else if arg == "--dyntopo" {
 			dyntopo = true
+		} else if arg == "--files" {
+			files = true
 		} else if strings.has_prefix(arg, "--threads=") {
 			threads = strconv.parse_int(arg[10:]) or_else 0
 		} else if v, ok := strconv.parse_int(arg); ok {
@@ -128,6 +132,13 @@ main :: proc() {
 	if dyntopo {
 		dyntopo_header()
 		for c in cases do if c.meshes == 1 do run_dyntopo(c.vertices, pool)
+		if prefault_mb == 0 do fmt.printfln("peak RSS: %.0f MB", peak_rss_mb())
+		return
+	}
+	if files {
+		files_header()
+		for c in cases do if c.meshes == 1 do run_files(c.vertices, pool)
+		files_footer()
 		if prefault_mb == 0 do fmt.printfln("peak RSS: %.0f MB", peak_rss_mb())
 		return
 	}

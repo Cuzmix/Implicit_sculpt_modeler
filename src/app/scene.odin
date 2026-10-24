@@ -1,7 +1,9 @@
 package main
 
+import "core:fmt"
 import "core:log"
 import "core:math/linalg"
+import "core:strings"
 import "core:time"
 import sdl "vendor:sdl3"
 
@@ -36,8 +38,13 @@ to_world :: #force_inline proc(t: Transform, p: Vec3) -> Vec3 {return p * t.scal
 // level is shown and sculpted, or while sculpting HD, a window of the HD level over the
 // top level (see object_hd_enter).
 Object :: struct {
-	id:        int, // shown as "Sphere <id>"; never reused
+	id:        int, // never reused
+	name:      string, // the file an imported object came from; "" for a sphere (owned)
 	transform: Transform,
+	// Where the object's own space sits in the file it was imported from (or is
+	// exported to): imports are moved and scaled to the size the app works at, and
+	// this puts them back. The identity for spheres.
+	file:      Transform,
 	levels:    sculpt.Levels,
 	// Per level, made the first time the level is shown and kept while it exists. A
 	// level's buffers catch up with what changed while it was not current when it is
@@ -59,6 +66,11 @@ object_in_hd :: proc(obj: ^Object) -> bool {return obj.levels.hd.window != nil}
 object_vertex_count :: proc(obj: ^Object) -> int {return sculpt.sculptor_vertex_count(object_sculptor(obj))}
 object_triangle_count :: proc(obj: ^Object) -> int {return sculpt.sculptor_triangle_count(object_sculptor(obj))}
 object_dynamic :: proc(obj: ^Object) -> bool {return sculpt.levels_dynamic(&obj.levels)}
+// How the object is shown in panels and logs: "Sphere <id>", or its file's name.
+object_label :: proc(obj: ^Object) -> string {
+	if obj.name != "" do return obj.name
+	return fmt.tprintf("Sphere %d", obj.id)
+}
 
 Scene :: struct {
 	objects:  [dynamic]^Object,
@@ -95,16 +107,37 @@ selected_object :: proc(app: ^App) -> ^Object {
 // vertices is 0), prepares it for sculpting, uploads it, and adds it to the scene.
 scene_add_sphere :: proc(app: ^App, vertices, subdiv: int, t: Transform) -> bool {
 	obj := new(Object)
-	obj.transform = t
+	obj.transform, obj.file = t, {scale = 1}
 	if !object_build(app, obj, vertices, subdiv) {
 		free(obj)
 		return false
 	}
+	scene_append(app, obj)
+	return true
+}
+
+// Adds a mesh with zero normals (an import) as a new object named `name` (copied),
+// whose own space sits at `file` in its file, and selects it. `start` is when making
+// the mesh began, for the log. Returns false on a GPU failure.
+scene_add_mesh :: proc(app: ^App, mesh: geom.Mesh, name: string, file, t: Transform, start: time.Tick) -> bool {
+	obj := new(Object)
+	obj.transform, obj.file = t, file
+	if !object_build_from(app, obj, mesh, start, normals = true) {
+		free(obj)
+		return false
+	}
+	obj.name = strings.clone(name)
+	scene_append(app, obj)
+	return true
+}
+
+// Gives the object the next id and selects it.
+@(private = "file")
+scene_append :: proc(app: ^App, obj: ^Object) {
 	app.scene.next_id += 1
 	obj.id = app.scene.next_id
 	append(&app.scene.objects, obj)
 	app.scene.selected = len(app.scene.objects) - 1
-	return true
 }
 
 // Rebuilds the object as an even mesh of about `vertices` vertices that keeps the shape
@@ -422,11 +455,13 @@ object_build :: proc(app: ^App, obj: ^Object, vertices, subdiv: int) -> bool {
 	return object_build_from(app, obj, mesh, start)
 }
 
-// Makes `mesh` the object's only level, prepares it for sculpting and uploads it.
-// `start` is when building the mesh began, for the log.
+// Makes `mesh` the object's only level, prepares it for sculpting and uploads it,
+// computing its normals first when `normals` is set. `start` is when building the mesh
+// began, for the log.
 @(private = "file")
-object_build_from :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, start: time.Tick) -> bool {
+object_build_from :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, start: time.Tick, normals := false) -> bool {
 	sculpt.levels_init(&obj.levels, mesh, &app.pool)
+	if normals do sculpt.sculptor_recompute_all(object_sculptor(obj))
 	free_all(context.temp_allocator)
 	ready := time.tick_now()
 	mesh_gpu, ok := render.mesh_buffers_create(&app.renderer, object_mesh(obj)^, object_sculptor(obj).mask)
@@ -452,8 +487,8 @@ object_release_mesh :: proc(app: ^App, obj: ^Object) {
 	sculpt.levels_destroy(&obj.levels)
 }
 
-@(private = "file")
 object_free :: proc(app: ^App, obj: ^Object) {
 	object_release_mesh(app, obj)
+	delete(obj.name)
 	free(obj)
 }

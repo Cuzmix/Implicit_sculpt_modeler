@@ -56,6 +56,10 @@ Options :: struct {
 	time_gpu:  bool `usage:"Measure the GPU time of the 3D viewport every frame. Waits for the GPU each frame, so frames no longer overlap."`,
 	gpubench:  string `usage:"Time the GPU and CPU while orbiting and sculpting one sphere at 500k, 1M, 5M, 7M and 10M vertices (only --vertices when given), with each speed setting on and off; write the markdown tables to this path and exit."`,
 	gpubench_frames: int `usage:"Measured frames per --gpubench case (default 120, at most 240)."`,
+	open:      string `usage:"Start with the scene saved in this .sculpt file instead of spheres, as File > Open scene does."`,
+	import_mesh: string `args:"name=import" usage:"Start with the mesh in this .obj or .ply file instead of spheres (after any --open), as File > Import mesh does."`,
+	export:    string `usage:"On exit, write the selected object's shown level to this .obj or .ply file, as File > Export selected does."`,
+	save:      string `usage:"On exit, save the scene to this .sculpt file, as File > Save scene does."`,
 }
 
 // Everything the app owns. ImGui only ever sees copies or pointers handed to it per frame.
@@ -86,6 +90,9 @@ App :: struct {
 	view_moved:  time.Tick, // when view_key last changed
 	vsync:    bool, // wanted present mode, applied at the start of the next frame
 	time_gpu: bool, // wait for each frame's 3D work, to measure its GPU time
+	window:   ^sdl.Window, // what file dialogs belong to
+	scene_path: string, // where the scene was last saved or opened from, for Ctrl+S (owned)
+	file_note:  File_Note,
 	running:  bool,
 }
 
@@ -143,6 +150,9 @@ run :: proc(opts: Options) -> bool {
 	defer sdl.DestroyWindow(window)
 
 	app: App
+	app.window = window
+	defer delete(app.scene_path)
+	defer file_shutdown(&app)
 	if !render.renderer_init(&app.renderer, window, opts.gpu_debug) do return false
 	defer render.renderer_destroy(&app.renderer)
 
@@ -155,9 +165,21 @@ run :: proc(opts: Options) -> bool {
 	defer delete(app.samples)
 	defer delete(app.stroke.pending)
 	app.hd_window_vertices = opts.hd_window if opts.hd_window > 0 else sculpt.HD_WINDOW_VERTICES
-	for _ in 0 ..< max(opts.spheres, 1) {
+	if opts.open != "" {
+		opened, ok := scene_open(&app, opts.open)
+		if !ok || !opened do return false
+		scene_remember_path(&app, opts.open)
+	}
+	if opts.import_mesh != "" {
+		before := len(app.scene.objects)
+		if !scene_import(&app, opts.import_mesh) || len(app.scene.objects) == before do return false
+	}
+	// Spheres unless a file gave the scene; then the steps below apply to its objects.
+	starting := 0 if opts.open != "" || opts.import_mesh != "" else max(opts.spheres, 1)
+	for _ in 0 ..< starting {
 		if !scene_add_sphere(&app, opts.vertices, opts.subdiv, {position = next_free_position(&app), scale = 1}) do return false
-		obj := app.scene.objects[len(app.scene.objects) - 1]
+	}
+	for obj in app.scene.objects {
 		defer if opts.hd > 0 && !sculpt.levels_hd_set_steps(&obj.levels, opts.hd) do log.warn("HD: the top level is not a closed manifold mesh")
 		if opts.subdivide <= 0 && opts.level <= 0 do continue
 		start := time.tick_now()
@@ -170,7 +192,12 @@ run :: proc(opts: Options) -> bool {
 		if opts.level > 0 do sculpt.levels_set_current(&obj.levels, opts.level - 1)
 		if !object_show_level(&app, obj, start) do return false
 	}
-	app.scene.selected = 0
+	if len(app.scene.objects) == 0 {
+		log.error("the scene has no objects to start with")
+		return false
+	}
+	// The first sphere; otherwise what the file selected, or the import.
+	if starting > 0 do app.scene.selected = 0
 	if opts.remesh > 0 && !object_remesh(&app, app.scene.objects[0], opts.remesh) do return false
 	if opts.dyntopo {
 		obj := app.scene.objects[0]
@@ -251,6 +278,11 @@ run :: proc(opts: Options) -> bool {
 		if command := app.ui.scene_command; command.kind != .None {
 			app.ui.scene_command = {}
 			if !scene_apply(&app, command) do return false
+		}
+		if req, ok := file_take(&app); ok {
+			applied := file_apply(&app, req)
+			file_request_free(req)
+			if !applied do return false
 		}
 		// Changing the present mode recreates the swapchain, so it happens before this
 		// frame acquires a swapchain texture.
@@ -489,6 +521,12 @@ run :: proc(opts: Options) -> bool {
 		}
 	}
 
+	if opts.export != "" {
+		obj := selected_object(&app)
+		if obj == nil || !object_export(&app, obj, opts.export) do return false
+	}
+	if opts.save != "" && !scene_save(&app, opts.save) do return false
+
 	print_stat :: proc(name: string, r: Sample_Ring) {
 		p50, p99 := ring_percentiles(r)
 		fmt.printfln("%s_p50=%.3f %s_p99=%.3f", name, p50, name, p99)
@@ -514,6 +552,9 @@ run :: proc(opts: Options) -> bool {
 		splits, collapses := sculpt.sculptor_dyn_edits(object_sculptor(obj))
 		fmt.printfln("dyntopo object=%d triangles=%d splits=%d collapses=%d pages=%d gpu_regrows=%d", obj.id, object_triangle_count(obj),
 			splits, collapses, sculpt.sculptor_dyn_pages(object_sculptor(obj)), app.stats.gpu_regrows)
+	}
+	if s := app.stats; s.file_read_ms > 0 || s.file_write_ms > 0 {
+		fmt.printfln("file_read_ms=%.1f file_parse_ms=%.1f file_write_ms=%.1f", s.file_read_ms, s.file_parse_ms, s.file_write_ms)
 	}
 	fmt.printfln("idle_cache=%v cache_redraws=%d last_frame_triangles=%d", app.cache_idle, app.stats.cache_redraws, app.stats.viewport.triangles)
 	v := app.stats.viewport

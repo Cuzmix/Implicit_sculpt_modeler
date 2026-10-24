@@ -2,6 +2,7 @@ package main
 
 import "core:fmt"
 import "core:strings"
+import "core:time"
 
 import imgui "deps:odin-imgui"
 
@@ -145,6 +146,13 @@ draw_menu_bar :: proc(app: ^App) {
 	if !imgui.BeginMainMenuBar() do return
 	defer imgui.EndMainMenuBar()
 	if imgui.BeginMenu("File") {
+		if imgui.MenuItem("Open scene...", "Ctrl+O") do file_dialog(app, .Open)
+		if imgui.MenuItem("Save scene", "Ctrl+S") do save_scene(app)
+		if imgui.MenuItem("Save scene as...", "Ctrl+Shift+S") do file_dialog(app, .Save)
+		imgui.Separator()
+		if imgui.MenuItem("Import mesh (OBJ, PLY)...") do file_dialog(app, .Import)
+		if imgui.MenuItem("Export selected (OBJ, PLY)...", nil, false, selected_object(app) != nil) do file_dialog(app, .Export)
+		imgui.Separator()
 		if imgui.MenuItem("Quit", "Alt+F4") do app.running = false
 		imgui.EndMenu()
 	}
@@ -158,6 +166,27 @@ draw_menu_bar :: proc(app: ^App) {
 		if imgui.MenuItem("Focus selected", "F") do focus_selected(app)
 		if imgui.MenuItem("ImGui demo", nil, app.ui.show_demo) do app.ui.show_demo = !app.ui.show_demo
 		imgui.EndMenu()
+	}
+	// The last file action's outcome, for a while; the whole of it on hover.
+	if note := app.file_note; note.text != "" && time.tick_since(note.at) < FILE_NOTE_SHOWN {
+		imgui.Separator()
+		text := fmt.ctprintf("%s", note.text)
+		if note.warning {
+			imgui.TextColored({1, 0.75, 0.3, 1}, "%s", text)
+		} else {
+			imgui.TextDisabled("%s", text)
+		}
+		if imgui.IsItemHovered() do imgui.SetTooltip("%s", text)
+	}
+}
+
+// Saves where the scene was last saved or opened, or asks where to the first time.
+@(private = "file")
+save_scene :: proc(app: ^App) {
+	if app.scene_path != "" {
+		file_post(.Save, app.scene_path)
+	} else {
+		file_dialog(app, .Save)
 	}
 }
 
@@ -349,14 +378,14 @@ draw_scene_panel :: proc(app: ^App) {
 			levels := ""
 			if n := len(obj.levels.levels); n > 1 do levels = fmt.tprintf(", level %d of %d", obj.levels.current + 1, n)
 			if object_dynamic(obj) do levels = ", dynamic"
-			label := fmt.ctprintf("Sphere %d  (%s vertices%s)", obj.id, count_label(object_vertex_count(obj)), levels)
+			label := fmt.ctprintf("%s  (%s vertices%s)##%d", object_label(obj), count_label(object_vertex_count(obj)), levels, obj.id)
 			if imgui.Selectable(label, i == scene.selected) do scene.selected = i
 		}
 		imgui.EndListBox()
 	}
 
 	if obj := selected_object(app); obj != nil {
-		imgui.SeparatorText(fmt.ctprintf("Sphere %d", obj.id))
+		imgui.SeparatorText(fmt.ctprintf("%s", object_label(obj)))
 		imgui.DragFloat3("Position", &obj.transform.position, 0.01, 0, 0, "%.3f")
 		imgui.DragFloat("Scale", &obj.transform.scale, 0.005, 0.01, 100, "%.3f", {.Logarithmic})
 		obj.transform.scale = clamp(obj.transform.scale, 0.01, 100)
@@ -388,6 +417,14 @@ draw_scene_panel :: proc(app: ^App) {
 	imgui.TextDisabled("Remesh rebuilds the selected object as an even mesh of\nabout this many vertices that keeps its shape, like\nDynaMesh. Ctrl+R does it at the object's own vertex\ncount. Levels, HD detail, mask and undo history go.")
 	if s := app.stats; s.remesh_ms > 0 {
 		imgui.TextDisabled("Last remesh: %.0f ms, then %.0f ms to sculpt-ready", s.remesh_ms, s.remesh_setup_ms)
+	}
+	// Opening a scene counts building it as reading; importing parses apart.
+	if s := app.stats; s.file_read_ms > 0 || s.file_write_ms > 0 {
+		parts := make([dynamic]string, context.temp_allocator)
+		if s.file_read_ms > 0 do append(&parts, fmt.tprintf("read in %.0f ms", s.file_read_ms))
+		if s.file_parse_ms > 0 do append(&parts, fmt.tprintf("parsed in %.0f ms", s.file_parse_ms))
+		if s.file_write_ms > 0 do append(&parts, fmt.tprintf("written in %.0f ms", s.file_write_ms))
+		imgui.TextDisabled("%s", fmt.ctprintf("Last file %s", strings.join(parts[:], ", ", context.temp_allocator)))
 	}
 }
 
@@ -468,6 +505,7 @@ draw_hd_section :: proc(app: ^App, obj: ^Object) {
 	imgui.SetNextItemWidth(-140)
 	if imgui.SliderInt("Window (M vertices)", &millions, 1, 16) do app.hd_window_vertices = int(millions) * 1_000_000
 	imgui.TextDisabled("%s", fmt.ctprintf("Stored: %d of %d top-level nodes, %s. Leaving a window stores it.", hd.stored_nodes, len(levels.levels[len(levels.levels) - 1].sculptor.nodes), bytes_label(hd.stored_bytes)))
+	if hd.stored_nodes > 0 do imgui.TextDisabled("Saving the scene keeps the HD steps but not this detail.")
 	if app.stats.hd_leave_ms > 0 do imgui.TextDisabled("Last window stored in %.0f ms", app.stats.hd_leave_ms)
 }
 
@@ -480,6 +518,11 @@ handle_shortcuts :: proc(app: ^App) {
 		else do history_undo(app)
 	}
 	if io.KeyCtrl && imgui.IsKeyPressed(.Y, true) do history_redo(app)
+	if io.KeyCtrl && imgui.IsKeyPressed(.S, false) {
+		if io.KeyShift do file_dialog(app, .Save)
+		else do save_scene(app)
+	}
+	if io.KeyCtrl && imgui.IsKeyPressed(.O, false) do file_dialog(app, .Open)
 	if imgui.IsKeyPressed(.W, false) do app.tool = .Move
 	if imgui.IsKeyPressed(.B, false) do app.tool = .Brush
 	if !io.KeyCtrl && !io.KeyAlt {
