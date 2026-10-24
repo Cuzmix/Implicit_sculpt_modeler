@@ -46,7 +46,7 @@ job_mask :: proc(data: rawptr, i: int) {
 		delta := m.positions[v] - d.center
 		d2 := linalg.dot(delta, delta)
 		if d2 >= d.r2 do continue
-		w := falloff(d2 * d.inv_r2)
+		w := dab_weight(d, delta, d2)
 		if fade != nil do w *= f32(fade[v]) * (1.0 / 255)
 		next := u8(clamp(f32(mask[v]) + d.amount * w + 0.5, 0, 255))
 		if next == mask[v] do continue

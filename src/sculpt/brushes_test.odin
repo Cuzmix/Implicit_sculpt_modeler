@@ -187,6 +187,113 @@ tilt_turns_the_push_and_mirrors :: proc(t: ^testing.T) {
 }
 
 @(test)
+alphas_fade_out_and_sample_between_pixels :: proc(t: ^testing.T) {
+	for shape in Alpha_Shape {
+		a := alpha_make(shape, 64)
+		defer alpha_destroy(&a)
+		edge, low, high: f32 = 0, 1, 0
+		for j in 0 ..< a.size {
+			for i in 0 ..< a.size {
+				value := a.values[j * a.size + i]
+				low, high = min(low, value), max(high, value)
+				if i == 0 || j == 0 || i == a.size - 1 || j == a.size - 1 do edge = max(edge, value)
+			}
+		}
+		testing.expectf(t, low >= 0 && high <= 1 && high > 0.5, "%v runs %v to %v", shape, low, high)
+		testing.expectf(t, edge < 0.01, "%v is %v at its edge, where stamps would show a rim", shape, edge)
+	}
+	square := alpha_make(.Square, 64)
+	defer alpha_destroy(&square)
+	testing.expect(t, alpha_sample(&square, 0, 0) == 1 && alpha_sample(&square, 1, 0) == 0 && alpha_sample(&square, -2, 0.5) == 0)
+
+	// A row of three pixels, padded to a square: the middle row, and linear between.
+	row, ok := alpha_from_grey({0, 1, 0.5}, 3, 1)
+	defer alpha_destroy(&row)
+	testing.expect(t, ok && row.size == 3)
+	testing.expect(t, row.values[3] == 0 && row.values[4] == 1 && row.values[5] == 0.5 && row.values[0] == 0 && row.values[8] == 0)
+	testing.expect(t, abs(alpha_sample(&row, -0.5, 0) - 0.5) < 1e-6, "halfway between 0 and 1")
+	// A large image is averaged down.
+	big := make([]f32, 1024 * 1024, context.temp_allocator)
+	for &value, i in big do value = 1 if (i / 1024) < 512 else 0
+	down, down_ok := alpha_from_grey(big, 1024, 1024)
+	defer alpha_destroy(&down)
+	testing.expect(t, down_ok && down.size == ALPHA_MAX_SIZE && down.values[0] == 1 && down.values[len(down.values) - 1] == 0)
+}
+
+// The place on a dab's alpha of a vertex at `p` near the top of the sphere, where the
+// area normal is +Z: u along +X, v along +Y, in radii.
+@(private = "file")
+top_uv :: proc(p: Vec3, radius: f32) -> [2]f32 {return {p.x / radius, p.y / radius}}
+
+@(test)
+alpha_stamps_its_shape_facing_up :: proc(t: ^testing.T) {
+	R :: 0.3
+	sp := sphere_make(5)
+	defer sphere_free(sp)
+	square := alpha_make(.Square)
+	defer alpha_destroy(&square)
+	_ = apply_dab(&sp.sculptor, {kind = .Draw, radius = R, strength = 1, alpha = &square, alpha_up = {0, 1, 0}}, TOP)
+	corner_moved := false
+	for p, i in sp.mesh.positions {
+		if p == sp.before[i] do continue
+		uv := top_uv(sp.before[i], R)
+		testing.expectf(t, sp.before[i].z > 0 && abs(uv.x) < 1.01 && abs(uv.y) < 1.01, "moved a vertex at %v, off the square", uv)
+		if linalg.length(uv) > 1.05 do corner_moved = true
+	}
+	testing.expect(t, corner_moved, "a square alpha reaches past the round brush into its corners")
+
+	// The star's point goes where alpha_up says.
+	star := alpha_make(.Star)
+	defer alpha_destroy(&star)
+	above := nearest(sp.before, linalg.normalize(Vec3{0, 0.7 * R, 1}))
+	below := nearest(sp.before, linalg.normalize(Vec3{0, -0.7 * R, 1}))
+	for up in ([2]Vec3{{0, 1, 0}, {0, -1, 0}}) {
+		before := slice.clone(sp.mesh.positions[:], context.temp_allocator)
+		_ = apply_dab(&sp.sculptor, {kind = .Draw, radius = R, strength = 1, alpha = &star, alpha_up = up}, TOP)
+		rise_above := linalg.length(sp.mesh.positions[above] - before[above])
+		rise_below := linalg.length(sp.mesh.positions[below] - before[below])
+		if up.y > 0 {
+			testing.expectf(t, rise_above > 0 && rise_below == 0, "up +Y: the point should rise above (%v), not below (%v)", rise_above, rise_below)
+		} else {
+			testing.expectf(t, rise_below > 0 && rise_above == 0, "up -Y: the point should rise below (%v), not above (%v)", rise_below, rise_above)
+		}
+	}
+}
+
+@(test)
+alpha_mirrors_with_symmetry :: proc(t: ^testing.T) {
+	sp := sphere_make(5)
+	defer sphere_free(sp)
+	mirror := mirror_map(sp.mesh, .X)
+	// Only the image's left half raises anything.
+	grey := make([]f32, 32 * 32, context.temp_allocator)
+	for &value, i in grey do value = 1 if i % 32 < 16 else 0
+	half, _ := alpha_from_grey(grey, 32, 32)
+	defer alpha_destroy(&half)
+	center := linalg.normalize(Vec3{0.5, 0, 0.8})
+	_ = apply_dab(&sp.sculptor, {kind = .Mask, radius = 0.25, strength = 1, symmetry = {.X}, alpha = &half, alpha_up = {0, 1, 0}}, center)
+	testing.expect(t, sp.sculptor.mask != nil)
+	if sp.sculptor.mask == nil do return
+	worst := 0
+	left, right := 0, 0
+	for v in 0 ..< len(sp.mesh.positions) {
+		worst = max(worst, abs(int(sp.sculptor.mask[v]) - int(sp.sculptor.mask[mirror[v]])))
+		if sp.sculptor.mask[v] == 0 || sp.before[v].x < 0 do continue
+		// Seen from outside, the image's left is toward the middle of the sphere. The
+		// pixels either side of the image's middle blend, so a strip there counts as
+		// neither.
+		x := sp.before[v].x - nearest_x(sp.before, center)
+		if x < -0.02 do left += 1
+		else if x > 0.02 do right += 1
+	}
+	testing.expectf(t, worst <= 1, "the mirror image masked differently, by up to %d", worst)
+	testing.expectf(t, left > 0 && right == 0, "masked %d vertices on the image's left and %d on its right", left, right)
+}
+
+@(private = "file")
+nearest_x :: proc(positions: []Vec3, p: Vec3) -> f32 {return positions[nearest(positions, p)].x}
+
+@(test)
 grab_drags_by_the_offset :: proc(t: ^testing.T) {
 	sp := sphere_make(4)
 	defer sphere_free(sp)

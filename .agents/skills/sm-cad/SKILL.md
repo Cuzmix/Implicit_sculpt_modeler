@@ -31,20 +31,20 @@ description: CAD-style mesh tools inside this app on geom.Mesh — primitives, b
 ## Three kinds of tool, three plug-in paths
 | Kind | Examples | Path |
 |---|---|---|
-| positions only, topology kept | mirror or symmetrise, relax or smooth all, taper, bend, snap to a surface | keep the sculptor: change `mesh.positions` for whole nodes (a vertex's node is `Level.node_of_vertex`, `src/sculpt/levels.odin:37`), then `sculpt.sculptor_nodes_moved(s, nodes)` (`src/sculpt/brush.odin:895-922`) so bounds, normals, LOD staleness and `edited` catch up and `levels_sync` carries it; upload through `object_show_level` (`scene.odin:354-376`). Undo: only dabs record today, so add a `sculptor_record_nodes(s, nodes)` that exposes `record_hit`/`record_changed` (`undo.odin`) between `sculptor_stroke_begin` and `sculptor_stroke_end`; the tool then is one stroke, and the cross-object `History` works unchanged (`src/app/history.odin:29-55`) |
+| positions only, topology kept | mirror or symmetrise, relax or smooth all, taper, bend, snap to a surface | keep the sculptor: change `mesh.positions` for whole nodes (a vertex's node is `Level.node_of_vertex`, `src/sculpt/levels.odin:37`), then `sculpt.sculptor_nodes_moved(s, nodes)` (`src/sculpt/brush.odin:944-971`) so bounds, normals, LOD staleness and `edited` catch up and `levels_sync` carries it; upload through `object_show_level` (`scene.odin:354-376`). Undo: only dabs record today, so add a `sculptor_record_nodes(s, nodes)` that exposes `record_hit`/`record_changed` (`undo.odin`) between `sculptor_stroke_begin` and `sculptor_stroke_end`; the tool then is one stroke, and the cross-object `History` works unchanged (`src/app/history.odin:29-55`) |
 | topology changes on an object | boolean, trim or slice, extrude, inset, bevel, decimate | copy `object_remesh` (`scene.odin:147-175`): `stroke_finish`, `object_hd_leave`, take the source (`sculptor_compact_mesh` when dynamic), build the new mesh and refuse with `log.warn` + `return true` if that fails, then `_ = sdl.WaitForGPUIdle`, `object_release_mesh` (history, GPU buffers and levels, `:482`) and `object_build_from` (`:462`). Levels, HD detail, the mask, dynamic topology and the stroke history are gone, and the tool is not undoable until the `Mesh_Swap` entry in [references/undo-and-topology.md](references/undo-and-topology.md) exists: write that design first |
-| a new object | cube, cylinder, torus, plane with options | a `geom.<primitive>(…, allocator)` builder shaped like `icosphere`, then `scene_add_mesh(app, mesh, name, file = {scale = 1}, t, start)` (`scene.odin:122`), as `scene_import` does (`src/app/files.odin:200`); place it with `next_free_position` (`scene.odin:422-429`) |
+| a new object | cube, cylinder, torus, plane with options | a `geom.<primitive>(…, allocator)` builder shaped like `icosphere`, then `scene_add_mesh(app, mesh, name, file = {scale = 1}, t, start)` (`scene.odin:122`), as `scene_import` does (`src/app/files.odin:207`); place it with `next_free_position` (`scene.odin:422-429`) |
 
 ## Plug-in checklist (every item names the file to copy from)
 1. Geometry in `src/geom/<tool>.odin`, pure: imports only `core:` and `../jobs`, `allocator := context.allocator` last,
    deterministic, returns `(…, ok)` or counts; parallel only through `jobs.parallel_ranges` with heap-allocated per-job
    scratch (sm-odin).
 2. Output meets the sm-geom invariants: closed where levels will be built, consistently wound outward, no degenerate
-   triangles, no unused vertices (`sculptor_init` asserts, `brush.odin:315`), normals recomputed or left to
+   triangles, no unused vertices (`sculptor_init` asserts, `brush.odin:321`), normals recomputed or left to
    `sculptor_recompute_all`. Booleans want manifold inputs and give manifold outputs; the robust fallback is a voxel or
    SDF remesh ([references/algorithms.md](references/algorithms.md)).
 3. A new `Scene_Command.kind` (`scene.odin:84-91`) with its fields; the panel sets `app.ui.scene_command = {kind = …}`
-   (`src/app/ui.odin`, the Add / Remesh buttons); it is applied at the next frame start (`src/app/main.odin:282-285`).
+   (`src/app/ui.odin`, the Add / Remesh buttons); it is applied at the next frame start (`src/app/main.odin:300-303`).
    Never mutate the scene from inside `ui_draw`.
 4. A `scene_apply` case (`scene.odin:245-335`): refuse with `log.warn` and `return true` (`:298-313`), fail only a fatal
    GPU error with `return false`; log the result like `object_build` does (`:473-475`).

@@ -24,6 +24,9 @@ Brush_Settings :: struct {
 	// pixels on screen split, and with collapse, ones much shorter merge.
 	detail_px:         f32,
 	collapse:          bool,
+	alpha:             int, // index into App.alphas; -1 (or any other outside it) is the round brush
+	alpha_mode:        Alpha_Mode,
+	alpha_angle:       f32, // degrees counter-clockwise the image turns on top of what the mode gives
 }
 
 // One pointer sample as SDL reported it. The app keeps every motion event of a frame,
@@ -49,6 +52,7 @@ Stroke :: struct {
 	pos:      [2]f32, // viewport position the stroke has reached; trails the cursor with lazy mouse
 	pressure: f32, // pen pressure at pos
 	tilt:     [2]f32, // pen lean at pos
+	dir:      [2]f32, // the way the stroke last moved on screen, unit length; zero before it has
 	travel:   f32, // pixels moved since the last dab
 	size:     [2]f32, // viewport size the positions above are in
 	pending:  [dynamic]Input_Sample, // samples left for the next frame once one reaches MAX_DABS_PER_FRAME
@@ -187,6 +191,7 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 	st := &app.stroke
 	st.active, st.object = true, obj.id
 	st.pos, st.pressure, st.tilt, st.travel, st.size = s.pos, s.pressure, s.tilt, 0, input.size
+	st.dir = {}
 	clear(&st.pending)
 	sculpt.sculptor_stroke_begin(object_sculptor(obj))
 	local := to_local(obj.transform, hit)
@@ -239,6 +244,7 @@ stroke_walk :: proc(app: ^App, obj: ^Object, input: Viewport_Input, inv: matrix[
 		// Pressure can shrink the spacing below what has been travelled already; the
 		// dab then goes where the stroke is.
 		need := max(DAB_SPACING * brush_radius_px(app, st.pressure), MIN_DAB_SPACING_PX) - st.travel
+		if l > 0 do st.dir = d / l
 		if l < need {
 			st.travel += l
 			st.pos, st.pressure, st.tilt = target, pressure, tilt
@@ -285,6 +291,9 @@ brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pres
 	if app.brush.pressure_strength do strength *= pressure_curved(app, pressure)
 	turn: matrix[3, 3]f32
 	if app.brush.tilt_strength > 0 && tilt != {} do turn = camera.orbit_tilt(app.camera, tilt, app.brush.tilt_strength)
+	alpha := brush_alpha(app) if !input.smooth else nil
+	up: Vec3
+	if alpha != nil do up = alpha_world_up(app)
 	return sculpt.Brush {
 		kind     = .Smooth if input.smooth else app.brush.kind,
 		radius   = brush_radius_px(app, pressure) * world_per_px / t.scale,
@@ -294,6 +303,8 @@ brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pres
 		detail   = app.brush.detail_px / brush_radius_px(app, pressure),
 		collapse = app.brush.collapse,
 		tilt     = turn,
+		alpha    = alpha,
+		alpha_up = up,
 	}
 }
 
