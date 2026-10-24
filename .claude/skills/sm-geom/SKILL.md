@@ -1,6 +1,6 @@
 ---
 name: sm-geom
-description: The src/geom package — the structure-of-arrays geom.Mesh and its invariants (counter-clockwise outward triangles, closed manifold where subdivision needs it, every vertex used, no NaN), the icosphere and geodesic sphere fixtures, the SAH and Morton BVHs with refit, raycast and sphere queries, vertex-face CSR topology and spatial sort, chunk bounds and normal cones for culling, octahedral normals, QEM simplification that keeps borders, the LOD walk, the voxel remesh (DynaMesh), and geom.mesh_check for proving a mesh sound with numbers. Load for ANY task that creates, inspects, transforms or tests triangle meshes or spatial queries, e.g. "add a primitive", "why does the raycast miss", "check this mesh is closed", "speed up the BVH build", "write a geom test", "compute the volume", "the remesh leaves a hole". Requires sm-odin and sm-build; brushes, nodes and levels over the mesh are sm-sculpt; CAD-style tools are sm-cad.
+description: The src/geom package — the structure-of-arrays geom.Mesh and its invariants (counter-clockwise outward triangles, closed manifold where subdivision needs it, every vertex used, no NaN), the icosphere and geodesic sphere fixtures, the SAH and Morton BVHs with refit, raycast and sphere queries, vertex-face CSR topology and spatial sort, chunk bounds and normal cones for culling, octahedral normals, QEM simplification that keeps borders, the LOD walk, the voxel remesh (DynaMesh), response curves (pen pressure), and geom.mesh_check for proving a mesh sound with numbers. Load for ANY task that creates, inspects, transforms or tests triangle meshes or spatial queries, e.g. "add a primitive", "why does the raycast miss", "check this mesh is closed", "speed up the BVH build", "write a geom test", "compute the volume", "the remesh leaves a hole". Requires sm-odin and sm-build; brushes, nodes and levels over the mesh are sm-sculpt; CAD-style tools are sm-cad.
 ---
 
 # Geometry
@@ -47,6 +47,9 @@ description: The src/geom package — the structure-of-arrays geom.Mesh and its 
   offset and skip them when they are the identity (so -0 survives); `format_f32` writes nine significant digits,
   which read back bit for bit. `Byte_Reader` with `byte_get*` (a short read turns `ok` false and later reads give
   zero) and `byte_put*` are the binary helpers the scene file uses.
+- Response curves (`src/geom/curve.odin`, the pen pressure curve): `Curve{c1, c2}` is a cubic Bézier from (0, 0) to
+  (1, 1); `curve_at(curve, x)` clamps the controls into the unit square (`curve_clamped`), which keeps x monotone in the
+  parameter, finds the parameter by 24 bisection steps and returns exact 0 and 1 at the ends; `CURVE_LINEAR` is y = x.
 - `mesh_check(m)`, `mesh_check_indices(positions, indices)`, `mesh_report_ok`, `mesh_report_print` (`src/geom/check.odin`):
   one pass that counts boundary, inconsistent and non-manifold edges, degenerate triangles and NaN positions and gives
   the signed volume and bounds. The app prints it with `--check-mesh` (sm-build).
@@ -62,10 +65,10 @@ description: The src/geom package — the structure-of-arrays geom.Mesh and its 
 |---|---|---|
 | Triangles wind counter-clockwise seen from outside | the pipeline culls `.BACK` with `.COUNTER_CLOCKWISE` front faces (`src/render/renderer.odin:284`); back-face culling (`visibility.odin:83-92`) | `mesh_check(m).inverted == false` (signed volume > 0 for a closed mesh) |
 | Closed manifold: each directed edge once, its twin once | `levels_subdivide` and `level_above` refuse otherwise (`src/sculpt/levels.odin:101-113, 470`); `levels_hd_set_steps` (`src/sculpt/hd.odin:73-82`); `simplify` locks such vertices | `mesh_check(m).closed`; `mesh_report_ok` for the whole contract |
-| Every vertex is used by a triangle | `sculptor_init` asserts "mesh has vertices no triangle uses" (`src/sculpt/brush.odin:311`) | remove unused vertices and remap before handing a mesh to a sculptor. A dynamic-topology sculptor's mesh has unused page slots and (0,0,0) triangles by design: check `sculpt.sculptor_compact_mesh` instead, as `--check-mesh` does |
+| Every vertex is used by a triangle | `sculptor_init` asserts "mesh has vertices no triangle uses" (`src/sculpt/brush.odin:315`) | remove unused vertices and remap before handing a mesh to a sculptor. A dynamic-topology sculptor's mesh has unused page slots and (0,0,0) triangles by design: check `sculpt.sculptor_compact_mesh` instead, as `--check-mesh` does |
 | `len(normals) == len(positions)` | uploads pack one normal per vertex | the fixture builders set it |
 | No NaN or infinite position | `aabb_grow` uses plain compares that let NaN through (`bvh.odin:15-20`), so a NaN poisons bounds silently | `mesh_check(m).nan_count == 0` |
-| Vertex and triangle order are not stable across `sculptor_init` | anything holding indices across it | take the `old_to_new` it fills (`brush.odin:317`) |
+| Vertex and triangle order are not stable across `sculptor_init` | anything holding indices across it | take the `old_to_new` it fills (`brush.odin:321`) |
 
 ## Verify with numbers, not pictures
 - After any mesh operation print or expect: vertex and triangle counts (one closed genus-0 shell has V − E + F = 2, i.e.
@@ -83,7 +86,7 @@ description: The src/geom package — the structure-of-arrays geom.Mesh and its 
 | `normal_cone` leaves its argument alone | it normalises the face normals in place (`visibility.odin:36`) |
 | `cull_chunks` on chunks in any order | it merges adjacent ranges as it goes: chunks must be sorted by `first_index` |
 | moving triangles between leaves and refitting | topology is fixed after the build; rebuild the BVH (`bvh.odin:43-44`) |
-| `recompute_leaves = false` still recomputes leaf bounds | it recomputes only the ancestors; the caller set the leaf bounds itself (`finish_move`, `src/sculpt/brush.odin:653`) |
+| `recompute_leaves = false` still recomputes leaf bounds | it recomputes only the ancestors; the caller set the leaf bounds itself (`finish_move`, `src/sculpt/brush.odin:664`) |
 | a flat grid is closed | it has a border, which `simplify` keeps exactly (`simplify_test.odin`, `simplify_keeps_a_patch_border`) |
 | `icosphere(n)` has a vertex at (1, 0, 0) | its vertices are the icosahedron's, refined; test bounds with a tolerance (`check_test.odin`) |
 

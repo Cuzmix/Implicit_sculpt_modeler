@@ -54,6 +54,27 @@ orbit_zoom :: proc(c: ^Orbit, wheel_steps: f32) {
 	c.distance = clamp(c.distance * math.pow(0.88, wheel_steps), MIN_DISTANCE, MAX_DISTANCE)
 }
 
+// The turn a leaning pen gives the brush (the direction it pushes along): `tilt` is the
+// pen's lean in degrees, x to the right and y toward the bottom of the screen, as SDL
+// reports it, and `strength` how much of it the brush follows. The brush direction
+// turns about the view's up axis by strength times the x lean and about its right axis
+// by strength times the y lean, at most MAX_TILT in all, so a brush facing the viewer
+// leans the way the top of the pen does, as Blender's tilt strength works. Identity
+// for no lean.
+orbit_tilt :: proc(c: Orbit, tilt: Vec2, strength: f32) -> matrix[3, 3]f32 {
+	angles := linalg.to_radians(tilt * strength)
+	if l := linalg.length(angles); l > MAX_TILT do angles *= MAX_TILT / l
+	view := orbit_view(c)
+	right := Vec3{view[0, 0], view[0, 1], view[0, 2]}
+	up := Vec3{view[1, 0], view[1, 1], view[1, 2]}
+	// About up by +x turns the viewer's direction toward right; about right by +y
+	// turns it toward -up, the bottom of the screen.
+	return linalg.matrix3_rotate(angles.x, up) * linalg.matrix3_rotate(angles.y, right)
+}
+
+// The most a pen's lean turns the brush, in radians.
+MAX_TILT :: math.PI / 2 * 0.9
+
 orbit_view :: proc(c: Orbit) -> Mat4 {
 	return look_at(orbit_eye(c), c.target, {0, 1, 0})
 }

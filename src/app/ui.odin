@@ -1,6 +1,8 @@
 package main
 
 import "core:fmt"
+import "core:math"
+import "core:math/linalg"
 import "core:strings"
 import "core:time"
 
@@ -28,6 +30,8 @@ Ui_State :: struct {
 	viewport_mouse:     [2]f32,
 	viewport_size:      [2]f32,
 	viewport_hovered:   bool,
+	pie:                Pie,
+	curve_handle:       int, // the pressure curve's control point being dragged (1 or 2), or 0
 }
 
 SPHERE_PRESETS := [?]struct {
@@ -63,6 +67,7 @@ Viewport_Input :: struct {
 	smooth:      bool, // Shift held during a stroke: smooth brush
 	invert:      bool, // Ctrl held during a stroke: invert the brush
 	samples:     []Input_Sample, // every pointer sample this frame, oldest first
+	pen_tilt:    [2]f32, // the pen's lean now, in degrees; zero without a pen
 }
 
 BRUSH_NAMES := [sculpt.Brush_Kind]string {
@@ -211,12 +216,19 @@ draw_viewport :: proc(app: ^App) -> (input: Viewport_Input) {
 	imgui.InvisibleButton("viewport_input", avail, {.MouseButtonLeft, .MouseButtonRight, .MouseButtonMiddle})
 
 	io := imgui.GetIO()
+	// A right press let go soon and about where it began is a tap, which opens the brush
+	// pie, rather than an orbit.
+	right_tap :=
+		imgui.IsItemDeactivated() && imgui.IsMouseReleased(.Right) && !io.KeyShift &&
+		io.MouseDownDurationPrev[imgui.MouseButton.Right] < f32(time.duration_seconds(PIE_TAP)) &&
+		io.MouseDragMaxDistanceSqr[imgui.MouseButton.Right] < PIE_TAP_PX * PIE_TAP_PX
 	input.size = {avail.x, avail.y}
 	input.hovered = imgui.IsItemHovered()
 	input.dragging = imgui.IsItemActive()
 	input.mouse_pos = {io.MousePos.x - origin.x, io.MousePos.y - origin.y}
 	input.samples = make([]Input_Sample, len(app.samples), context.temp_allocator)
-	for s, i in app.samples do input.samples[i] = {s.pos - {origin.x, origin.y}, s.pressure, s.kind}
+	for s, i in app.samples do input.samples[i] = {s.pos - {origin.x, origin.y}, s.pressure, s.kind, s.tilt}
+	input.pen_tilt = app.pen_tilt
 	input.mouse_delta = {io.MouseDelta.x, io.MouseDelta.y}
 	input.wheel = io.MouseWheel
 
@@ -231,6 +243,7 @@ draw_viewport :: proc(app: ^App) -> (input: Viewport_Input) {
 		input.smooth = input.primary && io.KeyShift
 		input.invert = input.primary && io.KeyCtrl
 	}
+	pie_update(app, &input, right_tap)
 	app.ui.viewport_draw_list = imgui.GetWindowDrawList()
 	app.ui.viewport_origin = origin
 	app.ui.viewport_mouse, app.ui.viewport_size, app.ui.viewport_hovered = input.mouse_pos, input.size, input.hovered
@@ -240,6 +253,7 @@ draw_viewport :: proc(app: ^App) -> (input: Viewport_Input) {
 // Draws the brush circle or the move gizmo over the viewport image. Runs after the
 // tools have handled this frame's input, so the overlay matches what gets rendered.
 draw_viewport_overlay :: proc(app: ^App, input: Viewport_Input) {
+	defer draw_pie(app)
 	list := app.ui.viewport_draw_list
 	if list == nil do return
 	app.ui.viewport_draw_list = nil
@@ -250,7 +264,7 @@ draw_viewport_overlay :: proc(app: ^App, input: Viewport_Input) {
 
 	switch app.tool {
 	case .Brush:
-		if input.hovered || input.dragging {
+		if (input.hovered || input.dragging) && !app.ui.pie.open {
 			color := rgba({1, 1, 1, 0.6} if !input.primary else {1, 0.8, 0.4, 0.9})
 			center := input.mouse_pos
 			if app.stroke.active && app.brush.lazy_px > 0 {
@@ -259,6 +273,14 @@ draw_viewport_overlay :: proc(app: ^App, input: Viewport_Input) {
 				imgui.DrawList_AddLine(list, o + center, o + input.mouse_pos, color, 1)
 			}
 			imgui.DrawList_AddCircle(list, o + center, app.brush.radius_px, color, 48, 1.5)
+			// Which way a leaning pen turns the brush, and how far: toward the top of the
+			// pen, a radius long at a right angle.
+			if lean := input.pen_tilt * app.brush.tilt_strength; app.brush.tilt_strength > 0 && lean != {} {
+				angle := min(linalg.to_radians(linalg.length(lean)), camera.MAX_TILT)
+				tip := o + center + linalg.normalize(lean) * (app.brush.radius_px * math.sin(angle))
+				imgui.DrawList_AddLine(list, o + center, tip, color, 2)
+				imgui.DrawList_AddCircleFilled(list, tip, 3, color, 12)
+			}
 		}
 	case .Move:
 		gv := gizmo_view(app, input.size)
@@ -305,8 +327,7 @@ draw_tools_panel :: proc(app: ^App) {
 	imgui.SliderFloat("Radius (px)", &app.brush.radius_px, 5, 300, "%.0f")
 	imgui.SliderFloat("Strength", &app.brush.strength, 0.01, 1, "%.2f")
 	imgui.SliderFloat("Lazy mouse (px)", &app.brush.lazy_px, 0, 150, "%.0f")
-	imgui.Checkbox("Pressure sets strength", &app.brush.pressure_strength)
-	imgui.Checkbox("Pressure sets size", &app.brush.pressure_size)
+	imgui.TextDisabled("Space, or a right click without dragging (a pen's side\nbutton), opens the brush pie.")
 	imgui.Text("Symmetry")
 	for axis in sculpt.Axis {
 		imgui.SameLine()
@@ -326,11 +347,8 @@ draw_tools_panel :: proc(app: ^App) {
 	if imgui.Button("Mask all") do mask_command(app, .Fill)
 	imgui.EndDisabled()
 	imgui.TextDisabled("Paint it with the Mask brush (9); masked areas show\ndarker and no brush moves them. It follows level changes.")
-	if app.pen_seen {
-		imgui.TextDisabled("Pen pressure %.2f", app.pen_pressure)
-	} else {
-		imgui.TextDisabled("No pen seen yet; a mouse always has full pressure.")
-	}
+
+	draw_pen_section(app)
 
 	imgui.SeparatorText("Camera")
 	imgui.Text("Orbit: right drag, or Alt + left drag")
@@ -338,6 +356,96 @@ draw_tools_panel :: proc(app: ^App) {
 	imgui.Text("Zoom: mouse wheel.  Focus selected: F")
 	imgui.SliderFloat("Distance", &app.camera.distance, camera.MIN_DISTANCE, 20, "%.2f", {.Logarithmic})
 	if imgui.Button("Reset camera") do app.camera = camera.orbit_default()
+}
+
+// What a pen does to the brush: pressure through a curve, and the lean.
+@(private = "file")
+draw_pen_section :: proc(app: ^App) {
+	imgui.SeparatorText("Pen")
+	imgui.Checkbox("Pressure sets strength", &app.brush.pressure_strength)
+	imgui.SameLine()
+	imgui.Checkbox("size", &app.brush.pressure_size)
+	draw_pressure_curve(app)
+	for preset, i in PRESSURE_PRESETS {
+		if i > 0 do imgui.SameLine()
+		if imgui.SmallButton(preset.label) do app.brush.pressure_curve = preset.curve
+	}
+	imgui.SliderFloat("Tilt", &app.brush.tilt_strength, 0, 1, "%.2f")
+	imgui.SameLine()
+	imgui.TextDisabled("(turns the brush as the pen leans)")
+	if app.pen_seen {
+		imgui.TextDisabled("Pen: pressure %.2f counts as %.2f; leaning %.0f° across, %.0f° down", app.pen_pressure, pressure_curved(app, app.pen_pressure), app.pen_tilt.x, app.pen_tilt.y)
+	} else {
+		imgui.TextDisabled("No pen seen yet; a mouse always has full pressure.")
+	}
+}
+
+PRESSURE_PRESETS := [?]struct {
+	label: cstring,
+	curve: geom.Curve,
+} {
+	{"Linear", geom.CURVE_LINEAR},
+	{"Soft", {{0.1, 0.6}, {0.4, 0.95}}}, // a light touch goes far
+	{"Firm", {{0.6, 0.05}, {0.95, 0.4}}}, // it takes a press
+	{"S", {{0.55, 0}, {0.45, 1}}}, // light stays light, a press goes full
+}
+
+// The pressure curve as a graph to drag: pen pressure along, what it counts as up. The
+// two round handles are the curve's control points; the dot is the pen now.
+@(private = "file")
+draw_pressure_curve :: proc(app: ^App) {
+	SIZE :: imgui.Vec2{160, 110}
+	HANDLE_PX :: 6
+	o := imgui.GetCursorScreenPos()
+	imgui.InvisibleButton("pressure_curve", SIZE)
+	list := imgui.GetWindowDrawList()
+	rgba :: proc(c: [4]f32) -> u32 {return imgui.ColorConvertFloat4ToU32(c)}
+	to_px :: proc(o: imgui.Vec2, p: [2]f32) -> imgui.Vec2 {return o + {p.x * SIZE.x, (1 - p.y) * SIZE.y}}
+	curve := &app.brush.pressure_curve
+
+	mouse := imgui.GetIO().MousePos
+	if imgui.IsItemActivated() {
+		// Grab the nearer handle, if the press is near one.
+		app.ui.curve_handle = 0
+		best := f32(3 * HANDLE_PX)
+		for c, i in ([2][2]f32{curve.c1, curve.c2}) {
+			if d := linalg.length(mouse - to_px(o, c)); d < best do app.ui.curve_handle, best = i + 1, d
+		}
+	}
+	if imgui.IsItemActive() && app.ui.curve_handle > 0 {
+		p := [2]f32{clamp((mouse.x - o.x) / SIZE.x, 0, 1), clamp(1 - (mouse.y - o.y) / SIZE.y, 0, 1)}
+		if app.ui.curve_handle == 1 do curve.c1 = p
+		else do curve.c2 = p
+	} else if !imgui.IsItemActive() {
+		app.ui.curve_handle = 0
+	}
+
+	imgui.DrawList_AddRectFilled(list, o, o + SIZE, rgba({0.1, 0.1, 0.12, 1}))
+	for k in 1 ..< 4 {
+		f := f32(k) / 4
+		grid := rgba({1, 1, 1, 0.07})
+		imgui.DrawList_AddLine(list, to_px(o, {f, 0}), to_px(o, {f, 1}), grid)
+		imgui.DrawList_AddLine(list, to_px(o, {0, f}), to_px(o, {1, f}), grid)
+	}
+	imgui.DrawList_AddLine(list, to_px(o, {0, 0}), to_px(o, {1, 1}), rgba({1, 1, 1, 0.15}))
+	STEPS :: 48
+	points: [STEPS + 1]imgui.Vec2
+	for &q, i in points {
+		x := f32(i) / STEPS
+		q = to_px(o, {x, geom.curve_at(curve^, x)})
+	}
+	imgui.DrawList_AddPolyline(list, &points[0], STEPS + 1, rgba({0.95, 0.8, 0.45, 1}), 2)
+	handle := rgba({0.6, 0.75, 1, 1})
+	imgui.DrawList_AddLine(list, to_px(o, {0, 0}), to_px(o, curve.c1), handle)
+	imgui.DrawList_AddLine(list, to_px(o, {1, 1}), to_px(o, curve.c2), handle)
+	imgui.DrawList_AddCircleFilled(list, to_px(o, curve.c1), HANDLE_PX, handle, 16)
+	imgui.DrawList_AddCircleFilled(list, to_px(o, curve.c2), HANDLE_PX, handle, 16)
+	if app.pen_seen {
+		x := clamp(app.pen_pressure, 0, 1)
+		imgui.DrawList_AddCircleFilled(list, to_px(o, {x, pressure_curved(app, x)}), 4, rgba({1, 1, 1, 1}), 12)
+	}
+	imgui.SameLine()
+	imgui.TextDisabled("Pressure curve:\ndrag the handles.\nAlong: how hard\nthe pen presses.\nUp: what that\ncounts as.")
 }
 
 // Dynamic topology for the selected object, and the detail its brushes add.

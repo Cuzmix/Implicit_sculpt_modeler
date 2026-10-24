@@ -62,6 +62,10 @@ Brush :: struct {
 	// longer than this share of the radius are split first; 0 leaves the triangles be.
 	detail:   f32,
 	collapse: bool, // ...and edges much shorter than that collapse
+	// Turns the direction the brush works along (the area normal: Draw's push, the
+	// plane of Clay and Flatten, Pinch's and Crease's surface) before the dab moves
+	// anything: a leaning pen's (camera.orbit_tilt). The zero matrix leaves it.
+	tilt:     matrix[3, 3]f32,
 }
 
 // How far dabs move the surface at full strength, in brush radii.
@@ -525,7 +529,13 @@ Dab :: struct {
 apply_dab :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
 	if brush.kind == .Grab do return 0
 	moved := 0
-	for sign in mirrors(brush.symmetry) do moved += dab_once(s, brush, center * sign)
+	for sign in mirrors(brush.symmetry) {
+		// A mirror image turns the mirrored way: the reflection, the turn, the
+		// reflection back.
+		b := brush
+		for i in 0 ..< 3 do for j in 0 ..< 3 do b.tilt[i, j] *= sign[i] * sign[j]
+		moved += dab_once(s, b, center * sign)
+	}
 	return moved
 }
 
@@ -592,6 +602,7 @@ dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
 			weight += p.weight_sum
 		}
 		d.normal = linalg.normalize0(d.normal)
+		if brush.tilt != {} do d.normal = linalg.normalize0(brush.tilt * d.normal)
 		if weight > 0 do d.plane /= weight
 	}
 	switch brush.kind {
