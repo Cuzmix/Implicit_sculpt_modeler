@@ -21,10 +21,11 @@ description: Measuring the sculpt modeler's performance — the headless build/b
 ## Commands
 | Command | What you get |
 |---|---|
-| `build.bat bench` | 500k, 1M, 5M, 7M, 10M vertices and 10M with an idle second sphere (`src/bench/main.odin:99-101`): the stroke table (Setup s, Mesh MB, RSS MB, per brush size r=0.13 and r=0.04: Verts/dab, Raycast ms, Dab ms, Normals ms/frame, Frame ms, Frame ms max, Upload MB/frame, Stroke end ms, Undo MB/stroke, Undo ms, Redo ms; `:157`), then the culling table from three views (`:163`). 77 dabs, 4 per frame (`:45-46`) |
+| `build.bat bench` | 500k, 1M, 5M, 7M, 10M vertices and 10M with an idle second sphere (`src/bench/main.odin:103-105`): the stroke table (Setup s, Mesh MB, RSS MB, per brush size r=0.13 and r=0.04: Verts/dab, Raycast ms, Dab ms, Normals ms/frame, Frame ms, Frame ms max, Upload MB/frame, Stroke end ms, Undo MB/stroke, Undo ms, Redo ms; `:166`), then the culling table from three views (`:172`). 77 dabs, 4 per frame (`:46-47`) |
 | `build.bat bench 1000000 --threads=1` | the serial baseline at one size; `--threads=N` otherwise; `--node=N` node size; `--meshes=N` idle meshes |
 | `build.bat bench --lod` / `--levels` / `--hd` | the simplified-copy, subdivision-level and HD tables (README "Benchmark") |
-| `build.bat bench --brushes` | per kind (all nine, plus Draw with X symmetry and Draw half masked): Verts/dab, Dab ms, Normals ms/frame, Frame ms, Frame ms max, Undo MB/stroke (`src/bench/brushes.odin:20`) |
+| `build.bat bench --brushes` | per kind (all nine, plus Draw with X symmetry, Draw half masked and Draw with the Noise alpha): Verts/dab, Dab ms, Normals ms/frame, Frame ms, Frame ms max, Undo MB/stroke (`src/bench/brushes.odin:20`) |
+| `build.bat bench --masks` | every mask command on a half-masked sphere, the neighbourhood ones at 1 and 10 steps: Changed vertices, Command ms, Flush ms, Undo MB, Undo ms (`src/bench/masks.odin:17`) |
 | `build.bat bench --remesh` | the voxel remesh after a Grab: Remeshed vertices, Remesh ms, Sculpt-ready ms, edge-length spread before and after (`src/bench/remesh.odin:17`) |
 | `build.bat bench --dyntopo` | dynamic topology: enable ms, plain and refining frame ms, splits, collapses, triangles after, upload MB/frame, undo and redo ms, disable ms (`src/bench/dyntopo.odin:21`; "refused" when the mesh cannot be made dynamic) |
 | `build.bat gpubench` | six cases per size (orbit with everything on, without simplify, without culling; stroke with partial redraw and culling, without partial, without both), 30 warm-up + 120 measured frames, strokes counting only sculpting frames (`src/app/gpubench.odin:18-44`); writes `build\gpubench.md`. `--vertices=N` for one size, `--gpubench-frames=N` |

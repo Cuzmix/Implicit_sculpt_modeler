@@ -32,6 +32,27 @@ Ui_State :: struct {
 	viewport_hovered:   bool,
 	pie:                Pie,
 	curve_handle:       int, // the pressure curve's control point being dragged (1 or 2), or 0
+	mask_steps:         i32, // steps each Blur, Sharpen, Grow or Shrink press takes
+	mask_last:          Mask_Done,
+}
+
+// The last mask command, for the Mask section to report.
+Mask_Done :: struct {
+	command: sculpt.Mask_Command,
+	steps:   int,
+	ms:      f64,
+	changed: bool,
+	set:     bool, // false until a command has run
+}
+
+MASK_COMMAND_NAMES := [sculpt.Mask_Command]string {
+	.Clear   = "Clear",
+	.Invert  = "Invert",
+	.Fill    = "Mask all",
+	.Blur    = "Blur",
+	.Sharpen = "Sharpen",
+	.Grow    = "Grow",
+	.Shrink  = "Shrink",
 }
 
 SPHERE_PRESETS := [?]struct {
@@ -102,7 +123,7 @@ brush_by_name :: proc(name: string) -> (sculpt.Brush_Kind, bool) {
 }
 
 ui_state_default :: proc() -> Ui_State {
-	return {viewport_request = {1280, 720}, sphere_vertices = 500_000}
+	return {viewport_request = {1280, 720}, sphere_vertices = 500_000, mask_steps = 3}
 }
 
 ui_draw :: proc(app: ^App) -> Viewport_Input {
@@ -350,8 +371,18 @@ draw_tools_panel :: proc(app: ^App) {
 	if imgui.Button("Invert (Ctrl+I)") do mask_command(app, .Invert)
 	imgui.SameLine()
 	if imgui.Button("Mask all") do mask_command(app, .Fill)
+	for command, i in ([?]sculpt.Mask_Command{.Blur, .Sharpen, .Grow, .Shrink}) {
+		if i > 0 do imgui.SameLine()
+		if imgui.Button(fmt.ctprintf("%s", MASK_COMMAND_NAMES[command])) do mask_command(app, command)
+	}
+	imgui.SliderInt("Steps", &app.ui.mask_steps, 1, 50)
 	imgui.EndDisabled()
-	imgui.TextDisabled("Paint it with the Mask brush (9); masked areas show\ndarker and no brush moves them. It follows level changes.")
+	imgui.TextDisabled("Paint it with the Mask brush (9); masked areas show\ndarker and no brush moves them. It follows level changes.\nBlur, Sharpen, Grow and Shrink move its edge\na ring of triangles a step, so a dense mesh\nneeds more steps.")
+	if last := app.ui.mask_last; last.set {
+		steps := fmt.tprintf(", %d steps", last.steps) if last.command >= .Blur else ""
+		outcome := "" if last.changed else ", nothing changed"
+		imgui.TextDisabled("%s", fmt.ctprintf("Last: %s%s in %.0f ms%s", MASK_COMMAND_NAMES[last.command], steps, last.ms, outcome))
+	}
 
 	draw_pen_section(app)
 
