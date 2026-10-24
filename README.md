@@ -31,6 +31,7 @@ See `scripts/versions.env`: Odin `dev-2026-10`, SDL `3.4.18` (Linux; Windows use
 ./build.sh            # debug build with allocation tracking -> build/sculpt
 ./build.sh release    # optimized build
 ./build.sh test       # unit tests (geom, camera, sculpt, jobs, gizmo)
+./build.sh check      # odin check of every package with the strict flags, then the agent-file mirror check (scripts/agents_sync.py)
 ./build.sh run -- --vertices=10000000
 ./build.sh smoke      # 300 frames in GPU debug mode; non-zero exit on assert, GPU error or leak
 ./build.sh bench      # headless sculpt benchmark at 500k, 1M, 5M, 7M, 10M vertices
@@ -40,13 +41,13 @@ See `scripts/versions.env`: Odin `dev-2026-10`, SDL `3.4.18` (Linux; Windows use
 
 Headless (CI or containers): run under `Xvfb` with Mesa's llvmpipe Vulkan driver (`mesa-vulkan-drivers`).
 
-## Windows (not yet run on Windows; `./build.sh wincheck` compiles it from Linux)
+## Windows
 
 From an "x64 Native Tools Command Prompt for VS" with git and python on PATH:
 
 ```bat
 scripts\setup_deps.bat
-build.bat            :: or: build.bat release | test | run | smoke | bench | gpubench
+build.bat            :: or: build.bat release | test | run | smoke | bench | gpubench | check
 ```
 
 Shaders are recompiled when `glslangValidator` (Vulkan SDK) is on PATH; otherwise the committed `.spv` files are used.
@@ -54,6 +55,8 @@ Shaders are recompiled when `glslangValidator` (Vulkan SDK) is on PATH; otherwis
 ## App flags
 
 `--vertices=N` start with a geodesic sphere of about N vertices (the Scene panel adds spheres or remeshes the selected one at any typed vertex count), `--subdiv=N` icosphere level when `--vertices` is not given (default 6: 40,962 vertices), `--threads=N` sculpt threads including the main one (default: one per core), `--frames=N` exit after N frames, `--spheres=N` start with N spheres of that size side by side, `--subdivide=N` give each starting sphere N subdivision levels above it (`--vertices=40000 --subdivide=4` tops out at 10M), `--level=N` start on level N (1 is the base; default the top), `--no-cache` draw every object every frame instead of caching idle ones (for A/B timing; also a checkbox in the Stats panel), `--bench-stroke=N` synthetic brush stroke over N frames across the first sphere, then print stats (with levels, also the time of each step down to the base and back), `--bench-samples=N` give each of those frames N pointer samples along the path, like a high-rate mouse (default: one position a frame), `--bench-loops=N` make that stroke N circles around the middle of the sphere instead of a wavy line, `--gpu-debug` GPU debug/validation mode, `--no-partial` redraw the whole viewport every frame (also a Stats panel checkbox), `--dump-viewport=PATH` write the last viewport image as a PPM on exit (for comparing renders), `--check-mesh` check every object's mesh on exit (closed, consistently wound, no degenerate triangles or NaN) and print the counts as `mesh_*` lines, `--no-cull` draw every triangle instead of skipping off-screen and back-facing chunks (for A/B timing; also a checkbox in the Stats panel), `--no-vsync` show frames as soon as they are ready (also a Stats panel checkbox), `--no-simplify` draw everything at full detail while the view moves too (also a Stats panel checkbox), `--orbit` turn the camera around the scene by itself, once every 240 frames, `--time-gpu` measure the GPU time of the 3D viewport every frame (also a Stats panel checkbox), `--gpubench=PATH` run the GPU benchmark below and write its tables to PATH, `--gpubench-frames=N` measured frames per benchmark case (default 120), `--hd=N` give each starting sphere an HD level N Loop steps (1 to 3) above its top level, `--hd-open` start sculpting HD on the first sphere, in a window around the side facing the camera, `--hd-window=N` vertices an HD window holds (default 4,000,000; also a slider in the Scene panel), `--width`, `--height`.
+
+`python scripts/ppm.py to-png build/view.ppm build/view.png` turns a `--dump-viewport` file into a PNG; its `uniform`, `diff`, `crop` and `pixel` commands detect a blank frame, count and box the pixels two dumps disagree on, enlarge a region and print values (`python scripts/ppm.py -h`).
 
 ## Benchmark
 

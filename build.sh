@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Usage: ./build.sh [debug|release|test|run|smoke|bench|gpubench|wincheck] [-- app args]
+# Usage: ./build.sh [debug|release|test|run|smoke|bench|gpubench|wincheck|check] [-- app args]
+#   check   odin check with the strict flags on every package (no link, no shaders), then
+#           python3 scripts/agents_sync.py --check (the skill mirror under .agents/ is current)
 #   debug   (default) debug build with allocation tracking -> build/sculpt
 #   release optimized build without bounds checks -> build/sculpt
 #   test    run all package tests
@@ -54,6 +56,16 @@ case "$mode" in
 		for pkg in geom camera sculpt jobs gizmo; do
 			"$ODIN" test "$ROOT/src/$pkg" -out:"$ROOT/build/test_$pkg" "${common[@]}"
 		done
+		;;
+	check)
+		# Library packages have no main, hence -no-entry-point; it is harmless on the executables.
+		# odin check takes no linker flags, so this is wincheck's flag list, not common's.
+		for pkg in app bench geom camera gizmo jobs render sculpt sdf_trial; do
+			"$ODIN" check "$ROOT/src/$pkg" -no-entry-point \
+				-collection:deps="$DEPS" -vet -strict-style -warnings-as-errors
+		done
+		python3 "$ROOT/scripts/agents_sync.py" --check
+		echo "check: 9 packages type-check, agent mirror current"
 		;;
 	wincheck)
 		# Object files need no Windows SDK; the empty root only satisfies the flag.

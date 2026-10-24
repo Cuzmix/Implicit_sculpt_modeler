@@ -1,5 +1,5 @@
 @echo off
-rem Usage: build.bat [debug|release|test|run|smoke|bench|gpubench]   (see build.sh for what each does)
+rem Usage: build.bat [debug|release|test|run|smoke|bench|gpubench|check]   (see build.sh for what each does)
 rem Run scripts\setup_deps.bat first, from an x64 Native Tools Command Prompt.
 setlocal
 set ROOT=%~dp0
@@ -9,6 +9,23 @@ if not exist "%ODIN%" ( echo deps missing: run scripts\setup_deps.bat first & ex
 set MODE=%1
 if "%MODE%"=="" set MODE=debug
 set COMMON=-collection:deps="%DEPS%" -vet -strict-style -warnings-as-errors
+
+if "%MODE%"=="check" (
+	rem Type-check every package with the strict flags: no link, no shaders, no build\.
+	rem Library packages have no main, hence -no-entry-point; it is harmless on the executables.
+	"%ODIN%" check "%ROOT%src\app" -no-entry-point %COMMON% || exit /b 1
+	"%ODIN%" check "%ROOT%src\bench" -no-entry-point %COMMON% || exit /b 1
+	"%ODIN%" check "%ROOT%src\geom" -no-entry-point %COMMON% || exit /b 1
+	"%ODIN%" check "%ROOT%src\camera" -no-entry-point %COMMON% || exit /b 1
+	"%ODIN%" check "%ROOT%src\gizmo" -no-entry-point %COMMON% || exit /b 1
+	"%ODIN%" check "%ROOT%src\jobs" -no-entry-point %COMMON% || exit /b 1
+	"%ODIN%" check "%ROOT%src\render" -no-entry-point %COMMON% || exit /b 1
+	"%ODIN%" check "%ROOT%src\sculpt" -no-entry-point %COMMON% || exit /b 1
+	"%ODIN%" check "%ROOT%src\sdf_trial" -no-entry-point %COMMON% || exit /b 1
+	python "%ROOT%scripts\agents_sync.py" --check || exit /b 1
+	echo check: 9 packages type-check, agent mirror current
+	exit /b 0
+)
 
 rem Recompile shaders when glslangValidator (Vulkan SDK) is available; otherwise use the committed .spv files.
 where glslangValidator >nul 2>nul && (

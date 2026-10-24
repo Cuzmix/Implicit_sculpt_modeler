@@ -79,6 +79,23 @@
 			}
 		},
 		{
+			"label": "check",
+			"detail": "build.bat check: odin check of every package, then the agent-file mirror check",
+			"type": "process",
+			"command": "cmd.exe",
+			"args": ["/d", "/c", "${workspaceFolder}\\build.bat", "check"],
+			"options": { "cwd": "${workspaceFolder}" },
+			"group": "build",
+			"problemMatcher": {
+				"owner": "odin",
+				"fileLocation": "absolute",
+				"pattern": {
+					"regexp": "^(.+\\.odin)\\((\\d+):(\\d+)\\)\\s+(?:Syntax )?(Error|Warning):\\s*(.*)$",
+					"file": 1, "line": 2, "column": 3, "severity": 4, "message": 5
+				}
+			}
+		},
+		{
 			"label": "test: all",
 			"detail": "build.bat test",
 			"type": "process",
