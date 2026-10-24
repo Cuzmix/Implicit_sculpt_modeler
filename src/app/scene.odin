@@ -229,7 +229,7 @@ object_show_level :: proc(app: ^App, obj: ^Object, start: time.Tick) -> bool {
 	gpu := object_gpu(obj)
 	if gpu.positions == nil {
 		ok: bool
-		gpu^, ok = render.mesh_buffers_create(&app.renderer, lv.mesh)
+		gpu^, ok = render.mesh_buffers_create(&app.renderer, lv.mesh, lv.sculptor.mask)
 		return ok
 	}
 	if len(ranges) == 0 do return true
@@ -238,7 +238,7 @@ object_show_level :: proc(app: ^App, obj: ^Object, start: time.Tick) -> bool {
 		log.errorf("AcquireGPUCommandBuffer failed: %s", sdl.GetError())
 		return false
 	}
-	render.mesh_buffers_upload_ranges(&app.renderer, cmd, gpu, lv.mesh, ranges)
+	render.mesh_buffers_upload_ranges(&app.renderer, cmd, gpu, lv.mesh, ranges, lv.sculptor.mask)
 	return sdl.SubmitGPUCommandBuffer(cmd)
 }
 
@@ -258,7 +258,7 @@ object_hd_enter :: proc(app: ^App, obj: ^Object, at: Vec3) -> bool {
 	if !sculpt.levels_hd_enter(&obj.levels, at, app.hd_window_vertices) do return true
 	built := time.tick_now()
 	ok: bool
-	obj.hd_gpu, ok = render.mesh_buffers_create(&app.renderer, object_mesh(obj)^)
+	obj.hd_gpu, ok = render.mesh_buffers_create(&app.renderer, object_mesh(obj)^, object_sculptor(obj).mask)
 	if !ok {
 		sculpt.levels_hd_leave(&obj.levels)
 		return false
@@ -322,7 +322,7 @@ object_build :: proc(app: ^App, obj: ^Object, vertices, subdiv: int) -> bool {
 	sculpt.levels_init(&obj.levels, mesh, &app.pool)
 	free_all(context.temp_allocator)
 	ready := time.tick_now()
-	mesh_gpu, ok := render.mesh_buffers_create(&app.renderer, object_mesh(obj)^)
+	mesh_gpu, ok := render.mesh_buffers_create(&app.renderer, object_mesh(obj)^, object_sculptor(obj).mask)
 	if !ok {
 		sculpt.levels_destroy(&obj.levels)
 		return false
