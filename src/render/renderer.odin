@@ -563,6 +563,28 @@ mesh_buffers_upload_lod :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: ^M
 	}
 	whole := [1]geom.Index_Range{{0, u32(len(indices))}}
 	if all do ranges = whole[:]
+	if !upload_index_ranges(r, cmd, mb, mb.lod_indices, indices, ranges) {
+		log.errorf("LOD upload failed: %s", sdl.GetError())
+		sdl.ReleaseGPUBuffer(r.device, mb.lod_indices)
+		mb.lod_indices, mb.lod_capacity = nil, 0
+	}
+}
+
+// Records copies of the `ranges` of `indices`, the mesh's own triangles, into its index
+// buffer: for a mesh whose triangles change (the sculptor's dynamic topology).
+mesh_buffers_upload_indices :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: ^Mesh_Buffers, indices: []u32, ranges: []geom.Index_Range) {
+	if len(ranges) == 0 do return
+	r.last_version += 1
+	mb.version = r.last_version
+	for x in ranges do assert(x.first_index + x.index_count <= mb.index_count)
+	if !upload_index_ranges(r, cmd, mb, mb.indices, indices, ranges) do log.errorf("index upload failed: %s", sdl.GetError())
+}
+
+// Packs index ranges into the transfer buffer, cycled, and records their copies into
+// `buffer`, in as many batches as they need.
+@(private)
+upload_index_ranges :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: ^Mesh_Buffers, buffer: ^sdl.GPUBuffer, indices: []u32, ranges: []geom.Index_Range) -> bool {
+	ranges := ranges
 	capacity := mb.transfer_size / size_of(u32) // indices per batch
 	split: geom.Index_Range // remainder of a range cut at a batch boundary
 	for len(ranges) > 0 || split.index_count > 0 {
@@ -591,20 +613,16 @@ mesh_buffers_upload_lod :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: ^M
 		}
 		if len(batch) == 0 do break
 		dst := cast([^]u32)sdl.MapGPUTransferBuffer(r.device, mb.transfer, true)
-		if dst == nil {
-			log.errorf("LOD upload failed: %s", sdl.GetError())
-			sdl.ReleaseGPUBuffer(r.device, mb.lod_indices)
-			mb.lod_indices, mb.lod_capacity = nil, 0
-			return
-		}
+		if dst == nil do return false
 		for p in batch do copy(dst[p.dst:][:p.r.index_count], indices[p.r.first_index:][:p.r.index_count])
 		sdl.UnmapGPUTransferBuffer(r.device, mb.transfer)
 		pass := sdl.BeginGPUCopyPass(cmd)
 		for p in batch {
-			sdl.UploadToGPUBuffer(pass, {transfer_buffer = mb.transfer, offset = p.dst * size_of(u32)}, {buffer = mb.lod_indices, offset = p.r.first_index * size_of(u32), size = p.r.index_count * size_of(u32)}, false)
+			sdl.UploadToGPUBuffer(pass, {transfer_buffer = mb.transfer, offset = p.dst * size_of(u32)}, {buffer = buffer, offset = p.r.first_index * size_of(u32), size = p.r.index_count * size_of(u32)}, false)
 		}
 		sdl.EndGPUCopyPass(pass)
 	}
+	return true
 }
 
 // Records the viewport: the live items over everything else. With `use_cache`, the

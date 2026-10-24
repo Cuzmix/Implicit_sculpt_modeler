@@ -50,6 +50,8 @@ Options :: struct {
 	brush:     string `usage:"Start with this brush: draw, smooth, clay, flatten, inflate, pinch, crease, grab or mask (also what --bench-stroke uses)."`,
 	symmetry:  string `usage:"Start with brush symmetry across these axes, e.g. x or xz."`,
 	remesh:    int `usage:"Voxel remesh the first sphere to about this many vertices before starting, as Remesh selected does (after --subdivide and --level)."`,
+	dyntopo:   bool `usage:"Turn dynamic topology on for the first sphere before starting (after --remesh), as Ctrl+T does."`,
+	detail:    f32 `usage:"Dynamic topology detail: edges longer than this many pixels on screen split (default 10)."`,
 	no_vsync:  bool `usage:"Show each frame as soon as it is ready instead of waiting for the display's refresh, so frame times are not capped at the refresh rate."`,
 	time_gpu:  bool `usage:"Measure the GPU time of the 3D viewport every frame. Waits for the GPU each frame, so frames no longer overlap."`,
 	gpubench:  string `usage:"Time the GPU and CPU while orbiting and sculpting one sphere at 500k, 1M, 5M, 7M and 10M vertices (only --vertices when given), with each speed setting on and off; write the markdown tables to this path and exit."`,
@@ -170,6 +172,11 @@ run :: proc(opts: Options) -> bool {
 	}
 	app.scene.selected = 0
 	if opts.remesh > 0 && !object_remesh(&app, app.scene.objects[0], opts.remesh) do return false
+	if opts.dyntopo {
+		obj := app.scene.objects[0]
+		if !object_set_dyntopo(&app, obj, true) do return false
+		if !object_dynamic(obj) do return false // refused, with the reason logged
+	}
 	defer render.viewport_target_destroy(&app.renderer, &app.target)
 	app.camera = camera.orbit_default()
 	if opts.hd_open {
@@ -208,7 +215,8 @@ run :: proc(opts: Options) -> bool {
 	app.vsync = !opts.no_vsync && opts.gpubench == ""
 	app.time_gpu = opts.time_gpu || opts.gpubench != ""
 	app.ui = ui_state_default()
-	app.brush = {kind = .Draw, radius_px = 60, strength = 0.5, pressure_strength = true}
+	app.brush = {kind = .Draw, radius_px = 60, strength = 0.5, pressure_strength = true, detail_px = 10, collapse = true}
+	if opts.detail > 0 do app.brush.detail_px = opts.detail
 	if opts.brush != "" {
 		kind, found := brush_by_name(opts.brush)
 		if !found {
@@ -337,7 +345,7 @@ run :: proc(opts: Options) -> bool {
 			_ = sdl.SubmitGPUCommandBuffer(present_cmd) // holds a swapchain texture: cannot be cancelled
 			return false
 		}
-		uploaded: u32
+		uploaded: int // bytes
 		normals_ms: f64
 		lod_ms := -1.0 // time building simplified copies; none built when negative
 		draws := make([dynamic]render.Draw_Item, 0, 2 * len(app.scene.objects), context.temp_allocator)
@@ -351,8 +359,13 @@ run :: proc(opts: Options) -> bool {
 				t_flush := time.tick_now()
 				ranges := sculpt.sculptor_flush(&lv.sculptor)
 				normals_ms += time.duration_milliseconds(time.tick_since(t_flush))
-				render.mesh_buffers_upload_ranges(&app.renderer, cmd, gpu, lv.mesh, ranges, lv.sculptor.mask)
-				for r in ranges do uploaded += r.count
+				bytes, uploaded_ok := level_upload(&app, cmd, gpu, lv, ranges)
+				if !uploaded_ok {
+					_ = sdl.SubmitGPUCommandBuffer(cmd)
+					_ = sdl.SubmitGPUCommandBuffer(present_cmd)
+					return false
+				}
+				uploaded += bytes
 				// Simplified copies are built a batch a frame, for one level at a time, and
 				// never during a stroke, whose frames should stay as short as they can be.
 				if app.simplify && !app.stroke.active && lod_ms < 0 && sculpt.sculptor_lod_pending(&lv.sculptor) > 0 {
@@ -449,7 +462,7 @@ run :: proc(opts: Options) -> bool {
 			ring_push(&app.stats.raycast_ms, sculpted.raycast_ms)
 			ring_push(&app.stats.brush_ms, sculpted.brush_ms)
 			ring_push(&app.stats.normals_ms, normals_ms)
-			ring_push(&app.stats.upload_kb, f64(uploaded * render.VERTEX_BYTES) / 1024)
+			ring_push(&app.stats.upload_kb, f64(uploaded) / 1024)
 			ring_push(&app.stats.latency_ms, f64(submitted_ns - last_input_ns) / 1e6)
 			app.stats.dabs_total += sculpted.dabs
 		}
@@ -481,10 +494,26 @@ run :: proc(opts: Options) -> bool {
 		fmt.printfln("%s_p50=%.3f %s_p99=%.3f", name, p50, name, p99)
 	}
 	vertices: int
-	for obj in app.scene.objects do vertices += geom.mesh_vertex_count(object_mesh(obj)^)
+	for obj in app.scene.objects do vertices += object_vertex_count(obj)
 	fmt.printfln("frames=%d dabs=%d objects=%d vertices=%d", frame_index, app.stats.dabs_total, len(app.scene.objects), vertices)
 	if opts.check_mesh {
-		for obj in app.scene.objects do geom.mesh_report_print(geom.mesh_check(object_mesh(obj)^))
+		for obj in app.scene.objects {
+			if !object_dynamic(obj) {
+				geom.mesh_report_print(geom.mesh_check(object_mesh(obj)^))
+				continue
+			}
+			// Without the unused slots of the dynamic layout, which are not part of the surface.
+			packed, mask := sculpt.sculptor_compact_mesh(object_sculptor(obj))
+			geom.mesh_report_print(geom.mesh_check(packed))
+			geom.mesh_destroy(&packed)
+			delete(mask)
+		}
+	}
+	for obj in app.scene.objects {
+		if !object_dynamic(obj) do continue
+		splits, collapses := sculpt.sculptor_dyn_edits(object_sculptor(obj))
+		fmt.printfln("dyntopo object=%d triangles=%d splits=%d collapses=%d pages=%d gpu_regrows=%d", obj.id, object_triangle_count(obj),
+			splits, collapses, sculpt.sculptor_dyn_pages(object_sculptor(obj)), app.stats.gpu_regrows)
 	}
 	fmt.printfln("idle_cache=%v cache_redraws=%d last_frame_triangles=%d", app.cache_idle, app.stats.cache_redraws, app.stats.viewport.triangles)
 	v := app.stats.viewport
