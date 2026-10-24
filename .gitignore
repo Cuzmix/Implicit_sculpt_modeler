@@ -1,2 +1,3 @@
 /deps/
 /build/
+/.claude/settings.local.json
