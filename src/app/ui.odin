@@ -31,6 +31,7 @@ Ui_State :: struct {
 	viewport_size:      [2]f32,
 	viewport_hovered:   bool,
 	pie:                Pie,
+	adjust:             Brush_Adjust,
 	curve_handle:       int, // the pressure curve's control point being dragged (1 or 2), or 0
 	mask_steps:         i32, // steps each Blur, Sharpen, Grow or Shrink press takes
 	mask_last:          Mask_Done,
@@ -265,6 +266,7 @@ draw_viewport :: proc(app: ^App) -> (input: Viewport_Input) {
 		input.invert = input.primary && io.KeyCtrl
 	}
 	pie_update(app, &input, right_tap)
+	adjust_update(app, &input)
 	app.ui.viewport_draw_list = imgui.GetWindowDrawList()
 	app.ui.viewport_origin = origin
 	app.ui.viewport_mouse, app.ui.viewport_size, app.ui.viewport_hovered = input.mouse_pos, input.size, input.hovered
@@ -285,6 +287,7 @@ draw_viewport_overlay :: proc(app: ^App, input: Viewport_Input) {
 
 	switch app.tool {
 	case .Brush:
+		if draw_adjust(app, list, o) do break
 		if (input.hovered || input.dragging) && !app.ui.pie.open {
 			color := rgba({1, 1, 1, 0.6} if !input.primary else {1, 0.8, 0.4, 0.9})
 			center := input.mouse_pos
@@ -349,8 +352,9 @@ draw_tools_panel :: proc(app: ^App) {
 		if imgui.RadioButton(label, app.brush.kind == kind) do app.brush.kind = kind
 	}
 	imgui.TextDisabled("%s", BRUSH_HELP[app.brush.kind])
-	imgui.SliderFloat("Radius (px)", &app.brush.radius_px, 5, 300, "%.0f")
-	imgui.SliderFloat("Strength", &app.brush.strength, 0.01, 1, "%.2f")
+	imgui.SliderFloat("Radius (px)", &app.brush.radius_px, MIN_RADIUS_PX, MAX_RADIUS_PX, "%.0f", {.Logarithmic})
+	imgui.SliderFloat("Strength", brush_strength(app), MIN_STRENGTH, 1, "%.2f")
+	imgui.TextDisabled("S or U over the viewport sizes the brush or sets its\nstrength there; [ and ] step the size, Shift+[ and ]\nthe strength. Each brush keeps its own strength.")
 	imgui.SliderFloat("Lazy mouse (px)", &app.brush.lazy_px, 0, 150, "%.0f")
 	imgui.TextDisabled("Space, or a right click without dragging (a pen's side\nbutton), opens the brush pie.")
 	imgui.Text("Symmetry")
@@ -678,6 +682,17 @@ handle_shortcuts :: proc(app: ^App) {
 			}
 		}
 		if imgui.IsKeyPressed(.X, false) do app.brush.symmetry ~= {.X}
+		// [ and ] step the size by a sixth, Shift with them the strength by 0.05.
+		for key, i in ([2]imgui.Key{.LeftBracket, .RightBracket}) {
+			if !imgui.IsKeyPressed(key, true) do continue
+			up := i == 1
+			if io.KeyShift {
+				s := brush_strength(app)
+				s^ = clamp(s^ + (0.05 if up else -0.05), MIN_STRENGTH, 1)
+			} else {
+				app.brush.radius_px = clamp(app.brush.radius_px * (7.0 / 6 if up else 6.0 / 7), MIN_RADIUS_PX, MAX_RADIUS_PX)
+			}
+		}
 	}
 	if io.KeyAlt && imgui.IsKeyPressed(.M, false) do mask_command(app, .Clear)
 	if obj := selected_object(app); obj != nil && io.KeyCtrl && imgui.IsKeyPressed(.R, false) {

@@ -250,7 +250,8 @@ run :: proc(opts: Options) -> bool {
 	app.vsync = !opts.no_vsync && opts.gpubench == ""
 	app.time_gpu = opts.time_gpu || opts.gpubench != ""
 	app.ui = ui_state_default()
-	app.brush = {kind = .Draw, radius_px = 60, strength = 0.5, pressure_strength = true, pressure_curve = geom.CURVE_LINEAR, detail_px = 10, collapse = true, alpha = -1}
+	app.brush = {kind = .Draw, radius_px = 60, pressure_strength = true, pressure_curve = geom.CURVE_LINEAR, detail_px = 10, collapse = true, alpha = -1}
+	for &s in app.brush.strengths do s = 0.5
 	if opts.detail > 0 do app.brush.detail_px = opts.detail
 	app.brush.tilt_strength = clamp(opts.tilt_strength, 0, 1)
 	if opts.brush != "" {

@@ -21,7 +21,8 @@ description: The Dear ImGui interface in src/app/ui.odin and the frame loop arou
   `draw_viewport_overlay` runs after the tools (`main.odin:408`; `ui.odin:276`): the brush circle (with an alpha, its
   square turned as the next dab, `draw_alpha_outline`, `src/app/alphas.odin:204`), the lazy-mouse string, the gizmo.
 - Panels: Tools (`ui.odin:331`: tool radios, the nine brushes as radio buttons labelled with their keys, three a row,
-  from `BRUSH_NAMES`/`BRUSH_HELP` (`ui.odin:94, 106`), radius in px, strength, lazy mouse,
+  from `BRUSH_NAMES`/`BRUSH_HELP` (`ui.odin:94, 106`), radius in px (5-500, logarithmic), the held brush's own strength
+  (`Brush_Settings.strengths[kind]` through `brush_strength`), lazy mouse,
   Symmetry X/Y/Z checkboxes, the Alpha section (`draw_alpha_section`, `src/app/alphas.odin:217`: the round brush and
   each `App.alphas` entry as a 20² thumbnail drawn as filled rects over an `InvisibleButton`, six a row; Load image...;
   the mode radios and the Angle slider, greyed with no alpha), the Mask section (Clear, Invert, Mask all; Blur, Sharpen, Grow, Shrink with the Steps slider, `Ui_State.mask_steps`,
@@ -33,9 +34,13 @@ description: The Dear ImGui interface in src/app/ui.odin and the frame loop arou
   `PlotLines` of frame time, checkboxes bound straight to `app` fields: VSync, Time GPU, partial, cull, cache, simplify).
 - `handle_shortcuts` (`ui.odin:657-709`) runs only when `!io.WantTextInput`: Ctrl+Z, Ctrl+Shift+Z, Ctrl+Y (undo, redo);
   Ctrl+O, Ctrl+S, Ctrl+Shift+S (open, save, save as); W, B (tools); 1–9 (a brush, in `Brush_Kind` order, and the Brush tool) and X (X symmetry), both only without Ctrl or
-  Alt; Alt+M (clear mask), Ctrl+I (invert mask); Ctrl+R (remesh at the object's own count); Ctrl+T (dynamic topology);
+  Alt; [ and ] (size steps; with Shift the strength); Alt+M (clear mask), Ctrl+I (invert mask); Ctrl+R (remesh at the object's own count); Ctrl+T (dynamic topology);
   F (focus); A (HD window where the pointer is, or leave it); Ctrl+D, D, Shift+D (subdivide, level up, level down).
-  One-shot keys use `IsKeyPressed(.X, false)`. In the viewport Shift turns any brush into Smooth and Ctrl inverts.
+  One-shot keys use `IsKeyPressed(.X, false)`.
+  S and U over the viewport (Brush tool, no modifiers) start the modal size or strength adjustment in
+  `src/app/adjust.odin` (`adjust_update`, called after `pie_update` in `draw_viewport`; `Ui_State.adjust`): the
+  circle stays put, the value follows the pointer's distance from its middle, a click or the same key keeps it, a
+  right click or Escape restores it, and `viewport_mute` hides the pointer from tools and camera meanwhile. In the viewport Shift turns any brush into Smooth and Ctrl inverts.
 - Files (`src/app/files.odin`): menu items and shortcuts call `file_dialog(app, kind)` (SDL's dialogs, whose answer
   may come on another thread into a mutex-guarded `pending` slot) or `file_post` for a known path; the frame loop
   takes the request after the scene command (`file_take`, `file_apply`), so a file action, like a command, never runs
@@ -64,7 +69,7 @@ description: The Dear ImGui interface in src/app/ui.odin and the frame loop arou
 | a new panel | `draw_x_panel :: proc(app: ^App)` opening with `defer imgui.End()` then `if !imgui.Begin("X") do return`; call it from `ui_draw`; dock it in `build_default_layout` |
 | a button that changes the scene | a new `Scene_Command.kind` and a `scene_apply` case (the sm-cad checklist); the panel only sets `scene_command` |
 | a new statistic | a `Sample_Ring` in `Frame_Stats` (`src/app/stats.odin:32-69`), `ring_push` where it is measured, a `row(…)` line in the Stats panel and a key in the exit stats |
-| a viewport input that tools must not see | clear it in `pie_mute`'s style before the tools read `Viewport_Input`; never filter inside a tool |
+| a viewport input that tools must not see | clear it with `viewport_mute` (`src/app/adjust.odin`) before the tools read `Viewport_Input`; never filter inside a tool |
 | an A/B toggle | `imgui.Checkbox("…", &app.<field>)` plus a `--no-<x>` field in `Options` and a sentence in README "App flags" |
 | a shortcut | a line in `handle_shortcuts` and README "Controls" |
 | a key for a new brush | nothing: keys 1–9 follow `Brush_Kind`'s order, so a tenth kind needs its own key; add its name to `BRUSH_NAMES` and `BRUSH_HELP` (sm-sculpt has the brush checklist) |
