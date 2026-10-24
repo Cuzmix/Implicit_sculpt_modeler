@@ -32,16 +32,41 @@ MAX_CACHED_FACES :: 4096
 CONE_BATCH :: 512
 
 Brush_Kind :: enum {
-	Draw,   // push the surface out along the local average normal (inverted pulls in)
-	Smooth, // move vertices toward the average of their neighbours
+	Draw,    // push the surface out along the local average normal (inverted pulls in)
+	Smooth,  // move vertices toward the average of their neighbours
+	Clay,    // build up toward a plane just above the surface, filling dips first (inverted digs)
+	Flatten, // pull toward the plane through the surface under the brush (inverted pushes away)
+	Inflate, // push each vertex out along its own normal (inverted deflates)
+	Pinch,   // pull along the surface toward the centre (inverted pushes away)
+	Crease,  // cut a sharp groove: draw in with a narrow falloff and pinch (inverted: a ridge)
+	Grab,    // drag what is under the brush with the pointer: sculptor_grab_begin and _move
+	Mask,    // paint the mask, which shields vertices from every other brush (inverted erases)
 }
+
+Axis :: enum u8 {
+	X,
+	Y,
+	Z,
+}
+
+// Planes through the origin of the mesh's space that dabs are mirrored across.
+Symmetry :: bit_set[Axis;u8]
 
 Brush :: struct {
 	kind:     Brush_Kind,
 	radius:   f32, // world units
 	strength: f32, // 0..1
 	invert:   bool,
+	symmetry: Symmetry,
 }
+
+// How far dabs move the surface at full strength, in brush radii.
+DRAW_HEIGHT :: 0.1
+CLAY_HEIGHT :: 0.08 // where Clay's plane sits above the surface
+// Share of the way to the target that Clay, Flatten and Pinch go per dab at full strength.
+PLANE_RATE :: 0.5
+PINCH_RATE :: 0.25
+CREASE_PINCH :: 0.2
 
 Node :: struct {
 	tri_first:    u32, // triangles of this node (a BVH leaf), contiguous
@@ -61,6 +86,7 @@ Vertex_Range :: geom.Vertex_Range
 @(private)
 Stale :: enum u8 {
 	None,
+	Paint, // only its mask changed: nothing to recompute, just its GPU data
 	Edge,  // a neighbour's triangles moved: the normals of its vertices on that border
 	Shape, // its own triangles moved: all its normals, its bounds and its normal cone
 }
@@ -69,8 +95,10 @@ Stale :: enum u8 {
 @(private)
 Partial :: struct {
 	normal_sum: Vec3,
+	center_sum: Vec3, // falloff-weighted positions inside the brush, and their weight
+	weight_sum: f32,
 	bounds:     geom.Aabb, // of the owned vertices after the move
-	moved:      u32,  // owned vertices moved
+	moved:      u32,  // owned vertices moved (or, for Mask, whose mask changed)
 	touched:    bool, // a shared vertex lies inside the brush, so it moves too
 }
 
@@ -118,6 +146,10 @@ Sculptor :: struct {
 	// Per vertex: how far brushes move it, from 0 (not at all: an HD window's border,
 	// which meets the level drawn around it) to 255 (fully); nil when all move fully.
 	fade:        []u8,
+	// Per vertex: how masked it is, from 0 (not at all) to 255 (brushes leave it alone);
+	// nil until something is first masked (mask.odin).
+	mask:        []u8,
+	grab:        Grab, // the vertices a Grab stroke drags (grab.odin)
 }
 
 // Partitions and renumbers `mesh` in place (vertex order and triangle order change),
@@ -151,6 +183,8 @@ sculptor_init :: proc(s: ^Sculptor, mesh: ^geom.Mesh, pool: ^jobs.Pool, node_tri
 }
 
 sculptor_destroy :: proc(s: ^Sculptor) {
+	delete(s.mask, s.history.allocator)
+	grab_destroy(&s.grab)
 	history_destroy(&s.history)
 	geom.vertex_faces_destroy(&s.faces)
 	geom.bvh_destroy(&s.bvh)
@@ -455,13 +489,50 @@ Dab :: struct {
 	center:   Vec3,
 	r2:       f32,
 	inv_r2:   f32,
-	normal:   Vec3, // Draw: area normal
-	amount:   f32,  // Draw: signed displacement at the centre
+	normal:   Vec3, // area normal: the falloff-weighted normals inside the brush
+	plane:    Vec3, // Clay, Flatten: a point on the plane they pull toward
+	amount:   f32,  // signed: displacement at the centre (Draw, Inflate, Crease), plane
+	                // side (Clay), direction (Flatten, Pinch), or mask added (Mask)
 }
 
-// Applies one dab centred on `center`. Returns how many vertices moved. Positions and
-// BVH bounds are current when it returns; vertex normals catch up in sculptor_flush.
+// Applies one dab centred on `center`, and its mirror images across the brush's
+// symmetry planes. Returns how many vertices moved (for Mask: how many changed their
+// mask). Positions and BVH bounds are current when it returns; vertex normals catch up
+// in sculptor_flush. Grab strokes go through sculptor_grab_begin instead.
 apply_dab :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
+	if brush.kind == .Grab do return 0
+	moved := 0
+	for sign in mirrors(brush.symmetry) do moved += dab_once(s, brush, center * sign)
+	return moved
+}
+
+// The sign flips that take a point to its mirror images: {1, 1, 1} first, then one
+// for each combination of the planes in `symmetry`.
+mirrors :: proc(symmetry: Symmetry) -> (signs: [dynamic; 8]Vec3) {
+	append(&signs, Vec3{1, 1, 1})
+	for axis in Axis {
+		if axis not_in symmetry do continue
+		count := len(signs)
+		for k in 0 ..< count {
+			flipped := signs[k]
+			flipped[int(axis)] = -flipped[int(axis)]
+			append(&signs, flipped)
+		}
+	}
+	return
+}
+
+// How much brushes may move vertex v: its HD fade and what the mask leaves of it.
+@(private)
+shield :: #force_inline proc(fade, mask: []u8, v: u32) -> f32 {
+	w: f32 = 1
+	if fade != nil do w = f32(fade[v]) * (1.0 / 255)
+	if mask != nil do w *= f32(255 - mask[v]) * (1.0 / 255)
+	return w
+}
+
+@(private)
+dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
 	d := Dab {
 		s      = s,
 		brush  = brush,
@@ -477,16 +548,44 @@ apply_dab :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
 	candidates: u32
 	for leaf in s.hit do candidates += s.nodes[s.node_of[leaf]].vert_count
 	pool := s.pool if candidates >= PARALLEL_MIN_VERTS else nil
-	if s.history.recording do record_hit(s)
+	if brush.kind == .Mask do return mask_dab(s, &d, pool)
+	if s.history.recording do record_hit(s, masks = false)
 
+	sign: f32 = -1 if brush.invert else 1
+	if brush.kind != .Smooth {
+		jobs.parallel_for(pool, len(s.hit), &d, job_area)
+		weight: f32
+		for p in s.partials {
+			d.normal += p.normal_sum
+			d.plane += p.center_sum
+			weight += p.weight_sum
+		}
+		d.normal = linalg.normalize0(d.normal)
+		if weight > 0 do d.plane /= weight
+	}
 	switch brush.kind {
 	case .Draw:
-		jobs.parallel_for(pool, len(s.hit), &d, job_area_normal)
-		for p in s.partials do d.normal += p.normal_sum
-		d.normal = linalg.normalize0(d.normal)
-		d.amount = brush.radius * brush.strength * 0.1
-		if brush.invert do d.amount = -d.amount
+		d.amount = sign * brush.radius * brush.strength * DRAW_HEIGHT
 		jobs.parallel_for(pool, len(s.hit), &d, job_draw)
+	case .Inflate:
+		d.amount = sign * brush.radius * brush.strength * DRAW_HEIGHT
+		jobs.parallel_for(pool, len(s.hit), &d, job_inflate)
+	case .Clay:
+		d.amount = sign
+		d.plane += d.normal * (sign * brush.radius * CLAY_HEIGHT)
+		jobs.parallel_for(pool, len(s.hit), &d, job_clay)
+	case .Flatten:
+		d.amount = sign
+		jobs.parallel_for(pool, len(s.hit), &d, job_flatten)
+	case .Pinch:
+		d.amount = sign
+		jobs.parallel_for(pool, len(s.hit), &d, job_pinch)
+	case .Crease:
+		// Cuts in by default, like ZBrush's and Blender's crease brushes.
+		d.amount = -sign * brush.radius * brush.strength * DRAW_HEIGHT
+		jobs.parallel_for(pool, len(s.hit), &d, job_crease)
+	case .Grab, .Mask:
+		unreachable()
 	case .Smooth:
 		// Jacobi step: every target is computed from unmoved positions first.
 		resize(&s.offsets, len(s.hit))
@@ -499,7 +598,13 @@ apply_dab :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
 		jobs.parallel_for(pool, len(s.hit), &d, job_smooth_targets)
 		jobs.parallel_for(pool, len(s.hit), &d, job_smooth_apply)
 	}
+	return finish_move(s, &d, pool)
+}
 
+// After the vertices of the hit leaves moved: marks what changed, records it for undo
+// and refits the BVH. Returns how many vertices moved.
+@(private)
+finish_move :: proc(s: ^Sculptor, d: ^Dab, pool: ^jobs.Pool) -> int {
 	// A leaf changed if one of its triangles has a moved vertex, owned or shared. Every
 	// such triangle is in a hit leaf: its leaf's bounds held the vertex before the move.
 	moved: int
@@ -513,7 +618,7 @@ apply_dab :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
 	}
 	if len(s.changed) == 0 do return 0
 	if s.history.recording do record_changed(s)
-	jobs.parallel_for(pool, len(s.hit), &d, job_hit_bounds)
+	jobs.parallel_for(pool, len(s.hit), d, job_hit_bounds)
 	geom.bvh_refit_leaves(&s.bvh, s.mesh^, s.changed[:], recompute_leaves = false)
 	return moved
 }
@@ -562,41 +667,81 @@ shared_inside :: #force_inline proc(d: ^Dab, leaf: u32) -> bool {
 	return false
 }
 
+// The area under the brush: falloff-weighted sums of the normals and positions inside it.
 @(private)
-job_area_normal :: proc(data: rawptr, i: int) {
+job_area :: proc(data: rawptr, i: int) {
 	d := cast(^Dab)data
 	s := d.s
 	m := s.mesh
 	first, last := owned(s, s.hit[i])
-	sum: Vec3
+	normals, centers: Vec3
+	weight: f32
 	for v in first ..< last {
 		delta := m.positions[v] - d.center
 		d2 := linalg.dot(delta, delta)
-		if d2 < d.r2 do sum += m.normals[v] * falloff(d2 * d.inv_r2)
+		if d2 < d.r2 {
+			w := falloff(d2 * d.inv_r2)
+			normals += m.normals[v] * w
+			centers += m.positions[v] * w
+			weight += w
+		}
 	}
-	s.partials[i].normal_sum = sum
-	s.partials[i].touched = shared_inside(d, s.hit[i])
+	p := &s.partials[i]
+	p.normal_sum, p.center_sum, p.weight_sum = normals, centers, weight
+	p.touched = shared_inside(d, s.hit[i])
 }
 
+@(private) job_draw :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.Draw)}
+@(private) job_inflate :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.Inflate)}
+@(private) job_clay :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.Clay)}
+@(private) job_flatten :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.Flatten)}
+@(private) job_pinch :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.Pinch)}
+@(private) job_crease :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.Crease)}
+
+// Moves the owned vertices of hit leaf i that lie inside the brush, as brush kind K
+// does; specialised per kind so each loop has no branch on the kind.
 @(private)
-job_draw :: proc(data: rawptr, i: int) {
-	d := cast(^Dab)data
+displace :: #force_inline proc(d: ^Dab, i: int, $K: Brush_Kind) {
 	s := d.s
 	m := s.mesh
 	first, last := owned(s, s.hit[i])
-	fade := s.fade
+	fade, mask := s.fade, s.mask
 	moved: u32
 	bounds := geom.AABB_EMPTY
 	for v in first ..< last {
-		delta := m.positions[v] - d.center
+		p := m.positions[v]
+		delta := p - d.center
 		d2 := linalg.dot(delta, delta)
-		if d2 < d.r2 && (fade == nil || fade[v] != 0) {
-			w := falloff(d2 * d.inv_r2)
-			if fade != nil do w *= f32(fade[v]) * (1.0 / 255)
-			m.positions[v] += d.normal * (d.amount * w)
-			moved += 1
+		if d2 < d.r2 {
+			w := falloff(d2 * d.inv_r2) * shield(fade, mask, v)
+			if w > 0 {
+				when K == .Draw {
+					p += d.normal * (d.amount * w)
+				} else when K == .Inflate {
+					p += m.normals[v] * (d.amount * w)
+				} else when K == .Clay {
+					// Only what lies on the near side of the plane moves, up to the plane.
+					h := linalg.dot(p - d.plane, d.normal)
+					if h * d.amount < 0 do p -= d.normal * (h * min(d.brush.strength * w * PLANE_RATE, 1))
+				} else when K == .Flatten {
+					h := linalg.dot(p - d.plane, d.normal)
+					p -= d.normal * (h * d.amount * min(d.brush.strength * w * PLANE_RATE, 1))
+				} else when K == .Pinch {
+					to := d.center - p
+					to -= d.normal * linalg.dot(to, d.normal)
+					p += to * (d.amount * min(d.brush.strength * w * PINCH_RATE, 1))
+				} else when K == .Crease {
+					to := d.center - p
+					to -= d.normal * linalg.dot(to, d.normal)
+					p += d.normal * (d.amount * w * w) + to * min(d.brush.strength * w * CREASE_PINCH, 1)
+				} else {
+					#panic("not a displacing brush")
+				}
+				m.positions[v] = p
+				moved += 1
+			}
 		}
-		geom.aabb_grow(&bounds, m.positions[v])
+		geom.aabb_grow(&bounds, p)
 	}
 	s.partials[i].moved = moved
 	s.partials[i].bounds = bounds
@@ -630,17 +775,18 @@ job_smooth_apply :: proc(data: rawptr, i: int) {
 	m := s.mesh
 	first, last := owned(s, s.hit[i])
 	targets := s.smooth_to[s.offsets[i]:]
-	fade := s.fade
+	fade, mask := s.fade, s.mask
 	moved: u32
 	bounds := geom.AABB_EMPTY
 	for v in first ..< last {
 		delta := m.positions[v] - d.center
 		d2 := linalg.dot(delta, delta)
-		if d2 < d.r2 && (fade == nil || fade[v] != 0) {
-			t := clamp(d.brush.strength * falloff(d2 * d.inv_r2), 0, 1)
-			if fade != nil do t *= f32(fade[v]) * (1.0 / 255)
-			m.positions[v] = linalg.lerp(m.positions[v], targets[v - first], t)
-			moved += 1
+		if d2 < d.r2 {
+			if w := shield(fade, mask, v); w > 0 {
+				t := clamp(d.brush.strength * falloff(d2 * d.inv_r2), 0, 1) * w
+				m.positions[v] = linalg.lerp(m.positions[v], targets[v - first], t)
+				moved += 1
+			}
 		}
 		geom.aabb_grow(&bounds, m.positions[v])
 	}
@@ -729,9 +875,13 @@ job_node_normals :: proc(data: rawptr, i: int) {
 	m := s.mesh
 	id := s.dirty_nodes[i]
 	n := s.nodes[id]
-	if s.stale[id] == .Edge {
+	switch s.stale[id] {
+	case .None, .Paint:
+		return
+	case .Edge:
 		edge_normals(s, n)
 		return
+	case .Shape:
 	}
 	face_n: [MAX_CACHED_FACES]Vec3 = ---
 	cached := n.tri_count if n.tri_count <= MAX_CACHED_FACES else 0

@@ -30,7 +30,22 @@ stroke_finish :: proc(app: ^App) {
 	if !app.stroke.active do return
 	app.stroke.active = false
 	obj := object_by_id(app, app.stroke.object)
-	if obj == nil || !sculpt.sculptor_stroke_end(object_sculptor(obj)) do return
+	if obj == nil do return
+	sculpt.sculptor_grab_end(object_sculptor(obj))
+	if sculpt.sculptor_stroke_end(object_sculptor(obj)) do history_record(app, obj)
+}
+
+// Applies a mask command to the selected object as an undo step of its own.
+mask_command :: proc(app: ^App, command: sculpt.Mask_Command) {
+	stroke_finish(app)
+	obj := selected_object(app)
+	if obj != nil && sculpt.sculptor_mask_command(object_sculptor(obj), command) do history_record(app, obj)
+}
+
+// Lists the stroke (or mask command) the object's current sculptor just finished as
+// the newest undo step.
+@(private = "file")
+history_record :: proc(app: ^App, obj: ^Object) {
 	// A new stroke discards everything that could have been redone, everywhere.
 	for e in app.history.undone {
 		if s := entry_sculptor(app, e); s != nil do sculpt.sculptor_clear_redo(s)

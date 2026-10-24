@@ -10,7 +10,8 @@ import "../jobs"
 // node, the node's owned positions are copied into the step, so a step costs
 // 12 bytes per vertex of the nodes the stroke reached and nothing for the rest of
 // the mesh. Undo and redo swap those positions back in place, which turns the step
-// into its own inverse.
+// into its own inverse. Mask strokes save the nodes' masks the same way, at 1 byte a
+// vertex.
 Undo_History :: struct {
 	allocator: runtime.Allocator, // for the saved positions
 	done:      [dynamic]Undo_Step,
@@ -23,19 +24,24 @@ Undo_History :: struct {
 	// and listed once per step without clearing anything between steps.
 	saved:     []u32,
 	changed:   []u32,
+	mask_saved:   []u32, // the same for masks
+	mask_changed: []u32,
 	stamp:     u32,
 }
 
 Undo_Step :: struct {
 	saved:  [dynamic]Saved_Node,
 	leaves: [dynamic]u32, // BVH leaves whose triangles moved: bounds to refit, normals to update
+	painted: [dynamic]u32, // nodes whose mask changed: GPU data to update
 }
 
-// A node's owned positions from before the stroke moved them. Each node has its own
-// allocation, so a growing stroke never copies what it already saved.
+// A node's owned positions, or its owned vertices' masks, from before the stroke
+// changed them. Each node has its own allocation, so a growing stroke never copies
+// what it already saved.
 Saved_Node :: struct {
 	node:      u32,
-	positions: []Vec3,
+	positions: []Vec3, // nil when this saves the mask
+	masks:     []u8,
 }
 
 // Default cap on undo memory per sculptor: about 40 large strokes on a 10M mesh.
@@ -47,6 +53,8 @@ history_init :: proc(h: ^Undo_History, nodes: int, allocator := context.allocato
 	h.limit = UNDO_LIMIT_BYTES
 	h.saved = make([]u32, nodes, allocator)
 	h.changed = make([]u32, nodes, allocator)
+	h.mask_saved = make([]u32, nodes, allocator)
+	h.mask_changed = make([]u32, nodes, allocator)
 }
 
 @(private)
@@ -58,6 +66,8 @@ history_destroy :: proc(h: ^Undo_History) {
 	delete(h.undone)
 	delete(h.saved)
 	delete(h.changed)
+	delete(h.mask_saved)
+	delete(h.mask_changed)
 	h^ = {}
 }
 
@@ -70,6 +80,8 @@ sculptor_stroke_begin :: proc(s: ^Sculptor) {
 	if h.stamp == 0 { 	// wrapped: stamps from long ago would look current
 		slice.zero(h.saved)
 		slice.zero(h.changed)
+		slice.zero(h.mask_saved)
+		slice.zero(h.mask_changed)
 		h.stamp = 1
 	}
 }
@@ -80,7 +92,7 @@ sculptor_stroke_end :: proc(s: ^Sculptor) -> bool {
 	h := &s.history
 	if !h.recording do return false
 	h.recording = false
-	if len(h.current.leaves) == 0 {
+	if len(h.current.leaves) == 0 && len(h.current.painted) == 0 {
 		step_reset(h, &h.current)
 		return false
 	}
@@ -121,9 +133,15 @@ step_move :: proc(s: ^Sculptor, from, to: ^[dynamic]Undo_Step) -> bool {
 	m := s.mesh
 	for sv in step.saved {
 		n := s.nodes[sv.node]
+		if sv.masks != nil {
+			live := s.mask[n.vert_first:][:n.vert_count]
+			for &k, i in live do k, sv.masks[i] = sv.masks[i], k
+			continue
+		}
 		live := m.positions[n.vert_first:][:n.vert_count]
 		for &p, i in live do p, sv.positions[i] = sv.positions[i], p
 	}
+	for id in step.painted do mark_stale(s, id, .Paint)
 	d := Dab{s = s}
 	clear(&s.changed)
 	append(&s.changed, ..step.leaves[:])
@@ -136,18 +154,42 @@ step_move :: proc(s: ^Sculptor, from, to: ^[dynamic]Undo_Step) -> bool {
 	return true
 }
 
-// Called by apply_dab before the dab moves anything: saves the owned positions of
-// every hit node this stroke has not saved yet.
+// Called by apply_dab before the dab changes anything: saves the owned positions of
+// every hit node this stroke has not saved yet, or with `masks`, their masks.
 @(private)
-record_hit :: proc(s: ^Sculptor) {
-	h := &s.history
+record_hit :: proc(s: ^Sculptor, masks: bool) {
 	for leaf in s.hit {
+		if masks {
+			record_mask(s, s.node_of[leaf])
+			continue
+		}
+		h := &s.history
 		id := s.node_of[leaf]
 		if h.saved[id] == h.stamp do continue
 		h.saved[id] = h.stamp
 		n := s.nodes[id]
-		append(&h.current.saved, Saved_Node{id, slice.clone(s.mesh.positions[n.vert_first:][:n.vert_count], h.allocator)})
+		append(&h.current.saved, Saved_Node{node = id, positions = slice.clone(s.mesh.positions[n.vert_first:][:n.vert_count], h.allocator)})
 	}
+}
+
+// Saves a node's masks before the stroke first changes them, and lists the node as
+// painted. The sculptor must have a mask.
+@(private)
+record_mask :: proc(s: ^Sculptor, id: u32) {
+	h := &s.history
+	if h.mask_saved[id] == h.stamp do return
+	h.mask_saved[id] = h.stamp
+	n := s.nodes[id]
+	append(&h.current.saved, Saved_Node{node = id, masks = slice.clone(s.mask[n.vert_first:][:n.vert_count], h.allocator)})
+}
+
+// Lists a node whose mask the stroke changed, for undo to update its GPU data.
+@(private)
+record_painted :: proc(s: ^Sculptor, id: u32) {
+	h := &s.history
+	if h.mask_changed[id] == h.stamp do return
+	h.mask_changed[id] = h.stamp
+	append(&h.current.painted, id)
 }
 
 // Called by apply_dab once s.changed is known: lists the leaves to refit and update
@@ -165,23 +207,31 @@ record_changed :: proc(s: ^Sculptor) {
 
 @(private)
 step_bytes :: proc(step: Undo_Step) -> int {
-	bytes := len(step.saved) * size_of(Saved_Node) + len(step.leaves) * size_of(u32)
-	for sv in step.saved do bytes += len(sv.positions) * size_of(Vec3)
+	bytes := len(step.saved) * size_of(Saved_Node) + (len(step.leaves) + len(step.painted)) * size_of(u32)
+	for sv in step.saved do bytes += len(sv.positions) * size_of(Vec3) + len(sv.masks)
 	return bytes
 }
 
 @(private)
 step_reset :: proc(h: ^Undo_History, step: ^Undo_Step) {
-	for sv in step.saved do delete(sv.positions, h.allocator)
+	for sv in step.saved {
+		delete(sv.positions, h.allocator)
+		delete(sv.masks, h.allocator)
+	}
 	clear(&step.saved)
 	clear(&step.leaves)
+	clear(&step.painted)
 }
 
 @(private)
 step_destroy :: proc(h: ^Undo_History, step: ^Undo_Step) {
-	for sv in step.saved do delete(sv.positions, h.allocator)
+	for sv in step.saved {
+		delete(sv.positions, h.allocator)
+		delete(sv.masks, h.allocator)
+	}
 	delete(step.saved)
 	delete(step.leaves)
+	delete(step.painted)
 	step^ = {}
 }
 

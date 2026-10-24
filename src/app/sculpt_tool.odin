@@ -16,6 +16,7 @@ Brush_Settings :: struct {
 	pressure_strength: bool, // pen pressure scales the strength
 	pressure_size:     bool, // pen pressure scales the radius
 	lazy_px:           f32,  // lazy mouse: the brush trails the cursor by this many pixels; 0 is off
+	symmetry:          sculpt.Symmetry, // mirror strokes across these planes of the object
 }
 
 // One pointer sample as SDL reported it. The app keeps every motion event of a frame,
@@ -42,6 +43,8 @@ Stroke :: struct {
 	travel:   f32, // pixels moved since the last dab
 	size:     [2]f32, // viewport size the positions above are in
 	pending:  [dynamic]Input_Sample, // samples left for the next frame once one reaches MAX_DABS_PER_FRAME
+	grab:     bool, // a Grab stroke: drags what it picked up instead of laying dabs
+	anchor:   Vec3, // Grab: where the stroke started, in world space
 }
 
 Sculpt_Frame_Result :: struct {
@@ -127,6 +130,10 @@ stroke_follow :: proc(app: ^App, input: Viewport_Input, samples: []Input_Sample,
 		queue = q
 	}
 	inv := linalg.inverse(camera.orbit_proj(app.camera, input.size.x / input.size.y) * camera.orbit_view(app.camera))
+	if st.active && st.grab {
+		if len(queue) > 0 do grab_follow(app, input, inv, queue[len(queue) - 1].pos, res)
+		return
+	}
 	for s, i in queue {
 		if !st.active {
 			stroke_start(app, input, inv, s, res)
@@ -171,8 +178,38 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 	clear(&st.pending)
 	sculpt.sculptor_stroke_begin(object_sculptor(obj))
 	local := to_local(obj.transform, hit)
+	brush := brush_at(app, input, obj.transform, local, s.pressure)
+	st.grab, st.anchor = brush.kind == .Grab, hit
 	t1 := time.tick_now()
-	sculpt.apply_dab(object_sculptor(obj), brush_at(app, input, obj.transform, local, s.pressure), local)
+	if st.grab {
+		sculpt.sculptor_grab_begin(object_sculptor(obj), brush, local)
+	} else {
+		sculpt.apply_dab(object_sculptor(obj), brush, local)
+	}
+	res.brush_ms += time.duration_milliseconds(time.tick_since(t1))
+	res.dabs += 1
+}
+
+// Drags what a Grab stroke picked up so its anchor follows the pointer at `pos`, on
+// the plane through the anchor facing the camera. Only the frame's last sample counts:
+// the grab goes straight to where the pointer is.
+@(private = "file")
+grab_follow :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, pos: [2]f32, res: ^Sculpt_Frame_Result) {
+	st := &app.stroke
+	obj := object_by_id(app, st.object)
+	if obj == nil {
+		st.active = false
+		return
+	}
+	origin, dir := ray_through(inv, pos, input.size)
+	facing := linalg.normalize(st.anchor - camera.orbit_eye(app.camera))
+	along := linalg.dot(dir, facing)
+	if abs(along) < 1e-6 do return
+	t := linalg.dot(st.anchor - origin, facing) / along
+	offset := (origin + dir * t - st.anchor) / obj.transform.scale
+	st.pos = pos
+	t1 := time.tick_now()
+	sculpt.sculptor_grab_move(object_sculptor(obj), offset)
 	res.brush_ms += time.duration_milliseconds(time.tick_since(t1))
 	res.dabs += 1
 }
@@ -235,6 +272,7 @@ brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pres
 		radius   = brush_radius_px(app, pressure) * world_per_px / t.scale,
 		strength = strength,
 		invert   = input.invert,
+		symmetry = app.brush.symmetry,
 	}
 }
 
