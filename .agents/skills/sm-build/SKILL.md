@@ -33,7 +33,8 @@ description: Build, run, test and verify the sculpt modeler through build.bat (W
   sculpt in … ms, uploaded in … ms`, and at exit `allocation tracking: no leaks` or `leak: N bytes at file:line` /
   `bad free at …`.
 - Exit stats (key=value, printed when `--frames` runs out or the window closes): `frames= dabs= objects= vertices=`; with
-  `--check-mesh` one `mesh_closed=true mesh_boundary_edges=0 … mesh_volume=…` line per object; `idle_cache= cache_redraws=
+  `--check-mesh` one `mesh_closed=true mesh_boundary_edges=0 … mesh_volume=…` line per object (a dynamic object's
+  compacted mesh); per dynamic object `dyntopo object= triangles= splits= collapses= pages= gpu_regrows=`; `idle_cache= cache_redraws=
   last_frame_triangles=`; `cull= last_frame_draws= chunks= culled_view= culled_back= cull_ms=`; `partial= partial_frames=
   last_frame_partial= last_frame_redrawn_px= viewport_px=`; `simplify= last_frame_lod_px= last_frame_simplified=
   lod_pending=`; then `<name>_p50= <name>_p99=` for `lod_build_ms`, `frame_ms`, `cpu_ms`, `wait_ms`, `gpu_ms` (with

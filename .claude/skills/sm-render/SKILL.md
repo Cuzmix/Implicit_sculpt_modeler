@@ -1,6 +1,6 @@
 ---
 name: sm-render
-description: Rendering in src/render with SDL_GPU — the device and pipelines, the offscreen viewport target ImGui shows, 16-byte vertices (float3 position + octahedral snorm16 normal) in two buffers, the 16 MB cycled transfer buffer and range uploads, indirect draws per visible chunk run, simplified-copy (LOD) index buffers, partial redraw by damage rect, the idle-object cache, present modes, GLSL shaders compiled to committed .spv, the frame's two command buffers, GPU timing, viewport download, --dump-viewport PPM and scripts/ppm.py. Load for ANY task that draws, uploads, changes what is on screen or judges it, e.g. "it renders black", "add wireframe", "change the material", "upload is slow", "the partial redraw leaves garbage", "take a screenshot", "add a shader". Requires sm-odin and sm-build; culling math lives in sm-geom; the frame loop's input and panels are sm-ui.
+description: Rendering in src/render with SDL_GPU — the device and pipelines, the offscreen viewport target ImGui shows, 16-byte vertices (float3 position + octahedral snorm16 normal carrying the mask) in two buffers, the 16 MB cycled transfer buffer and range uploads, index-page uploads and buffer regrowth for dynamic topology, indirect draws per visible chunk run, simplified-copy (LOD) index buffers, partial redraw by damage rect, the idle-object cache, present modes, GLSL shaders compiled to committed .spv, the frame's two command buffers, GPU timing, viewport download, --dump-viewport PPM and scripts/ppm.py. Load for ANY task that draws, uploads, changes what is on screen or judges it, e.g. "it renders black", "add wireframe", "change the material", "upload is slow", "the partial redraw leaves garbage", "the mask does not show", "take a screenshot", "add a shader". Requires sm-odin and sm-build; culling math lives in sm-geom; the frame loop's input and panels are sm-ui.
 ---
 
 # Rendering
@@ -10,35 +10,43 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   lod_px}` (`src/render/renderer.odin:21-35`); `BACKGROUND` linear `{0.16, 0.17, 0.19}` (`:38`); `PARTIAL_MAX_AREA 0.6`
   (`:42`); `Viewport_Target{color, depth, width, height, cache, frame_key}` (`:45-55`); `Static_Cache` (`:57-65`).
 - `Mesh_Buffers` (`:67-96`): `positions` (FLOAT3) and `normals` (octahedral SHORT2_NORM) in two vertex buffers, 32-bit
-  `indices`, one `transfer` of `TRANSFER_BUFFER_SIZE = 16 MB` (`:101-103`), `version`/`drawn_version`, the `indirect`
+  `indices`, one `transfer` of `TRANSFER_BUFFER_SIZE = 16 MB` (`:104-106`), `version`/`drawn_version`, the `indirect`
   command buffer sized for every chunk, `lod_indices` for the copies. `VERTEX_BYTES = 16`.
-- Uniforms: `Frame_Uniforms{view_proj, view, model}` (std140, column-major, `:105-110`) pushed per draw; `Material_Uniforms
-  {base_color, params (ambient, specular strength, power)}` (`:151-155`). Shaders are `.spv` embedded with `#load`
-  (`:157-160`), compiled from `src/render/shaders/*.vert|*.frag` only when `glslangValidator` is on PATH (sm-build).
-- `Draw_Item{mesh, model, color, live, chunks, damage, lod, hidden}` (`:112-134`): `model` is translation plus uniform
+- The mask rides in the normals: `pack_normal :: geom.oct_encode_masked` (`:102`) keeps 12 bits of each octahedral half
+  for the normal and 4 for a nibble of the mask, so `VERTEX_BYTES` stays 16. `mesh_buffers_create(r, mesh, mask)` and
+  `mesh_buffers_upload_ranges(…, ranges, mask)` take the sculptor's `mask` (nil = unmasked). `mesh.vert` rebuilds both
+  (`raw & ~15` is the normal; the nibbles give `out_mask` at location 2) and `mesh.frag` darkens masked clay
+  (`albedo · (1 − 0.7 · mask)`, highlights `· (1 − 0.5 · mask)`).
+- Uniforms: `Frame_Uniforms{view_proj, view, model}` (std140, column-major, `renderer.odin:108-113`) pushed per draw; `Material_Uniforms
+  {base_color, params (ambient, specular strength, power)}` (`renderer.odin:154-158`). Shaders are `.spv` embedded with `#load`
+  (`renderer.odin:160-163`), compiled from `src/render/shaders/*.vert|*.frag` only when `glslangValidator` is on PATH (sm-build).
+- `Draw_Item{mesh, model, color, live, chunks, damage, lod, hidden}` (`renderer.odin:115-137`): `model` is translation plus uniform
   scale only, because culling takes the eye into mesh space with its inverse; `damage` is the mesh-space box of what
   changed, before and after; a version bump without a damage box forces a full redraw; `hidden` is per chunk then per group.
-- Pipelines: mesh culls `.BACK` with `.COUNTER_CLOCKWISE` front faces (`:281`), colour `R8G8B8A8_UNORM`, depth
-  `D32_FLOAT` else `D24_UNORM` (`:175-178`); the clear pipeline draws a full-screen triangle at the far plane to clear a
-  scissored rectangle (`:317`, `clear.vert`). `renderer_init` creates the device with `{.SPIRV}` and the debug flag from
-  `--gpu-debug` (`:162-183`); failures are `log.errorf(…, sdl.GetError())` and `return false`.
-- The frame (`src/app/main.odin:218-397`): apply the scene command → change vsync before acquiring (`:224-228`;
-  `renderer_set_vsync` recreates the swapchain, `renderer.odin:194-201`) → wait the previous fence when timing → acquire
-  `present_cmd` and the swapchain texture → events → `viewport_target_resize` before ImGui references the texture
-  (`:280-283`) → UI and tools → `imgui.Render` → a second command buffer `cmd` for the 3D work (`:309-316`) → per object
-  and part (current level, plus the HD window): `sculptor_flush` → `mesh_buffers_upload_ranges`, then once per frame and
-  never during a stroke `sculptor_lod_update` → `mesh_buffers_upload_lod` (`:320-340`) → a `Draw_Item` per part, clay for
-  the selected object and grey otherwise (`:341-354`) → `render_viewport` (`:362`) → submit, with a fence when `time_gpu`
-  (`:364-383`) → ImGui pass into the swapchain on `present_cmd` (`:385-397`).
-- `render_viewport` (`renderer.odin:597-619`): with `partial` on and an unchanged `frame_key` (camera, size, item
+- Pipelines: mesh culls `.BACK` with `.COUNTER_CLOCKWISE` front faces (`renderer.odin:284`), colour `R8G8B8A8_UNORM`, depth
+  `D32_FLOAT` else `D24_UNORM` (`renderer.odin:178-181`); the clear pipeline draws a full-screen triangle at the far plane to clear a
+  scissored rectangle (`renderer.odin:320`, `clear.vert`). `renderer_init` creates the device with `{.SPIRV}` and the debug flag from
+  `--gpu-debug` (`renderer.odin:165-186`); failures are `log.errorf(…, sdl.GetError())` and `return false`.
+- The frame (`src/app/main.odin:276-465`): apply the scene command (`:278`) → change vsync before acquiring (`:289`;
+  `renderer_set_vsync` recreates the swapchain, `src/render/renderer.odin:197-204`) → wait the previous fence when timing
+  → acquire `present_cmd` and the swapchain texture (`src/app/main.odin:302-308`) → events → `viewport_target_resize`
+  before ImGui references the texture (`:346`) → UI and tools → `imgui.Render` → a second command buffer `cmd` for the 3D
+  work (`:374`) → per object and part (current level, plus the HD window, `:384`): `sculptor_flush` → `level_upload`
+  (`src/app/scene.odin:217`: vertex ranges with the mask, dynamic topology's index pages, new buffers when the mesh
+  outgrew them), then once per frame and never during a stroke `sculptor_lod_update` → `mesh_buffers_upload_lod`
+  (`src/app/main.odin:401-412`) → a `Draw_Item` per part, clay for the selected object and grey otherwise (`:413`) →
+  `render_viewport` (`:430`) → submit, with a fence when `time_gpu` (`:433`) → ImGui pass into the swapchain on
+  `present_cmd` (`:453-464`).
+- `render_viewport` (`renderer.odin:628-650`): with `partial` on and an unchanged `frame_key` (camera, size, item
   identity, model, colour, `lod_px`), `damage_rect` projects every damage box, pads by 2 px and redraws only that
-  rectangle through `render_rect` (`:634-681`); otherwise `render_full` copies the idle objects from the `Static_Cache`
+  rectangle through `render_rect` (`:665-712`); otherwise `render_full` copies the idle objects from the `Static_Cache`
   (rebuilt when its key changes) and draws the live ones. `viewport_invalidate` zeroes both keys for changes the keys
-  cannot see, such as which chunks are hidden (`:621-626`).
+  cannot see, such as which chunks are hidden (`:652-657`).
 - `prepare_draws` writes one `GPUIndexedIndirectDrawCommand` per visible run of chunks, LOD runs after the fine ones,
   inside a copy pass before the render pass; `mesh_buffers_create` uploads a whole mesh in chunks, waiting for the GPU
-  after each, for loading only (`:389-414`); `mesh_buffers_upload_ranges` packs up to 256 ranges a batch into the
-  cycled transfer buffer and bumps `version`; `mesh_buffers_upload_lod` drops the LOD buffer on failure so the mesh
+  after each, for loading only (`:395`); `mesh_buffers_upload_ranges` packs up to 256 ranges a batch into the
+  cycled transfer buffer and bumps `version` (`:488`); `mesh_buffers_upload_indices` uploads index ranges (dynamic
+  topology's whole changed pages, `sculptor_index_ranges`) and asserts they fit `index_count` (`:575`); `mesh_buffers_upload_lod` drops the LOD buffer on failure so the mesh
   draws at full detail; `viewport_download` returns RGBA8 rows top to bottom after waiting for the GPU (tests and dumps).
 
 ## Verify what you draw
@@ -54,10 +62,10 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
 |---|---|
 | black or background only | nothing uploaded (`mesh_buffers_create` returned false), `Draw_Item.chunks` empty with `cull` on, the camera inside the mesh, a stale `frame_key` (call `viewport_invalidate`) |
 | holes or flicker at chunk borders | ranges not merged or sorted; a cone culling a chunk that is visible (`CONE_SLACK`; cones stay open during a stroke by design) |
-| garbage inside a rectangle | the damage box missed a moved vertex: `changed_bounds` must cover before and after (`src/sculpt/brush.odin:107-109, 405, 425`); `PAD` |
+| garbage inside a rectangle | the damage box missed a moved vertex: `changed_bounds` must cover before and after (`src/sculpt/brush.odin:139-141, 447, 482`); `PAD` |
 | lighting wrong after a stroke | normals not re-uploaded: only dirty nodes' ranges are uploaded, so a node that moved must be marked stale |
 | an idle object does not update | its cache key did not change: bump `version` or `viewport_invalidate` |
-| validation errors in `smoke` | a buffer released while in flight (`WaitForGPUIdle` before every destroy: `src/app/scene.odin:77, 108, 116, 186, 192, 279`), an upload outside a copy pass, a transfer buffer mapped without `cycle` |
+| validation errors in `smoke` | a buffer released while in flight (`WaitForGPUIdle` before every destroy: `src/app/scene.odin:94, 168, 238, 319, 325, 412`), an upload outside a copy pass, a transfer buffer mapped without `cycle` |
 | swapchain errors after toggling VSync | `renderer_set_vsync` called after the swapchain texture was acquired |
 
 ## Rules

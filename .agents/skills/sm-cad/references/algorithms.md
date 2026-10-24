@@ -17,7 +17,8 @@
 - Nomad Sculpt adopted Manifold for its polygon booleans (1.79) and kept voxel remeshing as the fallback: a single
   non-manifold edge makes a polygonal boolean fail, while a voxel pass always produces a closed surface at the cost of
   resolution and sharp edges. The same split fits here: polygonal when `mesh_check` says both inputs are closed and
-  consistently wound, otherwise an SDF/voxel union (sm-sdf) followed by `sculptor_init`.
+  consistently wound, otherwise `geom.remesh_voxel` over both meshes' triangles together (it already merges overlaps and
+  self-intersections by winding number, `src/geom/remesh.odin:11-29`) and `object_build_from`.
 - A boolean's result starts as a new mesh: new sculptor, levels dropped, GPU buffers recreated (the topology path in
   SKILL.md). Print `volume_before`, `volume_after` and the `mesh_check` counts; a union's volume is at most the sum and
   at least the larger input, an intersection's at most the smaller.
@@ -29,9 +30,11 @@
 - Loop subdivision lives in `level_above` (`src/sculpt/levels.odin`): even vertices `(1 − nβ)p + β·ring`, odd vertices
   `3/8(a + b) + 1/8(c + d)`, closed meshes only. Open meshes need Biermann, Levin and Zorin's boundary rules (cubic
   B-spline stencils along the boundary); the levels code refuses them instead, which a tool that opens a mesh must respect.
-- Remesh today rebuilds a sphere. A detail-preserving remesh (uniform triangles over the current surface) is a
-  topology-changing tool: voxelise or sample the surface, remesh, then project back to the original with
-  `bvh_raycast`/closest-point queries, and report the Hausdorff-style distance with the test helpers.
+- `geom.remesh_voxel` (DynaMesh) is the even remesh: winding-number inside test, marching cubes, tangential relaxation;
+  its tests (`remesh_test.odin`) check closed manifold, Euler characteristic 2, the count within ±30% and the distance to
+  the sphere within 0.6 of the spacing, and `build/bench --remesh` reports edge-length spread before and after. Fine
+  detail below the spacing is lost by design; a detail-keeping variant would project the result back onto the source
+  with closest-point queries and report the distance.
 
 ## Plane trim and slice
 - Classify vertices by signed distance to the plane; triangles with mixed signs are split at the zero crossings (one
@@ -50,8 +53,10 @@
 ## Mirror and symmetry
 - Mirror across a local-space plane is positions-only when the mesh is already symmetric in topology (reflect the
   positions of one half onto their mirror vertices, found by nearest-point search), and a topology change otherwise
-  (cut at the plane, mirror one half, weld the seam). Symmetric sculpting (ZBrush's X symmetry) is a brush feature: apply
-  every dab a second time at the mirrored hit with the mirrored normal, inside the same stroke so it undoes as one.
+  (cut at the plane, mirror one half, weld the seam). Symmetric sculpting already exists as a brush
+  feature (`Brush.symmetry`, `mirrors` in `src/sculpt/brush.odin`: every dab runs at each mirror image in the same
+  stroke, planes through the mesh's local origin); a symmetrise tool is the positions-only path when the topology is
+  already mirrored.
 
 ## Checks with numbers (what the good CAD skills do)
 - pthompson8594/openscad-skill checks its work "with numbers instead of pictures": bounding box and volume against

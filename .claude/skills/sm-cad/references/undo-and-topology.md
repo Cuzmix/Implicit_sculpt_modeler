@@ -8,11 +8,13 @@
 - Tests
 
 ## Why positions-only undo cannot cover it
-A stroke's undo step holds the owned positions of the nodes a dab reached (`src/sculpt/undo.odin:9-13`): it assumes the
+A stroke's undo step holds the owned positions (or masks) of the nodes a dab reached (`src/sculpt/undo.odin:9-15`): it assumes the
 node partition, the vertex count and the triangle list are the same before and after. A boolean, trim, extrude, remesh
 or decimate changes all three, and `sculptor_init` renumbers the mesh besides, so there is no node to restore into.
-Today such a change rebuilds the object and clears its history (`object_remesh`, `src/app/scene.odin:105-111`), which is
-correct but not undoable.
+Today such a change rebuilds the object and clears its history (`object_remesh`, `src/app/scene.odin:147-175`, through
+`object_release_mesh`), which is correct but not undoable. Dynamic topology already undoes topology inside one sculptor
+by saving whole nodes (`record_full`, `dyn_step_swap` in `src/sculpt/dyntopo.odin`): positions, indices and masks of a
+fixed-size page. That works because a page's slots never move; an object-wide swap still needs the design below.
 
 ## The design
 - `History_Entry` (`src/app/history.odin:15-18`) gains a `kind: enum {Stroke, Mesh_Swap}`. A `Mesh_Swap` entry names the
