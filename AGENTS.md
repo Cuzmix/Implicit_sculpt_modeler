@@ -62,8 +62,10 @@ skill whose description fits the request BEFORE you form a plan.
   through `mask_dab` or `sculptor_mask_command`; triangles change only under dynamic topology inside a stroke. Any other
   topology change (remesh, booleans, …) copies `object_remesh`: end the stroke, leave HD, release and rebuild the object,
   which drops its levels, mask and history (until the `Mesh_Swap` undo entry exists: `sm-cad`).
-- ImGui never owns sculpt state; panels keep no references between frames; scene changes are `Scene_Command`s applied
-  at the start of the next frame.
+- ImGui never owns sculpt state; panels keep no references between frames; scene changes are `Scene_Command`s and
+  file actions are requests (`file_take`), both applied at the start of the next frame.
+- The `.sculpt` scene file is versioned (`SCENE_VERSION`, `src/app/files.odin`): a change to what it stores bumps the
+  version and keeps reading every older one; a damaged file is refused, never asserted on.
 - GPU: consume every `sdl.*GPU*` result; `WaitForGPUIdle` before freeing buffers; set vsync before acquiring the
   swapchain; `Draw_Item.model` is translation plus uniform scale (no rotation yet).
 - No TODO or FIXME: write it or design it. Comments are full sentences giving reasons. README is updated with any flag,

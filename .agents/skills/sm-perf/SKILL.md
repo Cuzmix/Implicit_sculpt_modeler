@@ -21,7 +21,7 @@ description: Measuring the sculpt modeler's performance — the headless build/b
 ## Commands
 | Command | What you get |
 |---|---|
-| `build.bat bench` | 500k, 1M, 5M, 7M, 10M vertices and 10M with an idle second sphere (`src/bench/main.odin:95-97`): the stroke table (Setup s, Mesh MB, RSS MB, per brush size r=0.13 and r=0.04: Verts/dab, Raycast ms, Dab ms, Normals ms/frame, Frame ms, Frame ms max, Upload MB/frame, Stroke end ms, Undo MB/stroke, Undo ms, Redo ms; `:146`), then the culling table from three views (`:152`). 77 dabs, 4 per frame (`:44-45`) |
+| `build.bat bench` | 500k, 1M, 5M, 7M, 10M vertices and 10M with an idle second sphere (`src/bench/main.odin:99-101`): the stroke table (Setup s, Mesh MB, RSS MB, per brush size r=0.13 and r=0.04: Verts/dab, Raycast ms, Dab ms, Normals ms/frame, Frame ms, Frame ms max, Upload MB/frame, Stroke end ms, Undo MB/stroke, Undo ms, Redo ms; `:157`), then the culling table from three views (`:163`). 77 dabs, 4 per frame (`:45-46`) |
 | `build.bat bench 1000000 --threads=1` | the serial baseline at one size; `--threads=N` otherwise; `--node=N` node size; `--meshes=N` idle meshes |
 | `build.bat bench --lod` / `--levels` / `--hd` | the simplified-copy, subdivision-level and HD tables (README "Benchmark") |
 | `build.bat bench --brushes` | per kind (all nine, plus Draw with X symmetry and Draw half masked): Verts/dab, Dab ms, Normals ms/frame, Frame ms, Frame ms max, Undo MB/stroke (`src/bench/brushes.odin:19`) |

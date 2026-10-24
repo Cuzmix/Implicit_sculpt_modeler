@@ -478,3 +478,76 @@ dyn_serial_and_parallel_match :: proc(t: ^testing.T) {
 	testing.expect(t, slice.equal(serial_refined.normals[:], parallel_refined.normals[:]), "the normals differ")
 	testing.expect(t, slice.equal(serial_packed.positions[:], parallel_packed.positions[:]) && slice.equal(serial_packed.indices[:], parallel_packed.indices[:]), "turning it off differs")
 }
+
+// On an open mesh, edits keep the border where it is: its edges split at their
+// middles and no vertex on it collapses, so it never pinches or pulls in, and the
+// surface stays one disc (V - E + F = 1).
+@(test)
+dyn_open_mesh_keeps_its_border :: proc(t: ^testing.T) {
+	sphere := geom.icosphere(4)
+	defer geom.mesh_destroy(&sphere)
+	// The cap above z = 0.3: a disc-like patch whose border the stroke crosses.
+	m: geom.Mesh
+	defer geom.mesh_destroy(&m)
+	append(&m.positions, ..sphere.positions[:])
+	for f := 0; f < len(sphere.indices); f += 3 {
+		tri := sphere.indices[f:][:3]
+		if sphere.positions[tri[0]].z + sphere.positions[tri[1]].z + sphere.positions[tri[2]].z > 0.9 do append(&m.indices, ..tri)
+	}
+	resize(&m.normals, len(m.positions))
+	_, err := geom.mesh_clean(&m, nil)
+	testing.expect_value(t, err, geom.Mesh_File_Error.None)
+	before := geom.mesh_check(m)
+	testing.expect(t, before.boundary_edges > 0 && before.non_manifold_edges == 0)
+	s: Sculptor
+	sculptor_init(&s, &m, nil, 64)
+	defer sculptor_destroy(&s)
+	testing.expect(t, sculptor_dyn_enable(&s), "enable refused an open mesh")
+	sculptor_stroke_begin(&s)
+	for k in 0 ..< 60 {
+		// Back and forth across the border, splitting and collapsing.
+		x := -0.6 + 1.2 * f32(k % 30) / 29
+		at := linalg.normalize(Vec3{x, 0.75, 0.6})
+		detail: f32 = 0.08 if k < 30 else 0.5
+		_ = apply_dab(&s, {kind = .Draw, radius = 0.3, strength = 0.2, detail = detail, collapse = true}, at)
+		_ = sculptor_flush(&s)
+	}
+	_ = sculptor_stroke_end(&s)
+	splits, collapses := sculptor_dyn_edits(&s)
+	testing.expectf(t, splits > 0 && collapses > 0, "%d splits, %d collapses", splits, collapses)
+	packed, _ := sculptor_compact_mesh(&s, context.temp_allocator)
+	after := geom.mesh_check(packed)
+	testing.expectf(t, after.non_manifold_edges == 0 && after.inconsistent_edges == 0 && after.degenerate_triangles == 0 && after.boundary_edges > before.boundary_edges,
+		"before %v\nafter %v", before, after)
+	disc :: proc(r: geom.Mesh_Report) -> int {return r.vertices - (3 * r.triangles + r.boundary_edges) / 2 + r.triangles}
+	testing.expect_value(t, disc(before), 1)
+	testing.expect_value(t, disc(after), 1)
+	smallest: f32 = 180
+	for f := 0; f < len(packed.indices); f += 3 {
+		for c in 0 ..< 3 {
+			p := packed.positions[packed.indices[f + c]]
+			e1 := packed.positions[packed.indices[f + (c + 1) % 3]] - p
+			e2 := packed.positions[packed.indices[f + (c + 2) % 3]] - p
+			smallest = min(smallest, math.acos(clamp(linalg.dot(e1, e2) / (linalg.length(e1) * linalg.length(e2)), -1, 1)) * 180 / math.PI)
+		}
+	}
+	// Coarsening a fine area by collapses alone leaves corners of about 11 degrees.
+	testing.expectf(t, smallest >= 10, "a triangle has a %.2f degree angle", smallest)
+}
+
+// An edge in three triangles cannot be edited by its direction: such a mesh is refused.
+@(test)
+dyn_refuses_non_manifold_edges :: proc(t: ^testing.T) {
+	m := geom.icosphere(2)
+	defer geom.mesh_destroy(&m)
+	// A fin on the first edge: a new vertex and a triangle that runs that edge again.
+	a, b := m.indices[0], m.indices[1]
+	append(&m.positions, Vec3{2, 2, 2})
+	append(&m.normals, Vec3{})
+	append(&m.indices, a, b, u32(len(m.positions) - 1))
+	s: Sculptor
+	sculptor_init(&s, &m, nil, 64)
+	defer sculptor_destroy(&s)
+	testing.expect(t, !sculptor_dyn_enable(&s), "a non-manifold mesh was taken")
+	testing.expect(t, s.dyn == nil)
+}

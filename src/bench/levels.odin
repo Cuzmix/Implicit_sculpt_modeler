@@ -23,11 +23,7 @@ levels_header :: proc() {
 }
 
 run_levels :: proc(target: int, pool: ^jobs.Pool) {
-	// Geodesic spheres have 10 f^2 + 2 vertices, and a level above has twice the frequency.
-	f := math.sqrt(f64(target - 2) / 10)
-	steps := 0
-	for 10 * (f / f64(int(1) << uint(steps))) * (f / f64(int(1) << uint(steps))) + 2 > LEVELS_BASE_MAX do steps += 1
-	base_frequency := max(int(math.round(f / f64(int(1) << uint(steps)))), 1)
+	base_frequency, steps := levels_layout(target)
 
 	l: sculpt.Levels
 	sculpt.levels_init(&l, geom.geodesic_sphere(base_frequency, pool), pool, node_triangles)

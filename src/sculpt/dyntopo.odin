@@ -1,6 +1,7 @@
 package sculpt
 
 import "base:runtime"
+import "core:math"
 import "core:math/linalg"
 import "core:slice"
 
@@ -36,6 +37,11 @@ DYN_FACES :: 16
 // Edges shorter than this share of the detail size collapse (as in Blender), so a
 // split edge's halves never qualify.
 DYN_COLLAPSE_SHARE :: 0.4
+// A collapse may not make a triangle of lower quality than this (see
+// triangle_quality; 0.3 is about a 12 degree corner) unless one as bad was there
+// already: collapsing into midpoints with no such check leaves slivers when a fine area
+// is coarsened.
+DYN_MIN_QUALITY :: 0.3
 // A collapse may not leave a vertex in more triangles than this, which keeps fans from
 // building up where many edges collapse into one point.
 DYN_MAX_VALENCE :: 12
@@ -146,13 +152,16 @@ face_replace :: proc(d: ^Dyn, v, from, to: u32) {
 
 // Switches the sculptor to dynamic topology: lays the mesh out in pages and builds
 // what the edits need. Clears the undo history. Returns false, changing nothing, when
-// a vertex is in more than DYN_FACES triangles (remesh such a mesh first).
+// a vertex is in more than DYN_FACES triangles, or an edge is in more than two
+// triangles or in two that run it the same way (remesh such a mesh first). Edges with
+// one triangle, on the border of an open mesh, stay as they are.
 sculptor_dyn_enable :: proc(s: ^Sculptor, allocator := context.allocator) -> bool {
 	if s.dyn != nil do return true
 	m := s.mesh
 	for v in 0 ..< len(m.positions) {
 		if len(geom.vertex_faces_of(s.faces, u32(v))) > DYN_FACES do return false
 	}
+	if !edges_manifold(s) do return false
 	sculptor_clear_history(s)
 	// Bounds, cones and shared lists carry over from the fixed layout: bring them up
 	// to date first.
@@ -597,6 +606,55 @@ remove_vertex :: proc(s: ^Sculptor, v: u32) {
 }
 
 // The triangle with the directed edge a -> b, and the corner of a in it.
+// Whether an edge of v's triangles has no triangle running it the other way: v is on
+// the border of an open mesh.
+@(private = "file")
+on_border :: proc(s: ^Sculptor, v: u32) -> bool {
+	idx := s.mesh.indices[:]
+	faces := dyn_faces(s.dyn, v)
+	edges: for f in faces {
+		w, _ := others(idx, f, v)
+		for g in faces {
+			if _, back := others(idx, g, v); back == w do continue edges
+		}
+		return true
+	}
+	return false
+}
+
+// Whether, on the fixed layout, each edge is run once by a triangle in each direction,
+// or once in one direction on a border; the edits find an edge's triangles by its
+// direction (find_edge).
+@(private = "file")
+edges_manifold :: proc(s: ^Sculptor) -> bool {
+	Check :: struct {
+		s:   ^Sculptor,
+		bad: []bool, // per range
+	}
+	c := Check{s, make([]bool, (len(s.mesh.positions) + geom.RANGE_GRAIN - 1) / geom.RANGE_GRAIN, context.temp_allocator)}
+	jobs.parallel_ranges(s.pool, len(s.mesh.positions), &c, proc(data: rawptr, lo, hi: int) {
+		c := cast(^Check)data
+		idx := c.s.mesh.indices[:]
+		for v in u32(lo) ..< u32(hi) {
+			faces := geom.vertex_faces_of(c.s.faces, v)
+			for f in faces {
+				w, _ := others(idx, f, v)
+				same, back := 0, 0
+				for g in faces {
+					g1, g2 := others(idx, g, v)
+					same += int(g1 == w)
+					back += int(g2 == w)
+				}
+				if same != 1 || back > 1 {
+					c.bad[lo / geom.RANGE_GRAIN] = true
+					return
+				}
+			}
+		}
+	}, geom.RANGE_GRAIN)
+	return !slice.contains(c.bad, true)
+}
+
 @(private)
 find_edge :: #force_inline proc(s: ^Sculptor, a, b: u32) -> (t, corner: u32) {
 	idx := s.mesh.indices[:]
@@ -608,17 +666,24 @@ find_edge :: #force_inline proc(s: ^Sculptor, a, b: u32) -> (t, corner: u32) {
 	return DYN_NONE, 0
 }
 
-// Splits edge a-b at its middle into four triangles. When a page has no room, says
-// which node to split first. c and d are the vertices across the edge.
+// Splits edge a-b at its middle into four triangles, or on the border of an open mesh
+// its one triangle into two. When a page has no room, says which node to split first.
+// c and d are the vertices across the edge (the same one on a border).
 @(private)
 split_edge :: proc(s: ^Sculptor, a, b: u32) -> (res: Op, full, m, c, d: u32) {
 	dy := s.dyn
 	mesh := s.mesh
 	idx := mesh.indices[:]
+	a, b := a, b
 	t1, k1 := find_edge(s, a, b)
-	if t1 == DYN_NONE do return .Gone, 0, 0, 0, 0
+	if t1 == DYN_NONE {
+		// A border edge run the other way.
+		a, b = b, a
+		t1, k1 = find_edge(s, a, b)
+		if t1 == DYN_NONE do return .Gone, 0, 0, 0, 0
+	}
 	t2, k2 := find_edge(s, b, a)
-	if t2 == DYN_NONE do return .Skip, 0, 0, 0, 0
+	if t2 == DYN_NONE do return split_border_edge(s, a, b, t1, k1)
 	c = idx[3 * t1 + (k1 + 2) % 3]
 	d = idx[3 * t2 + (k2 + 2) % 3]
 	if c == d || dy.face_count[c] >= DYN_FACES || dy.face_count[d] >= DYN_FACES do return .Skip, 0, 0, 0, 0
@@ -654,6 +719,47 @@ split_edge :: proc(s: ^Sculptor, a, b: u32) -> (res: Op, full, m, c, d: u32) {
 	return .Done, 0, m, c, d
 }
 
+// Splits a border edge a-b (run a to b by its one triangle t1, from its corner k1)
+// into two triangles, so that a triangle along the border is cut across its longest
+// side like any other; the border keeps its shape, since the new vertex is on it.
+@(private = "file")
+split_border_edge :: proc(s: ^Sculptor, a, b, t1, k1: u32) -> (res: Op, full, m, c, d: u32) {
+	dy := s.dyn
+	mesh := s.mesh
+	idx := mesh.indices[:]
+	c = idx[3 * t1 + (k1 + 2) % 3]
+	if dy.face_count[c] >= DYN_FACES do return .Skip, 0, 0, 0, 0
+	n1 := tri_page(t1)
+	if s.nodes[n1].vert_count >= DYN_PAGE_VERTS || s.nodes[n1].tri_count >= DYN_PAGE_TRIS do return .Full, n1, 0, 0, 0
+	touch(s, n1)
+	mask: u8
+	if s.mask != nil do mask = u8((u32(s.mask[a]) + u32(s.mask[b]) + 1) / 2)
+	p := (mesh.positions[a] + mesh.positions[b]) * 0.5
+	m = add_vertex(s, n1, p, linalg.normalize0(mesh.normals[a] + mesh.normals[b]), mask)
+	if s.fade != nil do s.fade[m] = max(s.fade[a], s.fade[b])
+	idx[3 * t1 + (k1 + 1) % 3] = m // a m c
+	t3 := add_triangle(s, n1, m, b, c)
+	face_remove(dy, b, t1)
+	face_add(dy, b, t3)
+	face_add(dy, c, t3)
+	face_add(dy, m, t1)
+	face_add(dy, m, t3)
+	mark(s, n1, {.Topo, .Shape})
+	for v in ([3]u32{a, b, c}) do mark(s, vert_page(v), {.Shape})
+	dy.splits += 1
+	return .Done, 0, m, c, c
+}
+
+// How close to equilateral a triangle is: 1 for an equilateral one, 0 for one with no
+// area (4√3 times the area over the sum of the squared edge lengths).
+@(private = "file")
+triangle_quality :: #force_inline proc(q: [3]Vec3) -> f32 {
+	e0, e1, e2 := q[1] - q[0], q[2] - q[1], q[0] - q[2]
+	sum := linalg.dot(e0, e0) + linalg.dot(e1, e1) + linalg.dot(e2, e2)
+	if sum <= 0 do return 0
+	return 2 * math.SQRT_THREE * linalg.length(linalg.cross(e0, -e2)) / sum
+}
+
 // Collapses edge a-b into its middle, keeping a. Refused where it would fold the
 // surface over, change its topology, crowd a vertex or make an edge too long to keep.
 @(private)
@@ -669,6 +775,8 @@ collapse_edge :: proc(s: ^Sculptor, a, b: u32) -> Op {
 	d := idx[3 * t2 + (k2 + 2) % 3]
 	if c == d || dy.face_count[c] <= 3 || dy.face_count[d] <= 3 do return .Skip
 	if int(dy.face_count[a]) + int(dy.face_count[b]) - 4 > DYN_MAX_VALENCE do return .Skip
+	// Collapsing toward a border would pull it in, or pinch two borders into one vertex.
+	if on_border(s, a) || on_border(s, b) do return .Skip
 	if s.mask != nil && (s.mask[a] > 0 || s.mask[b] > 0) do return .Skip
 	if s.fade != nil && (s.fade[a] < 255 || s.fade[b] < 255) do return .Skip
 	// Only c and d may neighbour both, or the surface would pinch into a non-manifold
@@ -693,20 +801,25 @@ collapse_edge :: proc(s: ^Sculptor, a, b: u32) -> Op {
 	for w in ring[:rn] {
 		if l := mesh.positions[w] - p; linalg.dot(l, l) > dy.max2 do return .Skip
 	}
-	// No triangle may turn over.
+	// No triangle may turn over, nor become a sliver worse than any there was.
+	worst_before, worst_after: f32 = 1, 1
 	for v in ([2]u32{a, b}) {
 		for f in dyn_faces(dy, v) {
 			if f == t1 || f == t2 do continue
-			q: [3]Vec3
+			q, o: [3]Vec3
 			for k in u32(0) ..< 3 {
 				w := idx[3 * f + k]
-				q[k] = p if w == a || w == b else mesh.positions[w]
+				o[k] = mesh.positions[w]
+				q[k] = p if w == a || w == b else o[k]
 			}
 			before := face_normal(mesh, f)
 			after := linalg.cross(q[1] - q[0], q[2] - q[0])
 			if linalg.dot(before, after) <= 0 do return .Skip
+			worst_before = min(worst_before, triangle_quality(o))
+			worst_after = min(worst_after, triangle_quality(q))
 		}
 	}
+	if worst_after < DYN_MIN_QUALITY && worst_after < worst_before do return .Skip
 
 	// Save everything this changes for undo before changing any of it.
 	touch(s, vert_page(a))

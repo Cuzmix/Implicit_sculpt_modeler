@@ -66,10 +66,10 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
 - Levels (`src/sculpt/levels.odin`): a base mesh and finer copies, each one Loop step above the one below, every level a
   whole mesh with its own sculptor; only the current level is shown and sculpted (`:12-25`). `MAX_LEVELS 8`; `Level{mesh,
   sculptor, node_of_vertex, parents [4]u32, detail Vec3, even_of, deps, dependents}` (`:34-44`); detail is an offset in a
-  frame that turns with the surface below. `levels_set_current` asserts no HD window and syncs first (`:91-98`);
-  `levels_subdivide` returns false at `MAX_LEVELS`, with an HD level, or on an open mesh (`:100-112`);
-  `levels_subdivide_estimate` (`:137`); `levels_delete_higher/lower` (`:153-171`). `levels_sync` has three phases: push
-  the edit down as moves of the vertices below, re-encode detail, rebuild the levels above (`:201-227`). `frame_at` and
+  frame that turns with the surface below. `levels_set_current` asserts no HD window and syncs first (`:92-99`);
+  `levels_subdivide` returns false at `MAX_LEVELS`, with an HD level, or on an open mesh (`:101-113`);
+  `levels_subdivide_estimate` (`:138`); `levels_delete_higher/lower` (`:154-172`). `levels_sync` has three phases: push
+  the edit down as moves of the vertices below, re-encode detail, rebuild the levels above (`:202-228`). `frame_at` and
   `frame_point` are `#force_no_inline` so every level decodes the same bits.
 - HD (`src/sculpt/hd.odin:13-31`): detail `steps` Loop steps above the top level, stored per top-level node and only for
   sculpted nodes; sculpted one window at a time (`levels_hd_enter`: the nearest top-level nodes up to a vertex budget,
@@ -93,7 +93,16 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
   called through `touch` before any edit) and `dyn_step_swap` swaps them. The flush also fills `sculptor_index_ranges`
   (whole changed pages) for the app to upload. `sculptor_vertex_count`/`triangle_count` count used slots; the mesh's
   array lengths do not. `sculptor_dyn_enable/disable` (levels: `levels_dyn_enable/disable`, single level, no HD);
-  `sculptor_compact_mesh` gives the plain mesh. No LOD copies while on.
+  `sculptor_compact_mesh` gives the plain mesh. No LOD copies while on. Open surfaces work: `split_edge` splits a
+  border edge's one triangle (`split_border_edge`), `collapse_edge` refuses when either end is on the border
+  (`on_border`) or when its worst triangle would get worse and stay under `DYN_MIN_QUALITY` (0.3, `triangle_quality`
+  = 2√3·|cross|/Σ|e|²); enable is refused on non-manifold or inconsistently wound edges (`edges_manifold`).
+- Levels in files (`src/sculpt/levels_file.odin`): `levels_write`/`levels_read` store every level as positions, the
+  base in its own order and each level above in `level_canon` order (vertices continuing the level below at their
+  places, then edge vertices by their ends' places, counted rather than sorted), since `sculptor_init` renumbers on
+  every build. Reading subdivides, moves the vertices where they were and encodes the detail again
+  (`recode_level(encode = true)`); HD detail is not stored (it follows node numbers), only the HD steps. A damaged
+  file returns false, never asserts.
 - App side (`src/app/sculpt_tool.odin`): `Brush_Settings` with the radius in pixels, `symmetry`, `detail_px`, `collapse`
   (`:12-24`); `Input_Sample{pos, pressure, kind}`, every motion event of a frame kept (`:26-40`); `DAB_SPACING 0.25`
   radii, `MIN_DAB_SPACING_PX 1`, `MAX_DABS_PER_FRAME 64`, `MAX_PENDING_SAMPLES 4096`, `MAX_BRUSH_MS_PER_FRAME 10`
@@ -107,15 +116,15 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
   origin; X toggles X. `History` orders strokes and mask commands across objects and levels, newest last, `HD_LEVEL =
   -1`; undoing a stroke from another level switches to it first (`src/app/history.odin:5-20, 69-83`); `stroke_finish`
   ends Grab and records the stroke (`:29`), `mask_command` records a mask command (`:39`). `Scene_Command` kinds and
-  `scene_apply` (`src/app/scene.odin:72-79, 212`).
+  `scene_apply` (`src/app/scene.odin:84-91, 245`).
 
 ## Rules that bite
 - Every position change goes through `apply_dab` or `sculptor_nodes_moved`; otherwise BVH bounds, normals, chunks, LOD
   staleness and `edited` drift apart (tests `incremental_updates_match_full_recompute`, `flush_leaves_no_stale_normal`,
   `synced_levels_stay_consistent`).
-- Call `sculptor_flush` once per frame per visible level and upload what it returns (`src/app/main.odin:360-369`).
-- `stroke_finish` before any level, HD or scene change (`scene.odin:259, 353, 377`); leave the HD window before
-  `levels_set_current` or a delete (the asserts at `levels.odin:92, 130, 138`).
+- Call `sculptor_flush` once per frame per visible level and upload what it returns (`src/app/main.odin:392-401`).
+- `stroke_finish` before any level, HD or scene change (`scene.odin:292, 386, 410`); leave the HD window before
+  `levels_set_current` or a delete (the asserts at `levels.odin:93, 131, 139`).
 - A new `Brush_Kind`: a `when` branch in `displace` and a one-line `job_*` (or its own pair, as Smooth), a case in
   `dab_once`'s switch, weights through `shield` so the mask and the HD fade hold, a name in `BRUSH_NAMES`/`BRUSH_HELP`
   (`src/app/ui.odin`, and its key follows the enum order), a test that proves what it moves, and a place in
@@ -125,8 +134,8 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
   (end the stroke, leave HD, clear the history, recreate the GPU buffers) happens when it is turned on or off
   (`object_set_dyntopo`). The app uploads changed index pages with `level_upload`, which remakes the buffers when the
   pages outgrow them. Never read `len(mesh.positions)` as a vertex count on a dynamic object.
-- Simplified copies are never built during a stroke (`main.odin:369-370`, `lod.odin:164`); the brush works in the
-  object's local space (`scene.odin:12-14`), symmetry included.
+- Simplified copies are never built during a stroke (`main.odin:401-402`, `lod.odin:164`); the brush works in the
+  object's local space (`scene.odin:14-16`), symmetry included.
 - A mask-only change is stale `.Paint`: it re-uploads the node's vertices without recomputing normals; pass
   `sculptor.mask` to every `mesh_buffers_create`/`upload_ranges`, or the mask vanishes from the screen (sm-render).
 
@@ -135,7 +144,7 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
 |---|---|
 | a sample off the surface ends the stroke | it is skipped; the stroke resumes where the path meets the surface again (`sculpt_tool.odin:252-255`) |
 | every Ctrl+Z undoes a stroke | entries whose step the byte limit dropped are skipped silently (`history.odin:71-75`) |
-| HD strokes stay in the history | closing the window forgets them (`object_hd_leave`, `scene.odin:375`); Delete higher/lower, Remesh and turning dynamic topology on or off clear the object's history (`:289, 295, 449`; `object_set_dyntopo` `:147`) |
+| HD strokes stay in the history | closing the window forgets them (`object_hd_leave`, `scene.odin:408`); Delete higher/lower, Remesh and turning dynamic topology on or off clear the object's history (`:322, 328, 484`; `object_set_dyntopo` `:180`) |
 | Shift smooths only the Draw brush | Shift turns any kind into Smooth, Grab and Mask included (`brush_at`) |
 | the mask stops the Mask brush | it does not: the Mask brush is weighted by falloff and HD fade only, so it can erase |
 | a mirrored dab is one dab | each image is a full `dab_once` (its own query, jobs and, with dynamic topology, splits); all land in the same undo step |

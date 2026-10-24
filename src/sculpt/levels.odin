@@ -61,14 +61,15 @@ Levels :: struct {
 @(private)
 EVEN :: max(u32)
 
-// Takes `mesh` as the base level and prepares it for sculpting (see sculptor_init).
-levels_init :: proc(l: ^Levels, mesh: geom.Mesh, pool: ^jobs.Pool, node_triangles: u32 = NODE_TRIANGLES, allocator := context.allocator) {
+// Takes `mesh` as the base level and prepares it for sculpting (see sculptor_init,
+// which renumbers the vertices and fills `old_to_new` when given one).
+levels_init :: proc(l: ^Levels, mesh: geom.Mesh, pool: ^jobs.Pool, node_triangles: u32 = NODE_TRIANGLES, old_to_new: []u32 = nil, allocator := context.allocator) {
 	l.pool, l.node_triangles, l.allocator = pool, node_triangles, allocator
 	l.levels = make([dynamic]^Level, 0, MAX_LEVELS, allocator)
 	l.residual = make([dynamic]Vec3, allocator)
 	base := new(Level, allocator)
 	base.mesh = mesh
-	sculptor_init(&base.sculptor, &base.mesh, pool, node_triangles, allocator = allocator)
+	sculptor_init(&base.sculptor, &base.mesh, pool, node_triangles, old_to_new, allocator)
 	base.node_of_vertex = node_of_vertex_build(&base.sculptor, allocator)
 	append(&l.levels, base)
 	l.current = 0

@@ -37,6 +37,16 @@ description: The src/geom package — the structure-of-arrays geom.Mesh and its 
   vertices (Garland–Heckbert), in passes of independent collapses; a vertex on an edge without exactly two triangles
   never moves, so a patch keeps its border exactly, nor does one with more than 32 neighbours (`:7-11, 124-130`); a
   collapse that would turn a triangle by about 75° or more is refused (`:42-50`); returns the RMS error.
+- Mesh files (`src/geom/mesh_file.odin`): `mesh_read_obj(data, pool)` (parallel chunks, polygons as fans, negative and
+  `v/vt/vn` indices) and `mesh_read_ply(data, pool)` (ASCII and both binary orders) return `(Mesh, Mesh_File_Error,
+  line)`; `mesh_clean` welds bit-identical positions and drops repeated-corner triangles and unused vertices;
+  `mesh_sculptable` is what a sculptor needs of a mesh from a file (three different in-range corners per triangle,
+  every vertex used, every position finite);
+  `mesh_edges` gives border and bad edge counts and the signed volume (`mesh_edges_closed`), `mesh_flip` turns
+  every triangle, `mesh_normalize` centres and sizes to radius 1. `mesh_write_obj`/`mesh_write_ply` take a scale and
+  offset and skip them when they are the identity (so -0 survives); `format_f32` writes nine significant digits,
+  which read back bit for bit. `Byte_Reader` with `byte_get*` (a short read turns `ok` false and later reads give
+  zero) and `byte_put*` are the binary helpers the scene file uses.
 - `mesh_check(m)`, `mesh_check_indices(positions, indices)`, `mesh_report_ok`, `mesh_report_print` (`src/geom/check.odin`):
   one pass that counts boundary, inconsistent and non-manifold edges, degenerate triangles and NaN positions and gives
   the signed volume and bounds. The app prints it with `--check-mesh` (sm-build).
@@ -51,7 +61,7 @@ description: The src/geom package — the structure-of-arrays geom.Mesh and its 
 | Invariant | Who relies on it | How to check |
 |---|---|---|
 | Triangles wind counter-clockwise seen from outside | the pipeline culls `.BACK` with `.COUNTER_CLOCKWISE` front faces (`src/render/renderer.odin:284`); back-face culling (`visibility.odin:83-92`) | `mesh_check(m).inverted == false` (signed volume > 0 for a closed mesh) |
-| Closed manifold: each directed edge once, its twin once | `levels_subdivide` and `level_above` refuse otherwise (`src/sculpt/levels.odin:100-112, 469`); `levels_hd_set_steps` (`src/sculpt/hd.odin:73-82`); `simplify` locks such vertices | `mesh_check(m).closed`; `mesh_report_ok` for the whole contract |
+| Closed manifold: each directed edge once, its twin once | `levels_subdivide` and `level_above` refuse otherwise (`src/sculpt/levels.odin:101-113, 470`); `levels_hd_set_steps` (`src/sculpt/hd.odin:73-82`); `simplify` locks such vertices | `mesh_check(m).closed`; `mesh_report_ok` for the whole contract |
 | Every vertex is used by a triangle | `sculptor_init` asserts "mesh has vertices no triangle uses" (`src/sculpt/brush.odin:311`) | remove unused vertices and remap before handing a mesh to a sculptor. A dynamic-topology sculptor's mesh has unused page slots and (0,0,0) triangles by design: check `sculpt.sculptor_compact_mesh` instead, as `--check-mesh` does |
 | `len(normals) == len(positions)` | uploads pack one normal per vertex | the fixture builders set it |
 | No NaN or infinite position | `aabb_grow` uses plain compares that let NaN through (`bvh.odin:15-20`), so a NaN poisons bounds silently | `mesh_check(m).nan_count == 0` |

@@ -56,6 +56,11 @@ Frame_Stats :: struct {
 	// The last remesh: building the new surface, then preparing it to sculpt and upload.
 	remesh_ms:      f64,
 	remesh_setup_ms: f64,
+	// The last file read (import or open: reading and, for imports, parsing) and the
+	// last one written (export or save, formatting included).
+	file_read_ms:   f64,
+	file_parse_ms:  f64,
+	file_write_ms:  f64,
 	// The last time dynamic topology was turned on or off: converting the mesh, then
 	// uploading it; and how often its growth has called for bigger GPU buffers.
 	dyntopo_ms:        f64,
