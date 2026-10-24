@@ -13,7 +13,7 @@ import "../sculpt"
 Brush_Settings :: struct {
 	kind:              sculpt.Brush_Kind,
 	radius_px:         f32,
-	strength:          f32,
+	strengths:         [sculpt.Brush_Kind]f32, // each brush's own (brush_strength)
 	pressure_strength: bool, // pen pressure scales the strength
 	pressure_size:     bool, // pen pressure scales the radius
 	pressure_curve:    geom.Curve, // what each pen pressure counts as (geom.curve_at)
@@ -287,7 +287,9 @@ stroke_dab :: proc(app: ^App, obj: ^Object, input: Viewport_Input, inv: matrix[4
 brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pressure: f32, tilt: [2]f32) -> sculpt.Brush {
 	dist := linalg.length(to_world(t, hit) - camera.orbit_eye(app.camera))
 	world_per_px := 2 * dist * math.tan(app.camera.fov_y / 2) / input.size.y
-	strength := app.brush.strength
+	kind := sculpt.Brush_Kind.Smooth if input.smooth else app.brush.kind
+	// Shift smooths at the Smooth brush's strength, not the strength of the brush held.
+	strength := app.brush.strengths[kind]
 	if app.brush.pressure_strength do strength *= pressure_curved(app, pressure)
 	turn: matrix[3, 3]f32
 	if app.brush.tilt_strength > 0 && tilt != {} do turn = camera.orbit_tilt(app.camera, tilt, app.brush.tilt_strength)
@@ -295,7 +297,7 @@ brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pres
 	up: Vec3
 	if alpha != nil do up = alpha_world_up(app)
 	return sculpt.Brush {
-		kind     = .Smooth if input.smooth else app.brush.kind,
+		kind     = kind,
 		radius   = brush_radius_px(app, pressure) * world_per_px / t.scale,
 		strength = strength,
 		invert   = input.invert,

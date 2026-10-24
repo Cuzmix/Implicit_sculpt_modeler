@@ -45,7 +45,7 @@ pie_update :: proc(app: ^App, input: ^Viewport_Input, right_tap: bool) {
 	defer p.space_pressed, p.space_released = false, false
 	if p.swallow {
 		if imgui.IsMouseDown(.Left) {
-			pie_mute(input)
+			viewport_mute(input)
 		} else {
 			p.swallow = false
 		}
@@ -59,7 +59,7 @@ pie_update :: proc(app: ^App, input: ^Viewport_Input, right_tap: bool) {
 			p^ = {open = true, center = input.mouse_pos, opened = time.tick_now(), space_down = p.space_down}
 		}
 		p.hover = pie_slice(input.mouse_pos - p.center)
-		if p.open do pie_mute(input)
+		if p.open do viewport_mute(input)
 		return // what opened it this frame does nothing more
 	}
 	p.hover = pie_slice(input.mouse_pos - p.center)
@@ -79,7 +79,7 @@ pie_update :: proc(app: ^App, input: ^Viewport_Input, right_tap: bool) {
 	} else if right_tap || p.space_pressed || imgui.IsKeyPressed(.Escape, false) {
 		p.open = false
 	}
-	pie_mute(input)
+	viewport_mute(input)
 }
 
 // Which slice a pointer this far from the middle points toward: the brushes in key order
@@ -100,13 +100,6 @@ pie_pick :: proc(app: ^App, slice: int) {
 	app.brush.kind = sculpt.Brush_Kind(slice)
 	app.tool = .Brush
 	app.ui.pie.open = false
-}
-
-// Takes the pointer away from the tools and the camera for this frame.
-@(private = "file")
-pie_mute :: proc(input: ^Viewport_Input) {
-	input.primary, input.press, input.smooth, input.invert = false, false, false, false
-	input.orbit_drag, input.pan_drag, input.wheel = false, false, 0
 }
 
 // Draws the open pie over everything, so it shows whole even near the viewport's edge.
