@@ -1,45 +1,75 @@
 ---
 name: sm-sculpt
-description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's nodes (BVH leaves owning contiguous vertex ranges), apply_dab and sculptor_flush, dirty ranges for upload, deferred normals and normal cones, per-node stroke undo, subdivision levels (Loop, detail in local frames, sync up and down), HD detail windows, simplified copies between strokes, and the app side: stroke sampling, dab spacing, pressure, lazy mouse, the cross-object History and Scene_Command. Load for ANY task that changes how a brush moves vertices or what happens around a stroke, e.g. "add a brush kind", "undo is wrong", "the levels drift", "HD window border", "dabs skip at high speed", "move vertices from a tool", "make this undoable". Requires sm-geom and sm-build; GPU upload is sm-render; panels are sm-ui; ZBrush is the behaviour model.
+description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's nodes (BVH leaves owning contiguous vertex ranges), the nine brushes (Draw, Smooth, Clay, Flatten, Inflate, Pinch, Crease, Grab, Mask), masking, X/Y/Z symmetry, dynamic topology, apply_dab and sculptor_flush, dirty ranges for upload, deferred normals and normal cones, per-node stroke undo, subdivision levels (Loop, detail in local frames, sync up and down), HD detail windows, simplified copies between strokes, and the app side: stroke sampling, dab spacing, pressure, lazy mouse, the cross-object History and Scene_Command. Load for ANY task that changes how a brush moves vertices or what happens around a stroke, e.g. "add a brush kind", "the mask leaks", "symmetry is off", "undo is wrong", "the levels drift", "HD window border", "dabs skip at high speed", "move vertices from a tool", "make this undoable". Requires sm-geom and sm-build; GPU upload is sm-render; panels are sm-ui; ZBrush is the behaviour model.
 ---
 
 # Sculpting
 
 ## Model (README: "Subdivision levels", "HD detail", "Controls", "Benchmark")
-- `Sculptor` (`src/sculpt/brush.odin:77-121`): `mesh ^geom.Mesh`, `pool`, `faces`, `bvh`, `nodes []Node`, `chunks
+- `Sculptor` (`src/sculpt/brush.odin:109-160`): `mesh ^geom.Mesh`, `pool`, `faces`, `bvh`, `nodes []Node`, `chunks
   []geom.Chunk` (per node, kept current by the flush), `node_of` (BVH leaf → node id), `shared`/`owners`, per-dab scratch,
   `stale`/`dirty_nodes`, `cone_waiting`/`waiting_cones`, `ranges`, `changed_bounds`, `edited`/`edited_nodes`, `history`,
   `lod`, `fade []u8` (0 = never moves). `Node{tri_first, tri_count, vert_first, vert_count, shared_*, owner_*, leaf}`
-  (`:46-56`): each node alone writes its owned, contiguous vertex range; a shared vertex belongs to the lowest node id.
+  (`:75-85`): each node alone writes its owned, contiguous vertex range; a shared vertex belongs to the lowest node id.
 - Constants with their reasons (`:23-32`): `NODE_TRIANGLES 1024`, `PARALLEL_MIN_VERTS 2048` (waking workers costs more
   than less work), `MAX_CACHED_FACES 4096`, `CONE_BATCH 512` (cones held back during a stroke, worked off per flush).
 - `sculptor_init(s, mesh, pool, node_triangles, old_to_new)` partitions and renumbers the mesh in place; vertex and
-  triangle order change (`:123`).
-- `Brush{kind, radius (world units), strength 0..1, invert}` (`:39-44`); `falloff` is `(1 − x²)²` over the squared
-  distance in radii (`:441-448`). Draw moves along the area-weighted average normal of the hit by `radius · strength ·
-  0.1` (`:483-489`); Smooth is one Jacobi step toward the neighbour mean (`:490-500`).
-- `apply_dab(s, brush, center)` (`:462-519`): `bvh_query_leaves` → `record_hit` when recording → the kind's `job_*`
-  pair → changed leaves → `mark_shape_changed` (stale Shape, LOD stale, edited) → `record_changed` → `job_hit_bounds` →
-  `bvh_refit_leaves(recompute_leaves = false)`. Returns how many vertices moved. Positions and BVH bounds are current when
-  it returns; normals catch up in the flush.
-- `sculptor_flush(s)` (`:391-439`): once a frame before uploading. Sorts `dirty_nodes`, recomputes normals per node
+  triangle order change (`:162`).
+- `Brush{kind, radius (world units), strength 0..1, invert, symmetry, detail, collapse}` (`:55-65`; `detail`/`collapse`
+  are dynamic topology's); `falloff` is `(1 − x²)²` over the squared distance in radii (`:501-505`). Strengths with
+  their reasons: `DRAW_HEIGHT 0.1` radii, `CLAY_HEIGHT 0.08`, `PLANE_RATE 0.5`, `PINCH_RATE 0.25`, `CREASE_PINCH 0.2`
+  (`:68-73`).
+- The nine kinds, in key order 1–9 (`Brush_Kind`, `:34-44`; README "Brushes, masking and symmetry" has the user's view):
+  | Kind | Moves | Inverted |
+  |---|---|---|
+  | Draw | out along the area-weighted average normal by `radius · strength · DRAW_HEIGHT` | in |
+  | Smooth | one Jacobi step toward the neighbour mean (`job_smooth_targets`/`_apply`) | — |
+  | Clay | toward a plane `CLAY_HEIGHT` radii above the surface; only vertices below it, capped at it | digs |
+  | Flatten | toward the plane through the falloff-weighted centre | pushes away |
+  | Inflate | each vertex along its own normal | deflates |
+  | Pinch | along the surface toward the centre | pushes away |
+  | Crease | in, with a narrow falloff (w²), and pinches | a ridge |
+  | Grab | drags with the pointer, once per stroke (`grab.odin`, below) | — |
+  | Mask | paints the mask (`mask.odin`, below) | erases |
+- `apply_dab(s, brush, center)` (`brush.odin:525-530`) returns 0 for Grab, else runs `dab_once` at every mirror image:
+  `mirrors(symmetry)` gives `{1,1,1}` then the sign flips, up to 8 (`brush.odin:534-546`). `dab_once` (`brush.odin:558-633`):
+  `bvh_query_leaves` → dynamic topology first when on (the bullet below) → Mask returns `mask_dab` → otherwise
+  `record_hit` when recording → `job_area` (falloff-weighted normal and centre: `d.normal`, `d.plane`; not for Smooth,
+  `brush.odin:730`) → the kind's `job_*` → `finish_move` (`brush.odin:638-655`: `mark_shape_changed`, `record_changed`, `job_hit_bounds`,
+  `bvh_refit_leaves(recompute_leaves = false)`). Returns how many vertices moved; positions and BVH bounds are current when
+  it returns, normals catch up in the flush.
+- Each moving kind's `job_*` is a one-line call to `displace(d, i, $K)` (`brush.odin:762`), specialised per kind with `when`, so the
+  vertex loop never branches on the kind; the weight is `falloff(d² / r²) · shield(fade, mask, v)` (`shield`, `brush.odin:550`:
+  HD fade × (255 − mask) / 255).
+- Grab (`src/sculpt/grab.odin`): `sculptor_grab_begin(s, brush, center)` gathers the leaves at every mirror image, saves
+  them for undo once (`record_hit`), stores start positions and a per-vertex, per-axis follow weight (the signed sum of
+  falloffs over the images, times `shield`) (`:34`); `sculptor_grab_move(s, offset)` sets `start + offset · follow`,
+  absolute rather than incremental, then `finish_move` (`:98`); `sculptor_grab_end` (`:124`, called by `stroke_finish`).
+- Mask (`src/sculpt/mask.odin`): `Sculptor.mask []u8` per vertex, nil until first used, 255 = brushes leave the vertex
+  alone. `mask_dab` (`:21`) paints by `255 · strength · falloff · fade`, marks nodes stale `.Paint` (GPU data only, no
+  normal recompute) and records them as `painted`; `sculptor_mask_command(s, .Clear | .Invert | .Fill)` is one undo step
+  (`:67`); `levels_carry_mask` copies it to the level being shown (`:129`); an HD window starts unmasked and its mask is
+  dropped when it closes. On the GPU the mask rides in the low 4 bits of each normal half (`geom.oct_encode_masked`, sm-render).
+- `sculptor_flush(s)` (`brush.odin:433-496`): once a frame before uploading. Sorts `dirty_nodes`, recomputes normals per node
   (Shape: all of them; Edge: only the border vertices), leaves a changed chunk's cone open during a stroke and works the
   waiting cones off `CONE_BATCH` per flush afterwards, sets `changed_bounds` (before and after), and returns coalesced,
   sorted `Vertex_Range`s valid until the next call.
-- Other entry points: `sculptor_nodes_moved(s, nodes)` after owned positions changed outside a dab (`:680-707`);
-  `sculptor_recompute_all` for a mesh that arrived without normals (`:709`); `sculptor_clear_edited` once levels carried
-  the edits (`:716`); `sculptor_raycast`; the brute-force `raycast` for tests.
-- Undo (`src/sculpt/undo.odin`): one step per stroke; a node's owned positions are copied the first time a dab touches
-  it, so a step costs 12 bytes per vertex reached and nothing for the rest (`:9-13`); undo and redo swap in place;
-  `UNDO_LIMIT_BYTES = 512 << 20` drops the oldest steps but always keeps the newest (`:41-42, 91-95`); an empty stroke is
-  not a step (`:83-86`); `sculptor_stroke_begin/end`, `sculptor_undo/redo`, `sculptor_clear_redo/history`.
+- Other entry points: `sculptor_nodes_moved(s, nodes)` after owned positions changed outside a dab (`brush.odin:884-911`);
+  `sculptor_recompute_all` for a mesh that arrived without normals (`brush.odin:913`); `sculptor_clear_edited` once levels carried
+  the edits (`brush.odin:920`); `sculptor_raycast`; the brute-force `raycast` for tests.
+- Undo (`src/sculpt/undo.odin`): one step per stroke; a node's owned positions (12 B a vertex) or, for mask strokes, its
+  masks (1 B) are copied the first time the stroke touches it, and nothing for the rest (`:9-15`). `Undo_Step{nodes,
+  painted}` lists node ids (`:32`); `Saved_Node{node, positions | masks, full, indices, …}` (`:42`), where `full` entries
+  are dynamic topology's whole-node saves. `record_hit(s, masks)` (`:171`) picks `record_mask`, `record_full` (dynamic)
+  or positions. Undo and redo swap in place (`step_move`, `:134`); `UNDO_LIMIT_BYTES = 512 << 20` drops the oldest steps
+  but always keeps the newest (`:53`); a stroke that moved and painted nothing is not a step (`:100`).
 - Levels (`src/sculpt/levels.odin`): a base mesh and finer copies, each one Loop step above the one below, every level a
   whole mesh with its own sculptor; only the current level is shown and sculpted (`:12-25`). `MAX_LEVELS 8`; `Level{mesh,
   sculptor, node_of_vertex, parents [4]u32, detail Vec3, even_of, deps, dependents}` (`:34-44`); detail is an offset in a
-  frame that turns with the surface below. `levels_set_current` asserts no HD window and syncs first (`:91-97`);
-  `levels_subdivide` returns false at `MAX_LEVELS`, with an HD level, or on an open mesh (`:99-110`);
-  `levels_subdivide_estimate` (`:113`); `levels_delete_higher/lower` (`:129-147`). `levels_sync` has three phases: push
-  the edit down as moves of the vertices below, re-encode detail, rebuild the levels above (`:177-203`). `frame_at` and
+  frame that turns with the surface below. `levels_set_current` asserts no HD window and syncs first (`:91-98`);
+  `levels_subdivide` returns false at `MAX_LEVELS`, with an HD level, or on an open mesh (`:100-112`);
+  `levels_subdivide_estimate` (`:137`); `levels_delete_higher/lower` (`:153-171`). `levels_sync` has three phases: push
+  the edit down as moves of the vertices below, re-encode detail, rebuild the levels above (`:201-227`). `frame_at` and
   `frame_point` are `#force_no_inline` so every level decodes the same bits.
 - HD (`src/sculpt/hd.odin:13-31`): detail `steps` Loop steps above the top level, stored per top-level node and only for
   sculpted nodes; sculpted one window at a time (`levels_hd_enter`: the nearest top-level nodes up to a vertex budget,
@@ -64,39 +94,52 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
   (whole changed pages) for the app to upload. `sculptor_vertex_count`/`triangle_count` count used slots; the mesh's
   array lengths do not. `sculptor_dyn_enable/disable` (levels: `levels_dyn_enable/disable`, single level, no HD);
   `sculptor_compact_mesh` gives the plain mesh. No LOD copies while on.
-- App side (`src/app/sculpt_tool.odin`): `Brush_Settings` with the radius in pixels (`:12-19`); `Input_Sample{pos, pressure,
-  kind}`, every motion event of a frame kept (`:21-35`); `DAB_SPACING 0.25` radii, `MIN_DAB_SPACING_PX 1`,
-  `MAX_DABS_PER_FRAME 64`, `MAX_PENDING_SAMPLES 4096` (`:53-57`); `sculpt_frame` → `stroke_follow` (lazy mouse `:141-147`;
-  leftovers go to `pending` `:148-153`) → `stroke_start` (`scene_raycast`, select, `sculptor_stroke_begin`, first dab
-  `:160-178`) → `stroke_walk` (a dab every spacing pixels `:184-206`) → `stroke_dab` (`sculptor_raycast` in local space; a
-  miss is skipped `:212-223`); `brush_at` turns pixels into world units at the hit's distance and divides by the object's
-  scale (`:228-239`). `History` orders strokes across objects and levels, newest last, `HD_LEVEL = -1`; undoing a stroke
-  from another level switches to it first (`src/app/history.odin:5-20, 54-68`); `stroke_finish` ends and records a stroke
-  (`:29-40`). `Scene_Command` kinds and `scene_apply` (`src/app/scene.odin:65-74, 123-202`).
+- App side (`src/app/sculpt_tool.odin`): `Brush_Settings` with the radius in pixels, `symmetry`, `detail_px`, `collapse`
+  (`:12-24`); `Input_Sample{pos, pressure, kind}`, every motion event of a frame kept (`:26-40`); `DAB_SPACING 0.25`
+  radii, `MIN_DAB_SPACING_PX 1`, `MAX_DABS_PER_FRAME 64`, `MAX_PENDING_SAMPLES 4096`, `MAX_BRUSH_MS_PER_FRAME 10`
+  (`:60-67`); `sculpt_frame` → `stroke_follow` (lazy mouse `:155-161`; leftovers go to `pending` `:162-167`) →
+  `stroke_start` (`scene_raycast`, select, `sculptor_stroke_begin`, first dab, or `sculptor_grab_begin` for Grab, `:174`)
+  → `stroke_walk` (a dab every spacing pixels until the dab or time budget runs out, `:228-250`) → `stroke_dab`
+  (`sculptor_raycast` in local space; a miss is skipped, `:256`). Grab instead follows only the frame's last sample
+  (`grab_follow`, `:204`: the pointer ray meets the plane through the anchor that faces the camera, the offset is divided
+  by the object's scale). `brush_at` turns pixels into world units at the hit's distance, divides by the object's scale,
+  passes `symmetry`, and makes `detail` a share of the radius (`:272-286`). Symmetry planes go through the mesh's local
+  origin; X toggles X. `History` orders strokes and mask commands across objects and levels, newest last, `HD_LEVEL =
+  -1`; undoing a stroke from another level switches to it first (`src/app/history.odin:5-20, 69-83`); `stroke_finish`
+  ends Grab and records the stroke (`:29`), `mask_command` records a mask command (`:39`). `Scene_Command` kinds and
+  `scene_apply` (`src/app/scene.odin:72-79, 212`).
 
 ## Rules that bite
 - Every position change goes through `apply_dab` or `sculptor_nodes_moved`; otherwise BVH bounds, normals, chunks, LOD
   staleness and `edited` drift apart (tests `incremental_updates_match_full_recompute`, `flush_leaves_no_stale_normal`,
   `synced_levels_stay_consistent`).
-- Call `sculptor_flush` once per frame per visible level and upload what it returns (`src/app/main.odin:329-331`).
-- `stroke_finish` before any level, HD or scene change (`scene.odin:163, 253, 277`); leave the HD window before
+- Call `sculptor_flush` once per frame per visible level and upload what it returns (`src/app/main.odin:360-369`).
+- `stroke_finish` before any level, HD or scene change (`scene.odin:259, 353, 377`); leave the HD window before
   `levels_set_current` or a delete (the asserts at `levels.odin:92, 130, 138`).
-- A new `Brush_Kind` is a `job_*` pair in `apply_dab`'s switch, honours `s.fade` as Draw and Smooth do, and gets a test
-  that compares serial with parallel bit for bit and one that proves the falloff (`brush_test.odin`).
+- A new `Brush_Kind`: a `when` branch in `displace` and a one-line `job_*` (or its own pair, as Smooth), a case in
+  `dab_once`'s switch, weights through `shield` so the mask and the HD fade hold, a name in `BRUSH_NAMES`/`BRUSH_HELP`
+  (`src/app/ui.odin`, and its key follows the enum order), a test that proves what it moves, and a place in
+  `new_brushes_parallel_match_serial` (`brushes_test.odin`), which compares serial with parallel bit for bit.
 - Strokes undo per node: a tool that moves nodes without recording them breaks undo (sm-cad has the plan).
 - With dynamic topology the triangles change during a stroke by design; everything else about a topology change
   (end the stroke, leave HD, clear the history, recreate the GPU buffers) happens when it is turned on or off
   (`object_set_dyntopo`). The app uploads changed index pages with `level_upload`, which remakes the buffers when the
   pages outgrow them. Never read `len(mesh.positions)` as a vertex count on a dynamic object.
-- Simplified copies are never built during a stroke (`main.odin:333-335`, `lod.odin:164`); the brush works in the
-  object's local space (`scene.odin:12-14`).
+- Simplified copies are never built during a stroke (`main.odin:369-370`, `lod.odin:164`); the brush works in the
+  object's local space (`scene.odin:12-14`), symmetry included.
+- A mask-only change is stale `.Paint`: it re-uploads the node's vertices without recomputing normals; pass
+  `sculptor.mask` to every `mesh_buffers_create`/`upload_ranges`, or the mask vanishes from the screen (sm-render).
 
 ## Traps
 | You might expect | What happens |
 |---|---|
-| a sample off the surface ends the stroke | it is skipped; the stroke resumes where the path meets the surface again (`sculpt_tool.odin:208-211`) |
-| every Ctrl+Z undoes a stroke | entries whose step the byte limit dropped are skipped silently (`history.odin:56-60`) |
-| HD strokes stay in the history | closing the window forgets them (`scene.odin:273-282`); Delete higher/lower and Remesh clear the object's history (`:189, 197, 342`) |
+| a sample off the surface ends the stroke | it is skipped; the stroke resumes where the path meets the surface again (`sculpt_tool.odin:252-255`) |
+| every Ctrl+Z undoes a stroke | entries whose step the byte limit dropped are skipped silently (`history.odin:71-75`) |
+| HD strokes stay in the history | closing the window forgets them (`object_hd_leave`, `scene.odin:375`); Delete higher/lower, Remesh and turning dynamic topology on or off clear the object's history (`:289, 295, 449`; `object_set_dyntopo` `:147`) |
+| Shift smooths only the Draw brush | Shift turns any kind into Smooth, Grab and Mask included (`brush_at`) |
+| the mask stops the Mask brush | it does not: the Mask brush is weighted by falloff and HD fade only, so it can erase |
+| a mirrored dab is one dab | each image is a full `dab_once` (its own query, jobs and, with dynamic topology, splits); all land in the same undo step |
+| Grab moves by each frame's delta | it sets `start + offset · follow` from the grab's start, so frames never accumulate error |
 | a `fade == 0` vertex moves a little | never: an HD window's border meets the level drawn around it |
 | `sculptor_lod_update` returns ranges mid-stroke | nothing while `history.recording` (`lod.odin:164`) |
 | more than 64 dabs land in one frame | the rest of the path waits for the next frame; a lagging stroke drops its oldest samples past 4096 |
@@ -104,6 +147,9 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
 | a split edge's opposite vertex can sit on it | splits bisect each triangle across its longest side, so slivers never form; `dyn_long_stroke_keeps_a_clean_surface` checks angles and folds |
 
 ## Tests
+- Brushes: `brushes_test.odin` (`sphere_make(subdiv, pool)` with nodes of 64, `top_vertex`, `mirror_map`); one test per
+  kind, `symmetric_dabs_mirror`, `grab_drags_by_the_offset`, `mask_shields_vertices`, `mask_undo_and_upload`,
+  `mask_follows_levels`, and `new_brushes_parallel_match_serial`.
 - Fixtures: `sculptor_init(&s, &m, nil, 64)` for small nodes; `levels_make(subdiv, steps, pool)` (`levels_test.odin`),
   `hd_make` (`hd_test.odin`), `lod_sphere(…, min_triangles = 0)` (`lod_test.odin`); `snapshot`/`expect_state`
   (`undo_test.odin`); `expect_decoded` (`levels_test.odin`). `build.bat test` runs sculpt third.

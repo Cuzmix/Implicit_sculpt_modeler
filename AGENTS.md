@@ -9,7 +9,7 @@ Skills live in `.claude/skills/<name>/SKILL.md` (mirrored to `.agents/skills/` b
 skill whose description fits the request BEFORE you form a plan.
 - Always: `sm-odin` (rules for the pinned Odin) and `sm-build` (the build, run and verify loop).
 - Meshes, BVH, culling math, mesh tests: `sm-geom`. Brushes, undo, subdivision levels, HD, simplified copies, the stroke
-  pipeline: `sm-sculpt`. Modelling tools other than brushes (primitives, booleans, trims, mirror, measure): `sm-cad`.
+  pipeline, masking, symmetry, dynamic topology: `sm-sculpt`. Modelling tools other than brushes (voxel remesh, primitives, booleans, trims, mirror, measure): `sm-cad`.
   SDFs, voxels, implicit surfaces: `sm-sdf`. Anything drawn or uploaded: `sm-render`. Panels, input, shortcuts: `sm-ui`.
   How fast anything is: `sm-perf`. Before calling anything done: `sm-lint`.
 - Subagents (`.claude/agents/`): `sm-architect` reviews designs (read-only), `sm-investigator` root-causes bugs with a
@@ -58,8 +58,10 @@ skill whose description fits the request BEFORE you form a plan.
 - Determinism: serial and parallel results are bit-identical and tests compare them; no map order decides output.
 - Allocations inside jobs use `runtime.heap_allocator()` for both make and delete; only the frame loop and the setup
   paths call `free_all(context.temp_allocator)`; nothing temp is stored.
-- Every vertex move goes through `apply_dab` or `sculptor_nodes_moved`; a topology change ends the stroke, leaves HD,
-  clears the history, drops the levels and recreates the GPU buffers (until the `Mesh_Swap` undo entry exists: `sm-cad`).
+- Every vertex move goes through `apply_dab`, `sculptor_grab_move` or `sculptor_nodes_moved`, and every mask change
+  through `mask_dab` or `sculptor_mask_command`; triangles change only under dynamic topology inside a stroke. Any other
+  topology change (remesh, booleans, …) copies `object_remesh`: end the stroke, leave HD, release and rebuild the object,
+  which drops its levels, mask and history (until the `Mesh_Swap` undo entry exists: `sm-cad`).
 - ImGui never owns sculpt state; panels keep no references between frames; scene changes are `Scene_Command`s applied
   at the start of the next frame.
 - GPU: consume every `sdl.*GPU*` result; `WaitForGPUIdle` before freeing buffers; set vsync before acquiring the

@@ -33,9 +33,15 @@ check` and `build.bat test` again. Report the items you could not verify.
 ## 4. Behaviour
 - Serial and parallel give identical bits: run the comparing tests, and give new parallel code one. No map iteration
   decides any order in output.
-- Mesh positions change only through `apply_dab`, `sculptor_nodes_moved` or a full sculptor rebuild; a topology change
-  ends the stroke, leaves HD, clears the history, drops the levels and recreates the GPU buffers (sm-cad).
-- Anything the user can do is undoable (a stroke, or a designed history entry); anything that frees scene state is a
+- Mesh positions change only through `apply_dab`, `sculptor_grab_move`, `sculptor_nodes_moved` or a full sculptor
+  rebuild, and the mask only through `mask_dab` or `sculptor_mask_command`; every brush weight goes through `shield`
+  (mask and HD fade). Triangles change only under dynamic topology inside a stroke; any other topology change ends the
+  stroke, leaves HD, clears the history, drops the levels, the mask and dynamic topology, and recreates the GPU buffers
+  through `object_release_mesh` + `object_build_from` (sm-cad). Every upload passes the sculptor's `mask`.
+- A dynamic object's mesh has unused slots: counts come from `object_vertex_count`/`sculptor_vertex_count`, checks from
+  `sculptor_compact_mesh`, never from `len(mesh.positions)`.
+- Anything the user can do is undoable (a stroke, a mask command, or a designed history entry; Remesh and turning
+  dynamic topology on or off are the known exceptions, and they clear the object's history); anything that frees scene state is a
   `Scene_Command` applied at the next frame start; `Draw_Item.model` stays translation plus uniform scale;
   `viewport_invalidate` when what is drawn changed without a version bump.
 - Error paths return errors (`false`, or `log.warn` and `return true` for a refused user action); programmer errors assert.
