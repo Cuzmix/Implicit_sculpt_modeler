@@ -1,6 +1,7 @@
 package main
 
 import "core:fmt"
+import "core:strings"
 
 import imgui "deps:odin-imgui"
 
@@ -61,6 +62,37 @@ Viewport_Input :: struct {
 	smooth:      bool, // Shift held during a stroke: smooth brush
 	invert:      bool, // Ctrl held during a stroke: invert the brush
 	samples:     []Input_Sample, // every pointer sample this frame, oldest first
+}
+
+BRUSH_NAMES := [sculpt.Brush_Kind]string {
+	.Draw    = "Draw",
+	.Smooth  = "Smooth",
+	.Clay    = "Clay",
+	.Flatten = "Flatten",
+	.Inflate = "Inflate",
+	.Pinch   = "Pinch",
+	.Crease  = "Crease",
+	.Grab    = "Grab",
+	.Mask    = "Mask",
+}
+
+BRUSH_HELP := [sculpt.Brush_Kind]cstring {
+	.Draw    = "Pushes the surface out (Ctrl: in).",
+	.Smooth  = "Evens out bumps. Shift smooths with any brush.",
+	.Clay    = "Builds up toward a flat top, filling dips first (Ctrl: digs).",
+	.Flatten = "Levels the surface to its average plane (Ctrl: away from it).",
+	.Inflate = "Swells along the surface's own normals (Ctrl: shrinks).",
+	.Pinch   = "Pulls the surface together under the brush (Ctrl: apart).",
+	.Crease  = "Cuts a sharp groove (Ctrl: a sharp ridge).",
+	.Grab    = "Drags what is under the brush with the pointer.",
+	.Mask    = "Paints the mask (Ctrl: erases it).",
+}
+
+brush_by_name :: proc(name: string) -> (sculpt.Brush_Kind, bool) {
+	for kind in sculpt.Brush_Kind {
+		if strings.equal_fold(name, BRUSH_NAMES[kind]) do return kind, true
+	}
+	return {}, false
 }
 
 ui_state_default :: proc() -> Ui_State {
@@ -231,18 +263,39 @@ draw_tools_panel :: proc(app: ^App) {
 	case .Move:
 		imgui.TextDisabled("Click selects. Drag an object, or a gizmo arm\nto move along that axis.")
 	case .Brush:
-		imgui.TextDisabled("Left drag sculpts the object under the cursor.\nShift smooths, Ctrl inverts.")
+		imgui.TextDisabled("Left drag sculpts the object under the cursor.\nShift smooths, Ctrl inverts (the Mask brush erases).")
 	}
 
 	imgui.SeparatorText("Brush")
-	if imgui.RadioButton("Draw", app.brush.kind == .Draw) do app.brush.kind = .Draw
-	imgui.SameLine()
-	if imgui.RadioButton("Smooth", app.brush.kind == .Smooth) do app.brush.kind = .Smooth
+	for kind, i in sculpt.Brush_Kind {
+		if i % 3 != 0 do imgui.SameLine()
+		label := fmt.ctprintf("%v (%d)", BRUSH_NAMES[kind], i + 1)
+		if imgui.RadioButton(label, app.brush.kind == kind) do app.brush.kind = kind
+	}
+	imgui.TextDisabled("%s", BRUSH_HELP[app.brush.kind])
 	imgui.SliderFloat("Radius (px)", &app.brush.radius_px, 5, 300, "%.0f")
 	imgui.SliderFloat("Strength", &app.brush.strength, 0.01, 1, "%.2f")
 	imgui.SliderFloat("Lazy mouse (px)", &app.brush.lazy_px, 0, 150, "%.0f")
 	imgui.Checkbox("Pressure sets strength", &app.brush.pressure_strength)
 	imgui.Checkbox("Pressure sets size", &app.brush.pressure_size)
+	imgui.Text("Symmetry")
+	for axis in sculpt.Axis {
+		imgui.SameLine()
+		on := axis in app.brush.symmetry
+		if imgui.Checkbox(fmt.ctprintf("%v", axis), &on) do app.brush.symmetry ~= {axis}
+	}
+	imgui.SameLine()
+	imgui.TextDisabled("(X toggles X)")
+
+	imgui.SeparatorText("Mask")
+	imgui.BeginDisabled(selected_object(app) == nil)
+	if imgui.Button("Clear (Alt+M)") do mask_command(app, .Clear)
+	imgui.SameLine()
+	if imgui.Button("Invert (Ctrl+I)") do mask_command(app, .Invert)
+	imgui.SameLine()
+	if imgui.Button("Mask all") do mask_command(app, .Fill)
+	imgui.EndDisabled()
+	imgui.TextDisabled("Paint it with the Mask brush (9); masked areas show\ndarker and no brush moves them. It follows level changes.")
 	if app.pen_seen {
 		imgui.TextDisabled("Pen pressure %.2f", app.pen_pressure)
 	} else {
@@ -306,7 +359,10 @@ draw_scene_panel :: proc(app: ^App) {
 	imgui.SameLine()
 	if imgui.Button("Delete selected") do app.ui.scene_command = {kind = .Delete}
 	imgui.EndDisabled()
-	imgui.TextDisabled("Remesh rebuilds the sphere at this count, with one\nlevel; sculpted detail is not kept yet.")
+	imgui.TextDisabled("Remesh rebuilds the selected object as an even mesh of\nabout this many vertices that keeps its shape, like\nDynaMesh. Ctrl+R does it at the object's own vertex\ncount. Levels, HD detail, mask and undo history go.")
+	if s := app.stats; s.remesh_ms > 0 {
+		imgui.TextDisabled("Last remesh: %.0f ms, then %.0f ms to sculpt-ready", s.remesh_ms, s.remesh_setup_ms)
+	}
 }
 
 // Subdivision levels of the selected object, numbered from 1 as in ZBrush.
@@ -397,6 +453,21 @@ handle_shortcuts :: proc(app: ^App) {
 	if io.KeyCtrl && imgui.IsKeyPressed(.Y, true) do history_redo(app)
 	if imgui.IsKeyPressed(.W, false) do app.tool = .Move
 	if imgui.IsKeyPressed(.B, false) do app.tool = .Brush
+	if !io.KeyCtrl && !io.KeyAlt {
+		// 1 to 9 pick the brushes in the order the Tools panel lists them.
+		for kind, i in sculpt.Brush_Kind {
+			if imgui.IsKeyPressed(imgui.Key(int(imgui.Key._1) + i), false) {
+				app.brush.kind = kind
+				app.tool = .Brush
+			}
+		}
+		if imgui.IsKeyPressed(.X, false) do app.brush.symmetry ~= {.X}
+	}
+	if io.KeyAlt && imgui.IsKeyPressed(.M, false) do mask_command(app, .Clear)
+	if obj := selected_object(app); obj != nil && io.KeyCtrl && imgui.IsKeyPressed(.R, false) {
+		app.ui.scene_command = {kind = .Remesh, vertices = geom.mesh_vertex_count(object_mesh(obj)^)}
+	}
+	if io.KeyCtrl && imgui.IsKeyPressed(.I, false) do mask_command(app, .Invert)
 	if imgui.IsKeyPressed(.F, false) do focus_selected(app)
 	if imgui.IsKeyPressed(.A, false) && !io.KeyCtrl {
 		// Toggles HD sculpting: a window opens where the pointer is, on the object there.

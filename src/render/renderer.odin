@@ -98,6 +98,9 @@ Mesh_Buffers :: struct {
 Normal_Packed :: [2]i16
 VERTEX_BYTES :: size_of(geom.Vec3) + size_of(Normal_Packed)
 
+// Normals go up with the vertex's mask folded in: see geom.oct_encode_masked.
+pack_normal :: geom.oct_encode_masked
+
 // 16 MB holds positions and normals for 1M vertices: far more than a frame of
 // sculpting changes, even with a large brush on a 10M vertex mesh.
 TRANSFER_BUFFER_SIZE :: 16 << 20
@@ -388,7 +391,8 @@ static_cache_ensure :: proc(r: ^Renderer, vt: ^Viewport_Target) -> bool {
 
 // Creates the GPU buffers for `mesh` and uploads all of it, in chunks through the
 // transfer buffer, waiting for the GPU after each chunk. For loading, not per frame.
-mesh_buffers_create :: proc(r: ^Renderer, mesh: geom.Mesh) -> (mb: Mesh_Buffers, ok: bool) {
+// `mask`, per vertex, is the sculptor's mask; nil when nothing is masked.
+mesh_buffers_create :: proc(r: ^Renderer, mesh: geom.Mesh, mask: []u8 = nil) -> (mb: Mesh_Buffers, ok: bool) {
 	vcount := u32(len(mesh.positions))
 	icount := u32(len(mesh.indices))
 	vbytes := vcount * size_of(geom.Vec3)
@@ -411,7 +415,7 @@ mesh_buffers_create :: proc(r: ^Renderer, mesh: geom.Mesh) -> (mb: Mesh_Buffers,
 	}
 	ok = upload_blocking(r, &mb, mb.indices, slice.to_bytes(mesh.indices[:])) &&
 		upload_blocking(r, &mb, mb.positions, slice.to_bytes(mesh.positions[:])) &&
-		upload_normals_blocking(r, &mb, mesh.normals[:])
+		upload_normals_blocking(r, &mb, mesh.normals[:], mask)
 	if !ok {
 		log.errorf("mesh upload failed: %s", sdl.GetError())
 		mesh_buffers_destroy(r, &mb)
@@ -441,13 +445,17 @@ upload_blocking :: proc(r: ^Renderer, mb: ^Mesh_Buffers, buffer: ^sdl.GPUBuffer,
 
 // Packs and copies every normal, one transfer buffer at a time.
 @(private)
-upload_normals_blocking :: proc(r: ^Renderer, mb: ^Mesh_Buffers, normals: []geom.Vec3) -> bool {
+upload_normals_blocking :: proc(r: ^Renderer, mb: ^Mesh_Buffers, normals: []geom.Vec3, mask: []u8) -> bool {
 	per_batch := int(mb.transfer_size / size_of(Normal_Packed))
 	for first := 0; first < len(normals); first += per_batch {
 		batch := normals[first:min(first + per_batch, len(normals))]
 		dst := cast([^]Normal_Packed)sdl.MapGPUTransferBuffer(r.device, mb.transfer, false)
 		if dst == nil do return false
-		for n, i in batch do dst[i] = geom.oct_encode(n)
+		if mask != nil {
+			for n, i in batch do dst[i] = pack_normal(n, mask[first + i])
+		} else {
+			for n, i in batch do dst[i] = pack_normal(n, 0)
+		}
 		sdl.UnmapGPUTransferBuffer(r.device, mb.transfer)
 		cmd := sdl.AcquireGPUCommandBuffer(r.device)
 		if cmd == nil do return false
@@ -473,10 +481,11 @@ mesh_buffers_destroy :: proc(r: ^Renderer, mb: ^Mesh_Buffers) {
 	mb^ = {}
 }
 
-// Records copies of the positions and normals of every vertex in `ranges` into `cmd`.
-// Ranges are packed into the transfer buffer, which is cycled so an upload never
-// stalls on the previous frame's copy; if they do not fit, they go in several batches.
-mesh_buffers_upload_ranges :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: ^Mesh_Buffers, mesh: geom.Mesh, ranges: []geom.Vertex_Range) {
+// Records copies of the positions and normals (with `mask`, nil when nothing is
+// masked) of every vertex in `ranges` into `cmd`. Ranges are packed into the transfer
+// buffer, which is cycled so an upload never stalls on the previous frame's copy; if
+// they do not fit, they go in several batches.
+mesh_buffers_upload_ranges :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: ^Mesh_Buffers, mesh: geom.Mesh, ranges: []geom.Vertex_Range, mask: []u8 = nil) {
 	if len(ranges) > 0 {
 		r.last_version += 1
 		mb.version = r.last_version
@@ -516,7 +525,11 @@ mesh_buffers_upload_ranges :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb:
 		dst_n := cast([^]Normal_Packed)(mapped[used * size_of(geom.Vec3):])
 		for p in batch {
 			copy(dst_p[p.dst:][:p.r.count], mesh.positions[p.r.first:][:p.r.count])
-			for n, k in mesh.normals[p.r.first:][:p.r.count] do dst_n[p.dst + u32(k)] = geom.oct_encode(n)
+			if mask != nil {
+				for n, k in mesh.normals[p.r.first:][:p.r.count] do dst_n[p.dst + u32(k)] = pack_normal(n, mask[p.r.first + u32(k)])
+			} else {
+				for n, k in mesh.normals[p.r.first:][:p.r.count] do dst_n[p.dst + u32(k)] = pack_normal(n, 0)
+			}
 		}
 		sdl.UnmapGPUTransferBuffer(r.device, mb.transfer)
 		pass := sdl.BeginGPUCopyPass(cmd)

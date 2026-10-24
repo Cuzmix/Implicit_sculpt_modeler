@@ -9,6 +9,7 @@ import "core:math/linalg"
 @(require) import "core:mem" // only used when ODIN_DEBUG
 import "core:os"
 import "core:slice"
+import "core:strings"
 import "core:time"
 import sdl "vendor:sdl3"
 
@@ -46,6 +47,9 @@ Options :: struct {
 	bench_stroke: int `usage:"Run a synthetic brush stroke over this many frames, print brush stats, then exit."`,
 	bench_samples: int `usage:"Give each --bench-stroke frame this many pointer samples along the path, like a high-rate mouse (default: one position a frame)."`,
 	bench_loops: int `usage:"Make --bench-stroke this many circles around the middle of the sphere instead of a wavy line."`,
+	brush:     string `usage:"Start with this brush: draw, smooth, clay, flatten, inflate, pinch, crease, grab or mask (also what --bench-stroke uses)."`,
+	symmetry:  string `usage:"Start with brush symmetry across these axes, e.g. x or xz."`,
+	remesh:    int `usage:"Voxel remesh the first sphere to about this many vertices before starting, as Remesh selected does (after --subdivide and --level)."`,
 	no_vsync:  bool `usage:"Show each frame as soon as it is ready instead of waiting for the display's refresh, so frame times are not capped at the refresh rate."`,
 	time_gpu:  bool `usage:"Measure the GPU time of the 3D viewport every frame. Waits for the GPU each frame, so frames no longer overlap."`,
 	gpubench:  string `usage:"Time the GPU and CPU while orbiting and sculpting one sphere at 500k, 1M, 5M, 7M and 10M vertices (only --vertices when given), with each speed setting on and off; write the markdown tables to this path and exit."`,
@@ -165,6 +169,7 @@ run :: proc(opts: Options) -> bool {
 		if !object_show_level(&app, obj, start) do return false
 	}
 	app.scene.selected = 0
+	if opts.remesh > 0 && !object_remesh(&app, app.scene.objects[0], opts.remesh) do return false
 	defer render.viewport_target_destroy(&app.renderer, &app.target)
 	app.camera = camera.orbit_default()
 	if opts.hd_open {
@@ -204,6 +209,24 @@ run :: proc(opts: Options) -> bool {
 	app.time_gpu = opts.time_gpu || opts.gpubench != ""
 	app.ui = ui_state_default()
 	app.brush = {kind = .Draw, radius_px = 60, strength = 0.5, pressure_strength = true}
+	if opts.brush != "" {
+		kind, found := brush_by_name(opts.brush)
+		if !found {
+			log.errorf("unknown brush %q", opts.brush)
+			return false
+		}
+		app.brush.kind = kind
+	}
+	for c in strings.to_lower(opts.symmetry, context.temp_allocator) {
+		switch c {
+		case 'x': app.brush.symmetry += {.X}
+		case 'y': app.brush.symmetry += {.Y}
+		case 'z': app.brush.symmetry += {.Z}
+		case:
+			log.errorf("unknown symmetry axis %q in %q", c, opts.symmetry)
+			return false
+		}
+	}
 	app.tool = .Brush
 	app.running = true
 	last_input_ns: u64 // SDL timestamp of the newest mouse event, for latency
@@ -328,7 +351,7 @@ run :: proc(opts: Options) -> bool {
 				t_flush := time.tick_now()
 				ranges := sculpt.sculptor_flush(&lv.sculptor)
 				normals_ms += time.duration_milliseconds(time.tick_since(t_flush))
-				render.mesh_buffers_upload_ranges(&app.renderer, cmd, gpu, lv.mesh, ranges)
+				render.mesh_buffers_upload_ranges(&app.renderer, cmd, gpu, lv.mesh, ranges, lv.sculptor.mask)
 				for r in ranges do uploaded += r.count
 				// Simplified copies are built a batch a frame, for one level at a time, and
 				// never during a stroke, whose frames should stay as short as they can be.

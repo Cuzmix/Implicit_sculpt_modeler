@@ -21,6 +21,25 @@ oct_encoding_round_trips :: proc(t: ^testing.T) {
 	testing.expectf(t, worst < MAX_ERROR, "worst normal error %v", worst)
 }
 
+// The mask rides in the low bits of the normal, as the shader reads it back, and the
+// normal stays within 0.1 degrees.
+@(test)
+masked_oct_encoding_keeps_mask_and_normal :: proc(t: ^testing.T) {
+	r := rand.create(11)
+	context.random_generator = rand.default_random_generator(&r)
+	MAX_ERROR :: 2e-3 // chord length: about 0.1 degrees
+	axes := [?]Vec3{{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}}
+	worst: f32
+	for i in 0 ..< 10_000 {
+		n := axes[i] if i < len(axes) else linalg.normalize(Vec3{rand.float32_range(-1, 1), rand.float32_range(-1, 1), rand.float32_range(-1, 1)})
+		mask := u8(i * 37)
+		decoded, got := oct_masked_decode(oct_encode_masked(n, mask))
+		testing.expect_value(t, got, mask)
+		worst = max(worst, linalg.length(decoded - n))
+	}
+	testing.expectf(t, worst < MAX_ERROR, "worst normal error %v", worst)
+}
+
 @(test)
 normal_cone_bounds_its_normals :: proc(t: ^testing.T) {
 	ns := [?]Vec3{{0, 0, 1}, {0.2, 0, 1}, {0, -0.3, 1}}

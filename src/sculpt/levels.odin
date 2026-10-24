@@ -93,6 +93,7 @@ levels_set_current :: proc(l: ^Levels, index: int) {
 	target := clamp(index, 0, len(l.levels) - 1)
 	if target == l.current do return
 	levels_sync(l)
+	levels_carry_mask(l, l.current, target)
 	l.current = target
 }
 
@@ -105,6 +106,7 @@ levels_subdivide :: proc(l: ^Levels) -> bool {
 	lv, ok := level_above(l, l.levels[len(l.levels) - 1])
 	if !ok do return false
 	append(&l.levels, lv)
+	levels_carry_mask(l, l.current, len(l.levels) - 1)
 	l.current = len(l.levels) - 1
 	return true
 }

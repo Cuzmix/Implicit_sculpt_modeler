@@ -16,6 +16,8 @@
 //   --levels     instead, the subdivision levels table (see run_levels)
 //   --lod        instead, the simplified drawing table (see run_lod)
 //   --hd         instead, the HD detail table (see run_hd)
+//   --brushes    instead, a stroke with each brush kind (see run_brushes)
+//   --remesh     instead, voxel remesh of a stretched sphere (see run_remesh)
 //   --meshes=N   spheres per size, all sculpt-ready; only the first is sculpted
 //   --threads=N  worker count including the caller (default: every core)
 //   --node=N     triangles per sculpt node
@@ -52,6 +54,8 @@ meshes := 0 // 0: the default cases
 levels := false
 lod := false
 hd := false
+brushes := false
+remesh := false
 
 main :: proc() {
 	targets := make([dynamic]int)
@@ -69,6 +73,10 @@ main :: proc() {
 			lod = true
 		} else if arg == "--hd" {
 			hd = true
+		} else if arg == "--brushes" {
+			brushes = true
+		} else if arg == "--remesh" {
+			remesh = true
 		} else if strings.has_prefix(arg, "--threads=") {
 			threads = strconv.parse_int(arg[10:]) or_else 0
 		} else if v, ok := strconv.parse_int(arg); ok {
@@ -105,6 +113,17 @@ main :: proc() {
 	if lod {
 		lod_header()
 		for c in cases do if c.meshes == 1 do run_lod(c.vertices, pool)
+		return
+	}
+	if remesh {
+		remesh_header()
+		for c in cases do if c.meshes == 1 do run_remesh(c.vertices, pool)
+		if prefault_mb == 0 do fmt.printfln("peak RSS: %.0f MB", peak_rss_mb())
+		return
+	}
+	if brushes {
+		brushes_header()
+		for c in cases do if c.meshes == 1 do run_brushes(c.vertices, pool)
 		return
 	}
 	if hd {

@@ -2,6 +2,7 @@
 // SDL_GPU SPIR-V conventions: fragment uniform buffers live in set 3.
 layout(location = 0) in vec3 in_view_normal;
 layout(location = 1) in vec3 in_view_pos;
+layout(location = 2) in float in_mask;
 
 layout(set = 3, binding = 0) uniform Material_Uniforms {
 	vec4 base_color;
@@ -24,7 +25,9 @@ void main() {
 	vec3 h     = normalize(key_dir + v);
 	float spec = pow(max(dot(n, h), 0.0), params.z) * params.y;
 
-	vec3 color = base_color.rgb * (params.x + key + fill) + vec3(spec + rim);
+	// Masked areas show darker, as in ZBrush.
+	vec3 albedo = base_color.rgb * (1.0 - 0.7 * in_mask);
+	vec3 color = albedo * (params.x + key + fill) + vec3(spec + rim) * (1.0 - 0.5 * in_mask);
 	// Linear to sRGB; the viewport target is a UNORM texture shown as-is by ImGui.
 	out_color = vec4(pow(color, vec3(1.0 / 2.2)), 1.0);
 }

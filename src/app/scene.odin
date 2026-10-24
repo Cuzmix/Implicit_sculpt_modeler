@@ -102,12 +102,28 @@ scene_add_sphere :: proc(app: ^App, vertices, subdiv: int, t: Transform) -> bool
 	return true
 }
 
-// Replaces the object's mesh with a fresh sphere of about `vertices` vertices, keeping
-// its transform. Sculpted detail is not carried over.
+// Rebuilds the object as an even mesh of about `vertices` vertices that keeps the shape
+// of the level it is on, as ZBrush's DynaMesh does (geom.remesh_voxel), keeping its
+// transform. Its levels, HD detail, mask and undo history go. Returns false only when
+// the old mesh is gone and the new one could not be uploaded.
 object_remesh :: proc(app: ^App, obj: ^Object, vertices: int) -> bool {
+	stroke_finish(app)
+	object_hd_leave(app, obj)
+	start := time.tick_now()
+	mesh, ok := geom.remesh_voxel(object_mesh(obj)^, vertices, &app.pool)
+	free_all(context.temp_allocator)
+	if !ok {
+		log.warn("remesh: the mesh has no volume to remesh")
+		return true
+	}
+	remeshed := time.tick_now()
 	_ = sdl.WaitForGPUIdle(app.renderer.device)
 	object_release_mesh(app, obj)
-	return object_build(app, obj, vertices, 0)
+	if !object_build_from(app, obj, mesh, remeshed) do return false
+	app.stats.remesh_ms = time.duration_milliseconds(time.tick_diff(start, remeshed))
+	app.stats.remesh_setup_ms = time.duration_milliseconds(time.tick_since(remeshed))
+	log.infof("remesh: %d vertices in %.0f ms, ready in %.0f ms more", geom.mesh_vertex_count(object_mesh(obj)^), app.stats.remesh_ms, app.stats.remesh_setup_ms)
+	return true
 }
 
 scene_delete_selected :: proc(app: ^App) {
@@ -229,7 +245,7 @@ object_show_level :: proc(app: ^App, obj: ^Object, start: time.Tick) -> bool {
 	gpu := object_gpu(obj)
 	if gpu.positions == nil {
 		ok: bool
-		gpu^, ok = render.mesh_buffers_create(&app.renderer, lv.mesh)
+		gpu^, ok = render.mesh_buffers_create(&app.renderer, lv.mesh, lv.sculptor.mask)
 		return ok
 	}
 	if len(ranges) == 0 do return true
@@ -238,7 +254,7 @@ object_show_level :: proc(app: ^App, obj: ^Object, start: time.Tick) -> bool {
 		log.errorf("AcquireGPUCommandBuffer failed: %s", sdl.GetError())
 		return false
 	}
-	render.mesh_buffers_upload_ranges(&app.renderer, cmd, gpu, lv.mesh, ranges)
+	render.mesh_buffers_upload_ranges(&app.renderer, cmd, gpu, lv.mesh, ranges, lv.sculptor.mask)
 	return sdl.SubmitGPUCommandBuffer(cmd)
 }
 
@@ -258,7 +274,7 @@ object_hd_enter :: proc(app: ^App, obj: ^Object, at: Vec3) -> bool {
 	if !sculpt.levels_hd_enter(&obj.levels, at, app.hd_window_vertices) do return true
 	built := time.tick_now()
 	ok: bool
-	obj.hd_gpu, ok = render.mesh_buffers_create(&app.renderer, object_mesh(obj)^)
+	obj.hd_gpu, ok = render.mesh_buffers_create(&app.renderer, object_mesh(obj)^, object_sculptor(obj).mask)
 	if !ok {
 		sculpt.levels_hd_leave(&obj.levels)
 		return false
@@ -319,10 +335,17 @@ object_build :: proc(app: ^App, obj: ^Object, vertices, subdiv: int) -> bool {
 	} else {
 		mesh = geom.icosphere(subdiv)
 	}
+	return object_build_from(app, obj, mesh, start)
+}
+
+// Makes `mesh` the object's only level, prepares it for sculpting and uploads it.
+// `start` is when building the mesh began, for the log.
+@(private = "file")
+object_build_from :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, start: time.Tick) -> bool {
 	sculpt.levels_init(&obj.levels, mesh, &app.pool)
 	free_all(context.temp_allocator)
 	ready := time.tick_now()
-	mesh_gpu, ok := render.mesh_buffers_create(&app.renderer, object_mesh(obj)^)
+	mesh_gpu, ok := render.mesh_buffers_create(&app.renderer, object_mesh(obj)^, object_sculptor(obj).mask)
 	if !ok {
 		sculpt.levels_destroy(&obj.levels)
 		return false

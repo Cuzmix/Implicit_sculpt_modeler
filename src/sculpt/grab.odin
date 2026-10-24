@@ -1,0 +1,166 @@
+package sculpt
+
+import "core:math/linalg"
+import "core:slice"
+
+import "../geom"
+import "../jobs"
+
+// The Grab brush (ZBrush's Move): a stroke picks up the vertices under the brush where
+// it starts, and each later pointer position drags them by how far the pointer has
+// gone, each by its falloff weight, instead of laying dabs along the path. With
+// symmetry, the mirror images of the brush drag their vertices the mirrored way.
+Grab :: struct {
+	leaves:  [dynamic]u32,  // BVH leaves the grab can change, sorted
+	touched: [dynamic]bool, // per leaf: one of its shared vertices is grabbed
+	first:   [dynamic]u32,  // per leaf: where its vertices start in verts; one more at the end
+	verts:   [dynamic]u32,  // the grabbed vertices
+	start:   [dynamic]Vec3, // ...where they were when the grab began
+	follow:  [dynamic]Vec3, // ...how much of the offset they take, per axis
+}
+
+@(private)
+Grab_Job :: struct {
+	s:       ^Sculptor,
+	centers: [dynamic; 8]Vec3,
+	signs:   [dynamic; 8]Vec3,
+	r2:      f32,
+	inv_r2:  f32,
+	offset:  Vec3,
+}
+
+// Starts dragging the vertices within the brush around `center`. Call inside a stroke
+// (sculptor_stroke_begin) for it to be undoable. Returns how many vertices it holds.
+sculptor_grab_begin :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
+	g := &s.grab
+	if g.leaves == nil do grab_init(g, s.history.allocator)
+	clear(&g.leaves)
+	j := Grab_Job{s = s, r2 = brush.radius * brush.radius, inv_r2 = 1 / (brush.radius * brush.radius)}
+	j.signs = mirrors(brush.symmetry)
+	for sign in j.signs {
+		append(&j.centers, center * sign)
+		geom.bvh_query_leaves(&s.bvh, center * sign, brush.radius, &g.leaves)
+	}
+	slice.sort(g.leaves[:])
+	resize(&g.leaves, len(slice.unique(g.leaves[:])))
+	n := len(g.leaves)
+	resize(&g.touched, n)
+	resize(&g.first, n + 1)
+	if n == 0 do return 0
+	clear(&s.hit)
+	append(&s.hit, ..g.leaves[:])
+	if s.history.recording do record_hit(s, masks = false)
+	candidates: u32
+	for leaf in g.leaves do candidates += s.nodes[s.node_of[leaf]].vert_count
+	pool := s.pool if candidates >= PARALLEL_MIN_VERTS else nil
+
+	// Count the grabbed vertices of each leaf, then fill them in.
+	jobs.parallel_for(pool, n, &j, proc(data: rawptr, i: int) {
+		j := cast(^Grab_Job)data
+		g := &j.s.grab
+		first, last := owned(j.s, g.leaves[i])
+		count: u32
+		for v in first ..< last do count += u32(grab_follow(j, v) != {})
+		g.first[i + 1] = count
+		touched := false
+		for v in shared_of(j.s, g.leaves[i]) {
+			if grab_follow(j, v) != {} {
+				touched = true
+				break
+			}
+		}
+		g.touched[i] = touched
+	})
+	g.first[0] = 0
+	for i in 0 ..< n do g.first[i + 1] += g.first[i]
+	total := int(g.first[n])
+	resize(&g.verts, total)
+	resize(&g.start, total)
+	resize(&g.follow, total)
+	jobs.parallel_for(pool, n, &j, proc(data: rawptr, i: int) {
+		j := cast(^Grab_Job)data
+		g := &j.s.grab
+		first, last := owned(j.s, g.leaves[i])
+		k := g.first[i]
+		for v in first ..< last {
+			f := grab_follow(j, v)
+			if f == {} do continue
+			g.verts[k], g.start[k], g.follow[k] = v, j.s.mesh.positions[v], f
+			k += 1
+		}
+	})
+	return total
+}
+
+// Moves the grabbed vertices to where they started plus `offset` (in the mesh's
+// space) times their weight. Returns how many vertices moved. Like apply_dab, it
+// leaves positions and BVH bounds current and normals to sculptor_flush.
+sculptor_grab_move :: proc(s: ^Sculptor, offset: Vec3) -> int {
+	g := &s.grab
+	n := len(g.leaves)
+	if n == 0 || len(g.first) != n + 1 do return 0
+	clear(&s.hit)
+	append(&s.hit, ..g.leaves[:])
+	resize(&s.partials, n)
+	slice.zero(s.partials[:])
+	j := Grab_Job{s = s, offset = offset}
+	pool := s.pool if len(g.verts) >= PARALLEL_MIN_VERTS else nil
+	jobs.parallel_for(pool, n, &j, proc(data: rawptr, i: int) {
+		j := cast(^Grab_Job)data
+		s := j.s
+		g := &s.grab
+		m := s.mesh
+		for k in g.first[i] ..< g.first[i + 1] do m.positions[g.verts[k]] = g.start[k] + j.offset * g.follow[k]
+		first, last := owned(s, g.leaves[i])
+		bounds := geom.AABB_EMPTY
+		for v in first ..< last do geom.aabb_grow(&bounds, m.positions[v])
+		s.partials[i] = {bounds = bounds, moved = g.first[i + 1] - g.first[i], touched = g.touched[i]}
+	})
+	d := Dab{s = s}
+	return finish_move(s, &d, pool)
+}
+
+// Forgets the grabbed vertices; the next grab starts afresh.
+sculptor_grab_end :: proc(s: ^Sculptor) {
+	g := &s.grab
+	clear(&g.leaves)
+	clear(&g.first)
+	clear(&g.verts)
+	clear(&g.start)
+	clear(&g.follow)
+}
+
+// Per axis, how much of the offset vertex v takes: its weight under each mirror image
+// of the brush, signed by that image's flips. Zero outside every image.
+@(private)
+grab_follow :: #force_inline proc(j: ^Grab_Job, v: u32) -> (f: Vec3) {
+	p := j.s.mesh.positions[v]
+	for c, k in j.centers {
+		delta := p - c
+		d2 := linalg.dot(delta, delta)
+		if d2 < j.r2 do f += j.signs[k] * falloff(d2 * j.inv_r2)
+	}
+	if f != {} do f *= shield(j.s.fade, j.s.mask, v)
+	return
+}
+
+@(private)
+grab_init :: proc(g: ^Grab, allocator := context.allocator) {
+	g.leaves = make([dynamic]u32, 0, 64, allocator)
+	g.touched = make([dynamic]bool, 0, 64, allocator)
+	g.first = make([dynamic]u32, 0, 64, allocator)
+	g.verts = make([dynamic]u32, 0, 1024, allocator)
+	g.start = make([dynamic]Vec3, 0, 1024, allocator)
+	g.follow = make([dynamic]Vec3, 0, 1024, allocator)
+}
+
+@(private)
+grab_destroy :: proc(g: ^Grab) {
+	delete(g.leaves)
+	delete(g.touched)
+	delete(g.first)
+	delete(g.verts)
+	delete(g.start)
+	delete(g.follow)
+	g^ = {}
+}

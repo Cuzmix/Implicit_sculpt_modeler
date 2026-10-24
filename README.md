@@ -11,7 +11,7 @@ A performance-focused sculpting prototype in Odin, using SDL3 + SDL_GPU for rend
 | `src/geom` | CPU sculpt geometry (structure-of-arrays triangle mesh, BVH, test spheres, mesh simplification that keeps patch borders), view-culling math (chunk bounds and normal cones, frustum and back-face tests) and the choice of simplified groups to draw; no rendering or UI imports |
 | `src/camera` | Orbit camera math; no rendering or UI imports |
 | `src/gizmo` | Move gizmo math: projection, handle picking, axis and view-plane drags; no rendering or UI imports |
-| `src/sculpt` | Brush dabs on a `geom.Mesh`: mesh split into nodes that own contiguous vertex ranges, parallel draw/smooth, per-frame normal updates, dirty vertex ranges for upload, stroke undo/redo that saves only the nodes a stroke touched (512 MB cap per object), simplified copies of groups of nodes rebuilt between strokes, subdivision levels, HD detail sculpted a window at a time above the top level |
+| `src/sculpt` | Brush dabs on a `geom.Mesh`: mesh split into nodes that own contiguous vertex ranges, parallel brushes (Draw, Smooth, Clay, Flatten, Inflate, Pinch, Crease, Grab) with X/Y/Z symmetry, a per-vertex mask, per-frame normal updates, dirty vertex ranges for upload, stroke undo/redo that saves only the nodes a stroke touched (512 MB cap per object), simplified copies of groups of nodes rebuilt between strokes, subdivision levels, HD detail sculpted a window at a time above the top level |
 | `src/jobs` | Persistent worker pool (`parallel_for`) used by sculpt and mesh setup |
 | `src/bench` | Headless sculpt benchmark at chosen mesh sizes (no window or GPU) |
 | `src/sdf_trial` | Standalone SDF/voxel comparison spike (not linked into the app) |
@@ -54,7 +54,7 @@ Shaders are recompiled when `glslangValidator` (Vulkan SDK) is on PATH; otherwis
 
 ## App flags
 
-`--vertices=N` start with a geodesic sphere of about N vertices (the Scene panel adds spheres or remeshes the selected one at any typed vertex count), `--subdiv=N` icosphere level when `--vertices` is not given (default 6: 40,962 vertices), `--threads=N` sculpt threads including the main one (default: one per core), `--frames=N` exit after N frames, `--spheres=N` start with N spheres of that size side by side, `--subdivide=N` give each starting sphere N subdivision levels above it (`--vertices=40000 --subdivide=4` tops out at 10M), `--level=N` start on level N (1 is the base; default the top), `--no-cache` draw every object every frame instead of caching idle ones (for A/B timing; also a checkbox in the Stats panel), `--bench-stroke=N` synthetic brush stroke over N frames across the first sphere, then print stats (with levels, also the time of each step down to the base and back), `--bench-samples=N` give each of those frames N pointer samples along the path, like a high-rate mouse (default: one position a frame), `--bench-loops=N` make that stroke N circles around the middle of the sphere instead of a wavy line, `--gpu-debug` GPU debug/validation mode, `--no-partial` redraw the whole viewport every frame (also a Stats panel checkbox), `--dump-viewport=PATH` write the last viewport image as a PPM on exit (for comparing renders), `--check-mesh` check every object's mesh on exit (closed, consistently wound, no degenerate triangles or NaN) and print the counts as `mesh_*` lines, `--no-cull` draw every triangle instead of skipping off-screen and back-facing chunks (for A/B timing; also a checkbox in the Stats panel), `--no-vsync` show frames as soon as they are ready (also a Stats panel checkbox), `--no-simplify` draw everything at full detail while the view moves too (also a Stats panel checkbox), `--orbit` turn the camera around the scene by itself, once every 240 frames, `--time-gpu` measure the GPU time of the 3D viewport every frame (also a Stats panel checkbox), `--gpubench=PATH` run the GPU benchmark below and write its tables to PATH, `--gpubench-frames=N` measured frames per benchmark case (default 120), `--hd=N` give each starting sphere an HD level N Loop steps (1 to 3) above its top level, `--hd-open` start sculpting HD on the first sphere, in a window around the side facing the camera, `--hd-window=N` vertices an HD window holds (default 4,000,000; also a slider in the Scene panel), `--width`, `--height`.
+`--vertices=N` start with a geodesic sphere of about N vertices (the Scene panel adds spheres or remeshes the selected one at any typed vertex count), `--subdiv=N` icosphere level when `--vertices` is not given (default 6: 40,962 vertices), `--threads=N` sculpt threads including the main one (default: one per core), `--frames=N` exit after N frames, `--spheres=N` start with N spheres of that size side by side, `--subdivide=N` give each starting sphere N subdivision levels above it (`--vertices=40000 --subdivide=4` tops out at 10M), `--level=N` start on level N (1 is the base; default the top), `--no-cache` draw every object every frame instead of caching idle ones (for A/B timing; also a checkbox in the Stats panel), `--bench-stroke=N` synthetic brush stroke over N frames across the first sphere, then print stats (with levels, also the time of each step down to the base and back), `--bench-samples=N` give each of those frames N pointer samples along the path, like a high-rate mouse (default: one position a frame), `--bench-loops=N` make that stroke N circles around the middle of the sphere instead of a wavy line, `--gpu-debug` GPU debug/validation mode, `--no-partial` redraw the whole viewport every frame (also a Stats panel checkbox), `--dump-viewport=PATH` write the last viewport image as a PPM on exit (for comparing renders), `--check-mesh` check every object's mesh on exit (closed, consistently wound, no degenerate triangles or NaN) and print the counts as `mesh_*` lines, `--no-cull` draw every triangle instead of skipping off-screen and back-facing chunks (for A/B timing; also a checkbox in the Stats panel), `--no-vsync` show frames as soon as they are ready (also a Stats panel checkbox), `--no-simplify` draw everything at full detail while the view moves too (also a Stats panel checkbox), `--orbit` turn the camera around the scene by itself, once every 240 frames, `--time-gpu` measure the GPU time of the 3D viewport every frame (also a Stats panel checkbox), `--gpubench=PATH` run the GPU benchmark below and write its tables to PATH, `--gpubench-frames=N` measured frames per benchmark case (default 120), `--hd=N` give each starting sphere an HD level N Loop steps (1 to 3) above its top level, `--hd-open` start sculpting HD on the first sphere, in a window around the side facing the camera, `--hd-window=N` vertices an HD window holds (default 4,000,000; also a slider in the Scene panel), `--brush=NAME` start with that brush (draw, smooth, clay, flatten, inflate, pinch, crease, grab or mask; also what `--bench-stroke` uses), `--symmetry=AXES` start with symmetry across those axes (e.g. `x` or `xz`), `--remesh=N` voxel remesh the first sphere to about N vertices before starting, as Remesh selected does (after `--subdivide` and `--level`), `--width`, `--height`.
 
 `python scripts/ppm.py to-png build/view.ppm build/view.png` turns a `--dump-viewport` file into a PNG; its `uniform`, `diff`, `crop` and `pixel` commands detect a blank frame, count and box the pixels two dumps disagree on, enlarge a region and print values (`python scripts/ppm.py -h`).
 
@@ -63,6 +63,10 @@ Shaders are recompiled when `glslangValidator` (Vulkan SDK) is on PATH; otherwis
 `build/bench [vertex counts...] [--meshes=N] [--threads=N] [--node=N] [--prefault=MB]` builds a sphere of each size (N of them with `--meshes`, only the first sculpted; with no sizes given it also runs 10M with a second idle sphere), prepares it for sculpting, runs the same 77-dab stroke with a large (r=0.13) and a small (r=0.04) brush, and prints a markdown table, including the undo memory of each stroke and the time to undo and redo it. A frame is 4 dabs plus the normal update and is what the app does per frame during a fast stroke. The normal update recomputes every normal of the nodes whose triangles moved, but only the border vertices of their neighbours; the normal cones that back-face culling uses wait until the stroke ends (until then those chunks are simply not back-face culled), and "Stroke end ms" is the frame where that work starts, at most 512 nodes a frame. A second table culls the sculpted sphere from three cameras (whole sphere, close-up, detail) and reports the share of triangles that would be drawn, the number of indirect draw commands, and the CPU time to cull. On cloud VMs, pass `--prefault=3000` so the VM's slow first touch of fresh memory does not dominate setup times.
 
 `build/bench --lod [vertex counts...]` prints a table for simplified drawing instead: at each size, the time to build every group's copy as the app does (a batch a frame), the copies' memory, the triangles drawn and the CPU time to choose them from the culling table's three cameras at full detail and with copies at most 1 px off (on a 1000 px tall viewport), and the time to rebuild what the large-brush stroke made stale.
+
+`build/bench --brushes [vertex counts...]` prints a table with one row per brush instead: the main table's stroke with the large brush, for every brush kind, then Draw with X symmetry and Draw over a sphere masked on one side (see Brushes, masking and symmetry below).
+
+`build/bench --remesh [vertex counts...]` prints a table for voxel remesh instead: at each size, a sphere with one Grab move that pulls a wide spike out of it, remeshed back to the same vertex count (see Voxel remesh below).
 
 `build/bench --hd [vertex counts...]` prints a table for HD detail instead: at each size, a sphere as the top level with an HD level one and then two steps above it. It times opening a window of about 4M vertices at the front, the small-brush stroke in it (median frame), storing it on leaving and opening the window again with the stored detail, and gives the window's memory and what the stroke stored. Then the regular levels the HD level stands in for: their memory (estimated past 16M vertices), and while they stay under that, the time to build them and the same stroke on their top level.
 
@@ -121,14 +125,70 @@ A window opens in about a second and its stroke frames cost what the same mesh w
 
 The stroke frame grows with the top level's size because the same brush covers more HD vertices (about 64k a dab at 10M with two steps). About half of the open time is preparing the window for sculpting (its BVH, chunks and normals), as for any mesh of that size; the rest is the subdivision itself and decoding the stored detail.
 
+## Brushes, masking and symmetry
+
+Nine brushes, picked in the Tools panel or with keys 1 to 9 in this order:
+
+| Key | Brush | What it does (Ctrl inverts) |
+| --- | --- | --- |
+| 1 | Draw | Pushes the surface out along the average normal under the brush (in). |
+| 2 | Smooth | Moves each vertex toward the average of its neighbours. Shift smooths with any brush. |
+| 3 | Clay | Builds up toward a plane just above the surface, moving only what lies below it, so dips fill first and strokes leave flat-topped layers (digs). |
+| 4 | Flatten | Pulls toward the plane through the area under the brush (pushes away from it). |
+| 5 | Inflate | Pushes each vertex along its own normal, so shapes swell evenly (shrinks). |
+| 6 | Pinch | Pulls the surface together toward the brush's centre, along the surface (pushes apart). |
+| 7 | Crease | Cuts a sharp groove: draws in with a narrow falloff and pinches toward the stroke (a sharp ridge). |
+| 8 | Grab | ZBrush's Move: picks up what is under the brush where the stroke starts and drags it with the pointer, in the plane facing the camera, each vertex by its falloff weight. |
+| 9 | Mask | Paints the mask (erases it). |
+
+Masking works as in ZBrush: each vertex has a mask from 0 to 255, and every brush moves it only by what the mask leaves (a fully masked vertex never moves). Masked areas are drawn darker. The Tools panel's Clear (Alt+M), Invert (Ctrl+I) and Mask all change the whole mask at once; mask strokes and these commands are undo steps like any stroke. The mask is carried when the object changes subdivision level (a vertex that continues one of the level below takes its mask, a new edge vertex the average of the edge's ends), so it holds on every level. An HD window starts unmasked and its mask is dropped when it closes. The mask costs no GPU memory or upload: it rides in the low 4 bits of each of the two 16-bit halves of the vertex's packed normal, which still places the normal within 0.1 degrees.
+
+Symmetry (the X, Y and Z boxes in the Tools panel; the X key toggles X) mirrors every dab across those planes through the object's origin, up to 8 images with all three; Grab drags each image the mirrored way.
+
+Each brush costs about what Draw does (`build/bench --brushes`, 4 threads, this repo's cloud VM, the large brush; a frame is 4 dabs plus the normal update, and Grab is one move a frame):
+
+| Brush | 1M: verts/dab | 1M: dab ms | 1M: frame ms | 10M: verts/dab | 10M: dab ms | 10M: frame ms | 10M: frame ms max |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Draw | 3875 | 0.031 | 0.20 | 38810 | 0.262 | 1.67 | 2.39 |
+| Smooth | 3936 | 0.047 | 0.27 | 39403 | 0.500 | 2.62 | 3.82 |
+| Clay | 3914 | 0.030 | 0.19 | 39204 | 0.271 | 1.78 | 2.04 |
+| Flatten | 3937 | 0.030 | 0.18 | 39414 | 0.287 | 1.80 | 2.69 |
+| Inflate | 3871 | 0.029 | 0.18 | 38766 | 0.301 | 1.88 | 5.44 |
+| Pinch | 4018 | 0.032 | 0.20 | 40240 | 0.319 | 1.92 | 2.39 |
+| Crease | 4023 | 0.040 | 0.26 | 40294 | 0.332 | 1.94 | 3.65 |
+| Grab | 3724 | 0.013 | 0.05 | 37162 | 0.117 | 0.44 | 1.27 |
+| Mask | 3178 | 0.013 | 0.06 | 31831 | 0.107 | 0.55 | 4.59 |
+| Draw, X symmetry | 7734 | 0.083 | 0.56 | 77453 | 0.507 | 3.16 | 5.51 |
+| Draw, half masked | 1931 | 0.039 | 0.26 | 19376 | 0.202 | 1.42 | 1.76 |
+
+For Grab, verts/dab is what it holds and dab ms is one move. Smooth costs more because it reads every neighbour of each vertex, symmetry costs a dab per image, and fully masked vertices cost almost nothing. Mask strokes skip the normal update and only send the painted vertices to the GPU again.
+
+## Voxel remesh (DynaMesh)
+
+Remesh selected in the Scene panel (or Ctrl+R, at the object's own vertex count) rebuilds the selected object as an even surface of about that many vertices, as ZBrush's DynaMesh does: stretched triangles from Grab or long strokes become even again, overlapping or self-intersecting parts merge into one closed surface, and anything thinner than the lattice spacing goes. It keeps the shape of the level the object is on; its levels, HD detail, mask and undo history go.
+
+How it works (`src/geom/remesh.odin`): the object is laid on a lattice whose spacing gives about the asked-for vertex count (at most 4,096 lattice points along any axis, DynaMesh's top resolution). A ray along each lattice row finds where it crosses the mesh and which way, using exact fixed-point tests so a ray through a shared edge or vertex counts it once, and a lattice point is inside where the winding number is positive. Rays along y and z find where the surface crosses those lattice edges. Marching cubes then joins the crossings, with one rule on ambiguous cube faces that makes the result closed and manifold (every edge between exactly two triangles), and three rounds of relaxation along the surface even out the triangles. Rays, crossings and cells are stored only where the surface is, so memory grows with the surface's area rather than the lattice's volume.
+
+`build/bench --remesh` (4 threads, this repo's cloud VM, `--prefault=3000`). Sculpt-ready is the same preparation as any new mesh of that size (BVH, chunks, normals). Edge spread is the 99th percentile and the longest edge over the median edge, before and after:
+
+| Vertices | Remeshed vertices | Remesh ms | Sculpt-ready ms | Edge p99 / median before | after | Max / median before | after |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 500k | 504k | 160 | 67 | 3.38 | 1.59 | 4.5 | 1.7 |
+| 1.00M | 1.00M | 298 | 154 | 3.38 | 1.59 | 4.5 | 1.7 |
+| 5.00M | 5.03M | 1519 | 686 | 3.37 | 1.59 | 4.5 | 1.7 |
+| 7.00M | 7.05M | 2434 | 919 | 3.37 | 1.59 | 4.5 | 1.7 |
+| 10.00M | 10.06M | 4310 | 1315 | 3.37 | 1.59 | 4.5 | 1.7 |
+
+The remesh itself runs on every thread; on this VM a large share of it is first touches of new memory, which are much cheaper on a desktop. Peak memory at 10M was 2.3 GB, the old and new meshes included.
+
 ## Controls
 
-Tools: W selects Select / Move, B selects Brush. F points the camera at the selected object. Ctrl+D subdivides the selected object; D and Shift+D go up and down its levels. A opens an HD window where the pointer is on an object with an HD level, or closes the open one.
+Tools: W selects Select / Move, B selects Brush. F points the camera at the selected object. Ctrl+D subdivides the selected object; D and Shift+D go up and down its levels. Ctrl+R remeshes it at its own vertex count. A opens an HD window where the pointer is on an object with an HD level, or closes the open one.
 
 Select / Move: click an object to select it, drag it to move it in the view plane, or drag a gizmo arm (red X, green Y, blue Z) to move along that axis. Position and scale can also be typed in the Scene panel.
 
-Brush: left drag sculpts the object under the cursor, which becomes selected (Shift smooths, Ctrl inverts). The brush follows every mouse or pen sample, not just where the pointer is once a frame: dabs go along the path the pointer took on screen, a quarter of the radius apart, each where that point meets the surface. Pen pressure scales the strength, and the size too with "Pressure sets size" in the Tools panel; a mouse counts as full pressure. Lazy mouse makes the brush trail the cursor on a string that many pixels long, for steadier lines.
+Brush: left drag sculpts the object under the cursor, which becomes selected (Shift smooths, Ctrl inverts; the Mask brush then erases). Keys 1 to 9 pick a brush, X toggles X symmetry, Alt+M clears the mask and Ctrl+I inverts it. The brush follows every mouse or pen sample, not just where the pointer is once a frame: dabs go along the path the pointer took on screen, a quarter of the radius apart, each where that point meets the surface. Pen pressure scales the strength, and the size too with "Pressure sets size" in the Tools panel; a mouse counts as full pressure. Lazy mouse makes the brush trail the cursor on a string that many pixels long, for steadier lines.
 
-Scene panel: type a vertex count (or pick a preset), then Add sphere, or Remesh selected to rebuild the selected sphere at that count, with one level (sculpted detail is not kept yet). Geodesic spheres come in steps of 10f² + 2 vertices; the panel shows the exact count it will build.
+Scene panel: type a vertex count (or pick a preset), then Add sphere, or Remesh selected to rebuild the selected object as an even mesh of about that count that keeps its shape (see Voxel remesh above). Geodesic spheres come in steps of 10f² + 2 vertices; the panel shows the exact count it will build.
 
 Orbit: right drag or Alt + left drag. Pan: middle drag or Shift + right drag. Zoom: mouse wheel.
