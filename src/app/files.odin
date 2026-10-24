@@ -27,6 +27,7 @@ File_Kind :: enum u8 {
 	Export, // the selected object's shown level goes to a mesh file
 	Save,   // the scene goes to a .sculpt file
 	Open,   // a .sculpt file replaces the scene
+	Alpha,  // an image becomes a brush alpha (alphas.odin)
 }
 
 File_Request :: struct {
@@ -65,6 +66,8 @@ pending: struct {
 MESH_FILTERS := [?]sdl.DialogFileFilter{{"Meshes (OBJ, PLY)", "obj;ply"}, {"OBJ", "obj"}, {"PLY", "ply"}}
 @(private = "file")
 SCENE_FILTERS := [?]sdl.DialogFileFilter{{"Sculpt scene", "sculpt"}}
+@(private = "file")
+IMAGE_FILTERS := [?]sdl.DialogFileFilter{{"Images (PNG, JPEG, BMP, TGA, QOI)", "png;jpg;jpeg;bmp;tga;qoi"}}
 
 // Shows the dialog that picks the file for `kind`; its answer becomes a request. Does
 // nothing while another dialog is showing.
@@ -85,6 +88,8 @@ file_dialog :: proc(app: ^App, kind: File_Kind) {
 		sdl.ShowSaveFileDialog(file_dialog_done, userdata, app.window, raw_data(SCENE_FILTERS[:]), len(SCENE_FILTERS), nil)
 	case .Open:
 		sdl.ShowOpenFileDialog(file_dialog_done, userdata, app.window, raw_data(SCENE_FILTERS[:]), len(SCENE_FILTERS), nil, false)
+	case .Alpha:
+		sdl.ShowOpenFileDialog(file_dialog_done, userdata, app.window, raw_data(IMAGE_FILTERS[:]), len(IMAGE_FILTERS), nil, false)
 	}
 }
 
@@ -184,6 +189,8 @@ file_apply :: proc(app: ^App, req: File_Request) -> bool {
 		opened, ok := scene_open(app, req.path)
 		if opened do scene_remember_path(app, req.path)
 		return ok
+	case .Alpha:
+		_ = alpha_load(app, req.path)
 	}
 	return true
 }

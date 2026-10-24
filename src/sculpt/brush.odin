@@ -66,6 +66,12 @@ Brush :: struct {
 	// plane of Clay and Flatten, Pinch's and Crease's surface) before the dab moves
 	// anything: a leaning pen's (camera.orbit_tilt). The zero matrix leaves it.
 	tilt:     matrix[3, 3]f32,
+	// Shapes each dab with this image instead of the round falloff (alpha.odin); nil
+	// for none. Seen down the area normal, the image's top faces along `alpha_up` (in
+	// the mesh's space), and it shows mirrored when `alpha_mirror` is set. Grab ignores it.
+	alpha:        ^Alpha,
+	alpha_up:     Vec3,
+	alpha_mirror: bool,
 }
 
 // How far dabs move the surface at full strength, in brush radii.
@@ -508,14 +514,49 @@ falloff :: #force_inline proc(x2: f32) -> f32 {
 	return t * t
 }
 
+// Lays the brush's alpha on the plane across the dab's area normal, its top toward
+// alpha_up (or, when that runs along the normal, any way).
+@(private)
+alpha_frame :: proc(d: ^Dab) {
+	n := d.normal
+	if n == {} do n = {0, 0, 1} // no surface under the middle: face any way
+	up := d.brush.alpha_up - n * linalg.dot(d.brush.alpha_up, n)
+	if linalg.dot(up, up) < 1e-12 {
+		helper := Vec3{1, 0, 0} if abs(n.x) < 0.9 else Vec3{0, 1, 0}
+		up = linalg.cross(n, helper)
+	}
+	v := linalg.normalize(up)
+	// Seen from the side the normal points to, right is up × toward the viewer.
+	u := linalg.cross(v, n)
+	if d.brush.alpha_mirror do u = -u
+	inv_r := 1 / d.brush.radius
+	d.alpha, d.au, d.av, d.an = d.brush.alpha, u * inv_r, v * inv_r, n * inv_r
+}
+
+// How strongly a dab works on a vertex `delta` from its centre, `d2` = |delta|²: the
+// round falloff, or with an alpha the image's value where the vertex falls on it,
+// fading as the vertex lies further off its plane (gone a radius off). The loops call
+// it only inside the reach.
+@(private)
+dab_weight :: #force_inline proc(d: ^Dab, delta: Vec3, d2: f32) -> f32 {
+	if d.alpha == nil do return falloff(d2 * d.inv_r2)
+	h := linalg.dot(delta, d.an)
+	return alpha_sample(d.alpha, linalg.dot(delta, d.au), linalg.dot(delta, d.av)) * falloff(h * h)
+}
+
 // Everything a dab phase needs, shared read-only by the worker threads.
 @(private)
 Dab :: struct {
 	s:        ^Sculptor,
 	brush:    Brush,
 	center:   Vec3,
-	r2:       f32,
-	inv_r2:   f32,
+	r2:       f32, // squared reach: the radius, or with an alpha its Alpha.reach
+	inv_r2:   f32, // 1 / radius²
+	// With an alpha: the image's right and up and the area normal, each over the
+	// radius, so a vertex's offset dotted with them gives its place on the image and
+	// its height off it in radii (dab_weight).
+	alpha:    ^Alpha,
+	au, av, an: Vec3,
 	normal:   Vec3, // area normal: the falloff-weighted normals inside the brush
 	plane:    Vec3, // Clay, Flatten: a point on the plane they pull toward
 	amount:   f32,  // signed: displacement at the centre (Draw, Inflate, Crease), plane
@@ -534,6 +575,9 @@ apply_dab :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
 		// reflection back.
 		b := brush
 		for i in 0 ..< 3 do for j in 0 ..< 3 do b.tilt[i, j] *= sign[i] * sign[j]
+		// And its alpha shows mirrored: an odd number of flips turns the image over.
+		b.alpha_up *= sign
+		if sign.x * sign.y * sign.z < 0 do b.alpha_mirror = !b.alpha_mirror
 		moved += dab_once(s, b, center * sign)
 	}
 	return moved
@@ -566,15 +610,17 @@ shield :: #force_inline proc(fade, mask: []u8, v: u32) -> f32 {
 
 @(private)
 dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
+	// An alpha may reach past the round brush, up to its square's corners.
+	reach := brush.radius * (brush.alpha.reach if brush.alpha != nil else 1)
 	d := Dab {
 		s      = s,
 		brush  = brush,
 		center = center,
-		r2     = brush.radius * brush.radius,
+		r2     = reach * reach,
 		inv_r2 = 1 / (brush.radius * brush.radius),
 	}
 	clear(&s.hit)
-	geom.bvh_query_leaves(&s.bvh, center, brush.radius, &s.hit)
+	geom.bvh_query_leaves(&s.bvh, center, reach, &s.hit)
 	if len(s.hit) == 0 do return 0
 	candidates: u32
 	for leaf in s.hit do candidates += s.nodes[s.node_of[leaf]].vert_count
@@ -583,17 +629,15 @@ dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
 		if s.history.recording do record_hit(s, masks = false)
 		if dyn_dab_topology(s, &d, pool) {
 			clear(&s.hit)
-			geom.bvh_query_leaves(&s.bvh, center, brush.radius, &s.hit)
+			geom.bvh_query_leaves(&s.bvh, center, reach, &s.hit)
 			if len(s.hit) == 0 do return 0
 		}
 	}
 	resize(&s.partials, len(s.hit))
 	slice.zero(s.partials[:])
-	if brush.kind == .Mask do return mask_dab(s, &d, pool)
-	if s.history.recording do record_hit(s, masks = false)
-
-	sign: f32 = -1 if brush.invert else 1
-	if brush.kind != .Smooth {
+	// The area under the brush: what most kinds work along, and the plane an alpha
+	// lies on.
+	if (brush.kind != .Smooth && brush.kind != .Mask) || brush.alpha != nil {
 		jobs.parallel_for(pool, len(s.hit), &d, job_area)
 		weight: f32
 		for p in s.partials {
@@ -604,7 +648,12 @@ dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
 		d.normal = linalg.normalize0(d.normal)
 		if brush.tilt != {} do d.normal = linalg.normalize0(brush.tilt * d.normal)
 		if weight > 0 do d.plane /= weight
+		if brush.alpha != nil do alpha_frame(&d)
 	}
+	if brush.kind == .Mask do return mask_dab(s, &d, pool)
+	if s.history.recording do record_hit(s, masks = false)
+
+	sign: f32 = -1 if brush.invert else 1
 	switch brush.kind {
 	case .Draw:
 		d.amount = sign * brush.radius * brush.strength * DRAW_HEIGHT
@@ -782,7 +831,7 @@ displace :: #force_inline proc(d: ^Dab, i: int, $K: Brush_Kind) {
 		delta := p - d.center
 		d2 := linalg.dot(delta, delta)
 		if d2 < d.r2 {
-			w := falloff(d2 * d.inv_r2) * shield(fade, mask, v)
+			w := dab_weight(d, delta, d2) * shield(fade, mask, v)
 			if w > 0 {
 				when K == .Draw {
 					p += d.normal * (d.amount * w)
@@ -852,7 +901,7 @@ job_smooth_apply :: proc(data: rawptr, i: int) {
 		d2 := linalg.dot(delta, delta)
 		if d2 < d.r2 {
 			if w := shield(fade, mask, v); w > 0 {
-				t := clamp(d.brush.strength * falloff(d2 * d.inv_r2), 0, 1) * w
+				t := clamp(d.brush.strength * dab_weight(d, delta, d2), 0, 1) * w
 				m.positions[v] = linalg.lerp(m.positions[v], targets[v - first], t)
 				moved += 1
 			}

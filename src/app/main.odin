@@ -53,6 +53,9 @@ Options :: struct {
 	dyntopo:   bool `usage:"Turn dynamic topology on for the first sphere before starting (after --remesh), as Ctrl+T does."`,
 	detail:    f32 `usage:"Dynamic topology detail: edges longer than this many pixels on screen split (default 10)."`,
 	tilt_strength: f32 `usage:"How far a leaning pen turns the brush, 0 to 1 (default 0: not at all), as the Tools panel's Tilt slider sets."`,
+	alpha:     string `usage:"Start with this brush alpha: a built-in one (square, noise, rings, stripes, dots or star) or an image file (PNG, JPEG, BMP, TGA or QOI)."`,
+	alpha_mode: string `usage:"Which way the alpha's top faces: stroke (along the stroke, the default), fixed or random."`,
+	alpha_angle: f32 `usage:"Turn the alpha this many degrees counter-clockwise on top of what --alpha-mode gives."`,
 	bench_tilt: f32 `usage:"Lean the synthetic pen of --bench-stroke this many degrees to the right (with --tilt-strength)."`,
 	no_vsync:  bool `usage:"Show each frame as soon as it is ready instead of waiting for the display's refresh, so frame times are not capped at the refresh rate."`,
 	time_gpu:  bool `usage:"Measure the GPU time of the 3D viewport every frame. Waits for the GPU each frame, so frames no longer overlap."`,
@@ -74,6 +77,8 @@ App :: struct {
 	move:     Move_Tool,
 	brush:    Brush_Settings,
 	stroke:   Stroke,
+	alphas:   [dynamic]Alpha_Entry, // the brush alphas the Tools panel offers (alphas.odin)
+	alpha_seed: u32, // Random alpha mode's generator
 	samples:  [dynamic]Input_Sample, // this frame's pointer samples, in window coordinates
 	pen_pressure: f32, // the pen's latest pressure
 	pen_tilt: [2]f32, // the pen's latest lean in degrees, x to the right and y down
@@ -245,7 +250,7 @@ run :: proc(opts: Options) -> bool {
 	app.vsync = !opts.no_vsync && opts.gpubench == ""
 	app.time_gpu = opts.time_gpu || opts.gpubench != ""
 	app.ui = ui_state_default()
-	app.brush = {kind = .Draw, radius_px = 60, strength = 0.5, pressure_strength = true, pressure_curve = geom.CURVE_LINEAR, detail_px = 10, collapse = true}
+	app.brush = {kind = .Draw, radius_px = 60, strength = 0.5, pressure_strength = true, pressure_curve = geom.CURVE_LINEAR, detail_px = 10, collapse = true, alpha = -1}
 	if opts.detail > 0 do app.brush.detail_px = opts.detail
 	app.brush.tilt_strength = clamp(opts.tilt_strength, 0, 1)
 	if opts.brush != "" {
@@ -255,6 +260,19 @@ run :: proc(opts: Options) -> bool {
 			return false
 		}
 		app.brush.kind = kind
+	}
+	alphas_init(&app)
+	defer alphas_destroy(&app)
+	app.alpha_seed = 1
+	if opts.alpha != "" && !alpha_select(&app, opts.alpha) do return false
+	app.brush.alpha_angle = opts.alpha_angle
+	switch strings.to_lower(opts.alpha_mode, context.temp_allocator) {
+	case "", "stroke": app.brush.alpha_mode = .Stroke
+	case "fixed":      app.brush.alpha_mode = .Fixed
+	case "random":     app.brush.alpha_mode = .Random
+	case:
+		log.errorf("unknown alpha mode %q", opts.alpha_mode)
+		return false
 	}
 	for c in strings.to_lower(opts.symmetry, context.temp_allocator) {
 		switch c {

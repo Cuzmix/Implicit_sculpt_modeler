@@ -272,7 +272,11 @@ draw_viewport_overlay :: proc(app: ^App, input: Viewport_Input) {
 				center = app.stroke.pos
 				imgui.DrawList_AddLine(list, o + center, o + input.mouse_pos, color, 1)
 			}
-			imgui.DrawList_AddCircle(list, o + center, app.brush.radius_px, color, 48, 1.5)
+			if brush_alpha(app) != nil && !input.smooth {
+				draw_alpha_outline(app, list, o + center, color)
+			} else {
+				imgui.DrawList_AddCircle(list, o + center, app.brush.radius_px, color, 48, 1.5)
+			}
 			// Which way a leaning pen turns the brush, and how far: toward the top of the
 			// pen, a radius long at a right angle.
 			if lean := input.pen_tilt * app.brush.tilt_strength; app.brush.tilt_strength > 0 && lean != {} {
@@ -336,6 +340,7 @@ draw_tools_panel :: proc(app: ^App) {
 	}
 	imgui.SameLine()
 	imgui.TextDisabled("(X toggles X)")
+	draw_alpha_section(app)
 	draw_dyntopo_section(app)
 
 	imgui.SeparatorText("Mask")

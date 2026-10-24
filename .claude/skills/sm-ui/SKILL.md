@@ -1,6 +1,6 @@
 ---
 name: sm-ui
-description: The Dear ImGui interface in src/app/ui.odin and the frame loop around it — the docked Viewport, Tools (brushes 1–9, symmetry, mask, dynamic topology, the Pen section with its pressure curve editor and tilt), Scene and Stats panels, Viewport_Input (the only thing the camera and tools read), pointer samples with pen pressure and tilt, the brush pie (Space or a right tap), shortcuts, the deferred Scene_Command, the overlay draw list (brush circle, gizmo), the odin-imgui binding's naming, C-vararg Text formatting, Begin/End pairing, and why panels never keep references between frames. Load for ANY task that adds or changes something the user clicks, reads or types, e.g. "add a panel", "add a button to the Scene panel", "add a shortcut", "show X in the Stats panel", "the slider does not update", "the viewport ignores the mouse", "add a settings window". Requires sm-odin and sm-build; what the buttons do is sm-sculpt or sm-cad; pixels in the viewport image are sm-render.
+description: The Dear ImGui interface in src/app/ui.odin and the frame loop around it — the docked Viewport, Tools (brushes 1–9, symmetry, brush alphas, mask, dynamic topology, the Pen section with its pressure curve editor and tilt), Scene and Stats panels, Viewport_Input (the only thing the camera and tools read), pointer samples with pen pressure and tilt, the brush pie (Space or a right tap), shortcuts, the deferred Scene_Command, the overlay draw list (brush circle or alpha square, gizmo), the odin-imgui binding's naming, C-vararg Text formatting, Begin/End pairing, and why panels never keep references between frames. Load for ANY task that adds or changes something the user clicks, reads or types, e.g. "add a panel", "add a button to the Scene panel", "add a shortcut", "show X in the Stats panel", "the slider does not update", "the viewport ignores the mouse", "add a settings window". Requires sm-odin and sm-build; what the buttons do is sm-sculpt or sm-cad; pixels in the viewport image are sm-render.
 ---
 
 # Interface
@@ -18,17 +18,19 @@ description: The Dear ImGui interface in src/app/ui.odin and the frame loop arou
 - `ui_draw` order: dockspace → the default layout once (`build_default_layout`: Viewport | Tools at the right, Scene and
   Stats below it; `IniFilename = nil`, so the layout is rebuilt each run, `src/app/main.odin`) → menu bar (File, Edit,
   View, then the last `file_note` for 15 s, amber for a warning) → Viewport → Tools → Scene → Stats → shortcuts → demo.
-  `draw_viewport_overlay` runs after the tools (`main.odin:390`; `ui.odin:255`): the brush circle, the lazy-mouse
-  string, the gizmo.
-- Panels: Tools (`ui.odin:306`: tool radios, the nine brushes as radio buttons labelled with their keys, three a row,
+  `draw_viewport_overlay` runs after the tools (`main.odin:408`; `ui.odin:255`): the brush circle (with an alpha, its
+  square turned as the next dab, `draw_alpha_outline`, `src/app/alphas.odin:204`), the lazy-mouse string, the gizmo.
+- Panels: Tools (`ui.odin:310`: tool radios, the nine brushes as radio buttons labelled with their keys, three a row,
   from `BRUSH_NAMES`/`BRUSH_HELP` (`ui.odin:73, 85`), radius in px, strength, lazy mouse,
-  Symmetry X/Y/Z checkboxes, the Mask section (Clear, Invert, Mask all), the Pen section (`draw_pen_section`, `ui.odin:363`:
-  pressure flags, the curve editor `draw_pressure_curve` (`ui.odin:396`: an `InvisibleButton` canvas, handles grabbed on
-  `IsItemActivated` within 18 px), `PRESSURE_PRESETS` (`ui.odin:383`), the Tilt slider, the pen readout), the dynamic topology section
-  (`draw_dyntopo_section`, `ui.odin:453`: on/off, Detail px, Collapse short edges, its counters), camera distance), Scene (`ui.odin:476`: object list, Position `DragFloat3`, Scale (logarithmic), the levels and HD sections,
-  vertex count with presets, Add / Remesh selected / Delete; Subdivide and Divide HD greyed while dynamic topology is on), Stats (`ui.odin:693`: `row(label, ring, unit)` prints p50 and p99, a
+  Symmetry X/Y/Z checkboxes, the Alpha section (`draw_alpha_section`, `src/app/alphas.odin:217`: the round brush and
+  each `App.alphas` entry as a 20² thumbnail drawn as filled rects over an `InvisibleButton`, six a row; Load image...;
+  the mode radios and the Angle slider, greyed with no alpha), the Mask section (Clear, Invert, Mask all), the Pen section (`draw_pen_section`, `ui.odin:368`:
+  pressure flags, the curve editor `draw_pressure_curve` (`ui.odin:401`: an `InvisibleButton` canvas, handles grabbed on
+  `IsItemActivated` within 18 px), `PRESSURE_PRESETS` (`ui.odin:388`), the Tilt slider, the pen readout), the dynamic topology section
+  (`draw_dyntopo_section`, `ui.odin:458`: on/off, Detail px, Collapse short edges, its counters), camera distance), Scene (`ui.odin:481`: object list, Position `DragFloat3`, Scale (logarithmic), the levels and HD sections,
+  vertex count with presets, Add / Remesh selected / Delete; Subdivide and Divide HD greyed while dynamic topology is on), Stats (`ui.odin:698`: `row(label, ring, unit)` prints p50 and p99, a
   `PlotLines` of frame time, checkboxes bound straight to `app` fields: VSync, Time GPU, partial, cull, cache, simplify).
-- `handle_shortcuts` (`ui.odin:621-673`) runs only when `!io.WantTextInput`: Ctrl+Z, Ctrl+Shift+Z, Ctrl+Y (undo, redo);
+- `handle_shortcuts` (`ui.odin:626-678`) runs only when `!io.WantTextInput`: Ctrl+Z, Ctrl+Shift+Z, Ctrl+Y (undo, redo);
   Ctrl+O, Ctrl+S, Ctrl+Shift+S (open, save, save as); W, B (tools); 1–9 (a brush, in `Brush_Kind` order, and the Brush tool) and X (X symmetry), both only without Ctrl or
   Alt; Alt+M (clear mask), Ctrl+I (invert mask); Ctrl+R (remesh at the object's own count); Ctrl+T (dynamic topology);
   F (focus); A (HD window where the pointer is, or leave it); Ctrl+D, D, Shift+D (subdivide, level up, level down).
@@ -36,15 +38,17 @@ description: The Dear ImGui interface in src/app/ui.odin and the frame loop arou
 - Files (`src/app/files.odin`): menu items and shortcuts call `file_dialog(app, kind)` (SDL's dialogs, whose answer
   may come on another thread into a mutex-guarded `pending` slot) or `file_post` for a known path; the frame loop
   takes the request after the scene command (`file_take`, `file_apply`), so a file action, like a command, never runs
-  mid-frame. Each action's outcome goes through `file_note` (log plus menu bar); never only `log`.
+  mid-frame. Each action's outcome goes through `file_note` (log plus menu bar); never only `log`. `.Alpha` opens
+  `IMAGE_FILTERS` and its request runs `alpha_load` (`src/app/alphas.odin:94`: `core:image` decodes PNG, JPEG, BMP,
+  TGA and QOI, 8 or 16 bits a channel, each registered by a blank import).
 - Commands: a panel never mutates the scene; it sets `app.ui.scene_command = {kind = .X, …}` and the frame loop applies
-  it at the start of the next frame (`src/app/main.odin:282-285`), so nothing drawn this frame is freed this frame
+  it at the start of the next frame (`src/app/main.odin:300-303`), so nothing drawn this frame is freed this frame
   (`Scene_Command`, `src/app/scene.odin:84-91`: None, Add, Remesh, Delete, Subdivide, Set_Level, Delete_Higher,
   Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete, Dyntopo). Mask commands go straight to `mask_command`
   (`src/app/history.odin:39`), which records them in the History.
-- Events → samples (`src/app/main.odin:322-`): every motion and button event of the frame is kept, pen pressure and tilt
+- Events → samples (`src/app/main.odin:340-`): every motion and button event of the frame is kept, pen pressure and tilt
   (degrees, x right, y down) come from `PEN_AXIS`, pen mouse events are marked `PEN_MOUSEID` and carry both; ImGui sees
-  every event first, except Space over the viewport (`main.odin:328`), which goes to `Ui_State.pie` instead: with
+  every event first, except Space over the viewport (`main.odin:346`), which goes to `Ui_State.pie` instead: with
   keyboard navigation on, ImGui would press the focused widget with it.
 - Brush pie (`src/app/pie.odin`): `pie_update` runs in `draw_viewport` right after the input is filled (`ui.odin:246`)
   and, while the pie is open (and until a click that picked from it is let go), clears the input's buttons, drags and
@@ -63,16 +67,18 @@ description: The Dear ImGui interface in src/app/ui.odin and the frame loop arou
 | an A/B toggle | `imgui.Checkbox("…", &app.<field>)` plus a `--no-<x>` field in `Options` and a sentence in README "App flags" |
 | a shortcut | a line in `handle_shortcuts` and README "Controls" |
 | a key for a new brush | nothing: keys 1–9 follow `Brush_Kind`'s order, so a tenth kind needs its own key; add its name to `BRUSH_NAMES` and `BRUSH_HELP` (sm-sculpt has the brush checklist) |
-| text with numbers | `imgui.Text("%d", i32(n))`; strings through `fmt.ctprintf` (temp memory, fine within the frame); `count_label`/`bytes_label` for human sizes (`ui.odin:676-691`) |
+| text with numbers | `imgui.Text("%d", i32(n))`; strings through `fmt.ctprintf` (temp memory, fine within the frame); `count_label`/`bytes_label` for human sizes (`ui.odin:681-696`) |
 | a greyed-out control | `imgui.BeginDisabled(cond)` … `imgui.EndDisabled()` pairs |
 
 ## Traps
 | You might expect | What happens |
 |---|---|
-| the viewport texture resizes where it is drawn | the request is applied at the start of the next frame, before ImGui references the texture (`src/app/main.odin:364-367`) |
-| `Selectable` returns the selected state | it returns clicked; keep the state yourself (`ui.odin:490`) |
+| the viewport texture resizes where it is drawn | the request is applied at the start of the next frame, before ImGui references the texture (`src/app/main.odin:382-385`) |
+| `Selectable` returns the selected state | it returns clicked; keep the state yourself (`ui.odin:495`) |
 | `IsKeyPressed(key)` fires once | it repeats by default; pass `false` for one-shot keys |
 | the brush circle sits under the cursor | with lazy mouse it is drawn at `stroke.pos`, on a string to the cursor |
+| the alpha outline turns with the stroke while hovering | between strokes it shows the angle alone (Follow stroke faces up, Random shows no turn), as the next stroke's first dab will |
+| a thumbnail needs a GPU texture | it is a 20² grey array drawn as rects (`Alpha_Entry.thumb`); fine for dozens of alphas, a texture once there are hundreds |
 | the camera turns whenever the mouse moves | only while hovered or dragging, and never while `primary` sculpts (`camera_apply_input`) |
 | ImGui keeps some of the state | never: it sees pointers per frame (`ui.odin:16-17`); state lives in `App` or `Ui_State` |
 | a shortcut fires while typing a number | `WantTextInput` guards all of them |

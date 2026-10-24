@@ -11,7 +11,8 @@ import "../jobs"
 import "../sculpt"
 
 // --brushes: at each size, the same stroke as the main table with the large brush, once
-// per brush kind, plus Draw with X symmetry and Draw over a half-masked sphere. Grab
+// per brush kind, plus Draw with X symmetry, Draw over a half-masked sphere and Draw
+// with the Noise alpha (whose square reaches past the round brush). Grab
 // picks up the brush area at the first point and is dragged along the rest of the
 // path, one move per frame as the app does. Each stroke is undone before the next, so
 // they all start from the same sphere.
@@ -36,20 +37,24 @@ run_brushes :: proc(target: int, pool: ^jobs.Pool) {
 		kind:     sculpt.Brush_Kind,
 		symmetry: sculpt.Symmetry,
 		masked:   bool,
+		alpha:    bool,
 	}
 	cases := [?]Case {
-		{"Draw", .Draw, {}, false},
-		{"Smooth", .Smooth, {}, false},
-		{"Clay", .Clay, {}, false},
-		{"Flatten", .Flatten, {}, false},
-		{"Inflate", .Inflate, {}, false},
-		{"Pinch", .Pinch, {}, false},
-		{"Crease", .Crease, {}, false},
-		{"Grab", .Grab, {}, false},
-		{"Mask", .Mask, {}, false},
-		{"Draw, X symmetry", .Draw, {.X}, false},
-		{"Draw, half masked", .Draw, {}, true},
+		{"Draw", .Draw, {}, false, false},
+		{"Smooth", .Smooth, {}, false, false},
+		{"Clay", .Clay, {}, false, false},
+		{"Flatten", .Flatten, {}, false, false},
+		{"Inflate", .Inflate, {}, false, false},
+		{"Pinch", .Pinch, {}, false, false},
+		{"Crease", .Crease, {}, false, false},
+		{"Grab", .Grab, {}, false, false},
+		{"Mask", .Mask, {}, false, false},
+		{"Draw, X symmetry", .Draw, {.X}, false, false},
+		{"Draw, half masked", .Draw, {}, true, false},
+		{"Draw, Noise alpha", .Draw, {}, false, true},
 	}
+	noise := sculpt.alpha_make(.Noise)
+	defer sculpt.alpha_destroy(&noise)
 	radius: f32 = 0.13
 	eye := Vec3{0, 0, 3.5}
 	for c in cases {
@@ -61,6 +66,7 @@ run_brushes :: proc(target: int, pool: ^jobs.Pool) {
 			_ = sculpt.sculptor_flush(s)
 		}
 		brush := sculpt.Brush{kind = c.kind, radius = radius, strength = 0.3, symmetry = c.symmetry}
+		if c.alpha do brush.alpha, brush.alpha_up = &noise, {0, 1, 0}
 		frames := (DABS + DABS_PER_FRAME - 1) / DABS_PER_FRAME
 		dab := make([]f64, DABS)
 		flush, frame := make([]f64, frames), make([]f64, frames)
