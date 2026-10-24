@@ -55,6 +55,10 @@ object_gpu :: proc(obj: ^Object) -> ^render.Mesh_Buffers {
 	return &obj.gpu[obj.levels.current]
 }
 object_in_hd :: proc(obj: ^Object) -> bool {return obj.levels.hd.window != nil}
+// With dynamic topology on, the mesh's arrays hold unused slots: count these instead.
+object_vertex_count :: proc(obj: ^Object) -> int {return sculpt.sculptor_vertex_count(object_sculptor(obj))}
+object_triangle_count :: proc(obj: ^Object) -> int {return sculpt.sculptor_triangle_count(object_sculptor(obj))}
+object_dynamic :: proc(obj: ^Object) -> bool {return sculpt.levels_dynamic(&obj.levels)}
 
 Scene :: struct {
 	objects:  [dynamic]^Object,
@@ -66,8 +70,9 @@ Scene :: struct {
 // applied at the start of the next frame so no panel ever draws an object (or GPU
 // buffer) freed during the same frame.
 Scene_Command :: struct {
-	kind:     enum u8 {None, Add, Remesh, Delete, Subdivide, Set_Level, Delete_Higher, Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete},
+	kind:     enum u8 {None, Add, Remesh, Delete, Subdivide, Set_Level, Delete_Higher, Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete, Dyntopo},
 	vertices: int,
+	on:       bool, // Dyntopo: turn dynamic topology on, or off
 	level:    int, // Set_Level; HD steps for Hd_Steps
 	at:       [2]f32, // Hd_Enter: the viewport point to open the window around
 	size:     [2]f32, // ...in a viewport of this size
@@ -104,13 +109,23 @@ scene_add_sphere :: proc(app: ^App, vertices, subdiv: int, t: Transform) -> bool
 
 // Rebuilds the object as an even mesh of about `vertices` vertices that keeps the shape
 // of the level it is on, as ZBrush's DynaMesh does (geom.remesh_voxel), keeping its
-// transform. Its levels, HD detail, mask and undo history go. Returns false only when
-// the old mesh is gone and the new one could not be uploaded.
+// transform. Its levels, HD detail, mask, dynamic topology and undo history go. Returns
+// false only when the old mesh is gone and the new one could not be uploaded.
 object_remesh :: proc(app: ^App, obj: ^Object, vertices: int) -> bool {
 	stroke_finish(app)
 	object_hd_leave(app, obj)
 	start := time.tick_now()
-	mesh, ok := geom.remesh_voxel(object_mesh(obj)^, vertices, &app.pool)
+	source := object_mesh(obj)^
+	packed: geom.Mesh
+	if object_dynamic(obj) {
+		// Without the unused slots of the dynamic layout.
+		mask: []u8
+		packed, mask = sculpt.sculptor_compact_mesh(object_sculptor(obj))
+		delete(mask)
+		source = packed
+	}
+	mesh, ok := geom.remesh_voxel(source, vertices, &app.pool)
+	geom.mesh_destroy(&packed)
 	free_all(context.temp_allocator)
 	if !ok {
 		log.warn("remesh: the mesh has no volume to remesh")
@@ -124,6 +139,64 @@ object_remesh :: proc(app: ^App, obj: ^Object, vertices: int) -> bool {
 	app.stats.remesh_setup_ms = time.duration_milliseconds(time.tick_since(remeshed))
 	log.infof("remesh: %d vertices in %.0f ms, ready in %.0f ms more", geom.mesh_vertex_count(object_mesh(obj)^), app.stats.remesh_ms, app.stats.remesh_setup_ms)
 	return true
+}
+
+// Turns dynamic topology on or off for the object (see sculpt.levels_dyn_enable). It
+// needs the object to have a single level and no HD level. Its undo history goes.
+// Returns false only on a GPU failure.
+object_set_dyntopo :: proc(app: ^App, obj: ^Object, on: bool) -> bool {
+	if on == object_dynamic(obj) do return true
+	stroke_finish(app)
+	start := time.tick_now()
+	if on {
+		if len(obj.levels.levels) > 1 || obj.levels.hd.steps > 0 {
+			log.warn("dynamic topology: delete the other subdivision levels and the HD level first")
+			return true
+		}
+		if !sculpt.levels_dyn_enable(&obj.levels) {
+			log.warnf("dynamic topology: a vertex is in more than %d triangles; remesh first", sculpt.DYN_FACES)
+			return true
+		}
+	} else {
+		sculpt.levels_dyn_disable(&obj.levels)
+	}
+	free_all(context.temp_allocator)
+	object_forget_history(app, obj)
+	converted := time.tick_now()
+	// The layout changed completely: new buffers with everything in them.
+	_ = sdl.WaitForGPUIdle(app.renderer.device)
+	render.mesh_buffers_destroy(&app.renderer, &obj.gpu[0])
+	ok: bool
+	obj.gpu[0], ok = render.mesh_buffers_create(&app.renderer, object_mesh(obj)^, object_sculptor(obj).mask)
+	if !ok do return false
+	render.viewport_invalidate(&app.target)
+	app.stats.dyntopo_ms = time.duration_milliseconds(time.tick_diff(start, converted))
+	app.stats.dyntopo_upload_ms = time.duration_milliseconds(time.tick_since(converted))
+	log.infof("dynamic topology %s: %d vertices, %d triangles; converted in %.0f ms, uploaded in %.0f ms", "on" if on else "off",
+		object_vertex_count(obj), object_triangle_count(obj), app.stats.dyntopo_ms, app.stats.dyntopo_upload_ms)
+	return true
+}
+
+// Records the upload of what sculptor_flush reported for the level (its vertex
+// `ranges`, and the triangles dynamic topology changed). When dynamic topology has
+// outgrown the buffers, makes bigger ones with everything in them instead. Returns the
+// bytes sent, and false on a GPU failure.
+level_upload :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer, gpu: ^render.Mesh_Buffers, lv: ^sculpt.Level, ranges: []geom.Vertex_Range) -> (bytes: int, ok: bool) {
+	m := lv.mesh
+	if u32(len(m.positions)) > gpu.vertex_capacity || u32(len(m.indices)) > gpu.index_count {
+		_ = sdl.WaitForGPUIdle(app.renderer.device)
+		render.mesh_buffers_destroy(&app.renderer, gpu)
+		gpu^ = render.mesh_buffers_create(&app.renderer, m, lv.sculptor.mask) or_return
+		render.viewport_invalidate(&app.target)
+		app.stats.gpu_regrows += 1
+		return len(m.positions) * render.VERTEX_BYTES + len(m.indices) * size_of(u32), true
+	}
+	render.mesh_buffers_upload_ranges(&app.renderer, cmd, gpu, m, ranges, lv.sculptor.mask)
+	triangles := sculpt.sculptor_index_ranges(&lv.sculptor)
+	render.mesh_buffers_upload_indices(&app.renderer, cmd, gpu, m.indices[:], triangles)
+	for r in ranges do bytes += int(r.count) * render.VERTEX_BYTES
+	for r in triangles do bytes += int(r.index_count) * size_of(u32)
+	return bytes, true
 }
 
 scene_delete_selected :: proc(app: ^App) {
@@ -151,6 +224,11 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 		}
 	case .Delete:
 		scene_delete_selected(app)
+	case .Dyntopo:
+		if obj := selected_object(app); obj != nil {
+			object_hd_leave(app, obj)
+			return object_set_dyntopo(app, obj, cmd.on)
+		}
 	case .Hd_Enter:
 		origin, dir := mouse_ray(app.camera, cmd.at, cmd.size)
 		index, hit, ok := scene_raycast(app, origin, dir)
@@ -168,6 +246,8 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 		object_hd_leave(app, obj)
 		if cmd.kind == .Hd_Delete {
 			sculpt.levels_hd_delete(&obj.levels)
+		} else if object_dynamic(obj) {
+			log.warn("HD: turn dynamic topology off first")
 		} else if !sculpt.levels_hd_set_steps(&obj.levels, cmd.level) {
 			log.warn("HD: steps change only while no HD detail is stored, on a closed mesh with every edge between two triangles")
 		}
@@ -188,6 +268,10 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 			}
 			if levels.hd.steps > 0 {
 				log.warn("subdivide: delete the HD level first; its detail is tied to the top level as it is")
+				return true
+			}
+			if object_dynamic(obj) {
+				log.warn("subdivide: turn dynamic topology off first")
 				return true
 			}
 			if !sculpt.levels_subdivide(levels) {
@@ -248,14 +332,14 @@ object_show_level :: proc(app: ^App, obj: ^Object, start: time.Tick) -> bool {
 		gpu^, ok = render.mesh_buffers_create(&app.renderer, lv.mesh, lv.sculptor.mask)
 		return ok
 	}
-	if len(ranges) == 0 do return true
+	if len(ranges) == 0 && len(sculpt.sculptor_index_ranges(&lv.sculptor)) == 0 do return true
 	cmd := sdl.AcquireGPUCommandBuffer(app.renderer.device)
 	if cmd == nil {
 		log.errorf("AcquireGPUCommandBuffer failed: %s", sdl.GetError())
 		return false
 	}
-	render.mesh_buffers_upload_ranges(&app.renderer, cmd, gpu, lv.mesh, ranges, lv.sculptor.mask)
-	return sdl.SubmitGPUCommandBuffer(cmd)
+	_, ok := level_upload(app, cmd, gpu, lv, ranges)
+	return sdl.SubmitGPUCommandBuffer(cmd) && ok
 }
 
 // Starts sculpting the object's HD level in a window around `at` (in the object's

@@ -50,6 +50,20 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
   of the triangles under it with its border vertices kept; a stale group is never drawn, only its children. Constants
   `:21-37`; `sculptor_lod_update` does nothing during a stroke and builds lowest groups first within `LOD_FRAME_BUDGET`
   (`:151-187`); `sculptor_lod_pending`.
+- Dynamic topology (`src/sculpt/dyntopo.odin`, README "Dynamic topology"): `Sculptor.dyn` is non-nil while it is on.
+  Node id = page: node `id` owns vertex slots `id * DYN_PAGE_VERTS` (1280) and triangle slots `id * DYN_PAGE_TRIS`
+  (2048) and uses the first `vert_count`/`tri_count`; unused triangle slots are (0,0,0); `vert_page`/`tri_page` map a
+  slot to its node. Per-vertex triangle lists replace `s.faces` (`dyn_faces`, up to `DYN_FACES` 16) and per-node
+  `dyn.shared`/`dyn.owners` replace the flat lists; go through `faces_of`, `tri_node`, `node_shared`, `node_owners`
+  (`brush.odin`), which work in both layouts. `dab_once` calls `dyn_dab_topology` before moving anything when
+  `brush.detail > 0` (detail size = `radius * detail`; collapse below 0.4 of it): longest-edge (Rivara) splits, then
+  guarded collapses, at most `DYN_MAX_SPLITS`/`DYN_MAX_COLLAPSES` (2048) a dab; a full page splits its node
+  (`split_node`, renumbering vertices); `after_edits` refreshes shared lists and bounds and rebuilds the BVH
+  (`geom.bvh_build_over`, `tri_order` nil: leaves are runs of ids) or refits it. Undo saves whole nodes (`record_full`,
+  called through `touch` before any edit) and `dyn_step_swap` swaps them. The flush also fills `sculptor_index_ranges`
+  (whole changed pages) for the app to upload. `sculptor_vertex_count`/`triangle_count` count used slots; the mesh's
+  array lengths do not. `sculptor_dyn_enable/disable` (levels: `levels_dyn_enable/disable`, single level, no HD);
+  `sculptor_compact_mesh` gives the plain mesh. No LOD copies while on.
 - App side (`src/app/sculpt_tool.odin`): `Brush_Settings` with the radius in pixels (`:12-19`); `Input_Sample{pos, pressure,
   kind}`, every motion event of a frame kept (`:21-35`); `DAB_SPACING 0.25` radii, `MIN_DAB_SPACING_PX 1`,
   `MAX_DABS_PER_FRAME 64`, `MAX_PENDING_SAMPLES 4096` (`:53-57`); `sculpt_frame` → `stroke_follow` (lazy mouse `:141-147`;
@@ -70,6 +84,10 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
 - A new `Brush_Kind` is a `job_*` pair in `apply_dab`'s switch, honours `s.fade` as Draw and Smooth do, and gets a test
   that compares serial with parallel bit for bit and one that proves the falloff (`brush_test.odin`).
 - Strokes undo per node: a tool that moves nodes without recording them breaks undo (sm-cad has the plan).
+- With dynamic topology the triangles change during a stroke by design; everything else about a topology change
+  (end the stroke, leave HD, clear the history, recreate the GPU buffers) happens when it is turned on or off
+  (`object_set_dyntopo`). The app uploads changed index pages with `level_upload`, which remakes the buffers when the
+  pages outgrow them. Never read `len(mesh.positions)` as a vertex count on a dynamic object.
 - Simplified copies are never built during a stroke (`main.odin:333-335`, `lod.odin:164`); the brush works in the
   object's local space (`scene.odin:12-14`).
 
@@ -82,6 +100,8 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
 | a `fade == 0` vertex moves a little | never: an HD window's border meets the level drawn around it |
 | `sculptor_lod_update` returns ranges mid-stroke | nothing while `history.recording` (`lod.odin:164`) |
 | more than 64 dabs land in one frame | the rest of the path waits for the next frame; a lagging stroke drops its oldest samples past 4096 |
+| a frame lays every dab its samples ask for | it stops once its dabs have taken `MAX_BRUSH_MS_PER_FRAME` (10 ms), as heavy dynamic topology can; the rest waits |
+| a split edge's opposite vertex can sit on it | splits bisect each triangle across its longest side, so slivers never form; `dyn_long_stroke_keeps_a_clean_surface` checks angles and folds |
 
 ## Tests
 - Fixtures: `sculptor_init(&s, &m, nil, 64)` for small nodes; `levels_make(subdiv, steps, pool)` (`levels_test.odin`),

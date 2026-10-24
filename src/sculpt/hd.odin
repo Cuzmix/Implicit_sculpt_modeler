@@ -77,7 +77,7 @@ levels_hd_set_steps :: proc(l: ^Levels, wanted: int) -> bool {
 	hd := &l.hd
 	steps := clamp(wanted, 0, HD_MAX_STEPS)
 	if steps == hd.steps do return true
-	if hd.window != nil || levels_hd_stats(l).stored_nodes > 0 do return false
+	if hd.window != nil || levels_hd_stats(l).stored_nodes > 0 || levels_dynamic(l) do return false
 	top := l.levels[len(l.levels) - 1]
 	if steps > 0 && !closed_manifold(&top.sculptor) do return false
 	if steps == 0 {

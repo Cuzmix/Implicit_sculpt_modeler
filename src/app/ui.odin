@@ -286,6 +286,7 @@ draw_tools_panel :: proc(app: ^App) {
 	}
 	imgui.SameLine()
 	imgui.TextDisabled("(X toggles X)")
+	draw_dyntopo_section(app)
 
 	imgui.SeparatorText("Mask")
 	imgui.BeginDisabled(selected_object(app) == nil)
@@ -310,6 +311,30 @@ draw_tools_panel :: proc(app: ^App) {
 	if imgui.Button("Reset camera") do app.camera = camera.orbit_default()
 }
 
+// Dynamic topology for the selected object, and the detail its brushes add.
+@(private = "file")
+draw_dyntopo_section :: proc(app: ^App) {
+	imgui.SeparatorText("Dynamic topology")
+	obj := selected_object(app)
+	on := obj != nil && object_dynamic(obj)
+	can := obj != nil && len(obj.levels.levels) == 1 && obj.levels.hd.steps == 0
+	imgui.BeginDisabled(!can)
+	if imgui.Checkbox("On for the selected object (Ctrl+T)", &on) do app.ui.scene_command = {kind = .Dyntopo, on = on}
+	imgui.EndDisabled()
+	if obj != nil && !can {
+		imgui.TextDisabled("Needs a single subdivision level and no HD level.")
+	}
+	imgui.SliderFloat("Detail (px)", &app.brush.detail_px, 2, 40, "%.1f", {.Logarithmic})
+	imgui.Checkbox("Collapse short edges", &app.brush.collapse)
+	imgui.TextDisabled("Brushes add triangles where they go: edges under\nthe brush longer than Detail on screen split, and\nwith collapse, much shorter ones merge. Turning it\non or off clears the object's undo.")
+	if !on do return
+	splits, collapses := sculpt.sculptor_dyn_edits(object_sculptor(obj))
+	imgui.TextDisabled("%s", fmt.ctprintf("%s splits, %s collapses so far; %d GPU regrows", count_label(splits), count_label(collapses), app.stats.gpu_regrows))
+	if s := app.stats; s.dyntopo_ms > 0 {
+		imgui.TextDisabled("Turned on in %.0f ms, uploaded in %.0f ms", s.dyntopo_ms, s.dyntopo_upload_ms)
+	}
+}
+
 @(private = "file")
 draw_scene_panel :: proc(app: ^App) {
 	defer imgui.End()
@@ -317,13 +342,14 @@ draw_scene_panel :: proc(app: ^App) {
 	scene := &app.scene
 
 	total: int
-	for obj in scene.objects do total += geom.mesh_vertex_count(object_mesh(obj)^)
+	for obj in scene.objects do total += object_vertex_count(obj)
 	imgui.Text("%d object%s, %d vertices shown", i32(len(scene.objects)), cstring("" if len(scene.objects) == 1 else "s"), i32(total))
 	if imgui.BeginListBox("##objects", {-1, 4.25 * imgui.GetTextLineHeightWithSpacing()}) {
 		for obj, i in scene.objects {
 			levels := ""
 			if n := len(obj.levels.levels); n > 1 do levels = fmt.tprintf(", level %d of %d", obj.levels.current + 1, n)
-			label := fmt.ctprintf("Sphere %d  (%s vertices%s)", obj.id, count_label(geom.mesh_vertex_count(object_mesh(obj)^)), levels)
+			if object_dynamic(obj) do levels = ", dynamic"
+			label := fmt.ctprintf("Sphere %d  (%s vertices%s)", obj.id, count_label(object_vertex_count(obj)), levels)
 			if imgui.Selectable(label, i == scene.selected) do scene.selected = i
 		}
 		imgui.EndListBox()
@@ -334,7 +360,7 @@ draw_scene_panel :: proc(app: ^App) {
 		imgui.DragFloat3("Position", &obj.transform.position, 0.01, 0, 0, "%.3f")
 		imgui.DragFloat("Scale", &obj.transform.scale, 0.005, 0.01, 100, "%.3f", {.Logarithmic})
 		obj.transform.scale = clamp(obj.transform.scale, 0.01, 100)
-		imgui.Text("%d vertices, %d triangles", i32(geom.mesh_vertex_count(object_mesh(obj)^)), i32(geom.mesh_triangle_count(object_mesh(obj)^)))
+		imgui.Text("%d vertices, %d triangles", i32(object_vertex_count(obj)), i32(object_triangle_count(obj)))
 		draw_levels_section(app, obj)
 	}
 
@@ -379,12 +405,15 @@ draw_levels_section :: proc(app: ^App, obj: ^Object) {
 	}
 	imgui.EndDisabled()
 
+	dyntopo := object_dynamic(obj)
 	vertices, _, bytes := sculpt.levels_subdivide_estimate(levels)
-	imgui.BeginDisabled(count >= sculpt.MAX_LEVELS || bytes > MAX_SUBDIVIDE_BYTES || levels.hd.steps > 0)
+	imgui.BeginDisabled(count >= sculpt.MAX_LEVELS || bytes > MAX_SUBDIVIDE_BYTES || levels.hd.steps > 0 || dyntopo)
 	if imgui.Button("Subdivide") do app.ui.scene_command = {kind = .Subdivide}
 	imgui.EndDisabled()
 	imgui.SameLine()
-	if levels.hd.steps > 0 {
+	if dyntopo {
+		imgui.TextDisabled("(turn dynamic topology off first)")
+	} else if levels.hd.steps > 0 {
 		imgui.TextDisabled("(delete the HD level first)")
 	} else {
 		imgui.TextDisabled("%s", fmt.ctprintf("adds a level of %s vertices, about %s", count_label(vertices), bytes_label(bytes)))
@@ -412,7 +441,7 @@ draw_hd_section :: proc(app: ^App, obj: ^Object) {
 	hd := sculpt.levels_hd_stats(levels)
 	steps := levels.hd.steps
 	imgui.SeparatorText("HD detail")
-	imgui.BeginDisabled(steps >= sculpt.HD_MAX_STEPS || hd.stored_nodes > 0)
+	imgui.BeginDisabled(steps >= sculpt.HD_MAX_STEPS || hd.stored_nodes > 0 || object_dynamic(obj))
 	if imgui.Button("Divide HD") do app.ui.scene_command = {kind = .Hd_Steps, level = steps + 1}
 	imgui.EndDisabled()
 	imgui.SameLine()
@@ -465,7 +494,10 @@ handle_shortcuts :: proc(app: ^App) {
 	}
 	if io.KeyAlt && imgui.IsKeyPressed(.M, false) do mask_command(app, .Clear)
 	if obj := selected_object(app); obj != nil && io.KeyCtrl && imgui.IsKeyPressed(.R, false) {
-		app.ui.scene_command = {kind = .Remesh, vertices = geom.mesh_vertex_count(object_mesh(obj)^)}
+		app.ui.scene_command = {kind = .Remesh, vertices = object_vertex_count(obj)}
+	}
+	if obj := selected_object(app); obj != nil && io.KeyCtrl && imgui.IsKeyPressed(.T, false) {
+		app.ui.scene_command = {kind = .Dyntopo, on = !object_dynamic(obj)}
 	}
 	if io.KeyCtrl && imgui.IsKeyPressed(.I, false) do mask_command(app, .Invert)
 	if imgui.IsKeyPressed(.F, false) do focus_selected(app)

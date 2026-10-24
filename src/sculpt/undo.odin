@@ -31,17 +31,22 @@ Undo_History :: struct {
 
 Undo_Step :: struct {
 	saved:  [dynamic]Saved_Node,
-	leaves: [dynamic]u32, // BVH leaves whose triangles moved: bounds to refit, normals to update
+	nodes:  [dynamic]u32, // nodes whose triangles moved: bounds to refit, normals to update
 	painted: [dynamic]u32, // nodes whose mask changed: GPU data to update
 }
 
 // A node's owned positions, or its owned vertices' masks, from before the stroke
 // changed them. Each node has its own allocation, so a growing stroke never copies
-// what it already saved.
+// what it already saved. With dynamic topology, a stroke saves whole nodes (`full`):
+// their vertices, triangles and masks.
 Saved_Node :: struct {
-	node:      u32,
-	positions: []Vec3, // nil when this saves the mask
-	masks:     []u8,
+	node:       u32,
+	positions:  []Vec3, // nil when this saves the mask
+	masks:      []u8,
+	full:       bool,
+	indices:    []u32,
+	vert_count: u32,
+	tri_count:  u32,
 }
 
 // Default cap on undo memory per sculptor: about 40 large strokes on a 10M mesh.
@@ -92,7 +97,7 @@ sculptor_stroke_end :: proc(s: ^Sculptor) -> bool {
 	h := &s.history
 	if !h.recording do return false
 	h.recording = false
-	if len(h.current.leaves) == 0 && len(h.current.painted) == 0 {
+	if len(h.current.nodes) == 0 && len(h.current.painted) == 0 {
 		step_reset(h, &h.current)
 		return false
 	}
@@ -131,8 +136,10 @@ step_move :: proc(s: ^Sculptor, from, to: ^[dynamic]Undo_Step) -> bool {
 	if len(from) == 0 do return false
 	step := pop(from)
 	m := s.mesh
+	if s.dyn != nil do dyn_step_swap(s, &step)
 	for sv in step.saved {
 		n := s.nodes[sv.node]
+		if sv.full do continue
 		if sv.masks != nil {
 			live := s.mask[n.vert_first:][:n.vert_count]
 			for &k, i in live do k, sv.masks[i] = sv.masks[i], k
@@ -142,14 +149,18 @@ step_move :: proc(s: ^Sculptor, from, to: ^[dynamic]Undo_Step) -> bool {
 		for &p, i in live do p, sv.positions[i] = sv.positions[i], p
 	}
 	for id in step.painted do mark_stale(s, id, .Paint)
-	d := Dab{s = s}
-	clear(&s.changed)
-	append(&s.changed, ..step.leaves[:])
-	verts: u32
-	for leaf in s.changed do verts += s.nodes[s.node_of[leaf]].vert_count
-	jobs.parallel_for(s.pool if verts >= PARALLEL_MIN_VERTS else nil, len(s.changed), &d, job_leaf_bounds)
-	geom.bvh_refit_leaves(&s.bvh, m^, s.changed[:], recompute_leaves = false)
-	for leaf in step.leaves do mark_shape_changed(s, s.node_of[leaf])
+	if s.dyn == nil {
+		d := Dab{s = s}
+		clear(&s.changed)
+		verts: u32
+		for id in step.nodes {
+			append(&s.changed, s.nodes[id].leaf)
+			verts += s.nodes[id].vert_count
+		}
+		jobs.parallel_for(s.pool if verts >= PARALLEL_MIN_VERTS else nil, len(s.changed), &d, job_leaf_bounds)
+		geom.bvh_refit_leaves(&s.bvh, m^, s.changed[:], recompute_leaves = false)
+		for id in step.nodes do mark_shape_changed(s, id)
+	}
 	append(to, step)
 	return true
 }
@@ -165,6 +176,10 @@ record_hit :: proc(s: ^Sculptor, masks: bool) {
 		}
 		h := &s.history
 		id := s.node_of[leaf]
+		if s.dyn != nil {
+			record_full(s, id)
+			continue
+		}
 		if h.saved[id] == h.stamp do continue
 		h.saved[id] = h.stamp
 		n := s.nodes[id]
@@ -196,19 +211,21 @@ record_painted :: proc(s: ^Sculptor, id: u32) {
 // when the step is undone or redone.
 @(private)
 record_changed :: proc(s: ^Sculptor) {
+	for leaf in s.changed do record_changed_node(s, s.node_of[leaf])
+}
+
+@(private)
+record_changed_node :: proc(s: ^Sculptor, id: u32) {
 	h := &s.history
-	for leaf in s.changed {
-		id := s.node_of[leaf]
-		if h.changed[id] == h.stamp do continue
-		h.changed[id] = h.stamp
-		append(&h.current.leaves, leaf)
-	}
+	if h.changed[id] == h.stamp do return
+	h.changed[id] = h.stamp
+	append(&h.current.nodes, id)
 }
 
 @(private)
 step_bytes :: proc(step: Undo_Step) -> int {
-	bytes := len(step.saved) * size_of(Saved_Node) + (len(step.leaves) + len(step.painted)) * size_of(u32)
-	for sv in step.saved do bytes += len(sv.positions) * size_of(Vec3) + len(sv.masks)
+	bytes := len(step.saved) * size_of(Saved_Node) + (len(step.nodes) + len(step.painted)) * size_of(u32)
+	for sv in step.saved do bytes += len(sv.positions) * size_of(Vec3) + len(sv.masks) + len(sv.indices) * size_of(u32)
 	return bytes
 }
 
@@ -217,9 +234,10 @@ step_reset :: proc(h: ^Undo_History, step: ^Undo_Step) {
 	for sv in step.saved {
 		delete(sv.positions, h.allocator)
 		delete(sv.masks, h.allocator)
+		delete(sv.indices, h.allocator)
 	}
 	clear(&step.saved)
-	clear(&step.leaves)
+	clear(&step.nodes)
 	clear(&step.painted)
 }
 
@@ -228,9 +246,10 @@ step_destroy :: proc(h: ^Undo_History, step: ^Undo_Step) {
 	for sv in step.saved {
 		delete(sv.positions, h.allocator)
 		delete(sv.masks, h.allocator)
+		delete(sv.indices, h.allocator)
 	}
 	delete(step.saved)
-	delete(step.leaves)
+	delete(step.nodes)
 	delete(step.painted)
 	step^ = {}
 }

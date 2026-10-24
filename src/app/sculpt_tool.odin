@@ -17,6 +17,10 @@ Brush_Settings :: struct {
 	pressure_size:     bool, // pen pressure scales the radius
 	lazy_px:           f32,  // lazy mouse: the brush trails the cursor by this many pixels; 0 is off
 	symmetry:          sculpt.Symmetry, // mirror strokes across these planes of the object
+	// On objects with dynamic topology: edges under the brush longer than this many
+	// pixels on screen split, and with collapse, ones much shorter merge.
+	detail_px:         f32,
+	collapse:          bool,
 }
 
 // One pointer sample as SDL reported it. The app keeps every motion event of a frame,
@@ -56,6 +60,9 @@ Sculpt_Frame_Result :: struct {
 DAB_SPACING :: 0.25 // brush radii between dabs, measured on screen
 MIN_DAB_SPACING_PX :: 1
 MAX_DABS_PER_FRAME :: 64 // the rest of the path waits for the next frame
+// ...and once the frame's dabs have taken this long, as they can when dynamic topology
+// has many triangles to make, so the frame rate holds and the stroke catches up later.
+MAX_BRUSH_MS_PER_FRAME :: 10
 MAX_PENDING_SAMPLES :: 4096 // beyond this a lagging stroke drops its oldest samples
 MIN_PRESSURE_SIZE :: 0.05 // smallest share of the radius pen pressure can shrink it to
 
@@ -216,7 +223,7 @@ grab_follow :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, pos:
 
 // Moves the stroke in a straight line on screen to `target`, where the pressure is
 // `pressure`, with a dab every spacing pixels. Returns false, with the stroke stopped
-// partway, once the frame has used MAX_DABS_PER_FRAME dabs.
+// partway, once the frame has used MAX_DABS_PER_FRAME dabs or MAX_BRUSH_MS_PER_FRAME.
 @(private = "file")
 stroke_walk :: proc(app: ^App, obj: ^Object, input: Viewport_Input, inv: matrix[4, 4]f32, target: [2]f32, pressure: f32, res: ^Sculpt_Frame_Result) -> bool {
 	st := &app.stroke
@@ -231,7 +238,7 @@ stroke_walk :: proc(app: ^App, obj: ^Object, input: Viewport_Input, inv: matrix[
 			st.pos, st.pressure = target, pressure
 			return true
 		}
-		if res.dabs >= MAX_DABS_PER_FRAME do return false
+		if res.dabs >= MAX_DABS_PER_FRAME || res.brush_ms + res.raycast_ms >= MAX_BRUSH_MS_PER_FRAME do return false
 		if need > 0 {
 			f := need / l
 			st.pos += d * f
@@ -273,6 +280,8 @@ brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pres
 		strength = strength,
 		invert   = input.invert,
 		symmetry = app.brush.symmetry,
+		detail   = app.brush.detail_px / brush_radius_px(app, pressure),
+		collapse = app.brush.collapse,
 	}
 }
 

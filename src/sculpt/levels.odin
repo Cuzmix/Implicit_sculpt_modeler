@@ -101,7 +101,7 @@ levels_set_current :: proc(l: ^Levels, index: int) {
 // nothing, when MAX_LEVELS are in use, the top level is not a closed manifold mesh, or
 // there is an HD level (whose detail is tied to the top level as it is).
 levels_subdivide :: proc(l: ^Levels) -> bool {
-	if len(l.levels) >= MAX_LEVELS || l.hd.steps > 0 do return false
+	if len(l.levels) >= MAX_LEVELS || l.hd.steps > 0 || levels_dynamic(l) do return false
 	levels_sync(l)
 	lv, ok := level_above(l, l.levels[len(l.levels) - 1])
 	if !ok do return false
@@ -110,6 +110,28 @@ levels_subdivide :: proc(l: ^Levels) -> bool {
 	l.current = len(l.levels) - 1
 	return true
 }
+
+// Turns dynamic topology (dyntopo.odin) on for the only level. Returns false, changing
+// nothing, when there are other levels or an HD level, or the mesh has a vertex in more
+// than DYN_FACES triangles. Clears the undo history.
+levels_dyn_enable :: proc(l: ^Levels) -> bool {
+	if len(l.levels) != 1 || l.hd.steps > 0 do return false
+	lv := l.levels[0]
+	if !sculptor_dyn_enable(&lv.sculptor, l.allocator) do return false
+	delete(lv.node_of_vertex, l.allocator)
+	lv.node_of_vertex = nil
+	return true
+}
+
+// Turns dynamic topology off again, packing the mesh. Clears the undo history.
+levels_dyn_disable :: proc(l: ^Levels) {
+	lv := l.levels[0]
+	if lv.sculptor.dyn == nil do return
+	sculptor_dyn_disable(&lv.sculptor, l.allocator)
+	lv.node_of_vertex = node_of_vertex_build(&lv.sculptor, l.allocator)
+}
+
+levels_dynamic :: proc(l: ^Levels) -> bool {return l.levels[0].sculptor.dyn != nil}
 
 // Vertices, triangles and CPU bytes of the level levels_subdivide would add.
 levels_subdivide_estimate :: proc(l: ^Levels) -> (vertices, triangles, bytes: int) {
@@ -167,7 +189,7 @@ level_bytes :: proc(lv: ^Level) -> int {
 	total += len(lv.parents) * size_of([4]u32) + len(lv.detail) * size_of(Vec3)
 	total += (len(lv.deps.offsets) + len(lv.deps.items) + len(lv.dependents.offsets) + len(lv.dependents.items)) * size_of(u32)
 	total += cap(s.lod.indices) * size_of(u32) + len(s.lod.tree.groups) * size_of(geom.Lod_Group) + len(s.lod.parent) * size_of(u32)
-	return total
+	return total + sculptor_dyn_bytes(s)
 }
 
 // Brings every level up to date with the edits made on the current level since the

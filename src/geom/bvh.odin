@@ -44,7 +44,7 @@ BVH_LEAF_SIZE :: 4
 // build; when vertices move, bvh_refit_triangles updates only the affected branches.
 Bvh :: struct {
 	nodes:     [dynamic]Bvh_Node,
-	tri_order: []u32, // triangle ids grouped by leaf
+	tri_order: []u32, // triangle ids grouped by leaf; nil when leaves are runs of ids (bvh_build_over)
 	tri_leaf:  []u32, // triangle id -> leaf node index
 	stack:     [dynamic]u32, // traversal scratch, reused
 	dirty:     []u64,        // refit scratch: one bit per node, all zero between refits
@@ -233,7 +233,7 @@ bvh_refit_leaves :: proc(b: ^Bvh, m: Mesh, leaves: []u32, recompute_leaves := tr
 leaf_bounds :: proc(b: Bvh, m: Mesh, node: Bvh_Node) -> Aabb {
 	bounds := AABB_EMPTY
 	for i in node.first ..< node.first + node.count {
-		bounds = aabb_union(bounds, tri_bounds(m, b.tri_order[i]))
+		bounds = aabb_union(bounds, tri_bounds(m, b.tri_order[i] if b.tri_order != nil else i))
 	}
 	return bounds
 }
@@ -253,6 +253,7 @@ ray_aabb :: #force_inline proc(bounds: Aabb, origin, inv_dir: Vec3, t_max: f32) 
 bvh_raycast :: proc(b: ^Bvh, m: Mesh, origin, dir: Vec3) -> (t: f32, tri: u32, ok: bool) {
 	if len(b.nodes) == 0 || b.nodes[0].bounds.lo.x > b.nodes[0].bounds.hi.x do return
 	inv_dir := Vec3{1 / dir.x, 1 / dir.y, 1 / dir.z}
+	runs := b.tri_order == nil
 	best := max(f32)
 	clear(&b.stack)
 	append(&b.stack, 0)
@@ -261,7 +262,7 @@ bvh_raycast :: proc(b: ^Bvh, m: Mesh, origin, dir: Vec3) -> (t: f32, tri: u32, o
 		if _, hit := ray_aabb(node.bounds, origin, inv_dir, best); !hit do continue
 		if node.count > 0 {
 			for i in node.first ..< node.first + node.count {
-				id := b.tri_order[i]
+				id := i if runs else b.tri_order[i]
 				if d, hit := ray_triangle(m, id, origin, dir); hit && d < best {
 					best, tri, ok = d, id, true
 				}
@@ -320,7 +321,11 @@ bvh_query_sphere :: proc(b: ^Bvh, center: Vec3, radius: f32, out: ^[dynamic]u32)
 		d := closest - center
 		if linalg.dot(d, d) > r2 do continue
 		if node.count > 0 {
-			append(out, ..b.tri_order[node.first:node.first + node.count])
+			if b.tri_order == nil {
+				for i in node.first ..< node.first + node.count do append(out, i)
+			} else {
+				append(out, ..b.tri_order[node.first:node.first + node.count])
+			}
 		} else {
 			append(&b.stack, node.first, node.first + 1)
 		}
@@ -424,6 +429,82 @@ bvh_build_morton :: proc(m: Mesh, leaf_size: u32 = BVH_LEAF_SIZE, pool: ^jobs.Po
 		node := &b.nodes[i]
 		if node.count == 0 do node.bounds = aabb_union(b.nodes[node.first].bounds, b.nodes[node.first + 1].bounds)
 	}
+	b.dirty = make([]u64, (len(b.nodes) + 63) / 64, allocator)
+	return b
+}
+
+// A BVH over runs of triangles that already exist, rather than one built from the mesh:
+// item i is the leaf for triangles first[i] ..< first[i] + count[i], with bounds
+// boxes[i]. Items without triangles get no leaf. leaf_of[i] receives item i's leaf, or
+// BVH_NONE. Leaves are ordered along a Morton curve through the items' centres. For a
+// mesh whose triangles live in fixed groups that change shape (the sculptor's dynamic
+// topology), so the tree is rebuilt in a fraction of a millisecond whenever the groups
+// change. tri_order is nil, since leaves are runs of ids, and tri_leaf is left empty.
+bvh_build_over :: proc(boxes: []Aabb, first, count: []u32, leaf_of: []u32, allocator := context.allocator) -> Bvh {
+	b := Bvh {
+		leaf_size = 1,
+		nodes     = make([dynamic]Bvh_Node, 0, 2 * len(boxes) + 1, allocator),
+		stack     = make([dynamic]u32, 0, 64, allocator),
+	}
+	items := make([dynamic]u32, 0, len(boxes), context.temp_allocator)
+	centres := AABB_EMPTY
+	for c, i in count {
+		leaf_of[i] = BVH_NONE
+		if c == 0 do continue
+		append(&items, u32(i))
+		aabb_grow(&centres, (boxes[i].lo + boxes[i].hi) * 0.5)
+	}
+	if len(items) == 0 {
+		b.dirty = make([]u64, 1, allocator)
+		return b
+	}
+	codes := make([]u32, len(items), context.temp_allocator)
+	extent := centres.hi - centres.lo
+	scale := 1023 / max(extent.x, extent.y, extent.z, 1e-12)
+	for item, k in items {
+		q := ((boxes[item].lo + boxes[item].hi) * 0.5 - centres.lo) * scale
+		codes[k] = morton3(u32(q.x), u32(q.y), u32(q.z))
+	}
+	radix_sort_pairs(codes, items[:], 30, nil)
+	Over :: struct {
+		b:             ^Bvh,
+		codes, items:  []u32,
+		boxes:         []Aabb,
+		first, count:  []u32,
+		leaf_of:       []u32,
+	}
+	o := Over{&b, codes, items[:], boxes, first, count, leaf_of}
+	// Sorted items [lo, hi) under node n.
+	build :: proc(o: ^Over, n: u32, lo, hi: int) {
+		if hi - lo == 1 {
+			item := o.items[lo]
+			o.b.nodes[n].first, o.b.nodes[n].count, o.b.nodes[n].bounds = o.first[item], o.count[item], o.boxes[item]
+			o.leaf_of[item] = n
+			return
+		}
+		split := (lo + hi) / 2
+		if diff := o.codes[lo] ~ o.codes[hi - 1]; diff != 0 {
+			bit := u32(1) << (31 - intrinsics.count_leading_zeros(diff))
+			a, z := lo, hi - 1
+			for a < z {
+				mid := (a + z) / 2
+				if o.codes[mid] & bit != 0 {
+					z = mid
+				} else {
+					a = mid + 1
+				}
+			}
+			split = a
+		}
+		children := u32(len(o.b.nodes))
+		append(&o.b.nodes, Bvh_Node{parent = n}, Bvh_Node{parent = n})
+		o.b.nodes[n].first, o.b.nodes[n].count = children, 0
+		build(o, children, lo, split)
+		build(o, children + 1, split, hi)
+		o.b.nodes[n].bounds = aabb_union(o.b.nodes[children].bounds, o.b.nodes[children + 1].bounds)
+	}
+	append(&b.nodes, Bvh_Node{parent = BVH_NONE})
+	build(&o, 0, 0, len(items))
 	b.dirty = make([]u64, (len(b.nodes) + 63) / 64, allocator)
 	return b
 }

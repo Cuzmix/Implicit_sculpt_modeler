@@ -58,6 +58,10 @@ Brush :: struct {
 	strength: f32, // 0..1
 	invert:   bool,
 	symmetry: Symmetry,
+	// Dynamic topology (dyntopo.odin), on a sculptor that has it on: edges in the brush
+	// longer than this share of the radius are split first; 0 leaves the triangles be.
+	detail:   f32,
+	collapse: bool, // ...and edges much shorter than that collapse
 }
 
 // How far dabs move the surface at full strength, in brush radii.
@@ -150,6 +154,9 @@ Sculptor :: struct {
 	// nil until something is first masked (mask.odin).
 	mask:        []u8,
 	grab:        Grab, // the vertices a Grab stroke drags (grab.odin)
+	// Set while dynamic topology is on (dyntopo.odin): the mesh is laid out in pages,
+	// `faces` and the shared lists above are replaced, and there are no LOD copies.
+	dyn:         ^Dyn,
 }
 
 // Partitions and renumbers `mesh` in place (vertex order and triangle order change),
@@ -183,6 +190,7 @@ sculptor_init :: proc(s: ^Sculptor, mesh: ^geom.Mesh, pool: ^jobs.Pool, node_tri
 }
 
 sculptor_destroy :: proc(s: ^Sculptor) {
+	dyn_destroy(s)
 	delete(s.mask, s.history.allocator)
 	grab_destroy(&s.grab)
 	history_destroy(&s.history)
@@ -455,6 +463,21 @@ sculptor_flush :: proc(s: ^Sculptor) -> []Vertex_Range {
 		resize(&s.waiting_cones, len(s.waiting_cones) - count)
 	}
 
+	if d := s.dyn; d != nil {
+		clear(&d.index_ranges)
+		slice.sort(d.topo_nodes[:])
+		for id in d.topo_nodes {
+			d.topo[id] = false
+			s.chunks[id].index_count = 3 * s.nodes[id].tri_count
+			first := 3 * s.nodes[id].tri_first
+			if n := len(d.index_ranges); n > 0 && d.index_ranges[n - 1].first_index + d.index_ranges[n - 1].index_count == first {
+				d.index_ranges[n - 1].index_count += 3 * DYN_PAGE_TRIS
+			} else {
+				append(&d.index_ranges, geom.Index_Range{first, 3 * DYN_PAGE_TRIS})
+			}
+		}
+		clear(&d.topo_nodes)
+	}
 	for id in s.dirty_nodes {
 		s.changed_bounds = geom.aabb_union(s.changed_bounds, s.chunks[id].bounds)
 		s.stale[id] = .None
@@ -543,11 +566,19 @@ dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
 	clear(&s.hit)
 	geom.bvh_query_leaves(&s.bvh, center, brush.radius, &s.hit)
 	if len(s.hit) == 0 do return 0
-	resize(&s.partials, len(s.hit))
-	slice.zero(s.partials[:])
 	candidates: u32
 	for leaf in s.hit do candidates += s.nodes[s.node_of[leaf]].vert_count
 	pool := s.pool if candidates >= PARALLEL_MIN_VERTS else nil
+	if s.dyn != nil && brush.kind != .Mask && brush.detail > 0 {
+		if s.history.recording do record_hit(s, masks = false)
+		if dyn_dab_topology(s, &d, pool) {
+			clear(&s.hit)
+			geom.bvh_query_leaves(&s.bvh, center, brush.radius, &s.hit)
+			if len(s.hit) == 0 do return 0
+		}
+	}
+	resize(&s.partials, len(s.hit))
+	slice.zero(s.partials[:])
 	if brush.kind == .Mask do return mask_dab(s, &d, pool)
 	if s.history.recording do record_hit(s, masks = false)
 
@@ -633,8 +664,7 @@ mark_shape_changed :: proc(s: ^Sculptor, id: u32) {
 		s.edited[id] = true
 		append(&s.edited_nodes, id)
 	}
-	n := s.nodes[id]
-	for owner in s.owners[n.owner_first:][:n.owner_count] do mark_stale(s, owner, .Edge)
+	for owner in node_owners(s, id) do mark_stale(s, owner, .Edge)
 }
 
 @(private)
@@ -651,8 +681,36 @@ owned :: #force_inline proc(s: ^Sculptor, leaf: u32) -> (first, last: u32) {
 
 @(private)
 shared_of :: #force_inline proc(s: ^Sculptor, leaf: u32) -> []u32 {
-	n := s.nodes[s.node_of[leaf]]
+	return node_shared(s, s.node_of[leaf])
+}
+
+// Vertices of the node's triangles owned by other nodes, and those nodes.
+@(private)
+node_shared :: #force_inline proc(s: ^Sculptor, id: u32) -> []u32 {
+	if s.dyn != nil do return s.dyn.shared[id][:]
+	n := s.nodes[id]
 	return s.shared[n.shared_first:][:n.shared_count]
+}
+
+@(private)
+node_owners :: #force_inline proc(s: ^Sculptor, id: u32) -> []u32 {
+	if s.dyn != nil do return s.dyn.owners[id][:]
+	n := s.nodes[id]
+	return s.owners[n.owner_first:][:n.owner_count]
+}
+
+// The triangles vertex v is in.
+@(private)
+faces_of :: #force_inline proc(s: ^Sculptor, v: u32) -> []u32 {
+	if s.dyn != nil do return dyn_faces(s.dyn, v)
+	return geom.vertex_faces_of(s.faces, v)
+}
+
+// The node triangle f belongs to.
+@(private)
+tri_node :: #force_inline proc(s: ^Sculptor, f: u32) -> u32 {
+	if s.dyn != nil do return tri_page(f)
+	return s.node_of[s.bvh.tri_leaf[f]]
 }
 
 // Whether any of the leaf's shared vertices lies inside the brush. Called before the
@@ -759,7 +817,7 @@ job_smooth_targets :: proc(data: rawptr, i: int) {
 		if linalg.dot(delta, delta) >= d.r2 do continue
 		sum: Vec3
 		n: f32
-		for f in geom.vertex_faces_of(s.faces, v) {
+		for f in faces_of(s, v) {
 			sum += m.positions[m.indices[3 * f]] + m.positions[m.indices[3 * f + 1]] + m.positions[m.indices[3 * f + 2]]
 			n += 3
 		}
@@ -835,7 +893,7 @@ sculptor_nodes_moved :: proc(s: ^Sculptor, nodes: []u32) {
 	for n, id in s.nodes {
 		hit := moved[id]
 		if !hit {
-			for owner in s.owners[n.owner_first:][:n.owner_count] {
+			for owner in node_owners(s, u32(id)) {
 				if moved[owner] {
 					hit = true
 					break
@@ -888,7 +946,7 @@ job_node_normals :: proc(data: rawptr, i: int) {
 	for k in 0 ..< cached do face_n[k] = face_normal(m, n.tri_first + k)
 	for v in n.vert_first ..< n.vert_first + n.vert_count {
 		sum: Vec3
-		for f in geom.vertex_faces_of(s.faces, v) {
+		for f in faces_of(s, v) {
 			if local := f - n.tri_first; local < cached {
 				sum += face_n[local]
 			} else {
@@ -899,8 +957,9 @@ job_node_normals :: proc(data: rawptr, i: int) {
 	}
 	if s.history.recording {
 		// Bounds stay current for frustum culling; the cone waits for the end of the stroke.
-		s.chunks[id].bounds = s.bvh.nodes[n.leaf].bounds
+		s.chunks[id].bounds = s.bvh.nodes[n.leaf].bounds if n.leaf != geom.BVH_NONE else geom.AABB_EMPTY
 		s.chunks[id].cone_cutoff = 1
+		s.chunks[id].index_count = 3 * n.tri_count
 	} else {
 		update_chunk(s, id, face_n[:cached])
 	}
@@ -912,11 +971,11 @@ job_node_normals :: proc(data: rawptr, i: int) {
 edge_normals :: proc(s: ^Sculptor, n: Node) {
 	m := s.mesh
 	for v in n.vert_first ..< n.vert_first + n.vert_count {
-		faces := geom.vertex_faces_of(s.faces, v)
+		faces := faces_of(s, v)
 		stale := false
 		for f in faces {
 			if f - n.tri_first < n.tri_count do continue // its own triangle
-			if s.stale[s.node_of[s.bvh.tri_leaf[f]]] == .Shape {
+			if s.stale[tri_node(s, f)] == .Shape {
 				stale = true
 				break
 			}
@@ -958,7 +1017,7 @@ update_chunk :: proc(s: ^Sculptor, id: u32, face_n: []Vec3) {
 	}
 	axis, cutoff := geom.normal_cone(normals)
 	s.chunks[id] = {
-		bounds      = s.bvh.nodes[n.leaf].bounds,
+		bounds      = s.bvh.nodes[n.leaf].bounds if n.leaf != geom.BVH_NONE else geom.AABB_EMPTY,
 		cone_axis   = axis,
 		cone_cutoff = cutoff,
 		first_index = 3 * n.tri_first,
