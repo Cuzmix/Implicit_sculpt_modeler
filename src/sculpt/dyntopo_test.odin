@@ -298,6 +298,22 @@ dyn_every_brush_and_the_mask :: proc(t: ^testing.T) {
 	before := sculptor_triangle_count(s)
 	_ = apply_dab(s, {kind = .Draw, radius = 0.5, strength = 0.5, detail = 0.1, collapse = true}, {0, 0, 1})
 	testing.expect(t, sculptor_triangle_count(s) == before, "a masked area changed its triangles")
+
+	// Grow reads each vertex's triangles from the dynamic lists: after splits, every
+	// corner of a triangle with a masked corner is masked.
+	_ = sculptor_mask_command(s, .Clear)
+	_ = apply_dab(s, {kind = .Draw, radius = 0.5, strength = 0.5, detail = 0.1, collapse = true}, {1, 0, 0})
+	_ = apply_dab(s, {kind = .Mask, radius = 0.2, strength = 1}, {1, 0, 0})
+	painted := slice.clone(s.mask, context.temp_allocator)
+	testing.expect(t, sculptor_mask_command(s, .Grow), "grow was not a step")
+	for n in s.nodes {
+		for v in n.vert_first ..< n.vert_first + n.vert_count {
+			near := false
+			for f in faces_of(s, v) do for c in 0 ..< u32(3) do near ||= painted[s.mesh.indices[3 * f + c]] == 255
+			if near do testing.expectf(t, s.mask[v] == 255, "vertex %d next to the mask did not grow into it", v)
+		}
+	}
+	testing.expect(t, expect_valid(t, s), "grow broke the dynamic layout")
 }
 
 // After sculpting, turning dynamic topology off gives a plain closed mesh with what

@@ -66,6 +66,8 @@ Shaders are recompiled when `glslangValidator` (Vulkan SDK) is on PATH; otherwis
 
 `build/bench --brushes [vertex counts...]` prints a table with one row per brush instead: the main table's stroke with the large brush, for every brush kind, then Draw with X symmetry, Draw over a sphere masked on one side and Draw with the Noise alpha (see Brushes, masking and symmetry and Brush alphas below).
 
+`build/bench --masks [vertex counts...]` prints a table for the mask commands instead: at each size, each command on a sphere masked on one side, with how many vertices it changed and its undo (see Brushes, masking and symmetry below).
+
 `build/bench --remesh [vertex counts...]` prints a table for voxel remesh instead: at each size, a sphere with one Grab move that pulls a wide spike out of it, remeshed back to the same vertex count (see Voxel remesh below).
 
 `build/bench --dyntopo [vertex counts...]` prints a table for dynamic topology instead: at each size, the main table's stroke with the large brush on the usual layout, then with dynamic topology on, once with nothing to split, once refining and once more over what it refined, with undo, redo and the time to turn it on and off (see Dynamic topology below).
@@ -145,7 +147,7 @@ Nine brushes, picked in the Tools panel or with keys 1 to 9 in this order:
 | 8 | Grab | ZBrush's Move: picks up what is under the brush where the stroke starts and drags it with the pointer, in the plane facing the camera, each vertex by its falloff weight. |
 | 9 | Mask | Paints the mask (erases it). |
 
-Masking works as in ZBrush: each vertex has a mask from 0 to 255, and every brush moves it only by what the mask leaves (a fully masked vertex never moves). Masked areas are drawn darker. The Tools panel's Clear (Alt+M), Invert (Ctrl+I) and Mask all change the whole mask at once; mask strokes and these commands are undo steps like any stroke. The mask is carried when the object changes subdivision level (a vertex that continues one of the level below takes its mask, a new edge vertex the average of the edge's ends), so it holds on every level. An HD window starts unmasked and its mask is dropped when it closes. The mask costs no GPU memory or upload: it rides in the low 4 bits of each of the two 16-bit halves of the vertex's packed normal, which still places the normal within 0.1 degrees.
+Masking works as in ZBrush: each vertex has a mask from 0 to 255, and every brush moves it only by what the mask leaves (a fully masked vertex never moves). Masked areas are drawn darker. The Tools panel's Clear (Alt+M), Invert (Ctrl+I) and Mask all change the whole mask at once; mask strokes and these commands are undo steps like any stroke. Blur, Sharpen, Grow and Shrink move the mask's edge, as ZBrush's BlurMask, SharpenMask, GrowMask and ShrinkMask and Blender's mask filters do, a step at a time: each vertex takes from the corners of its triangles their average (Blur), their highest value (Grow) or their lowest (Shrink), so a step reaches one ring of triangles further, and Sharpen pushes each partly masked vertex toward masked or unmasked against half a Blur step, which narrows a soft edge to a sharp one that stays smooth along the triangles. Steps sets how many steps a press takes (3 by default): since a step is a ring of triangles, a denser mesh needs more for the same distance. The section shows what the last command did and how long it took. The mask is carried when the object changes subdivision level (a vertex that continues one of the level below takes its mask, a new edge vertex the average of the edge's ends), so it holds on every level. An HD window starts unmasked and its mask is dropped when it closes. The mask costs no GPU memory or upload: it rides in the low 4 bits of each of the two 16-bit halves of the vertex's packed normal, which still places the normal within 0.1 degrees.
 
 Symmetry (the X, Y and Z boxes in the Tools panel; the X key toggles X) mirrors every dab across those planes through the object's origin, up to 8 images with all three; Grab drags each image the mirrored way.
 
@@ -167,6 +169,21 @@ Each brush costs about what Draw does (`build/bench --brushes`, 4 threads, this 
 | Draw, Noise alpha | 3966 | 0.055 | 0.35 | 39727 | 0.371 | 2.07 | 2.56 |
 
 For Grab, verts/dab is what it holds and dab ms is one move. Smooth costs more because it reads every neighbour of each vertex, symmetry costs a dab per image, and fully masked vertices cost almost nothing. Mask strokes skip the normal update and only send the painted vertices to the GPU again.
+
+A vertex whose triangles' corners all share its value, fully masked or unmasked, stays as it is under every mask command, so after one quick check of every node a step works only on the nodes around the mask's edge, and the step after it only rechecks the nodes next to what moved. A press costs about one pass over the mask whatever the steps, then a little per step for the edge (`build/bench --masks`, 4 threads, this repo's cloud VM, a sphere masked on one side):
+
+| Command | Steps | 1M: changed | 1M: ms | 10M: changed | 10M: ms | 10M: undo MB |
+| --- | --- | --- | --- | --- | --- | --- |
+| Clear | 1 | 499k | 1.0 | 5.00M | 14.5 | 6.0 |
+| Invert | 1 | 998k | 1.4 | 10.00M | 20.8 | 11.9 |
+| Blur | 1 | 3k | 1.8 | 11k | 10.8 | 0.2 |
+| Blur | 10 | 20k | 11.6 | 64k | 61.4 | 0.4 |
+| Sharpen | 1 | 3k | 1.8 | 11k | 10.5 | 0.2 |
+| Grow | 1 | 1k | 1.5 | 5k | 10.3 | 0.2 |
+| Grow | 10 | 18k | 7.6 | 59k | 43.6 | 0.4 |
+| Shrink | 1 | 1k | 1.5 | 6k | 10.1 | 0.2 |
+
+Before working only near the edge, a step at 10M took 85 to 107 ms and ten steps 750 ms. The undo holds only the nodes that changed, and the upload after a command takes under 0.3 ms unless it changes the whole mask.
 
 ## Voxel remesh (DynaMesh)
 

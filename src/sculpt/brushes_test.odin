@@ -411,6 +411,100 @@ mask_follows_levels :: proc(t: ^testing.T) {
 	testing.expect(t, len(sculptor_flush(base)) > 0, "the carried mask uploads nothing")
 }
 
+// Grow spreads the mask one ring of triangles a step, Shrink draws it back, and each
+// press is one undo step.
+@(test)
+mask_grow_and_shrink_move_the_edge_a_ring :: proc(t: ^testing.T) {
+	sp := sphere_make(4)
+	defer sphere_free(sp)
+	s := &sp.sculptor
+	mask_ensure(s)
+	seed := top_vertex(sp.mesh)
+	s.mask[seed] = 255
+	start := slice.clone(s.mask, context.temp_allocator)
+	one := ring_grown(sp.mesh, start)
+	two := ring_grown(sp.mesh, one)
+	testing.expect(t, sculptor_mask_command(s, .Grow), "grow was not a step")
+	testing.expect(t, slice.equal(s.mask, one), "one step of grow is not the first ring")
+	testing.expect(t, sculptor_mask_command(s, .Grow), "grow was not a step")
+	testing.expect(t, slice.equal(s.mask, two), "two steps of grow are not two rings")
+	testing.expect(t, sculptor_mask_command(s, .Shrink), "shrink was not a step")
+	testing.expect(t, slice.equal(s.mask, one), "shrink did not take back the outer ring")
+	testing.expect(t, sculptor_mask_command(s, .Shrink, steps = 2), "shrink was not a step")
+	testing.expect(t, !sculptor_has_mask(s), "two steps of shrink left a mask")
+	testing.expect(t, !sculptor_mask_command(s, .Grow, steps = 3), "growing no mask was a step")
+	for _ in 0 ..< 4 do testing.expect(t, sculptor_undo(s), "undo failed")
+	testing.expect(t, slice.equal(s.mask, start), "undo did not bring back the seed")
+	testing.expect(t, sculptor_mask_command(s, .Grow, steps = 2), "grow was not a step")
+	testing.expect(t, slice.equal(s.mask, two), "two steps in one press are not two rings")
+}
+
+// Blur softens a hard edge only near it; Sharpen then narrows the soft edge back
+// toward a hard one without moving it.
+@(test)
+mask_blur_softens_and_sharpen_narrows_the_edge :: proc(t: ^testing.T) {
+	sp := sphere_make(4)
+	defer sphere_free(sp)
+	s := &sp.sculptor
+	mask_ensure(s)
+	for p, v in sp.mesh.positions do s.mask[v] = 255 if p.x > 0 else 0
+	hard := slice.clone(s.mask, context.temp_allocator)
+	partial :: proc(mask: []u8) -> (n: int) {
+		for k in mask do if k != 0 && k != 255 do n += 1
+		return
+	}
+	testing.expect(t, sculptor_mask_command(s, .Blur, steps = 3), "blur was not a step")
+	soft := partial(s.mask)
+	testing.expect(t, soft > 0, "blur left the edge hard")
+	for p, v in sp.mesh.positions {
+		// Three steps reach three rings, under 0.3 on this sphere.
+		if abs(p.x) > 0.3 do testing.expect_value(t, s.mask[v], hard[v])
+	}
+	testing.expect(t, sculptor_mask_command(s, .Sharpen, steps = 20), "sharpen was not a step")
+	testing.expectf(t, partial(s.mask) < soft / 2, "sharpen left %d of %d vertices half masked", partial(s.mask), soft)
+	for p, v in sp.mesh.positions {
+		if p.x > 0.1 do testing.expectf(t, s.mask[v] >= 128, "sharpen unmasked x = %v", p.x)
+		if p.x < -0.1 do testing.expectf(t, s.mask[v] < 128, "sharpen masked x = %v", p.x)
+	}
+}
+
+// Working only near the mask's edge gives what every vertex worked out every step
+// gives, for each neighbourhood command, on a mask with soft and hard edges and a
+// partly masked patch.
+@(test)
+mask_steps_match_a_full_pass :: proc(t: ^testing.T) {
+	for command in ([?]Mask_Command{.Blur, .Sharpen, .Grow, .Shrink}) {
+		sp := sphere_make(4)
+		s := &sp.sculptor
+		_ = apply_dab(s, {kind = .Mask, radius = 0.7, strength = 0.9}, TOP)
+		_ = apply_dab(s, {kind = .Mask, radius = 0.3, strength = 0.4}, {1, 0, 0})
+		for p, v in sp.mesh.positions do if p.z < -0.5 do s.mask[v] = 255
+		want := slice.clone(s.mask, context.temp_allocator)
+		from := make([]u8, len(want), context.temp_allocator)
+		for _ in 0 ..< 5 {
+			copy(from, want)
+			for v in 0 ..< u32(len(want)) do want[v] = mask_filtered(s, from, command, v)
+		}
+		_ = sculptor_mask_command(s, command, steps = 5)
+		testing.expectf(t, slice.equal(s.mask, want), "%v differs from a full pass", command)
+		sphere_free(sp)
+	}
+}
+
+// Each vertex masked when a triangle it is a corner of has a masked corner in `mask`
+// (255 or 0 only): what one step of Grow gives, worked out from the triangles.
+@(private = "file")
+ring_grown :: proc(m: geom.Mesh, mask: []u8) -> []u8 {
+	out := slice.clone(mask, context.temp_allocator)
+	for f in 0 ..< len(m.indices) / 3 {
+		tri := m.indices[3 * f:][:3]
+		if mask[tri[0]] == 255 || mask[tri[1]] == 255 || mask[tri[2]] == 255 {
+			for v in tri do out[v] = 255
+		}
+	}
+	return out
+}
+
 // The heaviest brushes give the same mesh on worker threads as on one.
 @(test)
 new_brushes_parallel_match_serial :: proc(t: ^testing.T) {
@@ -430,6 +524,17 @@ new_brushes_parallel_match_serial :: proc(t: ^testing.T) {
 	}
 	serial, parallel := run(nil), run(&pool)
 	testing.expect(t, slice.equal(serial, parallel), "parallel brushes differ from serial")
+
+	// And the neighbourhood mask commands, which read across node borders.
+	masks :: proc(pool: ^jobs.Pool) -> []u8 {
+		sp := sphere_make(5, pool)
+		defer sphere_free(sp)
+		s := &sp.sculptor
+		_ = apply_dab(s, {kind = .Mask, radius = 0.6, strength = 0.8}, TOP)
+		for command in ([?]Mask_Command{.Grow, .Blur, .Sharpen, .Shrink}) do _ = sculptor_mask_command(s, command, steps = 2)
+		return slice.clone(s.mask, context.temp_allocator)
+	}
+	testing.expect(t, slice.equal(masks(nil), masks(&pool)), "parallel mask commands differ from serial")
 }
 
 @(private = "file")

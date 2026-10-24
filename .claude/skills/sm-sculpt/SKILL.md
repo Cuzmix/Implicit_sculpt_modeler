@@ -61,9 +61,14 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
   falloffs over the images, times `shield`) (`:34`); `sculptor_grab_move(s, offset)` sets `start + offset · follow`,
   absolute rather than incremental, then `finish_move` (`:98`); `sculptor_grab_end` (`:124`, called by `stroke_finish`).
 - Mask (`src/sculpt/mask.odin`): `Sculptor.mask []u8` per vertex, nil until first used, 255 = brushes leave the vertex
-  alone. `mask_dab` (`:21`) paints by `255 · strength · falloff · fade`, marks nodes stale `.Paint` (GPU data only, no
-  normal recompute) and records them as `painted`; `sculptor_mask_command(s, .Clear | .Invert | .Fill)` is one undo step
-  (`:67`); `levels_carry_mask` copies it to the level being shown (`:129`); an HD window starts unmasked and its mask is
+  alone. `mask_dab` (`:35`) paints by `255 · strength · falloff · fade`, marks nodes stale `.Paint` (GPU data only, no
+  normal recompute) and records them as `painted`; `sculptor_mask_command(s, command, steps)` is one undo step (`:82`):
+  Clear, Invert and Fill are one pass; Blur, Sharpen, Grow and Shrink (`mask_steps`, `:159`) give each vertex the
+  average, a push away from half masked against half that average (`SHARPEN_PUSH`), the highest or the lowest of its
+  triangles' corners a step (`mask_filtered`, `:288`). A vertex whose corners all share its value (0 or 255 for Sharpen)
+  is a fixed point, so a step works only on the nodes with uneven corners (`node_uneven`, `:253`) and their owners,
+  and rechecks only nodes with a moved corner (the owner and the nodes listing it): 10 ms a press at 10M instead of
+  85-107 ms a step; the whole mask is built in a copy first so only changed nodes are recorded; `levels_carry_mask` copies it to the level being shown (`:327`); an HD window starts unmasked and its mask is
   dropped when it closes. On the GPU the mask rides in the low 4 bits of each normal half (`geom.oct_encode_masked`, sm-render).
 - `sculptor_flush(s)` (`brush.odin:443-506`): once a frame before uploading. Sorts `dirty_nodes`, recomputes normals per node
   (Shape: all of them; Edge: only the border vertices), leaves a changed chunk's cone open during a stroke and works the
@@ -133,8 +138,8 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
   mode into a screen angle (`alpha_screen_angle`, `:173`: Follow stroke uses `Stroke.dir`, set in `stroke_walk` and zero
   at a stroke's start; Random steps `App.alpha_seed`) and that into a world direction in the view plane (`:194`). Symmetry planes go through the mesh's local
   origin; X toggles X. `History` orders strokes and mask commands across objects and levels, newest last, `HD_LEVEL =
-  -1`; undoing a stroke from another level switches to it first (`src/app/history.odin:5-20, 69-83`); `stroke_finish`
-  ends Grab and records the stroke (`:29`), `mask_command` records a mask command (`:39`). `Scene_Command` kinds and
+  -1`; undoing a stroke from another level switches to it first (`src/app/history.odin:7-22, 78-92`); `stroke_finish`
+  ends Grab and records the stroke (`:31`), `mask_command` records a mask command (`:43`). `Scene_Command` kinds and
   `scene_apply` (`src/app/scene.odin:84-91, 245`).
 
 ## Rules that bite
@@ -162,7 +167,7 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
 | You might expect | What happens |
 |---|---|
 | a sample off the surface ends the stroke | it is skipped; the stroke resumes where the path meets the surface again (`sculpt_tool.odin:265-268`) |
-| every Ctrl+Z undoes a stroke | entries whose step the byte limit dropped are skipped silently (`history.odin:71-75`) |
+| every Ctrl+Z undoes a stroke | entries whose step the byte limit dropped are skipped silently (`history.odin:80-84`) |
 | HD strokes stay in the history | closing the window forgets them (`object_hd_leave`, `scene.odin:408`); Delete higher/lower, Remesh and turning dynamic topology on or off clear the object's history (`:322, 328, 484`; `object_set_dyntopo` `:180`) |
 | Shift smooths only the Draw brush | Shift turns any kind into Smooth, Grab and Mask included (`brush_at`) |
 | the mask stops the Mask brush | it does not: the Mask brush is weighted by falloff and HD fade only, so it can erase |
@@ -179,7 +184,8 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
 ## Tests
 - Brushes: `brushes_test.odin` (`sphere_make(subdiv, pool)` with nodes of 64, `top_vertex`, `mirror_map`); one test per
   kind, `symmetric_dabs_mirror`, `grab_drags_by_the_offset`, `mask_shields_vertices`, `mask_undo_and_upload`,
-  `mask_follows_levels`, `new_brushes_parallel_match_serial`, and for alphas
+  `mask_follows_levels`, `mask_grow_and_shrink_move_the_edge_a_ring`, `mask_blur_softens_and_sharpen_narrows_the_edge`,
+  `mask_steps_match_a_full_pass` (guards the edge-only skipping), `new_brushes_parallel_match_serial`, and for alphas
   `alphas_fade_out_and_sample_between_pixels`, `alpha_stamps_its_shape_facing_up` and `alpha_mirrors_with_symmetry`.
 - Fixtures: `sculptor_init(&s, &m, nil, 64)` for small nodes; `levels_make(subdiv, steps, pool)` (`levels_test.odin`),
   `hd_make` (`hd_test.odin`), `lod_sphere(…, min_triangles = 0)` (`lod_test.odin`); `snapshot`/`expect_state`

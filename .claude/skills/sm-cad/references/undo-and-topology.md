@@ -17,7 +17,7 @@ by saving whole nodes (`record_full`, `dyn_step_swap` in `src/sculpt/dyntopo.odi
 fixed-size page. That works because a page's slots never move; an object-wide swap still needs the design below.
 
 ## The design
-- `History_Entry` (`src/app/history.odin:15-18`) gains a `kind: enum {Stroke, Mesh_Swap}`. A `Mesh_Swap` entry names the
+- `History_Entry` (`src/app/history.odin:17-20`) gains a `kind: enum {Stroke, Mesh_Swap}`. A `Mesh_Swap` entry names the
   object and a snapshot slot; the object keeps `swaps: [dynamic]Mesh_Snapshot` with `{positions: []Vec3, indices: []u32,
   transform: Transform, bytes: int}`. The current mesh is always the live `Levels`; a snapshot is the base level's mesh
   before the tool ran (the levels above are derived and are not kept; see below).

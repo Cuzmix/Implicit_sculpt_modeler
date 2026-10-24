@@ -1,5 +1,7 @@
 package main
 
+import "core:time"
+
 import "../sculpt"
 
 // Scene-wide undo order. Each level of each object keeps its own strokes; this records
@@ -35,11 +37,18 @@ stroke_finish :: proc(app: ^App) {
 	if sculpt.sculptor_stroke_end(object_sculptor(obj)) do history_record(app, obj)
 }
 
-// Applies a mask command to the selected object as an undo step of its own.
+// Applies a mask command to the selected object as an undo step of its own; Blur,
+// Sharpen, Grow and Shrink take the Mask section's step count. What it did and how long
+// it took show in the Mask section, since many steps on a large mesh take a moment.
 mask_command :: proc(app: ^App, command: sculpt.Mask_Command) {
 	stroke_finish(app)
 	obj := selected_object(app)
-	if obj != nil && sculpt.sculptor_mask_command(object_sculptor(obj), command) do history_record(app, obj)
+	if obj == nil do return
+	start := time.tick_now()
+	steps := int(max(app.ui.mask_steps, 1))
+	changed := sculpt.sculptor_mask_command(object_sculptor(obj), command, steps)
+	app.ui.mask_last = {command, steps, time.duration_milliseconds(time.tick_since(start)), changed, true}
+	if changed do history_record(app, obj)
 }
 
 // Lists the stroke (or mask command) the object's current sculptor just finished as
