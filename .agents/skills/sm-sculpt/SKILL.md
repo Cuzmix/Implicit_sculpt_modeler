@@ -1,6 +1,6 @@
 ---
 name: sm-sculpt
-description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's nodes (BVH leaves owning contiguous vertex ranges), the twelve brushes (Draw to Mask, Layer, Snake hook, Morph), masking, X/Y/Z symmetry, brush alphas, dynamic topology, apply_dab and sculptor_flush, dirty ranges for upload, deferred normals and normal cones, per-node stroke undo, subdivision levels (Loop, detail in local frames, sync up and down), HD detail windows, simplified copies between strokes, and the app side: stroke sampling, dab spacing, pressure and pen tilt, lazy mouse, the cross-object History and Scene_Command. Load for ANY task that changes how a brush moves vertices or what happens around a stroke, e.g. "add a brush kind", "the mask leaks", "symmetry is off", "undo is wrong", "the levels drift", "HD window border", "dabs skip at high speed", "move vertices from a tool", "make this undoable". Requires sm-geom and sm-build; GPU upload is sm-render; panels are sm-ui; ZBrush is the behaviour model.
+description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's nodes (BVH leaves owning contiguous vertex ranges), the thirteen brushes (Draw to Mask, Layer, Snake hook, Morph, Paint), masking, polypaint, polygroups, X/Y/Z symmetry, brush alphas, dynamic topology, apply_dab and sculptor_flush, dirty ranges for upload, deferred normals and normal cones, per-node stroke undo, subdivision levels (Loop, detail in local frames, sync up and down), HD detail windows, simplified copies between strokes, and the app side: stroke sampling, dab spacing, pressure and pen tilt, lazy mouse, the cross-object History and Scene_Command. Load for ANY task that changes how a brush moves vertices or what happens around a stroke, e.g. "add a brush kind", "the mask leaks", "symmetry is off", "undo is wrong", "the levels drift", "HD window border", "dabs skip at high speed", "move vertices from a tool", "make this undoable". Requires sm-geom and sm-build; GPU upload is sm-render; panels are sm-ui; ZBrush is the behaviour model.
 ---
 
 # Sculpting
@@ -20,7 +20,7 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
   leaning pen, zero for none; `alpha` is the bullet on alphas below, nil for none); `falloff` is `(1 − x²)²` over the squared distance in radii (`:511-515`). `Brush.falloff_shape: ^Falloff` (nil = built-in) swaps it for a drawn curve: `falloff_set_curve` fills a 257-entry table over x² from `geom.curve_at(curve, 1 - d)`, `falloff_drawn` lerps it; `dab_weight` and `grab_follow` read it (the alpha's height fade and the area sampling keep the built-in). App: `Brush_Settings.falloffs[kind]`, tables cached in `App.falloff_tables` by `brush_falloff`. Strengths with
   their reasons: `DRAW_HEIGHT 0.1` radii, `CLAY_HEIGHT 0.08`, `PLANE_RATE 0.5`, `PINCH_RATE 0.25`, `CREASE_PINCH 0.2`
   (`:78-83`).
-- The twelve kinds, in key order 1–9 then 0 (Snake hook and Morph have no key) (`Brush_Kind`; README "Brushes, masking and symmetry" has the user's view):
+- The thirteen kinds, in key order 1–9 then 0 (Snake hook, Morph and Paint have no key) (`Brush_Kind`; README "Brushes, masking and symmetry" has the user's view):
   | Kind | Moves | Inverted |
   |---|---|---|
   | Draw | out along the area-weighted average normal by `radius · strength · DRAW_HEIGHT` | in |
@@ -34,7 +34,8 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
   | Mask | paints the mask (`mask.odin`, below) | erases |
   | Layer | each vertex along its own normal toward `radius · strength · LAYER_HEIGHT`, `LAYER_RATE · w` of the way a dab; heights kept per stroke in `Sculptor.layer` (`Layer_Height{stroke, height}`, valid where `stroke == layer_stroke`, which `sculptor_stroke_begin` bumps; grown when dynamic topology adds vertices) | lowers |
   | Morph | toward `Sculptor.morph` (`morph.odin`: `sculptor_morph_store`/`_clear`/`has_morph`; refused under dynamic topology, dropped by `sculptor_dyn_enable`) by `strength · w · MORPH_RATE`; nothing without a target | — |
-  | Snake_Hook | by `Brush.drag · w` (mirrored per image); the app (`hook_follow`, `src/app/sculpt_tool.odin`) moves the hook point after the pointer on the camera-facing plane in steps of at most `DAB_SPACING` radii and dabs at it without raycasting | — |
+  | Paint | nothing: colours (`paint.odin`, bullet below) | takes coverage off |
+| Snake_Hook | by `Brush.drag · w` (mirrored per image); the app (`hook_follow`, `src/app/sculpt_tool.odin`) moves the hook point after the pointer on the camera-facing plane in steps of at most `DAB_SPACING` radii and dabs at it without raycasting | — |
 - Drag rectangle (`Stroke_Mode.Drag_Rect`, app `rect_follow`): each frame `sculptor_stroke_restore` (`undo.odin`) copies the
   current step's saved nodes back (keeping them, so the stroke stays one step; refused under dynamic topology), then one dab
   at the start point sized by the drag.
@@ -80,6 +81,18 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
   and rechecks only nodes with a moved corner (the owner and the nodes listing it): 10 ms a press at 10M instead of
   85-107 ms a step; the whole mask is built in a copy first so only changed nodes are recorded; `levels_carry_mask` copies it to the level being shown (`:327`); an HD window starts unmasked and its mask is
   dropped when it closes. On the GPU the mask rides in the low 4 bits of each normal half (`geom.oct_encode_masked`, sm-render).
+- Polypaint (`src/sculpt/paint.odin`): `Sculptor.color []Color` (`[4]u8`: sRGB and coverage), nil until painted; `paint_dab`
+  (from `dab_once` like `mask_dab`, no area pass without an alpha) mixes with `paint_mix` (paint laid over: coverage grows by `w`
+  of what is left, colour mixed by coverage, at least one step a dab), marks `.Paint`, saves `Saved_Node.colors` through
+  `record_color` (`History.color_saved` stamps, nodes listed in `painted`); `sculptor_paint_command(.Fill | .Clear)`. Polygroups
+  (`src/sculpt/groups.odin`): `Sculptor.groups{tris []u16, vertex, lead, edited}`; `sculptor_group_command(.Visible | .Masked |
+  .Creases | .Clear)` → `groups_commit` (one step, `Saved_Node.groups`, `Undo_Step.grouped`) → `groups_refresh` picks the group
+  each vertex carries and each triangle's lead corner (`drawn_triangle`), bumps `paint_stamp` and queues every node through the
+  hidden-index path (`sculptor_hidden_indices` turns triangles to start at their lead corner); `sculptor_hide_group` (hide.odin),
+  `sculptor_mask_group` (mask.odin), `sculptor_group_at`. Levels: `levels_carry_paint` carries colours (`levels_carry_color`) and
+  groups (`levels_carry_groups`, via `level_tri_parents`) only when `color_edited`/`groups.edited`, and always into a new level;
+  files: `LEVELS_PAINT` flag, groups in `tri_canon` order. None under dynamic topology (`sculptor_dyn_enable` drops them) or in HD
+  (the app refuses, `paint_allowed`). App: `src/app/paint.odin` (`paint_upload` → `render.mesh_buffers_upload_paint`).
 - `sculptor_flush(s)` (`brush.odin:443-506`): once a frame before uploading. Sorts `dirty_nodes`, recomputes normals per node
   (Shape: all of them; Edge: only the border vertices), leaves a changed chunk's cone open during a stroke and works the
   waiting cones off `CONE_BATCH` per flush afterwards, sets `changed_bounds` (before and after), and returns coalesced,

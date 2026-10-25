@@ -50,7 +50,7 @@ Options :: struct {
 	bench_stroke: int `usage:"Run a synthetic brush stroke over this many frames, print brush stats, then exit."`,
 	bench_samples: int `usage:"Give each --bench-stroke frame this many pointer samples along the path, like a high-rate mouse (default: one position a frame)."`,
 	bench_loops: int `usage:"Make --bench-stroke this many circles around the middle of the sphere instead of a wavy line."`,
-	brush:     string `usage:"Start with this brush: draw, smooth, clay, flatten, inflate, pinch, crease, grab or mask (also what --bench-stroke uses)."`,
+	brush:     string `usage:"Start with this brush: draw, smooth, clay, flatten, inflate, pinch, crease, grab, mask, layer, snake hook, morph or paint (also what --bench-stroke uses)."`,
 	stroke:    string `usage:"Start with this stroke: dots (the default) or drag_rect (one stamp sized and turned by the drag, as the Tools panel's Drag rectangle)."`,
 	front_only: bool `usage:"Start with Front faces only on: brushes and mask shapes leave what faces away from the viewer."`,
 	symmetry:  string `usage:"Start with brush symmetry across these axes, e.g. x or xz."`,
@@ -80,6 +80,10 @@ Options :: struct {
 	gpu_smooth: bool `usage:"Start with Tools > Deformation > On the GPU checked, so Smooth all runs as a compute shader (the GPU compute trial)."`,
 	smooth_all: int `usage:"Smooth the first object this many steps before starting, as Tools > Deformation > Smooth all does (after the other start-up changes; on the GPU with --gpu-smooth)."`,
 	compute_bench: string `usage:"Time Smooth all on the CPU and as a GPU compute shader, upload and readback included, at 500k, 1M, 5M, 7M and 10M vertices (only --vertices when given); check the GPU's result against the CPU's, write the markdown tables to this path and exit."`,
+	groups:    string `usage:"Group the first object before starting, as Tools > Polygroups does: creases (Groups by creases), visible or masked; with --show-groups to see them."`,
+	show_groups: bool `usage:"Start showing polygroups, as View > Polygroups (Shift+W) does."`,
+	paint_color: string `usage:"The Paint brush's colour, as red,green,blue from 0 to 1 (e.g. 0.2,0.4,0.9)."`,
+	fill_paint: bool `usage:"Fill the first object with the Paint brush's colour before starting, as Tools > Polypaint > Fill with colour does (after --groups)."`,
 	gpubench_frames: int `usage:"Measured frames per --gpubench case (default 120, at most 240)."`,
 	open:      string `usage:"Start with the scene saved in this .sculpt file instead of spheres, as File > Open scene does."`,
 	import_mesh: string `args:"name=import" usage:"Start with the mesh in this .obj or .ply file instead of spheres (after any --open), as File > Import mesh does."`,
@@ -122,6 +126,7 @@ App :: struct {
 	custom:    Material, // what View > Material's sliders made
 	flat:      bool, // shade with each triangle's own normal (faceted) instead of smoothed normals
 	wireframe: bool, // draw the selected object's edges over it
+	show_groups: bool, // draw every object's polygroups in their colours instead of its clay and paint
 	cache_idle: bool, // draw unselected objects from the viewport cache while they stay put
 	hd_window_vertices: int, // size of the HD windows the A key opens
 	// While the view moves, draw far groups of chunks from simplified copies that stray
@@ -374,7 +379,7 @@ run :: proc(opts: Options) -> bool {
 	app.vsync = !opts.no_vsync && opts.gpubench == ""
 	app.time_gpu = opts.time_gpu || opts.gpubench != ""
 	app.ui = ui_state_default()
-	app.brush = {kind = .Draw, radius_px = 60, pressure_strength = true, pressure_curve = geom.CURVE_LINEAR, detail_px = 10, collapse = true, alpha = -1}
+	app.brush = {kind = .Draw, radius_px = 60, pressure_strength = true, pressure_curve = geom.CURVE_LINEAR, detail_px = 10, collapse = true, alpha = -1, color = {0.75, 0.2, 0.15}}
 	for &s in app.brush.strengths do s = 0.5
 	// What earlier interactive runs left, before the flags, which win over it.
 	remember := opts.frames == 0 && opts.gpubench == "" && opts.bench_stroke == 0 && !opts.no_settings
@@ -384,6 +389,27 @@ run :: proc(opts: Options) -> bool {
 	settings_load(&app, settings)
 	app.ui.smooth_on_gpu = opts.gpu_smooth
 	if opts.smooth_all > 0 do smooth_command(&app, opts.smooth_all)
+	if opts.paint_color != "" {
+		parts := strings.split(opts.paint_color, ",", context.temp_allocator)
+		if len(parts) != 3 {
+			log.errorf("--paint-color takes red,green,blue, not %q", opts.paint_color)
+			return false
+		}
+		for p, k in parts do app.brush.color[k] = clamp(strconv.parse_f32(p) or_else 0, 0, 1)
+	}
+	if opts.show_groups do app.show_groups = true
+	if opts.groups != "" {
+		switch strings.to_lower(opts.groups, context.temp_allocator) {
+		case "creases": group_command(&app, .Creases)
+		case "visible": group_command(&app, .Visible)
+		case "masked":  group_command(&app, .Masked)
+		case:
+			log.errorf("unknown --groups %q", opts.groups)
+			return false
+		}
+		app.show_groups = opts.show_groups
+	}
+	if opts.fill_paint do paint_command(&app, .Fill)
 	defer if remember do _ = settings_save(&app, settings)
 	if opts.ortho do app.camera.ortho = true
 	if opts.wireframe do app.wireframe = true
@@ -631,6 +657,8 @@ run :: proc(opts: Options) -> bool {
 					surface = {material.metallic, material.roughness},
 					flat = app.flat,
 					wireframe = selected && app.wireframe,
+					paint  = sculpt.sculptor_has_color(&lv.sculptor),
+					groups = app.show_groups && sculpt.sculptor_has_groups(&lv.sculptor),
 					live   = selected,
 					chunks = lv.sculptor.chunks,
 					damage = lv.sculptor.changed_bounds,

@@ -835,9 +835,10 @@ mesh_normalize :: proc(m: ^Mesh, pool: ^jobs.Pool) -> (center: Vec3, radius: f32
 // triangle, each position written as `scale * p + offset`. Coordinates have nine
 // significant digits, which read back as the same f32 bits, with trailing zeros left
 // out. Formatted in parallel, in ranges joined in order.
-mesh_write_obj :: proc(out: ^[dynamic]u8, positions: []Vec3, indices: []u32, scale: f32 = 1, offset := Vec3{}, pool: ^jobs.Pool = nil) {
+mesh_write_obj :: proc(out: ^[dynamic]u8, positions: []Vec3, indices: []u32, scale: f32 = 1, offset := Vec3{}, pool: ^jobs.Pool = nil, colors: [][3]u8 = nil) {
 	Parts :: struct {
 		positions: []Vec3,
+		colors:    [][3]u8,
 		indices:   []u32,
 		scale:     f32,
 		offset:    Vec3,
@@ -845,7 +846,7 @@ mesh_write_obj :: proc(out: ^[dynamic]u8, positions: []Vec3, indices: []u32, sca
 		vranges:   int,
 	}
 	triangles := len(indices) / 3
-	p := Parts{positions = positions, indices = indices, scale = scale, offset = offset}
+	p := Parts{positions = positions, colors = colors, indices = indices, scale = scale, offset = offset}
 	p.vranges = (len(positions) + RANGE_GRAIN - 1) / RANGE_GRAIN
 	p.parts = make([][dynamic]u8, p.vranges + (triangles + RANGE_GRAIN - 1) / RANGE_GRAIN, context.temp_allocator)
 	jobs.parallel_ranges(pool, len(positions), &p, proc(data: rawptr, lo, hi: int) {
@@ -859,6 +860,13 @@ mesh_write_obj :: proc(out: ^[dynamic]u8, positions: []Vec3, indices: []u32, sca
 			for x in q {
 				append(&buf, ' ')
 				append(&buf, ..tmp[:format_f32(tmp[:], x)])
+			}
+			// Vertex colours as most programs read them from OBJ: three more numbers, 0 to 1.
+			if p.colors != nil {
+				for c in p.colors[v] {
+					append(&buf, ' ')
+					append(&buf, ..tmp[:format_f32(tmp[:], f32(c) / 255)])
+				}
 			}
 			append(&buf, '\n')
 		}
@@ -900,34 +908,41 @@ mesh_write_obj :: proc(out: ^[dynamic]u8, positions: []Vec3, indices: []u32, sca
 }
 
 // Appends the mesh as binary little-endian PLY: float x, y and z per vertex, each
-// written as `scale * p + offset`, and a uchar count with three int indices per face.
-mesh_write_ply :: proc(out: ^[dynamic]u8, positions: []Vec3, indices: []u32, scale: f32 = 1, offset := Vec3{}, pool: ^jobs.Pool = nil) {
+// written as `scale * p + offset`, with uchar red, green and blue after them when
+// `colors` are given, and a uchar count with three int indices per face.
+mesh_write_ply :: proc(out: ^[dynamic]u8, positions: []Vec3, indices: []u32, scale: f32 = 1, offset := Vec3{}, pool: ^jobs.Pool = nil, colors: [][3]u8 = nil) {
 	assert(len(positions) < int(max(i32)), "PLY faces store int indices")
 	triangles := len(indices) / 3
+	stride := 12 if colors == nil else 15
 	head := strings.concatenate({
 		"ply\nformat binary_little_endian 1.0\ncomment Sculpt\nelement vertex ", int_text(len(positions)),
-		"\nproperty float x\nproperty float y\nproperty float z\nelement face ", int_text(triangles),
+		"\nproperty float x\nproperty float y\nproperty float z\n",
+		"" if colors == nil else "property uchar red\nproperty uchar green\nproperty uchar blue\n",
+		"element face ", int_text(triangles),
 		"\nproperty list uchar int vertex_indices\nend_header\n",
 	}, context.temp_allocator)
 	start := len(out)
 	append(out, head)
 	Fill :: struct {
 		positions: []Vec3,
+		colors:    [][3]u8,
 		indices:   []u32,
 		scale:     f32,
 		offset:    Vec3,
+		stride:    int,
 		vertices:  []u8,
 		faces:     []u8,
 	}
-	resize(out, start + len(head) + 12 * len(positions) + 13 * triangles)
+	resize(out, start + len(head) + stride * len(positions) + 13 * triangles)
 	body := out[start + len(head):]
-	f := Fill{positions, indices, scale, offset, body[:12 * len(positions)], body[12 * len(positions):]}
+	f := Fill{positions, colors, indices, scale, offset, stride, body[:stride * len(positions)], body[stride * len(positions):]}
 	jobs.parallel_ranges(pool, len(positions), &f, proc(data: rawptr, lo, hi: int) {
 		f := cast(^Fill)data
 		for v in lo ..< hi {
 			q := f.positions[v]
 			if f.scale != 1 || f.offset != {} do q = q * f.scale + f.offset // only then, which keeps -0
-			mem.copy(&f.vertices[12 * v], &q, 12)
+			mem.copy(&f.vertices[f.stride * v], &q, 12)
+			if f.colors != nil do mem.copy(&f.vertices[f.stride * v + 12], &f.colors[v], 3)
 		}
 	}, RANGE_GRAIN)
 	jobs.parallel_ranges(pool, triangles, &f, proc(data: rawptr, lo, hi: int) {

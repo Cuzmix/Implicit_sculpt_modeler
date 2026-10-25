@@ -337,7 +337,6 @@ clip_command :: proc(app: ^App, a, b: [2]f32, flip: bool, size: [2]f32) {
 
 // Lists the stroke (or mask command) the object's current sculptor just finished as
 // the newest undo step.
-@(private = "file")
 history_record :: proc(app: ^App, obj: ^Object) {
 	history_drop_redo(app)
 	append(&app.history.done, History_Entry{id = obj.id, level = HD_LEVEL if object_in_hd(obj) else obj.levels.current})

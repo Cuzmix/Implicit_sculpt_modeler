@@ -27,6 +27,9 @@ Renderer :: struct {
 	// show over the surface they outline; nil where the device cannot draw lines.
 	wire_pipeline:  ^sdl.GPUGraphicsPipeline,
 	clear_pipeline: ^sdl.GPUGraphicsPipeline, // clears a scissored rectangle to the background
+	// Bound in place of a mesh's paint buffer when it has none: the mesh shader reads
+	// the binding only for items that show paint or groups, but it must be bound.
+	no_paint:       ^sdl.GPUBuffer,
 	last_version:   u64,  // source of Mesh_Buffers.version
 	cull:           bool, // skip off-screen and back-facing chunks of items that have them
 	partial:        bool, // while the camera and objects stay put, redraw only what changed
@@ -93,6 +96,14 @@ Mesh_Buffers :: struct {
 	draw_count:        u32, // commands recorded this frame
 	visible:           [dynamic]geom.Index_Range, // scratch
 
+	// Per vertex, a Paint_Packed: its polypaint and the polygroup it carries, read by the
+	// mesh shader as a storage buffer (8 bytes a vertex). Nil until a mesh has paint or
+	// groups (mesh_buffers_upload_paint).
+	paint:       ^sdl.GPUBuffer,
+	// The caller's stamp for what `paint` holds (the sculptor's paint stamp); 0 when it
+	// holds nothing.
+	paint_stamp: u32,
+
 	// Simplified copies of groups of chunks (see Draw_Item.lod), drawn with indirect
 	// commands that follow the draw_count full-detail ones. Created on first upload.
 	lod_indices:    ^sdl.GPUBuffer,
@@ -102,6 +113,8 @@ Mesh_Buffers :: struct {
 }
 
 Normal_Packed :: [2]i16
+// Matches `paint` in mesh.vert: the colour's bytes red first, then the group.
+Paint_Packed :: [2]u32
 VERTEX_BYTES :: size_of(geom.Vec3) + size_of(Normal_Packed)
 
 // Normals go up with the vertex's mask folded in: see geom.oct_encode_masked.
@@ -116,6 +129,7 @@ Frame_Uniforms :: struct {
 	view_proj: Mat4,
 	view:      Mat4,
 	model:     Mat4,
+	options:   [4]f32, // x: show the paint, y: show the polygroups
 }
 
 // One mesh to draw this frame: where it sits in the world and its clay colour.
@@ -136,6 +150,8 @@ Draw_Item :: struct {
 	surface:   [2]f32,
 	flat:      bool, // shade each triangle with its own normal instead of the smoothed ones
 	wireframe: bool, // draw its triangles' edges over it
+	paint:     bool, // draw its polypaint over the clay (needs Mesh_Buffers.paint)
+	groups:    bool, // draw each triangle in its polygroup's colour instead (likewise)
 	live:   bool,
 	chunks: []geom.Chunk,
 	// Mesh-space box around everything that changed since the previous frame, before
@@ -200,7 +216,9 @@ renderer_init :: proc(r: ^Renderer, window: ^sdl.Window, debug: bool) -> bool {
 	r.wire_pipeline = create_mesh_pipeline(r, wire = true)
 	if r.wire_pipeline == nil do log.warn("wireframe: this device cannot draw lines; the wireframe stays off")
 	r.clear_pipeline = create_clear_pipeline(r)
-	return r.mesh_pipeline != nil && r.clear_pipeline != nil
+	r.no_paint = sdl.CreateGPUBuffer(r.device, {usage = {.GRAPHICS_STORAGE_READ}, size = size_of(Paint_Packed)})
+	if r.no_paint == nil do log.errorf("paint buffer creation failed: %s", sdl.GetError())
+	return r.mesh_pipeline != nil && r.clear_pipeline != nil && r.no_paint != nil
 }
 
 // The GPU's name, backend and driver version, for logs and benchmark reports.
@@ -249,6 +267,7 @@ renderer_destroy :: proc(r: ^Renderer) {
 	if r.mesh_pipeline != nil do sdl.ReleaseGPUGraphicsPipeline(r.device, r.mesh_pipeline)
 	if r.wire_pipeline != nil do sdl.ReleaseGPUGraphicsPipeline(r.device, r.wire_pipeline)
 	if r.clear_pipeline != nil do sdl.ReleaseGPUGraphicsPipeline(r.device, r.clear_pipeline)
+	if r.no_paint != nil do sdl.ReleaseGPUBuffer(r.device, r.no_paint)
 	sdl.ReleaseWindowFromGPUDevice(r.device, r.window)
 	sdl.DestroyGPUDevice(r.device)
 	r^ = {}
@@ -263,6 +282,7 @@ create_mesh_pipeline :: proc(r: ^Renderer, wire: bool) -> ^sdl.GPUGraphicsPipeli
 		format              = {.SPIRV},
 		stage               = .VERTEX,
 		num_uniform_buffers = 1,
+		num_storage_buffers = 1,
 	})
 	frag := sdl.CreateGPUShader(r.device, {
 		code_size           = len(MESH_FRAG_SPV),
@@ -499,6 +519,7 @@ mesh_buffers_destroy :: proc(r: ^Renderer, mb: ^Mesh_Buffers) {
 	if mb.indirect != nil do sdl.ReleaseGPUBuffer(r.device, mb.indirect)
 	if mb.indirect_transfer != nil do sdl.ReleaseGPUTransferBuffer(r.device, mb.indirect_transfer)
 	if mb.lod_indices != nil do sdl.ReleaseGPUBuffer(r.device, mb.lod_indices)
+	if mb.paint != nil do sdl.ReleaseGPUBuffer(r.device, mb.paint)
 	delete(mb.visible)
 	delete(mb.lod_visible)
 	mb^ = {}
@@ -561,6 +582,76 @@ mesh_buffers_upload_ranges :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb:
 			src_n := used * size_of(geom.Vec3) + p.dst * size_of(Normal_Packed)
 			sdl.UploadToGPUBuffer(pass, {transfer_buffer = mb.transfer, offset = src_p}, {buffer = mb.positions, offset = p.r.first * size_of(geom.Vec3), size = p.r.count * size_of(geom.Vec3)}, false)
 			sdl.UploadToGPUBuffer(pass, {transfer_buffer = mb.transfer, offset = src_n}, {buffer = mb.normals, offset = p.r.first * size_of(Normal_Packed), size = p.r.count * size_of(Normal_Packed)}, false)
+		}
+		sdl.EndGPUCopyPass(pass)
+	}
+}
+
+// Records copies of the paint data (colours, nil for none, and the groups vertices
+// carry, nil for none) of every vertex in `ranges` into the mesh's paint buffer, or of
+// every vertex when `all` or when the buffer has to be made first. Packs ranges into the
+// transfer buffer like mesh_buffers_upload_ranges. On failure the buffer is dropped, so
+// the mesh is drawn without paint until a later upload succeeds.
+mesh_buffers_upload_paint :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: ^Mesh_Buffers, colors: [][4]u8, groups: []u16, ranges: []geom.Vertex_Range, all: bool) {
+	ranges, all := ranges, all
+	if mb.paint == nil {
+		mb.paint = sdl.CreateGPUBuffer(r.device, {usage = {.GRAPHICS_STORAGE_READ}, size = max(mb.vertex_capacity, 1) * size_of(Paint_Packed)})
+		if mb.paint == nil {
+			log.errorf("paint buffer creation failed: %s", sdl.GetError())
+			return
+		}
+		all = true
+	}
+	whole := [1]geom.Vertex_Range{{0, mb.vertex_capacity}}
+	if all do ranges = whole[:]
+	r.last_version += 1
+	mb.version = r.last_version
+	capacity := mb.transfer_size / size_of(Paint_Packed) // vertices per batch
+	pending := ranges
+	split: geom.Vertex_Range
+	for len(pending) > 0 || split.count > 0 {
+		Planned :: struct {
+			r:   geom.Vertex_Range,
+			dst: u32,
+		}
+		batch: [dynamic; 256]Planned
+		used: u32
+		for used < capacity && len(batch) < cap(batch) {
+			next: geom.Vertex_Range
+			if split.count > 0 {
+				next, split = split, {}
+			} else if len(pending) > 0 {
+				next, pending = pending[0], pending[1:]
+			} else {
+				break
+			}
+			if next.count > capacity - used {
+				split = {next.first + (capacity - used), next.count - (capacity - used)}
+				next.count = capacity - used
+			}
+			append(&batch, Planned{next, used})
+			used += next.count
+		}
+		dst := cast([^]Paint_Packed)sdl.MapGPUTransferBuffer(r.device, mb.transfer, true)
+		if dst == nil {
+			log.errorf("paint upload failed: %s", sdl.GetError())
+			sdl.ReleaseGPUBuffer(r.device, mb.paint)
+			mb.paint = nil
+			return
+		}
+		for p in batch {
+			for k in 0 ..< p.r.count {
+				v := p.r.first + k
+				x: Paint_Packed
+				if colors != nil && int(v) < len(colors) do x[0] = transmute(u32)colors[v]
+				if groups != nil && int(v) < len(groups) do x[1] = u32(groups[v])
+				dst[p.dst + k] = x
+			}
+		}
+		sdl.UnmapGPUTransferBuffer(r.device, mb.transfer)
+		pass := sdl.BeginGPUCopyPass(cmd)
+		for p in batch {
+			sdl.UploadToGPUBuffer(pass, {transfer_buffer = mb.transfer, offset = p.dst * size_of(Paint_Packed)}, {buffer = mb.paint, offset = p.r.first * size_of(Paint_Packed), size = p.r.count * size_of(Paint_Packed)}, false)
 		}
 		sdl.EndGPUCopyPass(pass)
 	}
@@ -782,9 +873,11 @@ frame_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lod
 		material: [4]f32,
 		surface:  [2]f32,
 		wire:     b32,
-		flat:     b32, // no padding: every byte is hashed
+		flat:     b32,
+		paint:    b32,
+		groups:   b32, // no padding: every byte is hashed
 	}
-	#assert(size_of(Keyed) == 120)
+	#assert(size_of(Keyed) == 128)
 	Header :: struct { // no padding: every byte is hashed
 		view, proj:    Mat4,
 		width, height: u32,
@@ -794,7 +887,7 @@ frame_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lod
 	header := Header{view, proj, vt.width, vt.height, u32(len(items)), lod_px}
 	h := hash.fnv64a(slice.bytes_from_ptr(&header, size_of(header)))
 	for item in items {
-		k := Keyed{item.mesh, item.model, item.color, item.material, item.surface, b32(item.wireframe), b32(item.flat)}
+		k := Keyed{item.mesh, item.model, item.color, item.material, item.surface, b32(item.wireframe), b32(item.flat), b32(item.paint), b32(item.groups)}
 		h = hash.fnv64a(slice.bytes_from_ptr(&k, size_of(k)), h)
 	}
 	return max(h, 1)
@@ -946,9 +1039,11 @@ static_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lo
 		material: [4]f32,
 		surface:  [2]f32,
 		wire:     b32,
-		flat:     b32, // no padding: every byte is hashed
+		flat:     b32,
+		paint:    b32,
+		groups:   b32, // no padding: every byte is hashed
 	}
-	#assert(size_of(Keyed) == 128)
+	#assert(size_of(Keyed) == 136)
 	Header :: struct {
 		view, proj:    Mat4,
 		width, height: u32,
@@ -958,7 +1053,7 @@ static_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lo
 	h := hash.fnv64a(slice.bytes_from_ptr(&header, size_of(header)))
 	for item in items {
 		if item.live do continue
-		k := Keyed{item.mesh, item.mesh.version, item.model, item.color, item.material, item.surface, b32(item.wireframe), b32(item.flat)}
+		k := Keyed{item.mesh, item.mesh.version, item.model, item.color, item.material, item.surface, b32(item.wireframe), b32(item.flat), b32(item.paint), b32(item.groups)}
 		h = hash.fnv64a(slice.bytes_from_ptr(&k, size_of(k)), h)
 	}
 	return max(h, 1) // 0 means empty
@@ -993,13 +1088,16 @@ begin_mesh_pass :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, color_tex, dep
 draw_items :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURenderPass, view, proj: Mat4, items: []Draw_Item, live: Maybe(bool), stats: ^Viewport_Stats) {
 	for item in items {
 		if want, filtered := live.?; filtered && item.live != want do continue
-		frame := Frame_Uniforms{view_proj = proj * view, view = view, model = item.model}
+		mb := item.mesh
+		show_paint, show_groups := item.paint && mb.paint != nil, item.groups && mb.paint != nil
+		frame := Frame_Uniforms{view_proj = proj * view, view = view, model = item.model, options = {f32(int(show_paint)), f32(int(show_groups)), 0, 0}}
 		params := item.material if item.material != {} else DEFAULT_MATERIAL
 		surface := [4]f32{item.surface.x, item.surface.y, 1 if item.flat else 0, 0}
 		material := Material_Uniforms{base_color = item.color, params = params, surface = surface}
 		sdl.PushGPUVertexUniformData(cmd, 0, &frame, size_of(frame))
 		sdl.PushGPUFragmentUniformData(cmd, 0, &material, size_of(material))
-		mb := item.mesh
+		paint := [1]^sdl.GPUBuffer{mb.paint if mb.paint != nil else r.no_paint}
+		sdl.BindGPUVertexStorageBuffers(pass, 0, &paint[0], 1)
 		vbufs := [2]sdl.GPUBufferBinding{{buffer = mb.positions}, {buffer = mb.normals}}
 		sdl.BindGPUVertexBuffers(pass, 0, &vbufs[0], len(vbufs))
 		draw_item_triangles(r, pass, item, stats)
