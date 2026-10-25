@@ -34,6 +34,8 @@ Ui_State :: struct {
 	adjust:             Brush_Adjust,
 	curve_handle:       int, // the pressure curve's control point being dragged (1 or 2), or 0
 	mask_steps:         i32, // steps each Blur, Sharpen, Grow or Shrink press takes
+	mirror_axis:        i32, // Mirror and weld: 0 x, 1 y, 2 z
+	mirror_negative:    bool, // Mirror and weld keeps the - side instead of the + side
 	mask_last:          Mask_Done,
 }
 
@@ -561,11 +563,24 @@ draw_scene_panel :: proc(app: ^App) {
 	if imgui.Button("Remesh selected") do app.ui.scene_command = {kind = .Remesh, vertices = requested}
 	imgui.SameLine()
 	if imgui.Button("Delete selected (Del)") do app.ui.scene_command = {kind = .Delete}
+	if imgui.Button("Duplicate selected (Ctrl+Shift+D)") do app.ui.scene_command = {kind = .Duplicate}
 	imgui.EndDisabled()
 	imgui.TextDisabled("Remesh rebuilds the selected object as an even mesh of\nabout this many vertices that keeps its shape, like\nDynaMesh. Ctrl+R does it at the object's own vertex\ncount. Levels, HD detail and mask go; Ctrl+Z brings\nthem back (HD detail apart).")
 	if s := app.stats; s.remesh_ms > 0 {
 		imgui.TextDisabled("Last remesh: %.0f ms, then %.0f ms to sculpt-ready", s.remesh_ms, s.remesh_setup_ms)
 	}
+
+	imgui.SeparatorText("Mirror and weld")
+	imgui.BeginDisabled(selected_object(app) == nil)
+	for name, i in ([3]cstring{"X", "Y", "Z"}) {
+		if i > 0 do imgui.SameLine()
+		if imgui.RadioButton(name, app.ui.mirror_axis == i32(i)) do app.ui.mirror_axis = i32(i)
+	}
+	imgui.SameLine()
+	imgui.Checkbox("keep the - side", &app.ui.mirror_negative)
+	if imgui.Button("Mirror and weld") do app.ui.scene_command = {kind = .Symmetrize, axis = int(app.ui.mirror_axis), on = !app.ui.mirror_negative}
+	imgui.EndDisabled()
+	imgui.TextDisabled("Replaces one half of the selected object with a mirror\nimage of the other, across its own plane (the one\nsymmetry uses), welded along the cut. Levels and\nmask go; Ctrl+Z brings them back.")
 	// Opening a scene counts building it as reading; importing parses apart.
 	if s := app.stats; s.file_read_ms > 0 || s.file_write_ms > 0 {
 		parts := make([dynamic]string, context.temp_allocator)
@@ -715,6 +730,8 @@ handle_shortcuts :: proc(app: ^App) {
 	}
 	if obj := selected_object(app); obj != nil && imgui.IsKeyPressed(.D, false) {
 		switch {
+		case io.KeyCtrl && io.KeyShift:
+			app.ui.scene_command = {kind = .Duplicate}
 		case io.KeyCtrl:
 			app.ui.scene_command = {kind = .Subdivide}
 		case io.KeyShift:

@@ -49,6 +49,7 @@ Options :: struct {
 	bench_loops: int `usage:"Make --bench-stroke this many circles around the middle of the sphere instead of a wavy line."`,
 	brush:     string `usage:"Start with this brush: draw, smooth, clay, flatten, inflate, pinch, crease, grab or mask (also what --bench-stroke uses)."`,
 	symmetry:  string `usage:"Start with brush symmetry across these axes, e.g. x or xz."`,
+	mirror:    string `usage:"Mirror and weld the first object before starting, as the Scene panel does: x, y or z keeps that axis's + side, -x, -y or -z the - side (after --remesh)."`,
 	remesh:    int `usage:"Voxel remesh the first sphere to about this many vertices before starting, as Remesh selected does (after --subdivide and --level)."`,
 	dyntopo:   bool `usage:"Turn dynamic topology on for the first sphere before starting (after --remesh), as Ctrl+T does."`,
 	detail:    f32 `usage:"Dynamic topology detail: edges longer than this many pixels on screen split (default 10)."`,
@@ -208,6 +209,17 @@ run :: proc(opts: Options) -> bool {
 	if starting > 0 do app.scene.selected = 0
 	if opts.remesh > 0 {
 		if _, ok := object_remesh(&app, app.scene.objects[0], opts.remesh); !ok do return false
+	}
+	if opts.mirror != "" {
+		axes := [?]string{"x", "y", "z"}
+		name := strings.trim_prefix(opts.mirror, "-")
+		axis := -1
+		for a, i in axes do if strings.equal_fold(name, a) do axis = i
+		if axis < 0 {
+			log.errorf("unknown --mirror axis %q", opts.mirror)
+			return false
+		}
+		if _, ok := object_symmetrize(&app, app.scene.objects[0], axis, !strings.has_prefix(opts.mirror, "-")); !ok do return false
 	}
 	if opts.dyntopo {
 		obj := app.scene.objects[0]

@@ -82,9 +82,10 @@ Scene :: struct {
 // applied at the start of the next frame so no panel ever draws an object (or GPU
 // buffer) freed during the same frame.
 Scene_Command :: struct {
-	kind:     enum u8 {None, Add, Remesh, Delete, Subdivide, Set_Level, Delete_Higher, Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete, Dyntopo},
+	kind:     enum u8 {None, Add, Remesh, Delete, Duplicate, Symmetrize, Subdivide, Set_Level, Delete_Higher, Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete, Dyntopo},
 	vertices: int,
-	on:       bool, // Dyntopo: turn dynamic topology on, or off
+	on:       bool, // Dyntopo: turn dynamic topology on, or off; Symmetrize: keep the + side
+	axis:     int, // Symmetrize: 0 x, 1 y, 2 z
 	level:    int, // Set_Level; HD steps for Hd_Steps
 	at:       [2]f32, // Hd_Enter: the viewport point to open the window around
 	size:     [2]f32, // ...in a viewport of this size
@@ -174,6 +175,59 @@ object_remesh :: proc(app: ^App, obj: ^Object, vertices: int) -> (changed, ok: b
 	app.stats.remesh_setup_ms = time.duration_milliseconds(time.tick_since(remeshed))
 	log.infof("remesh: %d vertices in %.0f ms, ready in %.0f ms more", geom.mesh_vertex_count(object_mesh(obj)^), app.stats.remesh_ms, app.stats.remesh_setup_ms)
 	return true, true
+}
+
+// Mirrors one half of the level the object is on onto the other across its own `axis`
+// plane, welded along the cut (geom.mesh_symmetrize), keeping the `keep_positive` half.
+// Like a remesh it rebuilds the object, so its levels, HD detail, mask and strokes go
+// (the caller records the swap that takes it back). `changed` says whether it did; ok
+// is false only when the old mesh is gone and the new one could not be uploaded.
+object_symmetrize :: proc(app: ^App, obj: ^Object, axis: int, keep_positive: bool) -> (changed, ok: bool) {
+	stroke_finish(app)
+	object_hd_leave(app, obj)
+	start := time.tick_now()
+	source := object_mesh(obj)^
+	packed: geom.Mesh
+	if object_dynamic(obj) {
+		mask: []u8
+		packed, mask = sculpt.sculptor_compact_mesh(object_sculptor(obj))
+		delete(mask)
+		source = packed
+	}
+	mesh, built := geom.mesh_symmetrize(source, axis, keep_positive, &app.pool)
+	geom.mesh_destroy(&packed)
+	free_all(context.temp_allocator)
+	if !built {
+		log.warn("mirror and weld: nothing of the object is on the side to keep")
+		return false, true
+	}
+	cut := time.tick_now()
+	_ = sdl.WaitForGPUIdle(app.renderer.device)
+	object_release_mesh(app, obj)
+	if !object_build_from(app, obj, mesh, cut, normals = true) do return true, false
+	log.infof("mirror and weld: %d vertices in %.0f ms", object_vertex_count(obj), time.duration_milliseconds(time.tick_diff(start, cut)))
+	return true, true
+}
+
+// Adds a copy of the object beside it, with every level and the mask, and selects it.
+// Returns false only on a GPU failure.
+scene_duplicate :: proc(app: ^App, obj: ^Object) -> bool {
+	stroke_finish(app)
+	bytes := make([dynamic]u8)
+	defer delete(bytes)
+	object_put(app, &bytes, obj)
+	r := geom.byte_reader(bytes[:])
+	twin, read, made := object_get(app, &r)
+	if !read do return true
+	if !made {
+		_ = sdl.WaitForGPUIdle(app.renderer.device)
+		object_discard(app, twin)
+		return false
+	}
+	twin.transform.position = next_free_position(app)
+	scene_append(app, twin)
+	log.infof("duplicate: object %d is a copy of %d", twin.id, obj.id)
+	return true
 }
 
 // Turns dynamic topology on or off for the object (see sculpt.levels_dyn_enable). It
@@ -268,6 +322,23 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 		}
 	case .Delete:
 		scene_delete_selected(app)
+	case .Duplicate:
+		if obj := selected_object(app); obj != nil {
+			if !scene_duplicate(app, obj) do return false
+			history_record_added(app)
+		}
+	case .Symmetrize:
+		if obj := selected_object(app); obj != nil {
+			before := history_snapshot(app, obj, "mirror and weld")
+			changed, ok := object_symmetrize(app, obj, cmd.axis, cmd.on)
+			if !ok {
+				history_snapshot_drop(before)
+				scene_delete_selected(app, undoable = false)
+				return false
+			}
+			if changed do history_record_swap(app, obj.id, before)
+			else do history_snapshot_drop(before)
+		}
 	case .Dyntopo:
 		if obj := selected_object(app); obj != nil {
 			object_hd_leave(app, obj)
