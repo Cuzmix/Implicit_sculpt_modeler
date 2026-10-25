@@ -61,6 +61,7 @@ Kit_State :: struct {
 	object_menu:    bool,
 	object_menu_id: int,
 	object_menu_at: ui.Rect,
+	object_menu_side: ui.Side, // at the pointer from the Scene tab, above the status chip
 	// Which inspector sections are open.
 	open:       [Kit_Section]bool,
 	scroll:     f32, // the inspector's scroll, where it is heading
@@ -562,8 +563,12 @@ kit_layout :: proc(app: ^App) {
 	ui.begin(ctx, "history", bar)
 	undo := fmt.tprintf("Undo %s##undo", history_next_label(app.history.done[:]))
 	redo := fmt.tprintf("Redo %s##redo", history_next_label(app.history.undone[:]))
+	// A long press on either opens the History panel, to go back or forward many steps.
+	// Disabled (nothing to undo or redo) they take no press; the History button is beside.
 	if ui.icon_button(ctx, undo, ui.ICON_UNDO, enabled = command_enabled(app, .Undo), keys = command_keys(.Undo)) do command_run(app, .Undo)
+	if ui.secondary(ctx) do k.history = true
 	if ui.icon_button(ctx, redo, ui.ICON_REDO, enabled = command_enabled(app, .Redo), keys = command_keys(.Redo)) do command_run(app, .Redo)
+	if ui.secondary(ctx) do k.history = true
 	if ui.icon_button(ctx, "History", ui.ICON_HISTORY, selected = k.history) do k.history = !k.history
 	ui.end(ctx)
 	ui.end(ctx)
@@ -598,9 +603,10 @@ kit_layout :: proc(app: ^App) {
 	// is on the left.
 	track := slider_track(app)
 	ui.begin_anchored(ctx, "sliders", .Start, .Center, {E, 0}, {direction = .Row, gap = 0})
-	_ = ui.vslider(ctx, "Brush size", &app.brush.radius_px, MIN_RADIUS_PX, MAX_RADIUS_PX, .Logarithmic, fmt.tprintf("%.0f", app.brush.radius_px), ui.ICON_SIZE, "S, [ ]", track)
+	// A long press (or a right-click) on either puts it back to where a new brush starts.
+	_ = ui.vslider(ctx, "Brush size", &app.brush.radius_px, MIN_RADIUS_PX, MAX_RADIUS_PX, .Logarithmic, fmt.tprintf("%.0f", app.brush.radius_px), ui.ICON_SIZE, "S, [ ]", track, DEFAULT_RADIUS_PX)
 	strength := brush_strength(app)
-	_ = ui.vslider(ctx, "Brush strength", strength, MIN_STRENGTH, 1, .Linear, fmt.tprintf("%.2f", strength^), ui.ICON_STRENGTH, "U, Shift+[ ]", track)
+	_ = ui.vslider(ctx, "Brush strength", strength, MIN_STRENGTH, 1, .Linear, fmt.tprintf("%.2f", strength^), ui.ICON_STRENGTH, "U, Shift+[ ]", track, BRUSHES[app.brush.kind].strength)
 	ui.end(ctx)
 
 	kit_modifier_rail(app)
@@ -610,6 +616,7 @@ kit_layout :: proc(app: ^App) {
 	ui.begin_anchored(ctx, "dock", .Center, .End, {0, E}, {direction = .Row, gap = 0, padding = 4, radius = t.radius_large + 4, background = .Panel, center = true})
 	for kind in KIT_DOCK {
 		if ui.brush_tile(ctx, BRUSHES[kind].name, BRUSHES[kind].icon, app.brush.kind == kind && app.tool == .Brush, command_keys(.Brush, int(kind))) do command_run(app, .Brush, int(kind))
+		if ui.secondary(ctx) do brush_settings_open(app, kind)
 	}
 	ui.divider(ctx, 32)
 	in_dock := false
@@ -620,14 +627,20 @@ kit_layout :: proc(app: ^App) {
 	dock_size, _ := ui.prev_layout(ctx, "dock")
 	ctx.toast_bottom = E + dock_size.y + 12
 
-	// Bottom right: what is being sculpted.
+	// Bottom right: what is being sculpted. A tap shows it in the inspector's Object tab;
+	// a long press (or a right-click) opens its menu above it.
 	if obj := selected_object(app); obj != nil {
-		ui.begin_anchored(ctx, "status", .End, .End, {E, E}, {direction = .Row, gap = 10, padding = 10, radius = t.radius_large, background = .Panel, center = true})
-		ui.label(ctx, object_label(obj), t.small_size, t.text, .Semibold)
-		ui.label(ctx, fmt.tprintf("%s vertices", count_label(object_vertex_count(obj))), t.small_size)
-		if n := len(obj.levels.levels); n > 1 do ui.label(ctx, fmt.tprintf("Level %d/%d", obj.levels.current + 1, n), t.small_size)
-		if object_dynamic(obj) do ui.label(ctx, "Dynamic", t.small_size, t.accent)
-		if object_in_hd(obj) do ui.label(ctx, "HD", t.small_size, t.accent)
+		ui.begin_anchored(ctx, "status", .End, .End, {E, E}, {direction = .Row, radius = t.radius_large, background = .Panel, center = true})
+		parts := make([dynamic]ui.Chip_Part, context.temp_allocator)
+		append(&parts, ui.Chip_Part{text = object_label(obj), strong = true}, ui.Chip_Part{text = fmt.tprintf("%s vertices", count_label(object_vertex_count(obj)))})
+		if n := len(obj.levels.levels); n > 1 do append(&parts, ui.Chip_Part{text = fmt.tprintf("Level %d/%d", obj.levels.current + 1, n)})
+		if object_dynamic(obj) do append(&parts, ui.Chip_Part{text = "Dynamic", accent = true})
+		if object_in_hd(obj) do append(&parts, ui.Chip_Part{text = "HD", accent = true})
+		if ui.chip(ctx, "Object settings", parts[:]) {
+			if k.settings do settings_close(app)
+			k.inspector, k.tab = true, .Object
+		}
+		if ui.secondary(ctx) do object_menu_open(app, obj.id, ctx.last_rect, .Above)
 		ui.end(ctx)
 	}
 
@@ -661,6 +674,10 @@ kit_layout :: proc(app: ^App) {
 			if i % PER_ROW == 0 do ui.begin(ctx, fmt.tprintf("row %d", row), {direction = .Row, gap = 0})
 			if ui.brush_tile(ctx, BRUSHES[kind].name, BRUSHES[kind].icon, app.brush.kind == kind && app.tool == .Brush, command_keys(.Brush, int(kind))) {
 				command_run(app, .Brush, int(kind))
+				k.browser = false
+			}
+			if ui.secondary(ctx) {
+				brush_settings_open(app, kind)
 				k.browser = false
 			}
 			if i % PER_ROW == PER_ROW - 1 || i == len(sculpt.Brush_Kind) - 1 {
@@ -801,7 +818,21 @@ kit_view_menu :: proc(app: ^App, anchor: ui.Rect) {
 	ui.popover_end(ctx)
 }
 
-// The outliner's context menu, at the pointer.
+// Picks brush `kind` and shows its settings: the inspector, on the tool's tab, from the top.
+brush_settings_open :: proc(app: ^App, kind: sculpt.Brush_Kind) {
+	k := &app.kit
+	command_run(app, .Brush, int(kind))
+	if k.settings do settings_close(app)
+	k.inspector, k.tab, k.scroll = true, .Tool, 0
+}
+
+// Opens the object menu on object `id`, `side` of `at`.
+object_menu_open :: proc(app: ^App, id: int, at: ui.Rect, side: ui.Side) {
+	k := &app.kit
+	k.object_menu, k.object_menu_id, k.object_menu_at, k.object_menu_side = true, id, at, side
+}
+
+// The object's context menu: at the pointer from the Scene tab, above the status chip.
 @(private = "file")
 kit_object_menu :: proc(app: ^App) {
 	k := &app.kit
@@ -810,7 +841,7 @@ kit_object_menu :: proc(app: ^App) {
 	found := false
 	for obj in app.scene.objects do found ||= obj.id == k.object_menu_id
 	if !found do k.object_menu = false
-	if !ui.popover_begin(ctx, "object menu", &k.object_menu, k.object_menu_at, .Pointer, {direction = .Column, padding = 6, width = 232}) do return
+	if !ui.popover_begin(ctx, "object menu", &k.object_menu, k.object_menu_at, k.object_menu_side, {direction = .Column, padding = 6, width = 232}) do return
 	picked := command_menu_item(app, .Focus_Selected, label = "Focus")
 	if command_menu_item(app, .Duplicate_Object) do picked = true
 	ui.divider(ctx, across = true)

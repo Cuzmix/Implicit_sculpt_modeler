@@ -22,9 +22,7 @@ kit_scene_tab :: proc(app: ^App) {
 		if row.clicked do app.scene.selected = i
 		if row.menu {
 			app.scene.selected = i
-			k.object_menu = true
-			k.object_menu_id = obj.id
-			k.object_menu_at = {ctx.input.mouse.x, ctx.input.mouse.y, 0, 0}
+			object_menu_open(app, obj.id, {ctx.input.mouse.x, ctx.input.mouse.y, 0, 0}, .Pointer)
 		}
 	}
 	if len(app.scene.objects) == 0 do ui.paragraph(ctx, "The scene is empty. Add a shape below or open a scene from the menu.")

@@ -123,6 +123,39 @@ icon_button :: proc(ctx: ^Context, name: string, glyph: rune, selected := false,
 	return clicked
 }
 
+// One label of a chip.
+Chip_Part :: struct {
+	text:   string,
+	strong: bool, // in the semibold face
+	accent: bool, // in the accent colour
+}
+
+// A row of short labels that is one control, a touch target tall: what the object's
+// status at the bottom right is. `name` is its id and tooltip. Returns true when clicked;
+// call secondary after it for what its long press does.
+chip :: proc(ctx: ^Context, name: string, parts: []Chip_Part, keys := "") -> bool {
+	t := ctx.theme
+	PADDING :: 12
+	GAP :: 10
+	w: f32 = 2 * PADDING
+	for p, i in parts do w += text_width(ctx, p.text, t.small_size, .Semibold if p.strong else .Regular) + (GAP if i > 0 else 0)
+	cell := place(ctx, {w, t.target})
+	id := id_of(ctx, name)
+	hovered, held, clicked, _ := interact(ctx, id, cell)
+	mark := vertex_mark(ctx)
+	scale := feedback(ctx, id, cell, t.radius_large, hovered, held)
+	x := cell.x + PADDING
+	for p in parts {
+		font := Font.Semibold if p.strong else .Regular
+		color := t.accent if p.accent else (t.text if p.strong else t.text_secondary)
+		text(ctx, p.text, x, cell.y + cell.h * 0.5, t.small_size, color, font)
+		x += text_width(ctx, p.text, t.small_size, font) + GAP
+	}
+	press_scale(ctx, mark, cell, scale)
+	tip(ctx, id, cell, label_text(name), keys)
+	return clicked
+}
+
 // How a button is filled.
 Variant :: enum u8 {
 	Solid, // the tone's colour: the one primary action in view

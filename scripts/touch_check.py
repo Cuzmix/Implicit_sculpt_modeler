@@ -1207,6 +1207,70 @@ def a_press_short_of_long_still_taps():
     s.wait(4)
     return s, [], camera_still({"long_tip": lambda v: v == "none", "window_inspector": lambda v: v.startswith("0,")})
 
+
+STATUS_CHIP = (1510, 864)
+
+
+@scenario
+def long_press_undo_opens_history():
+    """After a stroke, a long press on Undo opens the History panel and undoes nothing."""
+    s = Script()
+    s.fdrag(line((760, 430), (860, 470), 20))
+    long_press(s, *UI["undo"])
+    return s, [], camera_still({"undo_steps": near(1), "redo_steps": near(0), "window_history": lambda v: v.startswith("1,")})
+
+
+@scenario
+def right_click_undo_opens_history():
+    """The desktop twin: a right-click on Undo opens the History panel; a left click still undoes."""
+    s = Script()
+    s.fdrag(line((760, 430), (860, 470), 20))
+    s.add("move:{:g},{:g}".format(*UI["undo"]))
+    s.wait(3)
+    s.add("right")
+    s.wait(4)
+    return s, [], camera_still({"undo_steps": near(1), "window_history": lambda v: v.startswith("1,")})
+
+
+@scenario
+def long_press_dock_brush_opens_its_settings():
+    """A long press on Smooth in the dock picks it and turns the inspector to its settings, from the Object tab."""
+    s = Script()
+    s.ftap(*UI["tab_object"])
+    s.wait(6)
+    long_press(s, *UI["dock_smooth"])
+    return s, [], camera_still({"dabs": near(0), "brush_kind": lambda v: v == "smooth", "inspector_tab": lambda v: v == "tool",
+                                "window_inspector": lambda v: v.startswith("1,0,")})
+
+
+@scenario
+def long_press_size_slider_resets_it():
+    """The size slider dragged up, then a long press on it: the brush is back to 60 px."""
+    s = Script()
+    x, y = UI["size_slider"]
+    s.fdrag(line((x, y), (x, y - 80), 10))
+    long_press(s, x, y)
+    return s, [], camera_still({"dabs": near(0), "brush_radius_px": near(60)})
+
+
+@scenario
+def size_slider_drag_still_slides():
+    """A drag on the size slider (the control check for the reset above) changes the size and sculpts nothing."""
+    s = Script()
+    x, y = UI["size_slider"]
+    s.fdrag(line((x, y), (x, y - 80), 10))
+    return s, [], camera_still({"dabs": near(0), "brush_radius_px": lambda v: float(v) > 80})
+
+
+@scenario
+def status_chip_tap_and_long_press():
+    """A tap on the object's status shows the Object tab; a long press on it opens the object menu."""
+    s = Script()
+    s.ftap(*STATUS_CHIP)
+    s.wait(6)
+    long_press(s, *STATUS_CHIP)
+    return s, [], camera_still({"dabs": near(0), "inspector_tab": lambda v: v == "object", "object_menu": near(1)})
+
 def run(name, screens):
     script, args, checks = SCENARIOS[name]()
     frames = script.frame + 10
