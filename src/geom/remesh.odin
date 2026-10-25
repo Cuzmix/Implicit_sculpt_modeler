@@ -66,10 +66,44 @@ remesh_voxel :: proc(m: Mesh, target: int, pool: ^jobs.Pool = nil, allocator := 
 
 // Remeshes `m` on a lattice of spacing `h` (see remesh_voxel).
 remesh_voxel_spacing :: proc(m: Mesh, h: f32, pool: ^jobs.Pool = nil, allocator := context.allocator) -> (out: Mesh, ok: bool) {
+	return remesh_run(m, h, len(m.indices) / 3, .Merge, pool, allocator)
+}
+
+// What is inside the remeshed surface. Merge: inside any part of the mesh. The others
+// take the mesh as two, A (the triangles before `split`) and B (the rest), and keep
+// what is inside either (Union), inside A but not B (Subtract), or inside both
+// (Intersect). B's crossings count BOOL_WEIGHT times A's in the winding number, which
+// keeps the two apart in one sum: A's own winding stays far below the weight.
+Remesh_Op :: enum u8 {
+	Merge,
+	Union,
+	Subtract,
+	Intersect,
+}
+
+@(private = "file")
+BOOL_WEIGHT :: i32(1 << 12)
+
+@(private = "file")
+inside :: #force_inline proc(op: Remesh_Op, wind: i32) -> bool {
+	if op == .Merge do return wind > 0
+	b := (wind + BOOL_WEIGHT / 2) >> 12 // rounded to the nearest multiple, negatives too
+	a := wind - b * BOOL_WEIGHT
+	switch op {
+	case .Union:     return a > 0 || b > 0
+	case .Subtract:  return a > 0 && b <= 0
+	case .Intersect: return a > 0 && b > 0
+	case .Merge:
+	}
+	return wind > 0
+}
+
+// The remesh of `m` at spacing `h`, its triangles from `split` on being B for `op`.
+remesh_run :: proc(m: Mesh, h: f32, split: int, op: Remesh_Op, pool: ^jobs.Pool, allocator: runtime.Allocator) -> (out: Mesh, ok: bool) {
 	bounds := AABB_EMPTY
 	for p in m.positions do aabb_grow(&bounds, p)
 	extent := bounds.hi - bounds.lo
-	r := Remesher{m = m, pool = pool, h = h, origin = bounds.lo - 1.5 * h}
+	r := Remesher{m = m, pool = pool, h = h, origin = bounds.lo - 1.5 * h, split = split, op = op}
 	for a in 0 ..< 3 {
 		// The mesh starts 1.5 steps in and ends at least half a step before the last
 		// point, so the lattice's outer points are all outside.
@@ -122,6 +156,7 @@ Hit :: struct {
 @(private = "file")
 Rays :: struct {
 	nu, nv: int,
+	op:     Remesh_Op,
 	first:  []u32, // ray r's crossings are hits[first[r]:first[r + 1]], sorted along it
 	hits:   []Hit,
 	cursor: []u32, // scratch while filling
@@ -132,6 +167,8 @@ Remesher :: struct {
 	m:            Mesh,
 	pool:         ^jobs.Pool,
 	h:            f32,
+	split:        int,       // triangles from here on are B (Remesh_Op)
+	op:           Remesh_Op,
 	origin:       Vec3,
 	n:            [3]int,     // lattice points per axis
 	q:            [][3]i32,   // vertex positions in fixed point, lattice steps * FIX
@@ -161,6 +198,7 @@ cast_rays :: proc(r: ^Remesher, axis: int) {
 	r.axis = axis
 	rays := &r.rays[axis]
 	rays.nu, rays.nv = r.n[(axis + 1) % 3], r.n[(axis + 2) % 3]
+	rays.op = r.op
 	heap := runtime.heap_allocator()
 	rays.first = make([]u32, rays.nu * rays.nv + 1, heap)
 	tris := len(r.m.indices) / 3
@@ -212,6 +250,7 @@ triangle_hits :: #force_inline proc(r: ^Remesher, t: int, fill: bool) {
 	if area == 0 do return
 	// Along +w a triangle facing -w is entered, raising the winding number.
 	delta: i32 = -1 if area > 0 else 1
+	if t >= r.split do delta *= BOOL_WEIGHT
 	aw := (r.m.positions[i0][w] - r.origin[w]) / r.h
 	bw := (r.m.positions[i1][w] - r.origin[w]) / r.h
 	cw := (r.m.positions[i2][w] - r.origin[w]) / r.h
@@ -269,10 +308,10 @@ find_flips :: proc(r: ^Remesher) {
 				at := f32(-1)
 				for i < len(hs) && i32(hs[i].w) == e {
 					prev: i32 = hs[i - 1].wind if i > 0 else 0
-					if (prev > 0) != (hs[i].wind > 0) do at = hs[i].w
+					if inside(r.op, prev) != inside(r.op, hs[i].wind) do at = hs[i].w
 					i += 1
 				}
-				if (before > 0) == (hs[i - 1].wind > 0) do continue
+				if inside(r.op, before) == inside(r.op, hs[i - 1].wind) do continue
 				r.flip_e[first + count] = e
 				r.flip_w[first + count] = clamp(at, f32(e) + EDGE_MARGIN, f32(e) + 1 - EDGE_MARGIN)
 				count += 1
@@ -349,7 +388,7 @@ crossing_on :: proc(rays: ^Rays, ray: int, lo: int) -> f32 {
 	i, _ := slice.binary_search_by(hs, f32(lo), proc(h: Hit, w: f32) -> slice.Ordering {return .Less if h.w < w else .Greater})
 	for ; i < len(hs) && hs[i].w < f32(lo + 1); i += 1 {
 		prev: i32 = hs[i - 1].wind if i > 0 else 0
-		if (prev > 0) != (hs[i].wind > 0) do at = hs[i].w
+		if inside(rays.op, prev) != inside(rays.op, hs[i].wind) do at = hs[i].w
 	}
 	return clamp(at, f32(lo) + EDGE_MARGIN, f32(lo) + 1 - EDGE_MARGIN)
 }
