@@ -145,8 +145,8 @@ kit_move_tab :: proc(app: ^App) {
 	kit_tool_head(ctx, ui.ICON_MOVE, "Move", "Click an object to select it. Drag it to move it across the view, or drag an arm of the gizmo to move it along that axis; the middle square moves it across the view.")
 	half := (ui.fill_width(ctx) - 8) * 0.5
 	ui.begin(ctx, "move actions", {direction = .Row, gap = 8})
-	if ui.button(ctx, "Focus selected", .Flat, width = half, glyph = ui.ICON_FOCUS, enabled = selected_object(app) != nil) do focus_selected(app)
-	if ui.button(ctx, "Frame all", .Flat, width = half, glyph = ui.ICON_FRAME, enabled = len(app.scene.objects) > 0) do frame_all(app)
+	if ui.button(ctx, "Focus selected", .Flat, width = half, glyph = ui.ICON_FOCUS, enabled = command_enabled(app, .Focus_Selected)) do command_run(app, .Focus_Selected)
+	if ui.button(ctx, "Frame all", .Flat, width = half, glyph = ui.ICON_FRAME, enabled = command_enabled(app, .Frame_All)) do command_run(app, .Frame_All)
 	ui.end(ctx)
 	ui.paragraph(ctx, "The Object tab places the selected object exactly: position, turn and scale.")
 }

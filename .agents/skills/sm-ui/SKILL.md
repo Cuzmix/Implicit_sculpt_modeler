@@ -64,7 +64,7 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   draws the safe zone's inner edge (`edge_inner`, navigate.odin), the orbit pivot's dot while an orbit moves, and the
   brush ring lying on the surface (`draw_surface_ring`, from `app.cursor`, which `cursor_update` in `cursor.odin`
   fills each frame after the tools: a raycast and `sculpt.sculptor_area_normal`, timed as `cursor_ms`).
-- Commands: a panel never mutates the scene; it sets `app.ui.scene_command` and the frame loop applies it at the start
+- Commands: an action button, menu row or shortcut runs a registry command (`command_run(app, .Id, arg)`, `src/app/commands.odin`), whose `enabled` also decides the button's enabled state and whose keys a hint shows through `command_keys`; never type a shortcut into a label or paragraph. A panel never mutates the scene; it sets `app.ui.scene_command` and the frame loop applies it at the start
   of the next frame. Mask commands go to `mask_command`; file actions to `file_dialog`/`file_post`, applied next frame
   (`file_take`), their outcome a `file_note` that the interface shows as a toast.
 - Settings (`settings.odin`): `key values` lines; unknown keys are skipped, values clamped; the kit's add shape and

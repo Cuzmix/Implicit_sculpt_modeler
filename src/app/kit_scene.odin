@@ -31,8 +31,8 @@ kit_scene_tab :: proc(app: ^App) {
 	has := selected_object(app) != nil
 	half := (ui.fill_width(ctx) - 8) * 0.5
 	ui.begin(ctx, "object actions", {direction = .Row, gap = 8})
-	if ui.button(ctx, "Duplicate", .Flat, width = half, glyph = ui.ICON_COPY, enabled = has) do app.ui.scene_command = {kind = .Duplicate}
-	if ui.button(ctx, "Delete", .Flat, .Danger, width = half, glyph = ui.ICON_TRASH, enabled = has) do app.ui.scene_command = {kind = .Delete}
+	if ui.button(ctx, "Duplicate", .Flat, width = half, glyph = ui.ICON_COPY, enabled = has) do command_run(app, .Duplicate_Object)
+	if ui.button(ctx, "Delete", .Flat, .Danger, width = half, glyph = ui.ICON_TRASH, enabled = has) do command_run(app, .Delete_Object)
 	ui.end(ctx)
 	ui.spacer(ctx, 4)
 
@@ -42,7 +42,7 @@ kit_scene_tab :: proc(app: ^App) {
 		if picked := ui.select(ctx, "add shape", shapes[:], int(k.add_shape)); picked >= 0 do k.add_shape = geom.Primitive(picked)
 		if picked := ui.select(ctx, "add size", kit_size_names(), k.add_size); picked >= 0 do k.add_size = picked
 		vertices := int(SPHERE_PRESETS[k.add_size].vertices)
-		if ui.button(ctx, fmt.tprintf("Add %v", k.add_shape), .Solid, .Accent, glyph = ui.ICON_PLUS) do app.ui.scene_command = {kind = .Add, vertices = vertices, shape = k.add_shape}
+		if ui.button(ctx, fmt.tprintf("Add %v", k.add_shape), .Solid, .Accent, glyph = ui.ICON_PLUS) do command_run(app, .Add_Object)
 		// Geodesic spheres come in steps of 10f² + 2 vertices; say what will be built.
 		f := geom.geodesic_frequency_for(vertices)
 		built := 10 * f * f + 2 if k.add_shape == .Sphere else vertices
@@ -99,7 +99,7 @@ kit_material :: proc(app: ^App) {
 kit_studio :: proc(app: ^App) {
 	ctx := &app.kit.ctx
 	on := app.studio_on
-	if ui.switch_row(ctx, "Studio render", &on) do studio_toggle(app)
+	if ui.switch_row(ctx, "Studio render", &on) do command_run(app, .Studio_Render)
 	_ = ui.slider(ctx, "Occlusion", &app.studio_ao, 0, 1, .Linear, fmt.tprintf("%.2f", app.studio_ao))
 	_ = ui.slider(ctx, "Shadow", &app.studio_shadow, 0, 1, .Linear, fmt.tprintf("%.2f", app.studio_shadow))
 	samples := f32(app.studio_samples)
@@ -107,7 +107,7 @@ kit_studio :: proc(app: ^App) {
 	if app.studio_on && app.studio.samples > 0 && app.studio.samples < int(app.studio_samples) {
 		ui.paragraph(ctx, fmt.tprintf("Built up %d of %d samples.", app.studio.samples, app.studio_samples))
 	}
-	ui.paragraph(ctx, "Ambient occlusion and soft shadows build up while the view stays still; any change starts them over. Shift+R")
+	ui.paragraph(ctx, fmt.tprintf("Ambient occlusion and soft shadows build up while the view stays still; any change starts them over. %s", command_keys(.Studio_Render)))
 }
 
 @(private = "file")
@@ -122,9 +122,9 @@ kit_camera :: proc(app: ^App) {
 	for row, r in views {
 		names: [3]string
 		for v, i in row do names[i] = fmt.tprint(v)
-		if picked := ui.tabs(ctx, fmt.tprintf("look from %d", r), names[:], -1); picked >= 0 do camera.orbit_axis_view(&app.camera, row[picked])
+		if picked := ui.tabs(ctx, fmt.tprintf("look from %d", r), names[:], -1); picked >= 0 do command_run(app, .View_Axis, int(row[picked]))
 	}
-	reset, focus := kit_button_pair(ctx, "Reset camera", "Focus selected", true, selected_object(app) != nil)
-	if reset do reset_camera(app)
-	if focus do focus_selected(app)
+	reset, focus := kit_button_pair(ctx, "Reset camera", "Focus selected", true, command_enabled(app, .Focus_Selected))
+	if reset do command_run(app, .Reset_Camera)
+	if focus do command_run(app, .Focus_Selected)
 }
