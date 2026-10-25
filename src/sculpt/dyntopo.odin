@@ -164,6 +164,11 @@ sculptor_dyn_enable :: proc(s: ^Sculptor, allocator := context.allocator) -> boo
 	if !edges_manifold(s) do return false
 	sculptor_clear_history(s)
 	hide_drop(s) // triangles are about to be split and collapsed
+	// Edits would have to carry colours and groups along; they go, as the hiding does.
+	groups_destroy(s)
+	delete(s.color, s.history.allocator)
+	s.color = nil
+	s.paint_stamp += 1
 	sculptor_morph_clear(s) // the vertices are about to be renumbered
 	// Bounds, cones and shared lists carry over from the fixed layout: bring them up
 	// to date first.
@@ -455,6 +460,7 @@ resize_node_arrays :: proc(s: ^Sculptor, count: int) {
 	grow(&h.changed, count, h.allocator)
 	grow(&h.mask_saved, count, h.allocator)
 	grow(&h.mask_changed, count, h.allocator)
+	grow(&h.color_saved, count, h.allocator)
 }
 
 // Makes room for `pages` pages in the mesh and every per-vertex and per-node array.

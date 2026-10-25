@@ -83,19 +83,25 @@ vertex_hidden :: #force_inline proc(s: ^Sculptor, v: u32) -> bool {
 	return s.hide.count > 0 && s.fade[v] == 0
 }
 
-// The index data that drawing needs for what is hidden: per node, its triangles with
-// the hidden ones made degenerate (all three corners 0, which draws nothing), packed in
+// The index data that drawing needs for what is hidden and for polygroups: per node,
+// its triangles with the hidden ones made degenerate (all three corners 0, which draws
+// nothing) and, with groups, each starting from its lead corner (groups.odin), packed in
 // node order, and where each node's triangles go in the index buffer. The nodes are the
 // ones changed since the last call when the buffer holds the data of `uploaded` (the
 // stamp it was last brought to, 0 for one made from the mesh), or else every node with a
-// hidden triangle and every changed one. Both slices are temporary.
+// hidden triangle (every node, with groups) and every changed one. Both slices are
+// temporary.
 sculptor_hidden_indices :: proc(s: ^Sculptor, uploaded: u32) -> (indices: []u32, ranges: []geom.Index_Range) {
 	h := &s.hide
 	if uploaded == h.stamp do return
 	nodes := make([dynamic]u32, 0, len(h.dirty), context.temp_allocator)
 	append(&nodes, ..h.dirty[:])
 	if uploaded != h.taken {
-		for c, id in h.in_node do if c > 0 do append(&nodes, u32(id))
+		if s.groups.tris != nil {
+			for _, id in s.nodes do append(&nodes, u32(id))
+		} else {
+			for c, id in h.in_node do if c > 0 do append(&nodes, u32(id))
+		}
 	}
 	clear(&h.dirty)
 	h.taken = h.stamp
@@ -110,7 +116,14 @@ sculptor_hidden_indices :: proc(s: ^Sculptor, uploaded: u32) -> (indices: []u32,
 		n := s.nodes[id]
 		first := 3 * int(n.tri_first)
 		count := 3 * int(n.tri_count)
-		copy(indices[at:][:count], s.mesh.indices[first:][:count])
+		if s.groups.tris != nil {
+			for t in 0 ..< int(n.tri_count) {
+				c := drawn_triangle(s, int(n.tri_first) + t)
+				copy(indices[at + 3 * t:][:3], c[:])
+			}
+		} else {
+			copy(indices[at:][:count], s.mesh.indices[first:][:count])
+		}
 		if h.tris != nil && h.in_node[id] > 0 {
 			for t in 0 ..< int(n.tri_count) {
 				if h.tris[int(n.tri_first) + t] do slice.zero(indices[at + 3 * t:][:3])
@@ -148,10 +161,31 @@ sculptor_hide_shape :: proc(s: ^Sculptor, clip: matrix[4, 4]f32, shape: [][2]f32
 	return hide_apply(&job)
 }
 
+// Hides every shown triangle outside group `group`, showing the group's hidden ones,
+// as ZBrush's Ctrl+Shift click on a polygroup does; when that group is all there is to
+// see already, hides it and shows everything else instead. One undo step; returns true
+// when it changed what is hidden. Refused as sculptor_hide_command is, and without
+// groups.
+sculptor_hide_group :: proc(s: ^Sculptor, group: u16) -> bool {
+	_ = sculptor_stroke_end(s)
+	g := s.groups.tris
+	if g == nil do return false
+	alone := true
+	for x, t in g {
+		shown := s.hide.tris == nil || !s.hide.tris[t]
+		if (x == group) != shown {alone = false; break}
+	}
+	job := Hide_Job{s = s, by_group = true, group = group, hide_group = alone}
+	return hide_apply(&job)
+}
+
 @(private = "file")
 Hide_Job :: struct {
 	s:       ^Sculptor,
 	command: Hide_Command,
+	by_group:   bool, // by `group` rather than `command` or a shape
+	group:      u16,
+	hide_group: bool, // hide `group` and show the rest, rather than the other way round
 	shaped:  bool, // by `mode`, `clip` and `grid` rather than `command`
 	mode:    Hide_Shape,
 	clip:    matrix[4, 4]f32,
@@ -166,6 +200,7 @@ Hide_Job :: struct {
 hide_after :: #force_inline proc(job: ^Hide_Job, t: int) -> bool {
 	s := job.s
 	was := s.hide.tris != nil && s.hide.tris[t]
+	if job.by_group do return (s.groups.tris[t] == job.group) == job.hide_group
 	if !job.shaped do return !was if job.command == .Invert else false
 	m := s.mesh
 	c := (m.positions[m.indices[3 * t]] + m.positions[m.indices[3 * t + 1]] + m.positions[m.indices[3 * t + 2]]) * (1.0 / 3)

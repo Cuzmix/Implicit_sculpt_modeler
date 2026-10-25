@@ -45,6 +45,7 @@ History_Kind :: enum u8 {
 	Hide,    // hiding or showing
 	Deform,  // a whole-object deformation: Smooth all, Clip
 	Rebuild, // a swap entry: the object rebuilt, added or removed
+	Paint,   // a polypaint or polygroup command
 }
 
 // An object as object_put writes it, or that it did not exist. Undoing or redoing a swap
@@ -350,7 +351,6 @@ clip_command :: proc(app: ^App, a, b: [2]f32, flip: bool, size: [2]f32) {
 
 // Lists the stroke (or mask command) the object's current sculptor just finished as
 // the newest undo step.
-@(private = "file")
 history_record :: proc(app: ^App, obj: ^Object, kind: History_Kind, what: string) {
 	history_drop_redo(app)
 	append(&app.history.done, History_Entry{id = obj.id, level = HD_LEVEL if object_in_hd(obj) else obj.levels.current, kind = kind, what = what, at = time.tick_now()})

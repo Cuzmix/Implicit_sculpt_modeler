@@ -3,6 +3,8 @@
 layout(location = 0) in vec3 in_view_normal;
 layout(location = 1) in vec3 in_view_pos;
 layout(location = 2) in float in_mask;
+layout(location = 3) in vec4 in_paint;
+layout(location = 4) flat in vec3 in_group;
 
 layout(set = 3, binding = 0) uniform Material_Uniforms {
 	vec4 base_color;
@@ -76,8 +78,11 @@ void main() {
 		if (!gl_FrontFacing) n = -n;
 	}
 
+	// Paint covers the clay as far as it reaches; groups show instead of both.
+	vec3 albedo = mix(base_color.rgb, in_paint.rgb, in_paint.a);
+	if (in_group.r >= 0.0) albedo = in_group;
 	// Masked areas show darker, as in ZBrush.
-	vec3 albedo = base_color.rgb * (1.0 - 0.7 * in_mask);
+	albedo *= 1.0 - 0.7 * in_mask;
 	float highlight = 1.0 - 0.5 * in_mask;
 
 	if (surface.y > 0.0) {

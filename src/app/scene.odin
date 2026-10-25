@@ -409,9 +409,10 @@ level_upload :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer, gpu: ^render.Mesh_Bu
 		gpu^ = render.mesh_buffers_create(&app.renderer, m, lv.sculptor.mask) or_return
 		render.viewport_invalidate(&app.target)
 		app.stats.gpu_regrows += 1
-		return len(m.positions) * render.VERTEX_BYTES + len(m.indices) * size_of(u32) + hidden_upload(app, cmd, gpu, lv), true
+		return len(m.positions) * render.VERTEX_BYTES + len(m.indices) * size_of(u32) + hidden_upload(app, cmd, gpu, lv) + paint_upload(app, cmd, gpu, lv, nil), true
 	}
 	render.mesh_buffers_upload_ranges(&app.renderer, cmd, gpu, m, ranges, lv.sculptor.mask)
+	bytes += paint_upload(app, cmd, gpu, lv, ranges)
 	triangles := sculpt.sculptor_index_ranges(&lv.sculptor)
 	render.mesh_buffers_upload_indices(&app.renderer, cmd, gpu, m.indices[:], triangles)
 	for r in ranges do bytes += int(r.count) * render.VERTEX_BYTES

@@ -335,6 +335,7 @@ KIND_COLORS := [History_Kind][4]f32 {
 	.Hide    = {0.7, 0.7, 0.7, 1},
 	.Deform  = {0.6, 0.9, 0.6, 1},
 	.Rebuild = {1, 0.5, 0.35, 1},
+	.Paint   = {0.95, 0.5, 0.85, 1},
 }
 
 // How a step reads in the panel: "Clay stroke", "Blur mask", "remesh".

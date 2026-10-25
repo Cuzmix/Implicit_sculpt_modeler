@@ -30,6 +30,7 @@ Brush_Settings :: struct {
 	alpha:             int, // index into App.alphas; -1 (or any other outside it) is the round brush
 	alpha_mode:        Alpha_Mode,
 	alpha_angle:       f32, // degrees counter-clockwise the image turns on top of what the mode gives
+	color:             [3]f32, // what the Paint brush paints, sRGB 0 to 1
 }
 
 // How a left drag lays the brush down.
@@ -217,6 +218,11 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 	if !ok do return
 	app.scene.selected = index
 	obj := selected_object(app)
+	if app.brush.kind == .Paint && !input.smooth && (object_in_hd(obj) || object_dynamic(obj)) {
+		// Said once a press; the stroke never starts, so nothing records it.
+		if s.kind == .Press do _ = paint_allowed(obj)
+		return
+	}
 	st := &app.stroke
 	st.active, st.object = true, obj.id
 	st.pos, st.pressure, st.tilt, st.travel, st.size = s.pos, s.pressure, s.tilt, 0, input.size
@@ -411,6 +417,7 @@ brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pres
 		alpha_up = up,
 		falloff_shape = brush_falloff(app, kind),
 		facing   = facing,
+		color    = brush_color_bytes(app),
 	}
 }
 
