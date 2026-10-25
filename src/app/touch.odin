@@ -23,6 +23,8 @@ import "../ui"
 // The pen is never a finger. While it is near the screen or on it, a finger touching on
 // its own is taken for the hand holding it and does nothing (two fingers still navigate);
 // the pen going down ends a touch in progress the same way, cancelled.
+// A finger on a modifier rail button is no part of any touch: the rail keeps it
+// (modifiers.odin), so it holds Smooth or Mask while another finger or the pen works.
 Touch :: struct {
 	fingers:   ui.Fingers,
 	owner:     Touch_Owner,
@@ -78,8 +80,15 @@ touch_event :: proc(app: ^App, e: ^sdl.Event, window: ^sdl.Window) {
 		at := [2]f32{f.x * f32(w), f.y * f32(h)}
 		id := u64(f.fingerID)
 		now := touch_clock()
+		slop := app.kit.ctx.theme.slop * app.kit.scale
+		// A finger on the modifier rail is the rail's alone (modifiers.odin): it is never the
+		// pointer, never part of a gesture or a palm, and the pen landing leaves it be.
 		#partial switch e.type {
 		case .FINGER_DOWN:
+			if which, ok := rail_claims(app, at); ok {
+				_ = rail_finger_down(&app.rail, id, which, at, now)
+				return
+			}
 			if !ui.fingers_down(&t.fingers, id, at, now) {
 				if t.fingers.count >= 2 && !t.gesture do touch_gesture_begin(app)
 				return
@@ -97,6 +106,7 @@ touch_event :: proc(app: ^App, e: ^sdl.Event, window: ^sdl.Window) {
 			d.input_at = e.common.timestamp
 			append(&app.samples, Input_Sample{at, 1, .Press, {}})
 		case .FINGER_MOTION:
+			if rail_finger_move(&app.rail, id, at) do return
 			ui.fingers_move(&t.fingers, id, at)
 			if t.pointing && id == t.pointer {
 				d.pointer = .Finger
@@ -106,6 +116,7 @@ touch_event :: proc(app: ^App, e: ^sdl.Event, window: ^sdl.Window) {
 			}
 		case:
 			cancelled := e.type == .FINGER_CANCELED
+			if rail_finger_up(&app.rail, id, now, cancelled, slop) do return
 			tap, known := ui.fingers_up(&t.fingers, id, now, cancelled)
 			if !known do return
 			if t.pointing && id == t.pointer {
@@ -123,6 +134,7 @@ touch_event :: proc(app: ^App, e: ^sdl.Event, window: ^sdl.Window) {
 	case .WINDOW_FOCUS_LOST, .DID_ENTER_BACKGROUND:
 		// Fingers lifted while the app is away never arrive: forget them, cancelled.
 		if t.fingers.count > 0 do touch_cancel(app, true)
+		rail_forget(&app.rail)
 	}
 }
 

@@ -102,6 +102,17 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   `Drag.pivot` and `Viewport_Input.orbit_pivot`, and `camera.orbit_turn_about` keeps it on screen. Fingers and the
   pen move nothing until past `theme.slop` (10 pt); a finger's stroke waits `FINGER_HOLD` (90 ms) with its samples
   kept, so a second finger makes a gesture first.
+- The modifier rail (`modifiers.odin`, README "Touch and pen"): Smooth, Invert, Mask and Hide buttons for a tablet.
+  A finger landing on one (`rail_claims`: the rail is the top root at that point by `ui.root_at`, and no menu,
+  popover or list is open) is recorded in `Modifier_Rail.fingers` before `ui.fingers_down` and goes no further: never
+  the pointer, never a gesture finger or a palm, untouched by the pen's cancel; its motion and lift stop there too.
+  `rail_press` (in `kit_viewport_input`, inside `if input.dragging`, before `touch_route`/`pointer_route`) snapshots
+  `rail_press_mods` at the left press (held beats latched, the last held wins; any keyboard modifier leaves the rail
+  out) and resolves it into `smooth`/`invert`/`alt`/`mask`/`mask_shape` every frame to the release. `mask_shape` (not
+  `invert`) starts a mask shape; `stroke_brush`/`held_brush` (`sculpt_tool.odin`) pick Mask for `mask`. `route_mute`
+  and `viewport_mute` clear all of them. `drag_decide` keeps empty space for Mask/Hide (Brush tool only) and gives
+  them the safe zone only when held (`Rail_Press.held`). A new `Viewport_Input` flag a stroke depends on is also a
+  `Take_Frame` flag in `replay.odin` (bump `STROKES_VERSION`).
 - The gesture arena in the kit (Flutter's): `interact` (`ui.odin:628`) records `press_host`, the innermost
   `drag_scroll` container under a press; a finger or pen press there is tentative (`press_won` false), a mouse press
   wins at once. `scroll_update` (`ui.odin:711`) steals a tentative press that moves vertically past the slop (no click

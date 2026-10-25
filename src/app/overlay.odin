@@ -127,14 +127,14 @@ overlay_viewport :: proc(app: ^App, o: Overlay, input: Viewport_Input) {
 			break
 		}
 		if (input.hovered || input.dragging) && !app.ui.pie.open {
-			color := overlay_color({1, 1, 1, 0.6} if !input.primary else {1, 0.8, 0.4, 0.9})
+			color := overlay_color(brush_ring_color(app, input.primary))
 			center := input.mouse_pos
 			if app.stroke.active && app.brush.lazy_px > 0 {
 				// The brush trails the cursor: draw it where it is, on its string.
 				center = app.stroke.pos
 				overlay_line(o, center, input.mouse_pos, color, 1)
 			}
-			if brush_alpha(app) != nil && !input.smooth {
+			if brush_alpha(app) != nil && held_brush(input) {
 				draw_alpha_outline(app, o, center, color)
 			} else if !draw_surface_ring(app, o, input.size, color) {
 				overlay_circle(o, center, app.brush.radius_px, color, 1.5)

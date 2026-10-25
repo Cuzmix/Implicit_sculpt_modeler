@@ -5,10 +5,11 @@ import "core:math/linalg"
 import "../camera"
 import "../ui"
 
-// Masking by shape, as ZBrush does: with the Brush tool, Ctrl and a left drag that
-// starts on empty space draws a rectangle (or a lasso, as the Mask section sets), and
-// letting go masks everything of the selected object inside it, through to the back;
-// with Alt too it unmasks. A drag that starts on an object is a stroke as usual.
+// Masking by shape, as ZBrush does: with the Brush tool, Ctrl (or the modifier rail's
+// Mask) and a left drag that starts on empty space draws a rectangle (or a lasso, as the
+// Mask section sets), and letting go masks everything of the selected object inside it,
+// through to the back; with Alt (or the rail's Invert) too it unmasks. A drag that
+// starts on an object is a stroke as usual.
 
 Mask_Shape_Kind :: enum u8 {
 	Rectangle,
@@ -29,12 +30,14 @@ LASSO_STEP_PX :: 3
 mask_shape_frame :: proc(app: ^App, input: Viewport_Input) -> bool {
 	g := &app.mask_shape
 	if !g.active {
-		if !input.press || !input.invert || app.stroke.active do return false
-		origin, dir := mouse_ray(app.camera, input.mouse_pos, input.size)
+		if !input.press || !input.mask_shape || app.stroke.active do return false
+		start := gesture_start(input)
+		origin, dir := mouse_ray(app.camera, start, input.size)
 		if _, _, hit := scene_raycast(app, origin, dir); hit do return false
 		g.active, g.unmask = true, input.alt
 		clear(&g.points)
-		append(&g.points, input.mouse_pos)
+		append(&g.points, start)
+		if input.mouse_pos != start do append(&g.points, input.mouse_pos)
 		return true
 	}
 	if input.primary {
@@ -42,6 +45,10 @@ mask_shape_frame :: proc(app: ^App, input: Viewport_Input) -> bool {
 		return true
 	}
 	g.active = false
+	// A tap (a finger's wanders) draws no shape.
+	reach: f32 = 0
+	for p in g.points do reach = max(reach, linalg.length(p - g.points[0]))
+	if reach < gesture_min_px(app) do return true
 	shape := shape_polygon(g.points[:], app.ui.mask_shape_kind == .Rectangle, input.size)
 	if len(shape) >= 3 do mask_shape_command(app, shape, input.size, g.unmask)
 	return true

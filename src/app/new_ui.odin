@@ -46,6 +46,7 @@ Kit_State :: struct {
 	settings_wipe: f64, // when Reset everything was first tapped: a second tap soon after resets
 	ui_scale:   f32, // the interface's size, times what the display asks for (Settings > Interface)
 	surface_ring: bool, // the brush ring lies on the surface rather than flat on the screen (cursor.odin)
+	rail_side:  Rail_Side, // where the Smooth, Invert, Mask and Hide buttons sit, if anywhere (modifiers.odin)
 	history:    bool, // the History panel, over the dock
 	// The four panels as windows: where each was dragged to and whether it is folded
 	// (remembered by settings.odin), and the order they are drawn in, the last on top.
@@ -359,6 +360,7 @@ kit_init :: proc(app: ^App) {
 	k.add_size = 2 // 1M
 	k.ui_scale = 1
 	k.surface_ring = true
+	k.rail_side = .Left
 	k.order = KIT_WINDOW_ORDER
 	k.last_frame = time.tick_now()
 }
@@ -525,6 +527,9 @@ kit_viewport_input :: proc(app: ^App, size: [2]f32) -> (input: Viewport_Input) {
 		input.press = input.primary && .Left in d.pressed
 		input.smooth = input.primary && d.shift
 		input.invert = input.primary && d.ctrl
+		input.mask_shape = input.invert && !d.shift
+		// The modifier rail sets what the keys would, for this press (modifiers.odin).
+		rail_press(app, &input)
 	}
 	// Who has the touch and the drag, then what they do this frame (touch.odin,
 	// navigate.odin); the pie and the S/U adjust may still take the pointer after.
@@ -587,12 +592,16 @@ kit_layout :: proc(app: ^App) {
 	if ui.icon_button(ctx, "Inspector", ui.ICON_PANEL, selected = k.inspector, keys = command_keys(.Inspector)) do command_run(app, .Inspector)
 	ui.end(ctx)
 
-	// Left edge: size and strength, for a thumb or a pen.
+	// Left edge: size and strength, for a thumb or a pen, over the modifier rail when it
+	// is on the left.
+	track := slider_track(app)
 	ui.begin_anchored(ctx, "sliders", .Start, .Center, {E, 0}, {direction = .Row, gap = 0})
-	_ = ui.vslider(ctx, "Brush size", &app.brush.radius_px, MIN_RADIUS_PX, MAX_RADIUS_PX, .Logarithmic, fmt.tprintf("%.0f", app.brush.radius_px), ui.ICON_SIZE, "S, [ ]")
+	_ = ui.vslider(ctx, "Brush size", &app.brush.radius_px, MIN_RADIUS_PX, MAX_RADIUS_PX, .Logarithmic, fmt.tprintf("%.0f", app.brush.radius_px), ui.ICON_SIZE, "S, [ ]", track)
 	strength := brush_strength(app)
-	_ = ui.vslider(ctx, "Brush strength", strength, MIN_STRENGTH, 1, .Linear, fmt.tprintf("%.2f", strength^), ui.ICON_STRENGTH, "U, Shift+[ ]")
+	_ = ui.vslider(ctx, "Brush strength", strength, MIN_STRENGTH, 1, .Linear, fmt.tprintf("%.2f", strength^), ui.ICON_STRENGTH, "U, Shift+[ ]", track)
 	ui.end(ctx)
+
+	kit_modifier_rail(app)
 
 	// Bottom middle: the brush dock.
 	browser_anchor: ui.Rect
@@ -684,12 +693,14 @@ kit_inspector :: proc(app: ^App) -> (raised: bool) {
 	room := window_room(app, win^, top)
 	if !win.moved {
 		// Where it starts, clear of what sits below it: the object's status at the bottom
-		// right, and the dock when the window is narrow enough for them to meet.
+		// right, the modifier rail when it is on the right, and the dock when the window is
+		// narrow enough for them to meet.
 		area := ui.safe_area(ctx)
 		dock_size, _ := ui.prev_layout(ctx, "dock")
 		below: f32 = 0
 		if status, _ := ui.prev_layout(ctx, "status"); status.y > 0 do below = status.y + 8
 		if area.w * 0.5 + dock_size.x * 0.5 + 8 > area.w - t.edge - KIT_INSPECTOR_W do below = max(below, dock_size.y + 8)
+		if reach := rail_reach(app, .Right); reach > 0 do below = max(below, reach - t.edge + 8)
 		room -= below
 	}
 	PADDING :: 12

@@ -324,6 +324,16 @@ frame_begin :: proc(ctx: ^Context, input: Input) {
 	ctx.popup_open = 0
 }
 
+// The anchored container on top at `p` (points) in the frame last ended, or 0 over the
+// viewport: what a press there would land on. For use between frames, as when an event
+// arrives, since a frame under way has only placed part of its containers.
+root_at :: proc(ctx: ^Context, p: [2]f32) -> Id {
+	#reverse for c in ctx.placed {
+		if c.root && c.id != INERT_ROOT && rect_contains(c.hit, p) do return c.id
+	}
+	return 0
+}
+
 // Ends the frame and returns its triangles, ready to upload. The list stays valid until
 // the next frame_begin.
 frame_end :: proc(ctx: ^Context) -> ^Draw_List {

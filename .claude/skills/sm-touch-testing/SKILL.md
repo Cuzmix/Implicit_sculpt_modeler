@@ -72,7 +72,9 @@ on window focus or hover to decide ownership; a widget that acts on a finger pre
 | has the touch cancelled by the system, or by the pen landing | `cancelled_stroke_is_taken_back`, `pen_landing_cancels_finger_stroke` |
 | uses the desktop mouse and keys | `mouse_controls`, `shift_snaps_orbit` |
 | changes and resets settings, and restarts | `settings_scroll_and_persist`, `settings_reset_everything`, `settings_reset_needs_second_tap` |
-| uses another window size | `small_window` (1280 x 800) |
+| uses another window size | `small_window` (1280 x 800), `rail_fits_a_large_interface`, `rail_fits_portrait`, `rail_on_the_right_clears_the_panels` |
+| holds or taps a modifier button with one hand while the other sculpts | `rail_hold_smooth_with_pen`, `rail_tap_latches_invert`, `rail_mask_paints_mask`, `rail_mask_shape_from_empty_space`, `rail_hide_gesture`, `rail_lift_mid_stroke_keeps_mode`, `rail_mouse_click_latches` |
+| holds a modifier button while the pen lands, hovers, or two fingers pinch; a window covers it; a latched one at the edge | `rail_finger_survives_pen_down`, `rail_finger_while_pen_near`, `rail_finger_during_pinch`, `rail_under_window_goes_to_window`, `rail_latched_edge_still_orbits` |
 
 Repeat the critical ones (taps, first-touch scroll, full turns, pinch) after any change to camera or touch settings,
 with the setting changed (`--orbit-style=turntable`, `--finger-orbits`, `--orbit-pivot=centre`, `--no-edge-orbit`, or through the Settings panel as
@@ -87,7 +89,8 @@ are on the device checklist.
 - Checks are functions of the exit stats (`camera_yaw`, `camera_pitch`, `camera_roll`, `camera_distance`,
   `camera_target`, `dabs`, `undo_steps`, `redo_steps`, `brush_radius_px`, `brush_strength`, `inspector_scroll`,
   `settings_scroll`, `settings_open`, `orbit_pivot`, `pivot_source`, `cursor_hit`, `cursor_normal`, `window_<name>`,
-  ...); `camera_still()` checks nothing moved; keys starting with `@` are checks given every stat at once or checks on
+  `stroke_kind`, `stroke_invert`, `rail_latched`, `masked`, `hidden_triangles`, `layout_<name>` (x,y,w,h of the
+  modifier rail, sliders, dock, status and inspector), ...); `camera_still()` checks nothing moved; keys starting with `@` are checks given every stat at once or checks on
   files, such as `saved(key="value")` and `saved_line(line)` on the settings file, or `on_screen` comparing where a
   point shows before and after an orbit. A value the scenario needs that the app does not print
   is a new key in the exit stats (`main.odin`), not a guess from a screenshot.
@@ -95,6 +98,9 @@ are on the device checklist.
   read the PNG. Positions are window points at 1600 x 900 unless the scenario sets `--width`/`--height`.
 - Write the scenario for a bug before fixing it, and confirm it fails on the old code (build the old commit in a git
   worktree if the old code cannot run the new events, and replay the closest event sequence it understands).
+- A second hand's finger (a modifier button held while another finger or the pen works) gets an id of its own
+  (`RAIL_FINGER`, 9), never 0. The scripted pen has no pressure (no `PEN_AXIS` event), so a pen stroke whose effect
+  scales with pressure (the mask) changes nothing: use a finger stroke to check the effect.
 - Timing: events are per frame, not per millisecond. `FINGER_HOLD` (90 ms) and the 0.25 s tap window are real time,
   so keep "together" fingers within a frame or two and taps to a few frames.
 
@@ -112,6 +118,10 @@ what was done, what should happen, what happened; a screen recording when someth
 9. Rotate the tablet, use split screen, resize a desktop window: panels stay inside the safe area and keep working.
 10. Change Touch and Camera settings, close the app from the task switcher, reopen: they are kept; reset puts them back.
 11. Mouse and keyboard on Windows and Linux: left drag sculpts, empty space and right drag orbit, wheel zooms.
+12. Modifier buttons: hold Smooth with a thumb while the pen strokes (smooths, lifting latches nothing); tap Invert
+    (latches, filled); hold Mask and stroke with a finger. Check the OEM pen does not cancel the held finger (some
+    stylus drivers cancel every touch when the pen lands), and that the bottom-left buttons are not inside the
+    system's home-gesture band (a swipe up from them must not leave the app, and a tap must reach the button).
 
 ## 7. Recording a failure
     Title: <what went wrong, in the user's words>

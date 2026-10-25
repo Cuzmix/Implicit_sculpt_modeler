@@ -34,8 +34,21 @@ Clip_Gesture :: struct {
 	points: [dynamic][2]f32, // the lasso, in viewport pixels
 }
 
-// The drag must be at least this long, in pixels, to count as one; shorter is a click.
+// A mouse's drag must be at least this long, in pixels, to count as one; shorter is a
+// click. A finger's or a pen's must pass the slop, since their taps wander further.
 CLIP_MIN_PX :: 4
+
+// How long a gesture's drag must be to count as one, in pixels, for the pointer in use.
+gesture_min_px :: proc(app: ^App) -> f32 {
+	if app.device.pointer == .Mouse do return CLIP_MIN_PX
+	return app.kit.ctx.theme.slop * app.kit.scale
+}
+
+// Where a gesture pressed this frame begins: its first sample, where a finger landed
+// before its stroke waited out FINGER_HOLD, or else the pointer.
+gesture_start :: proc(input: Viewport_Input) -> [2]f32 {
+	return input.samples[0].pos if len(input.samples) > 0 else input.mouse_pos
+}
 
 // Follows a Ctrl + Shift gesture with this frame's input. Returns true while one runs
 // (or ended this frame), so the brush and mask shapes stay out of it.
@@ -43,9 +56,11 @@ clip_frame :: proc(app: ^App, input: Viewport_Input) -> bool {
 	g := &app.clip
 	if !g.active {
 		if !input.press || !input.invert || !input.smooth || app.stroke.active do return false
-		g.active, g.a, g.b, g.flip = true, input.mouse_pos, input.mouse_pos, input.alt
+		start := gesture_start(input)
+		g.active, g.a, g.b, g.flip = true, start, input.mouse_pos, input.alt
 		clear(&g.points)
-		append(&g.points, input.mouse_pos)
+		append(&g.points, start)
+		if input.mouse_pos != start do append(&g.points, input.mouse_pos)
 		return true
 	}
 	if input.primary {
@@ -55,7 +70,7 @@ clip_frame :: proc(app: ^App, input: Viewport_Input) -> bool {
 		return true
 	}
 	g.active = false
-	if linalg.length(g.b - g.a) < CLIP_MIN_PX {
+	if linalg.length(g.b - g.a) < gesture_min_px(app) {
 		// A click on a polygroup isolates it (with Alt: masks it), as in ZBrush.
 		if !group_click(app, g.a, input.size, g.flip) do hide_command(app, .Show_All)
 		return true

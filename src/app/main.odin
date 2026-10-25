@@ -150,6 +150,7 @@ App :: struct {
 	pen_tilt: [2]f32, // the pen's latest lean in degrees, x to the right and y down
 	pen_seen: bool,
 	touch:    Touch, // fingers and the pen on a touch screen (touch.odin)
+	rail:     Modifier_Rail, // Smooth, Invert, Mask and Hide as buttons (modifiers.odin)
 	drag:     Drag, // who the press on the viewport belongs to (navigate.odin)
 	pivot:    Stroke_Pivot, // the last stroke's middle, which orbits turn about (navigate.odin)
 	cursor:   Brush_Cursor, // the surface under the brush ring this frame (cursor.odin)
@@ -1034,6 +1035,18 @@ run :: proc(opts: Options) -> bool {
 		p := app.pivot.used
 		fmt.printfln("orbit_pivot=%.4f,%.4f,%.4f pivot_source=%s", p.x, p.y, p.z, strings.to_lower(fmt.tprint(app.pivot.from), context.temp_allocator))
 		fmt.printfln("undo_steps=%d redo_steps=%d brush_radius_px=%.2f brush_strength=%.3f selected=%d", len(app.history.done), len(app.history.undone), app.brush.radius_px, brush_strength(&app)^, app.scene.selected)
+		{
+			// What the last stroke was, the rail's latches, and whether the selected object
+			// has a mask, for touch_check's modifier rail scenarios.
+			latched := "none"
+			for m in app.rail.latched {
+				name := strings.to_lower(MODIFIER_NAMES[m], context.temp_allocator)
+				latched = name if latched == "none" else strings.concatenate({latched, "+", name}, context.temp_allocator)
+			}
+			obj := selected_object(&app)
+			masked := obj != nil && sculpt.sculptor_has_mask(object_sculptor(obj))
+			fmt.printfln("stroke_kind=%s stroke_invert=%d rail_latched=%s masked=%d", strings.to_lower(fmt.tprint(app.stroke.kind), context.temp_allocator), int(app.stroke.invert), latched, int(masked))
+		}
 		fmt.printfln("inspector_scroll=%.1f settings_scroll=%.1f settings_open=%d", app.kit.scroll, app.kit.settings_scroll, int(app.kit.settings))
 		n := app.cursor.normal
 		fmt.printfln("cursor_hit=%d cursor_normal=%.4f,%.4f,%.4f", int(app.cursor.ok), n.x, n.y, n.z)
@@ -1043,6 +1056,14 @@ run :: proc(opts: Options) -> bool {
 		for w, which in k.windows {
 			r := ui.prev_rect(&k.ctx, names[which])
 			fmt.printf("window_%s=%d,%d,%.0f,%.0f ", strings.to_lower(fmt.tprint(which), context.temp_allocator), int(open[which]), int(w.minimized), r.x, r.y)
+		}
+		fmt.println()
+		// Where the modifier rail and what must stay clear of it ended up, in points, for
+		// touch_check's window size scenarios.
+		for name in ([?]string{"modifier rail", "sliders", "dock", "status", "inspector"}) {
+			r := ui.prev_rect(&k.ctx, name)
+			key, _ := strings.replace_all(name, " ", "_", context.temp_allocator)
+			fmt.printf("layout_%s=%.0f,%.0f,%.0f,%.0f ", key, r.x, r.y, r.w, r.h)
 		}
 		fmt.println()
 	}

@@ -29,7 +29,7 @@ cursor_update :: proc(app: ^App, input: Viewport_Input) {
 	// The gestures, the S/U adjust and the Drag rectangle stamp draw their own outlines,
 	// and an alpha's square stays flat on the screen.
 	if app.clip.active || app.mask_shape.active || app.ui.adjust.kind != .None || (app.stroke.active && app.stroke.rect) do return
-	if brush_alpha(app) != nil && !input.smooth do return
+	if brush_alpha(app) != nil && held_brush(input) do return
 	start := time.tick_now()
 	defer ring_push(&app.stats.cursor_ms, time.duration_milliseconds(time.tick_since(start)))
 	center := input.mouse_pos
