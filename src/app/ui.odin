@@ -110,6 +110,8 @@ BRUSH_NAMES := [sculpt.Brush_Kind]string {
 	.Crease  = "Crease",
 	.Grab    = "Grab",
 	.Mask    = "Mask",
+	.Layer   = "Layer",
+	.Snake_Hook = "Snake hook",
 }
 
 BRUSH_HELP := [sculpt.Brush_Kind]cstring {
@@ -122,11 +124,15 @@ BRUSH_HELP := [sculpt.Brush_Kind]cstring {
 	.Crease  = "Cuts a sharp groove (Ctrl: a sharp ridge).",
 	.Grab    = "Drags what is under the brush with the pointer.",
 	.Mask    = "Paints the mask (Ctrl: erases it).",
+	.Layer   = "Raises a flat layer of one height per stroke; going\nover it again adds nothing (Ctrl: lowers).",
+	.Snake_Hook = "Pulls the surface out after the pointer, for horns,\ntentacles and fingers. Best with dynamic topology.",
 }
 
 brush_by_name :: proc(name: string) -> (sculpt.Brush_Kind, bool) {
 	for kind in sculpt.Brush_Kind {
-		if strings.equal_fold(name, BRUSH_NAMES[kind]) do return kind, true
+		// "snake_hook" or "snakehook" on the command line find "Snake hook".
+		if strings.equal_fold(name, BRUSH_NAMES[kind]) || strings.equal_fold(name, fmt.tprint(kind)) do return kind, true
+		if spaced, _ := strings.remove_all(BRUSH_NAMES[kind], " ", context.temp_allocator); strings.equal_fold(name, spaced) do return kind, true
 	}
 	return {}, false
 }
@@ -383,7 +389,7 @@ draw_tools_panel :: proc(app: ^App) {
 	imgui.SeparatorText("Brush")
 	for kind, i in sculpt.Brush_Kind {
 		if i % 3 != 0 do imgui.SameLine()
-		label := fmt.ctprintf("%v (%d)", BRUSH_NAMES[kind], i + 1)
+		label := fmt.ctprintf("%v (%d)", BRUSH_NAMES[kind], (i + 1) % 10) if i < 10 else fmt.ctprintf("%v", BRUSH_NAMES[kind])
 		if imgui.RadioButton(label, app.brush.kind == kind) do app.brush.kind = kind
 	}
 	imgui.TextDisabled("%s", BRUSH_HELP[app.brush.kind])
@@ -812,9 +818,10 @@ handle_shortcuts :: proc(app: ^App) {
 	if imgui.IsKeyPressed(.W, false) do app.tool = .Move
 	if imgui.IsKeyPressed(.B, false) do app.tool = .Brush
 	if !io.KeyCtrl && !io.KeyAlt {
-		// 1 to 9 pick the brushes in the order the Tools panel lists them.
+		// 1 to 9 and 0 pick the brushes in the order the Tools panel lists them.
 		for kind, i in sculpt.Brush_Kind {
-			if imgui.IsKeyPressed(imgui.Key(int(imgui.Key._1) + i), false) {
+			if i >= 10 do break
+			if imgui.IsKeyPressed(imgui.Key._0 if i == 9 else imgui.Key(int(imgui.Key._1) + i), false) {
 				app.brush.kind = kind
 				app.tool = .Brush
 			}

@@ -42,6 +42,8 @@ Brush_Kind :: enum {
 	Crease,  // cut a sharp groove: draw in with a narrow falloff and pinch (inverted: a ridge)
 	Grab,    // drag what is under the brush with the pointer: sculptor_grab_begin and _move
 	Mask,    // paint the mask, which shields vertices from every other brush (inverted erases)
+	Layer,   // raise a flat-topped layer of one height per stroke, however often it passes (inverted: lower)
+	Snake_Hook, // pull the surface out after the pointer: each dab drags it by Brush.drag
 }
 
 Axis :: enum u8 {
@@ -76,6 +78,14 @@ Brush :: struct {
 	// Replaces the round falloff with this one (falloff_set_curve); nil keeps the
 	// built-in smooth one. Every brush uses it, Grab included; an alpha replaces it.
 	falloff_shape: ^Falloff,
+	// Snake_Hook: how far this dab drags what is under it, in the mesh's space.
+	drag:     Vec3,
+}
+
+// A vertex's Layer height, and the stroke it belongs to (0: none).
+Layer_Height :: struct {
+	stroke: u32,
+	height: f32,
 }
 
 // How far dabs move the surface at full strength, in brush radii.
@@ -85,6 +95,8 @@ CLAY_HEIGHT :: 0.08 // where Clay's plane sits above the surface
 PLANE_RATE :: 0.5
 PINCH_RATE :: 0.25
 CREASE_PINCH :: 0.2
+LAYER_HEIGHT :: 0.15 // Layer's height at full strength, in brush radii
+LAYER_RATE :: 0.5    // share of the way to that height a dab goes where the falloff is full
 
 Node :: struct {
 	tri_first:    u32, // triangles of this node (a BVH leaf), contiguous
@@ -168,6 +180,10 @@ Sculptor :: struct {
 	// nil until something is first masked (mask.odin).
 	mask:        []u8,
 	grab:        Grab, // the vertices a Grab stroke drags (grab.odin)
+	// Per vertex: how far the Layer brush has raised it this stroke, valid where its
+	// stroke number is layer_stroke; nil until the brush is first used.
+	layer:        []Layer_Height,
+	layer_stroke: u32,
 	// Set while dynamic topology is on (dyntopo.odin): the mesh is laid out in pages,
 	// `faces` and the shared lists above are replaced, and there are no LOD copies.
 	dyn:         ^Dyn,
@@ -206,6 +222,7 @@ sculptor_init :: proc(s: ^Sculptor, mesh: ^geom.Mesh, pool: ^jobs.Pool, node_tri
 sculptor_destroy :: proc(s: ^Sculptor) {
 	dyn_destroy(s)
 	delete(s.mask, s.history.allocator)
+	delete(s.layer, s.history.allocator)
 	grab_destroy(&s.grab)
 	history_destroy(&s.history)
 	geom.vertex_faces_destroy(&s.faces)
@@ -609,6 +626,7 @@ apply_dab :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
 		for i in 0 ..< 3 do for j in 0 ..< 3 do b.tilt[i, j] *= sign[i] * sign[j]
 		// And its alpha shows mirrored: an odd number of flips turns the image over.
 		b.alpha_up *= sign
+		b.drag *= sign
 		if sign.x * sign.y * sign.z < 0 do b.alpha_mirror = !b.alpha_mirror
 		moved += dab_once(s, b, center * sign)
 	}
@@ -669,7 +687,7 @@ dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
 	slice.zero(s.partials[:])
 	// The area under the brush: what most kinds work along, and the plane an alpha
 	// lies on.
-	if (brush.kind != .Smooth && brush.kind != .Mask) || brush.alpha != nil {
+	if (brush.kind != .Smooth && brush.kind != .Mask && brush.kind != .Snake_Hook) || brush.alpha != nil {
 		jobs.parallel_for(pool, len(s.hit), &d, job_area)
 		weight: f32
 		for p in s.partials {
@@ -707,6 +725,19 @@ dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
 		// Cuts in by default, like ZBrush's and Blender's crease brushes.
 		d.amount = -sign * brush.radius * brush.strength * DRAW_HEIGHT
 		jobs.parallel_for(pool, len(s.hit), &d, job_crease)
+	case .Layer:
+		if len(s.layer) < len(s.mesh.positions) {
+			// Dynamic topology adds vertices; the new entries belong to no stroke.
+			grown := make([]Layer_Height, len(s.mesh.positions) + len(s.mesh.positions) / 4, s.history.allocator)
+			copy(grown, s.layer)
+			delete(s.layer, s.history.allocator)
+			s.layer = grown
+		}
+		d.amount = sign * brush.radius * brush.strength * LAYER_HEIGHT
+		jobs.parallel_for(pool, len(s.hit), &d, job_layer)
+	case .Snake_Hook:
+		if brush.drag == {} do return 0
+		jobs.parallel_for(pool, len(s.hit), &d, job_snake_hook)
 	case .Grab, .Mask:
 		unreachable()
 	case .Smooth:
@@ -847,6 +878,8 @@ job_area :: proc(data: rawptr, i: int) {
 @(private) job_flatten :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.Flatten)}
 @(private) job_pinch :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.Pinch)}
 @(private) job_crease :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.Crease)}
+@(private) job_layer :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.Layer)}
+@(private) job_snake_hook :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.Snake_Hook)}
 
 // Moves the owned vertices of hit leaf i that lie inside the brush, as brush kind K
 // does; specialised per kind so each loop has no branch on the kind.
@@ -884,6 +917,16 @@ displace :: #force_inline proc(d: ^Dab, i: int, $K: Brush_Kind) {
 					to := d.center - p
 					to -= d.normal * linalg.dot(to, d.normal)
 					p += d.normal * (d.amount * w * w) + to * min(d.brush.strength * w * CREASE_PINCH, 1)
+				} else when K == .Layer {
+					// Toward the stroke's height along the vertex's own normal: once there,
+					// passing again adds nothing.
+					l := &s.layer[v]
+					h := l.height if l.stroke == s.layer_stroke else 0
+					next := h + (d.amount - h) * min(w * LAYER_RATE, 1)
+					p += m.normals[v] * (next - h)
+					l^ = {s.layer_stroke, next}
+				} else when K == .Snake_Hook {
+					p += d.brush.drag * w
 				} else {
 					#panic("not a displacing brush")
 				}

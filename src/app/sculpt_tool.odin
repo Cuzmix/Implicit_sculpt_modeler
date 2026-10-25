@@ -65,7 +65,8 @@ Stroke :: struct {
 	size:     [2]f32, // viewport size the positions above are in
 	pending:  [dynamic]Input_Sample, // samples left for the next frame once one reaches MAX_DABS_PER_FRAME
 	grab:     bool, // a Grab stroke: drags what it picked up instead of laying dabs
-	anchor:   Vec3, // Grab: where the stroke started, in world space
+	hook:     bool, // a Snake hook stroke: drags the surface along after the pointer
+	anchor:   Vec3, // Grab: where the stroke started; Snake hook: where it has pulled to (world space)
 }
 
 Sculpt_Frame_Result :: struct {
@@ -158,6 +159,10 @@ stroke_follow :: proc(app: ^App, input: Viewport_Input, samples: []Input_Sample,
 		if len(queue) > 0 do grab_follow(app, input, inv, queue[len(queue) - 1].pos, res)
 		return
 	}
+	if st.active && st.hook {
+		for s in queue do hook_follow(app, input, inv, s, res)
+		return
+	}
 	for s, i in queue {
 		if !st.active {
 			stroke_start(app, input, inv, s, res)
@@ -204,7 +209,8 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 	sculpt.sculptor_stroke_begin(object_sculptor(obj))
 	local := to_local(obj.transform, hit)
 	brush := brush_at(app, input, obj.transform, local, s.pressure, s.tilt)
-	st.grab, st.anchor = brush.kind == .Grab, hit
+	st.grab, st.hook, st.anchor = brush.kind == .Grab, brush.kind == .Snake_Hook, hit
+	if st.hook do return // it moves nothing until the pointer does
 	t1 := time.tick_now()
 	if st.grab {
 		sculpt.sculptor_grab_begin(object_sculptor(obj), brush, local)
@@ -237,6 +243,40 @@ grab_follow :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, pos:
 	sculpt.sculptor_grab_move(object_sculptor(obj), offset)
 	res.brush_ms += time.duration_milliseconds(time.tick_since(t1))
 	res.dabs += 1
+}
+
+// Pulls a Snake hook stroke after the pointer sample `s`: the point where the stroke
+// has got to follows the pointer on the plane through it facing the camera, and each
+// step of the way, at most DAB_SPACING radii long, drags the surface around it along,
+// as Blender's and ZBrush's snake hooks do. Nothing is raycast: the hook leaves the
+// surface it started on.
+@(private = "file")
+hook_follow :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: Input_Sample, res: ^Sculpt_Frame_Result) {
+	st := &app.stroke
+	obj := object_by_id(app, st.object)
+	if obj == nil {
+		st.active = false
+		return
+	}
+	origin, dir := ray_through(inv, s.pos, input.size)
+	facing := camera.orbit_toward(app.camera, st.anchor)
+	along := linalg.dot(dir, facing)
+	if abs(along) < 1e-6 do return
+	t := obj.transform
+	offset := origin + dir * (linalg.dot(st.anchor - origin, facing) / along) - st.anchor
+	st.pos, st.pressure, st.tilt = s.pos, s.pressure, s.tilt
+	brush := brush_at(app, input, t, to_local(t, st.anchor), s.pressure, s.tilt)
+	step := max(brush.radius * t.scale * DAB_SPACING, 1e-6)
+	steps := min(int(math.ceil(linalg.length(offset) / step)), MAX_DABS_PER_FRAME)
+	t1 := time.tick_now()
+	for _ in 0 ..< steps {
+		part := offset / f32(steps)
+		brush.drag = to_local_dir(t, part) / t.scale
+		sculpt.apply_dab(object_sculptor(obj), brush, to_local(t, st.anchor))
+		st.anchor += part
+		res.dabs += 1
+	}
+	res.brush_ms += time.duration_milliseconds(time.tick_since(t1))
 }
 
 // Moves the stroke in a straight line on screen to `target`, where the pressure is

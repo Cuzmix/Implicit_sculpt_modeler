@@ -1,6 +1,6 @@
 ---
 name: sm-sculpt
-description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's nodes (BVH leaves owning contiguous vertex ranges), the nine brushes (Draw, Smooth, Clay, Flatten, Inflate, Pinch, Crease, Grab, Mask), masking, X/Y/Z symmetry, brush alphas, dynamic topology, apply_dab and sculptor_flush, dirty ranges for upload, deferred normals and normal cones, per-node stroke undo, subdivision levels (Loop, detail in local frames, sync up and down), HD detail windows, simplified copies between strokes, and the app side: stroke sampling, dab spacing, pressure and pen tilt, lazy mouse, the cross-object History and Scene_Command. Load for ANY task that changes how a brush moves vertices or what happens around a stroke, e.g. "add a brush kind", "the mask leaks", "symmetry is off", "undo is wrong", "the levels drift", "HD window border", "dabs skip at high speed", "move vertices from a tool", "make this undoable". Requires sm-geom and sm-build; GPU upload is sm-render; panels are sm-ui; ZBrush is the behaviour model.
+description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's nodes (BVH leaves owning contiguous vertex ranges), the eleven brushes (Draw to Mask, Layer, Snake hook), masking, X/Y/Z symmetry, brush alphas, dynamic topology, apply_dab and sculptor_flush, dirty ranges for upload, deferred normals and normal cones, per-node stroke undo, subdivision levels (Loop, detail in local frames, sync up and down), HD detail windows, simplified copies between strokes, and the app side: stroke sampling, dab spacing, pressure and pen tilt, lazy mouse, the cross-object History and Scene_Command. Load for ANY task that changes how a brush moves vertices or what happens around a stroke, e.g. "add a brush kind", "the mask leaks", "symmetry is off", "undo is wrong", "the levels drift", "HD window border", "dabs skip at high speed", "move vertices from a tool", "make this undoable". Requires sm-geom and sm-build; GPU upload is sm-render; panels are sm-ui; ZBrush is the behaviour model.
 ---
 
 # Sculpting
@@ -20,7 +20,7 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
   leaning pen, zero for none; `alpha` is the bullet on alphas below, nil for none); `falloff` is `(1 − x²)²` over the squared distance in radii (`:511-515`). `Brush.falloff_shape: ^Falloff` (nil = built-in) swaps it for a drawn curve: `falloff_set_curve` fills a 257-entry table over x² from `geom.curve_at(curve, 1 - d)`, `falloff_drawn` lerps it; `dab_weight` and `grab_follow` read it (the alpha's height fade and the area sampling keep the built-in). App: `Brush_Settings.falloffs[kind]`, tables cached in `App.falloff_tables` by `brush_falloff`. Strengths with
   their reasons: `DRAW_HEIGHT 0.1` radii, `CLAY_HEIGHT 0.08`, `PLANE_RATE 0.5`, `PINCH_RATE 0.25`, `CREASE_PINCH 0.2`
   (`:78-83`).
-- The nine kinds, in key order 1–9 (`Brush_Kind`, `:34-44`; README "Brushes, masking and symmetry" has the user's view):
+- The eleven kinds, in key order 1–9 then 0 (Snake hook has no key) (`Brush_Kind`; README "Brushes, masking and symmetry" has the user's view):
   | Kind | Moves | Inverted |
   |---|---|---|
   | Draw | out along the area-weighted average normal by `radius · strength · DRAW_HEIGHT` | in |
@@ -32,6 +32,8 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
   | Crease | in, with a narrow falloff (w²), and pinches | a ridge |
   | Grab | drags with the pointer, once per stroke (`grab.odin`, below) | — |
   | Mask | paints the mask (`mask.odin`, below) | erases |
+  | Layer | each vertex along its own normal toward `radius · strength · LAYER_HEIGHT`, `LAYER_RATE · w` of the way a dab; heights kept per stroke in `Sculptor.layer` (`Layer_Height{stroke, height}`, valid where `stroke == layer_stroke`, which `sculptor_stroke_begin` bumps; grown when dynamic topology adds vertices) | lowers |
+  | Snake_Hook | by `Brush.drag · w` (mirrored per image); the app (`hook_follow`, `src/app/sculpt_tool.odin`) moves the hook point after the pointer on the camera-facing plane in steps of at most `DAB_SPACING` radii and dabs at it without raycasting | — |
 - `apply_dab(s, brush, center)` (`brush.odin:570-584`) returns 0 for Grab, else runs `dab_once` at every mirror image:
   `mirrors(symmetry)` gives `{1,1,1}` then the sign flips, up to 8 (`brush.odin:588-600`); each image gets the tilt
   mirrored too (`S·R·S`: element `[i, j]` times `sign[i]·sign[j]`, `brush.odin:577`), and `alpha_up` times the sign with
