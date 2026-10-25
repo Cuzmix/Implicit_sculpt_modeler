@@ -230,7 +230,7 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 	if !ok do return
 	app.scene.selected = index
 	obj := selected_object(app)
-	if app.brush.kind == .Paint && !input.smooth && (object_in_hd(obj) || object_dynamic(obj)) {
+	if .Paint in BRUSHES[app.brush.kind].flags && !input.smooth && (object_in_hd(obj) || object_dynamic(obj)) {
 		// Said once a press; the stroke never starts, so nothing records it.
 		if s.kind == .Press do _ = paint_allowed(obj)
 		return
@@ -243,10 +243,11 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 	sculpt.sculptor_stroke_begin(object_sculptor(obj))
 	local := to_local(obj.transform, hit)
 	brush := brush_at(app, input, obj.transform, local, s.pressure, s.tilt)
-	st.grab, st.hook, st.anchor, st.kind = brush.kind == .Grab, brush.kind == .Snake_Hook, hit, brush.kind
-	st.cloth = brush.kind == .Cloth && !object_dynamic(obj)
-	if brush.kind == .Cloth && !st.cloth do log.warn("cloth: not with dynamic topology on")
-	st.rect = app.brush.stroke == .Drag_Rect && !st.grab && !st.hook && !st.cloth && brush.kind != .Cloth && !input.smooth && !object_dynamic(obj)
+	flags := BRUSHES[brush.kind].flags
+	st.grab, st.hook, st.anchor, st.kind = .Grab in flags, .Hook in flags, hit, brush.kind
+	st.cloth = .Cloth in flags && !object_dynamic(obj)
+	if .Cloth in flags && !st.cloth do log.warn("cloth: not with dynamic topology on")
+	st.rect = app.brush.stroke == .Drag_Rect && !st.grab && !st.hook && .Cloth not_in flags && !input.smooth && !object_dynamic(obj)
 	st.start, st.at = s.pos, local
 	st.pivot_sum, st.pivot_count = local, 1
 	if st.hook || st.rect do return // they move nothing until the pointer does

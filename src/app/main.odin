@@ -432,7 +432,7 @@ run :: proc(opts: Options) -> bool {
 	app.ui = ui_state_default()
 	app.curve, app.insert = CURVE_DEFAULTS, INSERT_DEFAULTS
 	app.brush = {kind = .Draw, radius_px = 60, pressure_strength = true, pressure_curve = geom.CURVE_LINEAR, detail_px = 10, collapse = true, alpha = -1, color = {0.75, 0.2, 0.15}}
-	for &s in app.brush.strengths do s = 0.5
+	for &s, kind in app.brush.strengths do s = BRUSHES[kind].strength
 	app.nav = NAV_DEFAULT
 	// What earlier interactive runs left, before the flags, which win over it.
 	remember := (opts.frames == 0 && opts.gpubench == "" && opts.bench_stroke == 0 && !opts.no_settings) || opts.settings_file != ""

@@ -347,24 +347,6 @@ KIT_VIEWPORT_IMAGE :: 1
 // The brushes the dock shows; the rest are a tap away in the brush browser.
 KIT_DOCK := [?]sculpt.Brush_Kind{.Draw, .Smooth, .Clay, .Flatten, .Inflate, .Grab, .Mask}
 
-// Each brush's icon in the Lucide font.
-KIT_BRUSH_ICONS := [sculpt.Brush_Kind]rune {
-	.Draw       = 0xe1d3, // brush
-	.Smooth     = 0xe283, // waves
-	.Clay       = 0xe104, // layers
-	.Flatten    = 0xe120, // minus
-	.Inflate    = 0xe349, // circle-dot
-	.Pinch      = 0xe220, // shrink
-	.Crease     = 0xe522, // slash
-	.Grab       = 0xe1d7, // hand
-	.Mask       = 0xe0a1, // contrast
-	.Layer      = 0xe52e, // layers-2
-	.Snake_Hook = 0xe38f, // spline
-	.Morph      = 0xe1f5, // history
-	.Paint      = 0xe2e7, // paintbrush
-	.Cloth      = 0xe1ca, // shirt
-}
-
 // The inspector's width, and the toolbars' height: one touch target.
 KIT_INSPECTOR_W :: 312
 
@@ -616,7 +598,7 @@ kit_layout :: proc(app: ^App) {
 	browser_anchor: ui.Rect
 	ui.begin_anchored(ctx, "dock", .Center, .End, {0, E}, {direction = .Row, gap = 0, padding = 4, radius = t.radius_large + 4, background = .Panel, center = true})
 	for kind in KIT_DOCK {
-		if ui.brush_tile(ctx, BRUSH_NAMES[kind], KIT_BRUSH_ICONS[kind], app.brush.kind == kind && app.tool == .Brush, command_keys(.Brush, int(kind))) do command_run(app, .Brush, int(kind))
+		if ui.brush_tile(ctx, BRUSHES[kind].name, BRUSHES[kind].icon, app.brush.kind == kind && app.tool == .Brush, command_keys(.Brush, int(kind))) do command_run(app, .Brush, int(kind))
 	}
 	ui.divider(ctx, 32)
 	in_dock := false
@@ -666,7 +648,7 @@ kit_layout :: proc(app: ^App) {
 		row := 0
 		for kind, i in sculpt.Brush_Kind {
 			if i % PER_ROW == 0 do ui.begin(ctx, fmt.tprintf("row %d", row), {direction = .Row, gap = 0})
-			if ui.brush_tile(ctx, BRUSH_NAMES[kind], KIT_BRUSH_ICONS[kind], app.brush.kind == kind && app.tool == .Brush, command_keys(.Brush, int(kind))) {
+			if ui.brush_tile(ctx, BRUSHES[kind].name, BRUSHES[kind].icon, app.brush.kind == kind && app.tool == .Brush, command_keys(.Brush, int(kind))) {
 				command_run(app, .Brush, int(kind))
 				k.browser = false
 			}

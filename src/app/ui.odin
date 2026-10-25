@@ -1,7 +1,6 @@
 package main
 
 import "core:fmt"
-import "core:strings"
 
 import "../camera"
 import "../geom"
@@ -92,40 +91,6 @@ Viewport_Input :: struct {
 	touch_roll:  f32, // ...and they twisted this many radians clockwise
 }
 
-BRUSH_NAMES := [sculpt.Brush_Kind]string {
-	.Draw    = "Draw",
-	.Smooth  = "Smooth",
-	.Clay    = "Clay",
-	.Flatten = "Flatten",
-	.Inflate = "Inflate",
-	.Pinch   = "Pinch",
-	.Crease  = "Crease",
-	.Grab    = "Grab",
-	.Mask    = "Mask",
-	.Layer   = "Layer",
-	.Snake_Hook = "Snake hook",
-	.Morph   = "Morph",
-	.Paint   = "Paint",
-	.Cloth   = "Cloth",
-}
-
-BRUSH_HELP := [sculpt.Brush_Kind]cstring {
-	.Draw    = "Pushes the surface out (Ctrl: in).",
-	.Smooth  = "Evens out bumps. Shift smooths with any brush.",
-	.Clay    = "Builds up toward a flat top, filling dips first (Ctrl: digs).",
-	.Flatten = "Levels the surface to its average plane (Ctrl: away from it).",
-	.Inflate = "Swells along the surface's own normals (Ctrl: shrinks).",
-	.Pinch   = "Pulls the surface together under the brush (Ctrl: apart).",
-	.Crease  = "Cuts a sharp groove (Ctrl: a sharp ridge).",
-	.Grab    = "Drags what is under the brush with the pointer.",
-	.Mask    = "Paints the mask (Ctrl: erases it).",
-	.Layer   = "Raises a flat layer of one height per stroke; going\nover it again adds nothing (Ctrl: lowers).",
-	.Snake_Hook = "Pulls the surface out after the pointer, for horns,\ntentacles and fingers. Best with dynamic topology.",
-	.Morph   = "Brings the surface back to the stored morph target\n(Object tab > Morph target), painting later work away.",
-	.Paint   = "Polypaint: colours the surface with the colour below,\nmoving nothing (Ctrl: takes the paint off).",
-	.Cloth   = "The surface around the brush acts as cloth while you\nhold: drag it into folds, let it sag, or bunch it up.",
-}
-
 CLOTH_MODE_NAMES := [sculpt.Cloth_Mode]cstring {
 	.Drag    = "Drag",
 	.Gravity = "Gravity",
@@ -138,15 +103,6 @@ CLOTH_MODE_HELP := [sculpt.Cloth_Mode]cstring {
 	.Gravity = "The cloth sags toward the bottom of the screen\nwhile the button is held (Ctrl: rises).",
 	.Pinch   = "Gathers the cloth toward the brush into folds\n(Ctrl: Expand).",
 	.Expand  = "Pushes the cloth out from the brush so it\nbuckles into ridges (Ctrl: Pinch).",
-}
-
-brush_by_name :: proc(name: string) -> (sculpt.Brush_Kind, bool) {
-	for kind in sculpt.Brush_Kind {
-		// "snake_hook" or "snakehook" on the command line find "Snake hook".
-		if strings.equal_fold(name, BRUSH_NAMES[kind]) || strings.equal_fold(name, fmt.tprint(kind)) do return kind, true
-		if spaced, _ := strings.remove_all(BRUSH_NAMES[kind], " ", context.temp_allocator); strings.equal_fold(name, spaced) do return kind, true
-	}
-	return {}, false
 }
 
 ui_state_default :: proc() -> Ui_State {

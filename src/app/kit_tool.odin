@@ -47,8 +47,8 @@ kit_brush_tab :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
 	kind := app.brush.kind
-	help, _ := strings.replace_all(string(BRUSH_HELP[kind]), "\n", " ", context.temp_allocator)
-	kit_tool_head(ctx, KIT_BRUSH_ICONS[kind], BRUSH_NAMES[kind], help)
+	help, _ := strings.replace_all(string(BRUSHES[kind].help), "\n", " ", context.temp_allocator)
+	kit_tool_head(ctx, BRUSHES[kind].icon, BRUSHES[kind].name, help)
 
 	if ui.section(ctx, "Stroke", &k.open[.Stroke]) {
 		_ = ui.slider(ctx, "Size", &app.brush.radius_px, MIN_RADIUS_PX, MAX_RADIUS_PX, .Logarithmic, fmt.tprintf("%.0f px", app.brush.radius_px))
@@ -62,7 +62,7 @@ kit_brush_tab :: proc(app: ^App) {
 		if app.brush.stroke == .Drag_Rect {
 			ui.paragraph(ctx, "One stamp where the drag starts: its size is how far you drag and, with an alpha, its top faces the pointer. For placing alphas; not with dynamic topology, Grab or Snake hook.")
 		}
-		if kind == .Cloth {
+		if .Cloth in BRUSHES[kind].flags {
 			modes: [len(sculpt.Cloth_Mode)]string
 			for m, i in sculpt.Cloth_Mode do modes[i] = string(CLOTH_MODE_NAMES[m])
 			if picked := ui.tabs(ctx, "cloth mode", modes[:], int(app.brush.cloth_mode)); picked >= 0 do app.brush.cloth_mode = sculpt.Cloth_Mode(picked)
@@ -72,7 +72,7 @@ kit_brush_tab :: proc(app: ^App) {
 		ui.paragraph(ctx, "S or U over the viewport sizes the brush or sets its strength there; [ and ] step the size, Shift with them the strength. Each brush keeps its own strength. Space, or a right click without dragging (a pen's side button), opens the brush pie.")
 		ui.section_end(ctx)
 	}
-	if kind == .Paint && ui.section(ctx, "Colour", &k.open[.Paint_Color]) {
+	if .Paint in BRUSHES[kind].flags && ui.section(ctx, "Colour", &k.open[.Paint_Color]) {
 		_ = kit_color(ctx, "brush colour", &app.brush.color)
 		ui.section_end(ctx)
 	}

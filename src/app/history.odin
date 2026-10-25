@@ -154,7 +154,7 @@ stroke_finish :: proc(app: ^App) {
 	if obj == nil do return
 	sculpt.sculptor_grab_end(object_sculptor(obj))
 	sculpt.sculptor_cloth_end(object_sculptor(obj))
-	if sculpt.sculptor_stroke_end(object_sculptor(obj)) do history_record(app, obj, .Mask if app.stroke.kind == .Mask else .Stroke, BRUSH_NAMES[app.stroke.kind])
+	if sculpt.sculptor_stroke_end(object_sculptor(obj)) do history_record(app, obj, .Mask if .Mask in BRUSHES[app.stroke.kind].flags else .Stroke, BRUSHES[app.stroke.kind].name)
 }
 
 // Applies a mask command to the selected object as an undo step of its own; Blur,
