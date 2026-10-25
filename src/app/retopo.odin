@@ -33,7 +33,6 @@ Bake_Settings :: struct {
 // The mesh to read the object's shape from: its top level (with the edits on any level
 // carried up), or a packed copy when dynamic. Normals are computed fresh into `normals`
 // (its own allocation, which the caller frees, along with `packed`).
-@(private = "file")
 object_shape :: proc(obj: ^Object, top: bool) -> (view: geom.Mesh, packed: geom.Mesh) {
 	if object_dynamic(obj) {
 		mask: []u8

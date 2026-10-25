@@ -58,32 +58,65 @@ mesh_join :: proc(parts: []Mesh, allocator := context.allocator) -> (m: Mesh) {
 // normal, to the nearer hit either way when one is within `reach`, then recomputes
 // the normals.
 mesh_project_onto :: proc(m: ^Mesh, onto: Mesh, bvh: ^Bvh, reach: f32, pool: ^jobs.Pool) {
+	next := make([]Vec3, len(m.positions), context.temp_allocator)
+	_ = project_along_normals(m.positions[:], m.normals[:], onto, bvh, reach, pool, next, nil)
+	copy(m.positions[:], next)
+	mesh_recompute_normals(m)
+}
+
+// Where each point of `positions` lands on `onto` (with `bvh` over its triangles) along
+// its normal: the nearer hit either way within `reach`, into `next`, and the triangle hit
+// into `tris` when given (max(u32) for none). A point with a zero normal or no hit stays
+// where it is. Returns how many found the surface.
+project_along_normals :: proc(positions, normals: []Vec3, onto: Mesh, bvh: ^Bvh, reach: f32, pool: ^jobs.Pool, next: []Vec3, tris: []u32) -> int {
 	Job :: struct {
-		m:     ^Mesh,
-		onto:  Mesh,
-		bvh:   Bvh,
-		reach: f32,
-		next:  []Vec3,
+		positions, normals: []Vec3,
+		onto:               Mesh,
+		bvh:                Bvh,
+		reach:              f32,
+		next:               []Vec3,
+		tris:               []u32,
+		hits:               []int, // per range
 	}
-	job := Job{m, onto, bvh^, reach, make([]Vec3, len(m.positions), context.temp_allocator)}
-	jobs.parallel_ranges(pool, len(m.positions), &job, proc(data: rawptr, lo, hi: int) {
+	ranges := (len(positions) + RANGE_GRAIN - 1) / RANGE_GRAIN
+	job := Job{positions, normals, onto, bvh^, reach, next, tris, make([]int, max(ranges, 1), context.temp_allocator)}
+	jobs.parallel_ranges(pool, len(positions), &job, proc(data: rawptr, lo, hi: int) {
 		job := cast(^Job)data
 		stack := make([dynamic]u32, 0, 64, runtime.heap_allocator())
 		defer delete(stack)
+		hits := 0
 		for v in lo ..< hi {
-			p, n := job.m.positions[v], job.m.normals[v]
+			p, n := job.positions[v], job.normals[v]
 			job.next[v] = p
+			if job.tris != nil do job.tris[v] = max(u32)
 			if n == {} do continue
-			out_t, _, out_hit := bvh_raycast_with(job.bvh, job.onto, p, n, job.reach, &stack)
-			in_t, _, in_hit := bvh_raycast_with(job.bvh, job.onto, p, -n, job.reach, &stack)
+			// A direction with a zero part gives the box tests 0 × ∞ where the point lies
+			// on a box's face, as points on a mirror plane do; a tiny part instead keeps
+			// them exact.
+			for &c in n do if c == 0 do c = 1e-9
+			// Each ray starts a hair behind the point, so a point already on the surface
+			// finds it.
+			eps := 1e-3 * job.reach
+			out_t, out_tri, out_hit := bvh_raycast_with(job.bvh, job.onto, p - eps * n, n, job.reach + eps, &stack)
+			in_t, in_tri, in_hit := bvh_raycast_with(job.bvh, job.onto, p + eps * n, -n, job.reach + eps, &stack)
+			out_t -= eps
+			in_t -= eps
 			switch {
-			case out_hit && (!in_hit || out_t <= in_t): job.next[v] = p + out_t * n
-			case in_hit:                                job.next[v] = p - in_t * n
+			case out_hit && (!in_hit || out_t <= in_t):
+				job.next[v] = p + out_t * n
+				if job.tris != nil do job.tris[v] = out_tri
+				hits += 1
+			case in_hit:
+				job.next[v] = p - in_t * n
+				if job.tris != nil do job.tris[v] = in_tri
+				hits += 1
 			}
 		}
+		job.hits[lo / RANGE_GRAIN] += hits
 	}, RANGE_GRAIN)
-	copy(m.positions[:], job.next)
-	mesh_recompute_normals(m)
+	total := 0
+	for h in job.hits do total += h
+	return total
 }
 
 // A shell made from the triangles of `m` that `keep` marks (one entry per vertex: a

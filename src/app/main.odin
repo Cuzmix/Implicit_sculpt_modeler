@@ -98,6 +98,7 @@ Options :: struct {
 	live_boolean: bool `usage:"Start with Scene > Booleans > Live boolean on."`,
 	make_boolean: bool `usage:"Make the boolean mesh before starting, as Make boolean mesh does (after --boolean)."`,
 	extract:    f32 `usage:"Extract the first object's masked part before starting, as Scene > Extract masked does, this thick (a share of its size; after --boolean); masks what the top third of the view shows first when nothing is masked."`,
+	project:    bool `usage:"Project the first object's detail onto the selected one before starting, as Scene > Project detail does (after --retopo)."`,
 	curve:      string `usage:"Draw a curve of this kind (tube, stitches or zipper) across the middle of the view before starting, as the Curve tool does (after --extract)."`,
 	insert:     string `usage:"Insert this shape (sphere, cube, cylinder, cone or torus) at the middle of the view before starting, as a click of the Insert tool does (after --curve)."`,
 	bake_size:  int `usage:"Texels square for --bake (512, 1024, 2048 or 4096; default 2048)."`,
@@ -473,6 +474,7 @@ run :: proc(opts: Options) -> bool {
 		}
 		if !extract_masked(&app) do return false
 	}
+	if opts.project && len(app.scene.objects) > 1 do project_detail(&app, selected_object(&app), app.scene.objects[0])
 	if opts.curve != "" {
 		found := false
 		for k in Curve_Kind do if strings.equal_fold(opts.curve, fmt.tprint(k)) {
