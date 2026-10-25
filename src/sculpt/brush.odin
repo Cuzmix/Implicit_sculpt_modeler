@@ -45,6 +45,7 @@ Brush_Kind :: enum {
 	Layer,   // raise a flat-topped layer of one height per stroke, however often it passes (inverted: lower)
 	Snake_Hook, // pull the surface out after the pointer: each dab drags it by Brush.drag
 	Morph,   // bring the surface back toward the stored morph target (morph.odin)
+	Cloth,   // the surface around the brush behaves as cloth for the stroke: sculptor_cloth_begin and _step (cloth.odin)
 }
 
 Axis :: enum u8 {
@@ -188,6 +189,7 @@ Sculptor :: struct {
 	// nil until something is first masked (mask.odin).
 	mask:        []u8,
 	grab:        Grab, // the vertices a Grab stroke drags (grab.odin)
+	cloth:       Cloth, // the region a Cloth stroke simulates (cloth.odin)
 	// Per vertex: how far the Layer brush has raised it this stroke, valid where its
 	// stroke number is layer_stroke; nil until the brush is first used.
 	layer:        []Layer_Height,
@@ -239,6 +241,7 @@ sculptor_destroy :: proc(s: ^Sculptor) {
 	delete(s.layer, s.history.allocator)
 	delete(s.morph, s.history.allocator)
 	grab_destroy(&s.grab)
+	cloth_destroy(&s.cloth)
 	history_destroy(&s.history)
 	geom.vertex_faces_destroy(&s.faces)
 	geom.bvh_destroy(&s.bvh)
@@ -632,7 +635,7 @@ Dab :: struct {
 // mask). Positions and BVH bounds are current when it returns; vertex normals catch up
 // in sculptor_flush. Grab strokes go through sculptor_grab_begin instead.
 apply_dab :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
-	if brush.kind == .Grab do return 0
+	if brush.kind == .Grab || brush.kind == .Cloth do return 0
 	moved := 0
 	for sign in mirrors(brush.symmetry) {
 		// A mirror image turns the mirrored way: the reflection, the turn, the
@@ -766,7 +769,7 @@ dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
 	case .Morph:
 		if len(s.morph) != len(s.mesh.positions) do return 0
 		jobs.parallel_for(pool, len(s.hit), &d, job_morph)
-	case .Grab, .Mask:
+	case .Grab, .Mask, .Cloth:
 		unreachable()
 	case .Smooth:
 		// Jacobi step: every target is computed from unmoved positions first.
