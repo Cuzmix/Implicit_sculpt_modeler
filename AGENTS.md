@@ -61,7 +61,7 @@ skill whose description fits the request BEFORE you form a plan.
 - Every vertex move goes through `apply_dab`, `sculptor_grab_move` or `sculptor_nodes_moved`, and every mask change
   through `mask_dab` or `sculptor_mask_command`; triangles change only under dynamic topology inside a stroke. Any other
   topology change (remesh, booleans, …) copies `object_remesh`: end the stroke, leave HD, release and rebuild the object,
-  which drops its levels, mask and history (until the `Mesh_Swap` undo entry exists: `sm-cad`).
+  which drops its levels, mask and strokes, and record it as a swap undo entry (`history_snapshot` / `history_record_swap`: `sm-cad`).
 - ImGui never owns sculpt state; panels keep no references between frames; scene changes are `Scene_Command`s and
   file actions are requests (`file_take`), both applied at the start of the next frame.
 - The `.sculpt` scene file is versioned (`SCENE_VERSION`, `src/app/files.odin`): a change to what it stores bumps the

@@ -1,49 +1,41 @@
-# Undo for topology-changing tools: the `Mesh_Swap` entry
+# Undo for topology-changing tools: swap entries
 
 ## Contents
 - Why positions-only undo cannot cover it
-- The design
-- Interaction with levels, HD and the cross-object history
-- Memory cap
-- Tests
+- What exists
+- Rules for a new tool
+- Limits
 
 ## Why positions-only undo cannot cover it
-A stroke's undo step holds the owned positions (or masks) of the nodes a dab reached (`src/sculpt/undo.odin:9-15`): it assumes the
-node partition, the vertex count and the triangle list are the same before and after. A boolean, trim, extrude, remesh
-or decimate changes all three, and `sculptor_init` renumbers the mesh besides, so there is no node to restore into.
-Today such a change rebuilds the object and clears its history (`object_remesh`, `src/app/scene.odin:147-175`, through
-`object_release_mesh`), which is correct but not undoable. Dynamic topology already undoes topology inside one sculptor
-by saving whole nodes (`record_full`, `dyn_step_swap` in `src/sculpt/dyntopo.odin`): positions, indices and masks of a
-fixed-size page. That works because a page's slots never move; an object-wide swap still needs the design below.
+A stroke's undo step holds the owned positions (or masks) of the nodes a dab reached (`src/sculpt/undo.odin`): it
+assumes the node partition, the vertex count and the triangle list are the same before and after. A boolean, trim,
+extrude, remesh or decimate changes all three, and `sculptor_init` renumbers the mesh besides, so there is no node to
+restore into. Dynamic topology undoes topology inside one sculptor by saving whole pages (`record_full`,
+`dyn_step_swap` in `src/sculpt/dyntopo.odin`); an object-wide change needs the whole object.
 
-## The design
-- `History_Entry` (`src/app/history.odin:17-20`) gains a `kind: enum {Stroke, Mesh_Swap}`. A `Mesh_Swap` entry names the
-  object and a snapshot slot; the object keeps `swaps: [dynamic]Mesh_Snapshot` with `{positions: []Vec3, indices: []u32,
-  transform: Transform, bytes: int}`. The current mesh is always the live `Levels`; a snapshot is the base level's mesh
-  before the tool ran (the levels above are derived and are not kept; see below).
-- Undoing a `Mesh_Swap` swaps the snapshot with the live base mesh: `stroke_finish`, `object_hd_leave`, wait for the GPU,
-  release the levels and GPU buffers (`object_release_mesh` minus the history reset), `levels_init` with the snapshot's
-  mesh, recreate the buffers, and store the mesh that was live into the slot, so the entry is its own inverse exactly
-  like a stroke step. Redo is the same swap again.
-- Stroke entries that were made on the mesh before the swap cannot apply to the swapped-in mesh. They are dropped from
-  `history.done` for that object when the swap is recorded (as HD strokes are dropped when the window closes); stroke
-  entries made after the swap sit above it and undo first, so the order stays consistent.
+## What exists (`src/app/history.odin`)
+- `History_Entry.swap: ^Object_Snapshot` (nil for strokes). A snapshot is the object as `object_put`
+  (`src/app/files.odin`) writes it into the scene file, i.e. `levels_write`: every level as positions, the mask, dynamic
+  topology, name and transforms; or `exists = false` for "the object did not exist" (undoing an add).
+- `history_swap` trades the live object for the snapshot: it snapshots the live one, rebuilds from the bytes with
+  `object_get` (same id, `levels_read`, buffers), frees the live object and puts the rebuilt one at the snapshot's index,
+  then stores the live snapshot in the entry. The entry is its own inverse, so undo and redo run the same code.
+- Recording or applying a swap drops that object's *stroke* entries in both lists (`history_forget_strokes`): their
+  sculptors are gone. Swap entries are kept, since each holds the whole object. `object_release_mesh` therefore forgets
+  only strokes; `scene_open` calls `history_clear` because the file's ids can collide with the old scene's.
+- Recorded today for: Add sphere and Import (`history_record_added`), Delete (`scene_delete_selected`, Delete key),
+  Remesh, Dynamic topology on/off, Delete higher, Delete lower (all in `scene_apply`). Startup flags (`--remesh`,
+  `--dyntopo`) record nothing.
 
-## Interaction with levels, HD and the cross-object history
-- Levels above the base are rebuilt by the user after an undo, not restored: storing a whole `Levels` per snapshot would
-  multiply memory by the number of levels. The entry records how many levels and HD steps existed, and the undo logs
-  what was dropped. If this proves annoying in use, the next step is storing the levels' `detail` arrays, which are
-  small relative to the meshes.
-- The cross-object order is unchanged: `history_step` pops entries newest first; a `Mesh_Swap` entry runs the swap
-  instead of `sculptor_undo`. `entry_sculptor` returns nil for it, so the "dropped step" skip must not fire for swaps.
+## Rules for a new tool
+- In `scene_apply`: `before := history_snapshot(app, obj, "<what>")`, run the tool, then
+  `history_record_swap(app, obj.id, before)` when it changed something, else `history_snapshot_drop(before)`.
+- The `what` string is shown in the Edit menu ("Undo remesh") and must be a constant (not owned).
+- HD detail is not in a snapshot (the HD steps are); `object_put` leaves any HD window first.
 
-## Memory cap
-- Snapshots count against a per-object cap like `UNDO_LIMIT_BYTES` (512 MB): 16 bytes per vertex plus 12 per triangle,
-  so a 10M-vertex base costs about 400 MB per snapshot; the oldest snapshot goes first, and the entry that pointed at it
-  is removed from the history. Print `swap_mb=` next to `undo_mb=` in the exit stats.
-
-## Tests
-- `tests` in `src/app` do not exist (the app has no test package); put the swap logic in `sculpt` or `geom` where it is
-  pure (a `Mesh_Snapshot` type and `swap` procs over `geom.Mesh`), test the swap round trip there (`mesh_check` before
-  and after, byte-identical positions and indices), and exercise the app path with `--frames` runs that log
-  `swap: undone <id> (<v> vertices)` lines plus `--check-mesh`.
+## Limits
+- About 37 bytes a base vertex plus 12 a vertex of each level above per snapshot. `SWAP_LIMIT_BYTES` (1.5 GB) over
+  all snapshots; past it the oldest swap entry and everything older in `done` go (never the newest). Stats panel shows
+  the total.
+- Cost: an object_put plus a `levels_read` per undo; 100k vertices ~0.1 s on the VM; a 10M scene read is ~3.4 s on
+  the VM (much less on a desktop).

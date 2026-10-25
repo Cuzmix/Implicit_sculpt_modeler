@@ -2,16 +2,16 @@
   "source": ".claude/skills",
   "files": {
     "sm-build/SKILL.md": "cda1337bf95998ebebee5e3f4974f44b79ca245ca367edcd44779ff101a8b399",
-    "sm-cad/SKILL.md": "4dd18f860dcd23b52710e56c5970e25748877a338ec84e2861c807357897fefc",
+    "sm-cad/SKILL.md": "28e1baf1ccc83fd7a9931fc4ca3cd52d66f99b96cca25fb1538e80d9a70c2675",
     "sm-cad/references/algorithms.md": "01d2533465f6863979662a3e062a7451fc82aec36cbd178148858991583f02b2",
-    "sm-cad/references/undo-and-topology.md": "ef50426251d0c80e6fd3935cda7f58c298b436e073061d7360c8da576ea768d1",
+    "sm-cad/references/undo-and-topology.md": "5b5ac5f6a7c802a413c9e22deea2fb31074478f02d7d3f63bce968c4fff5e249",
     "sm-geom/SKILL.md": "7be468931db31d737b60856e54cccd023770ba802d7593d8ce18d4ca6f03913e",
     "sm-lint/SKILL.md": "b28f7a27fafc9ccd6515808c5aa06719d900e4c91bf990a923f020174bb5ba14",
     "sm-odin/SKILL.md": "cb8b8ab544858f66c560ccb89c6984f06369a375ef4ea0076ad63465e75e0cbb",
     "sm-perf/SKILL.md": "4610ecb2be8c95b0a3e72f16f88977717318e129286a781f49264834fd0a7ae6",
     "sm-render/SKILL.md": "d4c48014fbddaa83c9b99cb757eea14b0239cbcb19d751fee512141c7dd31b1b",
     "sm-sculpt/SKILL.md": "7e64f6548b328f0b0eb3c2c18300e202bae385f6bd5176ec00459987e256f43c",
-    "sm-sdf/SKILL.md": "7d7431b24b86938f52c7dc6ac0c4fe25747bacddb5572c4cd38ea31176fa1226",
+    "sm-sdf/SKILL.md": "f1678384aeec1f5658969a6dc86ce72f6362b57bdcb83543a0aa86bc30d9dde1",
     "sm-sdf/references/implicit.md": "0242284742b5712ed46cbc3498e45c70c9768f5972cc5381b45331ad8641185f",
     "sm-ui/SKILL.md": "6df2cbeb93a5d09487a7248aaa956b732206d40d147a46ceb369662d6effe2e4"
   }
