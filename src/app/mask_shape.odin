@@ -1,9 +1,9 @@
 package main
 
 import "core:math/linalg"
-import imgui "deps:odin-imgui"
 
 import "../camera"
+import "../ui"
 
 // Masking by shape, as ZBrush does: with the Brush tool, Ctrl and a left drag that
 // starts on empty space draws a rectangle (or a lasso, as the Mask section sets), and
@@ -70,30 +70,23 @@ object_clip :: proc(app: ^App, obj: ^Object, size: [2]f32) -> matrix[4, 4]f32 {
 }
 
 // Draws the shape being dragged.
-draw_mask_shape :: proc(app: ^App, list: ^imgui.DrawList, o: imgui.Vec2, mouse: [2]f32) {
+draw_mask_shape :: proc(app: ^App, o: Overlay, mouse: [2]f32) {
 	g := &app.mask_shape
 	if !g.active do return
-	rgba :: proc(c: [4]f32) -> u32 {return imgui.ColorConvertFloat4ToU32(c)}
-	color := rgba({0.95, 0.55, 0.35, 1} if !g.unmask else {0.5, 0.8, 1, 1})
-	fill := rgba({0.95, 0.55, 0.35, 0.12} if !g.unmask else {0.5, 0.8, 1, 0.12})
-	draw_shape_outline(list, o, g.points[:], mouse, app.ui.mask_shape_kind == .Rectangle, color, fill)
+	color := overlay_color({0.95, 0.55, 0.35, 1} if !g.unmask else {0.5, 0.8, 1, 1})
+	fill := overlay_color({0.95, 0.55, 0.35, 0.12} if !g.unmask else {0.5, 0.8, 1, 0.12})
+	draw_shape_outline(o, g.points[:], mouse, app.ui.mask_shape_kind == .Rectangle, color, fill)
 }
 
 // Draws a shape being dragged: the box from the first point to `mouse`, filled, or the
 // lasso through `points`.
-draw_shape_outline :: proc(list: ^imgui.DrawList, o: imgui.Vec2, points: [][2]f32, mouse: [2]f32, rectangle: bool, color, fill: u32) {
+draw_shape_outline :: proc(o: Overlay, points: [][2]f32, mouse: [2]f32, rectangle: bool, color, fill: ui.Color) {
 	if rectangle {
-		a := o + points[0]
-		b := o + mouse
-		lo, hi := imgui.Vec2{min(a.x, b.x), min(a.y, b.y)}, imgui.Vec2{max(a.x, b.x), max(a.y, b.y)}
-		imgui.DrawList_AddRectFilled(list, lo, hi, fill)
-		imgui.DrawList_AddRect(list, lo, hi, color, 0, 1.5)
+		overlay_box(o, points[0], mouse, color, fill, 1.5)
 		return
 	}
-	drawn := make([]imgui.Vec2, len(points), context.temp_allocator)
-	for p, i in points do drawn[i] = o + p
 	// Outline only: a lasso can cross itself, which a filled polygon cannot draw.
-	if len(drawn) >= 2 do imgui.DrawList_AddPolyline(list, &drawn[0], i32(len(drawn)), color, 1.5, imgui.DrawFlags_Closed)
+	if len(points) >= 2 do overlay_polyline(o, points, color, 1.5, closed = true)
 }
 
 mask_shape_destroy :: proc(g: ^Mask_Shape) {delete(g.points)}

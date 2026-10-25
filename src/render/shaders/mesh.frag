@@ -116,6 +116,6 @@ void main() {
 	vec3 h     = normalize(KEY_DIR + v);
 	float spec = pow(max(dot(n, h), 0.0), params.z) * params.y;
 	vec3 color = albedo * (params.x + key + fill) + vec3(spec + rim) * highlight;
-	// Linear to sRGB; the viewport target is a UNORM texture shown as-is by ImGui.
+	// Linear to sRGB; the viewport target is a UNORM texture the interface shows as-is.
 	out_color = vec4(pow(color, vec3(1.0 / 2.2)), 1.0);
 }

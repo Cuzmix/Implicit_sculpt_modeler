@@ -7,7 +7,6 @@ import "core:strconv"
 import "core:strings"
 import "core:time"
 
-import imgui "deps:odin-imgui"
 import sdl "vendor:sdl3"
 
 import "../geom"
@@ -17,14 +16,13 @@ import "../ui"
 
 // The interface: one layout for every screen, drawn by the ui kit over a viewport that
 // fills the window (the design spec "Sculpt UI redesign"). Toolbars float at the top,
-// the inspector (brush, object and scene) on the right, size and strength on the left
-// and the brush dock at the bottom. The classic ImGui panels (Menu > Classic panels)
-// keep the tools not yet here; ImGui still draws the brush circle, the pie and, on F11,
-// the Stats panel, styled to match.
+// the inspector (the tool, the object and the scene) on the right, size and strength on
+// the left, the brush dock at the bottom, and the History over the dock when it is open.
+// Everything the app shows is drawn by the kit (src/ui).
 
 // The inspector's tabs.
 Kit_Tab :: enum u8 {
-	Brush,
+	Tool,
 	Object,
 	Scene,
 }
@@ -32,7 +30,7 @@ Kit_Tab :: enum u8 {
 Kit_State :: struct {
 	ctx:        ui.Context,
 	pass:       render.Ui_Pass,
-	input:      ui.Input, // built up from this frame's events
+	scale:      f32, // window coordinates per point, this frame
 	last_frame: time.Tick, // for the animations' clock
 	inspector:  bool,
 	tab:        Kit_Tab,
@@ -40,7 +38,12 @@ Kit_State :: struct {
 	menu:       bool,
 	view_menu:  bool,
 	browser:    bool, // every brush, in a popover over the dock
-	stats:      bool, // the ImGui Stats panel over the viewport (F11)
+	stats:      bool, // the Stats panel (F11)
+	history:    bool, // the History panel, over the dock
+	text_input: bool, // SDL's text input is on, for the text field that has the keys
+	// Where the viewport's overlay goes in the draw order: over the viewport image and
+	// under the panels. Set while a frame is laid out, until the overlay is drawn.
+	layer:      Maybe(ui.Layer),
 	// The outliner's context menu: open, on which object, where.
 	object_menu:    bool,
 	object_menu_id: int,
@@ -48,6 +51,8 @@ Kit_State :: struct {
 	// Which inspector sections are open.
 	open:       [Kit_Section]bool,
 	scroll:     f32, // the inspector's scroll, where it is heading
+	scroll_drag: bool, // a drag on the inspector is scrolling it...
+	scroll_from: f32, // ...which puts the scroll at this less the pointer's height
 	add_shape:  geom.Primitive,
 	add_size:   int, // into SPHERE_PRESETS
 	note_at:    time.Tick, // the file note last shown as a toast
@@ -57,15 +62,40 @@ Kit_State :: struct {
 }
 
 Kit_Section :: enum u8 {
+	// The tool tab's.
 	Stroke,
+	Paint_Color,
 	Falloff,
-	Options,
 	Alpha,
+	Pen,
+	Options,
+	Recorder,
+	// The object tab's.
+	Transform,
 	Levels,
+	Hd,
 	Topology,
 	Mask,
+	Visibility,
+	Paint,
+	Morph,
+	Layers,
+	Deform,
 	Remesh,
+	Mirror,
+	Retopo,
+	Project,
+	Booleans,
+	Extract,
+	// The scene tab's.
 	Add,
+	Material,
+	Studio,
+	Camera,
+	// The Stats panel's.
+	Frame,
+	Drawing,
+	Sculpting,
 }
 
 // One scripted pointer event (--ui-events), applied at the start of its frame.
@@ -123,26 +153,28 @@ kit_events_parse :: proc(app: ^App, spec: string) -> bool {
 	return true
 }
 
-// Applies this frame's scripted events to the kit's input, as SDL events would.
+// Applies this frame's scripted events as SDL's would arrive, so the panels and the
+// viewport both see them. `scale` turns their window points into window coordinates.
 @(private = "file")
-kit_events_apply :: proc(k: ^Kit_State) {
-	in_ := &k.input
+kit_events_apply :: proc(app: ^App, scale: f32) {
+	k := &app.kit
+	d := &app.device
+	now := sdl.GetTicksNS()
 	for ev in k.events {
 		if ev.frame != k.frame do continue
+		d.input_at = now
 		switch ev.kind {
 		case .Move:
-			in_.mouse, in_.mouse_valid = ev.at, true
+			device_move(d, ev.at * scale)
 		case .Down:
-			in_.pressed += {.Left}
-			in_.down += {.Left}
+			device_button(d, .Left, true, now)
 		case .Up:
-			in_.released += {.Left}
-			in_.down -= {.Left}
+			device_button(d, .Left, false, now)
 		case .Right:
-			in_.pressed += {.Right}
-			in_.released += {.Right}
+			device_button(d, .Right, true, now)
+			device_button(d, .Right, false, now)
 		case .Wheel:
-			in_.wheel += ev.wheel
+			d.wheel += ev.wheel
 		}
 	}
 }
@@ -181,7 +213,8 @@ kit_init :: proc(app: ^App) {
 	ui.init(&app.kit.ctx)
 	k := &app.kit
 	k.inspector = true
-	k.open = {.Stroke = true, .Falloff = true, .Options = true, .Alpha = false, .Levels = true, .Topology = false, .Mask = true, .Remesh = false, .Add = true}
+	// The sections most reached for start open; the rest fold until asked for.
+	for s in ([?]Kit_Section{.Stroke, .Paint_Color, .Falloff, .Transform, .Levels, .Mask, .Add, .Frame, .Sculpting}) do k.open[s] = true
 	k.add_size = 2 // 1M
 	k.last_frame = time.tick_now()
 }
@@ -190,39 +223,6 @@ kit_destroy :: proc(app: ^App) {
 	delete(app.kit.events)
 	render.ui_pass_destroy(&app.renderer, &app.kit.pass)
 	ui.destroy(&app.kit.ctx)
-}
-
-// Folds one SDL event into the kit's input for this frame.
-kit_event :: proc(app: ^App, e: ^sdl.Event) {
-	in_ := &app.kit.input
-	button :: proc(b: u8) -> (ui.Button, bool) {
-		switch b {
-		case sdl.BUTTON_LEFT:   return .Left, true
-		case sdl.BUTTON_RIGHT:  return .Right, true
-		case sdl.BUTTON_MIDDLE: return .Middle, true
-		}
-		return .Left, false
-	}
-	scale := kit_content_scale(app.window)
-	#partial switch e.type {
-	case .MOUSE_MOTION:
-		in_.mouse, in_.mouse_valid = [2]f32{e.motion.x, e.motion.y} / scale, true
-	case .MOUSE_BUTTON_DOWN, .MOUSE_BUTTON_UP:
-		in_.mouse, in_.mouse_valid = [2]f32{e.button.x, e.button.y} / scale, true
-		if b, ok := button(e.button.button); ok {
-			if e.button.down {
-				in_.pressed += {b}
-				in_.down += {b}
-			} else {
-				in_.released += {b}
-				in_.down -= {b}
-			}
-		}
-	case .MOUSE_WHEEL:
-		in_.wheel += e.wheel.y
-	case .WINDOW_MOUSE_LEAVE:
-		in_.mouse_valid = false
-	}
 }
 
 // Window coordinates per interface point. SDL gives the pointer and the window's size in
@@ -237,97 +237,125 @@ kit_content_scale :: proc(window: ^sdl.Window) -> f32 {
 	return max(display / density, 1)
 }
 
-// Lays out the new interface for this frame and returns what the viewport saw. Runs
-// where ui_draw would, inside the ImGui frame.
-kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
-	start := time.tick_now()
+// Starts the kit's frame with this frame's pointer, in points, and returns the window's
+// size in window coordinates and in pixels.
+@(private = "file")
+kit_begin :: proc(app: ^App, window: ^sdl.Window) -> (size, pixels: [2]i32) {
 	k := &app.kit
 	w, h: i32
 	_ = sdl.GetWindowSize(window, &w, &h)
 	pw, ph: i32
 	_ = sdl.GetWindowSizeInPixels(window, &pw, &ph)
-	io := imgui.GetIO()
-	kit_events_apply(k)
-	k.frame += 1
-	in_ := k.input
 	scale := kit_content_scale(window)
-	in_.window = [2]f32{f32(w), f32(h)} / scale
-	in_.pixel_density = f32(pw) / f32(max(w, 1)) * scale
-	in_.safe = {}
+	kit_events_apply(app, scale)
+	k.frame += 1
+	d := &app.device
+	in_ := ui.Input {
+		mouse         = d.mouse / scale,
+		mouse_valid   = d.over,
+		down          = d.down,
+		pressed       = d.pressed,
+		released      = d.released,
+		wheel         = d.wheel,
+		shift         = d.shift,
+		ctrl          = d.ctrl,
+		alt           = d.alt,
+		window        = [2]f32{f32(w), f32(h)} / scale,
+		pixel_density = f32(pw) / f32(max(w, 1)) * scale,
+		text          = string(d.text[:d.text_len]),
+	}
+	for key in d.keys {
+		switch key.key {
+		case sdl.K_BACKSPACE:                         in_.backspace += 1
+		case sdl.K_RETURN, sdl.K_KP_ENTER, sdl.K_ESCAPE: in_.text_end = true
+		}
+	}
 	if safe: sdl.Rect; sdl.GetWindowSafeArea(window, &safe) {
 		in_.safe = {f32(safe.x) / scale, f32(safe.y) / scale, f32(safe.w) / scale, f32(safe.h) / scale}
 	}
-	in_.shift, in_.ctrl, in_.alt = io.KeyShift, io.KeyCtrl, io.KeyAlt
 	now := time.tick_now()
 	in_.dt = f32(time.duration_seconds(time.tick_diff(k.last_frame, now)))
 	k.last_frame = now
+	k.scale = scale
+	ui.frame_begin(&k.ctx, in_)
+	return {w, h}, {pw, ph}
+}
+
+// Lays out the interface for this frame and returns what the viewport saw.
+kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
+	start := time.tick_now()
+	k := &app.kit
+	// A text field that has the keys at the start of the frame takes them all, the Enter
+	// or Escape that ends it too.
+	typed := ui.typing(&k.ctx)
+	size, pixels := kit_begin(app, window)
 	// The viewport fills the window, pixel for pixel.
-	app.ui.viewport_request = {f32(max(pw, 1)), f32(max(ph, 1))}
+	app.ui.viewport_request = {f32(max(pixels.x, 1)), f32(max(pixels.y, 1))}
 
 	ctx := &k.ctx
-	ui.frame_begin(ctx, in_)
 	// A new file note (saved, opened, refused) shows as a toast.
 	if note := app.file_note; note.text != "" && note.at != k.note_at {
 		k.note_at = note.at
 		ui.toast(ctx, note.text, .Warning if note.warning else .Success)
 	}
-	ui.image(ctx, {0, 0, in_.window.x, in_.window.y}, KIT_VIEWPORT_IMAGE)
+	ui.image(ctx, {0, 0, ctx.input.window.x, ctx.input.window.y}, KIT_VIEWPORT_IMAGE)
+	k.layer = ui.layer_mark(ctx)
 	kit_layout(app)
-	input := kit_viewport_input(app, {f32(w), f32(h)})
-	if k.stats do draw_stats_panel(app)
-	handle_shortcuts(app)
-	if imgui.IsKeyPressed(.F11, false) do k.stats = !k.stats
-	if !io.WantTextInput && imgui.IsKeyPressed(.Tab, false) && !io.KeyCtrl do k.inspector = !k.inspector
-	// Escape, or Android's back gesture (the AppBack key), closes whatever floats, before
+	input := kit_viewport_input(app, {f32(size.x), f32(size.y)})
+	if !typed do handle_shortcuts(app)
+	layer_drag_end(app)
+	// Text input (and with it a tablet's on-screen keyboard) is on only while a text
+	// field has the keys.
+	if wanted := ui.typing(ctx); wanted != k.text_input {
+		k.text_input = wanted
+		_ = sdl.StartTextInput(window) if wanted else sdl.StopTextInput(window)
+	}
+	d := &app.device
+	if !k.text_input && key_pressed(d, sdl.K_F11) do k.stats = !k.stats
+	if !k.text_input && key_pressed(d, sdl.K_TAB) && !d.ctrl do k.inspector = !k.inspector
+	// Escape, or Android's back gesture (the AC Back key), closes whatever floats, before
 	// Escape stops a replay.
-	if imgui.IsKeyPressed(.Escape, false) || imgui.IsKeyPressed(.AppBack, false) {
+	if key_pressed(d, sdl.K_ESCAPE) || key_pressed(d, sdl.K_AC_BACK) {
 		k.menu, k.view_menu, k.browser, k.object_menu = false, false, false, false
 		ctx.select_open = 0
 	}
-
-	// The next frame's events build on what is held now.
-	k.input.pressed, k.input.released, k.input.wheel = {}, {}, 0
 	k.ms = time.duration_milliseconds(time.tick_since(start))
 	return input
 }
 
-// What the viewport saw: everything the panels did not take. Buttons, keys and the
-// wheel come from ImGui's view of the events, as draw_viewport's do.
+// What the viewport saw: everything the panels did not take.
 @(private = "file")
 kit_viewport_input :: proc(app: ^App, size: [2]f32) -> (input: Viewport_Input) {
 	k := &app.kit
-	io := imgui.GetIO()
+	d := &app.device
 	input.size = size
-	input.hovered = k.ctx.input.mouse_valid && !ui.wants_pointer(&k.ctx)
+	input.hovered = d.over && !ui.wants_pointer(&k.ctx)
 	input.dragging = ui.viewport_dragging(&k.ctx)
-	input.mouse_pos = {io.MousePos.x, io.MousePos.y}
+	input.mouse_pos = d.mouse
 	input.samples = make([]Input_Sample, len(app.samples), context.temp_allocator)
 	copy(input.samples, app.samples[:])
 	input.pen_tilt = app.pen_tilt
-	input.mouse_delta = {io.MouseDelta.x, io.MouseDelta.y}
-	if input.hovered || input.dragging do input.wheel = io.MouseWheel
+	input.mouse_delta = d.moved
+	if input.hovered || input.dragging do input.wheel = d.wheel
 	// A right press let go soon and about where it began is a tap, which opens the brush
 	// pie, rather than an orbit.
-	right_tap :=
-		input.dragging && .Right in k.ctx.input.released && !io.KeyShift &&
-		io.MouseDownDurationPrev[imgui.MouseButton.Right] < f32(time.duration_seconds(PIE_TAP)) &&
-		io.MouseDragMaxDistanceSqr[imgui.MouseButton.Right] < PIE_TAP_PX * PIE_TAP_PX
-	left := imgui.IsMouseDown(.Left)
-	right := imgui.IsMouseDown(.Right)
-	middle := imgui.IsMouseDown(.Middle)
+	right_tap := input.dragging && d.right_tap && !d.shift
+	// A press and its release can both come in one frame (a tap, or a click during a slow
+	// frame): the press still holds for this frame, and the release among the samples
+	// ends what it began; the next frame sees the button up.
+	left := .Left in d.down || .Left in d.pressed
+	right, middle := .Right in d.down, .Middle in d.down
 	if input.dragging {
-		input.orbit_drag = (right && !io.KeyShift) || (left && io.KeyAlt && !io.KeyCtrl)
-		input.pan_drag = middle || (right && io.KeyShift)
-		input.primary = left && (!io.KeyAlt || io.KeyCtrl)
-		input.alt = input.primary && io.KeyAlt
-		input.press = input.primary && .Left in k.ctx.input.pressed
-		input.smooth = input.primary && io.KeyShift
-		input.invert = input.primary && io.KeyCtrl
+		input.orbit_drag = (right && !d.shift) || (left && d.alt && !d.ctrl)
+		input.pan_drag = middle || (right && d.shift)
+		input.primary = left && (!d.alt || d.ctrl)
+		input.alt = input.primary && d.alt
+		input.press = input.primary && .Left in d.pressed
+		input.smooth = input.primary && d.shift
+		input.invert = input.primary && d.ctrl
 	}
 	pie_update(app, &input, right_tap)
 	adjust_update(app, &input)
-	app.ui.viewport_draw_list = imgui.GetBackgroundDrawList()
-	app.ui.viewport_origin = {}
 	app.ui.viewport_mouse, app.ui.viewport_size, app.ui.viewport_hovered = input.mouse_pos, input.size, input.hovered
 	return
 }
@@ -349,26 +377,21 @@ kit_layout :: proc(app: ^App) {
 	menu_anchor = ctx.last_rect
 	ui.end(ctx)
 	ui.begin(ctx, "history", bar)
-	if ui.icon_button(ctx, "Undo", ui.ICON_UNDO, enabled = history_can_undo(app), keys = "Ctrl+Z") do history_undo(app)
-	if ui.icon_button(ctx, "Redo", ui.ICON_REDO, enabled = history_can_redo(app), keys = "Ctrl+Shift+Z") do history_redo(app)
+	undo := fmt.tprintf("Undo %s##undo", history_next_label(app.history.done[:]))
+	redo := fmt.tprintf("Redo %s##redo", history_next_label(app.history.undone[:]))
+	if ui.icon_button(ctx, undo, ui.ICON_UNDO, enabled = history_can_undo(app), keys = "Ctrl+Z") do history_undo(app)
+	if ui.icon_button(ctx, redo, ui.ICON_REDO, enabled = history_can_redo(app), keys = "Ctrl+Shift+Z") do history_redo(app)
+	if ui.icon_button(ctx, "History", ui.ICON_HISTORY, selected = k.history) do k.history = !k.history
 	ui.end(ctx)
 	ui.end(ctx)
 
 	// Top middle: the tool, then symmetry (any mix of the three axes).
 	ui.begin_anchored(ctx, "tools", .Center, .Start, {0, E}, bar)
 	ui.spacer(ctx, 6)
-	tool_index := 0 if app.tool == .Move else 1
-	if app.tool == .Brush || app.tool == .Move {
-		tool_names := [2]string{"Move", "Sculpt"}
-		tool_icons := [2]rune{ui.ICON_MOVE, ui.ICON_BRUSH}
-		if picked := ui.tabs(ctx, "tool", tool_names[:], tool_index, accent = true, glyphs = tool_icons[:]); picked >= 0 {
-			app.tool = .Move if picked == 0 else .Brush
-		}
-	} else {
-		// Curve and Insert live in the classic panels; show which is on and a way back.
-		other := [1]string{"Curve" if app.tool == .Curve else "Insert"}
-		if ui.tabs(ctx, "tool other", other[:], 0, accent = true) >= 0 do app.tool = .Brush
-	}
+	// In Tool's order: W, B, C and I pick them from the keyboard.
+	tool_names := [len(Tool)]string{"Move", "Sculpt", "Curve", "Insert"}
+	tool_icons := [len(Tool)]rune{ui.ICON_MOVE, ui.ICON_BRUSH, ui.ICON_SPLINE, ui.ICON_SHAPES}
+	if picked := ui.tabs(ctx, "tool", tool_names[:], int(app.tool), accent = true, glyphs = tool_icons[:]); picked >= 0 do app.tool = Tool(picked)
 	ui.spacer(ctx, 2)
 	ui.divider(ctx)
 	ui.spacer(ctx, 2)
@@ -421,6 +444,8 @@ kit_layout :: proc(app: ^App) {
 	}
 
 	kit_inspector(app)
+	kit_stats(app)
+	kit_history_panel(app)
 
 	// What floats over the panels comes last, so it is drawn and hit tested on top.
 	if ui.popover_begin(ctx, "brush browser", &k.browser, browser_anchor, .Above_Center, {direction = .Column, gap = 2, padding = 10}) {
@@ -459,8 +484,9 @@ kit_pick_brush :: proc(app: ^App, kind: sculpt.Brush_Kind) {
 	app.tool = .Brush
 }
 
-// The inspector: the brush, the selected object or the scene, in tabs, sliding in from
-// the right. It scrolls with the wheel when its content is taller than the window.
+// The inspector: the tool, the selected object or the scene, in tabs, sliding in from
+// the right. When its content is taller than the room it scrolls, with the wheel or by
+// a drag that starts where no control takes it (a finger or a pen has no wheel).
 @(private = "file")
 kit_inspector :: proc(app: ^App) {
 	k := &app.kit
@@ -474,8 +500,12 @@ kit_inspector :: proc(app: ^App) {
 	window := [2]f32{area.w, area.h}
 	dock_size, _ := ui.prev_layout(ctx, "dock")
 	room := window.y - top - t.edge
-	// Clear of the dock when the window is narrow enough for them to meet.
-	if window.x * 0.5 + dock_size.x * 0.5 + 8 > window.x - t.edge - KIT_INSPECTOR_W do room -= dock_size.y + 8
+	// Clear of what sits below it: the object's status at the bottom right, and the dock
+	// when the window is narrow enough for them to meet.
+	below: f32 = 0
+	if status, _ := ui.prev_layout(ctx, "status"); status.y > 0 do below = status.y + 8
+	if window.x * 0.5 + dock_size.x * 0.5 + 8 > window.x - t.edge - KIT_INSPECTOR_W do below = max(below, dock_size.y + 8)
+	room -= below
 	size, natural := ui.prev_layout(ctx, "inspector")
 	_ = size
 	height := min(natural.y, room) if natural.y > 0 else 0
@@ -483,12 +513,20 @@ kit_inspector :: proc(app: ^App) {
 	limit := max(natural.y - room, 0)
 	inspector_rect := ui.Rect{area.x + window.x - t.edge - KIT_INSPECTOR_W, area.y + top, KIT_INSPECTOR_W, height}
 	if ctx.input.wheel != 0 && ui.rect_contains(inspector_rect, ctx.input.mouse) do k.scroll -= ctx.input.wheel * 64
+	if k.scroll_drag {
+		if .Left in ctx.input.down {
+			k.scroll = k.scroll_from - ctx.input.mouse.y
+		} else {
+			k.scroll_drag = false
+		}
+	}
 	k.scroll = clamp(k.scroll, 0, limit)
-	scroll := ui.tween(ctx, ui.salt(id, 5), k.scroll, t.popover_time, .Out_Quart)
+	// A drag follows the finger exactly; the wheel's steps ease.
+	scroll := ui.tween(ctx, ui.salt(id, 5), k.scroll, 0 if k.scroll_drag else t.popover_time, .Out_Quart)
 
 	mark := ui.vertex_mark(ctx)
 	ui.begin_anchored(ctx, "inspector", .End, .Start, {t.edge, top}, {direction = .Column, gap = 6, padding = 12, width = KIT_INSPECTOR_W, height = height, radius = t.radius_large, background = .Panel, clip = true, scroll = scroll, inert = !k.inspector})
-	tab_names := [len(Kit_Tab)]string{"Brush", "Object", "Scene"}
+	tab_names := [len(Kit_Tab)]string{kit_tool_name(app.tool), "Object", "Scene"}
 	if picked := ui.tabs(ctx, "inspector tabs", tab_names[:], int(k.tab)); picked >= 0 {
 		if Kit_Tab(picked) != k.tab do k.tab_serial += 1
 		k.tab = Kit_Tab(picked)
@@ -498,13 +536,17 @@ kit_inspector :: proc(app: ^App) {
 	// A new tab's content fades in: each change starts a tween of its own from 0.
 	content := ui.vertex_mark(ctx)
 	switch k.tab {
-	case .Brush:  kit_brush_tab(app)
+	case .Tool:   kit_tool_tab(app)
 	case .Object: kit_object_tab(app)
 	case .Scene:  kit_scene_tab(app)
 	}
 	fade := ui.tween_from(ctx, ui.salt(id, 1000 + k.tab_serial), 0, 1, t.indicator_time)
 	ui.transform_since(ctx, content, fade)
 	ui.end(ctx)
+	// A press on the inspector that no control took starts a scroll drag.
+	if .Left in ctx.input.pressed && ctx.active == 0 && ctx.pointer_root == id && limit > 0 {
+		k.scroll_drag, k.scroll_from = true, k.scroll + ctx.input.mouse.y
+	}
 	// A thin scroll bar when the content is taller than the room, showing where it is.
 	if limit > 0 && height > 0 {
 		r := inspector_rect
@@ -516,199 +558,11 @@ kit_inspector :: proc(app: ^App) {
 	ui.transform_since(ctx, mark, shown, 1, {}, {(1 - shown) * 16, 0})
 }
 
-@(private = "file")
-kit_brush_tab :: proc(app: ^App) {
-	k := &app.kit
-	ctx := &k.ctx
-	t := ctx.theme
-	kind := app.brush.kind
-	ui.begin(ctx, "brush head", {direction = .Row, gap = 10, center = true})
-	ui.begin(ctx, "brush badge", {width = 36, height = 36, radius = t.radius_medium, background = .Track})
-	ui.end(ctx)
-	r := ctx.last_rect
-	ui.icon(ctx, KIT_BRUSH_ICONS[kind], {r.x + 18, r.y + 18}, t.icon_size, t.accent)
-	ui.label(ctx, BRUSH_NAMES[kind], t.heading_size, t.text, .Semibold)
-	ui.end(ctx)
-	help, _ := strings.replace_all(string(BRUSH_HELP[kind]), "\n", " ", context.temp_allocator)
-	ui.paragraph(ctx, help)
-	ui.spacer(ctx, 4)
-
-	if ui.section(ctx, "Stroke", &k.open[.Stroke]) {
-		_ = ui.slider(ctx, "Size", &app.brush.radius_px, MIN_RADIUS_PX, MAX_RADIUS_PX, .Logarithmic, fmt.tprintf("%.0f px", app.brush.radius_px))
-		s := brush_strength(app)
-		_ = ui.slider(ctx, "Strength", s, MIN_STRENGTH, 1, .Linear, fmt.tprintf("%.2f", s^))
-		_ = ui.slider(ctx, "Lazy mouse", &app.brush.lazy_px, 0, 150, .Linear, "off" if app.brush.lazy_px < 0.5 else fmt.tprintf("%.0f px", app.brush.lazy_px))
-		strokes := [2]string{"Dots", "Drag rectangle"}
-		if picked := ui.tabs(ctx, "stroke kind", strokes[:], 0 if app.brush.stroke == .Dots else 1); picked >= 0 {
-			app.brush.stroke = .Dots if picked == 0 else .Drag_Rect
-		}
-		if kind == .Cloth {
-			modes: [len(sculpt.Cloth_Mode)]string
-			for m, i in sculpt.Cloth_Mode do modes[i] = string(CLOTH_MODE_NAMES[m])
-			if picked := ui.tabs(ctx, "cloth mode", modes[:], int(app.brush.cloth_mode)); picked >= 0 do app.brush.cloth_mode = sculpt.Cloth_Mode(picked)
-		}
-		ui.section_end(ctx)
-	}
-	if ui.section(ctx, "Falloff", &k.open[.Falloff]) {
-		shape := &app.brush.falloffs[kind]
-		names: [len(FALLOFF_PRESETS)]string
-		chosen := -1
-		for p, i in FALLOFF_PRESETS {
-			names[i] = string(p.label)
-			if shape.drawn == p.drawn && (!p.drawn || shape.curve == p.curve) do chosen = i
-		}
-		if picked := ui.tabs(ctx, "falloff", names[:], chosen); picked >= 0 {
-			p := FALLOFF_PRESETS[picked]
-			shape^ = {drawn = p.drawn, curve = p.curve}
-		}
-		if chosen < 0 do ui.paragraph(ctx, "A drawn curve (edit it in the classic Tools panel).")
-		ui.section_end(ctx)
-	}
-	if ui.section(ctx, "Alpha", &k.open[.Alpha]) {
-		names := make([]string, len(app.alphas) + 1, context.temp_allocator)
-		names[0] = "Round (no alpha)"
-		for a, i in app.alphas do names[i + 1] = a.name
-		chosen := app.brush.alpha + 1 if app.brush.alpha >= 0 && app.brush.alpha < len(app.alphas) else 0
-		if picked := ui.select(ctx, "alpha", names, chosen); picked >= 0 do app.brush.alpha = picked - 1
-		if brush_alpha(app) != nil {
-			modes: [len(Alpha_Mode)]string
-			for m, i in Alpha_Mode do modes[i] = ALPHA_MODE_NAMES[m]
-			if picked := ui.tabs(ctx, "alpha mode", modes[:], int(app.brush.alpha_mode)); picked >= 0 do app.brush.alpha_mode = Alpha_Mode(picked)
-			_ = ui.slider(ctx, "Angle", &app.brush.alpha_angle, -180, 180, .Linear, fmt.tprintf("%.0f°", app.brush.alpha_angle))
-		}
-		if ui.button(ctx, "Load image...", .Bordered, glyph = ui.ICON_IMAGE) do file_dialog(app, .Alpha)
-		ui.section_end(ctx)
-	}
-	if ui.section(ctx, "Options", &k.open[.Options]) {
-		_ = ui.switch_row(ctx, "Front faces only", &app.brush.front_only)
-		_ = ui.switch_row(ctx, "Pressure changes size", &app.brush.pressure_size)
-		_ = ui.switch_row(ctx, "Pressure changes strength", &app.brush.pressure_strength)
-		ui.section_end(ctx)
-	}
-}
-
-@(private = "file")
-kit_object_tab :: proc(app: ^App) {
-	k := &app.kit
-	ctx := &k.ctx
-	t := ctx.theme
-	obj := selected_object(app)
-	if obj == nil {
-		ui.spacer(ctx, 12)
-		ui.label(ctx, "No object selected", t.title_size, t.text, .Semibold)
-		ui.paragraph(ctx, "Click an object in the viewport with Move, or pick one in the Scene tab.")
-		return
-	}
-	ui.label(ctx, object_label(obj), t.heading_size, t.text, .Semibold)
-	ui.paragraph(ctx, fmt.tprintf("%s vertices, %s triangles", count_label(object_vertex_count(obj)), count_label(object_triangle_count(obj))))
-	ui.spacer(ctx, 4)
-
-	if ui.section(ctx, "Subdivision levels", &k.open[.Levels]) {
-		levels := &obj.levels
-		count := len(levels.levels)
-		dyntopo := object_dynamic(obj)
-		ui.label(ctx, fmt.tprintf("Level %d of %d", levels.current + 1, count), t.text_size, t.text, .Semibold)
-		half := (ui.fill_width(ctx) - 8) * 0.5
-		ui.begin(ctx, "level steps", {direction = .Row, gap = 8})
-		if ui.button(ctx, "Lower##level", .Flat, width = half, enabled = levels.current > 0) do app.ui.scene_command = {kind = .Set_Level, level = levels.current - 1}
-		if ui.button(ctx, "Higher##level", .Flat, width = half, enabled = levels.current < count - 1) do app.ui.scene_command = {kind = .Set_Level, level = levels.current + 1}
-		ui.end(ctx)
-		vertices, _, bytes := sculpt.levels_subdivide_estimate(levels)
-		can := count < sculpt.MAX_LEVELS && bytes <= MAX_SUBDIVIDE_BYTES && levels.hd.steps == 0 && !dyntopo
-		if ui.button(ctx, "Subdivide", .Solid, .Accent, glyph = ui.ICON_PLUS, enabled = can) do app.ui.scene_command = {kind = .Subdivide}
-		if dyntopo {
-			ui.paragraph(ctx, "Turn dynamic topology off to subdivide.")
-		} else if can {
-			ui.paragraph(ctx, fmt.tprintf("Adds a level of %s vertices, about %s.  Ctrl+D", count_label(vertices), bytes_label(bytes)))
-		}
-		ui.begin(ctx, "level deletes", {direction = .Row, gap = 8})
-		if ui.button(ctx, "Delete lower", .Light, .Danger, width = half, enabled = levels.current > 0) do app.ui.scene_command = {kind = .Delete_Lower}
-		if ui.button(ctx, "Delete higher", .Light, .Danger, width = half, enabled = levels.current < count - 1) do app.ui.scene_command = {kind = .Delete_Higher}
-		ui.end(ctx)
-		ui.section_end(ctx)
-	}
-	if ui.section(ctx, "Dynamic topology", &k.open[.Topology]) {
-		on := object_dynamic(obj)
-		can := len(obj.levels.levels) == 1 && obj.levels.hd.steps == 0
-		if ui.switch_row(ctx, "Dynamic topology", &on, enabled = can) do app.ui.scene_command = {kind = .Dyntopo, on = on}
-		if !can do ui.paragraph(ctx, "Needs a single subdivision level and no HD level.")
-		_ = ui.slider(ctx, "Detail", &app.brush.detail_px, 2, 40, .Logarithmic, fmt.tprintf("%.1f px", app.brush.detail_px))
-		_ = ui.switch_row(ctx, "Collapse short edges", &app.brush.collapse)
-		ui.section_end(ctx)
-	}
-	if ui.section(ctx, "Mask", &k.open[.Mask]) {
-		commands := [?]sculpt.Mask_Command{.Clear, .Invert, .Fill, .Cavity, .Blur, .Sharpen, .Grow, .Shrink}
-		labels := [?]string{"Clear", "Invert", "Mask all", "Cavities", "Blur", "Sharpen", "Grow", "Shrink"}
-		half := (ui.fill_width(ctx) - 8) * 0.5
-		for i := 0; i < len(commands); i += 2 {
-			ui.begin(ctx, fmt.tprintf("mask row %d", i), {direction = .Row, gap = 8})
-			for j in i ..< i + 2 {
-				if ui.button(ctx, labels[j], .Flat, width = half) do mask_command(app, commands[j])
-			}
-			ui.end(ctx)
-		}
-		steps := f32(app.ui.mask_steps)
-		if ui.slider(ctx, "Steps", &steps, 1, 50, .Linear, fmt.tprintf("%d", app.ui.mask_steps)) do app.ui.mask_steps = i32(steps + 0.5)
-		ui.section_end(ctx)
-	}
-	if ui.section(ctx, "Remesh", &k.open[.Remesh]) {
-		sizes := kit_size_names()
-		if picked := ui.select(ctx, "remesh size", sizes, k.add_size); picked >= 0 do k.add_size = picked
-		vertices := int(SPHERE_PRESETS[k.add_size].vertices)
-		half := (ui.fill_width(ctx) - 8) * 0.5
-		ui.begin(ctx, "remesh row", {direction = .Row, gap = 8})
-		if ui.button(ctx, "Remesh", .Flat, .Accent, width = half) do app.ui.scene_command = {kind = .Remesh, vertices = vertices}
-		if ui.button(ctx, "Decimate", .Flat, width = half) do app.ui.scene_command = {kind = .Decimate, vertices = vertices}
-		ui.end(ctx)
-		ui.paragraph(ctx, "Rebuilds the object as an even mesh of this many vertices that keeps its shape (Ctrl+R: at its own count). Ctrl+Z brings levels and mask back.")
-		ui.section_end(ctx)
-	}
-}
-
 // SPHERE_PRESETS' labels as strings, for selects.
-@(private = "file")
 kit_size_names :: proc() -> []string {
 	names := make([]string, len(SPHERE_PRESETS), context.temp_allocator)
 	for p, i in SPHERE_PRESETS do names[i] = fmt.tprintf("%s vertices", p.label)
 	return names
-}
-
-@(private = "file")
-kit_scene_tab :: proc(app: ^App) {
-	k := &app.kit
-	ctx := &k.ctx
-	t := ctx.theme
-	ui.caption(ctx, fmt.tprintf("OBJECTS  %d", len(app.scene.objects)))
-	for obj, i in app.scene.objects {
-		name := fmt.tprintf("%s##%d", object_label(obj), obj.id)
-		row := ui.list_row(ctx, name, count_label(object_vertex_count(obj)), i == app.scene.selected, ui.ICON_FRAME)
-		if row.clicked do app.scene.selected = i
-		if row.menu {
-			app.scene.selected = i
-			k.object_menu = true
-			k.object_menu_id = obj.id
-			k.object_menu_at = {ctx.input.mouse.x, ctx.input.mouse.y, 0, 0}
-		}
-	}
-	if len(app.scene.objects) == 0 do ui.paragraph(ctx, "The scene is empty. Add a shape below or open a scene from the menu.")
-	half := (ui.fill_width(ctx) - 8) * 0.5
-	ui.begin(ctx, "object actions", {direction = .Row, gap = 8})
-	has := selected_object(app) != nil
-	if ui.button(ctx, "Duplicate", .Flat, width = half, glyph = ui.ICON_COPY, enabled = has) do app.ui.scene_command = {kind = .Duplicate}
-	if ui.button(ctx, "Delete", .Flat, .Danger, width = half, glyph = ui.ICON_TRASH, enabled = has) do app.ui.scene_command = {kind = .Delete}
-	ui.end(ctx)
-	ui.spacer(ctx, 4)
-	if ui.section(ctx, "Add object", &k.open[.Add]) {
-		shapes: [len(geom.Primitive)]string
-		for s, i in geom.Primitive do shapes[i] = fmt.tprint(s)
-		if picked := ui.select(ctx, "add shape", shapes[:], int(k.add_shape)); picked >= 0 do k.add_shape = geom.Primitive(picked)
-		sizes := kit_size_names()
-		if picked := ui.select(ctx, "add size", sizes, k.add_size); picked >= 0 do k.add_size = picked
-		vertices := int(SPHERE_PRESETS[k.add_size].vertices)
-		if ui.button(ctx, fmt.tprintf("Add %v", k.add_shape), .Solid, .Accent, glyph = ui.ICON_PLUS) do app.ui.scene_command = {kind = .Add, vertices = vertices, shape = k.add_shape}
-		ui.section_end(ctx)
-	}
-	_ = t
 }
 
 // The menu under the menu button: files, and the app's own settings.
@@ -749,10 +603,6 @@ kit_menu :: proc(app: ^App, anchor: ui.Rect) {
 	// Off, one finger turns the view and only the pen sculpts, as on a drawing tablet.
 	if ui.menu_item(ctx, "Finger sculpts", checked = app.touch.finger_sculpt) do app.touch.finger_sculpt = !app.touch.finger_sculpt
 	if ui.menu_item(ctx, "Stats", "F11", ui.ICON_ACTIVITY, checked = k.stats) do k.stats = !k.stats
-	if ui.menu_item(ctx, "Classic panels", "", ui.ICON_SETTINGS) {
-		app.new_ui = false
-		pick = true
-	}
 	ui.popover_end(ctx)
 	if pick do k.menu = false
 }
@@ -808,6 +658,7 @@ kit_object_menu :: proc(app: ^App) {
 	ui.popover_end(ctx)
 }
 
+// The interface's draw commands for the renderer: the viewport's texture (or the
 // studio render's, while it is on) where the kit drew KIT_VIEWPORT_IMAGE.
 kit_draws :: proc(app: ^App, dl: ^ui.Draw_List) -> []render.Ui_Draw {
 	shown := app.target.color
@@ -835,8 +686,8 @@ kit_upload :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer) -> bool {
 	return render.ui_pass_upload(&app.renderer, &k.pass, cmd, vertices, dl.indices[:], pixels, {u32(w), u32(h)}, dirty, changed)
 }
 
-// Writes the whole window as the new interface last drew it (viewport and panels,
-// without what ImGui adds) to a PNG, or a PPM when the path ends in .ppm.
+// Writes the whole window as the interface last drew it (the viewport, its overlay and
+// the panels) to a PNG, or a PPM when the path ends in .ppm.
 kit_screen_save :: proc(app: ^App, path: string, size: [2]u32) -> bool {
 	k := &app.kit
 	dl := &k.ctx.draw

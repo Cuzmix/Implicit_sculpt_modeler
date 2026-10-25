@@ -43,6 +43,11 @@ Input :: struct {
 	safe:          Rect,
 	pixel_density: f32, // GPU pixels per point: 1 on most monitors, 2 or more on dense screens
 	dt:            f32, // seconds since the last frame, which moves every animation on
+	// Typing, for the text field that has the keys: the text typed this frame (UTF-8,
+	// valid for the frame), Backspace presses, and Enter or Escape, which end it.
+	text:          string,
+	backspace:     int,
+	text_end:      bool,
 }
 
 Id :: u64
@@ -176,8 +181,12 @@ Context :: struct {
 	// Tooltips: the widget under the pointer that has one, since when, and what to show.
 	tip_id:         Id,
 	tip_since:      f64,
-	tip_text:       string, // valid for the frame (labels are literals or temp strings)
-	tip_keys:       string, // its shortcut, shown dimmer beside it
+	// Copied, as everything the kit keeps until frame_end is: a label may be temp memory,
+	// which the app may free before the frame ends.
+	tip_text:       [160]u8,
+	tip_len:        int,
+	tip_keys:       [40]u8, // its shortcut, shown dimmer beside it
+	tip_keys_len:   int,
 	tip_rect:       Rect,
 	tip_shown:      Id,
 	tip_last:       f64, // when a tooltip last showed: the next one comes without delay
@@ -198,7 +207,9 @@ Context :: struct {
 	select_open:      Id,
 	select_id:        Id,
 	select_anchor:    Rect,
-	select_options:   []string,
+	// Its options, copied (as the tooltip's text is): the bytes, and where each one ends.
+	select_text:      [dynamic]u8,
+	select_ends:      [dynamic]int,
 	select_chosen:    int,
 	select_fresh:     bool,
 	select_pick_id:   Id,
@@ -210,6 +221,10 @@ Context :: struct {
 	},
 	section_depth:    int,
 	last_rect:        Rect, // where the last widget went: what a popover opens beside
+	// The text field that has the keys, and whether it was drawn this frame (one that is
+	// no longer drawn lets them go).
+	text_focus:       Id,
+	text_seen:        bool,
 }
 
 init :: proc(ctx: ^Context, theme := THEME_DARK) {
@@ -230,6 +245,8 @@ destroy :: proc(ctx: ^Context) {
 	delete(ctx.path)
 	delete(ctx.tweens)
 	delete(ctx.scratch_ids)
+	delete(ctx.select_text)
+	delete(ctx.select_ends)
 	ctx^ = {}
 }
 
@@ -250,6 +267,7 @@ frame_begin :: proc(ctx: ^Context, input: Input) {
 	clear(&ctx.placed)
 	ctx.hot = 0
 	ctx.active_seen = false
+	ctx.text_seen = false
 	d := ctx.input.pixel_density
 	ctx.clip = {0, 0, input.window.x * d, input.window.y * d}
 
@@ -277,6 +295,7 @@ frame_end :: proc(ctx: ^Context) -> ^Draw_List {
 	toasts_draw(ctx)
 	tooltip_draw(ctx)
 	if ctx.active != 0 && (!ctx.active_seen || ctx.input.down == {}) do ctx.active = 0
+	if !ctx.text_seen do ctx.text_focus = 0
 	if ctx.input.down == {} {
 		ctx.viewport_drag = false
 		ctx.swallow = false
@@ -290,6 +309,12 @@ wants_pointer :: proc(ctx: ^Context) -> bool {
 	return ctx.swallow || (!ctx.viewport_drag && (ctx.pointer_root != 0 || ctx.active != 0))
 }
 
+// True while a text field has the keys: the app turns its text input (and a tablet's
+// on-screen keyboard) on, and its shortcuts off.
+typing :: proc(ctx: ^Context) -> bool {
+	return ctx.text_focus != 0
+}
+
 // True while a drag that began on the viewport goes on, wherever the pointer is now.
 viewport_dragging :: proc(ctx: ^Context) -> bool {
 	return ctx.viewport_drag
@@ -301,6 +326,17 @@ id_of :: proc(ctx: ^Context, label: string) -> Id {
 	seed := ctx.id_seed
 	if n := len(ctx.stack); n > 0 do seed = ctx.stack[n - 1].id
 	return hash.fnv64a(transmute([]byte)label, seed if seed != 0 else 0xcbf29ce484222325)
+}
+
+// Copies as much of `s` into `dst` as fits without cutting a UTF-8 sequence, and
+// returns how many bytes that is.
+@(private)
+copy_text :: proc(dst: []u8, s: string) -> int {
+	n := min(len(s), len(dst))
+	if n < len(s) {
+		for n > 0 && s[n] & 0xc0 == 0x80 do n -= 1
+	}
+	return copy(dst, s[:n])
 }
 
 // The part of a label that is shown: what comes before "##".
@@ -598,6 +634,74 @@ fill_circle :: proc(ctx: ^Context, center: [2]f32, radius: f32, color: Color) {
 	circle_path(&ctx.path, center * d, radius * d)
 	draw_set_state(&ctx.draw, .Atlas, 0, ctx.clip)
 	draw_convex(&ctx.draw, ctx.path[:], color)
+}
+
+// A circle's outline, `width` points thick.
+stroke_circle :: proc(ctx: ^Context, center: [2]f32, radius: f32, color: Color, width: f32) {
+	clear(&ctx.path)
+	d := px(ctx)
+	circle_path(&ctx.path, center * d, radius * d)
+	draw_set_state(&ctx.draw, .Atlas, 0, ctx.clip)
+	draw_polyline(&ctx.draw, ctx.path[:], color, width * d, closed = true)
+}
+
+// A straight line from `a` to `b`, `width` points thick.
+line :: proc(ctx: ^Context, a, b: [2]f32, color: Color, width: f32) {
+	d := px(ctx)
+	ends := [2][2]f32{a * d, b * d}
+	draw_set_state(&ctx.draw, .Atlas, 0, ctx.clip)
+	draw_polyline(&ctx.draw, ends[:], color, width * d)
+}
+
+// A line through `points`, `width` points thick; `closed` joins the last point back to
+// the first.
+polyline :: proc(ctx: ^Context, points: [][2]f32, color: Color, width: f32, closed := false) {
+	clear(&ctx.path)
+	d := px(ctx)
+	for p in points do append(&ctx.path, p * d)
+	draw_set_state(&ctx.draw, .Atlas, 0, ctx.clip)
+	draw_polyline(&ctx.draw, ctx.path[:], color, width * d, closed)
+}
+
+// A filled convex polygon through `points`, either way round.
+fill_convex :: proc(ctx: ^Context, points: [][2]f32, color: Color) {
+	clear(&ctx.path)
+	d := px(ctx)
+	for p in points do append(&ctx.path, p * d)
+	draw_set_state(&ctx.draw, .Atlas, 0, ctx.clip)
+	draw_convex(&ctx.draw, ctx.path[:], color)
+}
+
+// A place in the draw order kept for drawing done later: what is drawn between
+// layer_begin and layer_end goes under everything drawn after layer_mark took it. The
+// app draws the viewport's overlay (the brush circle, the gizmo) once its tools have run,
+// after the panels are laid out, and puts it under them this way.
+Layer :: struct {
+	index: int, // the draw list's index count when it was taken
+	cmd:   int, // the command that ends there, kept for the layer
+}
+
+// Takes a layer over everything drawn so far. It draws with the whole window as its clip.
+layer_mark :: proc(ctx: ^Context) -> Layer {
+	draw_set_state(&ctx.draw, .Atlas, 0, full_clip(ctx))
+	ctx.draw.keep = len(ctx.draw.cmds)
+	return {len(ctx.draw.indices), len(ctx.draw.cmds) - 1}
+}
+
+// Starts drawing into a layer, with the whole window as the clip; returns what
+// layer_end needs.
+layer_begin :: proc(ctx: ^Context) -> (from: int) {
+	ctx.clip = full_clip(ctx)
+	draw_set_state(&ctx.draw, .Atlas, 0, ctx.clip)
+	return len(ctx.draw.indices)
+}
+
+// Moves what was drawn since layer_begin returned `from` down into `layer`. Nothing in
+// between may change the clip, so it is all in the last command.
+layer_end :: proc(ctx: ^Context, layer: Layer, from: int) {
+	last := ctx.draw.cmds[len(ctx.draw.cmds) - 1]
+	assert(last.texture == .Atlas && last.clip == full_clip(ctx) && int(last.first_index) <= from, "a layer's drawing changed the clip")
+	draw_move_under(&ctx.draw, layer.index, layer.cmd, from)
 }
 
 // A soft shadow under a rounded rectangle: three widening rings, fainter each time,

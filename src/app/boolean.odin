@@ -3,12 +3,12 @@ package main
 import "core:fmt"
 import "core:log"
 import "core:time"
-import imgui "deps:odin-imgui"
 import sdl "vendor:sdl3"
 
 import "../geom"
 import "../render"
 import "../sculpt"
+import "../ui"
 
 // Booleans and Extract on the app side, after ZBrush's Live Boolean: each object can be
 // marked Union, Subtract or Intersect, and those apply, in scene order, to the base, the
@@ -126,7 +126,7 @@ boolean_live_update :: proc(app: ^App) -> bool {
 	}
 	stamp := boolean_stamp(app)
 	if b.shown && stamp == b.stamp && b.base == base.id do return true
-	if app.stroke.active || app.move.drag.handle != .None || imgui.IsMouseDown(.Left) do return true
+	if app.stroke.active || app.move.drag.handle != .None || .Left in app.device.down do return true
 	start := time.tick_now()
 	mesh, ok := boolean_result(app, base, int(b.live_vertices), project = true)
 	b.stamp, b.base = stamp, base.id
@@ -151,7 +151,7 @@ boolean_live_update :: proc(app: ^App) -> bool {
 boolean_hides :: proc(app: ^App, obj: ^Object, index: int) -> bool {
 	if !app.ui.boolean.shown do return false
 	if obj.id != app.ui.boolean.base && obj.boolean == .None do return false
-	busy := app.stroke.active || app.move.drag.handle != .None || imgui.IsMouseDown(.Left)
+	busy := app.stroke.active || app.move.drag.handle != .None || .Left in app.device.down
 	return !(busy && index == app.scene.selected)
 }
 
@@ -223,44 +223,31 @@ extract_masked :: proc(app: ^App) -> bool {
 	return true
 }
 
-draw_boolean_section :: proc(app: ^App) {
+// The interface's Booleans section.
+kit_boolean_section :: proc(app: ^App) {
+	ctx := &app.kit.ctx
+	t := ctx.theme
 	b := &app.ui.boolean
-	imgui.SeparatorText("Booleans")
-	obj := selected_object(app)
-	imgui.BeginDisabled(obj == nil)
-	mode := obj.boolean if obj != nil else .None
-	imgui.SetNextItemWidth(120)
-	if imgui.BeginCombo("Selected is", fmt.ctprintf("%v", mode)) {
-		for m in Boolean_Mode {
-			if imgui.Selectable(fmt.ctprintf("%v", m), m == mode) && obj != nil do obj.boolean = m
-		}
-		imgui.EndCombo()
+	if obj := selected_object(app); obj != nil {
+		ui.label(ctx, "The selected object is", t.small_size)
+		modes: [len(Boolean_Mode)]string
+		for m, i in Boolean_Mode do modes[i] = fmt.tprint(m)
+		if picked := ui.tabs(ctx, "boolean mode", modes[:], int(obj.boolean)); picked >= 0 do obj.boolean = Boolean_Mode(picked)
 	}
-	imgui.EndDisabled()
-	imgui.Checkbox("Live boolean", &b.live)
-	imgui.SameLine()
-	imgui.SetNextItemWidth(110)
-	imgui.InputInt("Live vertices", &b.live_vertices, 50_000, 200_000)
-	b.live_vertices = clamp(b.live_vertices, 10_000, 4_000_000)
-	imgui.SetNextItemWidth(110)
-	imgui.InputInt("Vertices", &b.vertices, 100_000, 1_000_000)
-	b.vertices = clamp(b.vertices, 10_000, 20_000_000)
-	imgui.SameLine()
+	_ = ui.switch_row(ctx, "Live boolean", &b.live)
+	_ = kit_count(ctx, "Live vertices", &b.live_vertices, 10_000, 4_000_000)
+	_ = kit_count(ctx, "Result vertices", &b.vertices, 10_000, 20_000_000)
 	base := boolean_base(app)
-	imgui.BeginDisabled(base == nil)
-	if imgui.Button("Make boolean mesh") do app.ui.scene_command = {kind = .Boolean}
-	imgui.EndDisabled()
-	if base != nil {
-		imgui.TextDisabled("%s", fmt.ctprintf("Base: %s%s", object_label(base), fmt.tprintf("; preview %.0f ms", b.ms) if b.shown else ""))
-	}
-	imgui.TextDisabled("Objects marked Union, Subtract or Intersect apply,\nin scene order, to the first object left unmarked.\nLive shows the result in their place; Make replaces\nthe base with it and removes the marked ones.")
+	if ui.button(ctx, "Make boolean mesh", .Solid, .Accent, enabled = base != nil) do app.ui.scene_command = {kind = .Boolean}
+	if base != nil do ui.paragraph(ctx, fmt.tprintf("Base: %s%s.", object_label(base), fmt.tprintf("; preview %.0f ms", b.ms) if b.shown else ""))
+	ui.paragraph(ctx, "Objects marked Union, Subtract or Intersect apply, in scene order, to the first object left unmarked. Live shows the result in their place; Make replaces the base with it and removes the marked ones.")
+}
 
-	imgui.SeparatorText("Extract")
-	imgui.SetNextItemWidth(110)
-	imgui.SliderFloat("Thickness", &b.thickness, 0.002, 0.2, "%.3f", {.Logarithmic})
-	imgui.SameLine()
-	imgui.BeginDisabled(obj == nil)
-	if imgui.Button("Extract masked") do app.ui.scene_command = {kind = .Extract}
-	imgui.EndDisabled()
-	imgui.TextDisabled("A new object: a shell over the masked part, this\nshare of the object's size thick.")
+// The interface's Extract section.
+kit_extract_section :: proc(app: ^App) {
+	ctx := &app.kit.ctx
+	b := &app.ui.boolean
+	_ = ui.slider(ctx, "Thickness", &b.thickness, 0.002, 0.2, .Logarithmic, fmt.tprintf("%.3f", b.thickness))
+	if ui.button(ctx, "Extract masked", .Flat, .Accent, enabled = selected_object(app) != nil) do app.ui.scene_command = {kind = .Extract}
+	ui.paragraph(ctx, "A new object: a shell over the masked part, this share of the object's size thick.")
 }

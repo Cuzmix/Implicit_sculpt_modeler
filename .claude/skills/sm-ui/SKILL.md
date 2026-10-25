@@ -1,140 +1,117 @@
 ---
 name: sm-ui
-description: The Dear ImGui interface in src/app/ui.odin, the default touch-first interface (src/ui: tokens, motion, popovers, toasts; src/app/new_ui.odin) and the frame loop around them — the docked Viewport, Tools (brushes, symmetry, alphas, mask, dynamic topology, pen pressure curve and tilt), Scene and Stats panels, Viewport_Input (the only thing the camera and tools read), pointer samples with pen pressure and tilt, the brush pie (Space or a right tap), shortcuts, the deferred Scene_Command, the overlay draw list (brush circle or alpha square, gizmo), odin-imgui naming and Begin/End pairing, and why panels never keep references between frames. Load for ANY task that adds or changes something the user clicks, reads or types, e.g. "add a panel", "add a button to the Scene panel", "add a shortcut", "show X in the Stats panel", "the slider does not update", "the viewport ignores the mouse". Requires sm-odin and sm-build; what the buttons do is sm-sculpt or sm-cad; pixels in the viewport image are sm-render.
+description: The interface — the kit in src/ui (containers, widgets, hit testing, tokens, motion, popovers, layers, text fields) and its use in src/app (new_ui.odin's toolbars, dock, inspector and menus; kit_tool, kit_object, kit_scene, kit_stats; each feature's kit_*_section; the History panel in timeline.odin) — and the frame loop around it: the Device (keys, pointer, typed text from SDL), Viewport_Input (all the camera and tools read), pen samples, the viewport overlay under the panels (brush outline, gizmo, gesture shapes), the brush pie, shortcuts, Scene_Command, remembered settings. Load for ANY task that adds or changes something the user taps, reads or types, e.g. "add a section to the Object tab", "add a shortcut", "show X in the Stats panel", "the slider does not update", "the viewport ignores the pointer". Requires sm-odin and sm-build; what buttons do is sm-sculpt or sm-cad; viewport pixels are sm-render; touch targets and store rules are sm-store.
 ---
 
 # Interface
 
-## Model (README: the app row of "Layout", the paragraph below it, "Controls")
-- `Ui_State` (`src/app/ui.odin:18-37`): `viewport_request` (applied next frame), `layout_built`, `show_demo`,
-  `sphere_vertices`, `scene_command`, `viewport_draw_list`/`viewport_origin` for the overlay, `viewport_mouse`/`size`/
-  `hovered` for shortcuts that act where the pointer is. UI-only state; sculpt and render state live in `App`, and panels
-  edit them through pointers handed over each frame, never kept.
-- `Viewport_Input` (`src/app/ui.odin:77-92`): size, mouse position and delta, wheel, hovered, dragging, `orbit_drag` (right, or
-  Alt+left), `pan_drag` (middle, or Shift+right), `primary` (left without Alt), `press`, `smooth` (Shift), `invert` (Ctrl),
-  `samples` oldest first. `draw_viewport` fills it (`ui.odin:220`): `imgui.Image(imgui.TextureRef{_TexID = …}, avail)` then an
-  `InvisibleButton` over it with all three buttons so a drag never moves the window; the content size times
-  `GetWindowDpiScale()` becomes `viewport_request`.
-- `ui_draw` order: dockspace → the default layout once (`build_default_layout`: Viewport | Tools at the right, Scene and
-  Stats below it; `IniFilename = nil`, so the layout is rebuilt each run, `src/app/main.odin`) → menu bar (File, Edit,
-  View with Orthographic (P, keypad 5; `camera.Orbit.ortho`), Look from (keypad 1/3/7, Ctrl for the opposite; `camera.orbit_axis_view`; with ortho possible, pixel sizes go through `camera.orbit_world_per_px` and view directions through `camera.orbit_toward`, never the eye distance), Wireframe (Shift+F), Flat shading (Shift+G) and Material, which only set `App.wireframe`, `App.flat`, `App.material` and, through the menu's sliders, `App.custom` (`CUSTOM_MATERIAL`; presets and `current_material` in `src/app/material.odin`), then the last `file_note` for 15 s, amber for a warning) → Viewport → Tools → Scene → Stats → shortcuts → demo.
-  `draw_viewport_overlay` runs after the tools (`main.odin:408`; `ui.odin:276`): the brush circle (with an alpha, its
-  square turned as the next dab, `draw_alpha_outline`, `src/app/alphas.odin:204`), the lazy-mouse string, the gizmo.
-- Panels: Tools (`ui.odin:331`: tool radios, the brushes as radio buttons labelled with their keys, three a row,
-  from `BRUSH_NAMES`/`BRUSH_HELP` (`ui.odin:94, 106`), radius in px (5-500, logarithmic), the held brush's own strength
-  (`Brush_Settings.strengths[kind]` through `brush_strength`), lazy mouse,
-  Symmetry X/Y/Z checkboxes, the Falloff section (`draw_falloff_section`: `draw_curve_editor` mirrored, the built-in shape plotted until a handle moves, `FALLOFF_PRESETS`), the Alpha section (`draw_alpha_section`, `src/app/alphas.odin:217`: the round brush and
-  each `App.alphas` entry as a 20² thumbnail drawn as filled rects over an `InvisibleButton`, six a row; Load image...;
-  the mode radios and the Angle slider, greyed with no alpha), the Mask section (Clear, Invert, Mask all; Blur, Sharpen, Grow, Shrink with the Steps slider, `Ui_State.mask_steps`,
-  and the last command's time from `Ui_State.mask_last`), the Pen section (`draw_pen_section`, `ui.odin:399`:
-  pressure flags, the curve editor `draw_pressure_curve` (over the shared `draw_curve_editor`) (`ui.odin:432`: an `InvisibleButton` canvas, handles grabbed on
-  `IsItemActivated` within 18 px), `PRESSURE_PRESETS` (`ui.odin:419`), the Tilt slider, the pen readout), the dynamic topology section
-  (`draw_dyntopo_section`, `ui.odin:489`: on/off, Detail px, Collapse short edges, its counters), camera distance), Scene (`ui.odin:512`: object list, Position `DragFloat3`, Scale (logarithmic), the levels and HD sections,
-  vertex count with presets, Add / Remesh selected / Delete; Subdivide and Divide HD greyed while dynamic topology is on), Stats (`ui.odin:729`: `row(label, ring, unit)` prints p50 and p99, a
-  `PlotLines` of frame time, checkboxes bound straight to `app` fields: VSync, Time GPU, partial, cull, cache, simplify).
-- `handle_shortcuts` (`ui.odin:657-709`) runs only when `!io.WantTextInput`: Ctrl+Z, Ctrl+Shift+Z, Ctrl+Y (undo, redo);
-  Ctrl+O, Ctrl+S, Ctrl+Shift+S (open, save, save as); W, B (tools); 1–9 and 0 (the first ten brushes, in `Brush_Kind` order, and the Brush tool) and X (X symmetry), both only without Ctrl or
-  Alt; [ and ] (size steps; with Shift the strength); Alt+M (clear mask), Ctrl+I (invert mask); Ctrl+R (remesh at the object's own count); Ctrl+T (dynamic topology);
-  F (focus); A (HD window where the pointer is, or leave it); Ctrl+D, D, Shift+D (subdivide, level up, level down).
-  One-shot keys use `IsKeyPressed(.X, false)`.
-  S and U over the viewport (Brush tool, no modifiers) start the modal size or strength adjustment in
-  `src/app/adjust.odin` (`adjust_update`, called after `pie_update` in `draw_viewport`; `Ui_State.adjust`): the
-  circle stays put, the value follows the pointer's distance from its middle, a click or the same key keeps it, a
-  right click or Escape restores it, and `viewport_mute` hides the pointer from tools and camera meanwhile. In the viewport Shift turns any brush into Smooth and Ctrl inverts; Ctrl+Shift + drag anywhere is the Tools panel's `Gesture_Tool` (`clip_frame`, before the mask shape: hide rectangle or lasso, clip line or slice line; a click shows all; `draw_clip` draws it), Ctrl+H shows all and Ctrl+Shift+H inverts hiding; Ctrl + drag starting on empty space is a mask shape (`mask_shape_frame`, run before `sculpt_frame` in the Brush case; `Viewport_Input.alt` unmasks; Alt+left orbits only without Ctrl).
-- Files (`src/app/files.odin`): menu items and shortcuts call `file_dialog(app, kind)` (SDL's dialogs, whose answer
-  may come on another thread into a mutex-guarded `pending` slot) or `file_post` for a known path; the frame loop
-  takes the request after the scene command (`file_take`, `file_apply`), so a file action, like a command, never runs
-  mid-frame. Each action's outcome goes through `file_note` (log plus menu bar); never only `log`. `.Alpha` opens
-  `IMAGE_FILTERS` and its request runs `alpha_load` (`src/app/alphas.odin:94`: `core:image` decodes PNG, JPEG, BMP,
-  TGA and QOI, 8 or 16 bits a channel, each registered by a blank import).
-- Commands: a panel never mutates the scene; it sets `app.ui.scene_command = {kind = .X, …}` and the frame loop applies
-  it at the start of the next frame (`src/app/main.odin:300-303`), so nothing drawn this frame is freed this frame
-  (`Scene_Command`, `src/app/scene.odin:84-91`: None, Add, Remesh, Delete, Subdivide, Set_Level, Delete_Higher,
-  Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete, Dyntopo). Mask commands go straight to `mask_command`
-  (`src/app/history.odin:43`), which times them, passes the step count and records them in the History.
-- Events → samples (`src/app/main.odin:340-`): every motion and button event of the frame is kept, pen pressure and tilt
-  (degrees, x right, y down) come from `PEN_AXIS`, pen mouse events are marked `PEN_MOUSEID` and carry both; ImGui sees
-  every event first, except Space over the viewport (`main.odin:346`), which goes to `Ui_State.pie` instead: with
-  keyboard navigation on, ImGui would press the focused widget with it.
-- Brush pie (`src/app/pie.odin`): `pie_update` runs in `draw_viewport` right after the input is filled (`ui.odin:267`)
-  and, while the pie is open (and until a click that picked from it is let go), clears the input's buttons, drags and
-  wheel, so neither tools nor camera see them. It opens on Space (hold: letting go picks) or on `right_tap`
-  (`ui.odin:242`: the right button let go under `PIE_TAP` and 4 px, which is also what a pen's side button sends).
-  `draw_pie` draws on the foreground list, so it shows whole over the panels; slices follow `Brush_Kind` clockwise from
-  the top (`pie_slice`).
-- Stroke recorder (`src/app/replay.odin`, `App.replay`): `replay_frame_begin`/`replay_record` wrap `sculpt_frame` in the
-  frame loop and keep every frame of a stroke (samples, modifiers, camera, size, `Brush_Settings` per stroke) in
-  `Replay.last`, and in `Replay.take` while recording. A replay calls `replay_frame` instead of `sculpt_frame` and feeds
-  the frames back through it with `App.camera`/`App.brush` swapped in for the call only; at the pointer (R) it offsets
-  the samples and uses the current camera and viewport size. Anything a stroke reads must come from `Viewport_Input`,
-  `App.camera` or `App.brush`, or replays will not reproduce it. `.strokes` files: `strokes_save`/`strokes_read`.
+## Model (README: the app row of "Layout", "Interface", "Controls")
+- One interface, drawn by the kit (`src/ui`, no SDL or `render` imports) through the renderer's UI pass
+  (`src/render/ui_pass.odin`). The viewport fills the window: `ui.image` draws it first, then the panels float over it.
+- The frame (`src/app/main.odin`): events → `device_event` (`src/app/device.odin:51`), `touch_event`, pointer samples →
+  `device_frame_end` (modifiers) → `viewport_target_resize` → `kit_frame` (`new_ui.odin:283`: `kit_begin` builds the
+  kit's `ui.Input` from the Device and applies `--ui-events`, then the viewport image, `ui.layer_mark`, `kit_layout`,
+  `kit_viewport_input`, `handle_shortcuts`, `layer_drag_end`, text input on/off, F11/Tab/Escape) → `touch_apply` → the
+  camera and the active tool → `draw_viewport_overlay` (`overlay.odin:82`) → the 3D work → `kit_upload` (`ui.frame_end`)
+  → `ui_pass_draw` into the swapchain.
+- `Device` (`device.odin:12`): this frame's keys (`Key_Press`, unshifted key codes from the scancode), Shift/Ctrl/Alt,
+  the pointer in window coordinates and how far it moved, buttons down/pressed/released, the wheel, typed text, the
+  right button's tap (`right_tap`, for the pie) and `input_at` (latency). `key_pressed(d, sdl.K_X, repeat)`.
+- `Viewport_Input` (`ui.odin:110`), filled by `kit_viewport_input` (`new_ui.odin:327`): size and pointer in window
+  coordinates, `hovered` (pointer over no panel), `dragging` (a press that began on the viewport, `ui.viewport_dragging`),
+  `orbit_drag`, `pan_drag`, `primary`, `press`, `smooth` (Shift), `invert` (Ctrl), `alt`, `samples`, `pen_tilt`, then
+  `pie_update` and `adjust_update` may mute it (`viewport_mute`). Nothing else reaches the camera or the tools.
+- `Ui_State` (`ui.odin:15`): `viewport_request`, `scene_command`, the pointer over the viewport for shortcuts that act
+  there, the pie, the S/U adjust, curve handles, and each section's own settings and last results. `Kit_State`
+  (`new_ui.odin:30`): the kit context, which tab, which sections are open (`Kit_Section`), menus, Stats and History
+  panels, the inspector's scroll, add shape and size, the overlay's `layer`, text input on or off.
+- Layout (`kit_layout`, `new_ui.odin:360`): top left menu, undo and redo (tooltips name the step) and the History
+  button; top middle the tools (`Tool` order: W, B, C, I) and X/Y/Z symmetry; top right View menu and the inspector
+  button; left the tall size and strength sliders; bottom the brush dock and the brush browser; bottom right the
+  object's status; then `kit_inspector`, `kit_stats`, `kit_history_panel`, and last the popovers.
+- Inspector (`kit_inspector`, `new_ui.odin:486`): tabs Tool (`kit_tool_tab`, `kit_tool.odin`: the brush's Stroke,
+  Colour, Falloff, Alpha, Pen, Options and Stroke recorder; Curve and Insert settings; Move help), Object
+  (`kit_object.odin`: Transform, levels, HD, dynamic topology, mask, hide/clip/slice, paint and groups, morph, layers,
+  deformation, remesh, mirror, retopo, project, booleans, extract) and Scene (`kit_scene.odin`: objects, Add, Material,
+  Studio render, Camera). A feature's section lives beside its code (`kit_layers_section` in `layers.odin`,
+  `kit_boolean_section` in `boolean.odin`, `kit_alpha_section` in `alphas.odin`, …). The inspector clips and scrolls:
+  the wheel, or a drag that starts where no control took the press (`k.scroll_drag`); it stops above the status chip
+  and, on narrow windows, the dock.
+- Overlay (`overlay.odin`): drawn after the tools ran, in window coordinates through `Overlay` (points are window
+  coordinates over `k.scale`), between `ui.layer_begin` and `ui.layer_end`, which move it under the panels into the
+  layer `kit_frame` took over the viewport image. The pie (`draw_pie`) is drawn after it, over everything.
+- Commands: a panel never mutates the scene; it sets `app.ui.scene_command` and the frame loop applies it at the start
+  of the next frame. Mask commands go to `mask_command`; file actions to `file_dialog`/`file_post`, applied next frame
+  (`file_take`), their outcome a `file_note` that the interface shows as a toast.
+- Settings (`settings.odin`): `key values` lines; unknown keys are skipped, values clamped; the kit's add shape and
+  size are `new_shape`/`new_vertices`.
 
-## The new interface (the default; `--classic-ui` or Menu > Classic panels for ImGui)
-- Kit (`src/ui`, no SDL or render imports): immediate mode. Each frame `kit_frame` (`src/app/new_ui.odin`) fills a
-  `ui.Input` from SDL events (`kit_event`), calls `frame_begin`, lays out anchored containers (`begin_anchored`/`begin`/
-  `end`, `Box` for direction, gap, padding, background) and widgets that return what was done, and takes the
-  `Draw_List` from `frame_end`. State kept between frames: the held widget, and where each container ended up
-  (`placed_prev`), which anchors containers by last frame's size and decides which one has the pointer.
+## The kit (`src/ui`)
+- Immediate mode. Each frame `ui.frame_begin(ctx, input)`, containers (`begin_anchored`/`begin`/`end`, `Box` for
+  direction, gap, padding, size, background, clip, scroll, inert), widgets that return what was done, `frame_end`.
+  State kept between frames: the held widget, where each container ended up (`placed_prev`: anchored containers are
+  placed by last frame's size; `prev_layout` reads it), the text field with the keys, tweens.
 - Ids hash the label into the parent container's id; text after `##` is part of the id but not shown. Two widgets with
-  one label in one container are one widget.
+  one label in one container are one widget: give repeated rows `##index` suffixes.
 - The pointer: only the topmost anchored container under it answers; a press outside every container is a
-  `viewport_drag` until all buttons are up, so a stroke over a panel never presses it. `ui.wants_pointer` is what
-  `kit_viewport_input` checks before giving the viewport the pointer.
-- Sizes are points; draw lists are pixels (`pixel_density`). Every hit area is at least `Theme.target` (48) points
-  (`hit_area`): sm-store's touch-target rule; the drawn control can be smaller (`control` 36, `row` 40). Widgets name
-  tokens from `src/ui/theme.odin` (`THEME_DARK`, "Graphite"), never literal colours or sizes; `imgui_apply_theme`
-  (`src/app/imgui_style.odin`) styles ImGui from the same tokens, so a token change reaches both interfaces.
-- Every widget has default, hover, pressed, selected and disabled looks through `feedback` (wash + 0.97 press scale);
-  selected tabs, dock tiles and segments use `indicator`, one sliding marker per container drawn under the content.
-- Motion (`src/ui/motion.odin`): `tween(ctx, salt(id, n), target, duration, ease)` returns the eased value; a new target
-  retargets from where it is. `presence` gives a 0–1 enter/exit share; animate by `transform_since`/`rotate_since` on
-  the vertices drawn since a `vertex_mark`, never by changing the layout. The clock is the sum of clamped `Input.dt`, so
-  tests step time exactly. `ctx.reduced_motion` makes every duration 0. Nothing a stroke, camera or drag reads animates.
-- Popovers (`src/ui/popup.odin`): `popover_begin(ctx, name, open, anchor, side, box)` … `popover_end`. A press outside
-  one (and its anchor) closes it, but only if it was on screen last frame, and a press on the viewport that closes it is
-  swallowed (`ctx.swallow`) so it never sculpts; a closing popover is inert. The first frame is drawn invisibly to
-  measure it, and it flips when there is no room. Selects draw their list in `frame_end`, over everything.
-- `tip(ctx, id, rect, text, keys)` after a widget gives it a tooltip (delay, warm-up, hidden after a press and outside an
-  open popover); `toast(ctx, message, kind)` adds a note (four slots, text copied). `section`/`section_end` fold a group.
-- Test the interface by script: `--ui-events="5:move:800,450;6:down;7:up;9:right;12:wheel:-3"` drives the pointer in
-  window points, and `--dump-screen=build/x.png` (under `xvfb-run -a -s "-screen 0 1600x1000x24"` on Linux) writes the
-  window; open the PNG and describe it. `ui_ms_*` on exit is the kit's CPU cost.
-- The kit's panels never own sculpt state either: they get `&app.brush.…` each frame. Shortcuts, the brush circle, the
-  pie and the Stats panel (F11) are still ImGui, drawn over the kit. Tab toggles the inspector, Escape closes popovers.
+  `viewport_drag` until all buttons are up, so a stroke over a panel never presses it. `wants_pointer` decides whether
+  the viewport gets the pointer.
+- Sizes are points; the draw list is pixels (`pixel_density`). Every hit area is at least `Theme.target` (48) points
+  (`hit_area`; sm-store); what is drawn can be smaller (`control` 36, `row` 40). Widgets name tokens from
+  `src/ui/theme.odin` (`THEME_DARK`, "Graphite"), never literal colours or sizes.
+- Widgets (`widgets.odin`): `label`, `paragraph`, `caption`, `icon_button`, `button` (variant, tone, width, glyph,
+  enabled), `toggle_button`, `tabs` (segmented control; `chosen` -1 shows none), `switch_row`, `slider` (linear or
+  logarithmic), `vslider`, `drag_value` (drag sideways, from the press value), `text_field` (a `[]u8` buffer),
+  `select`, `list_row`, `menu_item`, `brush_tile`, `section`/`section_end`, `value_row`, `plot`, `area` (a space to draw
+  into that reports the pointer: graphs, bars, thumbnails), `grey_image`, `divider`. Shapes (`ui.odin`): `fill_rect`,
+  `stroke_rect`, `fill_circle`, `stroke_circle`, `line`, `polyline`, `fill_convex`, `text`, `icon`.
+- Every pressable widget has default, hover, pressed, selected and disabled looks through `feedback`; selected tabs,
+  tiles and segments use `indicator`, one sliding marker per container drawn under the content.
+- Motion (`motion.odin`): `tween(ctx, salt(id, n), target, duration, ease)`; `presence` gives a 0–1 enter/exit share;
+  animate by `transform_since`/`rotate_since` on the vertices drawn since a `vertex_mark`, never by changing the
+  layout. The clock is the sum of clamped `Input.dt`. `ctx.reduced_motion` makes every duration 0. Nothing a stroke,
+  the camera or a drag reads animates.
+- Popovers (`popup.odin`): `popover_begin(ctx, name, open, anchor, side, box)` … `popover_end`; a press outside one
+  closes it (swallowed if on the viewport); the first frame is measured invisibly. Selects draw their list in
+  `frame_end`, over everything. `tip(ctx, id, rect, text, keys)` gives a tooltip; `toast(ctx, message, kind)` a note.
+- Layers (`ui.odin:666`): `layer_mark` keeps a place in the draw order; what is drawn between `layer_begin` and
+  `layer_end` goes there, under everything drawn after the mark. Draw in it with the whole window as the clip.
+- Text fields: `typing(ctx)` is true while one has the keys; the app then calls `sdl.StartTextInput` (a tablet's
+  on-screen keyboard) and turns its shortcuts off (`typing(app)`); `Input.text`, `backspace` and `text_end` (Enter or
+  Escape) feed it. A field not drawn in a frame loses the keys.
 
 ## Recipes
 | Want | Do |
 |---|---|
-| a control in the new interface | a widget call inside the right container in `kit_layout` or a `kit_*_tab` section, editing `App` through a pointer; a new widget goes in `src/ui/widgets.odin` with a test in `ui_test.odin` if it has logic |
-| a new panel | `draw_x_panel :: proc(app: ^App)` opening with `defer imgui.End()` then `if !imgui.Begin("X") do return`; call it from `ui_draw`; dock it in `build_default_layout` |
+| a control | a widget call in the right section of `kit_tool.odin`, `kit_object.odin`, `kit_scene.odin` or a feature's `kit_*_section`, editing `App` through a pointer |
+| a new section | a `Kit_Section` value (`new_ui.odin:64`), open by default only if it belongs in `kit_init`'s list, then `if ui.section(ctx, "Title", &k.open[.X]) { …; ui.section_end(ctx) }` |
+| a new widget | `src/ui/widgets.odin`, tokens only, hit area at least `target`, with a test in `ui_test.odin` if it has logic |
 | a button that changes the scene | a new `Scene_Command.kind` and a `scene_apply` case (the sm-cad checklist); the panel only sets `scene_command` |
-| a new statistic | a `Sample_Ring` in `Frame_Stats` (`src/app/stats.odin:32-69`), `ring_push` where it is measured, a `row(…)` line in the Stats panel and a key in the exit stats |
-| a viewport input that tools must not see | clear it with `viewport_mute` (`src/app/adjust.odin`) before the tools read `Viewport_Input`; never filter inside a tool |
-| an A/B toggle | `imgui.Checkbox("…", &app.<field>)` plus a `--no-<x>` field in `Options` and a sentence in README "App flags" |
-| a shortcut | a line in `handle_shortcuts` and README "Controls" |
-| a setting that should survive a restart | a `key values` line in both `settings_save` and `settings_load` (`src/app/settings.odin`; unknown keys are skipped, values clamped); a flag that sets it too must only override when given, since the load runs before the flags |
-| a key for a new brush | nothing: keys 1–9 and 0 follow `Brush_Kind`'s order, so the eleventh kind on (Snake hook, Morph) has none and is picked in the panel or pie; add its name to `BRUSH_NAMES` and `BRUSH_HELP` (sm-sculpt has the brush checklist) |
-| text with numbers | `imgui.Text("%d", i32(n))`; strings through `fmt.ctprintf` (temp memory, fine within the frame); `count_label`/`bytes_label` for human sizes (`ui.odin:712-727`) |
-| a greyed-out control | `imgui.BeginDisabled(cond)` … `imgui.EndDisabled()` pairs |
+| a new statistic | a `Sample_Ring` in `Frame_Stats` (`src/app/stats.odin`), `ring_push` where it is measured, a `value_row` in `kit_stats.odin` and a key in the exit stats |
+| an A/B toggle | `ui.switch_row(ctx, "…", &app.<field>)` in the Stats panel's Drawing section plus a `--no-<x>` field in `Options` and a sentence in README "App flags" |
+| something drawn over the viewport | `overlay_*` calls in `overlay_viewport` (`overlay.odin`), in window coordinates |
+| a shortcut | a line in `handle_shortcuts` (`src/app/shortcuts.odin`) with `key_pressed(d, sdl.K_…)`, and README "Controls" |
+| a viewport input that tools must not see | clear it with `viewport_mute` before the tools read `Viewport_Input`; never filter inside a tool |
+| a setting that survives a restart | a `key values` line in both `settings_save` and `settings_load`; a flag that sets it too overrides only when given |
+| a curve to drag, a colour, a count | `kit_curve_editor`, `kit_color`, `kit_count` (`kit_widgets.odin`) |
 
 ## Traps
 | You might expect | What happens |
 |---|---|
-| the viewport texture resizes where it is drawn | the request is applied at the start of the next frame, before ImGui references the texture (`src/app/main.odin:382-385`) |
-| `Selectable` returns the selected state | it returns clicked; keep the state yourself (`ui.odin:526`) |
-| `IsKeyPressed(key)` fires once | it repeats by default; pass `false` for one-shot keys |
-| the brush circle sits under the cursor | with lazy mouse it is drawn at `stroke.pos`, on a string to the cursor |
-| the alpha outline turns with the stroke while hovering | between strokes it shows the angle alone (Follow stroke faces up, Random shows no turn), as the next stroke's first dab will |
-| a thumbnail needs a GPU texture | it is a 20² grey array drawn as rects (`Alpha_Entry.thumb`); fine for dozens of alphas, a texture once there are hundreds |
-| the camera turns whenever the mouse moves | only while hovered or dragging, and never while `primary` sculpts (`camera_apply_input`) |
-| ImGui keeps some of the state | never: it sees pointers per frame (`ui.odin:16-17`); state lives in `App` or `Ui_State` |
-| a shortcut fires while typing a number | `WantTextInput` guards all of them |
-| Space reaches ImGui like any key | over the viewport the event loop keeps it from ImGui for the pie; elsewhere ImGui's navigation presses the focused widget |
-| a right click always orbits | a right press let go quickly without moving is a tap and opens the pie; the few pixels it orbited stay |
-| `AddPolyline`/`PathStroke` take `col, flags, thickness`, as older examples show | ImGui 1.92.8 swapped them to `col, thickness, flags` (`DrawList_PathStroke(list, col, 4)`); the old order asserts |
+| Shift+[ arrives as { | SDL3 leaves the modifiers out of key events' key codes: `e.key.key` is [ with Shift held too, and shortcuts compare against it with the modifiers apart |
+| Ctrl+Z pressed and let go within one slow frame is lost | the Device counts the modifiers held when the frame's last key went down as held (`device_frame_end`) |
+| a tap's press and release in one frame lose the press | `kit_viewport_input` counts a press this frame as held; the release among the samples ends the stroke |
+| the overlay can be drawn where the viewport image is | the tools run after the layout; draw it after them, into the layer (`draw_viewport_overlay`) |
+| an enumerated array literal can name some cases | `-vet` wants every case: set the rest in a loop (`kit_init` opens its sections that way) |
+| `--ui-events` only press panels | they go through the Device as SDL events do: a scripted press on the viewport sculpts or orbits |
+| a press on the inspector's gap does nothing | it starts a scroll drag; a press on a control never does |
+| a long row of text fits | `paragraph` wraps to the column's width; `label` and `value_row` do not |
+| a tween follows a drag | a drag must follow the pointer exactly: give it duration 0 (the inspector's scroll does) |
+| a shortcut fires while typing a layer name | `handle_shortcuts` returns while `typing(app)`; new key handling must check it too |
+| a select's options can be built once | they must stay valid for the frame (temp memory is fine) |
 
 ## Verify
-- New interface: `--frames=60 --dump-screen=build/s.png` writes the whole window, kit and viewport, as the kit
-  drew it (ImGui overlays are not in it); open it and describe it. `build.sh test` runs the kit's headless tests.
-- `--frames=120 --dump-viewport` shows the viewport only (ImGui draws into the swapchain); for a panel, log the command
-  or state it produced, or read the exit stats; `build.bat smoke` after changing the frame loop.
+- `--ui-events="5:move:800,450;6:down;7:up;9:right;12:wheel:-3"` drives the pointer in window points (Menu at 36,36;
+  the inspector's tabs at about y 98 on a 1600 x 900 window), and `--dump-screen=build/x.png` writes the whole window,
+  overlay included; open it and describe it. `ui_ms_*` and `ui_vertices` on exit are the kit's cost.
+- `build.bat test` runs the kit's headless tests (`src/ui/ui_test.odin`); `build.bat smoke` after changing the frame loop.

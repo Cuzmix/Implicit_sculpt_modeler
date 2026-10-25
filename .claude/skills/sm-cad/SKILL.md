@@ -8,7 +8,7 @@ description: CAD-style mesh tools inside this app on geom.Mesh — primitives, b
 ## What exists today (so nothing is assumed)
 - New objects are spheres (`object_build`), the other `geom.Primitive` shapes (cube and torus as grids, cylinder and cone as
   `geom.lathe` outlines voxel remeshed; `geom.primitive`, `src/geom/primitives.odin`, added by `scene_add_primitive`, the
-  Scene panel's shape combo and `--shape`) or meshes from a file (`scene_add_mesh`), and any
+  Scene tab's Add object shape and `--shape`) or meshes from a file (`scene_add_mesh`), and any
   mesh can become an object through `object_build_from(app, obj, mesh, start)` (`:462`).
 - Files (`src/app/files.odin`, README "Files"): OBJ and PLY in and out (`geom.mesh_read_obj`, `mesh_read_ply`,
   `mesh_write_obj`, `mesh_write_ply`, `src/geom/mesh_file.odin`), an import cleanup (`mesh_clean`, `mesh_normalize`,
@@ -21,15 +21,15 @@ description: CAD-style mesh tools inside this app on geom.Mesh — primitives, b
   winding-number rays along each axis decide inside, marching cubes with a rule-built table keeps ambiguous faces
   apart, three rounds of tangential relaxation even it out (`:11-29`); overlaps and self-intersections merge, anything
   thinner than the spacing goes; `REMESH_MAX_LATTICE 4096` per axis. Wired as `Scene_Command .Remesh` → `object_remesh`
-  (`scene.odin:147-175`), the Scene panel's Remesh selected, Ctrl+R (at the object's own count) and `--remesh=N`.
+  (`scene.odin:147-175`), the Object tab's Remesh, Ctrl+R (at the object's own count) and `--remesh=N`.
 - Decimate exists: `geom.mesh_decimate(m, triangles, pool)` (`src/geom/decimate.odin`) runs `simplify` with `strict = true`
   (no two corners of a triangle move in one pass, no needles, shorter edges first on ties) in parallel cell rounds
-  (`DECIMATE_ROUND_KEEP`, shifted cells), then whole; wired as `Scene_Command .Decimate` → `object_decimate`, the Scene
-  panel's Decimate selected and `--decimate=N`. The LOD copies keep the non-strict `simplify`.
+  (`DECIMATE_ROUND_KEEP`, shifted cells), then whole; wired as `Scene_Command .Decimate` → `object_decimate`, the Object
+  tab's Decimate and `--decimate=N`. The LOD copies keep the non-strict `simplify`.
 - Mirror and weld exists: `geom.mesh_symmetrize(m, axis, keep_positive, pool)` (`src/geom/symmetrize.odin`) cuts at the
   axis plane (snapping vertices within 1e-5 of the size onto it), clips crossing triangles with cut points computed
   from the lower-numbered edge end so they weld bit-exactly in `mesh_clean`, mirrors with reversed winding. Wired as
-  `Scene_Command .Symmetrize` → `object_symmetrize`, the Scene panel's Mirror and weld, `--mirror=[-]x|y|z`. Duplicate
+  `Scene_Command .Symmetrize` → `object_symmetrize`, the Object tab's Mirror and weld, `--mirror=[-]x|y|z`. Duplicate
   (`.Duplicate` → `scene_duplicate`, Ctrl+Shift+D) copies an object through `object_put`/`object_get`.
 - Slice exists: `geom.mesh_slice(m, point, normal, close, pool)` (`src/geom/slice.odin`) splits along any plane into
   front (the normal's side) and back, caps each border loop (ear clipping, holes bridged) and evens the cap (longest
@@ -60,15 +60,15 @@ description: CAD-style mesh tools inside this app on geom.Mesh — primitives, b
    `sculptor_recompute_all`. Booleans want manifold inputs and give manifold outputs; the robust fallback is a voxel or
    SDF remesh ([references/algorithms.md](references/algorithms.md)).
 3. A new `Scene_Command.kind` (`scene.odin:84-91`) with its fields; the panel sets `app.ui.scene_command = {kind = …}`
-   (`src/app/ui.odin`, the Add / Remesh buttons); it is applied at the next frame start (`src/app/main.odin:300-303`).
-   Never mutate the scene from inside `ui_draw`.
+   (`src/app/kit_object.odin` and `kit_scene.odin`, the Remesh and Add buttons); it is applied at the next frame start
+   (`src/app/main.odin`). Never mutate the scene from inside the layout (`kit_frame` and the `kit_*` sections).
 4. A `scene_apply` case (`scene.odin:245-335`): refuse with `log.warn` and `return true` (`:298-313`), fail only a fatal
    GPU error with `return false`; log the result like `object_build` does (`:473-475`).
 5. `render.viewport_invalidate(&app.target)` when what is drawn changed without a buffer version bump (`scene.odin:399,
    283`); a new `Mesh_Buffers` or `mesh_buffers_upload_ranges` bumps the version and forces a full redraw by itself.
 6. Range uploads must stay within `vertex_capacity`; a tool that adds vertices recreates the buffers.
-7. A shortcut only inside `handle_shortcuts` (guarded by `WantTextInput`), and README "Controls" plus the Scene panel
-   text updated.
+7. A shortcut only inside `handle_shortcuts` (`src/app/shortcuts.odin`, off while `typing(app)`), and README "Controls"
+   plus the tool's section text updated.
 8. Tests in `src/geom/<tool>_test.odin`: `mesh_check` on the output; counts (V − E + F = 2 per closed shell); signed
    volume, area and bounds against the intent (a unit cube is 1; a union is at most the sum; a mirror's bounds are
    symmetric; a trim's bounds stop at the plane); a planted fault; serial equals parallel when jobs are used.

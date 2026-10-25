@@ -4,11 +4,11 @@ import "core:fmt"
 import "core:log"
 import "core:math/linalg"
 import "core:time"
-import imgui "deps:odin-imgui"
 
 import "../camera"
 import "../geom"
 import "../sculpt"
+import "../ui"
 
 // The Curve and Insert tools, after ZBrush's curve brushes and insert mesh brushes. A
 // Curve drag over the surface makes, on release, a new object along the path: a tube,
@@ -235,57 +235,52 @@ insert_make :: proc(app: ^App, at, normal: Vec3, half: f32) -> bool {
 	return add_made_object(app, &source, label, s.mode, start)
 }
 
-draw_curve_overlay :: proc(app: ^App, list: ^imgui.DrawList, o: imgui.Vec2) {
-	rgba :: proc(c: [4]f32) -> u32 {return imgui.ColorConvertFloat4ToU32(c)}
-	if c := &app.curve; c.active && len(c.screen) >= 2 {
-		drawn := make([]imgui.Vec2, len(c.screen), context.temp_allocator)
-		for p, i in c.screen do drawn[i] = o + p
-		imgui.DrawList_AddPolyline(list, &drawn[0], i32(len(drawn)), rgba({0.4, 0.85, 1, 1}), 2, {})
-	}
-	if s := &app.insert; s.active {
-		imgui.DrawList_AddCircle(list, o + s.start, s.px, rgba({0.4, 0.85, 1, 1}), 48, 1.5)
-	}
+// Draws the curve being drawn, or the size of the shape being inserted.
+draw_curve_overlay :: proc(app: ^App, o: Overlay) {
+	color := overlay_color({0.4, 0.85, 1, 1})
+	if c := &app.curve; c.active && len(c.screen) >= 2 do overlay_polyline(o, c.screen[:], color, 2)
+	if s := &app.insert; s.active do overlay_circle(o, s.start, s.px, color, 1.5)
 }
 
-draw_curve_settings :: proc(app: ^App) {
+// The Curve tool's settings in the interface.
+kit_curve_settings :: proc(app: ^App) {
+	ctx := &app.kit.ctx
 	c := &app.curve
-	for kind in Curve_Kind {
-		if kind != .Tube do imgui.SameLine()
-		if imgui.RadioButton(fmt.ctprintf("%v", kind), c.kind == kind) do c.kind = kind
-	}
-	imgui.SliderFloat("Width", &c.size, 0.05, 2, "%.2f x brush", {.Logarithmic})
+	kinds: [len(Curve_Kind)]string
+	for kind, i in Curve_Kind do kinds[i] = fmt.tprint(kind)
+	if picked := ui.tabs(ctx, "curve kind", kinds[:], int(c.kind)); picked >= 0 do c.kind = Curve_Kind(picked)
+	_ = ui.slider(ctx, "Width", &c.size, 0.05, 2, .Logarithmic, fmt.tprintf("%.2f x brush", c.size))
 	if c.kind == .Tube {
-		imgui.SliderFloat("Lift", &c.lift, -1, 2, "%.2f radius")
-		imgui.SliderInt("Sides", &c.sides, 3, 64)
+		_ = ui.slider(ctx, "Lift", &c.lift, -1, 2, .Linear, fmt.tprintf("%.2f radius", c.lift))
+		sides := f32(c.sides)
+		if ui.slider(ctx, "Sides", &sides, 3, 64, .Linear, fmt.tprintf("%d", c.sides)) do c.sides = i32(sides + 0.5)
 	}
-	imgui.TextDisabled("Drag over the surface: on release a new object\nfollows the path. Width is a share of the brush's\ndiameter (S changes the brush size).")
 }
 
-draw_insert_settings :: proc(app: ^App) {
+// The Insert tool's settings in the interface: a shape, or a copy of an object.
+kit_insert_settings :: proc(app: ^App) {
+	ctx := &app.kit.ctx
+	t := ctx.theme
 	s := &app.insert
 	src := object_by_id(app, s.object)
-	preview := fmt.ctprintf("%s", object_label(src) if src != nil else fmt.tprintf("%v", s.shape))
-	imgui.SetNextItemWidth(160)
-	if imgui.BeginCombo("Insert", preview) {
-		for shape in geom.Primitive {
-			if imgui.Selectable(fmt.ctprintf("%v", shape), src == nil && s.shape == shape) {
-				s.shape, s.object = shape, 0
-			}
-		}
-		imgui.Separator()
-		for obj in app.scene.objects {
-			if imgui.Selectable(fmt.ctprintf("Copy of %s##%d", object_label(obj), obj.id), obj == src) do s.object = obj.id
-		}
-		imgui.EndCombo()
+	names := make([dynamic]string, context.temp_allocator)
+	for p in geom.Primitive do append(&names, fmt.tprint(p))
+	chosen := int(s.shape)
+	for obj, i in app.scene.objects {
+		append(&names, fmt.tprintf("Copy of %s##%d", object_label(obj), obj.id))
+		if obj == src do chosen = len(geom.Primitive) + i
 	}
-	imgui.SetNextItemWidth(110)
-	imgui.InputInt("Vertices##insert", &s.vertices, 5000, 50_000)
-	s.vertices = clamp(s.vertices, 500, 2_000_000)
-	imgui.SliderFloat("Sink", &s.sink, -1, 1, "%.2f")
-	imgui.SetNextItemWidth(120)
-	if imgui.BeginCombo("Mark as", fmt.ctprintf("%v", s.mode)) {
-		for m in Boolean_Mode do if imgui.Selectable(fmt.ctprintf("%v", m), m == s.mode) do s.mode = m
-		imgui.EndCombo()
+	if picked := ui.select(ctx, "insert shape", names[:], chosen); picked >= 0 {
+		if picked < len(geom.Primitive) {
+			s.shape, s.object = geom.Primitive(picked), 0
+		} else {
+			s.object = app.scene.objects[picked - len(geom.Primitive)].id
+		}
 	}
-	imgui.TextDisabled("Click the surface to put the shape there, standing\non it, the brush's size; drag to size it. Mark as\nSubtract with Live boolean on to cut it out.")
+	_ = kit_count(ctx, "Vertices", &s.vertices, 500, 2_000_000)
+	_ = ui.slider(ctx, "Sink", &s.sink, -1, 1, .Linear, fmt.tprintf("%.2f", s.sink))
+	ui.label(ctx, "Mark it as", t.small_size)
+	modes: [len(Boolean_Mode)]string
+	for m, i in Boolean_Mode do modes[i] = fmt.tprint(m)
+	if picked := ui.tabs(ctx, "insert mark", modes[:], int(s.mode)); picked >= 0 do s.mode = Boolean_Mode(picked)
 }

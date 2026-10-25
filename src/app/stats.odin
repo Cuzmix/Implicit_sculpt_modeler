@@ -35,9 +35,8 @@ Frame_Stats :: struct {
 	wait_ms:    Sample_Ring, // waiting for the display (and, while timing the GPU, for the previous frame)
 	gpu_ms:     Sample_Ring, // GPU time of the 3D viewport's uploads and drawing; only while timing the GPU
 	lod_ms:     Sample_Ring, // building and uploading simplified copies, on frames that did
-	imgui_ms:   Sample_Ring, // the ImGui panels' frame, CPU, on frames they drew
-	ui_ms:      Sample_Ring, // the new interface's layout and tessellation, CPU, on frames it drew
-	ui_vertices: int, // the new interface's vertices last frame
+	ui_ms:      Sample_Ring, // the interface's layout and tessellation, CPU
+	ui_vertices: int, // the interface's vertices last frame
 	// Recorded only on frames where the brush changed the mesh:
 	raycast_ms: Sample_Ring,
 	brush_ms:   Sample_Ring, // dabs, excluding the raycast

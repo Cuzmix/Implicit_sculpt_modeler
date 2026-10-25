@@ -1,6 +1,6 @@
 # Sculpt — instructions for coding agents
 
-A performance-focused sculpting prototype in Odin (SDL3 + SDL_GPU for rendering, Dear ImGui for the interface), with
+A performance-focused sculpting prototype in Odin (SDL3 + SDL_GPU for rendering, its own kit `src/ui` for the interface), with
 ZBrush as the behaviour model. README.md is the only document and describes what exists now; this file is the map and
 the skills hold the detail. It builds and runs on Windows (`build.bat`) and Linux (`build.sh`).
 
@@ -41,16 +41,16 @@ skill whose description fits the request BEFORE you form a plan.
 ## 4. Map
 | Path | What |
 |---|---|
-| `src/app` | entry point, frame loop, `Options` flags, scene of objects, Move and Brush tools, ImGui panels, `Viewport_Input`, cross-object `History`, `--gpubench` |
+| `src/app` | entry point, frame loop, `Options` flags, scene of objects, the tools, the interface's panels (`new_ui.odin`, `kit_*.odin`), keys and pointer (`device.odin`), `Viewport_Input`, cross-object `History`, `--gpubench` |
 | `src/render` | every GPU object the app creates: device, pipelines, viewport target, mesh buffers, indirect draws, partial redraw, the idle cache; `shaders/` GLSL with committed `.spv` |
 | `src/geom` | CPU geometry: `Mesh`, icosphere and geodesic fixtures, BVHs, topology, culling math, simplification, the LOD walk, `mesh_check` |
 | `src/camera`, `src/gizmo` | orbit camera math; move gizmo math (both pure, no rendering or UI) |
 | `src/sculpt` | brushes over a `Mesh` split into nodes, dirty ranges, undo, subdivision levels, HD windows, simplified copies |
-| `src/ui` | the new interface's kit: immediate-mode layout, widgets, hit testing, CPU tessellation, fonts (no SDL, no render) |
+| `src/ui` | the interface kit: immediate-mode layout, widgets, hit testing, CPU tessellation, fonts (no SDL, no render) |
 | `src/jobs` | the persistent worker pool (`parallel_for`, `parallel_ranges`) |
 | `src/bench` | the headless CPU benchmark (markdown tables) |
 | `src/sdf_trial` | the standalone SDF/voxel comparison spike (not in the build scripts) |
-| `android/` | the Android app: Gradle project, manifest, `app/jni/CMakeLists.txt` (SDL3, ImGui, stb and `src/app` built by Odin into `libmain.so`), `android_main.c` |
+| `android/` | the Android app: Gradle project, manifest, `app/jni/CMakeLists.txt` (SDL3, stb and `src/app` built by Odin into `libmain.so`), `android_main.c` |
 | `scripts/` | `setup_deps.*`, `versions.env` (the pins), `agents_sync.py` (skill mirror and validation), `ppm.py` (view and diff viewport dumps) |
 | `deps/`, `build/` | ignored: the pinned toolchain and third-party sources; build outputs and dumps |
 | `.vscode/`, `.claude/`, `.agents/` | tasks and launch configurations; skills, agents and permissions; the generated skill mirror (never edited by hand) |
@@ -58,7 +58,7 @@ skill whose description fits the request BEFORE you form a plan.
 ## 5. Hard rules
 - Odin is pinned (`scripts/versions.env`, `deps/odin`): never write from memory of older Odin; grep the install.
 - Package boundaries: `geom`, `camera`, `gizmo` and `jobs` know nothing of rendering or UI; `ui` knows nothing of SDL or `render`; only `render` and `app`
-  import `vendor:sdl3`; only `app` imports ImGui; `bench` never imports `render` or `app`; `sdf_trial` stands alone.
+  import `vendor:sdl3`; `bench` never imports `render` or `app`; `sdf_trial` stands alone.
 - Determinism: serial and parallel results are bit-identical and tests compare them; no map order decides output.
 - Allocations inside jobs use `runtime.heap_allocator()` for both make and delete; only the frame loop and the setup
   paths call `free_all(context.temp_allocator)`; nothing temp is stored.
@@ -66,7 +66,7 @@ skill whose description fits the request BEFORE you form a plan.
   through `mask_dab` or `sculptor_mask_command`; triangles change only under dynamic topology inside a stroke. Any other
   topology change (remesh, booleans, …) copies `object_remesh`: end the stroke, leave HD, release and rebuild the object,
   which drops its levels, mask and strokes, and record it as a swap undo entry (`history_snapshot` / `history_record_swap`: `sm-cad`).
-- ImGui never owns sculpt state; panels keep no references between frames; scene changes are `Scene_Command`s and
+- The interface never owns sculpt state; panels keep no references between frames; scene changes are `Scene_Command`s and
   file actions are requests (`file_take`), both applied at the start of the next frame.
 - The `.sculpt` scene file is versioned (`SCENE_VERSION`, `src/app/files.odin`): a change to what it stores bumps the
   version and keeps reading every older one; a damaged file is refused, never asserted on.

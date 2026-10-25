@@ -20,12 +20,6 @@ android {
             // Odin builds the app for 64-bit ARM only, which every current tablet is.
             abiFilters 'arm64-v8a'
         }
-        externalNativeBuild {
-            cmake {
-                // ImGui is C++; c++_static keeps libc++ inside libmain.so.
-                arguments "-DANDROID_STL=c++_static"
-            }
-        }
     }
 
     sourceSets {

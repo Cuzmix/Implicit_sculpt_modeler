@@ -18,7 +18,7 @@ You review a finished change; you do not fix it. Read-only commands only (`git d
   or sm-sdf for new tools; sm-build for `build.*`, `scripts/` and anything claiming it works.
 
 ## Checklist (sm-lint made concrete)
-1. **Exists**: every `core:`/`vendor:` name grepped under `deps/odin`, every `imgui.*` name under `deps/odin-imgui`,
+1. **Exists**: every `core:`/`vendor:` name grepped under `deps/odin`, every `ui.*` name under `src/ui`,
    every mode or flag mentioned present in `build.bat`, `build.sh` or `Options`.
 2. **Boundaries**: the import table in sm-lint; no render or UI knowledge in `geom`, `camera`, `gizmo`, `jobs`; GPU
    objects only in `render`; no new package-level mutable state; one way to do one thing.

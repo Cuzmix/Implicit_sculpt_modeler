@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Fetches and builds pinned dependencies into deps/ (Linux).
 # System packages needed (Ubuntu 24.04):
-#   clang cmake ninja-build git python3 glslang-tools libc++-18-dev libc++abi-18-dev
+#   clang cmake ninja-build git python3 glslang-tools
 #   libvulkan-dev mesa-vulkan-drivers libx11-dev libxext-dev libxrandr-dev libxcursor-dev
 #   libxi-dev libxss-dev libxtst-dev libwayland-dev libxkbcommon-dev libdecor-0-dev
 #   libegl-dev libdrm-dev libgbm-dev
@@ -42,14 +42,4 @@ if [ ! -f "$DEPS/sdl3/lib/libSDL3.so" ]; then
 	ninja -C "$DEPS/sdl3-src/build" install > "$DEPS/sdl3-build.log"
 fi
 
-# Dear ImGui bindings, built with only the SDL3 + SDL_GPU backends
-if [ ! -f "$DEPS/odin-imgui/imgui_linux_x64.a" ]; then
-	echo "== odin-imgui $ODIN_IMGUI_COMMIT"
-	rm -rf "$DEPS/odin-imgui"
-	git clone -q https://gitlab.com/L-4/odin-imgui.git "$DEPS/odin-imgui"
-	git -C "$DEPS/odin-imgui" -c advice.detachedHead=false checkout -q "$ODIN_IMGUI_COMMIT"
-	sed -i 's/^wanted_backends = .*/wanted_backends = ["sdl3", "sdlgpu3"]/; /^\t\t\t\t   "dx11", "dx12"/d' \
-		"$DEPS/odin-imgui/build.py"
-	(cd "$DEPS/odin-imgui" && python3 build.py)
-fi
 echo "Dependencies ready in $DEPS"

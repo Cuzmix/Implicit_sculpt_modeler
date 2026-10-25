@@ -1,19 +1,19 @@
 {
   "source": ".claude/skills",
   "files": {
-    "sm-build/SKILL.md": "caa98cb021e5d12d6c30169a876e4b98c773f9da8ff1d0e61e5477bd8fccbb94",
-    "sm-cad/SKILL.md": "d83a6e8d8ea22a3555870692c02384deba53cf873730f00135d8850e743d5f88",
+    "sm-build/SKILL.md": "d245e4f10804dc263eed9cc5f41520d4d2ab4c52e09cb6285a52aedf6849d8d6",
     "sm-cad/references/algorithms.md": "01d2533465f6863979662a3e062a7451fc82aec36cbd178148858991583f02b2",
     "sm-cad/references/undo-and-topology.md": "5b5ac5f6a7c802a413c9e22deea2fb31074478f02d7d3f63bce968c4fff5e249",
+    "sm-cad/SKILL.md": "d2260ad8b21d9f930556a89369d4ea28a203a47d1a8317d310e38ee0b3fa1948",
     "sm-geom/SKILL.md": "61f564d76460911e68c44c38c81cb60853bbac8d6ac09909f6c887ebdf429c2f",
-    "sm-lint/SKILL.md": "f9494cb74e50f59fe136aaba7aae4d7f231d981e21cfeef176f39d7ba241b524",
-    "sm-odin/SKILL.md": "d711a0297e48b244ee4ed3cf18198f4e0b63297d50e28aa1bef5fc37fcfbcaf7",
+    "sm-lint/SKILL.md": "9e847768d71b0329347ab91bafb6781306ffb7048a1432f64311ad12e62db5d3",
+    "sm-odin/SKILL.md": "a586e98211aa9b05076c9a4f07bd98a8e53d5406f59465b86c435720386daca4",
     "sm-perf/SKILL.md": "4610ecb2be8c95b0a3e72f16f88977717318e129286a781f49264834fd0a7ae6",
-    "sm-render/SKILL.md": "2ed8c3951d971d983aacd38e498fcb70fd08a2796d46dac27200a848cd908386",
+    "sm-render/SKILL.md": "8a459052b94001a817ad097d0549cb13004f8ce41095ba5223a725971c1587b5",
     "sm-sculpt/SKILL.md": "1d308b0d8f4608ac54c00ef44b6cd6f152a39c05692923fc5aed9a0e6cde385f",
-    "sm-sdf/SKILL.md": "f1678384aeec1f5658969a6dc86ce72f6362b57bdcb83543a0aa86bc30d9dde1",
     "sm-sdf/references/implicit.md": "0242284742b5712ed46cbc3498e45c70c9768f5972cc5381b45331ad8641185f",
-    "sm-store/SKILL.md": "ffa0e4459d3066d99fe4ab5087b51c1de4b764db063f32da2b0bf93052fc9b80",
-    "sm-ui/SKILL.md": "c2a0c379054d2ab871588cee6b8ad7c68563bddb296d43f7e705eea960af5d6a"
+    "sm-sdf/SKILL.md": "f1678384aeec1f5658969a6dc86ce72f6362b57bdcb83543a0aa86bc30d9dde1",
+    "sm-store/SKILL.md": "eef330f45b56298dc5b0ec70471c59fb19eba5e6897e2634d7521f03b27e631e",
+    "sm-ui/SKILL.md": "80c52283d7bbcb7e8e17803e77b76e5d29a628676d74f8b4b186588208aa24db"
   }
 }

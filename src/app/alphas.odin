@@ -12,13 +12,13 @@ import "core:mem"
 import "core:os"
 import "core:path/filepath"
 import "core:strings"
-import imgui "deps:odin-imgui"
 
 import "../camera"
 import "../sculpt"
+import "../ui"
 
 // Brush alphas in the app: the built-in ones and any images loaded, which way a dab's
-// image faces, and the Alpha section of the Tools panel. The sculpting side is
+// image faces, and the Brush tab's Alpha section. The sculpting side is
 // sculpt/alpha.odin.
 
 // Which way the image's top faces on screen.
@@ -37,12 +37,11 @@ ALPHA_MODE_NAMES := [Alpha_Mode]string {
 Alpha_Entry :: struct {
 	name:  string, // owned
 	alpha: sculpt.Alpha,
-	thumb: [ALPHA_THUMB * ALPHA_THUMB]u8, // what the panel draws: the image, small
+	thumb: [ALPHA_THUMB * ALPHA_THUMB]u8, // what the Alpha section draws: the image, small
 }
 
-// Thumbnail pixels a side, each drawn ALPHA_THUMB_PX screen pixels square.
+// Thumbnail pixels a side: enough to tell the alphas apart in their 48 point tiles.
 ALPHA_THUMB :: 20
-ALPHA_THUMB_PX :: 2
 
 // The built-in alphas, in the order the panel shows them.
 alphas_init :: proc(app: ^App) {
@@ -201,60 +200,52 @@ alpha_world_up :: proc(app: ^App) -> Vec3 {
 
 // Draws the brush outline for an alpha: its square, turned as the next dab's image
 // will be, with a tick at its top edge.
-draw_alpha_outline :: proc(app: ^App, list: ^imgui.DrawList, center: imgui.Vec2, color: u32) {
+draw_alpha_outline :: proc(app: ^App, o: Overlay, center: [2]f32, color: ui.Color) {
 	angle := alpha_screen_angle(app, for_display = true)
 	r := app.brush.radius_px
 	// Screen axes of the image: its up (y grows downward on screen) and its right.
-	up := imgui.Vec2{-math.sin(angle), -math.cos(angle)}
-	right := imgui.Vec2{-up.y, up.x}
-	corners := [4]imgui.Vec2{center + r * (up - right), center + r * (up + right), center + r * (right - up), center - r * (up + right)}
-	imgui.DrawList_AddPolyline(list, &corners[0], 4, color, 1.5, imgui.DrawFlags_Closed)
-	imgui.DrawList_AddLine(list, center + r * up, center + r * 1.25 * up, color, 1.5)
+	up := [2]f32{-math.sin(angle), -math.cos(angle)}
+	right := [2]f32{-up.y, up.x}
+	corners := [4][2]f32{center + r * (up - right), center + r * (up + right), center + r * (right - up), center - r * (up + right)}
+	overlay_polyline(o, corners[:], color, 1.5, closed = true)
+	overlay_line(o, center + r * up, center + r * 1.25 * up, color, 1.5)
 }
 
-// The Alpha section of the Tools panel: the round brush and every alpha as thumbnails,
+// The interface's Alpha section: the round brush and every alpha as thumbnails to tap,
 // a button to load an image, and which way the image faces.
-draw_alpha_section :: proc(app: ^App) {
-	imgui.SeparatorText("Alpha")
-	rgba :: proc(c: [4]f32) -> u32 {return imgui.ColorConvertFloat4ToU32(c)}
-	SIZE :: f32(ALPHA_THUMB * ALPHA_THUMB_PX)
+kit_alpha_section :: proc(app: ^App) {
+	ctx := &app.kit.ctx
+	t := ctx.theme
 	PER_ROW :: 6
-	list := imgui.GetWindowDrawList()
-	for i in -1 ..< len(app.alphas) {
-		if (i + 1) % PER_ROW != 0 do imgui.SameLine()
-		o := imgui.GetCursorScreenPos()
-		if imgui.InvisibleButton(fmt.ctprintf("alpha%d", i), {SIZE, SIZE}) do app.brush.alpha = i
-		name := "Round (no alpha)" if i < 0 else app.alphas[i].name
-		if imgui.IsItemHovered() do imgui.SetTooltip("%s", fmt.ctprintf("%s", name))
-		imgui.DrawList_AddRectFilled(list, o, o + SIZE, rgba({0, 0, 0, 1}))
-		if i < 0 {
-			// The round brush's own falloff, as a disc.
-			imgui.DrawList_AddCircleFilled(list, o + SIZE / 2, SIZE * 0.42, rgba({0.75, 0.75, 0.75, 1}), 24)
-		} else {
-			thumb := &app.alphas[i].thumb
-			for j in 0 ..< ALPHA_THUMB {
-				for k in 0 ..< ALPHA_THUMB {
-					value := thumb[j * ALPHA_THUMB + k]
-					if value < 8 do continue
-					g := f32(value) / 255
-					p := o + {f32(k), f32(j)} * ALPHA_THUMB_PX
-					imgui.DrawList_AddRectFilled(list, p, p + ALPHA_THUMB_PX, rgba({g, g, g, 1}))
-				}
+	cell := ui.fill_width(ctx) / PER_ROW
+	count := len(app.alphas) + 1 // the round brush first
+	for first := 0; first < count; first += PER_ROW {
+		ui.begin(ctx, fmt.tprintf("alpha row %d", first), {direction = .Row})
+		for j in first ..< min(first + PER_ROW, count) {
+			i := j - 1
+			name := "Round (no alpha)" if i < 0 else app.alphas[i].name
+			a := ui.area(ctx, fmt.tprintf("%s##alpha %d", name, i), {cell, cell})
+			if a.clicked do app.brush.alpha = i
+			r := ui.Rect{a.rect.x + 4, a.rect.y + 4, a.rect.w - 8, a.rect.h - 8}
+			ui.fill_rect(ctx, r, t.radius_small, {0, 0, 0, 0xff})
+			if i < 0 {
+				// The round brush's own falloff, as a disc.
+				ui.fill_circle(ctx, {r.x + r.w * 0.5, r.y + r.h * 0.5}, r.w * 0.4, {0xc0, 0xc0, 0xc0, 0xff})
+			} else {
+				ui.grey_image(ctx, {r.x + 2, r.y + 2, r.w - 4, r.h - 4}, {ALPHA_THUMB, ALPHA_THUMB}, app.alphas[i].thumb[:], {0xff, 0xff, 0xff, 0xff})
 			}
+			selected := app.brush.alpha == i || (i < 0 && app.brush.alpha >= len(app.alphas))
+			ui.stroke_rect(ctx, r, t.radius_small, t.accent if selected else t.border_strong, 2 if selected else 1)
+			ui.tip(ctx, a.id, r, name)
 		}
-		selected := app.brush.alpha == i || (i < 0 && app.brush.alpha >= len(app.alphas))
-		border := rgba({0.95, 0.8, 0.45, 1} if selected else {1, 1, 1, 0.2})
-		imgui.DrawList_AddRect(list, o, o + SIZE, border, 0, 2 if selected else 1)
+		ui.end(ctx)
 	}
-	if imgui.Button("Load image...") do file_dialog(app, .Alpha)
-	imgui.SameLine()
-	imgui.TextDisabled("PNG, JPEG, BMP, TGA, QOI")
-	imgui.BeginDisabled(brush_alpha(app) == nil)
-	for mode in Alpha_Mode {
-		if mode != .Stroke do imgui.SameLine()
-		if imgui.RadioButton(fmt.ctprintf("%s", ALPHA_MODE_NAMES[mode]), app.brush.alpha_mode == mode) do app.brush.alpha_mode = mode
+	if ui.button(ctx, "Load image...", .Bordered, glyph = ui.ICON_IMAGE) do file_dialog(app, .Alpha)
+	if brush_alpha(app) != nil {
+		modes: [len(Alpha_Mode)]string
+		for m, i in Alpha_Mode do modes[i] = ALPHA_MODE_NAMES[m]
+		if picked := ui.tabs(ctx, "alpha mode", modes[:], int(app.brush.alpha_mode)); picked >= 0 do app.brush.alpha_mode = Alpha_Mode(picked)
+		_ = ui.slider(ctx, "Angle", &app.brush.alpha_angle, -180, 180, .Linear, fmt.tprintf("%.0f°", app.brush.alpha_angle))
 	}
-	imgui.SliderFloat("Angle", &app.brush.alpha_angle, -180, 180, "%.0f°")
-	imgui.EndDisabled()
-	imgui.TextDisabled("An alpha stamps each dab with an image: white\nworks fully, black not at all. Its square reaches\npast the circle where the image does.")
+	ui.paragraph(ctx, "An alpha stamps each dab with an image (PNG, JPEG, BMP, TGA or QOI): white works fully, black not at all. Its square reaches past the circle where the image does.")
 }

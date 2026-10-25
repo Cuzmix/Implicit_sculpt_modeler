@@ -47,7 +47,7 @@ description: Build, run, test and verify the sculpt modeler through build.bat (W
     build\sculpt.exe --vertices=500000 --frames=60 --dump-viewport=build\view.ppm
     python scripts\ppm.py uniform build\view.ppm                  # exit 1 = a blank frame: a failure, not a pass
     python scripts\ppm.py to-png build\view.ppm build\view.png    # open the PNG with Read and describe it
-- The dump is the 3D viewport only (ImGui draws into the swapchain), as the last frame left it: the selected object is
+- The dump is the 3D viewport only (the interface draws into the swapchain; `--dump-screen` writes the whole window), as the last frame left it: the selected object is
   clay, idle ones grey, the background dark blue-grey. Say what is where, how it is lit, whether the stroke shows.
 - A/B: `python scripts\ppm.py diff a.ppm b.ppm [--threshold N] [--out d.png]` prints the changed-pixel count, a
   `bbox=x,y,w,h` to paste into `ppm.py crop … --rect`, and paints the changed pixels red. Two runs with the same flags

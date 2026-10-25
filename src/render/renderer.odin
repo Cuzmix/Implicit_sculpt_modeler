@@ -1,6 +1,6 @@
-// Package render owns every GPU object the app creates directly (the ImGui backend
-// owns its own). It draws the sculpt viewport into an offscreen texture that the UI
-// then displays; it never reads or writes UI state.
+// Package render owns every GPU object the app creates. It draws the sculpt viewport into
+// an offscreen texture that the interface then shows (ui_pass.odin); it never reads or
+// writes interface state.
 package render
 
 import "core:fmt"

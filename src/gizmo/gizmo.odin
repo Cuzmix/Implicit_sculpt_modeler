@@ -1,6 +1,6 @@
 // Package gizmo is the pure math behind the move tool: projecting points to the
 // screen, picking a handle under the cursor, and turning mouse rays into motion along
-// an axis or across the view plane. It knows nothing of ImGui, the renderer or meshes.
+// an axis or across the view plane. It knows nothing of the interface, the renderer or meshes.
 package gizmo
 
 import "core:math/linalg"

@@ -31,6 +31,19 @@ ICON_FRAME :: rune(0xe291)
 ICON_SUN :: rune(0xe17c)
 ICON_SIZE :: rune(0xe07a) // circle
 ICON_STRENGTH :: rune(0xe1bf) // gauge
+ICON_HISTORY :: rune(0xe1f5)
+ICON_PLAY :: rune(0xe140)
+ICON_PAUSE :: rune(0xe132)
+ICON_SKIP_BACK :: rune(0xe163)
+ICON_SKIP_FORWARD :: rune(0xe164)
+ICON_STEP_BACK :: rune(0xe3ed)
+ICON_STEP_FORWARD :: rune(0xe3ee)
+ICON_SPLINE :: rune(0xe38f)
+ICON_SHAPES :: rune(0xe4b8)
+ICON_FILM :: rune(0xe0d4)
+ICON_STOP :: rune(0xe087) // circle-stop
+ICON_RECORD :: rune(0xe349) // circle-dot
+ICON_EYE_OFF :: rune(0xe0bf)
 
 // Every pressable control shares this: the wash under the pointer fades in, deepens
 // while held, and the control dips to 97% while held. Returns the scale to draw at.
@@ -495,8 +508,8 @@ section_end :: proc(ctx: ^Context) {
 }
 
 // A field showing the chosen option with a chevron; pressing it opens a list of every
-// option under it, which frame_end draws over everything. `options` must stay valid for
-// the frame. Returns the option picked, or -1.
+// option under it, which frame_end draws over everything (from a copy of `options`).
+// Returns the option picked, or -1.
 select :: proc(ctx: ^Context, name: string, options: []string, chosen: int, width: f32 = 0) -> int {
 	t := ctx.theme
 	w := width
@@ -522,7 +535,12 @@ select :: proc(ctx: ^Context, name: string, options: []string, chosen: int, widt
 	// The list belongs to the select drawn last with it open (or closing).
 	if ctx.select_id == id {
 		ctx.select_anchor = vis
-		ctx.select_options = options
+		clear(&ctx.select_text)
+		clear(&ctx.select_ends)
+		for option in options {
+			append(&ctx.select_text, option)
+			append(&ctx.select_ends, len(ctx.select_text))
+		}
 		ctx.select_chosen = chosen
 		ctx.select_fresh = true
 	}
@@ -548,7 +566,10 @@ select_list_draw :: proc(ctx: ^Context) {
 	clear(&ctx.stack)
 	ctx.id_seed = id
 	if popover_begin(ctx, "select list", &open, ctx.select_anchor, .Below, {direction = .Column, padding = 4, width = max(ctx.select_anchor.w, 160)}) {
-		for option, j in ctx.select_options {
+		start := 0
+		for end, j in ctx.select_ends {
+			option := string(ctx.select_text[start:end])
+			start = end
 			if menu_item(ctx, option, checked = j == ctx.select_chosen) {
 				ctx.select_pick_id = id
 				ctx.select_pick = j
@@ -579,6 +600,175 @@ brush_tile :: proc(ctx: ^Context, s: string, glyph: rune, selected: bool, keys :
 	press_scale(ctx, mark, vis, scale)
 	if keys != "" do tip(ctx, id, vis, label_text(s), keys)
 	return clicked
+}
+
+// A readout the width of its column: `s` on the left and `value` on the right, in small
+// type. It takes no pointer, so it is only as tall as its text.
+value_row :: proc(ctx: ^Context, s: string, value: string) {
+	t := ctx.theme
+	shown := label_text(s)
+	w := fill_width(ctx)
+	if w <= 0 do w = text_width(ctx, shown, t.small_size) + text_width(ctx, value, t.small_size) + 24
+	r := place(ctx, {w, math.ceil(t.small_size * 1.7)})
+	text(ctx, shown, r.x, r.y + r.h * 0.5, t.small_size, t.text_secondary)
+	text(ctx, value, r.x + r.w, r.y + r.h * 0.5, t.small_size, t.text, .Regular, .Right)
+}
+
+// A line through recent samples across the column's width, `height` points tall, `lo`
+// at the bottom and `hi` at the top (values past them are held at the edge). `values` is
+// a ring read from `first`, oldest first; `caption` names it in the corner.
+plot :: proc(ctx: ^Context, values: []f32, first: int, lo, hi: f32, height: f32, caption := "") {
+	t := ctx.theme
+	w := fill_width(ctx)
+	if w <= 0 do w = 260
+	r := place(ctx, {w, height})
+	fill_rect(ctx, r, t.radius_small, t.fill)
+	if n := len(values); n >= 2 && hi > lo {
+		points := make([][2]f32, n, context.temp_allocator)
+		for i in 0 ..< n {
+			f := clamp((values[(first + i) % n] - lo) / (hi - lo), 0, 1)
+			points[i] = {r.x + 4 + (r.w - 8) * f32(i) / f32(n - 1), r.y + r.h - 4 - (r.h - 8) * f}
+		}
+		polyline(ctx, points, t.accent, 1.5)
+	}
+	if caption != "" do text(ctx, caption, r.x + 8, r.y + 12, t.caption_size, t.text_tertiary)
+}
+
+// What the pointer did to an area this frame.
+Area :: struct {
+	id:      Id,
+	rect:    Rect,
+	hovered: bool,
+	held:    bool, // pressed on it and not yet let go, wherever the pointer is now
+	pressed: bool, // went down on it this frame
+	clicked: bool, // let go over it after pressing on it
+	mouse:   [2]f32, // the pointer, in points
+}
+
+// A space `size` points (width 0 takes the column's fill width) that the caller draws
+// into and reads the pointer over: a graph with handles to drag, a bar to scrub, a
+// thumbnail to pick.
+area :: proc(ctx: ^Context, name: string, size: [2]f32) -> Area {
+	w := size.x if size.x > 0 else fill_width(ctx)
+	if w <= 0 do w = 200
+	r := place(ctx, {w, size.y})
+	id := id_of(ctx, name)
+	hovered, held, clicked, pressed := interact(ctx, id, r)
+	return {id, r, hovered, held, pressed, clicked, ctx.input.mouse}
+}
+
+// A number to drag, the width of its column: `s` on the left and `shown` on the right.
+// Dragging sideways anywhere on it moves `value` by `per_point` for each point the
+// pointer moved since the press, within `lo` and `hi`, so a press alone never changes
+// it. Returns true when the value changed.
+drag_value :: proc(ctx: ^Context, s: string, value: ^f32, per_point, lo, hi: f32, shown: string, enabled := true) -> bool {
+	t := ctx.theme
+	w := fill_width(ctx)
+	if w <= 0 do w = 220
+	cell := place(ctx, {w, t.target})
+	vis := centered(cell, {w, t.control})
+	id := id_of(ctx, s)
+	hovered, held, pressed := false, false, false
+	if enabled do hovered, held, _, pressed = interact(ctx, id, cell)
+	if pressed do ctx.press_value = value^
+	changed := false
+	if held {
+		v := clamp(ctx.press_value + (ctx.input.mouse.x - ctx.press_mouse.x) * per_point, lo, hi)
+		if v != value^ {
+			value^ = v
+			changed = true
+		}
+	}
+	fade: f32 = 1 if enabled else 0.4
+	fill_rect(ctx, vis, t.radius_medium, color_fade(t.fill, fade))
+	_ = feedback(ctx, id, vis, t.radius_medium, hovered, held)
+	text(ctx, label_text(s), vis.x + 12, vis.y + vis.h * 0.5, t.text_size, color_fade(t.text_secondary, fade))
+	text(ctx, shown, vis.x + vis.w - 12, vis.y + vis.h * 0.5, t.text_size, color_fade(t.text, fade), .Semibold, .Right)
+	return changed
+}
+
+// A line of text to edit in `buf`, which holds it up to its first zero byte. A tap gives
+// it the keys (the app then turns on text input, and with it a tablet's on-screen
+// keyboard); Enter, Escape or a press anywhere else takes them away. Returns true when the
+// text changed.
+text_field :: proc(ctx: ^Context, name: string, buf: []u8, width: f32 = 0) -> (changed: bool) {
+	t := ctx.theme
+	w := width if width > 0 else fill_width(ctx)
+	if w <= 0 do w = 180
+	cell := place(ctx, {w, t.target})
+	vis := centered(cell, {w, t.control})
+	id := id_of(ctx, name)
+	hovered, held, clicked, _ := interact(ctx, id, cell)
+	if clicked do ctx.text_focus = id
+	focused := ctx.text_focus == id
+	n := 0
+	for n < len(buf) && buf[n] != 0 do n += 1
+	if focused {
+		ctx.text_seen = true
+		if ctx.input.pressed != {} && !hovered do focused = false
+		for _ in 0 ..< ctx.input.backspace {
+			if n == 0 do break
+			// Back over one whole UTF-8 sequence.
+			n -= 1
+			for n > 0 && buf[n] & 0xc0 == 0x80 do n -= 1
+			buf[n] = 0
+			changed = true
+		}
+		// Whole sequences only, and a zero byte kept at the end when there is room.
+		for i := 0; i < len(ctx.input.text); {
+			size := 1
+			lead := ctx.input.text[i]
+			switch {
+			case lead >= 0xf0: size = 4
+			case lead >= 0xe0: size = 3
+			case lead >= 0xc0: size = 2
+			}
+			if n + size >= len(buf) || i + size > len(ctx.input.text) do break
+			copy(buf[n:], ctx.input.text[i:][:size])
+			n += size
+			i += size
+			changed = true
+		}
+		if n < len(buf) do buf[n] = 0
+		if ctx.input.text_end do focused = false
+		if !focused do ctx.text_focus = 0
+	}
+	f := tween(ctx, salt(id, 1), 1 if focused else 0, t.hover_time)
+	fill_rect(ctx, vis, t.radius_medium, t.fill)
+	_ = feedback(ctx, id, vis, t.radius_medium, hovered && !focused, held)
+	if f > 0 do stroke_rect(ctx, vis, t.radius_medium, color_fade(t.accent, f), 1.5)
+	// The text stays inside the field; while typing, it slides left to keep its end, and
+	// the caret blinking there twice a second, in view.
+	shown := string(buf[:n])
+	inner := Rect{vis.x + 12, vis.y, vis.w - 24, vis.h}
+	shown_w := text_width(ctx, shown, t.text_size)
+	x := inner.x - (max(shown_w + 3 - inner.w, 0) if focused else 0)
+	previous := ctx.clip
+	ctx.clip = rect_intersect(ctx.clip, to_px(ctx, inner))
+	text(ctx, shown, x, vis.y + vis.h * 0.5, t.text_size, t.text)
+	if focused && int(ctx.time * 2) % 2 == 0 do fill_rect(ctx, {x + shown_w + 1, vis.y + 9, 1.5, vis.h - 18}, 0, t.accent)
+	ctx.clip = previous
+	return
+}
+
+// A small greyscale image (`size` texels, row by row, top first) drawn as squares in
+// `color` over `r`, each as opaque as its texel is bright; texels nearly black are left
+// out. For thumbnails that need no texture of their own.
+grey_image :: proc(ctx: ^Context, r: Rect, size: [2]int, texels: []u8, color: Color) {
+	if size.x <= 0 || size.y <= 0 || len(texels) < size.x * size.y do return
+	d := px(ctx)
+	cell := [2]f32{r.w / f32(size.x), r.h / f32(size.y)}
+	draw_set_state(&ctx.draw, .Atlas, 0, ctx.clip)
+	for row in 0 ..< size.y {
+		for col in 0 ..< size.x {
+			v := texels[row * size.x + col]
+			if v < 8 do continue
+			c := color
+			c.a = u8(u32(color.a) * u32(v) / 255)
+			q := Rect{(r.x + f32(col) * cell.x) * d, (r.y + f32(row) * cell.y) * d, cell.x * d, cell.y * d}
+			draw_quad(&ctx.draw, q, WHITE_UV, WHITE_UV, c)
+		}
+	}
 }
 
 // A thin line between groups: upright in a row, across in a column.

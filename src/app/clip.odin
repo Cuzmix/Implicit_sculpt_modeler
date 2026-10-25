@@ -1,11 +1,10 @@
 package main
 
 import "core:math/linalg"
-import imgui "deps:odin-imgui"
 
 
 // Ctrl + Shift and a left drag with the Brush tool, as ZBrush's Ctrl+Shift brushes: what
-// it does is the Tools panel's choice (Gesture_Tool). The hide tools draw a rectangle or
+// it does is the Object tab's choice (Gesture_Tool). The hide tools draw a rectangle or
 // a lasso; letting go keeps only what is inside it shown (Alt held at the end hides what
 // is inside instead), through to the back. Clip and Slice draw a line across the view:
 // Clip flattens everything of the selected object on the shaded side of it (the right of
@@ -75,15 +74,14 @@ clip_frame :: proc(app: ^App, input: Viewport_Input) -> bool {
 
 // Draws the gesture being dragged: the hide shape, or the line with (for Clip) a band
 // of shading on the side that goes.
-draw_clip :: proc(app: ^App, list: ^imgui.DrawList, o: imgui.Vec2, size: [2]f32) {
+draw_clip :: proc(app: ^App, o: Overlay, size: [2]f32) {
 	g := &app.clip
 	if !g.active do return
-	rgba :: proc(c: [4]f32) -> u32 {return imgui.ColorConvertFloat4ToU32(c)}
 	if app.gesture == .Hide_Rectangle || app.gesture == .Hide_Lasso {
 		// Green keeps what is inside; red hides it.
-		color := rgba({0.45, 0.9, 0.5, 1} if !g.flip else {1, 0.45, 0.4, 1})
-		fill := rgba({0.45, 0.9, 0.5, 0.12} if !g.flip else {1, 0.45, 0.4, 0.12})
-		draw_shape_outline(list, o, g.points[:], g.b, app.gesture == .Hide_Rectangle, color, fill)
+		color := overlay_color({0.45, 0.9, 0.5, 1} if !g.flip else {1, 0.45, 0.4, 1})
+		fill := overlay_color({0.45, 0.9, 0.5, 0.12} if !g.flip else {1, 0.45, 0.4, 0.12})
+		draw_shape_outline(o, g.points[:], g.b, app.gesture == .Hide_Rectangle, color, fill)
 		return
 	}
 	d := g.b - g.a
@@ -92,19 +90,19 @@ draw_clip :: proc(app: ^App, list: ^imgui.DrawList, o: imgui.Vec2, size: [2]f32)
 	dir := linalg.normalize(d)
 	reach := linalg.length(size) + linalg.length(d)
 	p0, p1 := g.a - dir * reach, g.a + dir * reach
-	color := rgba({1, 0.85, 0.3, 0.9})
+	color := overlay_color({1, 0.85, 0.3, 0.9})
 	if app.gesture == .Clip {
 		side := [2]f32{-dir.y, dir.x} // the right of the drag, with y down
 		if g.flip do side = -side
 		band := side * reach
-		shade := [4]imgui.Vec2{o + p0, o + p1, o + p1 + band, o + p0 + band}
-		imgui.DrawList_AddConvexPolyFilled(list, &shade[0], 4, rgba({0, 0, 0, 0.25}))
+		shade := [4][2]f32{p0, p1, p1 + band, p0 + band}
+		overlay_fill(o, shade[:], overlay_color({0, 0, 0, 0.25}))
 	} else {
-		color = rgba({0.4, 0.85, 1, 0.95})
+		color = overlay_color({0.4, 0.85, 1, 0.95})
 	}
-	imgui.DrawList_AddLine(list, o + p0, o + p1, color, 1.5)
-	imgui.DrawList_AddCircleFilled(list, o + g.a, 3, color)
-	imgui.DrawList_AddCircleFilled(list, o + g.b, 3, color)
+	overlay_line(o, p0, p1, color, 1.5)
+	overlay_disc(o, g.a, 3, color)
+	overlay_disc(o, g.b, 3, color)
 }
 
 clip_gesture_destroy :: proc(g: ^Clip_Gesture) {delete(g.points)}

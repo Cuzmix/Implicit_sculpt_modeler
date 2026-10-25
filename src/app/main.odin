@@ -14,10 +14,6 @@ import "core:strings"
 import "core:time"
 import sdl "vendor:sdl3"
 
-import imgui "deps:odin-imgui"
-import "deps:odin-imgui/imgui_impl_sdl3"
-import "deps:odin-imgui/imgui_impl_sdlgpu3"
-
 import "../camera"
 import "../geom"
 import "../jobs"
@@ -27,11 +23,11 @@ import "../ui"
 
 Options :: struct {
 	frames:    int `usage:"Exit after this many frames (0 runs until the window closes)."`,
-	no_settings: bool `usage:"Neither read nor write the remembered settings (brush, view, Scene panel choices); runs with --frames or a benchmark never do."`,
+	no_settings: bool `usage:"Neither read nor write the remembered settings (brush, view, Scene tab choices); runs with --frames or a benchmark never do."`,
 	gpu_debug: bool `usage:"Create the GPU device in debug mode (enables validation where available)."`,
 	subdiv:    int `usage:"Icosphere subdivision level (default 6)."`,
 	vertices:  int `usage:"Start with a geodesic sphere of about this many vertices instead (e.g. 10000000)."`,
-	shape:     string `usage:"Start with this shape instead of spheres: cube, cylinder, cone or torus (of --vertices vertices, 40962 when not given), as the Scene panel's Add does."`,
+	shape:     string `usage:"Start with this shape instead of spheres: cube, cylinder, cone or torus (of --vertices vertices, 40962 when not given), as the Scene tab's Add object does."`,
 	threads:   int `usage:"Worker threads for sculpting, including the main thread (default: one per core)."`,
 	width:     int `usage:"Initial window width (default 1600)."`,
 	height:    int `usage:"Initial window height (default 900)."`,
@@ -43,13 +39,11 @@ Options :: struct {
 	hd_window: int `usage:"Vertices an HD window holds (default 4000000)."`,
 	no_cache:  bool `usage:"Draw every object every frame instead of caching the idle ones (for comparison)."`,
 	no_cull:   bool `usage:"Draw every triangle instead of skipping off-screen and back-facing chunks (for comparison)."`,
-	new_ui:    bool `usage:"Start with the interface (the default; for older command lines and over a remembered Classic panels)."`,
-	classic_ui: bool `usage:"Start with the classic ImGui panels instead of the interface, as Menu > Classic panels does."`,
 	reduce_motion: bool `usage:"Start with the interface's animations off, as Menu > Reduce motion does."`,
 	finger_sculpt: bool `usage:"Start with one finger on a touch screen sculpting instead of turning the view, as Menu > Finger sculpts does."`,
 	ui_events: string `usage:"Drive the interface's pointer, for tests: FRAME:move:X,Y, FRAME:down, FRAME:up, FRAME:right (a right click) or FRAME:wheel:N, separated by semicolons; X and Y in window points."`,
-	dump_screen: string `usage:"On exit, write the whole window as the interface drew it (viewport and panels) to this path: a PNG, or a binary PPM when it ends in .ppm. Not with --classic-ui."`,
-	dump_viewport: string `usage:"On exit, write the last viewport image to this path: a PNG, or a binary PPM when it ends in .ppm (for checking renders), as File > Save screenshot does."`,
+	dump_screen: string `usage:"On exit, write the whole window as the interface drew it (viewport and panels) to this path: a PNG, or a binary PPM when it ends in .ppm."`,
+	dump_viewport: string `usage:"On exit, write the last viewport image to this path: a PNG, or a binary PPM when it ends in .ppm (for checking renders), as Menu > Save screenshot does."`,
 	check_mesh: bool `usage:"On exit, check every object's current mesh (closed, consistently wound, no degenerate triangles or NaN) and print the counts as mesh_* lines (slow on large meshes)."`,
 	no_partial: bool `usage:"Redraw the whole viewport every frame instead of only what changed (for comparison)."`,
 	no_simplify: bool `usage:"Draw every chunk at full detail while the view moves too, instead of simplified copies of the far ones (for comparison)."`,
@@ -63,27 +57,27 @@ Options :: struct {
 	bench_loops: int `usage:"Make --bench-stroke this many circles around the middle of the sphere instead of a wavy line."`,
 	brush:     string `usage:"Start with this brush: draw, smooth, clay, flatten, inflate, pinch, crease, grab, mask, layer, snake hook, morph, paint or cloth (also what --bench-stroke uses)."`,
 	cloth:     string `usage:"What the Cloth brush does: drag (the default), gravity, pinch or expand."`,
-	stroke:    string `usage:"Start with this stroke: dots (the default) or drag_rect (one stamp sized and turned by the drag, as the Tools panel's Drag rectangle)."`,
+	stroke:    string `usage:"Start with this stroke: dots (the default) or drag_rect (one stamp sized and turned by the drag, as the Brush tab's Drag rectangle)."`,
 	front_only: bool `usage:"Start with Front faces only on: brushes and mask shapes leave what faces away from the viewer."`,
 	symmetry:  string `usage:"Start with brush symmetry across these axes, e.g. x or xz."`,
-	material:  string `usage:"Shade objects with this View > Material: clay (the default), red wax, white, grey, skin, gold, copper, chrome, steel, plastic, ceramic, rubber or pbr clay."`,
+	material:  string `usage:"Shade objects with this material (the Scene tab's Material): clay (the default), red wax, white, grey, skin, gold, copper, chrome, steel, plastic, ceramic, rubber or pbr clay."`,
 	studio:    bool `usage:"Start with View > Studio render on: ambient occlusion and soft shadows build up while the view stays still."`,
 	studio_samples: int `usage:"Light samples the studio render stops at (default 256, at most 1024)."`,
 	flat:      bool `usage:"Start with flat shading, each triangle lit by its own normal, as View > Flat shading does."`,
 	ortho:     bool `usage:"Start with parallel (orthographic) projection, as View > Orthographic (P) does."`,
-	view:      string `usage:"Start looking from front, back, right, left, top or bottom, as View > Look from does."`,
+	view:      string `usage:"Start looking from front, back, right, left, top or bottom, as the Scene tab's Camera section does."`,
 	wireframe: bool `usage:"Show the selected object's edges, as View > Wireframe (Shift+F) does."`,
-	falloff:   string `usage:"Start every brush with this falloff: smooth (the default), linear, sharp, firm or flat, as the Tools panel's Falloff presets set."`,
-	rotate:    string `usage:"Turn the first object this many degrees about x, y and z before starting, e.g. 0,45,0 (as the Scene panel's Rotation does)."`,
-	mirror:    string `usage:"Mirror and weld the first object before starting, as the Scene panel does: x, y or z keeps that axis's + side, -x, -y or -z the - side (after --remesh)."`,
+	falloff:   string `usage:"Start every brush with this falloff: smooth (the default), linear, sharp, firm or flat, as the Brush tab's Falloff presets set."`,
+	rotate:    string `usage:"Turn the first object this many degrees about x, y and z before starting, e.g. 0,45,0 (as the Object tab's Transform does)."`,
+	mirror:    string `usage:"Mirror and weld the first object before starting, as the Object tab's Mirror and weld does: x, y or z keeps that axis's + side, -x, -y or -z the - side (after --remesh)."`,
 	slice:     string `usage:"Slice the first object in two across its middle before starting, as a Slice line does: x, y or z is the axis the cut goes across (after --mirror)."`,
 	hide:      string `usage:"Hide the + side of the first object's middle across an axis before starting (x, y or z), or the - side (-x, -y or -z), as a hide rectangle does (after --slice)."`,
-	store_morph: bool `usage:"Store the first object's surface as its morph target before starting, as Tools > Morph target > Store does (after the other start-up changes)."`,
-	decimate:  int `usage:"Decimate the first object to about this many vertices before starting, as the Scene panel's Decimate selected does (after --remesh)."`,
+	store_morph: bool `usage:"Store the first object's surface as its morph target before starting, as the Object tab's Morph target > Store does (after the other start-up changes)."`,
+	decimate:  int `usage:"Decimate the first object to about this many vertices before starting, as the Object tab's Decimate does (after --remesh)."`,
 	remesh:    int `usage:"Voxel remesh the first sphere to about this many vertices before starting, as Remesh selected does (after --subdivide and --level)."`,
 	dyntopo:   bool `usage:"Turn dynamic topology on for the first sphere before starting (after --remesh), as Ctrl+T does."`,
 	detail:    f32 `usage:"Dynamic topology detail: edges longer than this many pixels on screen split (default 10)."`,
-	tilt_strength: f32 `usage:"How far a leaning pen turns the brush, 0 to 1 (default 0: not at all), as the Tools panel's Tilt slider sets."`,
+	tilt_strength: f32 `usage:"How far a leaning pen turns the brush, 0 to 1 (default 0: not at all), as the Brush tab's Pen > Tilt sets."`,
 	alpha:     string `usage:"Start with this brush alpha: a built-in one (square, noise, rings, stripes, dots or star) or an image file (PNG, JPEG, BMP, TGA or QOI)."`,
 	alpha_mode: string `usage:"Which way the alpha's top faces: stroke (along the stroke, the default), fixed or random."`,
 	alpha_angle: f32 `usage:"Turn the alpha this many degrees counter-clockwise on top of what --alpha-mode gives."`,
@@ -91,29 +85,29 @@ Options :: struct {
 	no_vsync:  bool `usage:"Show each frame as soon as it is ready instead of waiting for the display's refresh, so frame times are not capped at the refresh rate."`,
 	time_gpu:  bool `usage:"Measure the GPU time of the 3D viewport every frame. Waits for the GPU each frame, so frames no longer overlap."`,
 	gpubench:  string `usage:"Time the GPU and CPU while orbiting and sculpting one sphere at 500k, 1M, 5M, 7M and 10M vertices (only --vertices when given), with each speed setting on and off; write the markdown tables to this path and exit."`,
-	gpu_smooth: bool `usage:"Start with Tools > Deformation > On the GPU checked, so Smooth all runs as a compute shader (the GPU compute trial)."`,
-	smooth_all: int `usage:"Smooth the first object this many steps before starting, as Tools > Deformation > Smooth all does (after the other start-up changes; on the GPU with --gpu-smooth)."`,
+	gpu_smooth: bool `usage:"Start with the Object tab's Deformation > On the GPU on, so Smooth all runs as a compute shader (the GPU compute trial)."`,
+	smooth_all: int `usage:"Smooth the first object this many steps before starting, as the Object tab's Deformation > Smooth all does (after the other start-up changes; on the GPU with --gpu-smooth)."`,
 	compute_bench: string `usage:"Time Smooth all on the CPU and as a GPU compute shader, upload and readback included, at 500k, 1M, 5M, 7M and 10M vertices (only --vertices when given); check the GPU's result against the CPU's, write the markdown tables to this path and exit."`,
-	groups:    string `usage:"Group the first object before starting, as Tools > Polygroups does: creases (Groups by creases), visible or masked; with --show-groups to see them."`,
+	groups:    string `usage:"Group the first object before starting, as the Object tab's Polypaint and polygroups section does: creases (Groups by creases), visible or masked; with --show-groups to see them."`,
 	show_groups: bool `usage:"Start showing polygroups, as View > Polygroups (Shift+W) does."`,
 	paint_color: string `usage:"The Paint brush's colour, as red,green,blue from 0 to 1 (e.g. 0.2,0.4,0.9)."`,
-	fill_paint: bool `usage:"Fill the first object with the Paint brush's colour before starting, as Tools > Polypaint > Fill with colour does (after --groups)."`,
-	layer:      bool `usage:"Add a sculpt layer to the first object before starting, recording, as Tools > Layers > New layer does (after --fill-paint), so --bench-stroke goes into it."`,
-	retopo:     int `usage:"Retopologize the first object into about this many quads before starting, as Scene > Retopologize selected does (after --layer); the new object is selected."`,
+	fill_paint: bool `usage:"Fill the first object with the Paint brush's colour before starting, as the Object tab's Fill with colour does (after --groups)."`,
+	layer:      bool `usage:"Add a sculpt layer to the first object before starting, recording, as the Object tab's Layers > New layer does (after --fill-paint), so --bench-stroke goes into it."`,
+	retopo:     int `usage:"Retopologize the first object into about this many quads before starting, as the Object tab's Retopologize selected does (after --layer); the new object is selected."`,
 	bake:       string `usage:"On exit, bake the first object's detail onto the selected quad object (from --retopo) into this folder, as Bake maps... does (before --export)."`,
-	boolean:    string `usage:"Mark every object but the first union, subtract or intersect (Scene > Booleans) and move them to overlap it, before starting (after --retopo); with --spheres=2 or more."`,
-	live_boolean: bool `usage:"Start with Scene > Booleans > Live boolean on."`,
+	boolean:    string `usage:"Mark every object but the first union, subtract or intersect (the Object tab's Booleans) and move them to overlap it, before starting (after --retopo); with --spheres=2 or more."`,
+	live_boolean: bool `usage:"Start with the Object tab's Booleans > Live boolean on."`,
 	make_boolean: bool `usage:"Make the boolean mesh before starting, as Make boolean mesh does (after --boolean)."`,
-	extract:    f32 `usage:"Extract the first object's masked part before starting, as Scene > Extract masked does, this thick (a share of its size; after --boolean); masks what the top third of the view shows first when nothing is masked."`,
-	project:    bool `usage:"Project the first object's detail onto the selected one before starting, as Scene > Project detail does (after --retopo)."`,
+	extract:    f32 `usage:"Extract the first object's masked part before starting, as the Object tab's Extract masked does, this thick (a share of its size; after --boolean); masks what the top third of the view shows first when nothing is masked."`,
+	project:    bool `usage:"Project the first object's detail onto the selected one before starting, as the Object tab's Project detail does (after --retopo)."`,
 	curve:      string `usage:"Draw a curve of this kind (tube, stitches or zipper) across the middle of the view before starting, as the Curve tool does (after --extract)."`,
 	insert:     string `usage:"Insert this shape (sphere, cube, cylinder, cone or torus) at the middle of the view before starting, as a click of the Insert tool does (after --curve)."`,
 	bake_size:  int `usage:"Texels square for --bake (512, 1024, 2048 or 4096; default 2048)."`,
 	gpubench_frames: int `usage:"Measured frames per --gpubench case (default 120, at most 240)."`,
-	open:      string `usage:"Start with the scene saved in this .sculpt file instead of spheres, as File > Open scene does."`,
-	import_mesh: string `args:"name=import" usage:"Start with the mesh in this .obj or .ply file instead of spheres (after any --open), as File > Import mesh does."`,
-	export:    string `usage:"On exit, write the selected object's shown level to this .obj or .ply file, as File > Export selected does."`,
-	save:      string `usage:"On exit, save the scene to this .sculpt file, as File > Save scene does."`,
+	open:      string `usage:"Start with the scene saved in this .sculpt file instead of spheres, as Menu > Open scene... does."`,
+	import_mesh: string `args:"name=import" usage:"Start with the mesh in this .obj or .ply file instead of spheres (after any --open), as Menu > Import mesh... does."`,
+	export:    string `usage:"On exit, write the selected object's shown level to this .obj or .ply file, as Menu > Export mesh... does."`,
+	save:      string `usage:"On exit, save the scene to this .sculpt file, as Menu > Save scene does."`,
 	load_strokes: string `usage:"Load the strokes in this .strokes file and replay them where they were drawn, as the Stroke recorder's Load and Replay do: once --bench-stroke ends, or at the start; the run lasts until they are done."`,
 	replay_shift: string `usage:"Replay --load-strokes moved this many pixels right and down from where they were drawn, in the current view, as R at the pointer does, e.g. 120,-40."`,
 	instant_replay: bool `usage:"Replay every recorded frame at once instead of one a frame, as the Stroke recorder's Instant does."`,
@@ -121,7 +115,7 @@ Options :: struct {
 	save_strokes: string `usage:"On exit, save the recorded strokes (or else the last stroke) to this .strokes file, as the Stroke recorder's Save strokes does."`,
 }
 
-// Everything the app owns. ImGui only ever sees copies or pointers handed to it per frame.
+// Everything the app owns. The interface only ever sees pointers handed to it per frame.
 App :: struct {
 	renderer: render.Renderer,
 	pool:     jobs.Pool,
@@ -144,16 +138,16 @@ App :: struct {
 		built:   bool,
 	},
 	stroke:   Stroke,
-	alphas:   [dynamic]Alpha_Entry, // the brush alphas the Tools panel offers (alphas.odin)
+	alphas:   [dynamic]Alpha_Entry, // the brush alphas the Brush tab offers (alphas.odin)
 	alpha_seed: u32, // Random alpha mode's generator
 	samples:  [dynamic]Input_Sample, // this frame's pointer samples, in window coordinates
 	pen_pressure: f32, // the pen's latest pressure
 	pen_tilt: [2]f32, // the pen's latest lean in degrees, x to the right and y down
 	pen_seen: bool,
 	touch:    Touch, // fingers on a touch screen (touch.odin)
-	new_ui:   bool, // the new interface (new_ui.odin) instead of the ImGui panels
+	device:   Device, // this frame's keys and pointer (device.odin)
 	kit:      Kit_State,
-	kit_drew: bool, // the last frame on screen was the new interface's...
+	kit_drew: bool, // the last frame drew the interface...
 	kit_size: [2]u32, // ...this many pixels
 	camera:   camera.Orbit,
 	ui:       Ui_State,
@@ -169,7 +163,7 @@ App :: struct {
 	studio_ao:      f32, // how strongly occlusion darkens, 0 to 1
 	studio_shadow:  f32, // ...and the key light's shadow
 	material:  int,  // the index in MATERIALS objects are shaded with, or CUSTOM_MATERIAL
-	custom:    Material, // what View > Material's sliders made
+	custom:    Material, // what the Material section's sliders made
 	flat:      bool, // shade with each triangle's own normal (faceted) instead of smoothed normals
 	wireframe: bool, // draw the selected object's edges over it
 	show_groups: bool, // draw every object's polygroups in their colours instead of its clay and paint
@@ -190,9 +184,9 @@ App :: struct {
 	running:  bool,
 }
 
-// The first frame --load-strokes may replay on: ImGui lays the docked panels out over
-// the first few frames, and until then the viewport panel is not its real size, which
-// replaying at the pointer would take as the view.
+// The first frame --load-strokes may replay on: the viewport takes the window's size on
+// the first frame and its render target follows at the start of the next, and until then
+// it is not its real size, which replaying at the pointer would take as the view.
 LOAD_STROKES_FRAME :: 3
 
 main :: proc() {
@@ -408,30 +402,9 @@ run :: proc(opts: Options) -> bool {
 		if !object_hd_enter(&app, obj, linalg.normalize(to_local_dir(obj.transform, toward))) do return false
 	}
 
-	// Dear ImGui. Its context and backends are torn down before the renderer (defers run LIFO).
-	imgui.CHECKVERSION()
-	imgui.CreateContext()
-	defer imgui.DestroyContext()
-	io := imgui.GetIO()
-	io.ConfigFlags += {.NavEnableKeyboard, .DockingEnable}
-	io.IniFilename = nil // layout is rebuilt in code each run until there is a settings story
-	imgui.StyleColorsDark()
-	imgui_apply_theme(ui.THEME_DARK)
-	imgui_impl_sdl3.InitForSDLGPU(window)
-	defer imgui_impl_sdl3.Shutdown()
-	init_info := imgui_impl_sdlgpu3.InitInfo {
-		Device            = app.renderer.device,
-		ColorTargetFormat = sdl.GetGPUSwapchainTextureFormat(app.renderer.device, window),
-		MSAASamples       = ._1,
-	}
-	if !imgui_impl_sdlgpu3.Init(&init_info) {
-		log.error("ImGui SDL_GPU backend init failed")
-		return false
-	}
-	defer imgui_impl_sdlgpu3.Shutdown()
+	// The interface. It is torn down before the renderer (defers run LIFO).
 	kit_init(&app)
 	defer kit_destroy(&app)
-	app.new_ui = true
 	if !kit_events_parse(&app, opts.ui_events) do return false
 
 	if len(app.scene.objects) > 1 do frame_all(&app)
@@ -454,8 +427,6 @@ run :: proc(opts: Options) -> bool {
 	if remember do settings = strings.clone(settings)
 	defer delete(settings)
 	settings_load(&app, settings)
-	if opts.classic_ui do app.new_ui = false
-	if opts.new_ui do app.new_ui = true
 	if opts.reduce_motion do app.kit.ctx.reduced_motion = true
 	if opts.finger_sculpt do app.touch.finger_sculpt = true
 	app.ui.smooth_on_gpu = opts.gpu_smooth
@@ -628,7 +599,6 @@ run :: proc(opts: Options) -> bool {
 	}
 	app.tool = .Brush
 	app.running = true
-	last_input_ns: u64 // SDL timestamp of the newest mouse event, for latency
 	frame_index := 0
 	// The previous frame's, kept while timing the GPU so the next frame can wait for it.
 	present_fence: ^sdl.GPUFence
@@ -707,32 +677,29 @@ run :: proc(opts: Options) -> bool {
 		// follow the whole path. A pen also sends mouse events, marked PEN_MOUSEID; its
 		// pressure arrives separately as an axis event.
 		clear(&app.samples)
+		device_frame_begin(&app.device)
 		e: sdl.Event
 		for sdl.PollEvent(&e) {
-			// Space over the viewport is the brush pie's (pie.odin) and never reaches
-			// ImGui, whose keyboard navigation would also take it as a press of whatever
-			// widget has focus. Once it went down there, its release is the pie's too.
+			// Space over the viewport is the brush pie's (pie.odin) rather than a key of the
+			// frame; once it went down there, its release is the pie's too.
 			if (e.type == .KEY_DOWN || e.type == .KEY_UP) && e.key.scancode == .SPACE {
 				pie := &app.ui.pie
-				if pie.space_down || (e.key.down && app.ui.viewport_hovered && !imgui.GetIO().WantTextInput) {
+				if pie.space_down || (e.key.down && app.ui.viewport_hovered && !typing(&app)) {
 					if e.key.down && !e.key.repeat do pie.space_pressed = true
 					if !e.key.down do pie.space_released = true
 					pie.space_down = e.key.down
 					continue
 				}
 			}
-			imgui_impl_sdl3.ProcessEvent(&e)
-			kit_event(&app, &e)
+			device_event(&app.device, &e)
 			touch_event(&app.touch, &e, window)
 			#partial switch e.type {
 			case .QUIT, .WINDOW_CLOSE_REQUESTED:
 				app.running = false
 			case .MOUSE_MOTION:
-				last_input_ns = e.common.timestamp
 				pen := e.motion.which == sdl.PEN_MOUSEID
 				append(&app.samples, Input_Sample{{e.motion.x, e.motion.y}, app.pen_pressure if pen else 1, .Move, app.pen_tilt if pen else {}})
 			case .MOUSE_BUTTON_DOWN, .MOUSE_BUTTON_UP:
-				if e.button.down do last_input_ns = e.common.timestamp
 				if e.button.button == sdl.BUTTON_LEFT {
 					pen := e.button.which == sdl.PEN_MOUSEID
 					append(&app.samples, Input_Sample{{e.button.x, e.button.y}, app.pen_pressure if pen else 1, .Press if e.button.down else .Release, app.pen_tilt if pen else {}})
@@ -749,20 +716,16 @@ run :: proc(opts: Options) -> bool {
 				app.pen_seen = true
 			}
 		}
+		device_frame_end(&app.device)
 
-		// Resize to the size the viewport panel asked for last frame, before the UI
-		// references the texture, so ImGui never draws a texture released this frame.
+		// Resize to the size the interface asked for last frame, before it references the
+		// texture, so it never draws a texture released this frame.
 		want := app.ui.viewport_request
 		if !render.viewport_target_resize(&app.renderer, &app.target, u32(want.x), u32(want.y)) do return false
 
-		imgui_impl_sdlgpu3.NewFrame()
-		imgui_impl_sdl3.NewFrame()
-		imgui.NewFrame()
-		// Which interface drew this frame: a click in it may switch to the other.
-		used_kit := app.new_ui
 		ui_start := time.tick_now()
-		input := kit_frame(&app, window) if used_kit else ui_draw(&app)
-		ring_push(&app.stats.ui_ms if used_kit else &app.stats.imgui_ms, time.duration_milliseconds(time.tick_since(ui_start)))
+		input := kit_frame(&app, window)
+		ring_push(&app.stats.ui_ms, time.duration_milliseconds(time.tick_since(ui_start)))
 		touch_apply(&app, &input)
 		if opts.bench_stroke > 0 && frame_index < opts.bench_stroke {
 			input = bench_input(&app, frame_index, opts.bench_stroke, opts.bench_samples, opts.bench_loops, {opts.bench_tilt, 0}, {f32(app.target.width), f32(app.target.height)})
@@ -770,10 +733,10 @@ run :: proc(opts: Options) -> bool {
 			if every := opts.bench_stroke / (opts.bench_lifts + 1); opts.bench_lifts > 0 && every > 0 && (frame_index + 1) % every == 0 {
 				input.primary = false
 			}
-			last_input_ns = sdl.GetTicksNS()
+			app.device.input_at = sdl.GetTicksNS()
 		} else if opts.gpubench != "" {
 			input = gpubench_input(&app, &bench, {f32(app.target.width), f32(app.target.height)})
-			last_input_ns = sdl.GetTicksNS()
+			app.device.input_at = sdl.GetTicksNS()
 		}
 		camera_apply_input(&app.camera, input)
 		if opts.orbit do app.camera.yaw += 2 * math.PI / 240
@@ -802,7 +765,6 @@ run :: proc(opts: Options) -> bool {
 			if !insert_tool_frame(&app, input) do return false
 		}
 		draw_viewport_overlay(&app, input)
-		imgui.Render()
 
 		// The 3D viewport goes in its own command buffer, submitted ahead of the one that
 		// presents, so its GPU time can be measured on its own.
@@ -918,20 +880,17 @@ run :: proc(opts: Options) -> bool {
 			return false
 		}
 
-		// The new interface goes under ImGui, which then adds only the brush circle, the
-		// pie and the Stats panel.
-		draw_data := imgui.GetDrawData()
+		// The interface, the viewport image in it, into the swapchain.
 		kit_ready := false
-		if used_kit {
-			if swapchain != nil {
-				kit_ready = kit_upload(&app, present_cmd)
-			} else {
-				_ = ui.frame_end(&app.kit.ctx)
-			}
-			app.stats.ui_vertices = len(app.kit.ctx.draw.vertices)
+		if swapchain != nil {
+			kit_ready = kit_upload(&app, present_cmd)
+		} else {
+			_ = ui.frame_end(&app.kit.ctx)
 		}
-		if swapchain != nil && (kit_ready || (draw_data.DisplaySize.x > 0 && draw_data.DisplaySize.y > 0)) {
-			imgui_impl_sdlgpu3.PrepareDrawData(draw_data, present_cmd)
+		app.stats.ui_vertices = len(app.kit.ctx.draw.vertices)
+		// The pass clears the image even when the interface could not be uploaded, so a
+		// failed upload shows an empty frame rather than whatever the image held.
+		if swapchain != nil {
 			target := sdl.GPUColorTargetInfo {
 				texture     = swapchain,
 				clear_color = {0.08, 0.08, 0.09, 1},
@@ -943,7 +902,6 @@ run :: proc(opts: Options) -> bool {
 				format := sdl.GetGPUSwapchainTextureFormat(app.renderer.device, window)
 				render.ui_pass_draw(&app.renderer, &app.kit.pass, present_cmd, pass, format, swapchain_size, kit_draws(&app, &app.kit.ctx.draw))
 			}
-			imgui_impl_sdlgpu3.RenderDrawData(draw_data, present_cmd, pass)
 			sdl.EndGPURenderPass(pass)
 		}
 		app.kit_drew = kit_ready
@@ -980,7 +938,7 @@ run :: proc(opts: Options) -> bool {
 			ring_push(&app.stats.brush_ms, sculpted.brush_ms)
 			ring_push(&app.stats.normals_ms, normals_ms)
 			ring_push(&app.stats.upload_kb, f64(uploaded) / 1024)
-			ring_push(&app.stats.latency_ms, f64(submitted_ns - last_input_ns) / 1e6)
+			ring_push(&app.stats.latency_ms, f64(submitted_ns - app.device.input_at) / 1e6)
 			app.stats.dabs_total += sculpted.dabs
 		}
 		free_all(context.temp_allocator)
@@ -1007,7 +965,8 @@ run :: proc(opts: Options) -> bool {
 		if app.kit_drew {
 			_ = kit_screen_save(&app, opts.dump_screen, app.kit_size)
 		} else {
-			log.error("--dump-screen needs the new interface on screen (--new-ui)")
+			// Only a frame without a swapchain image (a minimized window) draws nothing.
+			log.error("--dump-screen: the last frame was not drawn (the window had no image to draw into)")
 		}
 	}
 
@@ -1071,7 +1030,6 @@ run :: proc(opts: Options) -> bool {
 	print_stat("cpu_ms", app.stats.cpu_ms)
 	print_stat("wait_ms", app.stats.wait_ms)
 	if app.time_gpu do print_stat("gpu_ms", app.stats.gpu_ms)
-	if app.stats.imgui_ms.count > 0 do print_stat("imgui_ms", app.stats.imgui_ms)
 	if app.stats.ui_ms.count > 0 {
 		print_stat("ui_ms", app.stats.ui_ms)
 		fmt.printfln("ui_vertices=%d", app.stats.ui_vertices)

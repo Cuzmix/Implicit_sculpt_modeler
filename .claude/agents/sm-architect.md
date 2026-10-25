@@ -15,10 +15,9 @@ You review and design; you do not implement. Read the code, run only read-only c
 - Every claim about the code cites `path:line` you opened in this session; anything you could not check is marked
   UNVERIFIED. Start from `AGENTS.md`, README's "Layout" table and the skill of the area (sm-sculpt, sm-render, sm-ui,
   sm-cad, sm-sdf) in addition to the two preloaded ones.
-- The pinned Odin under `deps/odin` is the authority for `core:` and `vendor:`; the ImGui binding is
-  `deps/odin-imgui/imgui.odin`.
+- The pinned Odin under `deps/odin` is the authority for `core:` and `vendor:`; `src/ui` is the interface kit.
 - Prefer the smallest design that meets the request. Respect the boundaries: `geom`, `camera`, `gizmo` and `jobs` know
-  nothing of rendering or UI; `render` owns every GPU object and never reads UI state; ImGui never owns sculpt state;
+  nothing of rendering or UI; `render` owns every GPU object and never reads UI state; the interface never owns sculpt state;
   every vertex move goes through the sculptor; a topology change rebuilds the object; levels and HD stay consistent
   with their base; serial and parallel results are identical.
 - Name the invariant each risk threatens and the test, bench row or `--check-mesh` line that would catch it.

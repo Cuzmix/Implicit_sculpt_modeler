@@ -1,6 +1,6 @@
 ---
 name: sm-render
-description: Rendering in src/render with SDL_GPU — the device and pipelines, the offscreen viewport target ImGui shows, 16-byte vertices (float3 position + octahedral snorm16 normal carrying the mask) in two buffers, the 16 MB cycled transfer buffer and range uploads, index-page uploads and buffer regrowth for dynamic topology, indirect draws per visible chunk run, simplified-copy (LOD) index buffers, partial redraw by damage rect, the idle-object cache, present modes, GLSL shaders compiled to committed .spv, the frame's two command buffers, GPU timing, viewport download, screenshots (--dump-viewport PNG or PPM, src/png_write) and scripts/ppm.py. Load for ANY task that draws, uploads, changes what is on screen or judges it, e.g. "it renders black", "add wireframe", "change the material", "upload is slow", "the partial redraw leaves garbage", "the mask does not show", "take a screenshot", "add a shader". Requires sm-odin and sm-build; culling math lives in sm-geom; the frame loop's input and panels are sm-ui.
+description: Rendering in src/render with SDL_GPU — the device and pipelines, the offscreen viewport target the interface shows, 16-byte vertices (float3 position + octahedral snorm16 normal carrying the mask) in two buffers, the 16 MB cycled transfer buffer and range uploads, index-page uploads and buffer regrowth for dynamic topology, indirect draws per visible chunk run, simplified-copy (LOD) index buffers, partial redraw by damage rect, the idle-object cache, present modes, GLSL shaders compiled to committed .spv, the frame's two command buffers, GPU timing, viewport download, screenshots (--dump-viewport PNG or PPM, src/png_write) and scripts/ppm.py. Load for ANY task that draws, uploads, changes what is on screen or judges it, e.g. "it renders black", "add wireframe", "change the material", "upload is slow", "the partial redraw leaves garbage", "the mask does not show", "take a screenshot", "add a shader". Requires sm-odin and sm-build; culling math lives in sm-geom; the frame loop's input and panels are sm-ui.
 ---
 
 # Rendering
@@ -38,13 +38,13 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
 - The frame (`src/app/main.odin:298-504`): apply the scene command (`:300`) → change vsync before acquiring (`:311`;
   `renderer_set_vsync` recreates the swapchain, `src/render/renderer.odin:197-204`) → wait the previous fence when timing
   → acquire `present_cmd` and the swapchain texture (`src/app/main.odin:324-330`) → events → `viewport_target_resize`
-  before ImGui references the texture (`:385`) → UI and tools → `imgui.Render` → a second command buffer `cmd` for the 3D
+  before the interface references the texture → the interface (`kit_frame`), the tools and the viewport overlay → a second command buffer `cmd` for the 3D
   work (`:413`) → per object and part (current level, plus the HD window, `:423`): `sculptor_flush` → `level_upload`
   (`src/app/scene.odin:217`: vertex ranges with the mask, dynamic topology's index pages, new buffers when the mesh
   outgrew them), then once per frame and never during a stroke `sculptor_lod_update` → `mesh_buffers_upload_lod`
-  (`src/app/main.odin:440-451`) → a `Draw_Item` per part, the View > Material colours (selected and idle) and `wireframe` on the selected one (`:452`) →
-  `render_viewport` (`:469`) → submit, with a fence when `time_gpu` (`:472`) → ImGui pass into the swapchain on
-  `present_cmd` (`:492-503`).
+  (`src/app/main.odin:440-451`) → a `Draw_Item` per part, the material's colours (the Scene tab's Material; selected and idle) and `wireframe` on the selected one (`:452`) →
+  `render_viewport` (`:469`) → submit, with a fence when `time_gpu` (`:472`) → `kit_upload` and the interface's
+  pass (`ui_pass_draw`) into the swapchain on `present_cmd`.
 - `render_viewport` (`renderer.odin:628-650`): with `partial` on and an unchanged `frame_key` (camera, size, item
   identity, model, colour, `lod_px`), `damage_rect` projects every damage box, pads by 2 px and redraws only that
   rectangle through `render_rect` (`:665-712`); otherwise `render_full` copies the idle objects from the `Static_Cache`
@@ -69,7 +69,7 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   groups, downloads, and waits on a fence after each part to time it (`Smooth_Timing`). SDL's SPIR-V compute layout:
   set 0 read-only storage, set 1 read-write storage, set 2 uniforms. `build.sh` compiles `*.comp` with the other shaders.
 
-- The new interface's pass (`src/render/ui_pass.odin`, `ui.vert`/`ui.frag`): `ui_pass_upload` copies the kit's 20-byte
+- The interface's pass (`src/render/ui_pass.odin`, `ui.vert`/`ui.frag`): `ui_pass_upload` copies the kit's 20-byte
   vertices and indices into buffers grown by powers of two and the changed rows of its R8 glyph atlas (recreated when
   fontstash grows it) in one copy pass; `ui_pass_draw` draws in the swapchain pass, one draw per `Ui_Draw` with its
   scissor, the atlas or the viewport texture bound. Atlas texture coordinates arrive in atlas pixels and the vertex

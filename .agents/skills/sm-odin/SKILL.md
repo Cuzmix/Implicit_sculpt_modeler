@@ -1,6 +1,6 @@
 ---
 name: sm-odin
-description: Odin rules and house idioms for the sculpt modeler, pinned to deps/odin (dev-2026-10-nightly:84bc3fc) — the current core:os API, core:flags, allocators and the one temp free per frame, jobs worker threads and runtime.heap_allocator(), bit-identical serial and parallel results, vendor:sdl3's require_results GPU calls, odin-imgui a116eb1 naming (ImVec2/BoolPtr suffixes, DrawList_* procs, TextureRef, C varargs), plus the names LLMs get wrong from older Odin. Load for ANY task that writes, edits or reviews .odin code under src/ (geom, sculpt, render, app, bench, jobs, tests), e.g. "add a proc", "fix this compile error", "why does -vet complain", "add a flag", "write a test", "port this C function". No prerequisites; load it before anything else. The build, run and verify loop is sm-build.
+description: Odin rules and house idioms for the sculpt modeler, pinned to deps/odin (dev-2026-10-nightly:84bc3fc) — the current core:os API, core:flags, allocators and the one temp free per frame, jobs worker threads and runtime.heap_allocator(), bit-identical serial and parallel results, vendor:sdl3's require_results GPU calls, plus the names LLMs get wrong from older Odin. Load for ANY task that writes, edits or reviews .odin code under src/ (geom, sculpt, render, app, bench, jobs, tests), e.g. "add a proc", "fix this compile error", "why does -vet complain", "add a flag", "write a test", "port this C function". No prerequisites; load it before anything else. The build, run and verify loop is sm-build.
 ---
 
 # Odin in the sculpt modeler
@@ -11,8 +11,6 @@ description: Odin rules and house idioms for the sculpt modeler, pinned to deps/
   `^name\b`, not `^name ::`.
 - The compiler is the fastest oracle, one package at a time: `deps\odin\odin.exe check src\<pkg> -no-entry-point
   -collection:deps=deps -vet -strict-style -warnings-as-errors` (what `build.bat check` runs on all ten packages).
-- ImGui: every binding proc is one line carrying its C name, so `grep -n 'link_name="ImGui_Begin"'
-  deps/odin-imgui/imgui.odin` (`imgui.odin:2254`) settles a signature; the internal API is `imgui_internal.odin`.
 - The pins are `scripts/versions.env` (README "Pinned versions"); `deps/` is ignored by git and never edited.
 
 ## Trap table (verified against the pin)
@@ -25,10 +23,6 @@ description: Odin rules and house idioms for the sculpt modeler, pinned to deps/
 | ignoring the result of an `sdl.*GPU*` call | the whole GPU foreign block is `require_results`: `_ = sdl.WaitForGPUIdle(device)`, `_ = sdl.SubmitGPUCommandBuffer(cmd)` | `vendor/sdl3/sdl3_gpu.odin:819`; `src/app/scene.odin:94` |
 | `make(...)` inside a `jobs` callback with the context allocator | workers are `thread.create`d without `init_context` (`src/jobs/jobs.odin:39`), so they run `runtime.default_context()`, while the debug main thread runs a `mem.Tracking_Allocator` (`src/app/main.odin:111-115`): memory made on one side and freed on the other is a bad free, and the app exits 1 on it (`main.odin:120-135`). Per-job lists take `runtime.heap_allocator()` for both make and delete | `src/sculpt/brush.odin:248-250`; the same in `levels.odin`, `hd.odin`, `lod.odin` |
 | `import "core:mem"` used only under `when ODIN_DEBUG` | `-vet` fails the release build with an unused import: `@(require) import "core:mem"` | `src/app/main.odin:9` |
-| `imgui.Text("%d", n)` with `n: int`; `%s` with an Odin `string` | C varargs: pass `i32(n)`; `%s` takes a `cstring` (`fmt.ctprintf`, or `cstring("…")`); `f32` is promoted and fine | `deps/odin-imgui/imgui.odin:2425`; `src/app/ui.odin:519` |
-| ImGui overloads share one name | they carry suffixes: `PushStyleVarImVec2`, `MenuItemBoolPtr`; methods are `DrawList_AddCircle(list, …)`; `SliderInt` takes `format: cstring`; `Image(TextureRef{_TexID = TextureID(uintptr(tex))}, size)` | `imgui.odin:2348, 2459, 2505, 2606`; `draw_viewport` in `src/app/ui.odin` |
-| every ImGui flag is bound | the internal `ImGuiDockNodeFlags_DockSpace` is not: `transmute(imgui.DockNodeFlags)i32(1 << 10)` | `src/app/ui.odin:148-150` |
-| `if !imgui.Begin(…) { return }` and skip `End` | `End` is required either way: `defer imgui.End()` on the line before `if !imgui.Begin("Tools") do return` | `src/app/ui.odin:332-333` |
 | `append(xs, x)`; `for i, v in xs`; mutating through `for p in m.positions` | `append(&xs, x)`; `for v, i in xs`; `for &p in m.positions` | `src/geom/mesh.odin:41` |
 | `math.sqrt(5)` is an `f32` | untyped float constants are `f64`: `f32((1 + math.sqrt(f64(5))) / 2)` | `src/geom/icosphere.odin:12` |
 | `linalg.normalize(v)` on a vector that can be zero | `linalg.normalize0` returns zero instead of NaN | `src/geom/mesh.odin:54` |

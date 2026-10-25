@@ -6,11 +6,11 @@ import "core:math/linalg"
 import "core:path/filepath"
 import "core:strings"
 import "core:time"
-import imgui "deps:odin-imgui"
 
 import "../geom"
 import "../png_write"
 import "../sculpt"
+import "../ui"
 
 // Retopology and baking on the app side: Retopologize makes a new object of quads from
 // the selected one (geom.mesh_retopo), with UVs laid out (geom.quad_uv_unwrap), next to
@@ -177,46 +177,42 @@ bake_to_folder :: proc(app: ^App, folder: string) {
 		object_label(low), object_label(src), size, size, baked_ms, share, full, base)
 }
 
-draw_retopo_section :: proc(app: ^App) {
-	imgui.SeparatorText("Retopology and baking")
+// The interface's Retopology and baking section.
+kit_retopo_section :: proc(app: ^App) {
+	ctx := &app.kit.ctx
 	obj := selected_object(app)
-	imgui.SetNextItemWidth(110)
-	imgui.InputInt("Quads", &app.ui.retopo_quads, 500, 5000)
-	app.ui.retopo_quads = clamp(app.ui.retopo_quads, 100, 1_000_000)
-	imgui.SameLine()
-	imgui.BeginDisabled(obj == nil)
-	if imgui.Button("Retopologize selected") do app.ui.scene_command = {kind = .Retopo, vertices = int(app.ui.retopo_quads)}
-	imgui.EndDisabled()
-	if r := app.ui.retopo_last; r.set {
-		imgui.TextDisabled("Last: %d quads, UVs in %d charts, %.0f ms", i32(r.quads), i32(r.charts), r.ms)
+	_ = kit_count(ctx, "Quads", &app.ui.retopo_quads, 100, 1_000_000)
+	if ui.button(ctx, "Retopologize selected", .Flat, .Accent, enabled = obj != nil) do app.ui.scene_command = {kind = .Retopo, vertices = int(app.ui.retopo_quads)}
+	if r := app.ui.retopo_last; r.set do ui.paragraph(ctx, fmt.tprintf("Last: %d quads, UVs in %d charts, %.0f ms.", r.quads, r.charts, r.ms))
+	ui.paragraph(ctx, "Makes a new object of quads lying on the selected one (the level it is on), with UVs, next to it. Subdivide and sculpt it, or bake onto it.")
+	if obj == nil || !sculpt.levels_has_uvs(&obj.levels) {
+		ui.paragraph(ctx, "Select an object made by Retopologize to bake onto it.")
+		return
 	}
-	imgui.TextDisabled("Makes a new object of quads lying on the selected\none (the level it is on), with UVs, next to it.\nSubdivide and sculpt it, or bake onto it below.")
-
-	quad := obj != nil && sculpt.levels_has_uvs(&obj.levels)
-	imgui.BeginDisabled(!quad)
-	defer imgui.EndDisabled()
-	src := bake_source(app, obj) if quad else nil
-	imgui.SetNextItemWidth(160)
-	if imgui.BeginCombo("Bake from", fmt.ctprintf("%s", object_label(src) if src != nil else "(choose)")) {
-		for other in app.scene.objects {
-			if other == obj do continue
-			if imgui.Selectable(fmt.ctprintf("%s##%d", object_label(other), other.id), other == src) do app.ui.bake.source = other.id
-		}
-		imgui.EndCombo()
+	src := bake_source(app, obj)
+	names := make([dynamic]string, context.temp_allocator)
+	ids := make([dynamic]int, context.temp_allocator)
+	append(&names, "Choose the source")
+	append(&ids, 0)
+	chosen := 0
+	for other in app.scene.objects {
+		if other == obj do continue
+		if other == src do chosen = len(names)
+		append(&names, fmt.tprintf("Bake from %s##%d", object_label(other), other.id))
+		append(&ids, other.id)
 	}
-	imgui.SetNextItemWidth(110)
-	if imgui.BeginCombo("Size", fmt.ctprintf("%d", app.ui.bake.size)) {
-		for s in BAKE_SIZES do if imgui.Selectable(fmt.ctprintf("%d", s), s == app.ui.bake.size) do app.ui.bake.size = s
-		imgui.EndCombo()
+	if picked := ui.select(ctx, "bake from", names[:], chosen); picked >= 0 do app.ui.bake.source = ids[picked]
+	sizes: [len(BAKE_SIZES)]string
+	size := -1
+	for s, i in BAKE_SIZES {
+		sizes[i] = fmt.tprintf("%d", s)
+		if s == app.ui.bake.size do size = i
 	}
-	imgui.SameLine()
-	imgui.SetNextItemWidth(110)
-	imgui.SliderFloat("Reach", &app.ui.bake.reach_edges, 0.5, 10, "%.1f edges")
-	if imgui.Button("Bake maps...") do file_dialog(app, .Bake)
-	imgui.SameLine()
-	if imgui.Button("New UVs") && obj != nil do object_layout_uvs(app, obj)
-	if b := app.ui.bake_last; b.set {
-		imgui.TextDisabled("Last bake: %.0f ms, %.1f%% found the surface, displacement up to %.4g", b.ms, b.hit, b.range)
-	}
-	imgui.TextDisabled("Bakes the other object's detail (its top level) into\nnormal and displacement maps on this one's UVs, and\nwrites them with the quads as OBJ into a folder.\nReach: how far each texel's ray looks either way.")
+	if picked := ui.tabs(ctx, "bake size", sizes[:], size); picked >= 0 do app.ui.bake.size = BAKE_SIZES[picked]
+	_ = ui.slider(ctx, "Reach", &app.ui.bake.reach_edges, 0.5, 10, .Linear, fmt.tprintf("%.1f edges", app.ui.bake.reach_edges))
+	bake, uvs := kit_button_pair(ctx, "Bake maps...", "New UVs")
+	if bake do file_dialog(app, .Bake)
+	if uvs do object_layout_uvs(app, obj)
+	if b := app.ui.bake_last; b.set do ui.paragraph(ctx, fmt.tprintf("Last bake: %.0f ms, %.1f%% found the surface, displacement up to %.4g.", b.ms, b.hit, b.range))
+	ui.paragraph(ctx, "Bakes the source's detail (its top level) into normal and displacement maps on this object's UVs, and writes them with the quads as OBJ into a folder. Reach: how far each texel looks either way.")
 }

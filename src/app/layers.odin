@@ -2,9 +2,9 @@ package main
 
 import "core:fmt"
 import "core:log"
-import imgui "deps:odin-imgui"
 
 import "../sculpt"
+import "../ui"
 
 // The Layers section: the selected object's sculpt layers on its current level
 // (sculpt/sculpt_layers.odin), newest on top. Each row has REC (strokes go into the
@@ -31,53 +31,53 @@ layer_add :: proc(app: ^App) {
 	history_record(app, obj, .Layer, "New layer")
 }
 
-draw_layers_section :: proc(app: ^App) {
-	imgui.SeparatorText("Layers")
+@(private = "file")
+layer_remove :: proc(app: ^App, obj: ^Object, index: int, bake: bool) {
+	stroke_finish(app)
+	if sculpt.sculptor_layer_remove(object_sculptor(obj), index, bake) do history_record(app, obj, .Layer, "Bake layer" if bake else "Delete layer")
+}
+
+// The interface's Layers section: a row per layer, newest on top, with its record and
+// show buttons, its name and its strength; then which layer Delete and Bake act on.
+kit_layers_section :: proc(app: ^App) {
+	ctx := &app.kit.ctx
 	obj := selected_object(app)
 	allowed := layers_allowed(obj)
-	imgui.BeginDisabled(!allowed)
-	defer imgui.EndDisabled()
-	if imgui.Button("New layer") do layer_add(app)
-	if obj == nil do return
+	if ui.button(ctx, "New layer", .Flat, .Accent, glyph = ui.ICON_PLUS, enabled = allowed) do layer_add(app)
+	if obj == nil {
+		ui.paragraph(ctx, "Select an object to give it layers.")
+		return
+	}
 	s := object_sculptor(obj)
 	layers := sculpt.sculptor_layers(s)
 	selected := &app.ui.layer_selected
 	selected^ = clamp(selected^, 0, max(len(layers) - 1, 0))
-	imgui.SameLine()
-	imgui.BeginDisabled(len(layers) == 0)
-	if imgui.Button("Delete") do layer_remove(app, obj, selected^, bake = false)
-	imgui.SameLine()
-	if imgui.Button("Bake") do layer_remove(app, obj, selected^, bake = true)
-	imgui.EndDisabled()
 	recording := sculpt.sculptor_layer_recording(s)
+	field := ui.fill_width(ctx) - 2 * ctx.theme.target - 8
 	for i := len(layers) - 1; i >= 0; i -= 1 {
 		l := &layers[i]
-		imgui.PushIDInt(i32(i))
-		defer imgui.PopID()
+		ui.begin(ctx, fmt.tprintf("layer %d", i), {direction = .Row, gap = 4, center = true})
 		rec := recording == i
-		if rec do imgui.PushStyleColorImVec4(.Button, {0.75, 0.15, 0.15, 1})
-		if imgui.SmallButton("REC") {
+		if ui.icon_button(ctx, fmt.tprintf("Record into this layer##%d", i), ui.ICON_RECORD, selected = rec, enabled = allowed) {
 			stroke_finish(app)
 			if sculpt.sculptor_layer_record(s, -1 if rec else i) do history_record(app, obj, .Layer, "Layer strength")
 			selected^ = i
 		}
-		if rec do imgui.PopStyleColor()
-		imgui.SameLine()
-		visible := l.visible
-		if imgui.Checkbox("##shown", &visible) {
+		if ui.icon_button(ctx, fmt.tprintf("Show or hide##%d", i), ui.ICON_EYE if l.visible else ui.ICON_EYE_OFF, selected = l.visible, enabled = allowed) {
 			stroke_finish(app)
-			_ = sculpt.sculptor_layer_set(s, i, l.strength, visible)
-			if sculpt.sculptor_stroke_end(s) do history_record(app, obj, .Layer, "Show layer" if visible else "Hide layer")
+			_ = sculpt.sculptor_layer_set(s, i, l.strength, !l.visible)
+			if sculpt.sculptor_stroke_end(s) do history_record(app, obj, .Layer, "Show layer" if l.visible else "Hide layer")
 		}
-		imgui.SameLine()
-		imgui.SetNextItemWidth(90)
 		name := l.name
-		if imgui.InputText("##name", cstring(&name[0]), len(name) - 1) do sculpt.sculptor_layer_rename(s, i, string(cstring(&name[0])))
-		if imgui.IsItemActivated() do selected^ = i
-		imgui.SameLine()
-		imgui.SetNextItemWidth(-1)
+		if ui.text_field(ctx, fmt.tprintf("name##layer %d", i), name[:], field) {
+			n := 0
+			for n < len(name) && name[n] != 0 do n += 1
+			sculpt.sculptor_layer_rename(s, i, string(name[:n]))
+			selected^ = i
+		}
+		ui.end(ctx)
 		strength := l.strength
-		if imgui.SliderFloat("##strength", &strength, -1, 2, "%.2f") {
+		if ui.slider(ctx, fmt.tprintf("Strength##layer %d", i), &strength, -1, 2, .Linear, fmt.tprintf("%.2f", strength), enabled = allowed) {
 			if !app.ui.layer_dragging {
 				stroke_finish(app)
 				app.ui.layer_dragging = true
@@ -85,20 +85,25 @@ draw_layers_section :: proc(app: ^App) {
 			_ = sculpt.sculptor_layer_set(s, i, strength, l.visible)
 			selected^ = i
 		}
-		if imgui.IsItemDeactivated() && app.ui.layer_dragging {
-			app.ui.layer_dragging = false
-			if sculpt.sculptor_stroke_end(s) do history_record(app, obj, .Layer, "Layer strength")
-		}
 	}
 	if len(layers) > 0 {
-		imgui.TextDisabled("%s", fmt.ctprintf("%d on this level, %.1f MB; selected: %s.", len(layers),
-			f64(sculpt.sculptor_layers_bytes(s)) / (1 << 20), sculpt.sculptor_layer_name(&layers[selected^])))
+		names := make([]string, len(layers), context.temp_allocator)
+		for &l, i in layers do names[i] = sculpt.sculptor_layer_name(&l)
+		if picked := ui.select(ctx, "layer to change", names, selected^); picked >= 0 do selected^ = picked
+		remove, bake := kit_button_pair(ctx, "Delete", "Bake", allowed, allowed, .Danger)
+		if remove do layer_remove(app, obj, selected^, bake = false)
+		if bake do layer_remove(app, obj, selected^, bake = true)
+		ui.paragraph(ctx, fmt.tprintf("%d on this level, %.1f MB.", len(layers), f64(sculpt.sculptor_layers_bytes(s)) / (1 << 20)))
 	}
-	imgui.TextDisabled("While REC is lit, strokes also go into that layer;\nits slider then dials them from -1 to 2 (Ctrl+click\nto type more). Delete takes the layer's work off,\nBake keeps it as plain sculpting. Each level has its\nown layers; not in HD or with dynamic topology,\nwhich bakes them.")
+	ui.paragraph(ctx, "While a layer records, strokes also go into it; its strength then dials them from -1 to 2. Delete takes its work off, Bake keeps it as plain sculpting. Each level has its own layers; not in HD or with dynamic topology, which bakes them.")
 }
 
-@(private = "file")
-layer_remove :: proc(app: ^App, obj: ^Object, index: int, bake: bool) {
-	stroke_finish(app)
-	if sculpt.sculptor_layer_remove(object_sculptor(obj), index, bake) do history_record(app, obj, .Layer, "Bake layer" if bake else "Delete layer")
+// Ends a drag of a layer's strength once the pointer lets go, as one undo step. Runs
+// every frame, so a drag ends even if its section closed meanwhile.
+layer_drag_end :: proc(app: ^App) {
+	if !app.ui.layer_dragging || .Left in app.device.down do return
+	app.ui.layer_dragging = false
+	if obj := selected_object(app); obj != nil && sculpt.sculptor_stroke_end(object_sculptor(obj)) {
+		history_record(app, obj, .Layer, "Layer strength")
+	}
 }

@@ -4,10 +4,10 @@ import "core:fmt"
 import "core:log"
 import "core:math/linalg"
 import "core:time"
-import imgui "deps:odin-imgui"
 
 import "../geom"
 import "../sculpt"
+import "../ui"
 
 // Project detail, after ZBrush's ProjectAll: the selected object's shown level takes the
 // shape (and polypaint) of another object where it lies close to it. Each vertex looks
@@ -114,34 +114,30 @@ barycentric :: proc(p, a, b, c: geom.Vec3) -> [3]f32 {
 	return {1 - v - w, v, w}
 }
 
-draw_project_section :: proc(app: ^App) {
+// The interface's Project detail section.
+kit_project_section :: proc(app: ^App) {
+	ctx := &app.kit.ctx
 	p := &app.ui.project
-	imgui.SeparatorText("Project detail")
 	obj := selected_object(app)
 	src := object_by_id(app, p.source)
 	if src == obj do src = nil
-	imgui.SetNextItemWidth(160)
-	if imgui.BeginCombo("Project from", fmt.ctprintf("%s", object_label(src) if src != nil else "(choose)")) {
-		for other in app.scene.objects {
-			if other == obj do continue
-			if imgui.Selectable(fmt.ctprintf("%s##%d", object_label(other), other.id), other == src) do p.source = other.id
-		}
-		imgui.EndCombo()
+	names := make([dynamic]string, context.temp_allocator)
+	ids := make([dynamic]int, context.temp_allocator)
+	append(&names, "Choose the source")
+	append(&ids, 0)
+	chosen := 0
+	for other in app.scene.objects {
+		if other == obj do continue
+		if other == src do chosen = len(names)
+		append(&names, fmt.tprintf("From %s##%d", object_label(other), other.id))
+		append(&ids, other.id)
 	}
-	imgui.SetNextItemWidth(110)
-	imgui.SliderFloat("Reach##project", &p.reach, 0.002, 0.3, "%.3f", {.Logarithmic})
-	imgui.SameLine()
-	imgui.SetNextItemWidth(90)
-	imgui.SliderFloat("Strength##project", &p.strength, 0, 1, "%.2f")
-	imgui.Checkbox("Polypaint too", &p.paint)
-	imgui.SameLine()
-	imgui.Checkbox("As placed", &p.as_placed)
-	if imgui.IsItemHovered() do imgui.SetTooltip("Use where the two objects sit in the scene. Off, each is\nread in its own space, so a duplicate or retopologized copy\nput beside the original projects as if on top of it.")
-	imgui.BeginDisabled(obj == nil || src == nil)
-	if imgui.Button("Project detail") do project_detail(app, obj, src)
-	imgui.EndDisabled()
-	if l := app.ui.project_last; l.set {
-		imgui.TextDisabled("Last: %.1f%% of vertices found the surface, %.0f ms", l.hit, l.ms)
-	}
-	imgui.TextDisabled("Moves the selected object's shown level onto the\nother object along its normals, where it is within\nReach (a share of its size). For a remeshed copy:\nsubdivide it and project at each level, lowest first.")
+	if picked := ui.select(ctx, "project from", names[:], chosen); picked >= 0 do p.source = ids[picked]
+	_ = ui.slider(ctx, "Reach", &p.reach, 0.002, 0.3, .Logarithmic, fmt.tprintf("%.3f", p.reach))
+	_ = ui.slider(ctx, "Strength", &p.strength, 0, 1, .Linear, fmt.tprintf("%.2f", p.strength))
+	_ = ui.switch_row(ctx, "Polypaint too", &p.paint)
+	_ = ui.switch_row(ctx, "As placed in the scene", &p.as_placed)
+	if ui.button(ctx, "Project detail", .Flat, .Accent, enabled = obj != nil && src != nil) do project_detail(app, obj, src)
+	if l := app.ui.project_last; l.set do ui.paragraph(ctx, fmt.tprintf("Last: %.1f%% of vertices found the surface, %.0f ms.", l.hit, l.ms))
+	ui.paragraph(ctx, "Moves the selected object's shown level onto the source along its normals, where it is within Reach (a share of its size). As placed off reads each in its own space, so a copy beside the original projects as if on top of it. For a remeshed copy: subdivide it and project at each level, lowest first.")
 }

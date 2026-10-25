@@ -1,6 +1,6 @@
 ---
 name: sm-lint
-description: Judgment review of your own sculpt-modeler diff before you call it done — what build.bat check cannot catch: invented core, vendor or imgui names, package-boundary leaks, allocator and lifetime bugs across jobs threads, nondeterminism between serial and parallel, mesh mutations that bypass the sculptor, GPU buffers freed in flight, non-undoable edits, stale README, leftover debug output and unverified claims. Load for ANY "is it done?", "review this change", "before I commit" or end-of-task moment, after build.bat check and build.bat test are green. Requires sm-build.
+description: Judgment review of your own sculpt-modeler diff before you call it done — what build.bat check cannot catch: invented core, vendor or kit names, package-boundary leaks, allocator and lifetime bugs across jobs threads, nondeterminism between serial and parallel, mesh mutations that bypass the sculptor, GPU buffers freed in flight, non-undoable edits, stale README, leftover debug output and unverified claims. Load for ANY "is it done?", "review this change", "before I commit" or end-of-task moment, after build.bat check and build.bat test are green. Requires sm-build.
 ---
 
 # Review your diff (after `check` and `test` are green)
@@ -9,17 +9,15 @@ Run `git diff` (and `git status` for new files) and go through every item. Fix w
 check` and `build.bat test` again. Report the items you could not verify.
 
 ## 1. Does everything you called exist?
-- Every `core:`/`vendor:` name: grep the pinned install under `deps/odin`, not memory; every `imgui.*` name: grep its
-  `link_name` in `deps/odin-imgui/imgui.odin`. The compiler proves the code type-checks, not that you used a proc the way
-  its comment says.
+- Every `core:`/`vendor:` name: grep the pinned install under `deps/odin`, not memory; every `ui.*` name: grep `src/ui`.
+  The compiler proves the code type-checks, not that you used a proc the way its comment says.
 - Every build mode or `--flag` you mention in docs or messages exists in `build.bat`, `build.sh` and `Options`
   (`src/app/main.odin`).
 
 ## 2. Boundaries (the `import` lines)
 - `geom` imports only `core:` and `../jobs`; `camera`, `gizmo` and `jobs` import nothing of ours; `sculpt` imports `geom`
-  and `jobs`; `render` imports `geom` and is, with `app`, the only package importing `vendor:sdl3`; only `app` imports
-  `deps:odin-imgui`; `bench` imports `camera`, `geom`, `jobs`, `sculpt` and never `render` or `app`; `sdf_trial` stands
-  alone; `ui` imports only `core:`, `vendor:fontstash` and `vendor:stb/truetype`, never SDL, `render` or ImGui. No new package without a design (AGENTS.md).
+  and `jobs`; `render` imports `geom` and is, with `app`, the only package importing `vendor:sdl3`; `bench` imports `camera`, `geom`, `jobs`, `sculpt` and never `render` or `app`; `sdf_trial` stands
+  alone; `ui` imports only `core:`, `vendor:fontstash` and `vendor:stb/truetype`, never SDL or `render`. No new package without a design (AGENTS.md).
 - No new package-level mutable state; no second way to do something that already has a way.
 
 ## 3. Lifetimes and memory

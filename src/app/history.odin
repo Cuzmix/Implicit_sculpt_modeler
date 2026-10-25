@@ -56,7 +56,7 @@ Object_Snapshot :: struct {
 	exists: bool,
 	index:  int, // where in the scene's list the object was
 	bytes:  [dynamic]u8,
-	what:   string, // the change, for the log and the Edit menu (not owned)
+	what:   string, // the change, for the log and the undo and redo buttons' tooltips (not owned)
 }
 
 HD_LEVEL :: -1
@@ -135,7 +135,7 @@ history_record_added :: proc(app: ^App) {
 	if obj := selected_object(app); obj != nil do history_record_swap(app, obj.id, history_snapshot(app, nil, "add object"))
 }
 
-// What Ctrl+Z would take back, for the Edit menu.
+// What Ctrl+Z would take back, for the undo button's tooltip.
 history_next_label :: proc(list: []History_Entry) -> string {
 	if len(list) == 0 do return "stroke"
 	if e := list[len(list) - 1]; e.swap != nil do return e.swap.what

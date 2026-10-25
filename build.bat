@@ -1,6 +1,6 @@
 @echo off
 rem Usage: build.bat [debug|release|test|run|smoke|bench|gpubench|computebench|check|android|androidrun]   (see build.sh for what each does)
-rem Run scripts\setup_deps.bat first, from an x64 Native Tools Command Prompt.
+rem Run scripts\setup_deps.bat first.
 rem Modes are labels rather than if-blocks: an `exit /b 1` inside a parenthesised block
 rem returns 0 to whoever ran `cmd /c build.bat`, so a failure would pass unnoticed.
 setlocal
@@ -97,7 +97,7 @@ exit /b
 exit /b
 
 :android
-rem The Android app (README.md, Android): Gradle builds SDL, ImGui and src\app (Odin) for
+rem The Android app (README.md, Android): Gradle builds SDL, stb_truetype and src\app (Odin) for
 rem arm64 with the NDK into an APK; androidrun also installs it on the tablet adb sees and
 rem starts it. Android Studio's SDK and Java are used unless ANDROID_HOME and JAVA_HOME
 rem name others.

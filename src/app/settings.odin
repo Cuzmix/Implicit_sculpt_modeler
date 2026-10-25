@@ -11,7 +11,7 @@ import "../geom"
 import "../sculpt"
 
 // What the app remembers between interactive runs: the brush settings, how the
-// viewport looks and the Scene panel's choices, in a text file of `key values...`
+// viewport looks and the Scene tab's choices, in a text file of `key values...`
 // lines in SDL's per-user folder. Runs with --frames, a benchmark or --no-settings
 // neither read nor write it, so scripted runs stay reproducible. Flags given on the
 // command line win over what it holds. Unknown or malformed lines are skipped, so an
@@ -90,14 +90,18 @@ settings_load :: proc(app: ^App, path: string) {
 			}
 		case "wireframe":  app.wireframe = f[1] == "1"
 		case "flat":       app.flat = f[1] == "1"
-		case "interface":  app.new_ui = f[1] != "classic"
 		case "reduce_motion": app.kit.ctx.reduced_motion = f[1] == "1"
 		case "finger_sculpt": app.touch.finger_sculpt = f[1] == "1"
 		case "ortho":      app.camera.ortho = f[1] == "1"
 		case "new_vertices":
-			app.ui.sphere_vertices = i32(clamp(int(number(f[1], f32(app.ui.sphere_vertices))), MIN_SPHERE_VERTICES, MAX_SPHERE_VERTICES))
+			// The size an object is added and remeshed at: the nearest of the presets.
+			want := number(f[1], -1)
+			best := f32(-1)
+			for p, i in SPHERE_PRESETS {
+				if d := abs(f32(p.vertices) - want); want > 0 && (best < 0 || d < best) do app.kit.add_size, best = i, d
+			}
 		case "new_shape":
-			for shape in geom.Primitive do if strings.equal_fold(f[1], fmt.tprint(shape)) do app.ui.add_shape = shape
+			for shape in geom.Primitive do if strings.equal_fold(f[1], fmt.tprint(shape)) do app.kit.add_shape = shape
 		case "mask_steps":  app.ui.mask_steps = i32(clamp(number(f[1], f32(app.ui.mask_steps)), 1, 50))
 		case "mask_shape":
 			for kind in Mask_Shape_Kind do if strings.equal_fold(f[1], fmt.tprint(kind)) do app.ui.mask_shape_kind = kind
@@ -165,12 +169,11 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 	fmt.sbprintfln(&out, "custom_material %g %g %g %g %g", m.selected.r, m.selected.g, m.selected.b, m.metallic, m.roughness)
 	fmt.sbprintfln(&out, "wireframe %d", bit(app.wireframe))
 	fmt.sbprintfln(&out, "flat %d", bit(app.flat))
-	fmt.sbprintfln(&out, "interface %s", "new" if app.new_ui else "classic")
 	fmt.sbprintfln(&out, "reduce_motion %d", bit(app.kit.ctx.reduced_motion))
 	fmt.sbprintfln(&out, "finger_sculpt %d", bit(app.touch.finger_sculpt))
 	fmt.sbprintfln(&out, "ortho %d", bit(app.camera.ortho))
-	fmt.sbprintfln(&out, "new_vertices %d", app.ui.sphere_vertices)
-	fmt.sbprintfln(&out, "new_shape %v", app.ui.add_shape)
+	fmt.sbprintfln(&out, "new_vertices %d", SPHERE_PRESETS[app.kit.add_size].vertices)
+	fmt.sbprintfln(&out, "new_shape %v", app.kit.add_shape)
 	fmt.sbprintfln(&out, "mask_steps %d", app.ui.mask_steps)
 	fmt.sbprintfln(&out, "mask_shape %v", app.ui.mask_shape_kind)
 	fmt.sbprintfln(&out, "gesture %v", app.gesture)

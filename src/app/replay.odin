@@ -1,13 +1,14 @@
 package main
 
+import "core:fmt"
 import "core:math"
 import "core:os"
 import "core:path/filepath"
-import imgui "deps:odin-imgui"
 
 import "../camera"
 import "../geom"
 import "../sculpt"
+import "../ui"
 
 // Stroke record and replay. The app keeps the last stroke as it was drawn: every frame's
 // pointer samples and modifier keys, the camera and viewport size they were drawn in,
@@ -195,51 +196,6 @@ replay_frame :: proc(app: ^App, now: Viewport_Input) -> (res: Sculpt_Frame_Resul
 	return
 }
 
-// The Tools panel's Stroke recorder section.
-draw_replay_section :: proc(app: ^App) {
-	p := &app.replay
-	imgui.SeparatorText("Stroke recorder")
-	if p.recording {
-		imgui.PushStyleColor(.Button, imgui.ColorConvertFloat4ToU32({0.75, 0.15, 0.15, 1}))
-		if imgui.Button("Stop") do replay_record_stop(app)
-		imgui.PopStyleColor()
-		imgui.SameLine()
-		imgui.Text("Recording: %d strokes", i32(take_strokes(&p.take)))
-	} else {
-		imgui.BeginDisabled(replay_busy(app))
-		if imgui.Button("Record") do replay_record_start(app)
-		imgui.SameLine()
-		source := replay_source(app)
-		imgui.BeginDisabled(len(source.frames) == 0)
-		if imgui.Button("Replay") do replay_start(app, source)
-		imgui.EndDisabled()
-		imgui.EndDisabled()
-		imgui.SameLine()
-		if replay_busy(app) {
-			if imgui.Button("Stop##replay") do replay_stop(app)
-		} else if len(p.take.frames) > 0 {
-			imgui.TextDisabled("recording: %d strokes", i32(take_strokes(&p.take)))
-		} else if len(p.last.frames) > 0 {
-			imgui.TextDisabled("the last stroke")
-		} else {
-			imgui.TextDisabled("nothing yet")
-		}
-	}
-	imgui.Checkbox("Recorded brushes", &p.recorded_brush)
-	imgui.SameLine()
-	imgui.Checkbox("Instant", &p.instant)
-	imgui.BeginDisabled(p.recording || replay_busy(app))
-	if imgui.Button("Save strokes...") do file_dialog(app, .Save_Strokes)
-	imgui.SameLine()
-	if imgui.Button("Load strokes...") do file_dialog(app, .Load_Strokes)
-	imgui.SameLine()
-	imgui.BeginDisabled(len(p.take.frames) == 0)
-	if imgui.Button("Clear") do take_clear(&p.take)
-	imgui.EndDisabled()
-	imgui.EndDisabled()
-	imgui.TextDisabled("R over the viewport replays the recording (or\nelse the last stroke) from the pointer, in this\nview; Replay puts it back where it was drawn.\nRecorded brushes off uses the brush set now.")
-}
-
 // R over the viewport: replay at the pointer.
 replay_shortcut :: proc(app: ^App) {
 	if app.replay.recording || replay_busy(app) || !app.ui.viewport_hovered do return
@@ -411,4 +367,38 @@ strokes_read :: proc(app: ^App, data: []u8, t: ^Take) -> bool {
 		append(&t.frames, f)
 	}
 	return r.ok && r.at == len(data)
+}
+
+// The interface's Stroke recorder section.
+kit_replay_section :: proc(app: ^App) {
+	ctx := &app.kit.ctx
+	p := &app.replay
+	busy := replay_busy(app)
+	if p.recording {
+		if ui.button(ctx, "Stop recording", .Solid, .Danger, glyph = ui.ICON_STOP) do replay_record_stop(app)
+		ui.paragraph(ctx, fmt.tprintf("Recording: %d strokes.", take_strokes(&p.take)))
+	} else {
+		source := replay_source(app)
+		record, replay := kit_button_pair(ctx, "Record", "Replay", !busy, !busy && len(source.frames) > 0, .Danger)
+		if record do replay_record_start(app)
+		if replay do replay_start(app, source)
+		switch {
+		case busy:
+			if ui.button(ctx, "Stop replay", .Flat, glyph = ui.ICON_STOP) do replay_stop(app)
+		case len(p.take.frames) > 0:
+			ui.paragraph(ctx, fmt.tprintf("Recorded: %d strokes.", take_strokes(&p.take)))
+		case len(p.last.frames) > 0:
+			ui.paragraph(ctx, "Replay plays the last stroke.")
+		case:
+			ui.paragraph(ctx, "Nothing recorded yet.")
+		}
+	}
+	_ = ui.switch_row(ctx, "Recorded brushes", &p.recorded_brush)
+	_ = ui.switch_row(ctx, "Instant", &p.instant)
+	idle := !p.recording && !busy
+	save, load := kit_button_pair(ctx, "Save strokes...", "Load strokes...", idle, idle)
+	if save do file_dialog(app, .Save_Strokes)
+	if load do file_dialog(app, .Load_Strokes)
+	if ui.button(ctx, "Clear the recording", .Light, .Danger, enabled = idle && len(p.take.frames) > 0) do take_clear(&p.take)
+	ui.paragraph(ctx, "R over the viewport replays the recording (or else the last stroke) from the pointer, in this view; Replay puts it back where it was drawn. With Recorded brushes off it uses the brush set now.")
 }

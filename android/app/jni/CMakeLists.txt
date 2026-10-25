@@ -1,9 +1,9 @@
 # libmain.so: the Odin app (src/app, compiled to one arm64 object by Odin) linked with
-# Dear ImGui and stb_truetype, plus libSDL3.so beside it. Gradle runs this with the
-# NDK's toolchain (android/app/build.gradle); the pinned sources come from deps/
-# (scripts/setup_deps, and scripts/setup_android.bat on Windows).
+# stb_truetype, plus libSDL3.so beside it. Gradle runs this with the NDK's toolchain
+# (android/app/build.gradle); the pinned sources come from deps/ (scripts/setup_deps,
+# and scripts/setup_android.bat on Windows).
 cmake_minimum_required(VERSION 3.22)
-project(sculpt C CXX)
+project(sculpt C)
 # The static libraries end up inside libmain.so.
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
@@ -14,7 +14,7 @@ if(CMAKE_HOST_WIN32)
 else()
 	set(ODIN "${DEPS}/odin/odin")
 endif()
-foreach(needed "${ODIN}" "${DEPS}/odin-imgui/imgui/imgui.cpp" "${DEPS}/sdl3-src/CMakeLists.txt" "${DEPS}/odin/vendor/stb/lib/stb_truetype.a")
+foreach(needed "${ODIN}" "${DEPS}/sdl3-src/CMakeLists.txt" "${DEPS}/odin/vendor/stb/lib/stb_truetype.a")
 	if(NOT EXISTS "${needed}")
 		message(FATAL_ERROR "${needed} is missing: run scripts/setup_deps, then on Windows scripts/setup_android.bat (README.md, Android)")
 	endif()
@@ -34,25 +34,6 @@ set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
 set(SDL_TESTS OFF CACHE BOOL "" FORCE)
 set(SDL_EXAMPLES OFF CACHE BOOL "" FORCE)
 add_subdirectory("${DEPS}/sdl3-src" SDL3)
-
-# Dear ImGui with the SDL3 and SDL_GPU backends and the C wrapper odin-imgui binds,
-# compiled as odin-imgui's build.py does on the desktop.
-set(IMGUI "${DEPS}/odin-imgui")
-add_library(imgui STATIC
-	"${IMGUI}/imgui/imgui.cpp"
-	"${IMGUI}/imgui/imgui_demo.cpp"
-	"${IMGUI}/imgui/imgui_draw.cpp"
-	"${IMGUI}/imgui/imgui_tables.cpp"
-	"${IMGUI}/imgui/imgui_widgets.cpp"
-	"${IMGUI}/imgui/backends/imgui_impl_sdl3.cpp"
-	"${IMGUI}/imgui/backends/imgui_impl_sdlgpu3.cpp"
-	"${IMGUI}/dcimgui/dcimgui_nodefaultargfunctions.cpp"
-	"${IMGUI}/dcimgui/dcimgui_nodefaultargfunctions_internal.cpp"
-)
-target_include_directories(imgui PRIVATE "${IMGUI}/imgui" "${IMGUI}/imgui/backends" "${IMGUI}/dcimgui")
-target_compile_definitions(imgui PRIVATE IMGUI_DISABLE_OBSOLETE_FUNCTIONS [[IMGUI_IMPL_API=extern "C"]])
-target_compile_options(imgui PRIVATE -O3 -fno-exceptions -fno-rtti -fno-threadsafe-statics)
-target_link_libraries(imgui PRIVATE SDL3::SDL3-shared)
 
 # stb_truetype (and stb_rect_pack, which its source file includes) for vendor:fontstash.
 add_library(stb STATIC "${DEPS}/odin/vendor/stb/src/stb_truetype.c")
@@ -80,6 +61,6 @@ add_custom_command(
 )
 
 add_library(main SHARED android_main.c "${ODIN_OBJECT}")
-target_link_libraries(main PRIVATE imgui stb SDL3::SDL3-shared android log m)
+target_link_libraries(main PRIVATE stb SDL3::SDL3-shared android log m)
 # Every symbol the Odin object needs must resolve now, not when the tablet loads it.
 target_link_options(main PRIVATE "-Wl,--no-undefined")

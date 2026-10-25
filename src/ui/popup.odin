@@ -23,8 +23,8 @@ tip :: proc(ctx: ^Context, id: Id, r: Rect, text: string, keys := "") {
 		// them, as a menu bar does.
 		if ctx.time - ctx.tip_last < 0.4 do ctx.tip_since = ctx.time - f64(ctx.theme.tooltip_delay)
 	}
-	ctx.tip_text = text
-	ctx.tip_keys = keys
+	ctx.tip_len = copy_text(ctx.tip_text[:], text)
+	ctx.tip_keys_len = copy_text(ctx.tip_keys[:], keys)
 	ctx.tip_rect = r
 }
 
@@ -34,20 +34,22 @@ tooltip_draw :: proc(ctx: ^Context) {
 	id := ctx.tip_id
 	if id == 0 do return
 	// The widget is no longer under the pointer (or was pressed): forget it.
-	if ctx.hot != id || ctx.input.down != {} || ctx.tip_text == "" {
+	if ctx.hot != id || ctx.input.down != {} || ctx.tip_len == 0 {
 		ctx.tip_id = 0
-		ctx.tip_text = ""
+		ctx.tip_len = 0
 		return
 	}
 	waited := ctx.time - ctx.tip_since >= f64(t.tooltip_delay)
 	shown := presence(ctx, salt(id, 7), waited, t.tooltip_time)
 	if shown <= 0 {
-		ctx.tip_text = ""
+		ctx.tip_len = 0
 		return
 	}
 	ctx.tip_last = ctx.time
-	text_w := text_width(ctx, ctx.tip_text, t.small_size)
-	keys_w := text_width(ctx, ctx.tip_keys, t.small_size) + 12 if ctx.tip_keys != "" else 0
+	tip_text := string(ctx.tip_text[:ctx.tip_len])
+	tip_keys := string(ctx.tip_keys[:ctx.tip_keys_len])
+	text_w := text_width(ctx, tip_text, t.small_size)
+	keys_w := text_width(ctx, tip_keys, t.small_size) + 12 if tip_keys != "" else 0
 	w := text_w + keys_w + 20
 	h: f32 = 28
 	r := ctx.tip_rect
@@ -62,12 +64,12 @@ tooltip_draw :: proc(ctx: ^Context) {
 	shadow_rect(ctx, box, t.radius_small, color_fade(t.shadow, 0.6))
 	fill_rect(ctx, box, t.radius_small, t.surface_raised)
 	stroke_rect(ctx, box, t.radius_small, t.border_strong, 1)
-	text(ctx, ctx.tip_text, x + 10, y + h * 0.5, t.small_size, t.text)
-	if ctx.tip_keys != "" do text(ctx, ctx.tip_keys, x + w - 10, y + h * 0.5, t.small_size, t.text_tertiary, .Regular, .Right)
+	text(ctx, tip_text, x + 10, y + h * 0.5, t.small_size, t.text)
+	if tip_keys != "" do text(ctx, tip_keys, x + w - 10, y + h * 0.5, t.small_size, t.text_tertiary, .Regular, .Right)
 	// It drifts 4 points out from the control as it fades in.
 	drift: f32 = (1 - shown) * 4
 	transform_since(ctx, mark, shown, 1, {}, {0, -drift if below else drift})
-	ctx.tip_text = ""
+	ctx.tip_len = 0
 }
 
 // Shows `message` at the bottom of the window for a few seconds. The text is copied

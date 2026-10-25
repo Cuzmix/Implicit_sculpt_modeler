@@ -1,0 +1,207 @@
+package main
+
+import "core:fmt"
+import "core:math"
+import "core:math/linalg"
+
+import "../camera"
+import "../gizmo"
+import "../sculpt"
+import "../ui"
+
+// Drawing over the viewport through the kit, in the window coordinates Viewport_Input
+// uses: the kit's points are window coordinates over `scale`. Widths and radii are
+// window coordinates too, as the tools measure them.
+Overlay :: struct {
+	ctx:   ^ui.Context,
+	scale: f32,
+}
+
+// A viewport point in the kit's points.
+@(private = "file")
+at :: proc(o: Overlay, p: [2]f32) -> [2]f32 {
+	return p / o.scale
+}
+
+// A colour given as red, green, blue and alpha from 0 to 1.
+overlay_color :: proc(c: [4]f32) -> ui.Color {
+	out: ui.Color
+	for i in 0 ..< 4 do out[i] = u8(clamp(c[i], 0, 1) * 255 + 0.5)
+	return out
+}
+
+overlay_line :: proc(o: Overlay, a, b: [2]f32, color: ui.Color, width: f32) {
+	ui.line(o.ctx, at(o, a), at(o, b), color, width / o.scale)
+}
+
+overlay_circle :: proc(o: Overlay, center: [2]f32, radius: f32, color: ui.Color, width: f32) {
+	ui.stroke_circle(o.ctx, at(o, center), radius / o.scale, color, width / o.scale)
+}
+
+overlay_disc :: proc(o: Overlay, center: [2]f32, radius: f32, color: ui.Color) {
+	ui.fill_circle(o.ctx, at(o, center), radius / o.scale, color)
+}
+
+overlay_polyline :: proc(o: Overlay, points: [][2]f32, color: ui.Color, width: f32, closed := false) {
+	shown := make([][2]f32, len(points), context.temp_allocator)
+	for p, i in points do shown[i] = at(o, p)
+	ui.polyline(o.ctx, shown, color, width / o.scale, closed)
+}
+
+// A filled convex polygon.
+overlay_fill :: proc(o: Overlay, points: [][2]f32, color: ui.Color) {
+	shown := make([][2]f32, len(points), context.temp_allocator)
+	for p, i in points do shown[i] = at(o, p)
+	ui.fill_convex(o.ctx, shown, color)
+}
+
+// The box between two corners, outlined and, when `fill` shows, filled.
+overlay_box :: proc(o: Overlay, a, b: [2]f32, color, fill: ui.Color, width: f32) {
+	lo := [2]f32{min(a.x, b.x), min(a.y, b.y)}
+	hi := [2]f32{max(a.x, b.x), max(a.y, b.y)}
+	corners := [4][2]f32{lo, {hi.x, lo.y}, hi, {lo.x, hi.y}}
+	if fill.a > 0 do overlay_fill(o, corners[:], fill)
+	overlay_polyline(o, corners[:], color, width, closed = true)
+}
+
+// `s` on a dark plate centred on `center`, since the surface behind is often light.
+overlay_label :: proc(o: Overlay, s: string, center: [2]f32) {
+	ctx := o.ctx
+	t := ctx.theme
+	size := t.small_size
+	w := ui.text_width(ctx, s, size)
+	p := at(o, center)
+	ui.fill_rect(ctx, {p.x - w * 0.5 - 8, p.y - size * 0.8 - 4, w + 16, size * 1.6 + 8}, t.radius_small, t.surface)
+	ui.text(ctx, s, p.x, p.y, size, t.text, .Regular, .Center)
+}
+
+// Draws the brush circle, the move gizmo or the gesture being dragged over the viewport,
+// under the panels in the layer kit_frame kept over the viewport image, then the brush
+// pie over everything. Runs after the tools have handled this frame's input, so the
+// overlay matches what gets rendered.
+draw_viewport_overlay :: proc(app: ^App, input: Viewport_Input) {
+	k := &app.kit
+	ctx := &k.ctx
+	o := Overlay{ctx, k.scale}
+	if layer, ok := k.layer.?; ok {
+		k.layer = nil
+		from := ui.layer_begin(ctx)
+		overlay_viewport(app, o, input)
+		ui.layer_end(ctx, layer, from)
+	}
+	draw_pie(app, o)
+}
+
+@(private = "file")
+overlay_viewport :: proc(app: ^App, o: Overlay, input: Viewport_Input) {
+	switch app.tool {
+	case .Brush:
+		if app.clip.active {
+			draw_clip(app, o, input.size)
+			break
+		}
+		if app.mask_shape.active {
+			draw_mask_shape(app, o, input.mouse_pos)
+			break
+		}
+		if draw_adjust(app, o) do break
+		if st := app.stroke; st.active && st.rect {
+			// The stamp being dragged out: its circle around where it began, and a line to
+			// the pointer, the way its top faces.
+			color := overlay_color({1, 0.8, 0.4, 0.9})
+			overlay_circle(o, st.start, max(linalg.length(input.mouse_pos - st.start), 2), color, 1.5)
+			overlay_line(o, st.start, input.mouse_pos, color, 1.5)
+			break
+		}
+		if (input.hovered || input.dragging) && !app.ui.pie.open {
+			color := overlay_color({1, 1, 1, 0.6} if !input.primary else {1, 0.8, 0.4, 0.9})
+			center := input.mouse_pos
+			if app.stroke.active && app.brush.lazy_px > 0 {
+				// The brush trails the cursor: draw it where it is, on its string.
+				center = app.stroke.pos
+				overlay_line(o, center, input.mouse_pos, color, 1)
+			}
+			if brush_alpha(app) != nil && !input.smooth {
+				draw_alpha_outline(app, o, center, color)
+			} else {
+				overlay_circle(o, center, app.brush.radius_px, color, 1.5)
+			}
+			// Which way a leaning pen turns the brush, and how far: toward the top of the
+			// pen, a radius long at a right angle.
+			if lean := input.pen_tilt * app.brush.tilt_strength; app.brush.tilt_strength > 0 && lean != {} {
+				angle := min(linalg.to_radians(linalg.length(lean)), camera.MAX_TILT)
+				tip := center + linalg.normalize(lean) * (app.brush.radius_px * math.sin(angle))
+				overlay_line(o, center, tip, color, 2)
+				overlay_disc(o, tip, 3, color)
+			}
+		}
+	case .Move:
+		gv := gizmo_view(app, input.size)
+		if !gv.ok do return
+		active := app.move.drag.handle if app.move.drag.handle != .None else app.move.hover
+		AXIS_COLORS := [3][4]f32{{0.95, 0.3, 0.3, 1}, {0.4, 0.85, 0.35, 1}, {0.35, 0.55, 1, 1}}
+		HIGHLIGHT :: [4]f32{1, 0.85, 0.3, 1}
+		for i in 0 ..< 3 {
+			if !gv.tip_ok[i] do continue
+			color := overlay_color(HIGHLIGHT if active == gizmo.Handle(i + 1) else AXIS_COLORS[i])
+			overlay_line(o, gv.center, gv.tips[i], color, 3)
+			overlay_disc(o, gv.tips[i], 5, color)
+		}
+		r := f32(gizmo.CENTER_PX)
+		overlay_box(o, gv.center - r, gv.center + r, overlay_color(HIGHLIGHT if active == .View else {1, 1, 1, 0.85}), {}, 2)
+	case .Curve, .Insert:
+		draw_curve_overlay(app, o)
+	}
+}
+
+// Draws the open pie over everything, so it shows whole even near the viewport's edge.
+draw_pie :: proc(app: ^App, o: Overlay) {
+	p := app.ui.pie
+	if !p.open do return
+	ctx := o.ctx
+	t := ctx.theme
+	n := len(sculpt.Brush_Kind)
+	step := 2 * math.PI / f32(n)
+	GAP :: 0.02 // radians between slices
+	ARC :: 12 // segments along each edge of a slice
+	// The pie is sized in points (pie.odin); the overlay takes window coordinates.
+	pt := o.scale
+	for kind, i in sculpt.Brush_Kind {
+		mid := -math.PI / 2 + f32(i) * step
+		a0, a1 := mid - step / 2 + GAP, mid + step / 2 - GAP
+		hover := i == p.hover
+		// The slice: along its outer edge, then back along its inner one. Its inner edge
+		// dips so little across a slice that it fills as a convex shape.
+		outline: [2 * (ARC + 1)][2]f32
+		for s in 0 ..= ARC {
+			f := f32(s) / ARC
+			outline[s] = p.center + PIE_OUTER * pt * angle_dir(a0 + (a1 - a0) * f)
+			outline[ARC + 1 + s] = p.center + (PIE_INNER + 6) * pt * angle_dir(a1 - (a1 - a0) * f)
+		}
+		overlay_fill(o, outline[:], t.accent if hover else t.surface)
+		if kind == app.brush.kind {
+			// The brush in use: a band along the outside of its slice.
+			band: [ARC + 1][2]f32
+			for s in 0 ..= ARC do band[s] = p.center + (PIE_OUTER - 3) * pt * angle_dir(a0 + (a1 - a0) * f32(s) / ARC)
+			overlay_polyline(o, band[:], t.on_accent if hover else t.accent, 4 * pt)
+		}
+		// Past the ring's middle, where neighbouring slices are furthest apart.
+		r: f32 = PIE_INNER + 0.62 * (PIE_OUTER - PIE_INNER)
+		label := at(o, p.center + r * pt * angle_dir(mid))
+		font := ui.Font.Semibold if hover else ui.Font.Regular
+		ui.text(ctx, fmt.tprintf("%d %s", i + 1, BRUSH_NAMES[kind]), label.x, label.y, t.text_size, t.on_accent if hover else t.text, font, .Center)
+	}
+	// The middle, and which way the pointer points from it.
+	overlay_disc(o, p.center, PIE_INNER * pt, t.surface)
+	overlay_circle(o, p.center, PIE_INNER * pt, t.border_strong, 1.5 * pt)
+	if p.hover >= 0 {
+		d := linalg.normalize0(app.ui.viewport_mouse - p.center)
+		overlay_disc(o, p.center + (PIE_INNER - 6) * pt * d, 4 * pt, t.accent)
+	}
+}
+
+// The unit vector `a` radians clockwise (y down) from the right.
+@(private = "file")
+angle_dir :: proc(a: f32) -> [2]f32 {
+	return {math.cos(a), math.sin(a)}
+}

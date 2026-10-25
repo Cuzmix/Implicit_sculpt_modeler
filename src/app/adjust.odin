@@ -2,9 +2,9 @@ package main
 
 import "core:fmt"
 import "core:math/linalg"
-import imgui "deps:odin-imgui"
+import sdl "vendor:sdl3"
 
-// Changing the brush size or strength without the Tools panel, where the brush is, as
+// Changing the brush size or strength without the panels, where the brush is, as
 // ZBrush's S (draw size) and U (intensity) and Blender's F and Shift+F do. Pressing S
 // or U over the viewport starts it: the brush circle stays put and its size, or the
 // strength, follows how far the pointer is from the circle's middle. A click or the same
@@ -34,22 +34,22 @@ STRENGTH_PX :: 200
 // Starts, follows and ends an adjustment with this frame's input.
 adjust_update :: proc(app: ^App, input: ^Viewport_Input) {
 	a := &app.ui.adjust
-	io := imgui.GetIO()
+	d := &app.device
 	if a.swallow {
-		if imgui.IsMouseDown(.Left) {
+		if .Left in d.down {
 			viewport_mute(input)
 		} else {
 			a.swallow = false
 		}
 	}
 	if a.kind == .None {
-		if app.tool != .Brush || !input.hovered || app.stroke.active || app.ui.pie.open || io.WantTextInput do return
-		if io.KeyCtrl || io.KeyAlt || io.KeyShift || imgui.IsMouseDown(.Left) do return
+		if app.tool != .Brush || !input.hovered || app.stroke.active || app.ui.pie.open || typing(app) do return
+		if d.ctrl || d.alt || d.shift || .Left in d.down do return
 		switch {
-		case imgui.IsKeyPressed(.S, false):
+		case key_pressed(d, sdl.K_S):
 			// The pointer lands on the circle's edge, so the size starts where it was.
 			a^ = {kind = .Size, before = app.brush.radius_px, center = input.mouse_pos - {app.brush.radius_px, 0}}
-		case imgui.IsKeyPressed(.U, false):
+		case key_pressed(d, sdl.K_U):
 			s := brush_strength(app)
 			a^ = {kind = .Strength, before = s^, center = input.mouse_pos - {s^ * STRENGTH_PX, 0}}
 		case:
@@ -59,19 +59,19 @@ adjust_update :: proc(app: ^App, input: ^Viewport_Input) {
 		return
 	}
 
-	d := linalg.length(input.mouse_pos - a.center)
+	reach := linalg.length(input.mouse_pos - a.center)
 	value := adjust_value(app)
 	switch a.kind {
 	case .None:
 	case .Size:
-		value^ = clamp(d, MIN_RADIUS_PX, MAX_RADIUS_PX)
+		value^ = clamp(reach, MIN_RADIUS_PX, MAX_RADIUS_PX)
 	case .Strength:
-		value^ = clamp(d / STRENGTH_PX, MIN_STRENGTH, 1)
+		value^ = clamp(reach / STRENGTH_PX, MIN_STRENGTH, 1)
 	}
-	again := imgui.IsKeyPressed(.S if a.kind == .Size else .U, false)
-	if imgui.IsMouseClicked(.Left) || again {
-		a.kind, a.swallow = .None, imgui.IsMouseClicked(.Left)
-	} else if imgui.IsMouseClicked(.Right) || imgui.IsKeyPressed(.Escape, false) {
+	again := key_pressed(d, sdl.K_S if a.kind == .Size else sdl.K_U)
+	if .Left in d.pressed || again {
+		a.kind, a.swallow = .None, .Left in d.pressed
+	} else if .Right in d.pressed || key_pressed(d, sdl.K_ESCAPE) {
 		value^ = a.before
 		a.kind = .None
 	}
@@ -87,28 +87,23 @@ adjust_value :: proc(app: ^App) -> ^f32 {
 
 // Draws the circle being sized, or the strength as a filled share of it, with the value.
 // Returns false when no adjustment is running, so the usual brush outline is drawn.
-draw_adjust :: proc(app: ^App, list: ^imgui.DrawList, o: imgui.Vec2) -> bool {
+draw_adjust :: proc(app: ^App, o: Overlay) -> bool {
 	a := app.ui.adjust
 	if a.kind == .None do return false
-	rgba :: proc(c: [4]f32) -> u32 {return imgui.ColorConvertFloat4ToU32(c)}
-	c := o + a.center
-	label: cstring
+	label: string
 	switch a.kind {
 	case .None:
 	case .Size:
-		imgui.DrawList_AddCircle(list, c, app.brush.radius_px, rgba({1, 0.8, 0.4, 0.95}), 64, 2)
-		label = fmt.ctprintf("Radius %.0f px", app.brush.radius_px)
+		overlay_circle(o, a.center, app.brush.radius_px, overlay_color({1, 0.8, 0.4, 0.95}), 2)
+		label = fmt.tprintf("Radius %.0f px", app.brush.radius_px)
 	case .Strength:
 		s := brush_strength(app)^
-		imgui.DrawList_AddCircle(list, c, STRENGTH_PX, rgba({1, 1, 1, 0.35}), 64, 1.5)
-		imgui.DrawList_AddCircleFilled(list, c, s * STRENGTH_PX, rgba({1, 0.8, 0.4, 0.25}), 64)
-		imgui.DrawList_AddCircle(list, c, s * STRENGTH_PX, rgba({1, 0.8, 0.4, 0.95}), 64, 2)
-		label = fmt.ctprintf("%s strength %.2f", BRUSH_NAMES[app.brush.kind], s)
+		overlay_circle(o, a.center, STRENGTH_PX, overlay_color({1, 1, 1, 0.35}), 1.5)
+		overlay_disc(o, a.center, s * STRENGTH_PX, overlay_color({1, 0.8, 0.4, 0.25}))
+		overlay_circle(o, a.center, s * STRENGTH_PX, overlay_color({1, 0.8, 0.4, 0.95}), 2)
+		label = fmt.tprintf("%s strength %.2f", BRUSH_NAMES[app.brush.kind], s)
 	}
-	// On a dark plate, since the surface behind it is often light.
-	size := imgui.CalcTextSize(label)
-	imgui.DrawList_AddRectFilled(list, c - size * 0.5 - 4, c + size * 0.5 + 4, rgba({0.08, 0.08, 0.1, 0.8}), 4)
-	imgui.DrawList_AddText(list, c - size * 0.5, rgba({1, 1, 1, 1}), label)
+	overlay_label(o, label, a.center)
 	return true
 }
 

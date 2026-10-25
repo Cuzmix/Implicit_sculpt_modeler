@@ -7,7 +7,7 @@ import "core:os"
 import "core:path/filepath"
 import "core:strings"
 import "core:time"
-import imgui "deps:odin-imgui"
+import "../ui"
 
 // The History panel's timeline: every undo step on one bar, which can be dragged to any
 // point, played back like a film, or recorded as a time-lapse. It only ever moves
@@ -205,129 +205,6 @@ timelapse_stop :: proc(app: ^App, why: string) {
 // though the camera turns between them.
 timelapse_capturing :: proc(app: ^App) -> bool {return app.timeline.lapse.state == .Capturing}
 
-// The History panel: transport buttons, the timeline bar and the time-lapse controls.
-draw_history_panel :: proc(app: ^App) {
-	defer imgui.End()
-	if !imgui.Begin("History") do return
-	tl := &app.timeline
-	lapse := &tl.lapse
-	done, total := len(app.history.done), history_total(app)
-	recording := lapse.state != .Off
-
-	imgui.BeginDisabled(recording || app.stroke.active)
-	seek :: proc(tl: ^Timeline, to: int) {
-		tl.target, tl.seeking, tl.playing = to, true, false
-	}
-	if imgui.Button("|<") do seek(tl, 0)
-	if imgui.IsItemHovered() do imgui.SetTooltip("Back to the start")
-	imgui.SameLine()
-	if imgui.ArrowButton("back", .Left) do seek(tl, done - 1)
-	imgui.SameLine()
-	if imgui.Button("Pause" if tl.playing else "Play", {48, 0}) {
-		if tl.playing {
-			tl.playing = false
-		} else {
-			// From the end, playback starts over from the beginning.
-			if done >= total do seek(tl, 0)
-			tl.playing, tl.owed, tl.last = true, 0, time.tick_now()
-		}
-	}
-	imgui.SameLine()
-	if imgui.ArrowButton("forward", .Right) do seek(tl, done + 1)
-	imgui.SameLine()
-	if imgui.Button(">|") do seek(tl, total)
-	if imgui.IsItemHovered() do imgui.SetTooltip("Forward to the newest step")
-	imgui.SameLine()
-	imgui.Text("Step %d of %d", i32(done), i32(total))
-	if done > 0 {
-		e := app.history.done[done - 1]
-		imgui.SameLine()
-		imgui.TextDisabled("%s", fmt.ctprintf("%s, %s", entry_label(e), ago_label(e.at)))
-	}
-
-	draw_timeline_bar(app)
-
-	imgui.SetNextItemWidth(160)
-	imgui.SliderFloat("Steps a second", &tl.speed, 1, TIMELINE_SPEED_MAX, "%.0f", {.Logarithmic})
-	imgui.EndDisabled()
-
-	imgui.SameLine()
-	imgui.Dummy({16, 0})
-	imgui.SameLine()
-	if recording {
-		if imgui.Button("Stop recording") do timelapse_stop(app, "stopped")
-		imgui.SameLine()
-		if lapse.state == .Rewinding {
-			imgui.Text("Rewinding...")
-		} else {
-			imgui.Text("Frame %d of %d", i32(lapse.frame), i32(lapse.end / int(max(lapse.steps, 1)) + 1))
-		}
-	} else {
-		imgui.BeginDisabled(total == 0 || app.stroke.active)
-		if imgui.Button("Record time-lapse...") do file_dialog(app, .Timelapse)
-		imgui.EndDisabled()
-		if imgui.IsItemHovered() {
-			imgui.SetTooltip("Choose a folder: the History is replayed from the start to where the\ntimeline stands, saving the viewport as numbered PNGs (frame_00000.png ...)\nwhich any video tool turns into a film.")
-		}
-		imgui.SameLine()
-		imgui.SetNextItemWidth(80)
-		imgui.SliderInt("Steps a frame", &lapse.steps, 1, 20)
-		imgui.SameLine()
-		imgui.SetNextItemWidth(80)
-		imgui.SliderFloat("Turn", &lapse.spin, 0, 10, "%.1f deg")
-		if imgui.IsItemHovered() do imgui.SetTooltip("Degrees the camera turns around the scene each frame: a turntable")
-	}
-}
-
-// The bar itself: a tick per step coloured by its kind, the done part lit, a marker at
-// the current position; click or drag to go there, hover for what a step was.
-@(private = "file")
-draw_timeline_bar :: proc(app: ^App) {
-	HEIGHT :: 30
-	tl := &app.timeline
-	done, total := len(app.history.done), history_total(app)
-	o := imgui.GetCursorScreenPos()
-	width := max(imgui.GetContentRegionAvail().x, 50)
-	size := imgui.Vec2{width, HEIGHT}
-	imgui.InvisibleButton("timeline", size)
-	list := imgui.GetWindowDrawList()
-	rgba :: proc(c: [4]f32) -> u32 {return imgui.ColorConvertFloat4ToU32(c)}
-	x_at :: proc(o: imgui.Vec2, width: f32, pos, total: int) -> f32 {
-		return o.x + width * f32(pos) / f32(max(total, 1))
-	}
-	mouse := imgui.GetIO().MousePos
-	under := clamp(int((mouse.x - o.x) / width * f32(max(total, 1)) + 0.5), 0, total)
-	if imgui.IsItemActive() && total > 0 && under != tl.target {
-		tl.target, tl.seeking, tl.playing = under, true, false
-	}
-
-	imgui.DrawList_AddRectFilled(list, o, o + size, rgba({0.1, 0.1, 0.12, 1}), 3)
-	imgui.DrawList_AddRectFilled(list, o, {x_at(o, width, done, total), o.y + size.y}, rgba({0.32, 0.3, 0.26, 1}), 3)
-	// A block per step, coloured by its kind and dimmed once undone; below about 3 px a
-	// step they would merge, so they become lines of their kind's colour instead.
-	gap := f32(1) if width / f32(max(total, 1)) >= 3 else 0
-	for i in 0 ..< total {
-		e := app.history.done[i] if i < done else app.history.undone[total - 1 - i]
-		col := KIND_COLORS[e.kind]
-		if i >= done do col.a = 0.3
-		x0, x1 := x_at(o, width, i, total) + gap, max(x_at(o, width, i + 1, total) - gap, x_at(o, width, i, total) + 1)
-		imgui.DrawList_AddRectFilled(list, {x0, o.y + 8}, {x1, o.y + size.y - 8}, rgba(col), 2 if gap > 0 else 0)
-	}
-	at := x_at(o, width, done, total)
-	marker := rgba({1, 1, 1, 1})
-	imgui.DrawList_AddLine(list, {at, o.y}, {at, o.y + size.y}, marker, 2)
-	imgui.DrawList_AddTriangleFilled(list, {at - 5, o.y}, {at + 5, o.y}, {at, o.y + 6}, marker)
-	if tl.seeking {
-		ghost := x_at(o, width, tl.target, total)
-		imgui.DrawList_AddLine(list, {ghost, o.y}, {ghost, o.y + size.y}, rgba({1, 1, 1, 0.4}), 1)
-	}
-	if imgui.IsItemHovered() && total > 0 {
-		step := clamp(int((mouse.x - o.x) / width * f32(total)), 0, total - 1)
-		e := app.history.done[step] if step < done else app.history.undone[total - 1 - step]
-		imgui.SetTooltip("%s", fmt.ctprintf("Step %d: %s, object %d, %s%s", step + 1, entry_label(e), e.id, ago_label(e.at), "" if step < done else " (undone)"))
-	}
-}
-
 @(private = "file", rodata)
 KIND_COLORS := [History_Kind][4]f32 {
 	.Stroke  = {0.95, 0.8, 0.45, 1},
@@ -354,4 +231,138 @@ ago_label :: proc(at: time.Tick) -> string {
 	case s < 3600: return fmt.tprintf("%.0f min ago", s / 60)
 	}
 	return fmt.tprintf("%.1f h ago", s / 3600)
+}
+
+// Starts moving the History toward `to` done steps, stopping playback.
+@(private = "file")
+timeline_seek_to :: proc(tl: ^Timeline, to: int) {
+	tl.target, tl.seeking, tl.playing = to, true, false
+}
+
+// The interface's History panel, over the dock while it is open: step through the
+// History, scrub it on the bar, play it back, and record it as a time-lapse.
+kit_history_panel :: proc(app: ^App) {
+	k := &app.kit
+	ctx := &k.ctx
+	t := ctx.theme
+	shown := ui.presence(ctx, ui.id_of(ctx, "history panel"), k.history, t.panel_time)
+	if shown <= 0 do return
+	tl := &app.timeline
+	lapse := &tl.lapse
+	done, total := len(app.history.done), history_total(app)
+	recording := lapse.state != .Off
+	can := !recording && !app.stroke.active
+	dock, _ := ui.prev_layout(ctx, "dock")
+	// Centred over the dock, as wide as fits between the inspector and the same margin on
+	// the other side, within its least and most.
+	side := t.edge + (KIT_INSPECTOR_W + 8 if k.inspector else 0)
+	width := clamp(ui.safe_area(ctx).w - 2 * side, KIT_HISTORY_MIN_W, KIT_HISTORY_W)
+	mark := ui.vertex_mark(ctx)
+	ui.begin_anchored(ctx, "history panel", .Center, .End, {0, t.edge + dock.y + 8}, {direction = .Column, gap = 4, padding = 10, width = width, radius = t.radius_large, background = .Panel, inert = !k.history})
+
+	ui.begin(ctx, "transport", {direction = .Row, center = true})
+	if ui.icon_button(ctx, "Back to the start", ui.ICON_SKIP_BACK, enabled = can) do timeline_seek_to(tl, 0)
+	if ui.icon_button(ctx, "Step back", ui.ICON_STEP_BACK, enabled = can && done > 0) do timeline_seek_to(tl, done - 1)
+	if ui.icon_button(ctx, "Pause" if tl.playing else "Play", ui.ICON_PAUSE if tl.playing else ui.ICON_PLAY, selected = tl.playing, enabled = can && total > 0) {
+		if tl.playing {
+			tl.playing = false
+		} else {
+			// From the end, playback starts over from the beginning.
+			if done >= total do timeline_seek_to(tl, 0)
+			tl.playing, tl.owed, tl.last = true, 0, time.tick_now()
+		}
+	}
+	if ui.icon_button(ctx, "Step forward", ui.ICON_STEP_FORWARD, enabled = can && done < total) do timeline_seek_to(tl, done + 1)
+	if ui.icon_button(ctx, "Forward to the newest step", ui.ICON_SKIP_FORWARD, enabled = can) do timeline_seek_to(tl, total)
+	ui.spacer(ctx, 10)
+	ui.label(ctx, fmt.tprintf("Step %d of %d", done, total), t.text_size, t.text, .Semibold)
+	ui.end(ctx)
+	if done > 0 {
+		e := app.history.done[done - 1]
+		ui.label(ctx, fmt.tprintf("Last: %s, %s", entry_label(e), ago_label(e.at)), t.small_size)
+	}
+
+	kit_timeline_bar(app, can)
+
+	// Two rows of controls, each fitting the narrowest panel: playback speed and the
+	// time-lapse's start or stop, then the time-lapse's steps and turn.
+	half := (width - 20 - 12) * 0.5
+	ui.begin(ctx, "history options", {direction = .Row, gap = 12, center = true})
+	ui.begin(ctx, "speed", {direction = .Column, width = half})
+	_ = ui.slider(ctx, "Steps a second", &tl.speed, 1, TIMELINE_SPEED_MAX, .Logarithmic, fmt.tprintf("%.0f", tl.speed), enabled = can)
+	ui.end(ctx)
+	if recording {
+		if ui.button(ctx, "Stop recording", .Solid, .Danger, width = half, glyph = ui.ICON_STOP) do timelapse_stop(app, "stopped")
+	} else {
+		if ui.button(ctx, "Record time-lapse...", .Flat, width = half, glyph = ui.ICON_FILM, enabled = total > 0 && !app.stroke.active) do file_dialog(app, .Timelapse)
+	}
+	ui.end(ctx)
+	if recording {
+		frames := lapse.end / int(max(lapse.steps, 1)) + 1
+		ui.label(ctx, "Rewinding..." if lapse.state == .Rewinding else fmt.tprintf("Frame %d of %d", lapse.frame, frames), t.small_size)
+	} else {
+		ui.begin(ctx, "lapse options", {direction = .Row, gap = 12})
+		ui.begin(ctx, "lapse steps", {direction = .Column, width = half})
+		steps := f32(lapse.steps)
+		if ui.slider(ctx, "Steps a frame", &steps, 1, 20, .Linear, fmt.tprintf("%d", lapse.steps)) do lapse.steps = i32(steps + 0.5)
+		ui.end(ctx)
+		ui.begin(ctx, "lapse turn", {direction = .Column, width = half})
+		_ = ui.slider(ctx, "Turn a frame", &lapse.spin, 0, 10, .Linear, fmt.tprintf("%.1f°", lapse.spin))
+		ui.end(ctx)
+		ui.end(ctx)
+	}
+	ui.paragraph(ctx, "Record time-lapse asks for a folder, replays the History from the start to where the bar stands, and saves the viewport each frame as numbered PNGs (frame_00000.png...) that any video tool turns into a film; Turn spins the camera a little each frame.", width - 20)
+	ui.end(ctx)
+	ui.transform_since(ctx, mark, shown, 1, {}, {0, (1 - shown) * 16})
+}
+
+// The History panel's width at most, which gives the bar room to tell steps apart, and
+// at least, which its rows of controls need.
+KIT_HISTORY_W :: 720
+KIT_HISTORY_MIN_W :: 440
+
+// The bar: a block per step coloured by its kind, the done part lit, a marker where the
+// History stands; press or drag to go there, and rest on it to see what a step was.
+@(private = "file")
+kit_timeline_bar :: proc(app: ^App, enabled: bool) {
+	ctx := &app.kit.ctx
+	t := ctx.theme
+	tl := &app.timeline
+	done, total := len(app.history.done), history_total(app)
+	a := ui.area(ctx, "timeline", {0, 36})
+	r := a.rect
+	x_at :: proc(r: ui.Rect, pos, total: int) -> f32 {
+		return r.x + r.w * f32(pos) / f32(max(total, 1))
+	}
+	if enabled && a.held && total > 0 {
+		// Where the History is heading: the target while seeking, else where it stands.
+		under := clamp(int((a.mouse.x - r.x) / r.w * f32(total) + 0.5), 0, total)
+		heading := tl.target if tl.seeking else done
+		if under != heading do timeline_seek_to(tl, under)
+	}
+	ui.fill_rect(ctx, r, t.radius_small, t.fill)
+	if done > 0 do ui.fill_rect(ctx, {r.x, r.y, x_at(r, done, total) - r.x, r.h}, t.radius_small, ui.color_fade(t.accent, 0.25))
+	// Below about 3 points a step the blocks would merge, so they become lines instead.
+	gap := f32(1) if r.w / f32(max(total, 1)) >= 3 else 0
+	for i in 0 ..< total {
+		e := app.history.done[i] if i < done else app.history.undone[total - 1 - i]
+		color := KIND_COLORS[e.kind]
+		if i >= done do color.a = 0.3
+		x0 := x_at(r, i, total) + gap
+		x1 := max(x_at(r, i + 1, total) - gap, x_at(r, i, total) + 1)
+		ui.fill_rect(ctx, {x0, r.y + 10, x1 - x0, r.h - 20}, 2 if gap > 0 else 0, overlay_color(color))
+	}
+	at := x_at(r, done, total)
+	ui.line(ctx, {at, r.y}, {at, r.y + r.h}, t.text, 2)
+	marker := [3][2]f32{{at - 5, r.y}, {at + 5, r.y}, {at, r.y + 6}}
+	ui.fill_convex(ctx, marker[:], t.text)
+	if tl.seeking {
+		ghost := x_at(r, tl.target, total)
+		ui.line(ctx, {ghost, r.y}, {ghost, r.y + r.h}, ui.color_fade(t.text, 0.4), 1)
+	}
+	if a.hovered && total > 0 {
+		step := clamp(int((a.mouse.x - r.x) / r.w * f32(total)), 0, total - 1)
+		e := app.history.done[step] if step < done else app.history.undone[total - 1 - step]
+		ui.tip(ctx, a.id, {a.mouse.x - 1, r.y, 2, r.h}, fmt.tprintf("Step %d: %s, object %d, %s%s", step + 1, entry_label(e), e.id, ago_label(e.at), "" if step < done else " (undone)"))
+	}
 }

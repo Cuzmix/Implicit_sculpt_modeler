@@ -35,7 +35,7 @@ re-check the stores' pages before a first submission, because they move every ye
 - Going to the background (SDL `EVENT_WILL_ENTER_BACKGROUND` / `DID_ENTER_BACKGROUND`) saves recoverable state and
   stops GPU submission; the OS may kill the app there without warning. Coming back restores the scene.
 - Apple 4.2 / 2.1: the build is complete, nothing says "coming soon", no placeholder screens, no debug panels
-  reachable by users (the ImGui Stats overlay is a developer flag only in store builds).
+  reachable by users (the Stats panel, F11 and Menu > Stats, is to be a developer flag only in store builds).
 
 ## Files, storage and data
 - No access outside the app's own folders except through the system file picker (Storage Access Framework on
@@ -73,7 +73,7 @@ re-check the stores' pages before a first submission, because they move every ye
 
 ## Licences
 - Every third-party piece we ship keeps its licence text and appears in an About > Licences screen: SDL3 (zlib),
-  Dear ImGui (MIT), Inter (OFL 1.1, its licence beside the font files), Lucide (ISC), stb (public domain or MIT),
+  Inter (OFL 1.1, its licence beside the font files), Lucide (ISC), stb (public domain or MIT),
   kb_text_shape and anything added later. A new dependency is added there in the same change.
 
 ## Before calling a change done

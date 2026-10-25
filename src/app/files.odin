@@ -41,15 +41,13 @@ File_Request :: struct {
 	path: string, // from runtime.heap_allocator(): a dialog's thread may make it
 }
 
-// What the menu bar shows of the last file action, and for how long: the log alone may
-// be in a console nobody watches.
+// The last file action's outcome, which the interface shows as a note: the log alone may
+// be in a console nobody watches. `at` tells a new note from the one already shown.
 File_Note :: struct {
 	text:    string, // owned
 	warning: bool,
 	at:      time.Tick,
 }
-
-FILE_NOTE_SHOWN :: 15 * time.Second
 
 // The native scene file starts with these bytes, then its version.
 SCENE_MAGIC :: "SCULPTSC"
@@ -232,7 +230,7 @@ file_apply :: proc(app: ^App, req: File_Request) -> bool {
 screenshot_save :: proc(app: ^App, path: string) -> bool {
 	start := time.tick_now()
 	w, h := int(app.target.width), int(app.target.height)
-	// What the viewport panel shows: the studio render's image while it is on.
+	// What the viewport shows: the studio render's image while it is on.
 	shown := render.studio_texture(&app.studio) if app.studio_on else nil
 	pixels := render.viewport_download(&app.renderer, &app.target, context.temp_allocator, shown)
 	if pixels == nil {

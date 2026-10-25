@@ -133,8 +133,8 @@ sculpt_frame :: proc(app: ^App, input: Viewport_Input) -> (res: Sculpt_Frame_Res
 		}
 		samples = samples[press:]
 	}
-	// The panel can report a release a frame late, so a release in the samples ends
-	// the stroke there.
+	// A release in the samples ends the stroke there, even where the button still reads
+	// as held: a replayed or synthetic frame need not agree with its samples.
 	rest := until_release(samples)
 	stroke_follow(app, input, rest, &res)
 	if len(rest) < len(samples) do stroke_finish(app)
@@ -532,7 +532,7 @@ bench_input :: proc(app: ^App, frame, total, samples_per_frame, loops: int, tilt
 	return input
 }
 
-// A left-button drag at `pos`, as the viewport panel would report it.
+// A left-button drag at `pos`, as the viewport would report it.
 bench_drag :: proc(size, pos: [2]f32) -> Viewport_Input {
 	return {size = size, mouse_pos = pos, hovered = true, dragging = true, primary = true}
 }

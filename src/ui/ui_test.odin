@@ -453,3 +453,134 @@ transforms_scale_about_their_origin_and_fade :: proc(t: ^testing.T) {
 	testing.expect_value(t, v.color.a, 100)
 	frame_end(&ctx)
 }
+
+// One frame with a 200 point column at the top left holding a drag value and a text
+// field, each a touch target tall. Returns whether each changed.
+@(private = "file")
+value_and_field :: proc(ctx: ^Context, input: Input, value: ^f32, buf: []u8, field := true) -> (dragged, typed: bool) {
+	frame_begin(ctx, input)
+	begin_anchored(ctx, "column", .Start, .Start, {0, 0}, {width = 200})
+	dragged = drag_value(ctx, "Scale", value, 0.5, 0, 100, "")
+	if field do typed = text_field(ctx, "Name", buf)
+	end(ctx)
+	frame_end(ctx)
+	return
+}
+
+@(test)
+a_drag_value_follows_the_pointer_from_where_it_was_pressed :: proc(t: ^testing.T) {
+	ctx: Context
+	init(&ctx)
+	defer destroy(&ctx)
+	value: f32 = 10
+	buf: [8]u8
+	value_and_field(&ctx, input_at({100, 24}), &value, buf[:])
+	// The press alone changes nothing; 20 points right adds 10, and past the top it holds.
+	dragged, _ := value_and_field(&ctx, input_at({100, 24}, down = {.Left}, pressed = {.Left}), &value, buf[:])
+	testing.expect(t, !dragged)
+	testing.expect_value(t, value, 10)
+	dragged, _ = value_and_field(&ctx, input_at({120, 24}, down = {.Left}), &value, buf[:])
+	testing.expect(t, dragged)
+	testing.expect_value(t, value, 20)
+	value_and_field(&ctx, input_at({500, 300}, down = {.Left}), &value, buf[:])
+	testing.expect_value(t, value, 100)
+	value_and_field(&ctx, input_at({500, 300}, released = {.Left}), &value, buf[:])
+}
+
+@(test)
+a_text_field_takes_typing_once_tapped :: proc(t: ^testing.T) {
+	ctx: Context
+	init(&ctx)
+	defer destroy(&ctx)
+	value: f32
+	buf: [6]u8
+	copy(buf[:], "ab")
+	over := [2]f32{100, 48 + 24}
+	typed_in :: proc(mouse: [2]f32, text: string, backspace := 0, end := false) -> Input {
+		input := input_at(mouse)
+		input.text, input.backspace, input.text_end = text, backspace, end
+		return input
+	}
+	// Typing before the tap goes nowhere.
+	_, typed := value_and_field(&ctx, typed_in(over, "x"), &value, buf[:])
+	testing.expect(t, !typed && !typing(&ctx))
+	value_and_field(&ctx, input_at(over, down = {.Left}, pressed = {.Left}), &value, buf[:])
+	value_and_field(&ctx, input_at(over, released = {.Left}), &value, buf[:])
+	testing.expect(t, typing(&ctx))
+	// Two bytes of é count as one letter; what does not fit (keeping the zero) is dropped.
+	_, typed = value_and_field(&ctx, typed_in(over, "cé"), &value, buf[:])
+	testing.expect(t, typed)
+	testing.expect_value(t, string(buf[:5]), "abcé")
+	value_and_field(&ctx, typed_in(over, "zz"), &value, buf[:])
+	testing.expect_value(t, string(buf[:5]), "abcé")
+	value_and_field(&ctx, typed_in(over, "", backspace = 2), &value, buf[:])
+	testing.expect_value(t, string(buf[:3]), "ab\x00")
+	value_and_field(&ctx, typed_in(over, "", end = true), &value, buf[:])
+	testing.expect(t, !typing(&ctx))
+	// A field that is no longer drawn lets the keys go.
+	value_and_field(&ctx, input_at(over, down = {.Left}, pressed = {.Left}), &value, buf[:])
+	value_and_field(&ctx, input_at(over, released = {.Left}), &value, buf[:])
+	testing.expect(t, typing(&ctx))
+	value_and_field(&ctx, input_at(over), &value, buf[:], field = false)
+	testing.expect(t, !typing(&ctx))
+}
+
+@(test)
+an_open_select_keeps_its_options_when_their_memory_is_reused :: proc(t: ^testing.T) {
+	ctx: Context
+	init(&ctx)
+	defer destroy(&ctx)
+	// The options live in memory the app frees before frame_end draws the list (temp
+	// memory, after a remesh's free_all); the list must not read it then.
+	backing := [8]u8{'S', 'm', 'a', 'l', 'l', 'B', 'i', 'g'}
+	options := [2]string{string(backing[:5]), string(backing[5:])}
+	frame := proc(ctx: ^Context, input: Input, options: []string) {
+		frame_begin(ctx, input)
+		begin_anchored(ctx, "column", .Start, .Start, {0, 0}, {width = 200})
+		_ = select(ctx, "size", options, 0)
+		end(ctx)
+	}
+	frame(&ctx, input_at({100, 24}), options[:])
+	frame_end(&ctx)
+	frame(&ctx, input_at({100, 24}, down = {.Left}, pressed = {.Left}), options[:])
+	frame_end(&ctx)
+	frame(&ctx, input_at({100, 24}, released = {.Left}), options[:])
+	backing = {}
+	frame_end(&ctx)
+	testing.expect_value(t, string(ctx.select_text[:]), "SmallBig")
+	testing.expect_value(t, len(ctx.select_ends), 2)
+}
+
+@(test)
+a_layer_draws_under_what_came_after_its_mark :: proc(t: ^testing.T) {
+	ctx: Context
+	init(&ctx)
+	defer destroy(&ctx)
+	frame_begin(&ctx, input_at({-1, -1}))
+	image(&ctx, {0, 0, 800, 600}, 1)
+	layer := layer_mark(&ctx)
+	begin_anchored(&ctx, "panel", .Start, .Start, {16, 16}, {padding = 8, width = 100, height = 100, radius = 12, background = .Panel})
+	end(&ctx)
+	panel := len(ctx.draw.indices) - layer.index
+	// The overlay comes after the panel, as the app's does once its tools have run.
+	overlay_vertex := u32(vertex_mark(&ctx))
+	from := layer_begin(&ctx)
+	fill_circle(&ctx, {50, 50}, 30, {255, 0, 0, 255})
+	stroke_circle(&ctx, {50, 50}, 40, {255, 255, 255, 255}, 1.5)
+	layer_end(&ctx, layer, from)
+	dl := frame_end(&ctx)
+	overlay := len(dl.indices) - layer.index - panel
+	testing.expect(t, panel > 0 && overlay > 0)
+	// Right after the image come the overlay's triangles, then the panel's.
+	under, over := true, true
+	for i in dl.indices[layer.index:][:overlay] do under &&= i >= overlay_vertex
+	for i in dl.indices[layer.index + overlay:] do over &&= i < overlay_vertex
+	testing.expect(t, under && over)
+	// The commands still cover every index once, in order.
+	next: u32
+	for c in dl.cmds {
+		testing.expect_value(t, c.first_index, next)
+		next += c.index_count
+	}
+	testing.expect_value(t, int(next), len(dl.indices))
+}
