@@ -82,7 +82,7 @@ sculptor_init_laid_out :: proc(s: ^Sculptor, mesh: ^geom.Mesh, pool: ^jobs.Pool,
 		shared := distinct_in_order(outside[:], l.heap)
 		owners := make([dynamic]u32, 0, 8, l.heap)
 		for v in shared {
-			owner := owner_of_vertex(s.nodes, v)
+			owner := owner_node(s.nodes, v)
 			if owner >= u32(id) {
 				sync.atomic_store(&l.bad, true)
 				break
@@ -142,20 +142,4 @@ sculptor_init_laid_out :: proc(s: ^Sculptor, mesh: ^geom.Mesh, pool: ^jobs.Pool,
 	})
 	sculptor_init_rest(s, allocator)
 	return true
-}
-
-// The node owning vertex v: the last whose range starts at or before v, since nodes
-// owning no vertices start where the next one does.
-@(private = "file")
-owner_of_vertex :: proc(nodes: []Node, v: u32) -> u32 {
-	lo, hi := 0, len(nodes)
-	for lo < hi {
-		mid := (lo + hi) / 2
-		if nodes[mid].vert_first <= v {
-			lo = mid + 1
-		} else {
-			hi = mid
-		}
-	}
-	return u32(lo - 1)
 }
