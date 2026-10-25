@@ -596,6 +596,9 @@ draw_scene_panel :: proc(app: ^App) {
 	if obj := selected_object(app); obj != nil {
 		imgui.SeparatorText(fmt.ctprintf("%s", object_label(obj)))
 		imgui.DragFloat3("Position", &obj.transform.position, 0.01, 0, 0, "%.3f")
+		if imgui.DragFloat3("Rotation (°)", &obj.transform.rotation, 0.5, 0, 0, "%.1f") {
+			for &a in obj.transform.rotation do a = math.mod(a + 540, 360) - 180
+		}
 		imgui.DragFloat("Scale", &obj.transform.scale, 0.005, 0.01, 100, "%.3f", {.Logarithmic})
 		obj.transform.scale = clamp(obj.transform.scale, 0.01, 100)
 		imgui.Text("%d vertices, %d triangles", i32(object_vertex_count(obj)), i32(object_triangle_count(obj)))

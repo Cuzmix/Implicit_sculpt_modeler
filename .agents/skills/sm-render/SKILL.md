@@ -20,8 +20,8 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
 - Uniforms: `Frame_Uniforms{view_proj, view, model}` (std140, column-major, `renderer.odin:108-113`) pushed per draw; `Material_Uniforms
   {base_color, params (ambient, specular strength, power)}` (`renderer.odin:154-158`). Shaders are `.spv` embedded with `#load`
   (`renderer.odin:160-163`), compiled from `src/render/shaders/*.vert|*.frag` only when `glslangValidator` is on PATH (sm-build).
-- `Draw_Item{mesh, model, color, live, chunks, damage, lod, hidden}` (`renderer.odin:115-137`): `model` is translation plus uniform
-  scale only, because culling takes the eye into mesh space with its inverse; `damage` is the mesh-space box of what
+- `Draw_Item{mesh, model, color, live, chunks, damage, lod, hidden}` (`renderer.odin:115-137`): `model` is a similarity (rotation, translation,
+  uniform scale) only, because culling takes the eye into mesh space with its inverse; `damage` is the mesh-space box of what
   changed, before and after; a version bump without a damage box forces a full redraw; `hidden` is per chunk then per group.
 - Pipelines: mesh culls `.BACK` with `.COUNTER_CLOCKWISE` front faces (`renderer.odin:284`), colour `R8G8B8A8_UNORM`, depth
   `D32_FLOAT` else `D24_UNORM` (`renderer.odin:178-181`); the clear pipeline draws a full-screen triangle at the far plane to clear a

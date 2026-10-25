@@ -12,27 +12,39 @@ import "../render"
 import "../sculpt"
 
 // Where an object sits in the world. Meshes stay in their own local space; the brush
-// works in local space too, so moving an object never touches its vertices.
-// Rotation is not supported yet: translation plus uniform scale keeps normals exact.
+// works in local space too, so moving or turning an object never touches its vertices.
+// Scale is uniform, so normals turn with the object and need no other correction.
 Transform :: struct {
 	position: Vec3,
 	scale:    f32,
+	rotation: Vec3, // degrees about x, then y, then z (the zero value is no turn)
 }
 
 Vec3 :: [3]f32
 
+// The turn of the transform as a matrix: about x first, then y, then z.
+transform_rotation :: proc(t: Transform) -> matrix[3, 3]f32 {
+	if t.rotation == {} do return 1
+	r := linalg.to_radians(t.rotation)
+	return linalg.matrix3_rotate_f32(r.z, {0, 0, 1}) * linalg.matrix3_rotate_f32(r.y, {0, 1, 0}) * linalg.matrix3_rotate_f32(r.x, {1, 0, 0})
+}
+
 transform_matrix :: proc(t: Transform) -> render.Mat4 {
-	s, p := t.scale, t.position
+	m, s, p := transform_rotation(t), t.scale, t.position
 	return render.Mat4{
-		s, 0, 0, p.x,
-		0, s, 0, p.y,
-		0, 0, s, p.z,
+		s * m[0, 0], s * m[0, 1], s * m[0, 2], p.x,
+		s * m[1, 0], s * m[1, 1], s * m[1, 2], p.y,
+		s * m[2, 0], s * m[2, 1], s * m[2, 2], p.z,
 		0, 0, 0, 1,
 	}
 }
 
-to_local :: #force_inline proc(t: Transform, p: Vec3) -> Vec3 {return (p - t.position) / t.scale}
-to_world :: #force_inline proc(t: Transform, p: Vec3) -> Vec3 {return p * t.scale + t.position}
+to_local :: proc(t: Transform, p: Vec3) -> Vec3 {return linalg.transpose(transform_rotation(t)) * (p - t.position) / t.scale}
+to_world :: proc(t: Transform, p: Vec3) -> Vec3 {return transform_rotation(t) * (p * t.scale) + t.position}
+// A direction (a ray's, an offset) from world space into the object's, and back. Only
+// the turn applies; the scale is left to the caller where lengths matter.
+to_local_dir :: proc(t: Transform, d: Vec3) -> Vec3 {return linalg.transpose(transform_rotation(t)) * d}
+to_world_dir :: proc(t: Transform, d: Vec3) -> Vec3 {return transform_rotation(t) * d}
 
 // One sculptable mesh in the scene, with its subdivision levels: only the current
 // level is shown and sculpted, or while sculpting HD, a window of the HD level over the
@@ -521,7 +533,7 @@ scene_raycast :: proc(app: ^App, origin, dir: Vec3) -> (index: int, hit: Vec3, o
 	best := max(f32)
 	for obj, i in app.scene.objects {
 		t := obj.transform
-		local_hit, local_ok := sculpt.sculptor_raycast(object_sculptor(obj), to_local(t, origin), dir)
+		local_hit, local_ok := sculpt.sculptor_raycast(object_sculptor(obj), to_local(t, origin), to_local_dir(t, dir))
 		if !local_ok do continue
 		world_hit := to_world(t, local_hit)
 		if d := linalg.length(world_hit - origin); d < best {

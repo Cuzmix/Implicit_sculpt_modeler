@@ -231,7 +231,7 @@ grab_follow :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, pos:
 	along := linalg.dot(dir, facing)
 	if abs(along) < 1e-6 do return
 	t := linalg.dot(st.anchor - origin, facing) / along
-	offset := (origin + dir * t - st.anchor) / obj.transform.scale
+	offset := to_local_dir(obj.transform, origin + dir * t - st.anchor) / obj.transform.scale
 	st.pos = pos
 	t1 := time.tick_now()
 	sculpt.sculptor_grab_move(object_sculptor(obj), offset)
@@ -278,7 +278,7 @@ stroke_dab :: proc(app: ^App, obj: ^Object, input: Viewport_Input, inv: matrix[4
 	origin, dir := ray_through(inv, pos, input.size)
 	t := obj.transform
 	t0 := time.tick_now()
-	hit, ok := sculpt.sculptor_raycast(object_sculptor(obj), to_local(t, origin), dir)
+	hit, ok := sculpt.sculptor_raycast(object_sculptor(obj), to_local(t, origin), to_local_dir(t, dir))
 	res.raycast_ms += time.duration_milliseconds(time.tick_since(t0))
 	if !ok do return
 	t1 := time.tick_now()
@@ -289,8 +289,8 @@ stroke_dab :: proc(app: ^App, obj: ^Object, input: Viewport_Input, inv: matrix[4
 
 // The brush for a dab at `hit` (in the object's local space): the radius in pixels,
 // scaled by pen pressure if set, becomes world units at the hit's distance, and a
-// leaning pen turns it as far as the tilt strength says. Transforms have no rotation,
-// so the turn in world space is the turn in the object's.
+// leaning pen turns it as far as the tilt strength says. The pen's turn and the alpha's
+// up are worked out in world space and turned into the object's.
 @(private = "file")
 brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pressure: f32, tilt: [2]f32) -> sculpt.Brush {
 	dist := linalg.length(to_world(t, hit) - camera.orbit_eye(app.camera))
@@ -300,10 +300,13 @@ brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pres
 	strength := app.brush.strengths[kind]
 	if app.brush.pressure_strength do strength *= pressure_curved(app, pressure)
 	turn: matrix[3, 3]f32
-	if app.brush.tilt_strength > 0 && tilt != {} do turn = camera.orbit_tilt(app.camera, tilt, app.brush.tilt_strength)
+	if app.brush.tilt_strength > 0 && tilt != {} {
+		r := transform_rotation(t)
+		turn = linalg.transpose(r) * camera.orbit_tilt(app.camera, tilt, app.brush.tilt_strength) * r
+	}
 	alpha := brush_alpha(app) if !input.smooth else nil
 	up: Vec3
-	if alpha != nil do up = alpha_world_up(app)
+	if alpha != nil do up = to_local_dir(t, alpha_world_up(app))
 	return sculpt.Brush {
 		kind     = kind,
 		radius   = brush_radius_px(app, pressure) * world_per_px / t.scale,

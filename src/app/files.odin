@@ -47,7 +47,7 @@ FILE_NOTE_SHOWN :: 15 * time.Second
 
 // The native scene file starts with these bytes, then its version.
 SCENE_MAGIC :: "SCULPTSC"
-SCENE_VERSION :: u32(1)
+SCENE_VERSION :: u32(2) // 2: each object's rotation
 
 // The request waiting for the next frame, and whether a dialog is showing. Kept here
 // rather than in App because SDL may call a dialog back on another thread, even after
@@ -355,7 +355,7 @@ scene_open :: proc(app: ^App, path: string) -> (opened, ok: bool) {
 	magic: [len(SCENE_MAGIC)]u8
 	geom.byte_get_slice(&r, magic[:])
 	version := geom.byte_get(&r, u32)
-	if !r.ok || string(magic[:]) != SCENE_MAGIC || version != SCENE_VERSION {
+	if !r.ok || string(magic[:]) != SCENE_MAGIC || version < 1 || version > SCENE_VERSION {
 		file_note(app, true, "Cannot open %s: it is not a scene this version of the app reads", name)
 		return false, true
 	}
@@ -378,7 +378,7 @@ scene_open :: proc(app: ^App, path: string) -> (opened, ok: bool) {
 	defer delete(objects)
 	_ = sdl.WaitForGPUIdle(app.renderer.device)
 	for i in 0 ..< count {
-		obj, read, made := object_get(app, &r)
+		obj, read, made := object_get(app, &r, version)
 		if !read {
 			file_note(app, true, "Cannot open %s: object %d of %d is damaged", name, i + 1, count)
 			for other in objects do object_discard(app, other)
@@ -421,19 +421,25 @@ object_put :: proc(app: ^App, out: ^[dynamic]u8, obj: ^Object) {
 	geom.byte_put_string(out, obj.name)
 	put_transform(out, obj.transform)
 	put_transform(out, obj.file)
+	geom.byte_put(out, obj.transform.rotation) // version 2
 	sculpt.levels_write(&obj.levels, out)
 	free_all(context.temp_allocator)
 }
 
-// Reads one object written by object_put and uploads its shown level. `read` is false
+// Reads one object written by object_put (by a scene file of `version`) and uploads
+// its shown level. `read` is false
 // when the bytes are damaged (no object is made); `made` is false on a GPU failure,
 // with the object returned for the caller to discard.
-object_get :: proc(app: ^App, r: ^geom.Byte_Reader) -> (obj: ^Object, read, made: bool) {
+object_get :: proc(app: ^App, r: ^geom.Byte_Reader, version := SCENE_VERSION) -> (obj: ^Object, read, made: bool) {
 	obj = new(Object)
 	obj.id = int(geom.byte_get(r, i32))
 	obj.name = geom.byte_get_string(r)
 	obj.transform = get_transform(r)
 	obj.file = get_transform(r)
+	if version >= 2 {
+		obj.transform.rotation = geom.byte_get(r, Vec3)
+		if !finite(obj.transform.rotation) do r.ok = false
+	}
 	if !r.ok || obj.transform.scale <= 0 || obj.file.scale <= 0 || !sculpt.levels_read(&obj.levels, r, &app.pool) {
 		delete(obj.name)
 		free(obj)

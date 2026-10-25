@@ -9,6 +9,7 @@ import "core:math/linalg"
 @(require) import "core:mem" // only used when ODIN_DEBUG
 import "core:os"
 import "core:slice"
+import "core:strconv"
 import "core:strings"
 import "core:time"
 import sdl "vendor:sdl3"
@@ -50,6 +51,7 @@ Options :: struct {
 	brush:     string `usage:"Start with this brush: draw, smooth, clay, flatten, inflate, pinch, crease, grab or mask (also what --bench-stroke uses)."`,
 	symmetry:  string `usage:"Start with brush symmetry across these axes, e.g. x or xz."`,
 	falloff:   string `usage:"Start every brush with this falloff: smooth (the default), linear, sharp, firm or flat, as the Tools panel's Falloff presets set."`,
+	rotate:    string `usage:"Turn the first object this many degrees about x, y and z before starting, e.g. 0,45,0 (as the Scene panel's Rotation does)."`,
 	mirror:    string `usage:"Mirror and weld the first object before starting, as the Scene panel does: x, y or z keeps that axis's + side, -x, -y or -z the - side (after --remesh)."`,
 	remesh:    int `usage:"Voxel remesh the first sphere to about this many vertices before starting, as Remesh selected does (after --subdivide and --level)."`,
 	dyntopo:   bool `usage:"Turn dynamic topology on for the first sphere before starting (after --remesh), as Ctrl+T does."`,
@@ -217,6 +219,21 @@ run :: proc(opts: Options) -> bool {
 	if opts.remesh > 0 {
 		if _, ok := object_remesh(&app, app.scene.objects[0], opts.remesh); !ok do return false
 	}
+	if opts.rotate != "" {
+		parts := strings.split(opts.rotate, ",", context.temp_allocator)
+		if len(parts) != 3 {
+			log.errorf("--rotate wants three angles, like 0,45,0")
+			return false
+		}
+		for part, i in parts {
+			a, ok := strconv.parse_f32(strings.trim_space(part))
+			if !ok {
+				log.errorf("--rotate: %q is not an angle", part)
+				return false
+			}
+			app.scene.objects[0].transform.rotation[i] = a
+		}
+	}
 	if opts.mirror != "" {
 		axes := [?]string{"x", "y", "z"}
 		name := strings.trim_prefix(opts.mirror, "-")
@@ -238,7 +255,7 @@ run :: proc(opts: Options) -> bool {
 	if opts.hd_open {
 		obj := app.scene.objects[0]
 		toward := camera.orbit_eye(app.camera) - obj.transform.position
-		if !object_hd_enter(&app, obj, linalg.normalize(toward)) do return false
+		if !object_hd_enter(&app, obj, linalg.normalize(to_local_dir(obj.transform, toward))) do return false
 	}
 
 	// Dear ImGui. Its context and backends are torn down before the renderer (defers run LIFO).
