@@ -95,7 +95,19 @@ levels_set_current :: proc(l: ^Levels, index: int) {
 	if target == l.current do return
 	levels_sync(l)
 	levels_carry_mask(l, l.current, target)
+	levels_carry_paint(l, target)
 	l.current = target
+}
+
+// Carries the colours and groups of the current level to level `to` when they changed
+// since it became current; otherwise every level keeps its own, so a look at a coarser
+// level and back loses nothing.
+@(private)
+levels_carry_paint :: proc(l: ^Levels, to: int) {
+	s := &l.levels[l.current].sculptor
+	if s.color_edited do levels_carry_color(l, l.current, to)
+	if s.groups.edited do levels_carry_groups(l, l.current, to)
+	s.color_edited, s.groups.edited = false, false
 }
 
 // Adds a level above the top one and makes it current. Returns false, changing
@@ -108,6 +120,12 @@ levels_subdivide :: proc(l: ^Levels) -> bool {
 	if !ok do return false
 	append(&l.levels, lv)
 	levels_carry_mask(l, l.current, len(l.levels) - 1)
+	// The new level takes its colours and groups from the one below, once that has the
+	// current level's.
+	top := len(l.levels) - 2
+	levels_carry_paint(l, top)
+	levels_carry_color(l, top, top + 1)
+	levels_carry_groups(l, top, top + 1)
 	l.current = len(l.levels) - 1
 	return true
 }

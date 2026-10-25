@@ -114,6 +114,28 @@ sculptor_mask_command :: proc(s: ^Sculptor, command: Mask_Command, steps := 1) -
 	return mask_commit(&job)
 }
 
+// Masks every corner of the shown triangles of group `group` fully, as a ZBrush mask by
+// polygroup does, leaving the rest of the mask as it is. One undo step; returns true when
+// it changed the mask. Nothing without groups.
+sculptor_mask_group :: proc(s: ^Sculptor, group: u16) -> bool {
+	_ = sculptor_stroke_end(s)
+	g := s.groups.tris
+	if g == nil do return false
+	mask_ensure(s)
+	job := Mask_Job{s = s, after = slice.clone(s.mask, context.temp_allocator), changes = make([]bool, len(s.nodes), context.temp_allocator)}
+	hidden := sculptor_hidden_tris(s)
+	for x, t in g {
+		if x != group || (hidden != nil && hidden[t]) do continue
+		for k in 0 ..< 3 {
+			v := s.mesh.indices[3 * t + k]
+			if job.after[v] == 255 do continue
+			job.after[v] = 255
+			job.changes[owner_node(s.nodes, v)] = true
+		}
+	}
+	return mask_commit(&job)
+}
+
 // Which vertices a mask shape may reach: with `on`, only those whose normal faces the
 // viewer, at `eye` in the mesh's space, or along `toward` (toward the viewer) when the
 // projection is `parallel`.

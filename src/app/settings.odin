@@ -75,6 +75,10 @@ settings_load :: proc(app: ^App, path: string) {
 		case "alpha_mode":
 			for mode in Alpha_Mode do if strings.equal_fold(f[1], fmt.tprint(mode)) do b.alpha_mode = mode
 		case "alpha_angle": b.alpha_angle = number(f[1], b.alpha_angle)
+		case "paint_color":
+			if len(f) >= 4 do for k in 0 ..< 3 do b.color[k] = clamp(number(f[1 + k], b.color[k]), 0, 1)
+		case "show_groups": app.show_groups = f[1] == "1"
+		case "crease_degrees": app.ui.crease_degrees = clamp(number(f[1], app.ui.crease_degrees), 1, 90)
 		case "material":
 			if i, ok := material_by_name(strings.join(f[1:], " ", context.temp_allocator)); ok do app.material = i
 		case "custom_material":
@@ -142,6 +146,9 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 	fmt.sbprintfln(&out, "collapse %d", bit(b.collapse))
 	fmt.sbprintfln(&out, "alpha_mode %v", b.alpha_mode)
 	fmt.sbprintfln(&out, "alpha_angle %g", b.alpha_angle)
+	fmt.sbprintfln(&out, "paint_color %g %g %g", b.color.r, b.color.g, b.color.b)
+	fmt.sbprintfln(&out, "show_groups %d", bit(app.show_groups))
+	fmt.sbprintfln(&out, "crease_degrees %g", app.ui.crease_degrees)
 	fmt.sbprintfln(&out, "material %s", current_material(app).label)
 	m := app.custom
 	fmt.sbprintfln(&out, "custom_material %g %g %g %g %g", m.selected.r, m.selected.g, m.selected.b, m.metallic, m.roughness)

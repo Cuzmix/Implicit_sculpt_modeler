@@ -50,7 +50,7 @@ FILE_NOTE_SHOWN :: 15 * time.Second
 
 // The native scene file starts with these bytes, then its version.
 SCENE_MAGIC :: "SCULPTSC"
-SCENE_VERSION :: u32(2) // 2: each object's rotation
+SCENE_VERSION :: u32(3) // 2: each object's rotation; 3: the current level's polypaint and polygroups (sculpt.levels_write)
 
 // The request waiting for the next frame, and whether a dialog is showing. Kept here
 // rather than in App because SDL may call a dialog back on another thread, even after
@@ -320,6 +320,14 @@ object_export :: proc(app: ^App, obj: ^Object, path: string) -> bool {
 	}
 	lv := sculpt.levels_current(&obj.levels)
 	positions, indices := lv.mesh.positions[:], lv.mesh.indices[:]
+	// Polypaint as plain vertex colours: the paint over white as far as it covers.
+	colors: [][3]u8
+	if c := lv.sculptor.color; c != nil && !object_dynamic(obj) {
+		colors = make([][3]u8, len(c), context.temp_allocator)
+		for x, v in c {
+			for k in 0 ..< 3 do colors[v][k] = u8((u32(x[k]) * u32(x.a) + 255 * (255 - u32(x.a)) + 127) / 255)
+		}
+	}
 	packed: geom.Mesh
 	defer geom.mesh_destroy(&packed)
 	if object_dynamic(obj) {
@@ -331,9 +339,9 @@ object_export :: proc(app: ^App, obj: ^Object, path: string) -> bool {
 	out := make([dynamic]u8)
 	defer delete(out)
 	if ext == ".obj" {
-		geom.mesh_write_obj(&out, positions, indices, obj.file.scale, obj.file.position, &app.pool)
+		geom.mesh_write_obj(&out, positions, indices, obj.file.scale, obj.file.position, &app.pool, colors)
 	} else {
-		geom.mesh_write_ply(&out, positions, indices, obj.file.scale, obj.file.position, &app.pool)
+		geom.mesh_write_ply(&out, positions, indices, obj.file.scale, obj.file.position, &app.pool, colors)
 	}
 	free_all(context.temp_allocator)
 	if !write_file_safely(app, path, out[:], "export") do return false

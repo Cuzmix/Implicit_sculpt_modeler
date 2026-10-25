@@ -47,6 +47,7 @@ Ui_State :: struct {
 	smooth_strength:    f32, // how far each step moves a vertex toward its neighbours' average, 0 to 1
 	smooth_on_gpu:      bool, // run Smooth all as a compute shader (the GPU compute trial); off by default
 	smooth_last:        Smooth_Done,
+	crease_degrees:     f32, // Polygroups' Creases: how sharp a crease starts a new group
 }
 
 // The last Smooth all, for the Deformation section to report.
@@ -137,6 +138,7 @@ BRUSH_NAMES := [sculpt.Brush_Kind]string {
 	.Layer   = "Layer",
 	.Snake_Hook = "Snake hook",
 	.Morph   = "Morph",
+	.Paint   = "Paint",
 	.Cloth   = "Cloth",
 }
 
@@ -153,6 +155,7 @@ BRUSH_HELP := [sculpt.Brush_Kind]cstring {
 	.Layer   = "Raises a flat layer of one height per stroke; going\nover it again adds nothing (Ctrl: lowers).",
 	.Snake_Hook = "Pulls the surface out after the pointer, for horns,\ntentacles and fingers. Best with dynamic topology.",
 	.Morph   = "Brings the surface back to the stored morph target\n(Tools > Morph target), painting later work away.",
+	.Paint   = "Polypaint: colours the surface with the colour below,\nmoving nothing (Ctrl: takes the paint off).",
 	.Cloth   = "The surface around the brush acts as cloth while you\nhold: drag it into folds, let it sag, or bunch it up.",
 }
 
@@ -181,7 +184,7 @@ brush_by_name :: proc(name: string) -> (sculpt.Brush_Kind, bool) {
 }
 
 ui_state_default :: proc() -> Ui_State {
-	return {viewport_request = {1280, 720}, sphere_vertices = 500_000, mask_steps = 3, smooth_steps = 5, smooth_strength = 0.5}
+	return {viewport_request = {1280, 720}, sphere_vertices = 500_000, mask_steps = 3, smooth_steps = 5, smooth_strength = 0.5, crease_degrees = sculpt.CREASE_GROUP_DEGREES}
 }
 
 ui_draw :: proc(app: ^App) -> Viewport_Input {
@@ -268,6 +271,7 @@ draw_menu_bar :: proc(app: ^App) {
 		imgui.Separator()
 		if imgui.MenuItem("Wireframe", "Shift+F", app.wireframe) do app.wireframe = !app.wireframe
 		if imgui.MenuItem("Flat shading", "Shift+G", app.flat) do app.flat = !app.flat
+		if imgui.MenuItem("Polygroups", "Shift+W", app.show_groups) do app.show_groups = !app.show_groups
 		if imgui.BeginMenu("Material") {
 			material_menu(app)
 			imgui.EndMenu()
@@ -508,6 +512,7 @@ draw_tools_panel :: proc(app: ^App) {
 	draw_alpha_section(app)
 	draw_dyntopo_section(app)
 	draw_morph_section(app)
+	draw_paint_section(app)
 
 	imgui.SeparatorText("Mask")
 	imgui.BeginDisabled(selected_object(app) == nil)
@@ -736,7 +741,36 @@ FALLOFF_PRESETS := [?]struct {
 	{"Flat", true, {{0, 1}, {0.02, 1}}}, // full strength to the rim, a hard edge
 }
 
-// Dynamic topology for the selected object, and the detail its brushes add.
+// Polypaint's colour and commands, and Polygroups'.
+@(private = "file")
+draw_paint_section :: proc(app: ^App) {
+	imgui.SeparatorText("Polypaint")
+	imgui.ColorEdit3("Colour", &app.brush.color)
+	obj := selected_object(app)
+	imgui.BeginDisabled(obj == nil)
+	if imgui.Button("Fill with colour") do paint_command(app, .Fill)
+	imgui.SameLine()
+	if imgui.Button("Clear paint") do paint_command(app, .Clear)
+	imgui.EndDisabled()
+	imgui.TextDisabled("The Paint brush paints the colour over the clay at\nevery vertex, Ctrl takes it off. Fill and Clear\nskip what is masked or hidden. Each level keeps its\nown paint; changing level carries what you painted.")
+
+	imgui.SeparatorText("Polygroups")
+	imgui.BeginDisabled(obj == nil)
+	if imgui.Button("Group visible") do group_command(app, .Visible)
+	imgui.SameLine()
+	if imgui.Button("Group masked") do group_command(app, .Masked)
+	imgui.SameLine()
+	if imgui.Button("Clear groups") do group_command(app, .Clear)
+	if imgui.Button("Groups by creases") do group_command(app, .Creases)
+	imgui.SameLine()
+	imgui.SetNextItemWidth(120)
+	imgui.SliderFloat("Angle", &app.ui.crease_degrees, 1, 90, "%.0f deg")
+	imgui.EndDisabled()
+	imgui.Checkbox("Show polygroups (Shift+W)", &app.show_groups)
+	imgui.TextDisabled("Ctrl+W groups the masked part (clearing the mask),\nor with nothing masked, what is shown. Ctrl + Shift\nclick a group to show only it (again: everything\nbut it); with Alt, to mask it. Not in HD or with\ndynamic topology.")
+}
+
+// The selected object's morph target: storing and deleting it.
 @(private = "file")
 draw_morph_section :: proc(app: ^App) {
 	imgui.SeparatorText("Morph target")
@@ -761,6 +795,7 @@ draw_morph_section :: proc(app: ^App) {
 	imgui.TextDisabled("Store keeps the surface as it is now; the Morph brush\nthen brings any part back to it. One per level, not\nsaved with the scene; not with dynamic topology.")
 }
 
+// Dynamic topology for the selected object, and the detail its brushes add.
 @(private = "file")
 draw_dyntopo_section :: proc(app: ^App) {
 	imgui.SeparatorText("Dynamic topology")
@@ -973,7 +1008,16 @@ handle_shortcuts :: proc(app: ^App) {
 	}
 	if io.KeyCtrl && imgui.IsKeyPressed(.O, false) do file_dialog(app, .Open)
 	if imgui.IsKeyPressed(.F12, false) do file_dialog(app, .Screenshot)
-	if imgui.IsKeyPressed(.W, false) do app.tool = .Move
+	if imgui.IsKeyPressed(.W, false) {
+		switch {
+		case io.KeyCtrl:
+			group_shortcut(app)
+		case io.KeyShift:
+			app.show_groups = !app.show_groups
+		case !io.KeyAlt:
+			app.tool = .Move
+		}
+	}
 	if imgui.IsKeyPressed(.B, false) do app.tool = .Brush
 	if !io.KeyCtrl && !io.KeyAlt {
 		// 1 to 9 and 0 pick the brushes in the order the Tools panel lists them.

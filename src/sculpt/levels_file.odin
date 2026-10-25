@@ -2,6 +2,7 @@ package sculpt
 
 import "base:intrinsics"
 import "base:runtime"
+import "core:slice"
 
 import "../geom"
 import "../jobs"
@@ -22,6 +23,10 @@ LEVELS_TAG :: u32(0x5645_4c53) // "SLEV" in the file
 
 @(private = "file")
 LEVELS_DYNAMIC :: u32(1)
+// The current level's colours and groups follow its mask (files from before polypaint
+// have neither).
+@(private = "file")
+LEVELS_PAINT :: u32(2)
 
 // Appends the levels to `out`: every level in sync with the current one, its mask, and
 // whether dynamic topology is on (a dynamic mesh is stored packed). Leave any HD window
@@ -31,7 +36,7 @@ levels_write :: proc(l: ^Levels, out: ^[dynamic]u8) {
 	levels_sync(l)
 	paged := levels_dynamic(l)
 	geom.byte_put(out, LEVELS_TAG)
-	geom.byte_put(out, LEVELS_DYNAMIC if paged else 0)
+	geom.byte_put(out, LEVELS_DYNAMIC if paged else LEVELS_PAINT)
 	geom.byte_put(out, u32(len(l.levels)))
 	geom.byte_put(out, u32(l.current))
 	geom.byte_put(out, u32(l.hd.steps))
@@ -62,7 +67,19 @@ levels_write :: proc(l: ^Levels, out: ^[dynamic]u8) {
 			for u in lo ..< hi do intrinsics.unaligned_store(cast(^Vec3)&sc.to[size_of(Vec3) * int(sc.canon[u])], sc.from[u])
 		}, geom.RANGE_GRAIN)
 	}
-	write_mask(out, levels_current(l).sculptor.mask, canon[l.current])
+	s := &levels_current(l).sculptor
+	write_mask(out, s.mask, canon[l.current])
+	geom.byte_put(out, u8(s.color != nil))
+	if s.color != nil {
+		saved := slice.reinterpret([]Color, geom.byte_put_bytes(out, len(s.color) * size_of(Color)))
+		for c, u in s.color do saved[place(canon[l.current], u32(u))] = c
+	}
+	geom.byte_put(out, u8(s.groups.tris != nil))
+	if s.groups.tris != nil {
+		order := tri_canon(s, canon[l.current])
+		saved := slice.reinterpret([]u16, geom.byte_put_bytes(out, len(s.groups.tris) * size_of(u16)))
+		for g, t in s.groups.tris do saved[order[t]] = g
+	}
 }
 
 // Reads levels written by levels_write into `l`, which must be empty: the base level,
@@ -142,6 +159,31 @@ levels_read :: proc(l: ^Levels, r: ^geom.Byte_Reader, pool: ^jobs.Pool, node_tri
 		mask_ensure(s)
 		for u in 0 ..< n do s.mask[u] = saved[canon[current][u]]
 	}
+	if flags & LEVELS_PAINT != 0 {
+		s := &levels_current(l).sculptor
+		has_color := geom.byte_get(r, u8)
+		if !r.ok || has_color > 1 do return false
+		if has_color == 1 {
+			n := len(s.mesh.positions)
+			saved := geom.byte_get_bytes(r, n * size_of(Color))
+			if !r.ok do return false
+			color_ensure(s)
+			for u in 0 ..< n do s.color[u] = intrinsics.unaligned_load(cast(^Color)&saved[size_of(Color) * int(canon[current][u])])
+		}
+		has_groups := geom.byte_get(r, u8)
+		if !r.ok || has_groups > 1 do return false
+		if has_groups == 1 {
+			tcount := len(s.mesh.indices) / 3
+			saved := geom.byte_get_bytes(r, tcount * size_of(u16))
+			if !r.ok do return false
+			order := tri_canon(s, canon[current])
+			s.groups.tris = make([]u16, tcount, s.history.allocator)
+			for t in 0 ..< tcount do s.groups.tris[t] = intrinsics.unaligned_load(cast(^u16)&saved[size_of(u16) * int(order[t])])
+			groups_refresh(s)
+		}
+		// The other levels take them at the first level change.
+		s.color_edited, s.groups.edited = s.color != nil, s.groups.tris != nil
+	}
 	if hd_steps > 0 && !levels_hd_set_steps(l, hd_steps) do return false
 	if paged && !levels_dyn_enable(l) do return false
 	ok = r.ok
@@ -205,6 +247,48 @@ level_canon :: proc(l: ^Levels, j: int, below: []u32, allocator := context.alloc
 		}
 	}, geom.RANGE_GRAIN)
 	return k.canon
+}
+
+// Per triangle, its place in the file: triangles in order of their corner placed first
+// (`canon` gives places, or the vertices' own numbers when nil), and of those sharing
+// it, of the corner after it. On a mesh whose edges each have one triangle running
+// them either way, no two triangles share both, so only the topology decides this.
+// Temporary.
+@(private = "file")
+tri_canon :: proc(s: ^Sculptor, canon: []u32) -> []u32 {
+	indices := s.mesh.indices[:]
+	tcount, vcount := len(indices) / 3, len(s.mesh.positions)
+	Key :: struct {
+		first, next: u32,
+	}
+	key := make([]Key, tcount, context.temp_allocator)
+	start := make([]u32, vcount + 1, context.temp_allocator)
+	for t in 0 ..< tcount {
+		c := [3]u32{place(canon, indices[3 * t]), place(canon, indices[3 * t + 1]), place(canon, indices[3 * t + 2])}
+		k := 0
+		if c[1] < c[k] do k = 1
+		if c[2] < c[k] do k = 2
+		key[t] = {c[k], c[(k + 1) % 3]}
+		start[c[k] + 1] += 1
+	}
+	for v in 0 ..< vcount do start[v + 1] += start[v]
+	// A counting sort by the first corner, then the few triangles of each first corner by
+	// the next.
+	sorted := make([]u32, tcount, context.temp_allocator)
+	fill := slice.clone(start, context.temp_allocator)
+	for k, t in key {
+		sorted[fill[k.first]] = u32(t)
+		fill[k.first] += 1
+	}
+	for v in 0 ..< vcount {
+		run := sorted[start[v]:start[v + 1]]
+		for i in 1 ..< len(run) {
+			for j := i; j > 0 && key[run[j]].next < key[run[j - 1]].next; j -= 1 do run[j], run[j - 1] = run[j - 1], run[j]
+		}
+	}
+	order := make([]u32, tcount, context.temp_allocator)
+	for t, i in sorted do order[t] = u32(i)
+	return order
 }
 
 // A vertex's place in the file: `below` gives it, or the vertex's own number when nil.

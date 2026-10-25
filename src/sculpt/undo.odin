@@ -26,6 +26,7 @@ Undo_History :: struct {
 	changed:   []u32,
 	mask_saved:   []u32, // the same for masks
 	mask_changed: []u32,
+	color_saved:  []u32, // ...and for colours, which list their nodes in mask_changed too
 	stamp:     u32,
 }
 
@@ -34,6 +35,7 @@ Undo_Step :: struct {
 	nodes:  [dynamic]u32, // nodes whose triangles moved: bounds to refit, normals to update
 	painted: [dynamic]u32, // nodes whose mask changed: GPU data to update
 	shown:  [dynamic]u32, // nodes whose triangles were hidden or shown (hide.odin)
+	grouped: [dynamic]u32, // nodes whose triangles changed group (groups.odin)
 }
 
 // A node's owned positions, or its owned vertices' masks, from before the stroke
@@ -49,6 +51,8 @@ Saved_Node :: struct {
 	borrowed:   bool,
 	masks:      []u8,
 	hidden:     []bool, // the node's triangles' hidden flags, for a hiding step
+	colors:     []Color, // the node's owned vertices' colours, for a painting step
+	groups:     []u16,   // the node's triangles' groups, for a grouping step
 	full:       bool,
 	indices:    []u32,
 	vert_count: u32,
@@ -66,6 +70,7 @@ history_init :: proc(h: ^Undo_History, nodes: int, allocator := context.allocato
 	h.changed = make([]u32, nodes, allocator)
 	h.mask_saved = make([]u32, nodes, allocator)
 	h.mask_changed = make([]u32, nodes, allocator)
+	h.color_saved = make([]u32, nodes, allocator)
 }
 
 @(private)
@@ -79,6 +84,7 @@ history_destroy :: proc(h: ^Undo_History) {
 	delete(h.changed)
 	delete(h.mask_saved)
 	delete(h.mask_changed)
+	delete(h.color_saved)
 	h^ = {}
 }
 
@@ -99,6 +105,7 @@ sculptor_stroke_begin :: proc(s: ^Sculptor) {
 		slice.zero(h.changed)
 		slice.zero(h.mask_saved)
 		slice.zero(h.mask_changed)
+		slice.zero(h.color_saved)
 		h.stamp = 1
 	}
 }
@@ -109,7 +116,7 @@ sculptor_stroke_end :: proc(s: ^Sculptor) -> bool {
 	h := &s.history
 	if !h.recording do return false
 	h.recording = false
-	if len(h.current.nodes) == 0 && len(h.current.painted) == 0 && len(h.current.shown) == 0 {
+	if len(h.current.nodes) == 0 && len(h.current.painted) == 0 && len(h.current.shown) == 0 && len(h.current.grouped) == 0 {
 		step_reset(h, &h.current)
 		return false
 	}
@@ -140,6 +147,8 @@ sculptor_stroke_restore :: proc(s: ^Sculptor) -> bool {
 		n := s.nodes[sv.node]
 		if sv.masks != nil {
 			copy(s.mask[n.vert_first:][:n.vert_count], sv.masks)
+		} else if sv.colors != nil {
+			copy(s.color[n.vert_first:][:n.vert_count], sv.colors)
 		} else {
 			copy(m.positions[n.vert_first:][:n.vert_count], sv.positions)
 		}
@@ -198,11 +207,26 @@ step_move :: proc(s: ^Sculptor, from, to: ^[dynamic]Undo_Step) -> bool {
 			for &k, i in live do k, sv.masks[i] = sv.masks[i], k
 			continue
 		}
+		if sv.colors != nil {
+			live := s.color[n.vert_first:][:n.vert_count]
+			for &c, i in live do c, sv.colors[i] = sv.colors[i], c
+			s.color_edited = true
+			continue
+		}
+		if sv.groups != nil {
+			live := s.groups.tris[n.tri_first:][:n.tri_count]
+			for &g, i in live do g, sv.groups[i] = sv.groups[i], g
+			continue
+		}
 		live := m.positions[n.vert_first:][:n.vert_count]
 		for &p, i in live do p, sv.positions[i] = sv.positions[i], p
 	}
 	for id in step.painted do mark_stale(s, id, .Paint)
 	if len(step.shown) > 0 do hide_refresh(s, step.shown[:])
+	if len(step.grouped) > 0 {
+		groups_refresh(s)
+		s.groups.edited = true
+	}
 	if s.dyn == nil {
 		d := Dab{s = s}
 		clear(&s.changed)
@@ -314,8 +338,11 @@ record_changed_node :: proc(s: ^Sculptor, id: u32) {
 
 @(private)
 step_bytes :: proc(step: Undo_Step) -> int {
-	bytes := len(step.saved) * size_of(Saved_Node) + (len(step.nodes) + len(step.painted) + len(step.shown)) * size_of(u32)
-	for sv in step.saved do bytes += len(sv.positions) * size_of(Vec3) + len(sv.masks) + len(sv.hidden) + len(sv.indices) * size_of(u32)
+	bytes := len(step.saved) * size_of(Saved_Node) + (len(step.nodes) + len(step.painted) + len(step.shown) + len(step.grouped)) * size_of(u32)
+	for sv in step.saved {
+		bytes += len(sv.positions) * size_of(Vec3) + len(sv.masks) + len(sv.hidden) + len(sv.indices) * size_of(u32)
+		bytes += len(sv.colors) * size_of(Color) + len(sv.groups) * size_of(u16)
+	}
 	return bytes
 }
 
@@ -329,12 +356,15 @@ step_reset :: proc(h: ^Undo_History, step: ^Undo_Step) {
 		}
 		delete(sv.masks, h.allocator)
 		delete(sv.hidden, h.allocator)
+		delete(sv.colors, h.allocator)
+		delete(sv.groups, h.allocator)
 		delete(sv.indices, h.allocator)
 	}
 	clear(&step.saved)
 	clear(&step.nodes)
 	clear(&step.painted)
 	clear(&step.shown)
+	clear(&step.grouped)
 }
 
 @(private)
@@ -347,12 +377,15 @@ step_destroy :: proc(h: ^Undo_History, step: ^Undo_Step) {
 		}
 		delete(sv.masks, h.allocator)
 		delete(sv.hidden, h.allocator)
+		delete(sv.colors, h.allocator)
+		delete(sv.groups, h.allocator)
 		delete(sv.indices, h.allocator)
 	}
 	delete(step.saved)
 	delete(step.nodes)
 	delete(step.painted)
 	delete(step.shown)
+	delete(step.grouped)
 	step^ = {}
 }
 

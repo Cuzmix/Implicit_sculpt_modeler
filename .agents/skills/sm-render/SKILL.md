@@ -17,7 +17,12 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   `mesh_buffers_upload_ranges(…, ranges, mask)` take the sculptor's `mask` (nil = unmasked). `mesh.vert` rebuilds both
   (`raw & ~15` is the normal; the nibbles give `out_mask` at location 2) and `mesh.frag` darkens masked clay
   (`albedo · (1 − 0.7 · mask)`, highlights `· (1 − 0.5 · mask)`).
-- Uniforms: `Frame_Uniforms{view_proj, view, model}` (std140, column-major, `renderer.odin:108-113`) pushed per draw; `Material_Uniforms
+- Paint (`Mesh_Buffers.paint`, nil until an object has polypaint or polygroups): a `GRAPHICS_STORAGE_READ` buffer of
+  `Paint_Packed` (`[2]u32`: RGBA8 colour, group) per vertex that `mesh.vert` reads by `gl_VertexIndex` (set 0 binding 0) when
+  `Frame_Uniforms.options` asks; `Renderer.no_paint` is bound otherwise. `mesh_buffers_upload_paint` (ranges or all; the app
+  uploads all when `paint_stamp` differs). The group colour is a `flat` output, taken from the triangle's first index, which
+  the sculptor's packed indices make a corner carrying the triangle's group. `Draw_Item.paint`/`groups` are in both keys.
+- Uniforms: `Frame_Uniforms{view_proj, view, model, options}` (std140, column-major, `renderer.odin:108-113`) pushed per draw; `Material_Uniforms
   {base_color, params (ambient, specular strength, power, wrap), surface (metallic, roughness, flat)}`; `params.y < 0` makes `mesh.frag` write the flat colour (the wireframe); `surface.y > 0` takes the physically based path (GGX key and fill lights, a procedural studio blurred by roughness, Karis's environment BRDF fit, ACES curve), 0 the classic Blinn-Phong one, which stays pixel-identical; `surface.z` shades with the face normal from `dFdx`/`dFdy` of the view position (no vertex data) (`renderer.odin:154-158`). Shaders are `.spv` embedded with `#load`
   (`renderer.odin:160-163`), compiled from `src/render/shaders/*.vert|*.frag` only when `glslangValidator` is on PATH (sm-build).
 - `Draw_Item{mesh, model, color, material, surface, flat, wireframe, live, chunks, damage, lod, hidden}` (`renderer.odin:115-137`): `surface` is metallic and roughness (roughness 0 = classic), `flat` faceted shading; both are in the frame and cache keys; `material` is

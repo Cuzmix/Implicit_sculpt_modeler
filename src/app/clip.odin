@@ -57,7 +57,8 @@ clip_frame :: proc(app: ^App, input: Viewport_Input) -> bool {
 	}
 	g.active = false
 	if linalg.length(g.b - g.a) < CLIP_MIN_PX {
-		hide_command(app, .Show_All)
+		// A click on a polygroup isolates it (with Alt: masks it), as in ZBrush.
+		if !group_click(app, g.a, input.size, g.flip) do hide_command(app, .Show_All)
 		return true
 	}
 	switch app.gesture {

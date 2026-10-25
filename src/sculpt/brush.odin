@@ -45,6 +45,7 @@ Brush_Kind :: enum {
 	Layer,   // raise a flat-topped layer of one height per stroke, however often it passes (inverted: lower)
 	Snake_Hook, // pull the surface out after the pointer: each dab drags it by Brush.drag
 	Morph,   // bring the surface back toward the stored morph target (morph.odin)
+	Paint,   // polypaint: colour the surface with Brush.color (paint.odin; inverted takes the paint off)
 	Cloth,   // the surface around the brush behaves as cloth for the stroke: sculptor_cloth_begin and _step (cloth.odin)
 }
 
@@ -87,6 +88,8 @@ Brush :: struct {
 	// short fade across the edge-on ones), so a stroke on a thin part leaves its far
 	// side be. Zero works on every vertex. Grab ignores it.
 	facing:   Vec3,
+	// Paint: the colour it paints, sRGB.
+	color:    [3]u8,
 }
 
 // A vertex's Layer height, and the stroke it belongs to (0: none).
@@ -199,6 +202,12 @@ Sculptor :: struct {
 	morph:        []Vec3,
 	// The hidden triangles (hide.odin).
 	hide:        Hide,
+	// Per vertex: its polypaint (paint.odin); nil until something is first painted.
+	color:        []Color,
+	color_edited: bool, // painted since the level became current, so a level change carries the colours
+	paint_stamp:  u32,  // see sculptor_paint_stamp
+	// The polygroups per triangle, and what drawing them needs (groups.odin).
+	groups:       Groups,
 	// Set while dynamic topology is on (dyntopo.odin): the mesh is laid out in pages,
 	// `faces` and the shared lists above are replaced, and there are no LOD copies.
 	dyn:         ^Dyn,
@@ -237,6 +246,8 @@ sculptor_init :: proc(s: ^Sculptor, mesh: ^geom.Mesh, pool: ^jobs.Pool, node_tri
 sculptor_destroy :: proc(s: ^Sculptor) {
 	dyn_destroy(s)
 	hide_destroy(s)
+	groups_destroy(s)
+	delete(s.color, s.history.allocator)
 	delete(s.mask, s.history.allocator)
 	delete(s.layer, s.history.allocator)
 	delete(s.morph, s.history.allocator)
@@ -703,7 +714,7 @@ dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
 	candidates: u32
 	for leaf in s.hit do candidates += s.nodes[s.node_of[leaf]].vert_count
 	pool := s.pool if candidates >= PARALLEL_MIN_VERTS else nil
-	if s.dyn != nil && brush.kind != .Mask && brush.detail > 0 {
+	if s.dyn != nil && brush.kind != .Mask && brush.kind != .Paint && brush.detail > 0 {
 		if s.history.recording do record_hit(s, masks = false)
 		if dyn_dab_topology(s, &d, pool) {
 			clear(&s.hit)
@@ -715,7 +726,7 @@ dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
 	slice.zero(s.partials[:])
 	// The area under the brush: what most kinds work along, and the plane an alpha
 	// lies on.
-	if (brush.kind != .Smooth && brush.kind != .Mask && brush.kind != .Snake_Hook && brush.kind != .Morph) || brush.alpha != nil {
+	if (brush.kind != .Smooth && brush.kind != .Mask && brush.kind != .Paint && brush.kind != .Snake_Hook && brush.kind != .Morph) || brush.alpha != nil {
 		jobs.parallel_for(pool, len(s.hit), &d, job_area)
 		weight: f32
 		for p in s.partials {
@@ -729,6 +740,7 @@ dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
 		if brush.alpha != nil do alpha_frame(&d)
 	}
 	if brush.kind == .Mask do return mask_dab(s, &d, pool)
+	if brush.kind == .Paint do return paint_dab(s, &d, pool)
 	if s.history.recording do record_hit(s, masks = false)
 
 	sign: f32 = -1 if brush.invert else 1
@@ -769,7 +781,7 @@ dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
 	case .Morph:
 		if len(s.morph) != len(s.mesh.positions) do return 0
 		jobs.parallel_for(pool, len(s.hit), &d, job_morph)
-	case .Grab, .Mask, .Cloth:
+	case .Grab, .Mask, .Paint, .Cloth:
 		unreachable()
 	case .Smooth:
 		// Jacobi step: every target is computed from unmoved positions first.
