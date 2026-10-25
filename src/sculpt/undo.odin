@@ -36,6 +36,8 @@ Undo_Step :: struct {
 	painted: [dynamic]u32, // nodes whose mask changed: GPU data to update
 	shown:  [dynamic]u32, // nodes whose triangles were hidden or shown (hide.odin)
 	grouped: [dynamic]u32, // nodes whose triangles changed group (groups.odin)
+	layer_op:  Layer_Op,  // a sculpt layer added or removed (sculpt_layers.odin)
+	layer_set: Layer_Set, // a sculpt layer's strength or visibility changed
 }
 
 // A node's owned positions, or its owned vertices' masks, from before the stroke
@@ -53,6 +55,11 @@ Saved_Node :: struct {
 	hidden:     []bool, // the node's triangles' hidden flags, for a hiding step
 	colors:     []Color, // the node's owned vertices' colours, for a painting step
 	groups:     []u16,   // the node's triangles' groups, for a grouping step
+	// With `is_delta`: the node's displacement in layer `delta_layer` before a recording
+	// stroke added to it (nil when it had none).
+	delta:       []Vec3,
+	delta_layer: i32,
+	is_delta:    bool,
 	full:       bool,
 	indices:    []u32,
 	vert_count: u32,
@@ -116,10 +123,11 @@ sculptor_stroke_end :: proc(s: ^Sculptor) -> bool {
 	h := &s.history
 	if !h.recording do return false
 	h.recording = false
-	if len(h.current.nodes) == 0 && len(h.current.painted) == 0 && len(h.current.shown) == 0 && len(h.current.grouped) == 0 {
+	if len(h.current.nodes) == 0 && len(h.current.painted) == 0 && len(h.current.shown) == 0 && len(h.current.grouped) == 0 && !h.current.layer_op.active && !h.current.layer_set.active {
 		step_reset(h, &h.current)
 		return false
 	}
+	layer_take_stroke(s)
 	clear_steps(h, &h.undone)
 	append(&h.done, h.current)
 	h.current = {}
@@ -193,10 +201,20 @@ step_move :: proc(s: ^Sculptor, from, to: ^[dynamic]Undo_Step) -> bool {
 	if len(from) == 0 do return false
 	step := pop(from)
 	m := s.mesh
+	// Layer displacement and removed layers trade places with the live ones, which
+	// changes what the step holds.
+	held := step_bytes(step)
+	defer s.history.bytes += step_bytes(step) - held
 	if s.dyn != nil do dyn_step_swap(s, &step)
-	for sv in step.saved {
+	layer_step_swap(s, &step)
+	for &sv in step.saved {
 		n := s.nodes[sv.node]
 		if sv.full do continue
+		if sv.is_delta {
+			live := &s.layers.list[sv.delta_layer].delta[sv.node]
+			live^, sv.delta = sv.delta, live^
+			continue
+		}
 		if sv.hidden != nil {
 			live := s.hide.tris[n.tri_first:][:n.tri_count]
 			for &x, i in live do x, sv.hidden[i] = sv.hidden[i], x
@@ -341,8 +359,9 @@ step_bytes :: proc(step: Undo_Step) -> int {
 	bytes := len(step.saved) * size_of(Saved_Node) + (len(step.nodes) + len(step.painted) + len(step.shown) + len(step.grouped)) * size_of(u32)
 	for sv in step.saved {
 		bytes += len(sv.positions) * size_of(Vec3) + len(sv.masks) + len(sv.hidden) + len(sv.indices) * size_of(u32)
-		bytes += len(sv.colors) * size_of(Color) + len(sv.groups) * size_of(u16)
+		bytes += len(sv.colors) * size_of(Color) + len(sv.groups) * size_of(u16) + len(sv.delta) * size_of(Vec3)
 	}
+	if step.layer_op.held do bytes += layer_bytes(step.layer_op.layer)
 	return bytes
 }
 
@@ -359,12 +378,15 @@ step_reset :: proc(h: ^Undo_History, step: ^Undo_Step) {
 		delete(sv.colors, h.allocator)
 		delete(sv.groups, h.allocator)
 		delete(sv.indices, h.allocator)
+		delete(sv.delta, h.allocator)
 	}
+	if step.layer_op.held do layer_destroy(&step.layer_op.layer, h.allocator)
 	clear(&step.saved)
 	clear(&step.nodes)
 	clear(&step.painted)
 	clear(&step.shown)
 	clear(&step.grouped)
+	step.layer_op, step.layer_set = {}, {}
 }
 
 @(private)
@@ -380,7 +402,9 @@ step_destroy :: proc(h: ^Undo_History, step: ^Undo_Step) {
 		delete(sv.colors, h.allocator)
 		delete(sv.groups, h.allocator)
 		delete(sv.indices, h.allocator)
+		delete(sv.delta, h.allocator)
 	}
+	if step.layer_op.held do layer_destroy(&step.layer_op.layer, h.allocator)
 	delete(step.saved)
 	delete(step.nodes)
 	delete(step.painted)
