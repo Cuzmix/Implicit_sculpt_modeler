@@ -173,7 +173,7 @@ popover_begin :: proc(ctx: ^Context, name: string, open: ^bool, anchor: Rect, si
 	popup, shown_before := Rect{}, false
 	for p in ctx.placed_prev {
 		if p.id == id {
-			popup, shown_before = p.rect, true
+			popup, shown_before = p.hit, true
 		}
 	}
 	if open^ && shown_before && ctx.input.pressed != {} && ctx.input.mouse_valid {

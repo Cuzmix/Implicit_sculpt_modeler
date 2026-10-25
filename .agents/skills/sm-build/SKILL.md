@@ -14,6 +14,7 @@ description: Build, run, test and verify the sculpt modeler through build.bat (W
 | `build.bat test` | `odin test` on geom, camera, sculpt, jobs, gizmo, png_write and ui in that order, stopping at the first failing package; render and app have no tests; the runner tracks memory, so a leak fails a test |
 | `build.bat run -- <args>` | debug build, then run. **build.bat forwards at most five arguments** (`%2 %3 %4 %5 %6`); for more, run `build\sculpt.exe` yourself after `build.bat` |
 | `build.bat smoke` | debug build, then `SDL_ASSERT=abort build\sculpt.exe --frames=300 --gpu-debug`: validation on, an SDL assert aborts, a leak exits 1. Needs a display |
+| `python scripts\touch_check.py [names] [--list] [--screens]` | after `build.bat`: drives the debug app with scripted fingers, pen and mouse (`--ui-events`) through the touch, camera and Settings scenarios and checks the exit stats; `--screens` writes `build\touch\<name>.png`. A desktop simulation, not a tablet (sm-touch-testing). Needs a display |
 | `build.bat bench [sizes] [--threads=N] [--lod\|--levels\|--hd] [--meshes=N] [--node=N] [--prefault=MB]` | release headless CPU benchmark printing markdown tables (sm-perf) |
 | `build.bat gpubench [--vertices=N] [--gpubench-frames=N]` | release app timing the GPU and CPU per case; writes `build\gpubench.md` (sm-perf) |
 | `./build.sh wincheck` | Linux only: compiles app and bench for `windows_amd64` to objects, catching Windows-only errors without a Windows SDK |
@@ -41,7 +42,10 @@ description: Build, run, test and verify the sculpt modeler through build.bat (W
   last_frame_partial= last_frame_redrawn_px= viewport_px=`; `simplify= last_frame_lod_px= last_frame_simplified=
   lod_pending=`; then `<name>_p50= <name>_p99=` for `lod_build_ms`, `frame_ms`, `cpu_ms`, `wait_ms`, `gpu_ms` (with
   `--time-gpu`), and after dabs `raycast_ms`, `brush_ms`, `normals_ms`, `upload_kb`, `latency_ms`; with `--bench-stroke`
-  `undo_mb= undo_ms= redo_ms=` and `level_changes_ms=`. These are the numbers to quote; `--frames=N` ends a run by itself.
+  `undo_mb= undo_ms= redo_ms=` and `level_changes_ms=`; always `camera_yaw= camera_pitch= camera_roll= camera_distance=
+  camera_target=x,y,z`, `undo_steps= redo_steps= brush_radius_px= brush_strength= selected=` and `inspector_scroll=
+  settings_scroll= settings_open=` (what scripted input did). These are the numbers to quote; `--frames=N` ends a run
+  by itself.
 
 ## Seeing the viewport
     build\sculpt.exe --vertices=500000 --frames=60 --dump-viewport=build\view.ppm
@@ -62,7 +66,8 @@ under `SDL_ASSERT=abort` an assert kills the process · compile errors print bef
 0. `build.bat check` (always). 1. Build the touched target: debug, and release too when speed is claimed. 2. Run it.
 Anything visual: `--dump-viewport`, PNG, open it and describe it (black, uniform or unchanged = not done). Anything
 behavioural: the exit stats or the `--check-mesh` lines. 3. `build.bat test`, with a new test in the package's
-`*_test.odin`. 4. `build.bat smoke` for render, app or sculpt changes. 5. sm-perf numbers for anything about speed.
+`*_test.odin`. 4. `build.bat smoke` for render, app or sculpt changes; `python scripts\touch_check.py` for anything about input, the
+camera, gestures or panels that scroll. 5. sm-perf numbers for anything about speed.
 6. Report what you verified and what you did not.
 
 ## Anti-patterns

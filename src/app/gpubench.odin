@@ -107,7 +107,7 @@ gpubench_input :: proc(app: ^App, b: ^Gpubench, size: [2]f32) -> Viewport_Input 
 		y := 0.3 * radius * math.sin(math.PI * along / width)
 		return bench_drag(size, center + {x - width / 2, y})
 	}
-	app.camera.yaw += 2 * math.PI * f32(b.frame) / f32(GPUBENCH_WARMUP + b.frames)
+	camera.orbit_spin(&app.camera, 2 * math.PI * f32(b.frame) / f32(GPUBENCH_WARMUP + b.frames))
 	return {size = size}
 }
 

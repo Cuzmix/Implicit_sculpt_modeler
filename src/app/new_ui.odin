@@ -39,6 +39,12 @@ Kit_State :: struct {
 	view_menu:  bool,
 	browser:    bool, // every brush, in a popover over the dock
 	stats:      bool, // the Stats panel (F11)
+	stats_advanced: bool, // ...showing every measurement by its exact name, not the simple view
+	settings:   bool, // the Settings panel (Menu > Settings)
+	settings_tab: Settings_Tab,
+	settings_scroll: f32,
+	settings_wipe: f64, // when Reset everything was first tapped: a second tap soon after resets
+	ui_scale:   f32, // the interface's size, times what the display asks for (Settings > Interface)
 	history:    bool, // the History panel, over the dock
 	text_input: bool, // SDL's text input is on, for the text field that has the keys
 	// Where the viewport's overlay goes in the draw order: over the viewport image and
@@ -51,8 +57,6 @@ Kit_State :: struct {
 	// Which inspector sections are open.
 	open:       [Kit_Section]bool,
 	scroll:     f32, // the inspector's scroll, where it is heading
-	scroll_drag: bool, // a drag on the inspector is scrolling it...
-	scroll_from: f32, // ...which puts the scroll at this less the pointer's height
 	add_shape:  geom.Primitive,
 	add_size:   int, // into SPHERE_PRESETS
 	note_at:    time.Tick, // the file note last shown as a toast
@@ -96,20 +100,38 @@ Kit_Section :: enum u8 {
 	Frame,
 	Drawing,
 	Sculpting,
+	Stats_Help,
 }
 
-// One scripted pointer event (--ui-events), applied at the start of its frame.
+// One scripted input event (--ui-events), pushed into SDL's queue at the start of its
+// frame so it takes the path a real one takes: through the Device, the fingers and the
+// pen samples alike.
 Kit_Event :: struct {
-	frame: int,
-	kind:  enum u8 {
-		Move,
-		Down,
-		Up,
-		Right,
-		Wheel,
-	},
-	at:    [2]f32,
-	wheel: f32,
+	frame:  int,
+	kind:   Kit_Event_Kind,
+	at:     [2]f32, // window points
+	wheel:  f32,
+	finger: u64,
+	key:    string, // a key's name, as SDL names keys
+}
+
+Kit_Event_Kind :: enum u8 {
+	Move,
+	Down,
+	Up,
+	Right,
+	Wheel,
+	Key,
+	Key_Up,
+	Finger_Down,
+	Finger_Move,
+	Finger_Up,
+	Finger_Cancel,
+	Pen_Down,
+	Pen_Move,
+	Pen_Up,
+	Pen_Near,
+	Pen_Far,
 }
 
 // Reads --ui-events. Returns false, after saying why, when the list is malformed.
@@ -122,23 +144,47 @@ kit_events_parse :: proc(app: ^App, spec: string) -> bool {
 		frame: int
 		if ok do frame, ok = strconv.parse_int(parts[0])
 		ev.frame = frame
+		// FRAME:kind, then the kind's own fields: a finger's id, then X,Y.
+		point :: proc(s: string) -> (at: [2]f32, ok: bool) {
+			xy := strings.split(s, ",", context.temp_allocator)
+			if len(xy) != 2 do return
+			x, okx := strconv.parse_f32(xy[0])
+			y, oky := strconv.parse_f32(xy[1])
+			return {x, y}, okx && oky
+		}
+		finger :: proc(s: string) -> (id: u64, ok: bool) {
+			n, okn := strconv.parse_u64(s)
+			return n + 1, okn // 0 is no finger
+		}
 		if ok {
 			switch parts[1] {
-			case "move":
-				xy := strings.split(parts[2], ",", context.temp_allocator) if len(parts) == 3 else nil
-				ok = len(xy) == 2
-				if ok {
-					x, okx := strconv.parse_f32(xy[0])
-					y, oky := strconv.parse_f32(xy[1])
-					ev.kind, ev.at, ok = .Move, {x, y}, okx && oky
-				}
-			case "down":  ev.kind = .Down
-			case "up":    ev.kind = .Up
-			case "right": ev.kind = .Right
+			case "move", "pdown", "pmove":
+				ok = len(parts) == 3
+				if ok do ev.at, ok = point(parts[2])
+				ev.kind = .Move if parts[1] == "move" else (.Pen_Down if parts[1] == "pdown" else .Pen_Move)
+			case "down":   ev.kind = .Down
+			case "up":     ev.kind = .Up
+			case "right":  ev.kind = .Right
+			case "pup":    ev.kind = .Pen_Up
+			case "pnear":  ev.kind = .Pen_Near
+			case "pfar":   ev.kind = .Pen_Far
 			case "wheel":
 				ok = len(parts) == 3
 				if ok do ev.wheel, ok = strconv.parse_f32(parts[2])
 				ev.kind = .Wheel
+			case "key", "keyup":
+				ok = len(parts) == 3 && parts[2] != ""
+				if ok do ev.key = strings.clone(parts[2])
+				ev.kind = .Key if parts[1] == "key" else .Key_Up
+			case "fdown", "fmove":
+				ok = len(parts) == 4
+				if ok do ev.finger, ok = finger(parts[2])
+				if ok do ev.at, ok = point(parts[3])
+				ev.kind = .Finger_Down if parts[1] == "fdown" else .Finger_Move
+			case "fup", "fcancel":
+				ok = len(parts) == 3
+				if ok do ev.finger, ok = finger(parts[2])
+				ev.kind = .Finger_Up if parts[1] == "fup" else .Finger_Cancel
 			case:
 				ok = false
 			}
@@ -153,28 +199,91 @@ kit_events_parse :: proc(app: ^App, spec: string) -> bool {
 	return true
 }
 
-// Applies this frame's scripted events as SDL's would arrive, so the panels and the
-// viewport both see them. `scale` turns their window points into window coordinates.
-@(private = "file")
-kit_events_apply :: proc(app: ^App, scale: f32) {
+// Pushes the scripted events of the frame about to start into SDL's queue, as SDL's own
+// would arrive: the mouse as the mouse, fingers from a touch screen (TOUCH_SCRIPTED) and
+// the pen as its proximity and contact events and its mouse events. Call it before the
+// frame's events are read. The modifiers a script holds (key:shift) stay held until it
+// lets them go.
+kit_events_push :: proc(app: ^App, window: ^sdl.Window) {
 	k := &app.kit
 	d := &app.device
+	scale := kit_content_scale(window) * k.ui_scale
+	w, h: i32
+	_ = sdl.GetWindowSize(window, &w, &h)
+	win := sdl.GetWindowID(window)
 	now := sdl.GetTicksNS()
+	push :: proc(e: sdl.Event) {
+		e := e
+		_ = sdl.PushEvent(&e)
+	}
+	SCRIPTED_MOUSE :: sdl.MouseID(1)
 	for ev in k.events {
 		if ev.frame != k.frame do continue
-		d.input_at = now
+		at := ev.at * scale
+		e: sdl.Event
 		switch ev.kind {
 		case .Move:
-			device_move(d, ev.at * scale)
-		case .Down:
-			device_button(d, .Left, true, now)
-		case .Up:
-			device_button(d, .Left, false, now)
+			e.motion = {type = .MOUSE_MOTION, timestamp = now, windowID = win, which = SCRIPTED_MOUSE, x = at.x, y = at.y}
+			push(e)
+		case .Down, .Up:
+			e.button = {type = .MOUSE_BUTTON_DOWN if ev.kind == .Down else .MOUSE_BUTTON_UP, timestamp = now, windowID = win, which = SCRIPTED_MOUSE, button = u8(sdl.BUTTON_LEFT), down = ev.kind == .Down, clicks = 1, x = d.mouse.x, y = d.mouse.y}
+			push(e)
 		case .Right:
-			device_button(d, .Right, true, now)
-			device_button(d, .Right, false, now)
+			for down in ([2]bool{true, false}) {
+				e.button = {type = .MOUSE_BUTTON_DOWN if down else .MOUSE_BUTTON_UP, timestamp = now, windowID = win, which = SCRIPTED_MOUSE, button = u8(sdl.BUTTON_RIGHT), down = down, clicks = 1, x = d.mouse.x, y = d.mouse.y}
+				push(e)
+			}
 		case .Wheel:
-			d.wheel += ev.wheel
+			e.wheel = {type = .MOUSE_WHEEL, timestamp = now, windowID = win, which = SCRIPTED_MOUSE, y = ev.wheel, mouse_x = d.mouse.x, mouse_y = d.mouse.y}
+			push(e)
+		case .Key, .Key_Up:
+			mod: sdl.Keymod
+			switch ev.key {
+			case "shift": mod = sdl.KMOD_LSHIFT
+			case "ctrl":  mod = sdl.KMOD_LCTRL
+			case "alt":   mod = sdl.KMOD_LALT
+			}
+			if mod != {} {
+				if ev.kind == .Key do d.script_mods += mod
+				else do d.script_mods -= mod
+				continue
+			}
+			key := sdl.GetKeyFromName(strings.clone_to_cstring(ev.key, context.temp_allocator))
+			code := sdl.GetScancodeFromKey(key, nil)
+			e.key = {type = .KEY_DOWN if ev.kind == .Key else .KEY_UP, timestamp = now, windowID = win, scancode = code, key = key, mod = d.script_mods, down = ev.kind == .Key}
+			push(e)
+		case .Finger_Down, .Finger_Move, .Finger_Up, .Finger_Cancel:
+			kinds := [4]sdl.EventType{.FINGER_DOWN, .FINGER_MOTION, .FINGER_UP, .FINGER_CANCELED}
+			kind := kinds[int(ev.kind) - int(Kit_Event_Kind.Finger_Down)]
+			// A lifted finger lifts where it last was.
+			pos := at
+			if kind == .FINGER_UP || kind == .FINGER_CANCELED {
+				pos = {}
+				for f in app.touch.fingers.down[:app.touch.fingers.count] do if f.id == ev.finger do pos = f.at
+			}
+			e.tfinger = {type = kind, timestamp = now, touchID = TOUCH_SCRIPTED, fingerID = sdl.FingerID(ev.finger), x = pos.x / f32(max(w, 1)), y = pos.y / f32(max(h, 1)), pressure = 1, windowID = win}
+			push(e)
+		case .Pen_Near, .Pen_Far:
+			e.pproximity = {type = .PEN_PROXIMITY_IN if ev.kind == .Pen_Near else .PEN_PROXIMITY_OUT, timestamp = now, windowID = win, which = 1}
+			push(e)
+		case .Pen_Down, .Pen_Move, .Pen_Up:
+			if ev.kind != .Pen_Up {
+				e.motion = {type = .MOUSE_MOTION, timestamp = now, windowID = win, which = sdl.PEN_MOUSEID, x = at.x, y = at.y}
+				push(e)
+			}
+			if ev.kind == .Pen_Move do continue
+			down := ev.kind == .Pen_Down
+			e = {}
+			e.ptouch = {type = .PEN_DOWN if down else .PEN_UP, timestamp = now, windowID = win, which = 1, x = at.x if down else d.mouse.x, y = at.y if down else d.mouse.y, down = down}
+			push(e)
+			e = {}
+			e.button = {type = .MOUSE_BUTTON_DOWN if down else .MOUSE_BUTTON_UP, timestamp = now, windowID = win, which = sdl.PEN_MOUSEID, button = u8(sdl.BUTTON_LEFT), down = down, clicks = 1, x = at.x if down else d.mouse.x, y = at.y if down else d.mouse.y}
+			push(e)
+			// And the stand-in finger SDL sends for a pen by default, which must change nothing.
+			e = {}
+			p := at if down else d.mouse
+			e.tfinger = {type = .FINGER_DOWN if down else .FINGER_UP, timestamp = now, touchID = sdl.PEN_TOUCHID, fingerID = 1, x = p.x / f32(max(w, 1)), y = p.y / f32(max(h, 1)), pressure = 1, windowID = win}
+			push(e)
 		}
 	}
 }
@@ -216,10 +325,12 @@ kit_init :: proc(app: ^App) {
 	// The sections most reached for start open; the rest fold until asked for.
 	for s in ([?]Kit_Section{.Stroke, .Paint_Color, .Falloff, .Transform, .Levels, .Mask, .Add, .Frame, .Sculpting}) do k.open[s] = true
 	k.add_size = 2 // 1M
+	k.ui_scale = 1
 	k.last_frame = time.tick_now()
 }
 
 kit_destroy :: proc(app: ^App) {
+	for ev in app.kit.events do delete(ev.key)
 	delete(app.kit.events)
 	render.ui_pass_destroy(&app.renderer, &app.kit.pass)
 	ui.destroy(&app.kit.ctx)
@@ -246,13 +357,12 @@ kit_begin :: proc(app: ^App, window: ^sdl.Window) -> (size, pixels: [2]i32) {
 	_ = sdl.GetWindowSize(window, &w, &h)
 	pw, ph: i32
 	_ = sdl.GetWindowSizeInPixels(window, &pw, &ph)
-	scale := kit_content_scale(window)
-	kit_events_apply(app, scale)
+	scale := kit_content_scale(window) * k.ui_scale
 	k.frame += 1
 	d := &app.device
 	in_ := ui.Input {
 		mouse         = d.mouse / scale,
-		mouse_valid   = d.over,
+		mouse_valid   = device_pointing(d),
 		down          = d.down,
 		pressed       = d.pressed,
 		released      = d.released,
@@ -263,6 +373,8 @@ kit_begin :: proc(app: ^App, window: ^sdl.Window) -> (size, pixels: [2]i32) {
 		window        = [2]f32{f32(w), f32(h)} / scale,
 		pixel_density = f32(pw) / f32(max(w, 1)) * scale,
 		text          = string(d.text[:d.text_len]),
+		pointer       = d.pointer,
+		cancel        = d.cancel,
 	}
 	for key in d.keys {
 		switch key.key {
@@ -316,6 +428,7 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 	// Escape, or Android's back gesture (the AC Back key), closes whatever floats, before
 	// Escape stops a replay.
 	if key_pressed(d, sdl.K_ESCAPE) || key_pressed(d, sdl.K_AC_BACK) {
+		if k.settings && !k.menu && !k.view_menu && !k.browser && !k.object_menu && ctx.select_open == 0 do settings_close(app)
 		k.menu, k.view_menu, k.browser, k.object_menu = false, false, false, false
 		ctx.select_open = 0
 	}
@@ -329,7 +442,7 @@ kit_viewport_input :: proc(app: ^App, size: [2]f32) -> (input: Viewport_Input) {
 	k := &app.kit
 	d := &app.device
 	input.size = size
-	input.hovered = d.over && !ui.wants_pointer(&k.ctx)
+	input.hovered = device_pointing(d) && !ui.wants_pointer(&k.ctx)
 	input.dragging = ui.viewport_dragging(&k.ctx)
 	input.mouse_pos = d.mouse
 	input.samples = make([]Input_Sample, len(app.samples), context.temp_allocator)
@@ -354,6 +467,10 @@ kit_viewport_input :: proc(app: ^App, size: [2]f32) -> (input: Viewport_Input) {
 		input.smooth = input.primary && d.shift
 		input.invert = input.primary && d.ctrl
 	}
+	// Who has the touch and the drag, then what they do this frame (touch.odin,
+	// navigate.odin); the pie and the S/U adjust may still take the pointer after.
+	touch_route(app, &input)
+	pointer_route(app, &input)
 	pie_update(app, &input, right_tap)
 	adjust_update(app, &input)
 	app.ui.viewport_mouse, app.ui.viewport_size, app.ui.viewport_hovered = input.mouse_pos, input.size, input.hovered
@@ -446,6 +563,7 @@ kit_layout :: proc(app: ^App) {
 	kit_inspector(app)
 	kit_stats(app)
 	kit_history_panel(app)
+	kit_settings(app)
 
 	// What floats over the panels comes last, so it is drawn and hit tested on top.
 	if ui.popover_begin(ctx, "brush browser", &k.browser, browser_anchor, .Above_Center, {direction = .Column, gap = 2, padding = 10}) {
@@ -486,14 +604,16 @@ kit_pick_brush :: proc(app: ^App, kind: sculpt.Brush_Kind) {
 
 // The inspector: the tool, the selected object or the scene, in tabs, sliding in from
 // the right. When its content is taller than the room it scrolls, with the wheel or by
-// a drag that starts where no control takes it (a finger or a pen has no wheel).
+// dragging it (a finger or a pen has no wheel): from where no control is, at once, and
+// from a control once the drag goes up or down rather than sideways (ui.scroll_update).
 @(private = "file")
 kit_inspector :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
 	id := ui.id_of(ctx, "inspector")
-	shown := ui.presence(ctx, id, k.inspector, t.panel_time)
+	// The Settings panel takes its place while open.
+	shown := ui.presence(ctx, id, k.inspector && !k.settings, t.panel_time)
 	if shown <= 0 do return
 	top := t.edge + t.target + 8
 	area := ui.safe_area(ctx)
@@ -512,20 +632,12 @@ kit_inspector :: proc(app: ^App) {
 	// The wheel over the inspector scrolls it; the scroll eases to where it is heading.
 	limit := max(natural.y - room, 0)
 	inspector_rect := ui.Rect{area.x + window.x - t.edge - KIT_INSPECTOR_W, area.y + top, KIT_INSPECTOR_W, height}
-	if ctx.input.wheel != 0 && ui.rect_contains(inspector_rect, ctx.input.mouse) do k.scroll -= ctx.input.wheel * 64
-	if k.scroll_drag {
-		if .Left in ctx.input.down {
-			k.scroll = k.scroll_from - ctx.input.mouse.y
-		} else {
-			k.scroll_drag = false
-		}
-	}
-	k.scroll = clamp(k.scroll, 0, limit)
+	dragging := ui.scroll_update(ctx, id, inspector_rect, &k.scroll, limit)
 	// A drag follows the finger exactly; the wheel's steps ease.
-	scroll := ui.tween(ctx, ui.salt(id, 5), k.scroll, 0 if k.scroll_drag else t.popover_time, .Out_Quart)
+	scroll := ui.tween(ctx, ui.salt(id, 5), k.scroll, 0 if dragging else t.popover_time, .Out_Quart)
 
 	mark := ui.vertex_mark(ctx)
-	ui.begin_anchored(ctx, "inspector", .End, .Start, {t.edge, top}, {direction = .Column, gap = 6, padding = 12, width = KIT_INSPECTOR_W, height = height, radius = t.radius_large, background = .Panel, clip = true, scroll = scroll, inert = !k.inspector})
+	ui.begin_anchored(ctx, "inspector", .End, .Start, {t.edge, top}, {direction = .Column, gap = 6, padding = 12, width = KIT_INSPECTOR_W, height = height, radius = t.radius_large, background = .Panel, clip = true, scroll = scroll, drag_scroll = true, inert = !k.inspector || k.settings})
 	tab_names := [len(Kit_Tab)]string{kit_tool_name(app.tool), "Object", "Scene"}
 	if picked := ui.tabs(ctx, "inspector tabs", tab_names[:], int(k.tab)); picked >= 0 {
 		if Kit_Tab(picked) != k.tab do k.tab_serial += 1
@@ -544,9 +656,7 @@ kit_inspector :: proc(app: ^App) {
 	ui.transform_since(ctx, content, fade)
 	ui.end(ctx)
 	// A press on the inspector that no control took starts a scroll drag.
-	if .Left in ctx.input.pressed && ctx.active == 0 && ctx.pointer_root == id && limit > 0 {
-		k.scroll_drag, k.scroll_from = true, k.scroll + ctx.input.mouse.y
-	}
+	ui.scroll_take(ctx, id, k.scroll, limit)
 	// A thin scroll bar when the content is taller than the room, showing where it is.
 	if limit > 0 && height > 0 {
 		r := inspector_rect
@@ -600,8 +710,10 @@ kit_menu :: proc(app: ^App, anchor: ui.Rect) {
 	ui.divider(ctx, across = true)
 	ui.caption(ctx, "  APP")
 	if ui.menu_item(ctx, "Reduce motion", checked = ctx.reduced_motion) do ctx.reduced_motion = !ctx.reduced_motion
-	// Off, one finger turns the view and only the pen sculpts, as on a drawing tablet.
-	if ui.menu_item(ctx, "Finger sculpts", checked = app.touch.finger_sculpt) do app.touch.finger_sculpt = !app.touch.finger_sculpt
+	if ui.menu_item(ctx, "Settings...", "", ui.ICON_SETTINGS) {
+		k.settings = true
+		pick = true
+	}
 	if ui.menu_item(ctx, "Stats", "F11", ui.ICON_ACTIVITY, checked = k.stats) do k.stats = !k.stats
 	ui.popover_end(ctx)
 	if pick do k.menu = false

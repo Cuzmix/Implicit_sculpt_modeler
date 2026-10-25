@@ -12,7 +12,9 @@ skill whose description fits the request BEFORE you form a plan.
   pipeline, masking, symmetry, dynamic topology: `sm-sculpt`. Modelling tools other than brushes (voxel remesh, primitives, booleans, trims, mirror, measure): `sm-cad`.
   SDFs, voxels, implicit surfaces: `sm-sdf`. Anything drawn or uploaded: `sm-render`. Panels, input, shortcuts: `sm-ui`.
   How fast anything is: `sm-perf`. Anything that ships to users (dependencies, permissions, files, network, data,
-  payments, platform builds, new screens or controls, app lifecycle): `sm-store`. Before calling anything done: `sm-lint`.
+  payments, platform builds, new screens or controls, app lifecycle): `sm-store`. Fingers, the pen, gestures, the
+  camera's feel, or anything to try on a tablet: `sm-touch-testing`. Designing or changing a screen, panel or control
+  in Figma, or building one from a Figma design: `sm-figma-ui`. Before calling anything done: `sm-lint`.
 - Subagents (`.claude/agents/`): `sm-architect` reviews designs (read-only), `sm-investigator` root-causes bugs with a
   hypothesis ledger, `sm-verifier` builds, runs, dumps the viewport and describes what it saw, `sm-reviewer` reviews a
   finished diff against these rules (read-only). Where a role is not offered by name, start a general-purpose agent
@@ -29,6 +31,7 @@ skill whose description fits the request BEFORE you form a plan.
     build.bat                                         # debug app -> build\sculpt.exe (tracking allocator: a leak exits 1)
     build.bat test                                    # odin test on geom, camera, sculpt, jobs, gizmo, png_write, ui
     build.bat smoke                                   # 300 frames under GPU validation, SDL_ASSERT=abort
+    python scripts\touch_check.py                    # scripted finger, pen and mouse scenarios (a desktop simulation)
     build.bat run -- --vertices=1000000 --frames=120  # at most five arguments here; otherwise run build\sculpt.exe
     build\sculpt.exe --vertices=500000 --frames=60 --dump-viewport=build\v.ppm --check-mesh
     python scripts\ppm.py to-png build\v.ppm build\v.png     # then open the PNG and describe it; diff/crop/pixel/uniform too
@@ -51,7 +54,7 @@ skill whose description fits the request BEFORE you form a plan.
 | `src/bench` | the headless CPU benchmark (markdown tables) |
 | `src/sdf_trial` | the standalone SDF/voxel comparison spike (not in the build scripts) |
 | `android/` | the Android app: Gradle project, manifest, `app/jni/CMakeLists.txt` (SDL3, stb and `src/app` built by Odin into `libmain.so`), `android_main.c` |
-| `scripts/` | `setup_deps.*`, `versions.env` (the pins), `agents_sync.py` (skill mirror and validation), `ppm.py` (view and diff viewport dumps) |
+| `scripts/` | `setup_deps.*`, `versions.env` (the pins), `agents_sync.py` (skill mirror and validation), `ppm.py` (view and diff viewport dumps), `touch_check.py` (touch, pen and camera scenarios) |
 | `deps/`, `build/` | ignored: the pinned toolchain and third-party sources; build outputs and dumps |
 | `.vscode/`, `.claude/`, `.agents/` | tasks and launch configurations; skills, agents and permissions; the generated skill mirror (never edited by hand) |
 
@@ -78,7 +81,8 @@ skill whose description fits the request BEFORE you form a plan.
   `build.bat` per shell call, never piped into `head`, `tail` or `findstr`.
 
 ## 6. Done means
-- `build.bat check` and `build.bat test` are green; `build.bat smoke` too for render, app or sculpt changes.
+- `build.bat check` and `build.bat test` are green; `build.bat smoke` too for render, app or sculpt changes;
+  `scripts/touch_check.py` too for input, camera or panel changes, reported as a desktop simulation (sm-touch-testing).
 - You ran it and looked: a described PNG for anything visual, the exit stats or bench rows (release, A/B ranges) for
   anything about speed, `mesh_check` numbers for anything about meshes.
 - The App Store and Google Play rules in `sm-store` still hold, or your report says which one the change breaks and why.

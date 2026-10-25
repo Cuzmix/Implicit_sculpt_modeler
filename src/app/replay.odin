@@ -208,7 +208,7 @@ replay_shortcut :: proc(app: ^App) {
 // cloth mode); the rest (alpha, tilt, dynamic topology detail) comes from the brush as
 // set when the file is loaded, since an alpha names an image that may not be there.
 STROKES_MAGIC :: "SCSTROKE"
-STROKES_VERSION :: u32(1)
+STROKES_VERSION :: u32(2) // 2: each frame's camera roll
 
 strokes_save :: proc(app: ^App, path: string) -> bool {
 	t := replay_source(app)
@@ -241,7 +241,7 @@ strokes_save :: proc(app: ^App, path: string) -> bool {
 	for f in t.frames {
 		c := f.camera
 		geom.byte_put(&out, c.target)
-		geom.byte_put(&out, [6]f32{c.distance, c.yaw, c.pitch, c.fov_y, c.near, c.far})
+		geom.byte_put(&out, [7]f32{c.distance, c.yaw, c.pitch, c.fov_y, c.near, c.far, c.roll})
 		geom.byte_put(&out, u8(c.ortho))
 		geom.byte_put(&out, f.size)
 		geom.byte_put(&out, f.mouse_pos)
@@ -290,7 +290,9 @@ strokes_read :: proc(app: ^App, data: []u8, t: ^Take) -> bool {
 	r := geom.byte_reader(data)
 	if len(data) < len(STROKES_MAGIC) || string(data[:len(STROKES_MAGIC)]) != STROKES_MAGIC do return false
 	r.at = len(STROKES_MAGIC)
-	if geom.byte_get(&r, u32) != STROKES_VERSION do return false
+	// Older files are read too: version 1 has no roll.
+	version := geom.byte_get(&r, u32)
+	if version < 1 || version > STROKES_VERSION do return false
 	brushes := int(geom.byte_get(&r, u32))
 	if !r.ok || brushes < 1 || brushes > len(data) do return false
 	finite :: proc(xs: ..f32) -> bool {
@@ -337,8 +339,14 @@ strokes_read :: proc(app: ^App, data: []u8, t: ^Take) -> bool {
 		f: Take_Frame
 		c := &f.camera
 		c.target = geom.byte_get(&r, Vec3)
-		k := geom.byte_get(&r, [6]f32)
-		c.distance, c.yaw, c.pitch, c.fov_y, c.near, c.far = k[0], k[1], k[2], k[3], k[4], k[5]
+		k: [7]f32
+		if version >= 2 {
+			k = geom.byte_get(&r, [7]f32)
+		} else {
+			old := geom.byte_get(&r, [6]f32)
+			copy(k[:], old[:])
+		}
+		c.distance, c.yaw, c.pitch, c.fov_y, c.near, c.far, c.roll = k[0], k[1], k[2], k[3], k[4], k[5], k[6]
 		ortho := geom.byte_get(&r, u8)
 		f.size = geom.byte_get(&r, [2]f32)
 		f.mouse_pos = geom.byte_get(&r, [2]f32)
@@ -347,11 +355,11 @@ strokes_read :: proc(app: ^App, data: []u8, t: ^Take) -> bool {
 		flags := geom.byte_get(&r, u8)
 		count := geom.byte_get(&r, u32)
 		if !r.ok || ortho > 1 || flags > 7 || int(f.brush) >= brushes || int(count) > (len(data) - r.at) / 21 do return false
-		if !finite(c.target.x, c.target.y, c.target.z, c.distance, c.yaw, c.pitch, c.fov_y, c.near, c.far) do return false
+		if !finite(c.target.x, c.target.y, c.target.z, c.distance, c.yaw, c.pitch, c.fov_y, c.near, c.far, c.roll) do return false
 		if !finite(f.size.x, f.size.y, f.mouse_pos.x, f.mouse_pos.y, f.pen_tilt.x, f.pen_tilt.y) do return false
 		if c.distance <= 0 || c.fov_y <= 0 || c.fov_y >= math.PI || c.near <= 0 || c.far <= c.near || f.size.x < 1 || f.size.y < 1 do return false
 		c.ortho = ortho == 1
-		c.pitch = clamp(c.pitch, -camera.PITCH_LIMIT, camera.PITCH_LIMIT)
+		c.yaw, c.pitch, c.roll = camera.wrap_angle(c.yaw), camera.wrap_angle(c.pitch), camera.wrap_angle(c.roll)
 		f.primary, f.smooth, f.invert = flags & 1 != 0, flags & 2 != 0, flags & 4 != 0
 		f.first, f.count = u32(len(t.samples)), count
 		for _ in 0 ..< count {

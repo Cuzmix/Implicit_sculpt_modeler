@@ -51,7 +51,7 @@ File_Note :: struct {
 
 // The native scene file starts with these bytes, then its version.
 SCENE_MAGIC :: "SCULPTSC"
-SCENE_VERSION :: u32(6) // 2: each object's rotation; 3: the current level's polypaint and polygroups; 4: sculpt layers, and a retopologized object's quads and UVs (sculpt.levels_write); 5: each object's boolean mode; 6: the base level's node layout (sculpt.levels_write)
+SCENE_VERSION :: u32(7) // 2: each object's rotation; 3: the current level's polypaint and polygroups; 4: sculpt layers, and a retopologized object's quads and UVs (sculpt.levels_write); 5: each object's boolean mode; 6: the base level's node layout (sculpt.levels_write); 7: the camera's roll
 
 // The request waiting for the next frame, and whether a dialog is showing. Kept here
 // rather than in App because SDL may call a dialog back on another thread, even after
@@ -397,6 +397,7 @@ scene_save :: proc(app: ^App, path: string) -> bool {
 	geom.byte_put(&out, c.distance)
 	geom.byte_put(&out, c.yaw)
 	geom.byte_put(&out, c.pitch)
+	geom.byte_put(&out, c.roll)
 	hd_dropped := 0
 	for obj in app.scene.objects {
 		object_hd_leave(app, obj)
@@ -441,12 +442,13 @@ scene_open :: proc(app: ^App, path: string) -> (opened, ok: bool) {
 	view.distance = geom.byte_get(&r, f32)
 	view.yaw = geom.byte_get(&r, f32)
 	view.pitch = geom.byte_get(&r, f32)
-	if !r.ok || count > len(data) || selected >= count || !finite(view.target) || !finite({view.distance, view.yaw, view.pitch}) {
+	view.roll = geom.byte_get(&r, f32) if version >= 7 else 0
+	if !r.ok || count > len(data) || selected >= count || !finite(view.target) || !finite({view.distance, view.yaw, view.pitch}) || !finite({view.roll, 0, 0}) {
 		file_note(app, true, "Cannot open %s: it is damaged", name)
 		return false, true
 	}
 	view.distance = clamp(view.distance, camera.MIN_DISTANCE, camera.MAX_DISTANCE)
-	view.pitch = clamp(view.pitch, -camera.PITCH_LIMIT, camera.PITCH_LIMIT)
+	view.yaw, view.pitch, view.roll = camera.wrap_angle(view.yaw), camera.wrap_angle(view.pitch), camera.wrap_angle(view.roll)
 
 	objects := make([dynamic]^Object, 0, count)
 	defer delete(objects)

@@ -112,8 +112,8 @@ Viewport_Input :: struct {
 	wheel:       f32,
 	hovered:     bool,
 	dragging:    bool, // a drag that started in the viewport, even if the cursor has left it
-	orbit_drag:  bool, // right mouse, or Alt + left mouse
-	pan_drag:    bool, // middle mouse, or Shift + right mouse
+	orbit_drag:  bool, // the drag turns the view (navigate.odin says which drags do)
+	pan_drag:    bool, // ...or pans it
 	primary:     bool, // left mouse without Alt: drives the active tool
 	press:       bool, // the left button went down in the viewport this frame
 	smooth:      bool, // Shift held during a stroke: smooth brush
@@ -121,8 +121,11 @@ Viewport_Input :: struct {
 	alt:         bool, // Alt held with Ctrl: a mask shape unmasks
 	samples:     []Input_Sample, // every pointer sample this frame, oldest first
 	pen_tilt:    [2]f32, // the pen's lean now, in degrees; zero without a pen
-	touch_pan:   [2]f32, // two or more fingers' middle moved this far (touch.odin)
+	zoom_drag:   bool, // Ctrl + right mouse: up zooms in
+	touch_pan:   [2]f32, // two fingers' middle moved this far (touch.odin)
 	touch_zoom:  f32, // ...and their spread grew this many times; 0 for no fingers
+	touch_zoom_at: [2]f32, // ...toward this point, from the viewport's middle (x right, y down)
+	touch_roll:  f32, // ...and they twisted this many radians clockwise
 }
 
 BRUSH_NAMES := [sculpt.Brush_Kind]string {

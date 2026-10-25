@@ -319,10 +319,12 @@ slider :: proc(ctx: ^Context, s: string, value: ^f32, lo, hi: f32, scale: Scale,
 	text(ctx, shown, r.x + r.w, r.y + 13, t.text_size, color_fade(t.text, fade), .Semibold, .Right)
 	track := Rect{r.x + 8, r.y + 34, r.w - 16, 4}
 	changed := false
-	held, hovered := false, false
+	held, hovered, clicked := false, false, false
 	if enabled {
-		hovered, held, _, _ = interact(ctx, id, r)
-		if held {
+		hovered, held, clicked, _ = interact(ctx, id, r)
+		// In a drag-scrolled panel a finger's press waits to see whether it scrolls; a tap
+		// still puts the value where it landed.
+		if (held && claim_drag(ctx, 0)) || clicked {
 			nf := clamp((ctx.input.mouse.x - track.x) / max(track.w, 1), 0, 1)
 			v := slider_value(nf, lo, hi, scale)
 			if v != value^ {
@@ -654,6 +656,8 @@ area :: proc(ctx: ^Context, name: string, size: [2]f32) -> Area {
 	r := place(ctx, {w, size.y})
 	id := id_of(ctx, name)
 	hovered, held, clicked, pressed := interact(ctx, id, r)
+	// What is drawn in it takes a drag any way it goes, so a panel never scrolls from it.
+	if pressed do _ = claim_drag(ctx, -1)
 	return {id, r, hovered, held, pressed, clicked, ctx.input.mouse}
 }
 
@@ -672,8 +676,10 @@ drag_value :: proc(ctx: ^Context, s: string, value: ^f32, per_point, lo, hi: f32
 	if enabled do hovered, held, _, pressed = interact(ctx, id, cell)
 	if pressed do ctx.press_value = value^
 	changed := false
-	if held {
-		v := clamp(ctx.press_value + (ctx.input.mouse.x - ctx.press_mouse.x) * per_point, lo, hi)
+	// From where it won the drag: in a drag-scrolled panel a finger's press waits to see
+	// which way it goes, and the slop it moved meanwhile does not count.
+	if held && claim_drag(ctx, 0) {
+		v := clamp(ctx.press_value + (ctx.input.mouse.x - ctx.won_mouse.x) * per_point, lo, hi)
 		if v != value^ {
 			value^ = v
 			changed = true

@@ -584,3 +584,284 @@ a_layer_draws_under_what_came_after_its_mark :: proc(t: ^testing.T) {
 	}
 	testing.expect_value(t, int(next), len(dl.indices))
 }
+
+// One frame of a bar 36 points tall holding one segmented control whose segments are 36
+// points tall: their 48 point hit areas reach 6 points past the bar's top and bottom.
+@(private = "file")
+short_bar :: proc(ctx: ^Context, input: Input) -> (picked: int, bar: Rect) {
+	frame_begin(ctx, input)
+	begin_anchored(ctx, "bar", .Start, .Start, {100, 100}, {direction = .Row})
+	names := [2]string{"One", "Two"}
+	picked = tabs(ctx, "segments", names[:], 0, item_width = 80)
+	end(ctx)
+	frame_end(ctx)
+	bar = ctx.placed[len(ctx.placed) - 1].rect
+	return
+}
+
+@(test)
+a_press_on_a_hit_area_past_the_panel_edge_is_the_widgets :: proc(t: ^testing.T) {
+	ctx: Context
+	init(&ctx)
+	defer destroy(&ctx)
+	_, bar := short_bar(&ctx, input_at({-1, -1}))
+	_, bar = short_bar(&ctx, input_at({-1, -1}))
+	testing.expect(t, bar.h < ctx.theme.target)
+	// Just above the bar, inside the second segment's touch target: a finger landing
+	// there presses the segment, and the viewport never sees it (a tap there used to
+	// turn the camera by however much the finger wobbled).
+	edge := [2]f32{bar.x + 120, bar.y - 3}
+	short_bar(&ctx, input_at(edge, down = {.Left}, pressed = {.Left}))
+	testing.expect(t, !viewport_dragging(&ctx))
+	testing.expect(t, wants_pointer(&ctx))
+	picked, _ := short_bar(&ctx, input_at(edge, released = {.Left}))
+	testing.expect_value(t, picked, 1)
+	// Well outside every target is still the viewport's.
+	short_bar(&ctx, input_at({bar.x + 120, bar.y - 30}, down = {.Left}, pressed = {.Left}))
+	testing.expect(t, viewport_dragging(&ctx))
+	short_bar(&ctx, input_at({bar.x + 120, bar.y - 30}, released = {.Left}))
+}
+
+// One frame of a drag-scrolled panel 200 points tall at (100, 100): eight 48 point
+// buttons, then a slider. Returns the button clicked (-1 for none), whether the slider
+// changed and whether a drag is scrolling the panel.
+@(private = "file")
+scroll_panel :: proc(ctx: ^Context, input: Input, scroll: ^f32, value: ^f32) -> (clicked: int, slid, dragging: bool) {
+	frame_begin(ctx, input)
+	id := id_of(ctx, "panel")
+	_, natural := prev_layout(ctx, "panel")
+	limit := max(natural.y - 200, 0)
+	dragging = scroll_update(ctx, id, {100, 100, 240, 200}, scroll, limit)
+	begin_anchored(ctx, "panel", .Start, .Start, {100, 100}, {direction = .Column, width = 240, height = 200, clip = true, scroll = scroll^, drag_scroll = true})
+	clicked = -1
+	names := [8]string{"b0", "b1", "b2", "b3", "b4", "b5", "b6", "b7"}
+	for name, i in names do if button(ctx, name) do clicked = i
+	slid = slider(ctx, "Size", value, 0, 1, .Linear, "")
+	end(ctx)
+	scroll_take(ctx, id, scroll^, limit)
+	frame_end(ctx)
+	return
+}
+
+@(private = "file")
+finger_at :: proc(mouse: [2]f32, down: Buttons = {}, pressed: Buttons = {}, released: Buttons = {}) -> Input {
+	in_ := input_at(mouse, down, pressed, released)
+	in_.pointer = .Finger
+	return in_
+}
+
+@(test)
+the_first_finger_drag_on_a_control_scrolls_its_panel :: proc(t: ^testing.T) {
+	ctx: Context
+	init(&ctx)
+	defer destroy(&ctx)
+	scroll, value: f32 = 0, 0.5
+	scroll_panel(&ctx, input_at({-1, -1}), &scroll, &value)
+	scroll_panel(&ctx, input_at({-1, -1}), &scroll, &value)
+
+	// The finger lands on the first button and goes straight up: within the slop
+	// nothing moves; past it the panel takes the drag and follows from there.
+	on_b0 := [2]f32{200, 124}
+	scroll_panel(&ctx, finger_at(on_b0, down = {.Left}, pressed = {.Left}), &scroll, &value)
+	testing.expect(t, wants_pointer(&ctx))
+	scroll_panel(&ctx, finger_at(on_b0 - {0, 6}, down = {.Left}), &scroll, &value)
+	testing.expect_value(t, scroll, 0)
+	_, _, dragging := scroll_panel(&ctx, finger_at(on_b0 - {0, 20}, down = {.Left}), &scroll, &value)
+	testing.expect(t, dragging)
+	testing.expect_value(t, scroll, 0)
+	scroll_panel(&ctx, finger_at(on_b0 - {0, 80}, down = {.Left}), &scroll, &value)
+	testing.expect_value(t, scroll, 60)
+	// Letting go over another button clicks nothing: the scroll took the press.
+	clicked, _, _ := scroll_panel(&ctx, finger_at(on_b0 - {0, 80}, released = {.Left}), &scroll, &value)
+	testing.expect_value(t, clicked, -1)
+	testing.expect(t, !viewport_dragging(&ctx))
+
+	// A tap that wobbles less than the slop is still a click, of the button now there.
+	at := [2]f32{200, 140}
+	scroll_panel(&ctx, finger_at(at, down = {.Left}, pressed = {.Left}), &scroll, &value)
+	scroll_panel(&ctx, finger_at(at + {2, -4}, down = {.Left}), &scroll, &value)
+	clicked, _, _ = scroll_panel(&ctx, finger_at(at + {2, -4}, released = {.Left}), &scroll, &value)
+	testing.expect_value(t, clicked, 2) // 60 scrolled: the third button spans y 136 to 184
+	testing.expect_value(t, scroll, 60)
+}
+
+@(test)
+a_mouse_drag_on_a_control_never_scrolls :: proc(t: ^testing.T) {
+	ctx: Context
+	init(&ctx)
+	defer destroy(&ctx)
+	scroll, value: f32 = 0, 0.5
+	scroll_panel(&ctx, input_at({-1, -1}), &scroll, &value)
+	scroll_panel(&ctx, input_at({-1, -1}), &scroll, &value)
+	on_b0 := [2]f32{200, 124}
+	scroll_panel(&ctx, input_at(on_b0, down = {.Left}, pressed = {.Left}), &scroll, &value)
+	_, _, dragging := scroll_panel(&ctx, input_at(on_b0 - {0, 80}, down = {.Left}), &scroll, &value)
+	testing.expect(t, !dragging)
+	testing.expect_value(t, scroll, 0)
+	scroll_panel(&ctx, input_at(on_b0 - {0, 80}, released = {.Left}), &scroll, &value)
+	// The wheel still scrolls it.
+	in_ := input_at({200, 200})
+	in_.wheel = -1
+	scroll_panel(&ctx, in_, &scroll, &value)
+	testing.expect_value(t, scroll, 64)
+}
+
+@(test)
+a_slider_in_a_scrolled_panel_takes_sideways_drags_only :: proc(t: ^testing.T) {
+	ctx: Context
+	init(&ctx)
+	defer destroy(&ctx)
+	scroll, value: f32 = 0, 0.5
+	scroll_panel(&ctx, input_at({-1, -1}), &scroll, &value)
+	scroll_panel(&ctx, input_at({-1, -1}), &scroll, &value)
+	// Scroll to the bottom so the slider shows: 8 * 48 + 52, less 200.
+	in_ := input_at({200, 200})
+	in_.wheel = -10
+	scroll_panel(&ctx, in_, &scroll, &value)
+	limit := scroll
+	testing.expect(t, limit > 0)
+	// The slider's track is 34 points under its top, which sits at 8 * 48 less the scroll.
+	on_track := [2]f32{220, 100 + 8 * 48 - limit + 36}
+
+	// Up and down from the slider scrolls the panel and leaves the value alone.
+	scroll_panel(&ctx, finger_at(on_track, down = {.Left}, pressed = {.Left}), &scroll, &value)
+	scroll_panel(&ctx, finger_at(on_track + {3, 30}, down = {.Left}), &scroll, &value)
+	_, slid, dragging := scroll_panel(&ctx, finger_at(on_track + {3, 60}, down = {.Left}), &scroll, &value)
+	testing.expect(t, dragging && !slid)
+	testing.expect_value(t, value, 0.5)
+	testing.expect_value(t, scroll, limit - 30)
+	scroll_panel(&ctx, finger_at(on_track + {3, 60}, released = {.Left}), &scroll, &value)
+	testing.expect_value(t, value, 0.5)
+	scroll = limit
+	scroll_panel(&ctx, input_at({-1, -1}), &scroll, &value)
+
+	// Sideways it moves the value and the panel stays put.
+	scroll_panel(&ctx, finger_at(on_track, down = {.Left}, pressed = {.Left}), &scroll, &value)
+	_, slid, _ = scroll_panel(&ctx, finger_at(on_track + {4, 0}, down = {.Left}), &scroll, &value)
+	testing.expect(t, !slid)
+	_, slid, dragging = scroll_panel(&ctx, finger_at(on_track + {40, 12}, down = {.Left}), &scroll, &value)
+	testing.expect(t, slid && !dragging)
+	testing.expect(t, value > 0.5)
+	testing.expect_value(t, scroll, limit)
+	scroll_panel(&ctx, finger_at(on_track + {40, 12}, released = {.Left}), &scroll, &value)
+
+	// A tap puts the value where it landed.
+	left := [2]f32{101, on_track.y}
+	scroll_panel(&ctx, finger_at(left, down = {.Left}, pressed = {.Left}), &scroll, &value)
+	scroll_panel(&ctx, finger_at(left, released = {.Left}), &scroll, &value)
+	testing.expect_value(t, value, 0)
+}
+
+@(test)
+a_cancelled_press_lets_go_without_a_click :: proc(t: ^testing.T) {
+	ctx: Context
+	init(&ctx)
+	defer destroy(&ctx)
+	_, _, column := two_buttons(&ctx, input_at({-1, -1}))
+	_, _, column = two_buttons(&ctx, input_at({-1, -1}))
+	over_a := [2]f32{column.x + 28, column.y + 28}
+	two_buttons(&ctx, finger_at(over_a, down = {.Left}, pressed = {.Left}))
+	cancelled := finger_at(over_a, released = {.Left})
+	cancelled.cancel = true
+	a, b, _ := two_buttons(&ctx, cancelled)
+	testing.expect(t, !a && !b)
+	testing.expect_value(t, ctx.active, 0)
+}
+
+@(test)
+a_scrolled_out_control_reaches_no_further_than_its_panel :: proc(t: ^testing.T) {
+	ctx: Context
+	init(&ctx)
+	defer destroy(&ctx)
+	scroll, value: f32 = 0, 0.5
+	scroll_panel(&ctx, input_at({-1, -1}), &scroll, &value)
+	scroll_panel(&ctx, input_at({-1, -1}), &scroll, &value)
+	// The buttons below the panel's 200 points are clipped out: a press under the panel
+	// is the viewport's.
+	scroll_panel(&ctx, input_at({200, 320}, down = {.Left}, pressed = {.Left}), &scroll, &value)
+	testing.expect(t, viewport_dragging(&ctx))
+	scroll_panel(&ctx, input_at({200, 320}, released = {.Left}), &scroll, &value)
+}
+
+@(test)
+fingers_make_a_tap_only_quick_still_and_not_cancelled :: proc(t: ^testing.T) {
+	f: Fingers
+	testing.expect(t, fingers_down(&f, 1, {100, 100}, 0))
+	testing.expect(t, !fingers_down(&f, 2, {200, 100}, 0.01))
+	testing.expect(t, !fingers_down(&f, 2, {200, 100}, 0.01)) // already down
+	tap, known := fingers_up(&f, 1, 0.1)
+	testing.expect(t, known && tap == 0) // one is still down
+	tap, known = fingers_up(&f, 2, 0.12)
+	testing.expect_value(t, tap, 2)
+	_, known = fingers_up(&f, 7, 0.13)
+	testing.expect(t, !known)
+
+	// Too slow, too far, or cancelled: no tap.
+	_ = fingers_down(&f, 1, {100, 100}, 1)
+	tap, _ = fingers_up(&f, 1, 1 + FINGER_TAP + 0.01)
+	testing.expect_value(t, tap, 0)
+	_ = fingers_down(&f, 1, {100, 100}, 2)
+	fingers_move(&f, 1, {100 + FINGER_TAP_TRAVEL + 1, 100})
+	fingers_move(&f, 1, {100, 100}) // coming back does not undo the travel
+	tap, _ = fingers_up(&f, 1, 2.05)
+	testing.expect_value(t, tap, 0)
+	_ = fingers_down(&f, 1, {100, 100}, 3)
+	tap, _ = fingers_up(&f, 1, 3.05, cancelled = true)
+	testing.expect_value(t, tap, 0)
+}
+
+@(test)
+fingers_measure_pan_spread_and_twist :: proc(t: ^testing.T) {
+	f: Fingers
+	_ = fingers_down(&f, 1, {100, 100}, 0)
+	_ = fingers_down(&f, 2, {200, 100}, 0)
+	first := fingers_change(&f)
+	// The first measure after a finger came only says where they are.
+	testing.expect_value(t, first.pan, [2]f32{0, 0})
+	testing.expect_value(t, first.zoom, 1)
+	testing.expect_value(t, first.middle, [2]f32{150, 100})
+
+	// Both move right 30: a pan, no zoom, no twist.
+	fingers_move(&f, 1, {130, 100})
+	fingers_move(&f, 2, {230, 100})
+	c := fingers_change(&f)
+	testing.expect_value(t, c.pan, [2]f32{30, 0})
+	testing.expect(t, abs(c.zoom - 1) < 1e-5 && abs(c.twist) < 1e-5)
+
+	// Spreading to twice as far apart about the same middle zooms 2 times.
+	fingers_move(&f, 1, {80, 100})
+	fingers_move(&f, 2, {280, 100})
+	c = fingers_change(&f)
+	testing.expect(t, abs(c.zoom - 2) < 1e-4)
+	testing.expect(t, abs(c.pan.x) < 1e-4)
+
+	// The second finger going round below the first is a clockwise twist (y is down).
+	fingers_move(&f, 2, {180, 200})
+	c = fingers_change(&f)
+	testing.expect(t, abs(c.twist - math.PI / 4) < 1e-4)
+
+	// Crossing the half turn is the short way round, not a whole turn back.
+	fingers_move(&f, 2, {80 - 100, 100 + 1})
+	_ = fingers_change(&f)
+	fingers_move(&f, 2, {80 - 100, 100 - 1})
+	c = fingers_change(&f)
+	testing.expect(t, abs(c.twist) < 0.1)
+
+	// A finger lifting starts the measure afresh: no jump from the one left.
+	_, _ = fingers_up(&f, 2, 0.5)
+	c = fingers_change(&f)
+	testing.expect_value(t, c.pan, [2]f32{0, 0})
+}
+
+@(test)
+fingers_past_the_most_are_ignored :: proc(t: ^testing.T) {
+	f: Fingers
+	for i in 0 ..< FINGERS_MAX do _ = fingers_down(&f, u64(i), {f32(i) * 10, 0}, 0)
+	testing.expect(t, !fingers_down(&f, 99, {500, 0}, 0))
+	testing.expect_value(t, f.count, FINGERS_MAX)
+	_, known := fingers_up(&f, 99, 0.1)
+	testing.expect(t, !known)
+	fingers_clear(&f)
+	testing.expect_value(t, f.count, 0)
+	testing.expect(t, fingers_down(&f, 5, {0, 0}, 1))
+}

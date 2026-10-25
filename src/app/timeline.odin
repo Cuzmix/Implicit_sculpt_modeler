@@ -7,6 +7,7 @@ import "core:os"
 import "core:path/filepath"
 import "core:strings"
 import "core:time"
+import "../camera"
 import "../ui"
 
 // The History panel's timeline: every undo step on one bar, which can be dragged to any
@@ -105,7 +106,7 @@ timeline_frame :: proc(app: ^App) {
 				if len(app.history.done) >= lapse.end do break
 				if !history_step_toward(app, len(app.history.done) + 1) do break
 			}
-			app.camera.yaw += lapse.spin * (math.PI / 180)
+			camera.orbit_spin(&app.camera, lapse.spin * (math.PI / 180))
 		}
 		lapse.shown = true
 		return

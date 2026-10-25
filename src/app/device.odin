@@ -17,9 +17,14 @@ Device :: struct {
 	ctrl:     bool,
 	alt:      bool,
 	key_mods: sdl.Keymod, // the modifiers held when the frame's last key went down
+	script_mods: sdl.Keymod, // the modifiers a --ui-events script holds down
 	mouse:    [2]f32, // the pointer, in window coordinates
-	moved:    [2]f32, // how far it moved this frame
+	moved:    [2]f32, // how far it moved this frame, jumps of a finger to where it lands left out
 	over:     bool, // the pointer is over the window
+	// What drives the pointer: the mouse, a finger (touch.odin turns the first finger of
+	// a touch into the pointer) or the pen, which hovers too.
+	pointer:  ui.Pointer_Kind,
+	cancel:   bool, // the system took the pointer back this frame: what it pressed lets go without a click
 	down:     ui.Buttons, // held at the end of the frame
 	pressed:  ui.Buttons, // went down during the frame, even if it came up again
 	released: ui.Buttons, // came up during the frame
@@ -47,7 +52,7 @@ Key_Press :: struct {
 // Forgets what happened last frame and keeps what is held.
 device_frame_begin :: proc(d: ^Device) {
 	clear(&d.keys)
-	d.moved, d.pressed, d.released, d.wheel, d.right_tap, d.text_len, d.key_mods = {}, {}, {}, 0, false, 0, {}
+	d.moved, d.pressed, d.released, d.wheel, d.right_tap, d.text_len, d.key_mods, d.cancel = {}, {}, {}, 0, false, 0, {}, false
 }
 
 // Folds one SDL event in.
@@ -62,10 +67,14 @@ device_event :: proc(d: ^Device, e: ^sdl.Event) {
 			copy(d.text[d.text_len:], typed)
 			d.text_len += len(typed)
 		}
+	// Fingers never arrive as the mouse (platform_hints turns that off): touch.odin
+	// moves the pointer for them. What comes as the mouse is a mouse or the pen.
 	case .MOUSE_MOTION:
+		d.pointer = .Pen if e.motion.which == sdl.PEN_MOUSEID else .Mouse
 		device_move(d, {e.motion.x, e.motion.y})
 		d.input_at = e.common.timestamp
 	case .MOUSE_BUTTON_DOWN, .MOUSE_BUTTON_UP:
+		d.pointer = .Pen if e.button.which == sdl.PEN_MOUSEID else .Mouse
 		device_move(d, {e.button.x, e.button.y})
 		if e.button.down do d.input_at = e.common.timestamp
 		b: ui.Button
@@ -88,13 +97,15 @@ device_event :: proc(d: ^Device, e: ^sdl.Event) {
 
 // Reads the modifiers once every event of the frame is in.
 device_frame_end :: proc(d: ^Device) {
-	mods := sdl.GetModState() | d.key_mods
+	mods := sdl.GetModState() | d.key_mods | d.script_mods
 	d.shift, d.ctrl, d.alt = mods & sdl.KMOD_SHIFT != {}, mods & sdl.KMOD_CTRL != {}, mods & sdl.KMOD_ALT != {}
 }
 
-// The pointer moved to `to` (window coordinates).
-device_move :: proc(d: ^Device, to: [2]f32) {
-	if d.over do d.moved += to - d.mouse
+// The pointer moved to `to` (window coordinates). A `jump` is the pointer landing
+// somewhere new (a finger touching down far from where the last one lifted), which no
+// drag may count as movement.
+device_move :: proc(d: ^Device, to: [2]f32, jump := false) {
+	if d.over && !jump do d.moved += to - d.mouse
 	d.mouse, d.over = to, true
 	if .Right in d.down do d.right_travel = max(d.right_travel, linalg.length(to - d.right_from))
 }
@@ -110,6 +121,13 @@ device_button :: proc(d: ^Device, b: ui.Button, down: bool, at: u64) {
 	d.released += {b}
 	d.down -= {b}
 	if b == .Right do d.right_tap = time.Duration(at - d.right_at) < PIE_TAP && d.right_travel < PIE_TAP_PX
+}
+
+// Whether the pointer is somewhere to show hover feedback and the brush outline: a mouse
+// and a pen hover, a finger only points while it touches (and in the frame it lifts, so
+// the release still lands where it was).
+device_pointing :: proc(d: ^Device) -> bool {
+	return d.over && (d.pointer != .Finger || d.down != {} || d.released != {})
 }
 
 // Whether `key` went down this frame; with `repeat`, a held key's repeats count too.
