@@ -301,6 +301,10 @@ A dab looks for vertices as far out as the image is above 0, measured when it lo
 
 View > Material picks how objects are shaded: Clay (the default, as before), Red wax, White, Grey and Skin. Each sets the selected object's colour, a muted one for the others, and the light's ambient, highlight and wrap (wax and skin let the light reach past the shadow line, as scattering does). View > Wireframe, or Shift+F as ZBrush's PolyFrame, draws the selected object's triangle edges over it: the same visible chunks again with line fill, pulled toward the eye by a depth bias so they sit on the surface, so it roughly doubles the selected object's draw cost while it is on. Flags: `--material=NAME`, `--wireframe`.
 
+## Remembered settings
+
+An interactive run remembers, for the next one, the brush (which one, its size, each brush's strength and falloff curve), the pen settings (pressure, its curve, tilt), lazy mouse, symmetry, the dynamic topology detail, the alpha mode and angle, the material, wireframe and orthographic view, and the Scene panel's vertex count and shape, the mask steps and mask shape. They go to `settings.txt` in SDL's per-user folder (`%APPDATA%\Implicit\Sculpt` on Windows, `~/.local/share/Implicit/Sculpt` on Linux) when the app closes, as plain `key values` lines; delete the file to start from the defaults. Runs with `--frames`, `--gpubench`, `--bench-stroke` or `--no-settings` neither read nor write it, so scripted runs and benchmarks stay the same everywhere, and flags given on the command line win over it. The panel layout is not remembered (it is rebuilt each run), nor are the scene or the speed toggles in the Stats panel.
+
 ## Controls
 
 Files: Ctrl+O opens a scene, Ctrl+S saves it (where it was last saved or opened, else it asks), Ctrl+Shift+S saves it somewhere else. F12 saves a screenshot.
