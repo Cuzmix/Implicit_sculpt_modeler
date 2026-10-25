@@ -67,7 +67,7 @@ skill whose description fits the request BEFORE you form a plan.
 - The `.sculpt` scene file is versioned (`SCENE_VERSION`, `src/app/files.odin`): a change to what it stores bumps the
   version and keeps reading every older one; a damaged file is refused, never asserted on.
 - GPU: consume every `sdl.*GPU*` result; `WaitForGPUIdle` before freeing buffers; set vsync before acquiring the
-  swapchain; `Draw_Item.model` is translation plus uniform scale (no rotation yet).
+  swapchain; `Draw_Item.model` is a similarity: rotation, translation, uniform scale (no shear or non-uniform scale).
 - No TODO or FIXME: write it or design it. Comments are full sentences giving reasons. README is updated with any flag,
   control or panel change. No handoff, status or notes files.
 - Never edit `deps/`, `build/` or `.agents/`; never sleep, poll, `tail -f` or kill `sculpt.exe` by name; one

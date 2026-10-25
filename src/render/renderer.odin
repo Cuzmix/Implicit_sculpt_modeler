@@ -115,8 +115,9 @@ Frame_Uniforms :: struct {
 // One mesh to draw this frame: where it sits in the world and its clay colour.
 // `live` marks the object being worked on; everything else may come from the cache.
 // With `chunks` (in index-buffer order, covering the mesh) and Renderer.cull, only the
-// chunks that can be seen are drawn; `model` must then be translation plus uniform
-// scale, as the culling transforms the eye into the mesh's space with its inverse.
+// chunks that can be seen are drawn; `model` must then be a similarity (rotation,
+// translation, uniform scale), as the culling transforms the eye into the mesh's space
+// with its inverse and takes distances there.
 Draw_Item :: struct {
 	mesh:   ^Mesh_Buffers,
 	model:  Mat4,

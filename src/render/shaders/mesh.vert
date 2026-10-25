@@ -6,7 +6,7 @@ layout(location = 1) in vec2 in_normal_oct; // octahedral with the mask in the l
 layout(set = 1, binding = 0) uniform Frame_Uniforms {
 	mat4 view_proj;
 	mat4 view;
-	mat4 model; // translation and uniform scale only, so it also transforms normals
+	mat4 model; // rotation, translation and uniform scale only, so it also transforms normals
 };
 
 layout(location = 0) out vec3 out_view_normal;

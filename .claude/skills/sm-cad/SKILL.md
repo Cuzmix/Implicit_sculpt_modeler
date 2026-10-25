@@ -27,8 +27,8 @@ description: CAD-style mesh tools inside this app on geom.Mesh — primitives, b
   (`.Duplicate` → `scene_duplicate`, Ctrl+Shift+D) copies an object through `object_put`/`object_get`.
 - Dynamic topology (sm-sculpt) splits and collapses edges under the brush; a tool reading a dynamic object's mesh takes
   `sculpt.sculptor_compact_mesh` first, as `object_remesh` does, since the paged layout has unused slots.
-- There are no booleans, trims or primitives besides spheres, no rotation (`Transform` is position plus uniform scale,
-  `:14-20`, and `Draw_Item.model` must stay so, `src/render/renderer.odin:115-119`), no measurement or snapping. Undo
+- There are no booleans, trims or primitives besides spheres, `Transform` is position, uniform scale and Euler rotation in degrees (`transform_rotation`,
+  `to_local`/`to_local_dir`; `Draw_Item.model` must stay a similarity, `src/render/renderer.odin:115-119`), no measurement or snapping. Undo
   stores positions or masks per node, or whole nodes under dynamic topology (`src/sculpt/undo.odin:9-15`); a whole-object
   rebuild (remesh, mirror and weld, dyntopo toggle, level deletion, add/delete/duplicate) is a swap entry in the app's
   `History` ([references/undo-and-topology.md](references/undo-and-topology.md)). The only field CSG is the SDF spike's smooth union (sm-sdf);

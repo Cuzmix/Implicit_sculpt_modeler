@@ -42,7 +42,7 @@ check` and `build.bat test` again. Report the items you could not verify.
   `sculptor_compact_mesh`, never from `len(mesh.positions)`.
 - Anything the user can do is undoable (a stroke, a mask command, or a designed history entry; Remesh and turning
   dynamic topology on or off are the known exceptions, and they clear the object's history); anything that frees scene state is a
-  `Scene_Command` applied at the next frame start; `Draw_Item.model` stays translation plus uniform scale;
+  `Scene_Command` applied at the next frame start; `Draw_Item.model` stays a similarity (rotation, translation, uniform scale);
   `viewport_invalidate` when what is drawn changed without a version bump.
 - Error paths return errors (`false`, or `log.warn` and `return true` for a refused user action); programmer errors assert.
 
