@@ -30,6 +30,7 @@ File_Kind :: enum u8 {
 	Open,   // a .sculpt file replaces the scene
 	Alpha,  // an image becomes a brush alpha (alphas.odin)
 	Screenshot, // the viewport image goes to a PNG file
+	Timelapse,  // the History is recorded as PNG frames into a folder (timeline.odin)
 }
 
 File_Request :: struct {
@@ -96,6 +97,8 @@ file_dialog :: proc(app: ^App, kind: File_Kind) {
 		sdl.ShowOpenFileDialog(file_dialog_done, userdata, app.window, raw_data(IMAGE_FILTERS[:]), len(IMAGE_FILTERS), nil, false)
 	case .Screenshot:
 		sdl.ShowSaveFileDialog(file_dialog_done, userdata, app.window, raw_data(PNG_FILTERS[:]), len(PNG_FILTERS), nil)
+	case .Timelapse:
+		sdl.ShowOpenFolderDialog(file_dialog_done, userdata, app.window, nil, false)
 	}
 }
 
@@ -202,6 +205,8 @@ file_apply :: proc(app: ^App, req: File_Request) -> bool {
 		_ = alpha_load(app, req.path)
 	case .Screenshot:
 		_ = screenshot_save(app, req.path)
+	case .Timelapse:
+		timelapse_start(app, req.path)
 	}
 	return true
 }

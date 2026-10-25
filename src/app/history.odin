@@ -32,6 +32,19 @@ History_Entry :: struct {
 	// Undone and redone together with the entry before it, as one step: a slice changes
 	// one object and adds another.
 	chain: bool,
+	// What the step was and when it was made, for the History panel's timeline.
+	kind:  History_Kind,
+	what:  string, // not owned: a constant
+	at:    time.Tick,
+}
+
+// What kind of change a step is; the History panel colours its timeline by it.
+History_Kind :: enum u8 {
+	Stroke,  // a brush stroke
+	Mask,    // a mask command or shape
+	Hide,    // hiding or showing
+	Deform,  // a whole-object deformation: Smooth all, Clip
+	Rebuild, // a swap entry: the object rebuilt, added or removed
 }
 
 // An object as object_put writes it, or that it did not exist. Undoing or redoing a swap
@@ -95,7 +108,7 @@ history_snapshot_drop :: proc(snap: ^Object_Snapshot) {snapshot_free(snap)}
 history_record_swap :: proc(app: ^App, id: int, before: ^Object_Snapshot, chain := false) {
 	history_drop_redo(app)
 	history_forget_strokes(app, id)
-	append(&app.history.done, History_Entry{id = id, swap = before, chain = chain && len(app.history.done) > 0})
+	append(&app.history.done, History_Entry{id = id, swap = before, chain = chain && len(app.history.done) > 0, kind = .Rebuild, what = before.what, at = time.tick_now()})
 	app.history.swap_bytes += len(before.bytes)
 	// Over the limit, the oldest snapshots go, with every entry older than them, since
 	// undo cannot skip a swap; strokes older than a swap are dropped anyway, so the
@@ -134,7 +147,7 @@ stroke_finish :: proc(app: ^App) {
 	obj := object_by_id(app, app.stroke.object)
 	if obj == nil do return
 	sculpt.sculptor_grab_end(object_sculptor(obj))
-	if sculpt.sculptor_stroke_end(object_sculptor(obj)) do history_record(app, obj)
+	if sculpt.sculptor_stroke_end(object_sculptor(obj)) do history_record(app, obj, .Mask if app.stroke.kind == .Mask else .Stroke, BRUSH_NAMES[app.stroke.kind])
 }
 
 // Applies a mask command to the selected object as an undo step of its own; Blur,
@@ -148,7 +161,7 @@ mask_command :: proc(app: ^App, command: sculpt.Mask_Command) {
 	steps := int(max(app.ui.mask_steps, 1))
 	changed := sculpt.sculptor_mask_command(object_sculptor(obj), command, steps)
 	app.ui.mask_last = {command = command, steps = steps, ms = time.duration_milliseconds(time.tick_since(start)), changed = changed, set = true}
-	if changed do history_record(app, obj)
+	if changed do history_record(app, obj, .Mask, MASK_COMMAND_NAMES[command])
 }
 
 // Masks (or unmasks) what of the selected object falls inside `shape`, a polygon in
@@ -170,7 +183,7 @@ mask_shape_command :: proc(app: ^App, shape: [][2]f32, size: [2]f32, unmask: boo
 	}
 	changed := sculpt.sculptor_mask_shape(object_sculptor(obj), object_clip(app, obj, size), shape, unmask, front)
 	app.ui.mask_last = {command = .Fill if !unmask else .Clear, ms = time.duration_milliseconds(time.tick_since(start)), changed = changed, set = true, shape = true}
-	if changed do history_record(app, obj)
+	if changed do history_record(app, obj, .Mask, "Unmask shape" if unmask else "Mask shape")
 }
 
 // Smooths the whole selected object `steps` times as an undo step of its own
@@ -206,7 +219,7 @@ smooth_command :: proc(app: ^App, steps: int) {
 	} else {
 		log.infof("smooth all: %d steps on the CPU in %.0f ms%s", steps, ms, "" if changed else ", nothing changed")
 	}
-	if changed do history_record(app, obj)
+	if changed do history_record(app, obj, .Deform, "Smooth all")
 }
 
 // Makes the compute pipeline the first time the GPU is asked to smooth. False (and the
@@ -288,7 +301,7 @@ hide_done :: proc(app: ^App, obj: ^Object, changed: bool, start: time.Tick, what
 	hidden := sculpt.sculptor_hidden_count(object_sculptor(obj))
 	log.infof("%s: %d of %d triangles hidden, %.0f ms%s", what, hidden, object_triangle_count(obj), app.ui.hide_last.ms, "" if changed else ", nothing changed")
 	if !changed do return
-	history_record(app, obj)
+	history_record(app, obj, .Hide, what)
 	render.viewport_invalidate(&app.target)
 }
 
@@ -332,15 +345,27 @@ clip_command :: proc(app: ^App, a, b: [2]f32, flip: bool, size: [2]f32) {
 	changed := sculpt.sculptor_clip(object_sculptor(obj), planes[:])
 	app.ui.clip_last = {ms = time.duration_milliseconds(time.tick_since(start)), changed = changed, set = true}
 	log.infof("clip: %.0f ms%s", app.ui.clip_last.ms, "" if changed else ", nothing changed")
-	if changed do history_record(app, obj)
+	if changed do history_record(app, obj, .Deform, "Clip")
 }
 
 // Lists the stroke (or mask command) the object's current sculptor just finished as
 // the newest undo step.
 @(private = "file")
-history_record :: proc(app: ^App, obj: ^Object) {
+history_record :: proc(app: ^App, obj: ^Object, kind: History_Kind, what: string) {
 	history_drop_redo(app)
-	append(&app.history.done, History_Entry{id = obj.id, level = HD_LEVEL if object_in_hd(obj) else obj.levels.current})
+	append(&app.history.done, History_Entry{id = obj.id, level = HD_LEVEL if object_in_hd(obj) else obj.levels.current, kind = kind, what = what, at = time.tick_now()})
+}
+
+@(private = "file", rodata)
+MASK_COMMAND_NAMES := [sculpt.Mask_Command]string {
+	.Clear   = "Clear mask",
+	.Invert  = "Invert mask",
+	.Fill    = "Mask all",
+	.Cavity  = "Mask cavities",
+	.Blur    = "Blur mask",
+	.Sharpen = "Sharpen mask",
+	.Grow    = "Grow mask",
+	.Shrink  = "Shrink mask",
 }
 
 // A new step discards everything that could have been redone, everywhere.
