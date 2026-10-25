@@ -20,6 +20,7 @@ Ui_State :: struct {
 	layout_built:     bool,
 	show_demo:        bool,
 	sphere_vertices:  i32, // vertex count typed into the Scene panel for Add and Remesh
+	add_shape:        geom.Primitive, // what the Scene panel's Add adds
 	// Set by the Scene panel; the app applies it at the start of the next frame.
 	scene_command:    Scene_Command,
 	// Where the viewport image was drawn this frame, so the overlay (brush circle,
@@ -657,7 +658,7 @@ draw_scene_panel :: proc(app: ^App) {
 		draw_levels_section(app, obj)
 	}
 
-	imgui.SeparatorText("Sphere resolution")
+	imgui.SeparatorText("New object and remesh")
 	imgui.SetNextItemWidth(-90)
 	imgui.InputInt("Vertices", &app.ui.sphere_vertices, 10_000, 1_000_000)
 	app.ui.sphere_vertices = clamp(app.ui.sphere_vertices, MIN_SPHERE_VERTICES, MAX_SPHERE_VERTICES)
@@ -667,11 +668,19 @@ draw_scene_panel :: proc(app: ^App) {
 	}
 	// Geodesic spheres come in steps of 10*f^2 + 2 vertices; show what will be built.
 	f := geom.geodesic_frequency_for(int(app.ui.sphere_vertices))
-	actual := 10 * f * f + 2
-	imgui.TextDisabled("Builds %d vertices, about %s of memory", i32(actual), fmt.ctprintf("%s", bytes_label(actual * BYTES_PER_VERTEX)))
+	actual := 10 * f * f + 2 if app.ui.add_shape == .Sphere else int(app.ui.sphere_vertices)
+	imgui.TextDisabled("%s %d vertices, about %s of memory", cstring("Builds") if app.ui.add_shape == .Sphere else cstring("Builds about"), i32(actual), fmt.ctprintf("%s", bytes_label(actual * BYTES_PER_VERTEX)))
 
 	requested := int(app.ui.sphere_vertices)
-	if imgui.Button("Add sphere") do app.ui.scene_command = {kind = .Add, vertices = requested}
+	imgui.SetNextItemWidth(110)
+	if imgui.BeginCombo("##shape", fmt.ctprintf("%v", app.ui.add_shape)) {
+		for shape in geom.Primitive {
+			if imgui.Selectable(fmt.ctprintf("%v", shape), shape == app.ui.add_shape) do app.ui.add_shape = shape
+		}
+		imgui.EndCombo()
+	}
+	imgui.SameLine()
+	if imgui.Button(fmt.ctprintf("Add %v", app.ui.add_shape)) do app.ui.scene_command = {kind = .Add, vertices = requested, shape = app.ui.add_shape}
 	imgui.SameLine()
 	imgui.BeginDisabled(selected_object(app) == nil)
 	if imgui.Button("Remesh selected") do app.ui.scene_command = {kind = .Remesh, vertices = requested}

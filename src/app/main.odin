@@ -29,6 +29,7 @@ Options :: struct {
 	gpu_debug: bool `usage:"Create the GPU device in debug mode (enables validation where available)."`,
 	subdiv:    int `usage:"Icosphere subdivision level (default 6)."`,
 	vertices:  int `usage:"Start with a geodesic sphere of about this many vertices instead (e.g. 10000000)."`,
+	shape:     string `usage:"Start with this shape instead of spheres: cube, cylinder, cone or torus (of --vertices vertices, 40962 when not given), as the Scene panel's Add does."`,
 	threads:   int `usage:"Worker threads for sculpting, including the main thread (default: one per core)."`,
 	width:     int `usage:"Initial window width (default 1600)."`,
 	height:    int `usage:"Initial window height (default 900)."`,
@@ -202,8 +203,25 @@ run :: proc(opts: Options) -> bool {
 	}
 	// Spheres unless a file gave the scene; then the steps below apply to its objects.
 	starting := 0 if opts.open != "" || opts.import_mesh != "" else max(opts.spheres, 1)
+	shape := geom.Primitive.Sphere
+	if opts.shape != "" {
+		found := false
+		for p in geom.Primitive {
+			if !strings.equal_fold(opts.shape, fmt.tprint(p)) do continue
+			shape, found = p, true
+		}
+		if !found {
+			log.errorf("unknown --shape %q", opts.shape)
+			return false
+		}
+	}
 	for _ in 0 ..< starting {
-		if !scene_add_sphere(&app, opts.vertices, opts.subdiv, {position = next_free_position(&app), scale = 1}) do return false
+		t := Transform{position = next_free_position(&app), scale = 1}
+		if shape == .Sphere {
+			if !scene_add_sphere(&app, opts.vertices, opts.subdiv, t) do return false
+		} else {
+			if !scene_add_primitive(&app, shape, opts.vertices if opts.vertices > 0 else 40962, t) do return false
+		}
 	}
 	for obj in app.scene.objects {
 		defer if opts.hd > 0 && !sculpt.levels_hd_set_steps(&obj.levels, opts.hd) do log.warn("HD: the top level is not a closed manifold mesh")
