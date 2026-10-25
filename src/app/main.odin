@@ -54,7 +54,8 @@ Options :: struct {
 	stroke:    string `usage:"Start with this stroke: dots (the default) or drag_rect (one stamp sized and turned by the drag, as the Tools panel's Drag rectangle)."`,
 	front_only: bool `usage:"Start with Front faces only on: brushes and mask shapes leave what faces away from the viewer."`,
 	symmetry:  string `usage:"Start with brush symmetry across these axes, e.g. x or xz."`,
-	material:  string `usage:"Shade objects with this View > Material: clay (the default), red wax, white, grey or skin."`,
+	material:  string `usage:"Shade objects with this View > Material: clay (the default), red wax, white, grey, skin, gold, copper, chrome, steel, plastic, ceramic, rubber or pbr clay."`,
+	flat:      bool `usage:"Start with flat shading, each triangle lit by its own normal, as View > Flat shading does."`,
 	ortho:     bool `usage:"Start with parallel (orthographic) projection, as View > Orthographic (P) does."`,
 	view:      string `usage:"Start looking from front, back, right, left, top or bottom, as View > Look from does."`,
 	wireframe: bool `usage:"Show the selected object's edges, as View > Wireframe (Shift+F) does."`,
@@ -76,6 +77,9 @@ Options :: struct {
 	no_vsync:  bool `usage:"Show each frame as soon as it is ready instead of waiting for the display's refresh, so frame times are not capped at the refresh rate."`,
 	time_gpu:  bool `usage:"Measure the GPU time of the 3D viewport every frame. Waits for the GPU each frame, so frames no longer overlap."`,
 	gpubench:  string `usage:"Time the GPU and CPU while orbiting and sculpting one sphere at 500k, 1M, 5M, 7M and 10M vertices (only --vertices when given), with each speed setting on and off; write the markdown tables to this path and exit."`,
+	gpu_smooth: bool `usage:"Start with Tools > Deformation > On the GPU checked, so Smooth all runs as a compute shader (the GPU compute trial)."`,
+	smooth_all: int `usage:"Smooth the first object this many steps before starting, as Tools > Deformation > Smooth all does (after the other start-up changes; on the GPU with --gpu-smooth)."`,
+	compute_bench: string `usage:"Time Smooth all on the CPU and as a GPU compute shader, upload and readback included, at 500k, 1M, 5M, 7M and 10M vertices (only --vertices when given); check the GPU's result against the CPU's, write the markdown tables to this path and exit."`,
 	gpubench_frames: int `usage:"Measured frames per --gpubench case (default 120, at most 240)."`,
 	open:      string `usage:"Start with the scene saved in this .sculpt file instead of spheres, as File > Open scene does."`,
 	import_mesh: string `args:"name=import" usage:"Start with the mesh in this .obj or .ply file instead of spheres (after any --open), as File > Import mesh does."`,
@@ -95,6 +99,8 @@ App :: struct {
 	mask_shape: Mask_Shape, // a Ctrl + drag on empty space in progress (mask_shape.odin)
 	clip:     Clip_Gesture, // a Ctrl + Shift + drag in progress (clip.odin)
 	gesture:  Gesture_Tool, // what a Ctrl + Shift + drag does
+	smooth_gpu: render.Smooth_Compute, // Smooth all's compute shader and buffers, made on first use
+	smooth_gpu_failed: bool, // the device refused the compute pipeline; Smooth all stays on the CPU
 	// Each brush's drawn falloff as the sculptor reads it, remade when its curve changes.
 	falloff_tables: [sculpt.Brush_Kind]struct {
 		falloff: sculpt.Falloff,
@@ -112,7 +118,9 @@ App :: struct {
 	ui:       Ui_State,
 	stats:    Frame_Stats,
 	history:  History,
-	material:  int,  // the index in MATERIALS objects are shaded with
+	material:  int,  // the index in MATERIALS objects are shaded with, or CUSTOM_MATERIAL
+	custom:    Material, // what View > Material's sliders made
+	flat:      bool, // shade with each triangle's own normal (faceted) instead of smoothed normals
 	wireframe: bool, // draw the selected object's edges over it
 	cache_idle: bool, // draw unselected objects from the viewport cache while they stay put
 	hd_window_vertices: int, // size of the HD windows the A key opens
@@ -190,10 +198,12 @@ run :: proc(opts: Options) -> bool {
 	defer file_shutdown(&app)
 	if !render.renderer_init(&app.renderer, window, opts.gpu_debug) do return false
 	defer render.renderer_destroy(&app.renderer)
+	defer render.smooth_compute_destroy(&app.renderer, &app.smooth_gpu)
 
 	jobs.pool_init(&app.pool, opts.threads - 1 if opts.threads > 0 else 0)
 	defer jobs.pool_destroy(&app.pool)
 	log.infof("sculpt threads: %d", jobs.pool_size(&app.pool))
+	if opts.compute_bench != "" do return computebench_run(&app, opts.compute_bench, opts.vertices)
 	app.scene.selected = -1
 	defer scene_destroy(&app)
 	defer history_destroy(&app.history)
@@ -355,6 +365,8 @@ run :: proc(opts: Options) -> bool {
 
 	if len(app.scene.objects) > 1 do frame_all(&app)
 	app.cache_idle = !opts.no_cache
+	app.custom = MATERIALS[len(MATERIALS) - 1]
+	app.custom.label = "Custom"
 	app.renderer.cull = !opts.no_cull
 	app.renderer.partial = !opts.no_partial
 	app.simplify = !opts.no_simplify
@@ -370,9 +382,12 @@ run :: proc(opts: Options) -> bool {
 	if remember do settings = strings.clone(settings)
 	defer delete(settings)
 	settings_load(&app, settings)
+	app.ui.smooth_on_gpu = opts.gpu_smooth
+	if opts.smooth_all > 0 do smooth_command(&app, opts.smooth_all)
 	defer if remember do _ = settings_save(&app, settings)
 	if opts.ortho do app.camera.ortho = true
 	if opts.wireframe do app.wireframe = true
+	if opts.flat do app.flat = true
 	if opts.front_only do app.brush.front_only = true
 	if opts.stroke != "" {
 		found := false
@@ -607,12 +622,14 @@ run :: proc(opts: Options) -> bool {
 				// The selected object is in the material's colour; the others are muted. Only
 				// the selected one is sculpted or moved, so the rest can come from the cache.
 				selected := i == app.scene.selected
-				material := MATERIALS[app.material]
+				material := current_material(&app)
 				append(&draws, render.Draw_Item {
 					mesh   = gpu,
 					model  = transform_matrix(obj.transform),
 					color  = material.selected if selected else material.idle,
 					material = material.shading,
+					surface = {material.metallic, material.roughness},
+					flat = app.flat,
 					wireframe = selected && app.wireframe,
 					live   = selected,
 					chunks = lv.sculptor.chunks,

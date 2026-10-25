@@ -173,6 +173,55 @@ mask_shape_command :: proc(app: ^App, shape: [][2]f32, size: [2]f32, unmask: boo
 	if changed do history_record(app, obj)
 }
 
+// Smooths the whole selected object `steps` times as an undo step of its own
+// (sculpt.sculptor_smooth_all), on the GPU when the Deformation section asks and the
+// compute pipeline can be made, otherwise on the CPU.
+smooth_command :: proc(app: ^App, steps: int) {
+	stroke_finish(app)
+	obj := selected_object(app)
+	if obj == nil do return
+	start := time.tick_now()
+	Gpu_Run :: struct {
+		app:    ^App,
+		timing: render.Smooth_Timing,
+	}
+	run := Gpu_Run{app = app}
+	gpu: sculpt.Smooth_Gpu
+	if app.ui.smooth_on_gpu && smooth_gpu_ready(app) {
+		gpu = {&run, proc(data: rawptr, job: sculpt.Smooth_Gpu_Job) -> bool {
+			run := cast(^Gpu_Run)data
+			timing, ok := render.smooth_compute_run(&run.app.renderer, &run.app.smooth_gpu, job.positions, job.indices,
+				job.faces.offsets, job.faces.tris, job.weights, job.steps, 0)
+			run.timing = timing
+			return ok
+		}}
+	}
+	changed, on_gpu := sculpt.sculptor_smooth_all(object_sculptor(obj), max(steps, 1), app.ui.smooth_strength, gpu)
+	ms := time.duration_milliseconds(time.tick_since(start))
+	app.ui.smooth_last = {steps = max(steps, 1), ms = ms, changed = changed, on_gpu = on_gpu, gpu = run.timing, set = true}
+	if on_gpu {
+		t := run.timing
+		log.infof("smooth all: %d steps on the GPU in %.0f ms (upload %.1f ms, %.0f MB; compute %.1f ms; readback %.1f ms)",
+			steps, ms, t.upload_ms, t.upload_mb, t.compute_ms, t.readback_ms)
+	} else {
+		log.infof("smooth all: %d steps on the CPU in %.0f ms%s", steps, ms, "" if changed else ", nothing changed")
+	}
+	if changed do history_record(app, obj)
+}
+
+// Makes the compute pipeline the first time the GPU is asked to smooth. False (and the
+// CPU smooths) when the device refuses it; it is not asked again.
+@(private = "file")
+smooth_gpu_ready :: proc(app: ^App) -> bool {
+	if app.smooth_gpu.pipeline != nil do return true
+	if app.smooth_gpu_failed do return false
+	if !render.smooth_compute_init(&app.renderer, &app.smooth_gpu) {
+		app.smooth_gpu_failed = true
+		return false
+	}
+	return true
+}
+
 // Hides or shows all of the selected object at once, as an undo step of its own
 // (sculpt.sculptor_hide_command).
 hide_command :: proc(app: ^App, command: sculpt.Hide_Command) {

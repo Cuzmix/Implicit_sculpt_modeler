@@ -77,7 +77,15 @@ settings_load :: proc(app: ^App, path: string) {
 		case "alpha_angle": b.alpha_angle = number(f[1], b.alpha_angle)
 		case "material":
 			if i, ok := material_by_name(strings.join(f[1:], " ", context.temp_allocator)); ok do app.material = i
+		case "custom_material":
+			if len(f) >= 6 {
+				c := &app.custom
+				for k in 0 ..< 3 do c.selected[k] = clamp(number(f[1 + k], c.selected[k]), 0, 1)
+				c.metallic = clamp(number(f[4], c.metallic), 0, 1)
+				c.roughness = clamp(number(f[5], c.roughness), 0.04, 1)
+			}
 		case "wireframe":  app.wireframe = f[1] == "1"
+		case "flat":       app.flat = f[1] == "1"
 		case "ortho":      app.camera.ortho = f[1] == "1"
 		case "new_vertices":
 			app.ui.sphere_vertices = i32(clamp(int(number(f[1], f32(app.ui.sphere_vertices))), MIN_SPHERE_VERTICES, MAX_SPHERE_VERTICES))
@@ -134,8 +142,11 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 	fmt.sbprintfln(&out, "collapse %d", bit(b.collapse))
 	fmt.sbprintfln(&out, "alpha_mode %v", b.alpha_mode)
 	fmt.sbprintfln(&out, "alpha_angle %g", b.alpha_angle)
-	fmt.sbprintfln(&out, "material %s", MATERIALS[app.material].label)
+	fmt.sbprintfln(&out, "material %s", current_material(app).label)
+	m := app.custom
+	fmt.sbprintfln(&out, "custom_material %g %g %g %g %g", m.selected.r, m.selected.g, m.selected.b, m.metallic, m.roughness)
 	fmt.sbprintfln(&out, "wireframe %d", bit(app.wireframe))
+	fmt.sbprintfln(&out, "flat %d", bit(app.flat))
 	fmt.sbprintfln(&out, "ortho %d", bit(app.camera.ortho))
 	fmt.sbprintfln(&out, "new_vertices %d", app.ui.sphere_vertices)
 	fmt.sbprintfln(&out, "new_shape %v", app.ui.add_shape)

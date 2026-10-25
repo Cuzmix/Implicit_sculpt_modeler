@@ -18,9 +18,9 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   (`raw & ~15` is the normal; the nibbles give `out_mask` at location 2) and `mesh.frag` darkens masked clay
   (`albedo · (1 − 0.7 · mask)`, highlights `· (1 − 0.5 · mask)`).
 - Uniforms: `Frame_Uniforms{view_proj, view, model}` (std140, column-major, `renderer.odin:108-113`) pushed per draw; `Material_Uniforms
-  {base_color, params (ambient, specular strength, power, wrap)}`; `params.y < 0` makes `mesh.frag` write the flat colour (the wireframe) (`renderer.odin:154-158`). Shaders are `.spv` embedded with `#load`
+  {base_color, params (ambient, specular strength, power, wrap), surface (metallic, roughness, flat)}`; `params.y < 0` makes `mesh.frag` write the flat colour (the wireframe); `surface.y > 0` takes the physically based path (GGX key and fill lights, a procedural studio blurred by roughness, Karis's environment BRDF fit, ACES curve), 0 the classic Blinn-Phong one, which stays pixel-identical; `surface.z` shades with the face normal from `dFdx`/`dFdy` of the view position (no vertex data) (`renderer.odin:154-158`). Shaders are `.spv` embedded with `#load`
   (`renderer.odin:160-163`), compiled from `src/render/shaders/*.vert|*.frag` only when `glslangValidator` is on PATH (sm-build).
-- `Draw_Item{mesh, model, color, material, wireframe, live, chunks, damage, lod, hidden}` (`renderer.odin:115-137`): `material` is
+- `Draw_Item{mesh, model, color, material, surface, flat, wireframe, live, chunks, damage, lod, hidden}` (`renderer.odin:115-137`): `surface` is metallic and roughness (roughness 0 = classic), `flat` faceted shading; both are in the frame and cache keys; `material` is
   ambient, specular, power and wrap (zero = `DEFAULT_MATERIAL`, the app's presets in `src/app/material.odin`); `wireframe` draws
   the same chunks again through `wire_pipeline` (`.LINE` fill, depth bias, no depth write, `WIRE_COLOR`), which is optional:
   if a backend refuses line fill it logs a warning and stays off; `model` is a similarity (rotation, translation,
@@ -51,6 +51,12 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   cycled transfer buffer and bumps `version` (`:488`); `mesh_buffers_upload_indices` uploads index ranges (dynamic
   topology's whole changed pages, `sculptor_index_ranges`) and asserts they fit `index_count` (`:575`); `mesh_buffers_upload_lod` drops the LOD buffer on failure so the mesh
   draws at full detail; `viewport_download` returns RGBA8 rows top to bottom after waiting for the GPU (tests and dumps).
+- Compute (the GPU compute trial, `src/render/smooth_compute.odin`): `Smooth_Compute` holds the `smooth_all.comp` pipeline,
+  six storage buffers (indices, CSR offsets and tris, weights, two position buffers) and an upload and a download transfer
+  buffer, all grown on demand and kept; `smooth_compute_run` uploads (topology only when its key changed or is 0),
+  dispatches one compute pass a step (SDL_GPU orders passes, not dispatches inside one) in rows of at most 65535
+  groups, downloads, and waits on a fence after each part to time it (`Smooth_Timing`). SDL's SPIR-V compute layout:
+  set 0 read-only storage, set 1 read-write storage, set 2 uniforms. `build.sh` compiles `*.comp` with the other shaders.
 
 ## Verify what you draw
     build\sculpt.exe --vertices=500000 --frames=60 --dump-viewport=build\a.ppm
