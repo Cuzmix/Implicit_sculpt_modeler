@@ -9,6 +9,8 @@ import "../gizmo"
 Tool :: enum u8 {
 	Move, // select objects by clicking them; move them with the gizmo or by dragging
 	Brush, // sculpt the object under the cursor
+	Curve, // draw a tube, stitches or a zipper over the surface (curve_tool.odin)
+	Insert, // put a shape on the surface (curve_tool.odin)
 }
 
 Move_Tool :: struct {

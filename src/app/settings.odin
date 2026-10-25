@@ -100,6 +100,14 @@ settings_load :: proc(app: ^App, path: string) {
 			for kind in Mask_Shape_Kind do if strings.equal_fold(f[1], fmt.tprint(kind)) do app.ui.mask_shape_kind = kind
 		case "gesture":
 			for tool in Gesture_Tool do if strings.equal_fold(f[1], fmt.tprint(tool)) do app.gesture = tool
+		case "curve":
+			for kind in Curve_Kind do if strings.equal_fold(f[1], fmt.tprint(kind)) do app.curve.kind = kind
+		case "curve_width": app.curve.size = clamp(number(f[1], app.curve.size), 0.05, 2)
+		case "curve_lift":  app.curve.lift = clamp(number(f[1], app.curve.lift), -1, 2)
+		case "curve_sides": app.curve.sides = i32(clamp(number(f[1], f32(app.curve.sides)), 3, 64))
+		case "insert":
+			for shape in geom.Primitive do if strings.equal_fold(f[1], fmt.tprint(shape)) do app.insert.shape = shape
+		case "insert_sink": app.insert.sink = clamp(number(f[1], app.insert.sink), -1, 1)
 		}
 	}
 	log.infof("settings: read %s", path)
@@ -160,6 +168,12 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 	fmt.sbprintfln(&out, "mask_steps %d", app.ui.mask_steps)
 	fmt.sbprintfln(&out, "mask_shape %v", app.ui.mask_shape_kind)
 	fmt.sbprintfln(&out, "gesture %v", app.gesture)
+	fmt.sbprintfln(&out, "curve %v", app.curve.kind)
+	fmt.sbprintfln(&out, "curve_width %g", app.curve.size)
+	fmt.sbprintfln(&out, "curve_lift %g", app.curve.lift)
+	fmt.sbprintfln(&out, "curve_sides %d", app.curve.sides)
+	fmt.sbprintfln(&out, "insert %v", app.insert.shape)
+	fmt.sbprintfln(&out, "insert_sink %g", app.insert.sink)
 	if err := os.write_entire_file(path, transmute([]u8)strings.to_string(out)); err != nil {
 		log.warnf("settings: could not write %s: %v", path, err)
 		return false
