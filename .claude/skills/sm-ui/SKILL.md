@@ -72,7 +72,8 @@ description: The Dear ImGui interface in src/app/ui.odin and the frame loop arou
 | a viewport input that tools must not see | clear it with `viewport_mute` (`src/app/adjust.odin`) before the tools read `Viewport_Input`; never filter inside a tool |
 | an A/B toggle | `imgui.Checkbox("…", &app.<field>)` plus a `--no-<x>` field in `Options` and a sentence in README "App flags" |
 | a shortcut | a line in `handle_shortcuts` and README "Controls" |
-| a key for a new brush | nothing: keys 1–9 and 0 follow `Brush_Kind`'s order, so an eleventh kind on (Snake hook) has none and is picked in the panel or pie; add its name to `BRUSH_NAMES` and `BRUSH_HELP` (sm-sculpt has the brush checklist) |
+| a setting that should survive a restart | a `key values` line in both `settings_save` and `settings_load` (`src/app/settings.odin`; unknown keys are skipped, values clamped); a flag that sets it too must only override when given, since the load runs before the flags |
+| a key for a new brush | nothing: keys 1–9 and 0 follow `Brush_Kind`'s order, so the eleventh kind on (Snake hook, Morph) has none and is picked in the panel or pie; add its name to `BRUSH_NAMES` and `BRUSH_HELP` (sm-sculpt has the brush checklist) |
 | text with numbers | `imgui.Text("%d", i32(n))`; strings through `fmt.ctprintf` (temp memory, fine within the frame); `count_label`/`bytes_label` for human sizes (`ui.odin:712-727`) |
 | a greyed-out control | `imgui.BeginDisabled(cond)` … `imgui.EndDisabled()` pairs |
 

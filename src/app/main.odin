@@ -26,6 +26,7 @@ import "../sculpt"
 
 Options :: struct {
 	frames:    int `usage:"Exit after this many frames (0 runs until the window closes)."`,
+	no_settings: bool `usage:"Neither read nor write the remembered settings (brush, view, Scene panel choices); runs with --frames or a benchmark never do."`,
 	gpu_debug: bool `usage:"Create the GPU device in debug mode (enables validation where available)."`,
 	subdiv:    int `usage:"Icosphere subdivision level (default 6)."`,
 	vertices:  int `usage:"Start with a geodesic sphere of about this many vertices instead (e.g. 10000000)."`,
@@ -338,7 +339,15 @@ run :: proc(opts: Options) -> bool {
 	app.ui = ui_state_default()
 	app.brush = {kind = .Draw, radius_px = 60, pressure_strength = true, pressure_curve = geom.CURVE_LINEAR, detail_px = 10, collapse = true, alpha = -1}
 	for &s in app.brush.strengths do s = 0.5
-	app.wireframe = opts.wireframe
+	// What earlier interactive runs left, before the flags, which win over it.
+	remember := opts.frames == 0 && opts.gpubench == "" && opts.bench_stroke == 0 && !opts.no_settings
+	settings := settings_path() if remember else ""
+	if remember do settings = strings.clone(settings)
+	defer delete(settings)
+	settings_load(&app, settings)
+	defer if remember do _ = settings_save(&app, settings)
+	if opts.ortho do app.camera.ortho = true
+	if opts.wireframe do app.wireframe = true
 	if opts.material != "" {
 		found: bool
 		app.material, found = material_by_name(opts.material)
@@ -360,7 +369,7 @@ run :: proc(opts: Options) -> bool {
 		}
 	}
 	if opts.detail > 0 do app.brush.detail_px = opts.detail
-	app.brush.tilt_strength = clamp(opts.tilt_strength, 0, 1)
+	if opts.tilt_strength > 0 do app.brush.tilt_strength = clamp(opts.tilt_strength, 0, 1)
 	if opts.brush != "" {
 		kind, found := brush_by_name(opts.brush)
 		if !found {
@@ -373,9 +382,10 @@ run :: proc(opts: Options) -> bool {
 	defer alphas_destroy(&app)
 	app.alpha_seed = 1
 	if opts.alpha != "" && !alpha_select(&app, opts.alpha) do return false
-	app.brush.alpha_angle = opts.alpha_angle
+	if opts.alpha_angle != 0 do app.brush.alpha_angle = opts.alpha_angle
 	switch strings.to_lower(opts.alpha_mode, context.temp_allocator) {
-	case "", "stroke": app.brush.alpha_mode = .Stroke
+	case "":
+	case "stroke":     app.brush.alpha_mode = .Stroke
 	case "fixed":      app.brush.alpha_mode = .Fixed
 	case "random":     app.brush.alpha_mode = .Random
 	case:
