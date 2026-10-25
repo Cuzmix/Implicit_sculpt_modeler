@@ -272,6 +272,10 @@ Scenes with subdivision levels, laid out as in the `--levels` table (a base of a
 
 Much of the time from 5M up is this VM's slow first touch of fresh memory (about 0.5 s per GB, sometimes several seconds), which a desktop does far faster: copying 120 MB into fresh memory took 0.7 s here. A real disk adds its read or write time; the Scene panel shows the last file's times (for an import, reading the disk and parsing apart).
 
+## Screenshots
+
+File > Save screenshot (F12) writes the viewport, as the last frame drew it and without the brush outline or gizmo, to a PNG file at the viewport's size. The encoder is this repo's own (`src/png_write`; Odin's `core:image/png` only reads): each row filtered with Sub or Up, deflated with greedy matches and the fixed codes, so a 1214 x 862 viewport is about 200 KB and takes about 25 ms in a release build. `--dump-viewport=PATH` does the same on exit, or writes a binary PPM when the path ends in `.ppm`, which `scripts/ppm.py` reads.
+
 ## Pen and brush pie
 
 The Tools panel's Pen section holds what a drawing tablet changes. "Pressure sets strength" and "size" choose what pen pressure scales; a mouse counts as full pressure. The pressure curve below them maps how hard the pen presses (along) to how much that counts as (up): a cubic Bézier from corner to corner whose two handles drag anywhere in the square, so it never falls back. Linear, Soft (light pressure goes far), Firm (it takes a press) and S are presets. A dot on the curve follows the pen. The Tilt slider (0 by default) lets a leaning pen turn the brush: the direction Draw, Clay, Flatten, Pinch and Crease push in leans toward the pen's top, by the pen's lean times the slider, at most 81 degrees, as Blender's tilt does; mirrored dabs lean the mirrored way. With tilt on, a line from the brush circle shows the lean. The readout under it shows the last pressure, what it counts as, and the lean. Tilt costs one small rotation a dab: a 2M stroke took the same brush time with it and without (1.27 to 1.33 ms p50 either way, run to run). SDL reports pen pressure and tilt on Windows (pointer messages) and on Linux (X11 and Wayland); neither is tested on a real tablet yet.
@@ -296,7 +300,7 @@ View > Material picks how objects are shaded: Clay (the default, as before), Red
 
 ## Controls
 
-Files: Ctrl+O opens a scene, Ctrl+S saves it (where it was last saved or opened, else it asks), Ctrl+Shift+S saves it somewhere else.
+Files: Ctrl+O opens a scene, Ctrl+S saves it (where it was last saved or opened, else it asks), Ctrl+Shift+S saves it somewhere else. F12 saves a screenshot.
 
 Tools: W selects Select / Move, B selects Brush. F points the camera at the selected object; Shift+F shows its wireframe. Delete deletes it (Ctrl+Z brings it back). Ctrl+D subdivides the selected object; D and Shift+D go up and down its levels; Ctrl+Shift+D duplicates it. Ctrl+R remeshes it at its own vertex count. Ctrl+T turns dynamic topology on or off for it. A opens an HD window where the pointer is on an object with an HD level, or closes the open one.
 

@@ -40,11 +40,12 @@ rem Library packages have no main, hence -no-entry-point; it is harmless on the 
 "%ODIN%" check "%ROOT%src\camera" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\gizmo" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\jobs" -no-entry-point %COMMON% || exit /b 1
+"%ODIN%" check "%ROOT%src\png_write" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\render" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\sculpt" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\sdf_trial" -no-entry-point %COMMON% || exit /b 1
 python "%ROOT%scripts\agents_sync.py" --check || exit /b 1
-echo check: 9 packages type-check, agent mirror current
+echo check: 10 packages type-check, agent mirror current
 exit /b 0
 
 :debug
@@ -72,6 +73,7 @@ exit /b 0
 "%ODIN%" test "%ROOT%src\sculpt" -out:"%ROOT%build\test_sculpt.exe" %COMMON% || exit /b 1
 "%ODIN%" test "%ROOT%src\jobs" -out:"%ROOT%build\test_jobs.exe" %COMMON% || exit /b 1
 "%ODIN%" test "%ROOT%src\gizmo" -out:"%ROOT%build\test_gizmo.exe" %COMMON% || exit /b 1
+"%ODIN%" test "%ROOT%src\png_write" -out:"%ROOT%build\test_png_write.exe" %COMMON% || exit /b 1
 exit /b 0
 
 :bench

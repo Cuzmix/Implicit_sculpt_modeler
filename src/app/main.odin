@@ -41,7 +41,7 @@ Options :: struct {
 	hd_window: int `usage:"Vertices an HD window holds (default 4000000)."`,
 	no_cache:  bool `usage:"Draw every object every frame instead of caching the idle ones (for comparison)."`,
 	no_cull:   bool `usage:"Draw every triangle instead of skipping off-screen and back-facing chunks (for comparison)."`,
-	dump_viewport: string `usage:"On exit, write the last viewport image to this path as a binary PPM (for checking renders)."`,
+	dump_viewport: string `usage:"On exit, write the last viewport image to this path: a PNG, or a binary PPM when it ends in .ppm (for checking renders), as File > Save screenshot does."`,
 	check_mesh: bool `usage:"On exit, check every object's current mesh (closed, consistently wound, no degenerate triangles or NaN) and print the counts as mesh_* lines (slow on large meshes)."`,
 	no_partial: bool `usage:"Redraw the whole viewport every frame instead of only what changed (for comparison)."`,
 	no_simplify: bool `usage:"Draw every chunk at full detail while the view moves too, instead of simplified copies of the far ones (for comparison)."`,
@@ -662,12 +662,7 @@ run :: proc(opts: Options) -> bool {
 		return false
 	}
 
-	if opts.dump_viewport != "" {
-		pixels := render.viewport_download(&app.renderer, &app.target, context.temp_allocator)
-		if pixels == nil || !write_ppm(opts.dump_viewport, pixels, int(app.target.width), int(app.target.height)) {
-			log.errorf("could not write %s", opts.dump_viewport)
-		}
-	}
+	if opts.dump_viewport != "" do _ = screenshot_save(&app, opts.dump_viewport)
 
 	if opts.export != "" {
 		obj := selected_object(&app)
