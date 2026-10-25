@@ -62,14 +62,19 @@ Levels :: struct {
 EVEN :: max(u32)
 
 // Takes `mesh` as the base level and prepares it for sculpting (see sculptor_init,
-// which renumbers the vertices and fills `old_to_new` when given one).
-levels_init :: proc(l: ^Levels, mesh: geom.Mesh, pool: ^jobs.Pool, node_triangles: u32 = NODE_TRIANGLES, old_to_new: []u32 = nil, allocator := context.allocator) {
+// which renumbers the vertices and fills `old_to_new` when given one). With a `layout`
+// that fits the mesh (see sculptor_init_laid_out), the mesh keeps its order instead.
+levels_init :: proc(l: ^Levels, mesh: geom.Mesh, pool: ^jobs.Pool, node_triangles: u32 = NODE_TRIANGLES, old_to_new: []u32 = nil, allocator := context.allocator, layout: []Node_Sizes = nil) {
 	l.pool, l.node_triangles, l.allocator = pool, node_triangles, allocator
 	l.levels = make([dynamic]^Level, 0, MAX_LEVELS, allocator)
 	l.residual = make([dynamic]Vec3, allocator)
 	base := new(Level, allocator)
 	base.mesh = mesh
-	sculptor_init(&base.sculptor, &base.mesh, pool, node_triangles, old_to_new, allocator)
+	if layout != nil && sculptor_init_laid_out(&base.sculptor, &base.mesh, pool, layout, node_triangles, allocator) {
+		for &v, i in old_to_new do v = u32(i)
+	} else {
+		sculptor_init(&base.sculptor, &base.mesh, pool, node_triangles, old_to_new, allocator)
+	}
 	base.node_of_vertex = node_of_vertex_build(&base.sculptor, allocator)
 	append(&l.levels, base)
 	l.current = 0

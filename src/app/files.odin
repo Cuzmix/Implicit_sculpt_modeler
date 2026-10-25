@@ -50,7 +50,7 @@ FILE_NOTE_SHOWN :: 15 * time.Second
 
 // The native scene file starts with these bytes, then its version.
 SCENE_MAGIC :: "SCULPTSC"
-SCENE_VERSION :: u32(3) // 2: each object's rotation; 3: the current level's polypaint and polygroups (sculpt.levels_write)
+SCENE_VERSION :: u32(4) // 2: each object's rotation; 3: the current level's polypaint and polygroups; 4: the base level's node layout (sculpt.levels_write)
 
 // The request waiting for the next frame, and whether a dialog is showing. Kept here
 // rather than in App because SDL may call a dialog back on another thread, even after
