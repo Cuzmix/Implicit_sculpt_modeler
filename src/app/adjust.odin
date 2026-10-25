@@ -26,6 +26,8 @@ Brush_Adjust :: struct {
 }
 
 MIN_RADIUS_PX :: 5
+// Where a new brush starts, and where a long press on the size slider puts it back.
+DEFAULT_RADIUS_PX :: 60
 MAX_RADIUS_PX :: 500
 MIN_STRENGTH :: 0.01
 // Pixels from the middle that count as full strength while adjusting it.
