@@ -1,6 +1,6 @@
 ---
 name: sm-ui
-description: The Dear ImGui interface in src/app/ui.odin and the frame loop around it — the docked Viewport, Tools (brushes on 1–9 and 0, symmetry, brush alphas, mask, dynamic topology, the Pen section with its pressure curve editor and tilt), Scene and Stats panels, Viewport_Input (the only thing the camera and tools read), pointer samples with pen pressure and tilt, the brush pie (Space or a right tap), shortcuts, the deferred Scene_Command, the overlay draw list (brush circle or alpha square, gizmo), the odin-imgui binding's naming, C-vararg Text formatting, Begin/End pairing, and why panels never keep references between frames. Load for ANY task that adds or changes something the user clicks, reads or types, e.g. "add a panel", "add a button to the Scene panel", "add a shortcut", "show X in the Stats panel", "the slider does not update", "the viewport ignores the mouse", "add a settings window". Requires sm-odin and sm-build; what the buttons do is sm-sculpt or sm-cad; pixels in the viewport image are sm-render.
+description: The Dear ImGui interface in src/app/ui.odin, the new touch-first interface (the src/ui kit and src/app/new_ui.odin, --new-ui) and the frame loop around them — the docked Viewport, Tools (brushes, symmetry, alphas, mask, dynamic topology, pen pressure curve and tilt), Scene and Stats panels, Viewport_Input (the only thing the camera and tools read), pointer samples with pen pressure and tilt, the brush pie (Space or a right tap), shortcuts, the deferred Scene_Command, the overlay draw list (brush circle or alpha square, gizmo), odin-imgui naming and Begin/End pairing, and why panels never keep references between frames. Load for ANY task that adds or changes something the user clicks, reads or types, e.g. "add a panel", "add a button to the Scene panel", "add a shortcut", "show X in the Stats panel", "the slider does not update", "the viewport ignores the mouse". Requires sm-odin and sm-build; what the buttons do is sm-sculpt or sm-cad; pixels in the viewport image are sm-render.
 ---
 
 # Interface
@@ -69,9 +69,26 @@ description: The Dear ImGui interface in src/app/ui.odin and the frame loop arou
   the samples and uses the current camera and viewport size. Anything a stroke reads must come from `Viewport_Input`,
   `App.camera` or `App.brush`, or replays will not reproduce it. `.strokes` files: `strokes_save`/`strokes_read`.
 
+## The new interface (`--new-ui`, View > New interface)
+- Kit (`src/ui`, no SDL or render imports): immediate mode. Each frame `kit_frame` (`src/app/new_ui.odin`) fills a
+  `ui.Input` from SDL events (`kit_event`), calls `frame_begin`, lays out anchored containers (`begin_anchored`/`begin`/
+  `end`, `Box` for direction, gap, padding, background) and widgets that return what was done, and takes the
+  `Draw_List` from `frame_end`. State kept between frames: the held widget, and where each container ended up
+  (`placed_prev`), which anchors containers by last frame's size and decides which one has the pointer.
+- Ids hash the label into the parent container's id; text after `##` is part of the id but not shown. Two widgets with
+  one label in one container are one widget.
+- The pointer: only the topmost anchored container under it answers; a press outside every container is a
+  `viewport_drag` until all buttons are up, so a stroke over a panel never presses it. `ui.wants_pointer` is what
+  `kit_viewport_input` checks before giving the viewport the pointer.
+- Sizes are points; draw lists are pixels (`pixel_density`). Every control is at least `Theme.target` (48) points:
+  sm-store's touch-target rule. Colours and sizes are the Figma file's tokens (`THEME_DARK`); change them there first.
+- The kit's panels never own sculpt state either: they get `&app.brush.…` each frame. Shortcuts, the brush circle, the
+  pie and the Stats panel (F11) are still ImGui, drawn over the kit.
+
 ## Recipes
 | Want | Do |
 |---|---|
+| a control in the new interface | a widget call inside the right container in `kit_layout`/`kit_card`, editing `App` through a pointer; a new widget goes in `src/ui/widgets.odin` with a test in `ui_test.odin` if it has logic |
 | a new panel | `draw_x_panel :: proc(app: ^App)` opening with `defer imgui.End()` then `if !imgui.Begin("X") do return`; call it from `ui_draw`; dock it in `build_default_layout` |
 | a button that changes the scene | a new `Scene_Command.kind` and a `scene_apply` case (the sm-cad checklist); the panel only sets `scene_command` |
 | a new statistic | a `Sample_Ring` in `Frame_Stats` (`src/app/stats.odin:32-69`), `ring_push` where it is measured, a `row(…)` line in the Stats panel and a key in the exit stats |
@@ -100,5 +117,7 @@ description: The Dear ImGui interface in src/app/ui.odin and the frame loop arou
 | `AddPolyline`/`PathStroke` take `col, flags, thickness`, as older examples show | ImGui 1.92.8 swapped them to `col, thickness, flags` (`DrawList_PathStroke(list, col, 4)`); the old order asserts |
 
 ## Verify
+- New interface: `--new-ui --frames=60 --dump-screen=build/s.png` writes the whole window, kit and viewport, as the kit
+  drew it (ImGui overlays are not in it); open it and describe it. `build.sh test` runs the kit's headless tests.
 - `--frames=120 --dump-viewport` shows the viewport only (ImGui draws into the swapchain); for a panel, log the command
   or state it produced, or read the exit stats; `build.bat smoke` after changing the frame loop.

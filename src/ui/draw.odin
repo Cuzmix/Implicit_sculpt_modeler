@@ -2,6 +2,7 @@ package ui
 
 import "core:math"
 import "core:math/linalg"
+import "core:slice"
 
 // One corner of a UI triangle: a position in physical pixels, a texture coordinate
 // and a colour. With the atlas bound the coordinate is in atlas pixels (the shader
@@ -34,6 +35,9 @@ Draw_List :: struct {
 	vertices: [dynamic]Vertex,
 	indices:  [dynamic]u32,
 	cmds:     [dynamic]Draw_Cmd,
+	// Commands below this index keep their state even while empty: an open container
+	// will put its background into one of them.
+	keep:     int,
 }
 
 // The atlas texel fontstash fills white (its first 2 x 2 rectangle), sampled by
@@ -63,12 +67,26 @@ draw_set_state :: proc(dl: ^Draw_List, texture: Texture, image: u64, clip: Rect)
 	if n := len(dl.cmds); n > 0 {
 		last := &dl.cmds[n - 1]
 		if last.texture == texture && last.image == image && last.clip == clip do return
-		if last.index_count == 0 {
+		if last.index_count == 0 && n - 1 >= dl.keep {
 			last.texture, last.image, last.clip = texture, image, clip
 			return
 		}
 	}
 	append(&dl.cmds, Draw_Cmd{first_index = u32(len(dl.indices)), clip = clip, texture = texture, image = image})
+}
+
+// Moves the triangles added since index `from` (the last command's) back to index
+// `mark`, the end of command `cmd`, so they draw under everything added after `mark`.
+// Containers use it to put their background under content drawn before its size was
+// known. Command `cmd` must have the moved triangles' state.
+@(private)
+draw_move_under :: proc(dl: ^Draw_List, mark, cmd, from: int) {
+	n := len(dl.indices) - from
+	if n == 0 || mark == from do return
+	slice.rotate_right(dl.indices[mark:], n)
+	dl.cmds[len(dl.cmds) - 1].index_count -= u32(n)
+	dl.cmds[cmd].index_count += u32(n)
+	for &c in dl.cmds[cmd + 1:] do c.first_index += u32(n)
 }
 
 @(private)
@@ -182,12 +200,19 @@ rounded_rect_path :: proc(out: ^[dynamic][2]f32, r: Rect, radius: f32) {
 		{r.x + r.w - rad, r.y + r.h - rad, 0},
 		{r.x + rad, r.y + r.h - rad, math.PI * 0.5},
 	}
+	// A pill (radius half a side) has sides of no length, where one corner ends on the
+	// point the next begins; a repeated point has no edge direction and folds the
+	// feathered outline over, so it is left out.
+	start := len(out)
 	for c in corners {
 		for s in 0 ..= steps {
 			a := c[2] + f32(s) / f32(steps) * math.PI * 0.5
-			append(out, [2]f32{c[0] + math.cos(a) * rad, c[1] + math.sin(a) * rad})
+			p := [2]f32{c[0] + math.cos(a) * rad, c[1] + math.sin(a) * rad}
+			if len(out) > start && linalg.length2(p - out[len(out) - 1]) < 1e-4 do continue
+			append(out, p)
 		}
 	}
+	if len(out) - start > 1 && linalg.length2(out[len(out) - 1] - out[start]) < 1e-4 do pop(out)
 }
 
 // A circle's outline as points, appended to `out`.

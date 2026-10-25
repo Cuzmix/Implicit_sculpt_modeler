@@ -19,7 +19,7 @@ check` and `build.bat test` again. Report the items you could not verify.
 - `geom` imports only `core:` and `../jobs`; `camera`, `gizmo` and `jobs` import nothing of ours; `sculpt` imports `geom`
   and `jobs`; `render` imports `geom` and is, with `app`, the only package importing `vendor:sdl3`; only `app` imports
   `deps:odin-imgui`; `bench` imports `camera`, `geom`, `jobs`, `sculpt` and never `render` or `app`; `sdf_trial` stands
-  alone. No new package without a design (AGENTS.md).
+  alone; `ui` imports only `core:`, `vendor:fontstash` and `vendor:stb/truetype`, never SDL, `render` or ImGui. No new package without a design (AGENTS.md).
 - No new package-level mutable state; no second way to do something that already has a way.
 
 ## 3. Lifetimes and memory
