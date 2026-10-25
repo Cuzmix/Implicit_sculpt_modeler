@@ -51,7 +51,7 @@ FILE_NOTE_SHOWN :: 15 * time.Second
 
 // The native scene file starts with these bytes, then its version.
 SCENE_MAGIC :: "SCULPTSC"
-SCENE_VERSION :: u32(5) // 2: each object's rotation; 3: the current level's polypaint and polygroups; 4: sculpt layers, and a retopologized object's quads and UVs; 5: the base level's node layout (sculpt.levels_write)
+SCENE_VERSION :: u32(6) // 2: each object's rotation; 3: the current level's polypaint and polygroups; 4: sculpt layers, and a retopologized object's quads and UVs (sculpt.levels_write); 5: each object's boolean mode; 6: the base level's node layout (sculpt.levels_write)
 
 // The request waiting for the next frame, and whether a dialog is showing. Kept here
 // rather than in App because SDL may call a dialog back on another thread, even after
@@ -479,6 +479,7 @@ object_put :: proc(app: ^App, out: ^[dynamic]u8, obj: ^Object) {
 	put_transform(out, obj.transform)
 	put_transform(out, obj.file)
 	geom.byte_put(out, obj.transform.rotation) // version 2
+	geom.byte_put(out, u8(obj.boolean)) // version 5
 	sculpt.levels_write(&obj.levels, out)
 	free_all(context.temp_allocator)
 }
@@ -496,6 +497,11 @@ object_get :: proc(app: ^App, r: ^geom.Byte_Reader, version := SCENE_VERSION) ->
 	if version >= 2 {
 		obj.transform.rotation = geom.byte_get(r, Vec3)
 		if !finite(obj.transform.rotation) do r.ok = false
+	}
+	if version >= 5 {
+		mode := geom.byte_get(r, u8)
+		if mode > u8(max(Boolean_Mode)) do r.ok = false
+		else do obj.boolean = Boolean_Mode(mode)
 	}
 	if !r.ok || obj.transform.scale <= 0 || obj.file.scale <= 0 || !sculpt.levels_read(&obj.levels, r, &app.pool) {
 		delete(obj.name)

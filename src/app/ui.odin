@@ -53,6 +53,7 @@ Ui_State :: struct {
 	retopo_quads:       i32,  // quads Retopologize asks for
 	retopo_last:        struct {quads, charts: int, ms: f64, set: bool},
 	bake:               Bake_Settings,
+	boolean:            Boolean_State,
 	bake_last:          struct {ms, hit: f64, range: f32, set: bool},
 }
 
@@ -190,7 +191,7 @@ brush_by_name :: proc(name: string) -> (sculpt.Brush_Kind, bool) {
 }
 
 ui_state_default :: proc() -> Ui_State {
-	return {viewport_request = {1280, 720}, sphere_vertices = 500_000, mask_steps = 3, smooth_steps = 5, smooth_strength = 0.5, crease_degrees = sculpt.CREASE_GROUP_DEGREES, retopo_quads = 4000, bake = {size = 2048, reach_edges = 2}}
+	return {viewport_request = {1280, 720}, sphere_vertices = 500_000, mask_steps = 3, smooth_steps = 5, smooth_strength = 0.5, crease_degrees = sculpt.CREASE_GROUP_DEGREES, retopo_quads = 4000, bake = {size = 2048, reach_edges = 2}, boolean = {live_vertices = 200_000, vertices = 1_000_000, thickness = 0.02}}
 }
 
 ui_draw :: proc(app: ^App) -> Viewport_Input {
@@ -921,6 +922,7 @@ draw_scene_panel :: proc(app: ^App) {
 		imgui.TextDisabled("Last decimate: %.0f ms, strays at most %.4f", s.decimate_ms, s.decimate_error)
 	}
 	draw_retopo_section(app)
+	draw_boolean_section(app)
 
 	imgui.SeparatorText("Mirror and weld")
 	imgui.BeginDisabled(selected_object(app) == nil)

@@ -1,6 +1,6 @@
 ---
 name: sm-geom
-description: The src/geom package — the structure-of-arrays geom.Mesh and its invariants (counter-clockwise outward triangles, closed manifold where subdivision needs it, every vertex used, no NaN), the icosphere and geodesic sphere fixtures, the SAH and Morton BVHs with refit, raycast and sphere queries, vertex-face CSR topology and spatial sort, chunk bounds and normal cones for culling, octahedral normals, QEM simplification that keeps borders, the LOD walk, the voxel remesh (DynaMesh), quad retopology, UV unwrap and map baking, response curves (pen pressure), and geom.mesh_check for proving a mesh sound with numbers. Load for ANY task that creates, inspects, transforms or tests triangle meshes or spatial queries, e.g. "add a primitive", "why does the raycast miss", "check this mesh is closed", "speed up the BVH build", "write a geom test", "compute the volume", "the remesh leaves a hole". Requires sm-odin and sm-build; brushes, nodes and levels over the mesh are sm-sculpt; CAD-style tools are sm-cad.
+description: The src/geom package — the structure-of-arrays geom.Mesh and its invariants (counter-clockwise outward triangles, closed manifold where subdivision needs it, every vertex used, no NaN), the icosphere and geodesic sphere fixtures, the SAH and Morton BVHs with refit, raycast and sphere queries, vertex-face CSR topology and spatial sort, chunk bounds and normal cones for culling, octahedral normals, QEM simplification that keeps borders, the LOD walk, voxel remesh and booleans, Extract, quad retopology, UV unwrap and map baking, response curves (pen pressure), and geom.mesh_check for proving a mesh sound with numbers. Load for ANY task that creates, inspects, transforms or tests triangle meshes or spatial queries, e.g. "add a primitive", "why does the raycast miss", "check this mesh is closed", "speed up the BVH build", "write a geom test", "compute the volume", "the remesh leaves a hole". Requires sm-odin and sm-build; brushes, nodes and levels over the mesh are sm-sculpt; CAD-style tools are sm-cad.
 ---
 
 # Geometry
@@ -69,6 +69,12 @@ description: The src/geom package — the structure-of-arrays geom.Mesh and its 
   chart, charts, filled}`. Baking (`bake.odin`): `bake_maps(low, uvs, source, bvh, size, reach, pool)` rasterizes owners
   serially, rays in parallel by rows, tangents per (vertex, chart), `BAKE_DILATE` rings; `bake_displacement_samples` for
   16-bit PNG (`png_write.encode_gray16`). Tests in `retopo_test.odin`.
+- Booleans (`src/geom/boolean.odin`, README "Booleans and Extract"): `remesh_run(m, h, split, op, pool)` treats triangles
+  from `split` on as B, weighting their crossings by `BOOL_WEIGHT` (1<<12) so `inside(op, wind)` decodes A's and B's winding;
+  `Remesh_Op{Merge, Union, Subtract, Intersect}`. `mesh_boolean(a, b, op, target, project)` joins (`mesh_join`), remeshes
+  and projects back (`mesh_project_onto`, rays both ways within one voxel); false when the result is empty.
+  `mesh_extract_shell(m, keep, thickness, smooth)` = reversed inner + offset outer + band along open edges. Tests in
+  `boolean_test.odin` (sphere-lens volumes within 2%).
 
 ## Invariants every geom proc keeps
 | Invariant | Who relies on it | How to check |
