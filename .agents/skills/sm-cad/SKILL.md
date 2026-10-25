@@ -22,6 +22,10 @@ description: CAD-style mesh tools inside this app on geom.Mesh — primitives, b
   apart, three rounds of tangential relaxation even it out (`:11-29`); overlaps and self-intersections merge, anything
   thinner than the spacing goes; `REMESH_MAX_LATTICE 4096` per axis. Wired as `Scene_Command .Remesh` → `object_remesh`
   (`scene.odin:147-175`), the Scene panel's Remesh selected, Ctrl+R (at the object's own count) and `--remesh=N`.
+- Decimate exists: `geom.mesh_decimate(m, triangles, pool)` (`src/geom/decimate.odin`) runs `simplify` with `strict = true`
+  (no two corners of a triangle move in one pass, no needles, shorter edges first on ties) in parallel cell rounds
+  (`DECIMATE_ROUND_KEEP`, shifted cells), then whole; wired as `Scene_Command .Decimate` → `object_decimate`, the Scene
+  panel's Decimate selected and `--decimate=N`. The LOD copies keep the non-strict `simplify`.
 - Mirror and weld exists: `geom.mesh_symmetrize(m, axis, keep_positive, pool)` (`src/geom/symmetrize.odin`) cuts at the
   axis plane (snapping vertices within 1e-5 of the size onto it), clips crossing triangles with cut points computed
   from the lower-numbered edge end so they weld bit-exactly in `mesh_clean`, mirrors with reversed winding. Wired as

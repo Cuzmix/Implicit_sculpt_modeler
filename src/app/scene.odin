@@ -94,7 +94,7 @@ Scene :: struct {
 // applied at the start of the next frame so no panel ever draws an object (or GPU
 // buffer) freed during the same frame.
 Scene_Command :: struct {
-	kind:     enum u8 {None, Add, Remesh, Delete, Duplicate, Symmetrize, Subdivide, Set_Level, Delete_Higher, Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete, Dyntopo},
+	kind:     enum u8 {None, Add, Remesh, Decimate, Delete, Duplicate, Symmetrize, Subdivide, Set_Level, Delete_Higher, Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete, Dyntopo},
 	vertices: int,
 	shape:    geom.Primitive, // Add: what to add
 	on:       bool, // Dyntopo: turn dynamic topology on, or off; Symmetrize: keep the + side
@@ -207,6 +207,44 @@ object_remesh :: proc(app: ^App, obj: ^Object, vertices: int) -> (changed, ok: b
 	app.stats.remesh_ms = time.duration_milliseconds(time.tick_diff(start, remeshed))
 	app.stats.remesh_setup_ms = time.duration_milliseconds(time.tick_since(remeshed))
 	log.infof("remesh: %d vertices in %.0f ms, ready in %.0f ms more", geom.mesh_vertex_count(object_mesh(obj)^), app.stats.remesh_ms, app.stats.remesh_setup_ms)
+	return true, true
+}
+
+// Rebuilds the object with about `vertices` vertices that keep the shape of the level
+// it is on, by collapsing edges where that changes the shape least (geom.mesh_decimate),
+// as ZBrush's Decimation Master does: dense where the detail is, sparse where it is
+// flat. Like a remesh, its levels, HD detail, mask and strokes go (the caller records
+// the swap). `changed` says whether it did; ok is false only when the old mesh is gone
+// and the new one could not be uploaded.
+object_decimate :: proc(app: ^App, obj: ^Object, vertices: int) -> (changed, ok: bool) {
+	stroke_finish(app)
+	object_hd_leave(app, obj)
+	start := time.tick_now()
+	source := object_mesh(obj)^
+	packed: geom.Mesh
+	if object_dynamic(obj) {
+		mask: []u8
+		packed, mask = sculpt.sculptor_compact_mesh(object_sculptor(obj))
+		delete(mask)
+		source = packed
+	}
+	// A closed surface has about two triangles a vertex.
+	mesh, error, built := geom.mesh_decimate(source, 2 * vertices, &app.pool)
+	before := len(source.positions)
+	geom.mesh_destroy(&packed)
+	free_all(context.temp_allocator)
+	if !built {
+		log.warnf("decimate: the object already has %d vertices, no more than %d", before, vertices)
+		return false, true
+	}
+	decimated := time.tick_now()
+	_ = sdl.WaitForGPUIdle(app.renderer.device)
+	object_release_mesh(app, obj)
+	if !object_build_from(app, obj, mesh, decimated, normals = true) do return true, false
+	app.stats.decimate_ms = time.duration_milliseconds(time.tick_diff(start, decimated))
+	app.stats.decimate_error = error
+	log.infof("decimate: %d vertices to %d in %.0f ms (strays at most %.4f), ready in %.0f ms more", before, geom.mesh_vertex_count(object_mesh(obj)^),
+		app.stats.decimate_ms, error, time.duration_milliseconds(time.tick_since(decimated)))
 	return true, true
 }
 
@@ -360,6 +398,18 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 		if obj := selected_object(app); obj != nil {
 			if !scene_duplicate(app, obj) do return false
 			history_record_added(app)
+		}
+	case .Decimate:
+		if obj := selected_object(app); obj != nil {
+			before := history_snapshot(app, obj, "decimate")
+			changed, ok := object_decimate(app, obj, cmd.vertices)
+			if !ok {
+				history_snapshot_drop(before)
+				scene_delete_selected(app, undoable = false)
+				return false
+			}
+			if changed do history_record_swap(app, obj.id, before)
+			else do history_snapshot_drop(before)
 		}
 	case .Symmetrize:
 		if obj := selected_object(app); obj != nil {
