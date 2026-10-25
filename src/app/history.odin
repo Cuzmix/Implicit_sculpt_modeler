@@ -140,7 +140,19 @@ mask_command :: proc(app: ^App, command: sculpt.Mask_Command) {
 	start := time.tick_now()
 	steps := int(max(app.ui.mask_steps, 1))
 	changed := sculpt.sculptor_mask_command(object_sculptor(obj), command, steps)
-	app.ui.mask_last = {command, steps, time.duration_milliseconds(time.tick_since(start)), changed, true}
+	app.ui.mask_last = {command = command, steps = steps, ms = time.duration_milliseconds(time.tick_since(start)), changed = changed, set = true}
+	if changed do history_record(app, obj)
+}
+
+// Masks (or unmasks) what of the selected object falls inside `shape`, a polygon in
+// normalized device coordinates, as an undo step of its own (sculpt.sculptor_mask_shape).
+mask_shape_command :: proc(app: ^App, shape: [][2]f32, size: [2]f32, unmask: bool) {
+	stroke_finish(app)
+	obj := selected_object(app)
+	if obj == nil do return
+	start := time.tick_now()
+	changed := sculpt.sculptor_mask_shape(object_sculptor(obj), object_clip(app, obj, size), shape, unmask)
+	app.ui.mask_last = {command = .Fill if !unmask else .Clear, ms = time.duration_milliseconds(time.tick_since(start)), changed = changed, set = true, shape = true}
 	if changed do history_record(app, obj)
 }
 

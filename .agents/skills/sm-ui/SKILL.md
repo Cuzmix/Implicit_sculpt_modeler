@@ -40,7 +40,7 @@ description: The Dear ImGui interface in src/app/ui.odin and the frame loop arou
   S and U over the viewport (Brush tool, no modifiers) start the modal size or strength adjustment in
   `src/app/adjust.odin` (`adjust_update`, called after `pie_update` in `draw_viewport`; `Ui_State.adjust`): the
   circle stays put, the value follows the pointer's distance from its middle, a click or the same key keeps it, a
-  right click or Escape restores it, and `viewport_mute` hides the pointer from tools and camera meanwhile. In the viewport Shift turns any brush into Smooth and Ctrl inverts.
+  right click or Escape restores it, and `viewport_mute` hides the pointer from tools and camera meanwhile. In the viewport Shift turns any brush into Smooth and Ctrl inverts; Ctrl + drag starting on empty space is a mask shape (`mask_shape_frame`, run before `sculpt_frame` in the Brush case; `Viewport_Input.alt` unmasks; Alt+left orbits only without Ctrl).
 - Files (`src/app/files.odin`): menu items and shortcuts call `file_dialog(app, kind)` (SDL's dialogs, whose answer
   may come on another thread into a mutex-guarded `pending` slot) or `file_post` for a known path; the frame loop
   takes the request after the scene command (`file_take`, `file_apply`), so a file action, like a command, never runs

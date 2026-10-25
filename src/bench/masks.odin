@@ -1,6 +1,7 @@
 package bench
 
 import "core:fmt"
+import "core:math"
 import "core:slice"
 import "core:time"
 
@@ -57,5 +58,36 @@ run_masks :: proc(target: int, pool: ^jobs.Pool) {
 		free_all(context.temp_allocator)
 		fmt.printfln("| %s | %v | %d | %s | %.1f | %.2f | %.1f | %.1f |",
 			thousands(len(sp.mesh.positions)), c.command, c.steps, thousands(changed), command_ms, flush_ms, undo_mb, undo_ms)
+	}
+	// A mask rectangle over the middle and a 64-point lasso circle, seen straight down
+	// z, as Ctrl + drag on empty space makes them.
+	clip: matrix[4, 4]f32 = 1
+	lasso: [64][2]f32
+	for &p, i in lasso {
+		a := f32(i) / 64 * 2 * math.PI
+		p = 0.5 * {math.cos(a), math.sin(a)}
+	}
+	shapes := [?]struct {
+		name:  string,
+		shape: [][2]f32,
+	}{{"Rectangle", {{-0.4, -0.4}, {0.4, -0.4}, {0.4, 0.4}, {-0.4, 0.4}}}, {"Lasso (64 points)", lasso[:]}}
+	for sh in shapes {
+		t0 := time.tick_now()
+		_ = sculpt.sculptor_mask_shape(s, clip, sh.shape, false)
+		command_ms := time.duration_milliseconds(time.tick_since(t0))
+		changed := 0
+		for k, v in s.mask do if k != start[v] do changed += 1
+		t1 := time.tick_now()
+		_ = sculpt.sculptor_flush(s)
+		flush_ms := time.duration_milliseconds(time.tick_since(t1))
+		undo_mb := f64(sculpt.sculptor_undo_bytes(s)) / (1 << 20)
+		t2 := time.tick_now()
+		_ = sculpt.sculptor_undo(s)
+		undo_ms := time.duration_milliseconds(time.tick_since(t2))
+		_ = sculpt.sculptor_flush(s)
+		sculpt.sculptor_clear_history(s)
+		free_all(context.temp_allocator)
+		fmt.printfln("| %s | %s | 1 | %s | %.1f | %.2f | %.1f | %.1f |",
+			thousands(len(sp.mesh.positions)), sh.name, thousands(changed), command_ms, flush_ms, undo_mb, undo_ms)
 	}
 }
