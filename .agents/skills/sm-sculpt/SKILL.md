@@ -1,6 +1,6 @@
 ---
 name: sm-sculpt
-description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's nodes (BVH leaves owning contiguous vertex ranges), the thirteen brushes (Draw to Mask, Layer, Snake hook, Morph, Paint), masking, polypaint, polygroups, X/Y/Z symmetry, brush alphas, dynamic topology, apply_dab and sculptor_flush, dirty ranges for upload, deferred normals and normal cones, per-node stroke undo, subdivision levels (Loop, detail in local frames, sync up and down), HD detail windows, simplified copies between strokes, and the app side: stroke sampling, dab spacing, pressure and pen tilt, lazy mouse, the cross-object History and Scene_Command. Load for ANY task that changes how a brush moves vertices or what happens around a stroke, e.g. "add a brush kind", "the mask leaks", "symmetry is off", "undo is wrong", "the levels drift", "HD window border", "dabs skip at high speed", "move vertices from a tool", "make this undoable". Requires sm-geom and sm-build; GPU upload is sm-render; panels are sm-ui; ZBrush is the behaviour model.
+description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's nodes (BVH leaves owning contiguous vertex ranges), the 14 brushes (Draw to Mask, Layer, Snake hook, Morph, Paint, Cloth), masking, polypaint, polygroups, X/Y/Z symmetry, brush alphas, dynamic topology, apply_dab and sculptor_flush, dirty ranges for upload, deferred normals and normal cones, per-node stroke undo, subdivision levels (Loop, detail in local frames, sync up and down), HD detail windows, simplified copies between strokes, and the app side: stroke sampling, dab spacing, pressure and pen tilt, lazy mouse, the cross-object History and Scene_Command. Load for ANY task that changes how a brush moves vertices or what happens around a stroke, "add a brush kind", "the mask leaks", "symmetry is off", "undo is wrong", "the levels drift", "HD window border", "dabs skip at high speed", "move vertices from a tool", "make this undoable". Requires sm-geom and sm-build; GPU upload is sm-render; panels are sm-ui; ZBrush is the behaviour model.
 ---
 
 # Sculpting
@@ -20,7 +20,7 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
   leaning pen, zero for none; `alpha` is the bullet on alphas below, nil for none); `falloff` is `(1 − x²)²` over the squared distance in radii (`:511-515`). `Brush.falloff_shape: ^Falloff` (nil = built-in) swaps it for a drawn curve: `falloff_set_curve` fills a 257-entry table over x² from `geom.curve_at(curve, 1 - d)`, `falloff_drawn` lerps it; `dab_weight` and `grab_follow` read it (the alpha's height fade and the area sampling keep the built-in). App: `Brush_Settings.falloffs[kind]`, tables cached in `App.falloff_tables` by `brush_falloff`. Strengths with
   their reasons: `DRAW_HEIGHT 0.1` radii, `CLAY_HEIGHT 0.08`, `PLANE_RATE 0.5`, `PINCH_RATE 0.25`, `CREASE_PINCH 0.2`
   (`:78-83`).
-- The thirteen kinds, in key order 1–9 then 0 (Snake hook, Morph and Paint have no key) (`Brush_Kind`; README "Brushes, masking and symmetry" has the user's view):
+- The fourteen kinds, in key order 1–9 then 0 (Snake hook, Morph, Paint and Cloth have no key) (`Brush_Kind`; README "Brushes, masking and symmetry" has the user's view):
   | Kind | Moves | Inverted |
   |---|---|---|
   | Draw | out along the area-weighted average normal by `radius · strength · DRAW_HEIGHT` | in |
@@ -36,6 +36,7 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
   | Morph | toward `Sculptor.morph` (`morph.odin`: `sculptor_morph_store`/`_clear`/`has_morph`; refused under dynamic topology, dropped by `sculptor_dyn_enable`) by `strength · w · MORPH_RATE`; nothing without a target | — |
   | Paint | nothing: colours (`paint.odin`, bullet below) | takes coverage off |
 | Snake_Hook | by `Brush.drag · w` (mirrored per image); the app (`hook_follow`, `src/app/sculpt_tool.odin`) moves the hook point after the pointer on the camera-facing plane in steps of at most `DAB_SPACING` radii and dabs at it without raycasting | — |
+  | Cloth | a cloth simulation of the region within `CLOTH_REACH` radii (`cloth.odin`): `sculptor_cloth_begin` (record_hit, sim vertices with pin/drive weights, edge links via `vertex_faces_of`), `sculptor_cloth_step` each frame (Verlet + `Cloth_Mode` force, Jacobi edge rounds with buckle and bending, write back, `sculptor_nodes_moved` + `record_changed_node`), `sculptor_cloth_end` in `stroke_finish`; app `cloth_follow`; not with dyntopo, no symmetry | Pinch↔Expand, Gravity rises |
 - Drag rectangle (`Stroke_Mode.Drag_Rect`, app `rect_follow`): each frame `sculptor_stroke_restore` (`undo.odin`) copies the
   current step's saved nodes back (keeping them, so the stroke stays one step; refused under dynamic topology), then one dab
   at the start point sized by the drag.

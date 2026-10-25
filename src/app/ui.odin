@@ -139,6 +139,7 @@ BRUSH_NAMES := [sculpt.Brush_Kind]string {
 	.Snake_Hook = "Snake hook",
 	.Morph   = "Morph",
 	.Paint   = "Paint",
+	.Cloth   = "Cloth",
 }
 
 BRUSH_HELP := [sculpt.Brush_Kind]cstring {
@@ -155,6 +156,22 @@ BRUSH_HELP := [sculpt.Brush_Kind]cstring {
 	.Snake_Hook = "Pulls the surface out after the pointer, for horns,\ntentacles and fingers. Best with dynamic topology.",
 	.Morph   = "Brings the surface back to the stored morph target\n(Tools > Morph target), painting later work away.",
 	.Paint   = "Polypaint: colours the surface with the colour below,\nmoving nothing (Ctrl: takes the paint off).",
+	.Cloth   = "The surface around the brush acts as cloth while you\nhold: drag it into folds, let it sag, or bunch it up.",
+}
+
+CLOTH_MODE_NAMES := [sculpt.Cloth_Mode]cstring {
+	.Drag    = "Drag",
+	.Gravity = "Gravity",
+	.Pinch   = "Pinch",
+	.Expand  = "Expand",
+}
+
+@(private = "file")
+CLOTH_MODE_HELP := [sculpt.Cloth_Mode]cstring {
+	.Drag    = "What is under the brush follows the pointer;\nthe cloth around it folds as it is pulled.",
+	.Gravity = "The cloth sags toward the bottom of the screen\nwhile the button is held (Ctrl: rises).",
+	.Pinch   = "Gathers the cloth toward the brush into folds\n(Ctrl: Expand).",
+	.Expand  = "Pushes the cloth out from the brush so it\nbuckles into ridges (Ctrl: Pinch).",
 }
 
 brush_by_name :: proc(name: string) -> (sculpt.Brush_Kind, bool) {
@@ -463,6 +480,13 @@ draw_tools_panel :: proc(app: ^App) {
 		if imgui.RadioButton(label, app.brush.kind == kind) do app.brush.kind = kind
 	}
 	imgui.TextDisabled("%s", BRUSH_HELP[app.brush.kind])
+	if app.brush.kind == .Cloth {
+		for mode in sculpt.Cloth_Mode {
+			if mode != .Drag do imgui.SameLine()
+			if imgui.RadioButton(CLOTH_MODE_NAMES[mode], app.brush.cloth_mode == mode) do app.brush.cloth_mode = mode
+		}
+		imgui.TextDisabled("%s", CLOTH_MODE_HELP[app.brush.cloth_mode])
+	}
 	imgui.SliderFloat("Radius (px)", &app.brush.radius_px, MIN_RADIUS_PX, MAX_RADIUS_PX, "%.0f", {.Logarithmic})
 	imgui.SliderFloat("Strength", brush_strength(app), MIN_STRENGTH, 1, "%.2f")
 	imgui.TextDisabled("S or U over the viewport sizes the brush or sets its\nstrength there; [ and ] step the size, Shift+[ and ]\nthe strength. Each brush keeps its own strength.")

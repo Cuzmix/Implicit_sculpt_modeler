@@ -54,7 +54,8 @@ Options :: struct {
 	timelapse_steps: int `usage:"Steps of the History each --timelapse frame shows (default 1)."`,
 	timelapse_spin: f32 `usage:"Degrees the camera turns each --timelapse frame (default 0)."`,
 	bench_loops: int `usage:"Make --bench-stroke this many circles around the middle of the sphere instead of a wavy line."`,
-	brush:     string `usage:"Start with this brush: draw, smooth, clay, flatten, inflate, pinch, crease, grab, mask, layer, snake hook, morph or paint (also what --bench-stroke uses)."`,
+	brush:     string `usage:"Start with this brush: draw, smooth, clay, flatten, inflate, pinch, crease, grab, mask, layer, snake hook, morph, paint or cloth (also what --bench-stroke uses)."`,
+	cloth:     string `usage:"What the Cloth brush does: drag (the default), gravity, pinch or expand."`,
 	stroke:    string `usage:"Start with this stroke: dots (the default) or drag_rect (one stamp sized and turned by the drag, as the Tools panel's Drag rectangle)."`,
 	front_only: bool `usage:"Start with Front faces only on: brushes and mask shapes leave what faces away from the viewer."`,
 	symmetry:  string `usage:"Start with brush symmetry across these axes, e.g. x or xz."`,
@@ -462,6 +463,17 @@ run :: proc(opts: Options) -> bool {
 			return false
 		}
 		app.brush.kind = kind
+	}
+	if opts.cloth != "" {
+		found := false
+		for mode in sculpt.Cloth_Mode do if strings.equal_fold(opts.cloth, fmt.tprint(mode)) {
+			app.brush.cloth_mode = mode
+			found = true
+		}
+		if !found {
+			log.errorf("unknown --cloth %q", opts.cloth)
+			return false
+		}
 	}
 	alphas_init(&app)
 	defer alphas_destroy(&app)
