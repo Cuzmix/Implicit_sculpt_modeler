@@ -1,6 +1,6 @@
 ---
 name: sm-ui
-description: The Dear ImGui interface in src/app/ui.odin, the new touch-first interface (the src/ui kit and src/app/new_ui.odin, --new-ui) and the frame loop around them — the docked Viewport, Tools (brushes, symmetry, alphas, mask, dynamic topology, pen pressure curve and tilt), Scene and Stats panels, Viewport_Input (the only thing the camera and tools read), pointer samples with pen pressure and tilt, the brush pie (Space or a right tap), shortcuts, the deferred Scene_Command, the overlay draw list (brush circle or alpha square, gizmo), odin-imgui naming and Begin/End pairing, and why panels never keep references between frames. Load for ANY task that adds or changes something the user clicks, reads or types, e.g. "add a panel", "add a button to the Scene panel", "add a shortcut", "show X in the Stats panel", "the slider does not update", "the viewport ignores the mouse". Requires sm-odin and sm-build; what the buttons do is sm-sculpt or sm-cad; pixels in the viewport image are sm-render.
+description: The Dear ImGui interface in src/app/ui.odin, the default touch-first interface (src/ui: tokens, motion, popovers, toasts; src/app/new_ui.odin) and the frame loop around them — the docked Viewport, Tools (brushes, symmetry, alphas, mask, dynamic topology, pen pressure curve and tilt), Scene and Stats panels, Viewport_Input (the only thing the camera and tools read), pointer samples with pen pressure and tilt, the brush pie (Space or a right tap), shortcuts, the deferred Scene_Command, the overlay draw list (brush circle or alpha square, gizmo), odin-imgui naming and Begin/End pairing, and why panels never keep references between frames. Load for ANY task that adds or changes something the user clicks, reads or types, e.g. "add a panel", "add a button to the Scene panel", "add a shortcut", "show X in the Stats panel", "the slider does not update", "the viewport ignores the mouse". Requires sm-odin and sm-build; what the buttons do is sm-sculpt or sm-cad; pixels in the viewport image are sm-render.
 ---
 
 # Interface
@@ -69,7 +69,7 @@ description: The Dear ImGui interface in src/app/ui.odin, the new touch-first in
   the samples and uses the current camera and viewport size. Anything a stroke reads must come from `Viewport_Input`,
   `App.camera` or `App.brush`, or replays will not reproduce it. `.strokes` files: `strokes_save`/`strokes_read`.
 
-## The new interface (`--new-ui`, View > New interface)
+## The new interface (the default; `--classic-ui` or Menu > Classic panels for ImGui)
 - Kit (`src/ui`, no SDL or render imports): immediate mode. Each frame `kit_frame` (`src/app/new_ui.odin`) fills a
   `ui.Input` from SDL events (`kit_event`), calls `frame_begin`, lays out anchored containers (`begin_anchored`/`begin`/
   `end`, `Box` for direction, gap, padding, background) and widgets that return what was done, and takes the
@@ -80,15 +80,32 @@ description: The Dear ImGui interface in src/app/ui.odin, the new touch-first in
 - The pointer: only the topmost anchored container under it answers; a press outside every container is a
   `viewport_drag` until all buttons are up, so a stroke over a panel never presses it. `ui.wants_pointer` is what
   `kit_viewport_input` checks before giving the viewport the pointer.
-- Sizes are points; draw lists are pixels (`pixel_density`). Every control is at least `Theme.target` (48) points:
-  sm-store's touch-target rule. Colours and sizes are the Figma file's tokens (`THEME_DARK`); change them there first.
+- Sizes are points; draw lists are pixels (`pixel_density`). Every hit area is at least `Theme.target` (48) points
+  (`hit_area`): sm-store's touch-target rule; the drawn control can be smaller (`control` 36, `row` 40). Widgets name
+  tokens from `src/ui/theme.odin` (`THEME_DARK`, "Graphite"), never literal colours or sizes; `imgui_apply_theme`
+  (`src/app/imgui_style.odin`) styles ImGui from the same tokens, so a token change reaches both interfaces.
+- Every widget has default, hover, pressed, selected and disabled looks through `feedback` (wash + 0.97 press scale);
+  selected tabs, dock tiles and segments use `indicator`, one sliding marker per container drawn under the content.
+- Motion (`src/ui/motion.odin`): `tween(ctx, salt(id, n), target, duration, ease)` returns the eased value; a new target
+  retargets from where it is. `presence` gives a 0–1 enter/exit share; animate by `transform_since`/`rotate_since` on
+  the vertices drawn since a `vertex_mark`, never by changing the layout. The clock is the sum of clamped `Input.dt`, so
+  tests step time exactly. `ctx.reduced_motion` makes every duration 0. Nothing a stroke, camera or drag reads animates.
+- Popovers (`src/ui/popup.odin`): `popover_begin(ctx, name, open, anchor, side, box)` … `popover_end`. A press outside
+  one (and its anchor) closes it, but only if it was on screen last frame, and a press on the viewport that closes it is
+  swallowed (`ctx.swallow`) so it never sculpts; a closing popover is inert. The first frame is drawn invisibly to
+  measure it, and it flips when there is no room. Selects draw their list in `frame_end`, over everything.
+- `tip(ctx, id, rect, text, keys)` after a widget gives it a tooltip (delay, warm-up, hidden after a press and outside an
+  open popover); `toast(ctx, message, kind)` adds a note (four slots, text copied). `section`/`section_end` fold a group.
+- Test the interface by script: `--ui-events="5:move:800,450;6:down;7:up;9:right;12:wheel:-3"` drives the pointer in
+  window points, and `--dump-screen=build/x.png` (under `xvfb-run -a -s "-screen 0 1600x1000x24"` on Linux) writes the
+  window; open the PNG and describe it. `ui_ms_*` on exit is the kit's CPU cost.
 - The kit's panels never own sculpt state either: they get `&app.brush.…` each frame. Shortcuts, the brush circle, the
-  pie and the Stats panel (F11) are still ImGui, drawn over the kit.
+  pie and the Stats panel (F11) are still ImGui, drawn over the kit. Tab toggles the inspector, Escape closes popovers.
 
 ## Recipes
 | Want | Do |
 |---|---|
-| a control in the new interface | a widget call inside the right container in `kit_layout`/`kit_card`, editing `App` through a pointer; a new widget goes in `src/ui/widgets.odin` with a test in `ui_test.odin` if it has logic |
+| a control in the new interface | a widget call inside the right container in `kit_layout` or a `kit_*_tab` section, editing `App` through a pointer; a new widget goes in `src/ui/widgets.odin` with a test in `ui_test.odin` if it has logic |
 | a new panel | `draw_x_panel :: proc(app: ^App)` opening with `defer imgui.End()` then `if !imgui.Begin("X") do return`; call it from `ui_draw`; dock it in `build_default_layout` |
 | a button that changes the scene | a new `Scene_Command.kind` and a `scene_apply` case (the sm-cad checklist); the panel only sets `scene_command` |
 | a new statistic | a `Sample_Ring` in `Frame_Stats` (`src/app/stats.odin:32-69`), `ring_push` where it is measured, a `row(…)` line in the Stats panel and a key in the exit stats |
@@ -117,7 +134,7 @@ description: The Dear ImGui interface in src/app/ui.odin, the new touch-first in
 | `AddPolyline`/`PathStroke` take `col, flags, thickness`, as older examples show | ImGui 1.92.8 swapped them to `col, thickness, flags` (`DrawList_PathStroke(list, col, 4)`); the old order asserts |
 
 ## Verify
-- New interface: `--new-ui --frames=60 --dump-screen=build/s.png` writes the whole window, kit and viewport, as the kit
+- New interface: `--frames=60 --dump-screen=build/s.png` writes the whole window, kit and viewport, as the kit
   drew it (ImGui overlays are not in it); open it and describe it. `build.sh test` runs the kit's headless tests.
 - `--frames=120 --dump-viewport` shows the viewport only (ImGui draws into the swapchain); for a panel, log the command
   or state it produced, or read the exit stats; `build.bat smoke` after changing the frame loop.

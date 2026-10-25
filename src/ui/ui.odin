@@ -39,56 +39,7 @@ Input :: struct {
 	alt:           bool,
 	window:        [2]f32, // the window's size
 	pixel_density: f32, // GPU pixels per point: 1 on most monitors, 2 or more on dense screens
-}
-
-Color :: [4]u8
-
-// The look, as tokens: the Figma file's "Sculpt colours" and the sizes its components
-// use, in points.
-Theme :: struct {
-	canvas:          Color,
-	panel:           Color,
-	panel_border:    Color,
-	control:         Color, // the track behind a segmented control
-	segment:         Color, // the chosen segment
-	track:           Color, // the empty part of a slider or an off switch
-	text:            Color,
-	text_secondary:  Color,
-	text_tertiary:   Color,
-	accent:          Color,
-	on_accent:       Color,
-	positive:        Color,
-	knob:            Color,
-	shadow:          Color,
-	panel_radius:    f32,
-	control_radius:  f32,
-	text_size:       f32,
-	caption_size:    f32,
-	title_size:      f32,
-	target:          f32, // the smallest touch target: 48, the stores' 44 pt and 48 dp both met
-}
-
-THEME_DARK :: Theme {
-	canvas         = {0x11, 0x12, 0x14, 0xff},
-	panel          = {0x24, 0x25, 0x29, 0xdb},
-	panel_border   = {0xff, 0xff, 0xff, 0x14},
-	control        = {0xff, 0xff, 0xff, 0x14},
-	segment        = {0x5a, 0x5b, 0x61, 0xff},
-	track          = {0xff, 0xff, 0xff, 0x24},
-	text           = {0xf2, 0xf2, 0xf4, 0xff},
-	text_secondary = {0xc7, 0xc7, 0xcc, 0xff},
-	text_tertiary  = {0xa1, 0xa1, 0xa8, 0xff},
-	accent         = {0x4c, 0x8d, 0xff, 0xff},
-	on_accent      = {0xff, 0xff, 0xff, 0xff},
-	positive       = {0x34, 0xc7, 0x59, 0xff},
-	knob           = {0xff, 0xff, 0xff, 0xff},
-	shadow         = {0x00, 0x00, 0x00, 0x66},
-	panel_radius   = 16,
-	control_radius = 12,
-	text_size      = 15,
-	caption_size   = 12,
-	title_size     = 17,
-	target         = 48,
+	dt:            f32, // seconds since the last frame, which moves every animation on
 }
 
 Id :: u64
@@ -108,8 +59,9 @@ Anchor :: enum u8 {
 
 Background :: enum u8 {
 	None,
-	Panel, // the frosted card: panel colour, a hairline border, rounded
-	Track, // the darker well behind segmented controls
+	Panel, // a surface floating over the viewport: hairline border, rounded
+	Raised, // a popover over the panels: lighter, a stronger hairline and a soft shadow
+	Track, // the well behind segmented controls and tabs
 }
 
 // How a container lays out and looks.
@@ -122,6 +74,9 @@ Box :: struct {
 	radius:     f32,
 	background: Background,
 	center:     bool, // centre children across the main axis (rows: vertically)
+	clip:       bool, // hide what is laid out past its edges (a section opening)
+	inert:      bool, // drawn but not answering the pointer (a popover closing)
+	scroll:     f32, // how far its content is moved up (with clip, a scrolling panel)
 }
 
 @(private)
@@ -137,16 +92,53 @@ Container :: struct {
 	root:        Id, // the anchored container it is in, for hit tests
 	first_child: bool,
 	placed_size: [2]f32, // the size its parent made room for
+	clip_prev:   Rect, // the clip rectangle to put back when it ends
+	// A highlight that slides to wherever a child asks (the chosen tab, the held brush),
+	// drawn under the children.
+	indicator:   Maybe(Indicator),
+}
+
+@(private)
+Indicator :: struct {
+	rect:   Rect,
+	radius: f32,
+	color:  Color,
 }
 
 // Where a container ended up, kept to the next frame: anchored ones are placed by their
 // size, and the topmost one under the pointer takes the pointer.
 @(private)
 Placed :: struct {
-	id:   Id,
-	rect: Rect,
-	root: bool, // an anchored container, which hit tests run against
+	id:      Id,
+	rect:    Rect,
+	natural: [2]f32, // the size of its content, which a fixed size may cut short
+	root:    bool, // an anchored container, which hit tests run against
 }
+
+// A short message at the bottom of the window that goes by itself.
+Toast_Kind :: enum u8 {
+	Info,
+	Success,
+	Warning,
+	Error,
+}
+
+@(private)
+Toast :: struct {
+	text:  [120]u8,
+	len:   int,
+	kind:  Toast_Kind,
+	born:  f64,
+	life:  f32,
+	id:    Id,
+}
+
+@(private)
+TOASTS :: 4
+
+// The root id of inert containers: no pointer ever lands on it.
+@(private)
+INERT_ROOT :: ~Id(0)
 
 Context :: struct {
 	input:          Input,
@@ -170,11 +162,60 @@ Context :: struct {
 	press_mouse:    [2]f32, // where the held widget was pressed
 	press_value:    f32, // a held slider's value when it was pressed
 	id_seed:        Id,
+
+	time:           f64, // seconds of input dt so far: the clock every tween runs on
+	tweens:         map[Id]Tween,
+	scratch_ids:    [dynamic]Id,
+	reduced_motion: bool, // every duration 0: things still change, without moving
+	// A press that closed a popover over the viewport: nothing gets the pointer until
+	// every button is up, so the click that dismisses never sculpts.
+	swallow:        bool,
+	// Tooltips: the widget under the pointer that has one, since when, and what to show.
+	tip_id:         Id,
+	tip_since:      f64,
+	tip_text:       string, // valid for the frame (labels are literals or temp strings)
+	tip_keys:       string, // its shortcut, shown dimmer beside it
+	tip_rect:       Rect,
+	tip_shown:      Id,
+	tip_last:       f64, // when a tooltip last showed: the next one comes without delay
+	tip_pressed:    Id, // pressed since the pointer came onto it: no tooltip
+	toasts:         [TOASTS]Toast,
+	toast_count:    int,
+	toast_serial:   Id,
+	toast_bottom:   f32, // how far above the window's bottom edge toasts stack
+	// The popover open this frame, closed by a press outside it and its trigger, and
+	// how the one being drawn now is shown (popovers do not nest).
+	popup_open:       Id,
+	popup_open_prev:  Id,
+	popup_stack_mark: int,
+	popup_anim:       f32,
+	popup_origin:     [2]f32,
+	popup_measuring:  bool,
+	// The select whose list is open (or closing), what the list shows, and what it picked.
+	select_open:      Id,
+	select_id:        Id,
+	select_anchor:    Rect,
+	select_options:   []string,
+	select_chosen:    int,
+	select_fresh:     bool,
+	select_pick_id:   Id,
+	select_pick:      int,
+	// Open sections, for section_end to fade their bodies.
+	sections:         [8]struct {
+		mark:  int,
+		shown: f32,
+	},
+	section_depth:    int,
+	last_rect:        Rect, // where the last widget went: what a popover opens beside
 }
 
 init :: proc(ctx: ^Context, theme := THEME_DARK) {
 	ctx.theme = theme
 	fonts_init(&ctx.fonts)
+	// Room for every animated property of a full interface, so frames do not allocate.
+	reserve(&ctx.tweens, 512)
+	reserve(&ctx.scratch_ids, 64)
+	ctx.toast_bottom = 24
 }
 
 destroy :: proc(ctx: ^Context) {
@@ -184,6 +225,8 @@ destroy :: proc(ctx: ^Context) {
 	delete(ctx.placed_prev)
 	delete(ctx.stack)
 	delete(ctx.path)
+	delete(ctx.tweens)
+	delete(ctx.scratch_ids)
 	ctx^ = {}
 }
 
@@ -192,6 +235,11 @@ destroy :: proc(ctx: ^Context) {
 frame_begin :: proc(ctx: ^Context, input: Input) {
 	ctx.input = input
 	if ctx.input.pixel_density <= 0 do ctx.input.pixel_density = 1
+	// A frame that took long (a remesh) moves animations on by at most a tenth of a
+	// second, so a panel does not skip from start to end mid-animation.
+	before := ctx.time
+	ctx.time += f64(clamp(input.dt, 0, 0.1))
+	if int(ctx.time) != int(before) do tween_prune(ctx)
 	draw_list_clear(&ctx.draw)
 	ctx.draw.keep = 0
 	clear(&ctx.stack)
@@ -206,29 +254,37 @@ frame_begin :: proc(ctx: ^Context, input: Input) {
 	if input.mouse_valid {
 		// The last one drawn is on top.
 		#reverse for p in ctx.placed_prev {
-			if p.root && rect_contains(p.rect, input.mouse) {
+			if p.root && p.id != INERT_ROOT && rect_contains(p.rect, input.mouse) {
 				ctx.pointer_root = p.id
 				break
 			}
 		}
 	}
 	if input.pressed != {} && ctx.active == 0 && ctx.pointer_root == 0 do ctx.viewport_drag = true
-	if ctx.viewport_drag do ctx.pointer_root = 0
+	if ctx.viewport_drag || ctx.swallow do ctx.pointer_root = 0
+	ctx.popup_open_prev = ctx.popup_open
+	ctx.popup_open = 0
 }
 
 // Ends the frame and returns its triangles, ready to upload. The list stays valid until
 // the next frame_begin.
 frame_end :: proc(ctx: ^Context) -> ^Draw_List {
 	assert(len(ctx.stack) == 0, "a container was begun and not ended")
+	select_list_draw(ctx)
+	toasts_draw(ctx)
+	tooltip_draw(ctx)
 	if ctx.active != 0 && (!ctx.active_seen || ctx.input.down == {}) do ctx.active = 0
-	if ctx.input.down == {} do ctx.viewport_drag = false
+	if ctx.input.down == {} {
+		ctx.viewport_drag = false
+		ctx.swallow = false
+	}
 	return &ctx.draw
 }
 
 // True while the UI has the pointer: it is over a container or holds a widget. The
 // viewport ignores the pointer then.
 wants_pointer :: proc(ctx: ^Context) -> bool {
-	return !ctx.viewport_drag && (ctx.pointer_root != 0 || ctx.active != 0)
+	return ctx.swallow || (!ctx.viewport_drag && (ctx.pointer_root != 0 || ctx.active != 0))
 }
 
 // True while a drag that began on the viewport goes on, wherever the pointer is now.
@@ -270,6 +326,24 @@ begin_anchored :: proc(ctx: ^Context, name: string, x, y: Anchor, offset: [2]f32
 	open(ctx, id, {pos.x, pos.y, size.x, size.y}, box, root = true)
 }
 
+// Opens a container at `pos` in the window (points), on top of what came before. Close
+// it with end.
+begin_at :: proc(ctx: ^Context, name: string, pos: [2]f32, box: Box) {
+	id := id_of(ctx, name)
+	size := prev_size(ctx, id, box)
+	open(ctx, id, {pos.x, pos.y, size.x, size.y}, box, root = true)
+}
+
+// The size `name` (a container in the current one, or anchored) had last frame, and
+// the size of its content; zero the first frame.
+prev_layout :: proc(ctx: ^Context, name: string) -> (size, natural: [2]f32) {
+	id := id_of(ctx, name)
+	for p in ctx.placed_prev {
+		if p.id == id do return {p.rect.w, p.rect.h}, p.natural
+	}
+	return
+}
+
 // Opens a container inside the current one, laid out like a widget. Close it with end.
 begin :: proc(ctx: ^Context, name: string, box: Box) {
 	id := id_of(ctx, name)
@@ -283,9 +357,28 @@ begin :: proc(ctx: ^Context, name: string, box: Box) {
 end :: proc(ctx: ^Context) {
 	c := pop(&ctx.stack)
 	pad := c.box.padding
-	w := c.box.width if c.box.width > 0 else c.content.x - c.rect.x + pad
-	h := c.box.height if c.box.height > 0 else c.content.y - c.rect.y + pad
+	natural := [2]f32{max(c.content.x - c.rect.x + pad, 2 * pad), max(c.content.y - c.rect.y + pad + c.box.scroll, 2 * pad)}
+	w := c.box.width if c.box.width > 0 else natural.x
+	h := c.box.height if c.box.height > 0 else natural.y
 	c.rect.w, c.rect.h = max(w, 2 * pad), max(h, 2 * pad)
+	if c.box.clip {
+		ctx.clip = c.clip_prev
+		draw_set_state(&ctx.draw, .Atlas, 0, ctx.clip)
+	}
+	// The indicator, then the background, each moved under what is already there, so the
+	// background ends lowest, the indicator over it and the children on top.
+	if ind, ok := c.indicator.?; ok {
+		draw_set_state(&ctx.draw, .Atlas, 0, ctx.clip)
+		from := len(ctx.draw.indices)
+		r := ind.rect
+		dur := ctx.theme.indicator_time
+		x := tween(ctx, salt(c.id, 1), r.x - c.rect.x, dur, .Out_Cubic)
+		y := tween(ctx, salt(c.id, 2), r.y - c.rect.y, dur, .Out_Cubic)
+		iw := tween(ctx, salt(c.id, 3), r.w, dur, .Out_Cubic)
+		ih := tween(ctx, salt(c.id, 4), r.h, dur, .Out_Cubic)
+		fill_rect(ctx, {c.rect.x + x, c.rect.y + y, iw, ih}, ind.radius, ind.color)
+		draw_move_under(&ctx.draw, c.index_mark, c.cmd_mark, from)
+	}
 	if c.box.background != .None {
 		draw_set_state(&ctx.draw, .Atlas, 0, ctx.clip)
 		from := len(ctx.draw.indices)
@@ -293,14 +386,18 @@ end :: proc(ctx: ^Context) {
 		switch c.box.background {
 		case .None:
 		case .Panel:
-			fill_rect(ctx, c.rect, c.box.radius, t.panel)
-			stroke_rect(ctx, c.rect, c.box.radius, t.panel_border, 1)
+			fill_rect(ctx, c.rect, c.box.radius, t.surface)
+			stroke_rect(ctx, c.rect, c.box.radius, t.border, 1)
+		case .Raised:
+			shadow_rect(ctx, c.rect, c.box.radius, t.shadow)
+			fill_rect(ctx, c.rect, c.box.radius, t.surface_raised)
+			stroke_rect(ctx, c.rect, c.box.radius, t.border_strong, 1)
 		case .Track:
-			fill_rect(ctx, c.rect, c.box.radius, t.control)
+			fill_rect(ctx, c.rect, c.box.radius, t.fill)
 		}
 		draw_move_under(&ctx.draw, c.index_mark, c.cmd_mark, from)
 	}
-	append(&ctx.placed, Placed{c.id, c.rect, c.root == c.id})
+	append(&ctx.placed, Placed{c.id, c.rect, natural, c.root == c.id})
 	// The parent placed it at last frame's size; move the parent on by the difference.
 	if n := len(ctx.stack); n > 0 && c.root != c.id {
 		p := &ctx.stack[n - 1]
@@ -318,6 +415,7 @@ place :: proc(ctx: ^Context, size: [2]f32) -> Rect {
 	if n == 0 do return {0, 0, size.x, size.y}
 	c := &ctx.stack[n - 1]
 	pos := advance(c, size)
+	defer ctx.last_rect = {pos.x, pos.y, size.x, size.y}
 	if c.box.center {
 		inner := c.cross - 2 * c.box.padding
 		if c.box.direction == .Row {
@@ -358,20 +456,41 @@ open :: proc(ctx: ^Context, id: Id, r: Rect, box: Box, root: bool) {
 	ctx.draw.keep = len(ctx.draw.cmds)
 	parent_root: Id = id
 	if !root && len(ctx.stack) > 0 do parent_root = ctx.stack[len(ctx.stack) - 1].root
+	if box.inert do parent_root = INERT_ROOT
 	c := Container {
 		id          = id,
 		rect        = r,
 		box         = box,
-		cursor      = {r.x + box.padding, r.y + box.padding},
-		content     = {r.x + box.padding, r.y + box.padding},
+		cursor      = {r.x + box.padding, r.y + box.padding - box.scroll},
+		content     = {r.x + box.padding, r.y + box.padding - box.scroll},
 		cross       = r.h if box.direction == .Row else r.w,
 		index_mark  = len(ctx.draw.indices),
 		cmd_mark    = len(ctx.draw.cmds) - 1,
 		root        = parent_root,
 		first_child = true,
 		placed_size = {r.w, r.h},
+		clip_prev   = ctx.clip,
+	}
+	if box.clip {
+		d := px(ctx)
+		ctx.clip = rect_intersect(ctx.clip, {r.x * d, r.y * d, r.w * d, r.h * d})
+		draw_set_state(&ctx.draw, .Atlas, 0, ctx.clip)
+		ctx.draw.keep = len(ctx.draw.cmds)
+		c.cmd_mark = len(ctx.draw.cmds) - 1
+		c.index_mark = len(ctx.draw.indices)
 	}
 	append(&ctx.stack, c)
+}
+
+// Asks the innermost container to slide its indicator to `r`, under its children.
+indicator :: proc(ctx: ^Context, r: Rect, radius: f32, color: Color) {
+	if n := len(ctx.stack); n > 0 do ctx.stack[n - 1].indicator = Indicator{r, radius, color}
+}
+
+rect_intersect :: proc(a, b: Rect) -> Rect {
+	x0, y0 := max(a.x, b.x), max(a.y, b.y)
+	x1, y1 := min(a.x + a.w, b.x + b.w), min(a.y + a.h, b.y + b.h)
+	return {x0, y0, max(x1 - x0, 0), max(y1 - y0, 0)}
 }
 
 // Moves the container's cursor past a child of `size` and returns where the child goes.
@@ -408,9 +527,13 @@ interact :: proc(ctx: ^Context, id: Id, r: Rect) -> (hovered, held, clicked, pre
 	n := len(ctx.stack)
 	root: Id = ctx.stack[n - 1].root if n > 0 else 0
 	in_input := ctx.input
-	over := in_input.mouse_valid && !ctx.viewport_drag && root == ctx.pointer_root && rect_contains(r, in_input.mouse)
-	if over && (ctx.active == 0 || ctx.active == id) do ctx.hot = id
-	if over && .Left in in_input.pressed && ctx.active == 0 {
+	d := px(ctx)
+	inside_clip := rect_contains(ctx.clip, in_input.mouse * d)
+	over := in_input.mouse_valid && !ctx.viewport_drag && !ctx.swallow && root == ctx.pointer_root && rect_contains(r, in_input.mouse) && inside_clip
+	// Hit areas may overlap a little (each is at least a touch target, larger than what
+	// is drawn); the first widget laid out under the pointer takes it.
+	if over && (ctx.active == 0 || ctx.active == id) && (ctx.hot == 0 || ctx.hot == id) do ctx.hot = id
+	if ctx.hot == id && .Left in in_input.pressed && ctx.active == 0 {
 		ctx.active = id
 		ctx.press_mouse = in_input.mouse
 		pressed = true
@@ -463,6 +586,17 @@ fill_circle :: proc(ctx: ^Context, center: [2]f32, radius: f32, color: Color) {
 	circle_path(&ctx.path, center * d, radius * d)
 	draw_set_state(&ctx.draw, .Atlas, 0, ctx.clip)
 	draw_convex(&ctx.draw, ctx.path[:], color)
+}
+
+// A soft shadow under a rounded rectangle: three widening rings, fainter each time,
+// dropped a little, which reads as a popover lifted off the panel below.
+shadow_rect :: proc(ctx: ^Context, r: Rect, radius: f32, color: Color) {
+	for k in 0 ..< 4 {
+		grow := f32(k) * 3 + 1
+		c := color
+		c.a = u8(f32(color.a) * (0.32 - f32(k) * 0.07))
+		fill_rect(ctx, {r.x - grow, r.y - grow + 6, r.w + 2 * grow, r.h + 2 * grow}, radius + grow, c)
+	}
 }
 
 // A soft shadow under a circle: rings fading out, cheap and good enough at knob sizes.

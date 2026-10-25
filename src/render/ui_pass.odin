@@ -112,7 +112,7 @@ ui_pass_upload :: proc(r: ^Renderer, up: ^Ui_Pass, cmd: ^sdl.GPUCommandBuffer, v
 			_ = sdl.WaitForGPUIdle(r.device)
 			sdl.ReleaseGPUTransferBuffer(r.device, up.transfer)
 		}
-		size := max(need, 256 * 1024)
+		size := max(need, 1024 * 1024)
 		size = 1 << u32(32 - intrinsics.count_leading_zeros(size - 1))
 		up.transfer = sdl.CreateGPUTransferBuffer(r.device, {usage = .UPLOAD, size = size})
 		if up.transfer == nil {
@@ -271,7 +271,10 @@ grow_buffer :: proc(r: ^Renderer, buffer: ^^sdl.GPUBuffer, capacity: ^u32, need:
 		_ = sdl.WaitForGPUIdle(r.device)
 		sdl.ReleaseGPUBuffer(r.device, buffer^)
 	}
-	size := max(need, 64 * 1024)
+	// Growing waits for the GPU to go idle, which on the first frames is waiting for a
+	// whole viewport of a big mesh; starting at 512 KB (about 25k vertices, several
+	// times what the interface draws) means it never grows in practice.
+	size := max(need, 512 * 1024)
 	size = 1 << u32(32 - intrinsics.count_leading_zeros(size - 1))
 	buffer^ = sdl.CreateGPUBuffer(r.device, {usage = usage, size = size})
 	if buffer^ == nil {

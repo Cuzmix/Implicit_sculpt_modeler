@@ -271,7 +271,7 @@ draw_menu_bar :: proc(app: ^App) {
 		imgui.EndMenu()
 	}
 	if imgui.BeginMenu("View") {
-		if imgui.MenuItem("New interface (preview)") do app.new_ui = true
+		if imgui.MenuItem("New interface") do app.new_ui = true
 		if imgui.MenuItem("Reset camera") do reset_camera(app)
 		if imgui.MenuItem("Focus selected", "F") do focus_selected(app)
 		if imgui.MenuItem("Orthographic", "P", app.camera.ortho) do app.camera.ortho = !app.camera.ortho
@@ -349,7 +349,6 @@ material_menu :: proc(app: ^App) {
 }
 
 // Saves where the scene was last saved or opened, or asks where to the first time.
-@(private = "file")
 save_scene :: proc(app: ^App) {
 	if app.scene_path != "" {
 		file_post(.Save, app.scene_path)
@@ -634,7 +633,6 @@ draw_tools_panel :: proc(app: ^App) {
 }
 
 // Back to the starting view, keeping the projection.
-@(private = "file")
 reset_camera :: proc(app: ^App) {
 	ortho := app.camera.ortho
 	app.camera = camera.orbit_default()
@@ -1160,7 +1158,6 @@ count_label :: proc(n: int) -> string {
 	return fmt.tprintf("%d", n)
 }
 
-@(private = "file")
 bytes_label :: proc(n: int) -> string {
 	if n >= 1 << 30 do return fmt.tprintf("%.1f GB", f64(n) / f64(1 << 30))
 	return fmt.tprintf("%d MB", max(n >> 20, 1))

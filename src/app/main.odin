@@ -43,8 +43,11 @@ Options :: struct {
 	hd_window: int `usage:"Vertices an HD window holds (default 4000000)."`,
 	no_cache:  bool `usage:"Draw every object every frame instead of caching the idle ones (for comparison)."`,
 	no_cull:   bool `usage:"Draw every triangle instead of skipping off-screen and back-facing chunks (for comparison)."`,
-	new_ui:    bool `usage:"Start with the new interface (a preview): one touch-friendly layout for every screen, as View > New interface turns on."`,
-	dump_screen: string `usage:"On exit, write the whole window as the new interface drew it (viewport and panels) to this path: a PNG, or a binary PPM when it ends in .ppm. Needs --new-ui."`,
+	new_ui:    bool `usage:"Start with the interface (the default; for older command lines and over a remembered Classic panels)."`,
+	classic_ui: bool `usage:"Start with the classic ImGui panels instead of the interface, as Menu > Classic panels does."`,
+	reduce_motion: bool `usage:"Start with the interface's animations off, as Menu > Reduce motion does."`,
+	ui_events: string `usage:"Drive the interface's pointer, for tests: FRAME:move:X,Y, FRAME:down, FRAME:up, FRAME:right (a right click) or FRAME:wheel:N, separated by semicolons; X and Y in window points."`,
+	dump_screen: string `usage:"On exit, write the whole window as the interface drew it (viewport and panels) to this path: a PNG, or a binary PPM when it ends in .ppm. Not with --classic-ui."`,
 	dump_viewport: string `usage:"On exit, write the last viewport image to this path: a PNG, or a binary PPM when it ends in .ppm (for checking renders), as File > Save screenshot does."`,
 	check_mesh: bool `usage:"On exit, check every object's current mesh (closed, consistently wound, no degenerate triangles or NaN) and print the counts as mesh_* lines (slow on large meshes)."`,
 	no_partial: bool `usage:"Redraw the whole viewport every frame instead of only what changed (for comparison)."`,
@@ -410,6 +413,7 @@ run :: proc(opts: Options) -> bool {
 	io.ConfigFlags += {.NavEnableKeyboard, .DockingEnable}
 	io.IniFilename = nil // layout is rebuilt in code each run until there is a settings story
 	imgui.StyleColorsDark()
+	imgui_apply_theme(ui.THEME_DARK)
 	imgui_impl_sdl3.InitForSDLGPU(window)
 	defer imgui_impl_sdl3.Shutdown()
 	init_info := imgui_impl_sdlgpu3.InitInfo {
@@ -424,7 +428,8 @@ run :: proc(opts: Options) -> bool {
 	defer imgui_impl_sdlgpu3.Shutdown()
 	kit_init(&app)
 	defer kit_destroy(&app)
-	app.new_ui = opts.new_ui
+	app.new_ui = true
+	if !kit_events_parse(&app, opts.ui_events) do return false
 
 	if len(app.scene.objects) > 1 do frame_all(&app)
 	app.cache_idle = !opts.no_cache
@@ -446,6 +451,9 @@ run :: proc(opts: Options) -> bool {
 	if remember do settings = strings.clone(settings)
 	defer delete(settings)
 	settings_load(&app, settings)
+	if opts.classic_ui do app.new_ui = false
+	if opts.new_ui do app.new_ui = true
+	if opts.reduce_motion do app.kit.ctx.reduced_motion = true
 	app.ui.smooth_on_gpu = opts.gpu_smooth
 	if opts.smooth_all > 0 do smooth_command(&app, opts.smooth_all)
 	if opts.paint_color != "" {
