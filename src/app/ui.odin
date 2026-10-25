@@ -485,6 +485,8 @@ draw_viewport_overlay :: proc(app: ^App, input: Viewport_Input) {
 		r := f32(gizmo.CENTER_PX)
 		center_color := rgba(HIGHLIGHT if active == .View else {1, 1, 1, 0.85})
 		imgui.DrawList_AddRect(list, c - r, c + r, center_color, 0, 2)
+	case .Curve, .Insert:
+		draw_curve_overlay(app, list, o)
 	}
 }
 
@@ -496,7 +498,14 @@ draw_tools_panel :: proc(app: ^App) {
 	if imgui.RadioButton("Select / Move (W)", app.tool == .Move) do app.tool = .Move
 	imgui.SameLine()
 	if imgui.RadioButton("Brush (B)", app.tool == .Brush) do app.tool = .Brush
+	if imgui.RadioButton("Curve (C)", app.tool == .Curve) do app.tool = .Curve
+	imgui.SameLine()
+	if imgui.RadioButton("Insert (I)", app.tool == .Insert) do app.tool = .Insert
 	switch app.tool {
+	case .Curve:
+		draw_curve_settings(app)
+	case .Insert:
+		draw_insert_settings(app)
 	case .Move:
 		imgui.TextDisabled("Click selects. Drag an object, or a gizmo arm\nto move along that axis.")
 	case .Brush:
@@ -1052,6 +1061,8 @@ handle_shortcuts :: proc(app: ^App) {
 		}
 	}
 	if imgui.IsKeyPressed(.B, false) do app.tool = .Brush
+	if imgui.IsKeyPressed(.C, false) && !io.KeyCtrl && !io.KeyAlt do app.tool = .Curve
+	if imgui.IsKeyPressed(.I, false) && !io.KeyCtrl && !io.KeyAlt do app.tool = .Insert
 	if !io.KeyCtrl && !io.KeyAlt {
 		// 1 to 9 and 0 pick the brushes in the order the Tools panel lists them.
 		for kind, i in sculpt.Brush_Kind {

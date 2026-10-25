@@ -98,6 +98,8 @@ Options :: struct {
 	live_boolean: bool `usage:"Start with Scene > Booleans > Live boolean on."`,
 	make_boolean: bool `usage:"Make the boolean mesh before starting, as Make boolean mesh does (after --boolean)."`,
 	extract:    f32 `usage:"Extract the first object's masked part before starting, as Scene > Extract masked does, this thick (a share of its size; after --boolean); masks what the top third of the view shows first when nothing is masked."`,
+	curve:      string `usage:"Draw a curve of this kind (tube, stitches or zipper) across the middle of the view before starting, as the Curve tool does (after --extract)."`,
+	insert:     string `usage:"Insert this shape (sphere, cube, cylinder, cone or torus) at the middle of the view before starting, as a click of the Insert tool does (after --curve)."`,
 	bake_size:  int `usage:"Texels square for --bake (512, 1024, 2048 or 4096; default 2048)."`,
 	gpubench_frames: int `usage:"Measured frames per --gpubench case (default 120, at most 240)."`,
 	open:      string `usage:"Start with the scene saved in this .sculpt file instead of spheres, as File > Open scene does."`,
@@ -117,6 +119,8 @@ App :: struct {
 	brush:    Brush_Settings,
 	mask_shape: Mask_Shape, // a Ctrl + drag on empty space in progress (mask_shape.odin)
 	clip:     Clip_Gesture, // a Ctrl + Shift + drag in progress (clip.odin)
+	curve:    Curve_Tool,
+	insert:   Insert_Tool,
 	gesture:  Gesture_Tool, // what a Ctrl + Shift + drag does
 	smooth_gpu: render.Smooth_Compute, // Smooth all's compute shader and buffers, made on first use
 	smooth_gpu_failed: bool, // the device refused the compute pipeline; Smooth all stays on the CPU
@@ -243,6 +247,7 @@ run :: proc(opts: Options) -> bool {
 	defer delete(app.stroke.pending)
 	defer mask_shape_destroy(&app.mask_shape)
 	defer clip_gesture_destroy(&app.clip)
+	defer curve_tool_destroy(&app.curve)
 	app.hd_window_vertices = opts.hd_window if opts.hd_window > 0 else sculpt.HD_WINDOW_VERTICES
 	if opts.open != "" {
 		opened, ok := scene_open(&app, opts.open)
@@ -406,6 +411,7 @@ run :: proc(opts: Options) -> bool {
 	app.vsync = !opts.no_vsync && opts.gpubench == ""
 	app.time_gpu = opts.time_gpu || opts.gpubench != ""
 	app.ui = ui_state_default()
+	app.curve, app.insert = CURVE_DEFAULTS, INSERT_DEFAULTS
 	app.brush = {kind = .Draw, radius_px = 60, pressure_strength = true, pressure_curve = geom.CURVE_LINEAR, detail_px = 10, collapse = true, alpha = -1, color = {0.75, 0.2, 0.15}}
 	for &s in app.brush.strengths do s = 0.5
 	// What earlier interactive runs left, before the flags, which win over it.
@@ -466,6 +472,35 @@ run :: proc(opts: Options) -> bool {
 			mask_shape_command(&app, top[:], app.ui.viewport_request, false)
 		}
 		if !extract_masked(&app) do return false
+	}
+	if opts.curve != "" {
+		found := false
+		for k in Curve_Kind do if strings.equal_fold(opts.curve, fmt.tprint(k)) {
+			app.curve.kind, found = k, true
+		}
+		if !found {
+			log.errorf("unknown --curve %q", opts.curve)
+			return false
+		}
+		// The viewport has no size before the first frame: the size it asks for.
+		size := app.ui.viewport_request
+		for i in 0 ..= 40 do curve_add_point(&app, {size.x * (0.3 + 0.01 * f32(i)), size.y * (0.5 + 0.08 * math.sin(f32(i) / 6))}, size)
+		if !curve_make(&app) do return false
+	}
+	if opts.insert != "" {
+		found := false
+		for p in geom.Primitive do if strings.equal_fold(opts.insert, fmt.tprint(p)) {
+			app.insert.shape, found = p, true
+		}
+		if !found {
+			log.errorf("unknown --insert %q", opts.insert)
+			return false
+		}
+		size := app.ui.viewport_request
+		origin, dir := mouse_ray(app.camera, 0.5 * size, size)
+		if _, hit, n, ok := scene_raycast_surface(&app, origin, dir); ok {
+			if !insert_make(&app, hit, n, app.brush.radius_px * camera.orbit_world_per_px(app.camera, hit, size.y)) do return false
+		}
 	}
 	if opts.bake_size > 0 do app.ui.bake.size = i32(opts.bake_size)
 	defer if remember do _ = settings_save(&app, settings)
@@ -686,6 +721,12 @@ run :: proc(opts: Options) -> bool {
 		case .Move:
 			stroke_finish(&app)
 			move_tool_frame(&app, input)
+		case .Curve:
+			stroke_finish(&app)
+			if !curve_tool_frame(&app, input) do return false
+		case .Insert:
+			stroke_finish(&app)
+			if !insert_tool_frame(&app, input) do return false
 		}
 		draw_viewport_overlay(&app, input)
 		imgui.Render()
