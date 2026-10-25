@@ -691,12 +691,17 @@ draw_scene_panel :: proc(app: ^App) {
 	imgui.BeginDisabled(selected_object(app) == nil)
 	if imgui.Button("Remesh selected") do app.ui.scene_command = {kind = .Remesh, vertices = requested}
 	imgui.SameLine()
+	if imgui.Button("Decimate selected") do app.ui.scene_command = {kind = .Decimate, vertices = requested}
+	if imgui.IsItemHovered() do imgui.SetTooltip("Keeps the shape with about this many vertices: dense where\nthe detail is, sparse where it is flat. For export; levels,\nHD detail and mask go (Ctrl+Z brings them back).")
 	if imgui.Button("Delete selected (Del)") do app.ui.scene_command = {kind = .Delete}
 	if imgui.Button("Duplicate selected (Ctrl+Shift+D)") do app.ui.scene_command = {kind = .Duplicate}
 	imgui.EndDisabled()
 	imgui.TextDisabled("Remesh rebuilds the selected object as an even mesh of\nabout this many vertices that keeps its shape, like\nDynaMesh. Ctrl+R does it at the object's own vertex\ncount. Levels, HD detail and mask go; Ctrl+Z brings\nthem back (HD detail apart).")
 	if s := app.stats; s.remesh_ms > 0 {
 		imgui.TextDisabled("Last remesh: %.0f ms, then %.0f ms to sculpt-ready", s.remesh_ms, s.remesh_setup_ms)
+	}
+	if s := app.stats; s.decimate_ms > 0 {
+		imgui.TextDisabled("Last decimate: %.0f ms, strays at most %.4f", s.decimate_ms, s.decimate_error)
 	}
 
 	imgui.SeparatorText("Mirror and weld")

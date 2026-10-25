@@ -49,12 +49,31 @@ flips :: #force_inline proc(a, b, c, d: Vec3d) -> bool {
 	return linalg.dot(before, after) <= 0.25 * math.sqrt(linalg.dot(before, before) * linalg.dot(after, after))
 }
 
+// How much a collapse's squared length adds to its cost in strict mode.
+@(private = "file")
+STRICT_LENGTH_COST :: 0.01
+
+// Whether triangle (a, b, c) is a needle: its area against its squared sides is under
+// a twentieth of an equilateral triangle's.
+@(private = "file")
+sliver :: #force_inline proc(a, b, c: Vec3d) -> bool {
+	twice_area := linalg.length(linalg.cross(b - a, c - a))
+	sides := linalg.length2(b - a) + linalg.length2(c - b) + linalg.length2(a - c)
+	return 2 * math.SQRT_THREE * twice_area < 0.05 * sides
+}
+
 // Simplifies the triangles `indices` (into `positions`) towards `target` triangles,
 // appending the result to `out` in the same vertex numbering. Stops early when no
 // collapse is left that keeps the surface sound. Returns the largest error a collapse
 // made: the area-weighted root mean square distance from where a vertex went to the
 // planes of the triangles it had gathered, in the units of `positions`.
-simplify :: proc(positions: []Vec3, indices: []u32, target: int, out: ^[dynamic]u32, allocator := context.allocator) -> (error: f32) {
+//
+// Collapses in one pass share no vertex, but two may still move two corners of one
+// triangle, which neither checked; for drawing that is harmless. With `strict`, no two
+// vertices of a triangle move in one pass, so the checks hold and no triangle folds or
+// goes flat, at the cost of more passes: for meshes that are sculpted or exported
+// (mesh_decimate).
+simplify :: proc(positions: []Vec3, indices: []u32, target: int, out: ^[dynamic]u32, allocator := context.allocator, strict := false) -> (error: f32) {
 	context.allocator = allocator
 	EMPTY :: max(u32)
 
@@ -160,6 +179,8 @@ simplify :: proc(positions: []Vec3, indices: []u32, target: int, out: ^[dynamic]
 	for &r, i in remap do r = u32(i)
 	busy := make([]bool, vcount) // takes part in a collapse this pass
 	defer delete(busy)
+	still := make([]bool, vcount if strict else 0) // strict: next to a collapse this pass, so it stays
+	defer delete(still)
 	alive := make([]bool, vcount)
 	defer delete(alive)
 	slice.fill(alive, true)
@@ -187,7 +208,7 @@ simplify :: proc(positions: []Vec3, indices: []u32, target: int, out: ^[dynamic]
 	// Whether collapsing u into v keeps the surface sound: no triangle around u turns
 	// over, and the two share no neighbour beyond the triangles on their edge (else the
 	// surface would pinch). Returns how many triangles the collapse removes.
-	collapse_ok :: proc(u, v: u32, tris: [][3]u32, offsets, adjacent, remap, stamp, seen: []u32, stamp_id: u32, pos: []Vec3d) -> (removed: int, ok: bool) {
+	collapse_ok :: proc(u, v: u32, tris: [][3]u32, offsets, adjacent, remap, stamp, seen: []u32, stamp_id: u32, pos: []Vec3d, strict: bool) -> (removed: int, ok: bool) {
 		for t in adjacent[offsets[v]:offsets[v + 1]] {
 			tri := tris[t]
 			a, b, c := remap[tri[0]], remap[tri[1]], remap[tri[2]]
@@ -204,6 +225,10 @@ simplify :: proc(positions: []Vec3, indices: []u32, target: int, out: ^[dynamic]
 				removed += 1
 			} else if flips(pos[k[1]], pos[k[2]], pos[u], pos[v]) {
 				return 0, false
+			} else if strict && sliver(pos[k[1]], pos[k[2]], pos[v]) && !sliver(pos[k[1]], pos[k[2]], pos[u]) {
+				// On a flat area every collapse costs nothing; this keeps them from
+				// leaving needles that are all but flat.
+				return 0, false
 			}
 			for w in k[1:] {
 				if w != v && stamp[w] == stamp_id && seen[w] != stamp_id {
@@ -216,7 +241,7 @@ simplify :: proc(positions: []Vec3, indices: []u32, target: int, out: ^[dynamic]
 	}
 
 	worst: f64
-	for _ in 0 ..< 32 {
+	for _ in 0 ..< (256 if strict else 32) {
 		if len(tris) <= target do break
 		// Each free vertex's cheapest collapse into a neighbour.
 		clear(&candidates)
@@ -226,7 +251,11 @@ simplify :: proc(positions: []Vec3, indices: []u32, target: int, out: ^[dynamic]
 			for t in adjacent[offsets[u]:offsets[u + 1]] {
 				for w in tris[t] {
 					if w == u32(u) do continue
-					if c := quadric_error(quadrics[u], pos[w]); c < best_cost {
+					c := quadric_error(quadrics[u], pos[w])
+					// Strict: shorter edges first where the error ties, as on flat
+					// areas, which keeps the triangles from turning into needles.
+					if strict do c += STRICT_LENGTH_COST * linalg.length2(pos[w] - pos[u])
+					if c < best_cost {
 						best, best_cost = w, c
 					}
 				}
@@ -249,12 +278,24 @@ simplify :: proc(positions: []Vec3, indices: []u32, target: int, out: ^[dynamic]
 			c := candidates[i]
 			if busy[c.u] || busy[c.v] do continue
 			stamp_id += 1
-			r, ok := collapse_ok(c.u, c.v, tris[:], offsets, adjacent, remap, stamp, seen, stamp_id, pos)
+			r, ok := collapse_ok(c.u, c.v, tris[:], offsets, adjacent, remap, stamp, seen, stamp_id, pos, strict)
 			if !ok do continue
+			if strict {
+				// No vertex around u may move this pass, nor u if one around it did.
+				if still[c.u] do continue
+				clash := false
+				for t in adjacent[offsets[c.u]:offsets[c.u + 1]] {
+					for w in tris[t] do if w != c.u && remap[w] != w do clash = true
+				}
+				if clash do continue
+				for t in adjacent[offsets[c.u]:offsets[c.u + 1]] {
+					for w in tris[t] do if w != c.u do still[w] = true
+				}
+			}
 			remap[c.u] = c.v
 			busy[c.u], busy[c.v] = true, true
 			removed += r
-			worst = max(worst, f64(c.cost))
+			worst = max(worst, quadric_error(quadrics[c.u], pos[c.v]) if strict else f64(c.cost))
 			append(&done, [2]u32{c.u, c.v})
 		}
 		if len(done) == 0 do break
@@ -275,6 +316,7 @@ simplify :: proc(positions: []Vec3, indices: []u32, target: int, out: ^[dynamic]
 			remap[d[0]] = d[0]
 			busy[d[0]], busy[d[1]] = false, false
 		}
+		if strict do slice.zero(still)
 		adjacency(tris[:], offsets, cursor, adjacent)
 	}
 	return f32(math.sqrt(worst))

@@ -58,6 +58,7 @@ Options :: struct {
 	falloff:   string `usage:"Start every brush with this falloff: smooth (the default), linear, sharp, firm or flat, as the Tools panel's Falloff presets set."`,
 	rotate:    string `usage:"Turn the first object this many degrees about x, y and z before starting, e.g. 0,45,0 (as the Scene panel's Rotation does)."`,
 	mirror:    string `usage:"Mirror and weld the first object before starting, as the Scene panel does: x, y or z keeps that axis's + side, -x, -y or -z the - side (after --remesh)."`,
+	decimate:  int `usage:"Decimate the first object to about this many vertices before starting, as the Scene panel's Decimate selected does (after --remesh)."`,
 	remesh:    int `usage:"Voxel remesh the first sphere to about this many vertices before starting, as Remesh selected does (after --subdivide and --level)."`,
 	dyntopo:   bool `usage:"Turn dynamic topology on for the first sphere before starting (after --remesh), as Ctrl+T does."`,
 	detail:    f32 `usage:"Dynamic topology detail: edges longer than this many pixels on screen split (default 10)."`,
@@ -244,6 +245,9 @@ run :: proc(opts: Options) -> bool {
 	if starting > 0 do app.scene.selected = 0
 	if opts.remesh > 0 {
 		if _, ok := object_remesh(&app, app.scene.objects[0], opts.remesh); !ok do return false
+	}
+	if opts.decimate > 0 {
+		if _, ok := object_decimate(&app, app.scene.objects[0], opts.decimate); !ok do return false
 	}
 	if opts.rotate != "" {
 		parts := strings.split(opts.rotate, ",", context.temp_allocator)
