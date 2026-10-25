@@ -4,6 +4,7 @@ import "core:log"
 import "core:time"
 import sdl "vendor:sdl3"
 
+import "../camera"
 import "../geom"
 import "../render"
 import "../sculpt"
@@ -151,7 +152,17 @@ mask_shape_command :: proc(app: ^App, shape: [][2]f32, size: [2]f32, unmask: boo
 	obj := selected_object(app)
 	if obj == nil do return
 	start := time.tick_now()
-	changed := sculpt.sculptor_mask_shape(object_sculptor(obj), object_clip(app, obj, size), shape, unmask)
+	front: sculpt.Front_Only
+	if app.brush.front_only {
+		t := obj.transform
+		front = {
+			on       = true,
+			parallel = app.camera.ortho,
+			eye      = to_local(t, camera.orbit_eye(app.camera)),
+			toward   = to_local_dir(t, -camera.orbit_toward(app.camera, app.camera.target)),
+		}
+	}
+	changed := sculpt.sculptor_mask_shape(object_sculptor(obj), object_clip(app, obj, size), shape, unmask, front)
 	app.ui.mask_last = {command = .Fill if !unmask else .Clear, ms = time.duration_milliseconds(time.tick_since(start)), changed = changed, set = true, shape = true}
 	if changed do history_record(app, obj)
 }

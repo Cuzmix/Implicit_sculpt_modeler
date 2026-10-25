@@ -401,6 +401,8 @@ draw_tools_panel :: proc(app: ^App) {
 	imgui.SliderFloat("Strength", brush_strength(app), MIN_STRENGTH, 1, "%.2f")
 	imgui.TextDisabled("S or U over the viewport sizes the brush or sets its\nstrength there; [ and ] step the size, Shift+[ and ]\nthe strength. Each brush keeps its own strength.")
 	imgui.SliderFloat("Lazy mouse (px)", &app.brush.lazy_px, 0, 150, "%.0f")
+	imgui.Checkbox("Front faces only", &app.brush.front_only)
+	if imgui.IsItemHovered() do imgui.SetTooltip("Brushes and mask shapes leave what faces away from you,\nso a stroke on a thin part (an ear, a fin) leaves its\nfar side alone. Grab is not affected.")
 	imgui.TextDisabled("Space, or a right click without dragging (a pen's side\nbutton), opens the brush pie.")
 	imgui.Text("Symmetry")
 	for axis in sculpt.Axis {

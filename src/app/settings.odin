@@ -58,6 +58,7 @@ settings_load :: proc(app: ^App, path: string) {
 		case "pressure_curve":    if len(f) == 5 do b.pressure_curve = curve(f[1:], b.pressure_curve)
 		case "tilt_strength":     b.tilt_strength = clamp(number(f[1], b.tilt_strength), 0, 1)
 		case "lazy_px":           b.lazy_px = clamp(number(f[1], b.lazy_px), 0, 150)
+		case "front_only":        b.front_only = f[1] == "1"
 		case "symmetry":
 			b.symmetry = {}
 			for c in f[1] {
@@ -117,6 +118,7 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 	fmt.sbprintfln(&out, "pressure_curve %g %g %g %g", c.c1.x, c.c1.y, c.c2.x, c.c2.y)
 	fmt.sbprintfln(&out, "tilt_strength %g", b.tilt_strength)
 	fmt.sbprintfln(&out, "lazy_px %g", b.lazy_px)
+	fmt.sbprintfln(&out, "front_only %d", bit(b.front_only))
 	symmetry := strings.builder_make(context.temp_allocator)
 	strings.write_string(&symmetry, "-") // a placeholder, so the line always has a value
 	if .X in b.symmetry do strings.write_byte(&symmetry, 'x')

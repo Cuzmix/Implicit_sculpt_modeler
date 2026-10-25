@@ -740,3 +740,25 @@ morph_brings_the_surface_back :: proc(t: ^testing.T) {
 	sculptor_morph_clear(&s)
 	testing.expect(t, apply_dab(&s, Brush{kind = .Morph, radius = 0.5, strength = 1}, top) == 0)
 }
+
+@(test)
+front_only_leaves_the_far_side :: proc(t: ^testing.T) {
+	for front in ([2]bool{false, true}) {
+		// A thin disc facing +z: a brush on its front reaches its back too.
+		m := geom.icosphere(5)
+		for &p in m.positions do p.z *= 0.05
+		s: Sculptor
+		sculptor_init(&s, &m, nil)
+		sculptor_recompute_all(&s)
+		before := slice.clone(m.positions[:])
+		brush := Brush{kind = .Draw, radius = 0.5, strength = 1}
+		if front do brush.facing = {0, 0, 1}
+		_ = apply_dab(&s, brush, {0, 0, 0.05})
+		back_moved := 0
+		for p, v in m.positions do if before[v].z < 0 && p != before[v] do back_moved += 1
+		testing.expectf(t, (back_moved == 0) == front, "front only %v: %d back vertices moved", front, back_moved)
+		delete(before)
+		sculptor_destroy(&s)
+		geom.mesh_destroy(&m)
+	}
+}

@@ -62,7 +62,7 @@ job_mask :: proc(data: rawptr, i: int) {
 		delta := m.positions[v] - d.center
 		d2 := linalg.dot(delta, delta)
 		if d2 >= d.r2 do continue
-		w := dab_weight(d, delta, d2)
+		w := dab_weight(d, delta, d2) * facing_weight(d, m.normals[:], v)
 		if fade != nil do w *= f32(fade[v]) * (1.0 / 255)
 		next := u8(clamp(f32(mask[v]) + d.amount * w + 0.5, 0, 255))
 		if next == mask[v] do continue
@@ -114,14 +114,25 @@ sculptor_mask_command :: proc(s: ^Sculptor, command: Mask_Command, steps := 1) -
 	return mask_commit(&job)
 }
 
+// Which vertices a mask shape may reach: with `on`, only those whose normal faces the
+// viewer, at `eye` in the mesh's space, or along `toward` (toward the viewer) when the
+// projection is `parallel`.
+Front_Only :: struct {
+	on:       bool,
+	parallel: bool,
+	eye:      Vec3,
+	toward:   Vec3,
+}
+
 // Masks (or with `unmask`, unmasks) every vertex that falls inside `shape` on screen,
 // as ZBrush's mask rectangle and lasso do: `clip` takes the mesh's space to clip space,
 // and `shape` is a closed polygon in normalized device coordinates (x right, y up, -1
 // to 1). It reaches through the mesh: vertices behind others are masked too, as in
-// ZBrush. One undo step; returns true when it changed the mask. The polygon is drawn
+// ZBrush, unless `front` asks for front faces only, which leaves the vertices facing
+// away from the viewer (those behind are still reached where they face it). One undo step; returns true when it changed the mask. The polygon is drawn
 // into a coverage grid first, so the test per vertex is a lookup however many points
 // the lasso has.
-sculptor_mask_shape :: proc(s: ^Sculptor, clip: matrix[4, 4]f32, shape: [][2]f32, unmask: bool) -> bool {
+sculptor_mask_shape :: proc(s: ^Sculptor, clip: matrix[4, 4]f32, shape: [][2]f32, unmask: bool, front: Front_Only = {}) -> bool {
 	_ = sculptor_stroke_end(s)
 	if len(shape) < 3 do return false
 	if s.mask == nil && unmask do return false
@@ -133,12 +144,14 @@ sculptor_mask_shape :: proc(s: ^Sculptor, clip: matrix[4, 4]f32, shape: [][2]f32
 		clip:  matrix[4, 4]f32,
 		grid:  Coverage,
 		value: u8,
+		front: Front_Only,
 	}
 	sj := Shape_Job {
 		job = {s = s, after = slice.clone(s.mask, context.temp_allocator), changes = make([]bool, len(s.nodes), context.temp_allocator)},
 		clip = clip,
 		grid = grid,
 		value = 0 if unmask else 255,
+		front = front,
 	}
 	jobs.parallel_ranges(s.pool, len(s.nodes), &sj, proc(data: rawptr, lo, hi: int) {
 		sj := cast(^Shape_Job)data
@@ -150,6 +163,10 @@ sculptor_mask_shape :: proc(s: ^Sculptor, clip: matrix[4, 4]f32, shape: [][2]f32
 				c := sj.clip * [4]f32{p.x, p.y, p.z, 1}
 				if c.w <= 1e-6 do continue
 				if !coverage_at(sj.grid, {c.x / c.w, c.y / c.w}) do continue
+				if f := sj.front; f.on {
+					toward := f.toward if f.parallel else f.eye - p
+					if linalg.dot(s.mesh.normals[v], toward) < 0 do continue
+				}
 				if sj.job.after[v] != sj.value {
 					sj.job.after[v] = sj.value
 					sj.job.changes[id] = true
