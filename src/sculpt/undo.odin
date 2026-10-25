@@ -42,6 +42,10 @@ Undo_Step :: struct {
 Saved_Node :: struct {
 	node:       u32,
 	positions:  []Vec3, // nil when this saves the mask
+	// A large save takes one allocation for many nodes' positions: the first of them
+	// holds it here and frees it, the others are `borrowed` and free nothing.
+	block:      []Vec3,
+	borrowed:   bool,
 	masks:      []u8,
 	full:       bool,
 	indices:    []u32,
@@ -211,12 +215,14 @@ step_move :: proc(s: ^Sculptor, from, to: ^[dynamic]Undo_Step) -> bool {
 // every hit node this stroke has not saved yet, or with `masks`, their masks.
 @(private)
 record_hit :: proc(s: ^Sculptor, masks: bool) {
+	h := &s.history
+	first := len(h.current.saved)
+	verts := 0
 	for leaf in s.hit {
 		if masks {
 			record_mask(s, s.node_of[leaf])
 			continue
 		}
-		h := &s.history
 		id := s.node_of[leaf]
 		if s.dyn != nil {
 			record_full(s, id)
@@ -224,10 +230,44 @@ record_hit :: proc(s: ^Sculptor, masks: bool) {
 		}
 		if h.saved[id] == h.stamp do continue
 		h.saved[id] = h.stamp
-		n := s.nodes[id]
-		append(&h.current.saved, Saved_Node{node = id, positions = slice.clone(s.mesh.positions[n.vert_first:][:n.vert_count], h.allocator)})
+		append(&h.current.saved, Saved_Node{node = id})
+		verts += int(s.nodes[id].vert_count)
 	}
+	if masks || s.dyn != nil || verts == 0 do return
+	// The copies are filled below, after allocating: a hit as large as a whole-mesh clip
+	// saves millions of positions, which one allocation and a parallel copy make quick
+	// where an allocation and a copy per node do not.
+	fresh := h.current.saved[first:]
+	if verts >= RECORD_PARALLEL_VERTS {
+		// Unzeroed: the copy below writes all of it, in parallel, page faults and all.
+		raw, _ := runtime.mem_alloc_non_zeroed(verts * size_of(Vec3), align_of(Vec3), h.allocator)
+		block := slice.reinterpret([]Vec3, raw)
+		at := 0
+		for &sv, i in fresh {
+			count := int(s.nodes[sv.node].vert_count)
+			sv.positions = block[at:][:count]
+			at += count
+			if i == 0 do sv.block = block
+			else do sv.borrowed = true
+		}
+	} else {
+		for &sv in fresh do sv.positions = make([]Vec3, s.nodes[sv.node].vert_count, h.allocator)
+	}
+	Copy :: struct {
+		s:     ^Sculptor,
+		saved: []Saved_Node,
+	}
+	c := Copy{s, fresh}
+	jobs.parallel_for(s.pool if verts >= RECORD_PARALLEL_VERTS else nil, len(c.saved), &c, proc(data: rawptr, i: int) {
+		c := cast(^Copy)data
+		sv := c.saved[i]
+		copy(sv.positions, c.s.mesh.positions[c.s.nodes[sv.node].vert_first:][:len(sv.positions)])
+	})
 }
+
+// Saved positions from one dab past this many share an allocation and copy in parallel.
+@(private)
+RECORD_PARALLEL_VERTS :: 1 << 16
 
 // Saves a node's masks before the stroke first changes them, and lists the node as
 // painted. The sculptor must have a mask.
@@ -274,7 +314,11 @@ step_bytes :: proc(step: Undo_Step) -> int {
 @(private)
 step_reset :: proc(h: ^Undo_History, step: ^Undo_Step) {
 	for sv in step.saved {
-		delete(sv.positions, h.allocator)
+		if sv.block != nil {
+			delete(sv.block, h.allocator)
+		} else if !sv.borrowed {
+			delete(sv.positions, h.allocator)
+		}
 		delete(sv.masks, h.allocator)
 		delete(sv.indices, h.allocator)
 	}
@@ -286,7 +330,11 @@ step_reset :: proc(h: ^Undo_History, step: ^Undo_Step) {
 @(private)
 step_destroy :: proc(h: ^Undo_History, step: ^Undo_Step) {
 	for sv in step.saved {
-		delete(sv.positions, h.allocator)
+		if sv.block != nil {
+			delete(sv.block, h.allocator)
+		} else if !sv.borrowed {
+			delete(sv.positions, h.allocator)
+		}
 		delete(sv.masks, h.allocator)
 		delete(sv.indices, h.allocator)
 	}

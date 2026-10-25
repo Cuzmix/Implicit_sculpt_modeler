@@ -91,7 +91,11 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
   masks (1 B) are copied the first time the stroke touches it, and nothing for the rest (`:9-15`). `Undo_Step{nodes,
   painted}` lists node ids (`:32`); `Saved_Node{node, positions | masks, full, indices, …}` (`:42`), where `full` entries
   are dynamic topology's whole-node saves. `record_hit(s, masks)` (`:171`) picks `record_mask`, `record_full` (dynamic)
-  or positions. Undo and redo swap in place (`step_move`, `:134`); `UNDO_LIMIT_BYTES = 512 << 20` drops the oldest steps
+  or positions; a dab's new position saves past `RECORD_PARALLEL_VERTS` (64k vertices, e.g. a clip) share one unzeroed
+  allocation (`Saved_Node.block` on the first, `borrowed` on the rest, freed once) and copy in parallel. Clip
+  (`src/sculpt/clip.odin`): `sculptor_clip(s, []Clip_Plane)` finds the nodes with a free vertex past a plane, saves them
+  through `record_hit`, projects (shield-weighted) and calls `sculptor_nodes_moved`; one step, refused under dyntopo; app
+  gesture `src/app/clip.odin` (Ctrl+Shift drag, Alt flips, planes mirrored by `sculpt.mirrors`). Undo and redo swap in place (`step_move`, `:134`); `UNDO_LIMIT_BYTES = 512 << 20` drops the oldest steps
   but always keeps the newest (`:53`); a stroke that moved and painted nothing is not a step (`:100`).
 - Levels (`src/sculpt/levels.odin`): a base mesh and finer copies, each one Loop step above the one below, every level a
   whole mesh with its own sculptor; only the current level is shown and sculpted (`:12-25`). `MAX_LEVELS 8`; `Level{mesh,

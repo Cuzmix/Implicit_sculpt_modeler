@@ -40,6 +40,14 @@ Ui_State :: struct {
 	mirror_axis:        i32, // Mirror and weld: 0 x, 1 y, 2 z
 	mirror_negative:    bool, // Mirror and weld keeps the - side instead of the + side
 	mask_last:          Mask_Done,
+	clip_last:          Clip_Done,
+}
+
+// The last clip, for the Clip section to report.
+Clip_Done :: struct {
+	ms:      f64,
+	changed: bool,
+	set:     bool, // false until a clip has run
 }
 
 // The last mask command, for the Mask section to report.
@@ -328,6 +336,10 @@ draw_viewport_overlay :: proc(app: ^App, input: Viewport_Input) {
 
 	switch app.tool {
 	case .Brush:
+		if app.clip.active {
+			draw_clip(app, list, o, input.size)
+			break
+		}
 		if app.mask_shape.active {
 			draw_mask_shape(app, list, o, input.mouse_pos)
 			break
@@ -451,8 +463,6 @@ draw_tools_panel :: proc(app: ^App) {
 	if imgui.RadioButton("Rectangle", app.ui.mask_shape_kind == .Rectangle) do app.ui.mask_shape_kind = .Rectangle
 	imgui.SameLine()
 	if imgui.RadioButton("Lasso", app.ui.mask_shape_kind == .Lasso) do app.ui.mask_shape_kind = .Lasso
-	imgui.BeginDisabled(selected_object(app) == nil)
-	imgui.EndDisabled()
 	imgui.TextDisabled("Paint it with the Mask brush (9), or Ctrl + drag a\nshape from empty space (with Alt: unmask); masked\nareas show darker and no brush moves them. It follows level changes.\nBlur, Sharpen, Grow and Shrink move its edge\na ring of triangles a step, so a dense mesh\nneeds more steps.")
 	if last := app.ui.mask_last; last.set {
 		steps := fmt.tprintf(", %d steps", last.steps) if last.command >= .Blur else ""
@@ -460,6 +470,12 @@ draw_tools_panel :: proc(app: ^App) {
 		name := MASK_COMMAND_NAMES[last.command]
 		if last.shape do name = "Unmask shape" if last.command == .Clear else "Mask shape"
 		imgui.TextDisabled("%s", fmt.ctprintf("Last: %s%s in %.0f ms%s", name, steps, last.ms, outcome))
+	}
+
+	imgui.SeparatorText("Clip")
+	imgui.TextDisabled("Ctrl + Shift + drag a line: letting go flattens the\nselected object on the shaded side (Alt: the other\nside) onto the line, through to the back. It follows\nsymmetry and leaves masked areas. Not with dynamic topology.")
+	if last := app.ui.clip_last; last.set {
+		imgui.TextDisabled("%s", fmt.ctprintf("Last clip: %.0f ms%s", last.ms, "" if last.changed else ", nothing changed"))
 	}
 
 	draw_pen_section(app)

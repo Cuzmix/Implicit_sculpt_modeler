@@ -258,7 +258,7 @@ mask_commit :: proc(job: ^Mask_Job) -> bool {
 
 // Nodes per claim when a pass goes over every node: claiming one at a time costs more
 // than the little work most nodes need.
-@(private = "file")
+@(private)
 NODE_GRAIN :: 64
 
 @(private = "file")

@@ -1,6 +1,7 @@
 package main
 
 import "core:log"
+import "core:math/linalg"
 import "core:time"
 import sdl "vendor:sdl3"
 
@@ -164,6 +165,33 @@ mask_shape_command :: proc(app: ^App, shape: [][2]f32, size: [2]f32, unmask: boo
 	}
 	changed := sculpt.sculptor_mask_shape(object_sculptor(obj), object_clip(app, obj, size), shape, unmask, front)
 	app.ui.mask_last = {command = .Fill if !unmask else .Clear, ms = time.duration_milliseconds(time.tick_since(start)), changed = changed, set = true, shape = true}
+	if changed do history_record(app, obj)
+}
+
+// Clips the selected object along the screen line `a`-`b` (viewport pixels), as an undo
+// step of its own (sculpt.sculptor_clip).
+clip_command :: proc(app: ^App, a, b: [2]f32, flip: bool, size: [2]f32) {
+	stroke_finish(app)
+	obj := selected_object(app)
+	if obj == nil do return
+	start := time.tick_now()
+	// Three points of the plane in the object's space: both ends of the line on the
+	// near plane and one on the far plane, so the plane holds the view direction in
+	// either projection, and a scaled object still gets its plane right.
+	inv := linalg.inverse(object_clip(app, obj, size))
+	at :: proc(inv: matrix[4, 4]f32, p, size: [2]f32, depth: f32) -> sculpt.Vec3 {
+		q := inv * [4]f32{2 * p.x / size.x - 1, 1 - 2 * p.y / size.y, depth, 1}
+		return q.xyz / q.w
+	}
+	na, nb, fa := at(inv, a, size, 0), at(inv, b, size, 0), at(inv, a, size, 1)
+	// With y down on screen, the right of the drag is this side.
+	normal := linalg.normalize(linalg.cross(fa - na, nb - na))
+	if flip do normal = -normal
+	planes := make([dynamic]sculpt.Clip_Plane, 0, 8, context.temp_allocator)
+	for sign in sculpt.mirrors(app.brush.symmetry) do append(&planes, sculpt.Clip_Plane{point = na * sign, normal = normal * sign})
+	changed := sculpt.sculptor_clip(object_sculptor(obj), planes[:])
+	app.ui.clip_last = {ms = time.duration_milliseconds(time.tick_since(start)), changed = changed, set = true}
+	log.infof("clip: %.0f ms%s", app.ui.clip_last.ms, "" if changed else ", nothing changed")
 	if changed do history_record(app, obj)
 }
 
