@@ -69,6 +69,13 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   groups, downloads, and waits on a fence after each part to time it (`Smooth_Timing`). SDL's SPIR-V compute layout:
   set 0 read-only storage, set 1 read-write storage, set 2 uniforms. `build.sh` compiles `*.comp` with the other shaders.
 
+- The new interface's pass (`src/render/ui_pass.odin`, `ui.vert`/`ui.frag`): `ui_pass_upload` copies the kit's 20-byte
+  vertices and indices into buffers grown by powers of two and the changed rows of its R8 glyph atlas (recreated when
+  fontstash grows it) in one copy pass; `ui_pass_draw` draws in the swapchain pass, one draw per `Ui_Draw` with its
+  scissor, the atlas or the viewport texture bound. Atlas texture coordinates arrive in atlas pixels and the vertex
+  shader divides by the size in its uniforms, so glyphs placed before a mid-frame atlas growth stay right. NDC y is
+  flipped in the shader. `ui_pass_capture` redraws the same lists into an offscreen RGBA8 target for `--dump-screen`.
+
 ## Verify what you draw
     build\sculpt.exe --vertices=500000 --frames=60 --dump-viewport=build\a.ppm
     python scripts\ppm.py to-png build\a.ppm build\a.png        # open it with Read; describe what is where and how it is lit

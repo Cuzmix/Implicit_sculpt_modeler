@@ -20,6 +20,12 @@ if not exist "%DEPS%\odin\odin.exe" (
 )
 "%DEPS%\odin\odin.exe" version || exit /b 1
 
+rem stb's C libraries: vendor:fontstash (the UI's text) links stb_truetype and stb_rect_pack.
+if not exist "%DEPS%\odin\vendor\stb\lib\stb_truetype.lib" (
+	echo == stb
+	call "%DEPS%\odin\vendor\stb\src\build.bat" || exit /b 1
+)
+
 if not exist "%DEPS%\odin-imgui\imgui_windows_x64.lib.built" (
 	echo == odin-imgui %ODIN_IMGUI_COMMIT%
 	if exist "%DEPS%\odin-imgui" rmdir /s /q "%DEPS%\odin-imgui"

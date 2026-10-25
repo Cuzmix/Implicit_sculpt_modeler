@@ -239,6 +239,14 @@ screenshot_save :: proc(app: ^App, path: string) -> bool {
 		file_note(app, true, "Could not read the viewport back: %s", sdl.GetError())
 		return false
 	}
+	if !image_save(app, path, pixels, w, h) do return false
+	file_note(app, false, "Saved %s (%d x %d) in %.0f ms", filepath.base(path), w, h, time.duration_milliseconds(time.tick_since(start)))
+	return true
+}
+
+// Writes RGBA8 rows, top to bottom, to a PNG file (or a binary PPM when the path ends
+// in .ppm), noting a failure.
+image_save :: proc(app: ^App, path: string, pixels: []u8, w, h: int) -> bool {
 	written: bool
 	if strings.equal_fold(filepath.ext(path), ".ppm") {
 		written = write_ppm(path, pixels, w, h)
@@ -250,7 +258,6 @@ screenshot_save :: proc(app: ^App, path: string) -> bool {
 		file_note(app, true, "Could not write %s", path)
 		return false
 	}
-	file_note(app, false, "Saved %s (%d x %d) in %.0f ms", filepath.base(path), w, h, time.duration_milliseconds(time.tick_since(start)))
 	return true
 }
 

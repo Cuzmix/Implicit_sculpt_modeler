@@ -57,24 +57,48 @@ case "$mode" in
 		;;
 	test)
 		compile_shaders
-		for pkg in geom camera sculpt jobs gizmo png_write; do
+		for pkg in geom camera sculpt jobs gizmo png_write ui; do
 			"$ODIN" test "$ROOT/src/$pkg" -out:"$ROOT/build/test_$pkg" "${common[@]}"
 		done
 		;;
 	check)
 		# Library packages have no main, hence -no-entry-point; it is harmless on the executables.
 		# odin check takes no linker flags, so this is wincheck's flag list, not common's.
-		for pkg in app bench geom camera gizmo jobs png_write render sculpt sdf_trial; do
+		for pkg in app bench geom camera gizmo jobs png_write render sculpt sdf_trial ui; do
 			"$ODIN" check "$ROOT/src/$pkg" -no-entry-point \
 				-collection:deps="$DEPS" -vet -strict-style -warnings-as-errors
 		done
 		python3 "$ROOT/scripts/agents_sync.py" --check
-		echo "check: 10 packages type-check, agent mirror current"
+		echo "check: 11 packages type-check, agent mirror current"
 		;;
 	wincheck)
 		# Object files need no Windows SDK; the empty root only satisfies the flag.
 		out="$ROOT/build/wincheck"
 		mkdir -p "$out/sdk"
+		# vendor:stb refuses to compile for Windows unless its .lib files exist, and only
+		# Windows can build them. Object files never link, so an Odin root in build/ that
+		# shares everything with deps/odin but has empty stand-ins for those files is
+		# enough; deps/ itself stays untouched.
+		root="$out/odin_root"
+		rm -rf "$root"
+		mkdir -p "$root/vendor/stb/lib"
+		for entry in "$DEPS/odin"/*; do
+			[ "$(basename "$entry")" = vendor ] || ln -s "$entry" "$root/"
+		done
+		for entry in "$DEPS/odin"/vendor/*; do
+			[ "$(basename "$entry")" = stb ] || ln -s "$entry" "$root/vendor/"
+		done
+		for entry in "$DEPS/odin"/vendor/stb/*; do
+			name=$(basename "$entry")
+			[ "$name" = lib ] && continue
+			# Copied, not linked: stb finds its libraries relative to its own files.
+			cp -r "$entry" "$root/vendor/stb/"
+		done
+		cp -r "$DEPS/odin"/vendor/stb/lib/. "$root/vendor/stb/lib/"
+		for lib in stb_truetype stb_rect_pack stb_image stb_image_write stb_image_resize stb_sprintf stb_vorbis; do
+			: > "$root/vendor/stb/lib/$lib.lib"
+		done
+		export ODIN_ROOT="$root"
 		for pkg in app bench; do
 			"$ODIN" build "$ROOT/src/$pkg" -target:windows_amd64 -build-mode:obj \
 				-windows-sdk-root:"$out/sdk" -out:"$out/$pkg.obj" \

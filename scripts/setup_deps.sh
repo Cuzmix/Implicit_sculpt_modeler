@@ -24,6 +24,13 @@ if [ ! -x "$DEPS/odin/odin" ]; then
 fi
 "$DEPS/odin/odin" version
 
+# stb's C libraries: vendor:fontstash (the UI's text) links stb_truetype and
+# stb_rect_pack, which the Linux release of Odin does not ship compiled.
+if [ ! -f "$DEPS/odin/vendor/stb/lib/stb_truetype.a" ]; then
+	echo "== stb (vendor/stb/src/build_stb.sh)"
+	sh "$DEPS/odin/vendor/stb/src/build_stb.sh" unix
+fi
+
 # SDL3, built from source (Ubuntu 24.04 does not package SDL3)
 if [ ! -f "$DEPS/sdl3/lib/libSDL3.so" ]; then
 	echo "== SDL $SDL_TAG"

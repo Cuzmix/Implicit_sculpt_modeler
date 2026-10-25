@@ -23,6 +23,7 @@ import "../geom"
 import "../jobs"
 import "../render"
 import "../sculpt"
+import "../ui"
 
 Options :: struct {
 	frames:    int `usage:"Exit after this many frames (0 runs until the window closes)."`,
@@ -42,6 +43,11 @@ Options :: struct {
 	hd_window: int `usage:"Vertices an HD window holds (default 4000000)."`,
 	no_cache:  bool `usage:"Draw every object every frame instead of caching the idle ones (for comparison)."`,
 	no_cull:   bool `usage:"Draw every triangle instead of skipping off-screen and back-facing chunks (for comparison)."`,
+	new_ui:    bool `usage:"Start with the interface (the default; for older command lines and over a remembered Classic panels)."`,
+	classic_ui: bool `usage:"Start with the classic ImGui panels instead of the interface, as Menu > Classic panels does."`,
+	reduce_motion: bool `usage:"Start with the interface's animations off, as Menu > Reduce motion does."`,
+	ui_events: string `usage:"Drive the interface's pointer, for tests: FRAME:move:X,Y, FRAME:down, FRAME:up, FRAME:right (a right click) or FRAME:wheel:N, separated by semicolons; X and Y in window points."`,
+	dump_screen: string `usage:"On exit, write the whole window as the interface drew it (viewport and panels) to this path: a PNG, or a binary PPM when it ends in .ppm. Not with --classic-ui."`,
 	dump_viewport: string `usage:"On exit, write the last viewport image to this path: a PNG, or a binary PPM when it ends in .ppm (for checking renders), as File > Save screenshot does."`,
 	check_mesh: bool `usage:"On exit, check every object's current mesh (closed, consistently wound, no degenerate triangles or NaN) and print the counts as mesh_* lines (slow on large meshes)."`,
 	no_partial: bool `usage:"Redraw the whole viewport every frame instead of only what changed (for comparison)."`,
@@ -143,6 +149,10 @@ App :: struct {
 	pen_pressure: f32, // the pen's latest pressure
 	pen_tilt: [2]f32, // the pen's latest lean in degrees, x to the right and y down
 	pen_seen: bool,
+	new_ui:   bool, // the new interface (new_ui.odin) instead of the ImGui panels
+	kit:      Kit_State,
+	kit_drew: bool, // the last frame on screen was the new interface's...
+	kit_size: [2]u32, // ...this many pixels
 	camera:   camera.Orbit,
 	ui:       Ui_State,
 	stats:    Frame_Stats,
@@ -403,6 +413,7 @@ run :: proc(opts: Options) -> bool {
 	io.ConfigFlags += {.NavEnableKeyboard, .DockingEnable}
 	io.IniFilename = nil // layout is rebuilt in code each run until there is a settings story
 	imgui.StyleColorsDark()
+	imgui_apply_theme(ui.THEME_DARK)
 	imgui_impl_sdl3.InitForSDLGPU(window)
 	defer imgui_impl_sdl3.Shutdown()
 	init_info := imgui_impl_sdlgpu3.InitInfo {
@@ -415,6 +426,10 @@ run :: proc(opts: Options) -> bool {
 		return false
 	}
 	defer imgui_impl_sdlgpu3.Shutdown()
+	kit_init(&app)
+	defer kit_destroy(&app)
+	app.new_ui = true
+	if !kit_events_parse(&app, opts.ui_events) do return false
 
 	if len(app.scene.objects) > 1 do frame_all(&app)
 	app.cache_idle = !opts.no_cache
@@ -436,6 +451,9 @@ run :: proc(opts: Options) -> bool {
 	if remember do settings = strings.clone(settings)
 	defer delete(settings)
 	settings_load(&app, settings)
+	if opts.classic_ui do app.new_ui = false
+	if opts.new_ui do app.new_ui = true
+	if opts.reduce_motion do app.kit.ctx.reduced_motion = true
 	app.ui.smooth_on_gpu = opts.gpu_smooth
 	if opts.smooth_all > 0 do smooth_command(&app, opts.smooth_all)
 	if opts.paint_color != "" {
@@ -673,7 +691,8 @@ run :: proc(opts: Options) -> bool {
 			return false
 		}
 		swapchain: ^sdl.GPUTexture
-		if !sdl.WaitAndAcquireGPUSwapchainTexture(present_cmd, window, &swapchain, nil, nil) {
+		swapchain_size: [2]u32
+		if !sdl.WaitAndAcquireGPUSwapchainTexture(present_cmd, window, &swapchain, &swapchain_size.x, &swapchain_size.y) {
 			log.errorf("acquire swapchain failed: %s", sdl.GetError())
 			_ = sdl.CancelGPUCommandBuffer(present_cmd)
 			return false
@@ -699,6 +718,7 @@ run :: proc(opts: Options) -> bool {
 				}
 			}
 			imgui_impl_sdl3.ProcessEvent(&e)
+			kit_event(&app, &e)
 			#partial switch e.type {
 			case .QUIT, .WINDOW_CLOSE_REQUESTED:
 				app.running = false
@@ -733,7 +753,11 @@ run :: proc(opts: Options) -> bool {
 		imgui_impl_sdlgpu3.NewFrame()
 		imgui_impl_sdl3.NewFrame()
 		imgui.NewFrame()
-		input := ui_draw(&app)
+		// Which interface drew this frame: a click in it may switch to the other.
+		used_kit := app.new_ui
+		ui_start := time.tick_now()
+		input := kit_frame(&app, window) if used_kit else ui_draw(&app)
+		ring_push(&app.stats.ui_ms if used_kit else &app.stats.imgui_ms, time.duration_milliseconds(time.tick_since(ui_start)))
 		if opts.bench_stroke > 0 && frame_index < opts.bench_stroke {
 			input = bench_input(&app, frame_index, opts.bench_stroke, opts.bench_samples, opts.bench_loops, {opts.bench_tilt, 0}, {f32(app.target.width), f32(app.target.height)})
 			// A lifted frame ends the stroke; the next frame presses again.
@@ -888,8 +912,19 @@ run :: proc(opts: Options) -> bool {
 			return false
 		}
 
+		// The new interface goes under ImGui, which then adds only the brush circle, the
+		// pie and the Stats panel.
 		draw_data := imgui.GetDrawData()
-		if swapchain != nil && draw_data.DisplaySize.x > 0 && draw_data.DisplaySize.y > 0 {
+		kit_ready := false
+		if used_kit {
+			if swapchain != nil {
+				kit_ready = kit_upload(&app, present_cmd)
+			} else {
+				_ = ui.frame_end(&app.kit.ctx)
+			}
+			app.stats.ui_vertices = len(app.kit.ctx.draw.vertices)
+		}
+		if swapchain != nil && (kit_ready || (draw_data.DisplaySize.x > 0 && draw_data.DisplaySize.y > 0)) {
 			imgui_impl_sdlgpu3.PrepareDrawData(draw_data, present_cmd)
 			target := sdl.GPUColorTargetInfo {
 				texture     = swapchain,
@@ -898,9 +933,15 @@ run :: proc(opts: Options) -> bool {
 				store_op    = .STORE,
 			}
 			pass := sdl.BeginGPURenderPass(present_cmd, &target, 1, nil)
+			if kit_ready {
+				format := sdl.GetGPUSwapchainTextureFormat(app.renderer.device, window)
+				render.ui_pass_draw(&app.renderer, &app.kit.pass, present_cmd, pass, format, swapchain_size, kit_draws(&app, &app.kit.ctx.draw))
+			}
 			imgui_impl_sdlgpu3.RenderDrawData(draw_data, present_cmd, pass)
 			sdl.EndGPURenderPass(pass)
 		}
+		app.kit_drew = kit_ready
+		app.kit_size = swapchain_size
 		// Some drivers wait for the display here rather than when the swapchain texture
 		// is acquired, so this counts as waiting too.
 		present_start := time.tick_now()
@@ -956,6 +997,13 @@ run :: proc(opts: Options) -> bool {
 	}
 
 	if opts.dump_viewport != "" do _ = screenshot_save(&app, opts.dump_viewport)
+	if opts.dump_screen != "" {
+		if app.kit_drew {
+			_ = kit_screen_save(&app, opts.dump_screen, app.kit_size)
+		} else {
+			log.error("--dump-screen needs the new interface on screen (--new-ui)")
+		}
+	}
 
 	if opts.bake != "" {
 		// The quads are the newest object; the stroke may have selected another.
@@ -1017,6 +1065,11 @@ run :: proc(opts: Options) -> bool {
 	print_stat("cpu_ms", app.stats.cpu_ms)
 	print_stat("wait_ms", app.stats.wait_ms)
 	if app.time_gpu do print_stat("gpu_ms", app.stats.gpu_ms)
+	if app.stats.imgui_ms.count > 0 do print_stat("imgui_ms", app.stats.imgui_ms)
+	if app.stats.ui_ms.count > 0 {
+		print_stat("ui_ms", app.stats.ui_ms)
+		fmt.printfln("ui_vertices=%d", app.stats.ui_vertices)
+	}
 	if app.stats.dabs_total > 0 {
 		print_stat("raycast_ms", app.stats.raycast_ms)
 		print_stat("brush_ms", app.stats.brush_ms)

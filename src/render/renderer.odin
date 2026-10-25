@@ -1158,14 +1158,20 @@ draw_item_triangles :: proc(r: ^Renderer, pass: ^sdl.GPURenderPass, item: Draw_I
 // the GPU: `texture` (a viewport-sized RGBA8 one, such as the studio render's) or the
 // target's own. For tests and debugging, not per frame. Returns nil on failure.
 viewport_download :: proc(r: ^Renderer, vt: ^Viewport_Target, allocator := context.allocator, texture: ^sdl.GPUTexture = nil) -> []u8 {
-	size := vt.width * vt.height * 4
+	return texture_download(r, texture if texture != nil else vt.color, vt.width, vt.height, allocator)
+}
+
+// Reads a `width` by `height` RGBA8 texture back as rows top to bottom, after waiting
+// for the GPU; nil on failure.
+texture_download :: proc(r: ^Renderer, texture: ^sdl.GPUTexture, width, height: u32, allocator := context.allocator) -> []u8 {
+	size := width * height * 4
 	transfer := sdl.CreateGPUTransferBuffer(r.device, {usage = .DOWNLOAD, size = size})
 	if transfer == nil do return nil
 	defer sdl.ReleaseGPUTransferBuffer(r.device, transfer)
 	cmd := sdl.AcquireGPUCommandBuffer(r.device)
 	if cmd == nil do return nil
 	pass := sdl.BeginGPUCopyPass(cmd)
-	sdl.DownloadFromGPUTexture(pass, {texture = texture if texture != nil else vt.color, w = vt.width, h = vt.height, d = 1}, {transfer_buffer = transfer})
+	sdl.DownloadFromGPUTexture(pass, {texture = texture, w = width, h = height, d = 1}, {transfer_buffer = transfer})
 	sdl.EndGPUCopyPass(pass)
 	if !sdl.SubmitGPUCommandBuffer(cmd) || !sdl.WaitForGPUIdle(r.device) do return nil
 	src := sdl.MapGPUTransferBuffer(r.device, transfer, false)

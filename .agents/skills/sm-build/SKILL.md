@@ -11,7 +11,7 @@ description: Build, run, test and verify the sculpt modeler through build.bat (W
 | `build.bat check` | `odin check` of all ten packages with the strict flags (`-no-entry-point`: the libraries have no `main`), then `python scripts/agents_sync.py --check`. No link, no shaders, no `build\`. The gate: run it first and last |
 | `build.bat` | the debug app, `-debug`, into `build\sculpt.exe`; `ODIN_DEBUG` wraps the allocator in `mem.Tracking_Allocator` and the process exits 1 on any leak or bad free; copies `SDL3.dll` from `deps\odin\vendor\sdl3` next to it |
 | `build.bat release` | `-o:speed -no-bounds-check`: the only build whose timings count (sm-perf) |
-| `build.bat test` | `odin test` on geom, camera, sculpt, jobs and gizmo in that order, stopping at the first failing package; render and app have no tests; the runner tracks memory, so a leak fails a test |
+| `build.bat test` | `odin test` on geom, camera, sculpt, jobs, gizmo, png_write and ui in that order, stopping at the first failing package; render and app have no tests; the runner tracks memory, so a leak fails a test |
 | `build.bat run -- <args>` | debug build, then run. **build.bat forwards at most five arguments** (`%2 %3 %4 %5 %6`); for more, run `build\sculpt.exe` yourself after `build.bat` |
 | `build.bat smoke` | debug build, then `SDL_ASSERT=abort build\sculpt.exe --frames=300 --gpu-debug`: validation on, an SDL assert aborts, a leak exits 1. Needs a display |
 | `build.bat bench [sizes] [--threads=N] [--lod\|--levels\|--hd] [--meshes=N] [--node=N] [--prefault=MB]` | release headless CPU benchmark printing markdown tables (sm-perf) |

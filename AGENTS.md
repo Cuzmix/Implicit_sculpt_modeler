@@ -11,7 +11,8 @@ skill whose description fits the request BEFORE you form a plan.
 - Meshes, BVH, culling math, mesh tests: `sm-geom`. Brushes, undo, subdivision levels, HD, simplified copies, the stroke
   pipeline, masking, symmetry, dynamic topology: `sm-sculpt`. Modelling tools other than brushes (voxel remesh, primitives, booleans, trims, mirror, measure): `sm-cad`.
   SDFs, voxels, implicit surfaces: `sm-sdf`. Anything drawn or uploaded: `sm-render`. Panels, input, shortcuts: `sm-ui`.
-  How fast anything is: `sm-perf`. Before calling anything done: `sm-lint`.
+  How fast anything is: `sm-perf`. Anything that ships to users (dependencies, permissions, files, network, data,
+  payments, platform builds, new screens or controls, app lifecycle): `sm-store`. Before calling anything done: `sm-lint`.
 - Subagents (`.claude/agents/`): `sm-architect` reviews designs (read-only), `sm-investigator` root-causes bugs with a
   hypothesis ledger, `sm-verifier` builds, runs, dumps the viewport and describes what it saw, `sm-reviewer` reviews a
   finished diff against these rules (read-only). Where a role is not offered by name, start a general-purpose agent
@@ -26,7 +27,7 @@ skill whose description fits the request BEFORE you form a plan.
 ## 3. The loop: small change → check → run → look
     build.bat check                                   # the gate: odin check of every package + the skill mirror check
     build.bat                                         # debug app -> build\sculpt.exe (tracking allocator: a leak exits 1)
-    build.bat test                                    # odin test on geom, camera, sculpt, jobs, gizmo
+    build.bat test                                    # odin test on geom, camera, sculpt, jobs, gizmo, png_write, ui
     build.bat smoke                                   # 300 frames under GPU validation, SDL_ASSERT=abort
     build.bat run -- --vertices=1000000 --frames=120  # at most five arguments here; otherwise run build\sculpt.exe
     build\sculpt.exe --vertices=500000 --frames=60 --dump-viewport=build\v.ppm --check-mesh
@@ -44,6 +45,7 @@ skill whose description fits the request BEFORE you form a plan.
 | `src/geom` | CPU geometry: `Mesh`, icosphere and geodesic fixtures, BVHs, topology, culling math, simplification, the LOD walk, `mesh_check` |
 | `src/camera`, `src/gizmo` | orbit camera math; move gizmo math (both pure, no rendering or UI) |
 | `src/sculpt` | brushes over a `Mesh` split into nodes, dirty ranges, undo, subdivision levels, HD windows, simplified copies |
+| `src/ui` | the new interface's kit: immediate-mode layout, widgets, hit testing, CPU tessellation, fonts (no SDL, no render) |
 | `src/jobs` | the persistent worker pool (`parallel_for`, `parallel_ranges`) |
 | `src/bench` | the headless CPU benchmark (markdown tables) |
 | `src/sdf_trial` | the standalone SDF/voxel comparison spike (not in the build scripts) |
@@ -53,7 +55,7 @@ skill whose description fits the request BEFORE you form a plan.
 
 ## 5. Hard rules
 - Odin is pinned (`scripts/versions.env`, `deps/odin`): never write from memory of older Odin; grep the install.
-- Package boundaries: `geom`, `camera`, `gizmo` and `jobs` know nothing of rendering or UI; only `render` and `app`
+- Package boundaries: `geom`, `camera`, `gizmo` and `jobs` know nothing of rendering or UI; `ui` knows nothing of SDL or `render`; only `render` and `app`
   import `vendor:sdl3`; only `app` imports ImGui; `bench` never imports `render` or `app`; `sdf_trial` stands alone.
 - Determinism: serial and parallel results are bit-identical and tests compare them; no map order decides output.
 - Allocations inside jobs use `runtime.heap_allocator()` for both make and delete; only the frame loop and the setup
@@ -77,5 +79,6 @@ skill whose description fits the request BEFORE you form a plan.
 - `build.bat check` and `build.bat test` are green; `build.bat smoke` too for render, app or sculpt changes.
 - You ran it and looked: a described PNG for anything visual, the exit stats or bench rows (release, A/B ranges) for
   anything about speed, `mesh_check` numbers for anything about meshes.
+- The App Store and Google Play rules in `sm-store` still hold, or your report says which one the change breaks and why.
 - README is updated; `scripts/agents_sync.py` was run if a skill or agent changed; your report says what you verified
   and what you did not.
