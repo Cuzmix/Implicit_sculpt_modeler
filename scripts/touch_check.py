@@ -925,6 +925,233 @@ def small_window():
                                                             "brush_radius_px": near(60)})
 
 
+
+# The modifier rail's buttons at the bottom left at 1600 x 900, and the finger that holds
+# them: an id of its own, as a second hand's finger would have.
+RAIL = {"smooth": (38, 808), "invert": (86, 808), "mask": (38, 860), "hide": (86, 860)}
+RAIL_FINGER = 9
+
+
+def pen_stroke(s, path):
+    """The pen near, down along `path` one frame a point, up and away."""
+    s.add("pnear")
+    s.add(f"pdown:{path[0][0]:g},{path[0][1]:g}")
+    for x, y in path[1:]:
+        s.wait(1)
+        s.add(f"pmove:{x:g},{y:g}")
+    s.wait(1)
+    s.add("pup")
+    s.wait(2)
+    s.add("pfar")
+    s.wait(3)
+
+
+def rail_tap(s, which):
+    s.ftap(*RAIL[which], finger=RAIL_FINGER)
+
+
+def rail_hold(s, which):
+    x, y = RAIL[which]
+    s.add(f"fdown:{RAIL_FINGER}:{x:g},{y:g}")
+    s.wait(2)
+
+
+def rail_lift(s):
+    s.add(f"fup:{RAIL_FINGER}")
+    s.wait(3)
+
+
+def overlap(a, b):
+    ax, ay, aw, ah = (float(v) for v in a.split(","))
+    bx, by, bw, bh = (float(v) for v in b.split(","))
+    return aw > 0 and bw > 0 and ax < bx + bw and bx < ax + aw and ay < by + bh and by < ay + ah
+
+
+def rail_clear(*others):
+    """A check that the rail is shown and meets none of `others` (layout names)."""
+    def ok(stats):
+        rail = stats["layout_modifier_rail"]
+        return float(rail.split(",")[2]) > 0 and not any(overlap(rail, stats[f"layout_{o}"]) for o in others)
+    return ok
+
+
+@scenario
+def rail_hold_smooth_with_pen():
+    """A finger held on Smooth while the pen strokes the model: the stroke smooths, and lifting latches nothing."""
+    s = Script()
+    rail_hold(s, "smooth")
+    pen_stroke(s, line((760, 430), (860, 470), 20))
+    rail_lift(s)
+    return s, [], camera_still({"dabs": lambda v: int(v) > 0, "undo_steps": near(1), "stroke_kind": lambda v: v == "smooth",
+                                "rail_latched": lambda v: v == "none"})
+
+
+@scenario
+def rail_tap_latches_invert():
+    """A quick tap on Invert latches it: a finger stroke after it is inverted."""
+    s = Script()
+    rail_tap(s, "invert")
+    s.fdrag(line((760, 430), (860, 470), 20))
+    return s, [], camera_still({"dabs": lambda v: int(v) > 0, "undo_steps": near(1), "stroke_kind": lambda v: v == "draw",
+                                "stroke_invert": near(1), "rail_latched": lambda v: v == "invert"})
+
+
+@scenario
+def rail_mask_paints_mask():
+    """A finger held on Mask: another finger's stroke on the model paints the mask (the scripted pen has no pressure to mask with)."""
+    s = Script()
+    rail_hold(s, "mask")
+    s.fdrag(line((760, 430), (860, 470), 20))
+    rail_lift(s)
+    return s, [], camera_still({"undo_steps": near(1), "stroke_kind": lambda v: v == "mask", "masked": near(1)})
+
+
+@scenario
+def rail_mask_shape_from_empty_space():
+    """Mask latched: a finger dragged from empty space draws a mask rectangle over the model instead of turning the view."""
+    s = Script()
+    rail_tap(s, "mask")
+    s.fdrag(line((250, 150), (900, 600), 20))
+    s.wait(4)
+    return s, [], camera_still({"dabs": near(0), "masked": near(1), "undo_steps": near(1), "rail_latched": lambda v: v == "mask"})
+
+
+@scenario
+def rail_hide_gesture():
+    """Hide latched: a finger drags the hide rectangle over part of the model, and the rest is hidden."""
+    s = Script()
+    rail_tap(s, "hide")
+    s.fdrag(line((250, 150), (800, 450), 20))
+    s.wait(4)
+    return s, [], camera_still({"dabs": near(0), "hidden_triangles": lambda v: int(v) > 0, "rail_latched": lambda v: v == "hide"})
+
+
+@scenario
+def rail_finger_survives_pen_down():
+    """The pen landing never cancels a finger held on the rail: Invert holds through the pen's stroke."""
+    s = Script()
+    rail_hold(s, "invert")
+    pen_stroke(s, line((760, 430), (860, 470), 20))
+    rail_lift(s)
+    return s, [], camera_still({"dabs": lambda v: int(v) > 0, "undo_steps": near(1), "redo_steps": near(0),
+                                "stroke_invert": near(1), "rail_latched": lambda v: v == "none"})
+
+
+@scenario
+def rail_mouse_click_latches():
+    """The mouse clicks a rail button like any other: it latches, and sculpts nothing."""
+    s = Script()
+    s.mouse_drag([RAIL["invert"], RAIL["invert"]])
+    s.mouse_drag([RAIL["smooth"], RAIL["smooth"]])
+    return s, [], camera_still({"dabs": near(0), "rail_latched": lambda v: v == "smooth+invert"})
+
+
+@scenario
+def rail_finger_while_pen_near():
+    """With the pen hovering, a finger on the rail is still the rail's (no palm), and its tap latches."""
+    s = Script()
+    s.add("pnear")
+    s.wait(2)
+    rail_tap(s, "invert")
+    s.add("pfar")
+    s.wait(3)
+    return s, [], camera_still({"dabs": near(0), "rail_latched": lambda v: v == "invert"})
+
+
+@scenario
+def rail_finger_during_pinch():
+    """A finger landing on the rail during a pinch is no third finger: the pinch zooms on and the brush keeps its size."""
+    s = Script()
+    starts, moves, frames = [(300, 300), (400, 300)], [(-100, 0), (100, 0)], 20
+    for i, (x, y) in enumerate(starts):
+        s.add(f"fdown:{i}:{x:g},{y:g}")
+    s.wait(2)
+    for k in range(1, frames + 1):
+        if k == 5:
+            s.add(f"fdown:{RAIL_FINGER}:{RAIL['smooth'][0]:g},{RAIL['smooth'][1]:g}")
+        for i, ((x, y), (dx, dy)) in enumerate(zip(starts, moves)):
+            s.add(f"fmove:{i}:{x + dx * k / frames:g},{y + dy * k / frames:g}")
+        s.wait(1)
+    for i in range(len(starts)):
+        s.add(f"fup:{i}")
+    s.wait(2)
+    rail_lift(s)
+    return s, [], {"camera_distance": near(3.5 / 3, 0.02), "dabs": near(0), "brush_radius_px": near(60),
+                   "rail_latched": lambda v: v == "none"}
+
+
+@scenario
+def rail_lift_mid_stroke_keeps_mode():
+    """Lifting the finger from Smooth halfway through the pen's stroke leaves it smoothing to the end, as one stroke."""
+    s = Script()
+    rail_hold(s, "smooth")
+    s.add("pnear")
+    path = line((760, 430), (860, 470), 20)
+    s.add(f"pdown:{path[0][0]:g},{path[0][1]:g}")
+    for k, (x, y) in enumerate(path[1:]):
+        s.wait(1)
+        s.add(f"pmove:{x:g},{y:g}")
+        if k == 8:
+            s.add(f"fup:{RAIL_FINGER}")
+    s.wait(1)
+    s.add("pup")
+    s.wait(2)
+    s.add("pfar")
+    s.wait(3)
+    return s, [], camera_still({"undo_steps": near(1), "stroke_kind": lambda v: v == "smooth", "rail_latched": lambda v: v == "none"})
+
+
+@scenario
+def rail_latched_edge_still_orbits():
+    """Mask latched, a finger dragged from the safe zone's edge band still turns the view (only a held rail finger takes the band)."""
+    s = Script()
+    rail_tap(s, "mask")
+    s.fdrag(past_slop((300, 860), (500, 860), 20))
+    return s, [], {"camera_yaw": lambda v: abs(float(v) - 0.6) > 0.05, "dabs": near(0), "masked": near(0)}
+
+
+@scenario
+def rail_under_window_goes_to_window():
+    """Where a window lies over the rail, a finger there is the window's: nothing latches."""
+    with open(SETTINGS_FILE, "w") as f:
+        f.write("stats 1\nwindow Stats 1 Start Start 0 700 0\n")
+    s = Script()
+    rail_tap(s, "invert")
+    s.wait(4)
+    return s, [f"--settings-file={SETTINGS_FILE}"], {"dabs": near(0), "rail_latched": lambda v: v == "none",
+                                                     "window_stats": lambda v: v.startswith("1,")}
+
+
+@scenario
+def rail_fits_a_large_interface():
+    """At interface size 1.5 on a 1280 x 800 window the rail meets neither the sliders nor the dock."""
+    with open(SETTINGS_FILE, "w") as f:
+        f.write("ui_scale 1.5\n")
+    s = Script()
+    s.add("move:640,400")
+    s.wait(6)
+    return s, ["--width=1280", "--height=800", f"--settings-file={SETTINGS_FILE}"], {"@layout": rail_clear("sliders", "dock")}
+
+
+@scenario
+def rail_fits_portrait():
+    """In a portrait 800 x 1280 window the rail clears the dock and the sliders."""
+    s = Script()
+    s.add("move:400,640")
+    s.wait(6)
+    return s, ["--width=800", "--height=1280"], {"@layout": rail_clear("sliders", "dock")}
+
+
+@scenario
+def rail_on_the_right_clears_the_panels():
+    """Put on the right, the rail sits above the object's status, clear of the inspector and the dock."""
+    with open(SETTINGS_FILE, "w") as f:
+        f.write("modifier_rail Right\n")
+    s = Script()
+    s.add("move:640,400")
+    s.wait(6)
+    return s, [f"--settings-file={SETTINGS_FILE}"], {"@layout": rail_clear("status", "inspector", "dock", "sliders")}
+
 def run(name, screens):
     script, args, checks = SCENARIOS[name]()
     frames = script.frame + 10

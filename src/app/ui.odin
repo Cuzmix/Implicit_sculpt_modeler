@@ -82,6 +82,8 @@ Viewport_Input :: struct {
 	smooth:      bool, // Shift held during a stroke: smooth brush
 	invert:      bool, // Ctrl held during a stroke: invert the brush
 	alt:         bool, // Alt held with Ctrl: a mask shape unmasks
+	mask:        bool, // the rail's Mask: the stroke paints the mask
+	mask_shape:  bool, // a press from empty space draws a mask shape (Ctrl, or the rail's Mask)
 	samples:     []Input_Sample, // every pointer sample this frame, oldest first
 	pen_tilt:    [2]f32, // the pen's lean now, in degrees; zero without a pen
 	zoom_drag:   bool, // Ctrl + right mouse: up zooms in

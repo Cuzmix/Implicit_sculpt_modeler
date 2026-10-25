@@ -114,5 +114,6 @@ brush_strength :: proc(app: ^App) -> ^f32 {return &app.brush.strengths[app.brush
 // Takes the pointer away from the tools and the camera for this frame.
 viewport_mute :: proc(input: ^Viewport_Input) {
 	input.primary, input.press, input.smooth, input.invert = false, false, false, false
+	input.alt, input.mask, input.mask_shape = false, false, false
 	input.orbit_drag, input.pan_drag, input.wheel = false, false, 0
 }

@@ -83,6 +83,7 @@ Stroke :: struct {
 	at:       Vec3, // ...and where that is on the object, in its own space
 	anchor:   Vec3, // Grab: where the stroke started; Snake hook: where it has pulled to (world space)
 	kind:     sculpt.Brush_Kind, // the brush the stroke started with, Shift's Smooth included, for the History panel
+	invert:   bool, // ...and whether it was inverted
 	// The sum and count of the points it dabbed, in its object's space: their mean is the
 	// pivot orbits turn about once it ends (Stroke_Pivot).
 	pivot_sum:   Vec3,
@@ -230,7 +231,7 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 	if !ok do return
 	app.scene.selected = index
 	obj := selected_object(app)
-	if .Paint in BRUSHES[app.brush.kind].flags && !input.smooth && (object_in_hd(obj) || object_dynamic(obj)) {
+	if .Paint in BRUSHES[stroke_brush(app, input)].flags && (object_in_hd(obj) || object_dynamic(obj)) {
 		// Said once a press; the stroke never starts, so nothing records it.
 		if s.kind == .Press do _ = paint_allowed(obj)
 		return
@@ -244,10 +245,10 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 	local := to_local(obj.transform, hit)
 	brush := brush_at(app, input, obj.transform, local, s.pressure, s.tilt)
 	flags := BRUSHES[brush.kind].flags
-	st.grab, st.hook, st.anchor, st.kind = .Grab in flags, .Hook in flags, hit, brush.kind
+	st.grab, st.hook, st.anchor, st.kind, st.invert = .Grab in flags, .Hook in flags, hit, brush.kind, brush.invert
 	st.cloth = .Cloth in flags && !object_dynamic(obj)
 	if .Cloth in flags && !st.cloth do log.warn("cloth: not with dynamic topology on")
-	st.rect = app.brush.stroke == .Drag_Rect && !st.grab && !st.hook && .Cloth not_in flags && !input.smooth && !object_dynamic(obj)
+	st.rect = app.brush.stroke == .Drag_Rect && !st.grab && !st.hook && .Cloth not_in flags && held_brush(input) && !object_dynamic(obj)
 	st.start, st.at = s.pos, local
 	st.pivot_sum, st.pivot_count = local, 1
 	if st.hook || st.rect do return // they move nothing until the pointer does
@@ -437,6 +438,20 @@ stroke_dab :: proc(app: ^App, obj: ^Object, input: Viewport_Input, inv: matrix[4
 	res.dabs += 1
 }
 
+// The brush a stroke pressed with `input` uses: Smooth for Shift (or the rail's Smooth),
+// Mask for the rail's Mask, or else the brush held.
+stroke_brush :: proc(app: ^App, input: Viewport_Input) -> sculpt.Brush_Kind {
+	if input.mask do return .Mask
+	if input.smooth do return .Smooth
+	return app.brush.kind
+}
+
+// Whether a stroke pressed with `input` uses the brush held, and with it the brush's own
+// alpha and stroke mode, rather than Smooth or Mask standing in for it.
+held_brush :: proc(input: Viewport_Input) -> bool {
+	return !input.smooth && !input.mask
+}
+
 // The brush for a dab at `hit` (in the object's local space): the radius in pixels,
 // scaled by pen pressure if set, becomes world units at the hit's distance, and a
 // leaning pen turns it as far as the tilt strength says. The pen's turn and the alpha's
@@ -444,8 +459,9 @@ stroke_dab :: proc(app: ^App, obj: ^Object, input: Viewport_Input, inv: matrix[4
 @(private = "file")
 brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pressure: f32, tilt: [2]f32) -> sculpt.Brush {
 	world_per_px := camera.orbit_world_per_px(app.camera, to_world(t, hit), input.size.y)
-	kind := sculpt.Brush_Kind.Smooth if input.smooth else app.brush.kind
-	// Shift smooths at the Smooth brush's strength, not the strength of the brush held.
+	kind := stroke_brush(app, input)
+	// Shift smooths at the Smooth brush's strength, not the strength of the brush held, and
+	// the rail's Mask masks at the Mask brush's.
 	strength := app.brush.strengths[kind]
 	if app.brush.pressure_strength do strength *= pressure_curved(app, pressure)
 	turn: matrix[3, 3]f32
@@ -453,7 +469,7 @@ brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pres
 		r := transform_rotation(t)
 		turn = linalg.transpose(r) * camera.orbit_tilt(app.camera, tilt, app.brush.tilt_strength) * r
 	}
-	alpha := brush_alpha(app) if !input.smooth else nil
+	alpha := brush_alpha(app) if held_brush(input) else nil
 	up: Vec3
 	if alpha != nil do up = to_local_dir(t, alpha_world_up(app))
 	facing: Vec3

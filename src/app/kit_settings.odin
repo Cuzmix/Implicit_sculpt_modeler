@@ -126,6 +126,7 @@ settings_reset :: proc(app: ^App, tab: Settings_Tab) {
 		k.ui_scale = 1
 		k.ctx.reduced_motion = false
 		k.surface_ring = true
+		k.rail_side = .Left
 		windows_reset(k)
 	case .Camera:
 		n.orbit_style, n.limit_pitch, n.orbit_speed, n.pan_speed, n.zoom_speed = d.orbit_style, d.limit_pitch, d.orbit_speed, d.pan_speed, d.zoom_speed
@@ -162,6 +163,11 @@ settings_interface :: proc(app: ^App) {
 	ui.caption(ctx, "BRUSH RING")
 	_ = ui.switch_row(ctx, "Lay the brush ring on the surface", &k.surface_ring)
 	ui.paragraph(ctx, "Over the model the ring tilts with the surface under it, with a tick showing which way it faces, as in ZBrush; off, it stays a flat circle on the screen.")
+	ui.spacer(ctx, 8)
+	ui.caption(ctx, "MODIFIER BUTTONS")
+	sides := [len(Rail_Side)]string{"Off", "Left", "Right"}
+	if picked := ui.tabs(ctx, "Modifier buttons", sides[:], int(k.rail_side)); picked >= 0 do k.rail_side = Rail_Side(picked)
+	ui.paragraph(ctx, "Smooth, Invert, Mask and Hide at the bottom left or right, for what Shift, Ctrl and Alt do. Tap one to keep it on until tapped again; hold one with a finger to use it only while held, sculpting with the pen or another finger.")
 	ui.spacer(ctx, 8)
 	ui.caption(ctx, "PANELS")
 	if ui.button(ctx, "Reset panel positions", .Bordered) do windows_reset(k)

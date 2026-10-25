@@ -279,12 +279,17 @@ drag_decide :: proc(app: ^App, input: Viewport_Input) -> (owner: Drag_Owner, emp
 		if app.touch.palm do return .Muted, false
 		if app.nav.finger_model == .Orbit do return .Orbit, false
 	}
+	// The rail's Mask or Hide, for the brushes, keeps empty space for their shapes as Ctrl
+	// does; only held there by a finger does it take the safe zone too, so a view filled
+	// by the model still turns from its edge while one is latched (modifiers.odin).
+	press := app.rail.press
+	shapes := app.tool == .Brush && rail_keeps_empty_space(press.mods)
 	// The safe zone turns the view whatever is under it, for every tool; Ctrl keeps it for
 	// the mask and hide shapes, as on empty space.
-	if !d.ctrl && in_edge(app, d.mouse) do return .Orbit, false
+	if !d.ctrl && !(shapes && press.held) && in_edge(app, d.mouse) do return .Orbit, false
 	// Empty space turns the view for the brushes and the Move tool; Ctrl keeps it for the
 	// mask and hide shapes, which start there.
-	if (app.tool == .Brush || app.tool == .Move) && !d.ctrl {
+	if (app.tool == .Brush || app.tool == .Move) && !d.ctrl && !shapes {
 		empty := app.nav.empty_drag[d.pointer] if d.pointer != .Finger else .Orbit
 		if empty == .Orbit {
 			origin, dir := mouse_ray(app.camera, d.mouse, input.size)
@@ -354,6 +359,7 @@ object_middle :: proc(obj: ^Object) -> Vec3 {
 @(private = "file")
 route_mute :: proc(input: ^Viewport_Input) {
 	input.primary, input.press, input.smooth, input.invert, input.alt = false, false, false, false, false
+	input.mask, input.mask_shape = false, false
 	input.orbit_drag, input.pan_drag, input.zoom_drag = false, false, false
 	input.samples = {}
 }

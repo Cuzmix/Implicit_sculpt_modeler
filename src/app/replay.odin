@@ -53,6 +53,7 @@ Take_Frame :: struct {
 	mouse_pos: [2]f32,
 	pen_tilt:  [2]f32,
 	primary, smooth, invert: bool,
+	mask:      bool, // the modifier rail's Mask: the stroke painted the mask
 }
 
 replay_init :: proc(p: ^Replay) {
@@ -110,7 +111,7 @@ take_append :: proc(t: ^Take, app: ^App, input: Viewport_Input, began: bool) {
 	append(&t.frames, Take_Frame {
 		first = u32(len(t.samples)), count = u32(len(input.samples)), brush = u32(len(t.brushes) - 1),
 		camera = app.camera, size = input.size, mouse_pos = input.mouse_pos, pen_tilt = input.pen_tilt,
-		primary = input.primary, smooth = input.smooth, invert = input.invert,
+		primary = input.primary, smooth = input.smooth, invert = input.invert, mask = input.mask,
 	})
 	append(&t.samples, ..input.samples)
 }
@@ -172,7 +173,7 @@ replay_frame :: proc(app: ^App, now: Viewport_Input) -> (res: Sculpt_Frame_Resul
 		copy(samples, t.samples[f.first:][:f.count])
 		input := Viewport_Input {
 			size = f.size, mouse_pos = f.mouse_pos, pen_tilt = f.pen_tilt, hovered = true,
-			primary = f.primary, smooth = f.smooth, invert = f.invert, samples = samples,
+			primary = f.primary, smooth = f.smooth, invert = f.invert, mask = f.mask, samples = samples,
 		}
 		app.camera = f.camera
 		if p.at_pointer {
@@ -208,7 +209,7 @@ replay_shortcut :: proc(app: ^App) {
 // cloth mode); the rest (alpha, tilt, dynamic topology detail) comes from the brush as
 // set when the file is loaded, since an alpha names an image that may not be there.
 STROKES_MAGIC :: "SCSTROKE"
-STROKES_VERSION :: u32(2) // 2: each frame's camera roll
+STROKES_VERSION :: u32(3) // 2: each frame's camera roll; 3: the rail's Mask in a frame's flags
 
 strokes_save :: proc(app: ^App, path: string) -> bool {
 	t := replay_source(app)
@@ -247,7 +248,7 @@ strokes_save :: proc(app: ^App, path: string) -> bool {
 		geom.byte_put(&out, f.mouse_pos)
 		geom.byte_put(&out, f.pen_tilt)
 		geom.byte_put(&out, f.brush)
-		geom.byte_put(&out, u8(f.primary) | u8(f.smooth) << 1 | u8(f.invert) << 2)
+		geom.byte_put(&out, u8(f.primary) | u8(f.smooth) << 1 | u8(f.invert) << 2 | u8(f.mask) << 3)
 		geom.byte_put(&out, f.count)
 		for s in t.samples[f.first:][:f.count] {
 			geom.byte_put(&out, s.pos)
@@ -354,13 +355,14 @@ strokes_read :: proc(app: ^App, data: []u8, t: ^Take) -> bool {
 		f.brush = geom.byte_get(&r, u32)
 		flags := geom.byte_get(&r, u8)
 		count := geom.byte_get(&r, u32)
-		if !r.ok || ortho > 1 || flags > 7 || int(f.brush) >= brushes || int(count) > (len(data) - r.at) / 21 do return false
+		if !r.ok || ortho > 1 || flags > (15 if version >= 3 else 7) || int(f.brush) >= brushes || int(count) > (len(data) - r.at) / 21 do return false
 		if !finite(c.target.x, c.target.y, c.target.z, c.distance, c.yaw, c.pitch, c.fov_y, c.near, c.far, c.roll) do return false
 		if !finite(f.size.x, f.size.y, f.mouse_pos.x, f.mouse_pos.y, f.pen_tilt.x, f.pen_tilt.y) do return false
 		if c.distance <= 0 || c.fov_y <= 0 || c.fov_y >= math.PI || c.near <= 0 || c.far <= c.near || f.size.x < 1 || f.size.y < 1 do return false
 		c.ortho = ortho == 1
 		c.yaw, c.pitch, c.roll = camera.wrap_angle(c.yaw), camera.wrap_angle(c.pitch), camera.wrap_angle(c.roll)
 		f.primary, f.smooth, f.invert = flags & 1 != 0, flags & 2 != 0, flags & 4 != 0
+		f.mask = flags & 8 != 0
 		f.first, f.count = u32(len(t.samples)), count
 		for _ in 0 ..< count {
 			s: Input_Sample

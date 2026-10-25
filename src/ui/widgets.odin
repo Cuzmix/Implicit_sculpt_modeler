@@ -609,6 +609,39 @@ brush_tile :: proc(ctx: ^Context, s: string, glyph: rune, selected: bool, keys :
 	return clicked
 }
 
+// How a modifier button shows its state.
+Modifier_Look :: enum u8 {
+	Off,
+	Lit, // on while held, by a finger or the keyboard's modifier: outlined
+	Latched, // on until tapped again: filled
+}
+
+// A sticky modifier button (Smooth, Invert...) in a touch-target cell: an icon over a
+// caption. `name` is its tooltip, with `keys`, the keyboard modifier that does the same.
+// Returns true when clicked; whether that latches is the caller's to say.
+modifier_button :: proc(ctx: ^Context, name: string, glyph: rune, look: Modifier_Look, keys := "") -> bool {
+	t := ctx.theme
+	cell := place(ctx, {t.target, t.target + 4})
+	vis := centered(cell, {t.target - 4, t.target})
+	id := id_of(ctx, name)
+	hovered, held, clicked, _ := interact(ctx, id, cell)
+	lit := tween(ctx, salt(id, 1), 1 if look != .Off else 0, t.hover_time)
+	full := tween(ctx, salt(id, 2), 1 if look == .Latched else 0, t.indicator_time)
+	mark := vertex_mark(ctx)
+	if full > 0 do fill_rect(ctx, vis, t.radius_medium, color_fade(t.accent, full))
+	if lit > 0 && full < 1 {
+		fill_rect(ctx, vis, t.radius_medium, color_fade(t.accent_soft, lit * (1 - full)))
+		stroke_rect(ctx, vis, t.radius_medium, color_fade(t.accent, lit * (1 - full)), 1.5)
+	}
+	scale := feedback(ctx, id, vis, t.radius_medium, hovered && look == .Off, held)
+	color := color_mix(color_mix(t.text_secondary, t.accent, lit), t.on_accent, full)
+	icon(ctx, glyph, {vis.x + vis.w * 0.5, vis.y + 18}, t.icon_small, color)
+	text(ctx, label_text(name), vis.x + vis.w * 0.5, vis.y + 37, t.caption_size, color, .Semibold if look != .Off else .Regular, .Center)
+	press_scale(ctx, mark, vis, scale)
+	tip(ctx, id, vis, label_text(name), keys)
+	return clicked
+}
+
 // A readout the width of its column: `s` on the left and `value` on the right, in small
 // type. It takes no pointer, so it is only as tall as its text.
 value_row :: proc(ctx: ^Context, s: string, value: string) {
