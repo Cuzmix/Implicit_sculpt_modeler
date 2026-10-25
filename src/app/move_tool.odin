@@ -40,7 +40,7 @@ gizmo_view :: proc(app: ^App, size: [2]f32) -> (gv: Gizmo_View) {
 	center := obj.transform.position
 	gv.center, gv.ok = gizmo.project(view_proj, center, size)
 	if !gv.ok do return
-	arm := gizmo.arm_length(camera.orbit_eye(app.camera), center, app.camera.fov_y, size.y)
+	arm := gizmo.ARM_PX * camera.orbit_world_per_px(app.camera, center, size.y)
 	for axis, i in gizmo.AXES {
 		gv.tips[i], gv.tip_ok[i] = gizmo.project(view_proj, center + axis * arm, size)
 	}
@@ -81,7 +81,7 @@ move_tool_frame :: proc(app: ^App, input: Viewport_Input) {
 		case .X, .Y, .Z:
 			app.move.drag.axis_start, _ = gizmo.closest_on_axis(obj.transform.position, gizmo.AXES[int(handle) - 1], origin, dir)
 		case .View:
-			app.move.drag.plane_normal = linalg.normalize(camera.orbit_eye(app.camera) - app.camera.target)
+			app.move.drag.plane_normal = -camera.orbit_toward(app.camera, app.camera.target)
 		case .None:
 		}
 		return

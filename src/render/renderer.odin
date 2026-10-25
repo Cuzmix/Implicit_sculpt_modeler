@@ -838,7 +838,9 @@ prepare_draws :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, view, proj: Mat4
 	}
 	t0 := sdl.GetTicksNS()
 	defer stats.cull_ms += f64(sdl.GetTicksNS() - t0) / 1e6
-	eye_world := linalg.inverse(view) * [4]f32{0, 0, 0, 1}
+	// With parallel projection every chunk is seen from the same direction: an eye far
+	// back along it makes the back-facing test agree.
+	eye_world := linalg.inverse(view) * [4]f32{0, 0, 1e4 if proj[3, 3] == 1 else 0, 1}
 	copy_pass: ^sdl.GPUCopyPass
 	for item in items {
 		if want, filtered := live.?; filtered && item.live != want do continue

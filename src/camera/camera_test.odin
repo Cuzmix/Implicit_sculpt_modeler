@@ -80,3 +80,36 @@ tilt_leans_the_brush_toward_the_pen_top :: proc(t: ^testing.T) {
 	for v in ([3]Vec3{right, up, toward}) do testing.expect(t, near_eq(linalg.length(m * v), 1), "not a rotation")
 	testing.expect(t, linalg.dot(m * toward, toward) >= math.cos(f32(MAX_TILT)) - 1e-4, "turned past MAX_TILT")
 }
+
+@(test)
+axis_views_look_along_their_axes :: proc(t: ^testing.T) {
+	want := [Axis_View]Vec3{.Front = {0, 0, 1}, .Back = {0, 0, -1}, .Right = {1, 0, 0}, .Left = {-1, 0, 0}, .Top = {0, 1, 0}, .Bottom = {0, -1, 0}}
+	for dir, view in want {
+		c := orbit_default()
+		c.target = {1, 2, 3}
+		orbit_axis_view(&c, view)
+		got := linalg.normalize(orbit_eye(c) - c.target)
+		testing.expectf(t, linalg.dot(got, dir) > 0.999, "%v: eye direction %v", view, got)
+	}
+}
+
+@(test)
+ortho_keeps_the_target_size_and_depth_range :: proc(t: ^testing.T) {
+	c := orbit_default()
+	c.target = {1, 2, 3}
+	persp := orbit_proj(c, 1.5) * orbit_view(c)
+	c.ortho = true
+	ortho := orbit_proj(c, 1.5) * orbit_view(c)
+	// A point beside the target lands on the same pixel in both, at the target's depth.
+	view := orbit_view(c)
+	up := Vec3{view[1, 0], view[1, 1], view[1, 2]}
+	p := c.target + up * 0.4
+	testing.expect(t, near_eq(project(persp, p).y, project(ortho, p).y), "ortho is not as wide at the target")
+	z := project(ortho, c.target).z
+	testing.expect(t, z > 0 && z < 1, "target outside depth range")
+	// Behind the eye still draws.
+	behind := orbit_eye(c) + (orbit_eye(c) - c.target)
+	zb := project(ortho, behind).z
+	testing.expect(t, zb >= 0 && zb < z, "behind the eye is clipped")
+	testing.expect(t, near_eq(orbit_world_per_px(c, behind, 100), orbit_world_per_px(c, c.target, 100)), "ortho pixel size varies")
+}
