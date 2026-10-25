@@ -169,7 +169,10 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
   places, then edge vertices by their ends' places, counted rather than sorted), since `sculptor_init` renumbers on
   every build. Reading subdivides, moves the vertices where they were and encodes the detail again
   (`recode_level(encode = true)`); HD detail is not stored (it follows node numbers), only the HD steps. A damaged
-  file returns false, never asserts.
+  file returns false, never asserts. The base also stores its node layout (`LEVELS_LAYOUT`: `sculptor_layout`, per
+  node its triangle and owned-vertex counts), and `levels_init(layout = ...)` builds it with
+  `sculptor_init_laid_out` (`src/sculpt/layout.odin`), which keeps the mesh's order, derives shared/owners and a
+  `bvh_build_over` tree, and returns false on any layout that does not fit (then the full `sculptor_init` runs).
 - App side (`src/app/sculpt_tool.odin`): `Brush_Settings` with the radius in pixels, `symmetry`, `detail_px`, `collapse`,
   `alpha` (an index into `App.alphas`, -1 for round), `alpha_mode`, `alpha_angle` (`:13-30`); `Input_Sample{pos, pressure, kind, tilt}`, every motion event of a frame kept (`:32-47`); `DAB_SPACING 0.25`
   radii, `MIN_DAB_SPACING_PX 1`, `MAX_DABS_PER_FRAME 64`, `MAX_PENDING_SAMPLES 4096`, `MAX_BRUSH_MS_PER_FRAME 10`
