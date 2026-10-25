@@ -27,6 +27,7 @@ Grab_Job :: struct {
 	r2:      f32,
 	inv_r2:  f32,
 	offset:  Vec3,
+	shape:   ^Falloff, // the brush's drawn falloff, or nil for the built-in one
 }
 
 // Starts dragging the vertices within the brush around `center`. Call inside a stroke
@@ -35,7 +36,7 @@ sculptor_grab_begin :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
 	g := &s.grab
 	if g.leaves == nil do grab_init(g, s.history.allocator)
 	clear(&g.leaves)
-	j := Grab_Job{s = s, r2 = brush.radius * brush.radius, inv_r2 = 1 / (brush.radius * brush.radius)}
+	j := Grab_Job{s = s, r2 = brush.radius * brush.radius, inv_r2 = 1 / (brush.radius * brush.radius), shape = brush.falloff_shape}
 	j.signs = mirrors(brush.symmetry)
 	for sign in j.signs {
 		append(&j.centers, center * sign)
@@ -138,7 +139,7 @@ grab_follow :: #force_inline proc(j: ^Grab_Job, v: u32) -> (f: Vec3) {
 	for c, k in j.centers {
 		delta := p - c
 		d2 := linalg.dot(delta, delta)
-		if d2 < j.r2 do f += j.signs[k] * falloff(d2 * j.inv_r2)
+		if d2 < j.r2 do f += j.signs[k] * (falloff_drawn(j.shape, d2 * j.inv_r2) if j.shape != nil else falloff(d2 * j.inv_r2))
 	}
 	if f != {} do f *= shield(j.s.fade, j.s.mask, v)
 	return

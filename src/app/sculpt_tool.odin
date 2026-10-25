@@ -14,6 +14,7 @@ Brush_Settings :: struct {
 	kind:              sculpt.Brush_Kind,
 	radius_px:         f32,
 	strengths:         [sculpt.Brush_Kind]f32, // each brush's own (brush_strength)
+	falloffs:          [sculpt.Brush_Kind]Falloff_Setting, // each brush's own, too
 	pressure_strength: bool, // pen pressure scales the strength
 	pressure_size:     bool, // pen pressure scales the radius
 	pressure_curve:    geom.Curve, // what each pen pressure counts as (geom.curve_at)
@@ -27,6 +28,13 @@ Brush_Settings :: struct {
 	alpha:             int, // index into App.alphas; -1 (or any other outside it) is the round brush
 	alpha_mode:        Alpha_Mode,
 	alpha_angle:       f32, // degrees counter-clockwise the image turns on top of what the mode gives
+}
+
+// A brush's falloff: the built-in smooth one, or a curve the user drew (read from the
+// rim in: sculpt.falloff_set_curve).
+Falloff_Setting :: struct {
+	drawn: bool,
+	curve: geom.Curve,
 }
 
 // One pointer sample as SDL reported it. The app keeps every motion event of a frame,
@@ -307,7 +315,20 @@ brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pres
 		tilt     = turn,
 		alpha    = alpha,
 		alpha_up = up,
+		falloff_shape = brush_falloff(app, kind),
 	}
+}
+
+// The drawn falloff of the brush `kind`, made from its curve, or nil for the built-in.
+brush_falloff :: proc(app: ^App, kind: sculpt.Brush_Kind) -> ^sculpt.Falloff {
+	f := app.brush.falloffs[kind]
+	if !f.drawn do return nil
+	table := &app.falloff_tables[kind]
+	if table.curve != f.curve || !table.built {
+		sculpt.falloff_set_curve(&table.falloff, f.curve)
+		table.curve, table.built = f.curve, true
+	}
+	return &table.falloff
 }
 
 brush_radius_px :: proc(app: ^App, pressure: f32) -> f32 {

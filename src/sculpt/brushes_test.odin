@@ -570,3 +570,37 @@ mirror_map :: proc(m: geom.Mesh, axis: Axis) -> []int {
 	}
 	return out
 }
+
+// A drawn falloff is the curve read from the rim in, and brushes follow it: a firm
+// curve moves vertices near the rim almost as far as the centre, the built-in one
+// barely does.
+@(test)
+drawn_falloff_shapes_the_dab :: proc(t: ^testing.T) {
+	cone: Falloff
+	falloff_set_curve(&cone, geom.CURVE_LINEAR)
+	for x in ([?]f32{0, 0.1, 0.5, 0.9}) {
+		w := falloff_drawn(&cone, x * x)
+		testing.expectf(t, abs(w - (1 - x)) < 0.01, "cone at %v: %v", x, w)
+	}
+	testing.expect(t, falloff_drawn(&cone, 1) == 0 && falloff_drawn(&cone, 2) == 0)
+
+	firm: Falloff
+	falloff_set_curve(&firm, {{0, 0.9}, {0.1, 1}})
+	moved :: proc(shape: ^Falloff) -> (centre, rim: f32) {
+		sp := sphere_make(5)
+		defer sphere_free(sp)
+		_ = apply_dab(&sp.sculptor, {kind = .Draw, radius = 0.4, strength = 0.5, falloff_shape = shape}, TOP)
+		for p, v in sp.mesh.positions {
+			d := linalg.length(p - sp.before[v])
+			off := linalg.length(sp.before[v].xy)
+			if off < 0.05 do centre = max(centre, d)
+			if off > 0.26 && off < 0.3 do rim = max(rim, d)
+		}
+		return
+	}
+	c0, r0 := moved(nil)
+	c1, r1 := moved(&firm)
+	testing.expectf(t, c0 > 0 && c1 > 0, "nothing moved: %v %v", c0, c1)
+	testing.expectf(t, r0 < 0.4 * c0, "built-in falloff at 0.7 radii moved %v of %v", r0, c0)
+	testing.expectf(t, r1 > 0.8 * c1, "firm falloff at 0.7 radii moved %v of %v", r1, c1)
+}

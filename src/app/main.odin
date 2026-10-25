@@ -49,6 +49,7 @@ Options :: struct {
 	bench_loops: int `usage:"Make --bench-stroke this many circles around the middle of the sphere instead of a wavy line."`,
 	brush:     string `usage:"Start with this brush: draw, smooth, clay, flatten, inflate, pinch, crease, grab or mask (also what --bench-stroke uses)."`,
 	symmetry:  string `usage:"Start with brush symmetry across these axes, e.g. x or xz."`,
+	falloff:   string `usage:"Start every brush with this falloff: smooth (the default), linear, sharp, firm or flat, as the Tools panel's Falloff presets set."`,
 	mirror:    string `usage:"Mirror and weld the first object before starting, as the Scene panel does: x, y or z keeps that axis's + side, -x, -y or -z the - side (after --remesh)."`,
 	remesh:    int `usage:"Voxel remesh the first sphere to about this many vertices before starting, as Remesh selected does (after --subdivide and --level)."`,
 	dyntopo:   bool `usage:"Turn dynamic topology on for the first sphere before starting (after --remesh), as Ctrl+T does."`,
@@ -77,6 +78,12 @@ App :: struct {
 	tool:     Tool,
 	move:     Move_Tool,
 	brush:    Brush_Settings,
+	// Each brush's drawn falloff as the sculptor reads it, remade when its curve changes.
+	falloff_tables: [sculpt.Brush_Kind]struct {
+		falloff: sculpt.Falloff,
+		curve:   geom.Curve,
+		built:   bool,
+	},
 	stroke:   Stroke,
 	alphas:   [dynamic]Alpha_Entry, // the brush alphas the Tools panel offers (alphas.odin)
 	alpha_seed: u32, // Random alpha mode's generator
@@ -266,6 +273,18 @@ run :: proc(opts: Options) -> bool {
 	app.ui = ui_state_default()
 	app.brush = {kind = .Draw, radius_px = 60, pressure_strength = true, pressure_curve = geom.CURVE_LINEAR, detail_px = 10, collapse = true, alpha = -1}
 	for &s in app.brush.strengths do s = 0.5
+	if opts.falloff != "" {
+		found := false
+		for preset in FALLOFF_PRESETS {
+			if !strings.equal_fold(opts.falloff, string(preset.label)) do continue
+			for &f in app.brush.falloffs do f = {drawn = preset.drawn, curve = preset.curve}
+			found = true
+		}
+		if !found {
+			log.errorf("unknown falloff %q", opts.falloff)
+			return false
+		}
+	}
 	if opts.detail > 0 do app.brush.detail_px = opts.detail
 	app.brush.tilt_strength = clamp(opts.tilt_strength, 0, 1)
 	if opts.brush != "" {

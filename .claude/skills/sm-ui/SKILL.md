@@ -23,11 +23,11 @@ description: The Dear ImGui interface in src/app/ui.odin and the frame loop arou
 - Panels: Tools (`ui.odin:331`: tool radios, the nine brushes as radio buttons labelled with their keys, three a row,
   from `BRUSH_NAMES`/`BRUSH_HELP` (`ui.odin:94, 106`), radius in px (5-500, logarithmic), the held brush's own strength
   (`Brush_Settings.strengths[kind]` through `brush_strength`), lazy mouse,
-  Symmetry X/Y/Z checkboxes, the Alpha section (`draw_alpha_section`, `src/app/alphas.odin:217`: the round brush and
+  Symmetry X/Y/Z checkboxes, the Falloff section (`draw_falloff_section`: `draw_curve_editor` mirrored, the built-in shape plotted until a handle moves, `FALLOFF_PRESETS`), the Alpha section (`draw_alpha_section`, `src/app/alphas.odin:217`: the round brush and
   each `App.alphas` entry as a 20² thumbnail drawn as filled rects over an `InvisibleButton`, six a row; Load image...;
   the mode radios and the Angle slider, greyed with no alpha), the Mask section (Clear, Invert, Mask all; Blur, Sharpen, Grow, Shrink with the Steps slider, `Ui_State.mask_steps`,
   and the last command's time from `Ui_State.mask_last`), the Pen section (`draw_pen_section`, `ui.odin:399`:
-  pressure flags, the curve editor `draw_pressure_curve` (`ui.odin:432`: an `InvisibleButton` canvas, handles grabbed on
+  pressure flags, the curve editor `draw_pressure_curve` (over the shared `draw_curve_editor`) (`ui.odin:432`: an `InvisibleButton` canvas, handles grabbed on
   `IsItemActivated` within 18 px), `PRESSURE_PRESETS` (`ui.odin:419`), the Tilt slider, the pen readout), the dynamic topology section
   (`draw_dyntopo_section`, `ui.odin:489`: on/off, Detail px, Collapse short edges, its counters), camera distance), Scene (`ui.odin:512`: object list, Position `DragFloat3`, Scale (logarithmic), the levels and HD sections,
   vertex count with presets, Add / Remesh selected / Delete; Subdivide and Divide HD greyed while dynamic topology is on), Stats (`ui.odin:729`: `row(label, ring, unit)` prints p50 and p99, a
