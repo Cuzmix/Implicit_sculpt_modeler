@@ -500,6 +500,18 @@ owner_node :: proc(nodes: []Node, v: u32) -> u32 {
 	return u32(lo)
 }
 
+// Brings the vertex normals of everything changed since the last sculptor_flush up to
+// date without taking it off what the next sculptor_flush reports, which works the same
+// normals out again. For running several frames' worth of dabs in one frame (an instant
+// stroke replay): a dab reads the normals, so each frame's dabs need the ones before
+// them reflected, as a frame-by-frame flush would have done.
+sculptor_refresh_normals :: proc(s: ^Sculptor) {
+	if len(s.dirty_nodes) == 0 do return
+	verts: u32
+	for id in s.dirty_nodes do verts += s.nodes[id].vert_count
+	jobs.parallel_for(s.pool if verts >= PARALLEL_MIN_VERTS else nil, len(s.dirty_nodes), s, job_node_normals)
+}
+
 // Finishes the deferred work of every dab since the last call, then returns the vertex
 // ranges whose positions or normals changed, coalesced and sorted. Call once per frame
 // before uploading; the slice is valid until the next call.

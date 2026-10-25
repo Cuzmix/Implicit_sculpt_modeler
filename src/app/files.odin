@@ -32,6 +32,8 @@ File_Kind :: enum u8 {
 	Screenshot, // the viewport image goes to a PNG file
 	Timelapse,  // the History is recorded as PNG frames into a folder (timeline.odin)
 	Bake,       // maps baked onto the selected quad object go into a folder (retopo.odin)
+	Save_Strokes, // the recorded strokes go to a .strokes file (replay.odin)
+	Load_Strokes, // a .strokes file becomes the recording
 }
 
 File_Request :: struct {
@@ -74,6 +76,8 @@ SCENE_FILTERS := [?]sdl.DialogFileFilter{{"Sculpt scene", "sculpt"}}
 PNG_FILTERS := [?]sdl.DialogFileFilter{{"PNG image", "png"}}
 @(private = "file")
 IMAGE_FILTERS := [?]sdl.DialogFileFilter{{"Images (PNG, JPEG, BMP, TGA, QOI)", "png;jpg;jpeg;bmp;tga;qoi"}}
+@(private = "file")
+STROKES_FILTERS := [?]sdl.DialogFileFilter{{"Recorded strokes", "strokes"}}
 
 // Shows the dialog that picks the file for `kind`; its answer becomes a request. Does
 // nothing while another dialog is showing.
@@ -98,6 +102,10 @@ file_dialog :: proc(app: ^App, kind: File_Kind) {
 		sdl.ShowOpenFileDialog(file_dialog_done, userdata, app.window, raw_data(IMAGE_FILTERS[:]), len(IMAGE_FILTERS), nil, false)
 	case .Screenshot:
 		sdl.ShowSaveFileDialog(file_dialog_done, userdata, app.window, raw_data(PNG_FILTERS[:]), len(PNG_FILTERS), nil)
+	case .Save_Strokes:
+		sdl.ShowSaveFileDialog(file_dialog_done, userdata, app.window, raw_data(STROKES_FILTERS[:]), len(STROKES_FILTERS), nil)
+	case .Load_Strokes:
+		sdl.ShowOpenFileDialog(file_dialog_done, userdata, app.window, raw_data(STROKES_FILTERS[:]), len(STROKES_FILTERS), nil, false)
 	case .Timelapse, .Bake:
 		sdl.ShowOpenFolderDialog(file_dialog_done, userdata, app.window, nil, false)
 	}
@@ -126,6 +134,7 @@ file_dialog_done :: proc "c" (userdata: rawptr, filelist: [^]cstring, filter: c.
 		case .Save: suffix = ".sculpt"
 		case .Export: suffix = ".ply" if filter == 2 else ".obj"
 		case .Screenshot: suffix = ".png"
+		case .Save_Strokes: suffix = ".strokes"
 		}
 	}
 	delete(pending.req.path, heap)
@@ -210,6 +219,10 @@ file_apply :: proc(app: ^App, req: File_Request) -> bool {
 		timelapse_start(app, req.path)
 	case .Bake:
 		bake_to_folder(app, req.path)
+	case .Save_Strokes:
+		_ = strokes_save(app, req.path)
+	case .Load_Strokes:
+		_ = strokes_load(app, req.path)
 	}
 	return true
 }

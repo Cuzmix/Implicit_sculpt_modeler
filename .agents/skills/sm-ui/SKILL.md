@@ -62,6 +62,12 @@ description: The Dear ImGui interface in src/app/ui.odin and the frame loop arou
   (`ui.odin:242`: the right button let go under `PIE_TAP` and 4 px, which is also what a pen's side button sends).
   `draw_pie` draws on the foreground list, so it shows whole over the panels; slices follow `Brush_Kind` clockwise from
   the top (`pie_slice`).
+- Stroke recorder (`src/app/replay.odin`, `App.replay`): `replay_frame_begin`/`replay_record` wrap `sculpt_frame` in the
+  frame loop and keep every frame of a stroke (samples, modifiers, camera, size, `Brush_Settings` per stroke) in
+  `Replay.last`, and in `Replay.take` while recording. A replay calls `replay_frame` instead of `sculpt_frame` and feeds
+  the frames back through it with `App.camera`/`App.brush` swapped in for the call only; at the pointer (R) it offsets
+  the samples and uses the current camera and viewport size. Anything a stroke reads must come from `Viewport_Input`,
+  `App.camera` or `App.brush`, or replays will not reproduce it. `.strokes` files: `strokes_save`/`strokes_read`.
 
 ## Recipes
 | Want | Do |
