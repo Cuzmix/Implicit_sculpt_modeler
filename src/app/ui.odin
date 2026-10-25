@@ -48,6 +48,8 @@ Ui_State :: struct {
 	smooth_on_gpu:      bool, // run Smooth all as a compute shader (the GPU compute trial); off by default
 	smooth_last:        Smooth_Done,
 	crease_degrees:     f32, // Polygroups' Creases: how sharp a crease starts a new group
+	layer_selected:     int,  // the Layers section's row that Delete and Bake act on
+	layer_dragging:     bool, // a layer's strength slider is being dragged: one undo step
 }
 
 // The last Smooth all, for the Deformation section to report.
@@ -513,6 +515,7 @@ draw_tools_panel :: proc(app: ^App) {
 	draw_dyntopo_section(app)
 	draw_morph_section(app)
 	draw_paint_section(app)
+	draw_layers_section(app)
 
 	imgui.SeparatorText("Mask")
 	imgui.BeginDisabled(selected_object(app) == nil)

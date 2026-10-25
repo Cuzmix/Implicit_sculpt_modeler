@@ -27,6 +27,9 @@ LEVELS_DYNAMIC :: u32(1)
 // have neither).
 @(private = "file")
 LEVELS_PAINT :: u32(2)
+// After them, each level's sculpt layers (files from before layers have none).
+@(private = "file")
+LEVELS_LAYERS :: u32(4)
 
 // Appends the levels to `out`: every level in sync with the current one, its mask, and
 // whether dynamic topology is on (a dynamic mesh is stored packed). Leave any HD window
@@ -36,7 +39,7 @@ levels_write :: proc(l: ^Levels, out: ^[dynamic]u8) {
 	levels_sync(l)
 	paged := levels_dynamic(l)
 	geom.byte_put(out, LEVELS_TAG)
-	geom.byte_put(out, LEVELS_DYNAMIC if paged else LEVELS_PAINT)
+	geom.byte_put(out, LEVELS_DYNAMIC if paged else LEVELS_PAINT | LEVELS_LAYERS)
 	geom.byte_put(out, u32(len(l.levels)))
 	geom.byte_put(out, u32(l.current))
 	geom.byte_put(out, u32(l.hd.steps))
@@ -80,6 +83,74 @@ levels_write :: proc(l: ^Levels, out: ^[dynamic]u8) {
 		saved := slice.reinterpret([]u16, geom.byte_put_bytes(out, len(s.groups.tris) * size_of(u16)))
 		for g, t in s.groups.tris do saved[order[t]] = g
 	}
+	for lv, j in l.levels do write_layers(out, &lv.sculptor, canon[j], l.pool)
+}
+
+// A sculptor's layers: how many, which records (0 for none, else its index + 1), then
+// per layer its name, strength, visibility and every vertex's displacement in file
+// order (zero where the layer moved nothing).
+@(private = "file")
+write_layers :: proc(out: ^[dynamic]u8, s: ^Sculptor, canon: []u32, pool: ^jobs.Pool) {
+	geom.byte_put(out, u32(len(s.layers.list)))
+	geom.byte_put(out, u32(s.layers.recording))
+	for l in s.layers.list {
+		name := l.name
+		geom.byte_put_slice(out, name[:])
+		geom.byte_put(out, l.strength)
+		geom.byte_put(out, u8(l.visible))
+		Scatter :: struct {
+			s:     ^Sculptor,
+			delta: [][]Vec3,
+			to:    []u8,
+			canon: []u32,
+		}
+		sc := Scatter{s, l.delta, geom.byte_put_bytes(out, len(s.mesh.positions) * size_of(Vec3)), canon}
+		jobs.parallel_ranges(pool, len(s.nodes), &sc, proc(data: rawptr, lo, hi: int) {
+			sc := cast(^Scatter)data
+			for id in lo ..< hi {
+				n := sc.s.nodes[id]
+				d := sc.delta[id]
+				for v in n.vert_first ..< n.vert_first + n.vert_count {
+					at := cast(^Vec3)&sc.to[size_of(Vec3) * int(place(sc.canon, v))]
+					intrinsics.unaligned_store(at, d[v - n.vert_first] if d != nil else Vec3{})
+				}
+			}
+		}, NODE_GRAIN)
+	}
+}
+
+// Reads what write_layers wrote into a sculptor without layers. False on a damaged file.
+@(private = "file")
+read_layers :: proc(r: ^geom.Byte_Reader, s: ^Sculptor, canon: []u32) -> bool {
+	count := int(geom.byte_get(r, u32))
+	recording := int(geom.byte_get(r, u32))
+	if !r.ok || count > MAX_SCULPT_LAYERS || recording > count do return false
+	n := len(s.mesh.positions)
+	for _ in 0 ..< count {
+		l := Sculpt_Layer{delta = make([][]Vec3, len(s.nodes), s.history.allocator)}
+		append(&s.layers.list, l)
+		name := geom.byte_get_bytes(r, len(l.name))
+		strength := geom.byte_get(r, f32)
+		visible := geom.byte_get(r, u8)
+		saved := geom.byte_get_bytes(r, n * size_of(Vec3))
+		if !r.ok || visible > 1 do return false
+		last := &s.layers.list[len(s.layers.list) - 1]
+		copy(last.name[:len(last.name) - 1], name)
+		last.strength, last.visible = strength, visible == 1
+		for node, id in s.nodes {
+			d: []Vec3
+			for v in node.vert_first ..< node.vert_first + node.vert_count {
+				x := intrinsics.unaligned_load(cast(^Vec3)&saved[size_of(Vec3) * int(canon[v])])
+				if x == {} && d == nil do continue
+				if d == nil do d = make([]Vec3, node.vert_count, s.history.allocator)
+				d[v - node.vert_first] = x
+			}
+			last.delta[id] = d
+		}
+	}
+	s.layers.recording = recording
+	s.layers.named = count
+	return true
 }
 
 // Reads levels written by levels_write into `l`, which must be empty: the base level,
@@ -183,6 +254,9 @@ levels_read :: proc(l: ^Levels, r: ^geom.Byte_Reader, pool: ^jobs.Pool, node_tri
 		}
 		// The other levels take them at the first level change.
 		s.color_edited, s.groups.edited = s.color != nil, s.groups.tris != nil
+	}
+	if flags & LEVELS_LAYERS != 0 {
+		for lv, j in l.levels do if !read_layers(r, &lv.sculptor, canon[j]) do return false
 	}
 	if hd_steps > 0 && !levels_hd_set_steps(l, hd_steps) do return false
 	if paged && !levels_dyn_enable(l) do return false

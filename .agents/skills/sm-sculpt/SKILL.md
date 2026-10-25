@@ -1,6 +1,6 @@
 ---
 name: sm-sculpt
-description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's nodes (BVH leaves owning contiguous vertex ranges), the 14 brushes (Draw to Mask, Layer, Snake hook, Morph, Paint, Cloth), masking, polypaint, polygroups, X/Y/Z symmetry, brush alphas, dynamic topology, apply_dab and sculptor_flush, dirty ranges for upload, deferred normals and normal cones, per-node stroke undo, subdivision levels (Loop, detail in local frames, sync up and down), HD detail windows, simplified copies between strokes, and the app side: stroke sampling, dab spacing, pressure and pen tilt, lazy mouse, the cross-object History and Scene_Command. Load for ANY task that changes how a brush moves vertices or what happens around a stroke, "add a brush kind", "the mask leaks", "symmetry is off", "undo is wrong", "the levels drift", "HD window border", "dabs skip at high speed", "move vertices from a tool", "make this undoable". Requires sm-geom and sm-build; GPU upload is sm-render; panels are sm-ui; ZBrush is the behaviour model.
+description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's nodes (BVH leaves owning contiguous vertex ranges), the 14 brushes (Draw to Mask, Layer, Snake hook, Morph, Paint, Cloth), masking, polypaint, polygroups, sculpt layers, X/Y/Z symmetry, brush alphas, dynamic topology, apply_dab and sculptor_flush, dirty ranges for upload, deferred normals and normal cones, per-node stroke undo, subdivision levels (Loop, detail in local frames, sync up and down), HD detail windows, simplified copies between strokes, and the app side: stroke sampling, dab spacing, pressure and pen tilt, lazy mouse, the cross-object History and Scene_Command. Load for ANY task that changes how a brush moves vertices or what happens around a stroke, "add a brush kind", "symmetry is off", "undo is wrong", "the levels drift", "HD window border", "dabs skip at high speed", "move vertices from a tool", "make this undoable". Requires sm-geom and sm-build; GPU upload is sm-render; panels are sm-ui; ZBrush is the behaviour model.
 ---
 
 # Sculpting
@@ -94,6 +94,15 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
   groups (`levels_carry_groups`, via `level_tri_parents`) only when `color_edited`/`groups.edited`, and always into a new level;
   files: `LEVELS_PAINT` flag, groups in `tri_canon` order. None under dynamic topology (`sculptor_dyn_enable` drops them) or in HD
   (the app refuses, `paint_allowed`). App: `src/app/paint.odin` (`paint_upload` → `render.mesh_buffers_upload_paint`).
+- Sculpt layers (`src/sculpt/sculpt_layers.odin`, not the Layer brush's `s.layer`): `Sculptor.layers{list, recording (index+1,
+  0 none), named}`, each `Sculpt_Layer{name [32]u8, strength, visible, delta [][]Vec3}` (per node, nil where unmoved); positions
+  always hold base + Σ weight·delta. `sculptor_stroke_end` calls `layer_take_stroke` (adds live − saved positions of each saved
+  node to the recording layer, appending `Saved_Node{is_delta, delta (old), delta_layer}`, swapped by pointer on undo).
+  `Undo_Step.layer_op` (add/remove; the step `held`s a removed layer) and `.layer_set` (old strength/visible) are swapped in
+  `layer_step_swap`; `step_move` re-counts `h.bytes` since swaps change what a step holds. `sculptor_layer_set` begins or
+  continues a stroke (a drag = one step; app ends it on release), `layer_displace` moves only nodes with delta. Files:
+  `LEVELS_LAYERS` flag, every level's layers in canon order. Baked by `sculptor_dyn_enable`; app refuses in HD/dyntopo
+  (`src/app/layers.odin`).
 - `sculptor_flush(s)` (`brush.odin:443-506`): once a frame before uploading. Sorts `dirty_nodes`, recomputes normals per node
   (Shape: all of them; Edge: only the border vertices), leaves a changed chunk's cone open during a stroke and works the
   waiting cones off `CONE_BATCH` per flush afterwards, sets `changed_bounds` (before and after), and returns coalesced,
