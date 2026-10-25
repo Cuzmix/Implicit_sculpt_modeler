@@ -90,6 +90,9 @@ Options :: struct {
 	paint_color: string `usage:"The Paint brush's colour, as red,green,blue from 0 to 1 (e.g. 0.2,0.4,0.9)."`,
 	fill_paint: bool `usage:"Fill the first object with the Paint brush's colour before starting, as Tools > Polypaint > Fill with colour does (after --groups)."`,
 	layer:      bool `usage:"Add a sculpt layer to the first object before starting, recording, as Tools > Layers > New layer does (after --fill-paint), so --bench-stroke goes into it."`,
+	retopo:     int `usage:"Retopologize the first object into about this many quads before starting, as Scene > Retopologize selected does (after --layer); the new object is selected."`,
+	bake:       string `usage:"On exit, bake the first object's detail onto the selected quad object (from --retopo) into this folder, as Bake maps... does (before --export)."`,
+	bake_size:  int `usage:"Texels square for --bake (512, 1024, 2048 or 4096; default 2048)."`,
 	gpubench_frames: int `usage:"Measured frames per --gpubench case (default 120, at most 240)."`,
 	open:      string `usage:"Start with the scene saved in this .sculpt file instead of spheres, as File > Open scene does."`,
 	import_mesh: string `args:"name=import" usage:"Start with the mesh in this .obj or .ply file instead of spheres (after any --open), as File > Import mesh does."`,
@@ -420,6 +423,11 @@ run :: proc(opts: Options) -> bool {
 	}
 	if opts.fill_paint do paint_command(&app, .Fill)
 	if opts.layer do layer_add(&app)
+	if opts.retopo > 0 {
+		app.scene.selected = 0
+		if _, ok := object_retopo(&app, app.scene.objects[0], opts.retopo); !ok do return false
+	}
+	if opts.bake_size > 0 do app.ui.bake.size = i32(opts.bake_size)
 	defer if remember do _ = settings_save(&app, settings)
 	if opts.ortho do app.camera.ortho = true
 	if opts.wireframe do app.wireframe = true
@@ -793,6 +801,12 @@ run :: proc(opts: Options) -> bool {
 
 	if opts.dump_viewport != "" do _ = screenshot_save(&app, opts.dump_viewport)
 
+	if opts.bake != "" {
+		// The quads are the newest object; the stroke may have selected another.
+		app.ui.bake.source = app.scene.objects[0].id
+		app.scene.selected = len(app.scene.objects) - 1
+		bake_to_folder(&app, opts.bake)
+	}
 	if opts.export != "" {
 		obj := selected_object(&app)
 		if obj == nil || !object_export(&app, obj, opts.export) do return false

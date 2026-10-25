@@ -252,14 +252,20 @@ ray_aabb :: #force_inline proc(bounds: Aabb, origin, inv_dir: Vec3, t_max: f32) 
 // Nearest hit along the ray (both triangle faces), visiting the closer child first.
 // Triangles marked in `skip` (one entry per triangle, or nil) are passed through.
 bvh_raycast :: proc(b: ^Bvh, m: Mesh, origin, dir: Vec3, skip: []bool = nil) -> (t: f32, tri: u32, ok: bool) {
+	return bvh_raycast_with(b^, m, origin, dir, max(f32), &b.stack, skip)
+}
+
+// bvh_raycast with the traversal scratch given, so threads can cast into one BVH at
+// once, and hits only nearer than `limit`.
+bvh_raycast_with :: proc(b: Bvh, m: Mesh, origin, dir: Vec3, limit: f32, stack: ^[dynamic]u32, skip: []bool = nil) -> (t: f32, tri: u32, ok: bool) {
 	if len(b.nodes) == 0 || b.nodes[0].bounds.lo.x > b.nodes[0].bounds.hi.x do return
 	inv_dir := Vec3{1 / dir.x, 1 / dir.y, 1 / dir.z}
 	runs := b.tri_order == nil
-	best := max(f32)
-	clear(&b.stack)
-	append(&b.stack, 0)
-	for len(b.stack) > 0 {
-		node := b.nodes[pop(&b.stack)]
+	best := limit
+	clear(stack)
+	append(stack, 0)
+	for len(stack) > 0 {
+		node := b.nodes[pop(stack)]
 		if _, hit := ray_aabb(node.bounds, origin, inv_dir, best); !hit do continue
 		if node.count > 0 {
 			for i in node.first ..< node.first + node.count {
@@ -277,14 +283,14 @@ bvh_raycast :: proc(b: ^Bvh, m: Mesh, origin, dir: Vec3, skip: []bool = nil) -> 
 		// Push the far child first so the near one is popped next.
 		if hl && hr {
 			if tl <= tr {
-				append(&b.stack, r, l)
+				append(stack, r, l)
 			} else {
-				append(&b.stack, l, r)
+				append(stack, l, r)
 			}
 		} else if hl {
-			append(&b.stack, l)
+			append(stack, l)
 		} else if hr {
-			append(&b.stack, r)
+			append(stack, r)
 		}
 	}
 	t = best

@@ -12,19 +12,36 @@ import "core:hash"
 encode :: proc(pixels: []u8, width, height: int, alpha: bool, allocator := context.allocator) -> []u8 {
 	assert(len(pixels) >= width * height * 4 && width > 0 && height > 0)
 	channels := 4 if alpha else 3
-	stride := width * channels
+	packed := make([]u8, width * height * channels, context.temp_allocator)
+	for i in 0 ..< width * height do for c in 0 ..< channels do packed[i * channels + c] = pixels[i * 4 + c]
+	return encode_packed(packed, width, height, channels, 8, 6 if alpha else 2, allocator)
+}
+
+// Encodes `values` (one 16-bit grey sample a pixel, rows top to bottom) as a 16-bit
+// greyscale PNG, as displacement maps are kept.
+encode_gray16 :: proc(values: []u16, width, height: int, allocator := context.allocator) -> []u8 {
+	assert(len(values) >= width * height && width > 0 && height > 0)
+	packed := make([]u8, width * height * 2, context.temp_allocator)
+	for v, i in values[:width * height] do packed[2 * i], packed[2 * i + 1] = u8(v >> 8), u8(v)
+	return encode_packed(packed, width, height, 2, 16, 0, allocator)
+}
+
+// The PNG of rows packed as the file keeps them (`bpp` bytes a pixel), with that bit
+// depth and colour type.
+@(private)
+encode_packed :: proc(packed: []u8, width, height, bpp: int, depth, color_type: u8, allocator := context.allocator) -> []u8 {
+	stride := width * bpp
 
 	// The rows as PNG filters them: a filter byte, then the filtered row.
 	raw := make([]u8, height * (stride + 1), context.temp_allocator)
-	row := make([]u8, stride, context.temp_allocator)
 	above := make([]u8, stride, context.temp_allocator)
 	sub := make([]u8, stride, context.temp_allocator)
 	up := make([]u8, stride, context.temp_allocator)
 	for y in 0 ..< height {
-		for x in 0 ..< width do for c in 0 ..< channels do row[x * channels + c] = pixels[(y * width + x) * 4 + c]
+		row := packed[y * stride:][:stride]
 		cost_sub, cost_up: int
 		for i in 0 ..< stride {
-			left := row[i - channels] if i >= channels else 0
+			left := row[i - bpp] if i >= bpp else 0
 			sub[i] = row[i] - left
 			up[i] = row[i] - above[i]
 			cost_sub += int(abs(i8(sub[i])))
@@ -38,7 +55,7 @@ encode :: proc(pixels: []u8, width, height: int, alpha: bool, allocator := conte
 			out[0] = 1
 			copy(out[1:], sub)
 		}
-		above, row = row, above
+		copy(above, row)
 	}
 
 	data := make([dynamic]u8, 0, len(raw) / 4 + 1024, allocator)
@@ -46,7 +63,7 @@ encode :: proc(pixels: []u8, width, height: int, alpha: bool, allocator := conte
 	header: [13]u8
 	put_u32(header[0:], u32(width))
 	put_u32(header[4:], u32(height))
-	header[8], header[9] = 8, 6 if alpha else 2 // bit depth, colour type
+	header[8], header[9] = depth, color_type
 	chunk(&data, "IHDR", header[:])
 	chunk(&data, "IDAT", zlib(raw, context.temp_allocator))
 	chunk(&data, "IEND", nil)
