@@ -46,6 +46,7 @@ History_Kind :: enum u8 {
 	Deform,  // a whole-object deformation: Smooth all, Clip
 	Rebuild, // a swap entry: the object rebuilt, added or removed
 	Paint,   // a polypaint or polygroup command
+	Layer,   // a sculpt layer added, removed, shown, hidden or dialled
 }
 
 // An object as object_put writes it, or that it did not exist. Undoing or redoing a swap

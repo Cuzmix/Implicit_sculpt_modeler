@@ -88,6 +88,7 @@ Options :: struct {
 	show_groups: bool `usage:"Start showing polygroups, as View > Polygroups (Shift+W) does."`,
 	paint_color: string `usage:"The Paint brush's colour, as red,green,blue from 0 to 1 (e.g. 0.2,0.4,0.9)."`,
 	fill_paint: bool `usage:"Fill the first object with the Paint brush's colour before starting, as Tools > Polypaint > Fill with colour does (after --groups)."`,
+	layer:      bool `usage:"Add a sculpt layer to the first object before starting, recording, as Tools > Layers > New layer does (after --fill-paint), so --bench-stroke goes into it."`,
 	gpubench_frames: int `usage:"Measured frames per --gpubench case (default 120, at most 240)."`,
 	open:      string `usage:"Start with the scene saved in this .sculpt file instead of spheres, as File > Open scene does."`,
 	import_mesh: string `args:"name=import" usage:"Start with the mesh in this .obj or .ply file instead of spheres (after any --open), as File > Import mesh does."`,
@@ -417,6 +418,7 @@ run :: proc(opts: Options) -> bool {
 		app.show_groups = opts.show_groups
 	}
 	if opts.fill_paint do paint_command(&app, .Fill)
+	if opts.layer do layer_add(&app)
 	defer if remember do _ = settings_save(&app, settings)
 	if opts.ortho do app.camera.ortho = true
 	if opts.wireframe do app.wireframe = true

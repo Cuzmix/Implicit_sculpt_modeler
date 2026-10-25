@@ -38,25 +38,33 @@ run_brushes :: proc(target: int, pool: ^jobs.Pool) {
 		symmetry: sculpt.Symmetry,
 		masked:   bool,
 		alpha:    bool,
+		layer:    bool, // record the stroke into a new sculpt layer
 	}
 	cases := [?]Case {
-		{"Draw", .Draw, {}, false, false},
-		{"Smooth", .Smooth, {}, false, false},
-		{"Clay", .Clay, {}, false, false},
-		{"Flatten", .Flatten, {}, false, false},
-		{"Inflate", .Inflate, {}, false, false},
-		{"Pinch", .Pinch, {}, false, false},
-		{"Crease", .Crease, {}, false, false},
-		{"Grab", .Grab, {}, false, false},
-		{"Mask", .Mask, {}, false, false},
-		{"Layer", .Layer, {}, false, false},
-		{"Layer, second stroke", .Layer, {}, false, false},
-		{"Snake hook", .Snake_Hook, {}, false, false},
-		{"Morph", .Morph, {}, false, false},
-		{"Paint", .Paint, {}, false, false},
-		{"Draw, X symmetry", .Draw, {.X}, false, false},
-		{"Draw, half masked", .Draw, {}, true, false},
-		{"Draw, Noise alpha", .Draw, {}, false, true},
+		{"Draw", .Draw, {}, false, false, false},
+		{"Draw, recording a layer", .Draw, {}, false, false, true},
+		{"Smooth", .Smooth, {}, false, false, false},
+		{"Clay", .Clay, {}, false, false, false},
+		{"Flatten", .Flatten, {}, false, false, false},
+		{"Inflate", .Inflate, {}, false, false, false},
+		{"Pinch", .Pinch, {}, false, false, false},
+		{"Crease", .Crease, {}, false, false, false},
+		{"Grab", .Grab, {}, false, false, false},
+		{"Mask", .Mask, {}, false, false, false},
+		{"Layer", .Layer, {}, false, false, false},
+		{"Layer, second stroke", .Layer, {}, false, false, false},
+		{"Snake hook", .Snake_Hook, {}, false, false, false},
+		{"Morph", .Morph, {}, false, false, false},
+		{"Paint", .Paint, {}, false, false, false},
+		{"Draw, X symmetry", .Draw, {.X}, false, false, false},
+		{"Draw, half masked", .Draw, {}, true, false, false},
+		{"Draw, Noise alpha", .Draw, {}, false, true, false},
+	}
+	layer_line: string
+	defer if layer_line != "" {
+		fmt.println()
+		fmt.println(layer_line)
+		delete(layer_line)
 	}
 	noise := sculpt.alpha_make(.Noise)
 	defer sculpt.alpha_destroy(&noise)
@@ -83,6 +91,7 @@ run_brushes :: proc(target: int, pool: ^jobs.Pool) {
 		defer delete(frame)
 		touched := 0
 		anchor: Vec3
+		if c.layer do _ = sculpt.sculptor_layer_add(s)
 		sculpt.sculptor_stroke_begin(s)
 		for i in 0 ..< DABS {
 			k := f32(i) / (DABS - 1)
@@ -114,9 +123,25 @@ run_brushes :: proc(target: int, pool: ^jobs.Pool) {
 			}
 		}
 		sculpt.sculptor_grab_end(s)
+		te := time.tick_now()
 		_ = sculpt.sculptor_stroke_end(s)
+		end_ms := time.duration_milliseconds(time.tick_since(te))
 		for len(s.waiting_cones) > 0 do _ = sculpt.sculptor_flush(s)
 		undo_mb := f64(sculpt.sculptor_undo_bytes(s)) / (1 << 20)
+		if c.layer {
+			// The stroke's end adds it to the layer; then one slider change, as a drag's
+			// first frame makes it, with its flush.
+			ts := time.tick_now()
+			_ = sculpt.sculptor_layer_set(s, 0, 0.5, true)
+			set_ms := time.duration_milliseconds(time.tick_since(ts))
+			_ = sculpt.sculptor_flush(s)
+			slider_ms := time.duration_milliseconds(time.tick_since(ts))
+			_ = sculpt.sculptor_stroke_end(s)
+			layer_line = fmt.aprintf("Sculpt layer at %s vertices: stroke end %.2f ms (adds the stroke to the layer), slider change %.2f ms, with its flush %.2f ms, layer %.1f MB",
+				thousands(vcount), end_ms, set_ms, slider_ms, f64(sculpt.sculptor_layers_bytes(s)) / (1 << 20))
+			_ = sculpt.sculptor_undo(s)
+			_ = sculpt.sculptor_undo(s)
+		}
 		_ = sculpt.sculptor_undo(s)
 		_ = sculpt.sculptor_flush(s)
 		sculpt.sculptor_clear_history(s)

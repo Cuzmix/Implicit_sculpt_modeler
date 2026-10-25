@@ -206,6 +206,8 @@ Sculptor :: struct {
 	paint_stamp:  u32,  // see sculptor_paint_stamp
 	// The polygroups per triangle, and what drawing them needs (groups.odin).
 	groups:       Groups,
+	// The sculpt layers (sculpt_layers.odin).
+	layers:       Sculpt_Layers,
 	// Set while dynamic topology is on (dyntopo.odin): the mesh is laid out in pages,
 	// `faces` and the shared lists above are replaced, and there are no LOD copies.
 	dyn:         ^Dyn,
@@ -245,6 +247,7 @@ sculptor_destroy :: proc(s: ^Sculptor) {
 	dyn_destroy(s)
 	hide_destroy(s)
 	groups_destroy(s)
+	layers_destroy(s)
 	delete(s.color, s.history.allocator)
 	delete(s.mask, s.history.allocator)
 	delete(s.layer, s.history.allocator)
