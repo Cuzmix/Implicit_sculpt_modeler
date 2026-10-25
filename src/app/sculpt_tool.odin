@@ -1,5 +1,6 @@
 package main
 
+import "core:log"
 import "core:math"
 import "core:math/linalg"
 import "core:time"
@@ -31,6 +32,7 @@ Brush_Settings :: struct {
 	alpha_mode:        Alpha_Mode,
 	alpha_angle:       f32, // degrees counter-clockwise the image turns on top of what the mode gives
 	color:             [3]f32, // what the Paint brush paints, sRGB 0 to 1
+	cloth_mode:        sculpt.Cloth_Mode, // what the Cloth brush does
 }
 
 // How a left drag lays the brush down.
@@ -74,6 +76,7 @@ Stroke :: struct {
 	size:     [2]f32, // viewport size the positions above are in
 	pending:  [dynamic]Input_Sample, // samples left for the next frame once one reaches MAX_DABS_PER_FRAME
 	grab:     bool, // a Grab stroke: drags what it picked up instead of laying dabs
+	cloth:    bool, // a Cloth stroke: simulates the region it began on every frame (sculpt.Cloth)
 	hook:     bool, // a Snake hook stroke: drags the surface along after the pointer
 	rect:     bool, // a Drag rectangle stroke: redoes its one dab at `start` as the pointer moves
 	start:    [2]f32, // Drag rectangle: where on screen the drag began
@@ -172,6 +175,11 @@ stroke_follow :: proc(app: ^App, input: Viewport_Input, samples: []Input_Sample,
 		if len(queue) > 0 do grab_follow(app, input, inv, queue[len(queue) - 1].pos, res)
 		return
 	}
+	if st.active && st.cloth {
+		// The cloth moves on every frame of the stroke, held still or not.
+		cloth_follow(app, input, inv, queue[len(queue) - 1].pos if len(queue) > 0 else st.pos, res)
+		return
+	}
 	if st.active && st.hook {
 		for s in queue do hook_follow(app, input, inv, s, res)
 		return
@@ -232,12 +240,20 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 	local := to_local(obj.transform, hit)
 	brush := brush_at(app, input, obj.transform, local, s.pressure, s.tilt)
 	st.grab, st.hook, st.anchor, st.kind = brush.kind == .Grab, brush.kind == .Snake_Hook, hit, brush.kind
-	st.rect = app.brush.stroke == .Drag_Rect && !st.grab && !st.hook && !input.smooth && !object_dynamic(obj)
+	st.cloth = brush.kind == .Cloth && !object_dynamic(obj)
+	if brush.kind == .Cloth && !st.cloth do log.warn("cloth: not with dynamic topology on")
+	st.rect = app.brush.stroke == .Drag_Rect && !st.grab && !st.hook && !st.cloth && brush.kind != .Cloth && !input.smooth && !object_dynamic(obj)
 	st.start, st.at = s.pos, local
 	if st.hook || st.rect do return // they move nothing until the pointer does
 	t1 := time.tick_now()
 	if st.grab {
 		sculpt.sculptor_grab_begin(object_sculptor(obj), brush, local)
+	} else if st.cloth {
+		mode := app.brush.cloth_mode
+		if brush.invert && mode == .Pinch do mode = .Expand
+		else if brush.invert && mode == .Expand do mode = .Pinch
+		sculpt.sculptor_cloth_begin(object_sculptor(obj), brush, local, mode)
+		return
 	} else {
 		sculpt.apply_dab(object_sculptor(obj), brush, local)
 	}
@@ -265,6 +281,36 @@ grab_follow :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, pos:
 	st.pos = pos
 	t1 := time.tick_now()
 	sculpt.sculptor_grab_move(object_sculptor(obj), offset)
+	res.brush_ms += time.duration_milliseconds(time.tick_since(t1))
+	res.dabs += 1
+}
+
+// Steps a Cloth stroke's simulation once, with the pointer at `pos`: Drag pulls what
+// was under the brush after the pointer on the plane through where it began facing the
+// camera, as Grab does; Gravity pulls toward the bottom of the screen (the top when
+// inverted).
+@(private = "file")
+cloth_follow :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, pos: [2]f32, res: ^Sculpt_Frame_Result) {
+	st := &app.stroke
+	obj := object_by_id(app, st.object)
+	if obj == nil {
+		st.active = false
+		return
+	}
+	t := obj.transform
+	offset: Vec3
+	origin, dir := ray_through(inv, pos, input.size)
+	facing := camera.orbit_toward(app.camera, st.anchor)
+	if along := linalg.dot(dir, facing); abs(along) > 1e-6 {
+		hit := origin + dir * (linalg.dot(st.anchor - origin, facing) / along)
+		offset = to_local_dir(t, hit - st.anchor) / t.scale
+	}
+	view := camera.orbit_view(app.camera)
+	down := -to_local_dir(t, Vec3{view[1, 0], view[1, 1], view[1, 2]})
+	if input.invert do down = -down
+	st.pos = pos
+	t1 := time.tick_now()
+	sculpt.sculptor_cloth_step(object_sculptor(obj), offset, linalg.normalize0(down))
 	res.brush_ms += time.duration_milliseconds(time.tick_since(t1))
 	res.dabs += 1
 }

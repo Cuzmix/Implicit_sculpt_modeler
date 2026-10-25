@@ -149,6 +149,7 @@ stroke_finish :: proc(app: ^App) {
 	obj := object_by_id(app, app.stroke.object)
 	if obj == nil do return
 	sculpt.sculptor_grab_end(object_sculptor(obj))
+	sculpt.sculptor_cloth_end(object_sculptor(obj))
 	if sculpt.sculptor_stroke_end(object_sculptor(obj)) do history_record(app, obj, .Mask if app.stroke.kind == .Mask else .Stroke, BRUSH_NAMES[app.stroke.kind])
 }
 
