@@ -30,6 +30,9 @@ LEVELS_PAINT :: u32(2)
 // After them, each level's sculpt layers (files from before layers have none).
 @(private = "file")
 LEVELS_LAYERS :: u32(4)
+// After them, the base level's quads and UVs (levels_quads.odin).
+@(private = "file")
+LEVELS_QUADS :: u32(8)
 
 // Appends the levels to `out`: every level in sync with the current one, its mask, and
 // whether dynamic topology is on (a dynamic mesh is stored packed). Leave any HD window
@@ -39,7 +42,7 @@ levels_write :: proc(l: ^Levels, out: ^[dynamic]u8) {
 	levels_sync(l)
 	paged := levels_dynamic(l)
 	geom.byte_put(out, LEVELS_TAG)
-	geom.byte_put(out, LEVELS_DYNAMIC if paged else LEVELS_PAINT | LEVELS_LAYERS)
+	geom.byte_put(out, LEVELS_DYNAMIC if paged else LEVELS_PAINT | LEVELS_LAYERS | LEVELS_QUADS)
 	geom.byte_put(out, u32(len(l.levels)))
 	geom.byte_put(out, u32(l.current))
 	geom.byte_put(out, u32(l.hd.steps))
@@ -84,6 +87,17 @@ levels_write :: proc(l: ^Levels, out: ^[dynamic]u8) {
 		for g, t in s.groups.tris do saved[order[t]] = g
 	}
 	for lv, j in l.levels do write_layers(out, &lv.sculptor, canon[j], l.pool)
+	// The base level's vertices are in the file in their own order.
+	f := l.faces
+	geom.byte_put(out, u32(len(f.quads)))
+	geom.byte_put_slice(out, f.quads)
+	geom.byte_put(out, u8(f.uv.uvs != nil))
+	if f.uv.uvs != nil {
+		geom.byte_put_slice(out, f.uv.uvs)
+		geom.byte_put_slice(out, f.uv.chart)
+		geom.byte_put(out, u32(f.uv.charts))
+		geom.byte_put(out, f.uv.filled)
+	}
 }
 
 // A sculptor's layers: how many, which records (0 for none, else its index + 1), then
@@ -258,6 +272,7 @@ levels_read :: proc(l: ^Levels, r: ^geom.Byte_Reader, pool: ^jobs.Pool, node_tri
 	if flags & LEVELS_LAYERS != 0 {
 		for lv, j in l.levels do if !read_layers(r, &lv.sculptor, canon[j]) do return false
 	}
+	if flags & LEVELS_QUADS != 0 && !read_quads(r, l, file_order) do return false
 	if hd_steps > 0 && !levels_hd_set_steps(l, hd_steps) do return false
 	if paged && !levels_dyn_enable(l) do return false
 	ok = r.ok
@@ -407,4 +422,53 @@ write_mask :: proc(out: ^[dynamic]u8, mask: []u8, canon: []u32) {
 	}
 	saved := geom.byte_put_bytes(out, len(mask))
 	for k, u in mask do saved[canon[u]] = k
+}
+
+// Reads the quads and UVs levels_write put after the layers, with the base level's
+// vertices renumbered by `file_order` (file place -> vertex). False on a damaged file.
+@(private = "file")
+read_quads :: proc(r: ^geom.Byte_Reader, l: ^Levels, file_order: []u32) -> bool {
+	count := int(geom.byte_get(r, u32))
+	if !r.ok || count > (len(r.data) - r.at) / size_of([4]u32) do return false
+	if count == 0 {
+		has_uv := geom.byte_get(r, u8)
+		return r.ok && has_uv == 0
+	}
+	vertices := u32(len(file_order))
+	quads := make([][4]u32, count, l.allocator)
+	ok := false
+	defer if !ok do delete(quads, l.allocator)
+	saved := geom.byte_get_bytes(r, count * size_of([4]u32))
+	if !r.ok do return false
+	for &q, i in quads {
+		for k in 0 ..< 4 {
+			v := intrinsics.unaligned_load(cast(^u32)&saved[size_of([4]u32) * i + size_of(u32) * k])
+			if v >= vertices do return false
+			q[k] = file_order[v]
+		}
+	}
+	has_uv := geom.byte_get(r, u8)
+	if !r.ok || has_uv > 1 do return false
+	levels_set_quads(l, quads)
+	ok = true
+	if has_uv == 0 do return true
+	uv: geom.Uv_Layout
+	uv_bytes := geom.byte_get_bytes(r, count * size_of([4][2]f32))
+	chart_bytes := geom.byte_get_bytes(r, count * size_of(u32))
+	charts := int(geom.byte_get(r, u32))
+	filled := geom.byte_get(r, f32)
+	if !r.ok do return false
+	uv.uvs = make([][4][2]f32, count, l.allocator)
+	uv.chart = make([]u32, count, l.allocator)
+	for i in 0 ..< count {
+		uv.uvs[i] = intrinsics.unaligned_load(cast(^[4][2]f32)&uv_bytes[size_of([4][2]f32) * i])
+		uv.chart[i] = intrinsics.unaligned_load(cast(^u32)&chart_bytes[size_of(u32) * i])
+		if int(uv.chart[i]) >= charts {
+			geom.uv_layout_destroy(&uv, l.allocator)
+			return false
+		}
+	}
+	uv.charts, uv.filled = charts, filled
+	levels_set_uvs(l, uv)
+	return true
 }

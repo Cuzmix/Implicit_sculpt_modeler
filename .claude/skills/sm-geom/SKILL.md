@@ -1,6 +1,6 @@
 ---
 name: sm-geom
-description: The src/geom package — the structure-of-arrays geom.Mesh and its invariants (counter-clockwise outward triangles, closed manifold where subdivision needs it, every vertex used, no NaN), the icosphere and geodesic sphere fixtures, the SAH and Morton BVHs with refit, raycast and sphere queries, vertex-face CSR topology and spatial sort, chunk bounds and normal cones for culling, octahedral normals, QEM simplification that keeps borders, the LOD walk, the voxel remesh (DynaMesh), response curves (pen pressure), and geom.mesh_check for proving a mesh sound with numbers. Load for ANY task that creates, inspects, transforms or tests triangle meshes or spatial queries, e.g. "add a primitive", "why does the raycast miss", "check this mesh is closed", "speed up the BVH build", "write a geom test", "compute the volume", "the remesh leaves a hole". Requires sm-odin and sm-build; brushes, nodes and levels over the mesh are sm-sculpt; CAD-style tools are sm-cad.
+description: The src/geom package — the structure-of-arrays geom.Mesh and its invariants (counter-clockwise outward triangles, closed manifold where subdivision needs it, every vertex used, no NaN), the icosphere and geodesic sphere fixtures, the SAH and Morton BVHs with refit, raycast and sphere queries, vertex-face CSR topology and spatial sort, chunk bounds and normal cones for culling, octahedral normals, QEM simplification that keeps borders, the LOD walk, the voxel remesh (DynaMesh), quad retopology, UV unwrap and map baking, response curves (pen pressure), and geom.mesh_check for proving a mesh sound with numbers. Load for ANY task that creates, inspects, transforms or tests triangle meshes or spatial queries, e.g. "add a primitive", "why does the raycast miss", "check this mesh is closed", "speed up the BVH build", "write a geom test", "compute the volume", "the remesh leaves a hole". Requires sm-odin and sm-build; brushes, nodes and levels over the mesh are sm-sculpt; CAD-style tools are sm-cad.
 ---
 
 # Geometry
@@ -59,6 +59,16 @@ description: The src/geom package — the structure-of-arrays geom.Mesh and its 
   keeps the result closed and manifold, three rounds of tangential relaxation even it out (`:11-29`); storage grows with
   the surface, not the volume; at most `REMESH_MAX_LATTICE` (4096) per axis. Tests in `remesh_test.odin`
   (`expect_closed_manifold`, Euler characteristic 2, distance to the sphere within 0.6 of the spacing).
+- Retopology (`src/geom/retopo.odin`, README "Retopology, UVs and baking"): `Quad_Mesh{positions, quads: [][4]u32}`;
+  `mesh_retopo(source, bvh, wanted, pool)` = `mesh_decimate` to 0.45·wanted triangles → `pair_triangles` (greedy by corner
+  squareness + fold, sorted so runs match) → `cut_into_quads` (Catmull-Clark topology, middles) → `relax_onto` (tangential
+  relax + rays both ways along the normal onto the source, per-thread stacks). `quad_mesh_triangulate` gives triangles 2k,
+  2k+1 per quad; `quad_mesh_write_obj` writes quads with per-corner `vt`. `bvh_raycast_with(b, m, o, d, limit, stack)` is
+  the thread-safe raycast. UVs (`uv_unwrap.odin`): charts grown from a seed within `UV_CHART_DEGREES` of its normal,
+  planar projection (no flips), min-area turn, shelf packing at the largest common scale; `Uv_Layout{uvs per quad corner,
+  chart, charts, filled}`. Baking (`bake.odin`): `bake_maps(low, uvs, source, bvh, size, reach, pool)` rasterizes owners
+  serially, rays in parallel by rows, tangents per (vertex, chart), `BAKE_DILATE` rings; `bake_displacement_samples` for
+  16-bit PNG (`png_write.encode_gray16`). Tests in `retopo_test.odin`.
 
 ## Invariants every geom proc keeps
 | Invariant | Who relies on it | How to check |
