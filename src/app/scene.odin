@@ -51,7 +51,7 @@ to_world_dir :: proc(t: Transform, d: Vec3) -> Vec3 {return transform_rotation(t
 // top level (see object_hd_enter).
 Object :: struct {
 	id:        int, // never reused
-	name:      string, // the file an imported object came from; "" for a sphere (owned)
+	name:      string, // the file an imported object came from, or the shape it started as; "" for a sphere (owned)
 	transform: Transform,
 	// Where the object's own space sits in the file it was imported from (or is
 	// exported to): imports are moved and scaled to the size the app works at, and
@@ -96,6 +96,7 @@ Scene :: struct {
 Scene_Command :: struct {
 	kind:     enum u8 {None, Add, Remesh, Delete, Duplicate, Symmetrize, Subdivide, Set_Level, Delete_Higher, Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete, Dyntopo},
 	vertices: int,
+	shape:    geom.Primitive, // Add: what to add
 	on:       bool, // Dyntopo: turn dynamic topology on, or off; Symmetrize: keep the + side
 	axis:     int, // Symmetrize: 0 x, 1 y, 2 z
 	level:    int, // Set_Level; HD steps for Hd_Steps
@@ -129,9 +130,29 @@ scene_add_sphere :: proc(app: ^App, vertices, subdiv: int, t: Transform) -> bool
 	return true
 }
 
+// Adds a cube, cylinder, cone or torus (geom.primitive) of about `vertices` vertices,
+// named after its shape, and selects it.
+scene_add_primitive :: proc(app: ^App, shape: geom.Primitive, vertices: int, t: Transform) -> bool {
+	if shape == .Sphere do return scene_add_sphere(app, vertices, 0, t)
+	start := time.tick_now()
+	mesh, ok := geom.primitive(shape, vertices, &app.pool)
+	if !ok {
+		log.warnf("could not build a %v of %d vertices", shape, vertices)
+		return true
+	}
+	// Not in temp memory, which building the object frees.
+	name := fmt.aprintf("%v %d", shape, app.scene.next_id + 1)
+	defer delete(name)
+	if !scene_add_mesh(app, mesh, name, {scale = 1}, t, start) do return false
+	obj := selected_object(app)
+	log.infof("%s: %d vertices, %d triangles", object_label(obj), object_vertex_count(obj), object_triangle_count(obj))
+	return true
+}
+
 // Adds a mesh with zero normals (an import) as a new object named `name` (copied),
-// whose own space sits at `file` in its file, and selects it. `start` is when making
-// the mesh began, for the log. Returns false on a GPU failure.
+// whose own space sits at `file` in its file, and selects it. `name` must not be in
+// temp memory, which building frees. `start` is when making the mesh began, for the
+// log. Returns false on a GPU failure.
 scene_add_mesh :: proc(app: ^App, mesh: geom.Mesh, name: string, file, t: Transform, start: time.Tick) -> bool {
 	obj := new(Object)
 	obj.transform, obj.file = t, file
@@ -317,8 +338,9 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 	switch cmd.kind {
 	case .None:
 	case .Add:
-		if !scene_add_sphere(app, cmd.vertices, 0, {position = next_free_position(app), scale = 1}) do return false
-		history_record_added(app)
+		before := len(app.scene.objects)
+		if !scene_add_primitive(app, cmd.shape, cmd.vertices, {position = next_free_position(app), scale = 1}) do return false
+		if len(app.scene.objects) > before do history_record_added(app)
 	case .Remesh:
 		if obj := selected_object(app); obj != nil {
 			before := history_snapshot(app, obj, "remesh")

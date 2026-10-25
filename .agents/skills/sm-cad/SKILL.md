@@ -6,7 +6,9 @@ description: CAD-style mesh tools inside this app on geom.Mesh — primitives, b
 # CAD-style tools
 
 ## What exists today (so nothing is assumed)
-- New objects are spheres (`object_build`, `src/app/scene.odin:447`) or meshes from a file (`scene_add_mesh`), and any
+- New objects are spheres (`object_build`), the other `geom.Primitive` shapes (cube and torus as grids, cylinder and cone as
+  `geom.lathe` outlines voxel remeshed; `geom.primitive`, `src/geom/primitives.odin`, added by `scene_add_primitive`, the
+  Scene panel's shape combo and `--shape`) or meshes from a file (`scene_add_mesh`), and any
   mesh can become an object through `object_build_from(app, obj, mesh, start)` (`:462`).
 - Files (`src/app/files.odin`, README "Files"): OBJ and PLY in and out (`geom.mesh_read_obj`, `mesh_read_ply`,
   `mesh_write_obj`, `mesh_write_ply`, `src/geom/mesh_file.odin`), an import cleanup (`mesh_clean`, `mesh_normalize`,
@@ -27,7 +29,7 @@ description: CAD-style mesh tools inside this app on geom.Mesh — primitives, b
   (`.Duplicate` → `scene_duplicate`, Ctrl+Shift+D) copies an object through `object_put`/`object_get`.
 - Dynamic topology (sm-sculpt) splits and collapses edges under the brush; a tool reading a dynamic object's mesh takes
   `sculpt.sculptor_compact_mesh` first, as `object_remesh` does, since the paged layout has unused slots.
-- There are no booleans, trims or primitives besides spheres, `Transform` is position, uniform scale and Euler rotation in degrees (`transform_rotation`,
+- There are no booleans or trims, `Transform` is position, uniform scale and Euler rotation in degrees (`transform_rotation`,
   `to_local`/`to_local_dir`; `Draw_Item.model` must stay a similarity, `src/render/renderer.odin:115-119`), no measurement or snapping. Undo
   stores positions or masks per node, or whole nodes under dynamic topology (`src/sculpt/undo.odin:9-15`); a whole-object
   rebuild (remesh, mirror and weld, dyntopo toggle, level deletion, add/delete/duplicate) is a swap entry in the app's
