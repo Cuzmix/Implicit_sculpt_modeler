@@ -107,6 +107,11 @@ Options :: struct {
 	import_mesh: string `args:"name=import" usage:"Start with the mesh in this .obj or .ply file instead of spheres (after any --open), as File > Import mesh does."`,
 	export:    string `usage:"On exit, write the selected object's shown level to this .obj or .ply file, as File > Export selected does."`,
 	save:      string `usage:"On exit, save the scene to this .sculpt file, as File > Save scene does."`,
+	load_strokes: string `usage:"Load the strokes in this .strokes file and replay them where they were drawn, as the Stroke recorder's Load and Replay do: once --bench-stroke ends, or at the start; the run lasts until they are done."`,
+	replay_shift: string `usage:"Replay --load-strokes moved this many pixels right and down from where they were drawn, in the current view, as R at the pointer does, e.g. 120,-40."`,
+	instant_replay: bool `usage:"Replay every recorded frame at once instead of one a frame, as the Stroke recorder's Instant does."`,
+	record_strokes: bool `usage:"Record every stroke from the start, as the Stroke recorder's Record does (for --save-strokes)."`,
+	save_strokes: string `usage:"On exit, save the recorded strokes (or else the last stroke) to this .strokes file, as the Stroke recorder's Save strokes does."`,
 }
 
 // Everything the app owns. ImGui only ever sees copies or pointers handed to it per frame.
@@ -143,6 +148,7 @@ App :: struct {
 	stats:    Frame_Stats,
 	history:  History,
 	timeline: Timeline, // the History panel's scrubbing, playback and time-lapse (timeline.odin)
+	replay:   Replay, // the Stroke recorder's last stroke, recording and replay (replay.odin)
 	// View > Studio render (Shift+R): ambient occlusion and soft shadows built up while
 	// the view stays still (render.Studio).
 	studio:         render.Studio,
@@ -171,6 +177,11 @@ App :: struct {
 	file_note:  File_Note,
 	running:  bool,
 }
+
+// The first frame --load-strokes may replay on: ImGui lays the docked panels out over
+// the first few frames, and until then the viewport panel is not its real size, which
+// replaying at the pointer would take as the view.
+LOAD_STROKES_FRAME :: 3
 
 main :: proc() {
 	context.logger = log.create_console_logger(.Info when !ODIN_DEBUG else .Debug)
@@ -244,6 +255,10 @@ run :: proc(opts: Options) -> bool {
 	defer history_destroy(&app.history)
 	timeline_init(&app.timeline)
 	defer timeline_destroy(&app.timeline)
+	replay_init(&app.replay)
+	defer replay_destroy(&app.replay)
+	app.replay.instant = opts.instant_replay
+	app.replay.recording = opts.record_strokes
 	defer delete(app.samples)
 	defer delete(app.stroke.pending)
 	defer mask_shape_destroy(&app.mask_shape)
@@ -616,6 +631,26 @@ run :: proc(opts: Options) -> bool {
 			app.timeline.lapse.spin = opts.timelapse_spin
 			timelapse_start(&app, opts.timelapse)
 		}
+		if opts.load_strokes != "" && frame_index == max(opts.bench_stroke, LOAD_STROKES_FRAME) {
+			if !strokes_load(&app, opts.load_strokes) do return false
+			if opts.replay_shift != "" {
+				shift: [2]f32
+				parts := strings.split(opts.replay_shift, ",", context.temp_allocator)
+				ok := len(parts) == 2
+				for part, i in parts {
+					if i >= 2 do break
+					v, parsed := strconv.parse_f32(strings.trim_space(part))
+					shift[i], ok = v, ok && parsed
+				}
+				if !ok {
+					log.errorf("--replay-shift wants two pixel counts, like 120,-40")
+					return false
+				}
+				replay_start(&app, &app.replay.take, true, take_start(&app.replay.take) + shift)
+			} else {
+				replay_start(&app, &app.replay.take)
+			}
+		}
 		timeline_frame(&app)
 		// Changing the present mode recreates the swapchain, so it happens before this
 		// frame acquires a swapchain texture.
@@ -717,10 +752,16 @@ run :: proc(opts: Options) -> bool {
 		case .Brush:
 			if clip_frame(&app, input) || mask_shape_frame(&app, input) {
 				stroke_finish(&app)
+			} else if replay_busy(&app) {
+				// A replay sculpts in place of the pointer.
+				sculpted = replay_frame(&app, input)
 			} else {
+				replay_frame_begin(&app)
 				sculpted = sculpt_frame(&app, input)
+				replay_record(&app, input, sculpted)
 			}
 		case .Move:
+			replay_stop(&app)
 			stroke_finish(&app)
 			move_tool_frame(&app, input)
 		case .Curve:
@@ -900,7 +941,9 @@ run :: proc(opts: Options) -> bool {
 		frame_index += 1
 		if (opts.frames > 0 && frame_index >= opts.frames) || (opts.bench_stroke > 0 && frame_index >= opts.bench_stroke) {
 			// A --timelapse run goes on until the recording is done.
-			if opts.timelapse == "" || (frame_index > opts.bench_stroke && !timeline_busy(&app)) do app.running = false
+			// So does one replaying --load-strokes, which starts the frame after.
+			replaying := replay_busy(&app) || (opts.load_strokes != "" && frame_index <= max(opts.bench_stroke, LOAD_STROKES_FRAME))
+			if (opts.timelapse == "" || (frame_index > opts.bench_stroke && !timeline_busy(&app))) && !replaying do app.running = false
 		}
 		if opts.gpubench != "" && gpubench_end_frame(&app, &bench, time.duration_milliseconds(gpu_wait), time.duration_milliseconds(cpu_time), sculpted.dabs) {
 			app.running = false
@@ -925,6 +968,7 @@ run :: proc(opts: Options) -> bool {
 		if obj == nil || !object_export(&app, obj, opts.export) do return false
 	}
 	if opts.save != "" && !scene_save(&app, opts.save) do return false
+	if opts.save_strokes != "" && !strokes_save(&app, opts.save_strokes) do return false
 
 	print_stat :: proc(name: string, r: Sample_Ring) {
 		p50, p99 := ring_percentiles(r)

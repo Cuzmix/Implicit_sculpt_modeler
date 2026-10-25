@@ -558,6 +558,7 @@ draw_tools_panel :: proc(app: ^App) {
 	draw_morph_section(app)
 	draw_paint_section(app)
 	draw_layers_section(app)
+	draw_replay_section(app)
 
 	imgui.SeparatorText("Mask")
 	imgui.BeginDisabled(selected_object(app) == nil)
@@ -1118,8 +1119,11 @@ handle_shortcuts :: proc(app: ^App) {
 			focus_selected(app)
 		}
 	}
-	// Shift+R, as ZBrush's BPR render, switches the studio render.
+	// Shift+R, as ZBrush's BPR render, switches the studio render; R alone replays the
+	// recorded strokes (or else the last stroke) at the pointer, and Escape stops it.
 	if imgui.IsKeyPressed(.R, false) && io.KeyShift && !io.KeyCtrl do studio_toggle(app)
+	if imgui.IsKeyPressed(.R, false) && !io.KeyShift && !io.KeyCtrl && !io.KeyAlt && app.tool == .Brush do replay_shortcut(app)
+	if imgui.IsKeyPressed(.Escape, false) do replay_stop(app)
 	// Shift+G shows the triangles as flat facets, beside Shift+F's wireframe.
 	if imgui.IsKeyPressed(.G, false) && io.KeyShift && !io.KeyCtrl do app.flat = !app.flat
 	// Delete removes the selected object; Ctrl+Z brings it back.
