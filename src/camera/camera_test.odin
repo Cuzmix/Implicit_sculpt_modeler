@@ -130,6 +130,61 @@ free_rotation_turns_about_the_screens_axes :: proc(t: ^testing.T) {
 }
 
 @(test)
+turning_about_a_pivot_keeps_it_on_screen :: proc(t: ^testing.T) {
+	// A point off the middle of the screen and nearer than the target, as the last stroke
+	// on the near side of a model is.
+	for style in Orbit_Style {
+		for ortho in ([2]bool{false, true}) {
+			for delta in ([4]Vec2{{12, 0}, {-12, 0}, {0, 9}, {7, -11}}) {
+				c := orbit_default()
+				c.ortho = ortho
+				right, up, back := orbit_basis(c)
+				pivot := c.target + right * 0.6 - up * 0.3 + back * 0.8
+				want := project(orbit_proj(c, 1.5) * orbit_view(c), pivot)
+				s := Orbit_Settings{style = style, speed = ORBIT_SPEED}
+				// A turn and a half or so, both ways round, over the top in Free.
+				for _ in 0 ..< 600 {
+					before := c
+					orbit_rotate(&c, delta, s)
+					orbit_turn_about(&c, before, pivot)
+				}
+				got := project(orbit_proj(c, 1.5) * orbit_view(c), pivot)
+				testing.expectf(t, near_eq(got.x, want.x, 1e-3) && near_eq(got.y, want.y, 1e-3) && near_eq(got.z, want.z, 1e-3), "%v ortho=%v %v: the pivot moved on screen from %v to %v", style, ortho, delta, want, got)
+				testing.expect(t, near_eq(c.distance, orbit_default().distance), "turning about a pivot changed the distance")
+				testing.expect(t, c.target != orbit_default().target, "the target did not move")
+			}
+		}
+	}
+}
+
+@(test)
+turning_about_the_target_moves_nothing_else :: proc(t: ^testing.T) {
+	c := orbit_default()
+	c.target = {1, 2, 3}
+	plain := c
+	before := c
+	orbit_rotate(&c, {40, -25}, ORBIT_DEFAULT)
+	orbit_turn_about(&c, before, before.target)
+	orbit_rotate(&plain, {40, -25}, ORBIT_DEFAULT)
+	testing.expect(t, c == plain, "turning about the target is not plain orbit_rotate")
+}
+
+@(test)
+snapping_about_a_pivot_keeps_it_on_screen :: proc(t: ^testing.T) {
+	c := orbit_default()
+	c.yaw, c.pitch, c.roll = 0.2, 0.3, -0.25
+	pivot := Vec3{0.4, -0.2, 0.7}
+	want := project(orbit_proj(c, 1) * orbit_view(c), pivot)
+	before := c
+	orbit_snap(&c)
+	orbit_turn_about(&c, before, pivot)
+	got := project(orbit_proj(c, 1) * orbit_view(c), pivot)
+	testing.expectf(t, near_eq(got.x, want.x) && near_eq(got.y, want.y), "the pivot moved on screen from %v to %v", want, got)
+	_, _, back := orbit_basis(c)
+	testing.expect(t, near_eq(back.z, 1), "did not snap to the front view")
+}
+
+@(test)
 snap_turns_to_the_nearest_square_view :: proc(t: ^testing.T) {
 	c := orbit_default()
 	c.yaw, c.pitch, c.roll = 0.2, 0.3, -0.25

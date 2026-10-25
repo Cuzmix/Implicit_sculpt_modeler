@@ -112,7 +112,8 @@ Viewport_Input :: struct {
 	wheel:       f32,
 	hovered:     bool,
 	dragging:    bool, // a drag that started in the viewport, even if the cursor has left it
-	orbit_drag:  bool, // the drag turns the view (navigate.odin says which drags do)
+	orbit_drag:  bool, // the drag turns the view (navigate.odin says which drags do)...
+	orbit_pivot: Vec3, // ...about this point, which stays put on screen
 	pan_drag:    bool, // ...or pans it
 	primary:     bool, // left mouse without Alt: drives the active tool
 	press:       bool, // the left button went down in the viewport this frame
@@ -209,6 +210,7 @@ reset_camera :: proc(app: ^App) {
 	ortho := app.camera.ortho
 	app.camera = camera.orbit_default()
 	app.camera.ortho = ortho
+	app.pivot.set = false
 }
 
 PRESSURE_PRESETS := [?]struct {

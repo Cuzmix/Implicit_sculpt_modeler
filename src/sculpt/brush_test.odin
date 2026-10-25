@@ -20,6 +20,30 @@ raycast_hits_front_of_sphere :: proc(t: ^testing.T) {
 }
 
 @(test)
+area_normal_faces_out_of_a_sphere_and_ignores_its_far_side :: proc(t: ^testing.T) {
+	// 40962 vertices: more than AREA_NORMAL_MAX_VERTS, so the widest brush samples them.
+	m := geom.icosphere(6)
+	defer geom.mesh_destroy(&m)
+	s: Sculptor
+	sculptor_init(&s, &m, nil, 64)
+	defer sculptor_destroy(&s)
+	_ = sculptor_flush(&s)
+	for dir in ([3]Vec3{{0, 0, 1}, {0.6, 0.8, 0}, linalg.normalize(Vec3{-1, 2, -3})}) {
+		n, ok := sculptor_area_normal(&s, dir, 0.3, dir)
+		testing.expectf(t, ok && linalg.dot(n, dir) > 0.999, "%v: area normal %v", dir, n)
+		// A radius wider than the sphere reaches its far side, which faces away and is left out.
+		wide, wide_ok := sculptor_area_normal(&s, dir, 3, dir)
+		testing.expectf(t, wide_ok && linalg.dot(wide, dir) > 0.99, "%v: the far side tipped it to %v", dir, wide)
+	}
+	// Past AREA_NORMAL_MAX_VERTS it takes every k-th vertex and is still the same each time.
+	a, _ := sculptor_area_normal(&s, {0, 0, 1}, 3, {0, 0, 1})
+	b, _ := sculptor_area_normal(&s, {0, 0, 1}, 3, {0, 0, 1})
+	testing.expect(t, a == b, "the area normal changed between two calls")
+	_, missed := sculptor_area_normal(&s, {0, 0, 5}, 0.3, {0, 0, 1})
+	testing.expect(t, !missed, "a brush off the mesh has no area normal")
+}
+
+@(test)
 draw_dab_raises_only_inside_radius :: proc(t: ^testing.T) {
 	m := geom.icosphere(4)
 	defer geom.mesh_destroy(&m)

@@ -26,6 +26,9 @@ Options :: struct {
 	no_settings: bool `usage:"Neither read nor write the remembered settings (brush, view, Scene tab choices, the Settings panel); runs with --frames or a benchmark never do."`,
 	settings_file: string `usage:"Read and write the remembered settings at this path instead of the per-user folder, scripted runs included (for testing that settings persist)."`,
 	orbit_style: string `usage:"Start with this orbit style: free (ZBrush's Rot XYZ) or turntable (Rot Y), as Settings > Camera does."`,
+	orbit_pivot: string `usage:"Start turning the view about this, as Settings > Camera > Turn about does: stroke (the middle of the last stroke, the default), pointer (the surface under the press) or centre (the middle of the view)."`,
+	flat_ring: bool `usage:"Start with the brush ring flat on the screen instead of lying on the surface, as Settings > Interface > Lay the brush ring on the surface off does (for comparison)."`,
+	no_edge_orbit: bool `usage:"Start with the safe zone off, as Settings > Camera > Edges always turn the view does: a press near an edge over the model goes to the tool."`,
 	gpu_debug: bool `usage:"Create the GPU device in debug mode (enables validation where available)."`,
 	subdiv:    int `usage:"Icosphere subdivision level (default 6)."`,
 	vertices:  int `usage:"Start with a geodesic sphere of about this many vertices instead (e.g. 10000000)."`,
@@ -148,6 +151,8 @@ App :: struct {
 	pen_seen: bool,
 	touch:    Touch, // fingers and the pen on a touch screen (touch.odin)
 	drag:     Drag, // who the press on the viewport belongs to (navigate.odin)
+	pivot:    Stroke_Pivot, // the last stroke's middle, which orbits turn about (navigate.odin)
+	cursor:   Brush_Cursor, // the surface under the brush ring this frame (cursor.odin)
 	settings_file: string, // where the settings are remembered, "" when this run does not
 	nav:      Nav_Prefs, // how the pointer, fingers and pen navigate (Settings)
 	device:   Device, // this frame's keys and pointer (device.odin)
@@ -445,6 +450,17 @@ run :: proc(opts: Options) -> bool {
 		log.errorf("--orbit-style is free or turntable, not %q", opts.orbit_style)
 		return false
 	}
+	switch opts.orbit_pivot {
+	case "":
+	case "stroke":  app.nav.pivot = .Stroke
+	case "pointer": app.nav.pivot = .Pointer
+	case "centre":  app.nav.pivot = .Centre
+	case:
+		log.errorf("--orbit-pivot is stroke, pointer or centre, not %q", opts.orbit_pivot)
+		return false
+	}
+	if opts.no_edge_orbit do app.nav.edge_orbit = false
+	if opts.flat_ring do app.kit.surface_ring = false
 	if opts.no_vsync do app.vsync = false
 	app.ui.smooth_on_gpu = opts.gpu_smooth
 	if opts.smooth_all > 0 do smooth_command(&app, opts.smooth_all)
@@ -784,6 +800,7 @@ run :: proc(opts: Options) -> bool {
 			stroke_finish(&app)
 			if !insert_tool_frame(&app, input) do return false
 		}
+		cursor_update(&app, input)
 		draw_viewport_overlay(&app, input)
 
 		// The 3D viewport goes in its own command buffer, submitted ahead of the one that
@@ -1013,8 +1030,20 @@ run :: proc(opts: Options) -> bool {
 	{
 		c := app.camera
 		fmt.printfln("camera_yaw=%.4f camera_pitch=%.4f camera_roll=%.4f camera_distance=%.4f camera_target=%.4f,%.4f,%.4f", c.yaw, c.pitch, c.roll, c.distance, c.target.x, c.target.y, c.target.z)
+		p := app.pivot.used
+		fmt.printfln("orbit_pivot=%.4f,%.4f,%.4f pivot_source=%s", p.x, p.y, p.z, strings.to_lower(fmt.tprint(app.pivot.from), context.temp_allocator))
 		fmt.printfln("undo_steps=%d redo_steps=%d brush_radius_px=%.2f brush_strength=%.3f selected=%d", len(app.history.done), len(app.history.undone), app.brush.radius_px, brush_strength(&app)^, app.scene.selected)
 		fmt.printfln("inspector_scroll=%.1f settings_scroll=%.1f settings_open=%d", app.kit.scroll, app.kit.settings_scroll, int(app.kit.settings))
+		n := app.cursor.normal
+		fmt.printfln("cursor_hit=%d cursor_normal=%.4f,%.4f,%.4f", int(app.cursor.ok), n.x, n.y, n.z)
+		k := &app.kit
+		open := [Kit_Window]bool{.Inspector = k.inspector && !k.settings, .Stats = k.stats, .History = k.history, .Settings = k.settings}
+		names := [Kit_Window]string{.Inspector = "inspector", .Stats = "stats", .History = "history panel", .Settings = "settings"}
+		for w, which in k.windows {
+			r := ui.prev_rect(&k.ctx, names[which])
+			fmt.printf("window_%s=%d,%d,%.0f,%.0f ", strings.to_lower(fmt.tprint(which), context.temp_allocator), int(open[which]), int(w.minimized), r.x, r.y)
+		}
+		fmt.println()
 	}
 	if opts.check_mesh {
 		for obj in app.scene.objects {
@@ -1060,6 +1089,7 @@ run :: proc(opts: Options) -> bool {
 		print_stat("ui_ms", app.stats.ui_ms)
 		fmt.printfln("ui_vertices=%d", app.stats.ui_vertices)
 	}
+	if app.stats.cursor_ms.count > 0 do print_stat("cursor_ms", app.stats.cursor_ms)
 	if app.stats.dabs_total > 0 {
 		print_stat("raycast_ms", app.stats.raycast_ms)
 		print_stat("brush_ms", app.stats.brush_ms)

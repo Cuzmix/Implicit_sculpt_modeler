@@ -35,7 +35,7 @@ as a user would, with each kind of pointer, then say exactly how it was tested.
 | `src/app/touch.odin` | `touch_event` (first finger drives the pointer with `jump = true`), `touch_route` (one owner per touch, gestures, taps, palm, cancel) |
 | `src/app/navigate.odin` | `pointer_route` / `drag_decide` (one owner per drag: Tool, Orbit, Pan, Zoom, Muted), the slop, `FINGER_HOLD`, `camera_apply_input`, `Nav_Prefs` |
 | `src/ui/ui.odin` | `interact` (tentative presses in `drag_scroll` areas), `claim_drag`, `scroll_update`, `scroll_take`, `hit_extend`; `src/ui/fingers.odin` |
-| `src/camera/camera.odin` | `orbit_rotate` (Free, Turntable), `orbit_roll`, `orbit_snap`, `orbit_zoom_toward` |
+| `src/camera/camera.odin` | `orbit_rotate` (Free, Turntable), `orbit_turn_about` (the pivot stays put), `orbit_roll`, `orbit_snap`, `orbit_zoom_toward` |
 | `src/app/kit_settings.odin`, `settings.odin` | every touch and camera preference, its default, reset and saved key |
 
 Red flags while reading: a camera or tool path reachable from a press the interface took; a delta taken from SDL's
@@ -62,6 +62,10 @@ on window focus or hover to decide ownership; a widget that acts on a finger pre
 | sculpts on the model with a finger, the pen, the mouse | `finger_sculpts_model`, `palm_while_pen_near`, `pen_stroke_with_hand_resting`, `mouse_controls`, `mouse_click_within_one_frame` |
 | navigates on empty space as the settings say | `finger_orbits_empty_space`, `pen_on_empty_space_orbits`, `finger_orbits_setting`, `changed_touch_setting_takes_effect` |
 | orbits through several full turns both ways and over the top | `orbit_full_turns_free`, `orbit_full_turns_turntable` |
+| orbits after sculpting off the middle: the stroke stays put on screen; or about the centre when set so | `orbit_turns_about_the_last_stroke`, `orbit_about_the_centre_setting` |
+| zoomed in until the model fills the screen, turns the view from the edges (the safe zone), or sculpts there with it off | `edge_orbits_over_the_model`, `edge_off_sculpts` |
+| hovers the brush over the model: the ring lies on the surface; off the model it is flat | `ring_lies_on_the_surface`, `ring_off_the_model_is_flat` |
+| folds, opens, closes, reopens and drags the panel windows, and finds them where they were after a restart | `window_minimise_folds_to_the_title_bar`, `window_tap_on_folded_title_opens_it`, `window_close_and_reopen`, `window_drag_by_title_is_remembered`, `window_position_comes_back` |
 | pinches, pans and twists with two fingers | `pinch_zoom`, `two_finger_pan`, `twist_rolls_free_only`, `twist_wobble_rolls_nothing`, `twist_rolls_nothing_in_turntable` |
 | lands several fingers at once or one after another | `second_finger_on_model_sculpts_nothing`, `second_finger_soon_after_sculpts_nothing`, `three_finger_size` |
 | taps two or three fingers to undo and redo, on the viewport and on a panel | `tap_history`, `two_finger_tap_on_panel_does_nothing` |
@@ -71,7 +75,7 @@ on window focus or hover to decide ownership; a widget that acts on a finger pre
 | uses another window size | `small_window` (1280 x 800) |
 
 Repeat the critical ones (taps, first-touch scroll, full turns, pinch) after any change to camera or touch settings,
-with the setting changed (`--orbit-style=turntable`, `--finger-orbits`, or through the Settings panel as
+with the setting changed (`--orbit-style=turntable`, `--finger-orbits`, `--orbit-pivot=centre`, `--no-edge-orbit`, or through the Settings panel as
 `changed_touch_setting_takes_effect` does). Live window resizing, rotation and split screen cannot be scripted: they
 are on the device checklist.
 
@@ -82,8 +86,10 @@ are on the device checklist.
   makes one whose first move only crosses the slop, so the rest counts in full.
 - Checks are functions of the exit stats (`camera_yaw`, `camera_pitch`, `camera_roll`, `camera_distance`,
   `camera_target`, `dabs`, `undo_steps`, `redo_steps`, `brush_radius_px`, `brush_strength`, `inspector_scroll`,
-  `settings_scroll`, `settings_open`, ...); `camera_still()` checks nothing moved; keys starting with `@` are checks
-  on files, such as `saved(key="value")` on the settings file. A value the scenario needs that the app does not print
+  `settings_scroll`, `settings_open`, `orbit_pivot`, `pivot_source`, `cursor_hit`, `cursor_normal`, `window_<name>`,
+  ...); `camera_still()` checks nothing moved; keys starting with `@` are checks given every stat at once or checks on
+  files, such as `saved(key="value")` and `saved_line(line)` on the settings file, or `on_screen` comparing where a
+  point shows before and after an orbit. A value the scenario needs that the app does not print
   is a new key in the exit stats (`main.odin`), not a guess from a screenshot.
 - Find positions by looking: `--dump-screen=build/x.png` (or `--screens`) with the events that open the panel, then
   read the PNG. Positions are window points at 1600 x 900 unless the scenario sets `--width`/`--height`.

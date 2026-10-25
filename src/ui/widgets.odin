@@ -44,6 +44,8 @@ ICON_FILM :: rune(0xe0d4)
 ICON_STOP :: rune(0xe087) // circle-stop
 ICON_RECORD :: rune(0xe349) // circle-dot
 ICON_EYE_OFF :: rune(0xe0bf)
+ICON_MINIMISE :: rune(0xe120) // minus, as a desktop window's minimise button
+ICON_RESTORE :: rune(0xe117) // maximize-2: open a folded window again
 
 // Every pressable control shares this: the wash under the pointer fades in, deepens
 // while held, and the control dips to 97% while held. Returns the scale to draw at.
@@ -584,11 +586,14 @@ select_list_draw :: proc(ctx: ^Context) {
 	if !open && ctx.select_open == id do ctx.select_open = 0
 }
 
+// A brush tile's cell, in points: wider than a touch target for the name under the icon.
+BRUSH_TILE :: [2]f32{64, 58}
+
 // A brush in the dock or the browser: its icon over its name. The chosen one sits on the
 // accent, which slides from tile to tile. Returns true when clicked.
 brush_tile :: proc(ctx: ^Context, s: string, glyph: rune, selected: bool, keys := "") -> bool {
 	t := ctx.theme
-	cell := place(ctx, {64, 58})
+	cell := place(ctx, BRUSH_TILE)
 	vis := centered(cell, {60, 54})
 	id := id_of(ctx, s)
 	hovered, held, clicked, _ := interact(ctx, id, cell)

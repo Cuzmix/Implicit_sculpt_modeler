@@ -9,26 +9,35 @@ import "../ui"
 // smoothly the app runs in plain words, grouped as performance, mesh and memory; Advanced,
 // it shows every measurement by the name the app prints on exit (`ui_ms` and so on) with
 // its p50 and p99, the drawing switches for comparing speed, and what the brush costs.
-// Every number is one the app measured: nothing is estimated. It floats at the top left,
-// clear of the size and strength sliders, and fades in and out.
-kit_stats :: proc(app: ^App) {
+// Every number is one the app measured: nothing is estimated. It is a window that starts
+// at the top left, clear of the size and strength sliders, and fades in and out. Returns
+// true when a press landed on it, to bring it to the front.
+kit_stats :: proc(app: ^App) -> (raised: bool) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
 	shown := ui.presence(ctx, ui.id_of(ctx, "stats"), k.stats, t.panel_time)
 	if shown <= 0 do return
 	s := &app.stats
+	win := &k.windows[.Stats]
 	sliders, _ := ui.prev_layout(ctx, "sliders")
 	mark := ui.vertex_mark(ctx)
-	ui.begin_anchored(ctx, "stats", .Start, .Start, {t.edge + sliders.x + 8, t.edge + t.target + 8}, {direction = .Column, gap = 2, padding = 12, width = KIT_STATS_W, radius = t.radius_large, background = .Panel, inert = !k.stats})
-	ui.caption(ctx, "STATISTICS")
+	body, closed, raised_now := ui.window_begin(ctx, "stats", "Statistics", win, .Start, .Start, {t.edge + sliders.x + 8, t.edge + t.target + 8}, {direction = .Column, gap = 2, padding = 12, width = KIT_STATS_W, radius = t.radius_large, background = .Panel, inert = !k.stats}, "F11")
+	raised = raised_now
+	if closed do k.stats = false
+	slide := window_slide(win^, .Start) * (1 - shown) * 16
+	if !body {
+		ui.window_end(ctx)
+		ui.transform_since(ctx, mark, shown, 1, {}, {slide, 0})
+		return
+	}
 	detail := [2]string{"Simple", "Advanced"}
 	if picked := ui.tabs(ctx, "detail", detail[:], int(k.stats_advanced)); picked >= 0 do k.stats_advanced = picked == 1
 	ui.spacer(ctx, 4)
 	if !k.stats_advanced {
 		kit_stats_simple(app)
-		ui.end(ctx)
-		ui.transform_since(ctx, mark, shown, 1, {}, {-(1 - shown) * 16, 0})
+		ui.window_end(ctx)
+		ui.transform_since(ctx, mark, shown, 1, {}, {slide, 0})
 		return
 	}
 	ring :: proc(ctx: ^ui.Context, label: string, r: Sample_Ring, unit: string) {
@@ -47,6 +56,7 @@ kit_stats :: proc(app: ^App) {
 		ring(ctx, "Display wait  wait_ms", s.wait_ms, "ms")
 		ring(ctx, "Interface  ui_ms", s.ui_ms, "ms")
 		ui.value_row(ctx, "Interface vertices  ui_vertices", fmt.tprintf("%d", s.ui_vertices))
+		ring(ctx, "Brush ring  cursor_ms", s.cursor_ms, "ms")
 		ui.plot(ctx, s.frame_ms.values[:], s.frame_ms.head, 0, 33.3, 64, "frame ms")
 		ui.section_end(ctx)
 	}
@@ -106,8 +116,9 @@ kit_stats :: proc(app: ^App) {
 		ui.section_end(ctx)
 	}
 	kit_stats_help(app)
-	ui.end(ctx)
-	ui.transform_since(ctx, mark, shown, 1, {}, {-(1 - shown) * 16, 0})
+	ui.window_end(ctx)
+	ui.transform_since(ctx, mark, shown, 1, {}, {slide, 0})
+	return
 }
 
 // The Stats panel's width: room for a label and its p50 and p99 side by side.

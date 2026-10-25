@@ -865,3 +865,146 @@ fingers_past_the_most_are_ignored :: proc(t: ^testing.T) {
 	testing.expect_value(t, f.count, 0)
 	testing.expect(t, fingers_down(&f, 5, {0, 0}, 1))
 }
+
+// One frame of a window 300 points wide, 20 points in from the top right of an 800 by
+// 600 window (`size` for another), with a button in its body. Returns what was done and
+// where the window ended up.
+@(private = "file")
+one_window :: proc(ctx: ^Context, input: Input, w: ^Window, size := [2]f32{800, 600}) -> (closed, raised, inside: bool, rect: Rect) {
+	input := input
+	input.window = size
+	frame_begin(ctx, input)
+	body: bool
+	body, closed, raised = window_begin(ctx, "win", "Window", w, .End, .Start, {20, 20}, {direction = .Column, padding = 10, width = 300, background = .Panel})
+	if body do inside = icon_button(ctx, "inside", ICON_UNDO)
+	window_end(ctx)
+	frame_end(ctx)
+	rect = ctx.placed[len(ctx.placed) - 1].rect
+	return
+}
+
+// Where to hold a window's title bar: over its title, clear of its buttons.
+@(private = "file")
+title_of :: proc(r: Rect) -> [2]f32 {
+	return {r.x + 60, r.y + 10 + 24}
+}
+
+@(test)
+a_window_dragged_by_its_title_keeps_to_the_nearer_edges :: proc(t: ^testing.T) {
+	ctx: Context
+	init(&ctx)
+	defer destroy(&ctx)
+	w: Window
+	_, _, _, r := one_window(&ctx, input_at({-1, -1}), &w)
+	_, _, _, r = one_window(&ctx, input_at({-1, -1}), &w)
+	testing.expect_value(t, r.x, 800 - 20 - 300)
+	testing.expect_value(t, r.y, 20)
+
+	// Down and to the left, past the slop, then on: the window follows the pointer exactly.
+	at := title_of(r)
+	one_window(&ctx, input_at(at, down = {.Left}, pressed = {.Left}), &w)
+	one_window(&ctx, input_at(at + {-20, 20}, down = {.Left}), &w)
+	_, _, _, moved := one_window(&ctx, input_at(at + {-400, 300}, down = {.Left}), &w)
+	testing.expect_value(t, moved.x, r.x - 400)
+	testing.expect_value(t, moved.y, r.y + 300)
+	_, _, inside, _ := one_window(&ctx, input_at(at + {-400, 300}, released = {.Left}), &w)
+	testing.expect(t, !inside, "letting go of the title bar pressed a button")
+	testing.expect(t, w.moved && !w.dragging && !w.minimized, "a drag left the window in the wrong state")
+	// Its middle is on the left and its title bar in the bottom half.
+	testing.expect_value(t, w.x, Anchor.Start)
+	testing.expect_value(t, w.y, Anchor.End)
+	_, _, _, still := one_window(&ctx, input_at({-1, -1}), &w)
+	testing.expect_value(t, still, moved)
+
+	// A larger window keeps it as far from the left and the bottom as it was.
+	_, _, _, grown := one_window(&ctx, input_at({-1, -1}), &w, {1000, 700})
+	testing.expect_value(t, grown.x, moved.x)
+	testing.expect_value(t, 700 - (grown.y + grown.h), 600 - (moved.y + moved.h))
+}
+
+@(test)
+a_window_dragged_off_the_screen_keeps_its_title_bar_inside :: proc(t: ^testing.T) {
+	ctx: Context
+	init(&ctx)
+	defer destroy(&ctx)
+	w: Window
+	_, _, _, r := one_window(&ctx, input_at({-1, -1}), &w)
+	_, _, _, r = one_window(&ctx, input_at({-1, -1}), &w)
+	at := title_of(r)
+	one_window(&ctx, input_at(at, down = {.Left}, pressed = {.Left}), &w)
+	one_window(&ctx, input_at(at + {30, 30}, down = {.Left}), &w)
+	_, _, _, gone := one_window(&ctx, input_at({2000, 2000}, down = {.Left}), &w)
+	one_window(&ctx, input_at({2000, 2000}, released = {.Left}), &w)
+	testing.expect_value(t, gone.x + gone.w, 800)
+	testing.expect_value(t, gone.y, 600 - (2 * 10 + 48))
+	// Then a smaller window: still there to take hold of.
+	_, _, _, small := one_window(&ctx, input_at({-1, -1}), &w, {500, 400})
+	testing.expect(t, small.x >= 0 && small.x + small.w <= 500 && small.y + 10 + 48 <= 400, "the title bar left a smaller window")
+}
+
+@(test)
+minimise_folds_a_window_to_its_bar_and_a_tap_on_it_opens_it :: proc(t: ^testing.T) {
+	ctx: Context
+	init(&ctx)
+	defer destroy(&ctx)
+	w: Window
+	_, _, _, r := one_window(&ctx, input_at({-1, -1}), &w)
+	_, _, _, r = one_window(&ctx, input_at({-1, -1}), &w)
+	// Minimise and Close sit at the bar's right end: 10 padding, then 48 each.
+	minimise := [2]f32{r.x + r.w - 10 - 48 - 24, r.y + 10 + 24}
+	body := [2]f32{r.x + 10 + 24, r.y + 10 + 48 + 24}
+	one_window(&ctx, input_at(minimise, down = {.Left}, pressed = {.Left}), &w)
+	one_window(&ctx, input_at(minimise, released = {.Left}), &w)
+	testing.expect(t, w.minimized, "Minimise did not fold the window")
+	_, _, _, folded := one_window(&ctx, input_at({-1, -1}), &w)
+	testing.expect_value(t, folded.h, 2 * 10 + 48)
+	testing.expect_value(t, folded.y, r.y)
+	// Its body is gone: a press where its button was is the viewport's.
+	_, _, inside, _ := one_window(&ctx, input_at(body, down = {.Left}, pressed = {.Left}), &w)
+	one_window(&ctx, input_at(body, released = {.Left}), &w)
+	testing.expect(t, !inside && !w.moved, "a folded window's body answered")
+	// A tap on its title opens it again.
+	one_window(&ctx, input_at(title_of(folded), down = {.Left}, pressed = {.Left}), &w)
+	one_window(&ctx, input_at(title_of(folded), released = {.Left}), &w)
+	testing.expect(t, !w.minimized && !w.moved, "a tap on the folded title did not open it")
+}
+
+@(test)
+close_and_a_press_anywhere_on_a_window_are_reported :: proc(t: ^testing.T) {
+	ctx: Context
+	init(&ctx)
+	defer destroy(&ctx)
+	w: Window
+	_, _, _, r := one_window(&ctx, input_at({-1, -1}), &w)
+	_, _, _, r = one_window(&ctx, input_at({-1, -1}), &w)
+	body := [2]f32{r.x + 10 + 24, r.y + 10 + 48 + 24}
+	one_window(&ctx, input_at(body), &w)
+	_, raised, _, _ := one_window(&ctx, input_at(body, down = {.Left}, pressed = {.Left}), &w)
+	testing.expect(t, raised, "a press on the body did not raise the window")
+	_, raised2, inside, _ := one_window(&ctx, input_at(body, released = {.Left}), &w)
+	testing.expect(t, inside && !raised2, "the body's button did not click, or a release raised the window")
+	close := [2]f32{r.x + r.w - 10 - 24, r.y + 10 + 24}
+	one_window(&ctx, input_at(close, down = {.Left}, pressed = {.Left}), &w)
+	closed, _, _, _ := one_window(&ctx, input_at(close, released = {.Left}), &w)
+	testing.expect(t, closed, "Close was not reported")
+}
+
+@(test)
+a_finger_on_a_title_bar_moves_its_window_after_the_slop :: proc(t: ^testing.T) {
+	ctx: Context
+	init(&ctx)
+	defer destroy(&ctx)
+	w: Window
+	_, _, _, r := one_window(&ctx, finger_at({-1, -1}), &w)
+	_, _, _, r = one_window(&ctx, finger_at({-1, -1}), &w)
+	at := title_of(r)
+	one_window(&ctx, finger_at(at, down = {.Left}, pressed = {.Left}), &w)
+	// Within the slop it stays: a tap is not a drag.
+	_, _, _, still := one_window(&ctx, finger_at(at + {6, 0}, down = {.Left}), &w)
+	testing.expect_value(t, still, r)
+	_, _, _, moved := one_window(&ctx, finger_at(at + {-200, 100}, down = {.Left}), &w)
+	one_window(&ctx, finger_at(at + {-200, 100}, released = {.Left}), &w)
+	testing.expect_value(t, moved.x, r.x - 200)
+	testing.expect_value(t, moved.y, r.y + 100)
+	testing.expect(t, !ctx.viewport_drag, "the drag reached the viewport")
+}

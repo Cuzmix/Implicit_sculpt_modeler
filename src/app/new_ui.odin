@@ -45,7 +45,12 @@ Kit_State :: struct {
 	settings_scroll: f32,
 	settings_wipe: f64, // when Reset everything was first tapped: a second tap soon after resets
 	ui_scale:   f32, // the interface's size, times what the display asks for (Settings > Interface)
+	surface_ring: bool, // the brush ring lies on the surface rather than flat on the screen (cursor.odin)
 	history:    bool, // the History panel, over the dock
+	// The four panels as windows: where each was dragged to and whether it is folded
+	// (remembered by settings.odin), and the order they are drawn in, the last on top.
+	windows:    [Kit_Window]ui.Window,
+	order:      [len(Kit_Window)]Kit_Window,
 	text_input: bool, // SDL's text input is on, for the text field that has the keys
 	// Where the viewport's overlay goes in the draw order: over the viewport image and
 	// under the panels. Set while a frame is laid out, until the overlay is drawn.
@@ -63,6 +68,47 @@ Kit_State :: struct {
 	frame:      int, // frames drawn, for --ui-events
 	events:     [dynamic]Kit_Event, // --ui-events, in frame order
 	ms:         f64, // last frame's layout and tessellation, CPU
+}
+
+// The panels that behave as windows (ui.Window): each has a title bar to drag it by,
+// Minimise and Close.
+Kit_Window :: enum u8 {
+	Inspector,
+	Stats,
+	History,
+	Settings,
+}
+
+// The order the windows start in, back to front: Settings over the rest, as it opened.
+KIT_WINDOW_ORDER :: [len(Kit_Window)]Kit_Window{.Inspector, .Stats, .History, .Settings}
+
+// Brings `which` in front of the other windows.
+window_raise :: proc(k: ^Kit_State, which: Kit_Window) {
+	at := 0
+	for w, i in k.order do if w == which do at = i
+	for i in at ..< len(k.order) - 1 do k.order[i] = k.order[i + 1]
+	k.order[len(k.order) - 1] = which
+}
+
+// Puts every window back where it starts, open and in the starting order.
+windows_reset :: proc(k: ^Kit_State) {
+	k.windows = {}
+	k.order = KIT_WINDOW_ORDER
+}
+
+// The most height a window can have where it is: from its top edge to the bottom of the
+// safe area, less the margin, or (kept to the bottom edge) from the top margin down to
+// its bottom edge; `top` is its default distance from the top, which it keeps until moved.
+window_room :: proc(app: ^App, w: ui.Window, top: f32) -> f32 {
+	t := app.kit.ctx.theme
+	area := ui.safe_area(&app.kit.ctx)
+	return area.h - (w.offset.y if w.moved else top) - t.edge
+}
+
+// Which way a window slides as it opens and closes: in from the side it keeps to (+1 the
+// right, -1 the left), `default` until it is moved.
+window_slide :: proc(w: ui.Window, default: ui.Anchor) -> f32 {
+	return 1 if (w.x if w.moved else default) == .End else -1
 }
 
 Kit_Section :: enum u8 {
@@ -326,6 +372,8 @@ kit_init :: proc(app: ^App) {
 	for s in ([?]Kit_Section{.Stroke, .Paint_Color, .Falloff, .Transform, .Levels, .Mask, .Add, .Frame, .Sculpting}) do k.open[s] = true
 	k.add_size = 2 // 1M
 	k.ui_scale = 1
+	k.surface_ring = true
+	k.order = KIT_WINDOW_ORDER
 	k.last_frame = time.tick_now()
 }
 
@@ -449,6 +497,8 @@ kit_viewport_input :: proc(app: ^App, size: [2]f32) -> (input: Viewport_Input) {
 	copy(input.samples, app.samples[:])
 	input.pen_tilt = app.pen_tilt
 	input.mouse_delta = d.moved
+	// An orbit turns about the target unless pointer_route decided another pivot.
+	input.orbit_pivot = app.camera.target
 	if input.hovered || input.dragging do input.wheel = d.wheel
 	// A right press let go soon and about where it began is a tap, which opens the brush
 	// pie, rather than an orbit.
@@ -560,16 +610,32 @@ kit_layout :: proc(app: ^App) {
 		ui.end(ctx)
 	}
 
-	kit_inspector(app)
-	kit_stats(app)
-	kit_history_panel(app)
-	kit_settings(app)
+	// The windows, back to front: the last drawn is hit tested first. One pressed comes to
+	// the front from the next frame on.
+	top: Maybe(Kit_Window)
+	for which in k.order {
+		raised: bool
+		switch which {
+		case .Inspector: raised = kit_inspector(app)
+		case .Stats:     raised = kit_stats(app)
+		case .History:   raised = kit_history_panel(app)
+		case .Settings:  raised = kit_settings(app)
+		}
+		if raised do top = which
+	}
+	if which, ok := top.?; ok do window_raise(k, which)
 
 	// What floats over the panels comes last, so it is drawn and hit tested on top.
 	if ui.popover_begin(ctx, "brush browser", &k.browser, browser_anchor, .Above_Center, {direction = .Column, gap = 2, padding = 10}) {
-		ui.caption(ctx, "BRUSHES")
-		row := 0
 		PER_ROW :: 5
+		// The caption across the row of tiles, with Close at its end.
+		ui.begin(ctx, "browser head", {direction = .Row, center = true})
+		ui.begin(ctx, "browser title", {direction = .Column, width = ui.BRUSH_TILE.x * PER_ROW - t.target})
+		ui.caption(ctx, "BRUSHES")
+		ui.end(ctx)
+		if ui.icon_button(ctx, "Close", ui.ICON_CLOSE, keys = "Esc") do k.browser = false
+		ui.end(ctx)
+		row := 0
 		for kind, i in sculpt.Brush_Kind {
 			if i % PER_ROW == 0 do ui.begin(ctx, fmt.tprintf("row %d", row), {direction = .Row, gap = 0})
 			if ui.brush_tile(ctx, BRUSH_NAMES[kind], KIT_BRUSH_ICONS[kind], app.brush.kind == kind && app.tool == .Brush, kit_brush_keys(kind)) {
@@ -603,11 +669,13 @@ kit_pick_brush :: proc(app: ^App, kind: sculpt.Brush_Kind) {
 }
 
 // The inspector: the tool, the selected object or the scene, in tabs, sliding in from
-// the right. When its content is taller than the room it scrolls, with the wheel or by
-// dragging it (a finger or a pen has no wheel): from where no control is, at once, and
-// from a control once the drag goes up or down rather than sideways (ui.scroll_update).
+// the right, in a window (Tab or Close hides it, the Inspector button brings it back).
+// When its content is taller than the room under the title bar it scrolls, with the wheel
+// or by dragging it (a finger or a pen has no wheel): from where no control is, at once,
+// and from a control once the drag goes up or down rather than sideways
+// (ui.scroll_update). Returns true when a press landed on it, to bring it to the front.
 @(private = "file")
-kit_inspector :: proc(app: ^App) {
+kit_inspector :: proc(app: ^App) -> (raised: bool) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
@@ -615,57 +683,70 @@ kit_inspector :: proc(app: ^App) {
 	// The Settings panel takes its place while open.
 	shown := ui.presence(ctx, id, k.inspector && !k.settings, t.panel_time)
 	if shown <= 0 do return
+	win := &k.windows[.Inspector]
 	top := t.edge + t.target + 8
-	area := ui.safe_area(ctx)
-	window := [2]f32{area.w, area.h}
-	dock_size, _ := ui.prev_layout(ctx, "dock")
-	room := window.y - top - t.edge
-	// Clear of what sits below it: the object's status at the bottom right, and the dock
-	// when the window is narrow enough for them to meet.
-	below: f32 = 0
-	if status, _ := ui.prev_layout(ctx, "status"); status.y > 0 do below = status.y + 8
-	if window.x * 0.5 + dock_size.x * 0.5 + 8 > window.x - t.edge - KIT_INSPECTOR_W do below = max(below, dock_size.y + 8)
-	room -= below
-	size, natural := ui.prev_layout(ctx, "inspector")
-	_ = size
-	height := min(natural.y, room) if natural.y > 0 else 0
-	// The wheel over the inspector scrolls it; the scroll eases to where it is heading.
-	limit := max(natural.y - room, 0)
-	inspector_rect := ui.Rect{area.x + window.x - t.edge - KIT_INSPECTOR_W, area.y + top, KIT_INSPECTOR_W, height}
-	dragging := ui.scroll_update(ctx, id, inspector_rect, &k.scroll, limit)
-	// A drag follows the finger exactly; the wheel's steps ease.
-	scroll := ui.tween(ctx, ui.salt(id, 5), k.scroll, 0 if dragging else t.popover_time, .Out_Quart)
+	room := window_room(app, win^, top)
+	if !win.moved {
+		// Where it starts, clear of what sits below it: the object's status at the bottom
+		// right, and the dock when the window is narrow enough for them to meet.
+		area := ui.safe_area(ctx)
+		dock_size, _ := ui.prev_layout(ctx, "dock")
+		below: f32 = 0
+		if status, _ := ui.prev_layout(ctx, "status"); status.y > 0 do below = status.y + 8
+		if area.w * 0.5 + dock_size.x * 0.5 + 8 > area.w - t.edge - KIT_INSPECTOR_W do below = max(below, dock_size.y + 8)
+		room -= below
+	}
+	PADDING :: 12
+	GAP :: 6
+	inner := f32(KIT_INSPECTOR_W - 2 * PADDING)
 
 	mark := ui.vertex_mark(ctx)
-	ui.begin_anchored(ctx, "inspector", .End, .Start, {t.edge, top}, {direction = .Column, gap = 6, padding = 12, width = KIT_INSPECTOR_W, height = height, radius = t.radius_large, background = .Panel, clip = true, scroll = scroll, drag_scroll = true, inert = !k.inspector || k.settings})
-	tab_names := [len(Kit_Tab)]string{kit_tool_name(app.tool), "Object", "Scene"}
-	if picked := ui.tabs(ctx, "inspector tabs", tab_names[:], int(k.tab)); picked >= 0 {
-		if Kit_Tab(picked) != k.tab do k.tab_serial += 1
-		k.tab = Kit_Tab(picked)
-		k.scroll = 0
+	body, closed, raised_now := ui.window_begin(ctx, "inspector", "Inspector", win, .End, .Start, {t.edge, top}, {direction = .Column, gap = GAP, padding = PADDING, width = KIT_INSPECTOR_W, radius = t.radius_large, background = .Panel, inert = !k.inspector || k.settings}, "Tab")
+	raised = raised_now
+	if closed do k.inspector = false
+	if body {
+		// The tabs and the tab's content scroll under the title bar, in the room left.
+		body_name := "inspector body"
+		body_id := ui.id_of(ctx, body_name)
+		body_h := max(room - 2 * PADDING - t.target - GAP, 120)
+		_, natural := ui.prev_layout(ctx, body_name)
+		limit := max(natural.y - body_h, 0)
+		// The wheel over the inspector scrolls it; the scroll eases to where it is heading,
+		// and a drag follows the finger exactly.
+		dragging := ui.scroll_update(ctx, body_id, ui.prev_rect(ctx, body_name), &k.scroll, limit)
+		scroll := ui.tween(ctx, ui.salt(id, 5), k.scroll, 0 if dragging else t.popover_time, .Out_Quart)
+		ui.begin(ctx, body_name, {direction = .Column, gap = GAP, width = inner, height = body_h if natural.y > body_h else 0, clip = true, scroll = scroll, drag_scroll = true})
+		body_at := ctx.last_rect
+		tab_names := [len(Kit_Tab)]string{kit_tool_name(app.tool), "Object", "Scene"}
+		if picked := ui.tabs(ctx, "inspector tabs", tab_names[:], int(k.tab)); picked >= 0 {
+			if Kit_Tab(picked) != k.tab do k.tab_serial += 1
+			k.tab = Kit_Tab(picked)
+			k.scroll = 0
+		}
+		ui.spacer(ctx, 4)
+		// A new tab's content fades in: each change starts a tween of its own from 0.
+		content := ui.vertex_mark(ctx)
+		switch k.tab {
+		case .Tool:   kit_tool_tab(app)
+		case .Object: kit_object_tab(app)
+		case .Scene:  kit_scene_tab(app)
+		}
+		fade := ui.tween_from(ctx, ui.salt(id, 1000 + k.tab_serial), 0, 1, t.indicator_time)
+		ui.transform_since(ctx, content, fade)
+		ui.end(ctx)
+		// A press on the inspector's body that no control took starts a scroll drag.
+		ui.scroll_take(ctx, body_id, k.scroll, limit, id)
+		// A thin scroll bar when the content is taller than the room, showing where it is.
+		if limit > 0 {
+			r := body_at
+			thumb := max(body_h * body_h / natural.y, 24)
+			y := r.y + (body_h - thumb) * (scroll / limit)
+			ui.fill_rect(ctx, {r.x + r.w + 6, y, 3, thumb}, 1.5, ui.color_fade(t.text_tertiary, 0.6))
+		}
 	}
-	ui.spacer(ctx, 4)
-	// A new tab's content fades in: each change starts a tween of its own from 0.
-	content := ui.vertex_mark(ctx)
-	switch k.tab {
-	case .Tool:   kit_tool_tab(app)
-	case .Object: kit_object_tab(app)
-	case .Scene:  kit_scene_tab(app)
-	}
-	fade := ui.tween_from(ctx, ui.salt(id, 1000 + k.tab_serial), 0, 1, t.indicator_time)
-	ui.transform_since(ctx, content, fade)
-	ui.end(ctx)
-	// A press on the inspector that no control took starts a scroll drag.
-	ui.scroll_take(ctx, id, k.scroll, limit)
-	// A thin scroll bar when the content is taller than the room, showing where it is.
-	if limit > 0 && height > 0 {
-		r := inspector_rect
-		track := height - 24
-		thumb := max(track * height / natural.y, 24)
-		y := r.y + 12 + (track - thumb) * (scroll / limit)
-		ui.fill_rect(ctx, {r.x + r.w - 6, y, 3, thumb}, 1.5, ui.color_fade(t.text_tertiary, 0.6))
-	}
-	ui.transform_since(ctx, mark, shown, 1, {}, {(1 - shown) * 16, 0})
+	ui.window_end(ctx)
+	ui.transform_since(ctx, mark, shown, 1, {}, {window_slide(win^, .End) * (1 - shown) * 16, 0})
+	return
 }
 
 // SPHERE_PRESETS' labels as strings, for selects.

@@ -240,9 +240,10 @@ timeline_seek_to :: proc(tl: ^Timeline, to: int) {
 	tl.target, tl.seeking, tl.playing = to, true, false
 }
 
-// The interface's History panel, over the dock while it is open: step through the
-// History, scrub it on the bar, play it back, and record it as a time-lapse.
-kit_history_panel :: proc(app: ^App) {
+// The interface's History panel, a window that starts over the dock: step through the
+// History, scrub it on the bar, play it back, and record it as a time-lapse. Returns true
+// when a press landed on it, to bring it to the front.
+kit_history_panel :: proc(app: ^App) -> (raised: bool) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
@@ -259,7 +260,14 @@ kit_history_panel :: proc(app: ^App) {
 	side := t.edge + (KIT_INSPECTOR_W + 8 if k.inspector else 0)
 	width := clamp(ui.safe_area(ctx).w - 2 * side, KIT_HISTORY_MIN_W, KIT_HISTORY_W)
 	mark := ui.vertex_mark(ctx)
-	ui.begin_anchored(ctx, "history panel", .Center, .End, {0, t.edge + dock.y + 8}, {direction = .Column, gap = 4, padding = 10, width = width, radius = t.radius_large, background = .Panel, inert = !k.history})
+	body, closed, raised_now := ui.window_begin(ctx, "history panel", "History", &k.windows[.History], .Center, .End, {0, t.edge + dock.y + 8}, {direction = .Column, gap = 4, padding = 10, width = width, radius = t.radius_large, background = .Panel, inert = !k.history})
+	raised = raised_now
+	if closed do k.history = false
+	if !body {
+		ui.window_end(ctx)
+		ui.transform_since(ctx, mark, shown, 1, {}, {0, (1 - shown) * 16})
+		return
+	}
 
 	ui.begin(ctx, "transport", {direction = .Row, center = true})
 	if ui.icon_button(ctx, "Back to the start", ui.ICON_SKIP_BACK, enabled = can) do timeline_seek_to(tl, 0)
@@ -313,8 +321,9 @@ kit_history_panel :: proc(app: ^App) {
 		ui.end(ctx)
 	}
 	ui.paragraph(ctx, "Record time-lapse asks for a folder, replays the History from the start to where the bar stands, and saves the viewport each frame as numbered PNGs (frame_00000.png...) that any video tool turns into a film; Turn spins the camera a little each frame.", width - 20)
-	ui.end(ctx)
+	ui.window_end(ctx)
 	ui.transform_since(ctx, mark, shown, 1, {}, {0, (1 - shown) * 16})
+	return
 }
 
 // The History panel's width at most, which gives the bar room to tell steps apart, and

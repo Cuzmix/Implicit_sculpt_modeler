@@ -387,8 +387,14 @@ label_text :: proc(label: string) -> string {
 begin_anchored :: proc(ctx: ^Context, name: string, x, y: Anchor, offset: [2]f32, box: Box) {
 	id := id_of(ctx, name)
 	size := prev_size(ctx, id, box)
-	pos: [2]f32
-	area := safe_area(ctx)
+	pos := anchored_pos(safe_area(ctx), x, y, offset, size)
+	open(ctx, id, {pos.x, pos.y, size.x, size.y}, box, root = true)
+}
+
+// The top-left corner of something `size` points big placed against `area` as `x`, `y`
+// and `offset` say (begin_anchored).
+@(private)
+anchored_pos :: proc(area: Rect, x, y: Anchor, offset: [2]f32, size: [2]f32) -> (pos: [2]f32) {
 	origin := [2]f32{area.x, area.y}
 	extent := [2]f32{area.w, area.h}
 	for axis in 0 ..< 2 {
@@ -399,7 +405,7 @@ begin_anchored :: proc(ctx: ^Context, name: string, x, y: Anchor, offset: [2]f32
 		case .End:    pos[axis] = origin[axis] + extent[axis] - size[axis] - offset[axis]
 		}
 	}
-	open(ctx, id, {pos.x, pos.y, size.x, size.y}, box, root = true)
+	return
 }
 
 // The part of the window anchored containers keep inside (Input.safe), in points.

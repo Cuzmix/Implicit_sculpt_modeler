@@ -1,10 +1,10 @@
 {
   "source": ".claude/skills",
   "files": {
-    "sm-build/SKILL.md": "ebc5789a5a20ab4434f5410ca014b9b2b0adc709ae9c8e3a305dda4d57967cf1",
-    "sm-cad/SKILL.md": "d2260ad8b21d9f930556a89369d4ea28a203a47d1a8317d310e38ee0b3fa1948",
+    "sm-build/SKILL.md": "28b21202b6313210ba7893d9d52423b5e28920f41d032cee04cba09f8392d3da",
     "sm-cad/references/algorithms.md": "01d2533465f6863979662a3e062a7451fc82aec36cbd178148858991583f02b2",
     "sm-cad/references/undo-and-topology.md": "5b5ac5f6a7c802a413c9e22deea2fb31074478f02d7d3f63bce968c4fff5e249",
+    "sm-cad/SKILL.md": "d2260ad8b21d9f930556a89369d4ea28a203a47d1a8317d310e38ee0b3fa1948",
     "sm-figma-ui/SKILL.md": "58a861a28320f2542f2c76652c63b845e36786738c8ee8113be49d9220f30a72",
     "sm-geom/SKILL.md": "61f564d76460911e68c44c38c81cb60853bbac8d6ac09909f6c887ebdf429c2f",
     "sm-lint/SKILL.md": "9e847768d71b0329347ab91bafb6781306ffb7048a1432f64311ad12e62db5d3",
@@ -12,10 +12,10 @@
     "sm-perf/SKILL.md": "4610ecb2be8c95b0a3e72f16f88977717318e129286a781f49264834fd0a7ae6",
     "sm-render/SKILL.md": "8a459052b94001a817ad097d0549cb13004f8ce41095ba5223a725971c1587b5",
     "sm-sculpt/SKILL.md": "1d308b0d8f4608ac54c00ef44b6cd6f152a39c05692923fc5aed9a0e6cde385f",
-    "sm-sdf/SKILL.md": "f1678384aeec1f5658969a6dc86ce72f6362b57bdcb83543a0aa86bc30d9dde1",
     "sm-sdf/references/implicit.md": "0242284742b5712ed46cbc3498e45c70c9768f5972cc5381b45331ad8641185f",
+    "sm-sdf/SKILL.md": "f1678384aeec1f5658969a6dc86ce72f6362b57bdcb83543a0aa86bc30d9dde1",
     "sm-store/SKILL.md": "eef330f45b56298dc5b0ec70471c59fb19eba5e6897e2634d7521f03b27e631e",
-    "sm-touch-testing/SKILL.md": "084cb0f204dc7f073bcc124fee5850ca0e65eefddc6e6147526336c75cabf08e",
-    "sm-ui/SKILL.md": "3d0aaeb399c5e6d55a112c1ec333b16ae1648724180df65cf652d534355b4e0a"
+    "sm-touch-testing/SKILL.md": "6f224a84b332d0583f8343ebb9f874c8aa7efbd3bf3714e85da47b627feb6936",
+    "sm-ui/SKILL.md": "0c7c8da07aff9720b2121d52e4a3328d5f1b69467a093cb5260e15116e5122f4"
   }
 }

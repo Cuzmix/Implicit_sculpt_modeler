@@ -94,6 +94,19 @@ draw_viewport_overlay :: proc(app: ^App, input: Viewport_Input) {
 
 @(private = "file")
 overlay_viewport :: proc(app: ^App, o: Overlay, input: Viewport_Input) {
+	// Where the safe zone ends, faintly, so it is clear where a press turns the view.
+	if app.nav.edge_orbit && app.nav.edge_show {
+		lo, hi := edge_inner(app)
+		overlay_box(o, lo, hi, overlay_color({1, 1, 1, 0.16}), {}, 1)
+	}
+	// What an orbit under way turns about: it stays put while the view turns round it.
+	if g := app.drag; g.owner == .Orbit && g.moving {
+		view_proj := camera.orbit_proj(app.camera, input.size.x / max(input.size.y, 1)) * camera.orbit_view(app.camera)
+		if p, ok := gizmo.project(view_proj, g.pivot, input.size); ok {
+			overlay_disc(o, p, 5, overlay_color({0, 0, 0, 0.5}))
+			overlay_disc(o, p, 3.5, overlay_color({1, 0.8, 0.4, 0.95}))
+		}
+	}
 	switch app.tool {
 	case .Brush:
 		if app.clip.active {
@@ -123,7 +136,7 @@ overlay_viewport :: proc(app: ^App, o: Overlay, input: Viewport_Input) {
 			}
 			if brush_alpha(app) != nil && !input.smooth {
 				draw_alpha_outline(app, o, center, color)
-			} else {
+			} else if !draw_surface_ring(app, o, input.size, color) {
 				overlay_circle(o, center, app.brush.radius_px, color, 1.5)
 			}
 			// Which way a leaning pen turns the brush, and how far: toward the top of the
@@ -152,6 +165,35 @@ overlay_viewport :: proc(app: ^App, o: Overlay, input: Viewport_Input) {
 	case .Curve, .Insert:
 		draw_curve_overlay(app, o)
 	}
+}
+
+// Points around the brush ring lying on the surface: smooth at the largest brush.
+RING_POINTS :: 64
+
+// The brush ring lying on the surface (Brush_Cursor): the brush's circle in the plane the
+// surface faces, seen in perspective, with a short tick out along the surface's normal
+// from its middle, as ZBrush draws it. False when there is none this frame (off the
+// model, or part of it behind the eye), and the flat circle is drawn instead.
+@(private = "file")
+draw_surface_ring :: proc(app: ^App, o: Overlay, size: [2]f32, color: ui.Color) -> bool {
+	c := app.cursor
+	if !c.ok do return false
+	view_proj := camera.orbit_proj(app.camera, size.x / max(size.y, 1)) * camera.orbit_view(app.camera)
+	// Two directions across the surface, square to its normal and to each other.
+	u := linalg.normalize(linalg.cross(c.normal, Vec3{0, 1, 0} if abs(c.normal.y) < 0.9 else Vec3{1, 0, 0}))
+	v := linalg.cross(c.normal, u)
+	points: [RING_POINTS][2]f32
+	for &p, i in points {
+		a := 2 * math.PI * f32(i) / RING_POINTS
+		ok: bool
+		p, ok = gizmo.project(view_proj, c.at + (u * math.cos(a) + v * math.sin(a)) * c.radius, size)
+		if !ok do return false
+	}
+	overlay_polyline(o, points[:], color, 1.5, closed = true)
+	middle, middle_ok := gizmo.project(view_proj, c.at, size)
+	tip, tip_ok := gizmo.project(view_proj, c.at + c.normal * (c.radius * 0.5), size)
+	if middle_ok && tip_ok do overlay_line(o, middle, tip, color, 1.5)
+	return true
 }
 
 // Draws the open pie over everything, so it shows whole even near the viewport's edge.

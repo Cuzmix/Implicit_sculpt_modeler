@@ -37,7 +37,7 @@ UI = {
     "tool_move": (603, 36), "tool_sculpt": (692, 36), "sym_x": (948, 36),
     "view": (1516, 36), "size_slider": (36, 440), "strength_slider": (84, 450),
     "dock_smooth": (638, 855), "dock_draw": (574, 855), "browser": (1028, 855),
-    "tab_object": (1432, 98), "tab_brush": (1338, 98), "status": (1510, 870),
+    "tab_object": (1432, 152), "tab_brush": (1338, 152), "status": (1510, 870),
 }
 ORBIT_TURN = 2 * math.pi / 0.008  # points of drag that turn the view once (ORBIT_SPEED)
 
@@ -183,7 +183,7 @@ def tap_viewport_far_apart():
 def first_touch_scrolls_inspector():
     """The first finger drag on the inspector's Size slider scrolls the inspector and changes nothing."""
     s = Script()
-    s.fdrag(line((1430, 280), (1435, 60), 22))
+    s.fdrag(line((1430, 334), (1435, 114), 22))
     return s, [], camera_still({"dabs": near(0), "brush_radius_px": near(60), "brush_strength": near(0.5),
                                 "inspector_scroll": lambda v: float(v) > 100})
 
@@ -192,7 +192,7 @@ def first_touch_scrolls_inspector():
 def slider_drag_sideways():
     """A sideways finger drag on the inspector's Strength slider sets it, without orbiting or scrolling."""
     s = Script()
-    s.fdrag(line((1430, 333), (1520, 335), 12))
+    s.fdrag(line((1430, 387), (1520, 389), 12))
     return s, [], camera_still({"dabs": near(0), "brush_strength": lambda v: float(v) > 0.6, "inspector_scroll": near(0)})
 
 
@@ -491,6 +491,144 @@ def shift_snaps_orbit():
     return s, [], {"camera_yaw": near(0, 1e-3), "camera_pitch": near(0, 1e-3), "camera_roll": near(0, 1e-3)}
 
 
+def on_screen(stats, p, yaw=0.6, pitch=0.35, roll=0.0, distance=3.5, target=(0.0, 0.0, 0.0)):
+    """Where the world point p appears in a perspective view, as tangents right and up of the
+    view direction; with no camera given, the default camera's view. As camera.orbit_view:
+    the turn is yaw about y, then -pitch about x, then roll about z."""
+    if stats is not None:
+        yaw, pitch, roll, distance = (float(stats[k]) for k in ("camera_yaw", "camera_pitch", "camera_roll", "camera_distance"))
+        target = tuple(float(v) for v in stats["camera_target"].split(","))
+
+    def mul(a, b):
+        return [[sum(a[i][k] * b[k][j] for k in range(3)) for j in range(3)] for i in range(3)]
+    cy, sy, cp, sp, cr, sr = math.cos(yaw), math.sin(yaw), math.cos(-pitch), math.sin(-pitch), math.cos(roll), math.sin(roll)
+    r = mul(mul([[cy, 0, sy], [0, 1, 0], [-sy, 0, cy]], [[1, 0, 0], [0, cp, -sp], [0, sp, cp]]), [[cr, -sr, 0], [sr, cr, 0], [0, 0, 1]])
+    eye = [target[i] + distance * r[i][2] for i in range(3)]
+    local = [sum(r[i][j] * (p[i] - eye[i]) for i in range(3)) for j in range(3)]
+    return local[0] / -local[2], local[1] / -local[2]
+
+
+def pivot(stats):
+    return tuple(float(v) for v in stats["orbit_pivot"].split(","))
+
+
+@scenario
+def orbit_turns_about_the_last_stroke():
+    """After a stroke off the middle, an orbit on empty space turns about the stroke, which stays put on screen."""
+    s = Script()
+    s.fdrag(line((950, 300), (1000, 330), 20))
+    s.wait(4)
+    s.fdrag(past_slop((250, 400), (450, 400), 20))
+    return s, ["--orbit-style=turntable"], {
+        "dabs": lambda v: int(v) > 0, "pivot_source": lambda v: v == "stroke",
+        "camera_yaw": near(wrap(0.6 - 200 * 0.008), 2e-3), "camera_distance": near(3.5),
+        "camera_target": lambda v: v != "0.0000,0.0000,0.0000",
+        # On the sphere's near side, up and to the right.
+        "@pivot_on_model": lambda st: 0.9 < math.dist(pivot(st), (0, 0, 0)) < 1.2 and pivot(st)[1] > 0.2,
+        "@pivot_stays_put": lambda st: math.dist(on_screen(st, pivot(st)), on_screen(None, pivot(st))) < 2e-3}
+
+
+@scenario
+def orbit_about_the_centre_setting():
+    """With Turn about set to the centre, an orbit after a stroke turns about the target, as before."""
+    s = Script()
+    s.fdrag(line((950, 300), (1000, 330), 20))
+    s.wait(4)
+    s.fdrag(past_slop((250, 400), (450, 400), 20))
+    return s, ["--orbit-style=turntable", "--orbit-pivot=centre"], {
+        "pivot_source": lambda v: v == "centre", "camera_target": lambda v: v == "0.0000,0.0000,0.0000",
+        "camera_yaw": near(wrap(0.6 - 200 * 0.008), 2e-3)}
+
+
+def zoomed_in(s):
+    """Eight wheel notches in: the sphere fills the whole window, with no empty space left."""
+    s.add("move:800,450")
+    s.wait(1)
+    s.add("wheel:8")
+    s.wait(3)
+
+
+def edge_drags(s):
+    """A finger along the bottom edge and the pen along the top one, both over the model,
+    where no panel is, each 200 points sideways."""
+    zoomed_in(s)
+    s.fdrag(past_slop((250, 868), (450, 868), 20))
+    s.add("pnear")
+    s.wait(1)
+    s.add("pdown:260,30")
+    for x, y in past_slop((260, 30), (460, 30), 20)[1:]:
+        s.wait(1)
+        s.add(f"pmove:{x:g},{y:g}")
+    s.wait(1)
+    s.add("pup")
+    s.wait(2)
+    s.add("pfar")
+    s.wait(3)
+
+
+@scenario
+def edge_orbits_over_the_model():
+    """Zoomed in until the model fills the view, a finger and the pen dragged in the safe zone turn the view and sculpt nothing."""
+    s = Script()
+    edge_drags(s)
+    return s, ["--orbit-style=turntable"], {"dabs": near(0), "undo_steps": near(0),
+                                            "camera_yaw": near(wrap(0.6 - 400 * 0.008), 3e-3),
+                                            "camera_distance": near(3.5 * 0.88 ** 8, 1e-3)}
+
+
+@scenario
+def edge_off_sculpts():
+    """With the safe zone off, the same drags at the edges sculpt the model and leave the view alone."""
+    s = Script()
+    edge_drags(s)
+    return s, ["--orbit-style=turntable", "--no-edge-orbit"], {"dabs": lambda v: int(v) > 0, "undo_steps": near(2),
+                                                               "camera_yaw": near(0.6)}
+
+
+def sphere_normal_under(x, y, width=1600, height=900, yaw=0.6, pitch=0.35, distance=3.5, fov=math.radians(40)):
+    """The unit sphere's normal where the ray through window point (x, y) meets it, with the
+    default camera: what the brush ring should lie flat against there."""
+    t = math.tan(fov / 2)
+    d = [(2 * x / width - 1) * t * width / height, (1 - 2 * y / height) * t, -1.0]
+    cy, sy, cp, sp = math.cos(yaw), math.sin(yaw), math.cos(-pitch), math.sin(-pitch)
+    # The view's turn applied to d: about x by -pitch, then about y by yaw.
+    d = [d[0], cp * d[1] - sp * d[2], sp * d[1] + cp * d[2]]
+    d = [cy * d[0] + sy * d[2], d[1], -sy * d[0] + cy * d[2]]
+    n = math.sqrt(sum(v * v for v in d))
+    d = [v / n for v in d]
+    back = [sy * cp, -sp, cy * cp]
+    eye = [distance * v for v in back]
+    b = sum(e * v for e, v in zip(eye, d))
+    s = b * b - (sum(e * e for e in eye) - 1)
+    hit = [e + (-b - math.sqrt(s)) * v for e, v in zip(eye, d)]
+    return hit
+
+
+def normal_near(want, degrees):
+    def ok(v):
+        got = [float(c) for c in v.split(",")]
+        return sum(a * b for a, b in zip(got, want)) > math.cos(math.radians(degrees))
+    return ok
+
+
+@scenario
+def ring_lies_on_the_surface():
+    """The brush ring over the sphere's edge lies along the surface there; off the model it is flat."""
+    s = Script()
+    s.add("move:1110,330")
+    s.wait(4)
+    return s, [], {"cursor_hit": near(1), "cursor_normal": normal_near(sphere_normal_under(1110, 330), 8), "dabs": near(0)}
+
+
+@scenario
+def ring_off_the_model_is_flat():
+    """With the pointer on empty space there is no surface under the ring: it is the flat circle."""
+    s = Script()
+    s.add(f"move:{EMPTY[0]},{EMPTY[1]}")
+    s.wait(4)
+    return s, [], {"cursor_hit": near(0), "dabs": near(0)}
+
+
 SETTINGS_FILE = os.path.join(ROOT, "build", "touch_settings.txt")
 
 
@@ -520,15 +658,15 @@ def settings_scroll_and_persist():
         os.remove(SETTINGS_FILE)
     s = Script()
     open_settings(s, "camera")
-    s.ftap(1549, 690)  # Invert the mouse wheel
+    s.ftap(1549, 717)  # Edges always turn the view
     s.wait(4)
-    s.fdrag(line((1300, 645), (1305, 345), 20))  # from the Zoom speed slider, upward
+    s.fdrag(line((1300, 395), (1305, 95), 20))  # from the Orbit speed slider, upward
     s.wait(16)
     s.ftap(1481, 791)  # Done
     s.wait(4)
     return s, [f"--settings-file={SETTINGS_FILE}"], camera_still({
         "dabs": near(0), "settings_open": near(0), "settings_scroll": lambda v: float(v) > 100,
-        "@saved": saved(invert_wheel="1", zoom_speed="1", orbit_speed="1")})
+        "@saved": saved(edge_orbit="0", zoom_speed="1", orbit_speed="1")})
 
 
 @scenario
@@ -629,15 +767,87 @@ def inspector_tab_switch_then_scroll():
     s = Script()
     s.ftap(*UI["tab_object"])
     s.wait(6)
-    s.fdrag(line((1430, 330), (1435, 90), 20))
+    s.fdrag(line((1430, 384), (1435, 144), 20))
     return s, [], camera_still({"dabs": near(0), "inspector_scroll": lambda v: float(v) > 100, "selected": near(0)})
+
+
+def saved_line(line):
+    """A check that the settings file the app wrote holds `line` (for keys with several lines)."""
+    def ok(_):
+        return os.path.exists(SETTINGS_FILE) and line in open(SETTINGS_FILE).read().splitlines()
+    return ok
+
+
+# The inspector's title bar at 1600 x 900: its title, Minimise and Close.
+INSPECTOR_TITLE, INSPECTOR_MINIMISE, INSPECTOR_CLOSE = (1340, 103), (1504, 103), (1554, 103)
+# The Stats window's title, where it starts (Settings > Performance or F11 opens it).
+STATS_TITLE = (200, 104)
+
+
+@scenario
+def window_minimise_folds_to_the_title_bar():
+    """A tap on the inspector's Minimise folds it to its title bar; nothing else moves."""
+    s = Script()
+    s.ftap(*INSPECTOR_MINIMISE)
+    s.wait(4)
+    return s, [], camera_still({"dabs": near(0), "window_inspector": lambda v: v.startswith("1,1,")})
+
+
+@scenario
+def window_tap_on_folded_title_opens_it():
+    """Folded, a tap on the inspector's title opens it again, and its first drag scrolls it as before."""
+    s = Script()
+    s.ftap(*INSPECTOR_MINIMISE)
+    s.wait(4)
+    s.ftap(*INSPECTOR_TITLE)
+    s.wait(4)
+    s.fdrag(line((1430, 334), (1435, 114), 22))
+    return s, [], camera_still({"dabs": near(0), "window_inspector": lambda v: v.startswith("1,0,"),
+                                "inspector_scroll": lambda v: float(v) > 100})
+
+
+@scenario
+def window_close_and_reopen():
+    """Close hides the inspector; the Inspector button at the top right brings it back."""
+    s = Script()
+    s.ftap(*INSPECTOR_CLOSE)
+    s.wait(10)
+    s.ftap(1565, 36)
+    s.wait(10)
+    return s, [], camera_still({"dabs": near(0), "window_inspector": lambda v: v.startswith("1,0,")})
+
+
+@scenario
+def window_drag_by_title_is_remembered():
+    """A finger drags the Stats window by its title to exactly under the finger, turning nothing; it is saved."""
+    with open(SETTINGS_FILE, "w") as f:
+        f.write("stats 1\n")
+    s = Script()
+    s.fdrag(line(STATS_TITLE, (700, 300), 20))
+    s.wait(4)
+    # Grabbed 84 points in from its left and 36 down from its top.
+    return s, [f"--settings-file={SETTINGS_FILE}"], camera_still({
+        "dabs": near(0), "window_stats": lambda v: v == "1,0,616,264",
+        "@saved": saved_line("window Stats 1 Start Start 616 264 0")})
+
+
+@scenario
+def window_position_comes_back():
+    """A remembered window position and fold come back on the next start."""
+    with open(SETTINGS_FILE, "w") as f:
+        f.write("stats 1\nwindow Stats 1 Start Start 616 264 0\nwindow Inspector 0 Start Start 0 0 1\n")
+    s = Script()
+    s.add("move:800,450")
+    s.wait(4)
+    return s, [f"--settings-file={SETTINGS_FILE}"], {"window_stats": lambda v: v == "1,0,616,264",
+                                                     "window_inspector": lambda v: v.startswith("1,1,")}
 
 
 @scenario
 def small_window():
     """A 1280 x 800 window (a tablet's size): the inspector scrolls from the first touch and far-apart taps turn nothing."""
     s = Script()
-    s.fdrag(line((1110, 280), (1115, 60), 22))
+    s.fdrag(line((1110, 334), (1115, 114), 22))
     s.ftap(200, 150)
     s.ftap(1000, 700)
     s.ftap(150, 650)
@@ -670,7 +880,12 @@ def run(name, screens):
         failures.append(f"exit code {proc.returncode}: {proc.stderr.strip().splitlines()[-3:]}")
     for key, ok in checks.items():
         if key.startswith("@"):
-            if not ok(None):
+            # A check on files, or on several stats at once: it is given all of them.
+            try:
+                good = ok(stats)
+            except (KeyError, ValueError):
+                good = False
+            if not good:
                 failures.append(f"{key} wrong")
         elif key not in stats:
             failures.append(f"{key} missing")

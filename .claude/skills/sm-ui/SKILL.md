@@ -33,15 +33,24 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
 - Layout (`kit_layout`, `new_ui.odin:360`): top left menu, undo and redo (tooltips name the step) and the History
   button; top middle the tools (`Tool` order: W, B, C, I) and X/Y/Z symmetry; top right View menu and the inspector
   button; left the tall size and strength sliders; bottom the brush dock and the brush browser; bottom right the
-  object's status; then `kit_inspector`, `kit_stats`, `kit_history_panel`, and last the popovers.
+  object's status; then the four windows in `k.order` (back to front) and last the popovers.
+- Windows (`src/ui/window.odin`, `Kit_Window` in `new_ui.odin`): the inspector, Stats, History and Settings are
+  `ui.window_begin(ctx, name, title, &k.windows[which], x, y, offset, box, close_keys)` … `ui.window_end`: a title
+  bar (drag it to move, Minimise folds to it, a tap on a folded title opens it, Close) over the caller's body, which
+  is laid out only while `body` is true. A moved window keeps to its nearer edges (`ui.Window.x/y/offset`) and its
+  title bar stays in the safe area. `raised` (a press anywhere on it) moves it to the end of `k.order` with
+  `window_raise`; the draw order is the hit-test order from the next frame. `window_room` is the height it has where
+  it is; `window_slide` the side it slides from. Positions and folds are `window` lines in the settings;
+  `windows_reset` puts them back (Settings > Interface > Reset panel positions).
 - Inspector (`kit_inspector`, `new_ui.odin:486`): tabs Tool (`kit_tool_tab`, `kit_tool.odin`: the brush's Stroke,
   Colour, Falloff, Alpha, Pen, Options and Stroke recorder; Curve and Insert settings; Move help), Object
   (`kit_object.odin`: Transform, levels, HD, dynamic topology, mask, hide/clip/slice, paint and groups, morph, layers,
   deformation, remesh, mirror, retopo, project, booleans, extract) and Scene (`kit_scene.odin`: objects, Add, Material,
   Studio render, Camera). A feature's section lives beside its code (`kit_layers_section` in `layers.odin`,
-  `kit_boolean_section` in `boolean.odin`, `kit_alpha_section` in `alphas.odin`, …). The inspector clips and scrolls
-  (`ui.scroll_update` before its body, `ui.scroll_take` after, `drag_scroll` on its body; see Input routing); it stops
-  above the status chip and, on narrow windows, the dock. While Settings is open the inspector is hidden and inert.
+  `kit_boolean_section` in `boolean.odin`, `kit_alpha_section` in `alphas.odin`, …). Under its title bar the tabs and
+  content are the clipped "inspector body", which scrolls (`ui.scroll_update` before it, `ui.scroll_take` after with
+  the window as root, `drag_scroll` on it; see Input routing); where it starts it stops above the status chip and, on
+  narrow windows, the dock. While Settings is open the inspector is hidden and inert.
 - Settings panel (`kit_settings.odin`): tabs Interface, Camera, Touch, Performance (`Settings_Tab`), anchored right
   in the inspector's place, its body scrolling as the inspector does; each tab ends in "Reset <tab> settings"
   (`settings_reset`), the foot holds Reset everything (a second tap within `SETTINGS_WIPE_TIME` confirms) and Done
@@ -51,7 +60,10 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   "What do these numbers mean?" explains them. Show only what is measured: an empty ring says "not measured yet".
 - Overlay (`overlay.odin`): drawn after the tools ran, in window coordinates through `Overlay` (points are window
   coordinates over `k.scale`), between `ui.layer_begin` and `ui.layer_end`, which move it under the panels into the
-  layer `kit_frame` took over the viewport image. The pie (`draw_pie`) is drawn after it, over everything.
+  layer `kit_frame` took over the viewport image. The pie (`draw_pie`) is drawn after it, over everything. It also
+  draws the safe zone's inner edge (`edge_inner`, navigate.odin), the orbit pivot's dot while an orbit moves, and the
+  brush ring lying on the surface (`draw_surface_ring`, from `app.cursor`, which `cursor_update` in `cursor.odin`
+  fills each frame after the tools: a raycast and `sculpt.sculptor_area_normal`, timed as `cursor_ms`).
 - Commands: a panel never mutates the scene; it sets `app.ui.scene_command` and the frame loop applies it at the start
   of the next frame. Mask commands go to `mask_command`; file actions to `file_dialog`/`file_post`, applied next frame
   (`file_take`), their outcome a `file_note` that the interface shows as a toast.
@@ -74,8 +86,12 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
 - One owner per viewport drag (`Drag`, `pointer_route`, `drag_decide` in `navigate.odin`): decided at the press and
   kept to the release: Tool, Orbit, Pan, Zoom or Muted. Right orbits (Shift/Alt pan, Ctrl zoom), middle pans, Alt+left
   orbits; the left button, a pen or one finger on the model is the tool's, on empty space orbits (a raycast at the
-  press; Ctrl keeps it for mask/hide shapes). Fingers and the pen move nothing until past `theme.slop` (10 pt); a
-  finger's stroke waits `FINGER_HOLD` (90 ms) with its samples kept, so a second finger makes a gesture first.
+  press; Ctrl keeps it for mask/hide shapes), and within `Nav_Prefs.edge_size` of an edge (`in_edge`, the safe zone)
+  orbits whatever is under it. An orbit's pivot is decided at the press (`orbit_pivot`: the pointer's hit, the last
+  stroke's middle `app.pivot`, the selected object's middle, else the target; never behind the eye) into
+  `Drag.pivot` and `Viewport_Input.orbit_pivot`, and `camera.orbit_turn_about` keeps it on screen. Fingers and the
+  pen move nothing until past `theme.slop` (10 pt); a finger's stroke waits `FINGER_HOLD` (90 ms) with its samples
+  kept, so a second finger makes a gesture first.
 - The gesture arena in the kit (Flutter's): `interact` (`ui.odin:628`) records `press_host`, the innermost
   `drag_scroll` container under a press; a finger or pen press there is tentative (`press_won` false), a mouse press
   wins at once. `scroll_update` (`ui.odin:711`) steals a tentative press that moves vertically past the slop (no click
@@ -134,6 +150,7 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
 | a user preference in Settings | a field in `Nav_Prefs`/`Kit_State` with its default in `NAV_DEFAULT` or `kit_init`, a row in its `settings_<tab>` proc with a one-line `paragraph`, a line in `settings_reset`, the two settings lines above, README "Settings" |
 | a control that drags sideways inside a scrolling panel | act only `if held && claim_drag(ctx, 0)` (a tap may still act on `clicked`), so a vertical finger drag scrolls instead |
 | a new scrolling panel | `scroll_update(ctx, id, prev_rect(ctx, name), &scroll, limit)` before the body, `begin` it with `clip`, `scroll` and `drag_scroll = true`, `scroll_take(ctx, id, scroll, limit, root)` after; follow the drag with tween duration 0 |
+| a new floating panel | a `Kit_Window` value, a place in `KIT_WINDOW_ORDER`, its proc returning `raised` from `ui.window_begin` (default anchors as `begin_anchored`'s) with its body only while `body`, `ui.window_end`, a case in `kit_layout`'s loop and in the exit stats' `window_*` names; scroll its body as above, sized by `window_room` |
 | a touch gesture | measure in `touch_route` (Viewport owner only, every finger still down: `f.count == f.most`), write a `Viewport_Input` field, apply it in `camera_apply_input` (it runs with no pointer down) or the tool; a switch in Settings > Touch; a scenario in `scripts/touch_check.py` |
 | a curve to drag, a colour, a count | `kit_curve_editor`, `kit_color`, `kit_count` (`kit_widgets.odin`) |
 
@@ -159,9 +176,10 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
 
 ## Verify
 - `--ui-events="5:move:800,450;6:down;7:up;9:right;12:wheel:-3;14:fdown:0:300,300;16:fup:0"` drives the mouse,
-  fingers and pen in window points (Menu at 36,36, Menu > Settings at 85,447; the inspector's tabs at about y 98 on a
-  1600 x 900 window), and `--dump-screen=build/x.png` writes the whole window, overlay included; open it and describe
-  it. `ui_ms_*` and `ui_vertices` on exit are the kit's cost; `camera_*`, `undo_steps`, `brush_radius_px`,
-  `inspector_scroll`, `settings_open` show what the input did.
+  fingers and pen in window points (Menu at 36,36, Menu > Settings at 85,447; the inspector's title bar at y 103, its
+  Minimise at 1504 and Close at 1554, and its tabs at about y 152 on a 1600 x 900 window), and
+  `--dump-screen=build/x.png` writes the whole window, overlay included; open it and describe it. `ui_ms_*` and
+  `ui_vertices` on exit are the kit's cost; `camera_*`, `undo_steps`, `brush_radius_px`, `inspector_scroll`,
+  `settings_open` and `window_<name>=open,folded,left,top` show what the input did.
 - `python scripts/touch_check.py` runs every touch, pen and mouse scenario (sm-touch-testing) after a debug build.
 - `build.bat test` runs the kit's headless tests (`src/ui/ui_test.odin`); `build.bat smoke` after changing the frame loop.

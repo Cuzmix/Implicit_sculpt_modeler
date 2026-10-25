@@ -10,6 +10,7 @@ import sdl "vendor:sdl3"
 import "../camera"
 import "../geom"
 import "../sculpt"
+import "../ui"
 
 // What the app remembers between interactive runs: the brush settings, how the
 // viewport looks, the Scene tab's choices and the Settings panel's, in a text file of `key values...`
@@ -19,6 +20,10 @@ import "../sculpt"
 // older or newer file never stops the app.
 
 SETTINGS_FILE :: "settings.txt"
+
+// The furthest a remembered window may sit from its edges, in points: more than any
+// screen, so a damaged line cannot put a window at an absurd place.
+WINDOW_OFFSET_MAX :: 10000
 
 // Where the settings live, or "" when SDL has no folder for them (temp memory).
 settings_path :: proc() -> string {
@@ -97,6 +102,22 @@ settings_load :: proc(app: ^App, path: string) {
 		case "ui_scale":
 			want := number(f[1], 1)
 			for s in UI_SCALES do if abs(s - want) < 0.01 do app.kit.ui_scale = s
+		case "surface_ring":   app.kit.surface_ring = f[1] == "1"
+		case "window":
+			// window <name> <moved 0|1> <x anchor> <y anchor> <x offset> <y offset> <minimised 0|1>;
+			// the kit keeps every window's title bar on screen whatever the offsets say.
+			if len(f) == 8 {
+				for which in Kit_Window {
+					if !strings.equal_fold(f[1], fmt.tprint(which)) do continue
+					w := &app.kit.windows[which]
+					w.moved, w.minimized = f[2] == "1", f[7] == "1"
+					for a in ui.Anchor {
+						if strings.equal_fold(f[3], fmt.tprint(a)) do w.x = a
+						if strings.equal_fold(f[4], fmt.tprint(a)) do w.y = a
+					}
+					w.offset = {clamp(number(f[5], 0), -WINDOW_OFFSET_MAX, WINDOW_OFFSET_MAX), clamp(number(f[6], 0), -WINDOW_OFFSET_MAX, WINDOW_OFFSET_MAX)}
+				}
+			}
 		case "stats":          app.kit.stats = f[1] == "1"
 		case "stats_advanced": app.kit.stats_advanced = f[1] == "1"
 		case "vsync":          app.vsync = f[1] == "1"
@@ -122,6 +143,11 @@ settings_load :: proc(app: ^App, path: string) {
 		case "three_finger":   app.nav.three_finger = f[1] == "1"
 		case "tap_history":    app.nav.tap_history = f[1] == "1"
 		case "palm_rejection": app.nav.palm_rejection = f[1] == "1"
+		case "orbit_pivot":
+			for p in Orbit_Pivot do if strings.equal_fold(f[1], fmt.tprint(p)) do app.nav.pivot = p
+		case "edge_orbit":     app.nav.edge_orbit = f[1] == "1"
+		case "edge_size":      app.nav.edge_size = clamp(number(f[1], NAV_DEFAULT.edge_size), EDGE_MIN, EDGE_MAX)
+		case "edge_show":      app.nav.edge_show = f[1] == "1"
 		case "new_vertices":
 			// The size an object is added and remeshed at: the nearest of the presets.
 			want := number(f[1], -1)
@@ -202,6 +228,10 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 	fmt.sbprintfln(&out, "ortho %d", bit(app.camera.ortho))
 	k, n := app.kit, app.nav
 	fmt.sbprintfln(&out, "ui_scale %g", k.ui_scale)
+	fmt.sbprintfln(&out, "surface_ring %d", bit(k.surface_ring))
+	for w, which in k.windows {
+		fmt.sbprintfln(&out, "window %v %d %v %v %g %g %d", which, bit(w.moved), w.x, w.y, w.offset.x, w.offset.y, bit(w.minimized))
+	}
 	fmt.sbprintfln(&out, "stats %d", bit(k.stats))
 	fmt.sbprintfln(&out, "stats_advanced %d", bit(k.stats_advanced))
 	fmt.sbprintfln(&out, "vsync %d", bit(app.vsync))
@@ -223,6 +253,10 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 	fmt.sbprintfln(&out, "three_finger %d", bit(n.three_finger))
 	fmt.sbprintfln(&out, "tap_history %d", bit(n.tap_history))
 	fmt.sbprintfln(&out, "palm_rejection %d", bit(n.palm_rejection))
+	fmt.sbprintfln(&out, "orbit_pivot %v", n.pivot)
+	fmt.sbprintfln(&out, "edge_orbit %d", bit(n.edge_orbit))
+	fmt.sbprintfln(&out, "edge_size %g", n.edge_size)
+	fmt.sbprintfln(&out, "edge_show %d", bit(n.edge_show))
 	fmt.sbprintfln(&out, "new_vertices %d", SPHERE_PRESETS[app.kit.add_size].vertices)
 	fmt.sbprintfln(&out, "new_shape %v", app.kit.add_shape)
 	fmt.sbprintfln(&out, "mask_steps %d", app.ui.mask_steps)

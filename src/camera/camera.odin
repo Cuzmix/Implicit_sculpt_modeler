@@ -103,6 +103,22 @@ orbit_rotate :: proc(c: ^Orbit, delta: Vec2, s := ORBIT_DEFAULT) {
 	}
 }
 
+// Moves the target of `c`, whose angles have just changed from those of `before`, so that
+// `pivot` stays where it was on screen: the eye swings about the pivot rather than about
+// the target, as ZBrush's Local and Blender's Orbit Around Selection turn about the last
+// stroke. Only the target moves, so the distance, and with it the pan and zoom rates and
+// the parallel view's size, stay as they were. A pivot at the target changes nothing, so
+// turning about the target stays exactly as orbit_rotate leaves it.
+orbit_turn_about :: proc(c: ^Orbit, before: Orbit, pivot: Vec3) {
+	if pivot == before.target do return
+	// The pivot in the camera's frame before the turn, then the eye that puts it there
+	// again after it.
+	local := linalg.transpose(orbit_rotation(before)) * (pivot - orbit_eye(before))
+	eye := pivot - orbit_rotation(c^) * local
+	_, _, back := orbit_basis(c^)
+	c.target = eye - c.distance * back
+}
+
 // Turns the view about the world's up axis by `angle` radians, as a turntable under the
 // model would: the time-lapse's spin and the benchmarks' orbit.
 orbit_spin :: proc(c: ^Orbit, angle: f32) {

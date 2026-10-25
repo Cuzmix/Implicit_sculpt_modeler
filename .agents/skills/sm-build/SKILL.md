@@ -41,11 +41,13 @@ description: Build, run, test and verify the sculpt modeler through build.bat (W
   last_frame_triangles=`; `cull= last_frame_draws= chunks= culled_view= culled_back= cull_ms=`; `partial= partial_frames=
   last_frame_partial= last_frame_redrawn_px= viewport_px=`; `simplify= last_frame_lod_px= last_frame_simplified=
   lod_pending=`; then `<name>_p50= <name>_p99=` for `lod_build_ms`, `frame_ms`, `cpu_ms`, `wait_ms`, `gpu_ms` (with
-  `--time-gpu`), and after dabs `raycast_ms`, `brush_ms`, `normals_ms`, `upload_kb`, `latency_ms`; with `--bench-stroke`
-  `undo_mb= undo_ms= redo_ms=` and `level_changes_ms=`; always `camera_yaw= camera_pitch= camera_roll= camera_distance=
-  camera_target=x,y,z`, `undo_steps= redo_steps= brush_radius_px= brush_strength= selected=` and `inspector_scroll=
-  settings_scroll= settings_open=` (what scripted input did). These are the numbers to quote; `--frames=N` ends a run
-  by itself.
+  `--time-gpu`), `ui_ms`, `cursor_ms` (once the brush ring lay on the surface), and after dabs `raycast_ms`,
+  `brush_ms`, `normals_ms`, `upload_kb`, `latency_ms`; with `--bench-stroke` `undo_mb= undo_ms= redo_ms=` and
+  `level_changes_ms=`; always `camera_yaw= camera_pitch= camera_roll= camera_distance= camera_target=x,y,z`,
+  `orbit_pivot=x,y,z pivot_source=centre|stroke|pointer|object` (the last orbit's), `undo_steps= redo_steps=
+  brush_radius_px= brush_strength= selected=`, `inspector_scroll= settings_scroll= settings_open=`, `cursor_hit=
+  cursor_normal=x,y,z` and `window_inspector= window_stats= window_history= window_settings=` (each
+  `open,folded,left,top`): what scripted input did. These are the numbers to quote; `--frames=N` ends a run by itself.
 
 ## Seeing the viewport
     build\sculpt.exe --vertices=500000 --frames=60 --dump-viewport=build\view.ppm

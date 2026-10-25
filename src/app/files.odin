@@ -480,6 +480,8 @@ scene_open :: proc(app: ^App, path: string) -> (opened, ok: bool) {
 	view.ortho = app.camera.ortho // a view setting, not part of the scene
 	app.camera = view
 	app.move.drag = {}
+	// The last stroke was on an object of the old scene, whose id the new one may reuse.
+	app.pivot.set = false
 	clear(&app.stroke.pending)
 	app.stats = {}
 	render.viewport_invalidate(&app.target)

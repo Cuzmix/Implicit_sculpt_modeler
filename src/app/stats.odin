@@ -37,6 +37,7 @@ Frame_Stats :: struct {
 	lod_ms:     Sample_Ring, // building and uploading simplified copies, on frames that did
 	ui_ms:      Sample_Ring, // the interface's layout and tessellation, CPU
 	ui_vertices: int, // the interface's vertices last frame
+	cursor_ms:  Sample_Ring, // laying the brush ring on the surface: its raycast and area normal, on frames that did
 	// Recorded only on frames where the brush changed the mesh:
 	raycast_ms: Sample_Ring,
 	brush_ms:   Sample_Ring, // dabs, excluding the raycast

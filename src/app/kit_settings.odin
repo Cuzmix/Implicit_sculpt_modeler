@@ -36,26 +36,28 @@ KIT_SETTINGS_W :: 400
 // Seconds Reset everything waits for its second tap.
 SETTINGS_WIPE_TIME :: 3
 
-kit_settings :: proc(app: ^App) {
+kit_settings :: proc(app: ^App) -> (raised: bool) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
 	id := ui.id_of(ctx, "settings")
 	shown := ui.presence(ctx, id, k.settings, t.panel_time)
 	if shown <= 0 do return
-	area := ui.safe_area(ctx)
+	win := &k.windows[.Settings]
 	top := t.edge + t.target + 8
-	room := area.h - top - t.edge
-	if status, _ := ui.prev_layout(ctx, "status"); status.y > 0 do room -= status.y + 8
+	room := window_room(app, win^, top)
+	if status, _ := ui.prev_layout(ctx, "status"); status.y > 0 && !win.moved do room -= status.y + 8
 	inner := f32(KIT_SETTINGS_W - 2 * 16)
 
 	mark := ui.vertex_mark(ctx)
-	ui.begin_anchored(ctx, "settings", .End, .Start, {t.edge, top}, {direction = .Column, gap = 8, padding = 16, width = KIT_SETTINGS_W, radius = t.radius_large, background = .Panel, inert = !k.settings})
-	ui.begin(ctx, "settings head", {direction = .Row, width = inner, center = true})
-	ui.label(ctx, "Settings", t.heading_size, t.text, .Semibold)
-	ui.spacer(ctx, inner - ui.text_width(ctx, "Settings", t.heading_size, .Semibold) - t.target)
-	if ui.icon_button(ctx, "Close settings", ui.ICON_CLOSE, keys = "Esc") do settings_close(app)
-	ui.end(ctx)
+	body, closed, raised_now := ui.window_begin(ctx, "settings", "Settings", win, .End, .Start, {t.edge, top}, {direction = .Column, gap = 8, padding = 16, width = KIT_SETTINGS_W, radius = t.radius_large, background = .Panel, inert = !k.settings}, "Esc")
+	raised = raised_now
+	if closed do settings_close(app)
+	if !body {
+		ui.window_end(ctx)
+		ui.transform_since(ctx, mark, shown, 1, {}, {window_slide(win^, .End) * (1 - shown) * 16, 0})
+		return
+	}
 	names: [len(Settings_Tab)]string
 	for tab in Settings_Tab do names[int(tab)] = SETTINGS_TAB_NAMES[tab]
 	if picked := ui.tabs(ctx, "settings tabs", names[:], int(k.settings_tab)); picked >= 0 && Settings_Tab(picked) != k.settings_tab {
@@ -69,10 +71,10 @@ kit_settings :: proc(app: ^App) {
 	body_h := max(room - 2 * 16 - 3 * 8 - 3 * t.target, 120)
 	_, natural := ui.prev_layout(ctx, body_name)
 	limit := max(natural.y - body_h, 0)
-	body_rect := ui.prev_rect(ctx, body_name)
-	dragging := ui.scroll_update(ctx, body_id, body_rect, &k.settings_scroll, limit)
+	dragging := ui.scroll_update(ctx, body_id, ui.prev_rect(ctx, body_name), &k.settings_scroll, limit)
 	scroll := ui.tween(ctx, ui.salt(body_id, 1), k.settings_scroll, 0 if dragging else t.popover_time, .Out_Quart)
 	ui.begin(ctx, body_name, {direction = .Column, gap = 4, width = inner, height = body_h if natural.y > body_h else 0, clip = true, scroll = scroll, drag_scroll = true})
+	body_at := ctx.last_rect
 	switch k.settings_tab {
 	case .Interface:   settings_interface(app)
 	case .Camera:      settings_camera(app)
@@ -95,16 +97,17 @@ kit_settings :: proc(app: ^App) {
 	}
 	if ui.button(ctx, "Done", .Solid, .Accent, width = (inner - 8) * 0.5) do settings_close(app)
 	ui.end(ctx)
-	ui.end(ctx)
+	ui.window_end(ctx)
 
 	// A thin scroll bar when the category is taller than the room, showing where it is.
 	if limit > 0 {
-		r := body_rect
-		thumb := max(r.h * r.h / natural.y, 24)
-		y := r.y + (r.h - thumb) * (scroll / limit)
+		r := body_at
+		thumb := max(body_h * body_h / natural.y, 24)
+		y := r.y + (body_h - thumb) * (scroll / limit)
 		ui.fill_rect(ctx, {r.x + r.w + 6, y, 3, thumb}, 1.5, ui.color_fade(t.text_tertiary, 0.6))
 	}
-	ui.transform_since(ctx, mark, shown, 1, {}, {(1 - shown) * 16, 0})
+	ui.transform_since(ctx, mark, shown, 1, {}, {window_slide(win^, .End) * (1 - shown) * 16, 0})
+	return
 }
 
 // Closes the Settings panel and remembers what it holds.
@@ -122,9 +125,12 @@ settings_reset :: proc(app: ^App, tab: Settings_Tab) {
 	case .Interface:
 		k.ui_scale = 1
 		k.ctx.reduced_motion = false
+		k.surface_ring = true
+		windows_reset(k)
 	case .Camera:
 		n.orbit_style, n.limit_pitch, n.orbit_speed, n.pan_speed, n.zoom_speed = d.orbit_style, d.limit_pitch, d.orbit_speed, d.pan_speed, d.zoom_speed
 		n.invert_x, n.invert_y, n.invert_wheel = d.invert_x, d.invert_y, d.invert_wheel
+		n.pivot, n.edge_orbit, n.edge_size, n.edge_show = d.pivot, d.edge_orbit, d.edge_size, d.edge_show
 	case .Touch:
 		n.finger_model, n.empty_drag, n.palm_rejection = d.finger_model, d.empty_drag, d.palm_rejection
 		n.pinch_zoom, n.two_finger_pan, n.zoom_toward, n.twist_roll = d.pinch_zoom, d.two_finger_pan, d.zoom_toward, d.twist_roll
@@ -152,6 +158,14 @@ settings_interface :: proc(app: ^App) {
 	ui.caption(ctx, "MOTION")
 	_ = ui.switch_row(ctx, "Reduce motion", &ctx.reduced_motion)
 	ui.paragraph(ctx, "Panels and menus appear and change without animating.")
+	ui.spacer(ctx, 8)
+	ui.caption(ctx, "BRUSH RING")
+	_ = ui.switch_row(ctx, "Lay the brush ring on the surface", &k.surface_ring)
+	ui.paragraph(ctx, "Over the model the ring tilts with the surface under it, with a tick showing which way it faces, as in ZBrush; off, it stays a flat circle on the screen.")
+	ui.spacer(ctx, 8)
+	ui.caption(ctx, "PANELS")
+	if ui.button(ctx, "Reset panel positions", .Bordered) do windows_reset(k)
+	ui.paragraph(ctx, "Drag a panel by its title bar to move it; Minimise folds it to its title bar, Close hides it until it is opened again. This puts every panel back where it starts, unfolded.")
 }
 
 @(private = "file")
@@ -171,6 +185,23 @@ settings_camera :: proc(app: ^App) {
 	speed_slider(ctx, "Orbit speed", &n.orbit_speed)
 	_ = ui.switch_row(ctx, "Invert sideways orbit", &n.invert_x)
 	_ = ui.switch_row(ctx, "Invert up and down orbit", &n.invert_y)
+	ui.label(ctx, "Turn about")
+	pivots := [len(Orbit_Pivot)]string{"Last stroke", "Pointer", "Centre"}
+	if picked := ui.tabs(ctx, "Orbit pivot", pivots[:], int(n.pivot)); picked >= 0 do n.pivot = Orbit_Pivot(picked)
+	switch n.pivot {
+	case .Stroke:
+		ui.paragraph(ctx, "The view turns about the middle of your last stroke, which stays where it is on screen, as ZBrush's Local and Blender's Orbit Around Selection do. Before any stroke, and after Focus, about the selected object's middle.")
+	case .Pointer:
+		ui.paragraph(ctx, "A drag that starts on the model turns about the spot under it; one on empty space turns about the last stroke.")
+	case .Centre:
+		ui.paragraph(ctx, "The view turns about the middle of the screen, wherever the model is.")
+	}
+	ui.spacer(ctx, 8)
+	ui.caption(ctx, "SAFE ZONE")
+	_ = ui.switch_row(ctx, "Edges always turn the view", &n.edge_orbit)
+	_ = ui.slider(ctx, "Edge width", &n.edge_size, EDGE_MIN, EDGE_MAX, .Linear, fmt.tprintf("%.0f pt", n.edge_size), enabled = n.edge_orbit)
+	_ = ui.switch_row(ctx, "Show the edges", &n.edge_show, enabled = n.edge_orbit)
+	ui.paragraph(ctx, "A drag that starts this close to an edge of the screen turns the view even over the model, so when the model fills the screen there is still somewhere to turn it from. Ctrl keeps the edges for mask and hide shapes.")
 	ui.spacer(ctx, 8)
 	ui.caption(ctx, "PAN AND ZOOM")
 	speed_slider(ctx, "Pan speed", &n.pan_speed)
@@ -178,7 +209,7 @@ settings_camera :: proc(app: ^App) {
 	_ = ui.switch_row(ctx, "Invert the mouse wheel", &n.invert_wheel)
 	ui.spacer(ctx, 8)
 	ui.caption(ctx, "WITH A MOUSE")
-	ui.paragraph(ctx, "Drag empty space or right drag to turn the view; hold Shift while turning to snap to the nearest front, side or top view. Alt or Shift with the right button, or the middle button, pans; Ctrl with the right button zooms.")
+	ui.paragraph(ctx, "Drag empty space or an edge, or right drag, to turn the view; hold Shift while turning to snap to the nearest front, side or top view. Alt or Shift with the right button, or the middle button, pans; Ctrl with the right button zooms.")
 }
 
 @(private = "file")

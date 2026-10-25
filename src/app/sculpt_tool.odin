@@ -83,6 +83,10 @@ Stroke :: struct {
 	at:       Vec3, // ...and where that is on the object, in its own space
 	anchor:   Vec3, // Grab: where the stroke started; Snake hook: where it has pulled to (world space)
 	kind:     sculpt.Brush_Kind, // the brush the stroke started with, Shift's Smooth included, for the History panel
+	// The sum and count of the points it dabbed, in its object's space: their mean is the
+	// pivot orbits turn about once it ends (Stroke_Pivot).
+	pivot_sum:   Vec3,
+	pivot_count: int,
 }
 
 Sculpt_Frame_Result :: struct {
@@ -244,6 +248,7 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 	if brush.kind == .Cloth && !st.cloth do log.warn("cloth: not with dynamic topology on")
 	st.rect = app.brush.stroke == .Drag_Rect && !st.grab && !st.hook && !st.cloth && brush.kind != .Cloth && !input.smooth && !object_dynamic(obj)
 	st.start, st.at = s.pos, local
+	st.pivot_sum, st.pivot_count = local, 1
 	if st.hook || st.rect do return // they move nothing until the pointer does
 	t1 := time.tick_now()
 	if st.grab {
@@ -423,6 +428,8 @@ stroke_dab :: proc(app: ^App, obj: ^Object, input: Viewport_Input, inv: matrix[4
 	hit, ok := sculpt.sculptor_raycast(object_sculptor(obj), to_local(t, origin), to_local_dir(t, dir))
 	res.raycast_ms += time.duration_milliseconds(time.tick_since(t0))
 	if !ok do return
+	app.stroke.pivot_sum += hit
+	app.stroke.pivot_count += 1
 	t1 := time.tick_now()
 	sculpt.apply_dab(object_sculptor(obj), brush_at(app, input, t, hit, pressure, tilt), hit)
 	res.brush_ms += time.duration_milliseconds(time.tick_since(t1))
