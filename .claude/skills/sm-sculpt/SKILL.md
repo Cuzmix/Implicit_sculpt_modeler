@@ -17,7 +17,7 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
   triangle order change (`:172`).
 - `Brush{kind, radius (world units), strength 0..1, invert, symmetry, detail, collapse, tilt, alpha, alpha_up,
   alpha_mirror}` (`:55-75`; `detail`/`collapse` are dynamic topology's; `tilt` is a rotation of the area normal from a
-  leaning pen, zero for none; `alpha` is the bullet on alphas below, nil for none); `falloff` is `(1 − x²)²` over the squared distance in radii (`:511-515`). Strengths with
+  leaning pen, zero for none; `alpha` is the bullet on alphas below, nil for none); `falloff` is `(1 − x²)²` over the squared distance in radii (`:511-515`). `Brush.falloff_shape: ^Falloff` (nil = built-in) swaps it for a drawn curve: `falloff_set_curve` fills a 257-entry table over x² from `geom.curve_at(curve, 1 - d)`, `falloff_drawn` lerps it; `dab_weight` and `grab_follow` read it (the alpha's height fade and the area sampling keep the built-in). App: `Brush_Settings.falloffs[kind]`, tables cached in `App.falloff_tables` by `brush_falloff`. Strengths with
   their reasons: `DRAW_HEIGHT 0.1` radii, `CLAY_HEIGHT 0.08`, `PLANE_RATE 0.5`, `PINCH_RATE 0.25`, `CREASE_PINCH 0.2`
   (`:78-83`).
 - The nine kinds, in key order 1–9 (`Brush_Kind`, `:34-44`; README "Brushes, masking and symmetry" has the user's view):

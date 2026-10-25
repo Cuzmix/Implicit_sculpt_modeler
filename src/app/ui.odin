@@ -33,6 +33,7 @@ Ui_State :: struct {
 	pie:                Pie,
 	adjust:             Brush_Adjust,
 	curve_handle:       int, // the pressure curve's control point being dragged (1 or 2), or 0
+	falloff_handle:     int, // ...and the falloff curve's
 	mask_steps:         i32, // steps each Blur, Sharpen, Grow or Shrink press takes
 	mirror_axis:        i32, // Mirror and weld: 0 x, 1 y, 2 z
 	mirror_negative:    bool, // Mirror and weld keeps the - side instead of the + side
@@ -367,6 +368,7 @@ draw_tools_panel :: proc(app: ^App) {
 	}
 	imgui.SameLine()
 	imgui.TextDisabled("(X toggles X)")
+	draw_falloff_section(app)
 	draw_alpha_section(app)
 	draw_dyntopo_section(app)
 
@@ -436,58 +438,115 @@ PRESSURE_PRESETS := [?]struct {
 // two round handles are the curve's control points; the dot is the pen now.
 @(private = "file")
 draw_pressure_curve :: proc(app: ^App) {
+	dot: Maybe([2]f32)
+	if app.pen_seen {
+		x := clamp(app.pen_pressure, 0, 1)
+		dot = [2]f32{x, pressure_curved(app, x)}
+	}
+	_ = draw_curve_editor("pressure_curve", &app.brush.pressure_curve, &app.ui.curve_handle, false, dot, nil)
+	imgui.SameLine()
+	imgui.TextDisabled("Pressure curve:\ndrag the handles.\nAlong: how hard\nthe pen presses.\nUp: what that\ncounts as.")
+}
+
+// A response curve as a graph to drag: the two round handles are its control points.
+// With `mirrored` the curve is drawn right to left, as a falloff reads from the centre
+// out. `dot` marks a point on it; `shown`, when given, is drawn instead of the curve
+// (a built-in shape that is not a curve; its handles still show, to drag from). `handle` remembers which handle is held
+// between frames. Returns whether a handle moved.
+@(private = "file")
+draw_curve_editor :: proc(id: cstring, curve: ^geom.Curve, handle: ^int, mirrored: bool, dot: Maybe([2]f32), shown: proc(x: f32) -> f32) -> (moved: bool) {
 	SIZE :: imgui.Vec2{160, 110}
 	HANDLE_PX :: 6
 	o := imgui.GetCursorScreenPos()
-	imgui.InvisibleButton("pressure_curve", SIZE)
+	imgui.InvisibleButton(id, SIZE)
 	list := imgui.GetWindowDrawList()
 	rgba :: proc(c: [4]f32) -> u32 {return imgui.ColorConvertFloat4ToU32(c)}
-	to_px :: proc(o: imgui.Vec2, p: [2]f32) -> imgui.Vec2 {return o + {p.x * SIZE.x, (1 - p.y) * SIZE.y}}
-	curve := &app.brush.pressure_curve
+	to_px :: proc(o: imgui.Vec2, p: [2]f32, mirrored: bool) -> imgui.Vec2 {
+		x := 1 - p.x if mirrored else p.x
+		return o + {x * SIZE.x, (1 - p.y) * SIZE.y}
+	}
 
 	mouse := imgui.GetIO().MousePos
 	if imgui.IsItemActivated() {
 		// Grab the nearer handle, if the press is near one.
-		app.ui.curve_handle = 0
+		handle^ = 0
 		best := f32(3 * HANDLE_PX)
 		for c, i in ([2][2]f32{curve.c1, curve.c2}) {
-			if d := linalg.length(mouse - to_px(o, c)); d < best do app.ui.curve_handle, best = i + 1, d
+			if d := linalg.length(mouse - to_px(o, c, mirrored)); d < best do handle^, best = i + 1, d
 		}
 	}
-	if imgui.IsItemActive() && app.ui.curve_handle > 0 {
-		p := [2]f32{clamp((mouse.x - o.x) / SIZE.x, 0, 1), clamp(1 - (mouse.y - o.y) / SIZE.y, 0, 1)}
-		if app.ui.curve_handle == 1 do curve.c1 = p
+	if imgui.IsItemActive() && handle^ > 0 {
+		x := clamp((mouse.x - o.x) / SIZE.x, 0, 1)
+		p := [2]f32{1 - x if mirrored else x, clamp(1 - (mouse.y - o.y) / SIZE.y, 0, 1)}
+		if handle^ == 1 do curve.c1 = p
 		else do curve.c2 = p
+		moved = true
 	} else if !imgui.IsItemActive() {
-		app.ui.curve_handle = 0
+		handle^ = 0
 	}
 
 	imgui.DrawList_AddRectFilled(list, o, o + SIZE, rgba({0.1, 0.1, 0.12, 1}))
 	for k in 1 ..< 4 {
 		f := f32(k) / 4
 		grid := rgba({1, 1, 1, 0.07})
-		imgui.DrawList_AddLine(list, to_px(o, {f, 0}), to_px(o, {f, 1}), grid)
-		imgui.DrawList_AddLine(list, to_px(o, {0, f}), to_px(o, {1, f}), grid)
+		imgui.DrawList_AddLine(list, to_px(o, {f, 0}, false), to_px(o, {f, 1}, false), grid)
+		imgui.DrawList_AddLine(list, to_px(o, {0, f}, false), to_px(o, {1, f}, false), grid)
 	}
-	imgui.DrawList_AddLine(list, to_px(o, {0, 0}), to_px(o, {1, 1}), rgba({1, 1, 1, 0.15}))
+	imgui.DrawList_AddLine(list, to_px(o, {0, 0}, mirrored), to_px(o, {1, 1}, mirrored), rgba({1, 1, 1, 0.15}))
 	STEPS :: 48
 	points: [STEPS + 1]imgui.Vec2
 	for &q, i in points {
 		x := f32(i) / STEPS
-		q = to_px(o, {x, geom.curve_at(curve^, x)})
+		q = to_px(o, {x, shown(x) if shown != nil else geom.curve_at(curve^, x)}, mirrored)
 	}
 	imgui.DrawList_AddPolyline(list, &points[0], STEPS + 1, rgba({0.95, 0.8, 0.45, 1}), 2)
-	handle := rgba({0.6, 0.75, 1, 1})
-	imgui.DrawList_AddLine(list, to_px(o, {0, 0}), to_px(o, curve.c1), handle)
-	imgui.DrawList_AddLine(list, to_px(o, {1, 1}), to_px(o, curve.c2), handle)
-	imgui.DrawList_AddCircleFilled(list, to_px(o, curve.c1), HANDLE_PX, handle, 16)
-	imgui.DrawList_AddCircleFilled(list, to_px(o, curve.c2), HANDLE_PX, handle, 16)
-	if app.pen_seen {
-		x := clamp(app.pen_pressure, 0, 1)
-		imgui.DrawList_AddCircleFilled(list, to_px(o, {x, pressure_curved(app, x)}), 4, rgba({1, 1, 1, 1}), 12)
+	{
+		h := rgba({0.6, 0.75, 1, 1})
+		imgui.DrawList_AddLine(list, to_px(o, {0, 0}, mirrored), to_px(o, curve.c1, mirrored), h)
+		imgui.DrawList_AddLine(list, to_px(o, {1, 1}, mirrored), to_px(o, curve.c2, mirrored), h)
+		imgui.DrawList_AddCircleFilled(list, to_px(o, curve.c1, mirrored), HANDLE_PX, h, 16)
+		imgui.DrawList_AddCircleFilled(list, to_px(o, curve.c2, mirrored), HANDLE_PX, h, 16)
+	}
+	if p, ok := dot.?; ok do imgui.DrawList_AddCircleFilled(list, to_px(o, p, mirrored), 4, rgba({1, 1, 1, 1}), 12)
+	return
+}
+
+// The falloff of the brush in use: the built-in smooth one, or a curve drawn here.
+@(private = "file")
+draw_falloff_section :: proc(app: ^App) {
+	imgui.SeparatorText("Falloff")
+	kind := app.brush.kind
+	shape := &app.brush.falloffs[kind]
+	smooth :: proc(x: f32) -> f32 {
+		// The built-in falloff over how far in from the rim, as the curve is read.
+		d := 1 - x
+		return sculpt.falloff(d * d)
+	}
+	// Dragging a handle of the built-in shape starts a drawn one close to it.
+	if !shape.drawn do shape.curve = FALLOFF_SMOOTH_CURVE
+	if draw_curve_editor("falloff_curve", &shape.curve, &app.ui.falloff_handle, true, nil, nil if shape.drawn else smooth) {
+		shape.drawn = true
 	}
 	imgui.SameLine()
-	imgui.TextDisabled("Pressure curve:\ndrag the handles.\nAlong: how hard\nthe pen presses.\nUp: what that\ncounts as.")
+	imgui.TextDisabled("%s", fmt.ctprintf("%s falloff:\ncentre on the left,\nrim on the right.\nDrag a handle to\ndraw your own.", BRUSH_NAMES[kind]))
+	for preset, i in FALLOFF_PRESETS {
+		if i > 0 do imgui.SameLine()
+		if imgui.SmallButton(preset.label) do shape^ = {drawn = preset.drawn, curve = preset.curve}
+	}
+}
+
+FALLOFF_SMOOTH_CURVE :: geom.Curve{{0.3, 0}, {0.6, 1}} // near the built-in one
+
+FALLOFF_PRESETS := [?]struct {
+	label: cstring,
+	drawn: bool,
+	curve: geom.Curve,
+} {
+	{"Smooth", false, FALLOFF_SMOOTH_CURVE}, // the built-in one
+	{"Linear", true, geom.CURVE_LINEAR}, // a cone
+	{"Sharp", true, {{0.7, 0}, {0.95, 0.3}}}, // a point in the middle, for creases and pores
+	{"Firm", true, {{0.05, 0.7}, {0.3, 1}}}, // most of the radius at full strength
+	{"Flat", true, {{0, 1}, {0.02, 1}}}, // full strength to the rim, a hard edge
 }
 
 // Dynamic topology for the selected object, and the detail its brushes add.

@@ -11,6 +11,7 @@
 package sculpt
 
 import "base:runtime"
+import "core:math"
 import "core:math/linalg"
 import "core:slice"
 import "core:sync"
@@ -72,6 +73,9 @@ Brush :: struct {
 	alpha:        ^Alpha,
 	alpha_up:     Vec3,
 	alpha_mirror: bool,
+	// Replaces the round falloff with this one (falloff_set_curve); nil keeps the
+	// built-in smooth one. Every brush uses it, Grab included; an alpha replaces it.
+	falloff_shape: ^Falloff,
 }
 
 // How far dabs move the surface at full strength, in brush radii.
@@ -514,6 +518,31 @@ falloff :: #force_inline proc(x2: f32) -> f32 {
 	return t * t
 }
 
+FALLOFF_STEPS :: 256
+
+// A brush falloff drawn by the user: the weight at squared distances 0, 1/256, ... 1 in
+// radii², read between the entries linearly. Indexing by the squared distance spares a
+// square root per vertex, as falloff does.
+Falloff :: struct {
+	table: [FALLOFF_STEPS + 1]f32,
+}
+
+// Fills the table from a response curve read from the rim in: the weight at distance d
+// radii from the centre is geom.curve_at(curve, 1 - d), so the linear curve is a cone,
+// and every curve is 0 at the rim and 1 at the centre.
+falloff_set_curve :: proc(f: ^Falloff, curve: geom.Curve) {
+	for &w, i in f.table do w = geom.curve_at(curve, 1 - math.sqrt(f32(i) / FALLOFF_STEPS))
+}
+
+// The drawn falloff at squared distance x2 in radii².
+falloff_drawn :: #force_inline proc(f: ^Falloff, x2: f32) -> f32 {
+	if x2 >= 1 do return 0
+	x := x2 * FALLOFF_STEPS
+	i := int(x)
+	a := f.table[i]
+	return a + (f.table[i + 1] - a) * (x - f32(i))
+}
+
 // Lays the brush's alpha on the plane across the dab's area normal, its top toward
 // alpha_up (or, when that runs along the normal, any way).
 @(private)
@@ -539,7 +568,10 @@ alpha_frame :: proc(d: ^Dab) {
 // it only inside the reach.
 @(private)
 dab_weight :: #force_inline proc(d: ^Dab, delta: Vec3, d2: f32) -> f32 {
-	if d.alpha == nil do return falloff(d2 * d.inv_r2)
+	if d.alpha == nil {
+		if d.brush.falloff_shape != nil do return falloff_drawn(d.brush.falloff_shape, d2 * d.inv_r2)
+		return falloff(d2 * d.inv_r2)
+	}
 	h := linalg.dot(delta, d.an)
 	return alpha_sample(d.alpha, linalg.dot(delta, d.au), linalg.dot(delta, d.av)) * falloff(h * h)
 }
