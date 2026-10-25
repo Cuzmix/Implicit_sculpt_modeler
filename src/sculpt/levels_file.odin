@@ -33,6 +33,11 @@ LEVELS_LAYERS :: u32(4)
 // After them, the base level's quads and UVs (levels_quads.odin).
 @(private = "file")
 LEVELS_QUADS :: u32(8)
+// Right after the base mesh, its node layout (sculptor_layout), so that opening it skips
+// partitioning and renumbering it, the bulk of opening a big mesh. Files from before it,
+// or with a layout that does not fit, get the full build.
+@(private = "file")
+LEVELS_LAYOUT :: u32(16)
 
 // Appends the levels to `out`: every level in sync with the current one, its mask, and
 // whether dynamic topology is on (a dynamic mesh is stored packed). Leave any HD window
@@ -42,7 +47,7 @@ levels_write :: proc(l: ^Levels, out: ^[dynamic]u8) {
 	levels_sync(l)
 	paged := levels_dynamic(l)
 	geom.byte_put(out, LEVELS_TAG)
-	geom.byte_put(out, LEVELS_DYNAMIC if paged else LEVELS_PAINT | LEVELS_LAYERS | LEVELS_QUADS)
+	geom.byte_put(out, LEVELS_DYNAMIC if paged else LEVELS_PAINT | LEVELS_LAYERS | LEVELS_QUADS | LEVELS_LAYOUT)
 	geom.byte_put(out, u32(len(l.levels)))
 	geom.byte_put(out, u32(l.current))
 	geom.byte_put(out, u32(l.hd.steps))
@@ -56,6 +61,9 @@ levels_write :: proc(l: ^Levels, out: ^[dynamic]u8) {
 		return
 	}
 	write_mesh(out, base.mesh)
+	layout := sculptor_layout(&base.sculptor, context.temp_allocator)
+	geom.byte_put(out, u32(len(layout)))
+	geom.byte_put_slice(out, layout)
 	canon: [MAX_LEVELS][]u32 // level 0's is its own order
 	for j in 1 ..< len(l.levels) {
 		lv := l.levels[j]
@@ -185,8 +193,18 @@ levels_read :: proc(l: ^Levels, r: ^geom.Byte_Reader, pool: ^jobs.Pool, node_tri
 	mesh, mesh_ok := read_mesh(r, pool, allocator)
 	if !mesh_ok do return false
 
+	layout: []Node_Sizes
+	if flags & LEVELS_LAYOUT != 0 {
+		nodes := int(geom.byte_get(r, u32))
+		if !r.ok || nodes < 1 || (len(r.data) - r.at) / size_of(Node_Sizes) < nodes {
+			geom.mesh_destroy(&mesh)
+			return false
+		}
+		layout = make([]Node_Sizes, nodes, context.temp_allocator)
+		geom.byte_get_slice(r, layout)
+	}
 	file_order := make([]u32, len(mesh.positions), context.temp_allocator)
-	levels_init(l, mesh, pool, node_triangles, file_order, allocator)
+	levels_init(l, mesh, pool, node_triangles, file_order, allocator, layout)
 	sculptor_recompute_all(&l.levels[0].sculptor)
 	ok := false
 	defer if !ok do levels_destroy(l)

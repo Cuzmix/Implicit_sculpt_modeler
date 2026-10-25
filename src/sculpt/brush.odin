@@ -223,7 +223,14 @@ sculptor_init :: proc(s: ^Sculptor, mesh: ^geom.Mesh, pool: ^jobs.Pool, node_tri
 	s.pool = pool
 	s.bvh = geom.bvh_build_morton(mesh^, node_triangles, pool, allocator)
 	reorder_by_nodes(s, old_to_new, allocator)
-	s.faces = geom.vertex_faces_build(mesh^, pool, allocator)
+	sculptor_init_rest(s, allocator)
+}
+
+// What sculptor_init does once the mesh is laid out in nodes.
+@(private)
+sculptor_init_rest :: proc(s: ^Sculptor, allocator: runtime.Allocator) {
+	mesh := s.mesh
+	s.faces = geom.vertex_faces_build(mesh^, s.pool, allocator)
 	s.hit = make([dynamic]u32, 0, 256, allocator)
 	s.changed = make([dynamic]u32, 0, 256, allocator)
 	s.partials = make([dynamic]Partial, 0, 256, allocator)
