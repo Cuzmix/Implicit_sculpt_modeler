@@ -48,7 +48,7 @@ description: Implicit and SDF modelling for this app — the src/sdf_trial spike
 2. Build `geom.Mesh{positions, normals, indices}` and `mesh_recompute_normals`; `mesh_check` must report closed with a
    positive volume (flip every triangle if the volume is negative).
 3. Hand it to `scene_add_mesh` (the new-object path); later dabs that remesh go through the topology-change path, which
-   drops levels and history until the `Mesh_Swap` entry exists.
+   drops levels and strokes; record it as a swap entry (sm-cad references/undo-and-topology.md) so Ctrl+Z restores the object.
 4. Numbers: vertices, triangles, `mesh_check` line, volume against the analytic one (a unit sphere's is 4π/3 ≈ 4.189).
 
 ## Traps

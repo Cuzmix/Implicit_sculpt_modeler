@@ -1,7 +1,11 @@
 package main
 
+import "core:log"
 import "core:time"
+import sdl "vendor:sdl3"
 
+import "../geom"
+import "../render"
 import "../sculpt"
 
 // Scene-wide undo order. Each level of each object keeps its own strokes; this records
@@ -12,19 +16,108 @@ import "../sculpt"
 History :: struct {
 	done:   [dynamic]History_Entry,
 	undone: [dynamic]History_Entry,
+	// What the snapshots of every swap entry in both lists take, for the limit.
+	swap_bytes: int,
 }
 
 History_Entry :: struct {
 	id:    int, // object
 	level: int, // or HD_LEVEL: the object's HD window
+	// Set for a change a stroke's undo cannot take back, because it rebuilds the object
+	// or adds or removes it (remesh, dynamic topology on or off, deleting levels, adding
+	// or deleting the object): the object as it was on the other side of the change.
+	swap:  ^Object_Snapshot,
+}
+
+// An object as object_put writes it, or that it did not exist. Undoing or redoing a swap
+// entry trades the live object for its snapshot and keeps the live one in its place, so
+// the same entry goes back and forth.
+Object_Snapshot :: struct {
+	exists: bool,
+	index:  int, // where in the scene's list the object was
+	bytes:  [dynamic]u8,
+	what:   string, // the change, for the log and the Edit menu (not owned)
 }
 
 HD_LEVEL :: -1
 
+// Swap snapshots above this many bytes in all drop the oldest ones (never the newest).
+// A snapshot costs about 37 bytes a base vertex plus 12 a vertex of each level above, so
+// a 10M-vertex object takes about 370 MB.
+SWAP_LIMIT_BYTES :: 1536 << 20
+
 history_destroy :: proc(h: ^History) {
+	history_clear(h)
 	delete(h.done)
 	delete(h.undone)
 	h^ = {}
+}
+
+// Drops every entry, freeing the snapshots.
+history_clear :: proc(h: ^History) {
+	for list in ([2]^[dynamic]History_Entry{&h.done, &h.undone}) {
+		for e in list do snapshot_free(e.swap)
+		clear(list)
+	}
+	h.swap_bytes = 0
+}
+
+@(private = "file")
+snapshot_free :: proc(snap: ^Object_Snapshot) {
+	if snap == nil do return
+	delete(snap.bytes)
+	free(snap)
+}
+
+// The object as it is now, before a change that rebuilds, adds or removes it; nil for
+// an object that does not exist yet. Pass it to history_record_swap once the change has
+// happened, or to history_snapshot_drop if it did not.
+history_snapshot :: proc(app: ^App, obj: ^Object, what: string) -> ^Object_Snapshot {
+	snap := new(Object_Snapshot)
+	snap.what = what
+	if obj == nil do return snap
+	snap.exists = true
+	for o, i in app.scene.objects do if o == obj do snap.index = i
+	object_put(app, &snap.bytes, obj)
+	return snap
+}
+
+history_snapshot_drop :: proc(snap: ^Object_Snapshot) {snapshot_free(snap)}
+
+// Lists a change to object `id` that `before` (from history_snapshot) undoes as the
+// newest undo step. The object's strokes from before it are dropped, since the sculptors
+// they were made with are gone.
+history_record_swap :: proc(app: ^App, id: int, before: ^Object_Snapshot) {
+	history_drop_redo(app)
+	history_forget_strokes(app, id)
+	append(&app.history.done, History_Entry{id = id, swap = before})
+	app.history.swap_bytes += len(before.bytes)
+	// Over the limit, the oldest snapshots go, with every entry older than them, since
+	// undo cannot skip a swap; strokes older than a swap are dropped anyway, so the
+	// only older entries are other objects' strokes.
+	h := &app.history
+	for h.swap_bytes > SWAP_LIMIT_BYTES {
+		oldest := -1
+		for e, i in h.done do if e.swap != nil {oldest = i; break}
+		if oldest < 0 || oldest == len(h.done) - 1 do break
+		// The strokes among them stay in their sculptors, out of reach, until the
+		// sculptors' own limit drops them.
+		h.swap_bytes -= len(h.done[oldest].swap.bytes)
+		snapshot_free(h.done[oldest].swap)
+		remove_range(&h.done, 0, oldest + 1)
+	}
+}
+
+// Lists adding the selected object, the one just added, as the newest undo step.
+history_record_added :: proc(app: ^App) {
+	if obj := selected_object(app); obj != nil do history_record_swap(app, obj.id, history_snapshot(app, nil, "add object"))
+}
+
+// What Ctrl+Z would take back, for the Edit menu.
+history_next_label :: proc(list: []History_Entry) -> string {
+	if len(list) == 0 do return "stroke"
+	if e := list[len(list) - 1]; e.swap != nil do return e.swap.what
+	return "stroke"
 }
 
 // Ends the brush stroke in progress, if any, and records it when it changed the mesh.
@@ -55,12 +148,22 @@ mask_command :: proc(app: ^App, command: sculpt.Mask_Command) {
 // the newest undo step.
 @(private = "file")
 history_record :: proc(app: ^App, obj: ^Object) {
-	// A new stroke discards everything that could have been redone, everywhere.
+	history_drop_redo(app)
+	append(&app.history.done, History_Entry{id = obj.id, level = HD_LEVEL if object_in_hd(obj) else obj.levels.current})
+}
+
+// A new step discards everything that could have been redone, everywhere.
+@(private = "file")
+history_drop_redo :: proc(app: ^App) {
 	for e in app.history.undone {
-		if s := entry_sculptor(app, e); s != nil do sculpt.sculptor_clear_redo(s)
+		if e.swap != nil {
+			app.history.swap_bytes -= len(e.swap.bytes)
+			snapshot_free(e.swap)
+		} else if s := entry_sculptor(app, e); s != nil {
+			sculpt.sculptor_clear_redo(s)
+		}
 	}
 	clear(&app.history.undone)
-	append(&app.history.done, History_Entry{obj.id, HD_LEVEL if object_in_hd(obj) else obj.levels.current})
 }
 
 history_can_undo :: proc(app: ^App) -> bool {return !app.stroke.active && len(app.history.done) > 0}
@@ -80,6 +183,11 @@ history_step :: proc(app: ^App, from, to: ^[dynamic]History_Entry, can, step: pr
 	// Entries whose step a sculptor already dropped (memory limit) are skipped.
 	for len(from) > 0 {
 		e := pop(from)
+		if e.swap != nil {
+			if !history_swap(app, e) do app.running = false // GPU failure
+			append(to, e)
+			return
+		}
 		s := entry_sculptor(app, e)
 		if s == nil || !can(s) do continue
 		// A stroke from outside HD leaves the window first; one inside it is only listed
@@ -106,9 +214,74 @@ entry_sculptor :: proc(app: ^App, e: History_Entry) -> ^sculpt.Sculptor {
 	return &obj.levels.levels[e.level].sculptor
 }
 
+// Trades the object the entry names, as it is now, for the entry's snapshot, and keeps
+// what it was in the snapshot instead, so the entry can go back the other way. Returns
+// false only on a GPU failure.
+@(private = "file")
+history_swap :: proc(app: ^App, e: History_Entry) -> bool {
+	snap := e.swap
+	start := time.tick_now()
+	stroke_finish(app)
+	app.move.drag = {}
+	obj := object_by_id(app, e.id)
+	live := history_snapshot(app, obj, snap.what)
+	defer snapshot_free(live)
+	restored: ^Object
+	if snap.exists {
+		r := geom.byte_reader(snap.bytes[:])
+		read, made: bool
+		restored, read, made = object_get(app, &r)
+		if !read {
+			// Written by this run a moment ago; only running out of memory gets here.
+			log.errorf("undo: could not rebuild object %d", e.id)
+			return true
+		}
+		if !made {
+			_ = sdl.WaitForGPUIdle(app.renderer.device)
+			object_discard(app, restored)
+			return false
+		}
+	}
+	_ = sdl.WaitForGPUIdle(app.renderer.device)
+	history_forget_strokes(app, e.id)
+	scene := &app.scene
+	if obj != nil {
+		index := live.index
+		ordered_remove(&scene.objects, index)
+		object_free(app, obj)
+		scene.selected = min(scene.selected, len(scene.objects) - 1)
+	}
+	if restored != nil {
+		index := clamp(snap.index, 0, len(scene.objects))
+		inject_at(&scene.objects, index, restored)
+		scene.selected = index
+	}
+	app.history.swap_bytes += len(live.bytes) - len(snap.bytes)
+	snap.exists, snap.index = live.exists, live.index
+	snap.bytes, live.bytes = live.bytes, snap.bytes
+	render.viewport_invalidate(&app.target)
+	log.infof("swap: %s on object %d in %.0f ms", snap.what, e.id, time.duration_milliseconds(time.tick_since(start)))
+	return true
+}
+
 // Drops an object's entries, when its sculptors (and so its strokes) go away.
 history_forget :: proc(app: ^App, id: int) {
 	history_forget_level(app, id, nil)
+}
+
+// Drops an object's strokes on every level but keeps its swap entries, which hold the
+// whole object and so stay right whatever happened to its sculptors.
+history_forget_strokes :: proc(app: ^App, id: int) {
+	for list in ([2]^[dynamic]History_Entry{&app.history.done, &app.history.undone}) {
+		kept := 0
+		for e in list {
+			if e.id != id || e.swap != nil {
+				list[kept] = e
+				kept += 1
+			}
+		}
+		resize(list, kept)
+	}
 }
 
 // Drops an object's entries on one level (all levels when nil): for the HD window,
@@ -118,9 +291,12 @@ history_forget_level :: proc(app: ^App, id: int, level: Maybe(int)) {
 		kept := 0
 		for e in list {
 			only, one := level.?
-			if e.id != id || (one && e.level != only) {
+			if e.id != id || (one && (e.level != only || e.swap != nil)) {
 				list[kept] = e
 				kept += 1
+			} else if e.swap != nil {
+				app.history.swap_bytes -= len(e.swap.bytes)
+				snapshot_free(e.swap)
 			}
 		}
 		resize(list, kept)
@@ -131,7 +307,7 @@ history_forget_level :: proc(app: ^App, id: int, level: Maybe(int)) {
 // are deleted: undoing a stroke from one level is only right once every later stroke,
 // on any level, has been undone.
 object_forget_history :: proc(app: ^App, obj: ^Object) {
-	history_forget(app, obj.id)
+	history_forget_strokes(app, obj.id)
 	for lv in obj.levels.levels do sculpt.sculptor_clear_history(&lv.sculptor)
 }
 

@@ -206,10 +206,12 @@ run :: proc(opts: Options) -> bool {
 	}
 	// The first sphere; otherwise what the file selected, or the import.
 	if starting > 0 do app.scene.selected = 0
-	if opts.remesh > 0 && !object_remesh(&app, app.scene.objects[0], opts.remesh) do return false
+	if opts.remesh > 0 {
+		if _, ok := object_remesh(&app, app.scene.objects[0], opts.remesh); !ok do return false
+	}
 	if opts.dyntopo {
 		obj := app.scene.objects[0]
-		if !object_set_dyntopo(&app, obj, true) do return false
+		if _, ok := object_set_dyntopo(&app, obj, true); !ok do return false
 		if !object_dynamic(obj) do return false // refused, with the reason logged
 	}
 	defer render.viewport_target_destroy(&app.renderer, &app.target)

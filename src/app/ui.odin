@@ -184,8 +184,8 @@ draw_menu_bar :: proc(app: ^App) {
 		imgui.EndMenu()
 	}
 	if imgui.BeginMenu("Edit") {
-		if imgui.MenuItem("Undo stroke", "Ctrl+Z", false, history_can_undo(app)) do history_undo(app)
-		if imgui.MenuItem("Redo stroke", "Ctrl+Shift+Z", false, history_can_redo(app)) do history_redo(app)
+		if imgui.MenuItem(fmt.ctprintf("Undo %s", history_next_label(app.history.done[:])), "Ctrl+Z", false, history_can_undo(app)) do history_undo(app)
+		if imgui.MenuItem(fmt.ctprintf("Redo %s", history_next_label(app.history.undone[:])), "Ctrl+Shift+Z", false, history_can_redo(app)) do history_redo(app)
 		imgui.EndMenu()
 	}
 	if imgui.BeginMenu("View") {
@@ -503,7 +503,7 @@ draw_dyntopo_section :: proc(app: ^App) {
 	}
 	imgui.SliderFloat("Detail (px)", &app.brush.detail_px, 2, 40, "%.1f", {.Logarithmic})
 	imgui.Checkbox("Collapse short edges", &app.brush.collapse)
-	imgui.TextDisabled("Brushes add triangles where they go: edges under\nthe brush longer than Detail on screen split, and\nwith collapse, much shorter ones merge. Turning it\non or off clears the object's undo.")
+	imgui.TextDisabled("Brushes add triangles where they go: edges under\nthe brush longer than Detail on screen split, and\nwith collapse, much shorter ones merge. Turning it\non or off is an undo step of its own.")
 	if !on do return
 	splits, collapses := sculpt.sculptor_dyn_edits(object_sculptor(obj))
 	imgui.TextDisabled("%s", fmt.ctprintf("%s splits, %s collapses so far; %d GPU regrows", count_label(splits), count_label(collapses), app.stats.gpu_regrows))
@@ -560,9 +560,9 @@ draw_scene_panel :: proc(app: ^App) {
 	imgui.BeginDisabled(selected_object(app) == nil)
 	if imgui.Button("Remesh selected") do app.ui.scene_command = {kind = .Remesh, vertices = requested}
 	imgui.SameLine()
-	if imgui.Button("Delete selected") do app.ui.scene_command = {kind = .Delete}
+	if imgui.Button("Delete selected (Del)") do app.ui.scene_command = {kind = .Delete}
 	imgui.EndDisabled()
-	imgui.TextDisabled("Remesh rebuilds the selected object as an even mesh of\nabout this many vertices that keeps its shape, like\nDynaMesh. Ctrl+R does it at the object's own vertex\ncount. Levels, HD detail, mask and undo history go.")
+	imgui.TextDisabled("Remesh rebuilds the selected object as an even mesh of\nabout this many vertices that keeps its shape, like\nDynaMesh. Ctrl+R does it at the object's own vertex\ncount. Levels, HD detail and mask go; Ctrl+Z brings\nthem back (HD detail apart).")
 	if s := app.stats; s.remesh_ms > 0 {
 		imgui.TextDisabled("Last remesh: %.0f ms, then %.0f ms to sculpt-ready", s.remesh_ms, s.remesh_setup_ms)
 	}
@@ -611,7 +611,7 @@ draw_levels_section :: proc(app: ^App, obj: ^Object) {
 	if imgui.Button("Delete higher") do app.ui.scene_command = {kind = .Delete_Higher}
 	imgui.EndDisabled()
 	imgui.SameLine()
-	imgui.TextDisabled("(clears its undo)")
+	imgui.TextDisabled("(Ctrl+Z undoes it)")
 	imgui.TextDisabled("Ctrl+D subdivides; D and Shift+D go up and down.\nAll levels use %s of memory.", fmt.ctprintf("%s", bytes_label(sculpt.levels_bytes(levels))))
 	if s := app.stats; s.level_sync_ms + s.level_show_ms > 0 {
 		imgui.TextDisabled("Last change: %.0f ms to update levels, %.0f ms to show", s.level_sync_ms, s.level_show_ms)
@@ -703,6 +703,8 @@ handle_shortcuts :: proc(app: ^App) {
 	}
 	if io.KeyCtrl && imgui.IsKeyPressed(.I, false) do mask_command(app, .Invert)
 	if imgui.IsKeyPressed(.F, false) do focus_selected(app)
+	// Delete removes the selected object; Ctrl+Z brings it back.
+	if imgui.IsKeyPressed(.Delete, false) && selected_object(app) != nil do app.ui.scene_command = {kind = .Delete}
 	if imgui.IsKeyPressed(.A, false) && !io.KeyCtrl {
 		// Toggles HD sculpting: a window opens where the pointer is, on the object there.
 		if obj := selected_object(app); obj != nil && object_in_hd(obj) {
@@ -808,5 +810,5 @@ draw_stats_panel :: proc(app: ^App) {
 		for lv in obj.levels.levels do undo_bytes += sculpt.sculptor_undo_bytes(&lv.sculptor)
 		if w := obj.levels.hd.window; w != nil do undo_bytes += sculpt.sculptor_undo_bytes(&w.sculptor)
 	}
-	imgui.Text("Undo %d strokes, %.1f MB", i32(len(app.history.done)), f64(undo_bytes) / (1 << 20))
+	imgui.Text("Undo %d steps, %.1f MB of strokes, %.1f MB of object snapshots", i32(len(app.history.done)), f64(undo_bytes) / (1 << 20), f64(app.history.swap_bytes) / (1 << 20))
 }

@@ -142,9 +142,11 @@ scene_append :: proc(app: ^App, obj: ^Object) {
 
 // Rebuilds the object as an even mesh of about `vertices` vertices that keeps the shape
 // of the level it is on, as ZBrush's DynaMesh does (geom.remesh_voxel), keeping its
-// transform. Its levels, HD detail, mask, dynamic topology and undo history go. Returns
-// false only when the old mesh is gone and the new one could not be uploaded.
-object_remesh :: proc(app: ^App, obj: ^Object, vertices: int) -> bool {
+// transform. Its levels, HD detail, mask, dynamic topology and strokes go (a swap entry
+// recorded by the caller takes the whole remesh back). `changed` says whether it was
+// remeshed; ok is false only when the old mesh is gone and the new one could not be
+// uploaded.
+object_remesh :: proc(app: ^App, obj: ^Object, vertices: int) -> (changed, ok: bool) {
 	stroke_finish(app)
 	object_hd_leave(app, obj)
 	start := time.tick_now()
@@ -157,38 +159,39 @@ object_remesh :: proc(app: ^App, obj: ^Object, vertices: int) -> bool {
 		delete(mask)
 		source = packed
 	}
-	mesh, ok := geom.remesh_voxel(source, vertices, &app.pool)
+	mesh, built := geom.remesh_voxel(source, vertices, &app.pool)
 	geom.mesh_destroy(&packed)
 	free_all(context.temp_allocator)
-	if !ok {
+	if !built {
 		log.warn("remesh: the mesh has no volume to remesh")
-		return true
+		return false, true
 	}
 	remeshed := time.tick_now()
 	_ = sdl.WaitForGPUIdle(app.renderer.device)
 	object_release_mesh(app, obj)
-	if !object_build_from(app, obj, mesh, remeshed) do return false
+	if !object_build_from(app, obj, mesh, remeshed) do return true, false
 	app.stats.remesh_ms = time.duration_milliseconds(time.tick_diff(start, remeshed))
 	app.stats.remesh_setup_ms = time.duration_milliseconds(time.tick_since(remeshed))
 	log.infof("remesh: %d vertices in %.0f ms, ready in %.0f ms more", geom.mesh_vertex_count(object_mesh(obj)^), app.stats.remesh_ms, app.stats.remesh_setup_ms)
-	return true
+	return true, true
 }
 
 // Turns dynamic topology on or off for the object (see sculpt.levels_dyn_enable). It
-// needs the object to have a single level and no HD level. Its undo history goes.
-// Returns false only on a GPU failure.
-object_set_dyntopo :: proc(app: ^App, obj: ^Object, on: bool) -> bool {
-	if on == object_dynamic(obj) do return true
+// needs the object to have a single level and no HD level. Its strokes go (a swap entry
+// recorded by the caller takes the change back). `changed` says whether it was turned;
+// ok is false only on a GPU failure.
+object_set_dyntopo :: proc(app: ^App, obj: ^Object, on: bool) -> (changed, ok: bool) {
+	if on == object_dynamic(obj) do return false, true
 	stroke_finish(app)
 	start := time.tick_now()
 	if on {
 		if len(obj.levels.levels) > 1 || obj.levels.hd.steps > 0 {
 			log.warn("dynamic topology: delete the other subdivision levels and the HD level first")
-			return true
+			return false, true
 		}
 		if !sculpt.levels_dyn_enable(&obj.levels) {
 			log.warnf("dynamic topology: a vertex is in more than %d triangles; remesh first", sculpt.DYN_FACES)
-			return true
+			return false, true
 		}
 	} else {
 		sculpt.levels_dyn_disable(&obj.levels)
@@ -199,15 +202,14 @@ object_set_dyntopo :: proc(app: ^App, obj: ^Object, on: bool) -> bool {
 	// The layout changed completely: new buffers with everything in them.
 	_ = sdl.WaitForGPUIdle(app.renderer.device)
 	render.mesh_buffers_destroy(&app.renderer, &obj.gpu[0])
-	ok: bool
 	obj.gpu[0], ok = render.mesh_buffers_create(&app.renderer, object_mesh(obj)^, object_sculptor(obj).mask)
-	if !ok do return false
+	if !ok do return true, false
 	render.viewport_invalidate(&app.target)
 	app.stats.dyntopo_ms = time.duration_milliseconds(time.tick_diff(start, converted))
 	app.stats.dyntopo_upload_ms = time.duration_milliseconds(time.tick_since(converted))
 	log.infof("dynamic topology %s: %d vertices, %d triangles; converted in %.0f ms, uploaded in %.0f ms", "on" if on else "off",
 		object_vertex_count(obj), object_triangle_count(obj), app.stats.dyntopo_ms, app.stats.dyntopo_upload_ms)
-	return true
+	return true, true
 }
 
 // Records the upload of what sculptor_flush reported for the level (its vertex
@@ -232,9 +234,12 @@ level_upload :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer, gpu: ^render.Mesh_Bu
 	return bytes, true
 }
 
-scene_delete_selected :: proc(app: ^App) {
+// Deletes the selected object, as an undo step when `undoable`.
+scene_delete_selected :: proc(app: ^App, undoable := true) {
 	obj := selected_object(app)
 	if obj == nil do return
+	stroke_finish(app)
+	if undoable do history_record_swap(app, obj.id, history_snapshot(app, obj, "delete object"))
 	_ = sdl.WaitForGPUIdle(app.renderer.device)
 	ordered_remove(&app.scene.objects, app.scene.selected)
 	object_free(app, obj)
@@ -246,21 +251,31 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 	switch cmd.kind {
 	case .None:
 	case .Add:
-		return scene_add_sphere(app, cmd.vertices, 0, {position = next_free_position(app), scale = 1})
+		if !scene_add_sphere(app, cmd.vertices, 0, {position = next_free_position(app), scale = 1}) do return false
+		history_record_added(app)
 	case .Remesh:
 		if obj := selected_object(app); obj != nil {
-			if !object_remesh(app, obj, cmd.vertices) {
+			before := history_snapshot(app, obj, "remesh")
+			changed, ok := object_remesh(app, obj, cmd.vertices)
+			if !ok {
 				// The old mesh is gone; drop the empty object rather than draw nothing.
-				scene_delete_selected(app)
+				history_snapshot_drop(before)
+				scene_delete_selected(app, undoable = false)
 				return false
 			}
+			if changed do history_record_swap(app, obj.id, before)
+			else do history_snapshot_drop(before)
 		}
 	case .Delete:
 		scene_delete_selected(app)
 	case .Dyntopo:
 		if obj := selected_object(app); obj != nil {
 			object_hd_leave(app, obj)
-			return object_set_dyntopo(app, obj, cmd.on)
+			before := history_snapshot(app, obj, "dynamic topology on" if cmd.on else "dynamic topology off")
+			changed, ok := object_set_dyntopo(app, obj, cmd.on)
+			if changed do history_record_swap(app, obj.id, before)
+			else do history_snapshot_drop(before)
+			return ok
 		}
 	case .Hd_Enter:
 		origin, dir := mouse_ray(app.camera, cmd.at, cmd.size)
@@ -316,12 +331,14 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 		case .Set_Level:
 			return object_set_level(app, obj, cmd.level)
 		case .Delete_Higher:
+			history_record_swap(app, obj.id, history_snapshot(app, obj, "delete higher levels"))
 			_ = sdl.WaitForGPUIdle(app.renderer.device)
 			for i in levels.current + 1 ..< len(levels.levels) do render.mesh_buffers_destroy(&app.renderer, &obj.gpu[i])
 			sculpt.levels_delete_higher(levels)
 			object_forget_history(app, obj)
 		case .Delete_Lower:
 			k := levels.current
+			history_record_swap(app, obj.id, history_snapshot(app, obj, "delete lower levels"))
 			_ = sdl.WaitForGPUIdle(app.renderer.device)
 			for i in 0 ..< k do render.mesh_buffers_destroy(&app.renderer, &obj.gpu[i])
 			sculpt.levels_delete_lower(levels)
@@ -481,7 +498,7 @@ object_build_from :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, start: time.
 @(private = "file")
 object_release_mesh :: proc(app: ^App, obj: ^Object) {
 	if app.stroke.object == obj.id do app.stroke.active = false
-	history_forget(app, obj.id)
+	history_forget_strokes(app, obj.id)
 	for &gpu in obj.gpu do render.mesh_buffers_destroy(&app.renderer, &gpu)
 	render.mesh_buffers_destroy(&app.renderer, &obj.hd_gpu)
 	sculpt.levels_destroy(&obj.levels)

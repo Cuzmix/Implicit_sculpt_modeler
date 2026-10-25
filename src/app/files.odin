@@ -175,7 +175,9 @@ file_apply :: proc(app: ^App, req: File_Request) -> bool {
 	switch req.kind {
 	case .None:
 	case .Import:
-		return scene_import(app, req.path)
+		before := len(app.scene.objects)
+		if !scene_import(app, req.path) do return false
+		if len(app.scene.objects) > before do history_record_added(app)
 	case .Export:
 		obj := selected_object(app)
 		if obj == nil {
@@ -325,12 +327,7 @@ scene_save :: proc(app: ^App, path: string) -> bool {
 	for obj in app.scene.objects {
 		object_hd_leave(app, obj)
 		if sculpt.levels_hd_stats(&obj.levels).stored_nodes > 0 do hd_dropped += 1
-		geom.byte_put(&out, i32(obj.id))
-		geom.byte_put_string(&out, obj.name)
-		put_transform(&out, obj.transform)
-		put_transform(&out, obj.file)
-		sculpt.levels_write(&obj.levels, &out)
-		free_all(context.temp_allocator)
+		object_put(app, &out, obj)
 	}
 	if !write_file_safely(app, path, out[:], "save") do return false
 	// The times shown are this action's alone.
@@ -381,33 +378,24 @@ scene_open :: proc(app: ^App, path: string) -> (opened, ok: bool) {
 	defer delete(objects)
 	_ = sdl.WaitForGPUIdle(app.renderer.device)
 	for i in 0 ..< count {
-		obj := new(Object)
-		obj.id = int(geom.byte_get(&r, i32))
-		obj.name = geom.byte_get_string(&r)
-		obj.transform = get_transform(&r)
-		obj.file = get_transform(&r)
-		next_id = max(next_id, obj.id)
-		if !r.ok || obj.transform.scale <= 0 || obj.file.scale <= 0 || !sculpt.levels_read(&obj.levels, &r, &app.pool) {
-			delete(obj.name)
-			free(obj)
+		obj, read, made := object_get(app, &r)
+		if !read {
 			file_note(app, true, "Cannot open %s: object %d of %d is damaged", name, i + 1, count)
 			for other in objects do object_discard(app, other)
-			free_all(context.temp_allocator)
 			return false, true
 		}
-		append(&objects, obj)
-		lv := sculpt.levels_current(&obj.levels)
-		buffers, made := render.mesh_buffers_create(&app.renderer, lv.mesh, lv.sculptor.mask)
-		obj.gpu[obj.levels.current] = buffers
-		free_all(context.temp_allocator)
 		if !made {
 			for other in objects do object_discard(app, other)
 			return false, false
 		}
+		next_id = max(next_id, obj.id)
+		append(&objects, obj)
 	}
 
 	stroke_finish(app)
 	_ = sdl.WaitForGPUIdle(app.renderer.device)
+	// The history names objects by id, and the file's ids can be ones the old scene used.
+	history_clear(&app.history)
 	for obj in app.scene.objects do object_free(app, obj)
 	clear(&app.scene.objects)
 	append(&app.scene.objects, ..objects[:])
@@ -425,9 +413,41 @@ scene_open :: proc(app: ^App, path: string) -> (opened, ok: bool) {
 	return true, true
 }
 
+// Appends one object as the scene file stores it: its id, name, placement and every
+// level with the mask. Leaves any HD window first, whose detail is not stored.
+object_put :: proc(app: ^App, out: ^[dynamic]u8, obj: ^Object) {
+	object_hd_leave(app, obj)
+	geom.byte_put(out, i32(obj.id))
+	geom.byte_put_string(out, obj.name)
+	put_transform(out, obj.transform)
+	put_transform(out, obj.file)
+	sculpt.levels_write(&obj.levels, out)
+	free_all(context.temp_allocator)
+}
+
+// Reads one object written by object_put and uploads its shown level. `read` is false
+// when the bytes are damaged (no object is made); `made` is false on a GPU failure,
+// with the object returned for the caller to discard.
+object_get :: proc(app: ^App, r: ^geom.Byte_Reader) -> (obj: ^Object, read, made: bool) {
+	obj = new(Object)
+	obj.id = int(geom.byte_get(r, i32))
+	obj.name = geom.byte_get_string(r)
+	obj.transform = get_transform(r)
+	obj.file = get_transform(r)
+	if !r.ok || obj.transform.scale <= 0 || obj.file.scale <= 0 || !sculpt.levels_read(&obj.levels, r, &app.pool) {
+		delete(obj.name)
+		free(obj)
+		free_all(context.temp_allocator)
+		return nil, false, false
+	}
+	lv := sculpt.levels_current(&obj.levels)
+	obj.gpu[obj.levels.current], made = render.mesh_buffers_create(&app.renderer, lv.mesh, lv.sculptor.mask)
+	free_all(context.temp_allocator)
+	return obj, true, made
+}
+
 // Frees an object read for a scene that never got it: it has no history and draws
 // nothing yet. The caller has waited for the GPU.
-@(private = "file")
 object_discard :: proc(app: ^App, obj: ^Object) {
 	for &gpu in obj.gpu do render.mesh_buffers_destroy(&app.renderer, &gpu)
 	sculpt.levels_destroy(&obj.levels)
