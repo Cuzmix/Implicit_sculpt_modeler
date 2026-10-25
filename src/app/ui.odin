@@ -28,53 +28,16 @@ Ui_State :: struct {
 	mask_shape_kind:    Mask_Shape_Kind, // what Ctrl + drag on empty space draws
 	mirror_axis:        i32, // Mirror and weld: 0 x, 1 y, 2 z
 	mirror_negative:    bool, // Mirror and weld keeps the - side instead of the + side
-	mask_last:          Mask_Done,
-	clip_last:          Clip_Done,
-	hide_last:          Clip_Done,
 	smooth_steps:       i32, // steps each Smooth all press takes
 	smooth_strength:    f32, // how far each step moves a vertex toward its neighbours' average, 0 to 1
 	smooth_on_gpu:      bool, // run Smooth all as a compute shader (the GPU compute trial); off by default
-	smooth_last:        Smooth_Done,
 	crease_degrees:     f32, // Polygroups' Creases: how sharp a crease starts a new group
 	layer_selected:     int,  // the Layers section's row that Delete and Bake act on
 	layer_dragging:     bool, // a layer's strength slider is being dragged: one undo step
 	retopo_quads:       i32,  // quads Retopologize asks for
-	retopo_last:        struct {quads, charts: int, ms: f64, set: bool},
 	bake:               Bake_Settings,
 	boolean:            Boolean_State,
 	project:            Project_Settings,
-	project_last:       struct {
-		hit, ms: f64,
-		set:     bool,
-	},
-	bake_last:          struct {ms, hit: f64, range: f32, set: bool},
-}
-
-// The last Smooth all, for the Deformation section to report.
-Smooth_Done :: struct {
-	steps:   int,
-	ms:      f64, // the whole command, undo saving and normals included
-	changed: bool,
-	on_gpu:  bool,
-	gpu:     render.Smooth_Timing, // the GPU's parts, when on_gpu
-	set:     bool, // false until it has run
-}
-
-// The last clip or hiding change, for the Object tab to report.
-Clip_Done :: struct {
-	ms:      f64,
-	changed: bool,
-	set:     bool, // false until a clip has run
-}
-
-// The last mask command, for the Mask section to report.
-Mask_Done :: struct {
-	command: sculpt.Mask_Command,
-	steps:   int,
-	ms:      f64,
-	changed: bool,
-	set:     bool, // false until a command has run
-	shape:   bool, // a mask shape: command is Fill for masking, Clear for unmasking
 }
 
 MASK_COMMAND_NAMES := [sculpt.Mask_Command]string {

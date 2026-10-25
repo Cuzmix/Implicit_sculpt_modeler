@@ -533,6 +533,34 @@ def keys_axis_views():
     return s, [], {"camera_pitch": near(0, 1e-3), "camera_yaw": lambda v: abs(abs(wrap(float(v))) - math.pi / 2) < 1e-3}
 
 
+
+TOAST_UNDO = (880, 790)  # the Undo of "Deleted Sphere 1", above the dock
+
+
+@scenario
+def toast_undo_after_delete():
+    """Del removes the sphere and a toast offers Undo; clicking it brings the sphere back as Ctrl+Z would."""
+    s = Script()
+    s.add(f"move:{MODEL[0]},{MODEL[1]}")
+    s.press("Delete")
+    s.wait(30)
+    s.mouse_drag([TOAST_UNDO])
+    return s, [], {"objects": near(1), "undo_steps": near(0), "redo_steps": near(1)}
+
+
+@scenario
+def toast_undo_goes_stale():
+    """After Ctrl+Z and a new stroke, the Delete toast's Undo is gone: a click where it was takes back
+    nothing (with the toast narrower, it lands on the sphere and sculpts a dab)."""
+    s = Script()
+    s.add(f"move:{MODEL[0]},{MODEL[1]}")
+    s.press("Delete")
+    s.wait(10)
+    s.press("z", ("ctrl",))
+    s.mouse_drag(line((760, 430), (860, 470), 10))
+    s.mouse_drag([TOAST_UNDO])
+    return s, [], {"objects": near(1), "undo_steps": lambda v: int(v) >= 1, "redo_steps": near(0)}
+
 def on_screen(stats, p, yaw=0.6, pitch=0.35, roll=0.0, distance=3.5, target=(0.0, 0.0, 0.0)):
     """Where the world point p appears in a perspective view, as tangents right and up of the
     view direction; with no camera given, the default camera's view. As camera.orbit_view:

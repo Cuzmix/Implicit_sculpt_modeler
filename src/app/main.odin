@@ -190,7 +190,7 @@ App :: struct {
 	time_gpu: bool, // wait for each frame's 3D work, to measure its GPU time
 	window:   ^sdl.Window, // what file dialogs belong to
 	scene_path: string, // where the scene was last saved or opened from, for Ctrl+S (owned)
-	file_note:  File_Note,
+	result:     Op_Result, // what the last operation did (results.odin)
 	running:  bool,
 }
 
@@ -257,6 +257,7 @@ run :: proc(opts: Options) -> bool {
 	app.window = window
 	defer delete(app.scene_path)
 	defer file_shutdown(&app)
+	defer results_destroy(&app)
 	if !render.renderer_init(&app.renderer, window, opts.gpu_debug) do return false
 	defer render.renderer_destroy(&app.renderer)
 	defer render.smooth_compute_destroy(&app.renderer, &app.smooth_gpu)
@@ -644,7 +645,7 @@ run :: proc(opts: Options) -> bool {
 		frame_start := time.tick_now()
 		if command := app.ui.scene_command; command.kind != .None {
 			app.ui.scene_command = {}
-			if !scene_apply(&app, command) do return false
+			if !scene_run(&app, command) do return false
 		}
 		if req, ok := file_take(&app); ok {
 			applied := file_apply(&app, req)

@@ -3,7 +3,6 @@ package main
 import "base:runtime"
 import "core:c"
 import "core:fmt"
-import "core:log"
 import "core:math"
 import "core:os"
 import "core:path/filepath"
@@ -43,12 +42,6 @@ File_Request :: struct {
 
 // The last file action's outcome, which the interface shows as a note: the log alone may
 // be in a console nobody watches. `at` tells a new note from the one already shown.
-File_Note :: struct {
-	text:    string, // owned
-	warning: bool,
-	at:      time.Tick,
-}
-
 // The native scene file starts with these bytes, then its version.
 SCENE_MAGIC :: "SCULPTSC"
 SCENE_VERSION :: u32(7) // 2: each object's rotation; 3: the current level's polypaint and polygroups; 4: sculpt layers, and a retopologized object's quads and UVs (sculpt.levels_write); 5: each object's boolean mode; 6: the base level's node layout (sculpt.levels_write); 7: the camera's roll
@@ -167,24 +160,18 @@ file_request_free :: proc(req: File_Request) {
 	delete(req.path, runtime.heap_allocator())
 }
 
-// Drops a request no frame took and the last note, at exit.
+// Drops a request no frame took, at exit.
 file_shutdown :: proc(app: ^App) {
 	sync.lock(&pending.lock)
 	file_request_free(pending.req)
 	delete(pending.error, runtime.heap_allocator())
 	pending.req, pending.error = {}, ""
 	sync.unlock(&pending.lock)
-	delete(app.file_note.text)
-	app.file_note = {}
 }
 
-// Logs a file action's outcome and keeps it for the menu bar.
+// Reports a file action's outcome (results.odin), which shows as a toast.
 file_note :: proc(app: ^App, warning: bool, format: string, args: ..any) {
-	text := fmt.aprintf(format, ..args)
-	if warning do log.warn(text)
-	else do log.info(text)
-	delete(app.file_note.text)
-	app.file_note = {text, warning, time.tick_now()}
+	report(app, nil, {.Warning} if warning else {}, format, ..args)
 }
 
 // Runs a request. Returns false only on a fatal GPU failure; the outcome, whatever it

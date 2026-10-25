@@ -1,6 +1,7 @@
 package ui
 
 import "core:math"
+import "core:strings"
 
 // What floats over the panels: tooltips, toasts and popovers. Each fades and grows in
 // from where it belongs and leaves the same way, and none takes the pointer while it is
@@ -73,8 +74,10 @@ tooltip_draw :: proc(ctx: ^Context) {
 }
 
 // Shows `message` at the bottom of the window for a few seconds. The text is copied
-// (up to 120 bytes), so it may be a temp string.
-toast :: proc(ctx: ^Context, message: string, kind := Toast_Kind.Info) {
+// (up to 120 bytes), so it may be a temp string. With an `action` ("Undo") the toast
+// carries a button at its right end and stays longer; pressing it makes the toast's
+// serial, which this returns, come out of toast_take_action.
+toast :: proc(ctx: ^Context, message: string, kind := Toast_Kind.Info, action := "") -> Id {
 	if ctx.toast_count == TOASTS {
 		// The oldest goes to make room.
 		copy(ctx.toasts[:], ctx.toasts[1:])
@@ -82,9 +85,27 @@ toast :: proc(ctx: ^Context, message: string, kind := Toast_Kind.Info) {
 	}
 	ctx.toast_serial += 1
 	to := &ctx.toasts[ctx.toast_count]
-	to^ = {kind = kind, born = ctx.time, life = 5 if kind == .Warning || kind == .Error else 3.2, id = salt(0x70a57, u64(ctx.toast_serial))}
+	life: f32 = 5 if kind == .Warning || kind == .Error else 3.2
+	// An action needs time to read the message, decide and reach for it.
+	if action != "" do life = 6
+	to^ = {serial = ctx.toast_serial, kind = kind, born = ctx.time, life = life, id = salt(0x70a57, u64(ctx.toast_serial))}
 	to.len = copy(to.text[:], message)
+	to.action_len = copy(to.action[:], action)
 	ctx.toast_count += 1
+	return ctx.toast_serial
+}
+
+// Takes the action off the toast `serial` if it is still showing: what it would do no
+// longer applies. The message stays.
+toast_drop_action :: proc(ctx: ^Context, serial: Id) {
+	for &to in ctx.toasts[:ctx.toast_count] do if to.serial == serial do to.action_len = 0
+}
+
+// The serial of the toast whose action was pressed since the last call, or 0.
+toast_take_action :: proc(ctx: ^Context) -> Id {
+	acted := ctx.toast_acted
+	ctx.toast_acted = 0
+	return acted
 }
 
 @(private)
@@ -108,11 +129,19 @@ toasts_draw :: proc(ctx: ^Context) {
 	// Newest at the bottom, the others stacked above it; each slides as the stack moves.
 	#reverse for &to, i in ctx.toasts[:n] {
 		msg := string(to.text[:to.len])
+		action := string(to.action[:to.action_len])
 		staying := ctx.time - to.born < f64(to.life)
 		// A burst of toasts comes in one after another, 40 ms apart.
 		shown := tween_from(ctx, to.id, 0, 1 if staying else 0, t.toast_time, .Out_Cubic, 0.04 * f32(n - 1 - i) if staying else 0)
 		h: f32 = 40
-		w := text_width(ctx, msg, t.text_size) + 16 + 12 + 10 + 16
+		// The action sits after a divider, in the accent colour like a text button.
+		action_w: f32 = 0
+		if action != "" do action_w = 1 + 16 + text_width(ctx, action, t.text_size, .Semibold) + 16
+		// It stays inside the window, 16 points in, on a phone held upright too: the
+		// message is cut short, never the action.
+		room := max(window.x - 32 - action_w - (16 + 12 + 10 + 16), 40)
+		msg = text_fit(ctx, msg, t.text_size, room)
+		w := text_width(ctx, msg, t.text_size) + 16 + 12 + 10 + 16 + action_w
 		target_y := y - h
 		top := tween(ctx, salt(to.id, 1), target_y, t.toast_time, .Out_Cubic)
 		r := Rect{math.round(window.x * 0.5 - w * 0.5), top, w, h}
@@ -129,14 +158,37 @@ toasts_draw :: proc(ctx: ^Context) {
 		}
 		fill_circle(ctx, {r.x + 16 + 4, r.y + h * 0.5}, 4, dot)
 		text(ctx, msg, r.x + 16 + 12 + 6, r.y + h * 0.5, t.text_size, t.text)
+		button := Rect{r.x + r.w - action_w, r.y, action_w, h}
+		if action != "" {
+			fill_rect(ctx, {button.x, r.y + 10, 1, h - 20}, 0, t.border_strong)
+			text(ctx, action, button.x + 1 + 16, r.y + h * 0.5, t.text_size, t.accent, .Semibold)
+		}
 		transform_since(ctx, mark, shown, 0.96 + 0.04 * shown, {r.x + r.w * 0.5, r.y + r.h}, {0, (1 - shown) * 12})
-		// A toast takes the pointer like a panel, and a click on it dismisses it early.
-		append(&ctx.placed, Placed{id = to.id, rect = r, root = true})
-		if staying && ctx.input.mouse_valid && .Left in ctx.input.pressed && rect_contains(r, ctx.input.mouse) {
+		// A toast takes the pointer like a panel, and a click on it dismisses it early; a
+		// click on its action (a full touch target tall) also acts.
+		hit := r
+		if action != "" do hit = rect_union(r, hit_area(ctx, button))
+		append(&ctx.placed, Placed{id = to.id, rect = hit, root = true})
+		if staying && ctx.input.mouse_valid && .Left in ctx.input.pressed && rect_contains(hit, ctx.input.mouse) {
+			if action != "" && rect_contains(hit_area(ctx, button), ctx.input.mouse) do ctx.toast_acted = to.serial
 			to.life = f32(ctx.time - to.born)
 		}
 		y = target_y - 8
 	}
+}
+
+// `s` as it fits in `width` points: whole, or cut at a character with "..." after.
+@(private)
+text_fit :: proc(ctx: ^Context, s: string, size, width: f32) -> string {
+	if text_width(ctx, s, size) <= width do return s
+	dots :: "..."
+	room := width - text_width(ctx, dots, size)
+	end := 0
+	for _, i in s {
+		if text_width(ctx, s[:i], size) > room do break
+		end = i
+	}
+	return strings.concatenate({s[:end], dots}, context.temp_allocator)
 }
 
 // The whole window in pixels: what floats over everything is not clipped by a panel.
