@@ -20,12 +20,18 @@ description: CAD-style mesh tools inside this app on geom.Mesh — primitives, b
   apart, three rounds of tangential relaxation even it out (`:11-29`); overlaps and self-intersections merge, anything
   thinner than the spacing goes; `REMESH_MAX_LATTICE 4096` per axis. Wired as `Scene_Command .Remesh` → `object_remesh`
   (`scene.odin:147-175`), the Scene panel's Remesh selected, Ctrl+R (at the object's own count) and `--remesh=N`.
+- Mirror and weld exists: `geom.mesh_symmetrize(m, axis, keep_positive, pool)` (`src/geom/symmetrize.odin`) cuts at the
+  axis plane (snapping vertices within 1e-5 of the size onto it), clips crossing triangles with cut points computed
+  from the lower-numbered edge end so they weld bit-exactly in `mesh_clean`, mirrors with reversed winding. Wired as
+  `Scene_Command .Symmetrize` → `object_symmetrize`, the Scene panel's Mirror and weld, `--mirror=[-]x|y|z`. Duplicate
+  (`.Duplicate` → `scene_duplicate`, Ctrl+Shift+D) copies an object through `object_put`/`object_get`.
 - Dynamic topology (sm-sculpt) splits and collapses edges under the brush; a tool reading a dynamic object's mesh takes
   `sculpt.sculptor_compact_mesh` first, as `object_remesh` does, since the paged layout has unused slots.
 - There are no booleans, trims or primitives besides spheres, no rotation (`Transform` is position plus uniform scale,
   `:14-20`, and `Draw_Item.model` must stay so, `src/render/renderer.odin:115-119`), no measurement or snapping. Undo
-  stores positions or masks per node, or whole nodes under dynamic topology (`src/sculpt/undo.odin:9-15`), never an
-  object's topology: Remesh is not undoable. The only field CSG is the SDF spike's smooth union (sm-sdf);
+  stores positions or masks per node, or whole nodes under dynamic topology (`src/sculpt/undo.odin:9-15`); a whole-object
+  rebuild (remesh, mirror and weld, dyntopo toggle, level deletion, add/delete/duplicate) is a swap entry in the app's
+  `History` ([references/undo-and-topology.md](references/undo-and-topology.md)). The only field CSG is the SDF spike's smooth union (sm-sdf);
   `remesh_voxel` is the mesh-level union.
 
 ## Three kinds of tool, three plug-in paths
