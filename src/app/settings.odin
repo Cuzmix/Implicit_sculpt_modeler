@@ -92,6 +92,7 @@ settings_load :: proc(app: ^App, path: string) {
 		case "flat":       app.flat = f[1] == "1"
 		case "interface":  app.new_ui = f[1] != "classic"
 		case "reduce_motion": app.kit.ctx.reduced_motion = f[1] == "1"
+		case "finger_sculpt": app.touch.finger_sculpt = f[1] == "1"
 		case "ortho":      app.camera.ortho = f[1] == "1"
 		case "new_vertices":
 			app.ui.sphere_vertices = i32(clamp(int(number(f[1], f32(app.ui.sphere_vertices))), MIN_SPHERE_VERTICES, MAX_SPHERE_VERTICES))
@@ -166,6 +167,7 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 	fmt.sbprintfln(&out, "flat %d", bit(app.flat))
 	fmt.sbprintfln(&out, "interface %s", "new" if app.new_ui else "classic")
 	fmt.sbprintfln(&out, "reduce_motion %d", bit(app.kit.ctx.reduced_motion))
+	fmt.sbprintfln(&out, "finger_sculpt %d", bit(app.touch.finger_sculpt))
 	fmt.sbprintfln(&out, "ortho %d", bit(app.camera.ortho))
 	fmt.sbprintfln(&out, "new_vertices %d", app.ui.sphere_vertices)
 	fmt.sbprintfln(&out, "new_shape %v", app.ui.add_shape)

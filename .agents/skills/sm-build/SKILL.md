@@ -1,6 +1,6 @@
 ---
 name: sm-build
-description: Build, run, test and verify the sculpt modeler through build.bat (Windows) and build.sh (Linux) — the modes check|debug|release|test|run|smoke|bench|gpubench|wincheck, the strict compile flags, leak-tracked tests and the debug app's tracking allocator, the smoke run under GPU validation, reading Odin diagnostics, the key=value stats the app prints on exit, viewport dumps to PPM and scripts/ppm.py to look at them, and the evidence ladder that decides when work is done. Load for ANY task that compiles, runs, tests or claims something works, e.g. "build this", "run it with 1M vertices", "the build fails", "add a test", "show me the viewport", "is it done?". Requires sm-odin when code is written.
+description: Build, run, test and verify the sculpt modeler through build.bat (Windows) and build.sh (Linux) — the modes check|debug|release|test|run|smoke|bench|gpubench|wincheck|androidcheck|android|androidrun, the strict compile flags, leak-tracked tests and the debug app's tracking allocator, the smoke run under GPU validation, reading Odin diagnostics, the key=value stats the app prints on exit, viewport dumps to PPM and scripts/ppm.py to look at them, and the evidence ladder that decides when work is done. Load for ANY task that compiles, runs, tests or claims something works, e.g. "build this", "run it with 1M vertices", "the build fails", "add a test", "show me the viewport", "is it done?". Requires sm-odin when code is written.
 ---
 
 # Build, run, verify
@@ -17,6 +17,8 @@ description: Build, run, test and verify the sculpt modeler through build.bat (W
 | `build.bat bench [sizes] [--threads=N] [--lod\|--levels\|--hd] [--meshes=N] [--node=N] [--prefault=MB]` | release headless CPU benchmark printing markdown tables (sm-perf) |
 | `build.bat gpubench [--vertices=N] [--gpubench-frames=N]` | release app timing the GPU and CPU per case; writes `build\gpubench.md` (sm-perf) |
 | `./build.sh wincheck` | Linux only: compiles app and bench for `windows_amd64` to objects, catching Windows-only errors without a Windows SDK |
+| `./build.sh androidcheck` | Linux only: compiles the app for Android arm64 to one object, as the Android build does, without the NDK; run it after any app, render or ui change, since `when ODIN_PLATFORM_SUBTARGET == .Android` code only compiles there |
+| `build.bat android` / `androidrun` | the Android debug APK through `android/gradlew` (needs Android Studio's SDK and NDK, and `scripts\setup_android.bat` once); `androidrun` installs it on the tablet adb sees and starts it. Its log is `adb logcat -s SDL/APP` |
 | `deps\odin\odin.exe check src\<pkg> -no-entry-point -collection:deps=deps -vet -strict-style -warnings-as-errors` | one package, no binary: what `check` runs nine times |
 | `deps\odin\odin.exe build src\sdf_trial -o:speed -collection:deps=deps -out:build\sdf_trial.exe` | the SDF spike (sm-sdf); not in the scripts |
 

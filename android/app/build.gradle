@@ -1,0 +1,55 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace = "io.github.cuzmix.sculpt"
+    // Google Play wants the newest API level as the target (36 from 2026-08-31, the
+    // sm-store skill); 30 is the oldest Android whose system calls and thread-local
+    // storage the Odin runtime relies on.
+    compileSdk = 36
+    ndkVersion = "28.2.13676358"
+
+    defaultConfig {
+        applicationId = "io.github.cuzmix.sculpt"
+        minSdk = 30
+        targetSdk = 36
+        versionCode = 1
+        versionName = "0.1"
+        ndk {
+            // Odin builds the app for 64-bit ARM only, which every current tablet is.
+            abiFilters 'arm64-v8a'
+        }
+        externalNativeBuild {
+            cmake {
+                // ImGui is C++; c++_static keeps libc++ inside libmain.so.
+                arguments "-DANDROID_STL=c++_static"
+            }
+        }
+    }
+
+    sourceSets {
+        main {
+            // SDL's Java side (SDLActivity and friends), from the same SDL checkout the
+            // native library is built from, so the two always match.
+            java.srcDirs += "../../deps/sdl3-src/android-project/app/src/main/java"
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("jni/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled = false
+        }
+    }
+
+    lint {
+        abortOnError = false
+    }
+}

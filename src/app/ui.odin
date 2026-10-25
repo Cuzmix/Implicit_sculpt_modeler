@@ -135,6 +135,8 @@ Viewport_Input :: struct {
 	alt:         bool, // Alt held with Ctrl: a mask shape unmasks
 	samples:     []Input_Sample, // every pointer sample this frame, oldest first
 	pen_tilt:    [2]f32, // the pen's lean now, in degrees; zero without a pen
+	touch_pan:   [2]f32, // two or more fingers' middle moved this far (touch.odin)
+	touch_zoom:  f32, // ...and their spread grew this many times; 0 for no fingers
 }
 
 BRUSH_NAMES := [sculpt.Brush_Kind]string {

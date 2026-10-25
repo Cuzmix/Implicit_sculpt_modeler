@@ -46,6 +46,7 @@ Options :: struct {
 	new_ui:    bool `usage:"Start with the interface (the default; for older command lines and over a remembered Classic panels)."`,
 	classic_ui: bool `usage:"Start with the classic ImGui panels instead of the interface, as Menu > Classic panels does."`,
 	reduce_motion: bool `usage:"Start with the interface's animations off, as Menu > Reduce motion does."`,
+	finger_sculpt: bool `usage:"Start with one finger on a touch screen sculpting instead of turning the view, as Menu > Finger sculpts does."`,
 	ui_events: string `usage:"Drive the interface's pointer, for tests: FRAME:move:X,Y, FRAME:down, FRAME:up, FRAME:right (a right click) or FRAME:wheel:N, separated by semicolons; X and Y in window points."`,
 	dump_screen: string `usage:"On exit, write the whole window as the interface drew it (viewport and panels) to this path: a PNG, or a binary PPM when it ends in .ppm. Not with --classic-ui."`,
 	dump_viewport: string `usage:"On exit, write the last viewport image to this path: a PNG, or a binary PPM when it ends in .ppm (for checking renders), as File > Save screenshot does."`,
@@ -149,6 +150,7 @@ App :: struct {
 	pen_pressure: f32, // the pen's latest pressure
 	pen_tilt: [2]f32, // the pen's latest lean in degrees, x to the right and y down
 	pen_seen: bool,
+	touch:    Touch, // fingers on a touch screen (touch.odin)
 	new_ui:   bool, // the new interface (new_ui.odin) instead of the ImGui panels
 	kit:      Kit_State,
 	kit_drew: bool, // the last frame on screen was the new interface's...
@@ -194,8 +196,8 @@ App :: struct {
 LOAD_STROKES_FRAME :: 3
 
 main :: proc() {
-	context.logger = log.create_console_logger(.Info when !ODIN_DEBUG else .Debug)
-	defer log.destroy_console_logger(context.logger)
+	context.logger = platform_logger()
+	defer platform_logger_destroy(context.logger)
 
 	when ODIN_DEBUG {
 		tracking: mem.Tracking_Allocator
@@ -233,13 +235,14 @@ run :: proc(opts: Options) -> bool {
 		opts.vertices, opts.spheres = bench.sizes[0], 1
 	}
 
+	platform_hints()
 	if !sdl.Init({.VIDEO}) {
 		log.errorf("SDL_Init failed: %s", sdl.GetError())
 		return false
 	}
 	defer sdl.Quit()
 
-	window := sdl.CreateWindow("Sculpt", i32(opts.width), i32(opts.height), {.RESIZABLE, .HIGH_PIXEL_DENSITY})
+	window := sdl.CreateWindow("Sculpt", i32(opts.width), i32(opts.height), platform_window_flags())
 	if window == nil {
 		log.errorf("CreateWindow failed: %s", sdl.GetError())
 		return false
@@ -454,6 +457,7 @@ run :: proc(opts: Options) -> bool {
 	if opts.classic_ui do app.new_ui = false
 	if opts.new_ui do app.new_ui = true
 	if opts.reduce_motion do app.kit.ctx.reduced_motion = true
+	if opts.finger_sculpt do app.touch.finger_sculpt = true
 	app.ui.smooth_on_gpu = opts.gpu_smooth
 	if opts.smooth_all > 0 do smooth_command(&app, opts.smooth_all)
 	if opts.paint_color != "" {
@@ -719,6 +723,7 @@ run :: proc(opts: Options) -> bool {
 			}
 			imgui_impl_sdl3.ProcessEvent(&e)
 			kit_event(&app, &e)
+			touch_event(&app.touch, &e, window)
 			#partial switch e.type {
 			case .QUIT, .WINDOW_CLOSE_REQUESTED:
 				app.running = false
@@ -758,6 +763,7 @@ run :: proc(opts: Options) -> bool {
 		ui_start := time.tick_now()
 		input := kit_frame(&app, window) if used_kit else ui_draw(&app)
 		ring_push(&app.stats.ui_ms if used_kit else &app.stats.imgui_ms, time.duration_milliseconds(time.tick_since(ui_start)))
+		touch_apply(&app, &input)
 		if opts.bench_stroke > 0 && frame_index < opts.bench_stroke {
 			input = bench_input(&app, frame_index, opts.bench_stroke, opts.bench_samples, opts.bench_loops, {opts.bench_tilt, 0}, {f32(app.target.width), f32(app.target.height)})
 			// A lifted frame ends the stroke; the next frame presses again.
@@ -1147,6 +1153,8 @@ camera_apply_input :: proc(c: ^camera.Orbit, in_: Viewport_Input) {
 	if in_.hovered && in_.wheel != 0 {
 		camera.orbit_zoom(c, in_.wheel)
 	}
+	if in_.touch_pan != {} do camera.orbit_pan(c, in_.touch_pan, in_.size.y)
+	if in_.touch_zoom > 0 do camera.orbit_zoom_by(c, in_.touch_zoom)
 }
 
 // Writes RGBA8 pixels as a binary PPM (alpha dropped).

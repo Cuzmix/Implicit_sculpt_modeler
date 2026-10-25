@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Usage: ./build.sh [debug|release|test|run|smoke|bench|gpubench|computebench|wincheck|check] [-- app args]
+# Usage: ./build.sh [debug|release|test|run|smoke|bench|gpubench|computebench|wincheck|androidcheck|check|android|androidrun] [-- app args]
 #   check   odin check with the strict flags on every package (no link, no shaders), then
 #           python3 scripts/agents_sync.py --check (the skill mirror under .agents/ is current)
 #   debug   (default) debug build with allocation tracking -> build/sculpt
@@ -19,6 +19,11 @@
 #           result against the CPU's, and write build/computebench.md (needs a display)
 #   wincheck compile the app and bench for Windows (x64) to object files, without
 #           linking, so Windows-only compile errors show up on Linux too
+#   androidcheck compile the app for Android (arm64) to an object file, as the Android
+#           build does, without the NDK or linking
+#   android build the Android app (android/, README.md "Android") into a debug APK with
+#           Gradle and the Android SDK and NDK (ANDROID_HOME, default ~/Android/Sdk)
+#   androidrun the same, then install it on the device adb sees and start it
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 DEPS="$ROOT/deps"
@@ -105,6 +110,28 @@ case "$mode" in
 				-collection:deps="$DEPS" -vet -strict-style -warnings-as-errors
 		done
 		echo "wincheck: app and bench compile for windows_amd64"
+		;;
+	androidcheck)
+		# Odin wants an NDK path for Android even when it only writes an object file; an
+		# empty folder does, since nothing is linked here.
+		out="$ROOT/build/android"
+		mkdir -p "$out/no-ndk"
+		ODIN_ANDROID_NDK="$out/no-ndk" "$ODIN" build "$ROOT/src/app" \
+			-target:linux_arm64 -subtarget:android -build-mode:obj -use-single-module -reloc-mode:pic \
+			-out:"$out/sculpt.o" -collection:deps="$DEPS" -vet -strict-style -warnings-as-errors -o:speed -no-bounds-check
+		echo "androidcheck: app compiles for Android arm64"
+		;;
+	android|androidrun)
+		export ANDROID_HOME="${ANDROID_HOME:-$HOME/Android/Sdk}"
+		[ -f "$DEPS/sdl3-src/CMakeLists.txt" ] || { echo "SDL source missing: run scripts/setup_deps.sh first"; exit 1; }
+		[ -d "$ANDROID_HOME/platform-tools" ] || { echo "no Android SDK in $ANDROID_HOME: install Android Studio, or set ANDROID_HOME"; exit 1; }
+		if [ "$mode" = android ]; then
+			(cd "$ROOT/android" && ./gradlew assembleDebug)
+			echo "android: android/app/build/outputs/apk/debug/app-debug.apk"
+		else
+			(cd "$ROOT/android" && ./gradlew installDebug)
+			"$ANDROID_HOME/platform-tools/adb" shell am start -n io.github.cuzmix.sculpt/org.libsdl.app.SDLActivity
+		fi
 		;;
 	*) echo "unknown mode: $mode"; exit 1 ;;
 esac

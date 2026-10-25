@@ -34,7 +34,8 @@ skill whose description fits the request BEFORE you form a plan.
     python scripts\ppm.py to-png build\v.ppm build\v.png     # then open the PNG and describe it; diff/crop/pixel/uniform too
     build.bat release | bench [sizes] [--threads=N] | gpubench
     python scripts\agents_sync.py                     # after editing a skill or agent (check verifies the mirror)
-    (Linux: ./build.sh <mode>, plus wincheck)
+    build.bat android | androidrun                    # the Android APK; androidrun installs and starts it on the tablet
+    (Linux: ./build.sh <mode>, plus wincheck and androidcheck)
 - Fix the first error first; diagnostics are `path(line:col) Error: message`. The app prints key=value stats on exit.
 
 ## 4. Map
@@ -49,6 +50,7 @@ skill whose description fits the request BEFORE you form a plan.
 | `src/jobs` | the persistent worker pool (`parallel_for`, `parallel_ranges`) |
 | `src/bench` | the headless CPU benchmark (markdown tables) |
 | `src/sdf_trial` | the standalone SDF/voxel comparison spike (not in the build scripts) |
+| `android/` | the Android app: Gradle project, manifest, `app/jni/CMakeLists.txt` (SDL3, ImGui, stb and `src/app` built by Odin into `libmain.so`), `android_main.c` |
 | `scripts/` | `setup_deps.*`, `versions.env` (the pins), `agents_sync.py` (skill mirror and validation), `ppm.py` (view and diff viewport dumps) |
 | `deps/`, `build/` | ignored: the pinned toolchain and third-party sources; build outputs and dumps |
 | `.vscode/`, `.claude/`, `.agents/` | tasks and launch configurations; skills, agents and permissions; the generated skill mirror (never edited by hand) |

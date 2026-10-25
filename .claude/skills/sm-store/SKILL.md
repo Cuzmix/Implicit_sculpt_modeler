@@ -62,7 +62,9 @@ re-check the stores' pages before a first submission, because they move every ye
 ## Builds and packaging
 - Google Play: Android App Bundle (`.aab`), arm64-v8a included (64-bit required), target API 36 (Android 16) for
   new apps and updates from 2026-08-31, native libraries linked for 16 KB pages
-  (`-Wl,-z,max-page-size=16384`, required for apps targeting Android 15+), signed with Play App Signing.
+  (`-Wl,-z,max-page-size=16384`, required for apps targeting Android 15+), signed with Play App Signing. The
+  Gradle project is `android/` (`android/app/build.gradle` holds the SDK levels and `app/jni/CMakeLists.txt` the
+  link flags); the manifest declares no permissions, and one added there needs a visible feature that uses it.
 - App Store: built with Xcode 26 and the iOS 26 SDK (required since 2026-04-28), deployment target iOS 13 or newer
   (minimum from 2026-09-09), arm64 only, launch screen storyboard, full app icon set, iPad multitasking supported.
 - Windows: sign the executable and installer (Authenticode) or SmartScreen warns every user. Linux: ship as a

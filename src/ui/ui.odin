@@ -38,6 +38,9 @@ Input :: struct {
 	ctrl:          bool,
 	alt:           bool,
 	window:        [2]f32, // the window's size
+	// The part of the window clear of system bars, camera cutouts and rounded corners,
+	// which anchored containers keep inside; empty for the whole window.
+	safe:          Rect,
 	pixel_density: f32, // GPU pixels per point: 1 on most monitors, 2 or more on dense screens
 	dt:            f32, // seconds since the last frame, which moves every animation on
 }
@@ -49,8 +52,8 @@ Direction :: enum u8 {
 	Row,
 }
 
-// Where a container sits along one axis of the window: from its start edge, centred,
-// or from its end edge, `offset` points in.
+// Where a container sits along one axis of the window's safe area (Input.safe): from
+// its start edge, centred, or from its end edge, `offset` points in.
 Anchor :: enum u8 {
 	Start,
 	Center,
@@ -314,16 +317,25 @@ begin_anchored :: proc(ctx: ^Context, name: string, x, y: Anchor, offset: [2]f32
 	id := id_of(ctx, name)
 	size := prev_size(ctx, id, box)
 	pos: [2]f32
-	window := ctx.input.window
+	area := safe_area(ctx)
+	origin := [2]f32{area.x, area.y}
+	extent := [2]f32{area.w, area.h}
 	for axis in 0 ..< 2 {
 		a := x if axis == 0 else y
 		switch a {
-		case .Start:  pos[axis] = offset[axis]
-		case .Center: pos[axis] = (window[axis] - size[axis]) * 0.5 + offset[axis]
-		case .End:    pos[axis] = window[axis] - size[axis] - offset[axis]
+		case .Start:  pos[axis] = origin[axis] + offset[axis]
+		case .Center: pos[axis] = origin[axis] + (extent[axis] - size[axis]) * 0.5 + offset[axis]
+		case .End:    pos[axis] = origin[axis] + extent[axis] - size[axis] - offset[axis]
 		}
 	}
 	open(ctx, id, {pos.x, pos.y, size.x, size.y}, box, root = true)
+}
+
+// The part of the window anchored containers keep inside (Input.safe), in points.
+safe_area :: proc(ctx: ^Context) -> Rect {
+	area := ctx.input.safe
+	if area.w <= 0 || area.h <= 0 do area = {0, 0, ctx.input.window.x, ctx.input.window.y}
+	return area
 }
 
 // Opens a container at `pos` in the window (points), on top of what came before. Close

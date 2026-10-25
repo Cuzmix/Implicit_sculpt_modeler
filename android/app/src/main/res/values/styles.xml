@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dark and without a title bar from the first frame, so launching does not flash
+         white before the app draws. -->
+    <style name="AppTheme" parent="android:Theme.DeviceDefault.NoActionBar.Fullscreen">
+        <item name="android:windowBackground">@color/canvas</item>
+    </style>
+    <!-- The interface's canvas (KIT_CANVAS in src/app/new_ui.odin). -->
+    <color name="canvas">#111214</color>
+</resources>
