@@ -707,3 +707,36 @@ snake_hook_pulls_out_a_horn :: proc(t: ^testing.T) {
 	r := geom.mesh_check(m)
 	testing.expectf(t, r.closed && r.degenerate_triangles == 0, "%v", r)
 }
+
+@(test)
+morph_brings_the_surface_back :: proc(t: ^testing.T) {
+	m := geom.icosphere(5)
+	s: Sculptor
+	sculptor_init(&s, &m, nil)
+	defer sculptor_destroy(&s)
+	defer geom.mesh_destroy(&m)
+	sculptor_recompute_all(&s)
+	testing.expect(t, sculptor_morph_store(&s))
+	stored := make([]Vec3, len(m.positions))
+	defer delete(stored)
+	copy(stored, m.positions[:])
+	top := Vec3{0, 0, 1}
+	far :: proc(m: ^geom.Mesh, stored: []Vec3) -> (r: f32) {
+		for p, v in m.positions do r = max(r, linalg.length(p - stored[v]))
+		return
+	}
+	sculptor_stroke_begin(&s)
+	for _ in 0 ..< 10 do _ = apply_dab(&s, Brush{kind = .Draw, radius = 0.3, strength = 1}, top)
+	_ = sculptor_flush(&s)
+	_ = sculptor_stroke_end(&s)
+	moved := far(&m, stored)
+	testing.expect(t, moved > 0.05)
+	// Morph at full strength, many times: back to the stored surface.
+	sculptor_stroke_begin(&s)
+	for _ in 0 ..< 40 do _ = apply_dab(&s, Brush{kind = .Morph, radius = 0.5, strength = 1}, top * (1 + moved))
+	_ = sculptor_stroke_end(&s)
+	testing.expectf(t, far(&m, stored) < 0.01 * moved, "still %.5f from the target (moved %.4f)", far(&m, stored), moved)
+	// Without a target the brush moves nothing.
+	sculptor_morph_clear(&s)
+	testing.expect(t, apply_dab(&s, Brush{kind = .Morph, radius = 0.5, strength = 1}, top) == 0)
+}

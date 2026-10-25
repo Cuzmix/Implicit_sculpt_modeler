@@ -112,6 +112,7 @@ BRUSH_NAMES := [sculpt.Brush_Kind]string {
 	.Mask    = "Mask",
 	.Layer   = "Layer",
 	.Snake_Hook = "Snake hook",
+	.Morph   = "Morph",
 }
 
 BRUSH_HELP := [sculpt.Brush_Kind]cstring {
@@ -126,6 +127,7 @@ BRUSH_HELP := [sculpt.Brush_Kind]cstring {
 	.Mask    = "Paints the mask (Ctrl: erases it).",
 	.Layer   = "Raises a flat layer of one height per stroke; going\nover it again adds nothing (Ctrl: lowers).",
 	.Snake_Hook = "Pulls the surface out after the pointer, for horns,\ntentacles and fingers. Best with dynamic topology.",
+	.Morph   = "Brings the surface back to the stored morph target\n(Tools > Morph target), painting later work away.",
 }
 
 brush_by_name :: proc(name: string) -> (sculpt.Brush_Kind, bool) {
@@ -411,6 +413,7 @@ draw_tools_panel :: proc(app: ^App) {
 	draw_falloff_section(app)
 	draw_alpha_section(app)
 	draw_dyntopo_section(app)
+	draw_morph_section(app)
 
 	imgui.SeparatorText("Mask")
 	imgui.BeginDisabled(selected_object(app) == nil)
@@ -611,6 +614,30 @@ FALLOFF_PRESETS := [?]struct {
 }
 
 // Dynamic topology for the selected object, and the detail its brushes add.
+@(private = "file")
+draw_morph_section :: proc(app: ^App) {
+	imgui.SeparatorText("Morph target")
+	obj := selected_object(app)
+	s := object_sculptor(obj) if obj != nil else nil
+	imgui.BeginDisabled(s == nil || object_dynamic(obj) || object_in_hd(obj))
+	if imgui.Button("Store") {
+		stroke_finish(app)
+		_ = sculpt.sculptor_morph_store(s)
+	}
+	imgui.EndDisabled()
+	imgui.SameLine()
+	imgui.BeginDisabled(s == nil || !sculpt.sculptor_has_morph(s))
+	if imgui.Button("Delete") do sculpt.sculptor_morph_clear(s)
+	imgui.EndDisabled()
+	imgui.SameLine()
+	if s != nil && sculpt.sculptor_has_morph(s) {
+		imgui.TextDisabled("stored for this level")
+	} else {
+		imgui.TextDisabled("none")
+	}
+	imgui.TextDisabled("Store keeps the surface as it is now; the Morph brush\nthen brings any part back to it. One per level, not\nsaved with the scene; not with dynamic topology.")
+}
+
 @(private = "file")
 draw_dyntopo_section :: proc(app: ^App) {
 	imgui.SeparatorText("Dynamic topology")
