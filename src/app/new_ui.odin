@@ -64,7 +64,11 @@ Kit_State :: struct {
 	scroll:     f32, // the inspector's scroll, where it is heading
 	add_shape:  geom.Primitive,
 	add_size:   int, // into SPHERE_PRESETS
-	note_at:    time.Tick, // the file note last shown as a toast
+	note_at:    time.Tick, // the result last shown as a toast
+	undo_toast: struct {
+		serial: ui.Id, // the last toast that offered Undo
+		mark:   Undo_Mark, // the step its Undo takes back
+	},
 	frame:      int, // frames drawn, for --ui-events
 	events:     [dynamic]Kit_Event, // --ui-events, in frame order
 	ms:         f64, // last frame's layout and tessellation, CPU
@@ -441,6 +445,35 @@ kit_begin :: proc(app: ^App, window: ^sdl.Window) -> (size, pixels: [2]i32) {
 	return {w, h}, {pw, ph}
 }
 
+// A new result (saved, opened, remeshed, deleted) shows as a toast, with Undo when it
+// left an undo step; that Undo runs only while it is still the latest step.
+@(private = "file")
+kit_results :: proc(app: ^App) {
+	k := &app.kit
+	ctx := &k.ctx
+	if serial := ui.toast_take_action(ctx); serial != 0 && serial == k.undo_toast.serial {
+		if undo_mark_on_top(app.history.done[:], k.undo_toast.mark) do command_run(app, .Undo)
+		k.undo_toast = {}
+	}
+	// Once its step is no longer the newest (undone, or another made since), the toast
+	// stays but its Undo goes: it would take back something else.
+	if k.undo_toast.serial != 0 && !undo_mark_on_top(app.history.done[:], k.undo_toast.mark) {
+		ui.toast_drop_action(ctx, k.undo_toast.serial)
+		k.undo_toast = {}
+	}
+	r := app.result
+	if r.text == "" || r.at == k.note_at do return
+	k.note_at = r.at
+	if .Quiet in r.flags do return
+	kind := ui.Toast_Kind.Warning if .Warning in r.flags else .Success
+	mark, undoable := r.undo.?
+	if !undoable {
+		_ = ui.toast(ctx, r.text, kind)
+		return
+	}
+	k.undo_toast = {ui.toast(ctx, r.text, kind, "Undo"), mark}
+}
+
 // Lays out the interface for this frame and returns what the viewport saw.
 kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 	start := time.tick_now()
@@ -453,11 +486,7 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 	app.ui.viewport_request = {f32(max(pixels.x, 1)), f32(max(pixels.y, 1))}
 
 	ctx := &k.ctx
-	// A new file note (saved, opened, refused) shows as a toast.
-	if note := app.file_note; note.text != "" && note.at != k.note_at {
-		k.note_at = note.at
-		ui.toast(ctx, note.text, .Warning if note.warning else .Success)
-	}
+	kit_results(app)
 	ui.image(ctx, {0, 0, ctx.input.window.x, ctx.input.window.y}, KIT_VIEWPORT_IMAGE)
 	k.layer = ui.layer_mark(ctx)
 	kit_layout(app)

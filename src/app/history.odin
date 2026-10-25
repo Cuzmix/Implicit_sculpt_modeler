@@ -1,5 +1,6 @@
 package main
 
+import "core:fmt"
 import "core:log"
 import "core:math/linalg"
 import "core:time"
@@ -166,7 +167,8 @@ mask_command :: proc(app: ^App, command: sculpt.Mask_Command) {
 	start := time.tick_now()
 	steps := int(max(app.ui.mask_steps, 1))
 	changed := sculpt.sculptor_mask_command(object_sculptor(obj), command, steps)
-	app.ui.mask_last = {command = command, steps = steps, ms = time.duration_milliseconds(time.tick_since(start)), changed = changed, set = true}
+	ms := time.duration_milliseconds(time.tick_since(start))
+	report(app, Kit_Section.Mask, {.Quiet}, "%s%s in %.0f ms%s", MASK_COMMAND_NAMES[command], fmt.tprintf(", %d steps", steps) if command >= .Blur else "", ms, "" if changed else ", nothing changed")
 	if changed do history_record(app, obj, .Mask, MASK_COMMAND_NAMES[command])
 }
 
@@ -188,7 +190,8 @@ mask_shape_command :: proc(app: ^App, shape: [][2]f32, size: [2]f32, unmask: boo
 		}
 	}
 	changed := sculpt.sculptor_mask_shape(object_sculptor(obj), object_clip(app, obj, size), shape, unmask, front)
-	app.ui.mask_last = {command = .Fill if !unmask else .Clear, ms = time.duration_milliseconds(time.tick_since(start)), changed = changed, set = true, shape = true}
+	ms := time.duration_milliseconds(time.tick_since(start))
+	report(app, Kit_Section.Mask, {.Quiet}, "%s in %.0f ms%s", "Unmask shape" if unmask else "Mask shape", ms, "" if changed else ", nothing changed")
 	if changed do history_record(app, obj, .Mask, "Unmask shape" if unmask else "Mask shape")
 }
 
@@ -217,15 +220,9 @@ smooth_command :: proc(app: ^App, steps: int) {
 	}
 	changed, on_gpu := sculpt.sculptor_smooth_all(object_sculptor(obj), max(steps, 1), app.ui.smooth_strength, gpu)
 	ms := time.duration_milliseconds(time.tick_since(start))
-	app.ui.smooth_last = {steps = max(steps, 1), ms = ms, changed = changed, on_gpu = on_gpu, gpu = run.timing, set = true}
-	if on_gpu {
-		t := run.timing
-		log.infof("smooth all: %d steps on the GPU in %.0f ms (upload %.1f ms, %.0f MB; compute %.1f ms; readback %.1f ms)",
-			steps, ms, t.upload_ms, t.upload_mb, t.compute_ms, t.readback_ms)
-	} else {
-		log.infof("smooth all: %d steps on the CPU in %.0f ms%s", steps, ms, "" if changed else ", nothing changed")
-	}
 	if changed do history_record(app, obj, .Deform, "Smooth all")
+	report(app, Kit_Section.Deform, {.Undo} if changed else {}, "Smoothed %s: %d steps on the %s in %.0f ms%s", object_label(obj), max(steps, 1), "GPU" if on_gpu else "CPU", ms, "" if changed else ", nothing changed")
+	if t := run.timing; on_gpu do report_detail(app, "GPU: upload %.1f ms (%.0f MB), compute %.1f ms, readback %.1f ms.", t.upload_ms, t.upload_mb, t.compute_ms, t.readback_ms)
 }
 
 // Makes the compute pipeline the first time the GPU is asked to smooth. False (and the
@@ -303,9 +300,8 @@ hide_allowed :: proc(obj: ^Object) -> bool {
 
 @(private = "file")
 hide_done :: proc(app: ^App, obj: ^Object, changed: bool, start: time.Tick, what: string) {
-	app.ui.hide_last = {ms = time.duration_milliseconds(time.tick_since(start)), changed = changed, set = true}
 	hidden := sculpt.sculptor_hidden_count(object_sculptor(obj))
-	log.infof("%s: %d of %d triangles hidden, %.0f ms%s", what, hidden, object_triangle_count(obj), app.ui.hide_last.ms, "" if changed else ", nothing changed")
+	report(app, Kit_Section.Visibility, {.Quiet}, "%s: %s of %s triangles hidden, %.0f ms%s", what, thousands(hidden), thousands(object_triangle_count(obj)), time.duration_milliseconds(time.tick_since(start)), "" if changed else ", nothing changed")
 	if !changed do return
 	history_record(app, obj, .Hide, what)
 	render.viewport_invalidate(&app.target)
@@ -349,8 +345,7 @@ clip_command :: proc(app: ^App, a, b: [2]f32, flip: bool, size: [2]f32) {
 	planes := make([dynamic]sculpt.Clip_Plane, 0, 8, context.temp_allocator)
 	for sign in sculpt.mirrors(app.brush.symmetry) do append(&planes, sculpt.Clip_Plane{point = point * sign, normal = normal * sign})
 	changed := sculpt.sculptor_clip(object_sculptor(obj), planes[:])
-	app.ui.clip_last = {ms = time.duration_milliseconds(time.tick_since(start)), changed = changed, set = true}
-	log.infof("clip: %.0f ms%s", app.ui.clip_last.ms, "" if changed else ", nothing changed")
+	report(app, Kit_Section.Visibility, {.Quiet}, "Clip in %.0f ms%s", time.duration_milliseconds(time.tick_since(start)), "" if changed else ", nothing changed")
 	if changed do history_record(app, obj, .Deform, "Clip")
 }
 

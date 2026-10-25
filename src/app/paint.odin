@@ -91,14 +91,12 @@ group_click :: proc(app: ^App, at, size: [2]f32, alt: bool) -> bool {
 	start := time.tick_now()
 	if alt {
 		changed := sculpt.sculptor_mask_group(s, group)
-		app.ui.mask_last = {command = .Fill, ms = time.duration_milliseconds(time.tick_since(start)), changed = changed, set = true, shape = true}
-		log.infof("mask group %d: %.0f ms%s", group, app.ui.mask_last.ms, "" if changed else ", nothing changed")
+		report(app, Kit_Section.Mask, {.Quiet}, "Mask group %d in %.0f ms%s", group, time.duration_milliseconds(time.tick_since(start)), "" if changed else ", nothing changed")
 		if changed do history_record(app, obj, .Mask, "Mask group")
 		return true
 	}
 	changed := sculpt.sculptor_hide_group(s, group)
-	app.ui.hide_last = {ms = time.duration_milliseconds(time.tick_since(start)), changed = changed, set = true}
-	log.infof("isolate group %d: %d of %d triangles hidden, %.0f ms", group, sculpt.sculptor_hidden_count(s), object_triangle_count(obj), app.ui.hide_last.ms)
+	report(app, Kit_Section.Visibility, {.Quiet}, "Isolate group %d: %s of %s triangles hidden, %.0f ms", group, thousands(sculpt.sculptor_hidden_count(s)), thousands(object_triangle_count(obj)), time.duration_milliseconds(time.tick_since(start)))
 	if changed {
 		history_record(app, obj, .Hide, "Isolate group")
 		render.viewport_invalidate(&app.target)

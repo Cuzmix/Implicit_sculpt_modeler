@@ -427,6 +427,61 @@ toasts_copy_their_text_and_go :: proc(t: ^testing.T) {
 	testing.expect_value(t, ctx.toast_count, 0)
 }
 
+// A toast's action is pressed by a click on its right end, which dismisses it too; a
+// click on the message only dismisses it.
+@(test)
+a_toast_action_is_taken_once :: proc(t: ^testing.T) {
+	ctx: Context
+	init(&ctx)
+	defer destroy(&ctx)
+	serial := toast(&ctx, "Deleted Sphere 2", .Info, "Undo")
+	plain := toast(&ctx, "Saved", .Success)
+	testing.expect(t, serial != 0 && plain != serial)
+	idle(&ctx, 30)
+	where_is :: proc(ctx: ^Context, id: Id) -> Rect {
+		for p in ctx.placed do if p.id == id do return p.rect
+		return {}
+	}
+	undo := where_is(&ctx, ctx.toasts[0].id)
+	saved := where_is(&ctx, ctx.toasts[1].id)
+	testing.expectf(t, undo.w > 0 && saved.w > 0 && undo.w > saved.w, "toasts at %v and %v", undo, saved)
+	// The message of the plain one: dismissed, nothing to act on.
+	frame_begin(&ctx, input_at({saved.x + saved.w * 0.5, saved.y + saved.h * 0.5}, {.Left}, {.Left}))
+	frame_end(&ctx)
+	testing.expect_value(t, toast_take_action(&ctx), Id(0))
+	// The action of the other, a few points below its edge: still within the target.
+	frame_begin(&ctx, input_at({undo.x + undo.w - 12, undo.y + undo.h - 2}, {.Left}, {.Left}))
+	frame_end(&ctx)
+	testing.expect_value(t, toast_take_action(&ctx), serial)
+	testing.expect_value(t, toast_take_action(&ctx), Id(0))
+	idle(&ctx, 30)
+	testing.expect_value(t, ctx.toast_count, 0)
+}
+
+// On a narrow window a long toast is cut short, its action whole and inside the window;
+// a dropped action leaves the message.
+@(test)
+a_toast_keeps_its_action_on_screen :: proc(t: ^testing.T) {
+	ctx: Context
+	init(&ctx)
+	defer destroy(&ctx)
+	long := "Remeshed a very long object name that goes on and on: 1,002,113 vertices (312 ms) and more"
+	serial := toast(&ctx, long, .Info, "Undo")
+	for _ in 0 ..< 30 {
+		in_ := input_at({-1, -1})
+		in_.window = {360, 640}
+		frame_begin(&ctx, in_)
+		frame_end(&ctx)
+	}
+	r: Rect
+	for p in ctx.placed do if p.id == ctx.toasts[0].id do r = p.rect
+	testing.expectf(t, r.x >= 16 - 1 && r.x + r.w <= 360 - 16 + 1, "toast at %v in a 360 point window", r)
+	toast_drop_action(&ctx, serial)
+	testing.expect_value(t, ctx.toasts[0].action_len, 0)
+	testing.expect_value(t, string(ctx.toasts[0].text[:ctx.toasts[0].len]), long)
+	free_all(context.temp_allocator)
+}
+
 @(test)
 hit_areas_reach_the_touch_target :: proc(t: ^testing.T) {
 	ctx: Context

@@ -204,12 +204,7 @@ kit_mask :: proc(app: ^App) {
 	shapes := [2]string{"Rectangle", "Lasso"}
 	if picked := ui.tabs(ctx, "mask shape", shapes[:], int(app.ui.mask_shape_kind)); picked >= 0 do app.ui.mask_shape_kind = Mask_Shape_Kind(picked)
 	ui.paragraph(ctx, fmt.tprintf("Paint the mask with the Mask brush, or Ctrl + drag a shape from empty space (with Alt: unmask). Masked parts show darker and no brush moves them. Blur, Sharpen, Grow and Shrink move its edge a ring of triangles a step. %s clears, %s inverts.", command_keys(.Mask, int(sculpt.Mask_Command.Clear)), command_keys(.Mask, int(sculpt.Mask_Command.Invert))))
-	if last := app.ui.mask_last; last.set {
-		steps := fmt.tprintf(", %d steps", last.steps) if last.command >= .Blur else ""
-		name := MASK_COMMAND_NAMES[last.command]
-		if last.shape do name = "Unmask shape" if last.command == .Clear else "Mask shape"
-		ui.paragraph(ctx, fmt.tprintf("Last: %s%s in %.0f ms%s.", name, steps, last.ms, "" if last.changed else ", nothing changed"))
-	}
+	kit_last_result(app, .Mask)
 }
 
 @(private = "file")
@@ -232,11 +227,7 @@ kit_visibility :: proc(app: ^App, obj: ^Object) {
 	if show do command_run(app, .Show_All)
 	if invert do command_run(app, .Invert_Hidden)
 	ui.paragraph(ctx, fmt.tprintf("%s shows all; %s inverts.", command_keys(.Show_All), command_keys(.Invert_Hidden)))
-	if last := app.ui.hide_last; last.set {
-		hidden := sculpt.sculptor_hidden_count(object_sculptor(obj))
-		ui.paragraph(ctx, fmt.tprintf("Last hide: %.0f ms%s; %d triangles hidden.", last.ms, "" if last.changed else ", nothing changed", hidden))
-	}
-	if last := app.ui.clip_last; last.set do ui.paragraph(ctx, fmt.tprintf("Last clip: %.0f ms%s.", last.ms, "" if last.changed else ", nothing changed"))
+	kit_last_result(app, .Visibility)
 	if app.stats.slice_ms > 0 do ui.paragraph(ctx, fmt.tprintf("Last slice: %.0f ms, ready in %.0f ms more.", app.stats.slice_ms, app.stats.slice_setup_ms))
 }
 
@@ -282,12 +273,7 @@ kit_deformation :: proc(app: ^App, obj: ^Object) {
 	if ui.slider(ctx, "Steps", &steps, 1, 100, .Logarithmic, fmt.tprintf("%d", app.ui.smooth_steps), enabled = can) do app.ui.smooth_steps = i32(steps + 0.5)
 	_ = ui.slider(ctx, "Strength", &app.ui.smooth_strength, 0.05, 1, .Linear, fmt.tprintf("%.2f", app.ui.smooth_strength), enabled = can)
 	ui.paragraph(ctx, "Smooths the whole object, each step moving every vertex toward its neighbours' average. Masked parts stay. One undo step; not with dynamic topology. On the GPU runs the steps as a compute shader, a trial of GPU sculpting.")
-	if last := app.ui.smooth_last; last.set {
-		ui.paragraph(ctx, fmt.tprintf("Last: %d steps on the %s in %.0f ms%s.", last.steps, "GPU" if last.on_gpu else "CPU", last.ms, "" if last.changed else ", nothing changed"))
-		if g := last.gpu; last.on_gpu {
-			ui.paragraph(ctx, fmt.tprintf("GPU: upload %.1f ms (%.0f MB), compute %.1f ms, readback %.1f ms.", g.upload_ms, g.upload_mb, g.compute_ms, g.readback_ms))
-		}
-	}
+	kit_last_result(app, .Deform)
 }
 
 @(private = "file")

@@ -63,7 +63,7 @@ object_retopo :: proc(app: ^App, obj: ^Object, quads: int) -> (made, ok: bool) {
 	}
 	bvh := geom.bvh_build_morton(view, geom.BVH_LEAF_SIZE, &app.pool)
 	defer geom.bvh_destroy(&bvh)
-	q, report, built := geom.mesh_retopo(view, &bvh, quads, &app.pool)
+	q, how, built := geom.mesh_retopo(view, &bvh, quads, &app.pool)
 	free_all(context.temp_allocator)
 	if !built {
 		log.warnf("retopologize: %s has too few triangles for %d quads", object_label(obj), quads)
@@ -93,9 +93,8 @@ object_retopo :: proc(app: ^App, obj: ^Object, quads: int) -> (made, ok: bool) {
 	sculpt.levels_set_quads(&twin.levels, q.quads)
 	sculpt.levels_set_uvs(&twin.levels, uv)
 	app.ui.bake.source = obj.id
-	app.ui.retopo_last = {quads = len(q.quads), charts = uv.charts, ms = retopo_ms + uv_ms, set = true}
-	log.infof("retopologize: %d quads from %s in %.0f ms (decimated to %d triangles, %d paired; %d vertices not put back), UVs in %d charts filling %.0f%% in %.0f ms",
-		len(q.quads), object_label(obj), retopo_ms, report.decimated, report.paired, report.unprojected, uv.charts, 100 * uv.filled, uv_ms)
+	report(app, Kit_Section.Retopo, {}, "Retopologized %s: %s quads, UVs in %d charts, %.0f ms", object_label(obj), thousands(len(q.quads)), uv.charts, retopo_ms + uv_ms)
+	log.infof("retopologize: decimated to %d triangles, %d paired; %d vertices not put back; UVs fill %.0f%% in %.0f ms", how.decimated, how.paired, how.unprojected, 100 * uv.filled, uv_ms)
 	return true, true
 }
 
@@ -172,8 +171,7 @@ bake_to_folder :: proc(app: ^App, folder: string) {
 	if !write_file_safely(app, path(folder, base, "_displacement.txt"), transmute([]u8)note, "bake") do return
 	if !write_file_safely(app, path(folder, base, ".obj"), obj_text[:], "bake") do return
 	share := 100 * f64(maps.hit) / f64(max(maps.covered, 1))
-	app.ui.bake_last = {ms = baked_ms, hit = share, range = full, set = true}
-	file_note(app, share < 99, "Baked %s from %s at %d x %d in %.0f ms: %.1f%% of texels found the surface, displacement up to %.4g; %s_normal.png, _displacement.png and .obj written",
+	report(app, Kit_Section.Retopo, {.Warning} if share < 99 else {}, "Baked %s from %s at %d x %d in %.0f ms: %.1f%% of texels found the surface, displacement up to %.4g; %s_normal.png, _displacement.png and .obj written",
 		object_label(low), object_label(src), size, size, baked_ms, share, full, base)
 }
 
@@ -183,7 +181,7 @@ kit_retopo_section :: proc(app: ^App) {
 	obj := selected_object(app)
 	_ = kit_count(ctx, "Quads", &app.ui.retopo_quads, 100, 1_000_000)
 	if ui.button(ctx, "Retopologize selected", .Flat, .Accent, enabled = obj != nil) do command_run(app, .Retopologize)
-	if r := app.ui.retopo_last; r.set do ui.paragraph(ctx, fmt.tprintf("Last: %d quads, UVs in %d charts, %.0f ms.", r.quads, r.charts, r.ms))
+	kit_last_result(app, .Retopo)
 	ui.paragraph(ctx, "Makes a new object of quads lying on the selected one (the level it is on), with UVs, next to it. Subdivide and sculpt it, or bake onto it.")
 	if obj == nil || !sculpt.levels_has_uvs(&obj.levels) {
 		ui.paragraph(ctx, "Select an object made by Retopologize to bake onto it.")
@@ -213,6 +211,5 @@ kit_retopo_section :: proc(app: ^App) {
 	bake, uvs := kit_button_pair(ctx, "Bake maps...", "New UVs")
 	if bake do file_dialog(app, .Bake)
 	if uvs do object_layout_uvs(app, obj)
-	if b := app.ui.bake_last; b.set do ui.paragraph(ctx, fmt.tprintf("Last bake: %.0f ms, %.1f%% found the surface, displacement up to %.4g.", b.ms, b.hit, b.range))
 	ui.paragraph(ctx, "Bakes the source's detail (its top level) into normal and displacement maps on this object's UVs, and writes them with the quads as OBJ into a folder. Reach: how far each texel looks either way.")
 }

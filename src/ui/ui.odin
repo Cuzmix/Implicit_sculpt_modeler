@@ -156,12 +156,15 @@ Toast_Kind :: enum u8 {
 
 @(private)
 Toast :: struct {
-	text:  [120]u8,
-	len:   int,
-	kind:  Toast_Kind,
-	born:  f64,
-	life:  f32,
-	id:    Id,
+	text:       [120]u8,
+	len:        int,
+	action:     [24]u8, // the button at its right end ("Undo"), if any
+	action_len: int,
+	serial:     Id,
+	kind:       Toast_Kind,
+	born:       f64,
+	life:       f32,
+	id:         Id,
 }
 
 @(private)
@@ -228,6 +231,7 @@ Context :: struct {
 	toast_count:    int,
 	toast_serial:   Id,
 	toast_bottom:   f32, // how far above the window's bottom edge toasts stack
+	toast_acted:    Id, // the toast whose action was pressed, until toast_take_action
 	// The popover open this frame, closed by a press outside it and its trigger, and
 	// how the one being drawn now is shown (popovers do not nest).
 	popup_open:       Id,

@@ -115,6 +115,7 @@ kit_stats :: proc(app: ^App) -> (raised: bool) {
 		ui.value_row(ctx, "Object snapshots", fmt.tprintf("%.1f MB", f64(app.history.swap_bytes) / (1 << 20)))
 		ui.section_end(ctx)
 	}
+	kit_stats_last(app)
 	kit_stats_help(app)
 	ui.window_end(ctx)
 	ui.transform_since(ctx, mark, shown, 1, {}, {slide, 0})
@@ -183,7 +184,20 @@ kit_stats_simple :: proc(app: ^App) {
 	}
 	ui.value_row(ctx, "Undo history", fmt.tprintf("%.1f MB in %d steps", f64(undo_bytes) / (1 << 20), len(app.history.done)))
 	ui.paragraph(ctx, "The memory the whole app uses is not measured yet, so it is not shown.")
+	kit_stats_last(app)
 	kit_stats_help(app)
+}
+
+// What the last operation did and how long it took, as its toast or section said.
+@(private = "file")
+kit_stats_last :: proc(app: ^App) {
+	r := app.result
+	if r.text == "" do return
+	ctx := &app.kit.ctx
+	ui.spacer(ctx, 6)
+	ui.caption(ctx, "LAST OPERATION")
+	ui.paragraph(ctx, r.text)
+	if r.detail != "" do ui.paragraph(ctx, r.detail)
 }
 
 // What "typical" and "slower moments" (p50 and p99) mean, folded until asked for: a
@@ -203,7 +217,6 @@ kit_stats_help :: proc(app: ^App) {
 }
 
 // `n` with thousands apart: 1,250,000.
-@(private = "file")
 thousands :: proc(n: int) -> string {
 	digits := fmt.tprintf("%d", n)
 	out := make([dynamic]u8, 0, len(digits) + len(digits) / 3, context.temp_allocator)

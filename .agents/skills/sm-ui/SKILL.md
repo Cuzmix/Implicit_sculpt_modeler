@@ -67,6 +67,13 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
 - Commands: an action button, menu row or shortcut runs a registry command (`command_run(app, .Id, arg)`, `src/app/commands.odin`), whose `enabled` also decides the button's enabled state and whose keys a hint shows through `command_keys`; never type a shortcut into a label or paragraph. A panel never mutates the scene; it sets `app.ui.scene_command` and the frame loop applies it at the start
   of the next frame. Mask commands go to `mask_command`; file actions to `file_dialog`/`file_post`, applied next frame
   (`file_take`), their outcome a `file_note` that the interface shows as a toast.
+- Operation results (`src/app/results.odin`): an operation says what it did once, with
+  `report(app, section, flags, format, args)` (past tense, with its time); `.Quiet` for what
+  shows by itself, `.Undo` right after recording its undo step. The kit shows it as a toast
+  (with Undo when offered), its inspector section with `kit_last_result`, and Stats under Last
+  operation. Never add a per-operation `*_last` struct to `app.ui`. Undo is tied to the step by
+  `Undo_Mark` (object id and time), never by a count of steps. Destructive scene commands are
+  reported by `scene_run` around `scene_apply`.
 - Settings (`settings.odin`): `key values` lines; unknown keys are skipped, values clamped; the kit's add shape and
   size are `new_shape`/`new_vertices`. Saved on exit, when Settings closes and on `DID_ENTER_BACKGROUND`;
   `--settings-file=PATH` reads and writes PATH even in scripted runs (`--frames` otherwise never touches settings).
@@ -127,7 +134,7 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   the camera or a drag reads animates.
 - Popovers (`popup.odin`): `popover_begin(ctx, name, open, anchor, side, box)` … `popover_end`; a press outside one
   closes it (swallowed if on the viewport); the first frame is measured invisibly. Selects draw their list in
-  `frame_end`, over everything. `tip(ctx, id, rect, text, keys)` gives a tooltip; `toast(ctx, message, kind)` a note.
+  `frame_end`, over everything. `tip(ctx, id, rect, text, keys)` gives a tooltip; `toast(ctx, message, kind, action)` a note, with an optional action button (`toast_take_action`, `toast_drop_action`).
 - Layers (`ui.odin:666`): `layer_mark` keeps a place in the draw order; what is drawn between `layer_begin` and
   `layer_end` goes there, under everything drawn after the mark. Draw in it with the whole window as the clip.
 - Text fields: `typing(ctx)` is true while one has the keys; the app then calls `sdl.StartTextInput` (a tablet's

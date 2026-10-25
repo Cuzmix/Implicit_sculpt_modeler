@@ -96,9 +96,8 @@ project_detail :: proc(app: ^App, obj, src: ^Object) {
 	changed := sculpt.sculptor_project(object_sculptor(obj), next, colors, settings.strength)
 	free_all(context.temp_allocator)
 	ms := time.duration_milliseconds(time.tick_since(start))
-	app.ui.project_last = {hit = 100 * f64(hits) / f64(max(count, 1)), ms = ms, set = true}
-	log.infof("project detail: %s onto %s, %d of %d vertices found the surface, in %.0f ms", object_label(src), object_label(obj), hits, count, ms)
 	if changed do history_record(app, obj, .Deform, "Project detail")
+	report(app, Kit_Section.Project, {.Undo} if changed else {}, "Projected %s onto %s: %.1f%% of vertices found the surface, %.0f ms", object_label(src), object_label(obj), 100 * f64(hits) / f64(max(count, 1)), ms)
 }
 
 // The weights of `p` (on the triangle's plane) at the corners a, b and c.
@@ -138,6 +137,6 @@ kit_project_section :: proc(app: ^App) {
 	_ = ui.switch_row(ctx, "Polypaint too", &p.paint)
 	_ = ui.switch_row(ctx, "As placed in the scene", &p.as_placed)
 	if ui.button(ctx, "Project detail", .Flat, .Accent, enabled = obj != nil && src != nil) do project_detail(app, obj, src)
-	if l := app.ui.project_last; l.set do ui.paragraph(ctx, fmt.tprintf("Last: %.1f%% of vertices found the surface, %.0f ms.", l.hit, l.ms))
+	kit_last_result(app, .Project)
 	ui.paragraph(ctx, "Moves the selected object's shown level onto the source along its normals, where it is within Reach (a share of its size). As placed off reads each in its own space, so a copy beside the original projects as if on top of it. For a remeshed copy: subdivide it and project at each level, lowest first.")
 }
