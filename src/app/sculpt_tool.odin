@@ -20,6 +20,7 @@ Brush_Settings :: struct {
 	pressure_curve:    geom.Curve, // what each pen pressure counts as (geom.curve_at)
 	tilt_strength:     f32, // 0 to 1: how far a leaning pen turns the brush (camera.orbit_tilt)
 	lazy_px:           f32,  // lazy mouse: the brush trails the cursor by this many pixels; 0 is off
+	front_only:        bool, // brushes and mask shapes leave what faces away from the viewer (sculpt.Brush.facing)
 	symmetry:          sculpt.Symmetry, // mirror strokes across these planes of the object
 	// On objects with dynamic topology: edges under the brush longer than this many
 	// pixels on screen split, and with collapse, ones much shorter merge.
@@ -346,6 +347,8 @@ brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pres
 	alpha := brush_alpha(app) if !input.smooth else nil
 	up: Vec3
 	if alpha != nil do up = to_local_dir(t, alpha_world_up(app))
+	facing: Vec3
+	if app.brush.front_only do facing = to_local_dir(t, -camera.orbit_toward(app.camera, to_world(t, hit)))
 	return sculpt.Brush {
 		kind     = kind,
 		radius   = brush_radius_px(app, pressure) * world_per_px / t.scale,
@@ -358,6 +361,7 @@ brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pres
 		alpha    = alpha,
 		alpha_up = up,
 		falloff_shape = brush_falloff(app, kind),
+		facing   = facing,
 	}
 }
 

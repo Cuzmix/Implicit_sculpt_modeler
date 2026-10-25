@@ -51,6 +51,7 @@ Options :: struct {
 	bench_samples: int `usage:"Give each --bench-stroke frame this many pointer samples along the path, like a high-rate mouse (default: one position a frame)."`,
 	bench_loops: int `usage:"Make --bench-stroke this many circles around the middle of the sphere instead of a wavy line."`,
 	brush:     string `usage:"Start with this brush: draw, smooth, clay, flatten, inflate, pinch, crease, grab or mask (also what --bench-stroke uses)."`,
+	front_only: bool `usage:"Start with Front faces only on: brushes and mask shapes leave what faces away from the viewer."`,
 	symmetry:  string `usage:"Start with brush symmetry across these axes, e.g. x or xz."`,
 	material:  string `usage:"Shade objects with this View > Material: clay (the default), red wax, white, grey or skin."`,
 	ortho:     bool `usage:"Start with parallel (orthographic) projection, as View > Orthographic (P) does."`,
@@ -348,6 +349,7 @@ run :: proc(opts: Options) -> bool {
 	defer if remember do _ = settings_save(&app, settings)
 	if opts.ortho do app.camera.ortho = true
 	if opts.wireframe do app.wireframe = true
+	if opts.front_only do app.brush.front_only = true
 	if opts.material != "" {
 		found: bool
 		app.material, found = material_by_name(opts.material)

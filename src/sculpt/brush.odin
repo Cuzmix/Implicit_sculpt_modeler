@@ -81,6 +81,11 @@ Brush :: struct {
 	falloff_shape: ^Falloff,
 	// Snake_Hook: how far this dab drags what is under it, in the mesh's space.
 	drag:     Vec3,
+	// Front faces only, as ZBrush's BackfaceMask: the way toward the viewer in the
+	// mesh's space, and vertices whose normal turns away from it are left alone (with a
+	// short fade across the edge-on ones), so a stroke on a thin part leaves its far
+	// side be. Zero works on every vertex. Grab ignores it.
+	facing:   Vec3,
 }
 
 // A vertex's Layer height, and the stroke it belongs to (0: none).
@@ -633,6 +638,7 @@ apply_dab :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
 		// And its alpha shows mirrored: an odd number of flips turns the image over.
 		b.alpha_up *= sign
 		b.drag *= sign
+		b.facing *= sign
 		if sign.x * sign.y * sign.z < 0 do b.alpha_mirror = !b.alpha_mirror
 		moved += dab_once(s, b, center * sign)
 	}
@@ -662,6 +668,15 @@ shield :: #force_inline proc(fade, mask: []u8, v: u32) -> f32 {
 	if fade != nil do w = f32(fade[v]) * (1.0 / 255)
 	if mask != nil do w *= f32(255 - mask[v]) * (1.0 / 255)
 	return w
+}
+
+// How much a dab may move vertex v for facing the way it does (Brush.facing): 1 when
+// front faces only is off or the vertex faces the viewer, 0 when it faces away, a short
+// ramp between.
+@(private)
+facing_weight :: #force_inline proc(d: ^Dab, normals: []Vec3, v: u32) -> f32 {
+	if d.brush.facing == {} do return 1
+	return clamp(linalg.dot(normals[v], d.brush.facing) * 5 + 0.5, 0, 1)
 }
 
 @(private)
@@ -906,7 +921,7 @@ displace :: #force_inline proc(d: ^Dab, i: int, $K: Brush_Kind) {
 		delta := p - d.center
 		d2 := linalg.dot(delta, delta)
 		if d2 < d.r2 {
-			w := dab_weight(d, delta, d2) * shield(fade, mask, v)
+			w := dab_weight(d, delta, d2) * shield(fade, mask, v) * facing_weight(d, m.normals[:], v)
 			if w > 0 {
 				when K == .Draw {
 					p += d.normal * (d.amount * w)
@@ -987,7 +1002,7 @@ job_smooth_apply :: proc(data: rawptr, i: int) {
 		delta := m.positions[v] - d.center
 		d2 := linalg.dot(delta, delta)
 		if d2 < d.r2 {
-			if w := shield(fade, mask, v); w > 0 {
+			if w := shield(fade, mask, v) * facing_weight(d, m.normals[:], v); w > 0 {
 				t := clamp(d.brush.strength * dab_weight(d, delta, d2), 0, 1) * w
 				m.positions[v] = linalg.lerp(m.positions[v], targets[v - first], t)
 				moved += 1
