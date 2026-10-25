@@ -128,6 +128,10 @@ Draw_Item :: struct {
 	// Ambient, specular strength, specular power, and wrap (how far light reaches past
 	// the side facing it, for a soft, waxy look); zero for the default clay.
 	material:  [4]f32,
+	// Metallic and roughness for physically based shading; a roughness of 0 keeps the
+	// classic shading `material` describes.
+	surface:   [2]f32,
+	flat:      bool, // shade each triangle with its own normal instead of the smoothed ones
 	wireframe: bool, // draw its triangles' edges over it
 	live:   bool,
 	chunks: []geom.Chunk,
@@ -162,7 +166,8 @@ Viewport_Stats :: struct {
 // Matches Material_Uniforms in mesh.frag.
 Material_Uniforms :: struct {
 	base_color: [4]f32,
-	params:     [4]f32, // x: ambient, y: specular strength, z: specular power
+	params:     [4]f32, // x: ambient, y: specular strength, z: specular power, w: wrap
+	surface:    [4]f32, // x: metallic, y: roughness (0: classic), z: 1 for flat shading
 }
 
 MESH_VERT_SPV :: #load("shaders/mesh.vert.spv")
@@ -757,8 +762,11 @@ frame_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lod
 		model:    Mat4,
 		color:    [4]f32,
 		material: [4]f32,
+		surface:  [2]f32,
 		wire:     b32,
+		flat:     b32, // no padding: every byte is hashed
 	}
+	#assert(size_of(Keyed) == 120)
 	Header :: struct { // no padding: every byte is hashed
 		view, proj:    Mat4,
 		width, height: u32,
@@ -768,7 +776,7 @@ frame_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lod
 	header := Header{view, proj, vt.width, vt.height, u32(len(items)), lod_px}
 	h := hash.fnv64a(slice.bytes_from_ptr(&header, size_of(header)))
 	for item in items {
-		k := Keyed{item.mesh, item.model, item.color, item.material, b32(item.wireframe)}
+		k := Keyed{item.mesh, item.model, item.color, item.material, item.surface, b32(item.wireframe), b32(item.flat)}
 		h = hash.fnv64a(slice.bytes_from_ptr(&k, size_of(k)), h)
 	}
 	return max(h, 1)
@@ -918,9 +926,11 @@ static_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lo
 		model:    Mat4,
 		color:    [4]f32,
 		material: [4]f32,
+		surface:  [2]f32,
 		wire:     b32,
-		_:        u32, // no padding: every byte is hashed
+		flat:     b32, // no padding: every byte is hashed
 	}
+	#assert(size_of(Keyed) == 128)
 	Header :: struct {
 		view, proj:    Mat4,
 		width, height: u32,
@@ -930,7 +940,7 @@ static_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lo
 	h := hash.fnv64a(slice.bytes_from_ptr(&header, size_of(header)))
 	for item in items {
 		if item.live do continue
-		k := Keyed{item.mesh, item.mesh.version, item.model, item.color, item.material, b32(item.wireframe), 0}
+		k := Keyed{item.mesh, item.mesh.version, item.model, item.color, item.material, item.surface, b32(item.wireframe), b32(item.flat)}
 		h = hash.fnv64a(slice.bytes_from_ptr(&k, size_of(k)), h)
 	}
 	return max(h, 1) // 0 means empty
@@ -967,7 +977,8 @@ draw_items :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURende
 		if want, filtered := live.?; filtered && item.live != want do continue
 		frame := Frame_Uniforms{view_proj = proj * view, view = view, model = item.model}
 		params := item.material if item.material != {} else DEFAULT_MATERIAL
-		material := Material_Uniforms{base_color = item.color, params = params}
+		surface := [4]f32{item.surface.x, item.surface.y, 1 if item.flat else 0, 0}
+		material := Material_Uniforms{base_color = item.color, params = params, surface = surface}
 		sdl.PushGPUVertexUniformData(cmd, 0, &frame, size_of(frame))
 		sdl.PushGPUFragmentUniformData(cmd, 0, &material, size_of(material))
 		mb := item.mesh

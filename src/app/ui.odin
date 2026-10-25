@@ -231,10 +231,9 @@ draw_menu_bar :: proc(app: ^App) {
 		}
 		imgui.Separator()
 		if imgui.MenuItem("Wireframe", "Shift+F", app.wireframe) do app.wireframe = !app.wireframe
+		if imgui.MenuItem("Flat shading", "Shift+G", app.flat) do app.flat = !app.flat
 		if imgui.BeginMenu("Material") {
-			for m, i in MATERIALS {
-				if imgui.MenuItem(m.label, nil, app.material == i) do app.material = i
-			}
+			material_menu(app)
 			imgui.EndMenu()
 		}
 		imgui.Separator()
@@ -251,6 +250,30 @@ draw_menu_bar :: proc(app: ^App) {
 			imgui.TextDisabled("%s", text)
 		}
 		if imgui.IsItemHovered() do imgui.SetTooltip("%s", text)
+	}
+}
+
+// View > Material: the classic presets, the physically based ones, and sliders that edit
+// whichever is in use into the Custom material.
+@(private = "file")
+material_menu :: proc(app: ^App) {
+	for m, i in MATERIALS {
+		if i == FIRST_PBR do imgui.SeparatorText("Physically based")
+		if imgui.MenuItem(m.label, nil, app.material == i) do app.material = i
+	}
+	imgui.SeparatorText("Custom")
+	if imgui.MenuItem("Custom", nil, app.material == CUSTOM_MATERIAL) do app.material = CUSTOM_MATERIAL
+	// The sliders show the material in use; moving one copies it into Custom first, so a
+	// preset is never changed. A classic preset has no roughness yet, so it starts rough.
+	m := current_material(app)
+	if m.roughness == 0 do m.roughness = CUSTOM_ROUGHNESS
+	changed := imgui.ColorEdit3("Colour", (^[3]f32)(&m.selected), {.Float})
+	changed |= imgui.SliderFloat("Metallic", &m.metallic, 0, 1, "%.2f")
+	changed |= imgui.SliderFloat("Roughness", &m.roughness, 0.04, 1, "%.2f")
+	if changed {
+		m.label = "Custom"
+		app.custom = m
+		app.material = CUSTOM_MATERIAL
 	}
 }
 
@@ -931,6 +954,8 @@ handle_shortcuts :: proc(app: ^App) {
 			focus_selected(app)
 		}
 	}
+	// Shift+G shows the triangles as flat facets, beside Shift+F's wireframe.
+	if imgui.IsKeyPressed(.G, false) && io.KeyShift && !io.KeyCtrl do app.flat = !app.flat
 	// Delete removes the selected object; Ctrl+Z brings it back.
 	if imgui.IsKeyPressed(.Delete, false) && selected_object(app) != nil do app.ui.scene_command = {kind = .Delete}
 	if imgui.IsKeyPressed(.A, false) && !io.KeyCtrl {
