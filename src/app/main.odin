@@ -91,6 +91,7 @@ App :: struct {
 	move:     Move_Tool,
 	brush:    Brush_Settings,
 	mask_shape: Mask_Shape, // a Ctrl + drag on empty space in progress (mask_shape.odin)
+	clip:     Clip_Gesture, // a Ctrl + Shift + drag in progress (clip.odin)
 	// Each brush's drawn falloff as the sculptor reads it, remade when its curve changes.
 	falloff_tables: [sculpt.Brush_Kind]struct {
 		falloff: sculpt.Falloff,
@@ -532,7 +533,7 @@ run :: proc(opts: Options) -> bool {
 		sculpted: Sculpt_Frame_Result
 		switch app.tool {
 		case .Brush:
-			if mask_shape_frame(&app, input) {
+			if clip_frame(&app, input) || mask_shape_frame(&app, input) {
 				stroke_finish(&app)
 			} else {
 				sculpted = sculpt_frame(&app, input)
