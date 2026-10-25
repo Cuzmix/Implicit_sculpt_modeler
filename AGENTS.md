@@ -11,7 +11,8 @@ skill whose description fits the request BEFORE you form a plan.
 - Meshes, BVH, culling math, mesh tests: `sm-geom`. Brushes, undo, subdivision levels, HD, simplified copies, the stroke
   pipeline, masking, symmetry, dynamic topology: `sm-sculpt`. Modelling tools other than brushes (voxel remesh, primitives, booleans, trims, mirror, measure): `sm-cad`.
   SDFs, voxels, implicit surfaces: `sm-sdf`. Anything drawn or uploaded: `sm-render`. Panels, input, shortcuts: `sm-ui`.
-  How fast anything is: `sm-perf`. Before calling anything done: `sm-lint`.
+  How fast anything is: `sm-perf`. Anything that ships to users (dependencies, permissions, files, network, data,
+  payments, platform builds, new screens or controls, app lifecycle): `sm-store`. Before calling anything done: `sm-lint`.
 - Subagents (`.claude/agents/`): `sm-architect` reviews designs (read-only), `sm-investigator` root-causes bugs with a
   hypothesis ledger, `sm-verifier` builds, runs, dumps the viewport and describes what it saw, `sm-reviewer` reviews a
   finished diff against these rules (read-only). Where a role is not offered by name, start a general-purpose agent
@@ -77,5 +78,6 @@ skill whose description fits the request BEFORE you form a plan.
 - `build.bat check` and `build.bat test` are green; `build.bat smoke` too for render, app or sculpt changes.
 - You ran it and looked: a described PNG for anything visual, the exit stats or bench rows (release, A/B ranges) for
   anything about speed, `mesh_check` numbers for anything about meshes.
+- The App Store and Google Play rules in `sm-store` still hold, or your report says which one the change breaks and why.
 - README is updated; `scripts/agents_sync.py` was run if a skill or agent changed; your report says what you verified
   and what you did not.
