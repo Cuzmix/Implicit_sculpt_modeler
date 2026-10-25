@@ -29,7 +29,7 @@ skill whose description fits the request BEFORE you form a plan.
 ## 3. The loop: small change → check → run → look
     build.bat check                                   # the gate: odin check of every package + the skill mirror check
     build.bat                                         # debug app -> build\sculpt.exe (tracking allocator: a leak exits 1)
-    build.bat test                                    # odin test on geom, camera, sculpt, jobs, gizmo, png_write, ui
+    build.bat test                                    # odin test on geom, camera, sculpt, jobs, gizmo, png_write, ui, app
     build.bat smoke                                   # 300 frames under GPU validation, SDL_ASSERT=abort
     python scripts\touch_check.py                    # scripted finger, pen and mouse scenarios (a desktop simulation)
     build.bat run -- --vertices=1000000 --frames=120  # at most five arguments here; otherwise run build\sculpt.exe

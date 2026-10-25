@@ -1,0 +1,586 @@
+package main
+
+import "core:fmt"
+import "core:strings"
+import sdl "vendor:sdl3"
+
+import "../camera"
+import "../sculpt"
+import "../ui"
+
+// The command registry: every action the keyboard, the menus, the pie and the
+// buttons run, in one table with its name, help, icon and state, and the key chords
+// bound to it. A menu row or a shortcut names a command instead of calling its code,
+// so the shortcut a menu shows is the one that works, and search, rebinding and
+// scripts later read the same table. Strokes are not commands: they stay on the
+// pointer's path (sculpt_tool.odin), which only reads the modifier keys.
+
+Command_Id :: enum u8 {
+	None,
+	// File
+	Open_Scene,
+	Save_Scene,
+	Save_Scene_As,
+	Import_Mesh,
+	Export_Mesh,
+	Screenshot,
+	// Edit
+	Undo,
+	Redo,
+	Delete_Object,
+	Duplicate_Object,
+	// Tools and the brush
+	Tool_Move,
+	Tool_Sculpt,
+	Tool_Curve,
+	Tool_Insert,
+	Brush, // the argument is the sculpt.Brush_Kind
+	Symmetry_X,
+	Size_Down,
+	Size_Up,
+	Strength_Down,
+	Strength_Up,
+	Replay_Stroke,
+	// The selected object
+	Remesh,
+	Dyntopo_Toggle,
+	Subdivide,
+	Level_Up,
+	Level_Down,
+	Hd_Toggle,
+	Group_Shortcut,
+	Mask_Clear,
+	Mask_Invert,
+	Show_All,
+	Invert_Hidden,
+	// The view
+	View_Axis, // the argument is the camera.Axis_View
+	Ortho_Toggle,
+	Focus_Selected,
+	Reset_Camera,
+	Wireframe,
+	Flat_Shading,
+	Polygroups,
+	Studio_Render,
+	// The app
+	Stats,
+	Inspector,
+	Settings,
+	Reduce_Motion,
+}
+
+Command :: struct {
+	label:   string, // what menus and search show
+	help:    string, // one sentence on what it does
+	icon:    rune, // 0 for none
+	args:    int, // 0: takes no argument; n: takes 0 ..< n
+	run:     proc(app: ^App, arg: int),
+	enabled: proc(app: ^App, arg: int) -> bool, // nil: always
+	checked: proc(app: ^App, arg: int) -> bool, // nil: not something that is on or off
+}
+
+Key_Mod :: enum u8 {
+	Ctrl,
+	Shift,
+	Alt,
+}
+
+// A key and the modifiers held with it, matched exactly: Ctrl+Z is not Ctrl+Shift+Z,
+// so one key never means two things (README "Controls").
+Chord :: struct {
+	key:    sdl.Keycode,
+	mods:   bit_set[Key_Mod;u8],
+	repeat: bool, // the key's auto-repeat runs it again
+}
+
+Binding :: struct {
+	chord:   Chord,
+	command: Command_Id,
+	arg:     int,
+}
+
+has_object :: proc(app: ^App, _: int) -> bool {return selected_object(app) != nil}
+
+@(rodata)
+COMMANDS := [Command_Id]Command {
+	.None = {},
+	.Open_Scene = {
+		label = "Open scene...",
+		help = "Opens a saved .sculpt scene in place of this one.",
+		icon = ui.ICON_OPEN,
+		run = proc(app: ^App, _: int) {file_dialog(app, .Open)},
+	},
+	.Save_Scene = {
+		label = "Save scene",
+		help = "Saves the scene where it was last saved or opened, or asks where the first time.",
+		icon = ui.ICON_SAVE,
+		run = proc(app: ^App, _: int) {save_scene(app)},
+	},
+	.Save_Scene_As = {
+		label = "Save scene as...",
+		help = "Saves the scene to a new file.",
+		run = proc(app: ^App, _: int) {file_dialog(app, .Save)},
+	},
+	.Import_Mesh = {
+		label = "Import mesh...",
+		help = "Adds an OBJ or PLY mesh to the scene.",
+		icon = ui.ICON_IMPORT,
+		run = proc(app: ^App, _: int) {file_dialog(app, .Import)},
+	},
+	.Export_Mesh = {
+		label = "Export mesh...",
+		help = "Writes the selected object as OBJ or PLY.",
+		icon = ui.ICON_EXPORT,
+		run = proc(app: ^App, _: int) {file_dialog(app, .Export)},
+		enabled = has_object,
+	},
+	.Screenshot = {
+		label = "Save screenshot...",
+		help = "Saves the window as a PNG image.",
+		icon = ui.ICON_IMAGE,
+		run = proc(app: ^App, _: int) {file_dialog(app, .Screenshot)},
+	},
+	.Undo = {
+		label = "Undo",
+		help = "Takes back the last step.",
+		icon = ui.ICON_UNDO,
+		run = proc(app: ^App, _: int) {history_undo(app)},
+		enabled = proc(app: ^App, _: int) -> bool {return history_can_undo(app)},
+	},
+	.Redo = {
+		label = "Redo",
+		help = "Does the last undone step again.",
+		icon = ui.ICON_REDO,
+		run = proc(app: ^App, _: int) {history_redo(app)},
+		enabled = proc(app: ^App, _: int) -> bool {return history_can_redo(app)},
+	},
+	.Delete_Object = {
+		label = "Delete",
+		help = "Removes the selected object; Undo brings it back.",
+		icon = ui.ICON_TRASH,
+		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Delete}},
+		enabled = has_object,
+	},
+	.Duplicate_Object = {
+		label = "Duplicate",
+		help = "Adds a copy of the selected object.",
+		icon = ui.ICON_COPY,
+		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Duplicate}},
+		enabled = has_object,
+	},
+	.Tool_Move = {
+		label = "Move tool",
+		help = "Selects objects and moves them with the gizmo.",
+		icon = ui.ICON_MOVE,
+		run = proc(app: ^App, _: int) {app.tool = .Move},
+		checked = proc(app: ^App, _: int) -> bool {return app.tool == .Move},
+	},
+	.Tool_Sculpt = {
+		label = "Sculpt tool",
+		help = "Sculpts the object under the brush with the chosen brush.",
+		icon = ui.ICON_BRUSH,
+		run = proc(app: ^App, _: int) {app.tool = .Brush},
+		checked = proc(app: ^App, _: int) -> bool {return app.tool == .Brush},
+	},
+	.Tool_Curve = {
+		label = "Curve tool",
+		help = "Draws a tube, stitches or a zipper over the surface.",
+		icon = ui.ICON_SPLINE,
+		run = proc(app: ^App, _: int) {app.tool = .Curve},
+		checked = proc(app: ^App, _: int) -> bool {return app.tool == .Curve},
+	},
+	.Tool_Insert = {
+		label = "Insert tool",
+		help = "Places a shape on the surface where you tap.",
+		icon = ui.ICON_SHAPES,
+		run = proc(app: ^App, _: int) {app.tool = .Insert},
+		checked = proc(app: ^App, _: int) -> bool {return app.tool == .Insert},
+	},
+	.Brush = {
+		label = "Brush",
+		help = "Picks a brush and the Sculpt tool.",
+		icon = ui.ICON_BRUSH,
+		args = len(sculpt.Brush_Kind),
+		run = proc(app: ^App, arg: int) {
+			app.brush.kind = sculpt.Brush_Kind(arg)
+			app.tool = .Brush
+		},
+		checked = proc(app: ^App, arg: int) -> bool {return app.tool == .Brush && app.brush.kind == sculpt.Brush_Kind(arg)},
+	},
+	.Symmetry_X = {
+		label = "Symmetry across X",
+		help = "Mirrors strokes across the X axis.",
+		run = proc(app: ^App, _: int) {app.brush.symmetry ~= {.X}},
+		checked = proc(app: ^App, _: int) -> bool {return .X in app.brush.symmetry},
+	},
+	.Size_Down = {
+		label = "Smaller brush",
+		help = "Makes the brush a sixth smaller.",
+		icon = ui.ICON_SIZE,
+		run = proc(app: ^App, _: int) {brush_size_step(app, false)},
+	},
+	.Size_Up = {
+		label = "Bigger brush",
+		help = "Makes the brush a sixth bigger.",
+		icon = ui.ICON_SIZE,
+		run = proc(app: ^App, _: int) {brush_size_step(app, true)},
+	},
+	.Strength_Down = {
+		label = "Weaker brush",
+		help = "Lowers the brush's strength by 0.05.",
+		icon = ui.ICON_STRENGTH,
+		run = proc(app: ^App, _: int) {brush_strength_step(app, false)},
+	},
+	.Strength_Up = {
+		label = "Stronger brush",
+		help = "Raises the brush's strength by 0.05.",
+		icon = ui.ICON_STRENGTH,
+		run = proc(app: ^App, _: int) {brush_strength_step(app, true)},
+	},
+	.Replay_Stroke = {
+		label = "Replay stroke",
+		help = "Replays the recorded strokes, or else the last stroke, at the pointer.",
+		icon = ui.ICON_PLAY,
+		run = proc(app: ^App, _: int) {replay_shortcut(app)},
+		enabled = proc(app: ^App, _: int) -> bool {return app.tool == .Brush && app.ui.viewport_hovered},
+	},
+	.Remesh = {
+		label = "Remesh",
+		help = "Rebuilds the selected object as an even closed mesh of about as many vertices.",
+		run = proc(app: ^App, _: int) {
+			app.ui.scene_command = {kind = .Remesh, vertices = object_vertex_count(selected_object(app))}
+		},
+		enabled = has_object,
+	},
+	.Dyntopo_Toggle = {
+		label = "Dynamic topology",
+		help = "Turns dynamic topology on or off for the selected object.",
+		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Dyntopo, on = !object_dynamic(selected_object(app))}},
+		enabled = has_object,
+		checked = proc(app: ^App, _: int) -> bool {
+			obj := selected_object(app)
+			return obj != nil && object_dynamic(obj)
+		},
+	},
+	.Subdivide = {
+		label = "Subdivide",
+		help = "Adds a subdivision level to the selected object.",
+		icon = ui.ICON_PLUS,
+		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Subdivide}},
+		enabled = has_object,
+	},
+	.Level_Up = {
+		label = "Higher level",
+		help = "Goes up a subdivision level.",
+		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Set_Level, level = selected_object(app).levels.current + 1}},
+		enabled = has_object,
+	},
+	.Level_Down = {
+		label = "Lower level",
+		help = "Goes down a subdivision level.",
+		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Set_Level, level = selected_object(app).levels.current - 1}},
+		enabled = has_object,
+	},
+	.Hd_Toggle = {
+		label = "Sculpt HD",
+		help = "Opens an HD detail window where the pointer is, or leaves HD.",
+		run = proc(app: ^App, _: int) {
+			if obj := selected_object(app); obj != nil && object_in_hd(obj) {
+				app.ui.scene_command = {kind = .Hd_Leave}
+			} else {
+				app.ui.scene_command = {kind = .Hd_Enter, at = app.ui.viewport_mouse, size = app.ui.viewport_size}
+			}
+		},
+		enabled = proc(app: ^App, _: int) -> bool {
+			obj := selected_object(app)
+			return (obj != nil && object_in_hd(obj)) || app.ui.viewport_hovered
+		},
+	},
+	.Group_Shortcut = {
+		label = "Group masked or visible",
+		help = "Makes the masked part a polygroup and clears the mask, or else groups what is shown.",
+		run = proc(app: ^App, _: int) {group_shortcut(app)},
+		enabled = has_object,
+	},
+	.Mask_Clear = {
+		label = "Clear mask",
+		help = "Unmasks the whole object.",
+		run = proc(app: ^App, _: int) {mask_command(app, .Clear)},
+	},
+	.Mask_Invert = {
+		label = "Invert mask",
+		help = "Masks what was unmasked and unmasks what was masked.",
+		run = proc(app: ^App, _: int) {mask_command(app, .Invert)},
+	},
+	.Show_All = {
+		label = "Show all",
+		help = "Shows every hidden part of the object again.",
+		icon = ui.ICON_EYE,
+		run = proc(app: ^App, _: int) {hide_command(app, .Show_All)},
+	},
+	.Invert_Hidden = {
+		label = "Invert hidden",
+		help = "Hides what is shown and shows what is hidden.",
+		icon = ui.ICON_EYE_OFF,
+		run = proc(app: ^App, _: int) {hide_command(app, .Invert)},
+	},
+	.View_Axis = {
+		label = "View",
+		help = "Looks at the scene straight along an axis.",
+		args = len(camera.Axis_View),
+		run = proc(app: ^App, arg: int) {camera.orbit_axis_view(&app.camera, camera.Axis_View(arg))},
+	},
+	.Ortho_Toggle = {
+		label = "Orthographic",
+		help = "Switches between perspective and parallel projection.",
+		run = proc(app: ^App, _: int) {app.camera.ortho = !app.camera.ortho},
+		checked = proc(app: ^App, _: int) -> bool {return app.camera.ortho},
+	},
+	.Focus_Selected = {
+		label = "Focus selected",
+		help = "Turns and zooms the view to frame the selected object.",
+		icon = ui.ICON_FOCUS,
+		run = proc(app: ^App, _: int) {focus_selected(app)},
+		enabled = has_object,
+	},
+	.Reset_Camera = {
+		label = "Reset camera",
+		help = "Goes back to the starting view, keeping the projection.",
+		icon = ui.ICON_SUN,
+		run = proc(app: ^App, _: int) {reset_camera(app)},
+	},
+	.Wireframe = {
+		label = "Wireframe",
+		help = "Shows the mesh's edges over the surface.",
+		run = proc(app: ^App, _: int) {app.wireframe = !app.wireframe},
+		checked = proc(app: ^App, _: int) -> bool {return app.wireframe},
+	},
+	.Flat_Shading = {
+		label = "Flat shading",
+		help = "Shows the triangles as flat facets.",
+		run = proc(app: ^App, _: int) {app.flat = !app.flat},
+		checked = proc(app: ^App, _: int) -> bool {return app.flat},
+	},
+	.Polygroups = {
+		label = "Polygroups",
+		help = "Colours each polygroup differently.",
+		run = proc(app: ^App, _: int) {app.show_groups = !app.show_groups},
+		checked = proc(app: ^App, _: int) -> bool {return app.show_groups},
+	},
+	.Studio_Render = {
+		label = "Studio render",
+		help = "Renders the view with soft shadows while it is still.",
+		run = proc(app: ^App, _: int) {studio_toggle(app)},
+		checked = proc(app: ^App, _: int) -> bool {return app.studio_on},
+	},
+	.Stats = {
+		label = "Stats",
+		help = "Shows how smoothly the app runs.",
+		icon = ui.ICON_ACTIVITY,
+		run = proc(app: ^App, _: int) {app.kit.stats = !app.kit.stats},
+		checked = proc(app: ^App, _: int) -> bool {return app.kit.stats},
+	},
+	.Inspector = {
+		label = "Inspector",
+		help = "Shows or hides the panel with the tool's, the object's and the scene's settings.",
+		icon = ui.ICON_PANEL,
+		run = proc(app: ^App, _: int) {app.kit.inspector = !app.kit.inspector},
+		checked = proc(app: ^App, _: int) -> bool {return app.kit.inspector},
+	},
+	.Settings = {
+		label = "Settings...",
+		help = "Opens the app's settings.",
+		icon = ui.ICON_SETTINGS,
+		run = proc(app: ^App, _: int) {app.kit.settings = true},
+	},
+	.Reduce_Motion = {
+		label = "Reduce motion",
+		help = "Turns off the interface's animations.",
+		run = proc(app: ^App, _: int) {app.kit.ctx.reduced_motion = !app.kit.ctx.reduced_motion},
+		checked = proc(app: ^App, _: int) -> bool {return app.kit.ctx.reduced_motion},
+	},
+}
+
+// The shortcuts (README "Controls"), in the order the keys are read each frame: when
+// two commands run in one frame (both setting the next scene command, or Undo before a
+// mask change) the later one acts last, as it did before the registry. The keypad's 1,
+// 3 and 7 look from the front, right and top, and with Ctrl from the opposite side, as
+// in Blender; P is ZBrush's Persp and the keypad's 5 Blender's.
+@(rodata)
+DEFAULT_BINDINGS := [?]Binding {
+	{{sdl.K_Z, {.Ctrl}, true}, .Undo, 0},
+	{{sdl.K_Z, {.Ctrl, .Shift}, true}, .Redo, 0},
+	{{sdl.K_Y, {.Ctrl}, true}, .Redo, 0},
+	{{sdl.K_S, {.Ctrl}, false}, .Save_Scene, 0},
+	{{sdl.K_S, {.Ctrl, .Shift}, false}, .Save_Scene_As, 0},
+	{{sdl.K_O, {.Ctrl}, false}, .Open_Scene, 0},
+	{{sdl.K_F12, {}, false}, .Screenshot, 0},
+	{{sdl.K_W, {.Ctrl}, false}, .Group_Shortcut, 0},
+	{{sdl.K_W, {.Shift}, false}, .Polygroups, 0},
+	{{sdl.K_W, {}, false}, .Tool_Move, 0},
+	{{sdl.K_B, {}, false}, .Tool_Sculpt, 0},
+	{{sdl.K_C, {}, false}, .Tool_Curve, 0},
+	{{sdl.K_I, {}, false}, .Tool_Insert, 0},
+	{{sdl.K_1, {}, false}, .Brush, 0},
+	{{sdl.K_2, {}, false}, .Brush, 1},
+	{{sdl.K_3, {}, false}, .Brush, 2},
+	{{sdl.K_4, {}, false}, .Brush, 3},
+	{{sdl.K_5, {}, false}, .Brush, 4},
+	{{sdl.K_6, {}, false}, .Brush, 5},
+	{{sdl.K_7, {}, false}, .Brush, 6},
+	{{sdl.K_8, {}, false}, .Brush, 7},
+	{{sdl.K_9, {}, false}, .Brush, 8},
+	{{sdl.K_0, {}, false}, .Brush, 9},
+	{{sdl.K_X, {}, false}, .Symmetry_X, 0},
+	{{sdl.K_LEFTBRACKET, {}, true}, .Size_Down, 0},
+	{{sdl.K_RIGHTBRACKET, {}, true}, .Size_Up, 0},
+	{{sdl.K_LEFTBRACKET, {.Shift}, true}, .Strength_Down, 0},
+	{{sdl.K_RIGHTBRACKET, {.Shift}, true}, .Strength_Up, 0},
+	{{sdl.K_M, {.Alt}, false}, .Mask_Clear, 0},
+	{{sdl.K_R, {.Ctrl}, false}, .Remesh, 0},
+	{{sdl.K_T, {.Ctrl}, false}, .Dyntopo_Toggle, 0},
+	{{sdl.K_I, {.Ctrl}, false}, .Mask_Invert, 0},
+	{{sdl.K_H, {.Ctrl}, false}, .Show_All, 0},
+	{{sdl.K_H, {.Ctrl, .Shift}, false}, .Invert_Hidden, 0},
+	{{sdl.K_KP_1, {}, false}, .View_Axis, int(camera.Axis_View.Front)},
+	{{sdl.K_KP_1, {.Ctrl}, false}, .View_Axis, int(camera.Axis_View.Back)},
+	{{sdl.K_KP_3, {}, false}, .View_Axis, int(camera.Axis_View.Right)},
+	{{sdl.K_KP_3, {.Ctrl}, false}, .View_Axis, int(camera.Axis_View.Left)},
+	{{sdl.K_KP_7, {}, false}, .View_Axis, int(camera.Axis_View.Top)},
+	{{sdl.K_KP_7, {.Ctrl}, false}, .View_Axis, int(camera.Axis_View.Bottom)},
+	{{sdl.K_P, {}, false}, .Ortho_Toggle, 0},
+	{{sdl.K_KP_5, {}, false}, .Ortho_Toggle, 0},
+	{{sdl.K_F, {.Shift}, false}, .Wireframe, 0},
+	{{sdl.K_F, {}, false}, .Focus_Selected, 0},
+	{{sdl.K_R, {.Shift}, false}, .Studio_Render, 0},
+	{{sdl.K_R, {}, false}, .Replay_Stroke, 0},
+	{{sdl.K_G, {.Shift}, false}, .Flat_Shading, 0},
+	{{sdl.K_DELETE, {}, false}, .Delete_Object, 0},
+	{{sdl.K_A, {}, false}, .Hd_Toggle, 0},
+	{{sdl.K_D, {.Ctrl, .Shift}, false}, .Duplicate_Object, 0},
+	{{sdl.K_D, {.Ctrl}, false}, .Subdivide, 0},
+	{{sdl.K_D, {.Shift}, false}, .Level_Down, 0},
+	{{sdl.K_D, {}, false}, .Level_Up, 0},
+	{{sdl.K_F11, {}, false}, .Stats, 0},
+	{{sdl.K_TAB, {}, false}, .Inspector, 0},
+}
+
+command_enabled :: proc(app: ^App, id: Command_Id, arg := 0) -> bool {
+	c := &COMMANDS[id]
+	return c.enabled == nil || c.enabled(app, arg)
+}
+
+command_checked :: proc(app: ^App, id: Command_Id, arg := 0) -> bool {
+	c := &COMMANDS[id]
+	return c.checked != nil && c.checked(app, arg)
+}
+
+// Runs the command unless it cannot run now; returns whether it ran.
+command_run :: proc(app: ^App, id: Command_Id, arg := 0) -> bool {
+	c := &COMMANDS[id]
+	assert(c.args == 0 ? arg == 0 : arg >= 0 && arg < c.args, "command argument out of range")
+	if !command_enabled(app, id, arg) do return false
+	c.run(app, arg)
+	return true
+}
+
+// What menus and search call the command: a brush or a view by its own name.
+command_label :: proc(id: Command_Id, arg := 0) -> string {
+	#partial switch id {
+	case .Brush:
+		return fmt.tprintf("%s brush", BRUSH_NAMES[sculpt.Brush_Kind(arg)])
+	case .View_Axis:
+		return fmt.tprintf("%v view", camera.Axis_View(arg))
+	}
+	return COMMANDS[id].label
+}
+
+// The first key chord bound to the command, as menus and tooltips show it, or "".
+command_keys :: proc(id: Command_Id, arg := 0) -> string {
+	for b in DEFAULT_BINDINGS do if b.command == id && b.arg == arg do return chord_text(b.chord)
+	return ""
+}
+
+// "Ctrl+Shift+S", "Shift+F", "F12", "Num 1": in the temp allocator.
+chord_text :: proc(c: Chord) -> string {
+	b := strings.builder_make(context.temp_allocator)
+	if .Ctrl in c.mods do strings.write_string(&b, "Ctrl+")
+	if .Shift in c.mods do strings.write_string(&b, "Shift+")
+	if .Alt in c.mods do strings.write_string(&b, "Alt+")
+	strings.write_string(&b, key_text(c.key))
+	return strings.to_string(b)
+}
+
+@(private = "file")
+key_text :: proc(key: sdl.Keycode) -> string {
+	switch key {
+	case sdl.K_A ..= sdl.K_Z:
+		return fmt.tprintf("%c", rune(key) - 'a' + 'A')
+	case sdl.K_0 ..= sdl.K_9:
+		return fmt.tprintf("%c", rune(key))
+	case sdl.K_F1 ..= sdl.K_F12:
+		return fmt.tprintf("F%d", int(key - sdl.K_F1) + 1)
+	case sdl.K_KP_1 ..= sdl.K_KP_9:
+		return fmt.tprintf("Num %d", int(key - sdl.K_KP_1) + 1)
+	case sdl.K_KP_0:
+		return "Num 0"
+	case sdl.K_LEFTBRACKET:
+		return "["
+	case sdl.K_RIGHTBRACKET:
+		return "]"
+	case sdl.K_DELETE:
+		return "Del"
+	case sdl.K_TAB:
+		return "Tab"
+	case sdl.K_ESCAPE:
+		return "Esc"
+	case sdl.K_SPACE:
+		return "Space"
+	}
+	return string(sdl.GetKeyName(key))
+}
+
+// Whether the chord's key went down this frame with exactly its modifiers held. Each
+// press keeps the modifiers held when it went down, so in a slow frame "B, then Ctrl+Z"
+// is still B and Ctrl+Z.
+chord_down :: proc(d: ^Device, c: Chord) -> bool {
+	for k in d.keys do if k.key == c.key && k.mods == c.mods && (c.repeat || !k.repeat) do return true
+	return false
+}
+
+// The Ctrl, Shift and Alt among SDL's modifiers (Num Lock, Caps Lock and the system key
+// are left out, so they never stop a shortcut).
+key_mods :: proc(m: sdl.Keymod) -> (mods: bit_set[Key_Mod;u8]) {
+	if m & sdl.KMOD_CTRL != {} do mods += {.Ctrl}
+	if m & sdl.KMOD_SHIFT != {} do mods += {.Shift}
+	if m & sdl.KMOD_ALT != {} do mods += {.Alt}
+	return
+}
+
+// Runs every command whose chord went down this frame, in binding order, then lets
+// Escape stop a replay (before kit_frame's Escape closes what floats). None of it runs
+// while a text field has the keys.
+commands_handle_keys :: proc(app: ^App) {
+	if typing(app) do return
+	for b in DEFAULT_BINDINGS do if chord_down(&app.device, b.chord) do command_run(app, b.command, b.arg)
+	if key_pressed(&app.device, sdl.K_ESCAPE) do replay_stop(app)
+}
+
+// A menu row for the command, with its icon, shortcut and state from the table;
+// `label` replaces the table's where the menu words it its own way. Runs it when picked
+// and returns true then.
+command_menu_item :: proc(app: ^App, id: Command_Id, arg := 0, label := "", tone := ui.Tone.Neutral) -> bool {
+	c := &COMMANDS[id]
+	text := label if label != "" else command_label(id, arg)
+	if !ui.menu_item(&app.kit.ctx, text, command_keys(id, arg), c.icon, command_checked(app, id, arg), tone, command_enabled(app, id, arg)) do return false
+	return command_run(app, id, arg)
+}
+
+brush_size_step :: proc(app: ^App, up: bool) {
+	app.brush.radius_px = clamp(app.brush.radius_px * (7.0 / 6 if up else 6.0 / 7), MIN_RADIUS_PX, MAX_RADIUS_PX)
+}
+
+brush_strength_step :: proc(app: ^App, up: bool) {
+	s := brush_strength(app)
+	s^ = clamp(s^ + (0.05 if up else -0.05), MIN_STRENGTH, 1)
+}

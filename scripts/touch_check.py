@@ -107,6 +107,17 @@ class Script:
             self.add(f"keyup:{k}")
         self.wait(3)
 
+    def press(self, key, mods=()):
+        """A key pressed and let go with `mods` (ctrl, shift, alt) held around it."""
+        for m in mods:
+            self.add(f"key:{m}")
+        self.add(f"key:{key}")
+        self.wait(1)
+        self.add(f"keyup:{key}")
+        for m in mods:
+            self.add(f"keyup:{m}")
+        self.wait(3)
+
     def spec(self):
         return ";".join(self.events)
 
@@ -489,6 +500,37 @@ def shift_snaps_orbit():
     s = Script()
     s.mouse_drag(line((250, 400), (260, 405), 2), keys=("shift",))
     return s, [], {"camera_yaw": near(0, 1e-3), "camera_pitch": near(0, 1e-3), "camera_roll": near(0, 1e-3)}
+
+
+@scenario
+def keys_undo_and_redo():
+    """Ctrl+Z undoes a stroke, Ctrl+Shift+Z redoes it, and Ctrl+Z again undoes it (the command registry)."""
+    s = Script()
+    s.mouse_drag(line((760, 430), (860, 470), 10))
+    s.press("z", ("ctrl",))
+    s.press("z", ("ctrl", "shift"))
+    s.press("z", ("ctrl",))
+    return s, [], {"undo_steps": near(0), "redo_steps": near(1)}
+
+
+@scenario
+def keys_size_and_strength():
+    """] makes the brush a sixth bigger and Shift+] 0.05 stronger; Ctrl+] is no shortcut and changes nothing."""
+    s = Script()
+    s.press("]")
+    s.press("]", ("shift",))
+    s.press("]", ("ctrl",))
+    return s, [], {"brush_radius_px": near(70, 0.01), "brush_strength": near(0.55, 1e-3)}
+
+
+@scenario
+def keys_axis_views():
+    """The keypad's 1 looks from the front; Ctrl with the keypad's 3 from the left."""
+    s = Script()
+    s.press("Keypad 1")
+    s.wait(2)
+    s.press("Keypad 3", ("ctrl",))
+    return s, [], {"camera_pitch": near(0, 1e-3), "camera_yaw": lambda v: abs(abs(wrap(float(v))) - math.pi / 2) < 1e-3}
 
 
 def on_screen(stats, p, yaw=0.6, pitch=0.35, roll=0.0, distance=3.5, target=(0.0, 0.0, 0.0)):

@@ -67,7 +67,7 @@ description: CAD-style mesh tools inside this app on geom.Mesh — primitives, b
 5. `render.viewport_invalidate(&app.target)` when what is drawn changed without a buffer version bump (`scene.odin:399,
    283`); a new `Mesh_Buffers` or `mesh_buffers_upload_ranges` bumps the version and forces a full redraw by itself.
 6. Range uploads must stay within `vertex_capacity`; a tool that adds vertices recreates the buffers.
-7. A shortcut only inside `handle_shortcuts` (`src/app/shortcuts.odin`, off while `typing(app)`), and README "Controls"
+7. A shortcut only as a command and a binding in `src/app/commands.odin` (`COMMANDS`, `DEFAULT_BINDINGS`; off while `typing(app)`), and README "Controls"
    plus the tool's section text updated.
 8. Tests in `src/geom/<tool>_test.odin`: `mesh_check` on the output; counts (V − E + F = 2 per closed shell); signed
    volume, area and bounds against the intent (a unit cube is 1; a union is at most the sum; a mirror's bounds are

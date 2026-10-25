@@ -100,7 +100,6 @@ pie_slice :: proc(d: [2]f32, scale: f32) -> int {
 
 @(private = "file")
 pie_pick :: proc(app: ^App, slice: int) {
-	app.brush.kind = sculpt.Brush_Kind(slice)
-	app.tool = .Brush
+	command_run(app, .Brush, slice)
 	app.ui.pie.open = false
 }

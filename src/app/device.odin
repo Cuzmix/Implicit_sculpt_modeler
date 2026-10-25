@@ -46,6 +46,7 @@ Device :: struct {
 // leaves them out of key events), so Shift+[ is still [.
 Key_Press :: struct {
 	key:    sdl.Keycode,
+	mods:   bit_set[Key_Mod;u8], // Ctrl, Shift and Alt as they were when it went down
 	repeat: bool,
 }
 
@@ -59,7 +60,7 @@ device_frame_begin :: proc(d: ^Device) {
 device_event :: proc(d: ^Device, e: ^sdl.Event) {
 	#partial switch e.type {
 	case .KEY_DOWN:
-		append(&d.keys, Key_Press{e.key.key, e.key.repeat})
+		append(&d.keys, Key_Press{e.key.key, key_mods(e.key.mod), e.key.repeat})
 		d.key_mods = e.key.mod
 	case .TEXT_INPUT:
 		typed := string(e.text.text)

@@ -79,6 +79,7 @@ exit /b 0
 "%ODIN%" test "%ROOT%src\gizmo" -out:"%ROOT%build\test_gizmo.exe" %COMMON% || exit /b 1
 "%ODIN%" test "%ROOT%src\png_write" -out:"%ROOT%build\test_png_write.exe" %COMMON% || exit /b 1
 "%ODIN%" test "%ROOT%src\ui" -out:"%ROOT%build\test_ui.exe" %COMMON% || exit /b 1
+"%ODIN%" test "%ROOT%src\app" -out:"%ROOT%build\test_app.exe" %COMMON% || exit /b 1
 exit /b 0
 
 :bench

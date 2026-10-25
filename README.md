@@ -32,7 +32,7 @@ See `scripts/versions.env`: Odin `dev-2026-10`, SDL `3.4.18` (Linux; Windows use
 
 ./build.sh            # debug build with allocation tracking -> build/sculpt
 ./build.sh release    # optimized build
-./build.sh test       # unit tests (geom, camera, sculpt, jobs, gizmo, png_write, ui)
+./build.sh test       # unit tests (geom, camera, sculpt, jobs, gizmo, png_write, ui, app)
 ./build.sh check      # odin check of every package with the strict flags, then the agent-file mirror check (scripts/agents_sync.py)
 ./build.sh run -- --vertices=10000000
 ./build.sh smoke      # 300 frames in GPU debug mode; non-zero exit on assert, GPU error or leak
@@ -466,6 +466,8 @@ A replay feeds the recorded frames through the same code a drawn stroke goes thr
 Save strokes... writes the recording (or else the last stroke) to a `.strokes` file and Load strokes... reads one into the recording, to replay in another scene or share. A file keeps each stroke's brush kind, size, strength, falloff, pressure settings and curve, lazy mouse, Front faces only, stroke mode, symmetry, paint colour and cloth mode; the alpha, pen tilt strength and dynamic topology detail come from the brush as set when it is loaded, since an alpha names an image file that may not be there. Every number in a file is checked (finite, in range) before it reaches a brush, and a damaged file is refused. A frame costs 60 bytes plus 21 a pointer sample in the file and a little more in memory. Flags: `--record-strokes`, `--save-strokes=PATH`, `--load-strokes=PATH`, `--replay-shift=DX,DY`, `--instant-replay`.
 
 ## Controls
+
+Every shortcut, menu row and brush key runs a command from one table (`src/app/commands.odin`: name, help, icon, whether it can run now, whether it is on), so the shortcut a menu or tooltip shows is always the one that works. A shortcut's modifiers must match exactly: Ctrl+Z undoes and Ctrl+Shift+Z redoes, and a key held with a modifier it does not list does nothing (Ctrl+B, Shift+1 or Ctrl+F are not shortcuts). Each key press keeps the modifiers held when it went down, so two quick shortcuts in one slow frame both work.
 
 Files: Ctrl+O opens a scene, Ctrl+S saves it (where it was last saved or opened, else it asks), Ctrl+Shift+S saves it somewhere else. F12 saves a screenshot.
 
