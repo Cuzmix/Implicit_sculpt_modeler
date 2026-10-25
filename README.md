@@ -297,4 +297,4 @@ Brush: left drag sculpts the object under the cursor, which becomes selected (Sh
 
 Scene panel: type a vertex count (or pick a preset), then Add sphere, or Remesh selected to rebuild the selected object as an even mesh of about that count that keeps its shape (see Voxel remesh above). Geodesic spheres come in steps of 10f² + 2 vertices; the panel shows the exact count it will build.
 
-Orbit: right drag or Alt + left drag. Pan: middle drag or Shift + right drag. Zoom: mouse wheel.
+Orbit: right drag or Alt + left drag. Pan: middle drag or Shift + right drag. Zoom: mouse wheel. P (or keypad 5) switches between perspective and orthographic (parallel) projection, as wide at the orbit centre as the perspective view, so the object keeps its size on screen. Keypad 1, 3 and 7 look from the front, right and top, with Ctrl from the back, left and bottom (View > Look from). In orthographic projection the far-chunk simplification while orbiting is off. Flags: `--ortho`, `--view=front|back|right|left|top|bottom`.

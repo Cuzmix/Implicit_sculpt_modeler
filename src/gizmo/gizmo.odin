@@ -3,7 +3,6 @@
 // an axis or across the view plane. It knows nothing of ImGui, the renderer or meshes.
 package gizmo
 
-import "core:math"
 import "core:math/linalg"
 
 Vec2 :: [2]f32
@@ -22,7 +21,7 @@ Handle :: enum u8 {
 AXES := [3]Vec3{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}}
 
 // Axis arms are this long on screen, whatever the zoom.
-ARM_PX :: 90
+ARM_PX :: 90 // an arm's length on screen; camera.orbit_world_per_px turns it into world units
 // The cursor picks an arm within this many pixels of it.
 PICK_PX :: 8
 // Half the side of the centre square.
@@ -43,12 +42,6 @@ segment_distance :: proc(p, a, b: Vec2) -> f32 {
 	t: f32 = 0
 	if len2 > 0 do t = clamp(linalg.dot(p - a, ab) / len2, 0, 1)
 	return linalg.length(p - (a + ab * t))
-}
-
-// World length of an arm at `center` so that it spans ARM_PX on screen.
-arm_length :: proc(eye, center: Vec3, fov_y, viewport_height: f32) -> f32 {
-	dist := linalg.length(center - eye)
-	return ARM_PX * 2 * dist * math.tan(fov_y / 2) / max(viewport_height, 1)
 }
 
 // The handle under `mouse`, given the gizmo's centre and arm tips already projected.

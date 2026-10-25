@@ -401,6 +401,7 @@ scene_open :: proc(app: ^App, path: string) -> (opened, ok: bool) {
 	append(&app.scene.objects, ..objects[:])
 	app.scene.selected = selected if selected >= 0 else (0 if count > 0 else -1)
 	app.scene.next_id = max(next_id, app.scene.next_id)
+	view.ortho = app.camera.ortho // a view setting, not part of the scene
 	app.camera = view
 	app.move.drag = {}
 	clear(&app.stroke.pending)

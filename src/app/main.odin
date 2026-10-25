@@ -51,6 +51,8 @@ Options :: struct {
 	brush:     string `usage:"Start with this brush: draw, smooth, clay, flatten, inflate, pinch, crease, grab or mask (also what --bench-stroke uses)."`,
 	symmetry:  string `usage:"Start with brush symmetry across these axes, e.g. x or xz."`,
 	material:  string `usage:"Shade objects with this View > Material: clay (the default), red wax, white, grey or skin."`,
+	ortho:     bool `usage:"Start with parallel (orthographic) projection, as View > Orthographic (P) does."`,
+	view:      string `usage:"Start looking from front, back, right, left, top or bottom, as View > Look from does."`,
 	wireframe: bool `usage:"Show the selected object's edges, as View > Wireframe (Shift+F) does."`,
 	falloff:   string `usage:"Start every brush with this falloff: smooth (the default), linear, sharp, firm or flat, as the Tools panel's Falloff presets set."`,
 	rotate:    string `usage:"Turn the first object this many degrees about x, y and z before starting, e.g. 0,45,0 (as the Scene panel's Rotation does)."`,
@@ -258,6 +260,19 @@ run :: proc(opts: Options) -> bool {
 	}
 	defer render.viewport_target_destroy(&app.renderer, &app.target)
 	app.camera = camera.orbit_default()
+	app.camera.ortho = opts.ortho
+	if opts.view != "" {
+		found := false
+		for view in camera.Axis_View {
+			if !strings.equal_fold(opts.view, fmt.tprint(view)) do continue
+			camera.orbit_axis_view(&app.camera, view)
+			found = true
+		}
+		if !found {
+			log.errorf("unknown --view %q", opts.view)
+			return false
+		}
+	}
 	if opts.hd_open {
 		obj := app.scene.objects[0]
 		toward := camera.orbit_eye(app.camera) - obj.transform.position

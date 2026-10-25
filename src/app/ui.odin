@@ -176,6 +176,11 @@ build_default_layout :: proc(dockspace: imgui.ID) {
 }
 
 @(private = "file")
+AXIS_VIEW_NAMES := [camera.Axis_View]cstring{.Front = "Front", .Back = "Back", .Right = "Right", .Left = "Left", .Top = "Top", .Bottom = "Bottom"}
+@(private = "file")
+AXIS_VIEW_KEYS := [camera.Axis_View]cstring{.Front = "Num 1", .Back = "Ctrl+Num 1", .Right = "Num 3", .Left = "Ctrl+Num 3", .Top = "Num 7", .Bottom = "Ctrl+Num 7"}
+
+@(private = "file")
 draw_menu_bar :: proc(app: ^App) {
 	if !imgui.BeginMainMenuBar() do return
 	defer imgui.EndMainMenuBar()
@@ -196,8 +201,15 @@ draw_menu_bar :: proc(app: ^App) {
 		imgui.EndMenu()
 	}
 	if imgui.BeginMenu("View") {
-		if imgui.MenuItem("Reset camera") do app.camera = camera.orbit_default()
+		if imgui.MenuItem("Reset camera") do reset_camera(app)
 		if imgui.MenuItem("Focus selected", "F") do focus_selected(app)
+		if imgui.MenuItem("Orthographic", "P", app.camera.ortho) do app.camera.ortho = !app.camera.ortho
+		if imgui.BeginMenu("Look from") {
+			for view in camera.Axis_View {
+				if imgui.MenuItem(AXIS_VIEW_NAMES[view], AXIS_VIEW_KEYS[view]) do camera.orbit_axis_view(&app.camera, view)
+			}
+			imgui.EndMenu()
+		}
 		imgui.Separator()
 		if imgui.MenuItem("Wireframe", "Shift+F", app.wireframe) do app.wireframe = !app.wireframe
 		if imgui.BeginMenu("Material") {
@@ -429,7 +441,17 @@ draw_tools_panel :: proc(app: ^App) {
 	imgui.Text("Pan: middle drag, or Shift + right drag")
 	imgui.Text("Zoom: mouse wheel.  Focus selected: F")
 	imgui.SliderFloat("Distance", &app.camera.distance, camera.MIN_DISTANCE, 20, "%.2f", {.Logarithmic})
-	if imgui.Button("Reset camera") do app.camera = camera.orbit_default()
+	if imgui.Button("Reset camera") do reset_camera(app)
+	imgui.SameLine()
+	imgui.Checkbox("Orthographic (P)", &app.camera.ortho)
+}
+
+// Back to the starting view, keeping the projection.
+@(private = "file")
+reset_camera :: proc(app: ^App) {
+	ortho := app.camera.ortho
+	app.camera = camera.orbit_default()
+	app.camera.ortho = ortho
 }
 
 // What a pen does to the brush: pressure through a curve, and the lean.
@@ -809,6 +831,15 @@ handle_shortcuts :: proc(app: ^App) {
 		app.ui.scene_command = {kind = .Dyntopo, on = !object_dynamic(obj)}
 	}
 	if io.KeyCtrl && imgui.IsKeyPressed(.I, false) do mask_command(app, .Invert)
+	// The keypad's 1, 3 and 7 look from the front, right and top, and with Ctrl from the
+	// opposite side, as in Blender.
+	for key, i in ([3]imgui.Key{.Keypad1, .Keypad3, .Keypad7}) {
+		if !imgui.IsKeyPressed(key, false) do continue
+		views := [3][2]camera.Axis_View{{.Front, .Back}, {.Right, .Left}, {.Top, .Bottom}}
+		camera.orbit_axis_view(&app.camera, views[i][1 if io.KeyCtrl else 0])
+	}
+	// P (ZBrush's Persp toggle) or the keypad's 5 (Blender's) switches parallel projection.
+	if (imgui.IsKeyPressed(.P, false) && !io.KeyCtrl) || imgui.IsKeyPressed(.Keypad5, false) do app.camera.ortho = !app.camera.ortho
 	if imgui.IsKeyPressed(.F, false) {
 		// Shift+F shows the edges, as ZBrush's PolyFrame; F alone frames the selection.
 		if io.KeyShift {

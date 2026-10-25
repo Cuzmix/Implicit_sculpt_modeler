@@ -227,7 +227,7 @@ grab_follow :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, pos:
 		return
 	}
 	origin, dir := ray_through(inv, pos, input.size)
-	facing := linalg.normalize(st.anchor - camera.orbit_eye(app.camera))
+	facing := camera.orbit_toward(app.camera, st.anchor)
 	along := linalg.dot(dir, facing)
 	if abs(along) < 1e-6 do return
 	t := linalg.dot(st.anchor - origin, facing) / along
@@ -293,8 +293,7 @@ stroke_dab :: proc(app: ^App, obj: ^Object, input: Viewport_Input, inv: matrix[4
 // up are worked out in world space and turned into the object's.
 @(private = "file")
 brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pressure: f32, tilt: [2]f32) -> sculpt.Brush {
-	dist := linalg.length(to_world(t, hit) - camera.orbit_eye(app.camera))
-	world_per_px := 2 * dist * math.tan(app.camera.fov_y / 2) / input.size.y
+	world_per_px := camera.orbit_world_per_px(app.camera, to_world(t, hit), input.size.y)
 	kind := sculpt.Brush_Kind.Smooth if input.smooth else app.brush.kind
 	// Shift smooths at the Smooth brush's strength, not the strength of the brush held.
 	strength := app.brush.strengths[kind]

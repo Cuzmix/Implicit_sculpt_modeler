@@ -17,6 +17,7 @@ Orbit :: struct {
 	fov_y:    f32, // radians
 	near:     f32,
 	far:      f32,
+	ortho:    bool, // parallel projection, as wide at the target as the perspective view
 }
 
 PITCH_LIMIT :: math.PI / 2 - 0.01
@@ -80,7 +81,25 @@ orbit_view :: proc(c: Orbit) -> Mat4 {
 }
 
 orbit_proj :: proc(c: Orbit, aspect: f32) -> Mat4 {
+	if c.ortho {
+		// Depth reaches as far behind the eye as in front of it, so zooming in (moving
+		// the eye toward the target) never cuts into what is drawn.
+		return orthographic(c.distance * math.tan(c.fov_y / 2), aspect, -c.far, c.far)
+	}
 	return perspective(c.fov_y, aspect, c.near, c.far)
+}
+
+// World units one pixel covers at `p`, for a viewport `viewport_height` pixels tall:
+// further means larger in perspective, the same everywhere in parallel projection.
+orbit_world_per_px :: proc(c: Orbit, p: Vec3, viewport_height: f32) -> f32 {
+	dist := c.distance if c.ortho else linalg.length(p - orbit_eye(c))
+	return 2 * dist * math.tan(c.fov_y / 2) / max(viewport_height, 1)
+}
+
+// The way the camera looks at `p`: from the eye to it, or the view's own direction in
+// parallel projection.
+orbit_toward :: proc(c: Orbit, p: Vec3) -> Vec3 {
+	return linalg.normalize((c.target if c.ortho else p) - orbit_eye(c))
 }
 
 // Right-handed view matrix (camera looks down -Z).
@@ -96,6 +115,18 @@ look_at :: proc(eye, target, up: Vec3) -> Mat4 {
 	}
 }
 
+// Right-handed parallel projection `half_height` world units above and below the view's
+// middle, with view-space depths -near to -far mapped to [0, 1].
+orthographic :: proc(half_height, aspect, near, far: f32) -> Mat4 {
+	h := 1 / half_height
+	return Mat4{
+		h / aspect, 0, 0, 0,
+		0, h, 0, 0,
+		0, 0, 1 / (near - far), near / (near - far),
+		0, 0, 0, 1,
+	}
+}
+
 // Right-handed perspective with clip-space depth in [0, 1], as SDL_GPU expects.
 perspective :: proc(fov_y, aspect, near, far: f32) -> Mat4 {
 	f := 1 / math.tan(fov_y / 2)
@@ -104,5 +135,27 @@ perspective :: proc(fov_y, aspect, near, far: f32) -> Mat4 {
 		0, f, 0, 0,
 		0, 0, far / (near - far), near * far / (near - far),
 		0, 0, -1, 0,
+	}
+}
+
+// The six views along the axes, as Blender's numpad keys give them.
+Axis_View :: enum {
+	Front,  // from +Z, looking down -Z
+	Back,   // from -Z
+	Right,  // from +X
+	Left,   // from -X
+	Top,    // from +Y, as near straight down as the pitch limit allows
+	Bottom, // from -Y
+}
+
+// Turns the camera to look at its target from along an axis, keeping target and distance.
+orbit_axis_view :: proc(c: ^Orbit, view: Axis_View) {
+	switch view {
+	case .Front:  c.yaw, c.pitch = 0, 0
+	case .Back:   c.yaw, c.pitch = math.PI, 0
+	case .Right:  c.yaw, c.pitch = math.PI / 2, 0
+	case .Left:   c.yaw, c.pitch = -math.PI / 2, 0
+	case .Top:    c.yaw, c.pitch = 0, PITCH_LIMIT
+	case .Bottom: c.yaw, c.pitch = 0, -PITCH_LIMIT
 	}
 }

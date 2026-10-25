@@ -17,7 +17,7 @@ description: The Dear ImGui interface in src/app/ui.odin and the frame loop arou
   `GetWindowDpiScale()` becomes `viewport_request`.
 - `ui_draw` order: dockspace → the default layout once (`build_default_layout`: Viewport | Tools at the right, Scene and
   Stats below it; `IniFilename = nil`, so the layout is rebuilt each run, `src/app/main.odin`) → menu bar (File, Edit,
-  View with Wireframe (Shift+F) and Material, which only set `App.wireframe` and `App.material` (presets in `src/app/material.odin`), then the last `file_note` for 15 s, amber for a warning) → Viewport → Tools → Scene → Stats → shortcuts → demo.
+  View with Orthographic (P, keypad 5; `camera.Orbit.ortho`), Look from (keypad 1/3/7, Ctrl for the opposite; `camera.orbit_axis_view`; with ortho possible, pixel sizes go through `camera.orbit_world_per_px` and view directions through `camera.orbit_toward`, never the eye distance), Wireframe (Shift+F) and Material, which only set `App.wireframe` and `App.material` (presets in `src/app/material.odin`), then the last `file_note` for 15 s, amber for a warning) → Viewport → Tools → Scene → Stats → shortcuts → demo.
   `draw_viewport_overlay` runs after the tools (`main.odin:408`; `ui.odin:276`): the brush circle (with an alpha, its
   square turned as the next dab, `draw_alpha_outline`, `src/app/alphas.odin:204`), the lazy-mouse string, the gizmo.
 - Panels: Tools (`ui.odin:331`: tool radios, the nine brushes as radio buttons labelled with their keys, three a row,
