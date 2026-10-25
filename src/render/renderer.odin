@@ -155,6 +155,7 @@ Draw_Item :: struct {
 	groups:    bool, // draw each triangle in its polygroup's colour instead (likewise)
 	live:   bool,
 	chunks: []geom.Chunk,
+	chunk_groups: []geom.Chunk, // geom.chunk_group of each geom.CHUNK_GROUP chunks, to cull a group at a time; nil to test every chunk
 	// Mesh-space box around everything that changed since the previous frame, before
 	// and after the change; empty (lo > hi) when nothing did. A mesh whose buffers
 	// changed without a damage box makes the next frame a full redraw.
@@ -991,7 +992,12 @@ prepare_draws :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, view, proj: Mat4
 			stats.culled_back += u64(ls.backface)
 			stats.simplified += u64(ls.groups)
 		case:
-			cs := geom.cull_chunks(item.chunks, clip, eye.xyz, &mb.visible, hidden = item.hidden)
+			cs: geom.Cull_Stats
+			if len(item.chunk_groups) > 0 {
+				cs = geom.cull_chunks_grouped(item.chunks, item.chunk_groups, clip, eye.xyz, &mb.visible, item.hidden)
+			} else {
+				cs = geom.cull_chunks(item.chunks, clip, eye.xyz, &mb.visible, hidden = item.hidden)
+			}
 			stats.chunks += u64(cs.chunks)
 			stats.culled_view += u64(cs.frustum)
 			stats.culled_back += u64(cs.backface)

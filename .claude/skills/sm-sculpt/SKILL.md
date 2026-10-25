@@ -103,6 +103,8 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
   continues a stroke (a drag = one step; app ends it on release), `layer_displace` moves only nodes with delta. Files:
   `LEVELS_LAYERS` flag, every level's layers in canon order. Baked by `sculptor_dyn_enable`; app refuses in HD/dyntopo
   (`src/app/layers.odin`).
+- Chunk groups (`brush.odin`, `sculptor_chunk_groups`): one `geom.chunk_group` per 64 chunks for grouped culling; every
+  write to `s.chunks[id]` must call `chunk_touched(s, id)` so the group is remade; nil under dyntopo.
 - `sculptor_flush(s)` (`brush.odin:443-506`): once a frame before uploading. Sorts `dirty_nodes`, recomputes normals per node
   (Shape: all of them; Edge: only the border vertices), leaves a changed chunk's cone open during a stroke and works the
   waiting cones off `CONE_BATCH` per flush afterwards, sets `changed_bounds` (before and after), and returns coalesced,

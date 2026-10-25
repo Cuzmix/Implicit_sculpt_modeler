@@ -26,7 +26,7 @@ description: The src/geom package — the structure-of-arrays geom.Mesh and its 
 - Culling (`src/geom/visibility.odin`): `Chunk{bounds, cone_axis, cone_cutoff, first_index, index_count}` with
   `cone_cutoff >= 1` meaning never back-face culled; `CONE_SLACK = 0.01`; `normal_cone` normalises its input in place
   (`:35-52`); `frustum_planes(clip)` leaves the planes unnormalised (`:57`); `chunk_backfacing` is conservative, by the
-  bounding sphere (`:83-92`); `cull_chunks` needs chunks sorted by `first_index` and merges adjacent ranges (`:94-114`);
+  bounding sphere (`:83-92`); `cull_chunks` needs chunks sorted by `first_index` and merges adjacent ranges (`:94-114`); `cull_chunks_grouped` skips whole `CHUNK_GROUP` (64) runs by `chunk_group` bounds and union cone, same output;
   `oct_encode`/`oct_decode` stay under 0.01° (`:133, 168`); `oct_encode_masked(n, mask)` keeps the top 12 bits of each
   half for the normal and carries the mask's two nibbles in the low 4 bits, about 0.1° (`:149`; `oct_masked_decode`
   for tests, `:161`). The renderer packs every normal with it (sm-render).
@@ -108,6 +108,7 @@ description: The src/geom package — the structure-of-arrays geom.Mesh and its 
 | `bvh_query_sphere` returns the triangles inside the sphere | it returns every triangle of every leaf whose box touches it; filter yourself (`bvh.odin:311-312`) |
 | `normal_cone` leaves its argument alone | it normalises the face normals in place (`visibility.odin:36`) |
 | `cull_chunks` on chunks in any order | it merges adjacent ranges as it goes: chunks must be sorted by `first_index` |
+| `cull_chunks_grouped` with stale groups | groups must hold their chunks' bounds and cones: take them from `sculpt.sculptor_chunk_groups` after the flush, never cache them |
 | moving triangles between leaves and refitting | topology is fixed after the build; rebuild the BVH (`bvh.odin:43-44`) |
 | `recompute_leaves = false` still recomputes leaf bounds | it recomputes only the ancestors; the caller set the leaf bounds itself (`finish_move`, `src/sculpt/brush.odin:713`) |
 | a flat grid is closed | it has a border, which `simplify` keeps exactly (`simplify_test.odin`, `simplify_keeps_a_patch_border`) |
