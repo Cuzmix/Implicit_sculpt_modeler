@@ -834,6 +834,7 @@ run :: proc(opts: Options) -> bool {
 					groups = app.show_groups && sculpt.sculptor_has_groups(&lv.sculptor),
 					live   = selected,
 					chunks = lv.sculptor.chunks,
+					chunk_groups = sculpt.sculptor_chunk_groups(&lv.sculptor),
 					damage = lv.sculptor.changed_bounds,
 					lod    = lv.sculptor.lod.tree,
 					hidden = sculpt.levels_hd_hidden(&obj.levels) if part == 0 && obj.levels.hd.window != nil else sculpt.sculptor_hidden_units(&lv.sculptor),

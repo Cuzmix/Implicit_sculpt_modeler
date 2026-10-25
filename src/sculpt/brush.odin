@@ -154,6 +154,10 @@ Sculptor :: struct {
 	// during a stroke a changed node's cone is left open (never back-face culled) and
 	// computed once the stroke ends.
 	chunks:      []geom.Chunk,
+	// Per geom.CHUNK_GROUP chunks: bounds and a cone holding theirs, for culling a group
+	// at a time (sculptor_chunk_groups), and whether a chunk changed since it was made.
+	chunk_groups: [dynamic]geom.Chunk,
+	group_stale:  [dynamic]bool,
 	node_of:     []u32,  // BVH node index -> node id (only meaningful for leaves)
 	shared:      [dynamic]u32,
 	owners:      [dynamic]u32,
@@ -268,6 +272,8 @@ sculptor_destroy :: proc(s: ^Sculptor) {
 	geom.bvh_destroy(&s.bvh)
 	delete(s.nodes)
 	delete(s.chunks)
+	delete(s.chunk_groups)
+	delete(s.group_stale)
 	delete(s.node_of)
 	delete(s.shared)
 	delete(s.owners)
@@ -551,6 +557,7 @@ sculptor_flush :: proc(s: ^Sculptor) -> []Vertex_Range {
 		for id in d.topo_nodes {
 			d.topo[id] = false
 			s.chunks[id].index_count = 3 * s.nodes[id].tri_count
+			chunk_touched(s, id)
 			first := 3 * s.nodes[id].tri_first
 			if n := len(d.index_ranges); n > 0 && d.index_ranges[n - 1].first_index + d.index_ranges[n - 1].index_count == first {
 				d.index_ranges[n - 1].index_count += 3 * DYN_PAGE_TRIS
@@ -1163,6 +1170,7 @@ job_node_normals :: proc(data: rawptr, i: int) {
 		s.chunks[id].bounds = s.bvh.nodes[n.leaf].bounds if n.leaf != geom.BVH_NONE else geom.AABB_EMPTY
 		s.chunks[id].cone_cutoff = 1
 		s.chunks[id].index_count = 3 * n.tri_count
+		chunk_touched(s, id)
 	} else {
 		update_chunk(s, id, face_n[:cached])
 	}
@@ -1226,6 +1234,38 @@ update_chunk :: proc(s: ^Sculptor, id: u32, face_n: []Vec3) {
 		first_index = 3 * n.tri_first,
 		index_count = 3 * n.tri_count,
 	}
+	chunk_touched(s, id)
+}
+
+// Marks the group of chunk `id` for making again. Chunks of one group may be updated on
+// different threads; each only ever sets the flag.
+@(private)
+chunk_touched :: #force_inline proc(s: ^Sculptor, id: u32) {
+	if g := int(id) / geom.CHUNK_GROUP; g < len(s.group_stale) do s.group_stale[g] = true
+}
+
+// The chunk groups for geom.cull_chunks_grouped, made again where a chunk changed; nil
+// under dynamic topology, whose chunks come and go (cull them one by one then). Call
+// after sculptor_flush.
+sculptor_chunk_groups :: proc(s: ^Sculptor) -> []geom.Chunk {
+	if s.dyn != nil {
+		clear(&s.chunk_groups)
+		clear(&s.group_stale)
+		return nil
+	}
+	count := (len(s.chunks) + geom.CHUNK_GROUP - 1) / geom.CHUNK_GROUP
+	if len(s.chunk_groups) != count {
+		resize(&s.chunk_groups, count)
+		resize(&s.group_stale, count)
+		for &x in s.group_stale do x = true
+	}
+	for &stale, g in s.group_stale {
+		if !stale do continue
+		lo := g * geom.CHUNK_GROUP
+		s.chunk_groups[g] = geom.chunk_group(s.chunks[lo:min(lo + geom.CHUNK_GROUP, len(s.chunks))])
+		stale = false
+	}
+	return s.chunk_groups[:]
 }
 
 // Unnormalized: its length is twice the triangle's area, which weights vertex normals.

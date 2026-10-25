@@ -113,6 +113,76 @@ cull_chunks :: proc(chunks: []Chunk, clip: Mat4, eye: Vec3, out: ^[dynamic]Index
 	return
 }
 
+// Chunks are culled a group at a time first: CHUNK_GROUP neighbours in the chunks'
+// order (which follows the BVH, so they lie together), with bounds and a normal cone
+// holding all of theirs.
+CHUNK_GROUP :: 64
+
+// The bounds and normal cone holding every chunk of `chunks` (chunks with nothing to
+// draw left out). Its cone never faces away if any chunk's could not.
+chunk_group :: proc(chunks: []Chunk) -> (g: Chunk) {
+	g.bounds = AABB_EMPTY
+	sum: Vec3
+	for c in chunks {
+		if c.index_count == 0 do continue
+		g.bounds = aabb_union(g.bounds, c.bounds)
+		if c.cone_cutoff >= 1 {
+			g.cone_cutoff = 1
+		}
+		sum += c.cone_axis
+	}
+	if g.cone_cutoff >= 1 do return
+	g.cone_axis = linalg.normalize0(sum)
+	if g.cone_axis == {} {
+		g.cone_cutoff = 1
+		return
+	}
+	// The widest angle from the shared axis to the edge of any chunk's cone.
+	widest: f32
+	for c in chunks {
+		if c.index_count == 0 do continue
+		half := math.asin(clamp(c.cone_cutoff, 0, 1))
+		widest = max(widest, math.acos(clamp(linalg.dot(c.cone_axis, g.cone_axis), -1, 1)) + half)
+	}
+	g.cone_cutoff = 1 if widest >= math.PI / 2 else math.sin(widest)
+	return
+}
+
+// cull_chunks with `groups` (chunk_group of each CHUNK_GROUP chunks in turn): a group
+// outside the view or facing away is skipped whole. Gives the same ranges.
+cull_chunks_grouped :: proc(chunks, groups: []Chunk, clip: Mat4, eye: Vec3, out: ^[dynamic]Index_Range, hidden: []bool = nil) -> (stats: Cull_Stats) {
+	planes := frustum_planes(clip)
+	stats.chunks = len(chunks)
+	for g, k in groups {
+		lo := k * CHUNK_GROUP
+		hi := min(lo + CHUNK_GROUP, len(chunks))
+		if aabb_outside(&planes, g.bounds) {
+			stats.frustum += hi - lo
+			if hidden != nil do for h in hidden[lo:hi] do stats.frustum -= int(h)
+			continue
+		}
+		if chunk_backfacing(g, eye) {
+			stats.backface += hi - lo
+			if hidden != nil do for h in hidden[lo:hi] do stats.backface -= int(h)
+			continue
+		}
+		for i in lo ..< hi {
+			if hidden != nil && hidden[i] do continue
+			c := chunks[i]
+			if aabb_outside(&planes, c.bounds) {
+				stats.frustum += 1
+				continue
+			}
+			if chunk_backfacing(c, eye) {
+				stats.backface += 1
+				continue
+			}
+			append_range(out, c.first_index, c.index_count)
+		}
+	}
+	return
+}
+
 // Appends the index ranges of every chunk not marked in `hidden`, merging chunks that
 // are adjacent in the index buffer: what to draw without culling.
 chunks_shown :: proc(chunks: []Chunk, hidden: []bool, out: ^[dynamic]Index_Range) {

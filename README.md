@@ -79,6 +79,26 @@ Shaders are recompiled when `glslangValidator` (Vulkan SDK) is on PATH; otherwis
 
 `build/bench --levels [vertex counts...]` prints a table for subdivision levels instead: at each size, a base sphere of at most 40k vertices with as few levels above it as reach that size. It times building the levels (all of them, and the top one alone), the same stroke on the top level, stepping down to the base (carrying the stroke down, then the base's normal update), the stroke on the base, and stepping back up (carrying that up through every level, then the top level's normal update, with the megabytes the app would upload).
 
+## Big meshes (20M to 50M)
+
+The sculpt core scales with what a stroke touches, not with the mesh: a brush of the same size on screen touches more vertices on a denser mesh, and the frame grows with those, while a brush of the same vertex count costs the same at 10M and at 50M. `build/bench 20000000 50000000` (4 threads, this repo's cloud VM):
+
+| Vertices | Setup s | Mesh MB | Peak RSS MB | Frame ms, large brush (verts a dab) | Frame ms, small brush (verts a dab) | Undo ms, large |
+| --- | --- | --- | --- | --- | --- | --- |
+| 10M | 1.0 | 888 | 2267 | 1.34 (39k) | 0.29 (3.5k) | 8.0 |
+| 20M | 3.0 | 1776 | 2700 | 2.37 (78k) | 0.45 (7k) | 14.9 |
+| 50M | 9.0 | 4442 | 6751 | 6.20 (194k) | 0.99 (18k) | 39.3 |
+
+What did grow with the mesh was culling: every frame tested each chunk (about one per 600 triangles) against the view, about 1 ms at 50M even when the view held a few hundred of them, and a stroke's partial redraw paid it every frame. Chunks now also come in groups of 64 neighbours (`CHUNK_GROUP`, in the chunks' order, which follows the BVH), each with bounds and a normal cone holding its chunks'; a group outside the view or wholly facing away is skipped without looking at its chunks, and the rest are tested one by one as before, so the same chunks are drawn. The sculptor remakes a group only when one of its chunks changed (`sculptor_chunk_groups`); under dynamic topology, whose chunks come and go, chunks are tested one by one. Culling CPU ms, chunk by chunk and by groups:
+
+| Vertices | Whole sphere | Close-up | Detail |
+| --- | --- | --- | --- |
+| 10M | 0.35 → 0.19 | 0.23 → 0.05 | 0.19 → 0.014 |
+| 20M | 0.80 → 0.38 | 0.50 → 0.07 | 0.36 → 0.019 |
+| 50M | 2.07 → 0.95 | 1.39 → 0.12 | 1.11 → 0.03 |
+
+Saving reserves the object's size up front instead of growing the buffer a doubling at a time, which at 50M (about 1.7 GB an object) means it never holds a second, larger copy while the buffer grows. In the app a 30M sphere is ready to sculpt in about 5 s, saves to a 1 GB .sculpt file in about 8 s and opens again in about 4.5 s on the VM, whose disk and first touches of memory are slow; a 40M top level built with `--vertices=40000 --subdivide=5` takes 11 s and about 9.5 GB with every level and the GPU's copy. To time a real GPU at these sizes: `build.bat gpubench --vertices=20000000` (or 50000000; give the GPU 2 GB of free memory at 50M).
+
 ## GPU benchmark and frame timing
 
 `build.sh gpubench` (or `build.bat gpubench`) builds the release app and runs it on one sphere at 500k, 1M, 5M, 7M and 10M vertices (only one size with `--vertices=N`). At each size it runs six cases: the camera orbiting once around the sphere with everything on, with simplified drawing off, and with view culling off too, and a brush stroke with partial redraw and culling both on, partial redraw off, and both off. The stroke drags the 60 px Draw brush back and forth across the sphere at 30 px a frame (two dabs a frame, like a fast real stroke) and is undone after each case. Each case runs 30 warm-up frames and then measures 120; stroke cases count only the frames that sculpted. It prints three markdown tables, GPU time of the 3D viewport and CPU time per frame (p50 / p99) and triangles drawn per frame, and writes them to `build/gpubench.md`. It needs a display, and only a real GPU gives meaningful numbers. Vsync is turned off during the run where the display allows it.

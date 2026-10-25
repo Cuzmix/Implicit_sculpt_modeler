@@ -295,11 +295,18 @@ culling_keeps_every_visible_triangle :: proc(t: ^testing.T) {
 	s: Sculptor
 	sculptor_init(&s, &m, nil, 64)
 	defer sculptor_destroy(&s)
+	_ = sculptor_chunk_groups(&s) // made now, so the dabs must keep them current
 	for k in 0 ..< 20 {
 		a := f32(k) * 0.3
 		_ = apply_dab(&s, {kind = .Draw, radius = 0.25, strength = 1, invert = k % 3 == 0}, linalg.normalize(Vec3{math.cos(a), 0.4, math.sin(a)}))
 	}
 	_ = sculptor_flush(&s)
+	groups := sculptor_chunk_groups(&s)
+	testing.expect(t, len(groups) > 2, "too few chunk groups to test")
+	for g, k in groups {
+		lo := k * geom.CHUNK_GROUP
+		testing.expect_value(t, g, geom.chunk_group(s.chunks[lo:min(lo + geom.CHUNK_GROUP, len(s.chunks))]))
+	}
 
 	// Incremental chunks match chunks built from scratch.
 	fresh := make([]geom.Chunk, len(s.nodes), context.temp_allocator)
@@ -319,6 +326,11 @@ culling_keeps_every_visible_triangle :: proc(t: ^testing.T) {
 		clear(&out)
 		stats := geom.cull_chunks(s.chunks, clip, eye, &out)
 		culled_any ||= stats.frustum + stats.backface > 0
+		// A group at a time gives the same ranges.
+		grouped: [dynamic]geom.Index_Range
+		defer delete(grouped)
+		_ = geom.cull_chunks_grouped(s.chunks, groups, clip, eye, &grouped)
+		testing.expectf(t, slice.equal(out[:], grouped[:]), "eye %v: %d ranges by groups, %d chunk by chunk", eye, len(grouped), len(out))
 		drawn := make([]bool, len(m.indices) / 3, context.temp_allocator)
 		for r in out do for tri in r.first_index / 3 ..< (r.first_index + r.index_count) / 3 do drawn[tri] = true
 		for tri in 0 ..< len(m.indices) / 3 {

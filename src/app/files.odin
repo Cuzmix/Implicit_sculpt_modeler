@@ -487,6 +487,9 @@ scene_open :: proc(app: ^App, path: string) -> (opened, ok: bool) {
 // level with the mask. Leaves any HD window first, whose detail is not stored.
 object_put :: proc(app: ^App, out: ^[dynamic]u8, obj: ^Object) {
 	object_hd_leave(app, obj)
+	// Room for it up front: a 50M-vertex object is about 2 GB, and growing the buffer to
+	// that a doubling at a time copies it all over again and touches twice the memory.
+	reserve(out, len(out) + object_put_estimate(obj))
 	geom.byte_put(out, i32(obj.id))
 	geom.byte_put_string(out, obj.name)
 	put_transform(out, obj.transform)
@@ -495,6 +498,23 @@ object_put :: proc(app: ^App, out: ^[dynamic]u8, obj: ^Object) {
 	geom.byte_put(out, u8(obj.boolean)) // version 5
 	sculpt.levels_write(&obj.levels, out)
 	free_all(context.temp_allocator)
+}
+
+// About how many bytes object_put writes for `obj`: every level's positions, the
+// base's triangles and node layout, and the shown level's mask, paint and groups.
+@(private = "file")
+object_put_estimate :: proc(obj: ^Object) -> int {
+	bytes := 4096
+	for lv, j in obj.levels.levels {
+		bytes += size_of(Vec3) * len(lv.mesh.positions)
+		if j == 0 do bytes += size_of(u32) * len(lv.mesh.indices) + 8 * len(lv.sculptor.nodes)
+	}
+	s := &sculpt.levels_current(&obj.levels).sculptor
+	n := len(s.mesh.positions)
+	if s.mask != nil do bytes += n
+	if s.color != nil do bytes += size_of(sculpt.Color) * n
+	if s.groups.tris != nil do bytes += size_of(u16) * len(s.groups.tris)
+	return bytes
 }
 
 // Reads one object written by object_put (by a scene file of `version`) and uploads
