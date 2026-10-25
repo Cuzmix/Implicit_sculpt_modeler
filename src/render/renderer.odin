@@ -23,6 +23,9 @@ Renderer :: struct {
 	window:        ^sdl.Window,
 	depth_format:  sdl.GPUTextureFormat,
 	mesh_pipeline:  ^sdl.GPUGraphicsPipeline,
+	// The same shaders drawing triangle edges as lines, pulled toward the eye so they
+	// show over the surface they outline; nil where the device cannot draw lines.
+	wire_pipeline:  ^sdl.GPUGraphicsPipeline,
 	clear_pipeline: ^sdl.GPUGraphicsPipeline, // clears a scissored rectangle to the background
 	last_version:   u64,  // source of Mesh_Buffers.version
 	cull:           bool, // skip off-screen and back-facing chunks of items that have them
@@ -122,6 +125,10 @@ Draw_Item :: struct {
 	mesh:   ^Mesh_Buffers,
 	model:  Mat4,
 	color:  [4]f32,
+	// Ambient, specular strength, specular power, and wrap (how far light reaches past
+	// the side facing it, for a soft, waxy look); zero for the default clay.
+	material:  [4]f32,
+	wireframe: bool, // draw its triangles' edges over it
 	live:   bool,
 	chunks: []geom.Chunk,
 	// Mesh-space box around everything that changed since the previous frame, before
@@ -181,7 +188,9 @@ renderer_init :: proc(r: ^Renderer, window: ^sdl.Window, debug: bool) -> bool {
 		r.depth_format = .D24_UNORM
 	}
 
-	r.mesh_pipeline = create_mesh_pipeline(r)
+	r.mesh_pipeline = create_mesh_pipeline(r, wire = false)
+	r.wire_pipeline = create_mesh_pipeline(r, wire = true)
+	if r.wire_pipeline == nil do log.warn("wireframe: this device cannot draw lines; the wireframe stays off")
 	r.clear_pipeline = create_clear_pipeline(r)
 	return r.mesh_pipeline != nil && r.clear_pipeline != nil
 }
@@ -230,6 +239,7 @@ renderer_destroy :: proc(r: ^Renderer) {
 	if r.device == nil do return
 	_ = sdl.WaitForGPUIdle(r.device)
 	if r.mesh_pipeline != nil do sdl.ReleaseGPUGraphicsPipeline(r.device, r.mesh_pipeline)
+	if r.wire_pipeline != nil do sdl.ReleaseGPUGraphicsPipeline(r.device, r.wire_pipeline)
 	if r.clear_pipeline != nil do sdl.ReleaseGPUGraphicsPipeline(r.device, r.clear_pipeline)
 	sdl.ReleaseWindowFromGPUDevice(r.device, r.window)
 	sdl.DestroyGPUDevice(r.device)
@@ -237,7 +247,7 @@ renderer_destroy :: proc(r: ^Renderer) {
 }
 
 @(private)
-create_mesh_pipeline :: proc(r: ^Renderer) -> ^sdl.GPUGraphicsPipeline {
+create_mesh_pipeline :: proc(r: ^Renderer, wire: bool) -> ^sdl.GPUGraphicsPipeline {
 	vert := sdl.CreateGPUShader(r.device, {
 		code_size           = len(MESH_VERT_SPV),
 		code                = raw_data(MESH_VERT_SPV),
@@ -282,8 +292,12 @@ create_mesh_pipeline :: proc(r: ^Renderer) -> ^sdl.GPUGraphicsPipeline {
 			num_vertex_attributes = len(attributes),
 		},
 		primitive_type = .TRIANGLELIST,
-		rasterizer_state = {fill_mode = .FILL, cull_mode = .BACK, front_face = .COUNTER_CLOCKWISE},
-		depth_stencil_state = {compare_op = .LESS, enable_depth_test = true, enable_depth_write = true},
+		rasterizer_state = wire ? sdl.GPURasterizerState{
+			fill_mode = .LINE, cull_mode = .BACK, front_face = .COUNTER_CLOCKWISE,
+			// Toward the eye, so a line wins against the triangle it borders.
+			enable_depth_bias = true, depth_bias_constant_factor = -2, depth_bias_slope_factor = -1,
+		} : sdl.GPURasterizerState{fill_mode = .FILL, cull_mode = .BACK, front_face = .COUNTER_CLOCKWISE},
+		depth_stencil_state = {compare_op = .LESS_OR_EQUAL if wire else .LESS, enable_depth_test = true, enable_depth_write = !wire},
 		target_info = {
 			color_target_descriptions = &color_targets[0],
 			num_color_targets = len(color_targets),
@@ -291,7 +305,7 @@ create_mesh_pipeline :: proc(r: ^Renderer) -> ^sdl.GPUGraphicsPipeline {
 			has_depth_stencil_target = true,
 		},
 	})
-	if pipeline == nil {
+	if pipeline == nil && !wire {
 		log.errorf("CreateGPUGraphicsPipeline failed: %s", sdl.GetError())
 	}
 	return pipeline
@@ -739,9 +753,11 @@ render_rect :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Targ
 @(private)
 frame_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lod_px: f32) -> u64 {
 	Keyed :: struct {
-		mesh:  ^Mesh_Buffers,
-		model: Mat4,
-		color: [4]f32,
+		mesh:     ^Mesh_Buffers,
+		model:    Mat4,
+		color:    [4]f32,
+		material: [4]f32,
+		wire:     b32,
 	}
 	Header :: struct { // no padding: every byte is hashed
 		view, proj:    Mat4,
@@ -752,7 +768,7 @@ frame_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lod
 	header := Header{view, proj, vt.width, vt.height, u32(len(items)), lod_px}
 	h := hash.fnv64a(slice.bytes_from_ptr(&header, size_of(header)))
 	for item in items {
-		k := Keyed{item.mesh, item.model, item.color}
+		k := Keyed{item.mesh, item.model, item.color, item.material, b32(item.wireframe)}
 		h = hash.fnv64a(slice.bytes_from_ptr(&k, size_of(k)), h)
 	}
 	return max(h, 1)
@@ -895,10 +911,13 @@ indirect_ensure :: proc(r: ^Renderer, mb: ^Mesh_Buffers, commands: u32) -> bool 
 @(private)
 static_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lod_px: f32) -> u64 {
 	Keyed :: struct {
-		mesh:    ^Mesh_Buffers,
-		version: u64,
-		model:   Mat4,
-		color:   [4]f32,
+		mesh:     ^Mesh_Buffers,
+		version:  u64,
+		model:    Mat4,
+		color:    [4]f32,
+		material: [4]f32,
+		wire:     b32,
+		_:        u32, // no padding: every byte is hashed
 	}
 	Header :: struct {
 		view, proj:    Mat4,
@@ -909,7 +928,7 @@ static_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lo
 	h := hash.fnv64a(slice.bytes_from_ptr(&header, size_of(header)))
 	for item in items {
 		if item.live do continue
-		k := Keyed{item.mesh, item.mesh.version, item.model, item.color}
+		k := Keyed{item.mesh, item.mesh.version, item.model, item.color, item.material, b32(item.wireframe), 0}
 		h = hash.fnv64a(slice.bytes_from_ptr(&k, size_of(k)), h)
 	}
 	return max(h, 1) // 0 means empty
@@ -945,27 +964,50 @@ draw_items :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURende
 	for item in items {
 		if want, filtered := live.?; filtered && item.live != want do continue
 		frame := Frame_Uniforms{view_proj = proj * view, view = view, model = item.model}
-		material := Material_Uniforms{base_color = item.color, params = {0.08, 0.2, 40, 0}}
+		params := item.material if item.material != {} else DEFAULT_MATERIAL
+		material := Material_Uniforms{base_color = item.color, params = params}
 		sdl.PushGPUVertexUniformData(cmd, 0, &frame, size_of(frame))
 		sdl.PushGPUFragmentUniformData(cmd, 0, &material, size_of(material))
 		mb := item.mesh
 		vbufs := [2]sdl.GPUBufferBinding{{buffer = mb.positions}, {buffer = mb.normals}}
 		sdl.BindGPUVertexBuffers(pass, 0, &vbufs[0], len(vbufs))
-		sdl.BindGPUIndexBuffer(pass, {buffer = mb.indices}, ._32BIT)
-		if (r.cull || item.hidden != nil) && len(item.chunks) > 0 && mb.indirect != nil {
-			if mb.draw_count > 0 do sdl.DrawGPUIndexedPrimitivesIndirect(pass, mb.indirect, 0, mb.draw_count)
-			if mb.lod_draw_count > 0 {
-				sdl.BindGPUIndexBuffer(pass, {buffer = mb.lod_indices}, ._32BIT)
-				sdl.DrawGPUIndexedPrimitivesIndirect(pass, mb.indirect, mb.draw_count * size_of(sdl.GPUIndexedIndirectDrawCommand), mb.lod_draw_count)
-			}
-			for v in mb.visible do stats.triangles += u64(v.index_count / 3)
-			for v in mb.lod_visible do stats.triangles += u64(v.index_count / 3)
-			stats.draws += u64(mb.draw_count + mb.lod_draw_count)
-		} else {
-			sdl.DrawGPUIndexedPrimitives(pass, mb.index_count, 1, 0, 0, 0)
-			stats.triangles += u64(mb.index_count / 3)
-			stats.draws += 1
+		draw_item_triangles(r, pass, item, stats)
+		if item.wireframe && r.wire_pipeline != nil {
+			// The same triangles again as lines in one flat colour (a negative specular
+			// strength tells the shader so).
+			wire := Material_Uniforms{base_color = WIRE_COLOR, params = {0, -1, 0, 0}}
+			sdl.PushGPUFragmentUniformData(cmd, 0, &wire, size_of(wire))
+			sdl.BindGPUGraphicsPipeline(pass, r.wire_pipeline)
+			draw_item_triangles(r, pass, item, nil)
+			sdl.BindGPUGraphicsPipeline(pass, r.mesh_pipeline)
 		}
+	}
+}
+
+DEFAULT_MATERIAL :: [4]f32{0.08, 0.2, 40, 0}
+WIRE_COLOR :: [4]f32{0.05, 0.05, 0.06, 1}
+
+// The item's triangles: the visible runs prepare_draws found, or the whole mesh. Counts
+// them in `stats` when given.
+@(private)
+draw_item_triangles :: proc(r: ^Renderer, pass: ^sdl.GPURenderPass, item: Draw_Item, stats: ^Viewport_Stats) {
+	mb := item.mesh
+	sdl.BindGPUIndexBuffer(pass, {buffer = mb.indices}, ._32BIT)
+	if (r.cull || item.hidden != nil) && len(item.chunks) > 0 && mb.indirect != nil {
+		if mb.draw_count > 0 do sdl.DrawGPUIndexedPrimitivesIndirect(pass, mb.indirect, 0, mb.draw_count)
+		if mb.lod_draw_count > 0 {
+			sdl.BindGPUIndexBuffer(pass, {buffer = mb.lod_indices}, ._32BIT)
+			sdl.DrawGPUIndexedPrimitivesIndirect(pass, mb.indirect, mb.draw_count * size_of(sdl.GPUIndexedIndirectDrawCommand), mb.lod_draw_count)
+		}
+		if stats == nil do return
+		for v in mb.visible do stats.triangles += u64(v.index_count / 3)
+		for v in mb.lod_visible do stats.triangles += u64(v.index_count / 3)
+		stats.draws += u64(mb.draw_count + mb.lod_draw_count)
+	} else {
+		sdl.DrawGPUIndexedPrimitives(pass, mb.index_count, 1, 0, 0, 0)
+		if stats == nil do return
+		stats.triangles += u64(mb.index_count / 3)
+		stats.draws += 1
 	}
 }
 

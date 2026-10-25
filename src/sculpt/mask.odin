@@ -18,6 +18,7 @@ Mask_Command :: enum {
 	Clear,  // unmask everything
 	Invert, // masked becomes unmasked and the other way round
 	Fill,   // mask everything
+	Cavity, // mask by cavity, as ZBrush's Mask By Cavity: the deeper a vertex sits below its neighbours, the more
 	// The rest work a step at a time, each vertex from the corners of its triangles, so
 	// one step reaches one ring of triangles further.
 	Blur,    // toward the average: the edge softens
@@ -82,8 +83,8 @@ mask_ensure :: proc(s: ^Sculptor) {
 // step); ends any stroke in progress first.
 sculptor_mask_command :: proc(s: ^Sculptor, command: Mask_Command, steps := 1) -> bool {
 	_ = sculptor_stroke_end(s)
-	// No mask is all 0, which only Invert and Fill change.
-	if s.mask == nil && command != .Invert && command != .Fill do return false
+	// No mask is all 0, which only Invert, Fill and Cavity change.
+	if s.mask == nil && command != .Invert && command != .Fill && command != .Cavity do return false
 	mask_ensure(s)
 	// The whole mask after the command is worked out first, so only the nodes that
 	// change are saved and uploaded. Slots no node owns (free ones with dynamic
@@ -99,7 +100,11 @@ sculptor_mask_command :: proc(s: ^Sculptor, command: Mask_Command, steps := 1) -
 			job := cast(^Mask_Job)data
 			for id in lo ..< hi {
 				n := job.s.nodes[id]
-				for &k in job.after[n.vert_first:][:n.vert_count] do k = mask_after(job.command, k)
+				if job.command == .Cavity {
+					for v in n.vert_first ..< n.vert_first + n.vert_count do job.after[v] = mask_cavity(job.s, v)
+				} else {
+					for &k in job.after[n.vert_first:][:n.vert_count] do k = mask_after(job.command, k)
+				}
 				job.changes[id] = true
 			}
 		}, NODE_GRAIN)
@@ -382,6 +387,34 @@ mask_after :: #force_inline proc(command: Mask_Command, k: u8) -> u8 {
 	}
 	return k
 }
+
+// How much of a cavity vertex v sits in: how far below the average of its triangles'
+// corners it lies along its normal, over their mean distance from it, so it reads the
+// same at any density. A crease or pore scores high, a flat or bulging surface 0.
+@(private)
+mask_cavity :: #force_inline proc(s: ^Sculptor, v: u32) -> u8 {
+	m := s.mesh
+	p := m.positions[v]
+	sum: Vec3
+	spread: f32
+	n: f32
+	for f in faces_of(s, v) {
+		for c in 0 ..< u32(3) {
+			q := m.positions[m.indices[3 * f + c]]
+			sum += q
+			spread += linalg.length(q - p)
+			n += 1
+		}
+	}
+	if n == 0 || spread <= 0 do return 0
+	// The vertex's own corners count too (at zero distance), as in Blur's average.
+	depth := linalg.dot(sum / n - p, m.normals[v]) / (spread / n)
+	return u8(clamp(depth * CAVITY_GAIN, 0, 1) * 255 + 0.5)
+}
+
+// The cavity depth (in mean edge lengths) that masks fully: a groove a Crease stroke
+// cuts reaches it, gentle dips stay partly masked.
+CAVITY_GAIN :: 6
 
 // Vertex v's mask after one step of a neighbourhood command, from the corners of its
 // triangles in `from`. v is a corner of each of them, so it counts a third of the
