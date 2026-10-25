@@ -219,7 +219,6 @@ gpubench_write :: proc(app: ^App, b: ^Gpubench) -> bool {
 }
 
 // 500k, 1.0M, 10.0M and so on, from the vertex count as built.
-@(private = "file")
 size_label :: proc(n: int) -> string {
 	if n >= 1_000_000 do return fmt.tprintf("%.1fM", f64(n) / 1e6)
 	if n >= 1_000 do return fmt.tprintf("%dk", (n + 500) / 1000)

@@ -75,6 +75,9 @@ Options :: struct {
 	no_vsync:  bool `usage:"Show each frame as soon as it is ready instead of waiting for the display's refresh, so frame times are not capped at the refresh rate."`,
 	time_gpu:  bool `usage:"Measure the GPU time of the 3D viewport every frame. Waits for the GPU each frame, so frames no longer overlap."`,
 	gpubench:  string `usage:"Time the GPU and CPU while orbiting and sculpting one sphere at 500k, 1M, 5M, 7M and 10M vertices (only --vertices when given), with each speed setting on and off; write the markdown tables to this path and exit."`,
+	gpu_smooth: bool `usage:"Start with Tools > Deformation > On the GPU checked, so Smooth all runs as a compute shader (the GPU compute trial)."`,
+	smooth_all: int `usage:"Smooth the first object this many steps before starting, as Tools > Deformation > Smooth all does (after the other start-up changes; on the GPU with --gpu-smooth)."`,
+	compute_bench: string `usage:"Time Smooth all on the CPU and as a GPU compute shader, upload and readback included, at 500k, 1M, 5M, 7M and 10M vertices (only --vertices when given); check the GPU's result against the CPU's, write the markdown tables to this path and exit."`,
 	gpubench_frames: int `usage:"Measured frames per --gpubench case (default 120, at most 240)."`,
 	open:      string `usage:"Start with the scene saved in this .sculpt file instead of spheres, as File > Open scene does."`,
 	import_mesh: string `args:"name=import" usage:"Start with the mesh in this .obj or .ply file instead of spheres (after any --open), as File > Import mesh does."`,
@@ -93,6 +96,8 @@ App :: struct {
 	brush:    Brush_Settings,
 	mask_shape: Mask_Shape, // a Ctrl + drag on empty space in progress (mask_shape.odin)
 	clip:     Clip_Gesture, // a Ctrl + Shift + drag in progress (clip.odin)
+	smooth_gpu: render.Smooth_Compute, // Smooth all's compute shader and buffers, made on first use
+	smooth_gpu_failed: bool, // the device refused the compute pipeline; Smooth all stays on the CPU
 	// Each brush's drawn falloff as the sculptor reads it, remade when its curve changes.
 	falloff_tables: [sculpt.Brush_Kind]struct {
 		falloff: sculpt.Falloff,
@@ -190,10 +195,12 @@ run :: proc(opts: Options) -> bool {
 	defer file_shutdown(&app)
 	if !render.renderer_init(&app.renderer, window, opts.gpu_debug) do return false
 	defer render.renderer_destroy(&app.renderer)
+	defer render.smooth_compute_destroy(&app.renderer, &app.smooth_gpu)
 
 	jobs.pool_init(&app.pool, opts.threads - 1 if opts.threads > 0 else 0)
 	defer jobs.pool_destroy(&app.pool)
 	log.infof("sculpt threads: %d", jobs.pool_size(&app.pool))
+	if opts.compute_bench != "" do return computebench_run(&app, opts.compute_bench, opts.vertices)
 	app.scene.selected = -1
 	defer scene_destroy(&app)
 	defer history_destroy(&app.history)
@@ -353,6 +360,8 @@ run :: proc(opts: Options) -> bool {
 	if remember do settings = strings.clone(settings)
 	defer delete(settings)
 	settings_load(&app, settings)
+	app.ui.smooth_on_gpu = opts.gpu_smooth
+	if opts.smooth_all > 0 do smooth_command(&app, opts.smooth_all)
 	defer if remember do _ = settings_save(&app, settings)
 	if opts.ortho do app.camera.ortho = true
 	if opts.wireframe do app.wireframe = true

@@ -11,6 +11,7 @@ import imgui "deps:odin-imgui"
 import "../camera"
 import "../geom"
 import "../gizmo"
+import "../render"
 import "../sculpt"
 
 // UI-only state. Sculpt and render state live in App; panels edit them through pointers
@@ -41,6 +42,20 @@ Ui_State :: struct {
 	mirror_negative:    bool, // Mirror and weld keeps the - side instead of the + side
 	mask_last:          Mask_Done,
 	clip_last:          Clip_Done,
+	smooth_steps:       i32, // steps each Smooth all press takes
+	smooth_strength:    f32, // how far each step moves a vertex toward its neighbours' average, 0 to 1
+	smooth_on_gpu:      bool, // run Smooth all as a compute shader (the GPU compute trial); off by default
+	smooth_last:        Smooth_Done,
+}
+
+// The last Smooth all, for the Deformation section to report.
+Smooth_Done :: struct {
+	steps:   int,
+	ms:      f64, // the whole command, undo saving and normals included
+	changed: bool,
+	on_gpu:  bool,
+	gpu:     render.Smooth_Timing, // the GPU's parts, when on_gpu
+	set:     bool, // false until it has run
 }
 
 // The last clip, for the Clip section to report.
@@ -148,7 +163,7 @@ brush_by_name :: proc(name: string) -> (sculpt.Brush_Kind, bool) {
 }
 
 ui_state_default :: proc() -> Ui_State {
-	return {viewport_request = {1280, 720}, sphere_vertices = 500_000, mask_steps = 3}
+	return {viewport_request = {1280, 720}, sphere_vertices = 500_000, mask_steps = 3, smooth_steps = 5, smooth_strength = 0.5}
 }
 
 ui_draw :: proc(app: ^App) -> Viewport_Input {
@@ -501,6 +516,7 @@ draw_tools_panel :: proc(app: ^App) {
 		imgui.TextDisabled("%s", fmt.ctprintf("Last clip: %.0f ms%s", last.ms, "" if last.changed else ", nothing changed"))
 	}
 
+	draw_deformation_section(app)
 	draw_pen_section(app)
 
 	imgui.SeparatorText("Camera")
@@ -1066,4 +1082,28 @@ draw_stats_panel :: proc(app: ^App) {
 		if w := obj.levels.hd.window; w != nil do undo_bytes += sculpt.sculptor_undo_bytes(&w.sculptor)
 	}
 	imgui.Text("Undo %d steps, %.1f MB of strokes, %.1f MB of object snapshots", i32(len(app.history.done)), f64(undo_bytes) / (1 << 20), f64(app.history.swap_bytes) / (1 << 20))
+}
+
+// Whole-mesh smoothing, and the switch that runs it on the GPU instead.
+@(private = "file")
+draw_deformation_section :: proc(app: ^App) {
+	imgui.SeparatorText("Deformation")
+	obj := selected_object(app)
+	imgui.BeginDisabled(obj == nil || object_dynamic(obj))
+	if imgui.Button("Smooth all") do smooth_command(app, int(app.ui.smooth_steps))
+	if imgui.IsItemHovered() do imgui.SetTooltip("Smooths the whole selected object, each step moving\nevery vertex toward its neighbours' average, as the\nSmooth brush does under it. Masked areas stay. One\nundo step. Not with dynamic topology.")
+	imgui.SameLine()
+	imgui.Checkbox("On the GPU", &app.ui.smooth_on_gpu)
+	if imgui.IsItemHovered() do imgui.SetTooltip("Runs the steps as a compute shader instead of on\nevery CPU core: a trial of GPU sculpting. The result\nmatches the CPU's to rounding. The times below show\nwhat the upload and readback cost.")
+	imgui.SliderInt("Smooth steps", &app.ui.smooth_steps, 1, 100)
+	imgui.SliderFloat("Smooth strength", &app.ui.smooth_strength, 0.05, 1, "%.2f")
+	imgui.EndDisabled()
+	if last := app.ui.smooth_last; last.set {
+		outcome := "" if last.changed else ", nothing changed"
+		imgui.TextDisabled("%s", fmt.ctprintf("Last: %d steps on the %s in %.0f ms%s", last.steps, "GPU" if last.on_gpu else "CPU", last.ms, outcome))
+		if last.on_gpu {
+			g := last.gpu
+			imgui.TextDisabled("%s", fmt.ctprintf("GPU: upload %.1f ms (%.0f MB), compute %.1f ms,\nreadback %.1f ms", g.upload_ms, g.upload_mb, g.compute_ms, g.readback_ms))
+		}
+	}
 }

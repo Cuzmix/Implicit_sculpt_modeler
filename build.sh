@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Usage: ./build.sh [debug|release|test|run|smoke|bench|gpubench|wincheck|check] [-- app args]
+# Usage: ./build.sh [debug|release|test|run|smoke|bench|gpubench|computebench|wincheck|check] [-- app args]
 #   check   odin check with the strict flags on every package (no link, no shaders), then
 #           python3 scripts/agents_sync.py --check (the skill mirror under .agents/ is current)
 #   debug   (default) debug build with allocation tracking -> build/sculpt
@@ -14,6 +14,9 @@
 #           sphere at 500k, 1M, 5M, 7M and 10M vertices, with each speed setting on and
 #           off; prints markdown tables and writes them to build/gpubench.md (needs a
 #           display; use a real GPU for meaningful numbers)
+#   computebench release build, then time Smooth all on the CPU and as a GPU compute
+#           shader (upload and readback included) at the same sizes, check the GPU's
+#           result against the CPU's, and write build/computebench.md (needs a display)
 #   wincheck compile the app and bench for Windows (x64) to object files, without
 #           linking, so Windows-only compile errors show up on Linux too
 set -euo pipefail
@@ -26,7 +29,7 @@ mode="${1:-debug}"; shift || true
 [ "${1:-}" = "--" ] && shift
 
 compile_shaders() {
-	for src in "$ROOT"/src/render/shaders/*.{vert,frag}; do
+	for src in "$ROOT"/src/render/shaders/*.{vert,frag,comp}; do
 		glslangValidator -V --quiet "$src" -o "$src.spv"
 	done
 }
@@ -42,10 +45,11 @@ case "$mode" in
 		if [ "$mode" = run ]; then exec "$ROOT/build/sculpt" "$@"; fi
 		if [ "$mode" = smoke ]; then SDL_ASSERT=abort exec "$ROOT/build/sculpt" --frames=300 --gpu-debug "$@"; fi
 		;;
-	release|gpubench)
+	release|gpubench|computebench)
 		compile_shaders
 		"$ODIN" build "$ROOT/src/app" -out:"$ROOT/build/sculpt" -o:speed -no-bounds-check "${common[@]}"
 		if [ "$mode" = gpubench ]; then exec "$ROOT/build/sculpt" --gpubench "$ROOT/build/gpubench.md" "$@"; fi
+		if [ "$mode" = computebench ]; then exec "$ROOT/build/sculpt" --compute-bench "$ROOT/build/computebench.md" "$@"; fi
 		;;
 	bench)
 		"$ODIN" build "$ROOT/src/bench" -out:"$ROOT/build/bench" -o:speed -no-bounds-check "${common[@]}"
