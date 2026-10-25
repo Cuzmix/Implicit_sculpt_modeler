@@ -61,7 +61,7 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
   falloffs over the images, times `shield`) (`:34`); `sculptor_grab_move(s, offset)` sets `start + offset · follow`,
   absolute rather than incremental, then `finish_move` (`:98`); `sculptor_grab_end` (`:124`, called by `stroke_finish`).
 - Mask (`src/sculpt/mask.odin`): `Sculptor.mask []u8` per vertex, nil until first used, 255 = brushes leave the vertex
-  alone. `mask_dab` (`:35`) paints by `255 · strength · falloff · fade`, marks nodes stale `.Paint` (GPU data only, no
+  alone. `sculptor_mask_shape(s, clip, ndc_polygon, unmask)` masks every vertex whose clip-space projection falls in the polygon (even-odd, through a 1024² `Coverage` grid), committing through the shared `mask_commit` like the commands; app side `src/app/mask_shape.odin` (Ctrl + drag from empty space, Alt unmasks). `mask_dab` (`:35`) paints by `255 · strength · falloff · fade`, marks nodes stale `.Paint` (GPU data only, no
   normal recompute) and records them as `painted`; `sculptor_mask_command(s, command, steps)` is one undo step (`:82`):
   Clear, Invert and Fill are one pass; Blur, Sharpen, Grow and Shrink (`mask_steps`, `:159`) give each vertex the
   average, a push away from half masked against half that average (`SHARPEN_PUSH`), the highest or the lowest of its

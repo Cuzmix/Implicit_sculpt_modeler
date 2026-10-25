@@ -604,3 +604,34 @@ drawn_falloff_shapes_the_dab :: proc(t: ^testing.T) {
 	testing.expectf(t, r0 < 0.4 * c0, "built-in falloff at 0.7 radii moved %v of %v", r0, c0)
 	testing.expectf(t, r1 > 0.8 * c1, "firm falloff at 0.7 radii moved %v of %v", r1, c1)
 }
+
+// A mask shape masks what falls inside it on screen, through the mesh, and is an undo
+// step; an unmask shape inside it clears what it covers.
+@(test)
+mask_shape_masks_inside_it :: proc(t: ^testing.T) {
+	sp := sphere_make(5)
+	defer sphere_free(sp)
+	s := &sp.sculptor
+	// Looking down z, flat: x and y are already the screen.
+	clip: matrix[4, 4]f32 = 1
+	rect := [][2]f32{{-0.3, -0.3}, {0.3, -0.3}, {0.3, 0.3}, {-0.3, 0.3}}
+	testing.expect(t, sculptor_mask_shape(s, clip, rect, false))
+	inside :: proc(p: Vec3, r: f32) -> bool {return abs(p.x) < r && abs(p.y) < r}
+	wrong := 0
+	for p, v in sp.mesh.positions {
+		near_edge := abs(abs(p.x) - 0.3) < 0.01 || abs(abs(p.y) - 0.3) < 0.01
+		if !near_edge && (s.mask[v] == 255) != inside(p, 0.3) do wrong += 1
+	}
+	testing.expectf(t, wrong == 0, "%d vertices masked wrongly", wrong)
+	// A triangle lasso unmasks its part.
+	tri := [][2]f32{{0, 0.25}, {-0.25, -0.25}, {0.25, -0.25}}
+	testing.expect(t, sculptor_mask_shape(s, clip, tri, true))
+	cleared := 0
+	for p, v in sp.mesh.positions do if abs(p.x) < 0.02 && abs(p.y) < 0.02 && s.mask[v] == 0 do cleared += 1
+	testing.expect(t, cleared > 0)
+	testing.expect(t, sculptor_undo(s) && sculptor_undo(s))
+	for k in s.mask do if k != 0 {
+		testing.expect(t, false, "undo left a mask")
+		break
+	}
+}

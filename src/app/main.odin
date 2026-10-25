@@ -80,6 +80,7 @@ App :: struct {
 	tool:     Tool,
 	move:     Move_Tool,
 	brush:    Brush_Settings,
+	mask_shape: Mask_Shape, // a Ctrl + drag on empty space in progress (mask_shape.odin)
 	// Each brush's drawn falloff as the sculptor reads it, remade when its curve changes.
 	falloff_tables: [sculpt.Brush_Kind]struct {
 		falloff: sculpt.Falloff,
@@ -182,6 +183,7 @@ run :: proc(opts: Options) -> bool {
 	defer history_destroy(&app.history)
 	defer delete(app.samples)
 	defer delete(app.stroke.pending)
+	defer mask_shape_destroy(&app.mask_shape)
 	app.hd_window_vertices = opts.hd_window if opts.hd_window > 0 else sculpt.HD_WINDOW_VERTICES
 	if opts.open != "" {
 		opened, ok := scene_open(&app, opts.open)
@@ -451,7 +453,11 @@ run :: proc(opts: Options) -> bool {
 		sculpted: Sculpt_Frame_Result
 		switch app.tool {
 		case .Brush:
-			sculpted = sculpt_frame(&app, input)
+			if mask_shape_frame(&app, input) {
+				stroke_finish(&app)
+			} else {
+				sculpted = sculpt_frame(&app, input)
+			}
 		case .Move:
 			stroke_finish(&app)
 			move_tool_frame(&app, input)

@@ -35,6 +35,7 @@ Ui_State :: struct {
 	curve_handle:       int, // the pressure curve's control point being dragged (1 or 2), or 0
 	falloff_handle:     int, // ...and the falloff curve's
 	mask_steps:         i32, // steps each Blur, Sharpen, Grow or Shrink press takes
+	mask_shape_kind:    Mask_Shape_Kind, // what Ctrl + drag on empty space draws
 	mirror_axis:        i32, // Mirror and weld: 0 x, 1 y, 2 z
 	mirror_negative:    bool, // Mirror and weld keeps the - side instead of the + side
 	mask_last:          Mask_Done,
@@ -47,6 +48,7 @@ Mask_Done :: struct {
 	ms:      f64,
 	changed: bool,
 	set:     bool, // false until a command has run
+	shape:   bool, // a mask shape: command is Fill for masking, Clear for unmasking
 }
 
 MASK_COMMAND_NAMES := [sculpt.Mask_Command]string {
@@ -91,6 +93,7 @@ Viewport_Input :: struct {
 	press:       bool, // the left button went down in the viewport this frame
 	smooth:      bool, // Shift held during a stroke: smooth brush
 	invert:      bool, // Ctrl held during a stroke: invert the brush
+	alt:         bool, // Alt held with Ctrl: a mask shape unmasks
 	samples:     []Input_Sample, // every pointer sample this frame, oldest first
 	pen_tilt:    [2]f32, // the pen's lean now, in degrees; zero without a pen
 }
@@ -261,9 +264,11 @@ draw_viewport :: proc(app: ^App) -> (input: Viewport_Input) {
 	right := imgui.IsMouseDown(.Right)
 	middle := imgui.IsMouseDown(.Middle)
 	if input.dragging {
-		input.orbit_drag = (right && !io.KeyShift) || (left && io.KeyAlt)
+		// Alt with Ctrl is a mask shape that unmasks, not an orbit.
+		input.orbit_drag = (right && !io.KeyShift) || (left && io.KeyAlt && !io.KeyCtrl)
 		input.pan_drag = middle || (right && io.KeyShift)
-		input.primary = left && !io.KeyAlt
+		input.primary = left && (!io.KeyAlt || io.KeyCtrl)
+		input.alt = input.primary && io.KeyAlt
 		input.press = input.primary && imgui.IsMouseClicked(.Left)
 		input.smooth = input.primary && io.KeyShift
 		input.invert = input.primary && io.KeyCtrl
@@ -290,6 +295,10 @@ draw_viewport_overlay :: proc(app: ^App, input: Viewport_Input) {
 
 	switch app.tool {
 	case .Brush:
+		if app.mask_shape.active {
+			draw_mask_shape(app, list, o, input.mouse_pos)
+			break
+		}
 		if draw_adjust(app, list, o) do break
 		if (input.hovered || input.dragging) && !app.ui.pie.open {
 			color := rgba({1, 1, 1, 0.6} if !input.primary else {1, 0.8, 0.4, 0.9})
@@ -385,11 +394,20 @@ draw_tools_panel :: proc(app: ^App) {
 	}
 	imgui.SliderInt("Steps", &app.ui.mask_steps, 1, 50)
 	imgui.EndDisabled()
-	imgui.TextDisabled("Paint it with the Mask brush (9); masked areas show\ndarker and no brush moves them. It follows level changes.\nBlur, Sharpen, Grow and Shrink move its edge\na ring of triangles a step, so a dense mesh\nneeds more steps.")
+	imgui.Text("Ctrl + drag on empty space:")
+	imgui.SameLine()
+	if imgui.RadioButton("Rectangle", app.ui.mask_shape_kind == .Rectangle) do app.ui.mask_shape_kind = .Rectangle
+	imgui.SameLine()
+	if imgui.RadioButton("Lasso", app.ui.mask_shape_kind == .Lasso) do app.ui.mask_shape_kind = .Lasso
+	imgui.BeginDisabled(selected_object(app) == nil)
+	imgui.EndDisabled()
+	imgui.TextDisabled("Paint it with the Mask brush (9), or Ctrl + drag a\nshape from empty space (with Alt: unmask); masked\nareas show darker and no brush moves them. It follows level changes.\nBlur, Sharpen, Grow and Shrink move its edge\na ring of triangles a step, so a dense mesh\nneeds more steps.")
 	if last := app.ui.mask_last; last.set {
 		steps := fmt.tprintf(", %d steps", last.steps) if last.command >= .Blur else ""
 		outcome := "" if last.changed else ", nothing changed"
-		imgui.TextDisabled("%s", fmt.ctprintf("Last: %s%s in %.0f ms%s", MASK_COMMAND_NAMES[last.command], steps, last.ms, outcome))
+		name := MASK_COMMAND_NAMES[last.command]
+		if last.shape do name = "Unmask shape" if last.command == .Clear else "Mask shape"
+		imgui.TextDisabled("%s", fmt.ctprintf("Last: %s%s in %.0f ms%s", name, steps, last.ms, outcome))
 	}
 
 	draw_pen_section(app)

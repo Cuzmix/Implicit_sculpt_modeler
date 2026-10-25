@@ -1,5 +1,6 @@
 package sculpt
 
+import "core:math"
 import "core:math/linalg"
 import "core:slice"
 
@@ -105,8 +106,109 @@ sculptor_mask_command :: proc(s: ^Sculptor, command: Mask_Command, steps := 1) -
 	} else {
 		mask_steps(&job, steps)
 	}
+	return mask_commit(&job)
+}
+
+// Masks (or with `unmask`, unmasks) every vertex that falls inside `shape` on screen,
+// as ZBrush's mask rectangle and lasso do: `clip` takes the mesh's space to clip space,
+// and `shape` is a closed polygon in normalized device coordinates (x right, y up, -1
+// to 1). It reaches through the mesh: vertices behind others are masked too, as in
+// ZBrush. One undo step; returns true when it changed the mask. The polygon is drawn
+// into a coverage grid first, so the test per vertex is a lookup however many points
+// the lasso has.
+sculptor_mask_shape :: proc(s: ^Sculptor, clip: matrix[4, 4]f32, shape: [][2]f32, unmask: bool) -> bool {
+	_ = sculptor_stroke_end(s)
+	if len(shape) < 3 do return false
+	if s.mask == nil && unmask do return false
+	mask_ensure(s)
+	grid := coverage_make(shape)
+	if grid.cells == nil do return false
+	Shape_Job :: struct {
+		job:   Mask_Job,
+		clip:  matrix[4, 4]f32,
+		grid:  Coverage,
+		value: u8,
+	}
+	sj := Shape_Job {
+		job = {s = s, after = slice.clone(s.mask, context.temp_allocator), changes = make([]bool, len(s.nodes), context.temp_allocator)},
+		clip = clip,
+		grid = grid,
+		value = 0 if unmask else 255,
+	}
+	jobs.parallel_ranges(s.pool, len(s.nodes), &sj, proc(data: rawptr, lo, hi: int) {
+		sj := cast(^Shape_Job)data
+		s := sj.job.s
+		for id in lo ..< hi {
+			n := s.nodes[id]
+			for v in n.vert_first ..< n.vert_first + n.vert_count {
+				p := s.mesh.positions[v]
+				c := sj.clip * [4]f32{p.x, p.y, p.z, 1}
+				if c.w <= 1e-6 do continue
+				if !coverage_at(sj.grid, {c.x / c.w, c.y / c.w}) do continue
+				if sj.job.after[v] != sj.value {
+					sj.job.after[v] = sj.value
+					sj.job.changes[id] = true
+				}
+			}
+		}
+	}, NODE_GRAIN)
+	return mask_commit(&sj.job)
+}
+
+// Which cells of a grid over a polygon's bounds the polygon covers (even-odd), sampled
+// at each cell's centre, for sculptor_mask_shape.
+@(private = "file")
+Coverage :: struct {
+	lo, size: [2]f32, // the polygon's bounds
+	n:        int, // cells a side
+	cells:    []bool, // row by row from lo.y
+}
+
+@(private = "file")
+COVERAGE_CELLS :: 1024
+
+@(private = "file")
+coverage_make :: proc(shape: [][2]f32) -> (c: Coverage) {
+	lo, hi := shape[0], shape[0]
+	for p in shape do lo, hi = linalg.min(lo, p), linalg.max(hi, p)
+	if !(hi.x > lo.x && hi.y > lo.y) do return
+	c.lo, c.size, c.n = lo, hi - lo, COVERAGE_CELLS
+	c.cells = make([]bool, c.n * c.n, context.temp_allocator)
+	crossings := make([dynamic]f32, 0, 16, context.temp_allocator)
+	for row in 0 ..< c.n {
+		y := lo.y + (f32(row) + 0.5) / f32(c.n) * c.size.y
+		clear(&crossings)
+		for a, i in shape {
+			b := shape[(i + 1) % len(shape)]
+			// Each edge counts its lower end and not its upper, so a vertex on the row
+			// is crossed once.
+			if (a.y <= y) == (b.y <= y) do continue
+			append(&crossings, a.x + (y - a.y) / (b.y - a.y) * (b.x - a.x))
+		}
+		slice.sort(crossings[:])
+		for k := 0; k + 1 < len(crossings); k += 2 {
+			x0 := int(math.ceil((crossings[k] - lo.x) / c.size.x * f32(c.n) - 0.5))
+			x1 := int(math.floor((crossings[k + 1] - lo.x) / c.size.x * f32(c.n) - 0.5))
+			for x in max(x0, 0) ..= min(x1, c.n - 1) do c.cells[row * c.n + x] = true
+		}
+	}
+	return
+}
+
+@(private = "file")
+coverage_at :: #force_inline proc(c: Coverage, p: [2]f32) -> bool {
+	f := (p - c.lo) / c.size
+	if f.x < 0 || f.y < 0 || f.x >= 1 || f.y >= 1 do return false
+	return c.cells[int(f.y * f32(c.n)) * c.n + int(f.x * f32(c.n))]
+}
+
+// Makes job.after the mask as one undo step: saves and uploads only the nodes whose
+// mask it changes. Returns whether it changed any.
+@(private = "file")
+mask_commit :: proc(job: ^Mask_Job) -> bool {
+	s := job.s
 	// What a node ends with may match what it started with.
-	jobs.parallel_ranges(s.pool, len(s.nodes), &job, proc(data: rawptr, lo, hi: int) {
+	jobs.parallel_ranges(s.pool, len(s.nodes), job, proc(data: rawptr, lo, hi: int) {
 		job := cast(^Mask_Job)data
 		for id in lo ..< hi {
 			if !job.changes[id] do continue
@@ -124,7 +226,7 @@ sculptor_mask_command :: proc(s: ^Sculptor, command: Mask_Command, steps := 1) -
 		mark_stale(s, u32(id), .Paint)
 	}
 	job.work = changed[:]
-	jobs.parallel_for(s.pool, len(job.work), &job, proc(data: rawptr, i: int) {
+	jobs.parallel_for(s.pool, len(job.work), job, proc(data: rawptr, i: int) {
 		job := cast(^Mask_Job)data
 		n := job.s.nodes[job.work[i]]
 		copy(job.s.mask[n.vert_first:][:n.vert_count], job.after[n.vert_first:][:n.vert_count])
