@@ -9,16 +9,45 @@ Vec2 :: [2]f32
 Vec3 :: [3]f32
 Mat4 :: matrix[4, 4]f32
 
+// Where the camera is, as ZBrush keeps it: a target to turn about, how far the eye is
+// from it, and which way it looks as three angles. The view is built from the angles
+// alone, never by looking at the target with the world's up, so it stays steady over
+// the top and upside down: there is no pole for it to flip at.
 Orbit :: struct {
 	target:   Vec3,
 	distance: f32,
-	yaw:      f32, // radians around +Y
-	pitch:    f32, // radians, clamped short of the poles
+	yaw:      f32, // radians around the world's +Y
+	pitch:    f32, // radians above the horizon; past a quarter turn the view is upside down
+	roll:     f32, // radians around the view direction
 	fov_y:    f32, // radians
 	near:     f32,
 	far:      f32,
 	ortho:    bool, // parallel projection, as wide at the target as the perspective view
 }
+
+// How a drag turns the view (Settings > Navigation): ZBrush's two kinds of rotation.
+Orbit_Style :: enum u8 {
+	// ZBrush's Rot XYZ, its default: a drag turns the model about the screen's own axes,
+	// sideways about the screen's up and up and down about its right, so every view is
+	// one drag away and the view may end up rolled.
+	Free,
+	// ZBrush's Rot Y: sideways turns about the world's up axis, up and down tilts, so
+	// the horizon stays level. Round and round both ways without end, over the top too
+	// unless `limit_pitch` stops it at straight up and straight down.
+	Turntable,
+}
+
+// How the pointer turns the view.
+Orbit_Settings :: struct {
+	style:       Orbit_Style,
+	limit_pitch: bool, // a turntable stops just short of straight up and straight down
+	speed:       f32, // radians per pixel
+	invert_x:    bool, // dragging right turns the model left
+	invert_y:    bool, // dragging down tilts the model away
+}
+
+ORBIT_SPEED :: 0.008 // radians per pixel at 1x
+ORBIT_DEFAULT :: Orbit_Settings{style = .Free, speed = ORBIT_SPEED}
 
 PITCH_LIMIT :: math.PI / 2 - 0.01
 MIN_DISTANCE :: 0.05
@@ -28,24 +57,118 @@ orbit_default :: proc() -> Orbit {
 	return Orbit{distance = 3.5, yaw = 0.6, pitch = 0.35, fov_y = math.to_radians(f32(40)), near = 0.01, far = 100}
 }
 
-orbit_eye :: proc(c: Orbit) -> Vec3 {
-	cp, sp := math.cos(c.pitch), math.sin(c.pitch)
-	cy, sy := math.cos(c.yaw), math.sin(c.yaw)
-	return c.target + c.distance * Vec3{cp * sy, sp, cp * cy}
+// The camera's turn: the yaw about the world's Y, then the pitch about the camera's
+// right (negated, so a positive pitch looks down from above), then the roll about the
+// view direction. Its columns are the camera's right, up and back (from the target
+// toward the eye) in world space.
+orbit_rotation :: proc(c: Orbit) -> matrix[3, 3]f32 {
+	return linalg.matrix3_rotate(c.yaw, Vec3{0, 1, 0}) * linalg.matrix3_rotate(-c.pitch, Vec3{1, 0, 0}) * linalg.matrix3_rotate(c.roll, Vec3{0, 0, 1})
 }
 
-// Rotates around the target. Delta is in pixels; `speed` is radians per pixel.
-orbit_rotate :: proc(c: ^Orbit, delta: Vec2, speed: f32 = 0.008) {
-	c.yaw -= delta.x * speed
-	c.pitch = clamp(c.pitch + delta.y * speed, -PITCH_LIMIT, PITCH_LIMIT)
+// The camera's right, up and back (toward the viewer) directions in world space.
+orbit_basis :: proc(c: Orbit) -> (right, up, back: Vec3) {
+	m := orbit_rotation(c)
+	return {m[0, 0], m[1, 0], m[2, 0]}, {m[0, 1], m[1, 1], m[2, 1]}, {m[0, 2], m[1, 2], m[2, 2]}
+}
+
+orbit_eye :: proc(c: Orbit) -> Vec3 {
+	_, _, back := orbit_basis(c)
+	return c.target + c.distance * back
+}
+
+// Rotates around the target as `s` says; `delta` is how far the pointer moved, in
+// pixels. Dragging right turns the model right and dragging down tilts it toward the
+// viewer, for as many turns as the drag goes, either way. The angles stay within a turn
+// of zero, so a long session never wears their precision down, and wrapping them
+// changes nothing on screen.
+orbit_rotate :: proc(c: ^Orbit, delta: Vec2, s := ORBIT_DEFAULT) {
+	d := delta * s.speed
+	if s.invert_x do d.x = -d.x
+	if s.invert_y do d.y = -d.y
+	switch s.style {
+	case .Free:
+		// About the screen's up, then its right: turns made in the camera's own frame.
+		m := orbit_rotation(c^) * linalg.matrix3_rotate(-d.x, Vec3{0, 1, 0}) * linalg.matrix3_rotate(-d.y, Vec3{1, 0, 0})
+		orbit_set_rotation(c, m)
+	case .Turntable:
+		// Upside down, the world's up points down the screen, so a drag right would turn
+		// the model left: turn the other way to keep the model under the pointer.
+		_, up, _ := orbit_basis(c^)
+		c.yaw = wrap_angle(c.yaw + (d.x if up.y < 0 else -d.x))
+		if s.limit_pitch {
+			c.pitch = clamp(c.pitch + d.y, -PITCH_LIMIT, PITCH_LIMIT)
+		} else {
+			c.pitch = wrap_angle(c.pitch + d.y)
+		}
+	}
+}
+
+// Turns the view about the world's up axis by `angle` radians, as a turntable under the
+// model would: the time-lapse's spin and the benchmarks' orbit.
+orbit_spin :: proc(c: ^Orbit, angle: f32) {
+	c.yaw = wrap_angle(c.yaw + angle)
+}
+
+// Rolls the view about its own direction by `angle` radians: positive turns what is on
+// screen clockwise, as twisting two fingers clockwise does.
+orbit_roll :: proc(c: ^Orbit, angle: f32) {
+	c.roll = wrap_angle(c.roll + angle)
+}
+
+// Sets the camera's turn from a rotation matrix (columns right, up, back), as yaw, pitch
+// and roll. Looking straight up or down, where yaw and roll turn about one axis, roll is
+// 0 and yaw takes it all.
+orbit_set_rotation :: proc(c: ^Orbit, m: matrix[3, 3]f32) {
+	sp := clamp(m[1, 2], -1, 1)
+	c.pitch = math.asin(sp)
+	if math.sqrt(m[0, 2] * m[0, 2] + m[2, 2] * m[2, 2]) > 1e-5 {
+		c.yaw = math.atan2(m[0, 2], m[2, 2])
+		c.roll = math.atan2(m[1, 0], m[1, 1])
+	} else {
+		c.yaw = math.atan2(-m[2, 0], m[0, 0])
+		c.roll = 0
+	}
+}
+
+// Turns the view to the nearest of the 24 views square to the axes, as ZBrush does while
+// Shift is held during a rotation: front, side, top and so on, at a quarter turn of roll.
+orbit_snap :: proc(c: ^Orbit) {
+	_, up, back := orbit_basis(c^)
+	b := nearest_axis(back, -1)
+	u := nearest_axis(up, axis_of(b))
+	r := linalg.cross(u, b)
+	m := matrix[3, 3]f32{
+		r.x, u.x, b.x,
+		r.y, u.y, b.y,
+		r.z, u.z, b.z,
+	}
+	orbit_set_rotation(c, m)
+
+	axis_of :: proc(v: Vec3) -> int {
+		for k in 0 ..< 3 do if v[k] != 0 do return k
+		return 0
+	}
+	// The axis direction (+-X, +-Y or +-Z) closest to `v`, other than along `skip`.
+	nearest_axis :: proc(v: Vec3, skip: int) -> Vec3 {
+		best, at := f32(-1), 0
+		for k in 0 ..< 3 {
+			if k != skip && abs(v[k]) > best do best, at = abs(v[k]), k
+		}
+		out: Vec3
+		out[at] = 1 if v[at] >= 0 else -1
+		return out
+	}
+}
+
+// `a` moved by whole turns to within half a turn of zero.
+wrap_angle :: proc(a: f32) -> f32 {
+	return a - 2 * math.PI * math.floor((a + math.PI) / (2 * math.PI))
 }
 
 // Moves the target in the view plane so the point under the cursor follows it.
 orbit_pan :: proc(c: ^Orbit, delta: Vec2, viewport_height: f32) {
 	if viewport_height <= 0 do return
-	view := orbit_view(c^)
-	right := Vec3{view[0, 0], view[0, 1], view[0, 2]}
-	up := Vec3{view[1, 0], view[1, 1], view[1, 2]}
+	right, up, _ := orbit_basis(c^)
 	world_per_pixel := 2 * c.distance * math.tan(c.fov_y / 2) / viewport_height
 	c.target += (-delta.x * right + delta.y * up) * world_per_pixel
 }
@@ -62,6 +185,20 @@ orbit_zoom_by :: proc(c: ^Orbit, factor: f32) {
 	c.distance = clamp(c.distance / factor, MIN_DISTANCE, MAX_DISTANCE)
 }
 
+// Zooms `factor` times closer toward the point `offset` pixels from the viewport's
+// middle (x right, y down), keeping what is under it there, as pinching two fingers
+// zooms toward the place between them (ZBrush's Center Navigation on Pinch). Only the
+// target's plane is kept exactly; nearer and further points drift a little, as they do
+// in ZBrush.
+orbit_zoom_toward :: proc(c: ^Orbit, factor: f32, offset: Vec2, viewport_height: f32) {
+	if factor <= 0 || viewport_height <= 0 do return
+	before := c.distance
+	orbit_zoom_by(c, factor)
+	right, up, _ := orbit_basis(c^)
+	per_pixel_change := 2 * (before - c.distance) * math.tan(c.fov_y / 2) / viewport_height
+	c.target += (right * offset.x - up * offset.y) * per_pixel_change
+}
+
 // The turn a leaning pen gives the brush (the direction it pushes along): `tilt` is the
 // pen's lean in degrees, x to the right and y toward the bottom of the screen, as SDL
 // reports it, and `strength` how much of it the brush follows. The brush direction
@@ -72,9 +209,7 @@ orbit_zoom_by :: proc(c: ^Orbit, factor: f32) {
 orbit_tilt :: proc(c: Orbit, tilt: Vec2, strength: f32) -> matrix[3, 3]f32 {
 	angles := linalg.to_radians(tilt * strength)
 	if l := linalg.length(angles); l > MAX_TILT do angles *= MAX_TILT / l
-	view := orbit_view(c)
-	right := Vec3{view[0, 0], view[0, 1], view[0, 2]}
-	up := Vec3{view[1, 0], view[1, 1], view[1, 2]}
+	right, up, _ := orbit_basis(c)
 	// About up by +x turns the viewer's direction toward right; about right by +y
 	// turns it toward -up, the bottom of the screen.
 	return linalg.matrix3_rotate(angles.x, up) * linalg.matrix3_rotate(angles.y, right)
@@ -83,8 +218,16 @@ orbit_tilt :: proc(c: Orbit, tilt: Vec2, strength: f32) -> matrix[3, 3]f32 {
 // The most a pen's lean turns the brush, in radians.
 MAX_TILT :: math.PI / 2 * 0.9
 
+// The view matrix: rows are the camera's right, up and back, so it looks down -Z.
 orbit_view :: proc(c: Orbit) -> Mat4 {
-	return look_at(orbit_eye(c), c.target, {0, 1, 0})
+	right, up, back := orbit_basis(c)
+	eye := c.target + c.distance * back
+	return Mat4{
+		right.x, right.y, right.z, -linalg.dot(right, eye),
+		up.x, up.y, up.z, -linalg.dot(up, eye),
+		back.x, back.y, back.z, -linalg.dot(back, eye),
+		0, 0, 0, 1,
+	}
 }
 
 orbit_proj :: proc(c: Orbit, aspect: f32) -> Mat4 {
@@ -151,18 +294,20 @@ Axis_View :: enum {
 	Back,   // from -Z
 	Right,  // from +X
 	Left,   // from -X
-	Top,    // from +Y, as near straight down as the pitch limit allows
+	Top,    // from +Y, straight down, -Z at the top of the screen
 	Bottom, // from -Y
 }
 
-// Turns the camera to look at its target from along an axis, keeping target and distance.
+// Turns the camera to look at its target from along an axis, keeping target and
+// distance and levelling the roll.
 orbit_axis_view :: proc(c: ^Orbit, view: Axis_View) {
+	c.roll = 0
 	switch view {
 	case .Front:  c.yaw, c.pitch = 0, 0
 	case .Back:   c.yaw, c.pitch = math.PI, 0
 	case .Right:  c.yaw, c.pitch = math.PI / 2, 0
 	case .Left:   c.yaw, c.pitch = -math.PI / 2, 0
-	case .Top:    c.yaw, c.pitch = 0, PITCH_LIMIT
-	case .Bottom: c.yaw, c.pitch = 0, -PITCH_LIMIT
+	case .Top:    c.yaw, c.pitch = 0, math.PI / 2
+	case .Bottom: c.yaw, c.pitch = 0, -math.PI / 2
 	}
 }

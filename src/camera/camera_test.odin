@@ -30,11 +30,145 @@ depth_range_is_zero_to_one :: proc(t: ^testing.T) {
 }
 
 @(test)
-rotate_keeps_distance_and_clamps_pitch :: proc(t: ^testing.T) {
+rotate_keeps_distance_and_a_limited_turntable_stops_at_the_poles :: proc(t: ^testing.T) {
+	for style in Orbit_Style {
+		c := orbit_default()
+		orbit_rotate(&c, {120, 10000}, {style = style, speed = ORBIT_SPEED})
+		testing.expect(t, near_eq(linalg.length(orbit_eye(c) - c.target), c.distance), "eye left the orbit sphere")
+	}
 	c := orbit_default()
-	orbit_rotate(&c, {120, 10000})
-	testing.expect(t, c.pitch <= PITCH_LIMIT, "pitch not clamped")
-	testing.expect(t, near_eq(linalg.length(orbit_eye(c) - c.target), c.distance), "eye left the orbit sphere")
+	orbit_rotate(&c, {120, 10000}, {style = .Turntable, limit_pitch = true, speed = ORBIT_SPEED})
+	testing.expect_value(t, c.pitch, PITCH_LIMIT)
+}
+
+// Where the eye is after each of `steps` drags of `delta`, for checking a long orbit
+// moves smoothly: no step may move the eye further than one drag can.
+@(private = "file")
+orbit_path_is_smooth :: proc(t: ^testing.T, s: Orbit_Settings, delta: Vec2, steps: int) -> Orbit {
+	c := orbit_default()
+	step := linalg.length(delta) * s.speed * c.distance // the arc one drag moves the eye
+	prev_eye := orbit_eye(c)
+	_, prev_up, _ := orbit_basis(c)
+	for _ in 0 ..< steps {
+		orbit_rotate(&c, delta, s)
+		eye := orbit_eye(c)
+		_, up, _ := orbit_basis(c)
+		testing.expectf(t, linalg.length(eye - prev_eye) <= step * 1.01 + 1e-4, "%v %v: the eye jumped %v (one drag moves it %v)", s.style, delta, linalg.length(eye - prev_eye), step)
+		// The screen's up turns smoothly too: no flip at a pole or at the wrap.
+		testing.expectf(t, linalg.dot(up, prev_up) > math.cos(2 * linalg.length(delta) * s.speed) - 1e-4, "%v %v: the view flipped", s.style, delta)
+		testing.expect(t, abs(c.yaw) <= math.PI + 1e-5 && abs(c.pitch) <= math.PI + 1e-5 && abs(c.roll) <= math.PI + 1e-5, "angles left their turn")
+		prev_eye, prev_up = eye, up
+	}
+	return c
+}
+
+@(test)
+orbits_go_round_and_round_both_ways_without_jumps :: proc(t: ^testing.T) {
+	// 3 full turns of 80 drags of 10 pixels each, sideways and up and down, both ways,
+	// both styles; the speed (near the default's) makes a turn a whole number of drags.
+	per_turn := 80
+	speed := f32(2 * math.PI / f64(10 * per_turn))
+	for style in Orbit_Style {
+		s := Orbit_Settings{style = style, speed = speed}
+		for delta in ([4]Vec2{{10, 0}, {-10, 0}, {0, 10}, {0, -10}}) {
+			start := orbit_default()
+			c := orbit_path_is_smooth(t, s, delta, 3 * per_turn)
+			// Three whole turns come back to where they began, give or take the rounding
+			// of the turn into whole drags.
+			testing.expectf(t, linalg.length(orbit_eye(c) - orbit_eye(start)) < 0.05 * c.distance, "%v %v: did not come round (%v)", style, delta, orbit_eye(c))
+		}
+		// A diagonal drag never jumps either.
+		_ = orbit_path_is_smooth(t, s, {7, 7}, 2 * per_turn)
+	}
+}
+
+@(test)
+a_turntable_goes_over_the_top_keeping_the_model_under_the_pointer :: proc(t: ^testing.T) {
+	s := Orbit_Settings{style = .Turntable, speed = ORBIT_SPEED}
+	c := orbit_default()
+	c.yaw, c.pitch = 0, 0
+	// Over the top: pitch past a quarter turn looks from behind, upside down.
+	orbit_rotate(&c, {0, 0.75 * math.PI / ORBIT_SPEED}, s)
+	_, up, back := orbit_basis(c)
+	testing.expect(t, up.y < 0 && back.z < 0, "not upside down behind the model")
+	// Upside down, a drag right still moves the side facing the viewer right: the point
+	// in front of the target goes right on screen.
+	q := c.target + linalg.normalize(Vec3{back.x, 0, back.z}) * 0.5
+	before := project(orbit_proj(c, 1) * orbit_view(c), q)
+	orbit_rotate(&c, {20, 0}, s)
+	after := project(orbit_proj(c, 1) * orbit_view(c), q)
+	testing.expect(t, after.x > before.x, "upside down, a drag right turned the model left")
+}
+
+@(test)
+free_rotation_turns_about_the_screens_axes :: proc(t: ^testing.T) {
+	s := Orbit_Settings{style = .Free, speed = ORBIT_SPEED}
+	c := orbit_default()
+	c.yaw, c.pitch, c.roll = 0.3, 0.4, 0.5
+	_, up, back := orbit_basis(c)
+	// A sideways drag turns about the screen's up: up stays put.
+	orbit_rotate(&c, {50, 0}, s)
+	r2, u2, b2 := orbit_basis(c)
+	testing.expect(t, linalg.dot(u2, up) > 0.9999, "a sideways drag moved the screen's up")
+	testing.expect(t, linalg.dot(b2, back) < 0.99, "a sideways drag did not turn")
+	// An up and down drag turns about the screen's right: right stays put.
+	orbit_rotate(&c, {0, 50}, s)
+	r3, _, _ := orbit_basis(c)
+	testing.expect(t, linalg.dot(r3, r2) > 0.9999, "an up and down drag moved the screen's right")
+	// The angles rebuild the same turn they were set from.
+	m := orbit_rotation(c)
+	d := c
+	orbit_set_rotation(&d, m)
+	m2 := orbit_rotation(d)
+	for i in 0 ..< 3 do for j in 0 ..< 3 do testing.expect(t, near_eq(m[i, j], m2[i, j]), "angles do not round trip")
+	// Straight down, where yaw and roll are one turn, they still do.
+	d.yaw, d.pitch, d.roll = 0.7, math.PI / 2, 0.2
+	m = orbit_rotation(d)
+	orbit_set_rotation(&d, m)
+	m2 = orbit_rotation(d)
+	for i in 0 ..< 3 do for j in 0 ..< 3 do testing.expect(t, near_eq(m[i, j], m2[i, j], 1e-3), "angles do not round trip at the pole")
+}
+
+@(test)
+snap_turns_to_the_nearest_square_view :: proc(t: ^testing.T) {
+	c := orbit_default()
+	c.yaw, c.pitch, c.roll = 0.2, 0.3, -0.25
+	orbit_snap(&c)
+	right, up, back := orbit_basis(c)
+	testing.expect(t, near_eq(back.z, 1) && near_eq(up.y, 1) && near_eq(right.x, 1), "did not snap to the front view")
+	c.yaw, c.pitch, c.roll = math.PI / 2 + 0.3, 1.2, 0
+	orbit_snap(&c)
+	_, up, back = orbit_basis(c)
+	testing.expect(t, near_eq(back.y, 1), "did not snap to the top view")
+	testing.expect(t, near_eq(abs(up.x) + abs(up.z), 1), "the top view's up is not along an axis")
+}
+
+@(test)
+roll_turns_the_screen_clockwise :: proc(t: ^testing.T) {
+	c := orbit_default()
+	right, _, _ := orbit_basis(c)
+	p := c.target + right * 0.5 // right of the middle on screen
+	before := project(orbit_proj(c, 1) * orbit_view(c), p)
+	orbit_roll(&c, 0.3)
+	after := project(orbit_proj(c, 1) * orbit_view(c), p)
+	// Clockwise on screen: a point right of the middle goes down (NDC y is up).
+	testing.expect(t, after.y < before.y - 0.01, "roll did not turn the screen clockwise")
+	testing.expect(t, near_eq(linalg.length(orbit_eye(c) - c.target), c.distance), "roll moved the eye")
+}
+
+@(test)
+zoom_toward_keeps_the_point_between_the_fingers :: proc(t: ^testing.T) {
+	c := orbit_default()
+	height: f32 = 800
+	right, up, _ := orbit_basis(c)
+	offset := Vec2{200, -100} // right of and above the middle, in pixels
+	wpp := 2 * c.distance * math.tan(c.fov_y / 2) / height
+	p := c.target + (right * offset.x - up * offset.y) * wpp // on the target's plane
+	before := project(orbit_proj(c, 1) * orbit_view(c), p)
+	orbit_zoom_toward(&c, 2, offset, height)
+	after := project(orbit_proj(c, 1) * orbit_view(c), p)
+	testing.expect(t, near_eq(before.x, after.x, 1e-4) && near_eq(before.y, after.y, 1e-4), "the point under the fingers moved")
+	testing.expect(t, near_eq(c.distance, orbit_default().distance / 2), "did not zoom")
 }
 
 @(test)

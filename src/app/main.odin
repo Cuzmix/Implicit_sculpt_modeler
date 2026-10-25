@@ -23,7 +23,9 @@ import "../ui"
 
 Options :: struct {
 	frames:    int `usage:"Exit after this many frames (0 runs until the window closes)."`,
-	no_settings: bool `usage:"Neither read nor write the remembered settings (brush, view, Scene tab choices); runs with --frames or a benchmark never do."`,
+	no_settings: bool `usage:"Neither read nor write the remembered settings (brush, view, Scene tab choices, the Settings panel); runs with --frames or a benchmark never do."`,
+	settings_file: string `usage:"Read and write the remembered settings at this path instead of the per-user folder, scripted runs included (for testing that settings persist)."`,
+	orbit_style: string `usage:"Start with this orbit style: free (ZBrush's Rot XYZ) or turntable (Rot Y), as Settings > Camera does."`,
 	gpu_debug: bool `usage:"Create the GPU device in debug mode (enables validation where available)."`,
 	subdiv:    int `usage:"Icosphere subdivision level (default 6)."`,
 	vertices:  int `usage:"Start with a geodesic sphere of about this many vertices instead (e.g. 10000000)."`,
@@ -40,8 +42,8 @@ Options :: struct {
 	no_cache:  bool `usage:"Draw every object every frame instead of caching the idle ones (for comparison)."`,
 	no_cull:   bool `usage:"Draw every triangle instead of skipping off-screen and back-facing chunks (for comparison)."`,
 	reduce_motion: bool `usage:"Start with the interface's animations off, as Menu > Reduce motion does."`,
-	finger_sculpt: bool `usage:"Start with one finger on a touch screen sculpting instead of turning the view, as Menu > Finger sculpts does."`,
-	ui_events: string `usage:"Drive the interface's pointer, for tests: FRAME:move:X,Y, FRAME:down, FRAME:up, FRAME:right (a right click) or FRAME:wheel:N, separated by semicolons; X and Y in window points."`,
+	finger_orbits: bool `usage:"Start with one finger on the model turning the view instead of sculpting, as Settings > Touch and pen > One finger on the model does."`,
+	ui_events: string `usage:"Drive the pointer, fingers and pen as SDL events would, for tests: FRAME:move:X,Y, FRAME:down, FRAME:up, FRAME:right (a right click), FRAME:wheel:N, FRAME:key:NAME (a key press: shift, ctrl, alt held until FRAME:keyup:NAME), FRAME:fdown:ID:X,Y, FRAME:fmove:ID:X,Y, FRAME:fup:ID and FRAME:fcancel:ID (finger ID on a touch screen), FRAME:pdown:X,Y, FRAME:pmove:X,Y, FRAME:pup and FRAME:pnear / FRAME:pfar (the pen), separated by semicolons; X and Y in window points."`,
 	dump_screen: string `usage:"On exit, write the whole window as the interface drew it (viewport and panels) to this path: a PNG, or a binary PPM when it ends in .ppm."`,
 	dump_viewport: string `usage:"On exit, write the last viewport image to this path: a PNG, or a binary PPM when it ends in .ppm (for checking renders), as Menu > Save screenshot does."`,
 	check_mesh: bool `usage:"On exit, check every object's current mesh (closed, consistently wound, no degenerate triangles or NaN) and print the counts as mesh_* lines (slow on large meshes)."`,
@@ -144,7 +146,10 @@ App :: struct {
 	pen_pressure: f32, // the pen's latest pressure
 	pen_tilt: [2]f32, // the pen's latest lean in degrees, x to the right and y down
 	pen_seen: bool,
-	touch:    Touch, // fingers on a touch screen (touch.odin)
+	touch:    Touch, // fingers and the pen on a touch screen (touch.odin)
+	drag:     Drag, // who the press on the viewport belongs to (navigate.odin)
+	settings_file: string, // where the settings are remembered, "" when this run does not
+	nav:      Nav_Prefs, // how the pointer, fingers and pen navigate (Settings)
 	device:   Device, // this frame's keys and pointer (device.odin)
 	kit:      Kit_State,
 	kit_drew: bool, // the last frame drew the interface...
@@ -267,6 +272,7 @@ run :: proc(opts: Options) -> bool {
 	app.replay.instant = opts.instant_replay
 	app.replay.recording = opts.record_strokes
 	defer delete(app.samples)
+	defer delete(app.drag.held)
 	defer delete(app.stroke.pending)
 	defer mask_shape_destroy(&app.mask_shape)
 	defer clip_gesture_destroy(&app.clip)
@@ -421,14 +427,25 @@ run :: proc(opts: Options) -> bool {
 	app.curve, app.insert = CURVE_DEFAULTS, INSERT_DEFAULTS
 	app.brush = {kind = .Draw, radius_px = 60, pressure_strength = true, pressure_curve = geom.CURVE_LINEAR, detail_px = 10, collapse = true, alpha = -1, color = {0.75, 0.2, 0.15}}
 	for &s in app.brush.strengths do s = 0.5
+	app.nav = NAV_DEFAULT
 	// What earlier interactive runs left, before the flags, which win over it.
-	remember := opts.frames == 0 && opts.gpubench == "" && opts.bench_stroke == 0 && !opts.no_settings
-	settings := settings_path() if remember else ""
+	remember := (opts.frames == 0 && opts.gpubench == "" && opts.bench_stroke == 0 && !opts.no_settings) || opts.settings_file != ""
+	settings := (opts.settings_file if opts.settings_file != "" else settings_path()) if remember else ""
 	if remember do settings = strings.clone(settings)
 	defer delete(settings)
 	settings_load(&app, settings)
+	app.settings_file = settings
 	if opts.reduce_motion do app.kit.ctx.reduced_motion = true
-	if opts.finger_sculpt do app.touch.finger_sculpt = true
+	if opts.finger_orbits do app.nav.finger_model = .Orbit
+	switch opts.orbit_style {
+	case "":
+	case "free":      app.nav.orbit_style = .Free
+	case "turntable": app.nav.orbit_style = .Turntable
+	case:
+		log.errorf("--orbit-style is free or turntable, not %q", opts.orbit_style)
+		return false
+	}
+	if opts.no_vsync do app.vsync = false
 	app.ui.smooth_on_gpu = opts.gpu_smooth
 	if opts.smooth_all > 0 do smooth_command(&app, opts.smooth_all)
 	if opts.paint_color != "" {
@@ -678,6 +695,7 @@ run :: proc(opts: Options) -> bool {
 		// pressure arrives separately as an axis event.
 		clear(&app.samples)
 		device_frame_begin(&app.device)
+		kit_events_push(&app, window)
 		e: sdl.Event
 		for sdl.PollEvent(&e) {
 			// Space over the viewport is the brush pie's (pie.odin) rather than a key of the
@@ -692,10 +710,13 @@ run :: proc(opts: Options) -> bool {
 				}
 			}
 			device_event(&app.device, &e)
-			touch_event(&app.touch, &e, window)
+			touch_event(&app, &e, window)
 			#partial switch e.type {
 			case .QUIT, .WINDOW_CLOSE_REQUESTED:
 				app.running = false
+			case .DID_ENTER_BACKGROUND:
+				// The system may end the app from the background without another word.
+				if app.settings_file != "" do _ = settings_save(&app, app.settings_file)
 			case .MOUSE_MOTION:
 				pen := e.motion.which == sdl.PEN_MOUSEID
 				append(&app.samples, Input_Sample{{e.motion.x, e.motion.y}, app.pen_pressure if pen else 1, .Move, app.pen_tilt if pen else {}})
@@ -726,7 +747,6 @@ run :: proc(opts: Options) -> bool {
 		ui_start := time.tick_now()
 		input := kit_frame(&app, window)
 		ring_push(&app.stats.ui_ms, time.duration_milliseconds(time.tick_since(ui_start)))
-		touch_apply(&app, &input)
 		if opts.bench_stroke > 0 && frame_index < opts.bench_stroke {
 			input = bench_input(&app, frame_index, opts.bench_stroke, opts.bench_samples, opts.bench_loops, {opts.bench_tilt, 0}, {f32(app.target.width), f32(app.target.height)})
 			// A lifted frame ends the stroke; the next frame presses again.
@@ -738,8 +758,8 @@ run :: proc(opts: Options) -> bool {
 			input = gpubench_input(&app, &bench, {f32(app.target.width), f32(app.target.height)})
 			app.device.input_at = sdl.GetTicksNS()
 		}
-		camera_apply_input(&app.camera, input)
-		if opts.orbit do app.camera.yaw += 2 * math.PI / 240
+		camera_apply_input(&app, input)
+		if opts.orbit do camera.orbit_spin(&app.camera, 2 * math.PI / 240)
 		sculpted: Sculpt_Frame_Result
 		switch app.tool {
 		case .Brush:
@@ -990,6 +1010,12 @@ run :: proc(opts: Options) -> bool {
 	vertices: int
 	for obj in app.scene.objects do vertices += object_vertex_count(obj)
 	fmt.printfln("frames=%d dabs=%d objects=%d vertices=%d", frame_index, app.stats.dabs_total, len(app.scene.objects), vertices)
+	{
+		c := app.camera
+		fmt.printfln("camera_yaw=%.4f camera_pitch=%.4f camera_roll=%.4f camera_distance=%.4f camera_target=%.4f,%.4f,%.4f", c.yaw, c.pitch, c.roll, c.distance, c.target.x, c.target.y, c.target.z)
+		fmt.printfln("undo_steps=%d redo_steps=%d brush_radius_px=%.2f brush_strength=%.3f selected=%d", len(app.history.done), len(app.history.undone), app.brush.radius_px, brush_strength(&app)^, app.scene.selected)
+		fmt.printfln("inspector_scroll=%.1f settings_scroll=%.1f settings_open=%d", app.kit.scroll, app.kit.settings_scroll, int(app.kit.settings))
+	}
 	if opts.check_mesh {
 		for obj in app.scene.objects {
 			if !object_dynamic(obj) {
@@ -1097,22 +1123,6 @@ view_changed :: proc(app: ^App, view, proj: render.Mat4) -> bool {
 	changed := h != app.view_key
 	app.view_key = h
 	return changed
-}
-
-camera_apply_input :: proc(c: ^camera.Orbit, in_: Viewport_Input) {
-	if !in_.hovered && !in_.dragging do return
-	if in_.primary do return
-	switch {
-	case in_.orbit_drag:
-		camera.orbit_rotate(c, in_.mouse_delta)
-	case in_.pan_drag:
-		camera.orbit_pan(c, in_.mouse_delta, in_.size.y)
-	}
-	if in_.hovered && in_.wheel != 0 {
-		camera.orbit_zoom(c, in_.wheel)
-	}
-	if in_.touch_pan != {} do camera.orbit_pan(c, in_.touch_pan, in_.size.y)
-	if in_.touch_zoom > 0 do camera.orbit_zoom_by(c, in_.touch_zoom)
 }
 
 // Writes RGBA8 pixels as a binary PPM (alpha dropped).

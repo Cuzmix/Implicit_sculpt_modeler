@@ -4,7 +4,7 @@ import "core:log"
 import sdl "vendor:sdl3"
 
 // What differs when the app runs as an Android app (android/ holds the Gradle project
-// that packages it). Everything here is a no-op on the desktop.
+// that packages it), and the SDL hints every platform shares.
 
 // On Android standard output goes nowhere, so log lines go through SDL_Log, which
 // writes them to logcat (`adb logcat -s SDL/APP`). Elsewhere the console logger.
@@ -39,6 +39,15 @@ logcat_logger_proc :: proc(data: rawptr, level: log.Level, text: string, options
 
 // Hints that must be set before SDL_Init.
 platform_hints :: proc() {
+	// Fingers reach the pointer through touch.odin, which keeps the touch's first finger as
+	// the pointer and never counts it landing somewhere new as a drag; SDL's own turning
+	// of fingers into the mouse does neither.
+	_ = sdl.SetHint(sdl.HINT_TOUCH_MOUSE_EVENTS, "0")
+	// Nor the other way round: the pen and (on Android, by default) the mouse also come as
+	// stand-in fingers, which would join a real finger's touch as a second finger and
+	// pinch the view mid-stroke. The pen arrives as the pen and as the mouse (Pen kind).
+	_ = sdl.SetHint(sdl.HINT_PEN_TOUCH_EVENTS, "0")
+	_ = sdl.SetHint(sdl.HINT_MOUSE_TOUCH_EVENTS, "0")
 	when ODIN_PLATFORM_SUBTARGET == .Android {
 		// Back closes the open menu instead of leaving the app, which would drop unsaved
 		// work without asking (the store rules); the home gesture still leaves.

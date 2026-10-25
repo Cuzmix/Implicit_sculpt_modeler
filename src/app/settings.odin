@@ -7,11 +7,12 @@ import "core:strconv"
 import "core:strings"
 import sdl "vendor:sdl3"
 
+import "../camera"
 import "../geom"
 import "../sculpt"
 
 // What the app remembers between interactive runs: the brush settings, how the
-// viewport looks and the Scene tab's choices, in a text file of `key values...`
+// viewport looks, the Scene tab's choices and the Settings panel's, in a text file of `key values...`
 // lines in SDL's per-user folder. Runs with --frames, a benchmark or --no-settings
 // neither read nor write it, so scripted runs stay reproducible. Flags given on the
 // command line win over what it holds. Unknown or malformed lines are skipped, so an
@@ -91,8 +92,36 @@ settings_load :: proc(app: ^App, path: string) {
 		case "wireframe":  app.wireframe = f[1] == "1"
 		case "flat":       app.flat = f[1] == "1"
 		case "reduce_motion": app.kit.ctx.reduced_motion = f[1] == "1"
-		case "finger_sculpt": app.touch.finger_sculpt = f[1] == "1"
 		case "ortho":      app.camera.ortho = f[1] == "1"
+		// Settings > Interface, Camera, Touch and Performance.
+		case "ui_scale":
+			want := number(f[1], 1)
+			for s in UI_SCALES do if abs(s - want) < 0.01 do app.kit.ui_scale = s
+		case "stats":          app.kit.stats = f[1] == "1"
+		case "stats_advanced": app.kit.stats_advanced = f[1] == "1"
+		case "vsync":          app.vsync = f[1] == "1"
+		case "orbit_style":
+			for style in camera.Orbit_Style do if strings.equal_fold(f[1], fmt.tprint(style)) do app.nav.orbit_style = style
+		case "limit_pitch":    app.nav.limit_pitch = f[1] == "1"
+		case "orbit_speed":    app.nav.orbit_speed = clamp(number(f[1], 1), 0.25, 4)
+		case "pan_speed":      app.nav.pan_speed = clamp(number(f[1], 1), 0.25, 4)
+		case "zoom_speed":     app.nav.zoom_speed = clamp(number(f[1], 1), 0.25, 4)
+		case "invert_x":       app.nav.invert_x = f[1] == "1"
+		case "invert_y":       app.nav.invert_y = f[1] == "1"
+		case "invert_wheel":   app.nav.invert_wheel = f[1] == "1"
+		case "finger_model":
+			for m in Finger_Model do if strings.equal_fold(f[1], fmt.tprint(m)) do app.nav.finger_model = m
+		case "pen_empty":
+			for m in Empty_Drag do if strings.equal_fold(f[1], fmt.tprint(m)) do app.nav.empty_drag[.Pen] = m
+		case "mouse_empty":
+			for m in Empty_Drag do if strings.equal_fold(f[1], fmt.tprint(m)) do app.nav.empty_drag[.Mouse] = m
+		case "pinch_zoom":     app.nav.pinch_zoom = f[1] == "1"
+		case "zoom_toward":    app.nav.zoom_toward = f[1] == "1"
+		case "two_finger_pan": app.nav.two_finger_pan = f[1] == "1"
+		case "twist_roll":     app.nav.twist_roll = f[1] == "1"
+		case "three_finger":   app.nav.three_finger = f[1] == "1"
+		case "tap_history":    app.nav.tap_history = f[1] == "1"
+		case "palm_rejection": app.nav.palm_rejection = f[1] == "1"
 		case "new_vertices":
 			// The size an object is added and remeshed at: the nearest of the presets.
 			want := number(f[1], -1)
@@ -170,8 +199,30 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 	fmt.sbprintfln(&out, "wireframe %d", bit(app.wireframe))
 	fmt.sbprintfln(&out, "flat %d", bit(app.flat))
 	fmt.sbprintfln(&out, "reduce_motion %d", bit(app.kit.ctx.reduced_motion))
-	fmt.sbprintfln(&out, "finger_sculpt %d", bit(app.touch.finger_sculpt))
 	fmt.sbprintfln(&out, "ortho %d", bit(app.camera.ortho))
+	k, n := app.kit, app.nav
+	fmt.sbprintfln(&out, "ui_scale %g", k.ui_scale)
+	fmt.sbprintfln(&out, "stats %d", bit(k.stats))
+	fmt.sbprintfln(&out, "stats_advanced %d", bit(k.stats_advanced))
+	fmt.sbprintfln(&out, "vsync %d", bit(app.vsync))
+	fmt.sbprintfln(&out, "orbit_style %v", n.orbit_style)
+	fmt.sbprintfln(&out, "limit_pitch %d", bit(n.limit_pitch))
+	fmt.sbprintfln(&out, "orbit_speed %g", n.orbit_speed)
+	fmt.sbprintfln(&out, "pan_speed %g", n.pan_speed)
+	fmt.sbprintfln(&out, "zoom_speed %g", n.zoom_speed)
+	fmt.sbprintfln(&out, "invert_x %d", bit(n.invert_x))
+	fmt.sbprintfln(&out, "invert_y %d", bit(n.invert_y))
+	fmt.sbprintfln(&out, "invert_wheel %d", bit(n.invert_wheel))
+	fmt.sbprintfln(&out, "finger_model %v", n.finger_model)
+	fmt.sbprintfln(&out, "pen_empty %v", n.empty_drag[.Pen])
+	fmt.sbprintfln(&out, "mouse_empty %v", n.empty_drag[.Mouse])
+	fmt.sbprintfln(&out, "pinch_zoom %d", bit(n.pinch_zoom))
+	fmt.sbprintfln(&out, "zoom_toward %d", bit(n.zoom_toward))
+	fmt.sbprintfln(&out, "two_finger_pan %d", bit(n.two_finger_pan))
+	fmt.sbprintfln(&out, "twist_roll %d", bit(n.twist_roll))
+	fmt.sbprintfln(&out, "three_finger %d", bit(n.three_finger))
+	fmt.sbprintfln(&out, "tap_history %d", bit(n.tap_history))
+	fmt.sbprintfln(&out, "palm_rejection %d", bit(n.palm_rejection))
 	fmt.sbprintfln(&out, "new_vertices %d", SPHERE_PRESETS[app.kit.add_size].vertices)
 	fmt.sbprintfln(&out, "new_shape %v", app.kit.add_shape)
 	fmt.sbprintfln(&out, "mask_steps %d", app.ui.mask_steps)

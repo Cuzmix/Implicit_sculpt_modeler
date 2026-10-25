@@ -25,6 +25,16 @@ Button :: enum u8 {
 }
 Buttons :: bit_set[Button]
 
+// What is pointing. A mouse is precise and has a wheel, so a press on a control is the
+// control's at once; a finger or a pen pressing a control in a drag-scrolled area may
+// mean to scroll it instead, which the first few points of movement decide
+// (scroll_update, claim_drag).
+Pointer_Kind :: enum u8 {
+	Mouse,
+	Finger,
+	Pen,
+}
+
 // One frame of input, in window points, which the app fills from its events. A touch
 // or a pen in contact counts as the left button.
 Input :: struct {
@@ -48,6 +58,10 @@ Input :: struct {
 	text:          string,
 	backspace:     int,
 	text_end:      bool,
+	pointer:       Pointer_Kind, // what pressed or moved the pointer last
+	// The system took the pointer back (a palm was recognised, the app lost the touch):
+	// what is held lets go this frame without a click.
+	cancel:        bool,
 }
 
 Id :: u64
@@ -85,6 +99,9 @@ Box :: struct {
 	clip:       bool, // hide what is laid out past its edges (a section opening)
 	inert:      bool, // drawn but not answering the pointer (a popover closing)
 	scroll:     f32, // how far its content is moved up (with clip, a scrolling panel)
+	// A panel a finger or a pen scrolls by dragging anywhere in it, its controls included
+	// (scroll_update): a control pressed in it waits to see which way the drag goes.
+	drag_scroll: bool,
 }
 
 @(private)
@@ -100,6 +117,9 @@ Container :: struct {
 	root:        Id, // the anchored container it is in, for hit tests
 	first_child: bool,
 	placed_size: [2]f32, // the size its parent made room for
+	// For an anchored container: how far its widgets' hit areas reach past its edges,
+	// so a press there is the widget's rather than the viewport's. Empty for none.
+	hit:         Rect,
 	clip_prev:   Rect, // the clip rectangle to put back when it ends
 	// A highlight that slides to wherever a child asks (the chosen tab, the held brush),
 	// drawn under the children.
@@ -121,6 +141,9 @@ Placed :: struct {
 	rect:    Rect,
 	natural: [2]f32, // the size of its content, which a fixed size may cut short
 	root:    bool, // an anchored container, which hit tests run against
+	// Where it answers the pointer: its rectangle and, for an anchored container, every
+	// hit area its widgets reach outside it (a 48 point target round a 36 point button).
+	hit:     Rect,
 }
 
 // A short message at the bottom of the window that goes by itself.
@@ -169,6 +192,16 @@ Context :: struct {
 	path:           [dynamic][2]f32, // scratch for shapes
 	press_mouse:    [2]f32, // where the held widget was pressed
 	press_value:    f32, // a held slider's value when it was pressed
+	// The gesture arena of a press on a control in a drag-scrolled area: the area the
+	// press is in (0 for none), whether the control won the drag (always, for a mouse or
+	// outside such an area) and where the pointer was when it did.
+	press_host:     Id,
+	press_won:      bool,
+	won_mouse:      [2]f32,
+	// The drag-scrolled area a drag is scrolling now, which puts its scroll at
+	// scroll_from less the pointer's height.
+	scrolling:      Id,
+	scroll_from:    f32,
 	id_seed:        Id,
 
 	time:           f64, // seconds of input dt so far: the clock every tween runs on
@@ -275,7 +308,7 @@ frame_begin :: proc(ctx: ^Context, input: Input) {
 	if input.mouse_valid {
 		// The last one drawn is on top.
 		#reverse for p in ctx.placed_prev {
-			if p.root && p.id != INERT_ROOT && rect_contains(p.rect, input.mouse) {
+			if p.root && p.id != INERT_ROOT && rect_contains(p.hit, input.mouse) {
 				ctx.pointer_root = p.id
 				break
 			}
@@ -294,11 +327,13 @@ frame_end :: proc(ctx: ^Context) -> ^Draw_List {
 	select_list_draw(ctx)
 	toasts_draw(ctx)
 	tooltip_draw(ctx)
-	if ctx.active != 0 && (!ctx.active_seen || ctx.input.down == {}) do ctx.active = 0
+	if ctx.active != 0 && (!ctx.active_seen || ctx.input.down == {} || ctx.input.cancel) do ctx.active = 0
+	if ctx.scrolling != 0 && ctx.active != ctx.scrolling do ctx.scrolling = 0
 	if !ctx.text_seen do ctx.text_focus = 0
 	if ctx.input.down == {} {
 		ctx.viewport_drag = false
 		ctx.swallow = false
+		ctx.press_host = 0
 	}
 	return &ctx.draw
 }
@@ -392,6 +427,16 @@ prev_layout :: proc(ctx: ^Context, name: string) -> (size, natural: [2]f32) {
 	return
 }
 
+// Where `name` (a container in the current one, or anchored) was last frame; empty the
+// first frame.
+prev_rect :: proc(ctx: ^Context, name: string) -> Rect {
+	id := id_of(ctx, name)
+	for p in ctx.placed_prev {
+		if p.id == id do return p.rect
+	}
+	return {}
+}
+
 // Opens a container inside the current one, laid out like a widget. Close it with end.
 begin :: proc(ctx: ^Context, name: string, box: Box) {
 	id := id_of(ctx, name)
@@ -445,7 +490,9 @@ end :: proc(ctx: ^Context) {
 		}
 		draw_move_under(&ctx.draw, c.index_mark, c.cmd_mark, from)
 	}
-	append(&ctx.placed, Placed{c.id, c.rect, natural, c.root == c.id})
+	hit := c.rect
+	if c.root == c.id && c.hit.w > 0 && c.hit.h > 0 do hit = rect_union(hit, c.hit)
+	append(&ctx.placed, Placed{c.id, c.rect, natural, c.root == c.id, hit})
 	// The parent placed it at last frame's size; move the parent on by the difference.
 	if n := len(ctx.stack); n > 0 && c.root != c.id {
 		p := &ctx.stack[n - 1]
@@ -535,6 +582,13 @@ indicator :: proc(ctx: ^Context, r: Rect, radius: f32, color: Color) {
 	if n := len(ctx.stack); n > 0 do ctx.stack[n - 1].indicator = Indicator{r, radius, color}
 }
 
+// The smallest rectangle holding both.
+rect_union :: proc(a, b: Rect) -> Rect {
+	x0, y0 := min(a.x, b.x), min(a.y, b.y)
+	x1, y1 := max(a.x + a.w, b.x + b.w), max(a.y + a.h, b.y + b.h)
+	return {x0, y0, x1 - x0, y1 - y0}
+}
+
 rect_intersect :: proc(a, b: Rect) -> Rect {
 	x0, y0 := max(a.x, b.x), max(a.y, b.y)
 	x1, y1 := min(a.x + a.w, b.x + b.w), min(a.y + a.h, b.y + b.h)
@@ -578,6 +632,7 @@ interact :: proc(ctx: ^Context, id: Id, r: Rect) -> (hovered, held, clicked, pre
 	d := px(ctx)
 	inside_clip := rect_contains(ctx.clip, in_input.mouse * d)
 	over := in_input.mouse_valid && !ctx.viewport_drag && !ctx.swallow && root == ctx.pointer_root && rect_contains(r, in_input.mouse) && inside_clip
+	hit_extend(ctx, r)
 	// Hit areas may overlap a little (each is at least a touch target, larger than what
 	// is drawn); the first widget laid out under the pointer takes it.
 	if over && (ctx.active == 0 || ctx.active == id) && (ctx.hot == 0 || ctx.hot == id) do ctx.hot = id
@@ -585,17 +640,113 @@ interact :: proc(ctx: ^Context, id: Id, r: Rect) -> (hovered, held, clicked, pre
 		ctx.active = id
 		ctx.press_mouse = in_input.mouse
 		pressed = true
+		// The innermost drag-scrolled area the press is in decides with the control which
+		// of them the drag is for; a mouse's press is the control's at once.
+		ctx.press_host = 0
+		#reverse for c in ctx.stack {
+			if c.box.drag_scroll {
+				ctx.press_host = c.id
+				break
+			}
+		}
+		ctx.press_won = in_input.pointer == .Mouse || ctx.press_host == 0
+		ctx.won_mouse = in_input.mouse
 	}
 	if ctx.active == id {
 		ctx.active_seen = true
-		held = .Left in in_input.down
-		if .Left in in_input.released {
-			clicked = over
+		held = .Left in in_input.down && !in_input.cancel
+		if .Left in in_input.released || in_input.cancel {
+			// A cancelled press lets go without doing what it would have done.
+			clicked = over && !in_input.cancel
 			held = false
 		}
 	}
 	hovered = ctx.hot == id
 	return
+}
+
+// Grows the anchored container being laid out to hold the hit area `r`, as far as the
+// current clip shows it: a widget clipped out of a scrolling panel takes no press.
+@(private)
+hit_extend :: proc(ctx: ^Context, r: Rect) {
+	d := px(ctx)
+	clip := Rect{ctx.clip.x / d, ctx.clip.y / d, ctx.clip.w / d, ctx.clip.h / d}
+	shown := rect_intersect(r, clip)
+	if shown.w <= 0 || shown.h <= 0 do return
+	#reverse for &c in ctx.stack {
+		if c.root == INERT_ROOT do return
+		if c.root != c.id do continue
+		c.hit = shown if c.hit.w <= 0 || c.hit.h <= 0 else rect_union(c.hit, shown)
+		return
+	}
+}
+
+// Whether the held widget may act on how the pointer moved: at once for a mouse or
+// outside a drag-scrolled area, and for a finger or a pen in one only once the widget
+// has won the drag, so a drag meant to scroll the panel never moves a slider on its way.
+// It wins when the pointer has gone further than the theme's slop along `axis` (0 across,
+// 1 down) and at least as far along it as along the other, as Flutter's horizontal drag
+// recognizer beats the scroll view's vertical one. A widget that takes a drag any way
+// it goes (a graph with handles) claims it on the press with `axis` -1.
+claim_drag :: proc(ctx: ^Context, axis: int) -> bool {
+	if ctx.press_won do return true
+	d := ctx.input.mouse - ctx.press_mouse
+	if axis < 0 {
+		ctx.press_won = true
+	} else if along := abs(d[axis]); along > ctx.theme.slop && along >= abs(d[1 - axis]) {
+		ctx.press_won = true
+	}
+	if ctx.press_won do ctx.won_mouse = ctx.input.mouse
+	return ctx.press_won
+}
+
+// Scrolls a drag-scrolled area. Call it before laying out the area's container (with
+// Box.drag_scroll and clip set), with `id` the container's id, `rect` where it was last
+// frame, the scroll the app keeps for it and the most it can scroll. The wheel over it
+// scrolls it. A finger or a pen pressed on a control in it scrolls it once the drag has
+// gone further up or down than the slop and than sideways, unless the control won the
+// drag first (claim_drag): the control then lets go without a click, as a scroll view
+// takes a touch from a button it was going to press. Returns true while a drag is
+// scrolling it, when the scroll should follow the pointer without easing.
+scroll_update :: proc(ctx: ^Context, id: Id, rect: Rect, scroll: ^f32, limit: f32) -> (dragging: bool) {
+	in_ := ctx.input
+	if in_.wheel != 0 && in_.mouse_valid && rect_contains(rect, in_.mouse) do scroll^ -= in_.wheel * 64
+	if ctx.scrolling == id {
+		if .Left in in_.down && !in_.cancel {
+			scroll^ = ctx.scroll_from - in_.mouse.y
+			ctx.active, ctx.active_seen = id, true
+		} else {
+			ctx.scrolling = 0
+		}
+	} else if ctx.press_host == id && ctx.active != 0 && ctx.active != id && !ctx.press_won && limit > 0 && .Left in in_.down {
+		d := in_.mouse - ctx.press_mouse
+		if abs(d.y) > ctx.theme.slop && abs(d.y) > abs(d.x) {
+			// From where the pointer is now, so the content does not jump by the slop.
+			ctx.scrolling, ctx.scroll_from = id, scroll^ + in_.mouse.y
+			ctx.active, ctx.active_seen = id, true
+		}
+	}
+	scroll^ = clamp(scroll^, 0, limit)
+	return ctx.scrolling == id
+}
+
+// Starts scrolling the area `id` at once when a press in it landed where no control
+// took it. Call it after the area's container ended, with the same scroll and limit; for
+// an area inside another container, `root` is the anchored container it is in.
+scroll_take :: proc(ctx: ^Context, id: Id, scroll: f32, limit: f32, root: Id = 0) {
+	root := root if root != 0 else id
+	if .Left not_in ctx.input.pressed || ctx.active != 0 || ctx.pointer_root != root || limit <= 0 || ctx.viewport_drag || ctx.swallow do return
+	inside := false
+	#reverse for p in ctx.placed {
+		if p.id == id {
+			inside = rect_contains(p.rect, ctx.input.mouse)
+			break
+		}
+	}
+	if inside {
+		ctx.scrolling, ctx.scroll_from = id, scroll + ctx.input.mouse.y
+		ctx.active, ctx.active_seen = id, true
+	}
 }
 
 // Pixels per point, for drawing.

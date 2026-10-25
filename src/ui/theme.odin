@@ -51,6 +51,10 @@ Theme :: struct {
 	row:            f32, // the drawn height of a list row
 	gap:            f32, // between groups in a panel
 	edge:           f32, // from the window's edge to the floating panels
+	// How far a finger or a pen moves before a press becomes a drag: a tap that wobbles
+	// less is still a tap, and a scroll or an orbit starts only past it. Android's touch
+	// slop is 8 dp, iOS's about 10 points and Flutter's 18 logical pixels.
+	slop:           f32,
 
 	// Motion, in seconds. Anything a stroke, the camera or a drag depends on is never
 	// animated; these are for feedback and for things that appear and go.
@@ -100,6 +104,7 @@ THEME_DARK :: Theme {
 	row            = 40,
 	gap            = 12,
 	edge           = 12,
+	slop           = 10,
 	press_time     = 0.10,
 	hover_time     = 0.14,
 	tooltip_delay  = 0.45,
