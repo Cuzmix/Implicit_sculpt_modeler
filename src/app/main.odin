@@ -94,6 +94,10 @@ Options :: struct {
 	layer:      bool `usage:"Add a sculpt layer to the first object before starting, recording, as Tools > Layers > New layer does (after --fill-paint), so --bench-stroke goes into it."`,
 	retopo:     int `usage:"Retopologize the first object into about this many quads before starting, as Scene > Retopologize selected does (after --layer); the new object is selected."`,
 	bake:       string `usage:"On exit, bake the first object's detail onto the selected quad object (from --retopo) into this folder, as Bake maps... does (before --export)."`,
+	boolean:    string `usage:"Mark every object but the first union, subtract or intersect (Scene > Booleans) and move them to overlap it, before starting (after --retopo); with --spheres=2 or more."`,
+	live_boolean: bool `usage:"Start with Scene > Booleans > Live boolean on."`,
+	make_boolean: bool `usage:"Make the boolean mesh before starting, as Make boolean mesh does (after --boolean)."`,
+	extract:    f32 `usage:"Extract the first object's masked part before starting, as Scene > Extract masked does, this thick (a share of its size; after --boolean); masks what the top third of the view shows first when nothing is masked."`,
 	bake_size:  int `usage:"Texels square for --bake (512, 1024, 2048 or 4096; default 2048)."`,
 	gpubench_frames: int `usage:"Measured frames per --gpubench case (default 120, at most 240)."`,
 	open:      string `usage:"Start with the scene saved in this .sculpt file instead of spheres, as File > Open scene does."`,
@@ -230,6 +234,7 @@ run :: proc(opts: Options) -> bool {
 	log.infof("sculpt threads: %d", jobs.pool_size(&app.pool))
 	if opts.compute_bench != "" do return computebench_run(&app, opts.compute_bench, opts.vertices)
 	app.scene.selected = -1
+	defer render.mesh_buffers_destroy(&app.renderer, &app.ui.boolean.preview)
 	defer scene_destroy(&app)
 	defer history_destroy(&app.history)
 	timeline_init(&app.timeline)
@@ -436,6 +441,31 @@ run :: proc(opts: Options) -> bool {
 	if opts.retopo > 0 {
 		app.scene.selected = 0
 		if _, ok := object_retopo(&app, app.scene.objects[0], opts.retopo); !ok do return false
+	}
+	if opts.boolean != "" {
+		mode: Boolean_Mode
+		for m in Boolean_Mode do if m != .None && strings.equal_fold(opts.boolean, fmt.tprint(m)) do mode = m
+		if mode == .None || len(app.scene.objects) < 2 {
+			log.errorf("--boolean takes union, subtract or intersect, and two objects or more, not %q", opts.boolean)
+			return false
+		}
+		first := app.scene.objects[0]
+		for obj, i in app.scene.objects[1:] {
+			obj.boolean = mode
+			obj.transform.position = first.transform.position + {0.9, 0.4 * f32(i), 0} * first.transform.scale
+		}
+	}
+	if opts.live_boolean do app.ui.boolean.live = true
+	if opts.make_boolean && !boolean_make(&app) do return false
+	if opts.extract > 0 {
+		app.scene.selected = 0
+		app.ui.boolean.thickness = opts.extract
+		if object_sculptor(app.scene.objects[0]).mask == nil {
+			top := [4][2]f32{{-1, 0.33}, {1, 0.33}, {1, 1}, {-1, 1}}
+			// The viewport has no size before the first frame: the size it asks for.
+			mask_shape_command(&app, top[:], app.ui.viewport_request, false)
+		}
+		if !extract_masked(&app) do return false
 	}
 	if opts.bake_size > 0 do app.ui.bake.size = i32(opts.bake_size)
 	defer if remember do _ = settings_save(&app, settings)
@@ -671,7 +701,12 @@ run :: proc(opts: Options) -> bool {
 		uploaded: int // bytes
 		normals_ms: f64
 		lod_ms := -1.0 // time building simplified copies; none built when negative
-		draws := make([dynamic]render.Draw_Item, 0, 2 * len(app.scene.objects), context.temp_allocator)
+		if !boolean_live_update(&app) {
+			_ = sdl.SubmitGPUCommandBuffer(cmd)
+			_ = sdl.SubmitGPUCommandBuffer(present_cmd)
+			return false
+		}
+		draws := make([dynamic]render.Draw_Item, 0, 2 * len(app.scene.objects) + 1, context.temp_allocator)
 		for obj, i in app.scene.objects {
 			// An object sculpting HD shows its top level around the window.
 			parts := [2]^sculpt.Level{sculpt.levels_current(&obj.levels), obj.levels.hd.window}
@@ -697,6 +732,8 @@ run :: proc(opts: Options) -> bool {
 					render.mesh_buffers_upload_lod(&app.renderer, cmd, gpu, lv.sculptor.lod.indices[:], lod_ranges, all, len(lv.mesh.indices) / 2)
 					lod_ms = time.duration_milliseconds(time.tick_since(t_lod))
 				}
+				// The live boolean's preview stands in for it (drawn below).
+				if boolean_hides(&app, obj, i) do continue
 				// The selected object is in the material's colour; the others are muted. Only
 				// the selected one is sculpted or moved, so the rest can come from the cache.
 				selected := i == app.scene.selected
@@ -716,6 +753,20 @@ run :: proc(opts: Options) -> bool {
 					damage = lv.sculptor.changed_bounds,
 					lod    = lv.sculptor.lod.tree,
 					hidden = sculpt.levels_hd_hidden(&obj.levels) if part == 0 && obj.levels.hd.window != nil else sculpt.sculptor_hidden_units(&lv.sculptor),
+				})
+			}
+		}
+		if b := &app.ui.boolean; b.shown {
+			if base := object_by_id(&app, b.base); base != nil {
+				material := current_material(&app)
+				append(&draws, render.Draw_Item {
+					mesh     = &b.preview,
+					model    = transform_matrix(base.transform),
+					color    = material.selected,
+					material = material.shading,
+					surface  = {material.metallic, material.roughness},
+					flat     = app.flat,
+					damage   = geom.AABB_EMPTY,
 				})
 			}
 		}

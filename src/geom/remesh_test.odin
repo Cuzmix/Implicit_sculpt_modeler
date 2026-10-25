@@ -6,7 +6,7 @@ import "core:testing"
 import "../jobs"
 
 // Every edge in exactly two triangles, once each way, and no triangle repeats a vertex.
-@(private = "file")
+@(private)
 expect_closed_manifold :: proc(t: ^testing.T, m: Mesh, loc := #caller_location) -> (edges: int) {
 	directed := make(map[[2]u32]int, len(m.indices), context.temp_allocator)
 	for i := 0; i < len(m.indices); i += 3 {

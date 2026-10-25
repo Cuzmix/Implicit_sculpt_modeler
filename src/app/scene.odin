@@ -63,6 +63,7 @@ Object :: struct {
 	// shown again (see object_show_level).
 	gpu:       [sculpt.MAX_LEVELS]render.Mesh_Buffers,
 	hd_gpu:    render.Mesh_Buffers, // the HD window's, while one is open
+	boolean:   Boolean_Mode, // how it applies to the base in a boolean (app/boolean.odin)
 }
 
 // The level being sculpted: the HD window while one is open.
@@ -94,7 +95,7 @@ Scene :: struct {
 // applied at the start of the next frame so no panel ever draws an object (or GPU
 // buffer) freed during the same frame.
 Scene_Command :: struct {
-	kind:     enum u8 {None, Add, Remesh, Decimate, Retopo, Delete, Duplicate, Symmetrize, Slice, Subdivide, Set_Level, Delete_Higher, Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete, Dyntopo},
+	kind:     enum u8 {None, Add, Remesh, Decimate, Retopo, Delete, Duplicate, Symmetrize, Slice, Subdivide, Set_Level, Delete_Higher, Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete, Dyntopo, Boolean, Extract},
 	vertices: int,
 	shape:    geom.Primitive, // Add: what to add
 	on:       bool, // Dyntopo: turn dynamic topology on, or off; Symmetrize: keep the + side
@@ -433,12 +434,13 @@ hidden_upload :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer, gpu: ^render.Mesh_B
 	return len(indices) * size_of(u32)
 }
 
-// Deletes the selected object, as an undo step when `undoable`.
-scene_delete_selected :: proc(app: ^App, undoable := true) {
+// Deletes the selected object, as an undo step when `undoable` (with `chain`, part of
+// the newest one).
+scene_delete_selected :: proc(app: ^App, undoable := true, chain := false) {
 	obj := selected_object(app)
 	if obj == nil do return
 	stroke_finish(app)
-	if undoable do history_record_swap(app, obj.id, history_snapshot(app, obj, "delete object"))
+	if undoable do history_record_swap(app, obj.id, history_snapshot(app, obj, "delete object"), chain)
 	_ = sdl.WaitForGPUIdle(app.renderer.device)
 	ordered_remove(&app.scene.objects, app.scene.selected)
 	object_free(app, obj)
@@ -516,6 +518,10 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 			if part != nil do history_record_swap(app, part.id, history_snapshot(app, nil, "slice"), chain = true)
 			return ok
 		}
+	case .Boolean:
+		return boolean_make(app)
+	case .Extract:
+		return extract_masked(app)
 	case .Dyntopo:
 		if obj := selected_object(app); obj != nil {
 			object_hd_leave(app, obj)
@@ -745,6 +751,16 @@ object_build_from :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, start: time.
 		time.duration_milliseconds(time.tick_diff(start, ready)), time.duration_milliseconds(time.tick_since(ready)))
 	app.stats = {}
 	return true
+}
+
+// Rebuilds the object from `mesh` (taking it), as a remesh does: its levels, HD
+// detail, mask and strokes go (the caller records the swap). Returns false only when
+// the new mesh could not be uploaded.
+object_replace_mesh :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh) -> bool {
+	start := time.tick_now()
+	_ = sdl.WaitForGPUIdle(app.renderer.device)
+	object_release_mesh(app, obj)
+	return object_build_from(app, obj, mesh, start, normals = true)
 }
 
 // Frees the levels and GPU buffers. The caller waits for the GPU first.
