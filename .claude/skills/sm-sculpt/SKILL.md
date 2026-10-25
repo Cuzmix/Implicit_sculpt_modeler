@@ -204,8 +204,8 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
 - `stroke_finish` before any level, HD or scene change (`scene.odin:292, 386, 410`); leave the HD window before
   `levels_set_current` or a delete (the asserts at `levels.odin:93, 131, 139`).
 - A new `Brush_Kind`: a `when` branch in `displace` and a one-line `job_*` (or its own pair, as Smooth), a case in
-  `dab_once`'s switch, weights through `shield` so the mask and the HD fade hold, a name in `BRUSH_NAMES`/`BRUSH_HELP`
-  (`src/app/ui.odin`, and its key follows the enum order), a test that proves what it moves, and a place in
+  `dab_once`'s switch, weights through `shield` so the mask and the HD fade hold, a row in `BRUSHES`
+  (`src/app/brushes.odin`: name, help, icon, fresh strength, flags; its key follows the enum order), a test that proves what it moves, and a place in
   `new_brushes_parallel_match_serial` (`brushes_test.odin`), which compares serial with parallel bit for bit.
 - Strokes undo per node: a tool that moves nodes without recording them breaks undo (sm-cad has the plan).
 - With dynamic topology the triangles change during a stroke by design; everything else about a topology change

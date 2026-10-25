@@ -664,7 +664,7 @@ command_run :: proc(app: ^App, id: Command_Id, arg := 0) -> bool {
 command_label :: proc(id: Command_Id, arg := 0) -> string {
 	#partial switch id {
 	case .Brush:
-		return fmt.tprintf("%s brush", BRUSH_NAMES[sculpt.Brush_Kind(arg)])
+		return fmt.tprintf("%s brush", BRUSHES[sculpt.Brush_Kind(arg)].name)
 	case .View_Axis:
 		return fmt.tprintf("%v view", camera.Axis_View(arg))
 	case .Mask:

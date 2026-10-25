@@ -231,7 +231,7 @@ draw_pie :: proc(app: ^App, o: Overlay) {
 		r: f32 = PIE_INNER + 0.62 * (PIE_OUTER - PIE_INNER)
 		label := at(o, p.center + r * pt * angle_dir(mid))
 		font := ui.Font.Semibold if hover else ui.Font.Regular
-		ui.text(ctx, fmt.tprintf("%d %s", i + 1, BRUSH_NAMES[kind]), label.x, label.y, t.text_size, t.on_accent if hover else t.text, font, .Center)
+		ui.text(ctx, fmt.tprintf("%d %s", i + 1, BRUSHES[kind].name), label.x, label.y, t.text_size, t.on_accent if hover else t.text, font, .Center)
 	}
 	// The middle, and which way the pointer points from it.
 	overlay_disc(o, p.center, PIE_INNER * pt, t.surface)

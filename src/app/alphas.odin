@@ -162,7 +162,7 @@ image_grey :: proc(img: ^image.Image, grey: []f32) -> bool {
 // piece, so it has none.
 brush_alpha :: proc(app: ^App) -> ^sculpt.Alpha {
 	i := app.brush.alpha
-	if i < 0 || i >= len(app.alphas) || app.brush.kind == .Grab do return nil
+	if i < 0 || i >= len(app.alphas) || .Grab in BRUSHES[app.brush.kind].flags do return nil
 	return &app.alphas[i].alpha
 }
 

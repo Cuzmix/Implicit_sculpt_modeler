@@ -101,7 +101,7 @@ draw_adjust :: proc(app: ^App, o: Overlay) -> bool {
 		overlay_circle(o, a.center, STRENGTH_PX, overlay_color({1, 1, 1, 0.35}), 1.5)
 		overlay_disc(o, a.center, s * STRENGTH_PX, overlay_color({1, 0.8, 0.4, 0.25}))
 		overlay_circle(o, a.center, s * STRENGTH_PX, overlay_color({1, 0.8, 0.4, 0.95}), 2)
-		label = fmt.tprintf("%s strength %.2f", BRUSH_NAMES[app.brush.kind], s)
+		label = fmt.tprintf("%s strength %.2f", BRUSHES[app.brush.kind].name, s)
 	}
 	overlay_label(o, label, a.center)
 	return true
