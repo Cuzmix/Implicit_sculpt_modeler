@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- SDL_GPU draws with Vulkan 1.0 or newer. -->
+    <uses-feature
+        android:name="android.hardware.vulkan.version"
+        android:version="0x400003"
+        android:required="true" />
+    <uses-feature
+        android:name="android.hardware.touchscreen"
+        android:required="false" />
+    <!-- Mouse and keyboard work too (DeX-style desktops, Chromebooks). -->
+    <uses-feature
+        android:name="android.hardware.type.pc"
+        android:required="false" />
+
+    <!-- No permissions: the app needs none (the sm-store skill). -->
+    <application
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher"
+        android:allowBackup="false"
+        android:theme="@style/AppTheme"
+        android:enableOnBackInvokedCallback="false"
+        android:hardwareAccelerated="true">
+
+        <!-- SDL's own activity: it loads libSDL3.so and libmain.so and runs SDL_main on
+             a thread of its own. Every orientation, size and multi-window mode is handled
+             by the app itself, so none of them restart the activity. -->
+        <activity
+            android:name="org.libsdl.app.SDLActivity"
+            android:label="@string/app_name"
+            android:alwaysRetainTaskState="true"
+            android:launchMode="singleInstance"
+            android:resizeableActivity="true"
+            android:configChanges="layoutDirection|locale|grammaticalGender|fontScale|fontWeightAdjustment|orientation|uiMode|screenLayout|screenSize|smallestScreenSize|keyboard|keyboardHidden|navigation|density"
+            android:preferMinimalPostProcessing="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+
+</manifest>

@@ -113,3 +113,17 @@ ortho_keeps_the_target_size_and_depth_range :: proc(t: ^testing.T) {
 	testing.expect(t, zb >= 0 && zb < z, "behind the eye is clipped")
 	testing.expect(t, near_eq(orbit_world_per_px(c, behind, 100), orbit_world_per_px(c, c.target, 100)), "ortho pixel size varies")
 }
+
+@(test)
+pinch_zoom_moves_the_eye_by_the_spread :: proc(t: ^testing.T) {
+	c := orbit_default()
+	start := c.distance
+	orbit_zoom_by(&c, 2)
+	testing.expect(t, near_eq(c.distance, start / 2), "spreading twice as far should halve the distance")
+	orbit_zoom_by(&c, 0.5)
+	testing.expect(t, near_eq(c.distance, start), "pinching back should restore it")
+	orbit_zoom_by(&c, 0)
+	testing.expect(t, near_eq(c.distance, start), "a zero factor is ignored")
+	orbit_zoom_by(&c, 1e9)
+	testing.expect_value(t, c.distance, MIN_DISTANCE)
+}

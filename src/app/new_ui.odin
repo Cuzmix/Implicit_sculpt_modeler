@@ -203,11 +203,12 @@ kit_event :: proc(app: ^App, e: ^sdl.Event) {
 		}
 		return .Left, false
 	}
+	scale := kit_content_scale(app.window)
 	#partial switch e.type {
 	case .MOUSE_MOTION:
-		in_.mouse, in_.mouse_valid = {e.motion.x, e.motion.y}, true
+		in_.mouse, in_.mouse_valid = [2]f32{e.motion.x, e.motion.y} / scale, true
 	case .MOUSE_BUTTON_DOWN, .MOUSE_BUTTON_UP:
-		in_.mouse, in_.mouse_valid = {e.button.x, e.button.y}, true
+		in_.mouse, in_.mouse_valid = [2]f32{e.button.x, e.button.y} / scale, true
 		if b, ok := button(e.button.button); ok {
 			if e.button.down {
 				in_.pressed += {b}
@@ -224,6 +225,18 @@ kit_event :: proc(app: ^App, e: ^sdl.Event) {
 	}
 }
 
+// Window coordinates per interface point. SDL gives the pointer and the window's size in
+// window coordinates, which are pixels on Android and Windows; the display's content
+// scale (Android's screen density, Windows' scaling setting) turns them into points, so
+// a 48 point target is 48 dp on a tablet. 1 where window coordinates are already
+// points (macOS, Wayland) or the display is not scaled.
+kit_content_scale :: proc(window: ^sdl.Window) -> f32 {
+	display := sdl.GetWindowDisplayScale(window)
+	density := sdl.GetWindowPixelDensity(window)
+	if display <= 0 || density <= 0 do return 1
+	return max(display / density, 1)
+}
+
 // Lays out the new interface for this frame and returns what the viewport saw. Runs
 // where ui_draw would, inside the ImGui frame.
 kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
@@ -237,8 +250,13 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 	kit_events_apply(k)
 	k.frame += 1
 	in_ := k.input
-	in_.window = {f32(w), f32(h)}
-	in_.pixel_density = f32(pw) / f32(max(w, 1))
+	scale := kit_content_scale(window)
+	in_.window = [2]f32{f32(w), f32(h)} / scale
+	in_.pixel_density = f32(pw) / f32(max(w, 1)) * scale
+	in_.safe = {}
+	if safe: sdl.Rect; sdl.GetWindowSafeArea(window, &safe) {
+		in_.safe = {f32(safe.x) / scale, f32(safe.y) / scale, f32(safe.w) / scale, f32(safe.h) / scale}
+	}
 	in_.shift, in_.ctrl, in_.alt = io.KeyShift, io.KeyCtrl, io.KeyAlt
 	now := time.tick_now()
 	in_.dt = f32(time.duration_seconds(time.tick_diff(k.last_frame, now)))
@@ -255,13 +273,14 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 	}
 	ui.image(ctx, {0, 0, in_.window.x, in_.window.y}, KIT_VIEWPORT_IMAGE)
 	kit_layout(app)
-	input := kit_viewport_input(app, in_.window)
+	input := kit_viewport_input(app, {f32(w), f32(h)})
 	if k.stats do draw_stats_panel(app)
 	handle_shortcuts(app)
 	if imgui.IsKeyPressed(.F11, false) do k.stats = !k.stats
 	if !io.WantTextInput && imgui.IsKeyPressed(.Tab, false) && !io.KeyCtrl do k.inspector = !k.inspector
-	// Escape closes whatever floats, before it stops a replay.
-	if imgui.IsKeyPressed(.Escape, false) {
+	// Escape, or Android's back gesture (the AppBack key), closes whatever floats, before
+	// Escape stops a replay.
+	if imgui.IsKeyPressed(.Escape, false) || imgui.IsKeyPressed(.AppBack, false) {
 		k.menu, k.view_menu, k.browser, k.object_menu = false, false, false, false
 		ctx.select_open = 0
 	}
@@ -451,7 +470,8 @@ kit_inspector :: proc(app: ^App) {
 	shown := ui.presence(ctx, id, k.inspector, t.panel_time)
 	if shown <= 0 do return
 	top := t.edge + t.target + 8
-	window := ctx.input.window
+	area := ui.safe_area(ctx)
+	window := [2]f32{area.w, area.h}
 	dock_size, _ := ui.prev_layout(ctx, "dock")
 	room := window.y - top - t.edge
 	// Clear of the dock when the window is narrow enough for them to meet.
@@ -461,7 +481,7 @@ kit_inspector :: proc(app: ^App) {
 	height := min(natural.y, room) if natural.y > 0 else 0
 	// The wheel over the inspector scrolls it; the scroll eases to where it is heading.
 	limit := max(natural.y - room, 0)
-	inspector_rect := ui.Rect{window.x - t.edge - KIT_INSPECTOR_W, top, KIT_INSPECTOR_W, height}
+	inspector_rect := ui.Rect{area.x + window.x - t.edge - KIT_INSPECTOR_W, area.y + top, KIT_INSPECTOR_W, height}
 	if ctx.input.wheel != 0 && ui.rect_contains(inspector_rect, ctx.input.mouse) do k.scroll -= ctx.input.wheel * 64
 	k.scroll = clamp(k.scroll, 0, limit)
 	scroll := ui.tween(ctx, ui.salt(id, 5), k.scroll, t.popover_time, .Out_Quart)
@@ -726,6 +746,8 @@ kit_menu :: proc(app: ^App, anchor: ui.Rect) {
 	ui.divider(ctx, across = true)
 	ui.caption(ctx, "  APP")
 	if ui.menu_item(ctx, "Reduce motion", checked = ctx.reduced_motion) do ctx.reduced_motion = !ctx.reduced_motion
+	// Off, one finger turns the view and only the pen sculpts, as on a drawing tablet.
+	if ui.menu_item(ctx, "Finger sculpts", checked = app.touch.finger_sculpt) do app.touch.finger_sculpt = !app.touch.finger_sculpt
 	if ui.menu_item(ctx, "Stats", "F11", ui.ICON_ACTIVITY, checked = k.stats) do k.stats = !k.stats
 	if ui.menu_item(ctx, "Classic panels", "", ui.ICON_SETTINGS) {
 		app.new_ui = false

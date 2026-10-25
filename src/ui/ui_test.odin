@@ -41,6 +41,21 @@ anchored_column_settles_in_one_frame :: proc(t: ^testing.T) {
 }
 
 @(test)
+anchored_column_stays_inside_the_safe_area :: proc(t: ^testing.T) {
+	ctx: Context
+	init(&ctx)
+	defer destroy(&ctx)
+
+	// A tablet's camera cutout takes 30 points off the top, its gesture bar 20 off the
+	// bottom; the column keeps its 16 points from the safe area's edge instead.
+	input := input_at({-1, -1})
+	input.safe = {0, 30, 800, 550}
+	two_buttons(&ctx, input)
+	_, _, column := two_buttons(&ctx, input)
+	testing.expect_value(t, column, Rect{800 - 16 - 56, 30 + 16, 56, 112})
+}
+
+@(test)
 press_and_release_on_a_button_clicks_it :: proc(t: ^testing.T) {
 	ctx: Context
 	init(&ctx)

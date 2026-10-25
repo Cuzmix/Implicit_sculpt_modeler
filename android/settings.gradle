@@ -1,0 +1,18 @@
+// The Android app: SDL's Java activity around libmain.so, which holds the Odin app
+// (src/app) built for arm64. README.md (Android) has the steps.
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+rootProject.name = "Sculpt"
+include ':app'

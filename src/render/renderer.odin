@@ -198,7 +198,21 @@ CLEAR_FRAG_SPV :: #load("shaders/clear.frag.spv")
 
 renderer_init :: proc(r: ^Renderer, window: ^sdl.Window, debug: bool) -> bool {
 	r.window = window
-	r.device = sdl.CreateGPUDevice({.SPIRV}, debug, nil)
+	when ODIN_PLATFORM_SUBTARGET == .Android {
+		// Tablet GPUs may lack Vulkan features SDL asks for by default; nothing here clips
+		// with gl_ClipDistance, samples anisotropically or starts an indirect draw past
+		// instance 0, so those three are not required.
+		props := sdl.CreateProperties()
+		defer sdl.DestroyProperties(props)
+		_ = sdl.SetBooleanProperty(props, sdl.PROP_GPU_DEVICE_CREATE_SHADERS_SPIRV_BOOLEAN, true)
+		_ = sdl.SetBooleanProperty(props, sdl.PROP_GPU_DEVICE_CREATE_DEBUGMODE_BOOLEAN, debug)
+		_ = sdl.SetBooleanProperty(props, sdl.PROP_GPU_DEVICE_CREATE_FEATURE_CLIP_DISTANCE_BOOLEAN, false)
+		_ = sdl.SetBooleanProperty(props, sdl.PROP_GPU_DEVICE_CREATE_FEATURE_ANISOTROPY_BOOLEAN, false)
+		_ = sdl.SetBooleanProperty(props, sdl.PROP_GPU_DEVICE_CREATE_FEATURE_INDIRECT_DRAW_FIRST_INSTANCE_BOOLEAN, false)
+		r.device = sdl.CreateGPUDeviceWithProperties(props)
+	} else {
+		r.device = sdl.CreateGPUDevice({.SPIRV}, debug, nil)
+	}
 	if r.device == nil {
 		log.errorf("CreateGPUDevice failed: %s", sdl.GetError())
 		return false

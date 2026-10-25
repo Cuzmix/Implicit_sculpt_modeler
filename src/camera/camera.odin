@@ -55,6 +55,13 @@ orbit_zoom :: proc(c: ^Orbit, wheel_steps: f32) {
 	c.distance = clamp(c.distance * math.pow(0.88, wheel_steps), MIN_DISTANCE, MAX_DISTANCE)
 }
 
+// Moves the eye `factor` times closer, as spreading two fingers that many times apart
+// does; below 1 moves it away.
+orbit_zoom_by :: proc(c: ^Orbit, factor: f32) {
+	if factor <= 0 do return
+	c.distance = clamp(c.distance / factor, MIN_DISTANCE, MAX_DISTANCE)
+}
+
 // The turn a leaning pen gives the brush (the direction it pushes along): `tilt` is the
 // pen's lean in degrees, x to the right and y toward the bottom of the screen, as SDL
 // reports it, and `strength` how much of it the brush follows. The brush direction
