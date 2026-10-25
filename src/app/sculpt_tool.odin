@@ -79,6 +79,7 @@ Stroke :: struct {
 	start:    [2]f32, // Drag rectangle: where on screen the drag began
 	at:       Vec3, // ...and where that is on the object, in its own space
 	anchor:   Vec3, // Grab: where the stroke started; Snake hook: where it has pulled to (world space)
+	kind:     sculpt.Brush_Kind, // the brush the stroke started with, Shift's Smooth included, for the History panel
 }
 
 Sculpt_Frame_Result :: struct {
@@ -230,7 +231,7 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 	sculpt.sculptor_stroke_begin(object_sculptor(obj))
 	local := to_local(obj.transform, hit)
 	brush := brush_at(app, input, obj.transform, local, s.pressure, s.tilt)
-	st.grab, st.hook, st.anchor = brush.kind == .Grab, brush.kind == .Snake_Hook, hit
+	st.grab, st.hook, st.anchor, st.kind = brush.kind == .Grab, brush.kind == .Snake_Hook, hit, brush.kind
 	st.rect = app.brush.stroke == .Drag_Rect && !st.grab && !st.hook && !input.smooth && !object_dynamic(obj)
 	st.start, st.at = s.pos, local
 	if st.hook || st.rect do return // they move nothing until the pointer does

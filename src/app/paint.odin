@@ -25,7 +25,7 @@ paint_command :: proc(app: ^App, command: sculpt.Paint_Command) {
 	start := time.tick_now()
 	changed := sculpt.sculptor_paint_command(object_sculptor(obj), command, brush_color_bytes(app))
 	log.infof("%s: %.0f ms%s", "fill paint" if command == .Fill else "clear paint", time.duration_milliseconds(time.tick_since(start)), "" if changed else ", nothing changed")
-	if changed do history_record(app, obj)
+	if changed do history_record(app, obj, .Paint, "Fill paint" if command == .Fill else "Clear paint")
 }
 
 // Changes the selected object's polygroups as an undo step of its own
@@ -47,7 +47,15 @@ group_command :: proc(app: ^App, command: sculpt.Group_Command) {
 	if !changed do return
 	// Grouping is easiest to follow seen.
 	app.show_groups = true
-	history_record(app, obj)
+	history_record(app, obj, .Paint, GROUP_COMMAND_NAMES[command])
+}
+
+@(private = "file", rodata)
+GROUP_COMMAND_NAMES := [sculpt.Group_Command]string {
+	.Visible = "Group visible",
+	.Masked  = "Group masked",
+	.Creases = "Group by creases",
+	.Clear   = "Clear groups",
 }
 
 // What Ctrl+W does, as ZBrush's: with something masked, the masked part becomes a group
@@ -85,14 +93,14 @@ group_click :: proc(app: ^App, at, size: [2]f32, alt: bool) -> bool {
 		changed := sculpt.sculptor_mask_group(s, group)
 		app.ui.mask_last = {command = .Fill, ms = time.duration_milliseconds(time.tick_since(start)), changed = changed, set = true, shape = true}
 		log.infof("mask group %d: %.0f ms%s", group, app.ui.mask_last.ms, "" if changed else ", nothing changed")
-		if changed do history_record(app, obj)
+		if changed do history_record(app, obj, .Mask, "Mask group")
 		return true
 	}
 	changed := sculpt.sculptor_hide_group(s, group)
 	app.ui.hide_last = {ms = time.duration_milliseconds(time.tick_since(start)), changed = changed, set = true}
 	log.infof("isolate group %d: %d of %d triangles hidden, %.0f ms", group, sculpt.sculptor_hidden_count(s), object_triangle_count(obj), app.ui.hide_last.ms)
 	if changed {
-		history_record(app, obj)
+		history_record(app, obj, .Hide, "Isolate group")
 		render.viewport_invalidate(&app.target)
 	}
 	return true

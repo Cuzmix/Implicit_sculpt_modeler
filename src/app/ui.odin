@@ -182,6 +182,7 @@ ui_draw :: proc(app: ^App) -> Viewport_Input {
 	draw_tools_panel(app)
 	draw_scene_panel(app)
 	draw_stats_panel(app)
+	draw_history_panel(app)
 	handle_shortcuts(app)
 	if app.ui.show_demo {
 		imgui.ShowDemoWindow(&app.ui.show_demo)
@@ -198,9 +199,10 @@ build_default_layout :: proc(dockspace: imgui.ID) {
 	imgui.DockBuilderRemoveNode(dockspace)
 	imgui.DockBuilderAddNode(dockspace, DOCK_NODE_FLAGS_DOCKSPACE)
 	imgui.DockBuilderSetNodeSize(dockspace, imgui.GetMainViewport().Size)
-	right: imgui.ID
+	right, bottom: imgui.ID
 	main := dockspace
 	imgui.DockBuilderSplitNode(main, .Right, 0.24, &right, &main)
+	imgui.DockBuilderSplitNode(main, .Down, 0.13, &bottom, &main)
 	right_bottom, right_middle: imgui.ID
 	imgui.DockBuilderSplitNode(right, .Down, 0.66, &right_bottom, &right)
 	imgui.DockBuilderSplitNode(right_bottom, .Down, 0.4, &right_bottom, &right_middle)
@@ -208,6 +210,7 @@ build_default_layout :: proc(dockspace: imgui.ID) {
 	imgui.DockBuilderDockWindow("Tools", right)
 	imgui.DockBuilderDockWindow("Scene", right_middle)
 	imgui.DockBuilderDockWindow("Stats", right_bottom)
+	imgui.DockBuilderDockWindow("History", bottom)
 	imgui.DockBuilderFinish(dockspace)
 }
 

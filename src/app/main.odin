@@ -49,6 +49,10 @@ Options :: struct {
 	orbit:     bool `usage:"Turn the camera around the scene by itself, once every 240 frames (to watch or time drawing while the view moves)."`,
 	bench_stroke: int `usage:"Run a synthetic brush stroke over this many frames, print brush stats, then exit."`,
 	bench_samples: int `usage:"Give each --bench-stroke frame this many pointer samples along the path, like a high-rate mouse (default: one position a frame)."`,
+	bench_lifts: int `usage:"Lift the pen of --bench-stroke this many times along its path, so it makes that many strokes plus one (for the History timeline)."`,
+	timelapse: string `usage:"Record a time-lapse of the History into this folder, as History > Record time-lapse does: once --bench-stroke ends, or at the start; the run lasts until it is done."`,
+	timelapse_steps: int `usage:"Steps of the History each --timelapse frame shows (default 1)."`,
+	timelapse_spin: f32 `usage:"Degrees the camera turns each --timelapse frame (default 0)."`,
 	bench_loops: int `usage:"Make --bench-stroke this many circles around the middle of the sphere instead of a wavy line."`,
 	brush:     string `usage:"Start with this brush: draw, smooth, clay, flatten, inflate, pinch, crease, grab, mask, layer, snake hook, morph or paint (also what --bench-stroke uses)."`,
 	stroke:    string `usage:"Start with this stroke: dots (the default) or drag_rect (one stamp sized and turned by the drag, as the Tools panel's Drag rectangle)."`,
@@ -122,6 +126,7 @@ App :: struct {
 	ui:       Ui_State,
 	stats:    Frame_Stats,
 	history:  History,
+	timeline: Timeline, // the History panel's scrubbing, playback and time-lapse (timeline.odin)
 	material:  int,  // the index in MATERIALS objects are shaded with, or CUSTOM_MATERIAL
 	custom:    Material, // what View > Material's sliders made
 	flat:      bool, // shade with each triangle's own normal (faceted) instead of smoothed normals
@@ -212,6 +217,8 @@ run :: proc(opts: Options) -> bool {
 	app.scene.selected = -1
 	defer scene_destroy(&app)
 	defer history_destroy(&app.history)
+	timeline_init(&app.timeline)
+	defer timeline_destroy(&app.timeline)
 	defer delete(app.samples)
 	defer delete(app.stroke.pending)
 	defer mask_shape_destroy(&app.mask_shape)
@@ -502,6 +509,12 @@ run :: proc(opts: Options) -> bool {
 			file_request_free(req)
 			if !applied do return false
 		}
+		if opts.timelapse != "" && frame_index == opts.bench_stroke {
+			if opts.timelapse_steps > 0 do app.timeline.lapse.steps = i32(opts.timelapse_steps)
+			app.timeline.lapse.spin = opts.timelapse_spin
+			timelapse_start(&app, opts.timelapse)
+		}
+		timeline_frame(&app)
 		// Changing the present mode recreates the swapchain, so it happens before this
 		// frame acquires a swapchain texture.
 		if app.vsync != (app.renderer.present_mode == .VSYNC) {
@@ -584,8 +597,12 @@ run :: proc(opts: Options) -> bool {
 		imgui_impl_sdl3.NewFrame()
 		imgui.NewFrame()
 		input := ui_draw(&app)
-		if opts.bench_stroke > 0 {
+		if opts.bench_stroke > 0 && frame_index < opts.bench_stroke {
 			input = bench_input(&app, frame_index, opts.bench_stroke, opts.bench_samples, opts.bench_loops, {opts.bench_tilt, 0}, {f32(app.target.width), f32(app.target.height)})
+			// A lifted frame ends the stroke; the next frame presses again.
+			if every := opts.bench_stroke / (opts.bench_lifts + 1); opts.bench_lifts > 0 && every > 0 && (frame_index + 1) % every == 0 {
+				input.primary = false
+			}
 			last_input_ns = sdl.GetTicksNS()
 		} else if opts.gpubench != "" {
 			input = gpubench_input(&app, &bench, {f32(app.target.width), f32(app.target.height)})
@@ -671,7 +688,7 @@ run :: proc(opts: Options) -> bool {
 		view, proj := camera.orbit_view(app.camera), camera.orbit_proj(app.camera, aspect)
 		if view_changed(&app, view, proj) do app.view_moved = time.tick_now()
 		moving := time.tick_since(app.view_moved) < LOD_SETTLE
-		app.renderer.lod_px = app.simplify_px if app.simplify && moving else 0
+		app.renderer.lod_px = app.simplify_px if app.simplify && moving && !timelapse_capturing(&app) else 0
 		drawn := render.render_viewport(&app.renderer, cmd, &app.target, view, proj, draws[:], app.cache_idle)
 
 		gpu_wait: time.Duration
@@ -747,7 +764,8 @@ run :: proc(opts: Options) -> bool {
 
 		frame_index += 1
 		if (opts.frames > 0 && frame_index >= opts.frames) || (opts.bench_stroke > 0 && frame_index >= opts.bench_stroke) {
-			app.running = false
+			// A --timelapse run goes on until the recording is done.
+			if opts.timelapse == "" || (frame_index > opts.bench_stroke && !timeline_busy(&app)) do app.running = false
 		}
 		if opts.gpubench != "" && gpubench_end_frame(&app, &bench, time.duration_milliseconds(gpu_wait), time.duration_milliseconds(cpu_time), sculpted.dabs) {
 			app.running = false
