@@ -78,6 +78,12 @@ history_destroy :: proc(h: ^Undo_History) {
 
 // Starts recording a stroke. Dabs applied until sculptor_stroke_end form one step.
 sculptor_stroke_begin :: proc(s: ^Sculptor) {
+	// A new stroke starts a new Layer: earlier heights stop counting.
+	s.layer_stroke += 1
+	if s.layer_stroke == 0 {
+		slice.zero(s.layer)
+		s.layer_stroke = 1
+	}
 	h := &s.history
 	if h.recording do return
 	h.recording = true

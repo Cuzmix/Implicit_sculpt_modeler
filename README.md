@@ -133,7 +133,7 @@ The stroke frame grows with the top level's size because the same brush covers m
 
 ## Brushes, masking and symmetry
 
-Nine brushes, picked in the Tools panel or with keys 1 to 9 in this order:
+Eleven brushes, picked in the Tools panel or the brush pie, the first ten with keys 1 to 9 and 0 in this order:
 
 | Key | Brush | What it does (Ctrl inverts) |
 | --- | --- | --- |
@@ -146,6 +146,8 @@ Nine brushes, picked in the Tools panel or with keys 1 to 9 in this order:
 | 7 | Crease | Cuts a sharp groove: draws in with a narrow falloff and pinches toward the stroke (a sharp ridge). |
 | 8 | Grab | ZBrush's Move: picks up what is under the brush where the stroke starts and drags it with the pointer, in the plane facing the camera, each vertex by its falloff weight. |
 | 9 | Mask | Paints the mask (erases it). |
+| 0 | Layer | Raises a flat-topped layer to one height per stroke (0.15 radii at full strength) along each vertex's normal: going over the same place again in the stroke adds nothing, and a new stroke adds one more layer, as ZBrush's and Blender's Layer brushes do (lowers). |
+| | Snake hook | Pulls the surface out after the pointer for horns, tentacles and fingers: the point the stroke has reached follows the pointer in the plane facing the camera, and each step of the way, at most a quarter radius, drags what is under the brush along by its falloff. Nothing is raycast, so it leaves the surface; with dynamic topology on, the stretched triangles split as it goes. |
 
 Masking works as in ZBrush: each vertex has a mask from 0 to 255, and every brush moves it only by what the mask leaves (a fully masked vertex never moves). Masked areas are drawn darker. The Tools panel's Clear (Alt+M), Invert (Ctrl+I) and Mask all change the whole mask at once; mask strokes and these commands are undo steps like any stroke. Blur, Sharpen, Grow and Shrink move the mask's edge, as ZBrush's BlurMask, SharpenMask, GrowMask and ShrinkMask and Blender's mask filters do, a step at a time: each vertex takes from the corners of its triangles their average (Blur), their highest value (Grow) or their lowest (Shrink), so a step reaches one ring of triangles further, and Sharpen pushes each partly masked vertex toward masked or unmasked against half a Blur step, which narrows a soft edge to a sharp one that stays smooth along the triangles. Mask cavities masks the creases and dents, as ZBrush's Mask By Cavity does: each vertex is masked by how far it sits below the average of its neighbours along its normal, measured against their distance, so grooves and pores go dark and flat or bulging parts stay free; Blur after it softens the result. Steps sets how many steps a press takes (3 by default): since a step is a ring of triangles, a denser mesh needs more for the same distance. The section shows what the last command did and how long it took. The mask is carried when the object changes subdivision level (a vertex that continues one of the level below takes its mask, a new edge vertex the average of the edge's ends), so it holds on every level. An HD window starts unmasked and its mask is dropped when it closes. The mask costs no GPU memory or upload: it rides in the low 4 bits of each of the two 16-bit halves of the vertex's packed normal, which still places the normal within 0.1 degrees.
 
@@ -166,11 +168,14 @@ Each brush costs about what Draw does (`build/bench --brushes`, 4 threads, this 
 | Crease | 4023 | 0.040 | 0.26 | 40294 | 0.332 | 1.94 | 3.65 |
 | Grab | 3724 | 0.013 | 0.05 | 37162 | 0.117 | 0.44 | 1.27 |
 | Mask | 3178 | 0.013 | 0.06 | 31831 | 0.107 | 0.55 | 4.59 |
+| Layer | 3908 | 0.038 | 0.26 | 39148 | 0.741 | 3.47 | 7.23 |
+| Layer, second stroke | 3908 | 0.037 | 0.24 | 39148 | 0.310 | 1.81 | 2.06 |
+| Snake hook | 3813 | 0.021 | 0.15 | 38182 | 0.210 | 1.38 | 1.69 |
 | Draw, X symmetry | 7734 | 0.083 | 0.56 | 77453 | 0.507 | 3.16 | 5.51 |
 | Draw, half masked | 1931 | 0.039 | 0.26 | 19376 | 0.202 | 1.42 | 1.76 |
 | Draw, Noise alpha | 3966 | 0.055 | 0.35 | 39727 | 0.371 | 2.07 | 2.56 |
 
-For Grab, verts/dab is what it holds and dab ms is one move. Smooth costs more because it reads every neighbour of each vertex, symmetry costs a dab per image, and fully masked vertices cost almost nothing. Mask strokes skip the normal update and only send the painted vertices to the GPU again.
+For Grab, verts/dab is what it holds and dab ms is one move. Layer keeps 8 bytes per vertex for the stroke's heights (80 MB at 10M), made the first time it is used; the first stroke pays for the memory being touched for the first time, later ones cost about what Draw does. Smooth costs more because it reads every neighbour of each vertex, symmetry costs a dab per image, and fully masked vertices cost almost nothing. Mask strokes skip the normal update and only send the painted vertices to the GPU again.
 
 A vertex whose triangles' corners all share its value, fully masked or unmasked, stays as it is under every mask command, so after one quick check of every node a step works only on the nodes around the mask's edge, and the step after it only rechecks the nodes next to what moved. A press costs about one pass over the mask whatever the steps, then a little per step for the edge (`build/bench --masks`, 4 threads, this repo's cloud VM, a sphere masked on one side):
 

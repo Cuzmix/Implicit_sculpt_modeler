@@ -1,6 +1,6 @@
 ---
 name: sm-ui
-description: The Dear ImGui interface in src/app/ui.odin and the frame loop around it — the docked Viewport, Tools (brushes 1–9, symmetry, brush alphas, mask, dynamic topology, the Pen section with its pressure curve editor and tilt), Scene and Stats panels, Viewport_Input (the only thing the camera and tools read), pointer samples with pen pressure and tilt, the brush pie (Space or a right tap), shortcuts, the deferred Scene_Command, the overlay draw list (brush circle or alpha square, gizmo), the odin-imgui binding's naming, C-vararg Text formatting, Begin/End pairing, and why panels never keep references between frames. Load for ANY task that adds or changes something the user clicks, reads or types, e.g. "add a panel", "add a button to the Scene panel", "add a shortcut", "show X in the Stats panel", "the slider does not update", "the viewport ignores the mouse", "add a settings window". Requires sm-odin and sm-build; what the buttons do is sm-sculpt or sm-cad; pixels in the viewport image are sm-render.
+description: The Dear ImGui interface in src/app/ui.odin and the frame loop around it — the docked Viewport, Tools (brushes on 1–9 and 0, symmetry, brush alphas, mask, dynamic topology, the Pen section with its pressure curve editor and tilt), Scene and Stats panels, Viewport_Input (the only thing the camera and tools read), pointer samples with pen pressure and tilt, the brush pie (Space or a right tap), shortcuts, the deferred Scene_Command, the overlay draw list (brush circle or alpha square, gizmo), the odin-imgui binding's naming, C-vararg Text formatting, Begin/End pairing, and why panels never keep references between frames. Load for ANY task that adds or changes something the user clicks, reads or types, e.g. "add a panel", "add a button to the Scene panel", "add a shortcut", "show X in the Stats panel", "the slider does not update", "the viewport ignores the mouse", "add a settings window". Requires sm-odin and sm-build; what the buttons do is sm-sculpt or sm-cad; pixels in the viewport image are sm-render.
 ---
 
 # Interface
@@ -20,7 +20,7 @@ description: The Dear ImGui interface in src/app/ui.odin and the frame loop arou
   View with Orthographic (P, keypad 5; `camera.Orbit.ortho`), Look from (keypad 1/3/7, Ctrl for the opposite; `camera.orbit_axis_view`; with ortho possible, pixel sizes go through `camera.orbit_world_per_px` and view directions through `camera.orbit_toward`, never the eye distance), Wireframe (Shift+F) and Material, which only set `App.wireframe` and `App.material` (presets in `src/app/material.odin`), then the last `file_note` for 15 s, amber for a warning) → Viewport → Tools → Scene → Stats → shortcuts → demo.
   `draw_viewport_overlay` runs after the tools (`main.odin:408`; `ui.odin:276`): the brush circle (with an alpha, its
   square turned as the next dab, `draw_alpha_outline`, `src/app/alphas.odin:204`), the lazy-mouse string, the gizmo.
-- Panels: Tools (`ui.odin:331`: tool radios, the nine brushes as radio buttons labelled with their keys, three a row,
+- Panels: Tools (`ui.odin:331`: tool radios, the brushes as radio buttons labelled with their keys, three a row,
   from `BRUSH_NAMES`/`BRUSH_HELP` (`ui.odin:94, 106`), radius in px (5-500, logarithmic), the held brush's own strength
   (`Brush_Settings.strengths[kind]` through `brush_strength`), lazy mouse,
   Symmetry X/Y/Z checkboxes, the Falloff section (`draw_falloff_section`: `draw_curve_editor` mirrored, the built-in shape plotted until a handle moves, `FALLOFF_PRESETS`), the Alpha section (`draw_alpha_section`, `src/app/alphas.odin:217`: the round brush and
@@ -33,7 +33,7 @@ description: The Dear ImGui interface in src/app/ui.odin and the frame loop arou
   vertex count with presets, Add / Remesh selected / Delete; Subdivide and Divide HD greyed while dynamic topology is on), Stats (`ui.odin:729`: `row(label, ring, unit)` prints p50 and p99, a
   `PlotLines` of frame time, checkboxes bound straight to `app` fields: VSync, Time GPU, partial, cull, cache, simplify).
 - `handle_shortcuts` (`ui.odin:657-709`) runs only when `!io.WantTextInput`: Ctrl+Z, Ctrl+Shift+Z, Ctrl+Y (undo, redo);
-  Ctrl+O, Ctrl+S, Ctrl+Shift+S (open, save, save as); W, B (tools); 1–9 (a brush, in `Brush_Kind` order, and the Brush tool) and X (X symmetry), both only without Ctrl or
+  Ctrl+O, Ctrl+S, Ctrl+Shift+S (open, save, save as); W, B (tools); 1–9 and 0 (the first ten brushes, in `Brush_Kind` order, and the Brush tool) and X (X symmetry), both only without Ctrl or
   Alt; [ and ] (size steps; with Shift the strength); Alt+M (clear mask), Ctrl+I (invert mask); Ctrl+R (remesh at the object's own count); Ctrl+T (dynamic topology);
   F (focus); A (HD window where the pointer is, or leave it); Ctrl+D, D, Shift+D (subdivide, level up, level down).
   One-shot keys use `IsKeyPressed(.X, false)`.
@@ -72,7 +72,7 @@ description: The Dear ImGui interface in src/app/ui.odin and the frame loop arou
 | a viewport input that tools must not see | clear it with `viewport_mute` (`src/app/adjust.odin`) before the tools read `Viewport_Input`; never filter inside a tool |
 | an A/B toggle | `imgui.Checkbox("…", &app.<field>)` plus a `--no-<x>` field in `Options` and a sentence in README "App flags" |
 | a shortcut | a line in `handle_shortcuts` and README "Controls" |
-| a key for a new brush | nothing: keys 1–9 follow `Brush_Kind`'s order, so a tenth kind needs its own key; add its name to `BRUSH_NAMES` and `BRUSH_HELP` (sm-sculpt has the brush checklist) |
+| a key for a new brush | nothing: keys 1–9 and 0 follow `Brush_Kind`'s order, so an eleventh kind on (Snake hook) has none and is picked in the panel or pie; add its name to `BRUSH_NAMES` and `BRUSH_HELP` (sm-sculpt has the brush checklist) |
 | text with numbers | `imgui.Text("%d", i32(n))`; strings through `fmt.ctprintf` (temp memory, fine within the frame); `count_label`/`bytes_label` for human sizes (`ui.odin:712-727`) |
 | a greyed-out control | `imgui.BeginDisabled(cond)` … `imgui.EndDisabled()` pairs |
 

@@ -655,3 +655,55 @@ mask_cavity_finds_a_groove :: proc(t: ^testing.T) {
 	testing.expectf(t, groove > 0, "nothing in the groove masked")
 	testing.expectf(t, elsewhere == 0, "%d vertices away from the groove masked", elsewhere)
 }
+
+@(test)
+layer_stops_at_its_height :: proc(t: ^testing.T) {
+	m := geom.icosphere(5)
+	s: Sculptor
+	sculptor_init(&s, &m, nil)
+	defer sculptor_destroy(&s)
+	defer geom.mesh_destroy(&m)
+	sculptor_recompute_all(&s)
+	brush := Brush{kind = .Layer, radius = 0.3, strength = 1}
+	top := Vec3{0, 0, 1}
+	peak := proc(m: ^geom.Mesh) -> (r: f32) {
+		for p in m.positions do r = max(r, linalg.length(p))
+		return
+	}
+	sculptor_stroke_begin(&s)
+	for _ in 0 ..< 40 do _ = apply_dab(&s, brush, top)
+	_ = sculptor_flush(&s)
+	_ = sculptor_stroke_end(&s)
+	height := peak(&m) - 1
+	want := brush.radius * LAYER_HEIGHT
+	testing.expectf(t, abs(height - want) < 0.1 * want, "one stroke raised %.4f, want %.4f", height, want)
+	// A second stroke adds one more layer, no more.
+	sculptor_stroke_begin(&s)
+	for _ in 0 ..< 40 do _ = apply_dab(&s, brush, top * (1 + height))
+	_ = sculptor_stroke_end(&s)
+	testing.expectf(t, abs(peak(&m) - 1 - 2 * want) < 0.2 * want, "two strokes raised %.4f, want %.4f", peak(&m) - 1, 2 * want)
+}
+
+@(test)
+snake_hook_pulls_out_a_horn :: proc(t: ^testing.T) {
+	m := geom.icosphere(5)
+	s: Sculptor
+	sculptor_init(&s, &m, nil)
+	defer sculptor_destroy(&s)
+	defer geom.mesh_destroy(&m)
+	sculptor_recompute_all(&s)
+	brush := Brush{kind = .Snake_Hook, radius = 0.25, strength = 0.5, drag = {0, 0, 0.05}}
+	at := Vec3{0, 0, 1}
+	sculptor_stroke_begin(&s)
+	for _ in 0 ..< 10 {
+		_ = apply_dab(&s, brush, at)
+		at += brush.drag
+	}
+	_ = sculptor_stroke_end(&s)
+	tip: f32
+	for p in m.positions do tip = max(tip, p.z)
+	// The vertices at the centre follow the hook all the way.
+	testing.expectf(t, tip > 1.4, "the tip reached %.3f", tip)
+	r := geom.mesh_check(m)
+	testing.expectf(t, r.closed && r.degenerate_triangles == 0, "%v", r)
+}

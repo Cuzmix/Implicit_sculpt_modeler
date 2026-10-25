@@ -49,6 +49,9 @@ run_brushes :: proc(target: int, pool: ^jobs.Pool) {
 		{"Crease", .Crease, {}, false, false},
 		{"Grab", .Grab, {}, false, false},
 		{"Mask", .Mask, {}, false, false},
+		{"Layer", .Layer, {}, false, false},
+		{"Layer, second stroke", .Layer, {}, false, false},
+		{"Snake hook", .Snake_Hook, {}, false, false},
 		{"Draw, X symmetry", .Draw, {.X}, false, false},
 		{"Draw, half masked", .Draw, {}, true, false},
 		{"Draw, Noise alpha", .Draw, {}, false, true},
@@ -92,6 +95,8 @@ run_brushes :: proc(target: int, pool: ^jobs.Pool) {
 					_ = sculpt.sculptor_grab_move(s, 0.3 * (target_point - anchor))
 				}
 			} else {
+				// A hook pulls outward a little each dab.
+				if c.kind == .Snake_Hook do brush.drag = linalg.normalize(hit) * (radius * 0.05)
 				touched += sculpt.apply_dab(s, brush, hit)
 			}
 			dab[i] = time.duration_milliseconds(time.tick_since(tb))
