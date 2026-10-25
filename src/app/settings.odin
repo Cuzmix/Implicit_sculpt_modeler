@@ -3,6 +3,7 @@ package main
 import "core:fmt"
 import "core:log"
 import "core:os"
+import "core:reflect"
 import "core:strconv"
 import "core:strings"
 import sdl "vendor:sdl3"
@@ -33,6 +34,136 @@ settings_path :: proc() -> string {
 	return strings.concatenate({string(cstring(dir)), SETTINGS_FILE}, context.temp_allocator)
 }
 
+// The version settings_save writes on the first line. A file from a newer version is
+// read as far as this one knows its lines.
+SETTINGS_VERSION :: 1
+
+// One remembered value that is a plain field of App: its key in the file, where it is,
+// what type it is (bool, f32, i32 or an enum) and, for numbers, the range a value read
+// back is clamped to (lo == hi: any). Read and written by the same row, so the two
+// directions cannot drift. Values with more to them (a brush's own strength, a curve,
+// the panel windows) are the hand-written lines in settings_load and settings_save.
+Setting :: struct {
+	key:    string,
+	offset: uintptr,
+	type:   typeid,
+	lo, hi: f32,
+}
+
+@(private = "file")
+B :: offset_of(App, brush)
+@(private = "file")
+N :: offset_of(App, nav)
+@(private = "file")
+K :: offset_of(App, kit)
+@(private = "file")
+U :: offset_of(App, ui)
+
+@(rodata)
+SETTINGS := [?]Setting {
+	{"radius_px", B + offset_of(Brush_Settings, radius_px), f32, MIN_RADIUS_PX, MAX_RADIUS_PX},
+	{"pressure_strength", B + offset_of(Brush_Settings, pressure_strength), bool, 0, 0},
+	{"pressure_size", B + offset_of(Brush_Settings, pressure_size), bool, 0, 0},
+	{"tilt_strength", B + offset_of(Brush_Settings, tilt_strength), f32, 0, 1},
+	{"lazy_px", B + offset_of(Brush_Settings, lazy_px), f32, 0, 150},
+	{"front_only", B + offset_of(Brush_Settings, front_only), bool, 0, 0},
+	{"stroke", B + offset_of(Brush_Settings, stroke), Stroke_Mode, 0, 0},
+	{"detail_px", B + offset_of(Brush_Settings, detail_px), f32, 2, 40},
+	{"collapse", B + offset_of(Brush_Settings, collapse), bool, 0, 0},
+	{"alpha_mode", B + offset_of(Brush_Settings, alpha_mode), Alpha_Mode, 0, 0},
+	{"alpha_angle", B + offset_of(Brush_Settings, alpha_angle), f32, 0, 0},
+	{"show_groups", offset_of(App, show_groups), bool, 0, 0},
+	{"crease_degrees", U + offset_of(Ui_State, crease_degrees), f32, 1, 90},
+	{"wireframe", offset_of(App, wireframe), bool, 0, 0},
+	{"flat", offset_of(App, flat), bool, 0, 0},
+	{"reduce_motion", K + offset_of(Kit_State, ctx) + offset_of(ui.Context, reduced_motion), bool, 0, 0},
+	{"ortho", offset_of(App, camera) + offset_of(camera.Orbit, ortho), bool, 0, 0},
+	// Settings > Interface, Camera, Touch and Performance.
+	{"surface_ring", K + offset_of(Kit_State, surface_ring), bool, 0, 0},
+	{"stats", K + offset_of(Kit_State, stats), bool, 0, 0},
+	{"stats_advanced", K + offset_of(Kit_State, stats_advanced), bool, 0, 0},
+	{"vsync", offset_of(App, vsync), bool, 0, 0},
+	{"orbit_style", N + offset_of(Nav_Prefs, orbit_style), camera.Orbit_Style, 0, 0},
+	{"limit_pitch", N + offset_of(Nav_Prefs, limit_pitch), bool, 0, 0},
+	{"orbit_speed", N + offset_of(Nav_Prefs, orbit_speed), f32, 0.25, 4},
+	{"pan_speed", N + offset_of(Nav_Prefs, pan_speed), f32, 0.25, 4},
+	{"zoom_speed", N + offset_of(Nav_Prefs, zoom_speed), f32, 0.25, 4},
+	{"invert_x", N + offset_of(Nav_Prefs, invert_x), bool, 0, 0},
+	{"invert_y", N + offset_of(Nav_Prefs, invert_y), bool, 0, 0},
+	{"invert_wheel", N + offset_of(Nav_Prefs, invert_wheel), bool, 0, 0},
+	{"finger_model", N + offset_of(Nav_Prefs, finger_model), Finger_Model, 0, 0},
+	{"pen_empty", N + offset_of(Nav_Prefs, empty_drag) + uintptr(ui.Pointer_Kind.Pen) * size_of(Empty_Drag), Empty_Drag, 0, 0},
+	{"mouse_empty", N + offset_of(Nav_Prefs, empty_drag) + uintptr(ui.Pointer_Kind.Mouse) * size_of(Empty_Drag), Empty_Drag, 0, 0},
+	{"pinch_zoom", N + offset_of(Nav_Prefs, pinch_zoom), bool, 0, 0},
+	{"zoom_toward", N + offset_of(Nav_Prefs, zoom_toward), bool, 0, 0},
+	{"two_finger_pan", N + offset_of(Nav_Prefs, two_finger_pan), bool, 0, 0},
+	{"twist_roll", N + offset_of(Nav_Prefs, twist_roll), bool, 0, 0},
+	{"three_finger", N + offset_of(Nav_Prefs, three_finger), bool, 0, 0},
+	{"tap_history", N + offset_of(Nav_Prefs, tap_history), bool, 0, 0},
+	{"palm_rejection", N + offset_of(Nav_Prefs, palm_rejection), bool, 0, 0},
+	{"orbit_pivot", N + offset_of(Nav_Prefs, pivot), Orbit_Pivot, 0, 0},
+	{"edge_orbit", N + offset_of(Nav_Prefs, edge_orbit), bool, 0, 0},
+	{"edge_size", N + offset_of(Nav_Prefs, edge_size), f32, EDGE_MIN, EDGE_MAX},
+	{"edge_show", N + offset_of(Nav_Prefs, edge_show), bool, 0, 0},
+	// The Scene and Object tabs' choices, and the tools'.
+	{"new_shape", K + offset_of(Kit_State, add_shape), geom.Primitive, 0, 0},
+	{"mask_steps", U + offset_of(Ui_State, mask_steps), i32, 1, 50},
+	{"mask_shape", U + offset_of(Ui_State, mask_shape_kind), Mask_Shape_Kind, 0, 0},
+	{"gesture", offset_of(App, gesture), Gesture_Tool, 0, 0},
+	{"curve", offset_of(App, curve) + offset_of(Curve_Tool, kind), Curve_Kind, 0, 0},
+	{"curve_width", offset_of(App, curve) + offset_of(Curve_Tool, size), f32, 0.05, 2},
+	{"curve_lift", offset_of(App, curve) + offset_of(Curve_Tool, lift), f32, -1, 2},
+	{"curve_sides", offset_of(App, curve) + offset_of(Curve_Tool, sides), i32, 3, 64},
+	{"insert", offset_of(App, insert) + offset_of(Insert_Tool, shape), geom.Primitive, 0, 0},
+	{"insert_sink", offset_of(App, insert) + offset_of(Insert_Tool, sink), f32, -1, 1},
+}
+
+// Sets the row's field from the text `value`. False, and the field as it was, when the
+// text is not a value of its type.
+setting_read :: proc(app: ^App, s: Setting, value: string) -> bool {
+	at := rawptr(uintptr(app) + s.offset)
+	switch s.type {
+	case bool:
+		(^bool)(at)^ = value == "1"
+	case f32:
+		v, ok := strconv.parse_f32(value)
+		if !ok || v != v do return false
+		(^f32)(at)^ = clamp(v, s.lo, s.hi) if s.lo < s.hi else v
+	case i32:
+		v, ok := strconv.parse_f32(value)
+		if !ok || v != v do return false
+		(^i32)(at)^ = i32(clamp(v, s.lo, s.hi) if s.lo < s.hi else v)
+	case:
+		// An enum, by the name of one of its values, in any case.
+		names, values := reflect.enum_field_names(s.type), reflect.enum_field_values(s.type)
+		for name, i in names {
+			if !strings.equal_fold(name, value) do continue
+			v := values[i]
+			switch reflect.size_of_typeid(s.type) {
+			case 1: (^u8)(at)^ = u8(v)
+			case 2: (^u16)(at)^ = u16(v)
+			case 4: (^u32)(at)^ = u32(v)
+			case 8: (^u64)(at)^ = u64(v)
+			case: return false
+			}
+			return true
+		}
+		return false
+	}
+	return true
+}
+
+// The row's field as the file holds it.
+setting_text :: proc(app: ^App, s: Setting) -> string {
+	at := rawptr(uintptr(app) + s.offset)
+	switch s.type {
+	case bool: return "1" if (^bool)(at)^ else "0"
+	case f32:  return fmt.tprintf("%g", (^f32)(at)^)
+	case i32:  return fmt.tprintf("%d", (^i32)(at)^)
+	}
+	return fmt.tprintf("%v", any{at, s.type})
+}
+
 // Applies what the file at `path` holds to the app. A missing file is no error.
 settings_load :: proc(app: ^App, path: string) {
 	if path == "" do return
@@ -40,14 +171,19 @@ settings_load :: proc(app: ^App, path: string) {
 	if err != nil do return
 	b := &app.brush
 	text := string(data)
-	for line in strings.split_lines_iterator(&text) {
+	lines: for line in strings.split_lines_iterator(&text) {
 		f := strings.fields(line, context.temp_allocator)
 		if len(f) < 2 do continue
+		for s in SETTINGS {
+			if s.key != f[0] do continue
+			_ = setting_read(app, s, f[1])
+			continue lines
+		}
 		switch f[0] {
+		case "version":
+			// Nothing to migrate yet: every version so far reads the same lines.
 		case "brush":
 			if kind, ok := brush_by_name(f[1]); ok do b.kind = kind
-		case "radius_px":
-			b.radius_px = clamp(number(f[1], b.radius_px), MIN_RADIUS_PX, MAX_RADIUS_PX)
 		case "strength":
 			if len(f) == 3 {
 				if kind, ok := brush_by_name(f[1]); ok do b.strengths[kind] = clamp(number(f[2], b.strengths[kind]), MIN_STRENGTH, 1)
@@ -59,14 +195,7 @@ settings_load :: proc(app: ^App, path: string) {
 					b.falloffs[kind] = {drawn = f[2] == "1", curve = curve(f[3:], b.falloffs[kind].curve)}
 				}
 			}
-		case "pressure_strength": b.pressure_strength = f[1] == "1"
-		case "pressure_size":     b.pressure_size = f[1] == "1"
-		case "pressure_curve":    if len(f) == 5 do b.pressure_curve = curve(f[1:], b.pressure_curve)
-		case "tilt_strength":     b.tilt_strength = clamp(number(f[1], b.tilt_strength), 0, 1)
-		case "lazy_px":           b.lazy_px = clamp(number(f[1], b.lazy_px), 0, 150)
-		case "front_only":        b.front_only = f[1] == "1"
-		case "stroke":
-			for mode in Stroke_Mode do if strings.equal_fold(f[1], fmt.tprint(mode)) do b.stroke = mode
+		case "pressure_curve": if len(f) == 5 do b.pressure_curve = curve(f[1:], b.pressure_curve)
 		case "symmetry":
 			b.symmetry = {}
 			for c in f[1] {
@@ -76,15 +205,8 @@ settings_load :: proc(app: ^App, path: string) {
 				case 'z': b.symmetry += {.Z}
 				}
 			}
-		case "detail_px":  b.detail_px = clamp(number(f[1], b.detail_px), 2, 40)
-		case "collapse":   b.collapse = f[1] == "1"
-		case "alpha_mode":
-			for mode in Alpha_Mode do if strings.equal_fold(f[1], fmt.tprint(mode)) do b.alpha_mode = mode
-		case "alpha_angle": b.alpha_angle = number(f[1], b.alpha_angle)
 		case "paint_color":
 			if len(f) >= 4 do for k in 0 ..< 3 do b.color[k] = clamp(number(f[1 + k], b.color[k]), 0, 1)
-		case "show_groups": app.show_groups = f[1] == "1"
-		case "crease_degrees": app.ui.crease_degrees = clamp(number(f[1], app.ui.crease_degrees), 1, 90)
 		case "material":
 			if i, ok := material_by_name(strings.join(f[1:], " ", context.temp_allocator)); ok do app.material = i
 		case "custom_material":
@@ -94,15 +216,9 @@ settings_load :: proc(app: ^App, path: string) {
 				c.metallic = clamp(number(f[4], c.metallic), 0, 1)
 				c.roughness = clamp(number(f[5], c.roughness), 0.04, 1)
 			}
-		case "wireframe":  app.wireframe = f[1] == "1"
-		case "flat":       app.flat = f[1] == "1"
-		case "reduce_motion": app.kit.ctx.reduced_motion = f[1] == "1"
-		case "ortho":      app.camera.ortho = f[1] == "1"
-		// Settings > Interface, Camera, Touch and Performance.
 		case "ui_scale":
 			want := number(f[1], 1)
 			for s in UI_SCALES do if abs(s - want) < 0.01 do app.kit.ui_scale = s
-		case "surface_ring":   app.kit.surface_ring = f[1] == "1"
 		case "window":
 			// window <name> <moved 0|1> <x anchor> <y anchor> <x offset> <y offset> <minimised 0|1>;
 			// the kit keeps every window's title bar on screen whatever the offsets say.
@@ -118,36 +234,6 @@ settings_load :: proc(app: ^App, path: string) {
 					w.offset = {clamp(number(f[5], 0), -WINDOW_OFFSET_MAX, WINDOW_OFFSET_MAX), clamp(number(f[6], 0), -WINDOW_OFFSET_MAX, WINDOW_OFFSET_MAX)}
 				}
 			}
-		case "stats":          app.kit.stats = f[1] == "1"
-		case "stats_advanced": app.kit.stats_advanced = f[1] == "1"
-		case "vsync":          app.vsync = f[1] == "1"
-		case "orbit_style":
-			for style in camera.Orbit_Style do if strings.equal_fold(f[1], fmt.tprint(style)) do app.nav.orbit_style = style
-		case "limit_pitch":    app.nav.limit_pitch = f[1] == "1"
-		case "orbit_speed":    app.nav.orbit_speed = clamp(number(f[1], 1), 0.25, 4)
-		case "pan_speed":      app.nav.pan_speed = clamp(number(f[1], 1), 0.25, 4)
-		case "zoom_speed":     app.nav.zoom_speed = clamp(number(f[1], 1), 0.25, 4)
-		case "invert_x":       app.nav.invert_x = f[1] == "1"
-		case "invert_y":       app.nav.invert_y = f[1] == "1"
-		case "invert_wheel":   app.nav.invert_wheel = f[1] == "1"
-		case "finger_model":
-			for m in Finger_Model do if strings.equal_fold(f[1], fmt.tprint(m)) do app.nav.finger_model = m
-		case "pen_empty":
-			for m in Empty_Drag do if strings.equal_fold(f[1], fmt.tprint(m)) do app.nav.empty_drag[.Pen] = m
-		case "mouse_empty":
-			for m in Empty_Drag do if strings.equal_fold(f[1], fmt.tprint(m)) do app.nav.empty_drag[.Mouse] = m
-		case "pinch_zoom":     app.nav.pinch_zoom = f[1] == "1"
-		case "zoom_toward":    app.nav.zoom_toward = f[1] == "1"
-		case "two_finger_pan": app.nav.two_finger_pan = f[1] == "1"
-		case "twist_roll":     app.nav.twist_roll = f[1] == "1"
-		case "three_finger":   app.nav.three_finger = f[1] == "1"
-		case "tap_history":    app.nav.tap_history = f[1] == "1"
-		case "palm_rejection": app.nav.palm_rejection = f[1] == "1"
-		case "orbit_pivot":
-			for p in Orbit_Pivot do if strings.equal_fold(f[1], fmt.tprint(p)) do app.nav.pivot = p
-		case "edge_orbit":     app.nav.edge_orbit = f[1] == "1"
-		case "edge_size":      app.nav.edge_size = clamp(number(f[1], NAV_DEFAULT.edge_size), EDGE_MIN, EDGE_MAX)
-		case "edge_show":      app.nav.edge_show = f[1] == "1"
 		case "new_vertices":
 			// The size an object is added and remeshed at: the nearest of the presets.
 			want := number(f[1], -1)
@@ -155,21 +241,6 @@ settings_load :: proc(app: ^App, path: string) {
 			for p, i in SPHERE_PRESETS {
 				if d := abs(f32(p.vertices) - want); want > 0 && (best < 0 || d < best) do app.kit.add_size, best = i, d
 			}
-		case "new_shape":
-			for shape in geom.Primitive do if strings.equal_fold(f[1], fmt.tprint(shape)) do app.kit.add_shape = shape
-		case "mask_steps":  app.ui.mask_steps = i32(clamp(number(f[1], f32(app.ui.mask_steps)), 1, 50))
-		case "mask_shape":
-			for kind in Mask_Shape_Kind do if strings.equal_fold(f[1], fmt.tprint(kind)) do app.ui.mask_shape_kind = kind
-		case "gesture":
-			for tool in Gesture_Tool do if strings.equal_fold(f[1], fmt.tprint(tool)) do app.gesture = tool
-		case "curve":
-			for kind in Curve_Kind do if strings.equal_fold(f[1], fmt.tprint(kind)) do app.curve.kind = kind
-		case "curve_width": app.curve.size = clamp(number(f[1], app.curve.size), 0.05, 2)
-		case "curve_lift":  app.curve.lift = clamp(number(f[1], app.curve.lift), -1, 2)
-		case "curve_sides": app.curve.sides = i32(clamp(number(f[1], f32(app.curve.sides)), 3, 64))
-		case "insert":
-			for shape in geom.Primitive do if strings.equal_fold(f[1], fmt.tprint(shape)) do app.insert.shape = shape
-		case "insert_sink": app.insert.sink = clamp(number(f[1], app.insert.sink), -1, 1)
 		}
 	}
 	log.infof("settings: read %s", path)
@@ -191,83 +262,32 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 	b := app.brush
 	out := strings.builder_make(context.temp_allocator)
 	bit :: proc(v: bool) -> int {return 1 if v else 0}
+	fmt.sbprintfln(&out, "version %d", SETTINGS_VERSION)
+	for s in SETTINGS do fmt.sbprintfln(&out, "%s %s", s.key, setting_text(app, s))
 	fmt.sbprintfln(&out, "brush %s", fmt.tprint(b.kind))
-	fmt.sbprintfln(&out, "radius_px %g", b.radius_px)
 	for kind in sculpt.Brush_Kind {
 		fmt.sbprintfln(&out, "strength %v %g", kind, b.strengths[kind])
 		f := b.falloffs[kind]
 		fmt.sbprintfln(&out, "falloff %v %d %g %g %g %g", kind, bit(f.drawn), f.curve.c1.x, f.curve.c1.y, f.curve.c2.x, f.curve.c2.y)
 	}
-	fmt.sbprintfln(&out, "pressure_strength %d", bit(b.pressure_strength))
-	fmt.sbprintfln(&out, "pressure_size %d", bit(b.pressure_size))
 	c := b.pressure_curve
 	fmt.sbprintfln(&out, "pressure_curve %g %g %g %g", c.c1.x, c.c1.y, c.c2.x, c.c2.y)
-	fmt.sbprintfln(&out, "tilt_strength %g", b.tilt_strength)
-	fmt.sbprintfln(&out, "lazy_px %g", b.lazy_px)
-	fmt.sbprintfln(&out, "front_only %d", bit(b.front_only))
-	fmt.sbprintfln(&out, "stroke %v", b.stroke)
 	symmetry := strings.builder_make(context.temp_allocator)
 	strings.write_string(&symmetry, "-") // a placeholder, so the line always has a value
 	if .X in b.symmetry do strings.write_byte(&symmetry, 'x')
 	if .Y in b.symmetry do strings.write_byte(&symmetry, 'y')
 	if .Z in b.symmetry do strings.write_byte(&symmetry, 'z')
 	fmt.sbprintfln(&out, "symmetry %s", strings.to_string(symmetry))
-	fmt.sbprintfln(&out, "detail_px %g", b.detail_px)
-	fmt.sbprintfln(&out, "collapse %d", bit(b.collapse))
-	fmt.sbprintfln(&out, "alpha_mode %v", b.alpha_mode)
-	fmt.sbprintfln(&out, "alpha_angle %g", b.alpha_angle)
 	fmt.sbprintfln(&out, "paint_color %g %g %g", b.color.r, b.color.g, b.color.b)
-	fmt.sbprintfln(&out, "show_groups %d", bit(app.show_groups))
-	fmt.sbprintfln(&out, "crease_degrees %g", app.ui.crease_degrees)
 	fmt.sbprintfln(&out, "material %s", current_material(app).label)
 	m := app.custom
 	fmt.sbprintfln(&out, "custom_material %g %g %g %g %g", m.selected.r, m.selected.g, m.selected.b, m.metallic, m.roughness)
-	fmt.sbprintfln(&out, "wireframe %d", bit(app.wireframe))
-	fmt.sbprintfln(&out, "flat %d", bit(app.flat))
-	fmt.sbprintfln(&out, "reduce_motion %d", bit(app.kit.ctx.reduced_motion))
-	fmt.sbprintfln(&out, "ortho %d", bit(app.camera.ortho))
-	k, n := app.kit, app.nav
+	k := app.kit
 	fmt.sbprintfln(&out, "ui_scale %g", k.ui_scale)
-	fmt.sbprintfln(&out, "surface_ring %d", bit(k.surface_ring))
 	for w, which in k.windows {
 		fmt.sbprintfln(&out, "window %v %d %v %v %g %g %d", which, bit(w.moved), w.x, w.y, w.offset.x, w.offset.y, bit(w.minimized))
 	}
-	fmt.sbprintfln(&out, "stats %d", bit(k.stats))
-	fmt.sbprintfln(&out, "stats_advanced %d", bit(k.stats_advanced))
-	fmt.sbprintfln(&out, "vsync %d", bit(app.vsync))
-	fmt.sbprintfln(&out, "orbit_style %v", n.orbit_style)
-	fmt.sbprintfln(&out, "limit_pitch %d", bit(n.limit_pitch))
-	fmt.sbprintfln(&out, "orbit_speed %g", n.orbit_speed)
-	fmt.sbprintfln(&out, "pan_speed %g", n.pan_speed)
-	fmt.sbprintfln(&out, "zoom_speed %g", n.zoom_speed)
-	fmt.sbprintfln(&out, "invert_x %d", bit(n.invert_x))
-	fmt.sbprintfln(&out, "invert_y %d", bit(n.invert_y))
-	fmt.sbprintfln(&out, "invert_wheel %d", bit(n.invert_wheel))
-	fmt.sbprintfln(&out, "finger_model %v", n.finger_model)
-	fmt.sbprintfln(&out, "pen_empty %v", n.empty_drag[.Pen])
-	fmt.sbprintfln(&out, "mouse_empty %v", n.empty_drag[.Mouse])
-	fmt.sbprintfln(&out, "pinch_zoom %d", bit(n.pinch_zoom))
-	fmt.sbprintfln(&out, "zoom_toward %d", bit(n.zoom_toward))
-	fmt.sbprintfln(&out, "two_finger_pan %d", bit(n.two_finger_pan))
-	fmt.sbprintfln(&out, "twist_roll %d", bit(n.twist_roll))
-	fmt.sbprintfln(&out, "three_finger %d", bit(n.three_finger))
-	fmt.sbprintfln(&out, "tap_history %d", bit(n.tap_history))
-	fmt.sbprintfln(&out, "palm_rejection %d", bit(n.palm_rejection))
-	fmt.sbprintfln(&out, "orbit_pivot %v", n.pivot)
-	fmt.sbprintfln(&out, "edge_orbit %d", bit(n.edge_orbit))
-	fmt.sbprintfln(&out, "edge_size %g", n.edge_size)
-	fmt.sbprintfln(&out, "edge_show %d", bit(n.edge_show))
 	fmt.sbprintfln(&out, "new_vertices %d", SPHERE_PRESETS[app.kit.add_size].vertices)
-	fmt.sbprintfln(&out, "new_shape %v", app.kit.add_shape)
-	fmt.sbprintfln(&out, "mask_steps %d", app.ui.mask_steps)
-	fmt.sbprintfln(&out, "mask_shape %v", app.ui.mask_shape_kind)
-	fmt.sbprintfln(&out, "gesture %v", app.gesture)
-	fmt.sbprintfln(&out, "curve %v", app.curve.kind)
-	fmt.sbprintfln(&out, "curve_width %g", app.curve.size)
-	fmt.sbprintfln(&out, "curve_lift %g", app.curve.lift)
-	fmt.sbprintfln(&out, "curve_sides %d", app.curve.sides)
-	fmt.sbprintfln(&out, "insert %v", app.insert.shape)
-	fmt.sbprintfln(&out, "insert_sink %g", app.insert.sink)
 	if err := os.write_entire_file(path, transmute([]u8)strings.to_string(out)); err != nil {
 		log.warnf("settings: could not write %s: %v", path, err)
 		return false

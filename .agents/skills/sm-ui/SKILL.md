@@ -74,7 +74,10 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   operation. Never add a per-operation `*_last` struct to `app.ui`. Undo is tied to the step by
   `Undo_Mark` (object id and time), never by a count of steps. Destructive scene commands are
   reported by `scene_run` around `scene_apply`.
-- Settings (`settings.odin`): `key values` lines; unknown keys are skipped, values clamped; the kit's add shape and
+- Settings (`settings.odin`): `key values` lines after `version N`; unknown keys are skipped, values clamped. A plain
+  field of App (bool, f32, i32 or an enum) is one row of `SETTINGS` {key, offset, type, lo, hi}, read and written by
+  that row (`settings_test.odin` checks each row's offset and type against App); only compound values (per-brush
+  strength and falloff, curves, symmetry, windows, material) are hand-written lines in both procs. The kit's add shape and
   size are `new_shape`/`new_vertices`. Saved on exit, when Settings closes and on `DID_ENTER_BACKGROUND`;
   `--settings-file=PATH` reads and writes PATH even in scripted runs (`--frames` otherwise never touches settings).
 
@@ -153,7 +156,7 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
 | something drawn over the viewport | `overlay_*` calls in `overlay_viewport` (`overlay.odin`), in window coordinates |
 | a shortcut | a `Command_Id` and its `COMMANDS` row (label, help, icon, run, enabled, checked) in `src/app/commands.odin` if the action is new, and a `DEFAULT_BINDINGS` row (exact modifiers, kept in the order keys are read); menus show it through `command_menu_item`, tooltips through `command_keys`; `commands_test.odin` refuses a chord bound twice; README "Controls" |
 | a viewport input that tools must not see | clear it with `viewport_mute` before the tools read `Viewport_Input`; never filter inside a tool |
-| a setting that survives a restart | a `key values` line in both `settings_save` and `settings_load`; a flag that sets it too overrides only when given |
+| a setting that survives a restart | one row in `SETTINGS` (a plain field), or a hand-written line in both `settings_save` and `settings_load` (a compound value); a flag that sets it too overrides only when given |
 | a user preference in Settings | a field in `Nav_Prefs`/`Kit_State` with its default in `NAV_DEFAULT` or `kit_init`, a row in its `settings_<tab>` proc with a one-line `paragraph`, a line in `settings_reset`, the two settings lines above, README "Settings" |
 | a control that drags sideways inside a scrolling panel | act only `if held && claim_drag(ctx, 0)` (a tap may still act on `clicked`), so a vertical finger drag scrolls instead |
 | a new scrolling panel | `scroll_update(ctx, id, prev_rect(ctx, name), &scroll, limit)` before the body, `begin` it with `clip`, `scroll` and `drag_scroll = true`, `scroll_take(ctx, id, scroll, limit, root)` after; follow the drag with tween duration 0 |
