@@ -52,6 +52,7 @@ run_brushes :: proc(target: int, pool: ^jobs.Pool) {
 		{"Layer", .Layer, {}, false, false},
 		{"Layer, second stroke", .Layer, {}, false, false},
 		{"Snake hook", .Snake_Hook, {}, false, false},
+		{"Morph", .Morph, {}, false, false},
 		{"Draw, X symmetry", .Draw, {.X}, false, false},
 		{"Draw, half masked", .Draw, {}, true, false},
 		{"Draw, Noise alpha", .Draw, {}, false, true},
@@ -68,6 +69,9 @@ run_brushes :: proc(target: int, pool: ^jobs.Pool) {
 			sculpt.sculptor_clear_history(s)
 			_ = sculpt.sculptor_flush(s)
 		}
+		// Morph toward the surface as it is, which costs what any target does.
+		if c.kind == .Morph do _ = sculpt.sculptor_morph_store(s)
+		defer if c.kind == .Morph do sculpt.sculptor_morph_clear(s)
 		brush := sculpt.Brush{kind = c.kind, radius = radius, strength = 0.3, symmetry = c.symmetry}
 		if c.alpha do brush.alpha, brush.alpha_up = &noise, {0, 1, 0}
 		frames := (DABS + DABS_PER_FRAME - 1) / DABS_PER_FRAME

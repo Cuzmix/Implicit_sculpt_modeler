@@ -133,7 +133,7 @@ The stroke frame grows with the top level's size because the same brush covers m
 
 ## Brushes, masking and symmetry
 
-Eleven brushes, picked in the Tools panel or the brush pie, the first ten with keys 1 to 9 and 0 in this order:
+Twelve brushes, picked in the Tools panel or the brush pie, the first ten with keys 1 to 9 and 0 in this order:
 
 | Key | Brush | What it does (Ctrl inverts) |
 | --- | --- | --- |
@@ -148,6 +148,9 @@ Eleven brushes, picked in the Tools panel or the brush pie, the first ten with k
 | 9 | Mask | Paints the mask (erases it). |
 | 0 | Layer | Raises a flat-topped layer to one height per stroke (0.15 radii at full strength) along each vertex's normal: going over the same place again in the stroke adds nothing, and a new stroke adds one more layer, as ZBrush's and Blender's Layer brushes do (lowers). |
 | | Snake hook | Pulls the surface out after the pointer for horns, tentacles and fingers: the point the stroke has reached follows the pointer in the plane facing the camera, and each step of the way, at most a quarter radius, drags what is under the brush along by its falloff. Nothing is raycast, so it leaves the surface; with dynamic topology on, the stretched triangles split as it goes. |
+| | Morph | Brings the surface back toward the stored morph target, half the way a dab at full strength, so later work can be painted away in places (ZBrush's Morph brush). Without a target it does nothing. |
+
+Tools > Morph target: Store keeps the selected object's surface as it is now, Delete drops it. There is one per subdivision level, kept in memory only (12 bytes a vertex: 120 MB at 10M), not saved with the scene, and none while dynamic topology is on, whose strokes add and remove vertices (turning it on drops the target). A Morph dab costs a little less than a Draw dab (10M: 0.22 against 0.31 ms in the same run). Flag: `--store-morph`.
 
 Masking works as in ZBrush: each vertex has a mask from 0 to 255, and every brush moves it only by what the mask leaves (a fully masked vertex never moves). Masked areas are drawn darker. The Tools panel's Clear (Alt+M), Invert (Ctrl+I) and Mask all change the whole mask at once; mask strokes and these commands are undo steps like any stroke. Blur, Sharpen, Grow and Shrink move the mask's edge, as ZBrush's BlurMask, SharpenMask, GrowMask and ShrinkMask and Blender's mask filters do, a step at a time: each vertex takes from the corners of its triangles their average (Blur), their highest value (Grow) or their lowest (Shrink), so a step reaches one ring of triangles further, and Sharpen pushes each partly masked vertex toward masked or unmasked against half a Blur step, which narrows a soft edge to a sharp one that stays smooth along the triangles. Mask cavities masks the creases and dents, as ZBrush's Mask By Cavity does: each vertex is masked by how far it sits below the average of its neighbours along its normal, measured against their distance, so grooves and pores go dark and flat or bulging parts stay free; Blur after it softens the result. Steps sets how many steps a press takes (3 by default): since a step is a ring of triangles, a denser mesh needs more for the same distance. The section shows what the last command did and how long it took. The mask is carried when the object changes subdivision level (a vertex that continues one of the level below takes its mask, a new edge vertex the average of the edge's ends), so it holds on every level. An HD window starts unmasked and its mask is dropped when it closes. The mask costs no GPU memory or upload: it rides in the low 4 bits of each of the two 16-bit halves of the vertex's packed normal, which still places the normal within 0.1 degrees.
 

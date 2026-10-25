@@ -44,6 +44,7 @@ Brush_Kind :: enum {
 	Mask,    // paint the mask, which shields vertices from every other brush (inverted erases)
 	Layer,   // raise a flat-topped layer of one height per stroke, however often it passes (inverted: lower)
 	Snake_Hook, // pull the surface out after the pointer: each dab drags it by Brush.drag
+	Morph,   // bring the surface back toward the stored morph target (morph.odin)
 }
 
 Axis :: enum u8 {
@@ -97,6 +98,7 @@ PINCH_RATE :: 0.25
 CREASE_PINCH :: 0.2
 LAYER_HEIGHT :: 0.15 // Layer's height at full strength, in brush radii
 LAYER_RATE :: 0.5    // share of the way to that height a dab goes where the falloff is full
+MORPH_RATE :: 0.5    // share of the way back to the morph target a dab goes at full strength
 
 Node :: struct {
 	tri_first:    u32, // triangles of this node (a BVH leaf), contiguous
@@ -184,6 +186,9 @@ Sculptor :: struct {
 	// stroke number is layer_stroke; nil until the brush is first used.
 	layer:        []Layer_Height,
 	layer_stroke: u32,
+	// The positions sculptor_morph_store kept, which the Morph brush brings vertices
+	// back to; nil when none is stored.
+	morph:        []Vec3,
 	// Set while dynamic topology is on (dyntopo.odin): the mesh is laid out in pages,
 	// `faces` and the shared lists above are replaced, and there are no LOD copies.
 	dyn:         ^Dyn,
@@ -223,6 +228,7 @@ sculptor_destroy :: proc(s: ^Sculptor) {
 	dyn_destroy(s)
 	delete(s.mask, s.history.allocator)
 	delete(s.layer, s.history.allocator)
+	delete(s.morph, s.history.allocator)
 	grab_destroy(&s.grab)
 	history_destroy(&s.history)
 	geom.vertex_faces_destroy(&s.faces)
@@ -687,7 +693,7 @@ dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
 	slice.zero(s.partials[:])
 	// The area under the brush: what most kinds work along, and the plane an alpha
 	// lies on.
-	if (brush.kind != .Smooth && brush.kind != .Mask && brush.kind != .Snake_Hook) || brush.alpha != nil {
+	if (brush.kind != .Smooth && brush.kind != .Mask && brush.kind != .Snake_Hook && brush.kind != .Morph) || brush.alpha != nil {
 		jobs.parallel_for(pool, len(s.hit), &d, job_area)
 		weight: f32
 		for p in s.partials {
@@ -738,6 +744,9 @@ dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
 	case .Snake_Hook:
 		if brush.drag == {} do return 0
 		jobs.parallel_for(pool, len(s.hit), &d, job_snake_hook)
+	case .Morph:
+		if len(s.morph) != len(s.mesh.positions) do return 0
+		jobs.parallel_for(pool, len(s.hit), &d, job_morph)
 	case .Grab, .Mask:
 		unreachable()
 	case .Smooth:
@@ -880,6 +889,7 @@ job_area :: proc(data: rawptr, i: int) {
 @(private) job_crease :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.Crease)}
 @(private) job_layer :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.Layer)}
 @(private) job_snake_hook :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.Snake_Hook)}
+@(private) job_morph :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.Morph)}
 
 // Moves the owned vertices of hit leaf i that lie inside the brush, as brush kind K
 // does; specialised per kind so each loop has no branch on the kind.
@@ -927,6 +937,8 @@ displace :: #force_inline proc(d: ^Dab, i: int, $K: Brush_Kind) {
 					l^ = {s.layer_stroke, next}
 				} else when K == .Snake_Hook {
 					p += d.brush.drag * w
+				} else when K == .Morph {
+					p = linalg.lerp(p, s.morph[v], min(d.brush.strength * w * MORPH_RATE, 1))
 				} else {
 					#panic("not a displacing brush")
 				}
