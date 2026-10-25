@@ -56,6 +56,12 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   cycled transfer buffer and bumps `version` (`:488`); `mesh_buffers_upload_indices` uploads index ranges (dynamic
   topology's whole changed pages, `sculptor_index_ranges`) and asserts they fit `index_count` (`:575`); `mesh_buffers_upload_lod` drops the LOD buffer on failure so the mesh
   draws at full detail; `viewport_download` returns RGBA8 rows top to bottom after waiting for the GPU (tests and dumps).
+- Studio render (`src/render/studio.odin`, app `studio_on`/Shift+R): `studio_frame` after `render_viewport` on the same
+  `cmd`; a frame whose stats show any redraw (`!partial || redrawn_px > 0`) copies `vt.color` into `Studio.shown` and resets,
+  a still one adds one sample: `shadow.vert`/`.frag` depth pass from an R2-sequence direction (every 4th around the view-space
+  key light) into a 2048² map, `studio_gather.frag` (full-screen `clear.vert`, additive blend into RGBA16F `accum`; normals
+  from neighbouring viewport depths), `studio_composite.frag` into `shown`. Needs `Renderer.depth_sampled` (viewport depth
+  has `.SAMPLER`). The viewport panel and `viewport_download(…, texture)` use `studio_texture` while on.
 - Compute (the GPU compute trial, `src/render/smooth_compute.odin`): `Smooth_Compute` holds the `smooth_all.comp` pipeline,
   six storage buffers (indices, CSR offsets and tris, weights, two position buffers) and an upload and a download transfer
   buffer, all grown on demand and kept; `smooth_compute_run` uploads (topology only when its key changed or is 0),

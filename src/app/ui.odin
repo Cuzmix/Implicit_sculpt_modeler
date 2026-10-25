@@ -272,6 +272,14 @@ draw_menu_bar :: proc(app: ^App) {
 		if imgui.MenuItem("Wireframe", "Shift+F", app.wireframe) do app.wireframe = !app.wireframe
 		if imgui.MenuItem("Flat shading", "Shift+G", app.flat) do app.flat = !app.flat
 		if imgui.MenuItem("Polygroups", "Shift+W", app.show_groups) do app.show_groups = !app.show_groups
+		if imgui.MenuItem("Studio render", "Shift+R", app.studio_on) do studio_toggle(app)
+		if imgui.BeginMenu("Studio settings") {
+			imgui.SliderFloat("Occlusion", &app.studio_ao, 0, 1, "%.2f")
+			imgui.SliderFloat("Shadow", &app.studio_shadow, 0, 1, "%.2f")
+			imgui.SliderInt("Samples", &app.studio_samples, 16, STUDIO_SAMPLES_MAX)
+			imgui.TextDisabled("Builds up while the view stays still;\nany change starts it over.")
+			imgui.EndMenu()
+		}
 		if imgui.BeginMenu("Material") {
 			material_menu(app)
 			imgui.EndMenu()
@@ -279,6 +287,10 @@ draw_menu_bar :: proc(app: ^App) {
 		imgui.Separator()
 		if imgui.MenuItem("ImGui demo", nil, app.ui.show_demo) do app.ui.show_demo = !app.ui.show_demo
 		imgui.EndMenu()
+	}
+	if app.studio_on && app.studio.samples > 0 && app.studio.samples < int(app.studio_samples) {
+		imgui.Separator()
+		imgui.TextDisabled("Studio %d/%d", i32(app.studio.samples), app.studio_samples)
 	}
 	// The last file action's outcome, for a while; the whole of it on hover.
 	if note := app.file_note; note.text != "" && time.tick_since(note.at) < FILE_NOTE_SHOWN {
@@ -291,6 +303,12 @@ draw_menu_bar :: proc(app: ^App) {
 		}
 		if imgui.IsItemHovered() do imgui.SetTooltip("%s", text)
 	}
+}
+
+// Turns the studio render on or off; on, it starts from the plain viewport.
+studio_toggle :: proc(app: ^App) {
+	app.studio_on = !app.studio_on
+	render.studio_reset(&app.studio)
 }
 
 // View > Material: the classic presets, the physically based ones, and sliders that edit
@@ -340,7 +358,12 @@ draw_viewport :: proc(app: ^App) -> (input: Viewport_Input) {
 	app.ui.viewport_request = {max(avail.x * scale, 1), max(avail.y * scale, 1)}
 
 	origin := imgui.GetCursorScreenPos()
-	imgui.Image(imgui.TextureRef{_TexID = imgui.TextureID(uintptr(app.target.color))}, avail)
+	// The studio render's image while it is on and has one, else the plain viewport.
+	shown := app.target.color
+	if app.studio_on {
+		if tex := render.studio_texture(&app.studio); tex != nil do shown = tex
+	}
+	imgui.Image(imgui.TextureRef{_TexID = imgui.TextureID(uintptr(shown))}, avail)
 
 	// An invisible button over the image captures mouse input so dragging in the
 	// viewport never moves the window or leaks to panels underneath.
@@ -1068,6 +1091,8 @@ handle_shortcuts :: proc(app: ^App) {
 			focus_selected(app)
 		}
 	}
+	// Shift+R, as ZBrush's BPR render, switches the studio render.
+	if imgui.IsKeyPressed(.R, false) && io.KeyShift && !io.KeyCtrl do studio_toggle(app)
 	// Shift+G shows the triangles as flat facets, beside Shift+F's wireframe.
 	if imgui.IsKeyPressed(.G, false) && io.KeyShift && !io.KeyCtrl do app.flat = !app.flat
 	// Delete removes the selected object; Ctrl+Z brings it back.
