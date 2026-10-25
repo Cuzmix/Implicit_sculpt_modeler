@@ -73,6 +73,7 @@ on window focus or hover to decide ownership; a widget that acts on a finger pre
 | uses the desktop mouse and keys | `mouse_controls`, `shift_snaps_orbit` |
 | changes and resets settings, and restarts | `settings_scroll_and_persist`, `settings_reset_everything`, `settings_reset_needs_second_tap` |
 | uses another window size | `small_window` (1280 x 800), `rail_fits_a_large_interface`, `rail_fits_portrait`, `rail_on_the_right_clears_the_panels` |
+| long-presses a control: its secondary action or its tooltip, never a tap; a press short of it still taps | `long_press_shows_the_tooltip_and_does_not_tap`, `long_press_a_scene_row_opens_its_menu`, `slow_tap_on_a_folded_title_still_opens_it`, `a_press_short_of_long_still_taps` |
 | holds or taps a modifier button with one hand while the other sculpts | `rail_hold_smooth_with_pen`, `rail_tap_latches_invert`, `rail_mask_paints_mask`, `rail_mask_shape_from_empty_space`, `rail_hide_gesture`, `rail_lift_mid_stroke_keeps_mode`, `rail_mouse_click_latches` |
 | holds a modifier button while the pen lands, hovers, or two fingers pinch; a window covers it; a latched one at the edge | `rail_finger_survives_pen_down`, `rail_finger_while_pen_near`, `rail_finger_during_pinch`, `rail_under_window_goes_to_window`, `rail_latched_edge_still_orbits` |
 
@@ -89,7 +90,8 @@ are on the device checklist.
 - Checks are functions of the exit stats (`camera_yaw`, `camera_pitch`, `camera_roll`, `camera_distance`,
   `camera_target`, `dabs`, `undo_steps`, `redo_steps`, `brush_radius_px`, `brush_strength`, `inspector_scroll`,
   `settings_scroll`, `settings_open`, `orbit_pivot`, `pivot_source`, `cursor_hit`, `cursor_normal`, `window_<name>`,
-  `stroke_kind`, `stroke_invert`, `rail_latched`, `masked`, `hidden_triangles`, `layout_<name>` (x,y,w,h of the
+  `stroke_kind`, `stroke_invert`, `rail_latched`, `masked`, `hidden_triangles`, `long_tip` (the last long-press
+  tooltip, spaces as underscores, or none), `object_menu`, `layout_<name>` (x,y,w,h of the
   modifier rail, sliders, dock, status and inspector), ...); `camera_still()` checks nothing moved; keys starting with `@` are checks given every stat at once or checks on
   files, such as `saved(key="value")` and `saved_line(line)` on the settings file, or `on_screen` comparing where a
   point shows before and after an orbit. A value the scenario needs that the app does not print
@@ -101,6 +103,10 @@ are on the device checklist.
 - A second hand's finger (a modifier button held while another finger or the pen works) gets an id of its own
   (`RAIL_FINGER`, 9), never 0. The scripted pen has no pressure (no `PEN_AXIS` event), so a pen stroke whose effect
   scales with pressure (the mask) changes nothing: use a finger stroke to check the effect.
+- The interface's clock is fixed: `touch_check` passes `--ui-dt=1/60`, so tweens, tooltip delays and long presses
+  count frames (`LONG_PRESS_FRAMES`, 30, is a long press; `long_press(s, x, y)` makes one). Never hold a finger still
+  on a control for 27 frames or more unless the scenario means a long press. `FINGER_HOLD` and the pie's right tap are
+  still real time.
 - Timing: events are per frame, not per millisecond. `FINGER_HOLD` (90 ms) and the 0.25 s tap window are real time,
   so keep "together" fingers within a frame or two and taps to a few frames.
 
@@ -122,6 +128,9 @@ what was done, what should happen, what happened; a screen recording when someth
     (latches, filled); hold Mask and stroke with a finger. Check the OEM pen does not cancel the held finger (some
     stylus drivers cancel every touch when the pen lands), and that the bottom-left buttons are not inside the
     system's home-gesture band (a swipe up from them must not leave the app, and a tap must reach the button).
+13. Long press: hold a finger still on Undo or a dock brush: the ring fills and the tooltip shows,
+    and lifting does not press it; a quick tap still presses. Long-press an object in the Scene tab: its menu opens.
+    Note whether 0.45 s feels right and whether the ring shows round the fingertip.
 
 ## 7. Recording a failure
     Title: <what went wrong, in the user's words>

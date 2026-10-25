@@ -45,6 +45,7 @@ Options :: struct {
 	no_cache:  bool `usage:"Draw every object every frame instead of caching the idle ones (for comparison)."`,
 	no_cull:   bool `usage:"Draw every triangle instead of skipping off-screen and back-facing chunks (for comparison)."`,
 	reduce_motion: bool `usage:"Start with the interface's animations off, as Menu > Reduce motion does."`,
+	ui_dt:     f32 `usage:"Move the interface's clock (animations, tooltips, long presses) this many seconds a frame instead of by the time that passed, for scripted runs whose checks must not depend on how fast frames come (scripts/touch_check.py passes 1/60). The 90 ms a finger waits before it sculpts and the right tap that opens the pie stay on the real clock."`,
 	finger_orbits: bool `usage:"Start with one finger on the model turning the view instead of sculpting, as Settings > Touch and pen > One finger on the model does."`,
 	ui_events: string `usage:"Drive the pointer, fingers and pen as SDL events would, for tests: FRAME:move:X,Y, FRAME:down, FRAME:up, FRAME:right (a right click), FRAME:wheel:N, FRAME:key:NAME (a key press: shift, ctrl, alt held until FRAME:keyup:NAME), FRAME:fdown:ID:X,Y, FRAME:fmove:ID:X,Y, FRAME:fup:ID and FRAME:fcancel:ID (finger ID on a touch screen), FRAME:pdown:X,Y, FRAME:pmove:X,Y, FRAME:pup and FRAME:pnear / FRAME:pfar (the pen), separated by semicolons; X and Y in window points."`,
 	dump_screen: string `usage:"On exit, write the whole window as the interface drew it (viewport and panels) to this path: a PNG, or a binary PPM when it ends in .ppm."`,
@@ -443,6 +444,7 @@ run :: proc(opts: Options) -> bool {
 	settings_load(&app, settings)
 	app.settings_file = settings
 	if opts.reduce_motion do app.kit.ctx.reduced_motion = true
+	app.kit.fixed_dt = opts.ui_dt
 	if opts.finger_orbits do app.nav.finger_model = .Orbit
 	switch opts.orbit_style {
 	case "":
@@ -1047,6 +1049,9 @@ run :: proc(opts: Options) -> bool {
 			masked := obj != nil && sculpt.sculptor_has_mask(object_sculptor(obj))
 			fmt.printfln("stroke_kind=%s stroke_invert=%d rail_latched=%s masked=%d", strings.to_lower(fmt.tprint(app.stroke.kind), context.temp_allocator), int(app.stroke.invert), latched, int(masked))
 		}
+		// The last tooltip a long press showed, spaces as underscores so it stays one value.
+		long_tip, _ := strings.replace_all(ui.long_tip_shown(&app.kit.ctx), " ", "_", context.temp_allocator)
+		fmt.printfln("long_tip=%s object_menu=%d", long_tip if long_tip != "" else "none", int(app.kit.object_menu))
 		fmt.printfln("inspector_scroll=%.1f settings_scroll=%.1f settings_open=%d", app.kit.scroll, app.kit.settings_scroll, int(app.kit.settings))
 		n := app.cursor.normal
 		fmt.printfln("cursor_hit=%d cursor_normal=%.4f,%.4f,%.4f", int(app.cursor.ok), n.x, n.y, n.z)

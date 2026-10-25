@@ -32,6 +32,7 @@ Kit_State :: struct {
 	pass:       render.Ui_Pass,
 	scale:      f32, // window coordinates per point, this frame
 	last_frame: time.Tick, // for the animations' clock
+	fixed_dt:   f32, // seconds a frame on that clock instead, when above 0 (--ui-dt)
 	inspector:  bool,
 	tab:        Kit_Tab,
 	tab_serial: u64, // counts tab changes, so each one fades its content in afresh
@@ -423,6 +424,7 @@ kit_begin :: proc(app: ^App, window: ^sdl.Window) -> (size, pixels: [2]i32) {
 	}
 	now := time.tick_now()
 	in_.dt = f32(time.duration_seconds(time.tick_diff(k.last_frame, now)))
+	if k.fixed_dt > 0 do in_.dt = k.fixed_dt
 	k.last_frame = now
 	k.scale = scale
 	ui.frame_begin(&k.ctx, in_)
