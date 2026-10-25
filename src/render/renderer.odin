@@ -81,6 +81,9 @@ Mesh_Buffers :: struct {
 	index_count:     u32,
 	version:         u64, // changes whenever the buffers' contents do
 	drawn_version:   u64, // version when last drawn into the viewport
+	// The caller's stamp for index data that is not the mesh's own (the sculptor's
+	// hidden triangles, mesh_buffers_upload_packed_indices); 0 for the mesh's own.
+	hidden_stamp:    u32,
 
 	// Culled drawing: one indirect draw command per visible run of chunks, rebuilt
 	// each frame the mesh is drawn. Created on first use, sized for every chunk.
@@ -600,17 +603,31 @@ mesh_buffers_upload_indices :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb
 	if !upload_index_ranges(r, cmd, mb, mb.indices, indices, ranges) do log.errorf("index upload failed: %s", sdl.GetError())
 }
 
+// Records copies of `indices`, which hold the `ranges` one after another, into those
+// ranges of the mesh's index buffer: for index data that is not the mesh's own, such as
+// a sculptor's triangles with the hidden ones made degenerate.
+mesh_buffers_upload_packed_indices :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: ^Mesh_Buffers, indices: []u32, ranges: []geom.Index_Range) {
+	if len(ranges) == 0 do return
+	r.last_version += 1
+	mb.version = r.last_version
+	for x in ranges do assert(x.first_index + x.index_count <= mb.index_count)
+	if !upload_index_ranges(r, cmd, mb, mb.indices, indices, ranges, packed = true) do log.errorf("index upload failed: %s", sdl.GetError())
+}
+
 // Packs index ranges into the transfer buffer, cycled, and records their copies into
-// `buffer`, in as many batches as they need.
+// `buffer`, in as many batches as they need. The data of each range is at the same
+// place in `indices`, or with `packed`, `indices` holds the ranges one after another.
 @(private)
-upload_index_ranges :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: ^Mesh_Buffers, buffer: ^sdl.GPUBuffer, indices: []u32, ranges: []geom.Index_Range) -> bool {
+upload_index_ranges :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: ^Mesh_Buffers, buffer: ^sdl.GPUBuffer, indices: []u32, ranges: []geom.Index_Range, packed := false) -> bool {
 	ranges := ranges
 	capacity := mb.transfer_size / size_of(u32) // indices per batch
 	split: geom.Index_Range // remainder of a range cut at a batch boundary
+	read: u32 // with `packed`: where in `indices` the next piece starts
 	for len(ranges) > 0 || split.index_count > 0 {
 		Planned :: struct {
 			r:   geom.Index_Range,
 			dst: u32,
+			src: u32,
 		}
 		batch: [dynamic; 256]Planned
 		used: u32
@@ -628,13 +645,14 @@ upload_index_ranges :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: ^Mesh_
 				split = {next.first_index + (capacity - used), next.index_count - (capacity - used)}
 				next.index_count = capacity - used
 			}
-			append(&batch, Planned{next, used})
+			append(&batch, Planned{next, used, read if packed else next.first_index})
+			read += next.index_count
 			used += next.index_count
 		}
 		if len(batch) == 0 do break
 		dst := cast([^]u32)sdl.MapGPUTransferBuffer(r.device, mb.transfer, true)
 		if dst == nil do return false
-		for p in batch do copy(dst[p.dst:][:p.r.index_count], indices[p.r.first_index:][:p.r.index_count])
+		for p in batch do copy(dst[p.dst:][:p.r.index_count], indices[p.src:][:p.r.index_count])
 		sdl.UnmapGPUTransferBuffer(r.device, mb.transfer)
 		pass := sdl.BeginGPUCopyPass(cmd)
 		for p in batch {

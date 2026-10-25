@@ -33,6 +33,7 @@ Undo_Step :: struct {
 	saved:  [dynamic]Saved_Node,
 	nodes:  [dynamic]u32, // nodes whose triangles moved: bounds to refit, normals to update
 	painted: [dynamic]u32, // nodes whose mask changed: GPU data to update
+	shown:  [dynamic]u32, // nodes whose triangles were hidden or shown (hide.odin)
 }
 
 // A node's owned positions, or its owned vertices' masks, from before the stroke
@@ -47,6 +48,7 @@ Saved_Node :: struct {
 	block:      []Vec3,
 	borrowed:   bool,
 	masks:      []u8,
+	hidden:     []bool, // the node's triangles' hidden flags, for a hiding step
 	full:       bool,
 	indices:    []u32,
 	vert_count: u32,
@@ -107,7 +109,7 @@ sculptor_stroke_end :: proc(s: ^Sculptor) -> bool {
 	h := &s.history
 	if !h.recording do return false
 	h.recording = false
-	if len(h.current.nodes) == 0 && len(h.current.painted) == 0 {
+	if len(h.current.nodes) == 0 && len(h.current.painted) == 0 && len(h.current.shown) == 0 {
 		step_reset(h, &h.current)
 		return false
 	}
@@ -186,6 +188,11 @@ step_move :: proc(s: ^Sculptor, from, to: ^[dynamic]Undo_Step) -> bool {
 	for sv in step.saved {
 		n := s.nodes[sv.node]
 		if sv.full do continue
+		if sv.hidden != nil {
+			live := s.hide.tris[n.tri_first:][:n.tri_count]
+			for &x, i in live do x, sv.hidden[i] = sv.hidden[i], x
+			continue
+		}
 		if sv.masks != nil {
 			live := s.mask[n.vert_first:][:n.vert_count]
 			for &k, i in live do k, sv.masks[i] = sv.masks[i], k
@@ -195,6 +202,7 @@ step_move :: proc(s: ^Sculptor, from, to: ^[dynamic]Undo_Step) -> bool {
 		for &p, i in live do p, sv.positions[i] = sv.positions[i], p
 	}
 	for id in step.painted do mark_stale(s, id, .Paint)
+	if len(step.shown) > 0 do hide_refresh(s, step.shown[:])
 	if s.dyn == nil {
 		d := Dab{s = s}
 		clear(&s.changed)
@@ -306,8 +314,8 @@ record_changed_node :: proc(s: ^Sculptor, id: u32) {
 
 @(private)
 step_bytes :: proc(step: Undo_Step) -> int {
-	bytes := len(step.saved) * size_of(Saved_Node) + (len(step.nodes) + len(step.painted)) * size_of(u32)
-	for sv in step.saved do bytes += len(sv.positions) * size_of(Vec3) + len(sv.masks) + len(sv.indices) * size_of(u32)
+	bytes := len(step.saved) * size_of(Saved_Node) + (len(step.nodes) + len(step.painted) + len(step.shown)) * size_of(u32)
+	for sv in step.saved do bytes += len(sv.positions) * size_of(Vec3) + len(sv.masks) + len(sv.hidden) + len(sv.indices) * size_of(u32)
 	return bytes
 }
 
@@ -320,11 +328,13 @@ step_reset :: proc(h: ^Undo_History, step: ^Undo_Step) {
 			delete(sv.positions, h.allocator)
 		}
 		delete(sv.masks, h.allocator)
+		delete(sv.hidden, h.allocator)
 		delete(sv.indices, h.allocator)
 	}
 	clear(&step.saved)
 	clear(&step.nodes)
 	clear(&step.painted)
+	clear(&step.shown)
 }
 
 @(private)
@@ -336,11 +346,13 @@ step_destroy :: proc(h: ^Undo_History, step: ^Undo_Step) {
 			delete(sv.positions, h.allocator)
 		}
 		delete(sv.masks, h.allocator)
+		delete(sv.hidden, h.allocator)
 		delete(sv.indices, h.allocator)
 	}
 	delete(step.saved)
 	delete(step.nodes)
 	delete(step.painted)
+	delete(step.shown)
 	step^ = {}
 }
 

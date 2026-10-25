@@ -100,10 +100,10 @@ sculptor_mask_command :: proc(s: ^Sculptor, command: Mask_Command, steps := 1) -
 			job := cast(^Mask_Job)data
 			for id in lo ..< hi {
 				n := job.s.nodes[id]
-				if job.command == .Cavity {
-					for v in n.vert_first ..< n.vert_first + n.vert_count do job.after[v] = mask_cavity(job.s, v)
-				} else {
-					for &k in job.after[n.vert_first:][:n.vert_count] do k = mask_after(job.command, k)
+				// Hidden vertices keep their mask, as in ZBrush.
+				for v in n.vert_first ..< n.vert_first + n.vert_count {
+					if vertex_hidden(job.s, v) do continue
+					job.after[v] = mask_cavity(job.s, v) if job.command == .Cavity else mask_after(job.command, job.after[v])
 				}
 				job.changes[id] = true
 			}
@@ -159,6 +159,7 @@ sculptor_mask_shape :: proc(s: ^Sculptor, clip: matrix[4, 4]f32, shape: [][2]f32
 		for id in lo ..< hi {
 			n := s.nodes[id]
 			for v in n.vert_first ..< n.vert_first + n.vert_count {
+				if vertex_hidden(s, v) do continue
 				p := s.mesh.positions[v]
 				c := sj.clip * [4]f32{p.x, p.y, p.z, 1}
 				if c.w <= 1e-6 do continue
@@ -179,17 +180,17 @@ sculptor_mask_shape :: proc(s: ^Sculptor, clip: matrix[4, 4]f32, shape: [][2]f32
 
 // Which cells of a grid over a polygon's bounds the polygon covers (even-odd), sampled
 // at each cell's centre, for sculptor_mask_shape.
-@(private = "file")
+@(private)
 Coverage :: struct {
 	lo, size: [2]f32, // the polygon's bounds
 	n:        int, // cells a side
 	cells:    []bool, // row by row from lo.y
 }
 
-@(private = "file")
+@(private)
 COVERAGE_CELLS :: 1024
 
-@(private = "file")
+@(private)
 coverage_make :: proc(shape: [][2]f32) -> (c: Coverage) {
 	lo, hi := shape[0], shape[0]
 	for p in shape do lo, hi = linalg.min(lo, p), linalg.max(hi, p)
@@ -217,7 +218,7 @@ coverage_make :: proc(shape: [][2]f32) -> (c: Coverage) {
 	return
 }
 
-@(private = "file")
+@(private)
 coverage_at :: #force_inline proc(c: Coverage, p: [2]f32) -> bool {
 	f := (p - c.lo) / c.size
 	if f.x < 0 || f.y < 0 || f.x >= 1 || f.y >= 1 do return false

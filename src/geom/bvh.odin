@@ -250,7 +250,8 @@ ray_aabb :: #force_inline proc(bounds: Aabb, origin, inv_dir: Vec3, t_max: f32) 
 }
 
 // Nearest hit along the ray (both triangle faces), visiting the closer child first.
-bvh_raycast :: proc(b: ^Bvh, m: Mesh, origin, dir: Vec3) -> (t: f32, tri: u32, ok: bool) {
+// Triangles marked in `skip` (one entry per triangle, or nil) are passed through.
+bvh_raycast :: proc(b: ^Bvh, m: Mesh, origin, dir: Vec3, skip: []bool = nil) -> (t: f32, tri: u32, ok: bool) {
 	if len(b.nodes) == 0 || b.nodes[0].bounds.lo.x > b.nodes[0].bounds.hi.x do return
 	inv_dir := Vec3{1 / dir.x, 1 / dir.y, 1 / dir.z}
 	runs := b.tri_order == nil
@@ -263,6 +264,7 @@ bvh_raycast :: proc(b: ^Bvh, m: Mesh, origin, dir: Vec3) -> (t: f32, tri: u32, o
 		if node.count > 0 {
 			for i in node.first ..< node.first + node.count {
 				id := i if runs else b.tri_order[i]
+				if skip != nil && skip[id] do continue
 				if d, hit := ray_triangle(m, id, origin, dir); hit && d < best {
 					best, tri, ok = d, id, true
 				}

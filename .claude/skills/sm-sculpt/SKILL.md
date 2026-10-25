@@ -95,7 +95,13 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
   allocation (`Saved_Node.block` on the first, `borrowed` on the rest, freed once) and copy in parallel. Clip
   (`src/sculpt/clip.odin`): `sculptor_clip(s, []Clip_Plane)` finds the nodes with a free vertex past a plane, saves them
   through `record_hit`, projects (shield-weighted) and calls `sculptor_nodes_moved`; one step, refused under dyntopo; app
-  gesture `src/app/clip.odin` (Ctrl+Shift drag, Alt flips, planes mirrored by `sculpt.mirrors`). Smooth all
+  gesture `src/app/clip.odin` (Ctrl+Shift drag with `app.gesture == .Clip`, Alt flips, planes mirrored by
+  `sculpt.mirrors`). Hiding (`src/sculpt/hide.odin`): `Hide.tris` per triangle; a vertex is hidden when every
+  triangle of it is, and then its `fade` is 0, so `shield` keeps brushes, Clip and Grab off it (mask commands check
+  `vertex_hidden`); `hide_refresh` rebuilds `fade`, `units` (chunks plus LOD groups, for `Draw_Item.hidden`) and bumps
+  `stamp`, which `hidden_upload` in app/scene.odin compares to re-upload packed indices with hidden triangles zeroed.
+  `sculptor_hide_shape`/`sculptor_hide_command` are undo steps (`Undo_Step.shown`, `Saved_Node.hidden`); refused under
+  dyntopo or in HD, never hide everything; `bvh_raycast` skips hidden triangles. Smooth all
   (`src/sculpt/smooth_all.odin`) follows the same shape: `sculptor_smooth_all(s, steps, strength, gpu)` weighs every
   vertex by `strength · shield`, saves the free nodes, runs `smooth_all_cpu` (Jacobi steps over vertex ranges, two
   buffers) or the `Smooth_Gpu` callback the app fills with `render.smooth_compute_run` (falls back to the CPU when it

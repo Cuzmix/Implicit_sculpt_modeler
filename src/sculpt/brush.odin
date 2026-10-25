@@ -181,7 +181,8 @@ Sculptor :: struct {
 	// Simplified copies for drawing while the view moves (lod.odin).
 	lod:         Lod_State,
 	// Per vertex: how far brushes move it, from 0 (not at all: an HD window's border,
-	// which meets the level drawn around it) to 255 (fully); nil when all move fully.
+	// which meets the level drawn around it, or a hidden vertex) to 255 (fully); nil
+	// when all move fully.
 	fade:        []u8,
 	// Per vertex: how masked it is, from 0 (not at all) to 255 (brushes leave it alone);
 	// nil until something is first masked (mask.odin).
@@ -194,6 +195,8 @@ Sculptor :: struct {
 	// The positions sculptor_morph_store kept, which the Morph brush brings vertices
 	// back to; nil when none is stored.
 	morph:        []Vec3,
+	// The hidden triangles (hide.odin).
+	hide:        Hide,
 	// Set while dynamic topology is on (dyntopo.odin): the mesh is laid out in pages,
 	// `faces` and the shared lists above are replaced, and there are no LOD copies.
 	dyn:         ^Dyn,
@@ -231,6 +234,7 @@ sculptor_init :: proc(s: ^Sculptor, mesh: ^geom.Mesh, pool: ^jobs.Pool, node_tri
 
 sculptor_destroy :: proc(s: ^Sculptor) {
 	dyn_destroy(s)
+	hide_destroy(s)
 	delete(s.mask, s.history.allocator)
 	delete(s.layer, s.history.allocator)
 	delete(s.morph, s.history.allocator)
@@ -1196,10 +1200,11 @@ face_normal :: #force_inline proc(m: ^geom.Mesh, f: u32) -> Vec3 {
 	return linalg.cross(p1 - p0, p2 - p0)
 }
 
-// Closest intersection of a ray with the sculpted mesh, using the BVH.
+// Closest intersection of a ray with the sculpted mesh, using the BVH. Hidden
+// triangles are passed through.
 sculptor_raycast :: proc(s: ^Sculptor, origin, dir: Vec3) -> (hit: Vec3, ok: bool) {
 	t: f32
-	t, _, ok = geom.bvh_raycast(&s.bvh, s.mesh^, origin, dir)
+	t, _, ok = geom.bvh_raycast(&s.bvh, s.mesh^, origin, dir, sculptor_hidden_tris(s))
 	if ok do hit = origin + dir * t
 	return
 }
