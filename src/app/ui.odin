@@ -55,6 +55,7 @@ MASK_COMMAND_NAMES := [sculpt.Mask_Command]string {
 	.Clear   = "Clear",
 	.Invert  = "Invert",
 	.Fill    = "Mask all",
+	.Cavity  = "Mask cavities",
 	.Blur    = "Blur",
 	.Sharpen = "Sharpen",
 	.Grow    = "Grow",
@@ -197,6 +198,15 @@ draw_menu_bar :: proc(app: ^App) {
 	if imgui.BeginMenu("View") {
 		if imgui.MenuItem("Reset camera") do app.camera = camera.orbit_default()
 		if imgui.MenuItem("Focus selected", "F") do focus_selected(app)
+		imgui.Separator()
+		if imgui.MenuItem("Wireframe", "Shift+F", app.wireframe) do app.wireframe = !app.wireframe
+		if imgui.BeginMenu("Material") {
+			for m, i in MATERIALS {
+				if imgui.MenuItem(m.label, nil, app.material == i) do app.material = i
+			}
+			imgui.EndMenu()
+		}
+		imgui.Separator()
 		if imgui.MenuItem("ImGui demo", nil, app.ui.show_demo) do app.ui.show_demo = !app.ui.show_demo
 		imgui.EndMenu()
 	}
@@ -388,6 +398,8 @@ draw_tools_panel :: proc(app: ^App) {
 	if imgui.Button("Invert (Ctrl+I)") do mask_command(app, .Invert)
 	imgui.SameLine()
 	if imgui.Button("Mask all") do mask_command(app, .Fill)
+	imgui.SameLine()
+	if imgui.Button("Mask cavities") do mask_command(app, .Cavity)
 	for command, i in ([?]sculpt.Mask_Command{.Blur, .Sharpen, .Grow, .Shrink}) {
 		if i > 0 do imgui.SameLine()
 		if imgui.Button(fmt.ctprintf("%s", MASK_COMMAND_NAMES[command])) do mask_command(app, command)
@@ -797,7 +809,14 @@ handle_shortcuts :: proc(app: ^App) {
 		app.ui.scene_command = {kind = .Dyntopo, on = !object_dynamic(obj)}
 	}
 	if io.KeyCtrl && imgui.IsKeyPressed(.I, false) do mask_command(app, .Invert)
-	if imgui.IsKeyPressed(.F, false) do focus_selected(app)
+	if imgui.IsKeyPressed(.F, false) {
+		// Shift+F shows the edges, as ZBrush's PolyFrame; F alone frames the selection.
+		if io.KeyShift {
+			app.wireframe = !app.wireframe
+		} else {
+			focus_selected(app)
+		}
+	}
 	// Delete removes the selected object; Ctrl+Z brings it back.
 	if imgui.IsKeyPressed(.Delete, false) && selected_object(app) != nil do app.ui.scene_command = {kind = .Delete}
 	if imgui.IsKeyPressed(.A, false) && !io.KeyCtrl {

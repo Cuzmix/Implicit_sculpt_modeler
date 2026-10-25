@@ -63,7 +63,8 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
 - Mask (`src/sculpt/mask.odin`): `Sculptor.mask []u8` per vertex, nil until first used, 255 = brushes leave the vertex
   alone. `sculptor_mask_shape(s, clip, ndc_polygon, unmask)` masks every vertex whose clip-space projection falls in the polygon (even-odd, through a 1024² `Coverage` grid), committing through the shared `mask_commit` like the commands; app side `src/app/mask_shape.odin` (Ctrl + drag from empty space, Alt unmasks). `mask_dab` (`:35`) paints by `255 · strength · falloff · fade`, marks nodes stale `.Paint` (GPU data only, no
   normal recompute) and records them as `painted`; `sculptor_mask_command(s, command, steps)` is one undo step (`:82`):
-  Clear, Invert and Fill are one pass; Blur, Sharpen, Grow and Shrink (`mask_steps`, `:159`) give each vertex the
+  Clear, Invert and Fill are one pass, and Cavity (`mask_cavity`) masks each vertex by how far it sits below the average of its
+  triangles' corners along its normal, over their mean distance, times `CAVITY_GAIN` (works with no mask yet); Blur, Sharpen, Grow and Shrink (`mask_steps`, `:159`) give each vertex the
   average, a push away from half masked against half that average (`SHARPEN_PUSH`), the highest or the lowest of its
   triangles' corners a step (`mask_filtered`, `:288`). A vertex whose corners all share its value (0 or 255 for Sharpen)
   is a fixed point, so a step works only on the nodes with uneven corners (`node_uneven`, `:253`) and their owners,

@@ -39,7 +39,7 @@ run_masks :: proc(target: int, pool: ^jobs.Pool) {
 		command: sculpt.Mask_Command,
 		steps:   int,
 	}
-	cases := [?]Case{{.Clear, 1}, {.Invert, 1}, {.Blur, 1}, {.Blur, 10}, {.Sharpen, 1}, {.Grow, 1}, {.Grow, 10}, {.Shrink, 1}}
+	cases := [?]Case{{.Clear, 1}, {.Invert, 1}, {.Cavity, 1}, {.Blur, 1}, {.Blur, 10}, {.Sharpen, 1}, {.Grow, 1}, {.Grow, 10}, {.Shrink, 1}}
 	for c in cases {
 		t0 := time.tick_now()
 		_ = sculpt.sculptor_mask_command(s, c.command, c.steps)

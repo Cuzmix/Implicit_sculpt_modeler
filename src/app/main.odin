@@ -50,6 +50,8 @@ Options :: struct {
 	bench_loops: int `usage:"Make --bench-stroke this many circles around the middle of the sphere instead of a wavy line."`,
 	brush:     string `usage:"Start with this brush: draw, smooth, clay, flatten, inflate, pinch, crease, grab or mask (also what --bench-stroke uses)."`,
 	symmetry:  string `usage:"Start with brush symmetry across these axes, e.g. x or xz."`,
+	material:  string `usage:"Shade objects with this View > Material: clay (the default), red wax, white, grey or skin."`,
+	wireframe: bool `usage:"Show the selected object's edges, as View > Wireframe (Shift+F) does."`,
 	falloff:   string `usage:"Start every brush with this falloff: smooth (the default), linear, sharp, firm or flat, as the Tools panel's Falloff presets set."`,
 	rotate:    string `usage:"Turn the first object this many degrees about x, y and z before starting, e.g. 0,45,0 (as the Scene panel's Rotation does)."`,
 	mirror:    string `usage:"Mirror and weld the first object before starting, as the Scene panel does: x, y or z keeps that axis's + side, -x, -y or -z the - side (after --remesh)."`,
@@ -98,6 +100,8 @@ App :: struct {
 	ui:       Ui_State,
 	stats:    Frame_Stats,
 	history:  History,
+	material:  int,  // the index in MATERIALS objects are shaded with
+	wireframe: bool, // draw the selected object's edges over it
 	cache_idle: bool, // draw unselected objects from the viewport cache while they stay put
 	hd_window_vertices: int, // size of the HD windows the A key opens
 	// While the view moves, draw far groups of chunks from simplified copies that stray
@@ -292,6 +296,15 @@ run :: proc(opts: Options) -> bool {
 	app.ui = ui_state_default()
 	app.brush = {kind = .Draw, radius_px = 60, pressure_strength = true, pressure_curve = geom.CURVE_LINEAR, detail_px = 10, collapse = true, alpha = -1}
 	for &s in app.brush.strengths do s = 0.5
+	app.wireframe = opts.wireframe
+	if opts.material != "" {
+		found: bool
+		app.material, found = material_by_name(opts.material)
+		if !found {
+			log.errorf("unknown material %q", opts.material)
+			return false
+		}
+	}
 	if opts.falloff != "" {
 		found := false
 		for preset in FALLOFF_PRESETS {
@@ -502,14 +515,16 @@ run :: proc(opts: Options) -> bool {
 					render.mesh_buffers_upload_lod(&app.renderer, cmd, gpu, lv.sculptor.lod.indices[:], lod_ranges, all, len(lv.mesh.indices) / 2)
 					lod_ms = time.duration_milliseconds(time.tick_since(t_lod))
 				}
-				// The selected object is in clay; the others are a muted grey. Only the
-				// selected one is sculpted or moved, so the rest can come from the cache.
+				// The selected object is in the material's colour; the others are muted. Only
+				// the selected one is sculpted or moved, so the rest can come from the cache.
 				selected := i == app.scene.selected
-				color := [4]f32{0.55, 0.40, 0.32, 1} if selected else {0.42, 0.42, 0.44, 1}
+				material := MATERIALS[app.material]
 				append(&draws, render.Draw_Item {
 					mesh   = gpu,
 					model  = transform_matrix(obj.transform),
-					color  = color,
+					color  = material.selected if selected else material.idle,
+					material = material.shading,
+					wireframe = selected && app.wireframe,
 					live   = selected,
 					chunks = lv.sculptor.chunks,
 					damage = lv.sculptor.changed_bounds,

@@ -635,3 +635,23 @@ mask_shape_masks_inside_it :: proc(t: ^testing.T) {
 		break
 	}
 }
+
+// Mask by cavity masks a groove a Crease cut and leaves the round sphere alone.
+@(test)
+mask_cavity_finds_a_groove :: proc(t: ^testing.T) {
+	sp := sphere_make(6)
+	defer sphere_free(sp)
+	s := &sp.sculptor
+	_ = apply_dab(s, {kind = .Crease, radius = 0.15, strength = 1}, TOP)
+	_ = apply_dab(s, {kind = .Crease, radius = 0.15, strength = 1}, TOP)
+	_ = sculptor_flush(s)
+	testing.expect(t, sculptor_mask_command(s, .Cavity))
+	groove, elsewhere: int
+	for p, v in sp.mesh.positions {
+		off := linalg.length(sp.before[v].xy)
+		if off < 0.02 && sp.before[v].z > 0 && s.mask[v] > 128 do groove += 1
+		if linalg.length(p - TOP) > 0.5 && s.mask[v] > 10 do elsewhere += 1
+	}
+	testing.expectf(t, groove > 0, "nothing in the groove masked")
+	testing.expectf(t, elsewhere == 0, "%d vertices away from the groove masked", elsewhere)
+}

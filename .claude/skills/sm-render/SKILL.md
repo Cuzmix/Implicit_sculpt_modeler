@@ -18,9 +18,12 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   (`raw & ~15` is the normal; the nibbles give `out_mask` at location 2) and `mesh.frag` darkens masked clay
   (`albedo · (1 − 0.7 · mask)`, highlights `· (1 − 0.5 · mask)`).
 - Uniforms: `Frame_Uniforms{view_proj, view, model}` (std140, column-major, `renderer.odin:108-113`) pushed per draw; `Material_Uniforms
-  {base_color, params (ambient, specular strength, power)}` (`renderer.odin:154-158`). Shaders are `.spv` embedded with `#load`
+  {base_color, params (ambient, specular strength, power, wrap)}`; `params.y < 0` makes `mesh.frag` write the flat colour (the wireframe) (`renderer.odin:154-158`). Shaders are `.spv` embedded with `#load`
   (`renderer.odin:160-163`), compiled from `src/render/shaders/*.vert|*.frag` only when `glslangValidator` is on PATH (sm-build).
-- `Draw_Item{mesh, model, color, live, chunks, damage, lod, hidden}` (`renderer.odin:115-137`): `model` is a similarity (rotation, translation,
+- `Draw_Item{mesh, model, color, material, wireframe, live, chunks, damage, lod, hidden}` (`renderer.odin:115-137`): `material` is
+  ambient, specular, power and wrap (zero = `DEFAULT_MATERIAL`, the app's presets in `src/app/material.odin`); `wireframe` draws
+  the same chunks again through `wire_pipeline` (`.LINE` fill, depth bias, no depth write, `WIRE_COLOR`), which is optional:
+  if a backend refuses line fill it logs a warning and stays off; `model` is a similarity (rotation, translation,
   uniform scale) only, because culling takes the eye into mesh space with its inverse; `damage` is the mesh-space box of what
   changed, before and after; a version bump without a damage box forces a full redraw; `hidden` is per chunk then per group.
 - Pipelines: mesh culls `.BACK` with `.COUNTER_CLOCKWISE` front faces (`renderer.odin:284`), colour `R8G8B8A8_UNORM`, depth
@@ -34,7 +37,7 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   work (`:413`) → per object and part (current level, plus the HD window, `:423`): `sculptor_flush` → `level_upload`
   (`src/app/scene.odin:217`: vertex ranges with the mask, dynamic topology's index pages, new buffers when the mesh
   outgrew them), then once per frame and never during a stroke `sculptor_lod_update` → `mesh_buffers_upload_lod`
-  (`src/app/main.odin:440-451`) → a `Draw_Item` per part, clay for the selected object and grey otherwise (`:452`) →
+  (`src/app/main.odin:440-451`) → a `Draw_Item` per part, the View > Material colours (selected and idle) and `wireframe` on the selected one (`:452`) →
   `render_viewport` (`:469`) → submit, with a fence when `time_gpu` (`:472`) → ImGui pass into the swapchain on
   `present_cmd` (`:492-503`).
 - `render_viewport` (`renderer.odin:628-650`): with `partial` on and an unchanged `frame_key` (camera, size, item
