@@ -14,8 +14,9 @@ re-check the stores' pages before a first submission, because they move every ye
 - Content and controls stay inside the safe area: Android is edge-to-edge (forced when targeting API 35+), iPad has
   rounded corners, the home indicator and Stage Manager windows. Read the insets each frame from SDL
   (`SDL_GetWindowSafeArea`) and lay panels out inside them; the viewport may draw under them.
-- Touch targets are at least 44 x 44 points (Apple) and 48 x 48 dp (Android): use 48 in the tablet layout. Mouse
-  layouts may be denser, but anything a finger can reach on a tablet keeps 48.
+- Touch targets are at least 44 x 44 points (Apple) and 48 x 48 dp (Android): use 48 everywhere. There is one
+  layout for every OS and device (Bolt, 2026-10-25): desktop uses the same touch-sized layout as the tablet, scaled
+  by the display's DPI, never a denser mouse-only variant.
 - Every window size works: iPad split view and Stage Manager, Android multi-window, free-form windows and rotation.
   Never assume full screen or one orientation; nothing is cut off or overlaps at the smallest size.
 - Android back (gesture or button) closes the topmost sheet, menu or dialog first and only then leaves the app, and it
