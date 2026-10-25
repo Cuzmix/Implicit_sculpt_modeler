@@ -246,6 +246,12 @@ How it works (`src/geom/remesh.odin`): the object is laid on a lattice whose spa
 
 The remesh itself runs on every thread; on this VM a large share of it is first touches of new memory, which are much cheaper on a desktop. Peak memory at 10M was 2.3 GB, the old and new meshes included.
 
+## Project detail
+
+**Project detail** (Scene panel), after ZBrush's ProjectAll: the selected object's shown level takes the shape of the object chosen in Project from, and its polypaint too with Polypaint too. Each vertex looks along its normal both ways, as far as Reach (a share of the selected object's size, 0.03 by default), for the other surface, and moves to the nearer hit by Strength; the mask holds vertices back as it holds a brush. Vertices that find nothing stay put. It is one undo step.
+
+By default each object is read in its own space, as baking does, so a copy made by Duplicate or Retopologize, which is put beside the original, projects as if it lay on top of it; As placed uses where the two sit in the scene instead. The usual round trip: duplicate a sculpt, Remesh or Retopologize the copy (the detail goes), subdivide it a level at a time and Project detail at each level from the lowest up, so every level holds what it can of the original. A 100k-vertex retopology projected from a 1M sphere takes about 0.3 s on the VM, the source's BVH included. Not under dynamic topology on the selected object. Flag: `--project` (from the first object onto the selected one; after `--retopo`).
+
 ## Curve and insert tools
 
 **Curve** (C, Tools panel), after ZBrush's curve brushes: drag over any surface and, on release, a new object follows the path. It is made one of three ways. **Tube** sweeps a circle of Sides sides along it, capped at both ends; Lift sets how far its middle sits out from the surface, in radii, so 0 half buries it and 1 rests it on top. **Stitches** sets leaning bars across the path. **Zipper** sets interlocking teeth from alternate sides. Width is a share of the brush's diameter where the path began, so S resizes it. The path is resampled at even steps and smoothed three times, which takes out the hand's wobble. Each part is turned to the path's frame there (along the path, out of the surface and across it), so the result follows the surface's curvature. The result is an ordinary closed object: remesh it to sculpt it, or mark it Union for the booleans.
