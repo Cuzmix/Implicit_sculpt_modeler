@@ -11,10 +11,10 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
 - The frame (`src/app/main.odin`): `kit_events_push` (`--ui-events` as SDL events) → events → `device_event`
   (`src/app/device.odin:59`), `touch_event` (`touch.odin`), pointer samples → `device_frame_end` (modifiers) →
   `viewport_target_resize` → `kit_frame` (`new_ui.odin:392`: `kit_begin` builds the kit's `ui.Input` from the Device,
-  then the viewport image, `ui.layer_mark`, `kit_layout`, `kit_viewport_input`, `handle_shortcuts`, `layer_drag_end`,
+  then the viewport image, `ui.layer_mark`, `kit_layout`, `kit_viewport_input`, `commands_handle_keys`, `layer_drag_end`,
   text input on/off, F11/Tab/Escape) → `camera_apply_input` (`navigate.odin`) and the active tool →
   `draw_viewport_overlay` (`overlay.odin:82`) → the 3D work → `kit_upload` (`ui.frame_end`) → `ui_pass_draw`.
-- `Device` (`device.odin:12`): this frame's keys (`Key_Press`, unshifted key codes from the scancode), Shift/Ctrl/Alt,
+- `Device` (`device.odin:12`): this frame's keys (`Key_Press`, unshifted key codes from the scancode, with the Ctrl/Shift/Alt held when each went down), Shift/Ctrl/Alt,
   the pointer in window coordinates and how far it moved, which kind drives it (`pointer`: `ui.Pointer_Kind` Mouse,
   Finger or Pen), buttons down/pressed/released, `cancel` (the system took the pointer back), the wheel, typed text,
   the right button's tap (`right_tap`, for the pie) and `input_at` (latency). `key_pressed(d, sdl.K_X, repeat)`;
@@ -144,7 +144,7 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
 | a new statistic | a `Sample_Ring` in `Frame_Stats` (`src/app/stats.odin`), `ring_push` where it is measured, a `value_row` in `kit_stats.odin` and a key in the exit stats |
 | an A/B toggle | `ui.switch_row(ctx, "…", &app.<field>)` in the Stats panel's Drawing section plus a `--no-<x>` field in `Options` and a sentence in README "App flags" |
 | something drawn over the viewport | `overlay_*` calls in `overlay_viewport` (`overlay.odin`), in window coordinates |
-| a shortcut | a line in `handle_shortcuts` (`src/app/shortcuts.odin`) with `key_pressed(d, sdl.K_…)`, and README "Controls" |
+| a shortcut | a `Command_Id` and its `COMMANDS` row (label, help, icon, run, enabled, checked) in `src/app/commands.odin` if the action is new, and a `DEFAULT_BINDINGS` row (exact modifiers, kept in the order keys are read); menus show it through `command_menu_item`, tooltips through `command_keys`; `commands_test.odin` refuses a chord bound twice; README "Controls" |
 | a viewport input that tools must not see | clear it with `viewport_mute` before the tools read `Viewport_Input`; never filter inside a tool |
 | a setting that survives a restart | a `key values` line in both `settings_save` and `settings_load`; a flag that sets it too overrides only when given |
 | a user preference in Settings | a field in `Nav_Prefs`/`Kit_State` with its default in `NAV_DEFAULT` or `kit_init`, a row in its `settings_<tab>` proc with a one-line `paragraph`, a line in `settings_reset`, the two settings lines above, README "Settings" |
@@ -171,7 +171,7 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
 | a mouse press on a control scrolls the inspector | only a press on its gap does; a mouse wins any control at once (fingers and the pen scroll from anywhere) |
 | a long row of text fits | `paragraph` wraps to the column's width; `label` and `value_row` do not |
 | a tween follows a drag | a drag must follow the pointer exactly: give it duration 0 (the inspector's scroll does) |
-| a shortcut fires while typing a layer name | `handle_shortcuts` returns while `typing(app)`; new key handling must check it too |
+| a shortcut fires while typing a layer name | `commands_handle_keys` returns while `typing(app)`; new key handling must check it too |
 | a select's options can be built once | they must stay valid for the frame (temp memory is fine) |
 
 ## Verify

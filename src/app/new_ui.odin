@@ -462,7 +462,7 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 	k.layer = ui.layer_mark(ctx)
 	kit_layout(app)
 	input := kit_viewport_input(app, {f32(size.x), f32(size.y)})
-	if !typed do handle_shortcuts(app)
+	if !typed do commands_handle_keys(app)
 	layer_drag_end(app)
 	// Text input (and with it a tablet's on-screen keyboard) is on only while a text
 	// field has the keys.
@@ -471,8 +471,6 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 		_ = sdl.StartTextInput(window) if wanted else sdl.StopTextInput(window)
 	}
 	d := &app.device
-	if !k.text_input && key_pressed(d, sdl.K_F11) do k.stats = !k.stats
-	if !k.text_input && key_pressed(d, sdl.K_TAB) && !d.ctrl do k.inspector = !k.inspector
 	// Escape, or Android's back gesture (the AC Back key), closes whatever floats, before
 	// Escape stops a replay.
 	if key_pressed(d, sdl.K_ESCAPE) || key_pressed(d, sdl.K_AC_BACK) {
@@ -546,8 +544,8 @@ kit_layout :: proc(app: ^App) {
 	ui.begin(ctx, "history", bar)
 	undo := fmt.tprintf("Undo %s##undo", history_next_label(app.history.done[:]))
 	redo := fmt.tprintf("Redo %s##redo", history_next_label(app.history.undone[:]))
-	if ui.icon_button(ctx, undo, ui.ICON_UNDO, enabled = history_can_undo(app), keys = "Ctrl+Z") do history_undo(app)
-	if ui.icon_button(ctx, redo, ui.ICON_REDO, enabled = history_can_redo(app), keys = "Ctrl+Shift+Z") do history_redo(app)
+	if ui.icon_button(ctx, undo, ui.ICON_UNDO, enabled = command_enabled(app, .Undo), keys = command_keys(.Undo)) do command_run(app, .Undo)
+	if ui.icon_button(ctx, redo, ui.ICON_REDO, enabled = command_enabled(app, .Redo), keys = command_keys(.Redo)) do command_run(app, .Redo)
 	if ui.icon_button(ctx, "History", ui.ICON_HISTORY, selected = k.history) do k.history = !k.history
 	ui.end(ctx)
 	ui.end(ctx)
@@ -558,14 +556,15 @@ kit_layout :: proc(app: ^App) {
 	// In Tool's order: W, B, C and I pick them from the keyboard.
 	tool_names := [len(Tool)]string{"Move", "Sculpt", "Curve", "Insert"}
 	tool_icons := [len(Tool)]rune{ui.ICON_MOVE, ui.ICON_BRUSH, ui.ICON_SPLINE, ui.ICON_SHAPES}
-	if picked := ui.tabs(ctx, "tool", tool_names[:], int(app.tool), accent = true, glyphs = tool_icons[:]); picked >= 0 do app.tool = Tool(picked)
+	tool_commands := [len(Tool)]Command_Id{.Tool_Move, .Tool_Sculpt, .Tool_Curve, .Tool_Insert}
+	if picked := ui.tabs(ctx, "tool", tool_names[:], int(app.tool), accent = true, glyphs = tool_icons[:]); picked >= 0 do command_run(app, tool_commands[picked])
 	ui.spacer(ctx, 2)
 	ui.divider(ctx)
 	ui.spacer(ctx, 2)
 	for axis in sculpt.Axis {
 		name := fmt.tprint(axis)
 		tip := fmt.tprintf("Symmetry across %s", name)
-		if ui.toggle_button(ctx, name, axis in app.brush.symmetry, 40, "X" if axis == .X else "", tip) do app.brush.symmetry ~= {axis}
+		if ui.toggle_button(ctx, name, axis in app.brush.symmetry, 40, command_keys(.Symmetry_X) if axis == .X else "", tip) do app.brush.symmetry ~= {axis}
 	}
 	ui.spacer(ctx, 6)
 	ui.end(ctx)
@@ -574,7 +573,7 @@ kit_layout :: proc(app: ^App) {
 	ui.begin_anchored(ctx, "top right", .End, .Start, {E, E}, bar)
 	if ui.icon_button(ctx, "View", ui.ICON_EYE, selected = k.view_menu) do k.view_menu = !k.view_menu
 	view_anchor = ctx.last_rect
-	if ui.icon_button(ctx, "Inspector", ui.ICON_PANEL, selected = k.inspector, keys = "Tab") do k.inspector = !k.inspector
+	if ui.icon_button(ctx, "Inspector", ui.ICON_PANEL, selected = k.inspector, keys = command_keys(.Inspector)) do command_run(app, .Inspector)
 	ui.end(ctx)
 
 	// Left edge: size and strength, for a thumb or a pen.
@@ -588,7 +587,7 @@ kit_layout :: proc(app: ^App) {
 	browser_anchor: ui.Rect
 	ui.begin_anchored(ctx, "dock", .Center, .End, {0, E}, {direction = .Row, gap = 0, padding = 4, radius = t.radius_large + 4, background = .Panel, center = true})
 	for kind in KIT_DOCK {
-		if ui.brush_tile(ctx, BRUSH_NAMES[kind], KIT_BRUSH_ICONS[kind], app.brush.kind == kind && app.tool == .Brush, kit_brush_keys(kind)) do kit_pick_brush(app, kind)
+		if ui.brush_tile(ctx, BRUSH_NAMES[kind], KIT_BRUSH_ICONS[kind], app.brush.kind == kind && app.tool == .Brush, command_keys(.Brush, int(kind))) do command_run(app, .Brush, int(kind))
 	}
 	ui.divider(ctx, 32)
 	in_dock := false
@@ -638,8 +637,8 @@ kit_layout :: proc(app: ^App) {
 		row := 0
 		for kind, i in sculpt.Brush_Kind {
 			if i % PER_ROW == 0 do ui.begin(ctx, fmt.tprintf("row %d", row), {direction = .Row, gap = 0})
-			if ui.brush_tile(ctx, BRUSH_NAMES[kind], KIT_BRUSH_ICONS[kind], app.brush.kind == kind && app.tool == .Brush, kit_brush_keys(kind)) {
-				kit_pick_brush(app, kind)
+			if ui.brush_tile(ctx, BRUSH_NAMES[kind], KIT_BRUSH_ICONS[kind], app.brush.kind == kind && app.tool == .Brush, command_keys(.Brush, int(kind))) {
+				command_run(app, .Brush, int(kind))
 				k.browser = false
 			}
 			if i % PER_ROW == PER_ROW - 1 || i == len(sculpt.Brush_Kind) - 1 {
@@ -652,20 +651,6 @@ kit_layout :: proc(app: ^App) {
 	kit_menu(app, menu_anchor)
 	kit_view_menu(app, view_anchor)
 	kit_object_menu(app)
-}
-
-// The shortcut that picks `kind`, if it has one: 1 to 9 and 0 in Brush_Kind's order.
-@(private = "file")
-kit_brush_keys :: proc(kind: sculpt.Brush_Kind) -> string {
-	i := int(kind)
-	if i >= 10 do return ""
-	return fmt.tprintf("%d", (i + 1) % 10)
-}
-
-@(private = "file")
-kit_pick_brush :: proc(app: ^App, kind: sculpt.Brush_Kind) {
-	app.brush.kind = kind
-	app.tool = .Brush
 }
 
 // The inspector: the tool, the selected object or the scene, in tabs, sliding in from
@@ -764,38 +749,14 @@ kit_menu :: proc(app: ^App, anchor: ui.Rect) {
 	if !ui.popover_begin(ctx, "menu", &k.menu, anchor, .Below, {direction = .Column, padding = 6, width = 268}) do return
 	pick := false
 	ui.caption(ctx, "  FILE")
-	if ui.menu_item(ctx, "Open scene...", "Ctrl+O", ui.ICON_OPEN) {
-		file_dialog(app, .Open)
-		pick = true
-	}
-	if ui.menu_item(ctx, "Save scene", "Ctrl+S", ui.ICON_SAVE) {
-		save_scene(app)
-		pick = true
-	}
-	if ui.menu_item(ctx, "Save scene as...", "Ctrl+Shift+S") {
-		file_dialog(app, .Save)
-		pick = true
-	}
-	if ui.menu_item(ctx, "Import mesh...", "", ui.ICON_IMPORT) {
-		file_dialog(app, .Import)
-		pick = true
-	}
-	if ui.menu_item(ctx, "Export mesh...", "", ui.ICON_EXPORT, enabled = selected_object(app) != nil) {
-		file_dialog(app, .Export)
-		pick = true
-	}
-	if ui.menu_item(ctx, "Save screenshot...", "F12", ui.ICON_IMAGE) {
-		file_dialog(app, .Screenshot)
-		pick = true
+	for id in ([?]Command_Id{.Open_Scene, .Save_Scene, .Save_Scene_As, .Import_Mesh, .Export_Mesh, .Screenshot}) {
+		if command_menu_item(app, id) do pick = true
 	}
 	ui.divider(ctx, across = true)
 	ui.caption(ctx, "  APP")
-	if ui.menu_item(ctx, "Reduce motion", checked = ctx.reduced_motion) do ctx.reduced_motion = !ctx.reduced_motion
-	if ui.menu_item(ctx, "Settings...", "", ui.ICON_SETTINGS) {
-		k.settings = true
-		pick = true
-	}
-	if ui.menu_item(ctx, "Stats", "F11", ui.ICON_ACTIVITY, checked = k.stats) do k.stats = !k.stats
+	_ = command_menu_item(app, .Reduce_Motion)
+	if command_menu_item(app, .Settings) do pick = true
+	_ = command_menu_item(app, .Stats)
 	ui.popover_end(ctx)
 	if pick do k.menu = false
 }
@@ -807,21 +768,12 @@ kit_view_menu :: proc(app: ^App, anchor: ui.Rect) {
 	ctx := &k.ctx
 	if !ui.popover_begin(ctx, "view menu", &k.view_menu, anchor, .Below_End, {direction = .Column, padding = 6, width = 268}) do return
 	ui.caption(ctx, "  SHADING")
-	if ui.menu_item(ctx, "Wireframe", "Shift+F", checked = app.wireframe) do app.wireframe = !app.wireframe
-	if ui.menu_item(ctx, "Flat shading", "Shift+G", checked = app.flat) do app.flat = !app.flat
-	if ui.menu_item(ctx, "Polygroups", "Shift+W", checked = app.show_groups) do app.show_groups = !app.show_groups
-	if ui.menu_item(ctx, "Studio render", "Shift+R", checked = app.studio_on) do studio_toggle(app)
+	for id in ([?]Command_Id{.Wireframe, .Flat_Shading, .Polygroups, .Studio_Render}) do _ = command_menu_item(app, id)
 	ui.divider(ctx, across = true)
 	ui.caption(ctx, "  CAMERA")
-	if ui.menu_item(ctx, "Orthographic", "P", checked = app.camera.ortho) do app.camera.ortho = !app.camera.ortho
-	if ui.menu_item(ctx, "Focus selected", "F", ui.ICON_FOCUS, enabled = selected_object(app) != nil) {
-		focus_selected(app)
-		k.view_menu = false
-	}
-	if ui.menu_item(ctx, "Reset camera", "", ui.ICON_SUN) {
-		reset_camera(app)
-		k.view_menu = false
-	}
+	_ = command_menu_item(app, .Ortho_Toggle)
+	if command_menu_item(app, .Focus_Selected) do k.view_menu = false
+	if command_menu_item(app, .Reset_Camera) do k.view_menu = false
 	ui.popover_end(ctx)
 }
 
@@ -835,19 +787,11 @@ kit_object_menu :: proc(app: ^App) {
 	for obj in app.scene.objects do found ||= obj.id == k.object_menu_id
 	if !found do k.object_menu = false
 	if !ui.popover_begin(ctx, "object menu", &k.object_menu, k.object_menu_at, .Pointer, {direction = .Column, padding = 6, width = 232}) do return
-	if ui.menu_item(ctx, "Focus", "F", ui.ICON_FOCUS) {
-		focus_selected(app)
-		k.object_menu = false
-	}
-	if ui.menu_item(ctx, "Duplicate", "Ctrl+Shift+D", ui.ICON_COPY) {
-		app.ui.scene_command = {kind = .Duplicate}
-		k.object_menu = false
-	}
+	picked := command_menu_item(app, .Focus_Selected, label = "Focus")
+	if command_menu_item(app, .Duplicate_Object) do picked = true
 	ui.divider(ctx, across = true)
-	if ui.menu_item(ctx, "Delete", "Del", ui.ICON_TRASH, tone = .Danger) {
-		app.ui.scene_command = {kind = .Delete}
-		k.object_menu = false
-	}
+	if command_menu_item(app, .Delete_Object, tone = .Danger) do picked = true
+	if picked do k.object_menu = false
 	ui.popover_end(ctx)
 }
 

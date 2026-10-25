@@ -62,7 +62,7 @@ case "$mode" in
 		;;
 	test)
 		compile_shaders
-		for pkg in geom camera sculpt jobs gizmo png_write ui; do
+		for pkg in geom camera sculpt jobs gizmo png_write ui app; do
 			"$ODIN" test "$ROOT/src/$pkg" -out:"$ROOT/build/test_$pkg" "${common[@]}"
 		done
 		;;
