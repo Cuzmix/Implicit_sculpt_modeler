@@ -54,7 +54,8 @@ Options :: struct {
 	stroke:    string `usage:"Start with this stroke: dots (the default) or drag_rect (one stamp sized and turned by the drag, as the Tools panel's Drag rectangle)."`,
 	front_only: bool `usage:"Start with Front faces only on: brushes and mask shapes leave what faces away from the viewer."`,
 	symmetry:  string `usage:"Start with brush symmetry across these axes, e.g. x or xz."`,
-	material:  string `usage:"Shade objects with this View > Material: clay (the default), red wax, white, grey or skin."`,
+	material:  string `usage:"Shade objects with this View > Material: clay (the default), red wax, white, grey, skin, gold, copper, chrome, steel, plastic, ceramic, rubber or pbr clay."`,
+	flat:      bool `usage:"Start with flat shading, each triangle lit by its own normal, as View > Flat shading does."`,
 	ortho:     bool `usage:"Start with parallel (orthographic) projection, as View > Orthographic (P) does."`,
 	view:      string `usage:"Start looking from front, back, right, left, top or bottom, as View > Look from does."`,
 	wireframe: bool `usage:"Show the selected object's edges, as View > Wireframe (Shift+F) does."`,
@@ -109,7 +110,9 @@ App :: struct {
 	ui:       Ui_State,
 	stats:    Frame_Stats,
 	history:  History,
-	material:  int,  // the index in MATERIALS objects are shaded with
+	material:  int,  // the index in MATERIALS objects are shaded with, or CUSTOM_MATERIAL
+	custom:    Material, // what View > Material's sliders made
+	flat:      bool, // shade with each triangle's own normal (faceted) instead of smoothed normals
 	wireframe: bool, // draw the selected object's edges over it
 	cache_idle: bool, // draw unselected objects from the viewport cache while they stay put
 	hd_window_vertices: int, // size of the HD windows the A key opens
@@ -333,6 +336,8 @@ run :: proc(opts: Options) -> bool {
 
 	if len(app.scene.objects) > 1 do frame_all(&app)
 	app.cache_idle = !opts.no_cache
+	app.custom = MATERIALS[len(MATERIALS) - 1]
+	app.custom.label = "Custom"
 	app.renderer.cull = !opts.no_cull
 	app.renderer.partial = !opts.no_partial
 	app.simplify = !opts.no_simplify
@@ -351,6 +356,7 @@ run :: proc(opts: Options) -> bool {
 	defer if remember do _ = settings_save(&app, settings)
 	if opts.ortho do app.camera.ortho = true
 	if opts.wireframe do app.wireframe = true
+	if opts.flat do app.flat = true
 	if opts.front_only do app.brush.front_only = true
 	if opts.stroke != "" {
 		found := false
@@ -585,12 +591,14 @@ run :: proc(opts: Options) -> bool {
 				// The selected object is in the material's colour; the others are muted. Only
 				// the selected one is sculpted or moved, so the rest can come from the cache.
 				selected := i == app.scene.selected
-				material := MATERIALS[app.material]
+				material := current_material(&app)
 				append(&draws, render.Draw_Item {
 					mesh   = gpu,
 					model  = transform_matrix(obj.transform),
 					color  = material.selected if selected else material.idle,
 					material = material.shading,
+					surface = {material.metallic, material.roughness},
+					flat = app.flat,
 					wireframe = selected && app.wireframe,
 					live   = selected,
 					chunks = lv.sculptor.chunks,
