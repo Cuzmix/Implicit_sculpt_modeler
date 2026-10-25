@@ -762,3 +762,25 @@ front_only_leaves_the_far_side :: proc(t: ^testing.T) {
 		geom.mesh_destroy(&m)
 	}
 }
+
+@(test)
+stroke_restore_puts_the_surface_back :: proc(t: ^testing.T) {
+	m := geom.icosphere(5)
+	s: Sculptor
+	sculptor_init(&s, &m, nil)
+	defer sculptor_destroy(&s)
+	defer geom.mesh_destroy(&m)
+	sculptor_recompute_all(&s)
+	start := slice.clone(m.positions[:])
+	defer delete(start)
+	sculptor_stroke_begin(&s)
+	_ = apply_dab(&s, Brush{kind = .Draw, radius = 0.3, strength = 1}, {0, 0, 1})
+	testing.expect(t, sculptor_stroke_restore(&s))
+	testing.expect(t, slice.equal(m.positions[:], start), "restore left the dab")
+	// A second, bigger dab after the restore, then undo: back to the start in one step.
+	_ = apply_dab(&s, Brush{kind = .Draw, radius = 0.6, strength = 1}, {0, 0, 1})
+	testing.expect(t, sculptor_stroke_end(&s))
+	testing.expect(t, !slice.equal(m.positions[:], start))
+	testing.expect(t, sculptor_undo(&s))
+	testing.expect(t, slice.equal(m.positions[:], start), "undo did not take the whole stroke back")
+}

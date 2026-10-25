@@ -122,6 +122,42 @@ sculptor_stroke_end :: proc(s: ^Sculptor) -> bool {
 sculptor_can_undo :: proc(s: ^Sculptor) -> bool {return len(s.history.done) > 0}
 sculptor_can_redo :: proc(s: ^Sculptor) -> bool {return len(s.history.undone) > 0}
 
+// Puts back everything the stroke being recorded has changed so far and keeps
+// recording it, for strokes that redo their one dab as the pointer moves (Drag
+// rectangle): the saved copies stay, so the stroke's undo step is still whole. Not
+// with dynamic topology, whose strokes change the triangles (false, nothing done).
+sculptor_stroke_restore :: proc(s: ^Sculptor) -> bool {
+	h := &s.history
+	if !h.recording || s.dyn != nil do return false
+	m := s.mesh
+	for sv in h.current.saved {
+		n := s.nodes[sv.node]
+		if sv.masks != nil {
+			copy(s.mask[n.vert_first:][:n.vert_count], sv.masks)
+		} else {
+			copy(m.positions[n.vert_first:][:n.vert_count], sv.positions)
+		}
+	}
+	for id in h.current.painted do mark_stale(s, id, .Paint)
+	d := Dab{s = s}
+	clear(&s.changed)
+	verts: u32
+	for id in h.current.nodes {
+		append(&s.changed, s.nodes[id].leaf)
+		verts += s.nodes[id].vert_count
+	}
+	jobs.parallel_for(s.pool if verts >= PARALLEL_MIN_VERTS else nil, len(s.changed), &d, job_leaf_bounds)
+	geom.bvh_refit_leaves(&s.bvh, m^, s.changed[:], recompute_leaves = false)
+	for id in h.current.nodes do mark_shape_changed(s, id)
+	// A Layer dab starts from nothing again.
+	s.layer_stroke += 1
+	if s.layer_stroke == 0 {
+		slice.zero(s.layer)
+		s.layer_stroke = 1
+	}
+	return true
+}
+
 // Reverts the newest stroke. Positions and BVH bounds are current when it returns;
 // normals and GPU data follow at the next sculptor_flush, as after a dab.
 sculptor_undo :: proc(s: ^Sculptor) -> bool {

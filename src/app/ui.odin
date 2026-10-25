@@ -333,6 +333,14 @@ draw_viewport_overlay :: proc(app: ^App, input: Viewport_Input) {
 			break
 		}
 		if draw_adjust(app, list, o) do break
+		if st := app.stroke; st.active && st.rect {
+			// The stamp being dragged out: its circle around where it began, and a line to
+			// the pointer, the way its top faces.
+			color := rgba({1, 0.8, 0.4, 0.9})
+			imgui.DrawList_AddCircle(list, o + st.start, max(linalg.length(input.mouse_pos - st.start), 2), color, 64, 1.5)
+			imgui.DrawList_AddLine(list, o + st.start, o + input.mouse_pos, color, 1.5)
+			break
+		}
 		if (input.hovered || input.dragging) && !app.ui.pie.open {
 			color := rgba({1, 1, 1, 0.6} if !input.primary else {1, 0.8, 0.4, 0.9})
 			center := input.mouse_pos
@@ -401,6 +409,12 @@ draw_tools_panel :: proc(app: ^App) {
 	imgui.SliderFloat("Strength", brush_strength(app), MIN_STRENGTH, 1, "%.2f")
 	imgui.TextDisabled("S or U over the viewport sizes the brush or sets its\nstrength there; [ and ] step the size, Shift+[ and ]\nthe strength. Each brush keeps its own strength.")
 	imgui.SliderFloat("Lazy mouse (px)", &app.brush.lazy_px, 0, 150, "%.0f")
+	imgui.Text("Stroke")
+	imgui.SameLine()
+	if imgui.RadioButton("Dots", app.brush.stroke == .Dots) do app.brush.stroke = .Dots
+	imgui.SameLine()
+	if imgui.RadioButton("Drag rectangle", app.brush.stroke == .Drag_Rect) do app.brush.stroke = .Drag_Rect
+	if imgui.IsItemHovered() do imgui.SetTooltip("One stamp where the drag starts: its size is how far\nyou drag and, with an alpha, its top faces the pointer.\nFor placing alphas. Not with dynamic topology, Grab or\nSnake hook.")
 	imgui.Checkbox("Front faces only", &app.brush.front_only)
 	if imgui.IsItemHovered() do imgui.SetTooltip("Brushes and mask shapes leave what faces away from you,\nso a stroke on a thin part (an ear, a fin) leaves its\nfar side alone. Grab is not affected.")
 	imgui.TextDisabled("Space, or a right click without dragging (a pen's side\nbutton), opens the brush pie.")

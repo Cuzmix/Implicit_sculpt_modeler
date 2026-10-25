@@ -59,6 +59,8 @@ settings_load :: proc(app: ^App, path: string) {
 		case "tilt_strength":     b.tilt_strength = clamp(number(f[1], b.tilt_strength), 0, 1)
 		case "lazy_px":           b.lazy_px = clamp(number(f[1], b.lazy_px), 0, 150)
 		case "front_only":        b.front_only = f[1] == "1"
+		case "stroke":
+			for mode in Stroke_Mode do if strings.equal_fold(f[1], fmt.tprint(mode)) do b.stroke = mode
 		case "symmetry":
 			b.symmetry = {}
 			for c in f[1] {
@@ -119,6 +121,7 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 	fmt.sbprintfln(&out, "tilt_strength %g", b.tilt_strength)
 	fmt.sbprintfln(&out, "lazy_px %g", b.lazy_px)
 	fmt.sbprintfln(&out, "front_only %d", bit(b.front_only))
+	fmt.sbprintfln(&out, "stroke %v", b.stroke)
 	symmetry := strings.builder_make(context.temp_allocator)
 	strings.write_string(&symmetry, "-") // a placeholder, so the line always has a value
 	if .X in b.symmetry do strings.write_byte(&symmetry, 'x')
