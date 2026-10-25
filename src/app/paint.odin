@@ -50,7 +50,7 @@ group_command :: proc(app: ^App, command: sculpt.Group_Command) {
 	history_record(app, obj, .Paint, GROUP_COMMAND_NAMES[command])
 }
 
-@(private = "file", rodata)
+@(rodata)
 GROUP_COMMAND_NAMES := [sculpt.Group_Command]string {
 	.Visible = "Group visible",
 	.Masked  = "Group masked",

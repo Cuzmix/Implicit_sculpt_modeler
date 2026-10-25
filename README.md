@@ -467,7 +467,7 @@ Save strokes... writes the recording (or else the last stroke) to a `.strokes` f
 
 ## Controls
 
-Every shortcut, menu row and brush key runs a command from one table (`src/app/commands.odin`: name, help, icon, whether it can run now, whether it is on), so the shortcut a menu or tooltip shows is always the one that works. A shortcut's modifiers must match exactly: Ctrl+Z undoes and Ctrl+Shift+Z redoes, and a key held with a modifier it does not list does nothing (Ctrl+B, Shift+1 or Ctrl+F are not shortcuts). Each key press keeps the modifiers held when it went down, so two quick shortcuts in one slow frame both work.
+Every shortcut, menu row, brush key and inspector action button runs a command from one table (`src/app/commands.odin`: name, help, icon, whether it can run now, whether it is on), so the shortcut a menu or tooltip shows is always the one that works. A shortcut's modifiers must match exactly: Ctrl+Z undoes and Ctrl+Shift+Z redoes, and a key held with a modifier it does not list does nothing (Ctrl+B, Shift+1 or Ctrl+F are not shortcuts). Each key press keeps the modifiers held when it went down, so two quick shortcuts in one slow frame both work.
 
 Files: Ctrl+O opens a scene, Ctrl+S saves it (where it was last saved or opened, else it asks), Ctrl+Shift+S saves it somewhere else. F12 saves a screenshot.
 

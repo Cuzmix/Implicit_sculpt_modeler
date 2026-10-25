@@ -110,3 +110,20 @@ chords_match_exact_modifiers :: proc(t: ^testing.T) {
 	testing.expect(t, !chord_down(&d, Chord{sdl.K_B, {.Ctrl}, false}))
 	testing.expect_value(t, key_mods(sdl.KMOD_LCTRL | sdl.KMOD_NUM | sdl.KMOD_CAPS), bit_set[Key_Mod;u8]{.Ctrl})
 }
+
+// A command that takes an argument names each choice, so search can list them apart.
+@(test)
+every_choice_has_its_own_label :: proc(t: ^testing.T) {
+	for c, id in COMMANDS {
+		for a in 0 ..< c.args {
+			label := command_label(id, a)
+			testing.expectf(t, label != "" && label != c.label, "%v %d has no label of its own", id, a)
+			for b in a + 1 ..< c.args do testing.expectf(t, label != command_label(id, b), "%v %d and %d are both %q", id, a, b, label)
+		}
+	}
+	testing.expect_value(t, command_label(.Mask, int(sculpt.Mask_Command.Clear)), "Clear mask")
+	testing.expect_value(t, command_label(.Remesh_To, 2), "Remesh to 1M vertices")
+	testing.expect_value(t, command_keys(.Mask, int(sculpt.Mask_Command.Clear)), "Alt+M")
+	testing.expect_value(t, command_keys(.Mask, int(sculpt.Mask_Command.Invert)), "Ctrl+I")
+	free_all(context.temp_allocator)
+}

@@ -49,10 +49,29 @@ Command_Id :: enum u8 {
 	Level_Down,
 	Hd_Toggle,
 	Group_Shortcut,
-	Mask_Clear,
-	Mask_Invert,
+	Mask, // the argument is the sculpt.Mask_Command
 	Show_All,
 	Invert_Hidden,
+	Paint, // the argument is the sculpt.Paint_Command
+	Group, // the argument is the sculpt.Group_Command
+	Delete_Lower_Levels,
+	Delete_Higher_Levels,
+	Hd_Divide,
+	Hd_Delete,
+	Hd_Sculpt,
+	Hd_Leave,
+	Morph_Store,
+	Morph_Delete,
+	Smooth_All,
+	Remesh_To, // the argument is the SPHERE_PRESETS size
+	Decimate_To, // ...and here too
+	Mirror_Weld,
+	Retopologize,
+	Make_Boolean,
+	Extract_Masked,
+	// The scene
+	Add_Object,
+	Frame_All,
 	// The view
 	View_Axis, // the argument is the camera.Axis_View
 	Ortho_Toggle,
@@ -256,7 +275,10 @@ COMMANDS := [Command_Id]Command {
 		label = "Dynamic topology",
 		help = "Turns dynamic topology on or off for the selected object.",
 		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Dyntopo, on = !object_dynamic(selected_object(app))}},
-		enabled = has_object,
+		enabled = proc(app: ^App, _: int) -> bool {
+			obj := selected_object(app)
+			return obj != nil && len(obj.levels.levels) == 1 && obj.levels.hd.steps == 0
+		},
 		checked = proc(app: ^App, _: int) -> bool {
 			obj := selected_object(app)
 			return obj != nil && object_dynamic(obj)
@@ -267,7 +289,10 @@ COMMANDS := [Command_Id]Command {
 		help = "Adds a subdivision level to the selected object.",
 		icon = ui.ICON_PLUS,
 		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Subdivide}},
-		enabled = has_object,
+		enabled = proc(app: ^App, _: int) -> bool {
+			obj := selected_object(app)
+			return obj != nil && can_subdivide(obj)
+		},
 	},
 	.Level_Up = {
 		label = "Higher level",
@@ -302,15 +327,11 @@ COMMANDS := [Command_Id]Command {
 		run = proc(app: ^App, _: int) {group_shortcut(app)},
 		enabled = has_object,
 	},
-	.Mask_Clear = {
-		label = "Clear mask",
-		help = "Unmasks the whole object.",
-		run = proc(app: ^App, _: int) {mask_command(app, .Clear)},
-	},
-	.Mask_Invert = {
-		label = "Invert mask",
-		help = "Masks what was unmasked and unmasks what was masked.",
-		run = proc(app: ^App, _: int) {mask_command(app, .Invert)},
+	.Mask = {
+		label = "Mask",
+		help = "Changes the selected object's mask as a whole: clear, invert, fill, by cavity, or a step of blur, sharpen, grow or shrink.",
+		args = len(sculpt.Mask_Command),
+		run = proc(app: ^App, arg: int) {mask_command(app, sculpt.Mask_Command(arg))},
 	},
 	.Show_All = {
 		label = "Show all",
@@ -323,6 +344,161 @@ COMMANDS := [Command_Id]Command {
 		help = "Hides what is shown and shows what is hidden.",
 		icon = ui.ICON_EYE_OFF,
 		run = proc(app: ^App, _: int) {hide_command(app, .Invert)},
+	},
+	.Paint = {
+		label = "Paint",
+		help = "Fills the selected object with the paint colour, or takes the paint off, skipping what is masked or hidden.",
+		args = len(sculpt.Paint_Command),
+		run = proc(app: ^App, arg: int) {paint_command(app, sculpt.Paint_Command(arg))},
+	},
+	.Group = {
+		label = "Polygroups",
+		help = "Makes polygroups from what is shown, what is masked or the creases, or clears them.",
+		args = len(sculpt.Group_Command),
+		run = proc(app: ^App, arg: int) {group_command(app, sculpt.Group_Command(arg))},
+	},
+	.Delete_Lower_Levels = {
+		label = "Delete lower levels",
+		help = "Removes the subdivision levels below the current one.",
+		icon = ui.ICON_TRASH,
+		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Delete_Lower}},
+		enabled = proc(app: ^App, _: int) -> bool {
+			obj := selected_object(app)
+			return obj != nil && obj.levels.current > 0
+		},
+	},
+	.Delete_Higher_Levels = {
+		label = "Delete higher levels",
+		help = "Removes the subdivision levels above the current one.",
+		icon = ui.ICON_TRASH,
+		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Delete_Higher}},
+		enabled = proc(app: ^App, _: int) -> bool {
+			obj := selected_object(app)
+			return obj != nil && obj.levels.current < len(obj.levels.levels) - 1
+		},
+	},
+	.Hd_Divide = {
+		label = "Divide HD",
+		help = "Adds an HD step above the top level, sculpted a window at a time.",
+		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Hd_Steps, level = selected_object(app).levels.hd.steps + 1}},
+		enabled = proc(app: ^App, _: int) -> bool {
+			obj := selected_object(app)
+			if obj == nil do return false
+			return obj.levels.hd.steps < sculpt.HD_MAX_STEPS && sculpt.levels_hd_stats(&obj.levels).stored_nodes == 0 && !object_dynamic(obj)
+		},
+	},
+	.Hd_Delete = {
+		label = "Delete HD",
+		help = "Removes the HD steps and their detail.",
+		icon = ui.ICON_TRASH,
+		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Hd_Delete}},
+		enabled = proc(app: ^App, _: int) -> bool {
+			obj := selected_object(app)
+			return obj != nil && obj.levels.hd.steps > 0
+		},
+	},
+	.Hd_Sculpt = {
+		label = "Sculpt HD",
+		help = "Opens an HD window around the middle of the view.",
+		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Hd_Enter, at = app.ui.viewport_size * 0.5, size = app.ui.viewport_size}},
+		enabled = proc(app: ^App, _: int) -> bool {
+			obj := selected_object(app)
+			return obj != nil && obj.levels.hd.steps > 0 && !object_in_hd(obj)
+		},
+	},
+	.Hd_Leave = {
+		label = "Leave HD",
+		help = "Stores the HD window's detail and goes back to the top level.",
+		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Hd_Leave}},
+		enabled = proc(app: ^App, _: int) -> bool {
+			obj := selected_object(app)
+			return obj != nil && object_in_hd(obj)
+		},
+	},
+	.Morph_Store = {
+		label = "Store morph target",
+		help = "Keeps the surface as it is now, for the Morph brush to bring back.",
+		run = proc(app: ^App, _: int) {
+			stroke_finish(app)
+			_ = sculpt.sculptor_morph_store(object_sculptor(selected_object(app)))
+		},
+		enabled = proc(app: ^App, _: int) -> bool {
+			obj := selected_object(app)
+			return obj != nil && !object_dynamic(obj) && !object_in_hd(obj)
+		},
+	},
+	.Morph_Delete = {
+		label = "Delete morph target",
+		help = "Forgets the stored morph target of this level.",
+		icon = ui.ICON_TRASH,
+		run = proc(app: ^App, _: int) {sculpt.sculptor_morph_clear(object_sculptor(selected_object(app)))},
+		enabled = proc(app: ^App, _: int) -> bool {
+			obj := selected_object(app)
+			return obj != nil && sculpt.sculptor_has_morph(object_sculptor(obj))
+		},
+	},
+	.Smooth_All = {
+		label = "Smooth all",
+		help = "Smooths the whole object by the Deformation section's steps and strength; masked parts stay.",
+		run = proc(app: ^App, _: int) {smooth_command(app, int(app.ui.smooth_steps))},
+		enabled = proc(app: ^App, _: int) -> bool {
+			obj := selected_object(app)
+			return obj != nil && !object_dynamic(obj)
+		},
+	},
+	.Remesh_To = {
+		label = "Remesh to",
+		help = "Rebuilds the selected object as an even closed mesh of this many vertices that keeps its shape.",
+		args = len(SPHERE_PRESETS),
+		run = proc(app: ^App, arg: int) {app.ui.scene_command = {kind = .Remesh, vertices = int(SPHERE_PRESETS[arg].vertices)}},
+		enabled = has_object,
+	},
+	.Decimate_To = {
+		label = "Decimate to",
+		help = "Keeps the selected object's shape with about this many vertices, dense where the detail is.",
+		args = len(SPHERE_PRESETS),
+		run = proc(app: ^App, arg: int) {app.ui.scene_command = {kind = .Decimate, vertices = int(SPHERE_PRESETS[arg].vertices)}},
+		enabled = has_object,
+	},
+	.Mirror_Weld = {
+		label = "Mirror and weld",
+		help = "Replaces one half of the object with a mirror image of the other, across the axis and side the Mirror section picks.",
+		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Symmetrize, axis = int(app.ui.mirror_axis), on = !app.ui.mirror_negative}},
+		enabled = has_object,
+	},
+	.Retopologize = {
+		label = "Retopologize",
+		help = "Makes a new object of quads with UVs lying on the selected one.",
+		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Retopo, vertices = int(app.ui.retopo_quads)}},
+		enabled = has_object,
+	},
+	.Make_Boolean = {
+		label = "Make boolean mesh",
+		help = "Applies the objects marked Union, Subtract or Intersect to the first unmarked one, as one mesh.",
+		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Boolean}},
+		enabled = proc(app: ^App, _: int) -> bool {return boolean_base(app) != nil},
+	},
+	.Extract_Masked = {
+		label = "Extract masked",
+		help = "Makes a new object: a shell over the masked part.",
+		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Extract}},
+		enabled = has_object,
+	},
+	.Add_Object = {
+		label = "Add object",
+		help = "Adds the shape and size picked in the Scene tab's Add object section.",
+		icon = ui.ICON_PLUS,
+		run = proc(app: ^App, _: int) {
+			k := &app.kit
+			app.ui.scene_command = {kind = .Add, vertices = int(SPHERE_PRESETS[k.add_size].vertices), shape = k.add_shape}
+		},
+	},
+	.Frame_All = {
+		label = "Frame all",
+		help = "Turns and zooms the view to show every object.",
+		icon = ui.ICON_FRAME,
+		run = proc(app: ^App, _: int) {frame_all(app)},
+		enabled = proc(app: ^App, _: int) -> bool {return len(app.scene.objects) > 0},
 	},
 	.View_Axis = {
 		label = "View",
@@ -436,10 +612,10 @@ DEFAULT_BINDINGS := [?]Binding {
 	{{sdl.K_RIGHTBRACKET, {}, true}, .Size_Up, 0},
 	{{sdl.K_LEFTBRACKET, {.Shift}, true}, .Strength_Down, 0},
 	{{sdl.K_RIGHTBRACKET, {.Shift}, true}, .Strength_Up, 0},
-	{{sdl.K_M, {.Alt}, false}, .Mask_Clear, 0},
+	{{sdl.K_M, {.Alt}, false}, .Mask, int(sculpt.Mask_Command.Clear)},
 	{{sdl.K_R, {.Ctrl}, false}, .Remesh, 0},
 	{{sdl.K_T, {.Ctrl}, false}, .Dyntopo_Toggle, 0},
-	{{sdl.K_I, {.Ctrl}, false}, .Mask_Invert, 0},
+	{{sdl.K_I, {.Ctrl}, false}, .Mask, int(sculpt.Mask_Command.Invert)},
 	{{sdl.K_H, {.Ctrl}, false}, .Show_All, 0},
 	{{sdl.K_H, {.Ctrl, .Shift}, false}, .Invert_Hidden, 0},
 	{{sdl.K_KP_1, {}, false}, .View_Axis, int(camera.Axis_View.Front)},
@@ -491,6 +667,14 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 		return fmt.tprintf("%s brush", BRUSH_NAMES[sculpt.Brush_Kind(arg)])
 	case .View_Axis:
 		return fmt.tprintf("%v view", camera.Axis_View(arg))
+	case .Mask:
+		return MASK_COMMAND_LABELS[sculpt.Mask_Command(arg)]
+	case .Paint:
+		return "Fill with colour" if sculpt.Paint_Command(arg) == .Fill else "Clear paint"
+	case .Group:
+		return GROUP_COMMAND_NAMES[sculpt.Group_Command(arg)]
+	case .Remesh_To, .Decimate_To:
+		return fmt.tprintf("%s to %s vertices", "Remesh" if id == .Remesh_To else "Decimate", SPHERE_PRESETS[arg].label)
 	}
 	return COMMANDS[id].label
 }
@@ -574,6 +758,28 @@ command_menu_item :: proc(app: ^App, id: Command_Id, arg := 0, label := "", tone
 	text := label if label != "" else command_label(id, arg)
 	if !ui.menu_item(&app.kit.ctx, text, command_keys(id, arg), c.icon, command_checked(app, id, arg), tone, command_enabled(app, id, arg)) do return false
 	return command_run(app, id, arg)
+}
+
+// What search and menus call each mask command (the Mask section's buttons keep their
+// short names).
+@(rodata)
+MASK_COMMAND_LABELS := [sculpt.Mask_Command]string {
+	.Clear   = "Clear mask",
+	.Invert  = "Invert mask",
+	.Fill    = "Mask all",
+	.Cavity  = "Mask cavities",
+	.Blur    = "Blur mask",
+	.Sharpen = "Sharpen mask",
+	.Grow    = "Grow mask",
+	.Shrink  = "Shrink mask",
+}
+
+// Whether a level can be added: within the memory limit, with no HD step and dynamic
+// topology off (the Subdivide button's and Ctrl+D's rule).
+can_subdivide :: proc(obj: ^Object) -> bool {
+	levels := &obj.levels
+	_, _, bytes := sculpt.levels_subdivide_estimate(levels)
+	return len(levels.levels) < sculpt.MAX_LEVELS && bytes <= MAX_SUBDIVIDE_BYTES && levels.hd.steps == 0 && !object_dynamic(obj)
 }
 
 brush_size_step :: proc(app: ^App, up: bool) {
