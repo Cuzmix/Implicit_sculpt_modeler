@@ -22,6 +22,7 @@ Renderer :: struct {
 	device:        ^sdl.GPUDevice,
 	window:        ^sdl.Window,
 	depth_format:  sdl.GPUTextureFormat,
+	depth_sampled: bool, // shaders can read depth_format textures (the studio render needs to)
 	mesh_pipeline:  ^sdl.GPUGraphicsPipeline,
 	// The same shaders drawing triangle edges as lines, pulled toward the eye so they
 	// show over the surface they outline; nil where the device cannot draw lines.
@@ -207,8 +208,15 @@ renderer_init :: proc(r: ^Renderer, window: ^sdl.Window, debug: bool) -> bool {
 		return false
 	}
 
+	// A depth format shaders can also read, for the studio render, where there is one.
 	r.depth_format = .D32_FLOAT
-	if !sdl.GPUTextureSupportsFormat(r.device, r.depth_format, .D2, {.DEPTH_STENCIL_TARGET}) {
+	for format in ([2]sdl.GPUTextureFormat{.D32_FLOAT, .D24_UNORM}) {
+		if sdl.GPUTextureSupportsFormat(r.device, format, .D2, {.DEPTH_STENCIL_TARGET, .SAMPLER}) {
+			r.depth_format, r.depth_sampled = format, true
+			break
+		}
+	}
+	if !r.depth_sampled && !sdl.GPUTextureSupportsFormat(r.device, r.depth_format, .D2, {.DEPTH_STENCIL_TARGET}) {
 		r.depth_format = .D24_UNORM
 	}
 
@@ -388,7 +396,7 @@ viewport_target_resize :: proc(r: ^Renderer, vt: ^Viewport_Target, requested_wid
 		width = width, height = height, layer_count_or_depth = 1, num_levels = 1,
 	})
 	vt.depth = sdl.CreateGPUTexture(r.device, {
-		type = .D2, format = r.depth_format, usage = {.DEPTH_STENCIL_TARGET},
+		type = .D2, format = r.depth_format, usage = {.DEPTH_STENCIL_TARGET, .SAMPLER} if r.depth_sampled else {.DEPTH_STENCIL_TARGET},
 		width = width, height = height, layer_count_or_depth = 1, num_levels = 1,
 	})
 	if vt.color == nil || vt.depth == nil {
@@ -1141,8 +1149,9 @@ draw_item_triangles :: proc(r: ^Renderer, pass: ^sdl.GPURenderPass, item: Draw_I
 }
 
 // Reads the viewport colour back to the CPU (RGBA8, rows top to bottom), waiting for
-// the GPU. For tests and debugging, not per frame. Returns nil on failure.
-viewport_download :: proc(r: ^Renderer, vt: ^Viewport_Target, allocator := context.allocator) -> []u8 {
+// the GPU: `texture` (a viewport-sized RGBA8 one, such as the studio render's) or the
+// target's own. For tests and debugging, not per frame. Returns nil on failure.
+viewport_download :: proc(r: ^Renderer, vt: ^Viewport_Target, allocator := context.allocator, texture: ^sdl.GPUTexture = nil) -> []u8 {
 	size := vt.width * vt.height * 4
 	transfer := sdl.CreateGPUTransferBuffer(r.device, {usage = .DOWNLOAD, size = size})
 	if transfer == nil do return nil
@@ -1150,7 +1159,7 @@ viewport_download :: proc(r: ^Renderer, vt: ^Viewport_Target, allocator := conte
 	cmd := sdl.AcquireGPUCommandBuffer(r.device)
 	if cmd == nil do return nil
 	pass := sdl.BeginGPUCopyPass(cmd)
-	sdl.DownloadFromGPUTexture(pass, {texture = vt.color, w = vt.width, h = vt.height, d = 1}, {transfer_buffer = transfer})
+	sdl.DownloadFromGPUTexture(pass, {texture = texture if texture != nil else vt.color, w = vt.width, h = vt.height, d = 1}, {transfer_buffer = transfer})
 	sdl.EndGPUCopyPass(pass)
 	if !sdl.SubmitGPUCommandBuffer(cmd) || !sdl.WaitForGPUIdle(r.device) do return nil
 	src := sdl.MapGPUTransferBuffer(r.device, transfer, false)

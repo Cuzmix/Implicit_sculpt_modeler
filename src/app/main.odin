@@ -60,6 +60,8 @@ Options :: struct {
 	front_only: bool `usage:"Start with Front faces only on: brushes and mask shapes leave what faces away from the viewer."`,
 	symmetry:  string `usage:"Start with brush symmetry across these axes, e.g. x or xz."`,
 	material:  string `usage:"Shade objects with this View > Material: clay (the default), red wax, white, grey, skin, gold, copper, chrome, steel, plastic, ceramic, rubber or pbr clay."`,
+	studio:    bool `usage:"Start with View > Studio render on: ambient occlusion and soft shadows build up while the view stays still."`,
+	studio_samples: int `usage:"Light samples the studio render stops at (default 256, at most 1024)."`,
 	flat:      bool `usage:"Start with flat shading, each triangle lit by its own normal, as View > Flat shading does."`,
 	ortho:     bool `usage:"Start with parallel (orthographic) projection, as View > Orthographic (P) does."`,
 	view:      string `usage:"Start looking from front, back, right, left, top or bottom, as View > Look from does."`,
@@ -129,6 +131,13 @@ App :: struct {
 	stats:    Frame_Stats,
 	history:  History,
 	timeline: Timeline, // the History panel's scrubbing, playback and time-lapse (timeline.odin)
+	// View > Studio render (Shift+R): ambient occlusion and soft shadows built up while
+	// the view stays still (render.Studio).
+	studio:         render.Studio,
+	studio_on:      bool,
+	studio_samples: i32, // samples it stops at
+	studio_ao:      f32, // how strongly occlusion darkens, 0 to 1
+	studio_shadow:  f32, // ...and the key light's shadow
 	material:  int,  // the index in MATERIALS objects are shaded with, or CUSTOM_MATERIAL
 	custom:    Material, // what View > Material's sliders made
 	flat:      bool, // shade with each triangle's own normal (faceted) instead of smoothed normals
@@ -211,6 +220,7 @@ run :: proc(opts: Options) -> bool {
 	if !render.renderer_init(&app.renderer, window, opts.gpu_debug) do return false
 	defer render.renderer_destroy(&app.renderer)
 	defer render.smooth_compute_destroy(&app.renderer, &app.smooth_gpu)
+	defer render.studio_destroy(&app.renderer, &app.studio)
 
 	jobs.pool_init(&app.pool, opts.threads - 1 if opts.threads > 0 else 0)
 	defer jobs.pool_destroy(&app.pool)
@@ -424,6 +434,9 @@ run :: proc(opts: Options) -> bool {
 	if opts.ortho do app.camera.ortho = true
 	if opts.wireframe do app.wireframe = true
 	if opts.flat do app.flat = true
+	app.studio_samples, app.studio_ao, app.studio_shadow = STUDIO_SAMPLES_DEFAULT, 0.85, 0.6
+	if opts.studio do app.studio_on = true
+	if opts.studio_samples > 0 do app.studio_samples = i32(min(opts.studio_samples, STUDIO_SAMPLES_MAX))
 	if opts.front_only do app.brush.front_only = true
 	if opts.stroke != "" {
 		found := false
@@ -704,6 +717,11 @@ run :: proc(opts: Options) -> bool {
 		moving := time.tick_since(app.view_moved) < LOD_SETTLE
 		app.renderer.lod_px = app.simplify_px if app.simplify && moving && !timelapse_capturing(&app) else 0
 		drawn := render.render_viewport(&app.renderer, cmd, &app.target, view, proj, draws[:], app.cache_idle)
+		if app.studio_on {
+			// Anything redrawn this frame starts the samples over.
+			changed := !drawn.partial || drawn.redrawn_px > 0
+			app.studio_on = render.studio_frame(&app.renderer, &app.studio, cmd, &app.target, view, proj, draws[:], changed, int(app.studio_samples), app.studio_ao, app.studio_shadow)
+		}
 
 		gpu_wait: time.Duration
 		if app.time_gpu {
@@ -884,6 +902,11 @@ run :: proc(opts: Options) -> bool {
 	}
 	return true
 }
+
+// Light samples the studio render builds up to by default, and at most: about a quarter
+// of them shadow the key light and the rest give the occlusion.
+STUDIO_SAMPLES_DEFAULT :: 256
+STUDIO_SAMPLES_MAX :: 1024
 
 // How long the view has to stay put before simplified drawing gives way to full detail.
 LOD_SETTLE :: 250 * time.Millisecond
