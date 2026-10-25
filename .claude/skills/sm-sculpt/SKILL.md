@@ -35,6 +35,9 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
   | Layer | each vertex along its own normal toward `radius · strength · LAYER_HEIGHT`, `LAYER_RATE · w` of the way a dab; heights kept per stroke in `Sculptor.layer` (`Layer_Height{stroke, height}`, valid where `stroke == layer_stroke`, which `sculptor_stroke_begin` bumps; grown when dynamic topology adds vertices) | lowers |
   | Morph | toward `Sculptor.morph` (`morph.odin`: `sculptor_morph_store`/`_clear`/`has_morph`; refused under dynamic topology, dropped by `sculptor_dyn_enable`) by `strength · w · MORPH_RATE`; nothing without a target | — |
   | Snake_Hook | by `Brush.drag · w` (mirrored per image); the app (`hook_follow`, `src/app/sculpt_tool.odin`) moves the hook point after the pointer on the camera-facing plane in steps of at most `DAB_SPACING` radii and dabs at it without raycasting | — |
+- Drag rectangle (`Stroke_Mode.Drag_Rect`, app `rect_follow`): each frame `sculptor_stroke_restore` (`undo.odin`) copies the
+  current step's saved nodes back (keeping them, so the stroke stays one step; refused under dynamic topology), then one dab
+  at the start point sized by the drag.
 - Front faces only: `Brush.facing` (mesh-space way toward the viewer, mirrored per image; zero = off) scales each vertex
   by `facing_weight` (a ramp over normal · facing) in `displace`, Smooth and `mask_dab`; Grab ignores it. Mask shapes take
   `Front_Only{on, parallel, eye, toward}` (`mask.odin`) and skip vertices facing away.

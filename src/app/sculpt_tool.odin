@@ -21,6 +21,7 @@ Brush_Settings :: struct {
 	tilt_strength:     f32, // 0 to 1: how far a leaning pen turns the brush (camera.orbit_tilt)
 	lazy_px:           f32,  // lazy mouse: the brush trails the cursor by this many pixels; 0 is off
 	front_only:        bool, // brushes and mask shapes leave what faces away from the viewer (sculpt.Brush.facing)
+	stroke:            Stroke_Mode,
 	symmetry:          sculpt.Symmetry, // mirror strokes across these planes of the object
 	// On objects with dynamic topology: edges under the brush longer than this many
 	// pixels on screen split, and with collapse, ones much shorter merge.
@@ -29,6 +30,12 @@ Brush_Settings :: struct {
 	alpha:             int, // index into App.alphas; -1 (or any other outside it) is the round brush
 	alpha_mode:        Alpha_Mode,
 	alpha_angle:       f32, // degrees counter-clockwise the image turns on top of what the mode gives
+}
+
+// How a left drag lays the brush down.
+Stroke_Mode :: enum u8 {
+	Dots,      // dabs along the path, DAB_SPACING radii apart
+	Drag_Rect, // one dab where the drag started, sized and turned by how far and which way it goes (ZBrush's DragRect)
 }
 
 // A brush's falloff: the built-in smooth one, or a curve the user drew (read from the
@@ -67,6 +74,9 @@ Stroke :: struct {
 	pending:  [dynamic]Input_Sample, // samples left for the next frame once one reaches MAX_DABS_PER_FRAME
 	grab:     bool, // a Grab stroke: drags what it picked up instead of laying dabs
 	hook:     bool, // a Snake hook stroke: drags the surface along after the pointer
+	rect:     bool, // a Drag rectangle stroke: redoes its one dab at `start` as the pointer moves
+	start:    [2]f32, // Drag rectangle: where on screen the drag began
+	at:       Vec3, // ...and where that is on the object, in its own space
 	anchor:   Vec3, // Grab: where the stroke started; Snake hook: where it has pulled to (world space)
 }
 
@@ -164,6 +174,10 @@ stroke_follow :: proc(app: ^App, input: Viewport_Input, samples: []Input_Sample,
 		for s in queue do hook_follow(app, input, inv, s, res)
 		return
 	}
+	if st.active && st.rect {
+		if len(queue) > 0 do rect_follow(app, input, queue[len(queue) - 1], res)
+		return
+	}
 	for s, i in queue {
 		if !st.active {
 			stroke_start(app, input, inv, s, res)
@@ -211,7 +225,9 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 	local := to_local(obj.transform, hit)
 	brush := brush_at(app, input, obj.transform, local, s.pressure, s.tilt)
 	st.grab, st.hook, st.anchor = brush.kind == .Grab, brush.kind == .Snake_Hook, hit
-	if st.hook do return // it moves nothing until the pointer does
+	st.rect = app.brush.stroke == .Drag_Rect && !st.grab && !st.hook && !input.smooth && !object_dynamic(obj)
+	st.start, st.at = s.pos, local
+	if st.hook || st.rect do return // they move nothing until the pointer does
 	t1 := time.tick_now()
 	if st.grab {
 		sculpt.sculptor_grab_begin(object_sculptor(obj), brush, local)
@@ -278,6 +294,38 @@ hook_follow :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: I
 		res.dabs += 1
 	}
 	res.brush_ms += time.duration_milliseconds(time.tick_since(t1))
+}
+
+// Redoes a Drag rectangle stroke's dab for the pointer sample `s`: what the stroke did
+// so far is put back, then one dab at the point where the drag began, its radius the
+// drag's length on screen and, with an alpha, the image's top toward the pointer.
+@(private = "file")
+rect_follow :: proc(app: ^App, input: Viewport_Input, s: Input_Sample, res: ^Sculpt_Frame_Result) {
+	st := &app.stroke
+	obj := object_by_id(app, st.object)
+	if obj == nil {
+		st.active = false
+		return
+	}
+	d := s.pos - st.start
+	length := linalg.length(d)
+	if length < 2 || s.pos == st.pos do return
+	st.pos, st.pressure, st.tilt = s.pos, s.pressure, s.tilt
+	t := obj.transform
+	t1 := time.tick_now()
+	sculptor := object_sculptor(obj)
+	_ = sculpt.sculptor_stroke_restore(sculptor)
+	brush := brush_at(app, input, t, st.at, s.pressure, s.tilt)
+	brush.radius = length * camera.orbit_world_per_px(app.camera, to_world(t, st.at), input.size.y) / t.scale
+	if brush.alpha != nil {
+		view := camera.orbit_view(app.camera)
+		right := Vec3{view[0, 0], view[0, 1], view[0, 2]}
+		up := Vec3{view[1, 0], view[1, 1], view[1, 2]}
+		brush.alpha_up = to_local_dir(t, linalg.normalize(right * d.x - up * d.y))
+	}
+	sculpt.apply_dab(sculptor, brush, st.at)
+	res.brush_ms += time.duration_milliseconds(time.tick_since(t1))
+	res.dabs += 1
 }
 
 // Moves the stroke in a straight line on screen to `target`, where the pressure is
