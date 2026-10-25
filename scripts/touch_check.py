@@ -127,6 +127,8 @@ def line(a, b, steps):
 
 
 SLOP = 10  # theme.slop at UI scale 1
+UI_DT = 1 / 60  # --ui-dt: seconds the interface's clock moves a frame
+LONG_PRESS_FRAMES = 30  # theme.long_press (0.45 s) is 27 frames of UI_DT; a few more
 
 
 def past_slop(a, b, steps):
@@ -1152,6 +1154,59 @@ def rail_on_the_right_clears_the_panels():
     s.wait(6)
     return s, [f"--settings-file={SETTINGS_FILE}"], {"@layout": rail_clear("status", "inspector", "dock", "sliders")}
 
+
+def long_press(s, x, y, finger=0, frames=LONG_PRESS_FRAMES):
+    """A finger held still on (x, y) long enough to be a long press, then lifted."""
+    s.add(f"fdown:{finger}:{x:g},{y:g}")
+    s.wait(frames)
+    s.add(f"fup:{finger}")
+    s.wait(4)
+
+
+INSPECTOR_BUTTON = (1565, 36)
+SCENE_TAB, SCENE_ROW = (1526, 152), (1430, 232)
+
+
+@scenario
+def long_press_shows_the_tooltip_and_does_not_tap():
+    """A long press on the Inspector button shows its tooltip and leaves the inspector open; nothing is sculpted."""
+    s = Script()
+    long_press(s, *INSPECTOR_BUTTON)
+    return s, [], camera_still({"dabs": near(0), "long_tip": lambda v: v == "Inspector",
+                                "window_inspector": lambda v: v.startswith("1,0,")})
+
+
+@scenario
+def long_press_a_scene_row_opens_its_menu():
+    """A long press on an object in the Scene tab opens its menu (Focus, Duplicate, Delete), as a right-click does."""
+    s = Script()
+    s.ftap(*SCENE_TAB)
+    s.wait(10)
+    long_press(s, *SCENE_ROW)
+    return s, [], camera_still({"dabs": near(0), "object_menu": near(1), "selected": near(0)})
+
+
+@scenario
+def slow_tap_on_a_folded_title_still_opens_it():
+    """A long press on a folded window's title, which has no tooltip and no other action, is still a tap."""
+    s = Script()
+    s.ftap(*INSPECTOR_MINIMISE)
+    s.wait(4)
+    long_press(s, *INSPECTOR_TITLE)
+    return s, [], camera_still({"dabs": near(0), "window_inspector": lambda v: v.startswith("1,0,"), "long_tip": lambda v: v == "none"})
+
+
+@scenario
+def a_press_short_of_long_still_taps():
+    """A finger held 0.3 s on the Inspector button is still a tap: no tooltip, and the inspector closes."""
+    s = Script()
+    x, y = INSPECTOR_BUTTON
+    s.add(f"fdown:0:{x:g},{y:g}")
+    s.wait(18)
+    s.add(f"fup:0")
+    s.wait(4)
+    return s, [], camera_still({"long_tip": lambda v: v == "none", "window_inspector": lambda v: v.startswith("0,")})
+
 def run(name, screens):
     script, args, checks = SCENARIOS[name]()
     frames = script.frame + 10
@@ -1160,6 +1215,10 @@ def run(name, screens):
         cmd += ["--width=1600", "--height=900"]
     if not any(a.startswith("--settings-file") for a in args):
         cmd.append("--no-settings")
+    # The interface's clock moves 1/60 s a frame, however fast frames come here, so a
+    # finger held N frames is a long press (or not) on every machine.
+    if not any(a.startswith("--ui-dt") for a in args):
+        cmd.append(f"--ui-dt={UI_DT:g}")
     cmd += args
     if screens:
         os.makedirs(os.path.join(ROOT, "build", "touch"), exist_ok=True)

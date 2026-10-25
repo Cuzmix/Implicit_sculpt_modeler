@@ -8,13 +8,17 @@ import "core:strings"
 // leaving, so a quick click after closing one lands on what is under it.
 
 // Gives the widget `id` at `r` a tooltip. After the pointer rests on it for the theme's
-// delay (or at once if another tooltip showed a moment ago) `text` shows beside it.
+// delay (or at once if another tooltip showed a moment ago) `text` shows beside it. A
+// finger or a pen, which cannot rest without pressing, shows it with a long press on a
+// control that has no secondary action (long_press_decide), for as long as it is held.
 tip :: proc(ctx: ^Context, id: Id, r: Rect, text: string, keys := "") {
 	// A press on the control hides its tooltip until the pointer leaves it, and none
 	// shows while a popover is open: it would cover what the press opened.
 	if ctx.hot == id && ctx.input.pressed != {} do ctx.tip_pressed = id
 	if ctx.hot != id && ctx.tip_pressed == id do ctx.tip_pressed = 0
-	if text == "" || ctx.hot != id || ctx.input.down != {} || ctx.tip_pressed == id do return
+	held := ctx.active == id && ctx.input.pointer != .Mouse && .Left in ctx.input.down
+	if text == "" do return
+	if !held && (ctx.hot != id || ctx.input.down != {} || ctx.tip_pressed == id) do return
 	open_popup := ctx.popup_open if ctx.popup_open != 0 else ctx.popup_open_prev
 	if n := len(ctx.stack); open_popup != 0 && (n == 0 || ctx.stack[n - 1].root != open_popup) do return
 	if ctx.tip_id != id {
@@ -34,13 +38,15 @@ tooltip_draw :: proc(ctx: ^Context) {
 	t := ctx.theme
 	id := ctx.tip_id
 	if id == 0 do return
+	// Shown by a long press: at once, while it is held.
+	long := ctx.long.fired == .Tip && ctx.long.id == id && ctx.active == id && .Left in ctx.input.down
 	// The widget is no longer under the pointer (or was pressed): forget it.
-	if ctx.hot != id || ctx.input.down != {} || ctx.tip_len == 0 {
+	if !long && (ctx.hot != id || ctx.input.down != {} || ctx.tip_len == 0) {
 		ctx.tip_id = 0
 		ctx.tip_len = 0
 		return
 	}
-	waited := ctx.time - ctx.tip_since >= f64(t.tooltip_delay)
+	waited := long || ctx.time - ctx.tip_since >= f64(t.tooltip_delay)
 	shown := presence(ctx, salt(id, 7), waited, t.tooltip_time)
 	if shown <= 0 {
 		ctx.tip_len = 0
@@ -55,8 +61,10 @@ tooltip_draw :: proc(ctx: ^Context) {
 	h: f32 = 28
 	r := ctx.tip_rect
 	window := ctx.input.window
-	// Below the control when there is room, else above; never off the window.
+	// Below the control when there is room, else above; never off the window. A long
+	// press's goes above when it can, clear of the hand that holds it.
 	below := r.y + r.h + 6 + h <= window.y - 4
+	if long && r.y - 6 - h >= 4 do below = false
 	x := clamp(r.x + r.w * 0.5 - w * 0.5, 4, window.x - w - 4)
 	y := r.y + r.h + 6 if below else r.y - 6 - h
 	mark := vertex_mark(ctx)

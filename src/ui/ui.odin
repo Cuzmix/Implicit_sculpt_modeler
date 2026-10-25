@@ -7,6 +7,8 @@
 package ui
 
 import "core:hash"
+import "core:math"
+import "core:math/linalg"
 
 // A rectangle by its top-left corner and size. Layout works in points; the draw list
 // in physical pixels (points times Input.pixel_density).
@@ -65,6 +67,24 @@ Input :: struct {
 }
 
 Id :: u64
+
+// A long press on the held widget (long_due): what it did, if anything yet.
+Long_Press :: struct {
+	id:      Id, // the widget pressed
+	fired:   Long_Fired,
+	travel:  f32, // the furthest the pointer went from the press, points
+	claimed: Id, // a widget that has a secondary action this frame (secondary)
+	// The text of the last tooltip a long press showed, for the app's exit stats.
+	shown:   [64]u8,
+	shown_len: int,
+}
+
+Long_Fired :: enum u8 {
+	None,
+	Action, // the widget's secondary action ran
+	Tip, // it has none: its tooltip showed
+	Off, // the press moved a value: no long press this time (long_cancel)
+}
 
 Direction :: enum u8 {
 	Column,
@@ -258,6 +278,12 @@ Context :: struct {
 	},
 	section_depth:    int,
 	last_rect:        Rect, // where the last widget went: what a popover opens beside
+	// The last widget laid out, if it took the pointer (interact): what secondary acts on.
+	// A widget that returns early, a disabled one, leaves it 0.
+	last_id:          Id,
+	press_at:         f64, // ctx.time when the held widget was pressed
+	long:             Long_Press,
+	right_on:         Id, // the widget the right button (or the pen's side button) went down on
 	// The text field that has the keys, and whether it was drawn this frame (one that is
 	// no longer drawn lets them go).
 	text_focus:       Id,
@@ -322,6 +348,10 @@ frame_begin :: proc(ctx: ^Context, input: Input) {
 	if ctx.viewport_drag || ctx.swallow do ctx.pointer_root = 0
 	ctx.popup_open_prev = ctx.popup_open
 	ctx.popup_open = 0
+	ctx.long.claimed = 0
+	if ctx.active != 0 && ctx.active == ctx.long.id {
+		ctx.long.travel = max(ctx.long.travel, linalg.length(input.mouse - ctx.press_mouse))
+	}
 }
 
 // The anchored container on top at `p` (points) in the frame last ended, or 0 over the
@@ -340,7 +370,10 @@ frame_end :: proc(ctx: ^Context) -> ^Draw_List {
 	assert(len(ctx.stack) == 0, "a container was begun and not ended")
 	select_list_draw(ctx)
 	toasts_draw(ctx)
+	ring := long_press_decide(ctx)
 	tooltip_draw(ctx)
+	if ring do long_press_draw(ctx)
+	if .Right not_in ctx.input.down do ctx.right_on = 0
 	if ctx.active != 0 && (!ctx.active_seen || ctx.input.down == {} || ctx.input.cancel) do ctx.active = 0
 	if ctx.scrolling != 0 && ctx.active != ctx.scrolling do ctx.scrolling = 0
 	if !ctx.text_seen do ctx.text_focus = 0
@@ -531,6 +564,7 @@ place :: proc(ctx: ^Context, size: [2]f32) -> Rect {
 	c := &ctx.stack[n - 1]
 	pos := advance(c, size)
 	defer ctx.last_rect = {pos.x, pos.y, size.x, size.y}
+	ctx.last_id = 0
 	if c.box.center {
 		inner := c.cross - 2 * c.box.padding
 		if c.box.direction == .Row {
@@ -656,9 +690,13 @@ interact :: proc(ctx: ^Context, id: Id, r: Rect) -> (hovered, held, clicked, pre
 	// Hit areas may overlap a little (each is at least a touch target, larger than what
 	// is drawn); the first widget laid out under the pointer takes it.
 	if over && (ctx.active == 0 || ctx.active == id) && (ctx.hot == 0 || ctx.hot == id) do ctx.hot = id
+	ctx.last_id = id
+	if ctx.hot == id && .Right in in_input.pressed && ctx.active == 0 do ctx.right_on = id
 	if ctx.hot == id && .Left in in_input.pressed && ctx.active == 0 {
 		ctx.active = id
 		ctx.press_mouse = in_input.mouse
+		ctx.press_at = ctx.time
+		ctx.long = {id = id, shown = ctx.long.shown, shown_len = ctx.long.shown_len}
 		pressed = true
 		// The innermost drag-scrolled area the press is in decides with the control which
 		// of them the drag is for; a mouse's press is the control's at once.
@@ -676,8 +714,9 @@ interact :: proc(ctx: ^Context, id: Id, r: Rect) -> (hovered, held, clicked, pre
 		ctx.active_seen = true
 		held = .Left in in_input.down && !in_input.cancel
 		if .Left in in_input.released || in_input.cancel {
-			// A cancelled press lets go without doing what it would have done.
-			clicked = over && !in_input.cancel
+			// A cancelled press lets go without doing what it would have done, and so does
+			// a long press, which did its own thing.
+			clicked = over && !in_input.cancel && !long_happened(ctx, id)
 			held = false
 		}
 	}
@@ -899,4 +938,89 @@ shadow_circle :: proc(ctx: ^Context, center: [2]f32, radius: f32, color: Color) 
 image :: proc(ctx: ^Context, r: Rect, image_id: u64) {
 	draw_set_state(&ctx.draw, .Image, image_id, ctx.clip)
 	draw_quad(&ctx.draw, to_px(ctx, r), {0, 0}, {1, 1}, {255, 255, 255, 255})
+}
+
+// Whether the press on `id` became a long press: its secondary action ran or its
+// tooltip showed, so letting go is no click.
+@(private)
+long_happened :: proc(ctx: ^Context, id: Id) -> bool {
+	return ctx.long.id == id && (ctx.long.fired == .Action || ctx.long.fired == .Tip)
+}
+
+// Whether the press on `id` is a long press now, not yet acted on: a finger or a pen
+// (a mouse uses its right button) held on it for the theme's long_press, never
+// further than the slop from where it went down, and moving no value meanwhile.
+long_due :: proc(ctx: ^Context, id: Id) -> bool {
+	in_ := ctx.input
+	if id == 0 || ctx.active != id || ctx.long.id != id || ctx.long.fired != .None do return false
+	if in_.pointer == .Mouse || .Left not_in in_.down || in_.cancel do return false
+	if max(ctx.long.travel, linalg.length(in_.mouse - ctx.press_mouse)) > ctx.theme.slop do return false
+	return ctx.time - ctx.press_at >= f64(ctx.theme.long_press)
+}
+
+// Called right after a widget: true once when that widget's secondary action should
+// run, as a long press of a finger or the pen, or the right button (the pen's side
+// button too) pressed and let go on it. Calling it says the widget has one, so a long
+// press on it runs that rather than showing its tooltip. The press it ends wins the
+// gesture arena, so a scroll never takes it from under what the action opened.
+secondary :: proc(ctx: ^Context) -> bool {
+	id := ctx.last_id
+	if id == 0 do return false
+	if ctx.right_on == id && ctx.hot == id && .Right in ctx.input.released {
+		ctx.right_on = 0
+		return true
+	}
+	ctx.long.claimed = id
+	if !long_due(ctx, id) do return false
+	ctx.long.fired = .Action
+	ctx.press_won = true
+	return true
+}
+
+// The held widget moved a value (a slider's drag): this press is no long press.
+long_cancel :: proc(ctx: ^Context) {
+	if ctx.active != 0 && ctx.long.id == ctx.active && ctx.long.fired == .None do ctx.long.fired = .Off
+}
+
+// At the frame's end, once every widget had its chance to claim the press: a long press
+// on a widget with no secondary action but a tooltip shows the tooltip. Returns whether
+// the ring counting toward a long press should show: only on a press that would do
+// something, after long_ring, so a tap shows nothing.
+@(private)
+long_press_decide :: proc(ctx: ^Context) -> (ring: bool) {
+	id := ctx.active
+	if id == 0 || ctx.long.id != id do return false
+	has_tip := ctx.tip_id == id && ctx.tip_len > 0
+	if ctx.long.claimed != id && has_tip && long_due(ctx, id) {
+		ctx.long.fired = .Tip
+		ctx.long.shown_len = copy_text(ctx.long.shown[:], string(ctx.tip_text[:ctx.tip_len]))
+	}
+	if ctx.long.fired != .None || ctx.input.pointer == .Mouse || .Left not_in ctx.input.down do return false
+	if ctx.long.travel > ctx.theme.slop || (ctx.long.claimed != id && !has_tip) do return false
+	return ctx.time - ctx.press_at >= f64(ctx.theme.long_ring)
+}
+
+// The ring that fills around the press as it nears a long press, large enough to show
+// round a fingertip.
+@(private)
+long_press_draw :: proc(ctx: ^Context) {
+	t := ctx.theme
+	RADIUS :: 34
+	SEGMENTS :: 48
+	f := clamp(f32(ctx.time - ctx.press_at - f64(t.long_ring)) / (t.long_press - t.long_ring), 0, 1)
+	center := ctx.press_mouse
+	draw_set_state(&ctx.draw, .Atlas, 0, full_clip(ctx))
+	stroke_circle(ctx, center, RADIUS, color_fade(t.border_strong, 0.8), 3)
+	n := max(int(f * SEGMENTS), 1)
+	points := make([][2]f32, n + 1, context.temp_allocator)
+	for &p, i in points {
+		a := -math.PI / 2 + 2 * math.PI * f * f32(i) / f32(n)
+		p = center + RADIUS * [2]f32{math.cos(a), math.sin(a)}
+	}
+	polyline(ctx, points, t.accent, 3)
+}
+
+// The text of the last tooltip a long press showed, or "" for none.
+long_tip_shown :: proc(ctx: ^Context) -> string {
+	return string(ctx.long.shown[:ctx.long.shown_len])
 }

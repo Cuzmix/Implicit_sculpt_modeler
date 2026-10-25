@@ -332,6 +332,7 @@ slider :: proc(ctx: ^Context, s: string, value: ^f32, lo, hi: f32, scale: Scale,
 			if v != value^ {
 				value^ = v
 				changed = true
+				long_cancel(ctx)
 			}
 		}
 	}
@@ -351,8 +352,9 @@ slider :: proc(ctx: ^Context, s: string, value: ^f32, lo, hi: f32, scale: Scale,
 // edge: a slim pill with its label on top, the track in the middle and `shown` below.
 // Dragging anywhere on the pill moves the value by how far the pointer moves, so a
 // finger never hides the knob it moves and a press never jumps the value. Returns true
-// when the value changed.
-vslider :: proc(ctx: ^Context, s: string, value: ^f32, lo, hi: f32, scale: Scale, shown: string, glyph: rune = 0, keys := "", track: f32 = 260) -> bool {
+// when the value changed. With `reset`, a long press that moved nothing (or a right-click)
+// puts the value back to it, and a drag held on after it goes on from there.
+vslider :: proc(ctx: ^Context, s: string, value: ^f32, lo, hi: f32, scale: Scale, shown: string, glyph: rune = 0, keys := "", track: f32 = 260, reset: Maybe(f32) = nil) -> bool {
 	t := ctx.theme
 	W :: 44
 	cell := place(ctx, {t.target, track + 80})
@@ -362,13 +364,20 @@ vslider :: proc(ctx: ^Context, s: string, value: ^f32, lo, hi: f32, scale: Scale
 	f := slider_fraction(value^, lo, hi, scale)
 	changed := false
 	if pressed do ctx.press_value = f
-	if held {
+	if to, ok := reset.?; ok && secondary(ctx) {
+		changed = value^ != to
+		value^ = to
+		f = slider_fraction(to, lo, hi, scale)
+		// A drag held on after the reset moves from the reset value and from here.
+		if ctx.active == id do ctx.press_value, ctx.press_mouse = f, ctx.input.mouse
+	} else if held {
 		nf := clamp(ctx.press_value + (ctx.press_mouse.y - ctx.input.mouse.y) / track, 0, 1)
 		if nf != f {
 			v := slider_value(nf, lo, hi, scale)
 			if v != value^ {
 				value^ = v
 				changed = true
+				long_cancel(ctx)
 			}
 			f = nf
 		}
@@ -399,7 +408,7 @@ vslider :: proc(ctx: ^Context, s: string, value: ^f32, lo, hi: f32, scale: Scale
 // What happened to a list row.
 Row_Result :: struct {
 	clicked: bool, // pressed and let go on it with the main button
-	menu:    bool, // let go of the other button on it: open its context menu
+	menu:    bool, // its secondary action: a long press, or the other button let go on it
 	rect:    Rect,
 }
 
@@ -414,7 +423,7 @@ list_row :: proc(ctx: ^Context, s: string, detail := "", selected := false, glyp
 	vis := centered(cell, {w, t.row})
 	id := id_of(ctx, s)
 	hovered, held, clicked, _ := interact(ctx, id, cell)
-	menu := ctx.hot == id && .Right in ctx.input.released
+	menu := secondary(ctx)
 	mark := vertex_mark(ctx)
 	o := tween(ctx, salt(id, 1), 1 if selected else 0, t.hover_time)
 	if o > 0 do fill_rect(ctx, vis, t.radius_medium, color_fade(t.accent_soft, o))
@@ -721,6 +730,7 @@ drag_value :: proc(ctx: ^Context, s: string, value: ^f32, per_point, lo, hi: f32
 		if v != value^ {
 			value^ = v
 			changed = true
+			long_cancel(ctx)
 		}
 	}
 	fade: f32 = 1 if enabled else 0.4
