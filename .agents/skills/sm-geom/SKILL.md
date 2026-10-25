@@ -75,6 +75,13 @@ description: The src/geom package — the structure-of-arrays geom.Mesh and its 
   and projects back (`mesh_project_onto`, rays both ways within one voxel); false when the result is empty.
   `mesh_extract_shell(m, keep, thickness, smooth)` = reversed inner + offset outer + band along open edges. Tests in
   `boolean_test.odin` (sphere-lens volumes within 2%).
+- `project_along_normals(positions, normals, onto, bvh, reach, pool, next, tris)` (`boolean.odin`): nearer hit either
+  way within reach, rays started 1e-3·reach behind the point and zero direction parts nudged to 1e-9 (else `ray_aabb` gets
+  0×∞ = NaN for points on a box face, e.g. a mirror plane); used by `mesh_project_onto` and the app's Project detail.
+- Curve geometry (`src/geom/curve_mesh.odin`, README "Curve and insert tools"): `Curve_Point{p, n}` paths; `curve_resample`
+  (even arc-length steps, ends kept, smoothing), `curve_frames` (T, N ⟂ T, B = T×N), `curve_tube` (closed, capped),
+  `curve_place` (copies of a part: x→B, y→N, z→−T so no mirror; `alternate` turns every other half round N),
+  `curve_stitch_part`, `curve_tooth_part`, `any_square_to`. Tests in `curve_mesh_test.odin`.
 
 ## Invariants every geom proc keeps
 | Invariant | Who relies on it | How to check |

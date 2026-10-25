@@ -246,6 +246,20 @@ How it works (`src/geom/remesh.odin`): the object is laid on a lattice whose spa
 
 The remesh itself runs on every thread; on this VM a large share of it is first touches of new memory, which are much cheaper on a desktop. Peak memory at 10M was 2.3 GB, the old and new meshes included.
 
+## Project detail
+
+**Project detail** (Scene panel), after ZBrush's ProjectAll: the selected object's shown level takes the shape of the object chosen in Project from, and its polypaint too with Polypaint too. Each vertex looks along its normal both ways, as far as Reach (a share of the selected object's size, 0.03 by default), for the other surface, and moves to the nearer hit by Strength; the mask holds vertices back as it holds a brush. Vertices that find nothing stay put. It is one undo step.
+
+By default each object is read in its own space, as baking does, so a copy made by Duplicate or Retopologize, which is put beside the original, projects as if it lay on top of it; As placed uses where the two sit in the scene instead. The usual round trip: duplicate a sculpt, Remesh or Retopologize the copy (the detail goes), subdivide it a level at a time and Project detail at each level from the lowest up, so every level holds what it can of the original. A 100k-vertex retopology projected from a 1M sphere takes about 0.3 s on the VM, the source's BVH included. Not under dynamic topology on the selected object. Flag: `--project` (from the first object onto the selected one; after `--retopo`).
+
+## Curve and insert tools
+
+**Curve** (C, Tools panel), after ZBrush's curve brushes: drag over any surface and, on release, a new object follows the path. It is made one of three ways. **Tube** sweeps a circle of Sides sides along it, capped at both ends; Lift sets how far its middle sits out from the surface, in radii, so 0 half buries it and 1 rests it on top. **Stitches** sets leaning bars across the path. **Zipper** sets interlocking teeth from alternate sides. Width is a share of the brush's diameter where the path began, so S resizes it. The path is resampled at even steps and smoothed three times, which takes out the hand's wobble. Each part is turned to the path's frame there (along the path, out of the surface and across it), so the result follows the surface's curvature. The result is an ordinary closed object: remesh it to sculpt it, or mark it Union for the booleans.
+
+**Insert** (I), after ZBrush's insert mesh brushes: click a surface to put a shape there at the brush's size, standing on the surface's normal and turned with the view; drag before letting go to size it instead. The shape is any primitive at Vertices, or a copy of any object in the scene (Insert > Copy of ...), fitted to that size. Sink pushes it into the surface by that share of its half size. **Mark as** sets its boolean mark as it is made, so a cylinder marked Subtract, with Live boolean on, cuts a hole at once.
+
+Each curve or insert is one undo step. The geometry is in `src/geom/curve_mesh.odin`. Flags: `--curve=tube|stitches|zipper` (a wavy path across the middle of the view) and `--insert=SHAPE` (at the middle of the view).
+
 ## Booleans and Extract
 
 **Booleans** (Scene panel), after ZBrush's Live Boolean: set Selected is to Union, Subtract or Intersect on any object, and the marked objects apply, in scene order, to the base, the first object left unmarked. With **Live boolean** on, the result is drawn in their place at about Live vertices (200,000 by default) and made again whenever one of them is moved, turned, sculpted or remarked, once the mouse is let go; while you drag or sculpt the selected one it shows as it is. Subtract and Intersect objects are not drawn on their own, so select them in the Scene list to move them. **Make boolean mesh** replaces the base with the result at about Vertices (1M by default) and deletes the marked objects, all as one undo step. Marks are saved in .sculpt files.
@@ -382,7 +396,7 @@ Save strokes... writes the recording (or else the last stroke) to a `.strokes` f
 
 Files: Ctrl+O opens a scene, Ctrl+S saves it (where it was last saved or opened, else it asks), Ctrl+Shift+S saves it somewhere else. F12 saves a screenshot.
 
-Tools: W selects Select / Move, B selects Brush. F points the camera at the selected object; Shift+F shows its wireframe; Shift+G switches flat shading; Shift+W shows polygroups, Ctrl+W groups the masked part (or what is shown). Delete deletes it (Ctrl+Z brings it back). Ctrl+D subdivides the selected object; D and Shift+D go up and down its levels; Ctrl+Shift+D duplicates it. Ctrl+R remeshes it at its own vertex count. Ctrl+T turns dynamic topology on or off for it. A opens an HD window where the pointer is on an object with an HD level, or closes the open one.
+Tools: W selects Select / Move, B selects Brush, C selects Curve and I selects Insert. F points the camera at the selected object; Shift+F shows its wireframe; Shift+G switches flat shading; Shift+W shows polygroups, Ctrl+W groups the masked part (or what is shown). Delete deletes it (Ctrl+Z brings it back). Ctrl+D subdivides the selected object; D and Shift+D go up and down its levels; Ctrl+Shift+D duplicates it. Ctrl+R remeshes it at its own vertex count. Ctrl+T turns dynamic topology on or off for it. A opens an HD window where the pointer is on an object with an HD level, or closes the open one.
 
 Select / Move: click an object to select it, drag it to move it in the view plane, or drag a gizmo arm (red X, green Y, blue Z) to move along that axis. Position and scale can also be typed in the Scene panel.
 

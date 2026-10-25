@@ -128,7 +128,9 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
   (`src/sculpt/smooth_all.odin`) follows the same shape: `sculptor_smooth_all(s, steps, strength, gpu)` weighs every
   vertex by `strength · shield`, saves the free nodes, runs `smooth_all_cpu` (Jacobi steps over vertex ranges, two
   buffers) or the `Smooth_Gpu` callback the app fills with `render.smooth_compute_run` (falls back to the CPU when it
-  returns false), then `sculptor_nodes_moved`; `smooth_vertex` and `smooth_all.comp` share one arithmetic order. Undo and redo swap in place (`step_move`, `:134`); `UNDO_LIMIT_BYTES = 512 << 20` drops the oldest steps
+  returns false), then `sculptor_nodes_moved`; `smooth_vertex` and `smooth_all.comp` share one arithmetic order. Project detail
+  (`src/sculpt/project.odin`) too: `sculptor_project(s, next, colors, strength)` lerps owned positions toward `next` (and
+  paint toward `colors`) by `strength · shield`, saving moved and painted nodes as one step; refused under dyntopo. Undo and redo swap in place (`step_move`, `:134`); `UNDO_LIMIT_BYTES = 512 << 20` drops the oldest steps
   but always keeps the newest (`:53`); a stroke that moved and painted nothing is not a step (`:100`).
 - Levels (`src/sculpt/levels.odin`): a base mesh and finer copies, each one Loop step above the one below, every level a
   whole mesh with its own sculptor; only the current level is shown and sculpted (`:12-25`). `MAX_LEVELS 8`; `Level{mesh,
