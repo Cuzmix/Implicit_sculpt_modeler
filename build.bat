@@ -1,5 +1,5 @@
 @echo off
-rem Usage: build.bat [debug|release|test|run|smoke|bench|gpubench|check]   (see build.sh for what each does)
+rem Usage: build.bat [debug|release|test|run|smoke|bench|gpubench|computebench|check]   (see build.sh for what each does)
 rem Run scripts\setup_deps.bat first, from an x64 Native Tools Command Prompt.
 rem Modes are labels rather than if-blocks: an `exit /b 1` inside a parenthesised block
 rem returns 0 to whoever ran `cmd /c build.bat`, so a failure would pass unnoticed.
@@ -15,7 +15,7 @@ if "%MODE%"=="check" goto check
 
 rem Recompile shaders when glslangValidator (Vulkan SDK) is available; otherwise use the committed .spv files.
 where glslangValidator >nul 2>nul && (
-	for %%s in ("%ROOT%src\render\shaders\*.vert" "%ROOT%src\render\shaders\*.frag") do glslangValidator -V --quiet "%%s" -o "%%s.spv" || goto fail
+	for %%s in ("%ROOT%src\render\shaders\*.vert" "%ROOT%src\render\shaders\*.frag" "%ROOT%src\render\shaders\*.comp") do glslangValidator -V --quiet "%%s" -o "%%s.spv" || goto fail
 )
 
 if not exist "%ROOT%build" mkdir "%ROOT%build"
@@ -28,6 +28,7 @@ if "%MODE%"=="release" goto release
 if "%MODE%"=="test" goto test
 if "%MODE%"=="bench" goto bench
 if "%MODE%"=="gpubench" goto gpubench
+if "%MODE%"=="computebench" goto computebench
 echo unknown mode: %MODE%
 exit /b 2
 
@@ -84,6 +85,11 @@ exit /b
 :gpubench
 "%ODIN%" build "%ROOT%src\app" -out:"%ROOT%build\sculpt.exe" -o:speed -no-bounds-check %COMMON% || exit /b 1
 "%ROOT%build\sculpt.exe" --gpubench "%ROOT%build\gpubench.md" %2 %3 %4 %5 %6
+exit /b
+
+:computebench
+"%ODIN%" build "%ROOT%src\app" -out:"%ROOT%build\sculpt.exe" -o:speed -no-bounds-check %COMMON% || exit /b 1
+"%ROOT%build\sculpt.exe" --compute-bench "%ROOT%build\computebench.md" %2 %3 %4 %5 %6
 exit /b
 
 :fail

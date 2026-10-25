@@ -51,6 +51,12 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   cycled transfer buffer and bumps `version` (`:488`); `mesh_buffers_upload_indices` uploads index ranges (dynamic
   topology's whole changed pages, `sculptor_index_ranges`) and asserts they fit `index_count` (`:575`); `mesh_buffers_upload_lod` drops the LOD buffer on failure so the mesh
   draws at full detail; `viewport_download` returns RGBA8 rows top to bottom after waiting for the GPU (tests and dumps).
+- Compute (the GPU compute trial, `src/render/smooth_compute.odin`): `Smooth_Compute` holds the `smooth_all.comp` pipeline,
+  six storage buffers (indices, CSR offsets and tris, weights, two position buffers) and an upload and a download transfer
+  buffer, all grown on demand and kept; `smooth_compute_run` uploads (topology only when its key changed or is 0),
+  dispatches one compute pass a step (SDL_GPU orders passes, not dispatches inside one) in rows of at most 65535
+  groups, downloads, and waits on a fence after each part to time it (`Smooth_Timing`). SDL's SPIR-V compute layout:
+  set 0 read-only storage, set 1 read-write storage, set 2 uniforms. `build.sh` compiles `*.comp` with the other shaders.
 
 ## Verify what you draw
     build\sculpt.exe --vertices=500000 --frames=60 --dump-viewport=build\a.ppm

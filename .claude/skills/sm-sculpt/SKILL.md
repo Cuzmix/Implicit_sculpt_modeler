@@ -95,7 +95,11 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
   allocation (`Saved_Node.block` on the first, `borrowed` on the rest, freed once) and copy in parallel. Clip
   (`src/sculpt/clip.odin`): `sculptor_clip(s, []Clip_Plane)` finds the nodes with a free vertex past a plane, saves them
   through `record_hit`, projects (shield-weighted) and calls `sculptor_nodes_moved`; one step, refused under dyntopo; app
-  gesture `src/app/clip.odin` (Ctrl+Shift drag, Alt flips, planes mirrored by `sculpt.mirrors`). Undo and redo swap in place (`step_move`, `:134`); `UNDO_LIMIT_BYTES = 512 << 20` drops the oldest steps
+  gesture `src/app/clip.odin` (Ctrl+Shift drag, Alt flips, planes mirrored by `sculpt.mirrors`). Smooth all
+  (`src/sculpt/smooth_all.odin`) follows the same shape: `sculptor_smooth_all(s, steps, strength, gpu)` weighs every
+  vertex by `strength · shield`, saves the free nodes, runs `smooth_all_cpu` (Jacobi steps over vertex ranges, two
+  buffers) or the `Smooth_Gpu` callback the app fills with `render.smooth_compute_run` (falls back to the CPU when it
+  returns false), then `sculptor_nodes_moved`; `smooth_vertex` and `smooth_all.comp` share one arithmetic order. Undo and redo swap in place (`step_move`, `:134`); `UNDO_LIMIT_BYTES = 512 << 20` drops the oldest steps
   but always keeps the newest (`:53`); a stroke that moved and painted nothing is not a step (`:100`).
 - Levels (`src/sculpt/levels.odin`): a base mesh and finer copies, each one Loop step above the one below, every level a
   whole mesh with its own sculptor; only the current level is shown and sculpted (`:12-25`). `MAX_LEVELS 8`; `Level{mesh,
