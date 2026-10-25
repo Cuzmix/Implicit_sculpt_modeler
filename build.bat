@@ -109,7 +109,8 @@ if not exist "%JAVA_HOME%\bin\java.exe" ( echo no Java in %JAVA_HOME%: install A
 set TASK=assembleDebug
 if "%MODE%"=="androidrun" set TASK=installDebug
 pushd "%ROOT%android"
-call gradlew.bat %TASK% || goto android_fail
+rem .\ because cmd skips the current folder when NoDefaultCurrentDirectoryInExePath is set.
+call .\gradlew.bat %TASK% || goto android_fail
 popd
 if "%MODE%"=="android" echo android: android\app\build\outputs\apk\debug\app-debug.apk
 if "%MODE%"=="androidrun" "%ANDROID_HOME%\platform-tools\adb.exe" shell am start -n io.github.cuzmix.sculpt/org.libsdl.app.SDLActivity || exit /b 1
