@@ -86,6 +86,8 @@ settings_load :: proc(app: ^App, path: string) {
 		case "mask_steps":  app.ui.mask_steps = i32(clamp(number(f[1], f32(app.ui.mask_steps)), 1, 50))
 		case "mask_shape":
 			for kind in Mask_Shape_Kind do if strings.equal_fold(f[1], fmt.tprint(kind)) do app.ui.mask_shape_kind = kind
+		case "gesture":
+			for tool in Gesture_Tool do if strings.equal_fold(f[1], fmt.tprint(tool)) do app.gesture = tool
 		}
 	}
 	log.infof("settings: read %s", path)
@@ -139,6 +141,7 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 	fmt.sbprintfln(&out, "new_shape %v", app.ui.add_shape)
 	fmt.sbprintfln(&out, "mask_steps %d", app.ui.mask_steps)
 	fmt.sbprintfln(&out, "mask_shape %v", app.ui.mask_shape_kind)
+	fmt.sbprintfln(&out, "gesture %v", app.gesture)
 	if err := os.write_entire_file(path, transmute([]u8)strings.to_string(out)); err != nil {
 		log.warnf("settings: could not write %s: %v", path, err)
 		return false

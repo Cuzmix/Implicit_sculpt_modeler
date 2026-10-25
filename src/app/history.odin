@@ -29,6 +29,9 @@ History_Entry :: struct {
 	// or adds or removes it (remesh, dynamic topology on or off, deleting levels, adding
 	// or deleting the object): the object as it was on the other side of the change.
 	swap:  ^Object_Snapshot,
+	// Undone and redone together with the entry before it, as one step: a slice changes
+	// one object and adds another.
+	chain: bool,
 }
 
 // An object as object_put writes it, or that it did not exist. Undoing or redoing a swap
@@ -87,12 +90,12 @@ history_snapshot :: proc(app: ^App, obj: ^Object, what: string) -> ^Object_Snaps
 history_snapshot_drop :: proc(snap: ^Object_Snapshot) {snapshot_free(snap)}
 
 // Lists a change to object `id` that `before` (from history_snapshot) undoes as the
-// newest undo step. The object's strokes from before it are dropped, since the sculptors
-// they were made with are gone.
-history_record_swap :: proc(app: ^App, id: int, before: ^Object_Snapshot) {
+// newest undo step, or with `chain` as part of the newest step. The object's strokes
+// from before it are dropped, since the sculptors they were made with are gone.
+history_record_swap :: proc(app: ^App, id: int, before: ^Object_Snapshot, chain := false) {
 	history_drop_redo(app)
 	history_forget_strokes(app, id)
-	append(&app.history.done, History_Entry{id = id, swap = before})
+	append(&app.history.done, History_Entry{id = id, swap = before, chain = chain && len(app.history.done) > 0})
 	app.history.swap_bytes += len(before.bytes)
 	// Over the limit, the oldest snapshots go, with every entry older than them, since
 	// undo cannot skip a swap; strokes older than a swap are dropped anyway, so the
@@ -107,6 +110,8 @@ history_record_swap :: proc(app: ^App, id: int, before: ^Object_Snapshot) {
 		h.swap_bytes -= len(h.done[oldest].swap.bytes)
 		snapshot_free(h.done[oldest].swap)
 		remove_range(&h.done, 0, oldest + 1)
+		// What was chained to the dropped entry stands alone now.
+		if len(h.done) > 0 do h.done[0].chain = false
 	}
 }
 
@@ -168,13 +173,79 @@ mask_shape_command :: proc(app: ^App, shape: [][2]f32, size: [2]f32, unmask: boo
 	if changed do history_record(app, obj)
 }
 
-// Clips the selected object along the screen line `a`-`b` (viewport pixels), as an undo
-// step of its own (sculpt.sculptor_clip).
-clip_command :: proc(app: ^App, a, b: [2]f32, flip: bool, size: [2]f32) {
+// Hides or shows all of the selected object at once, as an undo step of its own
+// (sculpt.sculptor_hide_command).
+hide_command :: proc(app: ^App, command: sculpt.Hide_Command) {
 	stroke_finish(app)
 	obj := selected_object(app)
-	if obj == nil do return
+	if obj == nil || !hide_allowed(obj) do return
 	start := time.tick_now()
+	changed := sculpt.sculptor_hide_command(object_sculptor(obj), command)
+	hide_done(app, obj, changed, start, "show all" if command == .Show_All else "invert visibility")
+}
+
+// Keeps only what of the selected object falls inside `shape` (a polygon in normalized
+// device coordinates) shown, or with `inside` hides that, as an undo step of its own
+// (sculpt.sculptor_hide_shape).
+hide_shape_command :: proc(app: ^App, shape: [][2]f32, size: [2]f32, inside: bool) {
+	stroke_finish(app)
+	obj := selected_object(app)
+	if obj == nil || !hide_allowed(obj) do return
+	start := time.tick_now()
+	changed := sculpt.sculptor_hide_shape(object_sculptor(obj), object_clip(app, obj, size), shape, .Hide if inside else .Show_Only)
+	hide_done(app, obj, changed, start, "hide inside" if inside else "show only inside")
+}
+
+// Hides the part of `obj` on one side of the middle of its bounds across `axis` (the +
+// side when `positive`), for --hide.
+hide_axis :: proc(app: ^App, obj: ^Object, axis: int, positive: bool) {
+	if !hide_allowed(obj) do return
+	start := time.tick_now()
+	bounds := geom.AABB_EMPTY
+	for p in object_mesh(obj).positions do geom.aabb_grow(&bounds, p)
+	middle := (bounds.lo + bounds.hi) / 2
+	other := (axis + 1) % 3
+	// The axis becomes screen x and the next one screen y, both through the middle.
+	clip: matrix[4, 4]f32
+	clip[0, axis], clip[0, 3] = 1, -middle[axis]
+	clip[1, other], clip[1, 3] = 1, -middle[other]
+	clip[3, 3] = 1
+	far: f32 = 1e3
+	x0, x1: f32 = 0, far
+	if !positive do x0, x1 = -far, 0
+	shape := [][2]f32{{x0, -far}, {x1, -far}, {x1, far}, {x0, far}}
+	changed := sculpt.sculptor_hide_shape(object_sculptor(obj), clip, shape, .Hide)
+	hide_done(app, obj, changed, start, "hide half")
+}
+
+// Hiding works on a level's own triangles: not in an HD window, whose sculptor fades its
+// border, nor under dynamic topology, whose triangles change as it sculpts.
+@(private = "file")
+hide_allowed :: proc(obj: ^Object) -> bool {
+	switch {
+	case object_in_hd(obj):
+		log.warn("hide: leave the HD window first (A)")
+		return false
+	case object_dynamic(obj):
+		log.warn("hide: not with dynamic topology on")
+		return false
+	}
+	return true
+}
+
+@(private = "file")
+hide_done :: proc(app: ^App, obj: ^Object, changed: bool, start: time.Tick, what: string) {
+	app.ui.hide_last = {ms = time.duration_milliseconds(time.tick_since(start)), changed = changed, set = true}
+	hidden := sculpt.sculptor_hidden_count(object_sculptor(obj))
+	log.infof("%s: %d of %d triangles hidden, %.0f ms%s", what, hidden, object_triangle_count(obj), app.ui.hide_last.ms, "" if changed else ", nothing changed")
+	if !changed do return
+	history_record(app, obj)
+	render.viewport_invalidate(&app.target)
+}
+
+// The plane through the screen line `a`-`b` (viewport pixels) and the view direction,
+// in the object's space; `normal` points to the right of the drag.
+screen_line_plane :: proc(app: ^App, obj: ^Object, a, b, size: [2]f32) -> (point, normal: sculpt.Vec3) {
 	// Three points of the plane in the object's space: both ends of the line on the
 	// near plane and one on the far plane, so the plane holds the view direction in
 	// either projection, and a scaled object still gets its plane right.
@@ -185,10 +256,30 @@ clip_command :: proc(app: ^App, a, b: [2]f32, flip: bool, size: [2]f32) {
 	}
 	na, nb, fa := at(inv, a, size, 0), at(inv, b, size, 0), at(inv, a, size, 1)
 	// With y down on screen, the right of the drag is this side.
-	normal := linalg.normalize(linalg.cross(fa - na, nb - na))
+	return na, linalg.normalize(linalg.cross(fa - na, nb - na))
+}
+
+// Asks for the selected object to be sliced along the screen line `a`-`b`, at the start
+// of the next frame (object_slice).
+slice_request :: proc(app: ^App, a, b, size: [2]f32) {
+	stroke_finish(app)
+	obj := selected_object(app)
+	if obj == nil do return
+	point, normal := screen_line_plane(app, obj, a, b, size)
+	app.ui.scene_command = {kind = .Slice, point = point, normal = normal}
+}
+
+// Clips the selected object along the screen line `a`-`b` (viewport pixels), as an undo
+// step of its own (sculpt.sculptor_clip).
+clip_command :: proc(app: ^App, a, b: [2]f32, flip: bool, size: [2]f32) {
+	stroke_finish(app)
+	obj := selected_object(app)
+	if obj == nil do return
+	start := time.tick_now()
+	point, normal := screen_line_plane(app, obj, a, b, size)
 	if flip do normal = -normal
 	planes := make([dynamic]sculpt.Clip_Plane, 0, 8, context.temp_allocator)
-	for sign in sculpt.mirrors(app.brush.symmetry) do append(&planes, sculpt.Clip_Plane{point = na * sign, normal = normal * sign})
+	for sign in sculpt.mirrors(app.brush.symmetry) do append(&planes, sculpt.Clip_Plane{point = point * sign, normal = normal * sign})
 	changed := sculpt.sculptor_clip(object_sculptor(obj), planes[:])
 	app.ui.clip_last = {ms = time.duration_milliseconds(time.tick_since(start)), changed = changed, set = true}
 	log.infof("clip: %.0f ms%s", app.ui.clip_last.ms, "" if changed else ", nothing changed")
@@ -221,33 +312,43 @@ history_can_undo :: proc(app: ^App) -> bool {return !app.stroke.active && len(ap
 history_can_redo :: proc(app: ^App) -> bool {return !app.stroke.active && len(app.history.undone) > 0}
 
 history_undo :: proc(app: ^App) {
-	history_step(app, &app.history.done, &app.history.undone, sculpt.sculptor_can_undo, sculpt.sculptor_undo)
+	// A chained entry goes back with the one before it.
+	for history_step(app, &app.history.done, &app.history.undone, sculpt.sculptor_can_undo, sculpt.sculptor_undo) {
+		if top := app.history.undone[len(app.history.undone) - 1]; !top.chain || len(app.history.done) == 0 do break
+	}
 }
 
 history_redo :: proc(app: ^App) {
-	history_step(app, &app.history.undone, &app.history.done, sculpt.sculptor_can_redo, sculpt.sculptor_redo)
+	for history_step(app, &app.history.undone, &app.history.done, sculpt.sculptor_can_redo, sculpt.sculptor_redo) {
+		if len(app.history.undone) == 0 || !app.history.undone[len(app.history.undone) - 1].chain do break
+	}
 }
 
+// Takes one entry from `from` to `to`; false when there was none to take.
 @(private = "file")
-history_step :: proc(app: ^App, from, to: ^[dynamic]History_Entry, can, step: proc(s: ^sculpt.Sculptor) -> bool) {
-	if app.stroke.active do return
+history_step :: proc(app: ^App, from, to: ^[dynamic]History_Entry, can, step: proc(s: ^sculpt.Sculptor) -> bool) -> bool {
+	if app.stroke.active do return false
 	// Entries whose step a sculptor already dropped (memory limit) are skipped.
 	for len(from) > 0 {
 		e := pop(from)
 		if e.swap != nil {
 			if !history_swap(app, e) do app.running = false // GPU failure
 			append(to, e)
-			return
+			return true
 		}
 		s := entry_sculptor(app, e)
 		if s == nil || !can(s) do continue
 		// A stroke from outside HD leaves the window first; one inside it is only listed
 		// while the window is open.
 		if e.level != HD_LEVEL && !object_set_level(app, object_by_id(app, e.id), e.level) do app.running = false // GPU failure
+		hidden := sculpt.sculptor_hidden_stamp(s)
 		_ = step(s)
+		// What is hidden changed: which chunks are drawn changed with it.
+		if sculpt.sculptor_hidden_stamp(s) != hidden do render.viewport_invalidate(&app.target)
 		append(to, e)
-		return
+		return true
 	}
+	return false
 }
 
 // The sculptor an entry's stroke was made with, or nil if it is gone.

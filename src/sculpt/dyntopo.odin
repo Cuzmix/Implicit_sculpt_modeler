@@ -163,6 +163,7 @@ sculptor_dyn_enable :: proc(s: ^Sculptor, allocator := context.allocator) -> boo
 	}
 	if !edges_manifold(s) do return false
 	sculptor_clear_history(s)
+	hide_drop(s) // triangles are about to be split and collapsed
 	sculptor_morph_clear(s) // the vertices are about to be renumbered
 	// Bounds, cones and shared lists carry over from the fixed layout: bring them up
 	// to date first.

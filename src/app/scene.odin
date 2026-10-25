@@ -94,7 +94,7 @@ Scene :: struct {
 // applied at the start of the next frame so no panel ever draws an object (or GPU
 // buffer) freed during the same frame.
 Scene_Command :: struct {
-	kind:     enum u8 {None, Add, Remesh, Decimate, Delete, Duplicate, Symmetrize, Subdivide, Set_Level, Delete_Higher, Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete, Dyntopo},
+	kind:     enum u8 {None, Add, Remesh, Decimate, Delete, Duplicate, Symmetrize, Slice, Subdivide, Set_Level, Delete_Higher, Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete, Dyntopo},
 	vertices: int,
 	shape:    geom.Primitive, // Add: what to add
 	on:       bool, // Dyntopo: turn dynamic topology on, or off; Symmetrize: keep the + side
@@ -102,6 +102,8 @@ Scene_Command :: struct {
 	level:    int, // Set_Level; HD steps for Hd_Steps
 	at:       [2]f32, // Hd_Enter: the viewport point to open the window around
 	size:     [2]f32, // ...in a viewport of this size
+	point:    Vec3, // Slice: a point of the plane, in the selected object's space
+	normal:   Vec3, // ...and the way to the part that becomes a new object
 }
 
 scene_destroy :: proc(app: ^App) {
@@ -280,6 +282,64 @@ object_symmetrize :: proc(app: ^App, obj: ^Object, axis: int, keep_positive: boo
 	return true, true
 }
 
+// Cuts the object in two along the plane through `point` across `normal` (in its own
+// space), as ZBrush's SliceCurve and Split Groups do, closing the cut on both parts
+// (geom.mesh_slice): the object keeps the part behind the plane, and the part `normal`
+// points to becomes a new object beside it in the list, with the same transform, so
+// nothing moves. Like a remesh, its levels, HD detail, mask, hidden parts and strokes go
+// (the caller records both changes). `changed` says whether it was sliced, `part` is the
+// new object (nil if its upload failed), and ok is false only on a GPU failure; with
+// `changed` false and ok false, the object's own mesh is gone.
+object_slice :: proc(app: ^App, obj: ^Object, point, normal: Vec3) -> (part: ^Object, changed, ok: bool) {
+	stroke_finish(app)
+	object_hd_leave(app, obj)
+	start := time.tick_now()
+	source := object_mesh(obj)^
+	packed: geom.Mesh
+	if object_dynamic(obj) {
+		mask: []u8
+		packed, mask = sculpt.sculptor_compact_mesh(object_sculptor(obj))
+		delete(mask)
+		source = packed
+	}
+	front, back, made := geom.mesh_slice(source, point, normal, true, &app.pool)
+	geom.mesh_destroy(&packed)
+	free_all(context.temp_allocator)
+	if !made {
+		log.warn("slice: the line does not cut the object in two")
+		return nil, false, true
+	}
+	cut := time.tick_now()
+	_ = sdl.WaitForGPUIdle(app.renderer.device)
+	object_release_mesh(app, obj)
+	if !object_build_from(app, obj, back, cut, normals = true) {
+		geom.mesh_destroy(&front)
+		return nil, false, false
+	}
+	index := app.scene.selected
+	if !scene_add_mesh(app, front, obj.name, obj.file, obj.transform, cut) do return nil, true, false
+	part = app.scene.objects[len(app.scene.objects) - 1]
+	// Beside the object it came from, which stays selected.
+	ordered_remove(&app.scene.objects, len(app.scene.objects) - 1)
+	inject_at(&app.scene.objects, index + 1, part)
+	app.scene.selected = index
+	app.stats.slice_ms = time.duration_milliseconds(time.tick_diff(start, cut))
+	app.stats.slice_setup_ms = time.duration_milliseconds(time.tick_since(cut))
+	log.infof("slice: %d and %d vertices in %.0f ms, ready in %.0f ms more", object_vertex_count(obj), object_vertex_count(part), app.stats.slice_ms, app.stats.slice_setup_ms)
+	return part, true, true
+}
+
+// Slices `obj` across the middle of its bounds along `axis` (0 x, 1 y, 2 z), for
+// --slice. Returns false only on a GPU failure.
+scene_slice_axis :: proc(app: ^App, obj: ^Object, axis: int) -> bool {
+	bounds := geom.AABB_EMPTY
+	for p in object_mesh(obj).positions do geom.aabb_grow(&bounds, p)
+	normal: Vec3
+	normal[axis] = 1
+	for o, i in app.scene.objects do if o == obj do app.scene.selected = i
+	return scene_apply(app, {kind = .Slice, point = (bounds.lo + bounds.hi) / 2, normal = normal})
+}
+
 // Adds a copy of the object beside it, with every level and the mask, and selects it.
 // Returns false only on a GPU failure.
 scene_duplicate :: proc(app: ^App, obj: ^Object) -> bool {
@@ -349,14 +409,27 @@ level_upload :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer, gpu: ^render.Mesh_Bu
 		gpu^ = render.mesh_buffers_create(&app.renderer, m, lv.sculptor.mask) or_return
 		render.viewport_invalidate(&app.target)
 		app.stats.gpu_regrows += 1
-		return len(m.positions) * render.VERTEX_BYTES + len(m.indices) * size_of(u32), true
+		return len(m.positions) * render.VERTEX_BYTES + len(m.indices) * size_of(u32) + hidden_upload(app, cmd, gpu, lv), true
 	}
 	render.mesh_buffers_upload_ranges(&app.renderer, cmd, gpu, m, ranges, lv.sculptor.mask)
 	triangles := sculpt.sculptor_index_ranges(&lv.sculptor)
 	render.mesh_buffers_upload_indices(&app.renderer, cmd, gpu, m.indices[:], triangles)
 	for r in ranges do bytes += int(r.count) * render.VERTEX_BYTES
 	for r in triangles do bytes += int(r.index_count) * size_of(u32)
-	return bytes, true
+	return bytes + hidden_upload(app, cmd, gpu, lv), true
+}
+
+// Brings the index buffer up to date with what is hidden on the level: hidden triangles
+// are uploaded as degenerate ones, which draw nothing. A new buffer starts from the
+// mesh's own indices, so it takes every node with a hidden triangle. Returns the bytes.
+@(private = "file")
+hidden_upload :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer, gpu: ^render.Mesh_Buffers, lv: ^sculpt.Level) -> int {
+	stamp := sculpt.sculptor_hidden_stamp(&lv.sculptor)
+	if gpu.hidden_stamp == stamp do return 0
+	indices, ranges := sculpt.sculptor_hidden_indices(&lv.sculptor, gpu.hidden_stamp)
+	render.mesh_buffers_upload_packed_indices(&app.renderer, cmd, gpu, indices, ranges)
+	gpu.hidden_stamp = stamp
+	return len(indices) * size_of(u32)
 }
 
 // Deletes the selected object, as an undo step when `undoable`.
@@ -422,6 +495,19 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 			}
 			if changed do history_record_swap(app, obj.id, before)
 			else do history_snapshot_drop(before)
+		}
+	case .Slice:
+		if obj := selected_object(app); obj != nil {
+			before := history_snapshot(app, obj, "slice")
+			part, changed, ok := object_slice(app, obj, cmd.point, cmd.normal)
+			if !changed {
+				history_snapshot_drop(before)
+				if !ok do scene_delete_selected(app, undoable = false)
+				return ok
+			}
+			history_record_swap(app, obj.id, before)
+			if part != nil do history_record_swap(app, part.id, history_snapshot(app, nil, "slice"), chain = true)
+			return ok
 		}
 	case .Dyntopo:
 		if obj := selected_object(app); obj != nil {
@@ -559,6 +645,11 @@ object_hd_enter :: proc(app: ^App, obj: ^Object, at: Vec3) -> bool {
 	// One window at a time, since each can hold millions of vertices.
 	for other in app.scene.objects do if other != obj do object_hd_leave(app, other)
 	if !object_set_level(app, obj, len(obj.levels.levels) - 1) do return false
+	// The window is built from the top level's triangles, hidden or not.
+	if sculpt.sculptor_hidden_count(object_sculptor(obj)) > 0 {
+		log.warn("HD: show everything first (Ctrl+Shift click, or Ctrl+H)")
+		return true
+	}
 	start := time.tick_now()
 	if !sculpt.levels_hd_enter(&obj.levels, at, app.hd_window_vertices) do return true
 	built := time.tick_now()

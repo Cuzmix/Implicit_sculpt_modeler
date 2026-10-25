@@ -95,7 +95,13 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
   allocation (`Saved_Node.block` on the first, `borrowed` on the rest, freed once) and copy in parallel. Clip
   (`src/sculpt/clip.odin`): `sculptor_clip(s, []Clip_Plane)` finds the nodes with a free vertex past a plane, saves them
   through `record_hit`, projects (shield-weighted) and calls `sculptor_nodes_moved`; one step, refused under dyntopo; app
-  gesture `src/app/clip.odin` (Ctrl+Shift drag, Alt flips, planes mirrored by `sculpt.mirrors`). Undo and redo swap in place (`step_move`, `:134`); `UNDO_LIMIT_BYTES = 512 << 20` drops the oldest steps
+  gesture `src/app/clip.odin` (Ctrl+Shift drag with `app.gesture == .Clip`, Alt flips, planes mirrored by
+  `sculpt.mirrors`). Hiding (`src/sculpt/hide.odin`): `Hide.tris` per triangle; a vertex is hidden when every
+  triangle of it is, and then its `fade` is 0, so `shield` keeps brushes, Clip and Grab off it (mask commands check
+  `vertex_hidden`); `hide_refresh` rebuilds `fade`, `units` (chunks plus LOD groups, for `Draw_Item.hidden`) and bumps
+  `stamp`, which `hidden_upload` in app/scene.odin compares to re-upload packed indices with hidden triangles zeroed.
+  `sculptor_hide_shape`/`sculptor_hide_command` are undo steps (`Undo_Step.shown`, `Saved_Node.hidden`); refused under
+  dyntopo or in HD, never hide everything; `bvh_raycast` skips hidden triangles. Undo and redo swap in place (`step_move`, `:134`); `UNDO_LIMIT_BYTES = 512 << 20` drops the oldest steps
   but always keeps the newest (`:53`); a stroke that moved and painted nothing is not a step (`:100`).
 - Levels (`src/sculpt/levels.odin`): a base mesh and finer copies, each one Loop step above the one below, every level a
   whole mesh with its own sculptor; only the current level is shown and sculpted (`:12-25`). `MAX_LEVELS 8`; `Level{mesh,

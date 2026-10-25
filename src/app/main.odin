@@ -61,6 +61,8 @@ Options :: struct {
 	falloff:   string `usage:"Start every brush with this falloff: smooth (the default), linear, sharp, firm or flat, as the Tools panel's Falloff presets set."`,
 	rotate:    string `usage:"Turn the first object this many degrees about x, y and z before starting, e.g. 0,45,0 (as the Scene panel's Rotation does)."`,
 	mirror:    string `usage:"Mirror and weld the first object before starting, as the Scene panel does: x, y or z keeps that axis's + side, -x, -y or -z the - side (after --remesh)."`,
+	slice:     string `usage:"Slice the first object in two across its middle before starting, as a Slice line does: x, y or z is the axis the cut goes across (after --mirror)."`,
+	hide:      string `usage:"Hide the + side of the first object's middle across an axis before starting (x, y or z), or the - side (-x, -y or -z), as a hide rectangle does (after --slice)."`,
 	store_morph: bool `usage:"Store the first object's surface as its morph target before starting, as Tools > Morph target > Store does (after the other start-up changes)."`,
 	decimate:  int `usage:"Decimate the first object to about this many vertices before starting, as the Scene panel's Decimate selected does (after --remesh)."`,
 	remesh:    int `usage:"Voxel remesh the first sphere to about this many vertices before starting, as Remesh selected does (after --subdivide and --level)."`,
@@ -92,6 +94,7 @@ App :: struct {
 	brush:    Brush_Settings,
 	mask_shape: Mask_Shape, // a Ctrl + drag on empty space in progress (mask_shape.odin)
 	clip:     Clip_Gesture, // a Ctrl + Shift + drag in progress (clip.odin)
+	gesture:  Gesture_Tool, // what a Ctrl + Shift + drag does
 	// Each brush's drawn falloff as the sculptor reads it, remade when its curve changes.
 	falloff_tables: [sculpt.Brush_Kind]struct {
 		falloff: sculpt.Falloff,
@@ -197,6 +200,7 @@ run :: proc(opts: Options) -> bool {
 	defer delete(app.samples)
 	defer delete(app.stroke.pending)
 	defer mask_shape_destroy(&app.mask_shape)
+	defer clip_gesture_destroy(&app.clip)
 	app.hd_window_vertices = opts.hd_window if opts.hd_window > 0 else sculpt.HD_WINDOW_VERTICES
 	if opts.open != "" {
 		opened, ok := scene_open(&app, opts.open)
@@ -279,6 +283,24 @@ run :: proc(opts: Options) -> bool {
 			return false
 		}
 		if _, ok := object_symmetrize(&app, app.scene.objects[0], axis, !strings.has_prefix(opts.mirror, "-")); !ok do return false
+	}
+	for flag, i in ([2]string{opts.slice, opts.hide}) {
+		if flag == "" do continue
+		axes := [?]string{"x", "y", "z"}
+		name := strings.trim_prefix(flag, "-")
+		axis := -1
+		for a, k in axes do if strings.equal_fold(name, a) do axis = k
+		if axis < 0 {
+			log.errorf("unknown --%s axis %q", "slice" if i == 0 else "hide", flag)
+			return false
+		}
+		obj := app.scene.objects[0]
+		app.scene.selected = 0
+		if i == 0 {
+			if !scene_slice_axis(&app, obj, axis) do return false
+		} else {
+			hide_axis(&app, obj, axis, !strings.has_prefix(flag, "-"))
+		}
 	}
 	if opts.dyntopo {
 		obj := app.scene.objects[0]
@@ -596,7 +618,7 @@ run :: proc(opts: Options) -> bool {
 					chunks = lv.sculptor.chunks,
 					damage = lv.sculptor.changed_bounds,
 					lod    = lv.sculptor.lod.tree,
-					hidden = sculpt.levels_hd_hidden(&obj.levels) if part == 0 else nil,
+					hidden = sculpt.levels_hd_hidden(&obj.levels) if part == 0 && obj.levels.hd.window != nil else sculpt.sculptor_hidden_units(&lv.sculptor),
 				})
 			}
 		}
@@ -720,6 +742,12 @@ run :: proc(opts: Options) -> bool {
 			delete(mask)
 		}
 	}
+	for obj in app.scene.objects {
+		if hidden := sculpt.sculptor_hidden_count(object_sculptor(obj)); hidden > 0 {
+			fmt.printfln("hide object=%d hidden_triangles=%d triangles=%d", obj.id, hidden, object_triangle_count(obj))
+		}
+	}
+	if s := app.stats; s.slice_ms > 0 do fmt.printfln("slice_ms=%.1f slice_setup_ms=%.1f", s.slice_ms, s.slice_setup_ms)
 	for obj in app.scene.objects {
 		if !object_dynamic(obj) do continue
 		splits, collapses := sculpt.sculptor_dyn_edits(object_sculptor(obj))

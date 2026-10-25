@@ -41,9 +41,10 @@ Ui_State :: struct {
 	mirror_negative:    bool, // Mirror and weld keeps the - side instead of the + side
 	mask_last:          Mask_Done,
 	clip_last:          Clip_Done,
+	hide_last:          Clip_Done,
 }
 
-// The last clip, for the Clip section to report.
+// The last clip or hiding change, for the Tools panel to report.
 Clip_Done :: struct {
 	ms:      f64,
 	changed: bool,
@@ -472,10 +473,34 @@ draw_tools_panel :: proc(app: ^App) {
 		imgui.TextDisabled("%s", fmt.ctprintf("Last: %s%s in %.0f ms%s", name, steps, last.ms, outcome))
 	}
 
-	imgui.SeparatorText("Clip")
-	imgui.TextDisabled("Ctrl + Shift + drag a line: letting go flattens the\nselected object on the shaded side (Alt: the other\nside) onto the line, through to the back. It follows\nsymmetry and leaves masked areas. Not with dynamic topology.")
+	imgui.SeparatorText("Hide, clip and slice")
+	imgui.Text("Ctrl + Shift + drag:")
+	for tool, i in Gesture_Tool {
+		if i == 2 do imgui.Text("   ")
+		if i % 2 == 1 || i == 2 do imgui.SameLine()
+		if imgui.RadioButton(GESTURE_NAMES[tool], app.gesture == tool) do app.gesture = tool
+	}
+	if imgui.Button("Show all (Ctrl+H)") do hide_command(app, .Show_All)
+	imgui.SameLine()
+	if imgui.Button("Invert (Ctrl+Shift+H)") do hide_command(app, .Invert)
+	switch app.gesture {
+	case .Hide_Rectangle, .Hide_Lasso:
+		imgui.TextDisabled("Letting go keeps only what is inside the shape\nshown, through to the back (Alt: hides what is\ninside). Hidden parts are not drawn and no brush,\nmask or clip touches them. A Ctrl + Shift click\nshows everything. Not in HD or with dynamic topology.")
+	case .Clip:
+		imgui.TextDisabled("Letting go flattens the selected object on the\nshaded side (Alt: the other side) onto the line,\nthrough to the back. It follows symmetry and leaves\nmasked and hidden areas. Not with dynamic topology.")
+	case .Slice:
+		imgui.TextDisabled("Letting go cuts the selected object in two along\nthe line, through to the back, and closes each cut:\nthe part on the right of the drag becomes an object\nof its own. Levels, mask and hiding are dropped.")
+	}
+	if last := app.ui.hide_last; last.set {
+		hidden := 0
+		if obj := selected_object(app); obj != nil do hidden = sculpt.sculptor_hidden_count(object_sculptor(obj))
+		imgui.TextDisabled("%s", fmt.ctprintf("Last hide: %.0f ms%s; %d triangles hidden", last.ms, "" if last.changed else ", nothing changed", hidden))
+	}
 	if last := app.ui.clip_last; last.set {
 		imgui.TextDisabled("%s", fmt.ctprintf("Last clip: %.0f ms%s", last.ms, "" if last.changed else ", nothing changed"))
+	}
+	if app.stats.slice_ms > 0 {
+		imgui.TextDisabled("%s", fmt.ctprintf("Last slice: %.0f ms, ready in %.0f ms more", app.stats.slice_ms, app.stats.slice_setup_ms))
 	}
 
 	draw_pen_section(app)
@@ -914,6 +939,8 @@ handle_shortcuts :: proc(app: ^App) {
 		app.ui.scene_command = {kind = .Dyntopo, on = !object_dynamic(obj)}
 	}
 	if io.KeyCtrl && imgui.IsKeyPressed(.I, false) do mask_command(app, .Invert)
+	// Ctrl+H shows everything again and Ctrl+Shift+H swaps hidden and shown.
+	if io.KeyCtrl && imgui.IsKeyPressed(.H, false) do hide_command(app, .Invert if io.KeyShift else .Show_All)
 	// The keypad's 1, 3 and 7 look from the front, right and top, and with Ctrl from the
 	// opposite side, as in Blender.
 	for key, i in ([3]imgui.Key{.Keypad1, .Keypad3, .Keypad7}) {
