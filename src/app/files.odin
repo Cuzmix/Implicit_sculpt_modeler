@@ -14,6 +14,7 @@ import sdl "vendor:sdl3"
 
 import "../camera"
 import "../geom"
+import "../png_write"
 import "../render"
 import "../sculpt"
 
@@ -28,6 +29,7 @@ File_Kind :: enum u8 {
 	Save,   // the scene goes to a .sculpt file
 	Open,   // a .sculpt file replaces the scene
 	Alpha,  // an image becomes a brush alpha (alphas.odin)
+	Screenshot, // the viewport image goes to a PNG file
 }
 
 File_Request :: struct {
@@ -67,6 +69,8 @@ MESH_FILTERS := [?]sdl.DialogFileFilter{{"Meshes (OBJ, PLY)", "obj;ply"}, {"OBJ"
 @(private = "file")
 SCENE_FILTERS := [?]sdl.DialogFileFilter{{"Sculpt scene", "sculpt"}}
 @(private = "file")
+PNG_FILTERS := [?]sdl.DialogFileFilter{{"PNG image", "png"}}
+@(private = "file")
 IMAGE_FILTERS := [?]sdl.DialogFileFilter{{"Images (PNG, JPEG, BMP, TGA, QOI)", "png;jpg;jpeg;bmp;tga;qoi"}}
 
 // Shows the dialog that picks the file for `kind`; its answer becomes a request. Does
@@ -90,6 +94,8 @@ file_dialog :: proc(app: ^App, kind: File_Kind) {
 		sdl.ShowOpenFileDialog(file_dialog_done, userdata, app.window, raw_data(SCENE_FILTERS[:]), len(SCENE_FILTERS), nil, false)
 	case .Alpha:
 		sdl.ShowOpenFileDialog(file_dialog_done, userdata, app.window, raw_data(IMAGE_FILTERS[:]), len(IMAGE_FILTERS), nil, false)
+	case .Screenshot:
+		sdl.ShowSaveFileDialog(file_dialog_done, userdata, app.window, raw_data(PNG_FILTERS[:]), len(PNG_FILTERS), nil)
 	}
 }
 
@@ -115,6 +121,7 @@ file_dialog_done :: proc "c" (userdata: rawptr, filelist: [^]cstring, filter: c.
 		#partial switch kind {
 		case .Save: suffix = ".sculpt"
 		case .Export: suffix = ".ply" if filter == 2 else ".obj"
+		case .Screenshot: suffix = ".png"
 		}
 	}
 	delete(pending.req.path, heap)
@@ -193,7 +200,34 @@ file_apply :: proc(app: ^App, req: File_Request) -> bool {
 		return ok
 	case .Alpha:
 		_ = alpha_load(app, req.path)
+	case .Screenshot:
+		_ = screenshot_save(app, req.path)
 	}
+	return true
+}
+
+// Writes the viewport as the last frame drew it, without the brush outline or gizmo,
+// to a PNG file (or a binary PPM when the path ends in .ppm, for the render checks).
+screenshot_save :: proc(app: ^App, path: string) -> bool {
+	start := time.tick_now()
+	w, h := int(app.target.width), int(app.target.height)
+	pixels := render.viewport_download(&app.renderer, &app.target, context.temp_allocator)
+	if pixels == nil {
+		file_note(app, true, "Could not read the viewport back: %s", sdl.GetError())
+		return false
+	}
+	written: bool
+	if strings.equal_fold(filepath.ext(path), ".ppm") {
+		written = write_ppm(path, pixels, w, h)
+	} else {
+		data := png_write.encode(pixels, w, h, alpha = false, allocator = context.temp_allocator)
+		written = os.write_entire_file(path, data) == nil
+	}
+	if !written {
+		file_note(app, true, "Could not write %s", path)
+		return false
+	}
+	file_note(app, false, "Saved %s (%d x %d) in %.0f ms", filepath.base(path), w, h, time.duration_milliseconds(time.tick_since(start)))
 	return true
 }
 

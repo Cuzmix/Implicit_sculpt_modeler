@@ -10,7 +10,7 @@ description: Odin rules and house idioms for the sculpt modeler, pinned to deps/
   (`rg -n "^read_entire_file" deps/odin/core/os`). Declarations are column-aligned (`nan_f32   :: proc`), so grep
   `^name\b`, not `^name ::`.
 - The compiler is the fastest oracle, one package at a time: `deps\odin\odin.exe check src\<pkg> -no-entry-point
-  -collection:deps=deps -vet -strict-style -warnings-as-errors` (what `build.bat check` runs on all nine packages).
+  -collection:deps=deps -vet -strict-style -warnings-as-errors` (what `build.bat check` runs on all ten packages).
 - ImGui: every binding proc is one line carrying its C name, so `grep -n 'link_name="ImGui_Begin"'
   deps/odin-imgui/imgui.odin` (`imgui.odin:2254`) settles a signature; the internal API is `imgui_internal.odin`.
 - The pins are `scripts/versions.env` (README "Pinned versions"); `deps/` is ignored by git and never edited.

@@ -199,6 +199,8 @@ draw_menu_bar :: proc(app: ^App) {
 		if imgui.MenuItem("Import mesh (OBJ, PLY)...") do file_dialog(app, .Import)
 		if imgui.MenuItem("Export selected (OBJ, PLY)...", nil, false, selected_object(app) != nil) do file_dialog(app, .Export)
 		imgui.Separator()
+		if imgui.MenuItem("Save screenshot (PNG)...", "F12") do file_dialog(app, .Screenshot)
+		imgui.Separator()
 		if imgui.MenuItem("Quit", "Alt+F4") do app.running = false
 		imgui.EndMenu()
 	}
@@ -820,6 +822,7 @@ handle_shortcuts :: proc(app: ^App) {
 		else do save_scene(app)
 	}
 	if io.KeyCtrl && imgui.IsKeyPressed(.O, false) do file_dialog(app, .Open)
+	if imgui.IsKeyPressed(.F12, false) do file_dialog(app, .Screenshot)
 	if imgui.IsKeyPressed(.W, false) do app.tool = .Move
 	if imgui.IsKeyPressed(.B, false) do app.tool = .Brush
 	if !io.KeyCtrl && !io.KeyAlt {
