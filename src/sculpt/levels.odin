@@ -53,6 +53,7 @@ Levels :: struct {
 	// on its first use, which made the first sync of a large edit several times slower.
 	residual:       [dynamic]Vec3,
 	hd:             Hd, // detail above the top level (hd.odin)
+	faces:          Quad_Faces, // the base level's quads and UVs, for a retopologized object (levels_quads.odin)
 }
 
 // parents[2] of a vertex that continues a vertex of the level below: {that vertex, a
@@ -81,6 +82,7 @@ levels_init :: proc(l: ^Levels, mesh: geom.Mesh, pool: ^jobs.Pool, node_triangle
 }
 
 levels_destroy :: proc(l: ^Levels) {
+	levels_drop_quads(l)
 	levels_hd_delete(l)
 	for lv in l.levels do level_free(l, lv)
 	delete(l.levels)
@@ -142,6 +144,7 @@ levels_dyn_enable :: proc(l: ^Levels) -> bool {
 	if len(l.levels) != 1 || l.hd.steps > 0 do return false
 	lv := l.levels[0]
 	if !sculptor_dyn_enable(&lv.sculptor, l.allocator) do return false
+	levels_drop_quads(l) // its edits change the base's triangles
 	delete(lv.node_of_vertex, l.allocator)
 	lv.node_of_vertex = nil
 	return true
@@ -187,6 +190,7 @@ levels_delete_lower :: proc(l: ^Levels) {
 	k := l.current
 	if k == 0 do return
 	sync_levels(l, down = false)
+	levels_drop_quads(l) // the base's triangles are a level above's now
 	for lv in l.levels[:k] do level_free(l, lv)
 	level_unlink(l, l.levels[k])
 	copy(l.levels[:], l.levels[k:])

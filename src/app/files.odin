@@ -31,6 +31,7 @@ File_Kind :: enum u8 {
 	Alpha,  // an image becomes a brush alpha (alphas.odin)
 	Screenshot, // the viewport image goes to a PNG file
 	Timelapse,  // the History is recorded as PNG frames into a folder (timeline.odin)
+	Bake,       // maps baked onto the selected quad object go into a folder (retopo.odin)
 }
 
 File_Request :: struct {
@@ -50,7 +51,7 @@ FILE_NOTE_SHOWN :: 15 * time.Second
 
 // The native scene file starts with these bytes, then its version.
 SCENE_MAGIC :: "SCULPTSC"
-SCENE_VERSION :: u32(4) // 2: each object's rotation; 3: the current level's polypaint and polygroups; 4: the base level's node layout (sculpt.levels_write)
+SCENE_VERSION :: u32(5) // 2: each object's rotation; 3: the current level's polypaint and polygroups; 4: sculpt layers, and a retopologized object's quads and UVs; 5: the base level's node layout (sculpt.levels_write)
 
 // The request waiting for the next frame, and whether a dialog is showing. Kept here
 // rather than in App because SDL may call a dialog back on another thread, even after
@@ -97,7 +98,7 @@ file_dialog :: proc(app: ^App, kind: File_Kind) {
 		sdl.ShowOpenFileDialog(file_dialog_done, userdata, app.window, raw_data(IMAGE_FILTERS[:]), len(IMAGE_FILTERS), nil, false)
 	case .Screenshot:
 		sdl.ShowSaveFileDialog(file_dialog_done, userdata, app.window, raw_data(PNG_FILTERS[:]), len(PNG_FILTERS), nil)
-	case .Timelapse:
+	case .Timelapse, .Bake:
 		sdl.ShowOpenFolderDialog(file_dialog_done, userdata, app.window, nil, false)
 	}
 }
@@ -207,6 +208,8 @@ file_apply :: proc(app: ^App, req: File_Request) -> bool {
 		_ = screenshot_save(app, req.path)
 	case .Timelapse:
 		timelapse_start(app, req.path)
+	case .Bake:
+		bake_to_folder(app, req.path)
 	}
 	return true
 }
@@ -340,7 +343,11 @@ object_export :: proc(app: ^App, obj: ^Object, path: string) -> bool {
 	}
 	out := make([dynamic]u8)
 	defer delete(out)
-	if ext == ".obj" {
+	if ext == ".obj" && obj.levels.current == 0 && sculpt.levels_has_quads(&obj.levels) && !object_dynamic(obj) {
+		// A retopologized object's base level goes as its quads, with their UVs.
+		q := sculpt.levels_quad_mesh(&obj.levels)
+		geom.quad_mesh_write_obj(&out, q.positions, q.quads, obj.levels.faces.uv.uvs, obj.file.scale, obj.file.position)
+	} else if ext == ".obj" {
 		geom.mesh_write_obj(&out, positions, indices, obj.file.scale, obj.file.position, &app.pool, colors)
 	} else {
 		geom.mesh_write_ply(&out, positions, indices, obj.file.scale, obj.file.position, &app.pool, colors)
@@ -532,7 +539,6 @@ finite :: proc(v: Vec3) -> bool {
 
 // Writes next to the file and then renames over it, so a failed write never leaves a
 // half-written file where a good one was. `what` names the action for the note.
-@(private = "file")
 write_file_safely :: proc(app: ^App, path: string, data: []u8, what: string) -> bool {
 	partial := strings.concatenate({path, ".partial"}, context.temp_allocator)
 	if err := os.write_entire_file(partial, data); err != nil {

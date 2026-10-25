@@ -94,7 +94,7 @@ Scene :: struct {
 // applied at the start of the next frame so no panel ever draws an object (or GPU
 // buffer) freed during the same frame.
 Scene_Command :: struct {
-	kind:     enum u8 {None, Add, Remesh, Decimate, Delete, Duplicate, Symmetrize, Slice, Subdivide, Set_Level, Delete_Higher, Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete, Dyntopo},
+	kind:     enum u8 {None, Add, Remesh, Decimate, Retopo, Delete, Duplicate, Symmetrize, Slice, Subdivide, Set_Level, Delete_Higher, Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete, Dyntopo},
 	vertices: int,
 	shape:    geom.Primitive, // Add: what to add
 	on:       bool, // Dyntopo: turn dynamic topology on, or off; Symmetrize: keep the + side
@@ -155,10 +155,10 @@ scene_add_primitive :: proc(app: ^App, shape: geom.Primitive, vertices: int, t: 
 // whose own space sits at `file` in its file, and selects it. `name` must not be in
 // temp memory, which building frees. `start` is when making the mesh began, for the
 // log. Returns false on a GPU failure.
-scene_add_mesh :: proc(app: ^App, mesh: geom.Mesh, name: string, file, t: Transform, start: time.Tick) -> bool {
+scene_add_mesh :: proc(app: ^App, mesh: geom.Mesh, name: string, file, t: Transform, start: time.Tick, old_to_new: []u32 = nil) -> bool {
 	obj := new(Object)
 	obj.transform, obj.file = t, file
-	if !object_build_from(app, obj, mesh, start, normals = true) {
+	if !object_build_from(app, obj, mesh, start, normals = true, old_to_new = old_to_new) {
 		free(obj)
 		return false
 	}
@@ -466,6 +466,12 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 			if changed do history_record_swap(app, obj.id, before)
 			else do history_snapshot_drop(before)
 		}
+	case .Retopo:
+		if obj := selected_object(app); obj != nil {
+			made, ok := object_retopo(app, obj, cmd.vertices)
+			if made do history_record_added(app)
+			return ok
+		}
 	case .Delete:
 		scene_delete_selected(app)
 	case .Duplicate:
@@ -723,8 +729,8 @@ object_build :: proc(app: ^App, obj: ^Object, vertices, subdiv: int) -> bool {
 // computing its normals first when `normals` is set. `start` is when building the mesh
 // began, for the log.
 @(private = "file")
-object_build_from :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, start: time.Tick, normals := false) -> bool {
-	sculpt.levels_init(&obj.levels, mesh, &app.pool)
+object_build_from :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, start: time.Tick, normals := false, old_to_new: []u32 = nil) -> bool {
+	sculpt.levels_init(&obj.levels, mesh, &app.pool, old_to_new = old_to_new)
 	if normals do sculpt.sculptor_recompute_all(object_sculptor(obj))
 	free_all(context.temp_allocator)
 	ready := time.tick_now()

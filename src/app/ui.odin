@@ -50,6 +50,10 @@ Ui_State :: struct {
 	crease_degrees:     f32, // Polygroups' Creases: how sharp a crease starts a new group
 	layer_selected:     int,  // the Layers section's row that Delete and Bake act on
 	layer_dragging:     bool, // a layer's strength slider is being dragged: one undo step
+	retopo_quads:       i32,  // quads Retopologize asks for
+	retopo_last:        struct {quads, charts: int, ms: f64, set: bool},
+	bake:               Bake_Settings,
+	bake_last:          struct {ms, hit: f64, range: f32, set: bool},
 }
 
 // The last Smooth all, for the Deformation section to report.
@@ -186,7 +190,7 @@ brush_by_name :: proc(name: string) -> (sculpt.Brush_Kind, bool) {
 }
 
 ui_state_default :: proc() -> Ui_State {
-	return {viewport_request = {1280, 720}, sphere_vertices = 500_000, mask_steps = 3, smooth_steps = 5, smooth_strength = 0.5, crease_degrees = sculpt.CREASE_GROUP_DEGREES}
+	return {viewport_request = {1280, 720}, sphere_vertices = 500_000, mask_steps = 3, smooth_steps = 5, smooth_strength = 0.5, crease_degrees = sculpt.CREASE_GROUP_DEGREES, retopo_quads = 4000, bake = {size = 2048, reach_edges = 2}}
 }
 
 ui_draw :: proc(app: ^App) -> Viewport_Input {
@@ -916,6 +920,7 @@ draw_scene_panel :: proc(app: ^App) {
 	if s := app.stats; s.decimate_ms > 0 {
 		imgui.TextDisabled("Last decimate: %.0f ms, strays at most %.4f", s.decimate_ms, s.decimate_error)
 	}
+	draw_retopo_section(app)
 
 	imgui.SeparatorText("Mirror and weld")
 	imgui.BeginDisabled(selected_object(app) == nil)
