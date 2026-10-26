@@ -47,7 +47,7 @@ keys_match :: proc(app: ^App, id: Command_Id, arg: int, query: string) -> bool {
 	}
 	if chord do return false
 	e := Palette_Entry{.Command, id, arg}
-	tier, _ := palette_match(query, strings.to_lower(palette_label(e), context.temp_allocator), strings.to_lower(palette_words_of(e), context.temp_allocator))
+	tier, _ := palette_match(query, strings.to_lower(entry_title(app, e), context.temp_allocator), strings.to_lower(palette_words_of(e), context.temp_allocator))
 	// Letters in order match nearly every label; a key list wants what is named.
 	return tier < .Fuzzy
 }
@@ -57,7 +57,7 @@ keys_match :: proc(app: ^App, id: Command_Id, arg: int, query: string) -> bool {
 keys_rows :: proc(app: ^App, query: string) -> []Palette_Entry {
 	q := strings.to_lower(strings.trim_space(query), context.temp_allocator)
 	out := make([dynamic]Palette_Entry, 0, 160, context.temp_allocator)
-	entries := palette_entries()
+	entries := palette_entries_shown(app)
 	for group in Command_Group {
 		for e in entries {
 			if e.kind != .Command || command_group(e.id) != group do continue
@@ -101,7 +101,7 @@ settings_keys :: proc(app: ^App) {
 		}
 		keys := command_chords(app, e.id, e.arg)
 		shown := keys if keys != "" else "No key"
-		label := palette_label(e)
+		label := entry_title(app, e)
 		// A long name gives way to the keys, which are what this list is for.
 		room := ui.fill_width(ctx) - 20 - t.icon_small - 10 - ui.text_width(ctx, shown, t.small_size) - 16
 		label = ui.text_fit(ctx, label, t.text_size, room)

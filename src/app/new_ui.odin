@@ -155,6 +155,8 @@ Kit_State :: struct {
 	folder_menu_id: int,
 	folder_menu_at: ui.Rect,
 	rename:         Rename_Entry,
+	macro_save:     Macro_Save_Entry, // the name a stopped macro recording is saved under
+	macro_chip:     ui.Rect, // the recording chip as last laid out, which that popover hangs under
 	tree_rows:      int,
 	// Select several (the Scene palette's switch): a tap on a row, or with the Move tool on an
 	// object, adds it to the selection or takes it out, as Shift does.
@@ -598,7 +600,7 @@ kit_floats_close :: proc(k: ^Kit_State) {
 	k.menu, k.versions, k.view_menu, k.browser, k.dock_menu, k.object_menu, k.action_pop = false, false, false, false, false, false, false
 	k.bar_pop.open = false
 	k.bind.open, k.pie_editor, k.adjust_pop, k.gizmo_entry.open = false, false, false, false
-	k.folder_menu, k.rename.open = false, false
+	k.folder_menu, k.rename.open, k.macro_save.open = false, false, false
 	k.ctx.select_open = 0
 }
 
@@ -607,7 +609,7 @@ kit_floats_close :: proc(k: ^Kit_State) {
 // first-run tip hides under it.
 kit_floating :: proc(app: ^App) -> bool {
 	k := &app.kit
-	return app.ui.pie.open || app.ui.adjust.kind != .None || k.action_pop || k.adjust_pop || k.menu || k.versions || k.view_menu || k.browser || k.dock_menu || k.bind.open || k.pie_editor || k.object_menu || k.folder_menu || k.rename.open || k.palette || k.gizmo_entry.open || k.bar_pop.open || k.ctx.select_open != 0
+	return app.ui.pie.open || app.ui.adjust.kind != .None || k.action_pop || k.adjust_pop || k.menu || k.versions || k.view_menu || k.browser || k.dock_menu || k.bind.open || k.pie_editor || k.object_menu || k.folder_menu || k.rename.open || k.macro_save.open || k.palette || k.gizmo_entry.open || k.bar_pop.open || k.ctx.select_open != 0
 }
 
 kit_destroy :: proc(app: ^App) {
@@ -882,6 +884,7 @@ kit_layout :: proc(app: ^App) {
 	coach_update(app)
 	kit_coach(app)
 	kit_recover(app)
+	kit_macro_chip(app)
 
 	// The windows, back to front: the last drawn is hit tested first. One pressed comes to
 	// the front from the next frame on.
@@ -915,6 +918,7 @@ kit_layout :: proc(app: ^App) {
 	kit_gizmo_entry(app)
 	kit_adjust_popover(app)
 	kit_bind_popover(app)
+	kit_macro_save(app)
 	kit_pie_editor(app)
 }
 

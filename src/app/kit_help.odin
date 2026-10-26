@@ -59,7 +59,7 @@ command_group :: proc(id: Command_Id) -> Command_Group {
 	case .Remesh ..= .Reset_Transform:        return .Object
 	case .Add_Object ..= .Rename_Object:      return .Scene
 	case .View_Axis ..= .Studio_Render:       return .View
-	case .Stats ..= .Brush_Pie:                     return .App
+	case .Stats ..= .Run_Macro:               return .App
 	}
 	return .App
 }

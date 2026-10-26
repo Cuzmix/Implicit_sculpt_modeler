@@ -132,6 +132,8 @@ Command_Id :: enum u8 {
 	Pie, // the argument is the user pie, from 0 (user_pies.odin)
 	Pie_Editor,
 	Brush_Pie,
+	Macro_Record,
+	Run_Macro, // the argument is the slot, from 0 (macros.odin)
 }
 
 Command :: struct {
@@ -1003,6 +1005,22 @@ COMMANDS := [Command_Id]Command {
 		run = proc(app: ^App, _: int) {pie_toggle(app, 0)},
 		enabled = proc(app: ^App, _: int) -> bool {return !pie_busy(app)},
 	},
+	.Macro_Record = {
+		label = "Record macro",
+		help = "Starts keeping the commands you run as a macro, or stops and names it; strokes and view changes are not recorded.",
+		icon = ui.ICON_RECORD,
+		run = proc(app: ^App, _: int) {macro_record_toggle(app)},
+		enabled = proc(app: ^App, _: int) -> bool {return !app.script.running},
+		checked = proc(app: ^App, _: int) -> bool {return app.macro.recording},
+	},
+	.Run_Macro = {
+		label = "Run macro",
+		help = "Runs a recorded macro's commands on what is selected, each its own undo step.",
+		icon = ui.ICON_PLAY,
+		args = MACRO_SLOTS,
+		run = proc(app: ^App, arg: int) {macro_run(app, arg)},
+		enabled = macro_can_run,
+	},
 	.Pie_Editor = {
 		label = "Edit pies",
 		help = "Shows the four pies' slots, to empty them or put the defaults back.",
@@ -1110,7 +1128,9 @@ command_run :: proc(app: ^App, id: Command_Id, arg := 0) -> bool {
 	// A drag held in the inspector ends first, as its own step, so the command acts on
 	// what it left (a mask change would otherwise reweigh a deformation mid-drag).
 	inspector_drags_end(app)
+	before := macro_before(app)
 	c.run(app, arg)
+	macro_log(app, id, arg, before)
 	return true
 }
 
@@ -1146,6 +1166,8 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 		return fmt.tprintf("%v gizmo", gizmo.Mode(arg))
 	case .Pie:
 		return fmt.tprintf("Pie %d", arg + 1)
+	case .Run_Macro:
+		return fmt.tprintf("Macro %d", arg + 1)
 	}
 	return COMMANDS[id].label
 }

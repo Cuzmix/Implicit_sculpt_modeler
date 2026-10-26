@@ -227,6 +227,7 @@ command_arg_name :: proc(id: Command_Id, arg: int) -> string {
 	case .Show_Section: return fmt.tprint(Kit_Section(arg))
 	case .New_Scene: return fmt.tprint(NEW_SCENE_SHAPES[arg])
 	case .Pie:       return fmt.tprint(arg + 1) // as the menus count them
+	case .Run_Macro: return fmt.tprint(arg + 1)
 	case .Restore_Selection_Set: return fmt.tprint(arg + 1)
 	case .Gizmo:     return fmt.tprint(gizmo.Mode(arg))
 	case .Deformer:  return deformer_name(arg)

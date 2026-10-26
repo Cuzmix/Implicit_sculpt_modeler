@@ -96,8 +96,8 @@ coach_shown :: proc(app: ^App) -> bool {
 	k := &app.kit
 	// The tips are about sculpting and turning around the model, so only with Sculpt.
 	if !app.coach_run || k.coach == COACH_DONE || app.tool != .Brush do return false
-	// The recovery card takes the place first.
-	if recover_shown(app) do return false
+	// The recovery card and a macro recording's chip take the place first.
+	if recover_shown(app) || app.macro.recording do return false
 	return !side_panel_open(k) && !kit_floating(app)
 }
 

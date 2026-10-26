@@ -502,6 +502,7 @@ history_undo :: proc(app: ^App) {
 	// A topological mask let go and still settling finishes first, as its own step.
 	topo_settle(app)
 	inspector_drags_end(app)
+	macro_undoing(app)
 	// A chained entry goes back with the one before it.
 	for history_step(app, &app.history.done, &app.history.undone, sculpt.sculptor_can_undo, sculpt.sculptor_undo) {
 		if top := app.history.undone[len(app.history.undone) - 1]; !top.chain || len(app.history.done) == 0 do break
