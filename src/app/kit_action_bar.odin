@@ -1,0 +1,186 @@
+package main
+
+import "../sculpt"
+import "../ui"
+
+// The contextual action bar: above the brush dock, the next steps for what is active on
+// the selected object, so a tablet user masks, then inverts or blurs without opening the
+// inspector, its Object tab and the Select page. It shows only while something applies: an HD
+// window open, a mask, or hidden parts. These rarely come together (HD refuses hidden
+// parts and hiding is refused in HD), so at most two groups show. Each button runs its
+// command through the registry, as the menus and the palette do. Where the groups do not
+// fit beside the panels, each folds to one button that opens its actions above it.
+
+Action_Group :: enum u8 {
+	Hd,
+	Mask,
+	Hidden,
+}
+
+Action :: struct {
+	id:    Command_Id,
+	arg:   int,
+	label: string,
+}
+
+Action_Group_Info :: struct {
+	caption: string,
+	actions: []Action,
+}
+
+@(rodata)
+ACTION_GROUPS := [Action_Group]Action_Group_Info {
+	.Hd = {"HD", {{.Hd_Leave, 0, "Leave HD"}}},
+	// Invert and Clear first, the commonest; the step operations use the Mask section's
+	// Steps (Select page).
+	.Mask = {"Mask", {
+		{.Mask, int(sculpt.Mask_Command.Invert), "Invert"},
+		{.Mask, int(sculpt.Mask_Command.Clear), "Clear"},
+		{.Mask, int(sculpt.Mask_Command.Blur), "Blur"},
+		{.Mask, int(sculpt.Mask_Command.Sharpen), "Sharpen"},
+		{.Mask, int(sculpt.Mask_Command.Grow), "Grow"},
+		{.Mask, int(sculpt.Mask_Command.Shrink), "Shrink"},
+		{.Group_Shortcut, 0, "Make group"},
+	}},
+	.Hidden = {"Hidden", {{.Show_All, 0, "Show all"}, {.Invert_Hidden, 0, "Invert##hidden"}}},
+}
+
+// The groups that apply to the selected object now, in the order shown.
+action_groups_now :: proc(app: ^App) -> (groups: bit_set[Action_Group]) {
+	obj := selected_object(app)
+	if obj == nil do return
+	if object_in_hd(obj) do groups += {.Hd}
+	if object_has_mask(app, obj) do groups += {.Mask}
+	if sculpt.sculptor_hidden_count(object_sculptor(obj)) > 0 do groups += {.Hidden}
+	return
+}
+
+// Whether the bar is laid out at all: on in Settings, with the History panel (which
+// takes the same place over the dock) closed, and something to show.
+action_bar_shown :: proc(app: ^App) -> bool {
+	return app.kit.action_bar && !app.kit.history && action_groups_now(app) != {}
+}
+
+// The height of the dock and, when it is shown, the action bar above it, from last frame's
+// layout: what the toasts and the inspector keep clear of at the bottom middle.
+dock_stack :: proc(app: ^App) -> (h: f32) {
+	ctx := &app.kit.ctx
+	dock, _ := ui.prev_layout(ctx, "dock")
+	h = dock.y
+	if bar, _ := ui.prev_layout(ctx, "action bar"); bar.y > 0 do h += bar.y + ACTION_BAR_GAP
+	return
+}
+
+ACTION_BAR_GAP :: 8
+ACTION_BAR_PADDING :: 4
+
+// How wide the bar may be: centred, it stays clear of the left column on either side (the
+// sliders always, which on a short window reach down to the bar, and the modifier rail
+// when shown) and of the panel on the right while that sits beside the dock rather than
+// above it.
+action_bar_room :: proc(app: ^App) -> f32 {
+	k := &app.kit
+	t := k.ctx.theme
+	area := ui.safe_area(&k.ctx)
+	sliders, _ := ui.prev_layout(&k.ctx, "sliders")
+	side := t.edge + sliders.x + 8
+	if k.rail_side != .Off do side = max(side, t.edge + rail_size(t).x + 8)
+	panel: f32 = KIT_SETTINGS_W if side_panel_open(k) else KIT_INSPECTOR_W if k.inspector else 0
+	dock, _ := ui.prev_layout(&k.ctx, "dock")
+	// The inspector moves up above the dock and bar where the dock reaches it (kit_inspector).
+	beside := area.w * 0.5 + dock.x * 0.5 + 8 <= area.w - t.edge - panel
+	if panel > 0 && (beside || side_panel_open(k)) do side = max(side, t.edge + panel + 8)
+	return area.w - 2 * side
+}
+
+// The bar's width with every action showing: the buttons as ui.button fits them, the
+// captions, and the dividers between groups.
+action_bar_full_width :: proc(app: ^App, groups: bit_set[Action_Group]) -> f32 {
+	ctx := &app.kit.ctx
+	t := ctx.theme
+	w: f32 = 2 * ACTION_BAR_PADDING
+	n := 0
+	for g in groups {
+		if n > 0 do w += 1 + 2 * 4 // a divider and the gaps round it
+		info := ACTION_GROUPS[g]
+		w += ui.text_width(ctx, info.caption, t.small_size) + 4 + 2 * 4
+		for a in info.actions do w += ui.text_width(ctx, ui.label_text(a.label), t.text_size, .Semibold) + 28 + 4
+		n += 1
+	}
+	return w
+}
+
+// Its width with each group folded to one button.
+action_bar_compact_width :: proc(app: ^App, groups: bit_set[Action_Group]) -> f32 {
+	ctx := &app.kit.ctx
+	t := ctx.theme
+	w: f32 = 2 * ACTION_BAR_PADDING
+	n := 0
+	for g in groups {
+		if n > 0 do w += 1 + 2 * 4
+		w += ui.text_width(ctx, ACTION_GROUPS[g].caption, t.text_size, .Semibold) + t.icon_small + 6 + 28
+		n += 1
+	}
+	return w
+}
+
+kit_action_bar :: proc(app: ^App) {
+	k := &app.kit
+	ctx := &k.ctx
+	t := ctx.theme
+	if !action_bar_shown(app) {
+		k.action_pop = false
+		return
+	}
+	groups := action_groups_now(app)
+	// A folded group that went (an undo took the mask) takes its popover with it, so the
+	// popover never runs actions for a state that no longer holds.
+	if k.action_group not_in groups do k.action_pop = false
+	room := action_bar_room(app)
+	compact := action_bar_full_width(app, groups) > room
+	// With no room even folded (Settings open on a narrow window), it waits.
+	if compact && action_bar_compact_width(app, groups) > room {
+		k.action_pop = false
+		return
+	}
+	dock, _ := ui.prev_layout(ctx, "dock")
+	mark := ui.vertex_mark(ctx)
+	ui.begin_anchored(ctx, "action bar", .Center, .End, {0, t.edge + dock.y + ACTION_BAR_GAP}, {direction = .Row, gap = 4, padding = ACTION_BAR_PADDING, radius = t.radius_large + 4, background = .Panel, center = true})
+	n := 0
+	for g in groups {
+		info := ACTION_GROUPS[g]
+		if n > 0 do ui.divider(ctx, 28)
+		n += 1
+		if compact {
+			// One button for the group, which opens its actions above the bar.
+			if ui.button(ctx, info.caption, .Light, glyph = ui.ICON_CHEVRON_UP) {
+				k.action_pop = !(k.action_pop && k.action_group == g)
+				k.action_group = g
+			}
+			if k.action_group == g do k.action_anchor = ctx.last_rect
+			continue
+		}
+		ui.spacer(ctx, 4)
+		ui.label(ctx, info.caption, t.small_size)
+		for a in info.actions do _ = command_button(app, a.id, a.arg, a.label)
+	}
+	ui.end(ctx)
+	// Over a stroke or a turn of the view, the bar dims so the model shows through.
+	busy := app.stroke.active || app.drag.owner != .None
+	dim := ui.tween(ctx, ui.id_of(ctx, "action bar dim"), 0.35 if busy else 1, t.indicator_time)
+	ui.transform_since(ctx, mark, dim)
+	if !compact do k.action_pop = false
+}
+
+// A folded group's actions, above its button; drawn with what floats over the panels.
+kit_action_popover :: proc(app: ^App) {
+	k := &app.kit
+	ctx := &k.ctx
+	if !k.action_pop do return
+	if ui.popover_begin(ctx, "action group", &k.action_pop, k.action_anchor, .Above_Center, {direction = .Column, gap = 2, padding = 6, width = 200}) {
+		for a in ACTION_GROUPS[k.action_group].actions {
+			if command_button(app, a.id, a.arg, a.label) do k.action_pop = false
+		}
+		ui.popover_end(ctx)
+	}
+}

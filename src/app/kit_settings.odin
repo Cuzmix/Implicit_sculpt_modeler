@@ -119,6 +119,7 @@ settings_reset :: proc(app: ^App, tab: Settings_Tab) {
 		k.ui_scale = 1
 		k.ctx.reduced_motion = false
 		k.surface_ring = true
+		k.action_bar = true
 		k.rail_side = .Left
 		windows_reset(k)
 	case .Camera:
@@ -157,6 +158,10 @@ settings_interface :: proc(app: ^App) {
 	ui.caption(ctx, "BRUSH RING")
 	_ = ui.switch_row(ctx, "Lay the brush ring on the surface", &k.surface_ring)
 	ui.paragraph(ctx, "Over the model the ring tilts with the surface under it, with a tick showing which way it faces, as in ZBrush; off, it stays a flat circle on the screen.")
+	ui.spacer(ctx, 8)
+	ui.caption(ctx, "ACTION BAR")
+	_ = ui.switch_row(ctx, "Show next steps over the dock", &k.action_bar)
+	ui.paragraph(ctx, "While the selected object has a mask, hidden parts or an HD window open, buttons over the brushes offer what usually comes next: invert or blur the mask, show everything, leave HD.")
 	ui.spacer(ctx, 8)
 	ui.caption(ctx, "MODIFIER BUTTONS")
 	sides := [len(Rail_Side)]string{"Off", "Left", "Right"}

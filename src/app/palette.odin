@@ -373,7 +373,7 @@ palette_open :: proc(app: ^App) {
 	k := &app.kit
 	k.palette, k.palette_pick, k.palette_first = true, 0, 0
 	k.palette_query = {}
-	k.menu, k.view_menu, k.browser, k.object_menu = false, false, false, false
+	k.menu, k.view_menu, k.browser, k.object_menu, k.action_pop = false, false, false, false, false
 	k.ctx.select_open = 0
 }
 

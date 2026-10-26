@@ -784,3 +784,19 @@ stroke_restore_puts_the_surface_back :: proc(t: ^testing.T) {
 	testing.expect(t, sculptor_undo(&s))
 	testing.expect(t, slice.equal(m.positions[:], start), "undo did not take the whole stroke back")
 }
+
+// A masked vertex anywhere is found: in the first word, in a later block, or among the
+// last few that do not fill a word.
+@(test)
+has_mask_finds_any_masked_vertex :: proc(t: ^testing.T) {
+	s: Sculptor
+	testing.expect(t, !sculptor_has_mask(&s))
+	s.mask = make([]u8, 8 * 5000 + 3)
+	defer delete(s.mask)
+	testing.expect(t, !sculptor_has_mask(&s))
+	for at in ([?]int{0, 7, 8 * 4096 + 1, 8 * 5000 - 1, 8 * 5000, 8 * 5000 + 2}) {
+		s.mask[at] = 1
+		testing.expectf(t, sculptor_has_mask(&s), "vertex %d", at)
+		s.mask[at] = 0
+	}
+}
