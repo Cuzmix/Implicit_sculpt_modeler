@@ -94,6 +94,8 @@ Command_Id :: enum u8 {
 	Ghost_Object,
 	Show_All_Objects,
 	Solo_Object,
+	New_Folder,
+	Rename_Object,
 	// The view
 	View_Axis, // the argument is the camera.Axis_View
 	Ortho_Toggle,
@@ -687,6 +689,27 @@ COMMANDS := [Command_Id]Command {
 		enabled = has_object,
 		checked = proc(app: ^App, _: int) -> bool {return app.scene.solo},
 	},
+	.New_Folder = {
+		label = "New folder",
+		help = "Puts the selected object in a new folder in the Scene tab, whose eye and ghost then apply to everything in it; one undo step.",
+		icon = ui.ICON_FOLDER_PLUS,
+		run = proc(app: ^App, _: int) {
+			if obj := selected_object(app); obj != nil do app.ui.scene_command = {kind = .Arrange, arrange = .New_Folder, id = obj.id}
+		},
+		enabled = has_object,
+	},
+	.Rename_Object = {
+		label = "Rename...",
+		help = "Gives the selected object a name of your own, shown in the Scene tab and kept in the scene file; one undo step.",
+		icon = ui.ICON_PENCIL,
+		run = proc(app: ^App, _: int) {
+			if obj := selected_object(app); obj != nil {
+				w, h := app.kit.ctx.input.window.x, app.kit.ctx.input.window.y
+				rename_open(app, obj.id, {w * 0.5 - 140, h * 0.25, 280, 0})
+			}
+		},
+		enabled = has_object,
+	},
 	.View_Axis = {
 		label = "View",
 		help = "Looks at the scene straight along an axis.",
@@ -880,6 +903,8 @@ DEFAULT_BINDINGS := [?]Binding {
 	{{sdl.K_H, {}, false}, .Hide_Object, 0},
 	{{sdl.K_H, {.Alt}, false}, .Show_All_Objects, 0},
 	{{sdl.K_S, {.Shift}, false}, .Solo_Object, 0},
+	{{sdl.K_G, {.Ctrl}, false}, .New_Folder, 0},
+	{{sdl.K_F2, {}, false}, .Rename_Object, 0},
 	{{sdl.K_KP_1, {}, false}, .View_Axis, int(camera.Axis_View.Front)},
 	{{sdl.K_KP_1, {.Ctrl}, false}, .View_Axis, int(camera.Axis_View.Back)},
 	{{sdl.K_KP_3, {}, false}, .View_Axis, int(camera.Axis_View.Right)},

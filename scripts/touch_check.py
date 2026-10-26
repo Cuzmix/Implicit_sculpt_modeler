@@ -1752,6 +1752,128 @@ def undo_keeps_an_object_hidden():
     return s, THREE, {"objects_off": near(1), "objects_shown": near(2), "undo_steps": near(0), "redo_steps": near(1)}
 
 
+# A folder's row with three spheres after Ctrl+G on the first: its chevron at the left,
+# and its menu's rows where a right-click at FOLDER_MENU_AT puts them.
+FOLDER_CHEVRON = (1314, 232)
+FOLDER_MENU_AT = (1420, 232)
+FOLDER_MENU = {"rename": (1430, 260), "ungroup": (1430, 304), "delete": (1430, 349)}
+
+
+def folder_first(s):
+    """Ctrl+G puts the first sphere in a new folder; then the Scene tab shows it."""
+    s.wait(3)
+    s.press("g", ["ctrl"])
+    scene_tab(s)
+
+
+@scenario
+def ctrl_g_makes_a_folder_and_undo_takes_it_back():
+    """Ctrl+G puts the selected sphere in a new folder, one undo step; Ctrl+Z takes the folder away again."""
+    make = Script()
+    folder_first(make)
+    back = Script()
+    folder_first(back)
+    back.press("z", ["ctrl"])
+    return Steps([
+        (make, THREE, {"folders": near(1), "scene_folders": is_text("1,0,0"), "undo_steps": near(1), "tree_rows": near(4)}),
+        (back, THREE, {"folders": near(0), "scene_folders": is_text("0,0,0"), "undo_steps": near(0), "redo_steps": near(1)}),
+    ])
+
+
+@scenario
+def folder_chevron_folds_its_objects():
+    """A tap on a folder's chevron folds it: its objects leave the list, nothing is selected or undone."""
+    s = Script()
+    folder_first(s)
+    s.ftap(*FOLDER_CHEVRON)
+    s.wait(6)
+    return s, THREE, {"tree_rows": near(3), "scene_names": lambda v: v.endswith("Folder_1:folded"), "undo_steps": near(1), "selected": near(0)}
+
+
+@scenario
+def folder_eye_hides_everything_in_it():
+    """A folder's eye takes every object in it out of view, and the selection moves on to one still in view."""
+    s = Script()
+    folder_first(s)
+    s.ftap(SCENE_EYE_X, SCENE_ROWS_Y[0])
+    s.wait(6)
+    return s, THREE, {"objects_off": near(1), "objects_shown": near(2), "selected": near(1), "undo_steps": near(1)}
+
+
+@scenario
+def f2_renames_and_undo_names_it_back():
+    """F2 opens a name field for the selected object; typing and Enter renames it as one step, and Ctrl+Z gives it its old name."""
+    name = Script()
+    name.wait(3)
+    name.press("F2")
+    name.wait(4)
+    name.type("Head")
+    name.press("Return")
+    back = Script()
+    back.wait(3)
+    back.press("F2")
+    back.wait(4)
+    back.type("Head")
+    back.press("Return")
+    back.press("z", ["ctrl"])
+    return Steps([
+        (name, THREE, {"scene_names": lambda v: v.startswith("Head,Sphere_2"), "undo_steps": near(1)}),
+        (back, THREE, {"scene_names": lambda v: v.startswith("Sphere_1,Sphere_2"), "redo_steps": near(1)}),
+    ])
+
+
+@scenario
+def delete_folder_and_undo_brings_both_back():
+    """Delete folder in its menu removes the folder with its sphere; one Ctrl+Z brings back both, the sphere in its folder."""
+    gone = Script()
+    folder_first(gone)
+    gone.add(f"move:{FOLDER_MENU_AT[0]},{FOLDER_MENU_AT[1]}")
+    gone.wait(1)
+    gone.add("rdown")
+    gone.wait(1)
+    gone.add("rup")
+    gone.wait(6)
+    click(gone, FOLDER_MENU["delete"])
+    back = Script()
+    folder_first(back)
+    back.add(f"move:{FOLDER_MENU_AT[0]},{FOLDER_MENU_AT[1]}")
+    back.wait(1)
+    back.add("rdown")
+    back.wait(1)
+    back.add("rup")
+    back.wait(6)
+    click(back, FOLDER_MENU["delete"])
+    back.wait(4)
+    back.press("z", ["ctrl"])
+    back.wait(6)
+    return Steps([
+        (gone, THREE, {"objects": near(2), "folders": near(0), "scene_order": is_text("2,3")}),
+        # One Ctrl+Z takes back both entries of the step (the tree's and the sphere's), and
+        # leaves Ctrl+G's.
+        (back, THREE, {"objects": near(3), "folders": near(1), "scene_folders": is_text("1,0,0"), "scene_order": is_text("1,2,3"), "redo_steps": near(2), "undo_steps": near(1)}),
+    ])
+
+
+@scenario
+def folders_come_back_from_the_scene_file():
+    """A scene saved with a folded, hidden, renamed folder opens with it as it was."""
+    path = scene_file()
+    shutil.rmtree(os.path.dirname(path), ignore_errors=True)
+    os.makedirs(os.path.dirname(path))
+    save = Script()
+    folder_first(save)
+    save.ftap(*FOLDER_CHEVRON)
+    save.wait(4)
+    save.ftap(SCENE_EYE_X, SCENE_ROWS_Y[0])
+    save.wait(6)
+    opened = Script()
+    opened.wait(4)
+    return Steps([
+        (save, THREE + [f"--save={path}"], {"folders": near(1)}),
+        (opened, [f"--open={path}"], {"folders": near(1), "scene_folders": is_text("1,0,0"), "objects_off": near(1), "scene_names": lambda v: v.endswith("Folder_1:folded"), "selected": near(1)}),
+    ])
+
+
 @scenario
 def slow_tap_on_a_folded_title_still_opens_it():
     """A long press on a folded window's title, which has no tooltip and no other action, is still a tap."""

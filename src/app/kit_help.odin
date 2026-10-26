@@ -57,7 +57,7 @@ command_group :: proc(id: Command_Id) -> Command_Group {
 	case .Undo ..= .Duplicate_Object:         return .Edit
 	case .Tool_Move ..= .Replay_Stroke:       return .Tools
 	case .Remesh ..= .Reset_Transform:        return .Object
-	case .Add_Object ..= .Solo_Object:        return .Scene
+	case .Add_Object ..= .Rename_Object:      return .Scene
 	case .View_Axis ..= .Studio_Render:       return .View
 	case .Stats ..= .Brush_Pie:                     return .App
 	}
@@ -175,6 +175,7 @@ Glossary_Entry :: struct {
 @(rodata)
 GLOSSARY := [?]Glossary_Entry {
 	{"Object", "SubTool (ZBrush), object (Blender, Nomad), layer (3DCoat)", "One mesh in the scene, sculpted, moved, hidden and saved on its own. The Scene tab lists them.", "subtool", {.Delete_Object, .Duplicate_Object, .Add_Object}},
+	{"Folder", "Folder (ZBrush), collection (Blender), group (Nomad, Maya)", "A row in the Scene tab that gathers objects, one level deep; its eye and ghost apply to all of them.", "collection", {.New_Folder}},
 	{"Solo", "Solo (ZBrush, Nomad), local view (Blender), isolate (Maya)", "Only the selected object shown, whichever that is, until Solo is off; the others keep their eyes as they were.", "isolate", {.Solo_Object}},
 	{"Ghost", "Transparent (ZBrush), in front and wire display (Blender)", "An object dimmed and out of reach, to sculpt another against it.", "transparent", {.Ghost_Object}},
 	{"Brush", "Brush (ZBrush, Blender), tool (Nomad)", "What a stroke does to the surface: Draw, Clay, Smooth and the rest, each with its own size and strength. Keys 1 to 9 and 0 pick the first ten.", "", {}},

@@ -14,25 +14,28 @@ kit_scene_tab :: proc(app: ^App) {
 	total := 0
 	for obj in app.scene.objects do total += object_vertex_count(obj)
 	ui.caption(ctx, fmt.tprintf("OBJECTS  %d  ·  %s VERTICES", len(app.scene.objects), count_label(total)))
+	k.tree_rows = 0
 	base := boolean_base(app)
-	for obj, i in app.scene.objects {
-		detail := count_label(object_vertex_count(obj))
-		if n := len(obj.levels.levels); n > 1 do detail = fmt.tprintf("%s, level %d/%d", detail, obj.levels.current + 1, n)
-		if object_dynamic(obj) do detail = fmt.tprintf("%s, dynamic", detail)
-		// The boolean's base is the first object not marked, so the list's order decides it.
-		if obj == base do detail = fmt.tprintf("base, %s", detail)
-		toggles := object_row_toggles(obj)
-		row := ui.tree_row(ctx, fmt.tprintf("%s##%d", object_label(obj), obj.id), detail, i == app.scene.selected, all_toggles = toggles[:], glyph = ui.ICON_FRAME, dim = !object_shown(app, obj))
-		switch row.toggled {
-		case 0: app.ui.scene_command = {kind = .View, view = .Unghost if obj.ghost else .Ghost, id = obj.id}
-		case 1: app.ui.scene_command = {kind = .View, view = .Show if obj.off else .Hide, id = obj.id}
+	// The list's order is the tree's: a folder's objects are next to each other, so one
+	// walk draws each folder's row before its objects.
+	objects := app.scene.objects[:]
+	for i := 0; i < len(objects); {
+		obj := objects[i]
+		f := folder_by_id(app, obj.folder)
+		if f == nil {
+			kit_object_row(app, obj, i, base, 0)
+			i += 1
+			continue
 		}
-		// Picking an object out of view or reach brings it back, as ZBrush's SubTool list does.
-		if row.clicked || row.menu {
-			if object_pickable(app, obj) do app.scene.selected = i
-			else do app.ui.scene_command = {kind = .View, view = .Select, id = obj.id}
-		}
-		if row.menu do object_menu_open(app, obj.id, {ctx.input.mouse.x, ctx.input.mouse.y, 0, 0}, .Pointer)
+		first, end := folder_span(app, f.id)
+		kit_folder_row(app, f, objects[first:end])
+		if f.open do for j in first ..< end do kit_object_row(app, objects[j], j, base, 1)
+		i = end
+	}
+	// Folders with nothing in them yet come last.
+	for &f in app.scene.folders {
+		if first, end := folder_span(app, f.id); end > first do continue
+		kit_folder_row(app, &f, nil)
 	}
 	off, ghosts := scene_view_counts(app)
 	if off > 0 || app.scene.solo {
@@ -65,6 +68,57 @@ kit_scene_tab :: proc(app: ^App) {
 		if s.file_write_ms > 0 do append(&parts, fmt.tprintf("written in %.0f ms", s.file_write_ms))
 		ui.paragraph(ctx, fmt.tprintf("Last file %s.", strings.join(parts[:], ", ", context.temp_allocator)))
 	}
+}
+
+// An object's row in the Scene tab, under its folder's when `depth` is 1.
+@(private = "file")
+kit_object_row :: proc(app: ^App, obj: ^Object, i: int, base: ^Object, depth: int) {
+	ctx := &app.kit.ctx
+	detail := count_label(object_vertex_count(obj))
+	if n := len(obj.levels.levels); n > 1 do detail = fmt.tprintf("%s, level %d/%d", detail, obj.levels.current + 1, n)
+	if object_dynamic(obj) do detail = fmt.tprintf("%s, dynamic", detail)
+	// The boolean's base is the first object not marked, so the list's order decides it.
+	if obj == base do detail = fmt.tprintf("base, %s", detail)
+	toggles := row_toggles(object_label(obj), obj.off, obj.ghost)
+	row := ui.tree_row(ctx, fmt.tprintf("%s##%d", object_label(obj), obj.id), detail, i == app.scene.selected, depth, all_toggles = toggles[:], glyph = ui.ICON_FRAME, dim = !object_shown(app, obj))
+	switch row.toggled {
+	case 0: app.ui.scene_command = {kind = .View, view = .Unghost if obj.ghost else .Ghost, id = obj.id}
+	case 1: app.ui.scene_command = {kind = .View, view = .Show if obj.off else .Hide, id = obj.id}
+	}
+	// Picking an object out of view or reach brings it back, as ZBrush's SubTool list does.
+	if row.clicked || row.menu {
+		if object_pickable(app, obj) do app.scene.selected = i
+		else do app.ui.scene_command = {kind = .View, view = .Select, id = obj.id}
+	}
+	if row.menu do object_menu_open(app, obj.id, {ctx.input.mouse.x, ctx.input.mouse.y, 0, 0}, .Pointer)
+	app.kit.tree_rows += 1
+}
+
+// A folder's row: its chevron folds it, its eye and ghost apply to everything in it, a
+// tap selects its first object and a long press or right-click opens its menu.
+@(private = "file")
+kit_folder_row :: proc(app: ^App, f: ^Folder, members: []^Object) {
+	k := &app.kit
+	ctx := &k.ctx
+	vertices := 0
+	for obj in members do vertices += object_vertex_count(obj)
+	detail := "empty" if len(members) == 0 else fmt.tprintf("%d · %s", len(members), count_label(vertices))
+	selected := false
+	if sel := selected_object(app); sel != nil && !f.open do selected = sel.folder == f.id
+	toggles := row_toggles(folder_label(f), f.off, f.ghost)
+	// The panel only reads the folder: folding it is a view command like its eye.
+	open := f.open
+	row := ui.tree_row(ctx, fmt.tprintf("%s##folder %d", folder_label(f), f.id), detail, selected, open = &open, all_toggles = toggles[:], glyph = ui.ICON_FOLDER, dim = f.off)
+	if row.folded do app.ui.scene_command = {kind = .View, view = .Folder_Fold, id = f.id}
+	switch row.toggled {
+	case 0: app.ui.scene_command = {kind = .View, view = .Folder_Unghost if f.ghost else .Folder_Ghost, id = f.id}
+	case 1: app.ui.scene_command = {kind = .View, view = .Folder_Show if f.off else .Folder_Hide, id = f.id}
+	}
+	if row.clicked && len(members) > 0 {
+		app.ui.scene_command = {kind = .View, view = .Select, id = members[0].id}
+	}
+	if row.menu do folder_menu_open(app, f.id, {ctx.input.mouse.x, ctx.input.mouse.y, 0, 0})
+	k.tree_rows += 1
 }
 
 // The Scene tab's sections in the order shown, under the objects.

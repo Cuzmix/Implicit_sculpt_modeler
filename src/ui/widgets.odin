@@ -47,6 +47,9 @@ ICON_STOP :: rune(0xe087) // circle-stop
 ICON_RECORD :: rune(0xe349) // circle-dot
 ICON_EYE_OFF :: rune(0xe0bf)
 ICON_GHOST :: rune(0xe20e)
+ICON_FOLDER :: rune(0xe0dc)
+ICON_FOLDER_PLUS :: rune(0xe0de)
+ICON_PENCIL :: rune(0xe1f9)
 ICON_MINIMISE :: rune(0xe120) // minus, as a desktop window's minimise button
 ICON_RESTORE :: rune(0xe117) // maximize-2: open a folded window again
 ICON_SEARCH :: rune(0xe155)
@@ -578,7 +581,11 @@ tree_row :: proc(ctx: ^Context, s: string, detail := "", selected := false, dept
 		x += t.icon_small + 10
 	}
 	label := color_fade(t.text, 0.45) if dim else t.text
-	text(ctx, shown, x, mid, t.text_size, label, .Semibold if selected else .Regular)
+	font := Font.Semibold if selected else .Regular
+	// A long name is cut short of the detail rather than run under it.
+	room := first - 8 - x
+	if detail != "" do room -= text_width(ctx, detail, t.small_size) + 12
+	text(ctx, text_fit(ctx, shown, t.text_size, room, font), x, mid, t.text_size, label, font)
 	if detail != "" do text(ctx, detail, first - 8, mid, t.small_size, t.text_tertiary, .Regular, .Right)
 	press_scale(ctx, mark, vis, scale)
 
