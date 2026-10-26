@@ -90,6 +90,10 @@ Command_Id :: enum u8 {
 	// The scene
 	Add_Object,
 	Frame_All,
+	Hide_Object,
+	Ghost_Object,
+	Show_All_Objects,
+	Solo_Object,
 	// The view
 	View_Axis, // the argument is the camera.Axis_View
 	Ortho_Toggle,
@@ -651,6 +655,38 @@ COMMANDS := [Command_Id]Command {
 		run = proc(app: ^App, _: int) {frame_all(app)},
 		enabled = proc(app: ^App, _: int) -> bool {return len(app.scene.objects) > 0},
 	},
+	.Hide_Object = {
+		label = "Hide object",
+		help = "Takes the selected object out of view and out of reach, and selects the next one; its eye in the Scene tab brings it back.",
+		icon = ui.ICON_EYE_OFF,
+		run = proc(app: ^App, _: int) {view_command(app, .Hide)},
+		enabled = has_object,
+	},
+	.Ghost_Object = {
+		label = "Make a ghost",
+		help = "Dims the selected object and lets presses go through it, to sculpt against it as a reference; its ghost in the Scene tab makes it solid again.",
+		icon = ui.ICON_GHOST,
+		run = proc(app: ^App, _: int) {view_command(app, .Ghost)},
+		enabled = has_object,
+	},
+	.Show_All_Objects = {
+		label = "Show all objects",
+		help = "Turns every object's eye back on and Solo off; ghosts stay ghosts.",
+		icon = ui.ICON_EYE,
+		run = proc(app: ^App, _: int) {view_command(app, .Show_All)},
+		enabled = proc(app: ^App, _: int) -> bool {
+			off, _ := scene_view_counts(app)
+			return off > 0 || app.scene.solo
+		},
+	},
+	.Solo_Object = {
+		label = "Solo",
+		help = "Shows only the selected object, and whichever is selected next, until Solo is off again; the others keep their eyes as they were.",
+		icon = ui.ICON_FOCUS,
+		run = proc(app: ^App, _: int) {view_command(app, .Solo)},
+		enabled = has_object,
+		checked = proc(app: ^App, _: int) -> bool {return app.scene.solo},
+	},
 	.View_Axis = {
 		label = "View",
 		help = "Looks at the scene straight along an axis.",
@@ -841,6 +877,9 @@ DEFAULT_BINDINGS := [?]Binding {
 	{{sdl.K_I, {.Ctrl}, false}, .Mask, int(sculpt.Mask_Command.Invert)},
 	{{sdl.K_H, {.Ctrl}, false}, .Show_All, 0},
 	{{sdl.K_H, {.Ctrl, .Shift}, false}, .Invert_Hidden, 0},
+	{{sdl.K_H, {}, false}, .Hide_Object, 0},
+	{{sdl.K_H, {.Alt}, false}, .Show_All_Objects, 0},
+	{{sdl.K_S, {.Shift}, false}, .Solo_Object, 0},
 	{{sdl.K_KP_1, {}, false}, .View_Axis, int(camera.Axis_View.Front)},
 	{{sdl.K_KP_1, {.Ctrl}, false}, .View_Axis, int(camera.Axis_View.Back)},
 	{{sdl.K_KP_3, {}, false}, .View_Axis, int(camera.Axis_View.Right)},

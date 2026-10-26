@@ -48,7 +48,7 @@ File_Request :: struct {
 // be in a console nobody watches. `at` tells a new note from the one already shown.
 // The native scene file starts with these bytes, then its version.
 SCENE_MAGIC :: "SCULPTSC"
-SCENE_VERSION :: u32(7) // 2: each object's rotation; 3: the current level's polypaint and polygroups; 4: sculpt layers, and a retopologized object's quads and UVs (sculpt.levels_write); 5: each object's boolean mode; 6: the base level's node layout (sculpt.levels_write); 7: the camera's roll
+SCENE_VERSION :: u32(8) // 2: each object's rotation; 3: the current level's polypaint and polygroups; 4: sculpt layers, and a retopologized object's quads and UVs (sculpt.levels_write); 5: each object's boolean mode; 6: the base level's node layout (sculpt.levels_write); 7: the camera's roll; 8: each object's eye and ghost, and Solo
 
 // The request waiting for the next frame, and whether a dialog is showing. Kept here
 // rather than in App because SDL may call a dialog back on another thread, even after
@@ -499,6 +499,7 @@ scene_header_put :: proc(app: ^App, out: ^[dynamic]u8) {
 	geom.byte_put(out, c.yaw)
 	geom.byte_put(out, c.pitch)
 	geom.byte_put(out, c.roll)
+	geom.byte_put(out, u8(app.scene.solo)) // version 8
 }
 
 // Replaces the scene with a saved one: every object is read and uploaded before
@@ -531,7 +532,8 @@ scene_open :: proc(app: ^App, path: string) -> (opened, ok: bool) {
 	view.yaw = geom.byte_get(&r, f32)
 	view.pitch = geom.byte_get(&r, f32)
 	view.roll = geom.byte_get(&r, f32) if version >= 7 else 0
-	if !r.ok || count > len(data) || selected >= count || !finite(view.target) || !finite({view.distance, view.yaw, view.pitch}) || !finite({view.roll, 0, 0}) {
+	solo := geom.byte_get(&r, u8) if version >= 8 else 0
+	if !r.ok || solo > 1 || count > len(data) || selected >= count || !finite(view.target) || !finite({view.distance, view.yaw, view.pitch}) || !finite({view.roll, 0, 0}) {
 		file_note(app, true, "Cannot open %s: it is damaged", name)
 		return false, true
 	}
@@ -557,6 +559,8 @@ scene_open :: proc(app: ^App, path: string) -> (opened, ok: bool) {
 	}
 
 	scene_replace(app, objects[:], selected if selected >= 0 else (0 if count > 0 else -1), next_id, view)
+	app.scene.solo = solo == 1
+	scene_selection_fix(app)
 	autosave_scene_saved(app, path)
 	app.stats.file_read_ms = time.duration_milliseconds(time.tick_since(start))
 	vertices := 0
@@ -583,6 +587,7 @@ scene_replace :: proc(app: ^App, objects: []^Object, selected, next_id: int, vie
 	clear(&app.scene.objects)
 	append(&app.scene.objects, ..objects)
 	app.scene.selected = selected
+	app.scene.solo = false
 	// Ids only grow, so nothing kept by id (the pivot, a pending tap) finds a new object.
 	app.scene.next_id = max(next_id, app.scene.next_id)
 	ortho := app.camera.ortho
@@ -636,6 +641,7 @@ object_put_bytes :: proc(out: ^[dynamic]u8, obj: ^Object, opts := sculpt.Write_O
 	put_transform(out, obj.file)
 	geom.byte_put(out, obj.transform.rotation) // version 2
 	geom.byte_put(out, u8(obj.boolean)) // version 5
+	geom.byte_put(out, object_view_bits(obj)) // version 8
 	return sculpt.levels_write(&obj.levels, out, opts)
 }
 
@@ -656,12 +662,33 @@ object_put_estimate :: proc(obj: ^Object) -> int {
 	return bytes
 }
 
+// An object's eye (off is 1) and ghost (2) as the scene file stores them.
+OBJECT_VIEW_BITS :: 3
+object_view_bits :: proc(obj: ^Object) -> u8 {return u8(obj.off) | u8(obj.ghost) << 1}
+
 // Reads one object written by object_put (by a scene file of `version`) and uploads
 // its shown level. `read` is false
 // when the bytes are damaged (no object is made); `made` is false on a GPU failure,
 // with the object returned for the caller to discard.
 object_get :: proc(app: ^App, r: ^geom.Byte_Reader, version := SCENE_VERSION) -> (obj: ^Object, read, made: bool) {
 	obj = new(Object)
+	object_get_fields(r, obj, version)
+	if !r.ok || obj.transform.scale <= 0 || obj.file.scale <= 0 || !sculpt.levels_read(&obj.levels, r, &app.pool) {
+		delete(obj.name)
+		free(obj)
+		free_all(context.temp_allocator)
+		return nil, false, false
+	}
+	lv := sculpt.levels_current(&obj.levels)
+	obj.gpu[obj.levels.current], made = render.mesh_buffers_create(&app.renderer, lv.mesh, lv.sculptor.mask)
+	free_all(context.temp_allocator)
+	return obj, true, made
+}
+
+// Reads what object_put writes before the levels: the id, name, placement, boolean mode
+// and view flags, as a file of `version` has them; r.ok goes false on damage. The
+// caller owns obj.name.
+object_get_fields :: proc(r: ^geom.Byte_Reader, obj: ^Object, version := SCENE_VERSION) {
 	obj.id = int(geom.byte_get(r, i32))
 	obj.name = geom.byte_get_string(r)
 	obj.transform = get_transform(r)
@@ -675,16 +702,11 @@ object_get :: proc(app: ^App, r: ^geom.Byte_Reader, version := SCENE_VERSION) ->
 		if mode > u8(max(Boolean_Mode)) do r.ok = false
 		else do obj.boolean = Boolean_Mode(mode)
 	}
-	if !r.ok || obj.transform.scale <= 0 || obj.file.scale <= 0 || !sculpt.levels_read(&obj.levels, r, &app.pool) {
-		delete(obj.name)
-		free(obj)
-		free_all(context.temp_allocator)
-		return nil, false, false
+	if version >= 8 {
+		bits := geom.byte_get(r, u8)
+		if bits > OBJECT_VIEW_BITS do r.ok = false
+		obj.off, obj.ghost = bits & 1 != 0, bits & 2 != 0
 	}
-	lv := sculpt.levels_current(&obj.levels)
-	obj.gpu[obj.levels.current], made = render.mesh_buffers_create(&app.renderer, lv.mesh, lv.sculptor.mask)
-	free_all(context.temp_allocator)
-	return obj, true, made
 }
 
 // Frees an object read for a scene that never got it: it has no history and draws

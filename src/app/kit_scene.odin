@@ -14,16 +14,34 @@ kit_scene_tab :: proc(app: ^App) {
 	total := 0
 	for obj in app.scene.objects do total += object_vertex_count(obj)
 	ui.caption(ctx, fmt.tprintf("OBJECTS  %d  ·  %s VERTICES", len(app.scene.objects), count_label(total)))
+	base := boolean_base(app)
 	for obj, i in app.scene.objects {
 		detail := count_label(object_vertex_count(obj))
 		if n := len(obj.levels.levels); n > 1 do detail = fmt.tprintf("%s, level %d/%d", detail, obj.levels.current + 1, n)
 		if object_dynamic(obj) do detail = fmt.tprintf("%s, dynamic", detail)
-		row := ui.list_row(ctx, fmt.tprintf("%s##%d", object_label(obj), obj.id), detail, i == app.scene.selected, ui.ICON_FRAME)
-		if row.clicked do app.scene.selected = i
-		if row.menu {
-			app.scene.selected = i
-			object_menu_open(app, obj.id, {ctx.input.mouse.x, ctx.input.mouse.y, 0, 0}, .Pointer)
+		// The boolean's base is the first object not marked, so the list's order decides it.
+		if obj == base do detail = fmt.tprintf("base, %s", detail)
+		toggles := object_row_toggles(obj)
+		row := ui.tree_row(ctx, fmt.tprintf("%s##%d", object_label(obj), obj.id), detail, i == app.scene.selected, all_toggles = toggles[:], glyph = ui.ICON_FRAME, dim = !object_shown(app, obj))
+		switch row.toggled {
+		case 0: app.ui.scene_command = {kind = .View, view = .Unghost if obj.ghost else .Ghost, id = obj.id}
+		case 1: app.ui.scene_command = {kind = .View, view = .Show if obj.off else .Hide, id = obj.id}
 		}
+		// Picking an object out of view or reach brings it back, as ZBrush's SubTool list does.
+		if row.clicked || row.menu {
+			if object_pickable(app, obj) do app.scene.selected = i
+			else do app.ui.scene_command = {kind = .View, view = .Select, id = obj.id}
+		}
+		if row.menu do object_menu_open(app, obj.id, {ctx.input.mouse.x, ctx.input.mouse.y, 0, 0}, .Pointer)
+	}
+	off, ghosts := scene_view_counts(app)
+	if off > 0 || app.scene.solo {
+		_ = command_button(app, .Show_All_Objects, width = ui.fill_width(ctx), glyph = ui.ICON_EYE)
+	}
+	if app.scene.solo {
+		ui.paragraph(ctx, fmt.tprintf("Solo shows only the selected object. %s turns it off.", command_keys(app, .Solo_Object)))
+	} else if ghosts > 0 {
+		ui.paragraph(ctx, "Ghosts are dimmed and let presses through; their ghost icon makes them solid.")
 	}
 	if len(app.scene.objects) == 0 do ui.paragraph(ctx, "The scene is empty. Add a shape below or open a scene from the menu.")
 	half := (ui.fill_width(ctx) - 8) * 0.5

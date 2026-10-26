@@ -11,6 +11,7 @@ ICON_GRID :: rune(0xe105)
 ICON_CLOSE :: rune(0xe1b2)
 ICON_CHEVRON_DOWN :: rune(0xe071)
 ICON_CHEVRON_UP :: rune(0xe074)
+ICON_CHEVRON_RIGHT :: rune(0xe073)
 ICON_CHECK :: rune(0xe070)
 ICON_PANEL :: rune(0xe436)
 ICON_MOVE :: rune(0xe125)
@@ -45,6 +46,7 @@ ICON_FILM :: rune(0xe0d4)
 ICON_STOP :: rune(0xe087) // circle-stop
 ICON_RECORD :: rune(0xe349) // circle-dot
 ICON_EYE_OFF :: rune(0xe0bf)
+ICON_GHOST :: rune(0xe20e)
 ICON_MINIMISE :: rune(0xe120) // minus, as a desktop window's minimise button
 ICON_RESTORE :: rune(0xe117) // maximize-2: open a folded window again
 ICON_SEARCH :: rune(0xe155)
@@ -493,6 +495,106 @@ list_row :: proc(ctx: ^Context, s: string, detail := "", selected := false, glyp
 	if detail != "" do text(ctx, detail, vis.x + vis.w - 12, vis.y + vis.h * 0.5, t.small_size, t.text_tertiary, .Regular, .Right)
 	press_scale(ctx, mark, vis, scale)
 	return {clicked, menu, cell}
+}
+
+// A tree row's indent per level, and the most toggles it shows.
+TREE_INDENT :: 24
+MAX_ROW_TOGGLES :: 4
+
+// A trailing on/off icon of a tree row, such as the eye that shows or hides an object.
+Row_Toggle :: struct {
+	name:  string, // its tooltip, which says what pressing it does
+	glyph: rune,
+	lit:   bool, // drawn in the accent colour: on, where being on is the exception (a ghost)
+	faint: bool, // drawn faded: a state that needs no notice (no ghost), or one out of play (an object out of view)
+	keys:  string, // the shortcut beside the tooltip
+}
+
+// What happened to a tree row: a list row's click and menu, which toggle was pressed
+// (-1 for none), and whether the chevron folded or unfolded it.
+Tree_Row_Result :: struct {
+	using row: Row_Result,
+	toggled:   int,
+	folded:    bool,
+}
+
+// A row of a tree, a touch target tall: list_row's label and detail, indented `depth`
+// steps, with a chevron that folds it when `open` is given (a folder), and `all_toggles` at
+// its right end, each a full touch target. Pressing a toggle or the chevron neither
+// selects the row nor opens its menu; past MAX_ROW_TOGGLES they are left out. `dim` fades the label (an object out of view).
+tree_row :: proc(ctx: ^Context, s: string, detail := "", selected := false, depth := 0, open: ^bool = nil, all_toggles: []Row_Toggle = nil, glyph: rune = 0, dim := false) -> (res: Tree_Row_Result) {
+	ctx.controls += 1
+	t := ctx.theme
+	shown := label_text(s)
+	indent := f32(depth) * TREE_INDENT
+	w := fill_width(ctx)
+	if w <= 0 do w = indent + text_width(ctx, shown, t.text_size) + 24 + f32(len(all_toggles) + (1 if open != nil else 0)) * t.target
+	cell := place(ctx, {w, t.target})
+	vis := centered(cell, {w, t.row})
+	id := id_of(ctx, s)
+	res.toggled = -1
+	res.rect = cell
+
+	// The toggles and the chevron take the press before the row, whose cell holds them,
+	// as the first widget laid out under the pointer wins it.
+	toggles := all_toggles[:min(len(all_toggles), MAX_ROW_TOGGLES)]
+	first := cell.x + cell.w - f32(len(toggles)) * t.target
+	toggle_hover, toggle_held: [MAX_ROW_TOGGLES]bool
+	for _, i in toggles {
+		r := Rect{first + f32(i) * t.target, cell.y, t.target, t.target}
+		hovered, held, clicked, _ := interact(ctx, salt(id, u64(100 + i)), r)
+		toggle_hover[i], toggle_held[i] = hovered, held
+		if clicked do res.toggled = i
+	}
+	x := vis.x + 12 + indent
+	chevron := Rect{cell.x + indent, cell.y, t.target, t.target}
+	chevron_hover, chevron_held := false, false
+	if open != nil {
+		clicked: bool
+		chevron_hover, chevron_held, clicked, _ = interact(ctx, salt(id, 99), chevron)
+		if clicked {
+			open^ = !open^
+			res.folded = true
+		}
+		x = chevron.x + t.target
+	}
+	body := Rect{cell.x, cell.y, first - cell.x, cell.h}
+	hovered, held, clicked, _ := interact(ctx, id, body)
+	res.clicked = clicked
+	res.menu = secondary(ctx)
+
+	mark := vertex_mark(ctx)
+	o := tween(ctx, salt(id, 1), 1 if selected else 0, t.hover_time)
+	if o > 0 do fill_rect(ctx, vis, t.radius_medium, color_fade(t.accent_soft, o))
+	scale := feedback(ctx, id, vis, t.radius_medium, hovered && !selected, held)
+	mid := vis.y + vis.h * 0.5
+	if open != nil {
+		_ = feedback(ctx, salt(id, 99), centered(chevron, {t.control, t.control}), t.radius_small, chevron_hover, chevron_held)
+		icon(ctx, ICON_CHEVRON_DOWN if open^ else ICON_CHEVRON_RIGHT, {chevron.x + chevron.w * 0.5, mid}, t.icon_small, t.text_secondary)
+		tip(ctx, salt(id, 99), chevron, "Fold" if open^ else "Unfold")
+	}
+	if glyph != 0 {
+		icon(ctx, glyph, {x + t.icon_small * 0.5, mid}, t.icon_small, color_mix(t.text_secondary, t.accent, o))
+		x += t.icon_small + 10
+	}
+	label := color_fade(t.text, 0.45) if dim else t.text
+	text(ctx, shown, x, mid, t.text_size, label, .Semibold if selected else .Regular)
+	if detail != "" do text(ctx, detail, first - 8, mid, t.small_size, t.text_tertiary, .Regular, .Right)
+	press_scale(ctx, mark, vis, scale)
+
+	for tg, i in toggles {
+		r := Rect{first + f32(i) * t.target, cell.y, t.target, t.target}
+		tid := salt(id, u64(100 + i))
+		box := centered(r, {t.control, t.control})
+		_ = feedback(ctx, tid, box, t.radius_small, toggle_hover[i], toggle_held[i])
+		color := t.text_secondary
+		if tg.lit do color = t.accent
+		if tg.faint do color = color_fade(t.text_secondary, 0.4)
+		if toggle_hover[i] && !tg.lit do color = t.text
+		icon(ctx, tg.glyph, {r.x + r.w * 0.5, mid}, t.icon_small, color)
+		tip(ctx, tid, box, tg.name, tg.keys)
+	}
+	return
 }
 
 // An item in a menu or a select's list: an optional icon, the label, and on the right

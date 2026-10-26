@@ -425,7 +425,7 @@ pointer_route :: proc(app: ^App, input: ^Viewport_Input) {
 	if buttons == {} && !g.pending {
 		// A tap on empty space with the Move tool clears the selection, as its click did
 		// before empty space turned the view.
-		if g.owner == .Orbit && g.empty && app.tool == .Move && g.travel <= slop do app.scene.selected = -1
+		if g.owner == .Orbit && g.empty && app.tool == .Move && g.travel <= slop do scene_deselect(app)
 		if g.owner == .Shape do shape_release(app, false)
 		if g.owner == .Orbit && d.pointer == .Finger && !g.edge && app.nav.double_tap {
 			now := input_clock(app)

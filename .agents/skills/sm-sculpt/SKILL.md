@@ -233,6 +233,8 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
 ## Traps
 | You might expect | What happens |
 |---|---|
+| the selected object can be out of view | never: `scene_selection_fix` (each frame, after every `scene_view`) moves the selection off an object whose eye is off or that is a ghost; whatever draws or picks objects asks `object_shown`/`object_pickable` (`scene_tree.odin`) instead of reading `Object.off`, `ghost` and `Scene.solo`; view changes count in `app.view_edits` (autosave), not `scene_edits` (which ends Adjust last); and `scene_raycast`/`scene_raycast_surface` skip what cannot be picked |
+| undoing a swap brings back the old eye | no: `history_swap` copies the live object's `off` and `ghost` onto the one it restores; the eye is view state, saved but never an undo step |
 | a sample off the surface ends the stroke | it is skipped; the stroke resumes where the path meets the surface again (`sculpt_tool.odin:265-268`) |
 | every Ctrl+Z undoes a stroke | entries whose step the byte limit dropped are skipped silently (`history.odin:80-84`) |
 | HD strokes stay in the history | closing the window forgets them (`object_hd_leave`, `scene.odin:408`); Delete higher/lower, Remesh and turning dynamic topology on or off clear the object's history (`:322, 328, 484`; `object_set_dyntopo` `:180`) |

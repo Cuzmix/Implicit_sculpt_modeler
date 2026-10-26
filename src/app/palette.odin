@@ -113,6 +113,10 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.Adjust_Last      = "redo last tweak change settings again",
 	.Add_Object       = "subtool primitive append sphere cube",
 	.Frame_All        = "fit zoom extents home",
+	.Hide_Object      = "subtool eye visibility visible toggle",
+	.Ghost_Object     = "transparent see through reference xray template",
+	.Show_All_Objects = "unhide subtools eyes visibility visible all",
+	.Solo_Object      = "isolate local view only alone focus",
 	.View_Axis        = "camera",
 	.Ortho_Toggle     = "orthographic perspective camera",
 	.Focus_Selected   = "frame zoom fit",
@@ -175,6 +179,7 @@ PALETTE_LABELS := #partial [Command_Id]string {
 	.Delete_Object    = "Delete object",
 	.Duplicate_Object = "Duplicate object",
 	.Polygroups       = "Show polygroups",
+	.Solo_Object      = "Solo object",
 	.Stats            = "Stats panel",
 }
 

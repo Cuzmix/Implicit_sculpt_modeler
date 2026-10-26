@@ -266,7 +266,7 @@ scene_fingerprint :: proc(app: ^App) -> u64 {
 		hd_steps:   u32,
 		name:       u64,
 	}
-	h := xxhash.XXH3_64(mem.ptr_to_bytes(&[3]u64{app.history.edits, app.scene_edits, u64(len(app.scene.objects))}))
+	h := xxhash.XXH3_64(mem.ptr_to_bytes(&[4]u64{app.history.edits, app.scene_edits, app.view_edits, u64(len(app.scene.objects))}))
 	for obj in app.scene.objects {
 		t := obj.transform
 		part := Part {

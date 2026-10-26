@@ -151,6 +151,9 @@ boolean_live_update :: proc(app: ^App) -> bool {
 boolean_hides :: proc(app: ^App, obj: ^Object, index: int) -> bool {
 	if !app.ui.boolean.shown do return false
 	if obj.id != app.ui.boolean.base && obj.boolean == .None do return false
+	// With its base out of view the preview is not drawn, so nothing stands in for the
+	// objects it uses: they draw as themselves, as a press can still reach them.
+	if base := object_by_id(app, app.ui.boolean.base); base == nil || !object_shown(app, base) do return false
 	busy := app.stroke.active || app.move.drag.handle != .None || .Left in app.device.down
 	return !(busy && index == app.scene.selected)
 }
@@ -186,6 +189,7 @@ boolean_make :: proc(app: ^App) -> bool {
 		scene_delete_selected(app, chain = true)
 	}
 	for obj, i in app.scene.objects do if obj == base do app.scene.selected = i
+	scene_selection_fix(app)
 	app.ui.boolean.shown = false
 	log.infof("make boolean: %d vertices in %.0f ms", object_vertex_count(base), made_ms)
 	return true
@@ -240,6 +244,10 @@ kit_boolean_section :: proc(app: ^App) {
 	base := boolean_base(app)
 	_ = command_button(app, .Make_Boolean, variant = .Solid, tone = .Accent)
 	if base != nil do ui.paragraph(ctx, fmt.tprintf("Base: %s%s.", object_label(base), fmt.tprintf("; preview %.0f ms", b.ms) if b.shown else ""))
+	// Hidden objects still take part, so hiding a cutter never changes the result unseen.
+	hidden := 0
+	for obj in app.scene.objects do if (obj.boolean != .None || obj == base) && !object_shown(app, obj) do hidden += 1
+	if hidden > 0 do ui.paragraph(ctx, fmt.tprintf("%d of the objects it uses %s out of view and still %s part.", hidden, "is" if hidden == 1 else "are", "takes" if hidden == 1 else "take"))
 	ui.paragraph(ctx, "Objects marked Union, Subtract or Intersect apply, in scene order, to the first object left unmarked. Live shows the result in their place; Make replaces the base with it and removes the marked ones.")
 }
 

@@ -1636,6 +1636,122 @@ def long_press_a_scene_row_opens_its_menu():
     return s, [], camera_still({"dabs": near(0), "object_menu": near(1), "selected": near(0)})
 
 
+# The Scene tab's rows with three spheres (--spheres=3), each a touch target tall: the
+# eye at a row's right end, its ghost just before it (scene_tree.odin, ui.tree_row), and
+# where each sphere shows in the starting view.
+THREE = ["--spheres=3", "--vertices=20000"]
+SCENE_ROWS_Y = [232, 286, 340]
+SCENE_EYE_X, SCENE_GHOST_X, SCENE_ROW_X = 1550, 1505, 1400
+SPHERES3 = [(630, 410), (800, 450), (1006, 498)]
+
+
+def scene_tab(s):
+    s.ftap(*SCENE_TAB)
+    s.wait(10)
+
+
+@scenario
+def scene_eye_hides_and_shows_an_object():
+    """A finger on a row's eye in the Scene tab takes that object out of view without selecting it; a second tap brings it back."""
+    hide = Script()
+    scene_tab(hide)
+    hide.ftap(SCENE_EYE_X, SCENE_ROWS_Y[2])
+    hide.wait(6)
+    back = Script()
+    scene_tab(back)
+    back.ftap(SCENE_EYE_X, SCENE_ROWS_Y[2])
+    back.wait(6)
+    back.ftap(SCENE_EYE_X, SCENE_ROWS_Y[2])
+    back.wait(6)
+    return Steps([
+        (hide, THREE, {"objects_shown": near(2), "objects_off": near(1), "selected": near(0), "dabs": near(0)}),
+        (back, THREE, {"objects_shown": near(3), "objects_off": near(0), "selected": near(0)}),
+    ])
+
+
+@scenario
+def scene_ghost_lets_a_click_through():
+    """A ghost is drawn but out of reach: ghosting the selected sphere hands the selection on, and a Move click on the ghost goes through to the empty space behind, which selects nothing; on a solid sphere the same click selects it."""
+    ghost = Script()
+    scene_tab(ghost)
+    ghost.ftap(SCENE_GHOST_X, SCENE_ROWS_Y[0])
+    ghost.wait(6)
+    click(ghost, UI["tool_move"])
+    click(ghost, SPHERES3[0])
+    solid = Script()
+    scene_tab(solid)
+    solid.ftap(SCENE_ROW_X, SCENE_ROWS_Y[1])
+    solid.wait(6)
+    click(solid, UI["tool_move"])
+    click(solid, SPHERES3[0])
+    return Steps([
+        (ghost, THREE, {"objects_ghost": near(1), "objects_shown": near(3), "selected": near(-1), "undo_steps": near(0)}),
+        (solid, THREE, {"objects_ghost": near(0), "selected": near(0)}),
+    ])
+
+
+@scenario
+def h_hides_the_selected_and_alt_h_shows_all():
+    """H hides the selected object and selects the next, saying how to bring it back; Alt+H shows every object again and keeps the selection."""
+    hide = Script()
+    hide.wait(3)
+    hide.press("h")
+    back = Script()
+    back.wait(3)
+    back.press("h")
+    back.press("h", ["alt"])
+    return Steps([
+        (hide, THREE, {"objects_off": near(1), "objects_shown": near(2), "selected": near(1), "last_op": lambda v: v.startswith("Hid_Sphere_1"), "undo_steps": near(0)}),
+        (back, THREE, {"objects_off": near(0), "objects_shown": near(3), "selected": near(1)}),
+    ])
+
+
+@scenario
+def solo_follows_the_row_picked():
+    """Shift+S shows only the selected sphere; picking another row moves Solo to it; Shift+S again shows all three."""
+    s = Script()
+    s.wait(3)
+    s.press("s", ["shift"])
+    scene_tab(s)
+    s.ftap(SCENE_ROW_X, SCENE_ROWS_Y[2])
+    s.wait(6)
+    again = Script()
+    again.wait(3)
+    again.press("s", ["shift"])
+    again.press("s", ["shift"])
+    return Steps([
+        (s, THREE, {"solo": near(1), "objects_shown": near(1), "selected": near(2), "objects_off": near(0)}),
+        (again, THREE, {"solo": near(0), "objects_shown": near(3)}),
+    ])
+
+
+@scenario
+def scene_row_of_a_hidden_object_brings_it_back():
+    """A tap on the row of a sphere H hid selects it and puts it back in view, as ZBrush's SubTool list does."""
+    s = Script()
+    s.wait(3)
+    s.press("h")
+    scene_tab(s)
+    s.ftap(SCENE_ROW_X, SCENE_ROWS_Y[0])
+    s.wait(6)
+    return s, THREE, {"objects_off": near(0), "objects_shown": near(3), "selected": near(0)}
+
+
+@scenario
+def undo_keeps_an_object_hidden():
+    """Undoing a remesh of a sphere hidden since brings back the sphere as it was but keeps it out of view: the eye is not part of the step."""
+    s = Script()
+    s.wait(3)
+    s.press("r", ["ctrl"])
+    s.wait(20)
+    scene_tab(s)
+    s.ftap(SCENE_EYE_X, SCENE_ROWS_Y[0])
+    s.wait(6)
+    s.press("z", ["ctrl"])
+    s.wait(10)
+    return s, THREE, {"objects_off": near(1), "objects_shown": near(2), "undo_steps": near(0), "redo_steps": near(1)}
+
+
 @scenario
 def slow_tap_on_a_folded_title_still_opens_it():
     """A long press on a folded window's title, which has no tooltip and no other action, is still a tap."""

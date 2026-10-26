@@ -1111,6 +1111,9 @@ kit_object_menu :: proc(app: ^App) {
 	if !ui.popover_begin(ctx, "object menu", &k.object_menu, k.object_menu_at, k.object_menu_side, {direction = .Column, padding = 6, width = 232}) do return
 	picked := command_menu_item(app, .Focus_Selected, label = "Focus")
 	if command_menu_item(app, .Duplicate_Object) do picked = true
+	if command_menu_item(app, .Solo_Object) do picked = true
+	if command_menu_item(app, .Ghost_Object) do picked = true
+	if command_menu_item(app, .Hide_Object) do picked = true
 	ui.divider(ctx, across = true)
 	if command_menu_item(app, .Delete_Object, tone = .Danger) do picked = true
 	if picked do k.object_menu = false

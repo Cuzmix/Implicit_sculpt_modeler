@@ -45,7 +45,7 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
 - Inspector (`kit_inspector`, `new_ui.odin:486`): tabs Tool (`kit_tool_tab`, `kit_tool.odin`: the brush's Stroke,
   Colour, Falloff, Alpha, Pen, Options and Stroke recorder; Curve and Insert settings; Move help), Object
   (`kit_object.odin`: Transform, levels, HD, dynamic topology, mask, hide/clip/slice, paint and groups, morph, layers,
-  deformation, remesh, mirror, retopo, project, booleans, extract) and Scene (`kit_scene.odin`: objects, Add, Material,
+  deformation, remesh, mirror, retopo, project, booleans, extract) and Scene (`kit_scene.odin`: the object rows with eye and ghost (`scene_tree.odin`), Add, Material,
   Studio render, Camera). A feature's section lives beside its code (`kit_layers_section` in `layers.odin`,
   `kit_boolean_section` in `boolean.odin`, `kit_alpha_section` in `alphas.odin`, …). Under its title bar the tabs and
   content are the clipped "inspector body", which scrolls (`ui.scroll_update` before it, `ui.scroll_take` after with
@@ -119,7 +119,8 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   widget never passes on its neighbour's); it fires once (or on a right press and release on that widget), wins the
   arena (`press_won`) and the release is no click. Unclaimed, a widget with a tooltip shows it at frame end
   (`.Tip`, also no click); with neither, nothing fires and the release clicks. A widget that moves a value while held
-  calls `long_cancel`. `vslider(reset = v)` resets on a long press. `list_row.menu` is `secondary`.
+  calls `long_cancel`. `vslider(reset = v)` resets on a long press. `list_row.menu` is `secondary`. `tree_row`
+  lays out its trailing toggles and chevron before its body, so a press on them never selects the row or opens its menu.
 - The gesture arena in the kit (Flutter's): `interact` (`ui.odin:628`) records `press_host`, the innermost
   `drag_scroll` container under a press; a finger or pen press there is tentative (`press_won` false), a mouse press
   wins at once. `scroll_update` (`ui.odin:711`) steals a tentative press that moves vertically past the slop (no click
@@ -144,7 +145,7 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
 - Widgets (`widgets.odin`): `label`, `paragraph`, `caption`, `icon_button`, `button` (variant, tone, width, glyph,
   enabled, keys: a tooltip hint), `toggle_button`, `tabs` (segmented control; `chosen` -1 shows none; `keys` a hint per option), `switch_row`, `slider` (linear or
   logarithmic), `vslider`, `drag_value` (drag sideways, from the press value), `text_field` (a `[]u8` buffer),
-  `select`, `list_row`, `menu_item`, `brush_tile`, `section`/`section_end`, `value_row`, `plot`, `area` (a space to draw
+  `select`, `list_row`, `tree_row` (indent, chevron, trailing `Row_Toggle`s), `menu_item`, `brush_tile`, `section`/`section_end`, `value_row`, `plot`, `area` (a space to draw
   into that reports the pointer: graphs, bars, thumbnails), `grey_image`, `divider`. Shapes (`ui.odin`): `fill_rect`,
   `stroke_rect`, `fill_circle`, `stroke_circle`, `line`, `polyline`, `fill_convex`, `text`, `icon`.
 - Every pressable widget has default, hover, pressed, selected and disabled looks through `feedback`; selected tabs,
