@@ -91,12 +91,12 @@ help_touch_rows_follow_the_settings :: proc(t: ^testing.T) {
 	testing.expect(t, has(&app, "Twist two fingers"))
 	app.nav.orbit_style = .Turntable
 	testing.expect(t, !has(&app, "Twist two fingers"))
-	// The modifier buttons, and the mask taps their Mask turns on, only while they are
+	// The modifier wheel, and the mask taps its Mask turns on, only while they are
 	// shown; the mask taps only for Sculpt.
-	testing.expect(t, !has(&app, "Modifier buttons: tap or hold"))
+	testing.expect(t, !has(&app, "Modifier wheel: tap or hold; Smooth and Mask together hide"))
 	testing.expect(t, !has(&app, "With Mask on, tap off the model"))
 	app.kit.rail_side = .Left
-	testing.expect(t, has(&app, "Modifier buttons: tap or hold"))
+	testing.expect(t, has(&app, "Modifier wheel: tap or hold; Smooth and Mask together hide"))
 	testing.expect(t, has(&app, "With Mask on, tap off the model"))
 	app.tool = .Curve
 	testing.expect(t, !has(&app, "With Mask on, tap off the model"))
