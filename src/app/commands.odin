@@ -88,6 +88,7 @@ Command_Id :: enum u8 {
 	Reduce_Motion,
 	Command_Palette,
 	Help, // the argument is the Help_Tab
+	Coach_Tips,
 }
 
 Command :: struct {
@@ -605,6 +606,18 @@ COMMANDS := [Command_Id]Command {
 		icon = ui.ICON_HELP,
 		args = len(Help_Tab),
 		run = proc(app: ^App, arg: int) {help_open(app, Help_Tab(arg))},
+	},
+	.Coach_Tips = {
+		label = "Show the first-run tips",
+		help = "Shows the three tips a first run starts with again: sculpt, turn the view, move and zoom it.",
+		icon = ui.ICON_HELP,
+		run = proc(app: ^App, _: int) {
+			coach_restart(app)
+			// The card shows only with nothing open over its place.
+			side_panel_close(app)
+			if app.kit.palette do palette_close(app)
+			app.kit.menu = false
+		},
 	},
 }
 

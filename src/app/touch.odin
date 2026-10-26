@@ -153,6 +153,7 @@ touch_event :: proc(app: ^App, e: ^sdl.Event, window: ^sdl.Window) {
 			t.pointer = id
 			if t.palm do return
 			d.pointer = .Finger
+			app.finger_seen = true
 			device_move(d, at, jump = true)
 			device_button(d, .Left, true, e.common.timestamp)
 			d.input_at = e.common.timestamp

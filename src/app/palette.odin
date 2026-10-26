@@ -54,6 +54,7 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.Import_Mesh      = "obj ply load append file",
 	.Export_Mesh      = "obj ply file",
 	.Screenshot       = "png capture image",
+	.Coach_Tips       = "tutorial onboarding coach intro getting started hints",
 	.Undo             = "back revert",
 	.Redo             = "forward",
 	.Delete_Object    = "subtool remove",

@@ -59,7 +59,7 @@ command_group :: proc(id: Command_Id) -> Command_Group {
 	case .Remesh ..= .Extract_Masked:         return .Object
 	case .Add_Object ..= .Frame_All:          return .Scene
 	case .View_Axis ..= .Studio_Render:       return .View
-	case .Stats ..= .Help:                    return .App
+	case .Stats ..= .Coach_Tips:                    return .App
 	}
 	return .App
 }
@@ -277,6 +277,7 @@ kit_help :: proc(app: ^App) -> (raised: bool) {
 			help_rows(app, help_touch_rows(app), inner)
 			ui.paragraph(ctx, "Gestures turn on and off in Settings > Touch, the edges that turn the view in Settings > Camera, and the modifier buttons in Settings > Interface.")
 			if ui.button(ctx, "Touch settings", .Bordered, glyph = ui.ICON_SETTINGS) do settings_open(app, .Touch)
+			_ = command_button(app, .Coach_Tips, variant = .Bordered, glyph = ui.ICON_HELP)
 		case .Glossary:
 			help_glossary(app)
 		}

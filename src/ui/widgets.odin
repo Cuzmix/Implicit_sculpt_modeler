@@ -49,6 +49,8 @@ ICON_MINIMISE :: rune(0xe120) // minus, as a desktop window's minimise button
 ICON_RESTORE :: rune(0xe117) // maximize-2: open a folded window again
 ICON_SEARCH :: rune(0xe155)
 ICON_HELP :: rune(0xe082) // circle-help
+ICON_ROTATE_3D :: rune(0xe2ea)
+ICON_ZOOM_IN :: rune(0xe1b6)
 
 // Every pressable control shares this: the wash under the pointer fades in, deepens
 // while held, and the control dips to 97% while held. Returns the scale to draw at.
