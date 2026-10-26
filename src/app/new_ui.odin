@@ -277,6 +277,7 @@ Kit_Section :: enum u8 {
 	Hd,
 	Topology,
 	Mask,
+	Sets,
 	Visibility,
 	Paint,
 	Groups,

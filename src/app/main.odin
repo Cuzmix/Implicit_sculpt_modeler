@@ -181,6 +181,8 @@ App :: struct {
 	double_tap: Double_Tap, // the last finger tap a double tap could follow (navigate.odin)
 	cursor:   Brush_Cursor, // the surface under the brush ring this frame (cursor.odin)
 	mask_seen: Mask_Seen, // whether the selected object has a mask, kept (history.odin)
+	sets_lost: int, // selection sets a rebuild dropped, for the note of the command that ran it (selection_sets.odin)
+	sets_noted: int, // how many the last such note named, for the exit stats
 	settings_file: string, // where the settings are remembered, "" when this run does not
 	nav:      Nav_Prefs, // how the pointer, fingers and pen navigate (Settings)
 	device:   Device, // this frame's keys and pointer (device.odin)
@@ -1315,6 +1317,9 @@ run :: proc(opts: Options) -> bool {
 			delete(mask)
 		}
 	}
+	sets := 0
+	for obj in app.scene.objects do sets += len(sculpt.levels_sets(&obj.levels))
+	fmt.printfln("selection_sets=%d sets_noted=%d", sets, app.sets_noted)
 	for obj in app.scene.objects {
 		if hidden := sculpt.sculptor_hidden_count(object_sculptor(obj)); hidden > 0 {
 			fmt.printfln("hide object=%d hidden_triangles=%d triangles=%d", obj.id, hidden, object_triangle_count(obj))

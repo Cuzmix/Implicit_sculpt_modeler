@@ -559,15 +559,7 @@ levels_carry_mask :: proc(l: ^Levels, from, to: int) {
 			n := s.nodes[id]
 			changed := false
 			for v in n.vert_first ..< n.vert_first + n.vert_count {
-				k: u8
-				if from != nil {
-					if job.up {
-						p := job.dst.parents[v]
-						k = from[p[0]] if p[2] == EVEN else u8((u32(from[p[0]]) + u32(from[p[1]]) + 1) / 2)
-					} else {
-						k = from[job.src.even_of[v]]
-					}
-				}
+				k := carried_mask(from, job.src, job.dst, job.up, v) if from != nil else 0
 				if s.mask[v] != k {
 					s.mask[v] = k
 					changed = true
@@ -578,4 +570,40 @@ levels_carry_mask :: proc(l: ^Levels, from, to: int) {
 		})
 		for changed, id in job.changed do if changed do mark_stale(&dst.sculptor, u32(id), .Paint)
 	}
+}
+
+// Vertex v of level `dst`'s mask carried from `from`, the mask of `src`, the level next
+// to it: going up, a vertex continuing one below takes its mask and an edge vertex the
+// mean of the edge's ends; going down, a vertex takes the mask of the vertex it became.
+@(private)
+carried_mask :: #force_inline proc(from: []u8, src, dst: ^Level, up: bool, v: u32) -> u8 {
+	if up {
+		p := dst.parents[v]
+		return from[p[0]] if p[2] == EVEN else u8((u32(from[p[0]]) + u32(from[p[1]]) + 1) / 2)
+	}
+	return from[src.even_of[v]]
+}
+
+// Carries `from`, a mask of level `src`, to `to`, one of the level next to it (`dst`),
+// as levels_carry_mask carries the live mask.
+@(private)
+mask_carry_values :: proc(l: ^Levels, from: []u8, src, dst: ^Level, up: bool, to: []u8) {
+	Job :: struct {
+		from, to: []u8,
+		src, dst: ^Level,
+		up:       bool,
+	}
+	job := Job{from, to, src, dst, up}
+	jobs.parallel_ranges(l.pool, len(to), &job, proc(data: rawptr, lo, hi: int) {
+		job := cast(^Job)data
+		for v in lo ..< hi do job.to[v] = carried_mask(job.from, job.src, job.dst, job.up, u32(v))
+	}, 1 << 14)
+}
+
+// Makes `after` the mask as one undo step, saving only the nodes `changes` marks that
+// end up different. Returns true when it changed the mask.
+@(private)
+mask_commit_values :: proc(s: ^Sculptor, after: []u8, changes: []bool) -> bool {
+	job := Mask_Job{s = s, after = after, changes = changes}
+	return mask_commit(&job)
 }

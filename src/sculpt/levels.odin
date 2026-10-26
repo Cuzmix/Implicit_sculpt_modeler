@@ -54,6 +54,8 @@ Levels :: struct {
 	residual:       [dynamic]Vec3,
 	hd:             Hd, // detail above the top level (hd.odin)
 	faces:          Quad_Faces, // the base level's quads and UVs, for a retopologized object (levels_quads.odin)
+	sets:           [dynamic]Selection_Set, // saved masks (selection_sets.odin)
+	set_serial:     u32, // the last set id given
 }
 
 // parents[2] of a vertex that continues a vertex of the level below: {that vertex, a
@@ -69,6 +71,7 @@ levels_init :: proc(l: ^Levels, mesh: geom.Mesh, pool: ^jobs.Pool, node_triangle
 	l.pool, l.node_triangles, l.allocator = pool, node_triangles, allocator
 	l.levels = make([dynamic]^Level, 0, MAX_LEVELS, allocator)
 	l.residual = make([dynamic]Vec3, allocator)
+	l.sets = make([dynamic]Selection_Set, allocator)
 	base := new(Level, allocator)
 	base.mesh = mesh
 	if layout != nil && sculptor_init_laid_out(&base.sculptor, &base.mesh, pool, layout, node_triangles, allocator) {
@@ -84,6 +87,8 @@ levels_init :: proc(l: ^Levels, mesh: geom.Mesh, pool: ^jobs.Pool, node_triangle
 levels_destroy :: proc(l: ^Levels) {
 	levels_drop_quads(l)
 	levels_hd_delete(l)
+	_ = levels_sets_clear(l)
+	delete(l.sets)
 	for lv in l.levels do level_free(l, lv)
 	delete(l.levels)
 	delete(l.residual)
@@ -139,12 +144,14 @@ levels_subdivide :: proc(l: ^Levels) -> bool {
 
 // Turns dynamic topology (dyntopo.odin) on for the only level. Returns false, changing
 // nothing, when there are other levels or an HD level, or the mesh has a vertex in more
-// than DYN_FACES triangles. Clears the undo history.
+// than DYN_FACES triangles. Clears the undo history, and drops the selection sets, since
+// it renumbers the vertices they are kept by.
 levels_dyn_enable :: proc(l: ^Levels) -> bool {
 	if len(l.levels) != 1 || l.hd.steps > 0 do return false
 	lv := l.levels[0]
 	if !sculptor_dyn_enable(&lv.sculptor, l.allocator) do return false
 	levels_drop_quads(l) // its edits change the base's triangles
+	_ = levels_sets_clear(l)
 	delete(lv.node_of_vertex, l.allocator)
 	lv.node_of_vertex = nil
 	return true
@@ -176,20 +183,25 @@ level_estimate_bytes :: proc(vertices, triangles, below: int) -> int {
 	return vertices * (12 + 12 + 4 + 4 + 16 + 12) + triangles * (12 + 12 + 8 + 5) + below * 4
 }
 
-// Deletes every level above the current one, and with the top level any HD level.
+// Deletes every level above the current one, and with the top level any HD level. The
+// selection sets kept by those levels are carried down to the current one.
 levels_delete_higher :: proc(l: ^Levels) {
 	assert(l.hd.window == nil, "leave the HD window first")
+	levels_sets_carry(l, {l.current + 1, len(l.levels)}, l.current)
 	if len(l.levels) > l.current + 1 do levels_hd_delete(l)
 	for len(l.levels) > l.current + 1 do level_free(l, pop(&l.levels))
 	levels_sync(l)
 }
 
-// Deletes every level below the current one, which becomes the base.
+// Deletes every level below the current one, which becomes the base. The selection
+// sets kept by those levels are carried up to it first.
 levels_delete_lower :: proc(l: ^Levels) {
 	assert(l.hd.window == nil, "leave the HD window first")
 	k := l.current
 	if k == 0 do return
 	sync_levels(l, down = false)
+	levels_sets_carry(l, {0, k}, k)
+	for &set in l.sets do set.level -= k
 	levels_drop_quads(l) // the base's triangles are a level above's now
 	for lv in l.levels[:k] do level_free(l, lv)
 	level_unlink(l, l.levels[k])
@@ -204,7 +216,7 @@ levels_bytes :: proc(l: ^Levels) -> int {
 	total := 0
 	for lv in l.levels do total += level_bytes(lv)
 	hd := levels_hd_stats(l)
-	return total + hd.stored_bytes + hd.window_bytes
+	return total + hd.stored_bytes + hd.window_bytes + levels_sets_bytes(l)
 }
 
 @(private)

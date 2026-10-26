@@ -48,7 +48,7 @@ File_Request :: struct {
 // be in a console nobody watches. `at` tells a new note from the one already shown.
 // The native scene file starts with these bytes, then its version.
 SCENE_MAGIC :: "SCULPTSC"
-SCENE_VERSION :: u32(9) // 2: each object's rotation; 3: the current level's polypaint and polygroups; 4: sculpt layers, and a retopologized object's quads and UVs (sculpt.levels_write); 5: each object's boolean mode; 6: the base level's node layout (sculpt.levels_write); 7: the camera's roll; 8: each object's eye and ghost, and Solo; 9: folders, and each object's folder
+SCENE_VERSION :: u32(10) // 2: each object's rotation; 3: the current level's polypaint and polygroups; 4: sculpt layers, and a retopologized object's quads and UVs (sculpt.levels_write); 5: each object's boolean mode; 6: the base level's node layout (sculpt.levels_write); 7: the camera's roll; 8: each object's eye and ghost, and Solo; 9: folders, and each object's folder; 10: selection sets (sculpt.levels_write)
 
 // The request waiting for the next frame, and whether a dialog is showing. Kept here
 // rather than in App because SDL may call a dialog back on another thread, even after
@@ -709,6 +709,8 @@ object_put_estimate :: proc(obj: ^Object) -> int {
 	if s.mask != nil do bytes += n
 	if s.color != nil do bytes += size_of(sculpt.Color) * n
 	if s.groups.tris != nil do bytes += size_of(u16) * len(s.groups.tris)
+	// A set is written again in file order, at most a byte a vertex.
+	for set in sculpt.levels_sets(&obj.levels) do bytes += 64 + set.vertices
 	return bytes
 }
 
