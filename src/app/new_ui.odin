@@ -39,6 +39,12 @@ Kit_State :: struct {
 	tab_serial: u64, // counts tab changes, so each one fades its content in afresh
 	recover_shown: bool, // the recovery card showed this frame (kit_recover.odin)
 	menu:       bool,
+	// Menu > Earlier saves (kit_versions), and the row a first tap armed while the scene had
+	// work to lose (its index + 1) and when: a second tap soon after opens it.
+	versions:   bool,
+	menu_scroll: f32, // the menu's, on a window too short for all of it
+	version_armed: int,
+	version_armed_at: f64,
 	view_menu:  bool,
 	browser:    bool, // every brush and preset, in a popover over the dock
 	// The dock's slots (dock.odin), and the popover a long press on one opens: open, on
@@ -527,7 +533,7 @@ kit_init :: proc(app: ^App) {
 // first-run tip hides under it.
 kit_floating :: proc(app: ^App) -> bool {
 	k := &app.kit
-	return app.ui.pie.open || app.ui.adjust.kind != .None || k.action_pop || k.menu || k.view_menu || k.browser || k.dock_menu || k.bind.open || k.pie_editor || k.object_menu || k.palette || k.ctx.select_open != 0
+	return app.ui.pie.open || app.ui.adjust.kind != .None || k.action_pop || k.menu || k.versions || k.view_menu || k.browser || k.dock_menu || k.bind.open || k.pie_editor || k.object_menu || k.palette || k.ctx.select_open != 0
 }
 
 kit_destroy :: proc(app: ^App) {
@@ -686,7 +692,7 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 		if side_panel_open(k) && !floating && !kit_floating(app) && !typed do side_panel_close(app)
 		if k.palette do palette_close(app)
 		k.menu, k.view_menu, k.browser, k.dock_menu, k.object_menu, k.action_pop = false, false, false, false, false, false
-		k.bind.open, k.pie_editor = false, false
+		k.bind.open, k.pie_editor, k.versions = false, false, false
 		ctx.select_open = 0
 	}
 	k.ms = time.duration_milliseconds(time.tick_since(start))
@@ -767,7 +773,10 @@ kit_layout :: proc(app: ^App) {
 	menu_anchor, view_anchor: ui.Rect
 	ui.begin_anchored(ctx, "top left", .Start, .Start, {E, E}, {direction = .Row, gap = 8})
 	ui.begin(ctx, "menu bar", bar)
-	if ui.icon_button(ctx, "Menu", ui.ICON_MENU, selected = k.menu) do k.menu = !k.menu
+	if ui.icon_button(ctx, "Menu", ui.ICON_MENU, selected = k.menu) {
+		k.menu = !k.menu
+		k.menu_scroll = 0
+	}
 	menu_anchor = ctx.last_rect
 	ui.end(ctx)
 	ui.begin(ctx, "history", bar)
@@ -896,6 +905,7 @@ kit_layout :: proc(app: ^App) {
 	kit_brush_browser(app, browser_anchor)
 	kit_dock_menu(app)
 	kit_menu(app, menu_anchor)
+	kit_versions(app, menu_anchor)
 	kit_view_menu(app, view_anchor)
 	kit_object_menu(app)
 	kit_palette(app, palette_anchor)
@@ -982,17 +992,26 @@ kit_size_names :: proc() -> []string {
 kit_menu :: proc(app: ^App, anchor: ui.Rect) {
 	k := &app.kit
 	ctx := &k.ctx
+	owner := ui.id_of(ctx, "menu")
 	if !ui.popover_begin(ctx, "menu", &k.menu, anchor, .Below, {direction = .Column, padding = 6, width = 268}) do return
+	// On a short window (a phone or a tablet held sideways) the menu scrolls rather than
+	// running off the bottom: it holds every file action, the starters and the app's own.
+	area := ui.safe_area(ctx)
+	room := max(area.y + area.h - (anchor.y + anchor.h + 6) - 4 - 2 * 6, 4 * ctx.theme.target)
+	// When it scrolls, its bar takes a strip inside the right edge.
+	_, natural := ui.prev_layout(ctx, "menu body")
+	body_w := 268 - 2 * 6 - (f32(10) if natural.y > room else 0)
+	scroll := kit_scroll_begin(ctx, "menu body", &k.menu_scroll, owner, body_w, room, 0)
 	pick := false
 	ui.caption(ctx, "  FILE")
-	for id in ([?]Command_Id{.Open_Scene, .Save_Scene, .Save_Scene_As, .Save_Scene_Copy, .Open_Last_Autosave, .Import_Mesh, .Export_Mesh, .Screenshot}) {
+	for id in ([?]Command_Id{.Open_Scene, .Save_Scene, .Save_Scene_As, .Save_Scene_Copy, .Scene_Versions, .Open_Last_Autosave, .Import_Mesh, .Export_Mesh, .Screenshot}) {
 		if command_menu_item(app, id) do pick = true
 	}
 	ui.divider(ctx, across = true)
 	ui.caption(ctx, "  NEW SCENE")
 	// Three to a row, each its shape's name; one armed by a first tap (the scene has work
 	// to lose) turns red and asks, and the menu stays open for the second tap.
-	w := (268 - 2 * 6 - 2 * 6) / f32(3)
+	w := (body_w - 2 * 6) / 3
 	for row in 0 ..< len(NEW_SCENE_SHAPES) / 3 {
 		ui.begin(ctx, fmt.tprintf("new scene row %d", row), {direction = .Row, gap = 6})
 		for i in row * 3 ..< row * 3 + 3 {
@@ -1008,6 +1027,7 @@ kit_menu :: proc(app: ^App, anchor: ui.Rect) {
 	if command_menu_item(app, .Settings) do pick = true
 	_ = command_menu_item(app, .Stats)
 	if command_menu_item(app, .Help, int(Help_Tab.Keys), "Help...") do pick = true
+	kit_scroll_end(ctx, scroll)
 	ui.popover_end(ctx)
 	if pick do k.menu = false
 }

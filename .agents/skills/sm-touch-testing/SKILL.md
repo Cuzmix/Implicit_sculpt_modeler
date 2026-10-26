@@ -112,6 +112,9 @@ are on the device checklist.
   is a new key in the exit stats (`main.odin`), not a guess from a screenshot.
 - Find positions by looking: `--dump-screen=build/x.png` (or `--screens`) with the events that open the panel, then
   read the PNG. Positions are window points at 1600 x 900 unless the scenario sets `--width`/`--height`.
+- The menu's rows are computed from `MENU_FILE_ROWS` (touch_check.py, kit_menu's order): a new File row goes in that
+  list, never as hand-shifted coordinates. A scenario with several app runs (a save, then an open) returns
+  `Steps([...])`; files a scenario makes go under `autosave_folder()`, its own per-scenario path.
 - Write the scenario for a bug before fixing it, and confirm it fails on the old code (build the old commit in a git
   worktree if the old code cannot run the new events, and replay the closest event sequence it understands).
 - A second hand's finger (a modifier button held while another finger or the pen works) gets an id of its own

@@ -336,7 +336,7 @@ rail_claims :: proc(app: ^App, p: [2]f32) -> (which: Modifier, ok: bool) {
 	k := &app.kit
 	r := &app.rail
 	if k.rail_side == .Off || r.root == 0 do return
-	if k.menu || k.view_menu || k.browser || k.object_menu || k.ctx.select_open != 0 || k.ctx.popup_open != 0 do return
+	if k.menu || k.versions || k.view_menu || k.browser || k.object_menu || k.ctx.select_open != 0 || k.ctx.popup_open != 0 do return
 	which = rail_hit(r, p) or_return
 	return which, ui.root_at(&k.ctx, p / k.scale) == r.root
 }

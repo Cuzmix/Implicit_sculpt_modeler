@@ -427,6 +427,7 @@ autosave_collect :: proc(app: ^App) {
 // After a save, an open or a new scene: what the session file names, and the scene is
 // clean as it stands. `path` is the scene's file, "" for a new scene.
 autosave_scene_saved :: proc(app: ^App, path: string) {
+	app.saved_fp = scene_fingerprint(app)
 	a := &app.autosave
 	if !a.on do return
 	a.clean = scene_fingerprint(app)
@@ -836,14 +837,12 @@ autosave_recover :: proc(app: ^App, session: string) -> bool {
 		if err := os.rename(s.path, mine); err != nil do log.warnf("autosave: cannot keep %s as %s: %v", s.path, mine, err)
 		for other in slots do if other.path != s.path do _ = os.remove(other.path)
 		_ = os.remove(session_path(a.folder, name))
-		if scene != "" do scene_remember_path(app, scene)
-		else {
-			delete(app.scene_path)
-			app.scene_path = ""
-		}
+		scene_remember_path(app, scene)
 		// The recovered scene is in this session's first slot: clean until it changes,
 		// and the next autosave goes to the second.
 		autosave_scene_saved(app, scene)
+		// Recovered work is in no scene file yet: a New scene or an earlier save asks first.
+		app.saved_fp = 0
 		vertices := 0
 		for obj in app.scene.objects do vertices += object_vertex_count(obj)
 		w := a.worker

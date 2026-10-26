@@ -36,6 +36,7 @@ File_Kind :: enum u8 {
 	Load_Strokes, // a .strokes file becomes the recording
 	Recover,      // an earlier session's newest autosave replaces the scene (autosave.odin); the path names the session, "" for the newest of any
 	Discard_Autosave, // an earlier session's autosaves are deleted; the path names the session
+	Open_Version, // an earlier save of the scene's file replaces the scene, which still saves to its file (versions.odin)
 }
 
 File_Request :: struct {
@@ -220,6 +221,8 @@ file_apply :: proc(app: ^App, req: File_Request) -> bool {
 		opened, ok := scene_open(app, req.path)
 		if opened do scene_remember_path(app, req.path)
 		return ok
+	case .Open_Version:
+		return version_open(app, req.path)
 	case .Alpha:
 		_ = alpha_load(app, req.path)
 	case .Screenshot:
@@ -278,6 +281,7 @@ image_save :: proc(app: ^App, path: string, pixels: []u8, w, h: int) -> bool {
 scene_remember_path :: proc(app: ^App, path: string) {
 	delete(app.scene_path)
 	app.scene_path = strings.clone(path)
+	versions_refresh(app)
 }
 
 // Reads an OBJ or PLY file into a new object beside the others, sized like a sphere
@@ -603,8 +607,7 @@ scene_new :: proc(app: ^App, shape: geom.Primitive, vertices: int) -> bool {
 	obj.id = app.scene.next_id + 1
 	// The view the app starts with, which shows a starter from the front and a side.
 	scene_replace(app, {obj}, 0, obj.id, camera.orbit_default())
-	delete(app.scene_path)
-	app.scene_path = ""
+	scene_remember_path(app, "")
 	autosave_scene_saved(app, "")
 	levels := len(obj.levels.levels)
 	report(app, nil, {}, "New scene: %v, %d %s, %s vertices, in %.0f ms", shape, levels, "level" if levels == 1 else "levels",

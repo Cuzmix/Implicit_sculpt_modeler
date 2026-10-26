@@ -156,3 +156,15 @@ a_save_goes_ahead_when_the_earlier_one_cannot_be_kept :: proc(t: ^testing.T) {
 	data, _ := os.read_entire_file(path, context.temp_allocator)
 	testing.expect(t, len(data) > 0 && !os.exists(strings.concatenate({path, ".partial"}, context.temp_allocator)))
 }
+
+// Earlier saves read as a person says them: today, yesterday, a date, with the year
+// only when it is not this one, and the seconds only when asked for.
+@(test)
+earlier_saves_read_as_days :: proc(t: ^testing.T) {
+	today, yesterday := "2026-10-26 15.00.00", "2026-10-25 15.00.00"
+	testing.expect_value(t, version_when("2026-10-26 14.02.33", today, yesterday, false), "Today 14:02")
+	testing.expect_value(t, version_when("2026-10-26 14.02.33", today, yesterday, true), "Today 14:02:33")
+	testing.expect_value(t, version_when("2026-10-25 09.15.00", today, yesterday, false), "Yesterday 09:15")
+	testing.expect_value(t, version_when("2026-10-12 09.15.00", today, yesterday, false), "12 Oct 09:15")
+	testing.expect_value(t, version_when("2025-03-01 23.59.59", today, yesterday, false), "1 Mar 2025 23:59")
+}
