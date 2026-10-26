@@ -134,6 +134,8 @@ Command_Id :: enum u8 {
 	Brush_Pie,
 	Macro_Record,
 	Run_Macro, // the argument is the slot, from 0 (macros.odin)
+	Macros,
+	Run_Script,
 }
 
 Command :: struct {
@@ -237,7 +239,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Export_Mesh = {
 		label = "Export mesh...",
-		help = "Writes the selected object as OBJ or PLY.",
+		help = "Writes the selected object as OBJ, PLY or glTF.",
 		icon = ui.ICON_EXPORT,
 		run = proc(app: ^App, _: int) {file_dialog(app, .Export)},
 		enabled = has_object,
@@ -954,7 +956,7 @@ COMMANDS := [Command_Id]Command {
 		// Unfolded and in front, wherever it was left, in Help's place (they share it).
 		run = proc(app: ^App, _: int) {
 			k := &app.kit
-			k.settings, k.help = true, false
+			k.settings, k.help, k.macros = true, false, false
 			k.windows[.Settings].minimized = false
 			window_raise(k, .Settings)
 		},
@@ -1020,6 +1022,19 @@ COMMANDS := [Command_Id]Command {
 		args = MACRO_SLOTS,
 		run = proc(app: ^App, arg: int) {macro_run(app, arg)},
 		enabled = macro_can_run,
+	},
+	.Macros = {
+		label = "Macros...",
+		help = "Lists your macros, to run, rename, delete or give a key, and runs script files.",
+		icon = ui.ICON_FILM,
+		run = proc(app: ^App, _: int) {macros_open(app)},
+	},
+	.Run_Script = {
+		label = "Run script...",
+		help = "Runs a command script file (.cmd) on what is selected, each command its own undo step.",
+		icon = ui.ICON_OPEN,
+		run = proc(app: ^App, _: int) {file_dialog(app, .Run_Script)},
+		enabled = proc(app: ^App, _: int) -> bool {return script_can_start(app)},
 	},
 	.Pie_Editor = {
 		label = "Edit pies",

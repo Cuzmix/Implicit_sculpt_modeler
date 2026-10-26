@@ -902,11 +902,9 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		fmt.printfln("script_statements=%d script_ran=%d script_frames=%d script_failed=%d", r.statements, r.ran, r.frames, int(r.failed))
 		if r.failed && r.scripted do exit_code^ = 2
 	}
-	if m := &app.macro; m.recording || m.runs > 0 || macro_free_slot(m) != 0 {
-		kept := 0
-		for s in m.slots do kept += int(s.name != "")
-		fmt.printfln("macros=%d macro_recording=%d macro_entries=%d macro_left_out=%d macros_run=%d macro_steps=%d", kept, int(m.recording), len(m.entries), m.left_out, m.runs, m.steps)
-	}
+	macros_kept := 0
+	for s in app.macro.slots do macros_kept += int(s.name != "")
+	fmt.printfln("macros=%d macro_recording=%d macro_entries=%d macro_left_out=%d macros_run=%d scripts_run=%d macro_steps=%d", macros_kept, int(app.macro.recording), len(app.macro.entries), app.macro.left_out, app.macro.runs, app.macro.scripts, app.macro.steps)
 	fmt.printfln("frames=%d dabs=%d objects=%d vertices=%d", frame_index, app.stats.dabs_total, len(app.scene.objects), vertices)
 	{
 		off, ghosts := scene_view_counts(&app)
@@ -1053,8 +1051,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		recall_pinned := false
 		if obj := selected_object(&app); obj != nil do recall_pinned = sculpt.sculptor_recall_pinned(object_sculptor(obj))
 		fmt.printfln("recall_back=%d recall_reach=%d recall_pinned=%d recall_ms=%.1f", recall_back, recall_reach, int(recall_pinned), app.stats.recall_ms)
-		open := [Kit_Window]bool{.Inspector = k.inspector && !side_panel_open(k), .Stats = k.stats, .History = k.history, .Settings = k.settings, .Help = k.help}
-		names := [Kit_Window]string{.Inspector = "inspector", .Stats = "stats", .History = "history panel", .Settings = "settings", .Help = "help"}
+		open := [Kit_Window]bool{.Inspector = k.inspector && !side_panel_open(k), .Stats = k.stats, .History = k.history, .Settings = k.settings, .Help = k.help, .Macros = k.macros}
+		names := [Kit_Window]string{.Inspector = "inspector", .Stats = "stats", .History = "history panel", .Settings = "settings", .Help = "help", .Macros = "macros"}
 		for w, which in k.windows {
 			r := ui.prev_rect(&k.ctx, names[which])
 			fmt.printf("window_%s=%d,%d,%.0f,%.0f ", strings.to_lower(fmt.tprint(which), context.temp_allocator), int(open[which]), int(w.minimized), r.x, r.y)

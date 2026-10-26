@@ -37,6 +37,7 @@ File_Kind :: enum u8 {
 	Recover,      // an earlier session's newest autosave replaces the scene (autosave.odin); the path names the session, "" for the newest of any
 	Discard_Autosave, // an earlier session's autosaves are deleted; the path names the session
 	Open_Version, // an earlier save of the scene's file replaces the scene, which still saves to its file (versions.odin)
+	Run_Script,   // a command script file runs as the person's own work (macros.odin)
 }
 
 File_Request :: struct {
@@ -79,6 +80,8 @@ PNG_FILTERS := [?]sdl.DialogFileFilter{{"PNG image", "png"}}
 IMAGE_FILTERS := [?]sdl.DialogFileFilter{{"Images (PNG, JPEG, BMP, TGA, QOI)", "png;jpg;jpeg;bmp;tga;qoi"}}
 @(private = "file")
 STROKES_FILTERS := [?]sdl.DialogFileFilter{{"Recorded strokes", "strokes"}}
+@(private = "file")
+SCRIPT_FILTERS := [?]sdl.DialogFileFilter{{"Command scripts", "cmd;txt"}}
 
 // Shows the dialog that picks the file for `kind`; its answer becomes a request. Does
 // nothing while another dialog is showing.
@@ -107,6 +110,8 @@ file_dialog :: proc(app: ^App, kind: File_Kind) {
 		sdl.ShowSaveFileDialog(file_dialog_done, userdata, app.window, raw_data(STROKES_FILTERS[:]), len(STROKES_FILTERS), nil)
 	case .Load_Strokes:
 		sdl.ShowOpenFileDialog(file_dialog_done, userdata, app.window, raw_data(STROKES_FILTERS[:]), len(STROKES_FILTERS), nil, false)
+	case .Run_Script:
+		sdl.ShowOpenFileDialog(file_dialog_done, userdata, app.window, raw_data(SCRIPT_FILTERS[:]), len(SCRIPT_FILTERS), nil, false)
 	case .Timelapse, .Bake:
 		sdl.ShowOpenFolderDialog(file_dialog_done, userdata, app.window, nil, false)
 	}
@@ -252,6 +257,8 @@ file_apply :: proc(app: ^App, req: File_Request) -> bool {
 		return autosave_recover(app, req.path)
 	case .Discard_Autosave:
 		autosave_discard(app, req.path)
+	case .Run_Script:
+		script_file_run(app, req.path)
 	}
 	return true
 }

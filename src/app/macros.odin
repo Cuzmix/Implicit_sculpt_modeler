@@ -59,7 +59,8 @@ Macro_State :: struct {
 	pending:     Macro_Pending,
 	slots:       [MACRO_SLOTS]Macro,
 	folder:      string, // heap; "" when this run keeps no files
-	runs, steps: int, // macros started and the statements they ran, for the exit stats
+	runs, steps: int, // macros started, and the statements macros and script files ran, for the exit stats
+	scripts:     int, // script files started (Run script)
 }
 
 // The popover Stop opens: the new macro's name, Save and Discard.
@@ -83,7 +84,7 @@ macro_kind :: proc(id: Command_Id) -> Macro_Kind {
 	#partial switch id {
 	case .None, .Undo, .Redo, .Macro_Record, .Run_Macro:
 		return .Skip
-	case .Inspector, .Show_Section, .Settings, .Help, .Stats, .Coach_Tips, .Adjust_Last, .Reduce_Motion:
+	case .Inspector, .Show_Section, .Settings, .Help, .Stats, .Coach_Tips, .Adjust_Last, .Reduce_Motion, .Macros:
 		return .Skip
 	case .View_Axis, .Focus_Selected, .Frame_All, .Reset_Camera, .View_Back, .View_Forward:
 		return .Skip
@@ -399,25 +400,137 @@ macros_destroy :: proc(app: ^App) {
 	m^ = {}
 }
 
-// Run macro N: whether it can run now. Not while a recording is on (it would record
-// itself), a script or another macro runs, a stroke or drag is under way, or a save or
-// a file dialog waits.
+// Whether a macro or a script file can start now. Not while a recording is on (the
+// script's commands would not be recorded, and a macro would record itself), a script or
+// another macro runs, a stroke or drag is under way, or a save or a file dialog waits.
+script_can_start :: proc(app: ^App) -> bool {
+	return !app.macro.recording && !app.script.running && !pie_busy(app) && app.saving.kind == .None && !file_pending()
+}
+
+// Run macro N: whether it can run now.
 macro_can_run :: proc(app: ^App, slot: int) -> bool {
-	m := &app.macro
-	return m.slots[slot].name != "" && !m.recording && !app.script.running && !pie_busy(app) && app.saving.kind == .None && !file_pending()
+	return app.macro.slots[slot].name != "" && script_can_start(app)
+}
+
+// Starts `text` at the next frame's start as the person's work, each command its own
+// undo step; `what` names it in the notes ("macro Zebra", "bevel.cmd"). False, with its
+// first error in a warning note, when the text has one: nothing of it runs then.
+@(private = "file")
+script_work_start :: proc(app: ^App, text, what: string) -> bool {
+	if errors := script_start(app, text, what, setup = false, scripted = false); errors != "" {
+		first := errors
+		if at := strings.index_byte(errors, '\n'); at >= 0 do first = errors[:at]
+		report(app, nil, {.Warning}, "Cannot run %s: %s", what, strings.trim_prefix(first, "script: "))
+		return false
+	}
+	return true
 }
 
 // Starts the macro in `slot`, at the next frame's start, as the person's work.
 macro_run :: proc(app: ^App, slot: int) {
 	m := &app.macro
-	s := m.slots[slot]
-	if errors := script_start(app, s.text, fmt.tprintf("macro %s", s.name), setup = false, scripted = false); errors != "" {
-		first := errors
-		if at := strings.index_byte(errors, '\n'); at >= 0 do first = errors[:at]
-		report(app, nil, {.Warning}, "Macro %s cannot run: %s", s.name, strings.trim_prefix(first, "script: "))
+	if script_work_start(app, m.slots[slot].text, fmt.tprintf("macro %s", m.slots[slot].name)) do m.runs += 1
+}
+
+// Run script: the file the dialog picked runs as a macro does, without being kept.
+script_file_run :: proc(app: ^App, path: string) {
+	name := filepath.base(path)
+	if !script_can_start(app) {
+		report(app, nil, {.Warning}, "Cannot run %s now: a recording, a script, a stroke or a save is under way", name)
 		return
 	}
-	m.runs += 1
+	data, err := os.read_entire_file(path, context.temp_allocator)
+	if err != nil {
+		report(app, nil, {.Warning}, "Cannot read %s: %v", name, err)
+		return
+	}
+	if script_work_start(app, string(data), name) do app.macro.scripts += 1
+}
+
+// Gives the macro in `slot` a new name, in its file's first line too. False, with a
+// note, when the file cannot be written: the name stays as it was.
+macro_rename :: proc(app: ^App, slot: int, name: string) -> bool {
+	m := &app.macro
+	s := &m.slots[slot]
+	if s.name == "" || name == s.name do return s.name != ""
+	// The first line names the macro when it is a `# Macro:` comment; otherwise one goes
+	// in front of the person's own lines.
+	body := s.text
+	if strings.has_prefix(body, "# Macro:") {
+		at := strings.index_byte(body, '\n')
+		body = body[at + 1:] if at >= 0 else ""
+	}
+	text := fmt.aprintf("# Macro: %s\n%s", name, body)
+	if m.folder != "" {
+		if err := write_durably(macro_path(m, slot), transmute([]u8)text); err != "" {
+			report(app, nil, {.Warning}, "Cannot rename the macro: %s", err)
+			delete(text)
+			return false
+		}
+	}
+	report(app, nil, {.Quiet}, "Renamed macro %s to %s", s.name, name)
+	delete(s.name)
+	delete(s.text)
+	s^ = {strings.clone(name), text}
+	return true
+}
+
+// Deletes the macro in `slot` and its file, and takes Run macro N off every key, pie
+// slot, star, gesture and recent search that ran it, so that a macro saved in the slot
+// later runs from none of them until it is given its own. False, with a note, when the
+// file cannot be deleted: the macro stays.
+macro_delete :: proc(app: ^App, slot: int) -> bool {
+	m := &app.macro
+	s := &m.slots[slot]
+	if s.name == "" do return false
+	if m.folder != "" {
+		path := macro_path(m, slot)
+		if err := os.remove(path); err != nil && os.exists(path) {
+			report(app, nil, {.Warning}, "Cannot delete the macro: %v", err)
+			return false
+		}
+	}
+	at := Pie_Slot{.Run_Macro, slot}
+	changed := key_override_find(app, .Run_Macro, slot) >= 0
+	if changed do bind_reset(app, .Run_Macro, slot)
+	k := &app.kit
+	for &pie in k.pies do for &p in pie do if p == at {
+		p = {}
+		changed = true
+	}
+	if favourite_find(app, .Run_Macro, slot) >= 0 {
+		_ = favourite_toggle(app, .Run_Macro, slot)
+		changed = true
+	}
+	for &g in app.nav.gestures do if g == at {
+		g = {}
+		changed = true
+	}
+	kept := 0
+	for e in k.palette_recent[:k.palette_recent_count] {
+		if e.kind == .Command && e.id == .Run_Macro && e.arg == slot do continue
+		k.palette_recent[kept] = e
+		kept += 1
+	}
+	changed ||= kept != k.palette_recent_count
+	for &e in k.palette_recent[kept:k.palette_recent_count] do e = {}
+	k.palette_recent_count = kept
+	// What ran it is remembered in the settings file, which says so at once.
+	if changed && app.settings_file != "" do _ = settings_save(app, app.settings_file)
+	report(app, nil, {}, "Deleted macro %s", s.name)
+	delete(s.name)
+	delete(s.text)
+	s^ = {}
+	return true
+}
+
+// Opens the Macros panel in the inspector's place, unfolded and in front.
+macros_open :: proc(app: ^App) {
+	k := &app.kit
+	if k.settings do settings_close(app)
+	k.help, k.macros, k.macro_armed = false, true, 0
+	k.windows[.Macros].minimized = false
+	window_raise(k, .Macros)
 }
 
 // The red chip at the top of the viewport while a recording is on: what it holds so far,
