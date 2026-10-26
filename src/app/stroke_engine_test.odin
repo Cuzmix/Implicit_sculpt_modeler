@@ -4,6 +4,7 @@ import "core:math"
 import "core:math/linalg"
 import "core:os"
 import "core:slice"
+import "core:strings"
 import "core:testing"
 
 import "../camera"
@@ -548,4 +549,58 @@ adjust_last_stroke_sets_its_amount :: proc(t: ^testing.T) {
 	testing.expect(t, adjust_live(&app))
 	testing.expect(t, adjust_stroke(&app, 0))
 	testing.expect(t, slice.equal(m.positions[:], drawn))
+}
+
+// The History brush paints back to the oldest step by default, building its target at
+// the first press; Earlier and Later move the point and say which step it is, an undo of
+// that step falls back to the oldest, and its own strokes are steps like any other.
+@(test)
+history_brush_paints_back_to_a_step :: proc(t: ^testing.T) {
+	path := [?][2]f32{{440, 380}, {470, 390}, {500, 400}, {530, 410}}
+	app: App
+	defer stroke_scene_free(&app)
+	obj := stroke_sphere(&app)
+	m := object_sculptor(obj).mesh
+	start := slice.clone(m.positions[:], context.temp_allocator)
+	app.brush.kind = .History
+	stroke_along(&app, path[:], len(path))
+	testing.expect_value(t, len(app.history.done), 0)
+	app.brush.kind = .Draw
+	stroke_along(&app, path[:], len(path))
+	app.brush.kind, app.brush.strengths[.Clay] = .Clay, 0.5
+	stroke_along(&app, path[:], len(path))
+	drawn := slice.clone(m.positions[:], context.temp_allocator)
+	back, reach, shown := recall_now(&app)
+	testing.expect(t, back == 0 && reach == 2 && shown == 2)
+	testing.expect(t, command_enabled(&app, .Recall_Later) && !command_enabled(&app, .Recall_Earlier))
+	app.brush.kind = .History
+	app.brush.strengths[.History] = 1
+	stroke_along(&app, path[:], len(path))
+	testing.expect_value(t, len(app.history.done), 3)
+	testing.expect_value(t, app.history.done[2].what, "History")
+	closer := 0
+	for p, v in m.positions {
+		testing.expect(t, linalg.length(p - start[v]) <= linalg.length(drawn[v] - start[v]) + 1e-6)
+		if linalg.length(p - start[v]) < linalg.length(drawn[v] - start[v]) do closer += 1
+	}
+	testing.expect(t, closer > 20)
+	back, reach, _ = recall_now(&app)
+	testing.expect(t, back == 3 && reach == 3)
+	e, ok := recall_entry(&app, obj, back)
+	testing.expect(t, ok && entry_label(e) == "Draw stroke")
+	// Later: before the Clay stroke, chosen.
+	testing.expect(t, command_run(&app, .Recall_Later))
+	back, _, _ = recall_now(&app)
+	testing.expect_value(t, back, 2)
+	testing.expect(t, sculpt.sculptor_recall_pinned(object_sculptor(obj)))
+	testing.expect(t, command_enabled(&app, .Recall_Oldest))
+	// Undoing the History stroke and the Clay stroke takes the chosen step away: the next
+	// History stroke paints back to the oldest, and says so.
+	history_undo(&app)
+	history_undo(&app)
+	stroke_along(&app, path[:], len(path))
+	back, _, _ = recall_now(&app)
+	testing.expect_value(t, back, 2)
+	testing.expect(t, !sculpt.sculptor_recall_pinned(object_sculptor(obj)))
+	testing.expect(t, strings.contains(app.result.text, "out of reach now"))
 }

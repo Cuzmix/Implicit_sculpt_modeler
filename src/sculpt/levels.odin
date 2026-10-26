@@ -229,6 +229,7 @@ level_bytes :: proc(lv: ^Level) -> int {
 	total += len(lv.parents) * size_of([4]u32) + len(lv.detail) * size_of(Vec3)
 	total += (len(lv.deps.offsets) + len(lv.deps.items) + len(lv.dependents.offsets) + len(lv.dependents.items)) * size_of(u32)
 	total += cap(s.lod.indices) * size_of(u32) + len(s.lod.tree.groups) * size_of(geom.Lod_Group) + len(s.lod.parent) * size_of(u32)
+	total += (len(s.morph) + len(s.recall)) * size_of(Vec3)
 	return total + sculptor_dyn_bytes(s)
 }
 
@@ -261,7 +262,10 @@ sync_levels :: proc(l: ^Levels, down: bool) {
 		recode_level(l, j, changed[j], encode = false)
 	}
 	for j in 0 ..< n {
-		if j != k do sculptor_nodes_moved(&l.levels[j].sculptor, changed[j])
+		if j != k && len(changed[j]) > 0 {
+			sculptor_nodes_moved(&l.levels[j].sculptor, changed[j])
+			history_seal(&l.levels[j].sculptor.history)
+		}
 		sculptor_clear_edited(&l.levels[j].sculptor)
 	}
 }

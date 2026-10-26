@@ -171,6 +171,7 @@ sculptor_dyn_enable :: proc(s: ^Sculptor, allocator := context.allocator) -> boo
 	s.color = nil
 	s.paint_stamp += 1
 	sculptor_morph_clear(s) // the vertices are about to be renumbered
+	sculptor_recall_clear(s)
 	sculptor_layers_bake_all(s) // ...and the nodes' displacement would not follow them
 	// Bounds, cones and shared lists carry over from the fixed layout: bring them up
 	// to date first.

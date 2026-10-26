@@ -342,6 +342,7 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 		if s.kind == .Press do _ = paint_allowed(obj)
 		return
 	}
+	if stroke_brush(app, input) == .History && !recall_ready(app, obj, s.kind == .Press) do return
 	st := &app.stroke
 	st.active, st.object = true, obj.id
 	st.kind, st.held = stroke_brush(app, input), held_brush(input)
