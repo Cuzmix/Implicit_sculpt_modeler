@@ -698,14 +698,21 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 		else do _ = sdl.StopTextInput(window)
 	}
 	d := &app.device
+	// A shape waiting for Apply takes Enter, and Escape after what floats; neither while
+	// a field or the palette had the keys, nor over a menu.
+	shape_waits := app.shape_pending.kind != .None && app.tool == .Brush
+	quiet := !floating && !kit_floating(app) && !typed
+	if shape_waits && quiet && (key_pressed(d, sdl.K_RETURN) || key_pressed(d, sdl.K_KP_ENTER)) do app.shape_pending.request = .Apply
 	// Escape, or Android's back gesture (the AC Back key), closes whatever floats, before
 	// Escape stops a replay.
 	if key_pressed(d, sdl.K_ESCAPE) || key_pressed(d, sdl.K_AC_BACK) {
-		// The topmost goes first: what floats, and only then Settings or Help.
-		// An Escape that ended typing in a field (Settings > Keys' search) was the field's.
-		// The recovery card, when nothing is above it, waits for the next start.
-		if k.recover_shown && !floating && !kit_floating(app) && !side_panel_open(k) && !typed do app.autosave.offer_hidden = true
-		if side_panel_open(k) && !floating && !kit_floating(app) && !typed do side_panel_close(app)
+		// The topmost goes first: what floats, then a waiting shape, and only then
+		// Settings or Help. An Escape that ended typing in a field (Settings > Keys'
+		// search) was the field's. The recovery card, when nothing is above it, waits
+		// for the next start.
+		if k.recover_shown && quiet && !shape_waits && !side_panel_open(k) do app.autosave.offer_hidden = true
+		if shape_waits && quiet do app.shape_pending.request = .Cancel
+		else if side_panel_open(k) && quiet do side_panel_close(app)
 		if k.palette do palette_close(app)
 		kit_floats_close(k)
 	}
@@ -782,6 +789,9 @@ kit_layout :: proc(app: ^App) {
 	t := ctx.theme
 	E := t.edge
 	bar := ui.Box{direction = .Row, radius = t.radius_large, background = .Panel, center = true}
+
+	// First, so that every panel and popover laid out after it is above it.
+	kit_shape_bar(app)
 
 	// Top left: the menu, then undo and redo.
 	menu_anchor, view_anchor: ui.Rect

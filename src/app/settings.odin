@@ -113,6 +113,7 @@ SETTINGS := [?]Setting {
 	{"edge_orbit", N + offset_of(Nav_Prefs, edge_orbit), bool, 0, 0},
 	{"edge_size", N + offset_of(Nav_Prefs, edge_size), f32, EDGE_MIN, EDGE_MAX},
 	{"edge_show", N + offset_of(Nav_Prefs, edge_show), bool, 0, 0},
+	{"shape_apply", N + offset_of(Nav_Prefs, shape_apply), Shape_Apply, 0, 0},
 	// The Scene and Object tabs' choices, and the tools'.
 	{"new_shape", K + offset_of(Kit_State, add_shape), geom.Primitive, 0, 0},
 	{"mask_steps", U + offset_of(Ui_State, mask_steps), i32, 1, 50},

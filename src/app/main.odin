@@ -47,6 +47,7 @@ Options :: struct {
 	no_cull:   bool `usage:"Draw every triangle instead of skipping off-screen and back-facing chunks (for comparison)."`,
 	reduce_motion: bool `usage:"Start with the interface's animations off, as Menu > Reduce motion does."`,
 	ui_dt:     f32 `usage:"Move the interface's clock (animations, tooltips, long presses) this many seconds a frame instead of by the time that passed, for scripted runs whose checks must not depend on how fast frames come (scripts/touch_check.py passes 1/60). The 90 ms a finger waits before it sculpts and the right tap that opens the pie stay on the real clock."`,
+	shape_apply: string `usage:"When a drawn mask, hide or clip shape applies, as Settings > Touch > Shapes apply: auto (the mouse's at once, a finger's or the pen's after Apply), now or confirm."`,
 	finger_orbits: bool `usage:"Start with one finger on the model turning the view instead of sculpting, as Settings > Touch and pen > One finger on the model does."`,
 	ui_events: string `usage:"Drive the pointer, fingers and pen as SDL events would, for tests: FRAME:move:X,Y, FRAME:down, FRAME:up, FRAME:right (a right click), FRAME:mdown, FRAME:mup, FRAME:rdown and FRAME:rup (the middle and right buttons held and let go), FRAME:wheel:N, FRAME:key:NAME (a key press: shift, ctrl, alt held until FRAME:keyup:NAME), FRAME:fdown:ID:X,Y, FRAME:fmove:ID:X,Y, FRAME:fup:ID and FRAME:fcancel:ID (finger ID on a touch screen), FRAME:pdown:X,Y, FRAME:pmove:X,Y, FRAME:pup, FRAME:pnear / FRAME:pfar and FRAME:pright (the pen, the last its side button), separated by semicolons; X and Y in window points."`,
 	dump_screen: string `usage:"On exit, write the whole window as the interface drew it (viewport and panels) to this path: a PNG, or a binary PPM when it ends in .ppm."`,
@@ -138,6 +139,7 @@ App :: struct {
 	move:     Move_Tool,
 	brush:    Brush_Settings,
 	mask_shape: Mask_Shape, // a Ctrl + drag on empty space in progress (mask_shape.odin)
+	shape_pending: Shape_Pending, // a drawn shape waiting for Apply (shape_pending.odin)
 	clip:     Clip_Gesture, // a Ctrl + Shift + drag in progress (clip.odin)
 	curve:    Curve_Tool,
 	insert:   Insert_Tool,
@@ -324,6 +326,7 @@ run :: proc(opts: Options) -> bool {
 	defer delete(app.stroke.pending)
 	defer mask_shape_destroy(&app.mask_shape)
 	defer clip_gesture_destroy(&app.clip)
+	defer shape_pending_destroy(&app.shape_pending)
 	defer curve_tool_destroy(&app.curve)
 	app.hd_window_vertices = opts.hd_window if opts.hd_window > 0 else sculpt.HD_WINDOW_VERTICES
 	if opts.open != "" {
@@ -490,6 +493,15 @@ run :: proc(opts: Options) -> bool {
 	if opts.reduce_motion do app.kit.ctx.reduced_motion = true
 	app.kit.fixed_dt = opts.ui_dt
 	if opts.finger_orbits do app.nav.finger_model = .Orbit
+	switch opts.shape_apply {
+	case "":
+	case "auto":    app.nav.shape_apply = .Auto
+	case "now":     app.nav.shape_apply = .Now
+	case "confirm": app.nav.shape_apply = .Confirm
+	case:
+		log.errorf("--shape-apply wants auto, now or confirm, not %q", opts.shape_apply)
+		return false
+	}
 	switch opts.orbit_style {
 	case "":
 	case "free":      app.nav.orbit_style = .Free
@@ -850,6 +862,7 @@ run :: proc(opts: Options) -> bool {
 		camera_apply_input(&app, input)
 		if opts.orbit do camera.orbit_spin(&app.camera, 2 * math.PI / 240)
 		sculpted: Sculpt_Frame_Result
+		shape_pending_frame(&app, input.size)
 		switch app.tool {
 		case .Brush:
 			if clip_frame(&app, input) || mask_shape_frame(&app, input) {
@@ -1198,6 +1211,13 @@ run :: proc(opts: Options) -> bool {
 		// The operation the bar can adjust now, how many re-runs there were, and whether
 		// its popover is open.
 		adjust_name, _ := strings.replace_all(strings.to_lower(ADJUST_NAMES[adjust_op_now(&app)], context.temp_allocator), " ", "_", context.temp_allocator)
+		shape := strings.to_lower(fmt.tprint(app.shape_pending.kind), context.temp_allocator)
+		// The waiting shape's box in window coordinates, so a check can tell it moved.
+		box_lo, box_hi: [2]f32
+		for q, i in app.shape_pending.points {
+			box_lo, box_hi = (q if i == 0 else linalg.min(box_lo, q)), (q if i == 0 else linalg.max(box_hi, q))
+		}
+		fmt.printfln("shape_pending=%s shape_points=%d shape_flip=%d shape_box=%.0f,%.0f,%.0f,%.0f", shape, len(app.shape_pending.points), int(app.shape_pending.flip), box_lo.x, box_lo.y, box_hi.x, box_hi.y)
 		fmt.printfln("camera_views=%d camera_view=%d camera_steps=%d", app.views.count, app.views.at + 1 if app.views.count > 0 else 0, app.views.steps)
 		fmt.printfln("adjust_op=%s adjusts=%d adjust_pop=%d", adjust_name if adjust_name != "" else "none", app.adjustable.adjusts, int(k.adjust_pop))
 		open := [Kit_Window]bool{.Inspector = k.inspector && !side_panel_open(k), .Stats = k.stats, .History = k.history, .Settings = k.settings, .Help = k.help}
@@ -1209,7 +1229,7 @@ run :: proc(opts: Options) -> bool {
 		fmt.println()
 		// Where the modifier rail and what must stay clear of it ended up, in points, for
 		// touch_check's window size scenarios.
-		for name in ([?]string{"modifier rail", "sliders", "dock", "status", "inspector", "action bar", "coach", "tools", "top left", "top right", "adjust last"}) {
+		for name in ([?]string{"modifier rail", "sliders", "dock", "status", "inspector", "action bar", "coach", "tools", "top left", "top right", "adjust last", "shape bar"}) {
 			r := ui.prev_rect(&k.ctx, name)
 			key, _ := strings.replace_all(name, " ", "_", context.temp_allocator)
 			fmt.printf("layout_%s=%.0f,%.0f,%.0f,%.0f ", key, r.x, r.y, r.w, r.h)

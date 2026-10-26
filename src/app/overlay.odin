@@ -156,6 +156,7 @@ overlay_viewport :: proc(app: ^App, o: Overlay, input: Viewport_Input) {
 	draw_hold_history(app, o)
 	switch app.tool {
 	case .Brush:
+		draw_shape_pending(app, o, input.size)
 		if app.clip.active {
 			draw_clip(app, o, input.size)
 			break

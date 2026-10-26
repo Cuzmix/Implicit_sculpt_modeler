@@ -17,9 +17,10 @@ Mask_Shape_Kind :: enum u8 {
 }
 
 Mask_Shape :: struct {
-	active: bool,
-	unmask: bool,
-	points: [dynamic][2]f32, // viewport pixels; a rectangle uses the first and the last
+	active:  bool,
+	unmask:  bool,
+	points:  [dynamic][2]f32, // viewport pixels; a rectangle uses the first and the last
+	pointer: ui.Pointer_Kind, // what pressed it, which decides whether it waits for Apply
 }
 
 // The distance in pixels the pointer must move before a lasso takes another point.
@@ -34,7 +35,7 @@ mask_shape_frame :: proc(app: ^App, input: Viewport_Input) -> bool {
 		start := gesture_start(input)
 		origin, dir := mouse_ray(app.camera, start, input.size)
 		if _, _, hit := scene_raycast(app, origin, dir); hit do return false
-		g.active, g.unmask = true, input.alt
+		g.active, g.unmask, g.pointer = true, input.alt, app.device.pointer
 		clear(&g.points)
 		append(&g.points, start)
 		if input.mouse_pos != start do append(&g.points, input.mouse_pos)
@@ -49,19 +50,19 @@ mask_shape_frame :: proc(app: ^App, input: Viewport_Input) -> bool {
 	reach: f32 = 0
 	for p in g.points do reach = max(reach, linalg.length(p - g.points[0]))
 	if reach < gesture_min_px(app) do return true
-	shape := shape_polygon(g.points[:], app.ui.mask_shape_kind == .Rectangle, input.size)
-	if len(shape) >= 3 do mask_shape_command(app, shape, input.size, g.unmask)
+	shape_finish(app, .Mask, g.points[:], app.ui.mask_shape_kind == .Rectangle, g.unmask, input.size, g.pointer)
 	return true
 }
 
 // A dragged shape (`points` in viewport pixels, oldest first) as a polygon in normalized
 // device coordinates (y up): with `rectangle`, the four corners of the box from the
-// first point to the last, otherwise the lasso's points. Temporary.
+// first point to the last, otherwise the lasso's points. Temporary; nil for a box with no
+// width or no height, which would mask nothing.
 shape_polygon :: proc(points: [][2]f32, rectangle: bool, size: [2]f32) -> [][2]f32 {
 	ndc :: proc(p, size: [2]f32) -> [2]f32 {return {2 * p.x / size.x - 1, 1 - 2 * p.y / size.y}}
 	if rectangle {
 		a, b := points[0], points[len(points) - 1]
-		if b == a do return nil
+		if b.x == a.x || b.y == a.y do return nil
 		corners := make([][2]f32, 4, context.temp_allocator)
 		for c, i in ([4][2]f32{a, {b.x, a.y}, b, {a.x, b.y}}) do corners[i] = ndc(c, size)
 		return corners

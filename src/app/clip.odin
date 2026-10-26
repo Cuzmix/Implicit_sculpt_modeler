@@ -2,6 +2,8 @@ package main
 
 import "core:math/linalg"
 
+import "../ui"
+
 
 // Ctrl + Shift and a left drag with the Brush tool, as ZBrush's Ctrl+Shift brushes: what
 // it does is the Object tab's choice (Gesture_Tool). The hide tools draw a rectangle or
@@ -32,6 +34,7 @@ Clip_Gesture :: struct {
 	flip:   bool, // Alt was held: the other side goes, or the inside is hidden
 	a, b:   [2]f32, // viewport pixels: where the drag started and where it is
 	points: [dynamic][2]f32, // the lasso, in viewport pixels
+	pointer: ui.Pointer_Kind, // what pressed it, which decides whether it waits for Apply
 }
 
 // A mouse's drag must be at least this long, in pixels, to count as one; shorter is a
@@ -57,7 +60,7 @@ clip_frame :: proc(app: ^App, input: Viewport_Input) -> bool {
 	if !g.active {
 		if !input.press || !input.invert || !input.smooth || app.stroke.active do return false
 		start := gesture_start(input)
-		g.active, g.a, g.b, g.flip = true, start, input.mouse_pos, input.alt
+		g.active, g.a, g.b, g.flip, g.pointer = true, start, input.mouse_pos, input.alt, app.device.pointer
 		clear(&g.points)
 		append(&g.points, start)
 		if input.mouse_pos != start do append(&g.points, input.mouse_pos)
@@ -77,12 +80,10 @@ clip_frame :: proc(app: ^App, input: Viewport_Input) -> bool {
 	}
 	switch app.gesture {
 	case .Hide_Rectangle, .Hide_Lasso:
-		shape := shape_polygon(g.points[:], app.gesture == .Hide_Rectangle, input.size)
-		if len(shape) >= 3 do hide_shape_command(app, shape, input.size, g.flip)
-	case .Clip:
-		clip_command(app, g.a, g.b, g.flip, input.size)
-	case .Slice:
-		slice_request(app, g.a, g.b, input.size)
+		shape_finish(app, .Hide, g.points[:], app.gesture == .Hide_Rectangle, g.flip, input.size, g.pointer)
+	case .Clip, .Slice:
+		line := [2][2]f32{g.a, g.b}
+		shape_finish(app, .Clip if app.gesture == .Clip else .Slice, line[:], false, g.flip, input.size, g.pointer)
 	}
 	return true
 }
@@ -99,16 +100,21 @@ draw_clip :: proc(app: ^App, o: Overlay, size: [2]f32) {
 		draw_shape_outline(o, g.points[:], g.b, app.gesture == .Hide_Rectangle, color, fill)
 		return
 	}
-	d := g.b - g.a
+	draw_clip_line(o, g.a, g.b, g.flip, app.gesture == .Clip, size)
+}
+
+// A Clip or Slice line from `a` to `b`, across the whole viewport as the plane is, with
+// (for Clip) a band of shading on the side that goes.
+draw_clip_line :: proc(o: Overlay, a, b: [2]f32, flip, clip: bool, size: [2]f32) {
+	d := b - a
 	if linalg.length(d) < 1 do return
-	// The line runs across the whole viewport, as the plane does.
 	dir := linalg.normalize(d)
 	reach := linalg.length(size) + linalg.length(d)
-	p0, p1 := g.a - dir * reach, g.a + dir * reach
+	p0, p1 := a - dir * reach, a + dir * reach
 	color := overlay_color({1, 0.85, 0.3, 0.9})
-	if app.gesture == .Clip {
+	if clip {
 		side := [2]f32{-dir.y, dir.x} // the right of the drag, with y down
-		if g.flip do side = -side
+		if flip do side = -side
 		band := side * reach
 		shade := [4][2]f32{p0, p1, p1 + band, p0 + band}
 		overlay_fill(o, shade[:], overlay_color({0, 0, 0, 0.25}))
@@ -116,8 +122,8 @@ draw_clip :: proc(app: ^App, o: Overlay, size: [2]f32) {
 		color = overlay_color({0.4, 0.85, 1, 0.95})
 	}
 	overlay_line(o, p0, p1, color, 1.5)
-	overlay_disc(o, g.a, 3, color)
-	overlay_disc(o, g.b, 3, color)
+	overlay_disc(o, a, 3, color)
+	overlay_disc(o, b, 3, color)
 }
 
 clip_gesture_destroy :: proc(g: ^Clip_Gesture) {delete(g.points)}

@@ -1424,21 +1424,24 @@ def rail_mask_paints_mask():
 
 @scenario
 def rail_mask_shape_from_empty_space():
-    """Mask latched: a finger dragged from empty space draws a mask rectangle over the model instead of turning the view."""
+    """Mask latched: a finger dragged from empty space draws a mask rectangle over the model instead of turning the view
+    (a finger's shape waits for Apply: Enter here)."""
     s = Script()
     rail_tap(s, "mask")
     s.fdrag(line((250, 150), (900, 600), 20))
     s.wait(4)
+    s.press("Return")
     return s, [], camera_still({"dabs": near(0), "masked": near(1), "undo_steps": near(1), "rail_latched": lambda v: v == "mask"})
 
 
 @scenario
 def rail_hide_gesture():
-    """Hide latched: a finger drags the hide rectangle over part of the model, and the rest is hidden."""
+    """Hide latched: a finger drags the hide rectangle over part of the model, and once applied (Enter) the rest is hidden."""
     s = Script()
     rail_tap(s, "hide")
     s.fdrag(line((250, 150), (800, 450), 20))
     s.wait(4)
+    s.press("Return")
     return s, [], camera_still({"dabs": near(0), "hidden_triangles": lambda v: int(v) > 0, "rail_latched": lambda v: v == "hide"})
 
 
@@ -3335,6 +3338,141 @@ def camera_back_keeps_an_unrested_view():
         (back, [], camera_still({"camera_views": near(2, 0), "camera_view": near(1, 0)})),
         (only, [], {"@remember": remember}),
         (forward, [], {"camera_view": near(2, 0), "@the orbit": lambda stats: all(stats[k] == after[k] for k in CAMERA_KEYS)}),
+    ])
+
+
+# Two-phase shapes (shape_pending.odin): the mask rectangle a finger drags from (250,150)
+# to (900,600) waits with its bar under it, Apply and Cancel at these points (1600x900).
+SHAPE_FROM, SHAPE_TO = (250, 150), (900, 600)
+SHAPE_APPLY, SHAPE_CANCEL = (484, 660), (672, 660)
+SHAPE_MIDDLE, SHAPE_CORNER = (575, 375), (900, 600)
+
+
+def finger_mask_shape(s):
+    """Mask latched on the rail, then a finger drags the rectangle; it waits for Apply."""
+    rail_tap(s, "mask")
+    s.fdrag(line(SHAPE_FROM, SHAPE_TO, 20))
+    s.wait(6)
+
+
+@scenario
+def shape_finger_waits_for_apply():
+    """A finger's mask rectangle waits with Apply, Flip and Cancel under it and masks
+    nothing yet; a tap on Apply masks, as one undo step; a tap on Cancel masks nothing."""
+    waits, applied, cancelled = Script(), Script(), Script()
+    for sc in (waits, applied, cancelled):
+        finger_mask_shape(sc)
+    applied.ftap(*SHAPE_APPLY)
+    applied.wait(4)
+    cancelled.ftap(*SHAPE_CANCEL)
+    cancelled.wait(4)
+    return Steps([
+        (waits, [], camera_still({"shape_pending": is_text("mask"), "shape_points": near(2, 0), "masked": near(0), "undo_steps": near(0)})),
+        (applied, [], camera_still({"shape_pending": is_text("none"), "masked": near(1), "undo_steps": near(1)})),
+        (cancelled, [], camera_still({"shape_pending": is_text("none"), "masked": near(0), "undo_steps": near(0)})),
+    ])
+
+
+@scenario
+def shape_mouse_applies_at_once():
+    """Ctrl and a mouse drag from empty space masks as it lets go, as before; with
+    --shape-apply=confirm it waits, and Enter applies it."""
+    def drag(s):
+        s.wait(3)
+        s.mouse_drag(line(SHAPE_FROM, SHAPE_TO, 10), keys=("ctrl",))
+        s.wait(4)
+    now, waits, entered = Script(), Script(), Script()
+    for sc in (now, waits, entered):
+        drag(sc)
+    entered.press("Return")
+    return Steps([
+        (now, [], camera_still({"shape_pending": is_text("none"), "masked": near(1)})),
+        (waits, ["--shape-apply=confirm"], camera_still({"shape_pending": is_text("mask"), "masked": near(0)})),
+        (entered, ["--shape-apply=confirm"], camera_still({"shape_pending": is_text("none"), "masked": near(1), "undo_steps": near(1)})),
+    ])
+
+
+@scenario
+def shape_handles_move_and_resize():
+    """The middle handle moves the waiting rectangle, a corner resizes it (the pen's too),
+    and Apply masks where it is then: another mask than the rectangle where it was drawn."""
+    drawn = {}
+    def remember(stats):
+        drawn["mask_mean"] = float(stats["mask_mean"])
+        return True
+    as_drawn, moved, corner = Script(), Script(), Script()
+    for sc in (as_drawn, moved, corner):
+        finger_mask_shape(sc)
+    as_drawn.press("Return")
+    moved.fdrag(past_slop(SHAPE_MIDDLE, (SHAPE_MIDDLE[0] + 200, SHAPE_MIDDLE[1]), 10))
+    moved.wait(4)
+    moved_box = Script()
+    moved_box.events, moved_box.frame = list(moved.events), moved.frame
+    moved.press("Return")
+    pen_stroke(corner, line(SHAPE_CORNER, (SHAPE_CORNER[0] - 300, SHAPE_CORNER[1] - 200), 10))
+    return Steps([
+        (as_drawn, [], {"masked": near(1), "@remember": remember}),
+        (moved_box, [], camera_still({"shape_pending": is_text("mask"), "shape_box": lambda v: v.split(",")[0] != "250" and v.split(",")[1] == "150"})),
+        (moved, [], camera_still({"masked": near(1), "@another mask": lambda stats: abs(float(stats["mask_mean"]) - drawn["mask_mean"]) > 1e-3})),
+        (corner, [], camera_still({"shape_pending": is_text("mask"), "dabs": near(0), "shape_box": lambda v: v.split(",")[2] != "900" and v.split(",")[0] == "250"})),
+    ])
+
+
+@scenario
+def shape_view_turns_under_it():
+    """With a shape waiting, a finger dragged inside it away from its handles turns the
+    view and leaves the shape where it is; two fingers pinching from a handle zoom and
+    leave it too."""
+    turn, pinch = Script(), Script()
+    for sc in (turn, pinch):
+        finger_mask_shape(sc)
+    rail_tap(turn, "mask")  # unlatched, so empty space turns the view again
+    turn.fdrag(past_slop((330, 220), (430, 260), 10))
+    pinch.fingers([SHAPE_CORNER, (700, 450)], [(60, 40), (-60, -40)], 12)
+    box = lambda v: v == "250,150,900,600"
+    return Steps([
+        (turn, [], {"shape_pending": is_text("mask"), "shape_box": box, "camera_yaw": lambda v: abs(float(v) - CAMERA0["camera_yaw"]) > 0.01}),
+        (pinch, [], {"shape_pending": is_text("mask"), "shape_box": box, "camera_distance": lambda v: abs(float(v) - CAMERA0["camera_distance"]) > 0.01}),
+    ])
+
+
+@scenario
+def shape_escape_closes_menus_first():
+    """With a shape waiting and the menu open, Escape closes the menu only; a second
+    Escape lets the shape go."""
+    once, twice = Script(), Script()
+    for sc in (once, twice):
+        finger_mask_shape(sc)
+        click(sc, UI["menu"])
+        sc.wait(4)
+        sc.press("Escape")
+    twice.press("Escape")
+    return Steps([
+        (once, [], {"menu": near(0), "shape_pending": is_text("mask")}),
+        (twice, [], {"menu": near(0), "shape_pending": is_text("none"), "masked": near(0)}),
+    ])
+
+
+@scenario
+def shape_clip_line_waits():
+    """With Clip as the Ctrl+Shift gesture, a finger's line (Ctrl+Shift held on the
+    keyboard here) waits; Enter clips, one undo step."""
+    write_settings("gesture clip\n")
+    s = Script()
+    s.wait(3)
+    s.add("key:ctrl")
+    s.add("key:shift")
+    s.fdrag(line((700, 120), (760, 780), 20))
+    s.add("keyup:shift")
+    s.add("keyup:ctrl")
+    s.wait(4)
+    waits = Script()
+    waits.events, waits.frame = list(s.events), s.frame
+    s.press("Return")
+    s.wait(4)
+    return Steps([
+        (waits, [f"--settings-file={settings_file()}"], {"shape_pending": is_text("clip"), "undo_steps": near(0)}),
+        (s, [f"--settings-file={settings_file()}"], {"shape_pending": is_text("none"), "undo_steps": near(1)}),
     ])
 
 

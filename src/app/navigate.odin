@@ -147,6 +147,7 @@ Drag_Owner :: enum u8 {
 	Pan,
 	Zoom,
 	Muted, // pressed, but nothing follows it (a palm, a finger while a gesture runs)
+	Shape, // a handle of the shape waiting for Apply (shape_pending.odin)
 }
 
 // Which app's mouse buttons the view follows (Settings > Keys): what a right or middle
@@ -225,6 +226,7 @@ Nav_Prefs :: struct {
 	edge_size:      f32, // points, EDGE_MIN to EDGE_MAX
 	edge_show:      bool, // outline where the band ends
 	mouse_scheme:   Mouse_Scheme,
+	shape_apply:    Shape_Apply, // when a drawn mask, hide or clip shape applies (shape_pending.odin)
 }
 
 // The safe zone's width, in points: from half a touch target to a broad band.
@@ -276,6 +278,8 @@ pointer_route :: proc(app: ^App, input: ^Viewport_Input) {
 			if t.cancelled do stroke_cancel(app)
 			else do stroke_finish(app)
 		}
+		// A handle dragged by a finger that became a gesture goes back where it was.
+		if g.owner == .Shape do shape_release(app, true)
 		if g.owner != .None {
 			g.owner, g.pending = .Muted, false
 			clear(&g.held)
@@ -313,6 +317,7 @@ pointer_route :: proc(app: ^App, input: ^Viewport_Input) {
 			g.pivot, app.pivot.from = orbit_pivot(app, d.mouse, input.size)
 			app.pivot.used = g.pivot
 		}
+		if owner == .Shape do shape_grab(app, shape_handle_at(app, d.mouse))
 	}
 	if g.owner == .None {
 		input.orbit_drag, input.pan_drag, input.primary, input.press = false, false, false, false
@@ -409,6 +414,9 @@ pointer_route :: proc(app: ^App, input: ^Viewport_Input) {
 	case .Zoom:
 		route_mute(input)
 		input.zoom_drag, input.mouse_delta = true, delta
+	case .Shape:
+		route_mute(input)
+		shape_drag(app, delta)
 	}
 
 	// A press still pending here waits on a tap's dab and begins next frame, lifted or not.
@@ -416,6 +424,7 @@ pointer_route :: proc(app: ^App, input: ^Viewport_Input) {
 		// A tap on empty space with the Move tool clears the selection, as its click did
 		// before empty space turned the view.
 		if g.owner == .Orbit && g.empty && app.tool == .Move && g.travel <= slop do app.scene.selected = -1
+		if g.owner == .Shape do shape_release(app, false)
 		if g.owner == .Orbit && d.pointer == .Finger && !g.edge && app.nav.double_tap {
 			now := input_clock(app)
 			if g.travel > slop || now - g.at >= ui.FINGER_TAP {
@@ -437,10 +446,10 @@ pointer_route :: proc(app: ^App, input: ^Viewport_Input) {
 drag_decide :: proc(app: ^App, input: Viewport_Input) -> (owner: Drag_Owner, empty: bool) {
 	d := &app.device
 	if by_button, decided := mouse_button_owner(app.nav.mouse_scheme, d.down + d.pressed, d.ctrl, d.shift, d.alt); decided do return by_button, false
-	if d.pointer == .Finger {
-		if app.touch.palm do return .Muted, false
-		if app.nav.finger_model == .Orbit do return .Orbit, false
-	}
+	if d.pointer == .Finger && app.touch.palm do return .Muted, false
+	// A handle of the shape waiting for Apply, before the model or the safe zone under it.
+	if shape_handle_at(app, d.mouse) >= 0 do return .Shape, false
+	if d.pointer == .Finger && app.nav.finger_model == .Orbit do return .Orbit, false
 	// The rail's Mask or Hide, for the brushes, keeps empty space for their shapes as Ctrl
 	// does; only held there by a finger does it take the safe zone too, so a view filled
 	// by the model still turns from its edge while one is latched (modifiers.odin).
