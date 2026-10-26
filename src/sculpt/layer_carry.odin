@@ -429,3 +429,89 @@ layer_push_down :: proc(l: ^Levels, j: int, layer: Sculpt_Layer) -> Sculpt_Layer
 	})
 	return out
 }
+
+// Moves the layers of the level below the top up to the top, just made by Subdivide
+// from it, as ZBrush moves its layers up. The new level is the Loop subdivision of the
+// one below, and Loop's weights are linear, so a layer goes up as its displacement
+// subdivided the same way: setting it to 0 on the new level gives what subdividing the
+// surface without it gives. The level below keeps its shape with the layers gone from
+// its list (baked, which moves nothing), and the recording goes up with them. Returns
+// how many it moved.
+@(private)
+levels_carry_layers_up :: proc(l: ^Levels) -> int {
+	n := len(l.levels)
+	below, top := l.levels[n - 2], l.levels[n - 1]
+	bs, ts := &below.sculptor, &top.sculptor
+	// A slider still held on the level below ends here, so no step of it is left there
+	// holding a layer that has gone.
+	_ = sculptor_stroke_end(bs)
+	for &layer in bs.layers.list {
+		append(&ts.layers.list, layer_loop_up(l, below, top, layer))
+		layer_destroy(&layer, bs.history.allocator)
+	}
+	moved := len(bs.layers.list)
+	clear(&bs.layers.list)
+	ts.layers.recording, bs.layers.recording = bs.layers.recording, 0
+	ts.layers.named = bs.layers.named
+	return moved
+}
+
+// A layer of `below` as a layer of `top`, the level Loop subdivision made from it.
+@(private = "file")
+layer_loop_up :: proc(l: ^Levels, below, top: ^Level, layer: Sculpt_Layer) -> Sculpt_Layer {
+	Work :: struct {
+		below, top: ^Level,
+		owner:      []u32,
+		from:       Sculpt_Layer,
+		out:        [][]Vec3,
+		ids:        [dynamic]u32,
+	}
+	w := Work{below = below, top = top, from = layer}
+	ts := &top.sculptor
+	out := Sculpt_Layer{name = layer.name, strength = layer.strength, visible = layer.visible}
+	out.delta = make([][]Vec3, len(ts.nodes), ts.history.allocator)
+	w.out = out.delta
+	// A node of the new level takes displacement only when a node below that its Loop
+	// points read has some; allocated here, on the calling thread.
+	w.ids = make([dynamic]u32, 0, len(ts.nodes), context.temp_allocator)
+	verts: u32
+	for id in 0 ..< u32(len(ts.nodes)) {
+		for c in node_list(top.deps, id) {
+			if layer.delta[c] == nil do continue
+			w.out[id] = make([]Vec3, ts.nodes[id].vert_count, ts.history.allocator)
+			append(&w.ids, id)
+			verts += ts.nodes[id].vert_count
+			break
+		}
+	}
+	jobs.parallel_for(l.pool if verts >= PARALLEL_MIN_VERTS else nil, len(w.ids), &w, proc(data: rawptr, i: int) {
+		w := cast(^Work)data
+		at :: #force_inline proc(below: ^Level, layer: Sculpt_Layer, v: u32) -> Vec3 {
+			id := below.node_of_vertex[v]
+			d := layer.delta[id]
+			return d[v - below.sculptor.nodes[id].vert_first] if d != nil else {}
+		}
+		id := w.ids[i]
+		n := w.top.sculptor.nodes[id]
+		for u in n.vert_first ..< n.vert_first + n.vert_count {
+			par := w.top.parents[u]
+			d: Vec3
+			if par[2] == EVEN {
+				// frame_at's origin, over the displacement instead of the positions.
+				v := par[0]
+				ring: Vec3
+				faces := geom.vertex_faces_of(w.below.sculptor.faces, v)
+				for f in faces {
+					o1, o2 := others(w.below.mesh.indices[:], f, v)
+					ring += at(w.below, w.from, o1) + at(w.below, w.from, o2)
+				}
+				beta := loop_beta(len(faces))
+				d = at(w.below, w.from, v) * (1 - f32(len(faces)) * beta) + ring * (0.5 * beta)
+			} else {
+				d = (at(w.below, w.from, par[0]) + at(w.below, w.from, par[1])) * 0.375 + (at(w.below, w.from, par[2]) + at(w.below, w.from, par[3])) * 0.125
+			}
+			w.out[id][u - n.vert_first] = d
+		}
+	})
+	return out
+}

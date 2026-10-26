@@ -79,9 +79,10 @@ kit_layers_section :: proc(app: ^App) {
 		ui.end(ctx)
 		strength := l.strength
 		if ui.slider(ctx, fmt.tprintf("Strength##layer %d", i), &strength, -1, 2, .Linear, fmt.tprintf("%.2f", strength), enabled = allowed) {
-			if !app.ui.layer_dragging {
+			if !app.ui.layer_dragging || app.ui.layer_drag_id != obj.id {
+				layer_drag_finish(app)
 				stroke_finish(app)
-				app.ui.layer_dragging = true
+				app.ui.layer_dragging, app.ui.layer_drag_id = true, obj.id
 			}
 			_ = sculpt.sculptor_layer_set(s, i, strength, l.visible)
 			selected^ = i
@@ -96,15 +97,24 @@ kit_layers_section :: proc(app: ^App) {
 		if bake do layer_remove(app, obj, selected^, bake = true)
 		ui.paragraph(ctx, fmt.tprintf("%d on this level, %.1f MB.", len(layers), f64(sculpt.sculptor_layers_bytes(s)) / (1 << 20)))
 	}
-	ui.paragraph(ctx, "While a layer records, strokes also go into it; its strength then dials them from -1 to 2. Delete takes its work off, Bake keeps it as plain sculpting. Each level has its own layers; Delete higher carries the higher levels' layers down, and rebuilds (Remesh, Decimate, Mirror and weld, Slice, Make boolean) carry them onto the new mesh. Not in HD or with dynamic topology, which bakes them.")
+	ui.paragraph(ctx, "While a layer records, strokes also go into it; its strength then dials them from -1 to 2. Delete takes its work off, Bake keeps it as plain sculpting. Each level has its own layers; Subdivide moves the top level's up to the new level, Delete higher carries the higher levels' down, and rebuilds (Remesh, Decimate, Mirror and weld, Slice, Make boolean) carry them onto the new mesh. Not in HD or with dynamic topology, which bakes them.")
 }
 
 // Ends a drag of a layer's strength once the pointer lets go, as one undo step. Runs
 // every frame, so a drag ends even if its section closed meanwhile.
 layer_drag_end :: proc(app: ^App) {
-	if !app.ui.layer_dragging || .Left in app.device.down do return
+	if app.ui.layer_dragging && .Left not_in app.device.down do layer_drag_finish(app)
+}
+
+// Ends a layer strength drag still held, as its undo step, before a scene command or an
+// undo changes what the drag's layer is part of (Subdivide moves layers to another
+// level). A drag that goes on after it is a step of its own. Not stroke_finish, which
+// the frame runs whenever the viewport is not pressed, as it is not during a drag.
+layer_drag_finish :: proc(app: ^App) {
+	if !app.ui.layer_dragging do return
 	app.ui.layer_dragging = false
-	if obj := selected_object(app); obj != nil && sculpt.sculptor_stroke_end(object_sculptor(obj)) {
+	// The drag's own object: a pen can select another while a finger holds the slider.
+	if obj := object_by_id(app, app.ui.layer_drag_id); obj != nil && sculpt.sculptor_stroke_end(object_sculptor(obj)) {
 		history_record(app, obj, .Layer, "Layer strength")
 	}
 }

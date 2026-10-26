@@ -500,6 +500,7 @@ history_busy :: proc(app: ^App) -> bool {
 history_undo :: proc(app: ^App) {
 	// A topological mask let go and still settling finishes first, as its own step.
 	topo_settle(app)
+	layer_drag_finish(app)
 	// A chained entry goes back with the one before it.
 	for history_step(app, &app.history.done, &app.history.undone, sculpt.sculptor_can_undo, sculpt.sculptor_undo) {
 		if top := app.history.undone[len(app.history.undone) - 1]; !top.chain || len(app.history.done) == 0 do break
@@ -508,6 +509,7 @@ history_undo :: proc(app: ^App) {
 
 history_redo :: proc(app: ^App) {
 	topo_settle(app)
+	layer_drag_finish(app)
 	for history_step(app, &app.history.undone, &app.history.done, sculpt.sculptor_can_redo, sculpt.sculptor_redo) {
 		if len(app.history.undone) == 0 || !app.history.undone[len(app.history.undone) - 1].chain do break
 	}
@@ -677,7 +679,11 @@ history_forget_level :: proc(app: ^App, id: int, level: Maybe(int)) {
 // on any level, has been undone.
 object_forget_history :: proc(app: ^App, obj: ^Object) {
 	history_forget_strokes(app, obj.id)
-	for lv in obj.levels.levels do sculpt.sculptor_clear_history(&lv.sculptor)
+	for lv in obj.levels.levels {
+		sculpt.sculptor_clear_history(&lv.sculptor)
+		// The History brush's target is out of reach without the steps (and 12 bytes a vertex).
+		sculpt.sculptor_recall_clear(&lv.sculptor)
+	}
 }
 
 object_by_id :: proc(app: ^App, id: int) -> ^Object {

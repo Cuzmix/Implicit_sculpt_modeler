@@ -283,3 +283,89 @@ layers_carry_down_on_delete_higher :: proc(t: ^testing.T) {
 	testing.expect(t, moved > 1e-3, "the layer did not reach the base")
 	testing.expectf(t, near(s.mesh.positions[:], want, 1e-4), "off on the base, the shape is not what off on the top gives")
 }
+
+// Subdivide moves the top level's layer up by Loop's weights: setting it to 0 on the new
+// level gives what subdividing without the layer gives, and the old top keeps its shape
+// with the layer gone from its list, recording included. (The two new levels number
+// their vertices apart, by where they are, so they are compared as surfaces.)
+@(test)
+layers_move_up_on_subdivide :: proc(t: ^testing.T) {
+	two_levels :: proc() -> Levels {
+		l: Levels
+		levels_init(&l, geom.icosphere(2), nil, 64)
+		assert(levels_subdivide(&l))
+		s := &levels_current(&l).sculptor
+		_ = sculptor_layer_add(s)
+		sculptor_stroke_begin(s)
+		_ = apply_dab(s, {kind = .Draw, radius = 0.5, strength = 1}, UP)
+		_ = sculptor_stroke_end(s)
+		return l
+	}
+	a := two_levels()
+	defer levels_destroy(&a)
+	testing.expect(t, sculptor_layer_set(&levels_current(&a).sculptor, 0, 0, true))
+	_ = sculptor_stroke_end(&levels_current(&a).sculptor)
+	testing.expect(t, levels_subdivide(&a))
+	want := levels_current(&a).mesh
+
+	l := two_levels()
+	defer levels_destroy(&l)
+	old_top := slice.clone(levels_current(&l).mesh.positions[:], context.temp_allocator)
+	testing.expect(t, levels_subdivide(&l, carry_layers = true))
+	below, top := &l.levels[1].sculptor, &l.levels[2].sculptor
+	testing.expect_value(t, len(below.layers.list), 0)
+	testing.expect_value(t, sculptor_layer_recording(below), -1)
+	testing.expect_value(t, len(top.layers.list), 1)
+	testing.expect_value(t, sculptor_layer_recording(top), 0)
+	testing.expect(t, near(below.mesh.positions[:], old_top, 0), "the old top moved")
+	moved := farthest(top.mesh^, want)
+	testing.expect(t, sculptor_layer_set(top, 0, 0, true))
+	_ = sculptor_stroke_end(top)
+	worst := max(farthest(top.mesh^, want), farthest(want, top.mesh^))
+	testing.expectf(t, moved > 1e-3 && worst < 1e-5, "off on the new level, the shape is %v from the subdivision without the layer (%v with it)", worst, moved)
+}
+
+// Moving layers up by threads gives the new level the same layer, bit for bit, as one
+// thread does.
+@(test)
+layers_move_up_by_threads_matches_one :: proc(t: ^testing.T) {
+	pool: jobs.Pool
+	jobs.pool_init(&pool, 3)
+	defer jobs.pool_destroy(&pool)
+	runs: [2][]Vec3
+	for &run, k in runs {
+		l: Levels
+		levels_init(&l, geom.icosphere(3), &pool if k == 1 else nil, 64)
+		s := &levels_current(&l).sculptor
+		_ = sculptor_layer_add(s)
+		sculptor_stroke_begin(s)
+		_ = apply_dab(s, {kind = .Draw, radius = 0.5, strength = 1}, UP)
+		_ = sculptor_stroke_end(s)
+		testing.expect(t, levels_subdivide(&l, carry_layers = true))
+		top := &levels_current(&l).sculptor
+		run = make([]Vec3, len(top.mesh.positions), context.temp_allocator)
+		for d, i in top.layers.list[0].delta do if d != nil do copy(run[top.nodes[i].vert_first:], d)
+		levels_destroy(&l)
+	}
+	testing.expect(t, slice.any_of_proc(runs[0], proc(d: Vec3) -> bool {return d != {}}), "nothing moved up")
+	testing.expect(t, slice.equal(runs[0], runs[1]), "threads changed the layer moved up")
+}
+
+// A layer slider still held when Subdivide moves the layers up ends on the old top, so
+// no open step there names a layer it no longer has.
+@(test)
+layers_move_up_ending_a_held_slider :: proc(t: ^testing.T) {
+	l: Levels
+	levels_init(&l, geom.icosphere(2), nil, 64)
+	defer levels_destroy(&l)
+	s := &levels_current(&l).sculptor
+	_ = sculptor_layer_add(s)
+	sculptor_stroke_begin(s)
+	_ = apply_dab(s, {kind = .Draw, radius = 0.5, strength = 1}, UP)
+	_ = sculptor_stroke_end(s)
+	testing.expect(t, sculptor_layer_set(s, 0, 0.5, true))
+	testing.expect(t, s.history.recording, "the drag is under way")
+	testing.expect(t, levels_subdivide(&l, carry_layers = true))
+	testing.expect(t, !l.levels[0].sculptor.history.recording, "the drag was left open on the old top")
+	testing.expect_value(t, levels_current(&l).sculptor.layers.list[0].strength, 0.5)
+}

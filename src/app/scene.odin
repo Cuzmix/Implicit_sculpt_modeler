@@ -538,6 +538,7 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 	if cmd.kind != .None {
 		move_end(app)
 		transform_drag_end(app, force = true)
+		layer_drag_finish(app)
 	}
 	switch cmd.kind {
 	case .None:
@@ -702,9 +703,22 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 				log.warn("subdivide: turn dynamic topology off first")
 				return true
 			}
-			if !sculpt.levels_subdivide(levels) {
+			// The top level's sculpt layers move up to the new level, which leaves the old
+			// top's undo steps naming layers it no longer has; so a layered Subdivide
+			// clears the object's strokes and is an undo step of its own, a swap that puts
+			// the old levels back with their layers.
+			layers := len(levels.levels[len(levels.levels) - 1].sculptor.layers.list)
+			before: ^Object_Snapshot
+			if layers > 0 do before = history_snapshot(app, obj, "subdivide")
+			if !sculpt.levels_subdivide(levels, carry_layers = layers > 0) {
+				if before != nil do history_snapshot_drop(before)
 				log.warn("subdivide: needs a closed mesh with every edge between two triangles")
 				return true
+			}
+			if before != nil {
+				history_record_swap(app, obj.id, before)
+				object_forget_history(app, obj)
+				app.layers_kept += layers
 			}
 			log.infof("subdivide: level %d has %d vertices, %d triangles", levels.current + 1,
 				geom.mesh_vertex_count(object_mesh(obj)^), geom.mesh_triangle_count(object_mesh(obj)^))

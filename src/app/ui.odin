@@ -34,6 +34,7 @@ Ui_State :: struct {
 	layer_selected:     int,  // the Layers section's row that Delete and Bake act on
 	set_selected:       int,  // the Selection sets section's set that Add, Subtract, Store over and Delete act on
 	layer_dragging:     bool, // a layer's strength slider is being dragged: one undo step
+	layer_drag_id:      int,  // the object whose layer is being dragged, which the selection may leave meanwhile
 	transform_drag:     Transform_Drag, // the Transform section's values are being dragged: one undo step
 	retopo_quads:       i32,  // quads Retopologize asks for
 	rebuild_goal:       Rebuild_Goal, // what the Rebuild section makes: an even mesh, fewer polygons or quads

@@ -115,6 +115,7 @@ SCENE_REPORTS := #partial [type_of(Scene_Command{}.kind)]struct {
 	.Slice         = {"Sliced %s in two", .Visibility},
 	.Boolean       = {"Made %s from the boolean", .Booleans},
 	.Extract       = {"Extracted a shell from %s", .Extract},
+	.Subdivide     = {"Subdivided %s", .Levels}, // only with layers, when it is a swap
 	.Delete_Higher = {"Deleted the levels above on %s", .Levels},
 	.Delete_Lower  = {"Deleted the levels below on %s", .Levels},
 }
