@@ -121,6 +121,7 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.Mirror_Weld      = "symmetrize mirror",
 	.Retopologize     = "zremesher quadriflow quads retopo quad",
 	.Make_Boolean     = "live boolean subtract union intersect",
+	.Live_Boolean     = "preview subtract union intersect",
 	.Extract_Masked   = "extract shell",
 	.Adjust_Last      = "redo last tweak change settings again stroke amount",
 	.Add_Object       = "subtool primitive append sphere cube",

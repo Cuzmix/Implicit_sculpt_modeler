@@ -144,6 +144,28 @@ icon_button :: proc(ctx: ^Context, name: string, glyph: rune, selected := false,
 	return clicked
 }
 
+// A row of `count` dots, `chosen` lit, each `cell` points wide: the pages of the bar
+// above them. Each dot's tap reaches a little past it up and down, short of the bar.
+// `name` is the row's id and the dots' tooltip. Returns the dot tapped, or -1.
+page_dots :: proc(ctx: ^Context, name: string, count, chosen: int, cell: f32 = 28) -> int {
+	ctx.controls += 1
+	t := ctx.theme
+	base := id_of(ctx, name)
+	picked := -1
+	for i in 0 ..< count {
+		r := place(ctx, {cell, 16})
+		id := salt(base, u64(100 + i))
+		hovered, _, clicked, _ := interact(ctx, id, {r.x, r.y - 4, r.w, r.h + 8})
+		if clicked do picked = i
+		on := tween(ctx, salt(id, 1), 1 if i == chosen else 0, t.indicator_time)
+		h := tween(ctx, salt(id, 2), 1 if hovered else 0, t.hover_time)
+		color := color_mix(color_mix(t.text_tertiary, t.text_secondary, h), t.accent, on)
+		fill_circle(ctx, {r.x + r.w * 0.5, r.y + r.h * 0.5}, 3 + on, color)
+		tip(ctx, id, r, name)
+	}
+	return picked
+}
+
 // Lines of small text that are one control, as tall as they need and at least a touch
 // target: the object's readout under the top bar. The first line is in the semibold face.
 // `name` is its id and tooltip. Returns true when clicked; call secondary after it for

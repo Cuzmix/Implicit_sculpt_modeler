@@ -1051,7 +1051,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			preset := "none"
 			if p, on := brush_preset(&app); on do preset, _ = strings.replace_all(preset_name(p), " ", "_", context.temp_allocator)
 			fmt.printfln("presets=%d preset=%d preset_name=%s preset_changed=%d", app.preset_count, app.brush.preset, preset, int(preset_changed(&app)))
-			fmt.printfln("dock=%s dock_menu=%d browser=%d", dock_names(&app), int(app.kit.dock_menu), int(app.kit.browser))
+			fmt.printfln("dock=%s dock_page=%d dock_pages=%d dock_menu=%d browser=%d", dock_names(&app, app.kit.dock_shown[0], app.kit.dock_shown[1]), app.kit.dock_page, dock_pages(&app), int(app.kit.dock_menu), int(app.kit.browser))
 			bind := &app.kit.bind
 			fmt.printfln("key_overrides=%d bind_open=%d bind_command=%s bind_state=%s", app.key_override_count, int(bind.open), command_name(bind.id, bind.arg) if bind.id != .None else "none",
 				strings.to_lower(fmt.tprint(bind.state), context.temp_allocator))
@@ -1149,10 +1149,11 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		if p := k.bar_pop; p.open do pop = strings.to_lower(fmt.tprint(p.section) if p.kind == .Section else fmt.tprint(p.kind), context.temp_allocator)
 		axes := strings.builder_make(context.temp_allocator)
 		for axis in app.brush.symmetry do strings.write_string(&axes, strings.to_lower(fmt.tprint(axis), context.temp_allocator))
-		fmt.printfln("bar_pop=%s look=%s symmetry=%s", pop, strings.to_lower(fmt.tprint(k.look), context.temp_allocator), strings.to_string(axes) if app.brush.symmetry != {} else "none")
+		fmt.printfln("bar_pop=%s look=%s symmetry=%s live_boolean=%d dynamic=%d", pop, strings.to_lower(fmt.tprint(k.look), context.temp_allocator), strings.to_string(axes) if app.brush.symmetry != {} else "none",
+			int(app.ui.boolean.live), int(command_checked(&app, .Dyntopo_Toggle)))
 		// Where the modifier rail and what must stay clear of it ended up, in points, for
 		// touch_check's window size scenarios.
-		for name in ([?]string{"modifier rail", "brush bar", "dock", "points", "inspector", "action bar", "coach", "view bar", "top bar", "adjust last", "shape bar"}) {
+		for name in ([?]string{"modifier rail", "brush bar", "dock", "dock pages", "points", "inspector", "action bar", "coach", "view bar", "top bar", "adjust last", "shape bar"}) {
 			r := ui.prev_rect(&k.ctx, name)
 			key, _ := strings.replace_all(name, " ", "_", context.temp_allocator)
 			fmt.printf("layout_%s=%.0f,%.0f,%.0f,%.0f ", key, r.x, r.y, r.w, r.h)

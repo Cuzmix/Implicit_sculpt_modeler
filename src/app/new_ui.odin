@@ -54,6 +54,9 @@ Kit_State :: struct {
 	// The dock's slots (dock.odin), and the popover a long press on one opens: open, on
 	// which slot, over its tile; the brush grid's scroll, in it or in the browser.
 	dock:       [DOCK_SLOTS]Dock_Slot,
+	dock_page:  int, // the page the bottom bar shows
+	dock_shown: [2]int, // ...as its first slot and how many (fewer in a narrow window)
+	dock_seen:  Dock_Slot, // the brush last frame, to bring the page holding a new one
 	dock_menu:  bool,
 	dock_slot:  int,
 	dock_at:    ui.Rect,
@@ -848,28 +851,8 @@ kit_layout :: proc(app: ^App) {
 
 	kit_modifier_rail(app)
 
-	// Bottom middle: the Move tool, the brush dock, then the Curve and Insert tools. A long
-	// press (or a right-click) on a tool shows its settings in the inspector.
-	ui.begin_anchored(ctx, "dock", .Center, .End, {0, E}, {direction = .Row, gap = 0, padding = 4, radius = t.radius_large + 4, background = .Panel, center = true})
-	dock_tool(app, .Move)
-	ui.divider(ctx, 32)
-	// Each slot's tile has an id of its own: a brush or preset may sit in two slots. A long
-	// press (or a right-click) opens the slot's popover, to change what it holds.
-	for s, i in k.dock {
-		hint := command_hint(app, .Brush, int(s.kind)) if s.preset == 0 else ""
-		if ui.brush_tile(ctx, fmt.tprintf("%s##slot %d", dock_slot_label(app, s), i), BRUSHES[s.kind].icon, dock_slot_on(app, s), hint) do dock_slot_pick(app, s)
-		if ui.secondary(ctx) do dock_menu_open(app, i, ctx.last_rect)
-	}
-	if ui.icon_button(ctx, "All brushes", ui.ICON_GRID, selected = k.browser && k.browser_at == .Dock || (!dock_has_brush(app) && app.tool == .Brush), size = 58) {
-		was := k.browser
-		kit_floats_close(k)
-		k.browser, k.browser_at, k.grid_scroll, k.grid_reveal = !was, .Dock, 0, true
-	}
-	dock_anchor := ctx.last_rect
-	ui.divider(ctx, 32)
-	dock_tool(app, .Curve)
-	dock_tool(app, .Insert)
-	ui.end(ctx)
+	// Bottom middle: a page of the brush dock, then the mesh tools (kit_bars.odin).
+	dock_anchor := kit_bottom_bar(app)
 	// Over the dock, the next steps for what is active (kit_action_bar.odin); notes rise
 	// above both.
 	kit_action_bar(app)
