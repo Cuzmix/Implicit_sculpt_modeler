@@ -3556,7 +3556,10 @@ def autosave_stops_for_a_stroke():
     s.wait(60 - s.frame + 1)
     s.mouse_drag([(700, 400), (730, 410)])
     s.wait(200)
-    return s, autosave_args("--vertices=500000"), {"autosave_aborts": lambda v: int(v) >= 1, "autosaves": lambda v: int(v) >= 1, "autosave_torn": near(0, 0)}
+    # 2M vertices, so the reading lasts several frames even on a busy machine: at 500k
+    # the thread could finish before the next frame's press when the gate ran the
+    # scenarios side by side, and nothing was left to stop.
+    return s, autosave_args("--vertices=2000000"), {"autosave_aborts": lambda v: int(v) >= 1, "autosaves": lambda v: int(v) >= 1, "autosave_torn": near(0, 0)}
 
 
 def crash_after_stroke():
@@ -3891,6 +3894,41 @@ def layers_survive_a_rebuild():
               {"objects": near(1, 0), "layers": near(1, 0), "layers_noted": near(1, 0)})]
     # Two spheres start with the view framing both, so the last run is not checked for a still camera.
     return Steps([(sc, args, camera_still(want) if k < 7 else want) for k, (sc, args, want) in enumerate(steps)])
+
+
+@scenario
+def deformers_from_the_palette():
+    """The palette's Twist opens the Object tab's Deformers section on Twist, and a drag of
+    its Amount slider by the mouse, a finger or the pen twists the sphere as one undo step,
+    the slider springing back; the camera stays still."""
+    def run(drag):
+        s = Script()
+        s.wait(3)
+        palette_run(s, "twist")
+        s.wait(5)
+        drag(s)
+        s.wait(5)
+        return s
+    def mouse(s):
+        s.mouse_drag(line(DEFORM_AMOUNT, (DEFORM_AMOUNT[0] + 80, DEFORM_AMOUNT[1]), 10))
+    def finger(s):
+        s.fdrag(past_slop(DEFORM_AMOUNT, (DEFORM_AMOUNT[0] + 80, DEFORM_AMOUNT[1]), 10))
+    def pen(s):
+        x, y = DEFORM_AMOUNT
+        s.add("pnear")
+        s.add(f"pdown:{x},{y}")
+        for k in range(1, 11):
+            s.wait(1)
+            s.add(f"pmove:{x + 8 * k},{y}")
+        s.wait(1)
+        s.add("pup")
+        s.add("pfar")
+        s.wait(3)
+    want = {"deforms": near(1, 0), "deform_kind": lambda v: v == "Twist", "undo_steps": near(1, 0), "dabs": near(0)}
+    return Steps([(run(drag), [], camera_still(want)) for drag in (mouse, finger, pen)])
+
+
+DEFORM_AMOUNT = (1432, 691)  # the Deformers section's Amount slider, opened by the palette
 
 
 @scenario

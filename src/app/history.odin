@@ -490,17 +490,18 @@ history_drop_redo :: proc(app: ^App) {
 history_can_undo :: proc(app: ^App) -> bool {return !history_busy(app) && len(app.history.done) > 0}
 history_can_redo :: proc(app: ^App) -> bool {return !history_busy(app) && len(app.history.undone) > 0}
 
-// A stroke, or a gizmo or inspector drag of a transform, is under way: it becomes a step
-// of its own when it ends, so nothing is undone or redone beneath it.
+// A stroke, a gizmo or inspector drag of a transform, or a deformer's Amount drag is
+// under way: it becomes a step of its own when it ends, so nothing is undone or redone
+// beneath it.
 @(private = "file")
 history_busy :: proc(app: ^App) -> bool {
-	return app.stroke.active || app.move.drag.handle != .None || topo_held(app) || app.ui.transform_drag.active
+	return app.stroke.active || app.move.drag.handle != .None || topo_held(app) || app.ui.transform_drag.active || app.ui.deform.drag.active
 }
 
 history_undo :: proc(app: ^App) {
 	// A topological mask let go and still settling finishes first, as its own step.
 	topo_settle(app)
-	layer_drag_finish(app)
+	inspector_drags_end(app)
 	// A chained entry goes back with the one before it.
 	for history_step(app, &app.history.done, &app.history.undone, sculpt.sculptor_can_undo, sculpt.sculptor_undo) {
 		if top := app.history.undone[len(app.history.undone) - 1]; !top.chain || len(app.history.done) == 0 do break
@@ -509,7 +510,7 @@ history_undo :: proc(app: ^App) {
 
 history_redo :: proc(app: ^App) {
 	topo_settle(app)
-	layer_drag_finish(app)
+	inspector_drags_end(app)
 	for history_step(app, &app.history.undone, &app.history.done, sculpt.sculptor_can_redo, sculpt.sculptor_redo) {
 		if len(app.history.undone) == 0 || !app.history.undone[len(app.history.undone) - 1].chain do break
 	}

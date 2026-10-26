@@ -35,6 +35,7 @@ Ui_State :: struct {
 	set_selected:       int,  // the Selection sets section's set that Add, Subtract, Store over and Delete act on
 	layer_dragging:     bool, // a layer's strength slider is being dragged: one undo step
 	layer_drag_id:      int,  // the object whose layer is being dragged, which the selection may leave meanwhile
+	deform:             Deform_Panel, // the Deformers section's choices and its Amount drag (deformers.odin)
 	transform_drag:     Transform_Drag, // the Transform section's values are being dragged: one undo step
 	retopo_quads:       i32,  // quads Retopologize asks for
 	rebuild_goal:       Rebuild_Goal, // what the Rebuild section makes: an even mesh, fewer polygons or quads
@@ -117,7 +118,7 @@ CLOTH_MODE_HELP := [sculpt.Cloth_Mode]cstring {
 }
 
 ui_state_default :: proc() -> Ui_State {
-	return {viewport_request = {1280, 720}, mask_steps = 3, smooth_steps = 5, smooth_strength = 0.5, crease_degrees = sculpt.CREASE_GROUP_DEGREES, retopo_quads = 4000, rebuild_even = 500_000, rebuild_fewer = 100_000, bake = {size = 2048, reach_edges = 2}, boolean = {live_vertices = 200_000, vertices = 1_000_000, thickness = 0.02}, project = PROJECT_DEFAULTS}
+	return {viewport_request = {1280, 720}, mask_steps = 3, smooth_steps = 5, smooth_strength = 0.5, crease_degrees = sculpt.CREASE_GROUP_DEGREES, retopo_quads = 4000, rebuild_even = 500_000, rebuild_fewer = 100_000, bake = {size = 2048, reach_edges = 2}, boolean = {live_vertices = 200_000, vertices = 1_000_000, thickness = 0.02}, project = PROJECT_DEFAULTS, deform = {along = .Y}}
 }
 
 // Turns the studio render on or off; on, it starts from the plain viewport.

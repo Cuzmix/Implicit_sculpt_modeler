@@ -49,7 +49,16 @@ kit_object_tab :: proc(app: ^App) {
 	ui.spacer(ctx, 4)
 	for sec in OBJECT_SECTIONS {
 		if sec.page != k.object_page do continue
-		if ui.section(ctx, sec.title, &k.open[sec.section]) {
+		header := ui.section(ctx, sec.title, &k.open[sec.section])
+		if k.reveal_frames > 0 && k.reveal == sec.section {
+			// The section's body (or, folded, its header) is the last thing placed; an open
+			// one's header sits above the body by its own height (ui.section's row,
+			// t.target - 8) and the inspector column's gap (6).
+			at := ctx.last_rect.y - k.inspector_body.y + k.inspector_shown
+			if header do at -= t.target - 8 + 6
+			k.scroll = clamp(at, 0, k.inspector_limit)
+		}
+		if header {
 			sec.draw(app, obj)
 			ui.section_end(ctx)
 		}
@@ -83,6 +92,7 @@ OBJECT_SECTIONS := [?]Object_Section {
 	{.Surface, .Paint, "Polypaint", proc(app: ^App, _: ^Object) {kit_paint(app)}},
 	{.Surface, .Morph, "Morph target", kit_morph},
 	{.Surface, .Deform, "Deformation", kit_deformation},
+	{.Surface, .Deformers, "Deformers", kit_deformers},
 	{.Build, .Retopo, "UVs and baking", proc(app: ^App, _: ^Object) {kit_retopo_section(app)}},
 	{.Build, .Project, "Project detail", proc(app: ^App, _: ^Object) {kit_project_section(app)}},
 	{.Build, .Booleans, "Booleans", proc(app: ^App, _: ^Object) {kit_boolean_section(app)}},

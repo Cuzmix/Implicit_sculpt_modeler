@@ -88,6 +88,7 @@ Command_Id :: enum u8 {
 	Recall_Later,
 	Recall_Oldest,
 	Smooth_All,
+	Deformer, // the argument is the sculpt.Deform_Kind
 	Remesh_To, // the argument is the SPHERE_PRESETS size
 	Decimate_To, // ...and here too
 	Rebuild,
@@ -689,6 +690,21 @@ COMMANDS := [Command_Id]Command {
 			return obj != nil && !object_dynamic(obj)
 		},
 	},
+	.Deformer = {
+		label = "Deformer",
+		help = "Opens the Object tab's Deformers section on this deformer: drag Amount to bend, twist or taper the part the mask leaves free.",
+		args = len(sculpt.Deform_Kind),
+		run = proc(app: ^App, arg: int) {
+			k := &app.kit
+			side_panel_close(app)
+			if k.tab != .Object || k.object_page != .Surface do k.tab_serial += 1
+			k.inspector, k.tab, k.object_page = true, .Object, .Surface
+			k.open[.Deformers] = true
+			k.reveal, k.reveal_frames = .Deformers, 20
+			app.ui.deform.kind = sculpt.Deform_Kind(arg)
+		},
+		enabled = proc(app: ^App, _: int) -> bool {return selected_object(app) != nil && !app.ui.deform.drag.active},
+	},
 	.Remesh_To = {
 		label = "Remesh to",
 		help = "Rebuilds the selected object as an even closed mesh of this many vertices that keeps its shape.",
@@ -1063,6 +1079,9 @@ command_run :: proc(app: ^App, id: Command_Id, arg := 0) -> bool {
 		return false
 	}
 	if !command_enabled(app, id, arg) do return false
+	// A drag held in the inspector ends first, as its own step, so the command acts on
+	// what it left (a mask change would otherwise reweigh a deformation mid-drag).
+	inspector_drags_end(app)
 	c.run(app, arg)
 	return true
 }
@@ -1084,6 +1103,10 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 		return "Fill with colour" if sculpt.Paint_Command(arg) == .Fill else "Clear paint"
 	case .Group:
 		return GROUP_COMMAND_NAMES[sculpt.Group_Command(arg)]
+	case .Deformer:
+		// The bare name: a longer label matched typed words fuzzily that it has nothing to
+		// do with ("wire" in "Twist (deformer)"); the help line says it is a deformer.
+		return DEFORM_NAMES[sculpt.Deform_Kind(arg)]
 	case .Remesh_To, .Decimate_To:
 		return fmt.tprintf("%s to %s vertices", "Remesh" if id == .Remesh_To else "Decimate", SPHERE_PRESETS[arg].label)
 	case .Help:

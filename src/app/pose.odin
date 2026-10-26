@@ -122,6 +122,7 @@ pose_is_still :: proc(p: sculpt.Pose) -> bool {
 	case .Move:  return p.delta == {}
 	case .Turn:  return p.angle == 0 || p.axis == {}
 	case .Scale: return p.factor == 1
+	case .Deform: return p.deform.amount == 0
 	}
 	return true
 }
