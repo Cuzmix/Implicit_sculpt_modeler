@@ -3847,7 +3847,9 @@ def layers_survive_a_rebuild():
     """A stroke into a recording layer, then Remesh selected (Ctrl+R), Mirror and weld,
     Decimate, a Slice (Ctrl+Shift drag with Slice the gesture tool) or Make boolean: the
     rebuilt object keeps the layer, both parts of a slice do, and the note says so. On a
-    level above the base, Shift+D and Delete higher carry the layer down to the base.
+    level above the base, Shift+D and Delete higher carry the layer down to the base;
+    Subdivide (Ctrl+D) moves it up to the new level as one undo step (the stroke before
+    it can no longer be undone), and its undo puts it back on the base.
     Undoing the decimation (from 163k vertices, so 41k is fewer) brings back the old
     object, its layer and its vertices with it; the rebuild forgot the stroke, so nothing
     is left to undo after."""
@@ -3864,6 +3866,8 @@ def layers_survive_a_rebuild():
         return s
     def remesh(s):
         s.press("r", ("ctrl",))
+    def subdivide(s):
+        s.press("d", ("ctrl",))
     def delete_higher(s):
         s.press("d", ("shift",))
         s.wait(3)
@@ -3881,10 +3885,12 @@ def layers_survive_a_rebuild():
               dict(kept, undo_steps=near(0, 0), vertices=near(163842, 0))),
              (run(slice_), ["--layer", f"--settings-file={settings}"], {"objects": near(2, 0), "layers": near(2, 0), "layers_noted": near(1, 0)}),
              (run(delete_higher), ["--subdivide=1", "--layer"], {"layers": near(1, 0), "layers_noted": near(1, 0), "vertices": near(40962, 0)}),
+             (run(subdivide), ["--layer"], {"layers": near(1, 0), "layers_noted": near(1, 0), "vertices": near(163842, 0), "undo_steps": near(1, 0), "selected_levels": near(2, 0)}),
+             (run(subdivide, undo=True), ["--layer"], {"layers": near(1, 0), "vertices": near(40962, 0), "undo_steps": near(0, 0), "selected_levels": near(1, 0)}),
              (run(lambda s: palette_run(s, "make boolean")), ["--spheres=2", "--layer", "--boolean=union"],
               {"objects": near(1, 0), "layers": near(1, 0), "layers_noted": near(1, 0)})]
     # Two spheres start with the view framing both, so the last run is not checked for a still camera.
-    return Steps([(sc, args, camera_still(want) if k < 5 else want) for k, (sc, args, want) in enumerate(steps)])
+    return Steps([(sc, args, camera_still(want) if k < 7 else want) for k, (sc, args, want) in enumerate(steps)])
 
 
 @scenario

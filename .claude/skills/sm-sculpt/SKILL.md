@@ -281,7 +281,7 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
 | a tree change is a swap | no: folders, renames, moves into folders and drags in the Scene tab (`.Reorder`, `.Reorder_Folder` with `before`) are `.Arrange` entries (`id` 0) holding a `Scene_Layout` before and after (`scene_tree.odin`); `layout_apply` skips objects that are gone and leaves unlisted ones in place, so a chain of Arrange then swaps (Delete folder) undoes in any order |
 | a sample off the surface ends the stroke | it is skipped; the stroke resumes where the path meets the surface again (`sculpt_tool.odin:265-268`) |
 | every Ctrl+Z undoes a stroke | entries whose step the byte limit dropped are skipped silently (`history.odin:80-84`) |
-| HD strokes stay in the history | closing the window forgets them (`object_hd_leave`, `scene.odin:408`); Delete higher/lower, Remesh and turning dynamic topology on or off clear the object's history (`:322, 328, 484`; `object_set_dyntopo` `:180`) |
+| HD strokes stay in the history | closing the window forgets them (`object_hd_leave`, `scene.odin:408`); Delete higher/lower, Remesh, a Subdivide with layers and turning dynamic topology on or off clear the object's history (`:322, 328, 484`; `object_set_dyntopo` `:180`) |
 | Shift smooths only the Draw brush | Shift turns any kind into Smooth, Grab and Mask included (`brush_at`) |
 | the mask stops the Mask brush | it does not: the Mask brush is weighted by falloff and HD fade only, so it can erase |
 | an alpha's square is one radius across its middle | yes, but its corners reach √2 radii, so the query and dynamic topology look out to `radius · alpha.reach` while `job_area` still averages over the round radius |

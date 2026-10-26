@@ -124,8 +124,11 @@ levels_carry_paint :: proc(l: ^Levels, to: int) {
 
 // Adds a level above the top one and makes it current. Returns false, changing
 // nothing, when MAX_LEVELS are in use, the top level is not a closed manifold mesh, or
-// there is an HD level (whose detail is tied to the top level as it is).
-levels_subdivide :: proc(l: ^Levels) -> bool {
+// there is an HD level (whose detail is tied to the top level as it is). With
+// `carry_layers`, the top level's sculpt layers move up to the new one
+// (levels_carry_layers_up); that changes what the old top's undo steps refer to, so the
+// caller clears the histories. Opening a file subdivides without.
+levels_subdivide :: proc(l: ^Levels, carry_layers := false) -> bool {
 	if len(l.levels) >= MAX_LEVELS || l.hd.steps > 0 || levels_dynamic(l) do return false
 	levels_sync(l)
 	lv, ok := level_above(l, l.levels[len(l.levels) - 1])
@@ -138,6 +141,7 @@ levels_subdivide :: proc(l: ^Levels) -> bool {
 	levels_carry_paint(l, top)
 	levels_carry_color(l, top, top + 1)
 	levels_carry_groups(l, top, top + 1)
+	if carry_layers do _ = levels_carry_layers_up(l)
 	l.current = len(l.levels) - 1
 	return true
 }
@@ -167,12 +171,14 @@ levels_dyn_disable :: proc(l: ^Levels) {
 
 levels_dynamic :: proc(l: ^Levels) -> bool {return l.levels[0].sculptor.dyn != nil}
 
-// Vertices, triangles and CPU bytes of the level levels_subdivide would add.
+// Vertices, triangles and CPU bytes of the level levels_subdivide would add. The top
+// level's sculpt layers move up with it, each about four times the size on a level of
+// four times the triangles.
 levels_subdivide_estimate :: proc(l: ^Levels) -> (vertices, triangles, bytes: int) {
 	top := l.levels[len(l.levels) - 1]
 	v, t := len(top.mesh.positions), len(top.mesh.indices) / 3
 	vertices, triangles = v + 3 * t / 2, 4 * t // a closed mesh has 3/2 edges per triangle
-	return vertices, triangles, level_estimate_bytes(vertices, triangles, v)
+	return vertices, triangles, level_estimate_bytes(vertices, triangles, v) + 4 * sculptor_layers_bytes(&top.sculptor)
 }
 
 // CPU bytes of a level of that many vertices and triangles over a level of `below`
