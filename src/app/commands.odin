@@ -5,6 +5,7 @@ import "core:strings"
 import sdl "vendor:sdl3"
 
 import "../camera"
+import "../geom"
 import "../sculpt"
 import "../ui"
 
@@ -18,6 +19,7 @@ import "../ui"
 Command_Id :: enum u8 {
 	None,
 	// File
+	New_Scene, // the argument is into NEW_SCENE_SHAPES
 	Open_Scene,
 	Save_Scene,
 	Save_Scene_As,
@@ -126,6 +128,13 @@ has_object :: proc(app: ^App, _: int) -> bool {return selected_object(app) != ni
 @(rodata)
 COMMANDS := [Command_Id]Command {
 	.None = {},
+	.New_Scene = {
+		label = "New scene",
+		help = "Replaces the scene with this one shape at the Scene tab's Add size; with work to lose, it goes ahead on a second run.",
+		icon = ui.ICON_SHAPES,
+		args = len(NEW_SCENE_SHAPES),
+		run = new_scene_run,
+	},
 	.Open_Scene = {
 		label = "Open scene...",
 		help = "Opens a saved .sculpt scene in place of this one.",
@@ -710,6 +719,8 @@ command_run :: proc(app: ^App, id: Command_Id, arg := 0) -> bool {
 // What menus and search call the command: a brush or a view by its own name.
 command_label :: proc(id: Command_Id, arg := 0) -> string {
 	#partial switch id {
+	case .New_Scene:
+		return fmt.tprintf("New scene: %v", NEW_SCENE_SHAPES[arg])
 	case .Brush:
 		return fmt.tprintf("%s brush", BRUSHES[sculpt.Brush_Kind(arg)].name)
 	case .View_Axis:
@@ -914,4 +925,38 @@ brush_size_step :: proc(app: ^App, up: bool) {
 brush_strength_step :: proc(app: ^App, up: bool) {
 	s := brush_strength(app)
 	s^ = clamp(s^ + (0.05 if up else -0.05), MIN_STRENGTH, 1)
+}
+
+// What Menu > New scene starts from: a sphere, or a starter (geom.starter).
+@(rodata)
+NEW_SCENE_SHAPES := [?]geom.Primitive{.Sphere, .Head, .Bust, .Figure, .Hand, .Creature}
+
+// A second run within this many seconds of the first goes ahead with a New scene that
+// discards work.
+NEW_SCENE_ARM_TIME :: 4
+
+// Whether starting a new scene would lose something: any undo step (done or undone), or
+// more than one object.
+scene_has_work :: proc(app: ^App) -> bool {
+	return len(app.history.done) > 0 || len(app.history.undone) > 0 || len(app.scene.objects) > 1
+}
+
+// Whether New scene with `arg` was run once and a second run now goes ahead.
+new_scene_armed :: proc(app: ^App, arg: int) -> bool {
+	k := &app.kit
+	return k.new_armed == arg + 1 && k.ctx.time - k.new_armed_at < NEW_SCENE_ARM_TIME
+}
+
+// Starts a new scene of NEW_SCENE_SHAPES[arg] at the next frame. With work to lose, the
+// first run only arms it and says so, so neither a stray tap nor a palette row wipes
+// the scene; a second run of the same shape within NEW_SCENE_ARM_TIME goes ahead.
+new_scene_run :: proc(app: ^App, arg: int) {
+	k := &app.kit
+	if scene_has_work(app) && !new_scene_armed(app, arg) {
+		k.new_armed, k.new_armed_at = arg + 1, max(k.ctx.time, 1e-6)
+		report(app, nil, {.Warning}, "New scene discards this scene and its History: run New scene: %v again to go ahead", NEW_SCENE_SHAPES[arg])
+		return
+	}
+	k.new_armed = 0
+	app.ui.scene_command = {kind = .New, shape = NEW_SCENE_SHAPES[arg], vertices = int(SPHERE_PRESETS[k.add_size].vertices)}
 }

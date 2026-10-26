@@ -14,6 +14,12 @@ Primitive :: enum u8 {
 	Cylinder,
 	Cone,
 	Torus,
+	// Starter base meshes (starters.odin).
+	Head,
+	Bust,
+	Figure,
+	Hand,
+	Creature,
 }
 
 // Builds `shape` with about `vertices` vertices. The cube and torus are grids, so their
@@ -38,6 +44,8 @@ primitive :: proc(shape: Primitive, vertices: int, pool: ^jobs.Pool, allocator :
 		top: f32 = 0.7 if shape == .Cylinder else 0
 		outline := lathe({{0, -0.8}, {0.7, -0.8}, {top, 0.8}, {0, 0.8}} if top > 0 else {{0, -0.8}, {0.8, -0.8}, {0, 0.8}}, 512, context.temp_allocator)
 		return remesh_voxel(outline, vertices, pool, allocator)
+	case .Head, .Bust, .Figure, .Hand, .Creature:
+		return starter(shape, vertices, pool, allocator)
 	}
 	return {}, false
 }

@@ -46,6 +46,10 @@ Kit_State :: struct {
 	settings_tab: Settings_Tab,
 	settings_scroll: f32,
 	settings_wipe: f64, // when Reset everything was first tapped: a second tap soon after resets
+	// The New scene shape armed by a first run while the scene had work to lose (its
+	// NEW_SCENE_SHAPES index + 1, 0 for none) and when: a second run soon after goes ahead.
+	new_armed:    int,
+	new_armed_at: f64,
 	help:       bool, // the Help window (Menu > Help, F1), in Settings' place
 	action_bar: bool, // the contextual action bar over the dock (Settings > Interface)
 	action_pop: bool, // a folded action group's popover is open...
@@ -928,6 +932,20 @@ kit_menu :: proc(app: ^App, anchor: ui.Rect) {
 	ui.caption(ctx, "  FILE")
 	for id in ([?]Command_Id{.Open_Scene, .Save_Scene, .Save_Scene_As, .Import_Mesh, .Export_Mesh, .Screenshot}) {
 		if command_menu_item(app, id) do pick = true
+	}
+	ui.divider(ctx, across = true)
+	ui.caption(ctx, "  NEW SCENE")
+	// Three to a row, each its shape's name; one armed by a first tap (the scene has work
+	// to lose) turns red and asks, and the menu stays open for the second tap.
+	w := (268 - 2 * 6 - 2 * 6) / f32(3)
+	for row in 0 ..< len(NEW_SCENE_SHAPES) / 3 {
+		ui.begin(ctx, fmt.tprintf("new scene row %d", row), {direction = .Row, gap = 6})
+		for i in row * 3 ..< row * 3 + 3 {
+			armed := new_scene_armed(app, i)
+			label := "Discard?" if armed else fmt.tprint(NEW_SCENE_SHAPES[i])
+			if command_button(app, .New_Scene, i, label = label, variant = .Solid if armed else .Flat, tone = .Danger if armed else .Neutral, width = w) && !new_scene_armed(app, i) do pick = true
+		}
+		ui.end(ctx)
 	}
 	ui.divider(ctx, across = true)
 	ui.caption(ctx, "  APP")

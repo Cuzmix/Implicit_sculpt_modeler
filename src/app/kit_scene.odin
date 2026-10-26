@@ -71,7 +71,11 @@ kit_add :: proc(app: ^App) {
 	// Geodesic spheres come in steps of 10f² + 2 vertices; say what will be built.
 	f := geom.geodesic_frequency_for(vertices)
 	built := 10 * f * f + 2 if k.add_shape == .Sphere else vertices
-	ui.paragraph(ctx, fmt.tprintf("Builds %s%s vertices, about %s of memory.", "" if k.add_shape == .Sphere else "about ", count_label(built), bytes_label(built * BYTES_PER_VERTEX)))
+	// A starter comes with subdivision levels, the ones below holding about a third more.
+	levels := starter_levels(vertices) if geom.is_starter(k.add_shape) else 0
+	memory := built + built / 3 if levels > 0 else built
+	on := fmt.tprintf(" on %d subdivision levels", levels + 1) if levels > 0 else ""
+	ui.paragraph(ctx, fmt.tprintf("Builds %s%s vertices%s, about %s of memory.", "" if k.add_shape == .Sphere else "about ", count_label(built), on, bytes_label(memory * BYTES_PER_VERTEX)))
 }
 
 // The classic presets, the physically based ones, and sliders that edit whichever is in

@@ -1059,6 +1059,13 @@ run :: proc(opts: Options) -> bool {
 		fmt.printfln("orbit_pivot=%.4f,%.4f,%.4f pivot_source=%s pinned=%d framed=%d touch_repeats=%d", p.x, p.y, p.z, strings.to_lower(fmt.tprint(app.pivot.from), context.temp_allocator), int(app.pivot.pinned), app.double_tap.framed, app.touch.hold.done)
 		fmt.printfln("undo_steps=%d redo_steps=%d brush_radius_px=%.2f brush_strength=%.3f selected=%d", len(app.history.done), len(app.history.undone), app.brush.radius_px, brush_strength(&app)^, app.scene.selected)
 		{
+			// The selected object's levels and name, the New scene shape armed and whether the
+			// menu is open, for the starter scenarios.
+			obj := selected_object(&app)
+			name, _ := strings.replace_all(object_label(obj) if obj != nil else "none", " ", "_", context.temp_allocator)
+			fmt.printfln("selected_levels=%d selected_name=%s new_armed=%d menu=%d", len(obj.levels.levels) if obj != nil else 0, name, app.kit.new_armed, int(app.kit.menu))
+		}
+		{
 			// What the last stroke was, the rail's latches, and whether the selected object
 			// has a mask, for touch_check's modifier rail scenarios.
 			latched := "none"

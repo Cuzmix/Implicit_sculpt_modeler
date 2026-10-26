@@ -48,6 +48,7 @@ palette_rows :: proc(room, target: f32) -> int {
 // would match nearly everything.
 @(rodata)
 SEARCH_WORDS := #partial [Command_Id]string {
+	.New_Scene        = "start starter base mesh template blockout reset clear empty",
 	.Open_Scene       = "load file",
 	.Save_Scene       = "file write",
 	.Save_Scene_As    = "file write copy",
@@ -340,6 +341,7 @@ palette_arg_name :: proc(id: Command_Id, arg: int) -> string {
 	case .Group:     return fmt.tprint(sculpt.Group_Command(arg))
 	case .Remesh_To, .Decimate_To: return fmt.tprint(SPHERE_PRESETS[arg].vertices)
 	case .Help:      return fmt.tprint(Help_Tab(arg))
+	case .New_Scene: return fmt.tprint(NEW_SCENE_SHAPES[arg])
 	}
 	return fmt.tprint(arg)
 }
