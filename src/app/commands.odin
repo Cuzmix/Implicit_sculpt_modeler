@@ -98,6 +98,7 @@ Command_Id :: enum u8 {
 	Coach_Tips,
 	Pie, // the argument is the user pie, from 0 (user_pies.odin)
 	Pie_Editor,
+	Brush_Pie,
 }
 
 Command :: struct {
@@ -678,6 +679,13 @@ COMMANDS := [Command_Id]Command {
 		run = pie_toggle_user,
 		enabled = proc(app: ^App, _: int) -> bool {return !pie_busy(app)},
 	},
+	.Brush_Pie = {
+		label = "Brush pie",
+		help = "Opens the brush pie at the pointer, for a tap on a brush: what Space and a right click open.",
+		icon = ui.ICON_PIE,
+		run = proc(app: ^App, _: int) {pie_toggle(app, 0)},
+		enabled = proc(app: ^App, _: int) -> bool {return !pie_busy(app)},
+	},
 	.Pie_Editor = {
 		label = "Edit pies",
 		help = "Shows the four pies' slots, to empty them or put the defaults back.",
@@ -830,33 +838,31 @@ command_gesture :: proc(app: ^App, id: Command_Id, arg := 0) -> string {
 	// A finger on empty space belongs to the Curve and Insert tools, so a double tap there
 	// frames only with Move or Sculpt, or when one finger always turns the view.
 	empty_taps := app.tool == .Move || app.tool == .Brush || n.finger_model == .Orbit
+	// The gesture map's first: a gesture the user gave the command comes before its own.
+	mapped := gesture_text(app, id, arg)
+	builtin := ""
 	#partial switch id {
-	case .Undo, .Redo:
-		fingers := "two" if id == .Undo else "three"
-		switch {
-		case n.tap_history && n.hold_history: return fmt.tprintf("%s-finger tap, hold to repeat", "Two" if id == .Undo else "Three")
-		case n.tap_history:                   return fmt.tprintf("%s-finger tap", "Two" if id == .Undo else "Three")
-		case n.hold_history:                  return fmt.tprintf("Hold %s fingers still", fingers)
-		}
 	case .Focus_Selected:
-		if n.double_tap && empty_taps do return "Double tap empty space"
+		if n.double_tap && empty_taps do builtin = "Double tap empty space"
 	case .Frame_All:
-		if n.double_tap && empty_taps do return "Double tap empty space, nothing selected"
+		if n.double_tap && empty_taps do builtin = "Double tap empty space, nothing selected"
 	case .Size_Up, .Size_Down:
-		if n.three_finger do return "Three fingers up or down"
+		if n.three_finger do builtin = "Three fingers up or down"
 	case .Strength_Up, .Strength_Down:
-		if n.three_finger do return "Three fingers sideways"
+		if n.three_finger do builtin = "Three fingers sideways"
 	case .Mask:
 		// The mask taps are the Sculpt tool's (mask_tap_act), and only the modifier
 		// buttons' Mask turns them on: with the buttons off there is no way to do them.
-		if app.tool != .Brush || app.kit.rail_side == .Off do return ""
+		if app.tool != .Brush || app.kit.rail_side == .Off do break
 		#partial switch sculpt.Mask_Command(arg) {
-		case .Invert:  return "With Mask on, tap off the model"
-		case .Blur:    return "With Mask on, tap the mask"
-		case .Sharpen: return "With Mask on, tap an unmasked part"
+		case .Invert:  builtin = "With Mask on, tap off the model"
+		case .Blur:    builtin = "With Mask on, tap the mask"
+		case .Sharpen: builtin = "With Mask on, tap an unmasked part"
 		}
 	}
-	return ""
+	if mapped == "" do return builtin
+	if builtin == "" do return mapped
+	return fmt.tprintf("%s; %s", mapped, builtin)
 }
 
 // The shortcut and the gesture, as a tooltip shows them beside a control's name:

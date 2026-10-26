@@ -59,7 +59,7 @@ command_group :: proc(id: Command_Id) -> Command_Group {
 	case .Remesh ..= .Extract_Masked:         return .Object
 	case .Add_Object ..= .Frame_All:          return .Scene
 	case .View_Axis ..= .Studio_Render:       return .View
-	case .Stats ..= .Pie_Editor:                    return .App
+	case .Stats ..= .Brush_Pie:                     return .App
 	}
 	return .App
 }
@@ -147,7 +147,7 @@ TOUCH_HELP := [?]Help_Line {
 	{group = "VIEW", what = "Zoom", how = "Pinch two fingers", show = proc(app: ^App) -> bool {return app.nav.pinch_zoom}},
 	{group = "VIEW", what = "Roll", how = "Twist two fingers", show = proc(app: ^App) -> bool {return app.nav.twist_roll && app.nav.orbit_style == .Free}},
 	{group = "VIEW", what = "Turn about a point", how = "Double tap the model", show = proc(app: ^App) -> bool {return app.nav.double_tap && (app.tool == .Brush || app.nav.finger_model == .Orbit)}},
-	{group = "SCULPT", what = "Brush pie", how = "The pen's side button on the view"},
+	{group = "SCULPT", what = "Brush pie", command = .Brush_Pie},
 	{group = "VIEW", command = .Focus_Selected},
 	{group = "VIEW", command = .Frame_All},
 	{group = "HISTORY", command = .Undo},
@@ -203,6 +203,17 @@ help_key_rows :: proc(app: ^App) -> []Help_Row {
 help_touch_rows :: proc(app: ^App) -> []Help_Row {
 	out := make([dynamic]Help_Row, 0, 64, context.temp_allocator)
 	help_lines(app, TOUCH_HELP[:], &out)
+	// What the gesture map runs that the table above has no line for, once a command.
+	listed: for slot in Gesture_Slot {
+		s := app.nav.gestures[slot]
+		if s.id == .None || (slot == .Pen_Button && s.id == .Brush_Pie) do continue
+		for l in TOUCH_HELP do if l.command == s.id && l.arg == s.arg do continue listed
+		for earlier in Gesture_Slot {
+			if earlier >= slot do break
+			if app.nav.gestures[earlier] == s do continue listed
+		}
+		append(&out, Help_Row{"YOUR GESTURES", pie_slot_label(s), gesture_text(app, s.id, s.arg)})
+	}
 	return out[:]
 }
 

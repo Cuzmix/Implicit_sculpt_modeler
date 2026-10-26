@@ -71,7 +71,7 @@ Hold_History :: struct {
 	done:  int, // ...and over the whole run, for the exit stats
 	ring:  f32, // the ring's fill this frame, 0 to 1, or -1 for no ring
 	at:    [2]f32, // the fingers' middle
-	most:  int, // 2 undoes, 3 redoes
+	most:  int, // the fingers held, which pick the gesture map's hold
 }
 
 // Fingers of a hold land within this many seconds of the first, as a hand's do.
@@ -252,11 +252,7 @@ touch_route :: proc(app: ^App, input: ^Viewport_Input) {
 		if t.owner == .Viewport && t.gesture do touch_release_pointer(app, false)
 	}
 	if t.tap > 0 {
-		if app.nav.tap_history {
-			stroke_finish(app)
-			if t.tap == 2 && history_can_undo(app) do history_undo(app)
-			if t.tap >= 3 && history_can_redo(app) do history_redo(app)
-		}
+		_ = gesture_run(app, gesture_slot(t.tap, false))
 		t.tap = 0
 	}
 	t.hold.ring = -1
@@ -347,24 +343,22 @@ touch_hold_history :: proc(app: ^App, change: ui.Finger_Change) -> bool {
 	if h.off do return h.fired > 0
 	slop := app.kit.ctx.theme.slop * app.kit.scale
 	still := f.travel <= slop && abs(math.ln(h.zoom)) < HOLD_ZOOM && abs(h.twist) < HOLD_TWIST
-	if !app.nav.hold_history || f.most > 3 || t.palm || t.pen_near || t.pen_down || h.late || !still {
+	slot := gesture_slot(f.most, true)
+	s := app.nav.gestures[slot]
+	if s.id == .None || t.palm || t.pen_near || t.pen_down || h.late || !still {
 		h.off = true
 		return h.fired > 0
 	}
 	theme := app.kit.ctx.theme
 	held := input_clock(app) - h.since
+	repeats := gesture_repeats(s)
 	h.ring = clamp(f32(held - f64(theme.long_ring)) / (theme.long_press - theme.long_ring), 0, 1) if held >= f64(theme.long_ring) else -1
+	// Once a command that runs once has run, the ring is done too.
+	if !repeats && h.fired > 0 do h.ring = -1
 	// One step a frame at most: an undo that swaps a mesh can take longer than the gap.
-	if hold_due(held, f64(theme.long_press), HOLD_REPEAT) > h.fired {
+	if hold_due(held, f64(theme.long_press), HOLD_REPEAT) > h.fired && (repeats || h.fired == 0) {
 		h.fired += 1
-		stroke_finish(app)
-		if f.most == 2 && history_can_undo(app) {
-			history_undo(app)
-			h.taken, h.done = h.taken + 1, h.done + 1
-		} else if f.most == 3 && history_can_redo(app) {
-			history_redo(app)
-			h.taken, h.done = h.taken + 1, h.done + 1
-		}
+		if gesture_run(app, slot) do h.taken, h.done = h.taken + 1, h.done + 1
 	}
 	return h.fired > 0
 }

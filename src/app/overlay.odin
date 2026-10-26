@@ -105,8 +105,8 @@ draw_pivot :: proc(app: ^App, o: Overlay, size: [2]f32) {
 	}
 }
 
-// The ring that fills while two or three fingers are held still, toward their first undo
-// or redo, and once they repeat, how many steps they took.
+// The ring that fills while fingers are held still, toward the command the gesture map
+// gives the hold, and once Undo or Redo repeat, how many steps they took.
 @(private = "file")
 draw_hold_history :: proc(app: ^App, o: Overlay) {
 	h := app.touch.hold
@@ -124,7 +124,7 @@ draw_hold_history :: proc(app: ^App, o: Overlay) {
 	}
 	overlay_polyline(o, points, t.accent, 3 * o.scale)
 	if h.fired > 0 {
-		overlay_label(o, fmt.tprintf("%s %d", "Undo" if h.most == 2 else "Redo", h.taken), center - {0, r + 24 * o.scale})
+		overlay_label(o, fmt.tprintf("%s %d", pie_slot_label(app.nav.gestures[gesture_slot(h.most, true)]), h.taken), center - {0, r + 24 * o.scale})
 	}
 }
 

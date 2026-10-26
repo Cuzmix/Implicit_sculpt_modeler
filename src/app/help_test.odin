@@ -69,10 +69,16 @@ help_touch_rows_follow_the_settings :: proc(t: ^testing.T) {
 	app: App
 	app.nav, app.tool = NAV_DEFAULT, .Brush
 	testing.expect_value(t, how_of(&app, "Undo"), "Two-finger tap, hold to repeat")
-	app.nav.tap_history = false
+	app.nav.gestures[.Two_Tap] = {}
 	testing.expect_value(t, how_of(&app, "Undo"), "Hold two fingers still")
-	app.nav.hold_history = false
+	app.nav.gestures[.Two_Hold] = {}
 	testing.expect_value(t, how_of(&app, "Undo"), "")
+	// A command the map gives a gesture that the table has no line for gets one.
+	app.nav.gestures[.Four_Tap] = {.Wireframe, 0}
+	testing.expect_value(t, how_of(&app, "Wireframe"), "Four-finger tap")
+	app.nav.gestures[.Pen_Button] = {.Wireframe, 0}
+	testing.expect_value(t, how_of(&app, "Wireframe"), "Four-finger tap, Pen side button")
+	testing.expect_value(t, how_of(&app, "Brush pie"), "")
 	// Both size steps are one drag, listed once.
 	sizes := 0
 	for r in help_touch_rows(&app) do if r.how == "Three fingers up or down" do sizes += 1

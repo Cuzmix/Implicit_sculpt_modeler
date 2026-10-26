@@ -191,6 +191,7 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
 | a command in a user pie, or starred | nothing to add: any command `pie_lists` allows can go in a pie (`user_pies.odin`) from the palette's Put in a pie, and any palette row can be starred; one that acts where the pointer is belongs out of `pie_lists` too, since the pie sits over that spot |
 | a popover opened by a command a click runs | close the others in its open proc (as `palette_open`, `bind_open`, `pie_editor_open`), add its flag to `kit_floating` and to kit_frame's Escape list; a pie or popover opened during the layout must not see the same click (`Pie.opened_frame`) |
 | a command in Settings > Keys | nothing to add: the tab lists every command `palette_lists` keeps, in Help's `command_group` order, and finds it by `keys_match` (`kit_keys.odin`); what a mouse button does to the view is `mouse_button_owner` (`navigate.odin`), by `Nav_Prefs.mouse_scheme`, and its words for the tab and Help are `MOUSE_SCHEME_HOW` |
+| a touch gesture that runs a command | a `Gesture_Slot` in `gesture_map.odin` (name, default, `gesture_slot` for its fingers) and a `gesture_run` where it is recognised; tooltips, the palette and Help follow `gesture_text`; an overlap the user should know of is a line in `gesture_notes`, never silent |
 | a curve to drag, a colour, a count | `kit_curve_editor`, `kit_color`, `kit_count` (`kit_widgets.odin`) |
 
 ## Traps

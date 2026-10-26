@@ -213,11 +213,11 @@ Nav_Prefs :: struct {
 	twist_roll:     bool, // ZBrush's Allow Roll Gesture
 	zoom_toward:    bool, // ZBrush's Center Navigation on Pinch
 	three_finger:   bool, // three fingers drag the brush's size and strength
-	tap_history:    bool, // two fingers tap to undo, three to redo
 	palm_rejection: bool, // a lone finger does nothing while the pen is near
 	double_tap:     bool, // a finger's double tap frames, or pins the pivot on the model
 	lift_one_orbit: bool, // two fingers down, one lifted: the other turns the view
-	hold_history:   bool, // two or three fingers held still repeat undo or redo
+	// What the multi-finger taps and holds and the pen's side button run (gesture_map.odin).
+	gestures:       [Gesture_Slot]Pie_Slot,
 	// The safe zone, as the SculptNavigation add-on's border: a press this close to an
 	// edge turns the view even over the model, so a view filled by the model can still
 	// be turned with one finger, the pen or the left button.
@@ -244,11 +244,10 @@ NAV_DEFAULT :: Nav_Prefs {
 	twist_roll     = true,
 	zoom_toward    = true,
 	three_finger   = true,
-	tap_history    = true,
 	palm_rejection = true,
 	double_tap     = true,
 	lift_one_orbit = true,
-	hold_history   = true,
+	gestures       = GESTURE_DEFAULTS,
 	edge_orbit     = true,
 	// A touch target and a bit, near the add-on's 75 pixels.
 	edge_size      = 64,

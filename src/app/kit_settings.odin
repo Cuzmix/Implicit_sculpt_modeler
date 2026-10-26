@@ -137,8 +137,8 @@ settings_reset :: proc(app: ^App, tab: Settings_Tab) {
 	case .Touch:
 		n.finger_model, n.empty_drag, n.palm_rejection = d.finger_model, d.empty_drag, d.palm_rejection
 		n.pinch_zoom, n.two_finger_pan, n.zoom_toward, n.twist_roll = d.pinch_zoom, d.two_finger_pan, d.zoom_toward, d.twist_roll
-		n.three_finger, n.tap_history = d.three_finger, d.tap_history
-		n.double_tap, n.lift_one_orbit, n.hold_history = d.double_tap, d.lift_one_orbit, d.hold_history
+		n.three_finger, n.gestures = d.three_finger, d.gestures
+		n.double_tap, n.lift_one_orbit = d.double_tap, d.lift_one_orbit
 	case .Keys:
 		bind_reset_all(app)
 		n.mouse_scheme = d.mouse_scheme
@@ -267,14 +267,12 @@ settings_touch :: proc(app: ^App) {
 	if n.orbit_style != .Free do ui.paragraph(ctx, "Rolling needs the Free orbit style (Camera).")
 	_ = ui.switch_row(ctx, "Three fingers: size and strength", &n.three_finger)
 	ui.paragraph(ctx, "Drag three fingers up and down for the brush size, sideways for its strength.")
-	_ = ui.switch_row(ctx, "Tap two fingers to undo", &n.tap_history)
-	ui.paragraph(ctx, "And three fingers to redo.")
-	_ = ui.switch_row(ctx, "Hold two fingers to keep undoing", &n.hold_history)
-	ui.paragraph(ctx, "Held still, two fingers undo again and again, three redo; a ring fills first. Never while the pen is near.")
 	_ = ui.switch_row(ctx, "Lift one of two fingers to turn", &n.lift_one_orbit)
 	ui.paragraph(ctx, "Put two fingers down, lift one, and the other turns the view: for when the model fills the screen.")
 	_ = ui.switch_row(ctx, "Double tap to frame or pin", &n.double_tap)
 	ui.paragraph(ctx, "Double tap empty space to frame the selected object, or the model to turn about that point. A single tap's dab then lands a moment later, once no second tap came.")
+	ui.spacer(ctx, 8)
+	settings_gesture_map(app)
 }
 
 @(private = "file")

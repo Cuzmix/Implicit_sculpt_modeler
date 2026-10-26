@@ -35,9 +35,9 @@ PIE_DEFAULTS :: [USER_PIES][PIE_SLOTS]Pie_Slot {
 }
 
 // Whether a command can sit in a pie: not one that acts where the pointer is over the
-// model (the pie is under it), and not a pie, which the pick that ran it would close.
+// model (the pie is under it), and not a pie, a pie opening a pie being a menu in a menu.
 pie_lists :: proc(id: Command_Id) -> bool {
-	return id != .None && id != .Pie && id != .Hd_Toggle && id != .Replay_Stroke
+	return id != .None && id != .Pie && id != .Brush_Pie && id != .Hd_Toggle && id != .Replay_Stroke
 }
 
 // Whether a pie must wait: a stroke, a drag on the viewport, the S/U adjust or Space's
@@ -46,12 +46,17 @@ pie_busy :: proc(app: ^App) -> bool {
 	return app.stroke.active || app.ui.adjust.kind != .None || app.ui.pie.space_down || (ui.viewport_dragging(&app.kit.ctx) && .Left in app.device.down)
 }
 
-// Opens user pie `n` (from 0) at the pointer when it is over the viewport, else in the
-// middle of the window, kept whole inside it; the same pie again closes it, another
-// takes its place.
+// Opens user pie `n` (from 0).
 pie_toggle_user :: proc(app: ^App, n: int) {
+	pie_toggle(app, n + 1)
+}
+
+// Opens pie `which` (0 the brushes, else a user pie) for a tap or click, at the pointer
+// when it is over the viewport, else in the middle of the window, kept whole inside it;
+// the same pie again closes it, another takes its place.
+pie_toggle :: proc(app: ^App, which: int) {
 	p := &app.ui.pie
-	if p.open && p.which == n + 1 {
+	if p.open && p.which == which {
 		p.open = false
 		return
 	}
@@ -64,7 +69,7 @@ pie_toggle_user :: proc(app: ^App, n: int) {
 	r := (PIE_OUTER + 24) * s
 	lo, hi := [2]f32{area.x, area.y} * s + r, [2]f32{area.x + area.w, area.y + area.h} * s - r
 	center = {clamp(center.x, lo.x, max(hi.x, lo.x)), clamp(center.y, lo.y, max(hi.y, lo.y))}
-	p^ = {open = true, which = n + 1, center = center, opened = input_clock(app), opened_frame = k.frame, hover = -1, space_down = p.space_down}
+	p^ = {open = true, which = which, center = center, opened = input_clock(app), opened_frame = k.frame, hover = -1, space_down = p.space_down}
 	if k.palette do palette_close(app)
 	k.menu, k.view_menu, k.browser, k.dock_menu, k.object_menu, k.action_pop, k.bind.open, k.pie_editor = false, false, false, false, false, false, false, false
 }
