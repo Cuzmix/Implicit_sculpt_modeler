@@ -98,9 +98,10 @@ presets_take_only_names_of_their_own :: proc(t: ^testing.T) {
 	testing.expect_value(t, preset_escape("a b%"), "a%20b%25")
 }
 
-// settings.txt keeps the presets, names with spaces and their alpha included, and the
-// preset the brush was on, whose plain brush keeps its own values; damaged lines are
-// skipped.
+// settings.txt keeps the presets, names with spaces, their alpha, Lock plane and
+// Connected included, and the preset the brush was on, whose plain brush keeps its own
+// values; a line from before Lock plane and Connected reads with both off, and damaged
+// lines are skipped.
 @(test)
 presets_are_remembered :: proc(t: ^testing.T) {
 	path := "build/presets_test.txt"
@@ -116,6 +117,7 @@ presets_are_remembered :: proc(t: ^testing.T) {
 	testing.expect(t, command_run(&a, .Brush, int(sculpt.Brush_Kind.Draw)))
 	a.brush.alpha, a.brush.stroke = 2, .Drag_Rect
 	a.brush.falloffs[.Draw] = {drawn = true, curve = {{0.1, 0.2}, {0.7, 0.9}}}
+	a.brush.lock_plane, a.brush.connected = true, true
 	testing.expect(t, preset_save_new(&a))
 	a.brush.strengths[.Draw] = 0.95 // a change not saved in the preset
 	testing.expect(t, settings_save(&a, path))
@@ -123,14 +125,19 @@ presets_are_remembered :: proc(t: ^testing.T) {
 
 	data, _ := os.read_entire_file(path, context.allocator)
 	defer delete(data)
-	damaged := strings.concatenate({string(data), "preset Broken Draw 0.5\npreset Clay%201 Nobrush 0.5 0 0 0 1 1 - Stroke 0 Dots 0 0 0 0 0 Pull\n"}, context.temp_allocator)
+	damaged := strings.concatenate({string(data), "preset Broken Draw 0.5\npreset Clay%201 Nobrush 0.5 0 0 0 1 1 - Stroke 0 Dots 0 0 0 0 0 Pull\n",
+		"preset Old%20clay Clay 0.5 0 0.25 0.25 0.75 0.75 - Stroke 0 Dots 0 0.5 0.5 0.5 Drag 0.6\n"}, context.temp_allocator)
 	testing.expect(t, os.write_entire_file(path, transmute([]u8)damaged) == nil)
 
 	b: App
 	defer results_destroy(&b)
 	preset_app(&b)
 	settings_load(&b, path)
-	testing.expect_value(t, b.preset_count, 2)
+	testing.expect_value(t, b.preset_count, 3)
+	testing.expect(t, b.presets[1].values.lock_plane && b.presets[1].values.connected)
+	testing.expect_value(t, preset_name(&b.presets[2]), "Old clay")
+	testing.expect(t, !b.presets[2].values.lock_plane && !b.presets[2].values.connected)
+	testing.expect_value(t, b.presets[2].values.spread, 0.6)
 	testing.expect_value(t, preset_name(&b.presets[0]), "Soft 50% clay")
 	testing.expect_value(t, b.presets[0].values.strength, 0.3)
 	testing.expect(t, preset_same(&a, a.presets[1].values, b.presets[1].values))

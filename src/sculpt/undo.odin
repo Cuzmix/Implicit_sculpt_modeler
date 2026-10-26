@@ -97,6 +97,8 @@ history_destroy :: proc(h: ^Undo_History) {
 
 // Starts recording a stroke. Dabs applied until sculptor_stroke_end form one step.
 sculptor_stroke_begin :: proc(s: ^Sculptor) {
+	// A new stroke locks its own plane (filters.odin).
+	s.locked = {}
 	// A new stroke starts a new Layer: earlier heights stop counting.
 	s.layer_stroke += 1
 	if s.layer_stroke == 0 {
@@ -172,7 +174,9 @@ sculptor_stroke_restore :: proc(s: ^Sculptor) -> bool {
 	jobs.parallel_for(s.pool if verts >= PARALLEL_MIN_VERTS else nil, len(s.changed), &d, job_leaf_bounds)
 	geom.bvh_refit_leaves(&s.bvh, m^, s.changed[:], recompute_leaves = false)
 	for id in h.current.nodes do mark_shape_changed(s, id)
-	// A Layer dab starts from nothing again.
+	// A Layer dab starts from nothing again, and the plane is locked again by the first
+	// dab laid after it.
+	s.locked = {}
 	s.layer_stroke += 1
 	if s.layer_stroke == 0 {
 		slice.zero(s.layer)

@@ -46,6 +46,9 @@ Command_Id :: enum u8 {
 	Gizmo_Pivot_Reset,
 	Brush, // the argument is the sculpt.Brush_Kind
 	Symmetry_X,
+	Front_Only,
+	Lock_Plane,
+	Connected,
 	Size_Down,
 	Size_Up,
 	Strength_Down,
@@ -345,6 +348,24 @@ COMMANDS := [Command_Id]Command {
 		help = "Mirrors strokes across the X axis.",
 		run = proc(app: ^App, _: int) {app.brush.symmetry ~= {.X}},
 		checked = proc(app: ^App, _: int) -> bool {return .X in app.brush.symmetry},
+	},
+	.Front_Only = {
+		label = "Front faces only",
+		help = "Brushes and mask shapes leave what faces away from you, such as the far side of a thin part.",
+		run = proc(app: ^App, _: int) {app.brush.front_only = !app.brush.front_only},
+		checked = proc(app: ^App, _: int) -> bool {return app.brush.front_only},
+	},
+	.Lock_Plane = {
+		label = "Lock plane",
+		help = "Keeps the plane a stroke's first dab finds for the whole stroke, so long Flatten, Clay and Draw strokes do not drift.",
+		run = proc(app: ^App, _: int) {app.brush.lock_plane = !app.brush.lock_plane},
+		checked = proc(app: ^App, _: int) -> bool {return app.brush.lock_plane},
+	},
+	.Connected = {
+		label = "Connected only",
+		help = "Brushes work only on the surface joined to where they press, leaving a finger or fold that is only near in space.",
+		run = proc(app: ^App, _: int) {app.brush.connected = !app.brush.connected},
+		checked = proc(app: ^App, _: int) -> bool {return app.brush.connected},
 	},
 	.Size_Down = {
 		label = "Smaller brush",
