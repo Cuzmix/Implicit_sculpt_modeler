@@ -47,7 +47,7 @@ UI = {
     "dock_smooth": (638, 855), "dock_draw": (574, 855), "browser": (1028, 855),
     "tab_object": (1432, 152), "tab_brush": (1338, 152), "status": (1510, 870),
     "search": (1468, 36), "palette_row1": (1280, 146), "palette_row2": (1280, 192),
-    "menu_settings": (85, 610), "new_sphere": (58, 449), "new_head": (145, 449), "new_hand": (145, 497),
+    "menu_settings": (85, 654), "new_sphere": (58, 493), "new_head": (145, 493), "new_hand": (145, 541),
     "page_shape": (1326, 252), "page_select": (1397, 252), "page_surface": (1467, 252), "page_build": (1538, 252),
 }
 ORBIT_TURN = 2 * math.pi / 0.008  # points of drag that turn the view once (ORBIT_SPEED)
@@ -2937,6 +2937,64 @@ def autosave_off_writes_nothing():
     return stroke_then_rest(Script()), [f"--settings-file={settings_file()}", f"--autosave-folder={autosave_folder()}", "--autosave-rest=0.2"], {
         "autosaves": near(0, 0), "@no files": lambda _: autosave_files() == []}
 
+
+
+# Saving and its earlier versions (versions.odin): Ctrl+S on an opened file saves over
+# it without a dialog, so the versions folder beside it can be counted.
+def scene_file():
+    return autosave_folder() + "-scene/head.sculpt"
+
+
+def versions_of(path):
+    folder = os.path.join(os.path.dirname(path), os.path.splitext(os.path.basename(path))[0] + " versions")
+    return sorted(f for f in os.listdir(folder) if f.endswith(".sculpt")) if os.path.isdir(folder) else []
+
+
+def ctrl_s(s):
+    s.add("key:ctrl")
+    s.wait(1)
+    s.add("key:s")
+    s.wait(1)
+    s.add("keyup:s")
+    s.add("keyup:ctrl")
+    s.wait(3)
+
+
+def first_save():
+    path = scene_file()
+    shutil.rmtree(os.path.dirname(path), ignore_errors=True)
+    os.makedirs(os.path.dirname(path))
+    s = Script()
+    s.wait(2)
+    return s, [f"--save={path}"], {"@saved": lambda _: os.path.exists(path)}
+
+
+@scenario
+def save_over_a_file_keeps_the_earlier_one():
+    """Ctrl+S twice over an opened file, a stroke before each: each save keeps the file it
+    replaced, so two versions sit beside it, and the file itself is the last save."""
+    path = scene_file()
+    s = Script()
+    s.wait(5)
+    for at in ((800, 450), (700, 400)):
+        s.mouse_drag([at, (at[0] + 30, at[1] + 15)])
+        s.wait(3)
+        ctrl_s(s)
+    return Steps([first_save(), (s, [f"--open={path}"], {"@two versions": lambda _: len(versions_of(path)) == 2, "@no partial": lambda _: not os.path.exists(path + ".partial")})])
+
+
+@scenario
+def save_with_versions_off_keeps_none():
+    """With Settings > System > Earlier saves set to Off, Ctrl+S saves over the file and
+    keeps nothing beside it."""
+    path = scene_file()
+    write_settings("versions_kept 0\n")
+    s = Script()
+    s.wait(5)
+    s.mouse_drag([(800, 450), (830, 465)])
+    s.wait(3)
+    ctrl_s(s)
+    return Steps([first_save(), (s, [f"--open={path}", f"--settings-file={settings_file()}"], {"@none kept": lambda _: versions_of(path) == []})])
 
 
 def main(argv):

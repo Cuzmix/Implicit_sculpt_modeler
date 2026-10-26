@@ -40,6 +40,10 @@ re-check the stores' pages before a first submission, because they move every ye
   (`beginBackgroundTask`), so a big scene's autosave may be cut short there (the copy before it stays whole); and
   `SDL_GetPrefPath` on iOS is backed up to iCloud, so the `autosave` folder needs `NSURLIsExcludedFromBackupKey` (or
   to live under Caches) before a store build, or hundreds of MB of copies go to the user's iCloud.
+- Saving over a scene keeps earlier saves in a "<stem> versions" folder beside the file (`src/app/versions.odin`).
+  Once Android and iPad save through the system picker, that folder is outside what the app may write: there the
+  versions must go to the app's own folder (or the picked folder's tree, if the user granted one), never ask for
+  broader storage access to keep them.
 - Apple 4.2 / 2.1: the build is complete, nothing says "coming soon", no placeholder screens, no debug panels
   reachable by users (the Stats panel, F11 and Menu > Stats, is to be a developer flag only in store builds).
 
