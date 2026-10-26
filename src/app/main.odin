@@ -153,6 +153,7 @@ App :: struct {
 	touch:    Touch, // fingers and the pen on a touch screen (touch.odin)
 	rail:     Modifier_Rail, // Smooth, Invert, Mask and Hide as buttons (modifiers.odin)
 	drag:     Drag, // who the press on the viewport belongs to (navigate.odin)
+	dab_wait: Dab_Wait, // a finger tap's dab waiting for a second tap (navigate.odin)
 	pivot:    Stroke_Pivot, // the last stroke's middle, which orbits turn about (navigate.odin)
 	double_tap: Double_Tap, // the last finger tap a double tap could follow (navigate.odin)
 	cursor:   Brush_Cursor, // the surface under the brush ring this frame (cursor.odin)
@@ -282,6 +283,7 @@ run :: proc(opts: Options) -> bool {
 	app.replay.recording = opts.record_strokes
 	defer delete(app.samples)
 	defer delete(app.drag.held)
+	defer delete(app.dab_wait.samples)
 	defer delete(app.stroke.pending)
 	defer mask_shape_destroy(&app.mask_shape)
 	defer clip_gesture_destroy(&app.clip)
@@ -724,6 +726,8 @@ run :: proc(opts: Options) -> bool {
 			if (e.type == .KEY_DOWN || e.type == .KEY_UP) && e.key.scancode == .SPACE {
 				pie := &app.ui.pie
 				if pie.space_down || (e.key.down && app.ui.viewport_hovered && !typing(&app)) {
+					// A tap's dab waiting for a second tap plays before the pie opens.
+					if e.key.down do app.dab_wait.play = true
 					if e.key.down && !e.key.repeat do pie.space_pressed = true
 					if !e.key.down do pie.space_released = true
 					pie.space_down = e.key.down
@@ -731,6 +735,7 @@ run :: proc(opts: Options) -> bool {
 				}
 			}
 			device_event(&app.device, &e)
+			dab_wait_event(&app, &e, window)
 			touch_event(&app, &e, window)
 			#partial switch e.type {
 			case .QUIT, .WINDOW_CLOSE_REQUESTED:
@@ -765,6 +770,8 @@ run :: proc(opts: Options) -> bool {
 		want := app.ui.viewport_request
 		if !render.viewport_target_resize(&app.renderer, &app.target, u32(want.x), u32(want.y)) do return false
 
+		// A tap's dab that waited for a second tap plays before anything this frame does.
+		waited_dab := dab_wait_resolve(&app)
 		ui_start := time.tick_now()
 		input := kit_frame(&app, window)
 		ring_push(&app.stats.ui_ms, time.duration_milliseconds(time.tick_since(ui_start)))
@@ -805,6 +812,9 @@ run :: proc(opts: Options) -> bool {
 			stroke_finish(&app)
 			if !insert_tool_frame(&app, input) do return false
 		}
+		sculpted.dabs += waited_dab.dabs
+		sculpted.raycast_ms += waited_dab.raycast_ms
+		sculpted.brush_ms += waited_dab.brush_ms
 		cursor_update(&app, input)
 		draw_viewport_overlay(&app, input)
 

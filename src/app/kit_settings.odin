@@ -254,7 +254,7 @@ settings_touch :: proc(app: ^App) {
 	_ = ui.switch_row(ctx, "Lift one of two fingers to turn", &n.lift_one_orbit)
 	ui.paragraph(ctx, "Put two fingers down, lift one, and the other turns the view: for when the model fills the screen.")
 	_ = ui.switch_row(ctx, "Double tap to frame or pin", &n.double_tap)
-	ui.paragraph(ctx, "Double tap empty space to frame the selected object. Where one finger turns the view, double tap the model to turn about that point.")
+	ui.paragraph(ctx, "Double tap empty space to frame the selected object, or the model to turn about that point. A single tap's dab then lands a moment later, once no second tap came.")
 }
 
 @(private = "file")

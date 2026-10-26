@@ -80,7 +80,8 @@ on window focus or hover to decide ownership; a widget that acts on a finger pre
 | holds or taps a modifier button with one hand while the other sculpts | `rail_hold_smooth_with_pen`, `rail_tap_latches_invert`, `rail_mask_paints_mask`, `rail_mask_shape_from_empty_space`, `rail_hide_gesture`, `rail_lift_mid_stroke_keeps_mode`, `rail_mouse_click_latches` |
 | holds a modifier button while the pen lands, hovers, or two fingers pinch; a window covers it; a latched one at the edge | `rail_finger_survives_pen_down`, `rail_finger_while_pen_near`, `rail_finger_during_pinch`, `rail_under_window_goes_to_window`, `rail_latched_edge_still_orbits` |
 | taps the model quickly with a modifier latched: the dab keeps it | `finger_tap_with_invert_latched_dabs_inverted` |
-| double-taps: empty space frames; where a finger orbits, the model pins the pivot; too slow, too far, in the edge band or switched off does nothing; while sculpting it is two dabs | `double_tap_empty_frames_the_object`, `double_tap_model_pins_the_pivot`, `pinned_pivot_ends_with_the_next_stroke`, `double_tap_too_slow_is_two_taps`, `double_tap_too_far_is_two_taps`, `double_tap_in_the_edge_band_does_nothing`, `double_tap_off_frames_nothing`, `double_tap_model_while_sculpting_lays_two_dabs` |
+| double-taps: empty space frames; the model pins the pivot (sculpting or orbiting) and neither tap sculpts; too slow, too far, in the edge band or switched off does nothing | `double_tap_empty_frames_the_object`, `double_tap_model_pins_the_pivot`, `double_tap_model_while_sculpting_pins_without_dabs`, `pinned_pivot_ends_with_the_next_stroke`, `double_tap_too_slow_is_two_taps`, `double_tap_too_far_is_two_taps`, `double_tap_in_the_edge_band_does_nothing`, `double_tap_off_frames_nothing` |
+| taps the model once: the dab lands after the double tap's gap, or at once before an Undo tap, a stroke or a pinch; with double taps off, at once | `single_tap_dab_lands_after_the_gap`, `tap_dab_waits_for_nothing_else`, `tap_then_stroke_keeps_both`, `tap_then_two_fingers_keeps_the_dab`, `double_tap_off_taps_dab_at_once` |
 | puts two fingers down and lifts one to turn the view; not after a pinch, not when off | `lift_one_finger_turns_the_view`, `pinch_then_lift_turns_nothing`, `lift_one_off_turns_nothing` |
 | holds two or three fingers still to repeat undo or redo; never with the pen near, a late (palm) finger, a slow pinch, or when off | `hold_two_fingers_repeats_undo`, `hold_three_fingers_repeats_redo`, `hold_with_the_pen_near_does_nothing`, `hold_with_a_late_finger_does_nothing`, `slow_pinch_never_undoes`, `hold_off_undoes_nothing` |
 
@@ -118,6 +119,9 @@ are on the device checklist.
   fingers' 0.25 s tap window (15 frames), the rail's taps and the pie's tap. A new timed gesture uses it too, never
   `time.tick_now`, or its scenario passes alone and fails when the machine is busy.
 - Timing: events are per frame, not per millisecond; keep "together" fingers within a frame or two.
+- A single finger tap on the model lays its dab only after the double tap's gap (`DOUBLE_TAP_GAP`, 18 frames): wait
+  24 frames before the run ends, or the dab never lands. Two finger taps on the model within the gap are a double
+  tap, not two dabs (`double_tap 0` in the scenario's settings file turns that off).
 
 ## 6. Real-device checklist (for Bolt, or a session on the device)
 Record the device, OS version, build (commit, debug or release) and whether a finger or the pen was used. For each:

@@ -1010,7 +1010,7 @@ def finger_tap_with_invert_latched_dabs_inverted():
     rail_tap(s, "invert")
     s.wait(4)
     s.ftap(*MODEL, hold=2)
-    s.wait(6)
+    s.wait(24)  # the dab waits out the double tap's gap
     return s, [], camera_still({"dabs": lambda v: int(v) >= 1, "undo_steps": near(1), "stroke_invert": near(1)})
 
 
@@ -1406,12 +1406,74 @@ def pinned_pivot_ends_with_the_next_stroke():
 
 
 @scenario
-def double_tap_model_while_sculpting_lays_two_dabs():
-    """Where one finger sculpts (the default), two quick taps on the model are still two dabs and pin nothing."""
+def double_tap_model_while_sculpting_pins_without_dabs():
+    """Where one finger sculpts (the default), a double tap on the model pins the pivot and neither tap sculpts."""
     s = Script()
     double_tap(s, *MODEL)
+    s.wait(24)
+    return s, [], camera_still({"pinned": near(1), "pivot_source": lambda v: v == "tapped", "undo_steps": near(0), "dabs": near(0)})
+
+
+@scenario
+def single_tap_dab_lands_after_the_gap():
+    """One finger tap on the model lays its dab once the double tap's gap ran out."""
+    s = Script()
+    s.ftap(*MODEL)
+    s.wait(24)
+    return s, [], camera_still({"pinned": near(0), "undo_steps": near(1), "dabs": lambda v: int(v) >= 1})
+
+
+@scenario
+def tap_dab_waits_for_nothing_else():
+    """A tap's dab then an Undo tap on the panel straight after: the dab plays first, so Undo takes it back."""
+    s = Script()
+    s.ftap(*MODEL, gap=2)
+    s.ftap(*UI["undo"])
+    s.wait(24)
+    return s, [], camera_still({"undo_steps": near(0), "redo_steps": near(1)})
+
+
+@scenario
+def tap_then_stroke_keeps_both():
+    """A tap, then straight away a stroke starting where it was: the tap's dab and the stroke are two undo steps."""
+    s = Script()
+    s.ftap(*MODEL, gap=4)
+    s.fdrag(line(MODEL, (MODEL[0] + 120, MODEL[1] + 30), 12))
     s.wait(6)
-    return s, [], camera_still({"pinned": near(0), "undo_steps": near(2), "dabs": lambda v: int(v) >= 2})
+    return s, [], camera_still({"undo_steps": near(2), "pinned": near(0)})
+
+
+@scenario
+def tap_then_two_fingers_keeps_the_dab():
+    """A tap, then two fingers pinching at once: the tap's dab lands where it was tapped and the pinch zooms."""
+    s = Script()
+    s.ftap(*MODEL, gap=3)
+    s.fingers([(700, 450), (900, 450)], [(-60, 0), (60, 0)], 10)
+    return s, [], {"undo_steps": near(1), "camera_distance": lambda v: float(v) < 3.4, "pinned": near(0)}
+
+
+@scenario
+def tap_then_palm_nearby_still_dabs():
+    """A tap, then a finger resting beside it with the pen near (a palm, which the touch ignores): the tap's dab still lands."""
+    s = Script()
+    s.ftap(*MODEL, gap=2)
+    s.add("pnear")
+    s.add(f"fdown:3:{MODEL[0] + 20},{MODEL[1] + 10}")
+    s.wait(30)
+    s.add("fup:3")
+    s.add("pfar")
+    s.wait(4)
+    return s, [], camera_still({"undo_steps": near(1), "pinned": near(0)})
+
+
+@scenario
+def double_tap_off_taps_dab_at_once():
+    """With Double tap to frame or pin off, two quick taps on the model are two dabs, each laid as its finger lifts."""
+    s = Script()
+    write_settings("double_tap 0\n")
+    double_tap(s, *MODEL)
+    s.wait(4)
+    return s, [f"--settings-file={settings_file()}"], camera_still({"pinned": near(0), "undo_steps": near(2)})
 
 
 def lift_one(s, moves=((0, 0), (0, 0)), frames=4):
