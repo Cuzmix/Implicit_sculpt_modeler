@@ -56,6 +56,7 @@ Frame_Stats :: struct {
 	hd_open_ms:     f64,
 	hd_upload_ms:   f64,
 	hd_leave_ms:    f64,
+	recall_ms:      f64, // the last History brush target built
 	// The last remesh: building the new surface, then preparing it to sculpt and upload.
 	remesh_ms:      f64,
 	remesh_setup_ms: f64,

@@ -266,6 +266,7 @@ Kit_Section :: enum u8 {
 	Preset,
 	Stroke,
 	Paint_Color,
+	Recall,
 	Falloff,
 	Alpha,
 	Pen,
@@ -309,7 +310,7 @@ Kit_Event :: struct {
 	frame:  int,
 	kind:   Kit_Event_Kind,
 	at:     [2]f32, // window points
-	wheel:  f32,
+	value:  f32, // a wheel's turn, or a pen's pressure
 	finger: u64,
 	key:    string, // a key's name, as SDL names keys
 }
@@ -338,6 +339,7 @@ Kit_Event_Kind :: enum u8 {
 	Pen_Near,
 	Pen_Far,
 	Pen_Right, // the pen's side button pressed and let go, hovering where the pointer is
+	Pen_Pressure, // how hard the pen presses from then on, 0 to 1
 }
 
 // Reads --ui-events. Returns false, after saying why, when the list is malformed.
@@ -379,10 +381,10 @@ kit_events_parse :: proc(app: ^App, spec: string) -> bool {
 			case "pnear":  ev.kind = .Pen_Near
 			case "pfar":   ev.kind = .Pen_Far
 			case "pright": ev.kind = .Pen_Right
-			case "wheel":
+			case "wheel", "ppress":
 				ok = len(parts) == 3
-				if ok do ev.wheel, ok = strconv.parse_f32(parts[2])
-				ev.kind = .Wheel
+				if ok do ev.value, ok = strconv.parse_f32(parts[2])
+				ev.kind = .Wheel if parts[1] == "wheel" else .Pen_Pressure
 			case "text":
 				// Everything after the kind, colons and spaces too (from the untrimmed item).
 				raw := strings.trim_left_space(item)
@@ -466,7 +468,7 @@ kit_events_push :: proc(app: ^App, window: ^sdl.Window) {
 				push(e)
 			}
 		case .Wheel:
-			e.wheel = {type = .MOUSE_WHEEL, timestamp = now, windowID = win, which = SCRIPTED_MOUSE, y = ev.wheel, mouse_x = d.mouse.x, mouse_y = d.mouse.y}
+			e.wheel = {type = .MOUSE_WHEEL, timestamp = now, windowID = win, which = SCRIPTED_MOUSE, y = ev.value, mouse_x = d.mouse.x, mouse_y = d.mouse.y}
 			push(e)
 		case .Key, .Key_Up:
 			mod: sdl.Keymod
@@ -504,6 +506,9 @@ kit_events_push :: proc(app: ^App, window: ^sdl.Window) {
 		case .Pen_Near, .Pen_Far:
 			e.pproximity = {type = .PEN_PROXIMITY_IN if ev.kind == .Pen_Near else .PEN_PROXIMITY_OUT, timestamp = now, windowID = win, which = 1}
 			push(e)
+		case .Pen_Pressure:
+			e.paxis = {type = .PEN_AXIS, timestamp = now, windowID = win, which = 1, x = d.mouse.x, y = d.mouse.y, axis = .PRESSURE, value = clamp(ev.value, 0, 1)}
+			push(e)
 		case .Pen_Down, .Pen_Move, .Pen_Up:
 			if ev.kind != .Pen_Up {
 				e.motion = {type = .MOUSE_MOTION, timestamp = now, windowID = win, which = sdl.PEN_MOUSEID, x = at.x, y = at.y}
@@ -540,7 +545,7 @@ kit_init :: proc(app: ^App) {
 	k := &app.kit
 	k.inspector = true
 	// The sections most reached for start open; the rest fold until asked for.
-	for s in ([?]Kit_Section{.Stroke, .Paint_Color, .Falloff, .Transform, .Levels, .Mask, .Groups, .Layers, .Paint, .Add, .Frame, .Sculpting}) do k.open[s] = true
+	for s in ([?]Kit_Section{.Stroke, .Paint_Color, .Recall, .Falloff, .Transform, .Levels, .Mask, .Groups, .Layers, .Paint, .Add, .Frame, .Sculpting}) do k.open[s] = true
 	k.add_size = 2 // 1M
 	k.ui_scale = 1
 	k.surface_ring = true

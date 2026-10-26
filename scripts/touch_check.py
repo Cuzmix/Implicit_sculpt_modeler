@@ -1327,9 +1327,12 @@ RAIL = {"smooth": (38, 808), "invert": (86, 808), "mask": (38, 860), "hide": (86
 RAIL_FINGER = 9
 
 
-def pen_stroke(s, path):
-    """The pen near, down along `path` one frame a point, up and away."""
+def pen_stroke(s, path, pressure=None):
+    """The pen near, down along `path` one frame a point, up and away; with `pressure`
+    (0 to 1), pressing that hard (otherwise as the last stroke did: 0 until set)."""
     s.add("pnear")
+    if pressure is not None:
+        s.add(f"ppress:{pressure:g}")
     s.add(f"pdown:{path[0][0]:g},{path[0][1]:g}")
     for x, y in path[1:]:
         s.wait(1)
@@ -3785,6 +3788,8 @@ def adjust_remesh_from_the_bar():
 # Adjust last stroke's popover: with no action bar after a stroke it sits over the dock,
 # its Amount slider's left end (0%) here at 1600x900.
 ADJUST_STROKE_NONE = (662, 788)
+# mesh_sum after the History scenario's two Draw strokes, before the History brush.
+HISTORY_DRAWN_SUM = 7.81
 
 
 @scenario
@@ -3799,6 +3804,23 @@ def adjust_last_stroke_to_nothing():
     click(s, ADJUST_STROKE_NONE)
     return s, [], camera_still({"adjust_op": is_text("last_stroke"), "adjusts": near(1, 0), "adjust_pop": near(1, 0),
                                 "undo_steps": near(1, 0), "mesh_sum": near(0, 1e-3)})
+
+
+@scenario
+def history_brush_by_pen():
+    """Two mouse Draw strokes, then the palette's History brush and two pen strokes over
+    them: the sphere goes back toward how it started (mesh_sum toward 0), each History
+    stroke is an undo step, and the target is the oldest step, now four back."""
+    s = Script()
+    s.wait(3)
+    for _ in range(2):
+        s.mouse_drag(line((700, 380), (800, 420), 12))
+        s.wait(2)
+    palette_run(s, "history brush")
+    for _ in range(2):
+        pen_stroke(s, line((700, 380), (800, 420), 12), pressure=0.8)
+    return s, [], camera_still({"undo_steps": near(4, 0), "recall_back": near(4, 0), "recall_pinned": near(0, 0),
+                                "mesh_sum": lambda v: abs(float(v)) < HISTORY_DRAWN_SUM / 2})
 
 
 @scenario

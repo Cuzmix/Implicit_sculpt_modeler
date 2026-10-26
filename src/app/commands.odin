@@ -84,6 +84,9 @@ Command_Id :: enum u8 {
 	Hd_Leave,
 	Morph_Store,
 	Morph_Delete,
+	Recall_Earlier,
+	Recall_Later,
+	Recall_Oldest,
 	Smooth_All,
 	Remesh_To, // the argument is the SPHERE_PRESETS size
 	Decimate_To, // ...and here too
@@ -638,6 +641,43 @@ COMMANDS := [Command_Id]Command {
 		enabled = proc(app: ^App, _: int) -> bool {
 			obj := selected_object(app)
 			return obj != nil && sculpt.sculptor_has_morph(object_sculptor(obj))
+		},
+	},
+	.Recall_Earlier = {
+		label = "History brush: earlier",
+		help = "Moves what the History brush paints back to one step earlier in the History.",
+		run = proc(app: ^App, _: int) {
+			_, _, shown := recall_now(app)
+			recall_move(app, shown + 1, true)
+		},
+		enabled = proc(app: ^App, _: int) -> bool {
+			_, reach, shown := recall_now(app)
+			return shown < reach
+		},
+	},
+	.Recall_Later = {
+		label = "History brush: later",
+		help = "Moves what the History brush paints back to one step later in the History.",
+		run = proc(app: ^App, _: int) {
+			_, _, shown := recall_now(app)
+			recall_move(app, shown - 1, true)
+		},
+		enabled = proc(app: ^App, _: int) -> bool {
+			_, _, shown := recall_now(app)
+			return shown > 1
+		},
+	},
+	.Recall_Oldest = {
+		label = "History brush: use the oldest",
+		help = "Makes the History brush paint back to the oldest step this level's History holds.",
+		run = proc(app: ^App, _: int) {
+			_, reach, _ := recall_now(app)
+			recall_move(app, reach, false)
+		},
+		enabled = proc(app: ^App, _: int) -> bool {
+			back, reach, _ := recall_now(app)
+			obj := selected_object(app)
+			return reach > 0 && (back != reach || sculpt.sculptor_recall_pinned(object_sculptor(obj)))
 		},
 	},
 	.Smooth_All = {

@@ -28,9 +28,15 @@ Undo_History :: struct {
 	mask_changed: []u32,
 	color_saved:  []u32, // ...and for colours, which list their nodes in mask_changed too
 	stamp:     u32,
+	last_id:   u64, // the id the newest step was given
+	// Steps up to this id are older than a move of the positions no step holds (another
+	// level's edits carried here): a History brush target cannot be read back through
+	// them (recall.odin).
+	sealed:    u64,
 }
 
 Undo_Step :: struct {
+	id:     u64, // from 1, in the order steps were made, kept through undo and redo
 	saved:  [dynamic]Saved_Node,
 	nodes:  [dynamic]u32, // nodes whose triangles moved: bounds to refit, normals to update
 	painted: [dynamic]u32, // nodes whose mask changed: GPU data to update
@@ -144,12 +150,19 @@ sculptor_stroke_end :: proc(s: ^Sculptor) -> bool {
 		h.bytes -= adjust_bytes(top^)
 		adjust_free(h, top)
 	}
+	h.last_id += 1
+	h.current.id = h.last_id
 	append(&h.done, h.current)
 	h.current = {}
 	h.bytes += step_bytes(h.done[len(h.done) - 1])
 	history_trim(h)
 	return true
 }
+
+// Marks every step so far as older than a move of the positions that no step holds: the
+// levels carrying another level's edits here.
+@(private)
+history_seal :: proc(h: ^Undo_History) {h.sealed = h.last_id}
 
 // Drops the oldest steps while the history holds more than its limit; the newest always
 // stays.

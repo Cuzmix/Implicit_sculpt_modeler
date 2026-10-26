@@ -47,6 +47,7 @@ Brush_Kind :: enum {
 	Morph,   // bring the surface back toward the stored morph target (morph.odin)
 	Paint,   // polypaint: colour the surface with Brush.color (paint.odin; inverted takes the paint off)
 	Cloth,   // the surface around the brush behaves as cloth for the stroke: sculptor_cloth_begin and _step (cloth.odin)
+	History, // bring the surface back toward how it was before an earlier step (recall.odin)
 }
 
 Axis :: enum u8 {
@@ -210,6 +211,11 @@ Sculptor :: struct {
 	// The positions sculptor_morph_store kept, which the Morph brush brings vertices
 	// back to; nil when none is stored.
 	morph:        []Vec3,
+	// The History brush's target (recall.odin): the positions from before the step with
+	// id recall_step, and whether the user chose that point; nil when none is built.
+	recall:        []Vec3,
+	recall_step:   u64,
+	recall_pinned: bool,
 	// The hidden triangles (hide.odin).
 	hide:        Hide,
 	// Per vertex: its polypaint (paint.odin); nil until something is first painted.
@@ -278,6 +284,7 @@ sculptor_destroy :: proc(s: ^Sculptor) {
 	delete(s.mask, s.history.allocator)
 	delete(s.layer, s.history.allocator)
 	delete(s.morph, s.history.allocator)
+	delete(s.recall, s.history.allocator)
 	grab_destroy(&s.grab)
 	cloth_destroy(&s.cloth)
 	pose_free(s)
@@ -774,7 +781,7 @@ dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3, mirror: Vec3) -> int 
 	if brush.connected do connected_flood(s, &d, pool)
 	// The area under the brush: what most kinds work along, and the plane an alpha
 	// lies on.
-	if (brush.kind != .Smooth && brush.kind != .Mask && brush.kind != .Paint && brush.kind != .Snake_Hook && brush.kind != .Morph) || brush.alpha != nil {
+	if (brush.kind != .Smooth && brush.kind != .Mask && brush.kind != .Paint && brush.kind != .Snake_Hook && brush.kind != .Morph && brush.kind != .History) || brush.alpha != nil {
 		jobs.parallel_for(pool, len(s.hit), &d, job_area)
 		weight: f32
 		for p in s.partials {
@@ -830,6 +837,9 @@ dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3, mirror: Vec3) -> int 
 	case .Morph:
 		if len(s.morph) != len(s.mesh.positions) do return 0
 		jobs.parallel_for(pool, len(s.hit), &d, job_morph)
+	case .History:
+		if len(s.recall) != len(s.mesh.positions) do return 0
+		jobs.parallel_for(pool, len(s.hit), &d, job_history)
 	case .Grab, .Mask, .Paint, .Cloth:
 		unreachable()
 	case .Smooth:
@@ -973,6 +983,7 @@ job_area :: proc(data: rawptr, i: int) {
 @(private) job_layer :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.Layer)}
 @(private) job_snake_hook :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.Snake_Hook)}
 @(private) job_morph :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.Morph)}
+@(private) job_history :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.History)}
 
 // Moves the owned vertices of hit leaf i that lie inside the brush, as brush kind K
 // does; specialised per kind so each loop has no branch on the kind.
@@ -1022,6 +1033,8 @@ displace :: #force_inline proc(d: ^Dab, i: int, $K: Brush_Kind) {
 					p += d.brush.drag * w
 				} else when K == .Morph {
 					p = linalg.lerp(p, s.morph[v], min(d.brush.strength * w * MORPH_RATE, 1))
+				} else when K == .History {
+					p = linalg.lerp(p, s.recall[v], min(d.brush.strength * w * MORPH_RATE, 1))
 				} else {
 					#panic("not a displacing brush")
 				}
@@ -1113,7 +1126,9 @@ job_leaf_bounds :: proc(data: rawptr, i: int) {
 
 // Brings the BVH and the next flush up to date after the owned positions of `nodes`
 // changed outside a dab (subdivision levels moving one level to match another). As
-// after a dab, every node with a triangle on a moved vertex counts as changed.
+// after a dab, every node with a triangle on a moved vertex counts as changed. A move
+// that no undo step records must also history_seal, or a History brush target would be
+// built back through it (recall.odin).
 sculptor_nodes_moved :: proc(s: ^Sculptor, nodes: []u32) {
 	if len(nodes) == 0 do return
 	moved := make([]bool, len(s.nodes), context.temp_allocator)
