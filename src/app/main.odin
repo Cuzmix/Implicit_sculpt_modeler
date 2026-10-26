@@ -192,6 +192,7 @@ App :: struct {
 	// sculpt layer's name, UVs laid out again), for the autosave's fingerprint.
 	scene_edits: u64,
 	adjustable: Adjustable, // the last operation, to run again with other settings (adjust_last.odin)
+	views:      Camera_History, // the views the camera rested on, for Previous and Next view (camera_history.odin)
 	autosave: Autosave, // the background autosave and crash recovery (autosave.odin)
 	timeline: Timeline, // the History panel's scrubbing, playback and time-lapse (timeline.odin)
 	replay:   Replay, // the Stroke recorder's last stroke, recording and replay (replay.odin)
@@ -737,6 +738,7 @@ run :: proc(opts: Options) -> bool {
 			}
 		}
 		timeline_frame(&app)
+		camera_history_frame(&app)
 		// Changing the present mode recreates the swapchain, so it happens before this
 		// frame acquires a swapchain texture.
 		if app.vsync != (app.renderer.present_mode == .VSYNC) {
@@ -1196,6 +1198,7 @@ run :: proc(opts: Options) -> bool {
 		// The operation the bar can adjust now, how many re-runs there were, and whether
 		// its popover is open.
 		adjust_name, _ := strings.replace_all(strings.to_lower(ADJUST_NAMES[adjust_op_now(&app)], context.temp_allocator), " ", "_", context.temp_allocator)
+		fmt.printfln("camera_views=%d camera_view=%d camera_steps=%d", app.views.count, app.views.at + 1 if app.views.count > 0 else 0, app.views.steps)
 		fmt.printfln("adjust_op=%s adjusts=%d adjust_pop=%d", adjust_name if adjust_name != "" else "none", app.adjustable.adjusts, int(k.adjust_pop))
 		open := [Kit_Window]bool{.Inspector = k.inspector && !side_panel_open(k), .Stats = k.stats, .History = k.history, .Settings = k.settings, .Help = k.help}
 		names := [Kit_Window]string{.Inspector = "inspector", .Stats = "stats", .History = "history panel", .Settings = "settings", .Help = "help"}

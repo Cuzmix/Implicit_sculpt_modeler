@@ -3258,6 +3258,86 @@ def adjust_retopo_and_extract():
     ])
 
 
+# Camera history (camera_history.odin): View menu rows at 1600x900.
+VIEW_BACK, VIEW_FORWARD = (1400, 447), (1400, 491)
+CAMERA_KEYS = ("camera_yaw", "camera_pitch", "camera_roll", "camera_distance", "camera_target")
+
+
+def two_orbits(s):
+    """Two orbit drags on empty space, each followed by a rest long enough to count as a view."""
+    s.mouse_drag(line(EMPTY, (400, 200), 10))
+    s.wait(40)
+    s.mouse_drag(line(EMPTY, (250, 320), 10))
+    s.wait(40)
+
+
+@scenario
+def camera_back_twice_is_the_start():
+    """Two orbits, each left to rest, then Alt+Left twice: the view the app started with,
+    and the History holds no step (the work is untouched)."""
+    s = Script()
+    s.wait(3)
+    two_orbits(s)
+    s.press("Left", ("alt",))
+    s.press("Left", ("alt",))
+    return s, [], camera_still({"camera_views": near(3, 0), "camera_view": near(1, 0), "camera_steps": near(2, 0), "undo_steps": near(0, 0)})
+
+
+@scenario
+def camera_back_and_forward_from_the_view_menu():
+    """View > Previous view goes back one orbit and Next view comes forward again: the
+    camera is where the two orbits alone leave it."""
+    after = {}
+    def remember(stats):
+        after.update({k: stats[k] for k in CAMERA_KEYS})
+        return True
+    s = Script()
+    s.wait(3)
+    two_orbits(s)
+    click(s, UI["view"])
+    s.wait(5)
+    click(s, VIEW_BACK)
+    s.wait(5)
+    click(s, VIEW_FORWARD)
+    s.wait(5)
+    orbits = Script()
+    orbits.wait(3)
+    two_orbits(orbits)
+    return Steps([
+        (orbits, [], {"@remember": remember}),
+        (s, [], {"camera_steps": near(2, 0), "camera_view": near(3, 0),
+                 "@as the orbits left it": lambda stats: all(stats[k] == after[k] for k in CAMERA_KEYS)}),
+    ])
+
+
+@scenario
+def camera_back_keeps_an_unrested_view():
+    """An orbit, then Alt+Left before it has rested: back at the start, and Alt+Right
+    returns to the orbit, which going back kept first."""
+    after = {}
+    def remember(stats):
+        after.update({k: stats[k] for k in CAMERA_KEYS})
+        return True
+    def orbit(s):
+        s.wait(3)
+        s.mouse_drag(line(EMPTY, (400, 200), 10))
+        s.wait(2)
+    back = Script()
+    orbit(back)
+    back.press("Left", ("alt",))
+    forward = Script()
+    orbit(forward)
+    forward.press("Left", ("alt",))
+    forward.press("Right", ("alt",))
+    only = Script()
+    orbit(only)
+    return Steps([
+        (back, [], camera_still({"camera_views": near(2, 0), "camera_view": near(1, 0)})),
+        (only, [], {"@remember": remember}),
+        (forward, [], {"camera_view": near(2, 0), "@the orbit": lambda stats: all(stats[k] == after[k] for k in CAMERA_KEYS)}),
+    ])
+
+
 def main(argv):
     if "--list" in argv:
         for name, fn in SCENARIOS.items():

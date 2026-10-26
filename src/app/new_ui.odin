@@ -1060,6 +1060,9 @@ kit_view_menu :: proc(app: ^App, anchor: ui.Rect) {
 	_ = command_menu_item(app, .Ortho_Toggle)
 	if command_menu_item(app, .Focus_Selected) do k.view_menu = false
 	if command_menu_item(app, .Reset_Camera) do k.view_menu = false
+	// The menu stays open over these, to step back or forward several views.
+	_ = command_menu_item(app, .View_Back)
+	_ = command_menu_item(app, .View_Forward)
 	ui.popover_end(ctx)
 }
 

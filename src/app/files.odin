@@ -588,6 +588,7 @@ scene_replace :: proc(app: ^App, objects: []^Object, selected, next_id: int, vie
 	ortho := app.camera.ortho
 	app.camera = view
 	app.camera.ortho = ortho
+	camera_history_clear(app)
 	app.move.drag = {}
 	// The last stroke was on an object of the old scene, whose id the new one may reuse.
 	app.pivot.set, app.pivot.pinned = false, false
