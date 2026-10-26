@@ -163,6 +163,10 @@ adjust_open :: proc(app: ^App) {
 	#partial switch a.op {
 	case .Mirror:
 		app.ui.mirror_axis, app.ui.mirror_negative = i32(a.cmd.axis), !a.cmd.on
+	case .Remesh:
+		app.ui.rebuild_even = rebuild_count(a.cmd.vertices)
+	case .Decimate:
+		app.ui.rebuild_fewer = rebuild_count(a.cmd.vertices)
 	case .Retopo:
 		app.ui.retopo_quads = i32(a.cmd.vertices)
 	case .Smooth_All:
@@ -233,7 +237,10 @@ kit_adjust_popover :: proc(app: ^App) {
 		}
 		if picked := ui.tabs(ctx, "adjust size", names[:], chosen); picked >= 0 && picked != chosen {
 			k.add_size = picked
-			adjust_post(app, int(SPHERE_PRESETS[picked].vertices))
+			n := int(SPHERE_PRESETS[picked].vertices)
+			if a.op == .Remesh do app.ui.rebuild_even = rebuild_count(n)
+			if a.op == .Decimate do app.ui.rebuild_fewer = rebuild_count(n)
+			adjust_post(app, n)
 		}
 	case .Mirror:
 		axes := [3]string{"X##adjust", "Y##adjust", "Z##adjust"}
@@ -267,7 +274,7 @@ kit_adjust_popover :: proc(app: ^App) {
 	ui.popover_end(ctx)
 }
 
-// Whether `vertices` is one of the sizes the Remesh section offers.
+// Whether `vertices` is one of the sizes the popover's tabs offer.
 @(private = "file")
 is_size_preset :: proc(vertices: int) -> bool {
 	for p in SPHERE_PRESETS do if int(p.vertices) == vertices do return true

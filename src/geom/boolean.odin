@@ -18,12 +18,9 @@ import "../jobs"
 // not meet, intersected; everything subtracted).
 mesh_boolean :: proc(a, b: Mesh, op: Remesh_Op, target: int, project := true, pool: ^jobs.Pool = nil, allocator := context.allocator) -> (out: Mesh, ok: bool) {
 	both := mesh_join({a, b}, context.temp_allocator)
-	bounds := AABB_EMPTY
-	for p in both.positions do aabb_grow(&bounds, p)
-	extent := bounds.hi - bounds.lo
-	h := max(remesh_spacing(both, target), max(extent.x, extent.y, extent.z) / (REMESH_MAX_LATTICE - 4))
-	if !(h > 0) do return {}, false
-	out = remesh_run(both, h, len(a.indices) / 3, op, pool, allocator) or_return
+	area, bounds := mesh_area_bounds(both, pool)
+	h, _ := remesh_lattice(area, bounds, target) or_return
+	out = remesh_run(both, h, bounds, len(a.indices) / 3, op, pool, allocator) or_return
 	if project {
 		bvh := bvh_build_morton(both, BVH_LEAF_SIZE, pool, context.temp_allocator)
 		mesh_project_onto(&out, both, &bvh, h, pool)

@@ -22,6 +22,8 @@ layout(location = 2) out float out_mask; // 0 unmasked to 1 fully masked
 layout(location = 3) out vec4 out_paint;  // linear colour, and how much it covers the clay
 // The triangle's polygroup colour, from the corner it is drawn from; negative for none.
 layout(location = 4) flat out vec3 out_group;
+// Where the vertex is in the mesh's own space, for the density preview's checker.
+layout(location = 5) out vec3 out_mesh_pos;
 
 // A colour per group that neighbouring numbers keep far apart: hues a golden angle
 // apart, in two lightnesses.
@@ -55,4 +57,5 @@ void main() {
 	gl_Position     = view_proj * world;
 	out_view_normal = mat3(view) * mat3(model) * in_normal;
 	out_view_pos    = (view * world).xyz;
+	out_mesh_pos    = in_position;
 }

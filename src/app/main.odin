@@ -74,6 +74,7 @@ Options :: struct {
 	flat:      bool `usage:"Start with flat shading, each triangle lit by its own normal, as View > Flat shading does."`,
 	ortho:     bool `usage:"Start with parallel (orthographic) projection, as View > Orthographic (P) does."`,
 	view:      string `usage:"Start looking from front, back, right, left, top or bottom, as the Scene tab's Camera section does."`,
+	density_preview: int `usage:"Show Object > Shape > Rebuild's density checkerboard on the selected object for an even remesh of this many vertices, held on as holding its Density slider shows it (for screenshots and timing)."`,
 	wireframe: bool `usage:"Show the selected object's edges, as View > Wireframe (Shift+F) does."`,
 	falloff:   string `usage:"Start every brush with this falloff: smooth (the default), linear, sharp, firm or flat, as the Brush tab's Falloff presets set."`,
 	rotate:    string `usage:"Turn the first object this many degrees about x, y and z before starting, e.g. 0,45,0 (as the Object tab's Transform does)."`,
@@ -195,6 +196,7 @@ App :: struct {
 	scene_edits: u64,
 	adjustable: Adjustable, // the last operation, to run again with other settings (adjust_last.odin)
 	views:      Camera_History, // the views the camera rested on, for Previous and Next view (camera_history.odin)
+	rebuild:    Rebuild_Preview, // the Rebuild panel's density checkerboard (rebuild.odin)
 	autosave: Autosave, // the background autosave and crash recovery (autosave.odin)
 	timeline: Timeline, // the History panel's scrubbing, playback and time-lapse (timeline.odin)
 	replay:   Replay, // the Stroke recorder's last stroke, recording and replay (replay.odin)
@@ -327,6 +329,7 @@ run :: proc(opts: Options) -> bool {
 	defer mask_shape_destroy(&app.mask_shape)
 	defer clip_gesture_destroy(&app.clip)
 	defer shape_pending_destroy(&app.shape_pending)
+	defer rebuild_preview_destroy(&app.rebuild)
 	defer curve_tool_destroy(&app.curve)
 	app.hd_window_vertices = opts.hd_window if opts.hd_window > 0 else sculpt.HD_WINDOW_VERTICES
 	if opts.open != "" {
@@ -615,6 +618,9 @@ run :: proc(opts: Options) -> bool {
 	if opts.ortho do app.camera.ortho = true
 	if opts.wireframe do app.wireframe = true
 	if opts.flat do app.flat = true
+	if opts.density_preview > 0 {
+		app.ui.rebuild_goal, app.ui.rebuild_even, app.rebuild.pinned = .Even, rebuild_count(opts.density_preview), true
+	}
 	app.studio_samples, app.studio_ao, app.studio_shadow = STUDIO_SAMPLES_DEFAULT, 0.85, 0.6
 	if opts.studio do app.studio_on = true
 	if opts.studio_samples > 0 do app.studio_samples = i32(min(opts.studio_samples, STUDIO_SAMPLES_MAX))
@@ -959,6 +965,10 @@ run :: proc(opts: Options) -> bool {
 				})
 			}
 		}
+		// After the uploads, so the preview measures the mesh as this frame draws it.
+		if checker := rebuild_preview_frame(&app); checker != {} {
+			for &d in draws do if d.live do d.checker = checker
+		}
 		if b := &app.ui.boolean; b.shown {
 			if base := object_by_id(&app, b.base); base != nil {
 				material := current_material(&app)
@@ -1218,6 +1228,8 @@ run :: proc(opts: Options) -> bool {
 			box_lo, box_hi = (q if i == 0 else linalg.min(box_lo, q)), (q if i == 0 else linalg.max(box_hi, q))
 		}
 		fmt.printfln("shape_pending=%s shape_points=%d shape_flip=%d shape_box=%.0f,%.0f,%.0f,%.0f", shape, len(app.shape_pending.points), int(app.shape_pending.flip), box_lo.x, box_lo.y, box_hi.x, box_hi.y)
+		goal := strings.to_lower(fmt.tprint(app.ui.rebuild_goal), context.temp_allocator)
+		fmt.printfln("rebuild_goal=%s rebuild_preview=%d rebuild_cell=%.5f rebuild_area_ms=%.2f rebuild_step_ms=%.2f", goal, int(app.rebuild.shown), app.rebuild.cell if app.rebuild.shown else 0, app.rebuild.area_ms, app.rebuild.step_ms)
 		fmt.printfln("camera_views=%d camera_view=%d camera_steps=%d", app.views.count, app.views.at + 1 if app.views.count > 0 else 0, app.views.steps)
 		fmt.printfln("adjust_op=%s adjusts=%d adjust_pop=%d", adjust_name if adjust_name != "" else "none", app.adjustable.adjusts, int(k.adjust_pop))
 		open := [Kit_Window]bool{.Inspector = k.inspector && !side_panel_open(k), .Stats = k.stats, .History = k.history, .Settings = k.settings, .Help = k.help}

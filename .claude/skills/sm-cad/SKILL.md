@@ -28,7 +28,12 @@ description: CAD-style mesh tools inside this app on geom.Mesh — primitives, b
   winding-number rays along each axis decide inside, marching cubes with a rule-built table keeps ambiguous faces
   apart, three rounds of tangential relaxation even it out (`:11-29`); overlaps and self-intersections merge, anything
   thinner than the spacing goes; `REMESH_MAX_LATTICE 4096` per axis. Wired as `Scene_Command .Remesh` → `object_remesh`
-  (`scene.odin:147-175`), the Object tab's Remesh, Ctrl+R (at the object's own count) and `--remesh=N`.
+  (`scene.odin:147-175`), Object > Shape > Rebuild's Even, Ctrl+R (at the object's own count) and `--remesh=N`.
+  The lattice has one definition: `mesh_area_bounds` (area and triangle box, fixed ranges summed in order, so serial,
+  parallel and `mesh_area_parts` a few ranges at a time agree bit for bit) feeds `remesh_lattice(area, bounds, target)`
+  (spacing with the 4096 clamp, origin `bounds.lo - 1.5 h`), and `remesh_run` takes that box. `object_remesh` measures
+  the uncompacted level before compacting and calls `remesh_voxel_measured`, so Rebuild's density checkerboard
+  (`src/app/rebuild.odin`) shows exactly the cells the remesh builds on; never compute a spacing another way.
 - Decimate exists: `geom.mesh_decimate(m, triangles, pool)` (`src/geom/decimate.odin`) runs `simplify` with `strict = true`
   (no two corners of a triangle move in one pass, no needles, shorter edges first on ties) in parallel cell rounds
   (`DECIMATE_ROUND_KEEP`, shifted cells), then whole; wired as `Scene_Command .Decimate` → `object_decimate`, the Object

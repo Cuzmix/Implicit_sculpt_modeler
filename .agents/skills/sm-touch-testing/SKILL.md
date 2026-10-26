@@ -45,7 +45,7 @@ on window focus or hover to decide ownership; a widget that acts on a finger pre
 ## 3. Build and run
     build.bat                                   # or ./build.sh: the debug app the scenarios drive
     python scripts\touch_check.py --list        # the scenarios and what each proves
-    python scripts\touch_check.py               # all of them; names or patterns ('rail_*') to run some; --screens writes build\touch\<name>.png
+    python scripts\touch_check.py               # all of them; names or patterns ('rail_*') to run some; --screens writes build\touch\<name>.png of the last run, --screen-run=N of run N (no copied script needed to picture a middle state)
     python scripts\gate.py --only touch -- 'rail_*'   # the same through the gate, with the log in build\gate\touch.log
 - It needs a display. On Linux with `Xvfb` installed it starts one per job itself (`start_displays`) and runs the
   scenarios side by side (`--jobs=N`, default one per CPU); otherwise one at a time on the current display (on a
@@ -107,6 +107,7 @@ are on the device checklist.
   `adjust_op` (what the action bar can adjust now, `none`, `remesh`, `smooth_all`, ...), `adjusts` (re-runs), `adjust_pop`,
   `camera_views` (views kept for Previous/Next view), `camera_view` (the one shown, from 1), `camera_steps`,
   `shape_pending` (a drawn shape waiting for Apply: `mask`, `hide`, `clip`, `slice` or `none`), `shape_points`, `shape_flip`, `shape_box` (x0,y0,x1,y1),
+  `rebuild_goal` (`even`, `fewer`, `quads`), `rebuild_preview` (the density checkerboard drawn last frame), `rebuild_cell`, `rebuild_area_ms`/`rebuild_step_ms` (its measuring, in all and in the longest frame; `open_rebuild(s, goal)` folds the sections above and opens Rebuild),
   `touch_repeats` (undo and redo steps taken by holding fingers), `inspector_tab`, `brush_kind`, `tool`, `palette` (open),
   `palette_runs`, `palette_last` (the last row it ran, by its saved name: `Wireframe`, `Brush:Clay`), `settings_tab`, `layout_<name>` (x,y,w,h of the
   modifier rail, sliders, dock, status and inspector), ...); `camera_still()` checks nothing moved; keys starting with `@` are checks given every stat at once or checks on

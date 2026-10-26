@@ -232,6 +232,11 @@ object_remesh :: proc(app: ^App, obj: ^Object, vertices: int) -> (changed, ok: b
 	stroke_finish(app)
 	object_hd_leave(app, obj)
 	start := time.tick_now()
+	// Measured on the level as it is, before any compacting, as the density preview
+	// measures it, so the lattice is the one it showed. Measured afresh rather than taken
+	// from the preview: an adjust undoes and remeshes within one frame, before the undo
+	// is uploaded and the buffers' version moves.
+	area, bounds := geom.mesh_area_bounds(sculpt.levels_current(&obj.levels).mesh, &app.pool)
 	source := object_mesh(obj)^
 	packed: geom.Mesh
 	if object_dynamic(obj) {
@@ -241,7 +246,7 @@ object_remesh :: proc(app: ^App, obj: ^Object, vertices: int) -> (changed, ok: b
 		delete(mask)
 		source = packed
 	}
-	mesh, built := geom.remesh_voxel(source, vertices, &app.pool)
+	mesh, built := geom.remesh_voxel_measured(source, area, bounds, vertices, &app.pool)
 	geom.mesh_destroy(&packed)
 	free_all(context.temp_allocator)
 	if !built {

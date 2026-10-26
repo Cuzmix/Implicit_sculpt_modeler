@@ -1,6 +1,8 @@
 package geom
 
+import "core:math"
 import "core:math/linalg"
+import "core:slice"
 import "core:testing"
 
 import "../jobs"
@@ -94,4 +96,57 @@ remesh_survives_self_intersection :: proc(t: ^testing.T) {
 	defer mesh_destroy(&out)
 	testing.expect(t, ok, "remesh failed")
 	_ = expect_closed_manifold(t, out)
+}
+
+// The area and box come out the same with and without the pool, skip zeroed triangle
+// slots, and give the lattice the remesh builds on: remeshing at its spacing is, bit for
+// bit, remeshing to the count.
+@(test)
+remesh_lattice_is_the_one_remesh_uses :: proc(t: ^testing.T) {
+	pool: jobs.Pool
+	jobs.pool_init(&pool, 3)
+	defer jobs.pool_destroy(&pool)
+	sphere := icosphere(7) // more triangles than one range
+	defer mesh_destroy(&sphere)
+	area, bounds := mesh_area_bounds(sphere, &pool)
+	serial_area, serial_bounds := mesh_area_bounds(sphere, nil)
+	testing.expect_value(t, area, serial_area)
+	testing.expect_value(t, bounds, serial_bounds)
+	testing.expectf(t, abs(area - 4 * math.PI) < 0.01, "a unit sphere's area is %v", area)
+	// A few parts at a time, as the preview spreads a big mesh over frames.
+	parts := make([]Area_Part, mesh_area_part_count(sphere))
+	defer delete(parts)
+	testing.expect(t, len(parts) > 2)
+	for from := 0; from < len(parts); from += 2 do mesh_area_parts(sphere, parts, from, min(from + 2, len(parts)), &pool)
+	piece_area, piece_bounds := mesh_area_total(parts)
+	testing.expect_value(t, piece_area, area)
+	testing.expect_value(t, piece_bounds, bounds)
+	// A zeroed slot, as dynamic topology leaves, adds nothing.
+	append(&sphere.indices, 0, 0, 0)
+	with_slot, slot_bounds := mesh_area_bounds(sphere, &pool)
+	testing.expect_value(t, with_slot, area)
+	testing.expect_value(t, slot_bounds, bounds)
+	resize(&sphere.indices, len(sphere.indices) - 3)
+	h, origin, ok := remesh_lattice(area, bounds, 5000)
+	testing.expect(t, ok)
+	testing.expect_value(t, origin, bounds.lo - 1.5 * h)
+	a, ok_a := remesh_voxel(sphere, 5000, &pool)
+	b, ok_b := remesh_voxel_spacing(sphere, h, &pool)
+	defer mesh_destroy(&a)
+	defer mesh_destroy(&b)
+	testing.expect(t, ok_a && ok_b)
+	testing.expect(t, slice.equal(a.positions[:], b.positions[:]))
+	// A vertex no triangle uses, as a dynamic topology layout keeps, moves nothing.
+	append(&sphere.positions, Vec3{3, 0, 0})
+	append(&sphere.normals, Vec3{1, 0, 0})
+	c, ok_c := remesh_voxel_measured(sphere, area, bounds, 5000, &pool)
+	defer mesh_destroy(&c)
+	testing.expect(t, ok_c)
+	testing.expect(t, slice.equal(a.positions[:], c.positions[:]))
+	// A thin, long box is held to REMESH_MAX_LATTICE points along its length.
+	long := Aabb{{0, 0, 0}, {1000, 0.01, 0.01}}
+	h_long, _, _ := remesh_lattice(1, long, 10_000_000)
+	testing.expect_value(t, h_long, f32(1000) / (REMESH_MAX_LATTICE - 4))
+	_, _, ok_empty := remesh_lattice(0, AABB_EMPTY, 1000)
+	testing.expect(t, !ok_empty)
 }
