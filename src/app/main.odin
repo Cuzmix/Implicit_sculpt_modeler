@@ -883,7 +883,7 @@ run :: proc(opts: Options) -> bool {
 		switch app.tool {
 		case .Brush:
 			if clip_frame(&app, input) || mask_shape_frame(&app, input) {
-				stroke_finish(&app)
+				brush_stroke_finish(&app)
 			} else if replay_busy(&app) {
 				// A replay sculpts in place of the pointer.
 				sculpted = replay_frame(&app, input)
@@ -894,13 +894,13 @@ run :: proc(opts: Options) -> bool {
 			}
 		case .Move:
 			replay_stop(&app)
-			stroke_finish(&app)
+			brush_stroke_finish(&app)
 			move_tool_frame(&app, input)
 		case .Curve:
-			stroke_finish(&app)
+			brush_stroke_finish(&app)
 			if !curve_tool_frame(&app, input) do return false
 		case .Insert:
-			stroke_finish(&app)
+			brush_stroke_finish(&app)
 			if !insert_tool_frame(&app, input) do return false
 		}
 		sculpted.dabs += waited_dab.dabs
@@ -1195,6 +1195,11 @@ run :: proc(opts: Options) -> bool {
 			}
 			e := app.kit.gizmo_entry
 			fmt.printfln("gizmo_pivot=%s gizmo_pivot_latch=%d gizmo_entry=%s", pivot, int(m.pivot_latch), lower(e.handle) if e.open else "none")
+			// The sum of the selected object's coordinates, so a scenario can tell a mesh that
+			// moved from one put back exactly.
+			mesh_sum: f64
+			if obj := selected_object(&app); obj != nil do for q in object_sculptor(obj).mesh.positions do mesh_sum += f64(q.x) + f64(q.y) + f64(q.z)
+			fmt.printfln("pose_mode=%d pose_drags=%d pose_moved=%d mesh_sum=%.4f", int(pose_mode(&app)), m.pose_drags, m.pose_moved, mesh_sum)
 			fmt.printfln("gizmo_at=%.0f,%.0f gizmo_mode=%s gizmo_hover=%s gizmo_last=%s gizmo_drags=%d gizmo_snap=%d transform=%.4f,%.4f,%.4f,%.3f,%.3f,%.3f,%.4f transform_undo=%d",
 				m.drawn.x, m.drawn.y, lower(m.mode), lower(m.hover), lower(m.last), m.drags, int(m.snap), tr.position.x, tr.position.y, tr.position.z, tr.rotation.x, tr.rotation.y, tr.rotation.z, tr.scale, transform_undo)
 		}

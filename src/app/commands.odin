@@ -294,7 +294,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Gizmo = {
 		label = "Gizmo",
-		help = "Picks the Move tool and what its gizmo's handles do: move along an arm or across a plane, turn about a ring, or scale from the middle.",
+		help = "Picks the Move tool and what its gizmo's handles do: move along an arm or across a plane, turn about a ring, or scale from the middle. With a mask on the one object selected, they pose its unmasked part instead.",
 		icon = ui.ICON_MOVE,
 		args = len(gizmo.Mode),
 		run = proc(app: ^App, arg: int) {

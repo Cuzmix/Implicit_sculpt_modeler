@@ -214,6 +214,8 @@ Sculptor :: struct {
 	groups:       Groups,
 	// The sculpt layers (sculpt_layers.odin).
 	layers:       Sculpt_Layers,
+	// A pose under way (pose.odin).
+	pose:         Pose_State,
 	// Set while dynamic topology is on (dyntopo.odin): the mesh is laid out in pages,
 	// `faces` and the shared lists above are replaced, and there are no LOD copies.
 	dyn:         ^Dyn,
@@ -267,6 +269,7 @@ sculptor_destroy :: proc(s: ^Sculptor) {
 	delete(s.morph, s.history.allocator)
 	grab_destroy(&s.grab)
 	cloth_destroy(&s.cloth)
+	pose_free(s)
 	history_destroy(&s.history)
 	geom.vertex_faces_destroy(&s.faces)
 	geom.bvh_destroy(&s.bvh)

@@ -186,6 +186,7 @@ GLOSSARY := [?]Glossary_Entry {
 	{"Ghost", "Transparent (ZBrush), in front and wire display (Blender)", "An object dimmed and out of reach, to sculpt another against it.", "transparent", {.Ghost_Object}},
 	{"Brush", "Brush (ZBrush, Blender), tool (Nomad)", "What a stroke does to the surface: Draw, Clay, Smooth and the rest, each with its own size and strength. Keys 1 to 9 and 0 pick the first ten.", "", {}},
 	{"Mask", "Mask (ZBrush, Blender, Nomad), freeze (3DCoat)", "Paint on the surface that no brush can move. Masked parts show darker.", "freeze", {.Mask}},
+	{"Pose", "Gizmo 3D with a mask (ZBrush), Pose brush (Blender, Nomad), Pose tool (3DCoat)", "The Move tool's handles bending the unmasked part of an object about the gizmo, the mask's soft edge as the joint, instead of moving the whole object.", "posing", {.Gizmo}},
 	{"Selection set", "Selection set (ZBrush), stored freeze (3DCoat)", "A mask kept by name with the object, to make the mask again later or add to it (Object tab > Select > Selection sets).", "selection", {.Store_Selection_Set, .Restore_Selection_Set}},
 	{"Hide", "Hide (ZBrush, Nomad), visibility (Blender)", "Parts taken out of view, which brushes then leave alone, until shown again.", "visibility unhide", {.Show_All, .Invert_Hidden, .Hide_Masked, .Hide_Unmasked}},
 	{"Group", "Polygroup (ZBrush), face set (Blender, Nomad)", "A set of faces in one colour, for masking, hiding or picking by.", "polygroup", {.Group_Shortcut, .Group, .Polygroups}},

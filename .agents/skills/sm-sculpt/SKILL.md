@@ -134,7 +134,14 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
   `carried_mask` (the live mask's carry rule) and `sculptor_mask_values`; `levels_destroy` frees them (so every
   rebuild drops them; the app adds `app.sets_lost` to the command's note), `levels_dyn_enable` drops them, the level
   deletes carry them (`levels_sets_carry`). Files write them after the quads under `LEVELS_SETS`, re-packed in canon
-  order; swap undo and Duplicate carry them through the bytes. Store/rename/delete are not undo steps (`scene_edits`). Smooth all
+  order; swap undo and Duplicate carry them through the bytes. Store/rename/delete are not undo steps (`scene_edits`).
+  Posing (`src/sculpt/pose.odin`): `sculptor_pose_begin` begins a stroke saving every node with a free vertex (shield > 0)
+  and reads the starts back from `h.current.saved[pose.first + i]`, so it keeps no copy; `sculptor_pose_apply(Pose)` sets
+  positions from the starts (Turn weights the angle, Move and Scale blend linearly) then `sculptor_nodes_moved`;
+  `sculptor_pose_end` is a stroke end, `sculptor_pose_cancel` uses `sculptor_stroke_discard` (puts saved values back, no
+  step; refuses whole-node, hidden, group or layer-delta saves). Refused under dyntopo. `sculptor_mask_centroid` and
+  `sculptor_mask_look` (free + checksum) serve the app's pose mode (`src/app/pose.odin`: handles pose, the body moves the
+  object; `stroke_finish` ends a pose, the frame loop calls `brush_stroke_finish`). Smooth all
   (`src/sculpt/smooth_all.odin`) follows the same shape: `sculptor_smooth_all(s, steps, strength, gpu)` weighs every
   vertex by `strength · shield`, saves the free nodes, runs `smooth_all_cpu` (Jacobi steps over vertex ranges, two
   buffers) or the `Smooth_Gpu` callback the app fills with `render.smooth_compute_run` (falls back to the CPU when it

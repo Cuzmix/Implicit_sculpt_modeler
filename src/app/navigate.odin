@@ -276,7 +276,7 @@ pointer_route :: proc(app: ^App, input: ^Viewport_Input) {
 	if (t.owner == .Viewport && t.gesture) || t.cancelled {
 		if g.owner == .Tool && !g.pending {
 			if t.cancelled do stroke_cancel(app)
-			else do stroke_finish(app)
+			else do brush_stroke_finish(app)
 		}
 		// A handle dragged by a finger that became a gesture goes back where it was, and
 		// so does an object the Move tool was dragging.

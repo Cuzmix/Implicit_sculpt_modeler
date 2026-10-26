@@ -183,8 +183,18 @@ history_next_label :: proc(list: []History_Entry) -> string {
 	return "stroke"
 }
 
-// Ends the brush stroke in progress, if any, and records it when it changed the mesh.
+// Ends what is changing the mesh under the pointer, as its undo step when it changed
+// anything: a brush stroke, or a pose of the gizmo, so whatever runs next (a command, an
+// undo, a save) finds the mesh settled.
 stroke_finish :: proc(app: ^App) {
+	brush_stroke_finish(app)
+	if app.move.drag.posed do move_end(app)
+}
+
+// Ends the brush stroke in progress, if any, and records it when it changed the mesh.
+// The frame loop calls this each frame a tool other than the brush is on, which leaves a
+// pose under way alone.
+brush_stroke_finish :: proc(app: ^App) {
 	if !app.stroke.active do return
 	app.stroke.active = false
 	if st := app.stroke; st.pivot_count > 0 {
