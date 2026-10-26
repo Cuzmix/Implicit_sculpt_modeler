@@ -284,6 +284,19 @@ settings_load :: proc(app: ^App, path: string) {
 			}
 		case "brush_preset":
 			on_preset = strings.clone(preset_unescape(f[1]), context.temp_allocator)
+		case "key":
+			// key <command name> <chord|none>, in the order they were made: a chord already
+			// taken by an earlier line, or now reserved, is skipped.
+			// A chord's key name may have spaces ("Num 1", "Page Up"): it is the rest of the line.
+			id, arg, ok := command_from_name(f[1])
+			if len(f) < 3 || !ok || key_override_find(app, id, arg) >= 0 do continue
+			written := strings.join(f[2:], " ", context.temp_allocator)
+			if written == "none" {
+				_ = bind_remove(app, id, arg)
+			} else if chord, chord_ok := chord_parse(written); chord_ok {
+				if other, taken := chord_owner(app, chord); taken && key_override_find(app, other.command, other.arg) >= 0 do continue
+				_ = bind_assign(app, id, arg, chord)
+			}
 		case "dock":
 			// dock <slot> brush <brush> | dock <slot> preset <name, escaped>
 			slot, slot_ok := strconv.parse_int(f[1])
@@ -374,6 +387,9 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 			v.color.r, v.color.g, v.color.b, v.cloth_mode)
 	}
 	if on.preset > 0 && on.preset <= app.preset_count do fmt.sbprintfln(&out, "brush_preset %s", preset_escape(preset_name(&app.presets[on.preset - 1])))
+	for o in app.key_overrides[:app.key_override_count] {
+		fmt.sbprintfln(&out, "key %s %s", command_name(o.command, o.arg), "none" if o.none else chord_text(o.chord))
+	}
 	for s, slot in app.kit.dock {
 		if s.preset > 0 && s.preset <= app.preset_count {
 			fmt.sbprintfln(&out, "dock %d preset %s", slot, preset_escape(preset_name(&app.presets[s.preset - 1])))

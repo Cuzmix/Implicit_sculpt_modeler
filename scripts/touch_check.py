@@ -1758,6 +1758,107 @@ def browser_picks_a_preset():
     return s, [one_preset_settings()], camera_still({"dabs": near(0), "preset": near(1), "preset_name": is_text("Soft_clay"), "browser": near(0)})
 
 
+# The Assign key popover under the inspector button, at 1600 by 900: Use it here and Keep
+# it there on a conflict; the palette's Assign key with "wire" typed.
+BIND_USE_HERE, BIND_KEEP = (1345, 201), (1506, 201)
+PALETTE_ASSIGN = (1423, 243)
+
+
+def bind_inspector(s):
+    """Ctrl+Alt+click on the inspector button: the Assign key popover for Inspector."""
+    s.add("key:ctrl")
+    s.add("key:alt")
+    s.add(f"move:{INSPECTOR_BUTTON[0]},{INSPECTOR_BUTTON[1]}")
+    s.wait(2)
+    s.add("down")
+    s.wait(1)
+    s.add("up")
+    s.wait(1)
+    s.add("keyup:alt")
+    s.add("keyup:ctrl")
+    s.wait(10)
+
+
+@scenario
+def bind_ctrl_alt_click_gives_a_key():
+    """Ctrl+Alt+click on the inspector button opens Assign key without hiding the inspector; K is its key now, so after Escape K hides it and Tab does not."""
+    s = Script()
+    bind_inspector(s)
+    s.press("k")
+    s.press("Escape")
+    s.press("Tab")
+    s.press("k")
+    s.wait(6)
+    return s, [], camera_still({"key_overrides": near(1), "bind_open": near(0), "bind_command": is_text("Inspector"), "bind_state": is_text("assigned"),
+                                "window_inspector": lambda v: v.startswith("0,")})
+
+
+@scenario
+def bind_conflict_moves_the_key():
+    """Ctrl+Z pressed in Assign key for Inspector asks first (it runs Undo); Use it here moves it, so Ctrl+Z then hides the inspector."""
+    s = Script()
+    bind_inspector(s)
+    s.press("z", mods=("ctrl",))
+    s.wait(4)
+    s.ftap(*BIND_USE_HERE)
+    s.wait(4)
+    s.press("Escape")
+    s.press("z", mods=("ctrl",))
+    s.wait(6)
+    return s, [], camera_still({"key_overrides": near(1), "bind_state": is_text("assigned"), "window_inspector": lambda v: v.startswith("0,")})
+
+
+@scenario
+def bind_conflict_can_keep_the_key():
+    """Keep it there leaves Ctrl+Z with Undo and listens again."""
+    s = Script()
+    bind_inspector(s)
+    s.press("z", mods=("ctrl",))
+    s.wait(4)
+    s.ftap(*BIND_KEEP)
+    s.wait(4)
+    return s, [], camera_still({"key_overrides": near(0), "bind_open": near(1), "bind_state": is_text("listening")})
+
+
+@scenario
+def bind_refuses_space():
+    """Space cannot be a command's key (it opens the brush pie): the popover says so and nothing changes."""
+    s = Script()
+    bind_inspector(s)
+    s.press("Space")
+    s.wait(4)
+    return s, [], camera_still({"key_overrides": near(0), "bind_open": near(1), "bind_state": is_text("refused")})
+
+
+@scenario
+def bind_from_the_palette():
+    """The palette's Assign key gives the picked command (Wireframe) a key, by touch."""
+    s = Script()
+    s.ftap(*UI["search"])
+    s.wait(8)
+    s.type("wire")
+    s.wait(6)
+    s.ftap(*PALETTE_ASSIGN)
+    s.wait(10)
+    s.press("k")
+    s.wait(4)
+    return s, [], camera_still({"key_overrides": near(1), "bind_open": near(1), "bind_command": is_text("Wireframe"), "bind_state": is_text("assigned")})
+
+
+@scenario
+def keys_come_back_from_settings():
+    """A settings file's key lines load: K hides the inspector, Tab (moved away) does not."""
+    s = Script()
+    with open(settings_file(), "w") as f:
+        f.write("key Inspector K\nkey Undo none\nkey Bogus Ctrl+Q\n")
+    s.add(f"move:{EMPTY[0]},{EMPTY[1]}")
+    s.wait(4)
+    s.press("Tab")
+    s.press("k")
+    s.wait(6)
+    return s, [f"--settings-file={settings_file()}"], {"key_overrides": near(2), "window_inspector": lambda v: v.startswith("0,")}
+
+
 @scenario
 def long_press_size_slider_resets_it():
     """The size slider dragged up, then a long press on it: the brush is back to 60 px."""

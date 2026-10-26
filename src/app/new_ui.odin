@@ -48,6 +48,8 @@ Kit_State :: struct {
 	dock_at:    ui.Rect,
 	grid_scroll: f32,
 	grid_reveal: bool, // the grid scrolls to the lit tile as it opens
+	bind:       Bind_Popover, // Assign key (kit_bind.odin)
+	laying_out: bool, // kit_layout is running: a command run now came from a control
 	stats:      bool, // the Stats panel (F11)
 	stats_advanced: bool, // ...showing every measurement by its exact name, not the simple view
 	settings:   bool, // the Settings panel (Menu > Settings)
@@ -484,7 +486,7 @@ kit_init :: proc(app: ^App) {
 // first-run tip hides under it.
 kit_floating :: proc(app: ^App) -> bool {
 	k := &app.kit
-	return app.ui.pie.open || app.ui.adjust.kind != .None || k.action_pop || k.menu || k.view_menu || k.browser || k.dock_menu || k.object_menu || k.palette || k.ctx.select_open != 0
+	return app.ui.pie.open || app.ui.adjust.kind != .None || k.action_pop || k.menu || k.view_menu || k.browser || k.dock_menu || k.bind.open || k.object_menu || k.palette || k.ctx.select_open != 0
 }
 
 kit_destroy :: proc(app: ^App) {
@@ -606,7 +608,9 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 	kit_results(app)
 	ui.image(ctx, {0, 0, ctx.input.window.x, ctx.input.window.y}, KIT_VIEWPORT_IMAGE)
 	k.layer = ui.layer_mark(ctx)
+	k.laying_out = true
 	kit_layout(app)
+	k.laying_out = false
 	input := kit_viewport_input(app, {f32(size.x), f32(size.y)})
 	if !typed do commands_handle_keys(app)
 	layer_drag_end(app)
@@ -625,6 +629,7 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 		if side_panel_open(k) && !kit_floating(app) do side_panel_close(app)
 		if k.palette do palette_close(app)
 		k.menu, k.view_menu, k.browser, k.dock_menu, k.object_menu, k.action_pop = false, false, false, false, false, false
+		k.bind.open = false
 		ctx.select_open = 0
 	}
 	k.ms = time.duration_milliseconds(time.tick_since(start))
@@ -836,6 +841,7 @@ kit_layout :: proc(app: ^App) {
 	kit_object_menu(app)
 	kit_palette(app, palette_anchor)
 	kit_action_popover(app)
+	kit_bind_popover(app)
 }
 
 // The inspector: the tool, the selected object or the scene, in tabs, sliding in from

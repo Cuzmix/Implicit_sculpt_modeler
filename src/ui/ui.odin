@@ -277,6 +277,10 @@ Context :: struct {
 	// its chosen option in view.
 	select_scroll:    f32,
 	select_scrolled:  Id,
+	// Whether a widget was clicked this frame, and where: what the app shows beside the
+	// control a click acted on (the key binding popover).
+	clicked_now:      bool,
+	clicked_rect:     Rect,
 	// Open sections, for section_end to fade their bodies.
 	sections:         [8]struct {
 		mark:  int,
@@ -327,6 +331,7 @@ destroy :: proc(ctx: ^Context) {
 frame_begin :: proc(ctx: ^Context, input: Input) {
 	ctx.input = input
 	if ctx.input.pixel_density <= 0 do ctx.input.pixel_density = 1
+	ctx.clicked_now = false
 	// A frame that took long (a remesh) moves animations on by at most a tenth of a
 	// second, so a panel does not skip from start to end mid-animation.
 	before := ctx.time
@@ -727,6 +732,7 @@ interact :: proc(ctx: ^Context, id: Id, r: Rect) -> (hovered, held, clicked, pre
 			// a long press, which did its own thing.
 			clicked = over && !in_input.cancel && !long_happened(ctx, id)
 			held = false
+			if clicked do ctx.clicked_now, ctx.clicked_rect = true, r
 		}
 	}
 	hovered = ctx.hot == id

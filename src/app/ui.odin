@@ -160,12 +160,12 @@ FALLOFF_PRESETS := [?]struct {
 	{"Flat", true, {{0, 1}, {0.02, 1}}}, // full strength to the rim, a hard edge
 }
 
-// Whether a text field has the keys, or the command palette is open, when no shortcut,
-// S or U, or Space fires. The palette counts from the frame it opens, though its field
+// Whether a text field has the keys, or the command palette or the Assign key popover is
+// open, when no shortcut, S or U, or Space fires. The palette counts from the frame it opens, though its field
 // takes the keys only once its popover starts to show a frame or two later, so a letter
 // typed in between never runs its shortcut.
 typing :: proc(app: ^App) -> bool {
-	return ui.typing(&app.kit.ctx) || app.kit.palette
+	return ui.typing(&app.kit.ctx) || app.kit.palette || app.kit.bind.open
 }
 
 count_label :: proc(n: int) -> string {

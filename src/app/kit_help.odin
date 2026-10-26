@@ -8,7 +8,7 @@ import "../ui"
 
 // The Help window (Menu > Help, F1, or "help" in the command palette): every shortcut,
 // the mouse and the touch gestures, and a glossary of the app's words beside the names
-// other apps give them. The keys come from DEFAULT_BINDINGS and the gestures from
+// other apps give them. The keys come from the keymap (keymap.odin) and the gestures from
 // command_gesture, as the tool and the Settings now have them, so the lists never drift
 // from what works; only the controls that are no command (a right drag, a pinch) come
 // from the tables below. It opens in Settings' place on the right, one or the other.
@@ -190,7 +190,7 @@ help_key_rows :: proc(app: ^App) -> []Help_Row {
 		for id in Command_Id {
 			if command_group(id) != group do continue
 			for arg in 0 ..< max(COMMANDS[id].args, 1) {
-				chords := command_chords(id, arg)
+				chords := command_chords(app, id, arg)
 				if chords != "" do append(&out, Help_Row{COMMAND_GROUP_NAMES[group], help_name(id, arg), chords})
 			}
 		}
@@ -271,6 +271,7 @@ kit_help :: proc(app: ^App) -> (raised: bool) {
 		case .Keys:
 			help_rows(app, help_key_rows(app), inner)
 			ui.paragraph(ctx, fmt.tprintf("The viewport keys and the mouse are as the %s tool has them; they change with the tool.", tool))
+			ui.paragraph(ctx, "To give a command another key, Ctrl+Alt+click its button or menu row, or pick it in Search and tap Assign key.")
 		case .Gestures:
 			ui.paragraph(ctx, fmt.tprintf("With the %s tool and the settings as they are now: a gesture turned off is not listed.", tool))
 			ui.spacer(ctx, 4)
@@ -315,7 +316,7 @@ help_rows :: proc(app: ^App, rows: []Help_Row, width: f32) {
 help_glossary :: proc(app: ^App) {
 	ctx := &app.kit.ctx
 	t := ctx.theme
-	ui.paragraph(ctx, fmt.tprintf("The words this app uses, and what other apps call the same thing. Search (%s) finds a command by either.", command_keys(.Command_Palette)))
+	ui.paragraph(ctx, fmt.tprintf("The words this app uses, and what other apps call the same thing. Search (%s) finds a command by either.", command_keys(app, .Command_Palette)))
 	for g in GLOSSARY {
 		ui.spacer(ctx, 6)
 		ui.label(ctx, g.word, 0, t.text, .Semibold)

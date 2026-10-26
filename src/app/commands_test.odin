@@ -58,6 +58,7 @@ chords_read_as_menus_show_them :: proc(t: ^testing.T) {
 // registry, which now come from the bindings.
 @(test)
 menus_show_the_same_shortcuts :: proc(t: ^testing.T) {
+	app: App
 	cases := [?]struct {
 		id:   Command_Id,
 		arg:  int,
@@ -85,7 +86,7 @@ menus_show_the_same_shortcuts :: proc(t: ^testing.T) {
 		{.Brush, int(sculpt.Brush_Kind.Paint), ""},
 		{.Import_Mesh, 0, ""},
 	}
-	for c in cases do testing.expectf(t, command_keys(c.id, c.arg) == c.keys, "%v %d shows %q, not %q", c.id, c.arg, command_keys(c.id, c.arg), c.keys)
+	for c in cases do testing.expectf(t, command_keys(&app, c.id, c.arg) == c.keys, "%v %d shows %q, not %q", c.id, c.arg, command_keys(&app, c.id, c.arg), c.keys)
 	testing.expect_value(t, command_label(.Brush, int(sculpt.Brush_Kind.Clay)), "Clay brush")
 	testing.expect_value(t, command_label(.View_Axis, int(camera.Axis_View.Front)), "Front view")
 	free_all(context.temp_allocator)
@@ -117,6 +118,7 @@ chords_match_exact_modifiers :: proc(t: ^testing.T) {
 // A command that takes an argument names each choice, so search can list them apart.
 @(test)
 every_choice_has_its_own_label :: proc(t: ^testing.T) {
+	app: App
 	for c, id in COMMANDS {
 		for a in 0 ..< c.args {
 			label := command_label(id, a)
@@ -126,8 +128,8 @@ every_choice_has_its_own_label :: proc(t: ^testing.T) {
 	}
 	testing.expect_value(t, command_label(.Mask, int(sculpt.Mask_Command.Clear)), "Clear mask")
 	testing.expect_value(t, command_label(.Remesh_To, 2), "Remesh to 1M vertices")
-	testing.expect_value(t, command_keys(.Mask, int(sculpt.Mask_Command.Clear)), "Alt+M")
-	testing.expect_value(t, command_keys(.Mask, int(sculpt.Mask_Command.Invert)), "Ctrl+I")
+	testing.expect_value(t, command_keys(&app, .Mask, int(sculpt.Mask_Command.Clear)), "Alt+M")
+	testing.expect_value(t, command_keys(&app, .Mask, int(sculpt.Mask_Command.Invert)), "Ctrl+I")
 	free_all(context.temp_allocator)
 }
 

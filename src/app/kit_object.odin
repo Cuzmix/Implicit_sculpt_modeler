@@ -129,10 +129,10 @@ kit_levels :: proc(app: ^App, obj: ^Object) {
 	case levels.hd.steps > 0:
 		ui.paragraph(ctx, "Delete the HD level to subdivide.")
 	case can:
-		ui.paragraph(ctx, fmt.tprintf("Adds a level of %s vertices, about %s. %s", count_label(vertices), bytes_label(bytes), command_keys(.Subdivide)))
+		ui.paragraph(ctx, fmt.tprintf("Adds a level of %s vertices, about %s. %s", count_label(vertices), bytes_label(bytes), command_keys(app, .Subdivide)))
 	}
 	kit_command_pair(app, .Delete_Lower_Levels, .Delete_Higher_Levels, label_a = "Delete lower", label_b = "Delete higher", tone_a = .Danger, tone_b = .Danger)
-	ui.paragraph(ctx, fmt.tprintf("%s and %s go up and down. All levels use %s of memory; %s undoes a deletion.", command_keys(.Level_Up), command_keys(.Level_Down), bytes_label(sculpt.levels_bytes(levels)), command_keys(.Undo)))
+	ui.paragraph(ctx, fmt.tprintf("%s and %s go up and down. All levels use %s of memory; %s undoes a deletion.", command_keys(app, .Level_Up), command_keys(app, .Level_Down), bytes_label(sculpt.levels_bytes(levels)), command_keys(app, .Undo)))
 	if s := app.stats; s.level_sync_ms + s.level_show_ms > 0 {
 		ui.paragraph(ctx, fmt.tprintf("Last change: %.0f ms to update the levels, %.0f ms to show.", s.level_sync_ms, s.level_show_ms))
 	}
@@ -153,11 +153,11 @@ kit_hd :: proc(app: ^App, obj: ^Object) {
 	ui.paragraph(ctx, fmt.tprintf("%d step%s up: %s vertices.", steps, "" if steps == 1 else "s", count_label(sculpt.levels_hd_vertices(levels))))
 	if object_in_hd(obj) {
 		_ = command_button(app, .Hd_Leave, tone = .Accent)
-		ui.paragraph(ctx, fmt.tprintf("A window of %s vertices, opened in %.0f + %.0f ms. %s leaves it too.", count_label(hd.window_vertices), app.stats.hd_open_ms, app.stats.hd_upload_ms, command_keys(.Hd_Toggle)))
+		ui.paragraph(ctx, fmt.tprintf("A window of %s vertices, opened in %.0f + %.0f ms. %s leaves it too.", count_label(hd.window_vertices), app.stats.hd_open_ms, app.stats.hd_upload_ms, command_keys(app, .Hd_Toggle)))
 	} else {
 		// From the button, the window opens around the middle of the viewport.
 		_ = command_button(app, .Hd_Sculpt, variant = .Solid, tone = .Accent)
-		ui.paragraph(ctx, fmt.tprintf("%s opens a window where the pointer is.", command_keys(.Hd_Toggle)))
+		ui.paragraph(ctx, fmt.tprintf("%s opens a window where the pointer is.", command_keys(app, .Hd_Toggle)))
 	}
 	millions := f32(app.hd_window_vertices / 1_000_000)
 	if ui.slider(ctx, "Window", &millions, 1, 16, .Linear, fmt.tprintf("%dM vertices", app.hd_window_vertices / 1_000_000)) {
@@ -177,7 +177,7 @@ kit_dyntopo :: proc(app: ^App, obj: ^Object) {
 	if !can do ui.paragraph(ctx, "Needs a single subdivision level and no HD level.")
 	_ = ui.slider(ctx, "Detail", &app.brush.detail_px, 2, 40, .Logarithmic, fmt.tprintf("%.1f px", app.brush.detail_px))
 	_ = ui.switch_row(ctx, "Collapse short edges", &app.brush.collapse)
-	ui.paragraph(ctx, fmt.tprintf("Brushes add triangles where they go: edges under the brush longer than Detail on screen split and, with collapse, much shorter ones merge. Turning it on or off is an undo step of its own. %s", command_keys(.Dyntopo_Toggle)))
+	ui.paragraph(ctx, fmt.tprintf("Brushes add triangles where they go: edges under the brush longer than Detail on screen split and, with collapse, much shorter ones merge. Turning it on or off is an undo step of its own. %s", command_keys(app, .Dyntopo_Toggle)))
 	if !object_dynamic(obj) do return
 	splits, collapses := sculpt.sculptor_dyn_edits(object_sculptor(obj))
 	ui.paragraph(ctx, fmt.tprintf("%s splits, %s collapses so far; %d GPU regrows.", count_label(splits), count_label(collapses), app.stats.gpu_regrows))
@@ -196,7 +196,7 @@ kit_mask :: proc(app: ^App) {
 	ui.label(ctx, "Ctrl + drag on empty space draws", t.small_size)
 	shapes := [2]string{"Rectangle", "Lasso"}
 	if picked := ui.tabs(ctx, "mask shape", shapes[:], int(app.ui.mask_shape_kind)); picked >= 0 do app.ui.mask_shape_kind = Mask_Shape_Kind(picked)
-	ui.paragraph(ctx, fmt.tprintf("Paint the mask with the Mask brush, or Ctrl + drag a shape from empty space (with Alt: unmask). Masked parts show darker and no brush moves them. Blur, Sharpen, Grow and Shrink (over the dock while something is masked, and under More options) move its edge Steps rings of triangles. %s clears, %s inverts. With Mask on and the Sculpt tool, a tap off the model inverts, one on the mask blurs it and one on an unmasked part sharpens it.", command_keys(.Mask, int(sculpt.Mask_Command.Clear)), command_keys(.Mask, int(sculpt.Mask_Command.Invert))))
+	ui.paragraph(ctx, fmt.tprintf("Paint the mask with the Mask brush, or Ctrl + drag a shape from empty space (with Alt: unmask). Masked parts show darker and no brush moves them. Blur, Sharpen, Grow and Shrink (over the dock while something is masked, and under More options) move its edge Steps rings of triangles. %s clears, %s inverts. With Mask on and the Sculpt tool, a tap off the model inverts, one on the mask blurs it and one on an unmasked part sharpens it.", command_keys(app, .Mask, int(sculpt.Mask_Command.Clear)), command_keys(app, .Mask, int(sculpt.Mask_Command.Invert))))
 	kit_last_result(app, .Mask)
 	if kit_more(app, .Mask) {
 		kit_command_pair(app, .Mask, .Mask, int(sculpt.Mask_Command.Blur), int(sculpt.Mask_Command.Sharpen), "Blur", "Sharpen")
@@ -224,7 +224,7 @@ kit_visibility :: proc(app: ^App, obj: ^Object) {
 		ui.paragraph(ctx, "Letting go cuts the selected object in two along the line, through to the back, and closes each cut: the part on the right of the drag becomes an object of its own. Levels, mask and hiding are dropped.")
 	}
 	kit_command_pair(app, .Show_All, .Invert_Hidden, label_b = "Invert hiding")
-	ui.paragraph(ctx, fmt.tprintf("%s shows all; %s inverts.", command_keys(.Show_All), command_keys(.Invert_Hidden)))
+	ui.paragraph(ctx, fmt.tprintf("%s shows all; %s inverts.", command_keys(app, .Show_All), command_keys(app, .Invert_Hidden)))
 	kit_last_result(app, .Visibility)
 	if app.stats.slice_ms > 0 do ui.paragraph(ctx, fmt.tprintf("Last slice: %.0f ms, ready in %.0f ms more.", app.stats.slice_ms, app.stats.slice_setup_ms))
 }
@@ -243,7 +243,7 @@ kit_groups :: proc(app: ^App) {
 	ctx := &app.kit.ctx
 	kit_command_pair(app, .Group, .Group, int(sculpt.Group_Command.Visible), int(sculpt.Group_Command.Masked), "Group visible", "Group masked")
 	_ = ui.switch_row(ctx, "Show polygroups", &app.show_groups, keys = command_hint(app, .Polygroups))
-	ui.paragraph(ctx, fmt.tprintf("%s groups the masked part (clearing the mask), or with nothing masked what is shown. Ctrl + Shift click a group to show only it (again: everything but it); with Alt, to mask it. %s shows the groups. Not in HD or with dynamic topology.", command_keys(.Group_Shortcut), command_keys(.Polygroups)))
+	ui.paragraph(ctx, fmt.tprintf("%s groups the masked part (clearing the mask), or with nothing masked what is shown. Ctrl + Shift click a group to show only it (again: everything but it); with Alt, to mask it. %s shows the groups. Not in HD or with dynamic topology.", command_keys(app, .Group_Shortcut), command_keys(app, .Polygroups)))
 	if kit_more(app, .Groups) {
 		_ = ui.slider(ctx, "Crease angle", &app.ui.crease_degrees, 1, 90, .Linear, fmt.tprintf("%.0f°", app.ui.crease_degrees))
 		kit_command_pair(app, .Group, .Group, int(sculpt.Group_Command.Creases), int(sculpt.Group_Command.Clear), "Groups by creases", "Clear groups", tone_b = .Danger)
@@ -282,7 +282,7 @@ kit_remesh :: proc(app: ^App) {
 	ctx := &k.ctx
 	if picked := ui.select(ctx, "remesh size", kit_size_names(), k.add_size); picked >= 0 do k.add_size = picked
 	kit_command_pair(app, .Remesh_To, .Decimate_To, k.add_size, k.add_size, "Remesh", "Decimate", tone_a = .Accent)
-	ui.paragraph(ctx, fmt.tprintf("Remesh rebuilds the object as an even mesh of this many vertices that keeps its shape (%s: at its own count). Decimate keeps the shape with about this many: dense where the detail is, sparse where it is flat. Ctrl+Z brings levels and mask back.", command_keys(.Remesh)))
+	ui.paragraph(ctx, fmt.tprintf("Remesh rebuilds the object as an even mesh of this many vertices that keeps its shape (%s: at its own count). Decimate keeps the shape with about this many: dense where the detail is, sparse where it is flat. Ctrl+Z brings levels and mask back.", command_keys(app, .Remesh)))
 	if s := app.stats; s.remesh_ms > 0 do ui.paragraph(ctx, fmt.tprintf("Last remesh: %.0f ms, then %.0f ms to sculpt-ready.", s.remesh_ms, s.remesh_setup_ms))
 	if s := app.stats; s.decimate_ms > 0 do ui.paragraph(ctx, fmt.tprintf("Last decimate: %.0f ms, strays at most %.4f.", s.decimate_ms, s.decimate_error))
 }
