@@ -16,6 +16,7 @@ Settings_Tab :: enum u8 {
 	Interface,
 	Camera,
 	Touch,
+	Keys,
 	Performance,
 }
 
@@ -23,7 +24,10 @@ SETTINGS_TAB_NAMES := [Settings_Tab]string {
 	.Interface   = "Interface",
 	.Camera      = "Camera",
 	.Touch       = "Touch",
-	.Performance = "Performance",
+	.Keys        = "Keys",
+	// "Performance" is wider than a fifth of the panel; the statistics and VSync are the
+	// system's side of things.
+	.Performance = "System",
 }
 
 // The interface sizes on offer, times what the display asks for. None is smaller than
@@ -68,10 +72,12 @@ kit_settings :: proc(app: ^App) -> (raised: bool) {
 	// The category scrolls in the room left between the tabs and the buttons below.
 	body_h := max(room - 2 * 16 - 3 * 8 - 3 * t.target, 120)
 	scroll := kit_scroll_begin(ctx, "settings body", &k.settings_scroll, id, inner, body_h, 4)
+	k.settings_body = scroll.at
 	switch k.settings_tab {
 	case .Interface:   settings_interface(app)
 	case .Camera:      settings_camera(app)
 	case .Touch:       settings_touch(app)
+	case .Keys:        settings_keys(app)
 	case .Performance: settings_performance(app)
 	}
 	ui.spacer(ctx, 4)
@@ -133,6 +139,10 @@ settings_reset :: proc(app: ^App, tab: Settings_Tab) {
 		n.pinch_zoom, n.two_finger_pan, n.zoom_toward, n.twist_roll = d.pinch_zoom, d.two_finger_pan, d.zoom_toward, d.twist_roll
 		n.three_finger, n.tap_history = d.three_finger, d.tap_history
 		n.double_tap, n.lift_one_orbit, n.hold_history = d.double_tap, d.lift_one_orbit, d.hold_history
+	case .Keys:
+		bind_reset_all(app)
+		n.mouse_scheme = d.mouse_scheme
+		k.keys_query = {}
 	case .Performance:
 		k.stats, k.stats_advanced = false, false
 		app.vsync = true

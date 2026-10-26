@@ -106,14 +106,13 @@ class Script:
         x, y = path[0]
         self.add(f"move:{x:g},{y:g}")
         self.wait(1)
-        if button == "left":
-            self.add("down")
+        down, up = {"left": ("down", "up"), "middle": ("mdown", "mup"), "right": ("rdown", "rup")}[button]
+        self.add(down)
         for x, y in path[1:]:
             self.wait(1)
             self.add(f"move:{x:g},{y:g}")
         self.wait(1)
-        if button == "left":
-            self.add("up")
+        self.add(up)
         for k in keys:
             self.add(f"keyup:{k}")
         self.wait(3)
@@ -748,7 +747,7 @@ def open_settings(s, tab):
     s.wait(10)
     s.ftap(*UI["menu_settings"])
     s.wait(16)
-    s.ftap(*{"interface": (1250, 158), "camera": (1342, 158), "touch": (1433, 158), "performance": (1523, 158)}[tab])
+    s.ftap(*{"interface": (1241, 158), "camera": (1315, 158), "touch": (1388, 158), "keys": (1462, 158), "performance": (1535, 158)}[tab])
     s.wait(10)
 
 
@@ -1970,6 +1969,95 @@ def pies_come_back_from_settings():
     s.add(f"move:{EMPTY[0]},{EMPTY[1]}")
     s.wait(6)
     return s, [f"--settings-file={settings_file()}"], {"favourites": near(1), "pie3": lambda v: v.startswith("Wireframe,empty")}
+
+
+# Settings > Keys at 1600 by 900: its search field, and the first row under the first
+# caption (with "wire" typed, Wireframe; with nothing, New scene: Sphere).
+KEYS_SEARCH, KEYS_FIRST_ROW = (1388, 497), (1388, 573)
+
+
+def mouse_scheme_settings(scheme):
+    with open(settings_file(), "w") as f:
+        f.write(f"mouse_scheme {scheme}\n")
+    return f"--settings-file={settings_file()}"
+
+
+@scenario
+def mouse_blender_middle_turns():
+    """With the Blender mouse, a middle drag turns the view and pans nothing."""
+    s = Script()
+    s.mouse_drag(line((800, 450), (900, 450), 10), button="middle")
+    return s, [mouse_scheme_settings("Blender")], {"camera_yaw": lambda v: abs(float(v) - CAMERA0["camera_yaw"]) > 0.05, "camera_target": lambda v: v == "0.0000,0.0000,0.0000"}
+
+
+@scenario
+def mouse_blender_shift_middle_pans():
+    """With the Blender mouse, Shift + middle drag pans: the target moves and the view does not turn."""
+    s = Script()
+    s.mouse_drag(line((800, 450), (900, 450), 10), button="middle", keys=("shift",))
+    return s, [mouse_scheme_settings("Blender")], {"camera_yaw": near(CAMERA0["camera_yaw"]), "camera_target": lambda v: v != "0.0000,0.0000,0.0000"}
+
+
+@scenario
+def mouse_zbrush_middle_pans():
+    """With the ZBrush mouse (the default), a middle drag pans and does not turn."""
+    s = Script()
+    s.mouse_drag(line((800, 450), (900, 450), 10), button="middle")
+    return s, [], {"camera_yaw": near(CAMERA0["camera_yaw"]), "camera_target": lambda v: v != "0.0000,0.0000,0.0000"}
+
+
+@scenario
+def mouse_maya_alt_right_zooms():
+    """With the Maya mouse, Alt + right drag zooms rather than pans."""
+    s = Script()
+    s.mouse_drag(line((800, 450), (800, 350), 10), button="right", keys=("alt",))
+    return s, [mouse_scheme_settings("Maya")], {"camera_distance": lambda v: abs(float(v) - CAMERA0["camera_distance"]) > 0.05, "camera_target": lambda v: v == "0.0000,0.0000,0.0000"}
+
+
+@scenario
+def keys_tab_row_assigns_a_key():
+    """Settings > Keys: typing "wire" finds Wireframe, a tap on its row opens Assign key beside it, and K becomes its key."""
+    s = Script()
+    open_settings(s, "keys")
+    s.ftap(*KEYS_SEARCH)
+    s.wait(4)
+    s.type("wire")
+    s.wait(6)
+    s.ftap(*KEYS_FIRST_ROW)
+    s.wait(8)
+    s.press("k")
+    s.wait(4)
+    return s, [], camera_still({"bind_open": near(1), "bind_command": is_text("Wireframe"), "bind_state": is_text("assigned"), "key_overrides": near(1), "settings_open": near(1)})
+
+
+@scenario
+def keys_search_escape_keeps_settings():
+    """Escape in Settings > Keys' search field lets the field go and leaves Settings open."""
+    s = Script()
+    open_settings(s, "keys")
+    s.ftap(*KEYS_SEARCH)
+    s.wait(4)
+    s.type("undo")
+    s.wait(4)
+    s.press("Escape")
+    s.wait(6)
+    return s, [], camera_still({"settings_open": near(1), "settings_tab": is_text("Keys")})
+
+
+@scenario
+def keys_popover_closes_when_its_row_scrolls_away():
+    """Assign key opened from a row of Settings > Keys closes once the wheel scrolls that row out of view."""
+    s = Script()
+    open_settings(s, "keys")
+    s.ftap(*KEYS_FIRST_ROW)
+    s.wait(8)
+    s.add("move:1388,650")
+    s.wait(2)
+    for _ in range(6):
+        s.add("wheel:-5")
+        s.wait(2)
+    s.wait(20)
+    return s, [], camera_still({"bind_open": near(0), "settings_open": near(1), "key_overrides": near(0)})
 
 
 @scenario

@@ -5,7 +5,7 @@ import "core:fmt"
 import "../sculpt"
 import "../ui"
 
-// The Stats panel (F11, Menu > Stats, Settings > Performance). Simple, it says how
+// The Stats panel (F11, Menu > Stats, Settings > System). Simple, it says how
 // smoothly the app runs in plain words, grouped as performance, mesh and memory; Advanced,
 // it shows every measurement by the name the app prints on exit (`ui_ms` and so on) with
 // its p50 and p99, the drawing switches for comparing speed, and what the brush costs.

@@ -93,7 +93,7 @@ are on the device checklist.
 
 ## 5. Writing a new scenario
 - A scenario is a function under `@scenario` returning `(Script, extra_args, checks)`. `Script` builds `--ui-events`
-  frame by frame: `ftap(x, y)`, `fdrag(path)`, `fingers(starts, moves, frames)`, `mouse_drag(path, keys=...)`,
+  frame by frame: `ftap(x, y)`, `fdrag(path)`, `fingers(starts, moves, frames)`, `mouse_drag(path, button="left|middle|right", keys=...)`,
   `press(key, mods)`, `type("text")` (each letter as its key and as `text:` input, which lands only while a text field
   has the keys, so from about the second frame after the palette opens), or
   `add("pdown:x,y")` and the rest of the raw events (README "App flags"). `line(a, b, n)` makes a path; `past_slop`

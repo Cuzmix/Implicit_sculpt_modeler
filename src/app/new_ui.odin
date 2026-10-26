@@ -66,6 +66,8 @@ Kit_State :: struct {
 	settings:   bool, // the Settings panel (Menu > Settings)
 	settings_tab: Settings_Tab,
 	settings_scroll: f32,
+	settings_body: ui.Rect, // the scrolling body as last laid out, for Settings > Keys' popover
+	keys_query: [64]u8, // Settings > Keys' search
 	settings_wipe: f64, // when Reset everything was first tapped: a second tap soon after resets
 	// The New scene shape armed by a first run while the scene had work to lose (its
 	// NEW_SCENE_SHAPES index + 1, 0 for none) and when: a second run soon after goes ahead.
@@ -285,6 +287,11 @@ Kit_Event_Kind :: enum u8 {
 	Down,
 	Up,
 	Right,
+	// The middle and right buttons held and let go apart, for drags with them.
+	Middle_Down,
+	Middle_Up,
+	Right_Down,
+	Right_Up,
 	Wheel,
 	Key,
 	Key_Up,
@@ -331,6 +338,10 @@ kit_events_parse :: proc(app: ^App, spec: string) -> bool {
 			case "down":   ev.kind = .Down
 			case "up":     ev.kind = .Up
 			case "right":  ev.kind = .Right
+			case "mdown":  ev.kind = .Middle_Down
+			case "mup":    ev.kind = .Middle_Up
+			case "rdown":  ev.kind = .Right_Down
+			case "rup":    ev.kind = .Right_Up
 			case "pup":    ev.kind = .Pen_Up
 			case "pnear":  ev.kind = .Pen_Near
 			case "pfar":   ev.kind = .Pen_Far
@@ -400,6 +411,11 @@ kit_events_push :: proc(app: ^App, window: ^sdl.Window) {
 			push(e)
 		case .Down, .Up:
 			e.button = {type = .MOUSE_BUTTON_DOWN if ev.kind == .Down else .MOUSE_BUTTON_UP, timestamp = now, windowID = win, which = SCRIPTED_MOUSE, button = u8(sdl.BUTTON_LEFT), down = ev.kind == .Down, clicks = 1, x = d.mouse.x, y = d.mouse.y}
+			push(e)
+		case .Middle_Down, .Middle_Up, .Right_Down, .Right_Up:
+			down := ev.kind == .Middle_Down || ev.kind == .Right_Down
+			button := sdl.BUTTON_MIDDLE if ev.kind == .Middle_Down || ev.kind == .Middle_Up else sdl.BUTTON_RIGHT
+			e.button = {type = .MOUSE_BUTTON_DOWN if down else .MOUSE_BUTTON_UP, timestamp = now, windowID = win, which = SCRIPTED_MOUSE, button = u8(button), down = down, clicks = 1, x = d.mouse.x, y = d.mouse.y}
 			push(e)
 		case .Right:
 			for down in ([2]bool{true, false}) {
@@ -647,7 +663,8 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 	// Escape stops a replay.
 	if key_pressed(d, sdl.K_ESCAPE) || key_pressed(d, sdl.K_AC_BACK) {
 		// The topmost goes first: what floats, and only then Settings or Help.
-		if side_panel_open(k) && !floating && !kit_floating(app) do side_panel_close(app)
+		// An Escape that ended typing in a field (Settings > Keys' search) was the field's.
+		if side_panel_open(k) && !floating && !kit_floating(app) && !typed do side_panel_close(app)
 		if k.palette do palette_close(app)
 		k.menu, k.view_menu, k.browser, k.dock_menu, k.object_menu, k.action_pop = false, false, false, false, false, false
 		k.bind.open, k.pie_editor = false, false
@@ -696,10 +713,9 @@ kit_viewport_input :: proc(app: ^App, size: [2]f32) -> (input: Viewport_Input) {
 	// frame): the press still holds for this frame, and the release among the samples
 	// ends what it began; the next frame sees the button up.
 	left := .Left in d.down || .Left in d.pressed
-	right, middle := .Right in d.down, .Middle in d.down
 	if input.dragging {
-		input.orbit_drag = (right && !d.shift) || (left && d.alt && !d.ctrl)
-		input.pan_drag = middle || (right && d.shift)
+		// What the right and middle buttons do to the view is pointer_route's to say
+		// (mouse_button_owner), by the mouse scheme in Settings > Keys.
 		input.primary = left && (!d.alt || d.ctrl)
 		input.alt = input.primary && d.alt
 		input.press = input.primary && .Left in d.pressed

@@ -498,8 +498,10 @@ list_row :: proc(ctx: ^Context, s: string, detail := "", selected := false, glyp
 // An item in a menu or a select's list: an optional icon, the label, and on the right
 // the shortcut or a check when `checked`. `hint`, when given, shows in a tooltip beside
 // the label (the shortcut with a touch gesture, which the row has no room for). `starred`
-// puts a small star after the label (the palette's favourites). Returns true when picked.
-menu_item :: proc(ctx: ^Context, s: string, keys := "", glyph: rune = 0, checked := false, tone := Tone.Neutral, enabled := true, highlight := false, hint := "", starred := false) -> bool {
+// puts a small star after the label (the palette's favourites). `keys_accent` draws the
+// shortcut in the accent colour (a key the user chose), `keys_muted` fainter (none).
+// Returns true when picked.
+menu_item :: proc(ctx: ^Context, s: string, keys := "", glyph: rune = 0, checked := false, tone := Tone.Neutral, enabled := true, highlight := false, hint := "", starred := false, keys_accent := false, keys_muted := false) -> bool {
 	ctx.controls += 1
 	t := ctx.theme
 	shown := label_text(s)
@@ -528,7 +530,8 @@ menu_item :: proc(ctx: ^Context, s: string, keys := "", glyph: rune = 0, checked
 	if checked {
 		icon(ctx, ICON_CHECK, {right - t.icon_small * 0.5, vis.y + vis.h * 0.5}, t.icon_small, t.accent)
 	} else if keys != "" {
-		text(ctx, keys, right, vis.y + vis.h * 0.5, t.small_size, t.text_tertiary, .Regular, .Right)
+		color := t.accent if keys_accent else (color_fade(t.text_tertiary, 0.6) if keys_muted else t.text_tertiary)
+		text(ctx, keys, right, vis.y + vis.h * 0.5, t.small_size, color, .Semibold if keys_accent else .Regular, .Right)
 	}
 	if hint != "" do tip(ctx, id, vis, shown, hint)
 	return clicked
