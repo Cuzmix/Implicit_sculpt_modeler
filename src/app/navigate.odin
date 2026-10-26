@@ -32,7 +32,7 @@ Drag :: struct {
 	// sculpting first.
 	pending: bool,
 	held:    [dynamic]Input_Sample,
-	at:      time.Tick,
+	at:      f64, // input_clock at the press
 	snap:    bool, // Shift snapped the view during this drag...
 	free:    camera.Orbit, // ...which follows the drag unsnapped meanwhile
 	pivot:   Vec3, // what an orbit turns about, decided at the press (orbit_pivot)
@@ -184,7 +184,7 @@ pointer_route :: proc(app: ^App, input: ^Viewport_Input) {
 	// after a cancel, while still held.
 	if g.owner == .None && input.dragging && (buttons != {} || d.pressed & {.Left, .Right, .Middle} != {}) {
 		owner, empty := drag_decide(app, input^)
-		g^ = {owner = owner, empty = empty, from = d.mouse, last = d.mouse, at = time.tick_now(), held = g.held}
+		g^ = {owner = owner, empty = empty, from = d.mouse, last = d.mouse, at = input_clock(app), held = g.held}
 		g.moving = d.pointer == .Mouse
 		g.pending = g.owner == .Tool && d.pointer == .Finger && app.tool == .Brush
 		clear(&g.held)
@@ -217,7 +217,7 @@ pointer_route :: proc(app: ^App, input: ^Viewport_Input) {
 		if g.pending {
 			append(&g.held, ..input.samples)
 			lifted := buttons == {}
-			if lifted || g.travel > slop || time.tick_since(g.at) >= FINGER_HOLD {
+			if lifted || g.travel > slop || input_clock(app) - g.at >= time.duration_seconds(FINGER_HOLD) {
 				// One finger after all: the stroke begins where the finger first landed,
 				// following every sample it made meanwhile.
 				g.pending = false
