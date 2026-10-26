@@ -180,7 +180,7 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
 | a new scrolling panel | `scroll_update(ctx, id, prev_rect(ctx, name), &scroll, limit)` before the body, `begin` it with `clip`, `scroll` and `drag_scroll = true`, `scroll_take(ctx, id, scroll, limit, root)` after; follow the drag with tween duration 0 |
 | a new floating panel | a `Kit_Window` value, a place in `KIT_WINDOW_ORDER`, its proc returning `raised` from `ui.window_begin` (default anchors as `begin_anchored`'s) with its body only while `body`, `ui.window_end`, a case in `kit_layout`'s loop and in the exit stats' `window_*` names; scroll its body as above, sized by `window_room` |
 | a long press (secondary action) on a control | `if ui.secondary(ctx) do ...` right after the widget (a value slider: `vslider(reset = v)`); add a row to README "Touch and pen" and a `long_press(s, x, y)` scenario; a control without one shows its tooltip |
-| a touch gesture | measure in `touch_route` (Viewport owner only, every finger still down: `f.count == f.most`), write a `Viewport_Input` field, apply it in `camera_apply_input` (it runs with no pointer down) or the tool; a switch in Settings > Touch; a scenario in `scripts/touch_check.py` |
+| a touch gesture | measure in `touch_route` (Viewport owner only, every finger still down: `f.count == f.most`; the one exception is `touch_lift_orbit`, the finger left of two, which runs first and keeps the touch once armed), write a `Viewport_Input` field, apply it in `camera_apply_input` (it runs with no pointer down) or the tool; a switch in Settings > Touch; a scenario in `scripts/touch_check.py` |
 | a curve to drag, a colour, a count | `kit_curve_editor`, `kit_color`, `kit_count` (`kit_widgets.odin`) |
 
 ## Traps

@@ -1,6 +1,7 @@
 package main
 
 import "core:math"
+import "core:math/linalg"
 import "core:time"
 import sdl "vendor:sdl3"
 
@@ -41,6 +42,51 @@ Touch :: struct {
 	rolling:   bool, // the twist passed TWIST_DEADZONE: the view rolls with it
 	adjust:    [2]f32, // three fingers' travel...
 	axis:      int, // ...and what it sets: 0 strength, 1 size, -1 not yet decided
+	lift:      Lift_Orbit,
+	hold:      Hold_History,
+}
+
+// Two fingers down, then one lifted: the one left turns the view (Nomad's orbit for when
+// the model fills the screen). Only after a pair that stayed still, so the finger left
+// rolling off the end of a pinch never turns the view by itself.
+Lift_Orbit :: struct {
+	decided: bool, // whether this lift may orbit was decided...
+	armed:   bool, // ...and it may
+	moving:  bool, // the finger passed the slop from `from`: it turns the view
+	from:    [2]f32, // where the finger was when the other lifted
+	last:    [2]f32,
+	pivot:   Vec3, // decided once, as it starts to turn
+}
+
+// Two or three fingers held still: undo or redo once at the long press, then again
+// every HOLD_REPEAT until a finger moves or lifts (Nomad's and Procreate's hold).
+Hold_History :: struct {
+	since: f64, // input_clock when the last finger landed
+	late:  bool, // a finger landed HOLD_LAND or more after the first, as a palm's do
+	off:   bool, // moved, zoomed, twisted or the pen came: no more for this touch
+	zoom:  f32, // how much the fingers' spread changed since they landed
+	twist: f32,
+	fired: int, // steps due so far (one a frame)...
+	taken: int, // ...and taken in this touch (nothing left to undo takes none)
+	done:  int, // ...and over the whole run, for the exit stats
+	ring:  f32, // the ring's fill this frame, 0 to 1, or -1 for no ring
+	at:    [2]f32, // the fingers' middle
+	most:  int, // 2 undoes, 3 redoes
+}
+
+// Fingers of a hold land within this many seconds of the first, as a hand's do.
+HOLD_LAND :: 0.15
+// Seconds between repeated steps once the hold fired.
+HOLD_REPEAT :: 0.12
+// A spread change this large (as a log) or a twist this large (radians) is a pinch or a
+// turn beginning, not a hold.
+HOLD_ZOOM :: 0.03
+HOLD_TWIST :: 3 * math.PI / 180
+
+// How many steps a hold of `held` seconds is due: one at `long`, then one every `every`.
+hold_due :: proc(held, long, every: f64) -> int {
+	if held < long do return 0
+	return 1 + int((held - long) / every)
 }
 
 // Who a touch belongs to.
@@ -91,11 +137,17 @@ touch_event :: proc(app: ^App, e: ^sdl.Event, window: ^sdl.Window) {
 			}
 			if !ui.fingers_down(&t.fingers, id, at, now) {
 				if t.fingers.count >= 2 && !t.gesture do touch_gesture_begin(app)
+				// A finger landing ends a lift's orbit; a late one is no hold.
+				t.lift = {}
+				t.hold.since = now
+				if now - t.fingers.began >= HOLD_LAND do t.hold.late = true
 				return
 			}
 			// The first finger of a touch: it becomes the pointer, unless the pen is about.
 			t.owner, t.gesture, t.tap = .None, false, 0
 			t.twist, t.rolling, t.adjust, t.axis = 0, false, {}, -1
+			t.lift = {}
+			t.hold = {since = now, zoom = 1, done = t.hold.done, ring = -1}
 			t.palm = app.nav.palm_rejection && (t.pen_near || t.pen_down)
 			t.pointing = !t.palm
 			t.pointer = id
@@ -129,7 +181,8 @@ touch_event :: proc(app: ^App, e: ^sdl.Event, window: ^sdl.Window) {
 			}
 			// Only a gesture's tap is the touch's own: one finger's tap is the pointer's
 			// click, which the panels or the tool take.
-			if tap >= 2 && t.gesture && t.owner == .Viewport do t.tap = tap
+			// A tap whose finger left turned the view was an orbit.
+			if tap >= 2 && t.gesture && t.owner == .Viewport && !t.lift.moving do t.tap = tap
 		}
 	case .WINDOW_FOCUS_LOST, .DID_ENTER_BACKGROUND:
 		// Fingers lifted while the app is away never arrive: forget them, cancelled.
@@ -205,15 +258,19 @@ touch_route :: proc(app: ^App, input: ^Viewport_Input) {
 		}
 		t.tap = 0
 	}
+	t.hold.ring = -1
 	if t.owner != .Viewport || !t.gesture {
 		_ = ui.fingers_change(&t.fingers) // keep the measure current for when it is
 		return
 	}
 	change := ui.fingers_change(&t.fingers)
 	f := &t.fingers
-	// Only while every finger of the gesture is still down: lifting one never turns what
-	// is left into a different gesture.
+	if touch_lift_orbit(app, input) do return
+	// Otherwise only while every finger of the gesture is still down: lifting one never
+	// turns what is left into a different gesture.
 	if f.count < 2 || f.count != f.most do return
+	// A hold that undoes or redoes keeps the touch for itself.
+	if touch_hold_history(app, change) do return
 	nav := app.nav
 	if f.most == 2 {
 		if nav.two_finger_pan do input.touch_pan = change.pan * nav.pan_speed
@@ -243,6 +300,72 @@ touch_route :: proc(app: ^App, input: ^Viewport_Input) {
 			s^ = clamp(s^ + change.pan.x / (400 * app.kit.scale), MIN_STRENGTH, 1)
 		}
 	}
+}
+
+// The finger left down after one of two lifted turns the view, once it moves past the
+// slop (Lift_Orbit). Returns whether the touch is in that state, so nothing else reads it.
+@(private = "file")
+touch_lift_orbit :: proc(app: ^App, input: ^Viewport_Input) -> bool {
+	t := &app.touch
+	f := &t.fingers
+	l := &t.lift
+	if f.count != 1 || f.most != 2 do return false
+	slop := app.kit.ctx.theme.slop * app.kit.scale
+	if !l.decided {
+		l.decided = true
+		still := f.travel <= slop && t.hold.fired == 0
+		l.armed = app.nav.lift_one_orbit && still && !t.palm && !t.pen_near && !t.pen_down
+		l.from, l.last = f.down[0].at, f.down[0].at
+	}
+	// The pen coming near is the hand going back to work: the finger stops turning.
+	if t.pen_near || t.pen_down do l.armed = false
+	if !l.armed do return false
+	at := f.down[0].at
+	if !l.moving {
+		if linalg.length(at - l.from) <= slop do return true
+		l.moving, l.last = true, at
+		l.pivot, app.pivot.from = orbit_pivot(app, at, input.size)
+		app.pivot.used = l.pivot
+		return true
+	}
+	input.touch_orbit, input.touch_pivot = at - l.last, l.pivot
+	l.last = at
+	return true
+}
+
+// Two or three fingers held still undo or redo (Hold_History). Returns whether the hold
+// has fired, after which it keeps the touch: no pan, zoom, roll or size and strength.
+@(private = "file")
+touch_hold_history :: proc(app: ^App, change: ui.Finger_Change) -> bool {
+	t := &app.touch
+	f := &t.fingers
+	h := &t.hold
+	h.zoom *= change.zoom
+	h.twist += change.twist
+	h.at, h.most = change.middle, f.most
+	if h.off do return h.fired > 0
+	slop := app.kit.ctx.theme.slop * app.kit.scale
+	still := f.travel <= slop && abs(math.ln(h.zoom)) < HOLD_ZOOM && abs(h.twist) < HOLD_TWIST
+	if !app.nav.hold_history || f.most > 3 || t.palm || t.pen_near || t.pen_down || h.late || !still {
+		h.off = true
+		return h.fired > 0
+	}
+	theme := app.kit.ctx.theme
+	held := input_clock(app) - h.since
+	h.ring = clamp(f32(held - f64(theme.long_ring)) / (theme.long_press - theme.long_ring), 0, 1) if held >= f64(theme.long_ring) else -1
+	// One step a frame at most: an undo that swaps a mesh can take longer than the gap.
+	if hold_due(held, f64(theme.long_press), HOLD_REPEAT) > h.fired {
+		h.fired += 1
+		stroke_finish(app)
+		if f.most == 2 && history_can_undo(app) {
+			history_undo(app)
+			h.taken, h.done = h.taken + 1, h.done + 1
+		} else if f.most == 3 && history_can_redo(app) {
+			history_redo(app)
+			h.taken, h.done = h.taken + 1, h.done + 1
+		}
+	}
+	return h.fired > 0
 }
 
 // Radians two fingers turn before the twist rolls the view.

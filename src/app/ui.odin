@@ -91,6 +91,8 @@ Viewport_Input :: struct {
 	touch_zoom:  f32, // ...and their spread grew this many times; 0 for no fingers
 	touch_zoom_at: [2]f32, // ...toward this point, from the viewport's middle (x right, y down)
 	touch_roll:  f32, // ...and they twisted this many radians clockwise
+	touch_orbit: [2]f32, // the finger left of two moved this far, turning the view...
+	touch_pivot: Vec3, // ...about this point (touch_lift_orbit)
 }
 
 CLOTH_MODE_NAMES := [sculpt.Cloth_Mode]cstring {
@@ -131,7 +133,7 @@ reset_camera :: proc(app: ^App) {
 	ortho := app.camera.ortho
 	app.camera = camera.orbit_default()
 	app.camera.ortho = ortho
-	app.pivot.set = false
+	app.pivot.set, app.pivot.pinned = false, false
 }
 
 PRESSURE_PRESETS := [?]struct {
