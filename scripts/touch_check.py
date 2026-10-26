@@ -3251,7 +3251,10 @@ def run_one(name, step, screens, displays):
                 good = ok(stats)
             except (KeyError, ValueError):
                 good = False
-            if not good:
+            # A check may say what was wrong instead of only False.
+            if isinstance(good, str):
+                failures.append(f"{key} wrong: {good}")
+            elif not good:
                 failures.append(f"{key} wrong")
         elif key not in stats:
             failures.append(f"{key} missing")
@@ -3302,6 +3305,16 @@ def autosave_args(*more):
 def autosave_files(ext=".sculpt"):
     folder = autosave_folder()
     return sorted(f for f in os.listdir(folder) if f.endswith(ext)) if os.path.isdir(folder) else []
+
+
+def same_file(a, b):
+    """True when files `a` and `b` hold the same bytes, else where they differ, so a rare
+    mismatch says something the next time it happens (both files are kept)."""
+    x, y = open(a, "rb").read(), open(b, "rb").read()
+    if x == y:
+        return True
+    at = next((i for i in range(min(len(x), len(y))) if x[i] != y[i]), min(len(x), len(y)))
+    return f"{len(x)} bytes against {len(y)}, first difference at byte {at} ({a} and {b})"
 
 
 def stroke_then_rest(s, frames=150):
@@ -3356,7 +3369,7 @@ def autosave_crash_then_recover():
     after = Script()
     after.wait(10)
     click(after, CARD["recover"])
-    same = lambda _: open(control, "rb").read() == open(recovered, "rb").read()
+    same = lambda _: same_file(control, recovered)
     return Steps([
         (stroke_then_rest(Script(), 5), [f"--export={control}"], {}),
         crash_after_stroke(),
