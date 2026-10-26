@@ -1322,9 +1322,15 @@ run :: proc(opts: Options) -> bool {
 			fmt.printf("window_%s=%d,%d,%.0f,%.0f ", strings.to_lower(fmt.tprint(which), context.temp_allocator), int(open[which]), int(w.minimized), r.x, r.y)
 		}
 		fmt.println()
+		// The side bars' popover: what it shows (a section by its name), or none; the look.
+		pop := "none"
+		if p := k.bar_pop; p.open do pop = strings.to_lower(fmt.tprint(p.section) if p.kind == .Section else fmt.tprint(p.kind), context.temp_allocator)
+		axes := strings.builder_make(context.temp_allocator)
+		for axis in app.brush.symmetry do strings.write_string(&axes, strings.to_lower(fmt.tprint(axis), context.temp_allocator))
+		fmt.printfln("bar_pop=%s look=%s symmetry=%s", pop, strings.to_lower(fmt.tprint(k.look), context.temp_allocator), strings.to_string(axes) if app.brush.symmetry != {} else "none")
 		// Where the modifier rail and what must stay clear of it ended up, in points, for
 		// touch_check's window size scenarios.
-		for name in ([?]string{"modifier rail", "sliders", "dock", "status", "inspector", "action bar", "coach", "tools", "top left", "top right", "adjust last", "shape bar"}) {
+		for name in ([?]string{"modifier rail", "brush bar", "dock", "points", "inspector", "action bar", "coach", "view bar", "top bar", "adjust last", "shape bar"}) {
 			r := ui.prev_rect(&k.ctx, name)
 			key, _ := strings.replace_all(name, " ", "_", context.temp_allocator)
 			fmt.printf("layout_%s=%.0f,%.0f,%.0f,%.0f ", key, r.x, r.y, r.w, r.h)

@@ -265,7 +265,7 @@ kit_history_panel :: proc(app: ^App) -> (raised: bool) {
 	// Help in the inspector's place, else the inspector) and the same margin on the other
 	// side, within its least and most.
 	right: f32 = KIT_SETTINGS_W + 8 if side_panel_open(k) else KIT_INSPECTOR_W + 8 if k.inspector else 0
-	side := t.edge + right
+	side := max(kit_right(app) + right, kit_left(app))
 	width := clamp(ui.safe_area(ctx).w - 2 * side, KIT_HISTORY_MIN_W, KIT_HISTORY_W)
 	mark := ui.vertex_mark(ctx)
 	body, closed, raised_now := ui.window_begin(ctx, "history panel", "History", &k.windows[.History], .Center, .End, {0, t.edge + dock.y + 8}, {direction = .Column, gap = 4, padding = 10, width = width, radius = t.radius_large, background = .Panel, inert = !k.history})

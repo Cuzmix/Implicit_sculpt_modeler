@@ -48,13 +48,13 @@ kit_settings :: proc(app: ^App) -> (raised: bool) {
 	shown := ui.presence(ctx, id, k.settings, t.panel_time)
 	if shown <= 0 do return
 	win := &k.windows[.Settings]
-	top := t.edge + t.target + 8
+	top := kit_top()
 	room := window_room(app, win^, top)
-	if status, _ := ui.prev_layout(ctx, "status"); status.y > 0 && !win.moved do room -= status.y + 8
+	if !win.moved do room -= side_panel_below(app, KIT_SETTINGS_W)
 	inner := f32(KIT_SETTINGS_W - 2 * 16)
 
 	mark := ui.vertex_mark(ctx)
-	body, closed, raised_now := ui.window_begin(ctx, "settings", "Settings", win, .End, .Start, {t.edge, top}, {direction = .Column, gap = 8, padding = 16, width = KIT_SETTINGS_W, radius = t.radius_large, background = .Panel, inert = !k.settings}, "Esc")
+	body, closed, raised_now := ui.window_begin(ctx, "settings", "Settings", win, .End, .Start, {kit_right(app), top}, {direction = .Column, gap = 8, padding = 16, width = KIT_SETTINGS_W, radius = t.radius_large, background = .Panel, inert = !k.settings}, "Esc")
 	raised = raised_now
 	if closed do settings_close(app)
 	if !body {
@@ -122,6 +122,7 @@ settings_reset :: proc(app: ^App, tab: Settings_Tab) {
 	d := NAV_DEFAULT
 	switch tab {
 	case .Interface:
+		k.look = .Studio
 		k.ui_scale = 1
 		k.ctx.reduced_motion = false
 		k.surface_ring = true
@@ -156,6 +157,12 @@ settings_reset :: proc(app: ^App, tab: Settings_Tab) {
 settings_interface :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
+	ui.caption(ctx, "LOOK")
+	looks: [len(Look)]string
+	for l in Look do looks[int(l)] = LOOK_NAMES[l]
+	if picked := ui.tabs(ctx, "Look", looks[:], int(k.look)); picked >= 0 do k.look = Look(picked)
+	ui.paragraph(ctx, "Studio is neutral grey with an orange accent, so the clay's own colour reads true; Graphite is the cooler dark grey with a blue accent.")
+	ui.spacer(ctx, 8)
 	ui.caption(ctx, "SIZE")
 	names: [len(UI_SCALES)]string
 	chosen := 0

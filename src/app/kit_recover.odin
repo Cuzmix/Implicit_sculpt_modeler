@@ -33,16 +33,11 @@ kit_recover :: proc(app: ^App) {
 	k.recover_shown = false
 	if !recover_shown(app) do return
 	o := app.autosave.offers[0]
-	area := ui.safe_area(ctx)
-	right := t.edge + (KIT_INSPECTOR_W + 8 if k.inspector else 0)
-	room := area.w - t.edge - right
-	if room < 280 do return
+	shift, w, top, fits := kit_card_place(app, 460, 280)
+	if !fits do return
 	k.recover_shown = true
-	w := min(460, room)
-	shift: f32 = 0
-	if (area.w + w) * 0.5 > area.w - right do shift = (t.edge - right) * 0.5
 	mark := ui.vertex_mark(ctx)
-	ui.begin_anchored(ctx, "recover", .Center, .Start, {shift, t.edge + t.target + 12}, {direction = .Column, gap = 8, padding = 14, width = w, radius = t.radius_large + 4, background = .Panel})
+	ui.begin_anchored(ctx, "recover", .Center, .Start, {shift, top}, {direction = .Column, gap = 8, padding = 14, width = w, radius = t.radius_large + 4, background = .Panel})
 	ui.begin(ctx, "recover title", {direction = .Row, gap = 10, center = true})
 	ui.begin(ctx, "recover badge", {width = 36, height = 36, radius = t.radius_medium, background = .Track})
 	ui.end(ctx)

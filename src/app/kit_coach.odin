@@ -124,21 +124,15 @@ kit_coach :: proc(app: ^App) {
 		k.coach_shown = false
 		return
 	}
-	area := ui.safe_area(ctx)
-	right := t.edge + (KIT_INSPECTOR_W + 8 if k.inspector else 0)
-	room := area.w - t.edge - right
-	if room < 260 {
+	shift, w, top, fits := kit_card_place(app, 420, 260)
+	if !fits {
 		k.coach_shown = false
 		return
 	}
 	k.coach_shown, k.coach_last = true, step
-	w := min(420, room)
-	// Under the tool bar's middle where that clears the inspector, else in the room left.
-	shift: f32 = 0
-	if (area.w + w) * 0.5 > area.w - right do shift = (t.edge - right) * 0.5
 	glyph, text := coach_text(app, step)
 	mark := ui.vertex_mark(ctx)
-	ui.begin_anchored(ctx, "coach", .Center, .Start, {shift, t.edge + t.target + 12}, {direction = .Row, gap = 10, padding = 10, width = w, radius = t.radius_large + 4, background = .Panel, center = true})
+	ui.begin_anchored(ctx, "coach", .Center, .Start, {shift, top}, {direction = .Row, gap = 10, padding = 10, width = w, radius = t.radius_large + 4, background = .Panel, center = true})
 	ui.begin(ctx, "coach badge", {width = 36, height = 36, radius = t.radius_medium, background = .Track})
 	ui.end(ctx)
 	r := ctx.last_rect

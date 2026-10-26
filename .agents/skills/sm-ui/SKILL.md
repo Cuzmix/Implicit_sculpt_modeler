@@ -30,10 +30,18 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   (`new_ui.odin:30`): the kit context, which tab, which sections are open (`Kit_Section`), menus, Stats (Simple or
   Advanced), Settings (open, tab, scroll) and History panels, the interface size (`ui_scale`), the inspector's scroll,
   add shape and size, the overlay's `layer`, text input on or off.
-- Layout (`kit_layout`, `new_ui.odin:360`): top left menu, undo and redo (tooltips name the step) and the History
-  button; top middle the tools (`Tool` order: W, B, C, I) and X/Y/Z symmetry; top right View menu and the inspector
-  button; left the tall size and strength sliders; bottom the brush dock and the brush browser; bottom right the
-  object's status; then the four windows in `k.order` (back to front) and last the popovers.
+- Layout (`kit_layout`, `new_ui.odin`; the bars in `kit_bars.odin`, after ZBrush for iPad): `kit_top_bar` (a full-width
+  strip, `TOP_BAR_H`: Menu, Save, Import, Export | file name | History, Edit pies, Help, Settings), `kit_points` (the
+  object's readout under it, at the top left), `kit_brush_bar` (left column: Brushes, Stroke, Alpha, Material, Colour |
+  Falloff, Draw size, Strength | Undo, Redo), `kit_view_bar` (right: Search, Inspector, Objects; then Studio render,
+  Orthographic, Symmetry, Focus, Wireframe, Ghost, Solo); bottom the dock (Move tool, the slots, All brushes, Curve and
+  Insert tools); then the four windows in `k.order` (back to front) and last the popovers. Panels under the top bar
+  start at `kit_top()`, clear of the side bars at `kit_left(app)`/`kit_right(app)`; a card under the top bar uses
+  `kit_card_place`; a right-side panel keeps clear of the dock with `side_panel_below`. A bar button opens the one
+  `Bar_Pop` (`bar_pop_toggle`): an inspector section by `Kit_Section` (any tab's, `bar_section`), the size or strength
+  slider, the symmetry axes or the save actions. `corner = true` on `icon_button` draws the triangle that says a long
+  press does more. The look is `Kit_State.look` (`Look`: Studio, the default, or Graphite), `LOOK_THEMES` set as
+  `ctx.theme` each frame in `kit_begin`; both themes share every size, so a look never moves a control.
 - Windows (`src/ui/window.odin`, `Kit_Window` in `new_ui.odin`): the inspector, Stats, History and Settings are
   `ui.window_begin(ctx, name, title, &k.windows[which], x, y, offset, box, close_keys)` … `ui.window_end`: a title
   bar (drag it to move, Minimise folds to it, a tap on a folded title opens it, Close) over the caller's body, which
@@ -49,8 +57,8 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   Studio render, Camera). A feature's section lives beside its code (`kit_layers_section` in `layers.odin`,
   `kit_boolean_section` in `boolean.odin`, `kit_alpha_section` in `alphas.odin`, …). Under its title bar the tabs and
   content are the clipped "inspector body", which scrolls (`ui.scroll_update` before it, `ui.scroll_take` after with
-  the window as root, `drag_scroll` on it; see Input routing); where it starts it stops above the status chip and, on
-  narrow windows, the dock. While Settings is open the inspector is hidden and inert.
+  the window as root, `drag_scroll` on it; see Input routing); where it starts (beside the view bar, under the top
+  bar) it stops above the dock on narrow windows. While Settings is open the inspector is hidden and inert.
 - Settings panel (`kit_settings.odin`): tabs Interface, Camera, Touch, Performance (`Settings_Tab`), anchored right
   in the inspector's place, its body scrolling as the inspector does; each tab ends in "Reset <tab> settings"
   (`settings_reset`), the foot holds Reset everything (a second tap within `SETTINGS_WIPE_TIME` confirms) and Done
@@ -141,7 +149,7 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   the viewport gets the pointer.
 - Sizes are points; the draw list is pixels (`pixel_density`). Every hit area is at least `Theme.target` (48) points
   (`hit_area`; sm-store); what is drawn can be smaller (`control` 36, `row` 40). Widgets name tokens from
-  `src/ui/theme.odin` (`THEME_DARK`, "Graphite"), never literal colours or sizes.
+  `src/ui/theme.odin` (`THEME_STUDIO`, "Studio", and `THEME_DARK`, "Graphite"), never literal colours or sizes.
 - Widgets (`widgets.odin`): `label`, `paragraph`, `caption`, `icon_button`, `button` (variant, tone, width, glyph,
   enabled, keys: a tooltip hint), `toggle_button`, `tabs` (segmented control; `chosen` -1 shows none; `keys` a hint per option), `switch_row`, `slider` (linear or
   logarithmic), `vslider`, `drag_value` (drag sideways, from the press value), `text_field` (a `[]u8` buffer),
@@ -225,8 +233,9 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
 
 ## Verify
 - `--ui-events="5:move:800,450;6:down;7:up;9:right;12:wheel:-3;14:fdown:0:300,300;16:fup:0"` drives the mouse,
-  fingers and pen in window points (Menu at 36,36, Menu > Settings at 85,447; the inspector's title bar at y 103, its
-  Minimise at 1504 and Close at 1554, and its tabs at about y 152 on a 1600 x 900 window), and
+  fingers and pen in window points (Menu at 26,26, Menu > Settings at 75,688; the inspector's title bar at y 104, its
+  Minimise at 1450 and Close at 1500, and its tabs at about y 154 on a 1600 x 900 window; the `UI` table at the top of
+  `scripts/touch_check.py` names every bar button's position), and
   `--dump-screen=build/x.png` writes the whole window, overlay included; open it and describe it. `ui_ms_*` and
   `ui_vertices` on exit are the kit's cost; `camera_*`, `undo_steps`, `brush_radius_px`, `inspector_scroll`,
   `settings_open` and `window_<name>=open,folded,left,top` show what the input did.

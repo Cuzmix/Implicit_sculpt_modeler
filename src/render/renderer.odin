@@ -42,7 +42,7 @@ Renderer :: struct {
 }
 
 // Viewport background, linear values written as-is (like the mesh shader's output).
-BACKGROUND :: [4]f32{0.16, 0.17, 0.19, 1}
+BACKGROUND :: [4]f32{0.17, 0.17, 0.17, 1}
 
 // A partial redraw is skipped in favour of a full one when the changed rectangle
 // covers more than this share of the viewport.

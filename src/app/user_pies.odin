@@ -153,7 +153,7 @@ kit_pie_editor :: proc(app: ^App) {
 	width := ui.BRUSH_TILE.x * PIE_SLOTS
 	area := ui.safe_area(ctx)
 	at := k.pie_editor_at
-	if at.w <= 0 do at = {area.x + area.w * 0.5, area.y + t.edge + t.target, 0, 0}
+	if at.w <= 0 do at = {area.x + area.w * 0.5, area.y + kit_top(), 0, 0}
 	owner := ui.id_of(ctx, "pie editor")
 	size, _ := ui.prev_layout(ctx, "pie editor")
 	if !ui.popover_begin(ctx, "pie editor", &k.pie_editor, at, .Below, {direction = .Column, gap = 4, padding = 12, width = width + 24}) do return

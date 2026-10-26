@@ -121,6 +121,57 @@ THEME_DARK :: Theme {
 	toast_time     = 0.26,
 }
 
+// "Studio": neutral greys with a warm orange accent, the look of a sculpting studio's
+// tablet app, so the clay reads true against chrome with no tint of its own. Sizes and
+// timings are Graphite's; only the colours and the corners differ.
+THEME_STUDIO :: Theme {
+	surface        = {0x23, 0x23, 0x23, 0xf4},
+	surface_raised = {0x2a, 0x2a, 0x2a, 0xff},
+	fill           = {0x33, 0x33, 0x33, 0xff},
+	fill_hover     = {0xff, 0xff, 0xff, 0x10},
+	fill_pressed   = {0xff, 0xff, 0xff, 0x1a},
+	cursor         = {0x40, 0x40, 0x40, 0xff},
+	border         = {0xff, 0xff, 0xff, 0x0e},
+	border_strong  = {0xff, 0xff, 0xff, 0x1a},
+	shadow         = {0x00, 0x00, 0x00, 0x8c},
+	text           = {0xed, 0xed, 0xed, 0xff},
+	text_secondary = {0xb4, 0xb4, 0xb4, 0xff},
+	text_tertiary  = {0x7c, 0x7c, 0x7c, 0xff},
+	accent         = {0xf2, 0xa3, 0x3a, 0xff},
+	accent_soft    = {0xf2, 0xa3, 0x3a, 0x2e},
+	on_accent      = {0x1a, 0x1a, 0x1a, 0xff},
+	success        = {0x3c, 0xc2, 0x7e, 0xff},
+	warning        = {0xf5, 0xd0, 0x4c, 0xff},
+	danger         = {0xf0, 0x6a, 0x5e, 0xff},
+	knob           = {0xf4, 0xf4, 0xf4, 0xff},
+	radius_small   = 6,
+	radius_medium  = 10,
+	radius_large   = 14,
+	caption_size   = 11,
+	small_size     = 12,
+	text_size      = 13,
+	title_size     = 15,
+	heading_size   = 17,
+	icon_size      = 18,
+	icon_small     = 16,
+	target         = 48,
+	control        = 36,
+	row            = 40,
+	gap            = 12,
+	edge           = 12,
+	slop           = 10,
+	press_time     = 0.10,
+	hover_time     = 0.14,
+	tooltip_delay  = 0.45,
+	tooltip_time   = 0.15,
+	long_press     = 0.45,
+	long_ring      = 0.15,
+	popover_time   = 0.18,
+	indicator_time = 0.22,
+	panel_time     = 0.24,
+	toast_time     = 0.26,
+}
+
 // `c` with its alpha scaled by `f`.
 color_fade :: proc(c: Color, f: f32) -> Color {
 	return {c.r, c.g, c.b, u8(f32(c.a) * clamp(f, 0, 1) + 0.5)}

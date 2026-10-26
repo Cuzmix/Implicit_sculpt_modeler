@@ -43,24 +43,28 @@ CAMERA0 = {"camera_yaw": 0.6, "camera_pitch": 0.35, "camera_roll": 0.0, "camera_
 MODEL = (800, 450)  # the sphere's middle; it reaches about 368 points out
 EMPTY = (250, 150)  # viewport with nothing on it
 UI = {
-    "menu": (36, 36), "undo": (93, 36), "history": (188, 36),
-    "tool_move": (603, 36), "tool_sculpt": (692, 36), "sym_x": (948, 36),
-    "view": (1516, 36), "size_slider": (36, 440), "strength_slider": (84, 450),
-    "dock_smooth": (638, 855), "dock_draw": (574, 855), "browser": (1028, 855),
-    "tab_object": (1432, 152), "tab_brush": (1338, 152), "status": (1510, 870),
-    "search": (1468, 36), "palette_row1": (1280, 146), "palette_row2": (1280, 192),
-    "earlier_save2": (100, 160),
-    "page_shape": (1326, 252), "page_select": (1397, 252), "page_surface": (1467, 252), "page_build": (1538, 252),
+    "menu": (26, 26), "save": (74, 26), "history": (1430, 26), "help": (1526, 26), "settings": (1574, 26),
+    "brushes": (31, 233), "stroke": (31, 281), "falloff": (31, 474), "size": (31, 522), "strength": (31, 570),
+    "undo": (31, 619), "redo": (31, 667),
+    "search": (1569, 95), "inspector": (1569, 143), "objects": (1569, 191),
+    "ortho": (1569, 305), "sym_x": (1569, 353), "wireframe": (1569, 449),
+    "tool_move": (474, 855), "dock_draw": (547, 855), "dock_smooth": (611, 855), "browser": (992, 855),
+    "tool_curve": (1062, 855), "tool_insert": (1126, 855),
+    "size_slider": (91, 663),  # in the popover the Size button opens
+    "tab_object": (1378, 152), "tab_brush": (1284, 152), "status": (69, 80),
+    "palette_row1": (1327, 151), "palette_row2": (1327, 197),
+    "earlier_save2": (90, 150),
+    "page_shape": (1272, 252), "page_select": (1343, 252), "page_surface": (1413, 252), "page_build": (1484, 252),
 }
 # Menu rows at 1600x900, from kit_menu's order (new_ui.odin): add a FILE row here, not to
 # every coordinate under it. Rows are 44 points apart; a divider and caption take 69.
 MENU_FILE_ROWS = ["open", "save", "save_as", "save_copy", "earlier_saves", "last_autosave", "import", "export", "screenshot"]
-_file_y = {name: 116 + 44 * i for i, name in enumerate(MENU_FILE_ROWS)}
+_file_y = {name: 106 + 44 * i for i, name in enumerate(MENU_FILE_ROWS)}
 _grid_y = _file_y[MENU_FILE_ROWS[-1]] + 69
 UI.update({
-    "menu_earlier_saves": (85, _file_y["earlier_saves"]),
-    "new_sphere": (58, _grid_y), "new_head": (145, _grid_y), "new_hand": (145, _grid_y + 48),
-    "menu_settings": (85, _grid_y + 48 + 69 + 44),
+    "menu_earlier_saves": (75, _file_y["earlier_saves"]),
+    "new_sphere": (48, _grid_y), "new_head": (135, _grid_y), "new_hand": (135, _grid_y + 48),
+    "menu_settings": (75, _grid_y + 48 + 69 + 44),
 })
 ORBIT_TURN = 2 * math.pi / 0.008  # points of drag that turn the view once (ORBIT_SPEED)
 
@@ -219,14 +223,80 @@ def scenario(fn):
 def tap_ui():
     """A finger tapping every major region of the interface never moves the camera or sculpts."""
     s = Script()
-    for name in ["menu", "menu", "undo", "history", "history", "tool_move", "tool_sculpt", "sym_x", "sym_x",
-                 "view", "view", "size_slider", "strength_slider", "dock_smooth", "dock_draw", "browser", "browser",
-                 "tab_object", "tab_brush", "status"]:
+    for name in ["menu", "menu", "undo", "history", "history", "tool_move", "dock_draw", "sym_x", "sym_x",
+                 "ortho", "ortho", "size", "size", "strength", "strength", "stroke", "stroke", "dock_smooth", "dock_draw",
+                 "browser", "browser", "brushes", "brushes", "objects", "objects", "tab_object", "tab_brush", "status"]:
         s.ftap(*UI[name])
-    # Just past the drawn edge of the brush dock and the tools bar, inside their targets.
-    s.ftap(574, 829)
-    s.ftap(692, 14)
+    # Just past the drawn edge of the brush dock and the top bar, inside their targets.
+    s.ftap(547, 829)
+    s.ftap(692, 4)
     return s, [], camera_still({"dabs": near(0)})
+
+
+# The symmetry popover a long press on Symmetry opens at 1600 x 900: its X, Y and Z.
+SYMMETRY_AXES = {"x": (1401, 389), "y": (1453, 389), "z": (1505, 389)}
+
+
+@scenario
+def bar_section_opens_beside_the_bar():
+    """A tap on the brush bar's Stroke opens the Stroke section beside it; a second tap closes it; Falloff then opens its own."""
+    s = Script()
+    s.ftap(*UI["stroke"])
+    s.wait(8)
+    s.ftap(*UI["stroke"])
+    s.wait(8)
+    s.ftap(*UI["falloff"])
+    s.wait(8)
+    return s, [], camera_still({"dabs": near(0), "bar_pop": is_text("falloff")})
+
+
+@scenario
+def long_press_draw_size_opens_the_pen():
+    """A long press on Draw size opens the Pen section (pressure and tilt) rather than its slider, and moves nothing."""
+    s = Script()
+    long_press(s, *UI["size"])
+    s.wait(4)
+    return s, [], camera_still({"dabs": near(0), "bar_pop": is_text("pen"), "brush_radius_px": near(60)})
+
+
+@scenario
+def symmetry_tap_and_long_press():
+    """A tap on Symmetry turns X on; a long press opens the three axes, where a tap on Y adds it."""
+    s = Script()
+    s.ftap(*UI["sym_x"])
+    s.wait(4)
+    long_press(s, *UI["sym_x"])
+    s.wait(8)
+    s.ftap(*SYMMETRY_AXES["y"])
+    s.wait(4)
+    return s, [], camera_still({"dabs": near(0), "symmetry": is_text("xy"), "bar_pop": is_text("symmetry")})
+
+
+@scenario
+def dock_tools_pick_and_long_press_shows_settings():
+    """The dock's Move tile picks the Move tool; a long press on Curve picks Curve and shows its settings in the inspector's first tab; Draw goes back to sculpting."""
+    s = Script()
+    s.ftap(*UI["tool_move"])
+    s.wait(4)
+    s.ftap(*UI["tab_object"])
+    s.wait(4)
+    long_press(s, *UI["tool_curve"])
+    s.wait(4)
+    return s, [], camera_still({"dabs": near(0), "tool": is_text("curve"), "inspector_tab": is_text("tool")})
+
+
+@scenario
+def look_switch_is_remembered():
+    """Settings > Interface > Look > Graphite changes the colours at once and is saved."""
+    if os.path.exists(settings_file()):
+        os.remove(settings_file())
+    s = Script()
+    open_settings(s, "interface")
+    s.ftap(1424, 234)  # Graphite
+    s.wait(4)
+    s.ftap(1427, 766)  # Done
+    s.wait(4)
+    return s, [f"--settings-file={settings_file()}"], camera_still({"look": is_text("graphite"), "@saved": saved(look="Graphite")})
 
 
 @scenario
@@ -234,10 +304,10 @@ def tap_viewport_far_apart():
     """Touching down far from where the last finger lifted is no drag (SDL's mouse jump bug)."""
     s = Script()
     s.ftap(*EMPTY)
-    s.ftap(1250, 800)
+    s.ftap(1196, 800)
     s.ftap(150, 820)
     s.ftap(*UI["menu"])
-    s.ftap(1250, 120, hold=8)
+    s.ftap(1196, 120, hold=8)
     return s, [], camera_still({"dabs": near(0)})
 
 
@@ -245,7 +315,7 @@ def tap_viewport_far_apart():
 def first_touch_scrolls_inspector():
     """The first finger drag on the inspector's Size slider scrolls the inspector and changes nothing."""
     s = Script()
-    s.fdrag(line((1430, 334), (1435, 114), 22))
+    s.fdrag(line((1376, 334), (1381, 114), 22))
     return s, [], camera_still({"dabs": near(0), "brush_radius_px": near(60), "brush_strength": near(0.5),
                                 "inspector_scroll": lambda v: float(v) > 100})
 
@@ -254,7 +324,7 @@ def first_touch_scrolls_inspector():
 def slider_drag_sideways():
     """A sideways finger drag on the inspector's Strength slider sets it, without orbiting or scrolling."""
     s = Script()
-    s.fdrag(line((1430, 433), (1520, 435), 12))
+    s.fdrag(line((1376, 433), (1466, 435), 12))
     return s, [], camera_still({"dabs": near(0), "brush_strength": lambda v: float(v) > 0.6, "inspector_scroll": near(0)})
 
 
@@ -516,7 +586,7 @@ def two_finger_tap_on_panel_does_nothing():
     s = Script()
     s.fdrag(line((760, 430), (860, 470), 20))
     s.wait(4)
-    s.fingers([(1430, 600), (900, 300)], [(0, 0), (0, 0)], 1)
+    s.fingers([(1376, 600), (900, 300)], [(0, 0), (0, 0)], 1)
     return s, [], camera_still({"undo_steps": near(1), "redo_steps": near(0)})
 
 
@@ -766,14 +836,14 @@ def zoomed_in(s):
 
 
 def edge_drags(s):
-    """A finger along the bottom edge and the pen along the top one, both over the model,
-    where no panel is, each 200 points sideways."""
+    """A finger along the bottom edge and the pen along the top one (under the top bar),
+    both over the model, where no panel is, each 200 points sideways."""
     zoomed_in(s)
     s.fdrag(past_slop((250, 868), (450, 868), 20))
     s.add("pnear")
     s.wait(1)
-    s.add("pdown:260,30")
-    for x, y in past_slop((260, 30), (460, 30), 20)[1:]:
+    s.add("pdown:260,82")
+    for x, y in past_slop((260, 82), (460, 82), 20)[1:]:
         s.wait(1)
         s.add(f"pmove:{x:g},{y:g}")
     s.wait(1)
@@ -871,7 +941,7 @@ def open_settings(s, tab):
     s.wait(10)
     s.ftap(*UI["menu_settings"])
     s.wait(16)
-    s.ftap(*{"interface": (1241, 158), "camera": (1315, 158), "touch": (1388, 158), "keys": (1462, 158), "performance": (1535, 158)}[tab])
+    s.ftap(*{"interface": (1187, 158), "camera": (1261, 158), "touch": (1334, 158), "keys": (1408, 158), "performance": (1481, 158)}[tab])
     s.wait(10)
 
 
@@ -882,11 +952,11 @@ def settings_scroll_and_persist():
         os.remove(settings_file())
     s = Script()
     open_settings(s, "camera")
-    s.ftap(1549, 717)  # Edges always turn the view
+    s.ftap(1495, 717)  # Edges always turn the view
     s.wait(4)
-    s.fdrag(line((1300, 395), (1305, 95), 20))  # from the Orbit speed slider, upward
+    s.fdrag(line((1246, 395), (1251, 95), 20))  # from the Orbit speed slider, upward
     s.wait(16)
-    s.ftap(1481, 791)  # Done
+    s.ftap(1427, 766)  # Done
     s.wait(4)
     return s, [f"--settings-file={settings_file()}"], camera_still({
         "dabs": near(0), "settings_open": near(0), "settings_scroll": lambda v: float(v) > 100,
@@ -900,11 +970,11 @@ def settings_reset_everything():
     with open(settings_file(), "w") as f:
         f.write("orbit_speed 2\ninvert_wheel 1\nfinger_model orbit\nstats 1\n")
     open_settings(s, "touch")
-    s.ftap(1294, 791)  # Reset everything: arms it
+    s.ftap(1240, 766)  # Reset everything: arms it
     s.wait(10)
-    s.ftap(1294, 791)  # Tap again to reset all
+    s.ftap(1240, 766)  # Tap again to reset all
     s.wait(4)
-    s.ftap(1481, 791)  # Done
+    s.ftap(1427, 766)  # Done
     s.wait(4)
     return s, [f"--settings-file={settings_file()}"], camera_still({
         "settings_open": near(0), "@saved": saved(orbit_speed="1", invert_wheel="0", finger_model="Sculpt", stats="0")})
@@ -917,9 +987,9 @@ def settings_reset_needs_second_tap():
     with open(settings_file(), "w") as f:
         f.write("orbit_speed 2\ninvert_wheel 1\n")
     open_settings(s, "camera")
-    s.ftap(1294, 791)
+    s.ftap(1240, 766)
     s.wait(4)
-    s.ftap(1481, 791)  # Done
+    s.ftap(1427, 766)  # Done
     s.wait(4)
     return s, [f"--settings-file={settings_file()}"], {"@saved": saved(orbit_speed="2", invert_wheel="1")}
 
@@ -932,9 +1002,9 @@ def settings_scroll_right_after_opening():
     s.wait(10)
     s.ftap(*UI["menu_settings"])
     s.wait(2)
-    s.ftap(1433, 158)  # the Touch tab
+    s.ftap(1379, 158)  # the Touch tab
     s.wait(1)
-    s.fdrag(line((1300, 600), (1305, 300), 15))
+    s.fdrag(line((1246, 600), (1251, 300), 15))
     return s, [], camera_still({"dabs": near(0), "settings_open": near(1), "settings_scroll": lambda v: float(v) > 100})
 
 
@@ -947,11 +1017,11 @@ def settings_open_scroll_close_repeat():
         s.wait(10)
         s.ftap(*UI["menu_settings"])
         s.wait(4)
-        s.ftap(1433, 158)
+        s.ftap(1379, 158)
         s.wait(2)
-        s.fdrag(line((1300, 600), (1305, 300), 15))
+        s.fdrag(line((1246, 600), (1251, 300), 15))
         s.wait(4)
-        s.ftap(1481, 791)  # Done
+        s.ftap(1427, 766)  # Done
         s.wait(10)
     return s, [], camera_still({"dabs": near(0), "settings_open": near(0), "settings_scroll": lambda v: float(v) > 100})
 
@@ -963,9 +1033,9 @@ def changed_touch_setting_takes_effect():
         os.remove(settings_file())
     s = Script()
     open_settings(s, "touch")
-    s.ftap(1483, 251)  # Turns the view
+    s.ftap(1429, 251)  # Turns the view
     s.wait(4)
-    s.ftap(1481, 791)  # Done
+    s.ftap(1427, 766)  # Done
     s.wait(10)
     s.fdrag(past_slop((760, 430), (860, 430), 20))
     return s, [f"--settings-file={settings_file()}", "--orbit-style=turntable"], {
@@ -986,7 +1056,7 @@ def rapid_taps():
 
 
 # The Mask section's More options row on the Object tab's Select page at 1600 x 900.
-MASK_MORE = (1330, 750)
+MASK_MORE = (1276, 750)
 
 
 def select_page(s):
@@ -1101,13 +1171,13 @@ def coach_card_clears_the_bars_on_a_narrow_window():
     s.add(f"move:{EMPTY[0]},{EMPTY[1]}")
     s.wait(12)
     return s, ["--coach", "--width=820", "--height=640"], {"coach_step": is_text("draw"),
-                                                         "@layout": clear_of("coach", "tools", "inspector", "sliders", "top_right")}
+                                                         "@layout": clear_of("coach", "top_bar", "inspector", "brush_bar", "view_bar")}
 
 
-PRESET_HEAD = (1430, 269)  # the Brush tab's Preset section, folded at first
-PRESET_SAVE_NEW = (1357, 372)  # its Save as preset, on a plain brush
-PRESET_NAME = (1430, 372)  # on a preset: its name field
-PRESET_REVERT = (1505, 424)
+PRESET_HEAD = (1376, 269)  # the Brush tab's Preset section, folded at first
+PRESET_SAVE_NEW = (1303, 372)  # its Save as preset, on a plain brush
+PRESET_NAME = (1376, 372)  # on a preset: its name field
+PRESET_REVERT = (1451, 424)
 
 
 def save_a_preset(s):
@@ -1249,7 +1319,7 @@ def inspector_tab_switch_then_scroll():
     s = Script()
     s.ftap(*UI["tab_object"])
     s.wait(6)
-    s.fdrag(line((1430, 384), (1435, 144), 20))
+    s.fdrag(line((1376, 384), (1381, 144), 20))
     return s, [], camera_still({"dabs": near(0), "inspector_scroll": lambda v: float(v) > 100, "selected": near(0)})
 
 
@@ -1261,9 +1331,9 @@ def saved_line(line):
 
 
 # The inspector's title bar at 1600 x 900: its title, Minimise and Close.
-INSPECTOR_TITLE, INSPECTOR_MINIMISE, INSPECTOR_CLOSE = (1340, 103), (1504, 103), (1554, 103)
+INSPECTOR_TITLE, INSPECTOR_MINIMISE, INSPECTOR_CLOSE = (1286, 103), (1450, 103), (1500, 103)
 # The Stats window's title, where it starts (Settings > Performance or F11 opens it).
-STATS_TITLE = (200, 104)
+STATS_TITLE = (150, 148)
 
 
 @scenario
@@ -1283,18 +1353,18 @@ def window_tap_on_folded_title_opens_it():
     s.wait(4)
     s.ftap(*INSPECTOR_TITLE)
     s.wait(4)
-    s.fdrag(line((1430, 334), (1435, 114), 22))
+    s.fdrag(line((1376, 334), (1381, 114), 22))
     return s, [], camera_still({"dabs": near(0), "window_inspector": lambda v: v.startswith("1,0,"),
                                 "inspector_scroll": lambda v: float(v) > 100})
 
 
 @scenario
 def window_close_and_reopen():
-    """Close hides the inspector; the Inspector button at the top right brings it back."""
+    """Close hides the inspector; the Inspector button on the right bar brings it back."""
     s = Script()
     s.ftap(*INSPECTOR_CLOSE)
     s.wait(10)
-    s.ftap(1565, 36)
+    s.ftap(*UI["inspector"])
     s.wait(10)
     return s, [], camera_still({"dabs": near(0), "window_inspector": lambda v: v.startswith("1,0,")})
 
@@ -1473,9 +1543,9 @@ def hide_unmasked_then_undo_shows_it_again():
 
 
 # Selection sets: the Object tab's Select page with Mask folded and Selection sets open.
-SETS_FOLD_MASK = (1300, 299)
-SETS_OPEN = (1300, 345)
-SETS_RESTORE_FIRST = (1524, 448)
+SETS_FOLD_MASK = (1246, 299)
+SETS_OPEN = (1246, 345)
+SETS_RESTORE_FIRST = (1470, 448)
 
 
 def store_set(s):
@@ -1615,7 +1685,7 @@ def action_bar_clears_the_sliders_without_the_rail():
     s.press("i", ("ctrl",))
     s.wait(12)
     return s, ["--width=760", "--height=600", f"--settings-file={settings_file()}"], {
-        "action_bar": is_text("mask"), "@layout": clear_of("action_bar", "sliders", "inspector", "dock", "status")}
+        "action_bar": is_text("mask"), "@layout": clear_of("action_bar", "brush_bar", "inspector", "dock", "points")}
 
 
 @scenario
@@ -1625,7 +1695,7 @@ def action_bar_clears_the_panels_on_a_narrow_window():
     s.press("i", ("ctrl",))
     s.wait(12)
     return s, ["--width=820", "--height=640", "--hide=x"], {"action_bar": is_text("mask+hidden"),
-                                                          "@layout": clear_of("action_bar", "inspector", "dock", "status", "modifier_rail", "sliders")}
+                                                          "@layout": clear_of("action_bar", "inspector", "dock", "points", "modifier_rail", "brush_bar")}
 
 
 @scenario
@@ -1797,7 +1867,7 @@ def rail_fits_a_large_interface():
     s = Script()
     s.add("move:640,400")
     s.wait(6)
-    return s, ["--width=1280", "--height=800", f"--settings-file={settings_file()}"], {"@layout": rail_clear("sliders", "dock")}
+    return s, ["--width=1280", "--height=800", f"--settings-file={settings_file()}"], {"@layout": rail_clear("brush_bar", "dock")}
 
 
 @scenario
@@ -1806,7 +1876,7 @@ def rail_fits_portrait():
     s = Script()
     s.add("move:400,640")
     s.wait(6)
-    return s, ["--width=800", "--height=1280"], {"@layout": rail_clear("sliders", "dock")}
+    return s, ["--width=800", "--height=1280"], {"@layout": rail_clear("brush_bar", "dock")}
 
 
 @scenario
@@ -1817,7 +1887,7 @@ def rail_on_the_right_clears_the_panels():
     s = Script()
     s.add("move:640,400")
     s.wait(6)
-    return s, [f"--settings-file={settings_file()}"], {"@layout": rail_clear("status", "inspector", "dock", "sliders")}
+    return s, [f"--settings-file={settings_file()}"], {"@layout": rail_clear("points", "inspector", "dock", "brush_bar")}
 
 
 def long_press(s, x, y, finger=0, frames=LONG_PRESS_FRAMES):
@@ -1828,9 +1898,9 @@ def long_press(s, x, y, finger=0, frames=LONG_PRESS_FRAMES):
     s.wait(4)
 
 
-INSPECTOR_BUTTON = (1565, 36)
-FOCUS_BUTTON, FRAME_ALL_BUTTON = (1358, 328), (1506, 328)  # the Move tool's tab, above the gizmo's settings
-SCENE_TAB, SCENE_ROW = (1526, 152), (1430, 232)
+INSPECTOR_BUTTON = UI["inspector"]
+FOCUS_BUTTON, FRAME_ALL_BUTTON = (1304, 328), (1452, 328)  # the Move tool's tab, above the gizmo's settings
+SCENE_TAB, SCENE_ROW = (1472, 152), (1376, 232)
 
 
 @scenario
@@ -1888,7 +1958,7 @@ def long_press_a_scene_row_opens_its_menu():
 # where each sphere shows in the starting view.
 THREE = ["--spheres=3", "--vertices=20000"]
 SCENE_ROWS_Y = [232, 286, 340]
-SCENE_EYE_X, SCENE_GHOST_X, SCENE_ROW_X = 1550, 1505, 1400
+SCENE_EYE_X, SCENE_GHOST_X, SCENE_ROW_X = 1496, 1451, 1346
 SPHERES3 = [(630, 410), (800, 450), (1006, 498)]
 
 
@@ -2001,9 +2071,9 @@ def undo_keeps_an_object_hidden():
 
 # A folder's row with three spheres after Ctrl+G on the first: its chevron at the left,
 # and its menu's rows where a right-click at FOLDER_MENU_AT puts them.
-FOLDER_CHEVRON = (1314, 232)
-FOLDER_MENU_AT = (1420, 232)
-FOLDER_MENU = {"rename": (1430, 260), "select": (1430, 304), "ungroup": (1430, 349), "delete": (1430, 393)}
+FOLDER_CHEVRON = (1260, 232)
+FOLDER_MENU_AT = (1366, 232)
+FOLDER_MENU = {"rename": (1376, 260), "select": (1376, 304), "ungroup": (1376, 349), "delete": (1376, 393)}
 
 
 def folder_first(s):
@@ -2121,7 +2191,7 @@ def folders_come_back_from_the_scene_file():
     ])
 
 
-SCENE_GRIP_X = 1314  # an object row's grip, outside folders
+SCENE_GRIP_X = 1260  # an object row's grip, outside folders
 
 
 @scenario
@@ -2177,7 +2247,7 @@ def finger_holds_a_ghost_then_slides_down_the_column():
     return s, THREE, {"objects_ghost": near(2), "objects_off": near(0), "selected": near(2), "inspector_scroll": near(0)}
 
 
-SELECT_SEVERAL = (1553, 394)  # the Scene tab's switch, with three spheres and one selected
+SELECT_SEVERAL = (1499, 394)  # the Scene tab's switch, with three spheres and one selected
 
 
 @scenario
@@ -2307,7 +2377,7 @@ def a_press_short_of_long_still_taps():
     return s, [], camera_still({"long_tip": lambda v: v == "none", "window_inspector": lambda v: v.startswith("0,")})
 
 
-STATUS_CHIP = (1510, 864)
+STATUS_CHIP = UI["status"]
 
 
 @scenario
@@ -2350,7 +2420,7 @@ DEFAULT_DOCK = "Draw,Smooth,Clay,Flatten,Inflate,Grab,Mask"
 # preset or one: Brush settings, Pinch, the first preset and Reset dock in the menu; the
 # first preset in the browser.
 SLOT_SETTINGS, SLOT_PINCH, SLOT_PRESET, SLOT_RESET = (558, 476), (511, 583), (511, 735), (548, 786)
-BROWSER_PRESET = (900, 780)
+BROWSER_PRESET = (864, 780)
 
 
 def one_preset_settings(extra=""):
@@ -2423,11 +2493,11 @@ def browser_picks_a_preset():
 # The Assign key popover under the inspector button, at 1600 by 900: Use it here and Keep
 # it there on a conflict; the palette's Star, Put in a pie and Assign key with "wire"
 # typed (two rows), and its first row with nothing typed under the STARRED caption.
-BIND_USE_HERE, BIND_KEEP = (1345, 201), (1506, 201)
-PALETTE_STAR, PALETTE_PIE, PALETTE_ASSIGN = (1145, 319), (1281, 319), (1419, 319)
-PALETTE_FIRST_STARRED = (1148, 170)
+BIND_USE_HERE, BIND_KEEP = (1343, 307), (1507, 307)
+PALETTE_STAR, PALETTE_PIE, PALETTE_ASSIGN = (1192, 324), (1328, 324), (1466, 324)
+PALETTE_FIRST_STARRED = (1195, 175)
 # The pie editor opened from the palette: Pie 1's first slot and Pie 3's.
-EDITOR_PIE1_FIRST, EDITOR_PIE3_FIRST = (1104, 182), (1104, 350)
+EDITOR_PIE1_FIRST, EDITOR_PIE3_FIRST = (1104, 236), (1104, 403)
 # A user pie opened with its key over the middle of the window: its right slice (slot 3).
 PIE_MIDDLE, PIE_RIGHT = (800, 450), (900, 450)
 
@@ -2551,9 +2621,9 @@ def pie_from_palette_stays_open():
     s.wait(8)
     s.type("pie 1")
     s.wait(6)
-    s.ftap(1148, 146)
+    s.ftap(1195, 151)
     s.wait(6)
-    s.ftap(*UI["dock_smooth"])
+    s.ftap(638, 855)  # over the dock's Clay, under the pie's Orthographic slice
     s.wait(6)
     return s, [], camera_still({"dabs": near(0), "pie_open": near(-1), "pie_runs": near(1), "ortho": near(1), "brush_kind": is_text("draw")})
 
@@ -2636,7 +2706,7 @@ def pies_come_back_from_settings():
 
 # Settings > Keys at 1600 by 900: its search field, and the first row under the first
 # caption (with "wire" typed, Wireframe; with nothing, New scene: Sphere).
-KEYS_SEARCH, KEYS_FIRST_ROW = (1388, 497), (1388, 573)
+KEYS_SEARCH, KEYS_FIRST_ROW = (1334, 497), (1334, 573)
 
 
 def mouse_scheme_settings(scheme):
@@ -2741,6 +2811,8 @@ def keys_come_back_from_settings():
 def long_press_size_slider_resets_it():
     """The size slider dragged up, then a long press on it: the brush is back to 60 px."""
     s = Script()
+    s.ftap(*UI["size"])
+    s.wait(12)
     x, y = UI["size_slider"]
     s.fdrag(line((x, y), (x, y - 80), 10))
     long_press(s, x, y)
@@ -2751,6 +2823,8 @@ def long_press_size_slider_resets_it():
 def size_slider_drag_still_slides():
     """A drag on the size slider (the control check for the reset above) changes the size and sculpts nothing."""
     s = Script()
+    s.ftap(*UI["size"])
+    s.wait(12)
     x, y = UI["size_slider"]
     s.fdrag(line((x, y), (x, y - 80), 10))
     return s, [], camera_still({"dabs": near(0), "brush_radius_px": lambda v: float(v) > 80})
@@ -3313,7 +3387,7 @@ def help_finger_scrolls_its_body():
     s = Script()
     s.press("F1")
     s.wait(8)
-    s.fdrag(line((1388, 700), (1392, 300), 20))
+    s.fdrag(line((1334, 700), (1338, 300), 20))
     s.wait(16)
     return s, [], camera_still({"help_open": near(1), "help_scroll": lambda v: float(v) > 100, "dabs": near(0)})
 
@@ -3928,7 +4002,7 @@ def deformers_from_the_palette():
     return Steps([(run(drag), [], camera_still(want)) for drag in (mouse, finger, pen)])
 
 
-DEFORM_AMOUNT = (1432, 691)  # the Deformers section's Amount slider, opened by the palette
+DEFORM_AMOUNT = (1378, 748)  # the Deformers section's Amount slider, opened by the palette
 
 
 @scenario
@@ -4202,7 +4276,7 @@ def adjust_retopo_and_extract():
 
 
 # Camera history (camera_history.odin): View menu rows at 1600x900.
-VIEW_BACK, VIEW_FORWARD = (1400, 447), (1400, 491)
+VIEW_BACK, VIEW_FORWARD = (1399, 662), (1399, 706)
 CAMERA_KEYS = ("camera_yaw", "camera_pitch", "camera_roll", "camera_distance", "camera_target")
 
 
@@ -4237,7 +4311,9 @@ def camera_back_and_forward_from_the_view_menu():
     s = Script()
     s.wait(3)
     two_orbits(s)
-    click(s, UI["view"])
+    s.add("move:{:g},{:g}".format(*UI["ortho"]))  # a right-click on Orthographic opens the view menu
+    s.wait(3)
+    s.add("right")
     s.wait(5)
     click(s, VIEW_BACK)
     s.wait(5)
@@ -4418,11 +4494,11 @@ def shape_clip_line_waits():
 
 # Object > Shape > Rebuild (rebuild.odin). The sections above it are folded first, so the
 # section sits at the same place whatever they hold.
-REBUILD_FOLD = [(1430, 299), (1430, 345)]  # Transform, then Subdivision levels under it
-REBUILD_HEADER = (1430, 483)
-REBUILD_GOALS = {"even": (1338, 528), "fewer": (1431, 528), "quads": (1525, 528)}
-REBUILD_DENSITY = (1460, 586)  # on the Density slider's track
-REBUILD_APPLY = (1431, 688)
+REBUILD_FOLD = [(1376, 299), (1376, 345)]  # Transform, then Subdivision levels under it
+REBUILD_HEADER = (1376, 483)
+REBUILD_GOALS = {"even": (1284, 528), "fewer": (1377, 528), "quads": (1471, 528)}
+REBUILD_DENSITY = (1406, 586)  # on the Density slider's track
+REBUILD_APPLY = (1377, 688)
 
 
 def open_rebuild(s, goal=None, tap=click):
@@ -4619,8 +4695,8 @@ def transform_values_undo_per_drag():
     s = Script()
     write_settings("all_options 1\n")
     click(s, UI["tab_object"])
-    s.mouse_drag(line((1431, 350), (1531, 350), 10))
-    click(s, (1431, 794))
+    s.mouse_drag(line((1377, 350), (1477, 350), 10))
+    click(s, (1377, 794))
     s.press("z", ("ctrl",))
     dragged = transform_is(lambda x, y, z, rx, ry, rz, sc: abs(x - 0.5) < 0.02 and (y, z, sc) == (0, 0, 1))
     return s, [f"--settings-file={settings_file()}"], camera_still({"inspector_tab": is_text("object"), "transform": dragged, "undo_steps": near(1), "redo_steps": near(1), "transform_undo": near(1)})
@@ -4717,7 +4793,7 @@ def gizmo_drag_cancels_back():
 
 # Posing (pose.odin): Ctrl + a mouse drag from empty space masks everything below the
 # sphere's middle on screen, a hard edge, so the gizmo goes to the free ring along it.
-POSE_MASK = line((250, 470), (1350, 880), 10)
+POSE_MASK = line((250, 470), (1296, 880), 10)
 
 
 def pose_masked(s, presses):

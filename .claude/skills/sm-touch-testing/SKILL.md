@@ -58,6 +58,7 @@ on window focus or hover to decide ownership; a widget that acts on a finger pre
 | What a user does | Scenarios in `touch_check.py` |
 |---|---|
 | taps every major region: the camera does not move, nothing is sculpted | `tap_ui`, `rapid_taps` |
+| taps and long-presses the side bars and the dock's tools: popovers open beside them, nothing is sculpted | `bar_section_opens_beside_the_bar`, `long_press_draw_size_opens_the_pen`, `symmetry_tap_and_long_press`, `dock_tools_pick_and_long_press_shows_settings`, `look_switch_is_remembered` |
 | touches down far from where the last finger lifted | `tap_viewport_far_apart` |
 | drags vertically through a panel from the very first touch, on a control | `first_touch_scrolls_inspector`, `inspector_tab_switch_then_scroll`, `settings_scroll_and_persist` |
 | scrolls a panel straight after opening it; opens, scrolls, closes, repeats | `settings_scroll_right_after_opening`, `settings_open_scroll_close_repeat` |
@@ -116,7 +117,7 @@ are on the device checklist.
   `folders`, `tree_rows` (rows the Scene tab drew), `scene_order` (object ids in list order), `scene_folders` (each one's folder id), `scene_names` (labels with spaces as `_`, then `;Folder_1:open,...`; `folder_first(s)` makes a folder of the first sphere, `FOLDER_*` are its row and menu, `SCENE_GRIP_X` a loose object row's grip for drags), `selected_count` (the primary and the rest of a multi-select; `SELECT_SEVERAL` is its switch with three spheres), `scene_positions` (each object's `x:y:z` in list order),
   `touch_repeats` (undo and redo steps taken by holding fingers), `inspector_tab`, `brush_kind`, `tool`, `palette` (open),
   `palette_runs`, `palette_last` (the last row it ran, by its saved name: `Wireframe`, `Brush:Clay`), `settings_tab`, `layout_<name>` (x,y,w,h of the
-  modifier rail, sliders, dock, status and inspector), ...); `camera_still()` checks nothing moved; keys starting with `@` are checks given every stat at once or checks on
+  modifier rail, brush bar, view bar, top bar, dock, points (the object's readout) and inspector), ...); `camera_still()` checks nothing moved; keys starting with `@` are checks given every stat at once or checks on
   files, such as `saved(key="value")` and `saved_line(line)` on the settings file, or `on_screen` comparing where a
   point shows before and after an orbit. A value the scenario needs that the app does not print
   is a new key in the exit stats (`main.odin`), not a guess from a screenshot.

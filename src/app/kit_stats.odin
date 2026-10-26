@@ -20,9 +20,9 @@ kit_stats :: proc(app: ^App) -> (raised: bool) {
 	if shown <= 0 do return
 	s := &app.stats
 	win := &k.windows[.Stats]
-	sliders, _ := ui.prev_layout(ctx, "sliders")
+	points, _ := ui.prev_layout(ctx, "points")
 	mark := ui.vertex_mark(ctx)
-	body, closed, raised_now := ui.window_begin(ctx, "stats", "Statistics", win, .Start, .Start, {t.edge + sliders.x + 8, t.edge + t.target + 8}, {direction = .Column, gap = 2, padding = 12, width = KIT_STATS_W, radius = t.radius_large, background = .Panel, inert = !k.stats}, "F11")
+	body, closed, raised_now := ui.window_begin(ctx, "stats", "Statistics", win, .Start, .Start, {kit_left(app), TOP_BAR_H + 4 + points.y + 8}, {direction = .Column, gap = 2, padding = 12, width = KIT_STATS_W, radius = t.radius_large, background = .Panel, inert = !k.stats}, "F11")
 	raised = raised_now
 	if closed do k.stats = false
 	slide := window_slide(win^, .Start) * (1 - shown) * 16

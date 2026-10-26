@@ -287,13 +287,13 @@ kit_help :: proc(app: ^App) -> (raised: bool) {
 	shown := ui.presence(ctx, id, k.help, t.panel_time)
 	if shown <= 0 do return
 	win := &k.windows[.Help]
-	top := t.edge + t.target + 8
+	top := kit_top()
 	room := window_room(app, win^, top)
-	if status, _ := ui.prev_layout(ctx, "status"); status.y > 0 && !win.moved do room -= status.y + 8
+	if !win.moved do room -= side_panel_below(app, KIT_HELP_W)
 	inner := f32(KIT_HELP_W - 2 * 16)
 
 	mark := ui.vertex_mark(ctx)
-	body, closed, raised_now := ui.window_begin(ctx, "help", "Help", win, .End, .Start, {t.edge, top}, {direction = .Column, gap = 8, padding = 16, width = KIT_HELP_W, radius = t.radius_large, background = .Panel, inert = !k.help}, "Esc")
+	body, closed, raised_now := ui.window_begin(ctx, "help", "Help", win, .End, .Start, {kit_right(app), top}, {direction = .Column, gap = 8, padding = 16, width = KIT_HELP_W, radius = t.radius_large, background = .Panel, inert = !k.help}, "Esc")
 	raised = raised_now
 	if closed do k.help = false
 	if body {

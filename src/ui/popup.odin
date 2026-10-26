@@ -219,6 +219,7 @@ Side :: enum u8 {
 	Below_End, // under it, right edges lined up
 	Above_Center, // over it, centred
 	Right, // to its right, tops lined up
+	Left, // to its left, tops lined up
 	Pointer, // at the anchor's top-left corner: a context menu at the pointer
 }
 
@@ -263,6 +264,7 @@ popover_begin :: proc(ctx: ^Context, name: string, open: ^bool, anchor: Rect, si
 	case .Below_End:    pos = {anchor.x + anchor.w - size.x, anchor.y + anchor.h + 6}
 	case .Above_Center: pos = {anchor.x + anchor.w * 0.5 - size.x * 0.5, anchor.y - 8 - size.y}
 	case .Right:        pos = {anchor.x + anchor.w + 6, anchor.y}
+	case .Left:         pos = {anchor.x - 6 - size.x, anchor.y}
 	case .Pointer:      pos = {anchor.x, anchor.y}
 	}
 	// A popover that would run off the bottom opens upward instead when there is room.
@@ -303,6 +305,8 @@ popover_origin :: proc(anchor: Rect, side: Side, pos, size: [2]f32) -> [2]f32 {
 		return {clamp(anchor.x + anchor.w * 0.5, pos.x, pos.x + size.x), pos.y + size.y}
 	case .Right:
 		return {pos.x, pos.y + 16}
+	case .Left:
+		return {pos.x + size.x, pos.y + 16}
 	case .Pointer:
 		return pos
 	}
