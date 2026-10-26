@@ -76,6 +76,7 @@ OBJECT_SECTIONS := [?]Object_Section {
 	{.Shape, .Remesh, "Rebuild", kit_rebuild},
 	{.Shape, .Mirror, "Mirror and weld", proc(app: ^App, _: ^Object) {kit_mirror(app)}},
 	{.Select, .Mask, "Mask", proc(app: ^App, _: ^Object) {kit_mask(app)}},
+	{.Select, .Sets, "Selection sets", kit_sets},
 	{.Select, .Groups, "Polygroups", proc(app: ^App, _: ^Object) {kit_groups(app)}},
 	{.Select, .Visibility, "Hide, clip and slice", kit_visibility},
 	{.Surface, .Layers, "Layers", proc(app: ^App, _: ^Object) {kit_layers_section(app)}},

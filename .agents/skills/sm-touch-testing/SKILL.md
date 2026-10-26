@@ -101,7 +101,7 @@ are on the device checklist.
 - Checks are functions of the exit stats (`camera_yaw`, `camera_pitch`, `camera_roll`, `camera_distance`,
   `camera_target`, `dabs`, `undo_steps`, `redo_steps`, `brush_radius_px`, `brush_strength`, `inspector_scroll`,
   `settings_scroll`, `settings_open`, `orbit_pivot`, `pivot_source`, `cursor_hit`, `cursor_normal`, `window_<name>`,
-  `stroke_kind`, `stroke_invert`, `rail_latched`, `masked`, `hidden_triangles`, `long_tip` (the last long-press
+  `stroke_kind`, `stroke_invert`, `rail_latched`, `masked`, `hidden_triangles`, `selection_sets` (sets on every object), `sets_noted` (sets the last rebuild's note said went; `open_sets` opens the section), `long_tip` (the last long-press
   tooltip, spaces as underscores, or none), `long_tip_keys` (its shortcut and gesture, the same way), `object_menu`, `pinned`, `framed` (double taps on empty space), `mask_mean` (the selected object's mask, 0 to 1),
   `last_op` (the last operation's result up to " in " or a comma, underscores for spaces), `toast_undo` (it offered Undo),
   `adjust_op` (what the action bar can adjust now, `none`, `remesh`, `smooth_all`, ...), `adjusts` (re-runs), `adjust_pop`,

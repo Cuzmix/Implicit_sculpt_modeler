@@ -69,6 +69,8 @@ Command_Id :: enum u8 {
 	Invert_Hidden,
 	Hide_Masked,
 	Hide_Unmasked,
+	Store_Selection_Set,
+	Restore_Selection_Set, // the argument is the set's place, from 0
 	Paint, // the argument is the sculpt.Paint_Command
 	Group, // the argument is the sculpt.Group_Command
 	Delete_Lower_Levels,
@@ -153,6 +155,9 @@ Binding :: struct {
 }
 
 has_object :: proc(app: ^App, _: int) -> bool {return selected_object(app) != nil}
+
+// How many selection sets the commands reach by number, as keys 1 to 9 would.
+SET_COMMANDS :: 9
 
 // Whether the selected object can hide by its mask: it has one where it is sculpted, and
 // it is neither in HD nor under dynamic topology, where hiding is refused.
@@ -500,6 +505,25 @@ COMMANDS := [Command_Id]Command {
 		icon = ui.ICON_EYE_OFF,
 		run = proc(app: ^App, _: int) {hide_command(app, .Unmasked)},
 		enabled = has_mask,
+	},
+	.Store_Selection_Set = {
+		label = "Store mask as set",
+		help = "Keeps the selected object's mask as a selection set, to bring back later (Object tab > Selection sets).",
+		run = proc(app: ^App, _: int) {set_store(app)},
+		enabled = proc(app: ^App, _: int) -> bool {
+			obj := selected_object(app)
+			return obj != nil && sculpt.levels_sets_ready(&obj.levels) && object_has_mask(app, obj)
+		},
+	},
+	.Restore_Selection_Set = {
+		label = "Restore selection set",
+		help = "Makes one of the selected object's selection sets its mask again.",
+		args = SET_COMMANDS,
+		run = proc(app: ^App, arg: int) {if id := set_id_at(app, arg); id != 0 do set_restore(app, id, .Replace)},
+		enabled = proc(app: ^App, arg: int) -> bool {
+			obj := selected_object(app)
+			return obj != nil && sculpt.levels_sets_ready(&obj.levels) && set_id_at(app, arg) != 0
+		},
 	},
 	.Paint = {
 		label = "Paint",
@@ -993,6 +1017,8 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 		return fmt.tprintf("%v view", camera.Axis_View(arg))
 	case .Mask:
 		return MASK_COMMAND_LABELS[sculpt.Mask_Command(arg)]
+	case .Restore_Selection_Set:
+		return fmt.tprintf("Restore selection set %d", arg + 1)
 	case .Paint:
 		return "Fill with colour" if sculpt.Paint_Command(arg) == .Fill else "Clear paint"
 	case .Group:

@@ -128,7 +128,13 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
   `sculptor_hide_shape`/`sculptor_hide_command` are undo steps (`Undo_Step.shown`, `Saved_Node.hidden`); refused under
   dyntopo or in HD, never hide everything; `bvh_raycast` skips hidden triangles. Hide `.Masked`/`.Unmasked` split
   triangles at `MASK_HALF` on all three corners (exact complements); `Mask_Command.Hidden` is the one mask command that
-  writes hidden vertices (every corner of a hidden triangle 255, the rest 0), refused when nothing is hidden. Smooth all
+  writes hidden vertices (every corner of a hidden triangle 255, the rest 0), refused when nothing is hidden.
+  Selection sets (`src/sculpt/selection_sets.odin`): `Levels.sets`, each kept by its level in that level's vertex
+  order (runs `{u32 count, u8}` when smaller, else raw), restored on any level through `set_values_at` +
+  `carried_mask` (the live mask's carry rule) and `sculptor_mask_values`; `levels_destroy` frees them (so every
+  rebuild drops them; the app adds `app.sets_lost` to the command's note), `levels_dyn_enable` drops them, the level
+  deletes carry them (`levels_sets_carry`). Files write them after the quads under `LEVELS_SETS`, re-packed in canon
+  order; swap undo and Duplicate carry them through the bytes. Store/rename/delete are not undo steps (`scene_edits`). Smooth all
   (`src/sculpt/smooth_all.odin`) follows the same shape: `sculptor_smooth_all(s, steps, strength, gpu)` weighs every
   vertex by `strength · shield`, saves the free nodes, runs `smooth_all_cpu` (Jacobi steps over vertex ranges, two
   buffers) or the `Smooth_Gpu` callback the app fills with `render.smooth_compute_run` (falls back to the CPU when it

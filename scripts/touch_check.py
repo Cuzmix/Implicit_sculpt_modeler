@@ -1356,6 +1356,83 @@ def hide_unmasked_then_undo_shows_it_again():
                                 "@shown": lambda stats: "hidden_triangles" not in stats})
 
 
+# Selection sets: the Object tab's Select page with Mask folded and Selection sets open.
+SETS_FOLD_MASK = (1300, 299)
+SETS_OPEN = (1300, 345)
+SETS_RESTORE_FIRST = (1524, 448)
+
+
+def store_set(s):
+    """The palette's Store mask as set."""
+    s.press("k", ("ctrl",))
+    s.type("store mask")
+    s.press("Return")
+    s.wait(4)
+
+
+def open_sets(s):
+    s.ftap(*UI["tab_object"])
+    s.wait(6)
+    s.ftap(*UI["page_select"])
+    s.wait(10)
+    s.ftap(*SETS_FOLD_MASK)
+    s.wait(10)
+    s.ftap(*SETS_OPEN)
+    s.wait(12)
+
+
+@scenario
+def selection_set_restores_by_finger():
+    """A band of mask stored as a set, Alt+M clears it, and a finger on the set's Restore brings it back as an undo step
+    with Undo on its note."""
+    s = Script()
+    masked_first(s)
+    store_set(s)
+    s.press("m", ("alt",))
+    s.wait(4)
+    open_sets(s)
+    s.ftap(*SETS_RESTORE_FIRST)
+    s.wait(8)
+    return s, [], camera_still({"masked": near(1), "selection_sets": near(1), "undo_steps": near(3), "toast_undo": near(1),
+                                "last_op": is_text("Restored_Set_1")})
+
+
+@scenario
+def selection_set_restore_undoes():
+    """The palette's Restore selection set 1 brings the stored mask back after Alt+M, and one Ctrl+Z clears it again."""
+    s = Script()
+    masked_first(s)
+    store_set(s)
+    s.press("m", ("alt",))
+    s.wait(4)
+    s.press("k", ("ctrl",))
+    s.type("restore selection set 1")
+    s.press("Return")
+    s.wait(6)
+    s.press("z", ("ctrl",))
+    s.wait(6)
+    return s, [], camera_still({"masked": near(0), "selection_sets": near(1), "undo_steps": near(2), "redo_steps": near(1)})
+
+
+@scenario
+def remesh_drops_the_sets_and_undo_brings_them_back():
+    """Ctrl+R rebuilds the mesh, so its stored set goes and the note says so; Ctrl+Z puts the old mesh back with the set."""
+    s = Script()
+    masked_first(s)
+    store_set(s)
+    s.press("r", ("ctrl",))
+    s.wait(8)
+    first = (s, [], {"selection_sets": near(0), "sets_noted": near(1)})
+    again = Script()
+    masked_first(again)
+    store_set(again)
+    again.press("r", ("ctrl",))
+    again.wait(8)
+    again.press("z", ("ctrl",))
+    again.wait(8)
+    return Steps([first, (again, [], {"selection_sets": near(1), "redo_steps": near(1)})])
+
+
 @scenario
 def action_bar_folds_on_a_narrow_window():
     """At 820 x 640 the groups fold to one button each; Mask opens its actions above it and the first, Invert, empties the mask."""
@@ -3307,7 +3384,7 @@ def autosave_files(ext=".sculpt"):
     return sorted(f for f in os.listdir(folder) if f.endswith(ext)) if os.path.isdir(folder) else []
 
 
-def same_file(a, b):
+def file_difference(a, b):
     """True when files `a` and `b` hold the same bytes, else where they differ, so a rare
     mismatch says something the next time it happens (both files are kept)."""
     x, y = open(a, "rb").read(), open(b, "rb").read()
@@ -3369,7 +3446,7 @@ def autosave_crash_then_recover():
     after = Script()
     after.wait(10)
     click(after, CARD["recover"])
-    same = lambda _: same_file(control, recovered)
+    same = lambda _: file_difference(control, recovered)
     return Steps([
         (stroke_then_rest(Script(), 5), [f"--export={control}"], {}),
         crash_after_stroke(),
@@ -3573,7 +3650,8 @@ def palette_run(s, words):
 
 
 def same_file(a, b):
-    return lambda _: open(a, "rb").read() == open(b, "rb").read()
+    """A check that files `a` and `b` (written by the runs) hold the same bytes."""
+    return lambda _: file_difference(a, b)
 
 
 @scenario

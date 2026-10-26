@@ -136,7 +136,9 @@ scene_run :: proc(app: ^App, cmd: Scene_Command) -> bool {
 	label := strings.clone(object_label(named) if named != nil else "")
 	defer delete(label)
 	start := time.tick_now()
+	app.sets_lost = 0
 	ok := scene_apply(app, cmd)
+	defer app.sets_lost = 0
 	if !swap_since(app.history.done[:], start) {
 		if cmd.adjust && ok do adjust_unchanged(app)
 		return ok
@@ -150,6 +152,12 @@ scene_run :: proc(app: ^App, cmd: Scene_Command) -> bool {
 			if obj := selected_object(app); obj != nil do vertices = object_vertex_count(obj)
 		}
 		report(app, what.section, {}, "%s", scene_report_line(what.verb, label, vertices, ms))
+	}
+	if lost := app.sets_lost; lost > 0 {
+		text := app.result.text
+		app.result.text = fmt.aprintf("%s; %d selection set%s went with the old mesh", text, lost, "" if lost == 1 else "s")
+		app.sets_noted = lost
+		delete(text)
 	}
 	app.result.flags += {.Undo}
 	app.result.undo = undo_mark(app.history.done[:])

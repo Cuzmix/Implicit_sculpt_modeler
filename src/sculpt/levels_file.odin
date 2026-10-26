@@ -39,6 +39,10 @@ LEVELS_QUADS :: u32(8)
 // or with a layout that does not fit, get the full build.
 @(private = "file")
 LEVELS_LAYOUT :: u32(16)
+// After the quads, the selection sets (selection_sets.odin), each in its level's file
+// order (files from before them have none).
+@(private = "file")
+LEVELS_SETS :: u32(32)
 
 // How levels_write runs. A save from the frame loop takes the defaults. The autosave
 // thread writes serially, since the pool takes jobs from the frame loop alone, and
@@ -104,7 +108,7 @@ levels_write :: proc(l: ^Levels, out: ^[dynamic]u8, opts := Write_Options{}) -> 
 	w := Writer{out, nil if opts.serial else l.pool, opts.abort}
 	paged := levels_dynamic(l)
 	geom.byte_put(out, LEVELS_TAG)
-	geom.byte_put(out, LEVELS_DYNAMIC if paged else LEVELS_PAINT | LEVELS_LAYERS | LEVELS_QUADS | LEVELS_LAYOUT)
+	geom.byte_put(out, LEVELS_DYNAMIC if paged else LEVELS_PAINT | LEVELS_LAYERS | LEVELS_QUADS | LEVELS_LAYOUT | LEVELS_SETS)
 	geom.byte_put(out, u32(len(l.levels)))
 	geom.byte_put(out, u32(l.current))
 	geom.byte_put(out, u32(l.hd.steps))
@@ -181,7 +185,64 @@ levels_write :: proc(l: ^Levels, out: ^[dynamic]u8, opts := Write_Options{}) -> 
 		geom.byte_put(out, u32(f.uv.charts))
 		geom.byte_put(out, f.uv.filled)
 	}
-	return !stopped(w.abort)
+	return write_sets(&w, l, canon[:]) && !stopped(w.abort)
+}
+
+// The selection sets: how many, then per set its name, level, mean mask and its values
+// in that level's file order, packed again (as runs when smaller). Serial: a set is a
+// byte a vertex at most, and the abort flag is read between sets.
+@(private = "file")
+write_sets :: proc(w: ^Writer, l: ^Levels, canon: []([]u32)) -> bool {
+	out := w.out
+	geom.byte_put(out, u32(len(l.sets)))
+	for &set in l.sets {
+		if stopped(w.abort) do return false
+		values := make([]u8, set.vertices, context.temp_allocator)
+		ordered := make([]u8, set.vertices, context.temp_allocator)
+		ok := set_decode(set.data, set.runs, values)
+		assert(ok, "a selection set is damaged")
+		for x, u in values do ordered[place(canon[set.level], u32(u))] = x
+		data, runs := set_encode(ordered, context.temp_allocator)
+		name := set.name
+		geom.byte_put_slice(out, name[:])
+		geom.byte_put(out, u32(set.level))
+		geom.byte_put(out, set.masked)
+		geom.byte_put(out, u8(runs))
+		geom.byte_put(out, u32(len(data)))
+		if !put_checked(w, data) do return false
+	}
+	return true
+}
+
+// Reads what write_sets wrote, once the levels are built and `canon` gives each vertex's
+// place in the file. False on a damaged file: too many sets, a level out of range, a
+// size past the bytes left, or runs not adding up to the level's vertices.
+@(private = "file")
+read_sets :: proc(r: ^geom.Byte_Reader, l: ^Levels, canon: []([]u32)) -> bool {
+	count := int(geom.byte_get(r, u32))
+	if !r.ok || count > MAX_SELECTION_SETS do return false
+	for _ in 0 ..< count {
+		set: Selection_Set
+		name := geom.byte_get_bytes(r, len(set.name))
+		level := int(geom.byte_get(r, u32))
+		masked := geom.byte_get(r, f32)
+		runs := geom.byte_get(r, u8)
+		size := int(geom.byte_get(r, u32))
+		if !r.ok || level >= len(l.levels) || runs > 1 || size > len(r.data) - r.at do return false
+		data := geom.byte_get_bytes(r, size)
+		n := len(l.levels[level].mesh.positions)
+		ordered := make([]u8, n, context.temp_allocator)
+		if !r.ok || !set_decode(data, runs == 1, ordered) do return false
+		values := make([]u8, n, context.temp_allocator)
+		for u in 0 ..< n do values[u] = ordered[place(canon[level], u32(u))]
+		copy(set.name[:len(set.name) - 1], name)
+		l.set_serial += 1
+		set.id, set.level, set.vertices = l.set_serial, level, n
+		set.masked = masked if masked >= 0 && masked <= 1 else 0 // NaN too
+		set.data, set.runs = set_encode(values, l.allocator)
+		append(&l.sets, set)
+	}
+	return true
 }
 
 // A sculptor's layers: how many, which records (0 for none, else its index + 1), then
@@ -370,6 +431,7 @@ levels_read :: proc(l: ^Levels, r: ^geom.Byte_Reader, pool: ^jobs.Pool, node_tri
 		for lv, j in l.levels do if !read_layers(r, &lv.sculptor, canon[j]) do return false
 	}
 	if flags & LEVELS_QUADS != 0 && !read_quads(r, l, file_order) do return false
+	if flags & LEVELS_SETS != 0 && !read_sets(r, l, canon[:count]) do return false
 	if hd_steps > 0 && !levels_hd_set_steps(l, hd_steps) do return false
 	if paged && !levels_dyn_enable(l) do return false
 	ok = r.ok

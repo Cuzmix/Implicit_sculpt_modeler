@@ -457,10 +457,12 @@ object_set_dyntopo :: proc(app: ^App, obj: ^Object, on: bool) -> (changed, ok: b
 			log.warn("dynamic topology: delete the other subdivision levels and the HD level first")
 			return false, true
 		}
+		sets := len(sculpt.levels_sets(&obj.levels))
 		if !sculpt.levels_dyn_enable(&obj.levels) {
 			log.warnf("dynamic topology: a vertex is in more than %d triangles; remesh first", sculpt.DYN_FACES)
 			return false, true
 		}
+		app.sets_lost += sets
 	} else {
 		sculpt.levels_dyn_disable(&obj.levels)
 	}
@@ -883,9 +885,11 @@ object_replace_mesh :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh) -> bool {
 	return object_build_from(app, obj, mesh, start, normals = true)
 }
 
-// Frees the levels and GPU buffers. The caller waits for the GPU first.
+// Frees the levels and GPU buffers. The caller waits for the GPU first. A rebuild
+// (`rebuild`) counts the selection sets that go for the command's note.
 @(private = "file")
-object_release_mesh :: proc(app: ^App, obj: ^Object) {
+object_release_mesh :: proc(app: ^App, obj: ^Object, rebuild := true) {
+	if rebuild do app.sets_lost += len(sculpt.levels_sets(&obj.levels))
 	if app.stroke.object == obj.id do app.stroke.active = false
 	history_forget_strokes(app, obj.id)
 	for &gpu in obj.gpu do render.mesh_buffers_destroy(&app.renderer, &gpu)
@@ -894,7 +898,7 @@ object_release_mesh :: proc(app: ^App, obj: ^Object) {
 }
 
 object_free :: proc(app: ^App, obj: ^Object) {
-	object_release_mesh(app, obj)
+	object_release_mesh(app, obj, rebuild = false)
 	delete(obj.name)
 	free(obj)
 }
