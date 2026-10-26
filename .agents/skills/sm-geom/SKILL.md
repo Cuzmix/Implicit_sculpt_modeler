@@ -98,8 +98,8 @@ description: The src/geom package — the structure-of-arrays geom.Mesh and its 
   E = 3F/2), the `mesh_check` counts, the bounds, and the signed volume (negative = inside out; a unit cube is 1, a unit
   icosphere a little under 4π/3). A planted fault must be caught: flip one triangle, drop one, duplicate one, and watch
   the counts move (`src/geom/check_test.odin` does exactly that).
-- Distances to a surface: `closest_on_triangle` / `distance_to_surface` live in `simplify_test.odin` and `lod_test.odin`
-  as file-private helpers; promote them into geom when production code needs them.
+- Distances to a surface: `closest_on_triangle` (point + barycentric weights) and `bvh_closest` (`closest.odin`; for
+  Morton trees, a fixed 64-entry stack, optional hint triangle that keeps it exact, ~0.8 µs a query on the VM).
 
 ## Traps
 | You might expect | What happens |

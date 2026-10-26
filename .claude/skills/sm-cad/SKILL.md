@@ -92,7 +92,7 @@ description: CAD-style mesh tools inside this app on geom.Mesh — primitives, b
 ## Measure
 - Edge length and area from positions; bounds from `geom.Aabb`/`aabb_grow` (`src/geom/bvh.odin:9-20`); signed volume
   Σ p0·(p1×p2)/6, meaningful only for a closed, outward mesh (`mesh_check` gives it); distance to the surface through
-  `closest_on_triangle` (promote it from `simplify_test.odin`); picking through `scene_raycast` (`scene.odin:432-444`),
+  `geom.closest_on_triangle` and `geom.bvh_closest` (`closest.odin`, Morton trees, exact with a hint); picking through `scene_raycast` (`scene.odin:432-444`),
   which returns world-space hits, and `to_local`/`to_world` (`:34-35`).
 
 ## References (read when the task needs them)

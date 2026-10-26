@@ -696,14 +696,17 @@ object_put_bytes :: proc(out: ^[dynamic]u8, obj: ^Object, opts := sculpt.Write_O
 	return sculpt.levels_write(&obj.levels, out, opts)
 }
 
-// About how many bytes object_put writes for `obj`: every level's positions, the
-// base's triangles and node layout, and the shown level's mask, paint and groups.
+// About how many bytes object_put writes for `obj`: every level's positions and sculpt
+// layers, the base's triangles and node layout, and the shown level's mask, paint and
+// groups.
 @(private = "file")
 object_put_estimate :: proc(obj: ^Object) -> int {
 	bytes := 4096
 	for lv, j in obj.levels.levels {
 		bytes += size_of(Vec3) * len(lv.mesh.positions)
 		if j == 0 do bytes += size_of(u32) * len(lv.mesh.indices) + 8 * len(lv.sculptor.nodes)
+		// Layers are written whole, a displacement a vertex each, with a name and sliders.
+		bytes += len(lv.sculptor.layers.list) * (64 + size_of(Vec3) * len(lv.mesh.positions))
 	}
 	s := &sculpt.levels_current(&obj.levels).sculptor
 	n := len(s.mesh.positions)

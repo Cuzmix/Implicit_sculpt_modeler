@@ -188,6 +188,11 @@ App :: struct {
 	mask_seen: Mask_Seen, // whether the selected object has a mask, kept (history.odin)
 	sets_lost: int, // selection sets a rebuild dropped, for the note of the command that ran it (selection_sets.odin)
 	sets_noted: int, // how many the last such note named, for the exit stats
+	// Sculpt layers a rebuild carried onto the new mesh, and those that went with the old
+	// one's other levels, for the note of the command that ran it (scene.odin).
+	layers_kept: int,
+	layers_lost: int,
+	layers_noted: int, // how many the last such note said were kept, for the exit stats
 	settings_file: string, // where the settings are remembered, "" when this run does not
 	nav:      Nav_Prefs, // how the pointer, fingers and pen navigate (Settings)
 	device:   Device, // this frame's keys and pointer (device.odin)
@@ -1341,6 +1346,9 @@ run :: proc(opts: Options) -> bool {
 	sets := 0
 	for obj in app.scene.objects do sets += len(sculpt.levels_sets(&obj.levels))
 	fmt.printfln("selection_sets=%d sets_noted=%d", sets, app.sets_noted)
+	layers := 0
+	for obj in app.scene.objects do layers += sculpt.levels_layer_count(&obj.levels)
+	fmt.printfln("layers=%d layers_noted=%d layers_carry_ms=%.1f", layers, app.layers_noted, app.stats.layers_carry_ms)
 	for obj in app.scene.objects {
 		if hidden := sculpt.sculptor_hidden_count(object_sculptor(obj)); hidden > 0 {
 			fmt.printfln("hide object=%d hidden_triangles=%d triangles=%d", obj.id, hidden, object_triangle_count(obj))

@@ -136,9 +136,9 @@ scene_run :: proc(app: ^App, cmd: Scene_Command) -> bool {
 	label := strings.clone(object_label(named) if named != nil else "")
 	defer delete(label)
 	start := time.tick_now()
-	app.sets_lost = 0
+	app.sets_lost, app.layers_kept, app.layers_lost = 0, 0, 0
 	ok := scene_apply(app, cmd)
-	defer app.sets_lost = 0
+	defer app.sets_lost, app.layers_kept, app.layers_lost = 0, 0, 0
 	if !swap_since(app.history.done[:], start) {
 		if cmd.adjust && ok do adjust_unchanged(app)
 		return ok
@@ -152,6 +152,19 @@ scene_run :: proc(app: ^App, cmd: Scene_Command) -> bool {
 			if obj := selected_object(app); obj != nil do vertices = object_vertex_count(obj)
 		}
 		report(app, what.section, {}, "%s", scene_report_line(what.verb, label, vertices, ms))
+	}
+	if kept, lost := app.layers_kept, app.layers_lost; kept > 0 || lost > 0 {
+		text := app.result.text
+		switch {
+		case lost == 0:
+			app.result.text = fmt.aprintf("%s; kept %d layer%s", text, kept, "" if kept == 1 else "s")
+		case kept == 0:
+			app.result.text = fmt.aprintf("%s; %d layer%s on other levels went", text, lost, "" if lost == 1 else "s")
+		case:
+			app.result.text = fmt.aprintf("%s; kept %d layer%s, and %d on other levels went", text, kept, "" if kept == 1 else "s", lost)
+		}
+		app.layers_noted = kept
+		delete(text)
 	}
 	if lost := app.sets_lost; lost > 0 {
 		text := app.result.text

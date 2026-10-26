@@ -57,6 +57,9 @@ Frame_Stats :: struct {
 	hd_upload_ms:   f64,
 	hd_leave_ms:    f64,
 	recall_ms:      f64, // the last History brush target built
+	// Carrying sculpt layers onto the last rebuilt mesh (a slice's second part: the
+	// build of each part starts the stats afresh).
+	layers_carry_ms: f64,
 	// The last remesh: building the new surface, then preparing it to sculpt and upload.
 	remesh_ms:      f64,
 	remesh_setup_ms: f64,

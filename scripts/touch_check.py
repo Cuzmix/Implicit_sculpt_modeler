@@ -3843,6 +3843,45 @@ def history_brush_by_pen():
 
 
 @scenario
+def layers_survive_a_rebuild():
+    """A stroke into a recording layer, then Remesh selected (Ctrl+R), Mirror and weld,
+    Decimate, a Slice (Ctrl+Shift drag with Slice the gesture tool) or Make boolean: the
+    rebuilt object keeps the layer, both parts of a slice do, and the note says so.
+    Undoing the decimation (from 163k vertices, so 41k is fewer) brings back the old
+    object, its layer and its vertices with it; the rebuild forgot the stroke, so nothing
+    is left to undo after."""
+    def run(rebuild, undo=False):
+        s = Script()
+        s.wait(3)
+        s.mouse_drag(line((700, 380), (800, 420), 12))
+        s.wait(2)
+        rebuild(s)
+        s.wait(5)
+        if undo:
+            s.press("z", ("ctrl",))
+            s.wait(5)
+        return s
+    def remesh(s):
+        s.press("r", ("ctrl",))
+    def slice_(s):
+        s.mouse_drag(line((790, 60), (810, 840), 10), keys=("ctrl", "shift"))
+    settings = settings_file()
+    os.makedirs(os.path.dirname(settings), exist_ok=True)
+    with open(settings, "w") as f:
+        f.write("version 1\ngesture slice\n")
+    kept = {"layers": near(1, 0), "layers_noted": near(1, 0)}
+    steps = [(run(remesh), ["--layer"], dict(kept, layers_carry_ms=lambda v: float(v) > 0)),
+             (run(lambda s: palette_run(s, "mirror and weld")), ["--layer"], kept),
+             (run(lambda s: palette_run(s, "decimate to 41k"), undo=True), ["--subdiv=7", "--layer"],
+              dict(kept, undo_steps=near(0, 0), vertices=near(163842, 0))),
+             (run(slice_), ["--layer", f"--settings-file={settings}"], {"objects": near(2, 0), "layers": near(2, 0), "layers_noted": near(1, 0)}),
+             (run(lambda s: palette_run(s, "make boolean")), ["--spheres=2", "--layer", "--boolean=union"],
+              {"objects": near(1, 0), "layers": near(1, 0), "layers_noted": near(1, 0)})]
+    # Two spheres start with the view framing both, so the last run is not checked for a still camera.
+    return Steps([(sc, args, camera_still(want) if k < 4 else want) for k, (sc, args, want) in enumerate(steps)])
+
+
+@scenario
 def history_point_from_the_timeline():
     """Three strokes and the History panel: a right-click on the second step of its bar
     makes the History brush paint back to before it (two steps back, chosen), and then a
