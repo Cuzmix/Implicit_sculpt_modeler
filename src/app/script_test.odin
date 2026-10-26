@@ -128,12 +128,64 @@ script_names_are_unique :: proc(t: ^testing.T) {
 			choices[choice] = true
 		}
 	}
+	// A verb is no command and no setting, so neither shadows the other.
+	for v in Script_Verb {
+		name := SCRIPT_VERBS[v].name
+		testing.expect_value(t, script_name(name), name)
+		testing.expectf(t, name not_in seen, "%v is also the command %v", v, seen[name])
+		_, is_row := script_setting(name)
+		testing.expectf(t, !is_row && setting_line(name).parse == nil, "%v is also a setting", v)
+	}
 	for s in SETTINGS do testing.expect_value(t, script_name(s.key), s.key)
 	for s in SCRIPT_VALUES do testing.expect_value(t, script_name(s.key), s.key)
 	for line in SETTING_LINES {
 		_, is_row := script_setting(line.key)
 		testing.expectf(t, !is_row, "%s is a row and a line", line.key)
 	}
+}
+
+// Each verb reads what it takes, and says what that is when it is given something else.
+@(test)
+script_reads_the_verbs :: proc(t: ^testing.T) {
+	text := `move 0.9 0 -1.5
+rotate 0 45 370
+boolean subtract
+slice z
+hide -y
+mask_rect 0 0 1 0.335
+project 1
+draw_curve stitches
+insert_middle torus
+falloff Firm
+alpha "my alphas/rock 2.png"`
+	s := script_parse(text, "x")
+	defer script_destroy(&s)
+	testing.expect_value(t, script_report(&s), "")
+	if !testing.expect_value(t, len(s.statements), 11) do return
+	st := s.statements
+	for v, i in Script_Verb {
+		testing.expect_value(t, st[i].kind, Script_Kind.Verb)
+		testing.expect_value(t, st[i].verb, v)
+	}
+	testing.expect_value(t, st[0].numbers.xyz, [3]f32{0.9, 0, -1.5})
+	testing.expect_value(t, st[1].numbers.z, 370)
+	testing.expect_value(t, Boolean_Mode(st[2].arg), Boolean_Mode.Subtract)
+	testing.expect_value(t, st[3].arg, 2)
+	testing.expect_value(t, st[4].arg, 1)
+	testing.expect(t, st[4].flip)
+	testing.expect_value(t, st[5].numbers, [4]f32{0, 0, 1, 0.335})
+	testing.expect_value(t, st[6].count, 1)
+	testing.expect_value(t, Curve_Kind(st[7].arg), Curve_Kind.Stitches)
+	testing.expect_value(t, geom.Primitive(st[8].arg), geom.Primitive.Torus)
+	testing.expect_value(t, string(FALLOFF_PRESETS[st[9].arg].label), "Firm")
+	testing.expect_value(t, st[10].text, "my alphas/rock 2.png")
+
+	bad := script_parse("move 1 2\nrotate 0 x 0\nboolean maybe\nslice w\nhide -\nmask_rect 0 0 0 1\nmask_rect 0 0 2 1\nproject 0\ndraw_curve\ninsert_middle blob\nfalloff soft\nalpha", "bad")
+	defer script_destroy(&bad)
+	if !testing.expect_value(t, len(bad.errors), 12) do return
+	for e, i in bad.errors do testing.expect_value(t, e.line, i + 1)
+	testing.expect(t, strings.contains(bad.errors[0].message, "move takes three numbers"))
+	testing.expect(t, strings.contains(bad.errors[10].message, "smooth, linear, sharp, firm or flat"))
 }
 
 // What a script sets is what the settings file would have set, rows and lines alike,

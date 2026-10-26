@@ -56,11 +56,6 @@ Options :: struct {
 	timelapse_spin: f32 `usage:"Degrees the camera turns each --timelapse frame (default 0)."`,
 	bench_loops: int `usage:"Make --bench-stroke this many circles around the middle of the sphere instead of a wavy line."`,
 	density_preview: int `usage:"Show Object > Shape > Rebuild's density checkerboard on the selected object for an even remesh of this many vertices, held on as holding its Density slider shows it (for screenshots and timing)."`,
-	falloff:   string `usage:"Start every brush with this falloff: smooth (the default), linear, sharp, firm or flat, as the Brush tab's Falloff presets set."`,
-	rotate:    string `usage:"Turn the first object this many degrees about x, y and z before starting, e.g. 0,45,0 (as the Object tab's Transform does)."`,
-	slice:     string `usage:"Slice the first object in two across its middle before starting, as a Slice line does: x, y or z is the axis the cut goes across (after --rotate)."`,
-	hide:      string `usage:"Hide the + side of the first object's middle across an axis before starting (x, y or z), or the - side (-x, -y or -z), as a hide rectangle does (after --slice)."`,
-	alpha:     string `usage:"Start with this brush alpha: a built-in one (square, noise, rings, stripes, dots or star) or an image file (PNG, JPEG, BMP, TGA or QOI)."`,
 	bench_tilt: f32 `usage:"Lean the synthetic pen of --bench-stroke this many degrees to the right (with set tilt_strength in a start-up script)."`,
 	no_vsync:  bool `usage:"Show each frame as soon as it is ready instead of waiting for the display's refresh, so frame times are not capped at the refresh rate."`,
 	time_gpu:  bool `usage:"Measure the GPU time of the 3D viewport every frame. Waits for the GPU each frame, so frames no longer overlap."`,
@@ -68,11 +63,6 @@ Options :: struct {
 	gpu_smooth: bool `usage:"Start with the Object tab's Deformation > On the GPU on, so Smooth all runs as a compute shader (the GPU compute trial)."`,
 	compute_bench: string `usage:"Time Smooth all on the CPU and as a GPU compute shader, upload and readback included, at 500k, 1M, 5M, 7M and 10M vertices (only --vertices when given); check the GPU's result against the CPU's, write the markdown tables to this path and exit."`,
 	bake:       string `usage:"On exit, bake the first object's detail onto the selected quad object (from retopologize in a start-up script) into this folder, as Bake maps... does (before --export)."`,
-	boolean:    string `usage:"Mark every object but the first union, subtract or intersect (the Object tab's Booleans) and move them to overlap it, before starting (after --hide); with --spheres=2 or more."`,
-	extract:    f32 `usage:"Extract the first object's masked part before starting, as the Object tab's Extract masked does, this thick (a share of its size; after --boolean); masks what the top third of the view shows first when nothing is masked."`,
-	project:    bool `usage:"Project the first object's detail onto the selected one before starting, as the Object tab's Project detail does (after --extract)."`,
-	curve:      string `usage:"Draw a curve of this kind (tube, stitches or zipper) across the middle of the view before starting, as the Curve tool does (after --extract)."`,
-	insert:     string `usage:"Insert this shape (sphere, cube, cylinder, cone or torus) at the middle of the view before starting, as a click of the Insert tool does (after --curve)."`,
 	bake_size:  int `usage:"Texels square for --bake (512, 1024, 2048 or 4096; default 2048)."`,
 	gpubench_frames: int `usage:"Measured frames per --gpubench case (default 120, at most 240)."`,
 	open:      string `usage:"Start with the scene saved in this .sculpt file instead of spheres, as Menu > Open scene... does."`,
@@ -375,39 +365,6 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	}
 	// The first sphere; otherwise what the file selected, or the import.
 	if starting > 0 do app.scene.selected = 0
-	if opts.rotate != "" {
-		parts := strings.split(opts.rotate, ",", context.temp_allocator)
-		if len(parts) != 3 {
-			log.errorf("--rotate wants three angles, like 0,45,0")
-			return false
-		}
-		for part, i in parts {
-			a, ok := strconv.parse_f32(strings.trim_space(part))
-			if !ok {
-				log.errorf("--rotate: %q is not an angle", part)
-				return false
-			}
-			app.scene.objects[0].transform.rotation[i] = a
-		}
-	}
-	for flag, i in ([2]string{opts.slice, opts.hide}) {
-		if flag == "" do continue
-		axes := [?]string{"x", "y", "z"}
-		name := strings.trim_prefix(flag, "-")
-		axis := -1
-		for a, k in axes do if strings.equal_fold(name, a) do axis = k
-		if axis < 0 {
-			log.errorf("unknown --%s axis %q", "slice" if i == 0 else "hide", flag)
-			return false
-		}
-		obj := app.scene.objects[0]
-		app.scene.selected = 0
-		if i == 0 {
-			if !scene_slice_axis(&app, obj, axis) do return false
-		} else {
-			hide_axis(&app, obj, axis, !strings.has_prefix(flag, "-"))
-		}
-	}
 	defer render.viewport_target_destroy(&app.renderer, &app.target)
 	app.camera = camera.orbit_default()
 	if opts.hd_open {
@@ -450,59 +407,6 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	app.kit.fixed_dt = opts.ui_dt
 	if opts.no_vsync do app.vsync = false
 	app.ui.smooth_on_gpu = opts.gpu_smooth
-	if opts.boolean != "" {
-		mode: Boolean_Mode
-		for m in Boolean_Mode do if m != .None && strings.equal_fold(opts.boolean, fmt.tprint(m)) do mode = m
-		if mode == .None || len(app.scene.objects) < 2 {
-			log.errorf("--boolean takes union, subtract or intersect, and two objects or more, not %q", opts.boolean)
-			return false
-		}
-		first := app.scene.objects[0]
-		for obj, i in app.scene.objects[1:] {
-			obj.boolean = mode
-			obj.transform.position = first.transform.position + {0.9, 0.4 * f32(i), 0} * first.transform.scale
-		}
-	}
-	if opts.extract > 0 {
-		app.scene.selected = 0
-		app.ui.boolean.thickness = opts.extract
-		if object_sculptor(app.scene.objects[0]).mask == nil {
-			top := [4][2]f32{{-1, 0.33}, {1, 0.33}, {1, 1}, {-1, 1}}
-			// The viewport has no size before the first frame: the size it asks for.
-			mask_shape_command(&app, top[:], app.ui.viewport_request, false)
-		}
-		if !extract_masked(&app) do return false
-	}
-	if opts.project && len(app.scene.objects) > 1 do project_detail(&app, selected_object(&app), app.scene.objects[0])
-	if opts.curve != "" {
-		found := false
-		for k in Curve_Kind do if strings.equal_fold(opts.curve, fmt.tprint(k)) {
-			app.curve.kind, found = k, true
-		}
-		if !found {
-			log.errorf("unknown --curve %q", opts.curve)
-			return false
-		}
-		// The viewport has no size before the first frame: the size it asks for.
-		size := app.ui.viewport_request
-		for i in 0 ..= 40 do curve_add_point(&app, {size.x * (0.3 + 0.01 * f32(i)), size.y * (0.5 + 0.08 * math.sin(f32(i) / 6))}, size)
-		if !curve_make(&app) do return false
-	}
-	if opts.insert != "" {
-		found := false
-		for p in geom.Primitive do if strings.equal_fold(opts.insert, fmt.tprint(p)) {
-			app.insert.shape, found = p, true
-		}
-		if !found {
-			log.errorf("unknown --insert %q", opts.insert)
-			return false
-		}
-		size := app.ui.viewport_request
-		origin, dir := mouse_ray(app.camera, 0.5 * size, size)
-		if _, hit, n, ok := scene_raycast_surface(&app, origin, dir); ok {
-			if !insert_make(&app, hit, n, app.brush.radius_px * camera.orbit_world_per_px(app.camera, hit, size.y)) do return false
-		}
-	}
 	if opts.bake_size > 0 do app.ui.bake.size = i32(opts.bake_size)
 	defer if remember do _ = settings_save(&app, settings)
 	interactive := opts.frames == 0 && opts.gpubench == "" && opts.bench_stroke == 0 && opts.compute_bench == ""
@@ -514,22 +418,9 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		app.ui.rebuild_goal, app.ui.rebuild_even, app.rebuild.pinned = .Even, rebuild_count(opts.density_preview), true
 	}
 	app.studio_samples, app.studio_ao, app.studio_shadow = STUDIO_SAMPLES_DEFAULT, 0.85, 0.6
-	if opts.falloff != "" {
-		found := false
-		for preset in FALLOFF_PRESETS {
-			if !strings.equal_fold(opts.falloff, string(preset.label)) do continue
-			for &f in app.brush.falloffs do f = {drawn = preset.drawn, curve = preset.curve}
-			found = true
-		}
-		if !found {
-			log.errorf("unknown falloff %q", opts.falloff)
-			return false
-		}
-	}
 	alphas_init(&app)
 	defer alphas_destroy(&app)
 	app.stroke_seed = 1
-	if opts.alpha != "" && !alpha_select(&app, opts.alpha) do return false
 	app.tool = .Brush
 	app.running = true
 	frame_index := 0
