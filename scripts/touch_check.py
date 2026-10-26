@@ -1582,7 +1582,7 @@ def long_press(s, x, y, finger=0, frames=LONG_PRESS_FRAMES):
 
 
 INSPECTOR_BUTTON = (1565, 36)
-FOCUS_BUTTON, FRAME_ALL_BUTTON = (1358, 520), (1506, 520)  # the Move tool's tab, under the gizmo's modes
+FOCUS_BUTTON, FRAME_ALL_BUTTON = (1358, 328), (1506, 328)  # the Move tool's tab, above the gizmo's settings
 SCENE_TAB, SCENE_ROW = (1526, 152), (1430, 232)
 
 
@@ -3571,7 +3571,7 @@ GIZMO_CENTER = (800, 450)
 GIZMO_X_ARM = (838, 458)
 GIZMO_XY_SQUARE = (829, 423)
 GIZMO_Y_RING = (800, 481)
-GIZMO_CHIPS = {"move": (726, 786), "turn": (791, 786), "scale": (855, 786), "snap": (920, 786)}
+GIZMO_CHIPS = {"move": (694, 786), "turn": (759, 786), "scale": (823, 786), "snap": (888, 786), "pivot": (951, 786)}
 
 
 def transform_is(test):
@@ -3692,6 +3692,60 @@ def transform_values_undo_per_drag():
     s.press("z", ("ctrl",))
     dragged = transform_is(lambda x, y, z, rx, ry, rz, sc: abs(x - 0.5) < 0.02 and (y, z, sc) == (0, 0, 1))
     return s, [f"--settings-file={settings_file()}"], camera_still({"inspector_tab": is_text("object"), "transform": dragged, "undo_steps": near(1), "redo_steps": near(1), "transform_undo": near(1)})
+
+
+def type_value(s, text):
+    """Types `text` into the field that has the keys and presses Enter."""
+    s.wait(2)
+    s.type(text)
+    s.press("Return")
+
+
+@scenario
+def gizmo_tap_types_a_value():
+    """A click on the X arm that moves nothing opens its value: 0.5 and Enter put the
+    sphere at x 0.5 as one undo step. On the Y ring, 90 turns it a quarter about y; Esc
+    closes the entry and changes nothing."""
+    arm, ring, escape = Script(), Script(), Script()
+    gizmo_mode(arm, 0)
+    click(arm, GIZMO_X_ARM)
+    type_value(arm, "0.5")
+    gizmo_mode(ring, 1)
+    click(ring, GIZMO_Y_RING)
+    type_value(ring, "90")
+    gizmo_mode(escape, 0)
+    click(escape, GIZMO_X_ARM)
+    escape.wait(2)
+    escape.type("3")
+    escape.press("Escape")
+    return Steps([
+        (arm, [], camera_still({"transform": is_text("0.5000,0.0000,0.0000,0.000,0.000,0.000,1.0000"), "undo_steps": near(1), "gizmo_entry": is_text("none")})),
+        (ring, [], camera_still({"transform": transform_is(lambda x, y, z, rx, ry, rz, sc: abs(ry - 90) < 0.01 and abs(rx) < 0.01 and abs(rz) < 0.01), "undo_steps": near(1)})),
+        (escape, [], camera_still({"transform": is_text("0.0000,0.0000,0.0000,0.000,0.000,0.000,1.0000"), "undo_steps": near(0), "gizmo_entry": is_text("none")})),
+    ])
+
+
+@scenario
+def gizmo_pivot_on_the_surface():
+    """Pivot on the action bar, then a tap on the sphere left of its middle, moves the gizmo
+    to that point of the surface and lets go of the latch, the selection kept; scaling by 2
+    there (a typed value on the disc) moves the sphere a unit away from that point."""
+    placed, scaled = Script(), Script()
+    for sc in (placed, scaled):
+        sc.press("w")
+        click(sc, GIZMO_CHIPS["pivot"])
+        sc.ftap(640, 450)
+    scaled.press("w")
+    scaled.press("w")
+    click(scaled, (640, 450))
+    type_value(scaled, "2")
+    # On the sphere's surface: about a unit from its middle.
+    left = lambda v: v != "none" and abs(math.dist([float(x) for x in v.split(",")], [0, 0, 0]) - 1) < 0.05
+    return Steps([
+        (placed, [], camera_still({"gizmo_pivot": left, "gizmo_pivot_latch": near(0), "selected": near(0), "undo_steps": near(0),
+                                   "gizmo_at": lambda v: abs(float(v.split(",")[0]) - 640) < 3})),
+        (scaled, [], camera_still({"gizmo_pivot": left, "gizmo_mode": is_text("scale"), "transform": transform_is(lambda x, y, z, rx, ry, rz, sc: sc == 2 and math.dist((x, y, z), (0, 0, 0)) > 0.9), "undo_steps": near(1)})),
+    ])
 
 
 @scenario

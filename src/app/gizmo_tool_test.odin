@@ -212,3 +212,58 @@ gizmo_drags_move_turn_and_scale :: proc(t: ^testing.T) {
 	history_undo(&app)
 	testing.expect_value(t, obj.transform, Transform{scale = 1})
 }
+
+// Typed values: an arm's number sets the position and "+" adds to it, a ring's turns by
+// that many degrees, the scale takes "*" too; text that is no value changes nothing. Each
+// is one undo step.
+@(test)
+gizmo_entry_places_by_value :: proc(t: ^testing.T) {
+	app: App
+	defer gizmo_scene_free(&app)
+	obj := gizmo_object(&app, 1)
+	app.camera = camera.orbit_default()
+	testing.expect(t, gizmo_entry_apply(&app, obj, .X, "0.5"))
+	testing.expect(t, gizmo_entry_apply(&app, obj, .X, " +0.25 "))
+	testing.expect_value(t, obj.transform.position, Vec3{0.75, 0, 0})
+	testing.expect(t, !gizmo_entry_apply(&app, obj, .X, "*2"))
+	testing.expect(t, !gizmo_entry_apply(&app, obj, .Y, "half"))
+	testing.expect(t, !gizmo_entry_apply(&app, obj, .Scale, "0"))
+	testing.expect(t, gizmo_entry_apply(&app, obj, .Turn_Z, "90"))
+	testing.expect(t, abs(obj.transform.rotation.z - 90) < 1e-3 && obj.transform.rotation.xy == {0, 0})
+	// Turned about its own origin, it stays where it is.
+	testing.expect(t, abs(obj.transform.position.x - 0.75) < 1e-5)
+	testing.expect(t, gizmo_entry_apply(&app, obj, .Scale, "x2"))
+	testing.expect_value(t, obj.transform.scale, 2)
+	testing.expect_value(t, len(app.history.done), 4)
+	for _ in 0 ..< 4 do history_undo(&app)
+	testing.expect_value(t, obj.transform, Transform{scale = 1})
+}
+
+// A pivot placed on the surface rides with the object, and turns and scales go about it:
+// the point under it stays put.
+@(test)
+gizmo_pivot_rides_with_the_object :: proc(t: ^testing.T) {
+	app: App
+	defer gizmo_scene_free(&app)
+	obj := gizmo_object(&app, 1)
+	app.camera = camera.orbit_default()
+	testing.expect(t, !gizmo_pivot_set(&app))
+	app.move.pivot = {set = true, id = obj.id, at = {1, 0, 0}}
+	testing.expect(t, gizmo_pivot_set(&app))
+	testing.expect_value(t, gizmo_center(&app, obj), Vec3{1, 0, 0})
+	testing.expect(t, gizmo_entry_apply(&app, obj, .Turn_Y, "180"))
+	p := obj.transform.position
+	testing.expect(t, abs(p.x - 2) < 1e-4 && abs(p.y) < 1e-5 && abs(p.z) < 1e-4)
+	c := gizmo_center(&app, obj)
+	testing.expect(t, abs(c.x - 1) < 1e-4 && abs(c.z) < 1e-4)
+	testing.expect(t, gizmo_entry_apply(&app, obj, .Scale, "2"))
+	testing.expect(t, abs(obj.transform.position.x - 3) < 1e-4)
+	testing.expect(t, gizmo_entry_apply(&app, obj, .X, "+1"))
+	testing.expect(t, abs(gizmo_center(&app, obj).x - 2) < 1e-4)
+	// Another object selected has its own origin for a gizmo.
+	other := gizmo_object(&app, 2)
+	testing.expect(t, !gizmo_pivot_set(&app))
+	testing.expect_value(t, gizmo_center(&app, other), Vec3{})
+	testing.expect(t, command_run(&app, .Gizmo_Pivot))
+	testing.expect(t, app.move.pivot_latch && app.tool == .Move)
+}

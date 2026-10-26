@@ -86,6 +86,7 @@ Kit_State :: struct {
 	preset_editing: int,
 	help:       bool, // the Help window (Menu > Help, F1), in Settings' place
 	action_bar: bool, // the contextual action bar over the dock (Settings > Interface)
+	gizmo_entry: Gizmo_Entry, // the value a tap on a gizmo handle asks for (move_tool.odin)
 	action_pop: bool, // a folded action group's popover is open...
 	action_group: Action_Group, // ...for this group...
 	action_anchor: ui.Rect, // ...over its button
@@ -538,7 +539,7 @@ kit_init :: proc(app: ^App) {
 // popover added here closes whenever another opens and on Escape.
 kit_floats_close :: proc(k: ^Kit_State) {
 	k.menu, k.versions, k.view_menu, k.browser, k.dock_menu, k.object_menu, k.action_pop = false, false, false, false, false, false, false
-	k.bind.open, k.pie_editor, k.adjust_pop = false, false, false
+	k.bind.open, k.pie_editor, k.adjust_pop, k.gizmo_entry.open = false, false, false, false
 	k.ctx.select_open = 0
 }
 
@@ -547,7 +548,7 @@ kit_floats_close :: proc(k: ^Kit_State) {
 // first-run tip hides under it.
 kit_floating :: proc(app: ^App) -> bool {
 	k := &app.kit
-	return app.ui.pie.open || app.ui.adjust.kind != .None || k.action_pop || k.adjust_pop || k.menu || k.versions || k.view_menu || k.browser || k.dock_menu || k.bind.open || k.pie_editor || k.object_menu || k.palette || k.ctx.select_open != 0
+	return app.ui.pie.open || app.ui.adjust.kind != .None || k.action_pop || k.adjust_pop || k.menu || k.versions || k.view_menu || k.browser || k.dock_menu || k.bind.open || k.pie_editor || k.object_menu || k.palette || k.gizmo_entry.open || k.ctx.select_open != 0
 }
 
 kit_destroy :: proc(app: ^App) {
@@ -936,6 +937,7 @@ kit_layout :: proc(app: ^App) {
 	kit_object_menu(app)
 	kit_palette(app, palette_anchor)
 	kit_action_popover(app)
+	kit_gizmo_entry(app)
 	kit_adjust_popover(app)
 	kit_bind_popover(app)
 	kit_pie_editor(app)

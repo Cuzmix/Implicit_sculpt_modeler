@@ -221,17 +221,19 @@ kit_pen :: proc(app: ^App) {
 kit_move_tab :: proc(app: ^App) {
 	ctx := &app.kit.ctx
 	kit_tool_head(ctx, ui.ICON_MOVE, "Move", "Tap or click an object to select it, and drag it to move it across the view. The gizmo moves it along an arm or across a plane square, turns it about a ring, or scales it from the middle.")
-	modes := [len(gizmo.Mode)]string{"Move", "Turn", "Scale"}
-	hints: [len(gizmo.Mode)]string
-	for &h, i in hints do h = command_hint(app, .Gizmo, i)
-	if picked := ui.tabs(ctx, "gizmo mode", modes[:], int(app.move.mode), keys = hints[:]); picked >= 0 do command_run(app, .Gizmo, picked)
-	_ = ui.switch_row(ctx, "Snap", &app.move.snap)
-	ui.paragraph(ctx, fmt.tprintf("%s again steps through the three. Snap (or Ctrl for one drag) moves in steps of a grid that follows the zoom, turns 15° at a time and scales in steps of 0.1. Esc puts the object back mid-drag; %s undoes a drag.", command_keys(app, .Tool_Move), command_keys(app, .Undo)))
+	// The camera's buttons first, where they always are, then the gizmo's settings.
 	half := (ui.fill_width(ctx) - 8) * 0.5
 	ui.begin(ctx, "move actions", {direction = .Row, gap = 8})
 	_ = command_button(app, .Focus_Selected, width = half, glyph = ui.ICON_FOCUS)
 	_ = command_button(app, .Frame_All, width = half, glyph = ui.ICON_FRAME)
 	ui.end(ctx)
+	modes := [len(gizmo.Mode)]string{"Move", "Turn", "Scale"}
+	hints: [len(gizmo.Mode)]string
+	for &h, i in hints do h = command_hint(app, .Gizmo, i)
+	if picked := ui.tabs(ctx, "gizmo mode", modes[:], int(app.move.mode), keys = hints[:]); picked >= 0 do command_run(app, .Gizmo, picked)
+	_ = ui.switch_row(ctx, "Snap", &app.move.snap)
+	kit_command_pair(app, .Gizmo_Pivot, .Gizmo_Pivot_Reset, label_a = "Set pivot", label_b = "Reset pivot")
+	ui.paragraph(ctx, fmt.tprintf("%s again steps through the three. Snap (or Ctrl for one drag) moves in steps of a grid that follows the zoom, turns 15° at a time and scales in steps of 0.1. Esc puts the object back mid-drag; %s undoes a drag. Tap a handle without moving it to type its value. Set pivot, then a tap on a surface, turns and scales about that point.", command_keys(app, .Tool_Move), command_keys(app, .Undo)))
 	ui.paragraph(ctx, "The Object tab places the selected object exactly: position, turn and scale.")
 }
 

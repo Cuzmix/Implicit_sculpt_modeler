@@ -1,11 +1,15 @@
 package main
 
 import "core:fmt"
+import "core:math"
 import "core:math/linalg"
+import "core:strconv"
+import "core:strings"
 import sdl "vendor:sdl3"
 
 import "../camera"
 import "../gizmo"
+import "../ui"
 
 // The tool the left mouse button drives in the viewport.
 Tool :: enum u8 {
@@ -20,10 +24,23 @@ Move_Tool :: struct {
 	drag:  Move_Drag,
 	mode:  gizmo.Mode, // what the handles do: move, turn or scale (remembered)
 	snap:  bool, // the Snap latch: every drag snaps, as Ctrl makes one drag (remembered)
+	// The Pivot latch: the next press on a surface puts the pivot there instead of
+	// selecting or moving, and lets go.
+	pivot_latch: bool,
+	pivot: Gizmo_Pivot,
 	// The drags that changed an object, and the handle of the last, for the exit stats.
 	drags: int,
 	last:  gizmo.Handle,
 	drawn: [2]f32, // where the gizmo's centre was drawn last, for the scripted scenarios
+}
+
+// Where turns and scales go about, when not the object's origin: a point in the object's
+// own space, so moving, turning or scaling the object carries it along, kept for that
+// object only and not saved.
+Gizmo_Pivot :: struct {
+	set: bool,
+	id:  int,
+	at:  Vec3,
 }
 
 // A drag in progress, of the gizmo or of an object's body. handle is None when there is
@@ -31,6 +48,8 @@ Move_Tool :: struct {
 // once it moves past the slop, so a tap never nudges the object.
 Move_Drag :: struct {
 	handle:       gizmo.Handle,
+	on_handle:    bool, // pressed on the gizmo, not on the object's body
+	down:         [2]f32, // the pointer at the press
 	id:           int, // the object dragged
 	start:        Transform, // the object as it was when the drag began
 	live:         bool,
@@ -63,9 +82,16 @@ MOVE_WHAT := [gizmo.Mode]string {
 GIZMO_AXIS_COLORS :: [3][4]f32{{0.95, 0.3, 0.3, 1}, {0.4, 0.85, 0.35, 1}, {0.35, 0.55, 1, 1}}
 GIZMO_HIGHLIGHT :: [4]f32{1, 0.85, 0.3, 1}
 
-// Where the gizmo sits on the object: its origin.
+// Where the gizmo sits on the object: the pivot a tap placed, or its origin.
 gizmo_center :: proc(app: ^App, obj: ^Object) -> Vec3 {
+	if p := app.move.pivot; p.set && p.id == obj.id do return to_world(obj.transform, p.at)
 	return obj.transform.position
+}
+
+// Whether the selected object has a pivot of its own (Reset pivot has something to do).
+gizmo_pivot_set :: proc(app: ^App) -> bool {
+	obj := selected_object(app)
+	return obj != nil && app.move.pivot.set && app.move.pivot.id == obj.id
 }
 
 // How many window pixels a point is, for the gizmo's sizes.
@@ -103,6 +129,12 @@ gizmo_pick :: proc(app: ^App, at, size: [2]f32) -> gizmo.Handle {
 move_tool_frame :: proc(app: ^App, input: Viewport_Input) {
 	m := &app.move
 	if !input.primary {
+		// A tap on a handle, which moved nothing, asks for the value instead.
+		d := m.drag
+		slop := app.kit.ctx.theme.slop * gizmo_scale(app)
+		if obj := object_by_id(app, d.id); obj != nil && d.on_handle && entry_takes(d.handle) && app.drag.travel <= slop && obj.transform == d.start {
+			gizmo_entry_open(app, obj, d.handle, d.down)
+		}
 		move_end(app)
 		m.hover = .None
 		if input.hovered do m.hover = gizmo_pick(app, input.mouse_pos, input.size)
@@ -113,7 +145,19 @@ move_tool_frame :: proc(app: ^App, input: Viewport_Input) {
 		// A drag still open (its release never seen) ends as it is.
 		move_end(app)
 		m.hover = .None
+		if m.pivot_latch {
+			// The pivot goes where the press meets a surface, of this object or another,
+			// and the selection stays.
+			origin, dir := mouse_ray(app.camera, input.mouse_pos, input.size)
+			obj := selected_object(app)
+			if _, hit, ok := scene_raycast(app, origin, dir); ok && obj != nil {
+				m.pivot = {set = true, id = obj.id, at = to_local(obj.transform, hit)}
+				m.pivot_latch = false
+			}
+			return
+		}
 		handle := gizmo_pick(app, input.mouse_pos, input.size)
+		on_handle := handle != .None
 		grab: Vec3
 		if handle == .None {
 			// Not on the gizmo: a press selects what is under the pointer, and dragging moves
@@ -130,7 +174,7 @@ move_tool_frame :: proc(app: ^App, input: Viewport_Input) {
 			grab = gizmo_center(app, selected_object(app))
 		}
 		obj := selected_object(app)
-		m.drag = {handle = handle, id = obj.id, start = obj.transform, grab = grab}
+		m.drag = {handle = handle, on_handle = on_handle, down = input.mouse_pos, id = obj.id, start = obj.transform, grab = grab}
 	}
 
 	drag := &m.drag
@@ -177,22 +221,36 @@ move_tool_frame :: proc(app: ^App, input: Viewport_Input) {
 		degrees := linalg.to_degrees(drag.turned)
 		if drag.snapped do degrees = gizmo.snap(degrees, gizmo.TURN_SNAP_DEGREES)
 		drag.amount = degrees
-		// Turned about the world's axis: the turn comes before the object's own.
-		if degrees != 0 {
-			r := linalg.matrix3_rotate_f32(linalg.to_radians(degrees), drag.axis)
-			turned := gizmo.rotation_degrees(r * gizmo.rotation_matrix(drag.start.rotation))
-			for i in 0 ..< 3 do t.rotation[i] = gizmo.wrap_degrees(turned[i])
-			t.position = drag.pivot + r * (drag.start.position - drag.pivot)
-		}
+		t = turn_about(drag.start, drag.pivot, drag.axis, degrees)
 	case .Scale:
 		f := gizmo.scale_factor(drag.center, drag.press, input.mouse_pos, drag.arm_px)
 		if drag.snapped do f = max(gizmo.snap(f, gizmo.SCALE_SNAP), gizmo.SCALE_SNAP)
-		t.scale = clamp(drag.start.scale * f, MIN_OBJECT_SCALE, MAX_OBJECT_SCALE)
-		f = t.scale / drag.start.scale
-		drag.amount = f
-		t.position = drag.pivot + (drag.start.position - drag.pivot) * f
+		t = scale_about(drag.start, drag.pivot, f)
+		drag.amount = t.scale / drag.start.scale
 	}
 	obj.transform = t
+}
+
+// `t` turned `degrees` about the world axis `axis` through `pivot`: the turn comes before
+// the object's own, and the pivot stays put. Only turns write the rotation.
+turn_about :: proc(t: Transform, pivot, axis: Vec3, degrees: f32) -> Transform {
+	if degrees == 0 do return t
+	out := t
+	r := linalg.matrix3_rotate_f32(linalg.to_radians(degrees), linalg.normalize(axis))
+	turned := gizmo.rotation_degrees(r * gizmo.rotation_matrix(t.rotation))
+	for i in 0 ..< 3 do out.rotation[i] = gizmo.wrap_degrees(turned[i])
+	out.position = pivot + r * (t.position - pivot)
+	return out
+}
+
+// `t` scaled by `factor` about `pivot`, the scale kept between MIN_OBJECT_SCALE and
+// MAX_OBJECT_SCALE.
+scale_about :: proc(t: Transform, pivot: Vec3, factor: f32) -> Transform {
+	out := t
+	out.scale = clamp(t.scale * factor, MIN_OBJECT_SCALE, MAX_OBJECT_SCALE)
+	if out.scale == t.scale do return t
+	out.position = pivot + (t.position - pivot) * (out.scale / t.scale)
+	return out
 }
 
 // An object's scale stays between these.
@@ -332,6 +390,138 @@ transform_drag_end :: proc(app: ^App, force := false) {
 	if !d.active || (!force && .Left in app.device.down) do return
 	d.active = false
 	if obj := object_by_id(app, d.id); obj != nil do history_record_transform(app, obj, d.from, "Transform")
+}
+
+// The value a tap on a handle asks for: an arm's position along its axis, a ring's turn
+// in degrees, or the scale. Not the plane squares or the centre, which move in two or
+// three axes at once.
+Gizmo_Entry :: struct {
+	open:   bool,
+	typing: bool, // its field had the keys, which go back when it closes
+	id:     int, // the object
+	handle: gizmo.Handle,
+	at:     ui.Rect, // the tap, in points, that it opens over
+	text:   [32]u8,
+	refused: bool, // the last Enter was no value
+}
+
+entry_takes :: proc(h: gizmo.Handle) -> bool {
+	#partial switch h {
+	case .X, .Y, .Z, .Turn_X ..= .Turn_View, .Scale: return true
+	}
+	return false
+}
+
+// Opens the value entry for `handle` over `at` (viewport pixels), empty, so what is typed
+// is the value; the field's hint says what it is now.
+gizmo_entry_open :: proc(app: ^App, obj: ^Object, handle: gizmo.Handle, at: [2]f32) {
+	k := &app.kit
+	kit_floats_close(k)
+	p := at / gizmo_scale(app)
+	k.gizmo_entry = {open = true, id = obj.id, handle = handle, at = {p.x - 1, p.y - 1, 2, 2}}
+}
+
+// What the entry asks for, for its title.
+gizmo_entry_title :: proc(h: gizmo.Handle) -> string {
+	#partial switch h {
+	case .X:         return "Position X"
+	case .Y:         return "Position Y"
+	case .Z:         return "Position Z"
+	case .Turn_X:    return "Turn about X, degrees"
+	case .Turn_Y:    return "Turn about Y, degrees"
+	case .Turn_Z:    return "Turn about Z, degrees"
+	case .Turn_View: return "Turn about the view, degrees"
+	}
+	return "Scale"
+}
+
+// Places `obj` by the value typed for `handle`, as one undo step. A number sets an arm's
+// position or the scale; "+0.5" adds to it, and "*2" (or "x2") multiplies the scale. A
+// ring's value is the turn, in degrees, from where it is. False, changing nothing, when
+// the text is no value.
+gizmo_entry_apply :: proc(app: ^App, obj: ^Object, handle: gizmo.Handle, text: string) -> bool {
+	s := strings.trim_space(text)
+	op: u8
+	if len(s) > 0 && (s[0] == '+' || s[0] == '*' || s[0] == 'x') {
+		op = s[0]
+		s = strings.trim_space(s[1:])
+	}
+	v, ok := strconv.parse_f32(s)
+	if !ok || math.is_nan(v) || math.is_inf(v) do return false
+	before := obj.transform
+	t := before
+	pivot := gizmo_center(app, obj)
+	#partial switch handle {
+	case .X, .Y, .Z:
+		i := int(handle) - int(gizmo.Handle.X)
+		switch op {
+		case '+': t.position[i] += v
+		case 0:   t.position[i] = v
+		case:     return false
+		}
+	case .Turn_X ..= .Turn_View:
+		if op != 0 && op != '+' do return false
+		i := int(handle) - int(gizmo.Handle.Turn_X)
+		axis := gizmo.AXES[i] if i < 3 else -camera.orbit_toward(app.camera, pivot)
+		t = turn_about(t, pivot, axis, v)
+	case .Scale:
+		target: f32
+		switch op {
+		case '+':      target = t.scale + v
+		case '*', 'x': target = t.scale * v
+		case:          target = v
+		}
+		if target <= 0 do return false
+		t = scale_about(t, pivot, target / t.scale)
+	case:
+		return false
+	}
+	obj.transform = t
+	history_record_transform(app, obj, before, MOVE_WHAT[drag_mode(handle)])
+	return true
+}
+
+// The value entry, over the handle tapped: a field that has the keys while it is open,
+// Apply (or Enter) and Cancel (or Escape, or a press outside).
+kit_gizmo_entry :: proc(app: ^App) {
+	k := &app.kit
+	ctx := &k.ctx
+	e := &k.gizmo_entry
+	obj := object_by_id(app, e.id)
+	if e.open && (obj == nil || app.tool != .Move) do e.open = false
+	if !e.open && e.typing {
+		ctx.text_focus = 0
+		e.typing = false
+	}
+	if !ui.popover_begin(ctx, "gizmo entry", &e.open, e.at, .Above_Center, {direction = .Column, gap = 4, padding = 12, width = 280}) do return
+	defer ui.popover_end(ctx)
+	ui.caption(ctx, strings.to_upper(gizmo_entry_title(e.handle), context.temp_allocator))
+	hint := "Degrees, such as 90"
+	if obj != nil {
+		#partial switch e.handle {
+		case .X, .Y, .Z: hint = fmt.tprintf("Now %.3f", obj.transform.position[int(e.handle) - int(gizmo.Handle.X)])
+		case .Scale:     hint = fmt.tprintf("Now %.3f", obj.transform.scale)
+		}
+	}
+	_ = ui.text_field(ctx, "value##gizmo entry", e.text[:], hold = e.open, hint = hint)
+	e.typing ||= e.open
+	n := 0
+	for n < len(e.text) && e.text[n] != 0 do n += 1
+	note := "Enter applies it; +0.5 adds to it."
+	switch {
+	case e.refused:                    note = "That is no value: type a number, such as 0.5."
+	case drag_mode(e.handle) == .Turn: note = "Enter turns it that far about the ring's axis."
+	case e.handle == .Scale:           note = "Enter sets it; +0.5 adds, *2 doubles."
+	}
+	ui.paragraph(ctx, note)
+	apply, cancel := kit_button_pair(ctx, "Apply", "Cancel", tone_a = .Accent)
+	d := &app.device
+	apply ||= e.open && (key_pressed(d, sdl.K_RETURN) || key_pressed(d, sdl.K_KP_ENTER))
+	if apply && e.open && obj != nil {
+		if gizmo_entry_apply(app, obj, e.handle, string(e.text[:n])) do e.open = false
+		else do e.refused = true
+	}
+	if cancel do e.open = false
 }
 
 // Steps the gizmo's mode on (Move, Turn, Scale, Move): W again with the Move tool on, as
