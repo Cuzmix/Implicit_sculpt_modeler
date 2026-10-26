@@ -73,6 +73,7 @@ kit_layers_section :: proc(app: ^App) {
 			n := 0
 			for n < len(name) && name[n] != 0 do n += 1
 			sculpt.sculptor_layer_rename(s, i, string(name[:n]))
+			app.scene_edits += 1
 			selected^ = i
 		}
 		ui.end(ctx)

@@ -47,7 +47,7 @@ UI = {
     "dock_smooth": (638, 855), "dock_draw": (574, 855), "browser": (1028, 855),
     "tab_object": (1432, 152), "tab_brush": (1338, 152), "status": (1510, 870),
     "search": (1468, 36), "palette_row1": (1280, 146), "palette_row2": (1280, 192),
-    "menu_settings": (85, 566), "new_sphere": (58, 405), "new_head": (145, 405), "new_hand": (145, 453),
+    "menu_settings": (85, 610), "new_sphere": (58, 449), "new_head": (145, 449), "new_hand": (145, 497),
     "page_shape": (1326, 252), "page_select": (1397, 252), "page_surface": (1467, 252), "page_build": (1538, 252),
 }
 ORBIT_TURN = 2 * math.pi / 0.008  # points of drag that turn the view once (ORBIT_SPEED)
@@ -2710,14 +2710,41 @@ def palette_recents_come_first_and_are_remembered():
     return s, [f"--settings-file={settings_file()}"], {"palette_last": is_text("Brush:Clay"), "brush_kind": is_text("clay")}
 
 
+class Steps(list):
+    """Several runs of the app for one scenario, in order, each (script, args, checks): a
+    crash, then the start after it. A run given --crash-after-autosave must end with exit
+    code 3, as the crash it stands for; the rest must exit cleanly."""
+
+
+def autosave_folder():
+    """The autosave folder of the scenario running on this thread, empty when it starts."""
+    return os.path.join(ROOT, "build", "touch", "autosave", CURRENT.name)
+
+
 def run(name, screens, displays=None):
     CURRENT.name = name
     os.makedirs(os.path.dirname(settings_file()), exist_ok=True)
     if os.path.exists(settings_file()):
         os.remove(settings_file())
-    script, args, checks = SCENARIOS[name]()
+    shutil.rmtree(autosave_folder(), ignore_errors=True)
+    result = SCENARIOS[name]()
+    steps = result if isinstance(result, Steps) else [result]
+    failures, stats = [], {}
+    for i, step in enumerate(steps):
+        f, stats = run_one(name, step, screens and i == len(steps) - 1, displays)
+        failures += [f"run {i + 1}: {x}" for x in f] if len(steps) > 1 else f
+        if f:
+            break
+    return failures, stats
+
+
+def run_one(name, step, screens, displays):
+    script, args, checks = step
     frames = script.frame + 10
-    cmd = [EXE, f"--frames={frames}", f"--ui-events={script.spec()}"]
+    # A run with no events, such as one that only waits for an autosave, leaves the flag out:
+    # the app refuses an empty value.
+    spec = script.spec()
+    cmd = [EXE, f"--frames={frames}"] + ([f"--ui-events={spec}"] if spec else [])
     if not any(a.startswith("--width") for a in args):
         cmd += ["--width=1600", "--height=900"]
     if not any(a.startswith("--settings-file") for a in args):
@@ -2748,7 +2775,8 @@ def run(name, screens, displays=None):
                 k, v = token.split("=", 1)
                 stats[k] = v
     failures = []
-    if proc.returncode != 0:
+    want_exit = 3 if "--crash-after-autosave" in args else 0
+    if proc.returncode != want_exit:
         failures.append(f"exit code {proc.returncode}: {proc.stderr.strip().splitlines()[-3:]}")
     for key, ok in checks.items():
         if key.startswith("@"):
@@ -2794,6 +2822,121 @@ def start_displays(count):
                 break
             time.sleep(0.05)
     return servers, displays
+
+
+# Autosave and crash recovery (autosave.odin): an interval of a second and a short rest,
+# in a folder of the scenario's own, so the runs are quick and touch nothing else.
+CARD = {"recover": (653, 198), "not_now": (800, 198), "discard": (946, 198)}
+
+
+def autosave_args(*more):
+    return ["--autosave=1", "--autosave-rest=0.2", "--check-autosave", f"--autosave-folder={autosave_folder()}", *more]
+
+
+def autosave_files(ext=".sculpt"):
+    folder = autosave_folder()
+    return sorted(f for f in os.listdir(folder) if f.endswith(ext)) if os.path.isdir(folder) else []
+
+
+def stroke_then_rest(s, frames=150):
+    s.mouse_drag([(800, 450), (830, 465), (860, 480)])
+    s.wait(frames)
+    return s
+
+
+def click(s, at):
+    s.add(f"move:{at[0]},{at[1]}")
+    s.wait(1)
+    s.add("down")
+    s.wait(1)
+    s.add("up")
+    s.wait(4)
+
+
+@scenario
+def autosave_after_rest():
+    """A stroke, then a rest: one autosave, read with nothing changing under it; the clean
+    exit keeps it, and the next start asks nothing."""
+    first = (stroke_then_rest(Script()), autosave_args(), {"autosaves": near(1, 0), "autosave_torn": near(0, 0), "@one file": lambda _: len(autosave_files()) == 1})
+    s = Script()
+    s.wait(5)
+    return Steps([first, (s, autosave_args(), {"recover_offers": near(0, 0), "autosaves": near(0, 0)})])
+
+
+@scenario
+def autosave_stops_for_a_stroke():
+    """A stroke as an autosave starts reading a bigger scene stops it within a piece; the
+    next rest writes it after all."""
+    s = Script()
+    s.mouse_drag([(800, 450), (830, 465)])
+    # The interval runs out at frame 60, the rest 12 frames after the stroke.
+    s.wait(60 - s.frame + 1)
+    s.mouse_drag([(700, 400), (730, 410)])
+    s.wait(200)
+    return s, autosave_args("--vertices=500000"), {"autosave_aborts": lambda v: int(v) >= 1, "autosaves": lambda v: int(v) >= 1, "autosave_torn": near(0, 0)}
+
+
+def crash_after_stroke():
+    return (stroke_then_rest(Script(), 120), autosave_args("--crash-after-autosave"), {"@an autosave": lambda _: len(autosave_files()) == 1})
+
+
+@scenario
+def autosave_crash_then_recover():
+    """After a crash, the next start's card offers the autosave, and Recover brings back
+    the stroke exactly: the mesh exported after it is the one a run that never crashed
+    exports."""
+    control = os.path.join(autosave_folder() + "-control.ply")
+    recovered = os.path.join(autosave_folder() + "-recovered.ply")
+    after = Script()
+    after.wait(10)
+    click(after, CARD["recover"])
+    same = lambda _: open(control, "rb").read() == open(recovered, "rb").read()
+    return Steps([
+        (stroke_then_rest(Script(), 5), [f"--export={control}"], {}),
+        crash_after_stroke(),
+        (after, autosave_args(f"--export={recovered}"), {"recovered": near(1, 0), "recover_offers": near(0, 0), "@same mesh": same}),
+    ])
+
+
+@scenario
+def autosave_crash_then_discard():
+    """Discard deletes the crashed run's autosave, and nothing is offered again."""
+    after = Script()
+    after.wait(10)
+    click(after, CARD["discard"])
+    gone = lambda _: [f for f in autosave_files() if f.startswith(crashed[0])] == []
+    crashed = []
+    def remember(_):
+        crashed.append(autosave_files()[0].rsplit("-", 1)[0])
+        return True
+    crash = crash_after_stroke()
+    crash[2]["@remember"] = remember
+    again = Script()
+    again.wait(5)
+    return Steps([crash, (after, autosave_args(), {"recover_offers": near(0, 0), "@gone": gone}),
+                  (again, autosave_args(), {"recover_offers": near(0, 0)})])
+
+
+@scenario
+def autosave_not_now_asks_again():
+    """Not now keeps the autosave, so the next start asks again."""
+    after = Script()
+    after.wait(10)
+    click(after, CARD["not_now"])
+    again = Script()
+    again.wait(5)
+    return Steps([crash_after_stroke(), (after, autosave_args(), {"recover_offers": near(1, 0), "recovered": near(0, 0)}),
+                  (again, autosave_args(), {"recover_offers": near(1, 0)})])
+
+
+@scenario
+def autosave_off_writes_nothing():
+    """With Settings > System > Autosave set to Off, a stroke and a rest write nothing, at
+    exit neither."""
+    write_settings("autosave_minutes 0\n")
+    return stroke_then_rest(Script()), [f"--settings-file={settings_file()}", f"--autosave-folder={autosave_folder()}", "--autosave-rest=0.2"], {
+        "autosaves": near(0, 0), "@no files": lambda _: autosave_files() == []}
+
 
 
 def main(argv):

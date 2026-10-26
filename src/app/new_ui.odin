@@ -37,6 +37,7 @@ Kit_State :: struct {
 	tab:        Kit_Tab,
 	object_page: Object_Page, // the Object tab's page
 	tab_serial: u64, // counts tab changes, so each one fades its content in afresh
+	recover_shown: bool, // the recovery card showed this frame (kit_recover.odin)
 	menu:       bool,
 	view_menu:  bool,
 	browser:    bool, // every brush and preset, in a popover over the dock
@@ -675,6 +676,8 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 	if key_pressed(d, sdl.K_ESCAPE) || key_pressed(d, sdl.K_AC_BACK) {
 		// The topmost goes first: what floats, and only then Settings or Help.
 		// An Escape that ended typing in a field (Settings > Keys' search) was the field's.
+		// The recovery card, when nothing is above it, waits for the next start.
+		if k.recover_shown && !floating && !kit_floating(app) && !side_panel_open(k) && !typed do app.autosave.offer_hidden = true
 		if side_panel_open(k) && !floating && !kit_floating(app) && !typed do side_panel_close(app)
 		if k.palette do palette_close(app)
 		k.menu, k.view_menu, k.browser, k.dock_menu, k.object_menu, k.action_pop = false, false, false, false, false, false
@@ -866,6 +869,7 @@ kit_layout :: proc(app: ^App) {
 	// there.
 	coach_update(app)
 	kit_coach(app)
+	kit_recover(app)
 
 	// The windows, back to front: the last drawn is hit tested first. One pressed comes to
 	// the front from the next frame on.
@@ -976,7 +980,7 @@ kit_menu :: proc(app: ^App, anchor: ui.Rect) {
 	if !ui.popover_begin(ctx, "menu", &k.menu, anchor, .Below, {direction = .Column, padding = 6, width = 268}) do return
 	pick := false
 	ui.caption(ctx, "  FILE")
-	for id in ([?]Command_Id{.Open_Scene, .Save_Scene, .Save_Scene_As, .Import_Mesh, .Export_Mesh, .Screenshot}) {
+	for id in ([?]Command_Id{.Open_Scene, .Save_Scene, .Save_Scene_As, .Open_Last_Autosave, .Import_Mesh, .Export_Mesh, .Screenshot}) {
 		if command_menu_item(app, id) do pick = true
 	}
 	ui.divider(ctx, across = true)

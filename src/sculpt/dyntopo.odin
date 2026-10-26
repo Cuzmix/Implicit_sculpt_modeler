@@ -4,6 +4,7 @@ import "base:runtime"
 import "core:math"
 import "core:math/linalg"
 import "core:slice"
+import "core:sync"
 
 import "../geom"
 import "../jobs"
@@ -317,14 +318,24 @@ sculptor_dyn_disable :: proc(s: ^Sculptor, allocator := context.allocator) {
 // The mesh as a plain one, every used vertex and triangle in page order, and its mask
 // (nil when it has none). For a fixed layout, a copy.
 sculptor_compact_mesh :: proc(s: ^Sculptor, allocator := context.allocator) -> (out: geom.Mesh, mask: []u8) {
+	return compact_mesh(s, s.pool, true, nil, allocator)
+}
+
+// sculptor_compact_mesh through `pool` (nil: on this thread), with the normals or
+// without them (a file stores none, and the frame loop writes them while the autosave
+// thread reads), stopping once `abort` is set, when what it returns is incomplete.
+@(private)
+compact_mesh :: proc(s: ^Sculptor, pool: ^jobs.Pool, normals: bool, abort: ^bool, allocator := context.allocator) -> (out: geom.Mesh, mask: []u8) {
 	m := s.mesh
 	if s.dyn == nil {
 		out.positions = make([dynamic]Vec3, len(m.positions), allocator)
-		out.normals = make([dynamic]Vec3, len(m.normals), allocator)
 		out.indices = make([dynamic]u32, len(m.indices), allocator)
 		copy(out.positions[:], m.positions[:])
-		copy(out.normals[:], m.normals[:])
 		copy(out.indices[:], m.indices[:])
+		if normals {
+			out.normals = make([dynamic]Vec3, len(m.normals), allocator)
+			copy(out.normals[:], m.normals[:])
+		}
 		if s.mask != nil do mask = slice.clone(s.mask, allocator)
 		return
 	}
@@ -333,12 +344,16 @@ sculptor_compact_mesh :: proc(s: ^Sculptor, allocator := context.allocator) -> (
 		out:          ^geom.Mesh,
 		mask:         []u8,
 		vfirst, tfirst: []u32, // per node: where its vertices and triangles go
+		normals:      bool,
+		abort:        ^bool,
 	}
 	c := Compact {
-		s      = s,
-		out    = &out,
-		vfirst = make([]u32, len(s.nodes) + 1, context.temp_allocator),
-		tfirst = make([]u32, len(s.nodes) + 1, context.temp_allocator),
+		s       = s,
+		out     = &out,
+		vfirst  = make([]u32, len(s.nodes) + 1, context.temp_allocator),
+		tfirst  = make([]u32, len(s.nodes) + 1, context.temp_allocator),
+		normals = normals,
+		abort   = abort,
 	}
 	for n, id in s.nodes {
 		c.vfirst[id + 1] = c.vfirst[id] + n.vert_count
@@ -346,17 +361,18 @@ sculptor_compact_mesh :: proc(s: ^Sculptor, allocator := context.allocator) -> (
 	}
 	vertices, triangles := int(c.vfirst[len(s.nodes)]), int(c.tfirst[len(s.nodes)])
 	out.positions = make([dynamic]Vec3, vertices, allocator)
-	out.normals = make([dynamic]Vec3, vertices, allocator)
+	if normals do out.normals = make([dynamic]Vec3, vertices, allocator)
 	out.indices = make([dynamic]u32, 3 * triangles, allocator)
 	if s.mask != nil do mask = make([]u8, vertices, allocator)
 	c.mask = mask
-	jobs.parallel_for(s.pool, len(s.nodes), &c, proc(data: rawptr, id: int) {
+	jobs.parallel_for(pool, len(s.nodes), &c, proc(data: rawptr, id: int) {
 		c := cast(^Compact)data
+		if c.abort != nil && sync.atomic_load(c.abort) do return
 		s, m, out := c.s, c.s.mesh, c.out
 		n := s.nodes[id]
 		to := c.vfirst[id]
 		copy(out.positions[to:][:n.vert_count], m.positions[n.vert_first:][:n.vert_count])
-		copy(out.normals[to:][:n.vert_count], m.normals[n.vert_first:][:n.vert_count])
+		if c.normals do copy(out.normals[to:][:n.vert_count], m.normals[n.vert_first:][:n.vert_count])
 		if c.mask != nil do copy(c.mask[to:][:n.vert_count], s.mask[n.vert_first:][:n.vert_count])
 		// A vertex's new number follows from its page's place in the order.
 		for k in 0 ..< 3 * n.tri_count {

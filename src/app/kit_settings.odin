@@ -146,6 +146,7 @@ settings_reset :: proc(app: ^App, tab: Settings_Tab) {
 	case .Performance:
 		k.stats, k.stats_advanced = false, false
 		app.vsync = true
+		app.autosave.minutes = AUTOSAVE_DEFAULT_MINUTES
 	}
 }
 
@@ -288,6 +289,17 @@ settings_performance :: proc(app: ^App) {
 	ui.caption(ctx, "DISPLAY")
 	_ = ui.switch_row(ctx, "VSync", &app.vsync)
 	ui.paragraph(ctx, "Draws in step with the screen's refresh: no tearing, and no frames drawn that the screen would never show. Off, frames come as fast as they can, which lowers input delay a little.")
+	ui.spacer(ctx, 8)
+	ui.caption(ctx, "AUTOSAVE")
+	a := &app.autosave
+	chosen := 0
+	minutes := autosave_minutes(a.minutes)
+	for m, i in AUTOSAVE_MINUTES do if m == minutes do chosen = i
+	ui.label(ctx, "Save a recovery copy")
+	if picked := ui.select(ctx, "Autosave interval", AUTOSAVE_MINUTE_NAMES[:], chosen); picked >= 0 do a.minutes = AUTOSAVE_MINUTES[picked]
+	ui.paragraph(ctx, autosave_status(app), color = ctx.theme.warning if a.failed else ctx.theme.text_secondary)
+	ui.paragraph(ctx, "Written in the background once you pause, never during a stroke. If Sculpt closes unexpectedly, the next start offers it back.")
+	_ = command_button(app, .Open_Last_Autosave)
 }
 
 // A speed from a quarter to four times the default, equal steps doubling it.

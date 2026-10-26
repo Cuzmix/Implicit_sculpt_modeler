@@ -33,6 +33,8 @@ File_Kind :: enum u8 {
 	Bake,       // maps baked onto the selected quad object go into a folder (retopo.odin)
 	Save_Strokes, // the recorded strokes go to a .strokes file (replay.odin)
 	Load_Strokes, // a .strokes file becomes the recording
+	Recover,      // an earlier session's newest autosave replaces the scene (autosave.odin); the path names the session, "" for the newest of any
+	Discard_Autosave, // an earlier session's autosaves are deleted; the path names the session
 }
 
 File_Request :: struct {
@@ -156,6 +158,13 @@ file_take :: proc(app: ^App) -> (req: File_Request, ok: bool) {
 	return req, true
 }
 
+// Whether a request waits for the next frame, which the autosave's rest counts as busy.
+file_pending :: proc() -> bool {
+	sync.lock(&pending.lock)
+	defer sync.unlock(&pending.lock)
+	return pending.req.kind != .None
+}
+
 file_request_free :: proc(req: File_Request) {
 	delete(req.path, runtime.heap_allocator())
 }
@@ -208,6 +217,10 @@ file_apply :: proc(app: ^App, req: File_Request) -> bool {
 		_ = strokes_save(app, req.path)
 	case .Load_Strokes:
 		_ = strokes_load(app, req.path)
+	case .Recover:
+		return autosave_recover(app, req.path)
+	case .Discard_Autosave:
+		autosave_discard(app, req.path)
 	}
 	return true
 }
@@ -374,17 +387,7 @@ scene_save :: proc(app: ^App, path: string) -> bool {
 	start := time.tick_now()
 	out := make([dynamic]u8)
 	defer delete(out)
-	append(&out, SCENE_MAGIC)
-	geom.byte_put(&out, SCENE_VERSION)
-	geom.byte_put(&out, u32(len(app.scene.objects)))
-	geom.byte_put(&out, i32(app.scene.selected))
-	geom.byte_put(&out, i32(app.scene.next_id))
-	c := app.camera
-	geom.byte_put(&out, c.target)
-	geom.byte_put(&out, c.distance)
-	geom.byte_put(&out, c.yaw)
-	geom.byte_put(&out, c.pitch)
-	geom.byte_put(&out, c.roll)
+	scene_header_put(app, &out)
 	hd_dropped := 0
 	for obj in app.scene.objects {
 		object_hd_leave(app, obj)
@@ -392,12 +395,29 @@ scene_save :: proc(app: ^App, path: string) -> bool {
 		object_put(app, &out, obj)
 	}
 	if !write_file_safely(app, path, out[:], "save") do return false
+	autosave_scene_saved(app, path)
 	// The times shown are this action's alone.
 	app.stats.file_read_ms, app.stats.file_parse_ms = 0, 0
 	app.stats.file_write_ms = time.duration_milliseconds(time.tick_since(start))
 	file_note(app, hd_dropped > 0, "Saved %s: %d %s, %d MB in %.0f ms%s", filepath.base(path), len(app.scene.objects), "object" if len(app.scene.objects) == 1 else "objects", len(out) >> 20, app.stats.file_write_ms,
 		fmt.tprintf(". The HD detail of %d of them is not saved, only their HD steps", hd_dropped) if hd_dropped > 0 else "")
 	return true
+}
+
+// The scene file's start: its magic and version, how many objects follow, the selected
+// one, the next id and the camera.
+scene_header_put :: proc(app: ^App, out: ^[dynamic]u8) {
+	append(out, SCENE_MAGIC)
+	geom.byte_put(out, SCENE_VERSION)
+	geom.byte_put(out, u32(len(app.scene.objects)))
+	geom.byte_put(out, i32(app.scene.selected))
+	geom.byte_put(out, i32(app.scene.next_id))
+	c := app.camera
+	geom.byte_put(out, c.target)
+	geom.byte_put(out, c.distance)
+	geom.byte_put(out, c.yaw)
+	geom.byte_put(out, c.pitch)
+	geom.byte_put(out, c.roll)
 }
 
 // Replaces the scene with a saved one: every object is read and uploaded before
@@ -456,6 +476,7 @@ scene_open :: proc(app: ^App, path: string) -> (opened, ok: bool) {
 	}
 
 	scene_replace(app, objects[:], selected if selected >= 0 else (0 if count > 0 else -1), next_id, view)
+	autosave_scene_saved(app, path)
 	app.stats.file_read_ms = time.duration_milliseconds(time.tick_since(start))
 	vertices := 0
 	for obj in objects do vertices += object_vertex_count(obj)
@@ -507,6 +528,7 @@ scene_new :: proc(app: ^App, shape: geom.Primitive, vertices: int) -> bool {
 	scene_replace(app, {obj}, 0, obj.id, camera.orbit_default())
 	delete(app.scene_path)
 	app.scene_path = ""
+	autosave_scene_saved(app, "")
 	levels := len(obj.levels.levels)
 	report(app, nil, {}, "New scene: %v, %d %s, %s vertices, in %.0f ms", shape, levels, "level" if levels == 1 else "levels",
 		count_label(object_vertex_count(obj)), time.duration_milliseconds(time.tick_since(start)))
@@ -517,6 +539,13 @@ scene_new :: proc(app: ^App, shape: geom.Primitive, vertices: int) -> bool {
 // level with the mask. Leaves any HD window first, whose detail is not stored.
 object_put :: proc(app: ^App, out: ^[dynamic]u8, obj: ^Object) {
 	object_hd_leave(app, obj)
+	_ = object_put_bytes(out, obj)
+	free_all(context.temp_allocator)
+}
+
+// object_put without leaving HD, for the autosave thread, which writes as `opts` says
+// and may be stopped (false, with part of the object in `out`).
+object_put_bytes :: proc(out: ^[dynamic]u8, obj: ^Object, opts := sculpt.Write_Options{}) -> bool {
 	// Room for it up front: a 50M-vertex object is about 2 GB, and growing the buffer to
 	// that a doubling at a time copies it all over again and touches twice the memory.
 	reserve(out, len(out) + object_put_estimate(obj))
@@ -526,8 +555,7 @@ object_put :: proc(app: ^App, out: ^[dynamic]u8, obj: ^Object) {
 	put_transform(out, obj.file)
 	geom.byte_put(out, obj.transform.rotation) // version 2
 	geom.byte_put(out, u8(obj.boolean)) // version 5
-	sculpt.levels_write(&obj.levels, out)
-	free_all(context.temp_allocator)
+	return sculpt.levels_write(&obj.levels, out, opts)
 }
 
 // About how many bytes object_put writes for `obj`: every level's positions, the

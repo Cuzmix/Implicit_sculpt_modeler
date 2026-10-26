@@ -3,6 +3,7 @@ package sculpt
 import "base:intrinsics"
 import "base:runtime"
 import "core:slice"
+import "core:sync"
 
 import "../geom"
 import "../jobs"
@@ -39,12 +40,68 @@ LEVELS_QUADS :: u32(8)
 @(private = "file")
 LEVELS_LAYOUT :: u32(16)
 
+// How levels_write runs. A save from the frame loop takes the defaults. The autosave
+// thread writes serially, since the pool takes jobs from the frame loop alone, and
+// stops between pieces once the frame loop needs the scene back.
+Write_Options :: struct {
+	serial:  bool,  // every loop on the calling thread, never through the levels' pool
+	abort:   ^bool, // read atomically between pieces: once set, levels_write stops and returns false
+	synced:  bool,  // the caller ran levels_sync and nothing changed since, so the levels are only read
+	hd_open: bool,  // an HD window may be open: its detail is never stored, so the bytes are the ones leaving it gives
+}
+
+// What the autosave thread copies between two looks at its abort flag: about a
+// millisecond on a desktop, longer while fresh pages fault in.
+@(private = "file")
+PIECE_BYTES :: 1 << 20
+
+@(private = "file")
+Writer :: struct {
+	out:   ^[dynamic]u8,
+	pool:  ^jobs.Pool, // nil: on this thread
+	abort: ^bool,
+}
+
+@(private = "file")
+stopped :: #force_inline proc(abort: ^bool) -> bool {return abort != nil && sync.atomic_load(abort)}
+
+// Appends `bytes`, in pieces when it can be stopped. False once it was.
+@(private = "file")
+put_checked :: proc(w: ^Writer, bytes: []u8) -> bool {
+	if w.abort == nil {
+		append(w.out, ..bytes)
+		return true
+	}
+	for at := 0; at < len(bytes); at += PIECE_BYTES {
+		if stopped(w.abort) do return false
+		append(w.out, ..bytes[at:min(at + PIECE_BYTES, len(bytes))])
+	}
+	return true
+}
+
+// Runs `fn` over 0 ..< count in ranges of `grain`: through `pool`, or on this thread
+// looking at `abort` between ranges. False once it was set.
+@(private)
+ranges :: proc(pool: ^jobs.Pool, abort: ^bool, count: int, data: rawptr, fn: jobs.Range_Proc, grain: int) -> bool {
+	if pool != nil {
+		jobs.parallel_ranges(pool, count, data, fn, grain)
+		return !stopped(abort)
+	}
+	for lo := 0; lo < count; lo += grain {
+		if stopped(abort) do return false
+		fn(data, lo, min(lo + grain, count))
+	}
+	return !stopped(abort)
+}
+
 // Appends the levels to `out`: every level in sync with the current one, its mask, and
 // whether dynamic topology is on (a dynamic mesh is stored packed). Leave any HD window
-// first.
-levels_write :: proc(l: ^Levels, out: ^[dynamic]u8) {
-	assert(l.hd.window == nil, "leave the HD window first")
-	levels_sync(l)
+// first, unless `opts` says otherwise. False only when `opts.abort` stopped it, with
+// `out` then holding part of it.
+levels_write :: proc(l: ^Levels, out: ^[dynamic]u8, opts := Write_Options{}) -> bool {
+	assert(opts.hd_open || l.hd.window == nil, "leave the HD window first")
+	if !opts.synced do levels_sync(l)
+	w := Writer{out, nil if opts.serial else l.pool, opts.abort}
 	paged := levels_dynamic(l)
 	geom.byte_put(out, LEVELS_TAG)
 	geom.byte_put(out, LEVELS_DYNAMIC if paged else LEVELS_PAINT | LEVELS_LAYERS | LEVELS_QUADS | LEVELS_LAYOUT)
@@ -53,21 +110,20 @@ levels_write :: proc(l: ^Levels, out: ^[dynamic]u8) {
 	geom.byte_put(out, u32(l.hd.steps))
 	base := l.levels[0]
 	if paged {
-		packed, mask := sculptor_compact_mesh(&base.sculptor)
+		packed, mask := compact_mesh(&base.sculptor, w.pool, false, w.abort)
 		defer geom.mesh_destroy(&packed)
 		defer delete(mask)
-		write_mesh(out, packed)
-		write_mask(out, mask, nil)
-		return
+		return !stopped(w.abort) && write_mesh(&w, packed) && write_mask(&w, mask, nil)
 	}
-	write_mesh(out, base.mesh)
+	if !write_mesh(&w, base.mesh) do return false
 	layout := sculptor_layout(&base.sculptor, context.temp_allocator)
 	geom.byte_put(out, u32(len(layout)))
-	geom.byte_put_slice(out, layout)
+	if !put_checked(&w, slice.to_bytes(layout)) do return false
 	canon: [MAX_LEVELS][]u32 // level 0's is its own order
 	for j in 1 ..< len(l.levels) {
 		lv := l.levels[j]
-		canon[j] = level_canon(l, j, canon[j - 1], context.temp_allocator)
+		canon[j] = level_canon(l, j, canon[j - 1], w.pool, w.abort, context.temp_allocator)
+		if canon[j] == nil do return false
 		n := len(lv.mesh.positions)
 		geom.byte_put(out, u32(n))
 		Scatter :: struct {
@@ -76,43 +132,64 @@ levels_write :: proc(l: ^Levels, out: ^[dynamic]u8) {
 			canon: []u32,
 		}
 		sc := Scatter{lv.mesh.positions[:], geom.byte_put_bytes(out, n * size_of(Vec3)), canon[j]}
-		jobs.parallel_ranges(l.pool, n, &sc, proc(data: rawptr, lo, hi: int) {
+		ranged := ranges(w.pool, w.abort, n, &sc, proc(data: rawptr, lo, hi: int) {
 			sc := cast(^Scatter)data
 			for u in lo ..< hi do intrinsics.unaligned_store(cast(^Vec3)&sc.to[size_of(Vec3) * int(sc.canon[u])], sc.from[u])
 		}, geom.RANGE_GRAIN)
+		if !ranged do return false
 	}
 	s := &levels_current(l).sculptor
-	write_mask(out, s.mask, canon[l.current])
+	if !write_mask(&w, s.mask, canon[l.current]) do return false
 	geom.byte_put(out, u8(s.color != nil))
 	if s.color != nil {
-		saved := slice.reinterpret([]Color, geom.byte_put_bytes(out, len(s.color) * size_of(Color)))
-		for c, u in s.color do saved[place(canon[l.current], u32(u))] = c
+		Colors :: struct {
+			from:  []Color,
+			to:    []Color,
+			canon: []u32,
+		}
+		c := Colors{s.color, slice.reinterpret([]Color, geom.byte_put_bytes(out, len(s.color) * size_of(Color))), canon[l.current]}
+		ranged := ranges(w.pool, w.abort, len(s.color), &c, proc(data: rawptr, lo, hi: int) {
+			c := cast(^Colors)data
+			for u in lo ..< hi do c.to[place(c.canon, u32(u))] = c.from[u]
+		}, geom.RANGE_GRAIN)
+		if !ranged do return false
 	}
 	geom.byte_put(out, u8(s.groups.tris != nil))
 	if s.groups.tris != nil {
-		order := tri_canon(s, canon[l.current])
-		saved := slice.reinterpret([]u16, geom.byte_put_bytes(out, len(s.groups.tris) * size_of(u16)))
-		for g, t in s.groups.tris do saved[order[t]] = g
+		order := tri_canon(s, canon[l.current], w.abort)
+		if order == nil do return false
+		Groups :: struct {
+			from:  []u16,
+			to:    []u16,
+			order: []u32,
+		}
+		g := Groups{s.groups.tris, slice.reinterpret([]u16, geom.byte_put_bytes(out, len(s.groups.tris) * size_of(u16))), order}
+		ranged := ranges(w.pool, w.abort, len(s.groups.tris), &g, proc(data: rawptr, lo, hi: int) {
+			g := cast(^Groups)data
+			for t in lo ..< hi do g.to[g.order[t]] = g.from[t]
+		}, geom.RANGE_GRAIN)
+		if !ranged do return false
 	}
-	for lv, j in l.levels do write_layers(out, &lv.sculptor, canon[j], l.pool)
+	for lv, j in l.levels do if !write_layers(&w, &lv.sculptor, canon[j]) do return false
 	// The base level's vertices are in the file in their own order.
 	f := l.faces
 	geom.byte_put(out, u32(len(f.quads)))
-	geom.byte_put_slice(out, f.quads)
+	if !put_checked(&w, slice.to_bytes(f.quads)) do return false
 	geom.byte_put(out, u8(f.uv.uvs != nil))
 	if f.uv.uvs != nil {
-		geom.byte_put_slice(out, f.uv.uvs)
-		geom.byte_put_slice(out, f.uv.chart)
+		if !put_checked(&w, slice.to_bytes(f.uv.uvs)) || !put_checked(&w, slice.to_bytes(f.uv.chart)) do return false
 		geom.byte_put(out, u32(f.uv.charts))
 		geom.byte_put(out, f.uv.filled)
 	}
+	return !stopped(w.abort)
 }
 
 // A sculptor's layers: how many, which records (0 for none, else its index + 1), then
 // per layer its name, strength, visibility and every vertex's displacement in file
 // order (zero where the layer moved nothing).
 @(private = "file")
-write_layers :: proc(out: ^[dynamic]u8, s: ^Sculptor, canon: []u32, pool: ^jobs.Pool) {
+write_layers :: proc(w: ^Writer, s: ^Sculptor, canon: []u32) -> bool {
+	out := w.out
 	geom.byte_put(out, u32(len(s.layers.list)))
 	geom.byte_put(out, u32(s.layers.recording))
 	for l in s.layers.list {
@@ -127,7 +204,7 @@ write_layers :: proc(out: ^[dynamic]u8, s: ^Sculptor, canon: []u32, pool: ^jobs.
 			canon: []u32,
 		}
 		sc := Scatter{s, l.delta, geom.byte_put_bytes(out, len(s.mesh.positions) * size_of(Vec3)), canon}
-		jobs.parallel_ranges(pool, len(s.nodes), &sc, proc(data: rawptr, lo, hi: int) {
+		ranged := ranges(w.pool, w.abort, len(s.nodes), &sc, proc(data: rawptr, lo, hi: int) {
 			sc := cast(^Scatter)data
 			for id in lo ..< hi {
 				n := sc.s.nodes[id]
@@ -138,7 +215,9 @@ write_layers :: proc(out: ^[dynamic]u8, s: ^Sculptor, canon: []u32, pool: ^jobs.
 				}
 			}
 		}, NODE_GRAIN)
+		if !ranged do return false
 	}
+	return true
 }
 
 // Reads what write_layers wrote into a sculptor without layers. False on a damaged file.
@@ -229,7 +308,7 @@ levels_read :: proc(l: ^Levels, r: ^geom.Byte_Reader, pool: ^jobs.Pool, node_tri
 		sculptor_clear_edited(&l.levels[j - 1].sculptor)
 		if !levels_subdivide(l) || len(l.levels[j].mesh.positions) != vertices do return false
 		lv := l.levels[j]
-		canon[j] = level_canon(l, j, canon[j - 1], allocator)
+		canon[j] = level_canon(l, j, canon[j - 1], pool, allocator = allocator)
 		Gather :: struct {
 			from:  []u8,
 			to:    []Vec3,
@@ -306,7 +385,7 @@ levels_read :: proc(l: ^Levels, r: ^geom.Byte_Reader, pool: ^jobs.Pool, node_tri
 // the places gives where its edges start; an edge is then as far into those as its end
 // vertex's neighbours placed between its two ends.
 @(private)
-level_canon :: proc(l: ^Levels, j: int, below: []u32, allocator := context.allocator) -> []u32 {
+level_canon :: proc(l: ^Levels, j: int, below: []u32, pool: ^jobs.Pool, abort: ^bool = nil, allocator := context.allocator) -> []u32 {
 	Canon :: struct {
 		lv, under: ^Level,
 		below:     []u32,
@@ -316,7 +395,7 @@ level_canon :: proc(l: ^Levels, j: int, below: []u32, allocator := context.alloc
 	lv, under := l.levels[j], l.levels[j - 1]
 	vb := len(under.mesh.positions)
 	k := Canon{lv, under, below, make([]u32, vb + 1, context.temp_allocator), make([]u32, len(lv.mesh.positions), allocator)}
-	jobs.parallel_ranges(l.pool, vb, &k, proc(data: rawptr, lo, hi: int) {
+	ranged := ranges(pool, abort, vb, &k, proc(data: rawptr, lo, hi: int) {
 		k := cast(^Canon)data
 		indices := k.under.mesh.indices[:]
 		for v in u32(lo) ..< u32(hi) {
@@ -330,8 +409,12 @@ level_canon :: proc(l: ^Levels, j: int, below: []u32, allocator := context.alloc
 			k.start[pv + 1] = after
 		}
 	}, geom.RANGE_GRAIN)
+	if !ranged {
+		delete(k.canon, allocator)
+		return nil
+	}
 	for p in 0 ..< vb do k.start[p + 1] += k.start[p]
-	jobs.parallel_ranges(l.pool, len(k.canon), &k, proc(data: rawptr, lo, hi: int) {
+	ranged = ranges(pool, abort, len(k.canon), &k, proc(data: rawptr, lo, hi: int) {
 		k := cast(^Canon)data
 		indices := k.under.mesh.indices[:]
 		vb := u32(len(k.under.mesh.positions))
@@ -353,6 +436,10 @@ level_canon :: proc(l: ^Levels, j: int, below: []u32, allocator := context.alloc
 			k.canon[u] = vb + k.start[pa] + before
 		}
 	}, geom.RANGE_GRAIN)
+	if !ranged {
+		delete(k.canon, allocator)
+		return nil
+	}
 	return k.canon
 }
 
@@ -362,7 +449,7 @@ level_canon :: proc(l: ^Levels, j: int, below: []u32, allocator := context.alloc
 // them either way, no two triangles share both, so only the topology decides this.
 // Temporary.
 @(private = "file")
-tri_canon :: proc(s: ^Sculptor, canon: []u32) -> []u32 {
+tri_canon :: proc(s: ^Sculptor, canon: []u32, abort: ^bool = nil) -> []u32 {
 	indices := s.mesh.indices[:]
 	tcount, vcount := len(indices) / 3, len(s.mesh.positions)
 	Key :: struct {
@@ -371,6 +458,7 @@ tri_canon :: proc(s: ^Sculptor, canon: []u32) -> []u32 {
 	key := make([]Key, tcount, context.temp_allocator)
 	start := make([]u32, vcount + 1, context.temp_allocator)
 	for t in 0 ..< tcount {
+		if t & 0xffff == 0 && stopped(abort) do return nil
 		c := [3]u32{place(canon, indices[3 * t]), place(canon, indices[3 * t + 1]), place(canon, indices[3 * t + 2])}
 		k := 0
 		if c[1] < c[k] do k = 1
@@ -384,10 +472,12 @@ tri_canon :: proc(s: ^Sculptor, canon: []u32) -> []u32 {
 	sorted := make([]u32, tcount, context.temp_allocator)
 	fill := slice.clone(start, context.temp_allocator)
 	for k, t in key {
+		if t & 0xffff == 0 && stopped(abort) do return nil
 		sorted[fill[k.first]] = u32(t)
 		fill[k.first] += 1
 	}
 	for v in 0 ..< vcount {
+		if v & 0xffff == 0 && stopped(abort) do return nil
 		run := sorted[start[v]:start[v + 1]]
 		for i in 1 ..< len(run) {
 			for j := i; j > 0 && key[run[j]].next < key[run[j - 1]].next; j -= 1 do run[j], run[j - 1] = run[j - 1], run[j]
@@ -403,11 +493,10 @@ tri_canon :: proc(s: ^Sculptor, canon: []u32) -> []u32 {
 place :: #force_inline proc(below: []u32, v: u32) -> u32 {return below[v] if below != nil else v}
 
 @(private = "file")
-write_mesh :: proc(out: ^[dynamic]u8, m: geom.Mesh) {
-	geom.byte_put(out, u32(len(m.positions)))
-	geom.byte_put(out, u32(len(m.indices) / 3))
-	geom.byte_put_slice(out, m.positions[:])
-	geom.byte_put_slice(out, m.indices[:])
+write_mesh :: proc(w: ^Writer, m: geom.Mesh) -> bool {
+	geom.byte_put(w.out, u32(len(m.positions)))
+	geom.byte_put(w.out, u32(len(m.indices) / 3))
+	return put_checked(w, slice.to_bytes(m.positions[:])) && put_checked(w, slice.to_bytes(m.indices[:]))
 }
 
 @(private = "file")
@@ -431,15 +520,19 @@ read_mesh :: proc(r: ^geom.Byte_Reader, pool: ^jobs.Pool, allocator: runtime.All
 // The mask in the file's vertex order (`canon`, or the mesh's own when nil), after a
 // byte saying whether there is one.
 @(private = "file")
-write_mask :: proc(out: ^[dynamic]u8, mask: []u8, canon: []u32) {
-	geom.byte_put(out, u8(mask != nil))
-	if mask == nil do return
-	if canon == nil {
-		geom.byte_put_slice(out, mask)
-		return
+write_mask :: proc(w: ^Writer, mask: []u8, canon: []u32) -> bool {
+	geom.byte_put(w.out, u8(mask != nil))
+	if mask == nil do return true
+	if canon == nil do return put_checked(w, mask)
+	Scatter :: struct {
+		from, to: []u8,
+		canon:    []u32,
 	}
-	saved := geom.byte_put_bytes(out, len(mask))
-	for k, u in mask do saved[canon[u]] = k
+	sc := Scatter{mask, geom.byte_put_bytes(w.out, len(mask)), canon}
+	return ranges(w.pool, w.abort, len(mask), &sc, proc(data: rawptr, lo, hi: int) {
+		sc := cast(^Scatter)data
+		for u in lo ..< hi do sc.to[sc.canon[u]] = sc.from[u]
+	}, geom.RANGE_GRAIN)
 }
 
 // Reads the quads and UVs levels_write put after the layers, with the base level's

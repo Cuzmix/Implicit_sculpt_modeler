@@ -50,6 +50,7 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.Open_Scene       = "load file",
 	.Save_Scene       = "file write",
 	.Save_Scene_As    = "file write copy",
+	.Open_Last_Autosave = "recover restore crash backup autosave lost unsaved quicksave",
 	.Import_Mesh      = "obj ply load append file",
 	.Export_Mesh      = "obj ply file",
 	.Screenshot       = "png capture image",
@@ -134,7 +135,7 @@ SETTINGS_SEARCH_WORDS := [Settings_Tab]string {
 	.Camera      = "preferences orbit turn pivot",
 	.Touch       = "preferences pen finger gesture tablet stylus pressure",
 	.Keys        = "keymap shortcuts hotkeys bindings mouse buttons navigation blender maya zbrush",
-	.Performance = "preferences performance speed fps vsync threads statistics",
+	.Performance = "preferences performance speed fps vsync threads statistics autosave recovery backup crash",
 }
 
 // Every entry the palette searches, in the registry's order then the Settings tabs': a

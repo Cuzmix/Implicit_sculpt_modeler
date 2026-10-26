@@ -30,6 +30,7 @@ description: Measuring the sculpt modeler's performance — the headless build/b
 | `build.bat bench --dyntopo` | dynamic topology: enable ms, plain and refining frame ms, splits, collapses, triangles after, upload MB/frame, undo and redo ms, disable ms (`src/bench/dyntopo.odin:21`; "refused" when the mesh cannot be made dynamic) |
 | `build.bat gpubench` | six cases per size (orbit with everything on, without simplify, without culling; stroke with partial redraw and culling, without partial, without both), 30 warm-up + 120 measured frames, strokes counting only sculpting frames (`src/app/gpubench.odin:18-44`); writes `build\gpubench.md`. `--vertices=N` for one size, `--gpubench-frames=N` |
 | `build\sculpt.exe --vertices=N --bench-stroke=240 --bench-samples=4 --no-vsync --frames=240` | a synthetic stroke, then the exit stats including `raycast_ms`, `brush_ms`, `normals_ms`, `upload_kb`, `latency_ms`, `undo_mb`, `undo_ms`, `redo_ms`, `level_changes_ms`; `--bench-loops=N` circles instead of a wave |
+| `build/sculpt --vertices=10000000 --bench-stroke=240 --no-vsync [--autosave=1 --bench-after-autosave]` (release) | the stroke while an autosave writes the file, A/B against none: `brush_ms`, `frame_ms`, and `autosave_serialize_ms`, `autosave_write_ms`, `autosave_mb`; a stroke during the read gives `autosave_aborts` and `autosave_wait_ms` (README "Autosave and recovery") |
 | `--orbit`, `--no-cull`, `--no-partial`, `--no-cache`, `--no-simplify`; `--brush=NAME`, `--symmetry=x…`, `--dyntopo --detail=PX` for `--bench-stroke` | the camera-only cost and the A/B toggles (also Stats panel checkboxes) |
 | `deps\odin\odin.exe build src\sdf_trial … && build\sdf_trial.exe 256` | the SDF spike's `dab_ms`/`remesh_ms` keys (sm-sdf) |
 
@@ -51,6 +52,7 @@ description: Measuring the sculpt modeler's performance — the headless build/b
 | GPU ms high while nothing moves | partial redraw off, a damage rect over `PARTIAL_MAX_AREA`, or the cache redrawn every frame (`cache_redraws` climbing) |
 | GPU ms high while orbiting | copies not built yet (`lod_pending`), or `--no-simplify` |
 | allocations per dab | `parallel_for` allocates nothing by design (`src/jobs/jobs.odin:1-5`); look for `make` in a `job_*` |
+| one frame a few ms long when work resumes after a pause | an autosave being stopped (`autosave_wait_ms`; `autosave_settle`/`autosave_guard`): its pieces check the abort flag between 1 MB writes and per node; a new long serial loop in `levels_write` needs an abort check too |
 | workers slow to join | `SPIN_TIME` (`jobs.odin:16-17`): a sleeping worker costs tens of microseconds to wake |
 
 ## Benchmarks as tests
