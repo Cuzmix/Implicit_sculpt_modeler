@@ -10,6 +10,13 @@ description: CAD-style mesh tools inside this app on geom.Mesh — primitives, b
   `geom.lathe` outlines voxel remeshed; `geom.primitive`, `src/geom/primitives.odin`, added by `scene_add_primitive`, the
   Scene tab's Add object shape and `--shape`) or meshes from a file (`scene_add_mesh`), and any
   mesh can become an object through `object_build_from(app, obj, mesh, start)` (`:462`).
+- Starters (`geom.is_starter`: Head, Bust, Figure, Hand, Creature; `src/geom/starters.odin`) are ellipsoids and tapered
+  sphere chains fused by `remesh_voxel_spacing` at a third of the thinnest part's radius, Taubin-relaxed, remeshed at
+  the count (never coarser than half the thinnest radius) and relaxed again; never under `STARTER_MIN_VERTICES`. The app
+  builds one with `object_make_primitive` (an object outside the scene) at `vertices >> 2k` and subdivides it k times
+  (`starter_levels`). Menu > New scene is `.New_Scene` → `Scene_Command.New` → `scene_new`, which hands the object to
+  `scene_replace` (shared with `scene_open`: build first, then free the old scene, clear the History, stop replay,
+  timeline and time-lapse). Its guard is `new_scene_run`'s arm-then-confirm, as Settings' Reset everything.
 - Files (`src/app/files.odin`, README "Files"): OBJ and PLY in and out (`geom.mesh_read_obj`, `mesh_read_ply`,
   `mesh_write_obj`, `mesh_write_ply`, `src/geom/mesh_file.odin`), an import cleanup (`mesh_clean`, `mesh_normalize`,
   `mesh_edges`, `mesh_flip`), and the native `.sculpt` scene (`scene_save`/`scene_open`, levels through

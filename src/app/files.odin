@@ -455,28 +455,62 @@ scene_open :: proc(app: ^App, path: string) -> (opened, ok: bool) {
 		append(&objects, obj)
 	}
 
+	scene_replace(app, objects[:], selected if selected >= 0 else (0 if count > 0 else -1), next_id, view)
+	app.stats.file_read_ms = time.duration_milliseconds(time.tick_since(start))
+	vertices := 0
+	for obj in objects do vertices += object_vertex_count(obj)
+	file_note(app, false, "Opened %s: %d %s, %d vertices shown, in %.0f ms", name, count, "object" if count == 1 else "objects", vertices, app.stats.file_read_ms)
+	return true, true
+}
+
+// Makes `objects` the scene in place of the one there, as opening a scene or starting a
+// new one does, with `selected` selected and the camera at `view` (its projection kept,
+// a view setting rather than part of the scene). The old objects go, and with them the
+// History, which names objects by id (the new ones may reuse the old ids), and whatever
+// was going on in the old scene: a stroke, a replay, the timeline's play or scrub, a
+// time-lapse. The caller builds every new object first, so one that fails to build
+// leaves the old scene as it was.
+scene_replace :: proc(app: ^App, objects: []^Object, selected, next_id: int, view: camera.Orbit) {
+	replay_stop(app)
 	stroke_finish(app)
+	timelapse_stop(app, "the scene was replaced")
+	app.timeline.playing, app.timeline.seeking = false, false
 	_ = sdl.WaitForGPUIdle(app.renderer.device)
-	// The history names objects by id, and the file's ids can be ones the old scene used.
 	history_clear(&app.history)
 	for obj in app.scene.objects do object_free(app, obj)
 	clear(&app.scene.objects)
-	append(&app.scene.objects, ..objects[:])
-	app.scene.selected = selected if selected >= 0 else (0 if count > 0 else -1)
+	append(&app.scene.objects, ..objects)
+	app.scene.selected = selected
+	// Ids only grow, so nothing kept by id (the pivot, a pending tap) finds a new object.
 	app.scene.next_id = max(next_id, app.scene.next_id)
-	view.ortho = app.camera.ortho // a view setting, not part of the scene
+	ortho := app.camera.ortho
 	app.camera = view
+	app.camera.ortho = ortho
 	app.move.drag = {}
 	// The last stroke was on an object of the old scene, whose id the new one may reuse.
 	app.pivot.set, app.pivot.pinned = false, false
 	clear(&app.stroke.pending)
 	app.stats = {}
 	render.viewport_invalidate(&app.target)
-	app.stats.file_read_ms = time.duration_milliseconds(time.tick_since(start))
-	vertices := 0
-	for obj in objects do vertices += object_vertex_count(obj)
-	file_note(app, false, "Opened %s: %d %s, %d vertices shown, in %.0f ms", name, count, "object" if count == 1 else "objects", vertices, app.stats.file_read_ms)
-	return true, true
+}
+
+// Replaces the scene with one object: a sphere or a starter of about `vertices` vertices
+// (with its subdivision levels), seen from the front, with no file to save to (Save then asks where)
+// and an empty History, as Menu > New scene does. Returns false only on a GPU failure;
+// a shape that cannot be built leaves the scene as it was.
+scene_new :: proc(app: ^App, shape: geom.Primitive, vertices: int) -> bool {
+	start := time.tick_now()
+	obj, ok := object_make_primitive(app, shape, vertices, {scale = 1})
+	if obj == nil do return ok
+	obj.id = app.scene.next_id + 1
+	// The view the app starts with, which shows a starter from the front and a side.
+	scene_replace(app, {obj}, 0, obj.id, camera.orbit_default())
+	delete(app.scene_path)
+	app.scene_path = ""
+	levels := len(obj.levels.levels)
+	report(app, nil, {}, "New scene: %v, %d %s, %s vertices, in %.0f ms", shape, levels, "level" if levels == 1 else "levels",
+		count_label(object_vertex_count(obj)), time.duration_milliseconds(time.tick_since(start)))
+	return true
 }
 
 // Appends one object as the scene file stores it: its id, name, placement and every

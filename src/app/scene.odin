@@ -95,9 +95,9 @@ Scene :: struct {
 // applied at the start of the next frame so no panel ever draws an object (or GPU
 // buffer) freed during the same frame.
 Scene_Command :: struct {
-	kind:     enum u8 {None, Add, Remesh, Decimate, Retopo, Delete, Duplicate, Symmetrize, Slice, Subdivide, Set_Level, Delete_Higher, Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete, Dyntopo, Boolean, Extract},
+	kind:     enum u8 {None, Add, New, Remesh, Decimate, Retopo, Delete, Duplicate, Symmetrize, Slice, Subdivide, Set_Level, Delete_Higher, Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete, Dyntopo, Boolean, Extract},
 	vertices: int,
-	shape:    geom.Primitive, // Add: what to add
+	shape:    geom.Primitive, // Add, New: what to add
 	on:       bool, // Dyntopo: turn dynamic topology on, or off; Symmetrize: keep the + side
 	axis:     int, // Symmetrize: 0 x, 1 y, 2 z
 	level:    int, // Set_Level; HD steps for Hd_Steps
@@ -133,24 +133,66 @@ scene_add_sphere :: proc(app: ^App, vertices, subdiv: int, t: Transform) -> bool
 	return true
 }
 
-// Adds a cube, cylinder, cone or torus (geom.primitive) of about `vertices` vertices,
-// named after its shape, and selects it.
+// Adds a shape (geom.Primitive) of about `vertices` vertices, named after it, and
+// selects it. Returns false only on a GPU failure.
 scene_add_primitive :: proc(app: ^App, shape: geom.Primitive, vertices: int, t: Transform) -> bool {
-	if shape == .Sphere do return scene_add_sphere(app, vertices, 0, t)
-	start := time.tick_now()
-	mesh, ok := geom.primitive(shape, vertices, &app.pool)
-	if !ok {
-		log.warnf("could not build a %v of %d vertices", shape, vertices)
-		return true
-	}
-	// Not in temp memory, which building the object frees.
-	name := fmt.aprintf("%v %d", shape, app.scene.next_id + 1)
-	defer delete(name)
-	if !scene_add_mesh(app, mesh, name, {scale = 1}, t, start) do return false
-	obj := selected_object(app)
-	log.infof("%s: %d vertices, %d triangles", object_label(obj), object_vertex_count(obj), object_triangle_count(obj))
+	obj, ok := object_make_primitive(app, shape, vertices, t)
+	if obj == nil do return ok
+	scene_append(app, obj)
+	log.infof("%s: %d vertices, %d triangles, %d levels", object_label(obj), object_vertex_count(obj), object_triangle_count(obj), len(obj.levels.levels))
 	return true
 }
+
+// Builds a shape of about `vertices` vertices as an object that is not in the scene yet
+// (no id), named after it: a sphere, a primitive, or a starter that comes with
+// subdivision levels (starter_levels) as ZBrush's base meshes do, built at the count
+// those levels divide down to. obj is nil when it was not built; ok is false only on a
+// GPU failure.
+object_make_primitive :: proc(app: ^App, shape: geom.Primitive, vertices: int, t: Transform) -> (obj: ^Object, ok: bool) {
+	obj = new(Object)
+	obj.transform, obj.file = t, {scale = 1}
+	start := time.tick_now()
+	levels := starter_levels(vertices) if geom.is_starter(shape) else 0
+	if shape == .Sphere {
+		if !object_build(app, obj, vertices, 0) {
+			free(obj)
+			return nil, false
+		}
+	} else {
+		mesh, built := geom.primitive(shape, vertices >> (2 * uint(levels)), &app.pool)
+		if !built {
+			log.warnf("could not build a %v of %d vertices", shape, vertices)
+			free(obj)
+			return nil, true
+		}
+		if !object_build_from(app, obj, mesh, start, normals = true) {
+			free(obj)
+			return nil, false
+		}
+		obj.name = fmt.aprintf("%v %d", shape, app.scene.next_id + 1)
+	}
+	if levels == 0 do return obj, true
+	// A starter is a closed manifold mesh, so each level divides; the top is shown.
+	for _ in 0 ..< levels do if !sculpt.levels_subdivide(&obj.levels) do break
+	if !object_show_level(app, obj, start) {
+		_ = sdl.WaitForGPUIdle(app.renderer.device)
+		object_discard(app, obj)
+		return nil, false
+	}
+	return obj, true
+}
+
+// How many subdivision levels a starter of about `vertices` vertices comes with: as many
+// as keep its base at geom.STARTER_MIN_VERTICES or more (each level has about four times
+// the vertices of the one below), up to STARTER_LEVELS. A 1M starter is a 16k base with
+// three levels above it.
+starter_levels :: proc(vertices: int) -> int {
+	k := 0
+	for k < STARTER_LEVELS && vertices >> (2 * uint(k + 1)) >= geom.STARTER_MIN_VERTICES do k += 1
+	return k
+}
+
+STARTER_LEVELS :: 3
 
 // Adds a mesh with zero normals (an import) as a new object named `name` (copied),
 // whose own space sits at `file` in its file, and selects it. `name` must not be in
@@ -455,6 +497,8 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 		before := len(app.scene.objects)
 		if !scene_add_primitive(app, cmd.shape, cmd.vertices, {position = next_free_position(app), scale = 1}) do return false
 		if len(app.scene.objects) > before do history_record_added(app)
+	case .New:
+		return scene_new(app, cmd.shape, cmd.vertices)
 	case .Remesh:
 		if obj := selected_object(app); obj != nil {
 			before := history_snapshot(app, obj, "remesh")

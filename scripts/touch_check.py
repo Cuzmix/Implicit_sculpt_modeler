@@ -47,6 +47,7 @@ UI = {
     "dock_smooth": (638, 855), "dock_draw": (574, 855), "browser": (1028, 855),
     "tab_object": (1432, 152), "tab_brush": (1338, 152), "status": (1510, 870),
     "search": (1468, 36), "palette_row1": (1280, 146), "palette_row2": (1280, 192),
+    "menu_settings": (85, 566), "new_sphere": (58, 405), "new_head": (145, 405), "new_hand": (145, 453),
     "page_shape": (1326, 252), "page_select": (1397, 252), "page_surface": (1467, 252), "page_build": (1538, 252),
 }
 ORBIT_TURN = 2 * math.pi / 0.008  # points of drag that turn the view once (ORBIT_SPEED)
@@ -745,7 +746,7 @@ def saved(**want):
 def open_settings(s, tab):
     s.ftap(*UI["menu"])
     s.wait(10)
-    s.ftap(85, 447)  # Menu > Settings...
+    s.ftap(*UI["menu_settings"])
     s.wait(16)
     s.ftap(*{"interface": (1250, 158), "camera": (1342, 158), "touch": (1433, 158), "performance": (1523, 158)}[tab])
     s.wait(10)
@@ -806,7 +807,7 @@ def settings_scroll_right_after_opening():
     s = Script()
     s.ftap(*UI["menu"])
     s.wait(10)
-    s.ftap(85, 447)
+    s.ftap(*UI["menu_settings"])
     s.wait(2)
     s.ftap(1433, 158)  # the Touch tab
     s.wait(1)
@@ -821,7 +822,7 @@ def settings_open_scroll_close_repeat():
     for _ in range(3):
         s.ftap(*UI["menu"])
         s.wait(10)
-        s.ftap(85, 447)
+        s.ftap(*UI["menu_settings"])
         s.wait(4)
         s.ftap(1433, 158)
         s.wait(2)
@@ -978,6 +979,66 @@ def coach_card_clears_the_bars_on_a_narrow_window():
     s.wait(12)
     return s, ["--coach", "--width=820", "--height=640"], {"coach_step": is_text("draw"),
                                                          "@layout": clear_of("coach", "tools", "inspector", "sliders", "top_right")}
+
+
+def new_scene_settings():
+    """A settings file whose Add size is 500k, so a starter comes with three levels (16k base)."""
+    with open(settings_file(), "w") as f:
+        f.write("new_vertices 500000\n")
+    return f"--settings-file={settings_file()}"
+
+
+@scenario
+def new_scene_starts_over_at_once():
+    """On an untouched scene, Menu > New scene > Head replaces the sphere with a head at once: three levels, no undo step, the menu closed."""
+    s = Script()
+    s.ftap(*UI["menu"])
+    s.wait(10)
+    s.ftap(*UI["new_head"])
+    s.wait(10)
+    return s, [new_scene_settings()], {"objects": near(1), "selected_levels": near(3), "selected_name": is_text("Head_2"),
+                                       "undo_steps": near(0), "menu": near(0), "dabs": near(0), **{k: near(v) for k, v in CAMERA0.items()}}
+
+
+@scenario
+def new_scene_after_a_stroke_asks_first():
+    """After a stroke, one tap on Head only arms it: the sphere and its stroke stay and the menu stays open for the second tap."""
+    s = Script()
+    s.fdrag(line((760, 430), (860, 470), 20))
+    s.wait(4)
+    s.ftap(*UI["menu"])
+    s.wait(10)
+    s.ftap(*UI["new_head"])
+    s.wait(10)
+    return s, [new_scene_settings()], {"objects": near(1), "selected_levels": near(1), "selected_name": is_text("Sphere_1"),
+                                       "undo_steps": near(1), "new_armed": near(2), "menu": near(1)}
+
+
+@scenario
+def new_scene_second_tap_discards():
+    """After a stroke, a second tap on Hand goes ahead: one hand, its levels, and an empty History."""
+    s = Script()
+    s.fdrag(line((760, 430), (860, 470), 20))
+    s.wait(4)
+    s.ftap(*UI["menu"])
+    s.wait(10)
+    s.ftap(*UI["new_hand"])
+    s.wait(6)
+    s.ftap(*UI["new_hand"])
+    s.wait(10)
+    return s, [new_scene_settings()], {"objects": near(1), "selected_levels": near(3), "selected_name": is_text("Hand_2"),
+                                       "undo_steps": near(0), "redo_steps": near(0), "new_armed": near(0), "menu": near(0)}
+
+
+@scenario
+def new_scene_from_the_palette():
+    """The palette's New scene: Figure starts over too, as the menu does."""
+    s = Script()
+    s.press("k", ("ctrl",))
+    s.type("new scene figure")
+    s.press("Return")
+    s.wait(10)
+    return s, [new_scene_settings()], {"objects": near(1), "selected_levels": near(3), "selected_name": is_text("Figure_2"), "palette": near(0)}
 
 
 @scenario
