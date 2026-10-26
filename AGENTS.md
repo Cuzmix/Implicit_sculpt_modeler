@@ -31,6 +31,7 @@ skill whose description fits the request BEFORE you form a plan.
     build.bat check                                   # the gate: odin check of every package + the skill mirror check
     build.bat                                         # debug app -> build\sculpt.exe (tracking allocator: a leak exits 1)
     build.bat test                                    # odin test on geom, camera, sculpt, jobs, gizmo, png_write, ui, app
+    python scripts\test_only.py sculpt 'deform_*'     # just those tests of one package, while working
     build.bat smoke                                   # 300 frames under GPU validation, SDL_ASSERT=abort
     python scripts\touch_check.py ['long_press*']    # scripted finger, pen and mouse scenarios (a desktop simulation), in parallel on Linux
     build.bat run -- --vertices=1000000 --frames=120  # at most five arguments here; otherwise run build\sculpt.exe
@@ -55,7 +56,7 @@ skill whose description fits the request BEFORE you form a plan.
 | `src/bench` | the headless CPU benchmark (markdown tables) |
 | `src/sdf_trial` | the standalone SDF/voxel comparison spike (not in the build scripts) |
 | `android/` | the Android app: Gradle project, manifest, `app/jni/CMakeLists.txt` (SDL3, stb and `src/app` built by Odin into `libmain.so`), `android_main.c` |
-| `scripts/` | `setup_deps.*`, `versions.env` (the pins), `gate.py` (the done gate in one command), `agents_sync.py` (skill mirror and validation), `ppm.py` (view and diff viewport dumps), `touch_check.py` (touch, pen and camera scenarios) |
+| `scripts/` | `setup_deps.*`, `versions.env` (the pins), `gate.py` (the done gate in one command), `test_only.py` (some tests of one package), `agents_sync.py` (skill mirror and validation), `ppm.py` (view and diff viewport dumps), `touch_check.py` (touch, pen and camera scenarios) |
 | `deps/`, `build/` | ignored: the pinned toolchain and third-party sources; build outputs and dumps |
 | `.vscode/`, `.claude/`, `.agents/` | tasks and launch configurations; skills, agents and permissions; the generated skill mirror (never edited by hand) |
 

@@ -538,7 +538,7 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 	if cmd.kind != .None {
 		move_end(app)
 		transform_drag_end(app, force = true)
-		layer_drag_finish(app)
+		inspector_drags_end(app)
 	}
 	switch cmd.kind {
 	case .None:

@@ -19,6 +19,7 @@ Pose_Kind :: enum {
 	Move,
 	Turn,
 	Scale,
+	Deform, // a bend, twist or taper (deform.odin)
 }
 
 // A pose in the mesh's own space.
@@ -29,6 +30,7 @@ Pose :: struct {
 	angle:  f32,  // Turn: radians, right-handed about the axis
 	delta:  Vec3, // Move: the offset
 	factor: f32,  // Scale: the factor for a free vertex
+	deform: Deform, // Deform: which, along what and how much
 }
 
 @(private)
@@ -100,8 +102,9 @@ sculptor_pose_apply :: proc(s: ^Sculptor, p: Pose) {
 		p:        Pose,
 		turn:     matrix[3, 3]f32, // the whole turn, for fully free vertices
 		axis:     Vec3,
+		deform:   Deform_Plan,
 	}
-	job := Apply{s = s, p = p, axis = linalg.normalize0(p.axis)}
+	job := Apply{s = s, p = p, axis = linalg.normalize0(p.axis), deform = deform_plan(p.deform)}
 	job.turn = linalg.matrix3_rotate_f32(p.angle, job.axis) if job.axis != {} else 1
 	jobs.parallel_for(s.pool, len(s.pose.nodes), &job, proc(data: rawptr, i: int) {
 		job := cast(^Apply)data
@@ -130,6 +133,8 @@ sculptor_pose_apply :: proc(s: ^Sculptor, p: Pose) {
 				} else {
 					positions[k] = p.pivot + turn_by(a - p.pivot, job.axis, w * p.angle)
 				}
+			case .Deform:
+				positions[k] = deform_at(&job.deform, a, w)
 			}
 		}
 	})
@@ -138,7 +143,7 @@ sculptor_pose_apply :: proc(s: ^Sculptor, p: Pose) {
 }
 
 // `v` turned by `angle` radians about the unit `axis` (Rodrigues' formula).
-@(private = "file")
+@(private)
 turn_by :: #force_inline proc(v, axis: Vec3, angle: f32) -> Vec3 {
 	c, sn := math.cos(angle), math.sin(angle)
 	return v * c + linalg.cross(axis, v) * sn + axis * linalg.dot(axis, v) * (1 - c)

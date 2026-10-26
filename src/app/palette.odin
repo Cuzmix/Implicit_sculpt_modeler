@@ -114,6 +114,7 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.Recall_Later     = "historyrecall local undo recall point",
 	.Recall_Oldest    = "historyrecall local undo recall point first",
 	.Smooth_All       = "relax",
+	.Deformer         = "deform simple deform gizmo bend twist taper curve arc",
 	.Remesh_To        = "dynamesh voxel voxelize resolution",
 	.Decimate_To      = "decimation master reduce simplify",
 	.Mirror_Weld      = "symmetrize mirror",

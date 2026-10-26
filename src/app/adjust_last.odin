@@ -28,6 +28,7 @@ Adjust_Op :: enum u8 {
 	Extract,
 	Smooth_All,
 	Stroke,
+	Deformer, // a bend, twist or taper (deformers.odin)
 }
 
 // The most Adjust last stroke sets a stroke to: half as much again as drawn.
@@ -43,6 +44,7 @@ ADJUST_NAMES := [Adjust_Op]string {
 	.Extract    = "Extract",
 	.Smooth_All = "Smooth all",
 	.Stroke     = "last stroke",
+	.Deformer   = "deformation",
 }
 
 // The inspector section whose settings each operation takes.
@@ -56,6 +58,7 @@ ADJUST_SECTIONS := [Adjust_Op]Kit_Section {
 	.Extract    = .Extract,
 	.Smooth_All = .Deform,
 	.Stroke     = .Stroke,
+	.Deformer   = .Deformers,
 }
 
 // The last operation that can be adjusted and what it ran with, and what tells whether
@@ -66,7 +69,7 @@ Adjustable :: struct {
 	cmd:       Scene_Command, // a scene command's own settings (Remesh, Decimate, Mirror, Retopo)
 	steps:     i32, // Smooth all's steps...
 	amount:    f32, // ...and strength, or Extract's thickness, or the stroke's amount (1 as drawn)
-	sculptor:  ^sculpt.Sculptor, // a stroke's: the level or HD window it was laid on, only compared
+	sculptor:  ^sculpt.Sculptor, // a stroke's or a deformation's: the level or HD window it was on, only compared
 	source:    int, // the object it ran on
 	result:    int, // the object it left selected: the source, or the one it made
 	mark:      Undo_Mark, // its undo step
@@ -75,6 +78,7 @@ Adjustable :: struct {
 	transform: Transform, // the result's, which undoing a rebuild would put back
 	boolean:   Boolean_Mode, // ...and its boolean mode, the same
 	adjusts:   int, // re-runs this session, for the exit stats
+	deform:    sculpt.Deform, // a deformer's: what it did, the amount included
 }
 
 // The operation a scene command is, if it can be adjusted.
@@ -126,8 +130,13 @@ adjust_live :: proc(app: ^App) -> bool {
 	if !undo_mark_on_top(app.history.done[:], a.mark) do return false
 	obj := selected_object(app)
 	if obj == nil || obj.id != a.result || obj.transform != a.transform || obj.boolean != a.boolean do return false
-	// A stroke adjusts on the level or HD window it was laid on, while that is the one shown.
-	return a.op != .Stroke || (object_sculptor(obj) == a.sculptor && sculpt.sculptor_can_adjust(a.sculptor))
+	// A stroke adjusts on the level or HD window it was laid on, while that is the one shown;
+	// so does a deformation, whose bounds are that level's, while it can still deform.
+	#partial switch a.op {
+	case .Stroke:   return object_sculptor(obj) == a.sculptor && sculpt.sculptor_can_adjust(a.sculptor)
+	case .Deformer: return object_sculptor(obj) == a.sculptor && deform_allowed(app, obj)
+	}
+	return true
 }
 
 // Makes the stroke just recorded on `obj` the one to adjust, when its step can be.
@@ -175,6 +184,12 @@ adjust_stroke :: proc(app: ^App, amount: f32) -> bool {
 	return true
 }
 
+// What the last operation is called: a deformer by its kind (Bend), the rest by theirs.
+adjust_name :: proc(app: ^App) -> string {
+	a := &app.adjustable
+	return DEFORM_NAMES[a.deform.kind] if a.op == .Deformer else ADJUST_NAMES[a.op]
+}
+
 // The live operation, or none.
 adjust_op_now :: proc(app: ^App) -> Adjust_Op {
 	return app.adjustable.op if adjust_live(app) else .None
@@ -202,7 +217,7 @@ adjust_unchanged :: proc(app: ^App) {
 	history_redo(app)
 	object_select_id(app, a.result)
 	a.serial, a.edits = app.history.serial, app.scene_edits
-	report(app, ADJUST_SECTIONS[a.op], {.Warning}, "%s changed nothing with those settings, so the earlier result stays", ADJUST_NAMES[a.op])
+	report(app, ADJUST_SECTIONS[a.op], {.Warning}, "%s changed nothing with those settings, so the earlier result stays", adjust_name(app))
 }
 
 // Runs Smooth all again from before it, with the Deformation section's steps and strength.
@@ -211,6 +226,14 @@ smooth_adjust :: proc(app: ^App) {
 	serial := app.history.serial
 	smooth_command(app, int(app.ui.smooth_steps))
 	if app.history.serial == serial do adjust_unchanged(app)
+}
+
+// Runs the last deformation again from before it, with the amount the popover set.
+deform_adjust :: proc(app: ^App) {
+	d := app.adjustable.deform
+	if !adjust_begin(app, .Deformer) do return
+	obj := selected_object(app)
+	if obj == nil || !deform_run(app, obj, d) do adjust_unchanged(app)
 }
 
 object_select_id :: proc(app: ^App, id: int) {
@@ -262,6 +285,8 @@ adjust_post :: proc(app: ^App, vertices := 0) {
 		smooth_adjust(app)
 	case .Stroke:
 		// It follows the slider as it moves (kit_adjust_popover); nothing runs again.
+	case .Deformer:
+		deform_adjust(app)
 	}
 }
 
@@ -283,7 +308,7 @@ kit_adjust_popover :: proc(app: ^App) {
 		anchor = {area.x + area.w * 0.5 - 1, area.y + area.h - t.edge - dock_stack(app), 2, 1}
 	}
 	if !ui.popover_begin(ctx, "adjust last", &k.adjust_pop, anchor, .Above_Center, {direction = .Column, gap = 6, padding = 10, width = 300}) do return
-	ui.label(ctx, fmt.tprintf("Adjust %s", ADJUST_NAMES[a.op]), t.small_size)
+	ui.label(ctx, fmt.tprintf("Adjust %s", adjust_name(app)), t.small_size)
 	// What it did and the note go above the controls, so that a longer line grows the
 	// popover upward and the controls stay where the thumb is, just over the bar.
 	if a.op == .Stroke {
@@ -327,6 +352,14 @@ kit_adjust_popover :: proc(app: ^App) {
 		if kit_count(ctx, "Quads##adjust", &app.ui.retopo_quads, 100, 1_000_000) do k.adjust_dirty = true
 	case .Extract:
 		if ui.slider(ctx, "Thickness##adjust", &app.ui.boolean.thickness, 0.002, 0.2, .Logarithmic, fmt.tprintf("%.3f", app.ui.boolean.thickness)) do k.adjust_dirty = true
+	case .Deformer:
+		d := &a.deform
+		shown := deform_shown_of(d^)
+		lo, hi := deform_range(d^)
+		if ui.slider(ctx, "Amount##adjust", &shown, lo, hi, .Linear, fmt.tprintf("%+.0f%s", shown, "%" if d.kind == .Taper else "°")) {
+			d.amount = deform_amount_of(d.kind, shown)
+			k.adjust_dirty = true
+		}
 	case .Smooth_All:
 		steps := f32(app.ui.smooth_steps)
 		if ui.slider(ctx, "Steps##adjust", &steps, 1, 100, .Logarithmic, fmt.tprintf("%d", app.ui.smooth_steps)) {

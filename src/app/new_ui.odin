@@ -143,6 +143,11 @@ Kit_State :: struct {
 	tree_column:    Tree_Column,
 	inspector_body: ui.Rect,
 	inspector_limit:  f32,
+	inspector_shown:  f32, // how far the body is scrolled as drawn (the scroll tweens toward k.scroll)
+	// An Object tab section a command opened (the palette's Bend), which the body scrolls
+	// to the top of while it unfolds, for this many more frames.
+	reveal:         Kit_Section,
+	reveal_frames:  int,
 	// Which inspector sections are open, and which show their More options; with
 	// all_options (Settings > Interface) every section shows everything.
 	open:       [Kit_Section]bool,
@@ -285,6 +290,7 @@ Kit_Section :: enum u8 {
 	Morph,
 	Layers,
 	Deform,
+	Deformers,
 	Remesh,
 	Mirror,
 	Retopo,
@@ -715,6 +721,10 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 	input := kit_viewport_input(app, {f32(size.x), f32(size.y)})
 	if !typed do commands_handle_keys(app)
 	layer_drag_end(app)
+	deform_drag_end(app)
+	// A reveal lasts its frames whether or not the section was drawn in them (the
+	// inspector minimised, another tab picked), so it never scrolls the panel later.
+	if k.reveal_frames > 0 do k.reveal_frames -= 1
 	transform_drag_end(app)
 	tree_column_send(app)
 	// Text input (and with it a tablet's on-screen keyboard) is on only while a text
@@ -1013,7 +1023,7 @@ kit_inspector :: proc(app: ^App) -> (raised: bool) {
 		// The tabs and the tab's content scroll under the title bar, in the room left.
 		body_h := max(room - 2 * PADDING - t.target - GAP, 120)
 		scroll := kit_scroll_begin(ctx, "inspector body", &k.scroll, id, inner, body_h, GAP)
-		k.inspector_body, k.inspector_limit = scroll.at, scroll.limit
+		k.inspector_body, k.inspector_limit, k.inspector_shown = scroll.at, scroll.limit, scroll.shown
 		tab_names := [len(Kit_Tab)]string{kit_tool_name(app.tool), "Object", "Scene"}
 		if picked := ui.tabs(ctx, "inspector tabs", tab_names[:], int(k.tab)); picked >= 0 {
 			if Kit_Tab(picked) != k.tab do k.tab_serial += 1

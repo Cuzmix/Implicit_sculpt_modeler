@@ -332,6 +332,8 @@ stroke_follow :: proc(app: ^App, input: Viewport_Input, samples: []Input_Sample,
 stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: Input_Sample, res: ^Sculpt_Frame_Result) {
 	origin, dir := ray_through(inv, s.pos, input.size)
 	t0 := time.tick_now()
+	// A deformer's Amount held by another finger owns the object's undo until let go.
+	if app.ui.deform.drag.active do return
 	index, hit, ok := scene_raycast(app, origin, dir)
 	res.raycast_ms += time.duration_milliseconds(time.tick_since(t0))
 	if !ok do return

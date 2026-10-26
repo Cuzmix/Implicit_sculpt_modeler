@@ -745,6 +745,7 @@ run :: proc(opts: Options) -> bool {
 		}
 		if req, ok := file_take(&app); ok {
 			autosave_settle(&app)
+			inspector_drags_end(&app)
 			applied := file_apply(&app, req)
 			file_request_free(req)
 			if !applied do return false
@@ -1349,6 +1350,7 @@ run :: proc(opts: Options) -> bool {
 	layers := 0
 	for obj in app.scene.objects do layers += sculpt.levels_layer_count(&obj.levels)
 	fmt.printfln("layers=%d layers_noted=%d layers_carry_ms=%.1f", layers, app.layers_noted, app.stats.layers_carry_ms)
+	fmt.printfln("deforms=%d deform_ms=%.1f deform_kind=%v", app.ui.deform.count, app.ui.deform.ms, app.ui.deform.last)
 	for obj in app.scene.objects {
 		if hidden := sculpt.sculptor_hidden_count(object_sculptor(obj)); hidden > 0 {
 			fmt.printfln("hide object=%d hidden_triangles=%d triangles=%d", obj.id, hidden, object_triangle_count(obj))
