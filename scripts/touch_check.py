@@ -68,8 +68,12 @@ _grid_y = _file_y[MENU_FILE_ROWS[-1]] + 69
 UI.update({
     "menu_earlier_saves": (75, _file_y["earlier_saves"]),
     "new_sphere": (48, _grid_y), "new_head": (135, _grid_y), "new_hand": (135, _grid_y + 48),
-    "menu_settings": (75, _grid_y + 48 + 69 + 44),
+    "menu_settings": (75, _grid_y + 48 + 69 + 44), "menu_macros": (75, _grid_y + 48 + 69 + 44 * 4),
 })
+# The Macros panel (kit_macros.odin) with two macros: each row's Run, Key, Rename and
+# Delete, rows 52 points apart.
+UI.update({f"macro{row + 1}_{part}": (x, 250 + 52 * row) for row in range(2)
+           for part, x in (("run", 1350), ("key", 1398), ("rename", 1445), ("delete", 1494))})
 ORBIT_TURN = 2 * math.pi / 0.008  # points of drag that turn the view once (ORBIT_SPEED)
 
 
@@ -4052,7 +4056,7 @@ def menu_scrolls_on_a_short_window():
     s.wait(1)
     s.add("wheel:-10")
     s.wait(20)
-    click(s, (85, 600))
+    click(s, (85, 556))
     s.wait(10)
     return s, ["--width=1280", "--height=720"], {"settings_open": near(1, 0)}
 
@@ -4133,6 +4137,48 @@ def macro_records_and_replays():
         (replay, [settings, "--vertices=20000", f"--export={replayed}"],
          {"macros_run": near(1, 0), "macro_steps": near(3, 0), "undo_steps": near(1, 0), "@the commands' mesh": same_file(direct, replayed)}),
     ])
+
+
+@scenario
+def macros_panel_runs_renames_and_deletes():
+    """Menu > Macros lists the two macros kept: a finger runs the first (as the person's
+    work: wireframe on and a Smooth all, its one undo step), renames it by its pencil, and deletes the second with
+    two taps on its bin. A single tap on the first's bin only arms it, so it stays."""
+    os.makedirs(macros_folder())
+    first, second = os.path.join(macros_folder(), "macro-01.cmd"), os.path.join(macros_folder(), "macro-02.cmd")
+    with open(first, "w") as f:
+        f.write("# Macro: Wire\nwireframe on\nsmooth_all\n")
+    with open(second, "w") as f:
+        f.write("# Macro: Flat\nflat_shading on\n")
+    s = Script()
+    s.wait(3)
+    s.ftap(*UI["menu"])
+    s.wait(10)
+    s.ftap(*UI["menu_macros"])
+    s.wait(16)
+    s.ftap(*UI["macro1_run"])
+    s.wait(5)
+    s.ftap(*UI["macro1_rename"])
+    s.wait(10)
+    s.type("Wires")
+    s.press("Return")
+    s.wait(5)
+    s.ftap(*UI["macro2_delete"])
+    s.wait(10)
+    s.ftap(*UI["macro2_delete"])
+    s.wait(10)
+    s.ftap(*UI["macro1_delete"])
+    s.wait(10)
+
+    def files(_):
+        if os.path.exists(second):
+            return "the second macro's file is still there"
+        text = open(first).read() if os.path.exists(first) else None
+        return text == "# Macro: Wires\nwireframe on\nsmooth_all\n" or f"the first macro's file holds {text!r}"
+
+    return s, [f"--settings-file={settings_file()}"], camera_still({
+        "dabs": near(0), "macros": near(1, 0), "macros_run": near(1, 0), "macro_steps": near(2, 0), "undo_steps": near(1, 0),
+        "wireframe": near(1, 0), "window_macros": lambda v: v.startswith("1,0,"), "@the files": files})
 
 
 @scenario

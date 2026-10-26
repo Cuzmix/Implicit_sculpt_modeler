@@ -517,8 +517,9 @@ script_allows :: proc(id: Command_Id) -> bool {
 		return false
 	case .Rename_Object, .Command_Palette, .Pie, .Pie_Editor, .Brush_Pie:
 		return false
-	// No script records or runs a macro, so none starts another or records itself.
-	case .Macro_Record, .Run_Macro:
+	// No script records or runs a macro or a script file, so none starts another or
+	// records itself.
+	case .Macro_Record, .Run_Macro, .Run_Script:
 		return false
 	// The last stroke replays where the pointer is, and the last autosave is whatever an
 	// earlier run left: neither is something a script can say beforehand.

@@ -157,6 +157,12 @@ Kit_State :: struct {
 	rename:         Rename_Entry,
 	macro_save:     Macro_Save_Entry, // the name a stopped macro recording is saved under
 	macro_chip:     ui.Rect, // the recording chip as last laid out, which that popover hangs under
+	// The Macros panel (kit_macros.odin): open, how far its list is scrolled, and the slot
+	// whose Delete a first tap armed (from 1), and when.
+	macros:         bool,
+	macros_scroll:  f32,
+	macro_armed:    int,
+	macro_armed_at: f64,
 	tree_rows:      int,
 	// Select several (the Scene palette's switch): a tap on a row, or with the Move tool on an
 	// object, adds it to the selection or takes it out, as Shift does.
@@ -202,22 +208,24 @@ Kit_Window :: enum u8 {
 	History,
 	Settings,
 	Help,
+	Macros,
 }
 
-// The order the windows start in, back to front: Settings and Help over the rest, as
-// they opened.
-KIT_WINDOW_ORDER :: [len(Kit_Window)]Kit_Window{.Inspector, .Stats, .History, .Settings, .Help}
+// The order the windows start in, back to front: Settings, Help and Macros over the
+// rest, as they opened.
+KIT_WINDOW_ORDER :: [len(Kit_Window)]Kit_Window{.Inspector, .Stats, .History, .Settings, .Help, .Macros}
 
-// Settings and Help share the inspector's place on the right: one at a time, with the
-// inspector hidden while either is open.
+// Settings, Help and Macros share the inspector's place on the right: one at a time,
+// with the inspector hidden while one is open.
 side_panel_open :: proc(k: ^Kit_State) -> bool {
-	return k.settings || k.help
+	return k.settings || k.help || k.macros
 }
 
-// Closes Settings or Help, whichever is open, giving the place back to the inspector.
+// Closes Settings, Help or Macros, whichever is open, giving the place back to the
+// inspector.
 side_panel_close :: proc(app: ^App) {
 	if app.kit.settings do settings_close(app)
-	app.kit.help = false
+	app.kit.help, app.kit.macros = false, false
 }
 
 // Brings `which` in front of the other windows.
@@ -897,6 +905,7 @@ kit_layout :: proc(app: ^App) {
 		case .History:   raised = kit_history_panel(app)
 		case .Settings:  raised = kit_settings(app)
 		case .Help:      raised = kit_help(app)
+		case .Macros:    raised = kit_macros(app)
 		}
 		if raised do top = which
 	}
@@ -1051,6 +1060,7 @@ kit_menu :: proc(app: ^App, anchor: ui.Rect) {
 	if command_menu_item(app, .Settings) do pick = true
 	_ = command_menu_item(app, .Stats)
 	if command_menu_item(app, .Help, int(Help_Tab.Keys), "Help...") do pick = true
+	if command_menu_item(app, .Macros) do pick = true
 	kit_scroll_end(ctx, scroll)
 	ui.popover_end(ctx)
 	if pick do k.menu = false
@@ -1180,7 +1190,8 @@ kit_folder_menu :: proc(app: ^App) {
 Rename_Entry :: struct {
 	open:   bool,
 	typing: bool, // its field had the keys, which go back when it closes
-	id:     int, // the object, or minus the folder
+	id:     int, // the object, or minus the folder; the slot for a macro
+	macro:  bool,
 	at:     ui.Rect,
 	text:   [NAME_BYTES]u8,
 }
@@ -1197,6 +1208,7 @@ kit_rename :: proc(app: ^App) {
 	ctx := &k.ctx
 	r := &k.rename
 	gone := object_by_id(app, r.id) == nil && folder_by_id(app, -r.id) == nil
+	if r.macro do gone = app.macro.slots[r.id].name == ""
 	if r.open && gone do r.open = false
 	if !r.open && r.typing {
 		ctx.text_focus = 0
@@ -1204,17 +1216,24 @@ kit_rename :: proc(app: ^App) {
 	}
 	if !ui.popover_begin(ctx, "rename", &r.open, r.at, .Below, {direction = .Column, gap = 4, padding = 12, width = 280}) do return
 	defer ui.popover_end(ctx)
-	ui.caption(ctx, "RENAME FOLDER" if r.id < 0 else "RENAME OBJECT")
+	ui.caption(ctx, "RENAME MACRO" if r.macro else "RENAME FOLDER" if r.id < 0 else "RENAME OBJECT")
 	now := ""
-	if obj := object_by_id(app, r.id); obj != nil do now = object_label(obj)
-	if f := folder_by_id(app, -r.id); f != nil do now = folder_label(f)
+	if r.macro {
+		now = app.macro.slots[r.id].name
+	} else {
+		if obj := object_by_id(app, r.id); obj != nil do now = object_label(obj)
+		if f := folder_by_id(app, -r.id); f != nil do now = folder_label(f)
+	}
 	_ = ui.text_field(ctx, "name##rename", r.text[:len(r.text) - 1], hold = r.open, hint = fmt.tprintf("Now %s", now))
 	r.typing ||= r.open
 	ui.paragraph(ctx, "Enter applies it; left empty, the name stays as it is.")
 	apply, cancel := kit_button_pair(ctx, "Apply", "Cancel", tone_a = .Accent)
 	d := &app.device
 	apply ||= r.open && (key_pressed(d, sdl.K_RETURN) || key_pressed(d, sdl.K_KP_ENTER))
-	if apply && r.open && rename_text(r.text[:]) != "" {
+	if apply && r.open && r.macro && rename_text(r.text[:]) != "" {
+		// A macro is no part of the scene: its file changes at once, outside the History.
+		_ = macro_rename(app, r.id, rename_text(r.text[:]))
+	} else if apply && r.open && rename_text(r.text[:]) != "" {
 		cmd := Scene_Command{kind = .Arrange, arrange = .Rename_Folder if r.id < 0 else .Rename_Object, id = abs(r.id)}
 		copy(cmd.name[:], r.text[:])
 		app.ui.scene_command = cmd
