@@ -1591,6 +1591,85 @@ def slow_pinch_never_undoes():
     return s, [], {"undo_steps": near(2), "touch_repeats": near(0), "camera_distance": lambda v: float(v) < 3.5}
 
 
+# Start-location taps with Mask on (ZBrush's Ctrl click, Nomad's taps while Mask is held).
+
+MASK_STROKE = line((760, 430), (860, 470), 20)
+UNMASKED = (650, 600)  # on the model, away from MASK_STROKE
+
+
+def masked_first(s):
+    """Mask latched on the rail, then a finger stroke paints a band of mask."""
+    rail_tap(s, "mask")
+    s.wait(2)
+    s.fdrag(MASK_STROKE)
+    s.wait(2)
+
+
+@scenario
+def mask_tap_off_the_model_inverts():
+    """With Mask latched, a tap on empty space inverts the mask, says so with Undo, and paints nothing."""
+    s = Script()
+    masked_first(s)
+    s.ftap(*EMPTY)
+    s.wait(4)
+    return s, [], camera_still({"last_op": lambda v: v == "Invert_mask", "toast_undo": near(1), "undo_steps": near(2),
+                                "mask_mean": lambda v: float(v) > 0.8})
+
+
+@scenario
+def mask_tap_on_the_mask_blurs():
+    """With Mask latched, a tap on the masked band blurs the mask and paints no dot."""
+    s = Script()
+    masked_first(s)
+    s.ftap(810, 450)
+    s.wait(4)
+    return s, [], camera_still({"last_op": lambda v: v == "Blur_mask", "toast_undo": near(1), "undo_steps": near(2)})
+
+
+@scenario
+def mask_tap_off_the_mask_sharpens():
+    """With Mask latched, a tap on the model away from the mask sharpens it."""
+    s = Script()
+    masked_first(s)
+    s.ftap(*UNMASKED)
+    s.wait(4)
+    return s, [], camera_still({"last_op": lambda v: v == "Sharpen_mask", "undo_steps": near(2)})
+
+
+@scenario
+def mask_pen_tap_inverts_too():
+    """The pen tapping empty space with Mask latched inverts the mask as a finger does."""
+    s = Script()
+    masked_first(s)
+    s.add("pnear")
+    s.wait(1)
+    s.add(f"pdown:{EMPTY[0]},{EMPTY[1]}")
+    s.wait(2)
+    s.add("pup")
+    s.wait(2)
+    s.add("pfar")
+    s.wait(3)
+    return s, [], camera_still({"last_op": lambda v: v == "Invert_mask", "undo_steps": near(2)})
+
+
+@scenario
+def ctrl_click_off_the_model_inverts_the_mask():
+    """The mouse: Ctrl and a click on empty space invert the mask (ZBrush's Ctrl click)."""
+    s = Script()
+    masked_first(s)
+    rail_tap(s, "mask")  # let go of Mask: Ctrl alone
+    s.mouse_drag([EMPTY, EMPTY], keys=("ctrl",))
+    return s, [], camera_still({"last_op": lambda v: v == "Invert_mask", "undo_steps": near(2), "rail_latched": lambda v: v == "none"})
+
+
+@scenario
+def ctrl_click_on_the_model_still_sculpts_inverted():
+    """Ctrl and a click on the model is still an inverted dab, not a mask command."""
+    s = Script()
+    s.mouse_drag([MODEL, MODEL], keys=("ctrl",))
+    return s, [], camera_still({"stroke_invert": near(1), "undo_steps": near(1), "last_op": lambda v: v == "none"})
+
+
 def run(name, screens, displays=None):
     CURRENT.name = name
     os.makedirs(os.path.dirname(settings_file()), exist_ok=True)

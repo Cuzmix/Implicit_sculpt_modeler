@@ -1058,7 +1058,20 @@ run :: proc(opts: Options) -> bool {
 			}
 			obj := selected_object(&app)
 			masked := obj != nil && sculpt.sculptor_has_mask(object_sculptor(obj))
-			fmt.printfln("stroke_kind=%s stroke_invert=%d rail_latched=%s masked=%d", strings.to_lower(fmt.tprint(app.stroke.kind), context.temp_allocator), int(app.stroke.invert), latched, int(masked))
+			// The whole mask, as a mean from 0 to 1, so a check can tell inverting from blurring.
+			mask_mean: f64
+			if obj != nil {
+				s := object_sculptor(obj)
+				for k in s.mask do mask_mean += f64(k)
+				mask_mean /= max(f64(len(s.mask)) * 255, 1)
+			}
+			fmt.printfln("stroke_kind=%s stroke_invert=%d rail_latched=%s masked=%d mask_mean=%.4f", strings.to_lower(fmt.tprint(app.stroke.kind), context.temp_allocator), int(app.stroke.invert), latched, int(masked), mask_mean)
+			// What the last operation said, up to its first comma, spaces as underscores.
+			last := app.result.text
+			if i := strings.index_byte(last, ','); i >= 0 do last = last[:i]
+			if i := strings.index(last, " in "); i >= 0 do last = last[:i]
+			last_op, _ := strings.replace_all(last, " ", "_", context.temp_allocator)
+			fmt.printfln("last_op=%s toast_undo=%d", last_op if last_op != "" else "none", int(app.result.undo != nil))
 		}
 		// The last tooltip a long press showed, spaces as underscores so it stays one value.
 		long_tip, _ := strings.replace_all(ui.long_tip_shown(&app.kit.ctx), " ", "_", context.temp_allocator)
