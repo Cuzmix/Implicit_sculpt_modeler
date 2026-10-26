@@ -187,7 +187,7 @@ starter :: proc(shape: Primitive, asked: int, pool: ^jobs.Pool, allocator := con
 	// The fused surface, relaxed, is remeshed again at the count (never so coarse that the
 	// thinnest part is under four steps across), then relaxed a little to take the second
 	// remesh's own seams off.
-	step := min(remesh_spacing(fused, vertices), thinnest / 2)
+	step := min(remesh_spacing(fused, vertices, pool), thinnest / 2)
 	m = remesh_voxel_spacing(fused, step, pool, allocator) or_return
 	starter_relax(&m, 6, pool)
 	// The sculptor works the normals out itself; the remesh's are stale after relaxing.

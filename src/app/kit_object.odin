@@ -73,7 +73,7 @@ OBJECT_SECTIONS := [?]Object_Section {
 	{.Shape, .Levels, "Subdivision levels", kit_levels},
 	{.Shape, .Hd, "HD detail", kit_hd},
 	{.Shape, .Topology, "Dynamic topology", kit_dyntopo},
-	{.Shape, .Remesh, "Remesh and decimate", proc(app: ^App, _: ^Object) {kit_remesh(app)}},
+	{.Shape, .Remesh, "Rebuild", kit_rebuild},
 	{.Shape, .Mirror, "Mirror and weld", proc(app: ^App, _: ^Object) {kit_mirror(app)}},
 	{.Select, .Mask, "Mask", proc(app: ^App, _: ^Object) {kit_mask(app)}},
 	{.Select, .Groups, "Polygroups", proc(app: ^App, _: ^Object) {kit_groups(app)}},
@@ -82,7 +82,7 @@ OBJECT_SECTIONS := [?]Object_Section {
 	{.Surface, .Paint, "Polypaint", proc(app: ^App, _: ^Object) {kit_paint(app)}},
 	{.Surface, .Morph, "Morph target", kit_morph},
 	{.Surface, .Deform, "Deformation", kit_deformation},
-	{.Build, .Retopo, "Retopology and baking", proc(app: ^App, _: ^Object) {kit_retopo_section(app)}},
+	{.Build, .Retopo, "UVs and baking", proc(app: ^App, _: ^Object) {kit_retopo_section(app)}},
 	{.Build, .Project, "Project detail", proc(app: ^App, _: ^Object) {kit_project_section(app)}},
 	{.Build, .Booleans, "Booleans", proc(app: ^App, _: ^Object) {kit_boolean_section(app)}},
 	{.Build, .Extract, "Extract", proc(app: ^App, _: ^Object) {kit_extract_section(app)}},
@@ -274,17 +274,6 @@ kit_deformation :: proc(app: ^App, obj: ^Object) {
 	_ = ui.slider(ctx, "Strength", &app.ui.smooth_strength, 0.05, 1, .Linear, fmt.tprintf("%.2f", app.ui.smooth_strength), enabled = can)
 	ui.paragraph(ctx, "Smooths the whole object, each step moving every vertex toward its neighbours' average. Masked parts stay. One undo step; not with dynamic topology. On the GPU runs the steps as a compute shader, a trial of GPU sculpting.")
 	kit_last_result(app, .Deform)
-}
-
-@(private = "file")
-kit_remesh :: proc(app: ^App) {
-	k := &app.kit
-	ctx := &k.ctx
-	if picked := ui.select(ctx, "remesh size", kit_size_names(), k.add_size); picked >= 0 do k.add_size = picked
-	kit_command_pair(app, .Remesh_To, .Decimate_To, k.add_size, k.add_size, "Remesh", "Decimate", tone_a = .Accent)
-	ui.paragraph(ctx, fmt.tprintf("Remesh rebuilds the object as an even mesh of this many vertices that keeps its shape (%s: at its own count). Decimate keeps the shape with about this many: dense where the detail is, sparse where it is flat. Ctrl+Z brings levels and mask back.", command_keys(app, .Remesh)))
-	if s := app.stats; s.remesh_ms > 0 do ui.paragraph(ctx, fmt.tprintf("Last remesh: %.0f ms, then %.0f ms to sculpt-ready.", s.remesh_ms, s.remesh_setup_ms))
-	if s := app.stats; s.decimate_ms > 0 do ui.paragraph(ctx, fmt.tprintf("Last decimate: %.0f ms, strays at most %.4f.", s.decimate_ms, s.decimate_error))
 }
 
 @(private = "file")

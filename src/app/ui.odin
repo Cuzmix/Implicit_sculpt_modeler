@@ -34,6 +34,9 @@ Ui_State :: struct {
 	layer_selected:     int,  // the Layers section's row that Delete and Bake act on
 	layer_dragging:     bool, // a layer's strength slider is being dragged: one undo step
 	retopo_quads:       i32,  // quads Retopologize asks for
+	rebuild_goal:       Rebuild_Goal, // what the Rebuild section makes: an even mesh, fewer polygons or quads
+	rebuild_even:       i32,  // vertices Rebuild's Even goal asks for
+	rebuild_fewer:      i32,  // ...and its Fewer goal
 	bake:               Bake_Settings,
 	boolean:            Boolean_State,
 	project:            Project_Settings,
@@ -110,7 +113,7 @@ CLOTH_MODE_HELP := [sculpt.Cloth_Mode]cstring {
 }
 
 ui_state_default :: proc() -> Ui_State {
-	return {viewport_request = {1280, 720}, mask_steps = 3, smooth_steps = 5, smooth_strength = 0.5, crease_degrees = sculpt.CREASE_GROUP_DEGREES, retopo_quads = 4000, bake = {size = 2048, reach_edges = 2}, boolean = {live_vertices = 200_000, vertices = 1_000_000, thickness = 0.02}, project = PROJECT_DEFAULTS}
+	return {viewport_request = {1280, 720}, mask_steps = 3, smooth_steps = 5, smooth_strength = 0.5, crease_degrees = sculpt.CREASE_GROUP_DEGREES, retopo_quads = 4000, rebuild_even = 500_000, rebuild_fewer = 100_000, bake = {size = 2048, reach_edges = 2}, boolean = {live_vertices = 200_000, vertices = 1_000_000, thickness = 0.02}, project = PROJECT_DEFAULTS}
 }
 
 // Turns the studio render on or off; on, it starts from the plain viewport.

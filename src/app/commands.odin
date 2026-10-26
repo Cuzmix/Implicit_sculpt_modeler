@@ -75,6 +75,7 @@ Command_Id :: enum u8 {
 	Smooth_All,
 	Remesh_To, // the argument is the SPHERE_PRESETS size
 	Decimate_To, // ...and here too
+	Rebuild,
 	Mirror_Weld,
 	Retopologize,
 	Make_Boolean,
@@ -545,6 +546,12 @@ COMMANDS := [Command_Id]Command {
 		help = "Keeps the selected object's shape with about this many vertices, dense where the detail is.",
 		args = len(SPHERE_PRESETS),
 		run = proc(app: ^App, arg: int) {app.ui.scene_command = {kind = .Decimate, vertices = int(SPHERE_PRESETS[arg].vertices)}},
+		enabled = has_object,
+	},
+	.Rebuild = {
+		label = "Rebuild selected",
+		help = "Rebuilds the selected object as Object > Shape > Rebuild is set: an even remesh, fewer polygons or quads, at its Density.",
+		run = proc(app: ^App, _: int) {rebuild_command(app)},
 		enabled = has_object,
 	},
 	.Mirror_Weld = {

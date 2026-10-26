@@ -18,7 +18,8 @@ Usage (after ./build.sh or build.bat):
     python scripts/touch_check.py tap_ui pinch    # only these
     python scripts/touch_check.py 'long_press*'   # every scenario whose name matches
     python scripts/touch_check.py --jobs=1        # one at a time (default: one per CPU)
-    python scripts/touch_check.py --screens       # also write build/touch/<name>.png
+    python scripts/touch_check.py --screens       # also write build/touch/<name>.png (of the last run)
+    python scripts/touch_check.py x --screen-run=2  # ...of run 2 instead, to look at a middle state
 The window is 1600 x 900 points, the default layout; positions below are in points.
 """
 import concurrent.futures
@@ -2744,7 +2745,8 @@ def run(name, screens, displays=None):
     steps = result if isinstance(result, Steps) else [result]
     failures, stats = [], {}
     for i, step in enumerate(steps):
-        f, stats = run_one(name, step, screens and i == len(steps) - 1, displays)
+        # `screens` is the run to picture (from 1; 0 the last), or None for none.
+        f, stats = run_one(name, step, screens is not None and i == (screens - 1 if screens > 0 else len(steps) - 1), displays)
         failures += [f"run {i + 1}: {x}" for x in f] if len(steps) > 1 else f
         if f:
             break
@@ -2777,7 +2779,13 @@ def run_one(name, step, screens, displays):
             env.pop("WAYLAND_DISPLAY", None)
             env.update(DISPLAY=display, SDL_VIDEO_DRIVER="x11")
         # The exit stats are UTF-8 (a tooltip's "·") on every OS, whatever its code page.
-        proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", env=env, timeout=600)
+        # A virtual display busy with other scenarios now and then refuses a window ("x11
+        # not available"); that is the machine, not the scenario, so the run is tried again
+        # rather than reported as a failure. Nothing has run by then, so nothing repeats.
+        for attempt in range(3):
+            proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", env=env, timeout=600)
+            if proc.returncode == 0 or "SDL_Init failed" not in proc.stderr:
+                break
     finally:
         if display:
             displays.put(display)
@@ -3476,17 +3484,99 @@ def shape_clip_line_waits():
     ])
 
 
+# Object > Shape > Rebuild (rebuild.odin). The sections above it are folded first, so the
+# section sits at the same place whatever they hold.
+REBUILD_FOLD = [(1430, 299), (1430, 345)]  # Transform, then Subdivision levels under it
+REBUILD_HEADER = (1430, 483)
+REBUILD_GOALS = {"even": (1338, 528), "fewer": (1431, 528), "quads": (1525, 528)}
+REBUILD_DENSITY = (1460, 586)  # on the Density slider's track
+REBUILD_APPLY = (1431, 688)
+
+
+def open_rebuild(s, goal=None, tap=click):
+    s.wait(3)
+    tap(s, UI["tab_object"])
+    s.wait(6)
+    tap(s, UI["page_shape"])
+    s.wait(6)
+    for at in REBUILD_FOLD:
+        tap(s, at)
+        s.wait(10)
+    tap(s, REBUILD_HEADER)
+    s.wait(10)
+    if goal:
+        tap(s, REBUILD_GOALS[goal])
+        s.wait(6)
+
+
+def ftap_at(s, at):
+    s.ftap(*at)
+
+
+@scenario
+def rebuild_density_shows_the_cells():
+    """A finger held on Rebuild's Density slider shows the remesh's cells on the sphere;
+    they stay a moment after it lifts, then go; the Fewer goal never shows them. The held
+    run is last, so --screens shows the cells."""
+    lifted, gone, fewer, held = Script(), Script(), Script(), Script()
+    for sc, goal in ((lifted, "even"), (gone, "even"), (fewer, "fewer"), (held, "even")):
+        open_rebuild(sc, goal, ftap_at)
+        x, y = REBUILD_DENSITY
+        sc.fdrag([(x, y), (x - 40, y), (x - 60, y)], lift=sc is not held)
+        sc.wait(20)
+    gone.wait(100)  # past REBUILD_PREVIEW_HOLD (1.5 s at 60 frames a second)
+    return Steps([
+        (lifted, [], camera_still({"rebuild_preview": near(1), "dabs": near(0)})),
+        (gone, [], camera_still({"rebuild_preview": near(0), "dabs": near(0)})),
+        (fewer, [], camera_still({"rebuild_goal": is_text("fewer"), "rebuild_preview": near(0)})),
+        (held, [], camera_still({"rebuild_goal": is_text("even"), "rebuild_preview": near(1), "rebuild_cell": lambda v: float(v) > 0, "dabs": near(0)})),
+    ])
+
+
+@scenario
+def rebuild_even_is_a_straight_remesh():
+    """Rebuild > Even > Remesh at its 500k gives, bit for bit, the mesh --remesh=500000
+    gives, as one undo step: the preview's lattice is the remesh's."""
+    direct, panel = autosave_folder() + "-direct.ply", autosave_folder() + "-panel.ply"
+    s = Script()
+    open_rebuild(s, "even")
+    click(s, REBUILD_APPLY)
+    s.wait(10)
+    return Steps([
+        (Script(), ["--remesh=500000", f"--export={direct}"], {}),
+        (s, [f"--export={panel}"], {"undo_steps": near(1), "adjust_op": is_text("remesh"), "@a straight remesh": same_file(direct, panel)}),
+    ])
+
+
+@scenario
+def rebuild_fewer_and_quads():
+    """Fewer decimates the 500k sphere to its 100k; Quads makes a new object of quads."""
+    fewer, quads = Script(), Script()
+    open_rebuild(fewer, "fewer")
+    click(fewer, REBUILD_APPLY)
+    fewer.wait(10)
+    open_rebuild(quads, "quads")
+    click(quads, REBUILD_APPLY)
+    quads.wait(10)
+    return Steps([
+        (fewer, ["--vertices=500000"], {"adjust_op": is_text("decimate"), "vertices": near(100_000, 5_000), "undo_steps": near(1)}),
+        (quads, [], {"adjust_op": is_text("retopology"), "objects": near(2)}),
+    ])
+
+
 def main(argv):
     if "--list" in argv:
         for name, fn in SCENARIOS.items():
             print(f"{name:40s} {fn.__doc__}")
         return 0
-    screens = "--screens" in argv
+    screens = 0 if "--screens" in argv else None
     # Side by side only where each scenario can have a display of its own (start_displays).
     jobs = (os.cpu_count() or 1) if os.name != "nt" and shutil.which("Xvfb") else 1
     for a in argv:
         if a.startswith("--jobs="):
             jobs = max(1, int(a.split("=", 1)[1]))
+        if a.startswith("--screen-run="):
+            screens = max(1, int(a.split("=", 1)[1]))
     # A name may be a pattern: long_press* runs every long press scenario.
     patterns = [a for a in argv if not a.startswith("--")]
     names = [n for n in SCENARIOS if not patterns or any(fnmatch.fnmatchcase(n, p) for p in patterns)]

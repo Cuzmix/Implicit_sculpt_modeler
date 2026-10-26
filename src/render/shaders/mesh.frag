@@ -5,11 +5,13 @@ layout(location = 1) in vec3 in_view_pos;
 layout(location = 2) in float in_mask;
 layout(location = 3) in vec4 in_paint;
 layout(location = 4) flat in vec3 in_group;
+layout(location = 5) in vec3 in_mesh_pos;
 
 layout(set = 3, binding = 0) uniform Material_Uniforms {
 	vec4 base_color;
 	vec4 params;  // x: ambient, y: specular strength (below 0: flat base_color, for lines), z: specular power, w: wrap
 	vec4 surface; // x: metallic, y: roughness (0: the classic shading above, else physically based), z: 1 for flat shading
+	vec4 checker; // the density preview: xyz the first lattice point in mesh space, w the cell size (0: none)
 };
 
 layout(location = 0) out vec4 out_color;
@@ -81,6 +83,25 @@ void main() {
 	// Paint covers the clay as far as it reaches; groups show instead of both.
 	vec3 albedo = mix(base_color.rgb, in_paint.rgb, in_paint.a);
 	if (in_group.r >= 0.0) albedo = in_group;
+	// The density preview: the cells a remesh would build, every other one darker and
+	// each edged with a thin line, so a cell reads as about one vertex of the result.
+	// Where cells shrink under about three pixels the pattern fades to its mean rather
+	// than shimmer; the panel still says the size.
+	if (checker.w > 0.0) {
+		vec3 c = (in_mesh_pos - checker.xyz) / checker.w;
+		vec3 width = max(fwidth(c), vec3(1e-6)); // cells per pixel, along each axis
+		float per_px = max(max(width.x, width.y), width.z);
+		vec3 f = fract(c);
+		vec3 edge = min(f, 1.0 - f) / width; // pixels to the nearest cell face
+		// The edge lines only while cells are big enough for a line to leave room for the
+		// cell: from 16 pixels across they show in full, under 8 none.
+		float line = (1.0 - smoothstep(0.5, 1.5, min(min(edge.x, edge.y), edge.z))) * (1.0 - smoothstep(1.0 / 16.0, 1.0 / 8.0, per_px));
+		vec3 cell = floor(c);
+		float odd = mod(cell.x + cell.y + cell.z, 2.0);
+		float shade = mix(1.0, 0.72, odd) * (1.0 - 0.35 * line);
+		float tiny = smoothstep(0.2, 0.4, per_px);
+		albedo *= mix(shade, 0.86, tiny);
+	}
 	// Masked areas show darker, as in ZBrush.
 	albedo *= 1.0 - 0.7 * in_mask;
 	float highlight = 1.0 - 0.5 * in_mask;

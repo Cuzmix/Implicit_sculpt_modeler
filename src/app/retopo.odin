@@ -176,16 +176,13 @@ bake_to_folder :: proc(app: ^App, folder: string) {
 		object_label(low), object_label(src), size, size, baked_ms, share, full, base)
 }
 
-// The interface's Retopology and baking section.
+// The interface's UVs and baking section: Retopologize itself is Shape > Rebuild's Quads.
 kit_retopo_section :: proc(app: ^App) {
 	ctx := &app.kit.ctx
 	obj := selected_object(app)
-	_ = kit_count(ctx, "Quads", &app.ui.retopo_quads, 100, 1_000_000)
-	_ = command_button(app, .Retopologize, label = "Retopologize selected", tone = .Accent)
 	kit_last_result(app, .Retopo)
-	ui.paragraph(ctx, "Makes a new object of quads lying on the selected one (the level it is on), with UVs, next to it. Subdivide and sculpt it, or bake onto it.")
 	if obj == nil || !sculpt.levels_has_uvs(&obj.levels) {
-		ui.paragraph(ctx, "Select an object made by Retopologize to bake onto it.")
+		ui.paragraph(ctx, "Bakes onto an object with UVs: make one with Shape > Rebuild > Quads, then select it here.")
 		return
 	}
 	src := bake_source(app, obj)

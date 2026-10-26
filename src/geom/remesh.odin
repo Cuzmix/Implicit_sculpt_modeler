@@ -42,12 +42,13 @@ RELAX_RATE :: 0.5
 // Lattice spacing for a remesh of about `target` vertices: a surface of area A crosses
 // about 1.5 A / h² lattice edges (the mean of |nx| + |ny| + |nz| over all directions
 // is 1.5), and each crossing becomes a vertex.
-remesh_spacing :: proc(m: Mesh, target: int) -> f32 {
-	area: f64
-	for t := 0; t < len(m.indices); t += 3 {
-		p0, p1, p2 := m.positions[m.indices[t]], m.positions[m.indices[t + 1]], m.positions[m.indices[t + 2]]
-		area += f64(linalg.length(linalg.cross(p1 - p0, p2 - p0))) * 0.5
-	}
+remesh_spacing :: proc(m: Mesh, target: int, pool: ^jobs.Pool = nil) -> f32 {
+	area, _ := mesh_area_bounds(m, pool)
+	return remesh_spacing_of(area, target)
+}
+
+@(private = "file")
+remesh_spacing_of :: proc(area: f64, target: int) -> f32 {
 	return f32(math.sqrt(1.5 * area / f64(max(target, 1))))
 }
 
@@ -56,17 +57,91 @@ remesh_spacing :: proc(m: Mesh, target: int) -> f32 {
 // false for an empty mesh or one without volume.
 remesh_voxel :: proc(m: Mesh, target: int, pool: ^jobs.Pool = nil, allocator := context.allocator) -> (out: Mesh, ok: bool) {
 	if len(m.indices) < 3 do return {}, false
-	bounds := AABB_EMPTY
-	for p in m.positions do aabb_grow(&bounds, p)
+	area, bounds := mesh_area_bounds(m, pool)
+	return remesh_voxel_measured(m, area, bounds, target, pool, allocator)
+}
+
+// remesh_voxel with the area and box mesh_area_bounds gave for `m` (or for the same
+// triangles in another layout), so that a caller that measured them for the density
+// preview remeshes on exactly the lattice the preview showed.
+remesh_voxel_measured :: proc(m: Mesh, area: f64, bounds: Aabb, target: int, pool: ^jobs.Pool = nil, allocator := context.allocator) -> (out: Mesh, ok: bool) {
+	if len(m.indices) < 3 do return {}, false
+	h, _ := remesh_lattice(area, bounds, target) or_return
+	return remesh_run(m, h, bounds, len(m.indices) / 3, .Merge, pool, allocator)
+}
+
+// The lattice a remesh of a surface of `area` inside `bounds` to about `target` vertices
+// uses: its spacing, and where its first point is (as remesh_run places it). The density
+// preview draws these very cells, so what it shows is what the remesh will build.
+remesh_lattice :: proc(area: f64, bounds: Aabb, target: int) -> (h: f32, origin: Vec3, ok: bool) {
+	if bounds.lo.x > bounds.hi.x do return
 	extent := bounds.hi - bounds.lo
-	h := max(remesh_spacing(m, target), max(extent.x, extent.y, extent.z) / (REMESH_MAX_LATTICE - 4))
-	if !(h > 0) do return {}, false
-	return remesh_voxel_spacing(m, h, pool, allocator)
+	h = max(remesh_spacing_of(area, target), max(extent.x, extent.y, extent.z) / (REMESH_MAX_LATTICE - 4))
+	if !(h > 0) do return 0, {}, false
+	return h, bounds.lo - 1.5 * h, true
+}
+
+// The area of `m` and the box around its triangles' corners, skipping the zeroed slots
+// of a dynamic topology layout. The sums are taken a fixed range at a time and added in
+// order, so the result is the same, bit for bit, with or without the pool, and whether
+// the ranges are measured at once or a few at a time (mesh_area_parts).
+mesh_area_bounds :: proc(m: Mesh, pool: ^jobs.Pool = nil) -> (area: f64, bounds: Aabb) {
+	parts := make([]Area_Part, mesh_area_part_count(m), runtime.heap_allocator())
+	defer delete(parts, runtime.heap_allocator())
+	mesh_area_parts(m, parts, 0, len(parts), pool)
+	return mesh_area_total(parts)
+}
+
+// One range of RANGE_GRAIN triangles' area and box.
+Area_Part :: struct {
+	area:   f64,
+	bounds: Aabb,
+}
+
+mesh_area_part_count :: proc(m: Mesh) -> int {
+	return (len(m.indices) / 3 + RANGE_GRAIN - 1) / RANGE_GRAIN
+}
+
+// Measures parts [from, to) of `m` into `parts` (mesh_area_part_count long), so that a
+// caller can spread a big mesh over several frames.
+mesh_area_parts :: proc(m: Mesh, parts: []Area_Part, from, to: int, pool: ^jobs.Pool = nil) {
+	Work :: struct {
+		m:     Mesh,
+		parts: []Area_Part,
+		from:  int,
+	}
+	work := Work{m, parts, from}
+	jobs.parallel_for(pool, to - from, &work, proc(data: rawptr, i: int) {
+		w := cast(^Work)data
+		at := w.from + i
+		part := Area_Part{0, AABB_EMPTY}
+		for t in at * RANGE_GRAIN ..< min((at + 1) * RANGE_GRAIN, len(w.m.indices) / 3) {
+			i0, i1, i2 := w.m.indices[3 * t], w.m.indices[3 * t + 1], w.m.indices[3 * t + 2]
+			if i0 == i1 && i1 == i2 do continue
+			p0, p1, p2 := w.m.positions[i0], w.m.positions[i1], w.m.positions[i2]
+			part.area += f64(linalg.length(linalg.cross(p1 - p0, p2 - p0))) * 0.5
+			aabb_grow(&part.bounds, p0)
+			aabb_grow(&part.bounds, p1)
+			aabb_grow(&part.bounds, p2)
+		}
+		w.parts[at] = part
+	})
+}
+
+// The parts added up in order.
+mesh_area_total :: proc(parts: []Area_Part) -> (area: f64, bounds: Aabb) {
+	bounds = AABB_EMPTY
+	for part in parts {
+		area += part.area
+		bounds = aabb_union(bounds, part.bounds)
+	}
+	return
 }
 
 // Remeshes `m` on a lattice of spacing `h` (see remesh_voxel).
 remesh_voxel_spacing :: proc(m: Mesh, h: f32, pool: ^jobs.Pool = nil, allocator := context.allocator) -> (out: Mesh, ok: bool) {
-	return remesh_run(m, h, len(m.indices) / 3, .Merge, pool, allocator)
+	_, bounds := mesh_area_bounds(m, pool)
+	return remesh_run(m, h, bounds, len(m.indices) / 3, .Merge, pool, allocator)
 }
 
 // What is inside the remeshed surface. Merge: inside any part of the mesh. The others
@@ -98,10 +173,11 @@ inside :: #force_inline proc(op: Remesh_Op, wind: i32) -> bool {
 	return wind > 0
 }
 
-// The remesh of `m` at spacing `h`, its triangles from `split` on being B for `op`.
-remesh_run :: proc(m: Mesh, h: f32, split: int, op: Remesh_Op, pool: ^jobs.Pool, allocator: runtime.Allocator) -> (out: Mesh, ok: bool) {
-	bounds := AABB_EMPTY
-	for p in m.positions do aabb_grow(&bounds, p)
+// The remesh of `m` at spacing `h`, its triangles from `split` on being B for `op`;
+// `bounds` is the box around its triangles (mesh_area_bounds), which places the lattice
+// as remesh_lattice says.
+remesh_run :: proc(m: Mesh, h: f32, bounds: Aabb, split: int, op: Remesh_Op, pool: ^jobs.Pool, allocator: runtime.Allocator) -> (out: Mesh, ok: bool) {
+	if bounds.lo.x > bounds.hi.x do return {}, false
 	extent := bounds.hi - bounds.lo
 	r := Remesher{m = m, pool = pool, h = h, origin = bounds.lo - 1.5 * h, split = split, op = op}
 	for a in 0 ..< 3 {
