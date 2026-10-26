@@ -47,7 +47,7 @@ GESTURE_DEFAULTS :: [Gesture_Slot]Pie_Slot {
 GESTURE_CHOICES := [?]Pie_Slot {
 	{.Undo, 0}, {.Redo, 0}, {.Brush_Pie, 0}, {.Pie, 0}, {.Pie, 1}, {.Pie, 2}, {.Pie, 3}, {.Command_Palette, 0},
 	{.Inspector, 0}, {.Settings, 0}, {.Help, 0}, {.Stats, 0},
-	{.Frame_All, 0}, {.Focus_Selected, 0}, {.Reset_Camera, 0}, {.Ortho_Toggle, 0},
+	{.Frame_All, 0}, {.Focus_Selected, 0}, {.Reset_Camera, 0}, {.View_Back, 0}, {.View_Forward, 0}, {.Ortho_Toggle, 0},
 	{.Wireframe, 0}, {.Flat_Shading, 0}, {.Studio_Render, 0}, {.Screenshot, 0}, {.Symmetry_X, 0},
 	{.Mask, int(sculpt.Mask_Command.Invert)}, {.Mask, int(sculpt.Mask_Command.Clear)}, {.Mask, int(sculpt.Mask_Command.Blur)}, {.Mask, int(sculpt.Mask_Command.Grow)},
 	{.Show_All, 0}, {.Invert_Hidden, 0}, {.Tool_Move, 0}, {.Tool_Sculpt, 0},
