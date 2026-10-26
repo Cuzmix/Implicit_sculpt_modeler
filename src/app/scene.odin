@@ -457,12 +457,10 @@ object_set_dyntopo :: proc(app: ^App, obj: ^Object, on: bool) -> (changed, ok: b
 			log.warn("dynamic topology: delete the other subdivision levels and the HD level first")
 			return false, true
 		}
-		sets := len(sculpt.levels_sets(&obj.levels))
 		if !sculpt.levels_dyn_enable(&obj.levels) {
 			log.warnf("dynamic topology: a vertex is in more than %d triangles; remesh first", sculpt.DYN_FACES)
 			return false, true
 		}
-		app.sets_lost += sets
 	} else {
 		sculpt.levels_dyn_disable(&obj.levels)
 	}
@@ -646,9 +644,15 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 		if obj := selected_object(app); obj != nil {
 			object_hd_leave(app, obj)
 			before := history_snapshot(app, obj, "dynamic topology on" if cmd.on else "dynamic topology off")
+			sets := len(sculpt.levels_sets(&obj.levels))
 			changed, ok := object_set_dyntopo(app, obj, cmd.on)
 			if changed do history_record_swap(app, obj.id, before)
 			else do history_snapshot_drop(before)
+			// Its vertices are numbered afresh, so the selection sets went; Undo brings them back.
+			if changed && cmd.on && sets > 0 {
+				report(app, Kit_Section.Topology, {.Undo}, "Dynamic topology on: %d selection set%s went, as the vertices are numbered afresh", sets, "" if sets == 1 else "s")
+				app.sets_noted = sets
+			}
 			return ok
 		}
 	case .Hd_Enter:

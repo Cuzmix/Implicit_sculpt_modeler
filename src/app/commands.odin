@@ -508,7 +508,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Store_Selection_Set = {
 		label = "Store mask as set",
-		help = "Keeps the selected object's mask as a selection set, to bring back later (Object tab > Selection sets).",
+		help = "Keeps the selected object's mask as a selection set, to bring back later (Object tab > Select > Selection sets).",
 		run = proc(app: ^App, _: int) {set_store(app)},
 		enabled = proc(app: ^App, _: int) -> bool {
 			obj := selected_object(app)

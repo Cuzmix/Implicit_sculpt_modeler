@@ -1434,6 +1434,17 @@ def remesh_drops_the_sets_and_undo_brings_them_back():
 
 
 @scenario
+def dynamic_topology_drops_the_sets_and_says_so():
+    """Ctrl+T numbers the vertices afresh, so the stored set goes, and its note says how many."""
+    s = Script()
+    masked_first(s)
+    store_set(s)
+    s.press("t", ("ctrl",))
+    s.wait(8)
+    return s, [], camera_still({"selection_sets": near(0), "sets_noted": near(1), "toast_undo": near(1)})
+
+
+@scenario
 def action_bar_folds_on_a_narrow_window():
     """At 820 x 640 the groups fold to one button each; Mask opens its actions above it and the first, Invert, empties the mask."""
     s = Script()
@@ -3326,7 +3337,7 @@ def run_one(name, step, screens, displays):
             # A check on files, or on several stats at once: it is given all of them.
             try:
                 good = ok(stats)
-            except (KeyError, ValueError):
+            except (KeyError, ValueError, OSError):
                 good = False
             # A check may say what was wrong instead of only False.
             if isinstance(good, str):

@@ -710,7 +710,7 @@ object_put_estimate :: proc(obj: ^Object) -> int {
 	if s.color != nil do bytes += size_of(sculpt.Color) * n
 	if s.groups.tris != nil do bytes += size_of(u16) * len(s.groups.tris)
 	// A set is written again in file order, at most a byte a vertex.
-	for set in sculpt.levels_sets(&obj.levels) do bytes += 64 + len(set.data)
+	for set in sculpt.levels_sets(&obj.levels) do bytes += 64 + set.vertices
 	return bytes
 }
 

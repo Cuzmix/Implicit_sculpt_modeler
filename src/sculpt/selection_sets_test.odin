@@ -49,7 +49,7 @@ selection_set_encoding_round_trips :: proc(t: ^testing.T) {
 	zeros := make([]u8, 10_000_000)
 	defer delete(zeros)
 	data, r := set_encode(zeros, context.temp_allocator)
-	testing.expect(t, r && len(data) == RUN_BYTES_FOR_TEST)
+	testing.expect(t, r && len(data) == RUN_BYTES)
 	back := make([]u8, len(zeros))
 	defer delete(back)
 	testing.expect(t, set_decode(data, r, back))
@@ -61,9 +61,6 @@ selection_set_encoding_round_trips :: proc(t: ^testing.T) {
 	testing.expect(t, !set_decode({0, 0, 0, 0, 7}, true, back[:1])) // an empty run
 	testing.expect(t, !set_decode(alternating, false, back[:10])) // the wrong length
 }
-
-@(private = "file")
-RUN_BYTES_FOR_TEST :: 5
 
 // Restore puts the set back as the mask, Add takes the more masked and Subtract takes the
 // set off, each one undo step; storing needs something masked, and at most
@@ -220,4 +217,83 @@ selection_sets_file_round_trip :: proc(t: ^testing.T) {
 	broken: Levels
 	r = geom.byte_reader(out[:len(out) - 1])
 	testing.expect(t, !levels_read(&broken, &r, &pool, 64))
+}
+
+// Levels written before sets (no LEVELS_SETS flag) read with none; a sets block with too
+// many sets, a level past the levels, a runs flag past 1 or runs that do not add up is
+// refused.
+@(test)
+selection_sets_old_and_damaged_files :: proc(t: ^testing.T) {
+	l := sets_levels(1)
+	defer levels_destroy(&l)
+	out := make([dynamic]u8)
+	defer delete(out)
+	testing.expect(t, levels_write(&l, &out))
+	// No sets: the block is a count of 0, the last four bytes.
+	head := out[:len(out) - 4]
+	old := slice.clone(head, context.temp_allocator)
+	flags := (^u32)(&old[4])
+	flags^ &~= 32 // LEVELS_SETS
+	back: Levels
+	r := geom.byte_reader(old)
+	testing.expect(t, levels_read(&back, &r, nil, 64))
+	testing.expect_value(t, len(levels_sets(&back)), 0)
+	levels_destroy(&back)
+
+	vertices := u32(len(l.levels[0].mesh.positions))
+	Block :: struct {
+		count, level: u32,
+		runs:         u8,
+		run:          u32, // one run of value 255 this long
+	}
+	cases := [?]Block {
+		{count = MAX_SELECTION_SETS + 1, level = 0, runs = 1, run = vertices},
+		{count = 1, level = 2, runs = 1, run = vertices},
+		{count = 1, level = 0, runs = 2, run = vertices},
+		{count = 1, level = 0, runs = 1, run = vertices - 1},
+		{count = 1, level = 0, runs = 1, run = vertices}, // the one good block
+	}
+	for c, i in cases {
+		bad := make([dynamic]u8, context.temp_allocator)
+		append(&bad, ..head)
+		geom.byte_put(&bad, c.count)
+		name: [32]u8
+		geom.byte_put_slice(&bad, name[:])
+		geom.byte_put(&bad, c.level)
+		geom.byte_put(&bad, f32(1))
+		geom.byte_put(&bad, c.runs)
+		geom.byte_put(&bad, u32(RUN_BYTES))
+		geom.byte_put(&bad, c.run)
+		geom.byte_put(&bad, u8(255))
+		r = geom.byte_reader(bad[:])
+		read := levels_read(&back, &r, nil, 64)
+		testing.expectf(t, read == (i == len(cases) - 1), "case %d: read %v", i, read)
+		if read do testing.expect_value(t, len(levels_sets(&back)), 1)
+		if read do levels_destroy(&back)
+	}
+}
+
+// A restore leaves hidden vertices' mask as it is, as the mask commands do.
+@(test)
+selection_set_restore_leaves_hidden_vertices :: proc(t: ^testing.T) {
+	l := sets_levels(1)
+	defer levels_destroy(&l)
+	s := &levels_current(&l).sculptor
+	mask_above(&l, -2) // everything
+	id := levels_set_store(&l, "all")
+	testing.expect(t, sculptor_mask_command(s, .Clear))
+	rect := [][2]f32{{-0.3, -0.3}, {0.3, -0.3}, {0.3, 0.3}, {-0.3, 0.3}}
+	testing.expect(t, sculptor_hide_shape(s, 1, rect, .Hide))
+	testing.expect(t, levels_set_restore(&l, id, .Replace))
+	hidden, wrong := 0, 0
+	for v in 0 ..< len(s.mask) {
+		if vertex_hidden(s, u32(v)) {
+			hidden += 1
+			if s.mask[v] != 0 do wrong += 1
+		} else if s.mask[v] != 255 {
+			wrong += 1
+		}
+	}
+	testing.expect(t, hidden > 0)
+	testing.expectf(t, wrong == 0, "%d vertices restored wrongly", wrong)
 }

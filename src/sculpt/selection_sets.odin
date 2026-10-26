@@ -16,6 +16,8 @@ import "../jobs"
 // sets of the deleted ones to the current level first. Storing, renaming and deleting a
 // set are not undo steps, as in ZBrush; restoring one is a mask step like any other.
 
+// As many as a palette of keys 1 to 9 and a short list reach; each costs up to a byte a
+// vertex, which at 10M vertices is 160 MB for all of them.
 MAX_SELECTION_SETS :: 16
 
 Selection_Set :: struct {
@@ -36,7 +38,7 @@ Set_Mode :: enum {
 }
 
 // One run as kept in a set's data.
-@(private = "file")
+@(private)
 RUN_BYTES :: 5
 
 // Packs `values` as a set's data: runs when smaller, else a copy.
@@ -134,6 +136,7 @@ levels_set_store :: proc(l: ^Levels, name: string, over: u32 = 0) -> u32 {
 	return set.id
 }
 
+// Gives the set with `id` a new name, cut to fit.
 levels_set_rename :: proc(l: ^Levels, id: u32, name: string) {
 	i := levels_set_index(l, id)
 	if i < 0 do return
@@ -142,6 +145,7 @@ levels_set_rename :: proc(l: ^Levels, id: u32, name: string) {
 	copy(set.name[:len(set.name) - 1], name)
 }
 
+// Deletes the set with `id`; nothing when there is none.
 levels_set_delete :: proc(l: ^Levels, id: u32) {
 	i := levels_set_index(l, id)
 	if i < 0 do return
@@ -203,6 +207,9 @@ levels_sets_carry :: proc(l: ^Levels, from: [2]int, to: int) {
 		}
 		set.level = to
 		set.vertices = len(values)
+		sum: u64
+		for k in values do sum += u64(k)
+		set.masked = f32(f64(sum) / (255 * f64(max(len(values), 1))))
 		set.data, set.runs = set_encode(values, l.allocator)
 		i += 1
 	}

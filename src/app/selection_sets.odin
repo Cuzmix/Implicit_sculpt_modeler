@@ -104,18 +104,24 @@ kit_sets :: proc(app: ^App, obj: ^Object) {
 	_ = command_button(app, .Store_Selection_Set, glyph = ui.ICON_PLUS, width = ui.fill_width(ctx))
 	l := &obj.levels
 	sets := sculpt.levels_sets(l)
-	// A word rather than an icon: no glyph says "bring this mask back" at a glance.
+	// A word rather than an icon, since no glyph says "bring this mask back" at a glance;
+	// wide enough for it at the largest text size.
 	restore_width: f32 = 104
 	field := ui.fill_width(ctx) - restore_width - 4
 	for &set, i in sets {
-		ui.begin(ctx, fmt.tprintf("set %d", set.id), {direction = .Row, gap = 4, center = true})
+		ui.begin(ctx, fmt.tprintf("set %d %d", obj.id, set.id), {direction = .Row, gap = 4, center = true})
 		name := set.name
-		if ui.text_field(ctx, fmt.tprintf("name##set %d", set.id), name[:], field, hint = "Name") {
+		// Keyed by the object too: set ids start again for each object.
+		if ui.text_field(ctx, fmt.tprintf("name##set %d %d", obj.id, set.id), name[:], field, hint = "Name") {
 			sculpt.levels_set_rename(l, set.id, cstring_of(name[:]))
 			app.scene_edits += 1
 			app.ui.set_selected = i
 		}
-		if ui.button(ctx, fmt.tprintf("Restore##set %d", set.id), width = restore_width, enabled = ready) {
+		// The first SET_COMMANDS rows are the palette's Restore selection set 1 to 9, so
+		// they show a key given to one; the rest restore directly.
+		if i < SET_COMMANDS {
+			if command_button(app, .Restore_Selection_Set, i, fmt.tprintf("Restore##set %d %d", obj.id, set.id), width = restore_width) do app.ui.set_selected = i
+		} else if ui.button(ctx, fmt.tprintf("Restore##set %d %d", obj.id, set.id), width = restore_width, enabled = ready) {
 			app.ui.set_selected = i
 			set_restore(app, set.id, .Replace)
 		}

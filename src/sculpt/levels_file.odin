@@ -189,20 +189,36 @@ levels_write :: proc(l: ^Levels, out: ^[dynamic]u8, opts := Write_Options{}) -> 
 }
 
 // The selection sets: how many, then per set its name, level, mean mask and its values
-// in that level's file order, packed again (as runs when smaller). Serial: a set is a
-// byte a vertex at most, and the abort flag is read between sets.
+// in that level's file order, packed again (as runs when smaller). Serial, since a set
+// is a byte a vertex at most, looking at the abort flag between ranges of the scatter.
+// Two buffers of the largest level serve every set, and each packed copy is freed once
+// written, so the autosave thread holds about three bytes a vertex for them, not more
+// with each set.
 @(private = "file")
 write_sets :: proc(w: ^Writer, l: ^Levels, canon: []([]u32)) -> bool {
 	out := w.out
 	geom.byte_put(out, u32(len(l.sets)))
+	if len(l.sets) == 0 do return true
+	largest := 0
+	for set in l.sets do largest = max(largest, set.vertices)
+	values := make([]u8, largest, context.temp_allocator)
+	ordered := make([]u8, largest, context.temp_allocator)
 	for &set in l.sets {
 		if stopped(w.abort) do return false
-		values := make([]u8, set.vertices, context.temp_allocator)
-		ordered := make([]u8, set.vertices, context.temp_allocator)
-		ok := set_decode(set.data, set.runs, values)
+		ok := set_decode(set.data, set.runs, values[:set.vertices])
 		assert(ok, "a selection set is damaged")
-		for x, u in values do ordered[place(canon[set.level], u32(u))] = x
-		data, runs := set_encode(ordered, context.temp_allocator)
+		Scatter :: struct {
+			from, to: []u8,
+			canon:    []u32,
+		}
+		sc := Scatter{values[:set.vertices], ordered[:set.vertices], canon[set.level]}
+		ranged := ranges(nil, w.abort, set.vertices, &sc, proc(data: rawptr, lo, hi: int) {
+			sc := cast(^Scatter)data
+			for u in lo ..< hi do sc.to[place(sc.canon, u32(u))] = sc.from[u]
+		}, geom.RANGE_GRAIN)
+		if !ranged do return false
+		data, runs := set_encode(ordered[:set.vertices], runtime.heap_allocator())
+		defer delete(data, runtime.heap_allocator())
 		name := set.name
 		geom.byte_put_slice(out, name[:])
 		geom.byte_put(out, u32(set.level))
@@ -221,6 +237,11 @@ write_sets :: proc(w: ^Writer, l: ^Levels, canon: []([]u32)) -> bool {
 read_sets :: proc(r: ^geom.Byte_Reader, l: ^Levels, canon: []([]u32)) -> bool {
 	count := int(geom.byte_get(r, u32))
 	if !r.ok || count > MAX_SELECTION_SETS do return false
+	// Buffers of the largest level, for every set.
+	largest := 0
+	for lv in l.levels do largest = max(largest, len(lv.mesh.positions))
+	ordered_all := make([]u8, largest if count > 0 else 0, context.temp_allocator)
+	values_all := make([]u8, largest if count > 0 else 0, context.temp_allocator)
 	for _ in 0 ..< count {
 		set: Selection_Set
 		name := geom.byte_get_bytes(r, len(set.name))
@@ -231,9 +252,9 @@ read_sets :: proc(r: ^geom.Byte_Reader, l: ^Levels, canon: []([]u32)) -> bool {
 		if !r.ok || level >= len(l.levels) || runs > 1 || size > len(r.data) - r.at do return false
 		data := geom.byte_get_bytes(r, size)
 		n := len(l.levels[level].mesh.positions)
-		ordered := make([]u8, n, context.temp_allocator)
+		ordered := ordered_all[:n]
 		if !r.ok || !set_decode(data, runs == 1, ordered) do return false
-		values := make([]u8, n, context.temp_allocator)
+		values := values_all[:n]
 		for u in 0 ..< n do values[u] = ordered[place(canon[level], u32(u))]
 		copy(set.name[:len(set.name) - 1], name)
 		l.set_serial += 1
