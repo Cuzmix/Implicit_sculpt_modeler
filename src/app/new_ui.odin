@@ -305,6 +305,7 @@ Kit_Event_Kind :: enum u8 {
 	Pen_Up,
 	Pen_Near,
 	Pen_Far,
+	Pen_Right, // the pen's side button pressed and let go, hovering where the pointer is
 }
 
 // Reads --ui-events. Returns false, after saying why, when the list is malformed.
@@ -345,6 +346,7 @@ kit_events_parse :: proc(app: ^App, spec: string) -> bool {
 			case "pup":    ev.kind = .Pen_Up
 			case "pnear":  ev.kind = .Pen_Near
 			case "pfar":   ev.kind = .Pen_Far
+			case "pright": ev.kind = .Pen_Right
 			case "wheel":
 				ok = len(parts) == 3
 				if ok do ev.wheel, ok = strconv.parse_f32(parts[2])
@@ -417,6 +419,15 @@ kit_events_push :: proc(app: ^App, window: ^sdl.Window) {
 			button := sdl.BUTTON_MIDDLE if ev.kind == .Middle_Down || ev.kind == .Middle_Up else sdl.BUTTON_RIGHT
 			e.button = {type = .MOUSE_BUTTON_DOWN if down else .MOUSE_BUTTON_UP, timestamp = now, windowID = win, which = SCRIPTED_MOUSE, button = u8(button), down = down, clicks = 1, x = d.mouse.x, y = d.mouse.y}
 			push(e)
+		case .Pen_Right:
+			// SDL sends the side button as the pen's right click.
+			e.motion = {type = .MOUSE_MOTION, timestamp = now, windowID = win, which = sdl.PEN_MOUSEID, x = d.mouse.x, y = d.mouse.y}
+			push(e)
+			for down in ([2]bool{true, false}) {
+				e = {}
+				e.button = {type = .MOUSE_BUTTON_DOWN if down else .MOUSE_BUTTON_UP, timestamp = now, windowID = win, which = sdl.PEN_MOUSEID, button = u8(sdl.BUTTON_RIGHT), down = down, clicks = 1, x = d.mouse.x, y = d.mouse.y}
+				push(e)
+			}
 		case .Right:
 			for down in ([2]bool{true, false}) {
 				e.button = {type = .MOUSE_BUTTON_DOWN if down else .MOUSE_BUTTON_UP, timestamp = now, windowID = win, which = SCRIPTED_MOUSE, button = u8(sdl.BUTTON_RIGHT), down = down, clicks = 1, x = d.mouse.x, y = d.mouse.y}

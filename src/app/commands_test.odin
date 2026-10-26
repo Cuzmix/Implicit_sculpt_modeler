@@ -178,12 +178,15 @@ hints_join_keys_and_gestures :: proc(t: ^testing.T) {
 	testing.expect_value(t, command_hint(&app, .Undo), "Ctrl+Z · Two-finger tap, hold to repeat")
 	testing.expect_value(t, command_hint(&app, .Wireframe), "Shift+F")
 	testing.expect_value(t, command_hint(&app, .Mask, int(sculpt.Mask_Command.Blur)), "With Mask on, tap the mask")
-	app.nav.tap_history = false
+	app.nav.gestures[.Two_Tap] = {}
 	testing.expect_value(t, command_hint(&app, .Undo), "Ctrl+Z · Hold two fingers still")
-	app.nav.tap_history, app.nav.hold_history = true, false
+	app.nav.gestures[.Two_Tap], app.nav.gestures[.Three_Hold] = {.Undo, 0}, {}
 	testing.expect_value(t, command_hint(&app, .Redo), "Ctrl+Shift+Z · Three-finger tap")
-	app.nav.tap_history = false
+	app.nav.gestures[.Three_Tap] = {}
 	testing.expect_value(t, command_hint(&app, .Redo), "Ctrl+Shift+Z")
+	// A gesture the map gives a command comes before the command's own.
+	app.nav.gestures[.Three_Tap] = {.Frame_All, 0}
+	testing.expect_value(t, command_gesture(&app, .Frame_All), "Three-finger tap; Double tap empty space, nothing selected")
 	// The double tap on empty space is the Move and Sculpt tools', the mask taps Sculpt's.
 	app.tool = .Curve
 	testing.expect_value(t, command_gesture(&app, .Focus_Selected), "")

@@ -104,11 +104,9 @@ SETTINGS := [?]Setting {
 	{"two_finger_pan", N + offset_of(Nav_Prefs, two_finger_pan), bool, 0, 0},
 	{"twist_roll", N + offset_of(Nav_Prefs, twist_roll), bool, 0, 0},
 	{"three_finger", N + offset_of(Nav_Prefs, three_finger), bool, 0, 0},
-	{"tap_history", N + offset_of(Nav_Prefs, tap_history), bool, 0, 0},
 	{"palm_rejection", N + offset_of(Nav_Prefs, palm_rejection), bool, 0, 0},
 	{"double_tap", N + offset_of(Nav_Prefs, double_tap), bool, 0, 0},
 	{"lift_one_orbit", N + offset_of(Nav_Prefs, lift_one_orbit), bool, 0, 0},
-	{"hold_history", N + offset_of(Nav_Prefs, hold_history), bool, 0, 0},
 	{"orbit_pivot", N + offset_of(Nav_Prefs, pivot), Orbit_Pivot, 0, 0},
 	{"edge_orbit", N + offset_of(Nav_Prefs, edge_orbit), bool, 0, 0},
 	{"edge_size", N + offset_of(Nav_Prefs, edge_size), f32, EDGE_MIN, EDGE_MAX},
@@ -320,6 +318,22 @@ settings_load :: proc(app: ^App, path: string) {
 			} else if id, arg, ok := command_from_name(f[3]); ok && pie_lists(id) {
 				app.kit.pies[n][i] = {id, arg}
 			}
+		case "gesture_map":
+			// gesture_map <Slot> <command name|none>, for the slots that differ from the
+			// defaults ("gesture" alone is the Ctrl+Shift drag's tool).
+			slot, slot_ok := reflect.enum_from_name(Gesture_Slot, f[1])
+			if len(f) != 3 || !slot_ok do continue
+			if f[2] == "none" {
+				app.nav.gestures[slot] = {}
+			} else if id, arg, ok := command_from_name(f[2]); ok && palette_lists(id) {
+				app.nav.gestures[slot] = {id, arg}
+			}
+		case "tap_history", "hold_history":
+			// Before the gesture map: the taps, or the holds, of two and three fingers were
+			// turned off as a pair. A later gesture line wins.
+			if f[1] != "0" do continue
+			if f[0] == "tap_history" do app.nav.gestures[.Two_Tap], app.nav.gestures[.Three_Tap] = {}, {}
+			else do app.nav.gestures[.Two_Hold], app.nav.gestures[.Three_Hold] = {}, {}
 		case "favourite":
 			// favourite <command name>, in the order they were starred.
 			id, arg, ok := command_from_name(f[1])
@@ -422,6 +436,10 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 		for s, i in app.kit.pies[n] do fmt.sbprintfln(&out, "pie %d %d %s", n, i, command_name(s.id, s.arg) if s.id != .None else "empty")
 	}
 	for f in app.kit.favourites[:app.kit.favourite_count] do fmt.sbprintfln(&out, "favourite %s", command_name(f.id, f.arg))
+	gestures := GESTURE_DEFAULTS
+	for s, slot in app.nav.gestures {
+		if s != gestures[slot] do fmt.sbprintfln(&out, "gesture_map %v %s", slot, command_name(s.id, s.arg) if s.id != .None else "none")
+	}
 	if err := os.write_entire_file(path, transmute([]u8)strings.to_string(out)); err != nil {
 		log.warnf("settings: could not write %s: %v", path, err)
 		return false

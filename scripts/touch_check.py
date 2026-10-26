@@ -2383,12 +2383,58 @@ def hold_with_a_late_finger_does_nothing():
 
 @scenario
 def hold_off_undoes_nothing():
-    """With Hold two fingers to keep undoing off, a still hold undoes nothing."""
+    """A settings file from before the gesture map with the holds off (hold_history 0): a still hold undoes nothing."""
     s = Script()
     write_settings("hold_history 0\n")
     strokes(s, 2)
     hold(s, 2, 45)
     return s, [f"--settings-file={settings_file()}"], camera_still({"undo_steps": near(2), "touch_repeats": near(0)})
+
+
+@scenario
+def hold_mapped_runs_once():
+    """With Hold two fingers set to Wireframe in the gesture map, a long still hold turns wireframe on once and undoes nothing."""
+    s = Script()
+    write_settings("gesture_map Two_Hold Wireframe\n")
+    strokes(s, 2)
+    hold(s, 2, 70)
+    return s, [f"--settings-file={settings_file()}"], camera_still({"undo_steps": near(2), "touch_repeats": near(1), "wireframe": near(1)})
+
+
+@scenario
+def four_finger_tap_runs_its_command():
+    """With Four-finger tap set to Wireframe, a four-finger tap on the viewport turns it on and undoes nothing."""
+    s = Script()
+    write_settings("gesture_map Four_Tap Wireframe\n")
+    strokes(s, 1)
+    s.fingers([(300 + 100 * i, 300) for i in range(4)], [(0, 0)] * 4, 1)
+    s.wait(4)
+    return s, [f"--settings-file={settings_file()}"], {"undo_steps": near(1), "wireframe": near(1)}
+
+
+@scenario
+def pen_button_opens_the_brush_pie():
+    """The pen's side button over the model opens the brush pie by default."""
+    s = Script()
+    s.add("pnear")
+    s.add("pmove:800,450")
+    s.wait(4)
+    s.add("pright")
+    s.wait(6)
+    return s, [], camera_still({"pie_open": near(0), "dabs": near(0)})
+
+
+@scenario
+def pen_button_runs_its_command():
+    """With the pen's side button set to Pie 1 in the gesture map, it opens Pie 1 instead."""
+    s = Script()
+    write_settings("gesture_map Pen_Button Pie:1\n")
+    s.add("pnear")
+    s.add("pmove:800,450")
+    s.wait(4)
+    s.add("pright")
+    s.wait(6)
+    return s, [f"--settings-file={settings_file()}"], camera_still({"pie_open": near(1), "dabs": near(0)})
 
 
 @scenario
