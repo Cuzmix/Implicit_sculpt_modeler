@@ -1582,7 +1582,7 @@ def long_press(s, x, y, finger=0, frames=LONG_PRESS_FRAMES):
 
 
 INSPECTOR_BUTTON = (1565, 36)
-FOCUS_BUTTON, FRAME_ALL_BUTTON = (1358, 328), (1506, 328)  # the Move tool's tab
+FOCUS_BUTTON, FRAME_ALL_BUTTON = (1358, 520), (1506, 520)  # the Move tool's tab, under the gizmo's modes
 SCENE_TAB, SCENE_ROW = (1526, 152), (1430, 232)
 
 
@@ -3561,6 +3561,170 @@ def rebuild_fewer_and_quads():
     return Steps([
         (fewer, ["--vertices=500000"], {"adjust_op": is_text("decimate"), "vertices": near(100_000, 5_000), "undo_steps": near(1)}),
         (quads, [], {"adjust_op": is_text("retopology"), "objects": near(2)}),
+    ])
+
+
+# The Move tool's gizmo on the starting sphere, seen from the starting camera: its centre,
+# the middle of its X arm, its XY plane square, the front of its Y ring and the action
+# bar's chips.
+GIZMO_CENTER = (800, 450)
+GIZMO_X_ARM = (838, 458)
+GIZMO_XY_SQUARE = (829, 423)
+GIZMO_Y_RING = (800, 481)
+GIZMO_CHIPS = {"move": (726, 786), "turn": (791, 786), "scale": (855, 786), "snap": (920, 786)}
+
+
+def transform_is(test):
+    """The selected object's transform (x, y, z, turn x, y, z, scale) passes `test`."""
+    return lambda v: test(*[float(x) for x in v.split(",")])
+
+
+def gizmo_mode(s, presses):
+    """The Move tool (W), then W again `presses` times: Turn, then Scale."""
+    for _ in range(presses + 1):
+        s.press("w")
+
+
+def gizmo_where(checks):
+    """`checks`, and the gizmo drawn where the GIZMO_ points assume: a change to the starting
+    camera or scene fails here rather than as a drag that missed its handle."""
+    return dict(checks, gizmo_at=is_text(f"{GIZMO_CENTER[0]},{GIZMO_CENTER[1]}"))
+
+
+@scenario
+def gizmo_ring_turns_about_its_axis():
+    """W twice gives the Turn gizmo; dragging the Y ring with the mouse turns the sphere
+    about y only, the readout's step recorded as one undo step that Ctrl+Z takes back."""
+    turned, undone = Script(), Script()
+    for sc in (turned, undone):
+        gizmo_mode(sc, 1)
+        sc.mouse_drag(line(GIZMO_Y_RING, (GIZMO_Y_RING[0] + 60, GIZMO_Y_RING[1]), 6))
+    undone.press("z", ("ctrl",))
+    about_y = transform_is(lambda x, y, z, rx, ry, rz, sc: abs(ry) > 5 and abs(rx) < 0.01 and abs(rz) < 0.01 and (x, y, z, sc) == (0, 0, 0, 1))
+    return Steps([
+        (turned, [], camera_still(gizmo_where({"gizmo_mode": is_text("turn"), "gizmo_last": is_text("turn_y"), "gizmo_drags": near(1), "transform": about_y, "transform_undo": near(1), "undo_steps": near(1)}))),
+        (undone, [], camera_still({"transform": is_text("0.0000,0.0000,0.0000,0.000,0.000,0.000,1.0000"), "transform_undo": near(0), "redo_steps": near(1)})),
+    ])
+
+
+@scenario
+def gizmo_finger_scales_from_the_middle():
+    """A finger on the Scale gizmo's middle scales the sphere up as it drags out, past the
+    slop only, so the camera stays and nothing else moves."""
+    s = Script()
+    gizmo_mode(s, 2)
+    s.fdrag(line((GIZMO_CENTER[0] + 4, GIZMO_CENTER[1]), (GIZMO_CENTER[0] + 94, GIZMO_CENTER[1]), 9))
+    s.wait(4)
+    grew = transform_is(lambda x, y, z, rx, ry, rz, sc: 1.5 < sc < 3 and (x, y, z, rx, ry, rz) == (0, 0, 0, 0, 0, 0))
+    return s, [], camera_still({"gizmo_mode": is_text("scale"), "gizmo_last": is_text("scale"), "transform": grew, "dabs": near(0)})
+
+
+@scenario
+def gizmo_finger_sized_handles():
+    """A finger lands 16 points below the X arm, where the mouse would miss it, and still
+    drags along x only; a tap on the arm, within the slop, moves nothing."""
+    near_arm, tap = Script(), Script()
+    start = (GIZMO_X_ARM[0], GIZMO_X_ARM[1] + 16)
+    gizmo_mode(near_arm, 0)
+    near_arm.fdrag(line(start, (start[0] + 50, start[1] + 10), 8))
+    gizmo_mode(tap, 0)
+    tap.fdrag([GIZMO_X_ARM, (GIZMO_X_ARM[0] + 4, GIZMO_X_ARM[1] + 2)])
+    along_x = transform_is(lambda x, y, z, rx, ry, rz, sc: x > 0.05 and (y, z, sc) == (0, 0, 1))
+    return Steps([
+        (near_arm, [], camera_still({"gizmo_last": is_text("x"), "transform": along_x, "undo_steps": near(1)})),
+        (tap, [], camera_still(gizmo_where({"transform": is_text("0.0000,0.0000,0.0000,0.000,0.000,0.000,1.0000"), "undo_steps": near(0), "selected": near(0)}))),
+    ])
+
+
+@scenario
+def gizmo_square_moves_in_its_plane():
+    """The square between the X and Y arms moves the sphere in x and y; z stays."""
+    s = Script()
+    gizmo_mode(s, 0)
+    s.mouse_drag(line(GIZMO_XY_SQUARE, (GIZMO_XY_SQUARE[0] + 40, GIZMO_XY_SQUARE[1] - 30), 6))
+    in_plane = transform_is(lambda x, y, z, rx, ry, rz, sc: abs(x) > 0.05 and abs(y) > 0.05 and z == 0 and sc == 1)
+    return s, [], camera_still({"gizmo_last": is_text("xy"), "transform": in_plane, "transform_undo": near(1)})
+
+
+@scenario
+def gizmo_ctrl_snaps_the_move():
+    """Ctrl held through an X arm drag moves the sphere along x in whole steps of the grid;
+    the same drag without it lands between them."""
+    snapped, free = Script(), Script()
+    for sc, keys in ((snapped, ("ctrl",)), (free, ())):
+        gizmo_mode(sc, 0)
+        sc.mouse_drag(line(GIZMO_X_ARM, (GIZMO_X_ARM[0] + 43, GIZMO_X_ARM[1] + 8), 6), keys=keys)
+
+    # At the starting zoom the grid's step is 0.1: the free drag ends near 0.125.
+    def on_grid(x, y, z, rx, ry, rz, sc):
+        return x > 0.05 and abs(x * 10 - round(x * 10)) < 1e-3 and (y, z) == (0, 0)
+    return Steps([
+        (snapped, [], camera_still({"gizmo_last": is_text("x"), "transform": transform_is(on_grid)})),
+        (free, [], camera_still({"gizmo_last": is_text("x"), "transform": transform_is(lambda *t: not on_grid(*t) and t[0] > 0.05)})),
+    ])
+
+
+@scenario
+def gizmo_chips_switch_the_mode():
+    """With the Move tool on, the action bar shows the gizmo's chips: Turn and Scale pick
+    the mode, Snap latches."""
+    turn, scale = Script(), Script()
+    for sc, chip in ((turn, "turn"), (scale, "scale")):
+        sc.press("w")
+        click(sc, GIZMO_CHIPS[chip])
+        click(sc, GIZMO_CHIPS["snap"])
+    return Steps([
+        (turn, [], camera_still({"action_bar": is_text("gizmo"), "gizmo_mode": is_text("turn"), "gizmo_snap": near(1)})),
+        (scale, [], camera_still({"gizmo_mode": is_text("scale"), "gizmo_snap": near(1)})),
+    ])
+
+
+@scenario
+def transform_values_undo_per_drag():
+    """In the Object tab, a drag of Position X is one undo step however many frames it
+    took, and Reset transform (with every option shown) one more; Ctrl+Z takes back
+    the reset alone."""
+    s = Script()
+    write_settings("all_options 1\n")
+    click(s, UI["tab_object"])
+    s.mouse_drag(line((1431, 350), (1531, 350), 10))
+    click(s, (1431, 794))
+    s.press("z", ("ctrl",))
+    dragged = transform_is(lambda x, y, z, rx, ry, rz, sc: abs(x - 0.5) < 0.02 and (y, z, sc) == (0, 0, 1))
+    return s, [f"--settings-file={settings_file()}"], camera_still({"inspector_tab": is_text("object"), "transform": dragged, "undo_steps": near(1), "redo_steps": near(1), "transform_undo": near(1)})
+
+
+@scenario
+def gizmo_drag_cancels_back():
+    """A second finger landing while one drags an arm makes a gesture: the sphere goes
+    back where it was and nothing is recorded. Esc does the same for the mouse. The
+    gizmo, back too, is drawn where every gizmo scenario expects it."""
+    finger, escape = Script(), Script()
+    gizmo_mode(finger, 0)
+    finger.fdrag(line(GIZMO_X_ARM, (GIZMO_X_ARM[0] + 60, GIZMO_X_ARM[1] + 12), 6), lift=False)
+    finger.add("fdown:1:300,600")
+    finger.wait(3)
+    finger.add("fup:1")
+    finger.add("fup:0")
+    finger.wait(4)
+    gizmo_mode(escape, 0)
+    escape.add(f"move:{GIZMO_X_ARM[0]},{GIZMO_X_ARM[1]}")
+    escape.wait(1)
+    escape.add("down")
+    for p in line(GIZMO_X_ARM, (GIZMO_X_ARM[0] + 60, GIZMO_X_ARM[1] + 12), 6)[1:]:
+        escape.wait(1)
+        escape.add(f"move:{p[0]:g},{p[1]:g}")
+    escape.wait(1)
+    escape.add("key:Escape")
+    escape.wait(1)
+    escape.add("keyup:Escape")
+    escape.wait(2)
+    escape.add("up")
+    escape.wait(4)
+    home = is_text("0.0000,0.0000,0.0000,0.000,0.000,0.000,1.0000")
+    return Steps([
+        (finger, [], {"transform": home, "gizmo_drags": near(0), "undo_steps": near(0)}),
+        (escape, [], camera_still(gizmo_where({"transform": home, "gizmo_drags": near(0), "undo_steps": near(0)}))),
     ])
 
 

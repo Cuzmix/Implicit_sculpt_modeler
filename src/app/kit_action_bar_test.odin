@@ -11,6 +11,8 @@ import "../sculpt"
 test_object :: proc(app: ^App, id: int) -> ^Object {
 	obj := new(Object)
 	obj.id = id
+	// The sculpt's groups only: the Move tool, App's zero value, adds the gizmo's.
+	app.tool = .Brush
 	sculpt.levels_init(&obj.levels, geom.icosphere(2), nil, 64)
 	append(&app.scene.objects, obj)
 	app.scene.selected = len(app.scene.objects) - 1

@@ -869,6 +869,8 @@ run :: proc(opts: Options) -> bool {
 		if opts.orbit do camera.orbit_spin(&app.camera, 2 * math.PI / 240)
 		sculpted: Sculpt_Frame_Result
 		shape_pending_frame(&app, input.size)
+		// A gizmo drag the tool changed under ends as it is.
+		if app.tool != .Move do move_end(&app)
 		switch app.tool {
 		case .Brush:
 			if clip_frame(&app, input) || mask_shape_frame(&app, input) {
@@ -1142,6 +1144,16 @@ run :: proc(opts: Options) -> bool {
 		p := app.pivot.used
 		fmt.printfln("orbit_pivot=%.4f,%.4f,%.4f pivot_source=%s pinned=%d framed=%d touch_repeats=%d", p.x, p.y, p.z, strings.to_lower(fmt.tprint(app.pivot.from), context.temp_allocator), int(app.pivot.pinned), app.double_tap.framed, app.touch.hold.done)
 		fmt.printfln("undo_steps=%d redo_steps=%d brush_radius_px=%.2f brush_strength=%.3f selected=%d", len(app.history.done), len(app.history.undone), app.brush.radius_px, brush_strength(&app)^, app.scene.selected)
+		{
+			m := app.move
+			tr: Transform
+			if obj := selected_object(&app); obj != nil do tr = obj.transform
+			transform_undo := 0
+			for e in app.history.done do if e.kind == .Transform do transform_undo += 1
+			lower :: proc(v: any) -> string {return strings.to_lower(fmt.tprint(v), context.temp_allocator)}
+			fmt.printfln("gizmo_at=%.0f,%.0f gizmo_mode=%s gizmo_hover=%s gizmo_last=%s gizmo_drags=%d gizmo_snap=%d transform=%.4f,%.4f,%.4f,%.3f,%.3f,%.3f,%.4f transform_undo=%d",
+				m.drawn.x, m.drawn.y, lower(m.mode), lower(m.hover), lower(m.last), m.drags, int(m.snap), tr.position.x, tr.position.y, tr.position.z, tr.rotation.x, tr.rotation.y, tr.rotation.z, tr.scale, transform_undo)
+		}
 		{
 			// The selected object's levels and name, the New scene shape armed and whether the
 			// menu is open, for the starter scenarios.

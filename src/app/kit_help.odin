@@ -56,7 +56,7 @@ command_group :: proc(id: Command_Id) -> Command_Group {
 	case .None, .New_Scene ..= .Screenshot:   return .File
 	case .Undo ..= .Duplicate_Object:         return .Edit
 	case .Tool_Move ..= .Replay_Stroke:       return .Tools
-	case .Remesh ..= .Adjust_Last:            return .Object
+	case .Remesh ..= .Reset_Transform:        return .Object
 	case .Add_Object ..= .Frame_All:          return .Scene
 	case .View_Axis ..= .Studio_Render:       return .View
 	case .Stats ..= .Brush_Pie:                     return .App
@@ -115,7 +115,10 @@ MOUSE_HELP := [?]Help_Line {
 	{group = "MOUSE", what = "Isolate a polygroup (Alt: mask it)", how = "Ctrl+Shift + click it", show = brush_tool},
 	{group = "MOUSE", what = "Show everything", how = "Ctrl+Shift + click empty space", show = brush_tool},
 	{group = "MOUSE", what = "Select an object", how = "Click it", show = move_tool},
-	{group = "MOUSE", what = "Move it", how = "Drag it, or a gizmo arm", show = move_tool},
+	{group = "MOUSE", what = "Move it", how = "Drag it, a gizmo arm or square", show = move_tool},
+	{group = "MOUSE", what = "Turn or scale it", how = "W again, then drag a ring or the middle", show = move_tool},
+	{group = "MOUSE", what = "Snap a gizmo drag", how = "Ctrl while dragging", show = move_tool},
+	{group = "MOUSE", what = "Put it back mid-drag", how = "Esc", show = move_tool},
 	{group = "MOUSE", what = "Brush pie", how = "Right click"},
 	{group = "MOUSE", what = "Turn the view", how = "Left drag on empty space", show = proc(app: ^App) -> bool {return empty_turns(app) && app.nav.empty_drag[.Mouse] == .Orbit}},
 	{group = "MOUSE", what = "Turn the view", how = "Left drag from the edges", show = proc(app: ^App) -> bool {return app.nav.edge_orbit}},

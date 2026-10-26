@@ -7,6 +7,7 @@ import "core:strings"
 import sdl "vendor:sdl3"
 
 import "../camera"
+import "../gizmo"
 import "../sculpt"
 
 // The keys in use: DEFAULT_BINDINGS with the user's changes over them. A command the user
@@ -72,7 +73,7 @@ chord_owner :: proc(app: ^App, chord: Chord) -> (Binding, bool) {
 chord_reserved :: proc(chord: Chord) -> (reason: string, reserved: bool) {
 	switch chord.key {
 	case sdl.K_ESCAPE, sdl.K_AC_BACK:
-		return "Escape closes menus and stops a replay", true
+		return "Escape closes menus, stops a replay and puts back a gizmo drag", true
 	case sdl.K_RETURN, sdl.K_KP_ENTER, sdl.K_BACKSPACE:
 		return "Enter and Backspace are for typing", true
 	case sdl.K_SPACE:
@@ -225,6 +226,7 @@ command_arg_name :: proc(id: Command_Id, arg: int) -> string {
 	case .Help:      return fmt.tprint(Help_Tab(arg))
 	case .New_Scene: return fmt.tprint(NEW_SCENE_SHAPES[arg])
 	case .Pie:       return fmt.tprint(arg + 1) // as the menus count them
+	case .Gizmo:     return fmt.tprint(gizmo.Mode(arg))
 	}
 	return fmt.tprint(arg)
 }

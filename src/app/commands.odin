@@ -6,6 +6,7 @@ import sdl "vendor:sdl3"
 
 import "../camera"
 import "../geom"
+import "../gizmo"
 import "../sculpt"
 import "../ui"
 
@@ -39,6 +40,8 @@ Command_Id :: enum u8 {
 	Tool_Sculpt,
 	Tool_Curve,
 	Tool_Insert,
+	Gizmo, // the argument is the gizmo.Mode
+	Gizmo_Snap,
 	Brush, // the argument is the sculpt.Brush_Kind
 	Symmetry_X,
 	Size_Down,
@@ -81,6 +84,7 @@ Command_Id :: enum u8 {
 	Make_Boolean,
 	Extract_Masked,
 	Adjust_Last,
+	Reset_Transform,
 	// The scene
 	Add_Object,
 	Frame_All,
@@ -240,7 +244,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Tool_Move = {
 		label = "Move tool",
-		help = "Selects objects and moves them with the gizmo.",
+		help = "Selects objects and moves, turns or scales them with the gizmo; its key again steps the gizmo through the three.",
 		icon = ui.ICON_MOVE,
 		run = proc(app: ^App, _: int) {app.tool = .Move},
 		checked = proc(app: ^App, _: int) -> bool {return app.tool == .Move},
@@ -265,6 +269,24 @@ COMMANDS := [Command_Id]Command {
 		icon = ui.ICON_SHAPES,
 		run = proc(app: ^App, _: int) {app.tool = .Insert},
 		checked = proc(app: ^App, _: int) -> bool {return app.tool == .Insert},
+	},
+	.Gizmo = {
+		label = "Gizmo",
+		help = "Picks the Move tool and what its gizmo's handles do: move along an arm or across a plane, turn about a ring, or scale from the middle.",
+		icon = ui.ICON_MOVE,
+		args = len(gizmo.Mode),
+		run = proc(app: ^App, arg: int) {
+			app.tool = .Move
+			app.move.mode = gizmo.Mode(arg)
+		},
+		checked = proc(app: ^App, arg: int) -> bool {return app.tool == .Move && app.move.mode == gizmo.Mode(arg)},
+	},
+	.Gizmo_Snap = {
+		label = "Snap the gizmo",
+		help = "Makes every gizmo drag snap: moves to steps of a grid that follows the zoom, turns to 15 degrees, scales to steps of 0.1. Ctrl snaps one drag.",
+		icon = ui.ICON_GRID,
+		run = proc(app: ^App, _: int) {app.move.snap = !app.move.snap},
+		checked = proc(app: ^App, _: int) -> bool {return app.move.snap},
 	},
 	.Brush = {
 		label = "Brush",
@@ -587,6 +609,13 @@ COMMANDS := [Command_Id]Command {
 		},
 		enabled = proc(app: ^App, _: int) -> bool {return adjust_live(app)},
 	},
+	.Reset_Transform = {
+		label = "Reset transform",
+		help = "Puts the selected object back at the world's middle, unturned, at scale 1, as one undo step.",
+		run = proc(app: ^App, _: int) {transform_reset(app)},
+		enabled = has_object,
+	},
+
 	.Add_Object = {
 		label = "Add object",
 		help = "Adds the shape and size picked in the Scene tab's Add object section.",
@@ -866,6 +895,8 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 		return fmt.tprintf("%s to %s vertices", "Remesh" if id == .Remesh_To else "Decimate", SPHERE_PRESETS[arg].label)
 	case .Help:
 		return fmt.tprintf("Help: %s", HELP_TAB_NAMES[Help_Tab(arg)])
+	case .Gizmo:
+		return fmt.tprintf("%v gizmo", gizmo.Mode(arg))
 	case .Pie:
 		return fmt.tprintf("Pie %d", arg + 1)
 	}
@@ -1000,7 +1031,16 @@ key_mods :: proc(m: sdl.Keymod) -> (mods: bit_set[Key_Mod;u8]) {
 // while a text field has the keys.
 commands_handle_keys :: proc(app: ^App) {
 	if typing(app) do return
-	for b in keymap(app) do if chord_down(&app.device, b.chord) do command_run(app, b.command, b.arg)
+	for b in keymap(app) {
+		if !chord_down(&app.device, b.chord) do continue
+		// The Move tool's key, pressed again with it on, steps the gizmo's mode; the
+		// toolbar's button only ever picks the tool.
+		if b.command == .Tool_Move && app.tool == .Move {
+			gizmo_cycle(app)
+			continue
+		}
+		command_run(app, b.command, b.arg)
+	}
 	if key_pressed(&app.device, sdl.K_ESCAPE) do replay_stop(app)
 }
 

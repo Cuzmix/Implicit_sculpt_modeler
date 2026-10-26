@@ -8,6 +8,7 @@ import "core:time"
 import sdl "vendor:sdl3"
 
 import "../geom"
+import "../gizmo"
 import "../render"
 import "../sculpt"
 
@@ -23,11 +24,7 @@ Transform :: struct {
 Vec3 :: [3]f32
 
 // The turn of the transform as a matrix: about x first, then y, then z.
-transform_rotation :: proc(t: Transform) -> matrix[3, 3]f32 {
-	if t.rotation == {} do return 1
-	r := linalg.to_radians(t.rotation)
-	return linalg.matrix3_rotate_f32(r.z, {0, 0, 1}) * linalg.matrix3_rotate_f32(r.y, {0, 1, 0}) * linalg.matrix3_rotate_f32(r.x, {1, 0, 0})
-}
+transform_rotation :: proc(t: Transform) -> matrix[3, 3]f32 {return gizmo.rotation_matrix(t.rotation)}
 
 transform_matrix :: proc(t: Transform) -> render.Mat4 {
 	m, s, p := transform_rotation(t), t.scale, t.position
@@ -499,6 +496,12 @@ scene_delete_selected :: proc(app: ^App, undoable := true, chain := false) {
 
 // Applies a pending UI command. Returns false only on a fatal GPU failure.
 scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
+	// A drag of where the object sits ends here as its own step, so a snapshot taken
+	// below never holds it half done.
+	if cmd.kind != .None {
+		move_end(app)
+		transform_drag_end(app, force = true)
+	}
 	switch cmd.kind {
 	case .None:
 	case .Add:

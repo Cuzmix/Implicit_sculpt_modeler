@@ -46,6 +46,10 @@ History_Entry :: struct {
 	kind:  History_Kind,
 	what:  string, // not owned: a constant
 	at:    time.Tick,
+	// A .Transform entry's object as it was placed before the change and after it: undo
+	// puts back the one, redo the other. Its level is always 0, and it outlives the
+	// object's strokes, since the strokes are in the mesh's own space.
+	before, after: Transform,
 }
 
 // What kind of change a step is; the History panel colours its timeline by it.
@@ -57,6 +61,7 @@ History_Kind :: enum u8 {
 	Rebuild, // a swap entry: the object rebuilt, added or removed
 	Paint,   // a polypaint or polygroup command
 	Layer,   // a sculpt layer added, removed, shown, hidden or dialled
+	Transform, // the object moved, turned or scaled
 }
 
 // An object as object_put writes it, or that it did not exist. Undoing or redoing a swap
@@ -152,7 +157,9 @@ history_record_added :: proc(app: ^App) {
 // What Ctrl+Z would take back, for the undo button's tooltip.
 history_next_label :: proc(list: []History_Entry) -> string {
 	if len(list) == 0 do return "stroke"
-	if e := list[len(list) - 1]; e.swap != nil do return e.swap.what
+	e := list[len(list) - 1]
+	if e.swap != nil do return e.swap.what
+	if e.kind == .Transform do return e.what
 	return "stroke"
 }
 
@@ -389,6 +396,16 @@ MASK_COMMAND_NAMES := [sculpt.Mask_Command]string {
 	.Shrink  = "Shrink mask",
 }
 
+// Lists placing `obj` anew (moved, turned or scaled from `before` to where it is now) as
+// the newest undo step; nothing when it ended where it began.
+history_record_transform :: proc(app: ^App, obj: ^Object, before: Transform, what: string) {
+	if obj.transform == before do return
+	history_drop_redo(app)
+	app.history.serial += 1
+	app.history.edits += 1
+	append(&app.history.done, History_Entry{id = obj.id, kind = .Transform, what = what, at = time.tick_now(), before = before, after = obj.transform})
+}
+
 // A new step discards everything that could have been redone, everywhere.
 @(private = "file")
 history_drop_redo :: proc(app: ^App) {
@@ -396,6 +413,8 @@ history_drop_redo :: proc(app: ^App) {
 		if e.swap != nil {
 			app.history.swap_bytes -= len(e.swap.bytes)
 			snapshot_free(e.swap)
+		} else if e.kind == .Transform {
+			// Nothing of it is kept anywhere else.
 		} else if s := entry_sculptor(app, e); s != nil {
 			sculpt.sculptor_clear_redo(s)
 		}
@@ -403,8 +422,15 @@ history_drop_redo :: proc(app: ^App) {
 	clear(&app.history.undone)
 }
 
-history_can_undo :: proc(app: ^App) -> bool {return !app.stroke.active && len(app.history.done) > 0}
-history_can_redo :: proc(app: ^App) -> bool {return !app.stroke.active && len(app.history.undone) > 0}
+history_can_undo :: proc(app: ^App) -> bool {return !history_busy(app) && len(app.history.done) > 0}
+history_can_redo :: proc(app: ^App) -> bool {return !history_busy(app) && len(app.history.undone) > 0}
+
+// A stroke, or a gizmo or inspector drag of a transform, is under way: it becomes a step
+// of its own when it ends, so nothing is undone or redone beneath it.
+@(private = "file")
+history_busy :: proc(app: ^App) -> bool {
+	return app.stroke.active || app.move.drag.handle != .None || app.ui.transform_drag.active
+}
 
 history_undo :: proc(app: ^App) {
 	// A chained entry goes back with the one before it.
@@ -422,7 +448,7 @@ history_redo :: proc(app: ^App) {
 // Takes one entry from `from` to `to`; false when there was none to take.
 @(private = "file")
 history_step :: proc(app: ^App, from, to: ^[dynamic]History_Entry, can, step: proc(s: ^sculpt.Sculptor) -> bool) -> bool {
-	if app.stroke.active do return false
+	if history_busy(app) do return false
 	// Entries whose step a sculptor already dropped (memory limit) are skipped.
 	for len(from) > 0 {
 		e := pop(from)
@@ -430,6 +456,16 @@ history_step :: proc(app: ^App, from, to: ^[dynamic]History_Entry, can, step: pr
 		if e.level != HD_LEVEL || e.swap != nil do app.history.edits += 1
 		if e.swap != nil {
 			if !history_swap(app, e) do app.running = false // GPU failure
+			append(to, e)
+			return true
+		}
+		if e.kind == .Transform {
+			// Placing the object anew changes no level and no sculptor; an object that is
+			// gone takes the step with it.
+			obj := object_by_id(app, e.id)
+			if obj == nil do continue
+			obj.transform = e.before if from == &app.history.done else e.after
+			app.move.drag = {}
 			append(to, e)
 			return true
 		}
@@ -518,14 +554,15 @@ history_forget :: proc(app: ^App, id: int) {
 	history_forget_level(app, id, nil)
 }
 
-// Drops an object's strokes on every level but keeps its swap entries, which hold the
-// whole object and so stay right whatever happened to its sculptors.
+// Drops an object's strokes on every level but keeps its swap and transform entries,
+// which hold the whole object or only where it is placed, and so stay right whatever
+// happened to its sculptors.
 history_forget_strokes :: proc(app: ^App, id: int) {
 	app.history.serial += 1
 	for list in ([2]^[dynamic]History_Entry{&app.history.done, &app.history.undone}) {
 		kept := 0
 		for e in list {
-			if e.id != id || e.swap != nil {
+			if e.id != id || e.swap != nil || e.kind == .Transform {
 				list[kept] = e
 				kept += 1
 			}
@@ -535,14 +572,15 @@ history_forget_strokes :: proc(app: ^App, id: int) {
 }
 
 // Drops an object's entries on one level (all levels when nil): for the HD window,
-// whose strokes go when it closes, since its detail is then stored.
+// whose strokes go when it closes, since its detail is then stored. One level keeps the
+// object's transform entries, which belong to no level.
 history_forget_level :: proc(app: ^App, id: int, level: Maybe(int)) {
 	app.history.serial += 1
 	for list in ([2]^[dynamic]History_Entry{&app.history.done, &app.history.undone}) {
 		kept := 0
 		for e in list {
 			only, one := level.?
-			if e.id != id || (one && (e.level != only || e.swap != nil)) {
+			if e.id != id || (one && (e.level != only || e.swap != nil || e.kind == .Transform)) {
 				list[kept] = e
 				kept += 1
 			} else if e.swap != nil {

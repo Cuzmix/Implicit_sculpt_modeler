@@ -93,12 +93,15 @@ OBJECT_SECTIONS := [?]Object_Section {
 kit_transform :: proc(app: ^App, obj: ^Object) {
 	ctx := &app.kit.ctx
 	tr := &obj.transform
+	// A drag of any value is one undo step, from its press to its release.
+	before := tr^
+	defer if tr^ != before do transform_drag_changed(app, obj, before)
 	axes := [3]string{"X", "Y", "Z"}
 	for axis, i in axes {
 		_ = ui.drag_value(ctx, fmt.tprintf("Position %s", axis), &tr.position[i], 0.005, -1e4, 1e4, fmt.tprintf("%.3f", tr.position[i]))
 	}
-	_ = ui.drag_value(ctx, "Scale", &tr.scale, 0.005, 0.01, 100, fmt.tprintf("%.3f", tr.scale))
-	ui.paragraph(ctx, "Drag sideways on a value to change it.")
+	_ = ui.drag_value(ctx, "Scale", &tr.scale, 0.005, MIN_OBJECT_SCALE, MAX_OBJECT_SCALE, fmt.tprintf("%.3f", tr.scale))
+	ui.paragraph(ctx, fmt.tprintf("Drag sideways on a value to change it, or use the Move tool's gizmo (%s steps it through move, turn and scale).", command_keys(app, .Tool_Move)))
 	if kit_more(app, .Transform) {
 		for axis, i in axes {
 			if ui.drag_value(ctx, fmt.tprintf("Turn about %s", axis), &tr.rotation[i], 0.5, -1e6, 1e6, fmt.tprintf("%.1f°", tr.rotation[i])) {
@@ -106,6 +109,8 @@ kit_transform :: proc(app: ^App, obj: ^Object) {
 			}
 		}
 		ui.paragraph(ctx, "Turns are degrees about X, then Y, then Z.")
+		// Reset is its own undo step, not part of a drag of the values.
+		if command_button(app, .Reset_Transform) do before = tr^
 		kit_more_end(app)
 	}
 }

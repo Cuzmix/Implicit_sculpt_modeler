@@ -1,6 +1,7 @@
 package gizmo
 
 import "core:math"
+import "core:math/linalg"
 import "core:testing"
 
 @(test)
@@ -32,16 +33,33 @@ plane_hit :: proc(t: ^testing.T) {
 
 @(test)
 picking :: proc(t: ^testing.T) {
-	center := Vec2{100, 100}
-	tips := [3]Vec2{{190, 100}, {100, 10}, {40, 160}}
-	ok := [3]bool{true, true, true}
-	testing.expect_value(t, pick({102, 97}, center, tips, ok), Handle.View)
-	testing.expect_value(t, pick({150, 104}, center, tips, ok), Handle.X)
-	testing.expect_value(t, pick({97, 50}, center, tips, ok), Handle.Y)
-	testing.expect_value(t, pick({70, 131}, center, tips, ok), Handle.Z)
-	testing.expect_value(t, pick({160, 160}, center, tips, ok), Handle.None)
-	ok.x = false
-	testing.expect_value(t, pick({150, 104}, center, tips, ok), Handle.None)
+	s := Screen{center = {100, 100}, tips = {{190, 100}, {100, 10}, {40, 160}}, tip_ok = {true, true, true}, arm_px = 90, ok = true}
+	testing.expect_value(t, pick(s, .Move, {102, 97}, PICK_PX), Handle.View)
+	testing.expect_value(t, pick(s, .Move, {150, 104}, PICK_PX), Handle.X)
+	testing.expect_value(t, pick(s, .Move, {97, 50}, PICK_PX), Handle.Y)
+	testing.expect_value(t, pick(s, .Move, {70, 131}, PICK_PX), Handle.Z)
+	testing.expect_value(t, pick(s, .Move, {160, 160}, PICK_PX), Handle.None)
+	// Between the X and Y arms, the square that moves in their plane.
+	testing.expect_value(t, pick(s, .Move, {135, 65}, PICK_PX), Handle.XY)
+	// A finger's radius reaches the arm from further off, and grows the centre.
+	testing.expect_value(t, pick(s, .Move, {150, 118}, PICK_PX), Handle.None)
+	testing.expect_value(t, pick(s, .Move, {150, 118}, 24), Handle.X)
+	testing.expect_value(t, pick(s, .Move, {112, 88}, PICK_PX), Handle.None)
+	testing.expect_value(t, pick(s, .Move, {112, 88}, 24), Handle.View)
+	// Scale: the disc in the middle and the circle at the arm's length.
+	testing.expect_value(t, pick(s, .Scale, {105, 104}, PICK_PX), Handle.Scale)
+	testing.expect_value(t, pick(s, .Scale, {100, 194}, PICK_PX), Handle.Scale)
+	testing.expect_value(t, pick(s, .Scale, {100, 150}, PICK_PX), Handle.None)
+	// Drawn twice as large (the interface at 200%), the disc picks twice as far.
+	testing.expect_value(t, pick(s, .Scale, {120, 100}, PICK_PX), Handle.None)
+	big := s
+	big.arm_px = 2 * ARM_PX
+	testing.expect_value(t, pick(big, .Scale, {120, 100}, 2 * PICK_PX), Handle.Scale)
+	s.tip_ok.x = false
+	testing.expect_value(t, pick(s, .Move, {150, 104}, PICK_PX), Handle.None)
+	testing.expect_value(t, pick(s, .Move, {135, 65}, PICK_PX), Handle.None)
+	s.ok = false
+	testing.expect_value(t, pick(s, .Move, {102, 97}, PICK_PX), Handle.None)
 }
 
 @(test)
@@ -53,4 +71,89 @@ projection_round_trip :: proc(t: ^testing.T) {
 	testing.expect_value(t, p, Vec2{100, 50})
 	p, _ = project(identity, {1, 1, 0.5}, {200, 100})
 	testing.expect_value(t, p, Vec2{200, 0})
+}
+
+// rotation_degrees undoes rotation_matrix across the whole range, the gimbal poles too
+// (where the turn, not the angles, must come back).
+@(test)
+rotation_round_trip :: proc(t: ^testing.T) {
+	for x := f32(-180); x < 180; x += 30 {
+		for y := f32(-90); y <= 90; y += 15 {
+			for z := f32(-180); z < 180; z += 45 {
+				m := rotation_matrix({x, y, z})
+				back := rotation_matrix(rotation_degrees(m))
+				worst: f32
+				for i in 0 ..< 3 do for j in 0 ..< 3 do worst = max(worst, abs(back[i, j] - m[i, j]))
+				testing.expectf(t, worst < 1e-4, "%v comes back %v off", Vec3{x, y, z}, worst)
+				d := rotation_degrees(m)
+				testing.expectf(t, d.y >= -90 && d.y <= 90 && abs(d.x) <= 180 && abs(d.z) <= 180, "%v out of range", d)
+			}
+		}
+	}
+	testing.expect_value(t, rotation_degrees(1), Vec3{})
+}
+
+// A quarter turn about z takes x onto y; the edge-on drag follows the ring's direction.
+@(test)
+turns_and_scales :: proc(t: ^testing.T) {
+	a := plane_turn({0, 0, 0}, {0, 0, 1}, {1, 0, 0}, {0, 2, 0})
+	testing.expect(t, abs(a - math.PI / 2) < 1e-5)
+	testing.expect(t, abs(plane_turn({0, 0, 0}, {0, 0, -1}, {1, 0, 0}, {0, 2, 0}) + math.PI / 2) < 1e-5)
+	testing.expect(t, abs(tangent_turn({30, 0}, {60, 0}) - 0.5) < 1e-6)
+	testing.expect_value(t, tangent_turn({30, 0}, {0, 0}), 0)
+	// An arm's length further out scales by e, and as far back in undoes it, from
+	// wherever the press was.
+	testing.expect(t, abs(scale_factor({0, 0}, {10, 0}, {0, 100}, 90) - math.E) < 1e-5)
+	testing.expect(t, abs(scale_factor({0, 0}, {0, 0}, {90, 0}, 90) - math.E) < 1e-5)
+	testing.expect_value(t, scale_factor({0, 0}, {30, 0}, {0, 30}, 90), 1)
+	testing.expect_value(t, wrap_degrees(190), -170)
+	testing.expect_value(t, wrap_degrees(-180), -180)
+	testing.expect_value(t, wrap_degrees(180), -180)
+	testing.expect_value(t, wrap_degrees(-725), -5)
+	testing.expect_value(t, snap(0.26, 0.1), f32(0.3))
+	testing.expect_value(t, snap(37, TURN_SNAP_DEGREES), f32(30))
+	testing.expect_value(t, snap(5, 0), f32(5))
+	testing.expect_value(t, grid_step(0.01), f32(0.1))  // half an arm is 0.45
+	testing.expect_value(t, grid_step(0.001), f32(0.01))
+}
+
+// A ring projects to a circle on a straight-on view and is picked by its line; a plane
+// square holds its middle and not the centre.
+@(test)
+rings_and_squares_pick :: proc(t: ^testing.T) {
+	// Orthographic-like: x and y map straight onto the screen, 100 px a unit.
+	vp := Mat4{
+		0.1, 0, 0, 0,
+		0, 0.1, 0, 0,
+		0, 0, 0.1, 0,
+		0, 0, 0, 1,
+	}
+	pts, front, ok := ring(vp, {0, 0, 0}, {0, 0, 1}, 2, {0, 0, 1}, {1000, 1000})
+	testing.expect(t, ok)
+	for p in pts do testing.expect(t, abs(linalg.length(p - Vec2{500, 500}) - 100) < 0.01)
+	for f in front do testing.expect(t, f)
+	testing.expect(t, ring_distance({600, 500}, pts[:]) < 0.5)
+	testing.expect(t, ring_distance({500, 500}, pts[:]) > 99)
+	// At the ring's right, a turn about +z (toward the eye) runs up the screen, 100 px a
+	// radian: a drag upward turns it the positive way.
+	tangent := ring_tangent(pts[:], {601, 500})
+	testing.expect(t, abs(tangent.x) < 1 && abs(tangent.y + 100) < 0.5)
+	testing.expect(t, abs(tangent_turn({0, -50}, tangent) - 0.5) < 0.01)
+	// The gizmo seen straight down z: the z ring is a circle, the view ring outside it,
+	// and the x and y rings lines through the centre.
+	sc := screen(vp, {0, 0, 0}, 2, {0, 0, 1}, {1000, 1000}, 100)
+	testing.expect(t, sc.ok && sc.ring_ok == {true, true, true, true})
+	testing.expect_value(t, pick(sc, .Turn, {600, 502}, PICK_PX), Handle.Turn_Z)
+	testing.expect_value(t, pick(sc, .Turn, {625, 500}, PICK_PX), Handle.Turn_View)
+	testing.expect_value(t, pick(sc, .Turn, {503, 560}, PICK_PX), Handle.Turn_X)
+	testing.expect_value(t, pick(sc, .Turn, {640, 420}, PICK_PX), Handle.None)
+	// The z arm points at the eye: neither it nor the squares beside it can be picked.
+	testing.expect(t, !arm_shows(sc, 2))
+	_, xy := square_of(sc, 2)
+	_, yz := square_of(sc, 0)
+	testing.expect(t, xy && !yz)
+	q := plane_square({0, 0}, {100, 0}, {0, -100})
+	testing.expect(t, inside_quad({38, -38}, q))
+	testing.expect(t, !inside_quad({0, 0}, q))
+	testing.expect(t, !inside_quad({90, -90}, q))
 }

@@ -278,8 +278,10 @@ pointer_route :: proc(app: ^App, input: ^Viewport_Input) {
 			if t.cancelled do stroke_cancel(app)
 			else do stroke_finish(app)
 		}
-		// A handle dragged by a finger that became a gesture goes back where it was.
+		// A handle dragged by a finger that became a gesture goes back where it was, and
+		// so does an object the Move tool was dragging.
 		if g.owner == .Shape do shape_release(app, true)
+		if g.owner == .Tool && app.tool == .Move do move_cancel(app)
 		if g.owner != .None {
 			g.owner, g.pending = .Muted, false
 			clear(&g.held)
@@ -449,6 +451,9 @@ drag_decide :: proc(app: ^App, input: Viewport_Input) -> (owner: Drag_Owner, emp
 	if d.pointer == .Finger && app.touch.palm do return .Muted, false
 	// A handle of the shape waiting for Apply, before the model or the safe zone under it.
 	if shape_handle_at(app, d.mouse) >= 0 do return .Shape, false
+	// A handle of the Move tool's gizmo, before the model, the safe zone or empty space
+	// under it, so every pointer grabs a handle off the model's silhouette.
+	if app.tool == .Move && gizmo_pick(app, d.mouse, input.size) != .None do return .Tool, false
 	if d.pointer == .Finger && app.nav.finger_model == .Orbit do return .Orbit, false
 	// The rail's Mask or Hide, for the brushes, keeps empty space for their shapes as Ctrl
 	// does; only held there by a finger does it take the safe zone too, so a view filled
