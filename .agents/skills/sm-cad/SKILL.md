@@ -23,6 +23,14 @@ description: CAD-style mesh tools inside this app on geom.Mesh — primitives, b
   `sculpt.levels_write`/`levels_read`). `Object.file` keeps where an import was in its file, for export. A new
   per-object field that should survive a save goes in both `scene_save` and `scene_open` with a `SCENE_VERSION` bump,
   and `scene_open` must keep reading the older versions. Every file action ends in one `file_note`.
+- Binary glTF out (`geom.mesh_write_glb`, `src/geom/gltf_write.odin`, from `object_export` by the `.glb` name): the
+  sculpt layers go as sparse morph targets (`sculpt.sculptor_layer_sparse`), the base written is the shown surface
+  less each layer at `layer_weight`, colours linear, the JSON gets a slot sized for its bounds so the big arrays are
+  written once, straight into `out`. A change to what an export writes is checked by a scripted run and
+  `python scripts/export_check.py FILE.glb --vertices N --triangles N --keys "Layer 1=1.5,Layer 2=0" --colors`
+  (the Khronos validator and a Blender import; `--setup` installs both into `build/export-tools`; a missing tool is
+  SKIP, never PASS): e.g. `--script="new_layer; smooth_all; layer 1 1.5" --export=build/x.glb`. Blender reads the
+  file Y up into Z up: compare it to an OBJ of the same run as `(x, z, -y)`.
 - Voxel remesh exists (README "Voxel remesh (DynaMesh)"): `geom.remesh_voxel(m, target, pool)` and
   `remesh_voxel_spacing(m, h, pool)` (`src/geom/remesh.odin:57, 68`) rebuild a mesh as an even, closed, manifold surface:
   winding-number rays along each axis decide inside, marching cubes with a rule-built table keeps ambiguous faces

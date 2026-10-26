@@ -435,10 +435,12 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 
 	for app.running {
 		frame_start := time.tick_now()
-		// A waiting save goes first: before a scene command or file request changes what it
-		// would save. A second Save meanwhile (Ctrl+S again) is dropped by file_apply.
+		// A waiting save or export goes first: before a scene command or file request
+		// changes what it would write. A second Save during a save (Ctrl+S again) is
+		// dropped by file_apply.
 		file_next := file_pending_kind()
-		save_pending(&app, app.ui.scene_command.kind != .None || (file_next != .None && file_next != .Save && file_next != .Save_Copy))
+		saves := bit_set[File_Kind]{.Save, .Save_Copy}
+		save_pending(&app, app.ui.scene_command.kind != .None || (file_next != .None && !(file_next in saves && app.saving.kind in saves)))
 		if command := app.ui.scene_command; command.kind != .None {
 			app.ui.scene_command = {}
 			autosave_settle(&app)

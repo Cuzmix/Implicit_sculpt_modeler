@@ -5,6 +5,9 @@ import "core:os"
 import "core:strings"
 import "core:testing"
 
+import "../geom"
+import "../sculpt"
+
 // A durable write replaces the file whole and leaves nothing beside it; a write that
 // cannot happen leaves the old file as it was.
 @(test)
@@ -167,4 +170,51 @@ earlier_saves_read_as_days :: proc(t: ^testing.T) {
 	testing.expect_value(t, version_when("2026-10-25 09.15.00", today, yesterday, false), "Yesterday 09:15")
 	testing.expect_value(t, version_when("2026-10-12 09.15.00", today, yesterday, false), "12 Oct 09:15")
 	testing.expect_value(t, version_when("2025-03-01 23.59.59", today, yesterday, false), "1 Mar 2025 23:59")
+}
+
+// A big export waits for its "Exporting..." toast as a big save does, then writes the
+// object selected by then; a small one is written at once.
+@(test)
+a_big_export_waits_for_its_toast :: proc(t: ^testing.T) {
+	folder := "build/save_test_export/"
+	_ = os.remove_all(folder)
+	defer os.remove_all(folder)
+	testing.expect(t, os.make_directory_all(folder) == nil)
+	// Not temporary: an export frees the temporary allocator, as the frame does.
+	small := strings.concatenate({folder, "small.glb"})
+	defer delete(small)
+	big := strings.concatenate({folder, "big.glb"})
+	defer delete(big)
+
+	app: App
+	defer results_destroy(&app)
+	obj := new(Object)
+	obj.id, obj.transform, obj.file = 1, {scale = 1}, {scale = 1}
+	sculpt.levels_init(&obj.levels, geom.icosphere(2), nil, 64)
+	append(&app.scene.objects, obj)
+	defer {
+		sculpt.levels_destroy(&obj.levels)
+		free(obj)
+		delete(app.scene.objects)
+		history_destroy(&app.history)
+	}
+	app.scene.selected = 0
+	testing.expect(t, object_export_bytes(obj) < SAVE_SHOW_FIRST)
+	testing.expect(t, file_apply(&app, {.Export, small}))
+	testing.expectf(t, app.saving.kind == .None && os.exists(small), "a small export waited: %s", app.result.text)
+
+	app.kit.ctx.theme.toast_time = 0.25
+	app.saving = {.Export, strings.clone(big, runtime.heap_allocator())}
+	app.saving_at = 10
+	app.kit.ctx.time = 10.1
+	save_pending(&app, false)
+	testing.expect(t, app.saving.kind == .Export && !os.exists(big), "exported before the toast was up")
+	app.kit.ctx.time = 10.4
+	save_pending(&app, false)
+	testing.expect(t, app.saving.kind == .None && os.exists(big), "did not export once the toast was up")
+	a, _ := os.read_entire_file(small, context.allocator)
+	defer delete(a)
+	b, _ := os.read_entire_file(big, context.allocator)
+	defer delete(b)
+	testing.expect(t, len(a) > 0 && string(a) == string(b), "the waiting export wrote something else")
 }

@@ -51,6 +51,7 @@ Script_Verb :: enum u8 {
 	Insert_Middle,
 	Falloff,
 	Alpha,
+	Layer,
 }
 
 // Each verb's name and what it takes, for errors and the README.
@@ -70,6 +71,7 @@ SCRIPT_VERBS := [Script_Verb]struct {
 	.Insert_Middle = {"insert_middle", "sphere, cube, cylinder, cone or torus"},
 	.Falloff       = {"falloff", "smooth, linear, sharp, firm or flat"},
 	.Alpha         = {"alpha", "a built-in alpha's name or an image file"},
+	.Layer         = {"layer", "the layer's number counting from 1 at the bottom, its strength from -1 to 2, and hidden to hide it"},
 }
 
 // A command that is on or off (one with `checked`) can be told which: it then runs only
@@ -90,10 +92,10 @@ Script_Statement :: struct {
 	value:   f64, // ...and its value, as setting_parse gives it
 	set:     Setting_Line, // .Line: the line row
 	line_value: Setting_Line_Value, // ...and its value
-	count:   int, // .Wait: frames; .Select and .Verb's project: the object, from 1
+	count:   int, // .Wait: frames; .Select and .Verb's project: the object, from 1; layer's layer, from 1
 	verb:    Script_Verb,
-	numbers: [4]f32, // .Verb: move and rotate's x y z, mask_rect's edges
-	flip:    bool, // .Verb: hide's - side
+	numbers: [4]f32, // .Verb: move and rotate's x y z, mask_rect's edges, layer's strength
+	flip:    bool, // .Verb: hide's - side, a hidden layer
 	text:    string, // .Verb: alpha's name or file; heap
 }
 
@@ -400,6 +402,12 @@ script_verb_read :: proc(st: ^Script_Statement, args: []string) -> bool {
 		if len(args) != 1 do return false
 		st.text = strings.clone(args[0])
 		return true
+	case .Layer:
+		if len(args) < 2 || len(args) > 3 do return false
+		n, ok := strconv.parse_int(args[0])
+		st.count = n
+		st.flip = len(args) == 3
+		return ok && n >= 1 && numbers(st, args[1:2], 1, -1, 2) && (len(args) == 2 || script_name(args[2]) == "hidden")
 	}
 	if len(args) != 1 do return false
 	word := args[0]
@@ -453,7 +461,7 @@ script_verb :: proc(app: ^App, st: Script_Statement) -> (failure: string, ok: bo
 		_, hit, n, on := scene_raycast_surface(app, origin, dir)
 		if !on do return "no surface is under the middle of the view", true
 		if !insert_make(app, hit, n, app.brush.radius_px * camera.orbit_world_per_px(app.camera, hit, size.y)) do return "", false
-	case .Move, .Rotate, .Boolean, .Slice, .Hide, .Mask_Rect:
+	case .Move, .Rotate, .Boolean, .Slice, .Hide, .Mask_Rect, .Layer:
 		if obj == nil do return "nothing is selected", true
 		switch st.verb {
 		case .Move, .Rotate:
@@ -475,6 +483,17 @@ script_verb :: proc(app: ^App, st: Script_Statement) -> (failure: string, ok: bo
 		case .Mask_Rect:
 			corners := [2][2]f32{st.numbers.xy * size, st.numbers.zw * size}
 			mask_shape_command(app, shape_polygon(corners[:], true, size), size, false)
+		case .Layer:
+			// As the layer's slider and eye do, in one undo step.
+			s := object_sculptor(obj)
+			if count := len(sculpt.sculptor_layers(s)); st.count > count do return fmt.tprintf("the object has %d layer%s", count, "" if count == 1 else "s"), true
+			if !layers_allowed(obj) do return "layers are not available in HD or with dynamic topology", true
+			stroke_finish(app)
+			l := sculpt.sculptor_layers(s)[st.count - 1]
+			if l.strength == st.numbers[0] && l.visible == !st.flip do return "", true
+			_ = sculpt.sculptor_layer_set(s, st.count - 1, st.numbers[0], !st.flip)
+			if sculpt.sculptor_stroke_end(s) do history_record(app, obj, .Layer, "Layer strength")
+			return "", true
 		case .Falloff, .Alpha, .Project, .Draw_Curve, .Insert_Middle:
 		}
 	}

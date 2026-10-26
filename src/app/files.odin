@@ -65,6 +65,12 @@ pending: struct {
 // the whole run.
 @(private = "file")
 MESH_FILTERS := [?]sdl.DialogFileFilter{{"Meshes (OBJ, PLY)", "obj;ply"}, {"OBJ", "obj"}, {"PLY", "ply"}}
+// Export writes two formats Import does not read, so it offers its own list; a name
+// typed without an extension takes the one of the filter chosen (EXPORT_SUFFIX).
+@(private = "file")
+EXPORT_FILTERS := [?]sdl.DialogFileFilter{{"Meshes (OBJ, PLY, glTF)", "obj;ply;glb"}, {"OBJ", "obj"}, {"PLY", "ply"}, {"glTF binary (layers as shape keys)", "glb"}}
+@(private = "file")
+EXPORT_SUFFIX := [len(EXPORT_FILTERS)]string{".obj", ".obj", ".ply", ".glb"}
 @(private = "file")
 SCENE_FILTERS := [?]sdl.DialogFileFilter{{"Sculpt scene", "sculpt"}}
 @(private = "file")
@@ -88,7 +94,7 @@ file_dialog :: proc(app: ^App, kind: File_Kind) {
 	case .Import:
 		sdl.ShowOpenFileDialog(file_dialog_done, userdata, app.window, raw_data(MESH_FILTERS[:]), len(MESH_FILTERS), nil, false)
 	case .Export:
-		sdl.ShowSaveFileDialog(file_dialog_done, userdata, app.window, raw_data(MESH_FILTERS[:]), len(MESH_FILTERS), nil)
+		sdl.ShowSaveFileDialog(file_dialog_done, userdata, app.window, raw_data(EXPORT_FILTERS[:]), len(EXPORT_FILTERS), nil)
 	case .Save, .Save_Copy:
 		sdl.ShowSaveFileDialog(file_dialog_done, userdata, app.window, raw_data(SCENE_FILTERS[:]), len(SCENE_FILTERS), nil)
 	case .Open:
@@ -127,7 +133,7 @@ file_dialog_done :: proc "c" (userdata: rawptr, filelist: [^]cstring, filter: c.
 	if filepath.ext(path) == "" {
 		#partial switch kind {
 		case .Save, .Save_Copy: suffix = ".sculpt"
-		case .Export: suffix = ".ply" if filter == 2 else ".obj"
+		case .Export: suffix = EXPORT_SUFFIX[filter] if filter >= 0 && int(filter) < len(EXPORT_SUFFIX) else ".obj"
 		case .Screenshot: suffix = ".png"
 		case .Save_Strokes: suffix = ".strokes"
 		}
@@ -203,6 +209,13 @@ file_apply :: proc(app: ^App, req: File_Request) -> bool {
 		obj := selected_object(app)
 		if obj == nil {
 			file_note(app, true, "Select an object to export first")
+			return true
+		}
+		if object_export_bytes(obj) > SAVE_SHOW_FIRST {
+			// As a big save: the window says what it waits for before the frame stops.
+			app.saving = {req.kind, strings.clone(req.path, runtime.heap_allocator())}
+			app.saving_at = app.kit.ctx.time
+			report(app, nil, {.Busy}, "Exporting %s...", filepath.base(req.path))
 			return true
 		}
 		_ = object_export(app, obj, req.path)
@@ -349,19 +362,24 @@ scene_import :: proc(app: ^App, path: string) -> bool {
 	return true
 }
 
-// Writes the object's shown level (packed, if dynamic) to an OBJ or PLY file, where
-// it was in the file it came from (Object.file); Move tool placement is not written.
-// Returns whether it was written.
+// Writes the object's shown level (packed, if dynamic) to an OBJ, PLY or binary glTF
+// file, where it was in the file it came from (Object.file); Move tool placement is not
+// written. glTF also carries the normals and the sculpt layers, as morph targets (shape
+// keys) at their strengths. Returns whether it was written.
 object_export :: proc(app: ^App, obj: ^Object, path: string) -> bool {
 	start := time.tick_now()
 	name := filepath.base(path)
 	ext := strings.to_lower(filepath.ext(path), context.temp_allocator)
-	if ext != ".obj" && ext != ".ply" {
-		file_note(app, true, "Cannot export to %s: the name needs to end in .obj or .ply", name)
+	if ext != ".obj" && ext != ".ply" && ext != ".glb" {
+		file_note(app, true, "Cannot export to %s: the name needs to end in .obj, .ply or .glb", name)
 		return false
 	}
+	// A stroke, pose or slider drag under way would otherwise land half in the file, and
+	// a recording stroke's movement in the base rather than its layer.
+	stroke_finish(app)
+	inspector_drags_end(app)
 	lv := sculpt.levels_current(&obj.levels)
-	positions, indices := lv.mesh.positions[:], lv.mesh.indices[:]
+	positions, normals, indices := lv.mesh.positions[:], lv.mesh.normals[:], lv.mesh.indices[:]
 	// Polypaint as plain vertex colours: the paint over white as far as it covers.
 	colors: [][3]u8
 	if c := lv.sculptor.color; c != nil && !object_dynamic(obj) {
@@ -376,17 +394,35 @@ object_export :: proc(app: ^App, obj: ^Object, path: string) -> bool {
 		mask: []u8
 		packed, mask = sculpt.sculptor_compact_mesh(&lv.sculptor)
 		delete(mask)
-		positions, indices = packed.positions[:], packed.indices[:]
+		positions, normals, indices = packed.positions[:], packed.normals[:], packed.indices[:]
 	}
 	out := make([dynamic]u8)
 	defer delete(out)
-	if ext == ".obj" && obj.levels.current == 0 && sculpt.levels_has_quads(&obj.levels) && !object_dynamic(obj) {
+	layers := 0
+	switch {
+	case ext == ".glb":
+		// Dynamic topology bakes the layers, so a dynamic object has none to write.
+		sculpt.sculptor_refresh_normals(&lv.sculptor)
+		list := sculpt.sculptor_layers(&lv.sculptor)
+		morphs := make([]geom.Morph_Target, len(list), context.temp_allocator)
+		for &l, k in list {
+			vertices, deltas := sculpt.sculptor_layer_sparse(&lv.sculptor, k, context.temp_allocator)
+			morphs[k] = {sculpt.sculptor_layer_name(&l), sculpt.layer_weight(l), vertices, deltas}
+		}
+		layers = len(morphs)
+		m := geom.Mesh_Export{object_label(obj), positions, normals, indices, colors, morphs, obj.file.scale, obj.file.position}
+		if !geom.mesh_write_glb(&out, m, &app.pool) {
+			free_all(context.temp_allocator)
+			file_note(app, true, "Cannot export %s: a glTF file holds at most 4 GB; fewer layers or a lower level would fit", name)
+			return false
+		}
+	case ext == ".obj" && obj.levels.current == 0 && sculpt.levels_has_quads(&obj.levels) && !object_dynamic(obj):
 		// A retopologized object's base level goes as its quads, with their UVs.
 		q := sculpt.levels_quad_mesh(&obj.levels)
 		geom.quad_mesh_write_obj(&out, q.positions, q.quads, obj.levels.faces.uv.uvs, obj.file.scale, obj.file.position)
-	} else if ext == ".obj" {
+	case ext == ".obj":
 		geom.mesh_write_obj(&out, positions, indices, obj.file.scale, obj.file.position, &app.pool, colors)
-	} else {
+	case:
 		geom.mesh_write_ply(&out, positions, indices, obj.file.scale, obj.file.position, &app.pool, colors)
 	}
 	free_all(context.temp_allocator)
@@ -394,7 +430,8 @@ object_export :: proc(app: ^App, obj: ^Object, path: string) -> bool {
 	// The times shown are this action's alone.
 	app.stats.file_read_ms, app.stats.file_parse_ms = 0, 0
 	app.stats.file_write_ms = time.duration_milliseconds(time.tick_since(start))
-	file_note(app, false, "Exported %s: %d vertices, %d triangles, %d MB in %.0f ms", name, len(positions), len(indices) / 3, len(out) >> 20, app.stats.file_write_ms)
+	with := fmt.tprintf(", %d %s as shape keys", layers, "layer" if layers == 1 else "layers") if layers > 0 else ""
+	file_note(app, false, "Exported %s: %d vertices, %d triangles%s, %d MB in %.0f ms", name, len(positions), len(indices) / 3, with, len(out) >> 20, app.stats.file_write_ms)
 	return true
 }
 
@@ -461,15 +498,30 @@ scene_save_bytes :: proc(app: ^App) -> int {
 	return bytes
 }
 
-// Runs the save that was waiting for its toast, once the toast has come in, or at once
-// when `now` (anything else about to change the scene, or the app closing): it saves
-// the scene as it stands, whatever the frames in between did.
+// About what exporting the object's shown level writes, in the biggest of the formats.
+object_export_bytes :: proc(obj: ^Object) -> int {
+	lv := sculpt.levels_current(&obj.levels)
+	return 40 * len(lv.mesh.positions) + 4 * len(lv.mesh.indices)
+}
+
+// Runs the save or export that was waiting for its toast, once the toast has come in,
+// or at once when `now` (anything else about to change the scene, or the app closing):
+// it writes the scene, or the selected object, as it stands, whatever the frames in
+// between did.
 save_pending :: proc(app: ^App, now: bool) {
 	if app.saving.kind == .None do return
 	if !now && app.kit.ctx.time - app.saving_at < f64(app.kit.ctx.theme.toast_time) + 0.05 do return
 	req := app.saving
 	app.saving = {}
 	defer file_request_free(req)
+	if req.kind == .Export {
+		if obj := selected_object(app); obj != nil {
+			_ = object_export(app, obj, req.path)
+		} else {
+			file_note(app, true, "Select an object to export first")
+		}
+		return
+	}
 	autosave_settle(app)
 	scene_save_request(app, req)
 }
