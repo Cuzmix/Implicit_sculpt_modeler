@@ -100,6 +100,12 @@ object_in_reach :: proc(app: ^App, obj: ^Object) -> bool {
 // selected. Run after every frame's scene command, which covers undo, files and
 // adjusting the last operation too.
 scene_selection_fix :: proc(app: ^App) {
+	selection_primary_fix(app)
+	selection_prune(app)
+}
+
+@(private = "file")
+selection_primary_fix :: proc(app: ^App) {
 	s := &app.scene
 	obj := selected_object(app)
 	if obj == nil {
@@ -122,7 +128,117 @@ scene_selection_fix :: proc(app: ^App) {
 // Clears the selection, as a tap on empty space with the Move tool does; with Solo on the
 // selected object is the one shown, so it stays rather than end Solo unasked.
 scene_deselect :: proc(app: ^App) {
-	if !app.scene.solo do app.scene.selected = -1
+	if app.scene.solo do return
+	app.scene.selected = -1
+	clear(&app.scene.also)
+}
+
+// Several objects selected, as Blender's and Maya's outliners have them: `selected` stays
+// the primary, which carries the gizmo and which every panel and tool works on, and
+// `also` holds the others. The gizmo, the Transform values, Reset transform, Duplicate and
+// Delete act on all of them; nothing else does. Anything that picks a new primary another
+// way (adding an object, a plain tap, an undo) leaves it alone selected: `also` counts
+// only while the primary is still the object `also_for` names.
+
+// How far the rest of a selection is drawn from the idle colour toward the selected one:
+// plainly chosen, and still apart from the one with the gizmo.
+SELECTION_TINT :: 0.6
+
+// Whether `obj` is selected, as the primary or one of the others.
+object_in_selection :: proc(app: ^App, obj: ^Object) -> bool {
+	sel := selected_object(app)
+	if obj == nil || sel == nil do return false
+	return obj == sel || (sel.id == app.scene.also_for && slice.contains(app.scene.also[:], obj.id))
+}
+
+// The selected objects' ids, the primary's first, in temp memory.
+selection_ids :: proc(app: ^App) -> []int {
+	sel := selected_object(app)
+	if sel == nil do return nil
+	ids := make([dynamic]int, 0, 1 + len(app.scene.also), context.temp_allocator)
+	append(&ids, sel.id)
+	if sel.id == app.scene.also_for do append(&ids, ..app.scene.also[:])
+	return ids[:]
+}
+
+// Selects the objects `ids` names, the first as the primary.
+selection_set :: proc(app: ^App, ids: []int) {
+	s := &app.scene
+	clear(&s.also)
+	if len(ids) == 0 {
+		s.selected = -1
+		return
+	}
+	select_object(app, object_by_id(app, ids[0]))
+	append(&s.also, ..ids[1:])
+	s.also_for = ids[0]
+}
+
+// Selects the list's `i`th object alone.
+select_only :: proc(app: ^App, i: int) {
+	app.scene.selected = i
+	clear(&app.scene.also)
+}
+
+// Adds the list's `i`th object to the selection as its primary (the one the gizmo is on,
+// as the last one clicked is active in Blender), or takes it out when it was in, the
+// primary before it taking over.
+selection_toggle :: proc(app: ^App, i: int) {
+	s := &app.scene
+	ids := selection_ids(app)
+	obj := s.objects[i]
+	if len(ids) == 0 {
+		select_only(app, i)
+		return
+	}
+	if at, found := slice.linear_search(ids, obj.id); found {
+		if len(ids) == 1 do return
+		rest := make([dynamic]int, 0, len(ids), context.temp_allocator)
+		append(&rest, ..ids[:at])
+		append(&rest, ..ids[at + 1:])
+		// The others are listed newest first, so the primary before it takes the gizmo back.
+		selection_set(app, rest[:])
+		return
+	}
+	more := make([dynamic]int, 0, len(ids) + 1, context.temp_allocator)
+	append(&more, obj.id)
+	append(&more, ..ids)
+	selection_set(app, more[:])
+}
+
+// Makes the list's `i`th object the primary: one of the selection keeps the others with
+// it (a press on it drags them all), any other is selected alone.
+selection_make_primary :: proc(app: ^App, i: int) {
+	obj := app.scene.objects[i]
+	ids := selection_ids(app)
+	at, found := slice.linear_search(ids, obj.id)
+	if !found {
+		select_only(app, i)
+		return
+	}
+	ids[0], ids[at] = ids[at], ids[0]
+	selection_set(app, ids)
+}
+
+// Drops from the others what is no longer selectable: gone, out of view or reach, the
+// primary itself, or everything once the primary changed or Solo shows only it.
+@(private = "file")
+selection_prune :: proc(app: ^App) {
+	s := &app.scene
+	sel := selected_object(app)
+	if sel == nil || sel.id != s.also_for || s.solo {
+		clear(&s.also)
+		s.also_for = sel.id if sel != nil else 0
+		return
+	}
+	kept := 0
+	for id in s.also {
+		obj := object_by_id(app, id)
+		if obj == nil || obj == sel || !object_in_reach(app, obj) || slice.contains(s.also[:kept], id) do continue
+		s.also[kept] = id
+		kept += 1
+	}
+	resize(&s.also, kept)
 }
 
 // Applies a View command to object `id` (or the whole scene).
@@ -426,7 +542,9 @@ scene_arrange :: proc(app: ^App, cmd: Scene_Command) {
 	case .Ungroup, .Delete_Folder:
 		if folder == nil do break
 		id := folder.id
-		members := make([dynamic]int, 0, 8, context.temp_allocator)
+		// Not in temp memory, which taking each object's snapshot may free.
+		members := make([dynamic]int, 0, 8)
+		defer delete(members)
 		for o in s.objects do if o.folder == id do append(&members, o.id)
 		for o in s.objects do if o.folder == id do o.folder = 0
 		for f, i in s.folders do if f.id == id {

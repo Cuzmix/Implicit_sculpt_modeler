@@ -417,13 +417,14 @@ MASK_COMMAND_NAMES := [sculpt.Mask_Command]string {
 }
 
 // Lists placing `obj` anew (moved, turned or scaled from `before` to where it is now) as
-// the newest undo step; nothing when it ended where it began.
-history_record_transform :: proc(app: ^App, obj: ^Object, before: Transform, what: string) {
+// the newest undo step, or with `chain` as part of the newest (the rest of a selection
+// moved together); nothing when it ended where it began.
+history_record_transform :: proc(app: ^App, obj: ^Object, before: Transform, what: string, chain := false) {
 	if obj.transform == before do return
 	history_drop_redo(app)
 	app.history.serial += 1
 	app.history.edits += 1
-	append(&app.history.done, History_Entry{id = obj.id, kind = .Transform, what = what, at = time.tick_now(), before = before, after = obj.transform})
+	append(&app.history.done, History_Entry{id = obj.id, kind = .Transform, what = what, at = time.tick_now(), before = before, after = obj.transform, chain = chain && len(app.history.done) > 0})
 }
 
 // Lists `e`, a change that is no stroke and no swap, as the newest undo step.

@@ -953,12 +953,16 @@ run :: proc(opts: Options) -> bool {
 				if !object_shown(&app, obj) do continue
 				// The live boolean's preview stands in for it (drawn below).
 				if boolean_hides(&app, obj, i) do continue
-				// The selected object is in the material's colour; the others are muted, and
-				// ghosts more so. Only the selected one is sculpted or moved, so the rest can
-				// come from the cache.
+				// The selected object is in the material's colour, the rest of the selection
+				// most of the way to it, the others muted, and ghosts more so. Only the
+				// selection is sculpted or moved, so the rest can come from the cache.
 				selected := i == app.scene.selected
+				chosen := object_in_selection(&app, obj)
+				// The rest of the selection is live only while it moves with the primary.
+				moving := app.move.drag.handle != .None || app.ui.transform_drag.active
 				material := current_material(&app)
 				color := material.selected if selected else material.idle
+				if chosen && !selected do color = linalg.lerp(material.idle, material.selected, SELECTION_TINT)
 				if _, ghost := object_flags(&app, obj); ghost do color.rgb *= GHOST_SHADE
 				append(&draws, render.Draw_Item {
 					mesh   = gpu,
@@ -970,7 +974,7 @@ run :: proc(opts: Options) -> bool {
 					wireframe = selected && app.wireframe,
 					paint  = sculpt.sculptor_has_color(&lv.sculptor),
 					groups = app.show_groups && sculpt.sculptor_has_groups(&lv.sculptor),
-					live   = selected,
+					live   = selected || (chosen && moving),
 					chunks = lv.sculptor.chunks,
 					chunk_groups = sculpt.sculptor_chunk_groups(&lv.sculptor),
 					damage = lv.sculptor.changed_bounds,
@@ -1156,16 +1160,18 @@ run :: proc(opts: Options) -> bool {
 		off, ghosts := scene_view_counts(&app)
 		shown := 0
 		for obj in app.scene.objects do shown += int(object_shown(&app, obj))
-		fmt.printfln("objects_shown=%d objects_off=%d objects_ghost=%d solo=%d", shown, off, ghosts, int(app.scene.solo))
-		order, folders, names := strings.builder_make(context.temp_allocator), strings.builder_make(context.temp_allocator), strings.builder_make(context.temp_allocator)
+		fmt.printfln("objects_shown=%d objects_off=%d objects_ghost=%d solo=%d selected_count=%d", shown, off, ghosts, int(app.scene.solo), len(selection_ids(&app)))
+		order, folders, names, places := strings.builder_make(context.temp_allocator), strings.builder_make(context.temp_allocator), strings.builder_make(context.temp_allocator), strings.builder_make(context.temp_allocator)
 		for obj, i in app.scene.objects {
+			p := obj.transform.position
+			fmt.sbprintf(&places, "%s%.3f:%.3f:%.3f", "," if i > 0 else "", p.x, p.y, p.z)
 			fmt.sbprintf(&order, "%s%d", "," if i > 0 else "", obj.id)
 			fmt.sbprintf(&folders, "%s%d", "," if i > 0 else "", obj.folder)
 			fmt.sbprintf(&names, "%s%s", "," if i > 0 else "", object_label(obj))
 		}
 		for &f, i in app.scene.folders do fmt.sbprintf(&names, "%s%s:%s", ";" if i == 0 else ",", folder_label(&f), "open" if f.open else "folded")
 		spaced, _ := strings.replace_all(strings.to_string(names), " ", "_", context.temp_allocator)
-		fmt.printfln("folders=%d tree_rows=%d scene_order=%s scene_folders=%s scene_names=%s", len(app.scene.folders), app.kit.tree_rows, strings.to_string(order), strings.to_string(folders), spaced)
+		fmt.printfln("folders=%d tree_rows=%d scene_order=%s scene_folders=%s scene_names=%s scene_positions=%s", len(app.scene.folders), app.kit.tree_rows, strings.to_string(order), strings.to_string(folders), spaced, strings.to_string(places))
 	}
 	{
 		c := app.camera

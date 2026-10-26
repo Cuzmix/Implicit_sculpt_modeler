@@ -3,6 +3,7 @@ package main
 import "core:fmt"
 import "core:log"
 import "core:math/linalg"
+import "core:slice"
 import "core:strings"
 import "core:time"
 import sdl "vendor:sdl3"
@@ -96,6 +97,10 @@ Scene :: struct {
 	// each other in `objects` (scene_folders_normalize), so the list's order is the tree's.
 	folders:  [dynamic]Folder,
 	next_folder_id: int,
+	// The other selected objects' ids, while the selected one's id is still `also_for`
+	// (scene_tree.odin's multi-select).
+	also:     [dynamic]int,
+	also_for: int,
 }
 
 // Changes to the object list or the selected object's levels requested by the UI,
@@ -129,6 +134,9 @@ scene_destroy :: proc(app: ^App) {
 	delete(app.scene.objects)
 	folders_clear(&app.scene.folders)
 	delete(app.scene.folders)
+	delete(app.scene.also)
+	delete(app.move.members)
+	delete(app.move.edit_members)
 	app.scene = {}
 }
 
@@ -557,12 +565,36 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 			return ok
 		}
 	case .Delete:
-		scene_delete_selected(app)
-	case .Duplicate:
-		if obj := selected_object(app); obj != nil {
-			if !scene_duplicate(app, obj) do return false
-			history_record_added(app)
+		// Every selected object, as one undo step. The ids are copied out of temp memory,
+		// which taking a snapshot may free.
+		ids := slice.clone(selection_ids(app))
+		defer delete(ids)
+		for id, k in ids {
+			select_object(app, object_by_id(app, id))
+			scene_delete_selected(app, chain = k > 0)
 		}
+	case .Duplicate:
+		// Every selected object, as one undo step; the copies keep their spacing, moved as
+		// the primary's copy is, and become the selection.
+		ids := slice.clone(selection_ids(app))
+		defer delete(ids)
+		copies := make([dynamic]int, 0, len(ids))
+		defer delete(copies)
+		primary_from, primary_to: Transform
+		for id in ids {
+			obj := object_by_id(app, id)
+			if obj == nil do continue
+			from := obj.transform
+			count := len(app.scene.objects)
+			if !scene_duplicate(app, obj) do return false
+			if len(app.scene.objects) == count do continue
+			twin := selected_object(app)
+			if len(copies) == 0 do primary_from, primary_to = from, twin.transform
+			else do twin.transform = transform_follow(primary_from, primary_to, from)
+			history_record_swap(app, twin.id, history_snapshot(app, nil, "add object"), chain = len(copies) > 0)
+			append(&copies, twin.id)
+		}
+		selection_set(app, copies[:])
 	case .Decimate:
 		if obj := selected_object(app); obj != nil {
 			before := history_snapshot(app, obj, "decimate")

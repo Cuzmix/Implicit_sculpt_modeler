@@ -1756,7 +1756,7 @@ def undo_keeps_an_object_hidden():
 # and its menu's rows where a right-click at FOLDER_MENU_AT puts them.
 FOLDER_CHEVRON = (1314, 232)
 FOLDER_MENU_AT = (1420, 232)
-FOLDER_MENU = {"rename": (1430, 260), "ungroup": (1430, 304), "delete": (1430, 349)}
+FOLDER_MENU = {"rename": (1430, 260), "select": (1430, 304), "ungroup": (1430, 349), "delete": (1430, 393)}
 
 
 def folder_first(s):
@@ -1928,6 +1928,114 @@ def finger_holds_a_ghost_then_slides_down_the_column():
     s.add("fup:0")
     s.wait(6)
     return s, THREE, {"objects_ghost": near(2), "objects_off": near(0), "selected": near(2), "inspector_scroll": near(0)}
+
+
+SELECT_SEVERAL = (1553, 394)  # the Scene tab's switch, with three spheres and one selected
+
+
+@scenario
+def shift_click_rows_then_drag_moves_both():
+    """Shift + click on the third row adds it to the selection; dragging the first sphere's body with the Move tool moves both by the same amount, the second staying put, and one Ctrl+Z puts both back."""
+    def build(undo):
+        s = Script()
+        scene_tab(s)
+        s.add("key:shift")
+        click(s, (SCENE_ROW_X, SCENE_ROWS_Y[2]))
+        s.add("keyup:shift")
+        s.wait(2)
+        click(s, UI["tool_move"])
+        s.mouse_drag(line(SPHERES3[0], (SPHERES3[0][0] + 80, SPHERES3[0][1]), 8))
+        if undo:
+            s.press("z", ["ctrl"])
+        return s
+
+    def moved_together(v):
+        p = [tuple(float(c) for c in o.split(":")) for o in v.split(",")]
+        d0 = [a - b for a, b in zip(p[0], (0, 0, 0))]
+        d2 = [a - b for a, b in zip(p[2], (4.5, 0, 0))]
+        return abs(d0[0]) > 0.2 and all(abs(a - b) < 1e-3 for a, b in zip(d0, d2)) and p[1] == (2.25, 0, 0)
+
+    return Steps([
+        (build(False), THREE, {"selected_count": near(2), "scene_positions": moved_together, "transform_undo": near(2)}),
+        (build(True), THREE, {"scene_positions": is_text("0.000:0.000:0.000,2.250:0.000:0.000,4.500:0.000:0.000"), "undo_steps": near(0), "redo_steps": near(2)}),
+    ])
+
+
+@scenario
+def shift_click_objects_in_the_viewport():
+    """With the Move tool, Shift + click on the third sphere adds it to the selection without moving anything; then, with Select several on, a finger tap on empty space misses and keeps both selected."""
+    s = Script()
+    click(s, UI["tool_move"])
+    s.add("key:shift")
+    click(s, SPHERES3[2])
+    s.add("keyup:shift")
+    s.wait(2)
+    scene_tab(s)
+    s.ftap(*SELECT_SEVERAL)
+    s.wait(4)
+    s.ftap(300, 700)
+    s.wait(6)
+    return s, THREE, {"selected_count": near(2), "selected": near(2), "undo_steps": near(0), "scene_positions": is_text("0.000:0.000:0.000,2.250:0.000:0.000,4.500:0.000:0.000")}
+
+
+@scenario
+def select_several_with_a_finger_then_delete_takes_both():
+    """With Select several on, a finger tap on a row adds it rather than replacing the selection; Delete then takes both objects as one undo step."""
+    s = Script()
+    scene_tab(s)
+    s.ftap(*SELECT_SEVERAL)
+    s.wait(4)
+    s.ftap(SCENE_ROW_X, SCENE_ROWS_Y[1])
+    s.wait(4)
+    s.press("Delete")
+    s.wait(4)
+    return s, THREE, {"objects": near(1), "scene_order": is_text("3"), "undo_steps": near(2)}
+
+
+@scenario
+def duplicate_copies_the_whole_selection():
+    """Ctrl+Shift+D with two objects selected copies both, keeping their spacing, and the copies become the selection; one Ctrl+Z takes both copies away."""
+    def build(undo):
+        s = Script()
+        scene_tab(s)
+        s.add("key:shift")
+        click(s, (SCENE_ROW_X, SCENE_ROWS_Y[2]))
+        s.add("keyup:shift")
+        s.wait(2)
+        s.press("d", ["ctrl", "shift"])
+        s.wait(4)
+        if undo:
+            s.press("z", ["ctrl"])
+            s.wait(4)
+        return s
+
+    def spaced(v):
+        p = [tuple(float(c) for c in o.split(":")) for o in v.split(",")]
+        # The copies follow their sources in the list: 1, copy of 1, 2, 3, copy of 3.
+        return len(p) == 5 and all(abs((p[4][i] - p[1][i]) - (p[3][i] - p[0][i])) < 1e-3 for i in range(3))
+
+    return Steps([
+        (build(False), THREE, {"objects": near(5), "selected_count": near(2), "scene_positions": spaced, "undo_steps": near(2)}),
+        (build(True), THREE, {"objects": near(3), "redo_steps": near(2)}),
+    ])
+
+
+@scenario
+def folder_menu_selects_its_objects():
+    """A folder's menu selects every object in it, the first carrying the gizmo: Sphere 2 dragged into Sphere 1's folder, then Select its objects."""
+    s = Script()
+    folder_first(s)
+    s.mouse_drag(line((SCENE_GRIP_X, SCENE_ROWS_Y[2]), (SCENE_GRIP_X, SCENE_ROWS_Y[0]), 8))
+    s.wait(4)
+    s.add(f"move:{FOLDER_MENU_AT[0]},{FOLDER_MENU_AT[1]}")
+    s.wait(1)
+    s.add("rdown")
+    s.wait(1)
+    s.add("rup")
+    s.wait(6)
+    click(s, FOLDER_MENU["select"])
+    s.wait(4)
+    return s, THREE, {"scene_folders": is_text("1,1,0"), "selected_count": near(2), "selected": near(0)}
 
 
 @scenario

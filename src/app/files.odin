@@ -636,6 +636,7 @@ scene_replace :: proc(app: ^App, objects: []^Object, selected, next_id: int, vie
 	app.scene.next_folder_id = 0
 	// A drag over the old tree, and the column changes it queued, name the old objects.
 	app.kit.tree_drag, app.kit.tree_column = {}, {}
+	clear(&app.scene.also)
 	// Ids only grow, so nothing kept by id (the pivot, a pending tap) finds a new object.
 	app.scene.next_id = max(next_id, app.scene.next_id)
 	ortho := app.camera.ortho

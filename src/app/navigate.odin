@@ -424,8 +424,10 @@ pointer_route :: proc(app: ^App, input: ^Viewport_Input) {
 	// A press still pending here waits on a tap's dab and begins next frame, lifted or not.
 	if buttons == {} && !g.pending {
 		// A tap on empty space with the Move tool clears the selection, as its click did
-		// before empty space turned the view.
-		if g.owner == .Orbit && g.empty && app.tool == .Move && g.travel <= slop do scene_deselect(app)
+		// before empty space turned the view; while Select several is on, or Shift held,
+		// one that misses keeps the selection being built.
+		several := app.kit.select_several || app.device.shift
+		if g.owner == .Orbit && g.empty && app.tool == .Move && g.travel <= slop && !several do scene_deselect(app)
 		if g.owner == .Shape do shape_release(app, false)
 		if g.owner == .Orbit && d.pointer == .Finger && !g.edge && app.nav.double_tap {
 			now := input_clock(app)
