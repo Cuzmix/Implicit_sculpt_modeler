@@ -228,6 +228,8 @@ Sculptor :: struct {
 	layers:       Sculpt_Layers,
 	// A pose under way (pose.odin).
 	pose:         Pose_State,
+	// Where the vertices were when a lattice was made (lattice.odin).
+	lattice:      Lattice_Rest,
 	// The topological mask under way (topo_mask.odin).
 	topo:         Topo_State,
 	// Lock plane's plane for the stroke under way, and Connected's flood (filters.odin).
@@ -288,6 +290,7 @@ sculptor_destroy :: proc(s: ^Sculptor) {
 	grab_destroy(&s.grab)
 	cloth_destroy(&s.cloth)
 	pose_free(s)
+	sculptor_lattice_clear(s)
 	topo_free(s)
 	connected_free(s)
 	history_destroy(&s.history)

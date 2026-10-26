@@ -157,7 +157,7 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
   order; swap undo and Duplicate carry them through the bytes. Store/rename/delete are not undo steps (`scene_edits`).
   Posing (`src/sculpt/pose.odin`): `sculptor_pose_begin` begins a stroke saving every node with a free vertex (shield > 0)
   and reads the starts back from `h.current.saved[pose.first + i]`, so it keeps no copy; `sculptor_pose_apply(Pose)` sets
-  positions from the starts (Turn weights the angle, Move and Scale blend linearly; `.Deform` runs a bend/twist/taper `Deform_Plan`, deform.odin, over `sculptor_free_bounds`) then `sculptor_nodes_moved`;
+  positions from the starts (Turn weights the angle, Move and Scale blend linearly; `.Deform` runs a bend/twist/taper `Deform_Plan`, deform.odin, over `sculptor_free_bounds`; `.Lattice` adds a point's Bernstein weight times its move at the place `sculptor_lattice_rest` noted, lattice.odin, cleared on every level when the app's cage goes) then `sculptor_nodes_moved`;
   `sculptor_pose_end` is a stroke end, `sculptor_pose_cancel` uses `sculptor_stroke_discard` (puts saved values back, no
   step; refuses whole-node, hidden, group or layer-delta saves). Refused under dyntopo. `sculptor_mask_centroid` and
   `sculptor_mask_look` (free + checksum) serve the app's pose mode (`src/app/pose.odin`: handles pose, the body moves the

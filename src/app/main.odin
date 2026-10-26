@@ -1351,6 +1351,10 @@ run :: proc(opts: Options) -> bool {
 	for obj in app.scene.objects do layers += sculpt.levels_layer_count(&obj.levels)
 	fmt.printfln("layers=%d layers_noted=%d layers_carry_ms=%.1f", layers, app.layers_noted, app.stats.layers_carry_ms)
 	fmt.printfln("deforms=%d deform_ms=%.1f deform_kind=%v", app.ui.deform.count, app.ui.deform.ms, app.ui.deform.last)
+	{
+		l := app.ui.deform.lattice
+		fmt.printfln("lattice_on=%d lattice_made=%d lattice_points=%d lattice_drags=%d lattice_ms=%.1f lattice_last=%.0f,%.0f", int(l.on), int(l.made), l.n, l.drags, l.ms, l.last_at.x, l.last_at.y)
+	}
 	for obj in app.scene.objects {
 		if hidden := sculpt.sculptor_hidden_count(object_sculptor(obj)); hidden > 0 {
 			fmt.printfln("hide object=%d hidden_triangles=%d triangles=%d", obj.id, hidden, object_triangle_count(obj))

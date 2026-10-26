@@ -3932,6 +3932,50 @@ DEFORM_AMOUNT = (1432, 691)  # the Deformers section's Amount slider, opened by 
 
 
 @scenario
+def lattice_point_dragged():
+    """The palette's Lattice and W put a cage round the sphere in place of the gizmo, and a
+    drag of the middle point of its right side by the mouse, a finger or the pen pulls the
+    surface as one undo step and leaves the point under the pointer; the camera stays
+    still, though the point is off the model."""
+    def run(drag):
+        s = Script()
+        s.wait(3)
+        palette_run(s, "lattice")
+        s.wait(3)
+        s.press("w")
+        s.wait(5)
+        drag(s)
+        s.wait(5)
+        return s
+    to = (LATTICE_SIDE[0], LATTICE_SIDE[1] - 120)
+    def mouse(s):
+        s.mouse_drag(line(LATTICE_SIDE, to, 10))
+    def finger(s):
+        s.fdrag(line(LATTICE_SIDE, to, 10))
+    def pen(s):
+        x, y = LATTICE_SIDE
+        s.add("pnear")
+        s.add(f"pdown:{x},{y}")
+        for k in range(1, 11):
+            s.wait(1)
+            s.add(f"pmove:{x},{y - 12 * k}")
+        s.wait(1)
+        s.add("pup")
+        s.add("pfar")
+        s.wait(3)
+    # The point stays under the pointer: the slop a finger and the pen cross first counts.
+    def under(got):
+        x, y = (float(v) for v in got.split(","))
+        return abs(x - to[0]) <= 3 and abs(y - to[1]) <= 3
+    want = {"lattice_on": near(1, 0), "lattice_drags": near(1, 0), "lattice_last": under,
+            "undo_steps": near(1, 0), "pose_drags": near(1, 0), "dabs": near(0)}
+    return Steps([(run(drag), [], camera_still(want)) for drag in (mouse, finger, pen)])
+
+
+LATTICE_SIDE = (1185, 540)  # the cage's +x side middle point round the starting sphere
+
+
+@scenario
 def history_point_from_the_timeline():
     """Three strokes and the History panel: a right-click on the second step of its bar
     makes the History brush paint back to before it (two steps back, chosen), and then a

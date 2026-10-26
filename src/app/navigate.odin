@@ -456,6 +456,8 @@ drag_decide :: proc(app: ^App, input: Viewport_Input) -> (owner: Drag_Owner, emp
 	// A handle of the Move tool's gizmo, before the model, the safe zone or empty space
 	// under it, so every pointer grabs a handle off the model's silhouette.
 	if app.tool == .Move && gizmo_pick(app, d.mouse, input.size) != .None do return .Tool, false
+	// So does a point of the lattice's cage, which stands in for the gizmo.
+	if app.tool == .Move && lattice_pick(app, d.mouse, input.size) > 0 do return .Tool, false
 	if d.pointer == .Finger && app.nav.finger_model == .Orbit do return .Orbit, false
 	// The rail's Mask or Hide, for the brushes, keeps empty space for their shapes as Ctrl
 	// does; only held there by a finger does it take the safe zone too, so a view filled

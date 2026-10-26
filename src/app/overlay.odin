@@ -207,6 +207,12 @@ overlay_viewport :: proc(app: ^App, o: Overlay, input: Viewport_Input) {
 // the highlight colour, and while a drag goes, what it has done by the pointer.
 @(private = "file")
 draw_gizmo :: proc(app: ^App, o: Overlay, input: Viewport_Input) {
+	// A lattice's cage stands in for the gizmo (lattice.odin).
+	if obj := lattice_shown(app); obj != nil {
+		draw_lattice(app, o, input, obj)
+		draw_move_labels(app, o, input)
+		return
+	}
 	sc := gizmo_screen(app, input.size)
 	if !sc.ok do return
 	app.move.drawn = sc.center
@@ -273,8 +279,15 @@ draw_gizmo :: proc(app: ^App, o: Overlay, input: Viewport_Input) {
 			overlay_circle(o, sc.center, linalg.length(input.mouse_pos - d.center), overlay_color({1, 0.85, 0.3, 0.6}), 1.5 * px)
 		}
 	}
-	// A topological mask's reach, as a circle about the press.
-	if g := m.topo; g.phase == .Live {
+	draw_move_labels(app, o, input)
+}
+
+// What the Move tool shows by the pointer whatever stands in the middle: a topological
+// mask's reach, as a circle about the press, and what the drag in progress has done.
+@(private = "file")
+draw_move_labels :: proc(app: ^App, o: Overlay, input: Viewport_Input) {
+	px := gizmo_scale(app)
+	if g := app.move.topo; g.phase == .Live {
 		overlay_circle(o, g.down, linalg.length(input.mouse_pos - g.down), overlay_color({1, 0.85, 0.3, 0.6}), 1.5 * px)
 	}
 	if text := move_readout(app); text != "" {

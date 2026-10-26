@@ -99,6 +99,9 @@ Move_Drag :: struct {
 	applied:      bool,
 	pivot_from:   Gizmo_Pivot,
 	placed_from:  Vec3,
+	// A drag of a lattice point (lattice.odin), from 1: it poses as a move of the view
+	// plane handle does, through the point.
+	lattice:      int,
 }
 
 // What the drag does, for the undo button and the History panel.
@@ -151,7 +154,8 @@ gizmo_screen :: proc(app: ^App, size: [2]f32) -> (s: gizmo.Screen) {
 
 // The handle under `at`, for the pointer in use.
 gizmo_pick :: proc(app: ^App, at, size: [2]f32) -> gizmo.Handle {
-	if selected_object(app) == nil do return .None
+	// A lattice's cage stands in for the gizmo.
+	if selected_object(app) == nil || lattice_shown(app) != nil do return .None
 	return gizmo.pick(gizmo_screen(app, size), app.move.mode, at, gizmo_radius(app))
 }
 
@@ -169,7 +173,11 @@ move_tool_frame :: proc(app: ^App, input: Viewport_Input) {
 		}
 		move_end(app)
 		m.hover = .None
-		if input.hovered do m.hover = gizmo_pick(app, input.mouse_pos, input.size)
+		app.ui.deform.lattice.hover = 0
+		if input.hovered {
+			m.hover = gizmo_pick(app, input.mouse_pos, input.size)
+			app.ui.deform.lattice.hover = lattice_pick(app, input.mouse_pos, input.size)
+		}
 		pose_pivot_place(app)
 		return
 	}
@@ -187,6 +195,13 @@ move_tool_frame :: proc(app: ^App, input: Viewport_Input) {
 				m.pivot = {set = true, id = obj.id, at = to_local(obj.transform, hit)}
 				m.pivot_latch = false
 			}
+			return
+		}
+		// A press on a lattice point drags it, through the point, across the view.
+		if point := lattice_pick(app, input.mouse_pos, input.size); point > 0 {
+			obj := selected_object(app)
+			at := to_world(obj.transform, lattice_point(&app.ui.deform.lattice, point - 1))
+			m.drag = {handle = .View, on_handle = true, down = input.mouse_pos, id = obj.id, start = obj.transform, grab = at, posed = true, lattice = point, pivot_from = m.pivot, placed_from = m.placed.at}
 			return
 		}
 		handle := gizmo_pick(app, input.mouse_pos, input.size)
@@ -235,7 +250,7 @@ move_tool_frame :: proc(app: ^App, input: Viewport_Input) {
 	}
 	if !drag.live {
 		if !app.drag.moving do return
-		if !move_go_live(app, obj, input) || (drag.posed && !pose_begin(app, obj)) do drag^ = {}
+		if !move_go_live(app, obj, input) || (drag.posed && !(lattice_begin(app, obj) if drag.lattice > 0 else pose_begin(app, obj))) do drag^ = {}
 		return
 	}
 	drag.snapped = m.snap || app.device.ctrl
@@ -280,6 +295,10 @@ move_tool_frame :: proc(app: ^App, input: Viewport_Input) {
 		drag.amount = t.scale / drag.start.scale
 	}
 	if drag.posed {
+		if drag.lattice > 0 {
+			lattice_pose_set(app, obj, lattice_pose_of(app, drag.lattice, drag.start, drag.offset))
+			return
+		}
 		pose_set(app, obj, pose_of(drag.handle, drag.start, t, drag.pivot, drag.axis, drag.amount))
 		return
 	}
@@ -397,6 +416,9 @@ move_go_live :: proc(app: ^App, obj: ^Object, input: Viewport_Input) -> bool {
 			drag.plane_normal = gizmo.AXES[int(drag.handle) - int(gizmo.Handle.YZ)]
 			drag.grab = drag.pivot
 		}
+		// A lattice point follows the pointer from where it was pressed, the travel past
+		// the slop included, so it stays under the pointer through the drag.
+		if drag.lattice > 0 do origin, dir = mouse_ray(app.camera, drag.down, input.size)
 		drag.grab = gizmo.ray_plane(origin, dir, drag.grab, drag.plane_normal) or_return
 	case .Turn_X, .Turn_Y, .Turn_Z, .Turn_View:
 		i := int(drag.handle) - int(gizmo.Handle.Turn_X)
@@ -420,8 +442,9 @@ move_end :: proc(app: ^App) {
 	obj := object_by_id(app, drag.id)
 	if drag.posed {
 		// A click, or a drag that came back to where it began, leaves no step.
-		if obj != nil && drag_changed(obj, drag) do _ = pose_end(app, obj, drag.handle)
-		else if obj != nil do sculpt.sculptor_pose_cancel(object_sculptor(obj))
+		if obj != nil && drag_changed(obj, drag) {
+			if pose_end(app, obj, drag.handle, "Lattice" if drag.lattice > 0 else "") && drag.lattice > 0 do lattice_moved(app, drag.lattice, drag.pose)
+		} else if obj != nil do sculpt.sculptor_pose_cancel(object_sculptor(obj))
 		return
 	}
 	if drag.handle == .None || obj == nil || obj.transform == drag.start {
@@ -489,7 +512,7 @@ move_readout :: proc(app: ^App) -> string {
 		text = fmt.tprintf("Scale ×%.2f", drag.amount)
 		snap = fmt.tprintf("snap %g", gizmo.SCALE_SNAP)
 	}
-	if drag.posed do text = fmt.tprintf("Pose: %s", text)
+	if drag.posed do text = fmt.tprintf("%s: %s", "Lattice" if drag.lattice > 0 else "Pose", text)
 	if drag.snapped do return fmt.tprintf("%s (%s)", text, snap)
 	return text
 }

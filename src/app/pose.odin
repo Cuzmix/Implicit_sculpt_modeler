@@ -123,6 +123,7 @@ pose_is_still :: proc(p: sculpt.Pose) -> bool {
 	case .Turn:  return p.angle == 0 || p.axis == {}
 	case .Scale: return p.factor == 1
 	case .Deform: return p.deform.amount == 0
+	case .Lattice: return p.lattice.offset == {}
 	}
 	return true
 }
@@ -149,11 +150,12 @@ pose_carry_pivot :: proc(app: ^App, obj: ^Object, p: sculpt.Pose) {
 	if ours do m.placed.at = m.pivot.at
 }
 
-// Ends the pose under way as one undo step when it changed something.
-pose_end :: proc(app: ^App, obj: ^Object, h: gizmo.Handle) -> bool {
+// Ends the pose under way as one undo step when it changed something, named `what`, or
+// for the handle's mode.
+pose_end :: proc(app: ^App, obj: ^Object, h: gizmo.Handle, what := "") -> bool {
 	s := object_sculptor(obj)
 	if !sculpt.sculptor_pose_end(s) do return false
-	history_record(app, obj, .Deform, POSE_WHAT[drag_mode(h)])
+	history_record(app, obj, .Deform, what if what != "" else POSE_WHAT[drag_mode(h)])
 	app.move.pose_drags += 1
 	app.move.pose_moved = sculpt.sculptor_pose_moved(s)
 	app.move.last = h
