@@ -1,18 +1,22 @@
 package main
 
 import "core:fmt"
+import "core:math"
 import "core:os"
 import "core:reflect"
 import "core:strconv"
 import "core:strings"
 import "core:time"
 
+import "../camera"
+import "../geom"
 import "../sculpt"
 
 // Command scripts (README "Command scripts"): plain text, one statement a line or `;`
 // between them, `#` to the end of a line a comment. A statement is a command of the
 // registry by name (`remesh`, `brush clay`, `wireframe on`), a setting (`set
-// orbit_style turntable`, `set rebuild_even 500000`), or `wait N` and `select N`.
+// orbit_style turntable`, `set rebuild_even 500000`), `wait N` and `select N`, or one of
+// the verbs for what has no command (SCRIPT_VERBS: `move 0.9 0 0`, `hide -x`).
 // Everything a statement does goes through what the interface calls, so a script drives
 // exactly the path a user does. A script is read and checked whole before any of it runs:
 // a script with an error in it runs none of it.
@@ -28,6 +32,43 @@ Script_Kind :: enum u8 {
 	Line, // a setting with more to it than one field (SETTING_LINES)
 	Wait,
 	Select,
+	Verb,
+}
+
+// What a script can do that no command does with no more than a choice: an object's
+// place, a plane through its middle, a shape at a spot on screen. Each is a short
+// procedure calling what the tool or panel it stands for calls (script_verb).
+Script_Verb :: enum u8 {
+	Move,
+	Rotate,
+	Boolean,
+	Slice,
+	Hide,
+	Mask_Rect,
+	Project,
+	Draw_Curve,
+	Insert_Middle,
+	Falloff,
+	Alpha,
+}
+
+// Each verb's name and what it takes, for errors and the README.
+@(rodata)
+SCRIPT_VERBS := [Script_Verb]struct {
+	name:  string,
+	takes: string,
+} {
+	.Move          = {"move", "three numbers: where the selected object's middle goes, x y z"},
+	.Rotate        = {"rotate", "three numbers: the selected object's turn in degrees about x, y and z"},
+	.Boolean       = {"boolean", "none, union, subtract or intersect"},
+	.Slice         = {"slice", "x, y or z: the axis the cut through the middle goes across"},
+	.Hide          = {"hide", "x, y or z to hide the + side of the middle, -x, -y or -z the - side"},
+	.Mask_Rect     = {"mask_rect", "four numbers from 0 to 1: the left, top, right and bottom of the view to mask"},
+	.Project       = {"project", "the number of the object to project from, counting from 1"},
+	.Draw_Curve    = {"draw_curve", "tube, stitches or zipper"},
+	.Insert_Middle = {"insert_middle", "sphere, cube, cylinder, cone or torus"},
+	.Falloff       = {"falloff", "smooth, linear, sharp, firm or flat"},
+	.Alpha         = {"alpha", "a built-in alpha's name or an image file"},
 }
 
 // A command that is on or off (one with `checked`) can be told which: it then runs only
@@ -48,7 +89,11 @@ Script_Statement :: struct {
 	value:   f64, // ...and its value, as setting_parse gives it
 	set:     Setting_Line, // .Line: the line row
 	line_value: Setting_Line_Value, // ...and its value
-	count:   int, // .Wait: frames; .Select: the object, from 1
+	count:   int, // .Wait: frames; .Select and .Verb's project: the object, from 1
+	verb:    Script_Verb,
+	numbers: [4]f32, // .Verb: move and rotate's x y z, mask_rect's edges
+	flip:    bool, // .Verb: hide's - side
+	text:    string, // .Verb: alpha's name or file; heap
 }
 
 Script_Error :: struct {
@@ -79,7 +124,6 @@ SCRIPT_VALUES := [?]Setting {
 	{"mirror_axis", U + offset_of(Ui_State, mirror_axis), i32, 0, 2},
 	{"mirror_negative", U + offset_of(Ui_State, mirror_negative), bool, 0, 0},
 	{"extract_thickness", U + offset_of(Ui_State, boolean) + offset_of(Boolean_State, thickness), f32, 0.002, 0.2},
-	{"live_boolean", U + offset_of(Ui_State, boolean) + offset_of(Boolean_State, live), bool, 0, 0},
 	{"hd_window", offset_of(App, hd_window_vertices), int, 10_000, 16_000_000},
 	{"studio_samples", offset_of(App, studio_samples), i32, 1, STUDIO_SAMPLES_MAX},
 	{"cloth_mode", offset_of(App, brush) + offset_of(Brush_Settings, cloth_mode), sculpt.Cloth_Mode, 0, 0},
@@ -126,6 +170,7 @@ script_parse :: proc(text, source: string) -> (s: Script) {
 
 script_destroy :: proc(s: ^Script) {
 	delete(s.source)
+	for st in s.statements do delete(st.text)
 	delete(s.statements)
 	for e in s.errors do delete(e.message)
 	delete(s.errors)
@@ -238,6 +283,14 @@ script_statement :: proc(s: ^Script, line: int, words: []string) {
 		}
 		st.kind, st.count = .Wait if name == "wait" else .Select, n
 	case:
+		if verb, is_verb := script_verb_named(name); is_verb {
+			st.kind, st.verb = .Verb, verb
+			if !script_verb_read(&st, args) {
+				script_error(s, line, "%s takes %s", name, SCRIPT_VERBS[verb].takes)
+				return
+			}
+			break
+		}
 		id := script_command(name)
 		if id == .None {
 			script_error(s, line, "no command is named %q", words[0])
@@ -303,6 +356,128 @@ script_choices :: proc(id: Command_Id) -> string {
 		strings.write_string(&b, script_name(command_arg_name(id, a)))
 	}
 	return strings.to_string(b)
+}
+
+// The verb a script names `name`.
+script_verb_named :: proc(name: string) -> (Script_Verb, bool) {
+	for v in Script_Verb do if SCRIPT_VERBS[v].name == name do return v, true
+	return {}, false
+}
+
+// Reads a verb's arguments into `st`; false when they are not what it takes.
+@(private = "file")
+script_verb_read :: proc(st: ^Script_Statement, args: []string) -> bool {
+	// The place of `word` among `names`, as scripts write them; -1 for none.
+	choice :: proc(word: string, names: []string) -> int {
+		for n, i in names do if script_name(n) == script_name(word) do return i
+		return -1
+	}
+	numbers :: proc(st: ^Script_Statement, args: []string, n: int, lo, hi: f32) -> bool {
+		if len(args) != n do return false
+		for a, i in args {
+			v, ok := strconv.parse_f32(a)
+			if !ok || !(v >= lo && v <= hi) do return false
+			st.numbers[i] = v
+		}
+		return true
+	}
+	AXES :: []string{"x", "y", "z"}
+	#partial switch st.verb {
+	case .Move:
+		return numbers(st, args, 3, -1e4, 1e4)
+	case .Rotate:
+		return numbers(st, args, 3, -1e6, 1e6)
+	case .Mask_Rect:
+		return numbers(st, args, 4, 0, 1) && st.numbers[0] != st.numbers[2] && st.numbers[1] != st.numbers[3]
+	case .Project:
+		if len(args) != 1 do return false
+		n, ok := strconv.parse_int(args[0])
+		st.count = n
+		return ok && n >= 1
+	case .Alpha:
+		if len(args) != 1 do return false
+		st.text = strings.clone(args[0])
+		return true
+	}
+	if len(args) != 1 do return false
+	word := args[0]
+	#partial switch st.verb {
+	case .Slice:
+		st.arg = choice(word, AXES)
+	case .Hide:
+		st.flip = strings.has_prefix(word, "-")
+		st.arg = choice(strings.trim_prefix(word, "-"), AXES)
+	case .Boolean:
+		st.arg = choice(word, reflect.enum_field_names(Boolean_Mode))
+	case .Draw_Curve:
+		st.arg = choice(word, reflect.enum_field_names(Curve_Kind))
+	case .Insert_Middle:
+		st.arg = choice(word, reflect.enum_field_names(geom.Primitive))
+	case .Falloff:
+		st.arg = -1
+		for preset, i in FALLOFF_PRESETS do if script_name(string(preset.label)) == script_name(word) do st.arg = i
+	}
+	return st.arg >= 0
+}
+
+// Does what a verb says, as the tool or panel it stands for would: what went wrong when
+// it did nothing, "" when it did; false only on a GPU failure.
+@(private = "file")
+script_verb :: proc(app: ^App, st: Script_Statement) -> (failure: string, ok: bool) {
+	obj := selected_object(app)
+	size := app.ui.viewport_size
+	before := script_scene_state(app)
+	switch st.verb {
+	case .Falloff:
+		preset := FALLOFF_PRESETS[st.arg]
+		for &f in app.brush.falloffs do f = {drawn = preset.drawn, curve = preset.curve}
+		return "", true
+	case .Alpha:
+		if !alpha_select(app, st.text) do return fmt.tprintf("no alpha is named %q and no image could be read there", st.text), true
+		return "", true
+	case .Project:
+		if st.count > len(app.scene.objects) do return fmt.tprintf("the scene has %d object%s", len(app.scene.objects), "" if len(app.scene.objects) == 1 else "s"), true
+		from := app.scene.objects[st.count - 1]
+		if from == obj do return "it is the selected object", true
+		project_detail(app, obj, from)
+	case .Draw_Curve:
+		// A gentle wave across the middle of the view, from 30% to 70% of its width.
+		app.curve.kind = Curve_Kind(st.arg)
+		for i in 0 ..= 40 do curve_add_point(app, {size.x * (0.3 + 0.01 * f32(i)), size.y * (0.5 + 0.08 * math.sin(f32(i) / 6))}, size)
+		if !curve_make(app) do return "", false
+	case .Insert_Middle:
+		app.insert.shape = geom.Primitive(st.arg)
+		origin, dir := mouse_ray(app.camera, 0.5 * size, size)
+		_, hit, n, on := scene_raycast_surface(app, origin, dir)
+		if !on do return "no surface is under the middle of the view", true
+		if !insert_make(app, hit, n, app.brush.radius_px * camera.orbit_world_per_px(app.camera, hit, size.y)) do return "", false
+	case .Move, .Rotate, .Boolean, .Slice, .Hide, .Mask_Rect:
+		if obj == nil do return "nothing is selected", true
+		switch st.verb {
+		case .Move, .Rotate:
+			// As the Transform values do: one change, one undo step.
+			from := obj.transform
+			if st.verb == .Move do obj.transform.position = st.numbers.xyz
+			else do for i in 0 ..< 3 do obj.transform.rotation[i] = math.mod(st.numbers[i] + 540, 360) - 180
+			if obj.transform == from do return "", true
+			transform_drag_changed(app, obj, from)
+			transform_drag_end(app, force = true)
+		case .Boolean:
+			// As the Booleans section's tabs do; the same mode again is no change to make.
+			obj.boolean = Boolean_Mode(st.arg)
+			return "", true
+		case .Slice:
+			if !scene_slice_axis(app, obj, st.arg) do return "", false
+		case .Hide:
+			hide_axis(app, obj, st.arg, !st.flip)
+		case .Mask_Rect:
+			corners := [2][2]f32{st.numbers.xy * size, st.numbers.zw * size}
+			mask_shape_command(app, shape_polygon(corners[:], true, size), size, false)
+		case .Falloff, .Alpha, .Project, .Draw_Curve, .Insert_Middle:
+		}
+	}
+	if script_scene_state(app) == before do return "it left the scene as it was (the log says why)", true
+	return "", true
 }
 
 // Sets what a .Set or .Line statement sets.
@@ -421,6 +596,13 @@ script_step :: proc(app: ^App, st: Script_Statement) -> (failure: string, ok: bo
 		n := len(app.scene.objects)
 		if st.count > n do return fmt.tprintf("the scene has %d object%s", n, "" if n == 1 else "s"), true
 		select_only(app, st.count - 1)
+	case .Verb:
+		start := time.tick_now()
+		failure, ok = script_verb(app, st)
+		if failure != "" || !ok do return
+		scene_folders_normalize(app)
+		scene_selection_fix(app)
+		if .Warning in app.result.flags && time.tick_diff(start, app.result.at) >= 0 do return app.result.text, true
 	case .Command:
 		c := COMMANDS[st.command]
 		if st.toggle != .Flip && c.checked != nil && c.checked(app, st.arg) == (st.toggle == .On) do return "", true
@@ -493,6 +675,7 @@ script_statement_name :: proc(st: Script_Statement) -> string {
 	case .Line:      return fmt.tprintf("set %s", st.set.key)
 	case .Wait:      return "wait"
 	case .Select:    return "select"
+	case .Verb:      return SCRIPT_VERBS[st.verb].name
 	}
 	return ""
 }

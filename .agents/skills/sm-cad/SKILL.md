@@ -46,7 +46,7 @@ description: CAD-style mesh tools inside this app on geom.Mesh — primitives, b
 - Slice exists: `geom.mesh_slice(m, point, normal, close, pool)` (`src/geom/slice.odin`) splits along any plane into
   front (the normal's side) and back, caps each border loop (ear clipping, holes bridged) and evens the cap (longest
   edge bisection, Delaunay flips, guarded smoothing). Wired as `Scene_Command .Slice` → `object_slice` (front becomes
-  a new object; both swaps undo as one through `History_Entry.chain`), the Slice gesture tool, `--slice=x|y|z`.
+  a new object; both swaps undo as one through `History_Entry.chain`), the Slice gesture tool, the script verb `slice x|y|z`.
 - Dynamic topology (sm-sculpt) splits and collapses edges under the brush; a tool reading a dynamic object's mesh takes
   `sculpt.sculptor_compact_mesh` first, as `object_remesh` does, since the paged layout has unused slots.
 - There are no booleans or trims, `Transform` is position, uniform scale and Euler rotation in degrees (`transform_rotation`,

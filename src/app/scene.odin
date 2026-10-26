@@ -407,7 +407,7 @@ object_slice :: proc(app: ^App, obj: ^Object, point, normal: Vec3) -> (part: ^Ob
 }
 
 // Slices `obj` across the middle of its bounds along `axis` (0 x, 1 y, 2 z), for
-// --slice. Returns false only on a GPU failure.
+// a script's `slice`. Returns false only on a GPU failure.
 scene_slice_axis :: proc(app: ^App, obj: ^Object, axis: int) -> bool {
 	bounds := geom.AABB_EMPTY
 	for p in object_mesh(obj).positions do geom.aabb_grow(&bounds, p)

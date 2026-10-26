@@ -336,7 +336,7 @@ hide_shape_command :: proc(app: ^App, shape: [][2]f32, size: [2]f32, inside: boo
 }
 
 // Hides the part of `obj` on one side of the middle of its bounds across `axis` (the +
-// side when `positive`), for --hide.
+// side when `positive`), for a script's `hide`.
 hide_axis :: proc(app: ^App, obj: ^Object, axis: int, positive: bool) {
 	if !hide_allowed(app, obj) do return
 	start := time.tick_now()

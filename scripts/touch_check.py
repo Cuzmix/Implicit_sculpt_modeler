@@ -1574,7 +1574,7 @@ def action_bar_finger_shows_all():
     s.wait(8)
     # Nothing hidden is left: the exit's hide line (only printed for hidden triangles) is
     # gone, and with no mask either the bar has nothing to show.
-    return s, ["--hide=x"], camera_still({"action_bar": is_text("none"), "dabs": near(0),
+    return s, ["--script=hide x"], camera_still({"action_bar": is_text("none"), "dabs": near(0),
                                           "@shown": lambda stats: "hidden_triangles" not in stats})
 
 
@@ -1588,7 +1588,7 @@ def action_bar_masks_the_hidden_part():
     s.wait(8)
     s.press("h", ("ctrl",))
     s.wait(8)
-    return s, ["--hide=x"], camera_still({"masked": near(1), "mask_mean": lambda v: 0.3 < float(v) < 0.7, "undo_steps": near(3),
+    return s, ["--script=hide x"], camera_still({"masked": near(1), "mask_mean": lambda v: 0.3 < float(v) < 0.7, "undo_steps": near(2),
                                           "@shown": lambda stats: "hidden_triangles" not in stats})
 
 
@@ -1718,7 +1718,7 @@ def action_bar_folds_on_a_narrow_window():
     s.wait(12)
     s.ftap(*BAR_NARROW_FIRST)
     s.wait(8)
-    return s, ["--width=820", "--height=640", "--hide=x"], camera_still({"masked": near(0), "action_pop": near(0),
+    return s, ["--width=820", "--height=640", "--script=hide x"], camera_still({"masked": near(0), "action_pop": near(0),
                                                                          "action_bar": is_text("hidden"), "dabs": near(0)})
 
 
@@ -1750,7 +1750,7 @@ def action_bar_popover_goes_with_its_group():
     s.wait(12)
     s.press("z", ("ctrl",))
     s.wait(8)
-    return s, ["--width=820", "--height=640", "--hide=x"], camera_still({"action_pop": near(0), "masked": near(0),
+    return s, ["--width=820", "--height=640", "--script=hide x"], camera_still({"action_pop": near(0), "masked": near(0),
                                                                          "action_bar": is_text("hidden"), "dabs": near(0)})
 
 
@@ -1772,7 +1772,7 @@ def action_bar_clears_the_panels_on_a_narrow_window():
     s = Script()
     s.press("i", ("ctrl",))
     s.wait(12)
-    return s, ["--width=820", "--height=640", "--hide=x"], {"action_bar": is_text("mask+hidden"),
+    return s, ["--width=820", "--height=640", "--script=hide x"], {"action_bar": is_text("mask+hidden"),
                                                           "@layout": clear_of("action_bar", "inspector", "dock", "points", "modifier_rail", "brush_bar")}
 
 
@@ -4042,7 +4042,7 @@ def layers_survive_a_rebuild():
              (run(delete_higher), ["--subdivide=1", "--script=new_layer"], {"layers": near(1, 0), "layers_noted": near(1, 0), "vertices": near(40962, 0)}),
              (run(subdivide), ["--script=new_layer"], {"layers": near(1, 0), "layers_noted": near(1, 0), "vertices": near(163842, 0), "undo_steps": near(1, 0), "selected_levels": near(2, 0)}),
              (run(subdivide, undo=True), ["--script=new_layer"], {"layers": near(1, 0), "vertices": near(40962, 0), "undo_steps": near(0, 0), "selected_levels": near(1, 0)}),
-             (run(lambda s: palette_run(s, "make boolean")), ["--spheres=2", "--script=new_layer", "--boolean=union"],
+             (run(lambda s: palette_run(s, "make boolean")), ["--spheres=2", "--script=new_layer; select 2; boolean union; move 0.9 0 0; select 1"],
               {"objects": near(1, 0), "layers": near(1, 0), "layers_noted": near(1, 0)})]
     # Two spheres start with the view framing both, so the last run is not checked for a still camera.
     return Steps([(sc, args, camera_still(want) if k < 7 else want) for k, (sc, args, want) in enumerate(steps)])
