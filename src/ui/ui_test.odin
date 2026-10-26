@@ -1122,3 +1122,39 @@ a_finger_on_a_title_bar_moves_its_window_after_the_slop :: proc(t: ^testing.T) {
 	testing.expect_value(t, moved.y, r.y + 100)
 	testing.expect(t, !ctx.viewport_drag, "the drag reached the viewport")
 }
+
+// A folded More returns false; opened, it grows in and fills a body; with `always` the
+// body shows at once. The row itself is not counted as a control.
+@(test)
+more_folds_and_always_shows :: proc(t: ^testing.T) {
+	ctx: Context
+	init(&ctx)
+	defer destroy(&ctx)
+	frame :: proc(ctx: ^Context, open: ^bool, always: bool) -> (body: bool, controls: int) {
+		frame_begin(ctx, input_at({-1, -1}))
+		begin_anchored(ctx, "column", .Start, .Start, {0, 0}, {direction = .Column, width = 300})
+		before := ctx.controls
+		if more(ctx, "more", open, always) {
+			body = true
+			_ = button(ctx, "inside")
+			more_end(ctx)
+		}
+		controls = ctx.controls - before
+		end(ctx)
+		frame_end(ctx)
+		return
+	}
+	open := false
+	body, controls := frame(&ctx, &open, false)
+	testing.expect(t, !body)
+	testing.expect_value(t, controls, 0)
+	// Opened, it grows in over the panel motion's time.
+	open = true
+	for _ in 0 ..< 30 do body, controls = frame(&ctx, &open, false)
+	testing.expect(t, body)
+	testing.expect_value(t, controls, 1)
+	closed := false
+	body, controls = frame(&ctx, &closed, true)
+	testing.expect(t, body && !closed)
+	testing.expect_value(t, controls, 1)
+}

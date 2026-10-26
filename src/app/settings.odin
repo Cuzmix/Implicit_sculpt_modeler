@@ -82,6 +82,7 @@ SETTINGS := [?]Setting {
 	{"surface_ring", K + offset_of(Kit_State, surface_ring), bool, 0, 0},
 	{"action_bar", K + offset_of(Kit_State, action_bar), bool, 0, 0},
 	{"modifier_rail", K + offset_of(Kit_State, rail_side), Rail_Side, 0, 0},
+	{"all_options", K + offset_of(Kit_State, all_options), bool, 0, 0},
 	{"stats", K + offset_of(Kit_State, stats), bool, 0, 0},
 	{"stats_advanced", K + offset_of(Kit_State, stats_advanced), bool, 0, 0},
 	{"vsync", offset_of(App, vsync), bool, 0, 0},

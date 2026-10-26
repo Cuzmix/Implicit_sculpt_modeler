@@ -33,30 +33,11 @@ kit_scene_tab :: proc(app: ^App) {
 	ui.end(ctx)
 	ui.spacer(ctx, 4)
 
-	if ui.section(ctx, "Add object", &k.open[.Add]) {
-		shapes: [len(geom.Primitive)]string
-		for s, i in geom.Primitive do shapes[i] = fmt.tprint(s)
-		if picked := ui.select(ctx, "add shape", shapes[:], int(k.add_shape)); picked >= 0 do k.add_shape = geom.Primitive(picked)
-		if picked := ui.select(ctx, "add size", kit_size_names(), k.add_size); picked >= 0 do k.add_size = picked
-		vertices := int(SPHERE_PRESETS[k.add_size].vertices)
-		_ = command_button(app, .Add_Object, label = fmt.tprintf("Add %v", k.add_shape), variant = .Solid, tone = .Accent, glyph = ui.ICON_PLUS)
-		// Geodesic spheres come in steps of 10f² + 2 vertices; say what will be built.
-		f := geom.geodesic_frequency_for(vertices)
-		built := 10 * f * f + 2 if k.add_shape == .Sphere else vertices
-		ui.paragraph(ctx, fmt.tprintf("Builds %s%s vertices, about %s of memory.", "" if k.add_shape == .Sphere else "about ", count_label(built), bytes_label(built * BYTES_PER_VERTEX)))
-		ui.section_end(ctx)
-	}
-	if ui.section(ctx, "Material", &k.open[.Material]) {
-		kit_material(app)
-		ui.section_end(ctx)
-	}
-	if ui.section(ctx, "Studio render", &k.open[.Studio]) {
-		kit_studio(app)
-		ui.section_end(ctx)
-	}
-	if ui.section(ctx, "Camera", &k.open[.Camera]) {
-		kit_camera(app)
-		ui.section_end(ctx)
+	for sec in SCENE_SECTIONS {
+		if ui.section(ctx, sec.title, &k.open[sec.section]) {
+			sec.draw(app)
+			ui.section_end(ctx)
+		}
 	}
 	// Opening a scene counts building it as reading; importing parses apart.
 	if s := app.stats; s.file_read_ms > 0 || s.file_write_ms > 0 {
@@ -66,6 +47,31 @@ kit_scene_tab :: proc(app: ^App) {
 		if s.file_write_ms > 0 do append(&parts, fmt.tprintf("written in %.0f ms", s.file_write_ms))
 		ui.paragraph(ctx, fmt.tprintf("Last file %s.", strings.join(parts[:], ", ", context.temp_allocator)))
 	}
+}
+
+// The Scene tab's sections in the order shown, under the objects.
+@(rodata)
+SCENE_SECTIONS := [?]Kit_Tab_Section {
+	{.Add, "Add object", kit_add, nil},
+	{.Material, "Material", kit_material, nil},
+	{.Studio, "Studio render", kit_studio, nil},
+	{.Camera, "Camera", kit_camera, nil},
+}
+
+@(private = "file")
+kit_add :: proc(app: ^App) {
+	k := &app.kit
+	ctx := &k.ctx
+	shapes: [len(geom.Primitive)]string
+	for s, i in geom.Primitive do shapes[i] = fmt.tprint(s)
+	if picked := ui.select(ctx, "add shape", shapes[:], int(k.add_shape)); picked >= 0 do k.add_shape = geom.Primitive(picked)
+	if picked := ui.select(ctx, "add size", kit_size_names(), k.add_size); picked >= 0 do k.add_size = picked
+	vertices := int(SPHERE_PRESETS[k.add_size].vertices)
+	_ = command_button(app, .Add_Object, label = fmt.tprintf("Add %v", k.add_shape), variant = .Solid, tone = .Accent, glyph = ui.ICON_PLUS)
+	// Geodesic spheres come in steps of 10f² + 2 vertices; say what will be built.
+	f := geom.geodesic_frequency_for(vertices)
+	built := 10 * f * f + 2 if k.add_shape == .Sphere else vertices
+	ui.paragraph(ctx, fmt.tprintf("Builds %s%s vertices, about %s of memory.", "" if k.add_shape == .Sphere else "about ", count_label(built), bytes_label(built * BYTES_PER_VERTEX)))
 }
 
 // The classic presets, the physically based ones, and sliders that edit whichever is in
@@ -82,8 +88,11 @@ kit_material :: proc(app: ^App) {
 	m := current_material(app)
 	if m.roughness == 0 do m.roughness = CUSTOM_ROUGHNESS
 	changed := kit_color(ctx, "material colour", (^[3]f32)(&m.selected))
-	changed |= ui.slider(ctx, "Metallic", &m.metallic, 0, 1, .Linear, fmt.tprintf("%.2f", m.metallic))
-	changed |= ui.slider(ctx, "Roughness", &m.roughness, 0.04, 1, .Linear, fmt.tprintf("%.2f", m.roughness))
+	if kit_more(app, .Material) {
+		changed |= ui.slider(ctx, "Metallic", &m.metallic, 0, 1, .Linear, fmt.tprintf("%.2f", m.metallic))
+		changed |= ui.slider(ctx, "Roughness", &m.roughness, 0.04, 1, .Linear, fmt.tprintf("%.2f", m.roughness))
+		kit_more_end(app)
+	}
 	if changed {
 		m.label = "Custom"
 		app.custom = m
@@ -111,7 +120,6 @@ kit_studio :: proc(app: ^App) {
 kit_camera :: proc(app: ^App) {
 	ctx := &app.kit.ctx
 	ui.paragraph(ctx, "Orbit: right drag, or Alt + left drag. Pan: middle drag, or Shift + right drag. Zoom: the wheel. On a touch screen two fingers pan and pinch.")
-	_ = ui.slider(ctx, "Distance", &app.camera.distance, camera.MIN_DISTANCE, 20, .Logarithmic, fmt.tprintf("%.2f", app.camera.distance))
 	_ = ui.switch_row(ctx, "Orthographic", &app.camera.ortho, keys = command_hint(app, .Ortho_Toggle))
 	// Two rows of three, each view beside its opposite's row: the keypad's 1, 3 and 7,
 	// and with Ctrl the other side.
@@ -122,4 +130,8 @@ kit_camera :: proc(app: ^App) {
 		if picked := ui.tabs(ctx, fmt.tprintf("look from %d", r), names[:], -1, keys = hints[:]); picked >= 0 do command_run(app, .View_Axis, int(row[picked]))
 	}
 	kit_command_pair(app, .Reset_Camera, .Focus_Selected)
+	if kit_more(app, .Camera) {
+		_ = ui.slider(ctx, "Distance", &app.camera.distance, camera.MIN_DISTANCE, 20, .Logarithmic, fmt.tprintf("%.2f", app.camera.distance))
+		kit_more_end(app)
+	}
 }

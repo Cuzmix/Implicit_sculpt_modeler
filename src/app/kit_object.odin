@@ -97,13 +97,17 @@ kit_transform :: proc(app: ^App, obj: ^Object) {
 	for axis, i in axes {
 		_ = ui.drag_value(ctx, fmt.tprintf("Position %s", axis), &tr.position[i], 0.005, -1e4, 1e4, fmt.tprintf("%.3f", tr.position[i]))
 	}
-	for axis, i in axes {
-		if ui.drag_value(ctx, fmt.tprintf("Turn about %s", axis), &tr.rotation[i], 0.5, -1e6, 1e6, fmt.tprintf("%.1f°", tr.rotation[i])) {
-			tr.rotation[i] = math.mod(tr.rotation[i] + 540, 360) - 180
-		}
-	}
 	_ = ui.drag_value(ctx, "Scale", &tr.scale, 0.005, 0.01, 100, fmt.tprintf("%.3f", tr.scale))
-	ui.paragraph(ctx, "Drag sideways on a value to change it. Turns are degrees about X, then Y, then Z.")
+	ui.paragraph(ctx, "Drag sideways on a value to change it.")
+	if kit_more(app, .Transform) {
+		for axis, i in axes {
+			if ui.drag_value(ctx, fmt.tprintf("Turn about %s", axis), &tr.rotation[i], 0.5, -1e6, 1e6, fmt.tprintf("%.1f°", tr.rotation[i])) {
+				tr.rotation[i] = math.mod(tr.rotation[i] + 540, 360) - 180
+			}
+		}
+		ui.paragraph(ctx, "Turns are degrees about X, then Y, then Z.")
+		kit_more_end(app)
+	}
 }
 
 // Subdivision levels, numbered from 1 as in ZBrush.
@@ -184,18 +188,23 @@ kit_dyntopo :: proc(app: ^App, obj: ^Object) {
 kit_mask :: proc(app: ^App) {
 	ctx := &app.kit.ctx
 	t := ctx.theme
-	commands := [?]sculpt.Mask_Command{.Clear, .Invert, .Fill, .Cavity, .Blur, .Sharpen, .Grow, .Shrink}
-	labels := [?]string{"Clear", "Invert", "Mask all", "Cavities", "Blur", "Sharpen", "Grow", "Shrink"}
-	for i := 0; i < len(commands); i += 2 {
-		kit_command_pair(app, .Mask, .Mask, int(commands[i]), int(commands[i + 1]), labels[i], labels[i + 1])
-	}
+	kit_command_pair(app, .Mask, .Mask, int(sculpt.Mask_Command.Clear), int(sculpt.Mask_Command.Invert), "Clear", "Invert")
+	_ = command_button(app, .Mask, int(sculpt.Mask_Command.Fill), "Mask all")
+	// Steps stays out of the fold: the action bar's step buttons and the Mask taps use it.
 	steps := f32(app.ui.mask_steps)
 	if ui.slider(ctx, "Steps", &steps, 1, 50, .Linear, fmt.tprintf("%d", app.ui.mask_steps)) do app.ui.mask_steps = i32(steps + 0.5)
 	ui.label(ctx, "Ctrl + drag on empty space draws", t.small_size)
 	shapes := [2]string{"Rectangle", "Lasso"}
 	if picked := ui.tabs(ctx, "mask shape", shapes[:], int(app.ui.mask_shape_kind)); picked >= 0 do app.ui.mask_shape_kind = Mask_Shape_Kind(picked)
-	ui.paragraph(ctx, fmt.tprintf("Paint the mask with the Mask brush, or Ctrl + drag a shape from empty space (with Alt: unmask). Masked parts show darker and no brush moves them. Blur, Sharpen, Grow and Shrink move its edge a ring of triangles a step. %s clears, %s inverts. With Mask on and the Sculpt tool, a tap off the model inverts, one on the mask blurs it and one on an unmasked part sharpens it.", command_keys(.Mask, int(sculpt.Mask_Command.Clear)), command_keys(.Mask, int(sculpt.Mask_Command.Invert))))
+	ui.paragraph(ctx, fmt.tprintf("Paint the mask with the Mask brush, or Ctrl + drag a shape from empty space (with Alt: unmask). Masked parts show darker and no brush moves them. Blur, Sharpen, Grow and Shrink (over the dock while something is masked, and under More options) move its edge Steps rings of triangles. %s clears, %s inverts. With Mask on and the Sculpt tool, a tap off the model inverts, one on the mask blurs it and one on an unmasked part sharpens it.", command_keys(.Mask, int(sculpt.Mask_Command.Clear)), command_keys(.Mask, int(sculpt.Mask_Command.Invert))))
 	kit_last_result(app, .Mask)
+	if kit_more(app, .Mask) {
+		kit_command_pair(app, .Mask, .Mask, int(sculpt.Mask_Command.Blur), int(sculpt.Mask_Command.Sharpen), "Blur", "Sharpen")
+		kit_command_pair(app, .Mask, .Mask, int(sculpt.Mask_Command.Grow), int(sculpt.Mask_Command.Shrink), "Grow", "Shrink")
+		_ = command_button(app, .Mask, int(sculpt.Mask_Command.Cavity), "Mask cavities")
+		ui.paragraph(ctx, "Mask cavities masks the creases and dips, more the deeper they are.")
+		kit_more_end(app)
+	}
 }
 
 @(private = "file")
@@ -233,10 +242,14 @@ kit_paint :: proc(app: ^App) {
 kit_groups :: proc(app: ^App) {
 	ctx := &app.kit.ctx
 	kit_command_pair(app, .Group, .Group, int(sculpt.Group_Command.Visible), int(sculpt.Group_Command.Masked), "Group visible", "Group masked")
-	_ = ui.slider(ctx, "Crease angle", &app.ui.crease_degrees, 1, 90, .Linear, fmt.tprintf("%.0f°", app.ui.crease_degrees))
-	kit_command_pair(app, .Group, .Group, int(sculpt.Group_Command.Creases), int(sculpt.Group_Command.Clear), "Groups by creases", "Clear groups", tone_b = .Danger)
 	_ = ui.switch_row(ctx, "Show polygroups", &app.show_groups, keys = command_hint(app, .Polygroups))
 	ui.paragraph(ctx, fmt.tprintf("%s groups the masked part (clearing the mask), or with nothing masked what is shown. Ctrl + Shift click a group to show only it (again: everything but it); with Alt, to mask it. %s shows the groups. Not in HD or with dynamic topology.", command_keys(.Group_Shortcut), command_keys(.Polygroups)))
+	if kit_more(app, .Groups) {
+		_ = ui.slider(ctx, "Crease angle", &app.ui.crease_degrees, 1, 90, .Linear, fmt.tprintf("%.0f°", app.ui.crease_degrees))
+		kit_command_pair(app, .Group, .Group, int(sculpt.Group_Command.Creases), int(sculpt.Group_Command.Clear), "Groups by creases", "Clear groups", tone_b = .Danger)
+		ui.paragraph(ctx, "Groups by creases starts a new group wherever the surface bends by more than the crease angle.")
+		kit_more_end(app)
+	}
 }
 
 @(private = "file")
