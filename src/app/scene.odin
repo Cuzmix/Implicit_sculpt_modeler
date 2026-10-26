@@ -278,8 +278,7 @@ object_remesh :: proc(app: ^App, obj: ^Object, vertices: int) -> (changed, ok: b
 	}
 	remeshed := time.tick_now()
 	_ = sdl.WaitForGPUIdle(app.renderer.device)
-	object_release_mesh(app, obj)
-	if !object_build_from(app, obj, mesh, remeshed) do return true, false
+	if !object_rebuild(app, obj, mesh, remeshed, normals = false) do return true, false
 	app.stats.remesh_ms = time.duration_milliseconds(time.tick_diff(start, remeshed))
 	app.stats.remesh_setup_ms = time.duration_milliseconds(time.tick_since(remeshed))
 	log.infof("remesh: %d vertices in %.0f ms, ready in %.0f ms more", geom.mesh_vertex_count(object_mesh(obj)^), app.stats.remesh_ms, app.stats.remesh_setup_ms)
@@ -315,8 +314,7 @@ object_decimate :: proc(app: ^App, obj: ^Object, vertices: int) -> (changed, ok:
 	}
 	decimated := time.tick_now()
 	_ = sdl.WaitForGPUIdle(app.renderer.device)
-	object_release_mesh(app, obj)
-	if !object_build_from(app, obj, mesh, decimated, normals = true) do return true, false
+	if !object_rebuild(app, obj, mesh, decimated, normals = true) do return true, false
 	app.stats.decimate_ms = time.duration_milliseconds(time.tick_diff(start, decimated))
 	app.stats.decimate_error = error
 	log.infof("decimate: %d vertices to %d in %.0f ms (strays at most %.4f), ready in %.0f ms more", before, geom.mesh_vertex_count(object_mesh(obj)^),
@@ -350,8 +348,7 @@ object_symmetrize :: proc(app: ^App, obj: ^Object, axis: int, keep_positive: boo
 	}
 	cut := time.tick_now()
 	_ = sdl.WaitForGPUIdle(app.renderer.device)
-	object_release_mesh(app, obj)
-	if !object_build_from(app, obj, mesh, cut, normals = true) do return true, false
+	if !object_rebuild(app, obj, mesh, cut, normals = true, mirror = {active = true, axis = sculpt.Axis(axis), keep_positive = keep_positive}) do return true, false
 	log.infof("mirror and weld: %d vertices in %.0f ms", object_vertex_count(obj), time.duration_milliseconds(time.tick_diff(start, cut)))
 	return true, true
 }
@@ -385,14 +382,19 @@ object_slice :: proc(app: ^App, obj: ^Object, point, normal: Vec3) -> (part: ^Ob
 	}
 	cut := time.tick_now()
 	_ = sdl.WaitForGPUIdle(app.renderer.device)
+	// Both parts take the layers, so the level they came from stays until the second has.
+	layered := object_take_layered(app, obj)
+	defer sculpt.layered_level_free(&layered)
 	object_release_mesh(app, obj)
 	if !object_build_from(app, obj, back, cut, normals = true) {
 		geom.mesh_destroy(&front)
 		return nil, false, false
 	}
+	object_carry_layers(app, obj, layered)
 	index := app.scene.selected
 	if !scene_add_mesh(app, front, obj.name, obj.file, obj.transform, cut) do return nil, true, false
 	part = app.scene.objects[len(app.scene.objects) - 1]
+	object_carry_layers(app, part, layered, counted = false)
 	part.folder = obj.folder
 	// Beside the object it came from, which stays selected.
 	ordered_remove(&app.scene.objects, len(app.scene.objects) - 1)
@@ -888,8 +890,47 @@ object_build_from :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, start: time.
 object_replace_mesh :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh) -> bool {
 	start := time.tick_now()
 	_ = sdl.WaitForGPUIdle(app.renderer.device)
+	return object_rebuild(app, obj, mesh, start, normals = true)
+}
+
+// Rebuilds the object from `mesh` (taking it), a new surface for the level it is on: its
+// levels, HD detail, mask and strokes go, but that level's sculpt layers come across
+// (sculpt layer_carry.odin), mirrored as Mirror and weld made it. `normals` works out
+// the mesh's normals, for a mesh that comes without them. The caller waits for the GPU
+// first. Returns false only when the new mesh could not be uploaded.
+@(private = "file")
+object_rebuild :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, start: time.Tick, normals: bool, mirror: sculpt.Surface_Mirror = {}) -> bool {
+	layered := object_take_layered(app, obj)
+	defer sculpt.layered_level_free(&layered)
 	object_release_mesh(app, obj)
-	return object_build_from(app, obj, mesh, start, normals = true)
+	if !object_build_from(app, obj, mesh, start, normals = normals) do return false
+	object_carry_layers(app, obj, layered, mirror)
+	return true
+}
+
+// Takes the level the object is on out of its levels when it has layers, for
+// object_carry_layers after the rebuild; the layers of the other levels go, counted for
+// the command's note.
+@(private = "file")
+object_take_layered :: proc(app: ^App, obj: ^Object) -> sculpt.Layered_Level {
+	app.layers_lost += sculpt.levels_layer_count(&obj.levels)
+	return sculpt.levels_take_layered(&obj.levels)
+}
+
+// Gives the rebuilt object the taken level's layers, counting them for the note unless
+// `counted` already did (the second part of a slice).
+@(private = "file")
+object_carry_layers :: proc(app: ^App, obj: ^Object, layered: sculpt.Layered_Level, mirror: sculpt.Surface_Mirror = {}, counted := true) {
+	if layered.level == nil do return
+	start := time.tick_now()
+	kept := sculpt.levels_carry_layers(&obj.levels, layered, mirror)
+	if counted {
+		app.layers_kept += kept
+		app.layers_lost -= kept
+	}
+	ms := time.duration_milliseconds(time.tick_since(start))
+	app.stats.layers_carry_ms += ms
+	log.infof("layers: carried %d onto the rebuilt mesh in %.0f ms", kept, ms)
 }
 
 // Frees the levels and GPU buffers. The caller waits for the GPU first. A rebuild

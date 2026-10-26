@@ -122,7 +122,7 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
   `Undo_Step.layer_op` (add/remove; the step `held`s a removed layer) and `.layer_set` (old strength/visible) are swapped in
   `layer_step_swap`; `step_move` re-counts `h.bytes` since swaps change what a step holds. `sculptor_layer_set` begins or
   continues a stroke (a drag = one step; app ends it on release), `layer_displace` moves only nodes with delta. Files:
-  `LEVELS_LAYERS` flag, every level's layers in canon order. Baked by `sculptor_dyn_enable`; app refuses in HD/dyntopo.
+  `LEVELS_LAYERS` (canon order). `sculptor_dyn_enable` bakes them; refused in HD; rebuilds carry them (`layer_carry.odin`).
 - Chunk groups (`brush.odin`, `sculptor_chunk_groups`): one `geom.chunk_group` per 64 chunks for grouped culling; every
   write to `s.chunks[id]` must call `chunk_touched(s, id)` so the group is remade; nil under dyntopo.
 - `sculptor_flush(s)` (`brush.odin:443-506`): once a frame before uploading. Sorts `dirty_nodes`, recomputes normals per node

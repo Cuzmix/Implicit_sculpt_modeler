@@ -331,28 +331,6 @@ lod_look_at :: proc(eye, target: Vec3) -> geom.Mat4 {
 	}
 }
 
-@(private = "file")
-closest_on_triangle :: proc(p, a, b, c: Vec3) -> Vec3 {
-	// Ericson, Real-Time Collision Detection, 5.1.5.
-	ab, ac, ap := b - a, c - a, p - a
-	d1, d2 := linalg.dot(ab, ap), linalg.dot(ac, ap)
-	if d1 <= 0 && d2 <= 0 do return a
-	bp := p - b
-	d3, d4 := linalg.dot(ab, bp), linalg.dot(ac, bp)
-	if d3 >= 0 && d4 <= d3 do return b
-	vc := d1 * d4 - d3 * d2
-	if vc <= 0 && d1 >= 0 && d3 <= 0 do return a + ab * (d1 / (d1 - d3))
-	cp := p - c
-	d5, d6 := linalg.dot(ab, cp), linalg.dot(ac, cp)
-	if d6 >= 0 && d5 <= d6 do return c
-	vb := d5 * d2 - d1 * d6
-	if vb <= 0 && d2 >= 0 && d6 <= 0 do return a + ac * (d2 / (d2 - d6))
-	va := d3 * d6 - d5 * d4
-	if va <= 0 && d4 - d3 >= 0 && d5 - d6 >= 0 do return b + (c - b) * ((d4 - d3) / ((d4 - d3) + (d5 - d6)))
-	denom := 1 / (va + vb + vc)
-	return a + ab * (vb * denom) + ac * (vc * denom)
-}
-
 // Largest distance from a vertex of `from` to the surface `to`.
 @(private = "file")
 distance_to_surface :: proc(positions: []Vec3, from, to: []u32) -> f32 {
@@ -361,7 +339,7 @@ distance_to_surface :: proc(positions: []Vec3, from, to: []u32) -> f32 {
 		p := positions[v]
 		best := max(f32)
 		for t := 0; t < len(to); t += 3 {
-			q := closest_on_triangle(p, positions[to[t]], positions[to[t + 1]], positions[to[t + 2]])
+			q, _ := geom.closest_on_triangle(p, positions[to[t]], positions[to[t + 1]], positions[to[t + 2]])
 			best = min(best, linalg.length2(q - p))
 		}
 		worst = max(worst, best)
