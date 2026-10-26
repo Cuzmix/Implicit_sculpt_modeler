@@ -10,6 +10,7 @@ import sdl "vendor:sdl3"
 
 import "../camera"
 import "../geom"
+import "../gizmo"
 import "../sculpt"
 import "../ui"
 
@@ -73,6 +74,8 @@ SETTINGS := [?]Setting {
 	{"alpha_mode", B + offset_of(Brush_Settings, alpha_mode), Alpha_Mode, 0, 0},
 	{"alpha_angle", B + offset_of(Brush_Settings, alpha_angle), f32, 0, 0},
 	{"show_groups", offset_of(App, show_groups), bool, 0, 0},
+	{"gizmo_mode", offset_of(App, move) + offset_of(Move_Tool, mode), gizmo.Mode, 0, 0},
+	{"gizmo_snap", offset_of(App, move) + offset_of(Move_Tool, snap), bool, 0, 0},
 	{"crease_degrees", U + offset_of(Ui_State, crease_degrees), f32, 1, 90},
 	{"rebuild_goal", U + offset_of(Ui_State, rebuild_goal), Rebuild_Goal, 0, 0},
 	{"rebuild_even", U + offset_of(Ui_State, rebuild_even), i32, REBUILD_MIN_VERTICES, REBUILD_MAX_VERTICES},

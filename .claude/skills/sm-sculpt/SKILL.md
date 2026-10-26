@@ -194,7 +194,12 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
   origin; X toggles X. `History` orders strokes and mask commands across objects and levels, newest last, `HD_LEVEL =
   -1`; undoing a stroke from another level switches to it first (`src/app/history.odin:7-22, 78-92`); `stroke_finish`
   ends Grab and records the stroke (`:31`), `mask_command` records a mask command (`:43`). `Scene_Command` kinds and
-  `scene_apply` (`src/app/scene.odin:84-91, 245`).
+  `scene_apply` (`src/app/scene.odin:84-91, 245`). Placing an object (gizmo drag, inspector Transform drag, Reset
+  transform) is a `.Transform` entry: `history_record_transform(app, obj, before, what)` stores `before`/`after`, level 0,
+  no sculptor; `history_step` sets one or the other, the forget procs keep it unless every level is forgotten, and
+  `history_busy` refuses undo while a stroke, `app.move.drag` or `app.ui.transform_drag` is open (`move_tool.odin`:
+  `move_end` records on release, `move_cancel` restores unrecorded, `transform_drag_changed`/`transform_drag_end` make an
+  inspector drag one step). A new kind of change to where an object sits goes through these, never a bare write.
 
 ## Rules that bite
 - Every position change goes through `apply_dab` or `sculptor_nodes_moved`; otherwise BVH bounds, normals, chunks, LOD

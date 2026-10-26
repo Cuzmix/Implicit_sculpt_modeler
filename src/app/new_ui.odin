@@ -690,6 +690,7 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 	input := kit_viewport_input(app, {f32(size.x), f32(size.y)})
 	if !typed do commands_handle_keys(app)
 	layer_drag_end(app)
+	transform_drag_end(app)
 	// Text input (and with it a tablet's on-screen keyboard) is on only while a text
 	// field has the keys.
 	if wanted := ui.typing(ctx); wanted != k.text_input {
@@ -704,8 +705,9 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 	quiet := !floating && !kit_floating(app) && !typed
 	if shape_waits && quiet && (key_pressed(d, sdl.K_RETURN) || key_pressed(d, sdl.K_KP_ENTER)) do app.shape_pending.request = .Apply
 	// Escape, or Android's back gesture (the AC Back key), closes whatever floats, before
-	// Escape stops a replay.
-	if key_pressed(d, sdl.K_ESCAPE) || key_pressed(d, sdl.K_AC_BACK) {
+	// Escape stops a replay; during a gizmo drag Escape only puts the object back
+	// (move_tool_frame).
+	if (key_pressed(d, sdl.K_ESCAPE) && app.move.drag.handle == .None) || key_pressed(d, sdl.K_AC_BACK) {
 		// The topmost goes first: what floats, then a waiting shape, and only then
 		// Settings or Help. An Escape that ended typing in a field (Settings > Keys'
 		// search) was the field's. The recovery card, when nothing is above it, waits

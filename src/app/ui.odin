@@ -33,6 +33,7 @@ Ui_State :: struct {
 	crease_degrees:     f32, // Polygroups' Creases: how sharp a crease starts a new group
 	layer_selected:     int,  // the Layers section's row that Delete and Bake act on
 	layer_dragging:     bool, // a layer's strength slider is being dragged: one undo step
+	transform_drag:     Transform_Drag, // the Transform section's values are being dragged: one undo step
 	retopo_quads:       i32,  // quads Retopologize asks for
 	rebuild_goal:       Rebuild_Goal, // what the Rebuild section makes: an even mesh, fewer polygons or quads
 	rebuild_even:       i32,  // vertices Rebuild's Even goal asks for

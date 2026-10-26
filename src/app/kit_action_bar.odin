@@ -1,18 +1,20 @@
 package main
 
+import "../gizmo"
 import "../sculpt"
 import "../ui"
 
 // The contextual action bar: above the brush dock, the next steps for what is active on
 // the selected object, so a tablet user masks, then inverts or blurs without opening the
-// inspector, its Object tab and the Select page. It shows only while something applies: an HD
-// window open, a mask, hidden parts, or an operation that can still be adjusted
-// (adjust_last.odin). HD refuses hidden parts and hiding is refused in HD, so at most three
+// inspector, its Object tab and the Select page. It shows only while something applies: the
+// Move tool's gizmo, an HD window open, a mask, hidden parts, or an operation that can
+// still be adjusted (adjust_last.odin). HD refuses hidden parts and hiding is refused in HD, so at most three
 // groups show. Each button runs its
 // command through the registry, as the menus and the palette do. Where the groups do not
 // fit beside the panels, each folds to one button that opens its actions above it.
 
 Action_Group :: enum u8 {
+	Gizmo,
 	Hd,
 	Mask,
 	Hidden,
@@ -32,6 +34,13 @@ Action_Group_Info :: struct {
 
 @(rodata)
 ACTION_GROUPS := [Action_Group]Action_Group_Info {
+	// What the Move tool's handles do, and the Snap latch.
+	.Gizmo = {"Gizmo", {
+		{.Gizmo, int(gizmo.Mode.Move), "Move"},
+		{.Gizmo, int(gizmo.Mode.Turn), "Turn"},
+		{.Gizmo, int(gizmo.Mode.Scale), "Scale"},
+		{.Gizmo_Snap, 0, "Snap"},
+	}},
 	.Hd = {"HD", {{.Hd_Leave, 0, "Leave HD"}}},
 	// Invert and Clear first, the commonest; the step operations use the Mask section's
 	// Steps (Select page).
@@ -59,6 +68,7 @@ action_caption :: proc(app: ^App, g: Action_Group) -> string {
 action_groups_now :: proc(app: ^App) -> (groups: bit_set[Action_Group]) {
 	obj := selected_object(app)
 	if obj == nil do return
+	if app.tool == .Move do groups += {.Gizmo}
 	if object_in_hd(obj) do groups += {.Hd}
 	if object_has_mask(app, obj) do groups += {.Mask}
 	if sculpt.sculptor_hidden_count(object_sculptor(obj)) > 0 do groups += {.Hidden}
@@ -183,7 +193,7 @@ kit_action_bar :: proc(app: ^App) {
 		}
 		ui.spacer(ctx, 4)
 		ui.label(ctx, caption, t.small_size)
-		for a in info.actions do _ = command_button(app, a.id, a.arg, a.label)
+		for a in info.actions do _ = action_button(app, a)
 	}
 	ui.end(ctx)
 	// The adjust popover sits over the middle of the bar, folded or not, as wide as the
@@ -196,6 +206,17 @@ kit_action_bar :: proc(app: ^App) {
 	if !compact do k.action_pop = false
 }
 
+// An action's button: one that is on or off (a gizmo mode, Snap) shows which, as the
+// toolbar's symmetry buttons do. Runs it when clicked and returns true then.
+@(private = "file")
+action_button :: proc(app: ^App, a: Action, width: f32 = 0) -> bool {
+	if COMMANDS[a.id].checked == nil do return command_button(app, a.id, a.arg, a.label, width = width)
+	ctx := &app.kit.ctx
+	w := width if width > 0 else ui.text_width(ctx, ui.label_text(a.label), ctx.theme.text_size, .Semibold) + 28
+	if !ui.toggle_button(ctx, a.label, command_checked(app, a.id, a.arg), w, command_hint(app, a.id, a.arg), command_label(a.id, a.arg)) do return false
+	return command_run(app, a.id, a.arg)
+}
+
 // A folded group's actions, above its button; drawn with what floats over the panels.
 kit_action_popover :: proc(app: ^App) {
 	k := &app.kit
@@ -203,7 +224,7 @@ kit_action_popover :: proc(app: ^App) {
 	if !k.action_pop do return
 	if ui.popover_begin(ctx, "action group", &k.action_pop, k.action_anchor, .Above_Center, {direction = .Column, gap = 2, padding = 6, width = 200}) {
 		for a in ACTION_GROUPS[k.action_group].actions {
-			if command_button(app, a.id, a.arg, a.label) do k.action_pop = false
+			if action_button(app, a, ui.fill_width(ctx)) do k.action_pop = false
 		}
 		ui.popover_end(ctx)
 	}
