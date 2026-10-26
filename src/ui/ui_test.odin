@@ -580,6 +580,65 @@ a_text_field_takes_typing_once_tapped :: proc(t: ^testing.T) {
 	testing.expect(t, !typing(&ctx))
 }
 
+// A held field has the keys from the first frame it is drawn, keeps them through Enter,
+// Escape and presses elsewhere, and lets them go once it is no longer drawn.
+@(test)
+a_held_text_field_keeps_the_keys :: proc(t: ^testing.T) {
+	ctx: Context
+	init(&ctx)
+	defer destroy(&ctx)
+	buf: [8]u8
+	frame :: proc(ctx: ^Context, input: Input, buf: []u8, drawn := true) -> (typed: bool) {
+		frame_begin(ctx, input)
+		begin_anchored(ctx, "column", .Start, .Start, {0, 0}, {width = 200})
+		if drawn do typed = text_field(ctx, "Search", buf, hold = true, hint = "Search")
+		end(ctx)
+		frame_end(ctx)
+		return
+	}
+	elsewhere := [2]f32{600, 400}
+	typed := frame(&ctx, input_at(elsewhere), buf[:])
+	testing.expect(t, typing(&ctx))
+	in_ := input_at(elsewhere)
+	in_.text = "wi"
+	typed = frame(&ctx, in_, buf[:])
+	testing.expect(t, typed)
+	testing.expect_value(t, string(buf[:2]), "wi")
+	in_ = input_at(elsewhere, down = {.Left}, pressed = {.Left})
+	in_.text_end = true
+	frame(&ctx, in_, buf[:])
+	testing.expect(t, typing(&ctx))
+	frame(&ctx, input_at(elsewhere, released = {.Left}), buf[:])
+	testing.expect(t, typing(&ctx))
+	frame(&ctx, input_at(elsewhere), buf[:], drawn = false)
+	testing.expect(t, !typing(&ctx))
+}
+
+// The keyboard's highlight fills a menu row as a hover does, without the pointer on it,
+// and a row's hit area is the same whether it is highlighted or not.
+@(test)
+a_highlighted_menu_item_looks_hovered :: proc(t: ^testing.T) {
+	ctx: Context
+	init(&ctx)
+	defer destroy(&ctx)
+	ctx.reduced_motion = true
+	frame :: proc(ctx: ^Context, highlight: bool) -> (vertices: int, cell: Rect) {
+		frame_begin(ctx, input_at({600, 400}))
+		begin_anchored(ctx, "column", .Start, .Start, {0, 0}, {width = 200})
+		_ = menu_item(ctx, "Wireframe", highlight = highlight)
+		cell = ctx.last_rect
+		end(ctx)
+		vertices = len(ctx.draw.vertices)
+		frame_end(ctx)
+		return
+	}
+	plain, plain_cell := frame(&ctx, false)
+	frame(&ctx, true)
+	lit, lit_cell := frame(&ctx, true)
+	testing.expect(t, lit > plain)
+	testing.expect_value(t, lit_cell, plain_cell)
+}
+
 @(test)
 an_open_select_keeps_its_options_when_their_memory_is_reused :: proc(t: ^testing.T) {
 	ctx: Context

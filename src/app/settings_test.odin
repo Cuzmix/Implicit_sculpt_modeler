@@ -59,6 +59,8 @@ settings_read_back_what_they_wrote :: proc(t: ^testing.T) {
 	a.brush.color = {0.25, 0.5, 0.75}
 	a.kit.add_size = 1
 	a.kit.windows[.Stats] = {moved = true, offset = {40, -20}, minimized = true}
+	palette_remember(&a.kit.palette_recent, &a.kit.palette_recent_count, {.Command, .Wireframe, 0})
+	palette_remember(&a.kit.palette_recent, &a.kit.palette_recent_count, {.Command, .View_Axis, int(camera.Axis_View.Top)})
 	testing.expect(t, settings_save(&a, path))
 
 	b: App
@@ -71,6 +73,8 @@ settings_read_back_what_they_wrote :: proc(t: ^testing.T) {
 	testing.expect_value(t, b.kit.ui_scale, a.kit.ui_scale)
 	testing.expect_value(t, b.kit.add_size, 1)
 	testing.expect_value(t, b.kit.windows[.Stats], a.kit.windows[.Stats])
+	testing.expect_value(t, b.kit.palette_recent_count, 2)
+	testing.expect(t, b.kit.palette_recent == a.kit.palette_recent)
 	free_all(context.temp_allocator)
 }
 

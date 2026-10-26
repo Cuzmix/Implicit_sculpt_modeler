@@ -238,6 +238,16 @@ settings_load :: proc(app: ^App, path: string) {
 					w.offset = {clamp(number(f[5], 0), -WINDOW_OFFSET_MAX, WINDOW_OFFSET_MAX), clamp(number(f[6], 0), -WINDOW_OFFSET_MAX, WINDOW_OFFSET_MAX)}
 				}
 			}
+		case "palette_recent":
+			// The command palette's recents, most recent first, by name; names this version
+			// does not know are skipped, and a name given twice counts once. Remembered
+			// oldest first, so the first name ends up first.
+			k := &app.kit
+			k.palette_recent_count = 0
+			names := f[1:][:min(len(f) - 1, PALETTE_RECENT)]
+			#reverse for name in names {
+				if e, ok := palette_entry_from_name(name); ok do palette_remember(&k.palette_recent, &k.palette_recent_count, e)
+			}
 		case "new_vertices":
 			// The size an object is added and remeshed at: the nearest of the presets.
 			want := number(f[1], -1)
@@ -292,6 +302,11 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 		fmt.sbprintfln(&out, "window %v %d %v %v %g %g %d", which, bit(w.moved), w.x, w.y, w.offset.x, w.offset.y, bit(w.minimized))
 	}
 	fmt.sbprintfln(&out, "new_vertices %d", SPHERE_PRESETS[app.kit.add_size].vertices)
+	if app.kit.palette_recent_count > 0 {
+		strings.write_string(&out, "palette_recent")
+		for e in app.kit.palette_recent[:app.kit.palette_recent_count] do fmt.sbprintf(&out, " %s", palette_entry_name(e))
+		strings.write_byte(&out, '\n')
+	}
 	if err := os.write_entire_file(path, transmute([]u8)strings.to_string(out)); err != nil {
 		log.warnf("settings: could not write %s: %v", path, err)
 		return false

@@ -1080,6 +1080,7 @@ run :: proc(opts: Options) -> bool {
 		n := app.cursor.normal
 		fmt.printfln("cursor_hit=%d cursor_normal=%.4f,%.4f,%.4f", int(app.cursor.ok), n.x, n.y, n.z)
 		k := &app.kit
+		fmt.printfln("palette=%d palette_runs=%d palette_last=%s settings_tab=%v tool=%s", int(k.palette), k.palette_runs, palette_entry_name(k.palette_last) if k.palette_ran else "none", k.settings_tab, strings.to_lower(fmt.tprint(app.tool), context.temp_allocator))
 		open := [Kit_Window]bool{.Inspector = k.inspector && !k.settings, .Stats = k.stats, .History = k.history, .Settings = k.settings}
 		names := [Kit_Window]string{.Inspector = "inspector", .Stats = "stats", .History = "history panel", .Settings = "settings"}
 		for w, which in k.windows {

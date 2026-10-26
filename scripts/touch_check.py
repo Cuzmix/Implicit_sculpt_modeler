@@ -46,6 +46,7 @@ UI = {
     "view": (1516, 36), "size_slider": (36, 440), "strength_slider": (84, 450),
     "dock_smooth": (638, 855), "dock_draw": (574, 855), "browser": (1028, 855),
     "tab_object": (1432, 152), "tab_brush": (1338, 152), "status": (1510, 870),
+    "search": (1468, 36), "palette_row1": (1280, 146), "palette_row2": (1280, 192),
 }
 ORBIT_TURN = 2 * math.pi / 0.008  # points of drag that turn the view once (ORBIT_SPEED)
 
@@ -125,6 +126,17 @@ class Script:
         for m in mods:
             self.add(f"keyup:{m}")
         self.wait(3)
+
+    def type(self, text):
+        """Types `text` a letter a frame, each as a keyboard sends it: the key, and the
+        letter as text (which the app takes only while a text field has the keys)."""
+        for ch in text:
+            name = "Space" if ch == " " else ch
+            self.add(f"key:{name}")
+            self.add(f"text:{ch}")
+            self.wait(1)
+            self.add(f"keyup:{name}")
+        self.wait(2)
 
     def spec(self):
         return ";".join(self.events)
@@ -1668,6 +1680,115 @@ def ctrl_click_on_the_model_still_sculpts_inverted():
     s = Script()
     s.mouse_drag([MODEL, MODEL], keys=("ctrl",))
     return s, [], camera_still({"stroke_invert": near(1), "undo_steps": near(1), "last_op": lambda v: v == "none"})
+
+
+def is_text(want):
+    return lambda v: v == want
+
+
+@scenario
+def palette_ctrl_k_type_enter_runs_it():
+    """Ctrl+K opens the command palette; "wire" and Enter turn the wireframe on and close it, and the W typed never picks the Move tool."""
+    s = Script()
+    s.press("k", ("ctrl",))
+    s.type("wire")
+    s.press("Return")
+    return s, [], {"palette": near(0), "palette_runs": near(1), "palette_last": is_text("Wireframe"), "tool": is_text("brush")}
+
+
+@scenario
+def palette_letters_right_after_opening_stay_text():
+    """A letter typed the very frame after / opens the palette, before its field is shown, never runs its shortcut (W, the Move tool) or S's size adjust."""
+    s = Script()
+    s.add("key:/")
+    s.wait(1)
+    s.add("keyup:/")
+    s.add("move:800,450")
+    s.type("ws")
+    s.wait(2)
+    return s, [], {"palette": near(1), "palette_runs": near(0), "tool": is_text("brush"), "brush_radius_px": near(60, 0.01)}
+
+
+@scenario
+def palette_slash_then_escape_closes_it():
+    """/ opens the palette; Escape closes it having run nothing, and leaves Settings closed."""
+    s = Script()
+    s.press("/")
+    s.type("rem")
+    s.press("Escape")
+    return s, [], {"palette": near(0), "palette_runs": near(0), "settings_open": near(0), "objects": near(1)}
+
+
+@scenario
+def palette_finds_other_apps_names():
+    """Typing ZBrush's "dynamesh" finds Remesh first; Enter runs it."""
+    s = Script()
+    s.press("k", ("ctrl",))
+    s.type("dynamesh")
+    s.press("Return")
+    s.wait(30)
+    return s, [], {"palette_last": is_text("Remesh"), "palette_runs": near(1)}
+
+
+@scenario
+def palette_down_picks_the_second():
+    """"smooth" lists Smooth all then Smooth brush; Down then Enter picks the brush."""
+    s = Script()
+    s.press("k", ("ctrl",))
+    s.type("smooth")
+    s.press("Down")
+    s.press("Return")
+    return s, [], {"palette_last": is_text("Brush:Smooth"), "brush_kind": is_text("smooth"), "dabs": near(0)}
+
+
+@scenario
+def palette_settings_tab_then_escape_closes_only_the_palette():
+    """"touch" and Enter open Settings on its Touch tab; opened again, Escape closes the palette and leaves Settings open."""
+    s = Script()
+    s.press("k", ("ctrl",))
+    s.type("touch")
+    s.press("Return")
+    s.press("k", ("ctrl",))
+    s.wait(2)
+    s.press("Escape")
+    return s, [], {"palette": near(0), "settings_open": near(1), "settings_tab": is_text("Touch")}
+
+
+@scenario
+def palette_finger_taps_search_and_a_row():
+    """A finger taps Search, types "wire" on the tablet keyboard and taps the first row: the wireframe goes on, and nothing is sculpted."""
+    s = Script()
+    s.ftap(*UI["search"])
+    s.wait(4)
+    s.type("wire")
+    s.wait(4)
+    s.ftap(*UI["palette_row1"])
+    s.wait(4)
+    return s, [], {"palette": near(0), "palette_last": is_text("Wireframe"), "dabs": near(0), "undo_steps": near(0)}
+
+
+@scenario
+def palette_disabled_row_does_nothing():
+    """With no object left, Enter on Duplicate object runs nothing and keeps the palette open, typing."""
+    s = Script()
+    s.press("Delete")
+    s.wait(4)
+    s.press("k", ("ctrl",))
+    s.type("duplicate")
+    s.press("Return")
+    s.type(" x")
+    return s, [], {"objects": near(0), "palette": near(1), "palette_runs": near(0)}
+
+
+@scenario
+def palette_recents_come_first_and_are_remembered():
+    """A remembered recent (Clay brush) leads the empty list: Enter at once picks it."""
+    s = Script()
+    write_settings("palette_recent Brush:Clay Wireframe Teleport\n")
+    s.press("k", ("ctrl",))
+    s.wait(2)
+    s.press("Return")
+    return s, [f"--settings-file={settings_file()}"], {"palette_last": is_text("Brush:Clay"), "brush_kind": is_text("clay")}
 
 
 def run(name, screens, displays=None):

@@ -46,6 +46,8 @@ chords_read_as_menus_show_them :: proc(t: ^testing.T) {
 		{{sdl.K_0, {}, false}, "0"},
 		{{sdl.K_LEFTBRACKET, {.Shift}, true}, "Shift+["},
 		{{sdl.K_TAB, {}, false}, "Tab"},
+		{{sdl.K_SLASH, {}, false}, "/"},
+		{{sdl.K_K, {.Ctrl}, false}, "Ctrl+K"},
 	}
 	for c in cases do testing.expect_value(t, chord_text(c.chord), c.text)
 	free_all(context.temp_allocator)
