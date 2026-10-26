@@ -94,7 +94,7 @@ Options :: struct {
 	gpu_smooth: bool `usage:"Start with the Object tab's Deformation > On the GPU on, so Smooth all runs as a compute shader (the GPU compute trial)."`,
 	smooth_all: int `usage:"Smooth the first object this many steps before starting, as the Object tab's Deformation > Smooth all does (after the other start-up changes; on the GPU with --gpu-smooth)."`,
 	compute_bench: string `usage:"Time Smooth all on the CPU and as a GPU compute shader, upload and readback included, at 500k, 1M, 5M, 7M and 10M vertices (only --vertices when given); check the GPU's result against the CPU's, write the markdown tables to this path and exit."`,
-	groups:    string `usage:"Group the first object before starting, as the Object tab's Polypaint and polygroups section does: creases (Groups by creases), visible or masked; with --show-groups to see them."`,
+	groups:    string `usage:"Group the first object before starting, as the Object tab's Polygroups section (Select page) does: creases (Groups by creases), visible or masked; with --show-groups to see them."`,
 	show_groups: bool `usage:"Start showing polygroups, as View > Polygroups (Shift+W) does."`,
 	paint_color: string `usage:"The Paint brush's colour, as red,green,blue from 0 to 1 (e.g. 0.2,0.4,0.9)."`,
 	fill_paint: bool `usage:"Fill the first object with the Paint brush's colour before starting, as the Object tab's Fill with colour does (after --groups)."`,
@@ -1084,7 +1084,7 @@ run :: proc(opts: Options) -> bool {
 		fmt.printfln("cursor_hit=%d cursor_normal=%.4f,%.4f,%.4f", int(app.cursor.ok), n.x, n.y, n.z)
 		k := &app.kit
 		fmt.printfln("palette=%d palette_runs=%d palette_last=%s settings_tab=%v tool=%s", int(k.palette), k.palette_runs, palette_entry_name(k.palette_last) if k.palette_ran else "none", k.settings_tab, strings.to_lower(fmt.tprint(app.tool), context.temp_allocator))
-		fmt.printfln("help_open=%d help_tab=%v help_scroll=%.1f", int(k.help), k.help_tab, k.help_scroll)
+		fmt.printfln("help_open=%d help_tab=%v help_scroll=%.1f object_page=%v", int(k.help), k.help_tab, k.help_scroll, k.object_page)
 		open := [Kit_Window]bool{.Inspector = k.inspector && !side_panel_open(k), .Stats = k.stats, .History = k.history, .Settings = k.settings, .Help = k.help}
 		names := [Kit_Window]string{.Inspector = "inspector", .Stats = "stats", .History = "history panel", .Settings = "settings", .Help = "help"}
 		for w, which in k.windows {

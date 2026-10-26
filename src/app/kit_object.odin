@@ -6,8 +6,26 @@ import "core:math"
 import "../sculpt"
 import "../ui"
 
-// The inspector's Object tab: the selected object, where it is, and everything that
-// changes it as a whole. Each section folds; the common ones start open.
+// The Object tab's pages, by the question an artist asks of the selected object (UX
+// research 08 section 3): what shape and topology it has, which part is being worked on,
+// what is on its surface, and what is made from it. Each holds at most six sections, so
+// the tab is never one long scroll of eighteen.
+Object_Page :: enum u8 {
+	Shape,
+	Select,
+	Surface,
+	Build,
+}
+
+OBJECT_PAGE_NAMES := [Object_Page]string {
+	.Shape   = "Shape",
+	.Select  = "Select",
+	.Surface = "Surface",
+	.Build   = "Build",
+}
+
+// The inspector's Object tab: the selected object, and on the page picked under its name
+// everything that changes it as a whole. Each section folds; the common ones start open.
 kit_object_tab :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
@@ -21,72 +39,53 @@ kit_object_tab :: proc(app: ^App) {
 	}
 	ui.label(ctx, object_label(obj), t.heading_size, t.text, .Semibold)
 	ui.paragraph(ctx, fmt.tprintf("%s vertices, %s triangles", count_label(object_vertex_count(obj)), count_label(object_triangle_count(obj))))
+	names: [len(Object_Page)]string
+	for page in Object_Page do names[int(page)] = OBJECT_PAGE_NAMES[page]
+	if picked := ui.tabs(ctx, "object pages", names[:], int(k.object_page)); picked >= 0 && Object_Page(picked) != k.object_page {
+		// A new page starts from the top and fades in, as a new tab does.
+		k.object_page, k.scroll = Object_Page(picked), 0
+		k.tab_serial += 1
+	}
 	ui.spacer(ctx, 4)
+	for sec in OBJECT_SECTIONS {
+		if sec.page != k.object_page do continue
+		if ui.section(ctx, sec.title, &k.open[sec.section]) {
+			sec.draw(app, obj)
+			ui.section_end(ctx)
+		}
+	}
+}
 
-	if ui.section(ctx, "Transform", &k.open[.Transform]) {
-		kit_transform(app, obj)
-		ui.section_end(ctx)
-	}
-	if ui.section(ctx, "Subdivision levels", &k.open[.Levels]) {
-		kit_levels(app, obj)
-		ui.section_end(ctx)
-	}
-	if ui.section(ctx, "HD detail", &k.open[.Hd]) {
-		kit_hd(app, obj)
-		ui.section_end(ctx)
-	}
-	if ui.section(ctx, "Dynamic topology", &k.open[.Topology]) {
-		kit_dyntopo(app, obj)
-		ui.section_end(ctx)
-	}
-	if ui.section(ctx, "Mask", &k.open[.Mask]) {
-		kit_mask(app)
-		ui.section_end(ctx)
-	}
-	if ui.section(ctx, "Hide, clip and slice", &k.open[.Visibility]) {
-		kit_visibility(app, obj)
-		ui.section_end(ctx)
-	}
-	if ui.section(ctx, "Polypaint and polygroups", &k.open[.Paint]) {
-		kit_paint(app)
-		ui.section_end(ctx)
-	}
-	if ui.section(ctx, "Morph target", &k.open[.Morph]) {
-		kit_morph(app, obj)
-		ui.section_end(ctx)
-	}
-	if ui.section(ctx, "Layers", &k.open[.Layers]) {
-		kit_layers_section(app)
-		ui.section_end(ctx)
-	}
-	if ui.section(ctx, "Deformation", &k.open[.Deform]) {
-		kit_deformation(app, obj)
-		ui.section_end(ctx)
-	}
-	if ui.section(ctx, "Remesh", &k.open[.Remesh]) {
-		kit_remesh(app)
-		ui.section_end(ctx)
-	}
-	if ui.section(ctx, "Mirror and weld", &k.open[.Mirror]) {
-		kit_mirror(app)
-		ui.section_end(ctx)
-	}
-	if ui.section(ctx, "Retopology and baking", &k.open[.Retopo]) {
-		kit_retopo_section(app)
-		ui.section_end(ctx)
-	}
-	if ui.section(ctx, "Project detail", &k.open[.Project]) {
-		kit_project_section(app)
-		ui.section_end(ctx)
-	}
-	if ui.section(ctx, "Booleans", &k.open[.Booleans]) {
-		kit_boolean_section(app)
-		ui.section_end(ctx)
-	}
-	if ui.section(ctx, "Extract", &k.open[.Extract]) {
-		kit_extract_section(app)
-		ui.section_end(ctx)
-	}
+// One section of the Object tab: the page it is on, its fold state, its title and what
+// it draws.
+Object_Section :: struct {
+	page:    Object_Page,
+	section: Kit_Section,
+	title:   string,
+	draw:    proc(app: ^App, obj: ^Object),
+}
+
+// Every Object tab section, page by page in the order shown; each is on one page only
+// (object_sections_each_on_one_page).
+@(rodata)
+OBJECT_SECTIONS := [?]Object_Section {
+	{.Shape, .Transform, "Transform", kit_transform},
+	{.Shape, .Levels, "Subdivision levels", kit_levels},
+	{.Shape, .Hd, "HD detail", kit_hd},
+	{.Shape, .Topology, "Dynamic topology", kit_dyntopo},
+	{.Shape, .Remesh, "Remesh and decimate", proc(app: ^App, _: ^Object) {kit_remesh(app)}},
+	{.Shape, .Mirror, "Mirror and weld", proc(app: ^App, _: ^Object) {kit_mirror(app)}},
+	{.Select, .Mask, "Mask", proc(app: ^App, _: ^Object) {kit_mask(app)}},
+	{.Select, .Groups, "Polygroups", proc(app: ^App, _: ^Object) {kit_groups(app)}},
+	{.Select, .Visibility, "Hide, clip and slice", kit_visibility},
+	{.Surface, .Layers, "Layers", proc(app: ^App, _: ^Object) {kit_layers_section(app)}},
+	{.Surface, .Paint, "Polypaint", proc(app: ^App, _: ^Object) {kit_paint(app)}},
+	{.Surface, .Morph, "Morph target", kit_morph},
+	{.Surface, .Deform, "Deformation", kit_deformation},
+	{.Build, .Retopo, "Retopology and baking", proc(app: ^App, _: ^Object) {kit_retopo_section(app)}},
+	{.Build, .Project, "Project detail", proc(app: ^App, _: ^Object) {kit_project_section(app)}},
+	{.Build, .Booleans, "Booleans", proc(app: ^App, _: ^Object) {kit_boolean_section(app)}},
+	{.Build, .Extract, "Extract", proc(app: ^App, _: ^Object) {kit_extract_section(app)}},
 }
 
 // Where the object is, how it is turned and how big it is: values to drag.
@@ -227,6 +226,12 @@ kit_paint :: proc(app: ^App) {
 	_ = kit_color(ctx, "paint colour", &app.brush.color)
 	kit_command_pair(app, .Paint, .Paint, int(sculpt.Paint_Command.Fill), int(sculpt.Paint_Command.Clear), tone_b = .Danger)
 	ui.paragraph(ctx, "The Paint brush paints this colour over the clay, Ctrl takes it off. Fill and Clear skip what is masked or hidden. Each level keeps its own paint.")
+}
+
+// Polygroups: making them, and showing them.
+@(private = "file")
+kit_groups :: proc(app: ^App) {
+	ctx := &app.kit.ctx
 	kit_command_pair(app, .Group, .Group, int(sculpt.Group_Command.Visible), int(sculpt.Group_Command.Masked), "Group visible", "Group masked")
 	_ = ui.slider(ctx, "Crease angle", &app.ui.crease_degrees, 1, 90, .Linear, fmt.tprintf("%.0f°", app.ui.crease_degrees))
 	kit_command_pair(app, .Group, .Group, int(sculpt.Group_Command.Creases), int(sculpt.Group_Command.Clear), "Groups by creases", "Clear groups", tone_b = .Danger)

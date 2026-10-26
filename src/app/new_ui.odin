@@ -35,6 +35,7 @@ Kit_State :: struct {
 	fixed_dt:   f32, // seconds a frame on that clock instead, when above 0 (--ui-dt)
 	inspector:  bool,
 	tab:        Kit_Tab,
+	object_page: Object_Page, // the Object tab's page
 	tab_serial: u64, // counts tab changes, so each one fades its content in afresh
 	menu:       bool,
 	view_menu:  bool,
@@ -203,6 +204,7 @@ Kit_Section :: enum u8 {
 	Mask,
 	Visibility,
 	Paint,
+	Groups,
 	Morph,
 	Layers,
 	Deform,
@@ -440,7 +442,7 @@ kit_init :: proc(app: ^App) {
 	k := &app.kit
 	k.inspector = true
 	// The sections most reached for start open; the rest fold until asked for.
-	for s in ([?]Kit_Section{.Stroke, .Paint_Color, .Falloff, .Transform, .Levels, .Mask, .Add, .Frame, .Sculpting}) do k.open[s] = true
+	for s in ([?]Kit_Section{.Stroke, .Paint_Color, .Falloff, .Transform, .Levels, .Mask, .Groups, .Layers, .Paint, .Add, .Frame, .Sculpting}) do k.open[s] = true
 	k.add_size = 2 // 1M
 	k.ui_scale = 1
 	k.surface_ring = true

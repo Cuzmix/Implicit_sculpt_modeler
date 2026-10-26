@@ -47,6 +47,7 @@ UI = {
     "dock_smooth": (638, 855), "dock_draw": (574, 855), "browser": (1028, 855),
     "tab_object": (1432, 152), "tab_brush": (1338, 152), "status": (1510, 870),
     "search": (1468, 36), "palette_row1": (1280, 146), "palette_row2": (1280, 192),
+    "page_shape": (1326, 252), "page_select": (1397, 252), "page_surface": (1467, 252), "page_build": (1538, 252),
 }
 ORBIT_TURN = 2 * math.pi / 0.008  # points of drag that turn the view once (ORBIT_SPEED)
 
@@ -858,6 +859,21 @@ def rapid_taps():
     for x in range(200, 400, 20):
         s.ftap(x, 700 - x, hold=1, gap=1)
     return s, [], camera_still({"dabs": near(0), "undo_steps": near(0)})
+
+
+@scenario
+def object_pages_switch_and_stay():
+    """A finger taps the Object tab, then its Build page; the Brush tab and back keep Build, and nothing is sculpted."""
+    s = Script()
+    s.ftap(*UI["tab_object"])
+    s.wait(6)
+    s.ftap(*UI["page_build"])
+    s.wait(6)
+    s.ftap(*UI["tab_brush"])
+    s.wait(6)
+    s.ftap(*UI["tab_object"])
+    s.wait(6)
+    return s, [], camera_still({"dabs": near(0), "inspector_tab": is_text("object"), "object_page": is_text("Build")})
 
 
 @scenario
