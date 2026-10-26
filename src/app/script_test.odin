@@ -273,3 +273,91 @@ script_stops_at_what_does_nothing :: proc(t: ^testing.T) {
 	testing.expect(t, strings.contains(app.result.text, "line 2"))
 	testing.expect(t, .Warning in app.result.flags)
 }
+
+// A script a person starts (a macro) is their work: what it does stays in the History,
+// the scene counts as changed, and a note says it ran; the start-up script's outcome is
+// left as it was.
+@(test)
+script_runs_as_work :: proc(t: ^testing.T) {
+	app: App
+	defer {
+		for obj in app.scene.objects {
+			sculpt.levels_destroy(&obj.levels)
+			free(obj)
+		}
+		delete(app.scene.objects)
+		delete(app.scene.also)
+		history_destroy(&app.history)
+		results_destroy(&app)
+		script_unload(&app)
+	}
+	obj := new(Object)
+	obj.id = 1
+	obj.transform = {scale = 1}
+	sculpt.levels_init(&obj.levels, geom.icosphere(2), nil, 64)
+	append(&app.scene.objects, obj)
+	app.autosave.clean = scene_fingerprint(&app)
+	clean := app.autosave.clean
+	app.startup_script = {statements = 3, ran = 3}
+	app.ui.viewport_size = {800, 600}
+	testing.expect_value(t, script_start(&app, "set wireframe on; mask invert", "Macro: Test", setup = false, scripted = true), "")
+	testing.expect(t, script_frame(&app))
+	testing.expect(t, !app.script.running)
+	testing.expect(t, app.wireframe)
+	testing.expect_value(t, len(app.history.done), 1)
+	testing.expect_value(t, app.autosave.clean, clean)
+	testing.expect(t, app.autosave.clean != scene_fingerprint(&app))
+	testing.expect_value(t, app.startup_script.statements, 3)
+	testing.expect_value(t, app.result.text, "Ran Macro: Test: 2 steps")
+
+	// One that stops keeps what it did before the statement that did nothing, and says so.
+	testing.expect_value(t, script_start(&app, "mask invert\nselect 5\nset flat on", "Macro: Two", setup = false, scripted = true), "")
+	testing.expect(t, script_frame(&app))
+	testing.expect(t, !app.script.running)
+	testing.expect(t, app.script.failed)
+	testing.expect(t, !app.flat)
+	testing.expect_value(t, len(app.history.done), 2)
+	testing.expect(t, .Warning in app.result.flags)
+	testing.expect(t, strings.has_prefix(app.result.text, "Macro: Two stopped at line 2: select did nothing"))
+	testing.expect_value(t, app.startup_script.statements, 3)
+}
+
+// A person's script may not wait, nor start a new scene, which would empty the History;
+// a start-up script may do both.
+@(test)
+script_work_does_not_wait_or_start_afresh :: proc(t: ^testing.T) {
+	app: App
+	defer script_unload(&app)
+	report := script_start(&app, "wireframe on\nwait 3\nnew_scene sphere", "Macro: X", setup = false, scripted = false)
+	testing.expect(t, strings.contains(report, "Macro: X:2: wait is only for start-up scripts"))
+	testing.expect(t, strings.contains(report, "Macro: X:3: new_scene is only for start-up scripts"))
+	testing.expect(t, !app.script.running)
+	testing.expect_value(t, len(app.script.script.statements), 0)
+	testing.expect_value(t, script_start(&app, "wireframe on\nwait 3\nnew_scene sphere", "setup", setup = true, scripted = false), "")
+	testing.expect(t, app.script.running)
+}
+
+// What a setting line writes, its parse reads back as the same value: the settings file
+// and a recorded macro rely on it.
+@(test)
+setting_lines_write_what_they_read :: proc(t: ^testing.T) {
+	app: App
+	app.brush.symmetry = {.X, .Z}
+	app.brush.color = {0.25, 0.5, 1}
+	app.material = 3
+	app.kit.add_size = 3
+	for line in SETTING_LINES {
+		text := line.text(&app)
+		v, ok := line.parse(strings.fields(text, context.temp_allocator))
+		testing.expectf(t, ok, "%s does not read %q", line.key, text)
+		copy := app
+		line.apply(&copy, v)
+		testing.expectf(t, line.text(&copy) == text, "%s: %q became %q", line.key, text, line.text(&copy))
+	}
+	s := script_parse("set new_vertices 900000; set boolean_vertices 300000", "x")
+	defer script_destroy(&s)
+	testing.expect_value(t, script_report(&s), "")
+	for st in s.statements do script_set(&app, st)
+	testing.expect_value(t, SPHERE_PRESETS[app.kit.add_size].vertices, 1_000_000)
+	testing.expect_value(t, app.ui.boolean.vertices, 300_000)
+}
