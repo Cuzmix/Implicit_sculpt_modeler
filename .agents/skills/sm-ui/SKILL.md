@@ -33,8 +33,10 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
 - Layout (`kit_layout`, `new_ui.odin`; the bars in `kit_bars.odin`, after ZBrush for iPad): `kit_top_bar` (a full-width
   strip, `TOP_BAR_H`: Menu, Save, Import, Export | file name | History, Edit pies, Help, Settings), `kit_points` (the
   object's readout under it, at the top left), `kit_brush_bar` (left column: Brushes, Stroke, Alpha, Material, Colour |
-  Falloff, Draw size, Strength | Undo, Redo), `kit_view_bar` (right: Search, Palettes (the tray), Objects; then Studio render,
-  Orthographic, Symmetry, Focus, Wireframe, Ghost, Solo); bottom `kit_bottom_bar` (a page of the dock's 21 slots,
+  Falloff, Draw size, Strength | Undo, Redo), `kit_nav_head` (`nav_head.odin`: the navigation head
+  top right, `NAV_HEAD_W` x `NAV_HEAD_H`, a `ui.area` showing the renderer's picture; tap = `View_Axis` from that side,
+  drag = orbit), `kit_view_bar` (right, from `nav_head_bottom()`: Search, Palettes (the tray), Objects; then Studio
+  render, Orthographic, Symmetry, Focus, Wireframe, Ghost, Solo); bottom `kit_bottom_bar` (a page of the dock's 21 slots,
   `dock_page_slots`/`dock_per_page`, with `ui.page_dots` under it; All brushes; Gizmo; then `mesh_tool` buttons
   Remesh, Dynamic topology, Retopologize, Subdivide, Live boolean, whose long press opens their Object section above
   it; the dock sits `DOCK_LIFT` above the edge margin, so measure it with `dock_stack`); Curve and Insert are tiles in

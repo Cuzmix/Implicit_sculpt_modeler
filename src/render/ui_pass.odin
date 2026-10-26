@@ -22,6 +22,10 @@ Ui_Draw :: struct {
 	index_count: u32,
 	clip:        [4]i32, // x, y, width, height
 	image:       ^sdl.GPUTexture, // nil draws from the glyph atlas
+	// The image is drawn larger than shown over a clear of nothing (the navigation head):
+	// filtered, which averages its samples, and with its colour taken back out of its
+	// alpha, so its edge does not darken.
+	smooth:      bool,
 }
 
 // What the interface needs on the GPU: its pipelines (one per target format, made on
@@ -30,6 +34,7 @@ Ui_Pass :: struct {
 	formats:      [2]sdl.GPUTextureFormat,
 	pipelines:    [2]^sdl.GPUGraphicsPipeline,
 	sampler:      ^sdl.GPUSampler,
+	smooth:       ^sdl.GPUSampler, // filtering, for Ui_Draw.smooth
 	atlas:        ^sdl.GPUTexture,
 	atlas_size:   [2]u32,
 	vertices:     ^sdl.GPUBuffer,
@@ -55,6 +60,7 @@ ui_pass_destroy :: proc(r: ^Renderer, up: ^Ui_Pass) {
 	_ = sdl.WaitForGPUIdle(r.device)
 	for p in up.pipelines do if p != nil do sdl.ReleaseGPUGraphicsPipeline(r.device, p)
 	if up.sampler != nil do sdl.ReleaseGPUSampler(r.device, up.sampler)
+	if up.smooth != nil do sdl.ReleaseGPUSampler(r.device, up.smooth)
 	if up.atlas != nil do sdl.ReleaseGPUTexture(r.device, up.atlas)
 	if up.vertices != nil do sdl.ReleaseGPUBuffer(r.device, up.vertices)
 	if up.indices != nil do sdl.ReleaseGPUBuffer(r.device, up.indices)
@@ -76,6 +82,16 @@ ui_pass_upload :: proc(r: ^Renderer, up: ^Ui_Pass, cmd: ^sdl.GPUCommandBuffer, v
 			address_mode_u = .CLAMP_TO_EDGE, address_mode_v = .CLAMP_TO_EDGE, address_mode_w = .CLAMP_TO_EDGE,
 		})
 		if up.sampler == nil {
+			log.errorf("ui sampler: %s", sdl.GetError())
+			return false
+		}
+	}
+	if up.smooth == nil {
+		up.smooth = sdl.CreateGPUSampler(r.device, {
+			min_filter = .LINEAR, mag_filter = .LINEAR, mipmap_mode = .NEAREST,
+			address_mode_u = .CLAMP_TO_EDGE, address_mode_v = .CLAMP_TO_EDGE, address_mode_w = .CLAMP_TO_EDGE,
+		})
+		if up.smooth == nil {
 			log.errorf("ui sampler: %s", sdl.GetError())
 			return false
 		}
@@ -169,7 +185,8 @@ ui_pass_draw :: proc(r: ^Renderer, up: ^Ui_Pass, cmd: ^sdl.GPUCommandBuffer, pas
 		binding := sdl.GPUTextureSamplerBinding{sampler = up.sampler}
 		if d.image != nil {
 			binding.texture = d.image
-			fu.params = {1, 1, 1, 0}
+			fu.params = {1, 1, 1, 1 if d.smooth else 0}
+			if d.smooth do binding.sampler = up.smooth
 		} else {
 			binding.texture = up.atlas
 			fu.params = {1 / f32(up.atlas_size.x), 1 / f32(up.atlas_size.y), 0, 0}

@@ -258,14 +258,15 @@ kit_brush_bar :: proc(app: ^App) -> (brushes_anchor: ui.Rect) {
 	return
 }
 
-// The two columns at the right: search, the palette tray and the objects; then the view:
-// studio render, orthographic, symmetry, framing, wireframe, ghost and solo. Returns the
-// Search button and the view menu's anchor (a long press on Orthographic or Wireframe).
+// The two columns at the right, under the navigation head: search, the palette tray and
+// the objects; then the view: studio render, orthographic, symmetry, framing, wireframe,
+// ghost and solo. Returns the Search button and the view menu's anchor (a long press on
+// Orthographic or Wireframe).
 kit_view_bar :: proc(app: ^App) -> (search_anchor, view_anchor: ui.Rect) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
-	ui.begin_anchored(ctx, "view bar", .End, .Start, {BAR_EDGE, kit_top()}, {direction = .Column, gap = 12})
+	ui.begin_anchored(ctx, "view bar", .End, .Start, {BAR_EDGE, nav_head_bottom()}, {direction = .Column, gap = 12})
 	column := ui.Box{direction = .Column, padding = 3, radius = t.radius_large, background = .Panel, center = true}
 	ui.begin(ctx, "panel column", column)
 	if ui.icon_button(ctx, "Search commands", ui.ICON_SEARCH, selected = k.palette, keys = command_hint(app, .Command_Palette)) {

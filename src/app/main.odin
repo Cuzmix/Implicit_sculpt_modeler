@@ -174,6 +174,10 @@ App :: struct {
 	studio_samples: i32, // samples it stops at
 	studio_ao:      f32, // how strongly occlusion darkens, 0 to 1
 	studio_shadow:  f32, // ...and the key light's shadow
+	// The navigation head in the top-right corner (nav_head.odin), and the texture it was
+	// drawn into this frame, for the interface to show; nil when there is none.
+	nav_head:       render.Nav_Head,
+	nav_shown:      ^sdl.GPUTexture,
 	material:  int,  // the index in MATERIALS objects are shaded with, or CUSTOM_MATERIAL
 	custom:    Material, // what the Material section's sliders made
 	flat:      bool, // shade with each triangle's own normal (faceted) instead of smoothed normals
@@ -291,6 +295,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	defer render.renderer_destroy(&app.renderer)
 	defer render.smooth_compute_destroy(&app.renderer, &app.smooth_gpu)
 	defer render.studio_destroy(&app.renderer, &app.studio)
+	defer render.nav_head_destroy(&app.renderer, &app.nav_head)
 
 	jobs.pool_init(&app.pool, opts.threads - 1 if opts.threads > 0 else 0)
 	defer jobs.pool_destroy(&app.pool)
@@ -740,6 +745,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			app.studio_on = render.studio_frame(&app.renderer, &app.studio, cmd, &app.target, view, proj, draws[:], changed, int(app.studio_samples), app.studio_ao, app.studio_shadow)
 		}
 
+		nav_head_frame(&app, cmd)
+
 		gpu_wait: time.Duration
 		if app.time_gpu {
 			// Nothing else is queued (the previous frame was waited for above), so the
@@ -1003,7 +1010,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		fmt.printfln("more=%s all_options=%d", more, int(k.all_options))
 		// The section the tray's open palette shows, whether Show where's mark is on a
 		// control, and the Mask section's Steps.
-		fmt.printfln("tray_section=%v tray_marked=%d mask_steps=%d", tray_section(&app, k.tab), int(k.pointed.id != .None && k.ctx.marked.found), app.ui.mask_steps)
+		fmt.printfln("tray_section=%v tray_marked=%d mask_steps=%d nav_taps=%d", tray_section(&app, k.tab), int(k.pointed.id != .None && k.ctx.marked.found), app.ui.mask_steps, k.nav.taps)
 		fmt.printfln("coach=%d coach_shown=%d coach_step=%s", k.coach, int(k.coach_shown), strings.to_lower(fmt.tprint(k.coach_last), context.temp_allocator) if k.coach_shown else "none")
 		// The action bar's groups as it last showed them (none while it waits for room), and
 		// how often the mask was read.

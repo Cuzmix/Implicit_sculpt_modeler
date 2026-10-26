@@ -48,6 +48,7 @@ Kit_State :: struct {
 		since: f64,
 	},
 	in_tray:    bool,
+	nav:        Nav_State, // the navigation head (nav_head.odin)
 	tab_serial: u64, // counts tab changes, so each one fades its content in afresh
 	recover_shown: bool, // the recovery card showed this frame (kit_recover.odin)
 	menu:       bool,
@@ -564,6 +565,8 @@ KIT_CANVAS :: ui.Color{0x11, 0x12, 0x14, 0xff}
 
 // The image id the viewport is drawn with; the kit hands it back in its draw commands.
 KIT_VIEWPORT_IMAGE :: 1
+// ...and the navigation head's (nav_head.odin).
+KIT_NAV_HEAD_IMAGE :: 2
 
 // The inspector's width, and the toolbars' height: one touch target.
 KIT_INSPECTOR_W :: 312
@@ -856,10 +859,12 @@ kit_layout :: proc(app: ^App) {
 	kit_shape_bar(app)
 
 	// Round the edges: the top bar, the object's readout under it, the brush bar at the
-	// left and the view bars at the right (kit_bars.odin).
+	// left, and the navigation head and the view bars under it at the right (kit_bars.odin,
+	// nav_head.odin).
 	menu_anchor := kit_top_bar(app)
 	kit_points(app)
 	browser_anchor := kit_brush_bar(app)
+	kit_nav_head(app)
 	palette_anchor, view_anchor := kit_view_bar(app)
 
 	kit_modifier_rail(app)
@@ -1214,7 +1219,8 @@ kit_rename :: proc(app: ^App) {
 }
 
 // The interface's draw commands for the renderer: the viewport's texture (or the
-// studio render's, while it is on) where the kit drew KIT_VIEWPORT_IMAGE.
+// studio render's, while it is on) where the kit drew KIT_VIEWPORT_IMAGE, and the
+// navigation head's where it drew KIT_NAV_HEAD_IMAGE.
 kit_draws :: proc(app: ^App, dl: ^ui.Draw_List) -> []render.Ui_Draw {
 	shown := app.target.color
 	if app.studio_on {
@@ -1227,6 +1233,11 @@ kit_draws :: proc(app: ^App, dl: ^ui.Draw_List) -> []render.Ui_Draw {
 			index_count = c.index_count,
 			clip        = {i32(c.clip.x), i32(c.clip.y), i32(c.clip.w + 0.5), i32(c.clip.h + 0.5)},
 			image       = shown if c.texture == .Image else nil,
+		}
+		if c.texture == .Image && c.image == KIT_NAV_HEAD_IMAGE {
+			draws[i].image, draws[i].smooth = app.nav_shown, true
+			// Without its texture, the head is not drawn at all: a nil image is the atlas.
+			if app.nav_shown == nil do draws[i].index_count = 0
 		}
 	}
 	return draws
