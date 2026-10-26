@@ -66,15 +66,8 @@ kit_settings :: proc(app: ^App) -> (raised: bool) {
 	}
 
 	// The category scrolls in the room left between the tabs and the buttons below.
-	body_name := "settings body"
-	body_id := ui.id_of(ctx, body_name)
 	body_h := max(room - 2 * 16 - 3 * 8 - 3 * t.target, 120)
-	_, natural := ui.prev_layout(ctx, body_name)
-	limit := max(natural.y - body_h, 0)
-	dragging := ui.scroll_update(ctx, body_id, ui.prev_rect(ctx, body_name), &k.settings_scroll, limit)
-	scroll := ui.tween(ctx, ui.salt(body_id, 1), k.settings_scroll, 0 if dragging else t.popover_time, .Out_Quart)
-	ui.begin(ctx, body_name, {direction = .Column, gap = 4, width = inner, height = body_h if natural.y > body_h else 0, clip = true, scroll = scroll, drag_scroll = true})
-	body_at := ctx.last_rect
+	scroll := kit_scroll_begin(ctx, "settings body", &k.settings_scroll, id, inner, body_h, 4)
 	switch k.settings_tab {
 	case .Interface:   settings_interface(app)
 	case .Camera:      settings_camera(app)
@@ -83,8 +76,7 @@ kit_settings :: proc(app: ^App) -> (raised: bool) {
 	}
 	ui.spacer(ctx, 4)
 	if ui.button(ctx, fmt.tprintf("Reset %s settings", SETTINGS_TAB_NAMES[k.settings_tab]), .Bordered) do settings_reset(app, k.settings_tab)
-	ui.end(ctx)
-	ui.scroll_take(ctx, body_id, k.settings_scroll, limit, id)
+	kit_scroll_end(ctx, scroll)
 
 	// Everything goes back only on a second tap, so a stray finger never wipes it all.
 	ui.begin(ctx, "settings foot", {direction = .Row, gap = 8, width = inner})
@@ -100,16 +92,15 @@ kit_settings :: proc(app: ^App) -> (raised: bool) {
 	if ui.button(ctx, "Done", .Solid, .Accent, width = (inner - 8) * 0.5) do settings_close(app)
 	ui.end(ctx)
 	ui.window_end(ctx)
-
-	// A thin scroll bar when the category is taller than the room, showing where it is.
-	if limit > 0 {
-		r := body_at
-		thumb := max(body_h * body_h / natural.y, 24)
-		y := r.y + (body_h - thumb) * (scroll / limit)
-		ui.fill_rect(ctx, {r.x + r.w + 6, y, 3, thumb}, 1.5, ui.color_fade(t.text_tertiary, 0.6))
-	}
 	ui.transform_since(ctx, mark, shown, 1, {}, {window_slide(win^, .End) * (1 - shown) * 16, 0})
 	return
+}
+
+// Opens Settings as Menu > Settings does, on `tab` from its top; returns whether it ran.
+settings_open :: proc(app: ^App, tab: Settings_Tab) -> bool {
+	if !command_run(app, .Settings) do return false
+	app.kit.settings_tab, app.kit.settings_scroll = tab, 0
+	return true
 }
 
 // Closes the Settings panel and remembers what it holds.
@@ -218,7 +209,8 @@ settings_camera :: proc(app: ^App) {
 	_ = ui.switch_row(ctx, "Invert the mouse wheel", &n.invert_wheel)
 	ui.spacer(ctx, 8)
 	ui.caption(ctx, "WITH A MOUSE")
-	ui.paragraph(ctx, "Drag empty space or an edge, or right drag, to turn the view; hold Shift while turning to snap to the nearest front, side or top view. Alt or Shift with the right button, or the middle button, pans; Ctrl with the right button zooms.")
+	ui.paragraph(ctx, "Help > Keys lists every mouse control, as the tool now has them.")
+	if ui.button(ctx, "Mouse controls", .Bordered, glyph = ui.ICON_HELP, keys = command_hint(app, .Help, int(Help_Tab.Keys))) do command_run(app, .Help, int(Help_Tab.Keys))
 }
 
 @(private = "file")

@@ -45,6 +45,9 @@ Kit_State :: struct {
 	settings_tab: Settings_Tab,
 	settings_scroll: f32,
 	settings_wipe: f64, // when Reset everything was first tapped: a second tap soon after resets
+	help:       bool, // the Help window (Menu > Help, F1), in Settings' place
+	help_tab:   Help_Tab,
+	help_scroll: f32,
 	ui_scale:   f32, // the interface's size, times what the display asks for (Settings > Interface)
 	surface_ring: bool, // the brush ring lies on the surface rather than flat on the screen (cursor.odin)
 	rail_side:  Rail_Side, // where the Smooth, Invert, Mask and Hide buttons sit, if anywhere (modifiers.odin)
@@ -61,7 +64,7 @@ Kit_State :: struct {
 	palette_runs:   int,
 	palette_last:   Palette_Entry,
 	palette_ran:    bool,
-	// The four panels as windows: where each was dragged to and whether it is folded
+	// The panels as windows: where each was dragged to and whether it is folded
 	// (remembered by settings.odin), and the order they are drawn in, the last on top.
 	windows:    [Kit_Window]ui.Window,
 	order:      [len(Kit_Window)]Kit_Window,
@@ -96,10 +99,24 @@ Kit_Window :: enum u8 {
 	Stats,
 	History,
 	Settings,
+	Help,
 }
 
-// The order the windows start in, back to front: Settings over the rest, as it opened.
-KIT_WINDOW_ORDER :: [len(Kit_Window)]Kit_Window{.Inspector, .Stats, .History, .Settings}
+// The order the windows start in, back to front: Settings and Help over the rest, as
+// they opened.
+KIT_WINDOW_ORDER :: [len(Kit_Window)]Kit_Window{.Inspector, .Stats, .History, .Settings, .Help}
+
+// Settings and Help share the inspector's place on the right: one at a time, with the
+// inspector hidden while either is open.
+side_panel_open :: proc(k: ^Kit_State) -> bool {
+	return k.settings || k.help
+}
+
+// Closes Settings or Help, whichever is open, giving the place back to the inspector.
+side_panel_close :: proc(app: ^App) {
+	if app.kit.settings do settings_close(app)
+	app.kit.help = false
+}
 
 // Brings `which` in front of the other windows.
 window_raise :: proc(k: ^Kit_State, which: Kit_Window) {
@@ -122,6 +139,45 @@ window_room :: proc(app: ^App, w: ui.Window, top: f32) -> f32 {
 	t := app.kit.ctx.theme
 	area := ui.safe_area(&app.kit.ctx)
 	return area.h - (w.offset.y if w.moved else top) - t.edge
+}
+
+// A window's body that scrolls when its content is taller than `height`: with the
+// wheel, or by dragging it (a finger or a pen has no wheel), from where no control is at
+// once and from a control once the drag goes up or down rather than sideways
+// (ui.scroll_update). The scroll eases to where it is heading and a drag follows the
+// finger exactly; a thin bar shows where it is. The inspector, Settings and Help all
+// scroll through it, so they scroll alike.
+Kit_Scroll :: struct {
+	id, owner: ui.Id, // the body, and the window a press no control took drags it for
+	value:     ^f32, // where the scroll is heading
+	at:        ui.Rect, // the body as laid out
+	height, natural, limit, shown: f32,
+}
+
+// Begins the scrolling body `name`, `width` wide and at most `height` tall; its content
+// follows, then kit_scroll_end.
+kit_scroll_begin :: proc(ctx: ^ui.Context, name: string, value: ^f32, owner: ui.Id, width, height, gap: f32) -> (s: Kit_Scroll) {
+	s = {id = ui.id_of(ctx, name), owner = owner, value = value, height = height}
+	_, natural := ui.prev_layout(ctx, name)
+	s.natural = natural.y
+	s.limit = max(natural.y - height, 0)
+	dragging := ui.scroll_update(ctx, s.id, ui.prev_rect(ctx, name), value, s.limit)
+	s.shown = ui.tween(ctx, ui.salt(s.id, 1), value^, 0 if dragging else ctx.theme.popover_time, .Out_Quart)
+	ui.begin(ctx, name, {direction = .Column, gap = gap, width = width, height = height if natural.y > height else 0, clip = true, scroll = s.shown, drag_scroll = true})
+	s.at = ctx.last_rect
+	return
+}
+
+// Ends the body: a press on it that no control took starts a scroll drag, and the bar
+// shows when there is more than fits.
+kit_scroll_end :: proc(ctx: ^ui.Context, s: Kit_Scroll) {
+	ui.end(ctx)
+	ui.scroll_take(ctx, s.id, s.value^, s.limit, s.owner)
+	if s.limit <= 0 do return
+	r := s.at
+	thumb := max(s.height * s.height / s.natural, 24)
+	y := r.y + (s.height - thumb) * (s.shown / s.limit)
+	ui.fill_rect(ctx, {r.x + r.w + 6, y, 3, thumb}, 1.5, ui.color_fade(ctx.theme.text_tertiary, 0.6))
 }
 
 // Which way a window slides as it opens and closes: in from the side it keeps to (+1 the
@@ -527,8 +583,8 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 	// Escape, or Android's back gesture (the AC Back key), closes whatever floats, before
 	// Escape stops a replay.
 	if key_pressed(d, sdl.K_ESCAPE) || key_pressed(d, sdl.K_AC_BACK) {
-		// The topmost goes first: what floats, and only then the Settings window.
-		if k.settings && !k.menu && !k.view_menu && !k.browser && !k.object_menu && !k.palette && ctx.select_open == 0 do settings_close(app)
+		// The topmost goes first: what floats, and only then Settings or Help.
+		if side_panel_open(k) && !app.ui.pie.open && app.ui.adjust.kind == .None && !k.menu && !k.view_menu && !k.browser && !k.object_menu && !k.palette && ctx.select_open == 0 do side_panel_close(app)
 		if k.palette do palette_close(app)
 		k.menu, k.view_menu, k.browser, k.object_menu = false, false, false, false
 		ctx.select_open = 0
@@ -701,7 +757,7 @@ kit_layout :: proc(app: ^App) {
 		if object_dynamic(obj) do append(&parts, ui.Chip_Part{text = "Dynamic", accent = true})
 		if object_in_hd(obj) do append(&parts, ui.Chip_Part{text = "HD", accent = true})
 		if ui.chip(ctx, "Object settings", parts[:]) {
-			if k.settings do settings_close(app)
+			side_panel_close(app)
 			k.inspector, k.tab = true, .Object
 		}
 		if ui.secondary(ctx) do object_menu_open(app, obj.id, ctx.last_rect, .Above)
@@ -718,6 +774,7 @@ kit_layout :: proc(app: ^App) {
 		case .Stats:     raised = kit_stats(app)
 		case .History:   raised = kit_history_panel(app)
 		case .Settings:  raised = kit_settings(app)
+		case .Help:      raised = kit_help(app)
 		}
 		if raised do top = which
 	}
@@ -769,8 +826,8 @@ kit_inspector :: proc(app: ^App) -> (raised: bool) {
 	ctx := &k.ctx
 	t := ctx.theme
 	id := ui.id_of(ctx, "inspector")
-	// The Settings panel takes its place while open.
-	shown := ui.presence(ctx, id, k.inspector && !k.settings, t.panel_time)
+	// Settings or Help takes its place while open.
+	shown := ui.presence(ctx, id, k.inspector && !side_panel_open(k), t.panel_time)
 	if shown <= 0 do return
 	win := &k.windows[.Inspector]
 	top := t.edge + t.target + 8
@@ -792,22 +849,13 @@ kit_inspector :: proc(app: ^App) -> (raised: bool) {
 	inner := f32(KIT_INSPECTOR_W - 2 * PADDING)
 
 	mark := ui.vertex_mark(ctx)
-	body, closed, raised_now := ui.window_begin(ctx, "inspector", "Inspector", win, .End, .Start, {t.edge, top}, {direction = .Column, gap = GAP, padding = PADDING, width = KIT_INSPECTOR_W, radius = t.radius_large, background = .Panel, inert = !k.inspector || k.settings}, "Tab")
+	body, closed, raised_now := ui.window_begin(ctx, "inspector", "Inspector", win, .End, .Start, {t.edge, top}, {direction = .Column, gap = GAP, padding = PADDING, width = KIT_INSPECTOR_W, radius = t.radius_large, background = .Panel, inert = !k.inspector || side_panel_open(k)}, "Tab")
 	raised = raised_now
 	if closed do k.inspector = false
 	if body {
 		// The tabs and the tab's content scroll under the title bar, in the room left.
-		body_name := "inspector body"
-		body_id := ui.id_of(ctx, body_name)
 		body_h := max(room - 2 * PADDING - t.target - GAP, 120)
-		_, natural := ui.prev_layout(ctx, body_name)
-		limit := max(natural.y - body_h, 0)
-		// The wheel over the inspector scrolls it; the scroll eases to where it is heading,
-		// and a drag follows the finger exactly.
-		dragging := ui.scroll_update(ctx, body_id, ui.prev_rect(ctx, body_name), &k.scroll, limit)
-		scroll := ui.tween(ctx, ui.salt(id, 5), k.scroll, 0 if dragging else t.popover_time, .Out_Quart)
-		ui.begin(ctx, body_name, {direction = .Column, gap = GAP, width = inner, height = body_h if natural.y > body_h else 0, clip = true, scroll = scroll, drag_scroll = true})
-		body_at := ctx.last_rect
+		scroll := kit_scroll_begin(ctx, "inspector body", &k.scroll, id, inner, body_h, GAP)
 		tab_names := [len(Kit_Tab)]string{kit_tool_name(app.tool), "Object", "Scene"}
 		if picked := ui.tabs(ctx, "inspector tabs", tab_names[:], int(k.tab)); picked >= 0 {
 			if Kit_Tab(picked) != k.tab do k.tab_serial += 1
@@ -824,16 +872,7 @@ kit_inspector :: proc(app: ^App) -> (raised: bool) {
 		}
 		fade := ui.tween_from(ctx, ui.salt(id, 1000 + k.tab_serial), 0, 1, t.indicator_time)
 		ui.transform_since(ctx, content, fade)
-		ui.end(ctx)
-		// A press on the inspector's body that no control took starts a scroll drag.
-		ui.scroll_take(ctx, body_id, k.scroll, limit, id)
-		// A thin scroll bar when the content is taller than the room, showing where it is.
-		if limit > 0 {
-			r := body_at
-			thumb := max(body_h * body_h / natural.y, 24)
-			y := r.y + (body_h - thumb) * (scroll / limit)
-			ui.fill_rect(ctx, {r.x + r.w + 6, y, 3, thumb}, 1.5, ui.color_fade(t.text_tertiary, 0.6))
-		}
+		kit_scroll_end(ctx, scroll)
 	}
 	ui.window_end(ctx)
 	ui.transform_since(ctx, mark, shown, 1, {}, {window_slide(win^, .End) * (1 - shown) * 16, 0})
@@ -863,6 +902,7 @@ kit_menu :: proc(app: ^App, anchor: ui.Rect) {
 	_ = command_menu_item(app, .Reduce_Motion)
 	if command_menu_item(app, .Settings) do pick = true
 	_ = command_menu_item(app, .Stats)
+	if command_menu_item(app, .Help, int(Help_Tab.Keys), "Help...") do pick = true
 	ui.popover_end(ctx)
 	if pick do k.menu = false
 }
@@ -892,7 +932,7 @@ slider_hint :: proc(app: ^App, keys: string, step: Command_Id) -> string {
 brush_settings_open :: proc(app: ^App, kind: sculpt.Brush_Kind) {
 	k := &app.kit
 	command_run(app, .Brush, int(kind))
-	if k.settings do settings_close(app)
+	side_panel_close(app)
 	k.inspector, k.tab, k.scroll = true, .Tool, 0
 }
 
