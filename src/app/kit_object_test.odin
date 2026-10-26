@@ -2,7 +2,7 @@ package main
 
 import "core:testing"
 
-// Splitting the Object tab into pages lost no section: each of its sections is on
+// Splitting the Object palette into pages lost no section: each of its sections is on
 // exactly one page, every page has one, and none holds more than six (UX roadmap phase 3).
 @(test)
 object_sections_each_on_one_page :: proc(t: ^testing.T) {

@@ -161,14 +161,11 @@ dock_menu_open :: proc(app: ^App, slot: int, at: ui.Rect) {
 	k.dock_menu, k.dock_slot, k.dock_at, k.grid_scroll, k.grid_reveal = true, slot, at, 0, true
 }
 
-// Picks preset `i` (from 0) and shows its settings: the inspector, on the tool's tab, from
-// the top, with the Preset section open to rename it or save its changes.
+// Picks preset `i` (from 0) and shows its settings: the tray, on the brush's Preset
+// section, to rename it or save its changes.
 preset_settings_open :: proc(app: ^App, i: int) {
-	k := &app.kit
 	preset_pick(app, i)
-	side_panel_close(app)
-	k.inspector, k.tab, k.scroll = true, .Tool, 0
-	k.open[.Preset] = true
+	tray_open(app, .Preset)
 }
 
 // What a tap or a long press on the brush grid chose.
@@ -217,7 +214,7 @@ kit_brush_grid :: proc(app: ^App, owner: ui.Id, chosen: Dock_Slot, lit: bool, he
 	}
 	if app.preset_count == 0 {
 		ui.caption(ctx, "PRESETS")
-		ui.paragraph(ctx, "Save a brush as a preset (Brush tab, Preset) to find it here.", width)
+		ui.paragraph(ctx, "Save a brush as a preset (Brush palette, Preset) to find it here.", width)
 	}
 	kit_scroll_end(ctx, scroll)
 	if scroll.natural > 0 do k.grid_reveal = false
@@ -256,7 +253,7 @@ tool_tile :: proc(app: ^App, tool: Tool) {
 	if ui.secondary(ctx) do tool_settings_open(app, tool)
 }
 
-// Picks `tool` and shows its settings in the inspector's first tab.
+// Picks `tool` and shows its settings: the tray, on the tool's palette.
 tool_settings_open :: proc(app: ^App, tool: Tool) {
 	command_run(app, TOOL_COMMANDS[tool])
 	side_panel_close(app)

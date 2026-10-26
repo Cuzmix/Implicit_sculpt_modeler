@@ -53,10 +53,10 @@ UI = {
     "live_boolean": (1182, 843), "dock_page1": (772, 888), "dock_page2": (800, 888), "dock_page3": (828, 888),
     "browser_curve": (743, 480), "browser_insert": (807, 480),
     "size_slider": (91, 663),  # in the popover the Size button opens
-    "tab_object": (1378, 152), "tab_brush": (1284, 152), "status": (69, 80),
+    # The tray's list of palettes and sections (kit_tray.odin), with the Brush palette open.
+    "list_brush": (1116, 158), "list_object": (1116, 542), "list_scene": (1116, 590), "status": (69, 80),
     "palette_row1": (1327, 151), "palette_row2": (1327, 197),
     "earlier_save2": (90, 150),
-    "page_shape": (1272, 252), "page_select": (1343, 252), "page_surface": (1413, 252), "page_build": (1484, 252),
 }
 # Menu rows at 1600x900, from kit_menu's order (new_ui.odin): add a FILE row here, not to
 # every coordinate under it. Rows are 44 points apart; a divider and caption take 69.
@@ -227,7 +227,7 @@ def tap_ui():
     s = Script()
     for name in ["menu", "menu", "undo", "history", "history", "gizmo", "dock_draw", "sym_x", "sym_x",
                  "ortho", "ortho", "size", "size", "strength", "strength", "stroke", "stroke", "dock_smooth", "dock_draw",
-                 "browser", "browser", "brushes", "brushes", "objects", "objects", "tab_object", "tab_brush", "status"]:
+                 "browser", "browser", "brushes", "brushes", "list_object", "list_brush", "objects", "objects", "status"]:
         s.ftap(*UI[name])
     # Just past the drawn edge of the brush dock and the top bar, inside their targets.
     s.ftap(490, 815)
@@ -280,7 +280,7 @@ def gizmo_and_browser_tools():
     s = Script()
     s.ftap(*UI["gizmo"])
     s.wait(4)
-    s.ftap(*UI["tab_object"])
+    s.ftap(*UI["list_object"])
     s.wait(4)
     s.ftap(*UI["browser"])
     s.wait(10)
@@ -391,18 +391,23 @@ def tap_viewport_far_apart():
 
 @scenario
 def first_touch_scrolls_inspector():
-    """The first finger drag on the inspector's Size slider scrolls the inspector and changes nothing."""
+    """The first finger drag on the tray's Mask section (every option shown, taller than the tray) from its Steps slider scrolls the tray and changes nothing."""
     s = Script()
-    s.fdrag(line((1376, 334), (1381, 114), 22))
-    return s, [], camera_still({"dabs": near(0), "brush_radius_px": near(60), "brush_strength": near(0.5),
-                                "inspector_scroll": lambda v: float(v) > 100})
+    write_settings("all_options 1\n")
+    s.fdrag(line(MASK_STEPS, (MASK_STEPS[0] + 5, MASK_STEPS[1] - 220), 22))
+    return s, ["--script=show_section mask", f"--settings-file={settings_file()}"], camera_still({"dabs": near(0), "mask_steps": near(3),
+                                "inspector_scroll": lambda v: float(v) > 50})
+
+
+# The Mask section's Steps slider, where the tray shows it at 1600 x 900.
+MASK_STEPS = (1376, 362)
 
 
 @scenario
 def slider_drag_sideways():
-    """A sideways finger drag on the inspector's Strength slider sets it, without orbiting or scrolling."""
+    """A sideways finger drag on the tray's Strength slider sets it, without orbiting or scrolling."""
     s = Script()
-    s.fdrag(line((1376, 433), (1466, 435), 12))
+    s.fdrag(line((1376, 325), (1466, 327), 12))
     return s, [], camera_still({"dabs": near(0), "brush_strength": lambda v: float(v) > 0.6, "inspector_scroll": near(0)})
 
 
@@ -980,9 +985,9 @@ def normal_near(want, degrees):
 def ring_lies_on_the_surface():
     """The brush ring over the sphere's edge lies along the surface there; off the model it is flat."""
     s = Script()
-    s.add("move:1110,330")
+    s.add("move:490,330")
     s.wait(4)
-    return s, [], {"cursor_hit": near(1), "cursor_normal": normal_near(sphere_normal_under(1110, 330), 8), "dabs": near(0)}
+    return s, [], {"cursor_hit": near(1), "cursor_normal": normal_near(sphere_normal_under(490, 330), 8), "dabs": near(0)}
 
 
 @scenario
@@ -1133,14 +1138,15 @@ def rapid_taps():
     return s, [], camera_still({"dabs": near(0), "undo_steps": near(0)})
 
 
-# The Mask section's More options row on the Object tab's Select page at 1600 x 900.
-MASK_MORE = (1276, 750)
+# The Mask section's More options row, where the tray shows it at 1600 x 900: with no mask
+# command run yet, and after one, whose "Last:" line moves it down.
+MASK_MORE = (1275, 655)
+MASK_MORE_AFTER_LAST = (1275, 679)
 
 
 def select_page(s):
-    s.ftap(*UI["tab_object"])
-    s.wait(6)
-    s.ftap(*UI["page_select"])
+    """The palette's Object: Mask: the tray on the Mask section."""
+    palette_run(s, "object mask")
     s.wait(10)
 
 
@@ -1163,7 +1169,7 @@ def more_options_show_the_rest():
     s.press("i", ("ctrl",))
     s.wait(4)
     select_page(s)
-    s.ftap(*MASK_MORE)
+    s.ftap(*MASK_MORE_AFTER_LAST)
     s.wait(20)
     return s, [], camera_still({"dabs": near(0), "more": is_text("mask"), "masked": near(1)})
 
@@ -1252,14 +1258,13 @@ def coach_card_clears_the_bars_on_a_narrow_window():
                                                          "@layout": clear_of("coach", "top_bar", "inspector", "brush_bar", "view_bar")}
 
 
-PRESET_HEAD = (1376, 269)  # the Brush tab's Preset section, folded at first
-PRESET_SAVE_NEW = (1303, 372)  # its Save as preset, on a plain brush
-PRESET_NAME = (1376, 372)  # on a preset: its name field
-PRESET_REVERT = (1451, 424)
+PRESET_SAVE_NEW = (1302, 309)  # the Preset section's Save as preset, on a plain brush
+PRESET_NAME = (1378, 309)  # on a preset: its name field
+PRESET_REVERT = (1451, 363)
 
 
 def save_a_preset(s):
-    s.ftap(*PRESET_HEAD)
+    palette_run(s, "brush preset")
     s.wait(8)
     s.ftap(*PRESET_SAVE_NEW)
     s.wait(8)
@@ -1378,27 +1383,68 @@ def new_scene_from_the_palette():
 
 @scenario
 def object_pages_switch_and_stay():
-    """A finger taps the Object tab, then its Build page; the Brush tab and back keep Build, and nothing is sculpted."""
+    """A finger taps the tray's Object palette, then its Mask section; the Brush palette and back keep Mask, and nothing is sculpted."""
     s = Script()
-    s.ftap(*UI["tab_object"])
+    s.ftap(*UI["list_object"])
     s.wait(6)
-    s.ftap(*UI["page_build"])
+    s.ftap(*TRAY_OBJECT_MASK)
     s.wait(6)
-    s.ftap(*UI["tab_brush"])
+    s.ftap(*UI["list_brush"])
     s.wait(6)
-    s.ftap(*UI["tab_object"])
+    s.ftap(*UI["list_object"])
     s.wait(6)
-    return s, [], camera_still({"dabs": near(0), "inspector_tab": is_text("object"), "object_page": is_text("Build")})
+    return s, [], camera_still({"dabs": near(0), "inspector_tab": is_text("object"), "object_page": is_text("Select"), "tray_section": is_text("Mask")})
+
+
+@scenario
+def show_where_marks_the_control():
+    """Search's Shift+Enter on Blur mask opens the tray on the Object palette's Mask section with its More options open and marks the Blur button; nothing runs or is sculpted."""
+    s = Script()
+    s.press("k", ("ctrl",))
+    s.type("blur mask")
+    s.press("Return", ("shift",))
+    s.wait(10)
+    return s, [], camera_still({"dabs": near(0), "undo_steps": near(0), "palette": near(0), "palette_runs": near(0), "inspector_tab": is_text("object"),
+                                "tray_section": is_text("Mask"), "more": is_text("mask"), "tray_marked": near(1)})
+
+
+@scenario
+def long_press_a_search_row_shows_where():
+    """A finger's long press on search's first row (Layers' New layer) shows where it lives rather than running it: the Object palette's Layers section."""
+    s = Script()
+    s.ftap(*UI["search"])
+    s.wait(4)
+    s.type("new layer")
+    s.wait(4)
+    long_press(s, *UI["palette_row1"])
+    s.wait(10)
+    return s, [], camera_still({"dabs": near(0), "undo_steps": near(0), "palette_runs": near(0), "tray_section": is_text("Layers"), "tray_marked": near(1)})
+
+
+@scenario
+def search_opens_a_section_by_name():
+    """Typing a section's name in search and Enter opens the tray on it: Polypaint, from the Brush palette."""
+    s = Script()
+    palette_run(s, "object polypaint")
+    s.wait(6)
+    return s, [], camera_still({"dabs": near(0), "palette_last": is_text("Show_Section:Paint"), "inspector_tab": is_text("object"), "tray_section": is_text("Paint")})
+
+
+# The Mask row of the tray's list with the Object palette open.
+TRAY_OBJECT_MASK = (1110, 542)
 
 
 @scenario
 def inspector_tab_switch_then_scroll():
-    """After switching the inspector to the Object tab, a first finger drag over its values scrolls it."""
+    """After switching the tray to the Object palette's Mask section (every option shown), a first finger drag over its values scrolls it."""
     s = Script()
-    s.ftap(*UI["tab_object"])
+    write_settings("all_options 1\n")
+    s.ftap(*UI["list_object"])
     s.wait(6)
-    s.fdrag(line((1376, 384), (1381, 144), 20))
-    return s, [], camera_still({"dabs": near(0), "inspector_scroll": lambda v: float(v) > 100, "selected": near(0)})
+    s.ftap(*TRAY_OBJECT_MASK)
+    s.wait(6)
+    s.fdrag(line(MASK_STEPS, (MASK_STEPS[0] + 5, MASK_STEPS[1] - 220), 20))
+    return s, [f"--settings-file={settings_file()}"], camera_still({"dabs": near(0), "inspector_scroll": lambda v: float(v) > 50, "selected": near(0)})
 
 
 def saved_line(line):
@@ -1431,9 +1477,10 @@ def window_tap_on_folded_title_opens_it():
     s.wait(4)
     s.ftap(*INSPECTOR_TITLE)
     s.wait(4)
-    s.fdrag(line((1376, 334), (1381, 114), 22))
-    return s, [], camera_still({"dabs": near(0), "window_inspector": lambda v: v.startswith("1,0,"),
-                                "inspector_scroll": lambda v: float(v) > 100})
+    s.fdrag(line(MASK_STEPS, (MASK_STEPS[0] + 5, MASK_STEPS[1] - 220), 22))
+    write_settings("all_options 1\n")
+    return s, ["--script=show_section mask", f"--settings-file={settings_file()}"], camera_still({"dabs": near(0), "window_inspector": lambda v: v.startswith("1,0,"),
+                                "inspector_scroll": lambda v: float(v) > 50})
 
 
 @scenario
@@ -1475,13 +1522,14 @@ def window_position_comes_back():
 
 @scenario
 def small_window():
-    """A 1280 x 800 window (a tablet's size): the inspector scrolls from the first touch and far-apart taps turn nothing."""
+    """A 1280 x 800 window (a tablet's size): the tray's tall Mask section scrolls from the first touch and far-apart taps turn nothing."""
     s = Script()
-    s.fdrag(line((1110, 334), (1115, 114), 22))
+    write_settings("all_options 1\n")
+    s.fdrag(line((1066, 362), (1071, 142), 22))
     s.ftap(200, 150)
-    s.ftap(1000, 700)
+    s.ftap(300, 700)
     s.ftap(150, 650)
-    return s, ["--width=1280", "--height=800"], camera_still({"dabs": near(0), "inspector_scroll": lambda v: float(v) > 50,
+    return s, ["--width=1280", "--height=800", "--script=show_section mask", f"--settings-file={settings_file()}"], camera_still({"dabs": near(0), "inspector_scroll": lambda v: float(v) > 50,
                                                             "brush_radius_px": near(60)})
 
 
@@ -1621,10 +1669,8 @@ def hide_unmasked_then_undo_shows_it_again():
                                 "@shown": lambda stats: "hidden_triangles" not in stats})
 
 
-# Selection sets: the Object tab's Select page with Mask folded and Selection sets open.
-SETS_FOLD_MASK = (1246, 299)
-SETS_OPEN = (1246, 345)
-SETS_RESTORE_FIRST = (1470, 448)
+# Selection sets: the first set's Restore, where the tray shows the section.
+SETS_RESTORE_FIRST = (1469, 297)
 
 
 def store_set(s):
@@ -1636,13 +1682,7 @@ def store_set(s):
 
 
 def open_sets(s):
-    s.ftap(*UI["tab_object"])
-    s.wait(6)
-    s.ftap(*UI["page_select"])
-    s.wait(10)
-    s.ftap(*SETS_FOLD_MASK)
-    s.wait(10)
-    s.ftap(*SETS_OPEN)
+    palette_run(s, "object selection sets")
     s.wait(12)
 
 
@@ -2022,8 +2062,8 @@ def long_press(s, x, y, finger=0, frames=LONG_PRESS_FRAMES):
 
 
 INSPECTOR_BUTTON = UI["inspector"]
-FOCUS_BUTTON, FRAME_ALL_BUTTON = (1304, 328), (1452, 328)  # the Move tool's tab, above the gizmo's settings
-SCENE_TAB, SCENE_ROW = (1472, 152), (1376, 232)
+FOCUS_BUTTON, FRAME_ALL_BUTTON = (1300, 282), (1452, 282)  # the Move tool's palette, above the gizmo's settings
+SCENE_TAB, SCENE_ROW = UI["objects"], (1376, 186)
 
 
 @scenario
@@ -2062,7 +2102,7 @@ def long_press_shows_the_tooltip_and_does_not_tap():
     """A long press on the Inspector button shows its tooltip and leaves the inspector open; nothing is sculpted."""
     s = Script()
     long_press(s, *INSPECTOR_BUTTON)
-    return s, [], camera_still({"dabs": near(0), "long_tip": lambda v: v == "Inspector",
+    return s, [], camera_still({"dabs": near(0), "long_tip": lambda v: v == "Palettes",
                                 "window_inspector": lambda v: v.startswith("1,0,")})
 
 
@@ -2080,7 +2120,7 @@ def long_press_a_scene_row_opens_its_menu():
 # eye at a row's right end, its ghost just before it (scene_tree.odin, ui.tree_row), and
 # where each sphere shows in the starting view.
 THREE = ["--spheres=3", "--vertices=20000"]
-SCENE_ROWS_Y = [232, 286, 340]
+SCENE_ROWS_Y = [186, 240, 294]
 SCENE_EYE_X, SCENE_GHOST_X, SCENE_ROW_X = 1496, 1451, 1346
 SPHERES3 = [(630, 410), (800, 450), (1006, 498)]
 
@@ -2194,9 +2234,9 @@ def undo_keeps_an_object_hidden():
 
 # A folder's row with three spheres after Ctrl+G on the first: its chevron at the left,
 # and its menu's rows where a right-click at FOLDER_MENU_AT puts them.
-FOLDER_CHEVRON = (1260, 232)
-FOLDER_MENU_AT = (1366, 232)
-FOLDER_MENU = {"rename": (1376, 260), "select": (1376, 304), "ungroup": (1376, 349), "delete": (1376, 393)}
+FOLDER_CHEVRON = (1260, 186)
+FOLDER_MENU_AT = (1366, 186)
+FOLDER_MENU = {"rename": (1376, 214), "select": (1376, 258), "ungroup": (1376, 303), "delete": (1376, 347)}
 
 
 def folder_first(s):
@@ -2370,7 +2410,7 @@ def finger_holds_a_ghost_then_slides_down_the_column():
     return s, THREE, {"objects_ghost": near(2), "objects_off": near(0), "selected": near(2), "inspector_scroll": near(0)}
 
 
-SELECT_SEVERAL = (1499, 394)  # the Scene tab's switch, with three spheres and one selected
+SELECT_SEVERAL = (1499, 348)  # the Scene tab's switch, with three spheres and one selected
 
 
 @scenario
@@ -2528,7 +2568,7 @@ def right_click_undo_opens_history():
 def long_press_dock_tile_opens_its_slot_menu():
     """A long press on Smooth in the dock opens its slot menu; Brush settings there picks Smooth and turns the inspector to its settings, from the Object tab."""
     s = Script()
-    s.ftap(*UI["tab_object"])
+    s.ftap(*UI["list_object"])
     s.wait(6)
     long_press(s, *UI["dock_smooth"])
     s.wait(10)
@@ -4006,7 +4046,7 @@ def adjust_remesh_from_the_bar():
 # its Amount slider's left end (0%) here at 1600x900.
 ADJUST_STROKE_NONE = (662, 788)
 # The middles of the History panel bar's three steps, after three strokes.
-TIMELINE_STEPS_OF_3 = [(566, 615), (800, 615), (1033, 615)]
+TIMELINE_STEPS_OF_3 = [(647, 597), (800, 597), (952, 597)]
 # mesh_sum after the History scenario's two Draw strokes, before the History brush.
 HISTORY_DRAWN_SUM = 7.81
 
@@ -4125,7 +4165,7 @@ def deformers_from_the_palette():
     return Steps([(run(drag), [], camera_still(want)) for drag in (mouse, finger, pen)])
 
 
-DEFORM_AMOUNT = (1378, 748)  # the Deformers section's Amount slider, opened by the palette
+DEFORM_AMOUNT = (1378, 427)  # the Deformers section's Amount slider, opened by the palette
 
 
 @scenario
@@ -4138,6 +4178,9 @@ def lattice_point_dragged():
         s = Script()
         s.wait(3)
         palette_run(s, "lattice")
+        s.wait(3)
+        # The tray the palette opened on Deformers hides the cage's side: Tab puts it away.
+        s.press("Tab")
         s.wait(3)
         s.press("w")
         s.wait(5)
@@ -4259,9 +4302,9 @@ def timeline_tap_and_drag_by_finger():
         click(s, UI["history"])
         s.wait(20)
         if drag:
-            s.fdrag(line(TIMELINE_STEPS_OF_3[2], (452, 615), 12))
+            s.fdrag(line(TIMELINE_STEPS_OF_3[2], (480, 597), 12))
         else:
-            s.ftap(683, 615)
+            s.ftap(718, 597)
         s.wait(30)
         done = 0 if drag else 1
         return s, [], camera_still({"undo_steps": near(done, 0), "redo_steps": near(3 - done, 0)})
@@ -4618,23 +4661,17 @@ def shape_clip_line_waits():
 
 # Object > Shape > Rebuild (rebuild.odin). The sections above it are folded first, so the
 # section sits at the same place whatever they hold.
-REBUILD_FOLD = [(1376, 299), (1376, 345)]  # Transform, then Subdivision levels under it
-REBUILD_HEADER = (1376, 483)
-REBUILD_GOALS = {"even": (1284, 528), "fewer": (1377, 528), "quads": (1471, 528)}
-REBUILD_DENSITY = (1406, 586)  # on the Density slider's track
-REBUILD_APPLY = (1377, 688)
+TRAY_OBJECT_REBUILD = (1116, 446)  # the Rebuild row of the tray's list, the Object palette open
+REBUILD_GOALS = {"even": (1284, 236), "fewer": (1377, 236), "quads": (1471, 236)}
+REBUILD_DENSITY = (1406, 296)  # on the Density slider's track
+REBUILD_APPLY = (1377, 409)
 
 
 def open_rebuild(s, goal=None, tap=click):
     s.wait(3)
-    tap(s, UI["tab_object"])
+    tap(s, UI["list_object"])
     s.wait(6)
-    tap(s, UI["page_shape"])
-    s.wait(6)
-    for at in REBUILD_FOLD:
-        tap(s, at)
-        s.wait(10)
-    tap(s, REBUILD_HEADER)
+    tap(s, TRAY_OBJECT_REBUILD)
     s.wait(10)
     if goal:
         tap(s, REBUILD_GOALS[goal])
@@ -4848,9 +4885,9 @@ def transform_values_undo_per_drag():
     the reset alone."""
     s = Script()
     write_settings("all_options 1\n")
-    click(s, UI["tab_object"])
-    s.mouse_drag(line((1377, 350), (1477, 350), 10))
-    click(s, (1377, 794))
+    click(s, UI["list_object"])
+    s.mouse_drag(line((1377, 243), (1477, 243), 10))
+    click(s, (1377, 697))
     s.press("z", ("ctrl",))
     dragged = transform_is(lambda x, y, z, rx, ry, rz, sc: abs(x - 0.5) < 0.02 and (y, z, sc) == (0, 0, 1))
     return s, [f"--settings-file={settings_file()}"], camera_still({"inspector_tab": is_text("object"), "transform": dragged, "undo_steps": near(1), "redo_steps": near(1), "transform_undo": near(1)})

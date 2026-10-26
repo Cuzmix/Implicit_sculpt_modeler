@@ -118,7 +118,7 @@ are on the device checklist.
   `gizmo_at` (where the gizmo's centre was drawn), `gizmo_mode`, `gizmo_hover`, `gizmo_last` (the handle of the last drag that changed something), `gizmo_drags`, `gizmo_snap`, `transform` (x,y,z,turns,scale of the selected object; `transform_is(test)` reads it), `transform_undo`, `gizmo_pivot`, `gizmo_pivot_latch`, `gizmo_entry` (the `GIZMO_*` points and `gizmo_where` assume the starting sphere and camera; `type_value(s, text)` types into the field with the keys and presses Enter),
   `objects_shown`, `objects_off`, `objects_ghost`, `solo` (the Scene tab's eyes and ghosts; `THREE` starts three spheres, `SCENE_ROWS_Y`, `SCENE_EYE_X` and `SPHERES3` say where their rows and bodies are),
   `folders`, `tree_rows` (rows the Scene tab drew), `scene_order` (object ids in list order), `scene_folders` (each one's folder id), `scene_names` (labels with spaces as `_`, then `;Folder_1:open,...`; `folder_first(s)` makes a folder of the first sphere, `FOLDER_*` are its row and menu, `SCENE_GRIP_X` a loose object row's grip for drags), `selected_count` (the primary and the rest of a multi-select; `SELECT_SEVERAL` is its switch with three spheres), `scene_positions` (each object's `x:y:z` in list order),
-  `touch_repeats` (undo and redo steps taken by holding fingers), `inspector_tab`, `brush_kind`, `tool`, `palette` (open),
+  `touch_repeats` (undo and redo steps taken by holding fingers), `inspector_tab` (the tray's palette), `tray_section`, `tray_marked` (Show where's ring is on a control), `brush_kind`, `tool`, `palette` (open),
   `palette_runs`, `palette_last` (the last row it ran, by its saved name: `Wireframe`, `Brush:Clay`), `settings_tab`, `layout_<name>` (x,y,w,h of the
   modifier rail, brush bar, view bar, top bar, dock, dock pages, points (the object's readout) and inspector), ...); `camera_still()` checks nothing moved; keys starting with `@` are checks given every stat at once or checks on
   files, such as `saved(key="value")` and `saved_line(line)` on the settings file, or `on_screen` comparing where a
@@ -159,8 +159,8 @@ are on the device checklist.
 ## 6. Real-device checklist (for Bolt, or a session on the device)
 Record the device, OS version, build (commit, debug or release) and whether a finger or the pen was used. For each:
 what was done, what should happen, what happened; a screen recording when something is wrong; `adb logcat -s SDL/APP`.
-1. Tap every toolbar button, the dock, the inspector tabs and Settings rows: the view never turns, nothing is sculpted.
-2. First touch on an inspector slider, drag up: the inspector scrolls, the slider keeps its value; drag sideways: it sets.
+1. Tap every toolbar button, the dock, the tray's list of palettes and sections and Settings rows: the view never turns, nothing is sculpted.
+2. First touch on a tray slider in a section taller than the tray, drag up: the tray scrolls, the slider keeps its value; drag sideways: it sets.
 3. One finger on the model sculpts at once with no dot left by a second finger landing; on empty space it orbits.
 4. Pen on the model sculpts with pressure; a palm resting while the pen hovers does nothing; the pen landing mid-touch cancels it.
 5. Two fingers: pan, pinch toward the fingers, twist to roll (Free); quick two-finger tap undoes, three redoes.

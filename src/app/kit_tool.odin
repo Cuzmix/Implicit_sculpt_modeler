@@ -7,9 +7,9 @@ import "../gizmo"
 import "../sculpt"
 import "../ui"
 
-// The inspector's first tab: the tool in use, and everything that sets it up.
+// The tray's first palette: the tool in use, and everything that sets it up.
 
-// The tab's name, after the tool it shows.
+// The palette's name, after the tool it shows.
 kit_tool_name :: proc(tool: Tool) -> string {
 	switch tool {
 	case .Brush:  return "Brush"
@@ -29,7 +29,7 @@ kit_tool_tab :: proc(app: ^App) {
 	}
 }
 
-// The tab's heading: an icon on a badge, a title, and a line of help under them.
+// The palette's heading: an icon on a badge, a title, and a line of help under them.
 kit_tool_head :: proc(ctx: ^ui.Context, glyph: rune, title, help: string) {
 	t := ctx.theme
 	ui.begin(ctx, "tool head", {direction = .Row, gap = 10, center = true})
@@ -50,24 +50,22 @@ kit_brush_tab :: proc(app: ^App) {
 	kind := app.brush.kind
 	help, _ := strings.replace_all(string(BRUSHES[kind].help), "\n", " ", context.temp_allocator)
 	kit_tool_head(ctx, BRUSHES[kind].icon, BRUSHES[kind].name, help)
+	shown := tray_section(app, .Tool)
 	for sec in BRUSH_SECTIONS {
-		if sec.shown != nil && !sec.shown(app) do continue
-		// The Preset section's title names the preset even while it is folded; the "##"
-		// part keeps its id the same whatever it reads.
+		if sec.section != shown do continue
+		// The Preset section's title names the preset, and whether it has changed.
 		title := sec.title
 		if sec.section == .Preset {
 			p, on := brush_preset(app)
-			title = fmt.tprintf("Preset: %s%s##preset", preset_name(p) if on else "none", " · changed" if preset_changed(app) else "")
+			title = fmt.tprintf("Preset: %s%s", preset_name(p) if on else "none", " · changed" if preset_changed(app) else "")
 		}
-		if ui.section(ctx, title, &k.open[sec.section]) {
-			sec.draw(app)
-			ui.section_end(ctx)
-		}
+		kit_section_title(ctx, title)
+		sec.draw(app)
 	}
 }
 
-// One section of a tab that is not per object (the Brush and Scene tabs): its fold
-// state, its title, what it draws, and when it shows (always, when nil).
+// One section of a palette that is not per object (the Brush and Scene palettes): which
+// it is, its title, what it draws, and when it is offered (always, when nil).
 Kit_Tab_Section :: struct {
 	section: Kit_Section,
 	title:   string,
@@ -75,7 +73,7 @@ Kit_Tab_Section :: struct {
 	shown:   proc(app: ^App) -> bool,
 }
 
-// The Brush tab's sections in the order shown.
+// The Brush palette's sections in the order shown.
 @(rodata)
 BRUSH_SECTIONS := [?]Kit_Tab_Section {
 	{.Preset, "Preset", kit_preset, nil},
@@ -280,7 +278,7 @@ kit_move_tab :: proc(app: ^App) {
 		ui.paragraph(ctx, "Posing: a mask is on, so the handles bend the unmasked part about the gizmo, which sits on the mask's soft edge; a drag on the object still moves all of it. Clear the mask to move the object with the handles again.")
 	}
 	ui.paragraph(ctx, "Ctrl + drag from the model (or with the rail's Mask on) masks along the surface: free near the press, masked as far as the drag reaches, ready to pose. Alt the other way round.")
-	ui.paragraph(ctx, "The Object tab places the selected object exactly: position, turn and scale.")
+	ui.paragraph(ctx, "The Object palette places the selected object exactly: position, turn and scale.")
 }
 
 @(private = "file")
@@ -293,6 +291,6 @@ kit_curve_tab :: proc(app: ^App) {
 @(private = "file")
 kit_insert_tab :: proc(app: ^App) {
 	ctx := &app.kit.ctx
-	kit_tool_head(ctx, ui.ICON_SHAPES, "Insert", "Click the surface to put the shape there, standing on it, the brush's size; drag to size it. Mark it Subtract with Live boolean on (Object tab) to cut it out.")
+	kit_tool_head(ctx, ui.ICON_SHAPES, "Insert", "Click the surface to put the shape there, standing on it, the brush's size; drag to size it. Mark it Subtract with Live boolean on (Object palette) to cut it out.")
 	kit_insert_settings(app)
 }

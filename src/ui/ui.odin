@@ -291,6 +291,13 @@ Context :: struct {
 	// How many controls (buttons, sliders, switches, tabs, fields...) were laid out since
 	// init, disabled ones included: what tests count to keep a section's basic part short.
 	controls:         int,
+	// A control to find this frame (mark_next): the count `controls` reaches as it is laid
+	// out, and where place put it once it has been.
+	marked:           struct {
+		control: int,
+		rect:    Rect,
+		found:   bool,
+	},
 	// The last widget laid out, if it took the pointer (interact): what secondary acts on.
 	// A widget that returns early, a disabled one, leaves it 0.
 	last_id:          Id,
@@ -332,6 +339,7 @@ frame_begin :: proc(ctx: ^Context, input: Input) {
 	ctx.input = input
 	if ctx.input.pixel_density <= 0 do ctx.input.pixel_density = 1
 	ctx.clicked_now = false
+	ctx.marked = {}
 	// A frame that took long (a remesh) moves animations on by at most a tenth of a
 	// second, so a panel does not skip from start to end mid-animation.
 	before := ctx.time
@@ -587,7 +595,15 @@ place :: proc(ctx: ^Context, size: [2]f32) -> Rect {
 			pos.x += max((inner - size.x) * 0.5, 0)
 		}
 	}
-	return {pos.x, pos.y, size.x, size.y}
+	r := Rect{pos.x, pos.y, size.x, size.y}
+	if m := &ctx.marked; m.control > 0 && !m.found && ctx.controls >= m.control do m.rect, m.found = r, true
+	return r
+}
+
+// Marks the next control laid out, so that ctx.marked holds where it went: what shows a
+// control that something points at (search's Show where). Called just before the control.
+mark_next :: proc(ctx: ^Context) {
+	ctx.marked = {control = ctx.controls + 1}
 }
 
 // The width a widget can take across a column: the container's fixed width less its

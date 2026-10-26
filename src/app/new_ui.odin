@@ -15,12 +15,13 @@ import "../sculpt"
 import "../ui"
 
 // The interface: one layout for every screen, drawn by the ui kit over a viewport that
-// fills the window (the design spec "Sculpt UI redesign"). Toolbars float at the top,
-// the inspector (the tool, the object and the scene) on the right, size and strength on
-// the left, the brush dock at the bottom, and the History over the dock when it is open.
-// Everything the app shows is drawn by the kit (src/ui).
+// fills the window (the design spec "Sculpt UI redesign", laid out as ZBrush for iPad).
+// The top bar holds files and the app's panels, the brush bar runs down the left and the
+// view bar down the right, the palette tray (the tool, the object and the scene) sits
+// beside the view bar, the bottom bar holds the brushes and the mesh tools, and the
+// History opens over it. Everything the app shows is drawn by the kit (src/ui).
 
-// The inspector's tabs.
+// The palette tray's palettes (kit_tray.odin).
 Kit_Tab :: enum u8 {
 	Tool,
 	Object,
@@ -33,9 +34,20 @@ Kit_State :: struct {
 	scale:      f32, // window coordinates per point, this frame
 	last_frame: time.Tick, // for the animations' clock
 	fixed_dt:   f32, // seconds a frame on that clock instead, when above 0 (--ui-dt)
-	inspector:  bool,
-	tab:        Kit_Tab,
-	object_page: Object_Page, // the Object tab's page
+	inspector:  bool, // the palette tray is open
+	tab:        Kit_Tab, // ...on this palette
+	section:    [Kit_Tab]Kit_Section, // the section each palette shows
+	object_page: Object_Page, // the page of the Object palette's section, for the exit stats
+	list_scroll: f32, // the tray's list of palettes and sections, scrolled
+	list_reveal: int, // ...to the section shown, for this many more frames
+	// Search's Show where (tray_show): the command whose control the tray marks, since
+	// when; and whether the tray's content is being drawn, where the mark is looked for.
+	pointed:    struct {
+		id:    Command_Id,
+		arg:   int,
+		since: f64,
+	},
+	in_tray:    bool,
 	tab_serial: u64, // counts tab changes, so each one fades its content in afresh
 	recover_shown: bool, // the recovery card showed this frame (kit_recover.odin)
 	menu:       bool,
@@ -135,15 +147,15 @@ Kit_State :: struct {
 	object_menu:    bool,
 	object_menu_id: int,
 	object_menu_at: ui.Rect,
-	object_menu_side: ui.Side, // at the pointer from the Scene tab, above the status chip
-	// A folder's menu in the Scene tab, the rename field over a row, and how many rows
+	object_menu_side: ui.Side, // at the pointer from the Scene palette, above the status chip
+	// A folder's menu in the Scene palette, the rename field over a row, and how many rows
 	// the tree drew last (for the exit stats).
 	folder_menu:    bool,
 	folder_menu_id: int,
 	folder_menu_at: ui.Rect,
 	rename:         Rename_Entry,
 	tree_rows:      int,
-	// Select several (the Scene tab's switch): a tap on a row, or with the Move tool on an
+	// Select several (the Scene palette's switch): a tap on a row, or with the Move tool on an
 	// object, adds it to the selection or takes it out, as Shift does.
 	select_several: bool,
 	// A row dragged by its grip and an eye or ghost column being dragged down
@@ -154,12 +166,8 @@ Kit_State :: struct {
 	inspector_body: ui.Rect,
 	inspector_limit:  f32,
 	inspector_shown:  f32, // how far the body is scrolled as drawn (the scroll tweens toward k.scroll)
-	// An Object tab section a command opened (the palette's Bend), which the body scrolls
-	// to the top of while it unfolds, for this many more frames.
-	reveal:         Kit_Section,
-	reveal_frames:  int,
-	// Which inspector sections are open, and which show their More options; with
-	// all_options (Settings > Interface) every section shows everything.
+	// Which Stats sections are open, and which tray sections show their More options;
+	// with all_options (Settings > Interface) every section shows everything.
 	open:       [Kit_Section]bool,
 	more:       [Kit_Section]bool,
 	all_options: bool,
@@ -277,8 +285,10 @@ window_slide :: proc(w: ui.Window, default: ui.Anchor) -> f32 {
 	return 1 if (w.x if w.moved else default) == .End else -1
 }
 
+// The sections of the tray's palettes, then the Stats panel's: the tray's come first and
+// end with Camera (TRAY_SECTIONS), each palette's together (section_palette).
 Kit_Section :: enum u8 {
-	// The tool tab's.
+	// The Brush palette's.
 	Preset,
 	Stroke,
 	Paint_Color,
@@ -288,7 +298,7 @@ Kit_Section :: enum u8 {
 	Pen,
 	Options,
 	Recorder,
-	// The object tab's.
+	// The Object palette's.
 	Transform,
 	Levels,
 	Hd,
@@ -308,7 +318,8 @@ Kit_Section :: enum u8 {
 	Project,
 	Booleans,
 	Extract,
-	// The scene tab's.
+	// The Scene palette's.
+	Objects,
 	Add,
 	Material,
 	Studio,
@@ -562,8 +573,10 @@ kit_init :: proc(app: ^App) {
 	k := &app.kit
 	k.inspector = true
 	k.look = .Studio
-	// The sections most reached for start open; the rest fold until asked for.
-	for s in ([?]Kit_Section{.Stroke, .Paint_Color, .Recall, .Falloff, .Transform, .Levels, .Mask, .Groups, .Layers, .Paint, .Add, .Frame, .Sculpting}) do k.open[s] = true
+	// Each palette starts on its section most reached for, and the Stats panel with its
+	// commonest sections open.
+	k.section = {.Tool = .Stroke, .Object = .Transform, .Scene = .Objects}
+	for s in ([?]Kit_Section{.Frame, .Sculpting}) do k.open[s] = true
 	k.add_size = 2 // 1M
 	k.ui_scale = 1
 	k.surface_ring = true
@@ -737,9 +750,6 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 	layer_drag_end(app)
 	deform_drag_end(app)
 	lattice_frame(app)
-	// A reveal lasts its frames whether or not the section was drawn in them (the
-	// inspector minimised, another tab picked), so it never scrolls the panel later.
-	if k.reveal_frames > 0 do k.reveal_frames -= 1
 	transform_drag_end(app)
 	tree_column_send(app)
 	// Text input (and with it a tablet's on-screen keyboard) is on only while a text
@@ -903,12 +913,14 @@ kit_layout :: proc(app: ^App) {
 	kit_pie_editor(app)
 }
 
-// The inspector: the tool, the selected object or the scene, in tabs, sliding in from
-// the right, in a window (Tab or Close hides it, the Inspector button brings it back).
-// When its content is taller than the room under the title bar it scrolls, with the wheel
-// or by dragging it (a finger or a pen has no wheel): from where no control is, at once,
-// and from a control once the drag goes up or down rather than sideways
-// (ui.scroll_update). Returns true when a press landed on it, to bring it to the front.
+// The palette tray (kit_tray.odin): the tool's, the object's or the scene's palette, a
+// section at a time, sliding in from the right, in a window (Tab or Close hides it, the
+// Palettes button brings it back). On a wide window the list of palettes and their
+// sections runs down its left; on a narrow one a select over the content holds it. When
+// the content is taller than the room under the title bar it scrolls, with the wheel or
+// by dragging it (a finger or a pen has no wheel): from where no control is, at once, and
+// from a control once the drag goes up or down rather than sideways (ui.scroll_update).
+// Returns true when a press landed on it, to bring it to the front.
 @(private = "file")
 kit_inspector :: proc(app: ^App) -> (raised: bool) {
 	k := &app.kit
@@ -922,51 +934,65 @@ kit_inspector :: proc(app: ^App) -> (raised: bool) {
 	top := kit_top()
 	right := kit_right(app)
 	room := window_room(app, win^, top)
+	width := tray_width(app)
 	if !win.moved {
-		// Where it starts, clear of what sits below it: the modifier rail when it is on the
-		// right, and the dock when the window is narrow enough for them to meet.
+		// Where it starts, clear of what sits below it: the modifier wheel when it is on
+		// the right, and the dock when the window is narrow enough for them to meet.
 		area := ui.safe_area(ctx)
 		dock_size, _ := ui.prev_layout(ctx, "dock")
 		below: f32 = 0
 		stack_h := dock_stack(app)
-		if area.w * 0.5 + dock_size.x * 0.5 + 8 > area.w - right - KIT_INSPECTOR_W do below = max(below, stack_h + 8)
+		if area.w * 0.5 + dock_size.x * 0.5 + 8 > area.w - right - width do below = max(below, stack_h + 8)
 		if reach := rail_reach(app, .Right); reach > 0 do below = max(below, reach - t.edge + 8)
 		room -= below
 	}
 	PADDING :: 12
 	GAP :: 6
 	inner := f32(KIT_INSPECTOR_W - 2 * PADDING)
+	wide := tray_wide(app)
 
 	mark := ui.vertex_mark(ctx)
-	body, closed, raised_now := ui.window_begin(ctx, "inspector", "Inspector", win, .End, .Start, {right, top}, {direction = .Column, gap = GAP, padding = PADDING, width = KIT_INSPECTOR_W, radius = t.radius_large, background = .Panel, inert = !k.inspector || side_panel_open(k)}, "Tab")
+	body, closed, raised_now := ui.window_begin(ctx, "inspector", palette_title(app, k.tab), win, .End, .Start, {right, top}, {direction = .Column, gap = GAP, padding = PADDING, width = width, radius = t.radius_large, background = .Panel, inert = !k.inspector || side_panel_open(k)}, "Tab")
 	raised = raised_now
 	if closed do k.inspector = false
 	if body {
-		// The tabs and the tab's content scroll under the title bar, in the room left.
+		// The list and the section scroll apart under the title bar, in the room left.
 		body_h := max(room - 2 * PADDING - t.target - GAP, 120)
+		if wide {
+			ui.begin(ctx, "tray", {direction = .Row, gap = TRAY_NAV_GAP})
+			kit_tray_list(app, body_h)
+		}
 		scroll := kit_scroll_begin(ctx, "inspector body", &k.scroll, id, inner, body_h, GAP)
 		k.inspector_body, k.inspector_limit, k.inspector_shown = scroll.at, scroll.limit, scroll.shown
-		tab_names := [len(Kit_Tab)]string{kit_tool_name(app.tool), "Object", "Scene"}
-		if picked := ui.tabs(ctx, "inspector tabs", tab_names[:], int(k.tab)); picked >= 0 {
-			if Kit_Tab(picked) != k.tab do k.tab_serial += 1
-			k.tab = Kit_Tab(picked)
-			k.scroll = 0
-		}
-		ui.spacer(ctx, 4)
-		// A new tab's content fades in: each change starts a tween of its own from 0.
+		if !wide do kit_tray_select(app)
+		// A new section's content fades in: each change starts a tween of its own from 0.
 		content := ui.vertex_mark(ctx)
+		k.in_tray = true
 		switch k.tab {
 		case .Tool:   kit_tool_tab(app)
 		case .Object: kit_object_tab(app)
 		case .Scene:  kit_scene_tab(app)
 		}
+		k.in_tray = false
 		fade := ui.tween_from(ctx, ui.salt(id, 1000 + k.tab_serial), 0, 1, t.indicator_time)
 		ui.transform_since(ctx, content, fade)
+		tray_mark_draw(app)
 		kit_scroll_end(ctx, scroll)
+		if wide do ui.end(ctx)
 	}
 	ui.window_end(ctx)
 	ui.transform_since(ctx, mark, shown, 1, {}, {window_slide(win^, .End) * (1 - shown) * 16, 0})
 	return
+}
+
+// Whether the tray has room for its list beside the content.
+tray_wide :: proc(app: ^App) -> bool {
+	return ui.safe_area(&app.kit.ctx).w >= TRAY_NAV_MIN_W
+}
+
+// The tray's width: the content's, and the list's beside it when there is room.
+tray_width :: proc(app: ^App) -> f32 {
+	return KIT_INSPECTOR_W + (TRAY_NAV_W + TRAY_NAV_GAP if tray_wide(app) else 0)
 }
 
 // SPHERE_PRESETS' labels as strings, for selects.
@@ -1045,7 +1071,7 @@ slider_hint :: proc(app: ^App, keys: string, step: Command_Id) -> string {
 	return hint_join(keys, command_gesture(app, step))
 }
 
-// Picks brush `kind` and shows its settings: the inspector, on the tool's tab, from the top.
+// Picks brush `kind` and shows its settings: the tray, on the tool's palette, from the top.
 brush_settings_open :: proc(app: ^App, kind: sculpt.Brush_Kind) {
 	k := &app.kit
 	command_run(app, .Brush, int(kind))
@@ -1059,7 +1085,7 @@ object_menu_open :: proc(app: ^App, id: int, at: ui.Rect, side: ui.Side) {
 	k.object_menu, k.object_menu_id, k.object_menu_at, k.object_menu_side = true, id, at, side
 }
 
-// The object's context menu: at the pointer from the Scene tab, above the status chip.
+// The object's context menu: at the pointer from the Scene palette, above the status chip.
 @(private = "file")
 kit_object_menu :: proc(app: ^App) {
 	k := &app.kit
@@ -1103,7 +1129,7 @@ folder_menu_open :: proc(app: ^App, id: int, at: ui.Rect) {
 	k.folder_menu, k.folder_menu_id, k.folder_menu_at = true, id, at
 }
 
-// A folder's menu in the Scene tab: rename it, empty it into the list, or delete it with
+// A folder's menu in the Scene palette: rename it, empty it into the list, or delete it with
 // what is in it.
 @(private = "file")
 kit_folder_menu :: proc(app: ^App) {

@@ -443,7 +443,7 @@ rename_text_is_trimmed_and_shown_whole :: proc(t: ^testing.T) {
 	testing.expect_value(t, rename_text(blank[:]), "")
 }
 
-// Dragging rows in the Scene tab: an object moves before another, into and out of a
+// Dragging rows in the Scene palette: an object moves before another, into and out of a
 // folder; a folder moves with its objects; each is one undo step, and a drop where the
 // row already was records none.
 @(test)

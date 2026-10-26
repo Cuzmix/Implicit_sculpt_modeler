@@ -97,7 +97,7 @@ set_id_at :: proc(app: ^App, index: int) -> u32 {
 	return sets[index].id if index >= 0 && index < len(sets) else 0
 }
 
-// The Object tab's Selection sets section.
+// The Object palette's Selection sets section.
 kit_sets :: proc(app: ^App, obj: ^Object) {
 	ctx := &app.kit.ctx
 	ready := sets_ready(app, obj, say = false)

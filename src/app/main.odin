@@ -23,13 +23,13 @@ import "../ui"
 
 Options :: struct {
 	frames:    int `usage:"Exit after this many frames (0 runs until the window closes)."`,
-	no_settings: bool `usage:"Neither read nor write the remembered settings (brush, view, Scene tab choices, the Settings panel); runs with --frames or a benchmark never do."`,
+	no_settings: bool `usage:"Neither read nor write the remembered settings (brush, view, Scene palette choices, the Settings panel); runs with --frames or a benchmark never do."`,
 	settings_file: string `usage:"Read and write the remembered settings at this path instead of the per-user folder, scripted runs included (for testing that settings persist)."`,
 	coach: bool `usage:"Show the first-run tips from the first one, even in a scripted run (an interactive run shows them until they are done or skipped)."`,
 	gpu_debug: bool `usage:"Create the GPU device in debug mode (enables validation where available)."`,
 	subdiv:    int `usage:"Icosphere subdivision level (default 6)."`,
 	vertices:  int `usage:"Start with a geodesic sphere of about this many vertices instead (e.g. 10000000)."`,
-	shape:     string `usage:"Start with this shape instead of spheres: cube, cylinder, cone or torus (of --vertices vertices, 40962 when not given), as the Scene tab's Add object does."`,
+	shape:     string `usage:"Start with this shape instead of spheres: cube, cylinder, cone or torus (of --vertices vertices, 40962 when not given), as the Scene palette's Add object does."`,
 	threads:   int `usage:"Worker threads for sculpting, including the main thread (default: one per core)."`,
 	width:     int `usage:"Initial window width (default 1600)."`,
 	height:    int `usage:"Initial window height (default 900)."`,
@@ -60,7 +60,7 @@ Options :: struct {
 	no_vsync:  bool `usage:"Show each frame as soon as it is ready instead of waiting for the display's refresh, so frame times are not capped at the refresh rate."`,
 	time_gpu:  bool `usage:"Measure the GPU time of the 3D viewport every frame. Waits for the GPU each frame, so frames no longer overlap."`,
 	gpubench:  string `usage:"Time the GPU and CPU while orbiting and sculpting one sphere at 500k, 1M, 5M, 7M and 10M vertices (only --vertices when given), with each speed setting on and off; write the markdown tables to this path and exit."`,
-	gpu_smooth: bool `usage:"Start with the Object tab's Deformation > On the GPU on, so Smooth all runs as a compute shader (the GPU compute trial)."`,
+	gpu_smooth: bool `usage:"Start with the Object palette's Deformation > On the GPU on, so Smooth all runs as a compute shader (the GPU compute trial)."`,
 	compute_bench: string `usage:"Time Smooth all on the CPU and as a GPU compute shader, upload and readback included, at 500k, 1M, 5M, 7M and 10M vertices (only --vertices when given); check the GPU's result against the CPU's, write the markdown tables to this path and exit."`,
 	bake:       string `usage:"On exit, bake the first object's detail onto the selected quad object (from retopologize in a start-up script) into this folder, as Bake maps... does (before --export)."`,
 	bake_size:  int `usage:"Texels square for --bake (512, 1024, 2048 or 4096; default 2048)."`,
@@ -110,7 +110,7 @@ App :: struct {
 	stroke:   Stroke,
 	script:   Script_Run, // the script running: the start-up one (--run, --script), or a macro
 	startup_script: Script_Outcome, // how the start-up script went, for the exit stats and files
-	alphas:   [dynamic]Alpha_Entry, // the brush alphas the Brush tab offers (alphas.odin)
+	alphas:   [dynamic]Alpha_Entry, // the brush alphas the Brush palette offers (alphas.odin)
 	presets:      [MAX_PRESETS]Brush_Preset, // the user's brush presets (presets.odin), the first preset_count in use
 	preset_count: int,
 	// The user's key changes (keymap.odin), and the bindings in effect built from them.
@@ -999,6 +999,9 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			more = name if more == "none" else strings.concatenate({more, "+", name}, context.temp_allocator)
 		}
 		fmt.printfln("more=%s all_options=%d", more, int(k.all_options))
+		// The section the tray's open palette shows, whether Show where's mark is on a
+		// control, and the Mask section's Steps.
+		fmt.printfln("tray_section=%v tray_marked=%d mask_steps=%d", tray_section(&app, k.tab), int(k.pointed.id != .None && k.ctx.marked.found), app.ui.mask_steps)
 		fmt.printfln("coach=%d coach_shown=%d coach_step=%s", k.coach, int(k.coach_shown), strings.to_lower(fmt.tprint(k.coach_last), context.temp_allocator) if k.coach_shown else "none")
 		// The action bar's groups as it last showed them (none while it waits for room), and
 		// how often the mask was read.

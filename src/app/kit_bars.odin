@@ -35,7 +35,7 @@ LOOK_NAMES := [Look]string {
 TOP_BAR_H :: 52
 BAR_EDGE :: 4
 
-// What a side bar's popover holds: one inspector section, a value's tall slider, the
+// What a side bar's popover holds: one tray section, a value's tall slider, the
 // three symmetry axes, or the save actions.
 Bar_Pop_Kind :: enum u8 {
 	Section,
@@ -95,7 +95,7 @@ kit_card_place :: proc(app: ^App, most, least: f32) -> (shift, w, top: f32, fits
 	k := &app.kit
 	area := ui.safe_area(&k.ctx)
 	left := kit_left(app)
-	right := kit_right(app) + (KIT_SETTINGS_W + 8 if side_panel_open(k) else KIT_INSPECTOR_W + 8 if k.inspector else 0)
+	right := kit_right(app) + (KIT_SETTINGS_W + 8 if side_panel_open(k) else tray_width(app) + 8 if k.inspector else 0)
 	room := area.w - left - right
 	if room < least do return
 	w = min(most, room)
@@ -170,7 +170,7 @@ kit_top_bar :: proc(app: ^App) -> (menu_anchor: ui.Rect) {
 }
 
 // Under the top bar's left end: the selected object, its level, and how many vertices
-// it and the whole scene have. A tap shows it in the inspector's Object tab; a long press
+// it and the whole scene have. A tap shows it in the tray's Object palette; a long press
 // (or a right-click) opens its menu under it.
 kit_points :: proc(app: ^App) {
 	k := &app.kit
@@ -191,8 +191,7 @@ kit_points :: proc(app: ^App) {
 	if bar := ui.prev_rect(ctx, "brush bar"); bar.h > 0 && bar.y - ui.safe_area(ctx).y < points_bottom(app) do x = kit_left(app)
 	ui.begin_anchored(ctx, "points", .Start, .Start, {x, TOP_BAR_H + 4}, {direction = .Column})
 	if ui.readout(ctx, "Object settings", lines[:]) {
-		side_panel_close(app)
-		k.inspector, k.tab = true, .Object
+		tray_open(app, tray_section(app, .Object))
 	}
 	if ui.secondary(ctx) do object_menu_open(app, obj.id, ctx.last_rect, .Below)
 	ui.end(ctx)
@@ -259,7 +258,7 @@ kit_brush_bar :: proc(app: ^App) -> (brushes_anchor: ui.Rect) {
 	return
 }
 
-// The two columns at the right: search, the inspector and the objects; then the view:
+// The two columns at the right: search, the palette tray and the objects; then the view:
 // studio render, orthographic, symmetry, framing, wireframe, ghost and solo. Returns the
 // Search button and the view menu's anchor (a long press on Orthographic or Wireframe).
 kit_view_bar :: proc(app: ^App) -> (search_anchor, view_anchor: ui.Rect) {
@@ -275,15 +274,11 @@ kit_view_bar :: proc(app: ^App) -> (search_anchor, view_anchor: ui.Rect) {
 	}
 	search_anchor = ctx.last_rect
 	_ = bar_command(app, .Inspector, ui.ICON_PANEL, selected = k.inspector && !side_panel_open(k))
-	// Objects: the inspector on the Scene tab, where the objects are listed; a second tap
-	// puts it away.
-	objects := k.inspector && !side_panel_open(k) && k.tab == .Scene
+	// Objects: the tray on the Scene palette's list of objects; a second tap puts it away.
+	objects := k.inspector && !side_panel_open(k) && k.tab == .Scene && tray_section(app, .Scene) == .Objects
 	if ui.icon_button(ctx, "Objects", ICON_OBJECTS, selected = objects) {
 		if objects do k.inspector = false
-		else {
-			side_panel_close(app)
-			k.inspector, k.tab, k.scroll = true, .Scene, 0
-		}
+		else do tray_open(app, .Objects)
 	}
 	ui.end(ctx)
 
@@ -447,8 +442,8 @@ kit_bar_popover :: proc(app: ^App) {
 	}
 }
 
-// Section `sec` of the inspector, wherever its tab lists it: its title and what draws it
-// (for the Object tab's, with the object).
+// Section `sec` of the tray, wherever its palette lists it: its title and what draws it
+// (for the Object palette's, with the object).
 @(private = "file")
 bar_section :: proc(app: ^App, sec: Kit_Section) -> (title: string, draw: proc(app: ^App), obj_draw: proc(app: ^App, obj: ^Object), found: bool) {
 	for s in BRUSH_SECTIONS do if s.section == sec do return s.title, s.draw, nil, true

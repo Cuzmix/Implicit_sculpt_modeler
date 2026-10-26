@@ -8,7 +8,7 @@ import "../ui"
 
 // The History brush's recall point: what of the History it paints back to (sculpt
 // recall.odin keeps the target, one per level or HD window). By default it is the
-// oldest step the level's History still holds; Earlier and Later in the Brush tab's
+// oldest step the level's History still holds; Earlier and Later in the Brush palette's
 // History brush section choose another, as does a right-click or long press on a step of
 // the History panel's bar, which then marks it. A chosen point stays until its step is
 // undone, dropped or out of reach.
@@ -132,7 +132,7 @@ recall_now :: proc(app: ^App) -> (back, reach, shown: int) {
 	return back, reach, back if back > 0 else reach
 }
 
-// The Brush tab's History brush section: what the brush paints back to, and the
+// The Brush palette's History brush section: what the brush paints back to, and the
 // buttons that move it.
 kit_recall :: proc(app: ^App) {
 	ctx := &app.kit.ctx
