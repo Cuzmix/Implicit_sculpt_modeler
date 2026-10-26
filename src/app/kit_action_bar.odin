@@ -63,6 +63,8 @@ ACTION_GROUPS := [Action_Group]Action_Group_Info {
 // A group's caption: the Adjust group's names the operation it adjusts.
 action_caption :: proc(app: ^App, g: Action_Group) -> string {
 	if g == .Adjust do if name := ADJUST_NAMES[app.adjustable.op]; name != "" do return name
+	// The handles pose the mesh while a mask leaves part of it free (pose.odin).
+	if g == .Gizmo && pose_mode(app) do return "Pose"
 	return ACTION_GROUPS[g].caption
 }
 

@@ -181,6 +181,32 @@ sculptor_stroke_restore :: proc(s: ^Sculptor) -> bool {
 	return true
 }
 
+// Puts back everything the stroke being recorded changed and ends it without an undo
+// step, for a gesture cancelled part way (a pose Escape or a second finger stopped). Positions,
+// masks and colours only; returns false, doing nothing, when the stroke saved whole
+// nodes (dynamic topology) or nothing is being recorded, and the caller ends it as usual.
+sculptor_stroke_discard :: proc(s: ^Sculptor) -> bool {
+	h := &s.history
+	if !h.recording do return false
+	for sv in h.current.saved do if sv.full || sv.hidden != nil || sv.groups != nil || sv.is_delta do return false
+	m := s.mesh
+	for sv in h.current.saved {
+		n := s.nodes[sv.node]
+		if sv.masks != nil {
+			copy(s.mask[n.vert_first:][:n.vert_count], sv.masks)
+		} else if sv.colors != nil {
+			copy(s.color[n.vert_first:][:n.vert_count], sv.colors)
+		} else {
+			copy(m.positions[n.vert_first:][:n.vert_count], sv.positions)
+		}
+	}
+	for id in h.current.painted do mark_stale(s, id, .Paint)
+	sculptor_nodes_moved(s, h.current.nodes[:])
+	step_reset(h, &h.current)
+	h.recording = false
+	return true
+}
+
 // Reverts the newest stroke. Positions and BVH bounds are current when it returns;
 // normals and GPU data follow at the next sculptor_flush, as after a dab.
 sculptor_undo :: proc(s: ^Sculptor) -> bool {

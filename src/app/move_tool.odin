@@ -9,6 +9,7 @@ import sdl "vendor:sdl3"
 
 import "../camera"
 import "../gizmo"
+import "../sculpt"
 import "../ui"
 
 // The tool the left mouse button drives in the viewport.
@@ -36,6 +37,12 @@ Move_Tool :: struct {
 	// inspector's Transform values began changing: both move with the primary.
 	members:      [dynamic]Member_Start,
 	edit_members: [dynamic]Member_Start,
+	// Posing (pose.odin): what the mask allows, where the pivot was put for it, and the
+	// poses that changed the mesh with how many vertices the last one moved, for the stats.
+	seen:       Pose_Seen,
+	placed:     Pose_Placed,
+	pose_drags: int,
+	pose_moved: int,
 }
 
 // A selected object other than the primary, and where it was when a change began.
@@ -77,7 +84,16 @@ Move_Drag :: struct {
 	tangent:      [2]f32, // ...in pixels a radian
 	turned:       f32, // ...the turn so far in radians, unwrapped
 	amount:       f32, // what the readout shows: the move along an axis, degrees or the factor
+	offset:       Vec3, // a move across a plane: the move so far
 	snapped:      bool, // this frame's change snapped
+	// A handle dragged in pose mode poses the mesh instead (pose.odin): the pose set last
+	// and whether one was, and the pivot as it was (and where pose mode had put it), for
+	// a cancel.
+	posed:        bool,
+	pose:         sculpt.Pose,
+	applied:      bool,
+	pivot_from:   Gizmo_Pivot,
+	placed_from:  Vec3,
 }
 
 // What the drag does, for the undo button and the History panel.
@@ -142,12 +158,13 @@ move_tool_frame :: proc(app: ^App, input: Viewport_Input) {
 		// A tap on a handle, which moved nothing, asks for the value instead.
 		d := m.drag
 		slop := app.kit.ctx.theme.slop * gizmo_scale(app)
-		if obj := object_by_id(app, d.id); obj != nil && d.on_handle && entry_takes(d.handle) && app.drag.travel <= slop && obj.transform == d.start {
+		if obj := object_by_id(app, d.id); obj != nil && d.on_handle && entry_takes(d.handle) && app.drag.travel <= slop && !drag_changed(obj, d) {
 			gizmo_entry_open(app, obj, d.handle, d.down)
 		}
 		move_end(app)
 		m.hover = .None
 		if input.hovered do m.hover = gizmo_pick(app, input.mouse_pos, input.size)
+		pose_pivot_place(app)
 		return
 	}
 
@@ -191,8 +208,10 @@ move_tool_frame :: proc(app: ^App, input: Viewport_Input) {
 			grab = gizmo_center(app, selected_object(app))
 		}
 		obj := selected_object(app)
-		m.drag = {handle = handle, on_handle = on_handle, down = input.mouse_pos, id = obj.id, start = obj.transform, grab = grab}
-		members_take(app, &m.members)
+		// In pose mode the handles pose the mesh; the body still moves the object.
+		posed := on_handle && pose_mode(app)
+		m.drag = {handle = handle, on_handle = on_handle, down = input.mouse_pos, id = obj.id, start = obj.transform, grab = grab, posed = posed, pivot_from = m.pivot, placed_from = m.placed.at}
+		if !posed do members_take(app, &m.members)
 	}
 
 	drag := &m.drag
@@ -205,7 +224,7 @@ move_tool_frame :: proc(app: ^App, input: Viewport_Input) {
 	}
 	if !drag.live {
 		if !app.drag.moving do return
-		if !move_go_live(app, obj, input) do drag^ = {}
+		if !move_go_live(app, obj, input) || (drag.posed && !pose_begin(app, obj)) do drag^ = {}
 		return
 	}
 	drag.snapped = m.snap || app.device.ctrl
@@ -228,6 +247,7 @@ move_tool_frame :: proc(app: ^App, input: Viewport_Input) {
 			delta[int(drag.handle) - int(gizmo.Handle.YZ)] = 0
 		}
 		if drag.snapped do for &d in delta do d = gizmo.snap(d, drag.step)
+		drag.offset = delta
 		t.position += delta
 	case .Turn_X, .Turn_Y, .Turn_Z, .Turn_View:
 		if drag.edge {
@@ -248,8 +268,17 @@ move_tool_frame :: proc(app: ^App, input: Viewport_Input) {
 		t = scale_about(drag.start, drag.pivot, selection_scale_clamp(f, drag.start.scale, m.members[:]))
 		drag.amount = t.scale / drag.start.scale
 	}
+	if drag.posed {
+		pose_set(app, obj, pose_of(drag.handle, drag.start, t, drag.pivot, drag.axis, drag.amount))
+		return
+	}
 	obj.transform = t
 	members_follow(app, m.members[:], drag.start, t)
+}
+
+// Whether the drag has changed anything yet: the object's place, or in pose mode its mesh.
+drag_changed :: proc(obj: ^Object, d: Move_Drag) -> bool {
+	return d.applied && !pose_is_still(d.pose) if d.posed else obj.transform != d.start
 }
 
 // `factor` kept to what the primary (at scale `from`) and each of `list` can take, so a
@@ -377,6 +406,12 @@ move_end :: proc(app: ^App) {
 	drag := app.move.drag
 	app.move.drag = {}
 	obj := object_by_id(app, drag.id)
+	if drag.posed {
+		// A click, or a drag that came back to where it began, leaves no step.
+		if obj != nil && drag_changed(obj, drag) do _ = pose_end(app, obj, drag.handle)
+		else if obj != nil do sculpt.sculptor_pose_cancel(object_sculptor(obj))
+		return
+	}
 	if drag.handle == .None || obj == nil || obj.transform == drag.start {
 		clear(&app.move.members)
 		return
@@ -393,6 +428,11 @@ move_cancel :: proc(app: ^App) {
 	drag := app.move.drag
 	app.move.drag = {}
 	if drag.handle == .None do return
+	if drag.posed {
+		if obj := object_by_id(app, drag.id); obj != nil do sculpt.sculptor_pose_cancel(object_sculptor(obj))
+		app.move.pivot, app.move.placed.at = drag.pivot_from, drag.placed_from
+		return
+	}
 	if obj := object_by_id(app, drag.id); obj != nil do obj.transform = drag.start
 	for mb in app.move.members {
 		if obj := object_by_id(app, mb.id); obj != nil do obj.transform = mb.start
@@ -415,7 +455,7 @@ move_readout :: proc(app: ^App) -> string {
 	drag := app.move.drag
 	obj := object_by_id(app, drag.id)
 	// Nothing until something changed, so a click that selects shows no label.
-	if !drag.live || obj == nil || obj.transform == drag.start do return ""
+	if !drag.live || obj == nil || !drag_changed(obj, drag) do return ""
 	text: string
 	snap: string
 	switch drag_mode(drag.handle) {
@@ -423,7 +463,7 @@ move_readout :: proc(app: ^App) -> string {
 		if drag.handle >= .X && drag.handle <= .Z {
 			text = fmt.tprintf("%v %+.3f", drag.handle, drag.amount)
 		} else {
-			d := obj.transform.position - drag.start.position
+			d := drag.offset if drag.posed else obj.transform.position - drag.start.position
 			text = fmt.tprintf("Move %+.3f, %+.3f, %+.3f", d.x, d.y, d.z)
 		}
 		snap = fmt.tprintf("snap %g", drag.step)
@@ -435,6 +475,7 @@ move_readout :: proc(app: ^App) -> string {
 		text = fmt.tprintf("Scale ×%.2f", drag.amount)
 		snap = fmt.tprintf("snap %g", gizmo.SCALE_SNAP)
 	}
+	if drag.posed do text = fmt.tprintf("Pose: %s", text)
 	if drag.snapped do return fmt.tprintf("%s (%s)", text, snap)
 	return text
 }
@@ -536,6 +577,20 @@ gizmo_entry_title :: proc(h: gizmo.Handle) -> string {
 	return "Scale"
 }
 
+// What the value entry asks for in pose mode, and what Enter does with it.
+@(rodata)
+POSE_ENTRY_TITLES := [gizmo.Mode]string {
+	.Move  = "offset",
+	.Turn  = "turn, degrees",
+	.Scale = "scale factor",
+}
+@(rodata)
+POSE_ENTRY_NOTES := [gizmo.Mode]string {
+	.Move  = "Enter moves the unmasked part that far along the arm.",
+	.Turn  = "Enter turns the unmasked part that far about the ring's axis.",
+	.Scale = "Enter scales the unmasked part by it; +0.5 adds half.",
+}
+
 // Places `obj` by the value typed for `handle`, as one undo step. A number sets an arm's
 // position or the scale; "+0.5" adds to it, and "*2" (or "x2") multiplies the scale. A
 // ring's value is the turn, in degrees, from where it is. False, changing nothing, when
@@ -549,6 +604,8 @@ gizmo_entry_apply :: proc(app: ^App, obj: ^Object, handle: gizmo.Handle, text: s
 	}
 	v, ok := strconv.parse_f32(s)
 	if !ok || math.is_nan(v) || math.is_inf(v) do return false
+	// In pose mode the value poses the unmasked part instead (pose.odin).
+	if pose_mode(app) && obj == selected_object(app) do return pose_entry_apply(app, obj, handle, op, v)
 	// The rest of the selection, as it is now, follows; an inspector drag still open (which
 	// keeps its own list) ends first.
 	transform_drag_end(app, force = true)
@@ -604,9 +661,17 @@ kit_gizmo_entry :: proc(app: ^App) {
 	}
 	if !ui.popover_begin(ctx, "gizmo entry", &e.open, e.at, .Above_Center, {direction = .Column, gap = 4, padding = 12, width = 280}) do return
 	defer ui.popover_end(ctx)
-	ui.caption(ctx, strings.to_upper(gizmo_entry_title(e.handle), context.temp_allocator))
+	posing := pose_mode(app)
+	title := gizmo_entry_title(e.handle)
+	if posing do title = fmt.tprintf("Pose: %s", POSE_ENTRY_TITLES[drag_mode(e.handle)])
+	ui.caption(ctx, strings.to_upper(title, context.temp_allocator))
 	hint := "Degrees, such as 90"
-	if obj != nil {
+	if posing {
+		#partial switch e.handle {
+		case .X, .Y, .Z: hint = "Offset, such as 0.5"
+		case .Scale:     hint = "Factor, such as 1.5"
+		}
+	} else if obj != nil {
 		#partial switch e.handle {
 		case .X, .Y, .Z: hint = fmt.tprintf("Now %.3f", obj.transform.position[int(e.handle) - int(gizmo.Handle.X)])
 		case .Scale:     hint = fmt.tprintf("Now %.3f", obj.transform.scale)
@@ -619,6 +684,7 @@ kit_gizmo_entry :: proc(app: ^App) {
 	note := "Enter applies it; +0.5 adds to it."
 	switch {
 	case e.refused:                    note = "That is no value: type a number, such as 0.5."
+	case posing:                       note = POSE_ENTRY_NOTES[drag_mode(e.handle)]
 	case drag_mode(e.handle) == .Turn: note = "Enter turns it that far about the ring's axis."
 	case e.handle == .Scale:           note = "Enter sets it; +0.5 adds, *2 doubles."
 	}

@@ -533,6 +533,38 @@ sculptor_has_mask :: proc(s: ^Sculptor) -> bool {
 	return false
 }
 
+// What posing needs to know of a mask: whether any shown vertex is less than fully
+// masked (something a pose would move), and a checksum of every value, so the app can
+// tell a change of the mask from the other undo steps. It reads the whole mask, eight
+// vertices a word, so the app asks only with the Move tool on and after a step.
+Mask_Look :: struct {
+	free: bool,
+	sum:  u64,
+}
+
+sculptor_mask_look :: proc(s: ^Sculptor) -> (look: Mask_Look) {
+	if s.mask == nil do return {free = true}
+	FNV_PRIME :: u64(0x100000001b3)
+	h := u64(0xcbf29ce484222325)
+	words := slice.reinterpret([]u64, s.mask)
+	for w, i in words {
+		h = (h ~ w) * FNV_PRIME
+		if w != max(u64) && !look.free do look.free = mask_free_in(s, 8 * i, 8 * i + 8)
+	}
+	tail := 8 * len(words)
+	for k in s.mask[tail:] do h = (h ~ u64(k)) * FNV_PRIME
+	look.free ||= mask_free_in(s, tail, len(s.mask))
+	look.sum = h
+	return
+}
+
+// Whether a vertex from `lo` up to `hi` is shown and not fully masked.
+@(private = "file")
+mask_free_in :: proc(s: ^Sculptor, lo, hi: int) -> bool {
+	for v in lo ..< hi do if s.mask[v] < 255 && !vertex_hidden(s, u32(v)) do return true
+	return false
+}
+
 // Carries the mask of level `from` to level `to` through the levels between, so a
 // mask painted on one level holds on the others, as in ZBrush. A vertex that continues
 // one of the level below takes its mask, a vertex on an edge the average of the

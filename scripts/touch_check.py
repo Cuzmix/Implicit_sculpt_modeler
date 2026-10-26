@@ -4329,6 +4329,100 @@ def gizmo_drag_cancels_back():
     ])
 
 
+
+# Posing (pose.odin): Ctrl + a mouse drag from empty space masks everything below the
+# sphere's middle on screen, a hard edge, so the gizmo goes to the free ring along it.
+POSE_MASK = line((250, 470), (1350, 880), 10)
+
+
+def pose_masked(s, presses):
+    """The lower half masked by a Ctrl rectangle, then the Move tool with W pressed `presses` more times."""
+    s.mouse_drag(POSE_MASK, keys=("ctrl",))
+    s.wait(2)
+    gizmo_mode(s, presses)
+    s.wait(2)
+
+
+POSE_CENTER = (803, 467)  # where the gizmo goes for that mask
+POSE_Y_RING = (POSE_CENTER[0], POSE_CENTER[1] + 31)
+POSE_X_ARM = (POSE_CENTER[0] + 38, POSE_CENTER[1] + 8)
+
+
+def pose_still(checks):
+    """`checks`, the camera still, the sphere where it began and the gizmo where the POSE_ points assume."""
+    home = is_text("0.0000,0.0000,0.0000,0.000,0.000,0.000,1.0000")
+    return camera_still(dict({"transform": home, "pose_mode": near(1), "gizmo_at": is_text(f"{POSE_CENTER[0]},{POSE_CENTER[1]}")}, **checks))
+
+
+# The sum of the sphere's coordinates as it starts (it is symmetric): mesh_sum.
+def mesh_home(v):
+    return abs(float(v)) < 1e-3
+
+
+@scenario
+def pose_ring_turns_the_free_part():
+    """With the lower half masked, the gizmo sits on the mask's edge and its group reads
+    Pose: a Y ring drag turns the upper half, not the sphere, as one undo step, and Ctrl+Z
+    puts every vertex back."""
+    turned, undone = Script(), Script()
+    for sc in (turned, undone):
+        pose_masked(sc, 1)
+        sc.mouse_drag(line(POSE_Y_RING, (POSE_Y_RING[0] + 60, POSE_Y_RING[1]), 6))
+        sc.wait(2)
+    undone.press("z", ("ctrl",))
+    return Steps([
+        (turned, [], pose_still({"pose_drags": near(1), "pose_moved": lambda v: int(v) > 1000, "gizmo_last": is_text("turn_y"), "undo_steps": near(2),
+                                 "mesh_sum": lambda v: not mesh_home(v)})),
+        (undone, [], pose_still({"undo_steps": near(1), "redo_steps": near(1), "mesh_sum": mesh_home})),
+    ])
+
+
+@scenario
+def pose_escape_and_ctrl_i_mid_drag():
+    """Esc mid-drag puts the mesh back with no step; Ctrl+I mid-drag ends the pose as its
+    own step before inverting the mask, and the rest of the drag does nothing."""
+    escape, invert = Script(), Script()
+    for sc in (escape, invert):
+        pose_masked(sc, 0)
+        sc.add(f"move:{POSE_X_ARM[0]},{POSE_X_ARM[1]}")
+        sc.wait(1)
+        sc.add("down")
+        for p in line(POSE_X_ARM, (POSE_X_ARM[0] + 60, POSE_X_ARM[1] + 12), 6)[1:]:
+            sc.wait(1)
+            sc.add(f"move:{p[0]:g},{p[1]:g}")
+        sc.wait(1)
+    escape.add("key:Escape")
+    escape.wait(1)
+    escape.add("keyup:Escape")
+    invert.press("i", ("ctrl",))
+    for sc in (escape, invert):
+        sc.add(f"move:{POSE_X_ARM[0] + 120},{POSE_X_ARM[1] + 24}")
+        sc.wait(2)
+        sc.add("up")
+        sc.wait(4)
+    return Steps([
+        (escape, [], camera_still({"pose_drags": near(0), "undo_steps": near(1), "mesh_sum": mesh_home})),
+        (invert, [], camera_still({"pose_drags": near(1), "undo_steps": near(3), "mesh_sum": lambda v: not mesh_home(v)})),
+    ])
+
+
+@scenario
+def pose_body_drag_and_typed_offset():
+    """In pose mode a drag on the sphere's body still moves the whole sphere; a click on the
+    X arm then 0.5 and Enter moves the free part, not the sphere, and the gizmo with it."""
+    body, typed = Script(), Script()
+    pose_masked(body, 0)
+    body.mouse_drag(line((600, 300), (660, 280), 6))
+    pose_masked(typed, 0)
+    click(typed, POSE_X_ARM)
+    type_value(typed, "0.5")
+    moved = transform_is(lambda x, y, z, rx, ry, rz, sc: math.dist((x, y, z), (0, 0, 0)) > 0.05 and (rx, ry, rz, sc) == (0, 0, 0, 1))
+    return Steps([
+        (body, [], camera_still({"transform": moved, "pose_drags": near(0), "undo_steps": near(2)})),
+        (typed, [], camera_still({"transform": is_text("0.0000,0.0000,0.0000,0.000,0.000,0.000,1.0000"), "pose_drags": near(1), "undo_steps": near(2), "gizmo_entry": is_text("none"),
+                                  "gizmo_at": lambda v: int(v.split(",")[0]) > POSE_CENTER[0] + 20})),
+    ])
+
 def main(argv):
     if "--list" in argv:
         for name, fn in SCENARIOS.items():

@@ -234,6 +234,10 @@ kit_move_tab :: proc(app: ^App) {
 	_ = ui.switch_row(ctx, "Snap", &app.move.snap)
 	kit_command_pair(app, .Gizmo_Pivot, .Gizmo_Pivot_Reset, label_a = "Set pivot", label_b = "Reset pivot")
 	ui.paragraph(ctx, fmt.tprintf("%s again steps through the three. Snap (or Ctrl for one drag) moves in steps of a grid that follows the zoom, turns 15° at a time and scales in steps of 0.1. Esc puts the object back mid-drag; %s undoes a drag. Tap a handle without moving it to type its value. Set pivot, then a tap on a surface, turns and scales about that point.", command_keys(app, .Tool_Move), command_keys(app, .Undo)))
+	// Posing changes what the handles do, so it says so while it is on.
+	if pose_mode(app) {
+		ui.paragraph(ctx, "Posing: a mask is on, so the handles bend the unmasked part about the gizmo, which sits on the mask's soft edge; a drag on the object still moves all of it. Clear the mask to move the object with the handles again.")
+	}
 	ui.paragraph(ctx, "The Object tab places the selected object exactly: position, turn and scale.")
 }
 
