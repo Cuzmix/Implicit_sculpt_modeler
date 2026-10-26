@@ -2,6 +2,7 @@ package main
 
 import "core:fmt"
 import "core:log"
+import "core:math"
 import "core:os"
 import "core:reflect"
 import "core:strconv"
@@ -40,7 +41,7 @@ settings_path :: proc() -> string {
 SETTINGS_VERSION :: 1
 
 // One remembered value that is a plain field of App: its key in the file, where it is,
-// what type it is (bool, f32, i32 or an enum) and, for numbers, the range a value read
+// what type it is (bool, f32, i32, int or an enum) and, for numbers, the range a value read
 // back is clamped to (lo == hi: any). Read and written by the same row, so the two
 // directions cannot drift. Values with more to them (a brush's own strength, a curve,
 // the panel windows) are the hand-written lines in settings_load and settings_save.
@@ -139,39 +140,64 @@ SETTINGS := [?]Setting {
 	{"insert_sink", offset_of(App, insert) + offset_of(Insert_Tool, sink), f32, -1, 1},
 }
 
-// Sets the row's field from the text `value`. False, and the field as it was, when the
-// text is not a value of its type.
+// Sets the row's field from the text `value`, as the settings file holds it: any bool
+// that is not "1" is off and a number out of range is brought into it. False, and the
+// field as it was, when the text is not a value of its type.
 setting_read :: proc(app: ^App, s: Setting, value: string) -> bool {
-	at := rawptr(uintptr(app) + s.offset)
+	v := setting_parse(s, value, strict = false) or_return
+	setting_write(app, s, v)
+	return true
+}
+
+// The value of the text `value` for the row, as a number: a bool is 0 or 1, an enum its
+// value. Nothing is written, so a script can be checked whole before it runs. `strict`,
+// for scripts, takes only on/off, true/false, yes/no or 1/0 for a bool, refuses a number
+// out of the row's range rather than bringing it in, and reads `-` in an enum's name as
+// `_`; the file reader is lenient, as it always was.
+setting_parse :: proc(s: Setting, value: string, strict: bool) -> (v: f64, ok: bool) {
 	switch s.type {
 	case bool:
-		(^bool)(at)^ = value == "1"
-	case f32:
-		v, ok := strconv.parse_f32(value)
-		if !ok || v != v do return false
-		(^f32)(at)^ = clamp(v, s.lo, s.hi) if s.lo < s.hi else v
-	case i32:
-		v, ok := strconv.parse_f32(value)
-		if !ok || v != v do return false
-		(^i32)(at)^ = i32(clamp(v, s.lo, s.hi) if s.lo < s.hi else v)
-	case:
-		// An enum, by the name of one of its values, in any case.
-		names, values := reflect.enum_field_names(s.type), reflect.enum_field_values(s.type)
-		for name, i in names {
-			if !strings.equal_fold(name, value) do continue
-			v := values[i]
-			switch reflect.size_of_typeid(s.type) {
-			case 1: (^u8)(at)^ = u8(v)
-			case 2: (^u16)(at)^ = u16(v)
-			case 4: (^u32)(at)^ = u32(v)
-			case 8: (^u64)(at)^ = u64(v)
-			case: return false
-			}
-			return true
+		if !strict do return 1 if value == "1" else 0, true
+		switch strings.to_lower(value, context.temp_allocator) {
+		case "1", "on", "true", "yes":  return 1, true
+		case "0", "off", "false", "no": return 0, true
 		}
-		return false
+		return
+	case f32, i32, int:
+		n := strconv.parse_f64(value) or_return
+		if n != n do return
+		// A count takes a whole number from a script; the file never held anything else.
+		if strict && s.type != f32 && n != math.floor(n) do return
+		if s.lo < s.hi {
+			if strict && (n < f64(s.lo) || n > f64(s.hi)) do return
+			n = clamp(n, f64(s.lo), f64(s.hi))
+		}
+		return n if s.type != f32 else f64(f32(n)), true
 	}
-	return true
+	// An enum, by the name of one of its values, in any case.
+	want := value
+	if strict do want, _ = strings.replace_all(value, "-", "_", context.temp_allocator)
+	names, values := reflect.enum_field_names(s.type), reflect.enum_field_values(s.type)
+	for name, i in names do if strings.equal_fold(name, want) do return f64(values[i]), true
+	return
+}
+
+// Sets the row's field to `v`, as setting_parse gives it.
+setting_write :: proc(app: ^App, s: Setting, v: f64) {
+	at := rawptr(uintptr(app) + s.offset)
+	switch s.type {
+	case bool: (^bool)(at)^ = v != 0
+	case f32:  (^f32)(at)^ = f32(v)
+	case i32:  (^i32)(at)^ = i32(v)
+	case int:  (^int)(at)^ = int(v)
+	case:
+		switch reflect.size_of_typeid(s.type) {
+		case 1: (^u8)(at)^ = u8(i64(v))
+		case 2: (^u16)(at)^ = u16(i64(v))
+		case 4: (^u32)(at)^ = u32(i64(v))
+		case 8: (^u64)(at)^ = u64(i64(v))
+		}
+	}
 }
 
 // The row's field as the file holds it.
@@ -181,8 +207,77 @@ setting_text :: proc(app: ^App, s: Setting) -> string {
 	case bool: return "1" if (^bool)(at)^ else "0"
 	case f32:  return fmt.tprintf("%g", (^f32)(at)^)
 	case i32:  return fmt.tprintf("%d", (^i32)(at)^)
+	case int:  return fmt.tprintf("%d", (^int)(at)^)
 	}
 	return fmt.tprintf("%v", any{at, s.type})
+}
+
+// A remembered value with more to it than one field, which scripts set too (`set
+// symmetry xz`): read and checked by `parse`, which writes nothing, and then applied, so
+// the settings file and a script read it the same way.
+Setting_Line :: struct {
+	key:   string,
+	parse: proc(f: []string) -> (Setting_Line_Value, bool),
+	apply: proc(app: ^App, v: Setting_Line_Value),
+}
+
+Setting_Line_Value :: union {
+	sculpt.Symmetry,
+	[3]f32,
+	int,
+}
+
+@(rodata)
+SETTING_LINES := [?]Setting_Line {
+	{
+		// The axes, as letters after a "-" that keeps the line from being empty with
+		// none: "-xz", "-"; scripts may leave the "-" out ("xz").
+		"symmetry",
+		proc(f: []string) -> (Setting_Line_Value, bool) {
+			if len(f) != 1 do return nil, false
+			axes: sculpt.Symmetry
+			for c in strings.trim_prefix(f[0], "-") {
+				switch c {
+				case 'x', 'X': axes += {.X}
+				case 'y', 'Y': axes += {.Y}
+				case 'z', 'Z': axes += {.Z}
+				case: return nil, false
+				}
+			}
+			return axes, true
+		},
+		proc(app: ^App, v: Setting_Line_Value) {app.brush.symmetry = v.(sculpt.Symmetry)},
+	},
+	{
+		// The Paint brush's colour, red, green and blue from 0 to 1.
+		"paint_color",
+		proc(f: []string) -> (Setting_Line_Value, bool) {
+			if len(f) != 3 do return nil, false
+			c: [3]f32
+			for k in 0 ..< 3 {
+				v, ok := strconv.parse_f32(f[k])
+				if !ok || !(v >= 0 && v <= 1) do return nil, false
+				c[k] = v
+			}
+			return c, true
+		},
+		proc(app: ^App, v: Setting_Line_Value) {app.brush.color = v.([3]f32)},
+	},
+	{
+		// A material by its name, which may have spaces ("red wax").
+		"material",
+		proc(f: []string) -> (Setting_Line_Value, bool) {
+			i, ok := material_by_name(strings.join(f, " ", context.temp_allocator))
+			return i, ok
+		},
+		proc(app: ^App, v: Setting_Line_Value) {app.material = v.(int)},
+	},
+}
+
+// The line row of `key`; a row with no procedures when there is none.
+setting_line :: proc(key: string) -> Setting_Line {
+	for line in SETTING_LINES do if line.key == key do return line
+	return {}
 }
 
 // Applies what the file at `path` holds to the app. A missing file is no error.
@@ -222,19 +317,9 @@ settings_load :: proc(app: ^App, path: string) {
 				}
 			}
 		case "pressure_curve": if len(f) == 5 do b.pressure_curve = curve(f[1:], b.pressure_curve)
-		case "symmetry":
-			b.symmetry = {}
-			for c in f[1] {
-				switch c {
-				case 'x': b.symmetry += {.X}
-				case 'y': b.symmetry += {.Y}
-				case 'z': b.symmetry += {.Z}
-				}
-			}
-		case "paint_color":
-			if len(f) >= 4 do for k in 0 ..< 3 do b.color[k] = clamp(number(f[1 + k], b.color[k]), 0, 1)
-		case "material":
-			if i, ok := material_by_name(strings.join(f[1:], " ", context.temp_allocator)); ok do app.material = i
+		case "symmetry", "paint_color", "material":
+			line := setting_line(f[0])
+			if v, ok := line.parse(f[1:]); ok do line.apply(app, v)
 		case "custom_material":
 			if len(f) >= 6 {
 				c := &app.custom
