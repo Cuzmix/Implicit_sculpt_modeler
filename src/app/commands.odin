@@ -86,6 +86,7 @@ Command_Id :: enum u8 {
 	Inspector,
 	Settings,
 	Reduce_Motion,
+	Command_Palette,
 }
 
 Command :: struct {
@@ -567,13 +568,25 @@ COMMANDS := [Command_Id]Command {
 		label = "Settings...",
 		help = "Opens the app's settings.",
 		icon = ui.ICON_SETTINGS,
-		run = proc(app: ^App, _: int) {app.kit.settings = true},
+		// Unfolded and in front, wherever it was left.
+		run = proc(app: ^App, _: int) {
+			k := &app.kit
+			k.settings = true
+			k.windows[.Settings].minimized = false
+			window_raise(k, .Settings)
+		},
 	},
 	.Reduce_Motion = {
 		label = "Reduce motion",
 		help = "Turns off the interface's animations.",
 		run = proc(app: ^App, _: int) {app.kit.ctx.reduced_motion = !app.kit.ctx.reduced_motion},
 		checked = proc(app: ^App, _: int) -> bool {return app.kit.ctx.reduced_motion},
+	},
+	.Command_Palette = {
+		label = "Search commands",
+		help = "Finds any command or setting by typing part of its name.",
+		icon = ui.ICON_SEARCH,
+		run = proc(app: ^App, _: int) {palette_open(app)},
 	},
 }
 
@@ -639,6 +652,8 @@ DEFAULT_BINDINGS := [?]Binding {
 	{{sdl.K_D, {}, false}, .Level_Up, 0},
 	{{sdl.K_F11, {}, false}, .Stats, 0},
 	{{sdl.K_TAB, {}, false}, .Inspector, 0},
+	{{sdl.K_K, {.Ctrl}, false}, .Command_Palette, 0},
+	{{sdl.K_SLASH, {}, false}, .Command_Palette, 0},
 }
 
 command_enabled :: proc(app: ^App, id: Command_Id, arg := 0) -> bool {
@@ -720,6 +735,8 @@ key_text :: proc(key: sdl.Keycode) -> string {
 		return "Esc"
 	case sdl.K_SPACE:
 		return "Space"
+	case sdl.K_SLASH:
+		return "/"
 	}
 	return string(sdl.GetKeyName(key))
 }

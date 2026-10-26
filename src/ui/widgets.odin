@@ -46,6 +46,7 @@ ICON_RECORD :: rune(0xe349) // circle-dot
 ICON_EYE_OFF :: rune(0xe0bf)
 ICON_MINIMISE :: rune(0xe120) // minus, as a desktop window's minimise button
 ICON_RESTORE :: rune(0xe117) // maximize-2: open a folded window again
+ICON_SEARCH :: rune(0xe155)
 
 // Every pressable control shares this: the wash under the pointer fades in, deepens
 // while held, and the control dips to 97% while held. Returns the scale to draw at.
@@ -474,7 +475,7 @@ list_row :: proc(ctx: ^Context, s: string, detail := "", selected := false, glyp
 
 // An item in a menu or a select's list: an optional icon, the label, and on the right
 // the shortcut or a check when `checked`. Returns true when picked.
-menu_item :: proc(ctx: ^Context, s: string, keys := "", glyph: rune = 0, checked := false, tone := Tone.Neutral, enabled := true) -> bool {
+menu_item :: proc(ctx: ^Context, s: string, keys := "", glyph: rune = 0, checked := false, tone := Tone.Neutral, enabled := true, highlight := false) -> bool {
 	t := ctx.theme
 	shown := label_text(s)
 	w := fill_width(ctx)
@@ -484,7 +485,8 @@ menu_item :: proc(ctx: ^Context, s: string, keys := "", glyph: rune = 0, checked
 	id := id_of(ctx, s)
 	hovered, held, clicked := false, false, false
 	if enabled do hovered, held, clicked, _ = interact(ctx, id, hit_area(ctx, cell))
-	_ = feedback(ctx, id, vis, t.radius_small + 2, hovered, held)
+	// `highlight` is the keyboard's pick (the palette's Up and Down), shown as a hover.
+	_ = feedback(ctx, id, vis, t.radius_small + 2, hovered || highlight, held)
 	fg := t.danger if tone == .Danger else t.text
 	if !enabled do fg = color_fade(t.text_secondary, 0.4)
 	x := vis.x + 10
@@ -776,9 +778,12 @@ drag_value :: proc(ctx: ^Context, s: string, value: ^f32, per_point, lo, hi: f32
 
 // A line of text to edit in `buf`, which holds it up to its first zero byte. A tap gives
 // it the keys (the app then turns on text input, and with it a tablet's on-screen
-// keyboard); Enter, Escape or a press anywhere else takes them away. Returns true when the
-// text changed.
-text_field :: proc(ctx: ^Context, name: string, buf: []u8, width: f32 = 0) -> (changed: bool) {
+// keyboard); Enter, Escape or a press anywhere else takes them away. With `hold` it has
+// the keys every frame it is drawn whatever is pressed, for a field that lives only while
+// it is typed in (the command palette), whose owner gives them back by setting
+// text_focus to 0 when it closes. `hint` shows, faint, while the field is empty. Returns
+// true when the text changed.
+text_field :: proc(ctx: ^Context, name: string, buf: []u8, width: f32 = 0, hold := false, hint := "") -> (changed: bool) {
 	t := ctx.theme
 	w := width if width > 0 else fill_width(ctx)
 	if w <= 0 do w = 180
@@ -786,13 +791,13 @@ text_field :: proc(ctx: ^Context, name: string, buf: []u8, width: f32 = 0) -> (c
 	vis := centered(cell, {w, t.control})
 	id := id_of(ctx, name)
 	hovered, held, clicked, _ := interact(ctx, id, cell)
-	if clicked do ctx.text_focus = id
+	if clicked || hold do ctx.text_focus = id
 	focused := ctx.text_focus == id
 	n := 0
 	for n < len(buf) && buf[n] != 0 do n += 1
 	if focused {
 		ctx.text_seen = true
-		if ctx.input.pressed != {} && !hovered do focused = false
+		if ctx.input.pressed != {} && !hovered && !hold do focused = false
 		for _ in 0 ..< ctx.input.backspace {
 			if n == 0 do break
 			// Back over one whole UTF-8 sequence.
@@ -817,7 +822,7 @@ text_field :: proc(ctx: ^Context, name: string, buf: []u8, width: f32 = 0) -> (c
 			changed = true
 		}
 		if n < len(buf) do buf[n] = 0
-		if ctx.input.text_end do focused = false
+		if ctx.input.text_end && !hold do focused = false
 		if !focused do ctx.text_focus = 0
 	}
 	f := tween(ctx, salt(id, 1), 1 if focused else 0, t.hover_time)
@@ -832,6 +837,7 @@ text_field :: proc(ctx: ^Context, name: string, buf: []u8, width: f32 = 0) -> (c
 	x := inner.x - (max(shown_w + 3 - inner.w, 0) if focused else 0)
 	previous := ctx.clip
 	ctx.clip = rect_intersect(ctx.clip, to_px(ctx, inner))
+	if n == 0 && hint != "" do text(ctx, hint, inner.x, vis.y + vis.h * 0.5, t.text_size, t.text_tertiary)
 	text(ctx, shown, x, vis.y + vis.h * 0.5, t.text_size, t.text)
 	if focused && int(ctx.time * 2) % 2 == 0 do fill_rect(ctx, {x + shown_w + 1, vis.y + 9, 1.5, vis.h - 18}, 0, t.accent)
 	ctx.clip = previous

@@ -49,6 +49,18 @@ Kit_State :: struct {
 	surface_ring: bool, // the brush ring lies on the surface rather than flat on the screen (cursor.odin)
 	rail_side:  Rail_Side, // where the Smooth, Invert, Mask and Hide buttons sit, if anywhere (modifiers.odin)
 	history:    bool, // the History panel, over the dock
+	// The command palette (palette.odin): open, what is typed, the picked result and the
+	// first shown, the recents (most recent first), and for the exit stats how many
+	// entries it ran and the last one.
+	palette:        bool,
+	palette_query:  [64]u8,
+	palette_pick:   int,
+	palette_first:  int,
+	palette_recent: [PALETTE_RECENT]Palette_Entry,
+	palette_recent_count: int,
+	palette_runs:   int,
+	palette_last:   Palette_Entry,
+	palette_ran:    bool,
 	// The four panels as windows: where each was dragged to and whether it is folded
 	// (remembered by settings.odin), and the order they are drawn in, the last on top.
 	windows:    [Kit_Window]ui.Window,
@@ -176,6 +188,7 @@ Kit_Event_Kind :: enum u8 {
 	Wheel,
 	Key,
 	Key_Up,
+	Text, // typed text, as a keyboard sends it while text input is on
 	Finger_Down,
 	Finger_Move,
 	Finger_Up,
@@ -225,6 +238,13 @@ kit_events_parse :: proc(app: ^App, spec: string) -> bool {
 				ok = len(parts) == 3
 				if ok do ev.wheel, ok = strconv.parse_f32(parts[2])
 				ev.kind = .Wheel
+			case "text":
+				// Everything after the kind, colons and spaces too (from the untrimmed item).
+				raw := strings.trim_left_space(item)
+				rest := raw[min(len(parts[0]) + len(":text:"), len(raw)):]
+				ok = len(parts) >= 3 && rest != ""
+				if ok do ev.key = strings.clone(rest)
+				ev.kind = .Text
 			case "key", "keyup":
 				ok = len(parts) == 3 && parts[2] != ""
 				if ok do ev.key = strings.clone(parts[2])
@@ -304,6 +324,12 @@ kit_events_push :: proc(app: ^App, window: ^sdl.Window) {
 			key := sdl.GetKeyFromName(strings.clone_to_cstring(ev.key, context.temp_allocator))
 			code := sdl.GetScancodeFromKey(key, nil)
 			e.key = {type = .KEY_DOWN if ev.kind == .Key else .KEY_UP, timestamp = now, windowID = win, scancode = code, key = key, mod = d.script_mods, down = ev.kind == .Key}
+			push(e)
+		case .Text:
+			// As SDL's own keyboard does, text arrives only while text input is on (a text
+			// field has the keys). The text lives until this frame's events are read.
+			if !sdl.TextInputActive(window) do continue
+			e.text = {type = .TEXT_INPUT, timestamp = now, windowID = win, text = strings.clone_to_cstring(ev.key, context.temp_allocator)}
 			push(e)
 		case .Finger_Down, .Finger_Move, .Finger_Up, .Finger_Cancel:
 			kinds := [4]sdl.EventType{.FINGER_DOWN, .FINGER_MOTION, .FINGER_UP, .FINGER_CANCELED}
@@ -465,6 +491,16 @@ kit_results :: proc(app: ^App) {
 kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 	start := time.tick_now()
 	k := &app.kit
+	// The system can hide the on-screen keyboard and stop text input behind the app's back
+	// (Android's Back while the keyboard is up, iPadOS's hide-keyboard key), and the Back
+	// never reaches the app. Then the field that had the keys lets them go and the palette
+	// closes, as one Back closes it when no keyboard is up; restarting text input instead
+	// would bring the keyboard straight back.
+	if k.text_input && !sdl.TextInputActive(window) {
+		k.text_input = false
+		k.ctx.text_focus = 0
+		if k.palette do palette_close(app)
+	}
 	// A text field that has the keys at the start of the frame takes them all, the Enter
 	// or Escape that ends it too.
 	typed := ui.typing(&k.ctx)
@@ -484,18 +520,35 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 	// field has the keys.
 	if wanted := ui.typing(ctx); wanted != k.text_input {
 		k.text_input = wanted
-		_ = sdl.StartTextInput(window) if wanted else sdl.StopTextInput(window)
+		if wanted do text_input_start(window)
+		else do _ = sdl.StopTextInput(window)
 	}
 	d := &app.device
 	// Escape, or Android's back gesture (the AC Back key), closes whatever floats, before
 	// Escape stops a replay.
 	if key_pressed(d, sdl.K_ESCAPE) || key_pressed(d, sdl.K_AC_BACK) {
-		if k.settings && !k.menu && !k.view_menu && !k.browser && !k.object_menu && ctx.select_open == 0 do settings_close(app)
+		// The topmost goes first: what floats, and only then the Settings window.
+		if k.settings && !k.menu && !k.view_menu && !k.browser && !k.object_menu && !k.palette && ctx.select_open == 0 do settings_close(app)
+		if k.palette do palette_close(app)
 		k.menu, k.view_menu, k.browser, k.object_menu = false, false, false, false
 		ctx.select_open = 0
 	}
 	k.ms = time.duration_milliseconds(time.tick_since(start))
 	return input
+}
+
+// Turns on text input for the field that has the keys, with a tablet keyboard's
+// autocorrect and capitals off: the fields hold names and search words (zremesher,
+// dynamesh), which autocorrect would "fix" as they are typed.
+text_input_start :: proc(window: ^sdl.Window) {
+	props := sdl.CreateProperties()
+	defer if props != 0 do sdl.DestroyProperties(props)
+	if props != 0 {
+		_ = sdl.SetNumberProperty(props, sdl.PROP_TEXTINPUT_TYPE_NUMBER, sdl.Sint64(sdl.TextInputType.TEXT))
+		_ = sdl.SetNumberProperty(props, sdl.PROP_TEXTINPUT_CAPITALIZATION_NUMBER, sdl.Sint64(sdl.Capitalization.NONE))
+		_ = sdl.SetBooleanProperty(props, sdl.PROP_TEXTINPUT_AUTOCORRECT_BOOLEAN, false)
+	}
+	_ = sdl.StartTextInputWithProperties(window, props)
 }
 
 // What the viewport saw: everything the panels did not take.
@@ -592,8 +645,14 @@ kit_layout :: proc(app: ^App) {
 	ui.spacer(ctx, 6)
 	ui.end(ctx)
 
-	// Top right: view options and the inspector.
+	// Top right: search, view options and the inspector.
+	palette_anchor: ui.Rect
 	ui.begin_anchored(ctx, "top right", .End, .Start, {E, E}, bar)
+	if ui.icon_button(ctx, "Search commands", ui.ICON_SEARCH, selected = k.palette, keys = command_keys(.Command_Palette)) {
+		if k.palette do palette_close(app)
+		else do palette_open(app)
+	}
+	palette_anchor = ctx.last_rect
 	if ui.icon_button(ctx, "View", ui.ICON_EYE, selected = k.view_menu) do k.view_menu = !k.view_menu
 	view_anchor = ctx.last_rect
 	if ui.icon_button(ctx, "Inspector", ui.ICON_PANEL, selected = k.inspector, keys = command_keys(.Inspector)) do command_run(app, .Inspector)
@@ -690,6 +749,7 @@ kit_layout :: proc(app: ^App) {
 	kit_menu(app, menu_anchor)
 	kit_view_menu(app, view_anchor)
 	kit_object_menu(app)
+	kit_palette(app, palette_anchor)
 }
 
 // The inspector: the tool, the selected object or the scene, in tabs, sliding in from

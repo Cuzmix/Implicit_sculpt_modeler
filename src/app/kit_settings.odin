@@ -92,6 +92,8 @@ kit_settings :: proc(app: ^App) -> (raised: bool) {
 	if ui.button(ctx, "Tap again to reset all" if armed else "Reset everything", .Light, .Danger, width = (inner - 8) * 0.5) {
 		if armed {
 			for tab in Settings_Tab do settings_reset(app, tab)
+			// Everything includes what the command palette remembers having run.
+			k.palette_recent_count = 0
 			k.settings_wipe = 0
 		} else do k.settings_wipe = max(ctx.time, 1e-6)
 	}

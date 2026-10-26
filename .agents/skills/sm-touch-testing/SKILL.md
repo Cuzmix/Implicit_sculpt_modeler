@@ -93,7 +93,9 @@ are on the device checklist.
 
 ## 5. Writing a new scenario
 - A scenario is a function under `@scenario` returning `(Script, extra_args, checks)`. `Script` builds `--ui-events`
-  frame by frame: `ftap(x, y)`, `fdrag(path)`, `fingers(starts, moves, frames)`, `mouse_drag(path, keys=...)`, or
+  frame by frame: `ftap(x, y)`, `fdrag(path)`, `fingers(starts, moves, frames)`, `mouse_drag(path, keys=...)`,
+  `press(key, mods)`, `type("text")` (each letter as its key and as `text:` input, which lands only while a text field
+  has the keys, so from about the second frame after the palette opens), or
   `add("pdown:x,y")` and the rest of the raw events (README "App flags"). `line(a, b, n)` makes a path; `past_slop`
   makes one whose first move only crosses the slop, so the rest counts in full.
 - Checks are functions of the exit stats (`camera_yaw`, `camera_pitch`, `camera_roll`, `camera_distance`,
@@ -102,7 +104,8 @@ are on the device checklist.
   `stroke_kind`, `stroke_invert`, `rail_latched`, `masked`, `hidden_triangles`, `long_tip` (the last long-press
   tooltip, spaces as underscores, or none), `object_menu`, `pinned`, `framed` (double taps on empty space), `mask_mean` (the selected object's mask, 0 to 1),
   `last_op` (the last operation's result up to " in " or a comma, underscores for spaces), `toast_undo` (it offered Undo),
-  `touch_repeats` (undo and redo steps taken by holding fingers), `inspector_tab`, `brush_kind`, `layout_<name>` (x,y,w,h of the
+  `touch_repeats` (undo and redo steps taken by holding fingers), `inspector_tab`, `brush_kind`, `tool`, `palette` (open),
+  `palette_runs`, `palette_last` (the last row it ran, by its saved name: `Wireframe`, `Brush:Clay`), `settings_tab`, `layout_<name>` (x,y,w,h of the
   modifier rail, sliders, dock, status and inspector), ...); `camera_still()` checks nothing moved; keys starting with `@` are checks given every stat at once or checks on
   files, such as `saved(key="value")` and `saved_line(line)` on the settings file, or `on_screen` comparing where a
   point shows before and after an orbit. A value the scenario needs that the app does not print
