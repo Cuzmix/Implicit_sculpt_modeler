@@ -180,7 +180,7 @@ kit_retopo_section :: proc(app: ^App) {
 	ctx := &app.kit.ctx
 	obj := selected_object(app)
 	_ = kit_count(ctx, "Quads", &app.ui.retopo_quads, 100, 1_000_000)
-	if ui.button(ctx, "Retopologize selected", .Flat, .Accent, enabled = obj != nil) do command_run(app, .Retopologize)
+	_ = command_button(app, .Retopologize, label = "Retopologize selected", tone = .Accent)
 	kit_last_result(app, .Retopo)
 	ui.paragraph(ctx, "Makes a new object of quads lying on the selected one (the level it is on), with UVs, next to it. Subdivide and sculpt it, or bake onto it.")
 	if obj == nil || !sculpt.levels_has_uvs(&obj.levels) {

@@ -1202,7 +1202,39 @@ def long_press(s, x, y, finger=0, frames=LONG_PRESS_FRAMES):
 
 
 INSPECTOR_BUTTON = (1565, 36)
+FOCUS_BUTTON, FRAME_ALL_BUTTON = (1358, 328), (1506, 328)  # the Move tool's tab
 SCENE_TAB, SCENE_ROW = (1526, 152), (1430, 232)
+
+
+@scenario
+def long_press_a_button_shows_its_shortcut_and_gesture():
+    """A long press on the Move tool's Frame all shows its tooltip, which has no shortcut but names its double tap, and does not frame."""
+    s = Script()
+    s.press("w")
+    s.wait(4)
+    long_press(s, *FRAME_ALL_BUTTON)
+    return s, [], {"long_tip": is_text("Frame_all"), "long_tip_keys": is_text("Double_tap_empty_space,_nothing_selected"), "tool": is_text("move"), "framed": near(0)}
+
+
+@scenario
+def long_press_focus_shows_f_and_double_tap():
+    """Focus selected's tooltip, by a long press, shows F and the double tap on empty space."""
+    s = Script()
+    s.press("w")
+    s.wait(4)
+    long_press(s, *FOCUS_BUTTON)
+    return s, [], {"long_tip": is_text("Focus_selected"), "long_tip_keys": is_text("F_·_Double_tap_empty_space")}
+
+
+@scenario
+def gesture_hints_follow_the_settings():
+    """With Double tap to frame or pin off in Settings, Focus selected's tooltip shows only F."""
+    s = Script()
+    write_settings("double_tap 0\n")
+    s.press("w")
+    s.wait(4)
+    long_press(s, *FOCUS_BUTTON)
+    return s, [f"--settings-file={settings_file()}"], {"long_tip_keys": is_text("F")}
 
 
 @scenario
@@ -1326,6 +1358,10 @@ def strokes(s, n):
 
 # Two wheel notches in: empty space is still empty at EMPTY.
 ZOOMED = 3.5 * 0.88 ** 2
+
+
+def is_text(want):
+    return lambda v: v == want
 
 
 def zoom_a_little(s):
@@ -1682,10 +1718,6 @@ def ctrl_click_on_the_model_still_sculpts_inverted():
     return s, [], camera_still({"stroke_invert": near(1), "undo_steps": near(1), "last_op": lambda v: v == "none"})
 
 
-def is_text(want):
-    return lambda v: v == want
-
-
 @scenario
 def palette_ctrl_k_type_enter_runs_it():
     """Ctrl+K opens the command palette; "wire" and Enter turn the wireframe on and close it, and the W typed never picks the Move tool."""
@@ -1817,7 +1849,8 @@ def run(name, screens, displays=None):
         if display:
             env.pop("WAYLAND_DISPLAY", None)
             env.update(DISPLAY=display, SDL_VIDEO_DRIVER="x11")
-        proc = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=600)
+        # The exit stats are UTF-8 (a tooltip's "·") on every OS, whatever its code page.
+        proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", env=env, timeout=600)
     finally:
         if display:
             displays.put(display)

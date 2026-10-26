@@ -91,8 +91,23 @@ kit_count :: proc(ctx: ^ui.Context, s: string, value: ^i32, lo, hi: i32) -> bool
 	return true
 }
 
+// Two command buttons side by side across the column (command_button): each with its
+// label (or the table's), its shortcut and gesture in its tooltip, and enabled while its
+// command can run (and `enabled_*`). Runs the one clicked.
+kit_command_pair :: proc(app: ^App, a: Command_Id, b: Command_Id, arg_a := 0, arg_b := 0, label_a := "", label_b := "", enabled_a := true, enabled_b := true, tone_a := ui.Tone.Neutral, tone_b := ui.Tone.Neutral) {
+	ctx := &app.kit.ctx
+	half := (ui.fill_width(ctx) - 8) * 0.5
+	text_a := label_a if label_a != "" else command_label(a, arg_a)
+	text_b := label_b if label_b != "" else command_label(b, arg_b)
+	ui.begin(ctx, fmt.tprintf("%s|%s", text_a, text_b), {direction = .Row, gap = 8})
+	_ = command_button(app, a, arg_a, text_a, tone = tone_a, width = half, enabled = enabled_a)
+	_ = command_button(app, b, arg_b, text_b, tone = tone_b, width = half, enabled = enabled_b)
+	ui.end(ctx)
+}
+
 // Two buttons side by side across the column, the second greyed when `enabled_b` is
-// false. Returns which was clicked.
+// false, for actions that are not commands (kit_command_pair for those that are).
+// Returns which was clicked.
 kit_button_pair :: proc(ctx: ^ui.Context, a, b: string, enabled_a := true, enabled_b := true, tone_a := ui.Tone.Neutral, tone_b := ui.Tone.Neutral) -> (clicked_a, clicked_b: bool) {
 	half := (ui.fill_width(ctx) - 8) * 0.5
 	ui.begin(ctx, fmt.tprintf("%s|%s", a, b), {direction = .Row, gap = 8})

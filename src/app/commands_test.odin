@@ -1,5 +1,6 @@
 package main
 
+import "core:strings"
 import "core:testing"
 import sdl "vendor:sdl3"
 
@@ -127,5 +128,68 @@ every_choice_has_its_own_label :: proc(t: ^testing.T) {
 	testing.expect_value(t, command_label(.Remesh_To, 2), "Remesh to 1M vertices")
 	testing.expect_value(t, command_keys(.Mask, int(sculpt.Mask_Command.Clear)), "Alt+M")
 	testing.expect_value(t, command_keys(.Mask, int(sculpt.Mask_Command.Invert)), "Ctrl+I")
+	free_all(context.temp_allocator)
+}
+
+// Every control in the app's own sources that runs a command shows that command's
+// shortcut and gesture: a widget call that runs one on its line passes command_hint (or,
+// for tabs, a `hints` slice built from it), and
+// no plain button pair runs one (kit_command_pair and command_button do it themselves).
+// A source scan, since what a tooltip says is decided where the widget is called.
+@(test)
+controls_that_run_commands_show_their_hints :: proc(t: ^testing.T) {
+	WIDGETS :: [?]string{"ui.button(", "ui.icon_button(", "ui.switch_row(", "ui.tabs(", "ui.brush_tile(", "ui.toggle_button(", "ui.menu_item("}
+	files := #load_directory(".")
+	checked := 0
+	for f in files {
+		if !strings.has_suffix(f.name, ".odin") || strings.has_suffix(f.name, "_test.odin") do continue
+		lines := strings.split_lines(string(f.data), context.temp_allocator)
+		for line, i in lines {
+			widget := false
+			for w in WIDGETS do widget ||= strings.contains(line, w)
+			// The command may run on the widget's line or, after a `{`, on the next two.
+			runs := strings.contains(line, "command_run(")
+			if widget && strings.has_suffix(strings.trim_space(line), "{") {
+				for next in lines[i + 1:][:min(2, len(lines) - i - 1)] do runs ||= strings.contains(next, "command_run(")
+			}
+			if widget && runs {
+				checked += 1
+				testing.expectf(t, strings.contains(line, "command_hint(") || strings.contains(line, "hints[:]"), "%s:%d runs a command without its hint: %s", f.name, i + 1, strings.trim_space(line))
+			}
+			if strings.contains(line, "kit_button_pair(") && !strings.contains(line, "::") {
+				for next in lines[i + 1:][:min(2, len(lines) - i - 1)] {
+					testing.expectf(t, !strings.contains(next, "command_run("), "%s:%d runs a command from kit_button_pair: use kit_command_pair", f.name, i + 1)
+				}
+			}
+		}
+	}
+	// The scan saw the sources: the top bar's Undo, Redo and Inspector at least.
+	testing.expect(t, checked >= 3)
+	free_all(context.temp_allocator)
+}
+
+// The hint joins the shortcut and the gesture, follows the Settings, and is either alone.
+@(test)
+hints_join_keys_and_gestures :: proc(t: ^testing.T) {
+	app: App
+	app.nav, app.tool = NAV_DEFAULT, .Brush
+	testing.expect_value(t, command_hint(&app, .Undo), "Ctrl+Z · Two-finger tap, hold to repeat")
+	testing.expect_value(t, command_hint(&app, .Wireframe), "Shift+F")
+	testing.expect_value(t, command_hint(&app, .Mask, int(sculpt.Mask_Command.Blur)), "With Mask on, tap the mask")
+	app.nav.tap_history = false
+	testing.expect_value(t, command_hint(&app, .Undo), "Ctrl+Z · Hold two fingers still")
+	app.nav.tap_history, app.nav.hold_history = true, false
+	testing.expect_value(t, command_hint(&app, .Redo), "Ctrl+Shift+Z · Three-finger tap")
+	app.nav.tap_history = false
+	testing.expect_value(t, command_hint(&app, .Redo), "Ctrl+Shift+Z")
+	// The double tap on empty space is the Move and Sculpt tools', the mask taps Sculpt's.
+	app.tool = .Curve
+	testing.expect_value(t, command_gesture(&app, .Focus_Selected), "")
+	testing.expect_value(t, command_gesture(&app, .Mask, int(sculpt.Mask_Command.Blur)), "")
+	app.tool = .Move
+	testing.expect_value(t, command_gesture(&app, .Focus_Selected), "Double tap empty space")
+	app.nav.double_tap = false
+	testing.expect_value(t, command_gesture(&app, .Focus_Selected), "")
+	testing.expect_value(t, command_hint(&app, .Smooth_All), "")
 	free_all(context.temp_allocator)
 }

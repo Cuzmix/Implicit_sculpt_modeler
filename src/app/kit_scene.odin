@@ -26,11 +26,10 @@ kit_scene_tab :: proc(app: ^App) {
 		}
 	}
 	if len(app.scene.objects) == 0 do ui.paragraph(ctx, "The scene is empty. Add a shape below or open a scene from the menu.")
-	has := selected_object(app) != nil
 	half := (ui.fill_width(ctx) - 8) * 0.5
 	ui.begin(ctx, "object actions", {direction = .Row, gap = 8})
-	if ui.button(ctx, "Duplicate", .Flat, width = half, glyph = ui.ICON_COPY, enabled = has) do command_run(app, .Duplicate_Object)
-	if ui.button(ctx, "Delete", .Flat, .Danger, width = half, glyph = ui.ICON_TRASH, enabled = has) do command_run(app, .Delete_Object)
+	_ = command_button(app, .Duplicate_Object, width = half, glyph = ui.ICON_COPY)
+	_ = command_button(app, .Delete_Object, tone = .Danger, width = half, glyph = ui.ICON_TRASH)
 	ui.end(ctx)
 	ui.spacer(ctx, 4)
 
@@ -40,7 +39,7 @@ kit_scene_tab :: proc(app: ^App) {
 		if picked := ui.select(ctx, "add shape", shapes[:], int(k.add_shape)); picked >= 0 do k.add_shape = geom.Primitive(picked)
 		if picked := ui.select(ctx, "add size", kit_size_names(), k.add_size); picked >= 0 do k.add_size = picked
 		vertices := int(SPHERE_PRESETS[k.add_size].vertices)
-		if ui.button(ctx, fmt.tprintf("Add %v", k.add_shape), .Solid, .Accent, glyph = ui.ICON_PLUS) do command_run(app, .Add_Object)
+		_ = command_button(app, .Add_Object, label = fmt.tprintf("Add %v", k.add_shape), variant = .Solid, tone = .Accent, glyph = ui.ICON_PLUS)
 		// Geodesic spheres come in steps of 10f² + 2 vertices; say what will be built.
 		f := geom.geodesic_frequency_for(vertices)
 		built := 10 * f * f + 2 if k.add_shape == .Sphere else vertices
@@ -97,7 +96,7 @@ kit_material :: proc(app: ^App) {
 kit_studio :: proc(app: ^App) {
 	ctx := &app.kit.ctx
 	on := app.studio_on
-	if ui.switch_row(ctx, "Studio render", &on) do command_run(app, .Studio_Render)
+	if ui.switch_row(ctx, "Studio render", &on, keys = command_hint(app, .Studio_Render)) do command_run(app, .Studio_Render)
 	_ = ui.slider(ctx, "Occlusion", &app.studio_ao, 0, 1, .Linear, fmt.tprintf("%.2f", app.studio_ao))
 	_ = ui.slider(ctx, "Shadow", &app.studio_shadow, 0, 1, .Linear, fmt.tprintf("%.2f", app.studio_shadow))
 	samples := f32(app.studio_samples)
@@ -113,16 +112,14 @@ kit_camera :: proc(app: ^App) {
 	ctx := &app.kit.ctx
 	ui.paragraph(ctx, "Orbit: right drag, or Alt + left drag. Pan: middle drag, or Shift + right drag. Zoom: the wheel. On a touch screen two fingers pan and pinch.")
 	_ = ui.slider(ctx, "Distance", &app.camera.distance, camera.MIN_DISTANCE, 20, .Logarithmic, fmt.tprintf("%.2f", app.camera.distance))
-	_ = ui.switch_row(ctx, "Orthographic", &app.camera.ortho)
+	_ = ui.switch_row(ctx, "Orthographic", &app.camera.ortho, keys = command_hint(app, .Ortho_Toggle))
 	// Two rows of three, each view beside its opposite's row: the keypad's 1, 3 and 7,
 	// and with Ctrl the other side.
 	views := [2][3]camera.Axis_View{{.Front, .Right, .Top}, {.Back, .Left, .Bottom}}
 	for row, r in views {
-		names: [3]string
-		for v, i in row do names[i] = fmt.tprint(v)
-		if picked := ui.tabs(ctx, fmt.tprintf("look from %d", r), names[:], -1); picked >= 0 do command_run(app, .View_Axis, int(row[picked]))
+		names, hints: [3]string
+		for v, i in row do names[i], hints[i] = fmt.tprint(v), command_hint(app, .View_Axis, int(v))
+		if picked := ui.tabs(ctx, fmt.tprintf("look from %d", r), names[:], -1, keys = hints[:]); picked >= 0 do command_run(app, .View_Axis, int(row[picked]))
 	}
-	reset, focus := kit_button_pair(ctx, "Reset camera", "Focus selected", true, command_enabled(app, .Focus_Selected))
-	if reset do command_run(app, .Reset_Camera)
-	if focus do command_run(app, .Focus_Selected)
+	kit_command_pair(app, .Reset_Camera, .Focus_Selected)
 }

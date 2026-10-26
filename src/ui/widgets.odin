@@ -173,8 +173,9 @@ Tone :: enum u8 {
 }
 
 // A button with a label and an optional icon before it. `width` 0 takes the column's
-// fill width, or fits the label when the column has none. Returns true when clicked.
-button :: proc(ctx: ^Context, s: string, variant := Variant.Flat, tone := Tone.Neutral, width: f32 = 0, glyph: rune = 0, enabled := true) -> bool {
+// fill width, or fits the label when the column has none. With `keys` (its shortcut and
+// gesture) hovering it or a long press shows them in a tooltip. Returns true when clicked.
+button :: proc(ctx: ^Context, s: string, variant := Variant.Flat, tone := Tone.Neutral, width: f32 = 0, glyph: rune = 0, enabled := true, keys := "") -> bool {
 	t := ctx.theme
 	shown := label_text(s)
 	content := text_width(ctx, shown, t.text_size, .Semibold) + (t.icon_small + 6 if glyph != 0 else 0)
@@ -218,6 +219,7 @@ button :: proc(ctx: ^Context, s: string, variant := Variant.Flat, tone := Tone.N
 	}
 	text(ctx, shown, x, vis.y + vis.h * 0.5, t.text_size, fg, .Semibold)
 	press_scale(ctx, mark, vis, scale)
+	if keys != "" do tip(ctx, id, vis, shown, keys)
 	return clicked
 }
 
@@ -244,7 +246,7 @@ toggle_button :: proc(ctx: ^Context, s: string, on: bool, width: f32, keys := ""
 // tabs and segmented controls alike. `item_width` 0 shares the column's fill width out
 // evenly, or fits each label. `accent` fills the marker with the accent (the tool in
 // use). Returns the option chosen this frame, or -1.
-tabs :: proc(ctx: ^Context, name: string, options: []string, chosen: int, item_width: f32 = 0, accent := false, glyphs: []rune = nil) -> int {
+tabs :: proc(ctx: ^Context, name: string, options: []string, chosen: int, item_width: f32 = 0, accent := false, glyphs: []rune = nil, keys: []string = nil) -> int {
 	t := ctx.theme
 	n := len(options)
 	if n == 0 do return -1
@@ -281,14 +283,17 @@ tabs :: proc(ctx: ^Context, name: string, options: []string, chosen: int, item_w
 		} else {
 			text(ctx, shown, x, r.y + r.h * 0.5, t.text_size, color, .Semibold if on else .Regular, .Center)
 		}
+		// `keys[i]`, when given, is the option's shortcut and gesture, in a tooltip.
+		if keys != nil && i < len(keys) && keys[i] != "" do tip(ctx, id, r, shown, keys[i])
 	}
 	end(ctx)
 	return picked
 }
 
 // A row the width of its column: a label on the left and a switch on the right, the
-// whole row pressable. Returns true when it flipped `value`.
-switch_row :: proc(ctx: ^Context, s: string, value: ^bool, enabled := true) -> bool {
+// whole row pressable; `keys`, the shortcut and gesture, shows in a tooltip. Returns
+// true when it flipped `value`.
+switch_row :: proc(ctx: ^Context, s: string, value: ^bool, enabled := true, keys := "") -> bool {
 	t := ctx.theme
 	shown := label_text(s)
 	w := fill_width(ctx)
@@ -312,6 +317,7 @@ switch_row :: proc(ctx: ^Context, s: string, value: ^bool, enabled := true) -> b
 	knob := Rect{kx, track.y + 3, kw, 20}
 	fill_rect(ctx, {knob.x, knob.y + 1, knob.w, knob.h}, 10, color_fade(t.shadow, 0.5 * fade))
 	fill_rect(ctx, knob, 10, color_fade(t.knob, fade))
+	if keys != "" do tip(ctx, id, r, shown, keys)
 	return clicked
 }
 
@@ -474,8 +480,10 @@ list_row :: proc(ctx: ^Context, s: string, detail := "", selected := false, glyp
 }
 
 // An item in a menu or a select's list: an optional icon, the label, and on the right
-// the shortcut or a check when `checked`. Returns true when picked.
-menu_item :: proc(ctx: ^Context, s: string, keys := "", glyph: rune = 0, checked := false, tone := Tone.Neutral, enabled := true, highlight := false) -> bool {
+// the shortcut or a check when `checked`. `hint`, when given, shows in a tooltip beside
+// the label (the shortcut with a touch gesture, which the row has no room for). Returns
+// true when picked.
+menu_item :: proc(ctx: ^Context, s: string, keys := "", glyph: rune = 0, checked := false, tone := Tone.Neutral, enabled := true, highlight := false, hint := "") -> bool {
 	t := ctx.theme
 	shown := label_text(s)
 	w := fill_width(ctx)
@@ -501,6 +509,7 @@ menu_item :: proc(ctx: ^Context, s: string, keys := "", glyph: rune = 0, checked
 	} else if keys != "" {
 		text(ctx, keys, right, vis.y + vis.h * 0.5, t.small_size, t.text_tertiary, .Regular, .Right)
 	}
+	if hint != "" do tip(ctx, id, vis, shown, hint)
 	return clicked
 }
 

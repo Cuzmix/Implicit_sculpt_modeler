@@ -39,7 +39,7 @@ PALETTE_RECENT :: 8
 // the field, the captions, the help and the padding: from 2 up to PALETTE_ROWS. A row is
 // a touch target less 4, plus the column's gap of 2.
 palette_rows :: proc(room, target: f32) -> int {
-	fixed := 16 + (target + 2) + 2 * (22 + 2) + (1 + 2) + (56 + 2)
+	fixed := 16 + (target + 2) + 2 * (22 + 2) + (1 + 2) + (74 + 2)
 	return clamp(int((room - fixed) / (target - 2)), 2, PALETTE_ROWS)
 }
 
@@ -449,10 +449,13 @@ kit_palette :: proc(app: ^App, anchor: ui.Rect) {
 	if n == 0 do ui.paragraph(ctx, "Nothing matches. Try another word, such as remesh, mask or wireframe.")
 	// The pick's help, in a fixed height so the popover does not jump as the pick moves.
 	ui.divider(ctx, across = true)
-	ui.begin(ctx, "palette help", {direction = .Column, height = 56})
+	ui.begin(ctx, "palette help", {direction = .Column, height = 74})
 	if n > 0 {
 		e := entries[hits[k.palette_pick].entry]
 		help := fmt.tprintf("Opens Settings on the %s tab.", SETTINGS_TAB_NAMES[Settings_Tab(e.arg)]) if e.kind == .Settings_Tab else COMMANDS[e.id].help
+		if e.kind == .Command {
+			if gesture := command_gesture(app, e.id, e.arg); gesture != "" do help = fmt.tprintf("%s By touch: %s%s.", help, strings.to_lower(gesture[:1], context.temp_allocator), gesture[1:])
+		}
 		if !hits[k.palette_pick].enabled do help = fmt.tprintf("Not now: %s", help)
 		ui.paragraph(ctx, help)
 	}

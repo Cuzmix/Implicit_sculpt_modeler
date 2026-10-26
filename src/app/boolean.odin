@@ -238,7 +238,7 @@ kit_boolean_section :: proc(app: ^App) {
 	_ = kit_count(ctx, "Live vertices", &b.live_vertices, 10_000, 4_000_000)
 	_ = kit_count(ctx, "Result vertices", &b.vertices, 10_000, 20_000_000)
 	base := boolean_base(app)
-	if ui.button(ctx, "Make boolean mesh", .Solid, .Accent, enabled = base != nil) do command_run(app, .Make_Boolean)
+	_ = command_button(app, .Make_Boolean, variant = .Solid, tone = .Accent)
 	if base != nil do ui.paragraph(ctx, fmt.tprintf("Base: %s%s.", object_label(base), fmt.tprintf("; preview %.0f ms", b.ms) if b.shown else ""))
 	ui.paragraph(ctx, "Objects marked Union, Subtract or Intersect apply, in scene order, to the first object left unmarked. Live shows the result in their place; Make replaces the base with it and removes the marked ones.")
 }
@@ -248,6 +248,6 @@ kit_extract_section :: proc(app: ^App) {
 	ctx := &app.kit.ctx
 	b := &app.ui.boolean
 	_ = ui.slider(ctx, "Thickness", &b.thickness, 0.002, 0.2, .Logarithmic, fmt.tprintf("%.3f", b.thickness))
-	if ui.button(ctx, "Extract masked", .Flat, .Accent, enabled = command_enabled(app, .Extract_Masked)) do command_run(app, .Extract_Masked)
+	_ = command_button(app, .Extract_Masked, tone = .Accent)
 	ui.paragraph(ctx, "A new object: a shell over the masked part, this share of the object's size thick.")
 }
