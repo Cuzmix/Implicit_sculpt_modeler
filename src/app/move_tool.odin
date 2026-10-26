@@ -113,7 +113,7 @@ focus_selected :: proc(app: ^App) {
 	app.camera.target = obj.transform.position
 	app.camera.distance = clamp(3.5 * obj.transform.scale, camera.MIN_DISTANCE, camera.MAX_DISTANCE)
 	// Framed afresh, the view turns about what it framed until the next stroke.
-	app.pivot.set = false
+	app.pivot.set, app.pivot.pinned = false, false
 }
 
 // Points the camera at the middle of all objects, far enough back to see them all.
@@ -127,5 +127,5 @@ frame_all :: proc(app: ^App) {
 	}
 	app.camera.target = (lo + hi) / 2
 	app.camera.distance = clamp(1.75 * linalg.length(hi - lo), camera.MIN_DISTANCE, camera.MAX_DISTANCE)
-	app.pivot.set = false
+	app.pivot.set, app.pivot.pinned = false, false
 }

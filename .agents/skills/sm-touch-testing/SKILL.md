@@ -79,6 +79,10 @@ on window focus or hover to decide ownership; a widget that acts on a finger pre
 | long-presses a control: its secondary action or its tooltip, never a tap; a press short of it still taps | `long_press_shows_the_tooltip_and_does_not_tap`, `long_press_a_scene_row_opens_its_menu`, `slow_tap_on_a_folded_title_still_opens_it`, `a_press_short_of_long_still_taps`, `long_press_undo_opens_history`, `right_click_undo_opens_history`, `long_press_dock_brush_opens_its_settings`, `long_press_size_slider_resets_it`, `size_slider_drag_still_slides`, `status_chip_tap_and_long_press` |
 | holds or taps a modifier button with one hand while the other sculpts | `rail_hold_smooth_with_pen`, `rail_tap_latches_invert`, `rail_mask_paints_mask`, `rail_mask_shape_from_empty_space`, `rail_hide_gesture`, `rail_lift_mid_stroke_keeps_mode`, `rail_mouse_click_latches` |
 | holds a modifier button while the pen lands, hovers, or two fingers pinch; a window covers it; a latched one at the edge | `rail_finger_survives_pen_down`, `rail_finger_while_pen_near`, `rail_finger_during_pinch`, `rail_under_window_goes_to_window`, `rail_latched_edge_still_orbits` |
+| taps the model quickly with a modifier latched: the dab keeps it | `finger_tap_with_invert_latched_dabs_inverted` |
+| double-taps: empty space frames; where a finger orbits, the model pins the pivot; too slow, too far, in the edge band or switched off does nothing; while sculpting it is two dabs | `double_tap_empty_frames_the_object`, `double_tap_model_pins_the_pivot`, `pinned_pivot_ends_with_the_next_stroke`, `double_tap_too_slow_is_two_taps`, `double_tap_too_far_is_two_taps`, `double_tap_in_the_edge_band_does_nothing`, `double_tap_off_frames_nothing`, `double_tap_model_while_sculpting_lays_two_dabs` |
+| puts two fingers down and lifts one to turn the view; not after a pinch, not when off | `lift_one_finger_turns_the_view`, `pinch_then_lift_turns_nothing`, `lift_one_off_turns_nothing` |
+| holds two or three fingers still to repeat undo or redo; never with the pen near, a late (palm) finger, a slow pinch, or when off | `hold_two_fingers_repeats_undo`, `hold_three_fingers_repeats_redo`, `hold_with_the_pen_near_does_nothing`, `hold_with_a_late_finger_does_nothing`, `slow_pinch_never_undoes`, `hold_off_undoes_nothing` |
 
 Repeat the critical ones (taps, first-touch scroll, full turns, pinch) after any change to camera or touch settings,
 with the setting changed (`--orbit-style=turntable`, `--finger-orbits`, `--orbit-pivot=centre`, `--no-edge-orbit`, or through the Settings panel as
@@ -94,7 +98,8 @@ are on the device checklist.
   `camera_target`, `dabs`, `undo_steps`, `redo_steps`, `brush_radius_px`, `brush_strength`, `inspector_scroll`,
   `settings_scroll`, `settings_open`, `orbit_pivot`, `pivot_source`, `cursor_hit`, `cursor_normal`, `window_<name>`,
   `stroke_kind`, `stroke_invert`, `rail_latched`, `masked`, `hidden_triangles`, `long_tip` (the last long-press
-  tooltip, spaces as underscores, or none), `object_menu`, `inspector_tab`, `brush_kind`, `layout_<name>` (x,y,w,h of the
+  tooltip, spaces as underscores, or none), `object_menu`, `pinned`, `framed` (double taps on empty space),
+  `touch_repeats` (undo and redo steps taken by holding fingers), `inspector_tab`, `brush_kind`, `layout_<name>` (x,y,w,h of the
   modifier rail, sliders, dock, status and inspector), ...); `camera_still()` checks nothing moved; keys starting with `@` are checks given every stat at once or checks on
   files, such as `saved(key="value")` and `saved_line(line)` on the settings file, or `on_screen` comparing where a
   point shows before and after an orbit. A value the scenario needs that the app does not print

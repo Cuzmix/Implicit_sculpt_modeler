@@ -36,6 +36,36 @@ Drag :: struct {
 	snap:    bool, // Shift snapped the view during this drag...
 	free:    camera.Orbit, // ...which follows the drag unsnapped meanwhile
 	pivot:   Vec3, // what an orbit turns about, decided at the press (orbit_pivot)
+	// What the keys and the rail said at the press. A finger's stroke that waited begins
+	// with them even when it begins on the frame the finger lifts, when the rail has let
+	// go of the press and the keys' flags read as up.
+	mods:    Stroke_Mods,
+	edge:    bool, // pressed in the safe zone
+	selected: int, // the selection when it was pressed, which a tap may clear
+}
+
+// The modifiers of a primary drag, as Viewport_Input carries them.
+Stroke_Mods :: struct {
+	smooth, invert, mask, mask_shape, alt: bool,
+}
+
+// The last finger tap that could begin a double tap, and what double taps did.
+Double_Tap :: struct {
+	valid:    bool,
+	at:       f64, // input_clock when it lifted
+	pos:      [2]f32,
+	selected: int, // the selection before it, which a Move tool tap clears
+	framed:   int, // double taps on empty space, for the exit stats
+}
+
+// A second tap begins this soon after the first lifted (Android's double tap timeout)...
+DOUBLE_TAP_GAP :: 0.30
+// ...and this close to it, in points.
+DOUBLE_TAP_REACH :: 48
+
+// Whether a tap pressed at `at` and `pos` is the second of a double tap after `first`.
+double_tap_follows :: proc(first: Double_Tap, at: f64, pos: [2]f32, reach: f32) -> bool {
+	return first.valid && at >= first.at && at - first.at <= DOUBLE_TAP_GAP && linalg.length(pos - first.pos) <= reach
 }
 
 // What the view turns about (Settings > Camera). The pivot stays where it is on screen
@@ -59,6 +89,7 @@ Pivot_Source :: enum u8 {
 	Stroke,
 	Pointer,
 	Object,
+	Tapped, // a double tap pinned it
 }
 
 // The middle of the last stroke, in its object's own space so it follows the object when
@@ -69,7 +100,14 @@ Stroke_Pivot :: struct {
 	set:    bool, // a stroke has ended since the view was last framed or reset
 	used:   Vec3, // the last orbit's pivot, in world space
 	from:   Pivot_Source,
+	// A double tap on the model put `object` and `at` there: every orbit turns about it,
+	// whatever Turn about says, until the next stroke, a framing or the object going.
+	pinned: bool,
+	flash:  f64, // input_clock when it was pinned, for the dot's pulse
 }
+
+// How long the dot pulses where a double tap pinned the pivot.
+PIN_FLASH :: 0.8
 
 Drag_Owner :: enum u8 {
 	None,
@@ -113,6 +151,9 @@ Nav_Prefs :: struct {
 	three_finger:   bool, // three fingers drag the brush's size and strength
 	tap_history:    bool, // two fingers tap to undo, three to redo
 	palm_rejection: bool, // a lone finger does nothing while the pen is near
+	double_tap:     bool, // a finger's double tap frames, or pins the pivot on the model
+	lift_one_orbit: bool, // two fingers down, one lifted: the other turns the view
+	hold_history:   bool, // two or three fingers held still repeat undo or redo
 	// The safe zone, as the SculptNavigation add-on's border: a press this close to an
 	// edge turns the view even over the model, so a view filled by the model can still
 	// be turned with one finger, the pen or the left button.
@@ -140,6 +181,9 @@ NAV_DEFAULT :: Nav_Prefs {
 	three_finger   = true,
 	tap_history    = true,
 	palm_rejection = true,
+	double_tap     = true,
+	lift_one_orbit = true,
+	hold_history   = true,
 	edge_orbit     = true,
 	// A touch target and a bit, near the add-on's 75 pixels.
 	edge_size      = 64,
@@ -184,7 +228,10 @@ pointer_route :: proc(app: ^App, input: ^Viewport_Input) {
 	// after a cancel, while still held.
 	if g.owner == .None && input.dragging && (buttons != {} || d.pressed & {.Left, .Right, .Middle} != {}) {
 		owner, empty := drag_decide(app, input^)
-		g^ = {owner = owner, empty = empty, from = d.mouse, last = d.mouse, at = input_clock(app), held = g.held}
+		g^ = {owner = owner, empty = empty, from = d.mouse, last = d.mouse, at = input_clock(app), held = g.held, edge = in_edge(app, d.mouse), selected = app.scene.selected}
+		g.mods = {input.smooth, input.invert, input.mask, input.mask_shape, input.alt}
+		// Only a finger's tap that turns the view can be the second of a double tap.
+		if !(owner == .Orbit && d.pointer == .Finger && !g.edge) do app.double_tap.valid = false
 		g.moving = d.pointer == .Mouse
 		g.pending = g.owner == .Tool && d.pointer == .Finger && app.tool == .Brush
 		clear(&g.held)
@@ -226,6 +273,8 @@ pointer_route :: proc(app: ^App, input: ^Viewport_Input) {
 				clear(&g.held)
 				input.samples = samples
 				input.primary, input.press = true, true
+				m := g.mods
+				input.smooth, input.invert, input.mask, input.mask_shape, input.alt = m.smooth, m.invert, m.mask, m.mask_shape, m.alt
 			} else {
 				input.primary, input.press = false, false
 				input.samples = {}
@@ -259,6 +308,18 @@ pointer_route :: proc(app: ^App, input: ^Viewport_Input) {
 		// A tap on empty space with the Move tool clears the selection, as its click did
 		// before empty space turned the view.
 		if g.owner == .Orbit && g.empty && app.tool == .Move && g.travel <= slop do app.scene.selected = -1
+		if g.owner == .Orbit && d.pointer == .Finger && !g.edge && app.nav.double_tap {
+			now := input_clock(app)
+			if g.travel > slop || now - g.at >= ui.FINGER_TAP {
+				app.double_tap.valid = false
+			} else if double_tap_follows(app.double_tap, g.at, g.from, DOUBLE_TAP_REACH * app.kit.scale) {
+				app.scene.selected = app.double_tap.selected
+				app.double_tap.valid = false
+				double_tap_act(app, g.from, input.size)
+			} else {
+				app.double_tap = {valid = true, at = now, pos = g.from, selected = g.selected, framed = app.double_tap.framed}
+			}
+		}
 		g.owner = .None
 	}
 }
@@ -299,13 +360,37 @@ drag_decide :: proc(app: ^App, input: Viewport_Input) -> (owner: Drag_Owner, emp
 	return .Tool, false
 }
 
-// What an orbit pressed at `at` turns about, as Settings > Camera says, in world space:
-// the surface under the press, the middle of the last stroke, the selected object's
-// middle, or else the target. A point behind the eye is passed over, since turning about
-// it would swing what is in front of the eye out of view.
-@(private = "file")
+// A finger's double tap at `at` (Nomad's): on the model it pins the pivot there, which
+// nothing moves to show but the dot's pulse; on empty space it frames the selected object,
+// or every object when none is selected.
+double_tap_act :: proc(app: ^App, at, size: [2]f32) {
+	origin, dir := mouse_ray(app.camera, at, size)
+	if index, hit, ok := scene_raycast(app, origin, dir); ok {
+		obj := app.scene.objects[index]
+		p := &app.pivot
+		p.object, p.at, p.set, p.pinned, p.flash = obj.id, to_local(obj.transform, hit), true, true, input_clock(app)
+		p.used, p.from = hit, .Tapped
+		return
+	}
+	if selected_object(app) != nil do focus_selected(app)
+	else do frame_all(app)
+	app.double_tap.framed += 1
+}
+
+// What an orbit pressed at `at` turns about, in world space: a pivot a double tap pinned,
+// or as Settings > Camera says, the surface under the press, the middle of the last
+// stroke, the selected object's middle, or else the target. A point behind the eye is
+// passed over, since turning about it would swing what is in front of the eye out of view.
 orbit_pivot :: proc(app: ^App, at, size: [2]f32) -> (pivot: Vec3, from: Pivot_Source) {
 	c := app.camera
+	if p := &app.pivot; p.pinned {
+		obj := object_by_id(app, p.object)
+		if obj == nil {
+			p.pinned, p.set = false, false
+		} else if w := to_world(obj.transform, p.at); in_front(c, w) {
+			return w, .Tapped
+		}
+	}
 	switch app.nav.pivot {
 	case .Centre:
 		return c.target, .Centre
@@ -381,6 +466,11 @@ camera_apply_input :: proc(app: ^App, in_: Viewport_Input) {
 	if in_.touch_pan != {} do camera.orbit_pan(c, in_.touch_pan, in_.size.y)
 	if in_.touch_zoom > 0 do camera.orbit_zoom_toward(c, in_.touch_zoom, in_.touch_zoom_at, in_.size.y)
 	if in_.touch_roll != 0 do camera.orbit_roll(c, in_.touch_roll)
+	if in_.touch_orbit != {} {
+		before := c^
+		camera.orbit_rotate(c, in_.touch_orbit, orbit_settings(app))
+		camera.orbit_turn_about(c, before, in_.touch_pivot)
+	}
 	if !in_.hovered && !in_.dragging do return
 	if in_.primary do return
 	switch {

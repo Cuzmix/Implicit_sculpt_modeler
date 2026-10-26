@@ -154,6 +154,7 @@ App :: struct {
 	rail:     Modifier_Rail, // Smooth, Invert, Mask and Hide as buttons (modifiers.odin)
 	drag:     Drag, // who the press on the viewport belongs to (navigate.odin)
 	pivot:    Stroke_Pivot, // the last stroke's middle, which orbits turn about (navigate.odin)
+	double_tap: Double_Tap, // the last finger tap a double tap could follow (navigate.odin)
 	cursor:   Brush_Cursor, // the surface under the brush ring this frame (cursor.odin)
 	settings_file: string, // where the settings are remembered, "" when this run does not
 	nav:      Nav_Prefs, // how the pointer, fingers and pen navigate (Settings)
@@ -1035,7 +1036,7 @@ run :: proc(opts: Options) -> bool {
 		c := app.camera
 		fmt.printfln("camera_yaw=%.4f camera_pitch=%.4f camera_roll=%.4f camera_distance=%.4f camera_target=%.4f,%.4f,%.4f", c.yaw, c.pitch, c.roll, c.distance, c.target.x, c.target.y, c.target.z)
 		p := app.pivot.used
-		fmt.printfln("orbit_pivot=%.4f,%.4f,%.4f pivot_source=%s", p.x, p.y, p.z, strings.to_lower(fmt.tprint(app.pivot.from), context.temp_allocator))
+		fmt.printfln("orbit_pivot=%.4f,%.4f,%.4f pivot_source=%s pinned=%d framed=%d touch_repeats=%d", p.x, p.y, p.z, strings.to_lower(fmt.tprint(app.pivot.from), context.temp_allocator), int(app.pivot.pinned), app.double_tap.framed, app.touch.hold.done)
 		fmt.printfln("undo_steps=%d redo_steps=%d brush_radius_px=%.2f brush_strength=%.3f selected=%d", len(app.history.done), len(app.history.undone), app.brush.radius_px, brush_strength(&app)^, app.scene.selected)
 		{
 			// What the last stroke was, the rail's latches, and whether the selected object

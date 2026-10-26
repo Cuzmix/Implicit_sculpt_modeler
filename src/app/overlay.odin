@@ -75,6 +75,59 @@ overlay_label :: proc(o: Overlay, s: string, center: [2]f32) {
 	ui.text(ctx, s, p.x, p.y, size, t.text, .Regular, .Center)
 }
 
+// What an orbit under way turns about, which stays put while the view turns round it, and
+// for a moment after a double tap pinned it, a pulse there to show where.
+@(private = "file")
+draw_pivot :: proc(app: ^App, o: Overlay, size: [2]f32) {
+	view_proj := camera.orbit_proj(app.camera, size.x / max(size.y, 1)) * camera.orbit_view(app.camera)
+	dot :: proc(o: Overlay, view_proj: matrix[4, 4]f32, at: Vec3, size: [2]f32, alpha: f32) -> (p: [2]f32, ok: bool) {
+		p, ok = gizmo.project(view_proj, at, size)
+		if !ok do return
+		overlay_disc(o, p, 5, overlay_color({0, 0, 0, 0.5 * alpha}))
+		overlay_disc(o, p, 3.5, overlay_color({1, 0.8, 0.4, 0.95 * alpha}))
+		return
+	}
+	if g := app.drag; g.owner == .Orbit && g.moving {
+		_, _ = dot(o, view_proj, g.pivot, size, 1)
+	} else if l := app.touch.lift; l.moving {
+		_, _ = dot(o, view_proj, l.pivot, size, 1)
+	}
+	p := app.pivot
+	if !p.pinned do return
+	age := f32(input_clock(app) - p.flash)
+	if age < 0 || age >= PIN_FLASH do return
+	obj := object_by_id(app, p.object)
+	if obj == nil do return
+	fade := 1 - age / PIN_FLASH
+	if at, ok := dot(o, view_proj, to_world(obj.transform, p.at), size, 1); ok {
+		// A ring that grows out of the dot and fades, as a tap's ripple.
+		overlay_circle(o, at, (8 + 22 * (1 - fade * fade)) * o.scale, overlay_color({1, 0.8, 0.4, 0.9 * fade}), 2 * o.scale)
+	}
+}
+
+// The ring that fills while two or three fingers are held still, toward their first undo
+// or redo, and once they repeat, how many steps they took.
+@(private = "file")
+draw_hold_history :: proc(app: ^App, o: Overlay) {
+	h := app.touch.hold
+	if h.ring < 0 do return
+	t := o.ctx.theme
+	RADIUS :: 44
+	center := h.at
+	r := RADIUS * o.scale
+	overlay_circle(o, center, r, ui.color_fade(t.border_strong, 0.8), 3 * o.scale)
+	n := max(int(h.ring * 48), 1)
+	points := make([][2]f32, n + 1, context.temp_allocator)
+	for &q, i in points {
+		a := -math.PI / 2 + 2 * math.PI * h.ring * f32(i) / f32(n)
+		q = center + r * [2]f32{math.cos(a), math.sin(a)}
+	}
+	overlay_polyline(o, points, t.accent, 3 * o.scale)
+	if h.fired > 0 {
+		overlay_label(o, fmt.tprintf("%s %d", "Undo" if h.most == 2 else "Redo", h.taken), center - {0, r + 24 * o.scale})
+	}
+}
+
 // Draws the brush circle, the move gizmo or the gesture being dragged over the viewport,
 // under the panels in the layer kit_frame kept over the viewport image, then the brush
 // pie over everything. Runs after the tools have handled this frame's input, so the
@@ -99,14 +152,8 @@ overlay_viewport :: proc(app: ^App, o: Overlay, input: Viewport_Input) {
 		lo, hi := edge_inner(app)
 		overlay_box(o, lo, hi, overlay_color({1, 1, 1, 0.16}), {}, 1)
 	}
-	// What an orbit under way turns about: it stays put while the view turns round it.
-	if g := app.drag; g.owner == .Orbit && g.moving {
-		view_proj := camera.orbit_proj(app.camera, input.size.x / max(input.size.y, 1)) * camera.orbit_view(app.camera)
-		if p, ok := gizmo.project(view_proj, g.pivot, input.size); ok {
-			overlay_disc(o, p, 5, overlay_color({0, 0, 0, 0.5}))
-			overlay_disc(o, p, 3.5, overlay_color({1, 0.8, 0.4, 0.95}))
-		}
-	}
+	draw_pivot(app, o, input.size)
+	draw_hold_history(app, o)
 	switch app.tool {
 	case .Brush:
 		if app.clip.active {

@@ -1004,6 +1004,17 @@ def rail_hold_smooth_with_pen():
 
 
 @scenario
+def finger_tap_with_invert_latched_dabs_inverted():
+    """A quick finger tap on the model with Invert latched lays an inverted dab: the tap's release frame keeps the press's modifiers."""
+    s = Script()
+    rail_tap(s, "invert")
+    s.wait(4)
+    s.ftap(*MODEL, hold=2)
+    s.wait(6)
+    return s, [], camera_still({"dabs": lambda v: int(v) >= 1, "undo_steps": near(1), "stroke_invert": near(1)})
+
+
+@scenario
 def rail_tap_latches_invert():
     """A quick tap on Invert latches it: a finger stroke after it is inverted."""
     s = Script()
@@ -1286,6 +1297,238 @@ def status_chip_tap_and_long_press():
     long_press(s, *STATUS_CHIP)
     return s, [], camera_still({"dabs": near(0), "inspector_tab": lambda v: v == "object", "object_menu": near(1)})
 
+# Touch step 3: double tap, lifting one of two fingers, holding fingers for undo.
+
+def double_tap(s, x, y, gap=6):
+    """Two quick finger taps at one place, `gap` frames apart (DOUBLE_TAP_GAP is 18)."""
+    s.ftap(x, y, hold=2, gap=gap)
+    s.ftap(x, y, hold=2, gap=4)
+
+
+def strokes(s, n):
+    """`n` finger strokes across the model, each an undo step."""
+    for i in range(n):
+        s.fdrag(line((700, 380 + 30 * i), (860, 400 + 30 * i), 12))
+        s.wait(2)
+
+
+# Two wheel notches in: empty space is still empty at EMPTY.
+ZOOMED = 3.5 * 0.88 ** 2
+
+
+def zoom_a_little(s):
+    s.add("move:800,450")
+    s.wait(1)
+    s.add("wheel:2")
+    s.wait(3)
+
+
+def write_settings(text):
+    with open(settings_file(), "w") as f:
+        f.write(text)
+
+
+@scenario
+def double_tap_empty_frames_the_object():
+    """Zoomed in, a double tap on empty space frames the selected object again and sculpts nothing."""
+    s = Script()
+    zoom_a_little(s)
+    double_tap(s, *EMPTY)
+    s.wait(4)
+    return s, [], {"camera_distance": near(3.5), "framed": near(1), "dabs": near(0), "undo_steps": near(0)}
+
+
+@scenario
+def double_tap_too_slow_is_two_taps():
+    """Two taps on empty space further apart than the gap frame nothing."""
+    s = Script()
+    zoom_a_little(s)
+    double_tap(s, *EMPTY, gap=24)
+    s.wait(4)
+    return s, [], {"camera_distance": near(ZOOMED), "framed": near(0)}
+
+
+@scenario
+def double_tap_too_far_is_two_taps():
+    """Two quick taps on empty space 80 points apart frame nothing."""
+    s = Script()
+    zoom_a_little(s)
+    s.ftap(*EMPTY, hold=2, gap=6)
+    s.ftap(EMPTY[0] + 80, EMPTY[1], hold=2)
+    s.wait(4)
+    return s, [], {"camera_distance": near(ZOOMED), "framed": near(0)}
+
+
+@scenario
+def double_tap_in_the_edge_band_does_nothing():
+    """A double tap in the safe zone, beside the panels, frames nothing."""
+    s = Script()
+    zoom_a_little(s)
+    double_tap(s, 250, 868)
+    s.wait(4)
+    return s, [], {"camera_distance": near(ZOOMED), "framed": near(0)}
+
+
+@scenario
+def double_tap_off_frames_nothing():
+    """With Double tap to frame or pin off, a double tap on empty space does nothing."""
+    s = Script()
+    write_settings("double_tap 0\n")
+    zoom_a_little(s)
+    double_tap(s, *EMPTY)
+    s.wait(4)
+    return s, [f"--settings-file={settings_file()}"], {"camera_distance": near(ZOOMED), "framed": near(0)}
+
+
+@scenario
+def double_tap_model_pins_the_pivot():
+    """Where one finger turns the view, a double tap on the model pins the pivot there: the next orbit turns about that point and the view does not jump."""
+    s = Script()
+    double_tap(s, *MODEL)
+    s.wait(10)
+    s.fdrag(past_slop(EMPTY, (EMPTY[0] + 100, EMPTY[1]), 10))
+    def pivot_on_front(st):
+        x, y, z = (float(v) for v in st["orbit_pivot"].split(","))
+        return abs(math.sqrt(x * x + y * y + z * z) - 1) < 0.05
+    return s, ["--finger-orbits", "--orbit-style=turntable"], {
+        "pinned": near(1), "pivot_source": lambda v: v == "tapped", "@pivot": pivot_on_front,
+        "dabs": near(0), "undo_steps": near(0), "camera_yaw": lambda v: abs(float(v) - 0.6) > 0.5}
+
+
+@scenario
+def pinned_pivot_ends_with_the_next_stroke():
+    """A pin lasts until the next stroke ends: the pen's stroke on the model unpins it."""
+    s = Script()
+    double_tap(s, *MODEL)
+    s.wait(6)
+    pen_stroke(s, line((760, 430), (860, 470), 20))
+    return s, ["--finger-orbits"], {"pinned": near(0), "undo_steps": near(1)}
+
+
+@scenario
+def double_tap_model_while_sculpting_lays_two_dabs():
+    """Where one finger sculpts (the default), two quick taps on the model are still two dabs and pin nothing."""
+    s = Script()
+    double_tap(s, *MODEL)
+    s.wait(6)
+    return s, [], camera_still({"pinned": near(0), "undo_steps": near(2), "dabs": lambda v: int(v) >= 2})
+
+
+def lift_one(s, moves=((0, 0), (0, 0)), frames=4):
+    """Two fingers on the model, `moves` apart over `frames`, then the second lifts and the
+    first drags 150 points to the right."""
+    s.fingers([(760, 430), (860, 470)], moves, frames, lift=False)
+    s.add("fup:1")
+    s.wait(2)
+    x = 760 + moves[0][0]
+    y = 430 + moves[0][1]
+    for k in range(1, 16):
+        s.add(f"fmove:0:{x + 10 * k:g},{y:g}")
+        s.wait(1)
+    s.add("fup:0")
+    s.wait(4)
+
+
+@scenario
+def lift_one_finger_turns_the_view():
+    """Two fingers down on the model, one lifted: the other turns the view and sculpts nothing."""
+    s = Script()
+    lift_one(s)
+    return s, ["--orbit-style=turntable"], {"camera_yaw": lambda v: float(v) < 0.6 - 0.5, "dabs": near(0), "undo_steps": near(0), "redo_steps": near(0)}
+
+
+@scenario
+def lift_one_off_turns_nothing():
+    """With Lift one of two fingers to turn off, the finger left does nothing."""
+    s = Script()
+    write_settings("lift_one_orbit 0\n")
+    lift_one(s)
+    return s, [f"--settings-file={settings_file()}"], camera_still({"dabs": near(0), "undo_steps": near(0)})
+
+
+@scenario
+def pinch_then_lift_turns_nothing():
+    """After a pinch, the finger left rolling on turns nothing: only a pair that stayed still may orbit."""
+    s = Script()
+    lift_one(s, moves=((-60, -30), (60, 30)), frames=10)
+    return s, ["--orbit-style=turntable"], {"camera_yaw": near(0.6), "camera_pitch": near(0.35), "camera_distance": lambda v: float(v) < 3.4, "dabs": near(0)}
+
+
+def hold(s, n, frames, late=0, starts=((740, 430), (840, 450), (790, 520))):
+    """`n` fingers down together (or the last `late` frames after), on the model unless
+    `starts` says, held still for `frames`, then lifted."""
+    starts = starts[:n]
+    for i, (x, y) in enumerate(starts):
+        if i == n - 1 and late:
+            s.wait(late)
+        s.add(f"fdown:{i}:{x:g},{y:g}")
+    s.wait(frames)
+    for i in range(n):
+        s.add(f"fup:{i}")
+    s.wait(4)
+
+
+@scenario
+def hold_two_fingers_repeats_undo():
+    """After four strokes, two fingers held still for 0.75 s undo three of them (one at 0.45 s, then every 0.12 s)."""
+    s = Script()
+    strokes(s, 4)
+    hold(s, 2, 45)
+    return s, [], camera_still({"undo_steps": near(1), "redo_steps": near(3), "touch_repeats": near(3)})
+
+
+@scenario
+def hold_three_fingers_repeats_redo():
+    """Two fingers held undo all four strokes; three held for 0.75 s then redo three."""
+    s = Script()
+    strokes(s, 4)
+    hold(s, 2, 70)
+    hold(s, 3, 45)
+    return s, [], camera_still({"undo_steps": near(3), "redo_steps": near(1), "touch_repeats": near(7)})
+
+
+@scenario
+def hold_with_the_pen_near_does_nothing():
+    """Two fingers held while the pen is near the screen undo nothing: a hand resting as it draws."""
+    s = Script()
+    strokes(s, 2)
+    s.add("pnear")
+    s.wait(2)
+    hold(s, 2, 45)
+    s.add("pfar")
+    s.wait(2)
+    return s, [], camera_still({"undo_steps": near(2), "touch_repeats": near(0)})
+
+
+@scenario
+def hold_with_a_late_finger_does_nothing():
+    """A second finger landing 0.2 s after the first, as a palm's do, makes no hold."""
+    s = Script()
+    strokes(s, 2)
+    # On empty space, where the first finger alone does nothing either.
+    hold(s, 2, 45, late=12, starts=(EMPTY, (EMPTY[0] + 80, EMPTY[1] + 20)))
+    return s, [], camera_still({"undo_steps": near(2), "touch_repeats": near(0)})
+
+
+@scenario
+def hold_off_undoes_nothing():
+    """With Hold two fingers to keep undoing off, a still hold undoes nothing."""
+    s = Script()
+    write_settings("hold_history 0\n")
+    strokes(s, 2)
+    hold(s, 2, 45)
+    return s, [f"--settings-file={settings_file()}"], camera_still({"undo_steps": near(2), "touch_repeats": near(0)})
+
+
+@scenario
+def slow_pinch_never_undoes():
+    """Two fingers spreading slowly for a second, under the slop, zoom and never undo."""
+    s = Script()
+    strokes(s, 2)
+    s.fingers([(760, 450), (840, 450)], [(-8, 0), (8, 0)], 60)
+    return s, [], {"undo_steps": near(2), "touch_repeats": near(0), "camera_distance": lambda v: float(v) < 3.5}
+
+
 def run(name, screens, displays=None):
     CURRENT.name = name
     os.makedirs(os.path.dirname(settings_file()), exist_ok=True)
@@ -1347,9 +1590,12 @@ def start_displays(count):
     Windows sharing one display take the focus from each other as they open, and a window
     losing the focus forgets the fingers on it (touch.odin), so side by side scenarios each
     need a display of their own. Returns the servers and a queue of their names, or no
-    queue when there is one job or no Xvfb (the scenarios then share the current display).
+    queue when there is no Xvfb, or one job and a display already (the current one is used).
     """
-    if count < 2 or os.name == "nt" or not shutil.which("Xvfb"):
+    if os.name == "nt" or not shutil.which("Xvfb"):
+        return [], None
+    # One job on a desktop uses its display; with no display at all it gets a private one.
+    if count < 2 and (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
         return [], None
     servers, displays = [], queue.Queue()
     for i in range(count):

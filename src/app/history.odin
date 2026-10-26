@@ -148,7 +148,7 @@ stroke_finish :: proc(app: ^App) {
 	if !app.stroke.active do return
 	app.stroke.active = false
 	if st := app.stroke; st.pivot_count > 0 {
-		app.pivot.object, app.pivot.at, app.pivot.set = st.object, st.pivot_sum / f32(st.pivot_count), true
+		app.pivot.object, app.pivot.at, app.pivot.set, app.pivot.pinned = st.object, st.pivot_sum / f32(st.pivot_count), true, false
 	}
 	obj := object_by_id(app, app.stroke.object)
 	if obj == nil do return
