@@ -700,6 +700,54 @@ command_keys :: proc(id: Command_Id, arg := 0) -> string {
 	return ""
 }
 
+// The touch gesture that runs the command as the Settings and the tool now have them, or
+// "": what a tablet without a keyboard has in place of the shortcut (README "Touch and
+// pen").
+command_gesture :: proc(app: ^App, id: Command_Id, arg := 0) -> string {
+	n := &app.nav
+	// A finger on empty space belongs to the Curve and Insert tools, so a double tap there
+	// frames only with Move or Sculpt, or when one finger always turns the view.
+	empty_taps := app.tool == .Move || app.tool == .Brush || n.finger_model == .Orbit
+	#partial switch id {
+	case .Undo, .Redo:
+		fingers := "two" if id == .Undo else "three"
+		switch {
+		case n.tap_history && n.hold_history: return fmt.tprintf("%s-finger tap, hold to repeat", "Two" if id == .Undo else "Three")
+		case n.tap_history:                   return fmt.tprintf("%s-finger tap", "Two" if id == .Undo else "Three")
+		case n.hold_history:                  return fmt.tprintf("Hold %s fingers still", fingers)
+		}
+	case .Focus_Selected:
+		if n.double_tap && empty_taps do return "Double tap empty space"
+	case .Frame_All:
+		if n.double_tap && empty_taps do return "Double tap empty space, nothing selected"
+	case .Size_Up, .Size_Down:
+		if n.three_finger do return "Three fingers up or down"
+	case .Strength_Up, .Strength_Down:
+		if n.three_finger do return "Three fingers sideways"
+	case .Mask:
+		// The mask taps are the Sculpt tool's (mask_tap_act).
+		if app.tool != .Brush do return ""
+		#partial switch sculpt.Mask_Command(arg) {
+		case .Invert:  return "With Mask on, tap off the model"
+		case .Blur:    return "With Mask on, tap the mask"
+		case .Sharpen: return "With Mask on, tap an unmasked part"
+		}
+	}
+	return ""
+}
+
+// The shortcut and the gesture, as a tooltip shows them beside a control's name:
+// "Ctrl+Z · Two-finger tap", either alone, or "".
+command_hint :: proc(app: ^App, id: Command_Id, arg := 0) -> string {
+	return hint_join(command_keys(id, arg), command_gesture(app, id, arg))
+}
+
+// Keys and a gesture as one tooltip hint, either alone, or "".
+hint_join :: proc(keys, gesture: string) -> string {
+	if keys != "" && gesture != "" do return fmt.tprintf("%s · %s", keys, gesture)
+	return keys if keys != "" else gesture
+}
+
 // "Ctrl+Shift+S", "Shift+F", "F12", "Num 1": in the temp allocator.
 chord_text :: proc(c: Chord) -> string {
 	b := strings.builder_make(context.temp_allocator)
@@ -767,13 +815,26 @@ commands_handle_keys :: proc(app: ^App) {
 	if key_pressed(&app.device, sdl.K_ESCAPE) do replay_stop(app)
 }
 
-// A menu row for the command, with its icon, shortcut and state from the table;
-// `label` replaces the table's where the menu words it its own way. Runs it when picked
-// and returns true then.
+// A menu row for the command, with its icon, shortcut and state from the table, and a
+// tooltip with the shortcut and gesture when it has a gesture; `label` replaces the
+// table's where the menu words it its own way. Runs it when picked and returns true then.
 command_menu_item :: proc(app: ^App, id: Command_Id, arg := 0, label := "", tone := ui.Tone.Neutral) -> bool {
 	c := &COMMANDS[id]
 	text := label if label != "" else command_label(id, arg)
-	if !ui.menu_item(&app.kit.ctx, text, command_keys(id, arg), c.icon, command_checked(app, id, arg), tone, command_enabled(app, id, arg)) do return false
+	gesture := command_gesture(app, id, arg)
+	hint := hint_join(command_keys(id, arg), gesture) if gesture != "" else ""
+	if !ui.menu_item(&app.kit.ctx, text, command_keys(id, arg), c.icon, command_checked(app, id, arg), tone, command_enabled(app, id, arg), hint = hint) do return false
+	return command_run(app, id, arg)
+}
+
+// A button for the command: its label (or the table's), the shortcut and gesture in its
+// tooltip, enabled while the command can run (and `enabled`). Runs it when clicked and
+// returns true then. Every panel button that runs a command is one of these, so none
+// leaves out its shortcut.
+command_button :: proc(app: ^App, id: Command_Id, arg := 0, label := "", variant := ui.Variant.Flat, tone := ui.Tone.Neutral, width: f32 = 0, glyph: rune = 0, enabled := true) -> bool {
+	text := label if label != "" else command_label(id, arg)
+	can := enabled && command_enabled(app, id, arg)
+	if !ui.button(&app.kit.ctx, text, variant, tone, width, glyph, can, command_hint(app, id, arg)) do return false
 	return command_run(app, id, arg)
 }
 

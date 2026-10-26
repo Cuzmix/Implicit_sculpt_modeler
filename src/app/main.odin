@@ -1074,7 +1074,10 @@ run :: proc(opts: Options) -> bool {
 			fmt.printfln("last_op=%s toast_undo=%d", last_op if last_op != "" else "none", int(app.result.undo != nil))
 		}
 		// The last tooltip a long press showed, spaces as underscores so it stays one value.
-		long_tip, _ := strings.replace_all(ui.long_tip_shown(&app.kit.ctx), " ", "_", context.temp_allocator)
+		tip_text, tip_keys := ui.long_tip_shown(&app.kit.ctx)
+		long_tip, _ := strings.replace_all(tip_text, " ", "_", context.temp_allocator)
+		long_tip_keys, _ := strings.replace_all(tip_keys, " ", "_", context.temp_allocator)
+		fmt.printfln("long_tip_keys=%s", long_tip_keys if long_tip_keys != "" else "none")
 		fmt.printfln("long_tip=%s object_menu=%d inspector_tab=%s brush_kind=%s", long_tip if long_tip != "" else "none", int(app.kit.object_menu), strings.to_lower(fmt.tprint(app.kit.tab), context.temp_allocator), strings.to_lower(fmt.tprint(app.brush.kind), context.temp_allocator))
 		fmt.printfln("inspector_scroll=%.1f settings_scroll=%.1f settings_open=%d", app.kit.scroll, app.kit.settings_scroll, int(app.kit.settings))
 		n := app.cursor.normal

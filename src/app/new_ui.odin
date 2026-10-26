@@ -618,9 +618,9 @@ kit_layout :: proc(app: ^App) {
 	redo := fmt.tprintf("Redo %s##redo", history_next_label(app.history.undone[:]))
 	// A long press on either opens the History panel, to go back or forward many steps.
 	// Disabled (nothing to undo or redo) they take no press; the History button is beside.
-	if ui.icon_button(ctx, undo, ui.ICON_UNDO, enabled = command_enabled(app, .Undo), keys = command_keys(.Undo)) do command_run(app, .Undo)
+	if ui.icon_button(ctx, undo, ui.ICON_UNDO, enabled = command_enabled(app, .Undo), keys = command_hint(app, .Undo)) do command_run(app, .Undo)
 	if ui.secondary(ctx) do k.history = true
-	if ui.icon_button(ctx, redo, ui.ICON_REDO, enabled = command_enabled(app, .Redo), keys = command_keys(.Redo)) do command_run(app, .Redo)
+	if ui.icon_button(ctx, redo, ui.ICON_REDO, enabled = command_enabled(app, .Redo), keys = command_hint(app, .Redo)) do command_run(app, .Redo)
 	if ui.secondary(ctx) do k.history = true
 	if ui.icon_button(ctx, "History", ui.ICON_HISTORY, selected = k.history) do k.history = !k.history
 	ui.end(ctx)
@@ -633,14 +633,16 @@ kit_layout :: proc(app: ^App) {
 	tool_names := [len(Tool)]string{"Move", "Sculpt", "Curve", "Insert"}
 	tool_icons := [len(Tool)]rune{ui.ICON_MOVE, ui.ICON_BRUSH, ui.ICON_SPLINE, ui.ICON_SHAPES}
 	tool_commands := [len(Tool)]Command_Id{.Tool_Move, .Tool_Sculpt, .Tool_Curve, .Tool_Insert}
-	if picked := ui.tabs(ctx, "tool", tool_names[:], int(app.tool), accent = true, glyphs = tool_icons[:]); picked >= 0 do command_run(app, tool_commands[picked])
+	tool_hints: [len(Tool)]string
+	for c, i in tool_commands do tool_hints[i] = command_hint(app, c)
+	if picked := ui.tabs(ctx, "tool", tool_names[:], int(app.tool), accent = true, glyphs = tool_icons[:], keys = tool_hints[:]); picked >= 0 do command_run(app, tool_commands[picked])
 	ui.spacer(ctx, 2)
 	ui.divider(ctx)
 	ui.spacer(ctx, 2)
 	for axis in sculpt.Axis {
 		name := fmt.tprint(axis)
 		tip := fmt.tprintf("Symmetry across %s", name)
-		if ui.toggle_button(ctx, name, axis in app.brush.symmetry, 40, command_keys(.Symmetry_X) if axis == .X else "", tip) do app.brush.symmetry ~= {axis}
+		if ui.toggle_button(ctx, name, axis in app.brush.symmetry, 40, command_hint(app, .Symmetry_X) if axis == .X else "", tip) do app.brush.symmetry ~= {axis}
 	}
 	ui.spacer(ctx, 6)
 	ui.end(ctx)
@@ -648,14 +650,14 @@ kit_layout :: proc(app: ^App) {
 	// Top right: search, view options and the inspector.
 	palette_anchor: ui.Rect
 	ui.begin_anchored(ctx, "top right", .End, .Start, {E, E}, bar)
-	if ui.icon_button(ctx, "Search commands", ui.ICON_SEARCH, selected = k.palette, keys = command_keys(.Command_Palette)) {
+	if ui.icon_button(ctx, "Search commands", ui.ICON_SEARCH, selected = k.palette, keys = command_hint(app, .Command_Palette)) {
 		if k.palette do palette_close(app)
 		else do palette_open(app)
 	}
 	palette_anchor = ctx.last_rect
 	if ui.icon_button(ctx, "View", ui.ICON_EYE, selected = k.view_menu) do k.view_menu = !k.view_menu
 	view_anchor = ctx.last_rect
-	if ui.icon_button(ctx, "Inspector", ui.ICON_PANEL, selected = k.inspector, keys = command_keys(.Inspector)) do command_run(app, .Inspector)
+	if ui.icon_button(ctx, "Inspector", ui.ICON_PANEL, selected = k.inspector, keys = command_hint(app, .Inspector)) do command_run(app, .Inspector)
 	ui.end(ctx)
 
 	// Left edge: size and strength, for a thumb or a pen, over the modifier rail when it
@@ -663,9 +665,12 @@ kit_layout :: proc(app: ^App) {
 	track := slider_track(app)
 	ui.begin_anchored(ctx, "sliders", .Start, .Center, {E, 0}, {direction = .Row, gap = 0})
 	// A long press (or a right-click) on either puts it back to where a new brush starts.
-	_ = ui.vslider(ctx, "Brush size", &app.brush.radius_px, MIN_RADIUS_PX, MAX_RADIUS_PX, .Logarithmic, fmt.tprintf("%.0f", app.brush.radius_px), ui.ICON_SIZE, "S, [ ]", track, DEFAULT_RADIUS_PX)
+	// S and U drag the size and strength (adjust.odin), [ and ] step them.
+	size_hint := slider_hint(app, "S, [ ]", .Size_Up)
+	strength_hint := slider_hint(app, "U, Shift+[ ]", .Strength_Up)
+	_ = ui.vslider(ctx, "Brush size", &app.brush.radius_px, MIN_RADIUS_PX, MAX_RADIUS_PX, .Logarithmic, fmt.tprintf("%.0f", app.brush.radius_px), ui.ICON_SIZE, size_hint, track, DEFAULT_RADIUS_PX)
 	strength := brush_strength(app)
-	_ = ui.vslider(ctx, "Brush strength", strength, MIN_STRENGTH, 1, .Linear, fmt.tprintf("%.2f", strength^), ui.ICON_STRENGTH, "U, Shift+[ ]", track, BRUSHES[app.brush.kind].strength)
+	_ = ui.vslider(ctx, "Brush strength", strength, MIN_STRENGTH, 1, .Linear, fmt.tprintf("%.2f", strength^), ui.ICON_STRENGTH, strength_hint, track, BRUSHES[app.brush.kind].strength)
 	ui.end(ctx)
 
 	kit_modifier_rail(app)
@@ -674,7 +679,7 @@ kit_layout :: proc(app: ^App) {
 	browser_anchor: ui.Rect
 	ui.begin_anchored(ctx, "dock", .Center, .End, {0, E}, {direction = .Row, gap = 0, padding = 4, radius = t.radius_large + 4, background = .Panel, center = true})
 	for kind in KIT_DOCK {
-		if ui.brush_tile(ctx, BRUSHES[kind].name, BRUSHES[kind].icon, app.brush.kind == kind && app.tool == .Brush, command_keys(.Brush, int(kind))) do command_run(app, .Brush, int(kind))
+		if ui.brush_tile(ctx, BRUSHES[kind].name, BRUSHES[kind].icon, app.brush.kind == kind && app.tool == .Brush, command_hint(app, .Brush, int(kind))) do command_run(app, .Brush, int(kind))
 		if ui.secondary(ctx) do brush_settings_open(app, kind)
 	}
 	ui.divider(ctx, 32)
@@ -731,7 +736,7 @@ kit_layout :: proc(app: ^App) {
 		row := 0
 		for kind, i in sculpt.Brush_Kind {
 			if i % PER_ROW == 0 do ui.begin(ctx, fmt.tprintf("row %d", row), {direction = .Row, gap = 0})
-			if ui.brush_tile(ctx, BRUSHES[kind].name, BRUSHES[kind].icon, app.brush.kind == kind && app.tool == .Brush, command_keys(.Brush, int(kind))) {
+			if ui.brush_tile(ctx, BRUSHES[kind].name, BRUSHES[kind].icon, app.brush.kind == kind && app.tool == .Brush, command_hint(app, .Brush, int(kind))) {
 				command_run(app, .Brush, int(kind))
 				k.browser = false
 			}
@@ -876,6 +881,11 @@ kit_view_menu :: proc(app: ^App, anchor: ui.Rect) {
 	if command_menu_item(app, .Focus_Selected) do k.view_menu = false
 	if command_menu_item(app, .Reset_Camera) do k.view_menu = false
 	ui.popover_end(ctx)
+}
+
+// A size or strength slider's tooltip: its keys, and the three-finger drag when that is on.
+slider_hint :: proc(app: ^App, keys: string, step: Command_Id) -> string {
+	return hint_join(keys, command_gesture(app, step))
 }
 
 // Picks brush `kind` and shows its settings: the inspector, on the tool's tab, from the top.

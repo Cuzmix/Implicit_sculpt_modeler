@@ -74,9 +74,11 @@ Long_Press :: struct {
 	fired:   Long_Fired,
 	travel:  f32, // the furthest the pointer went from the press, points
 	claimed: Id, // a widget that has a secondary action this frame (secondary)
-	// The text of the last tooltip a long press showed, for the app's exit stats.
+	// The text and keys of the last tooltip a long press showed, for the app's exit stats.
 	shown:   [64]u8,
 	shown_len: int,
+	shown_keys: [80]u8,
+	shown_keys_len: int,
 }
 
 Long_Fired :: enum u8 {
@@ -241,7 +243,7 @@ Context :: struct {
 	// which the app may free before the frame ends.
 	tip_text:       [160]u8,
 	tip_len:        int,
-	tip_keys:       [40]u8, // its shortcut, shown dimmer beside it
+	tip_keys:       [80]u8, // its shortcut and gesture, shown dimmer beside it
 	tip_keys_len:   int,
 	tip_rect:       Rect,
 	tip_shown:      Id,
@@ -696,7 +698,7 @@ interact :: proc(ctx: ^Context, id: Id, r: Rect) -> (hovered, held, clicked, pre
 		ctx.active = id
 		ctx.press_mouse = in_input.mouse
 		ctx.press_at = ctx.time
-		ctx.long = {id = id, shown = ctx.long.shown, shown_len = ctx.long.shown_len}
+		ctx.long = {id = id, shown = ctx.long.shown, shown_len = ctx.long.shown_len, shown_keys = ctx.long.shown_keys, shown_keys_len = ctx.long.shown_keys_len}
 		pressed = true
 		// The innermost drag-scrolled area the press is in decides with the control which
 		// of them the drag is for; a mouse's press is the control's at once.
@@ -994,6 +996,7 @@ long_press_decide :: proc(ctx: ^Context) -> (ring: bool) {
 	if ctx.long.claimed != id && has_tip && long_due(ctx, id) {
 		ctx.long.fired = .Tip
 		ctx.long.shown_len = copy_text(ctx.long.shown[:], string(ctx.tip_text[:ctx.tip_len]))
+		ctx.long.shown_keys_len = copy_text(ctx.long.shown_keys[:], string(ctx.tip_keys[:ctx.tip_keys_len]))
 	}
 	if ctx.long.fired != .None || ctx.input.pointer == .Mouse || .Left not_in ctx.input.down do return false
 	if ctx.long.travel > ctx.theme.slop || (ctx.long.claimed != id && !has_tip) do return false
@@ -1020,7 +1023,7 @@ long_press_draw :: proc(ctx: ^Context) {
 	polyline(ctx, points, t.accent, 3)
 }
 
-// The text of the last tooltip a long press showed, or "" for none.
-long_tip_shown :: proc(ctx: ^Context) -> string {
-	return string(ctx.long.shown[:ctx.long.shown_len])
+// The text of the last tooltip a long press showed, or "" for none, and its keys.
+long_tip_shown :: proc(ctx: ^Context) -> (text, keys: string) {
+	return string(ctx.long.shown[:ctx.long.shown_len]), string(ctx.long.shown_keys[:ctx.long.shown_keys_len])
 }

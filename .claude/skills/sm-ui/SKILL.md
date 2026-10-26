@@ -64,7 +64,7 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   draws the safe zone's inner edge (`edge_inner`, navigate.odin), the orbit pivot's dot while an orbit moves, and the
   brush ring lying on the surface (`draw_surface_ring`, from `app.cursor`, which `cursor_update` in `cursor.odin`
   fills each frame after the tools: a raycast and `sculpt.sculptor_area_normal`, timed as `cursor_ms`).
-- Commands: an action button, menu row or shortcut runs a registry command (`command_run(app, .Id, arg)`, `src/app/commands.odin`), whose `enabled` also decides the button's enabled state and whose keys a hint shows through `command_keys`; never type a shortcut into a label or paragraph. A panel never mutates the scene; it sets `app.ui.scene_command` and the frame loop applies it at the start
+- Commands: an action button, menu row or shortcut runs a registry command (`command_run(app, .Id, arg)`, `src/app/commands.odin`), whose `enabled` also decides the button's enabled state and whose shortcut and touch gesture its tooltip shows through `command_hint` (`command_keys` joined to `command_gesture`, which follows the Settings and the tool); never type a shortcut into a label or paragraph. A panel never mutates the scene; it sets `app.ui.scene_command` and the frame loop applies it at the start
   of the next frame. Mask commands go to `mask_command`; file actions to `file_dialog`/`file_post`, applied next frame
   (`file_take`), their outcome a `file_note` that the interface shows as a toast.
 - Operation results (`src/app/results.odin`): an operation says what it did once, with
@@ -142,7 +142,7 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   (`hit_area`; sm-store); what is drawn can be smaller (`control` 36, `row` 40). Widgets name tokens from
   `src/ui/theme.odin` (`THEME_DARK`, "Graphite"), never literal colours or sizes.
 - Widgets (`widgets.odin`): `label`, `paragraph`, `caption`, `icon_button`, `button` (variant, tone, width, glyph,
-  enabled), `toggle_button`, `tabs` (segmented control; `chosen` -1 shows none), `switch_row`, `slider` (linear or
+  enabled, keys: a tooltip hint), `toggle_button`, `tabs` (segmented control; `chosen` -1 shows none; `keys` a hint per option), `switch_row`, `slider` (linear or
   logarithmic), `vslider`, `drag_value` (drag sideways, from the press value), `text_field` (a `[]u8` buffer),
   `select`, `list_row`, `menu_item`, `brush_tile`, `section`/`section_end`, `value_row`, `plot`, `area` (a space to draw
   into that reports the pointer: graphs, bars, thumbnails), `grey_image`, `divider`. Shapes (`ui.odin`): `fill_rect`,
@@ -168,11 +168,12 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
 | a control | a widget call in the right section of `kit_tool.odin`, `kit_object.odin`, `kit_scene.odin` or a feature's `kit_*_section`, editing `App` through a pointer |
 | a new section | a `Kit_Section` value (`new_ui.odin:64`), open by default only if it belongs in `kit_init`'s list, then `if ui.section(ctx, "Title", &k.open[.X]) { …; ui.section_end(ctx) }` |
 | a new widget | `src/ui/widgets.odin`, tokens only, hit area at least `target`, with a test in `ui_test.odin` if it has logic |
+| a button, pair, switch or tab that runs a command | `command_button(app, id, ...)` or `kit_command_pair(app, a, b, ...)` (label, enabled state and the `command_hint` tooltip from the registry); a switch or tab passes `keys = command_hint(...)` (tabs a `hints` slice); a new touch gesture goes in `command_gesture`; `controls_that_run_commands_show_their_hints` scans the sources and fails a widget that runs a command without its hint |
 | a button that changes the scene | a new `Scene_Command.kind` and a `scene_apply` case (the sm-cad checklist); the panel only sets `scene_command` |
 | a new statistic | a `Sample_Ring` in `Frame_Stats` (`src/app/stats.odin`), `ring_push` where it is measured, a `value_row` in `kit_stats.odin` and a key in the exit stats |
 | an A/B toggle | `ui.switch_row(ctx, "…", &app.<field>)` in the Stats panel's Drawing section plus a `--no-<x>` field in `Options` and a sentence in README "App flags" |
 | something drawn over the viewport | `overlay_*` calls in `overlay_viewport` (`overlay.odin`), in window coordinates |
-| a shortcut | a `Command_Id` and its `COMMANDS` row (label, help, icon, run, enabled, checked) in `src/app/commands.odin` if the action is new, and a `DEFAULT_BINDINGS` row (exact modifiers, kept in the order keys are read); menus show it through `command_menu_item`, tooltips through `command_keys`; `commands_test.odin` refuses a chord bound twice; README "Controls"; the command palette lists it by itself: add the names other apps give it to `SEARCH_WORDS` (`palette.odin`), a clearer `PALETTE_LABELS` row when its menu heading says what the label leaves out, and leave it out in `palette_lists` if it acts where the pointer is |
+| a shortcut | a `Command_Id` and its `COMMANDS` row (label, help, icon, run, enabled, checked) in `src/app/commands.odin` if the action is new, and a `DEFAULT_BINDINGS` row (exact modifiers, kept in the order keys are read); menus show it through `command_menu_item`, tooltips through `command_hint`; `commands_test.odin` refuses a chord bound twice; README "Controls"; the command palette lists it by itself: add the names other apps give it to `SEARCH_WORDS` (`palette.odin`), a clearer `PALETTE_LABELS` row when its menu heading says what the label leaves out, and leave it out in `palette_lists` if it acts where the pointer is |
 | a viewport input that tools must not see | clear it with `viewport_mute` before the tools read `Viewport_Input`; never filter inside a tool |
 | a setting that survives a restart | one row in `SETTINGS` (a plain field), or a hand-written line in both `settings_save` and `settings_load` (a compound value); a flag that sets it too overrides only when given |
 | a user preference in Settings | a field in `Nav_Prefs`/`Kit_State` with its default in `NAV_DEFAULT` or `kit_init`, a row in its `settings_<tab>` proc with a one-line `paragraph`, a line in `settings_reset`, the two settings lines above, README "Settings" |

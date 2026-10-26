@@ -264,7 +264,7 @@ settings_performance :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
 	ui.caption(ctx, "STATISTICS")
-	_ = ui.switch_row(ctx, "Show statistics", &k.stats)
+	_ = ui.switch_row(ctx, "Show statistics", &k.stats, keys = command_hint(app, .Stats))
 	detail := [2]string{"Simple", "Advanced"}
 	if picked := ui.tabs(ctx, "Statistics detail", detail[:], int(k.stats_advanced)); picked >= 0 do k.stats_advanced = picked == 1
 	ui.paragraph(ctx, "Simple shows how smooth the app runs in plain words; Advanced shows every measurement by its exact name, the drawing switches for comparing speed included. F11 shows and hides the panel.")
