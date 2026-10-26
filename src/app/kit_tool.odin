@@ -200,7 +200,8 @@ kit_stroke_path :: proc(app: ^App) {
 	_ = ui.slider(ctx, "Lazy mouse", &app.brush.lazy_px, 0, 150, .Linear, "off" if app.brush.lazy_px < 0.5 else fmt.tprintf("%.0f px", app.brush.lazy_px))
 	_ = ui.switch_row(ctx, "Line", &app.brush.line)
 	_ = ui.switch_row(ctx, "Join strokes", &app.brush.join)
-	ui.paragraph(ctx, "Shift (or holding the Smooth button) mid-stroke lays the stroke again as a straight line from where it began to the pointer; letting go carries on freehand. Line makes every stroke one. Join strokes carries a stroke on from where the last one ended when you press near it, so a line drawn in pieces has no blob at the joins.")
+	_ = kit_stroke_amount(app, "Last stroke")
+	ui.paragraph(ctx, "Shift (or holding the Smooth button) mid-stroke lays the stroke again as a straight line from where it began to the pointer; letting go carries on freehand. Line makes every stroke one. Join strokes carries a stroke on from where the last one ended when you press near it, so a line drawn in pieces has no blob at the joins. Last stroke sets how much of the newest stroke stays, from none to half as much again.")
 	kit_more_end(app)
 }
 

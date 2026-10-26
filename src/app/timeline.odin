@@ -219,11 +219,12 @@ KIND_COLORS := [History_Kind][4]f32 {
 	.Arrange   = {0.6, 0.85, 0.75, 1},
 }
 
-// How a step reads in the panel: "Clay stroke", "Blur mask", "remesh".
-@(private = "file")
+// How a step reads in the panel: "Clay stroke", "Blur mask", "remesh", and with Adjust
+// last stroke its share, "Clay stroke (80%)".
 entry_label :: proc(e: History_Entry) -> string {
-	if e.kind == .Stroke do return fmt.tprintf("%s stroke", e.what)
-	return e.what
+	label := fmt.tprintf("%s stroke", e.what) if e.kind == .Stroke else e.what
+	if e.adjusted do return fmt.tprintf("%s (%.0f%%)", label, e.amount * 100)
+	return label
 }
 
 @(private = "file")

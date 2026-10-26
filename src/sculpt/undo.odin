@@ -38,6 +38,13 @@ Undo_Step :: struct {
 	grouped: [dynamic]u32, // nodes whose triangles changed group (groups.odin)
 	layer_op:  Layer_Op,  // a sculpt layer added or removed (sculpt_layers.odin)
 	layer_set: Layer_Set, // a sculpt layer's strength or visibility changed
+	// Adjust last stroke (adjust.odin): set once the newest step is adjusted, with what
+	// the stroke left of each saved node, at after_at[i] in the block of its kind.
+	adjusting:    bool,
+	after_vecs:   []Vec3, // positions, or a recording layer's displacement
+	after_masks:  []u8,
+	after_colors: []Color,
+	after_at:     []int,
 }
 
 // A node's owned positions, or its owned vertices' masks, from before the stroke
@@ -131,15 +138,28 @@ sculptor_stroke_end :: proc(s: ^Sculptor) -> bool {
 	}
 	layer_take_stroke(s)
 	clear_steps(h, &h.undone)
+	// The step that was newest can no longer be adjusted, so the copy an adjust kept goes.
+	if len(h.done) > 0 {
+		top := &h.done[len(h.done) - 1]
+		h.bytes -= adjust_bytes(top^)
+		adjust_free(h, top)
+	}
 	append(&h.done, h.current)
 	h.current = {}
 	h.bytes += step_bytes(h.done[len(h.done) - 1])
+	history_trim(h)
+	return true
+}
+
+// Drops the oldest steps while the history holds more than its limit; the newest always
+// stays.
+@(private)
+history_trim :: proc(h: ^Undo_History) {
 	for h.bytes > h.limit && len(h.done) > 1 {
 		h.bytes -= step_bytes(h.done[0])
 		step_destroy(h, &h.done[0])
 		ordered_remove(&h.done, 0)
 	}
-	return true
 }
 
 sculptor_can_undo :: proc(s: ^Sculptor) -> bool {return len(s.history.done) > 0}
@@ -231,6 +251,9 @@ step_move :: proc(s: ^Sculptor, from, to: ^[dynamic]Undo_Step) -> bool {
 	if len(from) == 0 do return false
 	step := pop(from)
 	m := s.mesh
+	// Moving a step either way ends adjusting it.
+	s.history.bytes -= adjust_bytes(step)
+	adjust_free(&s.history, &step)
 	// Layer displacement and removed layers trade places with the live ones, which
 	// changes what the step holds.
 	held := step_bytes(step)
@@ -392,7 +415,7 @@ step_bytes :: proc(step: Undo_Step) -> int {
 		bytes += len(sv.colors) * size_of(Color) + len(sv.groups) * size_of(u16) + len(sv.delta) * size_of(Vec3)
 	}
 	if step.layer_op.held do bytes += layer_bytes(step.layer_op.layer)
-	return bytes
+	return bytes + adjust_bytes(step)
 }
 
 @(private)
@@ -411,6 +434,7 @@ step_reset :: proc(h: ^Undo_History, step: ^Undo_Step) {
 		delete(sv.delta, h.allocator)
 	}
 	if step.layer_op.held do layer_destroy(&step.layer_op.layer, h.allocator)
+	adjust_free(h, step)
 	clear(&step.saved)
 	clear(&step.nodes)
 	clear(&step.painted)
@@ -435,6 +459,7 @@ step_destroy :: proc(h: ^Undo_History, step: ^Undo_Step) {
 		delete(sv.delta, h.allocator)
 	}
 	if step.layer_op.held do layer_destroy(&step.layer_op.layer, h.allocator)
+	adjust_free(h, step)
 	delete(step.saved)
 	delete(step.nodes)
 	delete(step.painted)

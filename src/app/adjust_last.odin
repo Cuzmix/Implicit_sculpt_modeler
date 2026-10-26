@@ -3,6 +3,7 @@ package main
 import "core:fmt"
 import "core:math"
 
+import "../sculpt"
 import "../ui"
 
 // Adjust last operation, as Blender has it: after a remesh, decimate, mirror and weld,
@@ -11,6 +12,12 @@ import "../ui"
 // of a remesh loses detail and Decimate to 200k after Decimate to 500k is not Decimate to
 // 200k. A re-run takes the operation's undo step back and records its own, so the History
 // holds one entry for it however many values were tried.
+//
+// A stroke is adjusted another way, as ZBrush's Adjust Last: its amount, from nothing to
+// half as much again, is set in place on its own undo step (sculpt.sculptor_stroke_adjust),
+// cheaply enough to follow a slider as it is dragged. It has no action bar group, which
+// would show after every stroke: the Stroke section's More has it, and so do the palette
+// and any key given to Adjust last operation.
 
 Adjust_Op :: enum u8 {
 	None,
@@ -20,7 +27,11 @@ Adjust_Op :: enum u8 {
 	Retopo,
 	Extract,
 	Smooth_All,
+	Stroke,
 }
+
+// The most Adjust last stroke sets a stroke to: half as much again as drawn.
+ADJUST_STROKE_MAX :: f32(1.5)
 
 @(rodata)
 ADJUST_NAMES := [Adjust_Op]string {
@@ -31,6 +42,7 @@ ADJUST_NAMES := [Adjust_Op]string {
 	.Retopo     = "Retopology",
 	.Extract    = "Extract",
 	.Smooth_All = "Smooth all",
+	.Stroke     = "last stroke",
 }
 
 // The inspector section whose settings each operation takes.
@@ -43,6 +55,7 @@ ADJUST_SECTIONS := [Adjust_Op]Kit_Section {
 	.Retopo     = .Retopo,
 	.Extract    = .Extract,
 	.Smooth_All = .Deform,
+	.Stroke     = .Stroke,
 }
 
 // The last operation that can be adjusted and what it ran with, and what tells whether
@@ -52,7 +65,8 @@ Adjustable :: struct {
 	op:        Adjust_Op,
 	cmd:       Scene_Command, // a scene command's own settings (Remesh, Decimate, Mirror, Retopo)
 	steps:     i32, // Smooth all's steps...
-	amount:    f32, // ...and strength, or Extract's thickness
+	amount:    f32, // ...and strength, or Extract's thickness, or the stroke's amount (1 as drawn)
+	sculptor:  ^sculpt.Sculptor, // a stroke's: the level or HD window it was laid on, only compared
 	source:    int, // the object it ran on
 	result:    int, // the object it left selected: the source, or the one it made
 	mark:      Undo_Mark, // its undo step
@@ -111,7 +125,54 @@ adjust_live :: proc(app: ^App) -> bool {
 	if len(app.history.undone) > 0 || app.history.serial != a.serial || app.scene_edits != a.edits do return false
 	if !undo_mark_on_top(app.history.done[:], a.mark) do return false
 	obj := selected_object(app)
-	return obj != nil && obj.id == a.result && obj.transform == a.transform && obj.boolean == a.boolean
+	if obj == nil || obj.id != a.result || obj.transform != a.transform || obj.boolean != a.boolean do return false
+	// A stroke adjusts on the level or HD window it was laid on, while that is the one shown.
+	return a.op != .Stroke || (object_sculptor(obj) == a.sculptor && sculpt.sculptor_can_adjust(a.sculptor))
+}
+
+// Makes the stroke just recorded on `obj` the one to adjust, when its step can be.
+adjust_set_stroke :: proc(app: ^App, obj: ^Object) {
+	s := object_sculptor(obj)
+	mark, ok := undo_mark(app.history.done[:]).?
+	a := &app.adjustable
+	if !ok || !sculpt.sculptor_can_adjust(s) {
+		a.op = .None
+		return
+	}
+	a^ = {
+		op        = .Stroke,
+		amount    = 1,
+		source    = obj.id,
+		result    = obj.id,
+		mark      = mark,
+		serial    = app.history.serial,
+		edits     = app.scene_edits,
+		transform = obj.transform,
+		boolean   = obj.boolean,
+		sculptor  = s,
+		adjusts   = a.adjusts,
+	}
+}
+
+// Sets the last stroke to `amount` of itself as drawn, in place on its undo step, and
+// notes it on the History's newest entry. False when it can no longer be adjusted.
+adjust_stroke :: proc(app: ^App, amount: f32) -> bool {
+	a := &app.adjustable
+	if !adjust_live(app) || a.op != .Stroke do return false
+	k := clamp(amount, 0, ADJUST_STROKE_MAX)
+	if !sculpt.sculptor_stroke_adjust(a.sculptor, k) do return false
+	a.amount = k
+	a.adjusts += 1
+	// A stroke not as drawn no longer ends where the next one would join it.
+	if k != 1 do app.stroke_end.valid = false
+	e := &app.history.done[len(app.history.done) - 1]
+	e.adjusted, e.amount = true, k
+	// What the mask and the autosave read changed, so the History counts it as a change;
+	// the adjust stays live through it.
+	app.history.serial += 1
+	if e.level != HD_LEVEL do app.history.edits += 1
+	a.serial = app.history.serial
+	return true
 }
 
 // The live operation, or none.
@@ -199,6 +260,8 @@ adjust_post :: proc(app: ^App, vertices := 0) {
 		app.ui.scene_command = {kind = .Extract, adjust = true}
 	case .Smooth_All:
 		smooth_adjust(app)
+	case .Stroke:
+		// It follows the slider as it moves (kit_adjust_popover); nothing runs again.
 	}
 }
 
@@ -223,10 +286,16 @@ kit_adjust_popover :: proc(app: ^App) {
 	ui.label(ctx, fmt.tprintf("Adjust %s", ADJUST_NAMES[a.op]), t.small_size)
 	// What it did and the note go above the controls, so that a longer line grows the
 	// popover upward and the controls stay where the thumb is, just over the bar.
-	if r, ok := result_for(app, ADJUST_SECTIONS[a.op]); ok do ui.paragraph(ctx, fmt.tprintf("Last: %s.", r.text))
-	ui.paragraph(ctx, "A change runs it again from before it, as one undo step.")
+	if a.op == .Stroke {
+		ui.paragraph(ctx, "How much of the stroke stays: 0% takes it away, 100% is as drawn. It stays one undo step.")
+	} else {
+		if r, ok := result_for(app, ADJUST_SECTIONS[a.op]); ok do ui.paragraph(ctx, fmt.tprintf("Last: %s.", r.text))
+		ui.paragraph(ctx, "A change runs it again from before it, as one undo step.")
+	}
 	switch a.op {
 	case .None:
+	case .Stroke:
+		_ = kit_stroke_amount(app, "Amount##adjust")
 	case .Remesh, .Decimate:
 		if !is_size_preset(a.cmd.vertices) do ui.paragraph(ctx, fmt.tprintf("It ran at %s vertices.", thousands(a.cmd.vertices)))
 		names: [len(SPHERE_PRESETS)]string
@@ -279,4 +348,14 @@ kit_adjust_popover :: proc(app: ^App) {
 is_size_preset :: proc(vertices: int) -> bool {
 	for p in SPHERE_PRESETS do if int(p.vertices) == vertices do return true
 	return false
+}
+
+// The last stroke's amount as a slider, from 0% to ADJUST_STROKE_MAX, following it as it
+// is dragged; greyed at 100% when no stroke can be adjusted. True when it changed it.
+kit_stroke_amount :: proc(app: ^App, name: string) -> bool {
+	ctx := &app.kit.ctx
+	live := adjust_live(app) && app.adjustable.op == .Stroke
+	amount := app.adjustable.amount if live else 1
+	if !ui.slider(ctx, name, &amount, 0, ADJUST_STROKE_MAX, .Linear, fmt.tprintf("%.0f%%", amount * 100), enabled = live) do return false
+	return adjust_stroke(app, amount)
 }

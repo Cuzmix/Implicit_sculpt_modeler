@@ -46,6 +46,9 @@ History_Entry :: struct {
 	kind:  History_Kind,
 	what:  string, // not owned: a constant
 	at:    time.Tick,
+	// A stroke set to a share of itself after the fact (Adjust last stroke), and the share.
+	adjusted: bool,
+	amount:   f32,
 	// A .Transform entry's object as it was placed before the change and after it: undo
 	// puts back the one, redo the other. Its level is always 0, and it outlives the
 	// object's strokes, since the strokes are in the mesh's own space.
@@ -213,7 +216,10 @@ brush_stroke_finish :: proc(app: ^App) {
 	e.locked = sculpt.sculptor_locked_plane(object_sculptor(obj))
 	sculpt.sculptor_grab_end(object_sculptor(obj))
 	sculpt.sculptor_cloth_end(object_sculptor(obj))
-	if sculpt.sculptor_stroke_end(object_sculptor(obj)) do history_record(app, obj, .Mask if .Mask in BRUSHES[app.stroke.kind].flags else .Stroke, BRUSHES[app.stroke.kind].name)
+	if sculpt.sculptor_stroke_end(object_sculptor(obj)) {
+		history_record(app, obj, .Mask if .Mask in BRUSHES[app.stroke.kind].flags else .Stroke, BRUSHES[app.stroke.kind].name)
+		adjust_set_stroke(app, obj)
+	}
 }
 
 // Applies a mask command to the selected object as an undo step of its own; Blur,

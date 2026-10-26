@@ -511,3 +511,41 @@ filter_commands_reach_the_brush :: proc(t: ^testing.T) {
 	testing.expect_value(t, app.stroke_end.joins, 1)
 	testing.expect(t, first.set && object_sculptor(obj).locked == first)
 }
+
+// After a stroke, Adjust last stroke sets how much of it stays, in place on its one
+// History entry, whose label says the share; it stays adjustable through its own changes,
+// and stops being once an undo comes; a new stroke is the one to adjust from then on.
+@(test)
+adjust_last_stroke_sets_its_amount :: proc(t: ^testing.T) {
+	path := [?][2]f32{{440, 380}, {470, 390}, {500, 400}, {530, 410}}
+	app: App
+	defer stroke_scene_free(&app)
+	obj := stroke_sphere(&app)
+	m := object_sculptor(obj).mesh
+	before := slice.clone(m.positions[:], context.temp_allocator)
+	testing.expect(t, !adjust_stroke(&app, 0.5))
+	stroke_along(&app, path[:], len(path))
+	drawn := slice.clone(m.positions[:], context.temp_allocator)
+	testing.expect(t, adjust_live(&app) && app.adjustable.op == .Stroke)
+	// No action bar group: it would come after every stroke.
+	testing.expect(t, .Adjust not_in action_groups_now(&app))
+	testing.expect(t, adjust_stroke(&app, 0))
+	testing.expect(t, slice.equal(m.positions[:], before))
+	testing.expect(t, adjust_stroke(&app, 1.2))
+	testing.expect(t, adjust_live(&app))
+	testing.expect_value(t, len(app.history.done), 1)
+	testing.expect_value(t, entry_label(app.history.done[0]), "Draw stroke (120%)")
+	testing.expect(t, adjust_stroke(&app, 1))
+	testing.expect(t, slice.equal(m.positions[:], drawn))
+	history_undo(&app)
+	testing.expect(t, slice.equal(m.positions[:], before))
+	testing.expect(t, !adjust_live(&app))
+	testing.expect(t, !adjust_stroke(&app, 0.5))
+	history_redo(&app)
+	testing.expect(t, slice.equal(m.positions[:], drawn))
+	// A new stroke is the one to adjust from then on.
+	stroke_along(&app, path[:], len(path))
+	testing.expect(t, adjust_live(&app))
+	testing.expect(t, adjust_stroke(&app, 0))
+	testing.expect(t, slice.equal(m.positions[:], drawn))
+}

@@ -3782,6 +3782,25 @@ def adjust_remesh_from_the_bar():
     ])
 
 
+# Adjust last stroke's popover: with no action bar after a stroke it sits over the dock,
+# its Amount slider's left end (0%) here at 1600x900.
+ADJUST_STROKE_NONE = (662, 788)
+
+
+@scenario
+def adjust_last_stroke_to_nothing():
+    """A mouse stroke, then the palette's Adjust last operation and the Amount slider at
+    0%: the sphere is as it started, the stroke still one undo step, and no action bar."""
+    s = Script()
+    s.wait(3)
+    s.mouse_drag(line((700, 380), (760, 420), 12))
+    s.wait(3)
+    palette_run(s, "adjust last")
+    click(s, ADJUST_STROKE_NONE)
+    return s, [], camera_still({"adjust_op": is_text("last_stroke"), "adjusts": near(1, 0), "adjust_pop": near(1, 0),
+                                "undo_steps": near(1, 0), "mesh_sum": near(0, 1e-3)})
+
+
 @scenario
 def adjust_mirror_twice_is_not_stacked():
     """After a stroke and Mirror and weld across X, adjusting to Z and then to Y gives what
@@ -3843,15 +3862,15 @@ def adjust_decimate_refused_keeps_the_result():
 
 @scenario
 def adjust_ends_with_a_stroke():
-    """A stroke after Ctrl+R is a newer step: the Adjust group goes from the bar and the
-    palette's Adjust last operation is greyed."""
+    """A stroke after Ctrl+R is a newer step: the Adjust group goes from the bar, and what
+    the palette's Adjust last operation adjusts is the stroke, not the remesh."""
     s = Script()
     s.wait(3)
     s.press("r", ("ctrl",))
     s.wait(5)
     s.mouse_drag(line((700, 380), (760, 420), 8))
     s.wait(5)
-    return s, [], {"adjust_op": is_text("none"), "action_bar": is_text("none"), "undo_steps": near(2, 0)}
+    return s, [], {"adjust_op": is_text("last_stroke"), "action_bar": is_text("none"), "undo_steps": near(2, 0)}
 
 
 @scenario
