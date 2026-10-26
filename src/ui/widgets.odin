@@ -51,6 +51,9 @@ ICON_SEARCH :: rune(0xe155)
 ICON_HELP :: rune(0xe082) // circle-help
 ICON_ROTATE_3D :: rune(0xe2ea)
 ICON_ZOOM_IN :: rune(0xe1b6)
+ICON_STAR :: rune(0xe17a)
+ICON_PIE :: rune(0xe06f) // chart-pie
+ICON_KEYBOARD :: rune(0xe284)
 
 // Every pressable control shares this: the wash under the pointer fades in, deepens
 // while held, and the control dips to 97% while held. Returns the scale to draw at.
@@ -494,9 +497,9 @@ list_row :: proc(ctx: ^Context, s: string, detail := "", selected := false, glyp
 
 // An item in a menu or a select's list: an optional icon, the label, and on the right
 // the shortcut or a check when `checked`. `hint`, when given, shows in a tooltip beside
-// the label (the shortcut with a touch gesture, which the row has no room for). Returns
-// true when picked.
-menu_item :: proc(ctx: ^Context, s: string, keys := "", glyph: rune = 0, checked := false, tone := Tone.Neutral, enabled := true, highlight := false, hint := "") -> bool {
+// the label (the shortcut with a touch gesture, which the row has no room for). `starred`
+// puts a small star after the label (the palette's favourites). Returns true when picked.
+menu_item :: proc(ctx: ^Context, s: string, keys := "", glyph: rune = 0, checked := false, tone := Tone.Neutral, enabled := true, highlight := false, hint := "", starred := false) -> bool {
 	ctx.controls += 1
 	t := ctx.theme
 	shown := label_text(s)
@@ -517,6 +520,10 @@ menu_item :: proc(ctx: ^Context, s: string, keys := "", glyph: rune = 0, checked
 		x += t.icon_small + 10
 	}
 	text(ctx, shown, x, vis.y + vis.h * 0.5, t.text_size, fg)
+	if starred {
+		after := x + text_width(ctx, shown, t.text_size) + 6 + t.icon_small * 0.35
+		icon(ctx, ICON_STAR, {after, vis.y + vis.h * 0.5}, t.icon_small * 0.7, t.accent)
+	}
 	right := vis.x + vis.w - 10
 	if checked {
 		icon(ctx, ICON_CHECK, {right - t.icon_small * 0.5, vis.y + vis.h * 0.5}, t.icon_small, t.accent)

@@ -152,6 +152,6 @@ palette_names_round_trip :: proc(t: ^testing.T) {
 @(test)
 palette_rows_fit_the_room :: proc(t: ^testing.T) {
 	testing.expect_value(t, palette_rows(800, 48), PALETTE_ROWS)
-	testing.expect_value(t, palette_rows(400, 48), 4)
+	testing.expect_value(t, palette_rows(400, 48), 3)
 	testing.expect_value(t, palette_rows(100, 48), 2)
 }

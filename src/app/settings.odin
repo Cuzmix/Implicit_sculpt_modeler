@@ -307,6 +307,25 @@ settings_load :: proc(app: ^App, path: string) {
 			case "preset":
 				dock_presets[slot] = strings.clone(preset_unescape(f[3]), context.temp_allocator)
 			}
+		case "pie":
+			// pie <pie 0-3> <slot 0-7> <command name|empty>: a pie that differs from a fresh
+			// install's is written whole, so every slot the file names is set.
+			n, n_ok := strconv.parse_int(f[1])
+			if len(f) != 4 || !n_ok || n < 0 || n >= USER_PIES do continue
+			i, i_ok := strconv.parse_int(f[2])
+			if !i_ok || i < 0 || i >= PIE_SLOTS do continue
+			if f[3] == "empty" {
+				app.kit.pies[n][i] = {}
+			} else if id, arg, ok := command_from_name(f[3]); ok && pie_lists(id) {
+				app.kit.pies[n][i] = {id, arg}
+			}
+		case "favourite":
+			// favourite <command name>, in the order they were starred.
+			id, arg, ok := command_from_name(f[1])
+			if ok && palette_lists(id) && favourite_find(app, id, arg) < 0 && app.kit.favourite_count < MAX_FAVOURITES {
+				app.kit.favourites[app.kit.favourite_count] = {id, arg}
+				app.kit.favourite_count += 1
+			}
 		case "new_vertices":
 			// The size an object is added and remeshed at: the nearest of the presets.
 			want := number(f[1], -1)
@@ -397,6 +416,11 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 			fmt.sbprintfln(&out, "dock %d brush %v", slot, s.kind)
 		}
 	}
+	for n in 0 ..< USER_PIES {
+		if !pie_changed(app, n) do continue
+		for s, i in app.kit.pies[n] do fmt.sbprintfln(&out, "pie %d %d %s", n, i, command_name(s.id, s.arg) if s.id != .None else "empty")
+	}
+	for f in app.kit.favourites[:app.kit.favourite_count] do fmt.sbprintfln(&out, "favourite %s", command_name(f.id, f.arg))
 	if err := os.write_entire_file(path, transmute([]u8)strings.to_string(out)); err != nil {
 		log.warnf("settings: could not write %s: %v", path, err)
 		return false

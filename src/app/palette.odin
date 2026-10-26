@@ -11,7 +11,8 @@ import "../ui"
 // The command palette: every command the registry holds, and each Settings tab, found
 // by typing part of its name, or a name another app gives it (DynaMesh, Freeze,
 // SubTool...). Ctrl+K, `/` or the Search button opens it; Up and Down pick, Enter or a
-// tap runs, Escape closes. What was run last comes first next time. It runs commands
+// tap runs, Escape closes. Starred commands come first while nothing is typed, then what
+// was run last. It runs commands
 // through command_run like every menu, so it shows the same shortcuts and states and
 // does nothing the menus could not.
 
@@ -33,10 +34,10 @@ PALETTE_ROWS :: 8
 PALETTE_RECENT :: 8
 
 // How many result rows fit in `room` points of height under the Search button, besides
-// the field, the captions, the help and the padding: from 2 up to PALETTE_ROWS. A row is
-// a touch target less 4, plus the column's gap of 2.
+// the field, the captions, the help, its row of buttons and the padding: from 2 up to
+// PALETTE_ROWS. A row is a touch target less 4, plus the column's gap of 2.
 palette_rows :: proc(room, target: f32) -> int {
-	fixed := 16 + (target + 2) + 2 * (22 + 2) + (1 + 2) + (74 + 2)
+	fixed := 16 + (target + 2) + 2 * (22 + 2) + (1 + 2) + (74 + 2) + (target + 2)
 	return clamp(int((room - fixed) / (target - 2)), 2, PALETTE_ROWS)
 }
 
@@ -53,6 +54,8 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.Export_Mesh      = "obj ply file",
 	.Screenshot       = "png capture image",
 	.Coach_Tips       = "tutorial onboarding coach intro getting started hints",
+	.Pie              = "quick menu favourites radial marking menu spacebar custom",
+	.Pie_Editor       = "quick menu favourites radial custom pies slots",
 	.Undo             = "back revert",
 	.Redo             = "forward",
 	.Delete_Object    = "subtool remove",
@@ -268,6 +271,8 @@ Palette_Hit :: struct {
 	entry:   int, // into the entries ranked
 	tier:    Palette_Tier,
 	score:   int,
+	// Where it is among the favourites while nothing is typed, else MAX_FAVOURITES.
+	favourite: int,
 	recent:  int, // where it is among the recents, or PALETTE_RECENT when it is not
 	enabled: bool,
 	length:  int, // the label's length
@@ -276,9 +281,10 @@ Palette_Hit :: struct {
 // The entries that match `query`, best first: by tier, then recent first, then those
 // that can run now, then the tighter fuzzy match, then the shorter label, then the
 // table's order, so equal matches always come in the same order. With no query every
-// entry matches, recent first, then those that can run, then in the table's order.
+// entry matches, the favourites first in the order they were starred, then recent, then
+// those that can run, then in the table's order; a query ranks favourites as any other.
 // `enabled[i]` says whether entries[i] can run now. In the temp allocator.
-palette_rank :: proc(query: string, entries: []Palette_Entry, recent: []Palette_Entry, enabled: []bool) -> []Palette_Hit {
+palette_rank :: proc(query: string, entries: []Palette_Entry, recent: []Palette_Entry, enabled: []bool, favourites: []Palette_Entry = nil) -> []Palette_Hit {
 	assert(len(enabled) == len(entries))
 	q := fold(strings.trim_space(query))
 	hits := make([dynamic]Palette_Hit, 0, len(entries), context.temp_allocator)
@@ -288,10 +294,15 @@ palette_rank :: proc(query: string, entries: []Palette_Entry, recent: []Palette_
 		if tier == .None do continue
 		r := PALETTE_RECENT
 		for f, j in recent do if f == e {r = j; break}
-		append(&hits, Palette_Hit{i, tier, score, r, enabled[i], 0 if q == "" else len(label)})
+		star := MAX_FAVOURITES
+		if q == "" {
+			for f, j in favourites do if f == e {star = j; break}
+		}
+		append(&hits, Palette_Hit{i, tier, score, star, r, enabled[i], 0 if q == "" else len(label)})
 	}
 	slice.sort_by(hits[:], proc(a, b: Palette_Hit) -> bool {
 		if a.tier != b.tier do return a.tier < b.tier
+		if a.favourite != b.favourite do return a.favourite < b.favourite
 		if a.recent != b.recent do return a.recent < b.recent
 		if a.enabled != b.enabled do return a.enabled
 		if a.score != b.score do return a.score < b.score
@@ -351,7 +362,7 @@ palette_open :: proc(app: ^App) {
 	k := &app.kit
 	k.palette, k.palette_pick, k.palette_first = true, 0, 0
 	k.palette_query = {}
-	k.menu, k.view_menu, k.browser, k.dock_menu, k.object_menu, k.action_pop = false, false, false, false, false, false
+	k.menu, k.view_menu, k.browser, k.dock_menu, k.object_menu, k.action_pop, k.pie_editor = false, false, false, false, false, false, false
 	k.ctx.select_open = 0
 }
 
@@ -409,7 +420,7 @@ kit_palette :: proc(app: ^App, anchor: ui.Rect) {
 	entries := palette_entries()
 	enabled := make([]bool, len(entries), context.temp_allocator)
 	for e, i in entries do enabled[i] = palette_enabled(app, e)
-	hits := palette_rank(query, entries, k.palette_recent[:k.palette_recent_count], enabled)
+	hits := palette_rank(query, entries, k.palette_recent[:k.palette_recent_count], enabled, favourite_entries(app))
 	n := len(hits)
 	if k.palette && n > 0 {
 		if key_pressed(d, sdl.K_DOWN, repeat = true) do k.palette_pick = (k.palette_pick + 1) % n
@@ -421,7 +432,13 @@ kit_palette :: proc(app: ^App, anchor: ui.Rect) {
 	if k.palette_pick >= k.palette_first + rows do k.palette_first = k.palette_pick - rows + 1
 	k.palette_first = clamp(k.palette_first, 0, max(n - rows, 0))
 
-	if query == "" && k.palette_recent_count > 0 do ui.caption(ctx, "  RECENT, THEN EVERYTHING")
+	if query == "" {
+		switch {
+		case k.favourite_count > 0 && k.palette_recent_count > 0: ui.caption(ctx, "  STARRED, RECENT, THEN EVERYTHING")
+		case k.favourite_count > 0:                               ui.caption(ctx, "  STARRED, THEN EVERYTHING")
+		case k.palette_recent_count > 0:                          ui.caption(ctx, "  RECENT, THEN EVERYTHING")
+		}
+	}
 	ran: Maybe(Palette_Entry)
 	for i in k.palette_first ..< min(k.palette_first + rows, n) {
 		h := hits[i]
@@ -431,7 +448,8 @@ kit_palette :: proc(app: ^App, anchor: ui.Rect) {
 		label := fmt.tprintf("%s##palette %d", palette_label(e), h.entry)
 		keys := command_keys(app, e.id, e.arg) if e.kind == .Command else ""
 		checked := e.kind == .Command && command_checked(app, e.id, e.arg)
-		if ui.menu_item(ctx, label, keys, palette_icon(e), checked, .Neutral, h.enabled, i == k.palette_pick) do ran = e
+		starred := e.kind == .Command && favourite_find(app, e.id, e.arg) >= 0
+		if ui.menu_item(ctx, label, keys, palette_icon(e), checked, .Neutral, h.enabled, i == k.palette_pick, starred = starred) do ran = e
 	}
 	if n == 0 do ui.paragraph(ctx, "Nothing matches. Try another word, such as remesh, mask or wireframe.")
 	// The pick's help, in a fixed height so the popover does not jump as the pick moves.
@@ -444,17 +462,25 @@ kit_palette :: proc(app: ^App, anchor: ui.Rect) {
 			if gesture := command_gesture(app, e.id, e.arg); gesture != "" do help = fmt.tprintf("%s By touch: %s%s.", help, strings.to_lower(gesture[:1], context.temp_allocator), gesture[1:])
 		}
 		if !hits[k.palette_pick].enabled do help = fmt.tprintf("Not now: %s", help)
-		// A command's row can be given a key from here, enabled or not: Ctrl+Alt+click
-		// reaches only the controls that can run now.
-		if e.kind == .Command {
-			ui.begin(ctx, "palette help row", {direction = .Row, gap = 8})
-			ui.paragraph(ctx, help, width = width - 16 - 128)
-			if ui.button(ctx, "Assign key", .Bordered, width = 120) {
-				bind_open(app, e.id, e.arg, ctx.last_rect)
-			}
-			ui.end(ctx)
-		} else {
-			ui.paragraph(ctx, help)
+		ui.paragraph(ctx, help)
+	}
+	ui.end(ctx)
+	// What the pick can be made into, enabled or not (Ctrl+Alt+click reaches only the
+	// controls that can run now): a star, a pie's slot, a key. A Settings tab is none of
+	// these, so its row stays, empty, and the popover keeps its height.
+	ui.begin(ctx, "palette actions", {direction = .Row, gap = 8, height = t.target})
+	if n > 0 && entries[hits[k.palette_pick].entry].kind == .Command {
+		e := entries[hits[k.palette_pick].entry]
+		third := (width - 16 - 16) / 3
+		starred := favourite_find(app, e.id, e.arg) >= 0
+		if ui.button(ctx, "Starred##palette star" if starred else "Star##palette star", .Flat if starred else .Bordered, .Accent if starred else .Neutral, third, ui.ICON_STAR) {
+			if favourite_toggle(app, e.id, e.arg) do pies_saved(app)
+		}
+		if ui.button(ctx, "Put in a pie", .Bordered, width = third, glyph = ui.ICON_PIE, enabled = pie_lists(e.id)) {
+			pie_editor_open(app, e.id, e.arg, anchor)
+		}
+		if ui.button(ctx, "Assign key", .Bordered, width = third, glyph = ui.ICON_KEYBOARD) {
+			bind_open(app, e.id, e.arg, ctx.last_rect)
 		}
 	}
 	ui.end(ctx)

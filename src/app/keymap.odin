@@ -224,6 +224,7 @@ command_arg_name :: proc(id: Command_Id, arg: int) -> string {
 	case .Remesh_To, .Decimate_To: return fmt.tprint(SPHERE_PRESETS[arg].vertices)
 	case .Help:      return fmt.tprint(Help_Tab(arg))
 	case .New_Scene: return fmt.tprint(NEW_SCENE_SHAPES[arg])
+	case .Pie:       return fmt.tprint(arg + 1) // as the menus count them
 	}
 	return fmt.tprint(arg)
 }

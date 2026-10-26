@@ -1079,6 +1079,12 @@ run :: proc(opts: Options) -> bool {
 			bind := &app.kit.bind
 			fmt.printfln("key_overrides=%d bind_open=%d bind_command=%s bind_state=%s", app.key_override_count, int(bind.open), command_name(bind.id, bind.arg) if bind.id != .None else "none",
 				strings.to_lower(fmt.tprint(bind.state), context.temp_allocator))
+			// Which pie is open (-1 none, 0 the brushes) and its slice under the pointer, the
+			// stars, pies 1 and 3 by command name, and two commands a pie runs, for the pie
+			// scenarios.
+			pie := app.ui.pie
+			fmt.printfln("pie_open=%d pie_hover=%d pie_runs=%d pie_editor=%d favourites=%d pie1=%s pie3=%s wireframe=%d ortho=%d", pie.which if pie.open else -1, pie.hover if pie.open else -1,
+				app.kit.pie_runs, int(app.kit.pie_editor), app.kit.favourite_count, pie_names(&app, 0), pie_names(&app, 2), int(app.wireframe), int(app.camera.ortho))
 		}
 		{
 			// What the last stroke was, the rail's latches, and whether the selected object
