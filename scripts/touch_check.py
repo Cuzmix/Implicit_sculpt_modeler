@@ -46,8 +46,10 @@ UI = {
     "menu": (26, 26), "save": (74, 26), "history": (1430, 26), "help": (1526, 26), "settings": (1574, 26),
     "brushes": (31, 233), "stroke": (31, 281), "falloff": (31, 474), "size": (31, 522), "strength": (31, 570),
     "undo": (31, 619), "redo": (31, 667),
-    "search": (1569, 95), "inspector": (1569, 143), "objects": (1569, 191),
-    "ortho": (1569, 305), "sym_x": (1569, 353), "wireframe": (1569, 449),
+    # The navigation head (nav_head.odin), and the view bar under it.
+    "nav_head": (1568, 88),
+    "search": (1569, 155), "inspector": (1569, 203), "objects": (1569, 251),
+    "ortho": (1569, 365), "sym_x": (1569, 413), "wireframe": (1569, 509),
     "dock_draw": (426, 843), "dock_smooth": (490, 843), "browser": (872, 843), "gizmo": (933, 843),
     "remesh": (990, 843), "dyntopo": (1038, 843), "retopo": (1086, 843), "subdivide": (1134, 843),
     "live_boolean": (1182, 843), "dock_page1": (772, 888), "dock_page2": (800, 888), "dock_page3": (828, 888),
@@ -55,7 +57,7 @@ UI = {
     "size_slider": (91, 663),  # in the popover the Size button opens
     # The tray's list of palettes and sections (kit_tray.odin), with the Brush palette open.
     "list_brush": (1116, 158), "list_object": (1116, 542), "list_scene": (1116, 590), "status": (69, 80),
-    "palette_row1": (1327, 151), "palette_row2": (1327, 197),
+    "palette_row1": (1327, 211), "palette_row2": (1327, 257),
     "earlier_save2": (90, 150),
 }
 # Menu rows at 1600x900, from kit_menu's order (new_ui.odin): add a FILE row here, not to
@@ -236,7 +238,7 @@ def tap_ui():
 
 
 # The symmetry popover a long press on Symmetry opens at 1600 x 900: its X, Y and Z.
-SYMMETRY_AXES = {"x": (1401, 389), "y": (1453, 389), "z": (1505, 389)}
+SYMMETRY_AXES = {"x": (1401, 449), "y": (1453, 449), "z": (1505, 449)}
 
 
 @scenario
@@ -1394,6 +1396,33 @@ def object_pages_switch_and_stay():
     s.ftap(*UI["list_object"])
     s.wait(6)
     return s, [], camera_still({"dabs": near(0), "inspector_tab": is_text("object"), "object_page": is_text("Select"), "tray_section": is_text("Mask")})
+
+
+@scenario
+def nav_head_tap_looks_from_that_side():
+    """A click on the middle of the navigation head looks from the side facing the viewer (the front, from the start's view), then a finger's tap on its right side looks from the right; nothing is sculpted."""
+    s = Script()
+    s.add("move:%d,%d" % UI["nav_head"])
+    s.wait(2)
+    s.add("down")
+    s.wait(2)
+    s.add("up")
+    s.wait(4)
+    x, y = UI["nav_head"]
+    s.ftap(x + 18, y)
+    s.wait(4)
+    return s, [], {"dabs": near(0), "undo_steps": near(0), "nav_taps": near(2),
+                   "camera_yaw": near(math.pi / 2, 1e-3), "camera_pitch": near(0), "camera_distance": near(3.5)}
+
+
+@scenario
+def nav_head_drag_turns_the_view():
+    """A finger dragged from the navigation head turns the view as dragging empty space does, and snaps to no side when let go."""
+    s = Script()
+    x, y = UI["nav_head"]
+    s.fdrag([(x, y)] + [(x - 10 * k, y) for k in range(1, 21)])
+    return s, ["--script=set orbit_style turntable"], {"dabs": near(0), "undo_steps": near(0), "nav_taps": near(0), "camera_pitch": near(0.35),
+                                                      "camera_yaw": lambda v: abs(float(v) - 0.6) > 1}
 
 
 @scenario
@@ -2653,14 +2682,14 @@ def browser_picks_a_preset():
     return s, [one_preset_settings()], camera_still({"dabs": near(0), "preset": near(1), "preset_name": is_text("Soft_clay"), "browser": near(0)})
 
 
-# The Assign key popover under the inspector button, at 1600 by 900: Use it here and Keep
+# The Assign key popover beside the Palettes button, at 1600 by 900: Use it here and Keep
 # it there on a conflict; the palette's Star, Put in a pie and Assign key with "wire"
 # typed (two rows), and its first row with nothing typed under the STARRED caption.
-BIND_USE_HERE, BIND_KEEP = (1343, 307), (1507, 307)
-PALETTE_STAR, PALETTE_PIE, PALETTE_ASSIGN = (1192, 324), (1328, 324), (1466, 324)
-PALETTE_FIRST_STARRED = (1195, 175)
+BIND_USE_HERE, BIND_KEEP = (1343, 367), (1507, 367)
+PALETTE_STAR, PALETTE_PIE, PALETTE_ASSIGN = (1192, 384), (1328, 384), (1466, 384)
+PALETTE_FIRST_STARRED = (1195, 235)
 # The pie editor opened from the palette: Pie 1's first slot and Pie 3's.
-EDITOR_PIE1_FIRST, EDITOR_PIE3_FIRST = (1104, 236), (1104, 403)
+EDITOR_PIE1_FIRST, EDITOR_PIE3_FIRST = (1104, 296), (1104, 463)
 # A user pie opened with its key over the middle of the window: its right slice (slot 3).
 PIE_MIDDLE, PIE_RIGHT = (800, 450), (900, 450)
 
@@ -2784,7 +2813,7 @@ def pie_from_palette_stays_open():
     s.wait(8)
     s.type("pie 1")
     s.wait(6)
-    s.ftap(1195, 151)
+    s.ftap(1195, 211)
     s.wait(6)
     s.ftap(638, 855)  # over the dock's Flatten, under the pie's Orthographic slice
     s.wait(6)
@@ -2799,7 +2828,7 @@ def pie_held_open_after_palette_tap():
     s.wait(8)
     s.type("pie 2")
     s.wait(6)
-    s.add("move:1148,146")
+    s.add("move:1148,206")
     s.wait(2)
     s.add("down")
     s.add("up")
@@ -4517,7 +4546,7 @@ def adjust_retopo_and_extract():
 
 
 # Camera history (camera_history.odin): View menu rows at 1600x900.
-VIEW_BACK, VIEW_FORWARD = (1399, 662), (1399, 706)
+VIEW_BACK, VIEW_FORWARD = (1399, 722), (1399, 766)
 CAMERA_KEYS = ("camera_yaw", "camera_pitch", "camera_roll", "camera_distance", "camera_target")
 
 

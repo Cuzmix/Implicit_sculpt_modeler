@@ -75,6 +75,12 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   scissor, the atlas or the viewport texture bound. Atlas texture coordinates arrive in atlas pixels and the vertex
   shader divides by the size in its uniforms, so glyphs placed before a mid-frame atlas growth stay right. NDC y is
   flipped in the shader. `ui_pass_capture` redraws the same lists into an offscreen RGBA8 target for `--dump-screen`.
+- The navigation head (`src/render/nav_head.odin`, built and laid out by `src/app/nav_head.odin`): a small head mesh
+  drawn with the mesh pipeline into its own target, `NAV_HEAD_SUPERSAMPLE` (2) times the size shown, cleared to
+  transparent (`begin_mesh_pass`'s `background`), and only when its key (the camera's turn, size, colour) changes. The
+  kit shows it as image id `KIT_NAV_HEAD_IMAGE`; its `Ui_Draw.smooth` binds a linear sampler (a 2x2 box filter at
+  that ratio) and `ui.frag` divides the colour by alpha (params.w), so its edge neither aliases nor darkens. Any other
+  small 3D picture over the interface should reuse this rather than draw into the viewport target.
 
 ## Verify what you draw
     build\sculpt.exe --vertices=500000 --frames=60 --dump-viewport=build\a.ppm

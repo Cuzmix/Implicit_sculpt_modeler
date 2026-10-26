@@ -120,7 +120,7 @@ are on the device checklist.
   `folders`, `tree_rows` (rows the Scene tab drew), `scene_order` (object ids in list order), `scene_folders` (each one's folder id), `scene_names` (labels with spaces as `_`, then `;Folder_1:open,...`; `folder_first(s)` makes a folder of the first sphere, `FOLDER_*` are its row and menu, `SCENE_GRIP_X` a loose object row's grip for drags), `selected_count` (the primary and the rest of a multi-select; `SELECT_SEVERAL` is its switch with three spheres), `scene_positions` (each object's `x:y:z` in list order),
   `touch_repeats` (undo and redo steps taken by holding fingers), `inspector_tab` (the tray's palette), `tray_section`, `tray_marked` (Show where's ring is on a control), `brush_kind`, `tool`, `palette` (open),
   `palette_runs`, `palette_last` (the last row it ran, by its saved name: `Wireframe`, `Brush:Clay`), `settings_tab`, `layout_<name>` (x,y,w,h of the
-  modifier rail, brush bar, view bar, top bar, dock, dock pages, points (the object's readout) and inspector), ...); `camera_still()` checks nothing moved; keys starting with `@` are checks given every stat at once or checks on
+  modifier rail, brush bar, navigation head, view bar, top bar, dock, dock pages, points (the object's readout) and inspector), ...); `camera_still()` checks nothing moved; keys starting with `@` are checks given every stat at once or checks on
   files, such as `saved(key="value")` and `saved_line(line)` on the settings file, or `on_screen` comparing where a
   point shows before and after an orbit. A value the scenario needs that the app does not print
   is a new key in the exit stats (`main.odin`), not a guess from a screenshot.

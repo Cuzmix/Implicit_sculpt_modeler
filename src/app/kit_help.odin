@@ -157,6 +157,8 @@ TOUCH_HELP := [?]Help_Line {
 	{group = "VIEW", what = "Turn the view", how = "One finger from the edges", show = proc(app: ^App) -> bool {return app.nav.edge_orbit && app.nav.finger_model == .Sculpt}},
 	{group = "VIEW", what = "Turn the view", how = "Two fingers down, lift one", show = proc(app: ^App) -> bool {return app.nav.lift_one_orbit}},
 	{group = "VIEW", what = "Turn the view", how = "The pen on empty space", show = proc(app: ^App) -> bool {return empty_turns(app) && app.nav.empty_drag[.Pen] == .Orbit}},
+	{group = "VIEW", what = "Look from a side", how = "Tap that side of the navigation head"},
+	{group = "VIEW", what = "Turn the view", how = "Drag the navigation head"},
 	{group = "VIEW", what = "Pan", how = "Drag two fingers", show = proc(app: ^App) -> bool {return app.nav.two_finger_pan}},
 	{group = "VIEW", what = "Zoom", how = "Pinch two fingers", show = proc(app: ^App) -> bool {return app.nav.pinch_zoom}},
 	{group = "VIEW", what = "Roll", how = "Twist two fingers", show = proc(app: ^App) -> bool {return app.nav.twist_roll && app.nav.orbit_style == .Free}},

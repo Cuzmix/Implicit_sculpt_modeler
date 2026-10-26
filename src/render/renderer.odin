@@ -1094,10 +1094,10 @@ static_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lo
 }
 
 @(private)
-begin_mesh_pass :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, color_tex, depth_tex: ^sdl.GPUTexture, load, keep_depth: bool) -> ^sdl.GPURenderPass {
+begin_mesh_pass :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, color_tex, depth_tex: ^sdl.GPUTexture, load, keep_depth: bool, background := BACKGROUND) -> ^sdl.GPURenderPass {
 	color := sdl.GPUColorTargetInfo {
 		texture     = color_tex,
-		clear_color = sdl.FColor(BACKGROUND),
+		clear_color = sdl.FColor(background),
 		load_op     = .LOAD if load else .CLEAR,
 		store_op    = .STORE,
 		cycle       = !load,
