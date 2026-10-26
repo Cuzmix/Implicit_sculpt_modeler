@@ -222,7 +222,7 @@ kit_visibility :: proc(app: ^App, obj: ^Object) {
 	if picked := ui.select(ctx, "gesture", names[:], int(app.gesture)); picked >= 0 do app.gesture = Gesture_Tool(picked)
 	switch app.gesture {
 	case .Hide_Rectangle, .Hide_Lasso:
-		ui.paragraph(ctx, "Letting go keeps only what is inside the shape shown, through to the back (Alt: hides what is inside). Hidden parts are not drawn and no brush, mask or clip touches them. A Ctrl + Shift click shows everything. Not in HD or with dynamic topology.")
+		ui.paragraph(ctx, "Letting go keeps only what is inside the shape shown, through to the back (Alt: hides what is inside). Hidden parts are not drawn and no brush, mask or clip touches them (but Mask hidden). A Ctrl + Shift click shows everything. Not in HD or with dynamic topology.")
 	case .Clip:
 		ui.paragraph(ctx, "Letting go flattens the selected object on the shaded side (Alt: the other side) onto the line, through to the back. It follows symmetry and leaves masked and hidden parts. Not with dynamic topology.")
 	case .Slice:
@@ -230,7 +230,7 @@ kit_visibility :: proc(app: ^App, obj: ^Object) {
 	}
 	kit_command_pair(app, .Show_All, .Invert_Hidden, label_b = "Invert hiding")
 	kit_command_pair(app, .Hide_Masked, .Hide_Unmasked)
-	ui.paragraph(ctx, fmt.tprintf("%s shows all; %s inverts. Hide masked and Hide unmasked hide by the mask; Mask hidden (Masking, More) turns what is hidden into a mask.", command_keys(app, .Show_All), command_keys(app, .Invert_Hidden)))
+	ui.paragraph(ctx, fmt.tprintf("%s shows all; %s inverts. Hide masked and Hide unmasked hide by the mask; Mask hidden (Mask, More options) turns what is hidden into a mask.", command_keys(app, .Show_All), command_keys(app, .Invert_Hidden)))
 	kit_last_result(app, .Visibility)
 	if app.stats.slice_ms > 0 do ui.paragraph(ctx, fmt.tprintf("Last slice: %.0f ms, ready in %.0f ms more.", app.stats.slice_ms, app.stats.slice_setup_ms))
 }

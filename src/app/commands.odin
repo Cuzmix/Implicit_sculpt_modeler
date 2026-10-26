@@ -154,10 +154,11 @@ Binding :: struct {
 
 has_object :: proc(app: ^App, _: int) -> bool {return selected_object(app) != nil}
 
-// Whether the selected object's current level has a mask, for the commands that hide by it.
+// Whether the selected object can hide by its mask: it has one where it is sculpted, and
+// it is neither in HD nor under dynamic topology, where hiding is refused.
 has_mask :: proc(app: ^App, _: int) -> bool {
 	obj := selected_object(app)
-	return obj != nil && object_has_mask(app, obj)
+	return obj != nil && !object_in_hd(obj) && !object_dynamic(obj) && object_has_mask(app, obj)
 }
 
 @(rodata)

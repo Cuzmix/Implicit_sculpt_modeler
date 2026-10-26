@@ -293,6 +293,9 @@ hide_command :: proc(app: ^App, command: sculpt.Hide_Command) {
 	start := time.tick_now()
 	changed := sculpt.sculptor_hide_command(object_sculptor(obj), command)
 	hide_done(app, obj, changed, start, HIDE_COMMAND_NAMES[command])
+	if !changed && sculpt.sculptor_hide_refused_all(object_sculptor(obj)) {
+		report(app, Kit_Section.Visibility, {.Quiet}, "%s would hide everything, so nothing changed", HIDE_COMMAND_NAMES[command])
+	}
 }
 
 // Keeps only what of the selected object falls inside `shape` (a polygon in normalized

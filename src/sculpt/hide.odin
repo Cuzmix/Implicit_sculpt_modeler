@@ -26,6 +26,9 @@ Hide :: struct {
 	dirty:   [dynamic]u32,
 	stamp:   u32,
 	taken:   u32,
+	// Whether the last hiding change was refused because it would have hidden every
+	// triangle, so the app can say why nothing happened.
+	refused_all: bool,
 }
 
 Hide_Command :: enum {
@@ -38,7 +41,8 @@ Hide_Command :: enum {
 	Unmasked, // hide the rest
 }
 
-// The mask value from which a corner counts as masked, for hiding by mask.
+// The mask value from which a corner counts as masked, for hiding by mask: half of 255,
+// so every triangle is on exactly one side and the two hides are complements.
 MASK_HALF :: 128
 
 // What hiding by shape does with the triangles inside the shape.
@@ -67,6 +71,9 @@ hide_drop :: proc(s: ^Sculptor) {
 	}
 	hide_destroy(s)
 }
+
+// Whether the last hiding change was refused because it would have hidden everything.
+sculptor_hide_refused_all :: proc(s: ^Sculptor) -> bool {return s.hide.refused_all}
 
 // How many triangles are hidden.
 sculptor_hidden_count :: proc(s: ^Sculptor) -> int {return s.hide.count}
@@ -143,10 +150,11 @@ sculptor_hidden_indices :: proc(s: ^Sculptor, uploaded: u32) -> (indices: []u32,
 	return
 }
 
-// Hides or shows everything at once, or by the mask, as one undo step. Returns true when it changed
-// what is hidden. Refused (false) under dynamic topology, in an HD window (whose
-// sculptor has a fade of its own), and when it would hide every triangle: something
-// must stay in view, as in ZBrush.
+// Hides or shows everything at once, or by the mask, as one undo step. Returns true
+// when it changed what is hidden. Refused (false) under dynamic topology, in an HD
+// window (whose sculptor has a fade of its own), by the mask without one, and when it
+// would hide every triangle (sculptor_hide_refused_all): something must stay in view,
+// as in ZBrush.
 sculptor_hide_command :: proc(s: ^Sculptor, command: Hide_Command) -> bool {
 	_ = sculptor_stroke_end(s)
 	if command == .Show_All && s.hide.count == 0 do return false
@@ -233,6 +241,7 @@ hide_after :: #force_inline proc(job: ^Hide_Job, t: int) -> bool {
 @(private = "file")
 hide_apply :: proc(job: ^Hide_Job) -> bool {
 	s := job.s
+	s.hide.refused_all = false
 	if s.dyn != nil || (s.fade != nil && s.hide.count == 0) do return false
 	job.changes = make([]bool, len(s.nodes), context.temp_allocator)
 	job.after = make([]u32, len(s.nodes), context.temp_allocator)
@@ -260,7 +269,10 @@ hide_apply :: proc(job: ^Hide_Job) -> bool {
 	jobs.parallel_ranges(s.pool, len(s.nodes), job, pass, NODE_GRAIN)
 	total := 0
 	for c in job.after do total += int(c)
-	if total == len(s.mesh.indices) / 3 do return false
+	if total == len(s.mesh.indices) / 3 {
+		s.hide.refused_all = true
+		return false
+	}
 	changed := make([dynamic]u32, 0, 64, context.temp_allocator)
 	for c, id in job.changes do if c do append(&changed, u32(id))
 	if len(changed) == 0 do return false

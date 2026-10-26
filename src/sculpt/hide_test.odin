@@ -195,6 +195,16 @@ hide_parallel_matches_serial :: proc(t: ^testing.T) {
 	testing.expect(t, slice.equal(a.sculptor.hide.tris, b.sculptor.hide.tris))
 	testing.expect(t, slice.equal(a.sculptor.fade, b.sculptor.fade))
 	testing.expect(t, slice.equal(a.sculptor.hide.units, b.sculptor.hide.units))
+	// Mask hidden, Show all, then Hide unmasked: the conversions read across node borders.
+	for sp in ([2]^Hide_Sphere{a, b}) {
+		s := &sp.sculptor
+		testing.expect(t, sculptor_mask_command(s, .Hidden))
+		testing.expect(t, sculptor_hide_command(s, .Show_All))
+		testing.expect(t, sculptor_hide_command(s, .Unmasked))
+	}
+	testing.expect(t, slice.equal(a.sculptor.mask, b.sculptor.mask))
+	testing.expect(t, slice.equal(a.sculptor.hide.tris, b.sculptor.hide.tris))
+	testing.expect(t, slice.equal(a.sculptor.fade, b.sculptor.fade))
 }
 
 // Hide masked hides the triangles masked at least half at every corner and Hide
@@ -235,6 +245,7 @@ hide_by_mask_hides_complements :: proc(t: ^testing.T) {
 	testing.expect(t, slice.equal(inverted, s.hide.tris))
 	// What is hidden stays hidden: Hide masked now would hide everything, so it is refused.
 	testing.expect(t, !sculptor_hide_command(s, .Masked))
+	testing.expect(t, sculptor_hide_refused_all(s))
 	testing.expect(t, sculptor_undo(s))
 	testing.expect_value(t, sculptor_hidden_count(s), 0)
 }
