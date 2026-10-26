@@ -5,6 +5,7 @@ import "core:time"
 
 import "../camera"
 import "../ui"
+import sdl "vendor:sdl3"
 
 // Who a press on the viewport belongs to, decided once when it goes down and kept until
 // every button is up, so a drag never changes what it does halfway (a stroke that
@@ -42,6 +43,9 @@ Drag :: struct {
 	mods:    Stroke_Mods,
 	edge:    bool, // pressed in the safe zone
 	selected: int, // the selection when it was pressed, which a tap may clear
+	// A finger's brush press that may be a tap of a double tap: it waits FINGER_TAP rather
+	// than FINGER_HOLD to begin, and as a tap its dab waits for a second one (Dab_Wait).
+	defer_tap: bool,
 }
 
 // The modifiers of a primary drag, as Viewport_Input carries them.
@@ -62,6 +66,27 @@ Double_Tap :: struct {
 DOUBLE_TAP_GAP :: 0.30
 // ...and this close to it, in points.
 DOUBLE_TAP_REACH :: 48
+
+// A finger's tap on the model while it sculpts, whose dab waits to see whether a second
+// tap makes it a double tap. It plays as a stroke of its own, with the view, brush and
+// modifiers it was tapped with, once the gap runs out or anything else happens first (a
+// key, the mouse, the wheel, the pen, a finger landing elsewhere or a second finger), so
+// it never lands after something that should have come after it: dab_wait_event marks
+// that, and dab_wait_resolve plays it at the start of the next frame, before the panels,
+// the keys or the tools run. A second tap drops it and acts instead.
+Dab_Wait :: struct {
+	active:  bool,
+	play:    bool, // something else happened: play it now
+	second:  bool, // a finger landed within the gap and reach: maybe the second tap...
+	checked: bool, // ...and a frame went by since, in which it became a press or did not
+	samples: [dynamic]Input_Sample, // the tap's press to release
+	mods:    Stroke_Mods,
+	camera:  camera.Orbit,
+	brush:   Brush_Settings,
+	size:    [2]f32, // the viewport's, when tapped
+	at:      f64, // input_clock when the tap lifted
+	pos:     [2]f32,
+}
 
 // Whether a tap pressed at `at` and `pos` is the second of a double tap after `first`.
 double_tap_follows :: proc(first: Double_Tap, at: f64, pos: [2]f32, reach: f32) -> bool {
@@ -234,6 +259,9 @@ pointer_route :: proc(app: ^App, input: ^Viewport_Input) {
 		if !(owner == .Orbit && d.pointer == .Finger && !g.edge) do app.double_tap.valid = false
 		g.moving = d.pointer == .Mouse
 		g.pending = g.owner == .Tool && d.pointer == .Finger && app.tool == .Brush
+		// Not the presses that go to the mask and hide shapes or a clip, nor during a replay.
+		g.defer_tap = g.pending && app.nav.double_tap && !d.shift && !d.ctrl && !d.alt && !rail_keeps_empty_space(app.rail.press.mods) && !replay_busy(app)
+		if w := &app.dab_wait; w.active && !(g.defer_tap && w.second) do w.play = true
 		clear(&g.held)
 		if owner == .Orbit {
 			g.pivot, app.pivot.from = orbit_pivot(app, d.mouse, input.size)
@@ -264,7 +292,32 @@ pointer_route :: proc(app: ^App, input: ^Viewport_Input) {
 		if g.pending {
 			append(&g.held, ..input.samples)
 			lifted := buttons == {}
-			if lifted || g.travel > slop || input_clock(app) - g.at >= time.duration_seconds(FINGER_HOLD) {
+			now := input_clock(app)
+			wait := ui.FINGER_TAP if g.defer_tap else time.duration_seconds(FINGER_HOLD)
+			tap := lifted && g.defer_tap && g.travel <= slop && now - g.at < ui.FINGER_TAP
+			w := &app.dab_wait
+			if tap {
+				// A tap: the second of a double tap acts and neither tap sculpts; a first
+				// one's dab waits for a second (Dab_Wait).
+				g.pending = false
+				if w.active && w.second {
+					w.active = false
+					double_tap_act(app, g.from, input.size)
+				} else {
+					w^ = {active = true, samples = w.samples, mods = g.mods, camera = app.camera, brush = app.brush, size = input.size, at = now, pos = g.from}
+					clear(&w.samples)
+					append(&w.samples, ..g.held[:])
+				}
+				clear(&g.held)
+				input.primary, input.press = false, false
+				input.samples = {}
+			} else if (lifted || g.travel > slop || now - g.at >= wait) && w.active {
+				// A stroke after all, but a tap's dab still waits: it plays first, at the
+				// start of the next frame, and this stroke begins after it.
+				w.play = true
+				input.primary, input.press = false, false
+				input.samples = {}
+			} else if lifted || g.travel > slop || now - g.at >= wait {
 				// One finger after all: the stroke begins where the finger first landed,
 				// following every sample it made meanwhile.
 				g.pending = false
@@ -304,7 +357,8 @@ pointer_route :: proc(app: ^App, input: ^Viewport_Input) {
 		input.zoom_drag, input.mouse_delta = true, delta
 	}
 
-	if buttons == {} {
+	// A press still pending here waits on a tap's dab and begins next frame, lifted or not.
+	if buttons == {} && !g.pending {
 		// A tap on empty space with the Move tool clears the selection, as its click did
 		// before empty space turned the view.
 		if g.owner == .Orbit && g.empty && app.tool == .Move && g.travel <= slop do app.scene.selected = -1
@@ -375,6 +429,72 @@ double_tap_act :: proc(app: ^App, at, size: [2]f32) {
 	if selected_object(app) != nil do focus_selected(app)
 	else do frame_all(app)
 	app.double_tap.framed += 1
+}
+
+// Notes what in event `e` comes before a waiting tap's dab is played (Dab_Wait). Runs for
+// each event before touch_event.
+dab_wait_event :: proc(app: ^App, e: ^sdl.Event, window: ^sdl.Window) {
+	w := &app.dab_wait
+	if !w.active do return
+	#partial switch e.type {
+	case .KEY_DOWN, .MOUSE_WHEEL, .PEN_DOWN, .WINDOW_FOCUS_LOST, .DID_ENTER_BACKGROUND, .QUIT:
+		w.play = true
+	case .MOUSE_BUTTON_DOWN:
+		// The pen's and the fingers' stand-ins are not the mouse.
+		if e.button.which != sdl.PEN_MOUSEID && e.button.which != sdl.TOUCH_MOUSEID do w.play = true
+	case .FINGER_DOWN:
+		f := e.tfinger
+		// Only fingers on a screen, as touch_event takes them.
+		if f.touchID == sdl.PEN_TOUCHID || f.touchID == sdl.MOUSE_TOUCHID do return
+		if f.touchID != TOUCH_SCRIPTED && sdl.GetTouchDeviceType(f.touchID) != .DIRECT do return
+		ww, wh: i32
+		_ = sdl.GetWindowSize(window, &ww, &wh)
+		at := [2]f32{f.x * f32(ww), f.y * f32(wh)}
+		if _, rail := rail_claims(app, at); rail do return
+		near := linalg.length(at - w.pos) <= DOUBLE_TAP_REACH * app.kit.scale
+		if app.touch.fingers.count == 0 && !w.second && near && input_clock(app) - w.at <= DOUBLE_TAP_GAP {
+			w.second = true
+		} else {
+			w.play = true
+		}
+	}
+}
+
+// Plays a waiting tap's dab when its gap ran out or something else came first, as the
+// stroke it would have been, with the view and brush it was tapped with. Runs after the
+// frame's events, before the interface and the tools.
+dab_wait_resolve :: proc(app: ^App) -> (res: Sculpt_Frame_Result) {
+	w := &app.dab_wait
+	if !w.active do return
+	expired := !w.second && input_clock(app) - w.at > DOUBLE_TAP_GAP
+	if w.second {
+		// The finger that may be the second tap had a frame to become a brush press that
+		// waits as a tap; one the interface took, or a palm's, never will.
+		g := app.drag
+		if w.checked && !(g.owner == .Tool && g.pending && g.defer_tap) do expired = true
+		w.checked = true
+	}
+	if !w.play && !expired do return
+	w.active, w.play, w.second, w.checked = false, false, false, false
+	// It plays whatever the tool is now: it was tapped with the brush.
+	if len(w.samples) == 0 do return
+	saved_camera, saved_brush := app.camera, app.brush
+	defer app.camera, app.brush = saved_camera, saved_brush
+	app.camera, app.brush = w.camera, w.brush
+	samples := make([]Input_Sample, len(w.samples), context.temp_allocator)
+	copy(samples, w.samples[:])
+	m := w.mods
+	input := Viewport_Input {
+		size = w.size, mouse_pos = samples[len(samples) - 1].pos, hovered = true, primary = true, press = true, samples = samples,
+		smooth = m.smooth, invert = m.invert, mask = m.mask, mask_shape = m.mask_shape, alt = m.alt,
+	}
+	stroke_finish(app)
+	replay_frame_begin(app)
+	res = sculpt_frame(app, input)
+	replay_record(app, input, res)
+	// Its samples end with the release, which ended the stroke.
+	stroke_finish(app)
+	return
 }
 
 // What an orbit pressed at `at` turns about, in world space: a pivot a double tap pinned,
