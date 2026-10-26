@@ -65,6 +65,7 @@ Object :: struct {
 	// Not hidden triangles, which are the sculptor's.
 	off:       bool,
 	ghost:     bool, // drawn dimmed as a reference, never picked by a press in the viewport
+	folder:    int, // the Folder it is in, by id; 0 for none
 }
 
 // The level being sculpted: the HD window while one is open.
@@ -91,13 +92,17 @@ Scene :: struct {
 	selected: int, // index into objects, -1 when nothing is selected
 	next_id:  int,
 	solo:     bool, // only the selected object is shown, whichever that is (scene_tree.odin)
+	// One level of folders, as ZBrush's SubTool folders. A folder's objects stay next to
+	// each other in `objects` (scene_folders_normalize), so the list's order is the tree's.
+	folders:  [dynamic]Folder,
+	next_folder_id: int,
 }
 
 // Changes to the object list or the selected object's levels requested by the UI,
 // applied at the start of the next frame so no panel ever draws an object (or GPU
 // buffer) freed during the same frame.
 Scene_Command :: struct {
-	kind:     enum u8 {None, Add, New, Remesh, Decimate, Retopo, Delete, Duplicate, Symmetrize, Slice, Subdivide, Set_Level, Delete_Higher, Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete, Dyntopo, Boolean, Extract, View},
+	kind:     enum u8 {None, Add, New, Remesh, Decimate, Retopo, Delete, Duplicate, Symmetrize, Slice, Subdivide, Set_Level, Delete_Higher, Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete, Dyntopo, Boolean, Extract, View, Arrange},
 	vertices: int,
 	shape:    geom.Primitive, // Add, New: what to add
 	on:       bool, // Dyntopo: turn dynamic topology on, or off; Symmetrize: keep the + side
@@ -111,13 +116,18 @@ Scene_Command :: struct {
 	// (adjust_last.odin): Remesh, Decimate, Symmetrize, Retopo and Extract.
 	adjust:   bool,
 	view:     View_Change, // View: what changes about how objects are shown
-	id:       int, // View: the object it changes
+	id:       int, // View, Arrange: the object (or folder) it changes
+	arrange:  Arrange_Change, // Arrange: what changes about the tree
+	folder:   int, // Arrange: the folder an object goes into
+	name:     [NAME_BYTES]u8, // Arrange: a new name, ending at the first zero
 }
 
 scene_destroy :: proc(app: ^App) {
 	_ = sdl.WaitForGPUIdle(app.renderer.device)
 	for obj in app.scene.objects do object_free(app, obj)
 	delete(app.scene.objects)
+	folders_clear(&app.scene.folders)
+	delete(app.scene.folders)
 	app.scene = {}
 }
 
@@ -374,6 +384,7 @@ object_slice :: proc(app: ^App, obj: ^Object, point, normal: Vec3) -> (part: ^Ob
 	index := app.scene.selected
 	if !scene_add_mesh(app, front, obj.name, obj.file, obj.transform, cut) do return nil, true, false
 	part = app.scene.objects[len(app.scene.objects) - 1]
+	part.folder = obj.folder
 	// Beside the object it came from, which stays selected.
 	ordered_remove(&app.scene.objects, len(app.scene.objects) - 1)
 	inject_at(&app.scene.objects, index + 1, part)
@@ -395,7 +406,8 @@ scene_slice_axis :: proc(app: ^App, obj: ^Object, axis: int) -> bool {
 	return scene_apply(app, {kind = .Slice, point = (bounds.lo + bounds.hi) / 2, normal = normal})
 }
 
-// Adds a copy of the object beside it, with every level and the mask, and selects it.
+// Adds a copy of the object beside it (in the list it comes right after it), with every
+// level and the mask, and selects it.
 // Returns false only on a GPU failure.
 scene_duplicate :: proc(app: ^App, obj: ^Object) -> bool {
 	stroke_finish(app)
@@ -412,6 +424,13 @@ scene_duplicate :: proc(app: ^App, obj: ^Object) -> bool {
 	}
 	twin.transform.position = next_free_position(app)
 	scene_append(app, twin)
+	// Beside its source in the list (and so in its folder), selected.
+	for o, i in app.scene.objects do if o == obj {
+		ordered_remove(&app.scene.objects, len(app.scene.objects) - 1)
+		inject_at(&app.scene.objects, i + 1, twin)
+		app.scene.selected = i + 1
+		break
+	}
 	log.infof("duplicate: object %d is a copy of %d", twin.id, obj.id)
 	return true
 }
@@ -586,6 +605,8 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 		return extract_masked(app)
 	case .View:
 		scene_view(app, cmd.view, cmd.id)
+	case .Arrange:
+		scene_arrange(app, cmd)
 	case .Dyntopo:
 		if obj := selected_object(app); obj != nil {
 			object_hd_leave(app, obj)

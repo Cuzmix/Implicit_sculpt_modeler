@@ -48,7 +48,7 @@ File_Request :: struct {
 // be in a console nobody watches. `at` tells a new note from the one already shown.
 // The native scene file starts with these bytes, then its version.
 SCENE_MAGIC :: "SCULPTSC"
-SCENE_VERSION :: u32(8) // 2: each object's rotation; 3: the current level's polypaint and polygroups; 4: sculpt layers, and a retopologized object's quads and UVs (sculpt.levels_write); 5: each object's boolean mode; 6: the base level's node layout (sculpt.levels_write); 7: the camera's roll; 8: each object's eye and ghost, and Solo
+SCENE_VERSION :: u32(9) // 2: each object's rotation; 3: the current level's polypaint and polygroups; 4: sculpt layers, and a retopologized object's quads and UVs (sculpt.levels_write); 5: each object's boolean mode; 6: the base level's node layout (sculpt.levels_write); 7: the camera's roll; 8: each object's eye and ghost, and Solo; 9: folders, and each object's folder
 
 // The request waiting for the next frame, and whether a dialog is showing. Kept here
 // rather than in App because SDL may call a dialog back on another thread, even after
@@ -500,7 +500,42 @@ scene_header_put :: proc(app: ^App, out: ^[dynamic]u8) {
 	geom.byte_put(out, c.pitch)
 	geom.byte_put(out, c.roll)
 	geom.byte_put(out, u8(app.scene.solo)) // version 8
+	// Version 9: the folders, each with how it is shown.
+	geom.byte_put(out, u32(len(app.scene.folders)))
+	for f in app.scene.folders {
+		geom.byte_put(out, i32(f.id))
+		geom.byte_put_string(out, f.name)
+		geom.byte_put(out, u8(f.open) | u8(f.off) << 1 | u8(f.ghost) << 2)
+	}
+	geom.byte_put(out, i32(app.scene.next_folder_id))
 }
+
+// The folders a scene file of `version` lists after its header, owned; ok is false
+// when they are damaged (an id twice or not positive, unknown flags), with none kept.
+folders_get :: proc(r: ^geom.Byte_Reader, version: u32) -> (folders: [dynamic]Folder, next_id: int, ok: bool) {
+	if version < 9 do return nil, 0, true
+	count := int(geom.byte_get(r, u32))
+	if !r.ok || count > MAX_FOLDERS do return nil, 0, false
+	folders = make([dynamic]Folder, 0, count)
+	for _ in 0 ..< count {
+		f := Folder{id = int(geom.byte_get(r, i32)), name = geom.byte_get_string(r)}
+		bits := geom.byte_get(r, u8)
+		f.open, f.off, f.ghost = bits & 1 != 0, bits & 2 != 0, bits & 4 != 0
+		append(&folders, f)
+		unique := true
+		for g in folders[:len(folders) - 1] do unique &&= g.id != f.id
+		if !r.ok || f.id <= 0 || bits > 7 || !unique {
+			folders_clear(&folders)
+			delete(folders)
+			return nil, 0, false
+		}
+	}
+	next_id = int(geom.byte_get(r, i32))
+	return folders, next_id, true
+}
+
+// More folders than a scene file may list: a count past it is damage.
+MAX_FOLDERS :: 4096
 
 // Replaces the scene with a saved one: every object is read and uploaded before
 // anything of the old scene goes, so a damaged file leaves the scene as it was (and
@@ -533,7 +568,12 @@ scene_open :: proc(app: ^App, path: string) -> (opened, ok: bool) {
 	view.pitch = geom.byte_get(&r, f32)
 	view.roll = geom.byte_get(&r, f32) if version >= 7 else 0
 	solo := geom.byte_get(&r, u8) if version >= 8 else 0
-	if !r.ok || solo > 1 || count > len(data) || selected >= count || !finite(view.target) || !finite({view.distance, view.yaw, view.pitch}) || !finite({view.roll, 0, 0}) {
+	folders, next_folder_id, folders_ok := folders_get(&r, version)
+	defer if folders != nil {
+		folders_clear(&folders)
+		delete(folders)
+	}
+	if !folders_ok || !r.ok || solo > 1 || count > len(data) || selected >= count || !finite(view.target) || !finite({view.distance, view.yaw, view.pitch}) || !finite({view.roll, 0, 0}) {
 		file_note(app, true, "Cannot open %s: it is damaged", name)
 		return false, true
 	}
@@ -560,6 +600,10 @@ scene_open :: proc(app: ^App, path: string) -> (opened, ok: bool) {
 
 	scene_replace(app, objects[:], selected if selected >= 0 else (0 if count > 0 else -1), next_id, view)
 	app.scene.solo = solo == 1
+	delete(app.scene.folders)
+	app.scene.folders, folders = folders, nil
+	app.scene.next_folder_id = max(next_folder_id, 0)
+	scene_folders_normalize(app)
 	scene_selection_fix(app)
 	autosave_scene_saved(app, path)
 	app.stats.file_read_ms = time.duration_milliseconds(time.tick_since(start))
@@ -588,6 +632,8 @@ scene_replace :: proc(app: ^App, objects: []^Object, selected, next_id: int, vie
 	append(&app.scene.objects, ..objects)
 	app.scene.selected = selected
 	app.scene.solo = false
+	folders_clear(&app.scene.folders)
+	app.scene.next_folder_id = 0
 	// Ids only grow, so nothing kept by id (the pivot, a pending tap) finds a new object.
 	app.scene.next_id = max(next_id, app.scene.next_id)
 	ortho := app.camera.ortho
@@ -642,6 +688,7 @@ object_put_bytes :: proc(out: ^[dynamic]u8, obj: ^Object, opts := sculpt.Write_O
 	geom.byte_put(out, obj.transform.rotation) // version 2
 	geom.byte_put(out, u8(obj.boolean)) // version 5
 	geom.byte_put(out, object_view_bits(obj)) // version 8
+	geom.byte_put(out, i32(obj.folder)) // version 9
 	return sculpt.levels_write(&obj.levels, out, opts)
 }
 
@@ -706,6 +753,10 @@ object_get_fields :: proc(r: ^geom.Byte_Reader, obj: ^Object, version := SCENE_V
 		bits := geom.byte_get(r, u8)
 		if bits > OBJECT_VIEW_BITS do r.ok = false
 		obj.off, obj.ghost = bits & 1 != 0, bits & 2 != 0
+	}
+	if version >= 9 {
+		obj.folder = int(geom.byte_get(r, i32))
+		if obj.folder < 0 do r.ok = false
 	}
 }
 

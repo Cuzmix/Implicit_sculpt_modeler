@@ -735,6 +735,7 @@ run :: proc(opts: Options) -> bool {
 		}
 		// Whatever changed the scene last frame (a command, a file, an undo), the
 		// selection stays on an object in view and in reach.
+		scene_folders_normalize(&app)
 		scene_selection_fix(&app)
 		if opts.timelapse != "" && frame_index == opts.bench_stroke {
 			if opts.timelapse_steps > 0 do app.timeline.lapse.steps = i32(opts.timelapse_steps)
@@ -958,7 +959,7 @@ run :: proc(opts: Options) -> bool {
 				selected := i == app.scene.selected
 				material := current_material(&app)
 				color := material.selected if selected else material.idle
-				if obj.ghost do color.rgb *= GHOST_SHADE
+				if _, ghost := object_flags(&app, obj); ghost do color.rgb *= GHOST_SHADE
 				append(&draws, render.Draw_Item {
 					mesh   = gpu,
 					model  = transform_matrix(obj.transform),
@@ -986,7 +987,7 @@ run :: proc(opts: Options) -> bool {
 			if base := object_by_id(&app, b.base); base != nil && object_shown(&app, base) {
 				material := current_material(&app)
 				color := material.selected
-				if base.ghost do color.rgb *= GHOST_SHADE
+				if _, ghost := object_flags(&app, base); ghost do color.rgb *= GHOST_SHADE
 				append(&draws, render.Draw_Item {
 					mesh     = &b.preview,
 					model    = transform_matrix(base.transform),
@@ -1156,6 +1157,15 @@ run :: proc(opts: Options) -> bool {
 		shown := 0
 		for obj in app.scene.objects do shown += int(object_shown(&app, obj))
 		fmt.printfln("objects_shown=%d objects_off=%d objects_ghost=%d solo=%d", shown, off, ghosts, int(app.scene.solo))
+		order, folders, names := strings.builder_make(context.temp_allocator), strings.builder_make(context.temp_allocator), strings.builder_make(context.temp_allocator)
+		for obj, i in app.scene.objects {
+			fmt.sbprintf(&order, "%s%d", "," if i > 0 else "", obj.id)
+			fmt.sbprintf(&folders, "%s%d", "," if i > 0 else "", obj.folder)
+			fmt.sbprintf(&names, "%s%s", "," if i > 0 else "", object_label(obj))
+		}
+		for &f, i in app.scene.folders do fmt.sbprintf(&names, "%s%s:%s", ";" if i == 0 else ",", folder_label(&f), "open" if f.open else "folded")
+		spaced, _ := strings.replace_all(strings.to_string(names), " ", "_", context.temp_allocator)
+		fmt.printfln("folders=%d tree_rows=%d scene_order=%s scene_folders=%s scene_names=%s", len(app.scene.folders), app.kit.tree_rows, strings.to_string(order), strings.to_string(folders), spaced)
 	}
 	{
 		c := app.camera

@@ -126,6 +126,13 @@ Kit_State :: struct {
 	object_menu_id: int,
 	object_menu_at: ui.Rect,
 	object_menu_side: ui.Side, // at the pointer from the Scene tab, above the status chip
+	// A folder's menu in the Scene tab, the rename field over a row, and how many rows
+	// the tree drew last (for the exit stats).
+	folder_menu:    bool,
+	folder_menu_id: int,
+	folder_menu_at: ui.Rect,
+	rename:         Rename_Entry,
+	tree_rows:      int,
 	// Which inspector sections are open, and which show their More options; with
 	// all_options (Settings > Interface) every section shows everything.
 	open:       [Kit_Section]bool,
@@ -540,6 +547,7 @@ kit_init :: proc(app: ^App) {
 kit_floats_close :: proc(k: ^Kit_State) {
 	k.menu, k.versions, k.view_menu, k.browser, k.dock_menu, k.object_menu, k.action_pop = false, false, false, false, false, false, false
 	k.bind.open, k.pie_editor, k.adjust_pop, k.gizmo_entry.open = false, false, false, false
+	k.folder_menu, k.rename.open = false, false
 	k.ctx.select_open = 0
 }
 
@@ -548,7 +556,7 @@ kit_floats_close :: proc(k: ^Kit_State) {
 // first-run tip hides under it.
 kit_floating :: proc(app: ^App) -> bool {
 	k := &app.kit
-	return app.ui.pie.open || app.ui.adjust.kind != .None || k.action_pop || k.adjust_pop || k.menu || k.versions || k.view_menu || k.browser || k.dock_menu || k.bind.open || k.pie_editor || k.object_menu || k.palette || k.gizmo_entry.open || k.ctx.select_open != 0
+	return app.ui.pie.open || app.ui.adjust.kind != .None || k.action_pop || k.adjust_pop || k.menu || k.versions || k.view_menu || k.browser || k.dock_menu || k.bind.open || k.pie_editor || k.object_menu || k.folder_menu || k.rename.open || k.palette || k.gizmo_entry.open || k.ctx.select_open != 0
 }
 
 kit_destroy :: proc(app: ^App) {
@@ -935,6 +943,8 @@ kit_layout :: proc(app: ^App) {
 	kit_versions(app, menu_anchor)
 	kit_view_menu(app, view_anchor)
 	kit_object_menu(app)
+	kit_folder_menu(app)
+	kit_rename(app)
 	kit_palette(app, palette_anchor)
 	kit_action_popover(app)
 	kit_gizmo_entry(app)
@@ -1111,13 +1121,110 @@ kit_object_menu :: proc(app: ^App) {
 	if !ui.popover_begin(ctx, "object menu", &k.object_menu, k.object_menu_at, k.object_menu_side, {direction = .Column, padding = 6, width = 232}) do return
 	picked := command_menu_item(app, .Focus_Selected, label = "Focus")
 	if command_menu_item(app, .Duplicate_Object) do picked = true
+	if command_menu_item(app, .Rename_Object) do picked = true
 	if command_menu_item(app, .Solo_Object) do picked = true
 	if command_menu_item(app, .Ghost_Object) do picked = true
 	if command_menu_item(app, .Hide_Object) do picked = true
+	// Where it can go in the tree: a new folder, each other folder, or out of its own.
+	ui.divider(ctx, across = true)
+	if command_menu_item(app, .New_Folder) do picked = true
+	if obj := object_by_id(app, k.object_menu_id); obj != nil {
+		for &f in app.scene.folders {
+			if f.id == obj.folder do continue
+			if ui.menu_item(ctx, fmt.tprintf("Move to %s##into %d", folder_label(&f), f.id), glyph = ui.ICON_FOLDER) {
+				app.ui.scene_command = {kind = .Arrange, arrange = .Into_Folder, id = obj.id, folder = f.id}
+				picked = true
+			}
+		}
+		if obj.folder != 0 && ui.menu_item(ctx, "Take out of folder", glyph = ui.ICON_FOLDER) {
+			app.ui.scene_command = {kind = .Arrange, arrange = .Out_Of_Folder, id = obj.id}
+			picked = true
+		}
+	}
 	ui.divider(ctx, across = true)
 	if command_menu_item(app, .Delete_Object, tone = .Danger) do picked = true
 	if picked do k.object_menu = false
 	ui.popover_end(ctx)
+}
+
+// Opens folder `id`'s menu at `at`.
+folder_menu_open :: proc(app: ^App, id: int, at: ui.Rect) {
+	k := &app.kit
+	k.folder_menu, k.folder_menu_id, k.folder_menu_at = true, id, at
+}
+
+// A folder's menu in the Scene tab: rename it, empty it into the list, or delete it with
+// what is in it.
+@(private = "file")
+kit_folder_menu :: proc(app: ^App) {
+	k := &app.kit
+	ctx := &k.ctx
+	f := folder_by_id(app, k.folder_menu_id)
+	if f == nil do k.folder_menu = false
+	if !ui.popover_begin(ctx, "folder menu", &k.folder_menu, k.folder_menu_at, .Pointer, {direction = .Column, padding = 6, width = 232}) do return
+	defer ui.popover_end(ctx)
+	if ui.menu_item(ctx, "Rename...##folder", glyph = ui.ICON_PENCIL) {
+		rename_open(app, -f.id, k.folder_menu_at)
+		k.folder_menu = false
+		return
+	}
+	picked := false
+	if ui.menu_item(ctx, "Ungroup", glyph = ui.ICON_FOLDER) {
+		app.ui.scene_command = {kind = .Arrange, arrange = .Ungroup, id = f.id}
+		picked = true
+	}
+	ui.divider(ctx, across = true)
+	if ui.menu_item(ctx, "Delete folder and its objects", glyph = ui.ICON_TRASH, tone = .Danger) {
+		app.ui.scene_command = {kind = .Arrange, arrange = .Delete_Folder, id = f.id}
+		picked = true
+	}
+	if picked do k.folder_menu = false
+}
+
+// The rename field over a row: what an object or a folder (a negative id) is called.
+Rename_Entry :: struct {
+	open:   bool,
+	typing: bool, // its field had the keys, which go back when it closes
+	id:     int, // the object, or minus the folder
+	at:     ui.Rect,
+	text:   [NAME_BYTES]u8,
+}
+
+// Opens the rename field for object `id` (or folder -`id`) over `at`, empty, with the
+// name it has as the field's hint.
+rename_open :: proc(app: ^App, id: int, at: ui.Rect) {
+	app.kit.rename = {open = true, id = id, at = at}
+}
+
+@(private = "file")
+kit_rename :: proc(app: ^App) {
+	k := &app.kit
+	ctx := &k.ctx
+	r := &k.rename
+	gone := object_by_id(app, r.id) == nil && folder_by_id(app, -r.id) == nil
+	if r.open && gone do r.open = false
+	if !r.open && r.typing {
+		ctx.text_focus = 0
+		r.typing = false
+	}
+	if !ui.popover_begin(ctx, "rename", &r.open, r.at, .Below, {direction = .Column, gap = 4, padding = 12, width = 280}) do return
+	defer ui.popover_end(ctx)
+	ui.caption(ctx, "RENAME FOLDER" if r.id < 0 else "RENAME OBJECT")
+	now := ""
+	if obj := object_by_id(app, r.id); obj != nil do now = object_label(obj)
+	if f := folder_by_id(app, -r.id); f != nil do now = folder_label(f)
+	_ = ui.text_field(ctx, "name##rename", r.text[:len(r.text) - 1], hold = r.open, hint = fmt.tprintf("Now %s", now))
+	r.typing ||= r.open
+	ui.paragraph(ctx, "Enter applies it; left empty, the name stays as it is.")
+	apply, cancel := kit_button_pair(ctx, "Apply", "Cancel", tone_a = .Accent)
+	d := &app.device
+	apply ||= r.open && (key_pressed(d, sdl.K_RETURN) || key_pressed(d, sdl.K_KP_ENTER))
+	if apply && r.open && rename_text(r.text[:]) != "" {
+		cmd := Scene_Command{kind = .Arrange, arrange = .Rename_Folder if r.id < 0 else .Rename_Object, id = abs(r.id)}
+		copy(cmd.name[:], r.text[:])
+		app.ui.scene_command = cmd
+	}
+	if apply || cancel do r.open = false
 }
 
 // The interface's draw commands for the renderer: the viewport's texture (or the

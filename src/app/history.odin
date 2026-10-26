@@ -50,6 +50,26 @@ History_Entry :: struct {
 	// puts back the one, redo the other. Its level is always 0, and it outlives the
 	// object's strokes, since the strokes are in the mesh's own space.
 	before, after: Transform,
+	// An .Arrange entry's tree before the change and after it (scene_tree.odin), owned.
+	arrange: ^Arrange_Step,
+}
+
+Arrange_Step :: struct {
+	before, after: ^Scene_Layout,
+}
+
+// Frees what an entry owns: a swap's snapshot or an arrangement's layouts.
+@(private = "file")
+entry_free :: proc(h: ^History, e: History_Entry) {
+	if e.swap != nil {
+		h.swap_bytes -= len(e.swap.bytes)
+		snapshot_free(e.swap)
+	}
+	if e.arrange != nil {
+		layout_free(e.arrange.before)
+		layout_free(e.arrange.after)
+		free(e.arrange)
+	}
 }
 
 // What kind of change a step is; the History panel colours its timeline by it.
@@ -62,6 +82,7 @@ History_Kind :: enum u8 {
 	Paint,   // a polypaint or polygroup command
 	Layer,   // a sculpt layer added, removed, shown, hidden or dialled
 	Transform, // the object moved, turned or scaled
+	Arrange, // the tree changed: folders, names or order
 }
 
 // An object as object_put writes it, or that it did not exist. Undoing or redoing a swap
@@ -91,7 +112,7 @@ history_destroy :: proc(h: ^History) {
 // Drops every entry, freeing the snapshots.
 history_clear :: proc(h: ^History) {
 	for list in ([2]^[dynamic]History_Entry{&h.done, &h.undone}) {
-		for e in list do snapshot_free(e.swap)
+		for e in list do entry_free(h, e)
 		clear(list)
 	}
 	h.swap_bytes = 0
@@ -141,8 +162,7 @@ history_record_swap :: proc(app: ^App, id: int, before: ^Object_Snapshot, chain 
 		if oldest < 0 || oldest == len(h.done) - 1 do break
 		// The strokes among them stay in their sculptors, out of reach, until the
 		// sculptors' own limit drops them.
-		h.swap_bytes -= len(h.done[oldest].swap.bytes)
-		snapshot_free(h.done[oldest].swap)
+		for e in h.done[:oldest + 1] do entry_free(h, e)
 		remove_range(&h.done, 0, oldest + 1)
 		// What was chained to the dropped entry stands alone now.
 		if len(h.done) > 0 do h.done[0].chain = false
@@ -159,7 +179,7 @@ history_next_label :: proc(list: []History_Entry) -> string {
 	if len(list) == 0 do return "stroke"
 	e := list[len(list) - 1]
 	if e.swap != nil do return e.swap.what
-	if e.kind == .Transform do return e.what
+	if e.kind == .Transform || e.kind == .Arrange do return e.what
 	return "stroke"
 }
 
@@ -406,13 +426,20 @@ history_record_transform :: proc(app: ^App, obj: ^Object, before: Transform, wha
 	append(&app.history.done, History_Entry{id = obj.id, kind = .Transform, what = what, at = time.tick_now(), before = before, after = obj.transform})
 }
 
+// Lists `e`, a change that is no stroke and no swap, as the newest undo step.
+history_push :: proc(app: ^App, e: History_Entry) {
+	history_drop_redo(app)
+	app.history.serial += 1
+	app.history.edits += 1
+	append(&app.history.done, e)
+}
+
 // A new step discards everything that could have been redone, everywhere.
 @(private = "file")
 history_drop_redo :: proc(app: ^App) {
 	for e in app.history.undone {
-		if e.swap != nil {
-			app.history.swap_bytes -= len(e.swap.bytes)
-			snapshot_free(e.swap)
+		if e.swap != nil || e.arrange != nil {
+			entry_free(&app.history, e)
 		} else if e.kind == .Transform {
 			// Nothing of it is kept anywhere else.
 		} else if s := entry_sculptor(app, e); s != nil {
@@ -456,6 +483,13 @@ history_step :: proc(app: ^App, from, to: ^[dynamic]History_Entry, can, step: pr
 		if e.level != HD_LEVEL || e.swap != nil do app.history.edits += 1
 		if e.swap != nil {
 			if !history_swap(app, e) do app.running = false // GPU failure
+			append(to, e)
+			return true
+		}
+		if e.arrange != nil {
+			// The tree changes no level and no sculptor; layout_apply copes with objects
+			// that came or went since.
+			layout_apply(app, e.arrange.before if from == &app.history.done else e.arrange.after)
 			append(to, e)
 			return true
 		}
@@ -533,7 +567,7 @@ history_swap :: proc(app: ^App, e: History_Entry) -> bool {
 	if obj != nil {
 		// Whether it is in view is not part of the step: the object comes back as it is
 		// shown now, not as it was when the snapshot was taken.
-		if restored != nil do restored.off, restored.ghost = obj.off, obj.ghost
+		if restored != nil do restored.off, restored.ghost, restored.folder = obj.off, obj.ghost, obj.folder
 		index := live.index
 		ordered_remove(&scene.objects, index)
 		object_free(app, obj)
@@ -544,6 +578,7 @@ history_swap :: proc(app: ^App, e: History_Entry) -> bool {
 		inject_at(&scene.objects, index, restored)
 		scene.selected = index
 	}
+	scene_folders_normalize(app)
 	scene_selection_fix(app)
 	app.history.swap_bytes += len(live.bytes) - len(snap.bytes)
 	snap.exists, snap.index = live.exists, live.index
@@ -566,7 +601,7 @@ history_forget_strokes :: proc(app: ^App, id: int) {
 	for list in ([2]^[dynamic]History_Entry{&app.history.done, &app.history.undone}) {
 		kept := 0
 		for e in list {
-			if e.id != id || e.swap != nil || e.kind == .Transform {
+			if e.id != id || e.swap != nil || e.arrange != nil || e.kind == .Transform {
 				list[kept] = e
 				kept += 1
 			}
@@ -584,12 +619,11 @@ history_forget_level :: proc(app: ^App, id: int, level: Maybe(int)) {
 		kept := 0
 		for e in list {
 			only, one := level.?
-			if e.id != id || (one && (e.level != only || e.swap != nil || e.kind == .Transform)) {
+			if e.id != id || e.arrange != nil || (one && (e.level != only || e.swap != nil || e.kind == .Transform)) {
 				list[kept] = e
 				kept += 1
-			} else if e.swap != nil {
-				app.history.swap_bytes -= len(e.swap.bytes)
-				snapshot_free(e.swap)
+			} else {
+				entry_free(&app.history, e)
 			}
 		}
 		resize(list, kept)

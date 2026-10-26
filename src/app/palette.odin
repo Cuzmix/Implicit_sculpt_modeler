@@ -117,6 +117,8 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.Ghost_Object     = "transparent see through reference xray template",
 	.Show_All_Objects = "unhide subtools eyes visibility visible all",
 	.Solo_Object      = "isolate local view only alone focus",
+	.New_Folder       = "collection outliner organise organize subtools",
+	.Rename_Object    = "name label title subtool",
 	.View_Axis        = "camera",
 	.Ortho_Toggle     = "orthographic perspective camera",
 	.Focus_Selected   = "frame zoom fit",
@@ -180,6 +182,7 @@ PALETTE_LABELS := #partial [Command_Id]string {
 	.Duplicate_Object = "Duplicate object",
 	.Polygroups       = "Show polygroups",
 	.Solo_Object      = "Solo object",
+	.Rename_Object    = "Rename object",
 	.Stats            = "Stats panel",
 }
 
