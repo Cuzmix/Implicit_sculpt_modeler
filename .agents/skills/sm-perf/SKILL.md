@@ -31,7 +31,7 @@ description: Measuring the sculpt modeler's performance — the headless build/b
 | `build.bat gpubench` | six cases per size (orbit with everything on, without simplify, without culling; stroke with partial redraw and culling, without partial, without both), 30 warm-up + 120 measured frames, strokes counting only sculpting frames (`src/app/gpubench.odin:18-44`); writes `build\gpubench.md`. `--vertices=N` for one size, `--gpubench-frames=N` |
 | `build\sculpt.exe --vertices=N --bench-stroke=240 --bench-samples=4 --no-vsync --frames=240` | a synthetic stroke, then the exit stats including `raycast_ms`, `brush_ms`, `normals_ms`, `upload_kb`, `latency_ms`, `undo_mb`, `undo_ms`, `redo_ms`, `level_changes_ms`; `--bench-loops=N` circles instead of a wave |
 | `build/sculpt --vertices=10000000 --bench-stroke=240 --no-vsync [--autosave=1 --bench-after-autosave]` (release) | the stroke while an autosave writes the file, A/B against none: `brush_ms`, `frame_ms`, and `autosave_serialize_ms`, `autosave_write_ms`, `autosave_mb`; a stroke during the read gives `autosave_aborts` and `autosave_wait_ms` (README "Autosave and recovery") |
-| `--orbit`, `--no-cull`, `--no-partial`, `--no-cache`, `--no-simplify`; `--brush=NAME`, `--symmetry=x…`, `--dyntopo --detail=PX` for `--bench-stroke` | the camera-only cost and the A/B toggles (also Stats panel checkboxes) |
+| `--orbit`, `--no-cull`, `--no-partial`, `--no-cache`, `--no-simplify`; `--script="brush clay; set symmetry x; dyntopo_toggle on; set detail_px 14"` for `--bench-stroke` | the camera-only cost and the A/B toggles (also Stats panel checkboxes) |
 | `deps\odin\odin.exe build src\sdf_trial … && build\sdf_trial.exe 256` | the SDF spike's `dab_ms`/`remesh_ms` keys (sm-sdf) |
 
 ## Reading the numbers

@@ -9,7 +9,7 @@ import "../sculpt"
 // and what the stroke does differently. Adding a brush is its value in
 // sculpt.Brush_Kind with its dab in sculpt, and a row here.
 Brush_Info :: struct {
-	name:     string, // "Snake hook": tiles, the pie, menus, the history, --brush
+	name:     string, // "Snake hook": tiles, the pie, menus, the history, scripts
 	help:     cstring, // what it does, with a line break where its tooltip wraps
 	icon:     rune, // in the Lucide font
 	strength: f32, // a fresh install's

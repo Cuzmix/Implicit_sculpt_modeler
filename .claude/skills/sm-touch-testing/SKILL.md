@@ -91,7 +91,8 @@ on window focus or hover to decide ownership; a widget that acts on a finger pre
 | with the Move tool and the rail's Mask, drags from the model to mask along the surface (posing's topological mask); Esc mid-drag puts it back | `topo_mask_by_finger_with_the_rail`, `topo_mask_ctrl_drag_masks_along_the_surface` |
 
 Repeat the critical ones (taps, first-touch scroll, full turns, pinch) after any change to camera or touch settings,
-with the setting changed (`--orbit-style=turntable`, `--finger-orbits`, `--orbit-pivot=centre`, `--no-edge-orbit`, or through the Settings panel as
+with the setting changed by a start-up script (`--script=set orbit_style turntable`, `set finger_model orbit`,
+`set orbit_pivot centre`, `set edge_orbit off`), or through the Settings panel as
 `changed_touch_setting_takes_effect` does). Live window resizing, rotation and split screen cannot be scripted: they
 are on the device checklist.
 
@@ -125,7 +126,9 @@ are on the device checklist.
   read the PNG. Positions are window points at 1600 x 900 unless the scenario sets `--width`/`--height`.
 - `palette_run(s, "words")` runs the palette's first match (Ctrl+K, type, Enter): the steady way to start a command
   whose button moves with the layout. `same_file(a, b)` compares two exports; an operation checked against a straight
-  run of the same thing (`--remesh=N`, `--smooth-all=N`, `--retopo=N`) shows it bit for bit.
+  run of the same thing from a start-up script (`--script=remesh_to 500000`, `set smooth_steps 1; smooth_all`,
+  `set retopo_quads 100; retopologize`) shows it bit for bit. Scenarios set their runs up with `--script`, never
+  with flags that mirror a tool (those are gone: README "Command scripts" has the script for each).
 - A value from one run that a later run must match: a check `"@remember": f` on the first step stores the stats in a
   dict the later step's `@` check reads (`camera_back_and_forward_from_the_view_menu`).
 - A finger's or the pen's mask, hide or clip shape waits for Apply by default (two-phase shapes): a scenario that

@@ -43,7 +43,7 @@ kit_layers_section :: proc(app: ^App) {
 	ctx := &app.kit.ctx
 	obj := selected_object(app)
 	allowed := layers_allowed(obj)
-	if ui.button(ctx, "New layer", .Flat, .Accent, glyph = ui.ICON_PLUS, enabled = allowed) do layer_add(app)
+	_ = command_button(app, .New_Layer, tone = .Accent, glyph = ui.ICON_PLUS)
 	if obj == nil {
 		ui.paragraph(ctx, "Select an object to give it layers.")
 		return
