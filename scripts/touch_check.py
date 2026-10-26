@@ -258,6 +258,62 @@ def spray_stroke_by_mouse():
 
 
 @scenario
+def shift_mid_stroke_lays_a_line():
+    """Shift pressed mid-stroke lays the stroke again as a straight line, one undo step."""
+    s = Script()
+    s.add("move:720,420")
+    s.wait(1)
+    s.add("down")
+    for x, y in [(750, 450), (780, 400), (810, 460)]:
+        s.wait(1)
+        s.add(f"move:{x},{y}")
+    s.wait(1)
+    s.add("key:shift")
+    for x, y in [(840, 430), (870, 440), (900, 450)]:
+        s.wait(1)
+        s.add(f"move:{x},{y}")
+    s.wait(1)
+    s.add("up")
+    s.add("keyup:shift")
+    s.wait(3)
+    return s, [], camera_still({"stroke_lines": near(1), "dabs": lambda v: int(v) > 0, "undo_steps": near(1)})
+
+
+@scenario
+def rail_smooth_mid_stroke_lays_a_line_by_pen():
+    """The rail's Smooth held down mid-stroke by the other hand turns a pen stroke into a
+    straight line, as Shift does with a mouse."""
+    s = Script()
+    s.add("pnear")
+    s.add("pdown:720,420")
+    for x, y in [(750, 450), (780, 400)]:
+        s.wait(1)
+        s.add(f"pmove:{x},{y}")
+    rail_hold(s, "smooth")
+    for x, y in [(820, 440), (860, 430), (900, 450)]:
+        s.wait(1)
+        s.add(f"pmove:{x},{y}")
+    s.wait(1)
+    s.add("pup")
+    s.wait(1)
+    rail_lift(s)
+    s.add("pfar")
+    s.wait(3)
+    return s, [], camera_still({"stroke_lines": near(1), "dabs": lambda v: int(v) > 0, "undo_steps": near(1)})
+
+
+@scenario
+def join_strokes_by_pen():
+    """With Join strokes on, a pen stroke pressed where the last one ended carries it on;
+    one pressed far away does not."""
+    s = Script()
+    pen_stroke(s, line((720, 420), (800, 440), 8))
+    pen_stroke(s, line((806, 442), (880, 460), 8))
+    pen_stroke(s, line((700, 520), (760, 530), 6))
+    return s, ["--stroke-join"], camera_still({"stroke_joins": near(1), "undo_steps": near(3)})
+
+
+@scenario
 def roll_stroke_by_finger():
     """A Roll stroke by finger lays its dabs a brush width apart, so fewer than Dots does
     over the same path, and is one undo step."""

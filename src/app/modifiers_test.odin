@@ -203,3 +203,34 @@ strokes_keep_the_rail_mask :: proc(t: ^testing.T) {
 	testing.expect(t, !strokes_load(&b, path))
 	free_all(context.temp_allocator)
 }
+
+// Smooth put down while a brush stroke is under way smooths the rest of the press, which
+// makes the stroke a straight line, and lifting it then does not latch it; while no
+// stroke is under way (an orbit, a Move drag) it latches as a tap as before.
+@(test)
+rail_smooth_mid_stroke_is_a_line_not_a_latch :: proc(t: ^testing.T) {
+	SLOP :: 10
+	app: App
+	app.tool = .Brush
+	app.device.pressed, app.device.down = {.Left}, {.Left}
+	input := Viewport_Input{primary = true}
+	rail_press(&app, &input)
+	testing.expect(t, !input.smooth)
+	app.device.pressed = {}
+	app.stroke.active = true
+	_ = rail_finger_down(&app.rail, 3, .Smooth, {0, 0}, 1.0)
+	input = {primary = true}
+	rail_press(&app, &input)
+	testing.expect(t, input.smooth)
+	_ = rail_finger_up(&app.rail, 3, 1.05, false, SLOP)
+	testing.expect_value(t, app.rail.latched, Modifiers{})
+
+	// No stroke under way: the tap latches.
+	app.stroke.active = false
+	_ = rail_finger_down(&app.rail, 4, .Smooth, {0, 0}, 2.0)
+	input = {primary = true}
+	rail_press(&app, &input)
+	testing.expect(t, !input.smooth)
+	_ = rail_finger_up(&app.rail, 4, 2.05, false, SLOP)
+	testing.expect_value(t, app.rail.latched, Modifiers{.Smooth})
+}

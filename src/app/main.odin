@@ -67,6 +67,8 @@ Options :: struct {
 	cloth:     string `usage:"What the Cloth brush does: drag (the default), gravity, pinch or expand."`,
 	stroke:    string `usage:"Start with this stroke: dots (the default), drag_rect (one stamp sized and turned by the drag, as the Brush tab's Rectangle), spray or roll."`,
 	front_only: bool `usage:"Start with Front faces only on: brushes and mask shapes leave what faces away from the viewer."`,
+	stroke_line: bool `usage:"Start with Line on (Stroke > More): every stroke a straight line from its press."`,
+	stroke_join: bool `usage:"Start with Join strokes on (Stroke > More): a press near where the last stroke ended carries it on."`,
 	symmetry:  string `usage:"Start with brush symmetry across these axes, e.g. x or xz."`,
 	material:  string `usage:"Shade objects with this material (the Scene tab's Material): clay (the default), red wax, white, grey, skin, gold, copper, chrome, steel, plastic, ceramic, rubber or pbr clay."`,
 	studio:    bool `usage:"Start with View > Studio render on: ambient occlusion and soft shadows build up while the view stays still."`,
@@ -163,6 +165,7 @@ App :: struct {
 	bindings:           [MAX_BINDINGS]Binding,
 	binding_count:      int,
 	stroke_seed: u64, // the seed the next stroke takes (Stroke.seed), one more each stroke
+	stroke_end:  Stroke_End, // where the last stroke ended, for Join strokes
 	samples:  [dynamic]Input_Sample, // this frame's pointer samples, in window coordinates
 	pen_pressure: f32, // the pen's latest pressure
 	pen_tilt: [2]f32, // the pen's latest lean in degrees, x to the right and y down
@@ -630,6 +633,8 @@ run :: proc(opts: Options) -> bool {
 	if opts.studio do app.studio_on = true
 	if opts.studio_samples > 0 do app.studio_samples = i32(min(opts.studio_samples, STUDIO_SAMPLES_MAX))
 	if opts.front_only do app.brush.front_only = true
+	if opts.stroke_line do app.brush.line = true
+	if opts.stroke_join do app.brush.join = true
 	if opts.stroke != "" {
 		found := false
 		for mode in Stroke_Mode do if strings.equal_fold(opts.stroke, fmt.tprint(mode)) {
@@ -1199,6 +1204,7 @@ run :: proc(opts: Options) -> bool {
 			// moved from one put back exactly.
 			mesh_sum: f64
 			if obj := selected_object(&app); obj != nil do for q in object_sculptor(obj).mesh.positions do mesh_sum += f64(q.x) + f64(q.y) + f64(q.z)
+			fmt.printfln("stroke_lines=%d stroke_joins=%d", app.stroke_end.lines, app.stroke_end.joins)
 			fmt.printfln("pose_mode=%d pose_drags=%d pose_moved=%d mesh_sum=%.4f topo_masks=%d topo_reach=%.3f", int(pose_mode(&app)), m.pose_drags, m.pose_moved, mesh_sum, m.topo_masks, m.topo_reach)
 			fmt.printfln("gizmo_at=%.0f,%.0f gizmo_mode=%s gizmo_hover=%s gizmo_last=%s gizmo_drags=%d gizmo_snap=%d transform=%.4f,%.4f,%.4f,%.3f,%.3f,%.3f,%.4f transform_undo=%d",
 				m.drawn.x, m.drawn.y, lower(m.mode), lower(m.hover), lower(m.last), m.drags, int(m.snap), tr.position.x, tr.position.y, tr.position.z, tr.rotation.x, tr.rotation.y, tr.rotation.z, tr.scale, transform_undo)

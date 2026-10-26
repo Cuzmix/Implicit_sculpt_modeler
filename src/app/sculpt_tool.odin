@@ -24,6 +24,8 @@ Brush_Settings :: struct {
 	front_only:        bool, // brushes and mask shapes leave what faces away from the viewer (sculpt.Brush.facing)
 	stroke:            Stroke_Mode,
 	spray_spread:      f32, // Spray: how far from the path dabs scatter, in brush radii
+	line:              bool, // every stroke a straight line from its press (Stroke.line)
+	join:              bool, // a press near where the last stroke ended carries it on (Stroke_End)
 	symmetry:          sculpt.Symmetry, // mirror strokes across these planes of the object
 	// On objects with dynamic topology: edges under the brush longer than this many
 	// pixels on screen split, and with collapse, ones much shorter merge.
@@ -110,11 +112,52 @@ Stroke :: struct {
 	seed:     u64,
 	step:     u32,
 	turn:     f32,
+	// A straight line (Shift or the rail's Smooth pressed mid-stroke, or the Line switch):
+	// while it is held, what the stroke did is put back and laid again from line_from to
+	// the pointer whenever the pointer moves, so it stays one undo step. line_to is where
+	// the line being laid goes, line_done whether it got there (a long line can take more
+	// than a frame's dabs), aim where the pointer is now, with its pressure and lean.
+	line:          bool,
+	line_from:     [2]f32,
+	line_to:       [2]f32,
+	line_done:     bool,
+	line_aim:      Input_Sample,
+	// Shift was let go: the line is laid to the last place it was held at, then the
+	// samples since (kept in pending) are walked freehand from its end.
+	line_leaving:  bool,
+	smooth_was:    bool, // input.smooth in the frame before, to see Shift go down
+	// A stroke that joined the last one (Stroke_End): the way it was going and how far
+	// it had gone since its last dab, for a straight line laid again from the join.
+	joined:        bool,
+	join_dir:      [2]f32,
+	join_travel:   f32,
+
 	// The sum and count of the points it dabbed, in its object's space: their mean is the
 	// pivot orbits turn about once it ends (Stroke_Pivot).
 	pivot_sum:   Vec3,
 	pivot_count: int,
 }
+
+// Where the last stroke laying dabs ended, for Join strokes: a press within SNAP_PX of
+// it on the same object, in the same view, carries that stroke on from there, its
+// spacing and direction included, so a line drawn in pieces has no blob or gap at the
+// joins. Replays start and stop without one.
+Stroke_End :: struct {
+	valid:  bool,
+	object: int,
+	pos:    [2]f32,
+	dir:    [2]f32,
+	travel: f32,
+	size:   [2]f32,
+	camera: camera.Orbit,
+	// How many strokes joined one before, and how many straight lines were laid, for
+	// the exit stats.
+	joins, lines: int,
+}
+
+// How near the last stroke's end a press joins it: about a fingertip, so a finger or
+// pen lifted and put down again on the same spot finds it.
+SNAP_PX :: 24
 
 Sculpt_Frame_Result :: struct {
 	dabs:       int,
@@ -157,6 +200,7 @@ sculpt_frame :: proc(app: ^App, input: Viewport_Input) -> (res: Sculpt_Frame_Res
 		if app.stroke.active {
 			if rest := until_release(samples); len(rest) < len(samples) do stroke_follow(app, input, rest, &res)
 		}
+		line_complete(app, input, &res)
 		stroke_finish(app)
 		return
 	}
@@ -168,6 +212,7 @@ sculpt_frame :: proc(app: ^App, input: Viewport_Input) -> (res: Sculpt_Frame_Res
 		if app.stroke.active {
 			// Released and pressed again within one frame: end the previous stroke first.
 			stroke_follow(app, input, until_release(samples[:press]), &res)
+			line_complete(app, input, &res)
 			stroke_finish(app)
 		}
 		samples = samples[press:]
@@ -176,7 +221,10 @@ sculpt_frame :: proc(app: ^App, input: Viewport_Input) -> (res: Sculpt_Frame_Res
 	// as held: a replayed or synthetic frame need not agree with its samples.
 	rest := until_release(samples)
 	stroke_follow(app, input, rest, &res)
-	if len(rest) < len(samples) do stroke_finish(app)
+	if len(rest) < len(samples) {
+		line_complete(app, input, &res)
+		stroke_finish(app)
+	}
 	return
 }
 
@@ -197,7 +245,9 @@ stroke_follow :: proc(app: ^App, input: Viewport_Input, samples: []Input_Sample,
 	} else if st.size != input.size {
 		// The viewport changed size, so earlier positions no longer match the view: the
 		// stroke picks up where the pointer is now.
+		// A straight line under way stays as it was laid, since where it began is lost.
 		clear(&st.pending)
+		st.line = false
 		if len(samples) == 0 do return
 		st.pos, st.pressure, st.tilt, st.travel, st.size = samples[0].pos, samples[0].pressure, samples[0].tilt, 0, input.size
 	}
@@ -227,9 +277,26 @@ stroke_follow :: proc(app: ^App, input: Viewport_Input, samples: []Input_Sample,
 		if len(queue) > 0 do rect_follow(app, input, queue[len(queue) - 1], res)
 		return
 	}
+	// Shift (or the rail's Smooth) going down mid-stroke turns it into a straight line;
+	// held from the press it smooths instead (stroke_brush). The frame the button comes up
+	// in reads as no Shift (input.smooth needs the button), so it keeps the frame before's.
+	shift := input.smooth if input.primary else st.smooth_was
+	if st.active {
+		if shift && !st.smooth_was && !st.line && line_allowed(app) do line_begin(app)
+		st.smooth_was = shift
+		if st.line {
+			line_follow(app, input, inv, queue, shift, res)
+			return
+		}
+	}
 	for s, i in queue {
 		if !st.active {
 			stroke_start(app, input, inv, s, res)
+			// With the Line switch on, the rest of the press's frame goes to the line.
+			if st.line {
+				line_follow(app, input, inv, queue[i + 1:], shift, res)
+				return
+			}
 			continue
 		}
 		obj := object_by_id(app, st.object)
@@ -277,6 +344,7 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 	app.stroke_seed += 1
 	st.pos, st.pressure, st.tilt, st.travel, st.size = s.pos, s.pressure, s.tilt, 0, input.size
 	st.dir = {}
+	st.line, st.line_leaving, st.joined, st.smooth_was = false, false, false, input.smooth
 	clear(&st.pending)
 	sculpt.sculptor_stroke_begin(object_sculptor(obj))
 	// The mode before the first dab's brush, whose alpha turn reads it.
@@ -292,6 +360,22 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 	st.start, st.at = s.pos, local
 	st.pivot_sum, st.pivot_count = local, 1
 	if st.hook || st.rect do return // they move nothing until the pointer does
+	if app.brush.line && line_allowed(app) {
+		line_begin(app)
+		st.line_to = st.pos // laid again once the pointer moves
+	}
+	if !st.grab && !st.cloth {
+		if end, joins := stroke_joins(app, obj, s.pos, input.size); joins {
+			// It carries on from where the last stroke ended, as if the pointer had never
+			// let go, and walks to the press.
+			st.pos, st.dir, st.travel, st.start = end.pos, end.dir, end.travel, end.pos
+			st.line_from, st.line_to = end.pos, end.pos
+			st.joined, st.join_dir, st.join_travel = true, end.dir, end.travel
+			app.stroke_end.joins += 1
+			_ = stroke_walk(app, obj, input, inv, s.pos, s.pressure, s.tilt, res)
+			return
+		}
+	}
 	switch st.mode {
 	case .Roll:
 		// The first image waits until the pointer has gone a radius, so the stroke has a
@@ -444,7 +528,7 @@ rect_follow :: proc(app: ^App, input: Viewport_Input, s: Input_Sample, res: ^Scu
 // with the stroke stopped partway, once the frame has used MAX_DABS_PER_FRAME dabs or
 // MAX_BRUSH_MS_PER_FRAME.
 @(private = "file")
-stroke_walk :: proc(app: ^App, obj: ^Object, input: Viewport_Input, inv: matrix[4, 4]f32, target: [2]f32, pressure: f32, tilt: [2]f32, res: ^Sculpt_Frame_Result) -> bool {
+stroke_walk :: proc(app: ^App, obj: ^Object, input: Viewport_Input, inv: matrix[4, 4]f32, target: [2]f32, pressure: f32, tilt: [2]f32, res: ^Sculpt_Frame_Result, bounded := true) -> bool {
 	st := &app.stroke
 	for {
 		d := target - st.pos
@@ -458,7 +542,7 @@ stroke_walk :: proc(app: ^App, obj: ^Object, input: Viewport_Input, inv: matrix[
 			st.pos, st.pressure, st.tilt = target, pressure, tilt
 			return true
 		}
-		if res.dabs >= MAX_DABS_PER_FRAME || res.brush_ms + res.raycast_ms >= MAX_BRUSH_MS_PER_FRAME do return false
+		if bounded && (res.dabs >= MAX_DABS_PER_FRAME || res.brush_ms + res.raycast_ms >= MAX_BRUSH_MS_PER_FRAME) do return false
 		if need > 0 {
 			f := need / l
 			st.pos += d * f
@@ -469,6 +553,125 @@ stroke_walk :: proc(app: ^App, obj: ^Object, input: Viewport_Input, inv: matrix[
 		if st.mode == .Spray do spray_dab(app, obj, input, inv, st.pos, st.pressure, st.tilt, res)
 		else do stroke_dab(app, obj, input, inv, st.pos, st.pressure, st.tilt, res)
 	}
+}
+
+// Whether the stroke under way can become a straight line: one laying dabs along its
+// path, on an object whose stroke can be put back (not with dynamic topology, whose
+// strokes change the triangles).
+@(private = "file")
+line_allowed :: proc(app: ^App) -> bool {
+	st := &app.stroke
+	if st.grab || st.hook || st.cloth || st.rect do return false
+	obj := object_by_id(app, st.object)
+	return obj != nil && !object_dynamic(obj)
+}
+
+// Turns the stroke under way into a straight line from where it began.
+@(private = "file")
+line_begin :: proc(app: ^App) {
+	st := &app.stroke
+	st.line, st.line_from, st.line_to, st.line_done, st.line_leaving = true, st.start, {max(f32), max(f32)}, true, false
+	st.line_aim = {pos = st.pos, pressure = st.pressure, tilt = st.tilt}
+	clear(&st.pending)
+	app.stroke_end.lines += 1
+}
+
+// A frame of a straight line. While Shift is held (`shift`, or the Line switch), the line
+// is laid again to the pointer once the last time it was laid has got there: a long line
+// can take more than a frame's dabs. Once Shift is let go, the line is laid to where the
+// pointer last was with it held, then the stroke carries on freehand from there through
+// the samples since. So where a line ends depends only on the samples, never on how fast
+// the frames were, and a replay lays it the same.
+@(private = "file")
+line_follow :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, queue: []Input_Sample, shift: bool, res: ^Sculpt_Frame_Result) {
+	st := &app.stroke
+	held := shift || app.brush.line
+	if held {
+		st.line_leaving = false
+		if len(queue) > 0 do st.line_aim = queue[len(queue) - 1]
+	} else {
+		st.line_leaving = true
+		append(&st.pending, ..queue)
+	}
+	_ = line_lay(app, input, inv, res, bounded = true)
+}
+
+// Lays the line to its aim: the redo under way first, then again from its start if the
+// aim has moved since. Once it is there and Shift was let go, the stroke goes back to
+// freehand, the samples waiting in pending first. Returns true when nothing is left.
+@(private = "file")
+line_lay :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, res: ^Sculpt_Frame_Result, bounded: bool) -> bool {
+	st := &app.stroke
+	obj := object_by_id(app, st.object)
+	if obj == nil {
+		st.active = false
+		return true
+	}
+	aim := st.line_aim
+	if !st.line_done {
+		if !stroke_walk(app, obj, input, inv, st.line_to, aim.pressure, aim.tilt, res, bounded) do return false
+		st.line_done = true
+	}
+	if aim.pos != st.line_to {
+		if !sculpt.sculptor_stroke_restore(object_sculptor(obj)) {
+			st.line = false
+			return true
+		}
+		st.line_to = aim.pos
+		stroke_restart(app, obj, input, inv, st.line_from, aim.pressure, aim.tilt, res)
+		st.line_done = stroke_walk(app, obj, input, inv, st.line_to, aim.pressure, aim.tilt, res, bounded)
+		if !st.line_done do return false
+	}
+	if st.line_leaving {
+		st.line, st.line_leaving = false, false
+		st.pressure, st.tilt = aim.pressure, aim.tilt
+	}
+	return true
+}
+
+// Finishes a straight line not yet laid to its aim, whatever it costs in one frame, and
+// the freehand samples after a let-go Shift, before the stroke ends there.
+@(private = "file")
+line_complete :: proc(app: ^App, input: Viewport_Input, res: ^Sculpt_Frame_Result) {
+	st := &app.stroke
+	if !st.active || !st.line || input.size.x <= 0 || input.size.y <= 0 do return
+	obj := object_by_id(app, st.object)
+	if obj == nil do return
+	inv := linalg.inverse(camera.orbit_proj(app.camera, input.size.x / input.size.y) * camera.orbit_view(app.camera))
+	_ = line_lay(app, input, inv, res, bounded = false)
+	if st.line do return
+	for s in st.pending do _ = stroke_walk(app, obj, input, inv, s.pos, s.pressure, s.tilt, res, bounded = false)
+	clear(&st.pending)
+}
+
+// Starts the stroke under way again at `pos`, with nothing laid yet, as stroke_start
+// starts one laying dabs: the first dab there (scattered for Spray; Roll's after a
+// radius).
+@(private = "file")
+stroke_restart :: proc(app: ^App, obj: ^Object, input: Viewport_Input, inv: matrix[4, 4]f32, pos: [2]f32, pressure: f32, tilt: [2]f32, res: ^Sculpt_Frame_Result) {
+	st := &app.stroke
+	st.pos, st.pressure, st.tilt, st.travel, st.dir = pos, pressure, tilt, 0, {}
+	st.step, st.turn, st.pivot_sum, st.pivot_count = 0, 0, {}, 0
+	if st.joined {
+		// A joined stroke goes on from the last one's end as it did at its press, with no
+		// first dab of its own.
+		st.dir, st.travel = st.join_dir, st.join_travel
+		return
+	}
+	switch st.mode {
+	case .Roll:  st.travel = brush_radius_px(app, pressure)
+	case .Spray: spray_dab(app, obj, input, inv, pos, pressure, tilt, res)
+	case .Dots, .Drag_Rect: stroke_dab(app, obj, input, inv, pos, pressure, tilt, res)
+	}
+}
+
+// The end of the last stroke a press at `pos` on `obj` joins, with Join strokes on:
+// within SNAP_PX of it, on the same object, in the same view.
+@(private = "file")
+stroke_joins :: proc(app: ^App, obj: ^Object, pos, size: [2]f32) -> (Stroke_End, bool) {
+	e := app.stroke_end
+	if !app.brush.join || !e.valid || e.object != obj.id || e.size != size || e.camera != app.camera do return {}, false
+	return e, linalg.length(pos - e.pos) <= SNAP_PX
 }
 
 // Brush radii between a stroke's dabs on screen, for its mode.

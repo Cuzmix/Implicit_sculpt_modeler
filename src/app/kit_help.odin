@@ -106,6 +106,7 @@ VIEWPORT_KEYS := [?]Help_Line {
 MOUSE_HELP := [?]Help_Line {
 	{group = "MOUSE", what = "Sculpt", how = "Left drag on the model", show = brush_tool},
 	{group = "MOUSE", what = "Smooth", how = "Shift + left drag on the model", show = brush_tool},
+	{group = "MOUSE", what = "Straight line from the press", how = "Shift mid-stroke", show = brush_tool},
 	{group = "MOUSE", what = "Invert the brush", how = "Ctrl + left drag on the model", show = brush_tool},
 	{group = "MOUSE", what = "Mask a rectangle or lasso", how = "Ctrl + drag empty space", show = brush_tool},
 	{group = "MOUSE", what = "Unmask a rectangle or lasso", how = "Ctrl+Alt + drag empty space", show = brush_tool},
@@ -145,6 +146,7 @@ TOUCH_HELP := [?]Help_Line {
 	{group = "SCULPT", command = .Strength_Up},
 	{group = "SCULPT", what = "Smooth, invert, mask or hide", how = "Modifier buttons: tap or hold", show = proc(app: ^App) -> bool {return app.tool == .Brush && app.kit.rail_side != .Off}},
 	{group = "SCULPT", what = "Mask or hide a shape", how = "Mask or Hide on, drag empty space", show = proc(app: ^App) -> bool {return app.tool == .Brush && app.kit.rail_side != .Off}},
+	{group = "SCULPT", what = "Straight line from the press", how = "Hold Smooth mid-stroke", show = proc(app: ^App) -> bool {return app.tool == .Brush && app.kit.rail_side != .Off}},
 	{group = "SCULPT", what = "Mask along the surface, to pose", how = "Mask on, drag from the model", show = proc(app: ^App) -> bool {return app.tool == .Move && app.kit.rail_side != .Off}},
 	{group = "SCULPT", command = .Mask, arg = int(sculpt.Mask_Command.Invert)},
 	{group = "SCULPT", command = .Mask, arg = int(sculpt.Mask_Command.Blur)},
