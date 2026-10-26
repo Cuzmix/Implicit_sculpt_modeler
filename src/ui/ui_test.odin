@@ -427,6 +427,21 @@ toasts_copy_their_text_and_go :: proc(t: ^testing.T) {
 	testing.expect_value(t, ctx.toast_count, 0)
 }
 
+// A toast dismissed by the app leaves as a clicked one does; the others stay.
+@(test)
+a_dismissed_toast_goes :: proc(t: ^testing.T) {
+	ctx: Context
+	init(&ctx)
+	defer destroy(&ctx)
+	busy := toast(&ctx, "Saving head.sculpt...", .Info)
+	idle(&ctx, 5)
+	done := toast(&ctx, "Saved head.sculpt", .Success)
+	toast_dismiss(&ctx, busy)
+	idle(&ctx, 30)
+	testing.expect_value(t, ctx.toast_count, 1)
+	testing.expect_value(t, ctx.toasts[0].serial, done)
+}
+
 // A toast's action is pressed by a click on its right end, which dismisses it too; a
 // click on the message only dismisses it.
 @(test)

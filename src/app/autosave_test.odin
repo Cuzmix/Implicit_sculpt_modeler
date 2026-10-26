@@ -26,6 +26,7 @@ autosave_rest_needs_every_source_still :: proc(t: ^testing.T) {
 		proc(app: ^App) {app.timeline.playing = true},
 		proc(app: ^App) {app.autosave.scripted = true},
 		proc(app: ^App) {app.ui.scene_command.kind = .Remesh},
+		proc(app: ^App) {app.saving.kind = .Save},
 	}
 	for make_busy, i in busy {
 		app = {}

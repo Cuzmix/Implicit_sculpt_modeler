@@ -219,6 +219,8 @@ App :: struct {
 	time_gpu: bool, // wait for each frame's 3D work, to measure its GPU time
 	window:   ^sdl.Window, // what file dialogs belong to
 	scene_path: string, // where the scene was last saved or opened from, for Ctrl+S (owned)
+	saving:     File_Request, // a big save waiting a few frames for its "Saving..." toast to show (save_pending)
+	saving_at:  f64, // the interface time it started waiting
 	result:     Op_Result, // what the last operation did (results.odin)
 	running:  bool,
 }
@@ -285,6 +287,7 @@ run :: proc(opts: Options) -> bool {
 	app: App
 	app.window = window
 	defer delete(app.scene_path)
+	defer file_request_free(app.saving)
 	defer file_shutdown(&app)
 	defer results_destroy(&app)
 	if !render.renderer_init(&app.renderer, window, opts.gpu_debug) do return false
@@ -684,6 +687,10 @@ run :: proc(opts: Options) -> bool {
 
 	for app.running {
 		frame_start := time.tick_now()
+		// A waiting save goes first: before a scene command or file request changes what it
+		// would save. A second Save meanwhile (Ctrl+S again) is dropped by file_apply.
+		file_next := file_pending_kind()
+		save_pending(&app, app.ui.scene_command.kind != .None || (file_next != .None && file_next != .Save))
 		if command := app.ui.scene_command; command.kind != .None {
 			app.ui.scene_command = {}
 			autosave_settle(&app)
@@ -1081,6 +1088,7 @@ run :: proc(opts: Options) -> bool {
 	}
 	if opts.save != "" && !scene_save(&app, opts.save) do return false
 	if opts.save_strokes != "" && !strokes_save(&app, opts.save_strokes) do return false
+	save_pending(&app, true)
 	autosave_close(&app, window)
 	if as := &app.autosave; as.on {
 		fmt.printfln("autosaves=%d autosave_aborts=%d autosave_torn=%d autosave_wait_ms=%.1f autosave_sync_ms=%.1f autosave_serialize_ms=%.1f autosave_write_ms=%.1f autosave_mb=%.1f recovered=%d recover_offers=%d",

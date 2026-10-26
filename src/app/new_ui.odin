@@ -128,6 +128,7 @@ Kit_State :: struct {
 	add_shape:  geom.Primitive,
 	add_size:   int, // into SPHERE_PRESETS
 	note_at:    time.Tick, // the result last shown as a toast
+	busy_toast: ui.Id, // the last "under way" toast (Report_Flag.Busy), dismissed by the next result
 	undo_toast: struct {
 		serial: ui.Id, // the last toast that offered Undo
 		mark:   Undo_Mark, // the step its Undo takes back
@@ -619,11 +620,15 @@ kit_results :: proc(app: ^App) {
 	r := app.result
 	if r.text == "" || r.at == k.note_at do return
 	k.note_at = r.at
+	// Whatever comes next is how the work under way ended, or says it is no longer news.
+	if k.busy_toast != 0 do ui.toast_dismiss(ctx, k.busy_toast)
+	k.busy_toast = 0
 	if .Quiet in r.flags do return
-	kind := ui.Toast_Kind.Warning if .Warning in r.flags else .Success
+	kind := ui.Toast_Kind.Warning if .Warning in r.flags else .Info if .Busy in r.flags else .Success
 	mark, undoable := r.undo.?
 	if !undoable {
-		_ = ui.toast(ctx, r.text, kind)
+		serial := ui.toast(ctx, r.text, kind)
+		if .Busy in r.flags do k.busy_toast = serial
 		return
 	}
 	k.undo_toast = {ui.toast(ctx, r.text, kind, "Undo"), mark}

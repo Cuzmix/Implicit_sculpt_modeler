@@ -32,6 +32,7 @@ Report_Flag :: enum u8 {
 	Warning,
 	Quiet, // no toast: the change shows by itself (masking, hiding, clipping)
 	Undo, // offer Undo for the undo step just recorded
+	Busy, // something is under way, not done: a neutral toast, not a success
 }
 Report_Flags :: bit_set[Report_Flag;u8]
 
