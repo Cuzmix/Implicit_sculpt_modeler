@@ -126,7 +126,9 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
   `vertex_hidden`); `hide_refresh` rebuilds `fade`, `units` (chunks plus LOD groups, for `Draw_Item.hidden`) and bumps
   `stamp`, which `hidden_upload` in app/scene.odin compares to re-upload packed indices with hidden triangles zeroed.
   `sculptor_hide_shape`/`sculptor_hide_command` are undo steps (`Undo_Step.shown`, `Saved_Node.hidden`); refused under
-  dyntopo or in HD, never hide everything; `bvh_raycast` skips hidden triangles. Smooth all
+  dyntopo or in HD, never hide everything; `bvh_raycast` skips hidden triangles. Hide `.Masked`/`.Unmasked` split
+  triangles at `MASK_HALF` on all three corners (exact complements); `Mask_Command.Hidden` is the one mask command that
+  writes hidden vertices (every corner of a hidden triangle 255, the rest 0), refused when nothing is hidden. Smooth all
   (`src/sculpt/smooth_all.odin`) follows the same shape: `sculptor_smooth_all(s, steps, strength, gpu)` weighs every
   vertex by `strength · shield`, saves the free nodes, runs `smooth_all_cpu` (Jacobi steps over vertex ranges, two
   buffers) or the `Smooth_Gpu` callback the app fills with `render.smooth_compute_run` (falls back to the CPU when it

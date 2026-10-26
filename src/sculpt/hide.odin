@@ -31,7 +31,15 @@ Hide :: struct {
 Hide_Command :: enum {
 	Show_All, // show every hidden triangle
 	Invert,   // hide what is shown and show what is hidden
+	// The mask made visibility, as ZBrush's HidePt by mask and Blender's Hide Masked: a
+	// triangle counts as masked when every corner is masked at least half (MASK_HALF), so
+	// the two hide exactly complementary parts. What is hidden already stays hidden.
+	Masked,   // hide the masked triangles
+	Unmasked, // hide the rest
 }
+
+// The mask value from which a corner counts as masked, for hiding by mask.
+MASK_HALF :: 128
 
 // What hiding by shape does with the triangles inside the shape.
 Hide_Shape :: enum {
@@ -135,13 +143,15 @@ sculptor_hidden_indices :: proc(s: ^Sculptor, uploaded: u32) -> (indices: []u32,
 	return
 }
 
-// Hides or shows everything at once, as one undo step. Returns true when it changed
+// Hides or shows everything at once, or by the mask, as one undo step. Returns true when it changed
 // what is hidden. Refused (false) under dynamic topology, in an HD window (whose
 // sculptor has a fade of its own), and when it would hide every triangle: something
 // must stay in view, as in ZBrush.
 sculptor_hide_command :: proc(s: ^Sculptor, command: Hide_Command) -> bool {
 	_ = sculptor_stroke_end(s)
 	if command == .Show_All && s.hide.count == 0 do return false
+	// No mask is all unmasked: nothing to hide by it, and hiding the rest would hide all.
+	if (command == .Masked || command == .Unmasked) && s.mask == nil do return false
 	job := Hide_Job{s = s, command = command}
 	return hide_apply(&job)
 }
@@ -201,8 +211,17 @@ hide_after :: #force_inline proc(job: ^Hide_Job, t: int) -> bool {
 	s := job.s
 	was := s.hide.tris != nil && s.hide.tris[t]
 	if job.by_group do return (s.groups.tris[t] == job.group) == job.hide_group
-	if !job.shaped do return !was if job.command == .Invert else false
 	m := s.mesh
+	if !job.shaped {
+		switch job.command {
+		case .Show_All: return false
+		case .Invert:   return !was
+		case .Masked, .Unmasked:
+			i := m.indices[3 * t:][:3]
+			masked := s.mask[i[0]] >= MASK_HALF && s.mask[i[1]] >= MASK_HALF && s.mask[i[2]] >= MASK_HALF
+			return was || masked == (job.command == .Masked)
+		}
+	}
 	c := (m.positions[m.indices[3 * t]] + m.positions[m.indices[3 * t + 1]] + m.positions[m.indices[3 * t + 2]]) * (1.0 / 3)
 	q := job.clip * [4]f32{c.x, c.y, c.z, 1}
 	inside := q.w > 1e-6 && coverage_at(job.grid, {q.x / q.w, q.y / q.w})

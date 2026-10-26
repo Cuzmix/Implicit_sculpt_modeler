@@ -20,6 +20,10 @@ Mask_Command :: enum {
 	Invert, // masked becomes unmasked and the other way round
 	Fill,   // mask everything
 	Cavity, // mask by cavity, as ZBrush's Mask By Cavity: the deeper a vertex sits below its neighbours, the more
+	// Mask what is hidden: every corner of a hidden triangle fully, the rest not at all.
+	// Hide a part, Mask hidden, Show all, and the mask is that part. The one command that
+	// writes hidden vertices.
+	Hidden,
 	// The rest work a step at a time, each vertex from the corners of its triangles, so
 	// one step reaches one ring of triangles further.
 	Blur,    // toward the average: the edge softens
@@ -84,8 +88,10 @@ mask_ensure :: proc(s: ^Sculptor) {
 // step); ends any stroke in progress first.
 sculptor_mask_command :: proc(s: ^Sculptor, command: Mask_Command, steps := 1) -> bool {
 	_ = sculptor_stroke_end(s)
-	// No mask is all 0, which only Invert, Fill and Cavity change.
-	if s.mask == nil && command != .Invert && command != .Fill && command != .Cavity do return false
+	// No mask is all 0, which only Invert, Fill, Cavity and Hidden change.
+	if s.mask == nil && command != .Invert && command != .Fill && command != .Cavity && command != .Hidden do return false
+	// With nothing hidden, Mask hidden would only clear the mask, which Clear does.
+	if command == .Hidden && s.hide.count == 0 do return false
 	mask_ensure(s)
 	// The whole mask after the command is worked out first, so only the nodes that
 	// change are saved and uploaded. Slots no node owns (free ones with dynamic
@@ -101,6 +107,11 @@ sculptor_mask_command :: proc(s: ^Sculptor, command: Mask_Command, steps := 1) -
 			job := cast(^Mask_Job)data
 			for id in lo ..< hi {
 				n := job.s.nodes[id]
+				if job.command == .Hidden {
+					for v in n.vert_first ..< n.vert_first + n.vert_count do job.after[v] = 255 if corner_hidden(job.s, v) else 0
+					job.changes[id] = true
+					continue
+				}
 				// Hidden vertices keep their mask, as in ZBrush.
 				for v in n.vert_first ..< n.vert_first + n.vert_count {
 					if vertex_hidden(job.s, v) do continue
@@ -413,6 +424,13 @@ node_uneven :: proc(s: ^Sculptor, from: []u8, command: Mask_Command, id: u32) ->
 	if command == .Sharpen && k != 0 && k != 255 do return true
 	for x in own do if x != k do return true
 	for v in shared do if from[v] != k do return true
+	return false
+}
+
+// Whether vertex v is a corner of some hidden triangle.
+@(private = "file")
+corner_hidden :: #force_inline proc(s: ^Sculptor, v: u32) -> bool {
+	for f in faces_of(s, v) do if s.hide.tris[f] do return true
 	return false
 }
 

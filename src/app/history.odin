@@ -292,7 +292,7 @@ hide_command :: proc(app: ^App, command: sculpt.Hide_Command) {
 	if obj == nil || !hide_allowed(app, obj) do return
 	start := time.tick_now()
 	changed := sculpt.sculptor_hide_command(object_sculptor(obj), command)
-	hide_done(app, obj, changed, start, "show all" if command == .Show_All else "invert visibility")
+	hide_done(app, obj, changed, start, HIDE_COMMAND_NAMES[command])
 }
 
 // Keeps only what of the selected object falls inside `shape` (a polygon in normalized
@@ -405,11 +405,20 @@ history_record :: proc(app: ^App, obj: ^Object, kind: History_Kind, what: string
 }
 
 @(private = "file", rodata)
+HIDE_COMMAND_NAMES := [sculpt.Hide_Command]string {
+	.Show_All = "show all",
+	.Invert   = "invert visibility",
+	.Masked   = "hide masked",
+	.Unmasked = "hide unmasked",
+}
+
+@(private = "file", rodata)
 MASK_COMMAND_NAMES := [sculpt.Mask_Command]string {
 	.Clear   = "Clear mask",
 	.Invert  = "Invert mask",
 	.Fill    = "Mask all",
 	.Cavity  = "Mask cavities",
+	.Hidden  = "Mask hidden",
 	.Blur    = "Blur mask",
 	.Sharpen = "Sharpen mask",
 	.Grow    = "Grow mask",
