@@ -341,7 +341,7 @@ def spray_stroke_by_mouse():
     """A Spray stroke dabs as it goes and is one undo step."""
     s = Script()
     s.mouse_drag(line((740, 420), (880, 480), 14))
-    return s, ["--stroke=spray"], camera_still({"dabs": lambda v: int(v) > 2, "undo_steps": near(1)})
+    return s, ["--script=set stroke spray"], camera_still({"dabs": lambda v: int(v) > 2, "undo_steps": near(1)})
 
 
 @scenario
@@ -397,7 +397,7 @@ def join_strokes_by_pen():
     pen_stroke(s, line((720, 420), (800, 440), 8))
     pen_stroke(s, line((806, 442), (880, 460), 8))
     pen_stroke(s, line((700, 520), (760, 530), 6))
-    return s, ["--stroke-join"], camera_still({"stroke_joins": near(1), "undo_steps": near(3)})
+    return s, ["--script=set stroke_join on"], camera_still({"stroke_joins": near(1), "undo_steps": near(3)})
 
 
 @scenario
@@ -419,7 +419,7 @@ def lock_plane_flatten_by_finger():
     """A finger Flatten stroke with Lock plane on sculpts as one undo step."""
     s = Script()
     s.fdrag(line((700, 430), (900, 470), 20))
-    return s, ["--lock-plane", "--brush=flatten"], camera_still({"brush_lock_plane": near(1), "dabs": lambda v: int(v) > 0,
+    return s, ["--script=lock_plane on; brush flatten"], camera_still({"brush_lock_plane": near(1), "dabs": lambda v: int(v) > 0,
                                                               "undo_steps": near(1)})
 
 
@@ -429,7 +429,7 @@ def roll_stroke_by_finger():
     over the same path, and is one undo step."""
     s = Script()
     s.fdrag(line((700, 430), (900, 470), 20))
-    return s, ["--stroke=roll"], camera_still({"dabs": lambda v: 0 < int(v) < 10, "undo_steps": near(1)})
+    return s, ["--script=set stroke roll"], camera_still({"dabs": lambda v: 0 < int(v) < 10, "undo_steps": near(1)})
 
 
 @scenario
@@ -437,7 +437,7 @@ def finger_orbits_empty_space():
     """One finger on empty space turns the view, and a stroke started there keeps turning over the model."""
     s = Script()
     s.fdrag(past_slop((250, 400), (650, 400), 20))
-    return s, ["--orbit-style=turntable"], {"dabs": near(0), "camera_pitch": near(0.35),
+    return s, ["--script=set orbit_style turntable"], {"dabs": near(0), "camera_pitch": near(0.35),
                                             "camera_yaw": near(wrap(0.6 - 400 * 0.008), 2e-3)}
 
 
@@ -450,7 +450,7 @@ def orbit_full_turns_free():
     for a, b in [((150, 120), (150 + ORBIT_TURN, 120))] * 2 + [((1150, 120), (1150 - ORBIT_TURN, 120))] * 2:
         s.fdrag(past_slop(a, b, 60))
     s.fdrag(past_slop((250, 80), (250, 80 + ORBIT_TURN), 60))
-    return s, ["--orbit-style=free"], {"dabs": near(0)} | {k: near(v, 5e-3) for k, v in CAMERA0.items()}
+    return s, ["--script=set orbit_style free"], {"dabs": near(0)} | {k: near(v, 5e-3) for k, v in CAMERA0.items()}
 
 
 @scenario
@@ -460,7 +460,7 @@ def orbit_full_turns_turntable():
     for _ in range(3):
         s.fdrag(past_slop((150, 120), (150 + ORBIT_TURN, 120), 60))
     s.fdrag(past_slop((250, 80), (250, 80 + ORBIT_TURN), 60))
-    return s, ["--orbit-style=turntable"], {"dabs": near(0)} | {k: near(v, 5e-3) for k, v in CAMERA0.items()}
+    return s, ["--script=set orbit_style turntable"], {"dabs": near(0)} | {k: near(v, 5e-3) for k, v in CAMERA0.items()}
 
 
 @scenario
@@ -509,7 +509,7 @@ def twist_rolls_free_only():
     """Twisting two fingers 45 degrees in Free rolls the view with them, less the 10 degree deadzone."""
     s = Script()
     twist(s, math.radians(45))
-    return s, ["--orbit-style=free"], {"camera_roll": lambda v: math.radians(34) < float(v) < math.radians(45),
+    return s, ["--script=set orbit_style free"], {"camera_roll": lambda v: math.radians(34) < float(v) < math.radians(45),
                                        "camera_distance": near(3.5, 0.05), "dabs": near(0)}
 
 
@@ -518,7 +518,7 @@ def twist_wobble_rolls_nothing():
     """Two fingers turning less than the deadzone (a pinch's wobble) leave the roll alone."""
     s = Script()
     twist(s, math.radians(8))
-    return s, ["--orbit-style=free"], {"camera_roll": near(0), "dabs": near(0)}
+    return s, ["--script=set orbit_style free"], {"camera_roll": near(0), "dabs": near(0)}
 
 
 @scenario
@@ -526,7 +526,7 @@ def twist_rolls_nothing_in_turntable():
     """Turntable keeps the horizon level: a twist does not roll."""
     s = Script()
     twist(s, math.radians(45))
-    return s, ["--orbit-style=turntable"], {"camera_roll": near(0), "dabs": near(0)}
+    return s, ["--script=set orbit_style turntable"], {"camera_roll": near(0), "dabs": near(0)}
 
 
 @scenario
@@ -545,7 +545,7 @@ def finger_orbits_setting():
     s.wait(2)
     s.add("pfar")
     s.wait(3)
-    return s, ["--finger-orbits", "--orbit-style=turntable"], {"camera_yaw": near(wrap(0.6 - 100 * 0.008), 2e-3), "dabs": lambda v: int(v) > 0, "undo_steps": near(1)}
+    return s, ["--script=set finger_model orbit; set orbit_style turntable"], {"camera_yaw": near(wrap(0.6 - 100 * 0.008), 2e-3), "dabs": lambda v: int(v) > 0, "undo_steps": near(1)}
 
 
 @scenario
@@ -693,7 +693,7 @@ def pen_on_empty_space_orbits():
     s.wait(1)
     s.add("pup")
     s.wait(3)
-    return s, ["--orbit-style=turntable"], {"dabs": near(0), "camera_yaw": near(wrap(0.6 - 200 * 0.008), 2e-3)}
+    return s, ["--script=set orbit_style turntable"], {"dabs": near(0), "camera_yaw": near(wrap(0.6 - 200 * 0.008), 2e-3)}
 
 
 @scenario
@@ -706,7 +706,7 @@ def mouse_controls():
     s.wait(1)
     s.add("wheel:2")
     s.wait(3)
-    return s, ["--orbit-style=turntable"], {"dabs": lambda v: int(v) > 0, "undo_steps": near(1),
+    return s, ["--script=set orbit_style turntable"], {"dabs": lambda v: int(v) > 0, "undo_steps": near(1),
                                             "camera_yaw": near(wrap(0.6 - 100 * 0.008), 2e-3),
                                             "camera_distance": near(3.5 * 0.88 ** 2, 1e-3)}
 
@@ -806,7 +806,7 @@ def orbit_turns_about_the_last_stroke():
     s.fdrag(line((950, 300), (1000, 330), 20))
     s.wait(4)
     s.fdrag(past_slop((250, 400), (450, 400), 20))
-    return s, ["--orbit-style=turntable"], {
+    return s, ["--script=set orbit_style turntable"], {
         "dabs": lambda v: int(v) > 0, "pivot_source": lambda v: v == "stroke",
         "camera_yaw": near(wrap(0.6 - 200 * 0.008), 2e-3), "camera_distance": near(3.5),
         "camera_target": lambda v: v != "0.0000,0.0000,0.0000",
@@ -822,7 +822,7 @@ def orbit_about_the_centre_setting():
     s.fdrag(line((950, 300), (1000, 330), 20))
     s.wait(4)
     s.fdrag(past_slop((250, 400), (450, 400), 20))
-    return s, ["--orbit-style=turntable", "--orbit-pivot=centre"], {
+    return s, ["--script=set orbit_style turntable; set orbit_pivot centre"], {
         "pivot_source": lambda v: v == "centre", "camera_target": lambda v: v == "0.0000,0.0000,0.0000",
         "camera_yaw": near(wrap(0.6 - 200 * 0.008), 2e-3)}
 
@@ -858,7 +858,7 @@ def edge_orbits_over_the_model():
     """Zoomed in until the model fills the view, a finger and the pen dragged in the safe zone turn the view and sculpt nothing."""
     s = Script()
     edge_drags(s)
-    return s, ["--orbit-style=turntable"], {"dabs": near(0), "undo_steps": near(0),
+    return s, ["--script=set orbit_style turntable"], {"dabs": near(0), "undo_steps": near(0),
                                             "camera_yaw": near(wrap(0.6 - 400 * 0.008), 3e-3),
                                             "camera_distance": near(3.5 * 0.88 ** 8, 1e-3)}
 
@@ -868,7 +868,7 @@ def edge_off_sculpts():
     """With the safe zone off, the same drags at the edges sculpt the model and leave the view alone."""
     s = Script()
     edge_drags(s)
-    return s, ["--orbit-style=turntable", "--no-edge-orbit"], {"dabs": lambda v: int(v) > 0, "undo_steps": near(2),
+    return s, ["--script=set orbit_style turntable; set edge_orbit off"], {"dabs": lambda v: int(v) > 0, "undo_steps": near(2),
                                                                "camera_yaw": near(0.6)}
 
 
@@ -1038,7 +1038,7 @@ def changed_touch_setting_takes_effect():
     s.ftap(1427, 766)  # Done
     s.wait(10)
     s.fdrag(past_slop((760, 430), (860, 430), 20))
-    return s, [f"--settings-file={settings_file()}", "--orbit-style=turntable"], {
+    return s, [f"--settings-file={settings_file()}", "--script=set orbit_style turntable"], {
         "dabs": near(0), "camera_yaw": near(wrap(0.6 - 100 * 0.008), 2e-3), "@saved": saved(finger_model="Orbit")}
 
 
@@ -2936,7 +2936,7 @@ def double_tap_model_pins_the_pivot():
     def pivot_on_front(st):
         x, y, z = (float(v) for v in st["orbit_pivot"].split(","))
         return abs(math.sqrt(x * x + y * y + z * z) - 1) < 0.05
-    return s, ["--finger-orbits", "--orbit-style=turntable"], {
+    return s, ["--script=set finger_model orbit; set orbit_style turntable"], {
         "pinned": near(1), "pivot_source": lambda v: v == "tapped", "@pivot": pivot_on_front,
         "dabs": near(0), "undo_steps": near(0), "camera_yaw": lambda v: abs(float(v) - 0.6) > 0.5}
 
@@ -2948,7 +2948,7 @@ def pinned_pivot_ends_with_the_next_stroke():
     double_tap(s, *MODEL)
     s.wait(6)
     pen_stroke(s, line((760, 430), (860, 470), 20))
-    return s, ["--finger-orbits"], {"pinned": near(0), "undo_steps": near(1)}
+    return s, ["--script=set finger_model orbit"], {"pinned": near(0), "undo_steps": near(1)}
 
 
 @scenario
@@ -3042,7 +3042,7 @@ def lift_one_finger_turns_the_view():
     """Two fingers down on the model, one lifted: the other turns the view and sculpts nothing."""
     s = Script()
     lift_one(s)
-    return s, ["--orbit-style=turntable"], {"camera_yaw": lambda v: float(v) < 0.6 - 0.5, "dabs": near(0), "undo_steps": near(0), "redo_steps": near(0)}
+    return s, ["--script=set orbit_style turntable"], {"camera_yaw": lambda v: float(v) < 0.6 - 0.5, "dabs": near(0), "undo_steps": near(0), "redo_steps": near(0)}
 
 
 @scenario
@@ -3059,7 +3059,7 @@ def pinch_then_lift_turns_nothing():
     """After a pinch, the finger left rolling on turns nothing: only a pair that stayed still may orbit."""
     s = Script()
     lift_one(s, moves=((-60, -30), (60, 30)), frames=10)
-    return s, ["--orbit-style=turntable"], {"camera_yaw": near(0.6), "camera_pitch": near(0.35), "camera_distance": lambda v: float(v) < 3.4, "dabs": near(0)}
+    return s, ["--script=set orbit_style turntable"], {"camera_yaw": near(0.6), "camera_pitch": near(0.35), "camera_distance": lambda v: float(v) < 3.4, "dabs": near(0)}
 
 
 def hold(s, n, frames, late=0, starts=((740, 430), (840, 450), (790, 520))):
@@ -3873,7 +3873,7 @@ def adjust_remesh_from_the_bar():
     click(s, ADJUST_SIZES["500k"])
     s.wait(5)
     return Steps([
-        (Script(), ["--remesh=500000", f"--export={direct}"], {}),
+        (Script(), ["--script=remesh_to 500000", f"--export={direct}"], {}),
         (s, [f"--export={adjusted}"], {"adjust_op": is_text("remesh"), "adjusts": near(1, 0), "adjust_pop": near(1, 0),
                                        "undo_steps": near(1, 0), "redo_steps": near(0, 0), "@a straight remesh": same_file(direct, adjusted)}),
     ])
@@ -3956,15 +3956,15 @@ def layers_survive_a_rebuild():
     with open(settings, "w") as f:
         f.write("version 1\ngesture slice\n")
     kept = {"layers": near(1, 0), "layers_noted": near(1, 0)}
-    steps = [(run(remesh), ["--layer"], dict(kept, layers_carry_ms=lambda v: float(v) > 0)),
-             (run(lambda s: palette_run(s, "mirror and weld")), ["--layer"], kept),
-             (run(lambda s: palette_run(s, "decimate to 41k"), undo=True), ["--subdiv=7", "--layer"],
+    steps = [(run(remesh), ["--script=new_layer"], dict(kept, layers_carry_ms=lambda v: float(v) > 0)),
+             (run(lambda s: palette_run(s, "mirror and weld")), ["--script=new_layer"], kept),
+             (run(lambda s: palette_run(s, "decimate to 41k"), undo=True), ["--subdiv=7", "--script=new_layer"],
               dict(kept, undo_steps=near(0, 0), vertices=near(163842, 0))),
-             (run(slice_), ["--layer", f"--settings-file={settings}"], {"objects": near(2, 0), "layers": near(2, 0), "layers_noted": near(1, 0)}),
-             (run(delete_higher), ["--subdivide=1", "--layer"], {"layers": near(1, 0), "layers_noted": near(1, 0), "vertices": near(40962, 0)}),
-             (run(subdivide), ["--layer"], {"layers": near(1, 0), "layers_noted": near(1, 0), "vertices": near(163842, 0), "undo_steps": near(1, 0), "selected_levels": near(2, 0)}),
-             (run(subdivide, undo=True), ["--layer"], {"layers": near(1, 0), "vertices": near(40962, 0), "undo_steps": near(0, 0), "selected_levels": near(1, 0)}),
-             (run(lambda s: palette_run(s, "make boolean")), ["--spheres=2", "--layer", "--boolean=union"],
+             (run(slice_), ["--script=new_layer", f"--settings-file={settings}"], {"objects": near(2, 0), "layers": near(2, 0), "layers_noted": near(1, 0)}),
+             (run(delete_higher), ["--subdivide=1", "--script=new_layer"], {"layers": near(1, 0), "layers_noted": near(1, 0), "vertices": near(40962, 0)}),
+             (run(subdivide), ["--script=new_layer"], {"layers": near(1, 0), "layers_noted": near(1, 0), "vertices": near(163842, 0), "undo_steps": near(1, 0), "selected_levels": near(2, 0)}),
+             (run(subdivide, undo=True), ["--script=new_layer"], {"layers": near(1, 0), "vertices": near(40962, 0), "undo_steps": near(0, 0), "selected_levels": near(1, 0)}),
+             (run(lambda s: palette_run(s, "make boolean")), ["--spheres=2", "--script=new_layer", "--boolean=union"],
               {"objects": near(1, 0), "layers": near(1, 0), "layers_noted": near(1, 0)})]
     # Two spheres start with the view framing both, so the last run is not checked for a still camera.
     return Steps([(sc, args, camera_still(want) if k < 7 else want) for k, (sc, args, want) in enumerate(steps)])
@@ -4175,7 +4175,8 @@ def adjust_mirror_twice_is_not_stacked():
 @scenario
 def adjust_smooth_all_steps():
     """Smooth all, then Adjust last operation from the palette and a tap at the Steps
-    slider's left end: let go, it smooths 1 step from the start, as --smooth-all=1 does."""
+    slider's left end: let go, it smooths 1 step from the start, as a start-up
+    `set smooth_steps 1; smooth_all` does."""
     direct, adjusted = autosave_folder() + "-direct.ply", autosave_folder() + "-adjusted.ply"
     s = Script()
     s.wait(3)
@@ -4184,7 +4185,7 @@ def adjust_smooth_all_steps():
     click(s, ADJUST_STEPS_LEFT)
     s.wait(5)
     return Steps([
-        (Script(), ["--smooth-all=1", f"--export={direct}"], {}),
+        (Script(), ["--script=set smooth_steps 1; smooth_all", f"--export={direct}"], {}),
         (s, [f"--export={adjusted}"], {"adjust_op": is_text("smooth_all"), "adjusts": near(1, 0), "undo_steps": near(1, 0),
                                        "@one step from the start": same_file(direct, adjusted)}),
     ])
@@ -4223,7 +4224,7 @@ def adjust_remesh_keeps_to_the_state_before():
     inside an HD window gives, bit for bit, what remeshing straight to that size from the
     same start gives: undoing the remesh brings back all of that state first."""
     steps = []
-    for name, start in [("dyntopo", ["--dyntopo"]), ("level", ["--subdivide=1", "--level=1"]), ("hd", ["--hd=1", "--hd-open"])]:
+    for name, start in [("dyntopo", ["--script=dyntopo_toggle on"]), ("level", ["--subdivide=1", "--level=1"]), ("hd", ["--hd=1", "--hd-open"])]:
         direct, adjusted = autosave_folder() + f"-{name}-direct.ply", autosave_folder() + f"-{name}-adjusted.ply"
         straight = Script()
         straight.wait(3)
@@ -4243,7 +4244,7 @@ def adjust_remesh_keeps_to_the_state_before():
 @scenario
 def adjust_retopo_and_extract():
     """Retopologize, then adjust Quads to the slider's left end (100): the quads are what
-    --retopo=100 makes. Extract a masked patch, then adjust Thickness twice: still two
+    a start-up `set retopo_quads 100; retopologize` makes. Extract a masked patch, then adjust Thickness twice: still two
     objects and one Extract step, and the shell is what adjusting once makes."""
     direct, adjusted = autosave_folder() + "-retopo-direct.ply", autosave_folder() + "-retopo-adjusted.ply"
     retopo = Script()
@@ -4266,9 +4267,9 @@ def adjust_retopo_and_extract():
             s.wait(5)
         return s
     return Steps([
-        (Script(), ["--retopo=100", f"--export={direct}"], {}),
+        (Script(), ["--script=set retopo_quads 100; retopologize", f"--export={direct}"], {}),
         (retopo, [f"--export={adjusted}"], {"adjust_op": is_text("retopology"), "adjusts": near(1, 0), "objects": near(2, 0),
-                                           "@--retopo=100": same_file(direct, adjusted)}),
+                                           "@100 quads from the start": same_file(direct, adjusted)}),
         (extract(["left"]), [f"--export={once}"], {"adjust_op": is_text("extract"), "objects": near(2, 0)}),
         (extract(["middle", "left"]), [f"--export={twice}"], {"adjusts": near(2, 0), "objects": near(2, 0), "undo_steps": near(2, 0),
                                                              "@as adjusting once": same_file(once, twice)}),
@@ -4392,7 +4393,7 @@ def shape_finger_waits_for_apply():
 @scenario
 def shape_mouse_applies_at_once():
     """Ctrl and a mouse drag from empty space masks as it lets go, as before; with
-    --shape-apply=confirm it waits, and Enter applies it."""
+    `set shape_apply confirm` it waits, and Enter applies it."""
     def drag(s):
         s.wait(3)
         s.mouse_drag(line(SHAPE_FROM, SHAPE_TO, 10), keys=("ctrl",))
@@ -4403,8 +4404,8 @@ def shape_mouse_applies_at_once():
     entered.press("Return")
     return Steps([
         (now, [], camera_still({"shape_pending": is_text("none"), "masked": near(1)})),
-        (waits, ["--shape-apply=confirm"], camera_still({"shape_pending": is_text("mask"), "masked": near(0)})),
-        (entered, ["--shape-apply=confirm"], camera_still({"shape_pending": is_text("none"), "masked": near(1), "undo_steps": near(1)})),
+        (waits, ["--script=set shape_apply confirm"], camera_still({"shape_pending": is_text("mask"), "masked": near(0)})),
+        (entered, ["--script=set shape_apply confirm"], camera_still({"shape_pending": is_text("none"), "masked": near(1), "undo_steps": near(1)})),
     ])
 
 
@@ -4543,47 +4544,46 @@ def rebuild_density_shows_the_cells():
 
 @scenario
 def rebuild_even_is_a_straight_remesh():
-    """Rebuild > Even > Remesh at its 500k gives, bit for bit, the mesh --remesh=500000
-    gives, as one undo step: the preview's lattice is the remesh's."""
+    """Rebuild > Even > Remesh at its 500k gives, bit for bit, the mesh a start-up
+    `remesh_to 500000` gives, as one undo step: the preview's lattice is the remesh's."""
     direct, panel = autosave_folder() + "-direct.ply", autosave_folder() + "-panel.ply"
     s = Script()
     open_rebuild(s, "even")
     click(s, REBUILD_APPLY)
     s.wait(10)
     return Steps([
-        (Script(), ["--remesh=500000", f"--export={direct}"], {}),
+        (Script(), ["--script=remesh_to 500000", f"--export={direct}"], {}),
         (s, [f"--export={panel}"], {"undo_steps": near(1), "adjust_op": is_text("remesh"), "@a straight remesh": same_file(direct, panel)}),
     ])
 
 
 @scenario
 def script_sets_up_the_run():
-    """A start-up script (--script) that rebuilds the sphere, picks Clay and shows the
-    wireframe sets the run up as the flags do: a stroke after it, at the same frame, gives
-    the same mesh bit for bit, and only the stroke is in the History, however many frames
-    the script takes."""
-    flags, scripted = autosave_folder() + "-flags.ply", autosave_folder() + "-script.ply"
+    """A start-up script that rebuilds the sphere, picks Clay and shows the wireframe sets
+    the run up the same way given inline (--script), as a file (--run) or taking frames: a
+    stroke after it, at the same frame, gives the same mesh bit for bit, and only the stroke
+    is in the History."""
+    scripted = autosave_folder() + "-script.ply"
     def stroke():
         s = Script()
         s.mouse_drag(line((760, 430), (860, 480), 8))
         s.wait(5)
         return s
-    script = "set rebuild_even 200000; rebuild; brush clay; wireframe on"
+    script = "set rebuild_goal even; set rebuild_even 200000; rebuild; brush clay; wireframe on"
     # The same as a file for --run, a statement a line, with comments.
     file = os.path.join(ROOT, "build", "touch", CURRENT.name + ".cmd")
     os.makedirs(os.path.dirname(file), exist_ok=True)
     with open(file, "w", encoding="utf-8") as f:
-        f.write("# Rebuild the sphere at 200k.\nset rebuild_even 200000\nrebuild\n\nbrush clay  # then Clay\nwireframe on\n")
+        f.write("# Rebuild the sphere at 200k.\nset rebuild_goal even\nset rebuild_even 200000\nrebuild\n\nbrush clay  # then Clay\nwireframe on\n")
     from_file = autosave_folder() + "-file.ply"
     waited = autosave_folder() + "-waited.ply"
-    want = {"undo_steps": near(1), "wireframe": near(1, 0), "script_failed": near(0), "script_ran": near(4, 0)}
+    want = {"undo_steps": near(1), "wireframe": near(1, 0), "script_failed": near(0), "script_ran": near(5, 0)}
     return Steps([
-        (stroke(), ["--remesh=200000", "--brush=clay", "--wireframe", f"--export={flags}"], {"undo_steps": near(1)}),
-        (stroke(), [f"--script={script}", f"--export={scripted}"], dict(want, **{"@the flags' mesh": same_file(flags, scripted)})),
-        (stroke(), [f"--run={file}", f"--export={from_file}"], dict(want, **{"@the flags' mesh": same_file(flags, from_file)})),
+        (stroke(), [f"--script={script}", f"--export={scripted}"], want),
+        (stroke(), [f"--run={file}", f"--export={from_file}"], dict(want, **{"@the inline script's mesh": same_file(scripted, from_file)})),
         # A script that takes frames: the stroke still comes once, after it.
         (stroke(), [f"--script={script}; wait 20", f"--export={waited}"],
-         dict(want, **{"script_ran": near(5, 0), "script_frames": near(21, 1), "@the flags' mesh": same_file(flags, waited)})),
+         dict(want, **{"script_ran": near(6, 0), "script_frames": near(21, 1), "@the inline script's mesh": same_file(scripted, waited)})),
     ])
 
 

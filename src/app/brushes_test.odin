@@ -5,7 +5,7 @@ import "core:testing"
 import "../sculpt"
 
 // Every brush has a name of its own, words, an icon and a strength a slider can show,
-// and --brush and the settings file find it by its name.
+// and scripts and the settings file find it by its name.
 @(test)
 every_brush_has_its_row :: proc(t: ^testing.T) {
 	for b, kind in BRUSHES {

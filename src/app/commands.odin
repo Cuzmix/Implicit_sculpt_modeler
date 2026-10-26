@@ -84,6 +84,7 @@ Command_Id :: enum u8 {
 	Hd_Leave,
 	Morph_Store,
 	Morph_Delete,
+	New_Layer,
 	Recall_Earlier,
 	Recall_Later,
 	Recall_Oldest,
@@ -642,6 +643,16 @@ COMMANDS := [Command_Id]Command {
 		enabled = proc(app: ^App, _: int) -> bool {
 			obj := selected_object(app)
 			return obj != nil && sculpt.sculptor_has_morph(object_sculptor(obj))
+		},
+	},
+	.New_Layer = {
+		label = "New layer",
+		help = "Adds a sculpt layer on the current level, which the next strokes go into.",
+		icon = ui.ICON_PLUS,
+		run = proc(app: ^App, _: int) {layer_add(app)},
+		enabled = proc(app: ^App, _: int) -> bool {
+			obj := selected_object(app)
+			return layers_allowed(obj) && len(sculpt.sculptor_layers(object_sculptor(obj))) < sculpt.MAX_SCULPT_LAYERS
 		},
 	},
 	.Recall_Earlier = {

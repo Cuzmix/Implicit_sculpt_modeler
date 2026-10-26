@@ -28,7 +28,7 @@ description: CAD-style mesh tools inside this app on geom.Mesh — primitives, b
   winding-number rays along each axis decide inside, marching cubes with a rule-built table keeps ambiguous faces
   apart, three rounds of tangential relaxation even it out (`:11-29`); overlaps and self-intersections merge, anything
   thinner than the spacing goes; `REMESH_MAX_LATTICE 4096` per axis. Wired as `Scene_Command .Remesh` → `object_remesh`
-  (`scene.odin:147-175`), Object > Shape > Rebuild's Even, Ctrl+R (at the object's own count) and `--remesh=N`.
+  (`scene.odin:147-175`), Object > Shape > Rebuild's Even, Ctrl+R (at the object's own count) and the script `set rebuild_even N; rebuild`.
   The lattice has one definition: `mesh_area_bounds` (area and triangle box, fixed ranges summed in order, so serial,
   parallel and `mesh_area_parts` a few ranges at a time agree bit for bit) feeds `remesh_lattice(area, bounds, target)`
   (spacing with the 4096 clamp, origin `bounds.lo - 1.5 h`), and `remesh_run` takes that box. `object_remesh` measures
@@ -37,11 +37,11 @@ description: CAD-style mesh tools inside this app on geom.Mesh — primitives, b
 - Decimate exists: `geom.mesh_decimate(m, triangles, pool)` (`src/geom/decimate.odin`) runs `simplify` with `strict = true`
   (no two corners of a triangle move in one pass, no needles, shorter edges first on ties) in parallel cell rounds
   (`DECIMATE_ROUND_KEEP`, shifted cells), then whole; wired as `Scene_Command .Decimate` → `object_decimate`, the Object
-  tab's Decimate and `--decimate=N`. The LOD copies keep the non-strict `simplify`.
+  tab's Decimate and the script `set rebuild_goal fewer; set rebuild_fewer N; rebuild`. The LOD copies keep the non-strict `simplify`.
 - Mirror and weld exists: `geom.mesh_symmetrize(m, axis, keep_positive, pool)` (`src/geom/symmetrize.odin`) cuts at the
   axis plane (snapping vertices within 1e-5 of the size onto it), clips crossing triangles with cut points computed
   from the lower-numbered edge end so they weld bit-exactly in `mesh_clean`, mirrors with reversed winding. Wired as
-  `Scene_Command .Symmetrize` → `object_symmetrize`, the Object tab's Mirror and weld, `--mirror=[-]x|y|z`. Duplicate
+  `Scene_Command .Symmetrize` → `object_symmetrize`, the Object tab's Mirror and weld, the script `set mirror_axis 0; mirror_weld`. Duplicate
   (`.Duplicate` → `scene_duplicate`, Ctrl+Shift+D) copies an object through `object_put`/`object_get`.
 - Slice exists: `geom.mesh_slice(m, point, normal, close, pool)` (`src/geom/slice.odin`) splits along any plane into
   front (the normal's side) and back, caps each border loop (ear clipping, holes bridged) and evens the cap (longest

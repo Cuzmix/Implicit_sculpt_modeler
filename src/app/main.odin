@@ -25,11 +25,7 @@ Options :: struct {
 	frames:    int `usage:"Exit after this many frames (0 runs until the window closes)."`,
 	no_settings: bool `usage:"Neither read nor write the remembered settings (brush, view, Scene tab choices, the Settings panel); runs with --frames or a benchmark never do."`,
 	settings_file: string `usage:"Read and write the remembered settings at this path instead of the per-user folder, scripted runs included (for testing that settings persist)."`,
-	orbit_style: string `usage:"Start with this orbit style: free (ZBrush's Rot XYZ) or turntable (Rot Y), as Settings > Camera does."`,
-	orbit_pivot: string `usage:"Start turning the view about this, as Settings > Camera > Turn about does: stroke (the middle of the last stroke, the default), pointer (the surface under the press) or centre (the middle of the view)."`,
 	coach: bool `usage:"Show the first-run tips from the first one, even in a scripted run (an interactive run shows them until they are done or skipped)."`,
-	flat_ring: bool `usage:"Start with the brush ring flat on the screen instead of lying on the surface, as Settings > Interface > Lay the brush ring on the surface off does (for comparison)."`,
-	no_edge_orbit: bool `usage:"Start with the safe zone off, as Settings > Camera > Edges always turn the view does: a press near an edge over the model goes to the tool."`,
 	gpu_debug: bool `usage:"Create the GPU device in debug mode (enables validation where available)."`,
 	subdiv:    int `usage:"Icosphere subdivision level (default 6)."`,
 	vertices:  int `usage:"Start with a geodesic sphere of about this many vertices instead (e.g. 10000000)."`,
@@ -42,13 +38,9 @@ Options :: struct {
 	level:     int `usage:"Start on this subdivision level, 1 being the base (default: the top one)."`,
 	hd:        int `usage:"Give each starting sphere an HD level this many Loop steps (1 to 3) above its top level, as Divide HD does."`,
 	hd_open:   bool `usage:"Start sculpting HD on the first sphere, in a window around the side facing the camera (needs --hd)."`,
-	hd_window: int `usage:"Vertices an HD window holds (default 4000000)."`,
 	no_cache:  bool `usage:"Draw every object every frame instead of caching the idle ones (for comparison)."`,
 	no_cull:   bool `usage:"Draw every triangle instead of skipping off-screen and back-facing chunks (for comparison)."`,
-	reduce_motion: bool `usage:"Start with the interface's animations off, as Menu > Reduce motion does."`,
 	ui_dt:     f32 `usage:"Move the interface's clock (animations, tooltips, long presses) this many seconds a frame instead of by the time that passed, for scripted runs whose checks must not depend on how fast frames come (scripts/touch_check.py passes 1/60). The 90 ms a finger waits before it sculpts and the right tap that opens the pie stay on the real clock."`,
-	shape_apply: string `usage:"When a drawn mask, hide or clip shape applies, as Settings > Touch > Shapes apply: auto (the mouse's at once, a finger's or the pen's after Apply), now or confirm."`,
-	finger_orbits: bool `usage:"Start with one finger on the model turning the view instead of sculpting, as Settings > Touch and pen > One finger on the model does."`,
 	ui_events: string `usage:"Drive the pointer, fingers and pen as SDL events would, for tests: FRAME:move:X,Y, FRAME:down, FRAME:up, FRAME:right (a right click), FRAME:mdown, FRAME:mup, FRAME:rdown and FRAME:rup (the middle and right buttons held and let go), FRAME:wheel:N, FRAME:key:NAME (a key press: shift, ctrl, alt held until FRAME:keyup:NAME), FRAME:fdown:ID:X,Y, FRAME:fmove:ID:X,Y, FRAME:fup:ID and FRAME:fcancel:ID (finger ID on a touch screen), FRAME:pdown:X,Y, FRAME:pmove:X,Y, FRAME:pup, FRAME:pnear / FRAME:pfar, FRAME:pright (the pen, the last its side button) and FRAME:ppress:P (the pen's pressure from then on, 0 to 1; 0 until set), separated by semicolons; X and Y in window points."`,
 	dump_screen: string `usage:"On exit, write the whole window as the interface drew it (viewport and panels) to this path: a PNG, or a binary PPM when it ends in .ppm."`,
 	dump_viewport: string `usage:"On exit, write the last viewport image to this path: a PNG, or a binary PPM when it ends in .ppm (for checking renders), as Menu > Save screenshot does."`,
@@ -63,56 +55,22 @@ Options :: struct {
 	timelapse_steps: int `usage:"Steps of the History each --timelapse frame shows (default 1)."`,
 	timelapse_spin: f32 `usage:"Degrees the camera turns each --timelapse frame (default 0)."`,
 	bench_loops: int `usage:"Make --bench-stroke this many circles around the middle of the sphere instead of a wavy line."`,
-	brush:     string `usage:"Start with this brush: draw, smooth, clay, flatten, inflate, pinch, crease, grab, mask, layer, snake hook, morph, paint, cloth or history (also what --bench-stroke uses)."`,
-	cloth:     string `usage:"What the Cloth brush does: drag (the default), gravity, pinch or expand."`,
-	stroke:    string `usage:"Start with this stroke: dots (the default), drag_rect (one stamp sized and turned by the drag, as the Brush tab's Rectangle), spray or roll."`,
-	front_only: bool `usage:"Start with Front faces only on: brushes and mask shapes leave what faces away from the viewer."`,
-	lock_plane: bool `usage:"Start with Lock plane on (Brush > Options): a stroke keeps the plane its first dab found."`,
-	connected: bool `usage:"Start with Connected only on (Brush > Options): a dab works only on the surface joined to where it presses."`,
-	stroke_line: bool `usage:"Start with Line on (Stroke > More): every stroke a straight line from its press."`,
-	stroke_join: bool `usage:"Start with Join strokes on (Stroke > More): a press near where the last stroke ended carries it on."`,
-	symmetry:  string `usage:"Start with brush symmetry across these axes, e.g. x or xz."`,
-	material:  string `usage:"Shade objects with this material (the Scene tab's Material): clay (the default), red wax, white, grey, skin, gold, copper, chrome, steel, plastic, ceramic, rubber or pbr clay."`,
-	studio:    bool `usage:"Start with View > Studio render on: ambient occlusion and soft shadows build up while the view stays still."`,
-	studio_samples: int `usage:"Light samples the studio render stops at (default 256, at most 1024)."`,
-	flat:      bool `usage:"Start with flat shading, each triangle lit by its own normal, as View > Flat shading does."`,
-	ortho:     bool `usage:"Start with parallel (orthographic) projection, as View > Orthographic (P) does."`,
-	view:      string `usage:"Start looking from front, back, right, left, top or bottom, as the Scene tab's Camera section does."`,
 	density_preview: int `usage:"Show Object > Shape > Rebuild's density checkerboard on the selected object for an even remesh of this many vertices, held on as holding its Density slider shows it (for screenshots and timing)."`,
-	wireframe: bool `usage:"Show the selected object's edges, as View > Wireframe (Shift+F) does."`,
 	falloff:   string `usage:"Start every brush with this falloff: smooth (the default), linear, sharp, firm or flat, as the Brush tab's Falloff presets set."`,
 	rotate:    string `usage:"Turn the first object this many degrees about x, y and z before starting, e.g. 0,45,0 (as the Object tab's Transform does)."`,
-	mirror:    string `usage:"Mirror and weld the first object before starting, as the Object tab's Mirror and weld does: x, y or z keeps that axis's + side, -x, -y or -z the - side (after --remesh)."`,
-	slice:     string `usage:"Slice the first object in two across its middle before starting, as a Slice line does: x, y or z is the axis the cut goes across (after --mirror)."`,
+	slice:     string `usage:"Slice the first object in two across its middle before starting, as a Slice line does: x, y or z is the axis the cut goes across (after --rotate)."`,
 	hide:      string `usage:"Hide the + side of the first object's middle across an axis before starting (x, y or z), or the - side (-x, -y or -z), as a hide rectangle does (after --slice)."`,
-	store_morph: bool `usage:"Store the first object's surface as its morph target before starting, as the Object tab's Morph target > Store does (after the other start-up changes)."`,
-	decimate:  int `usage:"Decimate the first object to about this many vertices before starting, as the Object tab's Decimate does (after --remesh)."`,
-	remesh:    int `usage:"Voxel remesh the first sphere to about this many vertices before starting, as Remesh selected does (after --subdivide and --level)."`,
-	dyntopo:   bool `usage:"Turn dynamic topology on for the first sphere before starting (after --remesh), as Ctrl+T does."`,
-	detail:    f32 `usage:"Dynamic topology detail: edges longer than this many pixels on screen split (default 10)."`,
-	tilt_strength: f32 `usage:"How far a leaning pen turns the brush, 0 to 1 (default 0: not at all), as the Brush tab's Pen > Tilt sets."`,
 	alpha:     string `usage:"Start with this brush alpha: a built-in one (square, noise, rings, stripes, dots or star) or an image file (PNG, JPEG, BMP, TGA or QOI)."`,
-	alpha_mode: string `usage:"Which way the alpha's top faces: stroke (along the stroke, the default), fixed or random."`,
-	alpha_angle: f32 `usage:"Turn the alpha this many degrees counter-clockwise on top of what --alpha-mode gives."`,
-	bench_tilt: f32 `usage:"Lean the synthetic pen of --bench-stroke this many degrees to the right (with --tilt-strength)."`,
+	bench_tilt: f32 `usage:"Lean the synthetic pen of --bench-stroke this many degrees to the right (with set tilt_strength in a start-up script)."`,
 	no_vsync:  bool `usage:"Show each frame as soon as it is ready instead of waiting for the display's refresh, so frame times are not capped at the refresh rate."`,
 	time_gpu:  bool `usage:"Measure the GPU time of the 3D viewport every frame. Waits for the GPU each frame, so frames no longer overlap."`,
 	gpubench:  string `usage:"Time the GPU and CPU while orbiting and sculpting one sphere at 500k, 1M, 5M, 7M and 10M vertices (only --vertices when given), with each speed setting on and off; write the markdown tables to this path and exit."`,
 	gpu_smooth: bool `usage:"Start with the Object tab's Deformation > On the GPU on, so Smooth all runs as a compute shader (the GPU compute trial)."`,
-	smooth_all: int `usage:"Smooth the first object this many steps before starting, as the Object tab's Deformation > Smooth all does (after the other start-up changes; on the GPU with --gpu-smooth)."`,
 	compute_bench: string `usage:"Time Smooth all on the CPU and as a GPU compute shader, upload and readback included, at 500k, 1M, 5M, 7M and 10M vertices (only --vertices when given); check the GPU's result against the CPU's, write the markdown tables to this path and exit."`,
-	groups:    string `usage:"Group the first object before starting, as the Object tab's Polygroups section (Select page) does: creases (Groups by creases), visible or masked; with --show-groups to see them."`,
-	show_groups: bool `usage:"Start showing polygroups, as View > Polygroups (Shift+W) does."`,
-	paint_color: string `usage:"The Paint brush's colour, as red,green,blue from 0 to 1 (e.g. 0.2,0.4,0.9)."`,
-	fill_paint: bool `usage:"Fill the first object with the Paint brush's colour before starting, as the Object tab's Fill with colour does (after --groups)."`,
-	layer:      bool `usage:"Add a sculpt layer to the first object before starting, recording, as the Object tab's Layers > New layer does (after --fill-paint), so --bench-stroke goes into it."`,
-	retopo:     int `usage:"Retopologize the first object into about this many quads before starting, as the Object tab's Retopologize selected does (after --layer); the new object is selected."`,
-	bake:       string `usage:"On exit, bake the first object's detail onto the selected quad object (from --retopo) into this folder, as Bake maps... does (before --export)."`,
-	boolean:    string `usage:"Mark every object but the first union, subtract or intersect (the Object tab's Booleans) and move them to overlap it, before starting (after --retopo); with --spheres=2 or more."`,
-	live_boolean: bool `usage:"Start with the Object tab's Booleans > Live boolean on."`,
-	make_boolean: bool `usage:"Make the boolean mesh before starting, as Make boolean mesh does (after --boolean)."`,
+	bake:       string `usage:"On exit, bake the first object's detail onto the selected quad object (from retopologize in a start-up script) into this folder, as Bake maps... does (before --export)."`,
+	boolean:    string `usage:"Mark every object but the first union, subtract or intersect (the Object tab's Booleans) and move them to overlap it, before starting (after --hide); with --spheres=2 or more."`,
 	extract:    f32 `usage:"Extract the first object's masked part before starting, as the Object tab's Extract masked does, this thick (a share of its size; after --boolean); masks what the top third of the view shows first when nothing is masked."`,
-	project:    bool `usage:"Project the first object's detail onto the selected one before starting, as the Object tab's Project detail does (after --retopo)."`,
+	project:    bool `usage:"Project the first object's detail onto the selected one before starting, as the Object tab's Project detail does (after --extract)."`,
 	curve:      string `usage:"Draw a curve of this kind (tube, stitches or zipper) across the middle of the view before starting, as the Curve tool does (after --extract)."`,
 	insert:     string `usage:"Insert this shape (sphere, cube, cylinder, cone or torus) at the middle of the view before starting, as a click of the Insert tool does (after --curve)."`,
 	bake_size:  int `usage:"Texels square for --bake (512, 1024, 2048 or 4096; default 2048)."`,
@@ -366,7 +324,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	defer shape_pending_destroy(&app.shape_pending)
 	defer rebuild_preview_destroy(&app.rebuild)
 	defer curve_tool_destroy(&app.curve)
-	app.hd_window_vertices = opts.hd_window if opts.hd_window > 0 else sculpt.HD_WINDOW_VERTICES
+	app.hd_window_vertices = sculpt.HD_WINDOW_VERTICES
 	if opts.open != "" {
 		opened, ok := scene_open(&app, opts.open)
 		if !ok || !opened do return false
@@ -417,12 +375,6 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	}
 	// The first sphere; otherwise what the file selected, or the import.
 	if starting > 0 do app.scene.selected = 0
-	if opts.remesh > 0 {
-		if _, ok := object_remesh(&app, app.scene.objects[0], opts.remesh); !ok do return false
-	}
-	if opts.decimate > 0 {
-		if _, ok := object_decimate(&app, app.scene.objects[0], opts.decimate); !ok do return false
-	}
 	if opts.rotate != "" {
 		parts := strings.split(opts.rotate, ",", context.temp_allocator)
 		if len(parts) != 3 {
@@ -437,17 +389,6 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			}
 			app.scene.objects[0].transform.rotation[i] = a
 		}
-	}
-	if opts.mirror != "" {
-		axes := [?]string{"x", "y", "z"}
-		name := strings.trim_prefix(opts.mirror, "-")
-		axis := -1
-		for a, i in axes do if strings.equal_fold(name, a) do axis = i
-		if axis < 0 {
-			log.errorf("unknown --mirror axis %q", opts.mirror)
-			return false
-		}
-		if _, ok := object_symmetrize(&app, app.scene.objects[0], axis, !strings.has_prefix(opts.mirror, "-")); !ok do return false
 	}
 	for flag, i in ([2]string{opts.slice, opts.hide}) {
 		if flag == "" do continue
@@ -467,30 +408,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			hide_axis(&app, obj, axis, !strings.has_prefix(flag, "-"))
 		}
 	}
-	if opts.dyntopo {
-		obj := app.scene.objects[0]
-		if _, ok := object_set_dyntopo(&app, obj, true); !ok do return false
-		if !object_dynamic(obj) do return false // refused, with the reason logged
-	}
-	if opts.store_morph && !sculpt.sculptor_morph_store(object_sculptor(app.scene.objects[0])) {
-		log.errorf("--store-morph: not with dynamic topology")
-		return false
-	}
 	defer render.viewport_target_destroy(&app.renderer, &app.target)
 	app.camera = camera.orbit_default()
-	app.camera.ortho = opts.ortho
-	if opts.view != "" {
-		found := false
-		for view in camera.Axis_View {
-			if !strings.equal_fold(opts.view, fmt.tprint(view)) do continue
-			camera.orbit_axis_view(&app.camera, view)
-			found = true
-		}
-		if !found {
-			log.errorf("unknown --view %q", opts.view)
-			return false
-		}
-	}
 	if opts.hd_open {
 		obj := app.scene.objects[0]
 		toward := camera.orbit_eye(app.camera) - obj.transform.position
@@ -519,7 +438,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	app.nav = NAV_DEFAULT
 	app.autosave.minutes = AUTOSAVE_DEFAULT_MINUTES
 	app.versions_kept = VERSIONS_DEFAULT
-	// What earlier interactive runs left, before the flags, which win over it.
+	// What earlier interactive runs left; a start-up script runs after it and wins over it.
 	remember := (opts.frames == 0 && opts.gpubench == "" && opts.bench_stroke == 0 && !opts.no_settings) || opts.settings_file != ""
 	settings := (opts.settings_file if opts.settings_file != "" else settings_path()) if remember else ""
 	if remember do settings = strings.clone(settings)
@@ -528,66 +447,9 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	app.settings_file = settings
 	app.coach_run = (remember && opts.frames == 0) || opts.coach
 	if opts.coach do app.kit.coach = 0
-	if opts.reduce_motion do app.kit.ctx.reduced_motion = true
 	app.kit.fixed_dt = opts.ui_dt
-	if opts.finger_orbits do app.nav.finger_model = .Orbit
-	switch opts.shape_apply {
-	case "":
-	case "auto":    app.nav.shape_apply = .Auto
-	case "now":     app.nav.shape_apply = .Now
-	case "confirm": app.nav.shape_apply = .Confirm
-	case:
-		log.errorf("--shape-apply wants auto, now or confirm, not %q", opts.shape_apply)
-		return false
-	}
-	switch opts.orbit_style {
-	case "":
-	case "free":      app.nav.orbit_style = .Free
-	case "turntable": app.nav.orbit_style = .Turntable
-	case:
-		log.errorf("--orbit-style is free or turntable, not %q", opts.orbit_style)
-		return false
-	}
-	switch opts.orbit_pivot {
-	case "":
-	case "stroke":  app.nav.pivot = .Stroke
-	case "pointer": app.nav.pivot = .Pointer
-	case "centre":  app.nav.pivot = .Centre
-	case:
-		log.errorf("--orbit-pivot is stroke, pointer or centre, not %q", opts.orbit_pivot)
-		return false
-	}
-	if opts.no_edge_orbit do app.nav.edge_orbit = false
-	if opts.flat_ring do app.kit.surface_ring = false
 	if opts.no_vsync do app.vsync = false
 	app.ui.smooth_on_gpu = opts.gpu_smooth
-	if opts.smooth_all > 0 do smooth_command(&app, opts.smooth_all)
-	if opts.paint_color != "" {
-		parts := strings.split(opts.paint_color, ",", context.temp_allocator)
-		if len(parts) != 3 {
-			log.errorf("--paint-color takes red,green,blue, not %q", opts.paint_color)
-			return false
-		}
-		for p, k in parts do app.brush.color[k] = clamp(strconv.parse_f32(p) or_else 0, 0, 1)
-	}
-	if opts.show_groups do app.show_groups = true
-	if opts.groups != "" {
-		switch strings.to_lower(opts.groups, context.temp_allocator) {
-		case "creases": group_command(&app, .Creases)
-		case "visible": group_command(&app, .Visible)
-		case "masked":  group_command(&app, .Masked)
-		case:
-			log.errorf("unknown --groups %q", opts.groups)
-			return false
-		}
-		app.show_groups = opts.show_groups
-	}
-	if opts.fill_paint do paint_command(&app, .Fill)
-	if opts.layer do layer_add(&app)
-	if opts.retopo > 0 {
-		app.scene.selected = 0
-		if _, ok := object_retopo(&app, app.scene.objects[0], opts.retopo); !ok do return false
-	}
 	if opts.boolean != "" {
 		mode: Boolean_Mode
 		for m in Boolean_Mode do if m != .None && strings.equal_fold(opts.boolean, fmt.tprint(m)) do mode = m
@@ -601,8 +463,6 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			obj.transform.position = first.transform.position + {0.9, 0.4 * f32(i), 0} * first.transform.scale
 		}
 	}
-	if opts.live_boolean do app.ui.boolean.live = true
-	if opts.make_boolean && !boolean_make(&app) do return false
 	if opts.extract > 0 {
 		app.scene.selected = 0
 		app.ui.boolean.thickness = opts.extract
@@ -650,39 +510,10 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	defer autosave_destroy(&app)
 	// The benchmark's autosave writes the scene it starts with.
 	if opts.bench_after_autosave do app.autosave.clean = 0
-	if opts.ortho do app.camera.ortho = true
-	if opts.wireframe do app.wireframe = true
-	if opts.flat do app.flat = true
 	if opts.density_preview > 0 {
 		app.ui.rebuild_goal, app.ui.rebuild_even, app.rebuild.pinned = .Even, rebuild_count(opts.density_preview), true
 	}
 	app.studio_samples, app.studio_ao, app.studio_shadow = STUDIO_SAMPLES_DEFAULT, 0.85, 0.6
-	if opts.studio do app.studio_on = true
-	if opts.studio_samples > 0 do app.studio_samples = i32(min(opts.studio_samples, STUDIO_SAMPLES_MAX))
-	if opts.front_only do app.brush.front_only = true
-	if opts.lock_plane do app.brush.lock_plane = true
-	if opts.connected do app.brush.connected = true
-	if opts.stroke_line do app.brush.line = true
-	if opts.stroke_join do app.brush.join = true
-	if opts.stroke != "" {
-		found := false
-		for mode in Stroke_Mode do if strings.equal_fold(opts.stroke, fmt.tprint(mode)) {
-			app.brush.stroke = mode
-			found = true
-		}
-		if !found {
-			log.errorf("unknown --stroke %q", opts.stroke)
-			return false
-		}
-	}
-	if opts.material != "" {
-		found: bool
-		app.material, found = material_by_name(opts.material)
-		if !found {
-			log.errorf("unknown material %q", opts.material)
-			return false
-		}
-	}
 	if opts.falloff != "" {
 		found := false
 		for preset in FALLOFF_PRESETS {
@@ -695,52 +526,10 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			return false
 		}
 	}
-	if opts.detail > 0 do app.brush.detail_px = opts.detail
-	if opts.tilt_strength > 0 do app.brush.tilt_strength = clamp(opts.tilt_strength, 0, 1)
-	if opts.brush != "" {
-		kind, found := brush_by_name(opts.brush)
-		if !found {
-			log.errorf("unknown brush %q", opts.brush)
-			return false
-		}
-		preset_leave(&app)
-		app.brush.kind = kind
-	}
-	if opts.cloth != "" {
-		found := false
-		for mode in sculpt.Cloth_Mode do if strings.equal_fold(opts.cloth, fmt.tprint(mode)) {
-			app.brush.cloth_mode = mode
-			found = true
-		}
-		if !found {
-			log.errorf("unknown --cloth %q", opts.cloth)
-			return false
-		}
-	}
 	alphas_init(&app)
 	defer alphas_destroy(&app)
 	app.stroke_seed = 1
 	if opts.alpha != "" && !alpha_select(&app, opts.alpha) do return false
-	if opts.alpha_angle != 0 do app.brush.alpha_angle = opts.alpha_angle
-	switch strings.to_lower(opts.alpha_mode, context.temp_allocator) {
-	case "":
-	case "stroke":     app.brush.alpha_mode = .Stroke
-	case "fixed":      app.brush.alpha_mode = .Fixed
-	case "random":     app.brush.alpha_mode = .Random
-	case:
-		log.errorf("unknown alpha mode %q", opts.alpha_mode)
-		return false
-	}
-	for c in strings.to_lower(opts.symmetry, context.temp_allocator) {
-		switch c {
-		case 'x': app.brush.symmetry += {.X}
-		case 'y': app.brush.symmetry += {.Y}
-		case 'z': app.brush.symmetry += {.Z}
-		case:
-			log.errorf("unknown symmetry axis %q in %q", c, opts.symmetry)
-			return false
-		}
-	}
 	app.tool = .Brush
 	app.running = true
 	frame_index := 0
