@@ -106,7 +106,10 @@ Kit_State :: struct {
 	help_scroll: f32,
 	ui_scale:   f32, // the interface's size, times what the display asks for (Settings > Interface)
 	surface_ring: bool, // the brush ring lies on the surface rather than flat on the screen (cursor.odin)
-	rail_side:  Rail_Side, // where the Smooth, Invert, Mask and Hide buttons sit, if anywhere (modifiers.odin)
+	rail_side:  Rail_Side, // where the modifier wheel sits, if anywhere (modifiers.odin)
+	wheel_size: Wheel_Size,
+	wheel_offset: [2]f32, // how far its grip dragged it from its place, in points
+	wheel_from: [2]f32, // ...where it was when the drag under way took hold
 	history:    bool, // the History panel, over the dock
 	// The command palette (palette.odin): open, what is typed, the picked result and the
 	// first shown, the recents (most recent first), and for the exit stats how many
@@ -564,7 +567,7 @@ kit_init :: proc(app: ^App) {
 	k.add_size = 2 // 1M
 	k.ui_scale = 1
 	k.surface_ring = true
-	k.rail_side = .Left
+	k.rail_side, k.wheel_size = .Left, .Medium
 	k.action_bar = true
 	k.dock = DOCK_DEFAULT
 	k.pies = PIE_DEFAULTS

@@ -72,15 +72,14 @@ dock_put :: proc(app: ^App, slot: int, kind: sculpt.Brush_Kind, preset := 0) {
 
 // How many slots a page of the dock shows: all seven where the window has the room, fewer
 // (down to three, on more pages) where the bottom bar would otherwise reach the modifier
-// rail. Measured on last frame's bar, less the slots it showed.
+// wheel. Measured on last frame's bar, less the slots it showed.
 dock_per_page :: proc(app: ^App) -> int {
 	k := &app.kit
 	ctx := &k.ctx
 	bar, _ := ui.prev_layout(ctx, "dock")
-	rail, _ := ui.prev_layout(ctx, "modifier rail")
 	if bar.x <= 0 || k.dock_shown[1] == 0 do return DOCK_PAGE
 	rest := bar.x - f32(k.dock_shown[1]) * ui.BRUSH_TILE.x
-	room := ui.safe_area(ctx).w - 2 * (ctx.theme.edge + rail.x + 8)
+	room := ui.safe_area(ctx).w - 2 * (max(rail_reach_across(app), ctx.theme.edge) + 8)
 	return clamp(int((room - rest) / ui.BRUSH_TILE.x), 3, DOCK_PAGE)
 }
 

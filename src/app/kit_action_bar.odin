@@ -101,15 +101,14 @@ ACTION_BAR_GAP :: 8
 ACTION_BAR_PADDING :: 4
 
 // How wide the bar may be: centred, it stays clear of the left column on either side (the
-// sliders always, which on a short window reach down to the bar, and the modifier rail
-// when shown) and of the panel on the right while that sits beside the dock rather than
+// sliders always, which on a short window reach down to the bar, and the modifier wheel
+// in its place) and of the panel on the right while that sits beside the dock rather than
 // above it.
 action_bar_room :: proc(app: ^App) -> f32 {
 	k := &app.kit
-	t := k.ctx.theme
 	area := ui.safe_area(&k.ctx)
 	side := kit_left(app)
-	if k.rail_side != .Off do side = max(side, t.edge + rail_size(t).x + 8)
+	if across := rail_reach_across(app); across > 0 do side = max(side, across + 8)
 	panel: f32 = KIT_SETTINGS_W if side_panel_open(k) else KIT_INSPECTOR_W if k.inspector else 0
 	dock, _ := ui.prev_layout(&k.ctx, "dock")
 	// The inspector moves up above the dock and bar where the dock reaches it (kit_inspector).

@@ -1486,9 +1486,10 @@ def small_window():
 
 
 
-# The modifier rail's buttons at the bottom left at 1600 x 900, and the finger that holds
-# them: an id of its own, as a second hand's finger would have.
-RAIL = {"smooth": (38, 808), "invert": (86, 808), "mask": (38, 860), "hide": (86, 860)}
+# The modifier wheel's sectors at the bottom left at 1600 x 900 (Smooth at the top, the
+# brush pie at the right, Invert at the bottom, Mask at the left) and its grip in the
+# middle, and the finger that holds them: an id of its own, as a second hand's would have.
+RAIL = {"smooth": (78, 779), "pie": (121, 822), "invert": (78, 865), "mask": (35, 822), "grip": (78, 822)}
 RAIL_FINGER = 9
 
 
@@ -1831,14 +1832,58 @@ def rail_mask_shape_from_empty_space():
 
 
 @scenario
+def wheel_pie_sector_opens_the_brush_pie():
+    """A finger's tap on the wheel's right sector opens the brush pie and sculpts nothing; the mouse's click does the same."""
+    finger, mouse = Script(), Script()
+    rail_tap(finger, "pie")
+    finger.wait(6)
+    click(mouse, RAIL["pie"])
+    mouse.wait(6)
+    want = {"dabs": near(0), "pie_open": near(0), "rail_latched": lambda v: v == "none"}
+    return Steps([(finger, [], camera_still(want)), (mouse, [], camera_still(want))])
+
+
+def wheel_at(x, y):
+    """A check that the wheel's square has its top left corner at (x, y), give or take a point."""
+    def ok(stats):
+        r = [float(v) for v in stats["layout_modifier_rail"].split(",")]
+        return abs(r[0] - x) <= 1 and abs(r[1] - y) <= 1
+    return ok
+
+
+@scenario
+def wheel_moves_by_its_grip():
+    """A finger dragging the wheel's grip carries the wheel with it, turning and sculpting nothing, and Settings' Done remembers where; at the Large size the wheel is larger."""
+    if os.path.exists(settings_file()):
+        os.remove(settings_file())
+    moved = Script()
+    moved.fdrag(line(RAIL["grip"], (378, 622), 12))
+    moved.wait(6)
+    moved.ftap(*UI["settings"])
+    moved.wait(12)
+    moved.ftap(1427, 750)  # Done
+    moved.wait(6)
+    large = Script()
+    large.add(f"move:{EMPTY[0]},{EMPTY[1]}")
+    large.wait(6)
+    with open(os.path.join(ROOT, "build", "touch", "wheel_large.txt"), "w") as f:
+        f.write("wheel_size Large\n")
+    return Steps([
+        (moved, [f"--settings-file={settings_file()}"], camera_still({"dabs": near(0), "@moved": wheel_at(312, 556), "@saved": saved(wheel_x="300", wheel_y="-200")})),
+        (large, [f"--settings-file={os.path.join(ROOT, 'build', 'touch', 'wheel_large.txt')}"], {"@large": lambda st: st["layout_modifier_rail"].split(",")[2] == "156"}),
+    ])
+
+
+@scenario
 def rail_hide_gesture():
-    """Hide latched: a finger drags the hide rectangle over part of the model, and once applied (Enter) the rest is hidden."""
+    """Smooth and Mask latched together are Hide: a finger drags the hide rectangle over part of the model, and once applied (Enter) the rest is hidden."""
     s = Script()
-    rail_tap(s, "hide")
+    rail_tap(s, "smooth")
+    rail_tap(s, "mask")
     s.fdrag(line((250, 150), (800, 450), 20))
     s.wait(4)
     s.press("Return")
-    return s, [], camera_still({"dabs": near(0), "hidden_triangles": lambda v: int(v) > 0, "rail_latched": lambda v: v == "hide"})
+    return s, [], camera_still({"dabs": near(0), "hidden_triangles": lambda v: int(v) > 0, "rail_latched": lambda v: v == "smooth+mask"})
 
 
 @scenario

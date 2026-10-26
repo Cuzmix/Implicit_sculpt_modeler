@@ -113,8 +113,12 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   `Drag.pivot` and `Viewport_Input.orbit_pivot`, and `camera.orbit_turn_about` keeps it on screen. Fingers and the
   pen move nothing until past `theme.slop` (10 pt); a finger's stroke waits `FINGER_HOLD` (90 ms) with its samples
   kept, so a second finger makes a gesture first.
-- The modifier rail (`modifiers.odin`, README "Touch and pen"): Smooth, Invert, Mask and Hide buttons for a tablet.
-  A finger landing on one (`rail_claims`: the rail is the top root at that point by `ui.root_at`, and no menu,
+- The modifier wheel (`modifiers.odin`, still `Modifier_Rail`/`rail_*` in code; `ui.wheel` in `src/ui/wheel.odin`;
+  README "Touch and pen"): sectors Smooth (top), brush pie (right), Invert (bottom), Mask (left) by
+  `WHEEL_SECTORS`; Smooth and Mask together are Hide (`rail_toggle`, `rail_mode`, `rail_press_mods`). Its hit test is by
+  angle (`ui.wheel_sector_at`, `Modifier_Rail.center/outer/hole`); the grip drags `Kit_State.wheel_offset` from its
+  place (`rail_reach`/`rail_reach_across` are zero once moved); `wheel_size` picks `WHEEL_OUTER`/`WHEEL_HOLE`.
+  A finger landing on a modifier sector (`rail_claims`: the wheel is the top root at that point by `ui.root_at`, and no menu,
   popover or list is open) is recorded in `Modifier_Rail.fingers` before `ui.fingers_down` and goes no further: never
   the pointer, never a gesture finger or a palm, untouched by the pen's cancel; its motion and lift stop there too.
   `rail_press` (in `kit_viewport_input`, inside `if input.dragging`, before `touch_route`/`pointer_route`) snapshots

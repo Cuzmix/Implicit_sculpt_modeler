@@ -4,6 +4,7 @@ import "core:os"
 import "core:testing"
 
 import "../camera"
+import "../ui"
 
 // A quick tap that stayed put latches; a long hold, a hold a press was made with, a
 // finger that wandered, or a cancelled one acts only while held; a tap on a latched
@@ -68,19 +69,62 @@ rail_fingers_stay_few_and_fresh :: proc(t: ^testing.T) {
 	testing.expect_value(t, rail_mods(&r), Modifiers{})
 }
 
-// Smooth, Mask and Hide are one at a time; Invert goes with any of them.
+// Smooth and Mask latched together are Hide; Hide latched lets them go and either lets
+// Hide go; Invert goes with any of them.
 @(test)
 rail_modes_take_turns :: proc(t: ^testing.T) {
 	r: Modifier_Rail
 	rail_toggle(&r, .Invert)
 	rail_toggle(&r, .Smooth)
+	testing.expect_value(t, rail_mode(r.latched), Maybe(Modifier)(.Smooth))
 	rail_toggle(&r, .Mask)
-	testing.expect_value(t, r.latched, Modifiers{.Invert, .Mask})
+	testing.expect_value(t, r.latched, Modifiers{.Invert, .Smooth, .Mask})
+	testing.expect_value(t, rail_mode(r.latched), Maybe(Modifier)(.Hide))
+	rail_toggle(&r, .Smooth)
+	testing.expect_value(t, rail_mode(r.latched), Maybe(Modifier)(.Mask))
 	rail_toggle(&r, .Hide)
 	testing.expect_value(t, r.latched, Modifiers{.Invert, .Hide})
-	testing.expect_value(t, rail_mode(r.latched), Maybe(Modifier)(.Hide))
+	rail_toggle(&r, .Smooth)
+	testing.expect_value(t, r.latched, Modifiers{.Invert, .Smooth})
 	testing.expect_value(t, rail_mode({.Invert}), nil)
-	testing.expect_value(t, rail_mode({.Smooth, .Mask}), Maybe(Modifier)(.Mask))
+	testing.expect_value(t, rail_mode({.Smooth, .Mask}), Maybe(Modifier)(.Hide))
+}
+
+// Smooth and Mask held together by two fingers press as Hide; either alone presses as
+// itself.
+@(test)
+rail_two_fingers_hide :: proc(t: ^testing.T) {
+	r: Modifier_Rail
+	_ = rail_finger_down(&r, 1, .Smooth, {0, 0}, 1)
+	mods, held := rail_press_mods(&r)
+	testing.expect_value(t, mods, Modifiers{.Smooth})
+	testing.expect(t, held)
+	_ = rail_finger_down(&r, 2, .Mask, {0, 0}, 1)
+	mods, _ = rail_press_mods(&r)
+	testing.expect_value(t, mods, Modifiers{.Hide})
+	_ = rail_finger_up(&r, 1, 9, false, 10)
+	mods, _ = rail_press_mods(&r)
+	testing.expect_value(t, mods, Modifiers{.Mask})
+}
+
+// The wheel's sectors by angle round its middle, clockwise from the top; the grip and
+// the corners outside the ring are none of them.
+@(test)
+wheel_sectors_by_angle :: proc(t: ^testing.T) {
+	c := [2]f32{100, 100}
+	testing.expect_value(t, ui.wheel_sector_at(c, {100, 50}, 132, 44), 0)
+	testing.expect_value(t, ui.wheel_sector_at(c, {150, 100}, 132, 44), 1)
+	testing.expect_value(t, ui.wheel_sector_at(c, {100, 150}, 132, 44), 2)
+	testing.expect_value(t, ui.wheel_sector_at(c, {50, 100}, 132, 44), 3)
+	testing.expect_value(t, ui.wheel_sector_at(c, {105, 100}, 132, 44), -1)
+	testing.expect_value(t, ui.wheel_sector_at(c, {162, 162}, 132, 44), -1)
+	r := Modifier_Rail{center = c, outer = 132, hole = 44}
+	m, ok := rail_hit(&r, {100, 50})
+	testing.expect(t, ok && m == .Smooth)
+	m, ok = rail_hit(&r, {50, 100})
+	testing.expect(t, ok && m == .Mask)
+	_, ok = rail_hit(&r, {150, 100})
+	testing.expect(t, !ok)
 }
 
 // A held button beats a latched one, the last held beats the others, and Invert goes
