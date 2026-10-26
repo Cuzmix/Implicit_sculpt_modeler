@@ -861,6 +861,53 @@ def rapid_taps():
     return s, [], camera_still({"dabs": near(0), "undo_steps": near(0)})
 
 
+# The Mask section's More options row on the Object tab's Select page at 1600 x 900.
+MASK_MORE = (1330, 750)
+
+
+def select_page(s):
+    s.ftap(*UI["tab_object"])
+    s.wait(6)
+    s.ftap(*UI["page_select"])
+    s.wait(10)
+
+
+@scenario
+def more_options_open_and_fold():
+    """A finger tap on the Mask section's More options opens it; a second tap folds it again, and nothing is sculpted."""
+    s = Script()
+    select_page(s)
+    s.ftap(*MASK_MORE)
+    s.wait(20)
+    s.ftap(*MASK_MORE)
+    s.wait(20)
+    return s, [], camera_still({"dabs": near(0), "more": is_text("none"), "object_page": is_text("Select")})
+
+
+@scenario
+def more_options_show_the_rest():
+    """With everything masked, a finger tap on the Mask section's More options opens it and leaves it open, the mask untouched."""
+    s = Script()
+    s.press("i", ("ctrl",))
+    s.wait(4)
+    select_page(s)
+    s.ftap(*MASK_MORE)
+    s.wait(20)
+    return s, [], camera_still({"dabs": near(0), "more": is_text("mask"), "masked": near(1)})
+
+
+@scenario
+def show_every_option_needs_no_fold():
+    """With Show every option on, the Mask section has no More row: a tap where it would be leaves every fold shut."""
+    with open(settings_file(), "w") as f:
+        f.write("all_options 1\n")
+    s = Script()
+    select_page(s)
+    s.ftap(*MASK_MORE)
+    s.wait(10)
+    return s, [f"--settings-file={settings_file()}"], camera_still({"dabs": near(0), "more": is_text("none"), "all_options": near(1)})
+
+
 @scenario
 def object_pages_switch_and_stay():
     """A finger taps the Object tab, then its Build page; the Brush tab and back keep Build, and nothing is sculpted."""

@@ -103,6 +103,7 @@ label :: proc(ctx: ^Context, s: string, size: f32 = 0, color: Color = {}, font :
 // default), drawn as a smaller rounded square. `name` is its tooltip, with `keys`, its
 // shortcut, beside it. Returns true when clicked.
 icon_button :: proc(ctx: ^Context, name: string, glyph: rune, selected := false, enabled := true, keys := "", size: f32 = 0) -> bool {
+	ctx.controls += 1
 	t := ctx.theme
 	size := size if size > 0 else t.target
 	cell := place(ctx, {size, size})
@@ -137,6 +138,7 @@ Chip_Part :: struct {
 // status at the bottom right is. `name` is its id and tooltip. Returns true when clicked;
 // call secondary after it for what its long press does.
 chip :: proc(ctx: ^Context, name: string, parts: []Chip_Part, keys := "") -> bool {
+	ctx.controls += 1
 	t := ctx.theme
 	PADDING :: 12
 	GAP :: 10
@@ -178,6 +180,7 @@ Tone :: enum u8 {
 // fill width, or fits the label when the column has none. With `keys` (its shortcut and
 // gesture) hovering it or a long press shows them in a tooltip. Returns true when clicked.
 button :: proc(ctx: ^Context, s: string, variant := Variant.Flat, tone := Tone.Neutral, width: f32 = 0, glyph: rune = 0, enabled := true, keys := "") -> bool {
+	ctx.controls += 1
 	t := ctx.theme
 	shown := label_text(s)
 	content := text_width(ctx, shown, t.text_size, .Semibold) + (t.icon_small + 6 if glyph != 0 else 0)
@@ -228,6 +231,7 @@ button :: proc(ctx: ^Context, s: string, variant := Variant.Flat, tone := Tone.N
 // A button that stays on or off (one symmetry axis), `width` points wide. Returns true
 // when clicked.
 toggle_button :: proc(ctx: ^Context, s: string, on: bool, width: f32, keys := "", tooltip := "") -> bool {
+	ctx.controls += 1
 	t := ctx.theme
 	cell := place(ctx, {width, t.target})
 	vis := centered(cell, {width, t.control})
@@ -249,6 +253,7 @@ toggle_button :: proc(ctx: ^Context, s: string, on: bool, width: f32, keys := ""
 // evenly, or fits each label. `accent` fills the marker with the accent (the tool in
 // use). Returns the option chosen this frame, or -1.
 tabs :: proc(ctx: ^Context, name: string, options: []string, chosen: int, item_width: f32 = 0, accent := false, glyphs: []rune = nil, keys: []string = nil) -> int {
+	ctx.controls += 1
 	t := ctx.theme
 	n := len(options)
 	if n == 0 do return -1
@@ -296,6 +301,7 @@ tabs :: proc(ctx: ^Context, name: string, options: []string, chosen: int, item_w
 // whole row pressable; `keys`, the shortcut and gesture, shows in a tooltip. Returns
 // true when it flipped `value`.
 switch_row :: proc(ctx: ^Context, s: string, value: ^bool, enabled := true, keys := "") -> bool {
+	ctx.controls += 1
 	t := ctx.theme
 	shown := label_text(s)
 	w := fill_width(ctx)
@@ -353,6 +359,7 @@ slider_value :: proc(fraction, lo, hi: f32, scale: Scale) -> f32 {
 // exactly, so nothing about it is animated but the knob's size. Returns true when the
 // value changed.
 slider :: proc(ctx: ^Context, s: string, value: ^f32, lo, hi: f32, scale: Scale, shown: string, enabled := true) -> bool {
+	ctx.controls += 1
 	t := ctx.theme
 	w := fill_width(ctx)
 	if w <= 0 do w = 220
@@ -397,6 +404,7 @@ slider :: proc(ctx: ^Context, s: string, value: ^f32, lo, hi: f32, scale: Scale,
 // when the value changed. With `reset`, a long press that moved nothing (or a right-click)
 // puts the value back to it, and a drag held on after it goes on from there.
 vslider :: proc(ctx: ^Context, s: string, value: ^f32, lo, hi: f32, scale: Scale, shown: string, glyph: rune = 0, keys := "", track: f32 = 260, reset: Maybe(f32) = nil) -> bool {
+	ctx.controls += 1
 	t := ctx.theme
 	W :: 44
 	cell := place(ctx, {t.target, track + 80})
@@ -457,6 +465,7 @@ Row_Result :: struct {
 // A row the width of its column, a touch target tall: an optional icon and `s` on the
 // left, `detail` dimmer on the right, tinted with the accent when selected.
 list_row :: proc(ctx: ^Context, s: string, detail := "", selected := false, glyph: rune = 0) -> Row_Result {
+	ctx.controls += 1
 	t := ctx.theme
 	shown := label_text(s)
 	w := fill_width(ctx)
@@ -486,6 +495,7 @@ list_row :: proc(ctx: ^Context, s: string, detail := "", selected := false, glyp
 // the label (the shortcut with a touch gesture, which the row has no room for). Returns
 // true when picked.
 menu_item :: proc(ctx: ^Context, s: string, keys := "", glyph: rune = 0, checked := false, tone := Tone.Neutral, enabled := true, highlight := false, hint := "") -> bool {
+	ctx.controls += 1
 	t := ctx.theme
 	shown := label_text(s)
 	w := fill_width(ctx)
@@ -544,18 +554,7 @@ section :: proc(ctx: ^Context, title: string, open: ^bool) -> bool {
 	rotate_since(ctx, mark, (1 - p) * -math.PI * 0.5, chev)
 	if p <= 0.001 do return false
 
-	body := strings.concatenate({title, "##body"}, context.temp_allocator)
-	_, natural := prev_layout(ctx, body)
-	// Fully open, the body fits its content; on the way, it is cut to its share of the
-	// height its content had last frame. The first frame open has no such height yet, so
-	// it is laid out cut to nothing, which measures it without flashing it fully open.
-	height: f32 = 0
-	if p < 0.999 do height = max(natural.y * p, 0.5)
-	n := ctx.section_depth
-	assert(n < len(ctx.sections), "sections nest too deep")
-	ctx.sections[n] = {vertex_mark(ctx), p}
-	ctx.section_depth += 1
-	begin(ctx, body, {direction = .Column, gap = 4, width = w, height = height, clip = true})
+	fold_body(ctx, title, w, p)
 	return true
 }
 
@@ -566,10 +565,60 @@ section_end :: proc(ctx: ^Context) {
 	if s.shown < 1 do transform_since(ctx, s.mark, s.shown)
 }
 
+// The body a section or a More fold opens into, `p` of the way open; section_end closes
+// it. Fully open, it fits its content; on the way, it is cut to its share of the height
+// its content had last frame. The first frame open has no such height yet, so it is laid
+// out cut to nothing, which measures it without flashing it fully open.
+@(private)
+fold_body :: proc(ctx: ^Context, name: string, w, p: f32) {
+	body := strings.concatenate({name, "##body"}, context.temp_allocator)
+	_, natural := prev_layout(ctx, body)
+	height: f32 = 0
+	if p < 0.999 do height = max(natural.y * p, 0.5)
+	n := ctx.section_depth
+	assert(n < len(ctx.sections), "sections nest too deep")
+	ctx.sections[n] = {vertex_mark(ctx), p}
+	ctx.section_depth += 1
+	begin(ctx, body, {direction = .Column, gap = 4, width = w, height = height, clip = true})
+}
+
+// The fold after a section's basic controls: a "More options" row that opens the rest
+// under it (and then reads "Fewer options"), growing in as a section does. With `always`
+// no row is drawn and the rest shows. Returns true when there is a body to fill, which
+// more_end closes; the row is not counted in `controls`, being the way to them.
+more :: proc(ctx: ^Context, name: string, open: ^bool, always := false) -> bool {
+	t := ctx.theme
+	w := fill_width(ctx)
+	if w <= 0 do w = 200
+	if always {
+		fold_body(ctx, name, w, 1)
+		return true
+	}
+	shown := "Fewer options" if open^ else "More options"
+	cell := place(ctx, {w, t.target - 8})
+	id := id_of(ctx, name)
+	hovered, held, clicked, _ := interact(ctx, id, hit_area(ctx, cell))
+	if clicked do open^ = !open^
+	_ = feedback(ctx, id, cell, t.radius_small, hovered, held)
+	p := tween(ctx, salt(id, 1), 1 if open^ else 0, t.panel_time, .Out_Cubic)
+	tw := text_width(ctx, shown, t.small_size, .Semibold)
+	text(ctx, shown, cell.x + 4, cell.y + cell.h * 0.5, t.small_size, t.accent, .Semibold)
+	mark := vertex_mark(ctx)
+	chev := [2]f32{cell.x + 4 + tw + 6 + t.icon_small * 0.5, cell.y + cell.h * 0.5}
+	icon(ctx, ICON_CHEVRON_DOWN, chev, t.icon_small, t.accent)
+	rotate_since(ctx, mark, p * math.PI, chev)
+	if p <= 0.001 do return false
+	fold_body(ctx, name, w, p)
+	return true
+}
+
+more_end :: section_end
+
 // A field showing the chosen option with a chevron; pressing it opens a list of every
 // option under it, which frame_end draws over everything (from a copy of `options`).
 // Returns the option picked, or -1.
 select :: proc(ctx: ^Context, name: string, options: []string, chosen: int, width: f32 = 0) -> int {
+	ctx.controls += 1
 	t := ctx.theme
 	w := width
 	if w <= 0 do w = fill_width(ctx)
@@ -647,6 +696,7 @@ BRUSH_TILE :: [2]f32{64, 58}
 // A brush in the dock or the browser: its icon over its name. The chosen one sits on the
 // accent, which slides from tile to tile. Returns true when clicked.
 brush_tile :: proc(ctx: ^Context, s: string, glyph: rune, selected: bool, keys := "") -> bool {
+	ctx.controls += 1
 	t := ctx.theme
 	cell := place(ctx, BRUSH_TILE)
 	vis := centered(cell, {60, 54})
@@ -675,6 +725,7 @@ Modifier_Look :: enum u8 {
 // caption. `name` is its tooltip, with `keys`, the keyboard modifier that does the same.
 // Returns true when clicked; whether that latches is the caller's to say.
 modifier_button :: proc(ctx: ^Context, name: string, glyph: rune, look: Modifier_Look, keys := "") -> bool {
+	ctx.controls += 1
 	t := ctx.theme
 	cell := place(ctx, {t.target, t.target + 4})
 	vis := centered(cell, {t.target - 4, t.target})
@@ -744,6 +795,7 @@ Area :: struct {
 // into and reads the pointer over: a graph with handles to drag, a bar to scrub, a
 // thumbnail to pick.
 area :: proc(ctx: ^Context, name: string, size: [2]f32) -> Area {
+	ctx.controls += 1
 	w := size.x if size.x > 0 else fill_width(ctx)
 	if w <= 0 do w = 200
 	r := place(ctx, {w, size.y})
@@ -759,6 +811,7 @@ area :: proc(ctx: ^Context, name: string, size: [2]f32) -> Area {
 // pointer moved since the press, within `lo` and `hi`, so a press alone never changes
 // it. Returns true when the value changed.
 drag_value :: proc(ctx: ^Context, s: string, value: ^f32, per_point, lo, hi: f32, shown: string, enabled := true) -> bool {
+	ctx.controls += 1
 	t := ctx.theme
 	w := fill_width(ctx)
 	if w <= 0 do w = 220
@@ -795,6 +848,7 @@ drag_value :: proc(ctx: ^Context, s: string, value: ^f32, per_point, lo, hi: f32
 // text_focus to 0 when it closes. `hint` shows, faint, while the field is empty. Returns
 // true when the text changed.
 text_field :: proc(ctx: ^Context, name: string, buf: []u8, width: f32 = 0, hold := false, hint := "") -> (changed: bool) {
+	ctx.controls += 1
 	t := ctx.theme
 	w := width if width > 0 else fill_width(ctx)
 	if w <= 0 do w = 180

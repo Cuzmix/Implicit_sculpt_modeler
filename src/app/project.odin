@@ -134,9 +134,13 @@ kit_project_section :: proc(app: ^App) {
 	if picked := ui.select(ctx, "project from", names[:], chosen); picked >= 0 do p.source = ids[picked]
 	_ = ui.slider(ctx, "Reach", &p.reach, 0.002, 0.3, .Logarithmic, fmt.tprintf("%.3f", p.reach))
 	_ = ui.slider(ctx, "Strength", &p.strength, 0, 1, .Linear, fmt.tprintf("%.2f", p.strength))
-	_ = ui.switch_row(ctx, "Polypaint too", &p.paint)
-	_ = ui.switch_row(ctx, "As placed in the scene", &p.as_placed)
 	if ui.button(ctx, "Project detail", .Flat, .Accent, enabled = obj != nil && src != nil) do project_detail(app, obj, src)
 	kit_last_result(app, .Project)
-	ui.paragraph(ctx, "Moves the selected object's shown level onto the source along its normals, where it is within Reach (a share of its size). As placed off reads each in its own space, so a copy beside the original projects as if on top of it. For a remeshed copy: subdivide it and project at each level, lowest first.")
+	ui.paragraph(ctx, "Moves the selected object's shown level onto the source along its normals, where it is within Reach (a share of its size). For a remeshed copy: subdivide it and project at each level, lowest first.")
+	if kit_more(app, .Project) {
+		_ = ui.switch_row(ctx, "Polypaint too", &p.paint)
+		_ = ui.switch_row(ctx, "As placed in the scene", &p.as_placed)
+		ui.paragraph(ctx, "As placed off reads each in its own space, so a copy beside the original projects as if on top of it.")
+		kit_more_end(app)
+	}
 }

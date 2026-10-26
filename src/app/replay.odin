@@ -403,12 +403,16 @@ kit_replay_section :: proc(app: ^App) {
 			ui.paragraph(ctx, "Nothing recorded yet.")
 		}
 	}
-	_ = ui.switch_row(ctx, "Recorded brushes", &p.recorded_brush)
-	_ = ui.switch_row(ctx, "Instant", &p.instant)
-	idle := !p.recording && !busy
-	save, load := kit_button_pair(ctx, "Save strokes...", "Load strokes...", idle, idle)
-	if save do file_dialog(app, .Save_Strokes)
-	if load do file_dialog(app, .Load_Strokes)
-	if ui.button(ctx, "Clear the recording", .Light, .Danger, enabled = idle && len(p.take.frames) > 0) do take_clear(&p.take)
-	ui.paragraph(ctx, "R over the viewport replays the recording (or else the last stroke) from the pointer, in this view; Replay puts it back where it was drawn. With Recorded brushes off it uses the brush set now.")
+	ui.paragraph(ctx, "R over the viewport replays the recording (or else the last stroke) from the pointer, in this view; Replay puts it back where it was drawn.")
+	if kit_more(app, .Recorder) {
+		_ = ui.switch_row(ctx, "Recorded brushes", &p.recorded_brush)
+		_ = ui.switch_row(ctx, "Instant", &p.instant)
+		idle := !p.recording && !busy
+		save, load := kit_button_pair(ctx, "Save strokes...", "Load strokes...", idle, idle)
+		if save do file_dialog(app, .Save_Strokes)
+		if load do file_dialog(app, .Load_Strokes)
+		if ui.button(ctx, "Clear the recording", .Light, .Danger, enabled = idle && len(p.take.frames) > 0) do take_clear(&p.take)
+		ui.paragraph(ctx, "With Recorded brushes off a replay uses the brush set now; Instant plays it all at once rather than at the pace it was drawn.")
+		kit_more_end(app)
+	}
 }

@@ -121,6 +121,7 @@ settings_reset :: proc(app: ^App, tab: Settings_Tab) {
 		k.surface_ring = true
 		k.action_bar = true
 		k.rail_side = .Left
+		k.all_options = false
 		windows_reset(k)
 	case .Camera:
 		n.orbit_style, n.limit_pitch, n.orbit_speed, n.pan_speed, n.zoom_speed = d.orbit_style, d.limit_pitch, d.orbit_speed, d.pan_speed, d.zoom_speed
@@ -167,6 +168,10 @@ settings_interface :: proc(app: ^App) {
 	sides := [len(Rail_Side)]string{"Off", "Left", "Right"}
 	if picked := ui.tabs(ctx, "Modifier buttons", sides[:], int(k.rail_side)); picked >= 0 do k.rail_side = Rail_Side(picked)
 	ui.paragraph(ctx, "Smooth, Invert, Mask and Hide at the bottom left or right, for what Shift, Ctrl and Alt do. Tap one to keep it on until tapped again; hold one with a finger to use it only while held, sculpting with the pen or another finger.")
+	ui.spacer(ctx, 8)
+	ui.caption(ctx, "INSPECTOR")
+	_ = ui.switch_row(ctx, "Show every option", &k.all_options)
+	ui.paragraph(ctx, "Each section of the inspector shows its common controls and keeps the rest under More options. On, every section shows everything.")
 	ui.spacer(ctx, 8)
 	ui.caption(ctx, "PANELS")
 	if ui.button(ctx, "Reset panel positions", .Bordered) do windows_reset(k)

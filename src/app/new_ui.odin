@@ -82,8 +82,11 @@ Kit_State :: struct {
 	object_menu_id: int,
 	object_menu_at: ui.Rect,
 	object_menu_side: ui.Side, // at the pointer from the Scene tab, above the status chip
-	// Which inspector sections are open.
+	// Which inspector sections are open, and which show their More options; with
+	// all_options (Settings > Interface) every section shows everything.
 	open:       [Kit_Section]bool,
+	more:       [Kit_Section]bool,
+	all_options: bool,
 	scroll:     f32, // the inspector's scroll, where it is heading
 	add_shape:  geom.Primitive,
 	add_size:   int, // into SPHERE_PRESETS

@@ -200,16 +200,20 @@ kit_retopo_section :: proc(app: ^App) {
 		append(&ids, other.id)
 	}
 	if picked := ui.select(ctx, "bake from", names[:], chosen); picked >= 0 do app.ui.bake.source = ids[picked]
-	sizes: [len(BAKE_SIZES)]string
-	size := -1
-	for s, i in BAKE_SIZES {
-		sizes[i] = fmt.tprintf("%d", s)
-		if s == app.ui.bake.size do size = i
-	}
-	if picked := ui.tabs(ctx, "bake size", sizes[:], size); picked >= 0 do app.ui.bake.size = BAKE_SIZES[picked]
-	_ = ui.slider(ctx, "Reach", &app.ui.bake.reach_edges, 0.5, 10, .Linear, fmt.tprintf("%.1f edges", app.ui.bake.reach_edges))
 	bake, uvs := kit_button_pair(ctx, "Bake maps...", "New UVs")
 	if bake do file_dialog(app, .Bake)
 	if uvs do object_layout_uvs(app, obj)
-	ui.paragraph(ctx, "Bakes the source's detail (its top level) into normal and displacement maps on this object's UVs, and writes them with the quads as OBJ into a folder. Reach: how far each texel looks either way.")
+	ui.paragraph(ctx, "Bakes the source's detail (its top level) into normal and displacement maps on this object's UVs, and writes them with the quads as OBJ into a folder.")
+	if kit_more(app, .Retopo) {
+		sizes: [len(BAKE_SIZES)]string
+		size := -1
+		for s, i in BAKE_SIZES {
+			sizes[i] = fmt.tprintf("%d", s)
+			if s == app.ui.bake.size do size = i
+		}
+		if picked := ui.tabs(ctx, "bake size", sizes[:], size); picked >= 0 do app.ui.bake.size = BAKE_SIZES[picked]
+		_ = ui.slider(ctx, "Reach", &app.ui.bake.reach_edges, 0.5, 10, .Linear, fmt.tprintf("%.1f edges", app.ui.bake.reach_edges))
+		ui.paragraph(ctx, "The maps' size in texels, and Reach: how far each texel looks either way.")
+		kit_more_end(app)
+	}
 }

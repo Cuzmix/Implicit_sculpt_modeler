@@ -1086,6 +1086,14 @@ run :: proc(opts: Options) -> bool {
 		k := &app.kit
 		fmt.printfln("palette=%d palette_runs=%d palette_last=%s settings_tab=%v tool=%s", int(k.palette), k.palette_runs, palette_entry_name(k.palette_last) if k.palette_ran else "none", k.settings_tab, strings.to_lower(fmt.tprint(app.tool), context.temp_allocator))
 		fmt.printfln("help_open=%d help_tab=%v help_scroll=%.1f object_page=%v", int(k.help), k.help_tab, k.help_scroll, k.object_page)
+		// The inspector sections showing their More options, as Kit_Section names.
+		more := "none"
+		for open, sec in k.more {
+			if !open do continue
+			name := strings.to_lower(fmt.tprint(sec), context.temp_allocator)
+			more = name if more == "none" else strings.concatenate({more, "+", name}, context.temp_allocator)
+		}
+		fmt.printfln("more=%s all_options=%d", more, int(k.all_options))
 		// The action bar's groups as it last showed them (none while it waits for room), and
 		// how often the mask was read.
 		bar_groups := "none"

@@ -280,6 +280,9 @@ Context :: struct {
 	},
 	section_depth:    int,
 	last_rect:        Rect, // where the last widget went: what a popover opens beside
+	// How many controls (buttons, sliders, switches, tabs, fields...) were laid out since
+	// init, disabled ones included: what tests count to keep a section's basic part short.
+	controls:         int,
 	// The last widget laid out, if it took the pointer (interact): what secondary acts on.
 	// A widget that returns early, a disabled one, leaves it 0.
 	last_id:          Id,
