@@ -1151,6 +1151,13 @@ run :: proc(opts: Options) -> bool {
 			transform_undo := 0
 			for e in app.history.done do if e.kind == .Transform do transform_undo += 1
 			lower :: proc(v: any) -> string {return strings.to_lower(fmt.tprint(v), context.temp_allocator)}
+			pivot := "none"
+			if obj := selected_object(&app); obj != nil && gizmo_pivot_set(&app) {
+				at := gizmo_center(&app, obj)
+				pivot = fmt.tprintf("%.3f,%.3f,%.3f", at.x, at.y, at.z)
+			}
+			e := app.kit.gizmo_entry
+			fmt.printfln("gizmo_pivot=%s gizmo_pivot_latch=%d gizmo_entry=%s", pivot, int(m.pivot_latch), lower(e.handle) if e.open else "none")
 			fmt.printfln("gizmo_at=%.0f,%.0f gizmo_mode=%s gizmo_hover=%s gizmo_last=%s gizmo_drags=%d gizmo_snap=%d transform=%.4f,%.4f,%.4f,%.3f,%.3f,%.3f,%.4f transform_undo=%d",
 				m.drawn.x, m.drawn.y, lower(m.mode), lower(m.hover), lower(m.last), m.drags, int(m.snap), tr.position.x, tr.position.y, tr.position.z, tr.rotation.x, tr.rotation.y, tr.rotation.z, tr.scale, transform_undo)
 		}

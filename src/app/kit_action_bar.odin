@@ -34,12 +34,13 @@ Action_Group_Info :: struct {
 
 @(rodata)
 ACTION_GROUPS := [Action_Group]Action_Group_Info {
-	// What the Move tool's handles do, and the Snap latch.
+	// What the Move tool's handles do, and the Snap and Pivot latches.
 	.Gizmo = {"Gizmo", {
 		{.Gizmo, int(gizmo.Mode.Move), "Move"},
 		{.Gizmo, int(gizmo.Mode.Turn), "Turn"},
 		{.Gizmo, int(gizmo.Mode.Scale), "Scale"},
 		{.Gizmo_Snap, 0, "Snap"},
+		{.Gizmo_Pivot, 0, "Pivot"},
 	}},
 	.Hd = {"HD", {{.Hd_Leave, 0, "Leave HD"}}},
 	// Invert and Clear first, the commonest; the step operations use the Mask section's

@@ -211,6 +211,13 @@ draw_gizmo :: proc(app: ^App, o: Overlay, input: Viewport_Input) {
 	if !sc.ok do return
 	app.move.drawn = sc.center
 	m := app.move
+	if obj := selected_object(app); obj != nil && gizmo_pivot_set(app) {
+		// Away from its origin, the gizmo leaves a dot where the origin is.
+		view_proj := camera.orbit_proj(app.camera, input.size.x / max(input.size.y, 1)) * camera.orbit_view(app.camera)
+		if p, ok := gizmo.project(view_proj, obj.transform.position, input.size); ok {
+			overlay_disc(o, p, 4 * gizmo_scale(app), overlay_color({1, 1, 1, 0.5}))
+		}
+	}
 	active := m.drag.handle if m.drag.handle != .None else m.hover
 	px := gizmo_scale(app)
 	colors := GIZMO_AXIS_COLORS

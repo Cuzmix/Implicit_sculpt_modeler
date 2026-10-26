@@ -42,6 +42,8 @@ Command_Id :: enum u8 {
 	Tool_Insert,
 	Gizmo, // the argument is the gizmo.Mode
 	Gizmo_Snap,
+	Gizmo_Pivot,
+	Gizmo_Pivot_Reset,
 	Brush, // the argument is the sculpt.Brush_Kind
 	Symmetry_X,
 	Size_Down,
@@ -287,6 +289,23 @@ COMMANDS := [Command_Id]Command {
 		icon = ui.ICON_GRID,
 		run = proc(app: ^App, _: int) {app.move.snap = !app.move.snap},
 		checked = proc(app: ^App, _: int) -> bool {return app.move.snap},
+	},
+	.Gizmo_Pivot = {
+		label = "Set the pivot",
+		help = "The next tap or click on a surface puts the gizmo there, so turns and scales go about that point; the selection stays.",
+		icon = ui.ICON_FOCUS,
+		run = proc(app: ^App, _: int) {
+			app.tool = .Move
+			app.move.pivot_latch = !app.move.pivot_latch
+		},
+		enabled = has_object,
+		checked = proc(app: ^App, _: int) -> bool {return app.tool == .Move && app.move.pivot_latch},
+	},
+	.Gizmo_Pivot_Reset = {
+		label = "Reset the pivot",
+		help = "Puts the gizmo back on the selected object's origin.",
+		run = proc(app: ^App, _: int) {app.move.pivot = {}},
+		enabled = proc(app: ^App, _: int) -> bool {return gizmo_pivot_set(app)},
 	},
 	.Brush = {
 		label = "Brush",

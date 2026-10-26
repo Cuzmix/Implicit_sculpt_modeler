@@ -119,6 +119,8 @@ MOUSE_HELP := [?]Help_Line {
 	{group = "MOUSE", what = "Turn or scale it", how = "W again, then drag a ring or the middle", show = move_tool},
 	{group = "MOUSE", what = "Snap a gizmo drag", how = "Ctrl while dragging", show = move_tool},
 	{group = "MOUSE", what = "Put it back mid-drag", how = "Esc", show = move_tool},
+	{group = "MOUSE", what = "Type a handle's value", how = "Click the handle without moving", show = move_tool},
+	{group = "MOUSE", what = "Turn or scale about a point", how = "Pivot, then click the surface", show = move_tool},
 	{group = "MOUSE", what = "Brush pie", how = "Right click"},
 	{group = "MOUSE", what = "Turn the view", how = "Left drag on empty space", show = proc(app: ^App) -> bool {return empty_turns(app) && app.nav.empty_drag[.Mouse] == .Orbit}},
 	{group = "MOUSE", what = "Turn the view", how = "Left drag from the edges", show = proc(app: ^App) -> bool {return app.nav.edge_orbit}},
