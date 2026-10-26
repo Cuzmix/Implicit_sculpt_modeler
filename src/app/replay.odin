@@ -228,8 +228,9 @@ replay_shortcut :: proc(app: ^App) {
 // loaded, since an alpha names an image that may not be there.
 STROKES_MAGIC :: "SCSTROKE"
 // 2: each frame's camera roll; 3: the rail's Mask in a frame's flags; 4: each brush's
-// spread and seed after its cloth mode; 5: its Line and Join switches after those.
-STROKES_VERSION :: u32(5)
+// spread and seed after its cloth mode; 5: its Line and Join switches after those; 6: its
+// Lock plane and Connected switches after those.
+STROKES_VERSION :: u32(6)
 
 strokes_save :: proc(app: ^App, path: string) -> bool {
 	t := replay_source(app)
@@ -261,6 +262,8 @@ strokes_save :: proc(app: ^App, path: string) -> bool {
 		geom.byte_put(&out, t.seeds[i])
 		geom.byte_put(&out, u8(b.line))
 		geom.byte_put(&out, u8(b.join))
+		geom.byte_put(&out, u8(b.lock_plane))
+		geom.byte_put(&out, u8(b.connected))
 	}
 	geom.byte_put(&out, u32(len(t.frames)))
 	for f in t.frames {
@@ -358,9 +361,15 @@ strokes_read :: proc(app: ^App, data: []u8, t: ^Take) -> bool {
 			line = geom.byte_get(&r, u8)
 			join = geom.byte_get(&r, u8)
 		}
+		// Nor, before version 6, these two.
+		lock_plane, connected: u8
+		if version >= 6 {
+			lock_plane = geom.byte_get(&r, u8)
+			connected = geom.byte_get(&r, u8)
+		}
 		if !r.ok || int(kind) >= len(sculpt.Brush_Kind) || int(stroke) >= len(Stroke_Mode) || int(cloth) >= len(sculpt.Cloth_Mode) do return false
 		all_axes := transmute(u8)sculpt.Symmetry{.X, .Y, .Z}
-		if symmetry & ~all_axes != 0 || drawn > 1 || pressure_strength > 1 || pressure_size > 1 || front > 1 || line > 1 || join > 1 do return false
+		if symmetry & ~all_axes != 0 || drawn > 1 || pressure_strength > 1 || pressure_size > 1 || front > 1 || line > 1 || join > 1 || lock_plane > 1 || connected > 1 do return false
 		if !finite(radius, strength, lazy, spread, color.r, color.g, color.b) || !curve_ok(falloff) || !curve_ok(pressure_curve) do return false
 		b.kind = sculpt.Brush_Kind(kind)
 		b.radius_px = clamp(radius, MIN_RADIUS_PX, MAX_RADIUS_PX)
@@ -373,6 +382,7 @@ strokes_read :: proc(app: ^App, data: []u8, t: ^Take) -> bool {
 		b.cloth_mode = sculpt.Cloth_Mode(cloth)
 		b.spray_spread = clamp(spread, 0, SPRAY_MAX_SPREAD)
 		b.line, b.join = line == 1, join == 1
+		b.lock_plane, b.connected = lock_plane == 1, connected == 1
 		append(&t.brushes, b)
 		append(&t.seeds, seed)
 	}

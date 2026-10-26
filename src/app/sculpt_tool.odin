@@ -22,6 +22,8 @@ Brush_Settings :: struct {
 	tilt_strength:     f32, // 0 to 1: how far a leaning pen turns the brush (camera.orbit_tilt)
 	lazy_px:           f32,  // lazy mouse: the brush trails the cursor by this many pixels; 0 is off
 	front_only:        bool, // brushes and mask shapes leave what faces away from the viewer (sculpt.Brush.facing)
+	lock_plane:        bool, // keep the plane the stroke's first dab found (sculpt.Brush.lock_plane)
+	connected:         bool, // work only on what joins the dab's centre through the surface (sculpt.Brush.connected)
 	stroke:            Stroke_Mode,
 	spray_spread:      f32, // Spray: how far from the path dabs scatter, in brush radii
 	line:              bool, // every stroke a straight line from its press (Stroke.line)
@@ -127,10 +129,12 @@ Stroke :: struct {
 	line_leaving:  bool,
 	smooth_was:    bool, // input.smooth in the frame before, to see Shift go down
 	// A stroke that joined the last one (Stroke_End): the way it was going and how far
-	// it had gone since its last dab, for a straight line laid again from the join.
+	// it had gone since its last dab, and its locked plane, for a straight line laid
+	// again from the join.
 	joined:        bool,
 	join_dir:      [2]f32,
 	join_travel:   f32,
+	join_locked:   sculpt.Locked_Plane,
 
 	// The sum and count of the points it dabbed, in its object's space: their mean is the
 	// pivot orbits turn about once it ends (Stroke_Pivot).
@@ -150,6 +154,7 @@ Stroke_End :: struct {
 	travel: f32,
 	size:   [2]f32,
 	camera: camera.Orbit,
+	locked: sculpt.Locked_Plane, // its Lock plane, which a stroke joining it keeps
 	// How many strokes joined one before, and how many straight lines were laid, for
 	// the exit stats.
 	joins, lines: int,
@@ -370,7 +375,8 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 			// let go, and walks to the press.
 			st.pos, st.dir, st.travel, st.start = end.pos, end.dir, end.travel, end.pos
 			st.line_from, st.line_to = end.pos, end.pos
-			st.joined, st.join_dir, st.join_travel = true, end.dir, end.travel
+			st.joined, st.join_dir, st.join_travel, st.join_locked = true, end.dir, end.travel, end.locked
+			sculpt.sculptor_lock_plane(object_sculptor(obj), end.locked)
 			app.stroke_end.joins += 1
 			_ = stroke_walk(app, obj, input, inv, s.pos, s.pressure, s.tilt, res)
 			return
@@ -654,8 +660,9 @@ stroke_restart :: proc(app: ^App, obj: ^Object, input: Viewport_Input, inv: matr
 	st.step, st.turn, st.pivot_sum, st.pivot_count = 0, 0, {}, 0
 	if st.joined {
 		// A joined stroke goes on from the last one's end as it did at its press, with no
-		// first dab of its own.
+		// first dab of its own, and on its plane.
 		st.dir, st.travel = st.join_dir, st.join_travel
+		sculpt.sculptor_lock_plane(object_sculptor(obj), st.join_locked)
 		return
 	}
 	switch st.mode {
@@ -795,6 +802,8 @@ brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pres
 		falloff_shape = brush_falloff(app, kind),
 		facing   = facing,
 		color    = brush_color_bytes(app),
+		lock_plane = app.brush.lock_plane,
+		connected  = app.brush.connected,
 	}
 }
 

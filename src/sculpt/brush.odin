@@ -90,6 +90,12 @@ Brush :: struct {
 	facing:   Vec3,
 	// Paint: the colour it paints, sRGB.
 	color:    [3]u8,
+	// Keep the area the stroke's first dab found (filters.odin). Not Grab, Snake hook,
+	// Smooth, Inflate, Layer or Morph, which do not work along it, unless with an alpha.
+	lock_plane: bool,
+	// Work only on what joins the dab's centre through the surface (filters.odin).
+	// Grab ignores it.
+	connected:  bool,
 }
 
 // A vertex's Layer height, and the stroke it belongs to (0: none).
@@ -218,6 +224,9 @@ Sculptor :: struct {
 	pose:         Pose_State,
 	// The topological mask under way (topo_mask.odin).
 	topo:         Topo_State,
+	// Lock plane's plane for the stroke under way, and Connected's flood (filters.odin).
+	locked:       Locked_Plane,
+	connected:    Connected_State,
 	// Set while dynamic topology is on (dyntopo.odin): the mesh is laid out in pages,
 	// `faces` and the shared lists above are replaced, and there are no LOD copies.
 	dyn:         ^Dyn,
@@ -273,6 +282,7 @@ sculptor_destroy :: proc(s: ^Sculptor) {
 	cloth_destroy(&s.cloth)
 	pose_free(s)
 	topo_free(s)
+	connected_free(s)
 	history_destroy(&s.history)
 	geom.vertex_faces_destroy(&s.faces)
 	geom.bvh_destroy(&s.bvh)
@@ -670,6 +680,7 @@ Dab :: struct {
 	// its height off it in radii (dab_weight).
 	alpha:    ^Alpha,
 	au, av, an: Vec3,
+	connected: bool, // Connected's flood ran for this dab (connected_weight)
 	normal:   Vec3, // area normal: the falloff-weighted normals inside the brush
 	plane:    Vec3, // Clay, Flatten: a point on the plane they pull toward
 	amount:   f32,  // signed: displacement at the centre (Draw, Inflate, Crease), plane
@@ -693,7 +704,7 @@ apply_dab :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
 		b.drag *= sign
 		b.facing *= sign
 		if sign.x * sign.y * sign.z < 0 do b.alpha_mirror = !b.alpha_mirror
-		moved += dab_once(s, b, center * sign)
+		moved += dab_once(s, b, center * sign, sign)
 	}
 	return moved
 }
@@ -725,15 +736,16 @@ shield :: #force_inline proc(fade, mask: []u8, v: u32) -> f32 {
 
 // How much a dab may move vertex v for facing the way it does (Brush.facing): 1 when
 // front faces only is off or the vertex faces the viewer, 0 when it faces away, a short
-// ramp between.
+// ramp between; and 0 where Connected's flood did not reach it.
 @(private)
 facing_weight :: #force_inline proc(d: ^Dab, normals: []Vec3, v: u32) -> f32 {
-	if d.brush.facing == {} do return 1
-	return clamp(linalg.dot(normals[v], d.brush.facing) * 5 + 0.5, 0, 1)
+	w := connected_weight(d, v)
+	if d.brush.facing == {} do return w
+	return clamp(linalg.dot(normals[v], d.brush.facing) * 5 + 0.5, 0, 1) * w
 }
 
 @(private)
-dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
+dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3, mirror: Vec3) -> int {
 	// An alpha may reach past the round brush, up to its square's corners.
 	reach := brush.radius * (brush.alpha.reach if brush.alpha != nil else 1)
 	d := Dab {
@@ -759,6 +771,7 @@ dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
 	}
 	resize(&s.partials, len(s.hit))
 	slice.zero(s.partials[:])
+	if brush.connected do connected_flood(s, &d, pool)
 	// The area under the brush: what most kinds work along, and the plane an alpha
 	// lies on.
 	if (brush.kind != .Smooth && brush.kind != .Mask && brush.kind != .Paint && brush.kind != .Snake_Hook && brush.kind != .Morph) || brush.alpha != nil {
@@ -770,8 +783,9 @@ dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
 			weight += p.weight_sum
 		}
 		d.normal = linalg.normalize0(d.normal)
-		if brush.tilt != {} do d.normal = linalg.normalize0(brush.tilt * d.normal)
 		if weight > 0 do d.plane /= weight
+		if brush.lock_plane && brush_locks_plane(brush.kind, brush.alpha != nil) do lock_plane_apply(s, &d, mirror, weight)
+		if brush.tilt != {} do d.normal = linalg.normalize0(brush.tilt * d.normal)
 		if brush.alpha != nil do alpha_frame(&d)
 	}
 	if brush.kind == .Mask do return mask_dab(s, &d, pool)
@@ -939,7 +953,7 @@ job_area :: proc(data: rawptr, i: int) {
 		delta := m.positions[v] - d.center
 		d2 := linalg.dot(delta, delta)
 		if d2 < d.r2 {
-			w := falloff(d2 * d.inv_r2)
+			w := falloff(d2 * d.inv_r2) * connected_weight(d, v)
 			normals += m.normals[v] * w
 			centers += m.positions[v] * w
 			weight += w

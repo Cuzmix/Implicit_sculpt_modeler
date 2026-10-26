@@ -168,9 +168,10 @@ roll_dabs_a_diameter_apart_along_the_stroke :: proc(t: ^testing.T) {
 	app.stroke.active = false
 }
 
-// A Spray stroke saved to a .strokes file and replayed on another sphere lays the same
-// dabs as drawn, and leaves the replaying app's own seed as it was; a version 3 file,
-// from before the spread and seed, still reads.
+// A Spray stroke, with Lock plane and Connected on, saved to a .strokes file and replayed
+// on another sphere lays the same dabs as drawn, and leaves the replaying app's own seed
+// as it was; a version 3 file, from before the spread and seed, and a version 5 file,
+// from before Lock plane and Connected, still read.
 @(test)
 spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	path := "build/spray_test.strokes"
@@ -182,6 +183,7 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	defer replay_destroy(&b.replay)
 	oa, ob := stroke_sphere(&a), stroke_sphere(&b)
 	a.brush.radius_px, a.brush.stroke, a.brush.spray_spread = 20, .Spray, 0.8
+	a.brush.lock_plane, a.brush.connected = true, true
 	a.stroke_seed = 41
 	strip := [?][2]f32{{430, 380}, {470, 390}, {510, 400}, {550, 410}}
 	_ = stroke_recorded(&a, strip[:])
@@ -191,19 +193,37 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	b.stroke_seed = 7
 	testing.expect_value(t, b.replay.take.brushes[0].spray_spread, 0.8)
 	testing.expect_value(t, b.replay.take.seeds[0], 41)
+	testing.expect(t, b.replay.take.brushes[0].lock_plane && b.replay.take.brushes[0].connected)
 	replay_start(&b, &b.replay.take)
 	for replay_busy(&b) do _ = replay_frame(&b, {})
 	testing.expect(t, slice.equal(object_sculptor(oa).mesh.positions[:], object_sculptor(ob).mesh.positions[:]))
 	testing.expect_value(t, b.stroke_seed, 7)
 
-	// Version 3 had neither the spread and seed nor the Line and Join switches after a
-	// brush's cloth mode: the one brush ends 64 bytes after the header's 16.
+	// Version 5 had no Lock plane and Connected bytes after the brush's Line and Join:
+	// the one brush ends 64 + 14 bytes after the header's 16.
 	data, err := os.read_entire_file(path, context.allocator)
 	testing.expect(t, err == nil)
 	defer delete(data)
+	five := make([dynamic]u8, context.temp_allocator)
+	append(&five, ..data[:16 + 64 + 14])
+	append(&five, ..data[16 + 64 + 16:])
+	five[len(STROKES_MAGIC)] = 5
+	testing.expect(t, os.write_entire_file(path, five[:]) == nil)
+	d: App
+	defer replay_destroy(&d.replay)
+	defer results_destroy(&d)
+	testing.expect(t, strokes_load(&d, path))
+	if len(d.replay.take.brushes) == 1 {
+		testing.expect(t, !d.replay.take.brushes[0].lock_plane && !d.replay.take.brushes[0].connected)
+		testing.expect_value(t, d.replay.take.brushes[0].spray_spread, 0.8)
+		testing.expect_value(t, d.replay.take.seeds[0], 41)
+	}
+
+	// Version 3 had neither the spread and seed nor the Line and Join switches after a
+	// brush's cloth mode: the one brush ends 64 bytes after the header's 16.
 	old := make([dynamic]u8, context.temp_allocator)
 	append(&old, ..data[:16 + 64])
-	append(&old, ..data[16 + 64 + 14:])
+	append(&old, ..data[16 + 64 + 16:])
 	old[len(STROKES_MAGIC)] = 3
 	testing.expect(t, os.write_entire_file(path, old[:]) == nil)
 	c: App
@@ -458,4 +478,36 @@ line_from_a_join_keeps_the_join :: proc(t: ^testing.T) {
 	testing.expect_value(t, a.stroke_end.joins, 1)
 	testing.expect_value(t, b.stroke_end.joins, 1)
 	testing.expect(t, meshes_near(oa, ob))
+}
+
+// Front faces only, Lock plane and Connected are commands that flip their switches, and
+// reach the sculpt brush: a stroke with Lock plane on locks the plane its first dab
+// found, one with it off leaves none, and a stroke joining a locked one keeps its plane.
+@(test)
+filter_commands_reach_the_brush :: proc(t: ^testing.T) {
+	path := [?][2]f32{{440, 380}, {470, 390}, {500, 400}}
+	app: App
+	defer stroke_scene_free(&app)
+	obj := stroke_sphere(&app)
+	for id in ([?]Command_Id{.Front_Only, .Lock_Plane, .Connected}) {
+		testing.expect(t, !command_checked(&app, id))
+		testing.expect(t, command_run(&app, id))
+		testing.expect(t, command_checked(&app, id))
+	}
+	testing.expect(t, app.brush.front_only && app.brush.lock_plane && app.brush.connected)
+	stroke_along(&app, path[:], len(path))
+	testing.expect(t, object_sculptor(obj).locked.set)
+	testing.expect_value(t, len(app.history.done), 1)
+	testing.expect(t, command_run(&app, .Lock_Plane))
+	stroke_along(&app, path[:], len(path))
+	testing.expect(t, !object_sculptor(obj).locked.set)
+	// A stroke joining one keeps its plane, so a stroke laid in pieces stays on one.
+	testing.expect(t, command_run(&app, .Lock_Plane))
+	app.brush.join = true
+	stroke_along(&app, path[:], len(path))
+	first := object_sculptor(obj).locked
+	more := [?][2]f32{{504, 398}, {540, 380}, {580, 360}}
+	stroke_along(&app, more[:], len(more))
+	testing.expect_value(t, app.stroke_end.joins, 1)
+	testing.expect(t, first.set && object_sculptor(obj).locked == first)
 }

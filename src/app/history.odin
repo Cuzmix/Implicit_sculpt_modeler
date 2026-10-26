@@ -208,6 +208,9 @@ brush_stroke_finish :: proc(app: ^App) {
 	}
 	obj := object_by_id(app, app.stroke.object)
 	if obj == nil do return
+	// A stroke joining this one keeps its locked plane, so a long Flatten laid in
+	// pieces flattens to one plane.
+	e.locked = sculpt.sculptor_locked_plane(object_sculptor(obj))
 	sculpt.sculptor_grab_end(object_sculptor(obj))
 	sculpt.sculptor_cloth_end(object_sculptor(obj))
 	if sculpt.sculptor_stroke_end(object_sculptor(obj)) do history_record(app, obj, .Mask if .Mask in BRUSHES[app.stroke.kind].flags else .Stroke, BRUSHES[app.stroke.kind].name)

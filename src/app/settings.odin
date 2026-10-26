@@ -68,6 +68,8 @@ SETTINGS := [?]Setting {
 	{"tilt_strength", B + offset_of(Brush_Settings, tilt_strength), f32, 0, 1},
 	{"lazy_px", B + offset_of(Brush_Settings, lazy_px), f32, 0, 150},
 	{"front_only", B + offset_of(Brush_Settings, front_only), bool, 0, 0},
+	{"lock_plane", B + offset_of(Brush_Settings, lock_plane), bool, 0, 0},
+	{"connected", B + offset_of(Brush_Settings, connected), bool, 0, 0},
 	{"stroke", B + offset_of(Brush_Settings, stroke), Stroke_Mode, 0, 0},
 	{"stroke_spread", B + offset_of(Brush_Settings, spray_spread), f32, 0, SPRAY_MAX_SPREAD},
 	{"stroke_line", B + offset_of(Brush_Settings, line), bool, 0, 0},
@@ -270,10 +272,11 @@ settings_load :: proc(app: ^App, path: string) {
 			}
 		case "preset":
 			// preset <name> <brush> <strength> <drawn 0|1> c1x c1y c2x c2y <alpha|-> <alpha mode>
-			//        <alpha angle> <stroke> <lazy px> r g b <cloth mode> [<spread>]; names
-			// escaped (preset_escape). Lines from before Spray have no spread and take the
-			// default. A damaged line, or one whose name is taken, is skipped.
-			if (len(f) != 18 && len(f) != 19) || app.preset_count == MAX_PRESETS do continue
+			//        <alpha angle> <stroke> <lazy px> r g b <cloth mode> [<spread> [<lock plane 0|1>
+			//        <connected 0|1>]]; names escaped (preset_escape). Lines from before Spray
+			// have no spread and take the default; lines from before Lock plane and
+			// Connected have both off. A damaged line, or one whose name is taken, is skipped.
+			if (len(f) != 18 && len(f) != 19 && len(f) != 21) || app.preset_count == MAX_PRESETS do continue
 			kind, kind_ok := brush_by_name(f[2])
 			alpha_mode, mode_ok := reflect.enum_from_name(Alpha_Mode, f[10])
 			stroke, stroke_ok := reflect.enum_from_name(Stroke_Mode, f[12])
@@ -284,7 +287,8 @@ settings_load :: proc(app: ^App, path: string) {
 				falloff = {drawn = f[4] == "1", curve = curve(f[5:9], FALLOFF_SMOOTH_CURVE)},
 				alpha = -1, alpha_mode = alpha_mode, alpha_angle = number(f[11], 0), stroke = stroke,
 				lazy_px = clamp(number(f[13], 0), 0, MAX_RADIUS_PX), cloth_mode = cloth,
-				spread = clamp(number(f[18], SPRAY_DEFAULT_SPREAD), 0, SPRAY_MAX_SPREAD) if len(f) == 19 else SPRAY_DEFAULT_SPREAD,
+				spread = clamp(number(f[18], SPRAY_DEFAULT_SPREAD), 0, SPRAY_MAX_SPREAD) if len(f) >= 19 else SPRAY_DEFAULT_SPREAD,
+				lock_plane = len(f) == 21 && f[19] == "1", connected = len(f) == 21 && f[20] == "1",
 			}
 			for k in 0 ..< 3 do v.color[k] = clamp(number(f[14 + k], 0), 0, 1)
 			// Only the built-in alphas are there at every start, in this order (alphas_init).
@@ -431,9 +435,9 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 		p := &app.presets[i]
 		v := p.values
 		alpha := app.alphas[v.alpha].name if v.alpha >= 0 && v.alpha < len(app.alphas) else "-"
-		fmt.sbprintfln(&out, "preset %s %v %g %d %g %g %g %g %s %v %g %v %g %g %g %g %v %g", preset_escape(preset_name(p)), v.kind, v.strength, bit(v.falloff.drawn),
+		fmt.sbprintfln(&out, "preset %s %v %g %d %g %g %g %g %s %v %g %v %g %g %g %g %v %g %d %d", preset_escape(preset_name(p)), v.kind, v.strength, bit(v.falloff.drawn),
 			v.falloff.curve.c1.x, v.falloff.curve.c1.y, v.falloff.curve.c2.x, v.falloff.curve.c2.y, preset_escape(alpha), v.alpha_mode, v.alpha_angle, v.stroke, v.lazy_px,
-			v.color.r, v.color.g, v.color.b, v.cloth_mode, v.spread)
+			v.color.r, v.color.g, v.color.b, v.cloth_mode, v.spread, bit(v.lock_plane), bit(v.connected))
 	}
 	if on.preset > 0 && on.preset <= app.preset_count do fmt.sbprintfln(&out, "brush_preset %s", preset_escape(preset_name(&app.presets[on.preset - 1])))
 	for o in app.key_overrides[:app.key_override_count] {

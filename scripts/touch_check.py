@@ -314,6 +314,29 @@ def join_strokes_by_pen():
 
 
 @scenario
+def connected_from_the_palette_by_pen():
+    """The palette's Connected only turns the switch on, and a pen stroke then sculpts as
+    one undo step."""
+    s = Script()
+    s.press("k", ("ctrl",))
+    s.type("connected only")
+    s.press("Return")
+    s.wait(4)
+    pen_stroke(s, line((720, 420), (840, 460), 10))
+    return s, [], camera_still({"brush_connected": near(1), "brush_lock_plane": near(0), "palette": near(0),
+                                "dabs": lambda v: int(v) > 0, "undo_steps": near(1)})
+
+
+@scenario
+def lock_plane_flatten_by_finger():
+    """A finger Flatten stroke with Lock plane on sculpts as one undo step."""
+    s = Script()
+    s.fdrag(line((700, 430), (900, 470), 20))
+    return s, ["--lock-plane", "--brush=flatten"], camera_still({"brush_lock_plane": near(1), "dabs": lambda v: int(v) > 0,
+                                                              "undo_steps": near(1)})
+
+
+@scenario
 def roll_stroke_by_finger():
     """A Roll stroke by finger lays its dabs a brush width apart, so fewer than Dots does
     over the same path, and is one undo step."""

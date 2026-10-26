@@ -57,6 +57,12 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
 - Front faces only: `Brush.facing` (mesh-space way toward the viewer, mirrored per image; zero = off) scales each vertex
   by `facing_weight` (a ramp over normal · facing) in `displace`, Smooth and `mask_dab`; Grab ignores it. Mask shapes take
   `Front_Only{on, parallel, eye, toward}` (`mask.odin`) and skip vertices facing away.
+- Lock plane / Connected (`filters.odin`): `Sculptor.locked` is set by the stroke's first primary image with weight,
+  mirrored per image, reset by stroke begin/restore, applied before Clay's offset and tilt (`brush_locks_plane` kinds).
+  Connected (after dyntopo's split): a marks job, then per-leaf union along the leaf's shown triangles (reading marks
+  only once all are written), foreign edges run-deduped to root pairs, serial union, a mark pass; it starts from the
+  triangle under the centre (`l.under`), not the nearest vertex (the next finger's). Joined strokes keep `locked`. Folded into
+  `facing_weight` and `job_area`. 10M Clay: 1.8 ms brush a frame vs 0.7.
 - `apply_dab(s, brush, center)` (`brush.odin:570-584`) returns 0 for Grab, else runs `dab_once` at every mirror image:
   `mirrors(symmetry)` gives `{1,1,1}` then the sign flips, up to 8 (`brush.odin:588-600`); each image gets the tilt
   mirrored too (`S·R·S`: element `[i, j]` times `sign[i]·sign[j]`, `brush.odin:577`), and `alpha_up` times the sign with

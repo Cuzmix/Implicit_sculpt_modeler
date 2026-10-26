@@ -84,12 +84,23 @@ BRUSH_SECTIONS := [?]Kit_Tab_Section {
 	{.Falloff, "Falloff", kit_falloff, nil},
 	{.Alpha, "Alpha", kit_alpha_section, nil},
 	{.Pen, "Pen", kit_pen, nil},
-	{.Options, "Options", proc(app: ^App) {
-		ctx := &app.kit.ctx
-		_ = ui.switch_row(ctx, "Front faces only", &app.brush.front_only)
-		ui.paragraph(ctx, "Brushes and mask shapes leave what faces away from you, so a stroke on a thin part (an ear, a fin) leaves its far side alone. Grab is not affected.")
-	}, nil},
+	{.Options, "Options", kit_brush_options, nil},
 	{.Recorder, "Stroke recorder", kit_replay_section, nil},
+}
+
+// What a dab works on, as Nomad's filter section: front faces only, Lock plane and
+// Connected. Each switch greys out on brushes it does nothing for, still showing how it
+// is set, and is a command too (Front_Only, Lock_Plane, Connected) for keys and pies.
+@(private = "file")
+kit_brush_options :: proc(app: ^App) {
+	ctx := &app.kit.ctx
+	b := &app.brush
+	flags := BRUSHES[b.kind].flags
+	_ = ui.switch_row(ctx, "Front faces only", &b.front_only, .Grab not_in flags, keys = command_hint(app, .Front_Only))
+	locks := flags & {.Grab, .Cloth} == {} && sculpt.brush_locks_plane(b.kind, brush_alpha(app) != nil)
+	_ = ui.switch_row(ctx, "Lock plane", &b.lock_plane, locks, keys = command_hint(app, .Lock_Plane))
+	_ = ui.switch_row(ctx, "Connected only", &b.connected, flags & {.Grab, .Cloth} == {}, keys = command_hint(app, .Connected))
+	ui.paragraph(ctx, "Front faces only leaves the far side of a thin part (an ear, a fin). Lock plane keeps the plane the stroke began on, so long Flatten or Clay strokes do not drift. Connected only leaves what is near in space but not joined through the surface, such as the next finger.")
 }
 
 // The brush's preset (presets.odin): which it is on, or none; on a plain brush, saving
