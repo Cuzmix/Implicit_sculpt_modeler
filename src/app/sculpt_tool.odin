@@ -33,6 +33,10 @@ Brush_Settings :: struct {
 	alpha_angle:       f32, // degrees counter-clockwise the image turns on top of what the mode gives
 	color:             [3]f32, // what the Paint brush paints, sRGB 0 to 1
 	cloth_mode:        sculpt.Cloth_Mode, // what the Cloth brush does
+	// The preset the brush is on (presets.odin), from 1; 0 on a plain brush. While on
+	// one, `plain` keeps the plain brush's values that leaving it puts back.
+	preset:            int,
+	plain:             Preset_Values,
 }
 
 // How a left drag lays the brush down.

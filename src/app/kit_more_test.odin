@@ -48,6 +48,7 @@ section_scene_free :: proc(app: ^App) {
 	delete(app.scene.objects)
 	history_destroy(&app.history)
 	alphas_destroy(app)
+	results_destroy(app)
 	ui.destroy(&app.kit.ctx)
 }
 
@@ -91,6 +92,16 @@ sections_show_at_most_five_controls :: proc(t: ^testing.T) {
 			testing.expectf(t, n <= 5, "%v brush, %s: %d controls", kind, sec.title, n)
 		}
 	}
+	// The Preset section is widest on a preset.
+	app.brush.kind = .Clay
+	_ = preset_save_new(&app)
+	for sec in BRUSH_SECTIONS {
+		if sec.section != .Preset do continue
+		tab_draw = sec.draw
+		n := section_controls(&app, sec.section, by_tab, obj, false)
+		testing.expectf(t, n <= 5, "On a preset, %s: %d controls", sec.title, n)
+	}
+	preset_delete(&app, 0)
 	for sec in OBJECT_SECTIONS {
 		n := section_controls(&app, sec.section, sec.draw, obj, false)
 		testing.expectf(t, n <= 5, "Object tab, %s: %d controls", sec.title, n)
@@ -118,7 +129,9 @@ show_every_option_unfolds_the_sections :: proc(t: ^testing.T) {
 		section:  Kit_Section,
 		controls: int,
 	}
-	full := [?]Full{{.Recorder, 7}, {.Transform, 7}, {.Mask, 10}, {.Groups, 6}, {.Retopo, 7}, {.Project, 6}, {.Material, 6}, {.Camera, 6}}
+	full := [?]Full{{.Preset, 6}, {.Recorder, 7}, {.Transform, 7}, {.Mask, 10}, {.Groups, 6}, {.Retopo, 7}, {.Project, 6}, {.Material, 6}, {.Camera, 6}}
+	app.brush.kind = .Clay
+	_ = preset_save_new(&app)
 	for f in full {
 		draw: proc(app: ^App, obj: ^Object)
 		for sec in OBJECT_SECTIONS do if sec.section == f.section do draw = sec.draw

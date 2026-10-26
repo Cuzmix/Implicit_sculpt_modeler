@@ -146,6 +146,8 @@ App :: struct {
 	},
 	stroke:   Stroke,
 	alphas:   [dynamic]Alpha_Entry, // the brush alphas the Brush tab offers (alphas.odin)
+	presets:      [MAX_PRESETS]Brush_Preset, // the user's brush presets (presets.odin), the first preset_count in use
+	preset_count: int,
 	alpha_seed: u32, // Random alpha mode's generator
 	samples:  [dynamic]Input_Sample, // this frame's pointer samples, in window coordinates
 	pen_pressure: f32, // the pen's latest pressure
@@ -610,6 +612,7 @@ run :: proc(opts: Options) -> bool {
 			log.errorf("unknown brush %q", opts.brush)
 			return false
 		}
+		preset_leave(&app)
 		app.brush.kind = kind
 	}
 	if opts.cloth != "" {
@@ -1064,6 +1067,9 @@ run :: proc(opts: Options) -> bool {
 			obj := selected_object(&app)
 			name, _ := strings.replace_all(object_label(obj) if obj != nil else "none", " ", "_", context.temp_allocator)
 			fmt.printfln("selected_levels=%d selected_name=%s new_armed=%d menu=%d", len(obj.levels.levels) if obj != nil else 0, name, app.kit.new_armed, int(app.kit.menu))
+			preset := "none"
+			if p, on := brush_preset(&app); on do preset, _ = strings.replace_all(preset_name(p), " ", "_", context.temp_allocator)
+			fmt.printfln("presets=%d preset=%d preset_name=%s preset_changed=%d", app.preset_count, app.brush.preset, preset, int(preset_changed(&app)))
 		}
 		{
 			// What the last stroke was, the rail's latches, and whether the selected object
