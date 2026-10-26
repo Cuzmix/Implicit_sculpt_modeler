@@ -4,13 +4,17 @@ import "core:math/linalg"
 
 import "../ui"
 
-// The modifier rail: Smooth, Invert, Mask and Hide as buttons at the bottom left, for
-// a tablet with no Shift, Ctrl or Alt. A tap latches one until it is tapped again; a
-// finger held on one makes it act only while held, so the pen (or another finger)
-// sculpts with it and lifting the finger ends it, as Nomad's and 3DCoat's sticky keys.
-// A finger on a rail button belongs to the rail, not to the touch (touch_event): it
-// never becomes the pointer, never counts toward a gesture, and the pen landing does not
-// cancel it. The mouse and the pen press the buttons as ordinary ones, which latch.
+// The modifier wheel: Smooth (top), Mask (left) and Invert (bottom) as the sectors of a
+// ring at the bottom left, for a tablet with no Shift, Ctrl or Alt, and the brush pie on
+// its right sector, as a sculpting tablet app's wheel. Smooth and Mask on together are
+// Hide, the hide gesture, as Shift and Ctrl held together are. A tap latches a sector
+// until it is tapped again; a finger held on one makes it act only while held, so the pen
+// (or another finger) sculpts with it and lifting the finger ends it. A finger on a
+// modifier sector belongs to the wheel, not to the touch (touch_event): it never becomes
+// the pointer, never counts toward a gesture, and the pen landing does not cancel it. The
+// mouse and the pen press the sectors as ordinary buttons, which latch. The grip in the
+// middle drags the wheel elsewhere; Settings > Interface sets its side and size. The code
+// still calls it the rail, the four buttons it was before.
 
 Modifier :: enum u8 {
 	Smooth,
@@ -20,16 +24,16 @@ Modifier :: enum u8 {
 }
 Modifiers :: bit_set[Modifier;u8]
 
-// Smooth, Mask and Hide are what a press does, one at a time; Invert turns any of them
-// (or the brush) the other way.
+// Smooth, Mask and Hide are what a press does, one at a time (Smooth and Mask together
+// being Hide); Invert turns any of them (or the brush) the other way.
 RAIL_MODES :: Modifiers{.Smooth, .Mask, .Hide}
 
 // A press of a rail button shorter than this that sculpted nothing is a tap, which
 // latches; longer, or with a stroke made meanwhile, it only acted while held.
 RAIL_TAP :: 0.25 // seconds
 
-// Where the rail sits (Settings > Interface): off, at the bottom left under the sliders,
-// or at the bottom right over the object's status, for the other hand.
+// Where the wheel sits (Settings > Interface): off, at the bottom left under the brush
+// bar, or at the bottom right, for the other hand.
 Rail_Side :: enum u8 {
 	Off,
 	Left,
@@ -41,10 +45,13 @@ Modifier_Rail :: struct {
 	// Fingers held on rail buttons, in the order they came down.
 	fingers: [4]Rail_Finger,
 	count:   int,
-	// Where last frame drew each button, in window coordinates, for touch_event to claim
-	// the fingers that land on them; empty while the rail is hidden.
-	rects:   [Modifier]ui.Rect,
-	// The rail's container, so a finger is claimed only where nothing covers it.
+	// Where last frame drew the wheel, in window coordinates: its middle and the ring's
+	// outer and inner sizes across, for touch_event to claim the fingers that land on its
+	// modifier sectors; zero while the wheel is hidden.
+	center:  [2]f32,
+	outer:   f32,
+	hole:    f32,
+	// The wheel's container, so a finger is claimed only where nothing covers it.
 	root:    ui.Id,
 	// What the rail said when the press under way went down, kept to its release, so a
 	// finger lifted mid-stroke never changes the brush the stroke uses; Smooth put down
@@ -92,22 +99,33 @@ MODIFIER_KEYS := [Modifier]string {
 	.Hide   = "Ctrl+Shift",
 }
 
-// Latches `which` or lets it go. A mode latched lets the other modes go.
+// Latches `which` or lets it go. Smooth and Mask latch together, as Hide; Hide latched
+// lets them go, and either of them lets Hide go.
 rail_toggle :: proc(r: ^Modifier_Rail, which: Modifier) {
 	if which in r.latched {
 		r.latched -= {which}
 		return
 	}
-	if which in RAIL_MODES do r.latched -= RAIL_MODES
+	switch which {
+	case .Smooth, .Mask: r.latched -= {.Hide}
+	case .Hide:          r.latched -= {.Smooth, .Mask}
+	case .Invert:
+	}
 	r.latched += {which}
 }
 
-// Which button `p` (window coordinates) is on, if any.
+// The wheel's sectors, clockwise from the top: the modifier each is, or none for the
+// right one, the brush pie.
+@(rodata)
+WHEEL_SECTORS := [4]Maybe(Modifier){.Smooth, nil, .Invert, .Mask}
+
+// Which modifier sector `p` (window coordinates) is on, if any: not the pie's, the grip
+// or the corners round the ring.
 rail_hit :: proc(r: ^Modifier_Rail, p: [2]f32) -> (which: Modifier, ok: bool) {
-	for rect, m in r.rects {
-		if rect.w > 0 && ui.rect_contains(rect, p) do return m, true
-	}
-	return {}, false
+	if r.outer <= 0 do return {}, false
+	i := ui.wheel_sector_at(r.center, p, r.outer, r.hole)
+	if i < 0 do return {}, false
+	return WHEEL_SECTORS[i].?
 }
 
 // A finger came down at `p` on button `which`. A finger of the same id still held is one
@@ -168,16 +186,22 @@ rail_mods :: proc(r: ^Modifier_Rail) -> Modifiers {
 	return on
 }
 
-// What a press going down now takes from the rail. A held button beats a latched one,
-// and among held ones the last to come down wins; Invert, held or latched, goes with
-// whichever mode that leaves.
+// What a press going down now takes from the rail. A held sector beats a latched one,
+// and among held ones the last to come down wins, but for Smooth and Mask held together,
+// which are Hide; Invert, held or latched, goes with whichever mode that leaves.
 rail_press_mods :: proc(r: ^Modifier_Rail) -> (mods: Modifiers, held: bool) {
 	mods = r.latched & {.Invert}
 	mode, has := rail_mode(r.latched).?
+	holding: Modifiers
 	for f in r.fingers[:r.count] {
-		if f.which == .Invert do mods += {.Invert}
-		else do mode, has, held = f.which, true, true
+		if f.which == .Invert {
+			mods += {.Invert}
+			continue
+		}
+		mode, has, held = f.which, true, true
+		holding += {f.which}
 	}
+	if (Modifiers{.Smooth, .Mask} <= holding) do mode = .Hide
 	if has do mods += {mode}
 	return
 }
@@ -221,10 +245,11 @@ keyboard_mods :: proc(shift, ctrl: bool) -> Modifiers {
 	return {}
 }
 
-// The one mode `mods` presses with, Hide before Mask before Smooth, or nil.
+// The one mode `mods` presses with, Hide (or Smooth and Mask together) before Mask before
+// Smooth, or nil.
 rail_mode :: proc(mods: Modifiers) -> Maybe(Modifier) {
 	switch {
-	case .Hide in mods:   return .Hide
+	case .Hide in mods || Modifiers{.Smooth, .Mask} <= mods: return .Hide
 	case .Mask in mods:   return .Mask
 	case .Smooth in mods: return .Smooth
 	}
@@ -263,31 +288,52 @@ rail_keeps_empty_space :: proc(mods: Modifiers) -> bool {
 	return ok && (m == .Mask || m == .Hide)
 }
 
-// The rail's size in points: two rows of two modifier buttons inside its padding.
-rail_size :: proc(t: ui.Theme) -> [2]f32 {
-	return {2 * t.target + 2 * RAIL_PADDING, 2 * (t.target + 4) + 2 * RAIL_PADDING}
+// The wheel's sizes (Settings > Interface): across its ring and across the grip in its
+// middle, in points.
+Wheel_Size :: enum u8 {
+	Small,
+	Medium,
+	Large,
 }
 
-RAIL_PADDING :: 2
+@(rodata)
+WHEEL_OUTER := [Wheel_Size]f32 {
+	.Small  = 112,
+	.Medium = 132,
+	.Large  = 156,
+}
 
-// How far above the bottom of the safe area the rail sits, in points, from last frame's
-// layout: the edge's margin, or higher where it would meet the brush dock (a narrow or
-// portrait window) and, on the right, above the object's status.
+@(rodata)
+WHEEL_HOLE := [Wheel_Size]f32 {
+	.Small  = 40,
+	.Medium = 44,
+	.Large  = 52,
+}
+
+// The wheel's size in points, a square round its ring.
+rail_size :: proc(app: ^App) -> [2]f32 {
+	d := WHEEL_OUTER[app.kit.wheel_size]
+	return {d, d}
+}
+
+// How far above the bottom of the safe area the wheel sits by default, in points, from
+// last frame's layout: the edge's margin, or above the bottom bar where it would meet it
+// (a narrow or portrait window).
 rail_lift :: proc(app: ^App) -> f32 {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
 	area := ui.safe_area(ctx)
-	size := rail_size(t)
+	size := rail_size(app)
 	dock, _ := ui.prev_layout(ctx, "dock")
 	lift := t.edge
 	if area.w * 0.5 - dock.x * 0.5 - 8 < rail_inset(app, lift) + size.x do lift = max(lift, t.edge + DOCK_LIFT + dock.y + 8)
 	return lift
 }
 
-// How far in from its side the rail sits when `lift` above the bottom: the edge's margin,
-// or on the left beside the brush bar rather than under it where a short window (or a
-// large interface) brings the bar down to it.
+// How far in from its side the wheel sits by default when `lift` above the bottom: the
+// edge's margin, or on the left beside the brush bar rather than under it where a short
+// window (or a large interface) brings the bar down to it.
 rail_inset :: proc(app: ^App, lift: f32) -> f32 {
 	k := &app.kit
 	ctx := &k.ctx
@@ -295,15 +341,24 @@ rail_inset :: proc(app: ^App, lift: f32) -> f32 {
 	if k.rail_side != .Left do return t.edge
 	area := ui.safe_area(ctx)
 	bar, _ := ui.prev_layout(ctx, "brush bar")
-	if (area.h + bar.y) * 0.5 + 8 > area.h - lift - rail_size(t).y do return kit_left(app)
+	if (area.h + bar.y) * 0.5 + 8 > area.h - lift - rail_size(app).y do return kit_left(app)
 	return t.edge
 }
 
-// How far up from the bottom of the safe area the rail reaches, in points, on `side`;
-// zero when it is elsewhere, for what must stay clear of it.
+// How far up from the bottom of the safe area the wheel reaches, in points, on `side`;
+// zero when it is elsewhere or was dragged away from its place, for what must stay clear
+// of it.
 rail_reach :: proc(app: ^App, side: Rail_Side) -> f32 {
-	if app.kit.rail_side != side || side == .Off do return 0
-	return rail_lift(app) + rail_size(app.kit.ctx.theme).y
+	if app.kit.rail_side != side || side == .Off || app.kit.wheel_offset != {} do return 0
+	return rail_lift(app) + rail_size(app).y
+}
+
+// How wide the wheel stands from its side where it sits in its place, in points, for the
+// bottom bar to keep clear of; zero when it is off or was dragged elsewhere.
+rail_reach_across :: proc(app: ^App) -> f32 {
+	k := &app.kit
+	if k.rail_side == .Off || k.wheel_offset != {} do return 0
+	return rail_inset(app, rail_lift(app)) + rail_size(app).x
 }
 
 // The size and strength sliders' track, in points: the usual 260, shorter where the
@@ -316,38 +371,66 @@ slider_track :: proc(app: ^App) -> f32 {
 	return clamp(area.h - kit_top() - 80 - 16, MIN_TRACK, TRACK)
 }
 
-// The rail's buttons, a 2 by 2 grid at the bottom left or right. A click (the mouse's,
-// the pen's) toggles a latch; fingers never reach these buttons, the rail takes them
-// first. Hidden, it lets go of every latch and finger, so nothing it held acts unseen.
+// The wheel at the bottom left or right, or where its grip was dragged to (kept inside
+// the window). A click (the mouse's, the pen's) on a modifier sector toggles its latch;
+// fingers never reach those, the wheel takes them first (rail_claims). The right sector
+// opens the brush pie. Hidden, it lets go of every latch and finger, so nothing it held
+// acts unseen.
 kit_modifier_rail :: proc(app: ^App) {
 	r := &app.rail
 	k := &app.kit
-	r.rects, r.root = {}, 0
+	r.center, r.outer, r.hole, r.root = {}, 0, 0, 0
 	if k.rail_side == .Off {
 		r.latched = {}
 		rail_forget(r)
 		return
 	}
 	ctx := &k.ctx
-	t := ctx.theme
+	area := ui.safe_area(ctx)
+	size := rail_size(app)
 	held := rail_mods(r)
 	keys := keyboard_mods(app.device.shift, app.device.ctrl)
-	x := ui.Anchor.Start if k.rail_side == .Left else .End
-	r.root = ui.id_of(ctx, "modifier rail")
-	lift := rail_lift(app)
-	ui.begin_anchored(ctx, "modifier rail", x, .End, {rail_inset(app, lift), lift}, {direction = .Column, gap = 0, padding = RAIL_PADDING, radius = t.radius_large, background = .Panel})
-	for row in 0 ..< 2 {
-		ui.begin(ctx, "rail top" if row == 0 else "rail bottom", {direction = .Row, gap = 0})
-		for col in 0 ..< 2 {
-			m := Modifier(row * 2 + col)
-			look := ui.Modifier_Look.Latched if m in r.latched else (.Lit if m in held || m in keys else .Off)
-			if ui.modifier_button(ctx, MODIFIER_NAMES[m], MODIFIER_ICONS[m], look, MODIFIER_KEYS[m]) do rail_toggle(r, m)
-			b := ctx.last_rect
-			r.rects[m] = {b.x * k.scale, b.y * k.scale, b.w * k.scale, b.h * k.scale}
-		}
-		ui.end(ctx)
+	// Hide, latched, held or from the keys, lights both of the sectors it is made of.
+	lit_of :: proc(m: Modifier, set: Modifiers) -> bool {
+		return m in set || (m == .Smooth || m == .Mask) && .Hide in set
 	}
+	sectors: [4]ui.Wheel_Sector
+	for which, i in WHEEL_SECTORS {
+		m, is_mod := which.?
+		if !is_mod {
+			sectors[i] = {name = "Brush pie", glyph = ui.ICON_PIE, keys = command_hint(app, .Brush_Pie)}
+			continue
+		}
+		look := ui.Modifier_Look.Latched if lit_of(m, r.latched) else (.Lit if lit_of(m, held) || lit_of(m, keys) else .Off)
+		sectors[i] = {name = MODIFIER_NAMES[m], glyph = MODIFIER_ICONS[m], look = look, keys = MODIFIER_KEYS[m]}
+	}
+	x := ui.Anchor.Start if k.rail_side == .Left else .End
+	side: f32 = 1 if x == .Start else -1
+	base_lift := rail_lift(app)
+	base_inset := rail_inset(app, base_lift)
+	// Dragged: as far from its place as the grip went, kept inside the window.
+	inset := clamp(base_inset + side * k.wheel_offset.x, 0, max(area.w - size.x, 0))
+	lift := clamp(base_lift - k.wheel_offset.y, 0, max(area.h - size.y, 0))
+	r.root = ui.id_of(ctx, "modifier rail")
+	ui.begin_anchored(ctx, "modifier rail", x, .End, {inset, lift}, {direction = .Column})
+	res := ui.wheel(ctx, "modifier wheel", size.x, WHEEL_HOLE[k.wheel_size], sectors)
+	b := ctx.last_rect
 	ui.end(ctx)
+	r.center = [2]f32{b.x + b.w * 0.5, b.y + b.h * 0.5} * k.scale
+	r.outer, r.hole = b.w * k.scale, WHEEL_HOLE[k.wheel_size] * k.scale
+	if res.clicked >= 0 {
+		if m, is_mod := WHEEL_SECTORS[res.clicked].?; is_mod do rail_toggle(r, m)
+		else do command_run(app, .Brush_Pie)
+	}
+	if res.grabbed do k.wheel_from = k.wheel_offset
+	if res.dragging {
+		to := k.wheel_from + res.drag
+		// No further than the window lets it go, so a drag back moves it at once.
+		k.wheel_offset = {
+			side * (clamp(base_inset + side * to.x, 0, max(area.w - size.x, 0)) - base_inset),
+			base_lift - clamp(base_lift - to.y, 0, max(area.h - size.y, 0)),
+		}
+	}
 }
 
 // Whether a finger landing at `p` (window coordinates) is the rail's, and on which

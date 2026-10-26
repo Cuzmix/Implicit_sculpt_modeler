@@ -127,7 +127,7 @@ settings_reset :: proc(app: ^App, tab: Settings_Tab) {
 		k.ctx.reduced_motion = false
 		k.surface_ring = true
 		k.action_bar = true
-		k.rail_side = .Left
+		k.rail_side, k.wheel_size, k.wheel_offset = .Left, .Medium, {}
 		k.all_options = false
 		k.dock = DOCK_DEFAULT
 		windows_reset(k)
@@ -185,10 +185,14 @@ settings_interface :: proc(app: ^App) {
 	_ = ui.switch_row(ctx, "Show next steps over the dock", &k.action_bar)
 	ui.paragraph(ctx, "While the selected object has a mask, hidden parts or an HD window open, buttons over the brushes offer what usually comes next: invert or blur the mask, show everything, leave HD.")
 	ui.spacer(ctx, 8)
-	ui.caption(ctx, "MODIFIER BUTTONS")
+	ui.caption(ctx, "MODIFIER WHEEL")
 	sides := [len(Rail_Side)]string{"Off", "Left", "Right"}
-	if picked := ui.tabs(ctx, "Modifier buttons", sides[:], int(k.rail_side)); picked >= 0 do k.rail_side = Rail_Side(picked)
-	ui.paragraph(ctx, "Smooth, Invert, Mask and Hide at the bottom left or right, for what Shift, Ctrl and Alt do. Tap one to keep it on until tapped again; hold one with a finger to use it only while held, sculpting with the pen or another finger.")
+	if picked := ui.tabs(ctx, "Modifier wheel", sides[:], int(k.rail_side)); picked >= 0 {
+		k.rail_side, k.wheel_offset = Rail_Side(picked), {}
+	}
+	sizes := [len(Wheel_Size)]string{"Small", "Medium", "Large"}
+	if picked := ui.tabs(ctx, "Wheel size", sizes[:], int(k.wheel_size)); picked >= 0 do k.wheel_size = Wheel_Size(picked)
+	ui.paragraph(ctx, "Smooth (top), Mask (left) and Invert (bottom) for what Shift, Ctrl and Alt do, and the brush pie on the right. Tap one to keep it on until tapped again; hold one with a finger to use it only while held, sculpting with the pen or another finger. Smooth and Mask together hide, as Shift and Ctrl do. Drag the middle to move the wheel; picking a side puts it back.")
 	ui.spacer(ctx, 8)
 	ui.caption(ctx, "INSPECTOR")
 	_ = ui.switch_row(ctx, "Show every option", &k.all_options)
