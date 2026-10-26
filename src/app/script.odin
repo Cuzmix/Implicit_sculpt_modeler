@@ -124,7 +124,6 @@ SCRIPT_VALUES := [?]Setting {
 	{"mirror_axis", U + offset_of(Ui_State, mirror_axis), i32, 0, 2},
 	{"mirror_negative", U + offset_of(Ui_State, mirror_negative), bool, 0, 0},
 	{"extract_thickness", U + offset_of(Ui_State, boolean) + offset_of(Boolean_State, thickness), f32, 0.002, 0.2},
-	{"live_boolean", U + offset_of(Ui_State, boolean) + offset_of(Boolean_State, live), bool, 0, 0},
 	{"hd_window", offset_of(App, hd_window_vertices), int, 10_000, 16_000_000},
 	{"studio_samples", offset_of(App, studio_samples), i32, 1, STUDIO_SAMPLES_MAX},
 	{"cloth_mode", offset_of(App, brush) + offset_of(Brush_Settings, cloth_mode), sculpt.Cloth_Mode, 0, 0},
