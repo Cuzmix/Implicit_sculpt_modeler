@@ -262,7 +262,7 @@ smooth_gpu_ready :: proc(app: ^App) -> bool {
 hide_command :: proc(app: ^App, command: sculpt.Hide_Command) {
 	stroke_finish(app)
 	obj := selected_object(app)
-	if obj == nil || !hide_allowed(obj) do return
+	if obj == nil || !hide_allowed(app, obj) do return
 	start := time.tick_now()
 	changed := sculpt.sculptor_hide_command(object_sculptor(obj), command)
 	hide_done(app, obj, changed, start, "show all" if command == .Show_All else "invert visibility")
@@ -274,7 +274,7 @@ hide_command :: proc(app: ^App, command: sculpt.Hide_Command) {
 hide_shape_command :: proc(app: ^App, shape: [][2]f32, size: [2]f32, inside: bool) {
 	stroke_finish(app)
 	obj := selected_object(app)
-	if obj == nil || !hide_allowed(obj) do return
+	if obj == nil || !hide_allowed(app, obj) do return
 	start := time.tick_now()
 	changed := sculpt.sculptor_hide_shape(object_sculptor(obj), object_clip(app, obj, size), shape, .Hide if inside else .Show_Only)
 	hide_done(app, obj, changed, start, "hide inside" if inside else "show only inside")
@@ -283,7 +283,7 @@ hide_shape_command :: proc(app: ^App, shape: [][2]f32, size: [2]f32, inside: boo
 // Hides the part of `obj` on one side of the middle of its bounds across `axis` (the +
 // side when `positive`), for --hide.
 hide_axis :: proc(app: ^App, obj: ^Object, axis: int, positive: bool) {
-	if !hide_allowed(obj) do return
+	if !hide_allowed(app, obj) do return
 	start := time.tick_now()
 	bounds := geom.AABB_EMPTY
 	for p in object_mesh(obj).positions do geom.aabb_grow(&bounds, p)
@@ -305,13 +305,13 @@ hide_axis :: proc(app: ^App, obj: ^Object, axis: int, positive: bool) {
 // Hiding works on a level's own triangles: not in an HD window, whose sculptor fades its
 // border, nor under dynamic topology, whose triangles change as it sculpts.
 @(private = "file")
-hide_allowed :: proc(obj: ^Object) -> bool {
+hide_allowed :: proc(app: ^App, obj: ^Object) -> bool {
 	switch {
 	case object_in_hd(obj):
-		log.warn("hide: leave the HD window first (A)")
+		report(app, Kit_Section.Visibility, {.Warning}, "Hiding needs the HD window left first (A)")
 		return false
 	case object_dynamic(obj):
-		log.warn("hide: not with dynamic topology on")
+		report(app, Kit_Section.Visibility, {.Warning}, "Hiding does not work with dynamic topology on")
 		return false
 	}
 	return true

@@ -139,6 +139,7 @@ settings_reset :: proc(app: ^App, tab: Settings_Tab) {
 		n.pinch_zoom, n.two_finger_pan, n.zoom_toward, n.twist_roll = d.pinch_zoom, d.two_finger_pan, d.zoom_toward, d.twist_roll
 		n.three_finger, n.gestures = d.three_finger, d.gestures
 		n.double_tap, n.lift_one_orbit = d.double_tap, d.lift_one_orbit
+		n.shape_apply = d.shape_apply
 	case .Keys:
 		bind_reset_all(app)
 		n.mouse_scheme = d.mouse_scheme
@@ -273,6 +274,12 @@ settings_touch :: proc(app: ^App) {
 	ui.paragraph(ctx, "Put two fingers down, lift one, and the other turns the view: for when the model fills the screen.")
 	_ = ui.switch_row(ctx, "Double tap to frame or pin", &n.double_tap)
 	ui.paragraph(ctx, "Double tap empty space to frame the selected object, or the model to turn about that point. A single tap's dab then lands a moment later, once no second tap came.")
+	ui.spacer(ctx, 8)
+	ui.caption(ctx, "SHAPES")
+	applies := [len(Shape_Apply)]string{"Mouse at once", "Always at once", "Always after Apply"}
+	ui.label(ctx, "Mask, hide and clip shapes apply")
+	if picked := ui.tabs(ctx, "Shapes apply", applies[:], int(n.shape_apply)); picked >= 0 do n.shape_apply = Shape_Apply(picked)
+	ui.paragraph(ctx, "Mouse at once: a shape drawn with the mouse applies as it lets go; one drawn with a finger or the pen waits with Apply, Flip and Cancel under it, its corners and middle to drag and the view free to turn first.")
 	ui.spacer(ctx, 8)
 	settings_gesture_map(app)
 }

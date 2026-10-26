@@ -106,6 +106,7 @@ are on the device checklist.
   `last_op` (the last operation's result up to " in " or a comma, underscores for spaces), `toast_undo` (it offered Undo),
   `adjust_op` (what the action bar can adjust now, `none`, `remesh`, `smooth_all`, ...), `adjusts` (re-runs), `adjust_pop`,
   `camera_views` (views kept for Previous/Next view), `camera_view` (the one shown, from 1), `camera_steps`,
+  `shape_pending` (a drawn shape waiting for Apply: `mask`, `hide`, `clip`, `slice` or `none`), `shape_points`, `shape_flip`, `shape_box` (x0,y0,x1,y1),
   `touch_repeats` (undo and redo steps taken by holding fingers), `inspector_tab`, `brush_kind`, `tool`, `palette` (open),
   `palette_runs`, `palette_last` (the last row it ran, by its saved name: `Wireframe`, `Brush:Clay`), `settings_tab`, `layout_<name>` (x,y,w,h of the
   modifier rail, sliders, dock, status and inspector), ...); `camera_still()` checks nothing moved; keys starting with `@` are checks given every stat at once or checks on
@@ -119,6 +120,8 @@ are on the device checklist.
   run of the same thing (`--remesh=N`, `--smooth-all=N`, `--retopo=N`) shows it bit for bit.
 - A value from one run that a later run must match: a check `"@remember": f` on the first step stores the stats in a
   dict the later step's `@` check reads (`camera_back_and_forward_from_the_view_menu`).
+- A finger's or the pen's mask, hide or clip shape waits for Apply by default (two-phase shapes): a scenario that
+  means the shape to apply presses `Return` after it (or taps the bar's Apply); a mouse's applies at once.
 - A popover whose height follows its text keeps its controls at its foot, by the anchor, so their positions hold
   whatever the lines above say (the adjust popover: `ADJUST_SIZES`, `ADJUST_AXES`).
 - The menu's rows are computed from `MENU_FILE_ROWS` (touch_check.py, kit_menu's order): a new File row goes in that
