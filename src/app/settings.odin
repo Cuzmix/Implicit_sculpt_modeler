@@ -218,11 +218,13 @@ setting_text :: proc(app: ^App, s: Setting) -> string {
 
 // A remembered value with more to it than one field, which scripts set too (`set
 // symmetry xz`): read and checked by `parse`, which writes nothing, and then applied, so
-// the settings file and a script read it the same way.
+// the settings file and a script read it the same way; `text` writes what parse reads,
+// for the settings file and a recorded macro.
 Setting_Line :: struct {
 	key:   string,
 	parse: proc(f: []string) -> (Setting_Line_Value, bool),
 	apply: proc(app: ^App, v: Setting_Line_Value),
+	text:  proc(app: ^App) -> string,
 }
 
 Setting_Line_Value :: union {
@@ -251,6 +253,11 @@ SETTING_LINES := [?]Setting_Line {
 			return axes, true
 		},
 		proc(app: ^App, v: Setting_Line_Value) {app.brush.symmetry = v.(sculpt.Symmetry)},
+		proc(app: ^App) -> string {
+			s := app.brush.symmetry
+			// A placeholder "-", so the line always has a value.
+			return fmt.tprintf("-%s%s%s", "x" if .X in s else "", "y" if .Y in s else "", "z" if .Z in s else "")
+		},
 	},
 	{
 		// The Paint brush's colour, red, green and blue from 0 to 1.
@@ -266,6 +273,7 @@ SETTING_LINES := [?]Setting_Line {
 			return c, true
 		},
 		proc(app: ^App, v: Setting_Line_Value) {app.brush.color = v.([3]f32)},
+		proc(app: ^App) -> string {c := app.brush.color; return fmt.tprintf("%g %g %g", c.r, c.g, c.b)},
 	},
 	{
 		// A material by its name, which may have spaces ("red wax").
@@ -275,6 +283,24 @@ SETTING_LINES := [?]Setting_Line {
 			return i, ok
 		},
 		proc(app: ^App, v: Setting_Line_Value) {app.material = v.(int)},
+		proc(app: ^App) -> string {return string(current_material(app).label)},
+	},
+	{
+		// The size an object is added and remeshed at, in vertices: the nearest of the
+		// presets.
+		"new_vertices",
+		proc(f: []string) -> (Setting_Line_Value, bool) {
+			if len(f) != 1 do return nil, false
+			want, ok := strconv.parse_f32(f[0])
+			if !ok || !(want > 0) do return nil, false
+			best, size := f32(-1), 0
+			for p, i in SPHERE_PRESETS {
+				if d := abs(f32(p.vertices) - want); best < 0 || d < best do size, best = i, d
+			}
+			return size, true
+		},
+		proc(app: ^App, v: Setting_Line_Value) {app.kit.add_size = v.(int)},
+		proc(app: ^App) -> string {return fmt.tprint(SPHERE_PRESETS[app.kit.add_size].vertices)},
 	},
 }
 
@@ -321,7 +347,7 @@ settings_load :: proc(app: ^App, path: string) {
 				}
 			}
 		case "pressure_curve": if len(f) == 5 do b.pressure_curve = curve(f[1:], b.pressure_curve)
-		case "symmetry", "paint_color", "material":
+		case "symmetry", "paint_color", "material", "new_vertices":
 			line := setting_line(f[0])
 			if v, ok := line.parse(f[1:]); ok do line.apply(app, v)
 		case "custom_material":
@@ -449,13 +475,6 @@ settings_load :: proc(app: ^App, path: string) {
 				app.kit.favourites[app.kit.favourite_count] = {id, arg}
 				app.kit.favourite_count += 1
 			}
-		case "new_vertices":
-			// The size an object is added and remeshed at: the nearest of the presets.
-			want := number(f[1], -1)
-			best := f32(-1)
-			for p, i in SPHERE_PRESETS {
-				if d := abs(f32(p.vertices) - want); want > 0 && (best < 0 || d < best) do app.kit.add_size, best = i, d
-			}
 		}
 	}
 	// On a preset of the brush the file names, it is put back on it; its plain values are
@@ -499,14 +518,7 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 	}
 	c := b.pressure_curve
 	fmt.sbprintfln(&out, "pressure_curve %g %g %g %g", c.c1.x, c.c1.y, c.c2.x, c.c2.y)
-	symmetry := strings.builder_make(context.temp_allocator)
-	strings.write_string(&symmetry, "-") // a placeholder, so the line always has a value
-	if .X in b.symmetry do strings.write_byte(&symmetry, 'x')
-	if .Y in b.symmetry do strings.write_byte(&symmetry, 'y')
-	if .Z in b.symmetry do strings.write_byte(&symmetry, 'z')
-	fmt.sbprintfln(&out, "symmetry %s", strings.to_string(symmetry))
-	fmt.sbprintfln(&out, "paint_color %g %g %g", b.color.r, b.color.g, b.color.b)
-	fmt.sbprintfln(&out, "material %s", current_material(app).label)
+	for line in SETTING_LINES do fmt.sbprintfln(&out, "%s %s", line.key, line.text(app))
 	m := app.custom
 	fmt.sbprintfln(&out, "custom_material %g %g %g %g %g", m.selected.r, m.selected.g, m.selected.b, m.metallic, m.roughness)
 	k := app.kit
@@ -514,7 +526,6 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 	for w, which in k.windows {
 		fmt.sbprintfln(&out, "window %v %d %v %v %g %g %d", which, bit(w.moved), w.x, w.y, w.offset.x, w.offset.y, bit(w.minimized))
 	}
-	fmt.sbprintfln(&out, "new_vertices %d", SPHERE_PRESETS[app.kit.add_size].vertices)
 	if app.kit.palette_recent_count > 0 {
 		strings.write_string(&out, "palette_recent")
 		for e in app.kit.palette_recent[:app.kit.palette_recent_count] do fmt.sbprintf(&out, " %s", palette_entry_name(e))

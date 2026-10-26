@@ -4,6 +4,7 @@ import "core:fmt"
 import "core:math"
 import "core:os"
 import "core:reflect"
+import "core:slice"
 import "core:strconv"
 import "core:strings"
 import "core:time"
@@ -123,6 +124,7 @@ SCRIPT_VALUES := [?]Setting {
 	{"smooth_strength", U + offset_of(Ui_State, smooth_strength), f32, 0, 1},
 	{"mirror_axis", U + offset_of(Ui_State, mirror_axis), i32, 0, 2},
 	{"mirror_negative", U + offset_of(Ui_State, mirror_negative), bool, 0, 0},
+	{"boolean_vertices", U + offset_of(Ui_State, boolean) + offset_of(Boolean_State, vertices), i32, 10_000, 20_000_000},
 	{"extract_thickness", U + offset_of(Ui_State, boolean) + offset_of(Boolean_State, thickness), f32, 0.002, 0.2},
 	{"hd_window", offset_of(App, hd_window_vertices), int, 10_000, 16_000_000},
 	{"studio_samples", offset_of(App, studio_samples), i32, 1, STUDIO_SAMPLES_MAX},
@@ -504,17 +506,27 @@ script_allows :: proc(id: Command_Id) -> bool {
 	return true
 }
 
-// A script being run (--run, --script): where it has got to, and how long it has taken.
+// A script being run: the start-up one (--run, --script), which sets the run up, or one a
+// person starts (a macro), which is their work like any other. Where it has got to, and
+// how long it has taken.
 Script_Run :: struct {
 	script:   Script,
 	next:     int, // the statement to run next
 	waiting:  int, // frames a `wait` has still to let pass
 	running:  bool,
-	scripted: bool, // a run without a person: a failure ends it with code 2
+	setup:    bool, // the start-up script: what it did is where the run starts
+	scripted: bool, // a start-up script in a run without a person: a failure ends it with code 2
 	started:  bool, // the viewport had its size, and the first statement ran
 	failed:   bool,
 	frames:   int, // frames from the first to the one it finished on
 	fp:       u64, // the scene's fingerprint as the script began
+}
+
+// How the start-up script went, for the exit stats and the exit files, kept apart from
+// the runner, which a macro run later reuses.
+Script_Outcome :: struct {
+	statements, ran, frames: int,
+	failed, scripted:        bool,
 }
 
 // Reads the script `--run` names or `--script` gives, for the frame loop to run once the
@@ -535,15 +547,36 @@ script_load :: proc(app: ^App, file, inline: string, scripted: bool) -> bool {
 		}
 		text, source = string(data), file
 	}
-	r := &app.script
-	r.script = script_parse(text, source)
-	if len(r.script.errors) > 0 {
-		fmt.eprint(script_report(&r.script))
-		script_unload(app)
+	if report := script_start(app, text, source, setup = true, scripted = scripted); report != "" {
+		fmt.eprint(report)
 		return false
 	}
-	r.running, r.scripted = true, scripted
 	return true
+}
+
+// Reads `text` and starts running it at the next frame's start, in place of any script
+// loaded before: as the run's set-up, or as a person's work (a macro), which may not start
+// a new scene, which would empty the History, nor `wait`, so it is done within the frame
+// it starts in, before an autosave could start or the person do anything else. What is
+// wrong with the text, one error a line, in the temp allocator; "" when it started.
+script_start :: proc(app: ^App, text, source: string, setup, scripted: bool) -> string {
+	script_unload(app)
+	r := &app.script
+	r.script = script_parse(text, source)
+	if !setup do for st in r.script.statements {
+		if len(r.script.errors) >= SCRIPT_ERRORS_MAX do break
+		if st.kind == .Wait do append(&r.script.errors, Script_Error{st.line, strings.clone("wait is only for start-up scripts")})
+		if st.kind == .Command && st.command == .New_Scene do append(&r.script.errors, Script_Error{st.line, strings.clone("new_scene is only for start-up scripts: it empties the History")})
+	}
+	if len(r.script.errors) > 0 {
+		// Errors found after reading are on later lines than none, but listed by line.
+		slice.sort_by(r.script.errors[:], proc(a, b: Script_Error) -> bool {return a.line < b.line})
+		report := script_report(&r.script)
+		script_unload(app)
+		return report
+	}
+	r.running, r.setup, r.scripted = true, setup, scripted && setup
+	return ""
 }
 
 script_unload :: proc(app: ^App) {
@@ -655,6 +688,13 @@ script_fail :: proc(app: ^App, st: Script_Statement, why: string) {
 	name := script_statement_name(st)
 	r.failed = true
 	r.next -= 1 // it did not run
+	if !r.setup {
+		// A person's run keeps what it did before the statement, each its own step.
+		r.running = false
+		report(app, nil, {.Warning}, "%s stopped at line %d: %s did nothing (%s)", r.script.source, st.line, name, strings.clone(why, context.temp_allocator))
+		return
+	}
+	script_outcome(app)
 	if r.scripted {
 		fmt.eprintfln("script: %s:%d: %s did nothing: %s", r.script.source, st.line, name, why)
 		r.running = false
@@ -665,6 +705,13 @@ script_fail :: proc(app: ^App, st: Script_Statement, why: string) {
 	reason := strings.clone(why, context.temp_allocator)
 	script_finish(app)
 	report(app, nil, {.Warning}, "Script stopped at line %d: %s did nothing (%s)", st.line, name, reason)
+}
+
+// Keeps how the start-up script went.
+@(private = "file")
+script_outcome :: proc(app: ^App) {
+	r := &app.script
+	app.startup_script = {len(r.script.statements), r.next, r.frames, r.failed, r.scripted}
 }
 
 @(private = "file")
@@ -688,6 +735,12 @@ script_statement_name :: proc(st: Script_Statement) -> string {
 script_finish :: proc(app: ^App) {
 	r := &app.script
 	r.running = false
+	if !r.setup {
+		n := len(r.script.statements)
+		report(app, nil, {}, "Ran %s: %d step%s", r.script.source, n, "" if n == 1 else "s")
+		return
+	}
+	if !r.failed do script_outcome(app)
 	history_clear(&app.history)
 	app.adjustable.op = .None
 	results_destroy(app)

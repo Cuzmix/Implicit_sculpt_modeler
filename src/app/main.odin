@@ -108,7 +108,8 @@ App :: struct {
 		built:   bool,
 	},
 	stroke:   Stroke,
-	script:   Script_Run, // the start-up script (--run, --script), while it runs and for the exit stats
+	script:   Script_Run, // the script running: the start-up one (--run, --script), or a macro
+	startup_script: Script_Outcome, // how the start-up script went, for the exit stats and files
 	alphas:   [dynamic]Alpha_Entry, // the brush alphas the Brush tab offers (alphas.odin)
 	presets:      [MAX_PRESETS]Brush_Preset, // the user's brush presets (presets.odin), the first preset_count in use
 	preset_count: int,
@@ -457,7 +458,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		if !script_frame(&app) do return false
 		// Until the script is done its frames are set-up: the run's own count from where
 		// it ends (--frames, the bench stroke, --load-strokes, --timelapse, --ui-events).
-		setting_up := app.script.running
+		setting_up := app.script.running && app.script.setup
 		if opts.timelapse != "" && frame_index == opts.bench_stroke && !setting_up {
 			if opts.timelapse_steps > 0 do app.timeline.lapse.steps = i32(opts.timelapse_steps)
 			app.timeline.lapse.spin = opts.timelapse_spin
@@ -855,7 +856,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 
 	// A run whose set-up script stopped writes none of the files it would have: the scene
 	// is not the one asked for.
-	set_up := !(app.script.failed && app.script.scripted)
+	set_up := !(app.startup_script.failed && app.startup_script.scripted)
 	if opts.bake != "" && set_up {
 		// The quads are the newest object; the stroke may have selected another.
 		app.ui.bake.source = app.scene.objects[0].id
@@ -881,8 +882,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	}
 	vertices: int
 	for obj in app.scene.objects do vertices += object_vertex_count(obj)
-	if r := app.script; len(r.script.statements) > 0 {
-		fmt.printfln("script_statements=%d script_ran=%d script_frames=%d script_failed=%d", len(r.script.statements), r.next, r.frames, int(r.failed))
+	if r := app.startup_script; r.statements > 0 {
+		fmt.printfln("script_statements=%d script_ran=%d script_frames=%d script_failed=%d", r.statements, r.ran, r.frames, int(r.failed))
 		if r.failed && r.scripted do exit_code^ = 2
 	}
 	fmt.printfln("frames=%d dabs=%d objects=%d vertices=%d", frame_index, app.stats.dabs_total, len(app.scene.objects), vertices)
