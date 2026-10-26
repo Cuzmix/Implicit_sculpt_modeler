@@ -4,6 +4,7 @@ import "core:testing"
 
 import "../geom"
 import "../sculpt"
+import "../ui"
 
 // Three objects with no GPU buffers along x, 3 apart, the first selected; tree_free
 // undoes it.
@@ -440,4 +441,116 @@ rename_text_is_trimmed_and_shown_whole :: proc(t: ^testing.T) {
 	blank: [NAME_BYTES]u8
 	copy(blank[:], "   ")
 	testing.expect_value(t, rename_text(blank[:]), "")
+}
+
+// Dragging rows in the Scene tab: an object moves before another, into and out of a
+// folder; a folder moves with its objects; each is one undo step, and a drop where the
+// row already was records none.
+@(test)
+reorder_moves_objects_and_folders :: proc(t: ^testing.T) {
+	app: App
+	defer tree_free(&app)
+	objs := tree_scene(&app)
+	scene_arrange(&app, {kind = .Arrange, arrange = .Reorder, id = objs[2].id, before = objs[0].id})
+	ids, folders := tree_of(&app)
+	testing.expect_value(t, ids, [8]int{3, 1, 2, 0, 0, 0, 0, 0})
+	testing.expect_value(t, history_next_label(app.history.done[:]), "Move object")
+	// The selection follows the object, not the place.
+	testing.expect_value(t, selected_object(&app), objs[0])
+	scene_arrange(&app, {kind = .Arrange, arrange = .Reorder, id = objs[1].id})
+	ids, _ = tree_of(&app)
+	testing.expect_value(t, ids, [8]int{3, 1, 2, 0, 0, 0, 0, 0})
+	testing.expect_value(t, len(app.history.done), 1)
+
+	// Into a folder, then the folder (with both its objects) before everything.
+	scene_arrange(&app, {kind = .Arrange, arrange = .New_Folder, id = objs[1].id})
+	f := app.scene.folders[0].id
+	scene_arrange(&app, {kind = .Arrange, arrange = .Reorder, id = objs[2].id, folder = f})
+	ids, folders = tree_of(&app)
+	testing.expect_value(t, ids, [8]int{1, 2, 3, 0, 0, 0, 0, 0})
+	testing.expect_value(t, folders, [8]int{0, f, f, 0, 0, 0, 0, 0})
+	scene_arrange(&app, {kind = .Arrange, arrange = .Reorder_Folder, id = f, before = objs[0].id})
+	ids, folders = tree_of(&app)
+	testing.expect_value(t, ids, [8]int{2, 3, 1, 0, 0, 0, 0, 0})
+	testing.expect_value(t, folders, [8]int{f, f, 0, 0, 0, 0, 0, 0})
+	// Before one of its own objects it stays put.
+	scene_arrange(&app, {kind = .Arrange, arrange = .Reorder_Folder, id = f, before = objs[2].id})
+	testing.expect_value(t, len(app.history.done), 4)
+
+	// The folder's first object dropped above the folder's row (before itself, out of
+	// any folder) leaves the folder where it is.
+	scene_arrange(&app, {kind = .Arrange, arrange = .Reorder, id = objs[1].id, before = objs[1].id})
+	ids, folders = tree_of(&app)
+	testing.expect_value(t, ids, [8]int{2, 3, 1, 0, 0, 0, 0, 0})
+	testing.expect_value(t, folders, [8]int{0, f, 0, 0, 0, 0, 0, 0})
+	// The object after a folder dropped on the folder's row, or under its last object
+	// right of the indent, is before itself too: it stays and joins the folder.
+	scene_arrange(&app, {kind = .Arrange, arrange = .Reorder, id = objs[0].id, before = objs[0].id, folder = f})
+	ids, folders = tree_of(&app)
+	testing.expect_value(t, ids, [8]int{2, 3, 1, 0, 0, 0, 0, 0})
+	testing.expect_value(t, folders, [8]int{0, f, f, 0, 0, 0, 0, 0})
+	history_undo(&app)
+	// Out of the folder, to the end; then every step back.
+	scene_arrange(&app, {kind = .Arrange, arrange = .Reorder, id = objs[2].id})
+	ids, folders = tree_of(&app)
+	testing.expect_value(t, ids, [8]int{2, 1, 3, 0, 0, 0, 0, 0})
+	testing.expect_value(t, folders, [8]int{0, 0, 0, 0, 0, 0, 0, 0})
+	for _ in 0 ..< 6 do history_undo(&app)
+	ids, folders = tree_of(&app)
+	testing.expect_value(t, ids, [8]int{1, 2, 3, 0, 0, 0, 0, 0})
+	testing.expect_value(t, folders, [8]int{})
+}
+
+// Rows 50 points tall from y 0, 300 wide: a loose object, an open folder with two
+// objects, and a loose object at the end.
+@(private = "file")
+drop_rows :: proc() -> [5]Tree_Spot {
+	row :: proc(i: int) -> ui.Rect {return {0, f32(i) * 50, 300, 44}}
+	return {
+		{rect = row(0), id = 1, next = 2},
+		{rect = row(1), id = 7, is_folder = true, folder = 7, first = 2, next = 4},
+		{rect = row(2), id = 2, folder = 7, next = 3},
+		{rect = row(3), id = 3, folder = 7, next = 4},
+		{rect = row(4), id = 4},
+	}
+}
+
+@(test)
+tree_drop_picks_the_gap_or_the_folder :: proc(t: ^testing.T) {
+	spots := drop_rows()
+	// Above the first row, and under the last.
+	d := tree_drop(spots[:], false, {20, 2})
+	testing.expect(t, d.ok && d.before == 1 && d.folder == 0 && d.into == -1)
+	d = tree_drop(spots[:], false, {20, 260})
+	testing.expect(t, d.before == 0 && d.folder == 0)
+	// Over the middle of the folder's row: into it, after its objects.
+	d = tree_drop(spots[:], false, {20, 72})
+	testing.expect(t, d.into == 1 && d.before == 4 && d.folder == 7)
+	// The top edge of the folder's row: before its objects, outside it.
+	d = tree_drop(spots[:], false, {20, 50})
+	testing.expect(t, d.into == -1 && d.before == 2 && d.folder == 0)
+	// Between the folder's two objects: inside it.
+	d = tree_drop(spots[:], false, {20, 148})
+	testing.expect(t, d.before == 3 && d.folder == 7)
+	// Under its last object: outside it, unless right of the indent.
+	d = tree_drop(spots[:], false, {20, 196})
+	testing.expect(t, d.before == 4 && d.folder == 0)
+	d = tree_drop(spots[:], false, {ui.TREE_INDENT + 20, 196})
+	testing.expect(t, d.before == 4 && d.folder == 7)
+	// A folder skips the gaps inside folders, and never goes into one.
+	d = tree_drop(spots[:], true, {20, 148})
+	testing.expect(t, d.into == -1 && d.before == 4 && d.folder == 0)
+	d = tree_drop(spots[:], true, {20, 72})
+	testing.expect(t, d.into == -1 && d.before == 2)
+	// Off the column, nowhere.
+	d = tree_drop(spots[:], false, {320, 72})
+	testing.expect(t, !d.ok)
+	// The end of the list is above an empty folder, which comes after every object.
+	more: [6]Tree_Spot
+	copy(more[:], spots[:])
+	more[5] = {rect = {0, 250, 300, 44}, id = 8, is_folder = true, folder = 8}
+	d = tree_drop(more[:], false, {20, 296})
+	testing.expect(t, d.before == 0 && d.folder == 0 && d.y == 244)
+	d = tree_drop(more[:], false, {20, 272})
+	testing.expect(t, d.into == 5 && d.folder == 8)
 }

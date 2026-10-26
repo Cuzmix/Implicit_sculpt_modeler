@@ -125,6 +125,8 @@ MOUSE_HELP := [?]Help_Line {
 	{group = "MOUSE", what = "Turn the view", how = "Left drag on empty space", show = proc(app: ^App) -> bool {return empty_turns(app) && app.nav.empty_drag[.Mouse] == .Orbit}},
 	{group = "MOUSE", what = "Turn the view", how = "Left drag from the edges", show = proc(app: ^App) -> bool {return app.nav.edge_orbit}},
 	{group = "MOUSE", what = "Snap to a front, side or top view", how = "Shift while turning"},
+	{group = "MOUSE", what = "Move a row in the Scene tab", how = "Drag its grip"},
+	{group = "MOUSE", what = "Hide or ghost a run of objects", how = "Drag down the eyes or ghosts"},
 }
 
 // The commands' gestures, in groups with the touch controls that are no command. Each
@@ -158,6 +160,8 @@ TOUCH_HELP := [?]Help_Line {
 	{group = "VIEW", command = .Solo_Object},
 	{group = "HISTORY", command = .Undo},
 	{group = "HISTORY", command = .Redo},
+	{group = "SCENE TAB", what = "Move an object or a folder", how = "Drag its row's grip"},
+	{group = "SCENE TAB", what = "Hide or ghost a run of objects", how = "Hold an eye or ghost, then slide"},
 	{group = "ANY CONTROL", what = "Its name, or its second action", how = "Long press"},
 }
 

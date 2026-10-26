@@ -1874,6 +1874,62 @@ def folders_come_back_from_the_scene_file():
     ])
 
 
+SCENE_GRIP_X = 1314  # an object row's grip, outside folders
+
+
+@scenario
+def grip_drag_moves_a_row_and_undo_puts_it_back():
+    """A mouse drag on the third row's grip up above the first moves that object to the top of the list as one undo step, keeping the selection on the same object; Ctrl+Z puts it back."""
+    drag = Script()
+    scene_tab(drag)
+    drag.mouse_drag(line((SCENE_GRIP_X, SCENE_ROWS_Y[2]), (SCENE_GRIP_X, SCENE_ROWS_Y[0] - 22), 8))
+    drag.wait(4)
+    back = Script()
+    scene_tab(back)
+    back.mouse_drag(line((SCENE_GRIP_X, SCENE_ROWS_Y[2]), (SCENE_GRIP_X, SCENE_ROWS_Y[0] - 22), 8))
+    back.wait(4)
+    back.press("z", ["ctrl"])
+    return Steps([
+        (drag, THREE, {"scene_order": is_text("3,1,2"), "undo_steps": near(1), "selected": near(1), "dabs": near(0)}),
+        (back, THREE, {"scene_order": is_text("1,2,3"), "undo_steps": near(0), "redo_steps": near(1), "selected": near(0)}),
+    ])
+
+
+@scenario
+def finger_drags_an_object_into_a_folder():
+    """A finger on a grip drags the row rather than scrolling the inspector: Sphere 3 dropped on the middle of Folder 1's row goes into it, after Sphere 1."""
+    s = Script()
+    folder_first(s)
+    s.fdrag(line((SCENE_GRIP_X, SCENE_ROWS_Y[2] + 54), (SCENE_GRIP_X, SCENE_ROWS_Y[0]), 10))
+    s.wait(4)
+    return s, THREE, {"scene_order": is_text("1,3,2"), "scene_folders": is_text("1,1,0"), "undo_steps": near(2), "inspector_scroll": near(0)}
+
+
+@scenario
+def column_drag_hides_every_row_it_crosses():
+    """A mouse pressed on the first row's eye and dragged down the column hides each object it passes, as one sweep, and none of them is an undo step."""
+    s = Script()
+    scene_tab(s)
+    s.mouse_drag(line((SCENE_EYE_X, SCENE_ROWS_Y[0]), (SCENE_EYE_X, SCENE_ROWS_Y[2] + 10), 6))
+    s.wait(6)
+    return s, THREE, {"objects_off": near(3), "objects_shown": near(0), "undo_steps": near(0), "selected": near(-1)}
+
+
+@scenario
+def finger_holds_a_ghost_then_slides_down_the_column():
+    """A finger held on a ghost toggle until its tooltip shows takes the column: sliding down makes the first two objects ghosts, the selection moving to the third; a quick drag would have scrolled the panel."""
+    s = Script()
+    scene_tab(s)
+    s.add(f"fdown:0:{SCENE_GHOST_X},{SCENE_ROWS_Y[0]}")
+    s.wait(LONG_PRESS_FRAMES + 4)
+    for x, y in line((SCENE_GHOST_X, SCENE_ROWS_Y[0]), (SCENE_GHOST_X, SCENE_ROWS_Y[1] + 5), 6)[1:]:
+        s.add(f"fmove:0:{x:g},{y:g}")
+        s.wait(1)
+    s.add("fup:0")
+    s.wait(6)
+    return s, THREE, {"objects_ghost": near(2), "objects_off": near(0), "selected": near(2), "inspector_scroll": near(0)}
+
+
 @scenario
 def slow_tap_on_a_folded_title_still_opens_it():
     """A long press on a folded window's title, which has no tooltip and no other action, is still a tap."""
