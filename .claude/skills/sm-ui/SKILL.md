@@ -34,8 +34,11 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   strip, `TOP_BAR_H`: Menu, Save, Import, Export | file name | History, Edit pies, Help, Settings), `kit_points` (the
   object's readout under it, at the top left), `kit_brush_bar` (left column: Brushes, Stroke, Alpha, Material, Colour |
   Falloff, Draw size, Strength | Undo, Redo), `kit_view_bar` (right: Search, Inspector, Objects; then Studio render,
-  Orthographic, Symmetry, Focus, Wireframe, Ghost, Solo); bottom the dock (Move tool, the slots, All brushes, Curve and
-  Insert tools); then the four windows in `k.order` (back to front) and last the popovers. Panels under the top bar
+  Orthographic, Symmetry, Focus, Wireframe, Ghost, Solo); bottom `kit_bottom_bar` (a page of the dock's 21 slots,
+  `dock_page_slots`/`dock_per_page`, with `ui.page_dots` under it; All brushes; Gizmo; then `mesh_tool` buttons
+  Remesh, Dynamic topology, Retopologize, Subdivide, Live boolean, whose long press opens their Object section above
+  it; the dock sits `DOCK_LIFT` above the edge margin, so measure it with `dock_stack`); Curve and Insert are tiles in
+  the brush browser; then the four windows in `k.order` (back to front) and last the popovers. Panels under the top bar
   start at `kit_top()`, clear of the side bars at `kit_left(app)`/`kit_right(app)`; a card under the top bar uses
   `kit_card_place`; a right-side panel keeps clear of the dock with `side_panel_below`. A bar button opens the one
   `Bar_Pop` (`bar_pop_toggle`): an inspector section by `Kit_Section` (any tab's, `bar_section`), the size or strength
@@ -229,7 +232,7 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
 | the same widget twice in one container | ids come from labels: give each a `##` suffix (`"Clay##slot 3"`); the text after `##` is not shown |
 | a shortcut's text or the keys a command has | `command_keys(app, …)` / `command_chords(app, …)` / `keymap(app)` (keymap.odin), never DEFAULT_BINDINGS: the user's `key` overrides change them (Ctrl+Alt+click → Assign key, kit_bind.odin) |
 | a control that runs a command | through `command_run` during the layout: a Ctrl+Alt click there opens Assign key instead (`bind_click`, `ui.Context.clicked_rect`); an action that is no command (presets) is not bindable |
-| a dock slot or the brush browser | `dock.odin`: `Kit_State.dock` slots (a brush or a preset from 1), `kit_brush_grid` for every brush and preset, `dock_preset_deleted` when presets shift; the slot menu is `k.dock_menu` |
+| a dock slot or the brush browser | `dock.odin`: `Kit_State.dock` slots (three pages of `DOCK_PAGE`; a brush or a preset from 1), `kit_brush_grid` for every brush and preset, `dock_preset_deleted` when presets shift; the slot menu is `k.dock_menu` |
 
 ## Verify
 - `--ui-events="5:move:800,450;6:down;7:up;9:right;12:wheel:-3;14:fdown:0:300,300;16:fup:0"` drives the mouse,

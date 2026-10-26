@@ -6,20 +6,27 @@ import "core:strings"
 import "../sculpt"
 import "../ui"
 
-// The brush dock at the bottom middle: seven slots, each holding a brush or a preset made
-// from one, which a long press (or a right-click) on the slot changes; the rest are a tap
-// away in the brush browser beside it. The dock is the interface's, so it lives in
-// Kit_State and settings.txt remembers it.
+// The brush dock at the bottom bar's left: three pages of seven slots, each holding a brush
+// or a preset made from one, which a long press (or a right-click) on the slot changes; the
+// rest are a tap away in the brush browser beside it. The dock is the interface's, so it
+// lives in Kit_State and settings.txt remembers it.
 
-DOCK_SLOTS :: 7
+DOCK_PAGE :: 7
+DOCK_PAGES :: 3
+DOCK_SLOTS :: DOCK_PAGE * DOCK_PAGES
 
 Dock_Slot :: struct {
 	kind:   sculpt.Brush_Kind, // the brush, or the preset's own brush
 	preset: int, // the preset, counted from 1; 0 for the plain brush
 }
 
-// The dock a fresh install has: the brushes most reached for.
-DOCK_DEFAULT :: [DOCK_SLOTS]Dock_Slot{{kind = .Draw}, {kind = .Smooth}, {kind = .Clay}, {kind = .Flatten}, {kind = .Inflate}, {kind = .Grab}, {kind = .Mask}}
+// The dock a fresh install has: the brushes most reached for, then the finer and
+// surface-moving ones, then painting and masking.
+DOCK_DEFAULT :: [DOCK_SLOTS]Dock_Slot {
+	{kind = .Draw}, {kind = .Smooth}, {kind = .Clay}, {kind = .Flatten}, {kind = .Inflate}, {kind = .Grab}, {kind = .Mask},
+	{kind = .Pinch}, {kind = .Crease}, {kind = .Layer}, {kind = .Snake_Hook}, {kind = .Cloth}, {kind = .Morph}, {kind = .History},
+	{kind = .Paint}, {kind = .Mask}, {kind = .Smooth}, {kind = .Draw}, {kind = .Clay}, {kind = .Inflate}, {kind = .Flatten},
+}
 
 // Whether two slots hold the same thing: the same preset, or the same plain brush.
 dock_slot_same :: proc(a, b: Dock_Slot) -> bool {
@@ -63,6 +70,57 @@ dock_put :: proc(app: ^App, slot: int, kind: sculpt.Brush_Kind, preset := 0) {
 	app.kit.dock[slot] = s
 }
 
+// How many slots a page of the dock shows: all seven where the window has the room, fewer
+// (down to three, on more pages) where the bottom bar would otherwise reach the modifier
+// rail. Measured on last frame's bar, less the slots it showed.
+dock_per_page :: proc(app: ^App) -> int {
+	k := &app.kit
+	ctx := &k.ctx
+	bar, _ := ui.prev_layout(ctx, "dock")
+	rail, _ := ui.prev_layout(ctx, "modifier rail")
+	if bar.x <= 0 || k.dock_shown[1] == 0 do return DOCK_PAGE
+	rest := bar.x - f32(k.dock_shown[1]) * ui.BRUSH_TILE.x
+	room := ui.safe_area(ctx).w - 2 * (ctx.theme.edge + rail.x + 8)
+	return clamp(int((room - rest) / ui.BRUSH_TILE.x), 3, DOCK_PAGE)
+}
+
+// How many pages the dock has at this window's width.
+dock_pages :: proc(app: ^App) -> int {
+	n := dock_per_page(app)
+	return (DOCK_SLOTS + n - 1) / n
+}
+
+// Which slots the bottom bar shows: the dock's page as its first slot and how many. A
+// brush picked some other way (a key, the browser, a pie) brings the page that holds it,
+// unless the page shown holds it too.
+dock_page_slots :: proc(app: ^App) -> (first, count: int) {
+	k := &app.kit
+	n := dock_per_page(app)
+	pages := (DOCK_SLOTS + n - 1) / n
+	if now, ok := brush_as_slot(app); ok {
+		if !dock_slot_same(now, k.dock_seen) && !dock_page_holds(app, k.dock_page, n, now) {
+			for s, i in k.dock do if dock_slot_same(s, now) {
+				k.dock_page = i / n
+				break
+			}
+		}
+		k.dock_seen = now
+	}
+	k.dock_page = clamp(k.dock_page, 0, pages - 1)
+	first = k.dock_page * n
+	count = min(n, DOCK_SLOTS - first)
+	k.dock_shown = {first, count}
+	return
+}
+
+// Whether page `page`, `n` slots to a page, holds what `s` holds.
+@(private = "file")
+dock_page_holds :: proc(app: ^App, page, n: int, s: Dock_Slot) -> bool {
+	first := clamp(page * n, 0, DOCK_SLOTS)
+	for slot in app.kit.dock[first:min(first + n, DOCK_SLOTS)] do if dock_slot_same(slot, s) do return true
+	return false
+}
+
 // Whether the brush is in a slot of the dock.
 dock_has_brush :: proc(app: ^App) -> bool {
 	for s in app.kit.dock do if dock_slot_on(app, s) do return true
@@ -85,10 +143,11 @@ dock_changed :: proc(app: ^App) -> bool {
 	return false
 }
 
-// The dock for the exit stats: each slot's name, spaces as underscores, comma separated.
-dock_names :: proc(app: ^App) -> string {
+// Slots `first` on, `count` of them, for the exit stats: each slot's name, spaces as
+// underscores, comma separated.
+dock_names :: proc(app: ^App, first, count: int) -> string {
 	b := strings.builder_make(context.temp_allocator)
-	for s, i in app.kit.dock {
+	for s, i in app.kit.dock[first:][:count] {
 		if i > 0 do strings.write_byte(&b, ',')
 		name, _ := strings.replace_all(dock_slot_label(app, s), " ", "_", context.temp_allocator)
 		strings.write_string(&b, name)
@@ -189,17 +248,20 @@ Browser_At :: enum u8 {
 	Bar,
 }
 
-// A tool's tile on the dock: a tap picks the tool, a long press (or a right-click) picks
-// it and shows its settings in the inspector's first tab.
-dock_tool :: proc(app: ^App, tool: Tool) {
+// A tool's tile in the brush browser: a tap picks the tool, a long press (or a
+// right-click) picks it and shows its settings in the inspector's first tab.
+tool_tile :: proc(app: ^App, tool: Tool) {
 	ctx := &app.kit.ctx
 	id := TOOL_COMMANDS[tool]
 	if ui.brush_tile(ctx, fmt.tprintf("%s##tool", kit_tool_name(tool)), TOOL_ICONS[tool], app.tool == tool, command_hint(app, id)) do command_run(app, id)
-	if ui.secondary(ctx) {
-		command_run(app, id)
-		side_panel_close(app)
-		app.kit.inspector, app.kit.tab, app.kit.scroll = true, .Tool, 0
-	}
+	if ui.secondary(ctx) do tool_settings_open(app, tool)
+}
+
+// Picks `tool` and shows its settings in the inspector's first tab.
+tool_settings_open :: proc(app: ^App, tool: Tool) {
+	command_run(app, TOOL_COMMANDS[tool])
+	side_panel_close(app)
+	app.kit.inspector, app.kit.tab, app.kit.scroll = true, .Tool, 0
 }
 
 @(rodata)
@@ -218,8 +280,9 @@ TOOL_ICONS := [Tool]rune {
 	.Insert = ui.ICON_SHAPES,
 }
 
-// The brush browser, over its button on the dock: every brush and preset. A tap picks one;
-// a long press (or a right-click) shows its settings.
+// The brush browser, over its button on the dock or beside the brush bar: the Curve and
+// Insert tools, then every brush and preset. A tap picks one; a long press (or a
+// right-click) shows its settings.
 kit_brush_browser :: proc(app: ^App, anchor: ui.Rect, side: ui.Side) {
 	k := &app.kit
 	ctx := &k.ctx
@@ -227,7 +290,15 @@ kit_brush_browser :: proc(app: ^App, anchor: ui.Rect, side: ui.Side) {
 	owner := ui.id_of(ctx, "brush browser")
 	if !ui.popover_begin(ctx, "brush browser", &k.browser, anchor, side, {direction = .Column, gap = 2, padding = 10}) do return
 	defer ui.popover_end(ctx)
-	kit_grid_head(app, "BRUSHES", &k.browser)
+	kit_grid_head(app, "TOOLS", &k.browser)
+	ui.begin(ctx, "tool row", {direction = .Row, gap = 0})
+	for tool in ([?]Tool{.Curve, .Insert}) {
+		was := app.tool
+		tool_tile(app, tool)
+		if app.tool != was do k.browser = false
+	}
+	ui.end(ctx)
+	ui.caption(ctx, "BRUSHES")
 	chosen, lit := brush_as_slot(app)
 	room := grid_room(ctx, size.y, anchor) if side == .Above_Center else grid_room_beside(ctx, size.y)
 	pick := kit_brush_grid(app, owner, chosen, lit, room)

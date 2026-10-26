@@ -48,8 +48,10 @@ UI = {
     "undo": (31, 619), "redo": (31, 667),
     "search": (1569, 95), "inspector": (1569, 143), "objects": (1569, 191),
     "ortho": (1569, 305), "sym_x": (1569, 353), "wireframe": (1569, 449),
-    "tool_move": (474, 855), "dock_draw": (547, 855), "dock_smooth": (611, 855), "browser": (992, 855),
-    "tool_curve": (1062, 855), "tool_insert": (1126, 855),
+    "dock_draw": (426, 843), "dock_smooth": (490, 843), "browser": (872, 843), "gizmo": (933, 843),
+    "remesh": (990, 843), "dyntopo": (1038, 843), "retopo": (1086, 843), "subdivide": (1134, 843),
+    "live_boolean": (1182, 843), "dock_page1": (772, 888), "dock_page2": (800, 888), "dock_page3": (828, 888),
+    "browser_curve": (743, 480), "browser_insert": (807, 480),
     "size_slider": (91, 663),  # in the popover the Size button opens
     "tab_object": (1378, 152), "tab_brush": (1284, 152), "status": (69, 80),
     "palette_row1": (1327, 151), "palette_row2": (1327, 197),
@@ -223,12 +225,12 @@ def scenario(fn):
 def tap_ui():
     """A finger tapping every major region of the interface never moves the camera or sculpts."""
     s = Script()
-    for name in ["menu", "menu", "undo", "history", "history", "tool_move", "dock_draw", "sym_x", "sym_x",
+    for name in ["menu", "menu", "undo", "history", "history", "gizmo", "dock_draw", "sym_x", "sym_x",
                  "ortho", "ortho", "size", "size", "strength", "strength", "stroke", "stroke", "dock_smooth", "dock_draw",
                  "browser", "browser", "brushes", "brushes", "objects", "objects", "tab_object", "tab_brush", "status"]:
         s.ftap(*UI[name])
     # Just past the drawn edge of the brush dock and the top bar, inside their targets.
-    s.ftap(547, 829)
+    s.ftap(490, 815)
     s.ftap(692, 4)
     return s, [], camera_still({"dabs": near(0)})
 
@@ -273,16 +275,92 @@ def symmetry_tap_and_long_press():
 
 
 @scenario
-def dock_tools_pick_and_long_press_shows_settings():
-    """The dock's Move tile picks the Move tool; a long press on Curve picks Curve and shows its settings in the inspector's first tab; Draw goes back to sculpting."""
+def gizmo_and_browser_tools():
+    """The bottom bar's Gizmo picks the Move tool; in the brush browser, a long press on Curve picks Curve, closes the browser and shows its settings in the inspector's first tab."""
     s = Script()
-    s.ftap(*UI["tool_move"])
+    s.ftap(*UI["gizmo"])
     s.wait(4)
     s.ftap(*UI["tab_object"])
     s.wait(4)
-    long_press(s, *UI["tool_curve"])
+    s.ftap(*UI["browser"])
+    s.wait(10)
+    long_press(s, *UI["browser_curve"])
     s.wait(4)
-    return s, [], camera_still({"dabs": near(0), "tool": is_text("curve"), "inspector_tab": is_text("tool")})
+    return s, [], camera_still({"dabs": near(0), "tool": is_text("curve"), "inspector_tab": is_text("tool"), "browser": near(0)})
+
+
+@scenario
+def browser_tap_picks_insert():
+    """A tap on Insert in the brush browser picks the Insert tool and closes the browser."""
+    s = Script()
+    s.ftap(*UI["browser"])
+    s.wait(10)
+    s.ftap(*UI["browser_insert"])
+    s.wait(4)
+    return s, [], camera_still({"dabs": near(0), "tool": is_text("insert"), "browser": near(0)})
+
+
+@scenario
+def dock_pages_by_the_dots():
+    """The second dot under the bottom bar shows the dock's second page, whose first slot picks Pinch; the first dot brings Draw back."""
+    flip, back = Script(), Script()
+    for s in (flip, back):
+        s.ftap(*UI["dock_page2"])
+        s.wait(6)
+        s.ftap(*UI["dock_draw"])
+        s.wait(4)
+    back.ftap(*UI["dock_page1"])
+    back.wait(6)
+    return Steps([
+        (flip, [], camera_still({"dabs": near(0), "dock_page": near(1), "dock_pages": near(3), "brush_kind": is_text("pinch"),
+                                 "dock": is_text("Pinch,Crease,Layer,Snake_hook,Cloth,Morph,History")})),
+        (back, [], camera_still({"dabs": near(0), "dock_page": near(0), "dock": is_text(DEFAULT_DOCK)})),
+    ])
+
+
+@scenario
+def brush_key_brings_its_dock_page():
+    """On the dock's second page with Pinch picked there, the 1 key (Draw) brings the first page, which holds Draw."""
+    s = Script()
+    s.ftap(*UI["dock_page2"])
+    s.wait(6)
+    s.ftap(*UI["dock_draw"])  # Pinch, the second page's first slot
+    s.wait(4)
+    s.add(f"move:{EMPTY[0]},{EMPTY[1]}")
+    s.press("1")
+    s.wait(6)
+    return s, [], camera_still({"dabs": near(0), "dock_page": near(0), "brush_kind": is_text("draw")})
+
+
+@scenario
+def mesh_tools_on_the_bottom_bar():
+    """The bottom bar's mesh tools: Dynamic topology and Live boolean turn on by a tap; Subdivide adds a level; a long press on Remesh opens its section above the bar, and a tap on Retopologize opens its own."""
+    toggles, divide, remesh, retopo = Script(), Script(), Script(), Script()
+    toggles.ftap(*UI["dyntopo"])
+    toggles.wait(8)
+    toggles.ftap(*UI["live_boolean"])
+    toggles.wait(4)
+    divide.ftap(*UI["subdivide"])
+    divide.wait(10)
+    long_press(remesh, *UI["remesh"])
+    remesh.wait(8)
+    retopo.ftap(*UI["retopo"])
+    retopo.wait(8)
+    return Steps([
+        (toggles, [], camera_still({"dabs": near(0), "dynamic": near(1), "live_boolean": near(1)})),
+        (divide, [], camera_still({"dabs": near(0), "selected_levels": near(2)})),
+        (remesh, [], camera_still({"dabs": near(0), "bar_pop": is_text("remesh"), "undo_steps": near(0)})),
+        (retopo, [], camera_still({"dabs": near(0), "bar_pop": is_text("retopo"), "undo_steps": near(0)})),
+    ])
+
+
+@scenario
+def narrow_dock_has_more_pages():
+    """At 820 x 640 the dock shows fewer slots a page, on more pages, and the bottom bar stays clear of the modifier rail."""
+    s = Script()
+    s.add(f"move:{EMPTY[0]},{EMPTY[1]}")
+    s.wait(10)
+    return s, ["--width=820", "--height=640"], {"dock_pages": lambda v: int(v) > 3, "@layout": rail_clear("dock", "dock_pages")}
 
 
 @scenario
@@ -1993,13 +2071,13 @@ def scene_ghost_lets_a_click_through():
     scene_tab(ghost)
     ghost.ftap(SCENE_GHOST_X, SCENE_ROWS_Y[0])
     ghost.wait(6)
-    click(ghost, UI["tool_move"])
+    click(ghost, UI["gizmo"])
     click(ghost, SPHERES3[0])
     solid = Script()
     scene_tab(solid)
     solid.ftap(SCENE_ROW_X, SCENE_ROWS_Y[1])
     solid.wait(6)
-    click(solid, UI["tool_move"])
+    click(solid, UI["gizmo"])
     click(solid, SPHERES3[0])
     return Steps([
         (ghost, THREE, {"objects_ghost": near(1), "objects_shown": near(3), "selected": near(-1), "undo_steps": near(0)}),
@@ -2260,7 +2338,7 @@ def shift_click_rows_then_drag_moves_both():
         click(s, (SCENE_ROW_X, SCENE_ROWS_Y[2]))
         s.add("keyup:shift")
         s.wait(2)
-        click(s, UI["tool_move"])
+        click(s, UI["gizmo"])
         s.mouse_drag(line(SPHERES3[0], (SPHERES3[0][0] + 80, SPHERES3[0][1]), 8))
         if undo:
             s.press("z", ["ctrl"])
@@ -2282,7 +2360,7 @@ def shift_click_rows_then_drag_moves_both():
 def shift_click_objects_in_the_viewport():
     """With the Move tool, Shift + click on the third sphere adds it to the selection without moving anything; then, with Select several on, a finger tap on empty space misses and keeps both selected."""
     s = Script()
-    click(s, UI["tool_move"])
+    click(s, UI["gizmo"])
     s.add("key:shift")
     click(s, SPHERES3[2])
     s.add("keyup:shift")
@@ -2419,8 +2497,8 @@ DEFAULT_DOCK = "Draw,Smooth,Clay,Flatten,Inflate,Grab,Mask"
 # The slot menu over the dock's Smooth, and the brush browser, at 1600 by 900 with no
 # preset or one: Brush settings, Pinch, the first preset and Reset dock in the menu; the
 # first preset in the browser.
-SLOT_SETTINGS, SLOT_PINCH, SLOT_PRESET, SLOT_RESET = (558, 476), (511, 583), (511, 735), (548, 786)
-BROWSER_PRESET = (864, 780)
+SLOT_SETTINGS, SLOT_PINCH, SLOT_PRESET, SLOT_RESET = (410, 464), (362, 571), (362, 723), (400, 774)
+BROWSER_PRESET = (743, 767)
 
 
 def one_preset_settings(extra=""):
@@ -2623,7 +2701,7 @@ def pie_from_palette_stays_open():
     s.wait(6)
     s.ftap(1195, 151)
     s.wait(6)
-    s.ftap(638, 855)  # over the dock's Clay, under the pie's Orthographic slice
+    s.ftap(638, 855)  # over the dock's Flatten, under the pie's Orthographic slice
     s.wait(6)
     return s, [], camera_still({"dabs": near(0), "pie_open": near(-1), "pie_runs": near(1), "ortho": near(1), "brush_kind": is_text("draw")})
 

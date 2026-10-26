@@ -281,8 +281,22 @@ rail_lift :: proc(app: ^App) -> f32 {
 	size := rail_size(t)
 	dock, _ := ui.prev_layout(ctx, "dock")
 	lift := t.edge
-	if area.w * 0.5 - dock.x * 0.5 - 8 < t.edge + size.x do lift = max(lift, t.edge + dock.y + 8)
+	if area.w * 0.5 - dock.x * 0.5 - 8 < rail_inset(app, lift) + size.x do lift = max(lift, t.edge + DOCK_LIFT + dock.y + 8)
 	return lift
+}
+
+// How far in from its side the rail sits when `lift` above the bottom: the edge's margin,
+// or on the left beside the brush bar rather than under it where a short window (or a
+// large interface) brings the bar down to it.
+rail_inset :: proc(app: ^App, lift: f32) -> f32 {
+	k := &app.kit
+	ctx := &k.ctx
+	t := ctx.theme
+	if k.rail_side != .Left do return t.edge
+	area := ui.safe_area(ctx)
+	bar, _ := ui.prev_layout(ctx, "brush bar")
+	if (area.h + bar.y) * 0.5 + 8 > area.h - lift - rail_size(t).y do return kit_left(app)
+	return t.edge
 }
 
 // How far up from the bottom of the safe area the rail reaches, in points, on `side`;
@@ -320,15 +334,8 @@ kit_modifier_rail :: proc(app: ^App) {
 	keys := keyboard_mods(app.device.shift, app.device.ctrl)
 	x := ui.Anchor.Start if k.rail_side == .Left else .End
 	r.root = ui.id_of(ctx, "modifier rail")
-	// On the left, beside the brush bar rather than under it where a short window (or a
-	// large interface) brings the bar down to it.
-	inset := t.edge
-	if k.rail_side == .Left {
-		area := ui.safe_area(ctx)
-		bar, _ := ui.prev_layout(ctx, "brush bar")
-		if (area.h + bar.y) * 0.5 + 8 > area.h - rail_lift(app) - rail_size(t).y do inset = kit_left(app)
-	}
-	ui.begin_anchored(ctx, "modifier rail", x, .End, {inset, rail_lift(app)}, {direction = .Column, gap = 0, padding = RAIL_PADDING, radius = t.radius_large, background = .Panel})
+	lift := rail_lift(app)
+	ui.begin_anchored(ctx, "modifier rail", x, .End, {rail_inset(app, lift), lift}, {direction = .Column, gap = 0, padding = RAIL_PADDING, radius = t.radius_large, background = .Panel})
 	for row in 0 ..< 2 {
 		ui.begin(ctx, "rail top" if row == 0 else "rail bottom", {direction = .Row, gap = 0})
 		for col in 0 ..< 2 {

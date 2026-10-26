@@ -92,7 +92,7 @@ action_bar_shown :: proc(app: ^App) -> bool {
 dock_stack :: proc(app: ^App) -> (h: f32) {
 	ctx := &app.kit.ctx
 	dock, _ := ui.prev_layout(ctx, "dock")
-	h = dock.y
+	h = dock.y + DOCK_LIFT
 	if bar, _ := ui.prev_layout(ctx, "action bar"); bar.y > 0 do h += bar.y + ACTION_BAR_GAP
 	return
 }
@@ -175,7 +175,7 @@ kit_action_bar :: proc(app: ^App) {
 	}
 	dock, _ := ui.prev_layout(ctx, "dock")
 	mark := ui.vertex_mark(ctx)
-	ui.begin_anchored(ctx, "action bar", .Center, .End, {0, t.edge + dock.y + ACTION_BAR_GAP}, {direction = .Row, gap = 4, padding = ACTION_BAR_PADDING, radius = t.radius_large + 4, background = .Panel, center = true})
+	ui.begin_anchored(ctx, "action bar", .Center, .End, {0, t.edge + DOCK_LIFT + dock.y + ACTION_BAR_GAP}, {direction = .Row, gap = 4, padding = ACTION_BAR_PADDING, radius = t.radius_large + 4, background = .Panel, center = true})
 	n := 0
 	for g in groups {
 		info := ACTION_GROUPS[g]

@@ -96,6 +96,7 @@ Command_Id :: enum u8 {
 	Mirror_Weld,
 	Retopologize,
 	Make_Boolean,
+	Live_Boolean,
 	Extract_Masked,
 	Adjust_Last,
 	Reset_Transform,
@@ -754,6 +755,12 @@ COMMANDS := [Command_Id]Command {
 		help = "Applies the objects marked Union, Subtract or Intersect to the first unmarked one, as one mesh.",
 		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Boolean}},
 		enabled = proc(app: ^App, _: int) -> bool {return boolean_base(app) != nil},
+	},
+	.Live_Boolean = {
+		label = "Live boolean",
+		help = "Shows the objects marked Union, Subtract or Intersect applied to the first unmarked one as you work, without changing them.",
+		run = proc(app: ^App, _: int) {app.ui.boolean.live = !app.ui.boolean.live},
+		checked = proc(app: ^App, _: int) -> bool {return app.ui.boolean.live},
 	},
 	.Extract_Masked = {
 		label = "Extract masked",

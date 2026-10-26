@@ -312,6 +312,70 @@ kit_view_bar :: proc(app: ^App) -> (search_anchor, view_anchor: ui.Rect) {
 	return
 }
 
+// The bar at the bottom middle: a page of the brush dock and All brushes, then the gizmo
+// (the Move tool) and the mesh tools: Remesh, Dynamic topology, Retopologize, Subdivide and
+// Live boolean. A long press (or a right-click) on a slot changes what it holds; on a tool,
+// it opens the tool's settings over it. The dots under the bar pick the dock's page.
+// Returns All brushes, which the brush browser opens over.
+kit_bottom_bar :: proc(app: ^App) -> (browser_anchor: ui.Rect) {
+	k := &app.kit
+	ctx := &k.ctx
+	t := ctx.theme
+	first, count := dock_page_slots(app)
+	// The dots sit in the window's edge margin, the bar just above them.
+	pages := dock_pages(app)
+	ui.begin_anchored(ctx, "dock pages", .Center, .End, {0, max(t.edge - 8, 2)}, {direction = .Row})
+	if page := ui.page_dots(ctx, "Dock page", pages, k.dock_page); page >= 0 do k.dock_page = page
+	ui.end(ctx)
+	ui.begin_anchored(ctx, "dock", .Center, .End, {0, t.edge + DOCK_LIFT}, {direction = .Row, gap = 0, padding = 4, radius = t.radius_large + 4, background = .Panel, center = true})
+	// Each slot's tile has an id of its own: a brush or preset may sit in two slots.
+	for s, i in k.dock[first:][:count] {
+		slot := first + i
+		hint := command_hint(app, .Brush, int(s.kind)) if s.preset == 0 else ""
+		if ui.brush_tile(ctx, fmt.tprintf("%s##slot %d", dock_slot_label(app, s), slot), BRUSHES[s.kind].icon, dock_slot_on(app, s), hint) do dock_slot_pick(app, s)
+		if ui.secondary(ctx) do dock_menu_open(app, slot, ctx.last_rect)
+	}
+	if ui.icon_button(ctx, "All brushes", ui.ICON_GRID, selected = k.browser && k.browser_at == .Dock || (!dock_has_brush(app) && app.tool == .Brush), size = 58) {
+		was := k.browser
+		kit_floats_close(k)
+		k.browser, k.browser_at, k.grid_scroll, k.grid_reveal = !was, .Dock, 0, true
+	}
+	browser_anchor = ctx.last_rect
+	ui.divider(ctx, 32)
+	if ui.icon_button(ctx, "Gizmo", ICON_GIZMO, selected = app.tool == .Move, keys = command_hint(app, .Tool_Move), size = MESH_TOOL, corner = true) do command_run(app, .Tool_Move)
+	if ui.secondary(ctx) do tool_settings_open(app, .Move)
+	ui.divider(ctx, 32)
+	mesh_tool(app, .Remesh, ICON_REMESH, .Remesh)
+	mesh_tool(app, .Dyntopo_Toggle, ICON_DYNTOPO, .Topology)
+	mesh_tool(app, .Retopologize, ICON_RETOPO, .Retopo, opens = true)
+	mesh_tool(app, .Subdivide, ICON_SUBDIVIDE, .Levels)
+	mesh_tool(app, .Live_Boolean, ICON_BOOLEAN, .Booleans)
+	ui.end(ctx)
+	return
+}
+
+// The bottom bar's tool buttons' size, the touch target, which keeps the bar narrow enough
+// to leave the inspector beside it in a 1600-point window; and how far above the edge's
+// margin the bar sits, for the page dots under it.
+MESH_TOOL :: 48
+DOCK_LIFT :: 12
+
+// A mesh tool's button on the bottom bar: a tap runs `id`, or with `opens` set opens
+// section `sec` over the button, as a long press (or a right-click) always does.
+@(private = "file")
+mesh_tool :: proc(app: ^App, id: Command_Id, glyph: rune, sec: Kit_Section, opens := false) {
+	ctx := &app.kit.ctx
+	p := &app.kit.bar_pop
+	open := p.open && p.kind == .Section && p.section == sec
+	enabled := opens || command_enabled(app, id)
+	if ui.icon_button(ctx, command_label(id), glyph, selected = open || command_checked(app, id), enabled = enabled, keys = command_hint(app, id), size = MESH_TOOL, corner = true) {
+		if opens do bar_pop_toggle(app, .Section, ctx.last_rect, .Above_Center, sec)
+		else do command_run(app, id)
+	}
+	// A disabled button takes no press, so it has no long press either.
+	if enabled && ui.secondary(ctx) do bar_pop_toggle(app, .Section, ctx.last_rect, .Above_Center, sec)
+}
+
 // The bars' popover (Bar_Pop), beside the button that opened it.
 kit_bar_popover :: proc(app: ^App) {
 	k := &app.kit
@@ -361,10 +425,12 @@ kit_bar_popover :: proc(app: ^App) {
 		ui.end(ctx)
 		if ui.icon_button(ctx, "Close", ui.ICON_CLOSE, keys = "Esc") do p.open = false
 		ui.end(ctx)
-		// The body scrolls in the room the window leaves under the popover's top.
+		// The body scrolls in the room the window leaves under the popover's top, or over
+		// the bottom bar up to the top bar.
 		area := ui.safe_area(ctx)
 		head := size.y - (ui.prev_rect(ctx, "bar section body").h if size.y > 0 else 0)
 		room := max(area.y + area.h - p.at.y - 8 - head, 160)
+		if p.side == .Above_Center do room = max(p.at.y - area.y - kit_top() - 8 - head, 160)
 		scroll := kit_scroll_begin(ctx, "bar section body", &p.scroll, owner, WIDTH - 2 * PADDING, room, 6)
 		obj := selected_object(app)
 		switch {
@@ -402,3 +468,9 @@ ICON_ORTHO :: rune(0xe529) // cuboid
 ICON_SYMMETRY :: rune(0xe362) // flip-horizontal-2
 ICON_WIREFRAME :: rune(0xe0ec) // grid-3x3
 ICON_SOLO :: rune(0xe53b) // scan-eye
+ICON_GIZMO :: rune(0xe2e5) // move-3d
+ICON_REMESH :: rune(0xe0eb) // globe: a sphere of even lines
+ICON_DYNTOPO :: rune(0xe129) // network
+ICON_RETOPO :: rune(0xe504) // grid-2x2
+ICON_SUBDIVIDE :: rune(0xe62d) // grid-2x2-plus
+ICON_BOOLEAN :: rune(0xe5a1) // blend
