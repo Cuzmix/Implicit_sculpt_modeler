@@ -621,12 +621,14 @@ orbit_pivot :: proc(app: ^App, at, size: [2]f32) -> (pivot: Vec3, from: Pivot_So
 }
 
 // Where the safe zone ends, in window coordinates: the safe area less `edge_size` points
-// on every side. Inside it the tools and empty space decide; outside, the edges turn the view.
+// on every side, the top one counted from under the top bar. Inside it the tools and empty
+// space decide; outside, the edges turn the view.
 edge_inner :: proc(app: ^App) -> (lo, hi: [2]f32) {
 	k := &app.kit
 	area := ui.safe_area(&k.ctx)
 	band := app.nav.edge_size
-	return [2]f32{area.x + band, area.y + band} * k.scale, [2]f32{area.x + area.w - band, area.y + area.h - band} * k.scale
+	// The top band starts under the top bar, which covers the window's top edge.
+	return [2]f32{area.x + band, area.y + TOP_BAR_H + band} * k.scale, [2]f32{area.x + area.w - band, area.y + area.h - band} * k.scale
 }
 
 // Whether `p` (window coordinates) is in the safe zone, when it is on.

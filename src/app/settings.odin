@@ -95,6 +95,7 @@ SETTINGS := [?]Setting {
 	{"surface_ring", K + offset_of(Kit_State, surface_ring), bool, 0, 0},
 	{"action_bar", K + offset_of(Kit_State, action_bar), bool, 0, 0},
 	{"modifier_rail", K + offset_of(Kit_State, rail_side), Rail_Side, 0, 0},
+	{"look", K + offset_of(Kit_State, look), Look, 0, 0},
 	{"all_options", K + offset_of(Kit_State, all_options), bool, 0, 0},
 	{"coach", K + offset_of(Kit_State, coach), i32, 0, f32(COACH_DONE)},
 	{"stats", K + offset_of(Kit_State, stats), bool, 0, 0},

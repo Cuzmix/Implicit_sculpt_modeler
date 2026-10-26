@@ -46,7 +46,11 @@ Kit_State :: struct {
 	version_armed: int,
 	version_armed_at: f64,
 	view_menu:  bool,
-	browser:    bool, // every brush and preset, in a popover over the dock
+	view_at:    ui.Rect, // the view menu opens beside this: the button a long press was on
+	bar_pop:    Bar_Pop, // the side bars' popover (kit_bars.odin)
+	look:       Look, // the interface's colours (Settings > Interface)
+	browser:    bool, // every brush and preset, in a popover over the dock or beside the brush bar
+	browser_at: Browser_At, // ...which of the two opened it
 	// The dock's slots (dock.odin), and the popover a long press on one opens: open, on
 	// which slot, over its tile; the brush grid's scroll, in it or in the browser.
 	dock:       [DOCK_SLOTS]Dock_Slot,
@@ -550,6 +554,7 @@ kit_init :: proc(app: ^App) {
 	ui.init(&app.kit.ctx)
 	k := &app.kit
 	k.inspector = true
+	k.look = .Studio
 	// The sections most reached for start open; the rest fold until asked for.
 	for s in ([?]Kit_Section{.Stroke, .Paint_Color, .Recall, .Falloff, .Transform, .Levels, .Mask, .Groups, .Layers, .Paint, .Add, .Frame, .Sculpting}) do k.open[s] = true
 	k.add_size = 2 // 1M
@@ -568,6 +573,7 @@ kit_init :: proc(app: ^App) {
 // popover added here closes whenever another opens and on Escape.
 kit_floats_close :: proc(k: ^Kit_State) {
 	k.menu, k.versions, k.view_menu, k.browser, k.dock_menu, k.object_menu, k.action_pop = false, false, false, false, false, false, false
+	k.bar_pop.open = false
 	k.bind.open, k.pie_editor, k.adjust_pop, k.gizmo_entry.open = false, false, false, false
 	k.folder_menu, k.rename.open = false, false
 	k.ctx.select_open = 0
@@ -578,7 +584,7 @@ kit_floats_close :: proc(k: ^Kit_State) {
 // first-run tip hides under it.
 kit_floating :: proc(app: ^App) -> bool {
 	k := &app.kit
-	return app.ui.pie.open || app.ui.adjust.kind != .None || k.action_pop || k.adjust_pop || k.menu || k.versions || k.view_menu || k.browser || k.dock_menu || k.bind.open || k.pie_editor || k.object_menu || k.folder_menu || k.rename.open || k.palette || k.gizmo_entry.open || k.ctx.select_open != 0
+	return app.ui.pie.open || app.ui.adjust.kind != .None || k.action_pop || k.adjust_pop || k.menu || k.versions || k.view_menu || k.browser || k.dock_menu || k.bind.open || k.pie_editor || k.object_menu || k.folder_menu || k.rename.open || k.palette || k.gizmo_entry.open || k.bar_pop.open || k.ctx.select_open != 0
 }
 
 kit_destroy :: proc(app: ^App) {
@@ -648,6 +654,7 @@ kit_begin :: proc(app: ^App, window: ^sdl.Window) -> (size, pixels: [2]i32) {
 	if k.fixed_dt > 0 do in_.dt = k.fixed_dt
 	k.last_frame = now
 	k.scale = scale
+	k.ctx.theme = LOOK_THEMES[k.look]
 	ui.frame_begin(&k.ctx, in_)
 	return {w, h}, {pw, ph}
 }
@@ -827,86 +834,24 @@ kit_layout :: proc(app: ^App) {
 	ctx := &k.ctx
 	t := ctx.theme
 	E := t.edge
-	bar := ui.Box{direction = .Row, radius = t.radius_large, background = .Panel, center = true}
 
 	// First, so that every panel and popover laid out after it is above it.
 	kit_shape_bar(app)
 
-	// Top left: the menu, then undo and redo.
-	menu_anchor, view_anchor: ui.Rect
-	ui.begin_anchored(ctx, "top left", .Start, .Start, {E, E}, {direction = .Row, gap = 8})
-	ui.begin(ctx, "menu bar", bar)
-	if ui.icon_button(ctx, "Menu", ui.ICON_MENU, selected = k.menu) {
-		k.menu = !k.menu
-		k.menu_scroll = 0
-	}
-	menu_anchor = ctx.last_rect
-	ui.end(ctx)
-	ui.begin(ctx, "history", bar)
-	undo := fmt.tprintf("Undo %s##undo", history_next_label(app.history.done[:]))
-	redo := fmt.tprintf("Redo %s##redo", history_next_label(app.history.undone[:]))
-	// A long press on either opens the History panel, to go back or forward many steps.
-	// Disabled (nothing to undo or redo) they take no press; the History button is beside.
-	if ui.icon_button(ctx, undo, ui.ICON_UNDO, enabled = command_enabled(app, .Undo), keys = command_hint(app, .Undo)) do command_run(app, .Undo)
-	if ui.secondary(ctx) do k.history = true
-	if ui.icon_button(ctx, redo, ui.ICON_REDO, enabled = command_enabled(app, .Redo), keys = command_hint(app, .Redo)) do command_run(app, .Redo)
-	if ui.secondary(ctx) do k.history = true
-	if ui.icon_button(ctx, "History", ui.ICON_HISTORY, selected = k.history) do k.history = !k.history
-	ui.end(ctx)
-	ui.end(ctx)
-
-	// Top middle: the tool, then symmetry (any mix of the three axes).
-	ui.begin_anchored(ctx, "tools", .Center, .Start, {0, E}, bar)
-	ui.spacer(ctx, 6)
-	// In Tool's order: W, B, C and I pick them from the keyboard.
-	tool_names := [len(Tool)]string{"Move", "Sculpt", "Curve", "Insert"}
-	tool_icons := [len(Tool)]rune{ui.ICON_MOVE, ui.ICON_BRUSH, ui.ICON_SPLINE, ui.ICON_SHAPES}
-	tool_commands := [len(Tool)]Command_Id{.Tool_Move, .Tool_Sculpt, .Tool_Curve, .Tool_Insert}
-	tool_hints: [len(Tool)]string
-	for c, i in tool_commands do tool_hints[i] = command_hint(app, c)
-	if picked := ui.tabs(ctx, "tool", tool_names[:], int(app.tool), accent = true, glyphs = tool_icons[:], keys = tool_hints[:]); picked >= 0 do command_run(app, tool_commands[picked])
-	ui.spacer(ctx, 2)
-	ui.divider(ctx)
-	ui.spacer(ctx, 2)
-	for axis in sculpt.Axis {
-		name := fmt.tprint(axis)
-		tip := fmt.tprintf("Symmetry across %s", name)
-		if ui.toggle_button(ctx, name, axis in app.brush.symmetry, 40, command_hint(app, .Symmetry_X) if axis == .X else "", tip) do app.brush.symmetry ~= {axis}
-	}
-	ui.spacer(ctx, 6)
-	ui.end(ctx)
-
-	// Top right: search, view options and the inspector.
-	palette_anchor: ui.Rect
-	ui.begin_anchored(ctx, "top right", .End, .Start, {E, E}, bar)
-	if ui.icon_button(ctx, "Search commands", ui.ICON_SEARCH, selected = k.palette, keys = command_hint(app, .Command_Palette)) {
-		if k.palette do palette_close(app)
-		else do palette_open(app)
-	}
-	palette_anchor = ctx.last_rect
-	if ui.icon_button(ctx, "View", ui.ICON_EYE, selected = k.view_menu) do k.view_menu = !k.view_menu
-	view_anchor = ctx.last_rect
-	if ui.icon_button(ctx, "Inspector", ui.ICON_PANEL, selected = k.inspector, keys = command_hint(app, .Inspector)) do command_run(app, .Inspector)
-	ui.end(ctx)
-
-	// Left edge: size and strength, for a thumb or a pen, over the modifier rail when it
-	// is on the left.
-	track := slider_track(app)
-	ui.begin_anchored(ctx, "sliders", .Start, .Center, {E, 0}, {direction = .Row, gap = 0})
-	// A long press (or a right-click) on either puts it back to where a new brush starts.
-	// S and U drag the size and strength (adjust.odin), [ and ] step them.
-	size_hint := slider_hint(app, "S, [ ]", .Size_Up)
-	strength_hint := slider_hint(app, "U, Shift+[ ]", .Strength_Up)
-	_ = ui.vslider(ctx, "Brush size", &app.brush.radius_px, MIN_RADIUS_PX, MAX_RADIUS_PX, .Logarithmic, fmt.tprintf("%.0f", app.brush.radius_px), ui.ICON_SIZE, size_hint, track, DEFAULT_RADIUS_PX)
-	strength := brush_strength(app)
-	_ = ui.vslider(ctx, "Brush strength", strength, MIN_STRENGTH, 1, .Linear, fmt.tprintf("%.2f", strength^), ui.ICON_STRENGTH, strength_hint, track, BRUSHES[app.brush.kind].strength)
-	ui.end(ctx)
+	// Round the edges: the top bar, the object's readout under it, the brush bar at the
+	// left and the view bars at the right (kit_bars.odin).
+	menu_anchor := kit_top_bar(app)
+	kit_points(app)
+	browser_anchor := kit_brush_bar(app)
+	palette_anchor, view_anchor := kit_view_bar(app)
 
 	kit_modifier_rail(app)
 
-	// Bottom middle: the brush dock.
-	browser_anchor: ui.Rect
+	// Bottom middle: the Move tool, the brush dock, then the Curve and Insert tools. A long
+	// press (or a right-click) on a tool shows its settings in the inspector.
 	ui.begin_anchored(ctx, "dock", .Center, .End, {0, E}, {direction = .Row, gap = 0, padding = 4, radius = t.radius_large + 4, background = .Panel, center = true})
+	dock_tool(app, .Move)
+	ui.divider(ctx, 32)
 	// Each slot's tile has an id of its own: a brush or preset may sit in two slots. A long
 	// press (or a right-click) opens the slot's popover, to change what it holds.
 	for s, i in k.dock {
@@ -914,11 +859,15 @@ kit_layout :: proc(app: ^App) {
 		if ui.brush_tile(ctx, fmt.tprintf("%s##slot %d", dock_slot_label(app, s), i), BRUSHES[s.kind].icon, dock_slot_on(app, s), hint) do dock_slot_pick(app, s)
 		if ui.secondary(ctx) do dock_menu_open(app, i, ctx.last_rect)
 	}
-	ui.divider(ctx, 32)
-	if ui.icon_button(ctx, "All brushes", ui.ICON_GRID, selected = k.browser || (!dock_has_brush(app) && app.tool == .Brush), size = 58) {
-		k.browser, k.dock_menu, k.grid_scroll, k.grid_reveal = !k.browser, false, 0, true
+	if ui.icon_button(ctx, "All brushes", ui.ICON_GRID, selected = k.browser && k.browser_at == .Dock || (!dock_has_brush(app) && app.tool == .Brush), size = 58) {
+		was := k.browser
+		kit_floats_close(k)
+		k.browser, k.browser_at, k.grid_scroll, k.grid_reveal = !was, .Dock, 0, true
 	}
-	browser_anchor = ctx.last_rect
+	dock_anchor := ctx.last_rect
+	ui.divider(ctx, 32)
+	dock_tool(app, .Curve)
+	dock_tool(app, .Insert)
 	ui.end(ctx)
 	// Over the dock, the next steps for what is active (kit_action_bar.odin); notes rise
 	// above both.
@@ -926,22 +875,6 @@ kit_layout :: proc(app: ^App) {
 	stack_h := dock_stack(app)
 	ctx.toast_bottom = E + stack_h + 12
 
-	// Bottom right: what is being sculpted. A tap shows it in the inspector's Object tab;
-	// a long press (or a right-click) opens its menu above it.
-	if obj := selected_object(app); obj != nil {
-		ui.begin_anchored(ctx, "status", .End, .End, {E, E}, {direction = .Row, radius = t.radius_large, background = .Panel, center = true})
-		parts := make([dynamic]ui.Chip_Part, context.temp_allocator)
-		append(&parts, ui.Chip_Part{text = object_label(obj), strong = true}, ui.Chip_Part{text = fmt.tprintf("%s vertices", count_label(object_vertex_count(obj)))})
-		if n := len(obj.levels.levels); n > 1 do append(&parts, ui.Chip_Part{text = fmt.tprintf("Level %d/%d", obj.levels.current + 1, n)})
-		if object_dynamic(obj) do append(&parts, ui.Chip_Part{text = "Dynamic", accent = true})
-		if object_in_hd(obj) do append(&parts, ui.Chip_Part{text = "HD", accent = true})
-		if ui.chip(ctx, "Object settings", parts[:]) {
-			side_panel_close(app)
-			k.inspector, k.tab = true, .Object
-		}
-		if ui.secondary(ctx) do object_menu_open(app, obj.id, ctx.last_rect, .Above)
-		ui.end(ctx)
-	}
 	// Under the tool bar, the first-run tip; under the windows, which cover it if moved
 	// there.
 	coach_update(app)
@@ -965,15 +898,17 @@ kit_layout :: proc(app: ^App) {
 	if which, ok := top.?; ok do window_raise(k, which)
 
 	// What floats over the panels comes last, so it is drawn and hit tested on top.
-	kit_brush_browser(app, browser_anchor)
+	if k.browser_at == .Dock do kit_brush_browser(app, dock_anchor, .Above_Center)
+	else do kit_brush_browser(app, browser_anchor, .Right)
+	kit_bar_popover(app)
 	kit_dock_menu(app)
 	kit_menu(app, menu_anchor)
 	kit_versions(app, menu_anchor)
-	kit_view_menu(app, view_anchor)
+	kit_view_menu(app, view_anchor, .Left)
 	kit_object_menu(app)
 	kit_folder_menu(app)
 	kit_rename(app)
-	kit_palette(app, palette_anchor)
+	kit_palette(app, palette_anchor, .Left)
 	kit_action_popover(app)
 	kit_gizmo_entry(app)
 	kit_adjust_popover(app)
@@ -997,18 +932,17 @@ kit_inspector :: proc(app: ^App) -> (raised: bool) {
 	shown := ui.presence(ctx, id, k.inspector && !side_panel_open(k), t.panel_time)
 	if shown <= 0 do return
 	win := &k.windows[.Inspector]
-	top := t.edge + t.target + 8
+	top := kit_top()
+	right := kit_right(app)
 	room := window_room(app, win^, top)
 	if !win.moved {
-		// Where it starts, clear of what sits below it: the object's status at the bottom
-		// right, the modifier rail when it is on the right, and the dock when the window is
-		// narrow enough for them to meet.
+		// Where it starts, clear of what sits below it: the modifier rail when it is on the
+		// right, and the dock when the window is narrow enough for them to meet.
 		area := ui.safe_area(ctx)
 		dock_size, _ := ui.prev_layout(ctx, "dock")
 		below: f32 = 0
-		if status, _ := ui.prev_layout(ctx, "status"); status.y > 0 do below = status.y + 8
 		stack_h := dock_stack(app)
-		if area.w * 0.5 + dock_size.x * 0.5 + 8 > area.w - t.edge - KIT_INSPECTOR_W do below = max(below, stack_h + 8)
+		if area.w * 0.5 + dock_size.x * 0.5 + 8 > area.w - right - KIT_INSPECTOR_W do below = max(below, stack_h + 8)
 		if reach := rail_reach(app, .Right); reach > 0 do below = max(below, reach - t.edge + 8)
 		room -= below
 	}
@@ -1017,7 +951,7 @@ kit_inspector :: proc(app: ^App) -> (raised: bool) {
 	inner := f32(KIT_INSPECTOR_W - 2 * PADDING)
 
 	mark := ui.vertex_mark(ctx)
-	body, closed, raised_now := ui.window_begin(ctx, "inspector", "Inspector", win, .End, .Start, {t.edge, top}, {direction = .Column, gap = GAP, padding = PADDING, width = KIT_INSPECTOR_W, radius = t.radius_large, background = .Panel, inert = !k.inspector || side_panel_open(k)}, "Tab")
+	body, closed, raised_now := ui.window_begin(ctx, "inspector", "Inspector", win, .End, .Start, {right, top}, {direction = .Column, gap = GAP, padding = PADDING, width = KIT_INSPECTOR_W, radius = t.radius_large, background = .Panel, inert = !k.inspector || side_panel_open(k)}, "Tab")
 	raised = raised_now
 	if closed do k.inspector = false
 	if body {
@@ -1102,10 +1036,10 @@ kit_menu :: proc(app: ^App, anchor: ui.Rect) {
 
 // How the viewport shows the scene.
 @(private = "file")
-kit_view_menu :: proc(app: ^App, anchor: ui.Rect) {
+kit_view_menu :: proc(app: ^App, anchor: ui.Rect, side: ui.Side) {
 	k := &app.kit
 	ctx := &k.ctx
-	if !ui.popover_begin(ctx, "view menu", &k.view_menu, anchor, .Below_End, {direction = .Column, padding = 6, width = 268}) do return
+	if !ui.popover_begin(ctx, "view menu", &k.view_menu, anchor, side, {direction = .Column, padding = 6, width = 268}) do return
 	ui.caption(ctx, "  SHADING")
 	for id in ([?]Command_Id{.Wireframe, .Flat_Shading, .Polygroups, .Studio_Render}) do _ = command_menu_item(app, id)
 	ui.divider(ctx, across = true)

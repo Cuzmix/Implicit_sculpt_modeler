@@ -112,8 +112,9 @@ label :: proc(ctx: ^Context, s: string, size: f32 = 0, color: Color = {}, font :
 
 // An icon-only button in a touch-target cell (`size` points square, the target by
 // default), drawn as a smaller rounded square. `name` is its tooltip, with `keys`, its
-// shortcut, beside it. Returns true when clicked.
-icon_button :: proc(ctx: ^Context, name: string, glyph: rune, selected := false, enabled := true, keys := "", size: f32 = 0) -> bool {
+// shortcut, beside it. `corner` marks its bottom left with a small triangle, which says
+// a long press opens more (its settings). Returns true when clicked.
+icon_button :: proc(ctx: ^Context, name: string, glyph: rune, selected := false, enabled := true, keys := "", size: f32 = 0, corner := false) -> bool {
 	ctx.controls += 1
 	t := ctx.theme
 	size := size if size > 0 else t.target
@@ -133,8 +134,39 @@ icon_button :: proc(ctx: ^Context, name: string, glyph: rune, selected := false,
 	h := tween(ctx, salt(id, 2), 1 if hovered else 0, t.hover_time)
 	color := color_mix(color_mix(t.text_secondary, t.text, h), t.accent, sel)
 	icon(ctx, glyph, mid, t.icon_size, color)
+	if corner {
+		CORNER :: 5
+		x, y := vis.x + 3, vis.y + vis.h - 3
+		fill_convex(ctx, [][2]f32{{x, y}, {x, y - CORNER}, {x + CORNER, y}}, t.text_tertiary)
+	}
 	press_scale(ctx, mark, vis, scale)
 	tip(ctx, id, vis, label_text(name), keys)
+	return clicked
+}
+
+// Lines of small text that are one control, as tall as they need and at least a touch
+// target: the object's readout under the top bar. The first line is in the semibold face.
+// `name` is its id and tooltip. Returns true when clicked; call secondary after it for
+// what its long press does.
+readout :: proc(ctx: ^Context, name: string, lines: []string, keys := "") -> bool {
+	ctx.controls += 1
+	t := ctx.theme
+	PADDING :: 8
+	LINE :: 16
+	w: f32 = 0
+	for l, i in lines do w = max(w, text_width(ctx, l, t.small_size, .Semibold if i == 0 else .Regular))
+	cell := place(ctx, {w + 2 * PADDING, max(f32(len(lines)) * LINE + 2 * PADDING, t.target)})
+	id := id_of(ctx, name)
+	hovered, held, clicked, _ := interact(ctx, id, cell)
+	mark := vertex_mark(ctx)
+	scale := feedback(ctx, id, cell, t.radius_medium, hovered, held)
+	y := cell.y + (cell.h - f32(len(lines)) * LINE) * 0.5 + LINE * 0.5
+	for l, i in lines {
+		text(ctx, l, cell.x + PADDING, y, t.small_size, t.text if i == 0 else t.text_secondary, .Semibold if i == 0 else .Regular)
+		y += LINE
+	}
+	press_scale(ctx, mark, cell, scale)
+	tip(ctx, id, cell, label_text(name), keys)
 	return clicked
 }
 

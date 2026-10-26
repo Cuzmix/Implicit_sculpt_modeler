@@ -281,9 +281,6 @@ rail_lift :: proc(app: ^App) -> f32 {
 	size := rail_size(t)
 	dock, _ := ui.prev_layout(ctx, "dock")
 	lift := t.edge
-	if k.rail_side == .Right {
-		if status, _ := ui.prev_layout(ctx, "status"); status.y > 0 do lift += status.y + 8
-	}
 	if area.w * 0.5 - dock.x * 0.5 - 8 < t.edge + size.x do lift = max(lift, t.edge + dock.y + 8)
 	return lift
 }
@@ -295,17 +292,14 @@ rail_reach :: proc(app: ^App, side: Rail_Side) -> f32 {
 	return rail_lift(app) + rail_size(app.kit.ctx.theme).y
 }
 
-// The size and strength sliders' track, in points: the usual 260, shorter where the rail
-// under them would otherwise meet them (a short window, or a large interface size).
+// The size and strength sliders' track, in points: the usual 260, shorter where the
+// window under the top bar has no room for it (a short window, or a large interface
+// size). Their popover stands the track and 80 points tall.
 slider_track :: proc(app: ^App) -> f32 {
 	TRACK :: 260
 	MIN_TRACK :: 100
-	reach := rail_reach(app, .Left)
-	if reach == 0 do return TRACK
 	area := ui.safe_area(&app.kit.ctx)
-	// The sliders are centred and stand their track and 80 points tall.
-	room := area.h - 2 * (reach + 8) - 80
-	return clamp(room, MIN_TRACK, TRACK)
+	return clamp(area.h - kit_top() - 80 - 16, MIN_TRACK, TRACK)
 }
 
 // The rail's buttons, a 2 by 2 grid at the bottom left or right. A click (the mouse's,
@@ -326,7 +320,15 @@ kit_modifier_rail :: proc(app: ^App) {
 	keys := keyboard_mods(app.device.shift, app.device.ctrl)
 	x := ui.Anchor.Start if k.rail_side == .Left else .End
 	r.root = ui.id_of(ctx, "modifier rail")
-	ui.begin_anchored(ctx, "modifier rail", x, .End, {t.edge, rail_lift(app)}, {direction = .Column, gap = 0, padding = RAIL_PADDING, radius = t.radius_large, background = .Panel})
+	// On the left, beside the brush bar rather than under it where a short window (or a
+	// large interface) brings the bar down to it.
+	inset := t.edge
+	if k.rail_side == .Left {
+		area := ui.safe_area(ctx)
+		bar, _ := ui.prev_layout(ctx, "brush bar")
+		if (area.h + bar.y) * 0.5 + 8 > area.h - rail_lift(app) - rail_size(t).y do inset = kit_left(app)
+	}
+	ui.begin_anchored(ctx, "modifier rail", x, .End, {inset, rail_lift(app)}, {direction = .Column, gap = 0, padding = RAIL_PADDING, radius = t.radius_large, background = .Panel})
 	for row in 0 ..< 2 {
 		ui.begin(ctx, "rail top" if row == 0 else "rail bottom", {direction = .Row, gap = 0})
 		for col in 0 ..< 2 {

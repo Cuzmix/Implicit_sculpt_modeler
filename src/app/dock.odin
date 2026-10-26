@@ -175,18 +175,62 @@ grid_room :: proc(ctx: ^ui.Context, popover_h: f32, anchor: ui.Rect) -> f32 {
 	return max(anchor.y - 16 - besides, ui.BRUSH_TILE.y * 2)
 }
 
+// The room the grid has in a popover beside the brush bar (`popover_h` tall last frame):
+// the safe area's height, less what the popover holds besides the grid and a margin.
+grid_room_beside :: proc(ctx: ^ui.Context, popover_h: f32) -> f32 {
+	body, _ := ui.prev_layout(ctx, "brush grid")
+	besides := popover_h - body.y if popover_h > 0 else 120
+	return max(ui.safe_area(ctx).h - kit_top() - 16 - besides, ui.BRUSH_TILE.y * 2)
+}
+
+// Which button opened the brush browser: All brushes on the dock, or Brushes on the bar.
+Browser_At :: enum u8 {
+	Dock,
+	Bar,
+}
+
+// A tool's tile on the dock: a tap picks the tool, a long press (or a right-click) picks
+// it and shows its settings in the inspector's first tab.
+dock_tool :: proc(app: ^App, tool: Tool) {
+	ctx := &app.kit.ctx
+	id := TOOL_COMMANDS[tool]
+	if ui.brush_tile(ctx, fmt.tprintf("%s##tool", kit_tool_name(tool)), TOOL_ICONS[tool], app.tool == tool, command_hint(app, id)) do command_run(app, id)
+	if ui.secondary(ctx) {
+		command_run(app, id)
+		side_panel_close(app)
+		app.kit.inspector, app.kit.tab, app.kit.scroll = true, .Tool, 0
+	}
+}
+
+@(rodata)
+TOOL_COMMANDS := [Tool]Command_Id {
+	.Move   = .Tool_Move,
+	.Brush  = .Tool_Sculpt,
+	.Curve  = .Tool_Curve,
+	.Insert = .Tool_Insert,
+}
+
+@(rodata)
+TOOL_ICONS := [Tool]rune {
+	.Move   = ui.ICON_MOVE,
+	.Brush  = ui.ICON_BRUSH,
+	.Curve  = ui.ICON_SPLINE,
+	.Insert = ui.ICON_SHAPES,
+}
+
 // The brush browser, over its button on the dock: every brush and preset. A tap picks one;
 // a long press (or a right-click) shows its settings.
-kit_brush_browser :: proc(app: ^App, anchor: ui.Rect) {
+kit_brush_browser :: proc(app: ^App, anchor: ui.Rect, side: ui.Side) {
 	k := &app.kit
 	ctx := &k.ctx
 	size, _ := ui.prev_layout(ctx, "brush browser")
 	owner := ui.id_of(ctx, "brush browser")
-	if !ui.popover_begin(ctx, "brush browser", &k.browser, anchor, .Above_Center, {direction = .Column, gap = 2, padding = 10}) do return
+	if !ui.popover_begin(ctx, "brush browser", &k.browser, anchor, side, {direction = .Column, gap = 2, padding = 10}) do return
 	defer ui.popover_end(ctx)
 	kit_grid_head(app, "BRUSHES", &k.browser)
 	chosen, lit := brush_as_slot(app)
-	pick := kit_brush_grid(app, owner, chosen, lit, grid_room(ctx, size.y, anchor))
+	room := grid_room(ctx, size.y, anchor) if side == .Above_Center else grid_room_beside(ctx, size.y)
+	pick := kit_brush_grid(app, owner, chosen, lit, room)
 	if pick.tapped do dock_slot_pick(app, pick.slot)
 	if pick.pressed do dock_slot_settings(app, pick.slot)
 	if pick.tapped || pick.pressed do k.browser = false

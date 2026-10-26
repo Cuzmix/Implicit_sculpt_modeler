@@ -424,7 +424,7 @@ palette_run :: proc(app: ^App, e: Palette_Entry) {
 // to PALETTE_ROWS) with their shortcuts and states, the picked one's help, and how many
 // more there are. Up and Down pick (the list scrolls to keep the pick in view), Enter or
 // a tap runs, and Ctrl+K again closes. Escape and Back close it in kit_frame.
-kit_palette :: proc(app: ^App, anchor: ui.Rect) {
+kit_palette :: proc(app: ^App, anchor: ui.Rect, side: ui.Side) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
@@ -432,7 +432,7 @@ kit_palette :: proc(app: ^App, anchor: ui.Rect) {
 	width := min(420, area.w - 2 * t.edge)
 	rows := palette_rows(area.y + area.h - (anchor.y + anchor.h + 6) - 4, t.target)
 	was := k.palette
-	if !ui.popover_begin(ctx, "palette", &k.palette, anchor, .Below_End, {direction = .Column, gap = 2, padding = 8, width = width}) do return
+	if !ui.popover_begin(ctx, "palette", &k.palette, anchor, side, {direction = .Column, gap = 2, padding = 8, width = width}) do return
 	defer ui.popover_end(ctx)
 	// A press outside closed it: give the keys back.
 	if was && !k.palette do ctx.text_focus = 0

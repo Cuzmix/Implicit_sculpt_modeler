@@ -108,14 +108,15 @@ action_bar_room :: proc(app: ^App) -> f32 {
 	k := &app.kit
 	t := k.ctx.theme
 	area := ui.safe_area(&k.ctx)
-	sliders, _ := ui.prev_layout(&k.ctx, "sliders")
-	side := t.edge + sliders.x + 8
+	side := kit_left(app)
 	if k.rail_side != .Off do side = max(side, t.edge + rail_size(t).x + 8)
 	panel: f32 = KIT_SETTINGS_W if side_panel_open(k) else KIT_INSPECTOR_W if k.inspector else 0
 	dock, _ := ui.prev_layout(&k.ctx, "dock")
 	// The inspector moves up above the dock and bar where the dock reaches it (kit_inspector).
-	beside := area.w * 0.5 + dock.x * 0.5 + 8 <= area.w - t.edge - panel
-	if panel > 0 && (beside || side_panel_open(k)) do side = max(side, t.edge + panel + 8)
+	right := kit_right(app)
+	beside := area.w * 0.5 + dock.x * 0.5 + 8 <= area.w - right - panel
+	if panel > 0 && (beside || side_panel_open(k)) do side = max(side, right + panel + 8)
+	side = max(side, right)
 	return area.w - 2 * side
 }
 
