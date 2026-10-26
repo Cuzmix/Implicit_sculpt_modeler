@@ -138,8 +138,9 @@ kit_preset :: proc(app: ^App) {
 	}
 }
 
-// Size, strength, the lazy mouse, the stroke kind and the cloth brush's mode: five at
-// most, so no More fold.
+// Size, strength, the lazy mouse, then the stroke mode (with Spray's spread) or, for the
+// brushes that lay no dabs along the path, the cloth brush's mode: five at most, so no
+// More fold.
 @(private = "file")
 kit_stroke :: proc(app: ^App) {
 	ctx := &app.kit.ctx
@@ -148,12 +149,22 @@ kit_stroke :: proc(app: ^App) {
 	s := brush_strength(app)
 	_ = ui.slider(ctx, "Strength", s, MIN_STRENGTH, 1, .Linear, fmt.tprintf("%.2f", s^))
 	_ = ui.slider(ctx, "Lazy mouse", &app.brush.lazy_px, 0, 150, .Linear, "off" if app.brush.lazy_px < 0.5 else fmt.tprintf("%.0f px", app.brush.lazy_px))
-	strokes := [2]string{"Dots", "Drag rectangle"}
-	if picked := ui.tabs(ctx, "stroke kind", strokes[:], 0 if app.brush.stroke == .Dots else 1); picked >= 0 {
-		app.brush.stroke = .Dots if picked == 0 else .Drag_Rect
-	}
-	if app.brush.stroke == .Drag_Rect {
-		ui.paragraph(ctx, "One stamp where the drag starts: its size is how far you drag and, with an alpha, its top faces the pointer. For placing alphas; not with dynamic topology, Grab or Snake hook.")
+	// Grab, Snake hook and Cloth move what they pick up rather than laying dabs, so a
+	// stroke mode means nothing to them.
+	if BRUSHES[kind].flags & {.Grab, .Hook, .Cloth} == {} {
+		strokes: [len(Stroke_Mode)]string
+		for m, i in Stroke_Mode do strokes[i] = STROKE_MODE_NAMES[m]
+		if picked := ui.tabs(ctx, "stroke kind", strokes[:], int(app.brush.stroke)); picked >= 0 do app.brush.stroke = Stroke_Mode(picked)
+		switch app.brush.stroke {
+		case .Dots:
+		case .Drag_Rect:
+			ui.paragraph(ctx, "One stamp where the drag starts: its size is how far you drag and, with an alpha, its top faces the pointer. For placing alphas; not with dynamic topology.")
+		case .Spray:
+			_ = ui.slider(ctx, "Spread", &app.brush.spray_spread, 0, SPRAY_MAX_SPREAD, .Linear, fmt.tprintf("%.2f", app.brush.spray_spread))
+			ui.paragraph(ctx, "Dabs scatter up to the spread (in brush sizes) from the path, each a little smaller or weaker and, with an alpha, turned its own way: texture without a visible repeat.")
+		case .Roll:
+			ui.paragraph(ctx, "Dabs a brush width apart with the alpha's top along the stroke, so an alpha tiles like a tape rolled out: stitches, zips, chains.")
+		}
 	}
 	if .Cloth in BRUSHES[kind].flags {
 		modes: [len(sculpt.Cloth_Mode)]string

@@ -23,6 +23,7 @@ Brush_Settings :: struct {
 	lazy_px:           f32,  // lazy mouse: the brush trails the cursor by this many pixels; 0 is off
 	front_only:        bool, // brushes and mask shapes leave what faces away from the viewer (sculpt.Brush.facing)
 	stroke:            Stroke_Mode,
+	spray_spread:      f32, // Spray: how far from the path dabs scatter, in brush radii
 	symmetry:          sculpt.Symmetry, // mirror strokes across these planes of the object
 	// On objects with dynamic topology: edges under the brush longer than this many
 	// pixels on screen split, and with collapse, ones much shorter merge.
@@ -40,9 +41,19 @@ Brush_Settings :: struct {
 }
 
 // How a left drag lays the brush down.
+// The values are kept in .strokes files and settings by name, so new modes go last.
 Stroke_Mode :: enum u8 {
 	Dots,      // dabs along the path, DAB_SPACING radii apart
 	Drag_Rect, // one dab where the drag started, sized and turned by how far and which way it goes (ZBrush's DragRect)
+	Spray,     // dabs scattered about the path, each its own size, strength and turn (ZBrush's Spray)
+	Roll,      // dabs a diameter apart, the alpha's top along the stroke, so an alpha tiles like a rolled tape (ZBrush's Roll)
+}
+
+STROKE_MODE_NAMES := [Stroke_Mode]string {
+	.Dots      = "Dots",
+	.Drag_Rect = "Rectangle",
+	.Spray     = "Spray",
+	.Roll      = "Roll",
 }
 
 // A brush's falloff: the built-in smooth one, or a curve the user drew (read from the
@@ -90,7 +101,15 @@ Stroke :: struct {
 	// for the whole stroke, so Shift or a brush key pressed mid-stroke changes nothing.
 	kind:     sculpt.Brush_Kind,
 	held:     bool, // ...and whether that is the brush held, with its alpha and stroke mode
+	mode:     Stroke_Mode, // the held brush's stroke mode as it began; Dots for any other
 	invert:   bool, // whether it started inverted, for the History panel
+	// The stroke's random numbers (Spray's scatter, a Random alpha's turn) come from its
+	// seed (App.stroke_seed, kept by the recorder) and the step, one a dab, so a replayed
+	// stroke lands the same dabs; turn is a Spray dab's turn of the alpha, for
+	// alpha_screen_angle.
+	seed:     u64,
+	step:     u32,
+	turn:     f32,
 	// The sum and count of the points it dabbed, in its object's space: their mean is the
 	// pivot orbits turn about once it ends (Stroke_Pivot).
 	pivot_sum:   Vec3,
@@ -104,6 +123,14 @@ Sculpt_Frame_Result :: struct {
 }
 
 DAB_SPACING :: 0.25 // brush radii between dabs, measured on screen
+SPRAY_SPACING :: 0.5 // ...for Spray, whose scattered dabs need fewer to cover the path
+ROLL_SPACING :: 2 // ...for Roll: one diameter, so the alpha's images meet edge to edge
+SPRAY_MAX_SPREAD :: 1.5
+SPRAY_DEFAULT_SPREAD :: 0.6
+// Spray's dabs are this share of the brush at the smallest and full size at the largest,
+// and this share of its strength at the weakest.
+SPRAY_SIZE_LOW :: 0.75
+SPRAY_STRENGTH_LOW :: 0.5
 MIN_DAB_SPACING_PX :: 1
 MAX_DABS_PER_FRAME :: 64 // the rest of the path waits for the next frame
 // ...and once the frame's dabs have taken this long, as they can when dynamic topology
@@ -246,20 +273,36 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 	st := &app.stroke
 	st.active, st.object = true, obj.id
 	st.kind, st.held = stroke_brush(app, input), held_brush(input)
+	st.seed, st.step, st.turn = app.stroke_seed, 0, 0
+	app.stroke_seed += 1
 	st.pos, st.pressure, st.tilt, st.travel, st.size = s.pos, s.pressure, s.tilt, 0, input.size
 	st.dir = {}
 	clear(&st.pending)
 	sculpt.sculptor_stroke_begin(object_sculptor(obj))
+	// The mode before the first dab's brush, whose alpha turn reads it.
+	flags := BRUSHES[st.kind].flags
+	st.mode = app.brush.stroke if st.held && flags & {.Grab, .Hook, .Cloth} == {} else .Dots
+	if st.mode == .Drag_Rect && object_dynamic(obj) do st.mode = .Dots
+	st.rect = st.mode == .Drag_Rect
 	local := to_local(obj.transform, hit)
 	brush := brush_at(app, input, obj.transform, local, s.pressure, s.tilt)
-	flags := BRUSHES[brush.kind].flags
 	st.grab, st.hook, st.anchor, st.invert = .Grab in flags, .Hook in flags, hit, brush.invert
 	st.cloth = .Cloth in flags && !object_dynamic(obj)
 	if .Cloth in flags && !st.cloth do log.warn("cloth: not with dynamic topology on")
-	st.rect = app.brush.stroke == .Drag_Rect && !st.grab && !st.hook && .Cloth not_in flags && st.held && !object_dynamic(obj)
 	st.start, st.at = s.pos, local
 	st.pivot_sum, st.pivot_count = local, 1
 	if st.hook || st.rect do return // they move nothing until the pointer does
+	switch st.mode {
+	case .Roll:
+		// The first image waits until the pointer has gone a radius, so the stroke has a
+		// direction for its top and the tape starts where the press was.
+		st.travel = brush_radius_px(app, s.pressure)
+		return
+	case .Spray:
+		spray_dab(app, obj, input, inv, s.pos, s.pressure, s.tilt, res)
+		return
+	case .Dots, .Drag_Rect:
+	}
 	t1 := time.tick_now()
 	if st.grab {
 		sculpt.sculptor_grab_begin(object_sculptor(obj), brush, local)
@@ -408,7 +451,7 @@ stroke_walk :: proc(app: ^App, obj: ^Object, input: Viewport_Input, inv: matrix[
 		l := linalg.length(d)
 		// Pressure can shrink the spacing below what has been travelled already; the
 		// dab then goes where the stroke is.
-		need := max(DAB_SPACING * brush_radius_px(app, st.pressure), MIN_DAB_SPACING_PX) - st.travel
+		need := max(stroke_spacing(st.mode) * brush_radius_px(app, st.pressure), MIN_DAB_SPACING_PX) - st.travel
 		if l > 0 do st.dir = d / l
 		if l < need {
 			st.travel += l
@@ -423,15 +466,62 @@ stroke_walk :: proc(app: ^App, obj: ^Object, input: Viewport_Input, inv: matrix[
 			st.tilt += (tilt - st.tilt) * f
 		}
 		st.travel = 0
-		stroke_dab(app, obj, input, inv, st.pos, st.pressure, st.tilt, res)
+		if st.mode == .Spray do spray_dab(app, obj, input, inv, st.pos, st.pressure, st.tilt, res)
+		else do stroke_dab(app, obj, input, inv, st.pos, st.pressure, st.tilt, res)
 	}
+}
+
+// Brush radii between a stroke's dabs on screen, for its mode.
+@(private = "file")
+stroke_spacing :: proc(mode: Stroke_Mode) -> f32 {
+	#partial switch mode {
+	case .Spray: return SPRAY_SPACING
+	case .Roll:  return ROLL_SPACING
+	}
+	return DAB_SPACING
+}
+
+// One Spray dab for the stroke at `pos`: scattered up to the spread from it on screen,
+// with its own size, strength and, with an alpha, turn, all drawn from the stroke's seed
+// and step.
+@(private = "file")
+spray_dab :: proc(app: ^App, obj: ^Object, input: Viewport_Input, inv: matrix[4, 4]f32, pos: [2]f32, pressure: f32, tilt: [2]f32, res: ^Sculpt_Frame_Result) {
+	st := &app.stroke
+	step := st.step
+	st.step += 1
+	// Uniform over the disc: the square root keeps the middle from crowding.
+	r := app.brush.spray_spread * brush_radius_px(app, pressure) * math.sqrt(stroke_random(st.seed, step, 0))
+	a := 2 * math.PI * stroke_random(st.seed, step, 1)
+	scatter := Dab_Scatter {
+		size     = 1 - (1 - SPRAY_SIZE_LOW) * stroke_random(st.seed, step, 2),
+		strength = 1 - (1 - SPRAY_STRENGTH_LOW) * stroke_random(st.seed, step, 3),
+	}
+	st.turn = 2 * math.PI * stroke_random(st.seed, step, 4)
+	stroke_dab(app, obj, input, inv, pos + r * [2]f32{math.cos(a), math.sin(a)}, pressure, tilt, res, scatter)
+}
+
+// A number from 0 up to 1 for draw `k` of step `step` of the stroke seeded `seed`:
+// SplitMix64's finaliser over the three, so every stroke, step and draw has its own and
+// the same ones always give the same number.
+stroke_random :: proc(seed: u64, step, k: u32) -> f32 {
+	z := seed * 0x9e3779b97f4a7c15 + (u64(step) << 3 | u64(k)) * 0xd1b54a32d192ed03
+	z = (z ~ z >> 30) * 0xbf58476d1ce4e5b9
+	z = (z ~ z >> 27) * 0x94d049bb133111eb
+	z ~= z >> 31
+	return f32(z >> 40) / f32(1 << 24)
+}
+
+// How a stroke mode changes one dab from the brush as set: its size and strength as
+// shares of the brush's.
+Dab_Scatter :: struct {
+	size, strength: f32,
 }
 
 // Raycasts one point of the stroke's path and dabs where it meets the stroke's object.
 // A point off the object is skipped; the stroke carries on and resumes where the path
 // meets the surface again.
 @(private = "file")
-stroke_dab :: proc(app: ^App, obj: ^Object, input: Viewport_Input, inv: matrix[4, 4]f32, pos: [2]f32, pressure: f32, tilt: [2]f32, res: ^Sculpt_Frame_Result) {
+stroke_dab :: proc(app: ^App, obj: ^Object, input: Viewport_Input, inv: matrix[4, 4]f32, pos: [2]f32, pressure: f32, tilt: [2]f32, res: ^Sculpt_Frame_Result, scatter := Dab_Scatter{1, 1}) {
 	origin, dir := ray_through(inv, pos, input.size)
 	t := obj.transform
 	t0 := time.tick_now()
@@ -441,7 +531,12 @@ stroke_dab :: proc(app: ^App, obj: ^Object, input: Viewport_Input, inv: matrix[4
 	app.stroke.pivot_sum += hit
 	app.stroke.pivot_count += 1
 	t1 := time.tick_now()
-	sculpt.apply_dab(object_sculptor(obj), brush_at(app, input, t, hit, pressure, tilt), hit)
+	brush := brush_at(app, input, t, hit, pressure, tilt)
+	// Dynamic topology's edge length is a share of the radius: kept as set.
+	brush.radius *= scatter.size
+	brush.detail /= scatter.size
+	brush.strength *= scatter.strength
+	sculpt.apply_dab(object_sculptor(obj), brush, hit)
 	res.brush_ms += time.duration_milliseconds(time.tick_since(t1))
 	res.dabs += 1
 }

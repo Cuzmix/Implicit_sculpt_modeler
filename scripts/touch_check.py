@@ -250,6 +250,23 @@ def finger_sculpts_model():
 
 
 @scenario
+def spray_stroke_by_mouse():
+    """A Spray stroke dabs as it goes and is one undo step."""
+    s = Script()
+    s.mouse_drag(line((740, 420), (880, 480), 14))
+    return s, ["--stroke=spray"], camera_still({"dabs": lambda v: int(v) > 2, "undo_steps": near(1)})
+
+
+@scenario
+def roll_stroke_by_finger():
+    """A Roll stroke by finger lays its dabs a brush width apart, so fewer than Dots does
+    over the same path, and is one undo step."""
+    s = Script()
+    s.fdrag(line((700, 430), (900, 470), 20))
+    return s, ["--stroke=roll"], camera_still({"dabs": lambda v: 0 < int(v) < 10, "undo_steps": near(1)})
+
+
+@scenario
 def finger_orbits_empty_space():
     """One finger on empty space turns the view, and a stroke started there keeps turning over the model."""
     s = Script()

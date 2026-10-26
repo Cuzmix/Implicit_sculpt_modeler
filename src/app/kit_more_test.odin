@@ -76,22 +76,23 @@ section_controls :: proc(app: ^App, sec: Kit_Section, draw: proc(app: ^App, obj:
 }
 
 // Every inspector section shows at most five controls until its More options open (UX
-// rule "Basic ≤ 5 controls"): for every brush on the Brush tab, the Object tab's pages,
+// rule "Basic ≤ 5 controls"): for every brush and stroke mode on the Brush tab, the Object tab's pages,
 // the Scene tab, and the Curve and Insert tools.
 @(test)
 sections_show_at_most_five_controls :: proc(t: ^testing.T) {
 	app: App
 	obj := section_scene(&app)
 	defer section_scene_free(&app)
-	for kind in sculpt.Brush_Kind {
-		app.brush.kind = kind
+	for kind in sculpt.Brush_Kind do for mode in Stroke_Mode {
+		app.brush.kind, app.brush.stroke = kind, mode
 		for sec in BRUSH_SECTIONS {
 			if sec.shown != nil && !sec.shown(&app) do continue
 			tab_draw = sec.draw
 			n := section_controls(&app, sec.section, by_tab, obj, false)
-			testing.expectf(t, n <= 5, "%v brush, %s: %d controls", kind, sec.title, n)
+			testing.expectf(t, n <= 5, "%v brush, %v stroke, %s: %d controls", kind, mode, sec.title, n)
 		}
 	}
+	app.brush.stroke = .Dots
 	// The Preset section is widest on a preset.
 	app.brush.kind = .Clay
 	_ = preset_save_new(&app)

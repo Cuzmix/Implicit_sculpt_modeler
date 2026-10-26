@@ -171,7 +171,12 @@ brush_alpha :: proc(app: ^App) -> ^sculpt.Alpha {
 // the angle alone).
 alpha_screen_angle :: proc(app: ^App, for_display := false) -> f32 {
 	angle := math.to_radians(app.brush.alpha_angle)
-	switch app.brush.alpha_mode {
+	mode := app.brush.alpha_mode
+	// The stroke modes that place the image themselves: Spray turns each dab its own way,
+	// Roll lays the top along the stroke whatever the alpha's mode.
+	if app.stroke.active && app.stroke.mode == .Spray do return angle if for_display else angle + app.stroke.turn
+	if (app.stroke.mode if app.stroke.active else app.brush.stroke) == .Roll do mode = .Stroke
+	switch mode {
 	case .Fixed:
 	case .Stroke:
 		// The stroke's direction, once it has one; screen y grows downward. Between
@@ -180,9 +185,11 @@ alpha_screen_angle :: proc(app: ^App, for_display := false) -> f32 {
 		if app.stroke.active && d != {} do angle += math.atan2(-d.x, -d.y)
 	case .Random:
 		if !for_display {
-			// A cheap generator is plenty: the angle only has to look unpatterned.
-			app.alpha_seed = app.alpha_seed * 1664525 + 1013904223
-			angle += f32(app.alpha_seed >> 8) / f32(1 << 24) * 2 * math.PI
+			// From the stroke's seed and a step a dab, so a replayed stroke turns each dab
+			// the same way.
+			st := &app.stroke
+			angle += 2 * math.PI * stroke_random(st.seed, st.step, 5)
+			st.step += 1
 		}
 	}
 	return angle

@@ -180,6 +180,7 @@ strokes_keep_the_rail_mask :: proc(t: ^testing.T) {
 	defer results_destroy(&a)
 	a.brush.radius_px = 40
 	append(&a.replay.take.brushes, a.brush)
+	append(&a.replay.take.seeds, 7)
 	append(&a.replay.take.samples, Input_Sample{{10, 20}, 1, .Press, {}})
 	append(&a.replay.take.frames, Take_Frame{count = 1, camera = camera.orbit_default(), size = {800, 600}, primary = true, mask = true, invert = true})
 	testing.expect(t, strokes_save(&a, path))
