@@ -54,7 +54,8 @@ ACTION_GROUPS := [Action_Group]Action_Group_Info {
 		{.Mask, int(sculpt.Mask_Command.Shrink), "Shrink"},
 		{.Group_Shortcut, 0, "Make group"},
 	}},
-	.Hidden = {"Hidden", {{.Show_All, 0, "Show all"}, {.Invert_Hidden, 0, "Invert##hidden"}}},
+	// Mask hidden turns what is hidden into a mask that outlasts Show all.
+	.Hidden = {"Hidden", {{.Show_All, 0, "Show all"}, {.Invert_Hidden, 0, "Invert##hidden"}, {.Mask, int(sculpt.Mask_Command.Hidden), "Mask it"}}},
 	// Captioned by the operation (action_caption).
 	.Adjust = {"Adjust", {{.Adjust_Last, 0, "Adjust..."}}},
 }

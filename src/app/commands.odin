@@ -67,6 +67,8 @@ Command_Id :: enum u8 {
 	Mask, // the argument is the sculpt.Mask_Command
 	Show_All,
 	Invert_Hidden,
+	Hide_Masked,
+	Hide_Unmasked,
 	Paint, // the argument is the sculpt.Paint_Command
 	Group, // the argument is the sculpt.Group_Command
 	Delete_Lower_Levels,
@@ -151,6 +153,13 @@ Binding :: struct {
 }
 
 has_object :: proc(app: ^App, _: int) -> bool {return selected_object(app) != nil}
+
+// Whether the selected object can hide by its mask: it has one where it is sculpted, and
+// it is neither in HD nor under dynamic topology, where hiding is refused.
+has_mask :: proc(app: ^App, _: int) -> bool {
+	obj := selected_object(app)
+	return obj != nil && !object_in_hd(obj) && !object_dynamic(obj) && object_has_mask(app, obj)
+}
 
 @(rodata)
 COMMANDS := [Command_Id]Command {
@@ -462,7 +471,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Mask = {
 		label = "Mask",
-		help = "Changes the selected object's mask as a whole: clear, invert, fill, by cavity, or a step of blur, sharpen, grow or shrink.",
+		help = "Changes the selected object's mask as a whole: clear, invert, fill, by cavity, from what is hidden, or a step of blur, sharpen, grow or shrink.",
 		args = len(sculpt.Mask_Command),
 		run = proc(app: ^App, arg: int) {mask_command(app, sculpt.Mask_Command(arg))},
 	},
@@ -477,6 +486,20 @@ COMMANDS := [Command_Id]Command {
 		help = "Hides what is shown and shows what is hidden.",
 		icon = ui.ICON_EYE_OFF,
 		run = proc(app: ^App, _: int) {hide_command(app, .Invert)},
+	},
+	.Hide_Masked = {
+		label = "Hide masked",
+		help = "Hides the masked part of the object: each triangle masked at least half at every corner.",
+		icon = ui.ICON_EYE_OFF,
+		run = proc(app: ^App, _: int) {hide_command(app, .Masked)},
+		enabled = has_mask,
+	},
+	.Hide_Unmasked = {
+		label = "Hide unmasked",
+		help = "Hides all but the masked part of the object, to work on that part alone.",
+		icon = ui.ICON_EYE_OFF,
+		run = proc(app: ^App, _: int) {hide_command(app, .Unmasked)},
+		enabled = has_mask,
 	},
 	.Paint = {
 		label = "Paint",
@@ -1158,6 +1181,7 @@ MASK_COMMAND_LABELS := [sculpt.Mask_Command]string {
 	.Invert  = "Invert mask",
 	.Fill    = "Mask all",
 	.Cavity  = "Mask cavities",
+	.Hidden  = "Mask hidden",
 	.Blur    = "Blur mask",
 	.Sharpen = "Sharpen mask",
 	.Grow    = "Grow mask",

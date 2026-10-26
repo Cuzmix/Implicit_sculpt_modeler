@@ -206,8 +206,8 @@ kit_mask :: proc(app: ^App) {
 	if kit_more(app, .Mask) {
 		kit_command_pair(app, .Mask, .Mask, int(sculpt.Mask_Command.Blur), int(sculpt.Mask_Command.Sharpen), "Blur", "Sharpen")
 		kit_command_pair(app, .Mask, .Mask, int(sculpt.Mask_Command.Grow), int(sculpt.Mask_Command.Shrink), "Grow", "Shrink")
-		_ = command_button(app, .Mask, int(sculpt.Mask_Command.Cavity), "Mask cavities")
-		ui.paragraph(ctx, "Mask cavities masks the creases and dips, more the deeper they are.")
+		kit_command_pair(app, .Mask, .Mask, int(sculpt.Mask_Command.Cavity), int(sculpt.Mask_Command.Hidden), "Mask cavities", "Mask hidden")
+		ui.paragraph(ctx, "Mask cavities masks the creases and dips, more the deeper they are. Mask hidden masks what is hidden and unmasks the rest, so after Show all the mask is that part.")
 		kit_more_end(app)
 	}
 }
@@ -222,14 +222,15 @@ kit_visibility :: proc(app: ^App, obj: ^Object) {
 	if picked := ui.select(ctx, "gesture", names[:], int(app.gesture)); picked >= 0 do app.gesture = Gesture_Tool(picked)
 	switch app.gesture {
 	case .Hide_Rectangle, .Hide_Lasso:
-		ui.paragraph(ctx, "Letting go keeps only what is inside the shape shown, through to the back (Alt: hides what is inside). Hidden parts are not drawn and no brush, mask or clip touches them. A Ctrl + Shift click shows everything. Not in HD or with dynamic topology.")
+		ui.paragraph(ctx, "Letting go keeps only what is inside the shape shown, through to the back (Alt: hides what is inside). Hidden parts are not drawn and no brush, mask or clip touches them (but Mask hidden). A Ctrl + Shift click shows everything. Not in HD or with dynamic topology.")
 	case .Clip:
 		ui.paragraph(ctx, "Letting go flattens the selected object on the shaded side (Alt: the other side) onto the line, through to the back. It follows symmetry and leaves masked and hidden parts. Not with dynamic topology.")
 	case .Slice:
 		ui.paragraph(ctx, "Letting go cuts the selected object in two along the line, through to the back, and closes each cut: the part on the right of the drag becomes an object of its own. Levels, mask and hiding are dropped.")
 	}
 	kit_command_pair(app, .Show_All, .Invert_Hidden, label_b = "Invert hiding")
-	ui.paragraph(ctx, fmt.tprintf("%s shows all; %s inverts.", command_keys(app, .Show_All), command_keys(app, .Invert_Hidden)))
+	kit_command_pair(app, .Hide_Masked, .Hide_Unmasked)
+	ui.paragraph(ctx, fmt.tprintf("%s shows all; %s inverts. Hide masked and Hide unmasked hide by the mask; Mask hidden (Mask, More options) turns what is hidden into a mask.", command_keys(app, .Show_All), command_keys(app, .Invert_Hidden)))
 	kit_last_result(app, .Visibility)
 	if app.stats.slice_ms > 0 do ui.paragraph(ctx, fmt.tprintf("Last slice: %.0f ms, ready in %.0f ms more.", app.stats.slice_ms, app.stats.slice_setup_ms))
 }

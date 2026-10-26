@@ -186,7 +186,7 @@ GLOSSARY := [?]Glossary_Entry {
 	{"Ghost", "Transparent (ZBrush), in front and wire display (Blender)", "An object dimmed and out of reach, to sculpt another against it.", "transparent", {.Ghost_Object}},
 	{"Brush", "Brush (ZBrush, Blender), tool (Nomad)", "What a stroke does to the surface: Draw, Clay, Smooth and the rest, each with its own size and strength. Keys 1 to 9 and 0 pick the first ten.", "", {}},
 	{"Mask", "Mask (ZBrush, Blender, Nomad), freeze (3DCoat)", "Paint on the surface that no brush can move. Masked parts show darker.", "freeze", {.Mask}},
-	{"Hide", "Hide (ZBrush, Nomad), visibility (Blender)", "Parts taken out of view, which brushes then leave alone, until shown again.", "visibility unhide", {.Show_All, .Invert_Hidden}},
+	{"Hide", "Hide (ZBrush, Nomad), visibility (Blender)", "Parts taken out of view, which brushes then leave alone, until shown again.", "visibility unhide", {.Show_All, .Invert_Hidden, .Hide_Masked, .Hide_Unmasked}},
 	{"Group", "Polygroup (ZBrush), face set (Blender, Nomad)", "A set of faces in one colour, for masking, hiding or picking by.", "polygroup", {.Group_Shortcut, .Group, .Polygroups}},
 	{"Level", "Subdivision level (ZBrush), Multires (Blender), multiresolution (Nomad)", "A finer copy of the object made by Subdivide. Detail sculpted on one level shows on the rest.", "subdivision multires", {.Subdivide, .Level_Up, .Level_Down, .Delete_Lower_Levels, .Delete_Higher_Levels}},
 	{"Layer", "Layer (ZBrush, Nomad), shape key (Blender)", "Changes kept apart from the sculpt under them, which can be faded or turned off (Object tab > Layers). Not the Layer brush, which raises the surface evenly.", "", {}},

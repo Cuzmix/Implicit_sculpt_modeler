@@ -1283,7 +1283,8 @@ def rail_clear(*others):
 # Hidden group alone, on an 820 x 640 window the folded Mask button and the first row of
 # its popover, and on a 1400 x 900 window with Settings open the folded Mask button.
 BAR_MASK_INVERT = (595, 786)
-BAR_SHOW_ALL = (788, 786)
+BAR_SHOW_ALL = (750, 786)
+BAR_MASK_HIDDEN = (900, 786)  # Mask it, the third of the Hidden group alone
 BAR_NARROW_MASK = (357, 526)
 BAR_NARROW_FIRST = (354, 164)
 BAR_SETTINGS_MASK = (700, 786)
@@ -1311,6 +1312,48 @@ def action_bar_finger_shows_all():
     # gone, and with no mask either the bar has nothing to show.
     return s, ["--hide=x"], camera_still({"action_bar": is_text("none"), "dabs": near(0),
                                           "@shown": lambda stats: "hidden_triangles" not in stats})
+
+
+@scenario
+def action_bar_masks_the_hidden_part():
+    """With half the sphere hidden, the bar's Mask it masks that half; Ctrl+H then shows everything and the mask stays on
+    the half that was hidden, each an undo step."""
+    s = Script()
+    s.wait(8)
+    s.ftap(*BAR_MASK_HIDDEN)
+    s.wait(8)
+    s.press("h", ("ctrl",))
+    s.wait(8)
+    return s, ["--hide=x"], camera_still({"masked": near(1), "mask_mean": lambda v: 0.3 < float(v) < 0.7, "undo_steps": near(3),
+                                          "@shown": lambda stats: "hidden_triangles" not in stats})
+
+
+@scenario
+def palette_hides_the_masked_part():
+    """A band of mask, then the palette's Hide masked: the band is hidden, the mask stays, and it is one more undo step."""
+    s = Script()
+    masked_first(s)
+    s.press("k", ("ctrl",))
+    s.type("hide masked")
+    s.press("Return")
+    s.wait(6)
+    return s, [], camera_still({"masked": near(1), "undo_steps": near(2), "palette": near(0),
+                                "hidden_triangles": lambda v: int(v) > 0})
+
+
+@scenario
+def hide_unmasked_then_undo_shows_it_again():
+    """A band of mask, the palette's Hide unmasked leaves only the band shown, and one Ctrl+Z shows everything again."""
+    s = Script()
+    masked_first(s)
+    s.press("k", ("ctrl",))
+    s.type("hide unmasked")
+    s.press("Return")
+    s.wait(6)
+    s.press("z", ("ctrl",))
+    s.wait(6)
+    return s, [], camera_still({"masked": near(1), "undo_steps": near(1), "redo_steps": near(1),
+                                "@shown": lambda stats: "hidden_triangles" not in stats})
 
 
 @scenario
@@ -3208,7 +3251,10 @@ def run_one(name, step, screens, displays):
                 good = ok(stats)
             except (KeyError, ValueError):
                 good = False
-            if not good:
+            # A check may say what was wrong instead of only False.
+            if isinstance(good, str):
+                failures.append(f"{key} wrong: {good}")
+            elif not good:
                 failures.append(f"{key} wrong")
         elif key not in stats:
             failures.append(f"{key} missing")
@@ -3259,6 +3305,16 @@ def autosave_args(*more):
 def autosave_files(ext=".sculpt"):
     folder = autosave_folder()
     return sorted(f for f in os.listdir(folder) if f.endswith(ext)) if os.path.isdir(folder) else []
+
+
+def same_file(a, b):
+    """True when files `a` and `b` hold the same bytes, else where they differ, so a rare
+    mismatch says something the next time it happens (both files are kept)."""
+    x, y = open(a, "rb").read(), open(b, "rb").read()
+    if x == y:
+        return True
+    at = next((i for i in range(min(len(x), len(y))) if x[i] != y[i]), min(len(x), len(y)))
+    return f"{len(x)} bytes against {len(y)}, first difference at byte {at} ({a} and {b})"
 
 
 def stroke_then_rest(s, frames=150):
@@ -3313,7 +3369,7 @@ def autosave_crash_then_recover():
     after = Script()
     after.wait(10)
     click(after, CARD["recover"])
-    same = lambda _: open(control, "rb").read() == open(recovered, "rb").read()
+    same = lambda _: same_file(control, recovered)
     return Steps([
         (stroke_then_rest(Script(), 5), [f"--export={control}"], {}),
         crash_after_stroke(),
