@@ -8,7 +8,7 @@ import "core:testing"
 import "../camera"
 import "../sculpt"
 
-// Each row's offset lands on a field of App of exactly the row's type: a row that
+// Each row's offset, the script-only values' too, lands on a field of App of exactly the row's type: a row that
 // pointed half into another field, or named the wrong type, would write past it.
 @(test)
 every_setting_names_its_field :: proc(t: ^testing.T) {
@@ -28,10 +28,15 @@ every_setting_names_its_field :: proc(t: ^testing.T) {
 		}
 		return false
 	}
-	for s, i in SETTINGS {
+	// The script-only values (script.odin) are rows too, and a script names both tables
+	// alike, so neither may share a key or a field with the other.
+	rows := make([dynamic]Setting, 0, len(SETTINGS) + len(SCRIPT_VALUES), context.temp_allocator)
+	append(&rows, ..SETTINGS[:])
+	append(&rows, ..SCRIPT_VALUES[:])
+	for s, i in rows {
 		testing.expectf(t, field_is(App, s.offset, s.type), "%s: no %v field at offset %d of App", s.key, s.type, s.offset)
 		testing.expectf(t, s.lo <= s.hi, "%s: range %v to %v", s.key, s.lo, s.hi)
-		for other in SETTINGS[i + 1:] do testing.expectf(t, other.key != s.key && other.offset != s.offset, "%s and %s clash", s.key, other.key)
+		for other in rows[i + 1:] do testing.expectf(t, other.key != s.key && other.offset != s.offset, "%s and %s clash", s.key, other.key)
 	}
 }
 
