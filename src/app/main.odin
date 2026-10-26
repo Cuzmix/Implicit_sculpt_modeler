@@ -115,6 +115,12 @@ Options :: struct {
 	import_mesh: string `args:"name=import" usage:"Start with the mesh in this .obj or .ply file instead of spheres (after any --open), as Menu > Import mesh... does."`,
 	export:    string `usage:"On exit, write the selected object's shown level to this .obj or .ply file, as Menu > Export mesh... does."`,
 	save:      string `usage:"On exit, save the scene to this .sculpt file, as Menu > Save scene does."`,
+	autosave:  f32 `usage:"Autosave every this many seconds once the scene changed and the app rested, as Settings > System > Autosave does every few minutes; scripted runs only autosave with this or --autosave-folder."`,
+	autosave_folder: string `usage:"Keep the autosaves in this folder instead of the app's own (and offer the ones a crashed run left there, as an interactive start does)."`,
+	autosave_rest: f32 `usage:"Seconds without a press, key or stroke before an autosave starts (default 1.5)."`,
+	check_autosave: bool `usage:"Check that nothing an autosave reads changes while it reads it: the exit stats count it as autosave_torn."`,
+	crash_after_autosave: bool `usage:"Exit with code 3 right after the first autosave is written, skipping the clean exit, as a crash would: the kill test of autosave and recovery."`,
+	bench_after_autosave: bool `usage:"Start --bench-stroke only once an autosave of the scene as it starts is being written, so the stroke runs while the file is written (the autosave benchmark)."`,
 	load_strokes: string `usage:"Load the strokes in this .strokes file and replay them where they were drawn, as the Stroke recorder's Load and Replay do: once --bench-stroke ends, or at the start; the run lasts until they are done."`,
 	replay_shift: string `usage:"Replay --load-strokes moved this many pixels right and down from where they were drawn, in the current view, as R at the pointer does, e.g. 120,-40."`,
 	instant_replay: bool `usage:"Replay every recorded frame at once instead of one a frame, as the Stroke recorder's Instant does."`,
@@ -182,6 +188,10 @@ App :: struct {
 	ui:       Ui_State,
 	stats:    Frame_Stats,
 	history:  History,
+	// Counts the changes to what a scene file stores that the History does not list (a
+	// sculpt layer's name, UVs laid out again), for the autosave's fingerprint.
+	scene_edits: u64,
+	autosave: Autosave, // the background autosave and crash recovery (autosave.odin)
 	timeline: Timeline, // the History panel's scrubbing, playback and time-lapse (timeline.odin)
 	replay:   Replay, // the Stroke recorder's last stroke, recording and replay (replay.odin)
 	// View > Studio render (Shift+R): ambient occlusion and soft shadows built up while
@@ -454,6 +464,7 @@ run :: proc(opts: Options) -> bool {
 	app.brush = {kind = .Draw, radius_px = DEFAULT_RADIUS_PX, pressure_strength = true, pressure_curve = geom.CURVE_LINEAR, detail_px = 10, collapse = true, alpha = -1, color = {0.75, 0.2, 0.15}}
 	for &s, kind in app.brush.strengths do s = BRUSHES[kind].strength
 	app.nav = NAV_DEFAULT
+	app.autosave.minutes = AUTOSAVE_DEFAULT_MINUTES
 	// What earlier interactive runs left, before the flags, which win over it.
 	remember := (opts.frames == 0 && opts.gpubench == "" && opts.bench_stroke == 0 && !opts.no_settings) || opts.settings_file != ""
 	settings := (opts.settings_file if opts.settings_file != "" else settings_path()) if remember else ""
@@ -571,6 +582,11 @@ run :: proc(opts: Options) -> bool {
 	}
 	if opts.bake_size > 0 do app.ui.bake.size = i32(opts.bake_size)
 	defer if remember do _ = settings_save(&app, settings)
+	interactive := opts.frames == 0 && opts.gpubench == "" && opts.bench_stroke == 0 && opts.compute_bench == ""
+	autosave_init(&app, interactive, f64(opts.autosave), opts.autosave_folder, f64(opts.autosave_rest), opts.check_autosave, opts.crash_after_autosave)
+	defer autosave_destroy(&app)
+	// The benchmark's autosave writes the scene it starts with.
+	if opts.bench_after_autosave do app.autosave.clean = 0
 	if opts.ortho do app.camera.ortho = true
 	if opts.wireframe do app.wireframe = true
 	if opts.flat do app.flat = true
@@ -658,6 +674,7 @@ run :: proc(opts: Options) -> bool {
 	app.tool = .Brush
 	app.running = true
 	frame_index := 0
+	bench_skipped := 0 // frames --bench-after-autosave held the stroke back
 	// The previous frame's, kept while timing the GPU so the next frame can wait for it.
 	present_fence: ^sdl.GPUFence
 	defer if present_fence != nil {
@@ -669,9 +686,11 @@ run :: proc(opts: Options) -> bool {
 		frame_start := time.tick_now()
 		if command := app.ui.scene_command; command.kind != .None {
 			app.ui.scene_command = {}
+			autosave_settle(&app)
 			if !scene_run(&app, command) do return false
 		}
 		if req, ok := file_take(&app); ok {
+			autosave_settle(&app)
 			applied := file_apply(&app, req)
 			file_request_free(req)
 			if !applied do return false
@@ -761,6 +780,7 @@ run :: proc(opts: Options) -> bool {
 			case .DID_ENTER_BACKGROUND:
 				// The system may end the app from the background without another word.
 				if app.settings_file != "" do _ = settings_save(&app, app.settings_file)
+				app.autosave.background = true
 			case .MOUSE_MOTION:
 				pen := e.motion.which == sdl.PEN_MOUSEID
 				append(&app.samples, Input_Sample{{e.motion.x, e.motion.y}, app.pen_pressure if pen else 1, .Move, app.pen_tilt if pen else {}})
@@ -782,6 +802,8 @@ run :: proc(opts: Options) -> bool {
 			}
 		}
 		device_frame_end(&app.device)
+		// Nothing below may change the scene while the autosave thread reads it.
+		autosave_guard(&app)
 
 		// Resize to the size the interface asked for last frame, before it references the
 		// texture, so it never draws a texture released this frame.
@@ -793,10 +815,13 @@ run :: proc(opts: Options) -> bool {
 		ui_start := time.tick_now()
 		input := kit_frame(&app, window)
 		ring_push(&app.stats.ui_ms, time.duration_milliseconds(time.tick_since(ui_start)))
-		if opts.bench_stroke > 0 && frame_index < opts.bench_stroke {
-			input = bench_input(&app, frame_index, opts.bench_stroke, opts.bench_samples, opts.bench_loops, {opts.bench_tilt, 0}, {f32(app.target.width), f32(app.target.height)})
+		bench_waits := opts.bench_after_autosave && app.autosave.written == 0 && !autosave_writing(&app)
+		if bench_waits do bench_skipped += 1
+		bench_frame := frame_index - bench_skipped
+		if opts.bench_stroke > 0 && bench_frame < opts.bench_stroke && !bench_waits {
+			input = bench_input(&app, bench_frame, opts.bench_stroke, opts.bench_samples, opts.bench_loops, {opts.bench_tilt, 0}, {f32(app.target.width), f32(app.target.height)})
 			// A lifted frame ends the stroke; the next frame presses again.
-			if every := opts.bench_stroke / (opts.bench_lifts + 1); opts.bench_lifts > 0 && every > 0 && (frame_index + 1) % every == 0 {
+			if every := opts.bench_stroke / (opts.bench_lifts + 1); opts.bench_lifts > 0 && every > 0 && (bench_frame + 1) % every == 0 {
 				input.primary = false
 			}
 			app.device.input_at = sdl.GetTicksNS()
@@ -1011,10 +1036,14 @@ run :: proc(opts: Options) -> bool {
 			ring_push(&app.stats.latency_ms, f64(submitted_ns - app.device.input_at) / 1e6)
 			app.stats.dabs_total += sculpted.dabs
 		}
+		// A scripted stroke or replay changes the scene with no input to show for it.
+		app.autosave.scripted = (opts.bench_stroke > 0 && !bench_waits && bench_frame < opts.bench_stroke) || opts.gpubench != "" ||
+			(opts.load_strokes != "" && frame_index <= max(opts.bench_stroke, LOAD_STROKES_FRAME)) || (opts.timelapse != "" && frame_index <= opts.bench_stroke)
+		autosave_frame(&app)
 		free_all(context.temp_allocator)
 
 		frame_index += 1
-		if (opts.frames > 0 && frame_index >= opts.frames) || (opts.bench_stroke > 0 && frame_index >= opts.bench_stroke) {
+		if (opts.frames > 0 && frame_index >= opts.frames) || (opts.bench_stroke > 0 && frame_index - bench_skipped >= opts.bench_stroke) {
 			// A --timelapse run goes on until the recording is done.
 			// So does one replaying --load-strokes, which starts the frame after.
 			replaying := replay_busy(&app) || (opts.load_strokes != "" && frame_index <= max(opts.bench_stroke, LOAD_STROKES_FRAME))
@@ -1052,6 +1081,11 @@ run :: proc(opts: Options) -> bool {
 	}
 	if opts.save != "" && !scene_save(&app, opts.save) do return false
 	if opts.save_strokes != "" && !strokes_save(&app, opts.save_strokes) do return false
+	autosave_close(&app, window)
+	if as := &app.autosave; as.on {
+		fmt.printfln("autosaves=%d autosave_aborts=%d autosave_torn=%d autosave_wait_ms=%.1f autosave_sync_ms=%.1f autosave_serialize_ms=%.1f autosave_write_ms=%.1f autosave_mb=%.1f recovered=%d recover_offers=%d",
+			as.written, as.aborts, as.torn, as.wait_ms, as.sync_ms, as.serialize_ms, as.write_ms, f64(as.bytes) / (1 << 20), as.recovered, len(as.offers))
+	}
 
 	print_stat :: proc(name: string, r: Sample_Ring) {
 		p50, p99 := ring_percentiles(r)

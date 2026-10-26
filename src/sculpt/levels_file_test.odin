@@ -177,3 +177,66 @@ levels_file_keeps_dynamic_topology :: proc(t: ^testing.T) {
 	for k in again_mask do painted += int(k > 0)
 	testing.expect(t, painted > 0, "the mask was lost")
 }
+
+// Levels with every part a file stores on the current level: strokes, a mask, paint,
+// groups and two layers, left on the top level.
+@(private = "file")
+full_levels :: proc(pool: ^jobs.Pool) -> (l: Levels) {
+	l = file_levels(pool)
+	levels_set_current(&l, 2)
+	s := &levels_current(&l).sculptor
+	_ = apply_dab(s, {kind = .Paint, radius = 0.6, strength = 0.7, color = {250, 120, 3}}, linalg.normalize(Vec3{0, 0.2, 1}))
+	assert(sculptor_group_command(s, .Creases, 5))
+	_ = sculptor_layer_add(s)
+	_ = apply_dab(s, {kind = .Draw, radius = 0.4, strength = 1}, linalg.normalize(Vec3{0.5, 0.5, 1}))
+	_ = sculptor_stroke_end(s)
+	_ = sculptor_layer_add(s)
+	_ = sculptor_flush(s)
+	return
+}
+
+// The autosave thread's way of writing (serially, after the frame loop synced, able to
+// stop) gives the bytes a save from the frame loop gives.
+@(test)
+levels_file_is_the_same_written_serially :: proc(t: ^testing.T) {
+	pool: jobs.Pool
+	jobs.pool_init(&pool, 3)
+	defer jobs.pool_destroy(&pool)
+	l := full_levels(&pool)
+	defer levels_destroy(&l)
+	pooled := make([dynamic]u8)
+	defer delete(pooled)
+	testing.expect(t, levels_write(&l, &pooled))
+	// The save above synced, as the frame loop does before handing the levels over.
+	levels_sync(&l)
+	abort := false
+	serial := make([dynamic]u8)
+	defer delete(serial)
+	testing.expect(t, levels_write(&l, &serial, {serial = true, abort = &abort, synced = true}))
+	testing.expect(t, slice.equal(pooled[:], serial[:]), "the serial file differs")
+	// And a dynamic mesh, stored packed.
+	d: Levels
+	levels_init(&d, geom.icosphere(3), &pool, 64)
+	defer levels_destroy(&d)
+	testing.expect(t, levels_dyn_enable(&d))
+	files: [2][dynamic]u8
+	defer for f in files do delete(f)
+	testing.expect(t, levels_write(&d, &files[0]))
+	testing.expect(t, levels_write(&d, &files[1], {serial = true, abort = &abort, synced = true}))
+	testing.expect(t, slice.equal(files[0][:], files[1][:]), "the serial packed file differs")
+}
+
+// Once the abort flag is set, levels_write stops early and says so.
+@(test)
+levels_file_write_stops_when_asked :: proc(t: ^testing.T) {
+	l := full_levels(nil)
+	defer levels_destroy(&l)
+	whole := make([dynamic]u8)
+	defer delete(whole)
+	testing.expect(t, levels_write(&l, &whole))
+	abort := true
+	part := make([dynamic]u8)
+	defer delete(part)
+	testing.expect(t, !levels_write(&l, &part, {serial = true, abort = &abort, synced = true}))
+	testing.expectf(t, len(part) < len(whole) / 4, "wrote %d of %d bytes after the abort", len(part), len(whole))
+}

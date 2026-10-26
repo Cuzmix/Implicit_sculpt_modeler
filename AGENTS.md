@@ -65,7 +65,7 @@ skill whose description fits the request BEFORE you form a plan.
   import `vendor:sdl3`; `bench` never imports `render` or `app`; `sdf_trial` stands alone.
 - Determinism: serial and parallel results are bit-identical and tests compare them; no map order decides output.
 - Allocations inside jobs use `runtime.heap_allocator()` for both make and delete; only the frame loop and the setup
-  paths call `free_all(context.temp_allocator)`; nothing temp is stored.
+  paths call `free_all(context.temp_allocator)` (the autosave thread frees its own arena); nothing temp is stored.
 - Every vertex move goes through `apply_dab`, `sculptor_grab_move` or `sculptor_nodes_moved`, and every mask change
   through `mask_dab` or `sculptor_mask_command`; triangles change only under dynamic topology inside a stroke. Any other
   topology change (remesh, booleans, …) copies `object_remesh`: end the stroke, leave HD, release and rebuild the object,

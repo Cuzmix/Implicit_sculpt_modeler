@@ -26,6 +26,10 @@ History :: struct {
 	// look again. It keeps counting across a clear, so a scene opened over another, whose
 	// ids may be the old ones, still reads as changed.
 	serial: u64,
+	// Counts the changes serial counts that change what a scene file stores: not the
+	// forgetting, and not the steps inside an HD window, whose detail no file holds.
+	// The autosave's fingerprint (autosave.odin) follows it.
+	edits:  u64,
 }
 
 History_Entry :: struct {
@@ -87,6 +91,7 @@ history_clear :: proc(h: ^History) {
 	}
 	h.swap_bytes = 0
 	h.serial += 1
+	h.edits += 1
 }
 
 @(private = "file")
@@ -118,6 +123,7 @@ history_record_swap :: proc(app: ^App, id: int, before: ^Object_Snapshot, chain 
 	history_drop_redo(app)
 	history_forget_strokes(app, id)
 	app.history.serial += 1
+	app.history.edits += 1
 	append(&app.history.done, History_Entry{id = id, swap = before, chain = chain && len(app.history.done) > 0, kind = .Rebuild, what = before.what, at = time.tick_now()})
 	app.history.swap_bytes += len(before.bytes)
 	// Over the limit, the oldest snapshots go, with every entry older than them, since
@@ -366,6 +372,7 @@ clip_command :: proc(app: ^App, a, b: [2]f32, flip: bool, size: [2]f32) {
 history_record :: proc(app: ^App, obj: ^Object, kind: History_Kind, what: string) {
 	history_drop_redo(app)
 	app.history.serial += 1
+	if !object_in_hd(obj) do app.history.edits += 1
 	append(&app.history.done, History_Entry{id = obj.id, level = HD_LEVEL if object_in_hd(obj) else obj.levels.current, kind = kind, what = what, at = time.tick_now()})
 }
 
@@ -419,6 +426,7 @@ history_step :: proc(app: ^App, from, to: ^[dynamic]History_Entry, can, step: pr
 	for len(from) > 0 {
 		e := pop(from)
 		app.history.serial += 1
+		if e.level != HD_LEVEL || e.swap != nil do app.history.edits += 1
 		if e.swap != nil {
 			if !history_swap(app, e) do app.running = false // GPU failure
 			append(to, e)

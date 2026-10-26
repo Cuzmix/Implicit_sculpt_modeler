@@ -33,7 +33,13 @@ re-check the stores' pages before a first submission, because they move every ye
   them. The main thread never blocks for seconds: long work (remesh, slice, file reads of big meshes) runs on jobs
   with progress, and the frame loop keeps presenting.
 - Going to the background (SDL `EVENT_WILL_ENTER_BACKGROUND` / `DID_ENTER_BACKGROUND`) saves recoverable state and
-  stops GPU submission; the OS may kill the app there without warning. Coming back restores the scene.
+  stops GPU submission; the OS may kill the app there without warning. Coming back restores the scene. Today
+  `DID_ENTER_BACKGROUND` starts an autosave at once (`app.autosave.background`, `src/app/autosave.odin`), and on mobile
+  every session not closed is offered back at the next start, since a kill there looks like a crash.
+- UNVERIFIED until the iPad build: iOS gives a backgrounded app only seconds unless it asks for more
+  (`beginBackgroundTask`), so a big scene's autosave may be cut short there (the copy before it stays whole); and
+  `SDL_GetPrefPath` on iOS is backed up to iCloud, so the `autosave` folder needs `NSURLIsExcludedFromBackupKey` (or
+  to live under Caches) before a store build, or hundreds of MB of copies go to the user's iCloud.
 - Apple 4.2 / 2.1: the build is complete, nothing says "coming soon", no placeholder screens, no debug panels
   reachable by users (the Stats panel, F11 and Menu > Stats, is to be a developer flag only in store builds).
 

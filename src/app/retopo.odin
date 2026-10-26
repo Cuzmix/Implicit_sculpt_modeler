@@ -104,6 +104,7 @@ object_layout_uvs :: proc(app: ^App, obj: ^Object) {
 	sculpt.levels_sync(&obj.levels)
 	uv := geom.quad_uv_unwrap(sculpt.levels_quad_mesh(&obj.levels), UV_PADDING)
 	sculpt.levels_set_uvs(&obj.levels, uv)
+	app.scene_edits += 1
 	log.infof("UVs: %d charts filling %.0f%%", uv.charts, 100 * uv.filled)
 }
 

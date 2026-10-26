@@ -87,6 +87,7 @@ SETTINGS := [?]Setting {
 	{"stats", K + offset_of(Kit_State, stats), bool, 0, 0},
 	{"stats_advanced", K + offset_of(Kit_State, stats_advanced), bool, 0, 0},
 	{"vsync", offset_of(App, vsync), bool, 0, 0},
+	{"autosave_minutes", offset_of(App, autosave) + offset_of(Autosave, minutes), i32, 0, 10},
 	{"orbit_style", N + offset_of(Nav_Prefs, orbit_style), camera.Orbit_Style, 0, 0},
 	{"mouse_scheme", N + offset_of(Nav_Prefs, mouse_scheme), Mouse_Scheme, 0, 0},
 	{"limit_pitch", N + offset_of(Nav_Prefs, limit_pitch), bool, 0, 0},

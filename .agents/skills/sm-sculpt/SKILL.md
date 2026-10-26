@@ -217,6 +217,14 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
 - A mask-only change is stale `.Paint`: it re-uploads the node's vertices without recomputing normals; pass
   `sculptor.mask` to every `mesh_buffers_create`/`upload_ranges`, or the mask vanishes from the screen (sm-render).
 
+- The autosave thread reads every object with `levels_write` (`Write_Options{serial, abort, synced, hd_open}`) while
+  the frame loop runs: anything that changes a sculptor, a level or the scene must happen after `autosave_guard`
+  (once the frame's events are read) or inside a scene command or file request (both `autosave_settle` first), and
+  anything that changes the scene without a press must make `autosave_quiet` false while it runs (a replay, the
+  timeline). A change that is saved but not in the History bumps `app.scene_edits`, or autosave never notices it
+  (`scene_fingerprint`). A new loop in `levels_write` checks `w.abort` per node or piece and runs serially when
+  `pool` is nil; `levels_file_is_the_same_written_serially` and `levels_file_write_stops_when_asked` cover both.
+
 ## Traps
 | You might expect | What happens |
 |---|---|
