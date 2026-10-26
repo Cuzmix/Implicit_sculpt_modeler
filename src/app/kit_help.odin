@@ -190,6 +190,7 @@ GLOSSARY := [?]Glossary_Entry {
 	{"Solo", "Solo (ZBrush, Nomad), local view (Blender), isolate (Maya)", "Only the selected object shown, whichever that is, until Solo is off; the others keep their eyes as they were.", "isolate", {.Solo_Object}},
 	{"Ghost", "Transparent (ZBrush), in front and wire display (Blender)", "An object dimmed and out of reach, to sculpt another against it.", "transparent", {.Ghost_Object}},
 	{"Brush", "Brush (ZBrush, Blender), tool (Nomad)", "What a stroke does to the surface: Draw, Clay, Smooth and the rest, each with its own size and strength. Keys 1 to 9 and 0 pick the first ten.", "", {}},
+	{"Adjust last stroke", "Adjust Last (ZBrush), Adjust Last Operation (Blender)", "How much of the newest stroke stays, set after drawing it, from none to half as much again (Stroke > More, or the palette's Adjust last operation).", "", {}},
 	{"Connected only", "Topological auto masking (ZBrush), auto-masking topology (Blender), connected (Nomad)", "A brush working only on the surface joined to where it presses, leaving a finger or fold beside it that is only near in space (Brush tab > Options).", "automasking", {.Connected}},
 	{"Lock plane", "Original plane (ZBrush), plane lock (Nomad), original normal (Blender)", "A stroke keeping the plane its first dab found, so a long Flatten or Clay stroke does not drift with the surface (Brush tab > Options).", "original", {.Lock_Plane}},
 	{"Mask", "Mask (ZBrush, Blender, Nomad), freeze (3DCoat)", "Paint on the surface that no brush can move. Masked parts show darker.", "freeze", {.Mask}},

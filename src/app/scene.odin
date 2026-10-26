@@ -734,6 +734,9 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 object_set_level :: proc(app: ^App, obj: ^Object, level: int) -> bool {
 	object_hd_leave(app, obj)
 	if clamp(level, 0, len(obj.levels.levels) - 1) == obj.levels.current do return true
+	// Leaving the level carries its edits to the others, so its last stroke is no longer
+	// one step to adjust there.
+	if app.adjustable.op == .Stroke do app.adjustable.op = .None
 	start := time.tick_now()
 	sculpt.levels_set_current(&obj.levels, level)
 	return object_show_level(app, obj, start)

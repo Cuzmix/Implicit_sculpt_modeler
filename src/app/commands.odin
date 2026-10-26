@@ -695,7 +695,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Adjust_Last = {
 		label = "Adjust last operation",
-		help = "Opens the settings of the last remesh, decimate, mirror, retopology, extract or smooth all, to run it again from before it.",
+		help = "Opens the settings of the last remesh, decimate, mirror, retopology, extract or smooth all, to run it again from before it, or the amount of the last stroke.",
 		run = proc(app: ^App, _: int) {
 			if app.kit.adjust_pop do app.kit.adjust_pop = false
 			else do adjust_open(app)

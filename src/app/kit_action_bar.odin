@@ -76,7 +76,8 @@ action_groups_now :: proc(app: ^App) -> (groups: bit_set[Action_Group]) {
 	if object_in_hd(obj) do groups += {.Hd}
 	if object_has_mask(app, obj) do groups += {.Mask}
 	if sculpt.sculptor_hidden_count(object_sculptor(obj)) > 0 do groups += {.Hidden}
-	if adjust_live(app) do groups += {.Adjust}
+	// Not for a stroke, which would bring the group after every one (adjust_last.odin).
+	if adjust_live(app) && app.adjustable.op != .Stroke do groups += {.Adjust}
 	return
 }
 

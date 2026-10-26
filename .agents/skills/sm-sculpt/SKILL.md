@@ -13,13 +13,11 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
   (`:85-95`): each node alone writes its owned, contiguous vertex range; a shared vertex belongs to the lowest node id.
 - Constants with their reasons (`:23-32`): `NODE_TRIANGLES 1024`, `PARALLEL_MIN_VERTS 2048` (waking workers costs more
   than less work), `MAX_CACHED_FACES 4096`, `CONE_BATCH 512` (cones held back during a stroke, worked off per flush).
-- `sculptor_init(s, mesh, pool, node_triangles, old_to_new)` partitions and renumbers the mesh in place; vertex and
-  triangle order change (`:172`).
+- `sculptor_init(s, mesh, pool, node_triangles, old_to_new)` partitions and renumbers the mesh in place (`:172`).
 - `Brush{kind, radius (world units), strength 0..1, invert, symmetry, detail, collapse, tilt, alpha, alpha_up,
   alpha_mirror}` (`:55-75`; `detail`/`collapse` are dynamic topology's; `tilt` is a rotation of the area normal from a
   leaning pen, zero for none; `alpha` is the bullet on alphas below, nil for none); `falloff` is `(1 − x²)²` over the squared distance in radii (`:511-515`). `Brush.falloff_shape: ^Falloff` (nil = built-in) swaps it for a drawn curve: `falloff_set_curve` fills a 257-entry table over x² from `geom.curve_at(curve, 1 - d)`, `falloff_drawn` lerps it; `dab_weight` and `grab_follow` read it (the alpha's height fade and the area sampling keep the built-in). App: `Brush_Settings.falloffs[kind]`, tables cached in `App.falloff_tables` by `brush_falloff`. Strengths with
-  their reasons: `DRAW_HEIGHT 0.1` radii, `CLAY_HEIGHT 0.08`, `PLANE_RATE 0.5`, `PINCH_RATE 0.25`, `CREASE_PINCH 0.2`
-  (`:78-83`).
+  their reasons: `DRAW_HEIGHT 0.1` radii, `CLAY_HEIGHT 0.08`, `PLANE_RATE 0.5`, `PINCH_RATE 0.25`, `CREASE_PINCH 0.2`.
 - The fourteen kinds, in key order 1–9 then 0 (Snake hook, Morph, Paint and Cloth have no key) (`Brush_Kind`; README "Brushes, masking and symmetry" has the user's view):
   | Kind | Moves | Inverted |
   |---|---|---|
@@ -38,8 +36,7 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
 | Snake_Hook | by `Brush.drag · w` (mirrored per image); the app (`hook_follow`, `src/app/sculpt_tool.odin`) moves the hook point after the pointer on the camera-facing plane in steps of at most `DAB_SPACING` radii and dabs at it without raycasting | — |
   | Cloth | a cloth simulation of the region within `CLOTH_REACH` radii (`cloth.odin`): `sculptor_cloth_begin` (record_hit, sim vertices with pin/drive weights, edge links via `vertex_faces_of`), `sculptor_cloth_step` each frame (Verlet + `Cloth_Mode` force, Jacobi edge rounds with buckle and bending, write back, `sculptor_nodes_moved` + `record_changed_node`), `sculptor_cloth_end` in `stroke_finish`; app `cloth_follow`; not with dyntopo, no symmetry | Pinch↔Expand, Gravity rises |
 - Drag rectangle (`Stroke_Mode.Drag_Rect`, app `rect_follow`): each frame `sculptor_stroke_restore` (`undo.odin`) copies the
-  current step's saved nodes back (keeping them, so the stroke stays one step; refused under dynamic topology), then one dab
-  at the start point sized by the drag.
+  current step's saved nodes back (kept: one step; refused under dyntopo), then one dab at the start sized by the drag.
 - Spray and Roll (`Stroke_Mode.Spray`/`.Roll`, app `stroke_walk`): spacing per mode (`stroke_spacing`). Spray's dabs
   (`spray_dab`) scatter on screen before the raycast and scale size and strength (`Dab_Scatter`); every random number is
   `stroke_random(Stroke.seed, Stroke.step, k)`, the seed from `App.stroke_seed` (kept per stroke in `Take.seeds` and
@@ -63,6 +60,9 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
   only once all are written), foreign edges run-deduped to root pairs, serial union, a mark pass; it starts from the
   triangle under the centre (`l.under`), not the nearest vertex (the next finger's). Joined strokes keep `locked`. Folded into
   `facing_weight` and `job_area`. 10M Clay: 1.8 ms brush a frame vs 0.7.
+- Adjust last stroke (`adjust.odin`): `sculptor_stroke_adjust(s, k)` lerps the newest step's saved nodes from before
+  to an `after` copy kept on the `Undo_Step` at the first adjust (counted in `step_bytes`, freed by `step_move`), exact
+  at 0 and 1 (`adjust_vec`), then `sculptor_nodes_moved`. Refused under dyntopo or for hide/group/layer-op steps.
 - `apply_dab(s, brush, center)` (`brush.odin:570-584`) returns 0 for Grab, else runs `dab_once` at every mirror image:
   `mirrors(symmetry)` gives `{1,1,1}` then the sign flips, up to 8 (`brush.odin:588-600`); each image gets the tilt
   mirrored too (`S·R·S`: element `[i, j]` times `sign[i]·sign[j]`, `brush.odin:577`), and `alpha_up` times the sign with
@@ -121,8 +121,7 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
   `Undo_Step.layer_op` (add/remove; the step `held`s a removed layer) and `.layer_set` (old strength/visible) are swapped in
   `layer_step_swap`; `step_move` re-counts `h.bytes` since swaps change what a step holds. `sculptor_layer_set` begins or
   continues a stroke (a drag = one step; app ends it on release), `layer_displace` moves only nodes with delta. Files:
-  `LEVELS_LAYERS` flag, every level's layers in canon order. Baked by `sculptor_dyn_enable`; app refuses in HD/dyntopo
-  (`src/app/layers.odin`).
+  `LEVELS_LAYERS` flag, every level's layers in canon order. Baked by `sculptor_dyn_enable`; app refuses in HD/dyntopo.
 - Chunk groups (`brush.odin`, `sculptor_chunk_groups`): one `geom.chunk_group` per 64 chunks for grouped culling; every
   write to `s.chunks[id]` must call `chunk_touched(s, id)` so the group is remade; nil under dyntopo.
 - `sculptor_flush(s)` (`brush.odin:443-506`): once a frame before uploading. Sorts `dirty_nodes`, recomputes normals per node
