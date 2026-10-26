@@ -160,9 +160,14 @@ file_take :: proc(app: ^App) -> (req: File_Request, ok: bool) {
 
 // Whether a request waits for the next frame, which the autosave's rest counts as busy.
 file_pending :: proc() -> bool {
+	return file_pending_kind() != .None
+}
+
+// What the waiting request is, .None for nothing.
+file_pending_kind :: proc() -> File_Kind {
 	sync.lock(&pending.lock)
 	defer sync.unlock(&pending.lock)
-	return pending.req.kind != .None
+	return pending.req.kind
 }
 
 file_request_free :: proc(req: File_Request) {
@@ -200,6 +205,15 @@ file_apply :: proc(app: ^App, req: File_Request) -> bool {
 		}
 		_ = object_export(app, obj, req.path)
 	case .Save:
+		if app.saving.kind != .None do return true
+		if scene_save_bytes(app) > SAVE_SHOW_FIRST {
+			// The frame stops for the whole save, so first the window says what it is
+			// waiting for; save_pending runs it once the toast is up.
+			app.saving = {req.kind, strings.clone(req.path, runtime.heap_allocator())}
+			app.saving_at = app.kit.ctx.time
+			report(app, nil, {.Busy}, "Saving %s...", filepath.base(req.path))
+			return true
+		}
 		if scene_save(app, req.path) do scene_remember_path(app, req.path)
 	case .Open:
 		opened, ok := scene_open(app, req.path)
@@ -402,6 +416,30 @@ scene_save :: proc(app: ^App, path: string) -> bool {
 	file_note(app, hd_dropped > 0, "Saved %s: %d %s, %d MB in %.0f ms%s", filepath.base(path), len(app.scene.objects), "object" if len(app.scene.objects) == 1 else "objects", len(out) >> 20, app.stats.file_write_ms,
 		fmt.tprintf(". The HD detail of %d of them is not saved, only their HD steps", hd_dropped) if hd_dropped > 0 else "")
 	return true
+}
+
+// Above this many bytes (about 1M vertices) a save stops the frame for long enough that
+// the window shows "Saving..." first instead of freezing without a word.
+SAVE_SHOW_FIRST :: 32 << 20
+
+// About what the scene's file will take: what saving it costs, levels and all.
+scene_save_bytes :: proc(app: ^App) -> int {
+	bytes := 0
+	for obj in app.scene.objects do bytes += object_put_estimate(obj)
+	return bytes
+}
+
+// Runs the save that was waiting for its toast, once the toast has come in, or at once
+// when `now` (anything else about to change the scene, or the app closing): it saves
+// the scene as it stands, whatever the frames in between did.
+save_pending :: proc(app: ^App, now: bool) {
+	if app.saving.kind == .None do return
+	if !now && app.kit.ctx.time - app.saving_at < f64(app.kit.ctx.theme.toast_time) + 0.05 do return
+	req := app.saving
+	app.saving = {}
+	defer file_request_free(req)
+	autosave_settle(app)
+	if scene_save(app, req.path) do scene_remember_path(app, req.path)
 }
 
 // The scene file's start: its magic and version, how many objects follow, the selected
@@ -634,19 +672,42 @@ finite :: proc(v: Vec3) -> bool {
 	return true
 }
 
-// Writes next to the file and then renames over it, so a failed write never leaves a
-// half-written file where a good one was. `what` names the action for the note.
+// Writes next to the file, makes sure the bytes reached the disk, and renames over it,
+// so a failed write, a crash or a power cut never leaves a half-written file where a good
+// one was, and a note saying the file was saved is true when it shows. `what` names the
+// action for the note.
 write_file_safely :: proc(app: ^App, path: string, data: []u8, what: string) -> bool {
-	partial := strings.concatenate({path, ".partial"}, context.temp_allocator)
-	if err := os.write_entire_file(partial, data); err != nil {
-		file_note(app, true, "Cannot %s %s: %v", what, filepath.base(partial), err)
-		_ = os.remove(partial)
-		return false
-	}
-	if err := os.rename(partial, path); err != nil {
-		file_note(app, true, "Cannot %s over %s: %v", what, filepath.base(path), err)
-		_ = os.remove(partial)
+	if err := write_durably(path, data); err != "" {
+		file_note(app, true, "Cannot %s %s: %s", what, filepath.base(path), err)
 		return false
 	}
 	return true
+}
+
+// Big writes go out in pieces so that one call never holds a whole scene's worth of the
+// system's write buffers (and an autosave thread's write yields between them).
+WRITE_CHUNK :: 8 << 20
+
+// Writes `data` to path.partial a chunk at a time, syncs it, and replaces `path` with it
+// (replace_durably). Returns what went wrong, "" for nothing; nothing is left behind.
+write_durably :: proc(path: string, data: []u8) -> string {
+	partial := strings.concatenate({path, ".partial"}, context.temp_allocator)
+	f, err := os.open(partial, {.Write, .Create, .Trunc}, os.Permissions_Default_File)
+	if err != nil do return fmt.tprintf("cannot write %s: %v", filepath.base(partial), err)
+	for at := 0; at < len(data); at += WRITE_CHUNK {
+		if _, werr := os.write(f, data[at:min(at + WRITE_CHUNK, len(data))]); werr != nil {
+			os.close(f)
+			_ = os.remove(partial)
+			return fmt.tprintf("cannot write %s: %v", filepath.base(partial), werr)
+		}
+	}
+	// A power cut after the rename must not find an empty file where the old one was.
+	serr := os.sync(f)
+	os.close(f)
+	if serr == nil do serr = replace_durably(partial, path)
+	if serr != nil {
+		_ = os.remove(partial)
+		return fmt.tprintf("cannot write %s: %v", filepath.base(path), serr)
+	}
+	return ""
 }

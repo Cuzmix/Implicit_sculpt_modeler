@@ -109,6 +109,12 @@ toast_drop_action :: proc(ctx: ^Context, serial: Id) {
 	for &to in ctx.toasts[:ctx.toast_count] do if to.serial == serial do to.action_len = 0
 }
 
+// Sends the toast `serial` away now, as a click on it would: what it said is over (a
+// "Saving..." once the save is done). Nothing happens if it has gone already.
+toast_dismiss :: proc(ctx: ^Context, serial: Id) {
+	for &to in ctx.toasts[:ctx.toast_count] do if to.serial == serial do to.life = min(to.life, f32(ctx.time - to.born))
+}
+
 // The serial of the toast whose action was pressed since the last call, or 0.
 toast_take_action :: proc(ctx: ^Context) -> Id {
 	acted := ctx.toast_acted

@@ -49,9 +49,6 @@ AUTOSAVE_MINUTES := [?]i32{0, 1, 2, 5, 10}
 AUTOSAVE_MINUTE_NAMES := [?]string{"Off", "Every minute", "Every 2 minutes", "Every 5 minutes", "Every 10 minutes"}
 // A crash then loses at most about a minute and a half of work.
 AUTOSAVE_DEFAULT_MINUTES :: 1
-// What the thread writes to the disk at a time.
-@(private = "file")
-WRITE_CHUNK :: 8 << 20
 @(private = "file")
 SESSION_EXT :: ".session"
 @(private = "file")
@@ -241,7 +238,7 @@ autosave_minutes :: proc(m: i32) -> i32 {
 // finger or pen contact, and nothing under way that changes it without one (a stroke or
 // its samples left over, a drag, a tap's waiting dab, the Space pie, a replay, the
 // timeline's playback or time-lapse, a scripted stroke) or waiting to (a scene command,
-// a file request). Hovering is rest.
+// a file request, a save waiting for its toast). Hovering is rest.
 autosave_quiet :: proc(app: ^App) -> bool {
 	d := &app.device
 	if len(d.keys) > 0 || d.down != {} || d.pressed != {} || d.released != {} || d.wheel != 0 || d.text_len > 0 || d.cancel do return false
@@ -250,7 +247,7 @@ autosave_quiet :: proc(app: ^App) -> bool {
 	if p.space_down || p.space_pressed || p.space_released do return false
 	if app.stroke.active || len(app.stroke.pending) > 0 || app.drag.owner != .None || app.dab_wait.active do return false
 	if replay_busy(app) || timeline_busy(app) || app.autosave.scripted do return false
-	return app.ui.scene_command.kind == .None && !file_pending()
+	return app.ui.scene_command.kind == .None && !file_pending() && app.saving.kind == .None
 }
 
 // What decides whether the scene changed since the last autosave: the History's edits,
@@ -566,7 +563,7 @@ autosave_run :: proc(w: ^Autosave_Worker) {
 	// The scene is the frame loop's again: from here only the buffer is read.
 	start = time.tick_now()
 	job.bytes = len(out)
-	err := write_chunked(job.path, out[:])
+	err := write_durably(job.path, out[:])
 	if err == "" {
 		job.info.alive = unix_now()
 		if session_write(session_path(w.folder, w.session), job.info) != nil do err = "cannot write the session file"
@@ -592,31 +589,6 @@ read_hash :: proc(job: ^Autosave_Job) -> u64 {
 		}
 	}
 	return h
-}
-
-// Writes `data` to path.partial a chunk at a time, makes sure it reached the disk, and
-// renames it over `path`. Returns what went wrong, "" for nothing.
-@(private = "file")
-write_chunked :: proc(path: string, data: []u8) -> string {
-	partial := strings.concatenate({path, ".partial"}, context.temp_allocator)
-	f, err := os.open(partial, {.Write, .Create, .Trunc}, os.Permissions_Default_File)
-	if err != nil do return fmt.tprintf("cannot write %s: %v", filepath.base(partial), err)
-	for at := 0; at < len(data); at += WRITE_CHUNK {
-		if _, werr := os.write(f, data[at:min(at + WRITE_CHUNK, len(data))]); werr != nil {
-			os.close(f)
-			_ = os.remove(partial)
-			return fmt.tprintf("cannot write %s: %v", filepath.base(partial), werr)
-		}
-	}
-	// A power cut after the rename must not find an empty file where the autosave was.
-	serr := os.sync(f)
-	os.close(f)
-	if serr == nil do serr = os.rename(partial, path)
-	if serr != nil {
-		_ = os.remove(partial)
-		return fmt.tprintf("cannot write %s: %v", filepath.base(path), serr)
-	}
-	return ""
 }
 
 session_path :: proc(folder, session: string) -> string {
