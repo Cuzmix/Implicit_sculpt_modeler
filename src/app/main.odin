@@ -110,6 +110,7 @@ App :: struct {
 	stroke:   Stroke,
 	script:   Script_Run, // the script running: the start-up one (--run, --script), or a macro
 	startup_script: Script_Outcome, // how the start-up script went, for the exit stats and files
+	macro:    Macro_State, // the recording and the macros kept (macros.odin)
 	alphas:   [dynamic]Alpha_Entry, // the brush alphas the Brush palette offers (alphas.odin)
 	presets:      [MAX_PRESETS]Brush_Preset, // the user's brush presets (presets.odin), the first preset_count in use
 	preset_count: int,
@@ -283,6 +284,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		return true
 	}
 	defer script_unload(&app)
+	defer macros_destroy(&app)
 	defer delete(app.scene_path)
 	defer file_request_free(app.saving)
 	defer {
@@ -408,6 +410,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	defer delete(settings)
 	settings_load(&app, settings)
 	app.settings_file = settings
+	// Macros are kept beside the settings, so a run that keeps no settings keeps none.
+	macros_load(&app, macros_folder(settings))
 	app.coach_run = (remember && opts.frames == 0) || opts.coach
 	if opts.coach do app.kit.coach = 0
 	app.kit.fixed_dt = opts.ui_dt
@@ -449,7 +453,10 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		if command := app.ui.scene_command; command.kind != .None {
 			app.ui.scene_command = {}
 			autosave_settle(&app)
+			// A command being recorded counts once it changed the scene (macros.odin).
+			before := script_scene_state(&app) if app.macro.pending.active else {}
 			if !scene_run(&app, command) do return false
+			if app.macro.pending.active do macro_settle(&app, script_scene_state(&app) != before)
 		}
 		if req, ok := file_take(&app); ok {
 			autosave_settle(&app)
@@ -894,6 +901,11 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	if r := app.startup_script; r.statements > 0 {
 		fmt.printfln("script_statements=%d script_ran=%d script_frames=%d script_failed=%d", r.statements, r.ran, r.frames, int(r.failed))
 		if r.failed && r.scripted do exit_code^ = 2
+	}
+	if m := &app.macro; m.recording || m.runs > 0 || macro_free_slot(m) != 0 {
+		kept := 0
+		for s in m.slots do kept += int(s.name != "")
+		fmt.printfln("macros=%d macro_recording=%d macro_entries=%d macro_left_out=%d macros_run=%d macro_steps=%d", kept, int(m.recording), len(m.entries), m.left_out, m.runs, m.steps)
 	}
 	fmt.printfln("frames=%d dabs=%d objects=%d vertices=%d", frame_index, app.stats.dabs_total, len(app.scene.objects), vertices)
 	{

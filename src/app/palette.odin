@@ -57,6 +57,8 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.Open_Last_Autosave = "recover restore crash backup autosave lost unsaved quicksave",
 	.Import_Mesh      = "obj ply load append file",
 	.Export_Mesh      = "obj ply file",
+	.Macro_Record     = "macro record recording automate repeat actions steps",
+	.Run_Macro        = "macro play replay run recorded automate repeat",
 	.Screenshot       = "png capture image",
 	.Coach_Tips       = "tutorial onboarding coach intro getting started hints",
 	.Pie              = "quick menu favourites radial marking menu spacebar custom",
@@ -181,6 +183,22 @@ palette_entries :: proc() -> []Palette_Entry {
 	}
 	for tab in Settings_Tab do append(&out, Palette_Entry{kind = .Settings_Tab, arg = int(tab)})
 	return out[:]
+}
+
+// The entries as this run has them: Run macro only for the slots that hold a macro.
+palette_entries_shown :: proc(app: ^App) -> []Palette_Entry {
+	out := make([dynamic]Palette_Entry, 0, 160, context.temp_allocator)
+	for e in palette_entries() {
+		if e.kind == .Command && e.id == .Run_Macro && app.macro.slots[e.arg].name == "" do continue
+		append(&out, e)
+	}
+	return out[:]
+}
+
+// What the palette and Settings > Keys show for the entry: a macro by its name.
+entry_title :: proc(app: ^App, e: Palette_Entry) -> string {
+	if e.kind == .Command && e.id == .Run_Macro && app.macro.slots[e.arg].name != "" do return fmt.tprintf("Macro: %s", app.macro.slots[e.arg].name)
+	return palette_label(e)
 }
 
 // Whether the palette lists the command: not None, not itself, and not the two that act
@@ -320,12 +338,12 @@ Palette_Hit :: struct {
 // entry matches, the favourites first in the order they were starred, then recent, then
 // those that can run, then in the table's order; a query ranks favourites as any other.
 // `enabled[i]` says whether entries[i] can run now. In the temp allocator.
-palette_rank :: proc(query: string, entries: []Palette_Entry, recent: []Palette_Entry, enabled: []bool, favourites: []Palette_Entry = nil) -> []Palette_Hit {
+palette_rank :: proc(query: string, entries: []Palette_Entry, recent: []Palette_Entry, enabled: []bool, favourites: []Palette_Entry = nil, titles: []string = nil) -> []Palette_Hit {
 	assert(len(enabled) == len(entries))
 	q := fold(strings.trim_space(query))
 	hits := make([dynamic]Palette_Hit, 0, len(entries), context.temp_allocator)
 	for e, i in entries {
-		label := fold(palette_label(e))
+		label := fold(titles[i] if titles != nil else palette_label(e))
 		tier, score := palette_match(q, label, fold(palette_words_of(e)))
 		if tier == .None do continue
 		r := PALETTE_RECENT
@@ -452,10 +470,11 @@ kit_palette :: proc(app: ^App, anchor: ui.Rect, side: ui.Side) {
 		k.palette_pick, k.palette_first = 0, 0
 	}
 	query := string(cstring(&k.palette_query[0]))
-	entries := palette_entries()
+	entries := palette_entries_shown(app)
 	enabled := make([]bool, len(entries), context.temp_allocator)
-	for e, i in entries do enabled[i] = palette_enabled(app, e)
-	hits := palette_rank(query, entries, k.palette_recent[:k.palette_recent_count], enabled, favourite_entries(app))
+	titles := make([]string, len(entries), context.temp_allocator)
+	for e, i in entries do enabled[i], titles[i] = palette_enabled(app, e), entry_title(app, e)
+	hits := palette_rank(query, entries, k.palette_recent[:k.palette_recent_count], enabled, favourite_entries(app), titles)
 	n := len(hits)
 	if k.palette && n > 0 {
 		if key_pressed(d, sdl.K_DOWN, repeat = true) do k.palette_pick = (k.palette_pick + 1) % n
@@ -480,7 +499,7 @@ kit_palette :: proc(app: ^App, anchor: ui.Rect, side: ui.Side) {
 		e := entries[h.entry]
 		// A row's id comes from its entry, so it stays the same widget while the list
 		// around it changes.
-		label := fmt.tprintf("%s##palette %d", palette_label(e), h.entry)
+		label := fmt.tprintf("%s##palette %d", titles[h.entry], h.entry)
 		keys := command_keys(app, e.id, e.arg) if e.kind == .Command else ""
 		checked := e.kind == .Command && command_checked(app, e.id, e.arg)
 		starred := e.kind == .Command && favourite_find(app, e.id, e.arg) >= 0

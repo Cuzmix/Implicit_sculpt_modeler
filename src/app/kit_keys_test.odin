@@ -55,8 +55,9 @@ keys_are_found_by_name_or_key :: proc(t: ^testing.T) {
 	app: App
 	defer results_destroy(&app)
 	all := keys_rows(&app, "")
+	// Every command the palette lists, which is every one but the macro slots that hold none.
 	commands := 0
-	for e in palette_entries() do if e.kind == .Command do commands += 1
+	for e in palette_entries_shown(&app) do if e.kind == .Command do commands += 1
 	testing.expect_value(t, len(all), commands)
 
 	rows := keys_rows(&app, "ctrl+z")

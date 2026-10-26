@@ -1011,6 +1011,11 @@ def settings_file():
     return os.path.join(ROOT, "build", "touch", "settings", CURRENT.name + ".txt")
 
 
+def macros_folder():
+    """Where the scenario's macros are kept: beside its settings file, named after it."""
+    return settings_file()[:-len(".txt")] + "-macros"
+
+
 def saved(**want):
     """A check on the settings file the scenario's app wrote on closing Settings."""
     def ok(_):
@@ -3655,6 +3660,7 @@ def run(name, screens, displays=None):
     os.makedirs(os.path.dirname(settings_file()), exist_ok=True)
     if os.path.exists(settings_file()):
         os.remove(settings_file())
+    shutil.rmtree(macros_folder(), ignore_errors=True)
     shutil.rmtree(autosave_folder(), ignore_errors=True)
     result = SCENARIOS[name]()
     steps = result if isinstance(result, Steps) else [result]
@@ -4086,6 +4092,47 @@ def palette_run(s, words):
 def same_file(a, b):
     """A check that files `a` and `b` (written by the runs) hold the same bytes."""
     return lambda _: file_difference(a, b)
+
+
+@scenario
+def macro_records_and_replays():
+    """Record macro from the palette, Ctrl+R (a remesh, recorded once it has applied),
+    Wireframe from the palette, the Clay brush by its key and the Stats panel (not
+    recorded), then Stop and a typed name: the macro is kept as a script file. A later run
+    runs it from the palette by that name, as the person's own work: the mesh is the one
+    the same commands give from a start-up script, and only the remesh is an undo step."""
+    direct, replayed = autosave_folder() + "-direct.ply", autosave_folder() + "-replayed.ply"
+    record = Script()
+    record.wait(3)
+    palette_run(record, "record macro")
+    record.press("r", ("ctrl",))
+    record.wait(5)
+    palette_run(record, "wireframe")
+    record.press("3")
+    record.press("F11")
+    record.wait(3)
+    palette_run(record, "record macro")
+    record.type("Zebra")
+    record.press("Return")
+    record.wait(3)
+
+    def kept(_):
+        path = os.path.join(macros_folder(), "macro-01.cmd")
+        text = open(path).read()
+        want = "# Macro: Zebra\nremesh\nwireframe on\nbrush clay\n"
+        return text == want or f"{path} holds {text!r}"
+
+    replay = Script()
+    replay.wait(3)
+    palette_run(replay, "zebra")
+    replay.wait(3)
+    settings = f"--settings-file={settings_file()}"
+    return Steps([
+        (record, [settings, "--vertices=20000"], {"macros": near(1, 0), "macro_recording": near(0, 0), "macro_entries": near(0, 0), "@the file": kept}),
+        (Script(), ["--vertices=20000", "--script=remesh; wireframe on; brush clay", f"--export={direct}"], {}),
+        (replay, [settings, "--vertices=20000", f"--export={replayed}"],
+         {"macros_run": near(1, 0), "macro_steps": near(3, 0), "undo_steps": near(1, 0), "@the commands' mesh": same_file(direct, replayed)}),
+    ])
 
 
 @scenario

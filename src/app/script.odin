@@ -517,6 +517,9 @@ script_allows :: proc(id: Command_Id) -> bool {
 		return false
 	case .Rename_Object, .Command_Palette, .Pie, .Pie_Editor, .Brush_Pie:
 		return false
+	// No script records or runs a macro, so none starts another or records itself.
+	case .Macro_Record, .Run_Macro:
+		return false
 	// The last stroke replays where the pointer is, and the last autosave is whatever an
 	// earlier run left: neither is something a script can say beforehand.
 	case .Replay_Stroke, .Open_Last_Autosave:
@@ -692,7 +695,6 @@ script_step :: proc(app: ^App, st: Script_Statement) -> (failure: string, ok: bo
 // What tells whether a scene command changed anything: the scene's fingerprint (its
 // History, objects, levels and placements), and the selected object's HD window and
 // dynamic topology, which opening and turning on leave out of it.
-@(private = "file")
 script_scene_state :: proc(app: ^App) -> [3]u64 {
 	obj := selected_object(app)
 	return {scene_fingerprint(app), u64(obj != nil && object_in_hd(obj)), u64(obj != nil && object_dynamic(obj))}
@@ -710,6 +712,7 @@ script_fail :: proc(app: ^App, st: Script_Statement, why: string) {
 	if !r.setup {
 		// A person's run keeps what it did before the statement, each its own step.
 		r.running = false
+		app.macro.steps += r.next
 		report(app, nil, {.Warning}, "%s stopped at line %d: %s did nothing (%s)", r.script.source, st.line, name, strings.clone(why, context.temp_allocator))
 		return
 	}
@@ -756,6 +759,7 @@ script_finish :: proc(app: ^App) {
 	r.running = false
 	if !r.setup {
 		n := len(r.script.statements)
+		app.macro.steps += n
 		report(app, nil, {}, "Ran %s: %d step%s", r.script.source, n, "" if n == 1 else "s")
 		return
 	}
