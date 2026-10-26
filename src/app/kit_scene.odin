@@ -40,6 +40,11 @@ kit_scene_tab :: proc(app: ^App) {
 		kit_folder_row(app, &spots, &f, 0, 0)
 	}
 	kit_tree_drags(app, spots[:])
+	// The switch above the note, so it stays put under a finger as the note comes and goes.
+	_ = ui.switch_row(ctx, "Select several", &k.select_several, keys = "Shift + click")
+	if n := len(selection_ids(app)); n > 1 {
+		ui.paragraph(ctx, fmt.tprintf("%d objects selected. The gizmo, the Transform values, Reset, Duplicate and Delete take all of them; everything else works on %s, which has the gizmo.", n, object_label(selected_object(app))))
+	}
 	off, ghosts := scene_view_counts(app)
 	if off > 0 || app.scene.solo {
 		_ = command_button(app, .Show_All_Objects, width = ui.fill_width(ctx), glyph = ui.ICON_EYE)
@@ -87,7 +92,7 @@ kit_object_row :: proc(app: ^App, spots: ^[dynamic]Tree_Spot, i: int, base: ^Obj
 	if obj == base do detail = fmt.tprintf("base, %s", detail)
 	toggles := row_toggles(object_label(obj), obj.off, obj.ghost)
 	dragged := k.tree_drag.active && k.tree_drag.key == obj.id
-	row := ui.tree_row(ctx, fmt.tprintf("%s##%d", object_label(obj), obj.id), detail, i == app.scene.selected, depth, all_toggles = toggles[:], glyph = ui.ICON_FRAME, dim = dragged || !object_shown(app, obj), grip = true)
+	row := ui.tree_row(ctx, fmt.tprintf("%s##%d", object_label(obj), obj.id), detail, object_in_selection(app, obj), depth, all_toggles = toggles[:], glyph = ui.ICON_FRAME, dim = dragged || !object_shown(app, obj), grip = true)
 	append(spots, Tree_Spot{rect = row.rect, id = obj.id, folder = obj.folder, next = objects[i + 1].id if i + 1 < len(objects) else 0, off = obj.off, ghost = obj.ghost})
 	kit_row_drags(app, row, obj.id, obj.ghost, obj.off)
 	// A press running down the column sets the rows it crosses instead (kit_tree_drags).
@@ -98,9 +103,17 @@ kit_object_row :: proc(app: ^App, spots: ^[dynamic]Tree_Spot, i: int, base: ^Obj
 		}
 	}
 	// Picking an object out of view or reach brings it back, as ZBrush's SubTool list does.
-	if row.clicked || row.menu {
-		if object_pickable(app, obj) do app.scene.selected = i
-		else do app.ui.scene_command = {kind = .View, view = .Select, id = obj.id}
+	// Ctrl or Shift, or Select several, adds it to the selection or takes it out; the
+	// menu keeps the selection it is opened on, for Delete and Duplicate to take all of it.
+	several := k.select_several || ctx.input.ctrl || ctx.input.shift
+	if !object_pickable(app, obj) {
+		if row.clicked || row.menu do app.ui.scene_command = {kind = .View, view = .Select, id = obj.id}
+	} else if row.clicked && several {
+		selection_toggle(app, i)
+	} else if row.clicked {
+		select_only(app, i)
+	} else if row.menu {
+		selection_make_primary(app, i)
 	}
 	if row.menu do object_menu_open(app, obj.id, {ctx.input.mouse.x, ctx.input.mouse.y, 0, 0}, .Pointer)
 	k.tree_rows += 1

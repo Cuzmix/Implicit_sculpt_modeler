@@ -32,6 +32,16 @@ Move_Tool :: struct {
 	drags: int,
 	last:  gizmo.Handle,
 	drawn: [2]f32, // where the gizmo's centre was drawn last, for the scripted scenarios
+	// The other selected objects as they were when the gizmo's drag began, and when the
+	// inspector's Transform values began changing: both move with the primary.
+	members:      [dynamic]Member_Start,
+	edit_members: [dynamic]Member_Start,
+}
+
+// A selected object other than the primary, and where it was when a change began.
+Member_Start :: struct {
+	id:    int,
+	start: Transform,
 }
 
 // Where turns and scales go about, when not the object's origin: a point in the object's
@@ -164,17 +174,25 @@ move_tool_frame :: proc(app: ^App, input: Viewport_Input) {
 			// it in the view plane, whatever the gizmo's mode.
 			origin, dir := mouse_ray(app.camera, input.mouse_pos, input.size)
 			index, hit, ok := scene_raycast(app, origin, dir)
+			// Shift, or Select several, adds the object to the selection or takes it out,
+			// and moves nothing; missing every object then keeps the selection built so far.
+			several := app.device.shift || app.kit.select_several
 			if !ok {
-				scene_deselect(app)
+				if !several do scene_deselect(app)
 				return
 			}
-			app.scene.selected = index
+			if several {
+				selection_toggle(app, index)
+				return
+			}
+			selection_make_primary(app, index)
 			handle, grab = .View, hit
 		} else {
 			grab = gizmo_center(app, selected_object(app))
 		}
 		obj := selected_object(app)
 		m.drag = {handle = handle, on_handle = on_handle, down = input.mouse_pos, id = obj.id, start = obj.transform, grab = grab}
+		members_take(app, &m.members)
 	}
 
 	drag := &m.drag
@@ -225,10 +243,67 @@ move_tool_frame :: proc(app: ^App, input: Viewport_Input) {
 	case .Scale:
 		f := gizmo.scale_factor(drag.center, drag.press, input.mouse_pos, drag.arm_px)
 		if drag.snapped do f = max(gizmo.snap(f, gizmo.SCALE_SNAP), gizmo.SCALE_SNAP)
-		t = scale_about(drag.start, drag.pivot, f)
+		// One factor for the whole selection, stopping where any of it reaches its limit,
+		// so the selection keeps its shape.
+		t = scale_about(drag.start, drag.pivot, selection_scale_clamp(f, drag.start.scale, m.members[:]))
 		drag.amount = t.scale / drag.start.scale
 	}
 	obj.transform = t
+	members_follow(app, m.members[:], drag.start, t)
+}
+
+// `factor` kept to what the primary (at scale `from`) and each of `list` can take, so a
+// scale of the selection stops where any of it reaches its limit and keeps its shape.
+selection_scale_clamp :: proc(factor, from: f32, list: []Member_Start) -> f32 {
+	lo, hi := MIN_OBJECT_SCALE / from, MAX_OBJECT_SCALE / from
+	for mb in list {
+		lo = max(lo, MIN_OBJECT_SCALE / mb.start.scale)
+		hi = min(hi, MAX_OBJECT_SCALE / mb.start.scale)
+	}
+	return clamp(factor, lo, max(lo, hi))
+}
+
+// Notes where the selected objects other than the primary are now, in `list`.
+members_take :: proc(app: ^App, list: ^[dynamic]Member_Start) {
+	clear(list)
+	ids := selection_ids(app)
+	if len(ids) < 2 do return
+	for id in ids[1:] {
+		if obj := object_by_id(app, id); obj != nil do append(list, Member_Start{id, obj.transform})
+	}
+}
+
+// Places each of `list` as the primary went from `from` to `to`.
+members_follow :: proc(app: ^App, list: []Member_Start, from, to: Transform) {
+	for mb in list {
+		if obj := object_by_id(app, mb.id); obj != nil do obj.transform = transform_follow(from, to, mb.start)
+	}
+}
+
+// Records each of `list` that moved as part of the newest undo step, and forgets them.
+members_record :: proc(app: ^App, list: ^[dynamic]Member_Start, what: string) {
+	for mb in list {
+		if obj := object_by_id(app, mb.id); obj != nil do history_record_transform(app, obj, mb.start, what, chain = true)
+	}
+	clear(list)
+}
+
+// Where `t` goes when the primary goes from `from` to `to`: the same move, turn and scale
+// about the same points, so the selection keeps its shape and spacing. What did not
+// change is left exactly as it was (a move turns nothing, even by rounding).
+transform_follow :: proc(from, to, t: Transform) -> Transform {
+	if from == to do return t
+	out := t
+	k: f32 = 1 if to.scale == from.scale else to.scale / from.scale
+	r := matrix[3, 3]f32{1, 0, 0, 0, 1, 0, 0, 0, 1}
+	if to.rotation != from.rotation {
+		r = gizmo.rotation_matrix(to.rotation) * linalg.transpose(gizmo.rotation_matrix(from.rotation))
+		turned := gizmo.rotation_degrees(r * gizmo.rotation_matrix(t.rotation))
+		for i in 0 ..< 3 do out.rotation[i] = gizmo.wrap_degrees(turned[i])
+	}
+	out.scale = clamp(t.scale * k, MIN_OBJECT_SCALE, MAX_OBJECT_SCALE)
+	out.position = to.position + r * ((t.position - from.position) * k)
+	return out
 }
 
 // `t` turned `degrees` about the world axis `axis` through `pivot`: the turn comes before
@@ -302,8 +377,12 @@ move_end :: proc(app: ^App) {
 	drag := app.move.drag
 	app.move.drag = {}
 	obj := object_by_id(app, drag.id)
-	if drag.handle == .None || obj == nil || obj.transform == drag.start do return
+	if drag.handle == .None || obj == nil || obj.transform == drag.start {
+		clear(&app.move.members)
+		return
+	}
 	history_record_transform(app, obj, drag.start, MOVE_WHAT[drag_mode(drag.handle)])
+	members_record(app, &app.move.members, MOVE_WHAT[drag_mode(drag.handle)])
 	app.move.drags += 1
 	app.move.last = drag.handle
 }
@@ -315,6 +394,10 @@ move_cancel :: proc(app: ^App) {
 	app.move.drag = {}
 	if drag.handle == .None do return
 	if obj := object_by_id(app, drag.id); obj != nil do obj.transform = drag.start
+	for mb in app.move.members {
+		if obj := object_by_id(app, mb.id); obj != nil do obj.transform = mb.start
+	}
+	clear(&app.move.members)
 }
 
 // What a handle does.
@@ -356,15 +439,21 @@ move_readout :: proc(app: ^App) -> string {
 	return text
 }
 
-// Puts the selected object back at the world's middle, unturned, at scale 1, as one undo
-// step.
+// Puts each selected object back at the world's middle, unturned, at scale 1, as one
+// undo step: each by itself, as Blender's Clear transform does, not as a group.
 transform_reset :: proc(app: ^App) {
-	obj := selected_object(app)
-	if obj == nil do return
 	move_end(app)
-	before := obj.transform
-	obj.transform = {scale = 1}
-	history_record_transform(app, obj, before, "Reset transform")
+	transform_drag_end(app, force = true)
+	recorded := false
+	for id in selection_ids(app) {
+		obj := object_by_id(app, id)
+		if obj == nil do continue
+		before := obj.transform
+		obj.transform = {scale = 1}
+		if before == obj.transform do continue
+		history_record_transform(app, obj, before, "Reset transform", chain = recorded)
+		recorded = true
+	}
 }
 
 // A drag of the inspector's Transform values: one undo step from its press to its release.
@@ -374,12 +463,20 @@ Transform_Drag :: struct {
 	from:   Transform,
 }
 
-// Notes that the inspector changed `obj`'s transform from `before` this frame.
+// Notes that the inspector changed `obj`'s transform from `before` this frame; the rest
+// of the selection follows it.
 transform_drag_changed :: proc(app: ^App, obj: ^Object, before: Transform) {
 	d := &app.ui.transform_drag
-	if d.active && d.id == obj.id do return
-	transform_drag_end(app, force = true)
-	d^ = {active = true, id = obj.id, from = before}
+	if !d.active || d.id != obj.id {
+		transform_drag_end(app, force = true)
+		d^ = {active = true, id = obj.id, from = before}
+		members_take(app, &app.move.edit_members)
+	}
+	// The Scale value stops where any of the selection reaches its limit.
+	if len(app.move.edit_members) > 0 && obj.transform.scale != d.from.scale {
+		obj.transform.scale = d.from.scale * selection_scale_clamp(obj.transform.scale / d.from.scale, d.from.scale, app.move.edit_members[:])
+	}
+	members_follow(app, app.move.edit_members[:], d.from, obj.transform)
 }
 
 // Ends a drag of the inspector's Transform values once the pointer lets go (or at once
@@ -389,7 +486,11 @@ transform_drag_end :: proc(app: ^App, force := false) {
 	d := &app.ui.transform_drag
 	if !d.active || (!force && .Left in app.device.down) do return
 	d.active = false
-	if obj := object_by_id(app, d.id); obj != nil do history_record_transform(app, obj, d.from, "Transform")
+	if obj := object_by_id(app, d.id); obj != nil && obj.transform != d.from {
+		history_record_transform(app, obj, d.from, "Transform")
+		members_record(app, &app.move.edit_members, "Transform")
+	}
+	clear(&app.move.edit_members)
 }
 
 // The value a tap on a handle asks for: an arm's position along its axis, a ring's turn
@@ -448,6 +549,11 @@ gizmo_entry_apply :: proc(app: ^App, obj: ^Object, handle: gizmo.Handle, text: s
 	}
 	v, ok := strconv.parse_f32(s)
 	if !ok || math.is_nan(v) || math.is_inf(v) do return false
+	// The rest of the selection, as it is now, follows; an inspector drag still open (which
+	// keeps its own list) ends first.
+	transform_drag_end(app, force = true)
+	members_take(app, &app.move.edit_members)
+	defer clear(&app.move.edit_members)
 	before := obj.transform
 	t := before
 	pivot := gizmo_center(app, obj)
@@ -472,12 +578,15 @@ gizmo_entry_apply :: proc(app: ^App, obj: ^Object, handle: gizmo.Handle, text: s
 		case:          target = v
 		}
 		if target <= 0 do return false
-		t = scale_about(t, pivot, target / t.scale)
+		t = scale_about(t, pivot, selection_scale_clamp(target / t.scale, t.scale, app.move.edit_members[:]))
 	case:
 		return false
 	}
 	obj.transform = t
+	if t == before do return true
 	history_record_transform(app, obj, before, MOVE_WHAT[drag_mode(handle)])
+	members_follow(app, app.move.edit_members[:], before, t)
+	members_record(app, &app.move.edit_members, MOVE_WHAT[drag_mode(handle)])
 	return true
 }
 

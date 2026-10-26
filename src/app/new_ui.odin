@@ -133,6 +133,9 @@ Kit_State :: struct {
 	folder_menu_at: ui.Rect,
 	rename:         Rename_Entry,
 	tree_rows:      int,
+	// Select several (the Scene tab's switch): a tap on a row, or with the Move tool on an
+	// object, adds it to the selection or takes it out, as Shift does.
+	select_several: bool,
 	// A row dragged by its grip and an eye or ghost column being dragged down
 	// (kit_scene.odin), and the inspector's body as last laid out and how far it scrolls,
 	// which a drag near its edge scrolls.
@@ -1178,6 +1181,16 @@ kit_folder_menu :: proc(app: ^App) {
 		return
 	}
 	picked := false
+	// The menu still draws as it closes, after its folder went.
+	first, end: int
+	if f != nil do first, end = folder_span(app, f.id)
+	if end > first && ui.menu_item(ctx, "Select its objects", glyph = ui.ICON_FRAME) {
+		// Only those in reach can be selected; the first of them carries the gizmo.
+		ids := make([dynamic]int, 0, end - first, context.temp_allocator)
+		for obj in app.scene.objects[first:end] do if object_pickable(app, obj) do append(&ids, obj.id)
+		if len(ids) > 0 do selection_set(app, ids[:])
+		picked = true
+	}
 	if ui.menu_item(ctx, "Ungroup", glyph = ui.ICON_FOLDER) {
 		app.ui.scene_command = {kind = .Arrange, arrange = .Ungroup, id = f.id}
 		picked = true

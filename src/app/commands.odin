@@ -238,14 +238,14 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Delete_Object = {
 		label = "Delete",
-		help = "Removes the selected object; Undo brings it back.",
+		help = "Removes the selected objects; Undo brings them back.",
 		icon = ui.ICON_TRASH,
 		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Delete}},
 		enabled = has_object,
 	},
 	.Duplicate_Object = {
 		label = "Duplicate",
-		help = "Adds a copy of the selected object.",
+		help = "Adds a copy of each selected object, keeping their spacing.",
 		icon = ui.ICON_COPY,
 		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Duplicate}},
 		enabled = has_object,
@@ -636,7 +636,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Reset_Transform = {
 		label = "Reset transform",
-		help = "Puts the selected object back at the world's middle, unturned, at scale 1, as one undo step.",
+		help = "Puts each selected object back at the world's middle, unturned, at scale 1, as one undo step.",
 		run = proc(app: ^App, _: int) {transform_reset(app)},
 		enabled = has_object,
 	},
