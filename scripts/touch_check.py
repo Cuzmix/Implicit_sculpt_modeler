@@ -4557,6 +4557,37 @@ def rebuild_even_is_a_straight_remesh():
 
 
 @scenario
+def script_sets_up_the_run():
+    """A start-up script (--script) that rebuilds the sphere, picks Clay and shows the
+    wireframe sets the run up as the flags do: a stroke after it, at the same frame, gives
+    the same mesh bit for bit, and only the stroke is in the History, however many frames
+    the script takes."""
+    flags, scripted = autosave_folder() + "-flags.ply", autosave_folder() + "-script.ply"
+    def stroke():
+        s = Script()
+        s.mouse_drag(line((760, 430), (860, 480), 8))
+        s.wait(5)
+        return s
+    script = "set rebuild_even 200000; rebuild; brush clay; wireframe on"
+    # The same as a file for --run, a statement a line, with comments.
+    file = os.path.join(ROOT, "build", "touch", CURRENT.name + ".cmd")
+    os.makedirs(os.path.dirname(file), exist_ok=True)
+    with open(file, "w", encoding="utf-8") as f:
+        f.write("# Rebuild the sphere at 200k.\nset rebuild_even 200000\nrebuild\n\nbrush clay  # then Clay\nwireframe on\n")
+    from_file = autosave_folder() + "-file.ply"
+    waited = autosave_folder() + "-waited.ply"
+    want = {"undo_steps": near(1), "wireframe": near(1, 0), "script_failed": near(0), "script_ran": near(4, 0)}
+    return Steps([
+        (stroke(), ["--remesh=200000", "--brush=clay", "--wireframe", f"--export={flags}"], {"undo_steps": near(1)}),
+        (stroke(), [f"--script={script}", f"--export={scripted}"], dict(want, **{"@the flags' mesh": same_file(flags, scripted)})),
+        (stroke(), [f"--run={file}", f"--export={from_file}"], dict(want, **{"@the flags' mesh": same_file(flags, from_file)})),
+        # A script that takes frames: the stroke still comes once, after it.
+        (stroke(), [f"--script={script}; wait 20", f"--export={waited}"],
+         dict(want, **{"script_ran": near(5, 0), "script_frames": near(21, 1), "@the flags' mesh": same_file(flags, waited)})),
+    ])
+
+
+@scenario
 def rebuild_fewer_and_quads():
     """Fewer decimates the 500k sphere to its 100k; Quads makes a new object of quads."""
     fewer, quads = Script(), Script()

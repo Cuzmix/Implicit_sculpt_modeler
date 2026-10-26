@@ -131,6 +131,8 @@ Options :: struct {
 	replay_shift: string `usage:"Replay --load-strokes moved this many pixels right and down from where they were drawn, in the current view, as R at the pointer does, e.g. 120,-40."`,
 	instant_replay: bool `usage:"Replay every recorded frame at once instead of one a frame, as the Stroke recorder's Instant does."`,
 	record_strokes: bool `usage:"Record every stroke from the start, as the Stroke recorder's Record does (for --save-strokes)."`,
+	run:        string `usage:"Run the command script in this file once the window is up, as set-up: commands by name, settings with set, wait and select (README \"Command scripts\"). A script with an error runs none of it and exits with code 2; so does a statement that does nothing in a run with --frames. --frames and the frames of --ui-events count from where it ends."`,
+	script:     string `usage:"Run this command script, given here with ; between statements, as --run does a file's."`,
 	save_strokes: string `usage:"On exit, save the recorded strokes (or else the last stroke) to this .strokes file, as the Stroke recorder's Save strokes does."`,
 }
 
@@ -158,6 +160,7 @@ App :: struct {
 		built:   bool,
 	},
 	stroke:   Stroke,
+	script:   Script_Run, // the start-up script (--run, --script), while it runs and for the exit stats
 	alphas:   [dynamic]Alpha_Entry, // the brush alphas the Brush tab offers (alphas.odin)
 	presets:      [MAX_PRESETS]Brush_Preset, // the user's brush presets (presets.odin), the first preset_count in use
 	preset_count: int,
@@ -266,7 +269,8 @@ main :: proc() {
 
 	opts := Options{subdiv = 6, width = 1600, height = 900, spheres = 1}
 	flags.parse_or_exit(&opts, os.args, .Unix)
-	ok := run(opts)
+	exit_code := 0
+	ok := run(opts, &exit_code)
 
 	when ODIN_DEBUG {
 		leaks := len(tracking.allocation_map)
@@ -283,9 +287,12 @@ main :: proc() {
 		mem.tracking_allocator_destroy(&tracking)
 	}
 	if !ok do os.exit(1)
+	if exit_code != 0 do os.exit(exit_code)
 }
 
-run :: proc(opts: Options) -> bool {
+// The app, from start to exit. False on a failure (exit code 1); a run that ends as it
+// should with another code, as a script with an error does, sets `exit_code`.
+run :: proc(opts: Options, exit_code: ^int) -> bool {
 	opts := opts
 	bench: Gpubench
 	defer gpubench_destroy(&bench)
@@ -310,6 +317,19 @@ run :: proc(opts: Options) -> bool {
 
 	app: App
 	app.window = window
+	// The script is read and checked before the scene is set up, so one with an error
+	// stops before the slow part; it runs once the frame loop has laid out the viewport.
+	// The GPU benchmark makes its own scenes, case by case, which a script would not see.
+	if (opts.run != "" || opts.script != "") && opts.gpubench != "" {
+		fmt.eprintln("script: --gpubench sets its own scenes up; it takes no --run or --script")
+		exit_code^ = 2
+		return true
+	}
+	if !script_load(&app, opts.run, opts.script, opts.frames > 0 || opts.bench_stroke > 0) {
+		exit_code^ = 2
+		return true
+	}
+	defer script_unload(&app)
 	defer delete(app.scene_path)
 	defer file_request_free(app.saving)
 	defer {
@@ -754,12 +774,16 @@ run :: proc(opts: Options) -> bool {
 		// selection stays on an object in view and in reach.
 		scene_folders_normalize(&app)
 		scene_selection_fix(&app)
-		if opts.timelapse != "" && frame_index == opts.bench_stroke {
+		if !script_frame(&app) do return false
+		// Until the script is done its frames are set-up: the run's own count from where
+		// it ends (--frames, the bench stroke, --load-strokes, --timelapse, --ui-events).
+		setting_up := app.script.running
+		if opts.timelapse != "" && frame_index == opts.bench_stroke && !setting_up {
 			if opts.timelapse_steps > 0 do app.timeline.lapse.steps = i32(opts.timelapse_steps)
 			app.timeline.lapse.spin = opts.timelapse_spin
 			timelapse_start(&app, opts.timelapse)
 		}
-		if opts.load_strokes != "" && frame_index == max(opts.bench_stroke, LOAD_STROKES_FRAME) {
+		if opts.load_strokes != "" && frame_index == max(opts.bench_stroke, LOAD_STROKES_FRAME) && !setting_up {
 			if !strokes_load(&app, opts.load_strokes) do return false
 			if opts.replay_shift != "" {
 				shift: [2]f32
@@ -815,7 +839,8 @@ run :: proc(opts: Options) -> bool {
 		// pressure arrives separately as an axis event.
 		clear(&app.samples)
 		device_frame_begin(&app.device)
-		kit_events_push(&app, window)
+		// Scripted events count from the end of the set-up, and none go in before it.
+		if !setting_up do kit_events_push(&app, window)
 		e: sdl.Event
 		for sdl.PollEvent(&e) {
 			// Space over the viewport is the brush pie's (pie.odin) rather than a key of the
@@ -876,9 +901,9 @@ run :: proc(opts: Options) -> bool {
 		input := kit_frame(&app, window)
 		ring_push(&app.stats.ui_ms, time.duration_milliseconds(time.tick_since(ui_start)))
 		bench_waits := opts.bench_after_autosave && app.autosave.written == 0 && !autosave_writing(&app)
-		if bench_waits do bench_skipped += 1
+		if bench_waits && !setting_up do bench_skipped += 1
 		bench_frame := frame_index - bench_skipped
-		if opts.bench_stroke > 0 && bench_frame < opts.bench_stroke && !bench_waits {
+		if opts.bench_stroke > 0 && bench_frame < opts.bench_stroke && !bench_waits && !setting_up {
 			input = bench_input(&app, bench_frame, opts.bench_stroke, opts.bench_samples, opts.bench_loops, {opts.bench_tilt, 0}, {f32(app.target.width), f32(app.target.height)})
 			// A lifted frame ends the stroke; the next frame presses again.
 			if every := opts.bench_stroke / (opts.bench_lifts + 1); opts.bench_lifts > 0 && every > 0 && (bench_frame + 1) % every == 0 {
@@ -890,7 +915,7 @@ run :: proc(opts: Options) -> bool {
 			app.device.input_at = sdl.GetTicksNS()
 		}
 		camera_apply_input(&app, input)
-		if opts.orbit do camera.orbit_spin(&app.camera, 2 * math.PI / 240)
+		if opts.orbit && !setting_up do camera.orbit_spin(&app.camera, 2 * math.PI / 240)
 		sculpted: Sculpt_Frame_Result
 		shape_pending_frame(&app, input.size)
 		// A gizmo drag the tool changed under ends as it is.
@@ -1120,7 +1145,8 @@ run :: proc(opts: Options) -> bool {
 		autosave_frame(&app)
 		free_all(context.temp_allocator)
 
-		frame_index += 1
+		if setting_up do app.script.frames += 1
+		else do frame_index += 1
 		if (opts.frames > 0 && frame_index >= opts.frames) || (opts.bench_stroke > 0 && frame_index - bench_skipped >= opts.bench_stroke) {
 			// A --timelapse run goes on until the recording is done.
 			// So does one replaying --load-strokes, which starts the frame after.
@@ -1147,18 +1173,21 @@ run :: proc(opts: Options) -> bool {
 		}
 	}
 
-	if opts.bake != "" {
+	// A run whose set-up script stopped writes none of the files it would have: the scene
+	// is not the one asked for.
+	set_up := !(app.script.failed && app.script.scripted)
+	if opts.bake != "" && set_up {
 		// The quads are the newest object; the stroke may have selected another.
 		app.ui.bake.source = app.scene.objects[0].id
 		app.scene.selected = len(app.scene.objects) - 1
 		bake_to_folder(&app, opts.bake)
 	}
-	if opts.export != "" {
+	if opts.export != "" && set_up {
 		obj := selected_object(&app)
 		if obj == nil || !object_export(&app, obj, opts.export) do return false
 	}
-	if opts.save != "" && !scene_save(&app, opts.save) do return false
-	if opts.save_strokes != "" && !strokes_save(&app, opts.save_strokes) do return false
+	if opts.save != "" && set_up && !scene_save(&app, opts.save) do return false
+	if opts.save_strokes != "" && set_up && !strokes_save(&app, opts.save_strokes) do return false
 	save_pending(&app, true)
 	autosave_close(&app, window)
 	if as := &app.autosave; as.on {
@@ -1172,6 +1201,10 @@ run :: proc(opts: Options) -> bool {
 	}
 	vertices: int
 	for obj in app.scene.objects do vertices += object_vertex_count(obj)
+	if r := app.script; len(r.script.statements) > 0 {
+		fmt.printfln("script_statements=%d script_ran=%d script_frames=%d script_failed=%d", len(r.script.statements), r.next, r.frames, int(r.failed))
+		if r.failed && r.scripted do exit_code^ = 2
+	}
 	fmt.printfln("frames=%d dabs=%d objects=%d vertices=%d", frame_index, app.stats.dabs_total, len(app.scene.objects), vertices)
 	{
 		off, ghosts := scene_view_counts(&app)

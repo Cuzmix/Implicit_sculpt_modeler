@@ -172,6 +172,7 @@ Kit_State :: struct {
 		mark:   Undo_Mark, // the step its Undo takes back
 	},
 	frame:      int, // frames drawn, for --ui-events
+	events_offset: int, // frames a start-up script took, which --ui-events frames count after
 	events:     [dynamic]Kit_Event, // --ui-events, in frame order
 	ms:         f64, // last frame's layout and tessellation, CPU
 }
@@ -448,7 +449,7 @@ kit_events_push :: proc(app: ^App, window: ^sdl.Window) {
 	}
 	SCRIPTED_MOUSE :: sdl.MouseID(1)
 	for ev in k.events {
-		if ev.frame != k.frame do continue
+		if ev.frame + k.events_offset != k.frame do continue
 		at := ev.at * scale
 		e: sdl.Event
 		switch ev.kind {
