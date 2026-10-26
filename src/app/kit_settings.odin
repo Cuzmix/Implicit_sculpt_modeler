@@ -147,6 +147,7 @@ settings_reset :: proc(app: ^App, tab: Settings_Tab) {
 		k.stats, k.stats_advanced = false, false
 		app.vsync = true
 		app.autosave.minutes = AUTOSAVE_DEFAULT_MINUTES
+		app.versions_kept = VERSIONS_DEFAULT
 	}
 }
 
@@ -300,6 +301,14 @@ settings_performance :: proc(app: ^App) {
 	ui.paragraph(ctx, autosave_status(app), color = ctx.theme.warning if a.failed else ctx.theme.text_secondary)
 	ui.paragraph(ctx, "Written in the background once you pause, never during a stroke. If Sculpt closes unexpectedly, the next start offers it back.")
 	_ = command_button(app, .Open_Last_Autosave)
+	ui.spacer(ctx, 8)
+	ui.caption(ctx, "EARLIER SAVES")
+	kept := versions_kept(app.versions_kept)
+	chosen = 0
+	for n, i in VERSIONS_KEPT do if n == kept do chosen = i
+	ui.label(ctx, "Keep the files a save replaces")
+	if picked := ui.select(ctx, "Earlier saves kept", VERSIONS_KEPT_NAMES[:], chosen); picked >= 0 do app.versions_kept = VERSIONS_KEPT[picked]
+	ui.paragraph(ctx, "Saving over a scene file first keeps the old one in a folder beside it (for head.sculpt, \"head versions\"), the newest ones kept. Off keeps none and deletes none already there.")
 }
 
 // A speed from a quarter to four times the default, equal steps doubling it.

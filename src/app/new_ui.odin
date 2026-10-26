@@ -985,7 +985,7 @@ kit_menu :: proc(app: ^App, anchor: ui.Rect) {
 	if !ui.popover_begin(ctx, "menu", &k.menu, anchor, .Below, {direction = .Column, padding = 6, width = 268}) do return
 	pick := false
 	ui.caption(ctx, "  FILE")
-	for id in ([?]Command_Id{.Open_Scene, .Save_Scene, .Save_Scene_As, .Open_Last_Autosave, .Import_Mesh, .Export_Mesh, .Screenshot}) {
+	for id in ([?]Command_Id{.Open_Scene, .Save_Scene, .Save_Scene_As, .Save_Scene_Copy, .Open_Last_Autosave, .Import_Mesh, .Export_Mesh, .Screenshot}) {
 		if command_menu_item(app, id) do pick = true
 	}
 	ui.divider(ctx, across = true)

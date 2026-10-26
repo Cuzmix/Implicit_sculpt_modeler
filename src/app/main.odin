@@ -221,6 +221,7 @@ App :: struct {
 	scene_path: string, // where the scene was last saved or opened from, for Ctrl+S (owned)
 	saving:     File_Request, // a big save waiting a few frames for its "Saving..." toast to show (save_pending)
 	saving_at:  f64, // the interface time it started waiting
+	versions_kept: i32, // earlier saves kept beside a scene file (versions.odin), 0 for none
 	result:     Op_Result, // what the last operation did (results.odin)
 	running:  bool,
 }
@@ -468,6 +469,7 @@ run :: proc(opts: Options) -> bool {
 	for &s, kind in app.brush.strengths do s = BRUSHES[kind].strength
 	app.nav = NAV_DEFAULT
 	app.autosave.minutes = AUTOSAVE_DEFAULT_MINUTES
+	app.versions_kept = VERSIONS_DEFAULT
 	// What earlier interactive runs left, before the flags, which win over it.
 	remember := (opts.frames == 0 && opts.gpubench == "" && opts.bench_stroke == 0 && !opts.no_settings) || opts.settings_file != ""
 	settings := (opts.settings_file if opts.settings_file != "" else settings_path()) if remember else ""
@@ -690,7 +692,7 @@ run :: proc(opts: Options) -> bool {
 		// A waiting save goes first: before a scene command or file request changes what it
 		// would save. A second Save meanwhile (Ctrl+S again) is dropped by file_apply.
 		file_next := file_pending_kind()
-		save_pending(&app, app.ui.scene_command.kind != .None || (file_next != .None && file_next != .Save))
+		save_pending(&app, app.ui.scene_command.kind != .None || (file_next != .None && file_next != .Save && file_next != .Save_Copy))
 		if command := app.ui.scene_command; command.kind != .None {
 			app.ui.scene_command = {}
 			autosave_settle(&app)

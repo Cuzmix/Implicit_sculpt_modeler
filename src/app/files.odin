@@ -26,6 +26,7 @@ File_Kind :: enum u8 {
 	Import, // a mesh file becomes a new object
 	Export, // the selected object's shown level goes to a mesh file
 	Save,   // the scene goes to a .sculpt file
+	Save_Copy, // the scene goes to a .sculpt file, and stays the file it was (versions.odin)
 	Open,   // a .sculpt file replaces the scene
 	Alpha,  // an image becomes a brush alpha (alphas.odin)
 	Screenshot, // the viewport image goes to a PNG file
@@ -87,7 +88,7 @@ file_dialog :: proc(app: ^App, kind: File_Kind) {
 		sdl.ShowOpenFileDialog(file_dialog_done, userdata, app.window, raw_data(MESH_FILTERS[:]), len(MESH_FILTERS), nil, false)
 	case .Export:
 		sdl.ShowSaveFileDialog(file_dialog_done, userdata, app.window, raw_data(MESH_FILTERS[:]), len(MESH_FILTERS), nil)
-	case .Save:
+	case .Save, .Save_Copy:
 		sdl.ShowSaveFileDialog(file_dialog_done, userdata, app.window, raw_data(SCENE_FILTERS[:]), len(SCENE_FILTERS), nil)
 	case .Open:
 		sdl.ShowOpenFileDialog(file_dialog_done, userdata, app.window, raw_data(SCENE_FILTERS[:]), len(SCENE_FILTERS), nil, false)
@@ -124,7 +125,7 @@ file_dialog_done :: proc "c" (userdata: rawptr, filelist: [^]cstring, filter: c.
 	suffix := ""
 	if filepath.ext(path) == "" {
 		#partial switch kind {
-		case .Save: suffix = ".sculpt"
+		case .Save, .Save_Copy: suffix = ".sculpt"
 		case .Export: suffix = ".ply" if filter == 2 else ".obj"
 		case .Screenshot: suffix = ".png"
 		case .Save_Strokes: suffix = ".strokes"
@@ -204,7 +205,7 @@ file_apply :: proc(app: ^App, req: File_Request) -> bool {
 			return true
 		}
 		_ = object_export(app, obj, req.path)
-	case .Save:
+	case .Save, .Save_Copy:
 		if app.saving.kind != .None do return true
 		if scene_save_bytes(app) > SAVE_SHOW_FIRST {
 			// The frame stops for the whole save, so first the window says what it is
@@ -214,7 +215,7 @@ file_apply :: proc(app: ^App, req: File_Request) -> bool {
 			report(app, nil, {.Busy}, "Saving %s...", filepath.base(req.path))
 			return true
 		}
-		if scene_save(app, req.path) do scene_remember_path(app, req.path)
+		scene_save_request(app, req)
 	case .Open:
 		opened, ok := scene_open(app, req.path)
 		if opened do scene_remember_path(app, req.path)
@@ -396,7 +397,7 @@ object_export :: proc(app: ^App, obj: ^Object, path: string) -> bool {
 // Saves every object with all its levels and mask, and the camera. HD detail is not
 // saved (the HD steps are); the undo history stays as it is. Returns whether it was
 // written.
-scene_save :: proc(app: ^App, path: string) -> bool {
+scene_save :: proc(app: ^App, path: string, copy := false) -> bool {
 	stroke_finish(app)
 	start := time.tick_now()
 	out := make([dynamic]u8)
@@ -408,13 +409,40 @@ scene_save :: proc(app: ^App, path: string) -> bool {
 		if sculpt.levels_hd_stats(&obj.levels).stored_nodes > 0 do hd_dropped += 1
 		object_put(app, &out, obj)
 	}
-	if !write_file_safely(app, path, out[:], "save") do return false
-	autosave_scene_saved(app, path)
+	partial, err := write_partial(path, out[:])
+	if err != "" {
+		file_note(app, true, "Cannot save %s: %s", filepath.base(path), err)
+		return false
+	}
+	// The file this save replaces becomes a version first, so that at every moment the
+	// path holds a whole file and the old one is still somewhere. A copy keeps none: it
+	// is a new file, and one it lands on was not this scene's.
+	keep := int(versions_kept(app.versions_kept))
+	keep_err := ""
+	if !copy && keep > 0 && os.exists(path) do _, keep_err = version_keep(path)
+	if err = replace_partial(partial, path); err != "" {
+		file_note(app, true, "Cannot save %s: %s", filepath.base(path), err)
+		return false
+	}
+	if !copy {
+		versions_prune(path, keep)
+		autosave_scene_saved(app, path)
+	}
 	// The times shown are this action's alone.
 	app.stats.file_read_ms, app.stats.file_parse_ms = 0, 0
 	app.stats.file_write_ms = time.duration_milliseconds(time.tick_since(start))
-	file_note(app, hd_dropped > 0, "Saved %s: %d %s, %d MB in %.0f ms%s", filepath.base(path), len(app.scene.objects), "object" if len(app.scene.objects) == 1 else "objects", len(out) >> 20, app.stats.file_write_ms,
-		fmt.tprintf(". The HD detail of %d of them is not saved, only their HD steps", hd_dropped) if hd_dropped > 0 else "")
+	what := fmt.tprintf("%s: %d %s, %d MB in %.0f ms", filepath.base(path), len(app.scene.objects), "object" if len(app.scene.objects) == 1 else "objects", len(out) >> 20, app.stats.file_write_ms)
+	hd := fmt.tprintf(". The HD detail of %d of them is not saved, only their HD steps", hd_dropped) if hd_dropped > 0 else ""
+	switch {
+	case copy && app.scene_path != "":
+		file_note(app, hd_dropped > 0, "Saved a copy as %s%s; this scene still saves to %s", what, hd, filepath.base(app.scene_path))
+	case copy:
+		file_note(app, hd_dropped > 0, "Saved a copy as %s%s; this scene is still not saved", what, hd)
+	case keep_err != "":
+		file_note(app, true, "Saved %s%s, but the earlier save was not kept: %s", what, hd, keep_err)
+	case:
+		file_note(app, hd_dropped > 0, "Saved %s%s", what, hd)
+	}
 	return true
 }
 
@@ -439,7 +467,18 @@ save_pending :: proc(app: ^App, now: bool) {
 	app.saving = {}
 	defer file_request_free(req)
 	autosave_settle(app)
-	if scene_save(app, req.path) do scene_remember_path(app, req.path)
+	scene_save_request(app, req)
+}
+
+// Saves as `req` asks: as the scene's file, or as a copy that leaves the scene's file
+// as it was.
+@(private = "file")
+scene_save_request :: proc(app: ^App, req: File_Request) {
+	if req.kind == .Save_Copy {
+		_ = scene_save(app, req.path, copy = true)
+	} else if scene_save(app, req.path) {
+		scene_remember_path(app, req.path)
+	}
 }
 
 // The scene file's start: its magic and version, how many objects follow, the selected
@@ -691,23 +730,39 @@ WRITE_CHUNK :: 8 << 20
 // Writes `data` to path.partial a chunk at a time, syncs it, and replaces `path` with it
 // (replace_durably). Returns what went wrong, "" for nothing; nothing is left behind.
 write_durably :: proc(path: string, data: []u8) -> string {
-	partial := strings.concatenate({path, ".partial"}, context.temp_allocator)
-	f, err := os.open(partial, {.Write, .Create, .Trunc}, os.Permissions_Default_File)
-	if err != nil do return fmt.tprintf("cannot write %s: %v", filepath.base(partial), err)
+	partial, err := write_partial(path, data)
+	if err != "" do return err
+	return replace_partial(partial, path)
+}
+
+// The first half of write_durably: `data` in path.partial, synced (temp path). On a
+// failure nothing is left behind.
+write_partial :: proc(path: string, data: []u8) -> (partial: string, err: string) {
+	partial = strings.concatenate({path, ".partial"}, context.temp_allocator)
+	f, oerr := os.open(partial, {.Write, .Create, .Trunc}, os.Permissions_Default_File)
+	if oerr != nil do return "", fmt.tprintf("cannot write %s: %v", filepath.base(partial), oerr)
 	for at := 0; at < len(data); at += WRITE_CHUNK {
 		if _, werr := os.write(f, data[at:min(at + WRITE_CHUNK, len(data))]); werr != nil {
 			os.close(f)
 			_ = os.remove(partial)
-			return fmt.tprintf("cannot write %s: %v", filepath.base(partial), werr)
+			return "", fmt.tprintf("cannot write %s: %v", filepath.base(partial), werr)
 		}
 	}
 	// A power cut after the rename must not find an empty file where the old one was.
 	serr := os.sync(f)
 	os.close(f)
-	if serr == nil do serr = replace_durably(partial, path)
 	if serr != nil {
 		_ = os.remove(partial)
-		return fmt.tprintf("cannot write %s: %v", filepath.base(path), serr)
+		return "", fmt.tprintf("cannot write %s: %v", filepath.base(partial), serr)
+	}
+	return partial, ""
+}
+
+// The second half: the synced partial replaces `path` (replace_durably), or is removed.
+replace_partial :: proc(partial, path: string) -> string {
+	if err := replace_durably(partial, path); err != nil {
+		_ = os.remove(partial)
+		return fmt.tprintf("cannot write %s: %v", filepath.base(path), err)
 	}
 	return ""
 }

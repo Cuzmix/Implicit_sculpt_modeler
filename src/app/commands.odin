@@ -23,6 +23,7 @@ Command_Id :: enum u8 {
 	Open_Scene,
 	Save_Scene,
 	Save_Scene_As,
+	Save_Scene_Copy,
 	Open_Last_Autosave,
 	Import_Mesh,
 	Export_Mesh,
@@ -160,6 +161,12 @@ COMMANDS := [Command_Id]Command {
 		label = "Save scene as...",
 		help = "Saves the scene to a new file.",
 		run = proc(app: ^App, _: int) {file_dialog(app, .Save)},
+	},
+	.Save_Scene_Copy = {
+		label = "Save a copy...",
+		help = "Saves the scene to another file and keeps saving it where it was: a backup, or a variation to come back to.",
+		icon = ui.ICON_SAVE,
+		run = proc(app: ^App, _: int) {file_dialog(app, .Save_Copy)},
 	},
 	.Open_Last_Autosave = {
 		label = "Open the last autosave",
