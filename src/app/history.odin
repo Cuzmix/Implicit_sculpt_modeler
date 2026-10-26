@@ -21,6 +21,11 @@ History :: struct {
 	undone: [dynamic]History_Entry,
 	// What the snapshots of every swap entry in both lists take, for the limit.
 	swap_bytes: int,
+	// Counts every change to the lists (a step recorded, undone, redone or forgotten, or
+	// all cleared), so what is derived from the sculpt (object_has_mask) knows when to
+	// look again. It keeps counting across a clear, so a scene opened over another, whose
+	// ids may be the old ones, still reads as changed.
+	serial: u64,
 }
 
 History_Entry :: struct {
@@ -81,6 +86,7 @@ history_clear :: proc(h: ^History) {
 		clear(list)
 	}
 	h.swap_bytes = 0
+	h.serial += 1
 }
 
 @(private = "file")
@@ -111,6 +117,7 @@ history_snapshot_drop :: proc(snap: ^Object_Snapshot) {snapshot_free(snap)}
 history_record_swap :: proc(app: ^App, id: int, before: ^Object_Snapshot, chain := false) {
 	history_drop_redo(app)
 	history_forget_strokes(app, id)
+	app.history.serial += 1
 	append(&app.history.done, History_Entry{id = id, swap = before, chain = chain && len(app.history.done) > 0, kind = .Rebuild, what = before.what, at = time.tick_now()})
 	app.history.swap_bytes += len(before.bytes)
 	// Over the limit, the oldest snapshots go, with every entry older than them, since
@@ -358,6 +365,7 @@ clip_command :: proc(app: ^App, a, b: [2]f32, flip: bool, size: [2]f32) {
 // the newest undo step.
 history_record :: proc(app: ^App, obj: ^Object, kind: History_Kind, what: string) {
 	history_drop_redo(app)
+	app.history.serial += 1
 	append(&app.history.done, History_Entry{id = obj.id, level = HD_LEVEL if object_in_hd(obj) else obj.levels.current, kind = kind, what = what, at = time.tick_now()})
 }
 
@@ -410,6 +418,7 @@ history_step :: proc(app: ^App, from, to: ^[dynamic]History_Entry, can, step: pr
 	// Entries whose step a sculptor already dropped (memory limit) are skipped.
 	for len(from) > 0 {
 		e := pop(from)
+		app.history.serial += 1
 		if e.swap != nil {
 			if !history_swap(app, e) do app.running = false // GPU failure
 			append(to, e)
@@ -503,6 +512,7 @@ history_forget :: proc(app: ^App, id: int) {
 // Drops an object's strokes on every level but keeps its swap entries, which hold the
 // whole object and so stay right whatever happened to its sculptors.
 history_forget_strokes :: proc(app: ^App, id: int) {
+	app.history.serial += 1
 	for list in ([2]^[dynamic]History_Entry{&app.history.done, &app.history.undone}) {
 		kept := 0
 		for e in list {
@@ -518,6 +528,7 @@ history_forget_strokes :: proc(app: ^App, id: int) {
 // Drops an object's entries on one level (all levels when nil): for the HD window,
 // whose strokes go when it closes, since its detail is then stored.
 history_forget_level :: proc(app: ^App, id: int, level: Maybe(int)) {
+	app.history.serial += 1
 	for list in ([2]^[dynamic]History_Entry{&app.history.done, &app.history.undone}) {
 		kept := 0
 		for e in list {
@@ -545,4 +556,32 @@ object_forget_history :: proc(app: ^App, obj: ^Object) {
 object_by_id :: proc(app: ^App, id: int) -> ^Object {
 	for obj in app.scene.objects do if obj.id == id do return obj
 	return nil
+}
+
+// What object_has_mask last found, and for which object, level and history: a fact
+// derived from the sculpt, rebuilt whenever any of them changes, never state of its own.
+Mask_Seen :: struct {
+	id, level, levels: int,
+	serial: u64,
+	has:    bool,
+	valid:  bool,
+	scans:  int, // how many times it looked, for the tests and the exit stats
+}
+
+// Whether any of the object's shown vertices is masked (its HD window's, while one is
+// open). Looking means reading every vertex's mask, so the answer is kept until the
+// object, its level or the history changes: every mask change is a history step (strokes,
+// mask commands and taps, shapes, undo and redo), a level change changes the level, and a
+// rebuild is a swap step.
+object_has_mask :: proc(app: ^App, obj: ^Object) -> bool {
+	level := HD_LEVEL if object_in_hd(obj) else obj.levels.current
+	m := &app.mask_seen
+	if m.valid && m.id == obj.id && m.level == level && m.levels == len(obj.levels.levels) && m.serial == app.history.serial do return m.has
+	s := object_sculptor(obj)
+	m^ = {id = obj.id, level = level, levels = len(obj.levels.levels), serial = app.history.serial, valid = true, scans = m.scans}
+	if s.mask != nil {
+		m.has = sculpt.sculptor_has_mask(s)
+		m.scans += 1
+	}
+	return m.has
 }

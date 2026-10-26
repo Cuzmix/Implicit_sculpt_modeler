@@ -157,6 +157,7 @@ App :: struct {
 	pivot:    Stroke_Pivot, // the last stroke's middle, which orbits turn about (navigate.odin)
 	double_tap: Double_Tap, // the last finger tap a double tap could follow (navigate.odin)
 	cursor:   Brush_Cursor, // the surface under the brush ring this frame (cursor.odin)
+	mask_seen: Mask_Seen, // whether the selected object has a mask, kept (history.odin)
 	settings_file: string, // where the settings are remembered, "" when this run does not
 	nav:      Nav_Prefs, // how the pointer, fingers and pen navigate (Settings)
 	device:   Device, // this frame's keys and pointer (device.odin)
@@ -1085,6 +1086,16 @@ run :: proc(opts: Options) -> bool {
 		k := &app.kit
 		fmt.printfln("palette=%d palette_runs=%d palette_last=%s settings_tab=%v tool=%s", int(k.palette), k.palette_runs, palette_entry_name(k.palette_last) if k.palette_ran else "none", k.settings_tab, strings.to_lower(fmt.tprint(app.tool), context.temp_allocator))
 		fmt.printfln("help_open=%d help_tab=%v help_scroll=%.1f object_page=%v", int(k.help), k.help_tab, k.help_scroll, k.object_page)
+		// The action bar's groups as it last showed them (none while it waits for room), and
+		// how often the mask was read.
+		bar_groups := "none"
+		if bar, _ := ui.prev_layout(&k.ctx, "action bar"); bar.x > 0 && action_bar_shown(&app) {
+			for g in action_groups_now(&app) {
+				name := strings.to_lower(fmt.tprint(g), context.temp_allocator)
+				bar_groups = name if bar_groups == "none" else strings.concatenate({bar_groups, "+", name}, context.temp_allocator)
+			}
+		}
+		fmt.printfln("action_bar=%s action_pop=%d mask_scans=%d", bar_groups, int(k.action_pop), app.mask_seen.scans)
 		open := [Kit_Window]bool{.Inspector = k.inspector && !side_panel_open(k), .Stats = k.stats, .History = k.history, .Settings = k.settings, .Help = k.help}
 		names := [Kit_Window]string{.Inspector = "inspector", .Stats = "stats", .History = "history panel", .Settings = "settings", .Help = "help"}
 		for w, which in k.windows {
@@ -1094,7 +1105,7 @@ run :: proc(opts: Options) -> bool {
 		fmt.println()
 		// Where the modifier rail and what must stay clear of it ended up, in points, for
 		// touch_check's window size scenarios.
-		for name in ([?]string{"modifier rail", "sliders", "dock", "status", "inspector"}) {
+		for name in ([?]string{"modifier rail", "sliders", "dock", "status", "inspector", "action bar"}) {
 			r := ui.prev_rect(&k.ctx, name)
 			key, _ := strings.replace_all(name, " ", "_", context.temp_allocator)
 			fmt.printf("layout_%s=%.0f,%.0f,%.0f,%.0f ", key, r.x, r.y, r.w, r.h)

@@ -1012,12 +1012,119 @@ def overlap(a, b):
     return aw > 0 and bw > 0 and ax < bx + bw and bx < ax + aw and ay < by + bh and by < ay + ah
 
 
+def clear_of(name, *others):
+    """A check that `name` (a layout name) is shown and meets none of `others`."""
+    def ok(stats):
+        r = stats[f"layout_{name}"]
+        return float(r.split(",")[2]) > 0 and not any(overlap(r, stats[f"layout_{o}"]) for o in others)
+    return ok
+
+
 def rail_clear(*others):
     """A check that the rail is shown and meets none of `others` (layout names)."""
-    def ok(stats):
-        rail = stats["layout_modifier_rail"]
-        return float(rail.split(",")[2]) > 0 and not any(overlap(rail, stats[f"layout_{o}"]) for o in others)
-    return ok
+    return clear_of("modifier_rail", *others)
+
+
+# The action bar's buttons at 1600 x 900: Invert in the Mask group alone, Show all in the
+# Hidden group alone, on an 820 x 640 window the folded Mask button and the first row of
+# its popover, and on a 1400 x 900 window with Settings open the folded Mask button.
+BAR_MASK_INVERT = (595, 786)
+BAR_SHOW_ALL = (788, 786)
+BAR_NARROW_MASK = (357, 526)
+BAR_NARROW_FIRST = (354, 164)
+BAR_SETTINGS_MASK = (700, 786)
+
+
+@scenario
+def action_bar_finger_inverts_the_mask():
+    """Ctrl+I masks everything and the bar offers the mask's next steps; a finger tap on its Invert empties the mask and the bar goes."""
+    s = Script()
+    s.press("i", ("ctrl",))
+    s.wait(8)
+    s.ftap(*BAR_MASK_INVERT)
+    s.wait(8)
+    return s, [], camera_still({"masked": near(0), "action_bar": is_text("none"), "dabs": near(0), "undo_steps": near(2)})
+
+
+@scenario
+def action_bar_finger_shows_all():
+    """With half the sphere hidden the bar offers Show all; a finger tap on it shows everything and the bar goes."""
+    s = Script()
+    s.wait(8)
+    s.ftap(*BAR_SHOW_ALL)
+    s.wait(8)
+    # Nothing hidden is left: the exit's hide line (only printed for hidden triangles) is
+    # gone, and with no mask either the bar has nothing to show.
+    return s, ["--hide=x"], camera_still({"action_bar": is_text("none"), "dabs": near(0),
+                                          "@shown": lambda stats: "hidden_triangles" not in stats})
+
+
+@scenario
+def action_bar_folds_on_a_narrow_window():
+    """At 820 x 640 the groups fold to one button each; Mask opens its actions above it and the first, Invert, empties the mask."""
+    s = Script()
+    s.press("i", ("ctrl",))
+    s.wait(8)
+    s.ftap(*BAR_NARROW_MASK)
+    s.wait(12)
+    s.ftap(*BAR_NARROW_FIRST)
+    s.wait(8)
+    return s, ["--width=820", "--height=640", "--hide=x"], camera_still({"masked": near(0), "action_pop": near(0),
+                                                                         "action_bar": is_text("hidden"), "dabs": near(0)})
+
+
+@scenario
+def action_bar_escape_closes_its_popover():
+    """With Settings open on a 1400 point window the bar folds; Escape closes Mask's popover first, and leaves Settings open."""
+    s = Script()
+    s.press("i", ("ctrl",))
+    s.wait(8)
+    s.press("k", ("ctrl",))
+    s.type("touch")
+    s.press("Return")
+    s.wait(12)
+    s.ftap(*BAR_SETTINGS_MASK)
+    s.wait(12)
+    s.press("Escape")
+    s.wait(4)
+    return s, ["--width=1400", "--height=900"], {"action_pop": near(0), "masked": near(1), "action_bar": is_text("mask"),
+                                                 "settings_open": near(1)}
+
+
+@scenario
+def action_bar_popover_goes_with_its_group():
+    """An undo that takes the mask away while its popover is open closes the popover, and the bar folds to Hidden alone."""
+    s = Script()
+    s.press("i", ("ctrl",))
+    s.wait(8)
+    s.ftap(*BAR_NARROW_MASK)
+    s.wait(12)
+    s.press("z", ("ctrl",))
+    s.wait(8)
+    return s, ["--width=820", "--height=640", "--hide=x"], camera_still({"action_pop": near(0), "masked": near(0),
+                                                                         "action_bar": is_text("hidden"), "dabs": near(0)})
+
+
+@scenario
+def action_bar_clears_the_sliders_without_the_rail():
+    """With the modifier buttons off on a short window, the bar keeps clear of the tall sliders as of the dock and the panels."""
+    with open(settings_file(), "w") as f:
+        f.write("modifier_rail Off\n")
+    s = Script()
+    s.press("i", ("ctrl",))
+    s.wait(12)
+    return s, ["--width=760", "--height=600", f"--settings-file={settings_file()}"], {
+        "action_bar": is_text("mask"), "@layout": clear_of("action_bar", "sliders", "inspector", "dock", "status")}
+
+
+@scenario
+def action_bar_clears_the_panels_on_a_narrow_window():
+    """At 820 x 640 with a mask and hidden parts, the bar meets neither the inspector, the dock, the object's status, the rail nor the sliders."""
+    s = Script()
+    s.press("i", ("ctrl",))
+    s.wait(12)
+    return s, ["--width=820", "--height=640", "--hide=x"], {"action_bar": is_text("mask+hidden"),
+                                                          "@layout": clear_of("action_bar", "inspector", "dock", "status", "modifier_rail", "sliders")}
 
 
 @scenario

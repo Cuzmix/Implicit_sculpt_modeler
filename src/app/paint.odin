@@ -104,6 +104,13 @@ group_click :: proc(app: ^App, at, size: [2]f32, alt: bool) -> bool {
 	return true
 }
 
+// Whether paint and group commands can run on the selected object now: paint_allowed
+// without its log line, so their buttons grey out rather than do nothing.
+paint_ready :: proc(app: ^App, _: int) -> bool {
+	obj := selected_object(app)
+	return obj != nil && !object_in_hd(obj) && !object_dynamic(obj)
+}
+
 // Paint and groups work on a level's own vertices and triangles: not in an HD window,
 // whose detail leaves when it closes, nor under dynamic topology, whose edits would have
 // to carry them along.

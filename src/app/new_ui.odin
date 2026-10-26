@@ -47,6 +47,10 @@ Kit_State :: struct {
 	settings_scroll: f32,
 	settings_wipe: f64, // when Reset everything was first tapped: a second tap soon after resets
 	help:       bool, // the Help window (Menu > Help, F1), in Settings' place
+	action_bar: bool, // the contextual action bar over the dock (Settings > Interface)
+	action_pop: bool, // a folded action group's popover is open...
+	action_group: Action_Group, // ...for this group...
+	action_anchor: ui.Rect, // ...over its button
 	help_tab:   Help_Tab,
 	help_scroll: f32,
 	ui_scale:   f32, // the interface's size, times what the display asks for (Settings > Interface)
@@ -447,6 +451,7 @@ kit_init :: proc(app: ^App) {
 	k.ui_scale = 1
 	k.surface_ring = true
 	k.rail_side = .Left
+	k.action_bar = true
 	k.order = KIT_WINDOW_ORDER
 	k.last_frame = time.tick_now()
 }
@@ -586,9 +591,9 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 	// Escape stops a replay.
 	if key_pressed(d, sdl.K_ESCAPE) || key_pressed(d, sdl.K_AC_BACK) {
 		// The topmost goes first: what floats, and only then Settings or Help.
-		if side_panel_open(k) && !app.ui.pie.open && app.ui.adjust.kind == .None && !k.menu && !k.view_menu && !k.browser && !k.object_menu && !k.palette && ctx.select_open == 0 do side_panel_close(app)
+		if side_panel_open(k) && !app.ui.pie.open && app.ui.adjust.kind == .None && !k.action_pop && !k.menu && !k.view_menu && !k.browser && !k.object_menu && !k.palette && ctx.select_open == 0 do side_panel_close(app)
 		if k.palette do palette_close(app)
-		k.menu, k.view_menu, k.browser, k.object_menu = false, false, false, false
+		k.menu, k.view_menu, k.browser, k.object_menu, k.action_pop = false, false, false, false, false
 		ctx.select_open = 0
 	}
 	k.ms = time.duration_milliseconds(time.tick_since(start))
@@ -746,8 +751,11 @@ kit_layout :: proc(app: ^App) {
 	if ui.icon_button(ctx, "All brushes", ui.ICON_GRID, selected = k.browser || (!in_dock && app.tool == .Brush), size = 58) do k.browser = !k.browser
 	browser_anchor = ctx.last_rect
 	ui.end(ctx)
-	dock_size, _ := ui.prev_layout(ctx, "dock")
-	ctx.toast_bottom = E + dock_size.y + 12
+	// Over the dock, the next steps for what is active (kit_action_bar.odin); notes rise
+	// above both.
+	kit_action_bar(app)
+	stack_h := dock_stack(app)
+	ctx.toast_bottom = E + stack_h + 12
 
 	// Bottom right: what is being sculpted. A tap shows it in the inspector's Object tab;
 	// a long press (or a right-click) opens its menu above it.
@@ -814,6 +822,7 @@ kit_layout :: proc(app: ^App) {
 	kit_view_menu(app, view_anchor)
 	kit_object_menu(app)
 	kit_palette(app, palette_anchor)
+	kit_action_popover(app)
 }
 
 // The inspector: the tool, the selected object or the scene, in tabs, sliding in from
@@ -842,7 +851,8 @@ kit_inspector :: proc(app: ^App) -> (raised: bool) {
 		dock_size, _ := ui.prev_layout(ctx, "dock")
 		below: f32 = 0
 		if status, _ := ui.prev_layout(ctx, "status"); status.y > 0 do below = status.y + 8
-		if area.w * 0.5 + dock_size.x * 0.5 + 8 > area.w - t.edge - KIT_INSPECTOR_W do below = max(below, dock_size.y + 8)
+		stack_h := dock_stack(app)
+		if area.w * 0.5 + dock_size.x * 0.5 + 8 > area.w - t.edge - KIT_INSPECTOR_W do below = max(below, stack_h + 8)
 		if reach := rail_reach(app, .Right); reach > 0 do below = max(below, reach - t.edge + 8)
 		room -= below
 	}

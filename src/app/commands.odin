@@ -327,7 +327,7 @@ COMMANDS := [Command_Id]Command {
 		label = "Group masked or visible",
 		help = "Makes the masked part a polygroup and clears the mask, or else groups what is shown.",
 		run = proc(app: ^App, _: int) {group_shortcut(app)},
-		enabled = has_object,
+		enabled = paint_ready,
 	},
 	.Mask = {
 		label = "Mask",
@@ -352,12 +352,14 @@ COMMANDS := [Command_Id]Command {
 		help = "Fills the selected object with the paint colour, or takes the paint off, skipping what is masked or hidden.",
 		args = len(sculpt.Paint_Command),
 		run = proc(app: ^App, arg: int) {paint_command(app, sculpt.Paint_Command(arg))},
+		enabled = paint_ready,
 	},
 	.Group = {
 		label = "Polygroups",
 		help = "Makes polygroups from what is shown, what is masked or the creases, or clears them.",
 		args = len(sculpt.Group_Command),
 		run = proc(app: ^App, arg: int) {group_command(app, sculpt.Group_Command(arg))},
+		enabled = paint_ready,
 	},
 	.Delete_Lower_Levels = {
 		label = "Delete lower levels",
