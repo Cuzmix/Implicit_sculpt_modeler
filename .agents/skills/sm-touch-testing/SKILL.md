@@ -45,8 +45,11 @@ on window focus or hover to decide ownership; a widget that acts on a finger pre
 ## 3. Build and run
     build.bat                                   # or ./build.sh: the debug app the scenarios drive
     python scripts\touch_check.py --list        # the scenarios and what each proves
-    python scripts\touch_check.py               # all of them; names to run some; --screens writes build\touch\<name>.png
-- It needs a display: on a headless Linux box start `Xvfb :99 -screen 0 1920x1080x24` and set `DISPLAY=:99`.
+    python scripts\touch_check.py               # all of them; names or patterns ('rail_*') to run some; --screens writes build\touch\<name>.png
+    python scripts\gate.py --only touch -- 'rail_*'   # the same through the gate, with the log in build\gate\touch.log
+- It needs a display. On Linux with `Xvfb` installed it starts one per job itself (`start_displays`) and runs the
+  scenarios side by side (`--jobs=N`, default one per CPU); otherwise one at a time on the current display (on a
+  headless box with one job, run it under `xvfb-run -a -s "-screen 0 1600x1400x24"`, as `gate.py` does).
 - Every scenario is a fresh run with `--no-settings` (or `--settings-file`), so remembered settings never leak in.
 - After it, `build.bat test`, `build.bat smoke`, and on Linux `./build.sh wincheck` and `./build.sh androidcheck`.
 - Real tablet: `build.bat androidrun` (sm-build), then the device checklist in section 6.
@@ -105,10 +108,11 @@ are on the device checklist.
   scales with pressure (the mask) changes nothing: use a finger stroke to check the effect.
 - The interface's clock is fixed: `touch_check` passes `--ui-dt=1/60`, so tweens, tooltip delays and long presses
   count frames (`LONG_PRESS_FRAMES`, 30, is a long press; `long_press(s, x, y)` makes one). Never hold a finger still
-  on a control for 27 frames or more unless the scenario means a long press. `FINGER_HOLD` and the pie's right tap are
-  still real time.
-- Timing: events are per frame, not per millisecond. `FINGER_HOLD` (90 ms) and the 0.25 s tap window are real time,
-  so keep "together" fingers within a frame or two and taps to a few frames.
+  on a control for 27 frames or more unless the scenario means a long press. Every timed gesture in the app reads
+  `input_clock(app)` (touch.odin), which is that fixed clock under `--ui-dt`: `FINGER_HOLD` (90 ms, 6 frames), the
+  fingers' 0.25 s tap window (15 frames), the rail's taps and the pie's tap. A new timed gesture uses it too, never
+  `time.tick_now`, or its scenario passes alone and fails when the machine is busy.
+- Timing: events are per frame, not per millisecond; keep "together" fingers within a frame or two.
 
 ## 6. Real-device checklist (for Bolt, or a session on the device)
 Record the device, OS version, build (commit, debug or release) and whether a finger or the pen was used. For each:
@@ -150,5 +154,6 @@ event sequence to a scenario before fixing the code.
 | an orbit of N points turns N x speed | the move that crosses the 10 point slop is not counted for fingers and the pen: use `past_slop` |
 | a drag across the window starts where it is drawn | it starts on whatever is under its first point: a full turn must begin on empty space, not the model or a panel |
 | a passing run means the tablet works | it means the routing does; section 6 is still owed until someone runs it on hardware |
-| the settings file of one scenario carries to the next | each run starts with `--no-settings` unless it passes `--settings-file`, which `touch_check.py` rewrites per scenario |
-| `--frames` runs at the display's rate | it runs as fast as the build and the display allow; checks never depend on frame timing beyond `FINGER_HOLD` |
+| the settings file of one scenario carries to the next | each run starts with `--no-settings` unless it passes `--settings-file={settings_file()}`, a file of the scenario's own (`build/touch/settings/<name>.txt`, removed before it runs), so scenarios side by side never share one |
+| `--frames` runs at the display's rate | it runs as fast as the build and the display allow; nothing a check reads depends on real time (`input_clock`) |
+| two scenario windows can share a display | the one opening takes the focus, and `WINDOW_FOCUS_LOST` forgets the other's fingers (touch.odin): side by side runs get a private Xvfb each |

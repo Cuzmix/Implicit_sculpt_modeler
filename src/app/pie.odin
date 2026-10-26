@@ -18,7 +18,7 @@ Pie :: struct {
 	open:     bool,
 	hold:     bool, // opened by holding Space: letting go picks
 	center:   [2]f32, // where it opened, in viewport coordinates
-	opened:   time.Tick,
+	opened:   f64, // input_clock when it opened
 	hover:    int, // the slice the pointer points toward, or -1 in the middle
 	// A click picked from it: the left button does nothing else until it is let go.
 	swallow:  bool,
@@ -56,9 +56,9 @@ pie_update :: proc(app: ^App, input: ^Viewport_Input, right_tap: bool) {
 		// Never over a stroke or a drag in progress.
 		busy := app.stroke.active || (input.dragging && .Left in d.down)
 		if !busy && input.hovered && p.space_pressed {
-			p^ = {open = true, hold = true, center = input.mouse_pos, opened = time.tick_now(), space_down = p.space_down}
+			p^ = {open = true, hold = true, center = input.mouse_pos, opened = input_clock(app), space_down = p.space_down}
 		} else if !busy && right_tap {
-			p^ = {open = true, center = input.mouse_pos, opened = time.tick_now(), space_down = p.space_down}
+			p^ = {open = true, center = input.mouse_pos, opened = input_clock(app), space_down = p.space_down}
 		}
 		p.hover = pie_slice(input.mouse_pos - p.center, app.kit.scale)
 		if p.open do viewport_mute(input)
@@ -69,7 +69,7 @@ pie_update :: proc(app: ^App, input: ^Viewport_Input, right_tap: bool) {
 		if p.space_released {
 			if p.hover >= 0 {
 				pie_pick(app, p.hover)
-			} else if time.tick_since(p.opened) < PIE_TAP {
+			} else if input_clock(app) - p.opened < time.duration_seconds(PIE_TAP) {
 				p.hold = false // a tap: stay open for a click
 			} else {
 				p.open = false

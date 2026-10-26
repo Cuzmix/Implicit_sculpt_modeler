@@ -16,13 +16,21 @@ Usage (after ./build.sh or build.bat):
     python scripts/touch_check.py                 # every scenario
     python scripts/touch_check.py --list
     python scripts/touch_check.py tap_ui pinch    # only these
+    python scripts/touch_check.py 'long_press*'   # every scenario whose name matches
+    python scripts/touch_check.py --jobs=1        # one at a time (default: one per CPU)
     python scripts/touch_check.py --screens       # also write build/touch/<name>.png
 The window is 1600 x 900 points, the default layout; positions below are in points.
 """
+import concurrent.futures
+import fnmatch
 import math
 import os
+import queue
+import shutil
 import subprocess
 import sys
+import threading
+import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EXE = os.path.join(ROOT, "build", "sculpt.exe" if os.name == "nt" else "sculpt")
@@ -701,15 +709,22 @@ def ring_off_the_model_is_flat():
     return s, [], {"cursor_hit": near(0), "dabs": near(0)}
 
 
-SETTINGS_FILE = os.path.join(ROOT, "build", "touch_settings.txt")
+# Each scenario has a settings file of its own, so scenarios running side by side never
+# read or overwrite another's.
+CURRENT = threading.local()
+
+
+def settings_file():
+    """The settings file of the scenario running on this thread."""
+    return os.path.join(ROOT, "build", "touch", "settings", CURRENT.name + ".txt")
 
 
 def saved(**want):
     """A check on the settings file the scenario's app wrote on closing Settings."""
     def ok(_):
-        if not os.path.exists(SETTINGS_FILE):
+        if not os.path.exists(settings_file()):
             return False
-        lines = dict(l.split(" ", 1) for l in open(SETTINGS_FILE).read().splitlines() if " " in l)
+        lines = dict(l.split(" ", 1) for l in open(settings_file()).read().splitlines() if " " in l)
         return all(lines.get(k) == v for k, v in want.items())
     return ok
 
@@ -726,8 +741,8 @@ def open_settings(s, tab):
 @scenario
 def settings_scroll_and_persist():
     """Settings opens from the menu, a switch changes at a tap, the body scrolls from the first touch on a slider, and Done remembers it."""
-    if os.path.exists(SETTINGS_FILE):
-        os.remove(SETTINGS_FILE)
+    if os.path.exists(settings_file()):
+        os.remove(settings_file())
     s = Script()
     open_settings(s, "camera")
     s.ftap(1549, 717)  # Edges always turn the view
@@ -736,7 +751,7 @@ def settings_scroll_and_persist():
     s.wait(16)
     s.ftap(1481, 791)  # Done
     s.wait(4)
-    return s, [f"--settings-file={SETTINGS_FILE}"], camera_still({
+    return s, [f"--settings-file={settings_file()}"], camera_still({
         "dabs": near(0), "settings_open": near(0), "settings_scroll": lambda v: float(v) > 100,
         "@saved": saved(edge_orbit="0", zoom_speed="1", orbit_speed="1")})
 
@@ -745,7 +760,7 @@ def settings_scroll_and_persist():
 def settings_reset_everything():
     """Reset everything takes a second tap, then puts every category back."""
     s = Script()
-    with open(SETTINGS_FILE, "w") as f:
+    with open(settings_file(), "w") as f:
         f.write("orbit_speed 2\ninvert_wheel 1\nfinger_model orbit\nstats 1\n")
     open_settings(s, "touch")
     s.ftap(1294, 791)  # Reset everything: arms it
@@ -754,7 +769,7 @@ def settings_reset_everything():
     s.wait(4)
     s.ftap(1481, 791)  # Done
     s.wait(4)
-    return s, [f"--settings-file={SETTINGS_FILE}"], camera_still({
+    return s, [f"--settings-file={settings_file()}"], camera_still({
         "settings_open": near(0), "@saved": saved(orbit_speed="1", invert_wheel="0", finger_model="Sculpt", stats="0")})
 
 
@@ -762,14 +777,14 @@ def settings_reset_everything():
 def settings_reset_needs_second_tap():
     """One tap on Reset everything changes nothing."""
     s = Script()
-    with open(SETTINGS_FILE, "w") as f:
+    with open(settings_file(), "w") as f:
         f.write("orbit_speed 2\ninvert_wheel 1\n")
     open_settings(s, "camera")
     s.ftap(1294, 791)
     s.wait(4)
     s.ftap(1481, 791)  # Done
     s.wait(4)
-    return s, [f"--settings-file={SETTINGS_FILE}"], {"@saved": saved(orbit_speed="2", invert_wheel="1")}
+    return s, [f"--settings-file={settings_file()}"], {"@saved": saved(orbit_speed="2", invert_wheel="1")}
 
 
 @scenario
@@ -807,8 +822,8 @@ def settings_open_scroll_close_repeat():
 @scenario
 def changed_touch_setting_takes_effect():
     """Settings > Touch > On the model > Turns the view, then a finger on the model orbits and sculpts nothing; it is saved."""
-    if os.path.exists(SETTINGS_FILE):
-        os.remove(SETTINGS_FILE)
+    if os.path.exists(settings_file()):
+        os.remove(settings_file())
     s = Script()
     open_settings(s, "touch")
     s.ftap(1483, 251)  # Turns the view
@@ -816,7 +831,7 @@ def changed_touch_setting_takes_effect():
     s.ftap(1481, 791)  # Done
     s.wait(10)
     s.fdrag(past_slop((760, 430), (860, 430), 20))
-    return s, [f"--settings-file={SETTINGS_FILE}", "--orbit-style=turntable"], {
+    return s, [f"--settings-file={settings_file()}", "--orbit-style=turntable"], {
         "dabs": near(0), "camera_yaw": near(wrap(0.6 - 100 * 0.008), 2e-3), "@saved": saved(finger_model="Orbit")}
 
 
@@ -846,7 +861,7 @@ def inspector_tab_switch_then_scroll():
 def saved_line(line):
     """A check that the settings file the app wrote holds `line` (for keys with several lines)."""
     def ok(_):
-        return os.path.exists(SETTINGS_FILE) and line in open(SETTINGS_FILE).read().splitlines()
+        return os.path.exists(settings_file()) and line in open(settings_file()).read().splitlines()
     return ok
 
 
@@ -892,13 +907,13 @@ def window_close_and_reopen():
 @scenario
 def window_drag_by_title_is_remembered():
     """A finger drags the Stats window by its title to exactly under the finger, turning nothing; it is saved."""
-    with open(SETTINGS_FILE, "w") as f:
+    with open(settings_file(), "w") as f:
         f.write("stats 1\n")
     s = Script()
     s.fdrag(line(STATS_TITLE, (700, 300), 20))
     s.wait(4)
     # Grabbed 84 points in from its left and 36 down from its top.
-    return s, [f"--settings-file={SETTINGS_FILE}"], camera_still({
+    return s, [f"--settings-file={settings_file()}"], camera_still({
         "dabs": near(0), "window_stats": lambda v: v == "1,0,616,264",
         "@saved": saved_line("window Stats 1 Start Start 616 264 0")})
 
@@ -906,12 +921,12 @@ def window_drag_by_title_is_remembered():
 @scenario
 def window_position_comes_back():
     """A remembered window position and fold come back on the next start."""
-    with open(SETTINGS_FILE, "w") as f:
+    with open(settings_file(), "w") as f:
         f.write("stats 1\nwindow Stats 1 Start Start 616 264 0\nwindow Inspector 0 Start Start 0 0 1\n")
     s = Script()
     s.add("move:800,450")
     s.wait(4)
-    return s, [f"--settings-file={SETTINGS_FILE}"], {"window_stats": lambda v: v == "1,0,616,264",
+    return s, [f"--settings-file={settings_file()}"], {"window_stats": lambda v: v == "1,0,616,264",
                                                      "window_inspector": lambda v: v.startswith("1,1,")}
 
 
@@ -1115,24 +1130,24 @@ def rail_latched_edge_still_orbits():
 @scenario
 def rail_under_window_goes_to_window():
     """Where a window lies over the rail, a finger there is the window's: nothing latches."""
-    with open(SETTINGS_FILE, "w") as f:
+    with open(settings_file(), "w") as f:
         f.write("stats 1\nwindow Stats 1 Start Start 0 700 0\n")
     s = Script()
     rail_tap(s, "invert")
     s.wait(4)
-    return s, [f"--settings-file={SETTINGS_FILE}"], {"dabs": near(0), "rail_latched": lambda v: v == "none",
+    return s, [f"--settings-file={settings_file()}"], {"dabs": near(0), "rail_latched": lambda v: v == "none",
                                                      "window_stats": lambda v: v.startswith("1,")}
 
 
 @scenario
 def rail_fits_a_large_interface():
     """At interface size 1.5 on a 1280 x 800 window the rail meets neither the sliders nor the dock."""
-    with open(SETTINGS_FILE, "w") as f:
+    with open(settings_file(), "w") as f:
         f.write("ui_scale 1.5\n")
     s = Script()
     s.add("move:640,400")
     s.wait(6)
-    return s, ["--width=1280", "--height=800", f"--settings-file={SETTINGS_FILE}"], {"@layout": rail_clear("sliders", "dock")}
+    return s, ["--width=1280", "--height=800", f"--settings-file={settings_file()}"], {"@layout": rail_clear("sliders", "dock")}
 
 
 @scenario
@@ -1147,12 +1162,12 @@ def rail_fits_portrait():
 @scenario
 def rail_on_the_right_clears_the_panels():
     """Put on the right, the rail sits above the object's status, clear of the inspector and the dock."""
-    with open(SETTINGS_FILE, "w") as f:
+    with open(settings_file(), "w") as f:
         f.write("modifier_rail Right\n")
     s = Script()
     s.add("move:640,400")
     s.wait(6)
-    return s, [f"--settings-file={SETTINGS_FILE}"], {"@layout": rail_clear("status", "inspector", "dock", "sliders")}
+    return s, [f"--settings-file={settings_file()}"], {"@layout": rail_clear("status", "inspector", "dock", "sliders")}
 
 
 def long_press(s, x, y, finger=0, frames=LONG_PRESS_FRAMES):
@@ -1271,7 +1286,11 @@ def status_chip_tap_and_long_press():
     long_press(s, *STATUS_CHIP)
     return s, [], camera_still({"dabs": near(0), "inspector_tab": lambda v: v == "object", "object_menu": near(1)})
 
-def run(name, screens):
+def run(name, screens, displays=None):
+    CURRENT.name = name
+    os.makedirs(os.path.dirname(settings_file()), exist_ok=True)
+    if os.path.exists(settings_file()):
+        os.remove(settings_file())
     script, args, checks = SCENARIOS[name]()
     frames = script.frame + 10
     cmd = [EXE, f"--frames={frames}", f"--ui-events={script.spec()}"]
@@ -1288,7 +1307,15 @@ def run(name, screens):
         os.makedirs(os.path.join(ROOT, "build", "touch"), exist_ok=True)
         cmd.append(f"--dump-screen={os.path.join(ROOT, 'build', 'touch', name + '.png')}")
     env = dict(os.environ, SDL_ASSERT="abort")
-    proc = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=600)
+    display = displays.get() if displays else None
+    try:
+        if display:
+            env.pop("WAYLAND_DISPLAY", None)
+            env.update(DISPLAY=display, SDL_VIDEO_DRIVER="x11")
+        proc = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=600)
+    finally:
+        if display:
+            displays.put(display)
     stats = {}
     for out_line in proc.stdout.splitlines():
         for token in out_line.split():
@@ -1314,25 +1341,75 @@ def run(name, screens):
     return failures, stats
 
 
+def start_displays(count):
+    """A virtual X display for each scenario running at once, on Linux when Xvfb is there.
+
+    Windows sharing one display take the focus from each other as they open, and a window
+    losing the focus forgets the fingers on it (touch.odin), so side by side scenarios each
+    need a display of their own. Returns the servers and a queue of their names, or no
+    queue when there is one job or no Xvfb (the scenarios then share the current display).
+    """
+    if count < 2 or os.name == "nt" or not shutil.which("Xvfb"):
+        return [], None
+    servers, displays = [], queue.Queue()
+    for i in range(count):
+        # High numbers, clear of a desktop's :0 and xvfb-run's :99.
+        name = f":{200 + os.getpid() % 500 * 8 + i}"
+        servers.append(subprocess.Popen(["Xvfb", name, "-screen", "0", "1600x1400x24", "-nolisten", "tcp"],
+                                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+        displays.put(name)
+    # Each server takes a moment to accept connections.
+    for i in range(count):
+        socket = f"/tmp/.X11-unix/X{200 + os.getpid() % 500 * 8 + i}"
+        for _ in range(100):
+            if os.path.exists(socket):
+                break
+            time.sleep(0.05)
+    return servers, displays
+
+
 def main(argv):
     if "--list" in argv:
         for name, fn in SCENARIOS.items():
             print(f"{name:40s} {fn.__doc__}")
         return 0
     screens = "--screens" in argv
-    names = [a for a in argv if not a.startswith("--")] or list(SCENARIOS)
+    # Side by side only where each scenario can have a display of its own (start_displays).
+    jobs = (os.cpu_count() or 1) if os.name != "nt" and shutil.which("Xvfb") else 1
+    for a in argv:
+        if a.startswith("--jobs="):
+            jobs = max(1, int(a.split("=", 1)[1]))
+    # A name may be a pattern: long_press* runs every long press scenario.
+    patterns = [a for a in argv if not a.startswith("--")]
+    names = [n for n in SCENARIOS if not patterns or any(fnmatch.fnmatchcase(n, p) for p in patterns)]
+    unknown = [p for p in patterns if not any(fnmatch.fnmatchcase(n, p) for n in SCENARIOS)]
+    if unknown:
+        print(f"no scenario matches {', '.join(unknown)}: see --list")
+        return 1
     if not os.path.exists(EXE):
         print(f"{EXE} is missing: build the debug app first")
         return 1
+    # Each scenario is its own process with its own window, so they run side by side; the
+    # results print in the scenarios' order, each as soon as it and those before it are done.
     failed = 0
-    for name in names:
-        failures, stats = run(name, screens)
-        cam = " ".join(f"{k}={stats.get(k, '?')}" for k in ("camera_yaw", "camera_pitch", "camera_roll", "camera_distance", "dabs", "undo_steps"))
-        print(f"{'PASS' if not failures else 'FAIL'} {name:40s} {cam}")
-        for f in failures:
-            print(f"     {f}")
-        failed += bool(failures)
-    print(f"{len(names) - failed} of {len(names)} scenarios pass (desktop touch simulation, not a tablet)")
+    start = time.monotonic()
+    servers, displays = start_displays(min(jobs, len(names)))
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=jobs) as pool:
+            futures = [pool.submit(run, name, screens, displays) for name in names]
+            for name, future in zip(names, futures):
+                failures, stats = future.result()
+                cam = " ".join(f"{k}={stats.get(k, '?')}" for k in ("camera_yaw", "camera_pitch", "camera_roll", "camera_distance", "dabs", "undo_steps"))
+                print(f"{'PASS' if not failures else 'FAIL'} {name:40s} {cam}", flush=True)
+                for f in failures:
+                    print(f"     {f}")
+                failed += bool(failures)
+    finally:
+        for server in servers:
+            server.terminate()
+            server.wait()
+    seconds = time.monotonic() - start
+    print(f"{len(names) - failed} of {len(names)} scenarios pass in {seconds:.0f}s (desktop touch simulation, not a tablet)")
     return 1 if failed else 0
 
 

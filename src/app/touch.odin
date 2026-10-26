@@ -79,7 +79,7 @@ touch_event :: proc(app: ^App, e: ^sdl.Event, window: ^sdl.Window) {
 		_ = sdl.GetWindowSize(window, &w, &h)
 		at := [2]f32{f.x * f32(w), f.y * f32(h)}
 		id := u64(f.fingerID)
-		now := touch_clock()
+		now := input_clock(app)
 		slop := app.kit.ctx.theme.slop * app.kit.scale
 		// A finger on the modifier rail is the rail's alone (modifiers.odin): it is never the
 		// pointer, never part of a gesture or a palm, and the pen landing leaves it be.
@@ -174,9 +174,11 @@ touch_cancel :: proc(app: ^App, forget: bool) {
 	if forget do ui.fingers_clear(&t.fingers)
 }
 
-// Seconds on a steady clock, for the fingers' taps.
-@(private = "file")
-touch_clock :: proc() -> f64 {
+// Seconds on a steady clock, for every timed gesture: taps, holds, the pie's tap. With
+// --ui-dt it is the interface's fixed clock, which moves the same amount each frame, so a
+// scripted finger held N frames is the same gesture however slowly the frames come.
+input_clock :: proc(app: ^App) -> f64 {
+	if app.kit.fixed_dt > 0 do return app.kit.ctx.time
 	return f64(sdl.GetTicksNS()) / 1e9
 }
 
