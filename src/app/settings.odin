@@ -178,6 +178,9 @@ settings_load :: proc(app: ^App, path: string) {
 	if err != nil do return
 	b := &app.brush
 	text := string(data)
+	// The preset the brush was on, by name, put back once every line is read: the presets
+	// and the plain brushes' own values all come first.
+	on_preset := ""
 	lines: for line in strings.split_lines_iterator(&text) {
 		f := strings.fields(line, context.temp_allocator)
 		if len(f) < 2 do continue
@@ -251,6 +254,34 @@ settings_load :: proc(app: ^App, path: string) {
 			#reverse for name in names {
 				if e, ok := palette_entry_from_name(name); ok do palette_remember(&k.palette_recent, &k.palette_recent_count, e)
 			}
+		case "preset":
+			// preset <name> <brush> <strength> <drawn 0|1> c1x c1y c2x c2y <alpha|-> <alpha mode>
+			//        <alpha angle> <stroke> <lazy px> r g b <cloth mode>; names escaped
+			// (preset_escape). A damaged line, or one whose name is taken, is skipped.
+			if len(f) != 18 || app.preset_count == MAX_PRESETS do continue
+			kind, kind_ok := brush_by_name(f[2])
+			alpha_mode, mode_ok := reflect.enum_from_name(Alpha_Mode, f[10])
+			stroke, stroke_ok := reflect.enum_from_name(Stroke_Mode, f[12])
+			cloth, cloth_ok := reflect.enum_from_name(sculpt.Cloth_Mode, f[17])
+			if !kind_ok || !mode_ok || !stroke_ok || !cloth_ok do continue
+			v := Preset_Values {
+				kind = kind, strength = clamp(number(f[3], BRUSHES[kind].strength), MIN_STRENGTH, 1),
+				falloff = {drawn = f[4] == "1", curve = curve(f[5:9], FALLOFF_SMOOTH_CURVE)},
+				alpha = -1, alpha_mode = alpha_mode, alpha_angle = number(f[11], 0), stroke = stroke,
+				lazy_px = clamp(number(f[13], 0), 0, MAX_RADIUS_PX), cloth_mode = cloth,
+			}
+			for k in 0 ..< 3 do v.color[k] = clamp(number(f[14 + k], 0), 0, 1)
+			// Only the built-in alphas are there at every start, in this order (alphas_init).
+			alpha := preset_unescape(f[9])
+			for name, shape in sculpt.ALPHA_SHAPE_NAMES do if strings.equal_fold(alpha, name) do v.alpha = int(shape)
+			app.presets[app.preset_count].values = v
+			app.preset_count += 1
+			if !preset_rename(app, app.preset_count - 1, preset_unescape(f[1])) {
+				app.preset_count -= 1
+				app.presets[app.preset_count] = {}
+			}
+		case "brush_preset":
+			on_preset = strings.clone(preset_unescape(f[1]), context.temp_allocator)
 		case "new_vertices":
 			// The size an object is added and remeshed at: the nearest of the presets.
 			want := number(f[1], -1)
@@ -260,6 +291,9 @@ settings_load :: proc(app: ^App, path: string) {
 			}
 		}
 	}
+	// On a preset of the brush the file names, it is put back on it; its plain values are
+	// the ones just read.
+	if i := preset_find(app, on_preset); on_preset != "" && i >= 0 && app.presets[i].values.kind == b.kind do preset_pick(app, i)
 	log.infof("settings: read %s", path)
 
 	number :: proc(s: string, fallback: f32) -> f32 {
@@ -276,6 +310,11 @@ settings_load :: proc(app: ^App, path: string) {
 // Writes the settings to `path`. Returns false, with a warning, when it cannot.
 settings_save :: proc(app: ^App, path: string) -> bool {
 	if path == "" do return false
+	// The plain brushes' own values are what the rows and lines below remember; the preset
+	// the brush is on is named at the end and put back on reading.
+	on := app.brush
+	app.brush = brush_plain(app)
+	defer app.brush = on
 	b := app.brush
 	out := strings.builder_make(context.temp_allocator)
 	bit :: proc(v: bool) -> int {return 1 if v else 0}
@@ -310,6 +349,15 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 		for e in app.kit.palette_recent[:app.kit.palette_recent_count] do fmt.sbprintf(&out, " %s", palette_entry_name(e))
 		strings.write_byte(&out, '\n')
 	}
+	for i in 0 ..< app.preset_count {
+		p := &app.presets[i]
+		v := p.values
+		alpha := app.alphas[v.alpha].name if v.alpha >= 0 && v.alpha < len(app.alphas) else "-"
+		fmt.sbprintfln(&out, "preset %s %v %g %d %g %g %g %g %s %v %g %v %g %g %g %g %v", preset_escape(preset_name(p)), v.kind, v.strength, bit(v.falloff.drawn),
+			v.falloff.curve.c1.x, v.falloff.curve.c1.y, v.falloff.curve.c2.x, v.falloff.curve.c2.y, preset_escape(alpha), v.alpha_mode, v.alpha_angle, v.stroke, v.lazy_px,
+			v.color.r, v.color.g, v.color.b, v.cloth_mode)
+	}
+	if on.preset > 0 && on.preset <= app.preset_count do fmt.sbprintfln(&out, "brush_preset %s", preset_escape(preset_name(&app.presets[on.preset - 1])))
 	if err := os.write_entire_file(path, transmute([]u8)strings.to_string(out)); err != nil {
 		log.warnf("settings: could not write %s: %v", path, err)
 		return false

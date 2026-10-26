@@ -305,6 +305,8 @@ strokes_read :: proc(app: ^App, data: []u8, t: ^Take) -> bool {
 	}
 	for _ in 0 ..< brushes {
 		b := app.brush
+		// A recorded brush is plain: what it was recorded with is all it needs.
+		b.preset = 0
 		kind := geom.byte_get(&r, u8)
 		radius := geom.byte_get(&r, f32)
 		strength := geom.byte_get(&r, f32)

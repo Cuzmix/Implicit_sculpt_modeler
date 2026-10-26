@@ -50,6 +50,10 @@ Kit_State :: struct {
 	// NEW_SCENE_SHAPES index + 1, 0 for none) and when: a second run soon after goes ahead.
 	new_armed:    int,
 	new_armed_at: f64,
+	// The Preset section's name field: what is typed, and which preset (from 1) it renames
+	// when typing ends; 0 while the field is not being typed in.
+	preset_name:    [PRESET_NAME_MAX]u8,
+	preset_editing: int,
 	help:       bool, // the Help window (Menu > Help, F1), in Settings' place
 	action_bar: bool, // the contextual action bar over the dock (Settings > Interface)
 	action_pop: bool, // a folded action group's popover is open...
@@ -205,6 +209,7 @@ window_slide :: proc(w: ui.Window, default: ui.Anchor) -> f32 {
 
 Kit_Section :: enum u8 {
 	// The tool tab's.
+	Preset,
 	Stroke,
 	Paint_Color,
 	Falloff,

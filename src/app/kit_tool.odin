@@ -51,7 +51,14 @@ kit_brush_tab :: proc(app: ^App) {
 	kit_tool_head(ctx, BRUSHES[kind].icon, BRUSHES[kind].name, help)
 	for sec in BRUSH_SECTIONS {
 		if sec.shown != nil && !sec.shown(app) do continue
-		if ui.section(ctx, sec.title, &k.open[sec.section]) {
+		// The Preset section's title names the preset even while it is folded; the "##"
+		// part keeps its id the same whatever it reads.
+		title := sec.title
+		if sec.section == .Preset {
+			p, on := brush_preset(app)
+			title = fmt.tprintf("Preset: %s%s##preset", preset_name(p) if on else "none", " · changed" if preset_changed(app) else "")
+		}
+		if ui.section(ctx, title, &k.open[sec.section]) {
 			sec.draw(app)
 			ui.section_end(ctx)
 		}
@@ -70,6 +77,7 @@ Kit_Tab_Section :: struct {
 // The Brush tab's sections in the order shown.
 @(rodata)
 BRUSH_SECTIONS := [?]Kit_Tab_Section {
+	{.Preset, "Preset", kit_preset, nil},
 	{.Stroke, "Stroke", kit_stroke, nil},
 	{.Paint_Color, "Colour", proc(app: ^App) {_ = kit_color(&app.kit.ctx, "brush colour", &app.brush.color)}, proc(app: ^App) -> bool {return .Paint in BRUSHES[app.brush.kind].flags}},
 	{.Falloff, "Falloff", kit_falloff, nil},
@@ -81,6 +89,52 @@ BRUSH_SECTIONS := [?]Kit_Tab_Section {
 		ui.paragraph(ctx, "Brushes and mask shapes leave what faces away from you, so a stroke on a thin part (an ear, a fin) leaves its far side alone. Grab is not affected.")
 	}, nil},
 	{.Recorder, "Stroke recorder", kit_replay_section, nil},
+}
+
+// The brush's preset (presets.odin): which it is on, or none; on a plain brush, saving
+// it as a preset and resetting it; on a preset, its name, saving or reverting changes,
+// saving a copy, and (under More) deleting it.
+@(private = "file")
+kit_preset :: proc(app: ^App) {
+	k := &app.kit
+	ctx := &k.ctx
+	b := &app.brush
+	names := make([]string, app.preset_count + 1, context.temp_allocator)
+	names[0] = fmt.tprintf("None: the plain %s brush", BRUSHES[b.kind].name)
+	for i in 0 ..< app.preset_count do names[i + 1] = fmt.tprintf("%s (%s)", preset_name(&app.presets[i]), BRUSHES[app.presets[i].values.kind].name)
+	if picked := ui.select(ctx, "preset", names, b.preset); picked >= 0 && picked != b.preset {
+		if picked == 0 do command_run(app, .Brush, int(b.kind))
+		else do preset_pick(app, picked - 1)
+	}
+	p, on := brush_preset(app)
+	if !on {
+		kit_command_pair(app, .Preset_Save_New, .Brush_Reset, label_a = "Save as preset", tone_a = .Accent)
+		ui.paragraph(ctx, "A preset keeps this brush's strength, falloff, alpha, stroke kind and lazy mouse under a name, to pick again here. The size and the pen settings stay the same for every brush.")
+		return
+	}
+	// The name is typed into a copy, and renames the preset once typing ends (Enter, or a
+	// press elsewhere); a name that is empty, taken or a brush's own is refused.
+	id := ui.id_of(ctx, "name##preset")
+	if k.preset_editing == 0 {
+		k.preset_name = {}
+		copy(k.preset_name[:PRESET_NAME_MAX - 1], preset_name(p))
+	}
+	_ = ui.text_field(ctx, "name##preset", k.preset_name[:], hint = "Preset name")
+	if ctx.text_focus == id {
+		if k.preset_editing == 0 do k.preset_editing = b.preset
+	} else if k.preset_editing != 0 {
+		typed := string(cstring(raw_data(k.preset_name[:])))
+		if !preset_rename(app, k.preset_editing - 1, typed) {
+			report(app, nil, {.Warning}, "A preset needs a name of its own, not empty and not a brush's: %q is not one", strings.trim_space(typed))
+		}
+		k.preset_editing = 0
+	}
+	kit_command_pair(app, .Preset_Save, .Preset_Revert, label_a = "Save changes", label_b = "Revert", tone_a = .Accent)
+	_ = command_button(app, .Preset_Save_New, label = "Save as new preset")
+	if kit_more(app, .Preset) {
+		_ = command_button(app, .Preset_Delete, tone = .Danger)
+		kit_more_end(app)
+	}
 }
 
 // Size, strength, the lazy mouse, the stroke kind and the cloth brush's mode: five at

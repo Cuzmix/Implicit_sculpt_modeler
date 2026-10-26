@@ -227,7 +227,7 @@ def first_touch_scrolls_inspector():
 def slider_drag_sideways():
     """A sideways finger drag on the inspector's Strength slider sets it, without orbiting or scrolling."""
     s = Script()
-    s.fdrag(line((1430, 387), (1520, 389), 12))
+    s.fdrag(line((1430, 433), (1520, 435), 12))
     return s, [], camera_still({"dabs": near(0), "brush_strength": lambda v: float(v) > 0.6, "inspector_scroll": near(0)})
 
 
@@ -979,6 +979,70 @@ def coach_card_clears_the_bars_on_a_narrow_window():
     s.wait(12)
     return s, ["--coach", "--width=820", "--height=640"], {"coach_step": is_text("draw"),
                                                          "@layout": clear_of("coach", "tools", "inspector", "sliders", "top_right")}
+
+
+PRESET_HEAD = (1430, 269)  # the Brush tab's Preset section, folded at first
+PRESET_SAVE_NEW = (1357, 372)  # its Save as preset, on a plain brush
+PRESET_NAME = (1430, 372)  # on a preset: its name field
+PRESET_REVERT = (1505, 424)
+
+
+def save_a_preset(s):
+    s.ftap(*PRESET_HEAD)
+    s.wait(8)
+    s.ftap(*PRESET_SAVE_NEW)
+    s.wait(8)
+
+
+@scenario
+def preset_saves_changes_and_reverts():
+    """Save as preset puts the brush on "Draw 1"; Shift+] marks it changed, and Revert puts its strength back."""
+    s = Script()
+    save_a_preset(s)
+    s.press("]", ("shift",))
+    s.wait(4)
+    s.ftap(*PRESET_REVERT)
+    s.wait(6)
+    return s, [], {"presets": near(1), "preset": near(1), "preset_name": is_text("Draw_1"), "preset_changed": near(0),
+                   "brush_strength": near(0.5), "dabs": near(0)}
+
+
+@scenario
+def preset_renames_as_typed():
+    """A tap on the preset's name field, typing and Enter rename it."""
+    s = Script()
+    save_a_preset(s)
+    s.ftap(*PRESET_NAME)
+    s.wait(4)
+    s.type(" soft")
+    s.press("Return")
+    s.wait(6)
+    return s, [], {"preset_name": is_text("Draw_1_soft"), "dabs": near(0)}
+
+
+@scenario
+def preset_left_gives_the_plain_brush_back():
+    """A strength change on the preset stays with it: tapping Draw in the dock takes the brush off it, back to the plain Draw's 0.5."""
+    s = Script()
+    save_a_preset(s)
+    s.press("]", ("shift",))
+    s.wait(4)
+    s.ftap(*UI["dock_draw"])
+    s.wait(6)
+    return s, [], {"preset": near(0), "presets": near(1), "brush_strength": near(0.5), "dabs": near(0)}
+
+
+@scenario
+def presets_come_back_from_settings():
+    """A settings file's presets load, with the brush back on the one it names; closing writes them again."""
+    s = Script()
+    with open(settings_file(), "w") as f:
+        f.write("brush Clay\nstrength Clay 0.7\n"
+                "preset Soft%20clay Clay 0.2 0 0 0 0 0 - Stroke 0 Dots 12 0 0 0 Drag\nbrush_preset Soft%20clay\n")
+    s.add(f"move:{EMPTY[0]},{EMPTY[1]}")
+    s.wait(10)
+    return s, [f"--settings-file={settings_file()}"], {"presets": near(1), "preset": near(1), "preset_name": is_text("Soft_clay"),
+                                                       "brush_strength": near(0.2), "preset_changed": near(0)}
 
 
 def new_scene_settings():

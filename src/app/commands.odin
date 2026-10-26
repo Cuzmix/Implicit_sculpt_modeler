@@ -42,6 +42,11 @@ Command_Id :: enum u8 {
 	Size_Up,
 	Strength_Down,
 	Strength_Up,
+	Preset_Save_New,
+	Preset_Save,
+	Preset_Revert,
+	Preset_Delete,
+	Brush_Reset,
 	Replay_Stroke,
 	// The selected object
 	Remesh,
@@ -233,10 +238,12 @@ COMMANDS := [Command_Id]Command {
 		icon = ui.ICON_BRUSH,
 		args = len(sculpt.Brush_Kind),
 		run = proc(app: ^App, arg: int) {
+			// A plain brush: off any preset, with its own values back.
+			preset_leave(app)
 			app.brush.kind = sculpt.Brush_Kind(arg)
 			app.tool = .Brush
 		},
-		checked = proc(app: ^App, arg: int) -> bool {return app.tool == .Brush && app.brush.kind == sculpt.Brush_Kind(arg)},
+		checked = proc(app: ^App, arg: int) -> bool {return app.tool == .Brush && app.brush.kind == sculpt.Brush_Kind(arg) && app.brush.preset == 0},
 	},
 	.Symmetry_X = {
 		label = "Symmetry across X",
@@ -267,6 +274,39 @@ COMMANDS := [Command_Id]Command {
 		help = "Raises the brush's strength by 0.05.",
 		icon = ui.ICON_STRENGTH,
 		run = proc(app: ^App, _: int) {brush_strength_step(app, true)},
+	},
+	.Preset_Save_New = {
+		label = "Save brush as preset",
+		help = "Keeps the brush as it is (strength, falloff, alpha, stroke) as a new preset, and puts the brush on it.",
+		icon = ui.ICON_SAVE,
+		run = proc(app: ^App, _: int) {_ = preset_save_new(app)},
+		enabled = proc(app: ^App, _: int) -> bool {return app.preset_count < MAX_PRESETS},
+	},
+	.Preset_Save = {
+		label = "Save preset changes",
+		help = "Stores the brush's changes in the preset it is on.",
+		run = proc(app: ^App, _: int) {preset_save(app)},
+		enabled = proc(app: ^App, _: int) -> bool {return preset_changed(app)},
+	},
+	.Preset_Revert = {
+		label = "Revert preset",
+		help = "Puts the brush back to the preset it is on, undoing changes made since it was saved.",
+		icon = ui.ICON_UNDO,
+		run = proc(app: ^App, _: int) {preset_revert(app)},
+		enabled = proc(app: ^App, _: int) -> bool {return preset_changed(app)},
+	},
+	.Preset_Delete = {
+		label = "Delete preset",
+		help = "Deletes the preset the brush is on; the brush goes back to its plain self.",
+		icon = ui.ICON_TRASH,
+		run = proc(app: ^App, _: int) {preset_delete(app, app.brush.preset - 1)},
+		enabled = proc(app: ^App, _: int) -> bool {return app.brush.preset > 0},
+	},
+	.Brush_Reset = {
+		label = "Reset brush",
+		help = "Puts the brush's strength and falloff back to where a fresh install has them.",
+		run = proc(app: ^App, _: int) {brush_reset(app)},
+		enabled = proc(app: ^App, _: int) -> bool {return brush_reset_needed(app)},
 	},
 	.Replay_Stroke = {
 		label = "Replay stroke",
