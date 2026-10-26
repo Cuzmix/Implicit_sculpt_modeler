@@ -27,6 +27,9 @@ Bind_Popover :: struct {
 	other:  Binding, // what has it (Taken), or what lost it to this command (Assigned)
 	lost:   bool, // Assigned: `other` has no key now
 	reason: string, // Refused: a constant from chord_reserved
+	// Opened from a row of Settings > Keys, which moves `at` as the list scrolls and
+	// closes it when the row goes out of view.
+	from_keys: bool,
 }
 
 // Whether a click now is the gesture that binds rather than runs: exactly Ctrl and Alt

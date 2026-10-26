@@ -149,6 +149,39 @@ Drag_Owner :: enum u8 {
 	Muted, // pressed, but nothing follows it (a palm, a finger while a gesture runs)
 }
 
+// Which app's mouse buttons the view follows (Settings > Keys): what a right or middle
+// drag, or one with Alt, does to the camera. The left button, the wheel, the safe zone,
+// fingers and the pen are the same in all three.
+Mouse_Scheme :: enum u8 {
+	ZBrush, // right turns, middle pans
+	Blender, // middle turns, Shift+middle pans, Ctrl+middle zooms
+	Maya, // Alt+left turns, Alt+middle pans, Alt+right zooms
+}
+
+// What the camera does with a drag of `held` buttons under `scheme`, with these modifiers
+// held as it was pressed; `decided` is false when the buttons leave it to the tool, the
+// fingers and empty space (drag_decide). The right button comes before the middle, and
+// both before Alt with the left.
+mouse_button_owner :: proc(scheme: Mouse_Scheme, held: ui.Buttons, ctrl, shift, alt: bool) -> (owner: Drag_Owner, decided: bool) {
+	if .Right in held {
+		switch {
+		case ctrl:                    return .Zoom, true
+		case alt && scheme == .Maya: return .Zoom, true
+		case shift || alt:            return .Pan, true
+		}
+		return .Orbit, true
+	}
+	if .Middle in held {
+		switch {
+		case ctrl:                       return .Zoom, true
+		case scheme == .Blender && !shift: return .Orbit, true
+		}
+		return .Pan, true
+	}
+	if alt && !ctrl do return .Orbit, true
+	return .None, false
+}
+
 // What a pointer does dragged on empty space (Settings > Touch and pen).
 Empty_Drag :: enum u8 {
 	Orbit, // turns the view, as in ZBrush
@@ -191,6 +224,7 @@ Nav_Prefs :: struct {
 	edge_orbit:     bool,
 	edge_size:      f32, // points, EDGE_MIN to EDGE_MAX
 	edge_show:      bool, // outline where the band ends
+	mouse_scheme:   Mouse_Scheme,
 }
 
 // The safe zone's width, in points: from half a touch target to a broad band.
@@ -403,14 +437,7 @@ pointer_route :: proc(app: ^App, input: ^Viewport_Input) {
 @(private = "file")
 drag_decide :: proc(app: ^App, input: Viewport_Input) -> (owner: Drag_Owner, empty: bool) {
 	d := &app.device
-	held := d.down + d.pressed
-	if .Right in held {
-		if d.ctrl do return .Zoom, false
-		if d.shift || d.alt do return .Pan, false
-		return .Orbit, false
-	}
-	if .Middle in held do return .Zoom if d.ctrl else .Pan, false
-	if d.alt && !d.ctrl do return .Orbit, false
+	if by_button, decided := mouse_button_owner(app.nav.mouse_scheme, d.down + d.pressed, d.ctrl, d.shift, d.alt); decided do return by_button, false
 	if d.pointer == .Finger {
 		if app.touch.palm do return .Muted, false
 		if app.nav.finger_model == .Orbit do return .Orbit, false

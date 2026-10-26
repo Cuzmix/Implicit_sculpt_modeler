@@ -135,6 +135,7 @@ help_tabs_are_found_by_search :: proc(t: ^testing.T) {
 	testing.expect_value(t, best("gestures"), "Help: Gestures")
 	testing.expect_value(t, best("glossary"), "Help: Glossary")
 	testing.expect_value(t, best("touch"), "Settings: Touch")
+	testing.expect_value(t, best("keymap"), "Settings: Keys")
 	for tab in Help_Tab {
 		name := palette_entry_name({.Command, .Help, int(tab)})
 		testing.expect_value(t, name, fmt.tprintf("Help:%v", tab))

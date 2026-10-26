@@ -133,7 +133,8 @@ SETTINGS_SEARCH_WORDS := [Settings_Tab]string {
 	.Interface   = "preferences scale size theme ui",
 	.Camera      = "preferences orbit turn pivot",
 	.Touch       = "preferences pen finger gesture tablet stylus pressure",
-	.Performance = "preferences speed fps vsync threads",
+	.Keys        = "keymap shortcuts hotkeys bindings mouse buttons navigation blender maya zbrush",
+	.Performance = "preferences performance speed fps vsync threads statistics",
 }
 
 // Every entry the palette searches, in the registry's order then the Settings tabs': a

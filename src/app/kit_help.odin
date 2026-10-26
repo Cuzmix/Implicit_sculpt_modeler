@@ -117,12 +117,9 @@ MOUSE_HELP := [?]Help_Line {
 	{group = "MOUSE", what = "Select an object", how = "Click it", show = move_tool},
 	{group = "MOUSE", what = "Move it", how = "Drag it, or a gizmo arm", show = move_tool},
 	{group = "MOUSE", what = "Brush pie", how = "Right click"},
-	{group = "MOUSE", what = "Turn the view", how = "Right drag, or Alt + left drag"},
 	{group = "MOUSE", what = "Turn the view", how = "Left drag on empty space", show = proc(app: ^App) -> bool {return empty_turns(app) && app.nav.empty_drag[.Mouse] == .Orbit}},
 	{group = "MOUSE", what = "Turn the view", how = "Left drag from the edges", show = proc(app: ^App) -> bool {return app.nav.edge_orbit}},
 	{group = "MOUSE", what = "Snap to a front, side or top view", how = "Shift while turning"},
-	{group = "MOUSE", what = "Pan", how = "Middle drag, or Alt or Shift + right drag"},
-	{group = "MOUSE", what = "Zoom", how = "Wheel, or Ctrl + right or middle drag"},
 }
 
 // The commands' gestures, in groups with the touch controls that are no command. Each
@@ -197,6 +194,8 @@ help_key_rows :: proc(app: ^App) -> []Help_Row {
 	}
 	help_lines(app, VIEWPORT_KEYS[:], &out)
 	help_lines(app, MOUSE_HELP[:], &out)
+	// Turn, pan and zoom as the mouse scheme in Settings > Keys has them.
+	for how, i in MOUSE_SCHEME_HOW[app.nav.mouse_scheme] do append(&out, Help_Row{"MOUSE", MOUSE_ACTIONS[i], how})
 	return out[:]
 }
 
@@ -271,7 +270,8 @@ kit_help :: proc(app: ^App) -> (raised: bool) {
 		case .Keys:
 			help_rows(app, help_key_rows(app), inner)
 			ui.paragraph(ctx, fmt.tprintf("The viewport keys and the mouse are as the %s tool has them; they change with the tool.", tool))
-			ui.paragraph(ctx, "To give a command another key, Ctrl+Alt+click its button or menu row, or pick it in Search and tap Assign key.")
+			ui.paragraph(ctx, "To give a command another key, Ctrl+Alt+click its button or menu row, tap it in Settings > Keys, or pick it in Search and tap Assign key. Settings > Keys also makes the mouse turn, pan and zoom as Blender or Maya does.")
+			if ui.button(ctx, "Keys settings", .Bordered, glyph = ui.ICON_KEYBOARD) do settings_open(app, .Keys)
 		case .Gestures:
 			ui.paragraph(ctx, fmt.tprintf("With the %s tool and the settings as they are now: a gesture turned off is not listed.", tool))
 			ui.spacer(ctx, 4)

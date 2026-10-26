@@ -190,6 +190,7 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
 | a touch gesture | measure in `touch_route` (Viewport owner only, every finger still down: `f.count == f.most`; the one exception is `touch_lift_orbit`, the finger left of two, which runs first and keeps the touch once armed), write a `Viewport_Input` field, apply it in `camera_apply_input` (it runs with no pointer down) or the tool; a switch in Settings > Touch; a scenario in `scripts/touch_check.py`; a line in `TOUCH_HELP` (`kit_help.odin`) so Help > Gestures lists it (`help_touch_rows_hold_every_gesture` fails a `command_gesture` missing there) |
 | a command in a user pie, or starred | nothing to add: any command `pie_lists` allows can go in a pie (`user_pies.odin`) from the palette's Put in a pie, and any palette row can be starred; one that acts where the pointer is belongs out of `pie_lists` too, since the pie sits over that spot |
 | a popover opened by a command a click runs | close the others in its open proc (as `palette_open`, `bind_open`, `pie_editor_open`), add its flag to `kit_floating` and to kit_frame's Escape list; a pie or popover opened during the layout must not see the same click (`Pie.opened_frame`) |
+| a command in Settings > Keys | nothing to add: the tab lists every command `palette_lists` keeps, in Help's `command_group` order, and finds it by `keys_match` (`kit_keys.odin`); what a mouse button does to the view is `mouse_button_owner` (`navigate.odin`), by `Nav_Prefs.mouse_scheme`, and its words for the tab and Help are `MOUSE_SCHEME_HOW` |
 | a curve to drag, a colour, a count | `kit_curve_editor`, `kit_color`, `kit_count` (`kit_widgets.odin`) |
 
 ## Traps
@@ -214,6 +215,7 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
 | a select's options can be built once | they must stay valid for the frame (temp memory is fine) |
 | a press while a pie is open reaches the panel under it | kit_begin hands the kit no press, hold or release while `app.ui.pie.open` or `.swallow`; a right tap then closes the pie from anywhere |
 | Escape with a pie and Settings open closes both | the pie reads Escape in `pie_update`, before kit_frame's Escape list: kit_frame takes `kit_floating` before `kit_viewport_input`, so Settings stays |
+| Escape in a side panel's text field closes the panel | kit_frame closes Settings or Help on Escape only when nothing floats and no field had the keys at the frame's start (`typed`) |
 | the same widget twice in one container | ids come from labels: give each a `##` suffix (`"Clay##slot 3"`); the text after `##` is not shown |
 | a shortcut's text or the keys a command has | `command_keys(app, …)` / `command_chords(app, …)` / `keymap(app)` (keymap.odin), never DEFAULT_BINDINGS: the user's `key` overrides change them (Ctrl+Alt+click → Assign key, kit_bind.odin) |
 | a control that runs a command | through `command_run` during the layout: a Ctrl+Alt click there opens Assign key instead (`bind_click`, `ui.Context.clicked_rect`); an action that is no command (presets) is not bindable |
