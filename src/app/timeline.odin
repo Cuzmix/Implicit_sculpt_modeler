@@ -3,6 +3,7 @@ package main
 import "core:fmt"
 import "core:log"
 import "core:math"
+import "core:math/linalg"
 import "core:os"
 import "core:path/filepath"
 import "core:strings"
@@ -17,6 +18,8 @@ import "../ui"
 // scrubbing back drops the steps ahead of it, as it would after undoing.
 Timeline :: struct {
 	seeking: bool,
+	scrubbing: bool, // the press on the bar is a scrub: a mouse's, or one moved past the slop
+	picked:    bool, // ...or it chose the History brush's step, and scrubs nothing
 	target:  int, // the number of done steps being moved toward, while seeking
 	playing: bool,
 	speed:   f32, // steps a second while playing
@@ -349,7 +352,25 @@ kit_timeline_bar :: proc(app: ^App, enabled: bool) {
 	x_at :: proc(r: ui.Rect, pos, total: int) -> f32 {
 		return r.x + r.w * f32(pos) / f32(max(total, 1))
 	}
-	if enabled && a.held && total > 0 {
+	under_step := clamp(int((a.mouse.x - r.x) / r.w * f32(max(total, 1))), 0, max(total - 1, 0))
+	// A right-click or long press on a step makes it what the History brush paints back
+	// to; a finger or the pen therefore scrubs only once it moves past the slop, or taps.
+	if enabled && total > 0 && ui.secondary(ctx) {
+		// The press is spent: drifting off as the finger lifts scrubs nothing.
+		tl.picked = true
+		switch {
+		case tl.seeking:
+			// The step may be undone by the seek still under way.
+			report(app, Kit_Section.Recall, {.Warning}, "History brush: wait for the History to stop moving, then choose the step")
+		case under_step < done:
+			_ = recall_to_entry(app, under_step)
+		case:
+			report(app, Kit_Section.Recall, {.Warning}, "History brush: redo up to that step first; it paints back only to a step that is done")
+		}
+	}
+	if a.pressed do tl.scrubbing, tl.picked = ctx.input.pointer == .Mouse, false
+	if a.held && !tl.picked && linalg.length(a.mouse - ctx.press_mouse) > ctx.theme.slop do tl.scrubbing = true
+	if enabled && total > 0 && ((a.held && tl.scrubbing) || a.clicked) {
 		// Where the History is heading: the target while seeking, else where it stands.
 		under := clamp(int((a.mouse.x - r.x) / r.w * f32(total) + 0.5), 0, total)
 		heading := tl.target if tl.seeking else done
@@ -375,9 +396,18 @@ kit_timeline_bar :: proc(app: ^App, enabled: bool) {
 		ghost := x_at(r, tl.target, total)
 		ui.line(ctx, {ghost, r.y}, {ghost, r.y + r.h}, ui.color_fade(t.text, 0.4), 1)
 	}
+	// The History brush's point: a mark at the foot of the bar where the step it paints
+	// back to before begins.
+	recall := recall_marker(app)
+	if recall >= 0 {
+		x := x_at(r, recall, total)
+		mark := [3][2]f32{{x - 5, r.y + r.h}, {x, r.y + r.h - 7}, {x + 5, r.y + r.h}}
+		ui.fill_convex(ctx, mark[:], t.accent)
+	}
 	if a.hovered && total > 0 {
 		step := clamp(int((a.mouse.x - r.x) / r.w * f32(total)), 0, total - 1)
 		e := app.history.done[step] if step < done else app.history.undone[total - 1 - step]
-		ui.tip(ctx, a.id, {a.mouse.x - 1, r.y, 2, r.h}, fmt.tprintf("Step %d: %s, object %d, %s%s", step + 1, entry_label(e), e.id, ago_label(e.at), "" if step < done else " (undone)"))
+		point := ". The History brush paints back to before it" if step == recall else ""
+		ui.tip(ctx, a.id, {a.mouse.x - 1, r.y, 2, r.h}, fmt.tprintf("Step %d: %s, object %d, %s%s%s", step + 1, entry_label(e), e.id, ago_label(e.at), "" if step < done else " (undone)", point))
 	}
 }

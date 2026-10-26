@@ -22,6 +22,7 @@ Usage (after ./build.sh or build.bat):
     python scripts/touch_check.py x --screen-run=2  # ...of run 2 instead, to look at a middle state
 The window is 1600 x 900 points, the default layout; positions below are in points.
 """
+import ast
 import concurrent.futures
 import fnmatch
 import math
@@ -191,6 +192,22 @@ def wrap(a):
 
 
 SCENARIOS = {}
+
+
+def _no_twice_defined():
+    """A second top-level def of one name silently replaces the first, so a spliced-in
+    scenario or helper would hide another and its checks would never run: refuse to load."""
+    seen, twice = {}, []
+    for node in ast.parse(open(__file__, encoding="utf-8").read()).body:
+        if isinstance(node, (ast.FunctionDef, ast.ClassDef)):
+            if node.name in seen:
+                twice.append(f"{node.name} (lines {seen[node.name]} and {node.lineno})")
+            seen.setdefault(node.name, node.lineno)
+    if twice:
+        sys.exit("touch_check.py defines these twice, so the first is never run: " + ", ".join(twice))
+
+
+_no_twice_defined()
 
 
 def scenario(fn):
@@ -3788,6 +3805,8 @@ def adjust_remesh_from_the_bar():
 # Adjust last stroke's popover: with no action bar after a stroke it sits over the dock,
 # its Amount slider's left end (0%) here at 1600x900.
 ADJUST_STROKE_NONE = (662, 788)
+# The middles of the History panel bar's three steps, after three strokes.
+TIMELINE_STEPS_OF_3 = [(566, 615), (800, 615), (1033, 615)]
 # mesh_sum after the History scenario's two Draw strokes, before the History brush.
 HISTORY_DRAWN_SUM = 7.81
 
@@ -3821,6 +3840,102 @@ def history_brush_by_pen():
         pen_stroke(s, line((700, 380), (800, 420), 12), pressure=0.8)
     return s, [], camera_still({"undo_steps": near(4, 0), "recall_back": near(4, 0), "recall_pinned": near(0, 0),
                                 "mesh_sum": lambda v: abs(float(v)) < HISTORY_DRAWN_SUM / 2})
+
+
+@scenario
+def history_point_from_the_timeline():
+    """Three strokes and the History panel: a right-click on the second step of its bar
+    makes the History brush paint back to before it (two steps back, chosen), and then a
+    long press on the third, by a finger and again by the pen, makes it one step back;
+    none of it moves through the History."""
+    def run(by_pen):
+        s = Script()
+        s.wait(3)
+        for _ in range(3):
+            s.mouse_drag(line((700, 380), (800, 420), 12))
+            s.wait(2)
+        click(s, UI["history"])
+        s.wait(20)
+        s.add("move:{:g},{:g}".format(*TIMELINE_STEPS_OF_3[1]))
+        s.wait(3)
+        s.add("right")
+        s.wait(4)
+        if by_pen:
+            s.add("pnear")
+            s.add("pdown:{:g},{:g}".format(*TIMELINE_STEPS_OF_3[2]))
+            s.wait(LONG_PRESS_FRAMES)
+            s.add("pup")
+            s.wait(2)
+            s.add("pfar")
+            s.wait(4)
+        else:
+            long_press(s, *TIMELINE_STEPS_OF_3[2])
+        return s, [], camera_still({"undo_steps": near(3, 0), "redo_steps": near(0, 0), "recall_back": near(1, 0),
+                                    "recall_pinned": near(1, 0)})
+    return Steps([run(False), run(True)])
+
+
+@scenario
+def history_point_then_drift():
+    """A finger's long press on the bar's first step that then drifts along it before
+    lifting chooses the step and scrubs nothing: all three steps stay done."""
+    s = Script()
+    s.wait(3)
+    for _ in range(3):
+        s.mouse_drag(line((700, 380), (800, 420), 12))
+        s.wait(2)
+    click(s, UI["history"])
+    s.wait(20)
+    x, y = TIMELINE_STEPS_OF_3[0]
+    s.add(f"fdown:0:{x:g},{y:g}")
+    s.wait(LONG_PRESS_FRAMES)
+    for k in range(1, 6):
+        s.add(f"fmove:0:{x + 40 * k:g},{y:g}")
+        s.wait(1)
+    s.add("fup:0")
+    s.wait(10)
+    return s, [], camera_still({"undo_steps": near(3, 0), "redo_steps": near(0, 0), "recall_back": near(3, 0),
+                                "recall_pinned": near(1, 0)})
+
+
+@scenario
+def history_point_by_right_click():
+    """The same right-click alone: two steps back, chosen."""
+    s = Script()
+    s.wait(3)
+    for _ in range(3):
+        s.mouse_drag(line((700, 380), (800, 420), 12))
+        s.wait(2)
+    click(s, UI["history"])
+    s.wait(20)
+    s.add("move:{:g},{:g}".format(*TIMELINE_STEPS_OF_3[1]))
+    s.wait(3)
+    s.add("right")
+    s.wait(4)
+    return s, [], camera_still({"undo_steps": near(3, 0), "recall_back": near(2, 0), "recall_pinned": near(1, 0)})
+
+
+@scenario
+def timeline_tap_and_drag_by_finger():
+    """A finger's tap on the History panel's bar goes to that point, and a drag along it
+    scrubs: after a tap at the first step's end one step is done, after a drag back to the
+    start none."""
+    def run(drag):
+        s = Script()
+        s.wait(3)
+        for _ in range(3):
+            s.mouse_drag(line((700, 380), (800, 420), 12))
+            s.wait(2)
+        click(s, UI["history"])
+        s.wait(20)
+        if drag:
+            s.fdrag(line(TIMELINE_STEPS_OF_3[2], (452, 615), 12))
+        else:
+            s.ftap(683, 615)
+        s.wait(30)
+        done = 0 if drag else 1
+        return s, [], camera_still({"undo_steps": near(done, 0), "redo_steps": near(3 - done, 0)})
+    return Steps([run(False), run(True)])
 
 
 @scenario

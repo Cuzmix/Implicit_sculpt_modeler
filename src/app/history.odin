@@ -562,7 +562,6 @@ history_step :: proc(app: ^App, from, to: ^[dynamic]History_Entry, can, step: pr
 }
 
 // The sculptor an entry's stroke was made with, or nil if it is gone.
-@(private = "file")
 entry_sculptor :: proc(app: ^App, e: History_Entry) -> ^sculpt.Sculptor {
 	obj := object_by_id(app, e.id)
 	switch {
