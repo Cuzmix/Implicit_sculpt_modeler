@@ -86,8 +86,11 @@ Stroke :: struct {
 	start:    [2]f32, // Drag rectangle: where on screen the drag began
 	at:       Vec3, // ...and where that is on the object, in its own space
 	anchor:   Vec3, // Grab: where the stroke started; Snake hook: where it has pulled to (world space)
-	kind:     sculpt.Brush_Kind, // the brush the stroke started with, Shift's Smooth included, for the History panel
-	invert:   bool, // ...and whether it was inverted
+	// The brush the stroke started with, Shift's Smooth and the rail's Mask included: kept
+	// for the whole stroke, so Shift or a brush key pressed mid-stroke changes nothing.
+	kind:     sculpt.Brush_Kind,
+	held:     bool, // ...and whether that is the brush held, with its alpha and stroke mode
+	invert:   bool, // whether it started inverted, for the History panel
 	// The sum and count of the points it dabbed, in its object's space: their mean is the
 	// pivot orbits turn about once it ends (Stroke_Pivot).
 	pivot_sum:   Vec3,
@@ -242,6 +245,7 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 	}
 	st := &app.stroke
 	st.active, st.object = true, obj.id
+	st.kind, st.held = stroke_brush(app, input), held_brush(input)
 	st.pos, st.pressure, st.tilt, st.travel, st.size = s.pos, s.pressure, s.tilt, 0, input.size
 	st.dir = {}
 	clear(&st.pending)
@@ -249,10 +253,10 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 	local := to_local(obj.transform, hit)
 	brush := brush_at(app, input, obj.transform, local, s.pressure, s.tilt)
 	flags := BRUSHES[brush.kind].flags
-	st.grab, st.hook, st.anchor, st.kind, st.invert = .Grab in flags, .Hook in flags, hit, brush.kind, brush.invert
+	st.grab, st.hook, st.anchor, st.invert = .Grab in flags, .Hook in flags, hit, brush.invert
 	st.cloth = .Cloth in flags && !object_dynamic(obj)
 	if .Cloth in flags && !st.cloth do log.warn("cloth: not with dynamic topology on")
-	st.rect = app.brush.stroke == .Drag_Rect && !st.grab && !st.hook && .Cloth not_in flags && held_brush(input) && !object_dynamic(obj)
+	st.rect = app.brush.stroke == .Drag_Rect && !st.grab && !st.hook && .Cloth not_in flags && st.held && !object_dynamic(obj)
 	st.start, st.at = s.pos, local
 	st.pivot_sum, st.pivot_count = local, 1
 	if st.hook || st.rect do return // they move nothing until the pointer does
@@ -456,14 +460,15 @@ held_brush :: proc(input: Viewport_Input) -> bool {
 	return !input.smooth && !input.mask
 }
 
-// The brush for a dab at `hit` (in the object's local space): the radius in pixels,
+// The brush for a dab of the stroke under way at `hit` (in the object's local space),
+// the kind its press chose (Stroke.kind): the radius in pixels,
 // scaled by pen pressure if set, becomes world units at the hit's distance, and a
 // leaning pen turns it as far as the tilt strength says. The pen's turn and the alpha's
 // up are worked out in world space and turned into the object's.
 @(private = "file")
 brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pressure: f32, tilt: [2]f32) -> sculpt.Brush {
 	world_per_px := camera.orbit_world_per_px(app.camera, to_world(t, hit), input.size.y)
-	kind := stroke_brush(app, input)
+	kind := app.stroke.kind
 	// Shift smooths at the Smooth brush's strength, not the strength of the brush held, and
 	// the rail's Mask masks at the Mask brush's.
 	strength := app.brush.strengths[kind]
@@ -473,7 +478,7 @@ brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pres
 		r := transform_rotation(t)
 		turn = linalg.transpose(r) * camera.orbit_tilt(app.camera, tilt, app.brush.tilt_strength) * r
 	}
-	alpha := brush_alpha(app) if held_brush(input) else nil
+	alpha := brush_alpha(app) if app.stroke.held else nil
 	up: Vec3
 	if alpha != nil do up = to_local_dir(t, alpha_world_up(app))
 	facing: Vec3
