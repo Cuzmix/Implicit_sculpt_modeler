@@ -604,3 +604,57 @@ history_brush_paints_back_to_a_step :: proc(t: ^testing.T) {
 	testing.expect(t, !sculpt.sculptor_recall_pinned(object_sculptor(obj)))
 	testing.expect(t, strings.contains(app.result.text, "out of reach now"))
 }
+
+// Choosing a step on the History panel's bar makes the History brush paint back to
+// before it, chosen and marked, counted among its own object's steps only; the mark and
+// the point follow undo. A step that is no sculpting step, of another level, or past the
+// end is not taken.
+@(test)
+history_brush_point_from_the_timeline :: proc(t: ^testing.T) {
+	path := [?][2]f32{{440, 380}, {470, 390}, {500, 400}, {530, 410}}
+	app: App
+	defer stroke_scene_free(&app)
+	obj := stroke_sphere(&app)
+	other := new(Object)
+	other.id, other.transform = 2, {position = {5, 0, 0}, scale = 1}
+	sculpt.levels_init(&other.levels, geom.icosphere(3), nil, 64)
+	append(&app.scene.objects, other)
+	other_stroke :: proc(app: ^App, other: ^Object) {
+		s := object_sculptor(other)
+		sculpt.sculptor_stroke_begin(s)
+		_ = sculpt.apply_dab(s, {kind = .Draw, radius = 0.5, strength = 0.8}, {0, 0, 1})
+		_ = sculpt.sculptor_stroke_end(s)
+		history_record(app, other, .Stroke, "Draw")
+	}
+	app.brush.strengths[.Clay] = 0.5
+	// The bar: 0 Draw, 1 other's, 2 Clay, 3 other's, 4 Draw.
+	for kind, i in ([?]sculpt.Brush_Kind{.Draw, .Clay, .Draw}) {
+		app.brush.kind = kind
+		stroke_along(&app, path[:], len(path))
+		if i < 2 do other_stroke(&app, other)
+	}
+	testing.expect_value(t, len(app.history.done), 5)
+	testing.expect_value(t, recall_marker(&app), 0)
+	testing.expect(t, recall_to_entry(&app, 2))
+	back, _, _ := recall_now(&app)
+	testing.expect_value(t, back, 2)
+	testing.expect(t, sculpt.sculptor_recall_pinned(object_sculptor(obj)))
+	testing.expect_value(t, recall_marker(&app), 2)
+	// Undoing the newest stroke leaves the point where it is, one step nearer.
+	history_undo(&app)
+	back, _, _ = recall_now(&app)
+	testing.expect_value(t, back, 1)
+	testing.expect_value(t, recall_marker(&app), 2)
+	// The other object's step sets the other object's point and leaves this one's mark.
+	testing.expect(t, recall_to_entry(&app, 1))
+	other_back, _ := sculpt.sculptor_recall_back(object_sculptor(other))
+	testing.expect_value(t, other_back, 2)
+	testing.expect_value(t, recall_marker(&app), 2)
+	// A placing of the object is no step of its sculptor; past the end is nothing.
+	before := obj.transform
+	obj.transform.position.x += 1
+	history_record_transform(&app, obj, before, "move")
+	testing.expect(t, !recall_to_entry(&app, 4))
+	testing.expect(t, !recall_to_entry(&app, 5))
+	testing.expect_value(t, recall_marker(&app), 2)
+}

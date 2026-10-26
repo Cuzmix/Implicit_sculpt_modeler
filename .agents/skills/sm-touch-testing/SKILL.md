@@ -187,6 +187,7 @@ event sequence to a scenario before fixing the code.
 |---|---|
 | a scripted `down` is a finger | it is the mouse; fingers are `fdown`/`fmove`/`fup`/`fcancel`, the pen `pnear`/`pdown`/`pmove`/`pup`/`pfar` (with the stand-in finger SDL sends for a pen, which must change nothing) |
 | a scripted pen stroke moved the mesh by its pressure | its pressure is 0 until `ppress:P` (`pen_stroke(s, path, pressure=0.8)`): with Pen > pressure on strength (the default) every brush's strength is then 0, so it moves nothing although the stroke records a step |
+| touch_check.py refuses to load: "defines these twice" | two top-level defs share a name (often a scenario pasted in twice), and the later one would hide the earlier; rename or delete one |
 | SDL's pen and mouse send only their own events | by default SDL also sends them as fingers (`PEN_TOUCHID`, and `MOUSE_TOUCHID` on Android), which joined a real finger as a second one; `platform_hints` turns them off and `touch_event` drops them |
 | an orbit of N points turns N x speed | the move that crosses the 10 point slop is not counted for fingers and the pen: use `past_slop` |
 | a drag across the window starts where it is drawn | it starts on whatever is under its first point: a full turn must begin on empty space, not the model or a panel |
