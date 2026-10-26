@@ -24,6 +24,7 @@ Command_Id :: enum u8 {
 	Save_Scene,
 	Save_Scene_As,
 	Save_Scene_Copy,
+	Scene_Versions,
 	Open_Last_Autosave,
 	Import_Mesh,
 	Export_Mesh,
@@ -167,6 +168,17 @@ COMMANDS := [Command_Id]Command {
 		help = "Saves the scene to another file and keeps saving it where it was: a backup, or a variation to come back to.",
 		icon = ui.ICON_SAVE,
 		run = proc(app: ^App, _: int) {file_dialog(app, .Save_Copy)},
+	},
+	.Scene_Versions = {
+		label = "Earlier saves...",
+		help = "Lists the files earlier saves of this scene replaced, to open one again.",
+		icon = ui.ICON_HISTORY,
+		run = proc(app: ^App, _: int) {
+			versions_refresh(app)
+			k := &app.kit
+			k.menu, k.versions, k.version_armed = false, true, 0
+		},
+		enabled = proc(app: ^App, _: int) -> bool {return app.scene_path != "" && len(app.versions) > 0},
 	},
 	.Open_Last_Autosave = {
 		label = "Open the last autosave",

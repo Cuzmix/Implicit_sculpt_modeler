@@ -88,7 +88,6 @@ versions_found :: proc(path: string, allocator := context.temp_allocator) -> []s
 }
 
 // A version name's stamp and number (none counts as 1); the name must match.
-@(private = "file")
 version_parse :: proc(name, stem: string) -> (stamp: string, n: int) {
 	rest := name[len(stem) + 1:len(name) - len(".sculpt")]
 	n = 1
@@ -144,4 +143,85 @@ versions_prune :: proc(path: string, kept: int) {
 	if kept <= 0 do return
 	found := versions_found(path)
 	for p in found[min(kept, len(found)):] do _ = os.remove(p)
+}
+
+// One earlier save as Menu > Versions lists it (heap strings, versions_refresh).
+Version_Row :: struct {
+	path:  string,
+	stamp: string, // "YYYY-MM-DD HH.MM.SS"
+	bytes: int,
+}
+
+// Reads the earlier saves of the scene's file into app.versions, newest first: after a
+// save, an open, a new scene and when the list opens, never every frame.
+versions_refresh :: proc(app: ^App) {
+	versions_free(app)
+	if app.scene_path == "" do return
+	stem := filepath.stem(app.scene_path)
+	for p in versions_found(app.scene_path) {
+		stamp, _ := version_parse(filepath.base(p), stem)
+		bytes := 0
+		if fi, err := os.stat(p, context.temp_allocator); err == nil do bytes = int(fi.size)
+		append(&app.versions, Version_Row{strings.clone(p), strings.clone(stamp), bytes})
+	}
+}
+
+versions_free :: proc(app: ^App) {
+	for v in app.versions {
+		delete(v.path)
+		delete(v.stamp)
+	}
+	clear(&app.versions)
+}
+
+@(rodata, private = "file")
+MONTHS := [12]string{"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"}
+
+// A stamp as a person says it, against `today` (a stamp of now): "Today 14:02",
+// "Yesterday 18:40", "12 Oct 09:15", with the year when it is not this one, and the
+// seconds when `seconds` (two saves in one minute).
+version_when :: proc(stamp, today, yesterday: string, seconds: bool) -> string {
+	if len(stamp) < STAMP_LEN do return stamp
+	clock := fmt.tprintf("%s:%s", stamp[11:13], stamp[14:16])
+	if seconds do clock = fmt.tprintf("%s:%s", clock, stamp[17:19])
+	switch stamp[:10] {
+	case today[:10]:     return fmt.tprintf("Today %s", clock)
+	case yesterday[:10]: return fmt.tprintf("Yesterday %s", clock)
+	}
+	month := strconv.parse_int(stamp[5:7]) or_else 1
+	day := strconv.parse_int(stamp[8:10]) or_else 1
+	year := "" if stamp[:4] == today[:4] else fmt.tprintf(" %s", stamp[:4])
+	return fmt.tprintf("%d %s%s %s", day, MONTHS[clamp(month, 1, 12) - 1], year, clock)
+}
+
+// Whether the scene has changes its file does not hold (or has no file and work in it).
+scene_unsaved :: proc(app: ^App) -> bool {
+	return scene_fingerprint(app) != app.saved_fp
+}
+
+// Opens the earlier save at `path` as the scene, which still saves to its own file: the
+// next Save makes this one current and keeps the one it replaces, so going back loses
+// nothing. Returns false only on a GPU failure.
+version_open :: proc(app: ^App, path: string) -> bool {
+	if app.scene_path == "" {
+		file_note(app, true, "This scene has no file, so no earlier saves")
+		return true
+	}
+	// scene_open frees the temp memory; the names are kept here.
+	main := strings.clone(app.scene_path)
+	defer delete(main)
+	stem := filepath.stem(main)
+	stamp, _ := version_parse(filepath.base(path), stem)
+	today, yesterday := version_stamp(time.now()), version_stamp(time.time_add(time.now(), -24 * time.Hour))
+	when_saved := strings.clone(version_when(stamp, today, yesterday, false))
+	defer delete(when_saved)
+	opened, ok := scene_open(app, path)
+	if !opened do return ok
+	scene_remember_path(app, main)
+	autosave_scene_saved(app, main)
+	// The scene is not what its file holds now, so autosave writes it and a New scene asks.
+	app.saved_fp = 0
+	app.autosave.clean = 0
+	file_note(app, false, "Opened the save of %s from %s; Save makes it the current one and keeps the other", filepath.base(main), when_saved)
+	return true
 }

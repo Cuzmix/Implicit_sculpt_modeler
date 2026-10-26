@@ -51,6 +51,7 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.Save_Scene       = "file write",
 	.Save_Scene_As    = "file write",
 	.Save_Scene_Copy  = "file write copy duplicate backup variation",
+	.Scene_Versions   = "versions history revert restore backup older previous incremental",
 	.Open_Last_Autosave = "recover restore crash backup autosave lost unsaved quicksave",
 	.Import_Mesh      = "obj ply load append file",
 	.Export_Mesh      = "obj ply file",

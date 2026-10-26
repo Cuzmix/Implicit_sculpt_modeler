@@ -222,6 +222,8 @@ App :: struct {
 	saving:     File_Request, // a big save waiting a few frames for its "Saving..." toast to show (save_pending)
 	saving_at:  f64, // the interface time it started waiting
 	versions_kept: i32, // earlier saves kept beside a scene file (versions.odin), 0 for none
+	versions:   [dynamic]Version_Row, // the scene file's earlier saves, newest first (versions_refresh)
+	saved_fp:   u64, // scene_fingerprint when the scene last matched its file (autosave_scene_saved)
 	result:     Op_Result, // what the last operation did (results.odin)
 	running:  bool,
 }
@@ -289,6 +291,10 @@ run :: proc(opts: Options) -> bool {
 	app.window = window
 	defer delete(app.scene_path)
 	defer file_request_free(app.saving)
+	defer {
+		versions_free(&app)
+		delete(app.versions)
+	}
 	defer file_shutdown(&app)
 	defer results_destroy(&app)
 	if !render.renderer_init(&app.renderer, window, opts.gpu_debug) do return false

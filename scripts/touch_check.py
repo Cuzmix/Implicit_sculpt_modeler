@@ -47,9 +47,19 @@ UI = {
     "dock_smooth": (638, 855), "dock_draw": (574, 855), "browser": (1028, 855),
     "tab_object": (1432, 152), "tab_brush": (1338, 152), "status": (1510, 870),
     "search": (1468, 36), "palette_row1": (1280, 146), "palette_row2": (1280, 192),
-    "menu_settings": (85, 654), "new_sphere": (58, 493), "new_head": (145, 493), "new_hand": (145, 541),
+    "earlier_save2": (100, 160),
     "page_shape": (1326, 252), "page_select": (1397, 252), "page_surface": (1467, 252), "page_build": (1538, 252),
 }
+# Menu rows at 1600x900, from kit_menu's order (new_ui.odin): add a FILE row here, not to
+# every coordinate under it. Rows are 44 points apart; a divider and caption take 69.
+MENU_FILE_ROWS = ["open", "save", "save_as", "save_copy", "earlier_saves", "last_autosave", "import", "export", "screenshot"]
+_file_y = {name: 116 + 44 * i for i, name in enumerate(MENU_FILE_ROWS)}
+_grid_y = _file_y[MENU_FILE_ROWS[-1]] + 69
+UI.update({
+    "menu_earlier_saves": (85, _file_y["earlier_saves"]),
+    "new_sphere": (58, _grid_y), "new_head": (145, _grid_y), "new_hand": (145, _grid_y + 48),
+    "menu_settings": (85, _grid_y + 48 + 69 + 44),
+})
 ORBIT_TURN = 2 * math.pi / 0.008  # points of drag that turn the view once (ORBIT_SPEED)
 
 
@@ -2981,6 +2991,84 @@ def save_over_a_file_keeps_the_earlier_one():
         s.wait(3)
         ctrl_s(s)
     return Steps([first_save(), (s, [f"--open={path}"], {"@two versions": lambda _: len(versions_of(path)) == 2, "@no partial": lambda _: not os.path.exists(path + ".partial")})])
+
+
+def two_earlier_saves(control):
+    """The first save (a plain sphere, exported to `control`), then a run that strokes
+    and saves twice: the file's two earlier saves are that sphere and the first stroke."""
+    path = scene_file()
+    first, args, checks = first_save()
+    s = Script()
+    s.wait(5)
+    for at in ((800, 450), (700, 400)):
+        s.mouse_drag([at, (at[0] + 30, at[1] + 15)])
+        s.wait(3)
+        ctrl_s(s)
+    return [(first, args + [f"--export={control}"], checks), (s, [f"--open={path}"], {"@two versions": lambda _: len(versions_of(path)) == 2})]
+
+
+def open_earlier_saves(s):
+    click(s, UI["menu"])
+    s.wait(4)
+    click(s, UI["menu_earlier_saves"])
+    s.wait(4)
+
+
+@scenario
+def earlier_saves_open_the_oldest():
+    """Menu > Earlier saves lists the file's two earlier saves; a tap on the older one,
+    with nothing unsaved, opens it: the mesh is the first save's, bit for bit."""
+    control, opened = autosave_folder() + "-v0.ply", autosave_folder() + "-v1.ply"
+    s = Script()
+    s.wait(5)
+    open_earlier_saves(s)
+    click(s, UI["earlier_save2"])
+    s.wait(5)
+    same = lambda _: open(control, "rb").read() == open(opened, "rb").read()
+    return Steps(two_earlier_saves(control) + [(s, [f"--open={scene_file()}", f"--export={opened}"], {"@the first save": same})])
+
+
+@scenario
+def earlier_saves_ask_before_discarding():
+    """With a stroke the file does not hold, the first tap on an earlier save only asks
+    (the row turns red), the scene stays; a second tap opens it."""
+    control = autosave_folder() + "-v0.ply"
+    kept, opened = autosave_folder() + "-kept.ply", autosave_folder() + "-opened.ply"
+    def taps(n):
+        s = Script()
+        s.wait(5)
+        s.mouse_drag([(800, 450), (830, 465)])
+        s.wait(3)
+        open_earlier_saves(s)
+        for _ in range(n):
+            click(s, UI["earlier_save2"])
+            s.wait(3)
+        s.wait(5)
+        return s
+    differs = lambda _: open(control, "rb").read() != open(kept, "rb").read()
+    same = lambda _: open(control, "rb").read() == open(opened, "rb").read()
+    return Steps(two_earlier_saves(control) + [
+        (taps(1), [f"--open={scene_file()}", f"--export={kept}"], {"@still the stroke": differs}),
+        (taps(2), [f"--open={scene_file()}", f"--export={opened}"], {"@the first save": same}),
+    ])
+
+
+@scenario
+def menu_scrolls_on_a_short_window():
+    """On a 1280x720 window the menu is taller than the room under its button, so it
+    scrolls instead of running off: the wheel brings Settings into reach, and a tap opens it."""
+    s = Script()
+    s.wait(3)
+    click(s, UI["menu"])
+    s.wait(4)
+    s.add("move:120,400")
+    s.add("wheel:-10")
+    s.wait(1)
+    s.add("wheel:-10")
+    s.wait(20)
+    click(s, (85, 600))
+    s.wait(10)
+    return s, ["--width=1280", "--height=720"], {"settings_open": near(1, 0)}
 
 
 @scenario
