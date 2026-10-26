@@ -52,6 +52,8 @@ Arrange_Change :: enum u8 {
 	Delete_Folder, // deletes folder `id` with every object in it
 	Rename_Object,
 	Rename_Folder,
+	Reorder, // moves the object before `before` (0: to the end), in folder `folder` (0: none)
+	Reorder_Folder, // moves folder `id`'s objects, together, before `before` (0: to the end)
 }
 
 // A ghost is drawn in the idle colour darkened to this share: opaque, so it needs no
@@ -258,6 +260,20 @@ folders_contiguous :: proc(objects: []^Object) -> bool {
 	return true
 }
 
+// Takes `moved` (in list order) out of the list and puts them back together before the
+// object with id `before`, or at the end when it is 0 or one of them.
+objects_move :: proc(app: ^App, moved: []^Object, before: int) {
+	s := &app.scene
+	rest := make([dynamic]^Object, 0, len(s.objects), context.temp_allocator)
+	for o in s.objects do if !slice.contains(moved, o) do append(&rest, o)
+	at := len(rest)
+	for o, i in rest do if o.id == before do at = i
+	clear(&s.objects)
+	append(&s.objects, ..rest[:at])
+	append(&s.objects, ..moved)
+	append(&s.objects, ..rest[at:])
+}
+
 // Selects `obj` wherever it now is in the list, or nothing when it is nil or gone.
 select_object :: proc(app: ^App, obj: ^Object) {
 	app.scene.selected = -1
@@ -441,6 +457,24 @@ scene_arrange :: proc(app: ^App, cmd: Scene_Command) {
 		delete(folder.name)
 		folder.name = strings.clone(rename_text(cmd.name[:]))
 		what = "Rename folder"
+	case .Reorder:
+		if obj == nil || (cmd.folder != 0 && folder_by_id(app, cmd.folder) == nil) do break
+		sel := selected_object(app)
+		// Before itself it keeps its place and may change folder only: a folder's first
+		// object dropped above the folder's row leaves it there.
+		if cmd.before != obj.id do objects_move(app, {obj}, cmd.before)
+		obj.folder = cmd.folder
+		select_object(app, sel)
+		what = "Move object"
+	case .Reorder_Folder:
+		if folder == nil do break
+		if b := object_by_id(app, cmd.before); b != nil && b.folder == folder.id do break
+		sel := selected_object(app)
+		moved := make([dynamic]^Object, 0, 8, context.temp_allocator)
+		for o in s.objects do if o.folder == folder.id do append(&moved, o)
+		objects_move(app, moved[:], cmd.before)
+		select_object(app, sel)
+		what = "Move folder"
 	}
 	scene_folders_normalize(app)
 	if what == "" || !history_record_arrange(app, before, what) {

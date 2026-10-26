@@ -119,6 +119,7 @@ Scene_Command :: struct {
 	id:       int, // View, Arrange: the object (or folder) it changes
 	arrange:  Arrange_Change, // Arrange: what changes about the tree
 	folder:   int, // Arrange: the folder an object goes into
+	before:   int, // Arrange Reorder, Reorder_Folder: the object it goes before, 0 for the end
 	name:     [NAME_BYTES]u8, // Arrange: a new name, ending at the first zero
 }
 

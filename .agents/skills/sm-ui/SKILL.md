@@ -145,7 +145,7 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
 - Widgets (`widgets.odin`): `label`, `paragraph`, `caption`, `icon_button`, `button` (variant, tone, width, glyph,
   enabled, keys: a tooltip hint), `toggle_button`, `tabs` (segmented control; `chosen` -1 shows none; `keys` a hint per option), `switch_row`, `slider` (linear or
   logarithmic), `vslider`, `drag_value` (drag sideways, from the press value), `text_field` (a `[]u8` buffer),
-  `select`, `list_row`, `tree_row` (indent, chevron, trailing `Row_Toggle`s), `menu_item`, `brush_tile`, `section`/`section_end`, `value_row`, `plot`, `area` (a space to draw
+  `select`, `list_row`, `tree_row` (indent, chevron, trailing `Row_Toggle`s, `grip` that drags the row and claims the press, `held_toggle` for a column drag: at once for a mouse, after the tooltip's hold for a finger or pen), `menu_item`, `brush_tile`, `section`/`section_end`, `value_row`, `plot`, `area` (a space to draw
   into that reports the pointer: graphs, bars, thumbnails), `grey_image`, `divider`. Shapes (`ui.odin`): `fill_rect`,
   `stroke_rect`, `fill_circle`, `stroke_circle`, `line`, `polyline`, `fill_convex`, `text`, `icon`.
 - Every pressable widget has default, hover, pressed, selected and disabled looks through `feedback`; selected tabs,

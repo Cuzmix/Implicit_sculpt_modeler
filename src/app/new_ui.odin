@@ -133,6 +133,13 @@ Kit_State :: struct {
 	folder_menu_at: ui.Rect,
 	rename:         Rename_Entry,
 	tree_rows:      int,
+	// A row dragged by its grip and an eye or ghost column being dragged down
+	// (kit_scene.odin), and the inspector's body as last laid out and how far it scrolls,
+	// which a drag near its edge scrolls.
+	tree_drag:      Tree_Drag,
+	tree_column:    Tree_Column,
+	inspector_body: ui.Rect,
+	inspector_limit:  f32,
 	// Which inspector sections are open, and which show their More options; with
 	// all_options (Settings > Interface) every section shows everything.
 	open:       [Kit_Section]bool,
@@ -700,6 +707,7 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 	if !typed do commands_handle_keys(app)
 	layer_drag_end(app)
 	transform_drag_end(app)
+	tree_column_send(app)
 	// Text input (and with it a tablet's on-screen keyboard) is on only while a text
 	// field has the keys.
 	if wanted := ui.typing(ctx); wanted != k.text_input {
@@ -996,6 +1004,7 @@ kit_inspector :: proc(app: ^App) -> (raised: bool) {
 		// The tabs and the tab's content scroll under the title bar, in the room left.
 		body_h := max(room - 2 * PADDING - t.target - GAP, 120)
 		scroll := kit_scroll_begin(ctx, "inspector body", &k.scroll, id, inner, body_h, GAP)
+		k.inspector_body, k.inspector_limit = scroll.at, scroll.limit
 		tab_names := [len(Kit_Tab)]string{kit_tool_name(app.tool), "Object", "Scene"}
 		if picked := ui.tabs(ctx, "inspector tabs", tab_names[:], int(k.tab)); picked >= 0 {
 			if Kit_Tab(picked) != k.tab do k.tab_serial += 1

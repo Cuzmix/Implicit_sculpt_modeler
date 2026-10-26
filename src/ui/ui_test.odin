@@ -1270,3 +1270,91 @@ tree_row_toggles_and_chevron_never_select :: proc(t: ^testing.T) {
 	f, _ = tap(&ctx, {150, 24}, &open)
 	testing.expect(t, f.clicked && !f.folded && !open)
 }
+
+// One frame of a drag-scrolled panel 300 points wide and 120 tall at the top left,
+// holding five rows with grips and an eye toggle each, the first a folder's.
+@(private = "file")
+grip_rows :: proc(ctx: ^Context, input: Input, scroll: ^f32) -> (rows: [5]Tree_Row_Result, dragging: bool) {
+	frame_begin(ctx, input)
+	id := id_of(ctx, "rows")
+	_, natural := prev_layout(ctx, "rows")
+	dragging = scroll_update(ctx, id, {0, 0, 300, 120}, scroll, max(natural.y - 120, 0))
+	begin_anchored(ctx, "rows", .Start, .Start, {0, 0}, {direction = .Column, width = 300, height = 120, clip = true, scroll = scroll^, drag_scroll = true})
+	toggles := []Row_Toggle{{name = "eye", glyph = ICON_EYE}}
+	open := true
+	rows[0] = tree_row(ctx, "folder", open = &open, all_toggles = toggles, grip = true)
+	names := [4]string{"a", "b", "c", "d"}
+	for name, i in names do rows[i + 1] = tree_row(ctx, name, depth = 1, all_toggles = toggles, grip = true)
+	end(ctx)
+	frame_end(ctx)
+	return
+}
+
+@(test)
+tree_row_grip_drags_and_toggles_hold_for_a_column :: proc(t: ^testing.T) {
+	ctx: Context
+	init(&ctx)
+	defer destroy(&ctx)
+	scroll: f32
+	at :: proc(p: [2]f32, down: Buttons = {}, pressed: Buttons = {}, released: Buttons = {}, pointer := Pointer_Kind.Mouse) -> Input {
+		in_ := input_at(p, down, pressed, released)
+		in_.pointer = pointer
+		return in_
+	}
+	grip_rows(&ctx, at({-1, -1}), &scroll)
+	grip_rows(&ctx, at({-1, -1}), &scroll)
+
+	// The first member's grip sits after its indent; a mouse tap on it picks the row.
+	a_grip := [2]f32{TREE_INDENT + 20, 48 + 24}
+	grip_rows(&ctx, at(a_grip), &scroll)
+	rows, _ := grip_rows(&ctx, at(a_grip, {.Left}, {.Left}), &scroll)
+	testing.expect(t, rows[1].grip)
+	rows, _ = grip_rows(&ctx, at(a_grip, released = {.Left}), &scroll)
+	testing.expect(t, rows[1].clicked && !rows[1].grip)
+
+	// A finger on the grip drags the row and never the panel; letting go picks nothing.
+	grip_rows(&ctx, at(a_grip, {.Left}, {.Left}, pointer = .Finger), &scroll)
+	dragging: bool
+	for i in 1 ..= 6 {
+		rows, dragging = grip_rows(&ctx, at(a_grip + {0, f32(i) * 8}, {.Left}, pointer = .Finger), &scroll)
+		testing.expect(t, rows[1].grip && !dragging)
+	}
+	testing.expect_value(t, scroll, 0)
+	rows, _ = grip_rows(&ctx, at(a_grip + {0, 48}, released = {.Left}, pointer = .Finger), &scroll)
+	testing.expect(t, !rows[1].clicked && !rows[1].grip)
+
+	// The folder's grip is after its chevron.
+	folder_grip := [2]f32{48 + 20, 24}
+	grip_rows(&ctx, at(folder_grip, {.Left}, {.Left}), &scroll)
+	rows, _ = grip_rows(&ctx, at(folder_grip, {.Left}), &scroll)
+	testing.expect(t, rows[0].grip && !rows[0].folded)
+	grip_rows(&ctx, at(folder_grip, released = {.Left}), &scroll)
+
+	// A mouse held on an eye may drag down its column at once.
+	eye := [2]f32{300 - 24, 48 + 24}
+	grip_rows(&ctx, at(eye, {.Left}, {.Left}), &scroll)
+	rows, _ = grip_rows(&ctx, at(eye + {0, 30}, {.Left}), &scroll)
+	testing.expect_value(t, rows[1].held_toggle, 0)
+	rows, _ = grip_rows(&ctx, at(eye + {0, 30}, released = {.Left}), &scroll)
+	testing.expect(t, rows[1].toggled == -1 && rows[1].held_toggle == -1)
+
+	// A finger's quick drag from an eye scrolls the panel instead...
+	grip_rows(&ctx, at(eye, {.Left}, {.Left}, pointer = .Finger), &scroll)
+	for i in 1 ..= 4 do rows, dragging = grip_rows(&ctx, at(eye + {0, -f32(i) * 8}, {.Left}, pointer = .Finger), &scroll)
+	testing.expect(t, dragging && rows[1].held_toggle == -1)
+	grip_rows(&ctx, at(eye + {0, -32}, released = {.Left}, pointer = .Finger), &scroll)
+	scroll = 0
+	for _ in 0 ..< 30 do grip_rows(&ctx, at({-1, -1}), &scroll)
+
+	// ...and held still until its tooltip shows, the column is the finger's.
+	grip_rows(&ctx, at(eye, {.Left}, {.Left}, pointer = .Finger), &scroll)
+	for _ in 0 ..< 3 {
+		rows, _ = grip_rows(&ctx, at(eye, {.Left}, pointer = .Finger), &scroll)
+		testing.expect_value(t, rows[1].held_toggle, -1)
+	}
+	for _ in 0 ..< 30 do rows, _ = grip_rows(&ctx, at(eye, {.Left}, pointer = .Finger), &scroll)
+	testing.expect_value(t, rows[1].held_toggle, 0)
+	for i in 1 ..= 4 do rows, dragging = grip_rows(&ctx, at(eye + {0, f32(i) * 8}, {.Left}, pointer = .Finger), &scroll)
+	testing.expect(t, !dragging && rows[1].held_toggle == 0)
+	testing.expect_value(t, scroll, 0)
+}
