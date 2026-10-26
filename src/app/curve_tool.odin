@@ -62,6 +62,7 @@ curve_tool_destroy :: proc(c: ^Curve_Tool) {
 scene_raycast_surface :: proc(app: ^App, origin, dir: Vec3) -> (index: int, hit, normal: Vec3, ok: bool) {
 	best := max(f32)
 	for obj, i in app.scene.objects {
+		if !object_pickable(app, obj) do continue
 		t := obj.transform
 		s := object_sculptor(obj)
 		lo, ld := to_local(t, origin), to_local_dir(t, dir)

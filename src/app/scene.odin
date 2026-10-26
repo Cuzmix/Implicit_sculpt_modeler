@@ -61,6 +61,10 @@ Object :: struct {
 	gpu:       [sculpt.MAX_LEVELS]render.Mesh_Buffers,
 	hd_gpu:    render.Mesh_Buffers, // the HD window's, while one is open
 	boolean:   Boolean_Mode, // how it applies to the base in a boolean (app/boolean.odin)
+	// Its eye is off: out of view and out of reach until shown again (scene_tree.odin).
+	// Not hidden triangles, which are the sculptor's.
+	off:       bool,
+	ghost:     bool, // drawn dimmed as a reference, never picked by a press in the viewport
 }
 
 // The level being sculpted: the HD window while one is open.
@@ -86,13 +90,14 @@ Scene :: struct {
 	objects:  [dynamic]^Object,
 	selected: int, // index into objects, -1 when nothing is selected
 	next_id:  int,
+	solo:     bool, // only the selected object is shown, whichever that is (scene_tree.odin)
 }
 
 // Changes to the object list or the selected object's levels requested by the UI,
 // applied at the start of the next frame so no panel ever draws an object (or GPU
 // buffer) freed during the same frame.
 Scene_Command :: struct {
-	kind:     enum u8 {None, Add, New, Remesh, Decimate, Retopo, Delete, Duplicate, Symmetrize, Slice, Subdivide, Set_Level, Delete_Higher, Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete, Dyntopo, Boolean, Extract},
+	kind:     enum u8 {None, Add, New, Remesh, Decimate, Retopo, Delete, Duplicate, Symmetrize, Slice, Subdivide, Set_Level, Delete_Higher, Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete, Dyntopo, Boolean, Extract, View},
 	vertices: int,
 	shape:    geom.Primitive, // Add, New: what to add
 	on:       bool, // Dyntopo: turn dynamic topology on, or off; Symmetrize: keep the + side
@@ -105,6 +110,8 @@ Scene_Command :: struct {
 	// Runs the command again in place of the last one of its kind, from before it
 	// (adjust_last.odin): Remesh, Decimate, Symmetrize, Retopo and Extract.
 	adjust:   bool,
+	view:     View_Change, // View: what changes about how objects are shown
+	id:       int, // View: the object it changes
 }
 
 scene_destroy :: proc(app: ^App) {
@@ -577,6 +584,8 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 		return boolean_make(app)
 	case .Extract:
 		return extract_masked(app)
+	case .View:
+		scene_view(app, cmd.view, cmd.id)
 	case .Dyntopo:
 		if obj := selected_object(app); obj != nil {
 			object_hd_leave(app, obj)
@@ -759,10 +768,12 @@ next_free_position :: proc(app: ^App) -> Vec3 {
 	return {right + 1.25, 0, 0}
 }
 
-// Nearest object hit by a world-space ray (dir normalised). The hit is in world space.
+// Nearest object a press can pick hit by a world-space ray (dir normalised). The hit is
+// in world space.
 scene_raycast :: proc(app: ^App, origin, dir: Vec3) -> (index: int, hit: Vec3, ok: bool) {
 	best := max(f32)
 	for obj, i in app.scene.objects {
+		if !object_pickable(app, obj) do continue
 		t := obj.transform
 		local_hit, local_ok := sculpt.sculptor_raycast(object_sculptor(obj), to_local(t, origin), to_local_dir(t, dir))
 		if !local_ok do continue

@@ -165,7 +165,7 @@ move_tool_frame :: proc(app: ^App, input: Viewport_Input) {
 			origin, dir := mouse_ray(app.camera, input.mouse_pos, input.size)
 			index, hit, ok := scene_raycast(app, origin, dir)
 			if !ok {
-				app.scene.selected = -1
+				scene_deselect(app)
 				return
 			}
 			app.scene.selected = index
@@ -540,15 +540,17 @@ focus_selected :: proc(app: ^App) {
 	app.pivot.set, app.pivot.pinned = false, false
 }
 
-// Points the camera at the middle of all objects, far enough back to see them all.
+// Points the camera at the middle of the objects in view, far enough back to see them
+// all.
 frame_all :: proc(app: ^App) {
-	if len(app.scene.objects) == 0 do return
 	lo, hi := Vec3(max(f32)), Vec3(min(f32))
 	for obj in app.scene.objects {
+		if !object_shown(app, obj) do continue
 		t := obj.transform
 		lo = linalg.min(lo, t.position - t.scale)
 		hi = linalg.max(hi, t.position + t.scale)
 	}
+	if lo.x > hi.x do return
 	app.camera.target = (lo + hi) / 2
 	app.camera.distance = clamp(1.75 * linalg.length(hi - lo), camera.MIN_DISTANCE, camera.MAX_DISTANCE)
 	app.pivot.set, app.pivot.pinned = false, false

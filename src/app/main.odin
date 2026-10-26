@@ -194,6 +194,9 @@ App :: struct {
 	// Counts the changes to what a scene file stores that the History does not list (a
 	// sculpt layer's name, UVs laid out again), for the autosave's fingerprint.
 	scene_edits: u64,
+	// Changes to which objects are shown (scene_tree.odin): saved, so autosave counts them,
+	// but no edit, so Adjust last operation stays offered across them.
+	view_edits:  u64,
 	adjustable: Adjustable, // the last operation, to run again with other settings (adjust_last.odin)
 	views:      Camera_History, // the views the camera rested on, for Previous and Next view (camera_history.odin)
 	rebuild:    Rebuild_Preview, // the Rebuild panel's density checkerboard (rebuild.odin)
@@ -730,6 +733,9 @@ run :: proc(opts: Options) -> bool {
 			file_request_free(req)
 			if !applied do return false
 		}
+		// Whatever changed the scene last frame (a command, a file, an undo), the
+		// selection stays on an object in view and in reach.
+		scene_selection_fix(&app)
 		if opts.timelapse != "" && frame_index == opts.bench_stroke {
 			if opts.timelapse_steps > 0 do app.timeline.lapse.steps = i32(opts.timelapse_steps)
 			app.timeline.lapse.spin = opts.timelapse_spin
@@ -942,16 +948,21 @@ run :: proc(opts: Options) -> bool {
 					render.mesh_buffers_upload_lod(&app.renderer, cmd, gpu, lv.sculptor.lod.indices[:], lod_ranges, all, len(lv.mesh.indices) / 2)
 					lod_ms = time.duration_milliseconds(time.tick_since(t_lod))
 				}
+				// An object out of view still uploads above, so it is current when shown again.
+				if !object_shown(&app, obj) do continue
 				// The live boolean's preview stands in for it (drawn below).
 				if boolean_hides(&app, obj, i) do continue
-				// The selected object is in the material's colour; the others are muted. Only
-				// the selected one is sculpted or moved, so the rest can come from the cache.
+				// The selected object is in the material's colour; the others are muted, and
+				// ghosts more so. Only the selected one is sculpted or moved, so the rest can
+				// come from the cache.
 				selected := i == app.scene.selected
 				material := current_material(&app)
+				color := material.selected if selected else material.idle
+				if obj.ghost do color.rgb *= GHOST_SHADE
 				append(&draws, render.Draw_Item {
 					mesh   = gpu,
 					model  = transform_matrix(obj.transform),
-					color  = material.selected if selected else material.idle,
+					color  = color,
 					material = material.shading,
 					surface = {material.metallic, material.roughness},
 					flat = app.flat,
@@ -972,12 +983,14 @@ run :: proc(opts: Options) -> bool {
 			for &d in draws do if d.live do d.checker = checker
 		}
 		if b := &app.ui.boolean; b.shown {
-			if base := object_by_id(&app, b.base); base != nil {
+			if base := object_by_id(&app, b.base); base != nil && object_shown(&app, base) {
 				material := current_material(&app)
+				color := material.selected
+				if base.ghost do color.rgb *= GHOST_SHADE
 				append(&draws, render.Draw_Item {
 					mesh     = &b.preview,
 					model    = transform_matrix(base.transform),
-					color    = material.selected,
+					color    = color,
 					material = material.shading,
 					surface  = {material.metallic, material.roughness},
 					flat     = app.flat,
@@ -1138,6 +1151,12 @@ run :: proc(opts: Options) -> bool {
 	vertices: int
 	for obj in app.scene.objects do vertices += object_vertex_count(obj)
 	fmt.printfln("frames=%d dabs=%d objects=%d vertices=%d", frame_index, app.stats.dabs_total, len(app.scene.objects), vertices)
+	{
+		off, ghosts := scene_view_counts(&app)
+		shown := 0
+		for obj in app.scene.objects do shown += int(object_shown(&app, obj))
+		fmt.printfln("objects_shown=%d objects_off=%d objects_ghost=%d solo=%d", shown, off, ghosts, int(app.scene.solo))
+	}
 	{
 		c := app.camera
 		fmt.printfln("camera_yaw=%.4f camera_pitch=%.4f camera_roll=%.4f camera_distance=%.4f camera_target=%.4f,%.4f,%.4f", c.yaw, c.pitch, c.roll, c.distance, c.target.x, c.target.y, c.target.z)

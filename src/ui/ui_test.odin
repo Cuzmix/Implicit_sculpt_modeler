@@ -1221,3 +1221,52 @@ a_long_select_list_fits_the_window_and_scrolls :: proc(t: ^testing.T) {
 	testing.expect_value(t, picked, -1)
 	testing.expect(t, ctx.select_open != 0)
 }
+
+// One frame of a 300 point wide column holding a folder row (with a chevron) and an
+// object row under it, each with an eye and a ghost toggle.
+@(private = "file")
+tree_rows :: proc(ctx: ^Context, input: Input, open: ^bool) -> (folder, leaf: Tree_Row_Result) {
+	frame_begin(ctx, input)
+	begin_anchored(ctx, "tree", .Start, .Start, {0, 0}, {direction = .Column, width = 300})
+	toggles := []Row_Toggle{{name = "ghost", glyph = ICON_GHOST}, {name = "eye", glyph = ICON_EYE}}
+	folder = tree_row(ctx, "folder", "2", open = open, all_toggles = toggles)
+	if open^ do leaf = tree_row(ctx, "leaf", "1k", depth = 1, all_toggles = toggles)
+	end(ctx)
+	frame_end(ctx)
+	return
+}
+
+@(test)
+tree_row_toggles_and_chevron_never_select :: proc(t: ^testing.T) {
+	ctx: Context
+	init(&ctx)
+	defer destroy(&ctx)
+	open := true
+	tap :: proc(ctx: ^Context, at: [2]f32, open: ^bool) -> (folder, leaf: Tree_Row_Result) {
+		tree_rows(ctx, input_at(at), open)
+		tree_rows(ctx, input_at(at, down = {.Left}, pressed = {.Left}), open)
+		return tree_rows(ctx, input_at(at, released = {.Left}), open)
+	}
+	tree_rows(&ctx, input_at({-1, -1}), &open)
+	folder, leaf := tree_rows(&ctx, input_at({-1, -1}), &open)
+	testing.expect_value(t, folder.rect, Rect{0, 0, 300, 48})
+	testing.expect_value(t, leaf.rect, Rect{0, 48, 300, 48})
+
+	// The eye is the last 48 points of the row, the ghost the 48 before it.
+	f, l := tap(&ctx, {300 - 24, 48 + 24}, &open)
+	testing.expect(t, !f.clicked && !l.clicked && l.toggled == 1 && f.toggled == -1)
+	f, l = tap(&ctx, {300 - 72, 48 + 24}, &open)
+	testing.expect(t, !l.clicked && l.toggled == 0)
+
+	// The body selects; the indent does not move the toggles.
+	f, l = tap(&ctx, {150, 48 + 24}, &open)
+	testing.expect(t, l.clicked && l.toggled == -1)
+
+	// The chevron, at the folder row's left, folds it without selecting it, and the
+	// leaf goes with it.
+	f, l = tap(&ctx, {24, 24}, &open)
+	testing.expect(t, f.folded && !f.clicked && !open)
+	testing.expect_value(t, l.rect, Rect{})
+	f, _ = tap(&ctx, {150, 24}, &open)
+	testing.expect(t, f.clicked && !f.folded && !open)
+}

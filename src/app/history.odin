@@ -531,6 +531,9 @@ history_swap :: proc(app: ^App, e: History_Entry) -> bool {
 	history_forget_strokes(app, e.id)
 	scene := &app.scene
 	if obj != nil {
+		// Whether it is in view is not part of the step: the object comes back as it is
+		// shown now, not as it was when the snapshot was taken.
+		if restored != nil do restored.off, restored.ghost = obj.off, obj.ghost
 		index := live.index
 		ordered_remove(&scene.objects, index)
 		object_free(app, obj)
@@ -541,6 +544,7 @@ history_swap :: proc(app: ^App, e: History_Entry) -> bool {
 		inject_at(&scene.objects, index, restored)
 		scene.selected = index
 	}
+	scene_selection_fix(app)
 	app.history.swap_bytes += len(live.bytes) - len(snap.bytes)
 	snap.exists, snap.index = live.exists, live.index
 	snap.bytes, live.bytes = live.bytes, snap.bytes
