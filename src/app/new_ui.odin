@@ -722,6 +722,7 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 	if !typed do commands_handle_keys(app)
 	layer_drag_end(app)
 	deform_drag_end(app)
+	lattice_frame(app)
 	// A reveal lasts its frames whether or not the section was drawn in them (the
 	// inspector minimised, another tab picked), so it never scrolls the panel later.
 	if k.reveal_frames > 0 do k.reveal_frames -= 1

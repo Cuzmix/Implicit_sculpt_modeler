@@ -30,6 +30,7 @@ Deform_Panel :: struct {
 	amount: f32, // the slider, in degrees (Bend, Twist) or percent (Taper); 0 between drags
 	drag:   Deform_Drag,
 	seen:   Deform_Seen,
+	lattice: Lattice_View, // Lattice picked instead of a kind, and its cage (lattice.odin)
 	// A drag ended under a pointer still held (a key's command, a scene change): the
 	// slider is ignored until the pointer lets go, or the next frame would start a new
 	// drag at the same value and deform the result as far again.
@@ -61,6 +62,20 @@ DEFORM_NAMES := [sculpt.Deform_Kind]string {
 	.Bend  = "Bend",
 	.Twist = "Twist",
 	.Taper = "Taper",
+}
+
+// The section's choices, the kinds then Lattice, as its tabs and the palette name them.
+DEFORMERS :: len(sculpt.Deform_Kind) + 1
+
+deformer_name :: proc(choice: int) -> string {
+	return DEFORM_NAMES[sculpt.Deform_Kind(choice)] if choice < len(sculpt.Deform_Kind) else "Lattice"
+}
+
+// Picks a kind or, past the kinds, Lattice.
+deformer_pick :: proc(app: ^App, choice: int) {
+	p := &app.ui.deform
+	p.lattice.on = choice >= len(sculpt.Deform_Kind)
+	if !p.lattice.on do p.kind = sculpt.Deform_Kind(choice)
 }
 
 @(rodata)
@@ -272,9 +287,15 @@ kit_deformers :: proc(app: ^App, obj: ^Object) {
 	ctx := &app.kit.ctx
 	t := ctx.theme
 	p := &app.ui.deform
-	kinds: [len(sculpt.Deform_Kind)]string
-	for name, kind in DEFORM_NAMES do kinds[int(kind)] = name
-	if picked := ui.tabs(ctx, "deformer", kinds[:], int(p.kind)); picked >= 0 && !p.drag.active do p.kind = sculpt.Deform_Kind(picked)
+	kinds: [DEFORMERS]string
+	for &name, i in kinds do name = deformer_name(i)
+	chosen := len(sculpt.Deform_Kind) if p.lattice.on else int(p.kind)
+	if picked := ui.tabs(ctx, "deformer", kinds[:], chosen); picked >= 0 && !p.drag.active && app.move.drag.lattice == 0 do deformer_pick(app, picked)
+	if p.lattice.on {
+		kit_lattice(app)
+		kit_last_result(app, .Deformers)
+		return
+	}
 	ui.label(ctx, "About the axis" if p.kind == .Twist else "Along the axis", t.small_size)
 	axes := [3]string{"X##along", "Y##along", "Z##along"}
 	if picked := ui.tabs(ctx, "deform along", axes[:], int(p.along)); picked >= 0 && !p.drag.active do p.along = sculpt.Axis(picked)

@@ -20,6 +20,7 @@ Pose_Kind :: enum {
 	Turn,
 	Scale,
 	Deform, // a bend, twist or taper (deform.odin)
+	Lattice, // a lattice point's move (lattice.odin), once sculptor_lattice_rest noted the places
 }
 
 // A pose in the mesh's own space.
@@ -31,6 +32,7 @@ Pose :: struct {
 	delta:  Vec3, // Move: the offset
 	factor: f32,  // Scale: the factor for a free vertex
 	deform: Deform, // Deform: which, along what and how much
+	lattice: Lattice_Move, // Lattice: the point and its move
 }
 
 @(private)
@@ -103,8 +105,9 @@ sculptor_pose_apply :: proc(s: ^Sculptor, p: Pose) {
 		turn:     matrix[3, 3]f32, // the whole turn, for fully free vertices
 		axis:     Vec3,
 		deform:   Deform_Plan,
+		lattice:  Lattice_Move,
 	}
-	job := Apply{s = s, p = p, axis = linalg.normalize0(p.axis), deform = deform_plan(p.deform)}
+	job := Apply{s = s, p = p, axis = linalg.normalize0(p.axis), deform = deform_plan(p.deform), lattice = p.lattice}
 	job.turn = linalg.matrix3_rotate_f32(p.angle, job.axis) if job.axis != {} else 1
 	jobs.parallel_for(s.pool, len(s.pose.nodes), &job, proc(data: rawptr, i: int) {
 		job := cast(^Apply)data
@@ -135,6 +138,9 @@ sculptor_pose_apply :: proc(s: ^Sculptor, p: Pose) {
 				}
 			case .Deform:
 				positions[k] = deform_at(&job.deform, a, w)
+			case .Lattice:
+				place := s.lattice.place
+				positions[k] = a if place == nil else a + (w * lattice_weight(&job.lattice, place[n.vert_first + u32(k)])) * job.lattice.offset
 			}
 		}
 	})

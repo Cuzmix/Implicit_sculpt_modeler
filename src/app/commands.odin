@@ -692,8 +692,8 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Deformer = {
 		label = "Deformer",
-		help = "Opens the Object tab's Deformers section on this deformer: drag Amount to bend, twist or taper the part the mask leaves free.",
-		args = len(sculpt.Deform_Kind),
+		help = "Opens the Object tab's Deformers section on this deformer: drag Amount to bend, twist or taper the part the mask leaves free, or a lattice point with the Move tool.",
+		args = DEFORMERS,
 		run = proc(app: ^App, arg: int) {
 			k := &app.kit
 			side_panel_close(app)
@@ -701,9 +701,10 @@ COMMANDS := [Command_Id]Command {
 			k.inspector, k.tab, k.object_page = true, .Object, .Surface
 			k.open[.Deformers] = true
 			k.reveal, k.reveal_frames = .Deformers, 20
-			app.ui.deform.kind = sculpt.Deform_Kind(arg)
+			deformer_pick(app, arg)
 		},
-		enabled = proc(app: ^App, _: int) -> bool {return selected_object(app) != nil && !app.ui.deform.drag.active},
+		// Not while an Amount or a lattice point is dragged: either would lose its places.
+		enabled = proc(app: ^App, _: int) -> bool {return selected_object(app) != nil && !app.ui.deform.drag.active && app.move.drag.lattice == 0},
 	},
 	.Remesh_To = {
 		label = "Remesh to",
@@ -1106,7 +1107,7 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 	case .Deformer:
 		// The bare name: a longer label matched typed words fuzzily that it has nothing to
 		// do with ("wire" in "Twist (deformer)"); the help line says it is a deformer.
-		return DEFORM_NAMES[sculpt.Deform_Kind(arg)]
+		return deformer_name(arg)
 	case .Remesh_To, .Decimate_To:
 		return fmt.tprintf("%s to %s vertices", "Remesh" if id == .Remesh_To else "Decimate", SPHERE_PRESETS[arg].label)
 	case .Help:
