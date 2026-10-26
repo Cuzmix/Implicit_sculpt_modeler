@@ -1084,8 +1084,9 @@ run :: proc(opts: Options) -> bool {
 		fmt.printfln("cursor_hit=%d cursor_normal=%.4f,%.4f,%.4f", int(app.cursor.ok), n.x, n.y, n.z)
 		k := &app.kit
 		fmt.printfln("palette=%d palette_runs=%d palette_last=%s settings_tab=%v tool=%s", int(k.palette), k.palette_runs, palette_entry_name(k.palette_last) if k.palette_ran else "none", k.settings_tab, strings.to_lower(fmt.tprint(app.tool), context.temp_allocator))
-		open := [Kit_Window]bool{.Inspector = k.inspector && !k.settings, .Stats = k.stats, .History = k.history, .Settings = k.settings}
-		names := [Kit_Window]string{.Inspector = "inspector", .Stats = "stats", .History = "history panel", .Settings = "settings"}
+		fmt.printfln("help_open=%d help_tab=%v help_scroll=%.1f", int(k.help), k.help_tab, k.help_scroll)
+		open := [Kit_Window]bool{.Inspector = k.inspector && !side_panel_open(k), .Stats = k.stats, .History = k.history, .Settings = k.settings, .Help = k.help}
+		names := [Kit_Window]string{.Inspector = "inspector", .Stats = "stats", .History = "history panel", .Settings = "settings", .Help = "help"}
 		for w, which in k.windows {
 			r := ui.prev_rect(&k.ctx, names[which])
 			fmt.printf("window_%s=%d,%d,%.0f,%.0f ", strings.to_lower(fmt.tprint(which), context.temp_allocator), int(open[which]), int(w.minimized), r.x, r.y)

@@ -1800,6 +1800,86 @@ def palette_finger_taps_search_and_a_row():
 
 
 @scenario
+def help_f1_opens_keys_in_the_inspectors_place():
+    """F1 opens Help on its Keys tab, at the right, where the inspector hides while it is open."""
+    s = Script()
+    s.press("F1")
+    s.wait(8)
+    # A hidden inspector is never laid out, so its place reads 0,0.
+    return s, [], camera_still({"help_open": near(1), "help_tab": is_text("Keys"), "dabs": near(0),
+                                "window_help": lambda v: v.startswith("1,0,") and not v.endswith(",0,0"),
+                                "window_inspector": lambda v: v == "0,0,0,0"})
+
+
+@scenario
+def help_escape_closes_it_and_brings_the_inspector_back():
+    """Escape closes Help (opened from the palette on its Glossary tab, which it keeps), and the inspector comes back."""
+    s = Script()
+    s.press("k", ("ctrl",))
+    s.type("glossary")
+    s.press("Return")
+    s.wait(8)
+    s.press("Escape")
+    s.wait(8)
+    return s, [], {"help_open": near(0), "help_tab": is_text("Glossary"), "settings_open": near(0),
+                   "window_inspector": lambda v: v.startswith("1,0,") and not v.endswith(",0,0")}
+
+
+@scenario
+def help_palette_glossary_opens_its_tab():
+    """"glossary" and Enter in the palette open Help on its Glossary tab."""
+    s = Script()
+    s.press("k", ("ctrl",))
+    s.type("glossary")
+    s.press("Return")
+    s.wait(8)
+    return s, [], {"palette": near(0), "help_open": near(1), "help_tab": is_text("Glossary"),
+                   "palette_last": is_text("Help:Glossary")}
+
+
+@scenario
+def help_finger_scrolls_its_body():
+    """A finger dragged up Help's list scrolls it; the view and the model stay as they were."""
+    s = Script()
+    s.press("F1")
+    s.wait(8)
+    s.fdrag(line((1388, 700), (1392, 300), 20))
+    s.wait(16)
+    return s, [], camera_still({"help_open": near(1), "help_scroll": lambda v: float(v) > 100, "dabs": near(0)})
+
+
+@scenario
+def help_gives_its_place_to_settings():
+    """Settings opened from the palette while Help (on its Glossary tab) is open takes its place: Help closes."""
+    s = Script()
+    s.press("k", ("ctrl",))
+    s.type("glossary")
+    s.press("Return")
+    s.wait(8)
+    s.press("k", ("ctrl",))
+    s.type("touch")
+    s.press("Return")
+    s.wait(8)
+    return s, [], {"help_open": near(0), "help_tab": is_text("Glossary"), "settings_open": near(1),
+                   "settings_tab": is_text("Touch"), "window_help": lambda v: v == "0,0,0,0",
+                   "window_inspector": lambda v: v == "0,0,0,0"}
+
+
+@scenario
+def settings_gives_its_place_to_help():
+    """F1 while Settings is open opens Help in its place: Settings closes."""
+    s = Script()
+    s.press("k", ("ctrl",))
+    s.type("touch")
+    s.press("Return")
+    s.wait(8)
+    s.press("F1")
+    s.wait(8)
+    return s, [], {"help_open": near(1), "settings_open": near(0), "settings_tab": is_text("Touch"),
+                   "window_settings": lambda v: v == "0,0,0,0"}
+
+
+@scenario
 def palette_disabled_row_does_nothing():
     """With no object left, Enter on Duplicate object runs nothing and keeps the palette open, typing."""
     s = Script()

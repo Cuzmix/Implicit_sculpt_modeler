@@ -172,7 +172,7 @@ controls_that_run_commands_show_their_hints :: proc(t: ^testing.T) {
 @(test)
 hints_join_keys_and_gestures :: proc(t: ^testing.T) {
 	app: App
-	app.nav, app.tool = NAV_DEFAULT, .Brush
+	app.nav, app.tool, app.kit.rail_side = NAV_DEFAULT, .Brush, .Left
 	testing.expect_value(t, command_hint(&app, .Undo), "Ctrl+Z · Two-finger tap, hold to repeat")
 	testing.expect_value(t, command_hint(&app, .Wireframe), "Shift+F")
 	testing.expect_value(t, command_hint(&app, .Mask, int(sculpt.Mask_Command.Blur)), "With Mask on, tap the mask")

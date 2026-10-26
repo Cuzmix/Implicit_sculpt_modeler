@@ -87,6 +87,7 @@ Command_Id :: enum u8 {
 	Settings,
 	Reduce_Motion,
 	Command_Palette,
+	Help, // the argument is the Help_Tab
 }
 
 Command :: struct {
@@ -561,17 +562,25 @@ COMMANDS := [Command_Id]Command {
 		label = "Inspector",
 		help = "Shows or hides the panel with the tool's, the object's and the scene's settings.",
 		icon = ui.ICON_PANEL,
-		run = proc(app: ^App, _: int) {app.kit.inspector = !app.kit.inspector},
+		// While Settings or Help has its place, it comes back in their place rather than
+		// changing unseen.
+		run = proc(app: ^App, _: int) {
+			k := &app.kit
+			if side_panel_open(k) {
+				side_panel_close(app)
+				k.inspector = true
+			} else do k.inspector = !k.inspector
+		},
 		checked = proc(app: ^App, _: int) -> bool {return app.kit.inspector},
 	},
 	.Settings = {
 		label = "Settings...",
 		help = "Opens the app's settings.",
 		icon = ui.ICON_SETTINGS,
-		// Unfolded and in front, wherever it was left.
+		// Unfolded and in front, wherever it was left, in Help's place (they share it).
 		run = proc(app: ^App, _: int) {
 			k := &app.kit
-			k.settings = true
+			k.settings, k.help = true, false
 			k.windows[.Settings].minimized = false
 			window_raise(k, .Settings)
 		},
@@ -587,6 +596,13 @@ COMMANDS := [Command_Id]Command {
 		help = "Finds any command or setting by typing part of its name.",
 		icon = ui.ICON_SEARCH,
 		run = proc(app: ^App, _: int) {palette_open(app)},
+	},
+	.Help = {
+		label = "Help",
+		help = "Lists every shortcut, the mouse and touch controls, and what the app's words mean.",
+		icon = ui.ICON_HELP,
+		args = len(Help_Tab),
+		run = proc(app: ^App, arg: int) {help_open(app, Help_Tab(arg))},
 	},
 }
 
@@ -651,6 +667,7 @@ DEFAULT_BINDINGS := [?]Binding {
 	{{sdl.K_D, {.Shift}, false}, .Level_Down, 0},
 	{{sdl.K_D, {}, false}, .Level_Up, 0},
 	{{sdl.K_F11, {}, false}, .Stats, 0},
+	{{sdl.K_F1, {}, false}, .Help, 0},
 	{{sdl.K_TAB, {}, false}, .Inspector, 0},
 	{{sdl.K_K, {.Ctrl}, false}, .Command_Palette, 0},
 	{{sdl.K_SLASH, {}, false}, .Command_Palette, 0},
@@ -690,6 +707,8 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 		return GROUP_COMMAND_NAMES[sculpt.Group_Command(arg)]
 	case .Remesh_To, .Decimate_To:
 		return fmt.tprintf("%s to %s vertices", "Remesh" if id == .Remesh_To else "Decimate", SPHERE_PRESETS[arg].label)
+	case .Help:
+		return fmt.tprintf("Help: %s", HELP_TAB_NAMES[Help_Tab(arg)])
 	}
 	return COMMANDS[id].label
 }
@@ -698,6 +717,18 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 command_keys :: proc(id: Command_Id, arg := 0) -> string {
 	for b in DEFAULT_BINDINGS do if b.command == id && b.arg == arg do return chord_text(b.chord)
 	return ""
+}
+
+// Every key chord bound to the command, in binding order ("Ctrl+Shift+Z, Ctrl+Y"), as
+// Help lists them, or "".
+command_chords :: proc(id: Command_Id, arg := 0) -> string {
+	b := strings.builder_make(context.temp_allocator)
+	for k in DEFAULT_BINDINGS {
+		if k.command != id || k.arg != arg do continue
+		if strings.builder_len(b) > 0 do strings.write_string(&b, ", ")
+		strings.write_string(&b, chord_text(k.chord))
+	}
+	return strings.to_string(b)
 }
 
 // The touch gesture that runs the command as the Settings and the tool now have them, or
@@ -725,8 +756,9 @@ command_gesture :: proc(app: ^App, id: Command_Id, arg := 0) -> string {
 	case .Strength_Up, .Strength_Down:
 		if n.three_finger do return "Three fingers sideways"
 	case .Mask:
-		// The mask taps are the Sculpt tool's (mask_tap_act).
-		if app.tool != .Brush do return ""
+		// The mask taps are the Sculpt tool's (mask_tap_act), and only the modifier
+		// buttons' Mask turns them on: with the buttons off there is no way to do them.
+		if app.tool != .Brush || app.kit.rail_side == .Off do return ""
 		#partial switch sculpt.Mask_Command(arg) {
 		case .Invert:  return "With Mask on, tap off the model"
 		case .Blur:    return "With Mask on, tap the mask"

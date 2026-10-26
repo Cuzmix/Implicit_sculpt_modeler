@@ -68,18 +68,18 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.Strength_Down    = "intensity weaker",
 	.Strength_Up      = "intensity stronger",
 	.Replay_Stroke    = "record repeat stamp",
-	.Remesh           = "dynamesh voxel",
+	.Remesh           = "dynamesh voxel voxelize",
 	.Dyntopo_Toggle   = "dynamic topology sculptris tessellation",
-	.Subdivide        = "divide smooth level",
-	.Level_Up         = "subdivision higher",
-	.Level_Down       = "subdivision lower",
+	.Subdivide        = "divide smooth level multires",
+	.Level_Up         = "subdivision higher multires",
+	.Level_Down       = "subdivision lower multires",
 	.Hd_Toggle        = "hd geometry",
-	.Group_Shortcut   = "polygroup",
+	.Group_Shortcut   = "polygroup face set",
 	.Mask             = "freeze",
 	.Show_All         = "unhide visibility",
 	.Invert_Hidden    = "visibility",
 	.Paint            = "polypaint colour color",
-	.Group            = "polygroup",
+	.Group            = "polygroup face set",
 	.Delete_Lower_Levels  = "subdivision",
 	.Delete_Higher_Levels = "subdivision",
 	.Hd_Divide        = "hd geometry",
@@ -89,10 +89,10 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.Morph_Store      = "morph target",
 	.Morph_Delete     = "morph target",
 	.Smooth_All       = "relax",
-	.Remesh_To        = "dynamesh voxel resolution",
+	.Remesh_To        = "dynamesh voxel voxelize resolution",
 	.Decimate_To      = "decimation master reduce simplify",
 	.Mirror_Weld      = "symmetrize mirror",
-	.Retopologize     = "zremesher quads retopo quad",
+	.Retopologize     = "zremesher quadriflow quads retopo quad",
 	.Make_Boolean     = "live boolean subtract union intersect",
 	.Extract_Masked   = "extract shell",
 	.Add_Object       = "subtool primitive append sphere cube",
@@ -109,6 +109,15 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.Inspector        = "panel properties",
 	.Settings         = "preferences options",
 	.Reduce_Motion    = "animation accessibility",
+}
+
+// The words each Help tab is found by, besides its name: a command's words are the same
+// for every argument, but each tab is looked for by its own.
+@(rodata)
+HELP_SEARCH_WORDS := [Help_Tab]string {
+	.Keys     = "shortcuts cheat sheet keyboard mouse controls",
+	.Gestures = "fingers pen tablet controls",
+	.Glossary = "terms words names meaning",
 }
 
 // The words each Settings tab is found by, besides its name.
@@ -159,6 +168,7 @@ palette_label :: proc(e: Palette_Entry) -> string {
 
 palette_words_of :: proc(e: Palette_Entry) -> string {
 	if e.kind == .Settings_Tab do return SETTINGS_SEARCH_WORDS[Settings_Tab(e.arg)]
+	if e.id == .Help do return HELP_SEARCH_WORDS[Help_Tab(e.arg)]
 	return SEARCH_WORDS[e.id]
 }
 
@@ -328,6 +338,7 @@ palette_arg_name :: proc(id: Command_Id, arg: int) -> string {
 	case .Paint:     return fmt.tprint(sculpt.Paint_Command(arg))
 	case .Group:     return fmt.tprint(sculpt.Group_Command(arg))
 	case .Remesh_To, .Decimate_To: return fmt.tprint(SPHERE_PRESETS[arg].vertices)
+	case .Help:      return fmt.tprint(Help_Tab(arg))
 	}
 	return fmt.tprint(arg)
 }
@@ -382,9 +393,7 @@ palette_run :: proc(app: ^App, e: Palette_Entry) {
 	case .Command:
 		ran = command_run(app, e.id, e.arg)
 	case .Settings_Tab:
-		// Settings opens as Menu > Settings opens it, on that tab from its top.
-		ran = command_run(app, .Settings)
-		k.settings_tab, k.settings_scroll = Settings_Tab(e.arg), 0
+		ran = settings_open(app, Settings_Tab(e.arg))
 	}
 	if !ran do return
 	k.palette_runs += 1
