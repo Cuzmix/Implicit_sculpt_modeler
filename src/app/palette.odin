@@ -105,6 +105,7 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.Retopologize     = "zremesher quadriflow quads retopo quad",
 	.Make_Boolean     = "live boolean subtract union intersect",
 	.Extract_Masked   = "extract shell",
+	.Adjust_Last      = "redo last tweak change settings again",
 	.Add_Object       = "subtool primitive append sphere cube",
 	.Frame_All        = "fit zoom extents home",
 	.View_Axis        = "camera",
@@ -366,8 +367,7 @@ palette_open :: proc(app: ^App) {
 	k := &app.kit
 	k.palette, k.palette_pick, k.palette_first = true, 0, 0
 	k.palette_query = {}
-	k.menu, k.view_menu, k.browser, k.dock_menu, k.object_menu, k.action_pop, k.pie_editor = false, false, false, false, false, false, false
-	k.ctx.select_open = 0
+	kit_floats_close(k)
 }
 
 // Closes it and gives the keys back.

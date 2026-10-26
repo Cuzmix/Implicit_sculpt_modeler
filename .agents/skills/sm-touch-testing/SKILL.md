@@ -104,6 +104,7 @@ are on the device checklist.
   `stroke_kind`, `stroke_invert`, `rail_latched`, `masked`, `hidden_triangles`, `long_tip` (the last long-press
   tooltip, spaces as underscores, or none), `long_tip_keys` (its shortcut and gesture, the same way), `object_menu`, `pinned`, `framed` (double taps on empty space), `mask_mean` (the selected object's mask, 0 to 1),
   `last_op` (the last operation's result up to " in " or a comma, underscores for spaces), `toast_undo` (it offered Undo),
+  `adjust_op` (what the action bar can adjust now, `none`, `remesh`, `smooth_all`, ...), `adjusts` (re-runs), `adjust_pop`,
   `touch_repeats` (undo and redo steps taken by holding fingers), `inspector_tab`, `brush_kind`, `tool`, `palette` (open),
   `palette_runs`, `palette_last` (the last row it ran, by its saved name: `Wireframe`, `Brush:Clay`), `settings_tab`, `layout_<name>` (x,y,w,h of the
   modifier rail, sliders, dock, status and inspector), ...); `camera_still()` checks nothing moved; keys starting with `@` are checks given every stat at once or checks on
@@ -112,6 +113,11 @@ are on the device checklist.
   is a new key in the exit stats (`main.odin`), not a guess from a screenshot.
 - Find positions by looking: `--dump-screen=build/x.png` (or `--screens`) with the events that open the panel, then
   read the PNG. Positions are window points at 1600 x 900 unless the scenario sets `--width`/`--height`.
+- `palette_run(s, "words")` runs the palette's first match (Ctrl+K, type, Enter): the steady way to start a command
+  whose button moves with the layout. `same_file(a, b)` compares two exports; an operation checked against a straight
+  run of the same thing (`--remesh=N`, `--smooth-all=N`, `--retopo=N`) shows it bit for bit.
+- A popover whose height follows its text keeps its controls at its foot, by the anchor, so their positions hold
+  whatever the lines above say (the adjust popover: `ADJUST_SIZES`, `ADJUST_AXES`).
 - The menu's rows are computed from `MENU_FILE_ROWS` (touch_check.py, kit_menu's order): a new File row goes in that
   list, never as hand-shifted coordinates. A scenario with several app runs (a save, then an open) returns
   `Steps([...])`; files a scenario makes go under `autosave_folder()`, its own per-scenario path.

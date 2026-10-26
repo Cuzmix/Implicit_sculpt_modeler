@@ -44,8 +44,7 @@ bind_click :: proc(app: ^App) -> bool {
 bind_open :: proc(app: ^App, id: Command_Id, arg: int, at: ui.Rect) {
 	k := &app.kit
 	if k.palette do palette_close(app)
-	k.menu, k.view_menu, k.browser, k.dock_menu, k.object_menu, k.action_pop, k.pie_editor, k.versions = false, false, false, false, false, false, false, false
-	k.ctx.select_open = 0
+	kit_floats_close(k)
 	k.bind = {open = true, id = id, arg = arg, at = at}
 }
 

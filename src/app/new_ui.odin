@@ -89,6 +89,11 @@ Kit_State :: struct {
 	action_pop: bool, // a folded action group's popover is open...
 	action_group: Action_Group, // ...for this group...
 	action_anchor: ui.Rect, // ...over its button
+	// The adjust popover (adjust_last.odin): open, over the action bar this frame (none while
+	// the bar is hidden), and a slider moved that runs the operation once let go.
+	adjust_pop:    bool,
+	adjust_anchor: ui.Rect,
+	adjust_dirty:  bool,
 	help_tab:   Help_Tab,
 	help_scroll: f32,
 	ui_scale:   f32, // the interface's size, times what the display asks for (Settings > Interface)
@@ -528,12 +533,21 @@ kit_init :: proc(app: ^App) {
 	k.last_frame = time.tick_now()
 }
 
+// Closes every menu, popover and open list that floats over the panels (not the palette,
+// which gives the keys back as it closes: palette_close). The one list, so that a new
+// popover added here closes whenever another opens and on Escape.
+kit_floats_close :: proc(k: ^Kit_State) {
+	k.menu, k.versions, k.view_menu, k.browser, k.dock_menu, k.object_menu, k.action_pop = false, false, false, false, false, false, false
+	k.bind.open, k.pie_editor, k.adjust_pop = false, false, false
+	k.ctx.select_open = 0
+}
+
 // Whether something floats over the interface: a menu, the palette, the pie, the S/U
 // adjust, a popover or an open list. Escape closes it before Settings or Help, and the
 // first-run tip hides under it.
 kit_floating :: proc(app: ^App) -> bool {
 	k := &app.kit
-	return app.ui.pie.open || app.ui.adjust.kind != .None || k.action_pop || k.menu || k.versions || k.view_menu || k.browser || k.dock_menu || k.bind.open || k.pie_editor || k.object_menu || k.palette || k.ctx.select_open != 0
+	return app.ui.pie.open || app.ui.adjust.kind != .None || k.action_pop || k.adjust_pop || k.menu || k.versions || k.view_menu || k.browser || k.dock_menu || k.bind.open || k.pie_editor || k.object_menu || k.palette || k.ctx.select_open != 0
 }
 
 kit_destroy :: proc(app: ^App) {
@@ -630,6 +644,8 @@ kit_results :: proc(app: ^App) {
 	if k.busy_toast != 0 do ui.toast_dismiss(ctx, k.busy_toast)
 	k.busy_toast = 0
 	if .Quiet in r.flags do return
+	// The adjust popover shows its operation's results itself, where the toast would cover it.
+	if section, ok := r.section.?; ok && k.adjust_pop && section == ADJUST_SECTIONS[app.adjustable.op] do return
 	kind := ui.Toast_Kind.Warning if .Warning in r.flags else .Info if .Busy in r.flags else .Success
 	mark, undoable := r.undo.?
 	if !undoable {
@@ -691,9 +707,7 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 		if k.recover_shown && !floating && !kit_floating(app) && !side_panel_open(k) && !typed do app.autosave.offer_hidden = true
 		if side_panel_open(k) && !floating && !kit_floating(app) && !typed do side_panel_close(app)
 		if k.palette do palette_close(app)
-		k.menu, k.view_menu, k.browser, k.dock_menu, k.object_menu, k.action_pop = false, false, false, false, false, false
-		k.bind.open, k.pie_editor, k.versions = false, false, false
-		ctx.select_open = 0
+		kit_floats_close(k)
 	}
 	k.ms = time.duration_milliseconds(time.tick_since(start))
 	return input
@@ -910,6 +924,7 @@ kit_layout :: proc(app: ^App) {
 	kit_object_menu(app)
 	kit_palette(app, palette_anchor)
 	kit_action_popover(app)
+	kit_adjust_popover(app)
 	kit_bind_popover(app)
 	kit_pie_editor(app)
 }

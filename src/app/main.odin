@@ -191,6 +191,7 @@ App :: struct {
 	// Counts the changes to what a scene file stores that the History does not list (a
 	// sculpt layer's name, UVs laid out again), for the autosave's fingerprint.
 	scene_edits: u64,
+	adjustable: Adjustable, // the last operation, to run again with other settings (adjust_last.odin)
 	autosave: Autosave, // the background autosave and crash recovery (autosave.odin)
 	timeline: Timeline, // the History panel's scrubbing, playback and time-lapse (timeline.odin)
 	replay:   Replay, // the Stroke recorder's last stroke, recording and replay (replay.odin)
@@ -1192,6 +1193,10 @@ run :: proc(opts: Options) -> bool {
 			}
 		}
 		fmt.printfln("action_bar=%s action_pop=%d mask_scans=%d", bar_groups, int(k.action_pop), app.mask_seen.scans)
+		// The operation the bar can adjust now, how many re-runs there were, and whether
+		// its popover is open.
+		adjust_name, _ := strings.replace_all(strings.to_lower(ADJUST_NAMES[adjust_op_now(&app)], context.temp_allocator), " ", "_", context.temp_allocator)
+		fmt.printfln("adjust_op=%s adjusts=%d adjust_pop=%d", adjust_name if adjust_name != "" else "none", app.adjustable.adjusts, int(k.adjust_pop))
 		open := [Kit_Window]bool{.Inspector = k.inspector && !side_panel_open(k), .Stats = k.stats, .History = k.history, .Settings = k.settings, .Help = k.help}
 		names := [Kit_Window]string{.Inspector = "inspector", .Stats = "stats", .History = "history panel", .Settings = "settings", .Help = "help"}
 		for w, which in k.windows {
@@ -1201,7 +1206,7 @@ run :: proc(opts: Options) -> bool {
 		fmt.println()
 		// Where the modifier rail and what must stay clear of it ended up, in points, for
 		// touch_check's window size scenarios.
-		for name in ([?]string{"modifier rail", "sliders", "dock", "status", "inspector", "action bar", "coach", "tools", "top left", "top right"}) {
+		for name in ([?]string{"modifier rail", "sliders", "dock", "status", "inspector", "action bar", "coach", "tools", "top left", "top right", "adjust last"}) {
 			r := ui.prev_rect(&k.ctx, name)
 			key, _ := strings.replace_all(name, " ", "_", context.temp_allocator)
 			fmt.printf("layout_%s=%.0f,%.0f,%.0f,%.0f ", key, r.x, r.y, r.w, r.h)

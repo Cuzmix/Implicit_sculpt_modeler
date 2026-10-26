@@ -127,14 +127,20 @@ scene_run :: proc(app: ^App, cmd: Scene_Command) -> bool {
 	// A stroke still going ends first, as its own step, so it is not taken for the
 	// command's.
 	stroke_finish(app)
+	op := adjust_op_of(cmd.kind)
+	if cmd.adjust && !adjust_begin(app, op) do return true
 	named := selected_object(app)
 	if cmd.kind == .Boolean do named = boolean_base(app)
+	source := named.id if named != nil else 0
 	// A copy of its own: the object may be gone after, and the command may free temp memory.
 	label := strings.clone(object_label(named) if named != nil else "")
 	defer delete(label)
 	start := time.tick_now()
 	ok := scene_apply(app, cmd)
-	if !swap_since(app.history.done[:], start) do return ok
+	if !swap_since(app.history.done[:], start) {
+		if cmd.adjust && ok do adjust_unchanged(app)
+		return ok
+	}
 	ms := time.duration_milliseconds(time.tick_since(start))
 	if app.result.at == {} || time.tick_diff(start, app.result.at) < 0 {
 		// It said nothing itself.
@@ -147,6 +153,7 @@ scene_run :: proc(app: ^App, cmd: Scene_Command) -> bool {
 	}
 	app.result.flags += {.Undo}
 	app.result.undo = undo_mark(app.history.done[:])
+	if op != .None do adjust_set(app, op, cmd, source)
 	return ok
 }
 
