@@ -46,6 +46,14 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
   `.strokes` v4), so a replay lands the same dabs; never use a global generator for anything a replay must repeat. Roll
   starts with `travel` at a radius and forces the alpha along the stroke (`alpha_screen_angle`). The stroke latches
   `kind`, `held` and `mode` at `stroke_start`: Shift's Smooth and the rail always stroke as Dots.
+- Straight line (`Stroke.line`, app `line_follow`): Shift or the rail's Smooth going down mid-stroke (`smooth_was`), or the
+  Line switch, restores the stroke (`sculptor_stroke_restore`) and relays it from `line_from` with `stroke_restart`
+  whenever the pointer moves (`line_lay`); a redo over budget continues next frame (`line_done`). Shift let go
+  (`line_leaving`) lays the line to the last aim held and queues later samples in `pending`, and `line_complete` finishes
+  both unbounded before `stroke_finish` in `sculpt_frame`, so the result depends only on the samples, never the frame
+  budget. Refused for Grab/Hook/Cloth/Rect and dynamic topology. Join strokes (`App.stroke_end`, written by
+  `brush_stroke_finish`, cleared by replays, recording, undo/redo and `scene_replace`) carries `pos`/`dir`/`travel` into
+  the next press within `SNAP_PX` on the same object and camera; `stroke_restart` re-applies a join instead of a dab.
 - Front faces only: `Brush.facing` (mesh-space way toward the viewer, mirrored per image; zero = off) scales each vertex
   by `facing_weight` (a ramp over normal · facing) in `displace`, Smooth and `mask_dab`; Grab ignores it. Mask shapes take
   `Front_Only{on, parallel, eye, toward}` (`mask.odin`) and skip vertices facing away.

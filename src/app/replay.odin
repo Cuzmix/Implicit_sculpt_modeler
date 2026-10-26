@@ -128,6 +128,8 @@ replay_record_start :: proc(app: ^App) {
 	p := &app.replay
 	replay_stop(app)
 	take_clear(&p.take)
+	// The recording's first stroke joins none drawn before it, as its replay will not.
+	app.stroke_end.valid = false
 	p.recording = true
 }
 
@@ -141,6 +143,9 @@ replay_start :: proc(app: ^App, t: ^Take, at_pointer := false, pointer: [2]f32 =
 	p := &app.replay
 	if len(t.frames) == 0 || p.playing != nil do return
 	stroke_finish(app)
+	// A replay's first stroke never joins one drawn before it, nor a drawn one the last
+	// it replayed, so it lands the same wherever it is played.
+	app.stroke_end.valid = false
 	p.recording = false
 	p.playing, p.frame, p.at_pointer = t, 0, at_pointer
 	if at_pointer {
@@ -153,6 +158,7 @@ replay_stop :: proc(app: ^App) {
 	if p.playing == nil do return
 	p.playing = nil
 	stroke_finish(app)
+	app.stroke_end.valid = false
 }
 
 replay_busy :: proc(app: ^App) -> bool {return app.replay.playing != nil}
@@ -203,6 +209,7 @@ replay_frame :: proc(app: ^App, now: Viewport_Input) -> (res: Sculpt_Frame_Resul
 		// A take whose recording stopped mid-stroke ends that stroke here.
 		stroke_finish(app)
 		p.playing = nil
+		app.stroke_end.valid = false
 	}
 	return
 }
@@ -216,12 +223,13 @@ replay_shortcut :: proc(app: ^App) {
 // The .strokes file: "SCSTROKE", a version, then the brushes and the frames, every
 // number little-endian. A brush keeps what makes a stroke what it is (kind, size,
 // strength, falloff, pressure, lazy mouse, front faces, stroke mode, symmetry, colour,
-// cloth mode, Spray's spread, the stroke's seed); the rest (alpha, tilt, dynamic topology detail) comes from the brush as
-// set when the file is loaded, since an alpha names an image that may not be there.
+// cloth mode, Spray's spread, the stroke's seed, Line and Join strokes); the rest
+// (alpha, tilt, dynamic topology detail) comes from the brush as set when the file is
+// loaded, since an alpha names an image that may not be there.
 STROKES_MAGIC :: "SCSTROKE"
 // 2: each frame's camera roll; 3: the rail's Mask in a frame's flags; 4: each brush's
-// spread and seed after its cloth mode.
-STROKES_VERSION :: u32(4)
+// spread and seed after its cloth mode; 5: its Line and Join switches after those.
+STROKES_VERSION :: u32(5)
 
 strokes_save :: proc(app: ^App, path: string) -> bool {
 	t := replay_source(app)
@@ -251,6 +259,8 @@ strokes_save :: proc(app: ^App, path: string) -> bool {
 		geom.byte_put(&out, u8(b.cloth_mode))
 		geom.byte_put(&out, b.spray_spread)
 		geom.byte_put(&out, t.seeds[i])
+		geom.byte_put(&out, u8(b.line))
+		geom.byte_put(&out, u8(b.join))
 	}
 	geom.byte_put(&out, u32(len(t.frames)))
 	for f in t.frames {
@@ -342,9 +352,15 @@ strokes_read :: proc(app: ^App, data: []u8, t: ^Take) -> bool {
 			spread = geom.byte_get(&r, f32)
 			seed = geom.byte_get(&r, u64)
 		}
+		// Before version 5 neither switch existed, so both were off.
+		line, join: u8
+		if version >= 5 {
+			line = geom.byte_get(&r, u8)
+			join = geom.byte_get(&r, u8)
+		}
 		if !r.ok || int(kind) >= len(sculpt.Brush_Kind) || int(stroke) >= len(Stroke_Mode) || int(cloth) >= len(sculpt.Cloth_Mode) do return false
 		all_axes := transmute(u8)sculpt.Symmetry{.X, .Y, .Z}
-		if symmetry & ~all_axes != 0 || drawn > 1 || pressure_strength > 1 || pressure_size > 1 || front > 1 do return false
+		if symmetry & ~all_axes != 0 || drawn > 1 || pressure_strength > 1 || pressure_size > 1 || front > 1 || line > 1 || join > 1 do return false
 		if !finite(radius, strength, lazy, spread, color.r, color.g, color.b) || !curve_ok(falloff) || !curve_ok(pressure_curve) do return false
 		b.kind = sculpt.Brush_Kind(kind)
 		b.radius_px = clamp(radius, MIN_RADIUS_PX, MAX_RADIUS_PX)
@@ -356,6 +372,7 @@ strokes_read :: proc(app: ^App, data: []u8, t: ^Take) -> bool {
 		b.color = {clamp(color.r, 0, 1), clamp(color.g, 0, 1), clamp(color.b, 0, 1)}
 		b.cloth_mode = sculpt.Cloth_Mode(cloth)
 		b.spray_spread = clamp(spread, 0, SPRAY_MAX_SPREAD)
+		b.line, b.join = line == 1, join == 1
 		append(&t.brushes, b)
 		append(&t.seeds, seed)
 	}

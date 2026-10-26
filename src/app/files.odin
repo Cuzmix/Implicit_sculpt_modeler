@@ -646,6 +646,7 @@ scene_replace :: proc(app: ^App, objects: []^Object, selected, next_id: int, vie
 	app.move.drag = {}
 	// The last stroke was on an object of the old scene, whose id the new one may reuse.
 	app.pivot.set, app.pivot.pinned = false, false
+	app.stroke_end.valid = false
 	clear(&app.stroke.pending)
 	app.stats = {}
 	render.viewport_invalidate(&app.target)

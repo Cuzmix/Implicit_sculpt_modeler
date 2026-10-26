@@ -70,6 +70,8 @@ SETTINGS := [?]Setting {
 	{"front_only", B + offset_of(Brush_Settings, front_only), bool, 0, 0},
 	{"stroke", B + offset_of(Brush_Settings, stroke), Stroke_Mode, 0, 0},
 	{"stroke_spread", B + offset_of(Brush_Settings, spray_spread), f32, 0, SPRAY_MAX_SPREAD},
+	{"stroke_line", B + offset_of(Brush_Settings, line), bool, 0, 0},
+	{"stroke_join", B + offset_of(Brush_Settings, join), bool, 0, 0},
 	{"detail_px", B + offset_of(Brush_Settings, detail_px), f32, 2, 40},
 	{"collapse", B + offset_of(Brush_Settings, collapse), bool, 0, 0},
 	{"alpha_mode", B + offset_of(Brush_Settings, alpha_mode), Alpha_Mode, 0, 0},

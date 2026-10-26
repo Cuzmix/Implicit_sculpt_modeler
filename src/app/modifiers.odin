@@ -47,7 +47,8 @@ Modifier_Rail :: struct {
 	// The rail's container, so a finger is claimed only where nothing covers it.
 	root:    ui.Id,
 	// What the rail said when the press under way went down, kept to its release, so a
-	// finger lifted mid-stroke never changes what the stroke does (rail_press).
+	// finger lifted mid-stroke never changes the brush the stroke uses; Smooth put down
+	// mid-stroke makes the stroke a straight line instead (rail_press).
 	press:   Rail_Press,
 }
 
@@ -64,6 +65,7 @@ Rail_Press :: struct {
 	active: bool,
 	mods:   Modifiers,
 	held:   bool, // its mode came from a finger held, not a latch
+	line:   bool, // Smooth came down after it, for a straight line
 }
 @(rodata)
 MODIFIER_NAMES := [Modifier]string {
@@ -184,7 +186,8 @@ rail_press_mods :: proc(r: ^Modifier_Rail) -> (mods: Modifiers, held: bool) {
 // pointer): as it goes down, takes what the rail says, unless a key of the keyboard's own
 // is held, which then says it all; the fingers held then made this press, so lifting
 // them never latches. Until it comes up the press keeps what it took, which this frame's
-// input gets.
+// input gets, but for Smooth held down after it: that, as Shift pressed mid-stroke, turns
+// the stroke into a straight line (Stroke.line), and is used, so lifting it never latches.
 rail_press :: proc(app: ^App, input: ^Viewport_Input) {
 	r := &app.rail
 	d := &app.device
@@ -195,7 +198,16 @@ rail_press :: proc(app: ^App, input: ^Viewport_Input) {
 	} else if .Left not_in d.down {
 		r.press = {}
 	}
-	if r.press.active do rail_resolve(r.press.mods, input)
+	if !r.press.active do return
+	rail_resolve(r.press.mods, input)
+	// Only a brush stroke under way makes a line of it; any other drag leaves the button
+	// to latch as before.
+	if app.tool != .Brush || !app.stroke.active do return
+	for &f in r.fingers[:r.count] {
+		if f.which != .Smooth || !input.primary do continue
+		if !f.used do f.used, r.press.line = true, true
+		if r.press.line do input.smooth = true
+	}
 }
 
 // The keyboard's modifiers as the rail's, to light its buttons: Shift smooths, Ctrl

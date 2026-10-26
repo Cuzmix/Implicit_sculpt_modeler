@@ -200,6 +200,12 @@ brush_stroke_finish :: proc(app: ^App) {
 	if st := app.stroke; st.pivot_count > 0 {
 		app.pivot.object, app.pivot.at, app.pivot.set, app.pivot.pinned = st.object, st.pivot_sum / f32(st.pivot_count), true, false
 	}
+	// Where a stroke laying dabs ended, for the next to join (Stroke_End).
+	e := &app.stroke_end
+	e.valid = false
+	if st := app.stroke; !st.grab && !st.hook && !st.cloth && !st.rect {
+		e.valid, e.object, e.pos, e.dir, e.travel, e.size, e.camera = true, st.object, st.pos, st.dir, st.travel, st.size, app.camera
+	}
 	obj := object_by_id(app, app.stroke.object)
 	if obj == nil do return
 	sculpt.sculptor_grab_end(object_sculptor(obj))
@@ -506,6 +512,8 @@ history_step :: proc(app: ^App, from, to: ^[dynamic]History_Entry, can, step: pr
 	for len(from) > 0 {
 		e := pop(from)
 		app.history.serial += 1
+		// The last stroke's end may be undone with it, so the next press joins nothing.
+		app.stroke_end.valid = false
 		if e.level != HD_LEVEL || e.swap != nil do app.history.edits += 1
 		if e.swap != nil {
 			if !history_swap(app, e) do app.running = false // GPU failure

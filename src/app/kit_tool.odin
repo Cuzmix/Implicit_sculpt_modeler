@@ -138,9 +138,9 @@ kit_preset :: proc(app: ^App) {
 	}
 }
 
-// Size, strength, the lazy mouse, then the stroke mode (with Spray's spread) or, for the
-// brushes that lay no dabs along the path, the cloth brush's mode: five at most, so no
-// More fold.
+// Size, strength, then the stroke mode (with Spray's spread) or, for the brushes that
+// lay no dabs along the path, the cloth brush's mode; under More, how the path is
+// followed: the lazy mouse, straight lines and joined strokes.
 @(private = "file")
 kit_stroke :: proc(app: ^App) {
 	ctx := &app.kit.ctx
@@ -148,7 +148,6 @@ kit_stroke :: proc(app: ^App) {
 	_ = ui.slider(ctx, "Size", &app.brush.radius_px, MIN_RADIUS_PX, MAX_RADIUS_PX, .Logarithmic, fmt.tprintf("%.0f px", app.brush.radius_px))
 	s := brush_strength(app)
 	_ = ui.slider(ctx, "Strength", s, MIN_STRENGTH, 1, .Linear, fmt.tprintf("%.2f", s^))
-	_ = ui.slider(ctx, "Lazy mouse", &app.brush.lazy_px, 0, 150, .Linear, "off" if app.brush.lazy_px < 0.5 else fmt.tprintf("%.0f px", app.brush.lazy_px))
 	// Grab, Snake hook and Cloth move what they pick up rather than laying dabs, so a
 	// stroke mode means nothing to them.
 	if BRUSHES[kind].flags & {.Grab, .Hook, .Cloth} == {} {
@@ -165,6 +164,12 @@ kit_stroke :: proc(app: ^App) {
 		case .Roll:
 			ui.paragraph(ctx, "Dabs a brush width apart with the alpha's top along the stroke, so an alpha tiles like a tape rolled out: stitches, zips, chains.")
 		}
+		// Rectangle lays one stamp, so how a path is followed means nothing to it.
+		if app.brush.stroke != .Drag_Rect {
+			// Said while folded too, since it changes every stroke.
+			if app.brush.line do ui.paragraph(ctx, "Line is on (under More): every stroke is a straight line from its press (not with dynamic topology).")
+			kit_stroke_path(app)
+		}
 	}
 	if .Cloth in BRUSHES[kind].flags {
 		modes: [len(sculpt.Cloth_Mode)]string
@@ -174,6 +179,18 @@ kit_stroke :: proc(app: ^App) {
 		ui.paragraph(ctx, cloth)
 	}
 	ui.paragraph(ctx, "S or U over the viewport sizes the brush or sets its strength there; [ and ] step the size, Shift with them the strength. Each brush keeps its own strength. Space, or a right click without dragging (a pen's side button), opens the brush pie.")
+}
+
+// The Stroke section's More: how the stroke follows the pointer's path.
+@(private = "file")
+kit_stroke_path :: proc(app: ^App) {
+	ctx := &app.kit.ctx
+	if !kit_more(app, .Stroke) do return
+	_ = ui.slider(ctx, "Lazy mouse", &app.brush.lazy_px, 0, 150, .Linear, "off" if app.brush.lazy_px < 0.5 else fmt.tprintf("%.0f px", app.brush.lazy_px))
+	_ = ui.switch_row(ctx, "Line", &app.brush.line)
+	_ = ui.switch_row(ctx, "Join strokes", &app.brush.join)
+	ui.paragraph(ctx, "Shift (or holding the Smooth button) mid-stroke lays the stroke again as a straight line from where it began to the pointer; letting go carries on freehand. Line makes every stroke one. Join strokes carries a stroke on from where the last one ended when you press near it, so a line drawn in pieces has no blob at the joins.")
+	kit_more_end(app)
 }
 
 @(private = "file")
