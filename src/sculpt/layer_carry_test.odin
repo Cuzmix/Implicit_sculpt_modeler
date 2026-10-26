@@ -231,3 +231,55 @@ layers_carry_reads_only_near_the_layer :: proc(t: ^testing.T) {
 	testing.expect(t, near(carried[0], carried[1], 1e-6), "the narrowed map carried other displacement")
 	testing.expectf(t, mapped[1] < mapped[0] / 2, "the narrowed map searched for %d of %d vertices", mapped[1], mapped[0])
 }
+
+// Three levels with a recording layer on the top one, stroked at `at`.
+@(private = "file")
+layered_levels :: proc(at: Vec3) -> Levels {
+	l: Levels
+	levels_init(&l, geom.icosphere(2), nil, 64)
+	for _ in 0 ..< 2 do assert(levels_subdivide(&l))
+	s := &levels_current(&l).sculptor
+	_ = sculptor_layer_add(s)
+	sculptor_layer_rename(s, 0, "Wrinkles")
+	sculptor_stroke_begin(s)
+	_ = apply_dab(s, {kind = .Draw, radius = 0.5, strength = 1}, at)
+	_ = sculptor_stroke_end(s)
+	return l
+}
+
+// Delete higher carries the top level's layer down to the base by the sync's own
+// weights: setting it to 0 there leaves the base as setting it to 0 on the top level and
+// going down would have. A layer on the level in between comes down too.
+@(test)
+layers_carry_down_on_delete_higher :: proc(t: ^testing.T) {
+	want: []Vec3
+	{
+		l := layered_levels(UP)
+		defer levels_destroy(&l)
+		testing.expect(t, sculptor_layer_set(&levels_current(&l).sculptor, 0, 0, true))
+		_ = sculptor_stroke_end(&levels_current(&l).sculptor)
+		levels_set_current(&l, 0)
+		want = slice.clone(levels_current(&l).mesh.positions[:], context.temp_allocator)
+	}
+	l := layered_levels(UP)
+	defer levels_destroy(&l)
+	levels_set_current(&l, 1)
+	_ = sculptor_layer_add(&levels_current(&l).sculptor)
+	levels_set_current(&l, 0)
+	shaped := slice.clone(levels_current(&l).mesh.positions[:], context.temp_allocator)
+	carried, dropped := levels_delete_higher(&l)
+	testing.expect_value(t, carried, 2)
+	testing.expect_value(t, dropped, 0)
+	s := &levels_current(&l).sculptor
+	testing.expect_value(t, len(s.layers.list), 2)
+	testing.expect_value(t, sculptor_layer_name(&s.layers.list[0]), "Layer 1")
+	testing.expect_value(t, sculptor_layer_name(&s.layers.list[1]), "Wrinkles")
+	testing.expect(t, near(s.mesh.positions[:], shaped, 0), "carrying moved the base")
+	testing.expect(t, sculptor_layer_used(s.layers.list[1]), "the top layer's work did not come down")
+	testing.expect(t, sculptor_layer_set(s, 1, 0, true))
+	_ = sculptor_stroke_end(s)
+	moved: f32
+	for p, v in shaped do moved = max(moved, linalg.length(p - want[v]))
+	testing.expect(t, moved > 1e-3, "the layer did not reach the base")
+	testing.expectf(t, near(s.mesh.positions[:], want, 1e-4), "off on the base, the shape is not what off on the top gives")
+}

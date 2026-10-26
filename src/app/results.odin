@@ -159,9 +159,9 @@ scene_run :: proc(app: ^App, cmd: Scene_Command) -> bool {
 		case lost == 0:
 			app.result.text = fmt.aprintf("%s; kept %d layer%s", text, kept, "" if kept == 1 else "s")
 		case kept == 0:
-			app.result.text = fmt.aprintf("%s; %d layer%s on other levels went", text, lost, "" if lost == 1 else "s")
+			app.result.text = fmt.aprintf("%s; %d layer%s went", text, lost, "" if lost == 1 else "s")
 		case:
-			app.result.text = fmt.aprintf("%s; kept %d layer%s, and %d on other levels went", text, kept, "" if kept == 1 else "s", lost)
+			app.result.text = fmt.aprintf("%s; kept %d layer%s, and %d went", text, kept, "" if kept == 1 else "s", lost)
 		}
 		app.layers_noted = kept
 		delete(text)

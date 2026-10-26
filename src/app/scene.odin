@@ -714,7 +714,9 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 			history_record_swap(app, obj.id, history_snapshot(app, obj, "delete higher levels"))
 			_ = sdl.WaitForGPUIdle(app.renderer.device)
 			for i in levels.current + 1 ..< len(levels.levels) do render.mesh_buffers_destroy(&app.renderer, &obj.gpu[i])
-			sculpt.levels_delete_higher(levels)
+			carried, dropped := sculpt.levels_delete_higher(levels)
+			app.layers_kept += carried
+			app.layers_lost += dropped
 			object_forget_history(app, obj)
 		case .Delete_Lower:
 			k := levels.current

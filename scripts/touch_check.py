@@ -3846,7 +3846,8 @@ def history_brush_by_pen():
 def layers_survive_a_rebuild():
     """A stroke into a recording layer, then Remesh selected (Ctrl+R), Mirror and weld,
     Decimate, a Slice (Ctrl+Shift drag with Slice the gesture tool) or Make boolean: the
-    rebuilt object keeps the layer, both parts of a slice do, and the note says so.
+    rebuilt object keeps the layer, both parts of a slice do, and the note says so. On a
+    level above the base, Shift+D and Delete higher carry the layer down to the base.
     Undoing the decimation (from 163k vertices, so 41k is fewer) brings back the old
     object, its layer and its vertices with it; the rebuild forgot the stroke, so nothing
     is left to undo after."""
@@ -3863,6 +3864,10 @@ def layers_survive_a_rebuild():
         return s
     def remesh(s):
         s.press("r", ("ctrl",))
+    def delete_higher(s):
+        s.press("d", ("shift",))
+        s.wait(3)
+        palette_run(s, "delete higher")
     def slice_(s):
         s.mouse_drag(line((790, 60), (810, 840), 10), keys=("ctrl", "shift"))
     settings = settings_file()
@@ -3875,10 +3880,11 @@ def layers_survive_a_rebuild():
              (run(lambda s: palette_run(s, "decimate to 41k"), undo=True), ["--subdiv=7", "--layer"],
               dict(kept, undo_steps=near(0, 0), vertices=near(163842, 0))),
              (run(slice_), ["--layer", f"--settings-file={settings}"], {"objects": near(2, 0), "layers": near(2, 0), "layers_noted": near(1, 0)}),
+             (run(delete_higher), ["--subdivide=1", "--layer"], {"layers": near(1, 0), "layers_noted": near(1, 0), "vertices": near(40962, 0)}),
              (run(lambda s: palette_run(s, "make boolean")), ["--spheres=2", "--layer", "--boolean=union"],
               {"objects": near(1, 0), "layers": near(1, 0), "layers_noted": near(1, 0)})]
     # Two spheres start with the view framing both, so the last run is not checked for a still camera.
-    return Steps([(sc, args, camera_still(want) if k < 4 else want) for k, (sc, args, want) in enumerate(steps)])
+    return Steps([(sc, args, camera_still(want) if k < 5 else want) for k, (sc, args, want) in enumerate(steps)])
 
 
 @scenario

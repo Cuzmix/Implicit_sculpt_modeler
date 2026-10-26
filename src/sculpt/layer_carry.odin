@@ -347,3 +347,85 @@ levels_layer_count :: proc(l: ^Levels) -> int {
 	for lv in l.levels do n += len(lv.sculptor.layers.list)
 	return n
 }
+
+// Carries the layers of every level above the current one down to it, as Delete higher
+// is about to free those levels (the in-between levels' layers too, gathered on the
+// way). A level's work reached the one below only through the sync, which moves each
+// vertex below by half the change of the vertex it became plus half the mean change of
+// that vertex's neighbours (push_down); a layer is carried with the same weights, a level
+// at a time, so setting it to 0 afterwards takes off about what it put on the level. The
+// detail finer than the level goes with the levels above, as their other work does.
+// Layers past MAX_SCULPT_LAYERS go (their work stays in the shape, baked). Returns how
+// many layers reached the current level, and how many went for want of room.
+@(private)
+levels_carry_layers_down :: proc(l: ^Levels) -> (carried, dropped: int) {
+	for j := len(l.levels) - 1; j > l.current; j -= 1 {
+		fine, coarse := l.levels[j], l.levels[j - 1]
+		fs, cs := &fine.sculptor, &coarse.sculptor
+		for &layer in fs.layers.list {
+			if len(cs.layers.list) >= MAX_SCULPT_LAYERS || cs.dyn != nil {
+				dropped += 1
+			} else {
+				append(&cs.layers.list, layer_push_down(l, j, layer))
+				if j - 1 == l.current do carried += 1
+			}
+			layer_destroy(&layer, fs.history.allocator)
+		}
+		clear(&fs.layers.list)
+		fs.layers.recording = 0
+		cs.layers.named = max(cs.layers.named, fs.layers.named)
+	}
+	return
+}
+
+// Level j's layer as a layer of level j - 1, by push_down's weights.
+@(private = "file")
+layer_push_down :: proc(l: ^Levels, j: int, layer: Sculpt_Layer) -> Sculpt_Layer {
+	Work :: struct {
+		fine, coarse: ^Level,
+		from:         Sculpt_Layer,
+		out:          [][]Vec3,
+		ids:          [dynamic]u32,
+	}
+	w := Work{fine = l.levels[j], coarse = l.levels[j - 1], from = layer}
+	cs := &w.coarse.sculptor
+	out := Sculpt_Layer{name = layer.name, strength = layer.strength, visible = layer.visible}
+	out.delta = make([][]Vec3, len(cs.nodes), cs.history.allocator)
+	w.out = out.delta
+	// A node below moves only through the nodes above that read it, so it takes
+	// displacement only when one of them has some; allocated here, on the calling thread.
+	w.ids = make([dynamic]u32, 0, len(cs.nodes), context.temp_allocator)
+	verts: u32
+	for c in 0 ..< u32(len(cs.nodes)) {
+		for id in node_list(w.fine.dependents, c) {
+			if layer.delta[id] == nil do continue
+			w.out[c] = make([]Vec3, cs.nodes[c].vert_count, cs.history.allocator)
+			append(&w.ids, c)
+			verts += cs.nodes[c].vert_count
+			break
+		}
+	}
+	jobs.parallel_for(l.pool if verts >= PARALLEL_MIN_VERTS else nil, len(w.ids), &w, proc(data: rawptr, i: int) {
+		w := cast(^Work)data
+		fine := w.fine
+		c := w.ids[i]
+		n := w.coarse.sculptor.nodes[c]
+		at :: #force_inline proc(fine: ^Level, layer: Sculpt_Layer, u: u32) -> Vec3 {
+			id := fine.node_of_vertex[u]
+			d := layer.delta[id]
+			return d[u - fine.sculptor.nodes[id].vert_first] if d != nil else {}
+		}
+		for v in n.vert_first ..< n.vert_first + n.vert_count {
+			e := fine.even_of[v]
+			faces := geom.vertex_faces_of(fine.sculptor.faces, e)
+			ring: Vec3
+			// Around a vertex of a closed mesh, each neighbour comes first in one triangle.
+			for f in faces {
+				o1, _ := others(fine.mesh.indices[:], f, e)
+				ring += at(fine, w.from, o1)
+			}
+			w.out[c][v - n.vert_first] = at(fine, w.from, e) * 0.5 + ring * (0.5 / f32(len(faces)))
+		}
+	})
+	return out
+}

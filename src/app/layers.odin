@@ -96,7 +96,7 @@ kit_layers_section :: proc(app: ^App) {
 		if bake do layer_remove(app, obj, selected^, bake = true)
 		ui.paragraph(ctx, fmt.tprintf("%d on this level, %.1f MB.", len(layers), f64(sculpt.sculptor_layers_bytes(s)) / (1 << 20)))
 	}
-	ui.paragraph(ctx, "While a layer records, strokes also go into it; its strength then dials them from -1 to 2. Delete takes its work off, Bake keeps it as plain sculpting. Each level has its own layers; rebuilds (Remesh, Decimate, Mirror and weld, Slice, Make boolean) carry them onto the new mesh. Not in HD or with dynamic topology, which bakes them.")
+	ui.paragraph(ctx, "While a layer records, strokes also go into it; its strength then dials them from -1 to 2. Delete takes its work off, Bake keeps it as plain sculpting. Each level has its own layers; Delete higher carries the higher levels' layers down, and rebuilds (Remesh, Decimate, Mirror and weld, Slice, Make boolean) carry them onto the new mesh. Not in HD or with dynamic topology, which bakes them.")
 }
 
 // Ends a drag of a layer's strength once the pointer lets go, as one undo step. Runs

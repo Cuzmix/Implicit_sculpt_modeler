@@ -184,13 +184,17 @@ level_estimate_bytes :: proc(vertices, triangles, below: int) -> int {
 }
 
 // Deletes every level above the current one, and with the top level any HD level. The
-// selection sets kept by those levels are carried down to the current one.
-levels_delete_higher :: proc(l: ^Levels) {
+// selection sets kept by those levels are carried down to the current one, and so are
+// their sculpt layers (levels_carry_layers_down): returns how many layers it carried and
+// how many went for want of room.
+levels_delete_higher :: proc(l: ^Levels) -> (carried, dropped: int) {
 	assert(l.hd.window == nil, "leave the HD window first")
 	levels_sets_carry(l, {l.current + 1, len(l.levels)}, l.current)
+	carried, dropped = levels_carry_layers_down(l)
 	if len(l.levels) > l.current + 1 do levels_hd_delete(l)
 	for len(l.levels) > l.current + 1 do level_free(l, pop(&l.levels))
 	levels_sync(l)
+	return
 }
 
 // Deletes every level below the current one, which becomes the base. The selection
