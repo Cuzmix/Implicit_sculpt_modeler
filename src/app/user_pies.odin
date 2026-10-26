@@ -71,7 +71,7 @@ pie_toggle :: proc(app: ^App, which: int) {
 	center = {clamp(center.x, lo.x, max(hi.x, lo.x)), clamp(center.y, lo.y, max(hi.y, lo.y))}
 	p^ = {open = true, which = which, center = center, opened = input_clock(app), opened_frame = k.frame, hover = -1, space_down = p.space_down}
 	if k.palette do palette_close(app)
-	k.menu, k.view_menu, k.browser, k.dock_menu, k.object_menu, k.action_pop, k.bind.open, k.pie_editor = false, false, false, false, false, false, false, false
+	kit_floats_close(k)
 }
 
 // The slots a pie shows: 14 brushes for the brush pie (0), eight for a user pie.
@@ -139,8 +139,7 @@ pie_slot_label :: proc(s: Pie_Slot) -> string {
 pie_editor_open :: proc(app: ^App, id: Command_Id, arg: int, at: ui.Rect) {
 	k := &app.kit
 	if k.palette do palette_close(app)
-	k.menu, k.view_menu, k.browser, k.dock_menu, k.object_menu, k.action_pop, k.bind.open = false, false, false, false, false, false, false
-	k.ctx.select_open = 0
+	kit_floats_close(k)
 	k.pie_editor, k.pie_put, k.pie_editor_at, k.pie_scroll = true, {id, arg}, at, 0
 }
 

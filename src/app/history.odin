@@ -239,7 +239,8 @@ smooth_command :: proc(app: ^App, steps: int) {
 	changed, on_gpu := sculpt.sculptor_smooth_all(object_sculptor(obj), max(steps, 1), app.ui.smooth_strength, gpu)
 	ms := time.duration_milliseconds(time.tick_since(start))
 	if changed do history_record(app, obj, .Deform, "Smooth all")
-	report(app, Kit_Section.Deform, {.Undo} if changed else {}, "Smoothed %s: %d steps on the %s in %.0f ms%s", object_label(obj), max(steps, 1), "GPU" if on_gpu else "CPU", ms, "" if changed else ", nothing changed")
+	report(app, Kit_Section.Deform, {.Undo} if changed else {}, "Smoothed %s: %d step%s on the %s in %.0f ms%s", object_label(obj), max(steps, 1), "" if steps <= 1 else "s", "GPU" if on_gpu else "CPU", ms, "" if changed else ", nothing changed")
+	if changed do adjust_set(app, .Smooth_All, {}, obj.id)
 	if t := run.timing; on_gpu do report_detail(app, "GPU: upload %.1f ms (%.0f MB), compute %.1f ms, readback %.1f ms.", t.upload_ms, t.upload_mb, t.compute_ms, t.readback_ms)
 }
 

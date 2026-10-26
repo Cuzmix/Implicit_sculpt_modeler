@@ -6,8 +6,9 @@ import "../ui"
 // The contextual action bar: above the brush dock, the next steps for what is active on
 // the selected object, so a tablet user masks, then inverts or blurs without opening the
 // inspector, its Object tab and the Select page. It shows only while something applies: an HD
-// window open, a mask, or hidden parts. These rarely come together (HD refuses hidden
-// parts and hiding is refused in HD), so at most two groups show. Each button runs its
+// window open, a mask, hidden parts, or an operation that can still be adjusted
+// (adjust_last.odin). HD refuses hidden parts and hiding is refused in HD, so at most three
+// groups show. Each button runs its
 // command through the registry, as the menus and the palette do. Where the groups do not
 // fit beside the panels, each folds to one button that opens its actions above it.
 
@@ -15,6 +16,7 @@ Action_Group :: enum u8 {
 	Hd,
 	Mask,
 	Hidden,
+	Adjust,
 }
 
 Action :: struct {
@@ -43,6 +45,14 @@ ACTION_GROUPS := [Action_Group]Action_Group_Info {
 		{.Group_Shortcut, 0, "Make group"},
 	}},
 	.Hidden = {"Hidden", {{.Show_All, 0, "Show all"}, {.Invert_Hidden, 0, "Invert##hidden"}}},
+	// Captioned by the operation (action_caption).
+	.Adjust = {"Adjust", {{.Adjust_Last, 0, "Adjust..."}}},
+}
+
+// A group's caption: the Adjust group's names the operation it adjusts.
+action_caption :: proc(app: ^App, g: Action_Group) -> string {
+	if g == .Adjust do if name := ADJUST_NAMES[app.adjustable.op]; name != "" do return name
+	return ACTION_GROUPS[g].caption
 }
 
 // The groups that apply to the selected object now, in the order shown.
@@ -52,6 +62,7 @@ action_groups_now :: proc(app: ^App) -> (groups: bit_set[Action_Group]) {
 	if object_in_hd(obj) do groups += {.Hd}
 	if object_has_mask(app, obj) do groups += {.Mask}
 	if sculpt.sculptor_hidden_count(object_sculptor(obj)) > 0 do groups += {.Hidden}
+	if adjust_live(app) do groups += {.Adjust}
 	return
 }
 
@@ -103,7 +114,7 @@ action_bar_full_width :: proc(app: ^App, groups: bit_set[Action_Group]) -> f32 {
 	for g in groups {
 		if n > 0 do w += 1 + 2 * 4 // a divider and the gaps round it
 		info := ACTION_GROUPS[g]
-		w += ui.text_width(ctx, info.caption, t.small_size) + 4 + 2 * 4
+		w += ui.text_width(ctx, action_caption(app, g), t.small_size) + 4 + 2 * 4
 		for a in info.actions do w += ui.text_width(ctx, ui.label_text(a.label), t.text_size, .Semibold) + 28 + 4
 		n += 1
 	}
@@ -118,7 +129,7 @@ action_bar_compact_width :: proc(app: ^App, groups: bit_set[Action_Group]) -> f3
 	n := 0
 	for g in groups {
 		if n > 0 do w += 1 + 2 * 4
-		w += ui.text_width(ctx, ACTION_GROUPS[g].caption, t.text_size, .Semibold) + t.icon_small + 6 + 28
+		w += ui.text_width(ctx, action_caption(app, g), t.text_size, .Semibold) + t.icon_small + 6 + 28
 		n += 1
 	}
 	return w
@@ -128,6 +139,9 @@ kit_action_bar :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
+	// Set again below while the bar shows the Adjust group; without it the adjust popover
+	// sits above the dock.
+	k.adjust_anchor = {}
 	if !action_bar_shown(app) {
 		k.action_pop = false
 		return
@@ -151,20 +165,30 @@ kit_action_bar :: proc(app: ^App) {
 		info := ACTION_GROUPS[g]
 		if n > 0 do ui.divider(ctx, 28)
 		n += 1
+		caption := action_caption(app, g)
 		if compact {
-			// One button for the group, which opens its actions above the bar.
-			if ui.button(ctx, info.caption, .Light, glyph = ui.ICON_CHEVRON_UP) {
-				k.action_pop = !(k.action_pop && k.action_group == g)
-				k.action_group = g
+			// One button for the group, which opens its actions above the bar; Adjust's
+			// opens its settings straight away, since it has one action.
+			if ui.button(ctx, caption, .Light, glyph = ui.ICON_CHEVRON_UP) {
+				if g == .Adjust {
+					if k.adjust_pop do k.adjust_pop = false
+					else do adjust_open(app)
+				} else {
+					k.action_pop = !(k.action_pop && k.action_group == g)
+					k.action_group = g
+				}
 			}
 			if k.action_group == g do k.action_anchor = ctx.last_rect
 			continue
 		}
 		ui.spacer(ctx, 4)
-		ui.label(ctx, info.caption, t.small_size)
+		ui.label(ctx, caption, t.small_size)
 		for a in info.actions do _ = command_button(app, a.id, a.arg, a.label)
 	}
 	ui.end(ctx)
+	// The adjust popover sits over the middle of the bar, folded or not, as wide as the
+	// bar's room allows; last frame's place is close enough for an anchor.
+	if .Adjust in groups do k.adjust_anchor = ui.prev_rect(ctx, "action bar")
 	// Over a stroke or a turn of the view, the bar dims so the model shows through.
 	busy := app.stroke.active || app.drag.owner != .None
 	dim := ui.tween(ctx, ui.id_of(ctx, "action bar dim"), 0.35 if busy else 1, t.indicator_time)

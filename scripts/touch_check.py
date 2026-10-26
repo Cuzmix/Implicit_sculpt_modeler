@@ -3085,6 +3085,179 @@ def save_with_versions_off_keeps_none():
     return Steps([first_save(), (s, [f"--open={path}", f"--settings-file={settings_file()}"], {"@none kept": lambda _: versions_of(path) == []})])
 
 
+# Adjust last operation (adjust_last.odin): the bar's Adjust button with only the Remesh
+# group showing, and the popover's controls, which sit at its foot just over the bar at
+# 1600x900 whatever the lines above them say.
+ADJUST_BUTTON = (826, 786)
+ADJUST_SIZES = {"41k": (686, 722), "500k": (731, 722), "1M": (777, 722)}
+ADJUST_AXES = {"X": (709, 680), "Y": (800, 680), "Z": (891, 680)}
+ADJUST_STEPS_LEFT = (662, 664)  # the Steps slider's left end: 1 step
+ADJUST_ONE_SLIDER = {"left": (662, 722), "middle": (800, 722)}  # Retopology's Quads, Extract's Thickness
+
+
+def palette_run(s, words):
+    """Ctrl+K, the words, Enter: runs the palette's first match."""
+    s.press("k", ("ctrl",))
+    s.type(words)
+    s.press("Return")
+    s.wait(5)
+
+
+def same_file(a, b):
+    return lambda _: open(a, "rb").read() == open(b, "rb").read()
+
+
+@scenario
+def adjust_remesh_from_the_bar():
+    """Ctrl+R remeshes; the action bar offers Remesh / Adjust..., and picking 500k there
+    remeshes again from the sphere, as one undo step: the mesh is a straight 500k remesh's,
+    bit for bit."""
+    direct, adjusted = autosave_folder() + "-direct.ply", autosave_folder() + "-adjusted.ply"
+    s = Script()
+    s.wait(3)
+    s.press("r", ("ctrl",))
+    s.wait(5)
+    click(s, ADJUST_BUTTON)
+    s.wait(5)
+    click(s, ADJUST_SIZES["500k"])
+    s.wait(5)
+    return Steps([
+        (Script(), ["--remesh=500000", f"--export={direct}"], {}),
+        (s, [f"--export={adjusted}"], {"adjust_op": is_text("remesh"), "adjusts": near(1, 0), "adjust_pop": near(1, 0),
+                                       "undo_steps": near(1, 0), "redo_steps": near(0, 0), "@a straight remesh": same_file(direct, adjusted)}),
+    ])
+
+
+@scenario
+def adjust_mirror_twice_is_not_stacked():
+    """After a stroke and Mirror and weld across X, adjusting to Z and then to Y gives what
+    adjusting straight to Y gives: each re-run starts from the stroke, not from the last
+    mirror. The History holds the mirror alone, since a rebuild drops the strokes before it."""
+    once, twice = autosave_folder() + "-once.ply", autosave_folder() + "-twice.ply"
+    across_x = autosave_folder() + "-x.ply"
+    def run(axes):
+        s = Script()
+        s.wait(3)
+        s.mouse_drag(line((700, 380), (760, 420), 12))
+        s.wait(3)
+        palette_run(s, "mirror and weld")
+        if axes:
+            palette_run(s, "adjust last")
+        for axis in axes:
+            click(s, ADJUST_AXES[axis])
+            s.wait(8)
+        return s
+    return Steps([
+        (run([]), [f"--export={across_x}"], {"adjust_op": is_text("mirror")}),
+        (run(["Y"]), [f"--export={once}"], {"adjusts": near(1, 0), "@not across X": lambda _: open(once, "rb").read() != open(across_x, "rb").read()}),
+        (run(["Z", "Y"]), [f"--export={twice}"], {"adjust_op": is_text("mirror"), "adjusts": near(2, 0), "undo_steps": near(1, 0),
+                                                "@as adjusting once": same_file(once, twice)}),
+    ])
+
+
+@scenario
+def adjust_smooth_all_steps():
+    """Smooth all, then Adjust last operation from the palette and a tap at the Steps
+    slider's left end: let go, it smooths 1 step from the start, as --smooth-all=1 does."""
+    direct, adjusted = autosave_folder() + "-direct.ply", autosave_folder() + "-adjusted.ply"
+    s = Script()
+    s.wait(3)
+    palette_run(s, "smooth all")
+    palette_run(s, "adjust last")
+    click(s, ADJUST_STEPS_LEFT)
+    s.wait(5)
+    return Steps([
+        (Script(), ["--smooth-all=1", f"--export={direct}"], {}),
+        (s, [f"--export={adjusted}"], {"adjust_op": is_text("smooth_all"), "adjusts": near(1, 0), "undo_steps": near(1, 0),
+                                       "@one step from the start": same_file(direct, adjusted)}),
+    ])
+
+
+@scenario
+def adjust_decimate_refused_keeps_the_result():
+    """Decimate a 500k sphere to 41k, then adjust it to 1M, more than the sphere has: the
+    decimate refuses, so the 41k result comes back, still one step and still adjustable."""
+    s = Script()
+    s.wait(3)
+    palette_run(s, "decimate to 41k")
+    palette_run(s, "adjust last")
+    click(s, ADJUST_SIZES["1M"])
+    s.wait(5)
+    return s, ["--vertices=500000"], {"adjust_op": is_text("decimate"), "adjusts": near(1, 0), "undo_steps": near(1, 0),
+                                      "redo_steps": near(0, 0), "vertices": lambda v: int(v) < 60000}
+
+
+@scenario
+def adjust_ends_with_a_stroke():
+    """A stroke after Ctrl+R is a newer step: the Adjust group goes from the bar and the
+    palette's Adjust last operation is greyed."""
+    s = Script()
+    s.wait(3)
+    s.press("r", ("ctrl",))
+    s.wait(5)
+    s.mouse_drag(line((700, 380), (760, 420), 8))
+    s.wait(5)
+    return s, [], {"adjust_op": is_text("none"), "action_bar": is_text("none"), "undo_steps": near(2, 0)}
+
+
+@scenario
+def adjust_remesh_keeps_to_the_state_before():
+    """Adjusting a remesh made with dynamic topology on, on a lower subdivision level, or
+    inside an HD window gives, bit for bit, what remeshing straight to that size from the
+    same start gives: undoing the remesh brings back all of that state first."""
+    steps = []
+    for name, start in [("dyntopo", ["--dyntopo"]), ("level", ["--subdivide=1", "--level=1"]), ("hd", ["--hd=1", "--hd-open"])]:
+        direct, adjusted = autosave_folder() + f"-{name}-direct.ply", autosave_folder() + f"-{name}-adjusted.ply"
+        straight = Script()
+        straight.wait(3)
+        palette_run(straight, "remesh to 500k")
+        s = Script()
+        s.wait(3)
+        s.press("r", ("ctrl",))
+        s.wait(5)
+        palette_run(s, "adjust last")
+        click(s, ADJUST_SIZES["500k"])
+        s.wait(5)
+        steps += [(straight, start + [f"--export={direct}"], {}),
+                  (s, start + [f"--export={adjusted}"], {"adjusts": near(1, 0), "undo_steps": near(1, 0), f"@{name}: a straight remesh": same_file(direct, adjusted)})]
+    return Steps(steps)
+
+
+@scenario
+def adjust_retopo_and_extract():
+    """Retopologize, then adjust Quads to the slider's left end (100): the quads are what
+    --retopo=100 makes. Extract a masked patch, then adjust Thickness twice: still two
+    objects and one Extract step, and the shell is what adjusting once makes."""
+    direct, adjusted = autosave_folder() + "-retopo-direct.ply", autosave_folder() + "-retopo-adjusted.ply"
+    retopo = Script()
+    retopo.wait(3)
+    palette_run(retopo, "retopologize")
+    palette_run(retopo, "adjust last")
+    click(retopo, ADJUST_ONE_SLIDER["left"])
+    retopo.wait(5)
+    once, twice = autosave_folder() + "-extract-once.ply", autosave_folder() + "-extract-twice.ply"
+    def extract(at):
+        s = Script()
+        s.wait(3)
+        s.press("9")
+        s.mouse_drag(line((740, 380), (820, 420), 10))
+        s.wait(3)
+        palette_run(s, "extract masked")
+        palette_run(s, "adjust last")
+        for where in at:
+            click(s, ADJUST_ONE_SLIDER[where])
+            s.wait(5)
+        return s
+    return Steps([
+        (Script(), ["--retopo=100", f"--export={direct}"], {}),
+        (retopo, [f"--export={adjusted}"], {"adjust_op": is_text("retopology"), "adjusts": near(1, 0), "objects": near(2, 0),
+                                           "@--retopo=100": same_file(direct, adjusted)}),
+        (extract(["left"]), [f"--export={once}"], {"adjust_op": is_text("extract"), "objects": near(2, 0)}),
+        (extract(["middle", "left"]), [f"--export={twice}"], {"adjusts": near(2, 0), "objects": near(2, 0), "undo_steps": near(2, 0),
+                                                             "@as adjusting once": same_file(once, twice)}),
+    ])
+
+
 def main(argv):
     if "--list" in argv:
         for name, fn in SCENARIOS.items():

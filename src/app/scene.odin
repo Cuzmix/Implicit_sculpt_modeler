@@ -105,6 +105,9 @@ Scene_Command :: struct {
 	size:     [2]f32, // ...in a viewport of this size
 	point:    Vec3, // Slice: a point of the plane, in the selected object's space
 	normal:   Vec3, // ...and the way to the part that becomes a new object
+	// Runs the command again in place of the last one of its kind, from before it
+	// (adjust_last.odin): Remesh, Decimate, Symmetrize, Retopo and Extract.
+	adjust:   bool,
 }
 
 scene_destroy :: proc(app: ^App) {

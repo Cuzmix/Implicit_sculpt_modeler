@@ -56,7 +56,7 @@ command_group :: proc(id: Command_Id) -> Command_Group {
 	case .None, .New_Scene ..= .Screenshot:   return .File
 	case .Undo ..= .Duplicate_Object:         return .Edit
 	case .Tool_Move ..= .Replay_Stroke:       return .Tools
-	case .Remesh ..= .Extract_Masked:         return .Object
+	case .Remesh ..= .Adjust_Last:            return .Object
 	case .Add_Object ..= .Frame_All:          return .Scene
 	case .View_Axis ..= .Studio_Render:       return .View
 	case .Stats ..= .Brush_Pie:                     return .App

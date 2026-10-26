@@ -79,6 +79,7 @@ Command_Id :: enum u8 {
 	Retopologize,
 	Make_Boolean,
 	Extract_Masked,
+	Adjust_Last,
 	// The scene
 	Add_Object,
 	Frame_All,
@@ -567,6 +568,15 @@ COMMANDS := [Command_Id]Command {
 		help = "Makes a new object: a shell over the masked part.",
 		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Extract}},
 		enabled = has_object,
+	},
+	.Adjust_Last = {
+		label = "Adjust last operation",
+		help = "Opens the settings of the last remesh, decimate, mirror, retopology, extract or smooth all, to run it again from before it.",
+		run = proc(app: ^App, _: int) {
+			if app.kit.adjust_pop do app.kit.adjust_pop = false
+			else do adjust_open(app)
+		},
+		enabled = proc(app: ^App, _: int) -> bool {return adjust_live(app)},
 	},
 	.Add_Object = {
 		label = "Add object",

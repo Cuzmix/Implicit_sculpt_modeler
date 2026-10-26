@@ -83,3 +83,6 @@ camera, gestures or panels that scroll. 5. sm-perf numbers for anything about sp
   by name; editing `deps\` or `build\` by hand.
 - Adding a mode to `build.bat` as an `if "%MODE%"=="x" ( … )` block: an `exit /b 1` inside a parenthesised block returns
   0 to `cmd /c build.bat`, so the failure is lost. Modes are labels (`goto x`), and loops inside blocks `goto fail`.
+- Writing a new file without first looking for one of that name: `src/app` is one package of many files, and a whole-
+  file write over an existing one (`adjust.odin` is the S/U brush adjust) shows up only as a flood of unrelated
+  "undeclared name" errors. `ls src/app/<name>.odin` first.
