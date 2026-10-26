@@ -3758,6 +3758,44 @@ def file_difference(a, b):
     return f"{len(x)} bytes against {len(y)}, first difference at byte {at} ({a} and {b})"
 
 
+def glb_read(path):
+    """A .glb's shape keys (name, weight) and its base positions with every key added at
+    its weight: the surface a reader shows at the file's own values."""
+    import json
+    import struct
+    data = open(path, "rb").read()
+    json_len = struct.unpack_from("<I", data, 12)[0]
+    doc = json.loads(data[20:20 + json_len])
+    bin_at = 20 + json_len + 8
+    mesh = doc["meshes"][0]
+    prim = mesh["primitives"][0]
+
+    def view(index):
+        v = doc["bufferViews"][index]
+        return data[bin_at + v.get("byteOffset", 0):][:v["byteLength"]]
+
+    pos = doc["accessors"][prim["attributes"]["POSITION"]]
+    flat = struct.unpack("<%df" % (3 * pos["count"]), view(pos["bufferView"]))
+    points = [list(flat[3 * v:3 * v + 3]) for v in range(pos["count"])]
+    weights = mesh.get("weights", [])
+    for target, weight in zip(prim.get("targets", []), weights):
+        sparse = doc["accessors"][target["POSITION"]].get("sparse")
+        if not sparse or weight == 0:
+            continue
+        n = sparse["count"]
+        at = struct.unpack("<%dI" % n, view(sparse["indices"]["bufferView"]))
+        d = struct.unpack("<%df" % (3 * n), view(sparse["values"]["bufferView"]))
+        for i, v in enumerate(at):
+            for k in range(3):
+                points[v][k] += weight * d[3 * i + k]
+    names = mesh.get("extras", {}).get("targetNames", [])
+    return list(zip(names, weights)), points
+
+
+def obj_points(path):
+    return [[float(x) for x in line.split()[1:4]] for line in open(path) if line.startswith("v ")]
+
+
 def stroke_then_rest(s, frames=150):
     s.mouse_drag([(800, 450), (830, 465), (860, 480)])
     s.wait(frames)
@@ -4019,6 +4057,42 @@ def palette_run(s, words):
 def same_file(a, b):
     """A check that files `a` and `b` (written by the runs) hold the same bytes."""
     return lambda _: file_difference(a, b)
+
+
+@scenario
+def gltf_export_keeps_layers():
+    """Three sculpt layers (the first at 1.5, the second hidden, the third recording a
+    mouse stroke) and paint, exported as .glb and as .obj: the glTF names the layers as
+    shape keys at their strengths, and its base plus the keys at those values is the
+    shown surface the OBJ holds. Blender and the Khronos validator are asked too when
+    scripts/export_check.py finds them (a skip is not a failure here)."""
+    glb, obj = autosave_folder() + "-layers.glb", autosave_folder() + "-shown.obj"
+    setup = ("--script=set paint_color 0.8 0.2 0.1; mask_rect 0 0 0.5 1; paint fill; mask clear; "
+             "new_layer; set smooth_steps 2; smooth_all; new_layer; mask_rect 0.5 0 1 1; mask invert; smooth_all; mask clear; "
+             "layer 2 0.4 hidden; layer 1 1.5; new_layer")
+    keys = [("Layer 1", 1.5), ("Layer 2", 0), ("Layer 3", 1)]
+
+    def rebuilt(_):
+        got, points = glb_read(glb)
+        if [(n, round(w, 6)) for n, w in got] != keys:
+            return f"shape keys {got}, expected {keys}"
+        shown = obj_points(obj)
+        if len(shown) != len(points):
+            return f"{len(points)} vertices against the OBJ's {len(shown)}"
+        worst = max(abs(a - b) for p, q in zip(points, shown) for a, b in zip(p, q))
+        return worst < 1e-5 or f"the keys rebuild the surface {worst:g} away"
+
+    def outside_tools(_):
+        run = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "export_check.py"), glb, "--keys",
+                              ",".join(f"{n}={w}" for n, w in keys), "--colors"], capture_output=True, text=True)
+        return run.returncode == 0 or run.stdout.strip()
+
+    return Steps([
+        (stroke_then_rest(Script(), 5), [setup, f"--export={obj}"], {"layers": near(3, 0)}),
+        (stroke_then_rest(Script(), 5), [setup, f"--export={glb}"],
+         {"layers": near(3, 0), "dabs": lambda v: int(v) > 0, "@the keys rebuild the shown surface": rebuilt,
+          "@the validator and Blender agree": outside_tools}),
+    ])
 
 
 @scenario

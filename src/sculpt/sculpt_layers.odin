@@ -85,6 +85,28 @@ sculptor_layer_used :: proc(l: Sculpt_Layer) -> bool {
 	return false
 }
 
+// The layer's displacement at strength 1 as the vertices it moves, in increasing order,
+// and how far: the vertices of the nodes it moved, less those it left exactly where they
+// were. For files, which store a layer only where it acts.
+sculptor_layer_sparse :: proc(s: ^Sculptor, index: int, allocator := context.allocator) -> (vertices: []u32, deltas: []Vec3) {
+	l := s.layers.list[index]
+	count := 0
+	for d in l.delta do for x in d do if x != {} do count += 1
+	vertices = make([]u32, count, allocator)
+	deltas = make([]Vec3, count, allocator)
+	k := 0
+	// Nodes own vertex ranges in id order (sculptor_init and sculptor_init_laid_out), so
+	// this is increasing.
+	for d, id in l.delta {
+		for x, v in d {
+			if x == {} do continue
+			vertices[k], deltas[k] = s.nodes[id].vert_first + u32(v), x
+			k += 1
+		}
+	}
+	return
+}
+
 // Adds an empty layer at full strength above the others, as an undo step, and starts it
 // recording. Returns its index, or -1 when there are already MAX_SCULPT_LAYERS or
 // dynamic topology is on.
