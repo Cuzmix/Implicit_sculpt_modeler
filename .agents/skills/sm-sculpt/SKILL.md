@@ -141,7 +141,12 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
   `sculptor_pose_end` is a stroke end, `sculptor_pose_cancel` uses `sculptor_stroke_discard` (puts saved values back, no
   step; refuses whole-node, hidden, group or layer-delta saves). Refused under dyntopo. `sculptor_mask_centroid` and
   `sculptor_mask_look` (free + checksum) serve the app's pose mode (`src/app/pose.odin`: handles pose, the body moves the
-  object; `stroke_finish` ends a pose, the frame loop calls `brush_stroke_finish`). Smooth all
+  object; `stroke_finish` ends a pose, the frame loop calls `brush_stroke_finish`). Topological mask
+  (`src/sculpt/topo_mask.odin`): one stroke; begin raycasts, fills shown vertices with the far value (record_mask per
+  node on first write), seeds the hit triangle's corners; `sculptor_topo_mask_reach(reach, budget)` runs an indexed
+  binary heap (ties by vertex index) and keeps `order` nearest first, rewriting only `order[min(lower(0.75·min(old,new)),
+  settled_before):]`; hidden vertices are crossed, never written. App gesture in `src/app/pose.odin` (`Topo_Gesture`,
+  `move_busy`). Smooth all
   (`src/sculpt/smooth_all.odin`) follows the same shape: `sculptor_smooth_all(s, steps, strength, gpu)` weighs every
   vertex by `strength · shield`, saves the free nodes, runs `smooth_all_cpu` (Jacobi steps over vertex ranges, two
   buffers) or the `Smooth_Gpu` callback the app fills with `render.smooth_compute_run` (falls back to the CPU when it

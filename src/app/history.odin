@@ -188,7 +188,7 @@ history_next_label :: proc(list: []History_Entry) -> string {
 // undo, a save) finds the mesh settled.
 stroke_finish :: proc(app: ^App) {
 	brush_stroke_finish(app)
-	if app.move.drag.posed do move_end(app)
+	if app.move.drag.posed || app.move.topo.phase != .None do move_end(app)
 }
 
 // Ends the brush stroke in progress, if any, and records it when it changed the mesh.
@@ -479,10 +479,12 @@ history_can_redo :: proc(app: ^App) -> bool {return !history_busy(app) && len(ap
 // of its own when it ends, so nothing is undone or redone beneath it.
 @(private = "file")
 history_busy :: proc(app: ^App) -> bool {
-	return app.stroke.active || app.move.drag.handle != .None || app.ui.transform_drag.active
+	return app.stroke.active || app.move.drag.handle != .None || topo_held(app) || app.ui.transform_drag.active
 }
 
 history_undo :: proc(app: ^App) {
+	// A topological mask let go and still settling finishes first, as its own step.
+	topo_settle(app)
 	// A chained entry goes back with the one before it.
 	for history_step(app, &app.history.done, &app.history.undone, sculpt.sculptor_can_undo, sculpt.sculptor_undo) {
 		if top := app.history.undone[len(app.history.undone) - 1]; !top.chain || len(app.history.done) == 0 do break
@@ -490,6 +492,7 @@ history_undo :: proc(app: ^App) {
 }
 
 history_redo :: proc(app: ^App) {
+	topo_settle(app)
 	for history_step(app, &app.history.undone, &app.history.done, sculpt.sculptor_can_redo, sculpt.sculptor_redo) {
 		if len(app.history.undone) == 0 || !app.history.undone[len(app.history.undone) - 1].chain do break
 	}

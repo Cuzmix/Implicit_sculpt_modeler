@@ -1,6 +1,7 @@
 package main
 
 import "core:math/linalg"
+import sdl "vendor:sdl3"
 
 import "../camera"
 import "../gizmo"
@@ -187,4 +188,130 @@ pose_entry_apply :: proc(app: ^App, obj: ^Object, h: gizmo.Handle, op: u8, v: f3
 	pose_carry_pivot(app, obj, p)
 	_ = pose_end(app, obj, h)
 	return true
+}
+
+// A topological mask made with the Move tool (sculpt/topo_mask.odin): Ctrl (or the
+// rail's Mask) and a press on an object selects it, then a drag sets how far the mask
+// reaches along the surface from the press, the length of the drag on screen; Alt the
+// other way round. Near the press stays free, so the gizmo, which then goes to the soft
+// edge, poses the part pressed. A tap selects only. The gesture goes on after the
+// release until the search has settled everything within the reach, one mask undo step.
+Topo_Gesture :: struct {
+	phase:  Topo_Phase,
+	id:     int, // the object
+	down:   [2]f32, // the press, in viewport points
+	origin: Vec3, // the press's ray in the object's own space
+	dir:    Vec3,
+	per_px: f32, // the object's own units a pixel at the press
+	invert: bool,
+	reach:  f32, // the reach set last, in the object's own units
+}
+
+Topo_Phase :: enum u8 {
+	None,
+	Pressed, // not yet past the slop
+	Live, // the drag sets the reach
+	Settling, // let go; the search finishes the reach set last
+}
+
+// Vertices the search settles a frame, so a reach across a dense mesh stays a drag
+// rather than a stall: about 20 ms on the test VM (release, 655k-vertex sphere).
+TOPO_BUDGET :: 50_000
+
+// Starts the gesture for a press on `obj` at `at` (viewport points) along the world ray
+// `origin`, `dir`, which met it at `hit`.
+topo_press :: proc(app: ^App, obj: ^Object, at: [2]f32, origin, dir, hit: Vec3, size: [2]f32, invert: bool) {
+	t := obj.transform
+	app.move.topo = {
+		phase  = .Pressed,
+		id     = obj.id,
+		down   = at,
+		origin = to_local(t, origin),
+		dir    = linalg.normalize(to_local_dir(t, dir)),
+		per_px = camera.orbit_world_per_px(app.camera, hit, size.y) / t.scale,
+		invert = invert,
+	}
+}
+
+// Runs the gesture for this frame; true while there is one, which then has the pointer.
+topo_frame :: proc(app: ^App, input: Viewport_Input) -> bool {
+	g := &app.move.topo
+	if g.phase == .None do return false
+	obj := object_by_id(app, g.id)
+	if obj == nil {
+		g^ = {}
+		return false
+	}
+	if key_pressed(&app.device, sdl.K_ESCAPE) && topo_held(app) {
+		topo_cancel(app)
+		return true
+	}
+	// A press while the last one settles finishes it and is the Move tool's as usual.
+	if g.phase == .Settling && input.press {
+		topo_end(app)
+		return false
+	}
+	s := object_sculptor(obj)
+	if g.phase == .Pressed {
+		if !input.primary {
+			g^ = {}
+			return true
+		}
+		if linalg.length(input.mouse_pos - g.down) <= app.kit.ctx.theme.slop * gizmo_scale(app) do return true
+		if !sculpt.sculptor_topo_mask_begin(s, g.origin, g.dir, g.invert) {
+			g^ = {}
+			return true
+		}
+		g.phase = .Live
+	}
+	if g.phase == .Live {
+		if input.primary do g.reach = linalg.length(input.mouse_pos - g.down) * g.per_px
+		else do g.phase = .Settling
+	}
+	if sculpt.sculptor_topo_mask_reach(s, g.reach, TOPO_BUDGET) && g.phase == .Settling do topo_end(app)
+	return true
+}
+
+// Ends the gesture, settling what is left of the reach first, as one mask undo step.
+topo_end :: proc(app: ^App) {
+	g := app.move.topo
+	app.move.topo = {}
+	if g.phase != .Live && g.phase != .Settling do return
+	obj := object_by_id(app, g.id)
+	if obj == nil do return
+	s := object_sculptor(obj)
+	_ = sculpt.sculptor_topo_mask_reach(s, g.reach, max(int))
+	if sculpt.sculptor_topo_mask_end(s) {
+		history_record(app, obj, .Mask, "Topological mask")
+		app.move.topo_masks += 1
+		app.move.topo_reach = g.reach
+	}
+}
+
+// Finishes a topological mask that was let go and is still settling, as its step.
+topo_settle :: proc(app: ^App) {
+	if app.move.topo.phase == .Settling do topo_end(app)
+}
+
+// Whether a topological mask has the pointer: pressed and not yet let go.
+topo_held :: proc(app: ^App) -> bool {
+	return app.move.topo.phase == .Pressed || app.move.topo.phase == .Live
+}
+
+// Puts the mask back as it was and ends the gesture with nothing recorded; one already
+// let go is the user's, and finishes instead.
+topo_cancel :: proc(app: ^App) {
+	if app.move.topo.phase == .Settling {
+		topo_end(app)
+		return
+	}
+	g := app.move.topo
+	app.move.topo = {}
+	if obj := object_by_id(app, g.id); obj != nil do sculpt.sculptor_topo_mask_cancel(object_sculptor(obj))
+}
+
+// Whether the Move tool has the pointer: a drag of the gizmo or an object, or a
+// topological mask, which become steps of their own when they end.
+move_busy :: proc(app: ^App) -> bool {
+	return app.move.drag.handle != .None || app.move.topo.phase != .None
 }

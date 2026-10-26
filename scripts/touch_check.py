@@ -4423,6 +4423,65 @@ def pose_body_drag_and_typed_offset():
                                   "gizmo_at": lambda v: int(v.split(",")[0]) > POSE_CENTER[0] + 20})),
     ])
 
+
+# The topological mask (pose.odin): Ctrl and a drag from the sphere's upper left, off the
+# gizmo, with the Move tool.
+TOPO_PRESS = (600, 300)
+TOPO_DRAG = line(TOPO_PRESS, (TOPO_PRESS[0] + 150, TOPO_PRESS[1]), 10)
+
+
+@scenario
+def topo_mask_ctrl_drag_masks_along_the_surface():
+    """With the Move tool, Ctrl and a drag on the sphere masks it from the press along the
+    surface (free near it, masked beyond) as one undo step, and the handles then pose; a
+    Ctrl click only selects, and Ctrl+Z takes the mask back."""
+    dragged, tapped, undone = Script(), Script(), Script()
+    for sc in (dragged, tapped, undone):
+        sc.press("w")
+    for sc in (dragged, undone):
+        sc.mouse_drag(TOPO_DRAG, keys=("ctrl",))
+        sc.wait(4)
+    tapped.mouse_drag([TOPO_PRESS, TOPO_PRESS], keys=("ctrl",))
+    tapped.wait(2)
+    undone.press("z", ("ctrl",))
+    return Steps([
+        (dragged, [], camera_still({"topo_masks": near(1), "topo_reach": lambda v: float(v) > 0.2, "undo_steps": near(1), "pose_mode": near(1),
+                                    "masked": near(1), "mask_mean": lambda v: 0.3 < float(v) < 0.99, "dabs": near(0)})),
+        (tapped, [], camera_still({"topo_masks": near(0), "undo_steps": near(0), "masked": near(0), "selected": near(0)})),
+        (undone, [], camera_still({"undo_steps": near(0), "redo_steps": near(1), "masked": near(0), "pose_mode": near(0)})),
+    ])
+
+
+@scenario
+def topo_mask_by_finger_with_the_rail():
+    """With the rail's Mask latched and the Move tool on, a finger dragged from the sphere
+    makes the topological mask; Escape mid-drag with the mouse puts the mask back."""
+    finger, escape = Script(), Script()
+    rail_tap(finger, "mask")
+    finger.press("w")
+    finger.fdrag(TOPO_DRAG)
+    finger.wait(4)
+    escape.press("w")
+    escape.add("key:ctrl")
+    escape.add(f"move:{TOPO_PRESS[0]},{TOPO_PRESS[1]}")
+    escape.wait(1)
+    escape.add("down")
+    for p in TOPO_DRAG[1:]:
+        escape.wait(1)
+        escape.add(f"move:{p[0]:g},{p[1]:g}")
+    escape.wait(1)
+    escape.add("key:Escape")
+    escape.wait(1)
+    escape.add("keyup:Escape")
+    escape.wait(1)
+    escape.add("up")
+    escape.add("keyup:ctrl")
+    escape.wait(4)
+    return Steps([
+        (finger, [], camera_still({"topo_masks": near(1), "undo_steps": near(1), "masked": near(1), "dabs": near(0)})),
+        (escape, [], camera_still({"topo_masks": near(0), "undo_steps": near(0), "masked": near(0)})),
+    ])
+
 def main(argv):
     if "--list" in argv:
         for name, fn in SCENARIOS.items():

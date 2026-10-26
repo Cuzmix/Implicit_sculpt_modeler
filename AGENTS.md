@@ -66,8 +66,9 @@ skill whose description fits the request BEFORE you form a plan.
 - Determinism: serial and parallel results are bit-identical and tests compare them; no map order decides output.
 - Allocations inside jobs use `runtime.heap_allocator()` for both make and delete; only the frame loop and the setup
   paths call `free_all(context.temp_allocator)` (the autosave thread frees its own arena); nothing temp is stored.
-- Every vertex move goes through `apply_dab`, `sculptor_grab_move` or `sculptor_nodes_moved`, and every mask change
-  through `mask_dab` or `sculptor_mask_command`; triangles change only under dynamic topology inside a stroke. Any other
+- Every vertex move goes through `apply_dab`, `sculptor_grab_move` or `sculptor_nodes_moved` (posing too), and every
+  mask change through `mask_dab`, `sculptor_mask_command`, `sculptor_mask_values` or `sculptor_topo_mask_reach`;
+  triangles change only under dynamic topology inside a stroke. Any other
   topology change (remesh, booleans, …) copies `object_remesh`: end the stroke, leave HD, release and rebuild the object,
   which drops its levels, mask and strokes, and record it as a swap undo entry (`history_snapshot` / `history_record_swap`: `sm-cad`).
 - The interface never owns sculpt state; panels keep no references between frames; scene changes are `Scene_Command`s and

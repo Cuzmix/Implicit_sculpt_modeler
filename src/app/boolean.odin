@@ -126,7 +126,7 @@ boolean_live_update :: proc(app: ^App) -> bool {
 	}
 	stamp := boolean_stamp(app)
 	if b.shown && stamp == b.stamp && b.base == base.id do return true
-	if app.stroke.active || app.move.drag.handle != .None || .Left in app.device.down do return true
+	if app.stroke.active || move_busy(app) || .Left in app.device.down do return true
 	start := time.tick_now()
 	mesh, ok := boolean_result(app, base, int(b.live_vertices), project = true)
 	b.stamp, b.base = stamp, base.id
@@ -154,7 +154,7 @@ boolean_hides :: proc(app: ^App, obj: ^Object, index: int) -> bool {
 	// With its base out of view the preview is not drawn, so nothing stands in for the
 	// objects it uses: they draw as themselves, as a press can still reach them.
 	if base := object_by_id(app, app.ui.boolean.base); base == nil || !object_shown(app, base) do return false
-	busy := app.stroke.active || app.move.drag.handle != .None || .Left in app.device.down
+	busy := app.stroke.active || move_busy(app) || .Left in app.device.down
 	return !(busy && index == app.scene.selected)
 }
 
