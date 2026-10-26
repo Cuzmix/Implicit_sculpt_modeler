@@ -185,8 +185,8 @@ toasts_draw :: proc(ctx: ^Context) {
 	}
 }
 
-// `s` as it fits in `width` points: whole, or cut at a character with "..." after.
-@(private)
+// `s` as it fits in `width` points: whole, or cut at a character with "..." after. The
+// app's own drawing (the pie's labels) cuts with it too.
 text_fit :: proc(ctx: ^Context, s: string, size, width: f32) -> string {
 	if text_width(ctx, s, size) <= width do return s
 	dots :: "..."

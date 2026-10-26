@@ -49,6 +49,17 @@ Kit_State :: struct {
 	grid_scroll: f32,
 	grid_reveal: bool, // the grid scrolls to the lit tile as it opens
 	bind:       Bind_Popover, // Assign key (kit_bind.odin)
+	// The user's pies and the starred commands (user_pies.odin), and the pie editor: open,
+	// with the command a tap puts in a slot (none: it only empties), beside the control it
+	// was opened from, and its scroll.
+	pies:       [USER_PIES][PIE_SLOTS]Pie_Slot,
+	favourites: [MAX_FAVOURITES]Pie_Slot,
+	favourite_count: int,
+	pie_editor: bool,
+	pie_put:    Pie_Slot,
+	pie_editor_at: ui.Rect,
+	pie_scroll: f32,
+	pie_runs:   int, // commands run from a user pie, for the exit stats
 	laying_out: bool, // kit_layout is running: a command run now came from a control
 	stats:      bool, // the Stats panel (F11)
 	stats_advanced: bool, // ...showing every measurement by its exact name, not the simple view
@@ -477,6 +488,7 @@ kit_init :: proc(app: ^App) {
 	k.rail_side = .Left
 	k.action_bar = true
 	k.dock = DOCK_DEFAULT
+	k.pies = PIE_DEFAULTS
 	k.order = KIT_WINDOW_ORDER
 	k.last_frame = time.tick_now()
 }
@@ -486,7 +498,7 @@ kit_init :: proc(app: ^App) {
 // first-run tip hides under it.
 kit_floating :: proc(app: ^App) -> bool {
 	k := &app.kit
-	return app.ui.pie.open || app.ui.adjust.kind != .None || k.action_pop || k.menu || k.view_menu || k.browser || k.dock_menu || k.bind.open || k.object_menu || k.palette || k.ctx.select_open != 0
+	return app.ui.pie.open || app.ui.adjust.kind != .None || k.action_pop || k.menu || k.view_menu || k.browser || k.dock_menu || k.bind.open || k.pie_editor || k.object_menu || k.palette || k.ctx.select_open != 0
 }
 
 kit_destroy :: proc(app: ^App) {
@@ -535,6 +547,12 @@ kit_begin :: proc(app: ^App, window: ^sdl.Window) -> (size, pixels: [2]i32) {
 		text          = string(d.text[:d.text_len]),
 		pointer       = d.pointer,
 		cancel        = d.cancel,
+	}
+	// An open pie, and the click that picked from it until it is let go, are over the
+	// panels too: nothing under them is pressed or hovered.
+	if app.ui.pie.open || app.ui.pie.swallow {
+		in_.mouse_valid = false
+		in_.down, in_.pressed, in_.released = {}, {}, {}
 	}
 	for key in d.keys {
 		switch key.key {
@@ -611,6 +629,9 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 	k.laying_out = true
 	kit_layout(app)
 	k.laying_out = false
+	// Whether something floated before the pie read this frame's Escape and closed itself:
+	// that Escape is the pie's, not Settings'.
+	floating := kit_floating(app)
 	input := kit_viewport_input(app, {f32(size.x), f32(size.y)})
 	if !typed do commands_handle_keys(app)
 	layer_drag_end(app)
@@ -626,10 +647,10 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 	// Escape stops a replay.
 	if key_pressed(d, sdl.K_ESCAPE) || key_pressed(d, sdl.K_AC_BACK) {
 		// The topmost goes first: what floats, and only then Settings or Help.
-		if side_panel_open(k) && !kit_floating(app) do side_panel_close(app)
+		if side_panel_open(k) && !floating && !kit_floating(app) do side_panel_close(app)
 		if k.palette do palette_close(app)
 		k.menu, k.view_menu, k.browser, k.dock_menu, k.object_menu, k.action_pop = false, false, false, false, false, false
-		k.bind.open = false
+		k.bind.open, k.pie_editor = false, false
 		ctx.select_open = 0
 	}
 	k.ms = time.duration_milliseconds(time.tick_since(start))
@@ -668,7 +689,9 @@ kit_viewport_input :: proc(app: ^App, size: [2]f32) -> (input: Viewport_Input) {
 	if input.hovered || input.dragging do input.wheel = d.wheel
 	// A right press let go soon and about where it began is a tap, which opens the brush
 	// pie, rather than an orbit.
-	right_tap := input.dragging && d.right_tap && !d.shift
+	// While a pie is open the panels take no press (kit_begin), so a right tap anywhere is
+	// the pie's.
+	right_tap := (input.dragging || app.ui.pie.open) && d.right_tap && !d.shift
 	// A press and its release can both come in one frame (a tap, or a click during a slow
 	// frame): the press still holds for this frame, and the release among the samples
 	// ends what it began; the next frame sees the button up.
@@ -842,6 +865,7 @@ kit_layout :: proc(app: ^App) {
 	kit_palette(app, palette_anchor)
 	kit_action_popover(app)
 	kit_bind_popover(app)
+	kit_pie_editor(app)
 }
 
 // The inspector: the tool, the selected object or the scene, in tabs, sliding in from

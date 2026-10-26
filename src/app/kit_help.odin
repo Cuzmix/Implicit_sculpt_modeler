@@ -59,7 +59,7 @@ command_group :: proc(id: Command_Id) -> Command_Group {
 	case .Remesh ..= .Extract_Masked:         return .Object
 	case .Add_Object ..= .Frame_All:          return .Scene
 	case .View_Axis ..= .Studio_Render:       return .View
-	case .Stats ..= .Coach_Tips:                    return .App
+	case .Stats ..= .Pie_Editor:                    return .App
 	}
 	return .App
 }

@@ -96,6 +96,8 @@ Command_Id :: enum u8 {
 	Command_Palette,
 	Help, // the argument is the Help_Tab
 	Coach_Tips,
+	Pie, // the argument is the user pie, from 0 (user_pies.odin)
+	Pie_Editor,
 }
 
 Command :: struct {
@@ -668,6 +670,20 @@ COMMANDS := [Command_Id]Command {
 			app.kit.menu = false
 		},
 	},
+	.Pie = {
+		label = "Pie",
+		help = "Opens this pie of your own commands at the pointer: tap a slice to run it. Put commands in it from Search.",
+		icon = ui.ICON_PIE,
+		args = USER_PIES,
+		run = pie_toggle_user,
+		enabled = proc(app: ^App, _: int) -> bool {return !pie_busy(app)},
+	},
+	.Pie_Editor = {
+		label = "Edit pies",
+		help = "Shows the four pies' slots, to empty them or put the defaults back.",
+		icon = ui.ICON_PIE,
+		run = proc(app: ^App, _: int) {pie_editor_open(app, .None, 0, {})},
+	},
 }
 
 // The shortcuts (README "Controls"), in the order the keys are read each frame: when
@@ -735,6 +751,8 @@ DEFAULT_BINDINGS := [?]Binding {
 	{{sdl.K_TAB, {}, false}, .Inspector, 0},
 	{{sdl.K_K, {.Ctrl}, false}, .Command_Palette, 0},
 	{{sdl.K_SLASH, {}, false}, .Command_Palette, 0},
+	{{sdl.K_Q, {}, false}, .Pie, 0},
+	{{sdl.K_Q, {.Shift}, false}, .Pie, 1},
 }
 
 command_enabled :: proc(app: ^App, id: Command_Id, arg := 0) -> bool {
@@ -780,6 +798,8 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 		return fmt.tprintf("%s to %s vertices", "Remesh" if id == .Remesh_To else "Decimate", SPHERE_PRESETS[arg].label)
 	case .Help:
 		return fmt.tprintf("Help: %s", HELP_TAB_NAMES[Help_Tab(arg)])
+	case .Pie:
+		return fmt.tprintf("Pie %d", arg + 1)
 	}
 	return COMMANDS[id].label
 }

@@ -244,21 +244,25 @@ draw_surface_ring :: proc(app: ^App, o: Overlay, size: [2]f32, color: ui.Color) 
 }
 
 // Draws the open pie over everything, so it shows whole even near the viewport's edge.
+// The brush pie's slices read "number name" with a band on the brush in use; a user
+// pie's show the command's icon over its label, a band on one that is on now, dimmed
+// when it cannot run, and "Empty" for an empty slot.
 draw_pie :: proc(app: ^App, o: Overlay) {
 	p := app.ui.pie
 	if !p.open do return
 	ctx := o.ctx
 	t := ctx.theme
-	n := len(sculpt.Brush_Kind)
+	n := pie_slot_count(p.which)
 	step := 2 * math.PI / f32(n)
 	GAP :: 0.02 // radians between slices
 	ARC :: 12 // segments along each edge of a slice
 	// The pie is sized in points (pie.odin); the overlay takes window coordinates.
 	pt := o.scale
-	for kind, i in sculpt.Brush_Kind {
+	for i in 0 ..< n {
 		mid := -math.PI / 2 + f32(i) * step
 		a0, a1 := mid - step / 2 + GAP, mid + step / 2 - GAP
-		hover := i == p.hover
+		usable := pie_pickable(app, p.which, i)
+		hover := i == p.hover && usable
 		// The slice: along its outer edge, then back along its inner one. Its inner edge
 		// dips so little across a slice that it fills as a convex shape.
 		outline: [2 * (ARC + 1)][2]f32
@@ -268,8 +272,16 @@ draw_pie :: proc(app: ^App, o: Overlay) {
 			outline[ARC + 1 + s] = p.center + (PIE_INNER + 6) * pt * angle_dir(a1 - (a1 - a0) * f)
 		}
 		overlay_fill(o, outline[:], t.accent if hover else t.surface)
-		if kind == app.brush.kind {
-			// The brush in use: a band along the outside of its slice.
+		on: bool
+		slot: Pie_Slot
+		if p.which == 0 {
+			on = sculpt.Brush_Kind(i) == app.brush.kind
+		} else {
+			slot = app.kit.pies[p.which - 1][i]
+			on = slot.id != .None && command_checked(app, slot.id, slot.arg)
+		}
+		if on {
+			// The brush in use, or a command that is on: a band along the slice's outside.
 			band: [ARC + 1][2]f32
 			for s in 0 ..= ARC do band[s] = p.center + (PIE_OUTER - 3) * pt * angle_dir(a0 + (a1 - a0) * f32(s) / ARC)
 			overlay_polyline(o, band[:], t.on_accent if hover else t.accent, 4 * pt)
@@ -278,11 +290,26 @@ draw_pie :: proc(app: ^App, o: Overlay) {
 		r: f32 = PIE_INNER + 0.62 * (PIE_OUTER - PIE_INNER)
 		label := at(o, p.center + r * pt * angle_dir(mid))
 		font := ui.Font.Semibold if hover else ui.Font.Regular
-		ui.text(ctx, fmt.tprintf("%d %s", i + 1, BRUSHES[kind].name), label.x, label.y, t.text_size, t.on_accent if hover else t.text, font, .Center)
+		color := t.on_accent if hover else t.text
+		if p.which == 0 {
+			ui.text(ctx, fmt.tprintf("%d %s", i + 1, BRUSHES[sculpt.Brush_Kind(i)].name), label.x, label.y, t.text_size, color, font, .Center)
+			continue
+		}
+		if !usable do color = ui.color_fade(t.text_secondary, 0.5)
+		// Eight slices leave each label about a slice's chord across, and a little more: a
+		// label lies flat while the slice turns, so the side slices have more room than that.
+		room := 2 * r * math.sin(step / 2) + 16
+		glyph := ui.ICON_PLUS if slot.id == .None else (COMMANDS[slot.id].icon if COMMANDS[slot.id].icon != 0 else ui.ICON_WAND)
+		ui.icon(ctx, glyph, {label.x, label.y - 12}, t.icon_small, color)
+		ui.text(ctx, ui.text_fit(ctx, pie_slot_label(slot), t.small_size, room), label.x, label.y + 10, t.small_size, color, font, .Center)
 	}
-	// The middle, and which way the pointer points from it.
+	// The middle, and which way the pointer points from it. A user pie's middle names it.
 	overlay_disc(o, p.center, PIE_INNER * pt, t.surface)
 	overlay_circle(o, p.center, PIE_INNER * pt, t.border_strong, 1.5 * pt)
+	if p.which > 0 {
+		c := at(o, p.center)
+		ui.text(ctx, fmt.tprint(p.which), c.x, c.y, t.text_size, t.text_secondary, .Semibold, .Center)
+	}
 	if p.hover >= 0 {
 		d := linalg.normalize0(app.ui.viewport_mouse - p.center)
 		overlay_disc(o, p.center + (PIE_INNER - 6) * pt * d, 4 * pt, t.accent)

@@ -174,6 +174,11 @@ settings_interface :: proc(app: ^App) {
 	_ = ui.switch_row(ctx, "Show every option", &k.all_options)
 	ui.paragraph(ctx, "Each section of the inspector shows its common controls and keeps the rest under More options. On, every section shows everything.")
 	ui.spacer(ctx, 8)
+	ui.caption(ctx, "PIES")
+	// Beside the button that opened it, rather than at the top of the window.
+	if command_button(app, .Pie_Editor, variant = .Bordered, glyph = ui.ICON_PIE) do k.pie_editor_at = ctx.last_rect
+	ui.paragraph(ctx, fmt.tprintf("%s opens Pie 1 at the pointer and %s Pie 2; tap a slice to run it. Search puts any command in a pie (Put in a pie); here you can empty slots or put the defaults back.", key_or(command_keys(app, .Pie, 0), "Pie 1's key"), key_or(command_keys(app, .Pie, 1), "Pie 2's")))
+	ui.spacer(ctx, 8)
 	ui.caption(ctx, "PANELS")
 	if ui.button(ctx, "Reset panel positions", .Bordered) do windows_reset(k)
 	ui.paragraph(ctx, "Drag a panel by its title bar to move it; Minimise folds it to its title bar, Close hides it until it is opened again. This puts every panel back where it starts, unfolded.")
@@ -281,4 +286,10 @@ settings_performance :: proc(app: ^App) {
 @(private = "file")
 speed_slider :: proc(ctx: ^ui.Context, label: string, value: ^f32) {
 	_ = ui.slider(ctx, label, value, 0.25, 4, .Logarithmic, fmt.tprintf("%.2fx", value^))
+}
+
+// A command's keys for a sentence, or `fallback` when it has none (the user took them).
+@(private = "file")
+key_or :: proc(keys, fallback: string) -> string {
+	return keys if keys != "" else fallback
 }

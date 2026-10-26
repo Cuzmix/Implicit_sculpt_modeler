@@ -1759,9 +1759,15 @@ def browser_picks_a_preset():
 
 
 # The Assign key popover under the inspector button, at 1600 by 900: Use it here and Keep
-# it there on a conflict; the palette's Assign key with "wire" typed.
+# it there on a conflict; the palette's Star, Put in a pie and Assign key with "wire"
+# typed (two rows), and its first row with nothing typed under the STARRED caption.
 BIND_USE_HERE, BIND_KEEP = (1345, 201), (1506, 201)
-PALETTE_ASSIGN = (1423, 243)
+PALETTE_STAR, PALETTE_PIE, PALETTE_ASSIGN = (1145, 319), (1281, 319), (1419, 319)
+PALETTE_FIRST_STARRED = (1148, 170)
+# The pie editor opened from the palette: Pie 1's first slot and Pie 3's.
+EDITOR_PIE1_FIRST, EDITOR_PIE3_FIRST = (1104, 182), (1104, 350)
+# A user pie opened with its key over the middle of the window: its right slice (slot 3).
+PIE_MIDDLE, PIE_RIGHT = (800, 450), (900, 450)
 
 
 def bind_inspector(s):
@@ -1843,6 +1849,127 @@ def bind_from_the_palette():
     s.press("k")
     s.wait(4)
     return s, [], camera_still({"key_overrides": near(1), "bind_open": near(1), "bind_command": is_text("Wireframe"), "bind_state": is_text("assigned")})
+
+
+@scenario
+def pie_key_opens_and_runs():
+    """Q over the model opens Pie 1 there; a tap on its right slice runs Wireframe and closes it, and sculpts nothing."""
+    s = Script()
+    s.add(f"move:{PIE_MIDDLE[0]},{PIE_MIDDLE[1]}")
+    s.wait(4)
+    s.press("q")
+    s.wait(4)
+    s.ftap(*PIE_RIGHT)
+    s.wait(6)
+    return s, [], camera_still({"dabs": near(0), "pie_open": near(-1), "pie_runs": near(1), "wireframe": near(1)})
+
+
+@scenario
+def pie_escape_closes_only_the_pie():
+    """With Help open, Shift+Q opens Pie 2 and Escape closes the pie alone: nothing runs and Help stays."""
+    s = Script()
+    s.add(f"move:{PIE_MIDDLE[0]},{PIE_MIDDLE[1]}")
+    s.wait(4)
+    s.press("F1")
+    s.wait(10)
+    s.add(f"move:{PIE_MIDDLE[0] - 200},{PIE_MIDDLE[1]}")
+    s.wait(4)
+    s.press("q", mods=("shift",))
+    s.wait(4)
+    s.press("Escape")
+    s.wait(6)
+    return s, [], camera_still({"pie_open": near(-1), "pie_runs": near(0), "help_open": near(1)})
+
+
+@scenario
+def pie_from_palette_stays_open():
+    """Pie 1 run from the palette with one tap opens in the window's middle and stays open; a tap over the dock then picks the slice that way (Orthographic), not the dock's brush."""
+    s = Script()
+    s.ftap(*UI["search"])
+    s.wait(8)
+    s.type("pie 1")
+    s.wait(6)
+    s.ftap(1148, 146)
+    s.wait(6)
+    s.ftap(*UI["dock_smooth"])
+    s.wait(6)
+    return s, [], camera_still({"dabs": near(0), "pie_open": near(-1), "pie_runs": near(1), "ortho": near(1), "brush_kind": is_text("draw")})
+
+
+@scenario
+def pie_held_open_after_palette_tap():
+    """A click on the palette whose press and release come in one frame (a slow frame) opens Pie 2 and picks nothing from it: the pie is still open after."""
+    s = Script()
+    s.ftap(*UI["search"])
+    s.wait(8)
+    s.type("pie 2")
+    s.wait(6)
+    s.add("move:1148,146")
+    s.wait(2)
+    s.add("down")
+    s.add("up")
+    s.wait(8)
+    return s, [], camera_still({"pie_open": near(2), "pie_runs": near(0)})
+
+
+@scenario
+def star_puts_a_command_first():
+    """The palette's Star on Wireframe; reopened with nothing typed, its first row is Wireframe, and a tap on it runs it."""
+    s = Script()
+    s.ftap(*UI["search"])
+    s.wait(8)
+    s.type("wire")
+    s.wait(6)
+    s.ftap(*PALETTE_STAR)
+    s.wait(4)
+    s.press("Escape")
+    s.wait(6)
+    s.ftap(*UI["search"])
+    s.wait(8)
+    s.ftap(*PALETTE_FIRST_STARRED)
+    s.wait(6)
+    return s, [], camera_still({"favourites": near(1), "wireframe": near(1), "palette": near(0)})
+
+
+@scenario
+def put_in_a_pie_from_palette():
+    """Put in a pie on Wireframe opens the pie editor; a tap on Pie 3's first slot puts it there."""
+    s = Script()
+    s.ftap(*UI["search"])
+    s.wait(8)
+    s.type("wire")
+    s.wait(6)
+    s.ftap(*PALETTE_PIE)
+    s.wait(8)
+    s.ftap(*EDITOR_PIE3_FIRST)
+    s.wait(6)
+    return s, [], camera_still({"pie_editor": near(1), "pie3": lambda v: v.startswith("Wireframe,empty")})
+
+
+@scenario
+def pie_editor_long_press_empties():
+    """A long press on Pie 1's first slot in the pie editor empties it."""
+    s = Script()
+    s.ftap(*UI["search"])
+    s.wait(8)
+    s.type("wire")
+    s.wait(6)
+    s.ftap(*PALETTE_PIE)
+    s.wait(8)
+    long_press(s, *EDITOR_PIE1_FIRST)
+    s.wait(4)
+    return s, [], camera_still({"pie_editor": near(1), "pie1": lambda v: v.startswith("empty,Frame_All")})
+
+
+@scenario
+def pies_come_back_from_settings():
+    """A settings file's pie and favourite lines load; a damaged one is skipped."""
+    s = Script()
+    with open(settings_file(), "w") as f:
+        f.write("pie 2 0 Wireframe\npie 2 1 Nothing\nfavourite Remesh\nfavourite Bogus\n")
+    s.add(f"move:{EMPTY[0]},{EMPTY[1]}")
+    s.wait(6)
+    return s, [f"--settings-file={settings_file()}"], {"favourites": near(1), "pie3": lambda v: v.startswith("Wireframe,empty")}
 
 
 @scenario
