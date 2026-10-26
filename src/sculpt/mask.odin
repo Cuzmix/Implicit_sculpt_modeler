@@ -4,6 +4,7 @@ import "core:math"
 import "core:math/linalg"
 import "core:slice"
 
+import "../geom"
 import "../jobs"
 
 // Masking, as in ZBrush: a value per vertex, 0 to 255, that shields it from brushes in
@@ -485,6 +486,18 @@ mask_filtered :: #force_inline proc(s: ^Sculptor, from: []u8, command: Mask_Comm
 		return u8(lo)
 	}
 	return u8(k)
+}
+
+// How masked the shown surface is where a ray (in the mesh's space) meets it first, 0 to
+// 1: the mean of the mask at the corners of the triangle it meets. ok is false when it
+// meets none.
+sculptor_mask_at :: proc(s: ^Sculptor, origin, dir: Vec3) -> (mask: f32, ok: bool) {
+	tri: u32
+	_, tri, ok = geom.bvh_raycast(&s.bvh, s.mesh^, origin, dir, sculptor_hidden_tris(s))
+	if !ok || len(s.mask) == 0 do return
+	idx := s.mesh.indices
+	for c in 0 ..< 3 do mask += f32(s.mask[idx[3 * tri + u32(c)]]) / (3 * 255)
+	return
 }
 
 // Whether any vertex is masked at all.

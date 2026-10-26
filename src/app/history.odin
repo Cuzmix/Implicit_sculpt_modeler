@@ -160,7 +160,9 @@ stroke_finish :: proc(app: ^App) {
 // Applies a mask command to the selected object as an undo step of its own; Blur,
 // Sharpen, Grow and Shrink take the Mask section's step count. What it did and how long
 // it took show in the Mask section, since many steps on a large mesh take a moment.
-mask_command :: proc(app: ^App, command: sculpt.Mask_Command) {
+// With `toast` (a tap chose it, so nothing on screen says what ran) the result is a toast
+// with Undo rather than only the Mask section's last line.
+mask_command :: proc(app: ^App, command: sculpt.Mask_Command, toast := false) {
 	stroke_finish(app)
 	obj := selected_object(app)
 	if obj == nil do return
@@ -168,8 +170,11 @@ mask_command :: proc(app: ^App, command: sculpt.Mask_Command) {
 	steps := int(max(app.ui.mask_steps, 1))
 	changed := sculpt.sculptor_mask_command(object_sculptor(obj), command, steps)
 	ms := time.duration_milliseconds(time.tick_since(start))
-	report(app, Kit_Section.Mask, {.Quiet}, "%s%s in %.0f ms%s", MASK_COMMAND_NAMES[command], fmt.tprintf(", %d steps", steps) if command >= .Blur else "", ms, "" if changed else ", nothing changed")
 	if changed do history_record(app, obj, .Mask, MASK_COMMAND_NAMES[command])
+	// A tap that changed nothing still says so, without Undo.
+	flags := Report_Flags{.Quiet}
+	if toast do flags = {.Undo} if changed else {}
+	report(app, Kit_Section.Mask, flags, "%s%s in %.0f ms%s", MASK_COMMAND_NAMES[command], fmt.tprintf(", %d steps", steps) if command >= .Blur else "", ms, "" if changed else ", nothing changed")
 }
 
 // Masks (or unmasks) what of the selected object falls inside `shape`, a polygon in

@@ -81,6 +81,7 @@ on window focus or hover to decide ownership; a widget that acts on a finger pre
 | holds a modifier button while the pen lands, hovers, or two fingers pinch; a window covers it; a latched one at the edge | `rail_finger_survives_pen_down`, `rail_finger_while_pen_near`, `rail_finger_during_pinch`, `rail_under_window_goes_to_window`, `rail_latched_edge_still_orbits` |
 | taps the model quickly with a modifier latched: the dab keeps it | `finger_tap_with_invert_latched_dabs_inverted` |
 | double-taps: empty space frames; the model pins the pivot (sculpting or orbiting) and neither tap sculpts; too slow, too far, in the edge band or switched off does nothing | `double_tap_empty_frames_the_object`, `double_tap_model_pins_the_pivot`, `double_tap_model_while_sculpting_pins_without_dabs`, `pinned_pivot_ends_with_the_next_stroke`, `double_tap_too_slow_is_two_taps`, `double_tap_too_far_is_two_taps`, `double_tap_in_the_edge_band_does_nothing`, `double_tap_off_frames_nothing` |
+| taps with Mask on: off the model inverts, on the mask blurs, off the mask sharpens, never a dot; the pen too; Ctrl+click off the model inverts, on it still sculpts inverted | `mask_tap_off_the_model_inverts`, `mask_tap_on_the_mask_blurs`, `mask_tap_off_the_mask_sharpens`, `mask_pen_tap_inverts_too`, `ctrl_click_off_the_model_inverts_the_mask`, `ctrl_click_on_the_model_still_sculpts_inverted` |
 | taps the model once: the dab lands after the double tap's gap, or at once before an Undo tap, a stroke or a pinch; with double taps off, at once | `single_tap_dab_lands_after_the_gap`, `tap_dab_waits_for_nothing_else`, `tap_then_stroke_keeps_both`, `tap_then_two_fingers_keeps_the_dab`, `double_tap_off_taps_dab_at_once` |
 | puts two fingers down and lifts one to turn the view; not after a pinch, not when off | `lift_one_finger_turns_the_view`, `pinch_then_lift_turns_nothing`, `lift_one_off_turns_nothing` |
 | holds two or three fingers still to repeat undo or redo; never with the pen near, a late (palm) finger, a slow pinch, or when off | `hold_two_fingers_repeats_undo`, `hold_three_fingers_repeats_redo`, `hold_with_the_pen_near_does_nothing`, `hold_with_a_late_finger_does_nothing`, `slow_pinch_never_undoes`, `hold_off_undoes_nothing` |
@@ -99,7 +100,8 @@ are on the device checklist.
   `camera_target`, `dabs`, `undo_steps`, `redo_steps`, `brush_radius_px`, `brush_strength`, `inspector_scroll`,
   `settings_scroll`, `settings_open`, `orbit_pivot`, `pivot_source`, `cursor_hit`, `cursor_normal`, `window_<name>`,
   `stroke_kind`, `stroke_invert`, `rail_latched`, `masked`, `hidden_triangles`, `long_tip` (the last long-press
-  tooltip, spaces as underscores, or none), `object_menu`, `pinned`, `framed` (double taps on empty space),
+  tooltip, spaces as underscores, or none), `object_menu`, `pinned`, `framed` (double taps on empty space), `mask_mean` (the selected object's mask, 0 to 1),
+  `last_op` (the last operation's result up to " in " or a comma, underscores for spaces), `toast_undo` (it offered Undo),
   `touch_repeats` (undo and redo steps taken by holding fingers), `inspector_tab`, `brush_kind`, `layout_<name>` (x,y,w,h of the
   modifier rail, sliders, dock, status and inspector), ...); `camera_still()` checks nothing moved; keys starting with `@` are checks given every stat at once or checks on
   files, such as `saved(key="value")` and `saved_line(line)` on the settings file, or `on_screen` comparing where a

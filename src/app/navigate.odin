@@ -4,6 +4,7 @@ import "core:math/linalg"
 import "core:time"
 
 import "../camera"
+import "../sculpt"
 import "../ui"
 import sdl "vendor:sdl3"
 
@@ -46,6 +47,10 @@ Drag :: struct {
 	// A finger's brush press that may be a tap of a double tap: it waits FINGER_TAP rather
 	// than FINGER_HOLD to begin, and as a tap its dab waits for a second one (Dab_Wait).
 	defer_tap: bool,
+	// A press with Mask on (the rail's Mask, or Ctrl off the model) that may be a tap: it
+	// waits FINGER_TAP too, and as a tap runs a mask command chosen by where it landed
+	// (mask_tap_act) instead of painting a dot.
+	mask_tap:  bool,
 }
 
 // The modifiers of a primary drag, as Viewport_Input carries them.
@@ -261,6 +266,13 @@ pointer_route :: proc(app: ^App, input: ^Viewport_Input) {
 		g.pending = g.owner == .Tool && d.pointer == .Finger && app.tool == .Brush
 		// Not the presses that go to the mask and hide shapes or a clip, nor during a replay.
 		g.defer_tap = g.pending && app.nav.double_tap && !d.shift && !d.ctrl && !d.alt && !rail_keeps_empty_space(app.rail.press.mods) && !replay_busy(app)
+		if owner == .Tool && app.tool == .Brush && !d.shift && (input.mask || input.mask_shape) && !replay_busy(app) {
+			origin, dir := mouse_ray(app.camera, d.mouse, input.size)
+			_, _, on := scene_raycast(app, origin, dir)
+			// Ctrl on the model inverts the brush; only off it does Ctrl mask.
+			g.mask_tap = input.mask || !on
+			g.pending ||= g.mask_tap
+		}
 		if w := &app.dab_wait; w.active && !(g.defer_tap && w.second) do w.play = true
 		clear(&g.held)
 		if owner == .Orbit {
@@ -293,10 +305,17 @@ pointer_route :: proc(app: ^App, input: ^Viewport_Input) {
 			append(&g.held, ..input.samples)
 			lifted := buttons == {}
 			now := input_clock(app)
-			wait := ui.FINGER_TAP if g.defer_tap else time.duration_seconds(FINGER_HOLD)
-			tap := lifted && g.defer_tap && g.travel <= slop && now - g.at < ui.FINGER_TAP
+			waits_tap := g.defer_tap || g.mask_tap
+			wait := ui.FINGER_TAP if waits_tap else time.duration_seconds(FINGER_HOLD)
+			tap := lifted && waits_tap && g.travel <= slop && now - g.at < ui.FINGER_TAP
 			w := &app.dab_wait
-			if tap {
+			if tap && g.mask_tap && !w.active {
+				g.pending = false
+				clear(&g.held)
+				input.primary, input.press = false, false
+				input.samples = {}
+				mask_tap_act(app, g.from, input.size)
+			} else if tap {
 				// A tap: the second of a double tap acts and neither tap sculpts; a first
 				// one's dab waits for a second (Dab_Wait).
 				g.pending = false
@@ -429,6 +448,25 @@ double_tap_act :: proc(app: ^App, at, size: [2]f32) {
 	if selected_object(app) != nil do focus_selected(app)
 	else do frame_all(app)
 	app.double_tap.framed += 1
+}
+
+// A tap with Mask on, by where it landed (ZBrush's Ctrl click, Nomad's taps while Mask is
+// held): off the model it inverts the selected object's mask; on an object it selects it,
+// as a stroke there would, and blurs its mask where it is masked and sharpens it where it
+// is not. Each says so in a toast, with Undo when it changed something.
+mask_tap_act :: proc(app: ^App, at, size: [2]f32) {
+	origin, dir := mouse_ray(app.camera, at, size)
+	index, _, on := scene_raycast(app, origin, dir)
+	if !on {
+		mask_command(app, .Invert, toast = true)
+		return
+	}
+	app.scene.selected = index
+	obj := app.scene.objects[index]
+	t := obj.transform
+	if m, ok := sculpt.sculptor_mask_at(object_sculptor(obj), to_local(t, origin), to_local_dir(t, dir)); ok {
+		mask_command(app, .Blur if m >= 0.5 else .Sharpen, toast = true)
+	}
 }
 
 // Notes what in event `e` comes before a waiting tap's dab is played (Dab_Wait). Runs for
