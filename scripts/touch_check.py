@@ -1670,14 +1670,92 @@ def right_click_undo_opens_history():
 
 
 @scenario
-def long_press_dock_brush_opens_its_settings():
-    """A long press on Smooth in the dock picks it and turns the inspector to its settings, from the Object tab."""
+def long_press_dock_tile_opens_its_slot_menu():
+    """A long press on Smooth in the dock opens its slot menu; Brush settings there picks Smooth and turns the inspector to its settings, from the Object tab."""
     s = Script()
     s.ftap(*UI["tab_object"])
     s.wait(6)
     long_press(s, *UI["dock_smooth"])
+    s.wait(10)
+    s.ftap(*SLOT_SETTINGS)
+    s.wait(6)
     return s, [], camera_still({"dabs": near(0), "brush_kind": lambda v: v == "smooth", "inspector_tab": lambda v: v == "tool",
-                                "window_inspector": lambda v: v.startswith("1,0,")})
+                                "window_inspector": lambda v: v.startswith("1,0,"), "dock_menu": near(0)})
+
+
+DEFAULT_DOCK = "Draw,Smooth,Clay,Flatten,Inflate,Grab,Mask"
+# The slot menu over the dock's Smooth, and the brush browser, at 1600 by 900 with no
+# preset or one: Brush settings, Pinch, the first preset and Reset dock in the menu; the
+# first preset in the browser.
+SLOT_SETTINGS, SLOT_PINCH, SLOT_PRESET, SLOT_RESET = (558, 476), (511, 583), (511, 735), (548, 786)
+BROWSER_PRESET = (900, 780)
+
+
+def one_preset_settings(extra=""):
+    """A settings file with one preset, Soft clay, and `extra` lines."""
+    with open(settings_file(), "w") as f:
+        f.write("preset Soft%20clay Clay 0.2 0 0 0 0 0 - Stroke 0 Dots 0 0 0 0 Drag\n" + extra)
+    return f"--settings-file={settings_file()}"
+
+
+@scenario
+def dock_slot_takes_a_brush():
+    """Long press Smooth in the dock, tap Pinch in its slot menu: the slot holds Pinch, and a tap on it picks Pinch."""
+    s = Script()
+    long_press(s, *UI["dock_smooth"])
+    s.wait(10)
+    s.ftap(*SLOT_PINCH)
+    s.wait(8)
+    s.ftap(*UI["dock_smooth"])
+    s.wait(4)
+    return s, [one_preset_settings()], camera_still({"dabs": near(0), "dock": is_text("Draw,Pinch,Clay,Flatten,Inflate,Grab,Mask"),
+                                                     "brush_kind": is_text("pinch"), "dock_menu": near(0), "preset": near(0)})
+
+
+@scenario
+def dock_slot_takes_a_preset():
+    """Long press Smooth in the dock, tap the Soft clay preset in its slot menu, then tap the slot: the brush is on the preset."""
+    s = Script()
+    long_press(s, *UI["dock_smooth"])
+    s.wait(10)
+    s.ftap(*SLOT_PRESET)
+    s.wait(8)
+    s.ftap(*UI["dock_smooth"])
+    s.wait(4)
+    return s, [one_preset_settings()], camera_still({"dabs": near(0), "dock": is_text("Draw,Soft_clay,Clay,Flatten,Inflate,Grab,Mask"),
+                                                     "preset": near(1), "brush_kind": is_text("clay"), "brush_strength": near(0.2)})
+
+
+@scenario
+def dock_reset_puts_the_brushes_back():
+    """A settings file's dock (Cloth first, Soft clay last) loads; Reset dock in a slot menu puts a fresh install's back."""
+    s = Script()
+    long_press(s, *UI["dock_smooth"])
+    s.wait(10)
+    s.ftap(*SLOT_RESET)
+    s.wait(6)
+    return s, [one_preset_settings("dock 0 brush Cloth\ndock 6 preset Soft%20clay\n")], camera_still({"dabs": near(0), "dock": is_text(DEFAULT_DOCK), "dock_menu": near(0)})
+
+
+@scenario
+def dock_comes_back_from_settings():
+    """A settings file's dock loads: Snake hook first, the Soft clay preset last, a slot naming a missing preset unchanged."""
+    s = Script()
+    s.add(f"move:{EMPTY[0]},{EMPTY[1]}")
+    s.wait(10)
+    extra = "dock 0 brush Snake_Hook\ndock 6 preset Soft%20clay\ndock 2 preset Missing\n"
+    return s, [one_preset_settings(extra)], {"dock": is_text("Snake_hook,Smooth,Clay,Flatten,Inflate,Grab,Soft_clay")}
+
+
+@scenario
+def browser_picks_a_preset():
+    """The brush browser lists the presets under the brushes; a tap on Soft clay puts the brush on it and closes the browser."""
+    s = Script()
+    s.ftap(*UI["browser"])
+    s.wait(12)
+    s.ftap(*BROWSER_PRESET)
+    s.wait(6)
+    return s, [one_preset_settings()], camera_still({"dabs": near(0), "preset": near(1), "preset_name": is_text("Soft_clay"), "browser": near(0)})
 
 
 @scenario

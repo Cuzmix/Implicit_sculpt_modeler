@@ -631,7 +631,7 @@ select :: proc(ctx: ^Context, name: string, options: []string, chosen: int, widt
 	hovered, held, clicked, _ := interact(ctx, id, cell)
 	if clicked {
 		ctx.select_open = 0 if ctx.select_open == id else id
-		if ctx.select_open == id do ctx.select_id = id
+		if ctx.select_open == id do ctx.select_id, ctx.select_scrolled = id, 0
 	}
 	fill_rect(ctx, vis, t.radius_medium, t.fill)
 	_ = feedback(ctx, id, vis, t.radius_medium, hovered, held)
@@ -661,7 +661,9 @@ select :: proc(ctx: ^Context, name: string, options: []string, chosen: int, widt
 	return -1
 }
 
-// The open select's list, drawn by frame_end over everything else.
+// The open select's list, drawn by frame_end over everything else. One taller than the
+// room below or above its field (24 brush presets on a small window) is cut to fit and
+// scrolls, by the wheel or a drag, opening with its chosen option in the middle.
 @(private)
 select_list_draw :: proc(ctx: ^Context) {
 	if ctx.select_id == 0 do return
@@ -671,11 +673,30 @@ select_list_draw :: proc(ctx: ^Context) {
 		return
 	}
 	ctx.select_fresh = false
+	t := ctx.theme
 	id := ctx.select_id
 	open := ctx.select_open == id
 	clear(&ctx.stack)
 	ctx.id_seed = id
-	if popover_begin(ctx, "select list", &open, ctx.select_anchor, .Below, {direction = .Column, padding = 4, width = max(ctx.select_anchor.w, 160)}) {
+	a := ctx.select_anchor
+	row := t.target - 4 // menu_item's cell
+	natural := f32(len(ctx.select_ends)) * row
+	window := ctx.input.window
+	room := max(window.y - (a.y + a.h + 6) - 4, a.y - 6 - 4) - 8
+	if room < 4 * row do room = window.y - 16
+	height := min(natural, max(room, row))
+	limit := natural - height
+	if ctx.select_scrolled != id {
+		ctx.select_scrolled = id
+		ctx.select_scroll = clamp(f32(ctx.select_chosen) * row - (height - row) * 0.5, 0, limit)
+	}
+	width := max(a.w, 160)
+	list := id_of(ctx, "select list")
+	if popover_begin(ctx, "select list", &open, a, .Below, {direction = .Column, padding = 4, width = width, height = height + 8 if limit > 0 else 0}) {
+		body := id_of(ctx, "select body")
+		_ = scroll_update(ctx, body, prev_rect(ctx, "select body"), &ctx.select_scroll, limit)
+		begin(ctx, "select body", {direction = .Column, width = width - 8, height = height if limit > 0 else 0, clip = limit > 0, scroll = ctx.select_scroll, drag_scroll = limit > 0})
+		r := ctx.last_rect
 		start := 0
 		for end, j in ctx.select_ends {
 			option := string(ctx.select_text[start:end])
@@ -685,6 +706,12 @@ select_list_draw :: proc(ctx: ^Context) {
 				ctx.select_pick = j
 				open = false
 			}
+		}
+		end(ctx)
+		scroll_take(ctx, body, ctx.select_scroll, limit, list)
+		if limit > 0 {
+			thumb := max(height * height / natural, 24)
+			fill_rect(ctx, {r.x + r.w - 4, r.y + (height - thumb) * (ctx.select_scroll / limit), 3, thumb}, 1.5, color_fade(t.text_tertiary, 0.6))
 		}
 		popover_end(ctx)
 	}
@@ -710,9 +737,12 @@ brush_tile :: proc(ctx: ^Context, s: string, glyph: rune, selected: bool, keys :
 	scale := feedback(ctx, id, vis, t.radius_medium + 2, hovered && !selected, held)
 	color := color_mix(color_mix(t.text_secondary, t.text, f32(int(hovered)) * 0.7), t.on_accent, o)
 	icon(ctx, glyph, {vis.x + vis.w * 0.5, vis.y + 21}, t.icon_size + 2, color)
-	text(ctx, label_text(s), vis.x + vis.w * 0.5, vis.y + 42, t.caption_size, color, .Semibold if selected else .Regular, .Center)
+	// A preset's name may be longer than the tile: it is cut, and shown whole in the tip.
+	name := label_text(s)
+	shown := text_fit(ctx, name, t.caption_size, cell.w - 2)
+	text(ctx, shown, vis.x + vis.w * 0.5, vis.y + 42, t.caption_size, color, .Semibold if selected else .Regular, .Center)
 	press_scale(ctx, mark, vis, scale)
-	if keys != "" do tip(ctx, id, vis, label_text(s), keys)
+	if keys != "" || shown != name do tip(ctx, id, vis, name, keys)
 	return clicked
 }
 

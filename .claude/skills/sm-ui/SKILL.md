@@ -155,7 +155,9 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   the camera or a drag reads animates.
 - Popovers (`popup.odin`): `popover_begin(ctx, name, open, anchor, side, box)` … `popover_end`; a press outside one
   closes it (swallowed if on the viewport); the first frame is measured invisibly. Selects draw their list in
-  `frame_end`, over everything. `tip(ctx, id, rect, text, keys)` gives a tooltip; `toast(ctx, message, kind, action)` a note, with an optional action button (`toast_take_action`, `toast_drop_action`).
+  `frame_end`, over everything; a list taller than the room above or below its field is cut to the window and
+  scrolls (`select_list_draw`). Popovers themselves only clamp to the window: one whose content can grow puts it in
+  a `kit_scroll_begin` body sized to the room left (the brush grid, `dock.odin`). `tip(ctx, id, rect, text, keys)` gives a tooltip; `toast(ctx, message, kind, action)` a note, with an optional action button (`toast_take_action`, `toast_drop_action`).
 - Layers (`ui.odin:666`): `layer_mark` keeps a place in the draw order; what is drawn between `layer_begin` and
   `layer_end` goes there, under everything drawn after the mark. Draw in it with the whole window as the clip.
 - Text fields: `typing(ctx)` is true while one has the keys; the app then calls `sdl.StartTextInput` (a tablet's
@@ -208,6 +210,8 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
 | a tween follows a drag | a drag must follow the pointer exactly: give it duration 0 (the inspector's scroll does) |
 | a shortcut fires while typing a layer name | `commands_handle_keys` returns while `typing(app)`; new key handling must check it too |
 | a select's options can be built once | they must stay valid for the frame (temp memory is fine) |
+| the same widget twice in one container | ids come from labels: give each a `##` suffix (`"Clay##slot 3"`); the text after `##` is not shown |
+| a dock slot or the brush browser | `dock.odin`: `Kit_State.dock` slots (a brush or a preset from 1), `kit_brush_grid` for every brush and preset, `dock_preset_deleted` when presets shift; the slot menu is `k.dock_menu` |
 
 ## Verify
 - `--ui-events="5:move:800,450;6:down;7:up;9:right;12:wheel:-3;14:fdown:0:300,300;16:fup:0"` drives the mouse,

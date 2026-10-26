@@ -273,6 +273,10 @@ Context :: struct {
 	select_fresh:     bool,
 	select_pick_id:   Id,
 	select_pick:      int,
+	// A list taller than the room it has scrolls: how far, and which select's opening put
+	// its chosen option in view.
+	select_scroll:    f32,
+	select_scrolled:  Id,
 	// Open sections, for section_end to fade their bodies.
 	sections:         [8]struct {
 		mark:  int,
