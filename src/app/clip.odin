@@ -6,7 +6,7 @@ import "../ui"
 
 
 // Ctrl + Shift and a left drag with the Brush tool, as ZBrush's Ctrl+Shift brushes: what
-// it does is the Object tab's choice (Gesture_Tool). The hide tools draw a rectangle or
+// it does is the Object palette's choice (Gesture_Tool). The hide tools draw a rectangle or
 // a lasso; letting go keeps only what is inside it shown (Alt held at the end hides what
 // is inside instead), through to the back. Clip and Slice draw a line across the view:
 // Clip flattens everything of the selected object on the shaded side of it (the right of

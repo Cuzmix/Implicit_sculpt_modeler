@@ -14,7 +14,9 @@ import "../ui"
 // tap runs, Escape closes. Starred commands come first while nothing is typed, then what
 // was run last. It runs commands
 // through command_run like every menu, so it shows the same shortcuts and states and
-// does nothing the menus could not.
+// does nothing the menus could not. A long press (or a right-click) on a row, or
+// Shift+Enter, shows where the command lives instead: the tray opens on its section with
+// its control marked (tray_show).
 
 Palette_Kind :: enum u8 {
 	Command,
@@ -143,7 +145,8 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.View_Back        = "camera undo back history last view",
 	.View_Forward     = "camera redo forward history",
 	.Stats            = "performance fps statistics",
-	.Inspector        = "panel properties",
+	.Inspector        = "panel properties tray subpalette",
+	.Show_Section     = "palette section subpalette panel go",
 	.Settings         = "preferences options",
 	.Reduce_Motion    = "animation accessibility",
 }
@@ -182,7 +185,7 @@ palette_entries :: proc() -> []Palette_Entry {
 
 // Whether the palette lists the command: not None, not itself, and not the two that act
 // where the pointer is (A's HD window and R's replay), which over the palette would act
-// on the palette's spot; the Object tab and Sculpt HD cover them.
+// on the palette's spot; the Object palette and Sculpt HD cover them.
 palette_lists :: proc(id: Command_Id) -> bool {
 	return id != .None && id != .Command_Palette && id != .Hd_Toggle && id != .Replay_Stroke
 }
@@ -471,7 +474,7 @@ kit_palette :: proc(app: ^App, anchor: ui.Rect, side: ui.Side) {
 		case k.palette_recent_count > 0:                          ui.caption(ctx, "  RECENT, THEN EVERYTHING")
 		}
 	}
-	ran: Maybe(Palette_Entry)
+	ran, shown: Maybe(Palette_Entry)
 	for i in k.palette_first ..< min(k.palette_first + rows, n) {
 		h := hits[i]
 		e := entries[h.entry]
@@ -482,6 +485,7 @@ kit_palette :: proc(app: ^App, anchor: ui.Rect, side: ui.Side) {
 		checked := e.kind == .Command && command_checked(app, e.id, e.arg)
 		starred := e.kind == .Command && favourite_find(app, e.id, e.arg) >= 0
 		if ui.menu_item(ctx, label, keys, palette_icon(e), checked, .Neutral, h.enabled, i == k.palette_pick, starred = starred) do ran = e
+		if ui.secondary(ctx) && palette_home(e) != "" do shown = e
 	}
 	if n == 0 do ui.paragraph(ctx, "Nothing matches. Try another word, such as remesh, mask or wireframe.")
 	// The pick's help, in a fixed height so the popover does not jump as the pick moves.
@@ -494,6 +498,7 @@ kit_palette :: proc(app: ^App, anchor: ui.Rect, side: ui.Side) {
 			if gesture := command_gesture(app, e.id, e.arg); gesture != "" do help = fmt.tprintf("%s By touch: %s%s.", help, strings.to_lower(gesture[:1], context.temp_allocator), gesture[1:])
 		}
 		if !hits[k.palette_pick].enabled do help = fmt.tprintf("Not now: %s", help)
+		if home := palette_home(e); home != "" do help = fmt.tprintf("%s In %s: a long press or Shift+Enter shows it there.", help, home)
 		ui.paragraph(ctx, help)
 	}
 	ui.end(ctx)
@@ -517,8 +522,27 @@ kit_palette :: proc(app: ^App, anchor: ui.Rect, side: ui.Side) {
 	}
 	ui.end(ctx)
 	if n > rows do ui.caption(ctx, fmt.tprintf("  %d-%d OF %d: TYPE MORE TO NARROW", k.palette_first + 1, min(k.palette_first + rows, n), n))
-	if k.palette && n > 0 && hits[k.palette_pick].enabled && (key_pressed(d, sdl.K_RETURN) || key_pressed(d, sdl.K_KP_ENTER)) {
-		ran = entries[hits[k.palette_pick].entry]
+	enter := key_pressed(d, sdl.K_RETURN) || key_pressed(d, sdl.K_KP_ENTER)
+	if k.palette && n > 0 && enter {
+		e := entries[hits[k.palette_pick].entry]
+		if d.shift {
+			if palette_home(e) != "" do shown = e
+		} else if hits[k.palette_pick].enabled do ran = e
 	}
-	if e, ok := ran.?; ok && k.palette do palette_run(app, e)
+	if !k.palette do return
+	if e, ok := shown.?; ok {
+		palette_close(app)
+		_ = tray_show(app, e.id, e.arg)
+		return
+	}
+	if e, ok := ran.?; ok do palette_run(app, e)
+}
+
+// Where the entry's control is in the tray, as "the Object palette's Mask section", or
+// "" for one with no home there (a Settings tab, or a command only the bars or keys run).
+palette_home :: proc(e: Palette_Entry) -> string {
+	if e.kind != .Command do return ""
+	sec, ok := COMMAND_HOMES[e.id].?
+	if !ok do return ""
+	return fmt.tprintf("the %s palette's %s section", palette_name(section_palette(sec)), tray_section_title(sec))
 }

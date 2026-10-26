@@ -264,7 +264,7 @@ kit_history_panel :: proc(app: ^App) -> (raised: bool) {
 	// Centred over the dock, as wide as fits between the panel on the right (Settings or
 	// Help in the inspector's place, else the inspector) and the same margin on the other
 	// side, within its least and most.
-	right: f32 = KIT_SETTINGS_W + 8 if side_panel_open(k) else KIT_INSPECTOR_W + 8 if k.inspector else 0
+	right: f32 = KIT_SETTINGS_W + 8 if side_panel_open(k) else tray_width(app) + 8 if k.inspector else 0
 	side := max(kit_right(app) + right, kit_left(app))
 	width := clamp(ui.safe_area(ctx).w - 2 * side, KIT_HISTORY_MIN_W, KIT_HISTORY_W)
 	mark := ui.vertex_mark(ctx)

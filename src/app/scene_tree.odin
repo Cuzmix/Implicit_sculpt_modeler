@@ -16,7 +16,7 @@ import "../ui"
 // names, are undo steps (History_Kind.Arrange) holding the tree before and after.
 
 // A folder of objects. Its eye and ghost apply to every object in it, over the objects'
-// own; `open` shows its objects in the Scene tab.
+// own; `open` shows its objects in the Scene palette.
 Folder :: struct {
 	id:    int, // never reused within a scene
 	name:  string, // owned
@@ -40,7 +40,7 @@ View_Change :: enum u8 {
 	Folder_Show,
 	Folder_Ghost, // makes every object in a folder a ghost
 	Folder_Unghost,
-	Folder_Fold, // folds an open folder in the Scene tab, or opens a folded one
+	Folder_Fold, // folds an open folder in the Scene palette, or opens a folded one
 }
 
 // Changes to the tree that are undo steps.
@@ -302,7 +302,7 @@ scene_view_counts :: proc(app: ^App) -> (off, ghosts: int) {
 	return
 }
 
-// The eye and ghost toggles of a row in the Scene tab (an object's, or a folder's), ghost
+// The eye and ghost toggles of a row in the Scene palette (an object's, or a folder's), ghost
 // first so the eye sits at the row's end, where a finger running down the column finds it.
 row_toggles :: proc(label: string, off, ghost: bool) -> [2]ui.Row_Toggle {
 	return {

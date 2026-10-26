@@ -6,7 +6,7 @@ import "../geom"
 import "../sculpt"
 import "../ui"
 
-// The Brush and Scene tabs' sections draw without an object; section_controls calls
+// The Brush and Scene palettes' sections draw without an object; section_controls calls
 // them through by_tab. Per thread, since tests run side by side.
 @(private = "file", thread_local)
 tab_draw: proc(app: ^App)
@@ -18,7 +18,6 @@ by_tab :: proc(app: ^App, _: ^Object) {tab_draw(app)}
 // with one layer and UVs (so Layers and Retopology show every row), a second object (a
 // source for Project and baking), the built-in alphas with the first in use (its mode
 // and angle show). section_scene_free undoes it.
-@(private = "file")
 section_scene :: proc(app: ^App) -> ^Object {
 	kit_init(app)
 	for id in 1 ..= 2 {
@@ -37,7 +36,6 @@ section_scene :: proc(app: ^App) -> ^Object {
 	return obj
 }
 
-@(private = "file")
 section_scene_free :: proc(app: ^App) {
 	delete(app.scene.objects[0].levels.faces.uv.uvs)
 	app.scene.objects[0].levels.faces.uv.uvs = nil
@@ -76,8 +74,8 @@ section_controls :: proc(app: ^App, sec: Kit_Section, draw: proc(app: ^App, obj:
 }
 
 // Every inspector section shows at most five controls until its More options open (UX
-// rule "Basic ≤ 5 controls"): for every brush and stroke mode on the Brush tab, the Object tab's pages,
-// the Scene tab, and the Curve and Insert tools.
+// rule "Basic ≤ 5 controls"): for every brush and stroke mode on the Brush palette, the Object palette's pages,
+// the Scene palette, and the Curve and Insert tools.
 @(test)
 sections_show_at_most_five_controls :: proc(t: ^testing.T) {
 	app: App
@@ -105,12 +103,12 @@ sections_show_at_most_five_controls :: proc(t: ^testing.T) {
 	preset_delete(&app, 0)
 	for sec in OBJECT_SECTIONS {
 		n := section_controls(&app, sec.section, sec.draw, obj, false)
-		testing.expectf(t, n <= 5, "Object tab, %s: %d controls", sec.title, n)
+		testing.expectf(t, n <= 5, "Object palette, %s: %d controls", sec.title, n)
 	}
 	for sec in SCENE_SECTIONS {
 		tab_draw = sec.draw
 		n := section_controls(&app, sec.section, by_tab, obj, false)
-		testing.expectf(t, n <= 5, "Scene tab, %s: %d controls", sec.title, n)
+		testing.expectf(t, n <= 5, "Scene palette, %s: %d controls", sec.title, n)
 	}
 	for draw in ([?]proc(app: ^App){kit_curve_settings, kit_insert_settings}) {
 		tab_draw = draw

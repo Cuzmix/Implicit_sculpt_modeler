@@ -7,7 +7,7 @@ import "core:time"
 import "../sculpt"
 import "../ui"
 
-// Deformers (sculpt/deform.odin) from the Object tab's Deformers section: a bend, twist or
+// Deformers (sculpt/deform.odin) from the Object palette's Deformers section: a bend, twist or
 // taper of the part the mask leaves free (all that is shown, with no mask), along one of
 // the object's own axes over that part's extent. A drag of Amount deforms it live from
 // where the drag began and is one undo step when let go; the slider then springs back to

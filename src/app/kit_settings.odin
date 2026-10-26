@@ -196,7 +196,7 @@ settings_interface :: proc(app: ^App) {
 	ui.spacer(ctx, 8)
 	ui.caption(ctx, "INSPECTOR")
 	_ = ui.switch_row(ctx, "Show every option", &k.all_options)
-	ui.paragraph(ctx, "Each section of the inspector shows its common controls and keeps the rest under More options. On, every section shows everything.")
+	ui.paragraph(ctx, "Each section of the tray shows its common controls and keeps the rest under More options. On, every section shows everything.")
 	ui.spacer(ctx, 8)
 	ui.caption(ctx, "PIES")
 	// Beside the button that opened it, rather than at the top of the window.

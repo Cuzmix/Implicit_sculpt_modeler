@@ -6,10 +6,11 @@ import "core:math"
 import "../sculpt"
 import "../ui"
 
-// The Object tab's pages, by the question an artist asks of the selected object (UX
-// research 08 section 3): what shape and topology it has, which part is being worked on,
-// what is on its surface, and what is made from it. Each holds at most six sections, so
-// the tab is never one long scroll of eighteen.
+// The Object palette's sections fall in pages, by the question an artist asks of the
+// selected object (UX research 08 section 3): what shape and topology it has, which
+// part is being worked on, what is on its surface, and what is made from it. The tray
+// lists them in that order and shows one at a time; the page of the one shown is kept
+// for the exit stats.
 Object_Page :: enum u8 {
 	Shape,
 	Select,
@@ -24,8 +25,8 @@ OBJECT_PAGE_NAMES := [Object_Page]string {
 	.Build   = "Build",
 }
 
-// The inspector's Object tab: the selected object, and on the page picked under its name
-// everything that changes it as a whole. Each section folds; the common ones start open.
+// The tray's Object palette: the selected object, and the section picked in the tray's
+// list, which changes it as a whole.
 kit_object_tab :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
@@ -34,38 +35,22 @@ kit_object_tab :: proc(app: ^App) {
 	if obj == nil {
 		ui.spacer(ctx, 12)
 		ui.label(ctx, "No object selected", t.title_size, t.text, .Semibold)
-		ui.paragraph(ctx, "Click an object in the viewport with Move, or pick one in the Scene tab.")
+		ui.paragraph(ctx, "Click an object in the viewport with Move, or pick one in the Scene palette.")
 		return
 	}
 	ui.label(ctx, object_label(obj), t.heading_size, t.text, .Semibold)
 	ui.paragraph(ctx, fmt.tprintf("%s vertices, %s triangles", count_label(object_vertex_count(obj)), count_label(object_triangle_count(obj))))
-	names: [len(Object_Page)]string
-	for page in Object_Page do names[int(page)] = OBJECT_PAGE_NAMES[page]
-	if picked := ui.tabs(ctx, "object pages", names[:], int(k.object_page)); picked >= 0 && Object_Page(picked) != k.object_page {
-		// A new page starts from the top and fades in, as a new tab does.
-		k.object_page, k.scroll = Object_Page(picked), 0
-		k.tab_serial += 1
-	}
 	ui.spacer(ctx, 4)
+	shown := tray_section(app, .Object)
 	for sec in OBJECT_SECTIONS {
-		if sec.page != k.object_page do continue
-		header := ui.section(ctx, sec.title, &k.open[sec.section])
-		if k.reveal_frames > 0 && k.reveal == sec.section {
-			// The section's body (or, folded, its header) is the last thing placed; an open
-			// one's header sits above the body by its own height (ui.section's row,
-			// t.target - 8) and the inspector column's gap (6).
-			at := ctx.last_rect.y - k.inspector_body.y + k.inspector_shown
-			if header do at -= t.target - 8 + 6
-			k.scroll = clamp(at, 0, k.inspector_limit)
-		}
-		if header {
-			sec.draw(app, obj)
-			ui.section_end(ctx)
-		}
+		if sec.section != shown do continue
+		k.object_page = sec.page
+		kit_section_title(ctx, sec.title)
+		sec.draw(app, obj)
 	}
 }
 
-// One section of the Object tab: the page it is on, its fold state, its title and what
+// One section of the Object palette: the page it is on, which it is, its title and what
 // it draws.
 Object_Section :: struct {
 	page:    Object_Page,
@@ -74,7 +59,7 @@ Object_Section :: struct {
 	draw:    proc(app: ^App, obj: ^Object),
 }
 
-// Every Object tab section, page by page in the order shown; each is on one page only
+// Every Object palette section, page by page in the order shown; each is on one page only
 // (object_sections_each_on_one_page).
 @(rodata)
 OBJECT_SECTIONS := [?]Object_Section {

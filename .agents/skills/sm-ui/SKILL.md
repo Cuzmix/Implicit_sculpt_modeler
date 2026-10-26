@@ -28,12 +28,12 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
 - `Ui_State` (`ui.odin:15`): `viewport_request`, `scene_command`, the pointer over the viewport for shortcuts that act
   there, the pie, the S/U adjust, curve handles, and each section's own settings and last results. `Kit_State`
   (`new_ui.odin:30`): the kit context, which tab, which sections are open (`Kit_Section`), menus, Stats (Simple or
-  Advanced), Settings (open, tab, scroll) and History panels, the interface size (`ui_scale`), the inspector's scroll,
+  Advanced), Settings (open, tab, scroll) and History panels, the interface size (`ui_scale`), the tray's scroll,
   add shape and size, the overlay's `layer`, text input on or off.
 - Layout (`kit_layout`, `new_ui.odin`; the bars in `kit_bars.odin`, after ZBrush for iPad): `kit_top_bar` (a full-width
   strip, `TOP_BAR_H`: Menu, Save, Import, Export | file name | History, Edit pies, Help, Settings), `kit_points` (the
   object's readout under it, at the top left), `kit_brush_bar` (left column: Brushes, Stroke, Alpha, Material, Colour |
-  Falloff, Draw size, Strength | Undo, Redo), `kit_view_bar` (right: Search, Inspector, Objects; then Studio render,
+  Falloff, Draw size, Strength | Undo, Redo), `kit_view_bar` (right: Search, Palettes (the tray), Objects; then Studio render,
   Orthographic, Symmetry, Focus, Wireframe, Ghost, Solo); bottom `kit_bottom_bar` (a page of the dock's 21 slots,
   `dock_page_slots`/`dock_per_page`, with `ui.page_dots` under it; All brushes; Gizmo; then `mesh_tool` buttons
   Remesh, Dynamic topology, Retopologize, Subdivide, Live boolean, whose long press opens their Object section above
@@ -41,11 +41,11 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   the brush browser; then the four windows in `k.order` (back to front) and last the popovers. Panels under the top bar
   start at `kit_top()`, clear of the side bars at `kit_left(app)`/`kit_right(app)`; a card under the top bar uses
   `kit_card_place`; a right-side panel keeps clear of the dock with `side_panel_below`. A bar button opens the one
-  `Bar_Pop` (`bar_pop_toggle`): an inspector section by `Kit_Section` (any tab's, `bar_section`), the size or strength
+  `Bar_Pop` (`bar_pop_toggle`): a tray section by `Kit_Section` (any palette's, `bar_section`), the size or strength
   slider, the symmetry axes or the save actions. `corner = true` on `icon_button` draws the triangle that says a long
   press does more. The look is `Kit_State.look` (`Look`: Studio, the default, or Graphite), `LOOK_THEMES` set as
   `ctx.theme` each frame in `kit_begin`; both themes share every size, so a look never moves a control.
-- Windows (`src/ui/window.odin`, `Kit_Window` in `new_ui.odin`): the inspector, Stats, History and Settings are
+- Windows (`src/ui/window.odin`, `Kit_Window` in `new_ui.odin`): the tray, Stats, History and Settings are
   `ui.window_begin(ctx, name, title, &k.windows[which], x, y, offset, box, close_keys)` … `ui.window_end`: a title
   bar (drag it to move, Minimise folds to it, a tap on a folded title opens it, Close) over the caller's body, which
   is laid out only while `body` is true. A moved window keeps to its nearer edges (`ui.Window.x/y/offset`) and its
@@ -53,17 +53,23 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   `window_raise`; the draw order is the hit-test order from the next frame. `window_room` is the height it has where
   it is; `window_slide` the side it slides from. Positions and folds are `window` lines in the settings;
   `windows_reset` puts them back (Settings > Interface > Reset panel positions).
-- Inspector (`kit_inspector`, `new_ui.odin:486`): tabs Tool (`kit_tool_tab`, `kit_tool.odin`: the brush's Stroke,
-  Colour, Falloff, Alpha, Pen, Options and Stroke recorder; Curve and Insert settings; Move help), Object
-  (`kit_object.odin`: Transform, levels, HD, dynamic topology, mask, hide/clip/slice, paint and groups, morph, layers,
-  deformation, remesh, mirror, retopo, project, booleans, extract) and Scene (`kit_scene.odin`: the object rows with eye and ghost (`scene_tree.odin`), Add, Material,
-  Studio render, Camera). A feature's section lives beside its code (`kit_layers_section` in `layers.odin`,
-  `kit_boolean_section` in `boolean.odin`, `kit_alpha_section` in `alphas.odin`, …). Under its title bar the tabs and
-  content are the clipped "inspector body", which scrolls (`ui.scroll_update` before it, `ui.scroll_take` after with
-  the window as root, `drag_scroll` on it; see Input routing); where it starts (beside the view bar, under the top
-  bar) it stops above the dock on narrow windows. While Settings is open the inspector is hidden and inert.
+- Palette tray (`kit_inspector` in `new_ui.odin`, the rest in `kit_tray.odin`; still the "inspector" window and
+  layout name): palettes `Kit_Tab` Tool (`kit_tool_tab`, `kit_tool.odin`: the brush's `BRUSH_SECTIONS`; Curve and
+  Insert settings; Move help), Object (`kit_object.odin`, `OBJECT_SECTIONS`) and Scene (`kit_scene.odin`: Objects,
+  the rows with eye and ghost (`scene_tree.odin`), then `SCENE_SECTIONS`), each showing ONE section,
+  `k.section[tab]` read through `tray_section` (which falls back when the brush no longer offers it). A wide safe
+  area (`tray_wide`, at least `TRAY_NAV_MIN_W`) lists palettes and sections down the tray's left (`kit_tray_list`);
+  a narrow one puts them in a select (`kit_tray_select`). Open a section with `tray_open(app, sec)`; Kit_Section
+  keeps the tray's sections first (`TRAY_SECTIONS`, `section_palette`) and the Stats panel's after. A feature's
+  section lives beside its code (`kit_layers_section` in `layers.odin`, …) and starts with nothing but its
+  controls (the tray draws its title). The content is the clipped "inspector body", which scrolls (see Input
+  routing); the list scrolls on its own. Search's Show where (`tray_show`, `COMMAND_HOMES`) marks a command's
+  control: `command_hint` calls `tray_mark`, which `ui.mark_next`s the next control while the tray draws, and
+  `tray_mark_draw` rings `ctx.marked.rect`; `show_where_finds_every_home` checks every home has its control. The
+  Show_Section command (one argument per section) opens any section from search, keys and scripts. While Settings
+  or Help is open the tray is hidden and inert.
 - Settings panel (`kit_settings.odin`): tabs Interface, Camera, Touch, Performance (`Settings_Tab`), anchored right
-  in the inspector's place, its body scrolling as the inspector does; each tab ends in "Reset <tab> settings"
+  in the tray's place, its body scrolling as the tray does; each tab ends in "Reset <tab> settings"
   (`settings_reset`), the foot holds Reset everything (a second tap within `SETTINGS_WIPE_TIME` confirms) and Done
   (`settings_close` saves). Camera and touch preferences are `app.nav` (`Nav_Prefs`, `NAV_DEFAULT`, `navigate.odin`).
 - Stats panel (`kit_stats.odin`): Simple (plain labels in Performance, While sculpting, Mesh, Memory groups; p50 is

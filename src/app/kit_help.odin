@@ -130,7 +130,7 @@ MOUSE_HELP := [?]Help_Line {
 	{group = "MOUSE", what = "Turn the view", how = "Left drag from the edges", show = proc(app: ^App) -> bool {return app.nav.edge_orbit}},
 	{group = "MOUSE", what = "Snap to a front, side or top view", how = "Shift while turning"},
 	{group = "MOUSE", what = "Add to the selection, or take out", how = "Shift + click an object or a row"},
-	{group = "MOUSE", what = "Move a row in the Scene tab", how = "Drag its grip"},
+	{group = "MOUSE", what = "Move a row in the Scene palette", how = "Drag its grip"},
 	{group = "MOUSE", what = "Hide or ghost a run of objects", how = "Drag down the eyes or ghosts"},
 }
 
@@ -169,9 +169,9 @@ TOUCH_HELP := [?]Help_Line {
 	{group = "HISTORY", command = .Redo},
 	{group = "HISTORY", what = "Go to a step (History panel)", how = "Tap it on the bar, or drag along it"},
 	{group = "HISTORY", what = "History brush back to before a step", how = "Long press the step on the bar"},
-	{group = "SCENE TAB", what = "Select several objects", how = "Select several on, then tap"},
-	{group = "SCENE TAB", what = "Move an object or a folder", how = "Drag its row's grip"},
-	{group = "SCENE TAB", what = "Hide or ghost a run of objects", how = "Hold an eye or ghost, then slide"},
+	{group = "SCENE PALETTE", what = "Select several objects", how = "Select several on, then tap"},
+	{group = "SCENE PALETTE", what = "Move an object or a folder", how = "Drag its row's grip"},
+	{group = "SCENE PALETTE", what = "Hide or ghost a run of objects", how = "Hold an eye or ghost, then slide"},
 	{group = "ANY CONTROL", what = "Its name, or its second action", how = "Long press"},
 }
 
@@ -188,22 +188,22 @@ Glossary_Entry :: struct {
 
 @(rodata)
 GLOSSARY := [?]Glossary_Entry {
-	{"Object", "SubTool (ZBrush), object (Blender, Nomad), layer (3DCoat)", "One mesh in the scene, sculpted, moved, hidden and saved on its own. The Scene tab lists them.", "subtool", {.Delete_Object, .Duplicate_Object, .Add_Object}},
-	{"Folder", "Folder (ZBrush), collection (Blender), group (Nomad, Maya)", "A row in the Scene tab that gathers objects, one level deep; its eye and ghost apply to all of them.", "collection", {.New_Folder}},
+	{"Object", "SubTool (ZBrush), object (Blender, Nomad), layer (3DCoat)", "One mesh in the scene, sculpted, moved, hidden and saved on its own. The Scene palette lists them.", "subtool", {.Delete_Object, .Duplicate_Object, .Add_Object}},
+	{"Folder", "Folder (ZBrush), collection (Blender), group (Nomad, Maya)", "A row in the Scene palette that gathers objects, one level deep; its eye and ghost apply to all of them.", "collection", {.New_Folder}},
 	{"Solo", "Solo (ZBrush, Nomad), local view (Blender), isolate (Maya)", "Only the selected object shown, whichever that is, until Solo is off; the others keep their eyes as they were.", "isolate", {.Solo_Object}},
 	{"Ghost", "Transparent (ZBrush), in front and wire display (Blender)", "An object dimmed and out of reach, to sculpt another against it.", "transparent", {.Ghost_Object}},
 	{"Brush", "Brush (ZBrush, Blender), tool (Nomad)", "What a stroke does to the surface: Draw, Clay, Smooth and the rest, each with its own size and strength. Keys 1 to 9 and 0 pick the first ten.", "", {}},
 	{"Adjust last stroke", "Adjust Last (ZBrush), Adjust Last Operation (Blender)", "How much of the newest stroke stays, set after drawing it, from none to half as much again (Stroke > More, or the palette's Adjust last operation).", "", {}},
-	{"History brush", "HistoryRecall brush (ZBrush), history brush (Photoshop)", "A local undo: the History brush paints the surface back to how it was before an earlier step, only where you brush (Brush tab > History brush says which step).", "historyrecall", {.Recall_Earlier, .Recall_Later, .Recall_Oldest}},
-	{"Connected only", "Topological auto masking (ZBrush), auto-masking topology (Blender), connected (Nomad)", "A brush working only on the surface joined to where it presses, leaving a finger or fold beside it that is only near in space (Brush tab > Options).", "automasking", {.Connected}},
-	{"Lock plane", "Original plane (ZBrush), plane lock (Nomad), original normal (Blender)", "A stroke keeping the plane its first dab found, so a long Flatten or Clay stroke does not drift with the surface (Brush tab > Options).", "original", {.Lock_Plane}},
+	{"History brush", "HistoryRecall brush (ZBrush), history brush (Photoshop)", "A local undo: the History brush paints the surface back to how it was before an earlier step, only where you brush (Brush palette > History brush says which step).", "historyrecall", {.Recall_Earlier, .Recall_Later, .Recall_Oldest}},
+	{"Connected only", "Topological auto masking (ZBrush), auto-masking topology (Blender), connected (Nomad)", "A brush working only on the surface joined to where it presses, leaving a finger or fold beside it that is only near in space (Brush palette > Options).", "automasking", {.Connected}},
+	{"Lock plane", "Original plane (ZBrush), plane lock (Nomad), original normal (Blender)", "A stroke keeping the plane its first dab found, so a long Flatten or Clay stroke does not drift with the surface (Brush palette > Options).", "original", {.Lock_Plane}},
 	{"Mask", "Mask (ZBrush, Blender, Nomad), freeze (3DCoat)", "Paint on the surface that no brush can move. Masked parts show darker.", "freeze", {.Mask}},
 	{"Pose", "Gizmo 3D with a mask (ZBrush), Pose brush (Blender, Nomad), Pose tool (3DCoat)", "The Move tool's handles bending the unmasked part of an object about the gizmo, the mask's soft edge as the joint, instead of moving the whole object. Ctrl + drag from the model masks along the surface for it (a topological mask).", "posing", {.Gizmo}},
-	{"Selection set", "Selection set (ZBrush), stored freeze (3DCoat)", "A mask kept by name with the object, to make the mask again later or add to it (Object tab > Select > Selection sets).", "selection", {.Store_Selection_Set, .Restore_Selection_Set}},
+	{"Selection set", "Selection set (ZBrush), stored freeze (3DCoat)", "A mask kept by name with the object, to make the mask again later or add to it (Object palette > Selection sets).", "selection", {.Store_Selection_Set, .Restore_Selection_Set, .Show_Section}},
 	{"Hide", "Hide (ZBrush, Nomad), visibility (Blender)", "Parts taken out of view, which brushes then leave alone, until shown again.", "visibility unhide", {.Show_All, .Invert_Hidden, .Hide_Masked, .Hide_Unmasked}},
 	{"Group", "Polygroup (ZBrush), face set (Blender, Nomad)", "A set of faces in one colour, for masking, hiding or picking by.", "polygroup", {.Group_Shortcut, .Group, .Polygroups}},
-	{"Level", "Subdivision level (ZBrush), Multires (Blender), multiresolution (Nomad)", "A finer copy of the object made by Subdivide. Detail sculpted on one level shows on the rest.", "subdivision multires", {.Subdivide, .Level_Up, .Level_Down, .Delete_Lower_Levels, .Delete_Higher_Levels}},
-	{"Layer", "Layer (ZBrush, Nomad), shape key (Blender)", "Changes kept apart from the sculpt under them, which can be faded or turned off (Object tab > Layers). Not the Layer brush, which raises the surface evenly.", "", {}},
+	{"Level", "Subdivision level (ZBrush), Multires (Blender), multiresolution (Nomad)", "A finer copy of the object made by Subdivide. Detail sculpted on one level shows on the rest.", "subdivision multires", {.Subdivide, .Level_Up, .Level_Down, .Delete_Lower_Levels, .Delete_Higher_Levels, .Show_Section}},
+	{"Layer", "Layer (ZBrush, Nomad), shape key (Blender)", "Changes kept apart from the sculpt under them, which can be faded or turned off (Object palette > Layers). Not the Layer brush, which raises the surface evenly.", "", {}},
 	{"Remesh", "DynaMesh (ZBrush), voxel remesh (Blender, Nomad), voxelize (3DCoat)", "Rebuilds the object as an even mesh that keeps its shape, joining what overlaps.", "dynamesh voxelize", {.Remesh, .Remesh_To}},
 	{"Retopologize", "ZRemesher (ZBrush), QuadriFlow (Blender), auto-retopo (3DCoat)", "Builds a light mesh of quads over the sculpt, for animation, UVs and baking.", "zremesher quadriflow", {.Retopologize}},
 }

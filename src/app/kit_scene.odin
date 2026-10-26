@@ -8,8 +8,26 @@ import "../camera"
 import "../geom"
 import "../ui"
 
-// The inspector's Scene tab: the objects, adding one, and how the whole scene is shown.
+// The tray's Scene palette: the objects, adding one, and how the whole scene is shown,
+// the section picked in the tray's list.
 kit_scene_tab :: proc(app: ^App) {
+	ctx := &app.kit.ctx
+	shown := tray_section(app, .Scene)
+	if shown == .Objects {
+		kit_scene_objects(app)
+		return
+	}
+	for sec in SCENE_SECTIONS {
+		if sec.section != shown do continue
+		kit_section_title(ctx, sec.title)
+		sec.draw(app)
+	}
+}
+
+// The Scene palette's Objects section: the tree of objects and folders, what acts on the
+// selection, and how long the last file took.
+@(private = "file")
+kit_scene_objects :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
 	total := 0
@@ -60,14 +78,6 @@ kit_scene_tab :: proc(app: ^App) {
 	_ = command_button(app, .Duplicate_Object, width = half, glyph = ui.ICON_COPY)
 	_ = command_button(app, .Delete_Object, tone = .Danger, width = half, glyph = ui.ICON_TRASH)
 	ui.end(ctx)
-	ui.spacer(ctx, 4)
-
-	for sec in SCENE_SECTIONS {
-		if ui.section(ctx, sec.title, &k.open[sec.section]) {
-			sec.draw(app)
-			ui.section_end(ctx)
-		}
-	}
 	// Opening a scene counts building it as reading; importing parses apart.
 	if s := app.stats; s.file_read_ms > 0 || s.file_write_ms > 0 {
 		parts := make([dynamic]string, context.temp_allocator)
@@ -78,7 +88,7 @@ kit_scene_tab :: proc(app: ^App) {
 	}
 }
 
-// An object's row in the Scene tab, the list's `i`th, under its folder's when `depth` is 1.
+// An object's row in the Scene palette, the list's `i`th, under its folder's when `depth` is 1.
 @(private = "file")
 kit_object_row :: proc(app: ^App, spots: ^[dynamic]Tree_Spot, i: int, base: ^Object, depth: int) {
 	k := &app.kit
@@ -157,7 +167,7 @@ kit_folder_row :: proc(app: ^App, spots: ^[dynamic]Tree_Spot, f: ^Folder, first,
 	k.tree_rows += 1
 }
 
-// A row of the Scene tab as laid out this frame, which the drags over the tree read.
+// A row of the Scene palette as laid out this frame, which the drags over the tree read.
 Tree_Spot :: struct {
 	rect:      ui.Rect,
 	id:        int, // the object's id, or the folder's
@@ -360,7 +370,7 @@ kit_tree_drags :: proc(app: ^App, spots: []Tree_Spot) {
 
 // Sends the column drag's next queued change, once everything else this frame had its
 // chance at the frame's one scene command, so neither is lost; it runs every frame, so the
-// queue empties with the Scene tab hidden too.
+// queue empties with the Scene palette hidden too.
 tree_column_send :: proc(app: ^App) {
 	c := &app.kit.tree_column
 	if c.count == 0 || app.ui.scene_command.kind != .None do return
@@ -385,7 +395,7 @@ kit_tree_autoscroll :: proc(app: ^App) {
 	k.scroll = clamp(k.scroll + clamp(v, -1, 1) * SPEED * k.ctx.input.dt, 0, k.inspector_limit)
 }
 
-// The Scene tab's sections in the order shown, under the objects.
+// The Scene palette's sections in the order listed, after Objects.
 @(rodata)
 SCENE_SECTIONS := [?]Kit_Tab_Section {
 	{.Add, "Add object", kit_add, nil},

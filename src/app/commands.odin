@@ -123,6 +123,7 @@ Command_Id :: enum u8 {
 	// The app
 	Stats,
 	Inspector,
+	Show_Section, // the argument is the Kit_Section, below TRAY_SECTIONS
 	Settings,
 	Reduce_Motion,
 	Command_Palette,
@@ -180,7 +181,7 @@ COMMANDS := [Command_Id]Command {
 	.None = {},
 	.New_Scene = {
 		label = "New scene",
-		help = "Replaces the scene with this one shape at the Scene tab's Add size; with work to lose, it goes ahead on a second run.",
+		help = "Replaces the scene with this one shape at the Scene palette's Add size; with work to lose, it goes ahead on a second run.",
 		icon = ui.ICON_SHAPES,
 		args = len(NEW_SCENE_SHAPES),
 		run = new_scene_run,
@@ -535,7 +536,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Store_Selection_Set = {
 		label = "Store mask as set",
-		help = "Keeps the selected object's mask as a selection set, to bring back later (Object tab > Select > Selection sets).",
+		help = "Keeps the selected object's mask as a selection set, to bring back later (Object palette > Selection sets).",
 		run = proc(app: ^App, _: int) {set_store(app)},
 		enabled = proc(app: ^App, _: int) -> bool {
 			obj := selected_object(app)
@@ -704,15 +705,10 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Deformer = {
 		label = "Deformer",
-		help = "Opens the Object tab's Deformers section on this deformer: drag Amount to bend, twist or taper the part the mask leaves free, or a lattice point with the Move tool.",
+		help = "Opens the Object palette's Deformers section on this deformer: drag Amount to bend, twist or taper the part the mask leaves free, or a lattice point with the Move tool.",
 		args = DEFORMERS,
 		run = proc(app: ^App, arg: int) {
-			k := &app.kit
-			side_panel_close(app)
-			if k.tab != .Object || k.object_page != .Surface do k.tab_serial += 1
-			k.inspector, k.tab, k.object_page = true, .Object, .Surface
-			k.open[.Deformers] = true
-			k.reveal, k.reveal_frames = .Deformers, 20
+			tray_open(app, .Deformers)
 			deformer_pick(app, arg)
 		},
 		// Not while an Amount or a lattice point is dragged: either would lose its places.
@@ -786,7 +782,7 @@ COMMANDS := [Command_Id]Command {
 
 	.Add_Object = {
 		label = "Add object",
-		help = "Adds the shape and size picked in the Scene tab's Add object section.",
+		help = "Adds the shape and size picked in the Scene palette's Add object section.",
 		icon = ui.ICON_PLUS,
 		run = proc(app: ^App, _: int) {
 			k := &app.kit
@@ -802,14 +798,14 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Hide_Object = {
 		label = "Hide object",
-		help = "Takes the selected object out of view and out of reach, and selects the next one; its eye in the Scene tab brings it back.",
+		help = "Takes the selected object out of view and out of reach, and selects the next one; its eye in the Scene palette brings it back.",
 		icon = ui.ICON_EYE_OFF,
 		run = proc(app: ^App, _: int) {view_command(app, .Hide)},
 		enabled = has_object,
 	},
 	.Ghost_Object = {
 		label = "Make a ghost",
-		help = "Dims the selected object and lets presses go through it, to sculpt against it as a reference; its ghost in the Scene tab makes it solid again.",
+		help = "Dims the selected object and lets presses go through it, to sculpt against it as a reference; its ghost in the Scene palette makes it solid again.",
 		icon = ui.ICON_GHOST,
 		run = proc(app: ^App, _: int) {view_command(app, .Ghost)},
 		enabled = has_object,
@@ -834,7 +830,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.New_Folder = {
 		label = "New folder",
-		help = "Puts the selected object in a new folder in the Scene tab, whose eye and ghost then apply to everything in it; one undo step.",
+		help = "Puts the selected object in a new folder in the Scene palette, whose eye and ghost then apply to everything in it; one undo step.",
 		icon = ui.ICON_FOLDER_PLUS,
 		run = proc(app: ^App, _: int) {
 			if obj := selected_object(app); obj != nil do app.ui.scene_command = {kind = .Arrange, arrange = .New_Folder, id = obj.id}
@@ -843,7 +839,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Rename_Object = {
 		label = "Rename...",
-		help = "Gives the selected object a name of your own, shown in the Scene tab and kept in the scene file; one undo step.",
+		help = "Gives the selected object a name of your own, shown in the Scene palette and kept in the scene file; one undo step.",
 		icon = ui.ICON_PENCIL,
 		run = proc(app: ^App, _: int) {
 			if obj := selected_object(app); obj != nil {
@@ -922,8 +918,8 @@ COMMANDS := [Command_Id]Command {
 		checked = proc(app: ^App, _: int) -> bool {return app.kit.stats},
 	},
 	.Inspector = {
-		label = "Inspector",
-		help = "Shows or hides the panel with the tool's, the object's and the scene's settings.",
+		label = "Palettes",
+		help = "Shows or hides the palette tray: the tool's, the object's and the scene's settings, a section at a time.",
 		icon = ui.ICON_PANEL,
 		// While Settings or Help has its place, it comes back in their place rather than
 		// changing unseen.
@@ -935,6 +931,19 @@ COMMANDS := [Command_Id]Command {
 			} else do k.inspector = !k.inspector
 		},
 		checked = proc(app: ^App, _: int) -> bool {return app.kit.inspector},
+	},
+	.Show_Section = {
+		label = "Show section",
+		help = "Opens the palette tray on this section, switching to the brush for the brush's sections.",
+		icon = ui.ICON_PANEL,
+		args = TRAY_SECTIONS,
+		run = proc(app: ^App, arg: int) {
+			sec := Kit_Section(arg)
+			if section_palette(sec) == .Tool && app.tool != .Brush do command_run(app, .Tool_Sculpt)
+			tray_open(app, sec)
+		},
+		// The brush's Colour and History brush sections only for the brushes that have them.
+		enabled = proc(app: ^App, arg: int) -> bool {return tray_offers(app, Kit_Section(arg))},
 	},
 	.Settings = {
 		label = "Settings...",
@@ -1130,6 +1139,9 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 		return fmt.tprintf("%s to %s vertices", "Remesh" if id == .Remesh_To else "Decimate", SPHERE_PRESETS[arg].label)
 	case .Help:
 		return fmt.tprintf("Help: %s", HELP_TAB_NAMES[Help_Tab(arg)])
+	case .Show_Section:
+		sec := Kit_Section(arg)
+		return fmt.tprintf("%s: %s", palette_name(section_palette(sec)), tray_section_title(sec))
 	case .Gizmo:
 		return fmt.tprintf("%v gizmo", gizmo.Mode(arg))
 	case .Pie:
@@ -1192,8 +1204,11 @@ command_gesture :: proc(app: ^App, id: Command_Id, arg := 0) -> string {
 }
 
 // The shortcut and the gesture, as a tooltip shows them beside a control's name:
-// "Ctrl+Z · Two-finger tap", either alone, or "".
+// "Ctrl+Z · Two-finger tap", either alone, or "". Every control that runs a command
+// asks for it just before it is laid out, which is where search's Show where finds the
+// control to mark (tray_mark).
 command_hint :: proc(app: ^App, id: Command_Id, arg := 0) -> string {
+	tray_mark(app, id, arg)
 	return hint_join(command_keys(app, id, arg), command_gesture(app, id, arg))
 }
 

@@ -16,7 +16,7 @@ import "../sculpt"
 import "../ui"
 
 // What the app remembers between interactive runs: the brush settings, how the
-// viewport looks, the Scene tab's choices and the Settings panel's, in a text file of `key values...`
+// viewport looks, the Scene palette's choices and the Settings panel's, in a text file of `key values...`
 // lines in SDL's per-user folder. Runs with --frames, a benchmark or --no-settings
 // neither read nor write it, so scripted runs stay reproducible. Flags given on the
 // command line win over what it holds. Unknown or malformed lines are skipped, so an
@@ -131,7 +131,7 @@ SETTINGS := [?]Setting {
 	{"edge_size", N + offset_of(Nav_Prefs, edge_size), f32, EDGE_MIN, EDGE_MAX},
 	{"edge_show", N + offset_of(Nav_Prefs, edge_show), bool, 0, 0},
 	{"shape_apply", N + offset_of(Nav_Prefs, shape_apply), Shape_Apply, 0, 0},
-	// The Scene and Object tabs' choices, and the tools'.
+	// The Scene and Object palettes' choices, and the tools'.
 	{"new_shape", K + offset_of(Kit_State, add_shape), geom.Primitive, 0, 0},
 	{"mask_steps", U + offset_of(Ui_State, mask_steps), i32, 1, 50},
 	{"mask_shape", U + offset_of(Ui_State, mask_shape_kind), Mask_Shape_Kind, 0, 0},
