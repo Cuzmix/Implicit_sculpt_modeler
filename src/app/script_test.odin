@@ -5,6 +5,7 @@ import "core:strings"
 import "core:testing"
 
 import "../camera"
+import "../geom"
 import "../sculpt"
 
 // Every kind of statement, with comments, quotes, `;` and blank lines between them, reads
@@ -154,4 +155,69 @@ script_set_writes_the_fields :: proc(t: ^testing.T) {
 	testing.expect_value(t, app.brush.color, [3]f32{1, 0, 0.5})
 	steel, _ := material_by_name("steel")
 	testing.expect_value(t, app.material, steel)
+}
+
+// A start-up script is set-up: once it is done nothing it did is in the History, the
+// scene counts as unchanged where it was unchanged before it, the stats start afresh,
+// and the scripted events count from the frame it ended on.
+@(test)
+script_finishes_as_set_up :: proc(t: ^testing.T) {
+	app: App
+	defer {
+		for obj in app.scene.objects {
+			sculpt.levels_destroy(&obj.levels)
+			free(obj)
+		}
+		delete(app.scene.objects)
+		delete(app.scene.also)
+		history_destroy(&app.history)
+		results_destroy(&app)
+		script_unload(&app)
+	}
+	obj := new(Object)
+	obj.id = 1
+	obj.transform = {scale = 1}
+	sculpt.levels_init(&obj.levels, geom.icosphere(2), nil, 64)
+	append(&app.scene.objects, obj)
+	app.autosave.clean = scene_fingerprint(&app)
+	app.stats.dabs_total = 7
+	testing.expect(t, script_load(&app, "", "set wireframe on; mask invert; wait 2; select 1", scripted = true))
+	// Nothing runs until the viewport has its size.
+	testing.expect(t, script_frame(&app))
+	testing.expect(t, !app.wireframe)
+	app.ui.viewport_size = {800, 600}
+	frame :: proc(app: ^App) {
+		_ = script_frame(app)
+		if app.script.running do app.script.frames += 1
+	}
+	app.script.frames = 1
+	frame(&app)
+	testing.expect(t, app.wireframe)
+	testing.expect_value(t, len(app.history.done), 1)
+	testing.expect(t, app.script.running)
+	frame(&app)
+	frame(&app)
+	testing.expect(t, !app.script.running)
+	testing.expect(t, !app.script.failed)
+	testing.expect_value(t, app.script.next, 4)
+	testing.expect_value(t, len(app.history.done), 0)
+	testing.expect_value(t, app.autosave.clean, scene_fingerprint(&app))
+	testing.expect_value(t, app.stats.dabs_total, 0)
+	testing.expect_value(t, app.kit.events_offset, 3)
+}
+
+// A statement that does nothing stops the script there, and says which.
+@(test)
+script_stops_at_what_does_nothing :: proc(t: ^testing.T) {
+	app: App
+	defer script_unload(&app)
+	defer results_destroy(&app)
+	testing.expect(t, script_load(&app, "", "set flat on\nselect 2\nset wireframe on", scripted = false))
+	app.ui.viewport_size = {800, 600}
+	testing.expect(t, script_frame(&app))
+	testing.expect(t, app.flat)
+	testing.expect(t, app.script.failed)
+	testing.expect(t, !app.wireframe)
+	testing.expect(t, strings.contains(app.result.text, "line 2"))
+	testing.expect(t, .Warning in app.result.flags)
 }

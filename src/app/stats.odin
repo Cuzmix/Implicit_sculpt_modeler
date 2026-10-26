@@ -1,5 +1,6 @@
 package main
 
+import "core:reflect"
 import "core:slice"
 
 import "../render"
@@ -79,4 +80,17 @@ Frame_Stats :: struct {
 	dyntopo_ms:        f64,
 	dyntopo_upload_ms: f64,
 	gpu_regrows:       int,
+}
+
+// Starts the frame timings and counts afresh, as for a run whose set-up is done (a start-up
+// script): every ring and running count. The times of the last level change, HD window,
+// remesh and the like stay, since the panels that show them still show those operations.
+stats_restart :: proc(s: ^Frame_Stats) {
+	for f in reflect.struct_fields_zipped(Frame_Stats) {
+		at := rawptr(uintptr(s) + f.offset)
+		switch f.type.id {
+		case Sample_Ring: (^Sample_Ring)(at)^ = {}
+		}
+	}
+	s.dabs_total, s.cache_redraws, s.partial_frames = 0, 0, 0
 }
