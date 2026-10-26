@@ -6,12 +6,13 @@ import "core:strings"
 import "../sculpt"
 
 // Brush presets: named brushes the user makes, as Nomad's presets and Blender's brush
-// assets are. A preset is a base brush with its own strength, falloff, alpha, stroke kind,
-// lazy mouse, paint colour and cloth mode; size, the pen settings and symmetry stay
-// global, so switching brushes never changes how big the brush is. While the brush is on
-// a preset, the brush's own slots hold the preset's values and the plain brush's are kept
-// in Brush_Settings.plain, which leaving the preset puts back: a plain brush keeps its own
-// strength, and what settings.txt remembers for it, whatever presets were used.
+// assets are. A preset is a base brush with its own strength, falloff, alpha, stroke kind
+// (with Spray's spread), lazy mouse, paint colour and cloth mode; size, the pen settings
+// and symmetry stay global, so switching brushes never changes how big the brush is.
+// While the brush is on a preset, the brush's own slots hold the preset's values and the
+// plain brush's are kept in Brush_Settings.plain, which leaving the preset puts back: a
+// plain brush keeps its own strength, and what settings.txt remembers for it, whatever
+// presets were used.
 
 MAX_PRESETS :: 24
 PRESET_NAME_MAX :: 32
@@ -25,6 +26,7 @@ Preset_Values :: struct {
 	alpha_mode:  Alpha_Mode,
 	alpha_angle: f32,
 	stroke:      Stroke_Mode,
+	spread:      f32, // Spray's spread (Brush_Settings.spray_spread)
 	lazy_px:     f32,
 	color:       [3]f32,
 	cloth_mode:  sculpt.Cloth_Mode,
@@ -45,7 +47,8 @@ preset_name :: proc(p: ^Brush_Preset) -> string {
 preset_values_of :: proc(b: ^Brush_Settings, kind: sculpt.Brush_Kind) -> Preset_Values {
 	return {
 		kind = kind, strength = b.strengths[kind], falloff = b.falloffs[kind], alpha = b.alpha, alpha_mode = b.alpha_mode,
-		alpha_angle = b.alpha_angle, stroke = b.stroke, lazy_px = b.lazy_px, color = b.color, cloth_mode = b.cloth_mode,
+		alpha_angle = b.alpha_angle, stroke = b.stroke, spread = b.spray_spread, lazy_px = b.lazy_px, color = b.color,
+		cloth_mode = b.cloth_mode,
 	}
 }
 
@@ -54,7 +57,7 @@ preset_values_put :: proc(b: ^Brush_Settings, v: Preset_Values) {
 	b.kind = v.kind
 	b.strengths[v.kind], b.falloffs[v.kind] = v.strength, v.falloff
 	b.alpha, b.alpha_mode, b.alpha_angle = v.alpha, v.alpha_mode, v.alpha_angle
-	b.stroke, b.lazy_px, b.color, b.cloth_mode = v.stroke, v.lazy_px, v.color, v.cloth_mode
+	b.stroke, b.spray_spread, b.lazy_px, b.color, b.cloth_mode = v.stroke, v.spread, v.lazy_px, v.color, v.cloth_mode
 }
 
 // The preset the brush is on, if any.
@@ -109,7 +112,7 @@ preset_same :: proc(app: ^App, a, b: Preset_Values) -> bool {
 	round := proc(app: ^App, i: int) -> int {return i if i >= 0 && i < len(app.alphas) else -1}
 	if a.kind != b.kind || a.strength != b.strength || a.falloff.drawn != b.falloff.drawn do return false
 	if a.falloff.drawn && a.falloff.curve != b.falloff.curve do return false
-	if a.stroke != b.stroke || a.lazy_px != b.lazy_px do return false
+	if a.stroke != b.stroke || a.lazy_px != b.lazy_px || (a.stroke == .Spray && a.spread != b.spread) do return false
 	if .Grab not_in flags && (round(app, a.alpha) != round(app, b.alpha) || a.alpha_mode != b.alpha_mode || a.alpha_angle != b.alpha_angle) do return false
 	if .Paint in flags && a.color != b.color do return false
 	if .Cloth in flags && a.cloth_mode != b.cloth_mode do return false

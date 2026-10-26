@@ -63,6 +63,7 @@ on window focus or hover to decide ownership; a widget that acts on a finger pre
 | scrolls a panel straight after opening it; opens, scrolls, closes, repeats | `settings_scroll_right_after_opening`, `settings_open_scroll_close_repeat` |
 | drags a slider: the value changes, no orbit, no scroll | `slider_drag_sideways` |
 | sculpts on the model with a finger, the pen, the mouse | `finger_sculpts_model`, `palm_while_pen_near`, `pen_stroke_with_hand_resting`, `mouse_controls`, `mouse_click_within_one_frame` |
+| strokes in the Spray and Roll modes dab and are one undo step each | `spray_stroke_by_mouse`, `roll_stroke_by_finger` |
 | navigates on empty space as the settings say | `finger_orbits_empty_space`, `pen_on_empty_space_orbits`, `finger_orbits_setting`, `changed_touch_setting_takes_effect` |
 | orbits through several full turns both ways and over the top | `orbit_full_turns_free`, `orbit_full_turns_turntable` |
 | orbits after sculpting off the middle: the stroke stays put on screen; or about the centre when set so | `orbit_turns_about_the_last_stroke`, `orbit_about_the_centre_setting` |

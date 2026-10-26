@@ -40,6 +40,12 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
 - Drag rectangle (`Stroke_Mode.Drag_Rect`, app `rect_follow`): each frame `sculptor_stroke_restore` (`undo.odin`) copies the
   current step's saved nodes back (keeping them, so the stroke stays one step; refused under dynamic topology), then one dab
   at the start point sized by the drag.
+- Spray and Roll (`Stroke_Mode.Spray`/`.Roll`, app `stroke_walk`): spacing per mode (`stroke_spacing`). Spray's dabs
+  (`spray_dab`) scatter on screen before the raycast and scale size and strength (`Dab_Scatter`); every random number is
+  `stroke_random(Stroke.seed, Stroke.step, k)`, the seed from `App.stroke_seed` (kept per stroke in `Take.seeds` and
+  `.strokes` v4), so a replay lands the same dabs; never use a global generator for anything a replay must repeat. Roll
+  starts with `travel` at a radius and forces the alpha along the stroke (`alpha_screen_angle`). The stroke latches
+  `kind`, `held` and `mode` at `stroke_start`: Shift's Smooth and the rail always stroke as Dots.
 - Front faces only: `Brush.facing` (mesh-space way toward the viewer, mirrored per image; zero = off) scales each vertex
   by `facing_weight` (a ramp over normal · facing) in `displace`, Smooth and `mask_dab`; Grab ignores it. Mask shapes take
   `Front_Only{on, parallel, eye, toward}` (`mask.odin`) and skip vertices facing away.

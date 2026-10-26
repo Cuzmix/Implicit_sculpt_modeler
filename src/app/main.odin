@@ -65,7 +65,7 @@ Options :: struct {
 	bench_loops: int `usage:"Make --bench-stroke this many circles around the middle of the sphere instead of a wavy line."`,
 	brush:     string `usage:"Start with this brush: draw, smooth, clay, flatten, inflate, pinch, crease, grab, mask, layer, snake hook, morph, paint or cloth (also what --bench-stroke uses)."`,
 	cloth:     string `usage:"What the Cloth brush does: drag (the default), gravity, pinch or expand."`,
-	stroke:    string `usage:"Start with this stroke: dots (the default) or drag_rect (one stamp sized and turned by the drag, as the Brush tab's Drag rectangle)."`,
+	stroke:    string `usage:"Start with this stroke: dots (the default), drag_rect (one stamp sized and turned by the drag, as the Brush tab's Rectangle), spray or roll."`,
 	front_only: bool `usage:"Start with Front faces only on: brushes and mask shapes leave what faces away from the viewer."`,
 	symmetry:  string `usage:"Start with brush symmetry across these axes, e.g. x or xz."`,
 	material:  string `usage:"Shade objects with this material (the Scene tab's Material): clay (the default), red wax, white, grey, skin, gold, copper, chrome, steel, plastic, ceramic, rubber or pbr clay."`,
@@ -162,7 +162,7 @@ App :: struct {
 	key_override_count: int,
 	bindings:           [MAX_BINDINGS]Binding,
 	binding_count:      int,
-	alpha_seed: u32, // Random alpha mode's generator
+	stroke_seed: u64, // the seed the next stroke takes (Stroke.seed), one more each stroke
 	samples:  [dynamic]Input_Sample, // this frame's pointer samples, in window coordinates
 	pen_pressure: f32, // the pen's latest pressure
 	pen_tilt: [2]f32, // the pen's latest lean in degrees, x to the right and y down
@@ -484,7 +484,7 @@ run :: proc(opts: Options) -> bool {
 	app.time_gpu = opts.time_gpu || opts.gpubench != ""
 	app.ui = ui_state_default()
 	app.curve, app.insert = CURVE_DEFAULTS, INSERT_DEFAULTS
-	app.brush = {kind = .Draw, radius_px = DEFAULT_RADIUS_PX, pressure_strength = true, pressure_curve = geom.CURVE_LINEAR, detail_px = 10, collapse = true, alpha = -1, color = {0.75, 0.2, 0.15}}
+	app.brush = {kind = .Draw, radius_px = DEFAULT_RADIUS_PX, pressure_strength = true, pressure_curve = geom.CURVE_LINEAR, detail_px = 10, collapse = true, alpha = -1, color = {0.75, 0.2, 0.15}, spray_spread = SPRAY_DEFAULT_SPREAD}
 	for &s, kind in app.brush.strengths do s = BRUSHES[kind].strength
 	app.nav = NAV_DEFAULT
 	app.autosave.minutes = AUTOSAVE_DEFAULT_MINUTES
@@ -685,7 +685,7 @@ run :: proc(opts: Options) -> bool {
 	}
 	alphas_init(&app)
 	defer alphas_destroy(&app)
-	app.alpha_seed = 1
+	app.stroke_seed = 1
 	if opts.alpha != "" && !alpha_select(&app, opts.alpha) do return false
 	if opts.alpha_angle != 0 do app.brush.alpha_angle = opts.alpha_angle
 	switch strings.to_lower(opts.alpha_mode, context.temp_allocator) {

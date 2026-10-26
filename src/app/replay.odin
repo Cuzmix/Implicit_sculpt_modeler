@@ -43,6 +43,7 @@ Take :: struct {
 	frames:  [dynamic]Take_Frame,
 	samples: [dynamic]Input_Sample,
 	brushes: [dynamic]Brush_Settings, // one per stroke, as it began
+	seeds:   [dynamic]u64, // ...and each stroke's seed (Stroke.seed), so its random dabs replay
 }
 
 Take_Frame :: struct {
@@ -70,6 +71,7 @@ take_destroy :: proc(t: ^Take) {
 	delete(t.frames)
 	delete(t.samples)
 	delete(t.brushes)
+	delete(t.seeds)
 	t^ = {}
 }
 
@@ -78,6 +80,7 @@ take_clear :: proc(t: ^Take) {
 	clear(&t.frames)
 	clear(&t.samples)
 	clear(&t.brushes)
+	clear(&t.seeds)
 }
 
 take_strokes :: proc(t: ^Take) -> int {return len(t.brushes)}
@@ -107,7 +110,12 @@ replay_record :: proc(app: ^App, input: Viewport_Input, res: Sculpt_Frame_Result
 
 @(private = "file")
 take_append :: proc(t: ^Take, app: ^App, input: Viewport_Input, began: bool) {
-	if began || len(t.brushes) == 0 do append(&t.brushes, app.brush)
+	// A stroke that began within a frame another ended in (a release and a press in one
+	// frame's samples) gets its own entry too, found by its seed, so it replays with it.
+	if began || len(t.brushes) == 0 || (app.stroke.active && app.stroke.seed != t.seeds[len(t.seeds) - 1]) {
+		append(&t.brushes, app.brush)
+		append(&t.seeds, app.stroke.seed)
+	}
 	append(&t.frames, Take_Frame {
 		first = u32(len(t.samples)), count = u32(len(input.samples)), brush = u32(len(t.brushes) - 1),
 		camera = app.camera, size = input.size, mouse_pos = input.mouse_pos, pen_tilt = input.pen_tilt,
@@ -164,8 +172,9 @@ replay_frame :: proc(app: ^App, now: Viewport_Input) -> (res: Sculpt_Frame_Resul
 	p := &app.replay
 	t := p.playing
 	if t == nil || (p.at_pointer && (now.size.x < 1 || now.size.y < 1)) do return
-	saved_camera, saved_brush := app.camera, app.brush
-	defer app.camera, app.brush = saved_camera, saved_brush
+	// The seed too: the user's next stroke takes the one it would have without the replay.
+	saved_camera, saved_brush, saved_seed := app.camera, app.brush, app.stroke_seed
+	defer app.camera, app.brush, app.stroke_seed = saved_camera, saved_brush, saved_seed
 	for p.frame < len(t.frames) {
 		f := t.frames[p.frame]
 		p.frame += 1
@@ -182,6 +191,7 @@ replay_frame :: proc(app: ^App, now: Viewport_Input) -> (res: Sculpt_Frame_Resul
 			input.size, app.camera = now.size, p.camera
 		}
 		app.brush = t.brushes[f.brush] if p.recorded_brush else saved_brush
+		app.stroke_seed = t.seeds[f.brush]
 		r := sculpt_frame(app, input)
 		res.dabs += r.dabs
 		res.raycast_ms += r.raycast_ms
@@ -206,10 +216,12 @@ replay_shortcut :: proc(app: ^App) {
 // The .strokes file: "SCSTROKE", a version, then the brushes and the frames, every
 // number little-endian. A brush keeps what makes a stroke what it is (kind, size,
 // strength, falloff, pressure, lazy mouse, front faces, stroke mode, symmetry, colour,
-// cloth mode); the rest (alpha, tilt, dynamic topology detail) comes from the brush as
+// cloth mode, Spray's spread, the stroke's seed); the rest (alpha, tilt, dynamic topology detail) comes from the brush as
 // set when the file is loaded, since an alpha names an image that may not be there.
 STROKES_MAGIC :: "SCSTROKE"
-STROKES_VERSION :: u32(3) // 2: each frame's camera roll; 3: the rail's Mask in a frame's flags
+// 2: each frame's camera roll; 3: the rail's Mask in a frame's flags; 4: each brush's
+// spread and seed after its cloth mode.
+STROKES_VERSION :: u32(4)
 
 strokes_save :: proc(app: ^App, path: string) -> bool {
 	t := replay_source(app)
@@ -221,7 +233,7 @@ strokes_save :: proc(app: ^App, path: string) -> bool {
 	append(&out, STROKES_MAGIC)
 	geom.byte_put(&out, STROKES_VERSION)
 	geom.byte_put(&out, u32(len(t.brushes)))
-	for b in t.brushes {
+	for b, i in t.brushes {
 		geom.byte_put(&out, u8(b.kind))
 		geom.byte_put(&out, b.radius_px)
 		geom.byte_put(&out, b.strengths[b.kind])
@@ -237,6 +249,8 @@ strokes_save :: proc(app: ^App, path: string) -> bool {
 		geom.byte_put(&out, transmute(u8)b.symmetry)
 		geom.byte_put(&out, b.color)
 		geom.byte_put(&out, u8(b.cloth_mode))
+		geom.byte_put(&out, b.spray_spread)
+		geom.byte_put(&out, t.seeds[i])
 	}
 	geom.byte_put(&out, u32(len(t.frames)))
 	for f in t.frames {
@@ -321,10 +335,17 @@ strokes_read :: proc(app: ^App, data: []u8, t: ^Take) -> bool {
 		symmetry := geom.byte_get(&r, u8)
 		color := geom.byte_get(&r, [3]f32)
 		cloth := geom.byte_get(&r, u8)
+		// Before version 4 a stroke has the spread as set now and seed 0: those files were
+		// drawn before Spray, so neither changes how they replay.
+		spread, seed := b.spray_spread, u64(0)
+		if version >= 4 {
+			spread = geom.byte_get(&r, f32)
+			seed = geom.byte_get(&r, u64)
+		}
 		if !r.ok || int(kind) >= len(sculpt.Brush_Kind) || int(stroke) >= len(Stroke_Mode) || int(cloth) >= len(sculpt.Cloth_Mode) do return false
 		all_axes := transmute(u8)sculpt.Symmetry{.X, .Y, .Z}
 		if symmetry & ~all_axes != 0 || drawn > 1 || pressure_strength > 1 || pressure_size > 1 || front > 1 do return false
-		if !finite(radius, strength, lazy, color.r, color.g, color.b) || !curve_ok(falloff) || !curve_ok(pressure_curve) do return false
+		if !finite(radius, strength, lazy, spread, color.r, color.g, color.b) || !curve_ok(falloff) || !curve_ok(pressure_curve) do return false
 		b.kind = sculpt.Brush_Kind(kind)
 		b.radius_px = clamp(radius, MIN_RADIUS_PX, MAX_RADIUS_PX)
 		b.strengths[b.kind] = clamp(strength, MIN_STRENGTH, 1)
@@ -334,7 +355,9 @@ strokes_read :: proc(app: ^App, data: []u8, t: ^Take) -> bool {
 		b.front_only, b.stroke, b.symmetry = front == 1, Stroke_Mode(stroke), transmute(sculpt.Symmetry)symmetry
 		b.color = {clamp(color.r, 0, 1), clamp(color.g, 0, 1), clamp(color.b, 0, 1)}
 		b.cloth_mode = sculpt.Cloth_Mode(cloth)
+		b.spray_spread = clamp(spread, 0, SPRAY_MAX_SPREAD)
 		append(&t.brushes, b)
+		append(&t.seeds, seed)
 	}
 	frames := int(geom.byte_get(&r, u32))
 	if !r.ok || frames < 1 || frames > len(data) do return false
