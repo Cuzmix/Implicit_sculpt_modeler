@@ -148,6 +148,11 @@ App :: struct {
 	alphas:   [dynamic]Alpha_Entry, // the brush alphas the Brush tab offers (alphas.odin)
 	presets:      [MAX_PRESETS]Brush_Preset, // the user's brush presets (presets.odin), the first preset_count in use
 	preset_count: int,
+	// The user's key changes (keymap.odin), and the bindings in effect built from them.
+	key_overrides:      [MAX_KEY_OVERRIDES]Key_Override,
+	key_override_count: int,
+	bindings:           [MAX_BINDINGS]Binding,
+	binding_count:      int,
 	alpha_seed: u32, // Random alpha mode's generator
 	samples:  [dynamic]Input_Sample, // this frame's pointer samples, in window coordinates
 	pen_pressure: f32, // the pen's latest pressure
@@ -1071,6 +1076,9 @@ run :: proc(opts: Options) -> bool {
 			if p, on := brush_preset(&app); on do preset, _ = strings.replace_all(preset_name(p), " ", "_", context.temp_allocator)
 			fmt.printfln("presets=%d preset=%d preset_name=%s preset_changed=%d", app.preset_count, app.brush.preset, preset, int(preset_changed(&app)))
 			fmt.printfln("dock=%s dock_menu=%d browser=%d", dock_names(&app), int(app.kit.dock_menu), int(app.kit.browser))
+			bind := &app.kit.bind
+			fmt.printfln("key_overrides=%d bind_open=%d bind_command=%s bind_state=%s", app.key_override_count, int(bind.open), command_name(bind.id, bind.arg) if bind.id != .None else "none",
+				strings.to_lower(fmt.tprint(bind.state), context.temp_allocator))
 		}
 		{
 			// What the last stroke was, the rail's latches, and whether the selected object

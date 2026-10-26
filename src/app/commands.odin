@@ -751,6 +751,11 @@ command_checked :: proc(app: ^App, id: Command_Id, arg := 0) -> bool {
 command_run :: proc(app: ^App, id: Command_Id, arg := 0) -> bool {
 	c := &COMMANDS[id]
 	assert(c.args == 0 ? arg == 0 : arg >= 0 && arg < c.args, "command argument out of range")
+	// Ctrl+Alt+click on a control gives the command a key instead of running it.
+	if bind_click(app) {
+		bind_open(app, id, arg, app.kit.ctx.clicked_rect)
+		return false
+	}
 	if !command_enabled(app, id, arg) do return false
 	c.run(app, arg)
 	return true
@@ -780,16 +785,16 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 }
 
 // The first key chord bound to the command, as menus and tooltips show it, or "".
-command_keys :: proc(id: Command_Id, arg := 0) -> string {
-	for b in DEFAULT_BINDINGS do if b.command == id && b.arg == arg do return chord_text(b.chord)
+command_keys :: proc(app: ^App, id: Command_Id, arg := 0) -> string {
+	for b in keymap(app) do if b.command == id && b.arg == arg do return chord_text(b.chord)
 	return ""
 }
 
 // Every key chord bound to the command, in binding order ("Ctrl+Shift+Z, Ctrl+Y"), as
 // Help lists them, or "".
-command_chords :: proc(id: Command_Id, arg := 0) -> string {
+command_chords :: proc(app: ^App, id: Command_Id, arg := 0) -> string {
 	b := strings.builder_make(context.temp_allocator)
-	for k in DEFAULT_BINDINGS {
+	for k in keymap(app) {
 		if k.command != id || k.arg != arg do continue
 		if strings.builder_len(b) > 0 do strings.write_string(&b, ", ")
 		strings.write_string(&b, chord_text(k.chord))
@@ -837,7 +842,7 @@ command_gesture :: proc(app: ^App, id: Command_Id, arg := 0) -> string {
 // The shortcut and the gesture, as a tooltip shows them beside a control's name:
 // "Ctrl+Z · Two-finger tap", either alone, or "".
 command_hint :: proc(app: ^App, id: Command_Id, arg := 0) -> string {
-	return hint_join(command_keys(id, arg), command_gesture(app, id, arg))
+	return hint_join(command_keys(app, id, arg), command_gesture(app, id, arg))
 }
 
 // Keys and a gesture as one tooltip hint, either alone, or "".
@@ -909,7 +914,7 @@ key_mods :: proc(m: sdl.Keymod) -> (mods: bit_set[Key_Mod;u8]) {
 // while a text field has the keys.
 commands_handle_keys :: proc(app: ^App) {
 	if typing(app) do return
-	for b in DEFAULT_BINDINGS do if chord_down(&app.device, b.chord) do command_run(app, b.command, b.arg)
+	for b in keymap(app) do if chord_down(&app.device, b.chord) do command_run(app, b.command, b.arg)
 	if key_pressed(&app.device, sdl.K_ESCAPE) do replay_stop(app)
 }
 
@@ -920,8 +925,8 @@ command_menu_item :: proc(app: ^App, id: Command_Id, arg := 0, label := "", tone
 	c := &COMMANDS[id]
 	text := label if label != "" else command_label(id, arg)
 	gesture := command_gesture(app, id, arg)
-	hint := hint_join(command_keys(id, arg), gesture) if gesture != "" else ""
-	if !ui.menu_item(&app.kit.ctx, text, command_keys(id, arg), c.icon, command_checked(app, id, arg), tone, command_enabled(app, id, arg), hint = hint) do return false
+	hint := hint_join(command_keys(app, id, arg), gesture) if gesture != "" else ""
+	if !ui.menu_item(&app.kit.ctx, text, command_keys(app, id, arg), c.icon, command_checked(app, id, arg), tone, command_enabled(app, id, arg), hint = hint) do return false
 	return command_run(app, id, arg)
 }
 

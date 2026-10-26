@@ -3,6 +3,7 @@ package main
 import "core:fmt"
 import "core:strings"
 import "core:testing"
+import sdl "vendor:sdl3"
 
 // Every shortcut is in the Keys tab, under its command's name, with every chord bound to
 // that command.
@@ -10,8 +11,9 @@ import "core:testing"
 help_keys_list_every_binding :: proc(t: ^testing.T) {
 	app: App
 	app.nav, app.tool = NAV_DEFAULT, .Brush
+	testing.expect(t, bind_assign(&app, .Wireframe, 0, {sdl.K_K, {.Alt}, false}))
 	rows := help_key_rows(&app)
-	for b in DEFAULT_BINDINGS {
+	for b in keymap(&app) {
 		name, chord := help_name(b.command, b.arg), chord_text(b.chord)
 		found := false
 		for r in rows {

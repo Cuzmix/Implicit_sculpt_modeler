@@ -3,12 +3,9 @@ package main
 import "core:fmt"
 import "core:reflect"
 import "core:slice"
-import "core:strconv"
 import "core:strings"
 import sdl "vendor:sdl3"
 
-import "../camera"
-import "../sculpt"
 import "../ui"
 
 // The command palette: every command the registry holds, and each Settings tab, found
@@ -332,23 +329,7 @@ palette_icon :: proc(e: Palette_Entry) -> rune {
 // another. In the temp allocator.
 palette_entry_name :: proc(e: Palette_Entry) -> string {
 	if e.kind == .Settings_Tab do return fmt.tprintf("Settings_Tab:%v", Settings_Tab(e.arg))
-	if COMMANDS[e.id].args == 0 do return fmt.tprint(e.id)
-	return fmt.tprintf("%v:%s", e.id, palette_arg_name(e.id, e.arg))
-}
-
-@(private = "file")
-palette_arg_name :: proc(id: Command_Id, arg: int) -> string {
-	#partial switch id {
-	case .Brush:     return fmt.tprint(sculpt.Brush_Kind(arg))
-	case .View_Axis: return fmt.tprint(camera.Axis_View(arg))
-	case .Mask:      return fmt.tprint(sculpt.Mask_Command(arg))
-	case .Paint:     return fmt.tprint(sculpt.Paint_Command(arg))
-	case .Group:     return fmt.tprint(sculpt.Group_Command(arg))
-	case .Remesh_To, .Decimate_To: return fmt.tprint(SPHERE_PRESETS[arg].vertices)
-	case .Help:      return fmt.tprint(Help_Tab(arg))
-	case .New_Scene: return fmt.tprint(NEW_SCENE_SHAPES[arg])
-	}
-	return fmt.tprint(arg)
+	return command_name(e.id, e.arg)
 }
 
 // Reads a name palette_entry_name wrote; false for one this version does not know.
@@ -359,20 +340,9 @@ palette_entry_from_name :: proc(name: string) -> (e: Palette_Entry, ok: bool) {
 		tab := reflect.enum_from_name(Settings_Tab, tail) or_return
 		return {kind = .Settings_Tab, arg = int(tab)}, true
 	}
-	id := reflect.enum_from_name(Command_Id, head) or_return
+	id, arg := command_from_name(name) or_return
 	if !palette_lists(id) do return
-	n := COMMANDS[id].args
-	if n == 0 do return {.Command, id, 0}, tail == ""
-	if id == .Remesh_To || id == .Decimate_To {
-		want := strconv.parse_f64(tail) or_return
-		best := -1.0
-		for p, i in SPHERE_PRESETS {
-			if d := abs(f64(p.vertices) - want); best < 0 || d < best do e, best = {.Command, id, i}, d
-		}
-		return e, best >= 0
-	}
-	for arg in 0 ..< n do if palette_arg_name(id, arg) == tail do return {.Command, id, arg}, true
-	return
+	return {.Command, id, arg}, true
 }
 
 // Opens the palette with an empty query, closing whatever else floats so two popovers are
@@ -381,7 +351,7 @@ palette_open :: proc(app: ^App) {
 	k := &app.kit
 	k.palette, k.palette_pick, k.palette_first = true, 0, 0
 	k.palette_query = {}
-	k.menu, k.view_menu, k.browser, k.object_menu, k.action_pop = false, false, false, false, false
+	k.menu, k.view_menu, k.browser, k.dock_menu, k.object_menu, k.action_pop = false, false, false, false, false, false
 	k.ctx.select_open = 0
 }
 
@@ -429,7 +399,7 @@ kit_palette :: proc(app: ^App, anchor: ui.Rect) {
 	// Its chord with a modifier (Ctrl+K) closes it again, read here since the shortcuts
 	// are off while it is open; a plain `/` is text then. The chord that opened it was
 	// read after this frame's layout, so it never closes it at once.
-	for b in DEFAULT_BINDINGS {
+	for b in keymap(app) {
 		if k.palette && b.command == .Command_Palette && b.chord.mods != {} && chord_down(d, b.chord) do palette_close(app)
 	}
 	if ui.text_field(ctx, "Search commands##palette", k.palette_query[:], hold = k.palette, hint = "Search commands and settings") {
@@ -459,7 +429,7 @@ kit_palette :: proc(app: ^App, anchor: ui.Rect) {
 		// A row's id comes from its entry, so it stays the same widget while the list
 		// around it changes.
 		label := fmt.tprintf("%s##palette %d", palette_label(e), h.entry)
-		keys := command_keys(e.id, e.arg) if e.kind == .Command else ""
+		keys := command_keys(app, e.id, e.arg) if e.kind == .Command else ""
 		checked := e.kind == .Command && command_checked(app, e.id, e.arg)
 		if ui.menu_item(ctx, label, keys, palette_icon(e), checked, .Neutral, h.enabled, i == k.palette_pick) do ran = e
 	}
@@ -474,7 +444,18 @@ kit_palette :: proc(app: ^App, anchor: ui.Rect) {
 			if gesture := command_gesture(app, e.id, e.arg); gesture != "" do help = fmt.tprintf("%s By touch: %s%s.", help, strings.to_lower(gesture[:1], context.temp_allocator), gesture[1:])
 		}
 		if !hits[k.palette_pick].enabled do help = fmt.tprintf("Not now: %s", help)
-		ui.paragraph(ctx, help)
+		// A command's row can be given a key from here, enabled or not: Ctrl+Alt+click
+		// reaches only the controls that can run now.
+		if e.kind == .Command {
+			ui.begin(ctx, "palette help row", {direction = .Row, gap = 8})
+			ui.paragraph(ctx, help, width = width - 16 - 128)
+			if ui.button(ctx, "Assign key", .Bordered, width = 120) {
+				bind_open(app, e.id, e.arg, ctx.last_rect)
+			}
+			ui.end(ctx)
+		} else {
+			ui.paragraph(ctx, help)
+		}
 	}
 	ui.end(ctx)
 	if n > rows do ui.caption(ctx, fmt.tprintf("  %d-%d OF %d: TYPE MORE TO NARROW", k.palette_first + 1, min(k.palette_first + rows, n), n))

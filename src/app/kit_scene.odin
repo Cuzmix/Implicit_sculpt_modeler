@@ -117,7 +117,7 @@ kit_studio :: proc(app: ^App) {
 	if app.studio_on && app.studio.samples > 0 && app.studio.samples < int(app.studio_samples) {
 		ui.paragraph(ctx, fmt.tprintf("Built up %d of %d samples.", app.studio.samples, app.studio_samples))
 	}
-	ui.paragraph(ctx, fmt.tprintf("Ambient occlusion and soft shadows build up while the view stays still; any change starts them over. %s", command_keys(.Studio_Render)))
+	ui.paragraph(ctx, fmt.tprintf("Ambient occlusion and soft shadows build up while the view stays still; any change starts them over. %s", command_keys(app, .Studio_Render)))
 }
 
 @(private = "file")
