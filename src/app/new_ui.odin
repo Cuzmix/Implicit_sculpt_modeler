@@ -39,7 +39,15 @@ Kit_State :: struct {
 	tab_serial: u64, // counts tab changes, so each one fades its content in afresh
 	menu:       bool,
 	view_menu:  bool,
-	browser:    bool, // every brush, in a popover over the dock
+	browser:    bool, // every brush and preset, in a popover over the dock
+	// The dock's slots (dock.odin), and the popover a long press on one opens: open, on
+	// which slot, over its tile; the brush grid's scroll, in it or in the browser.
+	dock:       [DOCK_SLOTS]Dock_Slot,
+	dock_menu:  bool,
+	dock_slot:  int,
+	dock_at:    ui.Rect,
+	grid_scroll: f32,
+	grid_reveal: bool, // the grid scrolls to the lit tile as it opens
 	stats:      bool, // the Stats panel (F11)
 	stats_advanced: bool, // ...showing every measurement by its exact name, not the simple view
 	settings:   bool, // the Settings panel (Menu > Settings)
@@ -452,9 +460,6 @@ KIT_CANVAS :: ui.Color{0x11, 0x12, 0x14, 0xff}
 // The image id the viewport is drawn with; the kit hands it back in its draw commands.
 KIT_VIEWPORT_IMAGE :: 1
 
-// The brushes the dock shows; the rest are a tap away in the brush browser.
-KIT_DOCK := [?]sculpt.Brush_Kind{.Draw, .Smooth, .Clay, .Flatten, .Inflate, .Grab, .Mask}
-
 // The inspector's width, and the toolbars' height: one touch target.
 KIT_INSPECTOR_W :: 312
 
@@ -469,6 +474,7 @@ kit_init :: proc(app: ^App) {
 	k.surface_ring = true
 	k.rail_side = .Left
 	k.action_bar = true
+	k.dock = DOCK_DEFAULT
 	k.order = KIT_WINDOW_ORDER
 	k.last_frame = time.tick_now()
 }
@@ -478,7 +484,7 @@ kit_init :: proc(app: ^App) {
 // first-run tip hides under it.
 kit_floating :: proc(app: ^App) -> bool {
 	k := &app.kit
-	return app.ui.pie.open || app.ui.adjust.kind != .None || k.action_pop || k.menu || k.view_menu || k.browser || k.object_menu || k.palette || k.ctx.select_open != 0
+	return app.ui.pie.open || app.ui.adjust.kind != .None || k.action_pop || k.menu || k.view_menu || k.browser || k.dock_menu || k.object_menu || k.palette || k.ctx.select_open != 0
 }
 
 kit_destroy :: proc(app: ^App) {
@@ -618,7 +624,7 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 		// The topmost goes first: what floats, and only then Settings or Help.
 		if side_panel_open(k) && !kit_floating(app) do side_panel_close(app)
 		if k.palette do palette_close(app)
-		k.menu, k.view_menu, k.browser, k.object_menu, k.action_pop = false, false, false, false, false
+		k.menu, k.view_menu, k.browser, k.dock_menu, k.object_menu, k.action_pop = false, false, false, false, false, false
 		ctx.select_open = 0
 	}
 	k.ms = time.duration_milliseconds(time.tick_since(start))
@@ -766,14 +772,17 @@ kit_layout :: proc(app: ^App) {
 	// Bottom middle: the brush dock.
 	browser_anchor: ui.Rect
 	ui.begin_anchored(ctx, "dock", .Center, .End, {0, E}, {direction = .Row, gap = 0, padding = 4, radius = t.radius_large + 4, background = .Panel, center = true})
-	for kind in KIT_DOCK {
-		if ui.brush_tile(ctx, BRUSHES[kind].name, BRUSHES[kind].icon, app.brush.kind == kind && app.tool == .Brush, command_hint(app, .Brush, int(kind))) do command_run(app, .Brush, int(kind))
-		if ui.secondary(ctx) do brush_settings_open(app, kind)
+	// Each slot's tile has an id of its own: a brush or preset may sit in two slots. A long
+	// press (or a right-click) opens the slot's popover, to change what it holds.
+	for s, i in k.dock {
+		hint := command_hint(app, .Brush, int(s.kind)) if s.preset == 0 else ""
+		if ui.brush_tile(ctx, fmt.tprintf("%s##slot %d", dock_slot_label(app, s), i), BRUSHES[s.kind].icon, dock_slot_on(app, s), hint) do dock_slot_pick(app, s)
+		if ui.secondary(ctx) do dock_menu_open(app, i, ctx.last_rect)
 	}
 	ui.divider(ctx, 32)
-	in_dock := false
-	for kind in KIT_DOCK do in_dock ||= kind == app.brush.kind
-	if ui.icon_button(ctx, "All brushes", ui.ICON_GRID, selected = k.browser || (!in_dock && app.tool == .Brush), size = 58) do k.browser = !k.browser
+	if ui.icon_button(ctx, "All brushes", ui.ICON_GRID, selected = k.browser || (!dock_has_brush(app) && app.tool == .Brush), size = 58) {
+		k.browser, k.dock_menu, k.grid_scroll, k.grid_reveal = !k.browser, false, 0, true
+	}
 	browser_anchor = ctx.last_rect
 	ui.end(ctx)
 	// Over the dock, the next steps for what is active (kit_action_bar.odin); notes rise
@@ -820,33 +829,8 @@ kit_layout :: proc(app: ^App) {
 	if which, ok := top.?; ok do window_raise(k, which)
 
 	// What floats over the panels comes last, so it is drawn and hit tested on top.
-	if ui.popover_begin(ctx, "brush browser", &k.browser, browser_anchor, .Above_Center, {direction = .Column, gap = 2, padding = 10}) {
-		PER_ROW :: 5
-		// The caption across the row of tiles, with Close at its end.
-		ui.begin(ctx, "browser head", {direction = .Row, center = true})
-		ui.begin(ctx, "browser title", {direction = .Column, width = ui.BRUSH_TILE.x * PER_ROW - t.target})
-		ui.caption(ctx, "BRUSHES")
-		ui.end(ctx)
-		if ui.icon_button(ctx, "Close", ui.ICON_CLOSE, keys = "Esc") do k.browser = false
-		ui.end(ctx)
-		row := 0
-		for kind, i in sculpt.Brush_Kind {
-			if i % PER_ROW == 0 do ui.begin(ctx, fmt.tprintf("row %d", row), {direction = .Row, gap = 0})
-			if ui.brush_tile(ctx, BRUSHES[kind].name, BRUSHES[kind].icon, app.brush.kind == kind && app.tool == .Brush, command_hint(app, .Brush, int(kind))) {
-				command_run(app, .Brush, int(kind))
-				k.browser = false
-			}
-			if ui.secondary(ctx) {
-				brush_settings_open(app, kind)
-				k.browser = false
-			}
-			if i % PER_ROW == PER_ROW - 1 || i == len(sculpt.Brush_Kind) - 1 {
-				ui.end(ctx)
-				row += 1
-			}
-		}
-		ui.popover_end(ctx)
-	}
+	kit_brush_browser(app, browser_anchor)
+	kit_dock_menu(app)
 	kit_menu(app, menu_anchor)
 	kit_view_menu(app, view_anchor)
 	kit_object_menu(app)

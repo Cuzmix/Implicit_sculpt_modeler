@@ -181,6 +181,8 @@ settings_load :: proc(app: ^App, path: string) {
 	// The preset the brush was on, by name, put back once every line is read: the presets
 	// and the plain brushes' own values all come first.
 	on_preset := ""
+	// The dock's preset slots, by name, put in once the presets are read.
+	dock_presets: [DOCK_SLOTS]string
 	lines: for line in strings.split_lines_iterator(&text) {
 		f := strings.fields(line, context.temp_allocator)
 		if len(f) < 2 do continue
@@ -282,6 +284,16 @@ settings_load :: proc(app: ^App, path: string) {
 			}
 		case "brush_preset":
 			on_preset = strings.clone(preset_unescape(f[1]), context.temp_allocator)
+		case "dock":
+			// dock <slot> brush <brush> | dock <slot> preset <name, escaped>
+			slot, slot_ok := strconv.parse_int(f[1])
+			if len(f) != 4 || !slot_ok || slot < 0 || slot >= DOCK_SLOTS do continue
+			switch f[2] {
+			case "brush":
+				if kind, ok := brush_by_name(f[3]); ok do app.kit.dock[slot], dock_presets[slot] = {kind = kind}, ""
+			case "preset":
+				dock_presets[slot] = strings.clone(preset_unescape(f[3]), context.temp_allocator)
+			}
 		case "new_vertices":
 			// The size an object is added and remeshed at: the nearest of the presets.
 			want := number(f[1], -1)
@@ -294,6 +306,10 @@ settings_load :: proc(app: ^App, path: string) {
 	// On a preset of the brush the file names, it is put back on it; its plain values are
 	// the ones just read.
 	if i := preset_find(app, on_preset); on_preset != "" && i >= 0 && app.presets[i].values.kind == b.kind do preset_pick(app, i)
+	// A slot naming a preset the file does not have keeps what it held.
+	for name, slot in dock_presets {
+		if i := preset_find(app, name); name != "" && i >= 0 do dock_put(app, slot, app.presets[i].values.kind, i + 1)
+	}
 	log.infof("settings: read %s", path)
 
 	number :: proc(s: string, fallback: f32) -> f32 {
@@ -358,6 +374,13 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 			v.color.r, v.color.g, v.color.b, v.cloth_mode)
 	}
 	if on.preset > 0 && on.preset <= app.preset_count do fmt.sbprintfln(&out, "brush_preset %s", preset_escape(preset_name(&app.presets[on.preset - 1])))
+	for s, slot in app.kit.dock {
+		if s.preset > 0 && s.preset <= app.preset_count {
+			fmt.sbprintfln(&out, "dock %d preset %s", slot, preset_escape(preset_name(&app.presets[s.preset - 1])))
+		} else {
+			fmt.sbprintfln(&out, "dock %d brush %v", slot, s.kind)
+		}
+	}
 	if err := os.write_entire_file(path, transmute([]u8)strings.to_string(out)); err != nil {
 		log.warnf("settings: could not write %s: %v", path, err)
 		return false

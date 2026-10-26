@@ -122,6 +122,7 @@ settings_reset :: proc(app: ^App, tab: Settings_Tab) {
 		k.action_bar = true
 		k.rail_side = .Left
 		k.all_options = false
+		k.dock = DOCK_DEFAULT
 		windows_reset(k)
 	case .Camera:
 		n.orbit_style, n.limit_pitch, n.orbit_speed, n.pan_speed, n.zoom_speed = d.orbit_style, d.limit_pitch, d.orbit_speed, d.pan_speed, d.zoom_speed

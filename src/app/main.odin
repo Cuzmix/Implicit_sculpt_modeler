@@ -1070,6 +1070,7 @@ run :: proc(opts: Options) -> bool {
 			preset := "none"
 			if p, on := brush_preset(&app); on do preset, _ = strings.replace_all(preset_name(p), " ", "_", context.temp_allocator)
 			fmt.printfln("presets=%d preset=%d preset_name=%s preset_changed=%d", app.preset_count, app.brush.preset, preset, int(preset_changed(&app)))
+			fmt.printfln("dock=%s dock_menu=%d browser=%d", dock_names(&app), int(app.kit.dock_menu), int(app.kit.browser))
 		}
 		{
 			// What the last stroke was, the rail's latches, and whether the selected object

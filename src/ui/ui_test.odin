@@ -1158,3 +1158,51 @@ more_folds_and_always_shows :: proc(t: ^testing.T) {
 	testing.expect(t, body && !closed)
 	testing.expect_value(t, controls, 1)
 }
+
+// A list taller than the window is cut to fit it, opens with its chosen option in view,
+// and a drag scrolls it without picking.
+@(test)
+a_long_select_list_fits_the_window_and_scrolls :: proc(t: ^testing.T) {
+	ctx: Context
+	init(&ctx)
+	defer destroy(&ctx)
+	options: [30]string
+	for &o, i in options do o = "Option ab" if i % 2 == 0 else "Option cd"
+	picked := -1
+	frame := proc(ctx: ^Context, input: Input, options: []string, picked: ^int) {
+		frame_begin(ctx, input)
+		begin_anchored(ctx, "column", .Start, .Start, {0, 100}, {width = 200})
+		if p := select(ctx, "many", options, 20); p >= 0 do picked^ = p
+		end(ctx)
+		frame_end(ctx)
+	}
+	field := [2]f32{100, 124}
+	frame(&ctx, input_at(field), options[:], &picked)
+	frame(&ctx, input_at(field, down = {.Left}, pressed = {.Left}), options[:], &picked)
+	frame(&ctx, input_at(field, released = {.Left}), options[:], &picked)
+	for _ in 0 ..< 30 do frame(&ctx, input_at({-1, -1}), options[:], &picked)
+	list: Rect
+	ctx.id_seed = ctx.select_id
+	list_id := id_of(&ctx, "select list")
+	ctx.id_seed = 0
+	for p in ctx.placed do if p.id == list_id do list = p.rect
+	testing.expect(t, list.h > 0 && list.y >= 4 && list.y + list.h <= 600 - 4)
+	row := ctx.theme.target - 4
+	// Option 20 is in view: its row is inside the list.
+	at := 20 * row - ctx.select_scroll
+	testing.expect(t, at >= 0 && at + row <= list.h)
+	before := ctx.select_scroll
+	// A drag up the list scrolls it down, and picks nothing.
+	start := [2]f32{list.x + 60, list.y + list.h * 0.5}
+	finger :: proc(at: [2]f32, down: Buttons = {}, pressed: Buttons = {}, released: Buttons = {}) -> Input {
+		in_ := input_at(at, down, pressed, released)
+		in_.pointer = .Finger
+		return in_
+	}
+	frame(&ctx, finger(start, down = {.Left}, pressed = {.Left}), options[:], &picked)
+	for i in 1 ..= 10 do frame(&ctx, finger(start - {0, f32(i) * 8}, down = {.Left}), options[:], &picked)
+	frame(&ctx, finger(start - {0, 80}, released = {.Left}), options[:], &picked)
+	testing.expect(t, ctx.select_scroll > before)
+	testing.expect_value(t, picked, -1)
+	testing.expect(t, ctx.select_open != 0)
+}
