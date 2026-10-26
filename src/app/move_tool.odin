@@ -43,6 +43,11 @@ Move_Tool :: struct {
 	placed:     Pose_Placed,
 	pose_drags: int,
 	pose_moved: int,
+	// The topological mask under way (pose.odin), the ones made and the last one's reach,
+	// for the stats.
+	topo:       Topo_Gesture,
+	topo_masks: int,
+	topo_reach: f32,
 }
 
 // A selected object other than the primary, and where it was when a change began.
@@ -154,6 +159,7 @@ gizmo_pick :: proc(app: ^App, at, size: [2]f32) -> gizmo.Handle {
 // scales.
 move_tool_frame :: proc(app: ^App, input: Viewport_Input) {
 	m := &app.move
+	if topo_frame(app, input) do return
 	if !input.primary {
 		// A tap on a handle, which moved nothing, asks for the value instead.
 		d := m.drag
@@ -203,6 +209,11 @@ move_tool_frame :: proc(app: ^App, input: Viewport_Input) {
 				return
 			}
 			selection_make_primary(app, index)
+			// Ctrl, or the rail's Mask, makes a topological mask from the press instead.
+			if input.mask_shape {
+				topo_press(app, selected_object(app), input.mouse_pos, origin, dir, hit, input.size, input.alt)
+				return
+			}
 			handle, grab = .View, hit
 		} else {
 			grab = gizmo_center(app, selected_object(app))
@@ -403,6 +414,7 @@ move_go_live :: proc(app: ^App, obj: ^Object, input: Viewport_Input) -> bool {
 
 // Ends the drag in progress, if any, as one undo step when it changed the object.
 move_end :: proc(app: ^App) {
+	topo_end(app)
 	drag := app.move.drag
 	app.move.drag = {}
 	obj := object_by_id(app, drag.id)
@@ -425,6 +437,7 @@ move_end :: proc(app: ^App) {
 // Puts the object back where the drag began and ends it with nothing recorded: Escape,
 // a second finger making a gesture, or a cancelled touch.
 move_cancel :: proc(app: ^App) {
+	topo_cancel(app)
 	drag := app.move.drag
 	app.move.drag = {}
 	if drag.handle == .None do return
@@ -452,6 +465,7 @@ drag_mode :: proc(h: gizmo.Handle) -> gizmo.Mode {
 // What the drag in progress has done, for the label by the pointer: "X +0.250",
 // "Turn Z 45°", "Scale ×1.30", with the step when it snaps.
 move_readout :: proc(app: ^App) -> string {
+	if g := app.move.topo; g.phase == .Live do return fmt.tprintf("Mask reach %.3f", g.reach)
 	drag := app.move.drag
 	obj := object_by_id(app, drag.id)
 	// Nothing until something changed, so a click that selects shows no label.

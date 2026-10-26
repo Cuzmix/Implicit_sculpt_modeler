@@ -245,7 +245,8 @@ autosave_quiet :: proc(app: ^App) -> bool {
 	if app.touch.fingers.count > 0 do return false
 	p := &app.ui.pie
 	if p.space_down || p.space_pressed || p.space_released do return false
-	if app.stroke.active || len(app.stroke.pending) > 0 || app.drag.owner != .None || app.dab_wait.active do return false
+	// A topological mask still settling after its release writes the mask meanwhile.
+	if app.stroke.active || len(app.stroke.pending) > 0 || app.drag.owner != .None || app.dab_wait.active || move_busy(app) do return false
 	if replay_busy(app) || timeline_busy(app) || app.autosave.scripted do return false
 	return app.ui.scene_command.kind == .None && !file_pending() && app.saving.kind == .None
 }

@@ -273,6 +273,10 @@ draw_gizmo :: proc(app: ^App, o: Overlay, input: Viewport_Input) {
 			overlay_circle(o, sc.center, linalg.length(input.mouse_pos - d.center), overlay_color({1, 0.85, 0.3, 0.6}), 1.5 * px)
 		}
 	}
+	// A topological mask's reach, as a circle about the press.
+	if g := m.topo; g.phase == .Live {
+		overlay_circle(o, g.down, linalg.length(input.mouse_pos - g.down), overlay_color({1, 0.85, 0.3, 0.6}), 1.5 * px)
+	}
 	if text := move_readout(app); text != "" {
 		overlay_label(o, text, input.mouse_pos + [2]f32{0, -40 * px})
 	}

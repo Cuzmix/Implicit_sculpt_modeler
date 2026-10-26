@@ -220,3 +220,89 @@ pose_click_leaves_nothing_and_the_pivot_follows_undo :: proc(t: ^testing.T) {
 	pose_release(&app, {})
 	testing.expect_value(t, app.move.pivot, hand)
 }
+
+// A plain sphere with the Move tool on, and a point on it away from the gizmo.
+@(private = "file")
+topo_object :: proc(app: ^App) -> (obj: ^Object, at: [2]f32) {
+	obj = new(Object)
+	obj.id = 1
+	obj.transform = {scale = 1}
+	sculpt.levels_init(&obj.levels, geom.icosphere(3), nil, 64)
+	append(&app.scene.objects, obj)
+	app.scene.selected = 0
+	app.camera = camera.orbit_default()
+	app.tool = .Move
+	at = gizmo_screen(app, POSE_SIZE).center + {-150, -40}
+	return
+}
+
+// Ctrl and a drag from a point on the object masks it along the surface: free near the
+// press, masked far from it, one mask step, and pose mode on after; a tap selects only,
+// a cancel puts the mask back and a command mid-gesture records it first.
+@(test)
+topo_mask_gesture_masks_from_the_press :: proc(t: ^testing.T) {
+	app: App
+	defer pose_scene_free(&app)
+	obj, at := topo_object(&app)
+	s := object_sculptor(obj)
+	press :: proc(app: ^App, at: [2]f32) {
+		app.drag.moving = true
+		move_tool_frame(app, {size = POSE_SIZE, mouse_pos = at, hovered = true, primary = true, press = true, mask_shape = true})
+	}
+	hold :: proc(app: ^App, at: [2]f32) {
+		move_tool_frame(app, {size = POSE_SIZE, mouse_pos = at, hovered = true, primary = true, mask_shape = true})
+	}
+	// A tap.
+	press(&app, at)
+	testing.expect(t, move_busy(&app))
+	pose_release(&app, at)
+	testing.expect(t, !move_busy(&app))
+	testing.expect_value(t, len(app.history.done), 0)
+	testing.expect(t, !object_has_mask(&app, obj))
+
+	press(&app, at)
+	hold(&app, at + {60, 0})
+	testing.expect(t, sculpt.sculptor_topo_masking(s))
+	testing.expect(t, len(move_readout(&app)) > 0)
+	hold(&app, at + {150, 0})
+	pose_release(&app, at + {150, 0})
+	testing.expect(t, !move_busy(&app))
+	testing.expect_value(t, len(app.history.done), 1)
+	testing.expect_value(t, app.history.done[0].what, "Topological mask")
+	testing.expect_value(t, app.history.done[0].kind, History_Kind.Mask)
+	testing.expect_value(t, app.move.topo_masks, 1)
+	testing.expect(t, app.move.topo_reach > 0)
+	// Free about the press, masked on the far side.
+	origin, dir := mouse_ray(app.camera, at, POSE_SIZE)
+	_, hit, ok := scene_raycast(&app, origin, dir)
+	testing.expect(t, ok)
+	near, far := 0, 0
+	for p, v in s.mesh.positions {
+		if linalg.length(p - hit) < 0.1 do near += int(s.mask[v] == 0)
+		if linalg.length(p + hit) < 0.5 do far += int(s.mask[v] == 255)
+	}
+	testing.expect(t, near > 0 && far > 0)
+	testing.expect(t, pose_mode(&app))
+	masked := slice.clone(s.mask, context.temp_allocator)
+
+	// A cancel mid-gesture puts it back.
+	press(&app, at)
+	hold(&app, at + {40, 0})
+	testing.expect(t, !slice.equal(s.mask, masked))
+	move_cancel(&app)
+	testing.expect(t, slice.equal(s.mask, masked))
+	testing.expect_value(t, len(app.history.done), 1)
+	testing.expect(t, history_can_undo(&app))
+
+	// A command mid-gesture records it, inverted with Alt, first.
+	app.drag.moving = true
+	move_tool_frame(&app, {size = POSE_SIZE, mouse_pos = at, hovered = true, primary = true, press = true, mask_shape = true, alt = true})
+	hold(&app, at + {40, 0})
+	testing.expect(t, !history_can_undo(&app))
+	stroke_finish(&app)
+	testing.expect_value(t, len(app.history.done), 2)
+	testing.expect(t, !sculpt.sculptor_topo_masking(s))
+	for p, v in s.mesh.positions do if linalg.length(p - hit) < 0.05 do testing.expect_value(t, s.mask[v], u8(255))
+	history_undo(&app)
+	testing.expect(t, slice.equal(s.mask, masked))
+}
