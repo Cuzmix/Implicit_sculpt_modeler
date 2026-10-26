@@ -87,6 +87,11 @@ Kit_State :: struct {
 	open:       [Kit_Section]bool,
 	more:       [Kit_Section]bool,
 	all_options: bool,
+	// The first-run tips done (a bit per Coach_Step; COACH_DONE once over, remembered),
+	// and whether a card showed last frame and which.
+	coach:       i32,
+	coach_shown: bool,
+	coach_last:  Coach_Step,
 	scroll:     f32, // the inspector's scroll, where it is heading
 	add_shape:  geom.Primitive,
 	add_size:   int, // into SPHERE_PRESETS
@@ -459,6 +464,14 @@ kit_init :: proc(app: ^App) {
 	k.last_frame = time.tick_now()
 }
 
+// Whether something floats over the interface: a menu, the palette, the pie, the S/U
+// adjust, a popover or an open list. Escape closes it before Settings or Help, and the
+// first-run tip hides under it.
+kit_floating :: proc(app: ^App) -> bool {
+	k := &app.kit
+	return app.ui.pie.open || app.ui.adjust.kind != .None || k.action_pop || k.menu || k.view_menu || k.browser || k.object_menu || k.palette || k.ctx.select_open != 0
+}
+
 kit_destroy :: proc(app: ^App) {
 	for ev in app.kit.events do delete(ev.key)
 	delete(app.kit.events)
@@ -594,7 +607,7 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 	// Escape stops a replay.
 	if key_pressed(d, sdl.K_ESCAPE) || key_pressed(d, sdl.K_AC_BACK) {
 		// The topmost goes first: what floats, and only then Settings or Help.
-		if side_panel_open(k) && !app.ui.pie.open && app.ui.adjust.kind == .None && !k.action_pop && !k.menu && !k.view_menu && !k.browser && !k.object_menu && !k.palette && ctx.select_open == 0 do side_panel_close(app)
+		if side_panel_open(k) && !kit_floating(app) do side_panel_close(app)
 		if k.palette do palette_close(app)
 		k.menu, k.view_menu, k.browser, k.object_menu, k.action_pop = false, false, false, false, false
 		ctx.select_open = 0
@@ -776,6 +789,10 @@ kit_layout :: proc(app: ^App) {
 		if ui.secondary(ctx) do object_menu_open(app, obj.id, ctx.last_rect, .Above)
 		ui.end(ctx)
 	}
+	// Under the tool bar, the first-run tip; under the windows, which cover it if moved
+	// there.
+	coach_update(app)
+	kit_coach(app)
 
 	// The windows, back to front: the last drawn is hit tested first. One pressed comes to
 	// the front from the next frame on.

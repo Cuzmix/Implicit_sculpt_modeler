@@ -1,5 +1,6 @@
 package main
 
+import "core:math"
 import "core:math/linalg"
 import "core:time"
 
@@ -359,6 +360,7 @@ pointer_route :: proc(app: ^App, input: ^Viewport_Input) {
 			// enough to turn the unsnapped view past halfway jumps to the next one.
 			if !g.snap do g.snap, g.free = true, app.camera
 			camera.orbit_rotate(&g.free, delta, orbit_settings(app))
+			if delta != {} do app.coach_seen += {.Turn}
 			snapped := g.free
 			camera.orbit_snap(&snapped)
 			before := app.camera
@@ -620,6 +622,17 @@ stroke_cancel :: proc(app: ^App) {
 camera_apply_input :: proc(app: ^App, in_: Viewport_Input) {
 	c := &app.camera
 	nav := app.nav
+	// What is done here counts toward the first-run tips (kit_coach.odin).
+	if in_.touch_orbit != {} || ((in_.hovered || in_.dragging) && !in_.primary && in_.orbit_drag && in_.mouse_delta != {}) do app.coach_seen += {.Turn}
+	if ((in_.hovered || in_.dragging) && !in_.primary && (in_.pan_drag || in_.zoom_drag) && in_.mouse_delta != {}) || (in_.hovered && in_.wheel != 0) do app.coach_seen += {.Move}
+	// Two fingers count once they moved or pinched past the slop: a two-finger tap (undo)
+	// moves them a little too.
+	if in_.touch_pan != {} || in_.touch_zoom > 0 {
+		zoom := in_.touch_zoom if in_.touch_zoom > 0 else 1
+		// A pinch's change in points, for fingers about 150 points apart.
+		app.coach_touch += linalg.length(in_.touch_pan) + abs(math.ln(zoom)) * 150
+		if app.coach_touch > app.kit.ctx.theme.slop do app.coach_seen += {.Move}
+	}
 	// Two or more fingers on the viewport (touch_route) navigate with no pointer down.
 	if in_.touch_pan != {} do camera.orbit_pan(c, in_.touch_pan, in_.size.y)
 	if in_.touch_zoom > 0 do camera.orbit_zoom_toward(c, in_.touch_zoom, in_.touch_zoom_at, in_.size.y)

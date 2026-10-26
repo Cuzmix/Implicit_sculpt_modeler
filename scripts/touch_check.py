@@ -908,6 +908,78 @@ def show_every_option_needs_no_fold():
     return s, [f"--settings-file={settings_file()}"], camera_still({"dabs": near(0), "more": is_text("none"), "all_options": near(1)})
 
 
+# The first-run tip's Skip tips button at 1600 x 900 (the card sits under the tool bar).
+COACH_SKIP = (960, 106)
+
+
+@scenario
+def coach_tips_go_as_they_are_done():
+    """With the first-run tips on, a finger stroke on the model, a finger drag on empty space and a two-finger pinch each do a tip, and the card goes."""
+    s = Script()
+    s.wait(4)
+    s.fdrag(line((760, 430), (860, 470), 16))
+    s.wait(6)
+    s.fdrag(line(EMPTY, (EMPTY[0] + 120, EMPTY[1] + 40), 12))
+    s.wait(6)
+    s.fingers([(300, 600), (400, 600)], [(-60, 0), (60, 0)], 12)
+    s.wait(6)
+    return s, ["--coach"], {"coach": near(7), "coach_step": is_text("none"), "layout_coach": lambda v: v == "0,0,0,0"}
+
+
+@scenario
+def coach_tip_waits_for_its_turn():
+    """A mouse drag on empty space turns the view before anything is sculpted: the turn tip counts, and the card still shows the first tip, to sculpt."""
+    s = Script()
+    s.wait(4)
+    s.mouse_drag(line(EMPTY, (EMPTY[0] + 100, EMPTY[1]), 10))
+    s.wait(6)
+    return s, ["--coach"], {"coach": near(2), "coach_step": is_text("draw"), "dabs": near(0)}
+
+
+@scenario
+def coach_two_finger_tap_is_not_a_move():
+    """A two-finger tap (undo) moves the fingers a little but is no pan or pinch: no tip counts."""
+    s = Script()
+    s.wait(4)
+    s.fingers([(300, 600), (400, 600)], [(2, 1), (-1, 2)], 3)
+    s.wait(8)
+    return s, ["--coach"], {"coach": near(0), "coach_step": is_text("draw")}
+
+
+@scenario
+def coach_skip_ends_the_tips():
+    """A finger tap on Skip tips ends them at once, sculpting nothing."""
+    s = Script()
+    s.wait(10)
+    s.ftap(*COACH_SKIP)
+    s.wait(6)
+    return s, ["--coach"], camera_still({"coach": near(7), "coach_step": is_text("none"), "dabs": near(0)})
+
+
+@scenario
+def coach_tips_come_back_from_the_palette():
+    """After skipping, the palette's Show the first-run tips starts them again from the first."""
+    s = Script()
+    s.wait(10)
+    s.ftap(*COACH_SKIP)
+    s.wait(6)
+    s.press("k", ("ctrl",))
+    s.type("first-run tips")
+    s.press("Return")
+    s.wait(10)
+    return s, ["--coach"], {"coach": near(0), "coach_step": is_text("draw"), "palette": near(0)}
+
+
+@scenario
+def coach_card_clears_the_bars_on_a_narrow_window():
+    """At 820 x 640 the tip keeps clear of the tool bar, the inspector and the sliders."""
+    s = Script()
+    s.add(f"move:{EMPTY[0]},{EMPTY[1]}")
+    s.wait(12)
+    return s, ["--coach", "--width=820", "--height=640"], {"coach_step": is_text("draw"),
+                                                         "@layout": clear_of("coach", "tools", "inspector", "sliders", "top_right")}
+
+
 @scenario
 def object_pages_switch_and_stay():
     """A finger taps the Object tab, then its Build page; the Brush tab and back keep Build, and nothing is sculpted."""

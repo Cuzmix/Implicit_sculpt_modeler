@@ -27,6 +27,7 @@ Options :: struct {
 	settings_file: string `usage:"Read and write the remembered settings at this path instead of the per-user folder, scripted runs included (for testing that settings persist)."`,
 	orbit_style: string `usage:"Start with this orbit style: free (ZBrush's Rot XYZ) or turntable (Rot Y), as Settings > Camera does."`,
 	orbit_pivot: string `usage:"Start turning the view about this, as Settings > Camera > Turn about does: stroke (the middle of the last stroke, the default), pointer (the surface under the press) or centre (the middle of the view)."`,
+	coach: bool `usage:"Show the first-run tips from the first one, even in a scripted run (an interactive run shows them until they are done or skipped)."`,
 	flat_ring: bool `usage:"Start with the brush ring flat on the screen instead of lying on the surface, as Settings > Interface > Lay the brush ring on the surface off does (for comparison)."`,
 	no_edge_orbit: bool `usage:"Start with the safe zone off, as Settings > Camera > Edges always turn the view does: a press near an edge over the model goes to the tool."`,
 	gpu_debug: bool `usage:"Create the GPU device in debug mode (enables validation where available)."`,
@@ -150,6 +151,12 @@ App :: struct {
 	pen_pressure: f32, // the pen's latest pressure
 	pen_tilt: [2]f32, // the pen's latest lean in degrees, x to the right and y down
 	pen_seen: bool,
+	// The first-run tips (kit_coach.odin): whether this run shows them, and the steps
+	// done since the card last moved on.
+	coach_run:  bool,
+	coach_seen: bit_set[Coach_Step],
+	coach_touch: f32, // how far two fingers moved or pinched in this touch, in points
+	finger_seen: bool, // a finger touched the screen this run
 	touch:    Touch, // fingers and the pen on a touch screen (touch.odin)
 	rail:     Modifier_Rail, // Smooth, Invert, Mask and Hide as buttons (modifiers.odin)
 	drag:     Drag, // who the press on the viewport belongs to (navigate.odin)
@@ -447,6 +454,8 @@ run :: proc(opts: Options) -> bool {
 	defer delete(settings)
 	settings_load(&app, settings)
 	app.settings_file = settings
+	app.coach_run = (remember && opts.frames == 0) || opts.coach
+	if opts.coach do app.kit.coach = 0
 	if opts.reduce_motion do app.kit.ctx.reduced_motion = true
 	app.kit.fixed_dt = opts.ui_dt
 	if opts.finger_orbits do app.nav.finger_model = .Orbit
@@ -1094,6 +1103,7 @@ run :: proc(opts: Options) -> bool {
 			more = name if more == "none" else strings.concatenate({more, "+", name}, context.temp_allocator)
 		}
 		fmt.printfln("more=%s all_options=%d", more, int(k.all_options))
+		fmt.printfln("coach=%d coach_shown=%d coach_step=%s", k.coach, int(k.coach_shown), strings.to_lower(fmt.tprint(k.coach_last), context.temp_allocator) if k.coach_shown else "none")
 		// The action bar's groups as it last showed them (none while it waits for room), and
 		// how often the mask was read.
 		bar_groups := "none"
@@ -1113,7 +1123,7 @@ run :: proc(opts: Options) -> bool {
 		fmt.println()
 		// Where the modifier rail and what must stay clear of it ended up, in points, for
 		// touch_check's window size scenarios.
-		for name in ([?]string{"modifier rail", "sliders", "dock", "status", "inspector", "action bar"}) {
+		for name in ([?]string{"modifier rail", "sliders", "dock", "status", "inspector", "action bar", "coach", "tools", "top left", "top right"}) {
 			r := ui.prev_rect(&k.ctx, name)
 			key, _ := strings.replace_all(name, " ", "_", context.temp_allocator)
 			fmt.printf("layout_%s=%.0f,%.0f,%.0f,%.0f ", key, r.x, r.y, r.w, r.h)
