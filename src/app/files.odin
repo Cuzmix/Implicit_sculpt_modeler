@@ -257,7 +257,7 @@ file_apply :: proc(app: ^App, req: File_Request) -> bool {
 	case .Open_Version:
 		return version_open(app, req.path)
 	case .Alpha:
-		_ = alpha_load(app, req.path)
+		_ = alpha_keep(app, req.path)
 	case .Screenshot:
 		_ = screenshot_save(app, req.path)
 	case .Timelapse:

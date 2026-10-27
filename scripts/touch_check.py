@@ -29,10 +29,12 @@ import math
 import os
 import queue
 import shutil
+import struct
 import subprocess
 import sys
 import threading
 import time
+import zlib
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EXE = os.path.join(ROOT, "build", "sculpt.exe" if os.name == "nt" else "sculpt")
@@ -1018,6 +1020,11 @@ def settings_file():
 def macros_folder():
     """Where the scenario's macros are kept: beside its settings file, named after it."""
     return settings_file()[:-len(".txt")] + "-macros"
+
+
+def library_folder():
+    """Where the scenario's library is kept: beside its settings file, named after it."""
+    return settings_file()[:-len(".txt")] + "-library"
 
 
 def saved(**want):
@@ -3802,6 +3809,7 @@ def run(name, screens, displays=None):
     if os.path.exists(settings_file()):
         os.remove(settings_file())
     shutil.rmtree(macros_folder(), ignore_errors=True)
+    shutil.rmtree(library_folder(), ignore_errors=True)
     shutil.rmtree(autosave_folder(), ignore_errors=True)
     result = SCENARIOS[name]()
     steps = result if isinstance(result, Steps) else [result]
@@ -3938,7 +3946,6 @@ def glb_read(path):
     """A .glb's shape keys (name, weight) and its base positions with every key added at
     its weight: the surface a reader shows at the file's own values."""
     import json
-    import struct
     data = open(path, "rb").read()
     json_len = struct.unpack_from("<I", data, 12)[0]
     doc = json.loads(data[20:20 + json_len])
@@ -4373,6 +4380,35 @@ def export_keeps_layers(ext, read, blender_keys):
         (stroke_then_rest(Script(), 5), [setup, f"--export={path}"],
          {"layers": near(3, 0), "dabs": lambda v: int(v) > 0, "@the keys rebuild the shown surface": rebuilt,
           "@the validator and Blender agree": outside_tools}),
+    ])
+
+
+def grey_png(path, size=16):
+    """Writes a grey gradient PNG (8-bit greyscale) of `size` pixels a side."""
+    rows = b"".join(b"\0" + bytes((x * 255 // (size - 1) + y) % 256 for x in range(size)) for y in range(size))
+    def chunk(kind, body):
+        return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body))
+    with open(path, "wb") as f:
+        f.write(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", size, size, 8, 0, 0, 0, 0))
+                + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b""))
+
+
+@scenario
+def library_alphas_survive_a_restart():
+    """Images in the library's mine/alphas load at start after the built-ins, and a file
+    there that is not an image is skipped and counted; a script picks one by its
+    reference, and the next start, with nothing asked, has the brush on it again from
+    the settings. The Alpha section shows it with Remove from library."""
+    alphas = os.path.join(library_folder(), "mine", "alphas")
+    os.makedirs(alphas, exist_ok=True)
+    grey_png(os.path.join(alphas, "rock.png"))
+    with open(os.path.join(alphas, "broken.png"), "w") as f:
+        f.write("not an image")
+    return Steps([
+        (Script(), [f"--settings-file={settings_file()}", "--script=alpha mine/rock"],
+         {"library_alphas": near(1, 0), "library_skipped": near(1, 0), "alpha": is_text("mine/rock")}),
+        (Script(), [f"--settings-file={settings_file()}", "--script=show_section alpha"],
+         {"library_alphas": near(1, 0), "alpha": is_text("mine/rock"), "@saved": saved(brush_alpha="mine/rock")}),
     ])
 
 

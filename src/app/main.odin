@@ -112,6 +112,7 @@ App :: struct {
 	startup_script: Script_Outcome, // how the start-up script went, for the exit stats and files
 	macro:    Macro_State, // the recording and the macros kept (macros.odin)
 	alphas:   [dynamic]Alpha_Entry, // the brush alphas the Brush palette offers (alphas.odin)
+	library:  Library, // the folder that keeps the person's own alphas across starts (library.odin)
 	presets:      [MAX_PRESETS]Brush_Preset, // the user's brush presets (presets.odin), the first preset_count in use
 	preset_count: int,
 	// The user's key changes (keymap.odin), and the bindings in effect built from them.
@@ -417,6 +418,12 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	settings := (opts.settings_file if opts.settings_file != "" else settings_path()) if remember else ""
 	if remember do settings = strings.clone(settings)
 	defer delete(settings)
+	// The alphas come first, the library's too, so that presets and the brush in the
+	// settings find the alphas they name.
+	alphas_init(&app)
+	defer alphas_destroy(&app)
+	library_load(&app, library_folder(settings))
+	defer library_destroy(&app)
 	settings_load(&app, settings)
 	app.settings_file = settings
 	// Macros are kept beside the settings, so a run that keeps no settings keeps none.
@@ -437,8 +444,6 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		app.ui.rebuild_goal, app.ui.rebuild_even, app.rebuild.pinned = .Even, rebuild_count(opts.density_preview), true
 	}
 	app.studio_samples, app.studio_ao, app.studio_shadow = STUDIO_SAMPLES_DEFAULT, 0.85, 0.6
-	alphas_init(&app)
-	defer alphas_destroy(&app)
 	app.stroke_seed = 1
 	app.tool = .Brush
 	app.running = true
@@ -914,6 +919,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	}
 	macros_kept := 0
 	for s in app.macro.slots do macros_kept += int(s.name != "")
+	fmt.printfln("library_alphas=%d library_skipped=%d alpha=%s", app.library.alphas, app.library.skipped, alpha_ref(&app, app.brush.alpha))
 	fmt.printfln("macros=%d macro_recording=%d macro_entries=%d macro_left_out=%d macros_run=%d scripts_run=%d macro_steps=%d", macros_kept, int(app.macro.recording), len(app.macro.entries), app.macro.left_out, app.macro.runs, app.macro.scripts, app.macro.steps)
 	fmt.printfln("frames=%d dabs=%d objects=%d vertices=%d", frame_index, app.stats.dabs_total, len(app.scene.objects), vertices)
 	{

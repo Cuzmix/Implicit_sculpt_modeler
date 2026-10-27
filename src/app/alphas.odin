@@ -34,7 +34,12 @@ ALPHA_MODE_NAMES := [Alpha_Mode]string {
 }
 
 Alpha_Entry :: struct {
-	name:  string, // owned
+	name:  string, // owned: what the panel shows
+	ref:   string, // owned: how presets, the settings and scripts name it: a built-in's name, or `mine/<stem>` for one the library keeps
+	file:  string, // owned: the library file it came from, or "" for a built-in or an image a script loaded
+	sum:   u32,    // the file's CRC32, with its size, so the same image loaded again is found
+	size:  int,
+	gone:  bool,   // taken out of the library: the slot stays so that every index held elsewhere stays valid
 	alpha: sculpt.Alpha,
 	thumb: [ALPHA_THUMB * ALPHA_THUMB]u8, // what the Alpha section draws: the image, small
 }
@@ -45,22 +50,25 @@ ALPHA_THUMB :: 20
 // The built-in alphas, in the order the panel shows them.
 alphas_init :: proc(app: ^App) {
 	for shape in sculpt.Alpha_Shape {
-		alpha_add(app, sculpt.ALPHA_SHAPE_NAMES[shape], sculpt.alpha_make(shape))
+		name := sculpt.ALPHA_SHAPE_NAMES[shape]
+		alpha_add(app, name, name, sculpt.alpha_make(shape))
 	}
 }
 
 alphas_destroy :: proc(app: ^App) {
 	for &e in app.alphas {
 		delete(e.name)
+		delete(e.ref)
+		delete(e.file)
 		sculpt.alpha_destroy(&e.alpha)
 	}
 	delete(app.alphas)
 }
 
 // Adds an alpha the app now owns, and returns its index.
-@(private = "file")
-alpha_add :: proc(app: ^App, name: string, alpha: sculpt.Alpha) -> int {
-	e := Alpha_Entry{name = strings.clone(name), alpha = alpha}
+@(private)
+alpha_add :: proc(app: ^App, name, ref: string, alpha: sculpt.Alpha) -> int {
+	e := Alpha_Entry{name = strings.clone(name), ref = strings.clone(ref), alpha = alpha}
 	for j in 0 ..< ALPHA_THUMB {
 		for i in 0 ..< ALPHA_THUMB {
 			u := (f32(i) + 0.5) / ALPHA_THUMB * 2 - 1
@@ -72,12 +80,32 @@ alpha_add :: proc(app: ^App, name: string, alpha: sculpt.Alpha) -> int {
 	return len(app.alphas) - 1
 }
 
-// The alpha with this name (a built-in's, any case) or, failing that, the image at
-// this path loaded as a new one; selected for the brush. False, with a note, when
-// neither works.
+// The index of the alpha `ref` names (any case), or -1. A built-in's name finds it even
+// before alphas_init, as the built-ins always take the first indices in shape order.
+alpha_find :: proc(app: ^App, ref: string) -> int {
+	for e, i in app.alphas do if !e.gone && strings.equal_fold(e.ref, ref) do return i
+	if len(app.alphas) == 0 {
+		for name, shape in sculpt.ALPHA_SHAPE_NAMES do if strings.equal_fold(ref, name) do return int(shape)
+	}
+	return -1
+}
+
+// How the alpha at index `i` is named in files: its reference, or "-" for round.
+alpha_ref :: proc(app: ^App, i: int) -> string {
+	return app.alphas[i].ref if i >= 0 && i < len(app.alphas) && !app.alphas[i].gone else "-"
+}
+
+// The alpha with this reference (`mine/rock`, or a built-in's name), or this name as the
+// panel shows it, or, failing both, the image at this path loaded as a new one (and not
+// kept: only Load image keeps a copy); selected for the brush. False, with a note, when
+// none works.
 alpha_select :: proc(app: ^App, name_or_path: string) -> bool {
+	if i := alpha_find(app, name_or_path); i >= 0 {
+		app.brush.alpha = i
+		return true
+	}
 	for e, i in app.alphas {
-		if strings.equal_fold(e.name, name_or_path) {
+		if !e.gone && strings.equal_fold(e.name, name_or_path) {
 			app.brush.alpha = i
 			return true
 		}
@@ -85,10 +113,8 @@ alpha_select :: proc(app: ^App, name_or_path: string) -> bool {
 	return alpha_load(app, name_or_path)
 }
 
-// Loads an image (PNG, JPEG, BMP, TGA or QOI) as a new alpha and selects it. Its grey
-// value sets the alpha, times its opacity where it has one, so a white shape on a
-// transparent ground works as well as a grey image. The outcome becomes the file note;
-// false when it failed.
+// Loads an image (PNG, JPEG, BMP, TGA or QOI) as a new alpha and selects it, without
+// keeping it past this run. The outcome becomes the file note; false when it failed.
 alpha_load :: proc(app: ^App, path: string) -> bool {
 	name := filepath.base(path)
 	data, err := file_read_any(path, context.allocator)
@@ -97,31 +123,43 @@ alpha_load :: proc(app: ^App, path: string) -> bool {
 		return false
 	}
 	defer delete(data)
-	img, img_err := image.load_from_bytes(data)
-	if img_err != nil {
-		file_note(app, true, "Cannot load alpha %s: %v (PNG, JPEG, BMP, TGA and QOI images work)", name, img_err)
-		return false
-	}
-	defer image.destroy(img)
-	grey := make([]f32, img.width * img.height, context.temp_allocator)
-	if !image_grey(img, grey) {
-		file_note(app, true, "Cannot load alpha %s: %d-bit channels are not supported", name, img.depth)
-		return false
-	}
-	alpha, ok := sculpt.alpha_from_grey(grey, img.width, img.height)
-	if !ok {
-		file_note(app, true, "Cannot load alpha %s: the image is empty", name)
+	alpha, width, height, failed := alpha_decode(data)
+	if failed != "" {
+		file_note(app, true, "Cannot load alpha %s: %s", name, failed)
 		return false
 	}
 	stem := filepath.stem(path)
-	app.brush.alpha = alpha_add(app, stem if stem != "" else name, alpha)
+	stem = stem if stem != "" else name
+	app.brush.alpha = alpha_add(app, stem, stem, alpha)
+	alpha_loaded_note(app, name, alpha, width, height, "")
+	return true
+}
+
+// The alpha an image file's bytes make: its grey value sets the alpha, times its
+// opacity where it has one, so a white shape on a transparent ground works as well as a
+// grey image. When they make none, `failed` says why.
+@(private)
+alpha_decode :: proc(data: []u8) -> (alpha: sculpt.Alpha, width, height: int, failed: string) {
+	img, img_err := image.load_from_bytes(data)
+	if img_err != nil do return {}, 0, 0, fmt.tprintf("%v (PNG, JPEG, BMP, TGA and QOI images work)", img_err)
+	defer image.destroy(img)
+	grey := make([]f32, img.width * img.height, context.temp_allocator)
+	if !image_grey(img, grey) do return {}, 0, 0, fmt.tprintf("%d-bit channels are not supported", img.depth)
+	ok: bool
+	alpha, ok = sculpt.alpha_from_grey(grey, img.width, img.height)
+	if !ok do return {}, 0, 0, "the image is empty"
+	return alpha, img.width, img.height, ""
+}
+
+// The note a loaded alpha gets; `more` ends it.
+@(private)
+alpha_loaded_note :: proc(app: ^App, name: string, alpha: sculpt.Alpha, width, height: int, more: string) {
 	if alpha.reach == 0 {
 		// Kept and selected all the same, so the panel shows what was loaded.
-		file_note(app, true, "Loaded alpha %s, but it is black all over, so it moves nothing", name)
+		file_note(app, true, "Loaded alpha %s, but it is black all over, so it moves nothing%s", name, more)
 	} else {
-		file_note(app, false, "Loaded alpha %s: %d by %d pixels, used at %d by %d", name, img.width, img.height, alpha.size, alpha.size)
+		file_note(app, false, "Loaded alpha %s: %d by %d pixels, used at %d by %d%s", name, width, height, alpha.size, alpha.size, more)
 	}
-	return true
 }
 
 // Fills `grey` (width × height) with the image's brightness, 0 to 1, times its opacity
@@ -161,7 +199,7 @@ image_grey :: proc(img: ^image.Image, grey: []f32) -> bool {
 // piece, so it has none.
 brush_alpha :: proc(app: ^App) -> ^sculpt.Alpha {
 	i := app.brush.alpha
-	if i < 0 || i >= len(app.alphas) || .Grab in BRUSHES[app.brush.kind].flags do return nil
+	if i < 0 || i >= len(app.alphas) || app.alphas[i].gone || .Grab in BRUSHES[app.brush.kind].flags do return nil
 	return &app.alphas[i].alpha
 }
 
@@ -218,17 +256,20 @@ draw_alpha_outline :: proc(app: ^App, o: Overlay, center: [2]f32, color: ui.Colo
 }
 
 // The interface's Alpha section: the round brush and every alpha as thumbnails to tap,
-// a button to load an image, and which way the image faces.
+// a button to load an image (kept in the library), one to take a kept image out again,
+// and which way the image faces.
 kit_alpha_section :: proc(app: ^App) {
 	ctx := &app.kit.ctx
 	t := ctx.theme
 	PER_ROW :: 6
 	cell := ui.fill_width(ctx) / PER_ROW
-	count := len(app.alphas) + 1 // the round brush first
-	for first := 0; first < count; first += PER_ROW {
+	// The round brush first, then every alpha not taken out of the library.
+	shown := make([dynamic]int, 0, len(app.alphas) + 1, context.temp_allocator)
+	append(&shown, -1)
+	for e, i in app.alphas do if !e.gone do append(&shown, i)
+	for first := 0; first < len(shown); first += PER_ROW {
 		ui.begin(ctx, fmt.tprintf("alpha row %d", first), {direction = .Row})
-		for j in first ..< min(first + PER_ROW, count) {
-			i := j - 1
+		for i in shown[first:][:min(PER_ROW, len(shown) - first)] {
 			name := "Round (no alpha)" if i < 0 else app.alphas[i].name
 			a := ui.area(ctx, fmt.tprintf("%s##alpha %d", name, i), {cell, cell})
 			if a.clicked do app.brush.alpha = i
@@ -240,18 +281,31 @@ kit_alpha_section :: proc(app: ^App) {
 			} else {
 				ui.grey_image(ctx, {r.x + 2, r.y + 2, r.w - 4, r.h - 4}, {ALPHA_THUMB, ALPHA_THUMB}, app.alphas[i].thumb[:], {0xff, 0xff, 0xff, 0xff})
 			}
-			selected := app.brush.alpha == i || (i < 0 && app.brush.alpha >= len(app.alphas))
+			selected := app.brush.alpha == i || (i < 0 && alpha_ref(app, app.brush.alpha) == "-")
 			ui.stroke_rect(ctx, r, t.radius_small, t.accent if selected else t.border_strong, 2 if selected else 1)
-			ui.tip(ctx, a.id, r, name)
+			ui.tip(ctx, a.id, r, name if i < 0 || app.alphas[i].file == "" else fmt.tprintf("%s (in your library)", name))
 		}
 		ui.end(ctx)
 	}
 	if ui.button(ctx, "Load image...", .Bordered, glyph = ui.ICON_IMAGE) do file_dialog(app, .Alpha)
+	if i := app.brush.alpha; i >= 0 && i < len(app.alphas) && app.alphas[i].file != "" && !app.alphas[i].gone {
+		// Taking an image out deletes its file, so it asks for a second tap.
+		k := &app.kit
+		armed := k.alpha_armed == i + 1 && ctx.time - k.alpha_armed_at < ALPHA_REMOVE_ARM_TIME
+		if ui.button(ctx, "Tap again to remove##alpha remove" if armed else "Remove from library##alpha remove", .Solid if armed else .Bordered, tone = .Danger if armed else .Neutral, glyph = ui.ICON_TRASH) {
+			if armed {
+				k.alpha_armed = 0
+				_ = alpha_remove(app, i)
+			} else {
+				k.alpha_armed, k.alpha_armed_at = i + 1, ctx.time
+			}
+		}
+	}
 	if brush_alpha(app) != nil {
 		modes: [len(Alpha_Mode)]string
 		for m, i in Alpha_Mode do modes[i] = ALPHA_MODE_NAMES[m]
 		if picked := ui.tabs(ctx, "alpha mode", modes[:], int(app.brush.alpha_mode)); picked >= 0 do app.brush.alpha_mode = Alpha_Mode(picked)
 		_ = ui.slider(ctx, "Angle", &app.brush.alpha_angle, -180, 180, .Linear, fmt.tprintf("%.0f°", app.brush.alpha_angle))
 	}
-	ui.paragraph(ctx, "An alpha stamps each dab with an image (PNG, JPEG, BMP, TGA or QOI): white works fully, black not at all. Its square reaches past the circle where the image does.")
+	ui.paragraph(ctx, "An alpha stamps each dab with an image (PNG, JPEG, BMP, TGA or QOI): white works fully, black not at all. Its square reaches past the circle where the image does. Load image keeps a copy in your library, so it is here at the next start.")
 }
