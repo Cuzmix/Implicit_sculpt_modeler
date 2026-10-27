@@ -263,9 +263,9 @@ Pen_Tips :: enum u8 {
 // light touch where the pen does the heavy work.
 TOUCH_STRENGTH_MIN :: 0.1
 
-// The Hold delay's range: from just longer than a quick tap to Android's Long (1.5 s), for
-// hands that need the time.
-HOLD_DELAY_MIN :: 0.15
+// The Hold delay's range: from a tenth of a second, about as long as a quick tap, for hands
+// that want the long press at once, to Android's Long (1.5 s), for hands that need the time.
+HOLD_DELAY_MIN :: 0.1
 HOLD_DELAY_MAX :: 1.5
 
 // The safe zone's width, in points: from half a touch target to a broad band.
@@ -286,7 +286,7 @@ NAV_DEFAULT :: Nav_Prefs {
 	zoom_toward    = true,
 	three_finger   = true,
 	touch_strength = 1,
-	hold_delay     = 0.3,
+	hold_delay     = 0.25,
 	palm_rejection = true,
 	double_tap     = true,
 	lift_one_orbit = true,

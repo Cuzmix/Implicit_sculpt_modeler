@@ -183,7 +183,7 @@ def line(a, b, steps):
 
 SLOP = 10  # theme.slop at UI scale 1
 UI_DT = 1 / 60  # --ui-dt: seconds the interface's clock moves a frame
-LONG_PRESS_FRAMES = 30  # Settings > Touch > Hold delay (0.3 s by default) is 18 frames of UI_DT; room for a longer one
+LONG_PRESS_FRAMES = 30  # Settings > Touch > Hold delay (0.25 s by default) is 15 frames of UI_DT; room for a longer one
 
 
 def past_slop(a, b, steps):
@@ -307,11 +307,39 @@ def long_press_drag_draw_size():
 
 @scenario
 def hold_delay_is_short_by_default():
-    """Draw size held 0.35 s, just past the default Hold delay of 0.3 s, then dragged up scrubs the size: the hold is no longer the 0.45 s it was."""
+    """Draw size held still 0.28 s, just past the default Hold delay of 0.25 s, is a long press: the Pen section opens, where the old 0.3 s would still have tapped."""
     s = Script()
-    long_press_drag(s, *UI["size"], -150 - 10, frames=21)
+    long_press(s, *UI["size"], frames=17)
+    s.wait(8)
+    return s, [], camera_still({"dabs": near(0), "bar_pop": is_text("pen"), "brush_radius_px": near(60)})
+
+
+@scenario
+def hold_delay_setting_goes_down_to_a_tenth():
+    """With the Hold delay at its floor of 0.1 s, Draw size held still 0.13 s is already a long press: the Pen section opens."""
+    s = Script()
+    long_press(s, *UI["size"], frames=8)
+    s.wait(8)
+    return s, ["--script=set hold_delay 0.1"], camera_still({"dabs": near(0), "bar_pop": is_text("pen"), "brush_radius_px": near(60)})
+
+
+@scenario
+def drag_draw_size_at_once():
+    """A finger on Draw size dragged straight up 160 points, with no hold first, about doubles the size, as a long press dragged does, and opens nothing."""
+    s = Script()
+    long_press_drag(s, *UI["size"], -150 - 10, frames=1)
     s.wait(4)
-    return s, [], camera_still({"dabs": near(0), "bar_pop": is_text("none"), "brush_radius_px": lambda v: 105 < float(v) <= 120})
+    return s, [], camera_still({"dabs": near(0), "bar_pop": is_text("none"), "long_tip": lambda v: v == "none", "brush_radius_px": lambda v: 105 < float(v) <= 120})
+
+
+@scenario
+def mouse_drags_strength_at_once():
+    """The mouse pressed on Strength and dragged 70 points down lowers it, as a finger's long press dragged does, and opens nothing."""
+    s = Script()
+    x, y = UI["strength"]
+    s.mouse_drag(line((x, y), (x, y + 70), 10))
+    s.wait(4)
+    return s, [], camera_still({"dabs": near(0), "bar_pop": is_text("none"), "brush_strength": lambda v: 0.28 <= float(v) <= 0.34})
 
 
 @scenario
@@ -3470,7 +3498,7 @@ def slow_tap_on_a_folded_title_still_opens_it():
 
 @scenario
 def a_press_short_of_long_still_taps():
-    """A finger held 0.2 s on the Inspector button, short of the 0.3 s Hold delay, is still a tap: no tooltip, and the inspector closes."""
+    """A finger held 0.2 s on the Inspector button, short of the 0.25 s Hold delay, is still a tap: no tooltip, and the inspector closes."""
     s = Script()
     x, y = INSPECTOR_BUTTON
     s.add(f"fdown:0:{x:g},{y:g}")

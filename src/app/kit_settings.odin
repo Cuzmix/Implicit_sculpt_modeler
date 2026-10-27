@@ -317,7 +317,7 @@ settings_touch :: proc(app: ^App) {
 	ui.caption(ctx, "PRESS AND HOLD")
 	// In steps of 0.05 s, so the value shown is the value used.
 	if ui.slider(ctx, "Hold delay", &n.hold_delay, HOLD_DELAY_MIN, HOLD_DELAY_MAX, .Linear, fmt.tprintf("%.2f s", n.hold_delay)) do n.hold_delay = f32(int(n.hold_delay * 20 + 0.5)) / 20
-	ui.paragraph(ctx, "How long a finger or the pen holds a button still before its long press: dragging Draw size, Strength or Focal shift on the brush bar, a button's menu, a name and shortcut. Shorter is quicker; longer leaves more time for a slow tap.")
+	ui.paragraph(ctx, "How long a finger or the pen holds a button still before its long press: a button's menu, a name and shortcut, or dragging Draw size, Strength or Focal shift on the spot (a drag up or down on them sets them at once, with no hold). Shorter is quicker; below about 0.2 s a slow tap may open the menu instead, so longer leaves more time for one.")
 	ui.spacer(ctx, 8)
 	ui.caption(ctx, "PEN AND MOUSE ON EMPTY SPACE")
 	empty := [len(Empty_Drag)]string{"Turns the view", "Waits for the model"}
@@ -342,7 +342,7 @@ settings_touch :: proc(app: ^App) {
 	_ = ui.switch_row(ctx, "Twist two fingers to roll", &n.twist_roll, enabled = n.orbit_style == .Free)
 	if n.orbit_style != .Free do ui.paragraph(ctx, "Rolling needs the Trackball orbit style (Camera).")
 	_ = ui.switch_row(ctx, "Three fingers: size and focal shift", &n.three_finger)
-	ui.paragraph(ctx, "Drag three fingers up and down for the brush size, sideways for its focal shift. Strength, like size and focal shift, follows a long press dragged up or down on its button on the brush bar.")
+	ui.paragraph(ctx, "Drag three fingers up and down for the brush size, sideways for its focal shift. Strength, like size and focal shift, follows a drag up or down on its button on the brush bar.")
 	_ = ui.switch_row(ctx, "Lift one of two fingers to turn", &n.lift_one_orbit)
 	ui.paragraph(ctx, "Put two fingers down, lift one, and the other turns the view: for when the model fills the screen.")
 	_ = ui.switch_row(ctx, "Double tap to frame or pin", &n.double_tap)

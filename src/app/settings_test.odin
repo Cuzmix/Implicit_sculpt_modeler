@@ -163,3 +163,19 @@ settings_refuse_what_they_cannot_read :: proc(t: ^testing.T) {
 	}
 	free_all(context.temp_allocator)
 }
+
+// A script's value for a real setting meets the range as the f32 it is stored as, so the
+// Hold delay's floor of 0.1, which f32 holds only nearly, is a value of it and less is not.
+@(test)
+settings_take_a_real_bound_by_its_text :: proc(t: ^testing.T) {
+	for s in SETTINGS {
+		if s.key != "hold_delay" do continue
+		v, ok := setting_parse(s, "0.1", strict = true)
+		testing.expect(t, ok)
+		testing.expect_value(t, f32(v), HOLD_DELAY_MIN)
+		_, ok = setting_parse(s, "0.09", strict = true)
+		testing.expect(t, !ok)
+		v, ok = setting_parse(s, "1.5", strict = true)
+		testing.expect(t, ok && f32(v) == HOLD_DELAY_MAX)
+	}
+}

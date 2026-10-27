@@ -61,7 +61,7 @@ hold :: proc(ctx: ^Context, p: [2]f32, frames: int, pointer := Pointer_Kind.Fing
 	return fired, f.act, f.tipped, f.plain
 }
 
-// 0.45 s at 60 frames a second is 27 frames.
+// The theme's long press, 0.25 s, is 15 frames at 60 a second.
 LONG_FRAMES :: 30
 
 @(test)
@@ -73,8 +73,8 @@ a_long_press_runs_the_secondary_action_once_and_never_clicks :: proc(t: ^testing
 	fired, clicked, _, _ := hold(&ctx, at[0], LONG_FRAMES)
 	testing.expect_value(t, fired, 1)
 	testing.expect(t, !clicked)
-	// A press held 0.3 s is still a tap.
-	fired, clicked, _, _ = hold(&ctx, at[0], 18)
+	// A press held 0.2 s is still a tap.
+	fired, clicked, _, _ = hold(&ctx, at[0], 12)
 	testing.expect_value(t, fired, 0)
 	testing.expect(t, clicked)
 	// So is a long press by the pen; the mouse's left button never long-presses.
@@ -230,4 +230,35 @@ a_long_press_action_keeps_the_press_from_the_scroll :: proc(t: ^testing.T) {
 		testing.expectf(t, dragging == (which == 1), "button %d: scrolled %v", which, dragging)
 		long_panel(&ctx, touch(p, released = {.Left}), &scroll)
 	}
+}
+
+// A press its widget used for a drag of its own (press_used) runs no secondary action
+// however long it is then held, and letting go on the widget is no click.
+@(test)
+a_used_press_neither_long_presses_nor_clicks :: proc(t: ^testing.T) {
+	ctx: Context
+	init(&ctx)
+	defer destroy(&ctx)
+	at := long_setup(&ctx)
+	p := at[0]
+	used_frame :: proc(ctx: ^Context, input: Input, use: bool) -> (clicked, fired: bool) {
+		frame_begin(ctx, input)
+		begin_anchored(ctx, "column", .Start, .Start, {16, 16}, {direction = .Column})
+		clicked = icon_button(ctx, "act", ICON_UNDO)
+		if use do press_used(ctx)
+		fired = secondary(ctx)
+		end(ctx)
+		frame_end(ctx)
+		return
+	}
+	_, _ = used_frame(&ctx, touch(p, {.Left}, {.Left}), false)
+	_, _ = used_frame(&ctx, touch(p, {.Left}), true)
+	fired := 0
+	for _ in 0 ..< LONG_FRAMES {
+		_, f := used_frame(&ctx, touch(p, {.Left}), false)
+		fired += int(f)
+	}
+	clicked, _ := used_frame(&ctx, touch(p, released = {.Left}), false)
+	testing.expect_value(t, fired, 0)
+	testing.expect(t, !clicked)
 }
