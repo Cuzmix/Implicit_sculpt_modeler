@@ -6,14 +6,17 @@ import "core:math/linalg"
 // The modifier wheel: a ring of four sectors (top, right, bottom, left) round a grip, as
 // a sculpting tablet app's modifier wheel. Each sector is a button whose hit area is its
 // own quarter of the ring, so the four meet without overlapping; the grip in the middle
-// drags the wheel about.
+// drags the wheel about. The whole ring can be turned, so the hand that holds it finds
+// each sector where it suits.
 
-// One sector of a wheel: its tooltip and shortcut, its icon, and how it shows its state.
+// One sector of a wheel: its tooltip and shortcut, how it shows its state, and what it
+// shows: its icon, its caption, or the icon over the caption, whichever are given.
 Wheel_Sector :: struct {
-	name:  string,
-	glyph: rune,
-	look:  Modifier_Look,
-	keys:  string,
+	name:    string,
+	glyph:   rune, // 0 for none
+	caption: string, // "" for none
+	look:    Modifier_Look,
+	keys:    string,
 }
 
 // What the pointer did to a wheel this frame.
@@ -25,21 +28,26 @@ Wheel_Result :: struct {
 	sectors:  [4]Rect, // where each sector's icon sits, for the app to know where they are
 }
 
+// The size of a sector's caption, in points: small enough for "Smooth" to fit the
+// smallest wheel's sector.
+WHEEL_CAPTION_SIZE :: 10
+
 // Which sector of a ring `outer` points across round a hole `hole` across, centred at
 // `c`, the point `p` is on, or -1 for the hole and outside the ring. The sectors are a
-// quarter turn each, the first centred straight up, going clockwise.
-wheel_sector_at :: proc(c, p: [2]f32, outer, hole: f32) -> int {
+// quarter turn each, the first centred straight up turned clockwise by `turn` (radians),
+// going clockwise.
+wheel_sector_at :: proc(c, p: [2]f32, outer, hole: f32, turn: f32 = 0) -> int {
 	d := p - c
 	r := linalg.length(d)
 	if r < hole * 0.5 || r > outer * 0.5 do return -1
-	a := math.atan2(d.y, d.x) + math.PI * 0.5 // 0 straight up, clockwise on screen
+	a := math.atan2(d.y, d.x) + math.PI * 0.5 - turn // 0 at the first sector's middle, clockwise on screen
 	return int(math.floor(a / (math.PI * 0.5) + 0.5)) %% 4
 }
 
-// A wheel `outer` points across with a grip `hole` across in the middle, laid out in the
-// current container. Returns what the pointer did; a long press on a sector shows its
-// tooltip, as on any other button.
-wheel :: proc(ctx: ^Context, name: string, outer, hole: f32, sectors: [4]Wheel_Sector) -> (res: Wheel_Result) {
+// A wheel `outer` points across with a grip `hole` across in the middle, turned clockwise
+// by `turn` (radians), laid out in the current container. Returns what the pointer did; a
+// long press on a sector shows its tooltip, as on any other button.
+wheel :: proc(ctx: ^Context, name: string, outer, hole: f32, sectors: [4]Wheel_Sector, turn: f32 = 0) -> (res: Wheel_Result) {
 	ctx.controls += 1
 	t := ctx.theme
 	cell := place(ctx, {outer, outer})
@@ -49,7 +57,7 @@ wheel :: proc(ctx: ^Context, name: string, outer, hole: f32, sectors: [4]Wheel_S
 	// The whole square is the wheel's to the pointer, so its container is found under it.
 	hit_extend(ctx, cell)
 	fill_circle(ctx, c, outer * 0.5, t.surface)
-	under := wheel_sector_at(c, ctx.input.mouse, outer, hole) if ctx.input.mouse_valid else -1
+	under := wheel_sector_at(c, ctx.input.mouse, outer, hole, turn) if ctx.input.mouse_valid else -1
 	GAP :: 0.035 // radians cut from each end of a sector, so they read as four
 	STEPS :: 10
 	mid_r := (outer * 0.5 - 3 + hole * 0.5 + 2) * 0.5
@@ -64,7 +72,7 @@ wheel :: proc(ctx: ^Context, name: string, outer, hole: f32, sectors: [4]Wheel_S
 		full := tween(ctx, salt(id, 2), 1 if s.look == .Latched else 0, t.indicator_time)
 		h := tween(ctx, salt(id, 3), 1 if hovered || held else 0, t.hover_time)
 		fill := color_mix(color_mix(color_mix(t.fill, t.fill_pressed if held else t.fill_hover, h * 0.6), t.accent_soft, lit * (1 - full)), t.accent, full)
-		mid := f32(i) * math.PI * 0.5 - math.PI * 0.5
+		mid := f32(i) * math.PI * 0.5 - math.PI * 0.5 + turn
 		a0, a1 := mid - math.PI * 0.25 + GAP, mid + math.PI * 0.25 - GAP
 		ro, ri := outer * 0.5 - 3, hole * 0.5 + 2
 		for k in 0 ..< STEPS {
@@ -75,7 +83,17 @@ wheel :: proc(ctx: ^Context, name: string, outer, hole: f32, sectors: [4]Wheel_S
 		}
 		at := c + [2]f32{math.cos(mid), math.sin(mid)} * mid_r
 		color := color_mix(color_mix(t.text_secondary, t.accent, lit), t.on_accent, full)
-		icon(ctx, s.glyph, at, t.icon_size, color)
+		// The icon alone sits in the sector's middle; with a caption, the pair is centred
+		// there, and a caption alone takes the middle.
+		switch {
+		case s.glyph != 0 && s.caption != "":
+			icon(ctx, s.glyph, at - {0, 7}, t.icon_small, color)
+			text(ctx, s.caption, at.x, at.y + 9, WHEEL_CAPTION_SIZE, color, .Semibold, .Center)
+		case s.glyph != 0:
+			icon(ctx, s.glyph, at, t.icon_size, color)
+		case:
+			text(ctx, s.caption, at.x, at.y, WHEEL_CAPTION_SIZE, color, .Semibold, .Center)
+		}
 		box := Rect{at.x - 20, at.y - 20, 40, 40}
 		res.sectors[i] = box
 		tip(ctx, id, box, label_text(s.name), s.keys)

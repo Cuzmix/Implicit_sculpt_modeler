@@ -128,6 +128,7 @@ settings_reset :: proc(app: ^App, tab: Settings_Tab) {
 		k.surface_ring = true
 		k.action_bar = true
 		k.rail_side, k.wheel_size, k.wheel_offset = .Left, .Medium, {}
+		k.wheel_labels, k.wheel_turn = .Icons, 0
 		k.all_options = false
 		k.dock = DOCK_DEFAULT
 		windows_reset(k)
@@ -140,7 +141,7 @@ settings_reset :: proc(app: ^App, tab: Settings_Tab) {
 		n.pinch_zoom, n.two_finger_pan, n.zoom_toward, n.twist_roll = d.pinch_zoom, d.two_finger_pan, d.zoom_toward, d.twist_roll
 		n.three_finger, n.gestures, n.touch_strength = d.three_finger, d.gestures, d.touch_strength
 		n.double_tap, n.lift_one_orbit = d.double_tap, d.lift_one_orbit
-		n.shape_apply = d.shape_apply
+		n.shape_apply, n.pen_tips = d.shape_apply, d.pen_tips
 	case .Keys:
 		bind_reset_all(app)
 		n.mouse_scheme = d.mouse_scheme
@@ -191,9 +192,15 @@ settings_interface :: proc(app: ^App) {
 	if picked := ui.tabs(ctx, "Modifier wheel", sides[:], int(k.rail_side)); picked >= 0 {
 		k.rail_side, k.wheel_offset = Rail_Side(picked), {}
 	}
-	sizes := [len(Wheel_Size)]string{"Small", "Medium", "Large"}
+	ui.label(ctx, "Size")
+	sizes: [len(Wheel_Size)]string
+	for name, s in WHEEL_SIZE_NAMES do sizes[s] = name
 	if picked := ui.tabs(ctx, "Wheel size", sizes[:], int(k.wheel_size)); picked >= 0 do k.wheel_size = Wheel_Size(picked)
-	ui.paragraph(ctx, "Smooth (top), Mask (left) and Invert (bottom) for what Shift, Ctrl and Alt do, and the brush pie on the right. Tap one to keep it on until tapped again; hold one with a finger to use it only while held, sculpting with the pen or another finger. Smooth and Mask together hide, as Shift and Ctrl do. Drag the middle to move the wheel; picking a side puts it back.")
+	ui.label(ctx, "Sectors show")
+	labels := [len(Wheel_Labels)]string{"Icons", "Icons and names", "Names"}
+	if picked := ui.tabs(ctx, "Wheel sectors show", labels[:], int(k.wheel_labels)); picked >= 0 do k.wheel_labels = Wheel_Labels(picked)
+	if ui.slider(ctx, "Wheel turn", &k.wheel_turn, -180, 180, .Linear, fmt.tprintf("%.0f°", k.wheel_turn)) do k.wheel_turn = wheel_turn_snapped(k.wheel_turn)
+	ui.paragraph(ctx, "Smooth (top), Mask (left) and Invert (bottom) for what Shift, Ctrl and Alt do, and the brush pie on the right. Tap one to keep it on until tapped again; hold one with a finger to use it only while held, sculpting with the pen or another finger. Smooth and Mask together hide, as Shift and Ctrl do. Drag the middle to move the wheel; picking a side puts it back. Two fingers on the ring spread or pinch to resize it and twist to turn it.")
 	ui.spacer(ctx, 8)
 	ui.caption(ctx, "INSPECTOR")
 	_ = ui.switch_row(ctx, "Show every option", &k.all_options)
@@ -275,6 +282,12 @@ settings_touch :: proc(app: ^App) {
 	ui.label(ctx, "Mouse")
 	if picked := ui.tabs(ctx, "Mouse on empty space", empty[:], int(n.empty_drag[.Mouse])); picked >= 0 do n.empty_drag[.Mouse] = Empty_Drag(picked)
 	ui.paragraph(ctx, "Waits for the model: a stroke that starts off the model begins once it reaches it.")
+	ui.spacer(ctx, 8)
+	ui.caption(ctx, "PEN")
+	ui.label(ctx, "Names while the pen hovers")
+	tips := [len(Pen_Tips)]string{"Always", "With a keyboard", "Never"}
+	if picked := ui.tabs(ctx, "Pen hover names", tips[:], int(n.pen_tips)); picked >= 0 do n.pen_tips = Pen_Tips(picked)
+	ui.paragraph(ctx, "The pen held over a control without touching shows its name and shortcut, as the mouse resting on it does. With a keyboard shows them only while one is connected; a long press always shows them.")
 	_ = ui.switch_row(ctx, "Ignore the hand while the pen is near", &n.palm_rejection)
 	ui.paragraph(ctx, "A single finger does nothing while the pen is near the screen; two fingers still move the view.")
 	ui.spacer(ctx, 8)

@@ -1,5 +1,6 @@
 package main
 
+import "core:math"
 import "core:os"
 import "core:testing"
 
@@ -32,8 +33,8 @@ rail_taps_latch_and_holds_do_not :: proc(t: ^testing.T) {
 
 	// Quick, but it slid off further than the slop.
 	_ = rail_finger_down(&r, 12, .Smooth, {100, 100}, 3.5)
-	testing.expect(t, rail_finger_move(&r, 12, {100, 120}))
-	testing.expect(t, rail_finger_move(&r, 12, {100, 101}))
+	testing.expect(t, rail_finger_move(&r, 12, {100, 120}, 10))
+	testing.expect(t, rail_finger_move(&r, 12, {100, 101}, 10))
 	_ = rail_finger_up(&r, 12, 3.6, false, SLOP)
 	testing.expect_value(t, r.latched, Modifiers{.Invert})
 
@@ -43,7 +44,7 @@ rail_taps_latch_and_holds_do_not :: proc(t: ^testing.T) {
 	testing.expect_value(t, r.latched, Modifiers{.Invert})
 
 	// A finger the rail never had is not its to move or release.
-	testing.expect(t, !rail_finger_move(&r, 99, {0, 0}))
+	testing.expect(t, !rail_finger_move(&r, 99, {0, 0}, 10))
 	testing.expect(t, !rail_finger_up(&r, 99, 5, false, SLOP))
 
 	// Tapped again: let go.
@@ -278,4 +279,105 @@ rail_smooth_mid_stroke_is_a_line_not_a_latch :: proc(t: ^testing.T) {
 	testing.expect(t, !input.smooth)
 	_ = rail_finger_up(&app.rail, 4, 2.05, false, SLOP)
 	testing.expect_value(t, app.rail.latched, Modifiers{.Smooth})
+}
+
+// Turned, the wheel's sectors turn with it: a quarter turn clockwise puts the first (Smooth)
+// on the right.
+@(test)
+wheel_sectors_turn_with_the_wheel :: proc(t: ^testing.T) {
+	c := [2]f32{100, 100}
+	testing.expect_value(t, ui.wheel_sector_at(c, {150, 100}, 132, 44, math.PI / 2), 0)
+	testing.expect_value(t, ui.wheel_sector_at(c, {100, 150}, 132, 44, math.PI / 2), 1)
+	testing.expect_value(t, ui.wheel_sector_at(c, {100, 50}, 132, 44, -math.PI / 2), 1)
+	r := Modifier_Rail{center = c, outer = 132, hole = 44, turn = math.PI / 2}
+	m, ok := rail_hit(&r, {150, 100})
+	testing.expect(t, ok && m == .Smooth)
+}
+
+// Two fingers on the wheel that spread or twist stop holding their sectors, latch nothing
+// as they lift, and the gesture lasts until every finger is off; two held still still hold
+// Smooth and Mask, which hide. A plain finger (on the pie's sector) holds nothing.
+@(test)
+wheel_two_fingers_resize_rather_than_hold :: proc(t: ^testing.T) {
+	SLOP :: 10
+	r: Modifier_Rail
+	_ = rail_finger_down(&r, 1, .Smooth, {100, 50}, 1.0)
+	_ = rail_finger_down(&r, 2, .Mask, {50, 100}, 1.0)
+	testing.expect_value(t, rail_mods(&r), Modifiers{.Smooth, .Mask})
+	mods, _ := rail_press_mods(&r)
+	testing.expect_value(t, mods, Modifiers{.Hide})
+	// Under twice the slop apart and a small turn: still holding.
+	_ = rail_finger_move(&r, 1, {100, 45}, SLOP)
+	testing.expect(t, !r.gesture)
+	// Spread: the gesture, from the line between where they came down.
+	_ = rail_finger_move(&r, 1, {100, 20}, SLOP)
+	testing.expect(t, r.gesture && r.began)
+	testing.expect_value(t, r.from, [2]f32{-50, 50})
+	testing.expect_value(t, rail_mods(&r), Modifiers{})
+	mods, _ = rail_press_mods(&r)
+	testing.expect_value(t, mods, Modifiers{})
+	_ = rail_finger_up(&r, 1, 1.1, false, SLOP)
+	testing.expect(t, r.gesture)
+	_ = rail_finger_up(&r, 2, 1.1, false, SLOP)
+	testing.expect(t, !r.gesture)
+	testing.expect_value(t, r.latched, Modifiers{})
+
+	// A plain finger beside a modifier one: the modifier alone holds, and a quick lift of
+	// the plain one latches nothing.
+	_ = rail_finger_down(&r, 3, .Invert, {100, 150}, 2.0)
+	_ = rail_finger_down(&r, 4, .Smooth, {150, 100}, 2.0, plain = true)
+	testing.expect_value(t, rail_mods(&r), Modifiers{.Invert})
+	_ = rail_finger_up(&r, 4, 2.05, false, SLOP)
+	testing.expect_value(t, r.latched, Modifiers{})
+	rail_forget(&r)
+}
+
+// The wheel's size snaps to the nearest by ratio, and its turn to whole steps within a
+// half turn either way.
+@(test)
+wheel_size_and_turn_snap :: proc(t: ^testing.T) {
+	testing.expect_value(t, wheel_size_nearest(132), Wheel_Size.Medium)
+	testing.expect_value(t, wheel_size_nearest(60), Wheel_Size.Small)
+	testing.expect_value(t, wheel_size_nearest(190), Wheel_Size.XL2)
+	testing.expect_value(t, wheel_size_nearest(400), Wheel_Size.XL3)
+	testing.expect_value(t, wheel_turn_snapped(44), 45)
+	testing.expect_value(t, wheel_turn_snapped(-8), -15)
+	testing.expect_value(t, wheel_turn_snapped(190), -165)
+	testing.expect_value(t, wheel_turn_snapped(-185), -180)
+}
+
+// The pen's roll counts the short way round where its numbers wrap, and starts afresh
+// with no jump from the first report.
+@(test)
+pen_roll_wraps_the_short_way :: proc(t: ^testing.T) {
+	app: App
+	pen_roll_take(&app, 170)
+	testing.expect_value(t, app.pen_roll, 0)
+	pen_roll_take(&app, -170)
+	testing.expect_value(t, app.pen_roll, 20)
+	pen_roll_take(&app, 170)
+	testing.expect_value(t, app.pen_roll, 0)
+	pen_roll_take(&app, 150)
+	testing.expect_value(t, app.pen_roll, -20)
+}
+
+// The brush ring takes the reference app's cursor colours by what a press will do: red to
+// sculpt, blue to smooth, yellow to mask, white to hide, pink inverted.
+@(test)
+brush_ring_colours_by_modifier :: proc(t: ^testing.T) {
+	app: App
+	app.kit.rail_side = .Left
+	red := brush_ring_color(&app, false)
+	testing.expect(t, red.r > 0.9 && red.g < 0.5 && red.b < 0.5)
+	app.rail.latched = {.Smooth}
+	blue := brush_ring_color(&app, false)
+	testing.expect(t, blue.b > 0.9 && blue.r < 0.5)
+	app.rail.latched = {.Mask}
+	yellow := brush_ring_color(&app, true)
+	testing.expect(t, yellow.r > 0.9 && yellow.g > 0.8 && yellow.b < 0.5 && yellow.a > red.a)
+	app.rail.latched = {.Hide}
+	testing.expect_value(t, brush_ring_color(&app, false).rgb, [3]f32{1, 1, 1})
+	app.rail.latched = {.Invert}
+	pink := brush_ring_color(&app, false)
+	testing.expect(t, pink.r > 0.9 && pink.b > 0.8)
 }

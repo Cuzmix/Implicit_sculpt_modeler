@@ -138,6 +138,10 @@ touch_event :: proc(app: ^App, e: ^sdl.Event, window: ^sdl.Window) {
 				_ = rail_finger_down(&app.rail, id, which, at, now)
 				return
 			}
+			if rail_claims_plain(app, at) {
+				_ = rail_finger_down(&app.rail, id, .Smooth, at, now, plain = true)
+				return
+			}
 			if !ui.fingers_down(&t.fingers, id, at, now) {
 				if t.fingers.count >= 2 && !t.gesture do touch_gesture_begin(app)
 				// A finger landing ends a lift's orbit; a late one is no hold.
@@ -163,7 +167,7 @@ touch_event :: proc(app: ^App, e: ^sdl.Event, window: ^sdl.Window) {
 			d.input_at = e.common.timestamp
 			append(&app.samples, Input_Sample{at, 1, .Press, {}})
 		case .FINGER_MOTION:
-			if rail_finger_move(&app.rail, id, at) do return
+			if rail_finger_move(&app.rail, id, at, slop) do return
 			ui.fingers_move(&t.fingers, id, at)
 			if t.pointing && id == t.pointer {
 				d.pointer = .Finger

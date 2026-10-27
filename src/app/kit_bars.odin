@@ -59,7 +59,21 @@ Bar_Scrub :: struct {
 	from:   f32, // the pointer's height when the drag began (or the press, before it moved)
 	start:  f32, // the value then
 	moved:  bool, // past the slop: the drag sets the value
+	// The pen hovering on the button and turned about its own length sets the value as a
+	// drag would, its roll counting as SCRUB_ROLL points of drag a degree: `rolled` is how
+	// far it has turned since it began and `roll_at` when it last turned, so the readout
+	// goes once the pen rests or leaves the button (`at`).
+	roll:    bool,
+	rolled:  f32,
+	roll_at: f64,
 }
+
+// Points of drag a degree of the pen's roll stands for: half a turn takes strength or
+// focal shift across their range, and a quarter turn doubles the size.
+SCRUB_ROLL :: f32(SCRUB_STRENGTH_FULL) / 180
+
+// How long the readout stays after the pen last rolled, in seconds.
+SCRUB_ROLL_SHOWN :: 0.8
 
 // Points of drag up that double the size, take strength from 0 to 1, and focal shift
 // across its whole range.
@@ -286,6 +300,7 @@ bar_value_button :: proc(app: ^App, kind: Bar_Pop_Kind, name: string, glyph: run
 	ctx := &k.ctx
 	pop := &k.bar_pop
 	if ui.icon_button(ctx, name, glyph, selected = pop.open && pop.kind == kind || k.bar_scrub.active && k.bar_scrub.kind == kind, keys = keys, corner = true) do bar_pop_toggle(app, kind, ctx.last_rect, .Right)
+	bar_roll(app, kind)
 	if !ui.secondary(ctx) do return
 	in_ := ctx.input
 	if in_.pointer == .Mouse || .Left not_in in_.down {
@@ -294,6 +309,36 @@ bar_value_button :: proc(app: ^App, kind: Bar_Pop_Kind, name: string, glyph: run
 	}
 	kit_floats_close(k)
 	k.bar_scrub = {active = true, shown = true, kind = kind, at = ctx.last_rect, from = in_.mouse.y, start = bar_value(app, kind)^}
+}
+
+// The pen hovering on the button just drawn and turned about its own length sets its value,
+// as dragging it after a long press does, and shows the same readout.
+@(private = "file")
+bar_roll :: proc(app: ^App, kind: Bar_Pop_Kind) {
+	k := &app.kit
+	ctx := &k.ctx
+	s := &k.bar_scrub
+	in_ := ctx.input
+	// The button's id carries its value, so it is found by where it is.
+	if app.pen_roll == 0 || ctx.hot != ctx.last_id || in_.pointer != .Pen || in_.down != {} || s.active do return
+	if !s.roll || s.kind != kind {
+		kit_floats_close(k)
+		s^ = {shown = true, kind = kind, start = bar_value(app, kind)^, roll = true}
+	}
+	s.at = ctx.last_rect
+	s.rolled += app.pen_roll
+	s.roll_at = ctx.time
+	bar_value(app, kind)^ = bar_value_dragged(kind, s.start, s.rolled * SCRUB_ROLL)
+}
+
+// What a bar value that was `start` becomes dragged `up` points.
+@(private = "file")
+bar_value_dragged :: proc(kind: Bar_Pop_Kind, start, up: f32) -> f32 {
+	#partial switch kind {
+	case .Size:  return clamp(start * math.pow(2, up / SCRUB_SIZE_DOUBLE), MIN_RADIUS_PX, MAX_RADIUS_PX)
+	case .Focal: return math.round(clamp(start + up * f32(sculpt.FOCAL_MAX - sculpt.FOCAL_MIN) / SCRUB_FOCAL_FULL, sculpt.FOCAL_MIN, sculpt.FOCAL_MAX))
+	}
+	return clamp(start + up / SCRUB_STRENGTH_FULL, MIN_STRENGTH, 1)
 }
 
 // The value a bar button sets.
@@ -313,6 +358,9 @@ bar_scrub_update :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
 	s := &k.bar_scrub
+	if s.roll && (ctx.time - s.roll_at > SCRUB_ROLL_SHOWN || !ctx.input.mouse_valid || !ui.rect_contains(s.at, ctx.input.mouse)) {
+		s.roll, s.shown = false, false
+	}
 	if !s.active do return
 	in_ := ctx.input
 	if in_.cancel {
@@ -333,12 +381,7 @@ bar_scrub_update :: proc(app: ^App) {
 		// From where the pointer is now, so the value does not jump by the slop.
 		s.moved, s.from, up = true, in_.mouse.y, 0
 	}
-	v := bar_value(app, s.kind)
-	#partial switch s.kind {
-	case .Size:  v^ = clamp(s.start * math.pow(2, up / SCRUB_SIZE_DOUBLE), MIN_RADIUS_PX, MAX_RADIUS_PX)
-	case .Focal: v^ = math.round(clamp(s.start + up * f32(sculpt.FOCAL_MAX - sculpt.FOCAL_MIN) / SCRUB_FOCAL_FULL, sculpt.FOCAL_MIN, sculpt.FOCAL_MAX))
-	case:        v^ = clamp(s.start + up / SCRUB_STRENGTH_FULL, MIN_STRENGTH, 1)
-	}
+	bar_value(app, s.kind)^ = bar_value_dragged(s.kind, s.start, up)
 }
 
 // The readout beside the button while a Bar_Scrub runs: the value's name, its number and
@@ -367,7 +410,7 @@ kit_bar_scrub :: proc(app: ^App) {
 	ui.caption(ctx, name)
 	ui.label(ctx, shown, t.title_size, t.text, .Semibold)
 	ui.gauge(ctx, fraction)
-	ui.label(ctx, "Drag up or down", t.small_size, t.text_secondary)
+	ui.label(ctx, "Roll the pen" if s.roll else "Drag up or down", t.small_size, t.text_secondary)
 }
 
 // The two columns at the right, under the navigation head: search, the palette tray and

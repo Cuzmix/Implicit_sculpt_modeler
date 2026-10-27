@@ -141,8 +141,14 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
 - The modifier wheel (`modifiers.odin`, still `Modifier_Rail`/`rail_*` in code; `ui.wheel` in `src/ui/wheel.odin`;
   README "Touch and pen"): sectors Smooth (top), brush pie (right), Invert (bottom), Mask (left) by
   `WHEEL_SECTORS`; Smooth and Mask together are Hide (`rail_toggle`, `rail_mode`, `rail_press_mods`). Its hit test is by
-  angle (`ui.wheel_sector_at`, `Modifier_Rail.center/outer/hole`); the grip drags `Kit_State.wheel_offset` from its
-  place (`rail_reach`/`rail_reach_across` are zero once moved); `wheel_size` picks `WHEEL_OUTER`/`WHEEL_HOLE`.
+  angle (`ui.wheel_sector_at`, `Modifier_Rail.center/outer/hole/turn`); the grip drags `Kit_State.wheel_offset` from its
+  place (`rail_reach`/`rail_reach_across` are zero once moved); `wheel_size` picks `WHEEL_OUTER`/`WHEEL_HOLE` (Small
+  to XL3), `wheel_labels` what `Wheel_Sector.glyph`/`caption` show, `wheel_turn` (degrees, `wheel_turn_snapped`) turns
+  drawing and hit test alike. Two rail fingers that spread or twist (`rail_finger_move`, against their start
+  positions) set `Modifier_Rail.gesture`: `rail_holds` then drops every finger from the mods, and `rail_gesture_apply`
+  (in `kit_modifier_rail`) sets the size and turn; `rail_claims_plain` claims a second finger on the pie sector or grip
+  as `Rail_Finger.plain` for it. The brush ring's colour by mode is `brush_ring_color` (red, pink inverted, blue,
+  yellow, white for Hide).
   A finger landing on a modifier sector (`rail_claims`: the wheel is the top root at that point by `ui.root_at`, and no menu,
   popover or list is open) is recorded in `Modifier_Rail.fingers` before `ui.fingers_down` and goes no further: never
   the pointer, never a gesture finger or a palm, untouched by the pen's cancel; its motion and lift stop there too.
@@ -232,6 +238,7 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
 | a command in a user pie, or starred | nothing to add: any command `pie_lists` allows can go in a pie (`user_pies.odin`) from the palette's Put in a pie, and any palette row can be starred; one that acts where the pointer is belongs out of `pie_lists` too, since the pie sits over that spot |
 | a popover opened by a command a click runs | close the others in its open proc (as `palette_open`, `bind_open`, `pie_editor_open`), add its flag to `kit_floating` and to kit_frame's Escape list; a pie or popover opened during the layout must not see the same click (`Pie.opened_frame`) |
 | a command in Settings > Keys | nothing to add: the tab lists every command `palette_lists` keeps, in Help's `command_group` order, and finds it by `keys_match` (`kit_keys.odin`); what a mouse button does to the view is `mouse_button_owner` (`navigate.odin`), by `Nav_Prefs.mouse_scheme`, and its words for the tab and Help are `MOUSE_SCHEME_HOW` |
+| something the pen does while hovering over a control | the pen arrives as the mouse with `ui.Input.pointer == .Pen`: test `ctx.hot == ctx.last_id` after the widget and `input.down == {}`; a bar value's label carries its value, so its id changes as it does (track it by kind and rect, as `bar_roll` does); hover tooltips follow `Nav_Prefs.pen_tips` through `ui.Input.no_hover_tips`; `tip_showing=` in the exit stats is the tooltip the last frame drew |
 | a touch gesture that runs a command | a `Gesture_Slot` in `gesture_map.odin` (name, default, its place in `GESTURE_SLOT_ORDER`, `gesture_slot` for its fingers) and a `gesture_run` where it is recognised; tooltips, the palette and Help follow `gesture_text`; an overlap the user should know of is a line in `gesture_notes`, never silent. Any command `gesture_lists` allows can go on a slot: `GESTURE_CHOICES` is only the dropdown's short list, and its Any command... row opens the palette in choosing mode (`palette_open_for`, `Kit.palette_for`), where `palette_run` assigns instead of running |
 | a per-pointer strength or scale on a stroke | set it once in `stroke_start` into `Stroke` (as `Stroke.scale`, Touch strength for a finger), read it in `brush_at`; record it per stroke in `Take` and the `.strokes` file (bump `STROKES_VERSION`, old files read the neutral value), and have `replay_frame` and `dab_wait_resolve` force it through `App.stroke_scale_from`, since the pointer then is not the one that drew |
 | a curve to drag, a colour, a count | `kit_curve_editor`, `kit_color`, `kit_count` (`kit_widgets.odin`); `kit_color` shows sRGB with a hex field (`linear = true` for a colour stored as linear light, as materials are) and counts as one control in the five-control test |
@@ -268,7 +275,8 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
 - `--ui-events="5:move:800,450;6:down;7:up;9:right;12:wheel:-3;14:fdown:0:300,300;16:fup:0"` drives the mouse,
   fingers and pen in window points (Menu at 26,26, Menu > Settings at 75,688; the inspector's title bar at y 104, its
   Minimise at 1450 and Close at 1500, and its tabs at about y 154 on a 1600 x 900 window; the `UI` table at the top of
-  `scripts/touch_check.py` names every bar button's position), and
+  `scripts/touch_check.py` names every bar button's position; `pnear`, `pmove`, `ppress:P` and `proll:DEG` are the
+  pen hovering, moving, pressing and turned about its length, which `pen_roll_take` turns into `App.pen_roll`), and
   `--dump-screen=build/x.png` writes the whole window, overlay included; open it and describe it. `ui_ms_*` and
   `ui_vertices` on exit are the kit's cost; `camera_*`, `undo_steps`, `brush_radius_px`, `inspector_scroll`,
   `settings_open` and `window_<name>=open,folded,left,top` show what the input did.
