@@ -16,8 +16,9 @@ Two checks for each, each reported on its own line as PASS, FAIL or SKIP:
   empty scene, and the check reads back what a person would see: the mesh's vertices and
   triangles, its shape keys with their values, whether it has a colour attribute, and the
   objects the import made (for USD at frame 1, where the weights are keyed), and the first
-  material's base colour, metallic and roughness, and how many faces each material shades.
-  The --vertices, --triangles, --keys, --colors, --material and --face-materials options say
+  material's base colour, metallic and roughness and its image textures, the UV maps, and
+  how many faces each material shades. The --vertices, --triangles, --keys, --colors,
+  --material, --uv, --textures and --face-materials options say
   what to expect; without them the check only needs the import to succeed.
 
 A tool that is not installed is reported as SKIP, never as PASS, and the exit code is 0
@@ -76,6 +77,7 @@ if meshes:
         name = slot.material.name if slot and slot.material else ''
         faces[name] = faces.get(name, 0) + 1
     out['face_materials'] = faces
+    out['uv_layers'] = [l.name for l in me.uv_layers]
     # The first material's Principled BSDF as the import set it up: its base colour (or
     # what feeds it), metallic and roughness.
     mat = meshes[0].active_material
@@ -89,6 +91,8 @@ if meshes:
                 v = socket.default_value
                 return [round(x, 4) for x in v[:3]] if hasattr(v, '__len__') else round(v, 4)
             out['material'] = {'name': mat.name, 'base': value('Base Color'), 'metallic': value('Metallic'), 'roughness': value('Roughness')}
+        out['images'] = sorted(set(n.image.name for n in mat.node_tree.nodes if n.type == 'TEX_IMAGE' and n.image))
+        out['normal_map'] = bsdf is not None and bsdf.inputs['Normal'].is_linked
 print('RESULT ' + json.dumps(out))
 """
 
@@ -207,6 +211,12 @@ def check_blender(path, args):
                 for key, text in zip(("metallic", "roughness"), want[1:3]):
                     if isinstance(m[key], str) or abs(m[key] - float(text)) > 1e-3:
                         wrong.append("material %s %s, expected %s" % (key, m[key], text))
+        if args.uv and not got.get("uv_layers"):
+            wrong.append("no UV map")
+        if args.textures is not None and len(got.get("images", [])) != args.textures:
+            wrong.append("%d image textures, expected %d" % (len(got.get("images", [])), args.textures))
+        if args.textures and not got.get("normal_map"):
+            wrong.append("nothing feeds the normal")
         if args.face_materials is not None:
             want = {}
             for item in filter(None, args.face_materials.split(",")):
@@ -232,6 +242,10 @@ def check_blender(path, args):
         ", ".join(got.get("colors", [])) or "none", ", ".join(got["objects"]))
     if "material" in got:
         detail += ", material %s" % json.dumps(got["material"])
+    if got.get("uv_layers"):
+        detail += ", UV maps %s" % ", ".join(got["uv_layers"])
+    if got.get("images"):
+        detail += ", images %s%s" % (", ".join(got["images"]), ", normal map wired" if got.get("normal_map") else "")
     if len(got.get("face_materials", {})) > 1:
         detail += ", faces by material %s" % json.dumps(got["face_materials"], sort_keys=True)
     if wrong:
@@ -248,6 +262,8 @@ def main():
     parser.add_argument("--keys", help='the shape keys in order with their values: "Layer 1=1.5,Layer 2=0"')
     parser.add_argument("--colors", action="store_true", help="expect a colour attribute")
     parser.add_argument("--material", help='the first material: "NAME,METALLIC,ROUGHNESS" (the base colour is reported)')
+    parser.add_argument("--uv", action="store_true", help="expect a UV map")
+    parser.add_argument("--textures", type=int, help="how many distinct pictures the first material's image textures show (and that one feeds the normal)")
     parser.add_argument("--face-materials", help='the faces each material shades: "Gold=2,Steel=10"')
     parser.add_argument("--require", action="store_true", help="a skipped check fails the run")
     args = parser.parse_args()

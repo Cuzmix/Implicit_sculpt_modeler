@@ -125,6 +125,17 @@ levels_carry_paint :: proc(l: ^Levels, to: int) {
 	s.color_edited, s.groups.edited = false, false
 }
 
+// Brings the top level's colours and groups up to date with edits on the current one,
+// for reading the top level (a bake) without leaving the current level. The edits stay
+// marked, so a later change of level still carries them wherever it goes.
+levels_paint_to_top :: proc(l: ^Levels) {
+	top := len(l.levels) - 1
+	if l.current == top do return
+	s := &l.levels[l.current].sculptor
+	if s.color_edited do levels_carry_color(l, l.current, top)
+	if s.groups.edited do levels_carry_groups(l, l.current, top)
+}
+
 // Adds a level above the top one and makes it current. Returns false, changing
 // nothing, when MAX_LEVELS are in use, the top level is not a closed manifold mesh, or
 // there is an HD level (whose detail is tied to the top level as it is). With

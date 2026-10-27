@@ -217,6 +217,20 @@ paint_over :: proc(x: sculpt.Color, under: [3]u32) -> (c: [3]u8) {
 	return
 }
 
+// The material slots of `obj` for an export or a bake, in temporary memory: per group
+// number its slot (0 for the object's material, k + 1 for its k-th group material), and
+// the materials, [0] the object's.
+group_slots :: proc(app: ^App, obj: ^Object) -> (which: []u8, materials: []geom.Export_Material) {
+	which = make([]u8, 1 << 16, context.temp_allocator)
+	materials = make([]geom.Export_Material, 1 + len(obj.group_materials), context.temp_allocator)
+	materials[0] = export_material(object_material(app, obj))
+	for e, k in obj.group_materials {
+		which[e.group] = u8(k + 1)
+		materials[k + 1] = export_material(e.material)
+	}
+	return
+}
+
 // Gives a glTF or USD export `m` of `obj` its group materials: each written face's slot by
 // its group (`face_groups`, one a face, nil for none), 0 being the object's material. With
 // paint (`paint`, one a vertex) the colours become the paint over each face's own
@@ -225,8 +239,7 @@ paint_over :: proc(x: sculpt.Color, under: [3]u32) -> (c: [3]u8) {
 // Leaves `m` as it is when no face has a material of its own.
 export_group_materials :: proc(app: ^App, obj: ^Object, m: ^geom.Mesh_Export, face_groups: []u16, paint: []sculpt.Color, gltf: bool) {
 	if face_groups == nil || len(obj.group_materials) == 0 do return
-	which := make([]u8, 1 << 16, context.temp_allocator)
-	for e, k in obj.group_materials do which[e.group] = u8(k + 1)
+	which, all := group_slots(app, obj)
 	slots := make([]u8, len(face_groups), context.temp_allocator)
 	used := false
 	for g, f in face_groups {
@@ -234,18 +247,12 @@ export_group_materials :: proc(app: ^App, obj: ^Object, m: ^geom.Mesh_Export, fa
 		used ||= slots[f] != 0
 	}
 	if !used do return
-	materials := make([]geom.Export_Material, len(obj.group_materials), context.temp_allocator)
-	under := make([][3]u32, 1 + len(materials), context.temp_allocator)
-	encode :: proc(base: [3]f32) -> (u: [3]u32) {
-		for k in 0 ..< 3 do u[k] = u32(math.round(srgb_encode(base[k]) * 255))
-		return
+	materials := all[1:]
+	under := make([][3]u32, len(all), context.temp_allocator)
+	for m, k in all {
+		for c in 0 ..< 3 do under[k][c] = u32(math.round(srgb_encode(m.base[c]) * 255))
 	}
-	under[0] = encode(export_material(object_material(app, obj)).base)
-	for e, k in obj.group_materials {
-		materials[k] = export_material(e.material)
-		under[k + 1] = encode(materials[k].base)
-		if paint != nil do materials[k].base = 1
-	}
+	if paint != nil do for &m in materials do m.base = 1
 	m.group_materials, m.face_material = materials, slots
 	if paint == nil do return
 	if gltf {

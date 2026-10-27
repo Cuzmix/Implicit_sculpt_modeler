@@ -29,7 +29,30 @@ Glb_Json :: struct {
 		pbrMetallicRoughness: struct {
 			baseColorFactor:                 [4]f32,
 			metallicFactor, roughnessFactor: f32,
+			baseColorTexture:                Maybe(struct {
+				index: int,
+			}),
+			metallicRoughnessTexture:        Maybe(struct {
+				index: int,
+			}),
 		},
+		normalTexture:        Maybe(struct {
+			index: int,
+		}),
+		occlusionTexture:     Maybe(struct {
+			index: int,
+		}),
+	},
+	images:      []struct {
+		bufferView: int,
+		mimeType:   string,
+		name:       string,
+	},
+	textures:    []struct {
+		sampler, source: int,
+	},
+	samplers:    []struct {
+		magFilter, minFilter: int,
 	},
 	bufferViews: []struct {
 		byteOffset, byteLength: int,
@@ -341,4 +364,55 @@ slice_equal :: proc(a, b: []$T) -> bool {
 	if len(a) != len(b) do return false
 	for x, i in a do if x != b[i] do return false
 	return true
+}
+
+// UVs, tangents and pictures: TEXCOORD_0 flipped to glTF's top-left origin, TANGENT as
+// given, each picture's bytes in its own view (the next starting 4-aligned after zeros),
+// a texture each, and the material's textures where it says, the occlusion one only
+// when asked for.
+@(test)
+glb_embeds_textures :: proc(t: ^testing.T) {
+	m := Mesh_Export {
+		name      = "Baked",
+		positions = []Vec3{{0, 0, 0}, {1, 0, 0}, {0, 1, 0}},
+		normals   = []Vec3{{0, 0, 1}, {0, 0, 1}, {0, 0, 1}},
+		indices   = []u32{0, 1, 2},
+		texcoords = [][2]f32{{0, 0}, {1, 0}, {0, 0.25}},
+		tangents  = [][4]f32{{1, 0, 0, 1}, {1, 0, 0, 1}, {1, 0, 0, -1}},
+		images    = []Export_Image{{"base colour", []u8{1, 2, 3, 4, 5}}, {"normal", []u8{9, 8, 7, 6, 5, 4, 3}}},
+	}
+	mat := Export_Material{name = "Baked", base = 1, metallic = 1, roughness = 1}
+	mat.textures[.Base_Color], mat.textures[.Normal] = 1, 2
+	m.material = mat
+	out := make([dynamic]u8)
+	defer delete(out)
+	testing.expect(t, mesh_write_glb(&out, m))
+	doc, bin, read := glb_chunks(t, out[:])
+	defer free_all(context.temp_allocator)
+	if !read do return
+	if !testing.expect_value(t, len(doc.images), 2) do return
+	testing.expect_value(t, len(doc.textures), 2)
+	testing.expect_value(t, len(doc.samplers), 1)
+	for im, k in doc.images {
+		testing.expect_value(t, im.mimeType, "image/png")
+		testing.expect_value(t, doc.textures[k].source, k)
+		v := doc.bufferViews[im.bufferView]
+		testing.expect_value(t, v.byteOffset % 4, 0)
+		testing.expect(t, mem.compare(bin[v.byteOffset:][:v.byteLength], m.images[k].png) == 0, "a picture's bytes changed")
+	}
+	pbr := doc.materials[0].pbrMetallicRoughness
+	testing.expect_value(t, pbr.baseColorTexture.?.index, 0)
+	testing.expect_value(t, doc.materials[0].normalTexture.?.index, 1)
+	_, has_orm := pbr.metallicRoughnessTexture.?
+	_, has_occlusion := doc.materials[0].occlusionTexture.?
+	testing.expect(t, !has_orm && !has_occlusion)
+	attributes := doc.meshes[0].primitives[0].attributes
+	uv := doc.accessors[attributes["TEXCOORD_0"]]
+	testing.expect_value(t, uv.type, "VEC2")
+	uvs := mem.slice_data_cast([]f32, view_of(doc, bin, uv.bufferView.?))
+	testing.expect_value(t, uvs[1], 1)
+	testing.expect_value(t, uvs[5], 0.75)
+	tangent := doc.accessors[attributes["TANGENT"]]
+	testing.expect_value(t, tangent.type, "VEC4")
+	testing.expect_value(t, mem.slice_data_cast([]f32, view_of(doc, bin, tangent.bufferView.?))[11], -1)
 }

@@ -108,7 +108,7 @@ bake_finds_the_source_surface :: proc(t: ^testing.T) {
 		mesh_recompute_normals(&source)
 		bvh := bvh_build(source)
 		defer bvh_destroy(&bvh)
-		b := bake_maps(q, l, source, &bvh, 256, 0.1, nil)
+		b := bake_maps(q, l, {mesh = source, bvh = &bvh}, 256, 0.1, {}, nil)
 		defer bake_maps_destroy(&b)
 		testing.expectf(t, b.covered > 256 * 256 / 4, "only %d texels covered", b.covered)
 		testing.expectf(t, b.hit == b.covered, "%d of %d texels found the surface", b.hit, b.covered)

@@ -33,6 +33,8 @@ section_scene :: proc(app: ^App) -> ^Object {
 	obj.levels.faces.uv.uvs = make([][4][2]f32, 1)
 	alphas_init(app)
 	app.brush.alpha = 0
+	// The occlusion map on, so the bake's options show its sliders.
+	app.ui.bake.orm, app.ui.bake.occlusion_rays = true, 16
 	return obj
 }
 
@@ -130,8 +132,9 @@ show_every_option_unfolds_the_sections :: proc(t: ^testing.T) {
 		section:  Kit_Section,
 		controls: int,
 	}
-	// UVs and baking has 5: its Quads count and Retopologize moved to Shape > Rebuild.
-	full := [?]Full{{.Preset, 6}, {.Recorder, 7}, {.Transform, 8}, {.Mask, 11}, {.Groups, 6}, {.Retopo, 5}, {.Project, 6}, {.Material, 9}, {.Camera, 6}}
+	// UVs and baking has 10: its Quads count and Retopologize moved to Shape > Rebuild,
+	// and the bake set brought its maps' switches and occlusion's sliders.
+	full := [?]Full{{.Preset, 6}, {.Recorder, 7}, {.Transform, 8}, {.Mask, 11}, {.Groups, 6}, {.Retopo, 10}, {.Project, 6}, {.Material, 9}, {.Camera, 6}}
 	app.brush.kind = .Clay
 	_ = preset_save_new(&app)
 	for f in full {

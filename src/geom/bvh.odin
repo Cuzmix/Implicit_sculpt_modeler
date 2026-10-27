@@ -297,6 +297,46 @@ bvh_raycast_with :: proc(b: Bvh, m: Mesh, origin, dir: Vec3, limit: f32, stack: 
 	return
 }
 
+// Whether anything lies along the ray nearer than `limit` (both triangle faces): the
+// first hit found ends the walk, so it costs less than the nearest one (an occlusion
+// test). `stack` as bvh_raycast_with's.
+bvh_any_hit :: proc(b: Bvh, m: Mesh, origin, dir: Vec3, limit: f32, stack: ^[dynamic]u32) -> bool {
+	if len(b.nodes) == 0 || b.nodes[0].bounds.lo.x > b.nodes[0].bounds.hi.x do return false
+	inv_dir := Vec3{1 / dir.x, 1 / dir.y, 1 / dir.z}
+	runs := b.tri_order == nil
+	if _, hit := ray_aabb(b.nodes[0].bounds, origin, inv_dir, limit); !hit do return false
+	clear(stack)
+	append(stack, 0)
+	for len(stack) > 0 {
+		node := b.nodes[pop(stack)]
+		if node.count > 0 {
+			for i in node.first ..< node.first + node.count {
+				id := i if runs else b.tri_order[i]
+				if d, hit := ray_triangle(m, id, origin, dir); hit && d < limit do return true
+			}
+			continue
+		}
+		// The children's boxes are tested before they go on the stack, as the nearest
+		// hit's walk does, which keeps the stack short; the nearer is still taken first,
+		// as it is likelier to hold a hit.
+		l, r := node.first, node.first + 1
+		tl, hl := ray_aabb(b.nodes[l].bounds, origin, inv_dir, limit)
+		tr, hr := ray_aabb(b.nodes[r].bounds, origin, inv_dir, limit)
+		if hl && hr {
+			if tl <= tr {
+				append(stack, r, l)
+			} else {
+				append(stack, l, r)
+			}
+		} else if hl {
+			append(stack, l)
+		} else if hr {
+			append(stack, r)
+		}
+	}
+	return false
+}
+
 // Moller-Trumbore; returns the distance along `dir` for a hit in front of the origin.
 ray_triangle :: #force_inline proc(m: Mesh, tri: u32, origin, dir: Vec3) -> (t: f32, ok: bool) {
 	p0 := m.positions[m.indices[3 * tri]]

@@ -57,6 +57,28 @@ Mesh_Export :: struct {
 	// of the quads' corners) rather than one a vertex, as paint over the materials of two
 	// faces meeting at a vertex can differ there.
 	corner_colors:   bool,
+	// glTF only: per vertex UVs (v up, as OBJ has them; the file flips them) and
+	// tangents (xyz, w the handedness of the bitangent), nil for none; and the pictures
+	// the materials' textures show, embedded.
+	texcoords:       [][2]f32,
+	tangents:        [][4]f32,
+	images:          []Export_Image,
+}
+
+// A picture for a material's texture: PNG bytes, written into the file as they are.
+Export_Image :: struct {
+	name: string,
+	png:  []u8,
+}
+
+// What a material's texture stands for, in glTF's terms: base colour (sRGB), roughness
+// and metal in green and blue (linear), occlusion in red (usually the same ORM picture),
+// and a tangent-space normal map.
+Export_Texture :: enum u8 {
+	Base_Color,
+	Orm,
+	Occlusion,
+	Normal,
 }
 
 // The material slot of written face `f` of `m`: 0 for its `material`, k for
@@ -150,6 +172,9 @@ Export_Material :: struct {
 	base:      [3]f32,
 	metallic:  f32,
 	roughness: f32,
+	// Each texture's picture, as an index into Mesh_Export.images plus 1; 0 for none. A
+	// texture multiplies the factors above, so they are 1 where one is given.
+	textures:  [Export_Texture]int,
 }
 
 // glTF's numbers for what the accessors and views hold.
@@ -178,12 +203,16 @@ mesh_write_glb :: proc(out: ^[dynamic]u8, m: Mesh_Export, pool: ^jobs.Pool = nil
 	g.positions_view = glb_view(&g, 12 * n, GL_ARRAY_BUFFER)
 	g.normals_view = glb_view(&g, 12 * n, GL_ARRAY_BUFFER)
 	g.colors_view = glb_view(&g, 8 * n, GL_ARRAY_BUFFER) if m.colors != nil else -1
+	g.texcoords_view = glb_view(&g, 8 * n, GL_ARRAY_BUFFER) if m.texcoords != nil else -1
+	g.tangents_view = glb_view(&g, 16 * n, GL_ARRAY_BUFFER) if m.tangents != nil else -1
 	g.indices_view = glb_view(&g, 4 * len(m.indices), GL_ELEMENT_ARRAY_BUFFER)
 	g.morph_views = make([][2]int, len(m.morphs), context.temp_allocator)
 	for t, k in m.morphs {
 		g.morph_views[k] = {-1, -1}
 		if len(t.vertices) > 0 do g.morph_views[k] = {glb_view(&g, 4 * len(t.vertices), 0), glb_view(&g, 12 * len(t.vertices), 0)}
 	}
+	g.image_views = make([]int, len(m.images), context.temp_allocator)
+	for im, k in m.images do g.image_views[k] = glb_view(&g, len(im.png), 0)
 	g.bounds = make([][2]Vec3, 1 + len(m.morphs), context.temp_allocator)
 	g.prims = glb_primitives(m)
 
@@ -233,6 +262,8 @@ Glb :: struct {
 	views:                                                   [dynamic]Glb_View,
 	bin_len:                                                 int,
 	positions_view, normals_view, colors_view, indices_view: int,
+	texcoords_view, tangents_view:                           int, // -1 for none
+	image_views:                                             []int,
 	morph_views:                                             [][2]int, // per morph: its sparse indices and values, -1 for none
 	bounds:                                                  [][2]Vec3,
 	bin:                                                     []u8,
@@ -270,10 +301,12 @@ glb_primitives :: proc(m: Mesh_Export) -> []Glb_Prim {
 	return prims[:]
 }
 
+// A view of `length` bytes at the end of the binary chunk; the next starts on a 4-byte
+// boundary (a picture's length need not be a multiple of 4).
 @(private = "file")
 glb_view :: proc(g: ^Glb, length, target: int) -> int {
 	append(&g.views, Glb_View{g.bin_len, length, target})
-	g.bin_len += length
+	g.bin_len += (length + 3) &~ 3
 	return len(g.views) - 1
 }
 
@@ -311,6 +344,12 @@ glb_fill :: proc(g: ^Glb, pool: ^jobs.Pool) {
 			linear := glb_array(g, g.colors_view, [4]u16)
 			for c, v in m.colors[lo:hi] do linear[lo + v] = {g.linear[c.r], g.linear[c.g], g.linear[c.b], 65535}
 		}
+		if g.texcoords_view >= 0 {
+			// glTF's UVs start at the picture's top left.
+			uvs := glb_array(g, g.texcoords_view, [2]f32)
+			for t, v in m.texcoords[lo:hi] do uvs[lo + v] = {t.x, 1 - t.y}
+		}
+		if g.tangents_view >= 0 do copy(glb_array(g, g.tangents_view, [4]f32)[lo:hi], m.tangents[lo:hi])
 	}, RANGE_GRAIN)
 	if m.face_material != nil {
 		// Each slot's triangles in their run, in the order they come.
@@ -359,6 +398,12 @@ glb_fill :: proc(g: ^Glb, pool: ^jobs.Pool) {
 		}
 		g.bounds[1 + k] = b
 	}
+	// The pictures, each padded with zeros to the next view.
+	for im, k in m.images {
+		v := g.views[g.image_views[k]]
+		copy(g.bin[v.offset:], im.png)
+		for &c in g.bin[v.offset + len(im.png):][:((len(im.png) + 3) &~ 3) - len(im.png)] do c = 0
+	}
 }
 
 // The JSON chunk, with the bounds as they stand. fmt reads braces in a format, so the
@@ -371,12 +416,20 @@ glb_json :: proc(j: ^strings.Builder, g: ^Glb) {
 	json_string(j, m.name)
 	strings.write_string(j, `}],"meshes":[{"name":`)
 	json_string(j, m.name)
-	// Accessors: 0 positions, 1 normals, then colours if any, then each primitive's
-	// indices, then one per morph target.
+	// Accessors: 0 positions, 1 normals, then colours, UVs and tangents if any, then each
+	// primitive's indices, then one per morph target.
 	accessor := 2
-	colors_accessor := -1
+	colors_accessor, texcoords_accessor, tangents_accessor := -1, -1, -1
 	if g.colors_view >= 0 {
 		colors_accessor = accessor
+		accessor += 1
+	}
+	if g.texcoords_view >= 0 {
+		texcoords_accessor = accessor
+		accessor += 1
+	}
+	if g.tangents_view >= 0 {
+		tangents_accessor = accessor
 		accessor += 1
 	}
 	indices_accessor := accessor
@@ -387,6 +440,8 @@ glb_json :: proc(j: ^strings.Builder, g: ^Glb) {
 		// Every primitive has the same targets, as the mesh's weights are for all of them.
 		strings.write_string(j, `{"attributes":{"POSITION":0,"NORMAL":1` if k == 0 else `,{"attributes":{"POSITION":0,"NORMAL":1`)
 		if colors_accessor >= 0 do fmt.sbprintf(j, `,"COLOR_0":%d`, colors_accessor)
+		if texcoords_accessor >= 0 do fmt.sbprintf(j, `,"TEXCOORD_0":%d`, texcoords_accessor)
+		if tangents_accessor >= 0 do fmt.sbprintf(j, `,"TANGENT":%d`, tangents_accessor)
 		fmt.sbprintf(j, `}},"indices":%d,"mode":4`, indices_accessor + k)
 		if has_material do fmt.sbprintf(j, `,"material":%d`, p.slot)
 		if len(m.morphs) > 0 {
@@ -421,6 +476,18 @@ glb_json :: proc(j: ^strings.Builder, g: ^Glb) {
 		}
 		strings.write_byte(j, ']')
 	}
+	if len(m.images) > 0 {
+		// A texture a picture, all through one sampler: smooth, mipmapped, repeating.
+		strings.write_string(j, `,"images":[`)
+		for im, k in m.images {
+			fmt.sbprintf(j, `%s{{"bufferView":%d,"mimeType":"image/png","name":`, "," if k > 0 else "", g.image_views[k])
+			json_string(j, im.name)
+			strings.write_byte(j, '}')
+		}
+		strings.write_string(j, `],"samplers":[{"magFilter":9729,"minFilter":9987,"wrapS":10497,"wrapT":10497}],"textures":[`)
+		for _, k in m.images do fmt.sbprintf(j, `%s{{"sampler":0,"source":%d}}`, "," if k > 0 else "", k)
+		strings.write_byte(j, ']')
+	}
 	fmt.sbprintf(j, `,"buffers":[{{"byteLength":%d}}],"bufferViews":[`, g.bin_len)
 	for v, k in g.views {
 		fmt.sbprintf(j, `%s{{"buffer":0,"byteOffset":%d,"byteLength":%d`, "," if k > 0 else "", v.offset, v.length)
@@ -432,6 +499,8 @@ glb_json :: proc(j: ^strings.Builder, g: ^Glb) {
 	json_bounds(j, g.bounds[0])
 	fmt.sbprintf(j, `}},{{"bufferView":%d,"componentType":%d,"count":%d,"type":"VEC3"}}`, g.normals_view, GL_FLOAT, n)
 	if g.colors_view >= 0 do fmt.sbprintf(j, `,{{"bufferView":%d,"componentType":%d,"normalized":true,"count":%d,"type":"VEC4"}}`, g.colors_view, GL_UNSIGNED_SHORT, n)
+	if g.texcoords_view >= 0 do fmt.sbprintf(j, `,{{"bufferView":%d,"componentType":%d,"count":%d,"type":"VEC2"}}`, g.texcoords_view, GL_FLOAT, n)
+	if g.tangents_view >= 0 do fmt.sbprintf(j, `,{{"bufferView":%d,"componentType":%d,"count":%d,"type":"VEC4"}}`, g.tangents_view, GL_FLOAT, n)
 	for p in g.prims {
 		fmt.sbprintf(j, `,{{"bufferView":%d,`, g.indices_view)
 		if p.first > 0 do fmt.sbprintf(j, `"byteOffset":%d,`, 4 * p.first)
@@ -450,7 +519,10 @@ glb_json :: proc(j: ^strings.Builder, g: ^Glb) {
 	strings.write_string(j, "]}")
 }
 
-// A material in the materials array.
+// A material in the materials array. The textures index the textures array, which has
+// one a picture in the pictures' order; one ORM picture can be both the
+// metallic-roughness texture (green and blue) and the occlusion texture (red), as glTF
+// lays them out to share.
 @(private = "file")
 glb_material :: proc(j: ^strings.Builder, mat: Export_Material) {
 	strings.write_string(j, `{"name":`)
@@ -464,7 +536,12 @@ glb_material :: proc(j: ^strings.Builder, mat: Export_Material) {
 	json_number(j, clamp(mat.metallic, 0, 1))
 	strings.write_string(j, `,"roughnessFactor":`)
 	json_number(j, clamp(mat.roughness, 0, 1))
-	strings.write_string(j, `}}`)
+	if t := mat.textures[.Base_Color]; t > 0 do fmt.sbprintf(j, `,"baseColorTexture":{{"index":%d}}`, t - 1)
+	if t := mat.textures[.Orm]; t > 0 do fmt.sbprintf(j, `,"metallicRoughnessTexture":{{"index":%d}}`, t - 1)
+	strings.write_byte(j, '}')
+	if t := mat.textures[.Normal]; t > 0 do fmt.sbprintf(j, `,"normalTexture":{{"index":%d}}`, t - 1)
+	if t := mat.textures[.Occlusion]; t > 0 do fmt.sbprintf(j, `,"occlusionTexture":{{"index":%d}}`, t - 1)
+	strings.write_byte(j, '}')
 }
 
 // The linear value of an sRGB channel, both 0 to 1.
