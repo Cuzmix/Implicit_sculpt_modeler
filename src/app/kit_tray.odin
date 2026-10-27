@@ -164,6 +164,7 @@ COMMAND_HOMES := #partial [Command_Id]Maybe(Kit_Section) {
 	.Grow_To_Groups        = .Visibility,
 	.Show_Masked           = .Visibility,
 	.New_Layer             = .Layers,
+	.Layer_Edit            = .Layers,
 	.Paint                 = .Paint,
 	.Morph_Store           = .Morph,
 	.Morph_Delete          = .Morph,

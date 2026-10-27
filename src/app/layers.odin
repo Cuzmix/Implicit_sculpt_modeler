@@ -31,6 +31,70 @@ layer_add :: proc(app: ^App) {
 	history_record(app, obj, .Layer, "New layer")
 }
 
+// What the Layers section's More options do to the selected layer (app.ui.layer_selected).
+Layer_Action :: enum u8 {
+	Duplicate,
+	Invert,
+	Merge_Down,
+	Move_Up,
+	Move_Down,
+	Bake_All,
+}
+
+@(rodata)
+LAYER_ACTION_NAMES := [Layer_Action]string {
+	.Duplicate  = "Duplicate layer",
+	.Invert     = "Invert layer",
+	.Merge_Down = "Merge layer down",
+	.Move_Up    = "Move layer up",
+	.Move_Down  = "Move layer down",
+	.Bake_All   = "Bake all layers",
+}
+
+// Whether `action` can run on the selected object's selected layer now.
+layer_action_ready :: proc(app: ^App, action: Layer_Action) -> bool {
+	obj := selected_object(app)
+	if !layers_allowed(obj) do return false
+	s := object_sculptor(obj)
+	layers := sculpt.sculptor_layers(s)
+	i := app.ui.layer_selected
+	if len(layers) == 0 || i < 0 || i >= len(layers) do return false
+	switch action {
+	case .Duplicate:  return len(layers) < sculpt.MAX_SCULPT_LAYERS
+	case .Invert:     return sculpt.sculptor_layer_used(layers[i])
+	case .Merge_Down: return i > 0
+	case .Move_Up:    return i < len(layers) - 1
+	case .Move_Down:  return i > 0
+	case .Bake_All:   return true
+	}
+	return false
+}
+
+// Runs `action` on the selected layer (Bake all on every layer) as one History step.
+layer_action :: proc(app: ^App, action: Layer_Action) {
+	stroke_finish(app)
+	layer_drag_finish(app)
+	if !layer_action_ready(app, action) do return
+	obj := selected_object(app)
+	s := object_sculptor(obj)
+	i := &app.ui.layer_selected
+	done := false
+	switch action {
+	case .Duplicate:
+		if at := sculpt.sculptor_layer_duplicate(s, i^); at >= 0 do i^, done = at, true
+	case .Invert:
+		done = sculpt.sculptor_layer_invert(s, i^)
+	case .Merge_Down:
+		if sculpt.sculptor_layer_merge_down(s, i^) do i^, done = i^ - 1, true
+	case .Move_Up, .Move_Down:
+		up := action == .Move_Up
+		if sculpt.sculptor_layer_move(s, i^, up) do i^, done = i^ + (1 if up else -1), true
+	case .Bake_All:
+		if sculpt.sculptor_layers_bake(s) do i^, done = 0, true
+	}
+	if done do history_record(app, obj, .Layer, LAYER_ACTION_NAMES[action])
+}
+
 @(private = "file")
 layer_remove :: proc(app: ^App, obj: ^Object, index: int, bake: bool) {
 	stroke_finish(app)
@@ -78,11 +142,19 @@ kit_layers_section :: proc(app: ^App) {
 		}
 		ui.end(ctx)
 		strength := l.strength
-		if ui.slider(ctx, fmt.tprintf("Strength##layer %d", i), &strength, -1, 2, .Linear, fmt.tprintf("%.2f", strength), enabled = allowed) {
+		// Wide strength reaches five times either way (and a strength set wide shows whole
+		// on the narrow slider's range).
+		lo, hi := f32(-1), f32(2)
+		// A drag keeps the range it began on, so dragging a wide strength back into the
+		// narrow range does not change the scale under the pointer.
+		dragged := app.ui.layer_dragging && app.ui.layer_drag_id == obj.id && i == selected^
+		wide := app.ui.layer_drag_wide if dragged else (app.ui.layer_wide || strength < lo || strength > hi)
+		if wide do lo, hi = -5, 5
+		if ui.slider(ctx, fmt.tprintf("Strength##layer %d", i), &strength, lo, hi, .Linear, fmt.tprintf("%.2f", strength), enabled = allowed) {
 			if !app.ui.layer_dragging || app.ui.layer_drag_id != obj.id {
 				layer_drag_finish(app)
 				stroke_finish(app)
-				app.ui.layer_dragging, app.ui.layer_drag_id = true, obj.id
+				app.ui.layer_dragging, app.ui.layer_drag_id, app.ui.layer_drag_wide = true, obj.id, wide
 			}
 			_ = sculpt.sculptor_layer_set(s, i, strength, l.visible)
 			selected^ = i
@@ -96,6 +168,14 @@ kit_layers_section :: proc(app: ^App) {
 		if remove do layer_remove(app, obj, selected^, bake = false)
 		if bake do layer_remove(app, obj, selected^, bake = true)
 		ui.paragraph(ctx, fmt.tprintf("%d on this level, %.1f MB.", len(layers), f64(sculpt.sculptor_layers_bytes(s)) / (1 << 20)))
+	}
+	if kit_more(app, .Layers) {
+		kit_command_pair(app, .Layer_Edit, .Layer_Edit, int(Layer_Action.Duplicate), int(Layer_Action.Invert), "Duplicate", "Invert")
+		kit_command_pair(app, .Layer_Edit, .Layer_Edit, int(Layer_Action.Merge_Down), int(Layer_Action.Bake_All), "Merge down", "Bake all")
+		kit_command_pair(app, .Layer_Edit, .Layer_Edit, int(Layer_Action.Move_Up), int(Layer_Action.Move_Down), "Move up", "Move down")
+		_ = ui.switch_row(ctx, "Wide strength", &app.ui.layer_wide)
+		ui.paragraph(ctx, "These act on the layer picked above. Duplicate adds a hidden copy above it (its eye shows it, doubling the work). Invert turns its work the other way. Merge down puts what it and the layer under it show into that one, at full strength, without moving the surface. Move up and Move down change the order. Bake all keeps every layer's work as plain sculpting, as one step. Wide strength lets the sliders go from -5 to 5. Layers hold sculpting only, not polypaint.")
+		kit_more_end(app)
 	}
 	ui.paragraph(ctx, "While a layer records, strokes also go into it; its strength then dials them from -1 to 2. Delete takes its work off, Bake keeps it as plain sculpting. Each level has its own layers; Subdivide moves the top level's up to the new level, Delete higher carries the higher levels' down, and rebuilds (Remesh, Decimate, Mirror and weld, Slice, Make boolean) carry them onto the new mesh. Not in HD or with dynamic topology, which bakes them.")
 }
