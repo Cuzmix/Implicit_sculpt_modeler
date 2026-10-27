@@ -210,6 +210,81 @@ history_trim :: proc(app: ^App) {
 	}
 }
 
+// The choices of Settings > Performance > Undo steps kept (App.undo_steps); 0 is no limit
+// but memory's.
+UNDO_STEPS := [?]i32{0, 20, 50, 100, 200, 500}
+UNDO_STEPS_NAMES := [?]string{"No limit", "20 steps", "50 steps", "100 steps", "200 steps", "500 steps"}
+
+// How many steps `list` holds: an entry and the entries chained to it count once.
+history_step_count :: proc(list: []History_Entry) -> int {
+	n := 0
+	for e in list do if !e.chain do n += 1
+	return n
+}
+
+// Drops the oldest steps of the History beyond App.undo_steps, once a frame before
+// anything reads it, and not while a stroke, a drag or the timeline is under way (it
+// counts the steps it walks).
+history_cap :: proc(app: ^App) {
+	limit := int(app.undo_steps)
+	if limit <= 0 || history_busy(app) || timeline_busy(app) do return
+	if n := history_step_count(app.history.done[:]); n > limit do _ = history_drop_oldest(app, n - limit)
+}
+
+// Drops the oldest `steps` done steps whole (Undo steps kept, Delete older history),
+// keeping what can be redone. The strokes go from their sculptors (or a voxel object's
+// clay) too, so their memory comes back: each one that lost entries keeps as many of
+// its newest done steps as entries still name it, which also drops steps the memory
+// limit had already put out of reach. Returns the bytes freed.
+history_drop_oldest :: proc(app: ^App, steps: int) -> (freed: int) {
+	h := &app.history
+	end, dropped := 0, 0
+	for end < len(h.done) && dropped < steps {
+		end += 1
+		for end < len(h.done) && h.done[end].chain do end += 1
+		dropped += 1
+	}
+	if end == 0 do return 0
+	touched := make([dynamic]History_Entry, 0, end, context.temp_allocator)
+	before := h.swap_bytes
+	for e in h.done[:end] {
+		if entry_is_step(e) do append(&touched, e)
+		entry_free(h, e)
+	}
+	freed = before - h.swap_bytes
+	remove_range(&h.done, 0, end)
+	h.serial += 1
+	for e in touched {
+		obj := object_by_id(app, e.id)
+		if obj == nil do continue
+		// A voxel object has one clay for all its steps, whatever level an entry names.
+		voxel_object := obj.voxel != nil
+		keep := 0
+		for d in h.done do if d.id == e.id && entry_is_step(d) && (voxel_object || d.level == e.level) do keep += 1
+		if voxel_object {
+			freed += voxel.clay_drop_oldest(&obj.voxel.clay, keep)
+		} else if s := entry_sculptor(app, e); s != nil {
+			freed += sculpt.sculptor_drop_oldest(s, keep)
+			// With no step left the History brush's target (12 bytes a vertex) can never
+			// be used again.
+			if len(s.history.done) == 0 do sculpt.sculptor_recall_clear(s)
+		}
+	}
+	return
+}
+
+// Delete older history: forgets every step that could be undone, keeping the ones to
+// redo, and says how much it freed. Not while a stroke, a drag or the timeline is under
+// way.
+history_delete_older :: proc(app: ^App) {
+	if history_busy(app) || timeline_busy(app) || len(app.history.done) == 0 do return
+	stroke_finish(app)
+	n := history_step_count(app.history.done[:])
+	freed := history_drop_oldest(app, n)
+	app.stroke_end.valid = false
+	file_note(app, false, "Deleted %d older step%s, freeing %s", n, "" if n == 1 else "s", bytes_label(freed))
+}
+
 // Lists adding the selected object, the one just added, as the newest undo step.
 history_record_added :: proc(app: ^App) {
 	if obj := selected_object(app); obj != nil do history_record_swap(app, obj.id, history_snapshot(app, nil, "add object"))

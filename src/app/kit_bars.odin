@@ -138,8 +138,11 @@ kit_card_place :: proc(app: ^App, most, least: f32) -> (shift, w, top: f32, fits
 	w = min(most, room)
 	if (area.w - w) * 0.5 < left || (area.w + w) * 0.5 > area.w - right do shift = left + room * 0.5 - area.w * 0.5
 	top = kit_top() + 4
+	// How far the readout reaches in from its side, which the layout may have put on the
+	// right; the card's shift counts from the brush bar's side as the offsets do.
 	points := ui.prev_rect(&k.ctx, "points")
-	if points.w > 0 && area.w * 0.5 + shift - w * 0.5 < points.x - area.x + points.w + 8 do top = points_bottom(app)
+	reach := area.x + area.w - points.x if k.ctx.mirror else points.x - area.x + points.w
+	if points.w > 0 && area.w * 0.5 + shift - w * 0.5 < reach + 8 do top = points_bottom(app)
 	return shift, w, top, true
 }
 
@@ -625,7 +628,7 @@ kit_bar_popover :: proc(app: ^App) {
 	case .Save:
 		if !ui.popover_begin(ctx, "bar save", &p.open, p.at, p.side, {direction = .Column, padding = 6, width = 268}) do return
 		defer ui.popover_end(ctx)
-		for id in ([?]Command_Id{.Save_Scene_As, .Save_Scene_Copy, .Scene_Versions, .Open_Last_Autosave}) {
+		for id in ([?]Command_Id{.Save_Scene_As, .Save_Scene_Copy, .Save_Scene_Next, .Scene_Versions, .Open_Last_Autosave}) {
 			if command_menu_item(app, id) do p.open = false
 		}
 	case .Section:

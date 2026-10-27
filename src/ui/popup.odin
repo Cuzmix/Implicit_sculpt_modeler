@@ -259,6 +259,8 @@ popover_begin :: proc(ctx: ^Context, name: string, open: ^bool, anchor: Rect, si
 	p := presence(ctx, salt(id, 9), open^, t.popover_time)
 	if p <= 0 do return false
 	window := ctx.input.window
+	side := side
+	if ctx.mirror && (side == .Right || side == .Left) do side = .Left if side == .Right else .Right
 	pos: [2]f32
 	switch side {
 	case .Below:        pos = {anchor.x, anchor.y + anchor.h + 6}
@@ -270,7 +272,6 @@ popover_begin :: proc(ctx: ^Context, name: string, open: ^bool, anchor: Rect, si
 	case .Pointer:      pos = {anchor.x, anchor.y}
 	}
 	// A popover that would run off the bottom opens upward instead when there is room.
-	side := side
 	if (side == .Below || side == .Below_End) && pos.y + size.y > window.y - 4 && anchor.y - 6 - size.y >= 4 {
 		pos.y = anchor.y - 6 - size.y
 		side = .Above

@@ -134,6 +134,9 @@ Kit_State :: struct {
 	wheel_labels: Wheel_Labels, // what its sectors show
 	wheel_turn: f32, // how far it is turned clockwise, in degrees, -180 to 180
 	wheel_offset: [2]f32, // how far its grip dragged it from its place, in points
+	// The hand the moved windows and the wheel's drag were placed for: ctx.mirror is the
+	// left-handed layout, and when it changes they go to the other side too (kit_mirror).
+	placed_mirrored: bool,
 	wheel_from: [2]f32, // ...where it was when the drag under way took hold
 	// Its size across and its turn when two fingers began resizing and turning it.
 	wheel_from_size: f32,
@@ -326,9 +329,10 @@ kit_scroll_end :: proc(ctx: ^ui.Context, s: Kit_Scroll) {
 }
 
 // Which way a window slides as it opens and closes: in from the side it keeps to (+1 the
-// right, -1 the left), `default` until it is moved.
-window_slide :: proc(w: ui.Window, default: ui.Anchor) -> f32 {
-	return 1 if (w.x if w.moved else default) == .End else -1
+// right, -1 the left), `default` (as the layout mirrors it) until it is moved.
+window_slide :: proc(ctx: ^ui.Context, w: ui.Window, default: ui.Anchor) -> f32 {
+	side, _ := ui.mirrored(ctx, default, {})
+	return 1 if (w.x if w.moved else side) == .End else -1
 }
 
 // The sections of the tray's palettes, then the Stats panel's: the tray's come first and
@@ -371,6 +375,7 @@ Kit_Section :: enum u8 {
 	Add,
 	Material,
 	Lights,
+	Environment,
 	Studio,
 	Camera,
 	Floor,
@@ -749,8 +754,27 @@ kit_begin :: proc(app: ^App, window: ^sdl.Window) -> (size, pixels: [2]i32) {
 	k.last_frame = now
 	k.scale = scale
 	k.ctx.theme = LOOK_THEMES[k.look]
+	kit_mirror(k)
 	ui.frame_begin(&k.ctx, in_)
 	return {w, h}, {pw, ph}
+}
+
+// Once the layout changes hands (Settings > Interface > Screen layout, a settings file,
+// a script), a window the user moved goes to the other side as far in as it was, and the
+// wheel's drag from its place points the other way, so everything keeps its place
+// relative to the hand.
+kit_mirror :: proc(k: ^Kit_State) {
+	if k.ctx.mirror == k.placed_mirrored do return
+	k.placed_mirrored = k.ctx.mirror
+	for &w in k.windows {
+		if !w.moved do continue
+		switch w.x {
+		case .Start:  w.x = .End
+		case .End:    w.x = .Start
+		case .Center: w.offset.x = -w.offset.x
+		}
+	}
+	k.wheel_offset.x = -k.wheel_offset.x
 }
 
 // A new result (saved, opened, remeshed, deleted) shows as a toast, with Undo when it
@@ -1064,7 +1088,7 @@ kit_inspector :: proc(app: ^App) -> (raised: bool) {
 		if wide do ui.end(ctx)
 	}
 	ui.window_end(ctx)
-	ui.transform_since(ctx, mark, shown, 1, {}, {window_slide(win^, .End) * (1 - shown) * 16, 0})
+	ui.transform_since(ctx, mark, shown, 1, {}, {window_slide(ctx, win^, .End) * (1 - shown) * 16, 0})
 	return
 }
 

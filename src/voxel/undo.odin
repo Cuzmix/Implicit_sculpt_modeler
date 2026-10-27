@@ -186,6 +186,23 @@ clay_clear_redo :: proc(c: ^Clay) {
 	resize(&h.steps, h.cursor)
 }
 
+// Drops the oldest done steps (those before the cursor) until at most `keep` are left,
+// leaving the steps to redo as they are, as the app's History dropped the entries that
+// named them. Returns the bytes freed.
+clay_drop_oldest :: proc(c: ^Clay, keep: int) -> int {
+	h := &c.history
+	n := h.cursor - max(keep, 0)
+	if n <= 0 || h.recording do return 0
+	before := h.bytes
+	for i in 0 ..< n {
+		h.bytes -= undo_step_bytes(&h.steps[i])
+		undo_step_destroy(&h.steps[i])
+	}
+	remove_range(&h.steps, 0, n)
+	h.cursor -= n
+	return before - h.bytes
+}
+
 // Drops every step: the object was rebuilt and the app's history forgot it.
 clay_clear_history :: proc(c: ^Clay) {
 	h := &c.history

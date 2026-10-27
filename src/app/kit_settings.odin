@@ -60,7 +60,7 @@ kit_settings :: proc(app: ^App) -> (raised: bool) {
 	if closed do settings_close(app)
 	if !body {
 		ui.window_end(ctx)
-		ui.transform_since(ctx, mark, shown, 1, {}, {window_slide(win^, .End) * (1 - shown) * 16, 0})
+		ui.transform_since(ctx, mark, shown, 1, {}, {window_slide(ctx, win^, .End) * (1 - shown) * 16, 0})
 		return
 	}
 	names: [len(Settings_Tab)]string
@@ -99,7 +99,7 @@ kit_settings :: proc(app: ^App) -> (raised: bool) {
 	if ui.button(ctx, "Done", .Solid, .Accent, width = (inner - 8) * 0.5) do settings_close(app)
 	ui.end(ctx)
 	ui.window_end(ctx)
-	ui.transform_since(ctx, mark, shown, 1, {}, {window_slide(win^, .End) * (1 - shown) * 16, 0})
+	ui.transform_since(ctx, mark, shown, 1, {}, {window_slide(ctx, win^, .End) * (1 - shown) * 16, 0})
 	return
 }
 
@@ -126,6 +126,7 @@ settings_reset :: proc(app: ^App, tab: Settings_Tab) {
 		k.look = .Studio
 		k.ui_scale = 1
 		k.ctx.reduced_motion = false
+		k.ctx.mirror = false
 		k.surface_ring = true
 		k.action_bar = true
 		k.rail_side, k.wheel_size, k.wheel_offset = .Left, .Medium, {}
@@ -153,6 +154,7 @@ settings_reset :: proc(app: ^App, tab: Settings_Tab) {
 		app.msaa = MSAA_DEFAULT
 		app.autosave.minutes = AUTOSAVE_DEFAULT_MINUTES
 		app.versions_kept = VERSIONS_DEFAULT
+		app.undo_steps = 0
 	}
 }
 
@@ -176,6 +178,11 @@ settings_interface :: proc(app: ^App) {
 	if picked := ui.select(ctx, "Interface size", names[:], chosen); picked >= 0 do k.ui_scale = UI_SCALES[picked]
 	ui.paragraph(ctx, "How big panels, text and touch targets are, on top of the size the screen asks for.")
 	ui.spacer(ctx, 8)
+	ui.caption(ctx, "SCREEN LAYOUT")
+	hands := [2]string{"Right-handed", "Left-handed"}
+	if picked := ui.tabs(ctx, "Screen layout", hands[:], int(ctx.mirror)); picked >= 0 do ctx.mirror = picked == 1
+	ui.paragraph(ctx, "Left-handed swaps the sides: the brush bar, the wheel and the readouts go to the right; the navigation, the view bar and the palettes to the left.")
+	ui.spacer(ctx, 8)
 	ui.caption(ctx, "MOTION")
 	_ = ui.switch_row(ctx, "Reduce motion", &ctx.reduced_motion)
 	ui.paragraph(ctx, "Panels and menus appear and change without animating.")
@@ -189,9 +196,14 @@ settings_interface :: proc(app: ^App) {
 	ui.paragraph(ctx, "While the selected object has a mask, hidden parts or an HD window open, buttons over the brushes offer what usually comes next: invert or blur the mask, show everything, leave HD.")
 	ui.spacer(ctx, 8)
 	ui.caption(ctx, "MODIFIER WHEEL")
+	// The tabs name the sides as they are on the screen: in the left-handed layout the
+	// wheel's place by the brush bar is on the right.
 	sides := [len(Rail_Side)]string{"Off", "Left", "Right"}
-	if picked := ui.tabs(ctx, "Modifier wheel", sides[:], int(k.rail_side)); picked >= 0 {
-		k.rail_side, k.wheel_offset = Rail_Side(picked), {}
+	on_screen :: proc(side: int, mirror: bool) -> int {
+		return 3 - side if mirror && side > 0 else side
+	}
+	if picked := ui.tabs(ctx, "Modifier wheel", sides[:], on_screen(int(k.rail_side), ctx.mirror)); picked >= 0 {
+		k.rail_side, k.wheel_offset = Rail_Side(on_screen(picked, ctx.mirror)), {}
 	}
 	ui.label(ctx, "Size")
 	sizes: [len(Wheel_Size)]string
@@ -353,6 +365,13 @@ settings_performance :: proc(app: ^App) {
 	ui.label(ctx, "Keep the files a save replaces")
 	if picked := ui.select(ctx, "Earlier saves kept", VERSIONS_KEPT_NAMES[:], chosen); picked >= 0 do app.versions_kept = VERSIONS_KEPT[picked]
 	ui.paragraph(ctx, "Saving over a scene file first keeps the old one in a folder beside it (for head.sculpt, \"head versions\"), the newest ones kept. Off keeps none and deletes none already there.")
+	ui.spacer(ctx, 8)
+	ui.caption(ctx, "UNDO HISTORY")
+	chosen = 0
+	for n, i in UNDO_STEPS do if n == app.undo_steps do chosen = i
+	ui.label(ctx, "Undo steps kept")
+	if picked := ui.select(ctx, "Undo steps kept", UNDO_STEPS_NAMES[:], chosen); picked >= 0 do app.undo_steps = UNDO_STEPS[picked]
+	ui.paragraph(ctx, "Past this many steps the oldest are forgotten, and the memory their strokes hold comes back. No limit keeps steps until they fill the memory set aside for them. The History panel's Delete older history forgets them all at once.")
 	when LINK_AVAILABLE {
 		ui.spacer(ctx, 8)
 		ui.caption(ctx, "BLENDER LINK")

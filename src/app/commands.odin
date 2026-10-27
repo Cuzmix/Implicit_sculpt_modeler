@@ -26,6 +26,7 @@ Command_Id :: enum u8 {
 	Save_Scene,
 	Save_Scene_As,
 	Save_Scene_Copy,
+	Save_Scene_Next,
 	Scene_Versions,
 	Open_Last_Autosave,
 	Import_Mesh,
@@ -36,6 +37,7 @@ Command_Id :: enum u8 {
 	// Edit
 	Undo,
 	Redo,
+	Delete_Older_History,
 	Delete_Object,
 	Duplicate_Object,
 	// Tools and the brush
@@ -293,6 +295,13 @@ COMMANDS := [Command_Id]Command {
 		icon = ui.ICON_SAVE,
 		run = proc(app: ^App, _: int) {file_dialog(app, .Save_Copy)},
 	},
+	.Save_Scene_Next = {
+		label = "Save next",
+		help = "Saves the scene as the next numbered file beside its own (dragon_002.sculpt after dragon.sculpt or dragon_001.sculpt) and keeps saving there, so each stage of a sculpt stays a file of its own.",
+		icon = ui.ICON_SAVE,
+		enabled = proc(app: ^App, _: int) -> bool {return save_next_allowed(app)},
+		run = proc(app: ^App, _: int) {save_scene_next(app)},
+	},
 	.Scene_Versions = {
 		label = "Earlier saves...",
 		help = "Lists the files earlier saves of this scene replaced, to open one again.",
@@ -357,6 +366,13 @@ COMMANDS := [Command_Id]Command {
 		icon = ui.ICON_REDO,
 		run = proc(app: ^App, _: int) {history_redo(app)},
 		enabled = proc(app: ^App, _: int) -> bool {return history_can_redo(app)},
+	},
+	.Delete_Older_History = {
+		label = "Delete older history",
+		help = "Forgets every step that can be undone, freeing the memory they hold; the steps that can be redone stay. It cannot be undone.",
+		icon = ui.ICON_TRASH,
+		run = proc(app: ^App, _: int) {history_delete_older(app)},
+		enabled = proc(app: ^App, _: int) -> bool {return history_can_undo(app) && !timeline_busy(app)},
 	},
 	.Delete_Object = {
 		label = "Delete",

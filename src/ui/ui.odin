@@ -236,6 +236,10 @@ Context :: struct {
 	tweens:         map[Id]Tween,
 	scratch_ids:    [dynamic]Id,
 	reduced_motion: bool, // every duration 0: things still change, without moving
+	// The left-handed layout: everything anchored to one side of the window goes to the
+	// other, and popovers open the other way, so the tools a hand reaches for are under it.
+	// A window the user moved stays where it was put.
+	mirror:         bool,
 	// A press that closed a popover over the viewport: nothing gets the pointer until
 	// every button is up, so the click that dismisses never sculpts.
 	swallow:        bool,
@@ -462,8 +466,21 @@ label_text :: proc(label: string) -> string {
 begin_anchored :: proc(ctx: ^Context, name: string, x, y: Anchor, offset: [2]f32, box: Box) {
 	id := id_of(ctx, name)
 	size := prev_size(ctx, id, box)
-	pos := anchored_pos(safe_area(ctx), x, y, offset, size)
+	ax, off := mirrored(ctx, x, offset)
+	pos := anchored_pos(safe_area(ctx), ax, y, off, size)
 	open(ctx, id, {pos.x, pos.y, size.x, size.y}, box, root = true)
+}
+
+// The across anchor and offset as the layout places them: in the left-handed layout the
+// start and end edges trade places and a centred container moves the other way.
+mirrored :: proc(ctx: ^Context, x: Anchor, offset: [2]f32) -> (Anchor, [2]f32) {
+	if !ctx.mirror do return x, offset
+	switch x {
+	case .Start:  return .End, offset
+	case .End:    return .Start, offset
+	case .Center: return .Center, {-offset.x, offset.y}
+	}
+	return x, offset
 }
 
 // The top-left corner of something `size` points big placed against `area` as `x`, `y`

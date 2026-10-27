@@ -62,6 +62,7 @@ Script_Verb :: enum u8 {
 	Group_Material,
 	Texture,
 	Knife,
+	Environment,
 }
 
 // Each verb's name and what it takes, for errors and the README.
@@ -91,6 +92,7 @@ SCRIPT_VERBS := [Script_Verb]struct {
 	.Group_Material = {"group_material", "a polygroup's number from 1, given the material `set material` chose, and off to give it the object's again"},
 	.Texture       = {"texture", "base_color, orm or normal, then an image file to load as that map of the selected object"},
 	.Knife         = {"knife", "x, y or z to cut away the + side of the middle, -x, -y or -z the - side"},
+	.Environment   = {"environment", "a panorama file (Radiance .hdr, PNG or JPEG, twice as wide as tall) to light with, picking Image"},
 }
 
 // A command that is on or off (one with `checked`) can be told which: it then runs only
@@ -430,7 +432,7 @@ script_verb_read :: proc(st: ^Script_Statement, args: []string) -> bool {
 		n, ok := strconv.parse_int(args[0])
 		st.count = n
 		return ok && n >= 1
-	case .Alpha, .Install_Pack, .Matcap, .Preset, .Pack_Mesh, .Make_Pack:
+	case .Alpha, .Install_Pack, .Matcap, .Preset, .Pack_Mesh, .Make_Pack, .Environment:
 		// A name or path may have spaces: it is the rest of the line.
 		if len(args) == 0 do return false
 		st.text = strings.join(args, " ")
@@ -496,6 +498,11 @@ script_verb :: proc(app: ^App, st: Script_Statement) -> (failure: string, ok: bo
 		return "", true
 	case .Matcap:
 		if !matcap_load(app, st.text) do return fmt.tprintf("no image could be read as a MatCap at %q", st.text), true
+		return "", true
+	case .Environment:
+		// Waited for, so the next line (a dump, say) sees it.
+		if why := environment_load(app, st.text, wait = true); why != "" do return why, true
+		app.env.kind = .Image
 		return "", true
 	case .Texture:
 		// As the Textures section's Load button does, in place so the next line sees it.
@@ -583,7 +590,7 @@ script_verb :: proc(app: ^App, st: Script_Statement) -> (failure: string, ok: bo
 			if why := group_material_set(obj, u16(st.count), current_material(app), st.flip); why != "" do return why, true
 			app.scene_edits += 1
 			return "", true
-		case .Falloff, .Focal, .Alpha, .Matcap, .Project, .Draw_Curve, .Insert_Middle, .Install_Pack, .Preset, .Pack_Mesh, .Make_Pack, .Texture:
+		case .Falloff, .Focal, .Alpha, .Matcap, .Project, .Draw_Curve, .Insert_Middle, .Install_Pack, .Preset, .Pack_Mesh, .Make_Pack, .Texture, .Environment:
 		}
 	}
 	if script_scene_state(app) == before do return "it left the scene as it was (the log says why)", true

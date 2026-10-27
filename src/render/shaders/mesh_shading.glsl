@@ -39,6 +39,17 @@ layout(set = 3, binding = 0) uniform Material_Uniforms {
 	// Textured items: x, y, z 1 where the base colour, ORM and normal maps are bound, w the
 	// view (1 the maps, 2 the normal map alone, 3 the UV checker); all 0 on the sculpt mesh.
 	vec4 maps;
+	// The image environment (render/environment.odin): x 1 while one is bound (0: the
+	// studio below), y its strength as a factor, z its prefiltered levels less one.
+	vec4 env;
+	// The panorama's axes in view space, as the columns of a rotation: turned with the
+	// light rig, never tilted.
+	vec4 env_x;
+	vec4 env_y;
+	vec4 env_z;
+	// Its diffuse light as nine spherical harmonics in the panorama's axes, already
+	// convolved with the cosine lobe and over pi (app/environment_file.odin), rgb each.
+	vec4 env_sh[9];
 };
 
 #ifndef TEXTURED
@@ -54,11 +65,14 @@ layout(set = 3, binding = 1) uniform Slot_Uniforms {
 // The matcap (render/matcap.odin): a lit sphere, sRGB, so it samples as linear light.
 // SDL_GPU SPIR-V conventions: fragment samplers live in set 2.
 layout(set = 2, binding = 0) uniform sampler2D matcap;
+// The image environment prefiltered by roughness, one level a fifth of the way up
+// (render/environment.odin); a black 1 x 1 one while none is bound.
+layout(set = 2, binding = 1) uniform sampler2D environment_map;
 #ifdef TEXTURED
 // The textured mesh's maps (render.Texture_Map), defaults bound for missing ones.
-layout(set = 2, binding = 1) uniform sampler2D base_map;
-layout(set = 2, binding = 2) uniform sampler2D orm_map;
-layout(set = 2, binding = 3) uniform sampler2D normal_map;
+layout(set = 2, binding = 2) uniform sampler2D base_map;
+layout(set = 2, binding = 3) uniform sampler2D orm_map;
+layout(set = 2, binding = 4) uniform sampler2D normal_map;
 
 // A checker laid out by the UVs: 8 by 8 cells over the square, every other one darker,
 // each edged with a thin line and tinted by its column (hue) and row (lightness), so
@@ -82,6 +96,9 @@ vec3 uv_checker(vec2 uv) {
 #endif
 
 layout(location = 0) out vec4 out_color;
+
+#include "display.glsl"
+#include "panorama.glsl"
 
 const float PI = 3.14159265;
 
@@ -117,6 +134,29 @@ vec3 studio(vec3 dir, float rough) {
 	return c;
 }
 
+// What the physically based materials reflect along view-space `dir` at `rough`: the
+// image environment at the level prefiltered for that roughness when one is bound, else
+// the studio, turned into the rig's space by `to_rig`.
+vec3 reflected(vec3 dir, float rough, mat3 to_rig) {
+	if (env.x > 0.5) {
+		vec3 d = transpose(mat3(env_x.xyz, env_y.xyz, env_z.xyz)) * dir;
+		return textureLod(environment_map, panorama_uv(d), rough * env.z).rgb * env.y;
+	}
+	return studio(to_rig * dir, rough);
+}
+
+// The image environment's diffuse light on a white surface facing view-space `n`, from
+// its nine spherical harmonics (Ramamoorthi and Hanrahan 2001).
+vec3 irradiance(vec3 n) {
+	vec3 d = transpose(mat3(env_x.xyz, env_y.xyz, env_z.xyz)) * n;
+	vec3 e = env_sh[0].rgb * 0.282095
+		+ env_sh[1].rgb * (0.488603 * d.y) + env_sh[2].rgb * (0.488603 * d.z) + env_sh[3].rgb * (0.488603 * d.x)
+		+ env_sh[4].rgb * (1.092548 * d.x * d.y) + env_sh[5].rgb * (1.092548 * d.y * d.z)
+		+ env_sh[6].rgb * (0.315392 * (3.0 * d.z * d.z - 1.0)) + env_sh[7].rgb * (1.092548 * d.x * d.z)
+		+ env_sh[8].rgb * (0.546274 * (d.x * d.x - d.y * d.y));
+	return max(e, vec3(0.0)) * env.y;
+}
+
 // Karis's fit of the split-sum environment BRDF (Unreal, "Mobile" shading): the scale and
 // bias applied to F0 for the reflected environment.
 vec2 env_brdf(float n_dot_v, float rough) {
@@ -127,33 +167,6 @@ vec2 env_brdf(float n_dot_v, float rough) {
 	return vec2(-1.04, 1.04) * a004 + r.zw;
 }
 
-// Linear light to the sRGB curve the viewport texture is shown with (IEC 61966-2-1, the
-// curve image files and the exporters use), not a 2.2 power: that one lifts the darkest
-// values several steps, which greys crevices out.
-vec3 srgb_encode(vec3 c) {
-	c = clamp(c, 0.0, 1.0);
-	return mix(12.92 * c, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c));
-}
-
-// Khronos PBR Neutral tone mapping: below about 0.8 colours pass through with only a
-// small toe, so picked colours stay the colours shown; above it they roll off toward
-// white, desaturating a little, instead of clipping. Both shading paths go through it,
-// so a clay object and a metal one in the same view share one transfer curve.
-vec3 tone_map(vec3 c) {
-	const float START = 0.8 - 0.04;
-	const float DESATURATION = 0.15;
-	float x = min(c.r, min(c.g, c.b));
-	float offset = x < 0.08 ? x - 6.25 * x * x : 0.04;
-	c -= offset;
-	float peak = max(c.r, max(c.g, c.b));
-	if (peak < START) return c;
-	const float d = 1.0 - START;
-	float new_peak = 1.0 - d * d / (peak + d - START);
-	c *= new_peak / peak;
-	float g = 1.0 - 1.0 / (DESATURATION * (peak - new_peak) + 1.0);
-	return mix(c, vec3(new_peak), g);
-}
-
 // What a lit colour shows as: scaled by the exposure, tone mapped, sRGB encoded.
 // How opaque the surface is drawn: see-through only while look.w says so.
 float opacity() {
@@ -161,7 +174,7 @@ float opacity() {
 }
 
 vec4 display(vec3 c) {
-	return vec4(srgb_encode(tone_map(c * exp2(look.x))), opacity());
+	return vec4(display_color(c, look.x), opacity());
 }
 
 // How much the surface bends where this pixel sees it, as the angle the normal turns
@@ -350,14 +363,20 @@ void main() {
 		for (int i = 0; i < LIGHT_COUNT; i++) {
 			if (light_dir[i].w > 0.0) color += direct(n, v, light_dir[i].xyz, diffuse, f0, a) * light_color[i].rgb * (3.0 * light_dir[i].w);
 		}
-		// Light from the whole studio, which turns with the rig: its blurriest version for
-		// the diffuse part, scaled by the ambient light, and the reflection blurred by
-		// roughness for the specular.
+		// Light from the whole studio or image environment, which turns with the rig: the
+		// studio's blurriest version scaled by the ambient light (or the image's harmonics)
+		// for the diffuse part, and the reflection blurred by roughness for the specular.
+		// The studio's diffuse is dimmed to sit with its lights; an image's is taken at its
+		// own Strength, so a white surface in a white environment reads white.
 		vec3 r = reflect(-v, n);
 		vec2 ab = env_brdf(n_dot_v, rough);
 		mat3 to_rig = transpose(rig);
-		color += diffuse * studio(to_rig * n, 1.0) * (0.7 * ao * ambient);
-		color += studio(to_rig * r, rough) * (f0 * ab.x + ab.y) * (highlight * ao);
+		if (env.x > 0.5) {
+			color += diffuse * irradiance(n) * ao;
+		} else {
+			color += diffuse * studio(to_rig * n, 1.0) * (0.7 * ao * ambient);
+		}
+		color += reflected(r, rough, to_rig) * (f0 * ab.x + ab.y) * (highlight * ao);
 		out_color = display(color * relief);
 		return;
 	}

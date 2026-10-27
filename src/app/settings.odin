@@ -145,9 +145,14 @@ SETTINGS := [?]Setting {
 	{"light4_strength", L + 3 * size_of(Light) + offset_of(Light, strength), f32, 0, LIGHT_STRENGTH_MAX},
 	{"light_ambient", offset_of(App, light_ambient), f32, 0, LIGHT_STRENGTH_MAX},
 	{"lights_fixed", offset_of(App, lights_fixed), bool, 0, 0},
+	{"environment_source", offset_of(App, env) + offset_of(Environment_State, kind), Environment_Kind, 0, 0},
+	{"environment_strength", offset_of(App, env) + offset_of(Environment_State, strength), f32, -ENVIRONMENT_STRENGTH_RANGE, ENVIRONMENT_STRENGTH_RANGE},
+	{"environment_background", offset_of(App, env) + offset_of(Environment_State, background), bool, 0, 0},
+	{"environment_blur", offset_of(App, env) + offset_of(Environment_State, blur), f32, 0, 1},
 	{"dim_others", offset_of(App, dim_others), bool, 0, 0},
 	{"ridge", offset_of(App, ridge), f32, 0, 1},
 	{"reduce_motion", K + offset_of(Kit_State, ctx) + offset_of(ui.Context, reduced_motion), bool, 0, 0},
+	{"left_handed", K + offset_of(Kit_State, ctx) + offset_of(ui.Context, mirror), bool, 0, 0},
 	{"ortho", offset_of(App, camera) + offset_of(camera.Orbit, ortho), bool, 0, 0},
 	{"fov", offset_of(App, camera) + offset_of(camera.Orbit, fov_y), f32, camera.FOV_MIN, camera.FOV_MAX},
 	// Settings > Interface, Camera, Touch and Performance.
@@ -168,6 +173,7 @@ SETTINGS := [?]Setting {
 	{"msaa", offset_of(App, msaa), Msaa, 0, 0},
 	{"autosave_minutes", offset_of(App, autosave) + offset_of(Autosave, minutes), i32, 0, 10},
 	{"versions_kept", offset_of(App, versions_kept), i32, 0, 10},
+	{"undo_steps", offset_of(App, undo_steps), i32, 0, 1000},
 	{"orbit_style", N + offset_of(Nav_Prefs, orbit_style), camera.Orbit_Style, 0, 0},
 	{"mouse_scheme", N + offset_of(Nav_Prefs, mouse_scheme), Mouse_Scheme, 0, 0},
 	{"limit_pitch", N + offset_of(Nav_Prefs, limit_pitch), bool, 0, 0},
@@ -562,6 +568,13 @@ settings_load :: proc(app: ^App, path: string) {
 		case "matcap_image":
 			// matcap_image <path, escaped>: the image Load MatCap loaded last.
 			_ = matcap_image_load(app, preset_unescape(f[1]), quiet = true)
+		case "environment_image":
+			// environment_image <path, escaped>: the panorama Load environment loaded last,
+			// waited for so the first frame shows it. A file gone since leaves the note and
+			// the built-in studio.
+			kind := app.env.kind
+			if environment_load(app, preset_unescape(f[1]), wait = true, quiet = true) != "" do app.env.kind = .Built_In
+			else do app.env.kind = kind
 		case "ui_scale":
 			want := number(f[1], 1)
 			for s in UI_SCALES do if abs(s - want) < 0.01 do app.kit.ui_scale = s
@@ -713,6 +726,8 @@ settings_load :: proc(app: ^App, path: string) {
 	// or not anyone picked it, so the turntable that replaced it as the default takes
 	// its place once; the file saved next keeps whatever is picked after.
 	if version < 2 && app.nav.orbit_style == .Free do app.nav.orbit_style = .Turntable
+	// The windows and the wheel were saved where they were for the layout saved with them.
+	app.kit.placed_mirrored = app.kit.ctx.mirror
 	log.infof("settings: read %s", path)
 
 	number :: proc(s: string, fallback: f32) -> f32 {
@@ -755,6 +770,7 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 	else if m.matcap >= PACK_MATCAP do matcap = "0"
 	fmt.sbprintfln(&out, "custom_material %g %g %g %g %g %s", m.selected.r, m.selected.g, m.selected.b, m.metallic, m.roughness, matcap)
 	if app.matcap_path != "" do fmt.sbprintfln(&out, "matcap_image %s", preset_escape(app.matcap_path))
+	if app.env.path != "" do fmt.sbprintfln(&out, "environment_image %s", preset_escape(app.env.path))
 	k := app.kit
 	fmt.sbprintfln(&out, "ui_scale %g", k.ui_scale)
 	for w, which in k.windows {

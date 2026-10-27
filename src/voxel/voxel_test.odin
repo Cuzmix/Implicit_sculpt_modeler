@@ -300,3 +300,27 @@ the_eikonal_update_solves_one_two_and_three_axes :: proc(t: ^testing.T) {
 	testing.expect(t, math.abs(eikonal_update({0, 0, 0}) - 1 / math.sqrt(f32(3))) < 1e-5, "three axes")
 	testing.expect(t, math.abs(eikonal_update({2, 3.5, far}) - 3) < 1e-5, "a second axis past the one-axis solution does not take part")
 }
+
+// Dropping the oldest steps keeps the newest ones and the steps to redo: undo then goes
+// back only as far as the steps kept, bit for bit, and redo still runs forward.
+@(test)
+dropping_the_oldest_steps_keeps_the_newest_and_redo :: proc(t: ^testing.T) {
+	c := test_sphere(96)
+	defer clay_destroy(&c)
+	hashes: [4]u64
+	hashes[0] = clay_hash(&c)
+	for i in 0 ..< 3 {
+		clay_stroke_begin(&c)
+		for _ in 0 ..< 4 do _ = test_dab(&c, .Add, {0, 0, 1} if i % 2 == 0 else {0, 1, 0}, 0.4)
+		testing.expect(t, clay_stroke_end(&c))
+		hashes[i + 1] = clay_hash(&c)
+	}
+	testing.expect(t, clay_undo(&c))
+	bytes := clay_undo_bytes(&c)
+	testing.expect(t, clay_drop_oldest(&c, 1) > 0)
+	testing.expect(t, clay_undo_bytes(&c) < bytes)
+	testing.expect(t, clay_undo(&c) && clay_hash(&c) == hashes[1], "undo of the step kept")
+	testing.expect(t, !clay_can_undo(&c), "an undo past the steps kept")
+	testing.expect(t, clay_redo(&c) && clay_redo(&c) && clay_hash(&c) == hashes[3], "redo to the newest")
+	testing.expect_value(t, clay_drop_oldest(&c, 5), 0)
+}
