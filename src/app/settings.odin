@@ -313,14 +313,20 @@ SETTING_LINES := [?]Setting_Line {
 		proc(app: ^App) -> string {return rgb_text(app.background.bottom)},
 	},
 	{
-		// A material by its name, which may have spaces ("red wax").
+		// A material by its name, which may have spaces ("red wax"), or a content pack's as
+		// `<id>/<name>`, escaped as preset names are, which settings_load and scripts look
+		// up in the library, since parse has none (older versions skip the line, and start
+		// on Clay).
 		"material",
 		proc(f: []string) -> (Setting_Line_Value, bool) {
 			i, ok := material_by_name(strings.join(f, " ", context.temp_allocator))
 			return i, ok
 		},
 		proc(app: ^App, v: Setting_Line_Value) {app.material = v.(int)},
-		proc(app: ^App) -> string {return string(current_material(app).label)},
+		proc(app: ^App) -> string {
+			if refs := material_refs(app, current_material(app)); refs.material != "" do return preset_escape(refs.material)
+			return string(current_material(app).label)
+		},
 	},
 	{
 		// The size an object is added and remeshed at, in vertices: the nearest of the
@@ -409,12 +415,20 @@ settings_load :: proc(app: ^App, path: string) {
 				if kind, ok := brush_by_name(f[1]); ok do b.falloffs[kind].focal = clamp(number(f[2], 0), sculpt.FOCAL_MIN, sculpt.FOCAL_MAX)
 			}
 		case "pressure_curve": if len(f) == 5 do b.pressure_curve = curve(f[1:], b.pressure_curve)
-		case "symmetry", "paint_color", "background_top", "background_bottom", "material", "new_vertices":
+		case "material":
+			if name := strings.join(f[1:], " ", context.temp_allocator); strings.contains_rune(name, '/') {
+				if j := pack_material_by_ref(app, preset_unescape(name)); j >= 0 do app.material = PACK_MATERIAL + j
+				continue
+			}
+			line := setting_line(f[0])
+			if v, ok := line.parse(f[1:]); ok do line.apply(app, v)
+		case "symmetry", "paint_color", "background_top", "background_bottom", "new_vertices":
 			line := setting_line(f[0])
 			if v, ok := line.parse(f[1:]); ok do line.apply(app, v)
 		case "custom_material":
 			// custom_material r g b metallic roughness [matcap]; the matcap, 0 for none,
-			// 1 + a built-in's place or MATCAP_IMAGE, came with MatCaps.
+			// 1 + a built-in's place or MATCAP_IMAGE, came with MatCaps, and a content
+			// pack's `<id>/<stem>` with packs' matcaps (which older versions read as none).
 			if len(f) >= 6 {
 				c := &app.custom
 				for k in 0 ..< 3 do c.selected[k] = clamp(number(f[1 + k], c.selected[k]), 0, 1)
@@ -422,6 +436,7 @@ settings_load :: proc(app: ^App, path: string) {
 				c.roughness = clamp(number(f[5], c.roughness), 0.04, 1)
 				if len(f) >= 7 {
 					c.matcap = clamp(int(number(f[6], 0)), 0, MATCAP_IMAGE)
+					if k := pack_matcap_by_ref(app, preset_unescape(f[6])); k >= 0 do c.matcap = PACK_MATCAP + k
 					if c.matcap != 0 do c.idle = MATCAP_IDLE
 				}
 			}
@@ -590,7 +605,10 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 	fmt.sbprintfln(&out, "pressure_curve %g %g %g %g", c.c1.x, c.c1.y, c.c2.x, c.c2.y)
 	for line in SETTING_LINES do fmt.sbprintfln(&out, "%s %s", line.key, line.text(app))
 	m := app.custom
-	fmt.sbprintfln(&out, "custom_material %g %g %g %g %g %d", m.selected.r, m.selected.g, m.selected.b, m.metallic, m.roughness, m.matcap)
+	matcap := fmt.tprint(m.matcap)
+	if refs := material_refs(app, m); refs.matcap != "" do matcap = preset_escape(refs.matcap)
+	else if m.matcap >= PACK_MATCAP do matcap = "0"
+	fmt.sbprintfln(&out, "custom_material %g %g %g %g %g %s", m.selected.r, m.selected.g, m.selected.b, m.metallic, m.roughness, matcap)
 	if app.matcap_path != "" do fmt.sbprintfln(&out, "matcap_image %s", preset_escape(app.matcap_path))
 	k := app.kit
 	fmt.sbprintfln(&out, "ui_scale %g", k.ui_scale)

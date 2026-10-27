@@ -498,3 +498,159 @@ pack_make_round_trips :: proc(t: ^testing.T) {
 	}
 	free_all(context.temp_allocator)
 }
+
+// A pack's matcaps and materials.txt join the Material section: its lines with a matcap
+// of the pack's, a built-in's or none, a material of its own for a matcap no line names,
+// and the lines it cannot use counted. A scene keeps them by name and opens without the
+// pack as Custom ones with the lights; the settings keep the default and Custom's
+// matcap; a replace moves objects to the new version's material of the same name and a
+// removal leaves Custom ones.
+@(test)
+pack_materials_install_and_follow :: proc(t: ^testing.T) {
+	FOLDER :: "build/pack_material_test/"
+	_ = os.remove_all(FOLDER)
+	defer os.remove_all(FOLDER)
+	testing.expect(t, os.make_directory_all(FOLDER) == nil)
+	settings := FOLDER + "run.txt"
+	LIBRARY :: FOLDER + "run-library"
+	v1, v2, big := FOLDER + "rocks.sculptpack", FOLDER + "rocks-2.sculptpack", FOLDER + "big.sculptpack"
+	lines := "# Rock Set's materials\n" +
+		"material Wet%20stone 0.3 0.3 0.32 0 0.4 wet\n" +
+		"material Gold 1 0.8 0.3 1 0.3 -\n" +
+		"material Brass 0.9 0.7 0.3 1 0.35 -\n" +
+		"material Pearly 1 1 1 0 0.5 pearl\n" +
+		"material Broken 2 0 0 0 0.5 -\n" +
+		"material Lost 1 1 1 0 0.5 nothere\n" +
+		"material wet%20STONE 1 1 1 0 0.5 -\n"
+	pack_write(t, v1, {{"pack.txt", "name Rock Set\nauthor Bolt\n"}, {"matcaps/wet.png", pack_png(3)}, {"matcaps/Glow.png", pack_png(90)}, {"matcaps/jade soft studio highlight v2 long.png", pack_png(40)}, {"materials.txt", lines}})
+	pack_write(t, v2, {{"pack.txt", "name Rock Set\nauthor Bolt\nversion 2\n"}, {"materials.txt", "material Wet%20stone 0.5 0.5 0.5 0 0.6 clay\n"}})
+	pixels := make([]u8, 1100 * 4 * 4, context.temp_allocator)
+	pack_write(t, big, {{"pack.txt", "name Big\n"}, {"matcaps/huge.png", string(png_write.encode(pixels, 1100, 4, false, context.temp_allocator))}})
+
+	a: App
+	defer pack_app_free(&a)
+	pack_app(&a, settings)
+	failed := pack_install_finish(&a, pack_unpack(big, a.library.folder), replace = false)
+	testing.expect(t, strings.contains(failed, "matcaps/huge.png is not a MatCap the app reads: it is 1100 x 4"), failed)
+	testing.expect_value(t, pack_install_finish(&a, pack_unpack(v1, a.library.folder), replace = false), "")
+	testing.expect(t, strings.contains(a.result.text, "Installed Rock Set: 5 materials; skipped 4 lines of materials.txt"), a.result.text)
+	testing.expect(t, os.exists(LIBRARY + "/rock-set/matcaps/Glow.png") && os.exists(LIBRARY + "/rock-set/materials.txt"))
+	wet := pack_material_by_ref(&a, "rock-set/WET STONE")
+	brass := pack_material_find(&a, "rock-set", "brass")
+	glow := pack_material_find(&a, "rock-set", "Glow")
+	pearly := pack_material_find(&a, "rock-set", "pearly")
+	testing.expect(t, wet >= 0 && brass >= 0 && glow >= 0 && pearly >= 0)
+	l := &a.library
+	testing.expect_value(t, l.materials[wet].material.matcap, PACK_MATCAP + pack_matcap_find(&a, "rock-set", "wet"))
+	testing.expect_value(t, l.materials[glow].material.matcap, PACK_MATCAP + pack_matcap_find(&a, "rock-set", "glow"))
+	testing.expect_value(t, l.materials[pearly].material.matcap, 5)
+	testing.expect_value(t, l.materials[brass].material.matcap, 0)
+	testing.expect_value(t, l.materials[brass].material.roughness, 0.35)
+	testing.expect(t, string(l.materials[wet].material.label) == "Wet stone" && l.materials[wet].material.pack == wet + 1)
+	testing.expect_value(t, material_index(l.materials[brass].material), PACK_MATERIAL + brass)
+	testing.expect_value(t, matcap_label(&a, l.materials[glow].material.matcap), "Glow")
+
+	// In the scene file by name: back as the pack's own, or without it as Custom.
+	custom := Material{label = "Custom", selected = {0.2, 0.3, 0.4, 1}, idle = MATCAP_IDLE, matcap = l.materials[wet].material.matcap}
+	for m in ([?]Material{l.materials[wet].material, l.materials[brass].material, custom}) {
+		out: [dynamic]u8
+		defer delete(out)
+		material_put(&out, m, material_refs(&a, m))
+		r := geom.byte_reader(out[:])
+		missing := 0
+		back := material_get(&r, &a, SCENE_VERSION, &missing)
+		testing.expect(t, r.ok && r.at == len(out) && missing == 0)
+		testing.expect_value(t, back, m)
+		r = geom.byte_reader(out[:])
+		alone := material_get(&r, nil, SCENE_VERSION, &missing)
+		testing.expect(t, r.ok && missing == 1 && alone.label == "Custom" && alone.pack == 0 && alone.matcap == 0)
+		testing.expect_value(t, alone.selected, m.selected)
+	}
+	// A reference without both parts, or beside a matcap number, is a damaged file.
+	for refs in ([?]Material_Refs{{material = "rock-set"}, {matcap = "/wet"}}) {
+		out: [dynamic]u8
+		defer delete(out)
+		material_put(&out, MATERIALS[0], refs)
+		r := geom.byte_reader(out[:])
+		_ = material_get(&r, &a)
+		testing.expect(t, !r.ok)
+	}
+	{
+		out: [dynamic]u8
+		defer delete(out)
+		material_put(&out, MATERIALS[FIRST_MATCAP], {matcap = "rock-set/wet"})
+		r := geom.byte_reader(out[:])
+		_ = material_get(&r, &a)
+		testing.expect(t, !r.ok)
+		// Version 14 had no references: its last field is the matcap.
+		clear(&out)
+		material_put(&out, MATERIALS[3])
+		resize(&out, len(out) - 8)
+		r = geom.byte_reader(out[:])
+		back := material_get(&r, &a, 14)
+		testing.expect(t, r.ok && r.at == len(out) && back == MATERIALS[3])
+	}
+
+	// The settings keep the default and Custom's matcap by name.
+	a.material = PACK_MATERIAL + brass
+	a.custom = custom
+	testing.expect(t, settings_save(&a, settings))
+	b: App
+	defer pack_app_free(&b)
+	pack_app(&b, settings)
+	b.custom = {label = "Custom"}
+	settings_load(&b, settings)
+	testing.expect_value(t, b.material, PACK_MATERIAL + pack_material_find(&b, "rock-set", "brass"))
+	testing.expect_value(t, b.custom.matcap, PACK_MATCAP + pack_matcap_find(&b, "rock-set", "wet"))
+	testing.expect_value(t, b.custom.idle, MATCAP_IDLE)
+	// A matcap's own material with a long name is cut to one a line can hold, so it
+	// comes back; Wet stone's space survives the settings too.
+	testing.expect_value(t, len(b.library.materials), 5)
+	testing.expect_value(t, b.library.packs[0].materials, 5)
+	testing.expect_value(t, b.library.skipped, 0)
+	testing.expect(t, pack_material_find(&b, "rock-set", "jade soft studio highlight v") >= 0)
+	b.material = PACK_MATERIAL + pack_material_find(&b, "rock-set", "wet stone")
+	testing.expect(t, settings_save(&b, settings))
+	b.material = 0
+	settings_load(&b, settings)
+	testing.expect_value(t, b.material, PACK_MATERIAL + pack_material_find(&b, "rock-set", "wet stone"))
+
+	// A script names one by `<id>/<name>`, looked up as the line runs.
+	s := script_parse("set material rock-set/pearly\nset material clay", "test")
+	defer script_destroy(&s)
+	testing.expect_value(t, len(s.errors), 0)
+	script_set(&b, s.statements[0])
+	testing.expect_value(t, b.material, PACK_MATERIAL + pack_material_find(&b, "rock-set", "pearly"))
+	testing.expect_value(t, s.statements[0].text, "rock-set/pearly")
+
+	// A replace moves the objects on to the new Wet stone and leaves Brass's a Custom one.
+	on_wet, on_brass := new(Object), new(Object)
+	defer free(on_wet)
+	defer free(on_brass)
+	on_wet.material, on_brass.material = l.materials[wet].material, l.materials[brass].material
+	append(&a.scene.objects, on_wet, on_brass)
+	defer delete(a.scene.objects)
+	a.material = PACK_MATERIAL + wet
+	edits := a.scene_edits
+	testing.expect_value(t, pack_install_finish(&a, pack_unpack(v2, a.library.folder), replace = true), "")
+	testing.expect(t, strings.contains(a.result.text, "1 object used materials it no longer has and has Custom ones now"), a.result.text)
+	new_wet := pack_material_find(&a, "rock-set", "wet stone")
+	testing.expect(t, new_wet >= 0 && new_wet != wet)
+	testing.expect_value(t, on_wet.material.pack, new_wet + 1)
+	testing.expect_value(t, on_wet.material.matcap, 2)
+	testing.expect_value(t, a.material, PACK_MATERIAL + new_wet)
+	testing.expect(t, on_brass.material.label == "Custom" && on_brass.material.pack == 0 && on_brass.material.metallic == 1)
+	testing.expect_value(t, a.custom.matcap, 0)
+	testing.expect(t, a.scene_edits > edits)
+
+	// Removing it leaves the default on Clay and the object on a Custom one.
+	testing.expect(t, pack_remove(&a, 0))
+	testing.expect_value(t, a.material, 0)
+	testing.expect(t, on_wet.material.label == "Custom" && on_wet.material.pack == 0 && on_wet.material.matcap == 2)
+	testing.expect(t, strings.contains(a.result.text, "1 object that used its materials has Custom ones now"), a.result.text)
+	testing.expect_value(t, current_material(&a), MATERIALS[0])
+	// No GPU in a test, so nothing was made.
+	pack_matcaps_settle(&a)
+	testing.expect_value(t, a.library.textures_made, 0)
+	free_all(context.temp_allocator)
+}

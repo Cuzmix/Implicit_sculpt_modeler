@@ -18,7 +18,8 @@ import "../zip"
 // holding `pack.txt` (name, author, version, description, license, one `key value` line
 // each; only the name is needed), brush alphas under `alphas/`, brush presets in
 // `brushes.txt` (settings.txt's `preset` lines, naming the pack's own alphas by stem) and
-// base meshes under `meshes/` (pack_mesh.odin). Installing one checks
+// base meshes under `meshes/` (pack_mesh.odin), and matcaps under `matcaps/` with
+// materials in `materials.txt` (pack_material.odin). Installing one checks
 // the archive (zip.odin), reads pack.txt, decodes every alpha, and only then writes
 // anything: into library/.incoming, renamed to library/<id> once whole, so an install
 // that stops halfway leaves nothing behind. A pack is data only (store rule: no
@@ -48,6 +49,7 @@ Pack :: struct {
 	alphas:      int,
 	presets:     int,
 	meshes:      int,
+	materials:   int,
 }
 
 // A content pack's brush preset, in Library.presets: the preset, read-only, and the pack's
@@ -97,7 +99,10 @@ Pack_Unpacked :: struct {
 	alphas:   [dynamic]Pack_Alpha,
 	presets:  [dynamic]Pack_Preset_Read,
 	meshes:   [dynamic]Pack_Mesh_Read,
+	matcaps:  [dynamic]Pack_Matcap_Read,
+	materials: [dynamic]Pack_Material_Read,
 	bad:      int,    // brushes.txt lines it cannot use
+	bad_materials: int, // materials.txt lines it cannot use
 	left_out: int,    // entries this version does not read
 	left:     string, // the first of them
 }
@@ -119,6 +124,16 @@ pack_unpacked_free :: proc(u: ^Pack_Unpacked) {
 		delete(m.file)
 	}
 	delete(u.meshes)
+	for m in u.matcaps {
+		delete(m.stem)
+		delete(m.file)
+	}
+	delete(u.matcaps)
+	for m in u.materials {
+		delete(m.name)
+		delete(m.matcap)
+	}
+	delete(u.materials)
 	delete(u.left)
 	free(u)
 }
@@ -290,8 +305,9 @@ pack_unpack :: proc(path, library: string) -> ^Pack_Unpacked {
 	// Read in name order, so two installs of one file write and number alike.
 	slice.sort_by(entries, proc(a, b: zip.Entry) -> bool {return a.name < b.name})
 	text_found := false
-	brushes: []u8
+	brushes, materials: []u8
 	defer delete(brushes)
+	defer delete(materials)
 	// Each entry's temp memory (a big image's grey values) is its own and goes with it,
 	// so neither the install thread nor a script's frame keeps more than one at a time.
 	entry_temp: runtime.Arena
@@ -307,6 +323,9 @@ pack_unpack :: proc(path, library: string) -> ^Pack_Unpacked {
 		mesh_file := strings.trim_prefix(e.name, PACK_MESHES + "/")
 		in_meshes := len(mesh_file) < len(e.name) && strings.index_byte(mesh_file, '/') < 0
 		mesh_ext := strings.to_lower(filepath.ext(mesh_file), context.temp_allocator)
+		// And a matcap right in matcaps/.
+		matcap_file := strings.trim_prefix(e.name, PACK_MATCAPS + "/")
+		in_matcaps := len(matcap_file) < len(e.name) && strings.index_byte(matcap_file, '/') < 0
 		switch {
 		case e.name == PACK_FILE:
 			bytes, read_err := zip.read(data, e)
@@ -319,6 +338,29 @@ pack_unpack :: proc(path, library: string) -> ^Pack_Unpacked {
 			bytes, read_err := zip.read(data, e)
 			if read_err != .None do return refuse(u, "%s: %s", e.name, zip.ERROR_TEXT[read_err])
 			brushes = bytes
+		case e.name == PACK_MATERIALS:
+			bytes, read_err := zip.read(data, e)
+			if read_err != .None do return refuse(u, "%s: %s", e.name, zip.ERROR_TEXT[read_err])
+			materials = bytes
+		case in_matcaps && alpha_extension(matcap_file) && !strings.has_prefix(matcap_file, "."):
+			stem := filepath.stem(matcap_file)
+			taken := false
+			for m in u.matcaps do taken ||= strings.equal_fold(m.stem, stem)
+			if taken || len(u.matcaps) >= PACK_MATCAPS_MAX {
+				pack_left_out(u, e.name)
+				continue
+			}
+			bytes, read_err := zip.read(data, e)
+			if read_err != .None do return refuse(u, "%s: %s", e.name, zip.ERROR_TEXT[read_err])
+			defer delete(bytes)
+			if failed := pack_matcap_check(bytes); failed != "" do return refuse(u, "%s is not a MatCap the app reads: %s", e.name, failed)
+			append(&u.matcaps, Pack_Matcap_Read{stem = strings.clone(stem), file = strings.clone(matcap_file)})
+			matcaps_dir, _ := filepath.join({incoming, PACK_MATCAPS}, context.temp_allocator)
+			if len(u.matcaps) == 1 {
+				if dir_err := os.make_directory_all(matcaps_dir); dir_err != nil do return refuse(u, "cannot make %s: %v", matcaps_dir, dir_err)
+			}
+			target, _ := filepath.join({matcaps_dir, matcap_file}, context.temp_allocator)
+			if werr := os.write_entire_file(target, bytes); werr != nil do return refuse(u, "cannot write %s: %v", target, werr)
 		case in_alphas && alpha_extension(file) && !strings.has_prefix(file, "."):
 			stem := filepath.stem(file)
 			taken := false
@@ -365,6 +407,15 @@ pack_unpack :: proc(path, library: string) -> ^Pack_Unpacked {
 	if len(u.meshes) > 0 {
 		index_path, _ := filepath.join({incoming, PACK_MESH_INDEX}, context.temp_allocator)
 		if werr := write_durably(index_path, transmute([]u8)pack_mesh_index(u.meshes[:])); werr != "" do return refuse(u, "%s", werr)
+	}
+	if materials != nil || len(u.matcaps) > 0 {
+		stems := make([]string, len(u.matcaps), context.temp_allocator)
+		for m, i in u.matcaps do stems[i] = m.stem
+		if materials != nil do u.bad_materials = pack_materials_parse(string(materials), stems, &u.materials)
+		pack_materials_for_matcaps(stems, &u.materials)
+		// Written as checked, with the pictures listed, so a start reads only this.
+		index_path, _ := filepath.join({incoming, PACK_MATERIALS}, context.temp_allocator)
+		if werr := write_durably(index_path, transmute([]u8)pack_materials_index(u.matcaps[:], u.materials[:])); werr != "" do return refuse(u, "%s", werr)
 	}
 	if brushes != nil {
 		stems := make([]string, len(u.alphas), context.temp_allocator)
@@ -514,6 +565,12 @@ pack_install_finish :: proc(app: ^App, u: ^Pack_Unpacked, replace: bool) -> (err
 		pack_mesh_add(app, id, m.stem, file, m.vertices, m.triangles)
 	}
 	p.meshes = len(u.meshes)
+	matcaps := make([]Pack_Matcap_Read, len(u.matcaps), context.temp_allocator)
+	for m, i in u.matcaps {
+		file, _ := filepath.join({folder, PACK_MATCAPS, m.file}, context.temp_allocator)
+		matcaps[i] = {m.stem, file}
+	}
+	p.materials = pack_materials_add(app, id, matcaps, u.materials[:])
 	// A replaced pack keeps its place in the list.
 	if old >= 0 do inject_at(&l.packs, old, p)
 	else do append(&l.packs, p)
@@ -521,8 +578,11 @@ pack_install_finish :: proc(app: ^App, u: ^Pack_Unpacked, replace: bool) -> (err
 	dropped := alphas_retarget(app)
 	_ = pack_presets_retarget(app)
 	pack_meshes_retarget(app)
+	fell := pack_materials_retarget(app)
 	left := "" if u.left_out == 0 else fmt.tprintf("; left out %d file%s this version does not read (%s%s)", u.left_out, "" if u.left_out == 1 else "s", u.left, "" if u.left_out == 1 else ", ...")
 	bad := "" if u.bad == 0 else fmt.tprintf("; skipped %d line%s of %s it cannot use", u.bad, "" if u.bad == 1 else "s", PACK_BRUSHES)
+	if u.bad_materials > 0 do bad = fmt.tprintf("%s; skipped %d line%s of %s it cannot use", bad, u.bad_materials, "" if u.bad_materials == 1 else "s", PACK_MATERIALS)
+	if fell > 0 do bad = fmt.tprintf("%s; %d object%s used materials it no longer has and %s Custom ones now", bad, fell, "" if fell == 1 else "s", "has" if fell == 1 else "have")
 	lost := "" if dropped == 0 else fmt.tprintf("; %d preset%s used alphas it no longer has and %s round now", dropped, "" if dropped == 1 else "s", "is" if dropped == 1 else "are")
 	file_note(app, false, "%s %s%s: %s%s%s%s", "Replaced" if old >= 0 else "Installed", p.name, "" if p.version == "" else fmt.tprintf(" %s", p.version), pack_holds(p), left, bad, lost)
 	pack_unpacked_free(u)
@@ -579,6 +639,7 @@ pack_holds :: proc(p: Pack) -> string {
 	if p.alphas > 0 do append(&parts, counted(p.alphas, "alpha", "alphas"))
 	if p.presets > 0 do append(&parts, counted(p.presets, "preset", "presets"))
 	if p.meshes > 0 do append(&parts, counted(p.meshes, "mesh", "meshes"))
+	if p.materials > 0 do append(&parts, counted(p.materials, "material", "materials"))
 	switch len(parts) {
 	case 0: return "nothing"
 	case 1: return parts[0]
@@ -595,6 +656,8 @@ pack_forget :: proc(app: ^App, i: int) {
 	for &e in app.alphas do if !e.gone && strings.has_prefix(e.ref, prefix) do e.gone = true
 	for &p in l.presets do if strings.equal_fold(p.pack, l.packs[i].id) do p.gone = true
 	for &m in l.meshes do if strings.equal_fold(m.pack, l.packs[i].id) do m.gone = true
+	for &m in l.matcaps do if strings.equal_fold(m.pack, l.packs[i].id) do m.gone = true
+	for &m in l.materials do if strings.equal_fold(m.pack, l.packs[i].id) do m.gone = true
 	pack_free(&l.packs[i])
 	ordered_remove(&l.packs, i)
 }
@@ -612,11 +675,10 @@ pack_remove :: proc(app: ^App, i: int) -> bool {
 	dropped := alphas_retarget(app)
 	_ = pack_presets_retarget(app)
 	pack_meshes_retarget(app)
-	if dropped == 0 {
-		file_note(app, false, "Removed %s from your library", name)
-	} else {
-		file_note(app, false, "Removed %s from your library; %d preset%s that used its alphas %s round now", name, dropped, "" if dropped == 1 else "s", "is" if dropped == 1 else "are")
-	}
+	fell := pack_materials_retarget(app)
+	lost := "" if dropped == 0 else fmt.tprintf("; %d preset%s that used its alphas %s round now", dropped, "" if dropped == 1 else "s", "is" if dropped == 1 else "are")
+	if fell > 0 do lost = fmt.tprintf("%s; %d object%s that used its materials %s Custom ones now", lost, fell, "" if fell == 1 else "s", "has" if fell == 1 else "have")
+	file_note(app, false, "Removed %s from your library%s", name, lost)
 	return true
 }
 

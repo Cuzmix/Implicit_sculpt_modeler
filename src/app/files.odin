@@ -54,7 +54,7 @@ File_Request :: struct {
 // be in a console nobody watches. `at` tells a new note from the one already shown.
 // The native scene file starts with these bytes, then its version.
 SCENE_MAGIC :: "SCULPTSC"
-SCENE_VERSION :: u32(14) // 2: each object's rotation; 3: the current level's polypaint and polygroups; 4: sculpt layers, and a retopologized object's quads and UVs (sculpt.levels_write); 5: each object's boolean mode; 6: the base level's node layout (sculpt.levels_write); 7: the camera's roll; 8: each object's eye and ghost, and Solo; 9: folders, and each object's folder; 10: selection sets (sculpt.levels_write); 11: each object's polypaint shown or not (a third view bit); 12: stored visibility (V1 to V8): the slot chosen and used, and each folder's and object's eyes in them; 13: each object's kind (mesh or voxel), a voxel object's resolution and clay after its empty level (voxel.clay_write); 14: each object's material (material_put)
+SCENE_VERSION :: u32(15) // 2: each object's rotation; 3: the current level's polypaint and polygroups; 4: sculpt layers, and a retopologized object's quads and UVs (sculpt.levels_write); 5: each object's boolean mode; 6: the base level's node layout (sculpt.levels_write); 7: the camera's roll; 8: each object's eye and ghost, and Solo; 9: folders, and each object's folder; 10: selection sets (sculpt.levels_write); 11: each object's polypaint shown or not (a third view bit); 12: stored visibility (V1 to V8): the slot chosen and used, and each folder's and object's eyes in them; 13: each object's kind (mesh or voxel), a voxel object's resolution and clay after its empty level (voxel.clay_write); 14: each object's material (material_put); 15: a material's content pack parts by name (material_refs)
 
 // The request waiting for the next frame, and whether a dialog is showing. Kept here
 // rather than in App because SDL may call a dialog back on another thread, even after
@@ -775,8 +775,9 @@ scene_open :: proc(app: ^App, path: string) -> (opened, ok: bool) {
 	objects := make([dynamic]^Object, 0, count)
 	defer delete(objects)
 	_ = sdl.WaitForGPUIdle(app.renderer.device)
+	missing := 0
 	for i in 0 ..< count {
-		obj, read, made := object_get(app, &r, version)
+		obj, read, made := object_get(app, &r, version, &missing)
 		if !read {
 			file_note(app, true, "Cannot open %s: object %d of %d is damaged", name, i + 1, count)
 			for other in objects do object_discard(app, other)
@@ -802,7 +803,11 @@ scene_open :: proc(app: ^App, path: string) -> (opened, ok: bool) {
 	app.stats.file_read_ms = time.duration_milliseconds(time.tick_since(start))
 	vertices := 0
 	for obj in objects do vertices += object_vertex_count(obj)
-	file_note(app, false, "Opened %s: %d %s, %d vertices shown, in %.0f ms", name, count, "object" if count == 1 else "objects", vertices, app.stats.file_read_ms)
+	if missing > 0 {
+		file_note(app, true, "Opened %s, but %d object%s use%s materials from content packs that are not installed, so they show Custom materials of the same colours", name, missing, "" if missing == 1 else "s", "s" if missing == 1 else "")
+	} else {
+		file_note(app, false, "Opened %s: %d %s, %d vertices shown, in %.0f ms", name, count, "object" if count == 1 else "objects", vertices, app.stats.file_read_ms)
+	}
 	return true, true
 }
 
@@ -869,13 +874,14 @@ scene_new :: proc(app: ^App, shape: geom.Primitive, vertices: int) -> bool {
 // level with the mask. Leaves any HD window first, whose detail is not stored.
 object_put :: proc(app: ^App, out: ^[dynamic]u8, obj: ^Object) {
 	object_hd_leave(app, obj)
-	_ = object_put_bytes(out, obj)
+	_ = object_put_bytes(out, obj, refs = material_refs(app, obj.material))
 	free_all(context.temp_allocator)
 }
 
 // object_put without leaving HD, for the autosave thread, which writes as `opts` says
-// and may be stopped (false, with part of the object in `out`).
-object_put_bytes :: proc(out: ^[dynamic]u8, obj: ^Object, opts := sculpt.Write_Options{}) -> bool {
+// and may be stopped (false, with part of the object in `out`). `refs` are the material's
+// content pack parts by name, which the frame loop works out, since the library is its.
+object_put_bytes :: proc(out: ^[dynamic]u8, obj: ^Object, opts := sculpt.Write_Options{}, refs := Material_Refs{}) -> bool {
 	// Room for it up front: a 50M-vertex object is about 2 GB, and growing the buffer to
 	// that a doubling at a time copies it all over again and touches twice the memory.
 	reserve(out, len(out) + object_put_estimate(obj))
@@ -889,7 +895,7 @@ object_put_bytes :: proc(out: ^[dynamic]u8, obj: ^Object, opts := sculpt.Write_O
 	geom.byte_put(out, i32(obj.folder)) // version 9
 	geom.byte_put(out, obj.vis_off) // version 12
 	geom.byte_put(out, u8(OBJECT_KIND_VOXEL if obj.voxel != nil else OBJECT_KIND_MESH)) // version 13
-	material_put(out, obj.material) // version 14
+	material_put(out, obj.material, refs) // version 14, its references 15
 	// A voxel object's clay and the resolution it started at stand where a mesh's levels
 	// go; its empty level is made again on reading.
 	if vp := obj.voxel; vp != nil {
@@ -932,16 +938,17 @@ OBJECT_VIEW_BITS :: 7
 object_view_bits :: proc(obj: ^Object) -> u8 {return u8(obj.off) | u8(obj.ghost) << 1 | u8(obj.paint_off) << 2}
 
 // Reads one object written by object_put (by a scene file of `version`) and uploads
-// its shown level. `read` is false
+// its shown level; an object whose material is a content pack's that is not installed
+// counts in `missing` (material_get). `read` is false
 // when the bytes are damaged (no object is made); `made` is false on a GPU failure,
 // with the object returned for the caller to discard.
-object_get :: proc(app: ^App, r: ^geom.Byte_Reader, version := SCENE_VERSION) -> (obj: ^Object, read, made: bool) {
+object_get :: proc(app: ^App, r: ^geom.Byte_Reader, version := SCENE_VERSION, missing: ^int = nil) -> (obj: ^Object, read, made: bool) {
 	obj = new(Object)
 	object_get_fields(r, obj, version)
 	kind := geom.byte_get(r, u8) if version >= 13 else OBJECT_KIND_MESH
 	// An older scene has no materials: its objects take the default (materials_settle),
 	// which is how they showed.
-	if version >= 14 do obj.material = material_get(r)
+	if version >= 14 do obj.material = material_get(r, app, version, missing)
 	fields_ok := r.ok && obj.transform.scale > 0 && obj.file.scale > 0 && kind <= OBJECT_KIND_VOXEL
 	if fields_ok && kind == OBJECT_KIND_VOXEL {
 		read, made = voxel_part_get(app, r, obj)
