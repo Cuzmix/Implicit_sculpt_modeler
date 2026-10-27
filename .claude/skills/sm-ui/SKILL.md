@@ -67,8 +67,11 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   `kit_card_place`; a right-side panel keeps clear of the dock with `side_panel_below`. A bar button opens the one
   `Bar_Pop` (`bar_pop_toggle`): a tray section by `Kit_Section` (any palette's, `bar_section`), the size or strength
   slider, the symmetry axes or the save actions. `corner = true` on `icon_button` draws the triangle that says a long
-  press does more. The look is `Kit_State.look` (`Look`: Studio, the default, or Graphite), `LOOK_THEMES` set as
-  `ctx.theme` each frame in `kit_begin`; both themes share every size, so a look never moves a control.
+  press does more. The look is `Kit_State.look` (`Look`: Lens, the default, Studio or Graphite), `LOOK_THEMES` set as
+  `ctx.theme` each frame in `kit_begin`; the themes share every size, so a look never moves a control. Settings
+  version 3 moved Studio, the old default, to Lens once. Colours outside widgets come from the theme too: the swapchain
+  clear and screen dumps (`kit_frame_color`), the top bar (`Background.Band`: `frame` plus `frame_line`), view pane
+  grounds and pass grounds (`pane`, `color_f32`).
 - Windows (`src/ui/window.odin`, `Kit_Window` in `new_ui.odin`): the tray, Stats, History and Settings are
   `ui.window_begin(ctx, name, title, &k.windows[which], x, y, offset, box, close_keys)` … `ui.window_end`: a title
   bar (drag it to move, Minimise folds to it, a tap on a folded title opens it, Close) over the caller's body, which
@@ -264,7 +267,9 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   the viewport gets the pointer.
 - Sizes are points; the draw list is pixels (`pixel_density`). Every hit area is at least `Theme.target` (48) points
   (`hit_area`; sm-store); what is drawn can be smaller (`control` 36, `row` 40). Widgets name tokens from
-  `src/ui/theme.odin` (`THEME_STUDIO`, "Studio", and `THEME_DARK`, "Graphite"), never literal colours or sizes.
+  `src/ui/theme.odin` (`THEME_LENS`, `THEME_STUDIO` and `THEME_DARK`, "Graphite"), never literal colours or sizes;
+  a new token gets a value in every theme (`track`, `knob_off`/`knob_on`, `cursor_line`, `chosen`/`on_chosen`,
+  `camera[4]` for the camera dots).
 - Widgets (`widgets.odin`): `label`, `paragraph`, `caption`, `icon_button`, `button` (variant, tone, width, glyph,
   enabled, keys: a tooltip hint), `toggle_button`, `tabs` (segmented control; `chosen` -1 shows none; `keys` a hint per option), `switch_row`, `slider` (linear or
   logarithmic), `vslider`, `drag_value` (drag sideways, from the press value), `text_field` (a `[]u8` buffer),

@@ -905,7 +905,7 @@ def look_switch_is_remembered():
         os.remove(settings_file())
     s = Script()
     open_settings(s, "interface")
-    s.ftap(1424, 234)  # Graphite
+    s.ftap(1454, 234)  # Graphite, right of Lens and Studio
     s.wait(4)
     s.ftap(1427, 766)  # Done
     s.wait(4)

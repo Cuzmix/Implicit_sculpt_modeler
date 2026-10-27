@@ -109,6 +109,7 @@ Background :: enum u8 {
 	Panel, // a surface floating over the viewport: hairline border, rounded
 	Raised, // a popover over the panels: lighter, a stronger hairline and a soft shadow
 	Track, // the well behind segmented controls and tabs
+	Band, // the window's frame: flat, a hairline along its bottom (the top bar)
 }
 
 // How a container lays out and looks.
@@ -156,6 +157,7 @@ Indicator :: struct {
 	rect:   Rect,
 	radius: f32,
 	color:  Color,
+	line:   Color, // a hairline round it, when not clear
 }
 
 // Where a container ended up, kept to the next frame: anchored ones are placed by their
@@ -579,6 +581,7 @@ end :: proc(ctx: ^Context) {
 		iw := tween(ctx, salt(c.id, 3), r.w, dur, .Out_Cubic)
 		ih := tween(ctx, salt(c.id, 4), r.h, dur, .Out_Cubic)
 		fill_rect(ctx, {c.rect.x + x, c.rect.y + y, iw, ih}, ind.radius, ind.color)
+		if ind.line.a > 0 do stroke_rect(ctx, {c.rect.x + x, c.rect.y + y, iw, ih}, ind.radius, ind.line, 1)
 		draw_move_under(&ctx.draw, c.index_mark, c.cmd_mark, from)
 	}
 	if c.box.background != .None {
@@ -596,6 +599,9 @@ end :: proc(ctx: ^Context) {
 			stroke_rect(ctx, c.rect, c.box.radius, t.border_strong, 1)
 		case .Track:
 			fill_rect(ctx, c.rect, c.box.radius, t.fill)
+		case .Band:
+			fill_rect(ctx, c.rect, 0, t.frame)
+			fill_rect(ctx, {c.rect.x, c.rect.y + c.rect.h - 1, c.rect.w, 1}, 0, t.frame_line)
 		}
 		draw_move_under(&ctx.draw, c.index_mark, c.cmd_mark, from)
 	}
@@ -703,8 +709,8 @@ open :: proc(ctx: ^Context, id: Id, r: Rect, box: Box, root: bool) {
 }
 
 // Asks the innermost container to slide its indicator to `r`, under its children.
-indicator :: proc(ctx: ^Context, r: Rect, radius: f32, color: Color) {
-	if n := len(ctx.stack); n > 0 do ctx.stack[n - 1].indicator = Indicator{r, radius, color}
+indicator :: proc(ctx: ^Context, r: Rect, radius: f32, color: Color, line := Color{}) {
+	if n := len(ctx.stack); n > 0 do ctx.stack[n - 1].indicator = Indicator{r, radius, color, line}
 }
 
 // The smallest rectangle holding both.

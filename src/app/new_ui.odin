@@ -681,8 +681,6 @@ kit_events_push :: proc(app: ^App, window: ^sdl.Window) {
 	}
 }
 
-// What the window shows where nothing is drawn (a screen dump's background).
-KIT_CANVAS :: ui.Color{0x11, 0x12, 0x14, 0xff}
 
 // The image id the viewport is drawn with; the kit hands it back in its draw commands.
 KIT_VIEWPORT_IMAGE :: 1
@@ -704,7 +702,7 @@ kit_init :: proc(app: ^App) {
 	ui.init(&app.kit.ctx)
 	k := &app.kit
 	k.inspector = true
-	k.look = .Studio
+	k.look = .Lens
 	// Each palette starts on its section most reached for, and the Stats panel with its
 	// commonest sections open.
 	k.section = {.Tool = .Stroke, .Object = .Transform, .Scene = .Objects}
@@ -1607,6 +1605,17 @@ kit_upload :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer) -> bool {
 	return render.ui_pass_upload(&app.renderer, &k.pass, cmd, vertices, dl.indices[:], pixels, {u32(w), u32(h)}, dirty, changed)
 }
 
+// The window's frame colour, as the GPU's clear wants it: what shows where nothing is
+// drawn, between view panes and in a screen dump.
+kit_frame_color :: proc(k: ^Kit_State) -> [4]f32 {
+	return color_f32(LOOK_THEMES[k.look].frame)
+}
+
+// An interface colour as the GPU takes it, opaque.
+color_f32 :: proc(c: ui.Color) -> [4]f32 {
+	return {f32(c.r) / 255, f32(c.g) / 255, f32(c.b) / 255, 1}
+}
+
 // Writes the whole window as the interface last drew it (the viewport, its overlay and
 // the panels) to a PNG, or a PPM when the path ends in .ppm.
 kit_screen_save :: proc(app: ^App, path: string, size: [2]u32) -> bool {
@@ -1614,8 +1623,7 @@ kit_screen_save :: proc(app: ^App, path: string, size: [2]u32) -> bool {
 	dl := &k.ctx.draw
 	vertices := transmute([]render.Ui_Vertex)dl.vertices[:]
 	atlas, aw, ah := ui.atlas_pixels(&k.ctx)
-	t := KIT_CANVAS
-	clear := [4]f32{f32(t.r) / 255, f32(t.g) / 255, f32(t.b) / 255, 1}
+	clear := kit_frame_color(k)
 	pixels := render.ui_pass_capture(&app.renderer, &k.pass, size, clear, kit_draws(app, dl), vertices, dl.indices[:], atlas, {u32(aw), u32(ah)}, context.temp_allocator)
 	if pixels == nil {
 		file_note(app, true, "Could not read the screen back: %s", sdl.GetError())

@@ -40,7 +40,8 @@ settings_path :: proc() -> string {
 
 // The version settings_save writes on the first line. A file from a newer version is
 // read as far as this one knows its lines. 2: the default orbit became the turntable.
-SETTINGS_VERSION :: 2
+// 3: the default look became Lens.
+SETTINGS_VERSION :: 3
 
 // One remembered value that is a plain field of App: its key in the file, where it is,
 // what type it is (bool, f32, i32, int or an enum) and, for numbers, the range a value read
@@ -879,6 +880,8 @@ settings_load :: proc(app: ^App, path: string) {
 	// or not anyone picked it, so the turntable that replaced it as the default takes
 	// its place once; the file saved next keeps whatever is picked after.
 	if version < 2 && app.nav.orbit_style == .Free do app.nav.orbit_style = .Turntable
+	// So too Studio, the look every file before version 3 holds: Lens replaces it once.
+	if version < 3 && app.kit.look == .Studio do app.kit.look = .Lens
 	// The windows and the wheel were saved where they were for the layout saved with them.
 	app.kit.placed_mirrored = app.kit.ctx.mirror
 	workspaces_loaded(&app.kit)

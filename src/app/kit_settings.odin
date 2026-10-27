@@ -123,7 +123,7 @@ settings_reset :: proc(app: ^App, tab: Settings_Tab) {
 	d := NAV_DEFAULT
 	switch tab {
 	case .Interface:
-		k.look = .Studio
+		k.look = .Lens
 		k.ui_scale = 1
 		k.ctx.reduced_motion = false
 		k.ctx.mirror = false
@@ -170,7 +170,7 @@ settings_interface :: proc(app: ^App) {
 	looks: [len(Look)]string
 	for l in Look do looks[int(l)] = LOOK_NAMES[l]
 	if picked := ui.tabs(ctx, "Look", looks[:], int(k.look)); picked >= 0 do k.look = Look(picked)
-	ui.paragraph(ctx, "Studio is neutral grey with an orange accent, so the clay's own colour reads true; Graphite is the cooler dark grey with a blue accent.")
+	ui.paragraph(ctx, "Lens frames the views in near-black with a sea-green accent no clay is near; Studio is neutral grey with an orange accent; Graphite is the cooler dark grey with a blue accent.")
 	ui.spacer(ctx, 8)
 	ui.caption(ctx, "SIZE")
 	names: [len(UI_SCALES)]string

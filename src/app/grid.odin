@@ -297,7 +297,7 @@ kit_grid :: proc(app: ^App) {
 		ui.begin_at(ctx, fmt.tprintf("grid divider %d", i), {grab.x, grab.y}, {width = grab.w, height = grab.h})
 		a := ui.area(ctx, "grab", {grab.w, grab.h})
 		t := ctx.theme
-		color := t.accent if a.held else t.border_strong if a.hovered else t.border
+		color := t.accent if a.held else t.border_strong if a.hovered else t.frame
 		ui.fill_rect(ctx, div.line, 0, color)
 		if a.held {
 			g.dragged = i + 1
@@ -323,7 +323,7 @@ kit_view_pane :: proc(app: ^App, i: int, r: ui.Rect) {
 	sv := &g.views[g.preset][i - 1]
 	ui.begin_at(ctx, fmt.tprintf("view pane %d", i), {r.x, r.y}, {width = r.w, height = r.h})
 	a := ui.area(ctx, "picture", {r.w, r.h})
-	ui.fill_rect(ctx, a.rect, 0, t.surface)
+	ui.fill_rect(ctx, a.rect, 0, t.pane)
 	if app.panes[i - 1].shown != nil do ui.image(ctx, a.rect, KIT_PANE_IMAGE + u64(i - 1))
 	second_view_input(app, sv, a)
 	ui.end(ctx)

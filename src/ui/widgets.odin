@@ -356,7 +356,7 @@ tabs :: proc(ctx: ^Context, name: string, options: []string, chosen: int, item_w
 		if clicked do picked = i
 		on := i == chosen
 		if on {
-			indicator(ctx, r, t.radius_small + 1, t.accent if accent else t.cursor)
+			indicator(ctx, r, t.radius_small + 1, t.accent if accent else t.cursor, {} if accent else t.cursor_line)
 		}
 		o := tween(ctx, salt(id, 1), 1 if on else 0, t.indicator_time)
 		_ = feedback(ctx, id, r, t.radius_small + 1, hovered && !on, held && !on)
@@ -397,14 +397,14 @@ switch_row :: proc(ctx: ^Context, s: string, value: ^bool, enabled := true, keys
 	fade: f32 = 1 if enabled else 0.4
 	text(ctx, shown, r.x, r.y + r.h * 0.5, t.text_size, color_fade(t.text_secondary, fade))
 	track := Rect{r.x + r.w - 44, r.y + (r.h - 26) * 0.5, 44, 26}
-	fill_rect(ctx, track, 13, color_fade(color_mix(t.fill, t.accent, tint), fade))
+	fill_rect(ctx, track, 13, color_fade(color_mix(t.track, t.accent, tint), fade))
 	// The knob widens while held, the way a finger presses it flat, and slides over with
 	// a little weight.
 	kw: f32 = 20 + 4 * grip
 	kx := track.x + 3 + (track.w - 6 - kw) * on
 	knob := Rect{kx, track.y + 3, kw, 20}
 	fill_rect(ctx, {knob.x, knob.y + 1, knob.w, knob.h}, 10, color_fade(t.shadow, 0.5 * fade))
-	fill_rect(ctx, knob, 10, color_fade(t.knob, fade))
+	fill_rect(ctx, knob, 10, color_fade(color_mix(t.knob_off, t.knob_on, tint), fade))
 	if keys != "" do tip(ctx, id, r, shown, keys)
 	return clicked
 }
@@ -466,7 +466,7 @@ slider :: proc(ctx: ^Context, s: string, value: ^f32, lo, hi: f32, scale: Scale,
 		}
 	}
 	f := slider_fraction(value^, lo, hi, scale)
-	fill_rect(ctx, track, 2, t.fill)
+	fill_rect(ctx, track, 2, t.track)
 	fill_rect(ctx, {track.x, track.y, track.w * f, track.h}, 2, color_fade(t.accent, fade))
 	grow := tween(ctx, salt(id, 1), 1 if held else (0.5 if hovered else 0), t.press_time)
 	kr: f32 = 7 + 2 * grow
@@ -523,7 +523,7 @@ vslider :: proc(ctx: ^Context, s: string, value: ^f32, lo, hi: f32, scale: Scale
 		text(ctx, label_text(s), cx, r.y + 20, t.caption_size, t.text_tertiary, .Semibold, .Center)
 	}
 	top := r.y + 40
-	fill_rect(ctx, {cx - 2, top, 4, track}, 2, t.fill)
+	fill_rect(ctx, {cx - 2, top, 4, track}, 2, t.track)
 	knob_y := top + track * (1 - f)
 	fill_rect(ctx, {cx - 2, knob_y, 4, top + track - knob_y}, 2, t.accent)
 	grow := tween(ctx, salt(id, 1), 1 if held else (0.5 if hovered else 0), t.press_time)
@@ -825,9 +825,9 @@ thumb_row :: proc(ctx: ^Context, s: string, parts: Thumb_Row, selected := false,
 	if has_under {
 		on := tween(ctx, salt(id, 2), 1 if parts.under_on else 0, t.indicator_time)
 		_ = feedback(ctx, salt(id, 97), {knob.x - 4, knob.y - 4, knob.w + 8, knob.h + 8}, t.radius_small, under_hover, under_held)
-		fill_rect(ctx, knob, knob.h * 0.5, color_mix(t.fill, t.accent, on))
+		fill_rect(ctx, knob, knob.h * 0.5, color_mix(t.track, t.accent, on))
 		kx := knob.x + 2 + (knob.w - 4 - (knob.h - 4)) * on
-		fill_rect(ctx, {kx, knob.y + 2, knob.h - 4, knob.h - 4}, (knob.h - 4) * 0.5, t.knob)
+		fill_rect(ctx, {kx, knob.y + 2, knob.h - 4, knob.h - 4}, (knob.h - 4) * 0.5, color_mix(t.knob_off, t.knob_on, on))
 		tip(ctx, salt(id, 97), knob, parts.under.name, parts.under.keys)
 	}
 	if parts.open != nil {
@@ -1094,7 +1094,7 @@ select_list_draw :: proc(ctx: ^Context) {
 BRUSH_TILE :: [2]f32{64, 58}
 
 // A brush in the dock or the browser: its icon over its name. The chosen one sits on the
-// accent, which slides from tile to tile. Returns true when clicked.
+// chosen colour, which slides from tile to tile. Returns true when clicked.
 brush_tile :: proc(ctx: ^Context, s: string, glyph: rune, selected: bool, keys := "") -> bool {
 	ctx.controls += 1
 	t := ctx.theme
@@ -1102,11 +1102,11 @@ brush_tile :: proc(ctx: ^Context, s: string, glyph: rune, selected: bool, keys :
 	vis := centered(cell, {60, 54})
 	id := id_of(ctx, s)
 	hovered, held, clicked, _ := interact(ctx, id, cell)
-	if selected do indicator(ctx, vis, t.radius_medium + 2, t.accent)
+	if selected do indicator(ctx, vis, t.radius_medium + 2, t.chosen)
 	mark := vertex_mark(ctx)
 	o := tween(ctx, salt(id, 1), 1 if selected else 0, t.indicator_time)
 	scale := feedback(ctx, id, vis, t.radius_medium + 2, hovered && !selected, held)
-	color := color_mix(color_mix(t.text_secondary, t.text, f32(int(hovered)) * 0.7), t.on_accent, o)
+	color := color_mix(color_mix(t.text_secondary, t.text, f32(int(hovered)) * 0.7), t.on_chosen, o)
 	icon(ctx, glyph, {vis.x + vis.w * 0.5, vis.y + 21}, t.icon_size + 2, color)
 	// A preset's name may be longer than the tile: it is cut, and shown whole in the tip.
 	name := label_text(s)
@@ -1171,7 +1171,7 @@ gauge :: proc(ctx: ^Context, fraction: f32) {
 	if w <= 0 do w = 120
 	r := place(ctx, {w, 12})
 	track := Rect{r.x, r.y + 4, r.w, 4}
-	fill_rect(ctx, track, 2, t.fill)
+	fill_rect(ctx, track, 2, t.track)
 	fill_rect(ctx, {track.x, track.y, track.w * clamp(fraction, 0, 1), track.h}, 2, t.accent)
 }
 

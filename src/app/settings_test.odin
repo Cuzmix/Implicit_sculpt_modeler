@@ -141,6 +141,40 @@ settings_move_the_old_default_orbit :: proc(t: ^testing.T) {
 	free_all(context.temp_allocator)
 }
 
+// A file from before Lens became the default look holds Studio, the default then, so it
+// reads as Lens; Graphite, and Studio picked since, are kept.
+@(test)
+settings_move_the_old_default_look :: proc(t: ^testing.T) {
+	path := "build/settings_look_test.txt"
+	defer os.remove(path)
+	for test in ([?]struct {
+		text: string,
+		want: Look,
+	} {
+		{"version 2\nlook Studio\n", .Lens},
+		{"look Studio\n", .Lens},
+		{"version 2\nlook Graphite\n", .Graphite},
+		{"version 3\nlook Studio\n", .Studio},
+	}) {
+		testing.expect(t, os.write_entire_file(path, transmute([]u8)test.text) == nil)
+		a := new(App)
+		defer free(a)
+		a.nav = NAV_DEFAULT
+		settings_load(a, path)
+		testing.expectf(t, a.kit.look == test.want, "%q: read %v", test.text, a.kit.look)
+	}
+	a := new(App)
+	defer free(a)
+	a.nav = NAV_DEFAULT
+	a.kit.look = .Studio
+	testing.expect(t, settings_save(a, path))
+	b := new(App)
+	defer free(b)
+	settings_load(b, path)
+	testing.expect_value(t, b.kit.look, Look.Studio)
+	free_all(context.temp_allocator)
+}
+
 // A value out of range is clamped; one that is not a value of its type leaves the field.
 @(test)
 settings_refuse_what_they_cannot_read :: proc(t: ^testing.T) {

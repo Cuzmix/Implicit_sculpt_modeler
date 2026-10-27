@@ -1106,7 +1106,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		if swapchain != nil {
 			target := sdl.GPUColorTargetInfo {
 				texture     = swapchain,
-				clear_color = {0.08, 0.08, 0.09, 1},
+				clear_color = sdl.FColor(kit_frame_color(&app.kit)),
 				load_op     = .CLEAR,
 				store_op    = .STORE,
 			}
