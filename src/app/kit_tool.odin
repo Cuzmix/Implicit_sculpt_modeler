@@ -79,7 +79,7 @@ Kit_Tab_Section :: struct {
 BRUSH_SECTIONS := [?]Kit_Tab_Section {
 	{.Preset, "Preset", kit_preset, nil},
 	{.Stroke, "Stroke", kit_stroke, nil},
-	{.Paint_Color, "Colour", proc(app: ^App) {_ = kit_color(&app.kit.ctx, "brush colour", &app.brush.color)}, proc(app: ^App) -> bool {return .Paint in BRUSHES[app.brush.kind].flags}},
+	{.Paint_Color, "Colour", proc(app: ^App) {_ = kit_color(app, "brush colour", &app.brush.color)}, proc(app: ^App) -> bool {return .Paint in BRUSHES[app.brush.kind].flags}},
 	{.Recall, "History brush", kit_recall, proc(app: ^App) -> bool {return app.brush.kind == .History}},
 	{.Falloff, "Falloff", kit_falloff, nil},
 	{.Alpha, "Alpha", kit_alpha_section, nil},
