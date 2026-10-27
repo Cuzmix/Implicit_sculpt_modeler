@@ -85,15 +85,15 @@ sculptor_locked_plane :: proc(s: ^Sculptor) -> Locked_Plane {return s.locked}
 // sculptor_stroke_begin, which unlocks) carries on its plane.
 sculptor_lock_plane :: proc(s: ^Sculptor, l: Locked_Plane) {s.locked = l}
 
-// Puts the locked plane in place of the dab's own area, mirrored by `mirror` (the
-// dab's symmetry image), once the stroke has one; the stroke's first own dab with
-// anything under it locks it.
+// Puts the locked plane in place of the dab's own area, taken by `img` (the dab's
+// symmetry image) about the symmetry's centre, once the stroke has one; the stroke's first
+// `own` dab (not an image) with anything under it locks it.
 @(private)
-lock_plane_apply :: proc(s: ^Sculptor, d: ^Dab, mirror: Vec3, weight: f32) {
+lock_plane_apply :: proc(s: ^Sculptor, d: ^Dab, img: Sym_Image, own: bool, weight: f32) {
 	l := &s.locked
 	if l.set {
-		d.normal, d.plane = l.normal * mirror, l.plane * mirror
-	} else if mirror == {1, 1, 1} && weight > 0 && d.normal != {} {
+		d.normal, d.plane = img.turn * l.normal, sym_point(img, d.brush.sym_center, l.plane)
+	} else if own && weight > 0 && d.normal != {} {
 		l^ = {true, d.normal, d.plane}
 	}
 }

@@ -1,6 +1,6 @@
 ---
 name: sm-sculpt
-description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's nodes (BVH leaves owning contiguous vertex ranges), the 15 brushes (Draw to Mask, Layer, Snake hook, Morph, Paint, Cloth, History), masking, polypaint, polygroups, sculpt layers, X/Y/Z symmetry, brush alphas, dynamic topology, apply_dab and sculptor_flush, dirty ranges for upload, deferred normals and normal cones, per-node stroke undo, subdivision levels (Loop, detail in local frames, sync up and down), HD detail windows, simplified copies between strokes, and the app side: stroke sampling, dab spacing, pressure and pen tilt, lazy mouse, the cross-object History and Scene_Command. Load for ANY task that changes how a brush moves vertices or what happens around a stroke, "add a brush kind", "symmetry is off", "undo is wrong", "the levels drift", "HD window border", "dabs skip at high speed", "move vertices from a tool", "make this undoable". Requires sm-geom and sm-build; GPU upload is sm-render; panels are sm-ui; ZBrush is the behaviour model.
+description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's nodes (BVH leaves owning vertex ranges), the 15 brushes (Draw to Mask, Layer, Snake hook, Morph, Paint, Cloth, History), masking, polypaint, polygroups, sculpt layers, mirror, local and radial symmetry, brush alphas, dynamic topology, apply_dab and sculptor_flush, dirty ranges for upload, deferred normals and normal cones, per-node stroke undo, subdivision levels (Loop, detail in local frames, sync up and down), HD detail windows, simplified copies between strokes, and the app side: stroke sampling, dab spacing, pressure and pen tilt, lazy mouse, the cross-object History and Scene_Command. Load for ANY task that changes how a brush moves vertices or what happens around a stroke, "add a brush kind", "symmetry is off", "undo is wrong", "the levels drift", "HD window border", "dabs skip at high speed", "move vertices from a tool", "make this undoable". Requires sm-geom and sm-build; GPU upload is sm-render; panels are sm-ui.
 ---
 
 # Sculpting
@@ -64,10 +64,16 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
 - Adjust last stroke (`adjust.odin`): `sculptor_stroke_adjust(s, k)` lerps the newest step's saved nodes from before
   to an `after` copy kept on the `Undo_Step` at the first adjust (counted in `step_bytes`, freed by `step_move`), exact
   at 0 and 1 (`adjust_vec`), then `sculptor_nodes_moved`. Refused under dyntopo or for hide/group/layer-op steps.
-- `apply_dab(s, brush, center)` (`brush.odin:570-584`) returns 0 for Grab, else runs `dab_once` at every mirror image:
-  `mirrors(symmetry)` gives `{1,1,1}` then the sign flips, up to 8 (`brush.odin:588-600`); each image gets the tilt
-  mirrored too (`S·R·S`: element `[i, j]` times `sign[i]·sign[j]`, `brush.odin:577`), and `alpha_up` times the sign with
-  `alpha_mirror` toggled on an odd number of flips (`brush.odin:579-580`). `dab_once` (`brush.odin:612-693`):
+- `apply_dab(s, brush, center)` returns 0 for Grab, else runs `dab_once(s, sym_brush(brush, img), sym_point(img,
+  brush.sym_center, center), img, i == 0)` at every `Sym_Image{turn: matrix[3,3]f32, flipped}` of
+  `symmetry_images(brush)`: the identity first, then each `mirrors(symmetry)` sign flip times each of `brush.radial`
+  turns about `radial_axis` (0 = off; up to `SYM_IMAGES_MAX` = 8·`RADIAL_MAX`). Mirror-only images are diagonal
+  matrices of ±1, so results with radial off are bit-identical to the old sign-vector code. `sym_point` is
+  `sym_center + turn·(p − sym_center)` (the app passes the object's local middle with Local symmetry, else 0);
+  `sym_brush` turns the tilt (`T·R·Tᵀ`) and `alpha_up` and toggles `alpha_mirror` when `flipped`. Lock plane turns its
+  normal and plane point the same way (`lock_plane_apply(s, d, img, own, weight)`). Grab keeps one `follow`
+  `matrix[3,3]f32` per vertex (the image's turn scaled by the falloff weight, `grab_follow`), so `grab_move` is
+  `start + follow·offset` and each copy moves the turned, mirrored way. `dab_once` (`brush.odin:612-693`):
   `bvh_query_leaves` out to the reach (the radius, or `radius · alpha.reach`, `brush.odin:614`) → dynamic topology first
   when on (the bullet below) → `job_area` unless Smooth or Mask without an alpha (falloff-weighted normal and centre over
   the round radius: `d.normal`, `d.plane`, the normal then turned by `tilt` (`brush.odin:649`), so Draw, Clay, Flatten,
@@ -140,8 +146,8 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
   allocation (`Saved_Node.block` on the first, `borrowed` on the rest, freed once) and copy in parallel. Clip
   (`src/sculpt/clip.odin`): `sculptor_clip(s, []Clip_Plane)` finds the nodes with a free vertex past a plane, saves them
   through `record_hit`, projects (shield-weighted) and calls `sculptor_nodes_moved`; one step, refused under dyntopo; app
-  gesture `src/app/clip.odin` (Ctrl+Shift drag with `app.gesture == .Clip`, Alt flips, planes mirrored by
-  `sculpt.mirrors`). Hiding (`src/sculpt/hide.odin`): `Hide.tris` per triangle; a vertex is hidden when every
+  gesture `src/app/clip.odin` (Ctrl+Shift drag with `app.gesture == .Clip`, Alt flips, planes mirrored and
+  turned by `sculpt.symmetry_images`, up to `SYM_IMAGES_MAX`). Hiding (`src/sculpt/hide.odin`): `Hide.tris` per triangle; a vertex is hidden when every
   triangle of it is, and then its `fade` is 0, so `shield` keeps brushes, Clip and Grab off it (mask commands check
   `vertex_hidden`); `hide_refresh` rebuilds `fade`, `units` (chunks plus LOD groups, for `Draw_Item.hidden`) and bumps
   `stamp`, which `hidden_upload` in app/scene.odin compares to re-upload packed indices with hidden triangles zeroed.
@@ -231,7 +237,8 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
   smoothing, `brush_alpha`) passes it and `alpha_up` from `alpha_world_up` (`:287-309`). `src/app/alphas.odin` turns the
   mode into a screen angle (`alpha_screen_angle`, `:173`: Follow stroke uses `Stroke.dir`, set in `stroke_walk` and zero
   at a stroke's start; Random steps `App.alpha_seed`) and that into a world direction in the view plane (`:194`). Symmetry planes go through the mesh's local
-  origin; X toggles X. `History` orders strokes and mask commands across objects and levels, newest last, `HD_LEVEL =
+  origin, or with Local symmetry its shown level's box middle (`src/app/symmetry.odin`: `brush_symmetry`, cached in
+  `App.sym_center` by object, level and history serial); X toggles X; `symmetry_label` is the exit stat. `History` orders strokes and mask commands across objects and levels, newest last, `HD_LEVEL =
   -1`; undoing a stroke from another level switches to it first (`src/app/history.odin:7-22, 78-92`); `stroke_finish`
   ends Grab and records the stroke (`:31`), `mask_command` records a mask command (`:43`). `Scene_Command` kinds and
   `scene_apply` (`src/app/scene.odin:84-91, 245`). Placing an object (gizmo drag, inspector Transform drag, Reset

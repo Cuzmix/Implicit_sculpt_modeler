@@ -218,6 +218,7 @@ App :: struct {
 	polyframe_fill:  bool,
 	floor:           Floor_Settings, // the floor grid (floor_grid.odin)
 	floor_state:     Floor_State,
+	sym_center:      Symmetry_Center, // local symmetry's middle, kept (symmetry.odin)
 	// Transparency: every shown object but the selected one is drawn see-through, at
 	// SEE_THROUGH_OPACITY, so the selected one shows through whatever stands before it.
 	see_through:     bool,
@@ -470,7 +471,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	app.time_gpu = opts.time_gpu || opts.gpubench != ""
 	app.ui = ui_state_default()
 	app.curve, app.insert = CURVE_DEFAULTS, INSERT_DEFAULTS
-	app.brush = {kind = .Draw, radius_px = DEFAULT_RADIUS_PX, pressure_strength = true, pressure_curve = geom.CURVE_LINEAR, detail_px = 10, collapse = true, alpha = -1, color = {0.75, 0.2, 0.15}, spray_spread = SPRAY_DEFAULT_SPREAD}
+	app.brush = {kind = .Draw, radius_px = DEFAULT_RADIUS_PX, pressure_strength = true, pressure_curve = geom.CURVE_LINEAR, detail_px = 10, collapse = true, alpha = -1, color = {0.75, 0.2, 0.15}, spray_spread = SPRAY_DEFAULT_SPREAD, radial_count = RADIAL_DEFAULT, radial_axis = .Y}
 	for &s, kind in app.brush.strengths do s = BRUSHES[kind].strength
 	app.nav = NAV_DEFAULT
 	app.autosave.minutes = AUTOSAVE_DEFAULT_MINUTES
@@ -1207,9 +1208,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		// The side bars' popover: what it shows (a section by its name), or none; the look.
 		pop := "none"
 		if p := k.bar_pop; p.open do pop = strings.to_lower(fmt.tprint(p.section) if p.kind == .Section else fmt.tprint(p.kind), context.temp_allocator)
-		axes := strings.builder_make(context.temp_allocator)
-		for axis in app.brush.symmetry do strings.write_string(&axes, strings.to_lower(fmt.tprint(axis), context.temp_allocator))
-		fmt.printfln("bar_pop=%s look=%s symmetry=%s live_boolean=%d dynamic=%d", pop, strings.to_lower(fmt.tprint(k.look), context.temp_allocator), strings.to_string(axes) if app.brush.symmetry != {} else "none",
+		fmt.printfln("bar_pop=%s look=%s symmetry=%s live_boolean=%d dynamic=%d", pop, strings.to_lower(fmt.tprint(k.look), context.temp_allocator), symmetry_label(&app),
 			int(app.ui.boolean.live), int(command_checked(&app, .Dyntopo_Toggle)))
 		// Where the modifier rail and what must stay clear of it ended up, in points, for
 		// touch_check's window size scenarios.

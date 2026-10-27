@@ -415,8 +415,8 @@ kit_bar_scrub :: proc(app: ^App) {
 }
 
 // The two columns at the right, under the navigation head: search, the palette tray and
-// the objects; then the view: studio render, orthographic, the floor grid, symmetry,
-// framing, wireframe, transparency, ghost and solo. Returns the Search button and the view menu's anchor (a long press on
+// the objects; then the view: studio render, orthographic, the floor grid, symmetry, local
+// symmetry, framing, wireframe, transparency, ghost and solo. Returns the Search button and the view menu's anchor (a long press on
 // Orthographic).
 kit_view_bar :: proc(app: ^App) -> (search_anchor, view_anchor: ui.Rect) {
 	k := &app.kit
@@ -446,8 +446,9 @@ kit_view_bar :: proc(app: ^App) -> (search_anchor, view_anchor: ui.Rect) {
 	_ = bar_command(app, .Floor_Grid, ICON_FLOOR, corner = true)
 	if ui.secondary(ctx) do bar_pop_toggle(app, .Section, ctx.last_rect, .Left, .Floor)
 	sym := &app.brush.symmetry
-	_ = bar_command(app, .Symmetry_X, ICON_SYMMETRY, selected = sym^ != {}, corner = true)
+	_ = bar_command(app, .Symmetry_X, ICON_SYMMETRY, selected = sym^ != {} || app.brush.radial_on, corner = true)
 	if ui.secondary(ctx) do bar_pop_toggle(app, .Symmetry, ctx.last_rect, .Left)
+	_ = bar_command(app, .Local_Symmetry, ICON_LOCAL_SYMMETRY)
 	_ = bar_command(app, .Focus_Selected, ui.ICON_FRAME)
 	_ = bar_command(app, .Wireframe, ICON_WIREFRAME, corner = true)
 	if ui.secondary(ctx) do bar_pop_toggle(app, .Polyframe, ctx.last_rect, .Left)
@@ -546,7 +547,7 @@ kit_bar_popover :: proc(app: ^App) {
 			_ = ui.vslider(ctx, "Brush strength", strength, MIN_STRENGTH, 1, .Linear, fmt.tprintf("%.2f", strength^), ui.ICON_STRENGTH, slider_hint(app, "U, Shift+[ ]", .Strength_Up), track, BRUSHES[app.brush.kind].strength)
 		}
 	case .Symmetry:
-		if !ui.popover_begin(ctx, "bar symmetry", &p.open, p.at, p.side, {direction = .Column, gap = 4, padding = 10}) do return
+		if !ui.popover_begin(ctx, "bar symmetry", &p.open, p.at, p.side, {direction = .Column, gap = 4, padding = 10, width = 248}) do return
 		defer ui.popover_end(ctx)
 		ui.caption(ctx, "SYMMETRY")
 		ui.begin(ctx, "symmetry axes", {direction = .Row, gap = 4})
@@ -555,7 +556,21 @@ kit_bar_popover :: proc(app: ^App) {
 			tip := fmt.tprintf("Symmetry across %s", name)
 			if ui.toggle_button(ctx, name, axis in app.brush.symmetry, 48, command_hint(app, .Symmetry_X) if axis == .X else "", tip) do app.brush.symmetry ~= {axis}
 		}
+		if ui.toggle_button(ctx, "Local", app.brush.sym_local, 64, command_hint(app, .Local_Symmetry), COMMANDS[.Local_Symmetry].help) do command_run(app, .Local_Symmetry)
 		ui.end(ctx)
+		ui.caption(ctx, "RADIAL")
+		ui.begin(ctx, "radial axes", {direction = .Row, gap = 4})
+		if ui.toggle_button(ctx, "Radial", app.brush.radial_on, 64, command_hint(app, .Radial_Symmetry), COMMANDS[.Radial_Symmetry].help) do command_run(app, .Radial_Symmetry)
+		for axis in sculpt.Axis {
+			name := fmt.tprintf("%v##radial", axis)
+			if ui.toggle_button(ctx, name, app.brush.radial_axis == axis, 48, tooltip = fmt.tprintf("Copies round the %v axis", axis)) do app.brush.radial_axis = axis
+		}
+		ui.end(ctx)
+		count := f32(app.brush.radial_count)
+		if ui.slider(ctx, "Copies", &count, RADIAL_MIN, sculpt.RADIAL_MAX, .Linear, fmt.tprintf("%d", app.brush.radial_count)) {
+			app.brush.radial_count = i32(math.round(count))
+			app.brush.radial_on = true
+		}
 	case .Polyframe:
 		if !ui.popover_begin(ctx, "bar polyframe", &p.open, p.at, p.side, {direction = .Column, gap = 4, padding = 10, width = 220}) do return
 		defer ui.popover_end(ctx)
@@ -627,6 +642,7 @@ ICON_SPLIT :: rune(0xe445) // split
 ICON_MERGE :: rune(0xe444) // merge
 ICON_ORTHO :: rune(0xe529) // cuboid
 ICON_SYMMETRY :: rune(0xe362) // flip-horizontal-2
+ICON_LOCAL_SYMMETRY :: rune(0xe364) // flip-vertical-2: a mirror through the object's own middle
 ICON_WIREFRAME :: rune(0xe0ec) // grid-3x3
 ICON_FLOOR :: rune(0xe2fe) // axis-3d: the axes over the floor
 ICON_TRANSPARENCY :: rune(0xe4a7) // square-stack: shapes seen through one another

@@ -56,8 +56,22 @@ Axis :: enum u8 {
 	Z,
 }
 
-// Planes through the origin of the mesh's space that dabs are mirrored across.
+// Planes through the symmetry's centre (Brush.sym_center) that dabs are mirrored across.
 Symmetry :: bit_set[Axis;u8]
+
+// The most copies radial symmetry turns a dab into round its axis.
+RADIAL_MAX :: 32
+
+// One image of a dab under symmetry: how it is turned about the symmetry's centre, an
+// orthogonal matrix (a rotation, with the mirrors' flips), and whether it is mirrored (an
+// odd number of flips), which turns an alpha over.
+Sym_Image :: struct {
+	turn:    matrix[3, 3]f32,
+	flipped: bool,
+}
+
+// Every image a dab has: 8 mirrors times RADIAL_MAX turns at most.
+SYM_IMAGES_MAX :: 8 * RADIAL_MAX
 
 Brush :: struct {
 	kind:     Brush_Kind,
@@ -65,6 +79,13 @@ Brush :: struct {
 	strength: f32, // 0..1
 	invert:   bool,
 	symmetry: Symmetry,
+	// Radial symmetry: this many copies of every dab evenly round `radial_axis` (each mirror
+	// image's too); 0 or 1 for none. At most RADIAL_MAX.
+	radial:      u8,
+	radial_axis: Axis,
+	// Where the mirror planes meet and the radial axis passes, in the mesh's space: the
+	// origin for the usual symmetry, the object's own middle for local symmetry.
+	sym_center:  Vec3,
 	// Dynamic topology (dyntopo.odin), on a sculptor that has it on: edges in the brush
 	// longer than this share of the radius are split first; 0 leaves the triangles be.
 	detail:   f32,
@@ -735,19 +756,60 @@ Dab :: struct {
 apply_dab :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
 	if brush.kind == .Grab || brush.kind == .Cloth do return 0
 	moved := 0
-	for sign in mirrors(brush.symmetry) {
-		// A mirror image turns the mirrored way: the reflection, the turn, the
-		// reflection back.
-		b := brush
-		for i in 0 ..< 3 do for j in 0 ..< 3 do b.tilt[i, j] *= sign[i] * sign[j]
-		// And its alpha shows mirrored: an odd number of flips turns the image over.
-		b.alpha_up *= sign
-		b.drag *= sign
-		b.facing *= sign
-		if sign.x * sign.y * sign.z < 0 do b.alpha_mirror = !b.alpha_mirror
-		moved += dab_once(s, b, center * sign, sign)
+	images := symmetry_images(brush)
+	for img, i in images {
+		moved += dab_once(s, sym_brush(brush, img), sym_point(img, brush.sym_center, center), img, i == 0)
 	}
 	return moved
+}
+
+// The images of a dab under the brush's symmetry, the dab itself first: each mirror image
+// (mirrors) turned by each step of the radial symmetry. Mirror images alone are exact sign
+// flips, so a dab and its images land on bit-identical places either side of a plane.
+symmetry_images :: proc(brush: Brush) -> (images: [dynamic; SYM_IMAGES_MAX]Sym_Image) {
+	turns := int(clamp(brush.radial, 1, RADIAL_MAX))
+	for sign in mirrors(brush.symmetry) {
+		flip := matrix[3, 3]f32{sign.x, 0, 0, 0, sign.y, 0, 0, 0, sign.z}
+		for k in 0 ..< turns {
+			img := Sym_Image{turn = flip, flipped = sign.x * sign.y * sign.z < 0}
+			if k > 0 do img.turn = radial_turn(brush.radial_axis, f32(k) / f32(turns)) * flip
+			append(&images, img)
+		}
+	}
+	return
+}
+
+// The turn by `fraction` of a whole turn about `axis`.
+@(private)
+radial_turn :: proc(axis: Axis, fraction: f32) -> matrix[3, 3]f32 {
+	a := fraction * 2 * math.PI
+	c, s := math.cos(a), math.sin(a)
+	switch axis {
+	case .X: return {1, 0, 0, 0, c, -s, 0, s, c}
+	case .Y: return {c, 0, s, 0, 1, 0, -s, 0, c}
+	case .Z: return {c, -s, 0, s, c, 0, 0, 0, 1}
+	}
+	return 1
+}
+
+// Where image `img` takes point `p`, turning about `center`.
+sym_point :: #force_inline proc(img: Sym_Image, center, p: Vec3) -> Vec3 {
+	return center + img.turn * (p - center)
+}
+
+// The brush for one image of a dab: every direction it carries turned as the image is (the
+// tilt by the turn, then itself, then the turn back), and its alpha turned over when the
+// image is mirrored.
+@(private)
+sym_brush :: proc(brush: Brush, img: Sym_Image) -> Brush {
+	b := brush
+	m := img.turn
+	if b.tilt != {} do b.tilt = m * b.tilt * linalg.transpose(m)
+	b.alpha_up = m * b.alpha_up
+	b.drag = m * b.drag
+	b.facing = m * b.facing
+	if img.flipped do b.alpha_mirror = !b.alpha_mirror
+	return b
 }
 
 // The sign flips that take a point to its mirror images: {1, 1, 1} first, then one
@@ -786,7 +848,7 @@ facing_weight :: #force_inline proc(d: ^Dab, normals: []Vec3, v: u32) -> f32 {
 }
 
 @(private)
-dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3, mirror: Vec3) -> int {
+dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3, img: Sym_Image, own: bool) -> int {
 	// An alpha may reach past the round brush, up to its square's corners.
 	reach := brush.radius * (brush.alpha.reach if brush.alpha != nil else 1)
 	d := Dab {
@@ -825,7 +887,7 @@ dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3, mirror: Vec3) -> int 
 		}
 		d.normal = linalg.normalize0(d.normal)
 		if weight > 0 do d.plane /= weight
-		if brush.lock_plane && brush_locks_plane(brush.kind, brush.alpha != nil) do lock_plane_apply(s, &d, mirror, weight)
+		if brush.lock_plane && brush_locks_plane(brush.kind, brush.alpha != nil) do lock_plane_apply(s, &d, img, own, weight)
 		if brush.tilt != {} do d.normal = linalg.normalize0(brush.tilt * d.normal)
 		if brush.alpha != nil do alpha_frame(&d)
 	}
