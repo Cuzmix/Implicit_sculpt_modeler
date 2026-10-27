@@ -9,21 +9,24 @@ import "../jobs"
 // The Grab brush (ZBrush's Move): a stroke picks up the vertices under the brush where
 // it starts, and each later pointer position drags them by how far the pointer has
 // gone, each by its falloff weight, instead of laying dabs along the path. With
-// symmetry, the mirror images of the brush drag their vertices the mirrored way.
+// symmetry, the images of the brush drag their vertices the mirrored or turned way.
 Grab :: struct {
 	leaves:  [dynamic]u32,  // BVH leaves the grab can change, sorted
 	touched: [dynamic]bool, // per leaf: one of its shared vertices is grabbed
 	first:   [dynamic]u32,  // per leaf: where its vertices start in verts; one more at the end
 	verts:   [dynamic]u32,  // the grabbed vertices
 	start:   [dynamic]Vec3, // ...where they were when the grab began
-	follow:  [dynamic]Vec3, // ...how much of the offset they take, per axis
+	// ...how much of the offset they take: the sum of each image's turn weighted by its
+	// falloff there, so a vertex under a mirror image moves the mirrored way and one under
+	// a turned image the turned way.
+	follow:  [dynamic]matrix[3, 3]f32,
 }
 
 @(private)
 Grab_Job :: struct {
 	s:       ^Sculptor,
-	centers: [dynamic; 8]Vec3,
-	signs:   [dynamic; 8]Vec3,
+	centers: [dynamic; SYM_IMAGES_MAX]Vec3,
+	turns:   [dynamic; SYM_IMAGES_MAX]matrix[3, 3]f32,
 	r2:      f32,
 	inv_r2:  f32,
 	offset:  Vec3,
@@ -37,10 +40,11 @@ sculptor_grab_begin :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
 	if g.leaves == nil do grab_init(g, s.history.allocator)
 	clear(&g.leaves)
 	j := Grab_Job{s = s, r2 = brush.radius * brush.radius, inv_r2 = 1 / (brush.radius * brush.radius), shape = brush.falloff_shape}
-	j.signs = mirrors(brush.symmetry)
-	for sign in j.signs {
-		append(&j.centers, center * sign)
-		geom.bvh_query_leaves(&s.bvh, center * sign, brush.radius, &g.leaves)
+	for img in symmetry_images(brush) {
+		at := sym_point(img, brush.sym_center, center)
+		append(&j.centers, at)
+		append(&j.turns, img.turn)
+		geom.bvh_query_leaves(&s.bvh, at, brush.radius, &g.leaves)
 	}
 	slice.sort(g.leaves[:])
 	resize(&g.leaves, len(slice.unique(g.leaves[:])))
@@ -61,11 +65,11 @@ sculptor_grab_begin :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
 		g := &j.s.grab
 		first, last := owned(j.s, g.leaves[i])
 		count: u32
-		for v in first ..< last do count += u32(grab_follow(j, v) != {})
+		for v in first ..< last do count += u32(grab_follow(j, v) != 0)
 		g.first[i + 1] = count
 		touched := false
 		for v in shared_of(j.s, g.leaves[i]) {
-			if grab_follow(j, v) != {} {
+			if grab_follow(j, v) != 0 {
 				touched = true
 				break
 			}
@@ -85,7 +89,7 @@ sculptor_grab_begin :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
 		k := g.first[i]
 		for v in first ..< last {
 			f := grab_follow(j, v)
-			if f == {} do continue
+			if f == 0 do continue
 			g.verts[k], g.start[k], g.follow[k] = v, j.s.mesh.positions[v], f
 			k += 1
 		}
@@ -111,7 +115,7 @@ sculptor_grab_move :: proc(s: ^Sculptor, offset: Vec3) -> int {
 		s := j.s
 		g := &s.grab
 		m := s.mesh
-		for k in g.first[i] ..< g.first[i + 1] do m.positions[g.verts[k]] = g.start[k] + j.offset * g.follow[k]
+		for k in g.first[i] ..< g.first[i + 1] do m.positions[g.verts[k]] = g.start[k] + g.follow[k] * j.offset
 		first, last := owned(s, g.leaves[i])
 		bounds := geom.AABB_EMPTY
 		for v in first ..< last do geom.aabb_grow(&bounds, m.positions[v])
@@ -131,17 +135,24 @@ sculptor_grab_end :: proc(s: ^Sculptor) {
 	clear(&g.follow)
 }
 
-// Per axis, how much of the offset vertex v takes: its weight under each mirror image
-// of the brush, signed by that image's flips. Zero outside every image.
+// How vertex v takes the offset: its weight under each image of the brush times that
+// image's turn, summed. Zero outside every image.
 @(private)
-grab_follow :: #force_inline proc(j: ^Grab_Job, v: u32) -> (f: Vec3) {
+grab_follow :: #force_inline proc(j: ^Grab_Job, v: u32) -> (f: matrix[3, 3]f32) {
 	p := j.s.mesh.positions[v]
 	for c, k in j.centers {
 		delta := p - c
 		d2 := linalg.dot(delta, delta)
-		if d2 < j.r2 do f += j.signs[k] * (falloff_drawn(j.shape, d2 * j.inv_r2) if j.shape != nil else falloff(d2 * j.inv_r2))
+		if d2 < j.r2 do f += mat_scaled(j.turns[k], falloff_drawn(j.shape, d2 * j.inv_r2) if j.shape != nil else falloff(d2 * j.inv_r2))
 	}
-	if f != {} do f *= shield(j.s.fade, j.s.mask, v)
+	if f != 0 do f = mat_scaled(f, shield(j.s.fade, j.s.mask, v))
+	return
+}
+
+// Every entry of `m` times `k`.
+@(private)
+mat_scaled :: #force_inline proc(m: matrix[3, 3]f32, k: f32) -> (out: matrix[3, 3]f32) {
+	for i in 0 ..< 3 do for c in 0 ..< 3 do out[i, c] = m[i, c] * k
 	return
 }
 
@@ -152,7 +163,7 @@ grab_init :: proc(g: ^Grab, allocator := context.allocator) {
 	g.first = make([dynamic]u32, 0, 64, allocator)
 	g.verts = make([dynamic]u32, 0, 1024, allocator)
 	g.start = make([dynamic]Vec3, 0, 1024, allocator)
-	g.follow = make([dynamic]Vec3, 0, 1024, allocator)
+	g.follow = make([dynamic]matrix[3, 3]f32, 0, 1024, allocator)
 }
 
 @(private)

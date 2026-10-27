@@ -30,6 +30,13 @@ Brush_Settings :: struct {
 	line:              bool, // every stroke a straight line from its press (Stroke.line)
 	join:              bool, // a press near where the last stroke ended carries it on (Stroke_End)
 	symmetry:          sculpt.Symmetry, // mirror strokes across these planes of the object
+	// Local symmetry: the planes (and the radial axis) pass through the object's own middle
+	// instead of its origin (symmetry_center).
+	sym_local:         bool,
+	// Radial symmetry: while on, every dab has radial_count copies evenly round radial_axis.
+	radial_on:         bool,
+	radial_count:      i32,
+	radial_axis:       sculpt.Axis,
 	// On objects with dynamic topology: edges under the brush longer than this many
 	// pixels on screen split, and with collapse, ones much shorter merge.
 	detail_px:         f32,
@@ -811,12 +818,16 @@ brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pres
 	if alpha != nil do up = to_local_dir(t, alpha_world_up(app))
 	facing: Vec3
 	if app.brush.front_only do facing = to_local_dir(t, -camera.orbit_toward(app.camera, to_world(t, hit)))
+	sym := brush_symmetry(app, selected_object(app))
 	return sculpt.Brush {
 		kind     = kind,
 		radius   = brush_radius_px(app, pressure) * world_per_px / t.scale,
 		strength = strength,
 		invert   = input.invert,
-		symmetry = app.brush.symmetry,
+		symmetry = sym.symmetry,
+		radial   = sym.radial,
+		radial_axis = sym.radial_axis,
+		sym_center = sym.sym_center,
 		detail   = app.brush.detail_px / brush_radius_px(app, pressure),
 		collapse = app.brush.collapse,
 		tilt     = turn,

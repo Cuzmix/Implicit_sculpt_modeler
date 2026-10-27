@@ -430,8 +430,9 @@ clip_command :: proc(app: ^App, a, b: [2]f32, flip: bool, size: [2]f32) {
 	start := time.tick_now()
 	point, normal := screen_line_plane(app, obj, a, b, size)
 	if flip do normal = -normal
-	planes := make([dynamic]sculpt.Clip_Plane, 0, 8, context.temp_allocator)
-	for sign in sculpt.mirrors(app.brush.symmetry) do append(&planes, sculpt.Clip_Plane{point = point * sign, normal = normal * sign})
+	planes := make([dynamic]sculpt.Clip_Plane, 0, sculpt.SYM_IMAGES_MAX, context.temp_allocator)
+	sym := brush_symmetry(app, obj)
+	for img in sculpt.symmetry_images(sym) do append(&planes, sculpt.Clip_Plane{point = sculpt.sym_point(img, sym.sym_center, point), normal = img.turn * normal})
 	changed := sculpt.sculptor_clip(object_sculptor(obj), planes[:])
 	report(app, Kit_Section.Visibility, {.Quiet}, "Clip in %.0f ms%s", time.duration_milliseconds(time.tick_since(start)), "" if changed else ", nothing changed")
 	if changed do history_record(app, obj, .Deform, "Clip")
