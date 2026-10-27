@@ -210,6 +210,9 @@ Nav_Prefs :: struct {
 	orbit_style:    camera.Orbit_Style,
 	pivot:          Orbit_Pivot,
 	limit_pitch:    bool, // a turntable stops at straight up and straight down
+	// A turntable may roll: twisting two fingers tilts it on screen (twist_rolls), and
+	// drags then turn it about the world's up wherever that shows.
+	turntable_roll: bool,
 	orbit_speed:    f32, // times the default
 	pan_speed:      f32,
 	zoom_speed:     f32,
@@ -257,6 +260,33 @@ Pen_Tips :: enum u8 {
 	Always,
 	With_Keyboard,
 	Never,
+}
+
+// Whether twisting two fingers rolls the view: in Trackball, and in Turntable once its roll
+// is unlocked (Settings > Camera), as ZBrush's Allow Roll Gesture is.
+twist_rolls :: proc(n: Nav_Prefs) -> bool {
+	return n.twist_roll && (n.orbit_style == .Free || n.orbit_style == .Turntable && n.turntable_roll)
+}
+
+// A turntable's roll the fingers bring within this many radians of level is held level,
+// as Procreate holds its canvas square, so twisting back finds level again.
+ROLL_LEVEL :: 4 * math.PI / 180
+
+// The roll that `roll` (radians, within a turn of 0) shows with the detent at level: 0
+// within ROLL_LEVEL of it, then catching up at twice the pace until twice that, and
+// itself beyond, so the view never jumps on its way into or out of level.
+roll_level_detent :: proc(roll: f32) -> f32 {
+	a := abs(roll)
+	if a >= 2 * ROLL_LEVEL do return roll
+	return math.sign(roll) * max(2 * (a - ROLL_LEVEL), 0)
+}
+
+// The roll that roll_level_detent turns into `shown`, so a twist that starts on a view the
+// detent left part way picks up from what is on screen, with no jump.
+roll_level_undetent :: proc(shown: f32) -> f32 {
+	a := abs(shown)
+	if a >= 2 * ROLL_LEVEL || a == 0 do return shown
+	return math.sign(shown) * (a / 2 + ROLL_LEVEL)
 }
 
 // The least Touch strength: a finger's strokes at a tenth of the brush's strength, for a
@@ -805,8 +835,8 @@ camera_apply_input :: proc(app: ^App, in_: Viewport_Input) {
 	}
 	// Two or more fingers on the viewport (touch_route) navigate with no pointer down.
 	if in_.touch_pan != {} do camera.orbit_pan(c, in_.touch_pan, in_.size.y)
-	if in_.touch_zoom > 0 do camera.orbit_zoom_toward(c, in_.touch_zoom, in_.touch_zoom_at, in_.size.y)
-	if in_.touch_roll != 0 do camera.orbit_roll(c, in_.touch_roll)
+	if in_.touch_zoom > 0 do camera.orbit_zoom_toward(c, in_.touch_zoom, in_.touch_at, in_.size.y)
+	if in_.touch_roll != 0 do camera.orbit_roll_about(c, in_.touch_roll, in_.touch_at, in_.size.y)
 	if in_.touch_orbit != {} {
 		before := c^
 		camera.orbit_rotate(c, in_.touch_orbit, orbit_settings(app))

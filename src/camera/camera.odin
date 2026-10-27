@@ -34,7 +34,8 @@ Orbit_Style :: enum u8 {
 	// ZBrush's Rot Y, and the app's default, as most 3D apps orbit: sideways turns about
 	// the world's up axis, up and down tilts, so the horizon stays level. Round and round
 	// both ways without end, over the top too unless `limit_pitch` stops it at straight up
-	// and straight down.
+	// and straight down. A rolled view (orbit_roll) shows the turntable tilted, and a drag
+	// still turns it about the world's up, read along the rolled screen.
 	Turntable,
 	// ZBrush's Rot X and Rot Z: sideways turns about the world's X (or Z) axis, and up
 	// and down turns about the screen's right, as Free does.
@@ -106,10 +107,15 @@ orbit_rotate :: proc(c: ^Orbit, delta: Vec2, s := ORBIT_DEFAULT) {
 		m := orbit_rotation(c^) * linalg.matrix3_rotate(-d.x, Vec3{0, 1, 0}) * linalg.matrix3_rotate(-d.y, Vec3{1, 0, 0})
 		orbit_set_rotation(c, m)
 	case .Turntable:
-		// Upside down, the world's up points down the screen, so a drag right would turn
-		// the model left: turn the other way to keep the model under the pointer.
-		_, up, _ := orbit_basis(c^)
-		c.yaw = wrap_angle(c.yaw + (d.x if up.y < 0 else -d.x))
+		// The roll turns the screen about the view direction after the yaw and pitch, so
+		// the drag is turned back by it into the unrolled view, where sideways is the yaw
+		// and up and down the pitch: the model follows the pointer however far it rolled.
+		cr, sr := math.cos(c.roll), math.sin(c.roll)
+		d = {d.x * cr + d.y * sr, d.y * cr - d.x * sr}
+		// Upside down (pitched past a quarter turn), the world's up points down the
+		// unrolled screen, so a drag right would turn the model left: turn the other way to
+		// keep the model under the pointer.
+		c.yaw = wrap_angle(c.yaw + (d.x if math.cos(c.pitch) < 0 else -d.x))
 		if s.limit_pitch {
 			c.pitch = clamp(c.pitch + d.y, -PITCH_LIMIT, PITCH_LIMIT)
 		} else {
@@ -172,6 +178,23 @@ orbit_spin :: proc(c: ^Orbit, angle: f32) {
 // screen clockwise, as twisting two fingers clockwise does.
 orbit_roll :: proc(c: ^Orbit, angle: f32) {
 	c.roll = wrap_angle(c.roll + angle)
+}
+
+// Rolls the view as orbit_roll does, about the point `offset` pixels from the viewport's
+// middle (x right, y down) rather than about the middle, so what is under two twisting
+// fingers stays under them, as Procreate turns its canvas. Only the target's plane is
+// kept exactly, as orbit_zoom_toward keeps it.
+orbit_roll_about :: proc(c: ^Orbit, angle: f32, offset: Vec2, viewport_height: f32) {
+	if viewport_height <= 0 || offset == {} {
+		orbit_roll(c, angle)
+		return
+	}
+	world_per_pixel := 2 * c.distance * math.tan(c.fov_y / 2) / viewport_height
+	right, up, _ := orbit_basis(c^)
+	under := c.target + (right * offset.x - up * offset.y) * world_per_pixel
+	orbit_roll(c, angle)
+	right, up, _ = orbit_basis(c^)
+	c.target = under - (right * offset.x - up * offset.y) * world_per_pixel
 }
 
 // Sets the camera's turn from a rotation matrix (columns right, up, back), as yaw, pitch
