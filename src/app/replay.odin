@@ -226,8 +226,8 @@ replay_shortcut :: proc(app: ^App) {
 
 // The .strokes file: "SCSTROKE", a version, then the brushes and the frames, every
 // number little-endian. A brush keeps what makes a stroke what it is (kind, size,
-// strength, falloff, pressure, lazy mouse, front faces, stroke mode, symmetry, colour,
-// cloth mode, Spray's spread, the stroke's seed and strength scale, Line and Join strokes); the rest
+// strength, falloff, pressure, lazy mouse, front faces, stroke mode, symmetry, colour and
+// paint channel, cloth mode, Spray's spread, the stroke's seed and strength scale, Line and Join strokes); the rest
 // (alpha, tilt, dynamic topology detail) comes from the brush as set when the file is
 // loaded, since an alpha names an image that may not be there.
 STROKES_MAGIC :: "SCSTROKE"
@@ -235,8 +235,8 @@ STROKES_MAGIC :: "SCSTROKE"
 // spread and seed after its cloth mode; 5: its Line and Join switches after those; 6: its
 // Lock plane and Connected switches after those; 7: its focal shift after those; 8: the
 // stroke's strength scale (Touch strength) after that; 9: local symmetry, radial symmetry
-// on, its copies and its axis after that.
-STROKES_VERSION :: u32(9)
+// on, its copies and its axis after that; 10: the paint channel after those.
+STROKES_VERSION :: u32(10)
 
 strokes_save :: proc(app: ^App, path: string) -> bool {
 	t := replay_source(app)
@@ -273,6 +273,7 @@ strokes_save :: proc(app: ^App, path: string) -> bool {
 		geom.byte_put(&out, f.focal)
 		geom.byte_put(&out, t.scales[i])
 		geom.byte_put(&out, [4]u8{u8(b.sym_local), u8(b.radial_on), u8(clamp(b.radial_count, RADIAL_MIN, sculpt.RADIAL_MAX)), u8(b.radial_axis)})
+		geom.byte_put(&out, u8(b.channel))
 	}
 	geom.byte_put(&out, u32(len(t.frames)))
 	for f in t.frames {
@@ -385,8 +386,12 @@ strokes_read :: proc(app: ^App, data: []u8, t: ^Take) -> bool {
 		// Nor, before version 9, local or radial symmetry.
 		radial := [4]u8{0, 0, RADIAL_DEFAULT, u8(sculpt.Axis.Y)}
 		if version >= 9 do radial = geom.byte_get(&r, [4]u8)
+		// Nor, before version 10, a paint channel: the brushes only sculpted.
+		channel: u8
+		if version >= 10 do channel = geom.byte_get(&r, u8)
 		if !r.ok || int(kind) >= len(sculpt.Brush_Kind) || int(stroke) >= len(Stroke_Mode) || int(cloth) >= len(sculpt.Cloth_Mode) do return false
 		all_axes := transmute(u8)sculpt.Symmetry{.X, .Y, .Z}
+		if int(channel) >= len(sculpt.Channel) do return false
 		if radial[0] > 1 || radial[1] > 1 || radial[2] < RADIAL_MIN || radial[2] > sculpt.RADIAL_MAX || int(radial[3]) >= len(sculpt.Axis) do return false
 		if symmetry & ~all_axes != 0 || drawn > 1 || pressure_strength > 1 || pressure_size > 1 || front > 1 || line > 1 || join > 1 || lock_plane > 1 || connected > 1 do return false
 		if !finite(radius, strength, lazy, spread, color.r, color.g, color.b, focal, scale) || !curve_ok(falloff) || !curve_ok(pressure_curve) do return false
@@ -404,6 +409,7 @@ strokes_read :: proc(app: ^App, data: []u8, t: ^Take) -> bool {
 		b.line, b.join = line == 1, join == 1
 		b.lock_plane, b.connected = lock_plane == 1, connected == 1
 		b.sym_local, b.radial_on, b.radial_count, b.radial_axis = radial[0] == 1, radial[1] == 1, i32(radial[2]), sculpt.Axis(radial[3])
+		b.channel = sculpt.Channel(channel)
 		append(&t.brushes, b)
 		append(&t.seeds, seed)
 		append(&t.scales, scale)
