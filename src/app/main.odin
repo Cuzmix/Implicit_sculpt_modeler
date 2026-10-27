@@ -186,6 +186,7 @@ App :: struct {
 	views:      Camera_History, // the views the camera rested on, for Previous and Next view (camera_history.odin)
 	rebuild:    Rebuild_Preview, // the Rebuild panel's density checkerboard (rebuild.odin)
 	autosave: Autosave, // the background autosave and crash recovery (autosave.odin)
+	preview:  Scene_Preview, // the picture scene files keep for the Home screen (scene_preview.odin)
 	timeline: Timeline, // the History panel's scrubbing, playback and time-lapse (timeline.odin)
 	replay:   Replay, // the Stroke recorder's last stroke, recording and replay (replay.odin)
 	// View > Studio render (Shift+R): ambient occlusion and soft shadows built up while
@@ -575,6 +576,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	interactive := opts.frames == 0 && opts.gpubench == "" && opts.bench_stroke == 0 && opts.compute_bench == ""
 	autosave_init(&app, interactive, f64(opts.autosave), opts.autosave_folder, f64(opts.autosave_rest), opts.check_autosave, opts.crash_after_autosave)
 	defer autosave_destroy(&app)
+	defer scene_preview_destroy(&app)
 	// The benchmark's autosave writes the scene it starts with.
 	if opts.bench_after_autosave do app.autosave.clean = 0
 	if opts.density_preview > 0 {
@@ -722,10 +724,12 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			case .DID_ENTER_FOREGROUND:
 				// The window comes back with a new surface, which has to ask for its frame rate again.
 				app.pacer.voted_window = nil
+				app.preview.background = false
 			case .DID_ENTER_BACKGROUND:
 				// The system may end the app from the background without another word.
 				if app.settings_file != "" do _ = settings_save(&app, app.settings_file)
 				app.autosave.background = true
+				app.preview.background = true
 			case .MOUSE_MOTION:
 				pen := e.motion.which == sdl.PEN_MOUSEID
 				append(&app.samples, Input_Sample{{e.motion.x, e.motion.y}, app.pen_pressure if pen else 1, .Move, app.pen_tilt if pen else {}})
@@ -1073,6 +1077,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		// A scripted stroke or replay changes the scene with no input to show for it.
 		app.autosave.scripted = (opts.bench_stroke > 0 && !bench_waits && bench_frame < opts.bench_stroke) || opts.gpubench != "" ||
 			(opts.load_strokes != "" && frame_index <= max(opts.bench_stroke, LOAD_STROKES_FRAME)) || (opts.timelapse != "" && frame_index <= opts.bench_stroke)
+		preview_frame(&app)
 		autosave_frame(&app)
 		free_all(context.temp_allocator)
 
@@ -1125,6 +1130,9 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		fmt.printfln("autosaves=%d autosave_aborts=%d autosave_torn=%d autosave_wait_ms=%.1f autosave_sync_ms=%.1f autosave_serialize_ms=%.1f autosave_write_ms=%.1f autosave_mb=%.1f recovered=%d recover_offers=%d",
 			as.written, as.aborts, as.torn, as.wait_ms, as.sync_ms, as.serialize_ms, as.write_ms, f64(as.bytes) / (1 << 20), as.recovered, len(as.offers))
 	}
+	// The scene file's preview picture: how many were taken, the last one's size and the
+	// milliseconds it took to shrink and encode.
+	fmt.printfln("previews=%d preview_size=%dx%d preview_kb=%.1f preview_ms=%.2f", app.preview.taken, app.preview.w, app.preview.h, f64(len(app.preview.png)) / 1024, app.preview.ms)
 
 	print_stat :: proc(name: string, r: Sample_Ring) {
 		p50, p99 := ring_percentiles(r)

@@ -61,7 +61,7 @@ File_Request :: struct {
 // be in a console nobody watches. `at` tells a new note from the one already shown.
 // The native scene file starts with these bytes, then its version.
 SCENE_MAGIC :: "SCULPTSC"
-SCENE_VERSION :: u32(21) // 2: each object's rotation; 3: the current level's polypaint and polygroups; 4: sculpt layers, and a retopologized object's quads and UVs (sculpt.levels_write); 5: each object's boolean mode; 6: the base level's node layout (sculpt.levels_write); 7: the camera's roll; 8: each object's eye and ghost, and Solo; 9: folders, and each object's folder; 10: selection sets (sculpt.levels_write); 11: each object's polypaint shown or not (a third view bit); 12: stored visibility (V1 to V8): the slot chosen and used, and each folder's and object's eyes in them; 13: each object's kind (mesh or voxel), a voxel object's resolution and clay after its empty level (voxel.clay_write); 14: each object's material (material_put); 15: each object's polygroups with materials of their own (group_materials_put); 16: the content pack parts of the object's and its groups' materials, by name (material_refs); 17: the scene's Blender link token (link.odin); 18: each object's texture maps (textures_put); 19: the scene's lights (lights_put); 20: each light's colour temperature and name; 21: each light's size (a sun's angle, a lamp's radius)
+SCENE_VERSION :: u32(22) // 2: each object's rotation; 3: the current level's polypaint and polygroups; 4: sculpt layers, and a retopologized object's quads and UVs (sculpt.levels_write); 5: each object's boolean mode; 6: the base level's node layout (sculpt.levels_write); 7: the camera's roll; 8: each object's eye and ghost, and Solo; 9: folders, and each object's folder; 10: selection sets (sculpt.levels_write); 11: each object's polypaint shown or not (a third view bit); 12: stored visibility (V1 to V8): the slot chosen and used, and each folder's and object's eyes in them; 13: each object's kind (mesh or voxel), a voxel object's resolution and clay after its empty level (voxel.clay_write); 14: each object's material (material_put); 15: each object's polygroups with materials of their own (group_materials_put); 16: the content pack parts of the object's and its groups' materials, by name (material_refs); 17: the scene's Blender link token (link.odin); 18: each object's texture maps (textures_put); 19: the scene's lights (lights_put); 20: each light's colour temperature and name; 21: each light's size (a sun's angle, a lamp's radius); 22: the preview block after the version (scene_preview.odin)
 
 // The request waiting for the next frame, and whether a dialog is showing. Kept here
 // rather than in App because SDL may call a dialog back on another thread, even after
@@ -642,6 +642,7 @@ scene_save :: proc(app: ^App, path: string, copy := false) -> bool {
 	start := time.tick_now()
 	out := make([dynamic]u8)
 	defer delete(out)
+	preview_refresh(app)
 	scene_header_put(app, &out)
 	hd_dropped := 0
 	for obj in app.scene.objects {
@@ -752,6 +753,7 @@ scene_save_request :: proc(app: ^App, req: File_Request) {
 scene_header_put :: proc(app: ^App, out: ^[dynamic]u8) {
 	append(out, SCENE_MAGIC)
 	geom.byte_put(out, SCENE_VERSION)
+	preview_block_put(app, out) // version 22
 	geom.byte_put(out, u32(len(app.scene.objects)))
 	geom.byte_put(out, i32(app.scene.selected))
 	geom.byte_put(out, i32(app.scene.next_id))
@@ -895,6 +897,10 @@ scene_open :: proc(app: ^App, path: string) -> (opened, ok: bool) {
 	version := geom.byte_get(&r, u32)
 	if !r.ok || string(magic[:]) != SCENE_MAGIC || version < 1 || version > SCENE_VERSION {
 		file_note(app, true, "Cannot open %s: it is not a scene this version of the app reads", name)
+		return false, true
+	}
+	if version >= 22 && !preview_block_skip(&r) {
+		file_note(app, true, "Cannot open %s: it is damaged", name)
 		return false, true
 	}
 	count := int(geom.byte_get(&r, u32))
