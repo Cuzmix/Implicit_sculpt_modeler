@@ -112,7 +112,7 @@ macro_reads :: proc(app: ^App, id: Command_Id, arg: int) -> []string {
 	@(static, rodata) MASK := []string{"mask_steps"}
 	@(static, rodata) CREASES := []string{"crease_degrees"}
 	@(static, rodata) PAINT := []string{"paint_color"}
-	@(static, rodata) ADD := []string{"new_shape", "new_vertices"}
+	@(static, rodata) ADD := []string{"new_shape", "new_vertices", "new_voxels"}
 	#partial switch id {
 	case .Smooth_All:     return SMOOTH
 	case .Mirror_Weld:    return MIRROR

@@ -5889,6 +5889,50 @@ def topo_mask_by_finger_with_the_rail():
         (escape, [], camera_still({"topo_masks": near(0), "undo_steps": near(0), "masked": near(0)})),
     ])
 
+@scenario
+def voxel_stroke_sculpts_the_clay_and_undoes():
+    """On a voxel sphere (--voxels) a finger stroke lays dabs on the clay as one undo step, which
+    Ctrl+Z takes back and Ctrl+Shift+Z brings back; a Grab stroke (key 8) is refused with a note
+    and makes no step."""
+    s = Script()
+    strokes(s, 1)
+    s.press("z", ("ctrl",))
+    s.press("z", ("ctrl", "shift"))
+    s.press("8")
+    strokes(s, 1)
+    return s, ["--voxels=96"], camera_still({"voxel_objects": near(1), "dabs": lambda v: int(v) > 0, "undo_steps": near(1), "redo_steps": near(0),
+                                            "stroke_kind": is_text("draw"), "last_op": is_text("Grab_is_not_a_voxel_brush:_voxels_take_Draw")})
+
+
+@scenario
+def voxel_convert_to_mesh_undoes_and_redoes():
+    """Convert to mesh (from the command palette; a start-up script's steps are not undoable) makes
+    the voxel object a mesh as one undo step; Ctrl+Z brings the clay back, and a stroke on it then
+    drops the redo."""
+    s = Script()
+    s.press("k", ("ctrl",))
+    s.type("convert to mesh")
+    s.press("Return")
+    s.wait(6)
+    s.press("z", ("ctrl",))
+    s.wait(4)
+    strokes(s, 1)
+    return s, ["--voxels=96"], camera_still({"voxel_objects": near(1), "dabs": lambda v: int(v) > 0, "palette": near(0),
+                                            "undo_steps": near(1), "redo_steps": near(0)})
+
+
+@scenario
+def voxel_object_deleted_comes_back_with_undo():
+    """Delete takes the voxel object out as one undo step and Ctrl+Z brings it back, clay and all; a stroke then sculpts it."""
+    s = Script()
+    s.press("Delete")
+    s.wait(4)
+    s.press("z", ("ctrl",))
+    s.wait(4)
+    strokes(s, 1)
+    return s, ["--voxels=96"], camera_still({"voxel_objects": near(1), "objects": near(1), "dabs": lambda v: int(v) > 0, "undo_steps": near(1)})
+
+
 def main(argv):
     if "--list" in argv:
         for name, fn in SCENARIOS.items():

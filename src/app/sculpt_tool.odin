@@ -8,6 +8,7 @@ import "core:time"
 import "../camera"
 import "../geom"
 import "../sculpt"
+import "../voxel"
 
 // Brush settings as the user edits them. Radius is in screen pixels, converted to
 // world units at each dab's hit point so the brush feels the same at any zoom.
@@ -349,6 +350,7 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 		return
 	}
 	if stroke_brush(app, input) == .History && !recall_ready(app, obj, s.kind == .Press) do return
+	if obj.voxel != nil && !voxel_brush_allowed(app, stroke_brush(app, input), s.kind == .Press) do return
 	st := &app.stroke
 	st.active, st.object = true, obj.id
 	st.kind, st.held = stroke_brush(app, input), held_brush(input)
@@ -360,10 +362,13 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 	st.line, st.line_leaving, st.joined, st.smooth_was = false, false, false, input.smooth
 	clear(&st.pending)
 	sculpt.sculptor_stroke_begin(object_sculptor(obj))
+	if vp := obj.voxel; vp != nil do voxel.clay_stroke_begin(&vp.clay)
 	// The mode before the first dab's brush, whose alpha turn reads it.
 	flags := BRUSHES[st.kind].flags
 	st.mode = app.brush.stroke if st.held && flags & {.Grab, .Hook, .Cloth} == {} else .Dots
 	if st.mode == .Drag_Rect && object_dynamic(obj) do st.mode = .Dots
+	// A voxel dab has no alpha to lay along a tape and no stroke to put back and redo.
+	if obj.voxel != nil && (st.mode == .Drag_Rect || st.mode == .Roll) do st.mode = .Dots
 	st.rect = st.mode == .Drag_Rect
 	local := to_local(obj.transform, hit)
 	brush := brush_at(app, input, obj.transform, local, s.pressure, s.tilt)
@@ -411,10 +416,19 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 		sculpt.sculptor_cloth_begin(object_sculptor(obj), brush, local, mode)
 		return
 	} else {
-		sculpt.apply_dab(object_sculptor(obj), brush, local)
+		object_dab(app, obj, brush, local, object_normal_local(obj, local))
 	}
 	res.brush_ms += time.duration_milliseconds(time.tick_since(t1))
 	res.dabs += 1
+}
+
+// The surface normal at `at` (the object's space) for a voxel object's first dab, whose
+// press found the object but not the way its surface faces; zero for a mesh, whose dabs
+// work it out themselves.
+@(private = "file")
+object_normal_local :: proc(obj: ^Object, at: Vec3) -> Vec3 {
+	if vp := obj.voxel; vp != nil do return voxel.volume_gradient(&vp.clay.volume, at)
+	return {}
 }
 
 // Drags what a Grab stroke picked up so its anchor follows the pointer at `pos`, on
@@ -743,7 +757,7 @@ stroke_dab :: proc(app: ^App, obj: ^Object, input: Viewport_Input, inv: matrix[4
 	origin, dir := ray_through(inv, pos, input.size)
 	t := obj.transform
 	t0 := time.tick_now()
-	hit, ok := sculpt.sculptor_raycast(object_sculptor(obj), to_local(t, origin), to_local_dir(t, dir))
+	hit, normal, ok := object_raycast_local(obj, to_local(t, origin), to_local_dir(t, dir))
 	res.raycast_ms += time.duration_milliseconds(time.tick_since(t0))
 	if !ok do return
 	app.stroke.pivot_sum += hit
@@ -754,7 +768,7 @@ stroke_dab :: proc(app: ^App, obj: ^Object, input: Viewport_Input, inv: matrix[4
 	brush.radius *= scatter.size
 	brush.detail /= scatter.size
 	brush.strength *= scatter.strength
-	sculpt.apply_dab(object_sculptor(obj), brush, hit)
+	object_dab(app, obj, brush, hit, normal)
 	res.brush_ms += time.duration_milliseconds(time.tick_since(t1))
 	res.dabs += 1
 }

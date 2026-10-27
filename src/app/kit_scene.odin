@@ -423,6 +423,14 @@ kit_add :: proc(app: ^App) {
 	if picked := ui.select(ctx, "add shape", shapes[:], int(k.add_shape)); picked >= 0 do k.add_shape = geom.Primitive(picked)
 	if picked := ui.select(ctx, "add size", kit_size_names(), k.add_size); picked >= 0 do k.add_size = picked
 	vertices := int(SPHERE_PRESETS[k.add_size].vertices)
+	_ = ui.switch_row(ctx, "As voxels", &k.add_voxel)
+	if k.add_voxel {
+		// A voxel sphere of the resolution whose surface has about the size's vertices.
+		resolution := voxel_resolution_for(vertices)
+		_ = command_button(app, .Add_Object, label = "Add voxels", variant = .Solid, tone = .Accent, glyph = ui.ICON_PLUS)
+		ui.paragraph(ctx, fmt.tprintf("Builds a sphere of clay %d voxels across, about %s surface vertices, sculpted as a volume: Draw, Clay and Layer add clay, Ctrl takes it away. Convert to mesh (Object palette, Voxels) for the other tools.", resolution, count_label(voxel_vertices_for(resolution))))
+		return
+	}
 	_ = command_button(app, .Add_Object, label = fmt.tprintf("Add %v", k.add_shape), variant = .Solid, tone = .Accent, glyph = ui.ICON_PLUS)
 	// Geodesic spheres come in steps of 10f² + 2 vertices; say what will be built.
 	f := geom.geodesic_frequency_for(vertices)

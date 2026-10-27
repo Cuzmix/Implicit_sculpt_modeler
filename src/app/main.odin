@@ -20,6 +20,7 @@ import "../jobs"
 import "../render"
 import "../sculpt"
 import "../ui"
+import "../voxel"
 
 Options :: struct {
 	frames:    int `usage:"Exit after this many frames (0 runs until the window closes)."`,
@@ -30,6 +31,7 @@ Options :: struct {
 	subdiv:    int `usage:"Icosphere subdivision level (default 6)."`,
 	vertices:  int `usage:"Start with a geodesic sphere of about this many vertices instead (e.g. 10000000)."`,
 	shape:     string `usage:"Start with this shape instead of spheres: cube, cylinder, cone or torus (of --vertices vertices, 40962 when not given), as the Scene palette's Add object does."`,
+	voxels:    int `usage:"Start with a voxel sphere this many voxels across (32 to 1024) instead of a mesh sphere, as Add object with As voxels does; 256 meshes to about 350k vertices, 512 to 1.4M."`,
 	threads:   int `usage:"Worker threads for sculpting, including the main thread (default: one per core)."`,
 	width:     int `usage:"Initial window width (default 1600)."`,
 	height:    int `usage:"Initial window height (default 900)."`,
@@ -384,15 +386,23 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			return false
 		}
 	}
+	if opts.voxels != 0 && (opts.voxels < VOXELS_MIN || opts.voxels > VOXELS_MAX) {
+		log.errorf("--voxels=%d: a voxel sphere is %d to %d voxels across", opts.voxels, VOXELS_MIN, VOXELS_MAX)
+		return false
+	}
 	for _ in 0 ..< starting {
 		t := Transform{position = next_free_position(&app), scale = 1}
-		if shape == .Sphere {
+		if opts.voxels > 0 {
+			if !scene_add_voxel_sphere(&app, opts.voxels, t) do return false
+		} else if shape == .Sphere {
 			if !scene_add_sphere(&app, opts.vertices, opts.subdiv, t) do return false
 		} else {
 			if !scene_add_primitive(&app, shape, opts.vertices if opts.vertices > 0 else 40962, t) do return false
 		}
 	}
 	for obj in app.scene.objects {
+		// A voxel object has no levels to divide.
+		if obj.voxel != nil do continue
 		defer if opts.hd > 0 && !sculpt.levels_hd_set_steps(&obj.levels, opts.hd) do log.warn("HD: the top level is not a closed manifold mesh")
 		if opts.subdivide <= 0 && opts.level <= 0 do continue
 		start := time.tick_now()
@@ -710,6 +720,37 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		}
 		draws := make([dynamic]render.Draw_Item, 0, 2 * len(app.scene.objects) + 1, context.temp_allocator)
 		for obj, i in app.scene.objects {
+			if vp := obj.voxel; vp != nil {
+				// A voxel object draws its clay's surface, remeshed where the frame's dabs landed.
+				t_flush := time.tick_now()
+				bytes, damage, uploaded_ok := voxel_upload(&app, cmd, vp)
+				normals_ms += time.duration_milliseconds(time.tick_since(t_flush))
+				if !uploaded_ok {
+					_ = sdl.SubmitGPUCommandBuffer(cmd)
+					_ = sdl.SubmitGPUCommandBuffer(present_cmd)
+					return false
+				}
+				uploaded += bytes
+				if !object_shown(&app, obj) || boolean_hides(&app, obj, i) || len(vp.clay.surface.chunks) == 0 do continue
+				color, live, selected := object_draw_tint(&app, obj, i)
+				material := current_material(&app)
+				append(&draws, render.Draw_Item {
+					mesh      = &vp.gpu,
+					model     = transform_matrix(obj.transform),
+					color     = color,
+					material  = material.shading,
+					surface   = {material.metallic, material.roughness},
+					flat      = app.flat,
+					look      = viewport_look(&app),
+					matcap    = material_matcap(&app, material),
+					lights    = viewport_lights(&app),
+					wireframe = selected && app.wireframe,
+					live      = live,
+					chunks    = vp.clay.surface.chunks[:],
+					damage    = damage,
+				})
+				continue
+			}
 			// An object sculpting HD shows its top level around the window.
 			parts := [2]^sculpt.Level{sculpt.levels_current(&obj.levels), obj.levels.hd.window}
 			gpus := [2]^render.Mesh_Buffers{&obj.gpu[obj.levels.current], &obj.hd_gpu}
@@ -738,17 +779,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 				if !object_shown(&app, obj) do continue
 				// The live boolean's preview stands in for it (drawn below).
 				if boolean_hides(&app, obj, i) do continue
-				// The selected object is in the material's colour, the rest of the selection
-				// most of the way to it, the others muted, and ghosts more so. Only the
-				// selection is sculpted or moved, so the rest can come from the cache.
-				selected := i == app.scene.selected
-				chosen := object_in_selection(&app, obj)
-				// The rest of the selection is live only while it moves with the primary.
-				moving := app.move.drag.handle != .None || app.ui.transform_drag.active
+				color, live, selected := object_draw_tint(&app, obj, i)
 				material := current_material(&app)
-				color := material.selected if selected else material.idle
-				if chosen && !selected do color = linalg.lerp(material.idle, material.selected, SELECTION_TINT)
-				if _, ghost := object_flags(&app, obj); ghost do color.rgb *= GHOST_SHADE
 				append(&draws, render.Draw_Item {
 					mesh   = gpu,
 					model  = transform_matrix(obj.transform),
@@ -762,7 +794,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 					wireframe = selected && app.wireframe,
 					paint  = sculpt.sculptor_has_color(&lv.sculptor) && !obj.paint_off,
 					groups = app.show_groups && sculpt.sculptor_has_groups(&lv.sculptor),
-					live   = selected || (chosen && moving),
+					live   = live,
 					chunks = lv.sculptor.chunks,
 					chunk_groups = sculpt.sculptor_chunk_groups(&lv.sculptor),
 					damage = lv.sculptor.changed_bounds,
@@ -965,6 +997,21 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	fmt.printfln("macros=%d macro_recording=%d macro_entries=%d macro_left_out=%d macros_run=%d scripts_run=%d macro_steps=%d", macros_kept, int(app.macro.recording), len(app.macro.entries), app.macro.left_out, app.macro.runs, app.macro.scripts, app.macro.steps)
 	fmt.printfln("frames=%d dabs=%d objects=%d vertices=%d", frame_index, app.stats.dabs_total, len(app.scene.objects), vertices)
 	{
+		// The voxel objects: how many, their bricks, and what their fields, surfaces and undo
+		// steps hold.
+		voxel_objects, bricks, field, surface, undo := 0, 0, 0, 0, 0
+		for obj in app.scene.objects {
+			vp := obj.voxel
+			if vp == nil do continue
+			voxel_objects += 1
+			bricks += voxel.volume_brick_count(&vp.clay.volume)
+			field += voxel.volume_bytes(&vp.clay.volume)
+			surface += voxel.surface_bytes(&vp.clay.surface)
+			undo += voxel.clay_undo_bytes(&vp.clay)
+		}
+		fmt.printfln("voxel_objects=%d voxel_bricks=%d voxel_field_mb=%.1f voxel_surface_mb=%.1f voxel_undo_mb=%.2f", voxel_objects, bricks, f64(field) / (1 << 20), f64(surface) / (1 << 20), f64(undo) / (1 << 20))
+	}
+	{
 		off, ghosts := scene_view_counts(&app)
 		shown := 0
 		for obj in app.scene.objects do shown += int(object_shown(&app, obj))
@@ -1143,6 +1190,13 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	}
 	if opts.check_mesh {
 		for obj in app.scene.objects {
+			if vp := obj.voxel; vp != nil {
+				// The surface as Convert to mesh would make it: the nodes' borders welded.
+				welded := voxel.clay_to_mesh(&vp.clay)
+				geom.mesh_report_print(geom.mesh_check(welded))
+				geom.mesh_destroy(&welded)
+				continue
+			}
 			if !object_dynamic(obj) {
 				geom.mesh_report_print(geom.mesh_check(object_mesh(obj)^))
 				continue
@@ -1209,13 +1263,23 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		// of the whole stroke, each including the normal update that follows.
 		stroke_finish(&app)
 		undo_bytes := 0
-		for obj in app.scene.objects do undo_bytes += sculpt.sculptor_undo_bytes(object_sculptor(obj))
+		for obj in app.scene.objects {
+			undo_bytes += sculpt.sculptor_undo_bytes(object_sculptor(obj))
+			if vp := obj.voxel; vp != nil do undo_bytes += voxel.clay_undo_bytes(&vp.clay)
+		}
+		// Each step's time includes the normal update (a mesh) or the remesh (a clay) after it.
+		flush_all :: proc(app: ^App) {
+			for obj in app.scene.objects {
+				_ = sculpt.sculptor_flush(object_sculptor(obj))
+				if vp := obj.voxel; vp != nil do _ = voxel.clay_flush(&vp.clay)
+			}
+		}
 		t0 := time.tick_now()
 		history_undo(&app)
-		for obj in app.scene.objects do _ = sculpt.sculptor_flush(object_sculptor(obj))
+		flush_all(&app)
 		t1 := time.tick_now()
 		history_redo(&app)
-		for obj in app.scene.objects do _ = sculpt.sculptor_flush(object_sculptor(obj))
+		flush_all(&app)
 		fmt.printfln("undo_mb=%.2f undo_ms=%.3f redo_ms=%.3f", f64(undo_bytes) / (1 << 20),
 			time.duration_milliseconds(time.tick_diff(t0, t1)), time.duration_milliseconds(time.tick_since(t1)))
 		// With levels: step down to the base, carrying the stroke along, then jump back.
@@ -1243,6 +1307,23 @@ STUDIO_SAMPLES_MAX :: 1024
 
 // How long the view has to stay put before simplified drawing gives way to full detail.
 LOD_SETTLE :: 250 * time.Millisecond
+
+// The colour object `i` is drawn in and whether it is drawn live: the selected object is
+// in the material's colour, the rest of the selection most of the way to it, the others
+// muted, and ghosts more so. Only the selection is sculpted or moved, so the rest can
+// come from the cache; the rest of the selection is live only while it moves with the
+// primary.
+object_draw_tint :: proc(app: ^App, obj: ^Object, i: int) -> (color: [4]f32, live, selected: bool) {
+	selected = i == app.scene.selected
+	chosen := object_in_selection(app, obj)
+	moving := app.move.drag.handle != .None || app.ui.transform_drag.active
+	material := current_material(app)
+	color = material.selected if selected else material.idle
+	if chosen && !selected do color = linalg.lerp(material.idle, material.selected, SELECTION_TINT)
+	if _, ghost := object_flags(app, obj); ghost do color.rgb *= GHOST_SHADE
+	live = selected || (chosen && moving)
+	return
+}
 
 // Whether the camera, the viewport size or any object's transform changed since the
 // last call.

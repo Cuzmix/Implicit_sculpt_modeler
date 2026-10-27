@@ -98,6 +98,7 @@ Command_Id :: enum u8 {
 	Make_Boolean,
 	Live_Boolean,
 	Extract_Masked,
+	Convert_To_Mesh,
 	Adjust_Last,
 	Reset_Transform,
 	// The scene
@@ -814,6 +815,15 @@ COMMANDS := [Command_Id]Command {
 		},
 		enabled = proc(app: ^App, _: int) -> bool {return adjust_live(app)},
 	},
+	.Convert_To_Mesh = {
+		label = "Convert to mesh",
+		help = "Rebuilds the selected voxel object as a mesh of its surface, for the mesh tools; its clay goes, as one undo step.",
+		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Voxel_To_Mesh}},
+		enabled = proc(app: ^App, _: int) -> bool {
+			obj := selected_object(app)
+			return obj != nil && obj.voxel != nil
+		},
+	},
 	.Reset_Transform = {
 		label = "Reset transform",
 		help = "Puts each selected object back at the world's middle, unturned, at scale 1, as one undo step.",
@@ -823,11 +833,12 @@ COMMANDS := [Command_Id]Command {
 
 	.Add_Object = {
 		label = "Add object",
-		help = "Adds the shape and size picked in the Scene palette's Add object section.",
+		help = "Adds the shape and size picked in the Scene palette's Add object section, or with As voxels a voxel sphere of that size.",
 		icon = ui.ICON_PLUS,
 		run = proc(app: ^App, _: int) {
 			k := &app.kit
-			app.ui.scene_command = {kind = .Add, vertices = int(SPHERE_PRESETS[k.add_size].vertices), shape = k.add_shape}
+			vertices := int(SPHERE_PRESETS[k.add_size].vertices)
+			app.ui.scene_command = {kind = .Add, vertices = vertices, shape = k.add_shape, voxels = voxel_resolution_for(vertices) if k.add_voxel else 0}
 		},
 	},
 	.Frame_All = {
