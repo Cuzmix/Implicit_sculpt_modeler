@@ -221,7 +221,12 @@ picture_frame :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer, draws: []render.Dra
 	}
 	pass_items(items, view, pass)
 	ground, own := pass_ground(pass)
-	if !own do ground = {render.THUMBNAIL_DARK, render.THUMBNAIL_DARK}
+	// A pass without a ground of its own sits on the interface's pane colour, so a view
+	// pane's empty corners are the same colour as the pane before its first picture.
+	if !own {
+		pane := color_f32(LOOK_THEMES[app.kit.look].pane)
+		ground = {pane, pane}
+	}
 	if tex := render.thumbnail_view_draw(&app.renderer, &pic.view, cmd, size, view, proj, items, ground.top, supersample); tex != nil {
 		pic.shown, pic.key, pic.at = tex, key, time.tick_now()
 		pic.draws += 1

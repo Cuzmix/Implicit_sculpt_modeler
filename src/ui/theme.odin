@@ -6,6 +6,11 @@ Color :: [4]u8
 // tokens, never values, so another theme (a light one) is another constant of this
 // struct. The values follow the design spec ("Sculpt UI redesign: design spec").
 Theme :: struct {
+	// The window's own ground: the bar across the top, the gaps between view panes and
+	// what shows before the first frame; and the hairline where it meets the panes.
+	frame:          Color,
+	frame_line:     Color,
+	pane:           Color, // a view pane's ground before its picture comes
 	// Surfaces, from the panels floating over the viewport up to what floats over them.
 	surface:        Color, // toolbars, panels, the dock
 	surface_raised: Color, // popovers, menus, tooltips, toasts
@@ -13,6 +18,8 @@ Theme :: struct {
 	fill_hover:     Color, // the wash over a control under the pointer
 	fill_pressed:   Color, // the wash over a held control
 	cursor:         Color, // the sliding marker of the chosen tab or segment
+	cursor_line:    Color, // the hairline inside it (clear for none)
+	track:          Color, // a slider's track and an off switch
 	border:         Color, // the hairline round a panel
 	border_strong:  Color, // the hairline round a popover
 	shadow:         Color,
@@ -25,10 +32,19 @@ Theme :: struct {
 	accent:         Color,
 	accent_soft:    Color, // selected rows and tiles: the accent, faint
 	on_accent:      Color,
+	// The chosen brush tile: the accent itself, or (Lens) its faint wash with the
+	// icon and name in the accent.
+	chosen:         Color,
+	on_chosen:      Color,
 	success:        Color,
 	warning:        Color,
 	danger:         Color,
-	knob:           Color, // switch and slider knobs
+	knob:           Color, // slider knobs
+	knob_off:       Color, // a switch's knob, off and on
+	knob_on:        Color,
+	// The cameras' colours, one per view pane, for the dots that say which camera
+	// drives which view; the first is the main camera's.
+	camera:         [4]Color,
 
 	// Corners.
 	radius_small:   f32, // chips, segments, inputs
@@ -76,12 +92,16 @@ Theme :: struct {
 
 // "Graphite": cool, quiet chrome that recedes behind the warm clay of the viewport.
 THEME_DARK :: Theme {
+	frame          = {0x11, 0x12, 0x14, 0xff},
+	frame_line     = {0x26, 0x27, 0x2c, 0xff},
+	pane           = {0x1b, 0x1c, 0x20, 0xff},
 	surface        = {0x1b, 0x1c, 0x20, 0xf0},
 	surface_raised = {0x24, 0x25, 0x2b, 0xff},
 	fill           = {0x2d, 0x2e, 0x35, 0xff},
 	fill_hover     = {0xff, 0xff, 0xff, 0x12},
 	fill_pressed   = {0xff, 0xff, 0xff, 0x1c},
 	cursor         = {0x41, 0x42, 0x4b, 0xff},
+	track          = {0x2d, 0x2e, 0x35, 0xff},
 	border         = {0xff, 0xff, 0xff, 0x12},
 	border_strong  = {0xff, 0xff, 0xff, 0x1f},
 	shadow         = {0x00, 0x00, 0x00, 0x73},
@@ -91,10 +111,15 @@ THEME_DARK :: Theme {
 	accent         = {0x5b, 0x8c, 0xff, 0xff},
 	accent_soft    = {0x5b, 0x8c, 0xff, 0x29},
 	on_accent      = {0xff, 0xff, 0xff, 0xff},
+	chosen         = {0x5b, 0x8c, 0xff, 0xff},
+	on_chosen      = {0xff, 0xff, 0xff, 0xff},
 	success        = {0x2f, 0xc0, 0x7a, 0xff},
 	warning        = {0xf2, 0xa9, 0x3b, 0xff},
 	danger         = {0xf2, 0x54, 0x5b, 0xff},
 	knob           = {0xff, 0xff, 0xff, 0xff},
+	knob_off       = {0xff, 0xff, 0xff, 0xff},
+	knob_on        = {0xff, 0xff, 0xff, 0xff},
+	camera         = {{0x5b, 0x8c, 0xff, 0xff}, {0x5e, 0xd6, 0xc4, 0xff}, {0xf2, 0xa9, 0x3b, 0xff}, {0xff, 0x86, 0xb9, 0xff}},
 	radius_small   = 6,
 	radius_medium  = 8,
 	radius_large   = 12,
@@ -127,12 +152,16 @@ THEME_DARK :: Theme {
 // tablet app, so the clay reads true against chrome with no tint of its own. Sizes and
 // timings are Graphite's; only the colours and the corners differ.
 THEME_STUDIO :: Theme {
+	frame          = {0x14, 0x14, 0x14, 0xff},
+	frame_line     = {0x2c, 0x2c, 0x2c, 0xff},
+	pane           = {0x1e, 0x1e, 0x1e, 0xff},
 	surface        = {0x23, 0x23, 0x23, 0xf4},
 	surface_raised = {0x2a, 0x2a, 0x2a, 0xff},
 	fill           = {0x33, 0x33, 0x33, 0xff},
 	fill_hover     = {0xff, 0xff, 0xff, 0x10},
 	fill_pressed   = {0xff, 0xff, 0xff, 0x1a},
 	cursor         = {0x40, 0x40, 0x40, 0xff},
+	track          = {0x33, 0x33, 0x33, 0xff},
 	border         = {0xff, 0xff, 0xff, 0x0e},
 	border_strong  = {0xff, 0xff, 0xff, 0x1a},
 	shadow         = {0x00, 0x00, 0x00, 0x8c},
@@ -142,13 +171,81 @@ THEME_STUDIO :: Theme {
 	accent         = {0xf2, 0xa3, 0x3a, 0xff},
 	accent_soft    = {0xf2, 0xa3, 0x3a, 0x2e},
 	on_accent      = {0x1a, 0x1a, 0x1a, 0xff},
+	chosen         = {0xf2, 0xa3, 0x3a, 0xff},
+	on_chosen      = {0x1a, 0x1a, 0x1a, 0xff},
 	success        = {0x3c, 0xc2, 0x7e, 0xff},
 	warning        = {0xf5, 0xd0, 0x4c, 0xff},
 	danger         = {0xf0, 0x6a, 0x5e, 0xff},
 	knob           = {0xf4, 0xf4, 0xf4, 0xff},
+	knob_off       = {0xf4, 0xf4, 0xf4, 0xff},
+	knob_on        = {0xf4, 0xf4, 0xf4, 0xff},
+	camera         = {{0xf2, 0xa3, 0x3a, 0xff}, {0x5b, 0x8c, 0xff, 0xff}, {0x5e, 0xd6, 0xc4, 0xff}, {0xff, 0x86, 0xb9, 0xff}},
 	radius_small   = 6,
 	radius_medium  = 10,
 	radius_large   = 14,
+	caption_size   = 11,
+	small_size     = 12,
+	text_size      = 13,
+	title_size     = 15,
+	heading_size   = 17,
+	icon_size      = 18,
+	icon_small     = 16,
+	target         = 48,
+	control        = 36,
+	row            = 40,
+	gap            = 12,
+	edge           = 12,
+	slop           = 10,
+	press_time     = 0.10,
+	hover_time     = 0.14,
+	tooltip_delay  = 0.45,
+	tooltip_time   = 0.15,
+	long_press     = 0.25,
+	long_ring      = 0.15,
+	popover_time   = 0.18,
+	indicator_time = 0.22,
+	panel_time     = 0.24,
+	toast_time     = 0.26,
+}
+
+// "Lens": the look of the Lens design. A near-black frame round the views, graphite
+// surfaces stepping up in lightness the higher they float, opaque hairlines, and one
+// cool accent (Glaze, a sea green) that no clay or skin tone is near, so the selection
+// never reads as part of the model. The cameras' colours are spread round the wheel
+// from it, and the warning's amber is the third camera's.
+THEME_LENS :: Theme {
+	frame          = {0x0d, 0x0f, 0x12, 0xff},
+	frame_line     = {0x1c, 0x20, 0x26, 0xff},
+	pane           = {0x1b, 0x1e, 0x23, 0xff},
+	surface        = {0x16, 0x1a, 0x1f, 0xf5},
+	surface_raised = {0x1f, 0x24, 0x2b, 0xff},
+	fill           = {0x26, 0x2c, 0x34, 0xff},
+	fill_hover     = {0xff, 0xff, 0xff, 0x0f},
+	fill_pressed   = {0xff, 0xff, 0xff, 0x1a},
+	cursor         = {0x1f, 0x24, 0x2b, 0xff},
+	cursor_line    = {0x3b, 0x43, 0x4e, 0xff},
+	track          = {0x38, 0x40, 0x4b, 0xff},
+	border         = {0x2a, 0x30, 0x38, 0xff},
+	border_strong  = {0x3b, 0x43, 0x4e, 0xff},
+	shadow         = {0x00, 0x00, 0x00, 0x80},
+	text           = {0xe9, 0xec, 0xef, 0xff},
+	text_secondary = {0xa7, 0xae, 0xb8, 0xff},
+	text_tertiary  = {0x6c, 0x74, 0x80, 0xff},
+	accent         = {0x5e, 0xd6, 0xc4, 0xff},
+	accent_soft    = {0x1c, 0x3b, 0x37, 0xff},
+	on_accent      = {0x08, 0x20, 0x1c, 0xff},
+	chosen         = {0x1c, 0x3b, 0x37, 0xff},
+	on_chosen      = {0x5e, 0xd6, 0xc4, 0xff},
+	success        = {0x74, 0xcc, 0x7c, 0xff},
+	warning        = {0xf3, 0xb5, 0x4a, 0xff},
+	danger         = {0xf0, 0x6a, 0x5e, 0xff},
+	knob           = {0xe9, 0xec, 0xef, 0xff},
+	knob_off       = {0xa7, 0xae, 0xb8, 0xff},
+	knob_on        = {0x08, 0x20, 0x1c, 0xff},
+	camera         = {{0x5e, 0xd6, 0xc4, 0xff}, {0xa0, 0x8c, 0xff, 0xff}, {0xf3, 0xb5, 0x4a, 0xff}, {0xff, 0x86, 0xb9, 0xff}},
+	radius_small   = 6,
+	radius_medium  = 8,
+	radius_large   = 12,
 	caption_size   = 11,
 	small_size     = 12,
 	text_size      = 13,

@@ -1,6 +1,6 @@
 ---
 name: sm-figma-ui
-description: Designing interface work in Figma and carrying it into the native kit — first checking whether the Figma connector's tools (mcp__Figma__*) are really there and what the account may do, then the project's "Sculpt UI" file (components and variants mirroring src/ui, the Graphite tokens of theme.odin, desktop and tablet frames), states, 48 point touch targets, window sizes and motion notes; a handoff spec in tokens and points; building it with the kit (never web technology); and a side-by-side check of --dump-screen against the frame, with the differences recorded. Without Figma access, the same workflow on specs, screenshots and component inventories. Load for ANY task that designs, redesigns or reviews a screen, panel, control or icon, or starts from a Figma link or frame, e.g. "design a better brush panel", "mock up the settings screen", "implement this Figma frame", "does the panel match the design?". Requires sm-ui; touch targets and store rules are sm-store; testing touch behaviour is sm-touch-testing.
+description: Designing interface work in Figma and carrying it into the native kit — first checking whether the Figma connector's tools (mcp__Figma__*) are really there and what the account may do, then the project's "Sculpt UI" file (components and variants mirroring src/ui, the Lens tokens of theme.odin, desktop and tablet frames), states, 48 point touch targets, window sizes and motion notes; a handoff spec in tokens and points; building it with the kit (never web technology); and a side-by-side check of --dump-screen against the frame, with the differences recorded. Without Figma access, the same workflow on specs, screenshots and component inventories. Load for ANY task that designs, redesigns or reviews a screen, panel, control or icon, or starts from a Figma link or frame, e.g. "design a better brush panel", "mock up the settings screen", "implement this Figma frame", "does the panel match the design?". Requires sm-ui; touch targets and store rules are sm-store; testing touch behaviour is sm-touch-testing.
 ---
 
 # Figma UI design
@@ -28,8 +28,8 @@ stay in step through the tokens: every colour, size, radius, type size and durat
 - Bolt approves a design in Figma (or as a spec) before it is built; until then build nothing that depends on it.
 
 ## 1. Prepare
-- Read README "Interface", the sm-ui skill's layout and widget list, and `src/ui/theme.odin` (`THEME_DARK`,
-  "Graphite"). Dump what exists now: `--ui-events` to open the panel and `--dump-screen=build/x.png`, at the sizes the
+- Read README "Interface", the sm-ui skill's layout and widget list, and `src/ui/theme.odin` (`THEME_LENS`, the
+  default look, the tokens of the Lens design). Dump what exists now: `--ui-events` to open the panel and `--dump-screen=build/x.png`, at the sizes the
   design must hold (1600 x 900, 1280 x 800, 1366 x 1024; `--width`, `--height`). Open the PNGs and describe them.
 - Name the one component or workflow to improve and what is wrong with it for a user, with the screenshot.
 - Make an inventory: which kit widgets the design can reuse (`button`, `icon_button`, `tabs`, `switch_row`, `slider`,

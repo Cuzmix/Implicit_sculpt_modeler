@@ -13,21 +13,24 @@ import "../ui"
 // view. Every button runs a registry command or opens a popover beside it; one marked
 // with a small corner triangle opens its settings on a long press (or a right-click).
 
-// The interface's colours (Settings > Interface): Studio's greys and orange, or
-// Graphite's cool blue.
+// The interface's colours (Settings > Interface): Lens's near-black frame and sea green,
+// Studio's greys and orange, or Graphite's cool blue.
 Look :: enum u8 {
+	Lens,
 	Studio,
 	Graphite,
 }
 
 @(rodata)
 LOOK_THEMES := [Look]ui.Theme {
+	.Lens     = ui.THEME_LENS,
 	.Studio   = ui.THEME_STUDIO,
 	.Graphite = ui.THEME_DARK,
 }
 
 @(rodata)
 LOOK_NAMES := [Look]string {
+	.Lens     = "Lens",
 	.Studio   = "Studio",
 	.Graphite = "Graphite",
 }
@@ -197,7 +200,7 @@ kit_top_bar :: proc(app: ^App) -> (menu_anchor, search_anchor: ui.Rect) {
 	ctx := &k.ctx
 	t := ctx.theme
 	area := ui.safe_area(ctx)
-	ui.begin_anchored(ctx, "top bar", .Start, .Start, {0, 0}, {direction = .Row, width = area.w, height = TOP_BAR_H, padding = 2, background = .Panel, center = true})
+	ui.begin_anchored(ctx, "top bar", .Start, .Start, {0, 0}, {direction = .Row, width = area.w, height = TOP_BAR_H, padding = 2, background = .Band, center = true})
 	// Undo and Redo, and Search and the tray's button, come here when the workspace hides
 	// the bar that holds them, after Export and before History, so that nothing else moves.
 	left_anchors := zone_hidden(k, .Brush_Bar)

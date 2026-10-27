@@ -15,9 +15,8 @@ Thumbnail_View :: struct {
 // stepped.
 THUMBNAIL_SUPERSAMPLE :: 2
 
-// The ground behind a silhouette, and behind the shaded view.
+// The ground behind a silhouette (the other passes sit on the interface's pane colour).
 THUMBNAIL_PAPER :: [4]f32{0.86, 0.86, 0.85, 1}
-THUMBNAIL_DARK :: [4]f32{0.07, 0.07, 0.08, 1}
 
 thumbnail_view_destroy :: proc(r: ^Renderer, tv: ^Thumbnail_View) {
 	if r.device == nil do return

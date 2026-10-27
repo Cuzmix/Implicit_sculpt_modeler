@@ -52,7 +52,7 @@ kit_home :: proc(app: ^App) {
 	// One root over the whole window, so no press reaches the viewport under it.
 	ui.begin_at(ctx, "home", {0, 0}, {direction = .Row, width = win.x, height = win.y})
 	owner := ui.id_of(ctx, "home")
-	ui.fill_rect(ctx, {0, 0, win.x, win.y}, 0, KIT_CANVAS)
+	ui.fill_rect(ctx, {0, 0, win.x, win.y}, 0, ctx.theme.frame)
 	ui.spacer(ctx, area.x + PAD)
 	width := area.w - 2 * PAD
 	ui.begin(ctx, "home page", {direction = .Column, gap = 14, width = width, height = area.y + area.h})
