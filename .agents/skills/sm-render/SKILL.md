@@ -84,7 +84,9 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   after each, for loading only (`:395`); `mesh_buffers_upload_ranges` packs up to 256 ranges a batch into the
   cycled transfer buffer and bumps `version` (`:488`); `mesh_buffers_upload_indices` uploads index ranges (dynamic
   topology's whole changed pages, `sculptor_index_ranges`) and asserts they fit `index_count` (`:575`); `mesh_buffers_upload_lod` drops the LOD buffer on failure so the mesh
-  draws at full detail; `viewport_download` returns RGBA8 rows top to bottom after waiting for the GPU (tests and dumps).
+  draws at full detail; `viewport_download` returns RGBA8 rows top to bottom after waiting for the GPU (tests and dumps);
+  `Readback` (`readback_start`/`readback_poll`/`readback_cancel`) reads a texture back without waiting, on its own
+  command buffer submitted after the frame's and collected once its fence signals (the scene preview, at rest).
 - Textured preview (`src/render/textured.odin`, app `src/app/textures.odin`; design notes/rendering/textured-preview-design.md):
   `Textured_Mesh` (one interleaved 32-byte `Textured_Vertex`: FLOAT3 position, SHORT2_NORM masked octahedral normal,
   SHORT4_NORM tangent with w ±1, FLOAT2 UV v-up; buffers grown by powers of two and uploaded in a copy pass on the
