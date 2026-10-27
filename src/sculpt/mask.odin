@@ -217,8 +217,7 @@ sculptor_mask_shape :: proc(s: ^Sculptor, clip: matrix[4, 4]f32, shape: [][2]f32
 }
 
 // Which cells of a grid over a polygon's bounds the polygon covers (even-odd), sampled
-// at each cell's centre, for sculptor_mask_shape.
-@(private)
+// at each cell's centre, for sculptor_mask_shape (and the app's mask shapes on clay).
 Coverage :: struct {
 	lo, size: [2]f32, // the polygon's bounds
 	n:        int, // cells a side
@@ -228,7 +227,7 @@ Coverage :: struct {
 @(private)
 COVERAGE_CELLS :: 1024
 
-@(private)
+// The grid is temp memory: the shape's frame owns it.
 coverage_make :: proc(shape: [][2]f32) -> (c: Coverage) {
 	lo, hi := shape[0], shape[0]
 	for p in shape do lo, hi = linalg.min(lo, p), linalg.max(hi, p)
@@ -256,7 +255,6 @@ coverage_make :: proc(shape: [][2]f32) -> (c: Coverage) {
 	return
 }
 
-@(private)
 coverage_at :: #force_inline proc(c: Coverage, p: [2]f32) -> bool {
 	f := (p - c.lo) / c.size
 	if f.x < 0 || f.y < 0 || f.x >= 1 || f.y >= 1 do return false

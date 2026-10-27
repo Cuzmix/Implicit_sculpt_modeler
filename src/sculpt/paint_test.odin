@@ -316,3 +316,48 @@ levels_take_the_surface_of_the_mesh_they_are_made_from :: proc(t: ^testing.T) {
 	for c, old in color do testing.expect_value(t, s.color[old_to_new[old]], c)
 	testing.expect(t, s.color_edited && s.groups.edited)
 }
+
+// Gradient runs from the brush colour at the low end of its axis to the second colour at
+// the high end over what is shown, skips the mask, and undoes as one step.
+@(test)
+paint_gradient_runs_along_its_axis :: proc(t: ^testing.T) {
+	m: geom.Mesh
+	s: Sculptor
+	paint_sphere(&s, &m, 3, nil)
+	defer {sculptor_destroy(&s); geom.mesh_destroy(&m)}
+	mask_ensure(&s)
+	for p, v in m.positions do if p.x > 0.9 do s.mask[v] = 255
+	testing.expect(t, sculptor_paint_command(&s, .Gradient, {0, 0, 0}, {to = {200, 100, 50}, axis = {0, 0, 2}}))
+	for p, v in m.positions {
+		c := s.color[v]
+		if p.x > 0.9 {
+			testing.expectf(t, c == {}, "masked vertex is %v", c)
+			continue
+		}
+		f := (p.z + 1) * 0.5
+		testing.expectf(t, abs(f32(c.r) - 200 * f) <= 2 && abs(f32(c.g) - 100 * f) <= 2 && c.a == 255, "vertex at z %v is %v", p.z, c)
+	}
+	testing.expect(t, sculptor_undo(&s))
+	for c in s.color do testing.expect(t, c == {})
+}
+
+// The eyedropper's sample is the paint where the ray meets the surface, coverage
+// included, and nothing when it misses.
+@(test)
+paint_color_at_reads_the_paint_under_a_ray :: proc(t: ^testing.T) {
+	m: geom.Mesh
+	s: Sculptor
+	paint_sphere(&s, &m, 4, nil)
+	defer {sculptor_destroy(&s); geom.mesh_destroy(&m)}
+	// Off the axis by a little, as a ray exactly along it can slip between the boxes.
+	bare, bare_hit := sculptor_color_at(&s, {0.013, 0.021, 3}, {0, 0, -1})
+	testing.expect(t, bare_hit && bare == {}, "a sculptor without paint reads paint")
+	_ = apply_dab(&s, {kind = .Paint, radius = 0.3, strength = 1, color = {200, 20, 10}}, UP)
+	c, hit := sculptor_color_at(&s, {0.013, 0.021, 3}, {0, 0, -1})
+	testing.expect(t, hit, "the ray down the axis missed")
+	testing.expectf(t, c.rgb == {200, 20, 10} && c.a > 230, "the top reads %v", c)
+	side, side_hit := sculptor_color_at(&s, {3, 0.013, 0.021}, {-1, 0, 0})
+	testing.expect(t, side_hit && side.a == 0, "the bare side reads paint")
+	_, miss := sculptor_color_at(&s, {3, 3, 3}, {1, 0, 0})
+	testing.expect(t, !miss, "a ray away from the sphere hit it")
+}

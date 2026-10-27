@@ -154,6 +154,12 @@ overlay_viewport :: proc(app: ^App, o: Overlay, input: Viewport_Input) {
 	}
 	draw_pivot(app, o, input.size)
 	draw_hold_history(app, o)
+	// While the eyedropper's loupe shows, the brush ring under it would only hide the
+	// colour being picked.
+	if app.ui.eyedrop_held {
+		draw_eyedropper(app, o)
+		return
+	}
 	switch app.tool {
 	case .Brush:
 		draw_shape_pending(app, o, input.size)
