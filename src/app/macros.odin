@@ -82,7 +82,7 @@ Macro_Kind :: enum u8 {
 @(private = "file")
 macro_kind :: proc(id: Command_Id) -> Macro_Kind {
 	#partial switch id {
-	case .None, .Undo, .Redo, .Macro_Record, .Run_Macro:
+	case .None, .Undo, .Redo, .Macro_Record, .Run_Macro, .Run_Plugin, .Reload_Plugins:
 		return .Skip
 	case .Inspector, .Objects_Card, .Show_Section, .Settings, .Help, .Stats, .Coach_Tips, .Adjust_Last, .Reduce_Motion, .Macros, .Library:
 		return .Skip
@@ -411,11 +411,44 @@ macros_destroy :: proc(app: ^App) {
 	m^ = {}
 }
 
+// Takes a command slot that is going (a deleted macro, a forgotten plugin command) out
+// of everything that runs it by number: its key, pie slots, star, gestures and recent
+// searches, so nothing later put in the slot inherits them. Whether any of it changed.
+command_slot_forget :: proc(app: ^App, id: Command_Id, slot: int) -> bool {
+	at := Pie_Slot{id, slot}
+	changed := key_override_find(app, id, slot) >= 0
+	if changed do bind_reset(app, id, slot)
+	k := &app.kit
+	for &pie in k.pies do for &p in pie do if p == at {
+		p = {}
+		changed = true
+	}
+	if favourite_find(app, id, slot) >= 0 {
+		_ = favourite_toggle(app, id, slot)
+		changed = true
+	}
+	for &g in app.nav.gestures do if g == at {
+		g = {}
+		changed = true
+	}
+	kept := 0
+	for e in k.palette_recent[:k.palette_recent_count] {
+		if e.kind == .Command && e.id == id && e.arg == slot do continue
+		k.palette_recent[kept] = e
+		kept += 1
+	}
+	changed ||= kept != k.palette_recent_count
+	for &e in k.palette_recent[kept:k.palette_recent_count] do e = {}
+	k.palette_recent_count = kept
+	return changed
+}
+
 // Whether a macro or a script file can start now. Not while a recording is on (the
 // script's commands would not be recorded, and a macro would record itself), a script or
-// another macro runs, a stroke or drag is under way, or a save or a file dialog waits.
+// another macro runs, a plugin's command or a reload waits for the next frame, a stroke
+// or drag is under way, or a save or a file dialog waits.
 script_can_start :: proc(app: ^App) -> bool {
-	return !app.macro.recording && !app.script.running && !pie_busy(app) && app.saving.kind == .None && !file_pending()
+	return !app.macro.recording && !app.script.running && app.plugins.pending == 0 && !app.plugins.reload && !pie_busy(app) && app.saving.kind == .None && !file_pending()
 }
 
 // Run macro N: whether it can run now.
@@ -501,31 +534,7 @@ macro_delete :: proc(app: ^App, slot: int) -> bool {
 			return false
 		}
 	}
-	at := Pie_Slot{.Run_Macro, slot}
-	changed := key_override_find(app, .Run_Macro, slot) >= 0
-	if changed do bind_reset(app, .Run_Macro, slot)
-	k := &app.kit
-	for &pie in k.pies do for &p in pie do if p == at {
-		p = {}
-		changed = true
-	}
-	if favourite_find(app, .Run_Macro, slot) >= 0 {
-		_ = favourite_toggle(app, .Run_Macro, slot)
-		changed = true
-	}
-	for &g in app.nav.gestures do if g == at {
-		g = {}
-		changed = true
-	}
-	kept := 0
-	for e in k.palette_recent[:k.palette_recent_count] {
-		if e.kind == .Command && e.id == .Run_Macro && e.arg == slot do continue
-		k.palette_recent[kept] = e
-		kept += 1
-	}
-	changed ||= kept != k.palette_recent_count
-	for &e in k.palette_recent[kept:k.palette_recent_count] do e = {}
-	k.palette_recent_count = kept
+	changed := command_slot_forget(app, .Run_Macro, slot)
 	// What ran it is remembered in the settings file, which says so at once.
 	if changed && app.settings_file != "" do _ = settings_save(app, app.settings_file)
 	report(app, nil, {}, "Deleted macro %s", s.name)

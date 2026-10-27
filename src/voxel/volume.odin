@@ -114,6 +114,13 @@ volume_brick_count :: proc(v: ^Volume) -> int {
 	return len(v.bricks) - len(v.free)
 }
 
+// The pool slots holding bricks, in slot order.
+volume_slots :: proc(v: ^Volume, allocator := context.allocator) -> []u32 {
+	slots := make([dynamic]u32, 0, volume_brick_count(v), allocator)
+	for coord, slot in v.coords do if coord != BRICK_FREE do append(&slots, u32(slot))
+	return slots[:]
+}
+
 voxel_index :: #force_inline proc(x, y, z: int) -> int {
 	return (z * BRICK + y) * BRICK + x
 }

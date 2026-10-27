@@ -117,6 +117,11 @@ clay_from_mesh :: proc(c: ^Clay, m: geom.Mesh, voxel: f32, pool: ^jobs.Pool, all
 		}
 		band_mark(c, slot)
 	}
+	{
+		live := volume_slots(v, heap)
+		defer delete(live, heap)
+		_ = resolve_saddles(c, live, false)
+	}
 	band_repair(c)
 	surface_mark_all(c)
 	return true

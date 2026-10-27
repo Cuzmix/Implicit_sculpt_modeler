@@ -23,22 +23,29 @@ if not exist "%DEPS%\odin\odin.exe" (
 
 rem stb's C libraries: vendor:fontstash (the UI's text) links stb_truetype and stb_rect_pack.
 rem Odin's Windows release ships them built; should they be missing, they are built here.
-if not exist "%DEPS%\odin\vendor\stb\lib\stb_truetype.lib" call :stb || exit /b 1
+if not exist "%DEPS%\odin\vendor\stb\lib\stb_truetype.lib" (
+	echo == stb
+	call :msvc || exit /b 1
+	call "%DEPS%\odin\vendor\stb\src\build.bat" || exit /b 1
+)
+
+rem Luau, the language of script plugins, built from source with cl (scripts\build_luau.py).
+call :msvc || exit /b 1
+python "%ROOT%\scripts\build_luau.py" || exit /b 1
 
 echo Dependencies ready in %DEPS%
 exit /b 0
 
-rem Builds stb's libraries with MSVC. stb's build.bat calls cl directly, so vswhere finds
-rem the newest Visual Studio with the C++ tools and its vcvarsall.bat puts them on PATH;
+rem Puts MSVC's cl and lib on PATH for the C and C++ built here (stb, Luau): vswhere finds
+rem the newest Visual Studio with the C++ tools and its vcvarsall.bat sets them up;
 rem vcvarsall.bat's own helpers call vswhere.exe by name, so its folder goes on PATH too.
-:stb
-echo == stb
+:msvc
+where cl >nul 2>nul && exit /b 0
 set "PATH=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer;%PATH%"
 where vswhere.exe >nul 2>nul && for /f "usebackq delims=" %%i in (`vswhere.exe -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "PATH=%%i\VC\Auxiliary\Build;%PATH%"
-where vcvarsall.bat >nul 2>nul && goto stb_build
+where vcvarsall.bat >nul 2>nul && goto msvc_found
 echo no Visual Studio with the C++ tools found: install it with the "Desktop development with C++" workload
 exit /b 1
-:stb_build
-where cl >nul 2>nul || call vcvarsall.bat x64 >nul
-call "%DEPS%\odin\vendor\stb\src\build.bat" || exit /b 1
+:msvc_found
+call vcvarsall.bat x64 >nul
 exit /b 0
