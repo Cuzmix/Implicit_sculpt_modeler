@@ -74,6 +74,8 @@ ITEM_PAINT :: 1
 ITEM_GROUPS :: 2
 @(private = "file")
 ITEM_SLOTS :: 4
+@(private = "file")
+ITEM_TEXTURED :: 8
 
 Path_Render :: struct {
 	// Its own pipelines for bringing the items' trees up to date, as the studio's.
@@ -96,6 +98,12 @@ Path_Render :: struct {
 	// one pass reading the other.
 	guides:         [2]^sdl.GPUTexture,
 	filtered:       [2]^sdl.GPUTexture,
+	// The textured items whose maps this view binds, by map slot, with their maps' stamps
+	// when it was built (a map that changes since starts the view over), and how many more
+	// showed textured than there are slots.
+	tex_meshes:     [RENDER_TEXTURED_MAX]^Textured_Mesh,
+	tex_stamps:     [RENDER_TEXTURED_MAX]u64,
+	tex_left_out:   int,
 	// The size the paths are traced at (render_size), and the viewport's, which `shown` has.
 	width, height:  u32,
 	view_width:     u32,
@@ -133,7 +141,24 @@ Scene_Buffer :: enum {
 	Order,
 	Chunks,
 	Items,
+	// Each textured item's preview vertices (render.Textured_Vertex, 8 words each), then
+	// its corners (a slot of those a corner of each triangle).
+	Textured,
 }
+
+// How many textured items render mode shows with their maps: three maps each, after the
+// sum, the environment and its table, 12 of the 16 samplers a stage may bind. Others show
+// their material, and the Render section says so.
+RENDER_TEXTURED_MAX :: 3
+@(private = "file")
+RENDER_SAMPLERS :: 3 + 3 * RENDER_TEXTURED_MAX
+
+// Item_Record.tex.w: the item's map slot in the low bits (RENDER_TEXTURED_MAX for none,
+// which only the UV checker needs), the view from bit 4, and from bit 8 which maps it has.
+@(private = "file")
+TEX_VIEW_SHIFT :: 4
+@(private = "file")
+TEX_MAPS_SHIFT :: 8
 
 // Matches Item in render_trace.comp (std430).
 Item_Record :: struct {
@@ -145,8 +170,12 @@ Item_Record :: struct {
 	slot_group:   [GROUP_SLOTS]u32,
 	slot_color:   [GROUP_SLOTS][4]f32,
 	slot_surface: [GROUP_SLOTS][4]f32,
+	// A textured item's (ITEM_TEXTURED): its first triangle in the merged indices, where
+	// its corners and its preview vertices start in the Textured buffer (words), and its
+	// map slot, view and maps (TEX_ shifts).
+	tex:          [4]u32,
 }
-#assert(size_of(Item_Record) == 752)
+#assert(size_of(Item_Record) == 768)
 
 // Matches Render_Uniforms in render_trace.comp (std140).
 Render_Uniforms :: struct {
@@ -204,6 +233,13 @@ render_frame :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer,
 		if !path_scene_build(r, pr, cmd, vt, view, proj, items, lights, softness, pool) do return true
 		pr.built = true
 	}
+	// A map that changed under a still view (a decode that finished) starts it over.
+	for t, k in pr.tex_meshes {
+		if t != nil && t.maps_stamp != pr.tex_stamps[k] {
+			path_render_reset(pr)
+			return true
+		}
+	}
 	// The bands follow how long frames take, never what the image is: a pixel's samples
 	// depend only on the pixel and the sample.
 	if pr.rows == 0 do pr.rows = pr.height if ODIN_PLATFORM_SUBTARGET != .Android else max(pr.height / 4, RENDER_ROWS_MIN)
@@ -221,7 +257,16 @@ render_frame :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer,
 	// and the table is built over it.
 	env_map := r.environment.source if r.environment != nil else r.no_environment
 	table := r.environment.table if r.environment != nil else pr.studio_table
-	samplers := [3]sdl.GPUTextureSamplerBinding{{texture = pr.accum[pr.current], sampler = pr.sampler}, {texture = env_map, sampler = r.env_sampler}, {texture = table, sampler = pr.sampler}}
+	samplers: [RENDER_SAMPLERS]sdl.GPUTextureSamplerBinding
+	samplers[0], samplers[1], samplers[2] = {texture = pr.accum[pr.current], sampler = pr.sampler}, {texture = env_map, sampler = r.env_sampler}, {texture = table, sampler = pr.sampler}
+	defaults := [Texture_Map]^sdl.GPUTexture{.Base_Color = r.no_matcap, .Orm = r.no_matcap, .Normal = r.no_normal_map}
+	for slot in 0 ..< RENDER_TEXTURED_MAX {
+		t := pr.tex_meshes[slot]
+		for m in Texture_Map {
+			tex := t.maps[m] if t != nil && t.maps[m] != nil else defaults[m]
+			samplers[3 + 3 * slot + int(m)] = {texture = tex, sampler = r.texture_sampler}
+		}
+	}
 	sdl.BindGPUComputeSamplers(pass, 0, &samplers[0], len(samplers))
 	reads: [Scene_Buffer]^sdl.GPUBuffer = pr.buffers
 	sdl.BindGPUComputeStorageBuffers(pass, 0, &reads[Scene_Buffer(0)], len(Scene_Buffer))
@@ -361,7 +406,7 @@ path_ensure :: proc(r: ^Renderer, pr: ^Path_Render, vt: ^Viewport_Target, half: 
 		}
 		pr.pipeline = sdl.CreateGPUComputePipeline(r.device, {
 			code_size = len(RENDER_TRACE_COMP_SPV), code = raw_data(RENDER_TRACE_COMP_SPV), entrypoint = "main",
-			format = {.SPIRV}, num_samplers = 3, num_readonly_storage_buffers = len(Scene_Buffer), num_readwrite_storage_textures = 3,
+			format = {.SPIRV}, num_samplers = RENDER_SAMPLERS, num_readonly_storage_buffers = len(Scene_Buffer), num_readwrite_storage_textures = 3,
 			num_uniform_buffers = 1, threadcount_x = RENDER_GROUP, threadcount_y = RENDER_GROUP, threadcount_z = 1,
 		})
 		pr.display = create_fullscreen_pipeline(r, RENDER_DISPLAY_FRAG_SPV, VIEWPORT_COLOR_FORMAT, samplers = 4)
@@ -477,6 +522,11 @@ Path_Item :: struct {
 	node_off, word_off:          u32,
 	chunk_off:                   u32,
 	paint:                       bool, // its paint buffer is copied
+	// A textured item's preview, with where its vertices and corners go in the Textured
+	// buffer (words) and its map slot (RENDER_TEXTURED_MAX for none).
+	textured:                    ^Textured_Mesh,
+	tex_vertex_off, tex_corner_off: u32,
+	tex_slot:                    u32,
 }
 
 // Brings the traced items' trees up to date and copies everything the kernel reads into
@@ -489,7 +539,8 @@ path_scene_build :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuf
 		return false
 	}
 	placed := make([dynamic]Path_Item, context.temp_allocator)
-	vertex_count, tri_count, node_count, word_count, chunk_count: u32
+	vertex_count, tri_count, node_count, word_count, chunk_count, textured_count, textured_words: u32
+	pr.tex_meshes, pr.tex_stamps, pr.tex_left_out = {}, {}, 0
 	for item, i in items {
 		if blended(&r.single, item) do continue
 		tm := item.mesh.trace
@@ -501,6 +552,25 @@ path_scene_build :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuf
 		}
 		p.vertex_off, p.tri_off, p.node_off, p.word_off, p.chunk_off = vertex_count, tri_count, node_count, word_count, chunk_count
 		p.paint = item.mesh.paint != nil && (item.paint || item.groups || item.slots != nil)
+		if t := item.textured; t != nil && item.texture_view != .Off && t.index_count > 0 && t.corner_count == 3 * p.triangles {
+			p.tex_slot = RENDER_TEXTURED_MAX
+			if item.texture_view != .Uv_Checker {
+				if textured_count < RENDER_TEXTURED_MAX {
+					p.tex_slot = textured_count
+					pr.tex_meshes[textured_count], pr.tex_stamps[textured_count] = t, t.maps_stamp
+					textured_count += 1
+				} else {
+					pr.tex_left_out += 1
+				}
+			}
+			if p.tex_slot < RENDER_TEXTURED_MAX || item.texture_view == .Uv_Checker {
+				// It shows its maps or checker over its preview's normals, never paint or
+				// polygroups, as in the viewport.
+				p.textured, p.paint = t, false
+				p.tex_vertex_off, p.tex_corner_off = textured_words, textured_words + t.vertex_count * size_of(Textured_Vertex) / size_of(u32)
+				textured_words = p.tex_corner_off + t.corner_count
+			}
+		}
 		vertex_count += p.vertices
 		tri_count += p.triangles
 		node_count += p.nodes
@@ -551,6 +621,7 @@ path_scene_build :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuf
 	sizes[.Order] = int(word_count) * size_of(u32)
 	sizes[.Chunks] = len(chunks) * size_of([4]u32)
 	sizes[.Items] = len(records) * size_of(Item_Record)
+	sizes[.Textured] = int(textured_words) * size_of(u32)
 	total := 0
 	for s in sizes {
 		if s > TRACE_BUFFER_MAX {
@@ -582,6 +653,10 @@ path_scene_build :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuf
 		if p.paint do gpu_copy(copy_pass, mb.paint, pr.buffers[.Attributes], paint_base + p.vertex_off * size_of(Paint_Packed), p.vertices * size_of(Paint_Packed))
 		gpu_copy(copy_pass, tm.buffers[.Nodes], pr.buffers[.Nodes], p.node_off * size_of(geom.Gpu_Bvh_Node), p.nodes * size_of(geom.Gpu_Bvh_Node))
 		gpu_copy(copy_pass, tm.buffers[.Order], pr.buffers[.Order], p.word_off * size_of(u32), p.words * size_of(u32))
+		if t := p.textured; t != nil {
+			gpu_copy(copy_pass, t.vertices, pr.buffers[.Textured], p.tex_vertex_off * size_of(u32), t.vertex_count * size_of(Textured_Vertex))
+			gpu_copy(copy_pass, t.corners, pr.buffers[.Textured], p.tex_corner_off * size_of(u32), t.corner_count * size_of(u32))
+		}
 	}
 	sdl.EndGPUCopyPass(copy_pass)
 	ok := path_upload(r, pr, cmd, .Chunks, 0, slice.to_bytes(chunks)) &&
@@ -672,6 +747,12 @@ path_item_record :: proc(item: Draw_Item, p: Path_Item) -> (rec: Item_Record) {
 		rec.surface = {0, 0.5, 0, 0}
 	}
 	rec.offs.x = p.vertex_off
+	if t := p.textured; t != nil {
+		rec.offs.y |= ITEM_TEXTURED
+		maps: u32
+		for m in Texture_Map do if t.maps[m] != nil do maps |= 1 << u32(m)
+		rec.tex = {p.tri_off, p.tex_corner_off, p.tex_vertex_off, p.tex_slot | u32(item.texture_view) << TEX_VIEW_SHIFT | maps << TEX_MAPS_SHIFT}
+	}
 	if p.paint {
 		if item.paint do rec.offs.y |= ITEM_PAINT
 		if item.groups do rec.offs.y |= ITEM_GROUPS

@@ -66,6 +66,36 @@ quad_mesh_diagonals :: proc(q: Quad_Mesh, indices: []u32, faces: Vertex_Faces, a
 	return across
 }
 
+// For each triangle of the triangle mesh `indices` over `q`'s vertices (with `faces` its
+// triangles round each vertex, and `q.across` its diagonals), the slots its corners take
+// in `split`, the quads as the two triangles quad_halves makes, six slots a quad
+// (quad_mesh_split_uvs's indices): three a triangle, in the triangle's own corner order,
+// so a hit's weights on its second and third corners carry over. Each half is found as
+// the triangle round its first corner whose corners are the half's, turned however far,
+// never by its vertices alone: two quads that share two edges hold the same three
+// vertices, wound the opposite ways. False when a triangle is no half of a quad, which a
+// mesh made from the quads never has.
+quad_mesh_triangle_corners :: proc(q: Quad_Mesh, split: []u32, indices: []u32, faces: Vertex_Faces, allocator := context.allocator) -> (corners: []u32, ok: bool) {
+	assert(len(split) == 6 * len(q.quads))
+	corners = make([]u32, len(indices), allocator)
+	for &c in corners do c = max(u32)
+	for f, i in q.quads {
+		for half, h in quad_halves(q, i) {
+			v := [3]u32{f[half[0]], f[half[1]], f[half[2]]}
+			found: for t in faces.tris[faces.offsets[v[0]]:faces.offsets[v[0] + 1]] {
+				tri := indices[3 * t:][:3]
+				for turn in 0 ..< 3 {
+					if tri[0] != v[turn] || tri[1] != v[(turn + 1) % 3] || tri[2] != v[(turn + 2) % 3] do continue
+					for k in 0 ..< 3 do corners[3 * t + u32(k)] = split[6 * i + 3 * h + (turn + k) % 3]
+					break found
+				}
+			}
+		}
+	}
+	for c in corners do if c == max(u32) do return corners, false
+	return corners, true
+}
+
 quad_mesh_destroy :: proc(q: ^Quad_Mesh, allocator := context.allocator) {
 	delete(q.positions, allocator)
 	delete(q.quads, allocator)

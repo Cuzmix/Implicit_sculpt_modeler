@@ -3,6 +3,7 @@ package main
 import "base:runtime"
 import "core:fmt"
 import "core:image"
+import "core:log"
 import "core:path/filepath"
 import "core:strings"
 import "core:sync"
@@ -270,9 +271,9 @@ texture_preview_frame :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer, obj: ^Objec
 	current := p.shape == gpu.version && p.layout == obj.textures.layout
 	if p.broken && current do return nil
 	if !current || p.mesh.index_count == 0 {
-		vertices, indices := textured_vertices(obj)
+		vertices, indices, corners := textured_vertices(obj)
 		p.shape, p.layout = gpu.version, obj.textures.layout
-		p.broken = !render.textured_mesh_upload(&app.renderer, cmd, &p.mesh, vertices, indices)
+		p.broken = !render.textured_mesh_upload(&app.renderer, cmd, &p.mesh, vertices, indices, corners)
 		if p.broken {
 			file_note(app, true, "The GPU refused the textured copy of %s; it shows as clay", object_label(obj))
 			return nil
@@ -284,14 +285,23 @@ texture_preview_frame :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer, obj: ^Objec
 // The preview's vertices: the base level's quads split where the UVs are, with the same
 // smooth normals and tangents the bake read its normal map with and the `.glb` carries
 // (geom.quad_mesh_split_uvs), so the map reads back as baked; each with its vertex's mask.
-// Temp memory.
-textured_vertices :: proc(obj: ^Object) -> (vertices: []render.Textured_Vertex, indices: []u32) {
+// And for render mode, which traces the base level's own triangles, the slot each of their
+// corners takes; nil, said in the log, if they cannot all be matched to the quads. Temp
+// memory.
+textured_vertices :: proc(obj: ^Object) -> (vertices: []render.Textured_Vertex, indices: []u32, corners: []u32) {
 	quads := sculpt.levels_quad_mesh(&obj.levels)
 	uvs := obj.levels.faces.uv
 	normals := geom.quad_mesh_normals(quads, context.temp_allocator)
 	frame := geom.quad_mesh_tangents(quads, uvs, normals, context.temp_allocator)
 	positions, split_normals, uv_coords, split_indices := geom.quad_mesh_split_uvs(quads, uvs, normals, frame, context.temp_allocator)
 	indices = split_indices
+	base := obj.levels.levels[0]
+	matched: bool
+	corners, matched = geom.quad_mesh_triangle_corners(quads, split_indices, base.mesh.indices[:], base.sculptor.faces, context.temp_allocator)
+	if !matched {
+		log.warnf("%s: its triangles are not all halves of its quads; render mode shows it without its maps", object_label(obj))
+		corners = nil
+	}
 	mask := sculpt.levels_current(&obj.levels).sculptor.mask
 	vertices = make([]render.Textured_Vertex, len(positions), context.temp_allocator)
 	for &v, slot in vertices {

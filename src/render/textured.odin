@@ -44,6 +44,12 @@ Textured_Mesh :: struct {
 	index_capacity:  u32, // indices
 	transfer_size:   u32, // bytes
 	index_count:     u32,
+	vertex_count:    u32,
+	// For render mode (path.odin): each corner of each triangle of the object's sculpt mesh
+	// the preview stands for, in that mesh's order, as a slot in `vertices`; as many
+	// corners as `indices` has, or none (corner_count 0) where they could not be matched.
+	corners:         ^sdl.GPUBuffer,
+	corner_count:    u32,
 	maps:            [Texture_Map]^sdl.GPUTexture, // nil: none (a default is bound)
 	sizes:           [Texture_Map][2]u32,
 	stamp:           u64, // changes whenever the vertices or indices do
@@ -57,12 +63,13 @@ TEXTURE_FORMATS := [Texture_Map]sdl.GPUTextureFormat {
 }
 
 // Copies `vertices` and `indices` into the mesh's buffers in a copy pass on `cmd`, growing
-// them (and waiting for the GPU before the old ones go) when they are too small. False,
+// them (and waiting for the GPU before the old ones go) when they are too small, with
+// `corners` (geom.quad_mesh_triangle_corners; nil or the wrong count for none). False,
 // with the reason logged and the mesh left drawing nothing, when the device refuses.
-textured_mesh_upload :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, tm: ^Textured_Mesh, vertices: []Textured_Vertex, indices: []u32) -> bool {
+textured_mesh_upload :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, tm: ^Textured_Mesh, vertices: []Textured_Vertex, indices: []u32, corners: []u32 = nil) -> bool {
 	vbytes, ibytes := u32(len(vertices) * size_of(Textured_Vertex)), u32(len(indices) * size_of(u32))
 	if vbytes == 0 || ibytes == 0 {
-		tm.index_count = 0
+		tm.index_count, tm.corner_count = 0, 0
 		return true
 	}
 	if u32(len(vertices)) > tm.vertex_capacity || u32(len(indices)) > tm.index_capacity || vbytes + ibytes > tm.transfer_size {
@@ -70,11 +77,14 @@ textured_mesh_upload :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, tm: ^Text
 		textured_buffers_release(r, tm)
 		tm.vertex_capacity = u32(1) << u32(bits.log2(uint(len(vertices))) + 1)
 		tm.index_capacity = u32(1) << u32(bits.log2(uint(len(indices))) + 1)
-		tm.transfer_size = tm.vertex_capacity * size_of(Textured_Vertex) + tm.index_capacity * size_of(u32)
+		tm.transfer_size = tm.vertex_capacity * size_of(Textured_Vertex) + 2 * tm.index_capacity * size_of(u32)
 		tm.vertices = sdl.CreateGPUBuffer(r.device, {usage = {.VERTEX}, size = tm.vertex_capacity * size_of(Textured_Vertex)})
 		tm.indices = sdl.CreateGPUBuffer(r.device, {usage = {.INDEX}, size = tm.index_capacity * size_of(u32)})
+		// Render mode only copies it into its own buffers; storage read is a usage every
+		// device takes.
+		tm.corners = sdl.CreateGPUBuffer(r.device, {usage = {.COMPUTE_STORAGE_READ}, size = tm.index_capacity * size_of(u32)})
 		tm.transfer = sdl.CreateGPUTransferBuffer(r.device, {usage = .UPLOAD, size = tm.transfer_size})
-		if tm.vertices == nil || tm.indices == nil || tm.transfer == nil {
+		if tm.vertices == nil || tm.indices == nil || tm.corners == nil || tm.transfer == nil {
 			log.errorf("textured mesh buffers: %s", sdl.GetError())
 			textured_buffers_release(r, tm)
 			return false
@@ -84,17 +94,22 @@ textured_mesh_upload :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, tm: ^Text
 	dst := ([^]u8)(sdl.MapGPUTransferBuffer(r.device, tm.transfer, true))
 	if dst == nil {
 		log.errorf("textured mesh upload: %s", sdl.GetError())
-		tm.index_count = 0
+		tm.index_count, tm.corner_count = 0, 0
 		return false
 	}
 	copy(dst[:vbytes], ([^]u8)(raw_data(vertices))[:vbytes])
 	copy(dst[vbytes:][:ibytes], ([^]u8)(raw_data(indices))[:ibytes])
+	cbytes := ibytes if len(corners) == len(indices) else 0
+	if cbytes > 0 do copy(dst[vbytes + ibytes:][:cbytes], ([^]u8)(raw_data(corners))[:cbytes])
 	sdl.UnmapGPUTransferBuffer(r.device, tm.transfer)
 	pass := sdl.BeginGPUCopyPass(cmd)
 	sdl.UploadToGPUBuffer(pass, {transfer_buffer = tm.transfer}, {buffer = tm.vertices, size = vbytes}, false)
 	sdl.UploadToGPUBuffer(pass, {transfer_buffer = tm.transfer, offset = vbytes}, {buffer = tm.indices, size = ibytes}, false)
+	if cbytes > 0 do sdl.UploadToGPUBuffer(pass, {transfer_buffer = tm.transfer, offset = vbytes + ibytes}, {buffer = tm.corners, size = cbytes}, false)
 	sdl.EndGPUCopyPass(pass)
 	tm.index_count = u32(len(indices))
+	tm.vertex_count = u32(len(vertices))
+	tm.corner_count = cbytes / size_of(u32)
 	r.last_version += 1
 	tm.stamp = r.last_version
 	return true
@@ -132,9 +147,10 @@ textured_mesh_destroy :: proc(r: ^Renderer, tm: ^Textured_Mesh) {
 textured_buffers_release :: proc(r: ^Renderer, tm: ^Textured_Mesh) {
 	if tm.vertices != nil do sdl.ReleaseGPUBuffer(r.device, tm.vertices)
 	if tm.indices != nil do sdl.ReleaseGPUBuffer(r.device, tm.indices)
+	if tm.corners != nil do sdl.ReleaseGPUBuffer(r.device, tm.corners)
 	if tm.transfer != nil do sdl.ReleaseGPUTransferBuffer(r.device, tm.transfer)
-	tm.vertices, tm.indices, tm.transfer = nil, nil, nil
-	tm.vertex_capacity, tm.index_capacity, tm.transfer_size, tm.index_count = 0, 0, 0, 0
+	tm.vertices, tm.indices, tm.corners, tm.transfer = nil, nil, nil, nil
+	tm.vertex_capacity, tm.index_capacity, tm.transfer_size, tm.index_count, tm.vertex_count, tm.corner_count = 0, 0, 0, 0, 0, 0
 }
 
 // Whether `item` draws through its textured mesh: it has one with something in it, a
