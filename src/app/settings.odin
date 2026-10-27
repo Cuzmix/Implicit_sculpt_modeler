@@ -803,7 +803,26 @@ settings_load :: proc(app: ^App, path: string) {
 				if kind, ok := brush_by_name(f[3]); ok do app.kit.dock[slot], dock_presets[slot] = {kind = kind}, ""
 			case "preset":
 				dock_presets[slot] = strings.clone(preset_unescape(f[3]), context.temp_allocator)
+			case "command":
+				// dock <slot> command <command name>: a command in the slot (Customise bars).
+				if id, arg, ok := command_from_name(f[3]); ok && bar_lists(id) do app.kit.dock[slot], dock_presets[slot] = {command = {id, arg}}, ""
 			}
+		case "dock_count":
+			// dock_count <n>: how many slots the dock uses, before its dock lines.
+			if n, ok := strconv.parse_int(f[1]); ok && len(f) == 2 do app.kit.dock_count = clamp(n, 1, DOCK_SLOTS)
+		case "bar_count":
+			// bar_count <zone> <n>: how many buttons a bar's zone (BAR_ZONES) has, before its
+			// bar lines; a bar that differs from a fresh install's is written whole.
+			if len(f) != 3 do continue
+			which, zone_ok := bar_zone(f[1])
+			if n, ok := strconv.parse_int(f[2]); ok && zone_ok do bar_list(app, which).count = clamp(n, 0, bar_capacity(which))
+		case "bar":
+			// bar <zone> <slot> <command name>.
+			if len(f) != 4 do continue
+			which, zone_ok := bar_zone(f[1])
+			slot, slot_ok := strconv.parse_int(f[2])
+			if !zone_ok || !slot_ok || slot < 0 || slot >= bar_capacity(which) do continue
+			if id, arg, ok := command_from_name(f[3]); ok && bar_lists(id) do bar_list(app, which).slots[slot] = {id, arg}
 		case "dock_pack":
 			// dock_pack <slot> <pack id> <name, escaped>: a slot holding a content pack's
 			// preset, written after the slot's own dock line, which older versions read.
@@ -977,8 +996,11 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 	for o in app.key_overrides[:app.key_override_count] {
 		fmt.sbprintfln(&out, "key %s %s", command_name(o.command, o.arg), "none" if o.none else chord_text(o.chord))
 	}
-	for s, slot in app.kit.dock {
-		if s.preset > 0 && s.preset <= app.preset_count {
+	if len(dock_used(app)) != DOCK_DEFAULT_COUNT do fmt.sbprintfln(&out, "dock_count %d", len(dock_used(app)))
+	for s, slot in dock_used(app) {
+		if s.command.id != .None {
+			fmt.sbprintfln(&out, "dock %d command %s", slot, command_name(s.command.id, s.command.arg))
+		} else if s.preset > 0 && s.preset <= app.preset_count {
 			fmt.sbprintfln(&out, "dock %d preset %s", slot, preset_escape(preset_name(&app.presets[s.preset - 1])))
 		} else if preset_built_in(s.preset) {
 			// Its brush first, which a build from before the built-ins keeps; then the
@@ -992,6 +1014,12 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 				fmt.sbprintfln(&out, "dock_pack %d %s %s", slot, app.library.presets[s.preset - PACK_PRESET].pack, preset_escape(preset_name(p)))
 			}
 		}
+	}
+	for which in ([2]Bar_Which{.Shortcuts, .Tools}) {
+		if !bar_changed(app, which) do continue
+		used := bar_used(app, which)
+		fmt.sbprintfln(&out, "bar_count %s %d", BAR_ZONES[which], len(used))
+		for s, i in used do fmt.sbprintfln(&out, "bar %s %d %s", BAR_ZONES[which], i, command_name(s.id, s.arg))
 	}
 	for n in 0 ..< USER_PIES {
 		if !pie_changed(app, n) do continue

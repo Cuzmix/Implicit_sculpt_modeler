@@ -76,6 +76,7 @@ Kit_State :: struct {
 	// Where each button that opens a bar menu (Shading, Camera) was last drawn: the menu
 	// opens beside it, from search and keys too.
 	bar_at:     [Bar_Pop_Kind]ui.Rect,
+	bar_side:   [Bar_Pop_Kind]ui.Side,
 	bar_pop:    Bar_Pop, // the side bars' popover (kit_bars.odin)
 	bar_scrub:  Bar_Scrub, // a long press dragging a value on the brush bar (kit_bars.odin)
 	look:       Look, // the interface's colours (Settings > Interface)
@@ -84,6 +85,16 @@ Kit_State :: struct {
 	// The dock's slots (dock.odin), and the popover a long press on one opens: open, on
 	// which slot, over its tile; the brush grid's scroll, in it or in the browser.
 	dock:       [DOCK_SLOTS]Dock_Slot,
+	dock_count: int, // ...of which this many are in use
+	dock_slide: f32, // how far the page just turned still slides in, points (eases to 0)
+	dock_wheel: f32, // the mouse wheel over the dock, until it adds up to a page
+	// The right bar's shortcut column and the bottom bar's tool strip (bars.odin), and
+	// Customise bars: on, and the slot popover a tap on a slot opens while it is.
+	shortcuts:  Bar_List,
+	tools:      Bar_List,
+	bars_edit:  bool,
+	shortcut_scroll: f32, // the shortcut column's, on a window too short for all of it
+	bar_slot:   Bar_Slot_Menu,
 	dock_page:  int, // the page the bottom bar shows
 	dock_shown: [2]int, // ...as its first slot and how many (fewer in a narrow window)
 	dock_seen:  Dock_Slot, // the brush last frame, to bring the page holding a new one
@@ -167,9 +178,10 @@ Kit_State :: struct {
 	palette_runs:   int,
 	palette_last:   Palette_Entry,
 	palette_ran:    bool,
-	// While set, the palette chooses what that gesture runs rather than running anything
-	// (palette_open_for, from Settings > Touch's Any command...).
-	palette_for:    Maybe(Gesture_Slot),
+	// While set, the palette chooses what that gesture runs, or what that bar slot holds,
+	// rather than running anything (palette_open_for, from Settings > Touch's Any
+	// command...; bar_choose, from a bar's slot while customising).
+	palette_for:    Palette_For,
 	// The panels as windows: where each was dragged to and whether it is folded
 	// (remembered by settings.odin), and the order they are drawn in, the last on top.
 	windows:    [Kit_Window]ui.Window,
@@ -685,7 +697,7 @@ kit_init :: proc(app: ^App) {
 	k.surface_ring = true
 	k.rail_side, k.wheel_size = .Left, .Medium
 	k.action_bar = true
-	k.dock = DOCK_DEFAULT
+	bars_reset(k)
 	k.pies = PIE_DEFAULTS
 	k.order = KIT_WINDOW_ORDER
 	k.last_frame = time.tick_now()
@@ -696,7 +708,7 @@ kit_init :: proc(app: ^App) {
 // popover added here closes whenever another opens and on Escape.
 kit_floats_close :: proc(k: ^Kit_State) {
 	k.menu, k.versions, k.browser, k.dock_menu, k.object_menu, k.action_pop = false, false, false, false, false, false
-	k.bar_pop.open = false
+	k.bar_pop.open, k.bar_slot.open = false, false
 	k.bind.open, k.pie_editor, k.adjust_pop, k.gizmo_entry.open = false, false, false, false
 	k.folder_menu, k.rename.open, k.macro_save.open, k.home_menu = false, false, false, false
 	k.colors.palette_menu, k.colors.swatch_menu, k.colors.pop = false, false, false
@@ -708,7 +720,7 @@ kit_floats_close :: proc(k: ^Kit_State) {
 // first-run tip hides under it.
 kit_floating :: proc(app: ^App) -> bool {
 	k := &app.kit
-	return app.ui.pie.open || app.ui.adjust.kind != .None || k.action_pop || k.adjust_pop || k.menu || k.versions || k.browser || k.dock_menu || k.bind.open || k.pie_editor || k.object_menu || k.folder_menu || k.rename.open || k.macro_save.open || k.palette || k.gizmo_entry.open || k.bar_pop.open || k.colors.palette_menu || k.colors.swatch_menu || k.colors.pop || k.home_menu || k.ctx.select_open != 0
+	return app.ui.pie.open || app.ui.adjust.kind != .None || k.action_pop || k.adjust_pop || k.menu || k.versions || k.browser || k.dock_menu || k.bind.open || k.pie_editor || k.object_menu || k.folder_menu || k.rename.open || k.macro_save.open || k.palette || k.gizmo_entry.open || k.bar_pop.open || k.bar_slot.open || k.colors.palette_menu || k.colors.swatch_menu || k.colors.pop || k.home_menu || k.ctx.select_open != 0
 }
 
 kit_destroy :: proc(app: ^App) {
@@ -917,6 +929,7 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 		// for the next start.
 		if k.recover_shown && quiet && !shape_waits && !side_panel_open(k) do app.autosave.offer_hidden = true
 		if k.home && quiet do home_close(app)
+		else if k.bars_edit && quiet && !k.palette do k.bars_edit = false
 		else if shape_waits && quiet do app.shape_pending.request = .Cancel
 		else if side_panel_open(k) && quiet do side_panel_close(app)
 		if k.palette do palette_close(app)
@@ -1057,11 +1070,13 @@ kit_layout :: proc(app: ^App) {
 	// What floats over the panels comes last, so it is drawn and hit tested on top.
 	if k.browser_at == .Dock do kit_brush_browser(app, dock_anchor, .Above_Center)
 	else do kit_brush_browser(app, browser_anchor, .Right)
+	kit_bars_edit_head(app)
 	kit_bar_popover(app)
 	kit_bar_scrub(app)
 	// After the bar's popover, as a colour field in its section opens this one over it.
 	kit_color_popover(app)
 	kit_dock_menu(app)
+	kit_bar_slot_menu(app)
 	kit_menu(app, menu_anchor)
 	kit_versions(app, menu_anchor)
 	kit_object_menu(app)

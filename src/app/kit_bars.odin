@@ -120,9 +120,9 @@ bar_pop_showing :: proc(app: ^App, kind: Bar_Pop_Kind) -> bool {
 // shown, the menu opens beside the top of the right bar.
 bar_menu_toggle :: proc(app: ^App, kind: Bar_Pop_Kind) {
 	k := &app.kit
-	at := k.bar_at[kind]
-	if at.w <= 0 do at = ui.prev_rect(&k.ctx, "view bar")
-	bar_pop_toggle(app, kind, at, .Left)
+	at, side := k.bar_at[kind], k.bar_side[kind]
+	if at.w <= 0 do at, side = ui.prev_rect(&k.ctx, "view bar"), .Left
+	bar_pop_toggle(app, kind, at, side)
 }
 
 // Where the panels under the top bar start, from the top of the safe area.
@@ -495,13 +495,15 @@ kit_bar_scrub :: proc(app: ^App) {
 }
 
 // The two columns at the right, under the navigation head: search, the palette tray and
-// the objects; then the view: the Shading and Camera menus, studio render, the floor grid,
-// symmetry, local symmetry, framing, wireframe, transparency, ghost and solo. Returns the
-// Search button.
+// the objects; then the shortcut column the user arranges (bars.odin), at first the view's
+// buttons: the Shading and Camera menus, studio render, the floor grid, symmetry, local
+// symmetry, framing, wireframe, transparency, ghost and solo. A column taller than the
+// window has room for scrolls. Returns the Search button.
 kit_view_bar :: proc(app: ^App) -> (search_anchor: ui.Rect) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
+	owner := ui.id_of(ctx, "view bar")
 	ui.begin_anchored(ctx, "view bar", .End, .Start, {BAR_EDGE, nav_head_bottom()}, {direction = .Column, gap = 12})
 	column := ui.Box{direction = .Column, padding = 3, radius = t.radius_large, background = .Panel, center = true}
 	ui.begin(ctx, "panel column", column)
@@ -515,45 +517,30 @@ kit_view_bar :: proc(app: ^App) -> (search_anchor: ui.Rect) {
 	_ = bar_command(app, .Objects_Card, ICON_OBJECTS, name = "Objects")
 	ui.end(ctx)
 
-	ui.begin(ctx, "view column", column)
-	bar_menu_button(app, .Shading_Menu, .Shading)
-	bar_menu_button(app, .Camera_Menu, .Camera)
-	_ = bar_command(app, .Studio_Render, ui.ICON_SUN, corner = true)
-	if ui.secondary(ctx) do bar_pop_toggle(app, .Section, ctx.last_rect, .Left, .Studio)
-	_ = bar_command(app, .Floor_Grid, ICON_FLOOR, corner = true)
-	if ui.secondary(ctx) do bar_pop_toggle(app, .Section, ctx.last_rect, .Left, .Floor)
-	sym := &app.brush.symmetry
-	_ = bar_command(app, .Symmetry_X, ICON_SYMMETRY, selected = sym^ != {} || app.brush.radial_on, corner = true)
-	if ui.secondary(ctx) do bar_pop_toggle(app, .Symmetry, ctx.last_rect, .Left)
-	_ = bar_command(app, .Local_Symmetry, ICON_LOCAL_SYMMETRY)
-	_ = bar_command(app, .Focus_Selected, ui.ICON_FRAME)
-	_ = bar_command(app, .Wireframe, ICON_WIREFRAME, corner = true)
-	if ui.secondary(ctx) do bar_pop_toggle(app, .Polyframe, ctx.last_rect, .Left)
-	_ = bar_command(app, .Transparency, ICON_TRANSPARENCY)
-	_ = bar_command(app, .Ghost_Object, ui.ICON_GHOST)
-	_ = bar_command(app, .Solo_Object, ICON_SOLO)
-	ui.end(ctx)
+	used := bar_used(app, .Shortcuts)
+	if len(used) > 0 || k.bars_edit {
+		ui.begin(ctx, "view column", column)
+		// The room under the first column, down to the window's edge margin.
+		area := ui.safe_area(ctx)
+		first := ui.prev_rect(ctx, "panel column")
+		room := area.y + area.h - t.edge - (nav_head_bottom() + first.h + 12) - 6
+		scroll := kit_scroll_begin(ctx, "view column body", &k.shortcut_scroll, owner, t.target, max(room, t.target * 3), 0)
+		for s, i in used do bar_slot_button(app, .Shortcuts, i, s)
+		if k.bars_edit do bar_add_button(app, .Shortcuts, len(used))
+		kit_scroll_end(ctx, scroll)
+		ui.end(ctx)
+	}
 	ui.end(ctx)
 	return
 }
 
-// A right bar button that opens bar menu `kind` beside it (command `id` toggles it), lit
-// while the menu shows.
-@(private = "file")
-bar_menu_button :: proc(app: ^App, id: Command_Id, kind: Bar_Pop_Kind) {
-	k := &app.kit
-	ctx := &k.ctx
-	clicked := ui.icon_button(ctx, command_label(id), COMMANDS[id].icon, bar_pop_showing(app, kind), keys = command_hint(app, id))
-	// Where it is, before its command runs: the menu opens beside it.
-	k.bar_at[kind] = ctx.last_rect
-	if clicked do command_run(app, id)
-}
-
-// The bar at the bottom middle: a page of the brush dock and All brushes, then the gizmo
-// (the Move tool) and the mesh tools: Remesh, Dynamic topology, Retopologize, Subdivide and
-// Live boolean. A long press (or a right-click) on a slot changes what it holds; on a tool,
-// it opens the tool's settings over it. The dots under the bar pick the dock's page.
-// Returns All brushes, which the brush browser opens over.
+// The bar at the bottom middle: a page of the brush dock and All brushes, then the tool
+// strip the user arranges (bars.odin), at first the gizmo (the Move tool) and the mesh
+// tools: Remesh, Dynamic topology, Retopologize, Subdivide and Live boolean. A long press
+// (or a right-click) on a slot changes what it holds; on a tool, it opens the tool's
+// settings or quick menu over it. A finger or the pen swiping sideways over the slots, the
+// mouse wheel over them, or the dots under the bar turn the dock's page. Returns All
+// brushes, which the brush browser opens over.
 kit_bottom_bar :: proc(app: ^App) -> (browser_anchor: ui.Rect) {
 	k := &app.kit
 	ctx := &k.ctx
@@ -562,33 +549,96 @@ kit_bottom_bar :: proc(app: ^App) -> (browser_anchor: ui.Rect) {
 	// The dots sit in the window's edge margin, the bar just above them.
 	pages := dock_pages(app)
 	ui.begin_anchored(ctx, "dock pages", .Center, .End, {0, max(t.edge - 8, 2)}, {direction = .Row})
-	if page := ui.page_dots(ctx, "Dock page", pages, k.dock_page); page >= 0 do k.dock_page = page
+	if page := ui.page_dots(ctx, "Dock page", pages, k.dock_page); page >= 0 do dock_turn(app, page - k.dock_page)
 	ui.end(ctx)
 	ui.begin_anchored(ctx, "dock", .Center, .End, {0, t.edge + DOCK_LIFT}, {direction = .Row, gap = 0, padding = 4, radius = t.radius_large + 4, background = .Panel, center = true})
+	// The slots in a row of their own, which a sideways drag slides and a far enough one
+	// turns; clipped, so the page sliding out goes under the bar's edge.
+	tiles := count + (1 if k.bars_edit && first + count == len(dock_used(app)) else 0)
+	slots_id := ui.id_of(ctx, "dock slots")
+	slots_at := ui.prev_rect(ctx, "dock slots")
+	offset, turn := ui.swipe_update(ctx, slots_id, slots_at)
+	dock_wheel(app, slots_at, &turn)
+	if turn != 0 do dock_turn(app, turn)
+	// Past the first or the last page the row gives a little, as a scroll view's edge does.
+	if (offset > 0 && k.dock_page == 0) || (offset < 0 && k.dock_page >= pages - 1) do offset *= 0.3
+	slide := offset + k.dock_slide
+	ui.begin(ctx, "dock slots", {direction = .Row, gap = 0, width = f32(tiles) * ui.BRUSH_TILE.x, height = ui.BRUSH_TILE.y, clip = true, drag_scroll = true})
+	mark := ui.vertex_mark(ctx)
 	// Each slot's tile has an id of its own: a brush or preset may sit in two slots.
 	for s, i in k.dock[first:][:count] {
 		slot := first + i
-		hint := command_hint(app, .Brush, int(s.kind)) if s.preset == 0 else ""
-		if ui.brush_tile(ctx, fmt.tprintf("%s##slot %d", dock_slot_label(app, s), slot), BRUSHES[s.kind].icon, dock_slot_on(app, s), hint) do dock_slot_pick(app, s)
-		if ui.secondary(ctx) do dock_menu_open(app, slot, ctx.last_rect)
+		hint: string
+		glyph := BRUSHES[s.kind].icon
+		if s.command.id != .None {
+			hint, glyph = command_hint(app, s.command.id, s.command.arg), bar_icon(s.command)
+		} else if s.preset == 0 {
+			hint = command_hint(app, .Brush, int(s.kind))
+		}
+		if ui.brush_tile(ctx, fmt.tprintf("%s##slot %d", dock_slot_label(app, s), slot), glyph, dock_slot_on(app, s), hint) {
+			if k.bars_edit do dock_menu_open(app, slot, ctx.last_rect)
+			else if s.command.id != .None do bar_slot_run(app, s.command, ctx.last_rect, .Above_Center)
+			else do dock_slot_pick(app, s)
+		}
+		if k.bars_edit do bar_edit_ring(app, ctx.last_rect)
+		else if ui.secondary(ctx) do dock_menu_open(app, slot, ctx.last_rect)
 	}
+	if tiles > count do dock_add_tile(app)
+	ui.end(ctx)
+	// After the row ends, so the highlight under the picked tile, drawn as it ends, slides
+	// with it.
+	if slide != 0 {
+		w := max(slots_at.w, ui.BRUSH_TILE.x)
+		ui.transform_since(ctx, mark, opacity = 1 - min(abs(slide) / w, 1) * 0.7, offset = {slide, 0})
+	}
+	browser_anchor = kit_bottom_bar_rest(app)
+	ui.end(ctx)
+	// The page the slide is heading for comes in behind it from that side, as a home
+	// screen's next page does; it only shows, so it takes no press.
+	if slide != 0 && slots_at.w > 0 do dock_peek(app, slots_at, slide, -1 if slide > 0 else 1)
+	// The page just turned slides in the rest of the way.
+	k.dock_slide = 0 if ctx.reduced_motion || abs(k.dock_slide) < 0.5 else k.dock_slide * math.exp(-ctx.input.dt * DOCK_SLIDE_RATE)
+	return
+}
+
+// The bottom bar after the dock's slots: All brushes, then the tool strip. Returns All
+// brushes.
+@(private = "file")
+kit_bottom_bar_rest :: proc(app: ^App) -> (browser_anchor: ui.Rect) {
+	k := &app.kit
+	ctx := &k.ctx
 	if ui.icon_button(ctx, "All brushes", ui.ICON_GRID, selected = k.browser && k.browser_at == .Dock || (!dock_has_brush(app) && app.tool == .Brush), size = 58) {
 		was := k.browser
 		kit_floats_close(k)
 		k.browser, k.browser_at, k.grid_scroll, k.grid_reveal = !was, .Dock, 0, true
 	}
 	browser_anchor = ctx.last_rect
-	ui.divider(ctx, 32)
-	if ui.icon_button(ctx, "Gizmo", ICON_GIZMO, selected = app.tool == .Move, keys = command_hint(app, .Tool_Move), size = MESH_TOOL, corner = true) do command_run(app, .Tool_Move)
-	if ui.secondary(ctx) do tool_settings_open(app, .Move)
-	ui.divider(ctx, 32)
-	mesh_tool(app, .Remesh, ICON_REMESH, .Remesh, quick = .Remesh_Quick)
-	mesh_tool(app, .Dyntopo_Toggle, ICON_DYNTOPO, .Topology)
-	mesh_tool(app, .Retopologize, ICON_RETOPO, .Retopo, opens = true)
-	mesh_tool(app, .Subdivide, ICON_SUBDIVIDE, .Levels)
-	mesh_tool(app, .Live_Boolean, ICON_BOOLEAN, .Booleans)
-	ui.end(ctx)
+	used := bar_used(app, .Tools)
+	if len(used) > 0 || k.bars_edit do ui.divider(ctx, 32)
+	for s, i in used do bar_slot_button(app, .Tools, i, s, MESH_TOOL)
+	if k.bars_edit do bar_add_button(app, .Tools, len(used), MESH_TOOL)
 	return
+}
+
+// Page `page_by` from the shown one, if there is one, over the dock's slots `at`, slid
+// `slide` points and a row's width further toward where it comes in from.
+@(private = "file")
+dock_peek :: proc(app: ^App, at: ui.Rect, slide: f32, page_by: int) {
+	k := &app.kit
+	ctx := &k.ctx
+	n := dock_per_page(app)
+	page := k.dock_page + page_by
+	used := len(dock_used(app))
+	if page < 0 || page * n >= used do return
+	first := page * n
+	ui.begin_at(ctx, "dock peek", {at.x, at.y}, {direction = .Row, gap = 0, width = at.w, height = at.h, clip = true, inert = true})
+	mark := ui.vertex_mark(ctx)
+	for s, i in k.dock[first:min(first + n, used)] {
+		glyph := bar_icon(s.command) if s.command.id != .None else BRUSHES[s.kind].icon
+		_ = ui.brush_tile(ctx, fmt.tprintf("%s##peek %d", dock_slot_label(app, s), first + i), glyph, false)
+	}
+	ui.end(ctx)
+	ui.transform_since(ctx, mark, opacity = min(abs(slide) / at.w, 1), offset = {slide + f32(page_by) * at.w, 0})
 }
 
 // The bottom bar's tool buttons' size, the touch target, which keeps the bar narrow enough
@@ -596,24 +646,52 @@ kit_bottom_bar :: proc(app: ^App) -> (browser_anchor: ui.Rect) {
 // margin the bar sits, for the page dots under it.
 MESH_TOOL :: 48
 DOCK_LIFT :: 12
+// How fast a turned page settles (per second, of what is left), and how far it starts
+// from (of the row's width).
+DOCK_SLIDE_RATE :: 16
+DOCK_SLIDE_FROM :: 0.35
 
-// A mesh tool's button on the bottom bar: a tap runs `id`, or with `opens` set opens
-// section `sec` over the button, as a long press (or a right-click) does; or, with
-// `quick` set, the long press opens that small menu instead (Remesh's).
+// Turns the dock `by` pages (on from the last, back from the first, it stays), the new
+// page sliding in from the side it comes from.
+dock_turn :: proc(app: ^App, by: int) {
+	k := &app.kit
+	to := clamp(k.dock_page + by, 0, dock_pages(app) - 1)
+	if to == k.dock_page do return
+	w := ui.prev_rect(&k.ctx, "dock slots").w
+	k.dock_slide = f32(to - k.dock_page) / f32(abs(to - k.dock_page)) * w * DOCK_SLIDE_FROM
+	k.dock_page = to
+}
+
+// The mouse wheel over the dock's slots turns its page: a notch, or a trackpad's swipe
+// adding up to one, a page; down or toward you is the next.
 @(private = "file")
-mesh_tool :: proc(app: ^App, id: Command_Id, glyph: rune, sec: Kit_Section, opens := false, quick := Bar_Pop_Kind.Section) {
-	ctx := &app.kit.ctx
-	p := &app.kit.bar_pop
-	open := p.open && (p.kind == .Section && p.section == sec || quick != .Section && p.kind == quick)
-	enabled := opens || command_enabled(app, id)
-	if ui.icon_button(ctx, command_label(id), glyph, selected = open || command_checked(app, id), enabled = enabled, keys = command_hint(app, id), size = MESH_TOOL, corner = true) {
-		if opens do bar_pop_toggle(app, .Section, ctx.last_rect, .Above_Center, sec)
-		else do command_run(app, id)
+dock_wheel :: proc(app: ^App, at: ui.Rect, turn: ^int) {
+	k := &app.kit
+	in_ := k.ctx.input
+	if in_.wheel == 0 || !in_.mouse_valid || !ui.rect_contains(at, in_.mouse) {
+		k.dock_wheel = 0
+		return
 	}
-	// A disabled button takes no press, so it has no long press either.
-	if !enabled || !ui.secondary(ctx) do return
-	if quick == .Remesh_Quick do remesh_quick_open(app, ctx.last_rect)
-	else do bar_pop_toggle(app, .Section, ctx.last_rect, .Above_Center, sec)
+	k.dock_wheel += in_.wheel
+	if abs(k.dock_wheel) >= 1 {
+		turn^ = 1 if k.dock_wheel < 0 else -1
+		k.dock_wheel = 0
+	}
+}
+
+// The + tile at the end of the dock while customising: a new slot, its brush or command
+// chosen in its popover.
+@(private = "file")
+dock_add_tile :: proc(app: ^App) {
+	k := &app.kit
+	ctx := &k.ctx
+	n := len(dock_used(app))
+	full := n >= DOCK_SLOTS
+	if ui.brush_tile(ctx, "Add##dock add", ui.ICON_PLUS, false) && !full {
+		k.dock[n] = {kind = .Draw}
+		k.dock_count = n + 1
+		dock_menu_open(app, n, ctx.last_rect)
+	}
 }
 
 // The bars' popover (Bar_Pop), beside the button that opened it.
@@ -764,4 +842,6 @@ ICON_RETOPO :: rune(0xe504) // grid-2x2
 ICON_SUBDIVIDE :: rune(0xe62d) // grid-2x2-plus
 ICON_BOOLEAN :: rune(0xe5a1) // blend
 ICON_SHADING :: rune(0xe0a1) // contrast: a sphere half lit
+ICON_CHEVRON_LEFT :: rune(0xe072)
+ICON_CUSTOMISE :: rune(0xe1f9) // pencil
 ICON_CAMERA :: rune(0xe068) // camera

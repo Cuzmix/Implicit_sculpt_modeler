@@ -39,15 +39,23 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   long press held = a `Bar_Scrub` that drags the value up and down with a readout (`kit_bar_scrub`), long press let go
   without dragging or a right click = the Falloff or Pen section, a cancel restores the value), `kit_nav_head` (`nav_head.odin`: the navigation head
   top right, `NAV_HEAD_W` x `NAV_HEAD_H`, a `ui.area` showing the renderer's picture; tap = `View_Axis` from that side,
-  drag = orbit), `kit_view_bar` (right, from `nav_head_bottom()`: Search, Palettes (the tray), Objects (the card); then Shading and
-  Camera (`bar_menu_button`: a tap opens `Bar_Pop_Kind.Shading`/`.Camera`, `kit_shading_menu`/`kit_camera_menu` in
-  new_ui.odin, beside `k.bar_at[kind]`, also from `.Shading_Menu`/`.Camera_Menu` via `bar_menu_toggle`), Studio
-  render, Floor grid (long press: Scene's Floor
-  section), Symmetry (lit for radial too; long press: X, Y, Z, Local, the Radial row and Copies), Local symmetry, Focus, Wireframe (long press: the `.Polyframe` pop, Lines and Fill), Transparency, Ghost, Solo;
-  touch_check's `UI` table has each button's place, so a button added here shifts the ones under it there); bottom `kit_bottom_bar` (a page of the dock's 21 slots,
-  `dock_page_slots`/`dock_per_page`, with `ui.page_dots` under it; All brushes; Gizmo; then `mesh_tool` buttons
-  Remesh, Dynamic topology, Retopologize, Subdivide, Live boolean, whose long press opens their Object section above
-  it, Remesh's its quick menu instead (`Bar_Pop_Kind.Remesh_Quick`, `kit_remesh_quick` in rebuild.odin); the dock sits `DOCK_LIFT` above the edge margin, so measure it with `dock_stack`); Curve and Insert are tiles in
+  drag = orbit), `kit_view_bar` (right, from `nav_head_bottom()`: Search, Palettes (the tray), Objects (the card); then the shortcut column the user
+  arranges, `k.shortcuts` (`bars.odin`: `Bar_List` of `Bar_Slot` commands drawn by `bar_slot_button`, whose `bar_slot_run`/
+  `bar_slot_more`/`bar_lit`/`bar_icon` keep each command's own tap, long press and lit state wherever it sits; a fresh
+  install's `SHORTCUTS_DEFAULT`: Shading and Camera (a tap opens `Bar_Pop_Kind.Shading`/`.Camera`,
+  `kit_shading_menu`/`kit_camera_menu`, beside `k.bar_at[kind]`), Studio render, Floor grid, Symmetry, Local symmetry,
+  Focus, Wireframe, Transparency, Ghost, Solo; it scrolls in a `kit_scroll` when too tall);
+  touch_check's `UI` table has each button's place, so a button added here shifts the ones under it there); bottom `kit_bottom_bar` (a page of the dock's slots,
+  `dock_page_slots`/`dock_per_page`, in the clipped `drag_scroll` row "dock slots" that `ui.swipe_update` turns by a
+  sideways finger or pen drag (`dock_turn`, `k.dock_slide` easing the new page in, `dock_peek` drawing the next page
+  inert behind the slide; the wheel over it turns too), with `ui.page_dots` under it; All brushes; then the tool strip
+  `k.tools`, `TOOLS_DEFAULT` Gizmo, Remesh (long press: `Bar_Pop_Kind.Remesh_Quick`, `kit_remesh_quick` in rebuild.odin),
+  Dynamic topology, Retopologize, Subdivide, Live boolean, the others' long press their Object section above it; the
+  dock sits `DOCK_LIFT` above the edge margin, so measure it with `dock_stack`). A dock slot is a brush, a preset or a
+  command (`Dock_Slot.command`), `dock_used` of up to `DOCK_SLOTS`. Customise bars (`k.bars_edit`, `.Customise_Bars`)
+  rings every slot; a tap opens `kit_bar_slot_menu` (column, strip) or `kit_dock_menu`, both with `bar_slot_actions`,
+  and Search chooses a command through `Palette_For`'s `Bar_Pick` (`bar_choose`, `bar_put`); `kit_bars_edit_head`
+  holds Reset bars and Done. Curve and Insert are tiles in
   the brush browser; then the four windows in `k.order` (back to front) and last the popovers. Panels under the top bar
   start at `kit_top()`, clear of the side bars at `kit_left(app)`/`kit_right(app)`; a card under the top bar uses
   `kit_card_place`; a right-side panel keeps clear of the dock with `side_panel_below`. A bar button opens the one

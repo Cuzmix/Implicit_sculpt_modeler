@@ -133,7 +133,8 @@ settings_reset :: proc(app: ^App, tab: Settings_Tab) {
 		k.rail_side, k.wheel_size, k.wheel_offset = .Left, .Medium, {}
 		k.wheel_labels, k.wheel_turn = .Icons, 0
 		k.all_options = false
-		k.dock = DOCK_DEFAULT
+		bars_reset(k)
+		k.bars_edit = false
 		windows_reset(k)
 	case .Camera:
 		n.orbit_style, n.limit_pitch, n.turntable_roll, n.orbit_speed, n.pan_speed, n.zoom_speed = d.orbit_style, d.limit_pitch, d.turntable_roll, d.orbit_speed, d.pan_speed, d.zoom_speed
@@ -197,6 +198,10 @@ settings_interface :: proc(app: ^App) {
 	ui.caption(ctx, "BRUSH RING")
 	_ = ui.switch_row(ctx, "Lay the brush ring on the surface", &k.surface_ring)
 	ui.paragraph(ctx, "Over the model the ring tilts with the surface under it, with a tick showing which way it faces, as in ZBrush; off, it stays a flat circle on the screen.")
+	ui.spacer(ctx, 8)
+	ui.caption(ctx, "BARS")
+	_ = command_button(app, .Customise_Bars, glyph = ICON_CUSTOMISE)
+	ui.paragraph(ctx, "Choose the buttons down the right bar, along the bottom bar after All brushes, and in the dock's slots: any command, in any order, the dock on up to six pages. A long press on a dock slot changes it too.")
 	ui.spacer(ctx, 8)
 	ui.caption(ctx, "ACTION BAR")
 	_ = ui.switch_row(ctx, "Show next steps over the dock", &k.action_bar)

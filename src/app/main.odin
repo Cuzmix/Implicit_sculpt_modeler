@@ -1315,6 +1315,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			if p, on := brush_preset(&app); on do preset, _ = strings.replace_all(preset_name(p), " ", "_", context.temp_allocator)
 			fmt.printfln("presets=%d preset=%d preset_name=%s preset_changed=%d", app.preset_count, app.brush.preset, preset, int(preset_changed(&app)))
 			fmt.printfln("dock=%s dock_page=%d dock_pages=%d dock_menu=%d browser=%d", dock_names(&app, app.kit.dock_shown[0], app.kit.dock_shown[1]), app.kit.dock_page, dock_pages(&app), int(app.kit.dock_menu), int(app.kit.browser))
+			fmt.printfln("dock_count=%d shortcuts=%s bar_tools=%s bars_edit=%d bar_slot_menu=%d", len(dock_used(&app)), bar_names(&app, .Shortcuts), bar_names(&app, .Tools), int(app.kit.bars_edit), int(app.kit.bar_slot.open))
 			bind := &app.kit.bind
 			fmt.printfln("key_overrides=%d bind_open=%d bind_command=%s bind_state=%s", app.key_override_count, int(bind.open), command_name(bind.id, bind.arg) if bind.id != .None else "none",
 				strings.to_lower(fmt.tprint(bind.state), context.temp_allocator))

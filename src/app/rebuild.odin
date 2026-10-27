@@ -215,13 +215,13 @@ kit_rebuild :: proc(app: ^App, obj: ^Object) {
 // are under More options, the Rebuild section itself.
 REMESH_QUICK_W :: 300
 
-remesh_quick_open :: proc(app: ^App, at: ui.Rect) {
+remesh_quick_open :: proc(app: ^App, at: ui.Rect, side := ui.Side.Above_Center) {
 	if bar_pop_showing(app, .Remesh_Quick) {
 		app.kit.bar_pop.open = false
 		return
 	}
 	app.ui.rebuild_goal = .Even
-	bar_pop_toggle(app, .Remesh_Quick, at, .Above_Center)
+	bar_pop_toggle(app, .Remesh_Quick, at, side)
 }
 
 kit_remesh_quick :: proc(app: ^App) {
@@ -265,7 +265,7 @@ kit_remesh_quick :: proc(app: ^App) {
 		rebuild_command(app)
 	}
 	kit_last_result(app, .Remesh)
-	if ui.menu_item(ctx, "More options", glyph = ui.ICON_SETTINGS) do bar_pop_toggle(app, .Section, k.bar_pop.at, .Above_Center, .Remesh)
+	if ui.menu_item(ctx, "More options", glyph = ui.ICON_SETTINGS) do bar_pop_toggle(app, .Section, k.bar_pop.at, k.bar_pop.side, .Remesh)
 }
 
 // A length in scene units with three significant figures.
