@@ -2460,7 +2460,7 @@ def pinned_sections_stack_in_the_right_column():
 WORKSPACE_CHIP = (275, 26)
 WORKSPACE_ROWS = {"sculpt": 106, "focus": 150, "inspect": 194, "studio": 238, "save": 283, "save_as": 327, "revert": 371, "reset": 415}
 # With the brush bar and the view bar hidden (Focus), Undo and Search in the top bar.
-TOP_UNDO, TOP_SEARCH = (266, 26), (1334, 26)
+TOP_UNDO, TOP_SEARCH = (266, 26), (1216, 26)
 
 
 @scenario
@@ -2567,6 +2567,57 @@ def arrange_drawer_docks_stats_on_the_left():
     s.wait(10)
     return s, ["--script=customise_bars"], camera_still({"dabs": near(0), "column_left": is_text("stats"), "arrange_drawer": near(1),
                                                          "window_stats": lambda v: v.startswith("1,")})
+
+
+# The top bar's pass chip at 1600 x 900, and the Normals row of its list.
+PASS_CHIP, PASS_NORMALS = (1340, 25), (1415, 150)
+
+
+@scenario
+def pass_chip_picks_normals_from_its_list():
+    """A tap on the top bar's pass chip opens the list of passes; Normals there shows the normals and marks the workspace."""
+    s = Script()
+    s.ftap(*PASS_CHIP)
+    s.wait(10)
+    s.ftap(*PASS_NORMALS)
+    s.wait(10)
+    return s, [], camera_still({"dabs": near(0), "pass": is_text("Normals"), "pass_shown": is_text("Normals"), "pass_menu": near(0),
+                                "workspace_modified": near(1)})
+
+
+@scenario
+def pass_chip_held_peeks_until_lifted():
+    """A finger held on the pass chip shows Normals, the peek with no other pass yet, while it stays down; lifting it brings Shaded back, with nothing changed."""
+    def run(lift):
+        s = Script()
+        s.add(f"fdown:0:{PASS_CHIP[0]},{PASS_CHIP[1]}")
+        s.wait(40)
+        if lift:
+            s.add("fup:0")
+            s.wait(10)
+        return s, [], camera_still({"dabs": near(0), "pass": is_text("Shaded"), "pass_shown": is_text("Shaded" if lift else "Normals"),
+                                    "pass_menu": near(0), "workspace_modified": near(0)})
+    return Steps([run(False), run(True)])
+
+
+@scenario
+def pass_keys_flip_and_backquote_peeks():
+    """Alt+3 shows Depth, Alt+3 again leaves it, and Alt+0 goes back to Shaded; a held backquote then peeks at Depth until it is let go."""
+    def run(held):
+        s = Script()
+        s.add("move:800,450")
+        s.wait(2)
+        s.press("3", ("alt",))
+        s.press("3", ("alt",))
+        s.press("0", ("alt",))
+        s.add("key:`")
+        s.wait(6)
+        if not held:
+            s.add("keyup:`")
+            s.wait(6)
+        return s, [], camera_still({"dabs": near(0), "pass": is_text("Shaded"), "pass_shown": is_text("Depth" if held else "Shaded"),
+                                    "pass_switches": near(2)})
+    return Steps([run(True), run(False)])
 
 
 @scenario

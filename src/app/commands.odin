@@ -200,6 +200,8 @@ Command_Id :: enum u8 {
 	Workspace_Reset,
 	Workspace_Rename,
 	Workspace_Delete,
+	View_Pass, // the argument is the render.View_Pass (passes.odin)
+	View_Pass_Last,
 	Settings,
 	Reduce_Motion,
 	Command_Palette,
@@ -1660,6 +1662,24 @@ COMMANDS := [Command_Id]Command {
 		},
 		enabled = proc(app: ^App, _: int) -> bool {_, built_in := workspace_built_in(app.kit.workspaces.current); return !built_in},
 	},
+	.View_Pass = {
+		label = "Pass",
+		help = "Shows the viewport in this pass: shaded, or the normals, depth, curvature, occlusion or silhouette alone, to check the form.",
+		icon = ui.ICON_EYE,
+		args = len(render.View_Pass),
+		run = proc(app: ^App, arg: int) {pass_set(&app.kit, render.View_Pass(arg))},
+		enabled = proc(app: ^App, arg: int) -> bool {
+			return render.View_Pass(arg) != .AO || render.live_ao_supported(&app.renderer, &app.live_ao)
+		},
+		checked = proc(app: ^App, arg: int) -> bool {return app.kit.passes.pass == render.View_Pass(arg)},
+	},
+	.View_Pass_Last = {
+		label = "Last pass",
+		help = "Goes back to the pass shown before this one, so one key flips between two.",
+		icon = ui.ICON_UNDO,
+		run = proc(app: ^App, _: int) {pass_back(&app.kit)},
+		enabled = proc(app: ^App, _: int) -> bool {return app.kit.passes.last != app.kit.passes.pass},
+	},
 	.Settings = {
 		label = "Settings...",
 		help = "Opens the app's settings.",
@@ -1823,6 +1843,13 @@ DEFAULT_BINDINGS := [?]Binding {
 	{{sdl.K_B, {}, false}, .Tool_Sculpt, 0},
 	{{sdl.K_C, {}, false}, .Tool_Curve, 0},
 	{{sdl.K_I, {}, false}, .Tool_Insert, 0},
+	{{sdl.K_1, {.Alt}, false}, .View_Pass, 0},
+	{{sdl.K_2, {.Alt}, false}, .View_Pass, 1},
+	{{sdl.K_3, {.Alt}, false}, .View_Pass, 2},
+	{{sdl.K_4, {.Alt}, false}, .View_Pass, 3},
+	{{sdl.K_5, {.Alt}, false}, .View_Pass, 4},
+	{{sdl.K_6, {.Alt}, false}, .View_Pass, 5},
+	{{sdl.K_0, {.Alt}, false}, .View_Pass_Last, 0},
 	{{sdl.K_1, {}, false}, .Brush, 0},
 	{{sdl.K_2, {}, false}, .Brush, 1},
 	{{sdl.K_3, {}, false}, .Brush, 2},
@@ -1956,6 +1983,8 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 	case .Pin_Section:
 		sec := Kit_Section(arg)
 		return fmt.tprintf("Pin %s as a panel", tray_section_title(sec))
+	case .View_Pass:
+		return fmt.tprintf("Pass: %s", PASS_LABELS[render.View_Pass(arg)])
 	case .Workspace:
 		// An own workspace's name is the user's, which no label here knows; menus show it.
 		if b, ok := workspace_built_in(arg); ok do return fmt.tprintf("Workspace: %v", b)

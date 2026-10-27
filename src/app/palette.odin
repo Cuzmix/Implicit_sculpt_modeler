@@ -225,6 +225,8 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.Workspace_Reset  = "workspace layout default factory built-in",
 	.Workspace_Rename = "workspace layout name",
 	.Workspace_Delete = "workspace layout remove",
+	.View_Pass        = "pass view mode normals depth curvature cavity occlusion ao silhouette shaded diagnostic check",
+	.View_Pass_Last   = "pass view back previous toggle",
 	.Settings         = "preferences options",
 	.Reduce_Motion    = "animation accessibility",
 }

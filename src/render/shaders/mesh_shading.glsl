@@ -61,6 +61,9 @@ layout(set = 3, binding = 0) uniform Material_Uniforms {
 	// ambient light reaches a surface facing straight down, w 1 to use them (0: the
 	// classic rim and an even ambient light).
 	vec4 style;
+	// The viewport's pass (render.View_Pass) in x, 0 shaded as usual; y and z where the
+	// Depth pass starts and ends, as distances from the eye.
+	vec4 pass;
 };
 
 #ifndef TEXTURED
@@ -351,6 +354,44 @@ void main() {
 		bend = 0.0;
 	}
 #endif
+	// A diagnostic pass shows one quantity plainly, unlit and not tone mapped, so the
+	// form reads without the lights' help; the colours are written as shown.
+	int view_pass = int(pass.x + 0.5);
+	if (view_pass != 0) {
+		vec3 shown = vec3(0.0);
+		if (view_pass == 1) {
+			// Normals: the view-space normal as a colour, as Blender's and ZBrush's show it.
+			shown = n * 0.5 + 0.5;
+		} else if (view_pass == 2) {
+			// Depth: near white, far black, across the scene's depth from the eye.
+			float t = clamp((-in_view_pos.z - pass.y) / max(pass.z - pass.y, 1e-6), 0.0, 1.0);
+			shown = vec3(1.0 - t);
+		} else if (view_pass == 3) {
+			// Curvature: flat mid grey, creases toward blue and crests toward orange, full
+			// by CURVE_FULL. Under flat shading the smoothed normal still says how it bends.
+			float c = bend;
+#ifndef TEXTURED
+			if (surface.z > 0.5) {
+				vec3 smooth_n = normalize(in_view_normal);
+				if (!gl_FrontFacing) smooth_n = -smooth_n;
+				c = curvature(smooth_n, in_view_pos);
+			}
+#endif
+			// Crests fade toward the outline, where every convex form bends fast across
+			// the pixels, as the shaded ridge does.
+			float k = clamp(c / CURVE_FULL, -1.0, 1.0);
+			if (k > 0.0) k *= smoothstep(0.1, 0.4, max(dot(n, v), 0.0));
+			shown = mix(vec3(0.5), k < 0.0 ? vec3(0.15, 0.35, 0.85) : vec3(0.95, 0.55, 0.15), abs(k));
+		} else if (view_pass == 4) {
+			// AO: a plain light grey, which the live occlusion darkens after the frame.
+			shown = vec3(0.85);
+		} else {
+			// Silhouette: near-black, as the thumbnail's.
+			shown = vec3(0.06);
+		}
+		out_color = vec4(shown, opacity());
+		return;
+	}
 	// Cavity darkens creases and ridge lightens crests, as ZBrush's materials and
 	// Blender's cavity shading do, so fine sculpted detail reads at any light angle.
 	// A ridge is faded toward the silhouette, where every convex form bends fast

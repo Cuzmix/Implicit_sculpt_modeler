@@ -1108,6 +1108,24 @@ secondary :: proc(ctx: ^Context) -> bool {
 	return true
 }
 
+// Called right after a widget: true for as long as a press on it has been held past the
+// theme's long_press without straying further than the slop, by any pointer (the
+// mouse's left button too), as a hold to peek wants. Once it is true, letting go is no
+// click, and the press wins the gesture arena.
+held_long :: proc(ctx: ^Context) -> bool {
+	id := ctx.last_id
+	in_ := ctx.input
+	if id == 0 || ctx.active != id || ctx.long.id != id || .Left not_in in_.down || in_.cancel do return false
+	ctx.long.claimed = id
+	if ctx.long.fired == .Action do return true
+	if ctx.long.fired != .None do return false
+	if max(ctx.long.travel, linalg.length(in_.mouse - ctx.press_mouse)) > ctx.theme.slop do return false
+	if ctx.time - ctx.press_at < f64(ctx.theme.long_press) do return false
+	ctx.long.fired = .Action
+	ctx.press_won = true
+	return true
+}
+
 // The held widget moved a value (a slider's drag): this press is no long press.
 long_cancel :: proc(ctx: ^Context) {
 	if ctx.active != 0 && ctx.long.id == ctx.active && ctx.long.fired == .None do ctx.long.fired = .Off

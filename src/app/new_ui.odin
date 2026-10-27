@@ -160,6 +160,7 @@ Kit_State :: struct {
 	// What the workspace hides, and the workspaces (workspaces.odin).
 	hidden:     bit_set[Zone],
 	workspaces: Workspaces,
+	passes:     Passes, // the pass the viewport shows (passes.odin)
 	wheel_size: Wheel_Size,
 	wheel_labels: Wheel_Labels, // what its sectors show
 	wheel_turn: f32, // how far it is turned clockwise, in degrees, -180 to 180
@@ -726,7 +727,7 @@ kit_floats_close :: proc(k: ^Kit_State) {
 	k.bind.open, k.pie_editor, k.adjust_pop, k.gizmo_entry.open = false, false, false, false
 	k.folder_menu, k.rename.open, k.macro_save.open, k.home_menu = false, false, false, false
 	k.colors.palette_menu, k.colors.swatch_menu, k.colors.pop = false, false, false
-	k.panels.menu, k.workspaces.menu, k.arrange_drawer = false, false, false
+	k.panels.menu, k.workspaces.menu, k.arrange_drawer, k.passes.menu = false, false, false, false
 	k.ctx.select_open = 0
 }
 
@@ -735,7 +736,7 @@ kit_floats_close :: proc(k: ^Kit_State) {
 // first-run tip hides under it.
 kit_floating :: proc(app: ^App) -> bool {
 	k := &app.kit
-	return app.ui.pie.open || app.ui.adjust.kind != .None || k.action_pop || k.adjust_pop || k.menu || k.versions || k.browser || k.dock_menu || k.bind.open || k.pie_editor || k.object_menu || k.folder_menu || k.rename.open || k.macro_save.open || k.palette || k.gizmo_entry.open || k.bar_pop.open || k.bar_slot.open || k.colors.palette_menu || k.colors.swatch_menu || k.colors.pop || k.home_menu || k.panels.menu || k.workspaces.menu || k.arrange_drawer || k.ctx.select_open != 0
+	return app.ui.pie.open || app.ui.adjust.kind != .None || k.action_pop || k.adjust_pop || k.menu || k.versions || k.browser || k.dock_menu || k.bind.open || k.pie_editor || k.object_menu || k.folder_menu || k.rename.open || k.macro_save.open || k.palette || k.gizmo_entry.open || k.bar_pop.open || k.bar_slot.open || k.colors.palette_menu || k.colors.swatch_menu || k.colors.pop || k.home_menu || k.panels.menu || k.workspaces.menu || k.arrange_drawer || k.passes.menu || k.ctx.select_open != 0
 }
 
 kit_destroy :: proc(app: ^App) {
@@ -1111,6 +1112,7 @@ kit_layout :: proc(app: ^App) {
 	kit_menu(app, menu_anchor)
 	kit_workspace_menu(app)
 	kit_arrange_drawer(app)
+	kit_pass_menu(app)
 	kit_versions(app, menu_anchor)
 	kit_object_menu(app)
 	kit_objects_card_menus(app)

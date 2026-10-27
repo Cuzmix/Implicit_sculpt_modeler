@@ -5,8 +5,9 @@ import "core:strings"
 import "../ui"
 
 // Workspaces (Lens): named layouts of the interface. A layout is which bars show, which
-// panels are open, the two columns, the pinned sections and where each floating panel
-// sits; the scene, the brush and the view's toggles are no part of it. Four come with the
+// panels are open, the two columns, the pinned sections, where each floating panel sits,
+// the bars' buttons and the viewport's pass; the scene, the brush and the view's toggles
+// are no part of it. Four come with the
 // app and up to WORKSPACE_OWN more are the user's own. Each keeps the layout as saved and,
 // while another is current, the layout as it was left, so switching loses nothing; the
 // top bar's switcher shows an amber dot while the current layout differs from its saved
@@ -113,7 +114,7 @@ layout_open :: proc(k: ^Kit_State, w: Kit_Window) -> ^bool {
 	return &k.inspector
 }
 
-// The layout as text: the lines of the hidden zones, the open panels, the windows' places,
+// The layout as text: the lines of the hidden zones, the pass, the open panels, the windows' places,
 // the columns and the pins, in that order. Places are written as they are for the
 // right-handed layout, so a workspace saved with either hand reads the same with the other.
 kit_layout_text :: proc(k: ^Kit_State) -> string {
@@ -123,6 +124,7 @@ kit_layout_text :: proc(k: ^Kit_State) -> string {
 		for z in Zone do if z in k.hidden do fmt.sbprintf(&out, " %v", z)
 		strings.write_byte(&out, '\n')
 	}
+	strings.write_string(&out, pass_layout_line(k))
 	strings.write_string(&out, "open")
 	for w in LAYOUT_PANELS do if layout_open(k, w)^ do fmt.sbprintf(&out, " %v", w)
 	strings.write_byte(&out, '\n')
@@ -151,12 +153,16 @@ kit_layout_put :: proc(k: ^Kit_State, text: string) {
 	for w in LAYOUT_PANELS do layout_open(k, w)^ = false
 	panels_default(k)
 	k.hidden = {}
+	// The pass is Shaded unless the layout names another; a peek ends with the layout.
+	k.passes.pass, k.passes.chip_held, k.passes.key_held = .Shaded, false, false
 	for line in strings.split_lines(text, context.temp_allocator) {
 		f := strings.fields(line, context.temp_allocator)
 		if len(f) == 0 do continue
 		switch f[0] {
 		case "hidden":
 			for word in f[1:] do for z in Zone do if strings.equal_fold(word, fmt.tprint(z)) do k.hidden += {z}
+		case "pass":
+			pass_layout_read(k, f)
 		case "open":
 			for word in f[1:] do for w in LAYOUT_PANELS do if strings.equal_fold(word, fmt.tprint(w)) do layout_open(k, w)^ = true
 		case "window":

@@ -758,6 +758,16 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 					continue
 				}
 			}
+			// A held backquote peeks at the last other pass (passes.odin) until it is let go;
+			// once it went down outside typing, its release is the peek's too.
+			if (e.type == .KEY_DOWN || e.type == .KEY_UP) && e.key.key == sdl.K_GRAVE {
+				ps := &app.kit.passes
+				if ps.key_held || (e.key.down && !typing(&app)) {
+					ps.key_held = e.key.down
+					continue
+				}
+			}
+			if e.type == .WINDOW_FOCUS_LOST do app.kit.passes.key_held = false
 			device_event(&app.device, &e)
 			dab_wait_event(&app, &e, window)
 			touch_event(&app, &e, window)
@@ -1023,6 +1033,16 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		app.renderer.floor = floor_grid_frame(&app)
 		app.renderer.background = background_frame(app.background)
 		environment_view(&app)
+		// A pass with a ground of its own shows it instead of the background or the
+		// environment's image, and a Silhouette stands on nothing, as the thumbnail's does.
+		app.kit.passes.recording = timelapse_capturing(&app) || turntable_recording(&app)
+		shown_pass := viewport_pass(&app.kit)
+		pass_items(draws[:], view, shown_pass)
+		if ground, ok := pass_ground(shown_pass); ok {
+			app.renderer.background = ground
+			app.renderer.environment_look.background = false
+		}
+		if shown_pass == .Silhouette do app.renderer.floor = {}
 		drawn := render.render_viewport(&app.renderer, cmd, &app.target, view, proj, draws[:], app.cache_idle)
 		// Anything redrawn this frame starts the samples over.
 		changed := !drawn.partial || drawn.redrawn_px > 0
@@ -1036,6 +1056,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		// A --dump-viewport run's last frame draws its transparent picture, when that is on.
 		if opts.dump_viewport != "" && app.screenshot_transparent && opts.frames > 0 && frame_index == opts.frames - 1 do capture_request(&app, opts.dump_viewport)
 		capture_frame(&app, cmd, view, proj, draws[:])
+		// What follows draws its own views of the scene, which stay shaded whatever the pass.
+		pass_items(draws[:], view, .Shaded)
 
 		nav_head_frame(&app, cmd)
 		thumbs_frame(&app, cmd)
@@ -1458,6 +1480,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			zones := strings.builder_make(context.temp_allocator)
 			for z in Zone do if z in k.hidden do fmt.sbprintf(&zones, "%s%s", "," if strings.builder_len(zones) > 0 else "", strings.to_lower(fmt.tprint(z), context.temp_allocator))
 			fmt.printfln("workspace=%s workspace_modified=%d workspace_count=%d workspace_menu=%d workspace_switches=%d arrange_drawer=%d zones_hidden=%s", preset_escape(workspace_name(k, w.current)), int(w.modified), count, int(w.menu), w.switches, int(k.arrange_drawer), strings.to_string(zones) if strings.builder_len(zones) > 0 else "none")
+			fmt.printfln("pass=%v pass_shown=%v pass_menu=%d pass_switches=%d", k.passes.pass, viewport_pass(k), int(k.passes.menu), k.passes.switches)
 		}
 		// The side bars' popover: what it shows (a section by its name), or none; the look.
 		pop := "none"
