@@ -236,10 +236,11 @@ path_render_destroy :: proc(r: ^Renderer, pr: ^Path_Render) {
 
 // The lights as render mode takes them: `lights` (view space, as the viewport's) turned
 // into the world by the inverse of `view`, each with its size and the chance it is
-// picked. A sun spans a cone of half-angle `softness`; a point or spot light is a sphere
-// whose radius is that angle seen from the scene's `center`. Their radiance gives the
-// viewport's light, three times the strength where it arrives (mesh_shading.glsl), as the
-// irradiance of the cone or sphere.
+// picked. A light with a size of its own (shape.w: a sun's sine of its angular radius, a
+// point or spot light's radius) keeps it; one without spans a cone of half-angle
+// `softness`, as a sun, or is a sphere whose radius is that angle seen from the scene's
+// `center`. Their radiance gives the viewport's light, three times the strength where it
+// arrives (mesh_shading.glsl), as the irradiance of the cone or sphere.
 lights_to_world :: proc(lights: Lights, view: Mat4, center: [3]f32, softness: f32) -> (out: Lights_World) {
 	l := lights if lights != {} else lights_default()
 	to_world := linalg.inverse(view)
@@ -261,12 +262,13 @@ lights_to_world :: proc(lights: Lights, view: Mat4, center: [3]f32, softness: f3
 		if p.w < 0.5 {
 			d := linalg.normalize(rot * p.xyz)
 			out.pos[i] = {d.x, d.y, d.z, p.w}
-			out.size[i].x = math.cos(angle)
-			out.size[i].y = 3 * strength / (math.PI * math.pow(math.sin(angle), 2))
+			half := clamp(math.asin(min(l.shape[i].w, 1)), STUDIO_SOFTNESS_MIN, math.PI / 2) if l.shape[i].w > 0 else angle
+			out.size[i].x = math.cos(half)
+			out.size[i].y = 3 * strength / (math.PI * math.pow(math.sin(half), 2))
 		} else {
 			w := to_world * [4]f32{p.x, p.y, p.z, 1}
 			out.pos[i] = {w.x, w.y, w.z, p.w}
-			radius := max(linalg.length(w.xyz - center) * math.tan(angle), 1e-4)
+			radius := max(l.shape[i].w if l.shape[i].w > 0 else linalg.length(w.xyz - center) * math.tan(angle), 1e-4)
 			ref := l.shape[i].x
 			out.size[i].x = radius
 			out.size[i].y = 3 * strength * ref * ref / (math.PI * radius * radius)

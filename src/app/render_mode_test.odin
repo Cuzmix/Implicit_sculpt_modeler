@@ -38,6 +38,15 @@ render_lights_reach_the_world :: proc(t: ^testing.T) {
 	point := w.size[2].y * math.PI * radius * radius / (2 * 2)
 	testing.expect(t, abs(point - 3 * 2) < 1e-3)
 
+	// A light's own size wins over the softness: a sun of 10 degrees across, a lamp of
+	// radius 0.5.
+	l.shape[0].w = math.sin(math.to_radians(f32(5)))
+	l.shape[2].w = 0.5
+	sized := render.lights_to_world(l, view, {}, softness)
+	testing.expect(t, abs(sized.size[0].x - math.cos(math.to_radians(f32(5)))) < 1e-5)
+	testing.expect_value(t, sized.size[2].x, f32(0.5))
+	testing.expect(t, abs(sized.size[0].y * math.PI * math.pow(l.shape[0].w, 2) - 3) < 1e-3)
+
 	// Chances by strength times the brightest channel, adding up to one; the last light
 	// picked takes whatever rounding leaves.
 	total: f32
