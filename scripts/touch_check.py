@@ -753,6 +753,25 @@ def roll_stroke_by_finger():
 
 
 @scenario
+def drag_dot_stroke_by_finger():
+    """A Drag dot stroke by finger slides its one stamp with the finger, a dab each frame it
+    moves, and is one undo step."""
+    s = Script()
+    s.fdrag(line((760, 430), (860, 470), 20))
+    return s, ["--script=set stroke drag_dot"], camera_still({"dabs": lambda v: int(v) > 2, "undo_steps": near(1)})
+
+
+@scenario
+def stroke_section_shows_spray_and_colour_spray():
+    """The brush bar's Stroke opens the Stroke section with its five modes and, on Spray, the
+    Spread and Colour spray sliders; nothing moves."""
+    s = Script()
+    s.ftap(*UI["stroke"])
+    s.wait(8)
+    return s, ["--script=set stroke spray"], camera_still({"dabs": near(0), "bar_pop": is_text("stroke")})
+
+
+@scenario
 def finger_orbits_empty_space():
     """One finger on empty space turns the view, and a stroke started there keeps turning over the model."""
     s = Script()

@@ -81,6 +81,8 @@ SETTINGS := [?]Setting {
 	{"paint_channel", B + offset_of(Brush_Settings, channel), sculpt.Channel, 0, 0},
 	{"stroke", B + offset_of(Brush_Settings, stroke), Stroke_Mode, 0, 0},
 	{"stroke_spread", B + offset_of(Brush_Settings, spray_spread), f32, 0, SPRAY_MAX_SPREAD},
+	{"stroke_spacing", B + offset_of(Brush_Settings, spacing), f32, MIN_SPACING, MAX_SPACING},
+	{"color_spray", B + offset_of(Brush_Settings, color_spray), f32, 0, 1},
 	{"stroke_line", B + offset_of(Brush_Settings, line), bool, 0, 0},
 	{"stroke_join", B + offset_of(Brush_Settings, join), bool, 0, 0},
 	{"detail_px", B + offset_of(Brush_Settings, detail_px), f32, 2, 40},
