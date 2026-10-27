@@ -5287,6 +5287,25 @@ def thumbnail_follows_a_stroke_and_closes():
     return s, ["--script=thumbnail on"], {"thumbnail": near(0, 0), "thumbnail_draws": lambda v: int(v) >= 2, "dabs": lambda v: int(v) > 0}
 
 
+# Scene > 3D print at 1600x900: the inches tab, and the Height value's middle.
+PRINT_INCHES = (1472, 179)
+PRINT_HEIGHT = (1380, 281)
+
+
+@scenario
+def print_height_by_finger_and_inches():
+    """A finger drag right on Scene > 3D print's Height makes the print bigger, a tap on
+    in shows inches, and neither sculpts nor turns the view."""
+    s = Script()
+    s.wait(4)
+    x, y = PRINT_HEIGHT
+    s.fdrag(line((x, y), (x + 120, y), 12))
+    s.wait(4)
+    s.ftap(*PRINT_INCHES)
+    s.wait(4)
+    return s, ["--script=show_section print"], camera_still({"print_mm": lambda v: float(v) > 26, "print_unit": near(2, 0), "dabs": near(0)})
+
+
 # The Home screen at 1600x900 (kit_home.odin): the Head starter, and the first scene tile.
 HOME_NEW_HEAD = (180, 145)
 HOME_TILE1 = (385, 190)

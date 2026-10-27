@@ -137,6 +137,11 @@ description: CAD-style mesh tools inside this app on geom.Mesh — primitives, b
   Σ p0·(p1×p2)/6, meaningful only for a closed, outward mesh (`mesh_check` gives it); distance to the surface through
   `geom.closest_on_triangle` and `geom.bvh_closest` (`closest.odin`, Morton trees, exact with a hint); picking through `scene_raycast` (`scene.odin:432-444`),
   which returns world-space hits, and `to_local`/`to_world` (`:34-35`).
+- Print sizes (`src/app/print.odin`): one scene-wide `Scene.print_mm` (millimetres per world unit, saved since scene
+  v23; read it through `print_scale`, which covers a zero App in tests) times `object_world_bounds`. Export for
+  printing (`object_export(..., print = true)`) bakes the placement and the scale into one matrix, turns Y up into Z up
+  as `(x, -z, y)`, stands the mesh on Z 0 centred on the origin, and reports `mesh_check_indices` (closed, volume in
+  cm³) up to `PRINT_CHECK_MAX` indices; the plain STL export keeps the file's own units instead.
 
 ## References (read when the task needs them)
 - [references/algorithms.md](references/algorithms.md): boolean semantics worth copying (Manifold), voxel remesh as the

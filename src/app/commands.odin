@@ -32,6 +32,7 @@ Command_Id :: enum u8 {
 	Open_Last_Autosave,
 	Import_Mesh,
 	Export_Mesh,
+	Export_Print,
 	Screenshot,
 	Screenshot_Transparent,
 	Record_Turntable,
@@ -352,6 +353,13 @@ COMMANDS := [Command_Id]Command {
 		help = "Writes the selected object as OBJ, PLY, STL, glTF or USD.",
 		icon = ui.ICON_EXPORT,
 		run = proc(app: ^App, _: int) {file_dialog(app, .Export)},
+		enabled = has_object,
+	},
+	.Export_Print = {
+		label = "Export for printing...",
+		help = "Writes the selected object as an STL file for a 3D printer: at its print size in millimetres (Scene > 3D print), Z up, standing on the bed.",
+		icon = ui.ICON_EXPORT,
+		run = proc(app: ^App, _: int) {file_dialog(app, .Export_Print)},
 		enabled = has_object,
 	},
 	.Send_To_Blender = {
