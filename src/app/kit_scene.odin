@@ -412,6 +412,34 @@ SCENE_SECTIONS := [?]Kit_Tab_Section {
 	{.Lights, "Lights", kit_lights, nil},
 	{.Studio, "Studio render", kit_studio, nil},
 	{.Camera, "Camera", kit_camera, nil},
+	{.Floor, "Floor grid", kit_floor, nil},
+}
+
+// The floor grid: whether it shows, which planes, the axes, and its cells.
+@(private = "file")
+kit_floor :: proc(app: ^App) {
+	ctx := &app.kit.ctx
+	f := &app.floor
+	on := f.on
+	if ui.switch_row(ctx, "Floor grid", &on, keys = command_hint(app, .Floor_Grid)) do command_run(app, .Floor_Grid)
+	ui.caption(ctx, "PLANES")
+	ui.begin(ctx, "floor planes", {direction = .Row, gap = 4})
+	planes := [3]struct {
+		name, tip: string,
+	}{{"Side", "The wall square to X, on the far side"}, {"Floor", "The floor, under the scene"}, {"Back", "The wall square to Z, behind the scene"}}
+	// Floor first, then the walls.
+	for axis in ([3]int{1, 2, 0}) {
+		p := planes[axis]
+		if ui.toggle_button(ctx, p.name, f.planes[axis], 92, tooltip = p.tip) do f.planes[axis] = !f.planes[axis]
+	}
+	ui.end(ctx)
+	if kit_more(app, .Floor) {
+		_ = ui.switch_row(ctx, "Axes in colour", &f.axes)
+		_ = ui.switch_row(ctx, "Fit cells to the scene", &f.fit)
+		if !f.fit do _ = ui.slider(ctx, "Cell size", &f.cell, FLOOR_CELL_MIN, FLOOR_CELL_MAX, .Logarithmic, fmt.tprintf("%.3g", f.cell))
+		kit_more_end(app)
+	}
+	ui.paragraph(ctx, "The floor lies under everything shown and the walls behind it as you look, with a brighter line every fifth cell. Red is X, green Y, blue Z.")
 }
 
 @(private = "file")
