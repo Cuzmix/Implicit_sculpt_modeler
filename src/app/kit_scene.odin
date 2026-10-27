@@ -1,11 +1,13 @@
 package main
 
 import "core:fmt"
+import "core:math"
 import "core:slice"
 import "core:strings"
 
 import "../camera"
 import "../geom"
+import "../render"
 import "../ui"
 
 // The tray's Scene palette: the objects, adding one, and how the whole scene is shown,
@@ -645,14 +647,16 @@ kit_studio :: proc(app: ^App) {
 	if ui.slider(ctx, "Samples", &samples, 16, STUDIO_SAMPLES_MAX, .Logarithmic, fmt.tprintf("%d", app.studio_samples)) do app.studio_samples = i32(samples + 0.5)
 	kit_live_ao(app)
 	if kit_more(app, .Studio) {
+		_ = ui.slider(ctx, "Shadow softness", &app.studio_softness, render.STUDIO_SOFTNESS_MIN, render.STUDIO_SOFTNESS_MAX, .Logarithmic, fmt.tprintf("%.1f°", math.to_degrees(app.studio_softness)))
 		kit_live_ao_reach(app)
 		kit_more_end(app)
 	}
-	if app.studio_on && app.studio.samples > 0 && app.studio.samples < int(app.studio_samples) {
+	if studio_running(app) && app.studio.samples > 0 && app.studio.samples < int(app.studio_samples) {
 		ui.paragraph(ctx, fmt.tprintf("Built up %d of %d samples.", app.studio.samples, app.studio_samples))
 	}
-	ui.paragraph(ctx, fmt.tprintf("Ambient occlusion and soft shadows build up while the view stays still; any change starts them over. %s", command_keys(app, .Studio_Render)))
-	ui.paragraph(ctx, "Occlusion while working darkens creases every frame, sculpting too, with the same Occlusion strength; Reach is how far it looks, as a share of the scene's size. The studio render shows instead while it is on.")
+	if app.studio_on && app.studio.failed do ui.paragraph(ctx, "The studio render could not be set up on this GPU; the log says why.")
+	ui.paragraph(ctx, fmt.tprintf("Ambient occlusion and soft shadows build up while the view stays still; any change starts them over. Shadow softness is how wide the key light is. %s", command_keys(app, .Studio_Render)))
+	ui.paragraph(ctx, "Occlusion while working darkens creases every frame, sculpting too, with the same Occlusion strength; Reach is how far it looks, as a share of the scene's size. With the studio render on it shows until the studio has built up its first samples.")
 }
 
 @(private = "file")

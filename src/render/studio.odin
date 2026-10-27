@@ -35,14 +35,19 @@ Studio :: struct {
 	failed:             bool, // the device refused part of it; the plain viewport shows
 	trace:              Tracer,
 	traced:             bool, // this still view's samples are traced
+	softness:           f32, // the key light's disc these samples were taken over
+	strengths:          [2]f32, // the occlusion and shadow strengths `shown` was composited with
 }
 
 // Shadow map size: fine enough for a crevice a few pixels wide at the default view.
 STUDIO_SHADOW_SIZE :: 2048
 // One sample in this many is a key light sample; the rest are ambient.
 STUDIO_KEY_EVERY :: 4
-// Radius of the disc the key light is jittered over, in radians: its shadow's softness.
+// Radius of the disc the key light is jittered over, in radians: its shadow's softness,
+// by default and within the range studio_frame takes.
 STUDIO_KEY_SOFTNESS :: 0.06
+STUDIO_SOFTNESS_MIN :: 0.01
+STUDIO_SOFTNESS_MAX :: 0.5
 // Depth bias and normal offset in shadow map texels: enough to keep a curved surface
 // from shadowing itself without letting thin gaps leak light.
 STUDIO_DEPTH_BIAS_TEXELS :: 2
@@ -68,10 +73,12 @@ Gather_Uniforms :: struct {
 // (anything was redrawn this frame), otherwise adds a sample until there are
 // `max_samples`, and leaves the result in Studio.shown. `ao` and `shadow` (0 to 1) are
 // how strongly occlusion and the key light's shadow darken the image; `lights` are the
-// lights the items are shaded with, whose brightest casts the shadow (lights_key). A traced
+// lights the items are shaded with, whose brightest casts the shadow (lights_key), and
+// `softness` the radius in radians of the key light's disc, which a change starts over. A
+// change of `ao` or `shadow` once the samples are done composites them again. A traced
 // view builds what changed of its trees on `pool` at its first sample. Returns false only
 // when the studio cannot run on this device, after which it never tries again.
-studio_frame :: proc(r: ^Renderer, st: ^Studio, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, view, proj: Mat4, items: []Draw_Item, changed: bool, max_samples: int, ao, shadow: f32, lights: Lights = {}, pool: ^jobs.Pool = nil) -> bool {
+studio_frame :: proc(r: ^Renderer, st: ^Studio, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, view, proj: Mat4, items: []Draw_Item, changed: bool, max_samples: int, ao, shadow: f32, lights: Lights = {}, pool: ^jobs.Pool = nil, softness: f32 = STUDIO_KEY_SOFTNESS) -> bool {
 	if st.failed do return false
 	if !studio_ensure(r, st, vt) {
 		st.failed = true
@@ -79,7 +86,9 @@ studio_frame :: proc(r: ^Renderer, st: ^Studio, cmd: ^sdl.GPUCommandBuffer, vt: 
 		st.failed = true
 		return false
 	}
-	if changed || !st.shown_valid {
+	soft := clamp(softness, STUDIO_SOFTNESS_MIN, STUDIO_SOFTNESS_MAX)
+	if changed || !st.shown_valid || soft != st.softness {
+		st.softness = soft
 		st.samples = 0
 		st.shown_valid = true
 		copy_pass := sdl.BeginGPUCopyPass(cmd)
@@ -87,7 +96,10 @@ studio_frame :: proc(r: ^Renderer, st: ^Studio, cmd: ^sdl.GPUCommandBuffer, vt: 
 		sdl.EndGPUCopyPass(copy_pass)
 		return true
 	}
-	if st.samples >= max_samples do return true
+	if st.samples >= max_samples {
+		if st.samples > 0 && st.strengths != {ao, shadow} do studio_composite(st, cmd, vt, ao, shadow)
+		return true
+	}
 	center, radius, ok := scene_sphere(items)
 	if !ok do return true
 
@@ -105,7 +117,7 @@ studio_frame :: proc(r: ^Renderer, st: ^Studio, cmd: ^sdl.GPUCommandBuffer, vt: 
 		base = linalg.normalize(rot * key_dir)
 		side = linalg.normalize(linalg.cross(base, [3]f32{0, 1, 0} if abs(base.y) < 0.99 else [3]f32{1, 0, 0}))
 		up = linalg.cross(side, base)
-		a, rr := 2 * math.PI * v, STUDIO_KEY_SOFTNESS * math.sqrt(u)
+		a, rr := 2 * math.PI * v, soft * math.sqrt(u)
 		dir = linalg.normalize(base + (side * math.cos(a) + up * math.sin(a)) * rr)
 	} else {
 		z := 1 - 2 * u
@@ -128,7 +140,7 @@ studio_frame :: proc(r: ^Renderer, st: ^Studio, cmd: ^sdl.GPUCommandBuffer, vt: 
 	if st.traced {
 		// The ray of each pixel spreads this sample's point over the hemisphere or the
 		// key light's disc itself, so the gather's direction is not used.
-		light := Trace_Light{key = key, base = base, side = side, up = up, radius = STUDIO_KEY_SOFTNESS, r2 = {u, v}}
+		light := Trace_Light{key = key, base = base, side = side, up = up, radius = soft, r2 = {u, v}}
 		trace_sample(r, &st.trace, cmd, st.accum, view_depth, st.sampler, view, proj, items, light, TRACE_EPSILON * radius, st.samples == 0)
 		st.samples += 1
 		studio_composite(st, cmd, vt, ao, shadow)
@@ -187,6 +199,7 @@ studio_frame :: proc(r: ^Renderer, st: ^Studio, cmd: ^sdl.GPUCommandBuffer, vt: 
 // The image shown: the viewport darkened by what the samples found.
 @(private = "file")
 studio_composite :: proc(st: ^Studio, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, ao, shadow: f32) {
+	st.strengths = {ao, shadow}
 	target := sdl.GPUColorTargetInfo{texture = st.shown, load_op = .DONT_CARE, store_op = .STORE, cycle = true}
 	pass := sdl.BeginGPURenderPass(cmd, &target, 1, nil)
 	sdl.BindGPUGraphicsPipeline(pass, st.composite_pipeline)

@@ -47,8 +47,9 @@ rebuild_preview_shows_the_remesh_lattice :: proc(t: ^testing.T) {
 	app.ui.rebuild_goal = .Fewer
 	testing.expect_value(t, rebuild_preview_frame(&app), [4]f32{})
 	app.ui.rebuild_goal = .Even
+	// The studio render shows it too.
 	app.studio_on = true
-	testing.expect_value(t, rebuild_preview_frame(&app), [4]f32{})
+	testing.expect(t, rebuild_preview_frame(&app) != {})
 	app.studio_on = false
 	app.ui.boolean.shown = true
 	testing.expect_value(t, rebuild_preview_frame(&app), [4]f32{})

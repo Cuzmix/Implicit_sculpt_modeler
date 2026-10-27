@@ -91,6 +91,11 @@ current_material :: proc(app: ^App) -> Material {
 // enough for sculpted detail to read at any light angle without outlining every form.
 CAVITY_DEFAULT :: 0.5
 RIDGE_DEFAULT :: 0.3
+// The style's rim strength and the share of the ambient light under the forms, matched to
+// renders of grey studio sculpts: a light rim, and deep shade under a jaw or a brow.
+RIM_DEFAULT :: 0.35
+RIM_MAX :: 1
+UNDERSIDE_DEFAULT :: 0.15
 
 // The furthest the exposure goes either way, in stops.
 EXPOSURE_RANGE :: 3
@@ -98,6 +103,13 @@ EXPOSURE_RANGE :: 3
 // The viewport's look for render.Draw_Item.look: exposure, cavity and ridge.
 viewport_look :: proc(app: ^App) -> [4]f32 {
 	return {app.exposure, app.cavity, app.ridge, 0}
+}
+
+// The style the viewport's objects are shaded with (render.Draw_Item.style): zero, the
+// classic rim and even ambient light, unless App.styled.
+viewport_style :: proc(app: ^App) -> [4]f32 {
+	if !app.styled do return {}
+	return {clamp(app.rim, 0, RIM_MAX), clamp(app.underside, 0, 1), 0, 1}
 }
 
 // The material `obj` is shaded with: its own, or the default (current_material) while it
