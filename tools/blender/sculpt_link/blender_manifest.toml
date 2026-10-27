@@ -1,0 +1,15 @@
+schema_version = "1.0.0"
+
+id = "sculpt_link"
+version = "1.0.0"
+name = "Sculpt link"
+tagline = "Sends meshes to and from the Sculpt app, as GoZ does for ZBrush"
+maintainer = "Implicit"
+type = "add-on"
+tags = ["Import-Export", "Sculpt"]
+blender_version_min = "4.2.0"
+license = ["SPDX:GPL-3.0-or-later"]
+
+# It reads and writes files in the link folder the person gives it, and nothing else.
+[permissions]
+files = "Reads and writes meshes in the Sculpt app's link folder"

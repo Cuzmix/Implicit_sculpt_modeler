@@ -1,6 +1,8 @@
 package main
 
 import "core:fmt"
+import "core:strings"
+import sdl "vendor:sdl3"
 
 import "../camera"
 import "../ui"
@@ -348,6 +350,43 @@ settings_performance :: proc(app: ^App) {
 	ui.label(ctx, "Keep the files a save replaces")
 	if picked := ui.select(ctx, "Earlier saves kept", VERSIONS_KEPT_NAMES[:], chosen); picked >= 0 do app.versions_kept = VERSIONS_KEPT[picked]
 	ui.paragraph(ctx, "Saving over a scene file first keeps the old one in a folder beside it (for head.sculpt, \"head versions\"), the newest ones kept. Off keeps none and deletes none already there.")
+	when LINK_AVAILABLE {
+		ui.spacer(ctx, 8)
+		ui.caption(ctx, "BLENDER LINK")
+		folder := app.link.folder
+		// A path has no spaces to wrap at: its end, which names the folder, is what shows,
+		// and Copy path gives the whole of it.
+		shown := "This run keeps no settings, so it has no link folder." if folder == "" else text_fit_end(ctx, folder, ctx.theme.small_size, KIT_SETTINGS_W - 2 * 16)
+		ui.paragraph(ctx, shown, color = ctx.theme.text_secondary)
+		if ui.button(ctx, "Copy path", .Bordered, enabled = folder != "") {
+			if sdl.SetClipboardText(strings.clone_to_cstring(folder, context.temp_allocator)) {
+				report(app, nil, {}, "Copied the link folder's path: paste it into Link folder in Blender's Sculpt tab")
+			} else {
+				report(app, nil, {.Warning}, "Cannot copy the path: %s", sdl.GetError())
+			}
+		}
+		half := (KIT_SETTINGS_W - 2 * 16 - 8) / f32(2)
+		ui.begin(ctx, "link buttons", {direction = .Row, gap = 8})
+		_ = command_button(app, .Send_To_Blender, width = half)
+		_ = command_button(app, .Get_From_Blender, width = half)
+		ui.end(ctx)
+		ui.paragraph(ctx, "Install the add-on in tools/blender in Blender, give it this folder, then Send to Blender here and Get from Sculpt there; Send to Sculpt there comes back here when you switch to Sculpt, or with Get from Blender.")
+	}
+}
+
+// `s` as it fits in `width` points: whole, or its end with "..." before it.
+@(private = "file")
+text_fit_end :: proc(ctx: ^ui.Context, s: string, size, width: f32) -> string {
+	if ui.text_width(ctx, s, size) <= width do return s
+	room := width - ui.text_width(ctx, "...", size)
+	start := len(s)
+	for _, i in s {
+		if ui.text_width(ctx, s[i:], size) <= room {
+			start = i
+			break
+		}
+	}
+	return strings.concatenate({"...", s[start:]}, context.temp_allocator)
 }
 
 // A speed from a quarter to four times the default, equal steps doubling it.
