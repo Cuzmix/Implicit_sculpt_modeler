@@ -59,6 +59,14 @@ Axis :: enum u8 {
 // Planes through the symmetry's centre (Brush.sym_center) that dabs are mirrored across.
 Symmetry :: bit_set[Axis;u8]
 
+// What a sculpting brush's dabs change, as the reference app's sculpt and colour switches:
+// the zero value sculpts only, as every brush did before there was a choice.
+Channel :: enum u8 {
+	Sculpt, // move the surface
+	Both,   // move it and paint it
+	Color,  // paint it, moving nothing
+}
+
 // The most copies radial symmetry turns a dab into round its axis.
 RADIAL_MAX :: 32
 
@@ -110,8 +118,12 @@ Brush :: struct {
 	// short fade across the edge-on ones), so a stroke on a thin part leaves its far
 	// side be. Zero works on every vertex. Grab ignores it.
 	facing:   Vec3,
-	// Paint: the colour it paints, sRGB.
+	// Paint: the colour it paints, sRGB; any other brush paints it too when `channel` says.
 	color:    [3]u8,
+	// What a sculpting dab changes: the surface, as it always has; the surface and the
+	// polypaint, painting `color` under the same falloff; or only the polypaint, moving
+	// nothing (paint_channel_dab). Paint, Mask, Grab and Cloth keep to their own channel.
+	channel:  Channel,
 	// Keep the area the stroke's first dab found (filters.odin). Not Grab, Snake hook,
 	// Smooth, Inflate, Layer or Morph, which do not work along it, unless with an alpha.
 	lock_plane: bool,
@@ -893,6 +905,11 @@ dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3, img: Sym_Image, own: 
 	}
 	if brush.kind == .Mask do return mask_dab(s, &d, pool)
 	if brush.kind == .Paint do return paint_dab(s, &d, pool)
+	painted := 0
+	if brush.channel != .Sculpt {
+		painted = paint_channel_dab(s, &d, pool)
+		if brush.channel == .Color do return painted
+	}
 	if s.history.recording do record_hit(s, masks = false)
 
 	sign: f32 = -1 if brush.invert else 1
@@ -928,13 +945,13 @@ dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3, img: Sym_Image, own: 
 		d.amount = sign * brush.radius * brush.strength * LAYER_HEIGHT
 		jobs.parallel_for(pool, len(s.hit), &d, job_layer)
 	case .Snake_Hook:
-		if brush.drag == {} do return 0
+		if brush.drag == {} do return painted
 		jobs.parallel_for(pool, len(s.hit), &d, job_snake_hook)
 	case .Morph:
-		if len(s.morph) != len(s.mesh.positions) do return 0
+		if len(s.morph) != len(s.mesh.positions) do return painted
 		jobs.parallel_for(pool, len(s.hit), &d, job_morph)
 	case .History:
-		if len(s.recall) != len(s.mesh.positions) do return 0
+		if len(s.recall) != len(s.mesh.positions) do return painted
 		jobs.parallel_for(pool, len(s.hit), &d, job_history)
 	case .Grab, .Mask, .Paint, .Cloth:
 		unreachable()
@@ -950,7 +967,7 @@ dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3, img: Sym_Image, own: 
 		jobs.parallel_for(pool, len(s.hit), &d, job_smooth_targets)
 		jobs.parallel_for(pool, len(s.hit), &d, job_smooth_apply)
 	}
-	return finish_move(s, &d, pool)
+	return painted + finish_move(s, &d, pool)
 }
 
 // After the vertices of the hit leaves moved: marks what changed, records it for undo

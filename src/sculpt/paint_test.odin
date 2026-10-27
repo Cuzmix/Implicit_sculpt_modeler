@@ -50,6 +50,41 @@ paint_colours_inside_the_radius_and_undoes :: proc(t: ^testing.T) {
 	}
 }
 
+// A sculpting brush with its channel on Both paints the colour a Paint dab would and
+// moves the surface as with the channel off, inverted too, all in one undo step; on Color
+// it paints and moves nothing.
+@(test)
+paint_channel_paints_with_any_brush :: proc(t: ^testing.T) {
+	result: [3]struct {
+		before, positions: []Vec3,
+		color:             []Color,
+	}
+	for channel, i in ([3]Channel{.Sculpt, .Both, .Color}) {
+		m: geom.Mesh
+		s: Sculptor
+		paint_sphere(&s, &m, 4, nil)
+		before := slice.clone(m.positions[:], context.temp_allocator)
+		sculptor_stroke_begin(&s)
+		moved := apply_dab(&s, {kind = .Draw, radius = 0.3, strength = 1, invert = true, color = {200, 20, 10}, channel = channel}, UP)
+		testing.expect(t, sculptor_stroke_end(&s), "the stroke was not a step")
+		testing.expect(t, moved > 0, "the dab changed nothing")
+		result[i] = {before, slice.clone(m.positions[:], context.temp_allocator), slice.clone(s.color, context.temp_allocator)}
+		if channel != .Sculpt {
+			testing.expect(t, sculptor_undo(&s))
+			for c in s.color do testing.expect(t, c == {}, "undo left paint")
+		}
+		sculptor_destroy(&s)
+		geom.mesh_destroy(&m)
+	}
+	testing.expect(t, result[0].color == nil, "a sculpting brush painted")
+	testing.expect(t, slice.equal(result[1].positions, result[0].positions), "painting changed how the brush moves")
+	testing.expect(t, slice.equal(result[1].color, result[2].color), "Both and Color paint differently")
+	testing.expect(t, slice.equal(result[2].positions, result[2].before), "the Color channel moved vertices")
+	for c, v in result[1].color {
+		if linalg.length(result[1].before[v] - UP) < 0.05 do testing.expectf(t, c == {200, 20, 10, 255}, "the middle is %v", c)
+	}
+}
+
 // Fill paints every vertex except the masked ones, as one undo step.
 @(test)
 paint_fill_skips_the_mask :: proc(t: ^testing.T) {

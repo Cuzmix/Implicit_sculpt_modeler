@@ -45,6 +45,12 @@ Brush_Settings :: struct {
 	alpha_mode:        Alpha_Mode,
 	alpha_angle:       f32, // degrees counter-clockwise the image turns on top of what the mode gives
 	color:             [3]f32, // what the Paint brush paints, sRGB 0 to 1
+	// The secondary colour, which Swap colours trades with `color` (V, or a long press on
+	// the brush bar's Colour).
+	color2:            [3]f32,
+	// What every sculpting brush changes: the surface, it and the polypaint, or only the
+	// polypaint (sculpt.Channel; the brush bar's channel button cycles them).
+	channel:           sculpt.Channel,
 	cloth_mode:        sculpt.Cloth_Mode, // what the Cloth brush does
 	// The preset the brush is on (presets.odin), from 1; 0 on a plain brush. While on
 	// one, `plain` keeps the plain brush's values that leaving it puts back.
@@ -351,9 +357,15 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 	if !ok do return
 	app.scene.selected = index
 	obj := selected_object(app)
-	if .Paint in BRUSHES[stroke_brush(app, input)].flags && (object_in_hd(obj) || object_dynamic(obj)) {
+	// The Paint brush, or a sculpting brush held with the channel on Colour, only paints.
+	color_only := held_brush(input) && app.brush.channel == .Color && channel_brush(stroke_brush(app, input))
+	if (color_only || .Paint in BRUSHES[stroke_brush(app, input)].flags) && (object_in_hd(obj) || object_dynamic(obj)) {
 		// Said once a press; the stroke never starts, so nothing records it.
 		if s.kind == .Press do _ = paint_allowed(obj)
+		return
+	}
+	if color_only && obj.voxel != nil {
+		if s.kind == .Press do report(app, Kit_Section.Paint_Color, {.Warning}, "Voxel clay has no polypaint: set the brush's channel to Sculpt, or convert the object to a mesh")
 		return
 	}
 	if stroke_brush(app, input) == .History && !recall_ready(app, obj, s.kind == .Press) do return
@@ -836,6 +848,7 @@ brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pres
 		falloff_shape = brush_falloff(app, kind),
 		facing   = facing,
 		color    = brush_color_bytes(app),
+		channel  = brush_channel(app, selected_object(app)) if app.stroke.held else .Sculpt,
 		lock_plane = app.brush.lock_plane,
 		connected  = app.brush.connected,
 	}
