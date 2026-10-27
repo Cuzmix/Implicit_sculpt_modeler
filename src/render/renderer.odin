@@ -271,10 +271,9 @@ Draw_Item :: struct {
 	// A matcap (matcap_create) that shades the item instead of the lights, tinted by
 	// `color`; nil for none.
 	matcap:    ^sdl.GPUTexture,
-	// The light rig: the columns of the rotation that takes the shader's key and fill
-	// lights and its studio into view space, with the key light's strength in [0].w and
-	// the fill's in [1].w; zero for DEFAULT_LIGHTS, fixed to the camera.
-	lights:    [3][4]f32,
+	// The lights and the turn of the studio the physically based materials reflect, in
+	// view space; zero for lights_default(), the lights fixed to the camera.
+	lights:    Lights,
 	// Polygroups with materials of their own; nil for none. Read during the frame only.
 	slots:     ^Material_Slots,
 	// A textured mesh drawn in place of `mesh`'s triangles while `texture_view` is not
@@ -320,10 +319,10 @@ Material_Uniforms :: struct {
 	surface:    [4]f32, // x: metallic, y: roughness (0: classic), z: 1 for flat shading, w: 1 for the matcap
 	checker:    [4]f32, // the density preview: first lattice point, cell size (0: none)
 	look:       [4]f32, // exposure in stops, cavity, ridge (Draw_Item.look)
-	lights:     [3][4]f32, // the light rig's turn and strengths (Draw_Item.lights)
+	lights:     Lights, // Draw_Item.lights
 	maps:       [4]f32, // textured items: x, y, z which maps are bound (base colour, ORM, normal), w the Texture_View; zero otherwise
 }
-#assert(size_of(Material_Uniforms) == 144)
+#assert(size_of(Material_Uniforms) == 272)
 
 MESH_VERT_SPV :: #load("shaders/mesh.vert.spv")
 MESH_FRAG_SPV :: #load("shaders/mesh.frag.spv")
@@ -1208,7 +1207,7 @@ frame_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lod
 		material: [4]f32,
 		checker:  [4]f32,
 		look:     [4]f32,
-		lights:   [3][4]f32,
+		lights:   Lights,
 		surface:  [2]f32,
 		wire:     b32,
 		flat:     b32,
@@ -1217,7 +1216,7 @@ frame_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lod
 		slotted:  b32, // with Material_Slots, hashed after it
 		_:        b32, // no padding: every byte is hashed
 	}
-	#assert(size_of(Keyed) == 224)
+	#assert(size_of(Keyed) == 352)
 	Header :: struct { // no padding: every byte is hashed
 		view, proj:    Mat4,
 		width, height: u32,
@@ -1420,7 +1419,7 @@ static_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lo
 		material: [4]f32,
 		checker:  [4]f32,
 		look:     [4]f32,
-		lights:   [3][4]f32,
+		lights:   Lights,
 		surface:  [2]f32,
 		wire:     b32,
 		flat:     b32,
@@ -1429,7 +1428,7 @@ static_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lo
 		slotted:  b32, // with Material_Slots, hashed after it
 		_:        b32, // no padding: every byte is hashed
 	}
-	#assert(size_of(Keyed) == 232)
+	#assert(size_of(Keyed) == 360)
 	Header :: struct { // no padding: every byte is hashed
 		view, proj:    Mat4,
 		width, height: u32,
@@ -1530,7 +1529,7 @@ draw_items :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURende
 		}
 		params := item.material if item.material != {} else DEFAULT_MATERIAL
 		surface := [4]f32{item.surface.x, item.surface.y, 1 if item.flat else 0, 1 if item.matcap != nil else 0}
-		lights := item.lights if item.lights != {} else DEFAULT_LIGHTS
+		lights := item.lights if item.lights != {} else lights_default()
 		material := Material_Uniforms{base_color = item.color, params = params, surface = surface, checker = item.checker, look = item.look, lights = lights}
 		// Drawn solid after all where the blended pipeline is missing, and opaque then.
 		if !see do material.look.w = 0
@@ -1624,14 +1623,60 @@ draw_floor :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURende
 }
 
 DEFAULT_MATERIAL :: [4]f32{0.08, 0.2, 40, 0}
-// The light rig unturned, at full strength: the lights fixed to the camera.
-DEFAULT_LIGHTS :: [3][4]f32{{1, 0, 0, 1}, {0, 1, 0, 1}, {0, 0, 1, 0}}
+// How many lights the shader takes (Lights): the mesh shader's arrays are this long.
+LIGHT_COUNT :: 4
 
-// Where the rig `lights` (Draw_Item.lights) puts the view-space direction `dir` given in
-// the rig's own space.
-lights_turn :: proc(lights: [3][4]f32, dir: [3]f32) -> [3]f32 {
-	l := lights if lights != {} else DEFAULT_LIGHTS
+// The lights a Draw_Item is shaded with, as Material_Uniforms carries them (light_x, y
+// and z, light_dir and light_color in mesh_shading.glsl).
+Lights :: struct {
+	// The columns of the rotation that takes the studio the physically based materials
+	// reflect into view space, with the ambient light's strength in [0].w.
+	rig:   [3][4]f32,
+	// Toward each light in view space, unit length, with its strength in w: 0 for a
+	// light that is off.
+	dir:   [LIGHT_COUNT][4]f32,
+	color: [LIGHT_COUNT][4]f32, // each light's colour in linear light; w unused
+}
+
+// The key and fill lights' directions as the lights fixed to the camera have them, toward
+// the light in view space (not unit length): the key above and to the left of the
+// viewer, the fill low on the right. The fill's strength is the share of the key's the
+// classic clay shading has always given it.
+KEY_DIR :: [3]f32{-0.5, 0.6, 0.6}
+FILL_DIR :: [3]f32{0.7, -0.2, 0.4}
+FILL_STRENGTH :: 0.3
+
+// The lights fixed to the camera, unturned: the key at full strength and the fill, both
+// white, the studio unturned and full ambient light. What a Draw_Item with no lights of
+// its own is shaded with (thumbnails, the navigation head).
+lights_default :: proc() -> Lights {
+	l: Lights
+	l.rig = {{1, 0, 0, 1}, {0, 1, 0, 0}, {0, 0, 1, 0}}
+	key, fill := linalg.normalize(KEY_DIR), linalg.normalize(FILL_DIR)
+	l.dir[0] = {key.x, key.y, key.z, 1}
+	l.dir[1] = {fill.x, fill.y, fill.z, FILL_STRENGTH}
+	for &c in l.color do c = {1, 1, 1, 0}
+	return l
+}
+
+// Where the studio turn of `lights` (Lights.rig) puts the view-space direction `dir`
+// given in the studio's own space.
+lights_turn :: proc(lights: Lights, dir: [3]f32) -> [3]f32 {
+	l := lights.rig if lights != {} else lights_default().rig
 	return l[0].xyz * dir.x + l[1].xyz * dir.y + l[2].xyz * dir.z
+}
+
+// The light that casts the studio render's shadow: the brightest one that is on (its
+// strength times its strongest colour channel), in view space; false with every light off
+// or black, when there is no shadow to cast.
+lights_key :: proc(lights: Lights) -> (dir: [3]f32, ok: bool) {
+	l := lights if lights != {} else lights_default()
+	best, at := f32(0), -1
+	for d, i in l.dir {
+		if b := d.w * max(l.color[i].r, l.color[i].g, l.color[i].b); b > best do best, at = b, i
+	}
+	if at < 0 do return {}, false
+	return linalg.normalize(l.dir[at].xyz), true
 }
 WIRE_COLOR :: [4]f32{0.05, 0.05, 0.06, 1}
 

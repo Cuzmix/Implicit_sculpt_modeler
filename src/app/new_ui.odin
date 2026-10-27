@@ -51,6 +51,7 @@ Kit_State :: struct {
 	},
 	in_tray:    bool,
 	nav:        Nav_State, // the navigation head (nav_head.odin)
+	light_sphere: Light_Sphere_State, // a press on the Lights section's sphere (kit_lights.odin)
 	tab_serial: u64, // counts tab changes, so each one fades its content in afresh
 	recover_shown: bool, // the recovery card showed this frame (kit_recover.odin)
 	menu:       bool,
