@@ -349,8 +349,8 @@ file_apply :: proc(app: ^App, req: File_Request) -> bool {
 screenshot_save :: proc(app: ^App, path: string) -> bool {
 	start := time.tick_now()
 	w, h := int(app.target.width), int(app.target.height)
-	// What the viewport shows: the studio render's image while it is on.
-	shown := render.studio_texture(&app.studio) if app.studio_on else nil
+	// What the viewport shows: the studio render's or live occlusion's image while on.
+	shown := viewport_shown(app)
 	pixels := render.viewport_download(&app.renderer, &app.target, context.temp_allocator, shown)
 	if pixels == nil {
 		file_note(app, true, "Could not read the viewport back: %s", sdl.GetError())

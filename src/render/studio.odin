@@ -5,8 +5,6 @@ import "core:math"
 import "core:math/linalg"
 import sdl "vendor:sdl3"
 
-import "../geom"
-
 // The studio render: while nothing on screen changes, each frame adds one shadow-mapped
 // light sample to an accumulation target, and the viewport is shown darkened by what
 // the samples found, so it settles over a second or two into ambient occlusion and a
@@ -50,13 +48,6 @@ SHADOW_VERT_SPV :: #load("shaders/shadow.vert.spv")
 SHADOW_FRAG_SPV :: #load("shaders/shadow.frag.spv")
 STUDIO_GATHER_FRAG_SPV :: #load("shaders/studio_gather.frag.spv")
 STUDIO_COMPOSITE_FRAG_SPV :: #load("shaders/studio_composite.frag.spv")
-
-// Matches Shadow_Uniforms in shadow.vert.
-@(private = "file")
-Shadow_Uniforms :: struct {
-	light_view_proj: Mat4,
-	model:           Mat4,
-}
 
 // Matches Gather_Uniforms in studio_gather.frag.
 @(private = "file")
@@ -121,7 +112,7 @@ studio_frame :: proc(r: ^Renderer, st: ^Studio, cmd: ^sdl.GPUCommandBuffer, vt: 
 	view_depth := vt.depth
 	if vt.samples != ._1 {
 		view_depth = st.view_depth
-		if st.samples == 0 do studio_view_depth(r, st, cmd, view, proj, items)
+		if st.samples == 0 do view_depth_draw(r, cmd, st.depth_pipeline, nil, st.view_depth, vt.width, vt.height, view, proj, items)
 	}
 
 	// Depth from the light, every triangle of every item.
@@ -182,36 +173,6 @@ studio_frame :: proc(r: ^Renderer, st: ^Studio, cmd: ^sdl.GPUCommandBuffer, vt: 
 	return true
 }
 
-// Draws the camera's depth into view_depth through the same culled runs of chunks the
-// viewport draws, so hidden parts stay out of it.
-@(private = "file")
-studio_view_depth :: proc(r: ^Renderer, st: ^Studio, cmd: ^sdl.GPUCommandBuffer, view, proj: Mat4, items: []Draw_Item) {
-	stats: Viewport_Stats
-	prepare_draws(r, cmd, view, proj, items, nil, &stats)
-	depth := sdl.GPUDepthStencilTargetInfo {
-		texture          = st.view_depth,
-		clear_depth      = 1,
-		load_op          = .CLEAR,
-		store_op         = .STORE,
-		stencil_load_op  = .DONT_CARE,
-		stencil_store_op = .DONT_CARE,
-		cycle            = true,
-	}
-	pass := sdl.BeginGPURenderPass(cmd, nil, 0, &depth)
-	sdl.BindGPUGraphicsPipeline(pass, st.depth_pipeline)
-	for item in items {
-		// See-through items leave the viewport's own depth be, so they stay out of this
-		// one too: the anti-aliased viewport then shades as the plain one does.
-		if blended(&r.single, item) do continue
-		u := Shadow_Uniforms{proj * view, item.model}
-		sdl.PushGPUVertexUniformData(cmd, 0, &u, size_of(u))
-		vbufs := [1]sdl.GPUBufferBinding{{buffer = item.mesh.positions}}
-		sdl.BindGPUVertexBuffers(pass, 0, &vbufs[0], 1)
-		draw_item_triangles(r, pass, item, nil)
-	}
-	sdl.EndGPURenderPass(pass)
-}
-
 // What the viewport panel should show while the studio render is on: its image, or nil
 // when there is none yet (or the device cannot make one) and the plain viewport shows.
 studio_texture :: proc(st: ^Studio) -> ^sdl.GPUTexture {
@@ -264,30 +225,6 @@ light_view_proj :: proc(center: [3]f32, radius: f32, dir: [3]f32) -> Mat4 {
 	return proj * view
 }
 
-// A sphere around every item's chunks in the world. False with nothing to draw.
-@(private = "file")
-scene_sphere :: proc(items: []Draw_Item) -> (center: [3]f32, radius: f32, ok: bool) {
-	box := geom.AABB_EMPTY
-	for item in items {
-		for c in item.chunks {
-			if c.bounds.lo.x > c.bounds.hi.x do continue
-			for corner in 0 ..< 8 {
-				p := [3]f32 {
-					c.bounds.hi.x if corner & 1 != 0 else c.bounds.lo.x,
-					c.bounds.hi.y if corner & 2 != 0 else c.bounds.lo.y,
-					c.bounds.hi.z if corner & 4 != 0 else c.bounds.lo.z,
-				}
-				w := item.model * [4]f32{p.x, p.y, p.z, 1}
-				geom.aabb_grow(&box, w.xyz)
-			}
-		}
-	}
-	if box.lo.x > box.hi.x do return
-	center = (box.lo + box.hi) / 2
-	radius = max(linalg.length(box.hi - box.lo) / 2, 1e-3)
-	return center, radius, true
-}
-
 // Creates the pipelines, sampler and shadow map on first use, and the accumulation and
 // shown textures at the viewport's size whenever it changes.
 @(private = "file")
@@ -299,8 +236,8 @@ studio_ensure :: proc(r: ^Renderer, st: ^Studio, vt: ^Viewport_Target) -> bool {
 	if st.shadow_pipeline == nil {
 		st.shadow_pipeline = create_shadow_pipeline(r, cull_back = false)
 		st.depth_pipeline = create_shadow_pipeline(r, cull_back = true)
-		st.gather_pipeline = create_fullscreen_pipeline(r, STUDIO_GATHER_FRAG_SPV, STUDIO_ACCUM_FORMAT, additive = true)
-		st.composite_pipeline = create_fullscreen_pipeline(r, STUDIO_COMPOSITE_FRAG_SPV, VIEWPORT_COLOR_FORMAT, additive = false)
+		st.gather_pipeline = create_fullscreen_pipeline(r, STUDIO_GATHER_FRAG_SPV, STUDIO_ACCUM_FORMAT, samplers = 2, additive = true)
+		st.composite_pipeline = create_fullscreen_pipeline(r, STUDIO_COMPOSITE_FRAG_SPV, VIEWPORT_COLOR_FORMAT, samplers = 2)
 		st.sampler = sdl.CreateGPUSampler(r.device, {
 			min_filter = .NEAREST, mag_filter = .NEAREST, mipmap_mode = .NEAREST,
 			address_mode_u = .CLAMP_TO_EDGE, address_mode_v = .CLAMP_TO_EDGE, address_mode_w = .CLAMP_TO_EDGE,
@@ -339,70 +276,4 @@ studio_ensure :: proc(r: ^Renderer, st: ^Studio, vt: ^Viewport_Target) -> bool {
 		return false
 	}
 	return true
-}
-
-@(private = "file")
-create_shadow_pipeline :: proc(r: ^Renderer, cull_back: bool) -> ^sdl.GPUGraphicsPipeline {
-	vert := sdl.CreateGPUShader(r.device, {
-		code_size = len(SHADOW_VERT_SPV), code = raw_data(SHADOW_VERT_SPV), entrypoint = "main",
-		format = {.SPIRV}, stage = .VERTEX, num_uniform_buffers = 1,
-	})
-	frag := sdl.CreateGPUShader(r.device, {
-		code_size = len(SHADOW_FRAG_SPV), code = raw_data(SHADOW_FRAG_SPV), entrypoint = "main",
-		format = {.SPIRV}, stage = .FRAGMENT,
-	})
-	defer if vert != nil do sdl.ReleaseGPUShader(r.device, vert)
-	defer if frag != nil do sdl.ReleaseGPUShader(r.device, frag)
-	if vert == nil || frag == nil do return nil
-	buffers := [1]sdl.GPUVertexBufferDescription{{slot = 0, pitch = size_of(geom.Vec3), input_rate = .VERTEX}}
-	attributes := [1]sdl.GPUVertexAttribute{{location = 0, buffer_slot = 0, format = .FLOAT3}}
-	return sdl.CreateGPUGraphicsPipeline(r.device, {
-		vertex_shader = vert,
-		fragment_shader = frag,
-		vertex_input_state = {
-			vertex_buffer_descriptions = &buffers[0],
-			num_vertex_buffers = 1,
-			vertex_attributes = &attributes[0],
-			num_vertex_attributes = 1,
-		},
-		primitive_type = .TRIANGLELIST,
-		// From a light both faces, so an open mesh or a hole still casts its shadow; for
-		// the camera's depth the front ones, matching what the viewport drew.
-		rasterizer_state = {fill_mode = .FILL, cull_mode = .BACK if cull_back else .NONE, front_face = .COUNTER_CLOCKWISE},
-		depth_stencil_state = {compare_op = .LESS, enable_depth_test = true, enable_depth_write = true},
-		target_info = {depth_stencil_format = r.depth_format, has_depth_stencil_target = true},
-	})
-}
-
-// A full-screen triangle (clear.vert) through `frag_spv`, which reads two samplers and
-// one uniform buffer, into one colour target; `additive` blends by adding.
-@(private = "file")
-create_fullscreen_pipeline :: proc(r: ^Renderer, frag_spv: []u8, format: sdl.GPUTextureFormat, additive: bool) -> ^sdl.GPUGraphicsPipeline {
-	vert := sdl.CreateGPUShader(r.device, {
-		code_size = len(CLEAR_VERT_SPV), code = raw_data(CLEAR_VERT_SPV), entrypoint = "main",
-		format = {.SPIRV}, stage = .VERTEX,
-	})
-	frag := sdl.CreateGPUShader(r.device, {
-		code_size = len(frag_spv), code = raw_data(frag_spv), entrypoint = "main",
-		format = {.SPIRV}, stage = .FRAGMENT, num_samplers = 2, num_uniform_buffers = 1,
-	})
-	defer if vert != nil do sdl.ReleaseGPUShader(r.device, vert)
-	defer if frag != nil do sdl.ReleaseGPUShader(r.device, frag)
-	if vert == nil || frag == nil do return nil
-	blend := sdl.GPUColorTargetBlendState{}
-	if additive {
-		blend = {
-			src_color_blendfactor = .ONE, dst_color_blendfactor = .ONE, color_blend_op = .ADD,
-			src_alpha_blendfactor = .ONE, dst_alpha_blendfactor = .ONE, alpha_blend_op = .ADD,
-			enable_blend = true,
-		}
-	}
-	color_targets := [1]sdl.GPUColorTargetDescription{{format = format, blend_state = blend}}
-	return sdl.CreateGPUGraphicsPipeline(r.device, {
-		vertex_shader = vert,
-		fragment_shader = frag,
-		primitive_type = .TRIANGLELIST,
-		rasterizer_state = {fill_mode = .FILL, cull_mode = .NONE},
-		target_info = {color_target_descriptions = &color_targets[0], num_color_targets = 1},
-	})
 }

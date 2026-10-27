@@ -320,6 +320,7 @@ Viewport_Stats :: struct {
 	cull_ms:       f64,  // CPU time spent culling and writing draw commands
 	partial:       bool, // kept the previous frame and redrew only `redrawn_px` pixels
 	redrawn_px:    u64,
+	redrawn:       [4]i32, // ...in this rectangle: x, y, width, height (top-left origin)
 	cache_used:    bool, // idle objects came from the cache
 	cache_redrawn: bool, // ...which had to be redrawn first
 }
@@ -1199,20 +1200,7 @@ render_rect :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Targ
 		x1, y1 := min(rect.x + rect.w + 1, i32(vt.width)), min(rect.y + rect.h + 1, i32(vt.height))
 		drawn = {x0, y0, x1 - x0, y1 - y0}
 	}
-	// Maps the drawn rectangle to the whole of clip space, so culling against the
-	// narrowed frustum keeps only the chunks that can touch it.
-	W, H := f32(vt.width), f32(vt.height)
-	nx0, nx1 := 2 * f32(drawn.x) / W - 1, 2 * f32(drawn.x + drawn.w) / W - 1
-	ny0, ny1 := 1 - 2 * f32(drawn.y + drawn.h) / H, 1 - 2 * f32(drawn.y) / H
-	cx, hx := (nx0 + nx1) / 2, (nx1 - nx0) / 2
-	cy, hy := (ny0 + ny1) / 2, (ny1 - ny0) / 2
-	narrow := Mat4{
-		1 / hx, 0, 0, -cx / hx,
-		0, 1 / hy, 0, -cy / hy,
-		0, 0, 1, 0,
-		0, 0, 0, 1,
-	}
-	prepare_draws(r, cmd, view, proj, items, nil, stats, narrow)
+	prepare_draws(r, cmd, view, proj, items, nil, stats, rect_narrow(drawn, vt.width, vt.height))
 	pipes := mesh_pipelines(r, vt.samples)
 	pass := target_pass(r, cmd, vt, load = true)
 	sdl.SetGPUScissor(pass, {rect.x, rect.y, rect.w, rect.h})
@@ -1221,6 +1209,7 @@ render_rect :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Targ
 	draw_scene(r, cmd, pass, pipes, view, proj, items, nil, stats, rect if drawn != rect else nil)
 	sdl.EndGPURenderPass(pass)
 	stats.redrawn_px = u64(rect.w) * u64(rect.h)
+	stats.redrawn = {rect.x, rect.y, rect.w, rect.h}
 }
 
 // Hash of what frame_key in Viewport_Target describes.
@@ -1287,7 +1276,7 @@ textured_key :: proc(item: Draw_Item, h: u64) -> u64 {
 @(private)
 render_full :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, view, proj: Mat4, items: []Draw_Item, use_cache: bool, stats: ^Viewport_Stats) {
 	// Pixels a mesh unit covers one unit in front of the eye (perspective only).
-	lod := Lod_View{r.lod_px, proj[1, 1] * f32(vt.height) / 2} if r.lod_px > 0 && proj[3, 3] == 0 else {}
+	lod := lod_view(r, vt.height, proj)
 	pipes := mesh_pipelines(r, vt.samples)
 	live, see := 0, 0
 	for item in items {
@@ -1341,6 +1330,13 @@ render_full :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Targ
 @(private)
 Lod_View :: struct {
 	max_px, px_per_unit: f32,
+}
+
+// The Lod_View a full redraw of a target `height` pixels tall through `proj` uses:
+// Renderer.lod_px under perspective, nothing otherwise.
+@(private)
+lod_view :: proc(r: ^Renderer, height: u32, proj: Mat4) -> Lod_View {
+	return Lod_View{r.lod_px, proj[1, 1] * f32(height) / 2} if r.lod_px > 0 && proj[3, 3] == 0 else {}
 }
 
 // For every item that will be drawn this frame (those whose `live` matches, all of
