@@ -332,10 +332,25 @@ draw_surface_ring :: proc(app: ^App, o: Overlay, size: [2]f32, color: ui.Color, 
 	return true
 }
 
+// How wide, in points, a label centred `r` points out at angle `mid` can be before it
+// meets its neighbours `step` either side, for labels `height` tall: a neighbour far
+// enough above or below leaves the width free, one beside it the gap between the two.
+pie_label_room :: proc(r, mid, step, height: f32) -> f32 {
+	ROOM_MAX :: 120
+	room: f32 = ROOM_MAX
+	here := r * angle_dir(mid)
+	for side in ([2]f32{-1, 1}) {
+		d := r * angle_dir(mid + side * step) - here
+		if abs(d.y) < height do room = min(room, abs(d.x) - 4)
+	}
+	return max(room, 0)
+}
+
 // Draws the open pie over everything, so it shows whole even near the viewport's edge.
-// The brush pie's slices read "number name" with a band on the brush in use; a user
-// pie's show the command's icon over its label, a band on one that is on now, dimmed
-// when it cannot run, and "Empty" for an empty slot.
+// The brush pie's slices show the key's number near the middle and the name further
+// out, with a band on the brush in use; a user pie's show the command's icon over its
+// label, a band on one that is on now, dimmed when it cannot run, and "Empty" for an
+// empty slot.
 draw_pie :: proc(app: ^App, o: Overlay) {
 	p := app.ui.pie
 	if !p.open do return
@@ -381,7 +396,18 @@ draw_pie :: proc(app: ^App, o: Overlay) {
 		font := ui.Font.Semibold if hover else ui.Font.Regular
 		color := t.on_accent if hover else t.text
 		if p.which == 0 {
-			ui.text(ctx, fmt.tprintf("%d %s", i + 1, BRUSHES[sculpt.Brush_Kind(i)].name), label.x, label.y, t.text_size, color, font, .Center)
+			// Fifteen names round the ring leave the top and bottom ones a slice's chord
+			// apart side by side, so the key's number sits near the middle and the name
+			// further out, fitted to the room its neighbours leave it.
+			number := at(o, p.center + (PIE_INNER + 0.24 * (PIE_OUTER - PIE_INNER)) * pt * angle_dir(mid))
+			ui.text(ctx, fmt.tprint(i + 1), number.x, number.y, t.small_size, t.on_accent if hover else t.text_secondary, font, .Center)
+			out: f32 = PIE_INNER + 0.68 * (PIE_OUTER - PIE_INNER)
+			name := at(o, p.center + out * pt * angle_dir(mid))
+			room := pie_label_room(out, mid, step, t.text_size + 4)
+			// A name too wide for its room steps down to the small size before it is cut.
+			text := BRUSHES[sculpt.Brush_Kind(i)].name
+			size := t.text_size if ui.text_width(ctx, text, t.text_size, font) <= room else t.small_size
+			ui.text(ctx, ui.text_fit(ctx, text, size, room, font), name.x, name.y, size, color, font, .Center)
 			continue
 		}
 		if !usable do color = ui.color_fade(t.text_secondary, 0.5)
