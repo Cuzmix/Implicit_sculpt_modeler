@@ -5,6 +5,18 @@ description: Implicit and SDF modelling for this app — the src/sdf_trial spike
 
 # Implicit surfaces
 
+## What exists: the voxel sculptor (`src/voxel`, README "Voxel sculpting")
+- The production voxel core, in the build and test lists: `Volume` (narrow-band SDF, 8³ `Brick` of `i16` at `SCALE`
+  4096 units a voxel, `BAND` 3, `CLAMP` ±4 voxels, tiles `TILE_EMPTY`/`TILE_INSIDE` in each chunk's table, 4096³ domain)
+  in `volume.odin`; `Clay` (volume + `Surface` + undo + pool) with `clay_init/destroy/fill_sphere/raycast/stroke_begin/dab/
+  stroke_end/flush/to_mesh/write/read/undo/redo` in `clay.odin`, `mesh.odin`, `undo.odin`, `file.odin`, `convert.odin`;
+  brushes `Add, Subtract, Smooth, Flatten, Inflate` as a stamp `smin`, a 27-mean, a plane clip or fill and an offset
+  (`brush.odin`); band repair by Godunov sweeps at `clay_stroke_end` (`band.odin`). Negative is inside, as here.
+- Rules it keeps: every new value depends on old values only (serial == parallel, `serial_and_parallel_strokes_agree_bit_for_bit`);
+  jobs write disjoint bricks or node slots; the directory changes only in serial passes; a brick dirties the nodes whose
+  20³ meshing window sees a change within `NEAR` (3 voxels) of the surface; unused index slots are zeros on a dummy vertex 0;
+  the arrays grow only when `Flush.regrow` says so (the GPU copy is remade then). `build/bench --voxel` measures it.
+
 ## What exists: the spike (`src/sdf_trial/main.odin`)
 - A standalone, time-boxed comparison, not part of the app or the build scripts (`:1-5`; README "Layout" and the last
   line of "GPU benchmark and frame timing"). Build and run it with the strict flags, which it passes:
