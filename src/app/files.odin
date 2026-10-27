@@ -38,6 +38,7 @@ File_Kind :: enum u8 {
 	Discard_Autosave, // an earlier session's autosaves are deleted; the path names the session
 	Open_Version, // an earlier save of the scene's file replaces the scene, which still saves to its file (versions.odin)
 	Run_Script,   // a command script file runs as the person's own work (macros.odin)
+	Install_Pack, // a content pack goes into the library (pack.odin)
 }
 
 File_Request :: struct {
@@ -49,7 +50,7 @@ File_Request :: struct {
 // be in a console nobody watches. `at` tells a new note from the one already shown.
 // The native scene file starts with these bytes, then its version.
 SCENE_MAGIC :: "SCULPTSC"
-SCENE_VERSION :: u32(10) // 2: each object's rotation; 3: the current level's polypaint and polygroups; 4: sculpt layers, and a retopologized object's quads and UVs (sculpt.levels_write); 5: each object's boolean mode; 6: the base level's node layout (sculpt.levels_write); 7: the camera's roll; 8: each object's eye and ghost, and Solo; 9: folders, and each object's folder; 10: selection sets (sculpt.levels_write)
+SCENE_VERSION :: u32(12) // 2: each object's rotation; 3: the current level's polypaint and polygroups; 4: sculpt layers, and a retopologized object's quads and UVs (sculpt.levels_write); 5: each object's boolean mode; 6: the base level's node layout (sculpt.levels_write); 7: the camera's roll; 8: each object's eye and ghost, and Solo; 9: folders, and each object's folder; 10: selection sets (sculpt.levels_write); 11: each object's polypaint shown or not (a third view bit); 12: stored visibility (V1 to V8): the slot chosen and used, and each folder's and object's eyes in them
 
 // The request waiting for the next frame, and whether a dialog is showing. Kept here
 // rather than in App because SDL may call a dialog back on another thread, even after
@@ -82,6 +83,14 @@ IMAGE_FILTERS := [?]sdl.DialogFileFilter{{"Images (PNG, JPEG, BMP, TGA, QOI)", "
 STROKES_FILTERS := [?]sdl.DialogFileFilter{{"Recorded strokes", "strokes"}}
 @(private = "file")
 SCRIPT_FILTERS := [?]sdl.DialogFileFilter{{"Command scripts", "cmd;txt"}}
+// On Android SDL turns extensions into MIME types, and `sculptpack;zip` becomes
+// application/zip alone, which hides .sculptpack files, so there every file is offered
+// and the archive's own bytes decide.
+when ODIN_PLATFORM_SUBTARGET == .Android {
+	PACK_FILTERS := [?]sdl.DialogFileFilter{{"All files", "*"}}
+} else {
+	PACK_FILTERS := [?]sdl.DialogFileFilter{{"Content packs", "sculptpack;zip"}}
+}
 
 // Shows the dialog that picks the file for `kind`; its answer becomes a request. Does
 // nothing while another dialog is showing.
@@ -112,6 +121,8 @@ file_dialog :: proc(app: ^App, kind: File_Kind) {
 		sdl.ShowOpenFileDialog(file_dialog_done, userdata, app.window, raw_data(STROKES_FILTERS[:]), len(STROKES_FILTERS), nil, false)
 	case .Run_Script:
 		sdl.ShowOpenFileDialog(file_dialog_done, userdata, app.window, raw_data(SCRIPT_FILTERS[:]), len(SCRIPT_FILTERS), nil, false)
+	case .Install_Pack:
+		sdl.ShowOpenFileDialog(file_dialog_done, userdata, app.window, raw_data(PACK_FILTERS[:]), len(PACK_FILTERS), nil, false)
 	case .Timelapse, .Bake:
 		sdl.ShowOpenFolderDialog(file_dialog_done, userdata, app.window, nil, false)
 	}
@@ -196,6 +207,21 @@ file_shutdown :: proc(app: ^App) {
 	sync.unlock(&pending.lock)
 }
 
+// The bytes of a file the person picked: an import, a scene, an alpha, a script or a
+// stroke recording. Android's picker hands back a content:// URI, which only SDL's IO
+// can open (through the activity's content resolver), so such a path is read with
+// SDL_LoadFile; every other path goes through os, whose errors say more.
+file_read_any :: proc(path: string, allocator := context.allocator) -> (data: []u8, err: os.Error) {
+	if !strings.has_prefix(path, "content://") do return os.read_entire_file(path, allocator)
+	size: uint
+	raw := sdl.LoadFile(strings.clone_to_cstring(path, context.temp_allocator), &size)
+	if raw == nil do return nil, .Not_Exist
+	defer sdl.free(raw)
+	data = make([]u8, int(size), allocator) or_return
+	copy(data, ([^]u8)(raw)[:size])
+	return data, nil
+}
+
 // Reports a file action's outcome (results.odin), which shows as a toast.
 file_note :: proc(app: ^App, warning: bool, format: string, args: ..any) {
 	report(app, nil, {.Warning} if warning else {}, format, ..args)
@@ -242,7 +268,7 @@ file_apply :: proc(app: ^App, req: File_Request) -> bool {
 	case .Open_Version:
 		return version_open(app, req.path)
 	case .Alpha:
-		_ = alpha_load(app, req.path)
+		_ = alpha_keep(app, req.path)
 	case .Screenshot:
 		_ = screenshot_save(app, req.path)
 	case .Timelapse:
@@ -253,6 +279,8 @@ file_apply :: proc(app: ^App, req: File_Request) -> bool {
 		_ = strokes_save(app, req.path)
 	case .Load_Strokes:
 		_ = strokes_load(app, req.path)
+	case .Install_Pack:
+		pack_install_start(app, req.path)
 	case .Recover:
 		return autosave_recover(app, req.path)
 	case .Discard_Autosave:
@@ -310,7 +338,7 @@ scene_remember_path :: proc(app: ^App, path: string) {
 scene_import :: proc(app: ^App, path: string) -> bool {
 	start := time.tick_now()
 	name := filepath.base(path)
-	data, err := os.read_entire_file(path, context.allocator)
+	data, err := file_read_any(path, context.allocator)
 	if err != nil {
 		file_note(app, true, "Cannot import %s: %v", name, err)
 		return true
@@ -320,7 +348,11 @@ scene_import :: proc(app: ^App, path: string) -> bool {
 	mesh: geom.Mesh
 	failed: geom.Mesh_File_Error
 	line: int
-	switch strings.to_lower(filepath.ext(path), context.temp_allocator) {
+	kind := strings.to_lower(filepath.ext(path), context.temp_allocator)
+	// A content:// URI from Android's picker has no extension, so there the bytes decide:
+	// a PLY file starts with "ply", and anything else is tried as OBJ text.
+	if strings.has_prefix(path, "content://") && kind != ".obj" && kind != ".ply" do kind = ".ply" if strings.has_prefix(string(data), "ply") else ".obj"
+	switch kind {
 	case ".obj":
 		mesh, failed, line = geom.mesh_read_obj(data, &app.pool)
 	case ".ply":
@@ -601,8 +633,12 @@ scene_header_put :: proc(app: ^App, out: ^[dynamic]u8) {
 		geom.byte_put(out, i32(f.id))
 		geom.byte_put_string(out, f.name)
 		geom.byte_put(out, u8(f.open) | u8(f.off) << 1 | u8(f.ghost) << 2)
+		geom.byte_put(out, f.vis_off) // version 12
 	}
 	geom.byte_put(out, i32(app.scene.next_folder_id))
+	// Version 12: the stored visibility chosen and those in use.
+	geom.byte_put(out, u8(app.scene.vis_slot))
+	geom.byte_put(out, app.scene.vis_used)
 }
 
 // The folders a scene file of `version` lists after its header, owned; ok is false
@@ -616,6 +652,7 @@ folders_get :: proc(r: ^geom.Byte_Reader, version: u32) -> (folders: [dynamic]Fo
 		f := Folder{id = int(geom.byte_get(r, i32)), name = geom.byte_get_string(r)}
 		bits := geom.byte_get(r, u8)
 		f.open, f.off, f.ghost = bits & 1 != 0, bits & 2 != 0, bits & 4 != 0
+		if version >= 12 do f.vis_off = geom.byte_get(r, u8)
 		append(&folders, f)
 		unique := true
 		for g in folders[:len(folders) - 1] do unique &&= g.id != f.id
@@ -639,7 +676,7 @@ MAX_FOLDERS :: 4096
 scene_open :: proc(app: ^App, path: string) -> (opened, ok: bool) {
 	start := time.tick_now()
 	name := filepath.base(path)
-	data, err := os.read_entire_file(path, context.allocator)
+	data, err := file_read_any(path, context.allocator)
 	if err != nil {
 		file_note(app, true, "Cannot open %s: %v", name, err)
 		return false, true
@@ -668,7 +705,12 @@ scene_open :: proc(app: ^App, path: string) -> (opened, ok: bool) {
 		folders_clear(&folders)
 		delete(folders)
 	}
-	if !folders_ok || !r.ok || solo > 1 || count > len(data) || selected >= count || !finite(view.target) || !finite({view.distance, view.yaw, view.pitch}) || !finite({view.roll, 0, 0}) {
+	vis_slot, vis_used: u8
+	if version >= 12 {
+		vis_slot = geom.byte_get(&r, u8)
+		vis_used = geom.byte_get(&r, u8)
+	}
+	if !folders_ok || !r.ok || solo > 1 || vis_slot > VIS_SLOTS || (vis_slot > 0 && vis_used & (1 << (vis_slot - 1)) == 0) || count > len(data) || selected >= count || !finite(view.target) || !finite({view.distance, view.yaw, view.pitch}) || !finite({view.roll, 0, 0}) {
 		file_note(app, true, "Cannot open %s: it is damaged", name)
 		return false, true
 	}
@@ -698,6 +740,7 @@ scene_open :: proc(app: ^App, path: string) -> (opened, ok: bool) {
 	delete(app.scene.folders)
 	app.scene.folders, folders = folders, nil
 	app.scene.next_folder_id = max(next_folder_id, 0)
+	app.scene.vis_slot, app.scene.vis_used = int(vis_slot), vis_used
 	scene_folders_normalize(app)
 	scene_selection_fix(app)
 	autosave_scene_saved(app, path)
@@ -729,6 +772,7 @@ scene_replace :: proc(app: ^App, objects: []^Object, selected, next_id: int, vie
 	app.scene.solo = false
 	folders_clear(&app.scene.folders)
 	app.scene.next_folder_id = 0
+	app.scene.vis_slot, app.scene.vis_used = 0, 0
 	// A drag over the old tree, and the column changes it queued, name the old objects.
 	app.kit.tree_drag, app.kit.tree_column = {}, {}
 	clear(&app.scene.also)
@@ -788,13 +832,13 @@ object_put_bytes :: proc(out: ^[dynamic]u8, obj: ^Object, opts := sculpt.Write_O
 	geom.byte_put(out, u8(obj.boolean)) // version 5
 	geom.byte_put(out, object_view_bits(obj)) // version 8
 	geom.byte_put(out, i32(obj.folder)) // version 9
+	geom.byte_put(out, obj.vis_off) // version 12
 	return sculpt.levels_write(&obj.levels, out, opts)
 }
 
 // About how many bytes object_put writes for `obj`: every level's positions and sculpt
 // layers, the base's triangles and node layout, and the shown level's mask, paint and
 // groups.
-@(private = "file")
 object_put_estimate :: proc(obj: ^Object) -> int {
 	bytes := 4096
 	for lv, j in obj.levels.levels {
@@ -813,9 +857,10 @@ object_put_estimate :: proc(obj: ^Object) -> int {
 	return bytes
 }
 
-// An object's eye (off is 1) and ghost (2) as the scene file stores them.
-OBJECT_VIEW_BITS :: 3
-object_view_bits :: proc(obj: ^Object) -> u8 {return u8(obj.off) | u8(obj.ghost) << 1}
+// An object's eye (off is 1), ghost (2) and polypaint left out (4, from version 11) as
+// the scene file stores them.
+OBJECT_VIEW_BITS :: 7
+object_view_bits :: proc(obj: ^Object) -> u8 {return u8(obj.off) | u8(obj.ghost) << 1 | u8(obj.paint_off) << 2}
 
 // Reads one object written by object_put (by a scene file of `version`) and uploads
 // its shown level. `read` is false
@@ -836,8 +881,8 @@ object_get :: proc(app: ^App, r: ^geom.Byte_Reader, version := SCENE_VERSION) ->
 	return obj, true, made
 }
 
-// Reads what object_put writes before the levels: the id, name, placement, boolean mode
-// and view flags, as a file of `version` has them; r.ok goes false on damage. The
+// Reads what object_put writes before the levels: the id, name, placement, boolean mode,
+// view flags, folder and stored eyes, as a file of `version` has them; r.ok goes false on damage. The
 // caller owns obj.name.
 object_get_fields :: proc(r: ^geom.Byte_Reader, obj: ^Object, version := SCENE_VERSION) {
 	obj.id = int(geom.byte_get(r, i32))
@@ -855,13 +900,14 @@ object_get_fields :: proc(r: ^geom.Byte_Reader, obj: ^Object, version := SCENE_V
 	}
 	if version >= 8 {
 		bits := geom.byte_get(r, u8)
-		if bits > OBJECT_VIEW_BITS do r.ok = false
-		obj.off, obj.ghost = bits & 1 != 0, bits & 2 != 0
+		if bits > (OBJECT_VIEW_BITS if version >= 11 else 3) do r.ok = false
+		obj.off, obj.ghost, obj.paint_off = bits & 1 != 0, bits & 2 != 0, bits & 4 != 0
 	}
 	if version >= 9 {
 		obj.folder = int(geom.byte_get(r, i32))
 		if obj.folder < 0 do r.ok = false
 	}
+	if version >= 12 do obj.vis_off = geom.byte_get(r, u8)
 }
 
 // Frees an object read for a scene that never got it: it has no history and draws

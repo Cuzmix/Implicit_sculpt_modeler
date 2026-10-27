@@ -33,9 +33,11 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
 - Layout (`kit_layout`, `new_ui.odin`; the bars in `kit_bars.odin`, after ZBrush for iPad): `kit_top_bar` (a full-width
   strip, `TOP_BAR_H`: Menu, Save, Import, Export | file name | History, Edit pies, Help, Settings), `kit_points` (the
   object's readout under it, at the top left), `kit_brush_bar` (left column: Brushes, Stroke, Alpha, Material, Colour |
-  Falloff, Draw size, Strength | Undo, Redo), `kit_nav_head` (`nav_head.odin`: the navigation head
+  Focal shift, Draw size, Strength | Undo, Redo; those three are `bar_value_button`s: tap = tall slider, finger or pen
+  long press held = a `Bar_Scrub` that drags the value up and down with a readout (`kit_bar_scrub`), long press let go
+  without dragging or a right click = the Falloff or Pen section, a cancel restores the value), `kit_nav_head` (`nav_head.odin`: the navigation head
   top right, `NAV_HEAD_W` x `NAV_HEAD_H`, a `ui.area` showing the renderer's picture; tap = `View_Axis` from that side,
-  drag = orbit), `kit_view_bar` (right, from `nav_head_bottom()`: Search, Palettes (the tray), Objects; then Studio
+  drag = orbit), `kit_view_bar` (right, from `nav_head_bottom()`: Search, Palettes (the tray), Objects (the card); then Studio
   render, Orthographic, Symmetry, Focus, Wireframe, Ghost, Solo); bottom `kit_bottom_bar` (a page of the dock's 21 slots,
   `dock_page_slots`/`dock_per_page`, with `ui.page_dots` under it; All brushes; Gizmo; then `mesh_tool` buttons
   Remesh, Dynamic topology, Retopologize, Subdivide, Live boolean, whose long press opens their Object section above
@@ -55,6 +57,21 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   `window_raise`; the draw order is the hit-test order from the next frame. `window_room` is the height it has where
   it is; `window_slide` the side it slides from. Positions and folds are `window` lines in the settings;
   `windows_reset` puts them back (Settings > Interface > Reset panel positions).
+- Cards (`ui.card_begin`): a window with no title bar, as ZBrush for iPad's quick-access cards, its dots on top
+  dragging it like a title bar and a long press on them returning `dock`, then a large centred title. The Objects
+  card (`kit_objects_card.odin`, `Kit_Window.Objects`, `Objects_Card` command) is one: Add / Duplicate / New folder /
+  More, then `ui.thumb_row` rows (a picture cell of `KIT_THUMBS_IMAGE` from `thumb_for`, the name, a switch under it,
+  toggles at the right, an accent outline when selected; `drags = true` makes a mouse drag or a long press then drag
+  report `dragged`), fed to the shared `kit_row_drags`/`kit_tree_drags` with a `Tree_Scroll` of its own body. It
+  shares the tray's place: the tray or a side panel opening closes it (`tray_was`), `objects_card_toggle` closes
+  them. Its menus are popovers in `kit_objects_card_menus`; `menu_item(trailing = true)` puts the icon at the right
+  as iPad menus do.
+  Under the list's size bar a `ui.section` "Actions" unfolds a `kit_scroll` body (`card_actions`): the V1 to V8 tiles
+  (`.Visibility_Slot`, a `View_Change`), then one `ui.section` per `Card_Action`. Sections reuse other panels' content
+  procs (`kit_boolean_section`, `kit_project_section`, `kit_extract_section`) rather than copies. Tile grids use
+  `command_button(..., icon_only = true)`: the icon alone, the label in its tooltip. Touch scenarios reach section
+  bodies by header coordinates (`OBJECTS_CARD` in touch_check), which move by `CARD_ROW_H` with each row the list
+  gains or loses.
 - Palette tray (`kit_inspector` in `new_ui.odin`, the rest in `kit_tray.odin`; still the "inspector" window and
   layout name): palettes `Kit_Tab` Tool (`kit_tool_tab`, `kit_tool.odin`: the brush's `BRUSH_SECTIONS`; Curve and
   Insert settings; Move help), Object (`kit_object.odin`, `OBJECT_SECTIONS`) and Scene (`kit_scene.odin`: Objects,

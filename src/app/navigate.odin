@@ -213,7 +213,7 @@ Nav_Prefs :: struct {
 	two_finger_pan: bool,
 	twist_roll:     bool, // ZBrush's Allow Roll Gesture
 	zoom_toward:    bool, // ZBrush's Center Navigation on Pinch
-	three_finger:   bool, // three fingers drag the brush's size and strength
+	three_finger:   bool, // three fingers drag the brush's size and focal shift
 	palm_rejection: bool, // a lone finger does nothing while the pen is near
 	double_tap:     bool, // a finger's double tap frames, or pins the pivot on the model
 	lift_one_orbit: bool, // two fingers down, one lifted: the other turns the view

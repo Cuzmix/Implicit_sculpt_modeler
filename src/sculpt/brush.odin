@@ -242,12 +242,13 @@ Sculptor :: struct {
 
 // Partitions and renumbers `mesh` in place (vertex order and triangle order change),
 // then builds the acceleration structures. Upload the mesh to the GPU after this.
-// With `old_to_new` (one entry per vertex), it receives each vertex's new number.
-sculptor_init :: proc(s: ^Sculptor, mesh: ^geom.Mesh, pool: ^jobs.Pool, node_triangles: u32 = NODE_TRIANGLES, old_to_new: []u32 = nil, allocator := context.allocator) {
+// With `old_to_new` (one entry per vertex), it receives each vertex's new number, and
+// with `tri_from` (one entry per triangle), each new triangle's number before.
+sculptor_init :: proc(s: ^Sculptor, mesh: ^geom.Mesh, pool: ^jobs.Pool, node_triangles: u32 = NODE_TRIANGLES, old_to_new: []u32 = nil, tri_from: []u32 = nil, allocator := context.allocator) {
 	s.mesh = mesh
 	s.pool = pool
 	s.bvh = geom.bvh_build_morton(mesh^, node_triangles, pool, allocator)
-	reorder_by_nodes(s, old_to_new, allocator)
+	reorder_by_nodes(s, old_to_new, tri_from, allocator)
 	sculptor_init_rest(s, allocator)
 }
 
@@ -325,7 +326,7 @@ sculptor_destroy :: proc(s: ^Sculptor) {
 // leaves is owned by the one with the lowest node id; the others list it as shared.
 // Every step is parallel over triangles, vertices or nodes.
 @(private)
-reorder_by_nodes :: proc(s: ^Sculptor, old_to_new: []u32, allocator := context.allocator) {
+reorder_by_nodes :: proc(s: ^Sculptor, old_to_new: []u32, tri_from: []u32, allocator := context.allocator) {
 	Reorder :: struct {
 		s:           ^Sculptor,
 		leaves:      []u32,   // node id -> BVH leaf
@@ -335,6 +336,7 @@ reorder_by_nodes :: proc(s: ^Sculptor, old_to_new: []u32, allocator := context.a
 		unique:      [][]u32, // per node: distinct old vertices of its triangles
 		owner:       []u32,   // per old vertex: lowest node id using it
 		old_to_new:  []u32,
+		tri_from:    []u32,   // per new triangle: its number before, when asked for
 		shared:      [][]u32, // per node: new indices of shared vertices
 		owners:      [][]u32, // per node: owner node ids of those, deduplicated
 		// Per-node lists are made and freed on different threads, so they use the
@@ -351,6 +353,7 @@ reorder_by_nodes :: proc(s: ^Sculptor, old_to_new: []u32, allocator := context.a
 		indices     = make([dynamic]u32, len(m.indices), m.indices.allocator),
 		owner       = make([]u32, vcount, context.temp_allocator),
 		old_to_new  = make([]u32, vcount, context.temp_allocator),
+		tri_from    = tri_from,
 	}
 
 	// Triangles: position k in tri_order becomes triangle k.
@@ -362,6 +365,7 @@ reorder_by_nodes :: proc(s: ^Sculptor, old_to_new: []u32, allocator := context.a
 			r.indices[3 * k + 0] = m.indices[3 * t + 0]
 			r.indices[3 * k + 1] = m.indices[3 * t + 1]
 			r.indices[3 * k + 2] = m.indices[3 * t + 2]
+			if r.tri_from != nil do r.tri_from[k] = t
 			b.tri_order[k] = u32(k)
 		}
 	}, geom.RANGE_GRAIN)
@@ -632,7 +636,34 @@ Falloff :: struct {
 // radii from the centre is geom.curve_at(curve, 1 - d), so the linear curve is a cone,
 // and every curve is 0 at the rim and 1 at the centre.
 falloff_set_curve :: proc(f: ^Falloff, curve: geom.Curve) {
-	for &w, i in f.table do w = geom.curve_at(curve, 1 - math.sqrt(f32(i) / FALLOFF_STEPS))
+	falloff_set_shaped(f, curve, 0)
+}
+
+// The focal shift's range, as the reference app's Focal Shift: positive pulls the weight in
+// toward the centre, negative pushes it out toward the rim.
+FOCAL_MIN :: -100
+FOCAL_MAX :: 100
+
+// Fills the table with the falloff `curve` (nil: the built-in falloff) reshaped by `focal`
+// (FOCAL_MIN to FOCAL_MAX): the weight at distance d radii is the base's at d^p, with
+// p = 2^(-focal/50), so focal 0 is the base itself, 100 reads it at d^(1/4), a point, and
+// -100 at d^4, a plateau with a hard edge. Every shape stays 1 at the centre and 0 at the
+// rim, and falls as d grows. A strong positive shift is steeper at the very tip than the
+// table can follow: inside its first cell (a sixteenth of the radius) the point is rounded
+// off, which a dab never shows, where more entries would only round it a little less.
+falloff_set_shaped :: proc(f: ^Falloff, curve: Maybe(geom.Curve), focal: f32) {
+	p := math.pow(2, -clamp(focal, FOCAL_MIN, FOCAL_MAX) / 50)
+	for &w, i in f.table {
+		// Squared distances stay as they are where nothing reshapes them, so the built-in
+		// table matches falloff itself exactly.
+		x2 := f32(i) / FALLOFF_STEPS
+		if focal != 0 do x2 = math.pow(x2, p)
+		if c, drawn := curve.?; drawn {
+			w = geom.curve_at(c, 1 - math.sqrt(x2))
+		} else {
+			w = falloff(x2)
+		}
+	}
 }
 
 // The drawn falloff at squared distance x2 in radii².

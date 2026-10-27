@@ -66,7 +66,11 @@ Object :: struct {
 	// Not hidden triangles, which are the sculptor's.
 	off:       bool,
 	ghost:     bool, // drawn dimmed as a reference, never picked by a press in the viewport
+	// Its polypaint is left out of the drawing (the paint toggle of its row in the Objects
+	// card), as ZBrush's SubTool rows turn colour off: the colours are kept, only unseen.
+	paint_off: bool,
 	folder:    int, // the Folder it is in, by id; 0 for none
+	vis_off:   u8, // its eye in each stored visibility (bit k for V(k+1)): off (scene_tree.odin)
 }
 
 // The level being sculpted: the HD window while one is open.
@@ -101,17 +105,35 @@ Scene :: struct {
 	// (scene_tree.odin's multi-select).
 	also:     [dynamic]int,
 	also_for: int,
+	// Store visibility, as ZBrush's V1 to V8: the one chosen (1 to 8, 0 for none) and
+	// those that hold eyes (bit k for V(k+1)); each object's and folder's eyes in them are
+	// their vis_off (scene_tree.odin's visibility_slot).
+	vis_slot: int,
+	vis_used: u8,
 }
 
 // Changes to the object list or the selected object's levels requested by the UI,
 // applied at the start of the next frame so no panel ever draws an object (or GPU
 // buffer) freed during the same frame.
+// Polypaint per vertex and polygroups per triangle that a mesh brings to the object made
+// from it (Split and Merge keep the surface's parts); nil for none.
+Surface :: struct {
+	color:  []sculpt.Color,
+	groups: []u16,
+}
+
 Scene_Command :: struct {
-	kind:     enum u8 {None, Add, New, Remesh, Decimate, Retopo, Delete, Duplicate, Symmetrize, Slice, Subdivide, Set_Level, Delete_Higher, Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete, Dyntopo, Boolean, Extract, View, Arrange},
+	kind:     enum u8 {None, Add, New, Remesh, Decimate, Retopo, Delete, Duplicate, Symmetrize, Slice, Subdivide, Set_Level, Delete_Higher, Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete, Dyntopo, Boolean, Extract, View, Arrange, Copy, Paste, Delete_Others, Levels_All, Split, Merge, Align, Distribute},
 	vertices: int,
 	shape:    geom.Primitive, // Add, New: what to add
-	on:       bool, // Dyntopo: turn dynamic topology on, or off; Symmetrize: keep the + side
-	axis:     int, // Symmetrize: 0 x, 1 y, 2 z
+	// Dyntopo: turn dynamic topology on, or off; Symmetrize: keep the + side; Delete_Others:
+	// the selected objects too; Levels_All: every object to its highest level, or its lowest;
+	// Add: below the selected object, in its folder, rather than at the end of the list;
+	// Merge: the shown objects into a new one, rather than the selected one and the next.
+	on:       bool,
+	axis:     int, // Symmetrize, Align, Distribute: 0 x, 1 y, 2 z
+	edge:     int, // Align, Distribute: 0 each object's low side, 1 its middle, 2 its high side
+	split:    Split_Mode, // Split: what becomes objects of their own
 	level:    int, // Set_Level; HD steps for Hd_Steps
 	at:       [2]f32, // Hd_Enter: the viewport point to open the window around
 	size:     [2]f32, // ...in a viewport of this size
@@ -121,7 +143,7 @@ Scene_Command :: struct {
 	// (adjust_last.odin): Remesh, Decimate, Symmetrize, Retopo and Extract.
 	adjust:   bool,
 	view:     View_Change, // View: what changes about how objects are shown
-	id:       int, // View, Arrange: the object (or folder) it changes
+	id:       int, // View, Arrange: the object (or folder) it changes; Merge: the folder, or 0
 	arrange:  Arrange_Change, // Arrange: what changes about the tree
 	folder:   int, // Arrange: the folder an object goes into
 	before:   int, // Arrange Reorder, Reorder_Folder: the object it goes before, 0 for the end
@@ -224,10 +246,10 @@ STARTER_LEVELS :: 3
 // whose own space sits at `file` in its file, and selects it. `name` must not be in
 // temp memory, which building frees. `start` is when making the mesh began, for the
 // log. Returns false on a GPU failure.
-scene_add_mesh :: proc(app: ^App, mesh: geom.Mesh, name: string, file, t: Transform, start: time.Tick, old_to_new: []u32 = nil) -> bool {
+scene_add_mesh :: proc(app: ^App, mesh: geom.Mesh, name: string, file, t: Transform, start: time.Tick, old_to_new: []u32 = nil, surface: Surface = {}) -> bool {
 	obj := new(Object)
 	obj.transform, obj.file = t, file
-	if !object_build_from(app, obj, mesh, start, normals = true, old_to_new = old_to_new) {
+	if !object_build_from(app, obj, mesh, start, normals = true, old_to_new = old_to_new, surface = surface) {
 		free(obj)
 		return false
 	}
@@ -436,14 +458,80 @@ scene_duplicate :: proc(app: ^App, obj: ^Object) -> bool {
 	twin.transform.position = next_free_position(app)
 	scene_append(app, twin)
 	// Beside its source in the list (and so in its folder), selected.
+	scene_place_after(app, twin, obj)
+	log.infof("duplicate: object %d is a copy of %d", twin.id, obj.id)
+	return true
+}
+
+// Copies the object to the app's clipboard as the scene file stores it, so a paste works
+// after the object is gone or another scene is open.
+scene_copy :: proc(app: ^App, obj: ^Object) {
+	stroke_finish(app)
+	clear(&app.clipboard)
+	object_put(app, &app.clipboard, obj)
+	report(app, nil, {.Quiet}, "Copied %s", object_label(obj))
+	log.infof("copy: object %d, %.1f MB on the clipboard", obj.id, f64(len(app.clipboard)) / (1 << 20))
+}
+
+// Adds a copy of what the clipboard holds below the selected object (in its folder), in
+// view and selected, as an undo step. False only on a GPU failure.
+scene_paste :: proc(app: ^App) -> bool {
+	if len(app.clipboard) == 0 do return true
+	stroke_finish(app)
+	r := geom.byte_reader(app.clipboard[:])
+	twin, read, made := object_get(app, &r)
+	if !read do return true
+	if !made {
+		_ = sdl.WaitForGPUIdle(app.renderer.device)
+		object_discard(app, twin)
+		return false
+	}
+	sel := selected_object(app)
+	// The folder it was copied from may be gone, or in another scene: it goes where the
+	// selection is. Hidden or a ghost, the selection would move straight off it.
+	twin.folder = sel.folder if sel != nil else 0
+	// Its eyes in the stored visibilities were another scene's, or another moment's.
+	twin.off, twin.ghost, twin.vis_off = false, false, 0
+	twin.transform.position = next_free_position(app)
+	scene_append(app, twin)
+	if sel != nil do scene_place_after(app, twin, sel)
+	history_record_swap(app, twin.id, history_snapshot(app, nil, "paste object"))
+	report(app, nil, {.Undo}, "Pasted %s", object_label(twin))
+	return true
+}
+
+// Moves `twin`, the list's last object, to just after `obj`, and selects it.
+scene_place_after :: proc(app: ^App, twin, obj: ^Object) {
 	for o, i in app.scene.objects do if o == obj {
 		ordered_remove(&app.scene.objects, len(app.scene.objects) - 1)
 		inject_at(&app.scene.objects, i + 1, twin)
 		app.scene.selected = i + 1
 		break
 	}
-	log.infof("duplicate: object %d is a copy of %d", twin.id, obj.id)
-	return true
+}
+
+// Deletes every object but the selected ones, or with `all` every object, as one undo
+// step. Refused when the copies undo keeps would pass the History's limit, which would
+// drop the oldest of them and leave the step only partly undoable.
+scene_delete_others :: proc(app: ^App, all: bool) {
+	ids := make([dynamic]int, 0, len(app.scene.objects))
+	defer delete(ids)
+	bytes := 0
+	for obj in app.scene.objects {
+		if !all && object_in_selection(app, obj) do continue
+		append(&ids, obj.id)
+		bytes += object_put_estimate(obj)
+	}
+	if len(ids) == 0 do return
+	if bytes > SWAP_LIMIT_BYTES {
+		report(app, nil, {.Warning}, "Too much to delete in one undoable step (%.1f GB); delete fewer objects at a time", f64(bytes) / (1 << 30))
+		return
+	}
+	for id, k in ids {
+		select_object(app, object_by_id(app, id))
+		scene_delete_selected(app, chain = k > 0)
+	}
+	report(app, nil, {.Undo}, "Deleted %d object%s", len(ids), "" if len(ids) == 1 else "s")
 }
 
 // Turns dynamic topology on or off for the object (see sculpt.levels_dyn_enable). It
@@ -544,8 +632,17 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 	case .None:
 	case .Add:
 		before := len(app.scene.objects)
+		sel := selected_object(app)
 		if !scene_add_primitive(app, cmd.shape, cmd.vertices, {position = next_free_position(app), scale = 1}) do return false
-		if len(app.scene.objects) > before do history_record_added(app)
+		if len(app.scene.objects) > before {
+			// Inserted below the selection, in its folder, rather than at the end.
+			if cmd.on && sel != nil {
+				added := selected_object(app)
+				added.folder = sel.folder
+				scene_place_after(app, added, sel)
+			}
+			history_record_added(app)
+		}
 	case .New:
 		return scene_new(app, cmd.shape, cmd.vertices)
 	case .Remesh:
@@ -643,6 +740,39 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 		scene_view(app, cmd.view, cmd.id)
 	case .Arrange:
 		scene_arrange(app, cmd)
+	case .Copy:
+		if obj := selected_object(app); obj != nil do scene_copy(app, obj)
+	case .Paste:
+		return scene_paste(app)
+	case .Delete_Others:
+		scene_delete_others(app, cmd.on)
+	case .Split:
+		obj := selected_object(app)
+		if obj == nil do return true
+		before := history_snapshot(app, obj, "split")
+		parts, changed, ok := object_split(app, obj, cmd.split)
+		defer delete(parts)
+		if !changed {
+			history_snapshot_drop(before)
+			if !ok do scene_delete_selected(app, undoable = false)
+			return ok
+		}
+		// The object and every part it made, as one step.
+		history_record_swap(app, obj.id, before)
+		for id in parts do history_record_swap(app, id, history_snapshot(app, nil, "split"), chain = true)
+		report(app, nil, {.Undo}, "%s: %d objects", SPLIT_NAMES[cmd.split], len(parts) + 1)
+		return ok
+	case .Merge:
+		return merge_visible(app, cmd.id) if cmd.on else merge_down(app)
+	case .Align:
+		align_objects(app, cmd.axis, cmd.edge)
+	case .Distribute:
+		distribute_objects(app, cmd.axis, cmd.edge)
+	case .Levels_All:
+		// Not an undo step, as choosing a level with its slider is not.
+		for obj in app.scene.objects {
+			if !object_set_level(app, obj, len(obj.levels.levels) - 1 if cmd.on else 0) do return false
+		}
 	case .Dyntopo:
 		if obj := selected_object(app); obj != nil {
 			object_hd_leave(app, obj)
@@ -879,11 +1009,19 @@ object_build :: proc(app: ^App, obj: ^Object, vertices, subdiv: int) -> bool {
 }
 
 // Makes `mesh` the object's only level, prepares it for sculpting and uploads it,
-// computing its normals first when `normals` is set. `start` is when building the mesh
-// began, for the log.
-@(private = "file")
-object_build_from :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, start: time.Tick, normals := false, old_to_new: []u32 = nil) -> bool {
-	sculpt.levels_init(&obj.levels, mesh, &app.pool, old_to_new = old_to_new)
+// computing its normals first when `normals` is set, and giving it `surface`'s polypaint
+// and polygroups (per vertex and triangle of `mesh`; not temporary, as building frees the
+// temp allocator). `start` is when building the mesh began, for the log.
+object_build_from :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, start: time.Tick, normals := false, old_to_new: []u32 = nil, surface: Surface = {}) -> bool {
+	if surface.color == nil && surface.groups == nil {
+		sculpt.levels_init(&obj.levels, mesh, &app.pool, old_to_new = old_to_new)
+	} else {
+		// The surface's parts follow the renumbering onto the level.
+		renumbered := old_to_new if old_to_new != nil else make([]u32, len(mesh.positions), context.temp_allocator)
+		tri_from := make([]u32, len(mesh.indices) / 3, context.temp_allocator)
+		sculpt.levels_init(&obj.levels, mesh, &app.pool, old_to_new = renumbered, tri_from = tri_from)
+		sculpt.levels_take_surface(&obj.levels, surface.color, surface.groups, renumbered, tri_from)
+	}
 	if normals do sculpt.sculptor_recompute_all(object_sculptor(obj))
 	free_all(context.temp_allocator)
 	ready := time.tick_now()
@@ -927,7 +1065,6 @@ object_rebuild :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, start: time.Tic
 // Takes the level the object is on out of its levels when it has layers, for
 // object_carry_layers after the rebuild; the layers of the other levels go, counted for
 // the command's note.
-@(private = "file")
 object_take_layered :: proc(app: ^App, obj: ^Object) -> sculpt.Layered_Level {
 	app.layers_lost += sculpt.levels_layer_count(&obj.levels)
 	return sculpt.levels_take_layered(&obj.levels)
@@ -935,7 +1072,6 @@ object_take_layered :: proc(app: ^App, obj: ^Object) -> sculpt.Layered_Level {
 
 // Gives the rebuilt object the taken level's layers, counting them for the note unless
 // `counted` already did (the second part of a slice).
-@(private = "file")
 object_carry_layers :: proc(app: ^App, obj: ^Object, layered: sculpt.Layered_Level, mirror: sculpt.Surface_Mirror = {}, counted := true) {
 	if layered.level == nil do return
 	start := time.tick_now()
@@ -951,7 +1087,6 @@ object_carry_layers :: proc(app: ^App, obj: ^Object, layered: sculpt.Layered_Lev
 
 // Frees the levels and GPU buffers. The caller waits for the GPU first. A rebuild
 // (`rebuild`) counts the selection sets that go for the command's note.
-@(private = "file")
 object_release_mesh :: proc(app: ^App, obj: ^Object, rebuild := true) {
 	if rebuild do app.sets_lost += len(sculpt.levels_sets(&obj.levels))
 	if app.stroke.object == obj.id do app.stroke.active = false

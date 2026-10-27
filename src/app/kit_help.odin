@@ -59,7 +59,7 @@ command_group :: proc(id: Command_Id) -> Command_Group {
 	case .Remesh ..= .Reset_Transform:        return .Object
 	case .Add_Object ..= .Rename_Object:      return .Scene
 	case .View_Axis ..= .Studio_Render:       return .View
-	case .Stats ..= .Run_Script:              return .App
+	case .Stats ..= .Pick_Pack:               return .App
 	}
 	return .App
 }
@@ -145,6 +145,8 @@ TOUCH_HELP := [?]Help_Line {
 	{group = "SCULPT", command = .Size_Up},
 	{group = "SCULPT", what = "Brush strength", command = .Strength_Down},
 	{group = "SCULPT", command = .Strength_Up},
+	{group = "SCULPT", what = "Focal shift", how = "Three fingers sideways", show = proc(app: ^App) -> bool {return app.nav.three_finger}},
+	{group = "SCULPT", what = "Focal shift", how = "Long press the bar's Focal shift and drag"},
 	{group = "SCULPT", what = "Smooth, invert, mask or hide", how = "Modifier wheel: tap or hold; Smooth and Mask together hide", show = proc(app: ^App) -> bool {return app.tool == .Brush && app.kit.rail_side != .Off}},
 	{group = "SCULPT", what = "Mask or hide a shape", how = "Mask, or Smooth and Mask, on: drag empty space", show = proc(app: ^App) -> bool {return app.tool == .Brush && app.kit.rail_side != .Off}},
 	{group = "SCULPT", what = "Straight line from the press", how = "Hold Smooth mid-stroke", show = proc(app: ^App) -> bool {return app.tool == .Brush && app.kit.rail_side != .Off}},
@@ -276,7 +278,7 @@ help_name :: proc(id: Command_Id, arg: int) -> string {
 help_open :: proc(app: ^App, tab: Help_Tab) {
 	k := &app.kit
 	if k.settings do settings_close(app)
-	k.macros = false
+	k.macros, k.library = false, false
 	k.help, k.help_tab, k.help_scroll = true, tab, 0
 	k.windows[.Help].minimized = false
 	window_raise(k, .Help)

@@ -218,3 +218,24 @@ a_big_export_waits_for_its_toast :: proc(t: ^testing.T) {
 	defer delete(b)
 	testing.expect(t, len(a) > 0 && string(a) == string(b), "the waiting export wrote something else")
 }
+
+// A picked file reads the same through file_read_any as through os; a content:// URI
+// that SDL cannot open (here, off Android, none can) is an error, not a crash, and so
+// is a missing file.
+@(test)
+file_read_any_reads_paths_and_uris :: proc(t: ^testing.T) {
+	folder := "build/save_test_read_any/"
+	_ = os.remove_all(folder)
+	defer os.remove_all(folder)
+	testing.expect(t, os.make_directory_all(folder) == nil)
+	path := strings.concatenate({folder, "a.obj"}, context.temp_allocator)
+	testing.expect(t, os.write_entire_file(path, transmute([]u8)string("v 0 0 0\n")) == nil)
+	data, err := file_read_any(path)
+	defer delete(data)
+	testing.expect(t, err == nil && string(data) == "v 0 0 0\n")
+	missing, missing_err := file_read_any(strings.concatenate({folder, "none.obj"}, context.temp_allocator))
+	testing.expect(t, missing == nil && missing_err != nil)
+	uri, uri_err := file_read_any("content://com.android.providers.downloads.documents/document/42")
+	testing.expect(t, uri == nil && uri_err != nil)
+	free_all(context.temp_allocator)
+}

@@ -89,6 +89,9 @@ SETTINGS := [?]Setting {
 	{"retopo_quads", U + offset_of(Ui_State, retopo_quads), i32, 100, 1_000_000},
 	{"wireframe", offset_of(App, wireframe), bool, 0, 0},
 	{"flat", offset_of(App, flat), bool, 0, 0},
+	{"exposure", offset_of(App, exposure), f32, -EXPOSURE_RANGE, EXPOSURE_RANGE},
+	{"cavity", offset_of(App, cavity), f32, 0, 1},
+	{"ridge", offset_of(App, ridge), f32, 0, 1},
 	{"reduce_motion", K + offset_of(Kit_State, ctx) + offset_of(ui.Context, reduced_motion), bool, 0, 0},
 	{"ortho", offset_of(App, camera) + offset_of(camera.Orbit, ortho), bool, 0, 0},
 	// Settings > Interface, Camera, Touch and Performance.
@@ -322,6 +325,8 @@ settings_load :: proc(app: ^App, path: string) {
 	on_preset := ""
 	// The dock's preset slots, by name, put in once the presets are read.
 	dock_presets: [DOCK_SLOTS]string
+	// The plain brush's alpha, by reference, put on before the preset, which brings its own.
+	plain_alpha := ""
 	lines: for line in strings.split_lines_iterator(&text) {
 		f := strings.fields(line, context.temp_allocator)
 		if len(f) < 2 do continue
@@ -343,8 +348,13 @@ settings_load :: proc(app: ^App, path: string) {
 			// falloff <brush> <drawn 0|1> c1x c1y c2x c2y
 			if len(f) == 7 {
 				if kind, ok := brush_by_name(f[1]); ok {
-					b.falloffs[kind] = {drawn = f[2] == "1", curve = curve(f[3:], b.falloffs[kind].curve)}
+					b.falloffs[kind].drawn, b.falloffs[kind].curve = f[2] == "1", curve(f[3:], b.falloffs[kind].curve)
 				}
+			}
+		case "focal":
+			// focal <brush> <shift>, for the brushes whose focal shift is not 0.
+			if len(f) == 3 {
+				if kind, ok := brush_by_name(f[1]); ok do b.falloffs[kind].focal = clamp(number(f[2], 0), sculpt.FOCAL_MIN, sculpt.FOCAL_MAX)
 			}
 		case "pressure_curve": if len(f) == 5 do b.pressure_curve = curve(f[1:], b.pressure_curve)
 		case "symmetry", "paint_color", "material", "new_vertices":
@@ -388,10 +398,11 @@ settings_load :: proc(app: ^App, path: string) {
 		case "preset":
 			// preset <name> <brush> <strength> <drawn 0|1> c1x c1y c2x c2y <alpha|-> <alpha mode>
 			//        <alpha angle> <stroke> <lazy px> r g b <cloth mode> [<spread> [<lock plane 0|1>
-			//        <connected 0|1>]]; names escaped (preset_escape). Lines from before Spray
-			// have no spread and take the default; lines from before Lock plane and
-			// Connected have both off. A damaged line, or one whose name is taken, is skipped.
-			if (len(f) != 18 && len(f) != 19 && len(f) != 21) || app.preset_count == MAX_PRESETS do continue
+			//        <connected 0|1> [<focal shift>]]]; names escaped (preset_escape). Lines from
+			// before Spray have no spread and take the default; lines from before Lock plane
+			// and Connected have both off; lines from before focal shift have none. A damaged
+			// line, or one whose name is taken, is skipped.
+			if (len(f) != 18 && len(f) != 19 && len(f) != 21 && len(f) != 22) || app.preset_count == MAX_PRESETS do continue
 			kind, kind_ok := brush_by_name(f[2])
 			alpha_mode, mode_ok := reflect.enum_from_name(Alpha_Mode, f[10])
 			stroke, stroke_ok := reflect.enum_from_name(Stroke_Mode, f[12])
@@ -403,12 +414,13 @@ settings_load :: proc(app: ^App, path: string) {
 				alpha = -1, alpha_mode = alpha_mode, alpha_angle = number(f[11], 0), stroke = stroke,
 				lazy_px = clamp(number(f[13], 0), 0, MAX_RADIUS_PX), cloth_mode = cloth,
 				spread = clamp(number(f[18], SPRAY_DEFAULT_SPREAD), 0, SPRAY_MAX_SPREAD) if len(f) >= 19 else SPRAY_DEFAULT_SPREAD,
-				lock_plane = len(f) == 21 && f[19] == "1", connected = len(f) == 21 && f[20] == "1",
+				lock_plane = len(f) >= 21 && f[19] == "1", connected = len(f) >= 21 && f[20] == "1",
 			}
+			if len(f) == 22 do v.falloff.focal = clamp(number(f[21], 0), sculpt.FOCAL_MIN, sculpt.FOCAL_MAX)
 			for k in 0 ..< 3 do v.color[k] = clamp(number(f[14 + k], 0), 0, 1)
-			// Only the built-in alphas are there at every start, in this order (alphas_init).
-			alpha := preset_unescape(f[9])
-			for name, shape in sculpt.ALPHA_SHAPE_NAMES do if strings.equal_fold(alpha, name) do v.alpha = int(shape)
+			// By reference: a built-in's name or a library alpha's `mine/<stem>`; one that is
+			// not there (taken out of the library) leaves the preset round.
+			v.alpha = alpha_find(app, preset_unescape(f[9]))
 			app.presets[app.preset_count].values = v
 			app.preset_count += 1
 			if !preset_rename(app, app.preset_count - 1, preset_unescape(f[1])) {
@@ -417,6 +429,8 @@ settings_load :: proc(app: ^App, path: string) {
 			}
 		case "brush_preset":
 			on_preset = strings.clone(preset_unescape(f[1]), context.temp_allocator)
+		case "brush_alpha":
+			plain_alpha = strings.clone(preset_unescape(f[1]), context.temp_allocator)
 		case "key":
 			// key <command name> <chord|none>, in the order they were made: a chord already
 			// taken by an earlier line, or now reserved, is skipped.
@@ -479,6 +493,7 @@ settings_load :: proc(app: ^App, path: string) {
 	}
 	// On a preset of the brush the file names, it is put back on it; its plain values are
 	// the ones just read.
+	if plain_alpha != "" do b.alpha = alpha_find(app, plain_alpha)
 	if i := preset_find(app, on_preset); on_preset != "" && i >= 0 && app.presets[i].values.kind == b.kind do preset_pick(app, i)
 	// A slot naming a preset the file does not have keeps what it held.
 	for name, slot in dock_presets {
@@ -515,6 +530,7 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 		fmt.sbprintfln(&out, "strength %v %g", kind, b.strengths[kind])
 		f := b.falloffs[kind]
 		fmt.sbprintfln(&out, "falloff %v %d %g %g %g %g", kind, bit(f.drawn), f.curve.c1.x, f.curve.c1.y, f.curve.c2.x, f.curve.c2.y)
+		if f.focal != 0 do fmt.sbprintfln(&out, "focal %v %g", kind, f.focal)
 	}
 	c := b.pressure_curve
 	fmt.sbprintfln(&out, "pressure_curve %g %g %g %g", c.c1.x, c.c1.y, c.c2.x, c.c2.y)
@@ -534,12 +550,17 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 	for i in 0 ..< app.preset_count {
 		p := &app.presets[i]
 		v := p.values
-		alpha := app.alphas[v.alpha].name if v.alpha >= 0 && v.alpha < len(app.alphas) else "-"
-		fmt.sbprintfln(&out, "preset %s %v %g %d %g %g %g %g %s %v %g %v %g %g %g %g %v %g %d %d", preset_escape(preset_name(p)), v.kind, v.strength, bit(v.falloff.drawn),
+		alpha := alpha_ref(app, v.alpha)
+		fmt.sbprintf(&out, "preset %s %v %g %d %g %g %g %g %s %v %g %v %g %g %g %g %v %g %d %d", preset_escape(preset_name(p)), v.kind, v.strength, bit(v.falloff.drawn),
 			v.falloff.curve.c1.x, v.falloff.curve.c1.y, v.falloff.curve.c2.x, v.falloff.curve.c2.y, preset_escape(alpha), v.alpha_mode, v.alpha_angle, v.stroke, v.lazy_px,
 			v.color.r, v.color.g, v.color.b, v.cloth_mode, v.spread, bit(v.lock_plane), bit(v.connected))
+		// Only a preset with a focal shift has the field, so the builds from before it,
+		// which skip a line of a length they do not know, keep every other preset.
+		if v.falloff.focal != 0 do fmt.sbprintf(&out, " %g", v.falloff.focal)
+		strings.write_byte(&out, '\n')
 	}
 	if on.preset > 0 && on.preset <= app.preset_count do fmt.sbprintfln(&out, "brush_preset %s", preset_escape(preset_name(&app.presets[on.preset - 1])))
+	fmt.sbprintfln(&out, "brush_alpha %s", preset_escape(alpha_ref(app, app.brush.alpha)))
 	for o in app.key_overrides[:app.key_override_count] {
 		fmt.sbprintfln(&out, "key %s %s", command_name(o.command, o.arg), "none" if o.none else chord_text(o.chord))
 	}

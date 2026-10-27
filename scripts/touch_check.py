@@ -29,10 +29,12 @@ import math
 import os
 import queue
 import shutil
+import struct
 import subprocess
 import sys
 import threading
 import time
+import zlib
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EXE = os.path.join(ROOT, "build", "sculpt.exe" if os.name == "nt" else "sculpt")
@@ -44,7 +46,7 @@ MODEL = (800, 450)  # the sphere's middle; it reaches about 368 points out
 EMPTY = (250, 150)  # viewport with nothing on it
 UI = {
     "menu": (26, 26), "save": (74, 26), "history": (1430, 26), "help": (1526, 26), "settings": (1574, 26),
-    "brushes": (31, 233), "stroke": (31, 281), "falloff": (31, 474), "size": (31, 522), "strength": (31, 570),
+    "brushes": (31, 233), "stroke": (31, 281), "focal": (31, 474), "size": (31, 522), "strength": (31, 570),
     "undo": (31, 619), "redo": (31, 667),
     # The navigation head (nav_head.odin), and the view bar under it.
     "nav_head": (1568, 88),
@@ -65,10 +67,16 @@ UI = {
 MENU_FILE_ROWS = ["open", "save", "save_as", "save_copy", "earlier_saves", "last_autosave", "import", "export", "screenshot"]
 _file_y = {name: 106 + 44 * i for i, name in enumerate(MENU_FILE_ROWS)}
 _grid_y = _file_y[MENU_FILE_ROWS[-1]] + 69
+# The menu's APP rows in order (new_ui.odin), under the New scene grid: a row added there is
+# added here, and every tap on these rows follows.
+MENU_APP_ROWS = ["reduce_motion", "settings", "stats", "help", "macros", "library"]
+_app_y = {name: _grid_y + 48 + 69 + 44 * i for i, name in enumerate(MENU_APP_ROWS)}
+# On a 1280x720 window, with the menu scrolled to its end, the last row's middle.
+MENU_SHORT_LAST_Y = 688
 UI.update({
     "menu_earlier_saves": (75, _file_y["earlier_saves"]),
     "new_sphere": (48, _grid_y), "new_head": (135, _grid_y), "new_hand": (135, _grid_y + 48),
-    "menu_settings": (75, _grid_y + 48 + 69 + 44), "menu_macros": (75, _grid_y + 48 + 69 + 44 * 4),
+    "menu_settings": (75, _app_y["settings"]), "menu_macros": (75, _app_y["macros"]), "menu_library": (75, _app_y["library"]),
 })
 # The Macros panel (kit_macros.odin) with two macros: each row's Run, Key, Rename and
 # Delete, rows 52 points apart.
@@ -247,15 +255,15 @@ SYMMETRY_AXES = {"x": (1401, 449), "y": (1453, 449), "z": (1505, 449)}
 
 @scenario
 def bar_section_opens_beside_the_bar():
-    """A tap on the brush bar's Stroke opens the Stroke section beside it; a second tap closes it; Falloff then opens its own."""
+    """A tap on the brush bar's Stroke opens the Stroke section beside it; a second tap closes it; Focal shift then opens its slider."""
     s = Script()
     s.ftap(*UI["stroke"])
     s.wait(8)
     s.ftap(*UI["stroke"])
     s.wait(8)
-    s.ftap(*UI["falloff"])
+    s.ftap(*UI["focal"])
     s.wait(8)
-    return s, [], camera_still({"dabs": near(0), "bar_pop": is_text("falloff")})
+    return s, [], camera_still({"dabs": near(0), "bar_pop": is_text("focal")})
 
 
 @scenario
@@ -265,6 +273,61 @@ def long_press_draw_size_opens_the_pen():
     long_press(s, *UI["size"])
     s.wait(4)
     return s, [], camera_still({"dabs": near(0), "bar_pop": is_text("pen"), "brush_radius_px": near(60)})
+
+
+def long_press_drag(s, x, y, dy, finger=0, steps=10):
+    """A long press on (x, y), then, still held, a drag `dy` points down (negative: up) and a lift."""
+    s.add(f"fdown:{finger}:{x:g},{y:g}")
+    s.wait(LONG_PRESS_FRAMES)
+    for k in range(1, steps + 1):
+        s.add(f"fmove:{finger}:{x:g},{y + dy * k / steps:g}")
+        s.wait(1)
+    s.add(f"fup:{finger}")
+    s.wait(4)
+
+
+@scenario
+def long_press_drag_draw_size():
+    """A long press on Draw size dragged 150 points up (past the slop, which the drag starts from) about doubles the size, and opens nothing."""
+    s = Script()
+    long_press_drag(s, *UI["size"], -150 - 10)
+    s.wait(4)
+    return s, [], camera_still({"dabs": near(0), "bar_pop": is_text("none"), "brush_radius_px": lambda v: 105 < float(v) <= 120})
+
+
+@scenario
+def long_press_drag_strength_and_focal():
+    """Dragged down, a long press on Strength lowers it; dragged up, one on Focal shift raises it; neither opens anything."""
+    s = Script()
+    long_press_drag(s, *UI["strength"], 60 + 10)
+    long_press_drag(s, *UI["focal"], -60 - 10)
+    s.wait(4)
+    return s, [], camera_still({"dabs": near(0), "bar_pop": is_text("none"), "brush_strength": lambda v: 0.28 <= float(v) <= 0.34,
+                                "brush_focal": lambda v: 30 <= float(v) <= 42})
+
+
+@scenario
+def cancelled_scrub_puts_the_size_back():
+    """A long press on Draw size dragged up, then cancelled by the system, puts the size back and opens nothing."""
+    s = Script()
+    x, y = UI["size"]
+    s.add(f"fdown:0:{x:g},{y:g}")
+    s.wait(LONG_PRESS_FRAMES)
+    for k in range(1, 11):
+        s.add(f"fmove:0:{x:g},{y - 12 * k:g}")
+        s.wait(1)
+    s.add("fcancel:0")
+    s.wait(6)
+    return s, [], camera_still({"dabs": near(0), "bar_pop": is_text("none"), "brush_radius_px": near(60)})
+
+
+@scenario
+def long_press_focal_shift_opens_the_falloff():
+    """A long press on Focal shift let go without dragging opens the Falloff section (the curve), and changes nothing."""
+    s = Script()
+    long_press(s, *UI["focal"])
+    s.wait(4)
+    return s, [], camera_still({"dabs": near(0), "bar_pop": is_text("falloff"), "brush_focal": near(0)})
 
 
 @scenario
@@ -688,6 +751,15 @@ def three_finger_size():
 
 
 @scenario
+def three_finger_focal_shift():
+    """Three fingers dragged sideways set the focal shift, 200 points right taking it near +100 (less the slop that decides the way), and leave the strength."""
+    s = Script()
+    s.fingers([(300, 600), (300, 680), (300, 760)], [(200, 0)] * 3, 20)
+    return s, [], {"brush_focal": lambda v: 90 <= float(v) <= 100, "brush_strength": near(0.5, 1e-3), "brush_radius_px": near(60),
+                   "camera_distance": near(3.5, 0.2), "dabs": near(0)}
+
+
+@scenario
 def palm_while_pen_near():
     """A lone finger while the pen hovers does nothing; the pen then sculpts."""
     s = Script()
@@ -1018,6 +1090,11 @@ def settings_file():
 def macros_folder():
     """Where the scenario's macros are kept: beside its settings file, named after it."""
     return settings_file()[:-len(".txt")] + "-macros"
+
+
+def library_folder():
+    """Where the scenario's library is kept: beside its settings file, named after it."""
+    return settings_file()[:-len(".txt")] + "-library"
 
 
 def saved(**want):
@@ -2101,7 +2178,8 @@ def long_press(s, x, y, finger=0, frames=LONG_PRESS_FRAMES):
 
 INSPECTOR_BUTTON = UI["inspector"]
 FOCUS_BUTTON, FRAME_ALL_BUTTON = (1300, 282), (1452, 282)  # the Move tool's palette, above the gizmo's settings
-SCENE_TAB, SCENE_ROW = UI["objects"], (1376, 186)
+# The first object's row in the tray's Scene palette (scene_tab opens it).
+SCENE_ROW = (1376, 186)
 
 
 @scenario
@@ -2148,8 +2226,7 @@ def long_press_shows_the_tooltip_and_does_not_tap():
 def long_press_a_scene_row_opens_its_menu():
     """A long press on an object in the Scene tab opens its menu (Focus, Duplicate, Delete), as a right-click does."""
     s = Script()
-    s.ftap(*SCENE_TAB)
-    s.wait(10)
+    scene_tab(s)
     long_press(s, *SCENE_ROW)
     return s, [], camera_still({"dabs": near(0), "object_menu": near(1), "selected": near(0)})
 
@@ -2164,8 +2241,236 @@ SPHERES3 = [(630, 410), (800, 450), (1006, 498)]
 
 
 def scene_tab(s):
-    s.ftap(*SCENE_TAB)
+    """Opens the tray's Scene palette on Objects, whatever the tool: the Objects card, docked
+    back into the tray by holding its dots."""
+    objects_card(s)
+    long_press(s, *OBJECTS_CARD["dots"])
     s.wait(10)
+
+
+def objects_card(s):
+    """Opens the Objects card from the view bar, waiting for its pictures to be drawn."""
+    s.ftap(*UI["objects"])
+    s.wait(12)
+
+
+# The Objects card at 1600 x 900 (kit_objects_card.odin): its dots, its buttons, and its
+# rows' bodies, boolean switches, polypaint toggles and eyes.
+OBJECTS_CARD = {"dots": (1378, 89), "add": (1258, 174), "more": (1497, 174), "actions": (1300, 444),
+                # With the Actions open and their sections folded: the headers, then what a
+                # section shows open (Split above Merge, Align once scrolled up).
+                "split": (1300, 567), "merge": (1300, 613), "align": (1300, 751),
+                "split_parts": (1451, 670), "merge_down": (1378, 664), "align_x_max": (1480, 563)}
+CARD_ROWS_Y = [233, 293, 353]
+CARD_ROW_X, CARD_SWITCH_X, CARD_PAINT_X, CARD_EYE_X = 1360, 1312, 1446, 1494
+CARD_ROW_H = 60
+
+
+@scenario
+def objects_card_opens_with_pictures():
+    """The view bar's Objects button opens the Objects card in the tray's place, with a row and a picture for each object."""
+    s = Script()
+    objects_card(s)
+    return s, THREE, {"dabs": near(0), "window_objects": lambda v: v.startswith("1,0,"), "window_inspector": lambda v: v.startswith("0,"),
+                      "card_rows": near(3), "thumbs_drawn": near(3)}
+
+
+@scenario
+def objects_card_long_press_opens_the_menu():
+    """A long press on the selected row opens its full menu; on another row, only how that object takes part in booleans, leaving the selection alone."""
+    mine = Script()
+    objects_card(mine)
+    long_press(mine, CARD_ROW_X, CARD_ROWS_Y[0])
+    other = Script()
+    objects_card(other)
+    long_press(other, CARD_ROW_X, CARD_ROWS_Y[1])
+    return Steps([
+        (mine, THREE, {"card_menu": near(1), "card_menu_full": near(1), "selected": near(0), "dabs": near(0)}),
+        (other, THREE, {"card_menu": near(1), "card_menu_full": near(0), "selected": near(0), "dabs": near(0)}),
+    ])
+
+
+@scenario
+def objects_card_long_press_then_drag_moves_a_row():
+    """A finger held on the third row until its menu opens, then dragged above the first, moves that object to the top as one undo step and closes the menu; a quick drag without the hold moves nothing."""
+    held = Script()
+    objects_card(held)
+    held.add(f"fdown:0:{CARD_ROW_X},{CARD_ROWS_Y[2]}")
+    held.wait(LONG_PRESS_FRAMES)
+    for y in range(CARD_ROWS_Y[2] - 4, CARD_ROWS_Y[0] - 32, -8):
+        held.add(f"fmove:0:{CARD_ROW_X},{y}")
+        held.wait(1)
+    held.wait(2)
+    held.add("fup:0")
+    held.wait(6)
+    quick = Script()
+    objects_card(quick)
+    quick.fdrag(line((CARD_ROW_X, CARD_ROWS_Y[2]), (CARD_ROW_X, CARD_ROWS_Y[0] - 28), 12))
+    quick.wait(6)
+    return Steps([
+        (held, THREE, {"scene_order": is_text("3,1,2"), "undo_steps": near(1), "card_menu": near(0), "dabs": near(0)}),
+        (quick, THREE, {"scene_order": is_text("1,2,3"), "undo_steps": near(0), "dabs": near(0)}),
+    ])
+
+
+@scenario
+def objects_card_mouse_drag_moves_a_row():
+    """With a mouse a row drags at once: the third dropped above the first goes to the top."""
+    s = Script()
+    s.mouse_drag([(1569, 251)])
+    s.wait(12)
+    s.mouse_drag(line((CARD_ROW_X, CARD_ROWS_Y[2]), (CARD_ROW_X, CARD_ROWS_Y[0] - 28), 12))
+    s.wait(6)
+    return s, THREE, {"scene_order": is_text("3,1,2"), "undo_steps": near(1), "dabs": near(0)}
+
+
+@scenario
+def objects_card_toggles_eye_paint_and_boolean():
+    """A row's eye hides its object, its polypaint toggle leaves the paint out, and the switch under its name makes it a boolean, none of them selecting it."""
+    s = Script()
+    objects_card(s)
+    s.ftap(CARD_EYE_X, CARD_ROWS_Y[1])
+    s.wait(6)
+    s.ftap(CARD_PAINT_X, CARD_ROWS_Y[2])
+    s.wait(6)
+    s.ftap(CARD_SWITCH_X, CARD_ROWS_Y[2] + 12)
+    s.wait(6)
+    return s, THREE, {"objects_off": near(1), "paint_off": near(1), "booleans": near(1), "selected": near(0), "dabs": near(0)}
+
+
+@scenario
+def objects_card_holding_its_dots_docks_it():
+    """Holding the card's dots puts it back in the Scene palette: the card closes and the tray opens on Objects."""
+    s = Script()
+    objects_card(s)
+    long_press(s, *OBJECTS_CARD["dots"])
+    s.wait(6)
+    return s, THREE, {"window_objects": lambda v: v.startswith("0,"), "window_inspector": lambda v: v.startswith("1,0,"), "tree_rows": near(3)}
+
+
+@scenario
+def objects_card_gives_way_to_the_tray():
+    """Opening the palette tray closes the card, which shares its place; the Objects button opens the card again and closes the tray."""
+    closed = Script()
+    objects_card(closed)
+    closed.ftap(*UI["inspector"])
+    closed.wait(8)
+    again = Script()
+    objects_card(again)
+    again.ftap(*UI["inspector"])
+    again.wait(8)
+    objects_card(again)
+    return Steps([
+        (closed, THREE, {"window_objects": lambda v: v.startswith("0,"), "window_inspector": lambda v: v.startswith("1,")}),
+        (again, THREE, {"window_objects": lambda v: v.startswith("1,"), "window_inspector": lambda v: v.startswith("0,")}),
+    ])
+
+
+def card_slot(k):
+    """Where Store visibility's V`k` tile is, with the Actions open."""
+    return (CARD_SLOT_X0 + (k - 1) * CARD_SLOT_STEP, CARD_SLOT_Y)
+
+
+CARD_SLOT_X0, CARD_SLOT_STEP, CARD_SLOT_Y = 1250, 36.5, 518
+
+
+def card_actions(s):
+    """Opens the Objects card and unfolds its Actions."""
+    objects_card(s)
+    s.ftap(*OBJECTS_CARD["actions"])
+    s.wait(12)
+
+
+@scenario
+def objects_card_actions_store_visibility():
+    """Store visibility: V1 keeps the eyes turned while it is chosen, V2 its own, and choosing V1 again brings its eyes back."""
+    s = Script()
+    card_actions(s)
+    s.ftap(*card_slot(1))
+    s.wait(4)
+    s.ftap(CARD_EYE_X, CARD_ROWS_Y[1])
+    s.wait(4)
+    s.ftap(*card_slot(2))
+    s.wait(4)
+    s.ftap(CARD_EYE_X, CARD_ROWS_Y[1])
+    s.wait(2)
+    s.ftap(CARD_EYE_X, CARD_ROWS_Y[2])
+    s.wait(4)
+    back = Script()
+    card_actions(back)
+    for step in (lambda: back.ftap(*card_slot(1)), lambda: back.ftap(CARD_EYE_X, CARD_ROWS_Y[1]), lambda: back.ftap(*card_slot(2)),
+                 lambda: back.ftap(CARD_EYE_X, CARD_ROWS_Y[1]), lambda: back.ftap(CARD_EYE_X, CARD_ROWS_Y[2]), lambda: back.ftap(*card_slot(1))):
+        step()
+        back.wait(4)
+    return Steps([
+        (s, THREE, {"card_actions": near(1), "vis_slot": near(2), "vis_used": near(3), "objects_off": near(1), "dabs": near(0)}),
+        (back, THREE, {"vis_slot": near(1), "objects_off": near(1), "dabs": near(0)}),
+    ])
+
+
+@scenario
+def objects_card_actions_merge_down_and_split_to_parts():
+    """Merge down makes the first two objects one, as one undo step; Split to parts makes them two again, with the third left as it was."""
+    merged = Script()
+    card_actions(merged)
+    merged.ftap(*OBJECTS_CARD["merge"])
+    merged.wait(6)
+    merged.ftap(*OBJECTS_CARD["merge_down"])
+    merged.wait(12)
+    split = Script()
+    card_actions(split)
+    split.ftap(*OBJECTS_CARD["merge"])
+    split.wait(6)
+    split.ftap(*OBJECTS_CARD["merge_down"])
+    split.wait(12)
+    # One row fewer: everything under the list is a row higher.
+    x, y = OBJECTS_CARD["split"]
+    split.ftap(x, y - CARD_ROW_H)
+    split.wait(10)
+    x, y = OBJECTS_CARD["split_parts"]
+    split.ftap(x, y - CARD_ROW_H)
+    split.wait(12)
+    return Steps([
+        # undo_steps counts entries: a merge is two chained (the rebuild and the delete),
+        # a split two more (the rebuild and the part it added).
+        (merged, THREE, {"objects": near(2), "scene_order": is_text("1,3"), "merged": near(2), "undo_steps": near(2), "dabs": near(0)}),
+        (split, THREE, {"objects": near(3), "scene_order": is_text("1,4,3"), "split_made": near(1), "undo_steps": near(4), "dabs": near(0)}),
+    ])
+
+
+@scenario
+def objects_card_actions_align_lines_up():
+    """Align's X max tile moves the selected object, alone, to the right edge of everything shown, as one undo step."""
+    s = Script()
+    card_actions(s)
+    s.ftap(*OBJECTS_CARD["align"])
+    s.wait(10)
+    s.fdrag(line((1380, 820), (1380, 560), 12))
+    s.wait(20)
+    s.ftap(*OBJECTS_CARD["align_x_max"])
+    s.wait(6)
+    return s, THREE, {"aligned": near(1), "undo_steps": near(1), "dabs": near(0)}
+
+
+@scenario
+def copy_and_paste_an_object():
+    """Ctrl+C copies the selected object and Ctrl+V adds it below the selection as one undo step; Ctrl+Z takes it away again."""
+    s = Script()
+    s.press("c", ("ctrl",))
+    s.wait(4)
+    s.press("v", ("ctrl",))
+    s.wait(6)
+    undo = Script()
+    undo.press("c", ("ctrl",))
+    undo.wait(4)
+    undo.press("v", ("ctrl",))
+    undo.wait(6)
+    undo.press("z", ("ctrl",))
+    undo.wait(6)
+    return Steps([
+        (s, THREE, {"objects": near(4), "scene_order": is_text("1,4,2,3"), "selected": near(1), "undo_steps": near(1), "clipboard_bytes": lambda v: int(v) > 0}),
+        (undo, THREE, {"objects": near(3), "scene_order": is_text("1,2,3"), "redo_steps": near(1)}),
+    ])
 
 
 @scenario
@@ -2274,7 +2579,7 @@ def undo_keeps_an_object_hidden():
 # and its menu's rows where a right-click at FOLDER_MENU_AT puts them.
 FOLDER_CHEVRON = (1260, 186)
 FOLDER_MENU_AT = (1366, 186)
-FOLDER_MENU = {"rename": (1376, 214), "select": (1376, 258), "ungroup": (1376, 303), "delete": (1376, 347)}
+FOLDER_MENU = {"rename": (1376, 214), "select": (1376, 258), "ungroup": (1376, 303), "show_paint": (1376, 347), "hide_paint": (1376, 392), "delete": (1376, 436)}
 
 
 def folder_first(s):
@@ -3665,6 +3970,7 @@ def run(name, screens, displays=None):
     if os.path.exists(settings_file()):
         os.remove(settings_file())
     shutil.rmtree(macros_folder(), ignore_errors=True)
+    shutil.rmtree(library_folder(), ignore_errors=True)
     shutil.rmtree(autosave_folder(), ignore_errors=True)
     result = SCENARIOS[name]()
     steps = result if isinstance(result, Steps) else [result]
@@ -3801,7 +4107,6 @@ def glb_read(path):
     """A .glb's shape keys (name, weight) and its base positions with every key added at
     its weight: the surface a reader shows at the file's own values."""
     import json
-    import struct
     data = open(path, "rb").read()
     json_len = struct.unpack_from("<I", data, 12)[0]
     doc = json.loads(data[20:20 + json_len])
@@ -4078,7 +4383,7 @@ def menu_scrolls_on_a_short_window():
     s.wait(1)
     s.add("wheel:-10")
     s.wait(20)
-    click(s, (85, 556))
+    click(s, (85, MENU_SHORT_LAST_Y - 44 * (len(MENU_APP_ROWS) - 1 - MENU_APP_ROWS.index("settings"))))
     s.wait(10)
     return s, ["--width=1280", "--height=720"], {"settings_open": near(1, 0)}
 
@@ -4236,6 +4541,84 @@ def export_keeps_layers(ext, read, blender_keys):
         (stroke_then_rest(Script(), 5), [setup, f"--export={path}"],
          {"layers": near(3, 0), "dabs": lambda v: int(v) > 0, "@the keys rebuild the shown surface": rebuilt,
           "@the validator and Blender agree": outside_tools}),
+    ])
+
+
+def grey_png(path, size=16):
+    """Writes a grey gradient PNG (8-bit greyscale) of `size` pixels a side."""
+    rows = b"".join(b"\0" + bytes((x * 255 // (size - 1) + y) % 256 for x in range(size)) for y in range(size))
+    def chunk(kind, body):
+        return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body))
+    with open(path, "wb") as f:
+        f.write(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", size, size, 8, 0, 0, 0, 0))
+                + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b""))
+
+
+@scenario
+def library_alphas_survive_a_restart():
+    """Images in the library's mine/alphas load at start after the built-ins, and a file
+    there that is not an image is skipped and counted; a script picks one by its
+    reference, and the next start, with nothing asked, has the brush on it again from
+    the settings. The Alpha section shows it with Remove from library."""
+    alphas = os.path.join(library_folder(), "mine", "alphas")
+    os.makedirs(alphas, exist_ok=True)
+    grey_png(os.path.join(alphas, "rock.png"))
+    with open(os.path.join(alphas, "broken.png"), "w") as f:
+        f.write("not an image")
+    return Steps([
+        (Script(), [f"--settings-file={settings_file()}", "--script=alpha mine/rock"],
+         {"library_alphas": near(1, 0), "library_skipped": near(1, 0), "alpha": is_text("mine/rock")}),
+        (Script(), [f"--settings-file={settings_file()}", "--script=show_section alpha"],
+         {"library_alphas": near(1, 0), "alpha": is_text("mine/rock"), "@saved": saved(brush_alpha="mine/rock")}),
+    ])
+
+
+def make_pack(path, name, alphas, extra=()):
+    """Writes a content pack: pack.txt naming it, by Bolt, and grey PNG alphas."""
+    import zipfile
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    folder = path + ".parts"
+    os.makedirs(folder, exist_ok=True)
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("pack.txt", f"name {name}\nauthor Bolt\nversion 1.0\nlicense CC0\ndescription Pebbles and cracks for stone\n")
+        for i, stem in enumerate(alphas):
+            png = os.path.join(folder, stem + ".png")
+            grey_png(png, 16 + i)
+            z.write(png, f"alphas/{stem}.png")
+        for entry, text in extra:
+            z.writestr(entry, text)
+    shutil.rmtree(folder)
+
+
+# The Library panel's Remove for the first pack, below Your own, at 1600x900.
+LIBRARY_PACK1_REMOVE = (1494, 291)
+
+
+@scenario
+def content_pack_installs_and_removes():
+    """A script installs a pack (its macros/ folder left out as code) and picks one of its
+    alphas, which the Alpha section shows under the pack's name; the next start has the
+    pack back, and the Library panel (Menu > Library) removes it with two taps on its
+    bin, taking its folder away and the brush back to round."""
+    pack = autosave_folder() + "-rocks.sculptpack"
+    make_pack(pack, "Rock Set", ["Pebble", "crack"], [("macros/evil.cmd", "remesh\n")])
+    s = Script()
+    s.wait(3)
+    click(s, UI["menu"])
+    s.wait(4)
+    click(s, UI["menu_library"])
+    s.wait(10)
+    click(s, LIBRARY_PACK1_REMOVE)
+    s.wait(3)
+    click(s, LIBRARY_PACK1_REMOVE)
+    s.wait(5)
+    folder = os.path.join(library_folder(), "rock-set")
+    return Steps([
+        (Script(), [f"--settings-file={settings_file()}", f"--script=install_pack {pack}; alpha rock-set/crack; show_section alpha"],
+         {"packs": near(1, 0), "pack_alphas": near(2, 0), "packs_installed": near(1, 0), "alpha": is_text("rock-set/crack"),
+          "@unpacked": lambda _: os.path.exists(os.path.join(folder, "alphas", "crack.png")) and not os.path.exists(os.path.join(folder, "macros"))}),
+        (s, [f"--settings-file={settings_file()}"],
+         {"packs": near(0, 0), "pack_alphas": near(0, 0), "alpha": is_text("-"), "@removed": lambda _: not os.path.exists(folder)}),
     ])
 
 

@@ -8,7 +8,6 @@ import "../ui"
 
 // Three objects with no GPU buffers along x, 3 apart, the first selected; tree_free
 // undoes it.
-@(private = "file")
 tree_scene :: proc(app: ^App) -> [3]^Object {
 	out: [3]^Object
 	for i in 0 ..< 3 {
@@ -23,7 +22,6 @@ tree_scene :: proc(app: ^App) -> [3]^Object {
 	return out
 }
 
-@(private = "file")
 tree_free :: proc(app: ^App) {
 	for obj in app.scene.objects {
 		sculpt.levels_destroy(&obj.levels)
@@ -31,6 +29,7 @@ tree_free :: proc(app: ^App) {
 		free(obj)
 	}
 	delete(app.scene.objects)
+	delete(app.scene.also)
 	folders_clear(&app.scene.folders)
 	delete(app.scene.folders)
 	history_destroy(&app.history)
@@ -147,8 +146,9 @@ solo_follows_the_selection_and_keeps_the_eyes :: proc(t: ^testing.T) {
 	testing.expect(t, !app.scene.solo)
 }
 
-// The scene file keeps each object's eye and ghost from version 8, reads older files
-// with everything in view, and refuses flags it does not know.
+// The scene file keeps each object's eye and ghost from version 8 and its polypaint left
+// out from version 11, reads older files with everything in view, and refuses flags it
+// does not know.
 @(test)
 view_flags_round_trip_in_the_file :: proc(t: ^testing.T) {
 	app: App
@@ -168,10 +168,10 @@ view_flags_round_trip_in_the_file :: proc(t: ^testing.T) {
 		testing.expect_value(t, back.ghost, obj.ghost)
 		testing.expect_value(t, back.transform, obj.transform)
 
-		// Version 7 had no flags byte and no folder: write a 7-shaped head by dropping the
-		// five bytes after the boolean mode.
+		// Version 7 had no flags byte, no folder and no stored eyes: write a 7-shaped head
+		// by dropping the six bytes after the boolean mode.
 		head := r.at
-		flags := head - 5
+		flags := head - 6
 		old := make([dynamic]u8, 0, len(out))
 		defer delete(old)
 		append(&old, ..out[:flags])
@@ -183,7 +183,20 @@ view_flags_round_trip_in_the_file :: proc(t: ^testing.T) {
 		testing.expect(t, r7.ok && !seven.off && !seven.ghost)
 		testing.expect_value(t, r7.at, flags)
 
+		// The polypaint bit is known from version 11: a file of version 10 with it set is
+		// damaged, and no version knows the bit after it.
 		out[flags] = 4
+		painted: Object
+		rp := geom.byte_reader(out[:])
+		object_get_fields(&rp, &painted)
+		defer delete(painted.name)
+		testing.expect(t, rp.ok && painted.paint_off && !painted.off && !painted.ghost)
+		ten: Object
+		r10 := geom.byte_reader(out[:])
+		object_get_fields(&r10, &ten, 10)
+		defer delete(ten.name)
+		testing.expect(t, !r10.ok)
+		out[flags] = 8
 		damaged: Object
 		rd := geom.byte_reader(out[:])
 		object_get_fields(&rd, &damaged)
@@ -212,7 +225,6 @@ a_hidden_base_lets_the_cutters_draw :: proc(t: ^testing.T) {
 }
 
 // The ids in list order and each one's folder, to compare trees by.
-@(private = "file")
 tree_of :: proc(app: ^App) -> (ids, folders: [8]int) {
 	for obj, i in app.scene.objects[:min(len(app.scene.objects), 8)] do ids[i], folders[i] = obj.id, obj.folder
 	return
@@ -378,13 +390,13 @@ folders_round_trip_in_the_file :: proc(t: ^testing.T) {
 	defer delete(head)
 	scene_header_put(&app, &head)
 	r := geom.byte_reader(head[:])
-	r.at = len(head) - (4 + 4 + 4 + len("Ears") + 1 + 4)
+	r.at = len(head) - (4 + 4 + 4 + len("Ears") + 1 + 1 + 4 + 2)
 	folders, next, ok := folders_get(&r, SCENE_VERSION)
 	defer {
 		folders_clear(&folders)
 		delete(folders)
 	}
-	testing.expect(t, ok && r.ok && r.at == len(head))
+	testing.expect(t, ok && r.ok && r.at == len(head) - 2)
 	testing.expect_value(t, len(folders), 1)
 	testing.expect(t, folders[0].id == f.id && folders[0].name == "Ears" && folders[0].off && !folders[0].open && !folders[0].ghost)
 	testing.expect_value(t, next, app.scene.next_folder_id)
@@ -395,6 +407,7 @@ folders_round_trip_in_the_file :: proc(t: ^testing.T) {
 	for _ in 0 ..< 2 {
 		geom.byte_put(&twice, i32(1))
 		geom.byte_put_string(&twice, "a")
+		geom.byte_put(&twice, u8(0))
 		geom.byte_put(&twice, u8(0))
 	}
 	geom.byte_put(&twice, i32(1))
@@ -412,9 +425,9 @@ folders_round_trip_in_the_file :: proc(t: ^testing.T) {
 	testing.expect(t, ro.ok && back.folder == f.id)
 }
 
-// Past the swap limit the oldest steps go, and an Arrange entry at the head of a chain
-// (Delete folder's) goes with its layouts freed, leaving the swaps after it standing
-// alone; the tracking allocator checks nothing leaks.
+// Past the swap limit the oldest steps go whole, and an Arrange entry at the head of a
+// chain (Delete folder's) goes with its layouts freed and the swaps chained to it; the
+// tracking allocator checks nothing leaks.
 @(test)
 the_swap_limit_drops_an_arrange_head :: proc(t: ^testing.T) {
 	app: App

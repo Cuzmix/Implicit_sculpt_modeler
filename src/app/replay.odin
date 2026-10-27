@@ -2,7 +2,6 @@ package main
 
 import "core:fmt"
 import "core:math"
-import "core:os"
 import "core:path/filepath"
 
 import "../camera"
@@ -229,8 +228,8 @@ replay_shortcut :: proc(app: ^App) {
 STROKES_MAGIC :: "SCSTROKE"
 // 2: each frame's camera roll; 3: the rail's Mask in a frame's flags; 4: each brush's
 // spread and seed after its cloth mode; 5: its Line and Join switches after those; 6: its
-// Lock plane and Connected switches after those.
-STROKES_VERSION :: u32(6)
+// Lock plane and Connected switches after those; 7: its focal shift after those.
+STROKES_VERSION :: u32(7)
 
 strokes_save :: proc(app: ^App, path: string) -> bool {
 	t := replay_source(app)
@@ -264,6 +263,7 @@ strokes_save :: proc(app: ^App, path: string) -> bool {
 		geom.byte_put(&out, u8(b.join))
 		geom.byte_put(&out, u8(b.lock_plane))
 		geom.byte_put(&out, u8(b.connected))
+		geom.byte_put(&out, f.focal)
 	}
 	geom.byte_put(&out, u32(len(t.frames)))
 	for f in t.frames {
@@ -292,7 +292,7 @@ strokes_save :: proc(app: ^App, path: string) -> bool {
 // Reads a .strokes file into the recording. Every number is checked (finite, in range)
 // before it can reach a brush, so a damaged file is refused rather than sculpting NaNs.
 strokes_load :: proc(app: ^App, path: string) -> bool {
-	data, err := os.read_entire_file(path, context.allocator)
+	data, err := file_read_any(path, context.allocator)
 	if err != nil {
 		file_note(app, true, "Cannot open %s: %v", filepath.base(path), err)
 		return false
@@ -367,14 +367,18 @@ strokes_read :: proc(app: ^App, data: []u8, t: ^Take) -> bool {
 			lock_plane = geom.byte_get(&r, u8)
 			connected = geom.byte_get(&r, u8)
 		}
+		// Nor, before version 7, a focal shift.
+		focal: f32
+		if version >= 7 do focal = geom.byte_get(&r, f32)
 		if !r.ok || int(kind) >= len(sculpt.Brush_Kind) || int(stroke) >= len(Stroke_Mode) || int(cloth) >= len(sculpt.Cloth_Mode) do return false
 		all_axes := transmute(u8)sculpt.Symmetry{.X, .Y, .Z}
 		if symmetry & ~all_axes != 0 || drawn > 1 || pressure_strength > 1 || pressure_size > 1 || front > 1 || line > 1 || join > 1 || lock_plane > 1 || connected > 1 do return false
-		if !finite(radius, strength, lazy, spread, color.r, color.g, color.b) || !curve_ok(falloff) || !curve_ok(pressure_curve) do return false
+		if !finite(radius, strength, lazy, spread, color.r, color.g, color.b, focal) || !curve_ok(falloff) || !curve_ok(pressure_curve) do return false
+		if focal < sculpt.FOCAL_MIN || focal > sculpt.FOCAL_MAX do return false
 		b.kind = sculpt.Brush_Kind(kind)
 		b.radius_px = clamp(radius, MIN_RADIUS_PX, MAX_RADIUS_PX)
 		b.strengths[b.kind] = clamp(strength, MIN_STRENGTH, 1)
-		b.falloffs[b.kind] = {drawn = drawn == 1, curve = falloff}
+		b.falloffs[b.kind] = {drawn = drawn == 1, curve = falloff, focal = focal}
 		b.pressure_strength, b.pressure_size, b.pressure_curve = pressure_strength == 1, pressure_size == 1, pressure_curve
 		b.lazy_px = clamp(lazy, 0, MAX_RADIUS_PX)
 		b.front_only, b.stroke, b.symmetry = front == 1, Stroke_Mode(stroke), transmute(sculpt.Symmetry)symmetry

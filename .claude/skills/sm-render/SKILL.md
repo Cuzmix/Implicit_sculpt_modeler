@@ -23,7 +23,7 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   uploads all when `paint_stamp` differs). The group colour is a `flat` output, taken from the triangle's first index, which
   the sculptor's packed indices make a corner carrying the triangle's group. `Draw_Item.paint`/`groups` are in both keys.
 - Uniforms: `Frame_Uniforms{view_proj, view, model, options}` (std140, column-major, `renderer.odin:108-113`) pushed per draw; `Material_Uniforms
-  {base_color, params (ambient, specular strength, power, wrap), surface (metallic, roughness, flat), checker (lattice origin xyz, cell size w; 0 off)}`; `mesh.vert` passes the mesh-space position at location 5 for the checker (Rebuild's density preview: alternate cells darker, edge lines from 16 px cells, fading to the mean under ~3 px; `Draw_Item.checker` is in both frame keys); `params.y < 0` makes `mesh.frag` write the flat colour (the wireframe); `surface.y > 0` takes the physically based path (GGX key and fill lights, a procedural studio blurred by roughness, Karis's environment BRDF fit, ACES curve), 0 the classic Blinn-Phong one, which stays pixel-identical; `surface.z` shades with the face normal from `dFdx`/`dFdy` of the view position (no vertex data) (`renderer.odin:154-158`). Shaders are `.spv` embedded with `#load`
+  {base_color, params (ambient, specular strength, power, wrap), surface (metallic, roughness, flat), checker (lattice origin xyz, cell size w; 0 off), look (exposure in stops, cavity, ridge: `Draw_Item.look`, in both frame keys; zero is plain)}`; every lit path ends in `display()`: exposure, Khronos PBR Neutral tone map, exact sRGB encode (never `pow(1/2.2)`), and cavity/ridge come from `curvature()` (normal turn per pixel from `dFdx`/`dFdy`), so they stay per-pixel and rect-safe; `mesh.vert` passes the mesh-space position at location 5 for the checker (Rebuild's density preview: alternate cells darker, edge lines from 16 px cells, fading to the mean under ~3 px; `Draw_Item.checker` is in both frame keys); `params.y < 0` makes `mesh.frag` write the flat colour (the wireframe); `surface.y > 0` takes the physically based path (GGX key and fill lights with specular anti-aliasing, a procedural studio of sky, floor and three light lobes blurred by roughness, Karis's environment BRDF fit), 0 the classic wrap-Lambert and Blinn-Phong one; `surface.z` shades with the face normal from `dFdx`/`dFdy` of the view position (no vertex data) (`renderer.odin:154-158`). Shaders are `.spv` embedded with `#load`
   (`renderer.odin:160-163`), compiled from `src/render/shaders/*.vert|*.frag` only when `glslangValidator` is on PATH (sm-build).
 - `Draw_Item{mesh, model, color, material, surface, flat, wireframe, live, chunks, damage, lod, hidden}` (`renderer.odin:115-137`): `surface` is metallic and roughness (roughness 0 = classic), `flat` faceted shading; both are in the frame and cache keys; `material` is
   ambient, specular, power and wrap (zero = `DEFAULT_MATERIAL`, the app's presets in `src/app/material.odin`); `wireframe` draws
@@ -81,6 +81,12 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   kit shows it as image id `KIT_NAV_HEAD_IMAGE`; its `Ui_Draw.smooth` binds a linear sampler (a 2x2 box filter at
   that ratio) and `ui.frag` divides the colour by alpha (params.w), so its edge neither aliases nor darkens. Any other
   small 3D picture over the interface should reuse this rather than draw into the viewport target.
+- Object pictures (`src/render/thumbs.odin`, kept by `src/app/object_thumbs.odin`): an atlas of `THUMB_CELLS`²
+  cells of `THUMB_PX`, each drawn into a scratch target and copied into its cell (`CopyGPUTextureToTexture`,
+  `cycle = false`, or other cells are lost). A picture's `Draw_Item` has `chunks` nil, so it draws the whole index
+  buffer and never touches the per-frame indirect commands the viewport recorded. The app draws at most one a frame
+  after `nav_head_frame`, never mid-stroke or while the view moves, and only once its object's `thumb_key` has held
+  for `THUMB_SETTLE`; the kit shows cells as `KIT_THUMBS_IMAGE` with `ui.image_part` and the smooth sampler.
 
 ## Verify what you draw
     build\sculpt.exe --vertices=500000 --frames=60 --dump-viewport=build\a.ppm

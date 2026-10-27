@@ -101,10 +101,11 @@ App :: struct {
 	gesture:  Gesture_Tool, // what a Ctrl + Shift + drag does
 	smooth_gpu: render.Smooth_Compute, // Smooth all's compute shader and buffers, made on first use
 	smooth_gpu_failed: bool, // the device refused the compute pipeline; Smooth all stays on the CPU
-	// Each brush's drawn falloff as the sculptor reads it, remade when its curve changes.
+	// Each brush's drawn or shifted falloff as the sculptor reads it, remade when its curve
+	// or focal shift changes.
 	falloff_tables: [sculpt.Brush_Kind]struct {
 		falloff: sculpt.Falloff,
-		curve:   geom.Curve,
+		shape:   Falloff_Setting,
 		built:   bool,
 	},
 	stroke:   Stroke,
@@ -112,6 +113,7 @@ App :: struct {
 	startup_script: Script_Outcome, // how the start-up script went, for the exit stats and files
 	macro:    Macro_State, // the recording and the macros kept (macros.odin)
 	alphas:   [dynamic]Alpha_Entry, // the brush alphas the Brush palette offers (alphas.odin)
+	library:  Library, // the folder that keeps the person's own alphas across starts (library.odin)
 	presets:      [MAX_PRESETS]Brush_Preset, // the user's brush presets (presets.odin), the first preset_count in use
 	preset_count: int,
 	// The user's key changes (keymap.odin), and the bindings in effect built from them.
@@ -179,10 +181,25 @@ App :: struct {
 	// drawn into this frame, for the interface to show; nil when there is none.
 	nav_head:       render.Nav_Head,
 	nav_shown:      ^sdl.GPUTexture,
+	// The Objects card's pictures of objects (object_thumbs.odin): the atlas they are drawn
+	// into and which object each of its cells shows.
+	thumbs:         render.Thumbs,
+	thumb_slots:    Thumb_Slots,
+	// An object copied with Copy, as the scene file stores it, for Paste (scene_paste);
+	// kept across new scenes, as a clipboard is.
+	clipboard:      [dynamic]u8,
+	// Objects Split made, objects Merge took, and objects Align and Distribute moved, for
+	// the exit stats (split_merge.odin).
+	split_made, merged, aligned: int,
 	material:  int,  // the index in MATERIALS objects are shaded with, or CUSTOM_MATERIAL
 	custom:    Material, // what the Material section's sliders made
 	flat:      bool, // shade with each triangle's own normal (faceted) instead of smoothed normals
 	wireframe: bool, // draw the selected object's edges over it
+	// How the viewport shows its shading (View > Material): brighter or darker in stops,
+	// creases darkened and crests lightened by the surface's curvature, 0 to 1 each.
+	exposure:  f32,
+	cavity:    f32,
+	ridge:     f32,
 	show_groups: bool, // draw every object's polygroups in their colours instead of its clay and paint
 	cache_idle: bool, // draw unselected objects from the viewport cache while they stay put
 	hd_window_vertices: int, // size of the HD windows the A key opens
@@ -298,6 +315,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	defer render.smooth_compute_destroy(&app.renderer, &app.smooth_gpu)
 	defer render.studio_destroy(&app.renderer, &app.studio)
 	defer render.nav_head_destroy(&app.renderer, &app.nav_head)
+	defer render.thumbs_destroy(&app.renderer, &app.thumbs)
+	defer delete(app.clipboard)
 
 	jobs.pool_init(&app.pool, opts.threads - 1 if opts.threads > 0 else 0)
 	defer jobs.pool_destroy(&app.pool)
@@ -408,6 +427,12 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	settings := (opts.settings_file if opts.settings_file != "" else settings_path()) if remember else ""
 	if remember do settings = strings.clone(settings)
 	defer delete(settings)
+	// The alphas come first, the library's too, so that presets and the brush in the
+	// settings find the alphas they name.
+	alphas_init(&app)
+	defer alphas_destroy(&app)
+	library_load(&app, library_folder(settings))
+	defer library_destroy(&app)
 	settings_load(&app, settings)
 	app.settings_file = settings
 	// Macros are kept beside the settings, so a run that keeps no settings keeps none.
@@ -428,8 +453,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		app.ui.rebuild_goal, app.ui.rebuild_even, app.rebuild.pinned = .Even, rebuild_count(opts.density_preview), true
 	}
 	app.studio_samples, app.studio_ao, app.studio_shadow = STUDIO_SAMPLES_DEFAULT, 0.85, 0.6
-	alphas_init(&app)
-	defer alphas_destroy(&app)
+	app.cavity, app.ridge = CAVITY_DEFAULT, RIDGE_DEFAULT
 	app.stroke_seed = 1
 	app.tool = .Brush
 	app.running = true
@@ -458,6 +482,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			if !scene_run(&app, command) do return false
 			if app.macro.pending.active do macro_settle(&app, script_scene_state(&app) != before)
 		}
+		library_frame(&app)
 		if req, ok := file_take(&app); ok {
 			autosave_settle(&app)
 			inspector_drags_end(&app)
@@ -708,8 +733,9 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 					material = material.shading,
 					surface = {material.metallic, material.roughness},
 					flat = app.flat,
+					look = viewport_look(&app),
 					wireframe = selected && app.wireframe,
-					paint  = sculpt.sculptor_has_color(&lv.sculptor),
+					paint  = sculpt.sculptor_has_color(&lv.sculptor) && !obj.paint_off,
 					groups = app.show_groups && sculpt.sculptor_has_groups(&lv.sculptor),
 					live   = selected || (chosen && moving),
 					chunks = lv.sculptor.chunks,
@@ -736,6 +762,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 					material = material.shading,
 					surface  = {material.metallic, material.roughness},
 					flat     = app.flat,
+					look     = viewport_look(&app),
 					damage   = geom.AABB_EMPTY,
 				})
 			}
@@ -753,6 +780,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		}
 
 		nav_head_frame(&app, cmd)
+		thumbs_frame(&app, cmd)
 
 		gpu_wait: time.Duration
 		if app.time_gpu {
@@ -904,6 +932,9 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	}
 	macros_kept := 0
 	for s in app.macro.slots do macros_kept += int(s.name != "")
+	pack_alphas := 0
+	for p in app.library.packs do pack_alphas += p.alphas
+	fmt.printfln("library_alphas=%d library_skipped=%d alpha=%s packs=%d pack_alphas=%d packs_installed=%d packs_refused=%d", app.library.alphas, app.library.skipped, alpha_ref(&app, app.brush.alpha), len(app.library.packs), pack_alphas, app.library.installed, app.library.refused)
 	fmt.printfln("macros=%d macro_recording=%d macro_entries=%d macro_left_out=%d macros_run=%d scripts_run=%d macro_steps=%d", macros_kept, int(app.macro.recording), len(app.macro.entries), app.macro.left_out, app.macro.runs, app.macro.scripts, app.macro.steps)
 	fmt.printfln("frames=%d dabs=%d objects=%d vertices=%d", frame_index, app.stats.dabs_total, len(app.scene.objects), vertices)
 	{
@@ -922,13 +953,22 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		for &f, i in app.scene.folders do fmt.sbprintf(&names, "%s%s:%s", ";" if i == 0 else ",", folder_label(&f), "open" if f.open else "folded")
 		spaced, _ := strings.replace_all(strings.to_string(names), " ", "_", context.temp_allocator)
 		fmt.printfln("folders=%d tree_rows=%d scene_order=%s scene_folders=%s scene_names=%s scene_positions=%s", len(app.scene.folders), app.kit.tree_rows, strings.to_string(order), strings.to_string(folders), spaced, strings.to_string(places))
+		// The Objects card: rows drawn last frame, pictures drawn, its row menu, what Copy holds,
+		// how many objects have their polypaint left out, and how many take part in booleans.
+		paint_off, booleans := 0, 0
+		for obj in app.scene.objects {
+			if obj.paint_off do paint_off += 1
+			if obj.boolean != .None do booleans += 1
+		}
+		fmt.printfln("card_rows=%d thumbs_drawn=%d card_menu=%d card_menu_full=%d clipboard_bytes=%d paint_off=%d booleans=%d", app.kit.card.rows, app.thumb_slots.drawn, int(app.kit.card.menu), int(app.kit.card.menu_all), len(app.clipboard), paint_off, booleans)
+		fmt.printfln("card_actions=%d vis_slot=%d vis_used=%d split_made=%d merged=%d aligned=%d", int(app.kit.card.actions), app.scene.vis_slot, app.scene.vis_used, app.split_made, app.merged, app.aligned)
 	}
 	{
 		c := app.camera
 		fmt.printfln("camera_yaw=%.4f camera_pitch=%.4f camera_roll=%.4f camera_distance=%.4f camera_target=%.4f,%.4f,%.4f", c.yaw, c.pitch, c.roll, c.distance, c.target.x, c.target.y, c.target.z)
 		p := app.pivot.used
 		fmt.printfln("orbit_pivot=%.4f,%.4f,%.4f pivot_source=%s pinned=%d framed=%d touch_repeats=%d", p.x, p.y, p.z, strings.to_lower(fmt.tprint(app.pivot.from), context.temp_allocator), int(app.pivot.pinned), app.double_tap.framed, app.touch.hold.done)
-		fmt.printfln("undo_steps=%d redo_steps=%d brush_radius_px=%.2f brush_strength=%.3f selected=%d", len(app.history.done), len(app.history.undone), app.brush.radius_px, brush_strength(&app)^, app.scene.selected)
+		fmt.printfln("undo_steps=%d redo_steps=%d brush_radius_px=%.2f brush_strength=%.3f brush_focal=%.0f selected=%d", len(app.history.done), len(app.history.undone), app.brush.radius_px, brush_strength(&app)^, focal_shift(&app)^, app.scene.selected)
 		{
 			m := app.move
 			tr: Transform
@@ -1051,8 +1091,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		recall_pinned := false
 		if obj := selected_object(&app); obj != nil do recall_pinned = sculpt.sculptor_recall_pinned(object_sculptor(obj))
 		fmt.printfln("recall_back=%d recall_reach=%d recall_pinned=%d recall_ms=%.1f", recall_back, recall_reach, int(recall_pinned), app.stats.recall_ms)
-		open := [Kit_Window]bool{.Inspector = k.inspector && !side_panel_open(k), .Stats = k.stats, .History = k.history, .Settings = k.settings, .Help = k.help, .Macros = k.macros}
-		names := [Kit_Window]string{.Inspector = "inspector", .Stats = "stats", .History = "history panel", .Settings = "settings", .Help = "help", .Macros = "macros"}
+		open := [Kit_Window]bool{.Inspector = k.inspector && !side_panel_open(k), .Stats = k.stats, .History = k.history, .Settings = k.settings, .Help = k.help, .Macros = k.macros, .Library = k.library, .Objects = k.objects_card}
+		names := [Kit_Window]string{.Inspector = "inspector", .Stats = "stats", .History = "history panel", .Settings = "settings", .Help = "help", .Macros = "macros", .Library = "library", .Objects = "objects card"}
 		for w, which in k.windows {
 			r := ui.prev_rect(&k.ctx, names[which])
 			fmt.printf("window_%s=%d,%d,%.0f,%.0f ", strings.to_lower(fmt.tprint(which), context.temp_allocator), int(open[which]), int(w.minimized), r.x, r.y)

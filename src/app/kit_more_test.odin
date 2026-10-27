@@ -129,7 +129,7 @@ show_every_option_unfolds_the_sections :: proc(t: ^testing.T) {
 		controls: int,
 	}
 	// UVs and baking has 5: its Quads count and Retopologize moved to Shape > Rebuild.
-	full := [?]Full{{.Preset, 6}, {.Recorder, 7}, {.Transform, 8}, {.Mask, 11}, {.Groups, 6}, {.Retopo, 5}, {.Project, 6}, {.Material, 6}, {.Camera, 6}}
+	full := [?]Full{{.Preset, 6}, {.Recorder, 7}, {.Transform, 8}, {.Mask, 11}, {.Groups, 6}, {.Retopo, 5}, {.Project, 6}, {.Material, 9}, {.Camera, 6}}
 	app.brush.kind = .Clay
 	_ = preset_save_new(&app)
 	for f in full {

@@ -108,6 +108,21 @@ Command_Id :: enum u8 {
 	Show_All_Objects,
 	Solo_Object,
 	New_Folder,
+	Objects_Card,
+	Copy_Object,
+	Paste_Object,
+	Object_To_Top,
+	Object_To_Bottom,
+	Delete_Other_Objects,
+	Delete_All_Objects,
+	All_Lowest_Level,
+	All_Highest_Level,
+	Visibility_Slot, // the argument is the stored visibility, V1 being 0
+	Split_Object, // the argument is the Split_Mode
+	Merge_Down,
+	Merge_Visible,
+	Align_Objects, // the argument is the axis times 3 plus the edge (min, centre, max)
+	Distribute_Objects, // as Align_Objects
 	Rename_Object,
 	// The view
 	View_Axis, // the argument is the camera.Axis_View
@@ -136,6 +151,8 @@ Command_Id :: enum u8 {
 	Run_Macro, // the argument is the slot, from 0 (macros.odin)
 	Macros,
 	Run_Script,
+	Library,
+	Pick_Pack,
 }
 
 Command :: struct {
@@ -169,6 +186,26 @@ Binding :: struct {
 }
 
 has_object :: proc(app: ^App, _: int) -> bool {return selected_object(app) != nil}
+
+// Whether any object has subdivision levels to step between.
+any_levels :: proc(app: ^App, _: int) -> bool {
+	for obj in app.scene.objects do if len(obj.levels.levels) > 1 do return true
+	return false
+}
+
+// Moves the selected object to the top (or the bottom) of the list, or of its folder when
+// it is in one: before the first object there, or after the last.
+object_to_end :: proc(app: ^App, top: bool) {
+	obj := selected_object(app)
+	if obj == nil do return
+	objects := app.scene.objects[:]
+	first, end := 0, len(objects)
+	if obj.folder != 0 do first, end = folder_span(app, obj.folder)
+	before := 0
+	if top do before = objects[first].id
+	else if end < len(objects) do before = objects[end].id
+	app.ui.scene_command = {kind = .Arrange, arrange = .Reorder, id = obj.id, before = before, folder = obj.folder}
+}
 
 // How many selection sets the commands reach by number, as keys 1 to 9 would.
 SET_COMMANDS :: 9
@@ -841,6 +878,129 @@ COMMANDS := [Command_Id]Command {
 		},
 		enabled = has_object,
 	},
+	.Objects_Card = {
+		label = "Objects card",
+		help = "Opens the card listing every object with its picture, beside the view bar; hold its dots to put it back in the Scene palette.",
+		icon = ICON_OBJECTS,
+		run = proc(app: ^App, _: int) {objects_card_toggle(app)},
+		checked = proc(app: ^App, _: int) -> bool {return app.kit.objects_card},
+	},
+	.Copy_Object = {
+		label = "Copy",
+		help = "Copies the selected object, to paste into this scene or another one later, even once the object is deleted.",
+		icon = ui.ICON_COPY,
+		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Copy}},
+		enabled = has_object,
+	},
+	.Paste_Object = {
+		label = "Paste",
+		help = "Adds a copy of the object last copied, below the selected one; one undo step.",
+		icon = ui.ICON_PASTE,
+		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Paste}},
+		enabled = proc(app: ^App, _: int) -> bool {return len(app.clipboard) > 0},
+	},
+	.Object_To_Top = {
+		label = "Bring to top",
+		help = "Moves the selected object to the top of the list, or of its folder; one undo step.",
+		icon = ui.ICON_TO_TOP,
+		run = proc(app: ^App, _: int) {object_to_end(app, top = true)},
+		enabled = has_object,
+	},
+	.Object_To_Bottom = {
+		label = "Send to bottom",
+		help = "Moves the selected object to the bottom of the list, or of its folder; one undo step.",
+		icon = ui.ICON_TO_BOTTOM,
+		run = proc(app: ^App, _: int) {object_to_end(app, top = false)},
+		enabled = has_object,
+	},
+	.Delete_Other_Objects = {
+		label = "Delete other",
+		help = "Deletes every object but the selected ones; one undo step brings them all back.",
+		icon = ui.ICON_TRASH,
+		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Delete_Others}},
+		enabled = proc(app: ^App, _: int) -> bool {return selected_object(app) != nil && len(app.scene.objects) > len(selection_ids(app))},
+	},
+	.Delete_All_Objects = {
+		label = "Delete all",
+		help = "Deletes every object in the scene; one undo step brings them all back.",
+		icon = ui.ICON_TRASH,
+		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Delete_Others, on = true}},
+		enabled = proc(app: ^App, _: int) -> bool {return len(app.scene.objects) > 0},
+	},
+	.All_Lowest_Level = {
+		label = "All low",
+		help = "Shows every object at its lowest subdivision level, to keep a heavy scene light while posing or arranging it.",
+		icon = ui.ICON_CHEVRON_DOWN,
+		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Levels_All}},
+		enabled = any_levels,
+	},
+	.All_Highest_Level = {
+		label = "All high",
+		help = "Shows every object at its highest subdivision level again.",
+		icon = ui.ICON_CHEVRON_UP,
+		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Levels_All, on = true}},
+		enabled = any_levels,
+	},
+	.Visibility_Slot = {
+		label = "Objects shown",
+		help = "Keeps which objects are shown in the stored visibility chosen, and brings back the ones of another (V1 to V8); the selected object always stays in view.",
+		icon = ui.ICON_EYE,
+		args = VIS_SLOTS,
+		run = proc(app: ^App, arg: int) {app.ui.scene_command = {kind = .View, view = .Visibility_Slot, id = arg + 1}},
+		checked = proc(app: ^App, arg: int) -> bool {return app.scene.vis_slot == arg + 1},
+	},
+	.Split_Object = {
+		label = "Split",
+		help = "Makes part of the selected object an object of its own: its hidden part, its masked part, each polygroup or each connected piece; one undo step.",
+		icon = ICON_SPLIT,
+		args = len(Split_Mode),
+		run = proc(app: ^App, arg: int) {app.ui.scene_command = {kind = .Split, split = Split_Mode(arg)}},
+		// Each mode while there is something to split by (Split to parts finds out on the
+		// press, as counting pieces takes a pass over the mesh).
+		enabled = proc(app: ^App, arg: int) -> bool {
+			obj := selected_object(app)
+			if obj == nil || object_dynamic(obj) do return false
+			s := object_sculptor(obj)
+			switch Split_Mode(arg) {
+			case .Hidden: return sculpt.sculptor_hidden_count(s) > 0
+			case .Masked: return object_has_mask(app, obj)
+			case .Groups: return sculpt.sculptor_has_groups(s)
+			case .Parts:
+			}
+			return true
+		},
+	},
+	.Merge_Down = {
+		label = "Merge down",
+		help = "Makes the selected object and the one below it in the list one object, each keeping its own polygroups; one undo step.",
+		icon = ICON_MERGE,
+		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Merge}},
+		enabled = proc(app: ^App, _: int) -> bool {return app.scene.selected >= 0 && app.scene.selected + 1 < len(app.scene.objects)},
+	},
+	.Merge_Visible = {
+		label = "Merge visible",
+		help = "Adds one new object made of every shown object, each keeping its own polygroups; the objects stay as they are.",
+		icon = ICON_MERGE,
+		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Merge, on = true}},
+		enabled = proc(app: ^App, _: int) -> bool {
+			shown := 0
+			for obj in app.scene.objects do if object_shown(app, obj) do shown += 1
+			return shown >= 2
+		},
+	},
+	.Align_Objects = {
+		label = "Align",
+		help = "Lines objects up along an axis by their low sides, middles or high sides: the selected ones with the first selected, or one object with everything shown; one undo step.",
+		args = 9,
+		run = proc(app: ^App, arg: int) {app.ui.scene_command = {kind = .Align, axis = arg / 3, edge = arg % 3}},
+		enabled = has_object,
+	},
+	.Distribute_Objects = {
+		label = "Distribute",
+		help = "Spaces objects evenly along an axis, by their low sides, middles or high sides: the selected ones when three or more are, or else every shown object; one undo step.",
+		args = 9,
+		run = proc(app: ^App, arg: int) {app.ui.scene_command = {kind = .Distribute, axis = arg / 3, edge = arg % 3}},
+	},
 	.Rename_Object = {
 		label = "Rename...",
 		help = "Gives the selected object a name of your own, shown in the Scene palette and kept in the scene file; one undo step.",
@@ -956,7 +1116,7 @@ COMMANDS := [Command_Id]Command {
 		// Unfolded and in front, wherever it was left, in Help's place (they share it).
 		run = proc(app: ^App, _: int) {
 			k := &app.kit
-			k.settings, k.help, k.macros = true, false, false
+			k.settings, k.help, k.macros, k.library = true, false, false, false
 			k.windows[.Settings].minimized = false
 			window_raise(k, .Settings)
 		},
@@ -1036,6 +1196,19 @@ COMMANDS := [Command_Id]Command {
 		run = proc(app: ^App, _: int) {file_dialog(app, .Run_Script)},
 		enabled = proc(app: ^App, _: int) -> bool {return script_can_start(app)},
 	},
+	.Library = {
+		label = "Library...",
+		help = "Lists the content packs installed and your own alphas, to install a pack or remove one.",
+		icon = ui.ICON_FOLDER,
+		run = proc(app: ^App, _: int) {library_open(app)},
+	},
+	.Pick_Pack = {
+		label = "Install pack...",
+		help = "Adds a content pack (.sculptpack) to your library: its alphas join the Alpha section under its name.",
+		icon = ui.ICON_IMPORT,
+		run = proc(app: ^App, _: int) {file_dialog(app, .Install_Pack)},
+		enabled = proc(app: ^App, _: int) -> bool {return app.library.folder != "" && !pack_busy(app)},
+	},
 	.Pie_Editor = {
 		label = "Edit pies",
 		help = "Shows the four pies' slots, to empty them or put the defaults back.",
@@ -1090,6 +1263,8 @@ DEFAULT_BINDINGS := [?]Binding {
 	{{sdl.K_S, {.Shift}, false}, .Solo_Object, 0},
 	{{sdl.K_G, {.Ctrl}, false}, .New_Folder, 0},
 	{{sdl.K_F2, {}, false}, .Rename_Object, 0},
+	{{sdl.K_C, {.Ctrl}, false}, .Copy_Object, 0},
+	{{sdl.K_V, {.Ctrl}, false}, .Paste_Object, 0},
 	{{sdl.K_KP_1, {}, false}, .View_Axis, int(camera.Axis_View.Front)},
 	{{sdl.K_KP_1, {.Ctrl}, false}, .View_Axis, int(camera.Axis_View.Back)},
 	{{sdl.K_KP_3, {}, false}, .View_Axis, int(camera.Axis_View.Right)},
@@ -1183,6 +1358,12 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 		return fmt.tprintf("Pie %d", arg + 1)
 	case .Run_Macro:
 		return fmt.tprintf("Macro %d", arg + 1)
+	case .Visibility_Slot:
+		return fmt.tprintf("Objects shown V%d", arg + 1)
+	case .Split_Object:
+		return SPLIT_NAMES[Split_Mode(arg)]
+	case .Align_Objects, .Distribute_Objects:
+		return fmt.tprintf("%s %s %s", COMMANDS[id].label, AXIS_NAMES[arg / 3], EDGE_NAMES[arg % 3])
 	}
 	return COMMANDS[id].label
 }
@@ -1222,9 +1403,9 @@ command_gesture :: proc(app: ^App, id: Command_Id, arg := 0) -> string {
 	case .Frame_All:
 		if n.double_tap && empty_taps do builtin = "Double tap empty space, nothing selected"
 	case .Size_Up, .Size_Down:
-		if n.three_finger do builtin = "Three fingers up or down"
+		builtin = "Three fingers up or down" if n.three_finger else "Long press the bar's Size and drag"
 	case .Strength_Up, .Strength_Down:
-		if n.three_finger do builtin = "Three fingers sideways"
+		builtin = "Long press the bar's Strength and drag"
 	case .Mask:
 		// The mask taps are the Sculpt tool's (mask_tap_act), and only the modifier
 		// buttons' Mask turns them on: with the buttons off there is no way to do them.
@@ -1334,12 +1515,14 @@ commands_handle_keys :: proc(app: ^App) {
 // A menu row for the command, with its icon, shortcut and state from the table, and a
 // tooltip with the shortcut and gesture when it has a gesture; `label` replaces the
 // table's where the menu words it its own way. Runs it when picked and returns true then.
-command_menu_item :: proc(app: ^App, id: Command_Id, arg := 0, label := "", tone := ui.Tone.Neutral) -> bool {
+command_menu_item :: proc(app: ^App, id: Command_Id, arg := 0, label := "", tone := ui.Tone.Neutral, trailing := false) -> bool {
 	c := &COMMANDS[id]
 	text := label if label != "" else command_label(id, arg)
 	gesture := command_gesture(app, id, arg)
-	hint := hint_join(command_keys(app, id, arg), gesture) if gesture != "" else ""
-	if !ui.menu_item(&app.kit.ctx, text, command_keys(app, id, arg), c.icon, command_checked(app, id, arg), tone, command_enabled(app, id, arg), hint = hint) do return false
+	keys := command_keys(app, id, arg)
+	// With the icon where the shortcut goes, the shortcut moves to the tooltip.
+	hint := hint_join(keys, gesture) if gesture != "" || (trailing && keys != "") else ""
+	if !ui.menu_item(&app.kit.ctx, text, keys, c.icon, command_checked(app, id, arg), tone, command_enabled(app, id, arg), hint = hint, trailing = trailing) do return false
 	return command_run(app, id, arg)
 }
 
@@ -1347,10 +1530,10 @@ command_menu_item :: proc(app: ^App, id: Command_Id, arg := 0, label := "", tone
 // tooltip, enabled while the command can run (and `enabled`). Runs it when clicked and
 // returns true then. Every panel button that runs a command is one of these, so none
 // leaves out its shortcut.
-command_button :: proc(app: ^App, id: Command_Id, arg := 0, label := "", variant := ui.Variant.Flat, tone := ui.Tone.Neutral, width: f32 = 0, glyph: rune = 0, enabled := true) -> bool {
+command_button :: proc(app: ^App, id: Command_Id, arg := 0, label := "", variant := ui.Variant.Flat, tone := ui.Tone.Neutral, width: f32 = 0, glyph: rune = 0, enabled := true, icon_only := false) -> bool {
 	text := label if label != "" else command_label(id, arg)
 	can := enabled && command_enabled(app, id, arg)
-	if !ui.button(&app.kit.ctx, text, variant, tone, width, glyph, can, command_hint(app, id, arg)) do return false
+	if !ui.button(&app.kit.ctx, text, variant, tone, width, glyph, can, command_hint(app, id, arg), icon_only) do return false
 	return command_run(app, id, arg)
 }
 

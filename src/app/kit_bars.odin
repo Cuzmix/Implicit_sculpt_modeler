@@ -1,6 +1,7 @@
 package main
 
 import "core:fmt"
+import "core:math"
 import "core:path/filepath"
 
 import "../sculpt"
@@ -41,9 +42,30 @@ Bar_Pop_Kind :: enum u8 {
 	Section,
 	Size,
 	Strength,
+	Focal,
 	Symmetry,
 	Save,
 }
+
+// A finger's or the pen's long press on the brush bar's size, focal shift or strength,
+// still held: dragging up raises the value and down lowers it, without opening anything,
+// as the reference app's left bar does. Let go without dragging, it opens the long press's
+// section instead (bar_value_button).
+Bar_Scrub :: struct {
+	active: bool,
+	shown:  bool, // the readout beside the button, which fades out once let go
+	kind:   Bar_Pop_Kind, // Size, Focal or Strength
+	at:     ui.Rect, // the button
+	from:   f32, // the pointer's height when the drag began (or the press, before it moved)
+	start:  f32, // the value then
+	moved:  bool, // past the slop: the drag sets the value
+}
+
+// Points of drag up that double the size, take strength from 0 to 1, and focal shift
+// across its whole range.
+SCRUB_SIZE_DOUBLE :: 150
+SCRUB_STRENGTH_FULL :: 300
+SCRUB_FOCAL_FULL :: 300
 
 // The one popover the bars open: one at a time, beside the button that opened it.
 Bar_Pop :: struct {
@@ -209,7 +231,6 @@ points_bottom :: proc(app: ^App) -> f32 {
 kit_brush_bar :: proc(app: ^App) -> (brushes_anchor: ui.Rect) {
 	k := &app.kit
 	ctx := &k.ctx
-	pop := &k.bar_pop
 	// Centred down the left edge, kept between the readout and the dock where it fits;
 	// a window too short for that keeps it clear of the dock and puts the readout beside it.
 	area := ui.safe_area(ctx)
@@ -237,15 +258,13 @@ kit_brush_bar :: proc(app: ^App) -> (brushes_anchor: ui.Rect) {
 	section_button(app, "Material", ICON_MATERIAL, .Material)
 	section_button(app, "Colour", ICON_COLOUR, .Paint_Color)
 	ui.divider(ctx, 32, across = true)
-	section_button(app, "Falloff", ICON_FALLOFF, .Falloff)
-	// Size and strength open their tall sliders; a long press opens the pen's settings,
-	// which scale them by pressure.
-	size_hint := slider_hint(app, "S, [ ]", .Size_Up)
-	if ui.icon_button(ctx, fmt.tprintf("Draw size %.0f##size", app.brush.radius_px), ui.ICON_SIZE, selected = pop.open && pop.kind == .Size, keys = size_hint, corner = true) do bar_pop_toggle(app, .Size, ctx.last_rect, .Right)
-	if ui.secondary(ctx) do bar_pop_toggle(app, .Section, ctx.last_rect, .Right, .Pen)
-	strength_hint := slider_hint(app, "U, Shift+[ ]", .Strength_Up)
-	if ui.icon_button(ctx, fmt.tprintf("Strength %.2f##strength", brush_strength(app)^), ui.ICON_STRENGTH, selected = pop.open && pop.kind == .Strength, keys = strength_hint, corner = true) do bar_pop_toggle(app, .Strength, ctx.last_rect, .Right)
-	if ui.secondary(ctx) do bar_pop_toggle(app, .Section, ctx.last_rect, .Right, .Pen)
+	// Focal shift, size and strength open their tall sliders; a long press dragged sets
+	// them on the spot, and one let go still opens the falloff curve, or the pen's settings
+	// that scale size and strength by pressure.
+	bar_value_button(app, .Focal, fmt.tprintf("Focal shift %.0f##focal", focal_shift(app)^), ICON_FOCAL, focal_hint(app), .Falloff)
+	bar_value_button(app, .Size, fmt.tprintf("Draw size %.0f##size", app.brush.radius_px), ui.ICON_SIZE, slider_hint(app, "S, [ ]", .Size_Up), .Pen)
+	bar_value_button(app, .Strength, fmt.tprintf("Strength %.2f##strength", brush_strength(app)^), ui.ICON_STRENGTH, slider_hint(app, "U, Shift+[ ]", .Strength_Up), .Pen)
+	bar_scrub_update(app)
 	ui.divider(ctx, 32, across = true)
 	// A long press on either opens the History panel, to go back or forward many steps.
 	undo := fmt.tprintf("Undo %s##undo", history_next_label(app.history.done[:]))
@@ -256,6 +275,99 @@ kit_brush_bar :: proc(app: ^App) -> (brushes_anchor: ui.Rect) {
 	if ui.secondary(ctx) do k.history = true
 	ui.end(ctx)
 	return
+}
+
+// A brush bar button for a value (Size, Focal or Strength): a tap opens its tall slider
+// beside it; a finger's or the pen's long press starts a Bar_Scrub, and the mouse's right
+// click, which has no drag to follow, opens section `still` as a long press let go does.
+@(private = "file")
+bar_value_button :: proc(app: ^App, kind: Bar_Pop_Kind, name: string, glyph: rune, keys: string, still: Kit_Section) {
+	k := &app.kit
+	ctx := &k.ctx
+	pop := &k.bar_pop
+	if ui.icon_button(ctx, name, glyph, selected = pop.open && pop.kind == kind || k.bar_scrub.active && k.bar_scrub.kind == kind, keys = keys, corner = true) do bar_pop_toggle(app, kind, ctx.last_rect, .Right)
+	if !ui.secondary(ctx) do return
+	in_ := ctx.input
+	if in_.pointer == .Mouse || .Left not_in in_.down {
+		bar_pop_toggle(app, .Section, ctx.last_rect, .Right, still)
+		return
+	}
+	kit_floats_close(k)
+	k.bar_scrub = {active = true, shown = true, kind = kind, at = ctx.last_rect, from = in_.mouse.y, start = bar_value(app, kind)^}
+}
+
+// The value a bar button sets.
+@(private = "file")
+bar_value :: proc(app: ^App, kind: Bar_Pop_Kind) -> ^f32 {
+	#partial switch kind {
+	case .Size:  return &app.brush.radius_px
+	case .Focal: return focal_shift(app)
+	}
+	return brush_strength(app)
+}
+
+// Follows a Bar_Scrub while it is held, and ends it when it is let go: dragged, the value
+// stays where it was left; never dragged, the long press's section opens.
+@(private = "file")
+bar_scrub_update :: proc(app: ^App) {
+	k := &app.kit
+	ctx := &k.ctx
+	s := &k.bar_scrub
+	if !s.active do return
+	in_ := ctx.input
+	if in_.cancel {
+		// The system or a palm took the touch back: as a cancelled press does nothing, the
+		// value goes back to where it was.
+		s.active, s.shown = false, false
+		bar_value(app, s.kind)^ = s.start
+		return
+	}
+	if .Left not_in in_.down {
+		s.active, s.shown = false, false
+		if !s.moved do bar_pop_toggle(app, .Section, s.at, .Right, .Falloff if s.kind == .Focal else .Pen)
+		return
+	}
+	up := s.from - in_.mouse.y
+	if !s.moved {
+		if abs(up) <= ctx.theme.slop do return
+		// From where the pointer is now, so the value does not jump by the slop.
+		s.moved, s.from, up = true, in_.mouse.y, 0
+	}
+	v := bar_value(app, s.kind)
+	#partial switch s.kind {
+	case .Size:  v^ = clamp(s.start * math.pow(2, up / SCRUB_SIZE_DOUBLE), MIN_RADIUS_PX, MAX_RADIUS_PX)
+	case .Focal: v^ = math.round(clamp(s.start + up * f32(sculpt.FOCAL_MAX - sculpt.FOCAL_MIN) / SCRUB_FOCAL_FULL, sculpt.FOCAL_MIN, sculpt.FOCAL_MAX))
+	case:        v^ = clamp(s.start + up / SCRUB_STRENGTH_FULL, MIN_STRENGTH, 1)
+	}
+}
+
+// The readout beside the button while a Bar_Scrub runs: the value's name, its number and
+// a gauge of where it sits in its range.
+kit_bar_scrub :: proc(app: ^App) {
+	k := &app.kit
+	ctx := &k.ctx
+	t := ctx.theme
+	s := &k.bar_scrub
+	if !ui.popover_begin(ctx, "bar scrub", &s.shown, s.at, .Right, {direction = .Column, gap = 2, padding = 10, width = 132}) do return
+	defer ui.popover_end(ctx)
+	v := bar_value(app, s.kind)^
+	name, shown: string
+	fraction: f32
+	#partial switch s.kind {
+	case .Size:
+		name, shown = "DRAW SIZE", fmt.tprintf("%.0f", v)
+		fraction = ui.slider_fraction(v, MIN_RADIUS_PX, MAX_RADIUS_PX, .Logarithmic)
+	case .Focal:
+		name, shown = "FOCAL SHIFT", fmt.tprintf("%.0f", v)
+		fraction = ui.slider_fraction(v, sculpt.FOCAL_MIN, sculpt.FOCAL_MAX, .Linear)
+	case:
+		name, shown = "STRENGTH", fmt.tprintf("%.2f", v)
+		fraction = ui.slider_fraction(v, MIN_STRENGTH, 1, .Linear)
+	}
+	ui.caption(ctx, name)
+	ui.label(ctx, shown, t.title_size, t.text, .Semibold)
+	ui.gauge(ctx, fraction)
+	ui.label(ctx, "Drag up or down", t.small_size, t.text_secondary)
 }
 
 // The two columns at the right, under the navigation head: search, the palette tray and
@@ -275,12 +387,8 @@ kit_view_bar :: proc(app: ^App) -> (search_anchor, view_anchor: ui.Rect) {
 	}
 	search_anchor = ctx.last_rect
 	_ = bar_command(app, .Inspector, ui.ICON_PANEL, selected = k.inspector && !side_panel_open(k))
-	// Objects: the tray on the Scene palette's list of objects; a second tap puts it away.
-	objects := k.inspector && !side_panel_open(k) && k.tab == .Scene && tray_section(app, .Scene) == .Objects
-	if ui.icon_button(ctx, "Objects", ICON_OBJECTS, selected = objects) {
-		if objects do k.inspector = false
-		else do tray_open(app, .Objects)
-	}
+	// Objects: the Objects card beside the bar; a second tap puts it away.
+	_ = bar_command(app, .Objects_Card, ICON_OBJECTS, name = "Objects")
 	ui.end(ctx)
 
 	ui.begin(ctx, "view column", column)
@@ -379,13 +487,16 @@ kit_bar_popover :: proc(app: ^App) {
 	t := ctx.theme
 	p := &k.bar_pop
 	switch p.kind {
-	case .Size, .Strength:
+	case .Size, .Strength, .Focal:
 		if !ui.popover_begin(ctx, "bar slider", &p.open, p.at, p.side, {direction = .Column, padding = 6, center = true}) do return
 		defer ui.popover_end(ctx)
 		// A long press (or a right-click) on either puts it back to where a new brush starts.
 		track := slider_track(app)
 		if p.kind == .Size {
 			_ = ui.vslider(ctx, "Brush size", &app.brush.radius_px, MIN_RADIUS_PX, MAX_RADIUS_PX, .Logarithmic, fmt.tprintf("%.0f", app.brush.radius_px), ui.ICON_SIZE, slider_hint(app, "S, [ ]", .Size_Up), track, DEFAULT_RADIUS_PX)
+		} else if p.kind == .Focal {
+			focal := focal_shift(app)
+			if ui.vslider(ctx, "Focal shift", focal, sculpt.FOCAL_MIN, sculpt.FOCAL_MAX, .Linear, fmt.tprintf("%.0f", focal^), ICON_FOCAL, focal_hint(app), track, 0) do focal^ = math.round(focal^)
 		} else {
 			strength := brush_strength(app)
 			_ = ui.vslider(ctx, "Brush strength", strength, MIN_STRENGTH, 1, .Linear, fmt.tprintf("%.2f", strength^), ui.ICON_STRENGTH, slider_hint(app, "U, Shift+[ ]", .Strength_Up), track, BRUSHES[app.brush.kind].strength)
@@ -458,8 +569,10 @@ ICON_STROKE :: rune(0xe547) // waypoints
 ICON_ALPHA :: rune(0xe3bf) // stamp
 ICON_MATERIAL :: rune(0xe5a2) // eclipse: a lit sphere
 ICON_COLOUR :: rune(0xe1dd) // palette
-ICON_FALLOFF :: rune(0xe038) // activity
+ICON_FOCAL :: rune(0xe349) // circle-dot: the cursor's ring round its inner one
 ICON_OBJECTS :: rune(0xe104) // layers
+ICON_SPLIT :: rune(0xe445) // split
+ICON_MERGE :: rune(0xe444) // merge
 ICON_ORTHO :: rune(0xe529) // cuboid
 ICON_SYMMETRY :: rune(0xe362) // flip-horizontal-2
 ICON_WIREFRAME :: rune(0xe0ec) // grid-3x3
