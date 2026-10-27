@@ -513,7 +513,8 @@ kit_add :: proc(app: ^App) {
 }
 
 // The selected object's material: the classic presets, the physically based ones, the
-// MatCaps, and sliders that edit whichever is in use into a Custom one. A change goes to
+// MatCaps, Custom, then every content pack's by pack, and sliders that edit whichever is
+// in use into a Custom one. A change goes to
 // every selected object as a Scene_Command and becomes the material new objects take;
 // with nothing selected it only sets that.
 @(private = "file")
@@ -533,11 +534,31 @@ kit_material :: proc(app: ^App) {
 	index := material_index(m)
 	// Custom in the list is the object's own Custom, or the last one made.
 	custom := m if index == CUSTOM_MATERIAL else app.custom
-	names: [len(MATERIALS) + 1]string
-	for p, i in MATERIALS do names[i] = string(p.label) if i < FIRST_PBR || p.matcap != 0 else fmt.tprintf("%s (physically based)", p.label)
-	names[CUSTOM_MATERIAL] = "Custom" if custom.matcap == 0 else fmt.tprintf("Custom (%s MatCap)", matcap_label(app, custom.matcap))
-	if picked := ui.select(ctx, "material", names[:], index); picked >= 0 {
-		app.ui.scene_command = {kind = .Material, material = custom if picked == CUSTOM_MATERIAL else MATERIALS[picked]}
+	// The list's names and, for each, what app.material calls it.
+	names := make([dynamic]string, context.temp_allocator)
+	numbers := make([dynamic]int, context.temp_allocator)
+	for p, i in MATERIALS {
+		append(&names, string(p.label) if i < FIRST_PBR || p.matcap != 0 else fmt.tprintf("%s (physically based)", p.label))
+		append(&numbers, i)
+	}
+	append(&names, "Custom" if custom.matcap == 0 else fmt.tprintf("Custom (%s MatCap)", matcap_label(app, custom.matcap)))
+	append(&numbers, CUSTOM_MATERIAL)
+	for pack in app.library.packs {
+		for pm, j in app.library.materials {
+			if pm.gone || pm.pack != pack.id do continue
+			append(&names, fmt.tprintf("%s (%s)", pm.name, pack.name))
+			append(&numbers, PACK_MATERIAL + j)
+		}
+	}
+	shown := 0
+	for n, i in numbers do if n == index do shown = i
+	if picked := ui.select(ctx, "material", names[:], shown); picked >= 0 {
+		n := numbers[picked]
+		switch {
+		case n == CUSTOM_MATERIAL: app.ui.scene_command = {kind = .Material, material = custom}
+		case n >= PACK_MATERIAL:   app.ui.scene_command = {kind = .Material, material = app.library.materials[n - PACK_MATERIAL].material}
+		case:                      app.ui.scene_command = {kind = .Material, material = MATERIALS[n]}
+		}
 	}
 	// The sliders show the material in use; moving one makes it Custom, so a preset is
 	// never changed. A classic preset has no roughness yet, so it starts rough.
@@ -562,7 +583,7 @@ kit_material :: proc(app: ^App) {
 		m.label = "Custom"
 		app.ui.scene_command = {kind = .Material, material = m}
 	}
-	ui.paragraph(ctx, "Each object has its own material, kept in the scene file; this sets the selected objects' and the one new objects take. Moving the colour, Metallic or Roughness makes it Custom; the presets stay as they are. A MatCap is a picture of a lit sphere that stands in for the lights, tinted by the colour. Cavity darkens creases and Ridge lightens crests on every material. Dim the others shows the objects not selected in a muted colour.")
+	ui.paragraph(ctx, "Each object has its own material, kept in the scene file; this sets the selected objects' and the one new objects take. Content packs' materials come after Custom. Moving the colour, Metallic or Roughness makes it Custom; the presets stay as they are. A MatCap is a picture of a lit sphere that stands in for the lights, tinted by the colour. Cavity darkens creases and Ridge lightens crests on every material. Dim the others shows the objects not selected in a muted colour.")
 }
 
 // One polygroup's material: Pick a group, then a lit preset or Custom values for it, as the

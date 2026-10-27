@@ -173,6 +173,10 @@ SETTINGS := [?]Setting {
 	{"new_voxels", K + offset_of(Kit_State, add_voxel), bool, 0, 0},
 	{"mask_steps", U + offset_of(Ui_State, mask_steps), i32, 1, 50},
 	{"mask_shape", U + offset_of(Ui_State, mask_shape_kind), Mask_Shape_Kind, 0, 0},
+	{"mask_by_kind", U + offset_of(Ui_State, mask_by) + offset_of(Mask_By_Settings, kind), sculpt.Mask_By, 0, 0},
+	{"mask_by_strength", U + offset_of(Ui_State, mask_by) + offset_of(Mask_By_Settings, strength), f32, 0, 1},
+	{"mask_by_blur", U + offset_of(Ui_State, mask_by) + offset_of(Mask_By_Settings, blur), i32, 0, MASK_BY_BLUR_MAX},
+	{"mask_adjust_blur", U + offset_of(Ui_State, mask_by) + offset_of(Mask_By_Settings, adjust_blur), i32, 0, MASK_BY_BLUR_MAX},
 	{"gesture", offset_of(App, gesture), Gesture_Tool, 0, 0},
 	{"curve", offset_of(App, curve) + offset_of(Curve_Tool, kind), Curve_Kind, 0, 0},
 	{"curve_width", offset_of(App, curve) + offset_of(Curve_Tool, size), f32, 0.05, 2},
@@ -269,6 +273,7 @@ Setting_Line_Value :: union {
 	sculpt.Symmetry,
 	[3]f32,
 	int,
+	geom.Curve,
 }
 
 @(rodata)
@@ -327,14 +332,20 @@ SETTING_LINES := [?]Setting_Line {
 		proc(app: ^App) -> string {c := app.brush.color2; return fmt.tprintf("%g %g %g", c.r, c.g, c.b)},
 	},
 	{
-		// A material by its name, which may have spaces ("red wax").
+		// A material by its name, which may have spaces ("red wax"), or a content pack's as
+		// `<id>/<name>`, escaped as preset names are, which settings_load and scripts look
+		// up in the library, since parse has none (older versions skip the line, and start
+		// on Clay).
 		"material",
 		proc(f: []string) -> (Setting_Line_Value, bool) {
 			i, ok := material_by_name(strings.join(f, " ", context.temp_allocator))
 			return i, ok
 		},
 		proc(app: ^App, v: Setting_Line_Value) {app.material = v.(int)},
-		proc(app: ^App) -> string {return string(current_material(app).label)},
+		proc(app: ^App) -> string {
+			if refs := material_refs(app, current_material(app)); refs.material != "" do return preset_escape(refs.material)
+			return string(current_material(app).label)
+		},
 	},
 	{
 		// The size an object is added and remeshed at, in vertices: the nearest of the
@@ -353,6 +364,38 @@ SETTING_LINES := [?]Setting_Line {
 		proc(app: ^App, v: Setting_Line_Value) {app.kit.add_size = v.(int)},
 		proc(app: ^App) -> string {return fmt.tprint(SPHERE_PRESETS[app.kit.add_size].vertices)},
 	},
+	{
+		// Mask by's profile, as its two control points' x and y from 0 to 1.
+		"mask_by_curve",
+		curve_parse,
+		proc(app: ^App, v: Setting_Line_Value) {app.ui.mask_by.curve = v.(geom.Curve)},
+		proc(app: ^App) -> string {return curve_text(app.ui.mask_by.curve)},
+	},
+	{
+		// Mask adjust's curve, as mask_by_curve.
+		"mask_adjust_curve",
+		curve_parse,
+		proc(app: ^App, v: Setting_Line_Value) {app.ui.mask_by.adjust_curve = v.(geom.Curve)},
+		proc(app: ^App) -> string {return curve_text(app.ui.mask_by.adjust_curve)},
+	},
+}
+
+// A curve's line: its control points' x and y, each from 0 to 1.
+@(private = "file")
+curve_parse :: proc(f: []string) -> (Setting_Line_Value, bool) {
+	if len(f) != 4 do return nil, false
+	v: [4]f32
+	for k in 0 ..< 4 {
+		n, ok := strconv.parse_f32(f[k])
+		if !ok || !(n >= 0 && n <= 1) do return nil, false
+		v[k] = n
+	}
+	return geom.Curve{{v[0], v[1]}, {v[2], v[3]}}, true
+}
+
+@(private = "file")
+curve_text :: proc(c: geom.Curve) -> string {
+	return fmt.tprintf("%g %g %g %g", c.c1.x, c.c1.y, c.c2.x, c.c2.y)
 }
 
 // A colour's line: red, green and blue from 0 to 1.
@@ -423,12 +466,20 @@ settings_load :: proc(app: ^App, path: string) {
 				if kind, ok := brush_by_name(f[1]); ok do b.falloffs[kind].focal = clamp(number(f[2], 0), sculpt.FOCAL_MIN, sculpt.FOCAL_MAX)
 			}
 		case "pressure_curve": if len(f) == 5 do b.pressure_curve = curve(f[1:], b.pressure_curve)
-		case "symmetry", "paint_color", "paint_color2", "background_top", "background_bottom", "material", "new_vertices":
+		case "material":
+			if name := strings.join(f[1:], " ", context.temp_allocator); strings.contains_rune(name, '/') {
+				if j := pack_material_by_ref(app, preset_unescape(name)); j >= 0 do app.material = PACK_MATERIAL + j
+				continue
+			}
+			line := setting_line(f[0])
+			if v, ok := line.parse(f[1:]); ok do line.apply(app, v)
+		case "symmetry", "paint_color", "paint_color2", "background_top", "background_bottom", "new_vertices", "mask_by_curve", "mask_adjust_curve":
 			line := setting_line(f[0])
 			if v, ok := line.parse(f[1:]); ok do line.apply(app, v)
 		case "custom_material":
 			// custom_material r g b metallic roughness [matcap]; the matcap, 0 for none,
-			// 1 + a built-in's place or MATCAP_IMAGE, came with MatCaps.
+			// 1 + a built-in's place or MATCAP_IMAGE, came with MatCaps, and a content
+			// pack's `<id>/<stem>` with packs' matcaps (which older versions read as none).
 			if len(f) >= 6 {
 				c := &app.custom
 				for k in 0 ..< 3 do c.selected[k] = clamp(number(f[1 + k], c.selected[k]), 0, 1)
@@ -436,6 +487,7 @@ settings_load :: proc(app: ^App, path: string) {
 				c.roughness = clamp(number(f[5], c.roughness), 0.04, 1)
 				if len(f) >= 7 {
 					c.matcap = clamp(int(number(f[6], 0)), 0, MATCAP_IMAGE)
+					if k := pack_matcap_by_ref(app, preset_unescape(f[6])); k >= 0 do c.matcap = PACK_MATCAP + k
 					if c.matcap != 0 do c.idle = MATCAP_IDLE
 				}
 			}
@@ -604,7 +656,10 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 	fmt.sbprintfln(&out, "pressure_curve %g %g %g %g", c.c1.x, c.c1.y, c.c2.x, c.c2.y)
 	for line in SETTING_LINES do fmt.sbprintfln(&out, "%s %s", line.key, line.text(app))
 	m := app.custom
-	fmt.sbprintfln(&out, "custom_material %g %g %g %g %g %d", m.selected.r, m.selected.g, m.selected.b, m.metallic, m.roughness, m.matcap)
+	matcap := fmt.tprint(m.matcap)
+	if refs := material_refs(app, m); refs.matcap != "" do matcap = preset_escape(refs.matcap)
+	else if m.matcap >= PACK_MATCAP do matcap = "0"
+	fmt.sbprintfln(&out, "custom_material %g %g %g %g %g %s", m.selected.r, m.selected.g, m.selected.b, m.metallic, m.roughness, matcap)
 	if app.matcap_path != "" do fmt.sbprintfln(&out, "matcap_image %s", preset_escape(app.matcap_path))
 	k := app.kit
 	fmt.sbprintfln(&out, "ui_scale %g", k.ui_scale)

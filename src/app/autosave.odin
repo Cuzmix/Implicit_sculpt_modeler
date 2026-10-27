@@ -127,6 +127,7 @@ Autosave_Job :: struct {
 	header:  [dynamic]u8,
 	objects: [dynamic]^Object,
 	hd:      [dynamic]bool, // per object: an HD window is open
+	refs:    [dynamic][]Material_Refs, // per object: its and its groups' material pack parts, owned
 	path:    string,
 	info:    Session_Info, // the session file once this autosave is written
 	check:   bool,
@@ -363,6 +364,11 @@ autosave_start :: proc(app: ^App, fp: u64) {
 		if !hd do sculpt.levels_sync(&obj.levels)
 		append(&job.objects, obj)
 		append(&job.hd, hd)
+		// By name, here on the frame loop, which owns the library the thread must not read.
+		refs := object_material_refs(app, obj)
+		owned := make([]Material_Refs, len(refs))
+		for r, k in refs do owned[k] = {strings.clone(r.material), strings.clone(r.matcap)}
+		append(&job.refs, owned)
 		vertices += object_vertex_count(obj)
 	}
 	a.sync_ms = time.duration_milliseconds(time.tick_since(start))
@@ -500,6 +506,14 @@ job_free :: proc(job: ^Autosave_Job) {
 	delete(job.header)
 	delete(job.objects)
 	delete(job.hd)
+	for list in job.refs {
+		for r in list {
+			delete(r.material)
+			delete(r.matcap)
+		}
+		delete(list)
+	}
+	delete(job.refs)
 	delete(job.path)
 	delete(job.info.scene)
 	delete(job.error)
@@ -552,7 +566,7 @@ autosave_run :: proc(w: ^Autosave_Worker) {
 	before := read_hash(job) if job.check else 0
 	ok := true
 	for obj, i in job.objects {
-		ok = object_put_bytes(&out, obj, {serial = true, abort = &w.abort, synced = true, hd_open = job.hd[i]})
+		ok = object_put_bytes(&out, obj, {serial = true, abort = &w.abort, synced = true, hd_open = job.hd[i]}, job.refs[i])
 		free_all(context.temp_allocator)
 		if !ok do break
 	}

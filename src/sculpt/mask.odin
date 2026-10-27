@@ -20,6 +20,9 @@ Mask_Command :: enum {
 	Invert, // masked becomes unmasked and the other way round
 	Fill,   // mask everything
 	Cavity, // mask by cavity, as ZBrush's Mask By Cavity: the deeper a vertex sits below its neighbours, the more
+	// Fill a closed outline: on each piece of the shown surface that holds some mask, every
+	// unmasked part the mask cuts off is masked but the largest (mask_region, mask_by.odin).
+	Region,
 	// Mask what is hidden: every corner of a hidden triangle fully, the rest not at all.
 	// Hide a part, Mask hidden, Show all, and the mask is that part. The one command that
 	// writes hidden vertices.
@@ -102,6 +105,7 @@ sculptor_mask_command :: proc(s: ^Sculptor, command: Mask_Command, steps := 1) -
 		after   = slice.clone(s.mask, context.temp_allocator),
 		changes = make([]bool, len(s.nodes), context.temp_allocator),
 	}
+	if command == .Region do return mask_region(s)
 	if command < .Blur {
 		jobs.parallel_ranges(s.pool, len(s.nodes), &job, proc(data: rawptr, lo, hi: int) {
 			job := cast(^Mask_Job)data
@@ -452,6 +456,16 @@ mask_after :: #force_inline proc(command: Mask_Command, k: u8) -> u8 {
 // same at any density. A crease or pore scores high, a flat or bulging surface 0.
 @(private)
 mask_cavity :: #force_inline proc(s: ^Sculptor, v: u32) -> u8 {
+	depth, ok := cavity_depth(s, v)
+	if !ok do return 0
+	return u8(clamp(depth * CAVITY_GAIN, 0, 1) * 255 + 0.5)
+}
+
+// How far below the average of its triangles' corners vertex v lies along its normal,
+// over their mean distance from it: positive in a dip, negative on a crest. Not `ok` for
+// a vertex with no triangles or all of them at one point.
+@(private)
+cavity_depth :: #force_inline proc(s: ^Sculptor, v: u32) -> (depth: f32, ok: bool) {
 	m := s.mesh
 	p := m.positions[v]
 	sum: Vec3
@@ -465,10 +479,9 @@ mask_cavity :: #force_inline proc(s: ^Sculptor, v: u32) -> u8 {
 			n += 1
 		}
 	}
-	if n == 0 || spread <= 0 do return 0
+	if n == 0 || spread <= 0 do return 0, false
 	// The vertex's own corners count too (at zero distance), as in Blur's average.
-	depth := linalg.dot(sum / n - p, m.normals[v]) / (spread / n)
-	return u8(clamp(depth * CAVITY_GAIN, 0, 1) * 255 + 0.5)
+	return linalg.dot(sum / n - p, m.normals[v]) / (spread / n), true
 }
 
 // The cavity depth (in mean edge lengths) that masks fully: a groove a Crease stroke
@@ -630,6 +643,28 @@ mask_carry_values :: proc(l: ^Levels, from: []u8, src, dst: ^Level, up: bool, to
 		job := cast(^Job)data
 		for v in lo ..< hi do job.to[v] = carried_mask(job.from, job.src, job.dst, job.up, u32(v))
 	}, 1 << 14)
+}
+
+// Makes `after` the mask as one undo step after `blur` Blur steps over it, saving only the
+// nodes `changes` marks that end up different. The steps read every corner, so hidden
+// vertices are given back the mask they had, which no command but Mask hidden changes.
+// Returns true when it changed the mask.
+@(private)
+mask_commit_blurred :: proc(s: ^Sculptor, after: []u8, changes: []bool, blur: int) -> bool {
+	job := Mask_Job{s = s, command = .Blur, after = after, changes = changes}
+	if blur > 0 {
+		mask_steps(&job, blur)
+		if s.hide.count > 0 {
+			jobs.parallel_ranges(s.pool, len(s.nodes), &job, proc(data: rawptr, lo, hi: int) {
+				job := cast(^Mask_Job)data
+				for id in lo ..< hi {
+					n := job.s.nodes[id]
+					for v in n.vert_first ..< n.vert_first + n.vert_count do if vertex_hidden(job.s, v) do job.after[v] = job.s.mask[v]
+				}
+			}, NODE_GRAIN)
+		}
+	}
+	return mask_commit(&job)
 }
 
 // Makes `after` the mask as one undo step, saving only the nodes `changes` marks that

@@ -205,7 +205,40 @@ kit_mask :: proc(app: ^App) {
 		kit_command_pair(app, .Mask, .Mask, int(sculpt.Mask_Command.Grow), int(sculpt.Mask_Command.Shrink), "Grow", "Shrink")
 		kit_command_pair(app, .Mask, .Mask, int(sculpt.Mask_Command.Cavity), int(sculpt.Mask_Command.Hidden), "Mask cavities", "Mask hidden")
 		ui.paragraph(ctx, "Mask cavities masks the creases and dips, more the deeper they are. Mask hidden masks what is hidden and unmasks the rest, so after Show all the mask is that part.")
+		_ = command_button(app, .Mask, int(sculpt.Mask_Command.Region), "Mask region")
+		ui.paragraph(ctx, "Mask region fills a closed outline of mask: every unmasked part it cuts off is masked but the largest, on each piece of the object.")
+		kit_mask_by(app)
 		kit_more_end(app)
+	}
+}
+
+// Mask by and Mask adjust, under the Mask section's More options.
+@(private = "file")
+kit_mask_by :: proc(app: ^App) {
+	ctx := &app.kit.ctx
+	set := &app.ui.mask_by
+	ui.caption(ctx, "MASK BY")
+	names: [len(sculpt.Mask_By)]string
+	for by, i in sculpt.Mask_By do names[i] = mask_by_label(by)
+	if picked := ui.select(ctx, "mask by", names[:], int(set.kind)); picked >= 0 do set.kind = sculpt.Mask_By(picked)
+	ui.paragraph(ctx, MASK_BY_HELP[set.kind])
+	#partial switch set.kind {
+	case .Peaks, .Curvature, .Smoothness:
+		_ = ui.slider(ctx, "Strength##mask by", &set.strength, 0, 1, .Linear, fmt.tprintf("%.2f", set.strength))
+	}
+	blur_slider(ctx, "Blur##mask by", &set.blur)
+	_ = kit_curve_editor(ctx, "mask by curve", &set.curve, &set.curve_handle, false)
+	_ = command_button(app, .Mask_By, int(set.kind), "Apply", tone = .Accent)
+	ui.paragraph(ctx, "The curve takes what the kind measures (along) to the mask (up); Blur softens the result. Each Apply replaces the mask, as one undo step.")
+	ui.caption(ctx, "MASK ADJUST")
+	_ = kit_curve_editor(ctx, "mask adjust curve", &set.adjust_curve, &set.adjust_handle, false)
+	blur_slider(ctx, "Blur##mask adjust", &set.adjust_blur)
+	_ = command_button(app, .Mask_Adjust, label = "Adjust mask", tone = .Accent)
+	ui.paragraph(ctx, "Reshapes the mask as it is: along is the mask now, up what it becomes. A steeper curve hardens a soft edge; one above the diagonal strengthens a partial mask.")
+
+	blur_slider :: proc(ctx: ^ui.Context, name: string, steps: ^i32) {
+		v := f32(steps^)
+		if ui.slider(ctx, name, &v, 0, MASK_BY_BLUR_MAX, .Linear, "off" if steps^ == 0 else fmt.tprintf("%d", steps^)) do steps^ = i32(v + 0.5)
 	}
 }
 

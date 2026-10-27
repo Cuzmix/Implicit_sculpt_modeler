@@ -1442,6 +1442,26 @@ def show_every_option_needs_no_fold():
     return s, [f"--settings-file={settings_file()}"], camera_still({"dabs": near(0), "more": is_text("none"), "all_options": near(1)})
 
 
+# The Mask by Apply button once the tray is dragged 600 px up, with every option shown.
+MASK_BY_APPLY = (1377, 730)
+
+
+@scenario
+def mask_by_from_the_section():
+    """With Show every option on, the Mask section's Mask by Apply masks what faces away from the view as one undo step."""
+    with open(settings_file(), "w") as f:
+        f.write("all_options 1\nmask_by_kind facing_away\n")
+    s = Script()
+    select_page(s)
+    s.fdrag(line((1380, 760), (1380, 160), 30))
+    s.wait(20)
+    s.ftap(*MASK_BY_APPLY)
+    s.wait(10)
+    return s, [f"--settings-file={settings_file()}"], camera_still({
+        "dabs": near(0), "undo_steps": near(1), "mask_by": is_text("facing_away"), "last_op": is_text("Mask_by_facing_away"),
+        "masked": near(1), "mask_mean": lambda v: 0.3 < float(v) < 0.7})
+
+
 # The first-run tip's Skip tips button at 1600 x 900 (the card sits under the tool bar).
 COACH_SKIP = (960, 106)
 
@@ -5045,6 +5065,52 @@ def pack_meshes_start_and_add():
          {"pack_meshes": near(2, 0), "objects": near(2, 0), "selected_name": is_text("Boulder")}),
         (s, [f"--settings-file={settings_file()}"],
          {"objects": near(1, 0), "selected_name": is_text("Boulder"), "undo_steps": near(0, 0), "menu": near(0)}),
+    ])
+
+
+def matcap_png(path, size=64, colour=(70, 150, 60)):
+    """Writes an RGB PNG of a lit sphere on black, as matcap libraries share them: lit from
+    the upper left, with a white highlight."""
+    rows = []
+    for y in range(size):
+        row = bytearray(b"\0")
+        for x in range(size):
+            nx, ny = (2 * x + 1) / size - 1, 1 - (2 * y + 1) / size
+            d = nx * nx + ny * ny
+            if d > 1:
+                row += b"\0\0\0"
+                continue
+            nz = (1 - d) ** 0.5
+            lit = max(0.0, (-0.5 * nx + 0.6 * ny + 0.62 * nz))
+            spec = max(0.0, lit) ** 40
+            row += bytes(min(255, int(c * (0.15 + 0.85 * lit) + 255 * spec)) for c in colour)
+        rows.append(bytes(row))
+    def chunk(kind, body):
+        return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body))
+    with open(path, "wb") as f:
+        f.write(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", size, size, 8, 2, 0, 0, 0))
+                + chunk(b"IDAT", zlib.compress(b"".join(rows))) + chunk(b"IEND", b""))
+
+
+@scenario
+def pack_materials_shade_and_stay():
+    """A pack's matcaps and materials.txt: a script installs it and gives the sphere its
+    Moss material, whose matcap's texture is made then (and only that one); the next
+    start's sphere takes Moss again, from the settings."""
+    pack = autosave_folder() + "-materials.sculptpack"
+    os.makedirs(os.path.dirname(pack), exist_ok=True)
+    moss, glint = pack + ".moss.png", pack + ".glint.png"
+    matcap_png(moss)
+    matcap_png(glint, colour=(200, 200, 210))
+    make_pack(pack, "Rock Set", [], [("matcaps/moss.png", open(moss, "rb").read()), ("matcaps/glint.png", open(glint, "rb").read()),
+                                     ("materials.txt", "material Moss 1 1 1 0 0.5 moss\n")])
+    s = Script()
+    s.wait(5)
+    return Steps([
+        (Script(), [f"--settings-file={settings_file()}", f"--script=install_pack {pack}; set material rock-set/moss"],
+         {"pack_materials": near(2, 0), "pack_matcaps": near(2, 0), "pack_matcap_textures": near(1, 0), "selected_material": is_text("Moss")}),
+        (s, [f"--settings-file={settings_file()}"],
+         {"pack_materials": near(2, 0), "selected_material": is_text("Moss"), "pack_matcap_textures": near(1, 0)}),
     ])
 
 

@@ -153,6 +153,10 @@ material_matcap :: proc(app: ^App, m: Material) -> ^sdl.GPUTexture {
 	switch {
 	case m.matcap == MATCAP_IMAGE:      return app.matcap_image
 	case m.matcap > 0 && m.matcap <= len(MATCAP_RECIPES): return app.matcaps[m.matcap - 1]
+	case m.matcap >= PACK_MATCAP:
+		// Made at the frame's end when first used (pack_matcaps_settle); until then, the
+		// lights.
+		if mc, ok := pack_matcap_at(app, m.matcap - PACK_MATCAP); ok do return mc.texture
 	}
 	return nil
 }
@@ -177,21 +181,15 @@ matcap_image_load :: proc(app: ^App, path: string, quiet := false) -> bool {
 		return false
 	}
 	defer delete(data)
-	img, img_err := image.load_from_bytes(data)
-	if img_err != nil {
-		file_note(app, true, "Cannot load MatCap %s: %v (PNG, JPEG, BMP, TGA and QOI images work)", name, img_err)
-		return false
-	}
-	defer image.destroy(img)
-	rgba := make([]u8, img.width * img.height * 4)
+	rgba, width, height, failed := matcap_pixels(data)
 	defer delete(rgba)
-	if !image_rgba8(img, rgba) {
-		file_note(app, true, "Cannot load MatCap %s: %d-bit channels are not supported", name, img.depth)
+	if failed != "" {
+		file_note(app, true, "Cannot load MatCap %s: %s", name, failed)
 		return false
 	}
-	tex := render.matcap_create(&app.renderer, rgba, img.width, img.height)
+	tex := render.matcap_create(&app.renderer, rgba, width, height)
 	if tex == nil {
-		file_note(app, true, "Cannot load MatCap %s: the GPU refused a %d x %d texture", name, img.width, img.height)
+		file_note(app, true, "Cannot load MatCap %s: the GPU refused a %d x %d texture", name, width, height)
 		return false
 	}
 	render.matcap_destroy(&app.renderer, &app.matcap_image)
@@ -201,8 +199,22 @@ matcap_image_load :: proc(app: ^App, path: string, quiet := false) -> bool {
 	// The frame keys know the texture by its address, which the new one may share with
 	// the one just released, so the idle cache would keep the old picture.
 	render.viewport_invalidate(&app.target)
-	if !quiet do file_note(app, false, "Loaded MatCap %s (%d x %d)", name, img.width, img.height)
+	if !quiet do file_note(app, false, "Loaded MatCap %s (%d x %d)", name, width, height)
 	return true
+}
+
+// An image file's pixels as RGBA8 for a matcap, or why it cannot be one ("" when it can).
+// Pure, so a pack's install thread checks its matcaps with it.
+matcap_pixels :: proc(data: []u8, allocator := context.allocator) -> (rgba: []u8, width, height: int, failed: string) {
+	img, img_err := image.load_from_bytes(data)
+	if img_err != nil do return nil, 0, 0, fmt.tprintf("%v (PNG, JPEG, BMP, TGA and QOI images work)", img_err)
+	defer image.destroy(img)
+	rgba = make([]u8, img.width * img.height * 4, allocator)
+	if !image_rgba8(img, rgba) {
+		delete(rgba, allocator)
+		return nil, 0, 0, fmt.tprintf("%d-bit channels are not supported", img.depth)
+	}
+	return rgba, img.width, img.height, ""
 }
 
 // The colour other objects are tinted with under a matcap: the picture a little dimmed,
@@ -238,6 +250,7 @@ image_rgba8 :: proc(img: ^image.Image, out: []u8) -> bool {
 // The matcap's name for the Material section.
 matcap_label :: proc(app: ^App, matcap: int) -> string {
 	if matcap == MATCAP_IMAGE do return filepath.stem(app.matcap_path) if app.matcap_path != "" else "image"
+	if mc, ok := pack_matcap_at(app, matcap - PACK_MATCAP); ok && matcap >= PACK_MATCAP do return mc.stem
 	if matcap > 0 && matcap <= len(MATCAP_RECIPES) do return fmt.tprintf("%s", MATCAP_RECIPES[matcap - 1].label)
 	return ""
 }

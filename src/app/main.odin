@@ -488,6 +488,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	alphas_init(&app)
 	defer alphas_destroy(&app)
 	library_load(&app, library_folder(settings))
+	// Runs after settings_save and the scene's last use, which read the pack materials'
+	// names, and before the renderer goes, which their textures need: keep it here.
 	defer library_destroy(&app)
 	settings_load(&app, settings)
 	app.settings_file = settings
@@ -736,6 +738,9 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		sculpted.brush_ms += waited_dab.brush_ms
 		cursor_update(&app, input)
 		draw_viewport_overlay(&app, input)
+		// No pass is open yet, so a pack matcap first shown this frame can be uploaded
+		// (with its own command buffer) and drawn with now.
+		pack_matcaps_settle(&app)
 
 		// The 3D viewport goes in its own command buffer, submitted ahead of the one that
 		// presents, so its GPU time can be measured on its own.
@@ -1030,9 +1035,11 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	}
 	macros_kept := 0
 	for s in app.macro.slots do macros_kept += int(s.name != "")
-	pack_alphas, pack_presets, pack_meshes := 0, 0, 0
-	for p in app.library.packs do pack_alphas, pack_presets, pack_meshes = pack_alphas + p.alphas, pack_presets + p.presets, pack_meshes + p.meshes
-	fmt.printfln("library_alphas=%d library_skipped=%d alpha=%s packs=%d pack_alphas=%d pack_presets=%d pack_meshes=%d packs_installed=%d packs_refused=%d", app.library.alphas, app.library.skipped, alpha_ref(&app, app.brush.alpha), len(app.library.packs), pack_alphas, pack_presets, pack_meshes, app.library.installed, app.library.refused)
+	pack_alphas, pack_presets, pack_meshes, pack_materials := 0, 0, 0, 0
+	for p in app.library.packs do pack_alphas, pack_presets, pack_meshes, pack_materials = pack_alphas + p.alphas, pack_presets + p.presets, pack_meshes + p.meshes, pack_materials + p.materials
+	pack_matcaps := 0
+	for m in app.library.matcaps do if !m.gone do pack_matcaps += 1
+	fmt.printfln("library_alphas=%d library_skipped=%d alpha=%s packs=%d pack_alphas=%d pack_presets=%d pack_meshes=%d pack_materials=%d pack_matcaps=%d pack_matcap_textures=%d packs_installed=%d packs_refused=%d", app.library.alphas, app.library.skipped, alpha_ref(&app, app.brush.alpha), len(app.library.packs), pack_alphas, pack_presets, pack_meshes, pack_materials, pack_matcaps, app.library.textures_made, app.library.installed, app.library.refused)
 	fmt.printfln("macros=%d macro_recording=%d macro_entries=%d macro_left_out=%d macros_run=%d scripts_run=%d macro_steps=%d", macros_kept, int(app.macro.recording), len(app.macro.entries), app.macro.left_out, app.macro.runs, app.macro.scripts, app.macro.steps)
 	fmt.printfln("frames=%d dabs=%d objects=%d vertices=%d", frame_index, app.stats.dabs_total, len(app.scene.objects), vertices)
 	{
@@ -1107,11 +1114,13 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 				m.drawn.x, m.drawn.y, lower(m.mode), lower(m.hover), lower(m.last), m.drags, int(m.snap), tr.position.x, tr.position.y, tr.position.z, tr.rotation.x, tr.rotation.y, tr.rotation.z, tr.scale, transform_undo)
 		}
 		{
-			// The selected object's levels and name, the New scene shape armed and whether the
-			// menu is open, for the starter scenarios.
+			// The selected object's levels, name and material, the New scene shape armed and
+			// whether the menu is open, for the starter and pack scenarios.
 			obj := selected_object(&app)
 			name, _ := strings.replace_all(object_label(obj) if obj != nil else "none", " ", "_", context.temp_allocator)
-			fmt.printfln("selected_levels=%d selected_name=%s new_armed=%d menu=%d", len(obj.levels.levels) if obj != nil else 0, name, app.kit.new_armed, int(app.kit.menu))
+			material := "none"
+			if obj != nil && obj.material.label != nil do material, _ = strings.replace_all(string(obj.material.label), " ", "_", context.temp_allocator)
+			fmt.printfln("selected_levels=%d selected_name=%s selected_material=%s new_armed=%d menu=%d", len(obj.levels.levels) if obj != nil else 0, name, material, app.kit.new_armed, int(app.kit.menu))
 			preset := "none"
 			if p, on := brush_preset(&app); on do preset, _ = strings.replace_all(preset_name(p), " ", "_", context.temp_allocator)
 			fmt.printfln("presets=%d preset=%d preset_name=%s preset_changed=%d", app.preset_count, app.brush.preset, preset, int(preset_changed(&app)))
@@ -1178,8 +1187,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		}
 		fmt.printfln("more=%s all_options=%d", more, int(k.all_options))
 		// The section the tray's open palette shows, whether Show where's mark is on a
-		// control, and the Mask section's Steps.
-		fmt.printfln("tray_section=%v tray_marked=%d mask_steps=%d nav_taps=%d", tray_section(&app, k.tab), int(k.pointed.id != .None && k.ctx.marked.found), app.ui.mask_steps, k.nav.taps)
+		// control, and the Mask section's Steps and Mask by kind.
+		fmt.printfln("tray_section=%v tray_marked=%d mask_steps=%d mask_by=%s nav_taps=%d", tray_section(&app, k.tab), int(k.pointed.id != .None && k.ctx.marked.found), app.ui.mask_steps, mask_by_word(app.ui.mask_by.kind), k.nav.taps)
 		fmt.printfln("coach=%d coach_shown=%d coach_step=%s", k.coach, int(k.coach_shown), strings.to_lower(fmt.tprint(k.coach_last), context.temp_allocator) if k.coach_shown else "none")
 		// The action bar's groups as it last showed them (none while it waits for room), and
 		// how often the mask was read.
