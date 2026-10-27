@@ -50,6 +50,7 @@ Script_Verb :: enum u8 {
 	Draw_Curve,
 	Insert_Middle,
 	Falloff,
+	Focal,
 	Alpha,
 	Layer,
 	Install_Pack,
@@ -71,6 +72,7 @@ SCRIPT_VERBS := [Script_Verb]struct {
 	.Draw_Curve    = {"draw_curve", "tube, stitches or zipper"},
 	.Insert_Middle = {"insert_middle", "sphere, cube, cylinder, cone or torus"},
 	.Falloff       = {"falloff", "smooth, linear, sharp, firm or flat"},
+	.Focal         = {"focal", "a number from -100 to 100: every brush's focal shift"},
 	.Alpha         = {"alpha", "an alpha's name (a built-in's, or mine/NAME or PACK/NAME from the library) or an image file"},
 	.Layer         = {"layer", "the layer's number counting from 1 at the bottom, its strength from -1 to 2, and hidden to hide it"},
 	.Install_Pack  = {"install_pack", "a content pack file (.sculptpack), which replaces an installed pack of its name and author"},
@@ -395,6 +397,8 @@ script_verb_read :: proc(st: ^Script_Statement, args: []string) -> bool {
 		return numbers(st, args, 3, -1e6, 1e6)
 	case .Mask_Rect:
 		return numbers(st, args, 4, 0, 1) && st.numbers[0] != st.numbers[2] && st.numbers[1] != st.numbers[3]
+	case .Focal:
+		return numbers(st, args, 1, sculpt.FOCAL_MIN, sculpt.FOCAL_MAX)
 	case .Project:
 		if len(args) != 1 do return false
 		n, ok := strconv.parse_int(args[0])
@@ -443,7 +447,10 @@ script_verb :: proc(app: ^App, st: Script_Statement) -> (failure: string, ok: bo
 	switch st.verb {
 	case .Falloff:
 		preset := FALLOFF_PRESETS[st.arg]
-		for &f in app.brush.falloffs do f = {drawn = preset.drawn, curve = preset.curve}
+		for &f in app.brush.falloffs do f.drawn, f.curve = preset.drawn, preset.curve
+		return "", true
+	case .Focal:
+		for &f in app.brush.falloffs do f.focal = st.numbers[0]
 		return "", true
 	case .Alpha:
 		if !alpha_select(app, st.text) do return fmt.tprintf("no alpha is named %q and no image could be read there", st.text), true
@@ -503,7 +510,7 @@ script_verb :: proc(app: ^App, st: Script_Statement) -> (failure: string, ok: bo
 			_ = sculpt.sculptor_layer_set(s, st.count - 1, st.numbers[0], !st.flip)
 			if sculpt.sculptor_stroke_end(s) do history_record(app, obj, .Layer, "Layer strength")
 			return "", true
-		case .Falloff, .Alpha, .Project, .Draw_Curve, .Insert_Middle, .Install_Pack:
+		case .Falloff, .Focal, .Alpha, .Project, .Draw_Curve, .Insert_Middle, .Install_Pack:
 		}
 	}
 	if script_scene_state(app) == before do return "it left the scene as it was (the log says why)", true

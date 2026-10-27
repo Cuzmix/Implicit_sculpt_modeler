@@ -116,7 +116,8 @@ presets_are_remembered :: proc(t: ^testing.T) {
 	testing.expect(t, preset_rename(&a, 0, "Soft 50% clay"))
 	testing.expect(t, command_run(&a, .Brush, int(sculpt.Brush_Kind.Draw)))
 	a.brush.alpha, a.brush.stroke = 2, .Drag_Rect
-	a.brush.falloffs[.Draw] = {drawn = true, curve = {{0.1, 0.2}, {0.7, 0.9}}}
+	a.brush.falloffs[.Draw] = {drawn = true, curve = {{0.1, 0.2}, {0.7, 0.9}}, focal = -30}
+	a.brush.falloffs[.Inflate].focal = 25
 	a.brush.lock_plane, a.brush.connected = true, true
 	testing.expect(t, preset_save_new(&a))
 	a.brush.strengths[.Draw] = 0.95 // a change not saved in the preset
@@ -138,6 +139,9 @@ presets_are_remembered :: proc(t: ^testing.T) {
 	testing.expect_value(t, preset_name(&b.presets[2]), "Old clay")
 	testing.expect(t, !b.presets[2].values.lock_plane && !b.presets[2].values.connected)
 	testing.expect_value(t, b.presets[2].values.spread, 0.6)
+	testing.expect_value(t, b.presets[2].values.falloff.focal, 0)
+	testing.expect_value(t, b.presets[1].values.falloff.focal, -30)
+	testing.expect_value(t, b.brush.falloffs[.Inflate].focal, 25)
 	testing.expect_value(t, preset_name(&b.presets[0]), "Soft 50% clay")
 	testing.expect_value(t, b.presets[0].values.strength, 0.3)
 	testing.expect(t, preset_same(&a, a.presets[1].values, b.presets[1].values))
@@ -150,4 +154,5 @@ presets_are_remembered :: proc(t: ^testing.T) {
 	preset_leave(&b)
 	testing.expect_value(t, b.brush.strengths[.Draw], BRUSHES[.Draw].strength)
 	testing.expect(t, b.brush.falloffs[.Draw].drawn)
+	testing.expect_value(t, b.brush.falloffs[.Draw].focal, -30)
 }

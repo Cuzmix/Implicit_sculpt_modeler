@@ -184,8 +184,14 @@ overlay_viewport :: proc(app: ^App, o: Overlay, input: Viewport_Input) {
 			}
 			if brush_alpha(app) != nil && held_brush(input) {
 				draw_alpha_outline(app, o, center, color)
-			} else if !draw_surface_ring(app, o, input.size, color) {
-				overlay_circle(o, center, app.brush.radius_px, color, 1.5)
+			} else {
+				if !draw_surface_ring(app, o, input.size, color) do overlay_circle(o, center, app.brush.radius_px, color, 1.5)
+				// A focal shift moves where the brush works: an inner ring where it falls to
+				// half strength, as the reference app's cursor shows it.
+				if half := brush_half_radius(app); half > 0 {
+					inner := overlay_color(brush_ring_color(app, input.primary) * {1, 1, 1, 0.55})
+					if !draw_surface_ring(app, o, input.size, inner, half) do overlay_circle(o, center, app.brush.radius_px * half, inner, 1)
+				}
 			}
 			// Which way a leaning pen turns the brush, and how far: toward the top of the
 			// pen, a radius long at a right angle.
@@ -300,10 +306,11 @@ RING_POINTS :: 64
 
 // The brush ring lying on the surface (Brush_Cursor): the brush's circle in the plane the
 // surface faces, seen in perspective, with a short tick out along the surface's normal
-// from its middle, as ZBrush draws it. False when there is none this frame (off the
+// from its middle, as ZBrush draws it; with `scale` under 1, a ring that much of the
+// brush's radius across, without the tick. False when there is none this frame (off the
 // model, or part of it behind the eye), and the flat circle is drawn instead.
 @(private = "file")
-draw_surface_ring :: proc(app: ^App, o: Overlay, size: [2]f32, color: ui.Color) -> bool {
+draw_surface_ring :: proc(app: ^App, o: Overlay, size: [2]f32, color: ui.Color, scale: f32 = 1) -> bool {
 	c := app.cursor
 	if !c.ok do return false
 	view_proj := camera.orbit_proj(app.camera, size.x / max(size.y, 1)) * camera.orbit_view(app.camera)
@@ -314,10 +321,11 @@ draw_surface_ring :: proc(app: ^App, o: Overlay, size: [2]f32, color: ui.Color) 
 	for &p, i in points {
 		a := 2 * math.PI * f32(i) / RING_POINTS
 		ok: bool
-		p, ok = gizmo.project(view_proj, c.at + (u * math.cos(a) + v * math.sin(a)) * c.radius, size)
+		p, ok = gizmo.project(view_proj, c.at + (u * math.cos(a) + v * math.sin(a)) * (c.radius * scale), size)
 		if !ok do return false
 	}
-	overlay_polyline(o, points[:], color, 1.5, closed = true)
+	overlay_polyline(o, points[:], color, 1.5 if scale == 1 else 1, closed = true)
+	if scale != 1 do return true
 	middle, middle_ok := gizmo.project(view_proj, c.at, size)
 	tip, tip_ok := gizmo.project(view_proj, c.at + c.normal * (c.radius * 0.5), size)
 	if middle_ok && tip_ok do overlay_line(o, middle, tip, color, 1.5)
