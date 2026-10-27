@@ -108,10 +108,12 @@ on_screen :: proc(app: ^App, p: Vec3) -> [2]f32 {
 @(test)
 spray_scatters_within_its_spread_and_repeats_with_its_seed :: proc(t: ^testing.T) {
 	path := [?][2]f32{{420, 400}, {460, 400}, {500, 400}, {540, 400}, {580, 400}}
-	apps: [3]App
+	// On the heap: three Apps are more than a test's stack may hold.
+	apps := new([3]App)
+	defer free(apps)
 	objs: [3]^Object
 	before: []Vec3
-	for &app, i in apps {
+	for &app, i in apps^ {
 		objs[i] = stroke_sphere(&app)
 		// The sculptor keeps vertices in its nodes' order, so the first is compared with
 		// itself as it was.
@@ -120,7 +122,7 @@ spray_scatters_within_its_spread_and_repeats_with_its_seed :: proc(t: ^testing.T
 		app.stroke_seed = 5 if i < 2 else 6
 		_ = stroke_recorded(&app, path[:])
 	}
-	defer for &app in apps {
+	defer for &app in apps^ {
 		replay_destroy(&app.replay)
 		stroke_scene_free(&app)
 	}
@@ -852,9 +854,11 @@ spacing_sets_how_far_apart_dabs_are :: proc(t: ^testing.T) {
 @(test)
 color_spray_varies_the_paint_and_repeats_with_its_seed :: proc(t: ^testing.T) {
 	path := [?][2]f32{{420, 400}, {460, 400}, {500, 400}, {540, 400}, {580, 400}}
-	apps: [3]App
+	// On the heap: three Apps are more than a test's stack may hold.
+	apps := new([3]App)
+	defer free(apps)
 	objs: [3]^Object
-	for &app, i in apps {
+	for &app, i in apps^ {
 		objs[i] = stroke_sphere(&app)
 		app.brush.kind, app.brush.radius_px, app.brush.stroke, app.brush.spray_spread = .Paint, 20, .Spray, 1
 		app.brush.strengths[.Paint], app.brush.color = 1, {0.5, 0.4, 0.3}
@@ -862,7 +866,7 @@ color_spray_varies_the_paint_and_repeats_with_its_seed :: proc(t: ^testing.T) {
 		app.stroke_seed = 5
 		_ = stroke_recorded(&app, path[:])
 	}
-	defer for &app in apps {
+	defer for &app in apps^ {
 		replay_destroy(&app.replay)
 		stroke_scene_free(&app)
 	}

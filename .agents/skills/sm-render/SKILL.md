@@ -152,6 +152,12 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
 - Style (`Draw_Item.style`, `Material_Uniforms.style`, in both frame keys): w > 0.5 turns on the underside falloff of
   the ambient (`underside()`, rig up = `rig[1]`) and the narrow upper rim, classic and PBR studio ambient; w = 0 must
   run the old lines verbatim (check 0 px against the base). Thumbnails and the nav head pass zero.
+- Passes (`Draw_Item.pass`, `Material_Uniforms.pass` at offset 880, block 896, in both frame keys; `render.View_Pass`):
+  x the pass, y/z Depth's near/far as eye distances. `mesh_shading.glsl` branches once after the normal and `bend`,
+  writing unlit display values with `opacity()`; 0 must stay the shaded path. The app sets it on every viewport draw
+  (`pass_items`, `src/app/passes.odin`) and clears it before the thumbnail, nav head and object pictures draw; the
+  ground (`pass_ground`) and the floor are swapped in `main.odin`; `live_ao_wanted`, `studio_running`, `render_running`
+  gate on `pass_shaded`. App structs near the test stack limit: `[3]App` tests allocate with `new`.
 - Look presets (`src/app/look.odin`, Scene > Look, `Viewport_Look`): Sculpt studio / Classic write existing fields
   (material default, lights through Light_Set's fields, background, cavity, style, live AO, studio strengths). Code
   defaults stay Classic; `look_first_run` applies Sculpt studio once for the everyday settings file only

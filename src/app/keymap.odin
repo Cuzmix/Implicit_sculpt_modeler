@@ -8,6 +8,7 @@ import sdl "vendor:sdl3"
 
 import "../camera"
 import "../gizmo"
+import "../render"
 import "../sculpt"
 
 // The keys in use: DEFAULT_BINDINGS with the user's changes over them. A command the user
@@ -78,6 +79,8 @@ chord_reserved :: proc(chord: Chord) -> (reason: string, reserved: bool) {
 		return "Enter and Backspace are for typing", true
 	case sdl.K_SPACE:
 		return "Space opens the brush pie", true
+	case sdl.K_GRAVE:
+		return "` held peeks at the last other pass", true
 	case sdl.K_S, sdl.K_U:
 		if chord.mods == {} do return "S and U held over the model size the brush and set its strength", true
 	case sdl.K_LCTRL, sdl.K_RCTRL, sdl.K_LSHIFT, sdl.K_RSHIFT, sdl.K_LALT, sdl.K_RALT, sdl.K_LGUI, sdl.K_RGUI, sdl.K_MODE:
@@ -228,6 +231,7 @@ command_arg_name :: proc(id: Command_Id, arg: int) -> string {
 	case .Remesh_To, .Decimate_To: return fmt.tprint(SPHERE_PRESETS[arg].vertices)
 	case .Help:      return fmt.tprint(Help_Tab(arg))
 	case .Show_Section, .Pin_Section: return fmt.tprint(Kit_Section(arg))
+	case .View_Pass: return fmt.tprint(render.View_Pass(arg))
 	case .Workspace:
 		if b, ok := workspace_built_in(arg); ok do return fmt.tprint(b)
 		return fmt.tprintf("Own%d", arg - len(Built_In) + 1)

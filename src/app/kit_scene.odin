@@ -686,6 +686,7 @@ kit_studio :: proc(app: ^App) {
 		ui.paragraph(ctx, fmt.tprintf("Built up %d of %d samples.", app.studio.samples, app.studio_samples))
 	}
 	if app.studio_on && app.studio.failed do ui.paragraph(ctx, "The studio render could not be set up on this GPU; the log says why.")
+	if app.studio_on && !app.studio.failed && !pass_shaded(app) do ui.paragraph(ctx, pass_paused_note(app))
 	ui.paragraph(ctx, fmt.tprintf("Ambient occlusion and soft shadows build up while the view stays still; any change starts them over. Shadow softness is how wide the key light is. %s", command_keys(app, .Studio_Render)))
 	ui.paragraph(ctx, "Occlusion while working darkens creases every frame, sculpting too, with the same Occlusion strength; Reach is how far it looks, as a share of the scene's size. With the studio render on it shows until the studio has built up its first samples.")
 }

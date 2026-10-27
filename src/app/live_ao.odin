@@ -24,12 +24,14 @@ LIVE_AO_REACH_MAX :: 0.4
 // keeps its occlusion. A still view redraws nothing, which costs it nothing. Off, it
 // makes its next run start in full.
 live_ao_view_frame :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer, view, proj: render.Mat4, items: []render.Draw_Item, drawn: render.Viewport_Stats) {
-	if !app.live_ao_on {
+	if !live_ao_wanted(app) {
 		render.live_ao_reset(&app.live_ao)
 		return
 	}
 	reach := clamp(app.live_ao_reach, LIVE_AO_REACH_MIN, LIVE_AO_REACH_MAX)
-	_ = render.live_ao_frame(&app.renderer, &app.live_ao, cmd, &app.target, view, proj, items, drawn, reach, app.studio_ao, LIVE_AO_SCALE)
+	// The AO pass shows the occlusion alone, at its full strength whatever the studio's is.
+	strength := 1 if viewport_pass(&app.kit) == .AO else app.studio_ao
+	_ = render.live_ao_frame(&app.renderer, &app.live_ao, cmd, &app.target, view, proj, items, drawn, reach, strength, LIVE_AO_SCALE)
 }
 
 // The texture the viewport shows: render mode's once it has RENDER_SHOW_MIN samples, the
@@ -40,8 +42,8 @@ live_ao_view_frame :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer, view, proj: re
 viewport_shown :: proc(app: ^App) -> ^sdl.GPUTexture {
 	if render_running(app) && app.path.samples >= RENDER_SHOW_MIN do return render.render_texture(&app.path)
 	studio := studio_running(app)
-	if studio && (app.studio.samples >= STUDIO_SHOW_MIN || !app.live_ao_on) do return render.studio_texture(&app.studio)
-	if app.live_ao_on do return render.live_ao_texture(&app.live_ao)
+	if studio && (app.studio.samples >= STUDIO_SHOW_MIN || !live_ao_wanted(app)) do return render.studio_texture(&app.studio)
+	if live_ao_wanted(app) do return render.live_ao_texture(&app.live_ao)
 	return nil
 }
 
@@ -49,9 +51,10 @@ viewport_shown :: proc(app: ^App) -> ^sdl.GPUTexture {
 // of a second at 60 frames a second, when its noise has settled below live occlusion's blur.
 STUDIO_SHOW_MIN :: 16
 
-// Whether the studio render runs: it is on, and the device can run it.
+// Whether the studio render runs: it is on, the device can run it, and the viewport is
+// shaded (a pass pauses it, and it starts over once the shaded picture is back).
 studio_running :: proc(app: ^App) -> bool {
-	return app.studio_on && !app.studio.failed
+	return app.studio_on && !app.studio.failed && pass_shaded(app)
 }
 
 // Scene > Studio render's live occlusion switch, disabled with the reason where the device

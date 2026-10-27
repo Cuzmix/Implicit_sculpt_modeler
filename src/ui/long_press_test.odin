@@ -262,3 +262,45 @@ a_used_press_neither_long_presses_nor_clicks :: proc(t: ^testing.T) {
 	testing.expect_value(t, fired, 0)
 	testing.expect(t, !clicked)
 }
+
+// One frame of a lone button at the top left that peeks while held; returns whether it
+// clicked and whether it is held long now.
+@(private = "file")
+held_frame :: proc(ctx: ^Context, input: Input) -> (clicked, held: bool) {
+	frame_begin(ctx, input)
+	begin_anchored(ctx, "column", .Start, .Start, {16, 16}, {direction = .Column})
+	clicked = button(ctx, "peek")
+	held = held_long(ctx)
+	end(ctx)
+	frame_end(ctx)
+	return
+}
+
+// A hold, by a finger or the mouse's left button, is held long from the long press until
+// it lets go, and the release is no click; a short press is a click and never held.
+@(test)
+held_long_lasts_the_hold_by_any_pointer :: proc(t: ^testing.T) {
+	for pointer in ([2]Pointer_Kind{.Finger, .Mouse}) {
+		ctx: Context
+		init(&ctx)
+		defer destroy(&ctx)
+		_, _ = held_frame(&ctx, touch({-1, -1}))
+		_, _ = held_frame(&ctx, touch({-1, -1}))
+		p := [2]f32{40, 36}
+		_, held := held_frame(&ctx, touch(p, {.Left}, {.Left}, pointer = pointer))
+		frames := 0
+		for _ in 0 ..< LONG_FRAMES {
+			_, held = held_frame(&ctx, touch(p, {.Left}, pointer = pointer))
+			frames += int(held)
+		}
+		testing.expectf(t, held && frames > 0 && frames < LONG_FRAMES, "%v: held %d frames", pointer, frames)
+		clicked: bool
+		clicked, held = held_frame(&ctx, touch(p, released = {.Left}, pointer = pointer))
+		testing.expectf(t, !clicked && !held, "%v: the release clicked or stayed held", pointer)
+		// A short press clicks.
+		_, held = held_frame(&ctx, touch(p, {.Left}, {.Left}, pointer = pointer))
+		for _ in 0 ..< 5 do _, held = held_frame(&ctx, touch(p, {.Left}, pointer = pointer))
+		clicked, _ = held_frame(&ctx, touch(p, released = {.Left}, pointer = pointer))
+		testing.expectf(t, clicked && !held, "%v: a tap did not click", pointer)
+	}
+}

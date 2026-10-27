@@ -229,6 +229,11 @@ kit_top_bar :: proc(app: ^App) -> (menu_anchor, search_anchor: ui.Rect) {
 		kit_workspace_chip(app)
 		middle -= ctx.last_rect.w
 	}
+	// The pass chip sits at the right end, before History, once the switcher has its
+	// room; a narrower window leaves the passes to Search ("pass") and their keys.
+	pass_chip := middle >= WORKSPACE_CHIP_ROOM
+	if pass_chip do middle -= pass_chip_width(ctx)
+	if !pass_chip do k.passes.chip_held = false
 	r := ui.place(ctx, {max(middle, 0), TOP_BAR_H - 4})
 	name := filepath.base(app.scene_path) if app.scene_path != "" else "Untitled"
 	// A scene with no file is marked only once there is work in it to lose.
@@ -244,6 +249,7 @@ kit_top_bar :: proc(app: ^App) -> (menu_anchor, search_anchor: ui.Rect) {
 		search_anchor = ctx.last_rect
 		_ = bar_command(app, .Inspector, ui.ICON_PANEL, selected = k.inspector && !side_panel_open(k))
 	}
+	if pass_chip do kit_pass_chip(app)
 	if ui.icon_button(ctx, "History", ui.ICON_HISTORY, selected = k.history) do k.history = !k.history
 	if bar_command(app, .Pie_Editor, ui.ICON_PIE, name = "Edit pies") do k.pie_editor_at = ctx.last_rect
 	_ = bar_command(app, .Help, ui.ICON_HELP, int(Help_Tab.Keys), name = "Help", selected = k.help)

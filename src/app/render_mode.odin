@@ -18,7 +18,7 @@ RENDER_SHOW_MIN :: 4
 
 // Whether render mode runs: it is on, and the device can run it.
 render_running :: proc(app: ^App) -> bool {
-	return app.render_on && !app.path.failed
+	return app.render_on && !app.path.failed && pass_shaded(app)
 }
 
 // Turns render mode on or off; on, it starts over.
@@ -35,6 +35,9 @@ render_mode_frame :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer, view, proj: ren
 		if app.path.pipeline != nil do render.path_render_destroy(&app.renderer, &app.path)
 		return
 	}
+	// A pass pauses it, keeping what it holds on the device; it starts over once the
+	// shaded picture is back, which redraws the viewport.
+	if !pass_shaded(app) do return
 	samples := int(clamp(app.render_samples, 1, render.RENDER_SAMPLES_MAX))
 	bounces := int(clamp(app.render_bounces, 1, render.RENDER_BOUNCES_MAX))
 	_ = render.render_frame(&app.renderer, &app.path, cmd, &app.target, view, proj, items, changed, samples, bounces, viewport_lights(app), app.studio_softness, app.exposure, app.render_denoise, app.render_half, render_lens(app), &app.pool)
@@ -61,6 +64,8 @@ kit_render :: proc(app: ^App) {
 	switch {
 	case app.render_on && pr.failed:
 		ui.paragraph(ctx, "Render mode could not be set up on this GPU; the log says why.")
+	case app.render_on && !pass_shaded(app):
+		ui.paragraph(ctx, pass_paused_note(app))
 	case render_running(app) && pr.refused != "":
 		ui.paragraph(ctx, pr.refused)
 	case render_running(app) && pr.samples > 0:

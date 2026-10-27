@@ -81,6 +81,11 @@ rect_narrow :: proc(rect: Rect, width, height: u32) -> Mat4 {
 	}
 }
 
+// A sphere around every item, as scene_sphere finds it, for the app's Depth pass.
+items_sphere :: proc(items: []Draw_Item) -> (center: [3]f32, radius: f32, ok: bool) {
+	return scene_sphere(items)
+}
+
 // A sphere around every item's chunks in the world, or for an item without chunks (the
 // live boolean's preview), its CPU mesh's vertices. False with nothing to draw.
 @(private)

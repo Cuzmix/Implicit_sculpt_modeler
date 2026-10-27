@@ -93,6 +93,12 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   `action_bar_shown`. A new panel that a layout should open goes in `LAYOUT_PANELS`. Commands `Workspace` (slot arg),
   `Workspace_Save/_Save_As/_Revert/_Reset/_Rename/_Delete`. The layout holds the column and strip bars (a `bars`
   line, then `bars_save`), never the dock, which is the user's own set; a text with no `bars` line keeps the bars.
+- Passes (`src/app/passes.odin`, `k.passes`): `kit_pass_chip` in the top bar before History (fixed width,
+  `pass_chip_width`), its list `kit_pass_menu`, commands `View_Pass` (arg the pass, Alt+1..6) and
+  `View_Pass_Last` (Alt+0); a peek is `chip_held` (from `ui.held_long`, true while a press stays past the long press, mouse
+  too) or `key_held` (backquote by keycode, intercepted in main.odin's event loop as Space is, reserved in
+  `chord_reserved`), ignored while a time-lapse or turntable records (`recording`).
+  Read what shows with `viewport_pass(k)`; the layout writes `pass` only when not Shaded and never a peek.
 - Cards (`ui.card_begin`): a window with no title bar, as ZBrush for iPad's quick-access cards, its dots on top
   dragging it like a title bar and a long press on them returning `dock`, then a large centred title. The Objects
   card (`kit_objects_card.odin`, `Kit_Window.Objects`, `Objects_Card` command) is one: Add / Duplicate / New folder /

@@ -87,7 +87,8 @@ preview_frame :: proc(app: ^App) {
 		p.busy_at = now
 		return
 	}
-	if now - p.busy_at < PREVIEW_REST || now - p.tried_at < PREVIEW_EVERY || len(app.scene.objects) == 0 do return
+	// The picture is of the shaded scene: while a pass shows, the last one stays.
+	if now - p.busy_at < PREVIEW_REST || now - p.tried_at < PREVIEW_EVERY || len(app.scene.objects) == 0 || !pass_shaded(app) do return
 	p.tried_at = now
 	stamp := preview_stamp(app)
 	if stamp == p.stamp do return
@@ -100,7 +101,7 @@ preview_frame :: proc(app: ^App) {
 // Brings the picture up to date before a save, waiting for the GPU when it is not.
 preview_refresh :: proc(app: ^App) {
 	p := &app.preview
-	if app.renderer.device == nil || app.target.color == nil || p.background do return
+	if app.renderer.device == nil || app.target.color == nil || p.background || !pass_shaded(app) do return
 	stamp := preview_stamp(app)
 	if stamp == p.stamp do return
 	render.readback_cancel(&app.renderer, &p.grab)
