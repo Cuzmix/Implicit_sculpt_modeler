@@ -68,6 +68,8 @@ description: CAD-style mesh tools inside this app on geom.Mesh — primitives, b
   front (the normal's side) and back, caps each border loop (ear clipping, holes bridged) and evens the cap (longest
   edge bisection, Delaunay flips, guarded smoothing). Wired as `Scene_Command .Slice` → `object_slice` (front becomes
   a new object; both swaps undo as one through `History_Entry.chain`), the Slice gesture tool, the script verb `slice x|y|z`.
+  Knife (`Scene_Command .Knife` → `object_knife`) is the same cut keeping only `back` (destroys `front` at once) and
+  rebuilding through `object_rebuild` as Mirror and weld does: one swap step, layers carried; script `knife x|-x|...`.
 - Split and Merge exist (`src/app/split_merge.odin`, the Objects card's Actions): `geom.mesh_components` numbers
   connected pieces and `geom.mesh_split(m, part, count)` makes one mesh per part with `vertex_from`/`tri_from`
   (`src/geom/split.odin`, serial and deterministic). `object_split` follows `object_slice` (layers carried to every

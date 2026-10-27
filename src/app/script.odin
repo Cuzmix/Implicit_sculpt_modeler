@@ -61,6 +61,7 @@ Script_Verb :: enum u8 {
 	Make_Pack,
 	Group_Material,
 	Texture,
+	Knife,
 }
 
 // Each verb's name and what it takes, for errors and the README.
@@ -89,6 +90,7 @@ SCRIPT_VERBS := [Script_Verb]struct {
 	.Make_Pack     = {"make_pack", "a .sculptpack file to write your own alphas and presets to, named after the file"},
 	.Group_Material = {"group_material", "a polygroup's number from 1, given the material `set material` chose, and off to give it the object's again"},
 	.Texture       = {"texture", "base_color, orm or normal, then an image file to load as that map of the selected object"},
+	.Knife         = {"knife", "x, y or z to cut away the + side of the middle, -x, -y or -z the - side"},
 }
 
 // A command that is on or off (one with `checked`) can be told which: it then runs only
@@ -451,7 +453,7 @@ script_verb_read :: proc(st: ^Script_Statement, args: []string) -> bool {
 	#partial switch st.verb {
 	case .Slice:
 		st.arg = choice(word, AXES)
-	case .Hide:
+	case .Hide, .Knife:
 		st.flip = strings.has_prefix(word, "-")
 		st.arg = choice(strings.trim_prefix(word, "-"), AXES)
 	case .Boolean:
@@ -532,7 +534,7 @@ script_verb :: proc(app: ^App, st: Script_Statement) -> (failure: string, ok: bo
 		_, hit, n, on := scene_raycast_surface(app, origin, dir)
 		if !on do return "no surface is under the middle of the view", true
 		if !insert_make(app, hit, n, app.brush.radius_px * camera.orbit_world_per_px(app.camera, hit, size.y)) do return "", false
-	case .Move, .Rotate, .Boolean, .Slice, .Hide, .Mask_Rect, .Layer, .Group_Material:
+	case .Move, .Rotate, .Boolean, .Slice, .Knife, .Hide, .Mask_Rect, .Layer, .Group_Material:
 		if obj == nil do return "nothing is selected", true
 		switch st.verb {
 		case .Move, .Rotate:
@@ -549,6 +551,8 @@ script_verb :: proc(app: ^App, st: Script_Statement) -> (failure: string, ok: bo
 			return "", true
 		case .Slice:
 			if !scene_slice_axis(app, obj, st.arg) do return "", false
+		case .Knife:
+			if !scene_knife_axis(app, obj, st.arg, !st.flip) do return "", false
 		case .Hide:
 			hide_axis(app, obj, st.arg, !st.flip)
 		case .Mask_Rect:

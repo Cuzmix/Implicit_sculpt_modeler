@@ -180,8 +180,9 @@ Grid_Pick :: struct {
 // Every brush, then the built-in presets, the person's, then each content pack's under its name, as
 // tiles GRID_PER_ROW to a row in a body that scrolls when taller than `height`: the
 // brush browser's and the slot popover's. `chosen` is lit when `lit` is set.
-// `owner` is the popover the body is in.
-kit_brush_grid :: proc(app: ^App, owner: ui.Id, chosen: Dock_Slot, lit: bool, height: f32) -> (pick: Grid_Pick) {
+// `owner` is the popover the body is in. The browser's (`browser`) also lists the mask,
+// hide and cut tools after the library; those are not brushes, so no slot holds them.
+kit_brush_grid :: proc(app: ^App, owner: ui.Id, chosen: Dock_Slot, lit: bool, height: f32, browser := false) -> (pick: Grid_Pick) {
 	k := &app.kit
 	ctx := &k.ctx
 	width := ui.BRUSH_TILE.x * GRID_PER_ROW
@@ -193,6 +194,7 @@ kit_brush_grid :: proc(app: ^App, owner: ui.Id, chosen: Dock_Slot, lit: bool, he
 	clear(&tiles)
 	for r, j in BUILT_IN_PRESETS do append(&tiles, Dock_Slot{kind = r.kind, preset = BUILT_IN_PRESET + j})
 	kit_grid_rows(app, "built-in row", tiles[:], chosen, lit, height, &scroll, &pick)
+	if browser do kit_shape_tools(app)
 	ui.caption(ctx, "PRESETS")
 	clear(&tiles)
 	for p, i in app.presets[:app.preset_count] do append(&tiles, Dock_Slot{kind = p.values.kind, preset = i + 1})
@@ -211,6 +213,72 @@ kit_brush_grid :: proc(app: ^App, owner: ui.Id, chosen: Dock_Slot, lit: bool, he
 }
 
 GRID_PER_ROW :: 5
+
+// The mask, hide and cut tools as tiles, as the reference app lists its MaskRect,
+// SelectLasso, ClipCurve and KnifeCurve brushes: a tap makes it what Ctrl + drag on empty
+// space (a mask shape) or Ctrl + Shift + drag (the rest) draws, as the Mask section's and
+// Hide, clip and slice's choices do, leaving the brush held as it is. Each choice's tile
+// is lit, so two are lit at once.
+@(private = "file")
+kit_shape_tools :: proc(app: ^App) {
+	ctx := &app.kit.ctx
+	ui.caption(ctx, "MASK, HIDE AND CUT")
+	// A row lights one tile (its container's indicator), so the mask shapes have a row of
+	// their own and the gesture tools, five, the next.
+	ui.begin(ctx, "mask shape tools", {direction = .Row, gap = 0})
+	for m in Mask_Shape_Kind {
+		name := fmt.tprintf("Mask %s##shape tool", MASK_SHAPE_NAMES[m])
+		if ui.brush_tile(ctx, name, SHAPE_TOOL_ICONS[m], app.ui.mask_shape_kind == m, "Ctrl + drag on empty space, or Mask on the wheel") do shape_tool_pick(app, m)
+	}
+	ui.end(ctx)
+	ui.begin(ctx, "gesture tools", {direction = .Row, gap = 0})
+	for g in Gesture_Tool {
+		name := fmt.tprintf("%s##shape tool", GESTURE_NAMES[g])
+		if ui.brush_tile(ctx, name, GESTURE_ICONS[g], app.gesture == g, "Ctrl + Shift + drag, or Hide on the wheel") do shape_tool_pick(app, g)
+	}
+	ui.end(ctx)
+}
+
+// Makes the mask shape or gesture `tool` the one the modifiers draw, closes the browser
+// and says how to draw it.
+shape_tool_pick :: proc(app: ^App, tool: union {
+		Mask_Shape_Kind,
+		Gesture_Tool,
+	}) {
+	switch t in tool {
+	case Mask_Shape_Kind:
+		app.ui.mask_shape_kind = t
+		report(app, Kit_Section.Mask, {}, "Ctrl + drag on empty space (or Mask on the wheel) now masks a %s", strings.to_lower(MASK_SHAPE_NAMES[t], context.temp_allocator))
+	case Gesture_Tool:
+		app.gesture = t
+		report(app, Kit_Section.Visibility, {}, "Ctrl + Shift + drag (or Hide on the wheel) now runs %s", GESTURE_NAMES[t])
+	}
+	app.kit.browser = false
+}
+
+@(rodata)
+MASK_SHAPE_NAMES := [Mask_Shape_Kind]string {
+	.Rectangle = "rectangle",
+	.Lasso     = "lasso",
+}
+
+// Lucide's square-dashed and lasso for the mask shapes; square-dashed-mouse-pointer and
+// lasso-select for hiding (a selection); crop, scissors-line-dashed and slice (a knife)
+// for the cuts.
+@(rodata, private = "file")
+SHAPE_TOOL_ICONS := [Mask_Shape_Kind]rune {
+	.Rectangle = 0xe1cb,
+	.Lasso     = 0xe1ce,
+}
+
+@(rodata, private = "file")
+GESTURE_ICONS := [Gesture_Tool]rune {
+	.Hide_Rectangle = 0xe50e,
+	.Hide_Lasso     = 0xe1cf,
+	.Clip           = 0xe0af,
+	.Slice          = 0xe4ee,
+	.Knife          = 0xe2f0,
+}
 
 // `slots` as tiles GRID_PER_ROW to a row, rows named `row` and their number.
 @(private = "file")
@@ -320,7 +388,7 @@ kit_brush_browser :: proc(app: ^App, anchor: ui.Rect, side: ui.Side) {
 	ui.caption(ctx, "BRUSHES")
 	chosen, lit := brush_as_slot(app)
 	room := grid_room(ctx, size.y, anchor) if side == .Above_Center else grid_room_beside(ctx, size.y)
-	pick := kit_brush_grid(app, owner, chosen, lit, room)
+	pick := kit_brush_grid(app, owner, chosen, lit, room, browser = true)
 	if pick.tapped do dock_slot_pick(app, pick.slot)
 	if pick.pressed do dock_slot_settings(app, pick.slot)
 	if pick.tapped || pick.pressed do k.browser = false

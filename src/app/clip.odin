@@ -13,13 +13,15 @@ import "../ui"
 // the drag; Alt takes the other side) onto the plane through the line and the view
 // direction, mirroring with the brush's symmetry and leaving masked areas; Slice cuts
 // the object in two along that plane, each part an object of its own with the cut
-// closed. A click without a drag shows everything again, whichever tool is chosen.
+// closed; Knife cuts it there too but throws the shaded side away, closing the cut on
+// what stays. A click without a drag shows everything again, whichever tool is chosen.
 
 Gesture_Tool :: enum u8 {
 	Hide_Rectangle,
 	Hide_Lasso,
 	Clip,
 	Slice,
+	Knife,
 }
 
 GESTURE_NAMES := [Gesture_Tool]cstring {
@@ -27,6 +29,7 @@ GESTURE_NAMES := [Gesture_Tool]cstring {
 	.Hide_Lasso     = "Hide lasso",
 	.Clip           = "Clip",
 	.Slice          = "Slice",
+	.Knife          = "Knife",
 }
 
 Clip_Gesture :: struct {
@@ -81,15 +84,16 @@ clip_frame :: proc(app: ^App, input: Viewport_Input) -> bool {
 	switch app.gesture {
 	case .Hide_Rectangle, .Hide_Lasso:
 		shape_finish(app, .Hide, g.points[:], app.gesture == .Hide_Rectangle, g.flip, input.size, g.pointer)
-	case .Clip, .Slice:
+	case .Clip, .Slice, .Knife:
 		line := [2][2]f32{g.a, g.b}
-		shape_finish(app, .Clip if app.gesture == .Clip else .Slice, line[:], false, g.flip, input.size, g.pointer)
+		kinds := [Gesture_Tool]Shape_Kind{.Hide_Rectangle = .Hide, .Hide_Lasso = .Hide, .Clip = .Clip, .Slice = .Slice, .Knife = .Knife}
+		shape_finish(app, kinds[app.gesture], line[:], false, g.flip, input.size, g.pointer)
 	}
 	return true
 }
 
-// Draws the gesture being dragged: the hide shape, or the line with (for Clip) a band
-// of shading on the side that goes.
+// Draws the gesture being dragged: the hide shape, or the line with (for Clip and Knife)
+// a band of shading on the side that goes.
 draw_clip :: proc(app: ^App, o: Overlay, size: [2]f32) {
 	g := &app.clip
 	if !g.active do return
@@ -100,11 +104,11 @@ draw_clip :: proc(app: ^App, o: Overlay, size: [2]f32) {
 		draw_shape_outline(o, g.points[:], g.b, app.gesture == .Hide_Rectangle, color, fill)
 		return
 	}
-	draw_clip_line(o, g.a, g.b, g.flip, app.gesture == .Clip, size)
+	draw_clip_line(o, g.a, g.b, g.flip, app.gesture != .Slice, size)
 }
 
-// A Clip or Slice line from `a` to `b`, across the whole viewport as the plane is, with
-// (for Clip) a band of shading on the side that goes.
+// A Clip, Slice or Knife line from `a` to `b`, across the whole viewport as the plane is,
+// with (when `clip`) a band of shading on the side that goes.
 draw_clip_line :: proc(o: Overlay, a, b: [2]f32, flip, clip: bool, size: [2]f32) {
 	d := b - a
 	if linalg.length(d) < 1 do return
