@@ -148,6 +148,7 @@ TOUCH_HELP := [?]Help_Line {
 	{group = "SCULPT", what = "Focal shift", how = "Three fingers sideways", show = proc(app: ^App) -> bool {return app.nav.three_finger}},
 	{group = "SCULPT", what = "Focal shift", how = "Long press the bar's Focal shift and drag"},
 	{group = "SCULPT", what = "Smooth, invert, mask or hide", how = "Modifier wheel: tap or hold; Smooth and Mask together hide", show = proc(app: ^App) -> bool {return app.tool == .Brush && app.kit.rail_side != .Off}},
+	{group = "SCULPT", what = "Resize or turn the modifier wheel", how = "Two fingers on its ring: spread or pinch, twist", show = proc(app: ^App) -> bool {return app.kit.rail_side != .Off}},
 	{group = "SCULPT", what = "Mask or hide a shape", how = "Mask, or Smooth and Mask, on: drag empty space", show = proc(app: ^App) -> bool {return app.tool == .Brush && app.kit.rail_side != .Off}},
 	{group = "SCULPT", what = "Straight line from the press", how = "Hold Smooth mid-stroke", show = proc(app: ^App) -> bool {return app.tool == .Brush && app.kit.rail_side != .Off}},
 	{group = "SCULPT", what = "Mask along the surface, to pose", how = "Mask on, drag from the model", show = proc(app: ^App) -> bool {return app.tool == .Move && app.kit.rail_side != .Off}},
@@ -177,6 +178,7 @@ TOUCH_HELP := [?]Help_Line {
 	{group = "SCENE PALETTE", what = "Move an object or a folder", how = "Drag its row's grip"},
 	{group = "SCENE PALETTE", what = "Hide or ghost a run of objects", how = "Hold an eye or ghost, then slide"},
 	{group = "ANY CONTROL", what = "Its name, or its second action", how = "Long press"},
+	{group = "ANY CONTROL", what = "Draw size, strength or focal shift", how = "Hold the pen over it and roll the pen"},
 }
 
 // A word the app uses, the names other apps give the same thing, and what it means.

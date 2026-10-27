@@ -18,7 +18,7 @@ tip :: proc(ctx: ^Context, id: Id, r: Rect, text: string, keys := "") {
 	if ctx.hot != id && ctx.tip_pressed == id do ctx.tip_pressed = 0
 	held := ctx.active == id && ctx.input.pointer != .Mouse && .Left in ctx.input.down
 	if text == "" do return
-	if !held && (ctx.hot != id || ctx.input.down != {} || ctx.tip_pressed == id) do return
+	if !held && (ctx.hot != id || ctx.input.down != {} || ctx.tip_pressed == id || ctx.input.no_hover_tips) do return
 	open_popup := ctx.popup_open if ctx.popup_open != 0 else ctx.popup_open_prev
 	if n := len(ctx.stack); open_popup != 0 && (n == 0 || ctx.stack[n - 1].root != open_popup) do return
 	if ctx.tip_id != id {
@@ -37,6 +37,7 @@ tip :: proc(ctx: ^Context, id: Id, r: Rect, text: string, keys := "") {
 tooltip_draw :: proc(ctx: ^Context) {
 	t := ctx.theme
 	id := ctx.tip_id
+	ctx.tip_drawn_len = 0
 	if id == 0 do return
 	// Shown by a long press: at once, while it is held.
 	long := ctx.long.fired == .Tip && ctx.long.id == id && ctx.active == id && .Left in ctx.input.down
@@ -78,6 +79,7 @@ tooltip_draw :: proc(ctx: ^Context) {
 	// It drifts 4 points out from the control as it fades in.
 	drift: f32 = (1 - shown) * 4
 	transform_since(ctx, mark, shown, 1, {}, {0, -drift if below else drift})
+	ctx.tip_drawn_len = copy_text(ctx.tip_drawn[:], tip_text)
 	ctx.tip_len = 0
 }
 

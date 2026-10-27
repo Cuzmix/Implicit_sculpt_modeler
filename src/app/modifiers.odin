@@ -1,5 +1,6 @@
 package main
 
+import "core:math"
 import "core:math/linalg"
 
 import "../ui"
@@ -13,8 +14,10 @@ import "../ui"
 // modifier sector belongs to the wheel, not to the touch (touch_event): it never becomes
 // the pointer, never counts toward a gesture, and the pen landing does not cancel it. The
 // mouse and the pen press the sectors as ordinary buttons, which latch. The grip in the
-// middle drags the wheel elsewhere; Settings > Interface sets its side and size. The code
-// still calls it the rail, the four buttons it was before.
+// middle drags the wheel elsewhere; Settings > Interface sets its side, size, turn and
+// what its sectors show. Two fingers on the ring that spread, pinch or twist resize and
+// turn it instead of holding their sectors (rail_finger_move). The code still calls it
+// the rail, the four buttons it was before.
 
 Modifier :: enum u8 {
 	Smooth,
@@ -51,8 +54,19 @@ Modifier_Rail :: struct {
 	center:  [2]f32,
 	outer:   f32,
 	hole:    f32,
+	// ...and how far it is turned, in radians, clockwise.
+	turn:    f32,
 	// The wheel's container, so a finger is claimed only where nothing covers it.
 	root:    ui.Id,
+	// Two fingers on the ring are resizing and turning it rather than holding sectors,
+	// from when they first spread, pinched or twisted until every finger on it lifts:
+	// `pair` are their ids and `from` the line from the first to the second as they came
+	// down, so the wheel follows the whole spread and twist, the part before it began too;
+	// `began` asks the wheel to note its size and turn then (kit_modifier_rail).
+	gesture: bool,
+	began:   bool,
+	pair:    [2]u64,
+	from:    [2]f32,
 	// What the rail said when the press under way went down, kept to its release, so a
 	// finger lifted mid-stroke never changes the brush the stroke uses; Smooth put down
 	// mid-stroke makes the stroke a straight line instead (rail_press).
@@ -62,6 +76,10 @@ Modifier_Rail :: struct {
 Rail_Finger :: struct {
 	id:     u64,
 	which:  Modifier,
+	// On the wheel but on no modifier (the brush pie's sector or the grip), claimed only
+	// because another finger was already on it, for the two to resize and turn it.
+	plain:  bool,
+	pos:    [2]f32, // where it is now, window coordinates
 	at:     f64, // when it came down, seconds
 	start:  [2]f32, // where, window coordinates
 	travel: f32, // the furthest it strayed from there
@@ -123,7 +141,7 @@ WHEEL_SECTORS := [4]Maybe(Modifier){.Smooth, nil, .Invert, .Mask}
 // or the corners round the ring.
 rail_hit :: proc(r: ^Modifier_Rail, p: [2]f32) -> (which: Modifier, ok: bool) {
 	if r.outer <= 0 do return {}, false
-	i := ui.wheel_sector_at(r.center, p, r.outer, r.hole)
+	i := ui.wheel_sector_at(r.center, p, r.outer, r.hole, r.turn)
 	if i < 0 do return {}, false
 	return WHEEL_SECTORS[i].?
 }
@@ -131,21 +149,41 @@ rail_hit :: proc(r: ^Modifier_Rail, p: [2]f32) -> (which: Modifier, ok: bool) {
 // A finger came down at `p` on button `which`. A finger of the same id still held is one
 // whose lift never came, and is dropped first. False when the rail holds as many as it
 // can: that finger is dropped too, since handing it to the touch would sculpt with it.
-rail_finger_down :: proc(r: ^Modifier_Rail, id: u64, which: Modifier, p: [2]f32, now: f64) -> bool {
+rail_finger_down :: proc(r: ^Modifier_Rail, id: u64, which: Modifier, p: [2]f32, now: f64, plain := false) -> bool {
 	if i := rail_index(r, id); i >= 0 do rail_remove(r, i)
 	if r.count == len(r.fingers) do return false
-	r.fingers[r.count] = {id = id, which = which, at = now, start = p}
+	r.fingers[r.count] = {id = id, which = which, plain = plain, at = now, start = p, pos = p}
 	r.count += 1
 	return true
 }
 
-// The finger `id` moved to `p`. Returns whether it was the rail's.
-rail_finger_move :: proc(r: ^Modifier_Rail, id: u64, p: [2]f32) -> bool {
+// The finger `id` moved to `p`. Returns whether it was the rail's. The first two fingers
+// on the wheel, while neither has made a press on the viewport, become a gesture that
+// resizes and turns it once the line between them grows or shrinks by twice `slop` or
+// turns by WHEEL_TWIST_START: from then on they hold no sector.
+rail_finger_move :: proc(r: ^Modifier_Rail, id: u64, p: [2]f32, slop: f32) -> bool {
 	i := rail_index(r, id)
 	if i < 0 do return false
 	f := &r.fingers[i]
 	f.travel = max(f.travel, linalg.length(p - f.start))
+	f.pos = p
+	if r.gesture || r.count < 2 do return true
+	a, b := r.fingers[0], r.fingers[1]
+	if a.used || b.used do return true
+	was, now := b.start - a.start, b.pos - a.pos
+	if abs(linalg.length(now) - linalg.length(was)) > 2 * slop || abs(angle_between(was, now)) > WHEEL_TWIST_START {
+		r.gesture, r.began = true, true
+		r.pair, r.from = {a.id, b.id}, was
+	}
 	return true
+}
+
+// How far the line between two fingers turns before it turns the wheel, in radians.
+WHEEL_TWIST_START :: 0.26 // 15 degrees
+
+// The angle from `a` to `b`, in radians, clockwise on screen, between -pi and pi.
+angle_between :: proc(a, b: [2]f32) -> f32 {
+	return math.atan2(a.x * b.y - a.y * b.x, a.x * b.x + a.y * b.y)
 }
 
 // The finger `id` lifted (or was cancelled). Returns whether it was the rail's. A tap
@@ -155,8 +193,9 @@ rail_finger_up :: proc(r: ^Modifier_Rail, id: u64, now: f64, cancelled: bool, sl
 	i := rail_index(r, id)
 	if i < 0 do return false
 	f := r.fingers[i]
+	gesture := r.gesture
 	rail_remove(r, i)
-	if !cancelled && !f.used && now - f.at < RAIL_TAP && f.travel <= slop do rail_toggle(r, f.which)
+	if !cancelled && !f.used && !f.plain && !gesture && now - f.at < RAIL_TAP && f.travel <= slop do rail_toggle(r, f.which)
 	return true
 }
 
@@ -171,18 +210,27 @@ rail_index :: proc(r: ^Modifier_Rail, id: u64) -> int {
 rail_remove :: proc(r: ^Modifier_Rail, i: int) {
 	copy(r.fingers[i:r.count - 1], r.fingers[i + 1:r.count])
 	r.count -= 1
+	if r.count == 0 do r.gesture, r.began = false, false
 }
 
 // Forgets every finger, as when the app loses focus and their lifts never come.
 rail_forget :: proc(r: ^Modifier_Rail) {
 	r.count = 0
 	r.press = {}
+	r.gesture, r.began = false, false
+}
+
+// Whether finger `f` holds its sector: not one on no modifier, and none while the
+// fingers resize or turn the wheel.
+@(private = "file")
+rail_holds :: proc(r: ^Modifier_Rail, f: Rail_Finger) -> bool {
+	return !f.plain && !r.gesture
 }
 
 // What is on, to light the buttons: latched, or held by a finger.
 rail_mods :: proc(r: ^Modifier_Rail) -> Modifiers {
 	on := r.latched
-	for f in r.fingers[:r.count] do on += {f.which}
+	for f in r.fingers[:r.count] do if rail_holds(r, f) do on += {f.which}
 	return on
 }
 
@@ -194,6 +242,7 @@ rail_press_mods :: proc(r: ^Modifier_Rail) -> (mods: Modifiers, held: bool) {
 	mode, has := rail_mode(r.latched).?
 	holding: Modifiers
 	for f in r.fingers[:r.count] {
+		if !rail_holds(r, f) do continue
 		if f.which == .Invert {
 			mods += {.Invert}
 			continue
@@ -228,7 +277,7 @@ rail_press :: proc(app: ^App, input: ^Viewport_Input) {
 	// to latch as before.
 	if app.tool != .Brush || !app.stroke.active do return
 	for &f in r.fingers[:r.count] {
-		if f.which != .Smooth || !input.primary do continue
+		if f.which != .Smooth || !input.primary || !rail_holds(r, f) do continue
 		if !f.used do f.used, r.press.line = true, true
 		if r.press.line do input.smooth = true
 	}
@@ -288,12 +337,15 @@ rail_keeps_empty_space :: proc(mods: Modifiers) -> bool {
 	return ok && (m == .Mask || m == .Hide)
 }
 
-// The wheel's sizes (Settings > Interface): across its ring and across the grip in its
-// middle, in points.
+// The wheel's sizes (Settings > Interface, or two fingers spreading and pinching on it):
+// across its ring and across the grip in its middle, in points. The two largest suit a
+// large tablet held in both hands.
 Wheel_Size :: enum u8 {
 	Small,
 	Medium,
 	Large,
+	XL2,
+	XL3,
 }
 
 @(rodata)
@@ -301,6 +353,8 @@ WHEEL_OUTER := [Wheel_Size]f32 {
 	.Small  = 112,
 	.Medium = 132,
 	.Large  = 156,
+	.XL2    = 184,
+	.XL3    = 216,
 }
 
 @(rodata)
@@ -308,6 +362,64 @@ WHEEL_HOLE := [Wheel_Size]f32 {
 	.Small  = 40,
 	.Medium = 44,
 	.Large  = 52,
+	.XL2    = 58,
+	.XL3    = 64,
+}
+
+@(rodata)
+WHEEL_SIZE_NAMES := [Wheel_Size]string {
+	.Small  = "Small",
+	.Medium = "Medium",
+	.Large  = "Large",
+	.XL2    = "2XL",
+	.XL3    = "3XL",
+}
+
+// What the wheel's sectors show (Settings > Interface): their icons, the icons over their
+// names, or the names alone, for someone still learning which is which.
+Wheel_Labels :: enum u8 {
+	Icons,
+	Icons_And_Names,
+	Names,
+}
+
+// The wheel's turn snaps to steps of this many degrees, so a twist settles somewhere
+// tidy, and an upright wheel is easy to get back to.
+WHEEL_TURN_STEP :: 15
+
+// The size whose ring is nearest `outer` points across, by ratio.
+wheel_size_nearest :: proc(outer: f32) -> Wheel_Size {
+	best := Wheel_Size.Small
+	for s in Wheel_Size do if abs(math.ln(outer / WHEEL_OUTER[s])) < abs(math.ln(outer / WHEEL_OUTER[best])) do best = s
+	return best
+}
+
+// `degrees` snapped to WHEEL_TURN_STEP and brought within -180 to 180.
+wheel_turn_snapped :: proc(degrees: f32) -> f32 {
+	d := math.round(degrees / WHEEL_TURN_STEP) * WHEEL_TURN_STEP
+	d = d - 360 * math.floor((d + 180) / 360)
+	return d
+}
+
+// Follows the two fingers resizing and turning the wheel: its size the one nearest the
+// size it had times how far they have spread, its turn the one it had plus how far the
+// line between them has turned, snapped. A finger of the two lifted leaves it as it is.
+@(private = "file")
+rail_gesture_apply :: proc(app: ^App) {
+	r := &app.rail
+	k := &app.kit
+	if !r.gesture do return
+	if r.began {
+		r.began = false
+		k.wheel_from_size, k.wheel_from_turn = WHEEL_OUTER[k.wheel_size], k.wheel_turn
+	}
+	a, b := rail_index(r, r.pair[0]), rail_index(r, r.pair[1])
+	if a < 0 || b < 0 do return
+	now := r.fingers[b].pos - r.fingers[a].pos
+	from := linalg.length(r.from)
+	if from <= 0 || linalg.length(now) <= 0 do return
+	k.wheel_size = wheel_size_nearest(k.wheel_from_size * linalg.length(now) / from)
+	k.wheel_turn = wheel_turn_snapped(k.wheel_from_turn + math.to_degrees(angle_between(r.from, now)))
 }
 
 // The wheel's size in points, a square round its ring.
@@ -379,12 +491,13 @@ slider_track :: proc(app: ^App) -> f32 {
 kit_modifier_rail :: proc(app: ^App) {
 	r := &app.rail
 	k := &app.kit
-	r.center, r.outer, r.hole, r.root = {}, 0, 0, 0
+	r.center, r.outer, r.hole, r.turn, r.root = {}, 0, 0, 0, 0
 	if k.rail_side == .Off {
 		r.latched = {}
 		rail_forget(r)
 		return
 	}
+	rail_gesture_apply(app)
 	ctx := &k.ctx
 	area := ui.safe_area(ctx)
 	size := rail_size(app)
@@ -398,12 +511,18 @@ kit_modifier_rail :: proc(app: ^App) {
 	for which, i in WHEEL_SECTORS {
 		m, is_mod := which.?
 		if !is_mod {
-			sectors[i] = {name = "Brush pie", glyph = ui.ICON_PIE, keys = command_hint(app, .Brush_Pie)}
-			continue
+			sectors[i] = {name = "Brush pie", glyph = ui.ICON_PIE, caption = "Pie", keys = command_hint(app, .Brush_Pie)}
+		} else {
+			look := ui.Modifier_Look.Latched if lit_of(m, r.latched) else (.Lit if lit_of(m, held) || lit_of(m, keys) else .Off)
+			sectors[i] = {name = MODIFIER_NAMES[m], glyph = MODIFIER_ICONS[m], caption = MODIFIER_NAMES[m], look = look, keys = MODIFIER_KEYS[m]}
 		}
-		look := ui.Modifier_Look.Latched if lit_of(m, r.latched) else (.Lit if lit_of(m, held) || lit_of(m, keys) else .Off)
-		sectors[i] = {name = MODIFIER_NAMES[m], glyph = MODIFIER_ICONS[m], look = look, keys = MODIFIER_KEYS[m]}
+		switch k.wheel_labels {
+		case .Icons:           sectors[i].caption = ""
+		case .Icons_And_Names:
+		case .Names:           sectors[i].glyph = 0
+		}
 	}
+	turn := math.to_radians(k.wheel_turn)
 	x := ui.Anchor.Start if k.rail_side == .Left else .End
 	side: f32 = 1 if x == .Start else -1
 	base_lift := rail_lift(app)
@@ -413,11 +532,11 @@ kit_modifier_rail :: proc(app: ^App) {
 	lift := clamp(base_lift - k.wheel_offset.y, 0, max(area.h - size.y, 0))
 	r.root = ui.id_of(ctx, "modifier rail")
 	ui.begin_anchored(ctx, "modifier rail", x, .End, {inset, lift}, {direction = .Column})
-	res := ui.wheel(ctx, "modifier wheel", size.x, WHEEL_HOLE[k.wheel_size], sectors)
+	res := ui.wheel(ctx, "modifier wheel", size.x, WHEEL_HOLE[k.wheel_size], sectors, turn)
 	b := ctx.last_rect
 	ui.end(ctx)
 	r.center = [2]f32{b.x + b.w * 0.5, b.y + b.h * 0.5} * k.scale
-	r.outer, r.hole = b.w * k.scale, WHEEL_HOLE[k.wheel_size] * k.scale
+	r.outer, r.hole, r.turn = b.w * k.scale, WHEEL_HOLE[k.wheel_size] * k.scale, turn
 	if res.clicked >= 0 {
 		if m, is_mod := WHEEL_SECTORS[res.clicked].?; is_mod do rail_toggle(r, m)
 		else do command_run(app, .Brush_Pie)
@@ -445,9 +564,21 @@ rail_claims :: proc(app: ^App, p: [2]f32) -> (which: Modifier, ok: bool) {
 	return which, ui.root_at(&k.ctx, p / k.scale) == r.root
 }
 
-// The brush ring's colour (straight RGBA): white, amber while pressing; blue to smooth,
-// red to invert, violet to mask, as the keyboard's keys held say, or else as the rail
-// would press (or the press under way took).
+// Whether a finger landing at `p` is the rail's though on no modifier (the brush pie's
+// sector or the grip): only while another finger is on the wheel, so the two can resize
+// and turn it; a lone finger there is the panels', to open the pie or drag the wheel.
+rail_claims_plain :: proc(app: ^App, p: [2]f32) -> bool {
+	k := &app.kit
+	r := &app.rail
+	if r.count == 0 || k.rail_side == .Off || r.root == 0 || linalg.length(p - r.center) > r.outer * 0.5 do return false
+	if k.menu || k.versions || k.view_menu || k.browser || k.object_menu || k.ctx.select_open != 0 || k.ctx.popup_open != 0 do return false
+	return ui.root_at(&k.ctx, p / k.scale) == r.root
+}
+
+// The brush ring's colour (straight RGBA), as the reference app colours its cursor by what
+// a press will do: red to sculpt, pink to sculpt inverted, blue to smooth, yellow to mask,
+// white to hide (a selection), as the keyboard's keys held say, or else as the rail would
+// press (or the press under way took). Pressing makes it more opaque.
 brush_ring_color :: proc(app: ^App, pressing: bool) -> [4]f32 {
 	r := &app.rail
 	d := &app.device
@@ -457,12 +588,13 @@ brush_ring_color :: proc(app: ^App, pressing: bool) -> [4]f32 {
 		// A press's own, while it lasts: what it took when it went down.
 		if r.press.active && .Left in d.down do mods = r.press.mods
 	}
-	a: f32 = 0.95 if pressing else 0.8
+	a: f32 = 0.95 if pressing else 0.75
 	mode, has := rail_mode(mods).?
 	switch {
-	case has && mode == .Mask:    return {0.72, 0.55, 1, a}
+	case has && mode == .Hide:    return {1, 1, 1, a}
+	case has && mode == .Mask:    return {1, 0.85, 0.3, a}
 	case has && mode == .Smooth:  return {0.45, 0.7, 1, a}
-	case !has && .Invert in mods: return {1, 0.45, 0.4, a}
+	case .Invert in mods:         return {1, 0.5, 0.85, a}
 	}
-	return {1, 0.8, 0.4, 0.9} if pressing else {1, 1, 1, 0.6}
+	return {1, 0.4, 0.34, a}
 }
