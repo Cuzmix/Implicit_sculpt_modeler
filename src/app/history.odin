@@ -466,6 +466,7 @@ MASK_COMMAND_NAMES := [sculpt.Mask_Command]string {
 	.Invert  = "Invert mask",
 	.Fill    = "Mask all",
 	.Cavity  = "Mask cavities",
+	.Region  = "Mask region",
 	.Hidden  = "Mask hidden",
 	.Blur    = "Blur mask",
 	.Sharpen = "Sharpen mask",

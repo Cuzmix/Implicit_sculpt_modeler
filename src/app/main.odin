@@ -1178,8 +1178,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		}
 		fmt.printfln("more=%s all_options=%d", more, int(k.all_options))
 		// The section the tray's open palette shows, whether Show where's mark is on a
-		// control, and the Mask section's Steps.
-		fmt.printfln("tray_section=%v tray_marked=%d mask_steps=%d nav_taps=%d", tray_section(&app, k.tab), int(k.pointed.id != .None && k.ctx.marked.found), app.ui.mask_steps, k.nav.taps)
+		// control, and the Mask section's Steps and Mask by kind.
+		fmt.printfln("tray_section=%v tray_marked=%d mask_steps=%d mask_by=%s nav_taps=%d", tray_section(&app, k.tab), int(k.pointed.id != .None && k.ctx.marked.found), app.ui.mask_steps, mask_by_word(app.ui.mask_by.kind), k.nav.taps)
 		fmt.printfln("coach=%d coach_shown=%d coach_step=%s", k.coach, int(k.coach_shown), strings.to_lower(fmt.tprint(k.coach_last), context.temp_allocator) if k.coach_shown else "none")
 		// The action bar's groups as it last showed them (none while it waits for room), and
 		// how often the mask was read.

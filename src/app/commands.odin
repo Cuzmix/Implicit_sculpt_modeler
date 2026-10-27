@@ -74,6 +74,8 @@ Command_Id :: enum u8 {
 	Hd_Toggle,
 	Group_Shortcut,
 	Mask, // the argument is the sculpt.Mask_Command
+	Mask_By, // the argument is the sculpt.Mask_By
+	Mask_Adjust,
 	Show_All,
 	Invert_Hidden,
 	Hide_Masked,
@@ -598,9 +600,20 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Mask = {
 		label = "Mask",
-		help = "Changes the selected object's mask as a whole: clear, invert, fill, by cavity, from what is hidden, or a step of blur, sharpen, grow or shrink.",
+		help = "Changes the selected object's mask as a whole: clear, invert, fill, by cavity, from what is hidden, the inside of a closed outline, or a step of blur, sharpen, grow or shrink.",
 		args = len(sculpt.Mask_Command),
 		run = proc(app: ^App, arg: int) {mask_command(app, sculpt.Mask_Command(arg))},
+	},
+	.Mask_By = {
+		label = "Mask by",
+		help = "Masks the selected object by its shape, the view, its polypaint or its edges, through the Mask section's curve, strength and blur.",
+		args = len(sculpt.Mask_By),
+		run = proc(app: ^App, arg: int) {mask_by_command(app, sculpt.Mask_By(arg))},
+	},
+	.Mask_Adjust = {
+		label = "Mask adjust",
+		help = "Reshapes the selected object's mask as it is through the Mask section's adjust curve, then blurs it, as one step.",
+		run = proc(app: ^App, _: int) {mask_adjust_command(app)},
 	},
 	.Show_All = {
 		label = "Show all",
@@ -1433,6 +1446,8 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 		return fmt.tprintf("%v view", camera.Axis_View(arg))
 	case .Mask:
 		return MASK_COMMAND_LABELS[sculpt.Mask_Command(arg)]
+	case .Mask_By:
+		return MASK_BY_NAMES[sculpt.Mask_By(arg)]
 	case .Restore_Selection_Set:
 		return fmt.tprintf("Restore selection set %d", arg + 1)
 	case .Paint:
@@ -1643,6 +1658,7 @@ MASK_COMMAND_LABELS := [sculpt.Mask_Command]string {
 	.Invert  = "Invert mask",
 	.Fill    = "Mask all",
 	.Cavity  = "Mask cavities",
+	.Region  = "Mask region",
 	.Hidden  = "Mask hidden",
 	.Blur    = "Blur mask",
 	.Sharpen = "Sharpen mask",
