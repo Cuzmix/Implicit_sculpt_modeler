@@ -75,6 +75,9 @@ settings_read_back_what_they_wrote :: proc(t: ^testing.T) {
 	a.kit.colors.palettes[mine].count = 1
 	palette_remember(&a.kit.palette_recent, &a.kit.palette_recent_count, {.Command, .Wireframe, 0})
 	palette_remember(&a.kit.palette_recent, &a.kit.palette_recent_count, {.Command, .View_Axis, int(camera.Axis_View.Top)})
+	brush_recent_push(&a.kit.brushes, "brush/Clay")
+	brush_recent_push(&a.kit.brushes, "preset/My clay 2")
+	brush_favorite_toggle(&a.kit.brushes, "library/Move all depth")
 	testing.expect(t, settings_save(&a, path))
 
 	b: App
@@ -99,6 +102,11 @@ settings_read_back_what_they_wrote :: proc(t: ^testing.T) {
 	testing.expect_value(t, string(b.kit.colors.palettes[0].name[:10]), "Orc skin 2")
 	testing.expect_value(t, b.kit.colors.palettes[0].count, 1)
 	testing.expect_value(t, color_bytes(b.kit.colors.palettes[0].colors[0]), color_bytes({0.2, 0.4, 0.6}))
+	testing.expect_value(t, b.kit.brushes.recent_count, 2)
+	testing.expect_value(t, brush_key_text(&b.kit.brushes.recent[0]), "preset/My clay 2")
+	testing.expect_value(t, brush_key_text(&b.kit.brushes.recent[1]), "brush/Clay")
+	testing.expect_value(t, b.kit.brushes.favorite_count, 1)
+	testing.expect_value(t, brush_key_text(&b.kit.brushes.favorites[0]), "library/Move all depth")
 	free_all(context.temp_allocator)
 }
 

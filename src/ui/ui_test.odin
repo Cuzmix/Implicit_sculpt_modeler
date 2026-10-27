@@ -1464,3 +1464,32 @@ gradient_slider_follows_the_pointer :: proc(t: ^testing.T) {
 	one_gradient(&ctx, input_at({track_x + track_w * 2, 40}, released = {.Left}), &value)
 	testing.expect_value(t, ctx.active, 0)
 }
+
+one_tile :: proc(ctx: ^Context, input: Input) -> Tile_Result {
+	frame_begin(ctx, input)
+	begin_anchored(ctx, "tiles", .Start, .Start, {16, 16}, {direction = .Row, gap = 0})
+	_ = preview_tile(ctx, "Clay##tile", ICON_BRUSH, {180, 160, 150, 255}, true)
+	res := preview_tile(ctx, "Crease##tile", ICON_BRUSH, {180, 160, 150, 255}, true)
+	end(ctx)
+	frame_end(ctx)
+	return res
+}
+
+// A preview tile takes the whole cell as its target: a tap anywhere on it clicks it, a
+// right-click is its menu, its picture is the well at its top, and two tiles of one row
+// can both be selected (each draws its own ring).
+@(test)
+preview_tile_clicks_and_has_a_menu :: proc(t: ^testing.T) {
+	ctx: Context
+	init(&ctx)
+	defer destroy(&ctx)
+	one_tile(&ctx, input_at({-1, -1}))
+	res := one_tile(&ctx, input_at({-1, -1}))
+	testing.expect_value(t, res.picture.x, 16 + PREVIEW_TILE.x + 3)
+	testing.expect(t, res.picture.h < PREVIEW_TILE.y - 20)
+	at := [2]f32{16 + PREVIEW_TILE.x * 1.5, 16 + PREVIEW_TILE.y - 8}
+	one_tile(&ctx, input_at(at, down = {.Left}, pressed = {.Left}))
+	testing.expect(t, one_tile(&ctx, input_at(at, released = {.Left})).clicked)
+	one_tile(&ctx, input_at(at, down = {.Right}, pressed = {.Right}))
+	testing.expect(t, one_tile(&ctx, input_at(at, released = {.Right})).menu)
+}

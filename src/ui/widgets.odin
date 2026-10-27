@@ -1491,3 +1491,106 @@ swatch :: proc(ctx: ^Context, s: string, color: Color, side: f32, selected := fa
 	tip(ctx, id, vis, label_text(s))
 	return
 }
+
+// A preview tile's cell, in points: a picture well over a name, as ZBrush for iPad's
+// Brushes palette shows its brushes, three to a row.
+PREVIEW_TILE :: [2]f32{104, 112}
+
+// What a preview tile did this frame.
+Tile_Result :: struct {
+	clicked: bool,
+	menu:    bool, // a long press (or a right-click): its settings
+	picture: Rect, // the well the ball is drawn in
+}
+
+// A large tile of a palette's grid: a lit ball of `ball` in a well with `glyph` stamped on
+// it, and `s` under it. `selected` washes and rings the well with the accent; unlike
+// brush_tile's sliding indicator, several tiles of a row can be selected at once (a brush
+// and a mask shape are both chosen). `keys` shows in its tooltip beside the name.
+preview_tile :: proc(ctx: ^Context, s: string, glyph: rune, ball: Color, selected: bool, keys := "") -> (res: Tile_Result) {
+	ctx.controls += 1
+	t := ctx.theme
+	cell := place(ctx, PREVIEW_TILE)
+	vis := centered(cell, PREVIEW_TILE - 6)
+	id := id_of(ctx, s)
+	hovered, held, clicked, _ := interact(ctx, id, cell)
+	res.clicked = clicked
+	res.menu = secondary(ctx)
+	mark := vertex_mark(ctx)
+	o := tween(ctx, salt(id, 1), 1 if selected else 0, t.indicator_time)
+	pic := Rect{vis.x, vis.y, vis.w, math.round(vis.w * 0.8)}
+	res.picture = pic
+	fill_rect(ctx, pic, t.radius_medium, t.fill)
+	if o > 0 do fill_rect(ctx, pic, t.radius_medium, color_fade(t.accent_soft, o))
+	scale := feedback(ctx, id, pic, t.radius_medium, hovered && !selected, held)
+	center := [2]f32{pic.x + pic.w * 0.5, pic.y + pic.h * 0.5}
+	fill_ball(ctx, center, pic.h * 0.5 - 7, ball)
+	// The glyph is pressed into the ball: its own colour, darkened, so it reads on a light
+	// clay and on a dark mask alike.
+	stamp := Color{ball.r / 3, ball.g / 3, ball.b / 3, 210}
+	icon(ctx, glyph, center, t.icon_size + 6, stamp)
+	if o > 0 do stroke_rect(ctx, pic, t.radius_medium, color_fade(t.accent, o), 2)
+	name := label_text(s)
+	shown := text_fit(ctx, name, t.small_size, vis.w)
+	color := color_mix(color_mix(t.text_secondary, t.text, f32(int(hovered)) * 0.7), t.accent, o)
+	text(ctx, shown, center.x, pic.y + pic.h + 14, t.small_size, color, .Semibold if selected else .Regular, .Center)
+	press_scale(ctx, mark, vis, scale)
+	tip(ctx, id, pic, name, keys)
+	return
+}
+
+// A ball of `color`, `radius` points across from `center`, lit from the upper left with a
+// highlight and a darkening toward its rim, as a material's preview sphere: a disc of
+// rings shaded per vertex, over a circle of its rim's colour that gives the edge its
+// smoothing.
+fill_ball :: proc(ctx: ^Context, center: [2]f32, radius: f32, color: Color) {
+	RINGS :: 8
+	SEGMENTS :: 40
+	if radius <= 1 do return
+	light := [3]f32{-0.42, 0.55, 0.72} // y up, toward the viewer
+	light /= math.sqrt(light.x * light.x + light.y * light.y + light.z * light.z)
+	half := light + {0, 0, 1}
+	half /= math.sqrt(half.x * half.x + half.y * half.y + half.z * half.z)
+	shade :: proc(n, light, half: [3]f32, color: Color) -> Color {
+		diffuse := max(n.x * light.x + n.y * light.y + n.z * light.z, 0)
+		spec := math.pow(max(n.x * half.x + n.y * half.y + n.z * half.z, 0), 28) * 0.4 * 255
+		lit := 0.26 + 0.74 * diffuse
+		return {
+			u8(clamp(f32(color.r) * lit + spec, 0, 255)),
+			u8(clamp(f32(color.g) * lit + spec, 0, 255)),
+			u8(clamp(f32(color.b) * lit + spec, 0, 255)),
+			color.a,
+		}
+	}
+	points: [1 + RINGS * SEGMENTS][2]f32
+	colors: [len(points)]Color
+	indices: [3 * SEGMENTS * (2 * RINGS - 1)]u32
+	points[0], colors[0] = center, shade({0, 0, 1}, light, half, color)
+	for ring in 0 ..< RINGS {
+		r := f32(ring + 1) / RINGS
+		for seg in 0 ..< SEGMENTS {
+			a := f32(seg) / SEGMENTS * math.TAU
+			x, y := math.cos(a) * r, math.sin(a) * r
+			v := 1 + ring * SEGMENTS + seg
+			points[v] = center + {x, y} * radius
+			colors[v] = shade({x, -y, math.sqrt(max(1 - r * r, 0))}, light, half, color)
+		}
+	}
+	n := 0
+	for seg in 0 ..< SEGMENTS {
+		next := (seg + 1) % SEGMENTS
+		indices[n], indices[n + 1], indices[n + 2] = 0, u32(1 + seg), u32(1 + next)
+		n += 3
+	}
+	for ring in 0 ..< RINGS - 1 {
+		inner, outer := u32(1 + ring * SEGMENTS), u32(1 + (ring + 1) * SEGMENTS)
+		for seg in 0 ..< SEGMENTS {
+			a, b := u32(seg), u32((seg + 1) % SEGMENTS)
+			indices[n], indices[n + 1], indices[n + 2] = inner + a, outer + a, outer + b
+			indices[n + 3], indices[n + 4], indices[n + 5] = inner + a, outer + b, inner + b
+			n += 6
+		}
+	}
+	fill_circle(ctx, center, radius, colors[len(points) - 1])
+	fill_mesh(ctx, points[:], colors[:], indices[:])
+}
