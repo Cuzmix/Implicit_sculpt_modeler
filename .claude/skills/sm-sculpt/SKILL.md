@@ -128,7 +128,9 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
   `.Color` returns before moving. The app sets it only for the held brush (`brush_channel`, Both drops to Sculpt in HD,
   dyntopo or voxels; a Colour stroke there is refused in stroke start). Polygroups
   (`src/sculpt/groups.odin`): `Sculptor.groups{tris []u16, vertex, lead, edited}`; `sculptor_group_command(.Visible | .Masked |
-  .Creases | .Clear)` → `groups_commit` (one step, `Saved_Node.groups`, `Undo_Step.grouped`) → `groups_refresh` picks the group
+  .Creases | .Clear | .Pieces | .Normals | .Merge_Similar)` (Pieces and Normals are `groups_by_creases` with no limit or
+  `from_seed`; `.Uv_Charts` is refused there and runs as `levels_group_uv_charts`: base triangle → its quad's chart,
+  up through `level_tri_parents`) → `groups_commit` (one step, `Saved_Node.groups`, `Undo_Step.grouped`) → `groups_refresh` picks the group
   each vertex carries and each triangle's lead corner (`drawn_triangle`), bumps `paint_stamp` and queues every node through the
   hidden-index path (`sculptor_hidden_indices` turns triangles to start at their lead corner); `sculptor_hide_group` (hide.odin),
   `sculptor_mask_group` (mask.odin), `sculptor_group_at`. Levels: `levels_carry_paint` carries colours (`levels_carry_color`) and
@@ -169,6 +171,9 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
   dyntopo or in HD, never hide everything; `bvh_raycast` skips hidden triangles. Hide `.Masked`/`.Unmasked` split
   triangles at `MASK_HALF` on all three corners (exact complements); `Mask_Command.Hidden` is the one mask command that
   writes hidden vertices (every corner of a hidden triangle 255, the rest 0), refused when nothing is hidden.
+  Hide `.Grow/.Shrink/.Grow_All/.Outer_Ring/.Grow_Groups/.Show_Masked` keep `hide_after` a pure per-triangle function:
+  what they read (`hide_edge` per vertex, `geom.mesh_components` pieces, per-group shown flags) is built before both
+  passes, since pass 2 writes `hide.tris`; the edge is a shown vertex with a hidden triangle or `vertex_on_open_border`.
   Selection sets (`src/sculpt/selection_sets.odin`): `Levels.sets`, each kept by its level in that level's vertex
   order (runs `{u32 count, u8}` when smaller, else raw), restored on any level through `set_values_at` +
   `carried_mask` (the live mask's carry rule) and `sculptor_mask_values`; `levels_destroy` frees them (so every
