@@ -670,22 +670,11 @@ settings_load :: proc(app: ^App, path: string) {
 			want := number(f[1], 1)
 			for s in UI_SCALES do if abs(s - want) < 0.01 do app.kit.ui_scale = s
 		case "window":
-			// window <name> <moved 0|1> <x anchor> <y anchor> <x offset> <y offset> <minimised 0|1>;
-			// the kit keeps every window's title bar on screen whatever the offsets say.
-			if len(f) == 8 {
-				for which in Kit_Window {
-					if !strings.equal_fold(f[1], fmt.tprint(which)) do continue
-					w := &app.kit.windows[which]
-					w.moved, w.minimized = f[2] == "1", f[7] == "1"
-					for a in ui.Anchor {
-						if strings.equal_fold(f[3], fmt.tprint(a)) do w.x = a
-						if strings.equal_fold(f[4], fmt.tprint(a)) do w.y = a
-					}
-					w.offset = {clamp(number(f[5], 0), -WINDOW_OFFSET_MAX, WINDOW_OFFSET_MAX), clamp(number(f[6], 0), -WINDOW_OFFSET_MAX, WINDOW_OFFSET_MAX)}
-				}
-			}
+			window_load_line(&app.kit, f)
 		case "column", "pinned":
-			panels_load_line(app, f)
+			panels_load_line(&app.kit, f)
+		case "workspace", "workspace_saved", "workspace_live", "workspace_current":
+			workspaces_load_line(&app.kit, f)
 		case "brush_recent", "brush_favorite":
 			// brush_recent <key, escaped> ..., most recent first, and brush_favorite <key,
 			// escaped> ..., in the order added: what the brush browser's Recent and
@@ -896,6 +885,7 @@ settings_load :: proc(app: ^App, path: string) {
 	if version < 2 && app.nav.orbit_style == .Free do app.nav.orbit_style = .Turntable
 	// The windows and the wheel were saved where they were for the layout saved with them.
 	app.kit.placed_mirrored = app.kit.ctx.mirror
+	workspaces_loaded(&app.kit)
 	log.infof("settings: read %s", path)
 
 	number :: proc(s: string, fallback: f32) -> f32 {
@@ -907,6 +897,33 @@ settings_load :: proc(app: ^App, path: string) {
 		for v in ([4]f32{c.c1.x, c.c1.y, c.c2.x, c.c2.y}) do if v < 0 || v > 1 do return fallback
 		return c
 	}
+}
+
+// Reads a `window <name> <moved 0|1> <x anchor> <y anchor> <x offset> <y offset>
+// <minimised 0|1>` line (`f` split by spaces); the kit keeps every window's title bar on
+// screen whatever the offsets say.
+window_load_line :: proc(k: ^Kit_State, f: []string) {
+	if len(f) != 8 do return
+	for which in Kit_Window {
+		if !strings.equal_fold(f[1], fmt.tprint(which)) do continue
+		w := &k.windows[which]
+		w.moved, w.minimized = f[2] == "1", f[7] == "1"
+		for a in ui.Anchor {
+			if strings.equal_fold(f[3], fmt.tprint(a)) do w.x = a
+			if strings.equal_fold(f[4], fmt.tprint(a)) do w.y = a
+		}
+		w.offset = {clamp(window_number(f[5]), -WINDOW_OFFSET_MAX, WINDOW_OFFSET_MAX), clamp(window_number(f[6]), -WINDOW_OFFSET_MAX, WINDOW_OFFSET_MAX)}
+	}
+
+	window_number :: proc(s: string) -> f32 {
+		v, ok := strconv.parse_f32(s)
+		return v if ok && v == v else 0
+	}
+}
+
+// Writes window `which`'s line, as window_load_line reads it.
+window_save_line :: proc(out: ^strings.Builder, which: Kit_Window, w: ui.Window) {
+	fmt.sbprintfln(out, "window %v %d %v %v %g %g %d", which, int(w.moved), w.x, w.y, w.offset.x, w.offset.y, int(w.minimized))
 }
 
 // Writes the settings to `path`. Returns false, with a warning, when it cannot.
@@ -954,10 +971,9 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 	if app.env.path != "" do fmt.sbprintfln(&out, "environment_image %s", preset_escape(app.env.path))
 	k := app.kit
 	fmt.sbprintfln(&out, "ui_scale %g", k.ui_scale)
-	for w, which in k.windows {
-		fmt.sbprintfln(&out, "window %v %d %v %v %g %g %d", which, bit(w.moved), w.x, w.y, w.offset.x, w.offset.y, bit(w.minimized))
-	}
-	panels_save(app, &out)
+	for w, which in k.windows do window_save_line(&out, which, w)
+	panels_save(&app.kit, &out)
+	workspaces_save(&app.kit, &out)
 	if p := &app.kit.brushes; p.recent_count > 0 {
 		strings.write_string(&out, "brush_recent")
 		for &k in p.recent[:p.recent_count] do fmt.sbprintf(&out, " %s", preset_escape(brush_key_text(&k)))

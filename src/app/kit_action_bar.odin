@@ -81,18 +81,18 @@ action_groups_now :: proc(app: ^App) -> (groups: bit_set[Action_Group]) {
 	return
 }
 
-// Whether the bar is laid out at all: on in Settings, with the History panel (which
+// Whether the bar is laid out at all: on in Settings and in the workspace, with the History panel (which
 // takes the same place over the dock) closed, and something to show.
 action_bar_shown :: proc(app: ^App) -> bool {
-	return app.kit.action_bar && !app.kit.history && action_groups_now(app) != {}
+	return app.kit.action_bar && .Action_Bar not_in app.kit.hidden && !app.kit.history && action_groups_now(app) != {}
 }
 
 // The height of the dock and, when it is shown, the action bar above it, from last frame's
 // layout: what the toasts and the inspector keep clear of at the bottom middle.
 dock_stack :: proc(app: ^App) -> (h: f32) {
 	ctx := &app.kit.ctx
-	dock, _ := ui.prev_layout(ctx, "dock")
-	h = dock.y + DOCK_LIFT
+	// No dock (the workspace hides it), no lift either.
+	if dock, _ := ui.prev_layout(ctx, "dock"); dock.y > 0 do h = dock.y + DOCK_LIFT
 	if bar, _ := ui.prev_layout(ctx, "action bar"); bar.y > 0 do h += bar.y + ACTION_BAR_GAP
 	return
 }

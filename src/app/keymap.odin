@@ -228,6 +228,9 @@ command_arg_name :: proc(id: Command_Id, arg: int) -> string {
 	case .Remesh_To, .Decimate_To: return fmt.tprint(SPHERE_PRESETS[arg].vertices)
 	case .Help:      return fmt.tprint(Help_Tab(arg))
 	case .Show_Section, .Pin_Section: return fmt.tprint(Kit_Section(arg))
+	case .Workspace:
+		if b, ok := workspace_built_in(arg); ok do return fmt.tprint(b)
+		return fmt.tprintf("Own%d", arg - len(Built_In) + 1)
 	case .New_Scene: return fmt.tprint(NEW_SCENE_SHAPES[arg])
 	case .Pie:       return fmt.tprint(arg + 1) // as the menus count them
 	case .Run_Macro: return fmt.tprint(arg + 1)

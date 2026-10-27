@@ -1450,6 +1450,15 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			strings.write_string(&pins, strings.to_lower(fmt.tprint(sec), context.temp_allocator))
 		}
 		fmt.printfln("panel_pins=%s panel_moves=%d panel_menu=%d", strings.to_string(pins) if strings.builder_len(pins) > 0 else "none", k.panels.moves, int(k.panels.menu))
+		// The workspace (its name escaped, as it may hold spaces), whether its layout has
+		// changes not saved, how many there are, and the zones it hides.
+		if w := &k.workspaces; len(w.list) > 0 {
+			count := 0
+			for ws in w.list do if ws.used do count += 1
+			zones := strings.builder_make(context.temp_allocator)
+			for z in Zone do if z in k.hidden do fmt.sbprintf(&zones, "%s%s", "," if strings.builder_len(zones) > 0 else "", strings.to_lower(fmt.tprint(z), context.temp_allocator))
+			fmt.printfln("workspace=%s workspace_modified=%d workspace_count=%d workspace_menu=%d workspace_switches=%d zones_hidden=%s", preset_escape(workspace_name(k, w.current)), int(w.modified), count, int(w.menu), w.switches, strings.to_string(zones) if strings.builder_len(zones) > 0 else "none")
+		}
 		// The side bars' popover: what it shows (a section by its name), or none; the look.
 		pop := "none"
 		if p := k.bar_pop; p.open do pop = strings.to_lower(fmt.tprint(p.section) if p.kind == .Section else fmt.tprint(p.kind), context.temp_allocator)

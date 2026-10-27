@@ -218,6 +218,13 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.Show_Section     = "palette section subpalette panel go",
 	.Pin_Section      = "pin dock panel keep float column",
 	.Panels_Reset     = "reset panels layout columns dock windows restore default",
+	.Workspace        = "workspace layout room switch focus sculpt inspect studio",
+	.Workspace_Save   = "workspace layout keep store",
+	.Workspace_Save_As = "workspace layout new duplicate copy own custom",
+	.Workspace_Revert = "workspace layout undo changes discard",
+	.Workspace_Reset  = "workspace layout default factory built-in",
+	.Workspace_Rename = "workspace layout name",
+	.Workspace_Delete = "workspace layout remove",
 	.Settings         = "preferences options",
 	.Reduce_Motion    = "animation accessibility",
 }

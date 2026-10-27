@@ -714,6 +714,10 @@ script_allows :: proc(id: Command_Id) -> bool {
 		return false
 	case .Rename_Object, .Command_Palette, .Pie, .Pie_Editor, .Brush_Pie:
 		return false
+	// The user's own workspaces are theirs to keep, name and delete; a script may switch
+	// to one, revert one or make a new one.
+	case .Workspace_Save, .Workspace_Rename, .Workspace_Delete:
+		return false
 	// No script records or runs a macro, a script file or a plugin, so none starts
 	// another, records itself or runs the plugin that runs it.
 	case .Macro_Record, .Run_Macro, .Run_Script, .Run_Plugin, .Reload_Plugins, .Pick_Pack, .Save_Pack:
