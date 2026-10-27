@@ -146,6 +146,10 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
 - Style (`Draw_Item.style`, `Material_Uniforms.style`, in both frame keys): w > 0.5 turns on the underside falloff of
   the ambient (`underside()`, rig up = `rig[1]`) and the narrow upper rim, classic and PBR studio ambient; w = 0 must
   run the old lines verbatim (check 0 px against the base). Thumbnails and the nav head pass zero.
+- Look presets (`src/app/look.odin`, Scene > Look, `Viewport_Look`): Sculpt studio / Classic write existing fields
+  (material default, lights through Light_Set's fields, background, cavity, style, live AO, studio strengths). Code
+  defaults stay Classic; `look_first_run` applies Sculpt studio once for the everyday settings file only
+  (`look_chosen`), never under --no-settings, --frames or --settings-file, so scripted images do not move.
 - Traced studio (`src/render/trace.odin`, `studio_trace.comp`, `blas_refit.comp`, `studio_trace_add.frag`): at
   `samples == 0` `trace_prepare` decides the run (`Studio.traced`); false falls back to the gather, never half done.
   Needs `Draw_Item.source` (the CPU mesh as uploaded) and `Mesh_Buffers.storage` (positions and indices with

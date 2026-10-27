@@ -180,6 +180,7 @@ COMMAND_HOMES := #partial [Command_Id]Maybe(Kit_Section) {
 	.Add_Object            = .Add,
 	.Studio_Render         = .Studio,
 	.Live_Occlusion        = .Studio,
+	.Viewport_Look         = .Look,
 	.Ortho_Toggle          = .Camera,
 	.View_Axis             = .Camera,
 	.Focus_Selected        = .Camera,
