@@ -45,6 +45,7 @@ Renderer :: struct {
 	last_version:   u64,  // source of Mesh_Buffers.version
 	cull:           bool, // skip off-screen and back-facing chunks of items that have them
 	partial:        bool, // while the camera and objects stay put, redraw only what changed
+	trace:          bool, // the studio render casts rays at the triangles where it can (trace.odin)
 	present_mode:   sdl.GPUPresentMode, // how frames reach the screen; see renderer_set_vsync
 	// How far, in pixels, a full redraw may draw a group of chunks from its simplified
 	// copy instead (see Draw_Item.lod); 0 draws everything at full detail. The app
@@ -186,6 +187,16 @@ Mesh_Buffers :: struct {
 	// The caller's stamp for index data that is not the mesh's own (the sculptor's
 	// hidden triangles, mesh_buffers_upload_packed_indices); 0 for the mesh's own.
 	hidden_stamp:    u32,
+	// Positions and indices can be read by compute shaders too (the traced studio
+	// render's rays, trace.odin); false where the device refused that, and the mesh is
+	// only drawn.
+	storage:         bool,
+	// The version as of the last upload of the mesh's own indices (creation,
+	// mesh_buffers_upload_indices): what the traced studio's trees were built from.
+	// Uploads of hidden triangles leave it, since the trees skip degenerate triangles.
+	index_version:   u64,
+	// The traced studio render's trees over the triangles; nil until it first runs.
+	trace:           ^Trace_Mesh,
 
 	// Culled drawing: one indirect draw command per visible run of chunks, rebuilt
 	// each frame the mesh is drawn. Created on first use, sized for every chunk.
@@ -294,6 +305,10 @@ Draw_Item :: struct {
 	textured:     ^Textured_Mesh,
 	texture_view: Texture_View,
 	live:   bool,
+	// The mesh `mesh` was made from, on the CPU and as uploaded (its own indices, not the
+	// hidden ones' stand-ins): the traced studio render builds its trees from it. Nil
+	// where there is none, which keeps the studio render on shadow maps.
+	source: ^geom.Mesh,
 	chunks: []geom.Chunk,
 	chunk_groups: []geom.Chunk, // geom.chunk_group of each geom.CHUNK_GROUP chunks, to cull a group at a time; nil to test every chunk
 	// Mesh-space box around everything that changed since the previous frame, before
@@ -795,9 +810,19 @@ mesh_buffers_create :: proc(r: ^Renderer, mesh: geom.Mesh, mask: []u8 = nil) -> 
 	r.last_version += 1
 	mb.version = r.last_version
 	mb.transfer_size = TRANSFER_BUFFER_SIZE
-	mb.positions = sdl.CreateGPUBuffer(r.device, {usage = {.VERTEX}, size = vbytes})
+	mb.index_version = mb.version
+	// Readable by compute as well, so the traced studio casts rays at the triangles the
+	// viewport draws without copying them; a device that refuses gets plain buffers.
+	mb.positions = sdl.CreateGPUBuffer(r.device, {usage = {.VERTEX, .COMPUTE_STORAGE_READ}, size = vbytes})
+	mb.indices = sdl.CreateGPUBuffer(r.device, {usage = {.INDEX, .COMPUTE_STORAGE_READ}, size = ibytes})
+	mb.storage = mb.positions != nil && mb.indices != nil
+	if !mb.storage {
+		if mb.positions != nil do sdl.ReleaseGPUBuffer(r.device, mb.positions)
+		if mb.indices != nil do sdl.ReleaseGPUBuffer(r.device, mb.indices)
+		mb.positions = sdl.CreateGPUBuffer(r.device, {usage = {.VERTEX}, size = vbytes})
+		mb.indices = sdl.CreateGPUBuffer(r.device, {usage = {.INDEX}, size = ibytes})
+	}
 	mb.normals = sdl.CreateGPUBuffer(r.device, {usage = {.VERTEX}, size = nbytes})
-	mb.indices = sdl.CreateGPUBuffer(r.device, {usage = {.INDEX}, size = ibytes})
 	mb.transfer = sdl.CreateGPUTransferBuffer(r.device, {usage = .UPLOAD, size = mb.transfer_size})
 	if mb.positions == nil || mb.normals == nil || mb.indices == nil || mb.transfer == nil {
 		log.errorf("mesh buffer creation failed: %s", sdl.GetError())
@@ -868,6 +893,10 @@ mesh_buffers_destroy :: proc(r: ^Renderer, mb: ^Mesh_Buffers) {
 	if mb.indirect_transfer != nil do sdl.ReleaseGPUTransferBuffer(r.device, mb.indirect_transfer)
 	if mb.lod_indices != nil do sdl.ReleaseGPUBuffer(r.device, mb.lod_indices)
 	if mb.paint != nil do sdl.ReleaseGPUBuffer(r.device, mb.paint)
+	if mb.trace != nil {
+		trace_mesh_destroy(r, mb.trace)
+		free(mb.trace)
+	}
 	delete(mb.visible)
 	delete(mb.lod_visible)
 	mb^ = {}
@@ -1038,6 +1067,7 @@ mesh_buffers_upload_indices :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb
 	if len(ranges) == 0 do return
 	r.last_version += 1
 	mb.version = r.last_version
+	mb.index_version = mb.version
 	for x in ranges do assert(x.first_index + x.index_count <= mb.index_count)
 	if !upload_index_ranges(r, cmd, mb, mb.indices, indices, ranges) do log.errorf("index upload failed: %s", sdl.GetError())
 }

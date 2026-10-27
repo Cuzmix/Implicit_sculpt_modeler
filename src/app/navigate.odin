@@ -338,7 +338,9 @@ pointer_route :: proc(app: ^App, input: ^Viewport_Input) {
 		// Only a finger's tap that turns the view can be the second of a double tap.
 		if !(owner == .Orbit && d.pointer == .Finger && !g.edge) do app.double_tap.valid = false
 		g.moving = d.pointer == .Mouse
-		g.pending = g.owner == .Tool && d.pointer == .Finger && app.tool == .Brush
+		// A finger's press the lights take (a marker, or the model with Place highlight on)
+		// acts as it lands, never waiting to see whether it is a tap.
+		g.pending = g.owner == .Tool && d.pointer == .Finger && app.tool == .Brush && !lights_take_press(app, d.mouse, input.size)
 		// Not the presses that go to the mask and hide shapes or a clip, nor during a replay.
 		g.defer_tap = g.pending && app.nav.double_tap && !d.shift && !d.ctrl && !d.alt && !rail_keeps_empty_space(app.rail.press.mods) && !replay_busy(app)
 		if owner == .Tool && app.tool == .Brush && !d.shift && (input.mask || input.mask_shape) && !replay_busy(app) {
@@ -528,6 +530,8 @@ drag_decide :: proc(app: ^App, input: Viewport_Input) -> (owner: Drag_Owner, emp
 	if app.tool == .Move && gizmo_pick(app, d.mouse, input.size) != .None do return .Tool, false
 	// So does a point of the lattice's cage, which stands in for the gizmo.
 	if app.tool == .Move && lattice_pick(app, d.mouse, input.size) > 0 do return .Tool, false
+	// And a light's marker, while the Lights section shows them, for any tool.
+	if light_marker_pressed(app, d.mouse, input.size) do return .Tool, false
 	if d.pointer == .Finger && app.nav.finger_model == .Orbit do return .Orbit, false
 	// The rail's Mask or Hide, for the brushes, keeps empty space for their shapes as Ctrl
 	// does; only held there by a finger does it take the safe zone too, so a view filled

@@ -5,6 +5,8 @@ import "core:math"
 import "core:math/linalg"
 import sdl "vendor:sdl3"
 
+import "../jobs"
+
 // The studio render: while nothing on screen changes, each frame adds one shadow-mapped
 // light sample to an accumulation target, and the viewport is shown darkened by what
 // the samples found, so it settles over a second or two into ambient occlusion and a
@@ -13,6 +15,8 @@ import sdl "vendor:sdl3"
 // mesh shader's key light, jittered over a small disc, which softens the shadow's edge.
 // Any change to the viewport (a stroke, the camera, a resize) starts over; until then
 // the plain viewport is copied through, so the cost while working is one copy a frame.
+// Where the device and the meshes allow, samples cast rays at the triangles instead
+// (trace.odin), from the same lights; the shadow maps below are the fallback.
 Studio :: struct {
 	shadow_pipeline:    ^sdl.GPUGraphicsPipeline,
 	depth_pipeline:     ^sdl.GPUGraphicsPipeline, // the camera's depth, front faces only, as the mesh pipeline
@@ -29,6 +33,8 @@ Studio :: struct {
 	samples:            int, // in accum
 	shown_valid:        bool, // shown holds this frame's viewport, with or without samples
 	failed:             bool, // the device refused part of it; the plain viewport shows
+	trace:              Tracer,
+	traced:             bool, // this still view's samples are traced
 }
 
 // Shadow map size: fine enough for a crevice a few pixels wide at the default view.
@@ -62,9 +68,10 @@ Gather_Uniforms :: struct {
 // (anything was redrawn this frame), otherwise adds a sample until there are
 // `max_samples`, and leaves the result in Studio.shown. `ao` and `shadow` (0 to 1) are
 // how strongly occlusion and the key light's shadow darken the image; `lights` are the
-// lights the items are shaded with, whose brightest casts the shadow (lights_key). Returns false
-// only when the studio cannot run on this device, after which it never tries again.
-studio_frame :: proc(r: ^Renderer, st: ^Studio, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, view, proj: Mat4, items: []Draw_Item, changed: bool, max_samples: int, ao, shadow: f32, lights: Lights = {}) -> bool {
+// lights the items are shaded with, whose brightest casts the shadow (lights_key). A traced
+// view builds what changed of its trees on `pool` at its first sample. Returns false only
+// when the studio cannot run on this device, after which it never tries again.
+studio_frame :: proc(r: ^Renderer, st: ^Studio, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, view, proj: Mat4, items: []Draw_Item, changed: bool, max_samples: int, ao, shadow: f32, lights: Lights = {}, pool: ^jobs.Pool = nil) -> bool {
 	if st.failed do return false
 	if !studio_ensure(r, st, vt) {
 		st.failed = true
@@ -92,12 +99,12 @@ studio_frame :: proc(r: ^Renderer, st: ^Studio, cmd: ^sdl.GPUCommandBuffer, vt: 
 	// With no light on there is no shadow, and every sample goes to the occlusion.
 	key_dir, lit := lights_key(lights, (view * [4]f32{center.x, center.y, center.z, 1}).xyz)
 	key := lit && k % STUDIO_KEY_EVERY == STUDIO_KEY_EVERY - 1
-	dir: [3]f32
+	dir, base, side, up: [3]f32
 	if key {
 		rot := linalg.transpose(linalg.Matrix3f32{view[0, 0], view[0, 1], view[0, 2], view[1, 0], view[1, 1], view[1, 2], view[2, 0], view[2, 1], view[2, 2]})
-		base := linalg.normalize(rot * key_dir)
-		side := linalg.normalize(linalg.cross(base, [3]f32{0, 1, 0} if abs(base.y) < 0.99 else [3]f32{1, 0, 0}))
-		up := linalg.cross(side, base)
+		base = linalg.normalize(rot * key_dir)
+		side = linalg.normalize(linalg.cross(base, [3]f32{0, 1, 0} if abs(base.y) < 0.99 else [3]f32{1, 0, 0}))
+		up = linalg.cross(side, base)
 		a, rr := 2 * math.PI * v, STUDIO_KEY_SOFTNESS * math.sqrt(u)
 		dir = linalg.normalize(base + (side * math.cos(a) + up * math.sin(a)) * rr)
 	} else {
@@ -105,15 +112,29 @@ studio_frame :: proc(r: ^Renderer, st: ^Studio, cmd: ^sdl.GPUCommandBuffer, vt: 
 		ring := math.sqrt(max(1 - z * z, 0))
 		dir = {ring * math.cos(2 * math.PI * v), z, ring * math.sin(2 * math.PI * v)}
 	}
-	light := light_view_proj(center, radius, dir)
 
-	// The depth the gather reads: the viewport's own, or with multisampling the camera's
+	// Whether this still view is traced is settled at its first sample, which also brings
+	// the trees up to date, before anything reads them.
+	if st.samples == 0 do st.traced = trace_prepare(r, &st.trace, cmd, vt, items, pool)
+
+	// The depth the samples read: the viewport's own, or with multisampling the camera's
 	// drawn again at one sample, once per still view (it is the same for every sample).
 	view_depth := vt.depth
 	if vt.samples != ._1 {
 		view_depth = st.view_depth
 		if st.samples == 0 do view_depth_draw(r, cmd, st.depth_pipeline, nil, st.view_depth, vt.width, vt.height, view, proj, items)
 	}
+
+	if st.traced {
+		// The ray of each pixel spreads this sample's point over the hemisphere or the
+		// key light's disc itself, so the gather's direction is not used.
+		light := Trace_Light{key = key, base = base, side = side, up = up, radius = STUDIO_KEY_SOFTNESS, r2 = {u, v}}
+		trace_sample(r, &st.trace, cmd, st.accum, view_depth, st.sampler, view, proj, items, light, TRACE_EPSILON * radius, st.samples == 0)
+		st.samples += 1
+		studio_composite(st, cmd, vt, ao, shadow)
+		return true
+	}
+	light := light_view_proj(center, radius, dir)
 
 	// Depth from the light, every triangle of every item.
 	depth := sdl.GPUDepthStencilTargetInfo {
@@ -159,18 +180,22 @@ studio_frame :: proc(r: ^Renderer, st: ^Studio, cmd: ^sdl.GPUCommandBuffer, vt: 
 	sdl.DrawGPUPrimitives(pass, 3, 1, 0, 0)
 	sdl.EndGPURenderPass(pass)
 	st.samples += 1
+	studio_composite(st, cmd, vt, ao, shadow)
+	return true
+}
 
-	// The image shown: the viewport darkened by what the samples found.
-	target = {texture = st.shown, load_op = .DONT_CARE, store_op = .STORE, cycle = true}
-	pass = sdl.BeginGPURenderPass(cmd, &target, 1, nil)
+// The image shown: the viewport darkened by what the samples found.
+@(private = "file")
+studio_composite :: proc(st: ^Studio, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, ao, shadow: f32) {
+	target := sdl.GPUColorTargetInfo{texture = st.shown, load_op = .DONT_CARE, store_op = .STORE, cycle = true}
+	pass := sdl.BeginGPURenderPass(cmd, &target, 1, nil)
 	sdl.BindGPUGraphicsPipeline(pass, st.composite_pipeline)
-	samplers = {{texture = vt.color, sampler = st.sampler}, {texture = st.accum, sampler = st.sampler}}
+	samplers := [2]sdl.GPUTextureSamplerBinding{{texture = vt.color, sampler = st.sampler}, {texture = st.accum, sampler = st.sampler}}
 	sdl.BindGPUFragmentSamplers(pass, 0, &samplers[0], 2)
 	params := [4]f32{clamp(ao, 0, 1), clamp(shadow, 0, 1), 0, 0}
 	sdl.PushGPUFragmentUniformData(cmd, 0, &params, size_of(params))
 	sdl.DrawGPUPrimitives(pass, 3, 1, 0, 0)
 	sdl.EndGPURenderPass(pass)
-	return true
 }
 
 // What the viewport panel should show while the studio render is on: its image, or nil
@@ -196,7 +221,8 @@ studio_destroy :: proc(r: ^Renderer, st: ^Studio) {
 	if st.composite_pipeline != nil do sdl.ReleaseGPUGraphicsPipeline(r.device, st.composite_pipeline)
 	if st.sampler != nil do sdl.ReleaseGPUSampler(r.device, st.sampler)
 	for t in ([4]^sdl.GPUTexture{st.shadow, st.accum, st.shown, st.view_depth}) do if t != nil do sdl.ReleaseGPUTexture(r.device, t)
-	st^ = {}
+	tracer_destroy(r, &st.trace)
+	st^ = {trace = st.trace}
 }
 
 // A light looking at the scene's bounding sphere from `dir`, parallel, its depth range

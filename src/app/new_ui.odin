@@ -205,6 +205,8 @@ Kit_State :: struct {
 	// The Objects card (kit_objects_card.odin): open, and its list, menus and size.
 	objects_card:   bool,
 	card:           Objects_Card,
+	// The brush browser's categories, search, Recent and Favorites (kit_brushes.odin).
+	brushes:        Brush_Palette,
 	// The Colors card (kit_colors.odin): open, and its tab, history and palettes.
 	colors_card:    bool,
 	colors:         Colors_Card,
