@@ -72,9 +72,10 @@ Gather_Uniforms :: struct {
 // Records this frame's studio work after render_viewport: starts over when `changed`
 // (anything was redrawn this frame), otherwise adds a sample until there are
 // `max_samples`, and leaves the result in Studio.shown. `ao` and `shadow` (0 to 1) are
-// how strongly occlusion and the key light's shadow darken the image. Returns false
+// how strongly occlusion and the key light's shadow darken the image; `lights` is the
+// light rig the items are shaded with, which the key light's shadow follows. Returns false
 // only when the studio cannot run on this device, after which it never tries again.
-studio_frame :: proc(r: ^Renderer, st: ^Studio, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, view, proj: Mat4, items: []Draw_Item, changed: bool, max_samples: int, ao, shadow: f32) -> bool {
+studio_frame :: proc(r: ^Renderer, st: ^Studio, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, view, proj: Mat4, items: []Draw_Item, changed: bool, max_samples: int, ao, shadow: f32, lights: [3][4]f32 = {}) -> bool {
 	if st.failed do return false
 	if !studio_ensure(r, st, vt) {
 		st.failed = true
@@ -103,7 +104,7 @@ studio_frame :: proc(r: ^Renderer, st: ^Studio, cmd: ^sdl.GPUCommandBuffer, vt: 
 	dir: [3]f32
 	if key {
 		rot := linalg.transpose(linalg.Matrix3f32{view[0, 0], view[0, 1], view[0, 2], view[1, 0], view[1, 1], view[1, 2], view[2, 0], view[2, 1], view[2, 2]})
-		base := linalg.normalize(rot * linalg.normalize(STUDIO_KEY_DIR))
+		base := linalg.normalize(rot * lights_turn(lights, linalg.normalize(STUDIO_KEY_DIR)))
 		side := linalg.normalize(linalg.cross(base, [3]f32{0, 1, 0} if abs(base.y) < 0.99 else [3]f32{1, 0, 0}))
 		up := linalg.cross(side, base)
 		a, rr := 2 * math.PI * v, STUDIO_KEY_SOFTNESS * math.sqrt(u)

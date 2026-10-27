@@ -213,6 +213,11 @@ App :: struct {
 	exposure:  f32,
 	cavity:    f32,
 	ridge:     f32,
+	// The light rig (lights.odin): its turn about the up axis and up or down in degrees,
+	// the key and fill lights' strengths, and whether it stays with the scene.
+	light_turn, light_height: f32,
+	light_key, light_fill:    f32,
+	lights_fixed:             bool,
 	show_groups: bool, // draw every object's polygroups in their colours instead of its clay and paint
 	cache_idle: bool, // draw unselected objects from the viewport cache while they stay put
 	hd_window_vertices: int, // size of the HD windows the A key opens
@@ -480,6 +485,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	}
 	app.studio_samples, app.studio_ao, app.studio_shadow = STUDIO_SAMPLES_DEFAULT, 0.85, 0.6
 	app.cavity, app.ridge = CAVITY_DEFAULT, RIDGE_DEFAULT
+	lights_reset(&app)
 	app.stroke_seed = 1
 	app.tool = .Brush
 	app.running = true
@@ -782,6 +788,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 					surface = {material.metallic, material.roughness},
 					flat = app.flat,
 					look = viewport_look(&app),
+					lights = viewport_lights(&app),
 					matcap = material_matcap(&app, material),
 					wireframe = selected && app.wireframe,
 					paint  = sculpt.sculptor_has_color(&lv.sculptor) && !obj.paint_off,
@@ -812,6 +819,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 					surface  = {material.metallic, material.roughness},
 					flat     = app.flat,
 					look     = viewport_look(&app),
+					lights   = viewport_lights(&app),
 					matcap   = material_matcap(&app, material),
 					damage   = geom.AABB_EMPTY,
 				})
@@ -826,7 +834,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		if app.studio_on {
 			// Anything redrawn this frame starts the samples over.
 			changed := !drawn.partial || drawn.redrawn_px > 0
-			app.studio_on = render.studio_frame(&app.renderer, &app.studio, cmd, &app.target, view, proj, draws[:], changed, int(app.studio_samples), app.studio_ao, app.studio_shadow)
+			app.studio_on = render.studio_frame(&app.renderer, &app.studio, cmd, &app.target, view, proj, draws[:], changed, int(app.studio_samples), app.studio_ao, app.studio_shadow, viewport_lights(&app))
 		}
 
 		nav_head_frame(&app, cmd)
@@ -982,9 +990,9 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	}
 	macros_kept := 0
 	for s in app.macro.slots do macros_kept += int(s.name != "")
-	pack_alphas := 0
-	for p in app.library.packs do pack_alphas += p.alphas
-	fmt.printfln("library_alphas=%d library_skipped=%d alpha=%s packs=%d pack_alphas=%d packs_installed=%d packs_refused=%d", app.library.alphas, app.library.skipped, alpha_ref(&app, app.brush.alpha), len(app.library.packs), pack_alphas, app.library.installed, app.library.refused)
+	pack_alphas, pack_presets := 0, 0
+	for p in app.library.packs do pack_alphas, pack_presets = pack_alphas + p.alphas, pack_presets + p.presets
+	fmt.printfln("library_alphas=%d library_skipped=%d alpha=%s packs=%d pack_alphas=%d pack_presets=%d packs_installed=%d packs_refused=%d", app.library.alphas, app.library.skipped, alpha_ref(&app, app.brush.alpha), len(app.library.packs), pack_alphas, pack_presets, app.library.installed, app.library.refused)
 	fmt.printfln("macros=%d macro_recording=%d macro_entries=%d macro_left_out=%d macros_run=%d scripts_run=%d macro_steps=%d", macros_kept, int(app.macro.recording), len(app.macro.entries), app.macro.left_out, app.macro.runs, app.macro.scripts, app.macro.steps)
 	fmt.printfln("frames=%d dabs=%d objects=%d vertices=%d", frame_index, app.stats.dabs_total, len(app.scene.objects), vertices)
 	{

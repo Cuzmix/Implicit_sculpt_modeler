@@ -409,6 +409,7 @@ kit_tree_autoscroll :: proc(app: ^App, scroll: Tree_Scroll) {
 SCENE_SECTIONS := [?]Kit_Tab_Section {
 	{.Add, "Add object", kit_add, nil},
 	{.Material, "Material", kit_material, nil},
+	{.Lights, "Lights", kit_lights, nil},
 	{.Studio, "Studio render", kit_studio, nil},
 	{.Camera, "Camera", kit_camera, nil},
 }
@@ -475,6 +476,24 @@ kit_material :: proc(app: ^App) {
 		app.material = CUSTOM_MATERIAL
 	}
 	ui.paragraph(ctx, "Moving the colour, Metallic or Roughness makes a Custom material from the one in use; the presets stay as they are. A MatCap is a picture of a lit sphere that stands in for the lights, tinted by the colour. Cavity darkens creases and Ridge lightens crests on every material.")
+}
+
+// The light rig's turn, height and strengths, and whether it stays with the camera or
+// the scene (lights.odin).
+@(private = "file")
+kit_lights :: proc(app: ^App) {
+	ctx := &app.kit.ctx
+	_ = ui.slider(ctx, "Turn", &app.light_turn, -180, 180, .Linear, fmt.tprintf("%+.0f°", app.light_turn))
+	_ = ui.slider(ctx, "Height", &app.light_height, -90, 90, .Linear, fmt.tprintf("%+.0f°", app.light_height))
+	_ = ui.slider(ctx, "Key light", &app.light_key, 0, LIGHT_STRENGTH_MAX, .Linear, fmt.tprintf("%.2f", app.light_key))
+	fixed := app.lights_fixed
+	if ui.switch_row(ctx, "Fixed to the scene", &fixed) do lights_fix(app, fixed)
+	if kit_more(app, .Lights) {
+		_ = ui.slider(ctx, "Fill light", &app.light_fill, 0, LIGHT_STRENGTH_MAX, .Linear, fmt.tprintf("%.2f", app.light_fill))
+		if ui.button(ctx, "Reset lights", .Bordered) do lights_reset(app)
+		kit_more_end(app)
+	}
+	ui.paragraph(ctx, "Turn and Height swing the key light, the fill and the studio's reflections round together. Fixed to the scene, they stay put while the camera goes round, as on a turntable; otherwise they turn with the camera. MatCaps carry their own light.")
 }
 
 @(private = "file")

@@ -13,6 +13,11 @@ layout(set = 3, binding = 0) uniform Material_Uniforms {
 	vec4 surface; // x: metallic, y: roughness (0: the classic shading above, else physically based), z: 1 for flat shading, w: 1 for the matcap
 	vec4 checker; // the density preview: xyz the first lattice point in mesh space, w the cell size (0: none)
 	vec4 look;    // x: exposure in stops, y: cavity strength, z: ridge strength (0 to 1); all 0 is plain
+	// The light rig's turn into view space, as the columns of a rotation, with the key
+	// light's strength in light_x.w and the fill's in light_y.w (render.Draw_Item.lights).
+	vec4 light_x;
+	vec4 light_y;
+	vec4 light_z;
 };
 
 // The matcap (render/matcap.odin): a lit sphere, sRGB, so it samples as linear light.
@@ -23,7 +28,9 @@ layout(location = 0) out vec4 out_color;
 
 const float PI = 3.14159265;
 
-// Lights are fixed relative to the camera, like a studio clay render.
+// The lights in the rig's own space. Turned by the light_* uniforms into view space: by
+// default not at all, so they stay fixed relative to the camera like a studio clay
+// render; the Lights section turns the rig, or fixes it to the scene.
 const vec3 KEY_DIR  = normalize(vec3(-0.5, 0.6, 0.6));
 const vec3 FILL_DIR = normalize(vec3(0.7, -0.2, 0.4));
 
@@ -193,6 +200,7 @@ void main() {
 		float tiny = smoothstep(0.2, 0.4, per_px);
 		albedo *= mix(shade, 0.86, tiny);
 	}
+	mat3 rig = mat3(light_x.xyz, light_y.xyz, light_z.xyz);
 	// Masked areas show darker, as in ZBrush.
 	albedo *= 1.0 - 0.7 * in_mask;
 	float highlight = 1.0 - 0.5 * in_mask;
@@ -224,14 +232,15 @@ void main() {
 		vec3 f0 = mix(vec3(0.04), albedo, metallic);
 		float n_dot_v = max(dot(n, v), 1e-4);
 
-		vec3 color = direct(n, v, KEY_DIR, diffuse, f0, a) * 3.0;
-		color += direct(n, v, FILL_DIR, diffuse, f0, a) * 0.35;
-		// Light from the whole studio: its blurriest version for the diffuse part, and
-		// the reflection blurred by roughness for the specular.
+		vec3 color = direct(n, v, rig * KEY_DIR, diffuse, f0, a) * (3.0 * light_x.w);
+		color += direct(n, v, rig * FILL_DIR, diffuse, f0, a) * (0.35 * light_y.w);
+		// Light from the whole studio, which turns with the rig: its blurriest version for
+		// the diffuse part, and the reflection blurred by roughness for the specular.
 		vec3 r = reflect(-v, n);
 		vec2 ab = env_brdf(n_dot_v, rough);
-		color += diffuse * studio(n, 1.0) * 0.7;
-		color += studio(r, rough) * (f0 * ab.x + ab.y) * highlight;
+		mat3 to_rig = transpose(rig);
+		color += diffuse * studio(to_rig * n, 1.0) * 0.7;
+		color += studio(to_rig * r, rough) * (f0 * ab.x + ab.y) * highlight;
 		out_color = display(color * relief);
 		return;
 	}
@@ -239,11 +248,12 @@ void main() {
 	// The classic studio clay shading: wrap lets light reach past the side facing it,
 	// softening the terminator as wax and skin do; 0 is plain Lambert.
 	float wrap = params.w;
-	float key  = max((dot(n, KEY_DIR) + wrap) / (1.0 + wrap), 0.0);
-	float fill = max((dot(n, FILL_DIR) + wrap) / (1.0 + wrap), 0.0) * 0.3;
+	vec3 key_dir = rig * KEY_DIR;
+	float key  = max((dot(n, key_dir) + wrap) / (1.0 + wrap), 0.0) * light_x.w;
+	float fill = max((dot(n, rig * FILL_DIR) + wrap) / (1.0 + wrap), 0.0) * (0.3 * light_y.w);
 	float rim  = pow(1.0 - max(dot(n, v), 0.0), 3.0) * 0.25;
-	vec3 h     = normalize(KEY_DIR + v);
-	float spec = pow(max(dot(n, h), 0.0), params.z) * params.y;
+	vec3 h     = normalize(key_dir + v);
+	float spec = pow(max(dot(n, h), 0.0), params.z) * params.y * light_x.w;
 	vec3 color = albedo * (params.x + key + fill) + vec3(spec + rim) * highlight;
 	// The viewport texture is a UNORM texture the interface shows as-is, so the shader
 	// encodes for the display itself.

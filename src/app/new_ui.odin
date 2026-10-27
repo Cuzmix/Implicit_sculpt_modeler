@@ -353,6 +353,7 @@ Kit_Section :: enum u8 {
 	Objects,
 	Add,
 	Material,
+	Lights,
 	Studio,
 	Camera,
 	// The Stats panel's.

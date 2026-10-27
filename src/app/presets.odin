@@ -1,8 +1,11 @@
 package main
 
 import "core:fmt"
+import "core:reflect"
+import "core:strconv"
 import "core:strings"
 
+import "../geom"
 import "../sculpt"
 
 // Brush presets: named brushes the user makes, as Nomad's presets and Blender's brush
@@ -14,9 +17,16 @@ import "../sculpt"
 // plain brush's are kept in Brush_Settings.plain, which leaving the preset puts back: a
 // plain brush keeps its own strength, and what settings.txt remembers for it, whatever
 // presets were used.
+// Content packs bring presets too (Library.presets): they are picked as the person's own
+// are, but are read-only; Save as new makes one of the person's own from one.
 
 MAX_PRESETS :: 24
 PRESET_NAME_MAX :: 32
+
+// How Brush_Settings.preset and Dock_Slot.preset number presets: 0 is the plain brush, 1
+// to preset_count the person's own (from 1), and PACK_PRESET + j the library's preset j,
+// whose index never changes during a run (a removed pack's are marked gone).
+PACK_PRESET :: 1 << 16
 
 // What a preset sets, besides its name.
 Preset_Values :: struct {
@@ -64,22 +74,42 @@ preset_values_put :: proc(b: ^Brush_Settings, v: Preset_Values) {
 	b.lock_plane, b.connected = v.lock_plane, v.connected
 }
 
-// The preset the brush is on, if any.
-brush_preset :: proc(app: ^App) -> (^Brush_Preset, bool) {
-	i := app.brush.preset - 1
-	if i < 0 || i >= app.preset_count do return nil, false
-	return &app.presets[i], true
+// The preset numbered `n` (PACK_PRESET), if there is one.
+preset_at :: proc(app: ^App, n: int) -> (^Brush_Preset, bool) {
+	if n >= PACK_PRESET {
+		j := n - PACK_PRESET
+		if j >= len(app.library.presets) || app.library.presets[j].gone do return nil, false
+		return &app.library.presets[j].preset, true
+	}
+	if n < 1 || n > app.preset_count do return nil, false
+	return &app.presets[n - 1], true
 }
 
-// Puts the brush on preset `i` (from 0), and picks the Sculpt tool.
+// Whether `n` numbers a content pack's preset, which is read-only.
+preset_of_pack :: proc(n: int) -> bool {
+	return n >= PACK_PRESET
+}
+
+// The preset the brush is on, if any.
+brush_preset :: proc(app: ^App) -> (^Brush_Preset, bool) {
+	return preset_at(app, app.brush.preset)
+}
+
+// Puts the brush on preset `i` (from 0) of the person's own, and picks the Sculpt tool.
 preset_pick :: proc(app: ^App, i: int) {
-	if i < 0 || i >= app.preset_count do return
+	preset_use(app, i + 1)
+}
+
+// Puts the brush on the preset numbered `n` (PACK_PRESET), and picks the Sculpt tool.
+preset_use :: proc(app: ^App, n: int) {
+	p, ok := preset_at(app, n)
+	if !ok do return
 	b := &app.brush
 	preset_leave(app)
-	v := app.presets[i].values
+	v := p.values
 	b.plain = preset_values_of(b, v.kind)
 	preset_values_put(b, v)
-	b.preset = i + 1
+	b.preset = n
 	app.tool = .Brush
 }
 
@@ -135,7 +165,9 @@ preset_save_new :: proc(app: ^App) -> bool {
 	}
 	b := &app.brush
 	p := Brush_Preset{values = preset_values_of(b, b.kind)}
+	// A copy of a pack's preset is named after it, so it reads as that one made yours.
 	base := BRUSHES[b.kind].name
+	if from, on := brush_preset(app); on && preset_of_pack(b.preset) do base = strings.clone(preset_name_fit_room(preset_name(from), 3), context.temp_allocator)
 	for n := 1; ; n += 1 {
 		name := fmt.tprintf("%s %d", base, n)
 		if preset_find(app, name) < 0 {
@@ -153,8 +185,9 @@ preset_save_new :: proc(app: ^App) -> bool {
 	return true
 }
 
-// Stores the brush's values in the preset it is on.
+// Stores the brush's values in the preset it is on, when it is one of the person's own.
 preset_save :: proc(app: ^App) {
+	if preset_of_pack(app.brush.preset) do return
 	if p, ok := brush_preset(app); ok do p.values = preset_values_of(&app.brush, p.values.kind)
 }
 
@@ -197,13 +230,83 @@ preset_rename :: proc(app: ^App, i: int, typed: string) -> bool {
 
 // `name` cut to fit PRESET_NAME_MAX - 1 bytes without splitting a character.
 preset_name_fit :: proc(name: string) -> string {
-	if len(name) < PRESET_NAME_MAX do return name
-	n := PRESET_NAME_MAX - 1
-	for n > 0 && name[n] & 0xc0 == 0x80 do n -= 1
-	return name[:n]
+	return preset_name_fit_room(name, 0)
 }
 
-@(private = "file")
+// `name` cut to leave `room` bytes more under PRESET_NAME_MAX - 1 (for a number after
+// it), without splitting a character.
+preset_name_fit_room :: proc(name: string, room: int) -> string {
+	if len(name) + room < PRESET_NAME_MAX do return name
+	n := PRESET_NAME_MAX - 1 - room
+	for n > 0 && name[n] & 0xc0 == 0x80 do n -= 1
+	return strings.trim_right_space(name[:n])
+}
+
+// The preset a name stands for in scripts: one of the person's own by its name, or a
+// pack's as `<pack id>/<name>` (ignoring case); 0 for none.
+preset_by_ref :: proc(app: ^App, ref: string) -> int {
+	if i := preset_find(app, ref); i >= 0 do return i + 1
+	slash := strings.index_byte(ref, '/')
+	if slash < 0 do return 0
+	return pack_preset_find(app, ref[:slash], ref[slash + 1:])
+}
+
+// How scripts and notes name the preset numbered `n`: its name, or `<pack id>/<name>`
+// for a pack's.
+preset_ref :: proc(app: ^App, n: int) -> string {
+	p, ok := preset_at(app, n)
+	if !ok do return ""
+	if preset_of_pack(n) do return fmt.tprintf("%s/%s", app.library.presets[n - PACK_PRESET].pack, preset_name(p))
+	return preset_name(p)
+}
+
+// A `preset` line of settings.txt or a pack's brushes.txt, split into words: its name,
+// values and alpha as written (a reference, a pack's own stem, or "-"); false for a
+// damaged line.
+// preset <name> <brush> <strength> <drawn 0|1> c1x c1y c2x c2y <alpha|-> <alpha mode>
+//        <alpha angle> <stroke> <lazy px> r g b <cloth mode> [<spread> [<lock plane 0|1>
+//        <connected 0|1> [<focal shift>]]]; names escaped (preset_escape). Lines from
+// before Spray have no spread and take the default; lines from before Lock plane and
+// Connected have both off; lines from before focal shift have none.
+preset_parse :: proc(f: []string) -> (name: string, v: Preset_Values, alpha: string, ok: bool) {
+	if len(f) != 18 && len(f) != 19 && len(f) != 21 && len(f) != 22 do return
+	kind, kind_ok := brush_by_name(f[2])
+	alpha_mode, mode_ok := reflect.enum_from_name(Alpha_Mode, f[10])
+	stroke, stroke_ok := reflect.enum_from_name(Stroke_Mode, f[12])
+	cloth, cloth_ok := reflect.enum_from_name(sculpt.Cloth_Mode, f[17])
+	if !kind_ok || !mode_ok || !stroke_ok || !cloth_ok do return
+	number :: proc(s: string, fallback: f32) -> f32 {
+		x, x_ok := strconv.parse_f32(s)
+		return x if x_ok && x == x else fallback
+	}
+	// A falloff curve with a control point outside the unit square is the smooth one.
+	curve := geom.Curve{{number(f[5], -1), number(f[6], -1)}, {number(f[7], -1), number(f[8], -1)}}
+	for x in ([4]f32{curve.c1.x, curve.c1.y, curve.c2.x, curve.c2.y}) do if x < 0 || x > 1 do curve = FALLOFF_SMOOTH_CURVE
+	v = {
+		kind = kind, strength = clamp(number(f[3], BRUSHES[kind].strength), MIN_STRENGTH, 1),
+		falloff = {drawn = f[4] == "1", curve = curve},
+		alpha = -1, alpha_mode = alpha_mode, alpha_angle = number(f[11], 0), stroke = stroke,
+		lazy_px = clamp(number(f[13], 0), 0, MAX_RADIUS_PX), cloth_mode = cloth,
+		spread = clamp(number(f[18], SPRAY_DEFAULT_SPREAD), 0, SPRAY_MAX_SPREAD) if len(f) >= 19 else SPRAY_DEFAULT_SPREAD,
+		lock_plane = len(f) >= 21 && f[19] == "1", connected = len(f) >= 21 && f[20] == "1",
+	}
+	if len(f) == 22 do v.falloff.focal = clamp(number(f[21], 0), sculpt.FOCAL_MIN, sculpt.FOCAL_MAX)
+	for k in 0 ..< 3 do v.color[k] = clamp(number(f[14 + k], 0), 0, 1)
+	return preset_unescape(f[1]), v, preset_unescape(f[9]), true
+}
+
+// Writes the `preset` line preset_parse reads, with `alpha` as the alpha's word.
+preset_line :: proc(out: ^strings.Builder, name: string, v: Preset_Values, alpha: string) {
+	bit :: proc(b: bool) -> int {return 1 if b else 0}
+	fmt.sbprintf(out, "preset %s %v %g %d %g %g %g %g %s %v %g %v %g %g %g %g %v %g %d %d", preset_escape(name), v.kind, v.strength, bit(v.falloff.drawn),
+		v.falloff.curve.c1.x, v.falloff.curve.c1.y, v.falloff.curve.c2.x, v.falloff.curve.c2.y, preset_escape(alpha), v.alpha_mode, v.alpha_angle, v.stroke, v.lazy_px,
+		v.color.r, v.color.g, v.color.b, v.cloth_mode, v.spread, bit(v.lock_plane), bit(v.connected))
+	// Only a preset with a focal shift has the field, so the builds from before it,
+	// which skip a line of a length they do not know, keep every other preset.
+	if v.falloff.focal != 0 do fmt.sbprintf(out, " %g", v.falloff.focal)
+	strings.write_byte(out, '\n')
+}
+
 preset_name_set :: proc(p: ^Brush_Preset, name: string) {
 	p.name = {}
 	copy(p.name[:PRESET_NAME_MAX - 1], preset_name_fit(name))

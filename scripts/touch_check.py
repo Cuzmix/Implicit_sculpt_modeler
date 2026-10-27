@@ -4733,6 +4733,36 @@ def content_pack_installs_and_removes():
     ])
 
 
+# The brush browser's first pack preset, under PRESETS (empty) and the pack's name, at
+# 1600x900.
+BROWSER_PACK_PRESET = (743, 770)
+
+
+@scenario
+def pack_presets_reach_the_browser():
+    """A pack's brushes.txt brings its presets: a script installs it and puts the brush on
+    Stone clay; the next start has the brush back on it, and the brush browser lists the
+    pack's presets under its name, where a tap on the first picks it again after a plain
+    brush was picked."""
+    pack = autosave_folder() + "-brushes.sculptpack"
+    line = "preset Stone%20clay Clay 0.35 0 0 0 0 0 Stone Stroke 0 Dots 0 0 0 0 Drag\n"
+    make_pack(pack, "Brush Set", ["Stone"], [("brushes.txt", line + line.replace("Stone%20clay", "Ring%20draw").replace("Clay", "Draw").replace(" Stone ", " Rings "))])
+    s = Script()
+    s.wait(3)
+    s.press("1")
+    s.wait(3)
+    s.ftap(*UI["browser"])
+    s.wait(12)
+    s.ftap(*BROWSER_PACK_PRESET)
+    s.wait(6)
+    return Steps([
+        (Script(), [f"--settings-file={settings_file()}", f"--script=install_pack {pack}; preset brush-set/stone clay"],
+         {"packs": near(1, 0), "pack_presets": near(2, 0), "preset_name": is_text("Stone_clay"), "brush_strength": near(0.35)}),
+        (s, [f"--settings-file={settings_file()}"],
+         camera_still({"dabs": near(0), "preset_name": is_text("Stone_clay"), "brush_kind": is_text("clay"), "alpha": is_text("brush-set/Stone"), "browser": near(0)})),
+    ])
+
+
 @scenario
 def gltf_export_keeps_layers():
     """Layers as glTF morph targets (export_keeps_layers): Blender shows 1.5 as it is."""

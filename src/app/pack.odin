@@ -16,15 +16,20 @@ import "../zip"
 
 // Content packs: a `.sculptpack` file is a ZIP archive, so that any zip tool makes one,
 // holding `pack.txt` (name, author, version, description, license, one `key value` line
-// each; only the name is needed) and brush alphas under `alphas/`. Installing one checks
+// each; only the name is needed), brush alphas under `alphas/` and brush presets in
+// `brushes.txt` (settings.txt's `preset` lines, naming the pack's own alphas by stem). Installing one checks
 // the archive (zip.odin), reads pack.txt, decodes every alpha, and only then writes
 // anything: into library/.incoming, renamed to library/<id> once whole, so an install
 // that stops halfway leaves nothing behind. A pack is data only (store rule: no
 // downloaded code), and it only adds: its alphas are named `<id>/<stem>` beside the
-// built-ins and the person's own. Installing runs on a thread of its own so a big pack
+// built-ins and the person's own, and its presets are listed under its name, read-only.
+// Installing runs on a thread of its own so a big pack
 // never holds a frame; the frame loop finishes it (library_frame).
 
 PACK_FILE :: "pack.txt"
+PACK_BRUSHES :: "brushes.txt"
+// The most presets a pack brings: far more than a real set, and a bound on the lists.
+PACK_PRESETS_MAX :: 256
 PACK_INCOMING :: ".incoming"
 // A replaced pack's folder is moved here while the new one is renamed in, then deleted.
 PACK_ASIDE :: ".replaced"
@@ -40,6 +45,23 @@ Pack :: struct {
 	description: string,
 	license:     string,
 	alphas:      int,
+	presets:     int,
+}
+
+// A content pack's brush preset, in Library.presets: the preset, read-only, and the pack's
+// id. A removed pack's are marked gone and stay, so an index into the list holds for the
+// run (PACK_PRESET).
+Pack_Preset :: struct {
+	preset: Brush_Preset,
+	pack:   string, // owned
+	gone:   bool,
+}
+
+// A brushes.txt line as read, before its alpha is looked up: the preset, with its alpha's
+// word (`-`, a built-in's name, or the stem of one of the pack's alphas).
+Pack_Preset_Read :: struct {
+	preset: Brush_Preset,
+	alpha:  string,
 }
 
 pack_free :: proc(p: ^Pack) {
@@ -71,6 +93,8 @@ Pack_Unpacked :: struct {
 	error:    string, // why it was refused, or ""
 	info:     Pack,   // without an id until it is placed
 	alphas:   [dynamic]Pack_Alpha,
+	presets:  [dynamic]Pack_Preset_Read,
+	bad:      int,    // brushes.txt lines it cannot use
 	left_out: int,    // entries this version does not read
 	left:     string, // the first of them
 }
@@ -85,6 +109,8 @@ pack_unpacked_free :: proc(u: ^Pack_Unpacked) {
 		sculpt.alpha_destroy(&a.alpha)
 	}
 	delete(u.alphas)
+	for p in u.presets do delete(p.alpha)
+	delete(u.presets)
 	delete(u.left)
 	free(u)
 }
@@ -113,6 +139,110 @@ pack_text_parse :: proc(text: string, p: ^Pack) -> bool {
 		field^ = strings.clone(value)
 	}
 	return p.name != ""
+}
+
+// Reads brushes.txt's `preset` lines into `out`, where `stems` are the pack's alphas;
+// returns how many lines it cannot use: damaged, of a name it has already or a brush's
+// own, with an alpha that is neither a built-in nor the pack's, or past PACK_PRESETS_MAX.
+// The alphas' words are made in `allocator`.
+pack_brushes_parse :: proc(text: string, stems: []string, out: ^[dynamic]Pack_Preset_Read, allocator := context.allocator) -> (bad: int) {
+	if !utf8.valid_string(text) do return 1
+	rest := text
+	for raw in strings.split_lines_iterator(&rest) {
+		line := strings.trim_space(raw)
+		if line == "" || line[0] == '#' do continue
+		f := strings.fields(line, context.temp_allocator)
+		name, alpha: string
+		v: Preset_Values
+		ok := false
+		if f[0] == "preset" do name, v, alpha, ok = preset_parse(f)
+		name = preset_name_fit(strings.trim_space(name))
+		_, a_brush := brush_by_name(name)
+		taken := false
+		for p in out do taken ||= strings.equal_fold(preset_name_of(p.preset), name)
+		// The pack's own alpha before a built-in of that name, as pack_presets_add looks.
+		word := "-" if alpha == "-" else ""
+		for stem in stems do if word == "" && strings.equal_fold(alpha, stem) do word = stem
+		for shape_name in sculpt.ALPHA_SHAPE_NAMES do if word == "" && strings.equal_fold(alpha, shape_name) do word = shape_name
+		if !ok || name == "" || a_brush || taken || word == "" || len(out) >= PACK_PRESETS_MAX {
+			bad += 1
+			continue
+		}
+		r := Pack_Preset_Read{preset = {values = v}, alpha = strings.clone(word, allocator)}
+		preset_name_set(&r.preset, name)
+		append(out, r)
+	}
+	return
+}
+
+// A preset's name, from a copy of it.
+@(private = "file")
+preset_name_of :: proc(p: Brush_Preset) -> string {
+	p := p
+	return strings.clone(preset_name(&p), context.temp_allocator)
+}
+
+// The stems of the alphas pack `id` has now.
+alphas_of_pack :: proc(app: ^App, id: string) -> []string {
+	stems := make([dynamic]string, context.temp_allocator)
+	prefix := fmt.tprintf("%s/", id)
+	for e in app.alphas do if !e.gone && strings.has_prefix(e.ref, prefix) do append(&stems, e.ref[len(prefix):])
+	return stems[:]
+}
+
+// Adds pack `id`'s presets to the library, each alpha looked up as the pack's own or a
+// built-in's; returns how many.
+pack_presets_add :: proc(app: ^App, id: string, read: []Pack_Preset_Read) -> int {
+	for r in read {
+		p := Pack_Preset{preset = r.preset, pack = strings.clone(id)}
+		p.preset.values.alpha = -1
+		if r.alpha != "-" {
+			p.preset.values.alpha = alpha_find(app, fmt.tprintf("%s/%s", id, r.alpha))
+			if p.preset.values.alpha < 0 do p.preset.values.alpha = alpha_find(app, r.alpha)
+		}
+		append(&app.library.presets, p)
+	}
+	return len(read)
+}
+
+// Pack `id`'s preset named `name` (ignoring case), numbered as PACK_PRESET says; 0 for
+// none.
+pack_preset_find :: proc(app: ^App, id, name: string) -> int {
+	for &p, j in app.library.presets {
+		if !p.gone && strings.equal_fold(p.pack, id) && strings.equal_fold(preset_name(&p.preset), name) do return PACK_PRESET + j
+	}
+	return 0
+}
+
+// After a pack's presets were marked gone (removed, or replaced by a newer copy): the
+// brush and every dock slot on one move to the preset of the same pack and name now, or,
+// when there is none, the brush goes back to its plain self and the slot to its brush.
+// Returns how many of the two fell back.
+pack_presets_retarget :: proc(app: ^App) -> (fell: int) {
+	retarget :: proc(app: ^App, n: ^int) -> bool {
+		if !preset_of_pack(n^) do return false
+		j := n^ - PACK_PRESET
+		if j < len(app.library.presets) && !app.library.presets[j].gone do return false
+		if j < len(app.library.presets) {
+			old := &app.library.presets[j]
+			if m := pack_preset_find(app, old.pack, preset_name(&old.preset)); m > 0 {
+				n^ = m
+				return false
+			}
+		}
+		return true
+	}
+	if retarget(app, &app.brush.preset) {
+		preset_leave(app)
+		fell += 1
+	}
+	for &s in app.kit.dock {
+		if retarget(app, &s.preset) {
+			s.preset = 0
+			fell += 1
+		}
+	}
+	return
 }
 
 // The byte offset of rune `n` in `s`.
@@ -152,6 +282,8 @@ pack_unpack :: proc(path, library: string) -> ^Pack_Unpacked {
 	// Read in name order, so two installs of one file write and number alike.
 	slice.sort_by(entries, proc(a, b: zip.Entry) -> bool {return a.name < b.name})
 	text_found := false
+	brushes: []u8
+	defer delete(brushes)
 	// Each entry's temp memory (a big image's grey values) is its own and goes with it,
 	// so neither the install thread nor a script's frame keeps more than one at a time.
 	entry_temp: runtime.Arena
@@ -171,6 +303,10 @@ pack_unpack :: proc(path, library: string) -> ^Pack_Unpacked {
 			delete(bytes)
 			if !ok do return refuse(u, "its %s has no name line (or is not UTF-8 text)", PACK_FILE)
 			text_found = true
+		case e.name == PACK_BRUSHES:
+			bytes, read_err := zip.read(data, e)
+			if read_err != .None do return refuse(u, "%s: %s", e.name, zip.ERROR_TEXT[read_err])
+			brushes = bytes
 		case in_alphas && alpha_extension(file) && !strings.has_prefix(file, "."):
 			stem := filepath.stem(file)
 			taken := false
@@ -193,6 +329,16 @@ pack_unpack :: proc(path, library: string) -> ^Pack_Unpacked {
 		}
 	}
 	if !text_found do return refuse(u, "it has no %s, so it is not a content pack", PACK_FILE)
+	if brushes != nil {
+		stems := make([]string, len(u.alphas), context.temp_allocator)
+		for a, i in u.alphas do stems[i] = a.stem
+		u.bad = pack_brushes_parse(string(brushes), stems, &u.presets)
+		// Written as checked, so what a start reads is always well formed.
+		out := strings.builder_make(context.temp_allocator)
+		for &r in u.presets do preset_line(&out, preset_name(&r.preset), r.preset.values, r.alpha)
+		brushes_path, _ := filepath.join({incoming, PACK_BRUSHES}, context.temp_allocator)
+		if werr := write_durably(brushes_path, transmute([]u8)strings.to_string(out)); werr != "" do return refuse(u, "%s", werr)
+	}
 	text_path, _ := filepath.join({incoming, PACK_FILE}, context.temp_allocator)
 	// Written as read, one line a key, so the pack's own extra lines and comments go.
 	text := fmt.tprintf("name %s\nauthor %s\nversion %s\ndescription %s\nlicense %s\n", u.info.name, u.info.author, u.info.version, u.info.description, u.info.license)
@@ -325,14 +471,17 @@ pack_install_finish :: proc(app: ^App, u: ^Pack_Unpacked, replace: bool) -> (err
 		a.alpha = {}
 		p.alphas += 1
 	}
+	p.presets = pack_presets_add(app, id, u.presets[:])
 	// A replaced pack keeps its place in the list.
 	if old >= 0 do inject_at(&l.packs, old, p)
 	else do append(&l.packs, p)
 	l.installed += 1
 	dropped := alphas_retarget(app)
+	_ = pack_presets_retarget(app)
 	left := "" if u.left_out == 0 else fmt.tprintf("; left out %d file%s this version does not read (%s%s)", u.left_out, "" if u.left_out == 1 else "s", u.left, "" if u.left_out == 1 else ", ...")
+	bad := "" if u.bad == 0 else fmt.tprintf("; skipped %d line%s of %s it cannot use", u.bad, "" if u.bad == 1 else "s", PACK_BRUSHES)
 	lost := "" if dropped == 0 else fmt.tprintf("; %d preset%s used alphas it no longer has and %s round now", dropped, "" if dropped == 1 else "s", "is" if dropped == 1 else "are")
-	file_note(app, false, "%s %s%s: %d alpha%s%s%s", "Replaced" if old >= 0 else "Installed", p.name, "" if p.version == "" else fmt.tprintf(" %s", p.version), p.alphas, "" if p.alphas == 1 else "s", left, lost)
+	file_note(app, false, "%s %s%s: %s%s%s%s", "Replaced" if old >= 0 else "Installed", p.name, "" if p.version == "" else fmt.tprintf(" %s", p.version), pack_holds(p), left, bad, lost)
 	pack_unpacked_free(u)
 	return ""
 }
@@ -379,13 +528,26 @@ pack_id :: proc(app: ^App, name: string) -> string {
 	}
 }
 
-// Forgets pack `i`: its alphas are marked gone and it leaves the list. The caller
-// retargets the alphas' users (alphas_retarget).
+// What a pack holds, for notes and the Library panel: "3 alphas and 2 presets", leaving
+// out presets when it has none, and alphas when it has only presets.
+pack_holds :: proc(p: Pack) -> string {
+	alphas := fmt.tprintf("%d alpha%s", p.alphas, "" if p.alphas == 1 else "s")
+	presets := fmt.tprintf("%d preset%s", p.presets, "" if p.presets == 1 else "s")
+	switch {
+	case p.presets == 0: return alphas
+	case p.alphas == 0:  return presets
+	}
+	return fmt.tprintf("%s and %s", alphas, presets)
+}
+
+// Forgets pack `i`: its alphas and presets are marked gone and it leaves the list. The
+// caller retargets their users (alphas_retarget, pack_presets_retarget).
 @(private = "file")
 pack_forget :: proc(app: ^App, i: int) {
 	l := &app.library
 	prefix := fmt.tprintf("%s/", l.packs[i].id)
 	for &e in app.alphas do if !e.gone && strings.has_prefix(e.ref, prefix) do e.gone = true
+	for &p in l.presets do if strings.equal_fold(p.pack, l.packs[i].id) do p.gone = true
 	pack_free(&l.packs[i])
 	ordered_remove(&l.packs, i)
 }
@@ -401,6 +563,7 @@ pack_remove :: proc(app: ^App, i: int) -> bool {
 	}
 	pack_forget(app, i)
 	dropped := alphas_retarget(app)
+	_ = pack_presets_retarget(app)
 	if dropped == 0 {
 		file_note(app, false, "Removed %s from your library", name)
 	} else {
