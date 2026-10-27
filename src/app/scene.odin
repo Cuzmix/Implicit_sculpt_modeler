@@ -147,7 +147,7 @@ Surface :: struct {
 	groups: []u16,
 }
 
-Scene_Command_Kind :: enum u8 {None, Add, New, Remesh, Decimate, Retopo, Delete, Duplicate, Symmetrize, Slice, Subdivide, Set_Level, Delete_Higher, Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete, Dyntopo, Boolean, Extract, View, Arrange, Copy, Paste, Delete_Others, Levels_All, Split, Merge, Align, Distribute, Material, Group_Material, Voxel_To_Mesh}
+Scene_Command_Kind :: enum u8 {None, Add, New, Remesh, Decimate, Retopo, Delete, Duplicate, Symmetrize, Slice, Subdivide, Set_Level, Delete_Higher, Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete, Dyntopo, Boolean, Extract, View, Arrange, Copy, Paste, Delete_Others, Levels_All, Split, Merge, Align, Distribute, Material, Group_Material, Voxel_To_Mesh, Mesh_To_Voxels}
 
 // The commands that work on a mesh object's level, and so refuse a voxel object until it
 // is converted to a mesh (Voxel_To_Mesh); the rest place, copy, list or delete objects of
@@ -159,7 +159,7 @@ Scene_Command :: struct {
 	vertices: int,
 	shape:    geom.Primitive, // Add, New: what to add
 	mesh:     int, // Add, New: a content pack's mesh to add instead (Library.meshes, from 1), or 0
-	voxels:   int, // Add: a voxel sphere this many voxels across instead of the shape (0 for a mesh)
+	voxels:   int, // Add: a voxel sphere this many voxels across instead of the shape (0 for a mesh); Mesh_To_Voxels: voxels across the object's longest side
 	// Dyntopo: turn dynamic topology on, or off; Symmetrize: keep the + side; Delete_Others:
 	// the selected objects too; Levels_All: every object to its highest level, or its lowest;
 	// Add: below the selected object, in its folder, rather than at the end of the list;
@@ -748,6 +748,19 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 				return false
 			}
 			history_record_swap(app, obj.id, before)
+		}
+	case .Mesh_To_Voxels:
+		if obj := selected_object(app); obj != nil && obj.voxel == nil {
+			before := history_snapshot(app, obj, "convert to voxels")
+			changed, ok := object_mesh_to_voxels(app, obj, cmd.voxels)
+			if !ok {
+				// The mesh is gone; drop the empty object rather than draw nothing.
+				history_snapshot_drop(before)
+				scene_delete_selected(app, undoable = false)
+				return false
+			}
+			if changed do history_record_swap(app, obj.id, before)
+			else do history_snapshot_drop(before)
 		}
 	case .Delete:
 		// Every selected object, as one undo step. The ids are copied out of temp memory,

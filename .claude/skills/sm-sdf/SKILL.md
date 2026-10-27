@@ -23,7 +23,18 @@ description: Implicit and SDF modelling for this app — the src/sdf_trial spike
   `object_dab` and picking through `object_raycast_local`, `brush_stroke_finish`/`history_step`/`history_drop_redo`/
   `object_forget_history` branch to `clay_stroke_end`/`clay_undo`/`clay_redo`/`clay_clear_redo`/`clay_clear_history`,
   the frame loop branches to `voxel_upload` before `levels_current`, and `object_put_bytes` writes the kind byte and the
-  clay in the levels' place (scene file version 13). `Voxel_To_Mesh` is the swap entry that converts (`clay_to_mesh`).
+  clay in the levels' place (scene file version 13). `Voxel_To_Mesh` is the swap entry that converts (`clay_to_mesh`) and
+  `Mesh_To_Voxels` the one that converts the other way (`object_mesh_to_voxels` → `clay_from_mesh`, which clears the
+  object's `group_materials` too, since `object_get` refuses a voxel object with any).
+- Mesh → voxels (`voxelize.odin`): `clay_from_mesh(c, m, voxel, pool)` lays the voxel grid over the mesh's box (centred in
+  the domain, `VOXELIZE_MARGIN` voxels around; `voxel_size_for(bounds, across)` picks the voxel), casts `geom.lattice_rays_cast`
+  along x, y and z (the remesh's exact fixed-point crossings, now public in `src/geom/lattice_rays.odin`), takes inside
+  = x-ray winding > 0 (an open mesh fills as Remesh fills it), marks the bricks within `VOXELIZE_REACH` of an x crossing
+  per z slab, fills the rest as `TILE_INSIDE` or empty, seeds each marked brick in parallel (the sign window, then for a
+  voxel beside a sign change the planar distance from its axes' crossings, `CROSSING_MARGIN` away from the lattice
+  points), then `band_mark` + `band_repair` + `surface_mark_all`. Refuses (false, nothing allocated) an empty mesh, a bad
+  voxel size or a grid past `VOXELIZE_MAX` along an axis. Tests: `voxelize_test.odin` (sphere within a voxel and 5 %
+  volume, torus keeps its hole, serial == parallel hash, refusals); `bench --voxel` prints `From mesh ms`.
   Add a voxel path wherever you add a mesh path that touches a level; never call `sculpt.*` on a voxel object expecting
   vertices.
 

@@ -181,6 +181,56 @@ object_dab :: proc(app: ^App, obj: ^Object, brush: sculpt.Brush, at, normal: Vec
 	}
 }
 
+// The resolution Convert to voxels uses for `obj`: the Voxels section's choice, or the one
+// its vertex count maps to, in whole nodes within the range.
+voxel_across_chosen :: proc(app: ^App, obj: ^Object) -> int {
+	across := int(app.kit.voxel_across)
+	if across <= 0 do across = voxel_resolution_for(object_vertex_count(obj))
+	across = (across + voxel.NODE / 2) / voxel.NODE * voxel.NODE
+	return clamp(across, VOXELS_MIN, VOXELS_MAX)
+}
+
+// Rebuilds the mesh object as a voxel object of its shape, `across` voxels along its
+// longest side (voxel.clay_from_mesh: inside is where the winding number says): its levels,
+// HD detail, mask, layers and strokes go, and the clay is ready for the voxel brushes. The
+// caller records the swap. `changed` is false when the mesh could not be voxelised (said
+// in a warning, nothing changed); ok is false only when the mesh is gone and the clay could
+// not be uploaded.
+object_mesh_to_voxels :: proc(app: ^App, obj: ^Object, across: int) -> (changed, ok: bool) {
+	stroke_finish(app)
+	object_hd_leave(app, obj)
+	start := time.tick_now()
+	source := object_mesh(obj)^
+	packed: geom.Mesh
+	if object_dynamic(obj) {
+		// Without the unused slots of the dynamic layout.
+		mask: []u8
+		packed, mask = sculpt.sculptor_compact_mesh(object_sculptor(obj))
+		delete(mask)
+		source = packed
+	}
+	_, bounds := geom.mesh_area_bounds(source, &app.pool)
+	vp := new(Voxel_Part)
+	vp.resolution = clamp(across, VOXELS_MIN, VOXELS_MAX)
+	built := voxel.clay_from_mesh(&vp.clay, source, voxel.voxel_size_for(bounds, vp.resolution), &app.pool)
+	geom.mesh_destroy(&packed)
+	free_all(context.temp_allocator)
+	if !built {
+		free(vp)
+		log.warn("convert to voxels: the mesh has no volume to voxelise")
+		return false, true
+	}
+	_ = voxel.clay_flush(&vp.clay)
+	_ = sdl.WaitForGPUIdle(app.renderer.device)
+	// The groups go with the mesh, and their table with them: a voxel object with group
+	// materials is a scene file the app refuses (the swap step keeps the table).
+	autosave_settle(app)
+	clear(&obj.group_materials)
+	app.layers_lost += sculpt.levels_layer_count(&obj.levels) // for the command's note
+	object_release_mesh(app, obj)
+	return true, voxel_part_attach(app, obj, vp, start)
+}
+
 // Rebuilds the voxel object as a mesh object of its surface (voxel.clay_to_mesh: the
 // nodes' border vertices welded): its clay and strokes go, and the mesh is ready for every
 // mesh tool. The caller records the swap. Returns false only when the mesh could not be
@@ -199,8 +249,17 @@ kit_voxels :: proc(app: ^App, obj: ^Object) {
 	ctx := &app.kit.ctx
 	vp := obj.voxel
 	if vp == nil {
-		ui.paragraph(ctx, "A mesh object. Voxel objects come from the Scene palette's Add object with As voxels on: clay sculpted as a volume, with no topology to stretch or tear.")
+		// The resolution shown is the choice, or the object's own when there is none.
+		k := &app.kit
+		across := voxel_across_chosen(app, obj)
+		shown := f32(across)
+		if ui.slider(ctx, "Voxels across", &shown, VOXELS_MIN, VOXELS_MAX, .Logarithmic, fmt.tprintf("%d, about %s vertices", across, count_label(voxel_vertices_for(across)))) {
+			k.voxel_across = i32(shown + 0.5)
+		}
+		_ = command_button(app, .Convert_To_Voxels, variant = .Solid, tone = .Accent)
+		ui.paragraph(ctx, "Convert to voxels rebuilds the object as clay sculpted as a volume, with no topology to stretch or tear: Draw, Clay and Layer add clay, Ctrl takes it away, pieces merge and holes go through. Its levels, mask, layers and paint go, as one undo step.")
 		_ = command_button(app, .Convert_To_Mesh, variant = .Solid, tone = .Accent, enabled = false)
+		kit_last_result(app, .Voxels)
 		return
 	}
 	bricks := voxel.volume_brick_count(&vp.clay.volume)
