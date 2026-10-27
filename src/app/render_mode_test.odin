@@ -89,7 +89,7 @@ render_mode_is_not_remembered :: proc(t: ^testing.T) {
 	defer results_destroy(&a)
 	command_run(&a, .Render_Mode)
 	testing.expect(t, a.render_on && command_checked(&a, .Render_Mode, 0))
-	a.render_samples, a.render_bounces = 300, 3
+	a.render_samples, a.render_bounces, a.render_denoise = 300, 3, false
 	testing.expect(t, settings_save(&a, path))
 
 	b: App
@@ -98,4 +98,19 @@ render_mode_is_not_remembered :: proc(t: ^testing.T) {
 	testing.expect(t, !b.render_on)
 	testing.expect_value(t, b.render_samples, i32(300))
 	testing.expect_value(t, b.render_bounces, i32(3))
+	testing.expect(t, !b.render_denoise)
+}
+
+// The denoiser reaches far while the image is noisy and less as the samples build up.
+@(test)
+render_denoise_eases_with_samples :: proc(t: ^testing.T) {
+	passes := [?][2]int{{1, 5}, {64, 5}, {255, 5}, {256, 4}, {1024, 3}, {4096, 2}, {100_000, 2}}
+	for c in passes {
+		n, _ := render.render_denoise_passes(c[0])
+		testing.expect_value(t, n, c[1])
+	}
+	_, early := render.render_denoise_passes(4)
+	_, late := render.render_denoise_passes(4096)
+	testing.expect_value(t, early, f32(2))
+	testing.expect_value(t, late, f32(0.15))
 }

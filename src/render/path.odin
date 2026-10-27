@@ -18,15 +18,26 @@ import "../jobs"
 // of scene buffers, with a tree over every item's chunks in world space built on the CPU,
 // so one compute kernel (render_trace.comp) can follow a whole path through the scene.
 // Each frame it adds a band of rows of one sample to the sum, swapping between two sums
-// so a band never reads what it writes; render_display.frag lays the mean over the
-// viewport. Any change starts over; the plain viewport (or the studio's, or live
+// so a band never reads what it writes; once a sample is in, the denoiser
+// (render_atrous.frag) filters the mean along the first sample's guides and
+// render_display.frag lays it over the viewport. Any change starts over; the plain viewport (or the studio's, or live
 // occlusion) shows until the first samples are in. See-through items are left out, as
 // the studio leaves them.
 
 RENDER_TRACE_COMP_SPV :: #load("shaders/render_trace.comp.spv")
 RENDER_DISPLAY_FRAG_SPV :: #load("shaders/render_display.frag.spv")
+RENDER_ATROUS_FRAG_SPV :: #load("shaders/render_atrous.frag.spv")
 
 RENDER_FORMAT :: sdl.GPUTextureFormat.R32G32B32A32_FLOAT
+// The denoiser's guides and its passes' images.
+RENDER_GUIDE_FORMAT :: sdl.GPUTextureFormat.R16G16B16A16_FLOAT
+// The denoiser's passes while the image is noisy, its taps 1 to 16 pixels apart; from
+// RENDER_DENOISE_FULL samples on it takes one pass fewer each time the samples grow four
+// times, down to two, as less noise needs less reach.
+@(private = "file")
+RENDER_DENOISE_PASSES :: 5
+@(private = "file")
+RENDER_DENOISE_FULL :: 64
 // The Samples and Bounces sliders' ranges and starting values.
 RENDER_SAMPLES_DEFAULT :: 1024
 RENDER_SAMPLES_MAX :: 4096
@@ -66,6 +77,7 @@ Path_Render :: struct {
 	tracer:         Tracer,
 	pipeline:       ^sdl.GPUComputePipeline,
 	display:        ^sdl.GPUGraphicsPipeline,
+	atrous:         ^sdl.GPUGraphicsPipeline,
 	sampler:        ^sdl.GPUSampler,
 	transfer:       ^sdl.GPUTransferBuffer,
 	// The sum of the samples done in accum[current]; the sample under way is written to
@@ -73,6 +85,10 @@ Path_Render :: struct {
 	accum:          [2]^sdl.GPUTexture,
 	current:        int,
 	shown:          ^sdl.GPUTexture, // what the viewport panel shows
+	// The first sample's colour and normal with distance, and the denoiser's two images,
+	// one pass reading the other.
+	guides:         [2]^sdl.GPUTexture,
+	filtered:       [2]^sdl.GPUTexture,
 	width, height:  u32,
 	buffers:        [Scene_Buffer]^sdl.GPUBuffer,
 	capacity:       [Scene_Buffer]u32,
@@ -83,6 +99,7 @@ Path_Render :: struct {
 	bounces:        int,
 	softness:       f32, // the lights' size this view was started with
 	exposure:       f32, // what `shown` was laid out with
+	denoised:       bool, // ...and whether it was denoised
 	valid:          bool, // this still view started
 	built:          bool, // ...and its scene is in the buffers
 	refused:        string, // why this view cannot be rendered (a scene too big for the device); "" when it can
@@ -147,11 +164,12 @@ Lights_World :: struct {
 // (anything was redrawn this frame) or the bounces or softness changed; otherwise, at the first band
 // of a still view, builds its scene, then adds one band of rows of the sample under way,
 // and once a sample's last band is in, lays the sum out in `shown` with `exposure`. Stops
-// at `max_samples`. `lights` are the viewport's (view space); `softness` is the studio's
+// at `max_samples`, and lays it out again when `exposure` or `denoise` change after.
+// `lights` are the viewport's (view space); `softness` is the studio's
 // Shadow softness, the angle a sun spans and, at a light's distance from the scene's
 // middle, a point or spot light's radius. Returns false only when the device cannot run
 // it, after which it never tries again.
-render_frame :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, view, proj: Mat4, items: []Draw_Item, changed: bool, max_samples, bounces: int, lights: Lights, softness, exposure: f32, pool: ^jobs.Pool = nil) -> bool {
+render_frame :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, view, proj: Mat4, items: []Draw_Item, changed: bool, max_samples, bounces: int, lights: Lights, softness, exposure: f32, denoise: bool, pool: ^jobs.Pool = nil) -> bool {
 	if pr.failed do return false
 	if !path_ensure(r, pr, vt) {
 		path_render_destroy(r, pr)
@@ -167,7 +185,7 @@ render_frame :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer,
 		return true
 	}
 	if pr.samples >= max_samples || pr.refused != "" {
-		if pr.samples > 0 && exposure != pr.exposure do path_display(pr, cmd, vt, exposure)
+		if pr.samples > 0 && (exposure != pr.exposure || denoise != pr.denoised) do path_display(pr, cmd, vt, exposure, denoise)
 		return true
 	}
 	if !pr.built {
@@ -184,8 +202,8 @@ render_frame :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer,
 	rows := min(pr.rows, pr.height - pr.row)
 	u := pr.uniforms
 	u.counts.x, u.counts.y, u.counts.z = u32(pr.samples), pr.row, u32(bounces)
-	binding := sdl.GPUStorageTextureReadWriteBinding{texture = pr.accum[1 - pr.current]}
-	pass := sdl.BeginGPUComputePass(cmd, &binding, 1, nil, 0)
+	bindings := [3]sdl.GPUStorageTextureReadWriteBinding{{texture = pr.accum[1 - pr.current]}, {texture = pr.guides[0]}, {texture = pr.guides[1]}}
+	pass := sdl.BeginGPUComputePass(cmd, &bindings[0], len(bindings), nil, 0)
 	sdl.BindGPUComputePipeline(pass, pr.pipeline)
 	env_map := r.environment.prefiltered if r.environment != nil else r.no_environment
 	samplers := [2]sdl.GPUTextureSamplerBinding{{texture = pr.accum[pr.current], sampler = pr.sampler}, {texture = env_map, sampler = r.env_sampler}}
@@ -203,7 +221,7 @@ render_frame :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer,
 	pr.samples += 1
 	pr.total_samples += 1
 	pr.total_ms += time.duration_milliseconds(time.tick_since(pr.sample_started))
-	path_display(pr, cmd, vt, exposure)
+	path_display(pr, cmd, vt, exposure, denoise)
 	return true
 }
 
@@ -225,9 +243,10 @@ path_render_destroy :: proc(r: ^Renderer, pr: ^Path_Render) {
 	_ = sdl.WaitForGPUIdle(r.device)
 	if pr.pipeline != nil do sdl.ReleaseGPUComputePipeline(r.device, pr.pipeline)
 	if pr.display != nil do sdl.ReleaseGPUGraphicsPipeline(r.device, pr.display)
+	if pr.atrous != nil do sdl.ReleaseGPUGraphicsPipeline(r.device, pr.atrous)
 	if pr.sampler != nil do sdl.ReleaseGPUSampler(r.device, pr.sampler)
 	if pr.transfer != nil do sdl.ReleaseGPUTransferBuffer(r.device, pr.transfer)
-	for t in ([3]^sdl.GPUTexture{pr.accum[0], pr.accum[1], pr.shown}) do if t != nil do sdl.ReleaseGPUTexture(r.device, t)
+	path_targets_release(r, pr)
 	for b in pr.buffers do if b != nil do sdl.ReleaseGPUBuffer(r.device, b)
 	tracer_destroy(r, &pr.tracer)
 	// The counters outlive the device's objects, for the exit stats.
@@ -320,31 +339,44 @@ aabb_transform :: proc(b: geom.Aabb, model: Mat4) -> geom.Aabb {
 path_ensure :: proc(r: ^Renderer, pr: ^Path_Render, vt: ^Viewport_Target) -> bool {
 	if pr.pipeline == nil {
 		usage := sdl.GPUTextureUsageFlags{.SAMPLER, .COMPUTE_STORAGE_WRITE}
-		if !sdl.GPUTextureSupportsFormat(r.device, RENDER_FORMAT, .D2, usage) {
-			log.warn("render mode: this device cannot write RGBA32F from compute; it stays off")
+		if !sdl.GPUTextureSupportsFormat(r.device, RENDER_FORMAT, .D2, usage) || !sdl.GPUTextureSupportsFormat(r.device, RENDER_GUIDE_FORMAT, .D2, usage) {
+			log.warn("render mode: this device cannot write RGBA32F and RGBA16F from compute; it stays off")
 			return false
 		}
 		pr.pipeline = sdl.CreateGPUComputePipeline(r.device, {
 			code_size = len(RENDER_TRACE_COMP_SPV), code = raw_data(RENDER_TRACE_COMP_SPV), entrypoint = "main",
-			format = {.SPIRV}, num_samplers = 2, num_readonly_storage_buffers = len(Scene_Buffer), num_readwrite_storage_textures = 1,
+			format = {.SPIRV}, num_samplers = 2, num_readonly_storage_buffers = len(Scene_Buffer), num_readwrite_storage_textures = 3,
 			num_uniform_buffers = 1, threadcount_x = RENDER_GROUP, threadcount_y = RENDER_GROUP, threadcount_z = 1,
 		})
-		pr.display = create_fullscreen_pipeline(r, RENDER_DISPLAY_FRAG_SPV, VIEWPORT_COLOR_FORMAT, samplers = 2)
+		pr.display = create_fullscreen_pipeline(r, RENDER_DISPLAY_FRAG_SPV, VIEWPORT_COLOR_FORMAT, samplers = 4)
+		pr.atrous = create_fullscreen_pipeline(r, RENDER_ATROUS_FRAG_SPV, RENDER_GUIDE_FORMAT, samplers = 3)
 		pr.sampler = sdl.CreateGPUSampler(r.device, {
 			min_filter = .NEAREST, mag_filter = .NEAREST, mipmap_mode = .NEAREST,
 			address_mode_u = .CLAMP_TO_EDGE, address_mode_v = .CLAMP_TO_EDGE, address_mode_w = .CLAMP_TO_EDGE,
 		})
 		pr.transfer = sdl.CreateGPUTransferBuffer(r.device, {usage = .UPLOAD, size = RENDER_TRANSFER_SIZE})
-		if pr.pipeline == nil || pr.display == nil || pr.sampler == nil || pr.transfer == nil {
+		if pr.pipeline == nil || pr.display == nil || pr.atrous == nil || pr.sampler == nil || pr.transfer == nil {
 			log.errorf("render mode: setup failed (%s); it stays off", sdl.GetError())
 			return false
 		}
 	}
 	if pr.shown != nil && pr.width == vt.width && pr.height == vt.height do return true
-	for t in ([3]^sdl.GPUTexture{pr.accum[0], pr.accum[1], pr.shown}) do if t != nil do sdl.ReleaseGPUTexture(r.device, t)
+	path_targets_release(r, pr)
 	for &t in pr.accum {
 		t = sdl.CreateGPUTexture(r.device, {
 			type = .D2, format = RENDER_FORMAT, usage = {.SAMPLER, .COMPUTE_STORAGE_WRITE},
+			width = vt.width, height = vt.height, layer_count_or_depth = 1, num_levels = 1,
+		})
+	}
+	for &t in pr.guides {
+		t = sdl.CreateGPUTexture(r.device, {
+			type = .D2, format = RENDER_GUIDE_FORMAT, usage = {.SAMPLER, .COMPUTE_STORAGE_WRITE},
+			width = vt.width, height = vt.height, layer_count_or_depth = 1, num_levels = 1,
+		})
+	}
+	for &t in pr.filtered {
+		t = sdl.CreateGPUTexture(r.device, {
+			type = .D2, format = RENDER_GUIDE_FORMAT, usage = {.SAMPLER, .COLOR_TARGET},
 			width = vt.width, height = vt.height, layer_count_or_depth = 1, num_levels = 1,
 		})
 	}
@@ -354,23 +386,56 @@ path_ensure :: proc(r: ^Renderer, pr: ^Path_Render, vt: ^Viewport_Target) -> boo
 	})
 	pr.width, pr.height, pr.rows = vt.width, vt.height, 0
 	path_render_reset(pr)
-	if pr.accum[0] == nil || pr.accum[1] == nil || pr.shown == nil {
+	if pr.accum[0] == nil || pr.accum[1] == nil || pr.shown == nil || pr.guides[0] == nil || pr.guides[1] == nil || pr.filtered[0] == nil || pr.filtered[1] == nil {
 		log.errorf("render mode: target creation failed (%s); it stays off", sdl.GetError())
 		return false
 	}
 	return true
 }
 
-// Lays the sum out over the viewport into `shown`.
+// The images the size of the viewport.
 @(private = "file")
-path_display :: proc(pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, exposure: f32) {
-	pr.exposure = exposure
+path_targets_release :: proc(r: ^Renderer, pr: ^Path_Render) {
+	targets := [7]^sdl.GPUTexture{pr.accum[0], pr.accum[1], pr.shown, pr.guides[0], pr.guides[1], pr.filtered[0], pr.filtered[1]}
+	for t in targets do if t != nil do sdl.ReleaseGPUTexture(r.device, t)
+}
+
+// How many denoiser passes `samples` take, and how far, relative, light may differ before
+// a tap stops counting: generous while noise is large, halving pass by pass (Dammertz).
+render_denoise_passes :: proc(samples: int) -> (passes: int, spread: f32) {
+	passes = RENDER_DENOISE_PASSES
+	for n := RENDER_DENOISE_FULL * 4; n <= samples && passes > 2; n *= 4 do passes -= 1
+	spread = max(0.15, 4 / math.sqrt(f32(max(samples, 1))))
+	return
+}
+
+// Lays the sum out over the viewport into `shown`, denoised first when `denoise`.
+@(private = "file")
+path_display :: proc(pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, exposure: f32, denoise: bool) {
+	pr.exposure, pr.denoised = exposure, denoise
+	out := 0
+	if denoise {
+		passes, spread := render_denoise_passes(pr.samples)
+		for i in 0 ..< passes {
+			src := pr.accum[pr.current] if i == 0 else pr.filtered[1 - out]
+			target := sdl.GPUColorTargetInfo{texture = pr.filtered[out], load_op = .DONT_CARE, store_op = .STORE}
+			pass := sdl.BeginGPURenderPass(cmd, &target, 1, nil)
+			sdl.BindGPUGraphicsPipeline(pass, pr.atrous)
+			samplers := [3]sdl.GPUTextureSamplerBinding{{texture = src, sampler = pr.sampler}, {texture = pr.guides[0], sampler = pr.sampler}, {texture = pr.guides[1], sampler = pr.sampler}}
+			sdl.BindGPUFragmentSamplers(pass, 0, &samplers[0], len(samplers))
+			params := [4]f32{f32(int(1) << uint(i)), spread / f32(int(1) << uint(i)), 1 if i == 0 else 0, 0}
+			sdl.PushGPUFragmentUniformData(cmd, 0, &params, size_of(params))
+			sdl.DrawGPUPrimitives(pass, 3, 1, 0, 0)
+			sdl.EndGPURenderPass(pass)
+			out = 1 - out
+		}
+	}
 	target := sdl.GPUColorTargetInfo{texture = pr.shown, load_op = .DONT_CARE, store_op = .STORE, cycle = true}
 	pass := sdl.BeginGPURenderPass(cmd, &target, 1, nil)
 	sdl.BindGPUGraphicsPipeline(pass, pr.display)
-	samplers := [2]sdl.GPUTextureSamplerBinding{{texture = vt.color, sampler = pr.sampler}, {texture = pr.accum[pr.current], sampler = pr.sampler}}
-	sdl.BindGPUFragmentSamplers(pass, 0, &samplers[0], 2)
-	params := [4]f32{exposure, f32(pr.samples), 0, 0}
+	samplers := [4]sdl.GPUTextureSamplerBinding{{texture = vt.color, sampler = pr.sampler}, {texture = pr.accum[pr.current], sampler = pr.sampler}, {texture = pr.filtered[1 - out], sampler = pr.sampler}, {texture = pr.guides[0], sampler = pr.sampler}}
+	sdl.BindGPUFragmentSamplers(pass, 0, &samplers[0], len(samplers))
+	params := [4]f32{exposure, f32(pr.samples), 1 if denoise else 0, 0}
 	sdl.PushGPUFragmentUniformData(cmd, 0, &params, size_of(params))
 	sdl.DrawGPUPrimitives(pass, 3, 1, 0, 0)
 	sdl.EndGPURenderPass(pass)
