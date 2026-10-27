@@ -499,9 +499,14 @@ surface_compact_if_needed :: proc(c: ^Clay) {
 	s.regrow = true
 }
 
-// Meshes one node: naive surface nets over its 16³ voxel cells and the cell layer before
-// them, with a vertex per cell the surface crosses at the mean of its edge crossings and
-// a quad per crossed edge the node owns (the edge's lower voxel is in the node).
+// Meshes one node: surface nets over its 16³ voxel cells and the cell layer before them,
+// with a vertex per loop of edge crossings in each cell the surface crosses, at the mean of
+// the loop's crossings, and a quad per crossed edge the node owns (the edge's lower voxel
+// is in the node) joining the vertices of the loops holding that edge in the four cells
+// around it. The field has no saddle faces (saddle.odin), so every cell face has two
+// crossings or none and the crossings of a cell fall into loops; a quad side then lies in
+// exactly two quads and a vertex's quads form one cycle: the surface is closed and
+// manifold.
 @(private)
 mesh_node :: proc(c: ^Clay, r: ^Mesh_Result) {
 	heap := runtime.heap_allocator()
@@ -510,9 +515,9 @@ mesh_node :: proc(c: ^Clay, r: ^Mesh_Result) {
 	window := make([]i16, MESH_WINDOW_VOXELS, heap)
 	defer delete(window, heap)
 	gather_window(&c.volume, lo, MESH_WINDOW, window)
-	cells := make([]u32, MESH_CELLS * MESH_CELLS * MESH_CELLS, heap)
+	cells := make([]Cell_Verts, MESH_CELLS * MESH_CELLS * MESH_CELLS, heap)
 	defer delete(cells, heap)
-	slice.fill(cells, CELL_NONE)
+	for &cell in cells do cell.first = CELL_NONE
 	r.positions = make([dynamic]Vec3, heap)
 	r.normals = make([dynamic]Vec3, heap)
 	r.indices = make([dynamic]u32, heap)
@@ -526,13 +531,21 @@ mesh_node :: proc(c: ^Clay, r: ^Mesh_Result) {
 			h[axis] += 1
 			d0, d1 := window[i0], window[window_index(h + 2)]
 			if (d0 < 0) == (d1 < 0) do continue
-			// The four cells around the edge, counter-clockwise about +axis.
+			// The four cells around the edge, counter-clockwise about +axis; in each the
+			// edge starts at the corner offset by what the cell was moved.
 			quad: [4]u32
 			for k in 0 ..< 4 {
 				cell := g
-				if k == 1 || k == 2 do cell[b] -= 1
-				if k == 2 || k == 3 do cell[cc] -= 1
-				quad[k] = cell_vertex(c, r, window, cells, n.coord, cell)
+				corner := 0
+				if k == 1 || k == 2 {
+					cell[b] -= 1
+					corner |= 1 << uint(b)
+				}
+				if k == 2 || k == 3 {
+					cell[cc] -= 1
+					corner |= 1 << uint(cc)
+				}
+				quad[k] = cell_vertex(c, r, window, cells, n.coord, cell, cell_edge(axis, corner))
 			}
 			// Outward is toward the positive value.
 			if d0 >= 0 do quad[1], quad[3] = quad[3], quad[1]
@@ -547,13 +560,46 @@ window_index :: #force_inline proc(g: [3]int) -> int {
 	return (g.z * MESH_WINDOW + g.y) * MESH_WINDOW + g.x
 }
 
-// The vertex of `cell` (node-local, from −1), made on first use. Every node that shares
-// the cell runs this same proc on the same voxel values, so the copies agree bit for bit:
-// never inline it, or the compiler may fold the arithmetic differently per caller.
+// A cell's edges, as corner pairs: along x, then y, then z, each in corner order. Corner k
+// is at (k & 1, k >> 1 & 1, k >> 2 & 1).
+CELL_EDGES :: [12][2]int{{0, 1}, {2, 3}, {4, 5}, {6, 7}, {0, 2}, {1, 3}, {4, 6}, {5, 7}, {0, 4}, {1, 5}, {2, 6}, {3, 7}}
+// Each face's four edges (indices into CELL_EDGES): the faces square to x at x = 0 and 1,
+// then y, then z.
+CELL_FACES :: [6][4]int{{4, 6, 8, 10}, {5, 7, 9, 11}, {0, 2, 8, 9}, {1, 3, 10, 11}, {0, 1, 4, 5}, {2, 3, 6, 7}}
+// The most loops a cell can have: with no saddle face, two (the inside corners form at
+// most two groups); four is what twelve edges in loops of three would allow.
+CELL_LOOPS :: 4
+LOOP_NONE :: i8(-1)
+
+// A cell's vertices: the index of the first (CELL_NONE until the cell is met) and, per
+// edge, which of its loops the edge is in.
+Cell_Verts :: struct {
+	first: u32,
+	loop:  [12]i8,
+}
+
+// The index in CELL_EDGES of the edge along `axis` starting at `corner` (whose bit for
+// the axis is clear).
 @(private)
-cell_vertex :: #force_no_inline proc(c: ^Clay, r: ^Mesh_Result, window: []i16, cells: []u32, nc: [3]i32, cell: [3]int) -> u32 {
+cell_edge :: #force_inline proc(axis, corner: int) -> int {
+	switch axis {
+	case 0:
+		return corner >> 1
+	case 1:
+		return 4 + (corner & 1) + (corner >> 2 & 1) * 2
+	}
+	return 8 + (corner & 3)
+}
+
+// The vertex of `cell` (node-local, from −1) for the loop holding its edge `edge`; the
+// cell's loops and their vertices are made the first time the cell is met. Every node that
+// shares the cell runs this same proc on the same voxel values, so the copies agree bit for
+// bit: never inline it, or the compiler may fold the arithmetic differently per caller.
+@(private)
+cell_vertex :: #force_no_inline proc(c: ^Clay, r: ^Mesh_Result, window: []i16, cells: []Cell_Verts, nc: [3]i32, cell: [3]int, edge: int) -> u32 {
 	at := ((cell.z + 1) * MESH_CELLS + cell.y + 1) * MESH_CELLS + cell.x + 1
-	if cells[at] != CELL_NONE do return cells[at]
+	cv := &cells[at]
+	if cv.first != CELL_NONE do return cv.first + u32(cv.loop[edge])
 	// Corner k is at cell + (k & 1, k >> 1 & 1, k >> 2 & 1); window index of the cell's
 	// first corner is cell + 2.
 	base := window_index(cell + 2)
@@ -561,42 +607,83 @@ cell_vertex :: #force_no_inline proc(c: ^Clay, r: ^Mesh_Result, window: []i16, c
 	for k in 0 ..< 8 {
 		corner[k] = f32(window[base + (k & 1) + (k >> 1 & 1) * MESH_WINDOW + (k >> 2 & 1) * MESH_WINDOW * MESH_WINDOW])
 	}
-	// The mean of the crossings on the cell's edges.
-	sum: Vec3
-	count: f32
-	EDGES :: [12][2]int{{0, 1}, {2, 3}, {4, 5}, {6, 7}, {0, 2}, {1, 3}, {4, 6}, {5, 7}, {0, 4}, {1, 5}, {2, 6}, {3, 7}}
-	for e in EDGES {
-		a, b := corner[e[0]], corner[e[1]]
-		if (a < 0) == (b < 0) do continue
-		t := a / (a - b)
-		p0 := Vec3{f32(e[0] & 1), f32(e[0] >> 1 & 1), f32(e[0] >> 2 & 1)}
-		p1 := Vec3{f32(e[1] & 1), f32(e[1] >> 1 & 1), f32(e[1] >> 2 & 1)}
-		sum += p0 + (p1 - p0) * t
-		count += 1
+	// The crossed edges, joined into loops through the faces: a face's two crossed edges
+	// are in one loop (a face with four, a saddle the field should not hold, pairs them in
+	// edge order rather than fail).
+	crossed: [12]bool
+	group: [12]int // union-find over the edges
+	for e, i in CELL_EDGES {
+		crossed[i] = (corner[e[0]] < 0) != (corner[e[1]] < 0)
+		group[i] = i
 	}
-	local := sum / max(count, 1)
-	// The normal: the central-difference gradient at each corner, blended at the vertex.
-	grad: [8]Vec3
-	for k in 0 ..< 8 {
-		i := base + (k & 1) + (k >> 1 & 1) * MESH_WINDOW + (k >> 2 & 1) * MESH_WINDOW * MESH_WINDOW
-		grad[k] = {
-			f32(window[i + 1]) - f32(window[i - 1]),
-			f32(window[i + MESH_WINDOW]) - f32(window[i - MESH_WINDOW]),
-			f32(window[i + MESH_WINDOW * MESH_WINDOW]) - f32(window[i - MESH_WINDOW * MESH_WINDOW]),
+	find :: proc(group: ^[12]int, i: int) -> int {
+		j := i
+		for group[j] != j do j = group[j]
+		return j
+	}
+	for face in CELL_FACES {
+		last := -1
+		for e in face {
+			if !crossed[e] do continue
+			if last < 0 {
+				last = e
+				continue
+			}
+			a, b := find(&group, last), find(&group, e)
+			group[max(a, b)] = min(a, b)
+			last = -1
 		}
 	}
-	gx0 := linalg.lerp(grad[0], grad[1], local.x)
-	gx1 := linalg.lerp(grad[2], grad[3], local.x)
-	gx2 := linalg.lerp(grad[4], grad[5], local.x)
-	gx3 := linalg.lerp(grad[6], grad[7], local.x)
-	gy0 := linalg.lerp(gx0, gx1, local.y)
-	gy1 := linalg.lerp(gx2, gx3, local.y)
-	normal := linalg.normalize0(linalg.lerp(gy0, gy1, local.z))
-	vox := Vec3{f32(nc.x * NODE + i32(cell.x)), f32(nc.y * NODE + i32(cell.y)), f32(nc.z * NODE + i32(cell.z))} + local
+	// Loops numbered in the order of their first edge.
+	count := 0
+	loop_of_root: [12]i8
+	for i in 0 ..< 12 {
+		cv.loop[i] = LOOP_NONE
+		if !crossed[i] do continue
+		root := find(&group, i)
+		if root == i {
+			loop_of_root[i] = i8(count)
+			count += 1
+		}
+		cv.loop[i] = loop_of_root[root]
+	}
+	assert(count >= 1 && count <= CELL_LOOPS, "a crossed cell has one to four loops")
+	cv.first = u32(len(r.positions))
 	v := &c.volume
-	index := u32(len(r.positions))
-	append(&r.positions, v.origin + vox * v.voxel)
-	append(&r.normals, normal)
-	cells[at] = index
-	return index
+	for l in 0 ..< count {
+		// The mean of the loop's crossings.
+		sum: Vec3
+		n: f32
+		for e, i in CELL_EDGES {
+			if cv.loop[i] != i8(l) do continue
+			a, b := corner[e[0]], corner[e[1]]
+			t := a / (a - b)
+			p0 := Vec3{f32(e[0] & 1), f32(e[0] >> 1 & 1), f32(e[0] >> 2 & 1)}
+			p1 := Vec3{f32(e[1] & 1), f32(e[1] >> 1 & 1), f32(e[1] >> 2 & 1)}
+			sum += p0 + (p1 - p0) * t
+			n += 1
+		}
+		local := sum / n
+		// The normal: the central-difference gradient at each corner, blended at the vertex.
+		grad: [8]Vec3
+		for k in 0 ..< 8 {
+			i := base + (k & 1) + (k >> 1 & 1) * MESH_WINDOW + (k >> 2 & 1) * MESH_WINDOW * MESH_WINDOW
+			grad[k] = {
+				f32(window[i + 1]) - f32(window[i - 1]),
+				f32(window[i + MESH_WINDOW]) - f32(window[i - MESH_WINDOW]),
+				f32(window[i + MESH_WINDOW * MESH_WINDOW]) - f32(window[i - MESH_WINDOW * MESH_WINDOW]),
+			}
+		}
+		gx0 := linalg.lerp(grad[0], grad[1], local.x)
+		gx1 := linalg.lerp(grad[2], grad[3], local.x)
+		gx2 := linalg.lerp(grad[4], grad[5], local.x)
+		gx3 := linalg.lerp(grad[6], grad[7], local.x)
+		gy0 := linalg.lerp(gx0, gx1, local.y)
+		gy1 := linalg.lerp(gx2, gx3, local.y)
+		normal := linalg.normalize0(linalg.lerp(gy0, gy1, local.z))
+		vox := Vec3{f32(nc.x * NODE + i32(cell.x)), f32(nc.y * NODE + i32(cell.y)), f32(nc.z * NODE + i32(cell.z))} + local
+		append(&r.positions, v.origin + vox * v.voxel)
+		append(&r.normals, normal)
+	}
+	return cv.first + u32(cv.loop[edge])
 }

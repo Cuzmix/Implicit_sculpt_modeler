@@ -1291,6 +1291,9 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		fmt.println()
 	}
 	if opts.check_mesh {
+		// A --bench-stroke run exits with its pen down; the check is of the finished stroke
+		// (a clay's band repair and saddle pass run at its end).
+		stroke_finish(&app)
 		for obj in app.scene.objects {
 			if vp := obj.voxel; vp != nil {
 				// The surface as Convert to mesh would make it: the nodes' borders welded.

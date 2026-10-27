@@ -2,6 +2,7 @@ package voxel
 
 import "base:runtime"
 import "core:math/linalg"
+import "core:slice"
 
 import "../geom"
 import "../jobs"
@@ -20,6 +21,7 @@ Clay :: struct {
 	history:       Undo_History,
 	pool:          ^jobs.Pool,
 	jobs:          [dynamic]Dab_Job, // scratch: the bricks one dab writes
+	job_slots:     [dynamic]u32, // scratch: the stroke's bricks, for the saddle pass at its end
 	scratch:       [dynamic]Brick, // Smooth writes here, one brick a job, then commits
 	windows:       [dynamic]i16, // Smooth's gathered neighbourhoods, WINDOW_VOXELS a job
 	// The band repair (band.odin): bricks waiting for it, its region, the fixed voxels of
@@ -54,6 +56,7 @@ clay_init :: proc(c: ^Clay, voxel: f32, centre: Vec3, pool: ^jobs.Pool, allocato
 	surface_init(&c.surface, allocator)
 	undo_init(&c.history, allocator)
 	c.jobs = make([dynamic]Dab_Job, allocator)
+	c.job_slots = make([dynamic]u32, allocator)
 	c.scratch = make([dynamic]Brick, allocator)
 	c.windows = make([dynamic]i16, allocator)
 	c.pending = make([dynamic][3]i32, allocator)
@@ -70,6 +73,7 @@ clay_destroy :: proc(c: ^Clay) {
 	surface_destroy(&c.surface)
 	undo_destroy(&c.history)
 	delete(c.jobs)
+	delete(c.job_slots)
 	delete(c.scratch)
 	delete(c.windows)
 	delete(c.pending)
@@ -84,7 +88,18 @@ clay_destroy :: proc(c: ^Clay) {
 // node for meshing. Not undoable: it is how a clay starts.
 clay_fill_sphere :: proc(c: ^Clay, centre: Vec3, radius: f32) {
 	volume_fill_sphere(&c.volume, centre, radius, c.pool)
+	resolve_all_saddles(c)
 	surface_mark_all(c)
+}
+
+// Flips every saddle face in the field (saddle.odin) and repairs the band around the
+// flips: what every way of building a whole field ends with.
+@(private)
+resolve_all_saddles :: proc(c: ^Clay) {
+	heap := runtime.heap_allocator()
+	slots := volume_slots(&c.volume, heap)
+	defer delete(slots, heap)
+	if resolve_saddles(c, slots, false) > 0 do band_repair(c)
 }
 
 // Where the ray from `origin` along `dir` (object space) hits the clay's surface.
@@ -100,11 +115,22 @@ clay_stroke_begin :: proc(c: ^Clay) {
 	undo_begin(&c.history)
 }
 
-// Ends the stroke: the band around what it changed gets true distances back (band.odin),
-// the surface's arrays are compacted if holes took them over, and the undo step is kept if
-// the stroke changed anything. Returns whether it did.
+// Ends the stroke: no saddle face is left in the bricks it touched (saddle.odin), so the
+// surface is manifold again (a dab leaves them until here, since the scan would cost a
+// quarter of the dab), the band around what it changed gets true distances back
+// (band.odin), the surface's arrays are compacted if holes took them over, and the undo
+// step is kept if the stroke changed anything. Returns whether it did.
 clay_stroke_end :: proc(c: ^Clay) -> bool {
 	assert(c.in_stroke, "no stroke is running")
+	v := &c.volume
+	clear(&c.job_slots)
+	// The bricks the stroke saved that are bricks still, each once (a tile that became a
+	// brick is saved more than once).
+	for saved in undo_current(&c.history).bricks {
+		if tile, _ := volume_tile(v, saved.coord); tile == .Brick do append(&c.job_slots, volume_slot(v, saved.coord))
+	}
+	slice.sort(c.job_slots[:])
+	_ = resolve_saddles(c, slice.unique(c.job_slots[:]), true)
 	band_repair(c)
 	surface_compact_if_needed(c)
 	c.in_stroke = false

@@ -114,6 +114,9 @@ clay_resample :: proc(c: ^Clay, factor: f32) -> bool {
 		}
 		append(&kept, slot)
 	}
+	// Coarser sampling makes saddle faces freely; finer sampling cannot (the sign of a
+	// bilinear patch between four centres is one curve), but the pass costs little.
+	flips := resolve_saddles(c, kept[:], false)
 	if factor < 1 {
 		// The band past two new voxels: solved from the seeds, then grown a layer of bricks
 		// at a time into the tiles it reaches, each layer solved from the last, until the
@@ -126,6 +129,8 @@ clay_resample :: proc(c: ^Clay, factor: f32) -> bool {
 			kept = grown
 			if len(kept) > 0 do band_repair(c)
 		}
+	} else if flips > 0 {
+		band_repair(c)
 	}
 	surface_mark_all(c)
 	return true
