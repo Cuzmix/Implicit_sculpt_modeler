@@ -37,7 +37,8 @@ TOP_BAR_H :: 52
 BAR_EDGE :: 4
 
 // What a side bar's popover holds: one tray section, a value's tall slider, the
-// three symmetry axes, the save actions, or what the polyframe shows.
+// three symmetry axes, the save actions, what the polyframe shows, Remesh's quick menu,
+// or the Shading or Camera menu.
 Bar_Pop_Kind :: enum u8 {
 	Section,
 	Size,
@@ -46,6 +47,9 @@ Bar_Pop_Kind :: enum u8 {
 	Symmetry,
 	Save,
 	Polyframe,
+	Remesh_Quick,
+	Shading,
+	Camera,
 }
 
 // A finger's or the pen's long press on the brush bar's size, focal shift or strength,
@@ -103,6 +107,22 @@ bar_pop_toggle :: proc(app: ^App, kind: Bar_Pop_Kind, at: ui.Rect, side: ui.Side
 	}
 	kit_floats_close(k)
 	k.bar_pop = {open = true, kind = kind, section = section, at = at, side = side}
+}
+
+// Whether the bars' popover shows `kind`.
+bar_pop_showing :: proc(app: ^App, kind: Bar_Pop_Kind) -> bool {
+	p := &app.kit.bar_pop
+	return p.open && p.kind == kind
+}
+
+// Opens the Shading or Camera menu beside its button on the right bar, or closes it: the
+// button's tap, and its command from search, keys or a pie. Where the button is not
+// shown, the menu opens beside the top of the right bar.
+bar_menu_toggle :: proc(app: ^App, kind: Bar_Pop_Kind) {
+	k := &app.kit
+	at := k.bar_at[kind]
+	if at.w <= 0 do at = ui.prev_rect(&k.ctx, "view bar")
+	bar_pop_toggle(app, kind, at, .Left)
 }
 
 // Where the panels under the top bar start, from the top of the safe area.
@@ -475,10 +495,10 @@ kit_bar_scrub :: proc(app: ^App) {
 }
 
 // The two columns at the right, under the navigation head: search, the palette tray and
-// the objects; then the view: studio render, orthographic, the floor grid, symmetry, local
-// symmetry, framing, wireframe, transparency, ghost and solo. Returns the Search button and the view menu's anchor (a long press on
-// Orthographic).
-kit_view_bar :: proc(app: ^App) -> (search_anchor, view_anchor: ui.Rect) {
+// the objects; then the view: the Shading and Camera menus, studio render, the floor grid,
+// symmetry, local symmetry, framing, wireframe, transparency, ghost and solo. Returns the
+// Search button.
+kit_view_bar :: proc(app: ^App) -> (search_anchor: ui.Rect) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
@@ -496,13 +516,10 @@ kit_view_bar :: proc(app: ^App) -> (search_anchor, view_anchor: ui.Rect) {
 	ui.end(ctx)
 
 	ui.begin(ctx, "view column", column)
+	bar_menu_button(app, .Shading_Menu, .Shading)
+	bar_menu_button(app, .Camera_Menu, .Camera)
 	_ = bar_command(app, .Studio_Render, ui.ICON_SUN, corner = true)
 	if ui.secondary(ctx) do bar_pop_toggle(app, .Section, ctx.last_rect, .Left, .Studio)
-	_ = bar_command(app, .Ortho_Toggle, ICON_ORTHO, corner = true)
-	if ui.secondary(ctx) {
-		kit_floats_close(k)
-		k.view_menu, k.view_at = true, ctx.last_rect
-	}
 	_ = bar_command(app, .Floor_Grid, ICON_FLOOR, corner = true)
 	if ui.secondary(ctx) do bar_pop_toggle(app, .Section, ctx.last_rect, .Left, .Floor)
 	sym := &app.brush.symmetry
@@ -517,8 +534,19 @@ kit_view_bar :: proc(app: ^App) -> (search_anchor, view_anchor: ui.Rect) {
 	_ = bar_command(app, .Solo_Object, ICON_SOLO)
 	ui.end(ctx)
 	ui.end(ctx)
-	view_anchor = k.view_at
 	return
+}
+
+// A right bar button that opens bar menu `kind` beside it (command `id` toggles it), lit
+// while the menu shows.
+@(private = "file")
+bar_menu_button :: proc(app: ^App, id: Command_Id, kind: Bar_Pop_Kind) {
+	k := &app.kit
+	ctx := &k.ctx
+	clicked := ui.icon_button(ctx, command_label(id), COMMANDS[id].icon, bar_pop_showing(app, kind), keys = command_hint(app, id))
+	// Where it is, before its command runs: the menu opens beside it.
+	k.bar_at[kind] = ctx.last_rect
+	if clicked do command_run(app, id)
 }
 
 // The bar at the bottom middle: a page of the brush dock and All brushes, then the gizmo
@@ -554,7 +582,7 @@ kit_bottom_bar :: proc(app: ^App) -> (browser_anchor: ui.Rect) {
 	if ui.icon_button(ctx, "Gizmo", ICON_GIZMO, selected = app.tool == .Move, keys = command_hint(app, .Tool_Move), size = MESH_TOOL, corner = true) do command_run(app, .Tool_Move)
 	if ui.secondary(ctx) do tool_settings_open(app, .Move)
 	ui.divider(ctx, 32)
-	mesh_tool(app, .Remesh, ICON_REMESH, .Remesh)
+	mesh_tool(app, .Remesh, ICON_REMESH, .Remesh, quick = .Remesh_Quick)
 	mesh_tool(app, .Dyntopo_Toggle, ICON_DYNTOPO, .Topology)
 	mesh_tool(app, .Retopologize, ICON_RETOPO, .Retopo, opens = true)
 	mesh_tool(app, .Subdivide, ICON_SUBDIVIDE, .Levels)
@@ -570,19 +598,22 @@ MESH_TOOL :: 48
 DOCK_LIFT :: 12
 
 // A mesh tool's button on the bottom bar: a tap runs `id`, or with `opens` set opens
-// section `sec` over the button, as a long press (or a right-click) always does.
+// section `sec` over the button, as a long press (or a right-click) does; or, with
+// `quick` set, the long press opens that small menu instead (Remesh's).
 @(private = "file")
-mesh_tool :: proc(app: ^App, id: Command_Id, glyph: rune, sec: Kit_Section, opens := false) {
+mesh_tool :: proc(app: ^App, id: Command_Id, glyph: rune, sec: Kit_Section, opens := false, quick := Bar_Pop_Kind.Section) {
 	ctx := &app.kit.ctx
 	p := &app.kit.bar_pop
-	open := p.open && p.kind == .Section && p.section == sec
+	open := p.open && (p.kind == .Section && p.section == sec || quick != .Section && p.kind == quick)
 	enabled := opens || command_enabled(app, id)
 	if ui.icon_button(ctx, command_label(id), glyph, selected = open || command_checked(app, id), enabled = enabled, keys = command_hint(app, id), size = MESH_TOOL, corner = true) {
 		if opens do bar_pop_toggle(app, .Section, ctx.last_rect, .Above_Center, sec)
 		else do command_run(app, id)
 	}
 	// A disabled button takes no press, so it has no long press either.
-	if enabled && ui.secondary(ctx) do bar_pop_toggle(app, .Section, ctx.last_rect, .Above_Center, sec)
+	if !enabled || !ui.secondary(ctx) do return
+	if quick == .Remesh_Quick do remesh_quick_open(app, ctx.last_rect)
+	else do bar_pop_toggle(app, .Section, ctx.last_rect, .Above_Center, sec)
 }
 
 // The bars' popover (Bar_Pop), beside the button that opened it.
@@ -645,6 +676,18 @@ kit_bar_popover :: proc(app: ^App) {
 		for id in ([?]Command_Id{.Save_Scene_As, .Save_Scene_Copy, .Save_Scene_Next, .Scene_Versions, .Open_Last_Autosave}) {
 			if command_menu_item(app, id) do p.open = false
 		}
+	case .Remesh_Quick:
+		if !ui.popover_begin(ctx, "bar remesh", &p.open, p.at, p.side, {direction = .Column, gap = 6, padding = 12, width = REMESH_QUICK_W}) do return
+		defer ui.popover_end(ctx)
+		kit_remesh_quick(app)
+	case .Shading:
+		if !ui.popover_begin(ctx, "bar shading", &p.open, p.at, p.side, {direction = .Column, padding = 6, width = 268}) do return
+		defer ui.popover_end(ctx)
+		kit_shading_menu(app)
+	case .Camera:
+		if !ui.popover_begin(ctx, "bar camera", &p.open, p.at, p.side, {direction = .Column, padding = 6, width = 268}) do return
+		defer ui.popover_end(ctx)
+		kit_camera_menu(app)
 	case .Section:
 		WIDTH :: KIT_INSPECTOR_W
 		PADDING :: 12
@@ -720,3 +763,5 @@ ICON_DYNTOPO :: rune(0xe129) // network
 ICON_RETOPO :: rune(0xe504) // grid-2x2
 ICON_SUBDIVIDE :: rune(0xe62d) // grid-2x2-plus
 ICON_BOOLEAN :: rune(0xe5a1) // blend
+ICON_SHADING :: rune(0xe0a1) // contrast: a sphere half lit
+ICON_CAMERA :: rune(0xe068) // camera
