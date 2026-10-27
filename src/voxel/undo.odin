@@ -1,0 +1,196 @@
+package voxel
+
+import "base:runtime"
+
+// Undo keeps, per stroke, a copy of every brick the stroke touched as it was before the
+// stroke: its values, or the tile it was. A step is its own inverse: undo swaps each saved
+// brick with the live one (a brick the stroke made goes back to its tile and the saved
+// copy now holds the stroke's values), so redo is the same swap again. Only the bricks a
+// stroke touched are saved, never the volume, so a step costs 1 KiB a brick.
+
+// The most memory the steps may hold before the oldest are dropped, as the mesh sculptor's.
+UNDO_LIMIT_BYTES :: 512 << 20
+
+Saved_Brick :: struct {
+	coord: [3]i32,
+	tile:  Tile, // Empty or Inside: the brick was that tile and `values` is unused
+	d:     [BRICK_VOXELS]i16,
+}
+
+// A brick appears once a stroke while it stays a brick (Volume.saved holds the stroke
+// that saved each slot); a brick that collapsed to a tile and was made again in the same
+// stroke appears again. Undo applies the list backwards and redo forwards, so repeated
+// entries unwind in the order they were made and the step stays its own inverse.
+Undo_Step :: struct {
+	bricks: [dynamic]Saved_Brick,
+}
+
+Undo_History :: struct {
+	steps:     [dynamic]Undo_Step,
+	cursor:    int, // steps[:cursor] are undoable, steps[cursor:] redoable
+	bytes:     int,
+	stroke:    u32, // the recording stroke's id, stamped on the slots it saved; never 0
+	recording: bool, // between clay_stroke_begin and clay_stroke_end
+	allocator: runtime.Allocator,
+}
+
+@(private)
+undo_init :: proc(h: ^Undo_History, allocator: runtime.Allocator) {
+	h.allocator = allocator
+	h.steps = make([dynamic]Undo_Step, allocator)
+}
+
+@(private)
+undo_destroy :: proc(h: ^Undo_History) {
+	for &s in h.steps do undo_step_destroy(&s)
+	delete(h.steps)
+	h^ = {}
+}
+
+@(private)
+undo_step_destroy :: proc(s: ^Undo_Step) {
+	delete(s.bricks)
+	s^ = {}
+}
+
+@(private)
+undo_step_bytes :: proc(s: ^Undo_Step) -> int {
+	return len(s.bricks) * size_of(Saved_Brick)
+}
+
+// Starts a stroke's step: the redo steps are dropped, as a new stroke makes them unreachable.
+@(private)
+undo_begin :: proc(h: ^Undo_History) {
+	assert(!h.recording, "a stroke is already recording")
+	for i in h.cursor ..< len(h.steps) {
+		h.bytes -= undo_step_bytes(&h.steps[i])
+		undo_step_destroy(&h.steps[i])
+	}
+	resize(&h.steps, h.cursor)
+	append(&h.steps, Undo_Step{bricks = make([dynamic]Saved_Brick, h.allocator)})
+	h.stroke += 1
+	h.recording = true
+}
+
+// The step being recorded.
+@(private)
+undo_current :: #force_inline proc(h: ^Undo_History) -> ^Undo_Step {
+	assert(h.recording, "no stroke is recording")
+	return &h.steps[len(h.steps) - 1]
+}
+
+// Saves brick `bc` as it is now, the first time the stroke touches it; later calls do
+// nothing while it stays a brick. A tile is saved every time, since it has no slot to
+// stamp: the dab that records it makes it a brick right after, so that is once too.
+@(private)
+undo_record :: proc(h: ^Undo_History, v: ^Volume, bc: [3]i32) {
+	step := undo_current(h)
+	saved := Saved_Brick {
+		coord = bc,
+	}
+	tile, brick := volume_tile(v, bc)
+	saved.tile = tile
+	if brick != nil {
+		slot := volume_slot(v, bc)
+		if v.saved[slot] == h.stroke do return
+		v.saved[slot] = h.stroke
+		saved.d = brick.d
+	}
+	append(&step.bricks, saved)
+	h.bytes += size_of(Saved_Brick)
+}
+
+// Ends the stroke's step; an empty one (the stroke changed nothing) is dropped. Returns
+// whether a step was kept. The oldest steps go when the limit is passed.
+@(private)
+undo_end :: proc(h: ^Undo_History) -> bool {
+	step := undo_current(h)
+	h.recording = false
+	if len(step.bricks) == 0 {
+		undo_step_destroy(step)
+		pop(&h.steps)
+		return false
+	}
+	h.cursor = len(h.steps)
+	dropped := 0
+	for h.bytes > UNDO_LIMIT_BYTES && h.cursor - dropped > 1 {
+		h.bytes -= undo_step_bytes(&h.steps[dropped])
+		undo_step_destroy(&h.steps[dropped])
+		dropped += 1
+	}
+	if dropped > 0 {
+		copy(h.steps[:], h.steps[dropped:])
+		resize(&h.steps, len(h.steps) - dropped)
+		h.cursor -= dropped
+	}
+	return true
+}
+
+// Swaps every brick of the step with the volume, backwards for undo and forwards for redo:
+// the step then holds what the volume held. The bricks' nodes are marked for remeshing.
+@(private)
+undo_swap :: proc(c: ^Clay, s: ^Undo_Step, backwards: bool) {
+	v := &c.volume
+	for k in 0 ..< len(s.bricks) {
+		saved := &s.bricks[len(s.bricks) - 1 - k if backwards else k]
+		bc := saved.coord
+		live_tile, live := volume_tile(v, bc)
+		live_d: [BRICK_VOXELS]i16
+		if live != nil do live_d = live.d
+		if saved.tile == .Brick {
+			_, b := volume_brick_make(v, bc, 0)
+			b.d = saved.d
+		} else {
+			volume_brick_collapse(v, bc, saved.tile)
+		}
+		saved.tile = live_tile
+		saved.d = live_d
+		surface_mark_brick(c, bc)
+	}
+}
+
+clay_can_undo :: proc(c: ^Clay) -> bool {
+	return !c.history.recording && c.history.cursor > 0
+}
+
+clay_can_redo :: proc(c: ^Clay) -> bool {
+	return !c.history.recording && c.history.cursor < len(c.history.steps)
+}
+
+clay_undo :: proc(c: ^Clay) -> bool {
+	if !clay_can_undo(c) do return false
+	c.history.cursor -= 1
+	undo_swap(c, &c.history.steps[c.history.cursor], true)
+	return true
+}
+
+clay_redo :: proc(c: ^Clay) -> bool {
+	if !clay_can_redo(c) do return false
+	undo_swap(c, &c.history.steps[c.history.cursor], false)
+	c.history.cursor += 1
+	return true
+}
+
+// What the undo steps hold.
+clay_undo_bytes :: proc(c: ^Clay) -> int {
+	return c.history.bytes
+}
+
+// Drops the redo steps: the app's history did, after a change elsewhere.
+clay_clear_redo :: proc(c: ^Clay) {
+	h := &c.history
+	for i in h.cursor ..< len(h.steps) {
+		h.bytes -= undo_step_bytes(&h.steps[i])
+		undo_step_destroy(&h.steps[i])
+	}
+	resize(&h.steps, h.cursor)
+}
+
+// Drops every step: the object was rebuilt and the app's history forgot it.
+clay_clear_history :: proc(c: ^Clay) {
+	h := &c.history
+	assert(!h.recording, "a stroke is recording")
+	for &s in h.steps do undo_step_destroy(&s)
+	clear(&h.steps)
+	h.cursor, h.bytes = 0, 0
+}

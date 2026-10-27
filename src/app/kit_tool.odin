@@ -1,6 +1,7 @@
 package main
 
 import "core:fmt"
+import "core:math"
 import "core:strings"
 
 import "../gizmo"
@@ -248,9 +249,19 @@ kit_falloff :: proc(app: ^App) {
 	}
 	if picked := ui.tabs(ctx, "falloff", names[:], chosen); picked >= 0 {
 		p := FALLOFF_PRESETS[picked]
-		shape^ = {drawn = p.drawn, curve = p.curve}
+		shape.drawn, shape.curve = p.drawn, p.curve
 	}
 	ui.paragraph(ctx, "The centre is on the left and the rim on the right. Drag a handle to draw your own; each brush keeps its own.")
+	focal_slider(app)
+	ui.paragraph(ctx, "Focal shift reshapes the curve: up to 100 pulls the brush to a point, down to -100 spreads it into a flat top with a hard edge. The cursor's inner ring shows where it works at half strength.")
+}
+
+// The brush's focal shift as a slider, in whole steps (Falloff_Setting.focal).
+@(private = "file")
+focal_slider :: proc(app: ^App) {
+	ctx := &app.kit.ctx
+	f := focal_shift(app)
+	if ui.slider(ctx, "Focal shift", f, sculpt.FOCAL_MIN, sculpt.FOCAL_MAX, .Linear, fmt.tprintf("%.0f", f^)) do f^ = math.round(f^)
 }
 
 @(private = "file")

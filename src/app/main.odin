@@ -101,10 +101,11 @@ App :: struct {
 	gesture:  Gesture_Tool, // what a Ctrl + Shift + drag does
 	smooth_gpu: render.Smooth_Compute, // Smooth all's compute shader and buffers, made on first use
 	smooth_gpu_failed: bool, // the device refused the compute pipeline; Smooth all stays on the CPU
-	// Each brush's drawn falloff as the sculptor reads it, remade when its curve changes.
+	// Each brush's drawn or shifted falloff as the sculptor reads it, remade when its curve
+	// or focal shift changes.
 	falloff_tables: [sculpt.Brush_Kind]struct {
 		falloff: sculpt.Falloff,
-		curve:   geom.Curve,
+		shape:   Falloff_Setting,
 		built:   bool,
 	},
 	stroke:   Stroke,
@@ -192,6 +193,11 @@ App :: struct {
 	split_made, merged, aligned: int,
 	material:  int,  // the index in MATERIALS objects are shaded with, or CUSTOM_MATERIAL
 	custom:    Material, // what the Material section's sliders made
+	// The built-in matcaps' textures (nil where the device refused one), and the image
+	// loaded with Load MatCap with its path ("" for none).
+	matcaps:      [len(MATCAP_RECIPES)]^sdl.GPUTexture,
+	matcap_image: ^sdl.GPUTexture,
+	matcap_path:  string,
 	flat:      bool, // shade with each triangle's own normal (faceted) instead of smoothed normals
 	wireframe: bool, // draw the selected object's edges over it
 	// How the viewport shows its shading (View > Material): brighter or darker in stops,
@@ -311,6 +317,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	defer results_destroy(&app)
 	if !render.renderer_init(&app.renderer, window, opts.gpu_debug) do return false
 	defer render.renderer_destroy(&app.renderer)
+	matcaps_create(&app)
+	defer matcaps_destroy(&app)
 	defer render.smooth_compute_destroy(&app.renderer, &app.smooth_gpu)
 	defer render.studio_destroy(&app.renderer, &app.studio)
 	defer render.nav_head_destroy(&app.renderer, &app.nav_head)
@@ -406,7 +414,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 
 	if len(app.scene.objects) > 1 do frame_all(&app)
 	app.cache_idle = !opts.no_cache
-	app.custom = MATERIALS[len(MATERIALS) - 1]
+	// Custom starts as PBR clay, the last physically based preset, until a slider changes it.
+	app.custom = MATERIALS[FIRST_MATCAP - 1]
 	app.custom.label = "Custom"
 	app.renderer.cull = !opts.no_cull
 	app.renderer.partial = !opts.no_partial
@@ -733,6 +742,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 					surface = {material.metallic, material.roughness},
 					flat = app.flat,
 					look = viewport_look(&app),
+					matcap = material_matcap(&app, material),
 					wireframe = selected && app.wireframe,
 					paint  = sculpt.sculptor_has_color(&lv.sculptor) && !obj.paint_off,
 					groups = app.show_groups && sculpt.sculptor_has_groups(&lv.sculptor),
@@ -762,6 +772,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 					surface  = {material.metallic, material.roughness},
 					flat     = app.flat,
 					look     = viewport_look(&app),
+					matcap   = material_matcap(&app, material),
 					damage   = geom.AABB_EMPTY,
 				})
 			}
@@ -967,7 +978,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		fmt.printfln("camera_yaw=%.4f camera_pitch=%.4f camera_roll=%.4f camera_distance=%.4f camera_target=%.4f,%.4f,%.4f", c.yaw, c.pitch, c.roll, c.distance, c.target.x, c.target.y, c.target.z)
 		p := app.pivot.used
 		fmt.printfln("orbit_pivot=%.4f,%.4f,%.4f pivot_source=%s pinned=%d framed=%d touch_repeats=%d", p.x, p.y, p.z, strings.to_lower(fmt.tprint(app.pivot.from), context.temp_allocator), int(app.pivot.pinned), app.double_tap.framed, app.touch.hold.done)
-		fmt.printfln("undo_steps=%d redo_steps=%d brush_radius_px=%.2f brush_strength=%.3f selected=%d", len(app.history.done), len(app.history.undone), app.brush.radius_px, brush_strength(&app)^, app.scene.selected)
+		fmt.printfln("undo_steps=%d redo_steps=%d brush_radius_px=%.2f brush_strength=%.3f brush_focal=%.0f selected=%d", len(app.history.done), len(app.history.undone), app.brush.radius_px, brush_strength(&app)^, focal_shift(&app)^, app.scene.selected)
 		{
 			m := app.move
 			tr: Transform

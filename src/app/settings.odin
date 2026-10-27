@@ -348,20 +348,34 @@ settings_load :: proc(app: ^App, path: string) {
 			// falloff <brush> <drawn 0|1> c1x c1y c2x c2y
 			if len(f) == 7 {
 				if kind, ok := brush_by_name(f[1]); ok {
-					b.falloffs[kind] = {drawn = f[2] == "1", curve = curve(f[3:], b.falloffs[kind].curve)}
+					b.falloffs[kind].drawn, b.falloffs[kind].curve = f[2] == "1", curve(f[3:], b.falloffs[kind].curve)
 				}
+			}
+		case "focal":
+			// focal <brush> <shift>, for the brushes whose focal shift is not 0.
+			if len(f) == 3 {
+				if kind, ok := brush_by_name(f[1]); ok do b.falloffs[kind].focal = clamp(number(f[2], 0), sculpt.FOCAL_MIN, sculpt.FOCAL_MAX)
 			}
 		case "pressure_curve": if len(f) == 5 do b.pressure_curve = curve(f[1:], b.pressure_curve)
 		case "symmetry", "paint_color", "material", "new_vertices":
 			line := setting_line(f[0])
 			if v, ok := line.parse(f[1:]); ok do line.apply(app, v)
 		case "custom_material":
+			// custom_material r g b metallic roughness [matcap]; the matcap, 0 for none,
+			// 1 + a built-in's place or MATCAP_IMAGE, came with MatCaps.
 			if len(f) >= 6 {
 				c := &app.custom
 				for k in 0 ..< 3 do c.selected[k] = clamp(number(f[1 + k], c.selected[k]), 0, 1)
 				c.metallic = clamp(number(f[4], c.metallic), 0, 1)
 				c.roughness = clamp(number(f[5], c.roughness), 0.04, 1)
+				if len(f) >= 7 {
+					c.matcap = clamp(int(number(f[6], 0)), 0, MATCAP_IMAGE)
+					if c.matcap != 0 do c.idle = MATCAP_IDLE
+				}
 			}
+		case "matcap_image":
+			// matcap_image <path, escaped>: the image Load MatCap loaded last.
+			_ = matcap_image_load(app, preset_unescape(f[1]), quiet = true)
 		case "ui_scale":
 			want := number(f[1], 1)
 			for s in UI_SCALES do if abs(s - want) < 0.01 do app.kit.ui_scale = s
@@ -518,12 +532,14 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 		fmt.sbprintfln(&out, "strength %v %g", kind, b.strengths[kind])
 		f := b.falloffs[kind]
 		fmt.sbprintfln(&out, "falloff %v %d %g %g %g %g", kind, bit(f.drawn), f.curve.c1.x, f.curve.c1.y, f.curve.c2.x, f.curve.c2.y)
+		if f.focal != 0 do fmt.sbprintfln(&out, "focal %v %g", kind, f.focal)
 	}
 	c := b.pressure_curve
 	fmt.sbprintfln(&out, "pressure_curve %g %g %g %g", c.c1.x, c.c1.y, c.c2.x, c.c2.y)
 	for line in SETTING_LINES do fmt.sbprintfln(&out, "%s %s", line.key, line.text(app))
 	m := app.custom
-	fmt.sbprintfln(&out, "custom_material %g %g %g %g %g", m.selected.r, m.selected.g, m.selected.b, m.metallic, m.roughness)
+	fmt.sbprintfln(&out, "custom_material %g %g %g %g %g %d", m.selected.r, m.selected.g, m.selected.b, m.metallic, m.roughness, m.matcap)
+	if app.matcap_path != "" do fmt.sbprintfln(&out, "matcap_image %s", preset_escape(app.matcap_path))
 	k := app.kit
 	fmt.sbprintfln(&out, "ui_scale %g", k.ui_scale)
 	for w, which in k.windows {

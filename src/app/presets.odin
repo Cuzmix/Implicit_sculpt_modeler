@@ -147,6 +147,7 @@ preset_same :: proc(app: ^App, a, b: Preset_Values) -> bool {
 	round := proc(app: ^App, i: int) -> int {return i if i >= 0 && i < len(app.alphas) else -1}
 	if a.kind != b.kind || a.strength != b.strength || a.falloff.drawn != b.falloff.drawn do return false
 	if a.falloff.drawn && a.falloff.curve != b.falloff.curve do return false
+	if a.falloff.focal != b.falloff.focal do return false
 	if a.stroke != b.stroke || a.lazy_px != b.lazy_px || (a.stroke == .Spray && a.spread != b.spread) do return false
 	if flags & {.Grab, .Cloth} == {} && (a.lock_plane != b.lock_plane || a.connected != b.connected) do return false
 	if .Grab not_in flags && (round(app, a.alpha) != round(app, b.alpha) || a.alpha_mode != b.alpha_mode || a.alpha_angle != b.alpha_angle) do return false
@@ -264,11 +265,11 @@ preset_ref :: proc(app: ^App, n: int) -> string {
 // damaged line.
 // preset <name> <brush> <strength> <drawn 0|1> c1x c1y c2x c2y <alpha|-> <alpha mode>
 //        <alpha angle> <stroke> <lazy px> r g b <cloth mode> [<spread> [<lock plane 0|1>
-//        <connected 0|1>]]; names escaped (preset_escape). Lines from before Spray have
-// no spread and take the default; lines from before Lock plane and Connected have both
-// off.
+//        <connected 0|1> [<focal shift>]]]; names escaped (preset_escape). Lines from
+// before Spray have no spread and take the default; lines from before Lock plane and
+// Connected have both off; lines from before focal shift have none.
 preset_parse :: proc(f: []string) -> (name: string, v: Preset_Values, alpha: string, ok: bool) {
-	if len(f) != 18 && len(f) != 19 && len(f) != 21 do return
+	if len(f) != 18 && len(f) != 19 && len(f) != 21 && len(f) != 22 do return
 	kind, kind_ok := brush_by_name(f[2])
 	alpha_mode, mode_ok := reflect.enum_from_name(Alpha_Mode, f[10])
 	stroke, stroke_ok := reflect.enum_from_name(Stroke_Mode, f[12])
@@ -287,8 +288,9 @@ preset_parse :: proc(f: []string) -> (name: string, v: Preset_Values, alpha: str
 		alpha = -1, alpha_mode = alpha_mode, alpha_angle = number(f[11], 0), stroke = stroke,
 		lazy_px = clamp(number(f[13], 0), 0, MAX_RADIUS_PX), cloth_mode = cloth,
 		spread = clamp(number(f[18], SPRAY_DEFAULT_SPREAD), 0, SPRAY_MAX_SPREAD) if len(f) >= 19 else SPRAY_DEFAULT_SPREAD,
-		lock_plane = len(f) == 21 && f[19] == "1", connected = len(f) == 21 && f[20] == "1",
+		lock_plane = len(f) >= 21 && f[19] == "1", connected = len(f) >= 21 && f[20] == "1",
 	}
+	if len(f) == 22 do v.falloff.focal = clamp(number(f[21], 0), sculpt.FOCAL_MIN, sculpt.FOCAL_MAX)
 	for k in 0 ..< 3 do v.color[k] = clamp(number(f[14 + k], 0), 0, 1)
 	return preset_unescape(f[1]), v, preset_unescape(f[9]), true
 }
@@ -296,9 +298,13 @@ preset_parse :: proc(f: []string) -> (name: string, v: Preset_Values, alpha: str
 // Writes the `preset` line preset_parse reads, with `alpha` as the alpha's word.
 preset_line :: proc(out: ^strings.Builder, name: string, v: Preset_Values, alpha: string) {
 	bit :: proc(b: bool) -> int {return 1 if b else 0}
-	fmt.sbprintfln(out, "preset %s %v %g %d %g %g %g %g %s %v %g %v %g %g %g %g %v %g %d %d", preset_escape(name), v.kind, v.strength, bit(v.falloff.drawn),
+	fmt.sbprintf(out, "preset %s %v %g %d %g %g %g %g %s %v %g %v %g %g %g %g %v %g %d %d", preset_escape(name), v.kind, v.strength, bit(v.falloff.drawn),
 		v.falloff.curve.c1.x, v.falloff.curve.c1.y, v.falloff.curve.c2.x, v.falloff.curve.c2.y, preset_escape(alpha), v.alpha_mode, v.alpha_angle, v.stroke, v.lazy_px,
 		v.color.r, v.color.g, v.color.b, v.cloth_mode, v.spread, bit(v.lock_plane), bit(v.connected))
+	// Only a preset with a focal shift has the field, so the builds from before it,
+	// which skip a line of a length they do not know, keep every other preset.
+	if v.falloff.focal != 0 do fmt.sbprintf(out, " %g", v.falloff.focal)
+	strings.write_byte(out, '\n')
 }
 
 preset_name_set :: proc(p: ^Brush_Preset, name: string) {
@@ -306,13 +312,14 @@ preset_name_set :: proc(p: ^Brush_Preset, name: string) {
 	copy(p.name[:PRESET_NAME_MAX - 1], preset_name_fit(name))
 }
 
-// Whether the plain brush's strength or falloff differ from a fresh install's.
+// Whether the plain brush's strength, falloff or focal shift differ from a fresh install's.
 brush_reset_needed :: proc(app: ^App) -> bool {
 	b := &app.brush
-	return b.preset == 0 && (b.strengths[b.kind] != BRUSHES[b.kind].strength || b.falloffs[b.kind].drawn)
+	f := b.falloffs[b.kind]
+	return b.preset == 0 && (b.strengths[b.kind] != BRUSHES[b.kind].strength || f.drawn || f.focal != 0)
 }
 
-// Puts the plain brush's strength and falloff back to a fresh install's.
+// Puts the plain brush's strength, falloff and focal shift back to a fresh install's.
 brush_reset :: proc(app: ^App) {
 	b := &app.brush
 	if b.preset != 0 do return

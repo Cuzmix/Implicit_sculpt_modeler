@@ -61,6 +61,7 @@ Kit_State :: struct {
 	view_menu:  bool,
 	view_at:    ui.Rect, // the view menu opens beside this: the button a long press was on
 	bar_pop:    Bar_Pop, // the side bars' popover (kit_bars.odin)
+	bar_scrub:  Bar_Scrub, // a long press dragging a value on the brush bar (kit_bars.odin)
 	look:       Look, // the interface's colours (Settings > Interface)
 	browser:    bool, // every brush and preset, in a popover over the dock or beside the brush bar
 	browser_at: Browser_At, // ...which of the two opened it
@@ -933,6 +934,7 @@ kit_layout :: proc(app: ^App) {
 	if k.browser_at == .Dock do kit_brush_browser(app, dock_anchor, .Above_Center)
 	else do kit_brush_browser(app, browser_anchor, .Right)
 	kit_bar_popover(app)
+	kit_bar_scrub(app)
 	kit_dock_menu(app)
 	kit_menu(app, menu_anchor)
 	kit_versions(app, menu_anchor)

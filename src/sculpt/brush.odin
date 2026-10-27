@@ -636,7 +636,34 @@ Falloff :: struct {
 // radii from the centre is geom.curve_at(curve, 1 - d), so the linear curve is a cone,
 // and every curve is 0 at the rim and 1 at the centre.
 falloff_set_curve :: proc(f: ^Falloff, curve: geom.Curve) {
-	for &w, i in f.table do w = geom.curve_at(curve, 1 - math.sqrt(f32(i) / FALLOFF_STEPS))
+	falloff_set_shaped(f, curve, 0)
+}
+
+// The focal shift's range, as the reference app's Focal Shift: positive pulls the weight in
+// toward the centre, negative pushes it out toward the rim.
+FOCAL_MIN :: -100
+FOCAL_MAX :: 100
+
+// Fills the table with the falloff `curve` (nil: the built-in falloff) reshaped by `focal`
+// (FOCAL_MIN to FOCAL_MAX): the weight at distance d radii is the base's at d^p, with
+// p = 2^(-focal/50), so focal 0 is the base itself, 100 reads it at d^(1/4), a point, and
+// -100 at d^4, a plateau with a hard edge. Every shape stays 1 at the centre and 0 at the
+// rim, and falls as d grows. A strong positive shift is steeper at the very tip than the
+// table can follow: inside its first cell (a sixteenth of the radius) the point is rounded
+// off, which a dab never shows, where more entries would only round it a little less.
+falloff_set_shaped :: proc(f: ^Falloff, curve: Maybe(geom.Curve), focal: f32) {
+	p := math.pow(2, -clamp(focal, FOCAL_MIN, FOCAL_MAX) / 50)
+	for &w, i in f.table {
+		// Squared distances stay as they are where nothing reshapes them, so the built-in
+		// table matches falloff itself exactly.
+		x2 := f32(i) / FALLOFF_STEPS
+		if focal != 0 do x2 = math.pow(x2, p)
+		if c, drawn := curve.?; drawn {
+			w = geom.curve_at(c, 1 - math.sqrt(x2))
+		} else {
+			w = falloff(x2)
+		}
+	}
 }
 
 // The drawn falloff at squared distance x2 in radii².

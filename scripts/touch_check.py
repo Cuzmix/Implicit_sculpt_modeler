@@ -46,7 +46,7 @@ MODEL = (800, 450)  # the sphere's middle; it reaches about 368 points out
 EMPTY = (250, 150)  # viewport with nothing on it
 UI = {
     "menu": (26, 26), "save": (74, 26), "history": (1430, 26), "help": (1526, 26), "settings": (1574, 26),
-    "brushes": (31, 233), "stroke": (31, 281), "falloff": (31, 474), "size": (31, 522), "strength": (31, 570),
+    "brushes": (31, 233), "stroke": (31, 281), "focal": (31, 474), "size": (31, 522), "strength": (31, 570),
     "undo": (31, 619), "redo": (31, 667),
     # The navigation head (nav_head.odin), and the view bar under it.
     "nav_head": (1568, 88),
@@ -255,15 +255,15 @@ SYMMETRY_AXES = {"x": (1401, 449), "y": (1453, 449), "z": (1505, 449)}
 
 @scenario
 def bar_section_opens_beside_the_bar():
-    """A tap on the brush bar's Stroke opens the Stroke section beside it; a second tap closes it; Falloff then opens its own."""
+    """A tap on the brush bar's Stroke opens the Stroke section beside it; a second tap closes it; Focal shift then opens its slider."""
     s = Script()
     s.ftap(*UI["stroke"])
     s.wait(8)
     s.ftap(*UI["stroke"])
     s.wait(8)
-    s.ftap(*UI["falloff"])
+    s.ftap(*UI["focal"])
     s.wait(8)
-    return s, [], camera_still({"dabs": near(0), "bar_pop": is_text("falloff")})
+    return s, [], camera_still({"dabs": near(0), "bar_pop": is_text("focal")})
 
 
 @scenario
@@ -273,6 +273,61 @@ def long_press_draw_size_opens_the_pen():
     long_press(s, *UI["size"])
     s.wait(4)
     return s, [], camera_still({"dabs": near(0), "bar_pop": is_text("pen"), "brush_radius_px": near(60)})
+
+
+def long_press_drag(s, x, y, dy, finger=0, steps=10):
+    """A long press on (x, y), then, still held, a drag `dy` points down (negative: up) and a lift."""
+    s.add(f"fdown:{finger}:{x:g},{y:g}")
+    s.wait(LONG_PRESS_FRAMES)
+    for k in range(1, steps + 1):
+        s.add(f"fmove:{finger}:{x:g},{y + dy * k / steps:g}")
+        s.wait(1)
+    s.add(f"fup:{finger}")
+    s.wait(4)
+
+
+@scenario
+def long_press_drag_draw_size():
+    """A long press on Draw size dragged 150 points up (past the slop, which the drag starts from) about doubles the size, and opens nothing."""
+    s = Script()
+    long_press_drag(s, *UI["size"], -150 - 10)
+    s.wait(4)
+    return s, [], camera_still({"dabs": near(0), "bar_pop": is_text("none"), "brush_radius_px": lambda v: 105 < float(v) <= 120})
+
+
+@scenario
+def long_press_drag_strength_and_focal():
+    """Dragged down, a long press on Strength lowers it; dragged up, one on Focal shift raises it; neither opens anything."""
+    s = Script()
+    long_press_drag(s, *UI["strength"], 60 + 10)
+    long_press_drag(s, *UI["focal"], -60 - 10)
+    s.wait(4)
+    return s, [], camera_still({"dabs": near(0), "bar_pop": is_text("none"), "brush_strength": lambda v: 0.28 <= float(v) <= 0.34,
+                                "brush_focal": lambda v: 30 <= float(v) <= 42})
+
+
+@scenario
+def cancelled_scrub_puts_the_size_back():
+    """A long press on Draw size dragged up, then cancelled by the system, puts the size back and opens nothing."""
+    s = Script()
+    x, y = UI["size"]
+    s.add(f"fdown:0:{x:g},{y:g}")
+    s.wait(LONG_PRESS_FRAMES)
+    for k in range(1, 11):
+        s.add(f"fmove:0:{x:g},{y - 12 * k:g}")
+        s.wait(1)
+    s.add("fcancel:0")
+    s.wait(6)
+    return s, [], camera_still({"dabs": near(0), "bar_pop": is_text("none"), "brush_radius_px": near(60)})
+
+
+@scenario
+def long_press_focal_shift_opens_the_falloff():
+    """A long press on Focal shift let go without dragging opens the Falloff section (the curve), and changes nothing."""
+    s = Script()
+    long_press(s, *UI["focal"])
+    s.wait(4)
+    return s, [], camera_still({"dabs": near(0), "bar_pop": is_text("falloff"), "brush_focal": near(0)})
 
 
 @scenario
@@ -693,6 +748,15 @@ def three_finger_size():
     s = Script()
     s.fingers([(300, 600), (380, 600), (460, 600)], [(0, -200)] * 3, 20)
     return s, [], {"brush_radius_px": lambda v: float(v) > 100, "camera_distance": near(3.5, 0.2), "dabs": near(0)}
+
+
+@scenario
+def three_finger_focal_shift():
+    """Three fingers dragged sideways set the focal shift, 200 points right taking it near +100 (less the slop that decides the way), and leave the strength."""
+    s = Script()
+    s.fingers([(300, 600), (300, 680), (300, 760)], [(200, 0)] * 3, 20)
+    return s, [], {"brush_focal": lambda v: 90 <= float(v) <= 100, "brush_strength": near(0.5, 1e-3), "brush_radius_px": near(60),
+                   "camera_distance": near(3.5, 0.2), "dabs": near(0)}
 
 
 @scenario

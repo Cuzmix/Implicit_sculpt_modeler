@@ -33,7 +33,9 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
 - Layout (`kit_layout`, `new_ui.odin`; the bars in `kit_bars.odin`, after ZBrush for iPad): `kit_top_bar` (a full-width
   strip, `TOP_BAR_H`: Menu, Save, Import, Export | file name | History, Edit pies, Help, Settings), `kit_points` (the
   object's readout under it, at the top left), `kit_brush_bar` (left column: Brushes, Stroke, Alpha, Material, Colour |
-  Falloff, Draw size, Strength | Undo, Redo), `kit_nav_head` (`nav_head.odin`: the navigation head
+  Focal shift, Draw size, Strength | Undo, Redo; those three are `bar_value_button`s: tap = tall slider, finger or pen
+  long press held = a `Bar_Scrub` that drags the value up and down with a readout (`kit_bar_scrub`), long press let go
+  without dragging or a right click = the Falloff or Pen section, a cancel restores the value), `kit_nav_head` (`nav_head.odin`: the navigation head
   top right, `NAV_HEAD_W` x `NAV_HEAD_H`, a `ui.area` showing the renderer's picture; tap = `View_Axis` from that side,
   drag = orbit), `kit_view_bar` (right, from `nav_head_bottom()`: Search, Palettes (the tray), Objects (the card); then Studio
   render, Orthographic, Symmetry, Focus, Wireframe, Ghost, Solo); bottom `kit_bottom_bar` (a page of the dock's 21 slots,
