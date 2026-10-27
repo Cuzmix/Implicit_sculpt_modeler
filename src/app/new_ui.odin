@@ -244,10 +244,10 @@ Kit_State :: struct {
 	// The Colors card (kit_colors.odin): open, and its tab, history and palettes.
 	colors_card:    bool,
 	colors:         Colors_Card,
-	// The thumbnail window (thumbnail.odin): open, shaded rather than a silhouette, mirrored,
-	// and its picture's size in pixels as laid out this frame (zero while it is not).
+	// The second view (thumbnail.odin): open, its camera and pass, mirrored, and its
+	// picture's size in pixels as laid out this frame (zero while it is not).
 	thumbnail:        bool,
-	thumbnail_shaded: bool,
+	second:           Second_View,
 	thumbnail_flip:   bool,
 	thumbnail_px:     [2]u32,
 	inspector_body: ui.Rect,

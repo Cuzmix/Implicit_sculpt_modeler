@@ -3,11 +3,9 @@ package render
 import "core:log"
 import sdl "vendor:sdl3"
 
-// The thumbnail view: the scene drawn again, small, into a texture of its own, as a
-// sculptor steps back from the work. As a silhouette, every object is black on a light
-// ground, so the outline reads without the shading; otherwise it is shaded as the
-// viewport is. The interface shows the texture, mirrored when the app asks, since a form
-// seen flipped shows its proportions afresh.
+// The thumbnail view: the scene drawn again, into a texture of its own, as the app's
+// second view sees it (its camera, its pass). The interface shows the texture, mirrored
+// when the app asks, since a form seen flipped shows its proportions afresh.
 Thumbnail_View :: struct {
 	target: Viewport_Target,
 	failed: bool, // the device refused the texture; nothing is drawn
@@ -28,12 +26,13 @@ thumbnail_view_destroy :: proc(r: ^Renderer, tv: ^Thumbnail_View) {
 }
 
 // Draws `items` seen through `view` and `proj` into the texture, `size` pixels as shown,
-// each whole (their chunks and simplified copies are the viewport's this frame), and
-// returns it; nil when there is none. A silhouette draws every item black: its colour
-// and every light let through are dropped far below what shows.
-thumbnail_view_draw :: proc(r: ^Renderer, tv: ^Thumbnail_View, cmd: ^sdl.GPUCommandBuffer, size: [2]u32, view, proj: Mat4, items: []Draw_Item, silhouette: bool) -> ^sdl.GPUTexture {
+// drawn at `supersample` times that each way and smoothed down, each whole (their chunks
+// and simplified copies are the viewport's this frame), on `background`, and returns it;
+// nil when there is none. The caller sets each item's pass and lights.
+thumbnail_view_draw :: proc(r: ^Renderer, tv: ^Thumbnail_View, cmd: ^sdl.GPUCommandBuffer, size: [2]u32, view, proj: Mat4, items: []Draw_Item, background: [4]f32, supersample: u32 = THUMBNAIL_SUPERSAMPLE) -> ^sdl.GPUTexture {
 	if tv.failed || size.x == 0 || size.y == 0 do return nil
-	if !viewport_target_resize(r, &tv.target, size.x * THUMBNAIL_SUPERSAMPLE, size.y * THUMBNAIL_SUPERSAMPLE) {
+	scale := max(supersample, 1)
+	if !viewport_target_resize(r, &tv.target, size.x * scale, size.y * scale) {
 		tv.failed = true
 		log.errorf("thumbnail view target: %s", sdl.GetError())
 		return nil
@@ -42,17 +41,9 @@ thumbnail_view_draw :: proc(r: ^Renderer, tv: ^Thumbnail_View, cmd: ^sdl.GPUComm
 	for it, i in items {
 		w := it
 		w.chunks, w.chunk_groups, w.hidden, w.lod = nil, nil, nil, {}
-		if silhouette {
-			w.color.rgb = 0
-			w.matcap, w.textured, w.slots = nil, nil, nil
-			w.wireframe, w.paint, w.groups = false, false, false
-			w.checker = {}
-			// Forty stops darker: black after the tone map, highlights and all.
-			w.look = {-40, 0, 0, 0}
-		}
 		whole[i] = w
 	}
-	pass := begin_mesh_pass(r, cmd, &r.single, tv.target.color, tv.target.depth, load = false, keep_depth = false, background = THUMBNAIL_PAPER if silhouette else THUMBNAIL_DARK)
+	pass := begin_mesh_pass(r, cmd, &r.single, tv.target.color, tv.target.depth, load = false, keep_depth = false, background = background)
 	draw_items(r, cmd, pass, &r.single, view, proj, whole, nil, nil)
 	sdl.EndGPURenderPass(pass)
 	return tv.target.color

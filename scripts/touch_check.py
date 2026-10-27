@@ -5674,23 +5674,73 @@ def first_save():
 
 # The thumbnail window at 1600x900 (thumbnail.odin), under the object's readout: its
 # Shaded tab, Flip and Close.
-THUMBNAIL_SHADED = (175, 310)
-THUMBNAIL_FLIP = (239, 310)
-THUMBNAIL_CLOSE = (292, 310)
+# The second view (the thumbnail window) at 1600 x 900 with --script=thumbnail on: its
+# camera and pass lists and their rows, its Flip, Maximise and Close, its picture, and
+# Restore once maximised.
+SECOND_CAMERA, SECOND_PASS = (132, 310), (250, 310)
+SECOND_FRONT, SECOND_SHADED, SECOND_NORMALS = (107, 404), (250, 404), (250, 448)
+THUMBNAIL_FLIP, SECOND_MAX, THUMBNAIL_CLOSE = (100, 365), (152, 365), (205, 365)
+SECOND_PICTURE, SECOND_RESTORE = (192, 213), (154, 774)
 
 
 @scenario
 def thumbnail_switches_to_shaded_and_flips():
-    """Taps on the thumbnail window's Shaded tab and Flip draw it shaded and mirrored, and
-    sculpt nothing."""
+    """The second view's pass list picks Shaded and its Flip mirrors it, sculpting nothing."""
     s = Script()
     s.wait(4)
-    s.ftap(*THUMBNAIL_SHADED)
+    s.ftap(*SECOND_PASS)
+    s.wait(4)
+    s.ftap(*SECOND_SHADED)
     s.wait(4)
     s.ftap(*THUMBNAIL_FLIP)
     s.wait(10)
-    return s, ["--script=thumbnail on"], camera_still({"thumbnail": near(1, 0), "thumbnail_shaded": near(1, 0), "thumbnail_flip": near(1, 0),
+    return s, ["--script=thumbnail on"], camera_still({"thumbnail": near(1, 0), "second_pass": is_text("Shaded"), "thumbnail_flip": near(1, 0),
                                                      "thumbnail_draws": lambda v: int(v) >= 2, "dabs": near(0)})
+
+
+@scenario
+def second_view_looks_from_the_front_in_normals():
+    """The second view's camera list picks Front and its pass list Normals: it draws again from the front, the main camera untouched."""
+    s = Script()
+    s.wait(4)
+    s.ftap(*SECOND_CAMERA)
+    s.wait(4)
+    s.ftap(*SECOND_FRONT)
+    s.wait(4)
+    s.ftap(*SECOND_PASS)
+    s.wait(4)
+    s.ftap(*SECOND_NORMALS)
+    s.wait(10)
+    return s, ["--script=thumbnail on"], camera_still({"second_camera": is_text("Front"), "second_pass": is_text("Normals"),
+                                                     "thumbnail_draws": lambda v: int(v) >= 3, "dabs": near(0)})
+
+
+@scenario
+def second_view_drag_turns_its_own_camera():
+    """A finger dragged across the second view's picture turns its own camera, which becomes Free; the main camera stays still and nothing is sculpted."""
+    s = Script()
+    s.wait(4)
+    x, y = SECOND_PICTURE
+    s.fdrag([(x - 40 + i * 8, y) for i in range(11)])
+    s.wait(6)
+    return s, ["--script=thumbnail on"], camera_still({"second_camera": is_text("Free"), "second_turns": lambda v: int(v) >= 5,
+                                                     "thumbnail_draws": lambda v: int(v) >= 3, "dabs": near(0)})
+
+
+@scenario
+def second_view_maximises_and_restores():
+    """Maximise grows the floating second view's picture to most of the viewport; Restore brings it back to its small size."""
+    def run(restore):
+        s = Script()
+        s.wait(4)
+        s.ftap(*SECOND_MAX)
+        s.wait(8)
+        if restore:
+            s.ftap(*SECOND_RESTORE)
+            s.wait(8)
+        size = (lambda v: v == "232x131") if restore else (lambda v: int(v.split("x")[0]) > 800)
+        return s, ["--script=thumbnail on"], camera_still({"second_max": near(0 if restore else 1), "thumbnail_px": size, "dabs": near(0)})
+    return Steps([run(False), run(True)])
 
 
 # Scene: Background's Screenshots without background switch, under the colours.

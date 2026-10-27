@@ -316,7 +316,7 @@ panel_summary :: proc(app: ^App, ref: Panel_Ref) -> string {
 		case .Colors:
 			return hex_text(colors_target(app)^)
 		case .Thumbnail:
-			return "Shaded" if k.thumbnail_shaded else "Silhouette"
+			return fmt.tprintf("%s · %s", SECOND_CAMERA_NAMES[k.second.camera], SECOND_PASS_NAMES[k.second.pass])
 		}
 	case Kit_Section:
 		obj := selected_object(app)

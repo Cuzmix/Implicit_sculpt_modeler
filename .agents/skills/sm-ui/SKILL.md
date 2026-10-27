@@ -99,6 +99,11 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   too) or `key_held` (backquote by keycode, intercepted in main.odin's event loop as Space is, reserved in
   `chord_reserved`), ignored while a time-lapse or turntable records (`recording`).
   Read what shows with `viewport_pass(k)`; the layout writes `pass` only when not Shaded and never a peek.
+- Second view (`src/app/thumbnail.odin`, `k.second: Second_View`, the Thumbnail window and command): the picture is a
+  `ui.area` whose drag past the slop calls `second_free` (Free seeded from the camera shown, the orbit sign latched)
+  and turns `App.second_orbit`; the wheel zooms it. Camera and pass are two `ui.select`s, with Flip, Maximise
+  (floating only, never kept) and Close under them. `Second_Camera`/`Second_Pass` are settings rows; zero is Follow
+  with Silhouette. Not in workspace layouts yet (panes in layouts come with the view grid).
 - Cards (`ui.card_begin`): a window with no title bar, as ZBrush for iPad's quick-access cards, its dots on top
   dragging it like a title bar and a long press on them returning `dock`, then a large centred title. The Objects
   card (`kit_objects_card.odin`, `Kit_Window.Objects`, `Objects_Card` command) is one: Add / Duplicate / New folder /

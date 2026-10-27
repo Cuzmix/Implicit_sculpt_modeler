@@ -227,9 +227,12 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   buffer and never touches the per-frame indirect commands the viewport recorded. The app draws at most one a frame
   after `nav_head_frame`, never mid-stroke or while the view moves, and only once its object's `thumb_key` has held
   for `THUMB_SETTLE`; the kit shows cells as `KIT_THUMBS_IMAGE` with `ui.image_part` and the smooth sampler.
-- `Thumbnail_View` (`thumbnail_view.odin`): the frame's draw items again into a small target of its own at
-  `THUMBNAIL_SUPERSAMPLE`, whole (chunks, groups, hidden and LOD cleared, as thumbnails are), a silhouette by black
-  colour and `look.x = -40` stops rather than a shader of its own. The app (thumbnail.odin) draws it only at rest.
+- `Thumbnail_View` (`thumbnail_view.odin`): the frame's draw items again into a small target of its own at a
+  supersample (`THUMBNAIL_SUPERSAMPLE`, 1 maximised), whole (chunks, groups, hidden and LOD cleared, as thumbnails
+  are), with the view, projection, items and ground the app gives. The app's second view (thumbnail.odin) picks its
+  camera (`second_orbit`: Follow, axis presets ortho, Free in `App.second_orbit`), builds the lights for that camera,
+  and marks the items with `pass_items` (Silhouette is the shader's pass, with `pass_ground`'s paper); it draws only
+  at rest, or every frame while its own camera is dragged.
 - Transparent screenshots (app `capture.odin`): `render_viewport` again, after the frame's viewport and live AO, into a
   second `Viewport_Target` of the same size and samples with `background = {}`, `floor = {}`, `lod_px = 0` and the
   environment picture off (restored after); the clear's alpha 0 and the meshes' alpha 1 resolve to coverage. Written

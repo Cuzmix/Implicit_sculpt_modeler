@@ -176,6 +176,8 @@ App :: struct {
 	kit:      Kit_State,
 	kit_drew: bool, // the last frame drew the interface...
 	kit_size: [2]u32, // ...this many pixels
+	// The second view's own camera (thumbnail.odin), once its picture was dragged.
+	second_orbit: camera.Orbit,
 	camera:   camera.Orbit,
 	ui:       Ui_State,
 	stats:    Frame_Stats,
@@ -1062,7 +1064,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		nav_head_frame(&app, cmd)
 		thumbs_frame(&app, cmd)
 		home_frame(&app, cmd)
-		thumbnail_frame(&app, cmd, view, draws[:])
+		thumbnail_frame(&app, cmd, draws[:])
 
 		gpu_wait: time.Duration
 		if app.time_gpu {
@@ -1212,7 +1214,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	// The scene file's preview picture: how many were taken, the last one's size and the
 	// milliseconds it took to shrink and encode.
 	fmt.printfln("previews=%d preview_size=%dx%d preview_kb=%.1f preview_ms=%.2f", app.preview.taken, app.preview.w, app.preview.h, f64(len(app.preview.png)) / 1024, app.preview.ms)
-	fmt.printfln("thumbnail=%d thumbnail_draws=%d thumbnail_ms=%.2f thumbnail_px=%dx%d thumbnail_flip=%d thumbnail_shaded=%d", int(app.kit.thumbnail), app.thumbnail.draws, app.thumbnail.ms, app.kit.thumbnail_px.x, app.kit.thumbnail_px.y, int(app.kit.thumbnail_flip), int(app.kit.thumbnail_shaded))
+	sv := app.kit.second
+	fmt.printfln("thumbnail=%d thumbnail_draws=%d thumbnail_ms=%.2f thumbnail_px=%dx%d thumbnail_flip=%d second_camera=%v second_pass=%v second_max=%d second_turns=%d", int(app.kit.thumbnail), app.thumbnail.draws, app.thumbnail.ms, app.kit.thumbnail_px.x, app.kit.thumbnail_px.y, int(app.kit.thumbnail_flip), sv.camera, sv.pass, int(sv.max), sv.turns)
 	fmt.printfln("screenshot_transparent=%d turntable_frames=%d turntable_written=%d", int(app.screenshot_transparent), app.turntable_frames, app.turntable.frame)
 	fmt.printfln("print_mm=%g print_unit=%d print_exports=%d", print_scale(&app), int(app.print_unit), app.print_exports)
 	// The scene's file by its name alone, which a test compares; "none" for no file.
