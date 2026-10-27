@@ -114,3 +114,72 @@ render_denoise_eases_with_samples :: proc(t: ^testing.T) {
 	testing.expect_value(t, early, f32(2))
 	testing.expect_value(t, late, f32(0.15))
 }
+
+// The environment's table picks each texel as often as its luminance times its share of
+// the sphere asks, and a constant panorama's density is even over the sphere, 1 / 4π.
+@(test)
+render_environment_table_samples_by_brightness :: proc(t: ^testing.T) {
+	W, H :: 16, 8
+	lum := make([]f32, W * H, context.temp_allocator)
+	for &v in lum do v = 1
+	flat := render.env_table_build(lum, W, H, context.temp_allocator)
+	for e, i in flat.texels {
+		s := math.sin((f32(i / W) + 0.5) / H * math.PI)
+		testing.expect(t, abs(e.z / s - 1 / (4 * math.PI)) < 1e-3)
+	}
+	testing.expect(t, abs(flat.mean - 1) < 1e-5)
+
+	// A bright spot: what each texel is picked with, from the alias table, matches its
+	// chance.
+	lum[3 * W + 5] = 500
+	lum[6 * W + 1] = 20
+	tab := render.env_table_build(lum, W, H, context.temp_allocator)
+	got := make([]f32, W * H, context.temp_allocator)
+	for e, i in tab.texels {
+		got[i] += e.x / (W * H)
+		got[int(e.y)] += (1 - e.x) / (W * H)
+	}
+	total: f32
+	for e, i in tab.texels {
+		chance := e.z * 2 * math.PI * math.PI / (W * H)
+		testing.expect(t, abs(got[i] - chance) < 1e-5)
+		total += chance
+	}
+	testing.expect(t, abs(total - 1) < 1e-4)
+	// The spot lends its brightness to the texels round it, which a filtered lookup
+	// reaches into, so the nine together take nearly every pick.
+	around: f32
+	for y in 2 ..= 4 do for x in 4 ..= 6 do around += got[y * W + x]
+	testing.expect(t, around > 0.9)
+	testing.expect(t, got[2 * W + 4] > 0.08)
+}
+
+// Light samples go to the environment by the light it gives against the lights', never
+// below a tenth for either, and the lights' chances make room; the built-in studio's
+// only while no light is on.
+@(test)
+render_environment_shares_light_samples :: proc(t: ^testing.T) {
+	l := render.lights_default()
+	world := render.lights_to_world(l, linalg.MATRIX4F32_IDENTITY, {}, 0.1)
+	key := world.size[0].w
+	share := render.env_share(&world, l, 3 * (1 + render.FILL_STRENGTH))
+	testing.expect(t, abs(share - 0.5) < 1e-5)
+	testing.expect(t, abs(world.size[0].w - key * 0.5) < 1e-6)
+	testing.expect(t, abs(world.size[0].z - (0.5 + 0.5 * key)) < 1e-6)
+	testing.expect_value(t, world.size[1].z, f32(2))
+
+	dim := render.lights_to_world(l, linalg.MATRIX4F32_IDENTITY, {}, 0.1)
+	testing.expect_value(t, render.env_share(&dim, l, 1e-6), f32(0.1))
+	none := render.lights_to_world(l, linalg.MATRIX4F32_IDENTITY, {}, 0.1)
+	testing.expect_value(t, render.env_share(&none, l, 0), f32(0))
+	testing.expect_value(t, none.size[0].w, key)
+
+	// The built-in studio takes light samples only while every light is off.
+	studio := render.lights_to_world(l, linalg.MATRIX4F32_IDENTITY, {}, 0.1)
+	testing.expect_value(t, render.env_share(&studio, l, 100, smooth = true), f32(0))
+	testing.expect_value(t, studio.size[0].w, key)
+	dark := l
+	for &c in dark.color do c.w = 0
+	unlit := render.lights_to_world(dark, linalg.MATRIX4F32_IDENTITY, {}, 0.1)
+	testing.expect_value(t, render.env_share(&unlit, dark, 1, smooth = true), f32(1))
+}

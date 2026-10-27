@@ -6,7 +6,9 @@
 // Each surface the path meets takes light from one of the scene's lights picked by
 // strength (next-event estimation) and continues in a direction its material picks;
 // a direction that meets a light counts it too, the two weighted by the power heuristic
-// so neither is counted twice. A path that leaves the scene takes the environment.
+// so neither is counted twice. A path that leaves the scene takes the environment, which
+// is also sampled as a light by its brightness (env_sample.odin's table), weighed against
+// the bounces that find it the same way.
 // The camera's ray is jittered within its pixel, so the image is anti-aliased, but for
 // the first sample's, through the pixel's centre, which also writes the denoiser's guides
 // (render_atrous.frag): what the ray met's colour, normal and distance. Every
@@ -44,21 +46,24 @@ const uint ITEM_SLOTS = 4u;  // groups may have materials of their own
 // The sum so far: radiance over the samples whose camera ray met the scene in rgb, and
 // how many did in a.
 layout(set = 0, binding = 0) uniform sampler2D prev;
-// The image environment prefiltered by roughness (render/environment.odin); a black 1 x 1
-// one while none is bound.
+// The image environment as loaded, at full size (render/environment.odin's source); a
+// black 1 x 1 one while none is bound.
 layout(set = 0, binding = 1) uniform sampler2D environment_map;
-layout(std430, set = 0, binding = 2) readonly buffer Positions { float positions[]; }; // 3 floats a vertex, mesh space
-layout(std430, set = 0, binding = 3) readonly buffer Indices { uint indices[]; }; // each item's own, from its first vertex
+// The table for sampling the environment by its brightness: the image's, or the built-in
+// studio's in its own space (render.Env_Table).
+layout(set = 0, binding = 2) uniform sampler2D env_table;
+layout(std430, set = 0, binding = 3) readonly buffer Positions { float positions[]; }; // 3 floats a vertex, mesh space
+layout(std430, set = 0, binding = 4) readonly buffer Indices { uint indices[]; }; // each item's own, from its first vertex
 // Each vertex's normal (render.Normal_Packed, one word), then from counts.w each vertex's
 // render.Paint_Packed (two words).
-layout(std430, set = 0, binding = 4) readonly buffer Attributes { uint attributes[]; };
+layout(std430, set = 0, binding = 5) readonly buffer Attributes { uint attributes[]; };
 // Every chunk's tree, one after another, a leaf's `first` into its chunk's order; then
 // from extra.x the tree over every chunk, a leaf's `first` a chunk.
-layout(std430, set = 0, binding = 5) readonly buffer Nodes { Node nodes[]; };
-layout(std430, set = 0, binding = 6) readonly buffer Order { uint order[]; }; // two 16-bit offsets a word
+layout(std430, set = 0, binding = 6) readonly buffer Nodes { Node nodes[]; };
+layout(std430, set = 0, binding = 7) readonly buffer Order { uint order[]; }; // two 16-bit offsets a word
 // node_off, order_off, first_tri, and the node count with the item in the top 12 bits.
-layout(std430, set = 0, binding = 7) readonly buffer Chunks { uvec4 chunks[]; };
-layout(std430, set = 0, binding = 8) readonly buffer Items { Item items[]; };
+layout(std430, set = 0, binding = 8) readonly buffer Chunks { uvec4 chunks[]; };
+layout(std430, set = 0, binding = 9) readonly buffer Items { Item items[]; };
 layout(set = 1, binding = 0, rgba32f) uniform writeonly image2D next;
 // The guides, written by the first sample only: the base colour the camera's ray met with
 // 1 in a (0 everywhere for a miss), and its normal (world) with the distance in a.
@@ -88,7 +93,7 @@ layout(std140, set = 2, binding = 0) uniform Render_Uniforms {
 	vec4 env_x;
 	vec4 env_y;
 	vec4 env_z;
-	vec4 env;     // x: 1 while an image environment is bound, y: its strength
+	vec4 env;     // x: 1 while an image environment is bound, y: its strength, z: the chance a light sample takes the environment
 	vec4 scene;   // xyz: the scene's centre, w: its radius
 	uvec4 counts; // x: this sample, y: the first row of this band, z: bounces, w: where paint starts in `attributes`
 	uvec4 extra;  // x: where the scene tree starts in `nodes`, y: 1 when it is empty
@@ -438,11 +443,66 @@ float power_weight(float a, float b) {
 	return a * a / max(a * a + b * b, 1e-30);
 }
 
-// One light's light at a surface (next-event estimation): a light picked by strength, a
-// direction toward it, the BSDF there and a shadow ray, weighted against finding the
-// light by the BSDF.
+// What a path that leaves the scene along `d` takes: the image environment, or the
+// built-in studio at the ambient light's strength as the viewport's diffuse takes it.
+vec3 environment(vec3 d) {
+	if (env.x > 0.5) {
+		vec3 e = transpose(mat3(env_x.xyz, env_y.xyz, env_z.xyz)) * d;
+		return textureLod(environment_map, panorama_uv(e), 0.0).rgb * env.y;
+	}
+	mat3 to_rig = transpose(mat3(rig_x.xyz, rig_y.xyz, rig_z.xyz));
+	return studio(to_rig * d, STUDIO_BLUR) * (0.7 * rig_x.w);
+}
+
+// The environment's frame: its own axes in the world, an image's or the studio's.
+mat3 env_frame() {
+	return env.x > 0.5 ? mat3(env_x.xyz, env_y.xyz, env_z.xyz) : mat3(rig_x.xyz, rig_y.xyz, rig_z.xyz);
+}
+
+// A direction (world) picked by the environment's table, and its density.
+vec3 env_sample(out float pdf) {
+	ivec2 ts = textureSize(env_table, 0);
+	int count = ts.x * ts.y;
+	float u = rnd() * float(count);
+	int i = min(int(u), count - 1);
+	vec4 e = texelFetch(env_table, ivec2(i % ts.x, i / ts.x), 0);
+	if (fract(u) >= e.x) {
+		i = int(e.y);
+		e = texelFetch(env_table, ivec2(i % ts.x, i / ts.x), 0);
+	}
+	vec2 uv = (vec2(i % ts.x, i / ts.x) + vec2(rnd(), rnd())) / vec2(ts);
+	vec3 local = panorama_dir(uv);
+	pdf = e.z / max(sqrt(max(1.0 - local.y * local.y, 0.0)), 1e-4);
+	return env_frame() * local;
+}
+
+// The density env_sample gives direction `d` (world).
+float env_pdf(vec3 d) {
+	vec3 local = transpose(env_frame()) * d;
+	ivec2 ts = textureSize(env_table, 0);
+	ivec2 at = min(ivec2(panorama_uv(local) * vec2(ts)), ts - 1);
+	return texelFetch(env_table, at, 0).z / max(sqrt(max(1.0 - local.y * local.y, 0.0)), 1e-4);
+}
+
+// One light's light at a surface (next-event estimation): the environment or a light,
+// picked by how much light each gives, a direction toward it, the BSDF there and a shadow
+// ray, weighted against finding the light by the BSDF.
 vec3 direct_light(Surface s, vec3 p, vec3 ng, vec3 n, vec3 v) {
 	float pick = rnd();
+	if (pick < env.z) {
+		float pdf_env;
+		vec3 l = env_sample(pdf_env);
+		if (dot(ng, l) <= 0.0) return vec3(0.0);
+		float pdf_bsdf;
+		vec3 f = bsdf_eval(s, n, v, l, pdf_bsdf);
+		if (luminance(f) <= 0.0) return vec3(0.0);
+		vec3 radiance = environment(l);
+		float pdf_light = env.z * pdf_env;
+		if (luminance(radiance) <= 0.0 || pdf_light <= 0.0) return vec3(0.0);
+		Hit shadow;
+		if (trace(offset_ray(p, ng), l, FAR, true, shadow)) return vec3(0.0);
+		return f * radiance * (power_weight(pdf_light, pdf_bsdf) / pdf_light);
+	}
 	int i = -1;
 	for (int k = 0; k < LIGHT_COUNT; k++) {
 		if (light_size[k].w > 0.0 && pick < light_size[k].z) {
@@ -501,16 +561,6 @@ vec3 lights_met(vec3 o, vec3 d, float t_hit, bool escaped, float pdf_bsdf) {
 	return sum;
 }
 
-// What a path that leaves the scene along `d` takes: the image environment, or the
-// built-in studio at the ambient light's strength as the viewport's diffuse takes it.
-vec3 environment(vec3 d) {
-	if (env.x > 0.5) {
-		vec3 e = transpose(mat3(env_x.xyz, env_y.xyz, env_z.xyz)) * d;
-		return textureLod(environment_map, panorama_uv(e), 0.0).rgb * env.y;
-	}
-	mat3 to_rig = transpose(mat3(rig_x.xyz, rig_y.xyz, rig_z.xyz));
-	return studio(to_rig * d, STUDIO_BLUR) * (0.7 * rig_x.w);
-}
 
 void main() {
 	ivec2 size = textureSize(prev, 0);
@@ -543,7 +593,8 @@ void main() {
 		// The camera never sees the lights, as in the viewport.
 		if (bounce > 0) radiance += weight * lights_met(o, d, met ? hit.t : FAR, !met, pdf_bsdf);
 		if (!met) {
-			if (bounce > 0) radiance += weight * environment(d);
+			// Weighed against the environment's own samples, when it has any.
+			if (bounce > 0) radiance += weight * environment(d) * (env.z > 0.0 ? power_weight(pdf_bsdf, env.z * env_pdf(d)) : 1.0);
 			break;
 		}
 		if (bounce == 0) covered = 1.0;
