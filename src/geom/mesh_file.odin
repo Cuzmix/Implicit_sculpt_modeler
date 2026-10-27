@@ -12,8 +12,8 @@ import "core:strings"
 import "../jobs"
 
 // Meshes in and out of files: OBJ (text; positions and polygons, everything else
-// ignored) and PLY (text or binary, either byte order), read in parallel where the
-// format allows. mesh_clean makes what was read sculptable and mesh_normalize sizes it
+// ignored), PLY (text or binary, either byte order) and STL (text or binary), read in
+// parallel where the format allows. mesh_clean makes what was read sculptable and mesh_normalize sizes it
 // like the app's spheres. Everything works on bytes in memory: the caller reads and
 // writes the file, and tests need none.
 
@@ -951,6 +951,143 @@ mesh_write_ply :: proc(out: ^[dynamic]u8, positions: []Vec3, indices: []u32, sca
 			row := f.faces[13 * t:]
 			row[0] = 3
 			mem.copy(&row[1], &f.indices[3 * t], 12)
+		}
+	}, RANGE_GRAIN)
+}
+
+// A binary STL file: an 80-byte header, a little-endian u32 triangle count, then per
+// triangle a normal, three corners (twelve floats) and a 16-bit attribute.
+STL_HEADER :: 84
+STL_ROW :: 50
+
+// Reads an STL file, binary or text. Each triangle brings its own three corners, which
+// mesh_clean welds where they meet; the facet normals are ignored and normals are left
+// zero. A binary file is known by its length matching its triangle count, since some
+// writers begin a binary header with "solid" as text files do; a text loop of more
+// than three corners is split into a fan.
+mesh_read_stl :: proc(data: []u8, pool: ^jobs.Pool, allocator := context.allocator) -> (m: Mesh, err: Mesh_File_Error, line: int) {
+	binary_size := -1
+	if len(data) >= STL_HEADER do binary_size = STL_HEADER + STL_ROW * int((^u32le)(&data[80])^)
+	at := 0
+	skip_space(data, &at)
+	text := bytes.has_prefix(data[at:], transmute([]u8)string("solid"))
+	if binary_size != len(data) && text {
+		m, err, line = stl_read_text(data, allocator)
+		// Nothing read as text: a binary file whose header starts as text does, cut short
+		// or with bytes after its triangles.
+		if err != .Empty || binary_size < 0 do return
+	}
+	switch {
+	case binary_size < 0: return {}, .Not_Recognised, 0
+	case binary_size > len(data): return {}, .Truncated, 0
+	}
+	count := (binary_size - STL_HEADER) / STL_ROW
+	if count == 0 do return {}, .Empty, 0
+	if 3 * count >= int(max(u32)) do return {}, .Too_Large, 0
+	m.positions = make([dynamic]Vec3, 3 * count, allocator)
+	m.normals = make([dynamic]Vec3, 3 * count, allocator)
+	m.indices = make([dynamic]u32, 3 * count, allocator)
+	Rows :: struct {
+		data: []u8,
+		m:    ^Mesh,
+	}
+	rows := Rows{data, &m}
+	jobs.parallel_ranges(pool, count, &rows, proc(data: rawptr, lo, hi: int) {
+		rows := cast(^Rows)data
+		for t in lo ..< hi {
+			// Past the facet's normal.
+			mem.copy(&rows.m.positions[3 * t], &rows.data[STL_HEADER + STL_ROW * t + 12], 36)
+			for c in 0 ..< 3 do rows.m.indices[3 * t + c] = u32(3 * t + c)
+		}
+	}, RANGE_GRAIN)
+	return m, .None, 0
+}
+
+// The `vertex x y z` lines of a text STL file, a triangle (or fan) for each
+// `outer loop` ... `endloop`; every other word is passed over.
+@(private = "file")
+stl_read_text :: proc(data: []u8, allocator := context.allocator) -> (m: Mesh, err: Mesh_File_Error, line: int) {
+	m.positions = make([dynamic]Vec3, allocator)
+	m.indices = make([dynamic]u32, allocator)
+	loop := 0 // the first corner of the loop being read
+	at := 0
+	fail: for {
+		skip_space(data, &at)
+		if at >= len(data) do break
+		start := at
+		for at < len(data) && !is_space(data[at]) do at += 1
+		switch string(data[start:at]) {
+		case "outer":
+			loop = len(m.positions)
+		case "vertex":
+			p: Vec3
+			for k in 0 ..< 3 {
+				skip_space(data, &at)
+				ok: bool
+				p[k], ok = parse_float(data, &at)
+				if !ok || !ends_token(data, at) {
+					err = .Bad_Number
+					break fail
+				}
+			}
+			if len(m.positions) >= int(max(u32)) - 1 {
+				err = .Too_Large
+				break fail
+			}
+			append(&m.positions, p)
+		case "endloop":
+			for c in loop + 1 ..< len(m.positions) - 1 do append(&m.indices, u32(loop), u32(c), u32(c + 1))
+			loop = len(m.positions)
+		}
+	}
+	if err == .None && len(m.indices) == 0 do err = .Empty
+	if err != .None {
+		if err == .Bad_Number do line = 1 + bytes.count(data[:min(at, len(data))], []u8{'\n'})
+		mesh_destroy(&m)
+		return {}, err, line
+	}
+	m.normals = make([dynamic]Vec3, len(m.positions), allocator)
+	return m, .None, 0
+}
+
+// Appends the mesh as binary STL, each corner written as `scale * p + offset`, with
+// each triangle's normal as its corners give it (zero for a sliver) and no colour, as
+// 3D printing tools expect. The header says what wrote it and, unlike a text file's,
+// does not begin with "solid".
+mesh_write_stl :: proc(out: ^[dynamic]u8, positions: []Vec3, indices: []u32, scale: f32 = 1, offset := Vec3{}, pool: ^jobs.Pool = nil) {
+	triangles := len(indices) / 3
+	assert(triangles <= int(max(u32)), "STL counts triangles in 32 bits")
+	start := len(out)
+	resize(out, start + STL_HEADER + STL_ROW * triangles)
+	body := out[start:]
+	mem.set(&body[0], ' ', 80)
+	copy(body[:80], "Binary STL written by Sculpt")
+	(^u32le)(&body[80])^ = u32le(triangles)
+	Fill :: struct {
+		positions: []Vec3,
+		indices:   []u32,
+		scale:     f32,
+		offset:    Vec3,
+		rows:      []u8,
+	}
+	f := Fill{positions, indices, scale, offset, body[STL_HEADER:]}
+	jobs.parallel_ranges(pool, triangles, &f, proc(data: rawptr, lo, hi: int) {
+		f := cast(^Fill)data
+		for t in lo ..< hi {
+			row: [12]f32
+			corners: [3]Vec3
+			for c in 0 ..< 3 {
+				q := f.positions[f.indices[3 * t + c]]
+				if f.scale != 1 || f.offset != {} do q = q * f.scale + f.offset // only then, which keeps -0
+				corners[c] = q
+			}
+			n := linalg.cross(corners[1] - corners[0], corners[2] - corners[0])
+			if length := linalg.length(n); length > 0 do n /= length
+			row[0], row[1], row[2] = n.x, n.y, n.z
+			for c in 0 ..< 3 do for k in 0 ..< 3 do row[3 + 3 * c + k] = corners[c][k]
+			dst := f.rows[STL_ROW * t:]
+			mem.copy(&dst[0], &row, 48)
+			dst[48], dst[49] = 0, 0
 		}
 	}, RANGE_GRAIN)
 }

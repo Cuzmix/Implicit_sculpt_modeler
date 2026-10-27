@@ -216,6 +216,9 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   buffer and never touches the per-frame indirect commands the viewport recorded. The app draws at most one a frame
   after `nav_head_frame`, never mid-stroke or while the view moves, and only once its object's `thumb_key` has held
   for `THUMB_SETTLE`; the kit shows cells as `KIT_THUMBS_IMAGE` with `ui.image_part` and the smooth sampler.
+- `Thumbnail_View` (`thumbnail_view.odin`): the frame's draw items again into a small target of its own at
+  `THUMBNAIL_SUPERSAMPLE`, whole (chunks, groups, hidden and LOD cleared, as thumbnails are), a silhouette by black
+  colour and `look.x = -40` stops rather than a shader of its own. The app (thumbnail.odin) draws it only at rest.
 - `Pictures` (`pictures.odin`): an atlas of pictures the CPU decoded (Home's scene previews), 6 x 6 cells of
   `PICTURE_PX`, filled by `pictures_upload` on the frame's own command buffer at most `PICTURES_PER_FRAME` a frame
   through one transfer buffer mapped with `cycle = true`; a picture sits at its cell's top left (`picture_uv`). The

@@ -11,13 +11,14 @@ import "../render"
 // draws at the screen's rate whether or not anything changes, which keeps the CPU and
 // GPU awake and costs a tablet's battery. Once frames have changed nothing for
 // IDLE_AFTER (no input, nothing held down, the same panels, nothing redrawn in the
-// viewport, no stroke, replay, script, studio samples, thumbnails or Home's pictures
-// under way), the loop waits for the next event before each frame, as an app with
-// retained panels would, waking at least every IDLE_TICK so timers (autosave, the
-// Blender link, work that finished on another thread) still come through. Any event
-// ends the rest at once, and the frame it starts reads that input, so the first stroke
-// after a rest is not late. "Changed nothing" is judged from what was drawn, not from a list of what might
-// animate: a panel fading or a progress bar moving changes the interface's triangles.
+// viewport, no stroke, replay, script, studio samples, thumbnails, Home's pictures or
+// a thumbnail view waiting to be drawn), the loop waits for the next event before each
+// frame, as an app with retained panels would, waking at least every IDLE_TICK so
+// timers (autosave, the Blender link, work that finished on another thread) still come
+// through. Any event ends the rest at once, and the frame it starts reads that input, so
+// the first stroke after a rest is not late. "Changed nothing" is judged from what was
+// drawn, not from a list of what might animate: a panel fading or a progress bar moving
+// changes the interface's triangles.
 IDLE_AFTER :: 1 * time.Second
 IDLE_TICK :: 100 // milliseconds
 
@@ -66,7 +67,7 @@ idle_note :: proc(app: ^App, drawn: render.Viewport_Stats, dabs: int) {
 	id.thumbs = app.thumb_slots.drawn
 	held := app.device.down != {} || app.touch.fingers.count > 0 || app.ui.pie.space_down
 	busy := app.stroke.active || replay_busy(app) || timelapse_capturing(app) || app.script.running ||
-		(studio_running(app) && !render_running(app) && app.studio.samples < int(app.studio_samples)) || render_busy(app) || home_busy(app)
+		(studio_running(app) && !render_running(app) && app.studio.samples < int(app.studio_samples)) || render_busy(app) || home_busy(app) || app.thumbnail.due
 	viewport := !drawn.partial || drawn.redrawn_px > 0 || drawn.cache_redrawn
 	// The view settles into full detail LOD_SETTLE after it stops: that redraw is
 	// timed, not driven by input, so the quiet run waits for it.

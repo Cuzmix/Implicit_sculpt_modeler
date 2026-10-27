@@ -239,3 +239,22 @@ file_read_any_reads_paths_and_uris :: proc(t: ^testing.T) {
 	testing.expect(t, uri == nil && uri_err != nil)
 	free_all(context.temp_allocator)
 }
+
+// A mesh file's reader comes from its extension, in any case, or for a content:// URI
+// without one from its bytes: a binary STL by its length matching its count.
+@(test)
+mesh_file_kind_reads_names_and_bytes :: proc(t: ^testing.T) {
+	testing.expect_value(t, mesh_file_kind("rock.OBJ", nil), Mesh_Kind.OBJ)
+	testing.expect_value(t, mesh_file_kind("rock.ply", nil), Mesh_Kind.PLY)
+	testing.expect_value(t, mesh_file_kind("C:\\prints\\Rock.Stl", nil), Mesh_Kind.STL)
+	testing.expect_value(t, mesh_file_kind("rock.png", nil), Mesh_Kind.None)
+	uri := "content://com.android.providers.downloads.documents/document/42"
+	testing.expect_value(t, mesh_file_kind(uri, transmute([]u8)string("ply\nformat ascii 1.0\n")), Mesh_Kind.PLY)
+	testing.expect_value(t, mesh_file_kind(uri, transmute([]u8)string("solid rock\n")), Mesh_Kind.STL)
+	testing.expect_value(t, mesh_file_kind(uri, transmute([]u8)string("v 0 0 0\n")), Mesh_Kind.OBJ)
+	binary: [geom.STL_HEADER + 2 * geom.STL_ROW]u8
+	binary[80] = 2
+	testing.expect_value(t, mesh_file_kind(uri, binary[:]), Mesh_Kind.STL)
+	testing.expect_value(t, mesh_file_kind(uri, binary[:len(binary) - 1]), Mesh_Kind.OBJ)
+	free_all(context.temp_allocator)
+}

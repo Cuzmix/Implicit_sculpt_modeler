@@ -348,3 +348,78 @@ byte_reader_stops_at_the_end :: proc(t: ^testing.T) {
 	testing.expect_value(t, byte_get(&r, u8), 0)
 	testing.expect(t, !r.ok, "a read past the end")
 }
+
+// Binary STL keeps every corner's bits; welded by mesh_clean, the triangles come back
+// as the sphere they were. A text file reads its loops, a four-corner one as two
+// triangles, and a binary file whose header starts with "solid" still reads as binary.
+@(test)
+stl_round_trips_and_reads_text :: proc(t: ^testing.T) {
+	pool: jobs.Pool
+	jobs.pool_init(&pool, 3)
+	defer jobs.pool_destroy(&pool)
+	sphere := icosphere(3)
+	defer mesh_destroy(&sphere)
+	sphere.positions[1] = {-0.0, 1.5e-45, 3.4e38}
+
+	stl := make([dynamic]u8)
+	defer delete(stl)
+	mesh_write_stl(&stl, sphere.positions[:], sphere.indices[:], pool = &pool)
+	testing.expect_value(t, len(stl), STL_HEADER + STL_ROW * len(sphere.indices) / 3)
+	read, err, _ := mesh_read_stl(stl[:], &pool)
+	defer mesh_destroy(&read)
+	testing.expect_value(t, err, Mesh_File_Error.None)
+	testing.expect_value(t, len(read.positions), len(sphere.indices))
+	for c, i in sphere.indices {
+		if transmute([3]u32)read.positions[i] != transmute([3]u32)sphere.positions[c] {
+			testing.expectf(t, false, "corner %d moved", i)
+			break
+		}
+	}
+	report, clean_err := mesh_clean(&read, &pool)
+	testing.expect_value(t, clean_err, Mesh_File_Error.None)
+	testing.expect_value(t, len(read.positions), len(sphere.positions))
+	testing.expect_value(t, report.welded, len(sphere.indices) - len(sphere.positions))
+
+	// The same bytes with a header that looks like text, as some writers make it.
+	copy(stl[:], "solid exported")
+	as_binary, binary_err, _ := mesh_read_stl(stl[:], &pool)
+	defer mesh_destroy(&as_binary)
+	testing.expect_value(t, binary_err, Mesh_File_Error.None)
+	testing.expect_value(t, len(as_binary.indices), len(sphere.indices))
+	_, short, _ := mesh_read_stl(stl[:len(stl) - 7], &pool)
+	testing.expect_value(t, short, Mesh_File_Error.Truncated)
+
+	text := `solid square
+  facet normal 0 0 1
+    outer loop
+      vertex 0 0 0
+      vertex 1 0 0
+      vertex 1 1 0
+      vertex 0 1 0
+    endloop
+  endfacet
+  facet normal 0 0 -1
+    outer loop
+      vertex 0 0 0
+      vertex 1 1 -1e0
+      vertex 1 0 0
+    endloop
+  endfacet
+endsolid square
+`
+	square, text_err, _ := mesh_read_stl(text_bytes(text), &pool)
+	defer mesh_destroy(&square)
+	testing.expect_value(t, text_err, Mesh_File_Error.None)
+	testing.expect_value(t, len(square.positions), 7)
+	testing.expect(t, slice.equal(square.indices[:], []u32{0, 1, 2, 0, 2, 3, 4, 5, 6}))
+	testing.expect_value(t, square.positions[5], Vec3{1, 1, -1})
+
+	_, bad, line := mesh_read_stl(text_bytes("solid x\n facet normal 0 0 1\n  outer loop\n   vertex 0 0 zero\n"), &pool)
+	testing.expect_value(t, bad, Mesh_File_Error.Bad_Number)
+	testing.expect_value(t, line, 4)
+	_, empty, _ := mesh_read_stl(text_bytes("solid x\nendsolid x\n"), &pool)
+	testing.expect_value(t, empty, Mesh_File_Error.Empty)
+	_, other, _ := mesh_read_stl(text_bytes("not a mesh"), &pool)
+	testing.expect_value(t, other, Mesh_File_Error.Not_Recognised)
+	free_all(context.temp_allocator)
+}

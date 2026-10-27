@@ -51,8 +51,7 @@ pack_mesh_free :: proc(m: ^Pack_Mesh) {
 // Checks one mesh of a pack on the install thread: parsed and cleaned with no pool, as
 // Import would, then dropped. "" when it reads, otherwise why not ("line 4: ...").
 pack_mesh_check :: proc(name: string, data: []u8) -> (read: Pack_Mesh_Read, failed: string) {
-	ply, _ := mesh_file_kind(name, data)
-	mesh, _, err, line := mesh_file_parse(data, ply, nil)
+	mesh, _, err, line := mesh_file_parse(data, mesh_file_kind(name, data), nil)
 	if err != .None {
 		if line > 0 do return {}, fmt.tprintf("line %d: %s", line, geom.MESH_FILE_ERROR_TEXT[err])
 		return {}, geom.MESH_FILE_ERROR_TEXT[err]
