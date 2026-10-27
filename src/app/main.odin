@@ -1066,17 +1066,18 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	{
 		// The voxel objects: how many, their bricks, and what their fields, surfaces and undo
 		// steps hold.
-		voxel_objects, bricks, field, surface, undo := 0, 0, 0, 0, 0
+		voxel_objects, bricks, field, surface, undo, resolution := 0, 0, 0, 0, 0, 0
 		for obj in app.scene.objects {
 			vp := obj.voxel
 			if vp == nil do continue
 			voxel_objects += 1
+			resolution = max(resolution, vp.resolution)
 			bricks += voxel.volume_brick_count(&vp.clay.volume)
 			field += voxel.volume_bytes(&vp.clay.volume)
 			surface += voxel.surface_bytes(&vp.clay.surface)
 			undo += voxel.clay_undo_bytes(&vp.clay)
 		}
-		fmt.printfln("voxel_objects=%d voxel_bricks=%d voxel_field_mb=%.1f voxel_surface_mb=%.1f voxel_undo_mb=%.2f", voxel_objects, bricks, f64(field) / (1 << 20), f64(surface) / (1 << 20), f64(undo) / (1 << 20))
+		fmt.printfln("voxel_objects=%d voxel_resolution=%d voxel_bricks=%d voxel_field_mb=%.1f voxel_surface_mb=%.1f voxel_undo_mb=%.2f", voxel_objects, resolution, bricks, f64(field) / (1 << 20), f64(surface) / (1 << 20), f64(undo) / (1 << 20))
 	}
 	{
 		off, ghosts := scene_view_counts(&app)

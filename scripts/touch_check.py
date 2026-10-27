@@ -6604,6 +6604,27 @@ def voxel_mesh_converts_to_voxels_and_back():
 
 
 @scenario
+def voxel_resolution_steps_up_and_down_as_undo_steps():
+    """Res+ (from the command palette) doubles a 64-across voxel sphere to 128 as one undo step and
+    Res- halves it back to 64 as another; Ctrl+Z returns it to 128, and a stroke then sculpts the
+    finer clay, which drops the redo step as any stroke does."""
+    s = Script()
+    s.press("k", ("ctrl",))
+    s.type("res+")
+    s.press("Return")
+    s.wait(6)
+    s.press("k", ("ctrl",))
+    s.type("res-")
+    s.press("Return")
+    s.wait(6)
+    s.press("z", ("ctrl",))
+    s.wait(6)
+    strokes(s, 1)
+    return s, ["--voxels=64"], camera_still({"voxel_objects": near(1), "voxel_resolution": near(128), "dabs": lambda v: int(v) > 0,
+                                            "palette": near(0), "undo_steps": near(2), "redo_steps": near(0)})
+
+
+@scenario
 def voxel_object_deleted_comes_back_with_undo():
     """Delete takes the voxel object out as one undo step and Ctrl+Z brings it back, clay and all; a stroke then sculpts it."""
     s = Script()
