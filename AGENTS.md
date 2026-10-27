@@ -30,7 +30,7 @@ skill whose description fits the request BEFORE you form a plan.
     python scripts\gate.py                          # section 6 in one command: check, test, build, smoke, touch (+ wincheck, androidcheck on Linux)
     build.bat check                                   # the gate: odin check of every package + the skill mirror check
     build.bat                                         # debug app -> build\sculpt.exe (tracking allocator: a leak exits 1)
-    build.bat test                                    # odin test on geom, camera, sculpt, jobs, gizmo, png_write, zip, voxel, ui, app
+    build.bat test                                    # odin test on geom, camera, sculpt, jobs, gizmo, png_write, zip, voxel, ui, luau, app
     python scripts\test_only.py sculpt 'deform_*'     # just those tests of one package, while working
     build.bat smoke                                   # 300 frames under GPU validation, SDL_ASSERT=abort
     python scripts\touch_check.py ['long_press*']    # scripted finger, pen and mouse scenarios (a desktop simulation), in parallel on Linux
@@ -55,17 +55,18 @@ skill whose description fits the request BEFORE you form a plan.
 | `src/jobs` | the persistent worker pool (`parallel_for`, `parallel_ranges`) |
 | `src/zip` | ZIP archives in, as content packs come: entries, names checked against zip slip and case clashes, inflating capped by the declared size |
 | `src/bench` | the headless CPU benchmark (markdown tables) |
+| `src/luau` | the binding to Luau (script plugins): the C API the plugins use, linked from `deps/luau` on the desktop builds only (`AVAILABLE`) |
 | `src/voxel` | voxel sculpting: narrow-band SDF in 8³ bricks, Add/Subtract/Smooth/Flatten/Inflate dabs, surface nets into mesh slots, per-brick undo, band repair, `SVOX` file section, conversion to a `Mesh` |
 | `src/sdf_trial` | the standalone SDF/voxel comparison spike (not in the build scripts) |
 | `android/` | the Android app: Gradle project, manifest, `app/jni/CMakeLists.txt` (SDL3, stb and `src/app` built by Odin into `libmain.so`), `android_main.c` |
-| `scripts/` | `setup_deps.*`, `versions.env` (the pins), `gate.py` (the done gate in one command), `test_only.py` (some tests of one package), `agents_sync.py` (skill mirror and validation), `ppm.py` (view and diff viewport dumps), `touch_check.py` (touch, pen and camera scenarios), `export_check.py` (a glTF or USD export through its validator and Blender), `link_check.py` (the Blender link's round trip through the add-on in bpy) |
+| `scripts/` | `setup_deps.*`, `versions.env` (the pins), `build_luau.py` (Luau from source, which setup_deps runs), `gate.py` (the done gate in one command), `test_only.py` (some tests of one package), `agents_sync.py` (skill mirror and validation), `ppm.py` (view and diff viewport dumps), `touch_check.py` (touch, pen and camera scenarios), `export_check.py` (a glTF or USD export through its validator and Blender), `link_check.py` (the Blender link's round trip through the add-on in bpy) |
 | `tools/blender/` | the Blender add-on of the Blender link (`sculpt_link`, Python, GPL-3.0-or-later as Blender requires): outside the build, never in the APK |
 | `deps/`, `build/` | ignored: the pinned toolchain and third-party sources; build outputs and dumps |
 | `.vscode/`, `.claude/`, `.agents/` | tasks and launch configurations; skills, agents and permissions; the generated skill mirror (never edited by hand) |
 
 ## 5. Hard rules
 - Odin is pinned (`scripts/versions.env`, `deps/odin`): never write from memory of older Odin; grep the install.
-- Package boundaries: `geom`, `camera`, `gizmo`, `jobs`, `zip` and `voxel` know nothing of rendering or UI; `ui` knows nothing of SDL or `render`; only `render` and `app`
+- Package boundaries: `geom`, `camera`, `gizmo`, `jobs`, `zip`, `voxel` and `luau` know nothing of rendering or UI; `ui` knows nothing of SDL or `render`; only `render` and `app`
   import `vendor:sdl3`; `bench` never imports `render` or `app`; `sdf_trial` stands alone.
 - Determinism: serial and parallel results are bit-identical and tests compare them; no map order decides output.
 - Allocations inside jobs use `runtime.heap_allocator()` for both make and delete; only the frame loop and the setup

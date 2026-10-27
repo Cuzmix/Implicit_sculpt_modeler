@@ -62,7 +62,11 @@ re-check the stores' pages before a first submission, because they move every ye
 
 ## Code and network
 - No downloading or running code after review (Apple 2.5.2; Play device and network abuse policy): brushes, alphas,
-  materials and scenes are data files, never scripts or plug-ins loaded at runtime.
+  materials and scenes are data files, never scripts or plug-ins loaded at runtime. The one exception is script
+  plugins (Luau, `src/app/plugins.odin`), which exist only in the Windows and Linux desktop builds
+  (`luau.AVAILABLE` is false for Android and any iPad build, so no Luau is linked there), run sandboxed (no files,
+  network or processes; memory and step budgets) and are never fetched by the app: no plugin store or download.
+  Bringing them to a tablet needs its own design against 2.5.2 (at most scripts the person writes in the app).
 - Encryption: the app uses none beyond the OS's HTTPS, so iOS builds set `ITSAppUsesNonExemptEncryption` to false.
 
 ## Payments
@@ -84,7 +88,8 @@ re-check the stores' pages before a first submission, because they move every ye
 ## Licences
 - Every third-party piece we ship keeps its licence text and appears in an About > Licences screen: SDL3 (zlib),
   Inter (OFL 1.1, its licence beside the font files), Lucide (ISC), stb (public domain or MIT),
-  kb_text_shape and anything added later. A new dependency is added there in the same change.
+  kb_text_shape, Luau (MIT, with Lua's MIT notice; its texts in the repository's assets/licenses folder, desktop builds only; Luau asks for "Luau"
+  in user-facing docs) and anything added later. A new dependency is added there in the same change.
 
 ## Before calling a change done
 - Name in your report which of the sections above the change touches and how it keeps to them, or say "no store

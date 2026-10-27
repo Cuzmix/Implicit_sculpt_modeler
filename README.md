@@ -13,6 +13,7 @@ A performance-focused sculpting prototype in Odin, using SDL3 + SDL_GPU for rend
 | `src/gizmo` | Move tool gizmo math: projection, handle picking (arms, plane squares, rings, the scale disc), axis, plane, turn and scale drags, snapping, the Euler inverse; no rendering or UI imports |
 | `src/sculpt` | Brush dabs on a `geom.Mesh`: mesh split into nodes that own contiguous vertex ranges, parallel brushes (Draw, Smooth, Clay, Flatten, Inflate, Pinch, Crease, Grab) with X/Y/Z symmetry, pen tilt and alphas (a grey image that shapes each dab), a per-vertex mask, per-frame normal updates, dirty vertex ranges for upload, stroke undo/redo that saves only the nodes a stroke touched (512 MB cap per object), simplified copies of groups of nodes rebuilt between strokes, subdivision levels, HD detail sculpted a window at a time above the top level, dynamic topology (brushes split and collapse edges as they go), levels in and out of the scene file |
 | `src/ui` | The interface kit: immediate-mode containers and widgets (buttons, segmented controls, switches, sliders, values to drag, text fields, selects, brush tiles, list rows, areas to draw into), hit testing, the gesture arena that settles whether a finger's press is a tap, a drag or a scroll, multi-finger gesture measurement (`fingers.odin`), antialiased shapes tessellated on the CPU, text in Inter and icons in Lucide through fontstash; it imports neither SDL nor the renderer, so its tests run headless |
+| `src/luau` | The binding to Luau, the language of script plugins: the part of its C API the plugins use, linked from `deps/luau` on the Windows and Linux builds only (see Script plugins) |
 | `src/jobs` | Persistent worker pool (`parallel_for`) used by sculpt and mesh setup |
 | `src/bench` | Headless sculpt benchmark at chosen mesh sizes (no window or GPU) |
 | `src/voxel` | Voxel sculpting core: a signed distance field in a narrow band of 8³ bricks (16-bit values, tiles for the solid inside and the empty outside), Add, Subtract, Smooth, Flatten and Inflate brushes, a surface meshed by naive surface nets a 16³ node at a time into slots the GPU buffers upload in place, per-brick undo, band repair at a stroke's end, the clay's scene-file section and the conversion to a plain mesh (see Voxel sculpting below) |
@@ -24,7 +25,7 @@ The 3D viewport is rendered by `render` into an offscreen texture that the inter
 
 ## Pinned versions
 
-See `scripts/versions.env`: Odin `dev-2026-10`, SDL `3.4.18` (Linux; Windows uses the SDL3 shipped with Odin).
+See `scripts/versions.env`: Odin `dev-2026-10`, SDL `3.4.18` (Linux; Windows uses the SDL3 shipped with Odin), Luau `0.744` (built from source by `scripts/build_luau.py`, which `setup_deps` runs: clang++ on Linux, Visual Studio's cl on Windows).
 
 ## Linux
 
@@ -34,7 +35,7 @@ See `scripts/versions.env`: Odin `dev-2026-10`, SDL `3.4.18` (Linux; Windows use
 
 ./build.sh            # debug build with allocation tracking -> build/sculpt
 ./build.sh release    # optimized build
-./build.sh test       # unit tests (geom, camera, sculpt, jobs, gizmo, png_write, zip, ui, app)
+./build.sh test       # unit tests (geom, camera, sculpt, jobs, gizmo, png_write, zip, voxel, ui, luau, app)
 ./build.sh check      # odin check of every package with the strict flags, then the agent-file mirror check (scripts/agents_sync.py)
 ./build.sh run -- --vertices=10000000
 ./build.sh smoke      # 300 frames in GPU debug mode; non-zero exit on assert, GPU error or leak
@@ -128,6 +129,40 @@ A saved macro takes the first of 16 numbered slots and is Run macro N, listed in
 Menu > Macros (or Search) opens the Macros panel in the tray's place, as Settings and Help open: Record macro (Stop recording while one is on) and Run script at its top, then each macro kept, by name with its keys and gestures under it ("Macro 3, no key" for none), and four buttons: Run, Key (the Assign key popover, as Ctrl+Alt+click on Run gives too), Rename (a field under the row; Enter applies it, and the file's first line changes with it) and Delete, which asks for a second tap on its bin within three seconds ("Tap the bin again to delete it") and then deletes the macro and its file. The note at its foot names the folder the files are in.
 
 Run script (Menu > Macros, or Search) picks a command script file (`.cmd`, or `.txt`) with the system's file dialog and runs it as a macro runs, without keeping it: on what is selected, each command its own undo step, a line that does nothing stopping it with a note, and a file with an error running none of it ("Cannot run bevel.cmd: bevel.cmd:2: no command is named ..."). `wait` and `new_scene` are for start-up scripts only (`--run`), and it is not offered while a recording, a script or a macro runs. The exit stats add `macros`, `macro_recording`, `macro_entries`, `macro_left_out`, `macros_run`, `scripts_run` (script files run) and `macro_steps` (the statements macros and script files ran).
+
+## Script plugins
+
+On the Windows and Linux builds, a script plugin is a `.luau` file in the `plugins` folder beside the settings file (`<name>-plugins` for a settings file given with `--settings-file`), written in [Luau](https://luau.org/), the typed Lua that Roblox made and keeps for running code it does not trust. The app reads the folder at start, in file-name order, and again on Reload plugins (Menu > Macros, or Search). A plugin's top level registers commands; each command's `run` changes the scene only through `sculpt.run`, which runs command-script text (see Command scripts above) as a macro does:
+
+```lua
+sculpt.command{
+    name = "Smooth and subdivide",
+    help = "Smooths the selected object twice, then adds a level.",
+    run = function()
+        sculpt.run("set smooth_steps 2; set smooth_strength 0.5; smooth_all")
+        local at = sculpt.selected()
+        if at and sculpt.objects()[at].vertices < 1000000 then
+            sculpt.run("subdivide")
+        end
+    end,
+}
+```
+
+| Call | Where | What it does |
+| --- | --- | --- |
+| `sculpt.command{name, help, run}` | top level only | Registers a command: `name` 1 to 48 bytes (no line breaks or `/`), unique in its file; `help` at most 200 bytes, optional; `run` a function |
+| `sculpt.run(text)` | in a `run` only | Runs the statements now, each its own undo step. Errors in the text, `wait`, `new_scene` and the commands a script cannot run raise an error before any of it runs; a statement that does nothing raises `line N: <statement> did nothing (why)`, keeping the steps before it |
+| `sculpt.objects()` | anywhere | A list of `{name, vertices, triangles, selected, shown}`, one an object, in the scene's order |
+| `sculpt.selected()` | anywhere | The selected object's number from 1, or nil |
+| `sculpt.get(key)` | anywhere | A setting as `settings.txt` writes it (a string), or a value scripts set (`smooth_steps`) |
+| `sculpt.note(text)` | in a `run` only | Shows a note (at most 200 bytes), which stays in place of the run's own |
+| `print(...)` | anywhere | One line on the console after the plugin's file; the Macros panel shows the last |
+
+Each command is Run plugin N, listed in Search, Settings > Keys and the Macros panel as "Plugin: <name>", and, like a macro, it can take a key (Ctrl+Alt+click on its Run button), a pie slot or a star. A command keeps its slot by its file and name (`plugin_slot <n> <file>/<name>` in the settings), so a key stays on it when other plugins come and go; a command no plugin registers any more stays listed as missing in the Macros panel, with a bin to forget it and its key. Running one waits for the next frame's start, as a macro does, and is not offered while a recording, a script, a macro, a stroke or drag, or a save or file dialog is under way; a finished run says "Ran plugin <name>: N steps", and one that stopped says where and why ("Plugin Bevel stopped after 1 step: bevel.luau:7: line 2: remesh did nothing (...)"), which the panel also shows under the file.
+
+Each plugin runs in a Luau VM of its own, sandboxed: Luau's standard libraries less `getfenv`, `setfenv`, `debug` and `os`, so there is no file, process, network or clock access, and nothing to load code with but the plugin's own source, which the app compiles (bytecode is never read from a file); the built-ins, `sculpt` and the globals table are read-only, and a plugin's own globals stay its own. `math.random` starts from the same seed every run, so a plugin does the same each time. A plugin's top level may pass 5 million safepoints (calls and loop turns) and each run of a command 50 million, about half a second on the test VM (0.5 s in a release build, 0.7 s in a debug one), after which it stops with "ran too long", which its own `pcall` cannot catch; work inside `sculpt.run` is the app's and does not count, and a single built-in call (a string pattern, `table.sort`) runs between safepoints. A VM may hold 64 MB, past which it stops with "not enough memory". A plugin that fails to load (a syntax error, an error at its top level, either budget) shows the error under its file in the panel, its commands go missing, and the other plugins load as usual. At most 64 plugins of at most 1 MB each and 64 commands in all are read; more files are counted in the panel. A run that keeps no settings (`--frames`, the benchmarks, `--no-settings`) loads no plugins. The Android build has none: the app stores do not allow code that was not reviewed, and Luau is not built into it. The exit stats add `plugins` (loaded), `plugin_commands`, `plugin_errors` (loads and runs that failed), `plugin_runs` and `plugin_steps` (statements `sculpt.run` ran).
+
+Luau (MIT, Roblox, built on Lua's MIT code) is built from source at the tag in `scripts/versions.env` by `scripts/build_luau.py`, which `setup_deps` runs; its licences are in `assets/licenses`.
 
 ## Benchmark
 

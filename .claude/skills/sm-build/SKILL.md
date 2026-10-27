@@ -8,10 +8,10 @@ description: Build, run, test and verify the sculpt modeler through build.bat (W
 ## One entry point
 | Command (Windows; Linux is `./build.sh <mode>`) | What it does |
 |---|---|
-| `build.bat check` | `odin check` of all thirteen packages with the strict flags (`-no-entry-point`: the libraries have no `main`), then `python scripts/agents_sync.py --check`. No link, no shaders, no `build\`. The gate: run it first and last |
+| `build.bat check` | `odin check` of all fourteen packages with the strict flags (`-no-entry-point`: the libraries have no `main`), then `python scripts/agents_sync.py --check`. No link, no shaders, no `build\`. The gate: run it first and last |
 | `build.bat` | the debug app, `-debug`, into `build\sculpt.exe`; `ODIN_DEBUG` wraps the allocator in `mem.Tracking_Allocator` and the process exits 1 on any leak or bad free; copies `SDL3.dll` from `deps\odin\vendor\sdl3` next to it |
 | `build.bat release` | `-o:speed -no-bounds-check`: the only build whose timings count (sm-perf) |
-| `build.bat test` | `odin test` on geom, camera, sculpt, jobs, gizmo, png_write, zip, ui and app in that order, stopping at the first failing package; render has no tests, and app's need no window (they test pure logic such as the command registry); the runner tracks memory, so a leak fails a test |
+| `build.bat test` | `odin test` on geom, camera, sculpt, voxel, jobs, gizmo, png_write, zip, ui, luau and app in that order, stopping at the first failing package; render has no tests, and app's need no window (they test pure logic such as the command registry); the runner tracks memory, so a leak fails a test |
 | `build.bat run -- <args>` | debug build, then run. **build.bat forwards at most five arguments** (`%2 %3 %4 %5 %6`); for more, run `build\sculpt.exe` yourself after `build.bat` |
 | `build.bat smoke` | debug build, then `SDL_ASSERT=abort build\sculpt.exe --frames=300 --gpu-debug`: validation on, an SDL assert aborts, a leak exits 1. Needs a display |
 | `build\sculpt.exe --frames=60 --run=setup.cmd` (or `--script="set rebuild_even 500000; rebuild; brush clay"` on Linux) | set a run up by command script (README "Command scripts"): checked whole first, exit 2 on an error or a statement that does nothing; `--frames` and `--ui-events` count from its end, and nothing it did is in the History |
@@ -26,6 +26,11 @@ description: Build, run, test and verify the sculpt modeler through build.bat (W
 | `deps\odin\odin.exe check src\<pkg> -no-entry-point -collection:deps=deps -vet -strict-style -warnings-as-errors` | one package, no binary: what `check` runs nine times |
 | `deps\odin\odin.exe build src\sdf_trial -o:speed -collection:deps=deps -out:build\sdf_trial.exe` | the SDF spike (sm-sdf); not in the scripts |
 
+- Luau (script plugins, README "Script plugins") is C++ built from source by `scripts/build_luau.py`, which
+  `setup_deps` runs: it clones `LUAU_TAG` (`scripts/versions.env`) into `deps/luau-src` and compiles the compiler and
+  VM into `deps/luau/libluau.a` (clang++) or `deps\luau\luau.lib` (cl `/MT`, after setup_deps' vcvarsall), as
+  Luau's `LUAU_EXTERN_C` build: C names, errors by longjmp. A build that links the app says "Luau missing" without
+  it; bumping the tag rebuilds it on the next setup_deps.
 - Shaders: `build.bat` recompiles `src/render/shaders/*.vert|*.frag` to `.spv` only when `glslangValidator` is on PATH
   (it is not on this machine), otherwise the committed `.spv` are used; `build.sh` calls it unconditionally under
   `set -e`, so Linux needs `glslang-tools` (the package list at the top of `scripts/setup_deps.sh`).

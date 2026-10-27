@@ -179,6 +179,8 @@ Command_Id :: enum u8 {
 	Run_Macro, // the argument is the slot, from 0 (macros.odin)
 	Macros,
 	Run_Script,
+	Run_Plugin, // the argument is the slot, from 0 (plugins.odin)
+	Reload_Plugins,
 	Library,
 	Pick_Pack,
 	Save_Pack,
@@ -1443,7 +1445,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Macros = {
 		label = "Macros...",
-		help = "Lists your macros, to run, rename, delete or give a key, and runs script files.",
+		help = "Lists your macros, to run, rename, delete or give a key, runs script files, and lists the script plugins.",
 		icon = ui.ICON_FILM,
 		run = proc(app: ^App, _: int) {macros_open(app)},
 	},
@@ -1453,6 +1455,21 @@ COMMANDS := [Command_Id]Command {
 		icon = ui.ICON_OPEN,
 		run = proc(app: ^App, _: int) {file_dialog(app, .Run_Script)},
 		enabled = proc(app: ^App, _: int) -> bool {return script_can_start(app)},
+	},
+	.Run_Plugin = {
+		label = "Run plugin",
+		help = "Runs a script plugin's command on what is selected, each command it runs its own undo step.",
+		icon = ui.ICON_PLAY,
+		args = PLUGIN_COMMANDS_MAX,
+		run = proc(app: ^App, arg: int) {plugin_run(app, arg)},
+		enabled = plugin_can_run,
+	},
+	.Reload_Plugins = {
+		label = "Reload plugins",
+		help = "Reads the script plugins in the plugins folder beside the settings again, after you change one.",
+		icon = ui.ICON_REDO,
+		run = proc(app: ^App, _: int) {plugins_reload_request(app)},
+		enabled = proc(app: ^App, _: int) -> bool {return PLUGINS_AVAILABLE && app.plugins.folder != "" && script_can_start(app)},
 	},
 	.Library = {
 		label = "Library...",
@@ -1633,6 +1650,8 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 		return fmt.tprintf("Pie %d", arg + 1)
 	case .Run_Macro:
 		return fmt.tprintf("Macro %d", arg + 1)
+	case .Run_Plugin:
+		return fmt.tprintf("Plugin %d", arg + 1)
 	case .Visibility_Slot:
 		return fmt.tprintf("Objects shown V%d", arg + 1)
 	case .Split_Object:
