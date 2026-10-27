@@ -23,7 +23,7 @@ sculptor_can_adjust :: proc(s: ^Sculptor) -> bool {
 	h := &s.history
 	if s.dyn != nil || h.recording || len(h.done) == 0 do return false
 	step := &h.done[len(h.done) - 1]
-	if len(step.shown) > 0 || len(step.grouped) > 0 || step.layer_op.active || step.layer_set.active do return false
+	if len(step.shown) > 0 || len(step.grouped) > 0 || step.layer_op.active || step.layer_set.active || step.layer_move.active || step.layer_stack.active do return false
 	for sv in step.saved {
 		if sv.full || sv.hidden != nil || sv.groups != nil || sv.indices != nil do return false
 		if sv.is_delta && (int(sv.delta_layer) >= len(s.layers.list) || s.layers.list[sv.delta_layer].delta[sv.node] == nil) do return false

@@ -1481,6 +1481,23 @@ def grow_visibility_from_the_section():
         "dabs": near(0), "undo_steps": near(1), "hidden_triangles": lambda v: 39000 < int(v) < 40900, "action_bar": is_text("hidden")})
 
 
+# The Layers section's Duplicate at 1600 x 900 with one layer and every option shown.
+LAYER_DUPLICATE = (1303, 541)
+
+
+@scenario
+def layer_duplicate_from_the_section():
+    """With a layer and Show every option on, a finger tap on the Layers section's Duplicate adds a hidden copy as one undo step (the script's layer is no step of the run's)."""
+    with open(settings_file(), "w") as f:
+        f.write("all_options 1\n")
+    s = Script()
+    palette_run(s, "object layers")
+    s.wait(10)
+    s.ftap(*LAYER_DUPLICATE)
+    s.wait(10)
+    return s, [f"--settings-file={settings_file()}", "--script=new_layer"], camera_still({"dabs": near(0), "layers": near(2), "undo_steps": near(1)})
+
+
 # The first-run tip's Skip tips button at 1600 x 900 (the card sits under the tool bar).
 COACH_SKIP = (960, 106)
 

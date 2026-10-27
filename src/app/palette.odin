@@ -149,6 +149,7 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.Morph_Store      = "morph target",
 	.Morph_Delete     = "morph target",
 	.New_Layer        = "sculpt layers record",
+	.Layer_Edit       = "sculpt layers copy flip negate combine order reorder apply flatten",
 	.Recall_Earlier   = "historyrecall local undo recall point",
 	.Recall_Later     = "historyrecall local undo recall point",
 	.Recall_Oldest    = "historyrecall local undo recall point first",

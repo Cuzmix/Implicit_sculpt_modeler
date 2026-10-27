@@ -57,6 +57,24 @@ Layer_Set :: struct {
 	visible:  bool,
 }
 
+// Two layers swapped by an undo step (a move up or down); undoing or redoing swaps them
+// back, so it is its own inverse.
+@(private)
+Layer_Move :: struct {
+	active: bool,
+	a, b:   int,
+}
+
+// Every layer at once, taken out by an undo step (Bake all): undoing or redoing swaps
+// this list and recording index with the live ones, so it is its own inverse and moves
+// no delta.
+@(private)
+Layer_Stack :: struct {
+	active:    bool,
+	list:      [dynamic]Sculpt_Layer,
+	recording: int,
+}
+
 // How far a layer's displacement shows.
 layer_weight :: #force_inline proc(l: Sculpt_Layer) -> f32 {return l.strength if l.visible else 0}
 
@@ -229,7 +247,7 @@ layer_take_stroke :: proc(s: ^Sculptor) {
 	h := &s.history
 	r := s.layers.recording - 1
 	if r < 0 || r >= len(s.layers.list) || s.dyn != nil do return
-	if h.current.layer_op.active || h.current.layer_set.active do return
+	if h.current.layer_op.active || h.current.layer_set.active || h.current.layer_move.active || h.current.layer_stack.active do return
 	l := &s.layers.list[r]
 	m := s.mesh
 	saved := len(h.current.saved)
@@ -271,6 +289,134 @@ layer_step_swap :: proc(s: ^Sculptor, step: ^Undo_Step) {
 		l.strength, set.strength = set.strength, l.strength
 		l.visible, set.visible = set.visible, l.visible
 	}
+	if mv := step.layer_move; mv.active do layer_swap(s, mv.a, mv.b)
+	if st := &step.layer_stack; st.active {
+		s.layers.list, st.list = st.list, s.layers.list
+		s.layers.recording, st.recording = st.recording, s.layers.recording
+	}
+}
+
+// Swaps layers a and b, the recording one staying recording.
+@(private = "file")
+layer_swap :: proc(s: ^Sculptor, a, b: int) {
+	list := s.layers.list[:]
+	list[a], list[b] = list[b], list[a]
+	r := &s.layers.recording
+	if r^ == a + 1 do r^ = b + 1
+	else if r^ == b + 1 do r^ = a + 1
+}
+
+// Adds a copy of layer `index` just above it, hidden so the surface stays as it is (its
+// eye shows it), as an undo step. Returns the copy's index, or -1 when there are already
+// MAX_SCULPT_LAYERS or dynamic topology is on.
+sculptor_layer_duplicate :: proc(s: ^Sculptor, index: int) -> int {
+	_ = sculptor_stroke_end(s)
+	if s.dyn != nil || index < 0 || index >= len(s.layers.list) || len(s.layers.list) >= MAX_SCULPT_LAYERS do return -1
+	from := s.layers.list[index]
+	a := s.history.allocator
+	l := Sculpt_Layer{strength = from.strength, visible = false, delta = make([][]Vec3, len(from.delta), a)}
+	for d, id in from.delta do if d != nil do l.delta[id] = slice.clone(d, a)
+	name := sculptor_layer_name(&from)
+	copy(l.name[:len(l.name) - 1], name)
+	copy(l.name[min(len(name), len(l.name) - 1):len(l.name) - 1], " copy")
+	sculptor_stroke_begin(s)
+	at := index + 1
+	inject_at(&s.layers.list, at, l)
+	layer_shift_recording(s, at, removed = false)
+	s.history.current.layer_op = {active = true, index = at}
+	_ = sculptor_stroke_end(s)
+	return at
+}
+
+// Turns layer `index`'s displacement the other way at the same strength, as an undo
+// step: the surface moves by twice what the layer shows. False when the layer moves
+// nothing or dynamic topology is on.
+sculptor_layer_invert :: proc(s: ^Sculptor, index: int) -> bool {
+	_ = sculptor_stroke_end(s)
+	// Under dynamic topology the list is empty (sculptor_dyn_enable bakes the layers).
+	if s.dyn != nil || index < 0 || index >= len(s.layers.list) do return false
+	l := &s.layers.list[index]
+	if !sculptor_layer_used(l^) do return false
+	sculptor_stroke_begin(s)
+	h := &s.history
+	// Marks the step as the layer's own, not a stroke a recording layer takes in or Adjust
+	// last stroke rescales; strength and visibility stay as they are.
+	h.current.layer_set = {active = true, index = index, strength = l.strength, visible = l.visible}
+	layer_displace(s, index, -2 * layer_weight(l^))
+	for &d, id in l.delta {
+		if d == nil do continue
+		flipped := make([]Vec3, len(d), h.allocator)
+		for x, v in d do flipped[v] = -x
+		append(&h.current.saved, Saved_Node{node = u32(id), delta = d, delta_layer = i32(index), is_delta = true})
+		d = flipped
+	}
+	return sculptor_stroke_end(s)
+}
+
+// Merges layer `index` into the one below it, as an undo step: that one takes what both
+// show (each displacement times its weight, so a hidden layer adds nothing) at full
+// strength and shown, and `index` goes; the surface does not move. False for the lowest
+// layer or under dynamic topology.
+sculptor_layer_merge_down :: proc(s: ^Sculptor, index: int) -> bool {
+	_ = sculptor_stroke_end(s)
+	if s.dyn != nil || index < 1 || index >= len(s.layers.list) do return false
+	sculptor_stroke_begin(s)
+	h := &s.history
+	top, below := s.layers.list[index], &s.layers.list[index - 1]
+	wt, wb := layer_weight(top), layer_weight(below^)
+	for id in 0 ..< len(below.delta) {
+		d, t := below.delta[id], top.delta[id]
+		below_moves, top_moves := d != nil && wb != 0, t != nil && wt != 0
+		// A node the merge leaves as it is keeps its slice, and one it zeroes becomes nil,
+		// as a layer holds nil where it moves nothing (sculptor_layer_used).
+		if !top_moves && (d == nil || wb == 1) do continue
+		if !below_moves && !top_moves {
+			append(&h.current.saved, Saved_Node{node = u32(id), delta = d, delta_layer = i32(index - 1), is_delta = true})
+			below.delta[id] = nil
+			continue
+		}
+		n := s.nodes[id].vert_count
+		merged := make([]Vec3, n, h.allocator)
+		for v in 0 ..< int(n) {
+			x: Vec3
+			if below_moves do x += wb * d[v]
+			if top_moves do x += wt * t[v]
+			merged[v] = x
+		}
+		append(&h.current.saved, Saved_Node{node = u32(id), delta = d, delta_layer = i32(index - 1), is_delta = true})
+		below.delta[id] = merged
+	}
+	h.current.layer_set = {active = true, index = index - 1, strength = below.strength, visible = below.visible}
+	below.strength, below.visible = 1, true
+	h.current.layer_op = {active = true, index = index, held = true, layer = top}
+	ordered_remove(&s.layers.list, index)
+	layer_shift_recording(s, index, removed = true)
+	return sculptor_stroke_end(s)
+}
+
+// Takes every layer out as one undo step, their work staying in the surface as plain
+// sculpting (Bake all): the step holds the list as it was, so nothing is copied and one
+// undo puts every layer back. False with no layers or under dynamic topology.
+sculptor_layers_bake :: proc(s: ^Sculptor) -> bool {
+	_ = sculptor_stroke_end(s)
+	if s.dyn != nil || len(s.layers.list) == 0 do return false
+	sculptor_stroke_begin(s)
+	s.history.current.layer_stack = {active = true, list = s.layers.list, recording = s.layers.recording}
+	s.layers.list, s.layers.recording = {}, 0
+	return sculptor_stroke_end(s)
+}
+
+// Swaps layer `index` with the one above (`up`) or below it, as an undo step: older steps
+// name layers by their place, so the order changes only through the history. False at
+// either end or under dynamic topology.
+sculptor_layer_move :: proc(s: ^Sculptor, index: int, up: bool) -> bool {
+	_ = sculptor_stroke_end(s)
+	other := index + 1 if up else index - 1
+	if s.dyn != nil || other < 0 || other >= len(s.layers.list) do return false
+	sculptor_stroke_begin(s)
+	layer_swap(s, index, other)
+	s.history.current.layer_move = {active = true, a = index, b = other}
+	return sculptor_stroke_end(s)
 }
 
 // Keeps the recording index on the same layer when one is removed or put back at `at`.

@@ -147,7 +147,14 @@ timeline_seek :: proc(app: ^App) {
 			tl.seeking = false
 			return
 		}
+		before := len(app.history.done)
 		if !history_step_toward(app, tl.target) {
+			tl.seeking = false
+			return
+		}
+		// Chained entries undo and redo together, so a target inside a chain is passed
+		// over: the seek stops on the far side rather than stepping back and forth.
+		if after := len(app.history.done); after != tl.target && (before < tl.target) != (after < tl.target) {
 			tl.seeking = false
 			return
 		}
