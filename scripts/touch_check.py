@@ -6528,6 +6528,25 @@ def voxel_convert_to_mesh_undoes_and_redoes():
 
 
 @scenario
+def voxel_mesh_converts_to_voxels_and_back():
+    """Convert to voxels (from the command palette) makes the mesh sphere a voxel object as one
+    undo step and a stroke on the clay another; two Ctrl+Z bring the mesh back. Undoing the swap
+    forgets the clay's strokes (as any rebuild does), so one redo step is left: the conversion."""
+    s = Script()
+    s.press("k", ("ctrl",))
+    s.type("convert to voxels")
+    s.press("Return")
+    s.wait(8)
+    strokes(s, 1)
+    s.press("z", ("ctrl",))
+    s.wait(4)
+    s.press("z", ("ctrl",))
+    s.wait(6)
+    return s, [], camera_still({"voxel_objects": near(0), "objects": near(1), "dabs": lambda v: int(v) > 0, "palette": near(0),
+                                "undo_steps": near(0), "redo_steps": near(1)})
+
+
+@scenario
 def voxel_object_deleted_comes_back_with_undo():
     """Delete takes the voxel object out as one undo step and Ctrl+Z brings it back, clay and all; a stroke then sculpts it."""
     s = Script()

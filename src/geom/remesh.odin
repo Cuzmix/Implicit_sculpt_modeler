@@ -31,8 +31,6 @@ import "../jobs"
 REMESH_MAX_LATTICE :: 4096 // lattice points along any axis (DynaMesh's top resolution)
 
 @(private = "file")
-FIX :: 1 << 16 // fixed-point steps per lattice step
-@(private = "file")
 EDGE_MARGIN :: 0.05 // vertices stay this far (in lattice steps) from lattice points
 @(private = "file")
 RELAX_ROUNDS :: 3
@@ -186,19 +184,9 @@ remesh_run :: proc(m: Mesh, h: f32, bounds: Aabb, split: int, op: Remesh_Op, poo
 		r.n[a] = int(extent[a] / h) + 4
 		if r.n[a] > REMESH_MAX_LATTICE + 4 do return {}, false
 	}
-	r.q = make([][3]i32, len(m.positions), context.temp_allocator)
-	jobs.parallel_ranges(pool, len(m.positions), &r, proc(data: rawptr, lo, hi: int) {
-		r := cast(^Remesher)data
-		for v in lo ..< hi {
-			l := (r.m.positions[v] - r.origin) / r.h
-			r.q[v] = {i32(math.round(l.x * FIX)), i32(math.round(l.y * FIX)), i32(math.round(l.z * FIX))}
-		}
-	}, RANGE_GRAIN)
-	for axis in 0 ..< 3 do cast_rays(&r, axis)
-	defer for &rays in r.rays {
-		delete(rays.first, runtime.heap_allocator())
-		delete(rays.hits, runtime.heap_allocator())
-	}
+	r.q = lattice_quantize(m, r.origin, h, pool, context.temp_allocator)
+	for axis in 0 ..< 3 do r.rays[axis] = lattice_rays_cast(m, r.q, r.origin, h, r.n, axis, split, BOOL_WEIGHT, pool, runtime.heap_allocator())
+	defer for &rays in r.rays do lattice_rays_destroy(&rays)
 	find_flips(&r)
 	defer {
 		delete(r.flip_e, runtime.heap_allocator())
@@ -222,23 +210,6 @@ remesh_run :: proc(m: Mesh, h: f32, bounds: Aabb, split: int, op: Remesh_Op, poo
 }
 
 @(private = "file")
-Hit :: struct {
-	w:    f32, // where along the ray, in lattice steps from the origin
-	wind: i32, // winding number just past this crossing
-}
-
-// Every lattice ray along one axis w, indexed u + nu * v, where u and v are the next
-// two axes after w (so u, v, w is right-handed).
-@(private = "file")
-Rays :: struct {
-	nu, nv: int,
-	op:     Remesh_Op,
-	first:  []u32, // ray r's crossings are hits[first[r]:first[r + 1]], sorted along it
-	hits:   []Hit,
-	cursor: []u32, // scratch while filling
-}
-
-@(private = "file")
 Remesher :: struct {
 	m:            Mesh,
 	pool:         ^jobs.Pool,
@@ -247,9 +218,8 @@ Remesher :: struct {
 	op:           Remesh_Op,
 	origin:       Vec3,
 	n:            [3]int,     // lattice points per axis
-	q:            [][3]i32,   // vertex positions in fixed point, lattice steps * FIX
-	rays:         [3]Rays,    // along x, y and z
-	axis:         int,        // the axis being cast (cast_rays jobs)
+	q:            [][3]i32,   // vertex positions in fixed point, lattice steps * LATTICE_FIX
+	rays:         [3]Lattice_Rays, // along x, y and z (lattice_rays.odin)
 	// Per x ray, where insideness changes: the lattice edges [e, e + 1] it changes on,
 	// and where. Stored like that ray's hits, flip_count[r] of them.
 	flip_e:       []i32,
@@ -266,100 +236,6 @@ Remesher :: struct {
 	out:          ^Mesh,
 	slabs:        [][dynamic]u32, // per k: the triangles of the cells there
 	slab_at:      []int,          // where each slab's indices go in the result
-}
-
-// Finds every crossing of the mesh with the lattice rays along `axis`.
-@(private = "file")
-cast_rays :: proc(r: ^Remesher, axis: int) {
-	r.axis = axis
-	rays := &r.rays[axis]
-	rays.nu, rays.nv = r.n[(axis + 1) % 3], r.n[(axis + 2) % 3]
-	rays.op = r.op
-	heap := runtime.heap_allocator()
-	rays.first = make([]u32, rays.nu * rays.nv + 1, heap)
-	tris := len(r.m.indices) / 3
-	jobs.parallel_ranges(r.pool, tris, r, proc(data: rawptr, lo, hi: int) {
-		r := cast(^Remesher)data
-		for t in lo ..< hi do triangle_hits(r, t, false)
-	}, 1 << 14)
-	for i in 1 ..< len(rays.first) do rays.first[i] += rays.first[i - 1]
-	rays.hits = make([]Hit, rays.first[len(rays.first) - 1], heap)
-	rays.cursor = slice.clone(rays.first, context.temp_allocator)
-	jobs.parallel_ranges(r.pool, tris, r, proc(data: rawptr, lo, hi: int) {
-		r := cast(^Remesher)data
-		for t in lo ..< hi do triangle_hits(r, t, true)
-	}, 1 << 14)
-	// Sort each ray's crossings along it, then sum the winding.
-	jobs.parallel_ranges(r.pool, rays.nu * rays.nv, rays, proc(data: rawptr, lo, hi: int) {
-		rays := cast(^Rays)data
-		for ray in lo ..< hi {
-			hs := rays.hits[rays.first[ray]:rays.first[ray + 1]]
-			for i in 1 ..< len(hs) {
-				x := hs[i]
-				k := i
-				for k > 0 && hs[k - 1].w > x.w {
-					hs[k] = hs[k - 1]
-					k -= 1
-				}
-				hs[k] = x
-			}
-			for i in 1 ..< len(hs) do hs[i].wind += hs[i - 1].wind
-		}
-	}, 1 << 12)
-}
-
-// Counts (or with `fill`, records) the crossings of triangle t with the rays along
-// r.axis. In the plane of the rays (u, v), a ray at a lattice point crosses the
-// triangle if it is inside all three edges, or on an edge that the top-left rule gives
-// to this triangle; computed exactly in 64-bit integers.
-@(private = "file")
-triangle_hits :: #force_inline proc(r: ^Remesher, t: int, fill: bool) {
-	w := r.axis
-	u, v := (w + 1) % 3, (w + 2) % 3
-	rays := &r.rays[w]
-	i0, i1, i2 := r.m.indices[3 * t], r.m.indices[3 * t + 1], r.m.indices[3 * t + 2]
-	a, b, c := r.q[i0], r.q[i1], r.q[i2]
-	au, av := i64(a[u]), i64(a[v])
-	bu, bv := i64(b[u]), i64(b[v])
-	cu, cv := i64(c[u]), i64(c[v])
-	area := (bu - au) * (cv - av) - (bv - av) * (cu - au)
-	if area == 0 do return
-	// Along +w a triangle facing -w is entered, raising the winding number.
-	delta: i32 = -1 if area > 0 else 1
-	if t >= r.split do delta *= BOOL_WEIGHT
-	aw := (r.m.positions[i0][w] - r.origin[w]) / r.h
-	bw := (r.m.positions[i1][w] - r.origin[w]) / r.h
-	cw := (r.m.positions[i2][w] - r.origin[w]) / r.h
-	if area < 0 {
-		bu, bv, cu, cv = cu, cv, bu, bv
-		bw, cw = cw, bw
-		area = -area
-	}
-	lo_u := (min(au, bu, cu) + FIX - 1) / FIX
-	hi_u := min(max(au, bu, cu) / FIX, i64(rays.nu - 1))
-	lo_v := (min(av, bv, cv) + FIX - 1) / FIX
-	hi_v := min(max(av, bv, cv) / FIX, i64(rays.nv - 1))
-	covers :: #force_inline proc(e, du, dv: i64) -> bool {
-		return e > 0 || (e == 0 && (dv < 0 || (dv == 0 && du < 0)))
-	}
-	for iv in lo_v ..= hi_v {
-		pv := iv * FIX
-		for iu in lo_u ..= hi_u {
-			pu := iu * FIX
-			e_ab := (bu - au) * (pv - av) - (bv - av) * (pu - au) // c's share
-			e_bc := (cu - bu) * (pv - bv) - (cv - bv) * (pu - bu) // a's share
-			e_ca := (au - cu) * (pv - cv) - (av - cv) * (pu - cu) // b's share
-			if !covers(e_ab, bu - au, bv - av) || !covers(e_bc, cu - bu, cv - bv) || !covers(e_ca, au - cu, av - cv) do continue
-			ray := int(iu) + rays.nu * int(iv)
-			if !fill {
-				sync.atomic_add_explicit(&rays.first[ray + 1], 1, .Relaxed)
-				continue
-			}
-			slot := sync.atomic_add_explicit(&rays.cursor[ray], 1, .Relaxed)
-			at := (f64(e_bc) * f64(aw) + f64(e_ca) * f64(bw) + f64(e_ab) * f64(cw)) / f64(area)
-			rays.hits[slot] = {w = f32(at), wind = delta}
-		}
-	}
 }
 
 // Where insideness changes along each x ray: on the lattice edge [e, e + 1] holding
@@ -458,13 +334,13 @@ count_vertices :: proc(r: ^Remesher) {
 // (k..k + 1): from the crossings of the ray along that edge, the one that changes its
 // insideness; the middle of the edge when that ray disagrees with the x rays.
 @(private = "file")
-crossing_on :: proc(rays: ^Rays, ray: int, lo: int) -> f32 {
+crossing_on :: proc(rays: ^Lattice_Rays, op: Remesh_Op, ray: int, lo: int) -> f32 {
 	hs := rays.hits[rays.first[ray]:rays.first[ray + 1]]
 	at := f32(lo) + 0.5
-	i, _ := slice.binary_search_by(hs, f32(lo), proc(h: Hit, w: f32) -> slice.Ordering {return .Less if h.w < w else .Greater})
+	i, _ := slice.binary_search_by(hs, f32(lo), proc(h: Lattice_Hit, w: f32) -> slice.Ordering {return .Less if h.w < w else .Greater})
 	for ; i < len(hs) && hs[i].w < f32(lo + 1); i += 1 {
 		prev: i32 = hs[i - 1].wind if i > 0 else 0
-		if inside(rays.op, prev) != inside(rays.op, hs[i].wind) do at = hs[i].w
+		if inside(op, prev) != inside(op, hs[i].wind) do at = hs[i].w
 	}
 	return clamp(at, f32(lo) + EDGE_MARGIN, f32(lo) + 1 - EDGE_MARGIN)
 }
@@ -517,7 +393,7 @@ place_vertices :: proc(r: ^Remesher) {
 						s := cast(^Strip)data
 						r := s.r
 						// The y ray through x = i, z = k.
-						w := crossing_on(&r.rays[1], s.k + r.n[2] * i, s.j)
+						w := crossing_on(&r.rays[1], r.op, s.k + r.n[2] * i, s.j)
 						r.out.positions[int(s.base) + rank] = r.origin + r.h * Vec3{f32(i), w, f32(s.k)}
 					})
 				}
@@ -527,7 +403,7 @@ place_vertices :: proc(r: ^Remesher) {
 						s := cast(^Strip)data
 						r := s.r
 						// The z ray through x = i, y = j.
-						w := crossing_on(&r.rays[2], i + r.n[0] * s.j, s.k)
+						w := crossing_on(&r.rays[2], r.op, i + r.n[0] * s.j, s.k)
 						r.out.positions[int(s.base) + rank] = r.origin + r.h * Vec3{f32(i), f32(s.j), w}
 					})
 				}

@@ -172,6 +172,7 @@ COMMAND_HOMES := #partial [Command_Id]Maybe(Kit_Section) {
 	.Make_Boolean          = .Booleans,
 	.Extract_Masked        = .Extract,
 	.Convert_To_Mesh       = .Voxels,
+	.Convert_To_Voxels     = .Voxels,
 	.Duplicate_Object      = .Objects,
 	.Delete_Object         = .Objects,
 	.Add_Object            = .Add,

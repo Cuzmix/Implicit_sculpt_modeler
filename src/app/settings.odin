@@ -177,6 +177,7 @@ SETTINGS := [?]Setting {
 	// The Scene and Object palettes' choices, and the tools'.
 	{"new_shape", K + offset_of(Kit_State, add_shape), geom.Primitive, 0, 0},
 	{"new_voxels", K + offset_of(Kit_State, add_voxel), bool, 0, 0},
+	{"voxel_across", K + offset_of(Kit_State, voxel_across), i32, 0, VOXELS_MAX},
 	{"mask_steps", U + offset_of(Ui_State, mask_steps), i32, 1, 50},
 	{"mask_shape", U + offset_of(Ui_State, mask_shape_kind), Mask_Shape_Kind, 0, 0},
 	{"layer_wide", U + offset_of(Ui_State, layer_wide), bool, 0, 0},

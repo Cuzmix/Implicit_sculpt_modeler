@@ -118,6 +118,7 @@ Command_Id :: enum u8 {
 	Live_Boolean,
 	Extract_Masked,
 	Convert_To_Mesh,
+	Convert_To_Voxels,
 	Adjust_Last,
 	Reset_Transform,
 	// The scene
@@ -990,6 +991,17 @@ COMMANDS := [Command_Id]Command {
 		enabled = proc(app: ^App, _: int) -> bool {
 			obj := selected_object(app)
 			return obj != nil && obj.voxel != nil
+		},
+	},
+	.Convert_To_Voxels = {
+		label = "Convert to voxels",
+		help = "Rebuilds the selected mesh object as clay sculpted as a volume, at the Voxels section's resolution; its levels, mask, layers and paint go, as one undo step.",
+		run = proc(app: ^App, _: int) {
+			if obj := selected_object(app); obj != nil do app.ui.scene_command = {kind = .Mesh_To_Voxels, voxels = voxel_across_chosen(app, obj)}
+		},
+		enabled = proc(app: ^App, _: int) -> bool {
+			obj := selected_object(app)
+			return obj != nil && obj.voxel == nil
 		},
 	},
 	.Reset_Transform = {
