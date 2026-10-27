@@ -1468,13 +1468,15 @@ Swatch_Result :: struct {
 }
 
 // A colour to pick from a palette or the history: a square `side` points (at least the
-// touch target) filled with `color`, or with `empty` a dim slot to fill. `selected` rings
-// it with the accent. `s` is its id and its tooltip.
-swatch :: proc(ctx: ^Context, s: string, color: Color, side: f32, selected := false, empty := false) -> (res: Swatch_Result) {
+// touch target) filled with `color`, or with `empty` a dim slot to fill; `width`, when
+// given, stretches it into a bar as wide (a colour field's well, which opens a picker).
+// `selected` rings it with the accent. `s` is its id and its tooltip.
+swatch :: proc(ctx: ^Context, s: string, color: Color, side: f32, selected := false, empty := false, width: f32 = 0) -> (res: Swatch_Result) {
 	ctx.controls += 1
 	t := ctx.theme
-	cell := place(ctx, {side, side})
-	vis := centered(cell, {side - 4, side - 4})
+	w := width if width > 0 else side
+	cell := place(ctx, {w, side})
+	vis := centered(cell, {w - 4, side - 4})
 	id := id_of(ctx, s)
 	hovered, held, clicked, _ := interact(ctx, id, hit_area(ctx, cell))
 	res.clicked, res.held = clicked, held
@@ -1486,7 +1488,7 @@ swatch :: proc(ctx: ^Context, s: string, color: Color, side: f32, selected := fa
 		stroke_rect(ctx, vis, t.radius_small, t.border_strong, 1)
 		if hovered || held do stroke_rect(ctx, vis, t.radius_small, color_fade(t.text, 0.6), 1.5)
 	}
-	if selected do stroke_rect(ctx, centered(cell, {side - 1, side - 1}), t.radius_small + 1, t.accent, 2)
+	if selected do stroke_rect(ctx, centered(cell, {w - 1, side - 1}), t.radius_small + 1, t.accent, 2)
 	res.long = secondary(ctx)
 	tip(ctx, id, vis, label_text(s))
 	return
