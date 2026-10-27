@@ -163,6 +163,9 @@ Kit_State :: struct {
 	macros_scroll:  f32,
 	macro_armed:    int,
 	macro_armed_at: f64,
+	// The library alpha whose Remove from library a first tap armed (from 1), and when.
+	alpha_armed:    int,
+	alpha_armed_at: f64,
 	tree_rows:      int,
 	// Select several (the Scene palette's switch): a tap on a row, or with the Move tool on an
 	// object, adds it to the selection or takes it out, as Shift does.

@@ -322,6 +322,8 @@ settings_load :: proc(app: ^App, path: string) {
 	on_preset := ""
 	// The dock's preset slots, by name, put in once the presets are read.
 	dock_presets: [DOCK_SLOTS]string
+	// The plain brush's alpha, by reference, put on before the preset, which brings its own.
+	plain_alpha := ""
 	lines: for line in strings.split_lines_iterator(&text) {
 		f := strings.fields(line, context.temp_allocator)
 		if len(f) < 2 do continue
@@ -406,9 +408,9 @@ settings_load :: proc(app: ^App, path: string) {
 				lock_plane = len(f) == 21 && f[19] == "1", connected = len(f) == 21 && f[20] == "1",
 			}
 			for k in 0 ..< 3 do v.color[k] = clamp(number(f[14 + k], 0), 0, 1)
-			// Only the built-in alphas are there at every start, in this order (alphas_init).
-			alpha := preset_unescape(f[9])
-			for name, shape in sculpt.ALPHA_SHAPE_NAMES do if strings.equal_fold(alpha, name) do v.alpha = int(shape)
+			// By reference: a built-in's name or a library alpha's `mine/<stem>`; one that is
+			// not there (taken out of the library) leaves the preset round.
+			v.alpha = alpha_find(app, preset_unescape(f[9]))
 			app.presets[app.preset_count].values = v
 			app.preset_count += 1
 			if !preset_rename(app, app.preset_count - 1, preset_unescape(f[1])) {
@@ -417,6 +419,8 @@ settings_load :: proc(app: ^App, path: string) {
 			}
 		case "brush_preset":
 			on_preset = strings.clone(preset_unescape(f[1]), context.temp_allocator)
+		case "brush_alpha":
+			plain_alpha = strings.clone(preset_unescape(f[1]), context.temp_allocator)
 		case "key":
 			// key <command name> <chord|none>, in the order they were made: a chord already
 			// taken by an earlier line, or now reserved, is skipped.
@@ -479,6 +483,7 @@ settings_load :: proc(app: ^App, path: string) {
 	}
 	// On a preset of the brush the file names, it is put back on it; its plain values are
 	// the ones just read.
+	if plain_alpha != "" do b.alpha = alpha_find(app, plain_alpha)
 	if i := preset_find(app, on_preset); on_preset != "" && i >= 0 && app.presets[i].values.kind == b.kind do preset_pick(app, i)
 	// A slot naming a preset the file does not have keeps what it held.
 	for name, slot in dock_presets {
@@ -534,12 +539,13 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 	for i in 0 ..< app.preset_count {
 		p := &app.presets[i]
 		v := p.values
-		alpha := app.alphas[v.alpha].name if v.alpha >= 0 && v.alpha < len(app.alphas) else "-"
+		alpha := alpha_ref(app, v.alpha)
 		fmt.sbprintfln(&out, "preset %s %v %g %d %g %g %g %g %s %v %g %v %g %g %g %g %v %g %d %d", preset_escape(preset_name(p)), v.kind, v.strength, bit(v.falloff.drawn),
 			v.falloff.curve.c1.x, v.falloff.curve.c1.y, v.falloff.curve.c2.x, v.falloff.curve.c2.y, preset_escape(alpha), v.alpha_mode, v.alpha_angle, v.stroke, v.lazy_px,
 			v.color.r, v.color.g, v.color.b, v.cloth_mode, v.spread, bit(v.lock_plane), bit(v.connected))
 	}
 	if on.preset > 0 && on.preset <= app.preset_count do fmt.sbprintfln(&out, "brush_preset %s", preset_escape(preset_name(&app.presets[on.preset - 1])))
+	fmt.sbprintfln(&out, "brush_alpha %s", preset_escape(alpha_ref(app, app.brush.alpha)))
 	for o in app.key_overrides[:app.key_override_count] {
 		fmt.sbprintfln(&out, "key %s %s", command_name(o.command, o.arg), "none" if o.none else chord_text(o.chord))
 	}
