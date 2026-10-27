@@ -248,6 +248,7 @@ Kit_State :: struct {
 	// picture's size in pixels as laid out this frame (zero while it is not).
 	thumbnail:        bool,
 	second:           Second_View,
+	grid:             View_Grid,
 	thumbnail_flip:   bool,
 	thumbnail_px:     [2]u32,
 	inspector_body: ui.Rect,
@@ -693,6 +694,8 @@ KIT_THUMBS_IMAGE :: 3
 KIT_PICTURES_IMAGE :: 4
 // ...and the thumbnail window's picture of the scene (thumbnail.odin).
 KIT_THUMBNAIL_IMAGE :: 5
+// The view panes' pictures (grid.odin), one id each from here.
+KIT_PANE_IMAGE :: 6
 
 // The inspector's width, and the toolbars' height: one touch target.
 KIT_INSPECTOR_W :: 312
@@ -712,6 +715,7 @@ kit_init :: proc(app: ^App) {
 	k.rail_side, k.wheel_size = .Left, .Medium
 	k.action_bar = true
 	bars_reset(k)
+	grid_reset(&k.grid)
 	k.pies = PIE_DEFAULTS
 	panels_default(k)
 	workspaces_init(k)
@@ -906,20 +910,30 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 	// or Escape that ends it too.
 	typed := ui.typing(&k.ctx)
 	size, pixels := kit_begin(app, window)
-	// The viewport fills the window, pixel for pixel.
-	app.ui.viewport_request = {f32(max(pixels.x, 1)), f32(max(pixels.y, 1))}
-
 	ctx := &k.ctx
 	kit_results(app)
-	ui.image(ctx, {0, 0, ctx.input.window.x, ctx.input.window.y}, KIT_VIEWPORT_IMAGE)
-	k.layer = ui.layer_mark(ctx)
+	// The viewport fills the window pixel for pixel, or the view grid's main pane, with the
+	// view panes and their dividers over the rest (grid.odin), under every panel.
+	kit_grid(app)
+	main := k.grid.main
+	pane := [2]f32{f32(size.x), f32(size.y)}
+	app.ui.viewport_origin = {}
+	if k.grid.preset == .Single {
+		app.ui.viewport_request = {f32(max(pixels.x, 1)), f32(max(pixels.y, 1))}
+	} else {
+		d := ctx.input.pixel_density
+		// While a divider is dragged the target keeps its size, its picture stretched, so
+		// the viewport, the studio and live occlusion are not made again every frame.
+		if k.grid.dragged == 0 do app.ui.viewport_request = {max(math.round(main.w * d), 1), max(math.round(main.h * d), 1)}
+		app.ui.viewport_origin, pane = [2]f32{main.x, main.y} * k.scale, [2]f32{main.w, main.h} * k.scale
+	}
 	k.laying_out = true
 	kit_layout(app)
 	k.laying_out = false
 	// Whether something floated before the pie read this frame's Escape and closed itself:
 	// that Escape is the pie's, not Settings'.
 	floating := kit_floating(app)
-	input := kit_viewport_input(app, {f32(size.x), f32(size.y)})
+	input := kit_viewport_input(app, pane)
 	if !typed do commands_handle_keys(app)
 	layer_drag_end(app)
 	deform_drag_end(app)
@@ -983,11 +997,14 @@ kit_viewport_input :: proc(app: ^App, size: [2]f32) -> (input: Viewport_Input) {
 	k := &app.kit
 	d := &app.device
 	input.size = size
-	input.hovered = device_pointing(d) && !ui.wants_pointer(&k.ctx)
+	// In the main pane's coordinates, which are the window's while it fills the window.
+	input.mouse_pos = viewport_point(app, d.mouse)
+	inside := input.mouse_pos.x >= 0 && input.mouse_pos.y >= 0 && input.mouse_pos.x <= size.x && input.mouse_pos.y <= size.y
+	input.hovered = device_pointing(d) && !ui.wants_pointer(&k.ctx) && inside
 	input.dragging = ui.viewport_dragging(&k.ctx)
-	input.mouse_pos = d.mouse
 	input.samples = make([]Input_Sample, len(app.samples), context.temp_allocator)
 	copy(input.samples, app.samples[:])
+	for &s in input.samples do s.pos = viewport_point(app, s.pos)
 	input.pen_tilt = app.pen_tilt
 	input.mouse_delta = d.moved
 	// An orbit turns about the target unless pointer_route decided another pivot.
@@ -1325,7 +1342,7 @@ kit_shading_menu :: proc(app: ^App) {
 }
 
 // The Camera menu (the right bar's Camera button): the projection and its field of view,
-// framing, the views stepped through, the thumbnail and the camera's settings.
+// framing, the views stepped through, the thumbnail, the view grid and the camera's settings.
 kit_camera_menu :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
@@ -1342,6 +1359,11 @@ kit_camera_menu :: proc(app: ^App) {
 	_ = command_menu_item(app, .View_Back)
 	_ = command_menu_item(app, .View_Forward)
 	_ = command_menu_item(app, .Thumbnail)
+	// The view grid's presets, the menu staying open to try them.
+	ui.divider(ctx, across = true)
+	ui.caption(ctx, "  VIEW GRID")
+	for preset in Grid_Preset do _ = command_menu_item(app, .View_Grid, int(preset), label = GRID_NAMES[preset])
+	ui.divider(ctx, across = true)
 	if ui.menu_item(ctx, "Camera settings", glyph = ui.ICON_SETTINGS) {
 		k.bar_pop.open = false
 		_ = settings_open(app, .Camera)
@@ -1562,6 +1584,11 @@ kit_draws :: proc(app: ^App, dl: ^ui.Draw_List) -> []render.Ui_Draw {
 		if c.texture == .Image && c.image == KIT_THUMBNAIL_IMAGE {
 			draws[i].image, draws[i].smooth = app.thumbnail.shown, true
 			if app.thumbnail.shown == nil do draws[i].index_count = 0
+		}
+		if c.texture == .Image && c.image >= KIT_PANE_IMAGE && c.image < KIT_PANE_IMAGE + GRID_VIEWS {
+			pic := app.panes[c.image - KIT_PANE_IMAGE].shown
+			draws[i].image, draws[i].smooth = pic, true
+			if pic == nil do draws[i].index_count = 0
 		}
 		if c.texture == .Image && c.image == KIT_PICTURES_IMAGE {
 			draws[i].image, draws[i].smooth = app.home.pictures.atlas, true

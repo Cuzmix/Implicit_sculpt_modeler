@@ -128,14 +128,17 @@ light_marker_room :: proc(app: ^App, size: [2]f32) -> (lo, hi: [2]f32) {
 	inset := LIGHT_MARKER_INSET * gizmo_scale(app)
 	k := &app.kit
 	area := ui.safe_area(&k.ctx)
-	lo = [2]f32{area.x + kit_left(app), area.y + TOP_BAR_H} * k.scale + inset
-	hi = [2]f32{area.x + area.w - kit_right(app), area.y + area.h - dock_stack(app)} * k.scale - inset
+	// Worked out in window coordinates, then moved into the main pane's and kept inside it.
+	o := app.ui.viewport_origin
+	lo = [2]f32{area.x + kit_left(app), area.y + TOP_BAR_H} * k.scale + inset - o
+	hi = [2]f32{area.x + area.w - kit_right(app), area.y + area.h - dock_stack(app)} * k.scale - inset - o
+	lo, hi = linalg.max(lo, inset), linalg.min(hi, size - inset)
 	// A window too small for the bars keeps its edge alone.
 	if hi.x - lo.x < size.x * 0.25 do lo.x, hi.x = inset, size.x - inset
 	if hi.y - lo.y < size.y * 0.25 do lo.y, hi.y = inset, size.y - inset
 	panel := panel_rect(app, Kit_Window.Inspector)
 	if panel.w <= 0 do return
-	left, right := panel.x * k.scale, (panel.x + panel.w) * k.scale
+	left, right := panel.x * k.scale - o.x, (panel.x + panel.w) * k.scale - o.x
 	// Off the side the palette stands on, unless that leaves too little room to show.
 	if left + right > size.x {
 		if left - inset - lo.x > size.x * 0.25 do hi.x = left - inset

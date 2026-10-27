@@ -28,7 +28,7 @@ Zone :: enum u8 {
 Built_In :: enum u8 {
 	Sculpt, // the layout as it has always been
 	Focus, // the model, the dock and the wheel: nothing else in the way
-	Inspect, // the statistics, the camera and the look, with a thumbnail view
+	Inspect, // the statistics, the camera and the look, with four panes: curvature, normals and a front silhouette
 	Studio, // the lights, the material and the environment, with a thumbnail view
 }
 
@@ -125,6 +125,7 @@ kit_layout_text :: proc(k: ^Kit_State) -> string {
 		strings.write_byte(&out, '\n')
 	}
 	strings.write_string(&out, pass_layout_line(k))
+	strings.write_string(&out, grid_layout_lines(k))
 	strings.write_string(&out, "open")
 	for w in LAYOUT_PANELS do if layout_open(k, w)^ do fmt.sbprintf(&out, " %v", w)
 	strings.write_byte(&out, '\n')
@@ -155,6 +156,8 @@ kit_layout_put :: proc(k: ^Kit_State, text: string) {
 	k.hidden = {}
 	// The pass is Shaded unless the layout names another; a peek ends with the layout.
 	k.passes.pass, k.passes.chip_held, k.passes.key_held = .Shaded, false, false
+	// Single unless the layout names a grid, whose panes are then read into its preset.
+	k.grid.preset, k.grid.maximised = .Single, 0
 	for line in strings.split_lines(text, context.temp_allocator) {
 		f := strings.fields(line, context.temp_allocator)
 		if len(f) == 0 do continue
@@ -163,6 +166,8 @@ kit_layout_put :: proc(k: ^Kit_State, text: string) {
 			for word in f[1:] do for z in Zone do if strings.equal_fold(word, fmt.tprint(z)) do k.hidden += {z}
 		case "pass":
 			pass_layout_read(k, f)
+		case "grid", "pane":
+			grid_layout_read(k, f)
 		case "open":
 			for word in f[1:] do for w in LAYOUT_PANELS do if strings.equal_fold(word, fmt.tprint(w)) do layout_open(k, w)^ = true
 		case "window":
@@ -195,7 +200,7 @@ built_in_layout :: proc(b: Built_In) -> string {
 	case .Focus:
 		text = "hidden Brush_Bar View_Bar Action_Bar\nopen\n"
 	case .Inspect:
-		text = "hidden Brush_Bar Dock\nopen Stats Thumbnail\ncolumn left Thumbnail Stats\ncolumn right Inspector section:Camera section:Look\n" +
+		text = "hidden Brush_Bar Dock\ngrid Four 500 500\npane 1 Follow Curvature\npane 2 Follow Normals\npane 3 Front Silhouette\nopen Stats\ncolumn left Stats\ncolumn right Inspector section:Camera section:Look\n" +
 			"pinned Camera 0 Start Start 0 0 0\npinned Look 0 Start Start 0 0 0\n"
 	case .Studio:
 		text = "open Thumbnail\ncolumn right Inspector section:Lights section:Material section:Environment\n" +

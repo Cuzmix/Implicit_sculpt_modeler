@@ -232,6 +232,7 @@ command_arg_name :: proc(id: Command_Id, arg: int) -> string {
 	case .Help:      return fmt.tprint(Help_Tab(arg))
 	case .Show_Section, .Pin_Section: return fmt.tprint(Kit_Section(arg))
 	case .View_Pass: return fmt.tprint(render.View_Pass(arg))
+	case .View_Grid: return fmt.tprint(Grid_Preset(arg))
 	case .Workspace:
 		if b, ok := workspace_built_in(arg); ok do return fmt.tprint(b)
 		return fmt.tprintf("Own%d", arg - len(Built_In) + 1)

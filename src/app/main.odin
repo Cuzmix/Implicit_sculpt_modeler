@@ -176,8 +176,6 @@ App :: struct {
 	kit:      Kit_State,
 	kit_drew: bool, // the last frame drew the interface...
 	kit_size: [2]u32, // ...this many pixels
-	// The second view's own camera (thumbnail.odin), once its picture was dragged.
-	second_orbit: camera.Orbit,
 	camera:   camera.Orbit,
 	ui:       Ui_State,
 	stats:    Frame_Stats,
@@ -194,7 +192,9 @@ App :: struct {
 	autosave: Autosave, // the background autosave and crash recovery (autosave.odin)
 	preview:  Scene_Preview, // the picture scene files keep for the Home screen (scene_preview.odin)
 	home:     Home, // the Home screen's pictures and autosaves (home.odin)
-	thumbnail: Thumbnail_State, // View > Thumbnail's picture (thumbnail.odin)
+	thumbnail: Picture, // the second view's picture (thumbnail.odin)
+	panes:     [GRID_VIEWS]Picture, // the view panes' pictures (grid.odin)
+	pictures_drawn: int, // second-view pictures drawn this frame (picture_frame)
 	capture:   Capture, // a transparent screenshot waiting for its frame (capture.odin)
 	turntable: Turntable, // Scene > Turntable's recording (turntable.odin)
 	turntable_frames: i32, // how many frames it takes, remembered
@@ -579,6 +579,9 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	// names, and before the renderer goes, which their textures need: keep it here.
 	defer library_destroy(&app)
 	settings_load(&app, settings)
+	// The benchmarks measure the viewport filling the window, so their numbers stay
+	// comparable whatever grid a workspace keeps.
+	if opts.bench_stroke > 0 || opts.gpubench != "" do app.kit.grid.preset = .Single
 	// Only for the settings of everyday use: a run with a settings file of its own (a test's)
 	// keeps the code's look unless the file says otherwise.
 	if remember && opts.settings_file == "" do look_first_run(&app)
@@ -614,6 +617,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	defer scene_preview_destroy(&app)
 	defer home_destroy(&app)
 	defer thumbnail_destroy(&app)
+	defer grid_destroy(&app)
 	defer capture_destroy(&app)
 	defer turntable_destroy(&app)
 	// After autosave_init, whose folder Home's Autosaves lists.
@@ -1064,7 +1068,9 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		nav_head_frame(&app, cmd)
 		thumbs_frame(&app, cmd)
 		home_frame(&app, cmd)
+		app.pictures_drawn = 0
 		thumbnail_frame(&app, cmd, draws[:])
+		grid_frame(&app, cmd, draws[:])
 
 		gpu_wait: time.Duration
 		if app.time_gpu {
@@ -1216,6 +1222,14 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	fmt.printfln("previews=%d preview_size=%dx%d preview_kb=%.1f preview_ms=%.2f", app.preview.taken, app.preview.w, app.preview.h, f64(len(app.preview.png)) / 1024, app.preview.ms)
 	sv := app.kit.second
 	fmt.printfln("thumbnail=%d thumbnail_draws=%d thumbnail_ms=%.2f thumbnail_px=%dx%d thumbnail_flip=%d second_camera=%v second_pass=%v second_max=%d second_turns=%d", int(app.kit.thumbnail), app.thumbnail.draws, app.thumbnail.ms, app.kit.thumbnail_px.x, app.kit.thumbnail_px.y, int(app.kit.thumbnail_flip), sv.camera, sv.pass, int(sv.max), sv.turns)
+	{
+		g := &app.kit.grid
+		draws, ms, turns := 0, 0.0, 0
+		for pic in app.panes do draws, ms = draws + pic.draws, max(ms, pic.ms)
+		for v in g.views[g.preset] do turns += v.turns
+		split := grid_split(g, g.preset)
+		fmt.printfln("grid=%v grid_panes=%d grid_split=%.3f,%.3f grid_max=%d grid_drags=%d pane_draws=%d pane_ms=%.2f pane_px=%dx%d pane_camera=%v pane_turns=%d viewport_origin=%.0f,%.0f grid_main=%.0fx%.0f", g.preset, grid_count(g.preset), split.x, split.y, g.maximised, g.drags, draws, ms, g.px[0].x, g.px[0].y, g.views[g.preset][0].camera, turns, app.ui.viewport_origin.x, app.ui.viewport_origin.y, g.main.w, g.main.h)
+	}
 	fmt.printfln("screenshot_transparent=%d turntable_frames=%d turntable_written=%d", int(app.screenshot_transparent), app.turntable_frames, app.turntable.frame)
 	fmt.printfln("print_mm=%g print_unit=%d print_exports=%d", print_scale(&app), int(app.print_unit), app.print_exports)
 	// The scene's file by its name alone, which a test compares; "none" for no file.

@@ -17,6 +17,9 @@ import "../ui"
 // between frames.
 Ui_State :: struct {
 	viewport_request: [2]f32, // pixel size the viewport wants its render target to be
+	// The main pane's top left in window coordinates (grid.odin), zero while the viewport
+	// fills the window: Viewport_Input and the overlay are in the pane's coordinates.
+	viewport_origin:  [2]f32,
 	// Set by a panel; the app applies it at the start of the next frame.
 	scene_command:    Scene_Command,
 	// The pointer over the viewport this frame, for shortcuts that act where it points.
