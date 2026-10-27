@@ -79,8 +79,8 @@ render_boxes_reach_the_world :: proc(t: ^testing.T) {
 	}
 }
 
-// Render mode is a command, off at the start of every run; its samples and bounces are
-// remembered.
+// Render mode is a command, off at the start of every run; its samples, bounces, denoise
+// and half resolution are remembered.
 @(test)
 render_mode_is_not_remembered :: proc(t: ^testing.T) {
 	path := "build/render_mode_test.txt"
@@ -89,7 +89,7 @@ render_mode_is_not_remembered :: proc(t: ^testing.T) {
 	defer results_destroy(&a)
 	command_run(&a, .Render_Mode)
 	testing.expect(t, a.render_on && command_checked(&a, .Render_Mode, 0))
-	a.render_samples, a.render_bounces, a.render_denoise = 300, 3, false
+	a.render_samples, a.render_bounces, a.render_denoise, a.render_half = 300, 3, false, true
 	testing.expect(t, settings_save(&a, path))
 
 	b: App
@@ -99,6 +99,18 @@ render_mode_is_not_remembered :: proc(t: ^testing.T) {
 	testing.expect_value(t, b.render_samples, i32(300))
 	testing.expect_value(t, b.render_bounces, i32(3))
 	testing.expect(t, !b.render_denoise)
+	testing.expect(t, b.render_half)
+}
+
+// Half resolution traces half the viewport each way, rounded up so every pixel is covered.
+@(test)
+render_half_size_covers_the_viewport :: proc(t: ^testing.T) {
+	w, h := render.render_size(1600, 900, false)
+	testing.expect(t, w == 1600 && h == 900)
+	w, h = render.render_size(1601, 899, true)
+	testing.expect(t, w == 801 && h == 450)
+	w, h = render.render_size(1, 1, true)
+	testing.expect(t, w == 1 && h == 1)
 }
 
 // The denoiser reaches far while the image is noisy and less as the samples build up.

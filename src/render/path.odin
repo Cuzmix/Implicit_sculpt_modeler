@@ -96,7 +96,11 @@ Path_Render :: struct {
 	// one pass reading the other.
 	guides:         [2]^sdl.GPUTexture,
 	filtered:       [2]^sdl.GPUTexture,
+	// The size the paths are traced at (render_size), and the viewport's, which `shown` has.
 	width, height:  u32,
+	view_width:     u32,
+	view_height:    u32,
+	half:           bool, // traced at half size each way
 	buffers:        [Scene_Buffer]^sdl.GPUBuffer,
 	capacity:       [Scene_Buffer]u32,
 	uniforms:       Render_Uniforms, // this still view's
@@ -175,10 +179,11 @@ Lights_World :: struct {
 // `lights` are the viewport's (view space); `softness` is the studio's
 // Shadow softness, the angle a sun spans and, at a light's distance from the scene's
 // middle, a point or spot light's radius. Returns false only when the device cannot run
-// it, after which it never tries again.
-render_frame :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, view, proj: Mat4, items: []Draw_Item, changed: bool, max_samples, bounces: int, lights: Lights, softness, exposure: f32, denoise: bool, pool: ^jobs.Pool = nil) -> bool {
+// it, after which it never tries again. `half` traces a quarter of the pixels, half the
+// viewport's size each way, and lays them out over it smoothly: what tablets take.
+render_frame :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, view, proj: Mat4, items: []Draw_Item, changed: bool, max_samples, bounces: int, lights: Lights, softness, exposure: f32, denoise: bool, half := false, pool: ^jobs.Pool = nil) -> bool {
 	if pr.failed do return false
-	if !path_ensure(r, pr, vt) {
+	if !path_ensure(r, pr, vt, half) {
 		path_render_destroy(r, pr)
 		pr.failed = true
 		return false
@@ -347,7 +352,7 @@ aabb_transform :: proc(b: geom.Aabb, model: Mat4) -> geom.Aabb {
 }
 
 @(private = "file")
-path_ensure :: proc(r: ^Renderer, pr: ^Path_Render, vt: ^Viewport_Target) -> bool {
+path_ensure :: proc(r: ^Renderer, pr: ^Path_Render, vt: ^Viewport_Target, half: bool) -> bool {
 	if pr.pipeline == nil {
 		usage := sdl.GPUTextureUsageFlags{.SAMPLER, .COMPUTE_STORAGE_WRITE}
 		if !sdl.GPUTextureSupportsFormat(r.device, RENDER_FORMAT, .D2, usage) || !sdl.GPUTextureSupportsFormat(r.device, RENDER_GUIDE_FORMAT, .D2, usage) {
@@ -373,31 +378,32 @@ path_ensure :: proc(r: ^Renderer, pr: ^Path_Render, vt: ^Viewport_Target) -> boo
 			return false
 		}
 	}
-	if pr.shown != nil && pr.width == vt.width && pr.height == vt.height do return true
+	width, height := render_size(vt.width, vt.height, half)
+	if pr.shown != nil && pr.view_width == vt.width && pr.view_height == vt.height && pr.half == half do return true
 	path_targets_release(r, pr)
 	for &t in pr.accum {
 		t = sdl.CreateGPUTexture(r.device, {
 			type = .D2, format = RENDER_FORMAT, usage = {.SAMPLER, .COMPUTE_STORAGE_WRITE},
-			width = vt.width, height = vt.height, layer_count_or_depth = 1, num_levels = 1,
+			width = width, height = height, layer_count_or_depth = 1, num_levels = 1,
 		})
 	}
 	for &t in pr.guides {
 		t = sdl.CreateGPUTexture(r.device, {
 			type = .D2, format = RENDER_GUIDE_FORMAT, usage = {.SAMPLER, .COMPUTE_STORAGE_WRITE},
-			width = vt.width, height = vt.height, layer_count_or_depth = 1, num_levels = 1,
+			width = width, height = height, layer_count_or_depth = 1, num_levels = 1,
 		})
 	}
 	for &t in pr.filtered {
 		t = sdl.CreateGPUTexture(r.device, {
 			type = .D2, format = RENDER_GUIDE_FORMAT, usage = {.SAMPLER, .COLOR_TARGET},
-			width = vt.width, height = vt.height, layer_count_or_depth = 1, num_levels = 1,
+			width = width, height = height, layer_count_or_depth = 1, num_levels = 1,
 		})
 	}
 	pr.shown = sdl.CreateGPUTexture(r.device, {
 		type = .D2, format = VIEWPORT_COLOR_FORMAT, usage = {.COLOR_TARGET, .SAMPLER},
 		width = vt.width, height = vt.height, layer_count_or_depth = 1, num_levels = 1,
 	})
-	pr.width, pr.height, pr.rows = vt.width, vt.height, 0
+	pr.width, pr.height, pr.view_width, pr.view_height, pr.half, pr.rows = width, height, vt.width, vt.height, half, 0
 	path_render_reset(pr)
 	if pr.accum[0] == nil || pr.accum[1] == nil || pr.shown == nil || pr.guides[0] == nil || pr.guides[1] == nil || pr.filtered[0] == nil || pr.filtered[1] == nil {
 		log.errorf("render mode: target creation failed (%s); it stays off", sdl.GetError())
@@ -406,7 +412,14 @@ path_ensure :: proc(r: ^Renderer, pr: ^Path_Render, vt: ^Viewport_Target) -> boo
 	return true
 }
 
-// The images the size of the viewport.
+// The size render mode traces a `width` by `height` viewport at: the same, or with `half`
+// half each way, rounded up, so the paths cover every pixel.
+render_size :: proc(width, height: u32, half: bool) -> (u32, u32) {
+	if !half do return width, height
+	return max((width + 1) / 2, 1), max((height + 1) / 2, 1)
+}
+
+// The images the size of the traced image and of the viewport.
 @(private = "file")
 path_targets_release :: proc(r: ^Renderer, pr: ^Path_Render) {
 	targets := [7]^sdl.GPUTexture{pr.accum[0], pr.accum[1], pr.shown, pr.guides[0], pr.guides[1], pr.filtered[0], pr.filtered[1]}
@@ -448,7 +461,7 @@ path_display :: proc(pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport
 	sdl.BindGPUGraphicsPipeline(pass, pr.display)
 	samplers := [4]sdl.GPUTextureSamplerBinding{{texture = vt.color, sampler = pr.sampler}, {texture = pr.accum[pr.current], sampler = pr.sampler}, {texture = pr.filtered[1 - out], sampler = pr.sampler}, {texture = pr.guides[0], sampler = pr.sampler}}
 	sdl.BindGPUFragmentSamplers(pass, 0, &samplers[0], len(samplers))
-	params := [4]f32{exposure, f32(pr.samples), 1 if denoise else 0, 0}
+	params := [4]f32{exposure, f32(pr.samples), 1 if denoise else 0, 1 if pr.half else 0}
 	sdl.PushGPUFragmentUniformData(cmd, 0, &params, size_of(params))
 	sdl.DrawGPUPrimitives(pass, 3, 1, 0, 0)
 	sdl.EndGPURenderPass(pass)

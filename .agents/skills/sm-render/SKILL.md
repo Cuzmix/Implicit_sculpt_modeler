@@ -171,6 +171,10 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   bilinear lookup bleeds a sun's edge half a texel out: without it a sky-weight texel returns sun radiance, a
   speckle. Render mode binds `Environment.source` (full size) not `prefiltered`, so the table matches what it reads.
   `env.z` = `env_share` (0 for the studio while any light is on: measured noisier, see its comment).
+  Half resolution (`render_half`, default on Android): `render_size` sizes accum, guides and filtered; `shown` stays
+  at the viewport's size (`view_width`); the kernel derives rays from `textureSize(prev)`. render_display.frag blends
+  the four traced texels premultiplied by coverage when `params.w` is 1; at 0 it keeps the exact full-size path
+  (0 px against the old display: keep it so).
 - Traced studio (`src/render/trace.odin`, `studio_trace.comp`, `blas_refit.comp`, `studio_trace_add.frag`): at
   `samples == 0` `trace_prepare` decides the run (`Studio.traced`); false falls back to the gather, never half done.
   Needs `Draw_Item.source` (the CPU mesh as uploaded) and `Mesh_Buffers.storage` (positions and indices with

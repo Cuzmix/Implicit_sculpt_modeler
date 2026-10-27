@@ -10,7 +10,7 @@ import "../ui"
 // with the scene's lights, environment, materials and paint, bounced light and soft
 // shadows from every light, built up a sample at a time. Not remembered, as Blender's
 // rendered view is not: it is costly, and a start that put it on would surprise. Samples,
-// Bounces and Denoise are remembered.
+// Bounces, Denoise and Half resolution are remembered.
 
 // Samples before the render shows instead of the viewport (or the studio's or live
 // occlusion's image): by then its noise reads as a picture.
@@ -37,7 +37,7 @@ render_mode_frame :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer, view, proj: ren
 	}
 	samples := int(clamp(app.render_samples, 1, render.RENDER_SAMPLES_MAX))
 	bounces := int(clamp(app.render_bounces, 1, render.RENDER_BOUNCES_MAX))
-	_ = render.render_frame(&app.renderer, &app.path, cmd, &app.target, view, proj, items, changed, samples, bounces, viewport_lights(app), app.studio_softness, app.exposure, app.render_denoise, &app.pool)
+	_ = render.render_frame(&app.renderer, &app.path, cmd, &app.target, view, proj, items, changed, samples, bounces, viewport_lights(app), app.studio_softness, app.exposure, app.render_denoise, app.render_half, &app.pool)
 }
 
 // Whether render mode still has samples to build, which keeps the frames coming.
@@ -56,6 +56,7 @@ kit_render :: proc(app: ^App) {
 	bounces := f32(app.render_bounces)
 	if ui.slider(ctx, "Bounces", &bounces, 1, render.RENDER_BOUNCES_MAX, .Linear, fmt.tprintf("%d", app.render_bounces)) do app.render_bounces = i32(bounces + 0.5)
 	_ = ui.switch_row(ctx, "Denoise", &app.render_denoise)
+	_ = ui.switch_row(ctx, "Half resolution", &app.render_half)
 	pr := &app.path
 	switch {
 	case app.render_on && pr.failed:
@@ -66,6 +67,6 @@ kit_render :: proc(app: ^App) {
 		ms := pr.total_ms / f64(max(pr.total_samples, 1))
 		ui.paragraph(ctx, fmt.tprintf("Built up %d of %d samples, %.0f ms a sample.", pr.samples, app.render_samples, ms))
 	}
-	ui.paragraph(ctx, fmt.tprintf("Path traces the view while it stays still: the lights with soft shadows as wide as the studio's Shadow softness, the environment, materials and paint, and light bounced between surfaces. Any change starts it over; see-through objects are left out. Denoise smooths the grain along the surfaces' edges, colours and normals, less as samples build up. %s", command_keys(app, .Render_Mode)))
+	ui.paragraph(ctx, fmt.tprintf("Path traces the view while it stays still: the lights with soft shadows as wide as the studio's Shadow softness, the environment, materials and paint, and light bounced between surfaces. Any change starts it over; see-through objects are left out. Denoise smooths the grain along the surfaces' edges, colours and normals, less as samples build up. Half resolution traces a quarter of the pixels, four times as fast, for tablets. %s", command_keys(app, .Render_Mode)))
 }
 
