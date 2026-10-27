@@ -34,6 +34,7 @@ File_Kind :: enum u8 {
 	Alpha,  // an image becomes a brush alpha (alphas.odin)
 	Screenshot, // the viewport image goes to a PNG file
 	Timelapse,  // the History is recorded as PNG frames into a folder (timeline.odin)
+	Turntable,  // the camera goes round the scene, saving each frame into a folder (turntable.odin)
 	Bake,       // maps baked onto the selected quad object go into a folder (retopo.odin)
 	Save_Strokes, // the recorded strokes go to a .strokes file (replay.odin)
 	Load_Strokes, // a .strokes file becomes the recording
@@ -145,7 +146,7 @@ file_dialog :: proc(app: ^App, kind: File_Kind) {
 		sdl.ShowOpenFileDialog(file_dialog_done, userdata, app.window, raw_data(PACK_FILTERS[:]), len(PACK_FILTERS), nil, false)
 	case .Make_Pack:
 		sdl.ShowSaveFileDialog(file_dialog_done, userdata, app.window, raw_data(PACK_FILTERS[:]), len(PACK_FILTERS), nil)
-	case .Timelapse, .Bake:
+	case .Timelapse, .Turntable, .Bake:
 		sdl.ShowOpenFolderDialog(file_dialog_done, userdata, app.window, nil, false)
 	}
 }
@@ -320,6 +321,8 @@ file_apply :: proc(app: ^App, req: File_Request) -> bool {
 		else do _ = screenshot_save(app, req.path)
 	case .Timelapse:
 		timelapse_start(app, req.path)
+	case .Turntable:
+		turntable_start(app, req.path)
 	case .Bake:
 		bake_to_folder(app, req.path)
 	case .Save_Strokes:

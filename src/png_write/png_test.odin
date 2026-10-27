@@ -62,3 +62,40 @@ encode_gray16_round_trips :: proc(t: ^testing.T) {
 	}
 	testing.expectf(t, bad == 0, "%d samples differ", bad)
 }
+
+// An animated PNG's chunks come in the order and with the numbers the format asks, its
+// frame count is what it said, and any PNG reader sees its first frame as the picture.
+@(test)
+apng_writes_its_frames_in_order :: proc(t: ^testing.T) {
+	W, H :: 21, 9
+	frames: [3][W * H * 4]u8
+	for &f, k in frames do for i in 0 ..< W * H do f[4 * i], f[4 * i + 1], f[4 * i + 2], f[4 * i + 3] = u8(i * (k + 1)), u8(k * 80), u8(i), u8(255 - k * 100)
+	out := make([dynamic]u8)
+	defer delete(out)
+	a := Apng{width = W, height = H, alpha = true, frames = 3, delay = {1, 30}}
+	apng_begin(&out, &a)
+	for &f in frames do apng_frame(&out, &a, f[:])
+	apng_end(&out)
+	kinds: [dynamic]string
+	defer delete(kinds)
+	sequence: [dynamic]u32
+	defer delete(sequence)
+	be :: proc(b: []u8) -> u32 {return u32(b[0]) << 24 | u32(b[1]) << 16 | u32(b[2]) << 8 | u32(b[3])}
+	for at := 8; at + 12 <= len(out); {
+		n := int(be(out[at:]))
+		kind := string(out[at + 4:][:4])
+		append(&kinds, kind)
+		if kind == "fcTL" || kind == "fdAT" do append(&sequence, be(out[at + 8:]))
+		if kind == "acTL" do testing.expect_value(t, be(out[at + 8:]), 3)
+		at += 12 + n
+	}
+	want := []string{"IHDR", "acTL", "fcTL", "IDAT", "fcTL", "fdAT", "fcTL", "fdAT", "IEND"}
+	testing.expectf(t, len(kinds) == len(want), "chunks %v", kinds[:])
+	for k, i in want do if i < len(kinds) do testing.expectf(t, kinds[i] == k, "chunk %d is %s, not %s", i, kinds[i], k)
+	for s, i in sequence do testing.expect_value(t, s, u32(i))
+	img, err := core_png.load_from_bytes(out[:])
+	defer image.destroy(img)
+	testing.expectf(t, err == nil, "%v", err)
+	if err == nil do testing.expect(t, bytes.equal(bytes.buffer_to_bytes(&img.pixels)[:W * H * 4], frames[0][:]), "the still picture is not the first frame")
+	free_all(context.temp_allocator)
+}

@@ -229,6 +229,9 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   environment picture off (restored after); the clear's alpha 0 and the meshes' alpha 1 resolve to coverage. Written
   after submit: `viewport_shown` where coverage is 255, the second drawing unpremultiplied at edges. `BLEND_OVER`
   keeps the target's alpha, so see-through items add none.
+- The turntable (app `turntable.odin`) reads each frame back through the same `Capture` (`capture.turntable`, with
+  `transparent` from the setting; without it only `viewport_shown` is read), so a frame's camera is set at the frame's
+  start and its pixels arrive in `capture_finish` the same frame. `png_write.apng_*` streams the animated PNG.
 - `Pictures` (`pictures.odin`): an atlas of pictures the CPU decoded (Home's scene previews), 6 x 6 cells of
   `PICTURE_PX`, filled by `pictures_upload` on the frame's own command buffer at most `PICTURES_PER_FRAME` a frame
   through one transfer buffer mapped with `cycle = true`; a picture sits at its cell's top left (`picture_uv`). The

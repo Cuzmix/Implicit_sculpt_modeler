@@ -12,9 +12,7 @@ import "core:hash"
 encode :: proc(pixels: []u8, width, height: int, alpha: bool, allocator := context.allocator) -> []u8 {
 	assert(len(pixels) >= width * height * 4 && width > 0 && height > 0)
 	channels := 4 if alpha else 3
-	packed := make([]u8, width * height * channels, context.temp_allocator)
-	for i in 0 ..< width * height do for c in 0 ..< channels do packed[i * channels + c] = pixels[i * 4 + c]
-	return encode_packed(packed, width, height, channels, 8, 6 if alpha else 2, allocator)
+	return encode_packed(pack(pixels, width, height, channels), width, height, channels, 8, 6 if alpha else 2, allocator)
 }
 
 // Encodes `values` (one 16-bit grey sample a pixel, rows top to bottom) as a 16-bit
@@ -26,13 +24,42 @@ encode_gray16 :: proc(values: []u16, width, height: int, allocator := context.al
 	return encode_packed(packed, width, height, 2, 16, 0, allocator)
 }
 
+// RGBA pixels with only their first `channels` kept, as the file packs them.
+@(private)
+pack :: proc(pixels: []u8, width, height, channels: int) -> []u8 {
+	packed := make([]u8, width * height * channels, context.temp_allocator)
+	for i in 0 ..< width * height do for c in 0 ..< channels do packed[i * channels + c] = pixels[i * 4 + c]
+	return packed
+}
+
 // The PNG of rows packed as the file keeps them (`bpp` bytes a pixel), with that bit
 // depth and colour type.
 @(private)
 encode_packed :: proc(packed: []u8, width, height, bpp: int, depth, color_type: u8, allocator := context.allocator) -> []u8 {
-	stride := width * bpp
+	raw := filtered(packed, width, height, bpp)
+	data := make([dynamic]u8, 0, len(raw) / 4 + 1024, allocator)
+	append(&data, 0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n')
+	head := header(width, height, depth, color_type)
+	chunk(&data, "IHDR", head[:])
+	chunk(&data, "IDAT", zlib(raw, context.temp_allocator))
+	chunk(&data, "IEND", nil)
+	return data[:]
+}
 
-	// The rows as PNG filters them: a filter byte, then the filtered row.
+// The IHDR chunk's body.
+@(private)
+header :: proc(width, height: int, depth, color_type: u8) -> (head: [13]u8) {
+	put_u32(head[0:], u32(width))
+	put_u32(head[4:], u32(height))
+	head[8], head[9] = depth, color_type
+	return
+}
+
+// The rows as PNG filters them: a filter byte, then the row filtered with Up or Sub,
+// whichever leaves smaller numbers.
+@(private)
+filtered :: proc(packed: []u8, width, height, bpp: int) -> []u8 {
+	stride := width * bpp
 	raw := make([]u8, height * (stride + 1), context.temp_allocator)
 	above := make([]u8, stride, context.temp_allocator)
 	sub := make([]u8, stride, context.temp_allocator)
@@ -57,17 +84,7 @@ encode_packed :: proc(packed: []u8, width, height, bpp: int, depth, color_type: 
 		}
 		copy(above, row)
 	}
-
-	data := make([dynamic]u8, 0, len(raw) / 4 + 1024, allocator)
-	append(&data, 0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n')
-	header: [13]u8
-	put_u32(header[0:], u32(width))
-	put_u32(header[4:], u32(height))
-	header[8], header[9] = depth, color_type
-	chunk(&data, "IHDR", header[:])
-	chunk(&data, "IDAT", zlib(raw, context.temp_allocator))
-	chunk(&data, "IEND", nil)
-	return data[:]
+	return raw
 }
 
 @(private)

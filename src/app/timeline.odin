@@ -185,6 +185,11 @@ timelapse_start :: proc(app: ^App, dir: string) {
 	stroke_finish(app)
 	lapse := &app.timeline.lapse
 	if lapse.state != .Off do return
+	// Both turn the camera; one at a time.
+	if turntable_recording(app) {
+		file_note(app, true, "Cannot record a time-lapse while the turntable records")
+		return
+	}
 	if history_total(app) == 0 {
 		file_note(app, true, "Nothing to record: the History is empty")
 		return

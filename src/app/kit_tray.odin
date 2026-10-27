@@ -188,7 +188,9 @@ COMMAND_HOMES := #partial [Command_Id]Maybe(Kit_Section) {
 	.View_Axis             = .Camera,
 	.Focus_Selected        = .Camera,
 	.Reset_Camera          = .Camera,
+	.Record_Turntable      = .Turntable,
 	.Floor_Grid            = .Floor,
+	.Screenshot_Transparent = .Background,
 }
 
 // Opens the tray where command `id` (with `arg`) has its control and marks the control
