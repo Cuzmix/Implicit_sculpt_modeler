@@ -138,6 +138,7 @@ settings_reset :: proc(app: ^App, tab: Settings_Tab) {
 		n.orbit_style, n.limit_pitch, n.orbit_speed, n.pan_speed, n.zoom_speed = d.orbit_style, d.limit_pitch, d.orbit_speed, d.pan_speed, d.zoom_speed
 		n.invert_x, n.invert_y, n.invert_wheel = d.invert_x, d.invert_y, d.invert_wheel
 		n.pivot, n.edge_orbit, n.edge_size, n.edge_show = d.pivot, d.edge_orbit, d.edge_size, d.edge_show
+		n.air_pivot, n.pivot_dot, n.wheel_toward = d.air_pivot, d.pivot_dot, d.wheel_toward
 	case .Touch:
 		n.finger_model, n.empty_drag, n.palm_rejection = d.finger_model, d.empty_drag, d.palm_rejection
 		n.pinch_zoom, n.two_finger_pan, n.zoom_toward, n.twist_roll = d.pinch_zoom, d.two_finger_pan, d.zoom_toward, d.twist_roll
@@ -254,16 +255,29 @@ settings_camera :: proc(app: ^App) {
 	_ = ui.switch_row(ctx, "Invert sideways orbit", &n.invert_x)
 	_ = ui.switch_row(ctx, "Invert up and down orbit", &n.invert_y)
 	ui.label(ctx, "Turn about")
-	pivots := [len(Orbit_Pivot)]string{"Last stroke", "Pointer", "Centre"}
-	if picked := ui.tabs(ctx, "Orbit pivot", pivots[:], int(n.pivot)); picked >= 0 do n.pivot = Orbit_Pivot(picked)
+	// Too many for tabs at the panel's width: a list, the default first and the fixed
+	// points last.
+	pivot_order := [len(Orbit_Pivot)]Orbit_Pivot{.Stroke, .Pointer, .Selection, .Scene, .Centre}
+	pivots := [len(Orbit_Pivot)]string{"Last stroke", "Pointer", "Selected objects", "Whole scene", "View centre"}
+	pivot_at := 0
+	for p, i in pivot_order do if p == n.pivot do pivot_at = i
+	if picked := ui.select(ctx, "Orbit pivot", pivots[:], pivot_at); picked >= 0 do n.pivot = pivot_order[picked]
 	switch n.pivot {
 	case .Stroke:
-		ui.paragraph(ctx, "The view turns about the middle of your last stroke, which stays where it is on screen, as ZBrush's Local and Blender's Orbit Around Selection do. Before any stroke, and after Focus, about the selected object's middle.")
+		ui.paragraph(ctx, "The default: the view turns about the middle of your last stroke, which stays where it is on screen, so the part you work on stays in view. Before any stroke, and after Focus, about the selected object's middle.")
 	case .Pointer:
-		ui.paragraph(ctx, "A drag that starts on the model turns about the spot under it; one on empty space turns about the last stroke.")
+		ui.paragraph(ctx, "A drag that starts on the model turns about the spot under it.")
+	case .Selection:
+		ui.paragraph(ctx, "The view turns about the middle of the selected objects, wherever you sculpt.")
+	case .Scene:
+		ui.paragraph(ctx, "The view turns about the middle of everything shown, so the scene turns as one piece.")
 	case .Centre:
 		ui.paragraph(ctx, "The view turns about the middle of the screen, wherever the model is.")
 	}
+	_ = ui.switch_row(ctx, "Off the model, turn about the air", &n.air_pivot, enabled = n.pivot == .Pointer)
+	if n.pivot == .Pointer do ui.paragraph(ctx, "A drag that starts off the model turns about the point under it, as deep as the middle of the view." if n.air_pivot else "A drag that starts off the model turns about the last stroke.")
+	_ = ui.switch_row(ctx, "Show the pivot dot", &n.pivot_dot)
+	ui.paragraph(ctx, "A double tap on the model pins the pivot there until the next stroke, whatever Turn about says.")
 	ui.spacer(ctx, 8)
 	ui.caption(ctx, "SAFE ZONE")
 	_ = ui.switch_row(ctx, "Edges always turn the view", &n.edge_orbit)
@@ -275,6 +289,8 @@ settings_camera :: proc(app: ^App) {
 	speed_slider(ctx, "Pan speed", &n.pan_speed)
 	speed_slider(ctx, "Zoom speed", &n.zoom_speed)
 	_ = ui.switch_row(ctx, "Invert the mouse wheel", &n.invert_wheel)
+	_ = ui.switch_row(ctx, "Wheel zooms toward the pointer", &n.wheel_toward)
+	ui.paragraph(ctx, "What is under the pointer stays there as the wheel zooms, as a pinch keeps what is between the fingers. Off, the wheel zooms toward the middle.")
 	ui.spacer(ctx, 8)
 	ui.caption(ctx, "WITH A MOUSE")
 	ui.paragraph(ctx, "Help > Keys lists every mouse control, as the tool now has them.")
