@@ -180,6 +180,10 @@ Draw_Item :: struct {
 	// A matcap (matcap_create) that shades the item instead of the lights, tinted by
 	// `color`; nil for none.
 	matcap:    ^sdl.GPUTexture,
+	// The light rig: the columns of the rotation that takes the shader's key and fill
+	// lights and its studio into view space, with the key light's strength in [0].w and
+	// the fill's in [1].w; zero for DEFAULT_LIGHTS, fixed to the camera.
+	lights:    [3][4]f32,
 	live:   bool,
 	chunks: []geom.Chunk,
 	chunk_groups: []geom.Chunk, // geom.chunk_group of each geom.CHUNK_GROUP chunks, to cull a group at a time; nil to test every chunk
@@ -218,6 +222,7 @@ Material_Uniforms :: struct {
 	surface:    [4]f32, // x: metallic, y: roughness (0: classic), z: 1 for flat shading, w: 1 for the matcap
 	checker:    [4]f32, // the density preview: first lattice point, cell size (0: none)
 	look:       [4]f32, // exposure in stops, cavity, ridge (Draw_Item.look)
+	lights:     [3][4]f32, // the light rig's turn and strengths (Draw_Item.lights)
 }
 
 MESH_VERT_SPV :: #load("shaders/mesh.vert.spv")
@@ -1009,13 +1014,14 @@ frame_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lod
 		material: [4]f32,
 		checker:  [4]f32,
 		look:     [4]f32,
+		lights:   [3][4]f32,
 		surface:  [2]f32,
 		wire:     b32,
 		flat:     b32,
 		paint:    b32,
 		groups:   b32, // no padding: every byte is hashed
 	}
-	#assert(size_of(Keyed) == 168)
+	#assert(size_of(Keyed) == 216)
 	Header :: struct { // no padding: every byte is hashed
 		view, proj:    Mat4,
 		width, height: u32,
@@ -1025,7 +1031,7 @@ frame_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lod
 	header := Header{view, proj, vt.width, vt.height, u32(len(items)), lod_px}
 	h := hash.fnv64a(slice.bytes_from_ptr(&header, size_of(header)))
 	for item in items {
-		k := Keyed{item.mesh, item.matcap, item.model, item.color, item.material, item.checker, item.look, item.surface, b32(item.wireframe), b32(item.flat), b32(item.paint), b32(item.groups)}
+		k := Keyed{item.mesh, item.matcap, item.model, item.color, item.material, item.checker, item.look, item.lights, item.surface, b32(item.wireframe), b32(item.flat), b32(item.paint), b32(item.groups)}
 		h = hash.fnv64a(slice.bytes_from_ptr(&k, size_of(k)), h)
 	}
 	return max(h, 1)
@@ -1186,13 +1192,14 @@ static_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lo
 		material: [4]f32,
 		checker:  [4]f32,
 		look:     [4]f32,
+		lights:   [3][4]f32,
 		surface:  [2]f32,
 		wire:     b32,
 		flat:     b32,
 		paint:    b32,
 		groups:   b32, // no padding: every byte is hashed
 	}
-	#assert(size_of(Keyed) == 176)
+	#assert(size_of(Keyed) == 224)
 	Header :: struct {
 		view, proj:    Mat4,
 		width, height: u32,
@@ -1202,7 +1209,7 @@ static_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lo
 	h := hash.fnv64a(slice.bytes_from_ptr(&header, size_of(header)))
 	for item in items {
 		if item.live do continue
-		k := Keyed{item.mesh, item.matcap, item.mesh.version, item.model, item.color, item.material, item.checker, item.look, item.surface, b32(item.wireframe), b32(item.flat), b32(item.paint), b32(item.groups)}
+		k := Keyed{item.mesh, item.matcap, item.mesh.version, item.model, item.color, item.material, item.checker, item.look, item.lights, item.surface, b32(item.wireframe), b32(item.flat), b32(item.paint), b32(item.groups)}
 		h = hash.fnv64a(slice.bytes_from_ptr(&k, size_of(k)), h)
 	}
 	return max(h, 1) // 0 means empty
@@ -1261,7 +1268,8 @@ draw_items :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURende
 		frame := Frame_Uniforms{view_proj = proj * view, view = view, model = item.model, options = {f32(int(show_paint)), f32(int(show_groups)), 0, 0}}
 		params := item.material if item.material != {} else DEFAULT_MATERIAL
 		surface := [4]f32{item.surface.x, item.surface.y, 1 if item.flat else 0, 1 if item.matcap != nil else 0}
-		material := Material_Uniforms{base_color = item.color, params = params, surface = surface, checker = item.checker, look = item.look}
+		lights := item.lights if item.lights != {} else DEFAULT_LIGHTS
+		material := Material_Uniforms{base_color = item.color, params = params, surface = surface, checker = item.checker, look = item.look, lights = lights}
 		sdl.PushGPUVertexUniformData(cmd, 0, &frame, size_of(frame))
 		sdl.PushGPUFragmentUniformData(cmd, 0, &material, size_of(material))
 		paint := [1]^sdl.GPUBuffer{mb.paint if mb.paint != nil else r.no_paint}
@@ -1284,6 +1292,15 @@ draw_items :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURende
 }
 
 DEFAULT_MATERIAL :: [4]f32{0.08, 0.2, 40, 0}
+// The light rig unturned, at full strength: the lights fixed to the camera.
+DEFAULT_LIGHTS :: [3][4]f32{{1, 0, 0, 1}, {0, 1, 0, 1}, {0, 0, 1, 0}}
+
+// Where the rig `lights` (Draw_Item.lights) puts the view-space direction `dir` given in
+// the rig's own space.
+lights_turn :: proc(lights: [3][4]f32, dir: [3]f32) -> [3]f32 {
+	l := lights if lights != {} else DEFAULT_LIGHTS
+	return l[0].xyz * dir.x + l[1].xyz * dir.y + l[2].xyz * dir.z
+}
 WIRE_COLOR :: [4]f32{0.05, 0.05, 0.06, 1}
 
 // The item's triangles: the visible runs prepare_draws found, or the whole mesh. Counts
