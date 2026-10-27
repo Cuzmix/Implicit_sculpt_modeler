@@ -1,6 +1,7 @@
 package main
 
 import "core:fmt"
+import "core:strings"
 
 import "../geom"
 import "../sculpt"
@@ -359,6 +360,18 @@ kit_objects_card_menus :: proc(app: ^App) {
 			if ui.menu_item(ctx, fmt.tprintf("%v##objects card add", shape), glyph = ui.ICON_PLUS, trailing = true) {
 				app.ui.scene_command = {kind = .Add, shape = shape, vertices = vertices, on = !c.append}
 				c.add = false
+			}
+		}
+		// Each content pack's meshes, under its name.
+		for pack in app.library.packs {
+			if pack.meshes == 0 do continue
+			ui.caption(ctx, fmt.tprintf("  %s", strings.to_upper(pack.name, context.temp_allocator)))
+			for m, j in app.library.meshes {
+				if m.gone || m.pack != pack.id do continue
+				if ui.menu_item(ctx, fmt.tprintf("%s##objects card mesh %d", m.stem, j), glyph = ui.ICON_PLUS, trailing = true) {
+					app.ui.scene_command = {kind = .Add, mesh = j + 1, on = !c.append}
+					c.add = false
+				}
 			}
 		}
 		ui.divider(ctx, across = true)

@@ -1,11 +1,15 @@
 package main
 
+import "core:fmt"
 import "core:hash"
 import "core:os"
+import "core:slice"
 import "core:strings"
 import "core:testing"
 import "core:thread"
 
+import "../geom"
+import "../jobs"
 import "../png_write"
 import "../sculpt"
 
@@ -108,7 +112,7 @@ pack_installs_replaces_and_removes :: proc(t: ^testing.T) {
 	pack_write(t, v1, {
 		{"pack.txt", "# Made by hand\nname Rock Set\nauthor Bolt\nversion 1.0\nlicense CC0\ndescription Pebbles and cracks\n"},
 		{"alphas/", ""}, {"alphas/Pebble.png", pack_png(0)}, {"alphas/crack.png", pack_png(9)},
-		{"meshes/boulder.obj", "v 0 0 0\n"}, {"macros/evil.cmd", "remesh\n"},
+		{"materials/clay.txt", "base 0.8\n"}, {"macros/evil.cmd", "remesh\n"},
 	})
 	pack_write(t, v2, {{"pack.txt", "name Rock Set\nauthor bolt\nversion 2.0\n"}, {"alphas/Pebble.png", pack_png(5)}})
 
@@ -123,7 +127,7 @@ pack_installs_replaces_and_removes :: proc(t: ^testing.T) {
 	testing.expect_value(t, a.library.packs[0].license, "CC0")
 	testing.expect_value(t, alpha_ref(&a, builtins), "rock-set/Pebble")
 	testing.expect(t, os.exists(LIBRARY + "/rock-set/alphas/Pebble.png"))
-	testing.expect(t, !os.exists(LIBRARY + "/rock-set/meshes") && !os.exists(LIBRARY + "/rock-set/macros"))
+	testing.expect(t, !os.exists(LIBRARY + "/rock-set/materials") && !os.exists(LIBRARY + "/rock-set/macros"))
 	testing.expect(t, !os.exists(LIBRARY + "/" + PACK_INCOMING))
 	testing.expect(t, alpha_select(&a, "rock-set/crack"))
 	testing.expect(t, preset_save_new(&a))
@@ -338,5 +342,112 @@ pack_presets_join_the_brush_and_dock :: proc(t: ^testing.T) {
 	testing.expect_value(t, b.kit.dock[2], Dock_Slot{kind = .Clay})
 	testing.expect_value(t, preset_by_ref(&b, "brush-set/Stone Clay"), 0)
 	testing.expect_value(t, preset_name(&b.presets[0]), "Stone Clay 1")
+	free_all(context.temp_allocator)
+}
+
+// A tetrahedron as OBJ text, and as a binary PLY.
+@(private = "file")
+TETRA_OBJ :: "v 0 0 0\nv 1 0 0\nv 0 1 0\nv 0 0 1\nf 1 3 2\nf 1 2 4\nf 1 4 3\nf 2 3 4\n"
+
+@(private = "file")
+tetra_ply :: proc() -> string {
+	out := make([dynamic]u8, context.temp_allocator)
+	append(&out, "ply\nformat binary_little_endian 1.0\nelement vertex 4\nproperty float x\nproperty float y\nproperty float z\nelement face 4\nproperty list uchar int vertex_indices\nend_header\n")
+	corners := [4][3]f32{{0, 0, 0}, {1, 0, 0}, {0, 1, 0}, {0, 0, 1}}
+	for c in corners do for x in c {
+		b := transmute([4]u8)x
+		append(&out, ..b[:])
+	}
+	faces := [4][3]i32{{0, 2, 1}, {0, 1, 3}, {0, 3, 2}, {1, 2, 3}}
+	for f in faces {
+		append(&out, 3)
+		for i in f {
+			b := transmute([4]u8)i
+			append(&out, ..b[:])
+		}
+	}
+	return string(out[:])
+}
+
+// A pack's meshes install with their counts (a second mesh of one name and a mesh in a
+// folder below left out), come back at the next start from meshes.txt, and a mesh that does not
+// read refuses the pack, naming its line. Add object and the New scene rows point at
+// a mesh by its index, which a replace moves to the new copy and a removal lets go of;
+// the arming of New scene works as for a shape. Parsing with no pool, as the install
+// thread does, gives the same mesh as with the frame's pool.
+@(test)
+pack_meshes_install_and_list :: proc(t: ^testing.T) {
+	FOLDER :: "build/pack_mesh_test/"
+	_ = os.remove_all(FOLDER)
+	defer os.remove_all(FOLDER)
+	testing.expect(t, os.make_directory_all(FOLDER) == nil)
+	settings := FOLDER + "run.txt"
+	LIBRARY :: FOLDER + "run-library"
+	v1, v2, bad := FOLDER + "rocks.sculptpack", FOLDER + "rocks-2.sculptpack", FOLDER + "bad.sculptpack"
+	pack_write(t, v1, {
+		{"pack.txt", "name Rock Set\nauthor Bolt\n"}, {"meshes/Boulder.obj", TETRA_OBJ}, {"meshes/Boulder.ply", tetra_ply()},
+		{"meshes/Pebble.ply", tetra_ply()}, {"meshes/sub/deep.obj", TETRA_OBJ},
+	})
+	pack_write(t, v2, {{"pack.txt", "name Rock Set\nauthor Bolt\nversion 2\n"}, {"meshes/Pebble.ply", tetra_ply()}})
+	pack_write(t, bad, {{"pack.txt", "name Bad Rocks\n"}, {"meshes/broken.obj", "v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 x\n"}})
+
+	a: App
+	defer pack_app_free(&a)
+	pack_app(&a, settings)
+	testing.expect_value(t, pack_install_finish(&a, pack_unpack(v1, a.library.folder), replace = false), "")
+	testing.expect(t, strings.contains(a.result.text, "Installed Rock Set: 2 meshes; left out 2 files"), a.result.text)
+	boulder := pack_mesh_by_ref(&a, "rock-set/BOULDER")
+	pebble := pack_mesh_find(&a, "rock-set", "pebble")
+	testing.expect(t, boulder >= 0 && pebble >= 0)
+	testing.expect_value(t, a.library.meshes[pebble].vertices, 4)
+	testing.expect_value(t, a.library.meshes[pebble].triangles, 4)
+	testing.expect(t, os.exists(LIBRARY + "/rock-set/meshes/Boulder.obj") && os.exists(LIBRARY + "/rock-set/meshes.txt"))
+	testing.expect(t, !os.exists(LIBRARY + "/rock-set/meshes/sub"))
+
+	failed := pack_install_finish(&a, pack_unpack(bad, a.library.folder), replace = false)
+	testing.expect(t, strings.contains(failed, "meshes/broken.obj is not a mesh the app reads: line 4"), failed)
+	testing.expect_value(t, len(a.library.packs), 1)
+
+	// Add object's pick and an armed New scene follow a replace, and let go on removal.
+	a.kit.add_mesh = pebble + 1
+	append(&a.history.done, History_Entry{})
+	defer delete(a.history.done)
+	a.kit.ctx.time = 10
+	new_mesh_run(&a, pebble)
+	testing.expect(t, a.ui.scene_command.kind == .None && new_mesh_armed(&a, pebble) && !new_scene_armed(&a, 0))
+	testing.expect_value(t, pack_install_finish(&a, pack_unpack(v2, a.library.folder), replace = true), "")
+	moved := pack_mesh_find(&a, "rock-set", "Pebble")
+	testing.expect(t, moved != pebble && moved >= 0)
+	testing.expect_value(t, a.kit.add_mesh, moved + 1)
+	testing.expect(t, new_mesh_armed(&a, moved))
+	new_mesh_run(&a, moved)
+	testing.expect_value(t, a.ui.scene_command, Scene_Command{kind = .New, mesh = moved + 1})
+	testing.expect_value(t, pack_mesh_by_ref(&a, "rock-set/boulder"), -1)
+
+	b: App
+	defer pack_app_free(&b)
+	pack_app(&b, settings)
+	testing.expect_value(t, len(b.library.meshes), 1)
+	testing.expect_value(t, b.library.packs[0].meshes, 1)
+	testing.expect_value(t, b.library.meshes[0].triangles, 4)
+	b.kit.add_mesh = 1
+	testing.expect(t, pack_remove(&b, 0))
+	testing.expect_value(t, b.kit.add_mesh, 0)
+	testing.expect_value(t, len(b.library.meshes), 1)
+	testing.expect(t, b.library.meshes[0].gone)
+
+	// The install thread's serial parse is the frame's parallel one, bit for bit.
+	pool: jobs.Pool
+	jobs.pool_init(&pool, 3)
+	defer jobs.pool_destroy(&pool)
+	big := strings.builder_make(context.temp_allocator)
+	for i in 0 ..< 3000 do fmt.sbprintf(&big, "v %d %d %d\n", i % 17, i % 23, i % 31)
+	for i in 0 ..< 2990 do fmt.sbprintf(&big, "f %d %d %d\n", i + 1, i + 2, i + 3)
+	serial, _, s_err, _ := mesh_file_parse(transmute([]u8)strings.to_string(big), false, nil)
+	parallel, _, p_err, _ := mesh_file_parse(transmute([]u8)strings.to_string(big), false, &pool)
+	defer geom.mesh_destroy(&serial)
+	defer geom.mesh_destroy(&parallel)
+	testing.expect(t, s_err == p_err)
+	testing.expect(t, slice.equal(serial.positions[:], parallel.positions[:]) && slice.equal(serial.indices[:], parallel.indices[:]))
 	free_all(context.temp_allocator)
 }

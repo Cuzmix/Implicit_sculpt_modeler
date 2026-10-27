@@ -119,7 +119,10 @@ macro_reads :: proc(app: ^App, id: Command_Id, arg: int) -> []string {
 	case .Retopologize:   return RETOPO
 	case .Extract_Masked: return EXTRACT
 	case .Make_Boolean:   return BOOLEAN
-	case .Add_Object:     return ADD
+	case .Add_Object:
+		// A content pack's mesh is named by its own line (macro_statement).
+		if _, mesh := pack_mesh_at(app, app.kit.add_mesh - 1); mesh do return nil
+		return ADD
 	case .Rebuild:
 		switch app.ui.rebuild_goal {
 		case .Even:  return EVEN
@@ -238,6 +241,8 @@ macro_statement :: proc(app: ^App, id: Command_Id, arg: int) -> string {
 	case id == .Hd_Toggle:
 		obj := selected_object(app)
 		return "hd_sculpt" if obj != nil && object_in_hd(obj) else "hd_leave"
+	case id == .Add_Object && app.kit.add_mesh > 0:
+		if m, ok := pack_mesh_at(app, app.kit.add_mesh - 1); ok do return fmt.tprintf("pack_mesh %s/%s", m.pack, m.stem)
 	case c.args > 0:
 		return fmt.tprintf("%s %s", name, script_name(command_arg_name(id, arg)))
 	case c.checked != nil:

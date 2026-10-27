@@ -417,9 +417,29 @@ SCENE_SECTIONS := [?]Kit_Tab_Section {
 kit_add :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
-	shapes: [len(geom.Primitive)]string
-	for s, i in geom.Primitive do shapes[i] = fmt.tprint(s)
-	if picked := ui.select(ctx, "add shape", shapes[:], int(k.add_shape)); picked >= 0 do k.add_shape = geom.Primitive(picked)
+	// The shapes, then every content pack's meshes, by pack: picking a mesh adds it as
+	// Import would, so it has no size to pick.
+	shapes := make([dynamic]string, context.temp_allocator)
+	meshes := make([dynamic]int, context.temp_allocator)
+	for s in geom.Primitive do append(&shapes, fmt.tprint(s))
+	for pack in app.library.packs {
+		for m, j in app.library.meshes {
+			if m.gone || m.pack != pack.id do continue
+			append(&shapes, fmt.tprintf("%s (%s)", m.stem, pack.name))
+			append(&meshes, j)
+		}
+	}
+	shown := int(k.add_shape)
+	for j, i in meshes do if k.add_mesh == j + 1 do shown = len(geom.Primitive) + i
+	if picked := ui.select(ctx, "add shape", shapes[:], shown); picked >= 0 {
+		if picked < len(geom.Primitive) do k.add_shape, k.add_mesh = geom.Primitive(picked), 0
+		else do k.add_mesh = meshes[picked - len(geom.Primitive)] + 1
+	}
+	if pm, on := pack_mesh_at(app, k.add_mesh - 1); on {
+		_ = command_button(app, .Add_Object, label = fmt.tprintf("Add %s", pm.stem), variant = .Solid, tone = .Accent, glyph = ui.ICON_PLUS)
+		ui.paragraph(ctx, fmt.tprintf("From the content pack %s: %s vertices and %s triangles, added beside the others and sized as Import sizes a file.", pack_mesh_pack_name(app, k.add_mesh - 1), count_label(pm.vertices), count_label(pm.triangles)))
+		return
+	}
 	if picked := ui.select(ctx, "add size", kit_size_names(), k.add_size); picked >= 0 do k.add_size = picked
 	vertices := int(SPHERE_PRESETS[k.add_size].vertices)
 	_ = command_button(app, .Add_Object, label = fmt.tprintf("Add %v", k.add_shape), variant = .Solid, tone = .Accent, glyph = ui.ICON_PLUS)

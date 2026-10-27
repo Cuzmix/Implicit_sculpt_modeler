@@ -823,11 +823,12 @@ COMMANDS := [Command_Id]Command {
 
 	.Add_Object = {
 		label = "Add object",
-		help = "Adds the shape and size picked in the Scene palette's Add object section.",
+		help = "Adds the shape and size, or the content pack's mesh, picked in the Scene palette's Add object section.",
 		icon = ui.ICON_PLUS,
 		run = proc(app: ^App, _: int) {
 			k := &app.kit
-			app.ui.scene_command = {kind = .Add, vertices = int(SPHERE_PRESETS[k.add_size].vertices), shape = k.add_shape}
+			mesh := k.add_mesh if k.add_mesh > 0 && k.add_mesh <= len(app.library.meshes) && !app.library.meshes[k.add_mesh - 1].gone else 0
+			app.ui.scene_command = {kind = .Add, vertices = int(SPHERE_PRESETS[k.add_size].vertices), shape = k.add_shape, mesh = mesh}
 		},
 	},
 	.Frame_All = {

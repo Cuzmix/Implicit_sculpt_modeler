@@ -16,8 +16,9 @@ import "../zip"
 
 // Content packs: a `.sculptpack` file is a ZIP archive, so that any zip tool makes one,
 // holding `pack.txt` (name, author, version, description, license, one `key value` line
-// each; only the name is needed), brush alphas under `alphas/` and brush presets in
-// `brushes.txt` (settings.txt's `preset` lines, naming the pack's own alphas by stem). Installing one checks
+// each; only the name is needed), brush alphas under `alphas/`, brush presets in
+// `brushes.txt` (settings.txt's `preset` lines, naming the pack's own alphas by stem) and
+// base meshes under `meshes/` (pack_mesh.odin). Installing one checks
 // the archive (zip.odin), reads pack.txt, decodes every alpha, and only then writes
 // anything: into library/.incoming, renamed to library/<id> once whole, so an install
 // that stops halfway leaves nothing behind. A pack is data only (store rule: no
@@ -46,6 +47,7 @@ Pack :: struct {
 	license:     string,
 	alphas:      int,
 	presets:     int,
+	meshes:      int,
 }
 
 // A content pack's brush preset, in Library.presets: the preset, read-only, and the pack's
@@ -94,6 +96,7 @@ Pack_Unpacked :: struct {
 	info:     Pack,   // without an id until it is placed
 	alphas:   [dynamic]Pack_Alpha,
 	presets:  [dynamic]Pack_Preset_Read,
+	meshes:   [dynamic]Pack_Mesh_Read,
 	bad:      int,    // brushes.txt lines it cannot use
 	left_out: int,    // entries this version does not read
 	left:     string, // the first of them
@@ -111,6 +114,11 @@ pack_unpacked_free :: proc(u: ^Pack_Unpacked) {
 	delete(u.alphas)
 	for p in u.presets do delete(p.alpha)
 	delete(u.presets)
+	for m in u.meshes {
+		delete(m.stem)
+		delete(m.file)
+	}
+	delete(u.meshes)
 	delete(u.left)
 	free(u)
 }
@@ -295,6 +303,10 @@ pack_unpack :: proc(path, library: string) -> ^Pack_Unpacked {
 		// An alpha sits right in alphas/, never in a folder below it.
 		file := strings.trim_prefix(e.name, LIBRARY_ALPHAS + "/")
 		in_alphas := len(file) < len(e.name) && strings.index_byte(file, '/') < 0
+		// A mesh too sits right in meshes/.
+		mesh_file := strings.trim_prefix(e.name, PACK_MESHES + "/")
+		in_meshes := len(mesh_file) < len(e.name) && strings.index_byte(mesh_file, '/') < 0
+		mesh_ext := strings.to_lower(filepath.ext(mesh_file), context.temp_allocator)
 		switch {
 		case e.name == PACK_FILE:
 			bytes, read_err := zip.read(data, e)
@@ -324,11 +336,36 @@ pack_unpack :: proc(path, library: string) -> ^Pack_Unpacked {
 			append(&u.alphas, a)
 			target, _ := filepath.join({incoming, LIBRARY_ALPHAS, a.file}, context.temp_allocator)
 			if werr := os.write_entire_file(target, bytes); werr != nil do return refuse(u, "cannot write %s: %v", target, werr)
+		case in_meshes && (mesh_ext == ".obj" || mesh_ext == ".ply") && !strings.has_prefix(mesh_file, "."):
+			stem := filepath.stem(mesh_file)
+			taken := false
+			for m in u.meshes do taken ||= strings.equal_fold(m.stem, stem)
+			if taken || len(u.meshes) >= PACK_MESHES_MAX {
+				pack_left_out(u, e.name)
+				continue
+			}
+			bytes, read_err := zip.read(data, e)
+			if read_err != .None do return refuse(u, "%s: %s", e.name, zip.ERROR_TEXT[read_err])
+			defer delete(bytes)
+			m, failed := pack_mesh_check(e.name, bytes)
+			if failed != "" do return refuse(u, "%s is not a mesh the app reads: %s", e.name, failed)
+			m.stem, m.file = strings.clone(stem), strings.clone(mesh_file)
+			append(&u.meshes, m)
+			meshes_dir, _ := filepath.join({incoming, PACK_MESHES}, context.temp_allocator)
+			if len(u.meshes) == 1 {
+				if dir_err := os.make_directory_all(meshes_dir); dir_err != nil do return refuse(u, "cannot make %s: %v", meshes_dir, dir_err)
+			}
+			target, _ := filepath.join({incoming, PACK_MESHES, mesh_file}, context.temp_allocator)
+			if werr := os.write_entire_file(target, bytes); werr != nil do return refuse(u, "cannot write %s: %v", target, werr)
 		case:
 			pack_left_out(u, e.name)
 		}
 	}
 	if !text_found do return refuse(u, "it has no %s, so it is not a content pack", PACK_FILE)
+	if len(u.meshes) > 0 {
+		index_path, _ := filepath.join({incoming, PACK_MESH_INDEX}, context.temp_allocator)
+		if werr := write_durably(index_path, transmute([]u8)pack_mesh_index(u.meshes[:])); werr != "" do return refuse(u, "%s", werr)
+	}
 	if brushes != nil {
 		stems := make([]string, len(u.alphas), context.temp_allocator)
 		for a, i in u.alphas do stems[i] = a.stem
@@ -472,12 +509,18 @@ pack_install_finish :: proc(app: ^App, u: ^Pack_Unpacked, replace: bool) -> (err
 		p.alphas += 1
 	}
 	p.presets = pack_presets_add(app, id, u.presets[:])
+	for m in u.meshes {
+		file, _ := filepath.join({folder, PACK_MESHES, m.file}, context.temp_allocator)
+		pack_mesh_add(app, id, m.stem, file, m.vertices, m.triangles)
+	}
+	p.meshes = len(u.meshes)
 	// A replaced pack keeps its place in the list.
 	if old >= 0 do inject_at(&l.packs, old, p)
 	else do append(&l.packs, p)
 	l.installed += 1
 	dropped := alphas_retarget(app)
 	_ = pack_presets_retarget(app)
+	pack_meshes_retarget(app)
 	left := "" if u.left_out == 0 else fmt.tprintf("; left out %d file%s this version does not read (%s%s)", u.left_out, "" if u.left_out == 1 else "s", u.left, "" if u.left_out == 1 else ", ...")
 	bad := "" if u.bad == 0 else fmt.tprintf("; skipped %d line%s of %s it cannot use", u.bad, "" if u.bad == 1 else "s", PACK_BRUSHES)
 	lost := "" if dropped == 0 else fmt.tprintf("; %d preset%s used alphas it no longer has and %s round now", dropped, "" if dropped == 1 else "s", "is" if dropped == 1 else "are")
@@ -528,16 +571,19 @@ pack_id :: proc(app: ^App, name: string) -> string {
 	}
 }
 
-// What a pack holds, for notes and the Library panel: "3 alphas and 2 presets", leaving
-// out presets when it has none, and alphas when it has only presets.
+// What a pack holds, for notes and the Library panel: "3 alphas, 2 presets and 1 mesh",
+// leaving out what it has none of (and saying "nothing" when that is all of it).
 pack_holds :: proc(p: Pack) -> string {
-	alphas := fmt.tprintf("%d alpha%s", p.alphas, "" if p.alphas == 1 else "s")
-	presets := fmt.tprintf("%d preset%s", p.presets, "" if p.presets == 1 else "s")
-	switch {
-	case p.presets == 0: return alphas
-	case p.alphas == 0:  return presets
+	parts := make([dynamic]string, context.temp_allocator)
+	counted :: proc(n: int, one, many: string) -> string {return fmt.tprintf("%d %s", n, one if n == 1 else many)}
+	if p.alphas > 0 do append(&parts, counted(p.alphas, "alpha", "alphas"))
+	if p.presets > 0 do append(&parts, counted(p.presets, "preset", "presets"))
+	if p.meshes > 0 do append(&parts, counted(p.meshes, "mesh", "meshes"))
+	switch len(parts) {
+	case 0: return "nothing"
+	case 1: return parts[0]
 	}
-	return fmt.tprintf("%s and %s", alphas, presets)
+	return fmt.tprintf("%s and %s", strings.join(parts[:len(parts) - 1], ", ", context.temp_allocator), parts[len(parts) - 1])
 }
 
 // Forgets pack `i`: its alphas and presets are marked gone and it leaves the list. The
@@ -548,6 +594,7 @@ pack_forget :: proc(app: ^App, i: int) {
 	prefix := fmt.tprintf("%s/", l.packs[i].id)
 	for &e in app.alphas do if !e.gone && strings.has_prefix(e.ref, prefix) do e.gone = true
 	for &p in l.presets do if strings.equal_fold(p.pack, l.packs[i].id) do p.gone = true
+	for &m in l.meshes do if strings.equal_fold(m.pack, l.packs[i].id) do m.gone = true
 	pack_free(&l.packs[i])
 	ordered_remove(&l.packs, i)
 }
@@ -564,6 +611,7 @@ pack_remove :: proc(app: ^App, i: int) -> bool {
 	pack_forget(app, i)
 	dropped := alphas_retarget(app)
 	_ = pack_presets_retarget(app)
+	pack_meshes_retarget(app)
 	if dropped == 0 {
 		file_note(app, false, "Removed %s from your library", name)
 	} else {

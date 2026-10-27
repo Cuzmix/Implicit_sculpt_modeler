@@ -126,6 +126,7 @@ Scene_Command :: struct {
 	kind:     enum u8 {None, Add, New, Remesh, Decimate, Retopo, Delete, Duplicate, Symmetrize, Slice, Subdivide, Set_Level, Delete_Higher, Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete, Dyntopo, Boolean, Extract, View, Arrange, Copy, Paste, Delete_Others, Levels_All, Split, Merge, Align, Distribute},
 	vertices: int,
 	shape:    geom.Primitive, // Add, New: what to add
+	mesh:     int, // Add, New: a content pack's mesh to add instead (Library.meshes, from 1), or 0
 	// Dyntopo: turn dynamic topology on, or off; Symmetrize: keep the + side; Delete_Others:
 	// the selected objects too; Levels_All: every object to its highest level, or its lowest;
 	// Add: below the selected object, in its folder, rather than at the end of the list;
@@ -247,15 +248,22 @@ STARTER_LEVELS :: 3
 // temp memory, which building frees. `start` is when making the mesh began, for the
 // log. Returns false on a GPU failure.
 scene_add_mesh :: proc(app: ^App, mesh: geom.Mesh, name: string, file, t: Transform, start: time.Tick, old_to_new: []u32 = nil, surface: Surface = {}) -> bool {
-	obj := new(Object)
+	obj := object_from_mesh(app, mesh, name, file, t, start, old_to_new, surface) or_return
+	scene_append(app, obj)
+	return true
+}
+
+// A new object of `mesh`, built (as scene_add_mesh says) but in no scene yet; nil on a
+// GPU failure.
+object_from_mesh :: proc(app: ^App, mesh: geom.Mesh, name: string, file, t: Transform, start: time.Tick, old_to_new: []u32 = nil, surface: Surface = {}) -> (obj: ^Object, ok: bool) {
+	obj = new(Object)
 	obj.transform, obj.file = t, file
 	if !object_build_from(app, obj, mesh, start, normals = true, old_to_new = old_to_new, surface = surface) {
 		free(obj)
-		return false
+		return nil, false
 	}
 	obj.name = strings.clone(name)
-	scene_append(app, obj)
-	return true
+	return obj, true
 }
 
 // Gives the object the next id and selects it.
@@ -633,7 +641,9 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 	case .Add:
 		before := len(app.scene.objects)
 		sel := selected_object(app)
-		if !scene_add_primitive(app, cmd.shape, cmd.vertices, {position = next_free_position(app), scale = 1}) do return false
+		if cmd.mesh > 0 {
+			if !scene_add_pack_mesh(app, cmd.mesh - 1) do return false
+		} else if !scene_add_primitive(app, cmd.shape, cmd.vertices, {position = next_free_position(app), scale = 1}) do return false
 		if len(app.scene.objects) > before {
 			// Inserted below the selection, in its folder, rather than at the end.
 			if cmd.on && sel != nil {
@@ -644,6 +654,7 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 			history_record_added(app)
 		}
 	case .New:
+		if cmd.mesh > 0 do return scene_new_pack_mesh(app, cmd.mesh - 1)
 		return scene_new(app, cmd.shape, cmd.vertices)
 	case .Remesh:
 		if obj := selected_object(app); obj != nil {
