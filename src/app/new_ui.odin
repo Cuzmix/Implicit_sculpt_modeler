@@ -888,6 +888,7 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 	if !typed do commands_handle_keys(app)
 	layer_drag_end(app)
 	deform_drag_end(app)
+	reshape_drag_end(app)
 	lattice_frame(app)
 	transform_drag_end(app)
 	light_drag_end(app)

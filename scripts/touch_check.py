@@ -5306,6 +5306,22 @@ def print_height_by_finger_and_inches():
     return s, ["--script=show_section print"], camera_still({"print_mm": lambda v: float(v) > 26, "print_unit": near(2, 0), "dabs": near(0)})
 
 
+# Object > Deformation at 1600x900: the middle of Amount's track (Offset, with the axes).
+DEFORMATION_AMOUNT = (1378, 362)
+
+
+@scenario
+def deformation_amount_by_finger():
+    """A finger drag on Object > Deformation's Amount offsets the sphere live and is one
+    undo step when let go; it sculpts nothing and turns nothing."""
+    s = Script()
+    s.wait(4)
+    x, y = DEFORMATION_AMOUNT
+    s.fdrag(line((x, y), (x + 60, y), 8))
+    s.wait(4)
+    return s, ["--script=show_section deform"], camera_still({"reshapes": near(1, 0), "undo_steps": near(1, 0), "dabs": near(0)})
+
+
 # The Home screen at 1600x900 (kit_home.odin): the Head starter, and the first scene tile.
 HOME_NEW_HEAD = (180, 145)
 HOME_TILE1 = (385, 190)

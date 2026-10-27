@@ -117,6 +117,8 @@ Command_Id :: enum u8 {
 	Recall_Oldest,
 	Smooth_All,
 	Deformer, // the argument is the sculpt.Deform_Kind
+	Deformation, // the argument is the Reshape_Choice
+	Reshape_Repeat,
 	Remesh_To, // the argument is the SPHERE_PRESETS size
 	Decimate_To, // ...and here too
 	Rebuild,
@@ -1006,6 +1008,22 @@ COMMANDS := [Command_Id]Command {
 		// Not while an Amount or a lattice point is dragged: either would lose its places.
 		enabled = proc(app: ^App, _: int) -> bool {return selected_object(app) != nil && !app.ui.deform.drag.active && app.move.drag.lattice == 0},
 	},
+	.Deformation = {
+		label = "Deformation",
+		help = "Opens the Object palette's Deformation section on this one: drag Amount to offset, turn, size, skew, bend, squeeze, roughen, inflate, round, sag, polish or relax the part the mask leaves free.",
+		args = len(Reshape_Choice),
+		run = proc(app: ^App, arg: int) {
+			tray_open(app, .Deform)
+			if !app.ui.reshape.drag.active do app.ui.reshape.choice = Reshape_Choice(arg)
+		},
+		enabled = has_object,
+	},
+	.Reshape_Repeat = {
+		label = "Repeat on the other objects",
+		help = "Gives every other shown object the last deformation from the Deformation section, each over the part its mask leaves free, as one undo step.",
+		run = proc(app: ^App, _: int) {_ = reshape_repeat(app)},
+		enabled = proc(app: ^App, _: int) -> bool {return app.ui.reshape.last.valid && len(app.scene.objects) > 1 && !app.ui.reshape.drag.active},
+	},
 	.Remesh_To = {
 		label = "Remesh to",
 		help = "Rebuilds the selected object as an even closed mesh of this many vertices that keeps its shape.",
@@ -1751,6 +1769,8 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 		return PAINT_COMMAND_NAMES[sculpt.Paint_Command(arg)]
 	case .Group:
 		return GROUP_COMMAND_NAMES[sculpt.Group_Command(arg)]
+	case .Deformation:
+		return RESHAPE_NAMES[Reshape_Choice(arg)]
 	case .Deformer:
 		// The bare name: a longer label matched typed words fuzzily that it has nothing to
 		// do with ("wire" in "Twist (deformer)"); the help line says it is a deformer.

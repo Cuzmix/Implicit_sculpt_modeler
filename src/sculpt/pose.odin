@@ -21,6 +21,7 @@ Pose_Kind :: enum {
 	Scale,
 	Deform, // a bend, twist or taper (deform.odin)
 	Lattice, // a lattice point's move (lattice.odin), once sculptor_lattice_rest noted the places
+	Reshape, // an offset, turn, size, skew, bend, squeeze, noise, inflation, spherize or sag (reshape.odin)
 }
 
 // A pose in the mesh's own space.
@@ -33,6 +34,7 @@ Pose :: struct {
 	factor: f32,  // Scale: the factor for a free vertex
 	deform: Deform, // Deform: which, along what and how much
 	lattice: Lattice_Move, // Lattice: the point and its move
+	reshape: Reshape, // Reshape: which, along what and how much
 }
 
 @(private)
@@ -41,12 +43,38 @@ Pose_State :: struct {
 	nodes:  []u32, // the nodes with a free vertex, in the order their positions were saved
 	first:  int,   // where their saved positions start in the stroke's saved nodes
 	moved:  int,   // free vertices, for the stats
+	// The pose nodes' vertex normals where they started, node after node from
+	// normal_at[i], for a reshape along the normals; kept from its first frame, before
+	// anything moved.
+	normals:   []Vec3,
+	normal_at: []int,
 }
 
 @(private)
 pose_free :: proc(s: ^Sculptor) {
 	delete(s.pose.nodes)
+	delete(s.pose.normals)
+	delete(s.pose.normal_at)
 	s.pose = {}
+}
+
+// Keeps the pose nodes' normals as they are, the first time a reshape along the normals
+// is set; the pose has moved nothing yet then.
+@(private = "file")
+pose_keep_normals :: proc(s: ^Sculptor) {
+	if s.pose.normals != nil do return
+	sculptor_refresh_normals(s)
+	s.pose.normal_at = make([]int, len(s.pose.nodes))
+	total := 0
+	for id, i in s.pose.nodes {
+		s.pose.normal_at[i] = total
+		total += int(s.nodes[id].vert_count)
+	}
+	s.pose.normals = make([]Vec3, total)
+	for id, i in s.pose.nodes {
+		n := s.nodes[id]
+		copy(s.pose.normals[s.pose.normal_at[i]:][:n.vert_count], s.mesh.normals[n.vert_first:][:n.vert_count])
+	}
 }
 
 // Whether a pose is under way.
@@ -99,6 +127,7 @@ sculptor_pose_begin :: proc(s: ^Sculptor) -> bool {
 // Sets every free vertex to `p` applied to where it started, by how free it is.
 sculptor_pose_apply :: proc(s: ^Sculptor, p: Pose) {
 	if !s.pose.active do return
+	if p.kind == .Reshape && reshape_needs_normals(p.reshape.kind) do pose_keep_normals(s)
 	Apply :: struct {
 		s:        ^Sculptor,
 		p:        Pose,
@@ -106,8 +135,9 @@ sculptor_pose_apply :: proc(s: ^Sculptor, p: Pose) {
 		axis:     Vec3,
 		deform:   Deform_Plan,
 		lattice:  Lattice_Move,
+		reshape:  Reshape_Plan,
 	}
-	job := Apply{s = s, p = p, axis = linalg.normalize0(p.axis), deform = deform_plan(p.deform), lattice = p.lattice}
+	job := Apply{s = s, p = p, axis = linalg.normalize0(p.axis), deform = deform_plan(p.deform), lattice = p.lattice, reshape = reshape_plan(p.reshape)}
 	job.turn = linalg.matrix3_rotate_f32(p.angle, job.axis) if job.axis != {} else 1
 	jobs.parallel_for(s.pool, len(s.pose.nodes), &job, proc(data: rawptr, i: int) {
 		job := cast(^Apply)data
@@ -141,6 +171,10 @@ sculptor_pose_apply :: proc(s: ^Sculptor, p: Pose) {
 			case .Lattice:
 				place := s.lattice.place
 				positions[k] = a if place == nil else a + (w * lattice_weight(&job.lattice, place[n.vert_first + u32(k)])) * job.lattice.offset
+			case .Reshape:
+				normal: Vec3
+				if s.pose.normals != nil do normal = s.pose.normals[s.pose.normal_at[i] + k]
+				positions[k] = reshape_at(&job.reshape, a, normal, w)
 			}
 		}
 	})
