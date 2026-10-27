@@ -441,14 +441,14 @@ kit_add :: proc(app: ^App) {
 	ui.paragraph(ctx, fmt.tprintf("Builds %s%s vertices%s, about %s of memory.", "" if k.add_shape == .Sphere else "about ", count_label(built), on, bytes_label(memory * BYTES_PER_VERTEX)))
 }
 
-// The classic presets, the physically based ones, and sliders that edit whichever is in
-// use into the Custom material.
+// The classic presets, the physically based ones, the MatCaps, and sliders that edit
+// whichever is in use into the Custom material.
 @(private = "file")
 kit_material :: proc(app: ^App) {
 	ctx := &app.kit.ctx
 	names: [len(MATERIALS) + 1]string
-	for m, i in MATERIALS do names[i] = string(m.label) if i < FIRST_PBR else fmt.tprintf("%s (physically based)", m.label)
-	names[CUSTOM_MATERIAL] = "Custom"
+	for m, i in MATERIALS do names[i] = string(m.label) if i < FIRST_PBR || m.matcap != 0 else fmt.tprintf("%s (physically based)", m.label)
+	names[CUSTOM_MATERIAL] = "Custom" if app.custom.matcap == 0 else fmt.tprintf("Custom (%s MatCap)", matcap_label(app, app.custom.matcap))
 	if picked := ui.select(ctx, "material", names[:], app.material); picked >= 0 do app.material = picked
 	// The sliders show the material in use; moving one copies it into Custom first, so a
 	// preset is never changed. A classic preset has no roughness yet, so it starts rough.
@@ -459,8 +459,12 @@ kit_material :: proc(app: ^App) {
 	// darkens creases and Ridge lightens crests, so fine detail reads at any light angle.
 	_ = ui.slider(ctx, "Cavity", &app.cavity, 0, 1, .Linear, fmt.tprintf("%.2f", app.cavity))
 	if kit_more(app, .Material) {
-		changed |= ui.slider(ctx, "Metallic", &m.metallic, 0, 1, .Linear, fmt.tprintf("%.2f", m.metallic))
-		changed |= ui.slider(ctx, "Roughness", &m.roughness, 0.04, 1, .Linear, fmt.tprintf("%.2f", m.roughness))
+		if ui.button(ctx, "Load MatCap...", .Bordered, glyph = ui.ICON_IMAGE) do file_dialog(app, .Matcap)
+		// A matcap's picture holds its sheen, so it has no metallic or roughness.
+		if m.matcap == 0 {
+			changed |= ui.slider(ctx, "Metallic", &m.metallic, 0, 1, .Linear, fmt.tprintf("%.2f", m.metallic))
+			changed |= ui.slider(ctx, "Roughness", &m.roughness, 0.04, 1, .Linear, fmt.tprintf("%.2f", m.roughness))
+		}
 		_ = ui.slider(ctx, "Ridge", &app.ridge, 0, 1, .Linear, fmt.tprintf("%.2f", app.ridge))
 		_ = ui.slider(ctx, "Exposure", &app.exposure, -EXPOSURE_RANGE, EXPOSURE_RANGE, .Linear, fmt.tprintf("%+.1f stops", app.exposure))
 		kit_more_end(app)
@@ -470,7 +474,7 @@ kit_material :: proc(app: ^App) {
 		app.custom = m
 		app.material = CUSTOM_MATERIAL
 	}
-	ui.paragraph(ctx, "Moving the colour, Metallic or Roughness makes a Custom material from the one in use; the presets stay as they are. Cavity darkens creases and Ridge lightens crests on every material.")
+	ui.paragraph(ctx, "Moving the colour, Metallic or Roughness makes a Custom material from the one in use; the presets stay as they are. A MatCap is a picture of a lit sphere that stands in for the lights, tinted by the colour. Cavity darkens creases and Ridge lightens crests on every material.")
 }
 
 @(private = "file")

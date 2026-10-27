@@ -107,6 +107,7 @@ SETTINGS := [?]Setting {
 	{"stats", K + offset_of(Kit_State, stats), bool, 0, 0},
 	{"stats_advanced", K + offset_of(Kit_State, stats_advanced), bool, 0, 0},
 	{"vsync", offset_of(App, vsync), bool, 0, 0},
+	{"msaa", offset_of(App, msaa), Msaa, 0, 0},
 	{"autosave_minutes", offset_of(App, autosave) + offset_of(Autosave, minutes), i32, 0, 10},
 	{"versions_kept", offset_of(App, versions_kept), i32, 0, 10},
 	{"orbit_style", N + offset_of(Nav_Prefs, orbit_style), camera.Orbit_Style, 0, 0},
@@ -126,6 +127,7 @@ SETTINGS := [?]Setting {
 	{"two_finger_pan", N + offset_of(Nav_Prefs, two_finger_pan), bool, 0, 0},
 	{"twist_roll", N + offset_of(Nav_Prefs, twist_roll), bool, 0, 0},
 	{"three_finger", N + offset_of(Nav_Prefs, three_finger), bool, 0, 0},
+	{"touch_strength", N + offset_of(Nav_Prefs, touch_strength), f32, TOUCH_STRENGTH_MIN, 1},
 	{"palm_rejection", N + offset_of(Nav_Prefs, palm_rejection), bool, 0, 0},
 	{"double_tap", N + offset_of(Nav_Prefs, double_tap), bool, 0, 0},
 	{"lift_one_orbit", N + offset_of(Nav_Prefs, lift_one_orbit), bool, 0, 0},
@@ -362,12 +364,21 @@ settings_load :: proc(app: ^App, path: string) {
 			line := setting_line(f[0])
 			if v, ok := line.parse(f[1:]); ok do line.apply(app, v)
 		case "custom_material":
+			// custom_material r g b metallic roughness [matcap]; the matcap, 0 for none,
+			// 1 + a built-in's place or MATCAP_IMAGE, came with MatCaps.
 			if len(f) >= 6 {
 				c := &app.custom
 				for k in 0 ..< 3 do c.selected[k] = clamp(number(f[1 + k], c.selected[k]), 0, 1)
 				c.metallic = clamp(number(f[4], c.metallic), 0, 1)
 				c.roughness = clamp(number(f[5], c.roughness), 0.04, 1)
+				if len(f) >= 7 {
+					c.matcap = clamp(int(number(f[6], 0)), 0, MATCAP_IMAGE)
+					if c.matcap != 0 do c.idle = MATCAP_IDLE
+				}
 			}
+		case "matcap_image":
+			// matcap_image <path, escaped>: the image Load MatCap loaded last.
+			_ = matcap_image_load(app, preset_unescape(f[1]), quiet = true)
 		case "ui_scale":
 			want := number(f[1], 1)
 			for s in UI_SCALES do if abs(s - want) < 0.01 do app.kit.ui_scale = s
@@ -474,7 +485,7 @@ settings_load :: proc(app: ^App, path: string) {
 			if len(f) != 3 || !slot_ok do continue
 			if f[2] == "none" {
 				app.nav.gestures[slot] = {}
-			} else if id, arg, ok := command_from_name(f[2]); ok && palette_lists(id) {
+			} else if id, arg, ok := command_from_name(f[2]); ok && gesture_lists(id) {
 				app.nav.gestures[slot] = {id, arg}
 			}
 		case "tap_history", "hold_history":
@@ -537,7 +548,8 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 	fmt.sbprintfln(&out, "pressure_curve %g %g %g %g", c.c1.x, c.c1.y, c.c2.x, c.c2.y)
 	for line in SETTING_LINES do fmt.sbprintfln(&out, "%s %s", line.key, line.text(app))
 	m := app.custom
-	fmt.sbprintfln(&out, "custom_material %g %g %g %g %g", m.selected.r, m.selected.g, m.selected.b, m.metallic, m.roughness)
+	fmt.sbprintfln(&out, "custom_material %g %g %g %g %g %d", m.selected.r, m.selected.g, m.selected.b, m.metallic, m.roughness, m.matcap)
+	if app.matcap_path != "" do fmt.sbprintfln(&out, "matcap_image %s", preset_escape(app.matcap_path))
 	k := app.kit
 	fmt.sbprintfln(&out, "ui_scale %g", k.ui_scale)
 	for w, which in k.windows {

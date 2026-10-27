@@ -23,14 +23,19 @@ Renderer :: struct {
 	window:        ^sdl.Window,
 	depth_format:  sdl.GPUTextureFormat,
 	depth_sampled: bool, // shaders can read depth_format textures (the studio render needs to)
-	mesh_pipeline:  ^sdl.GPUGraphicsPipeline,
-	// The same shaders drawing triangle edges as lines, pulled toward the eye so they
-	// show over the surface they outline; nil where the device cannot draw lines.
-	wire_pipeline:  ^sdl.GPUGraphicsPipeline,
-	clear_pipeline: ^sdl.GPUGraphicsPipeline, // clears a scissored rectangle to the background
+	// The mesh pipelines at one sample, for thumbnails, the navigation head and a
+	// viewport without anti-aliasing, and at `samples` for an anti-aliased viewport
+	// (empty while samples is 1). A pipeline draws only into targets of its count.
+	single:         Mesh_Pipelines,
+	multi:          Mesh_Pipelines,
+	samples:        sdl.GPUSampleCount, // the viewport's multisampling; see renderer_set_msaa
 	// Bound in place of a mesh's paint buffer when it has none: the mesh shader reads
 	// the binding only for items that show paint or groups, but it must be bound.
 	no_paint:       ^sdl.GPUBuffer,
+	// Bound in place of a matcap for items that have none, as no_paint is; and the
+	// filtering, mipmapped sampler every matcap is read through.
+	no_matcap:      ^sdl.GPUTexture,
+	matcap_sampler: ^sdl.GPUSampler,
 	last_version:   u64,  // source of Mesh_Buffers.version
 	cull:           bool, // skip off-screen and back-facing chunks of items that have them
 	partial:        bool, // while the camera and objects stay put, redraw only what changed
@@ -39,6 +44,15 @@ Renderer :: struct {
 	// copy instead (see Draw_Item.lod); 0 draws everything at full detail. The app
 	// sets it while the view moves.
 	lod_px:         f32,
+}
+
+// The pipelines that draw meshes into targets of one sample count.
+Mesh_Pipelines :: struct {
+	mesh:  ^sdl.GPUGraphicsPipeline,
+	// The same shaders drawing triangle edges as lines, pulled toward the eye so they
+	// show over the surface they outline; nil where the device cannot draw lines.
+	wire:  ^sdl.GPUGraphicsPipeline,
+	clear: ^sdl.GPUGraphicsPipeline, // clears a scissored rectangle to the background
 }
 
 // Viewport background, linear values written as-is (like the mesh shader's output).
@@ -50,11 +64,15 @@ PARTIAL_MAX_AREA :: 0.6
 
 // Offscreen colour + depth pair the 3D viewport renders into. Recreated on resize.
 Viewport_Target :: struct {
-	color:  ^sdl.GPUTexture,
-	depth:  ^sdl.GPUTexture,
+	color:  ^sdl.GPUTexture, // one sample, sampled: what the interface shows and screenshots read
+	depth:  ^sdl.GPUTexture, // at `samples`; shaders can read it only at one sample
+	// With multisampling, what passes draw into, kept between frames so a partial redraw
+	// can load it, and resolved into `color` at the end of every pass; nil at one sample.
+	multi_color: ^sdl.GPUTexture,
+	samples: sdl.GPUSampleCount,
 	width:  u32,
 	height: u32,
-	cache:  Static_Cache,
+	cache:  Static_Cache, // at `samples`
 	// Identifies what color and depth hold: camera, size, and every item's identity,
 	// transform and colour (not its contents, which Draw_Item.damage accounts for).
 	// 0 when they hold nothing reusable.
@@ -159,6 +177,9 @@ Draw_Item :: struct {
 	// How the shading is shown: x the exposure in stops, y how much creases darken
 	// (cavity) and z how much crests lighten (ridge), 0 to 1; zero shows it plainly.
 	look:      [4]f32,
+	// A matcap (matcap_create) that shades the item instead of the lights, tinted by
+	// `color`; nil for none.
+	matcap:    ^sdl.GPUTexture,
 	live:   bool,
 	chunks: []geom.Chunk,
 	chunk_groups: []geom.Chunk, // geom.chunk_group of each geom.CHUNK_GROUP chunks, to cull a group at a time; nil to test every chunk
@@ -194,7 +215,7 @@ Viewport_Stats :: struct {
 Material_Uniforms :: struct {
 	base_color: [4]f32,
 	params:     [4]f32, // x: ambient, y: specular strength, z: specular power, w: wrap
-	surface:    [4]f32, // x: metallic, y: roughness (0: classic), z: 1 for flat shading
+	surface:    [4]f32, // x: metallic, y: roughness (0: classic), z: 1 for flat shading, w: 1 for the matcap
 	checker:    [4]f32, // the density preview: first lattice point, cell size (0: none)
 	look:       [4]f32, // exposure in stops, cavity, ridge (Draw_Item.look)
 }
@@ -243,13 +264,19 @@ renderer_init :: proc(r: ^Renderer, window: ^sdl.Window, debug: bool) -> bool {
 		r.depth_format = .D24_UNORM
 	}
 
-	r.mesh_pipeline = create_mesh_pipeline(r, wire = false)
-	r.wire_pipeline = create_mesh_pipeline(r, wire = true)
-	if r.wire_pipeline == nil do log.warn("wireframe: this device cannot draw lines; the wireframe stays off")
-	r.clear_pipeline = create_clear_pipeline(r)
+	r.single = mesh_pipelines_create(r, ._1)
+	if r.single.wire == nil do log.warn("wireframe: this device cannot draw lines; the wireframe stays off")
 	r.no_paint = sdl.CreateGPUBuffer(r.device, {usage = {.GRAPHICS_STORAGE_READ}, size = size_of(Paint_Packed)})
 	if r.no_paint == nil do log.errorf("paint buffer creation failed: %s", sdl.GetError())
-	return r.mesh_pipeline != nil && r.clear_pipeline != nil && r.no_paint != nil
+	white := [4]u8{255, 255, 255, 255}
+	r.no_matcap = matcap_create(r, white[:], 1, 1)
+	r.matcap_sampler = sdl.CreateGPUSampler(r.device, {
+		min_filter = .LINEAR, mag_filter = .LINEAR, mipmap_mode = .LINEAR,
+		address_mode_u = .CLAMP_TO_EDGE, address_mode_v = .CLAMP_TO_EDGE, address_mode_w = .CLAMP_TO_EDGE,
+		max_lod = 1000,
+	})
+	if r.matcap_sampler == nil do log.errorf("matcap sampler: %s", sdl.GetError())
+	return r.single.mesh != nil && r.single.clear != nil && r.no_paint != nil && r.no_matcap != nil && r.matcap_sampler != nil
 }
 
 // The GPU's name, backend and driver version, for logs and benchmark reports.
@@ -295,17 +322,71 @@ renderer_set_vsync :: proc(r: ^Renderer, vsync: bool) -> bool {
 renderer_destroy :: proc(r: ^Renderer) {
 	if r.device == nil do return
 	_ = sdl.WaitForGPUIdle(r.device)
-	if r.mesh_pipeline != nil do sdl.ReleaseGPUGraphicsPipeline(r.device, r.mesh_pipeline)
-	if r.wire_pipeline != nil do sdl.ReleaseGPUGraphicsPipeline(r.device, r.wire_pipeline)
-	if r.clear_pipeline != nil do sdl.ReleaseGPUGraphicsPipeline(r.device, r.clear_pipeline)
+	mesh_pipelines_destroy(r, &r.single)
+	mesh_pipelines_destroy(r, &r.multi)
 	if r.no_paint != nil do sdl.ReleaseGPUBuffer(r.device, r.no_paint)
+	if r.no_matcap != nil do sdl.ReleaseGPUTexture(r.device, r.no_matcap)
+	if r.matcap_sampler != nil do sdl.ReleaseGPUSampler(r.device, r.matcap_sampler)
 	sdl.ReleaseWindowFromGPUDevice(r.device, r.window)
 	sdl.DestroyGPUDevice(r.device)
 	r^ = {}
 }
 
+// Sets how many samples a viewport pixel takes: ._1 for none, or ._2, ._4 or ._8 to
+// smooth the edges of silhouettes and wireframe lines (MSAA). Where the device cannot
+// use the count asked for with both the colour and the depth format, it tries the other
+// of 2 and 4 (Vulkan promises 4), then none. Returns what it set; the viewport target
+// is remade at that count on its next viewport_target_resize. Waits for the GPU when
+// it changes anything.
+renderer_set_msaa :: proc(r: ^Renderer, want: sdl.GPUSampleCount) -> sdl.GPUSampleCount {
+	supported :: proc(r: ^Renderer, count: sdl.GPUSampleCount) -> bool {
+		return count == ._1 || sdl.GPUTextureSupportsSampleCount(r.device, VIEWPORT_COLOR_FORMAT, count) && sdl.GPUTextureSupportsSampleCount(r.device, r.depth_format, count)
+	}
+	got := sdl.GPUSampleCount._1
+	other := sdl.GPUSampleCount._4 if want == ._2 else ._2
+	switch {
+	case supported(r, want):                  got = want
+	case want != ._1 && supported(r, other): got = other
+	}
+	if got == r.samples do return got
+	_ = sdl.WaitForGPUIdle(r.device)
+	mesh_pipelines_destroy(r, &r.multi)
+	if got != ._1 {
+		r.multi = mesh_pipelines_create(r, got)
+		if r.multi.mesh == nil || r.multi.clear == nil {
+			log.warnf("anti-aliasing stays off: the %v pipelines could not be made", got)
+			mesh_pipelines_destroy(r, &r.multi)
+			got = ._1
+		}
+	}
+	if got != want do log.infof("anti-aliasing: %v asked for, %v used", want, got)
+	r.samples = got
+	return got
+}
+
+// The pipelines that draw into targets of `samples`.
 @(private)
-create_mesh_pipeline :: proc(r: ^Renderer, wire: bool) -> ^sdl.GPUGraphicsPipeline {
+mesh_pipelines :: proc(r: ^Renderer, samples: sdl.GPUSampleCount) -> ^Mesh_Pipelines {
+	return &r.multi if samples != ._1 else &r.single
+}
+
+@(private)
+mesh_pipelines_create :: proc(r: ^Renderer, samples: sdl.GPUSampleCount) -> Mesh_Pipelines {
+	return {
+		mesh = create_mesh_pipeline(r, wire = false, samples = samples),
+		wire = create_mesh_pipeline(r, wire = true, samples = samples),
+		clear = create_clear_pipeline(r, samples),
+	}
+}
+
+@(private)
+mesh_pipelines_destroy :: proc(r: ^Renderer, p: ^Mesh_Pipelines) {
+	for pipeline in ([3]^sdl.GPUGraphicsPipeline{p.mesh, p.wire, p.clear}) do if pipeline != nil do sdl.ReleaseGPUGraphicsPipeline(r.device, pipeline)
+	p^ = {}
+}
+
+@(private)
+create_mesh_pipeline :: proc(r: ^Renderer, wire: bool, samples: sdl.GPUSampleCount) -> ^sdl.GPUGraphicsPipeline {
 	vert := sdl.CreateGPUShader(r.device, {
 		code_size           = len(MESH_VERT_SPV),
 		code                = raw_data(MESH_VERT_SPV),
@@ -321,6 +402,7 @@ create_mesh_pipeline :: proc(r: ^Renderer, wire: bool) -> ^sdl.GPUGraphicsPipeli
 		entrypoint          = "main",
 		format              = {.SPIRV},
 		stage               = .FRAGMENT,
+		num_samplers        = 1,
 		num_uniform_buffers = 1,
 	})
 	// Shaders are only needed until the pipeline is built.
@@ -357,6 +439,7 @@ create_mesh_pipeline :: proc(r: ^Renderer, wire: bool) -> ^sdl.GPUGraphicsPipeli
 			enable_depth_bias = true, depth_bias_constant_factor = -2, depth_bias_slope_factor = -1,
 		} : sdl.GPURasterizerState{fill_mode = .FILL, cull_mode = .BACK, front_face = .COUNTER_CLOCKWISE},
 		depth_stencil_state = {compare_op = .LESS_OR_EQUAL if wire else .LESS, enable_depth_test = true, enable_depth_write = !wire},
+		multisample_state = {sample_count = samples},
 		target_info = {
 			color_target_descriptions = &color_targets[0],
 			num_color_targets = len(color_targets),
@@ -371,7 +454,7 @@ create_mesh_pipeline :: proc(r: ^Renderer, wire: bool) -> ^sdl.GPUGraphicsPipeli
 }
 
 @(private)
-create_clear_pipeline :: proc(r: ^Renderer) -> ^sdl.GPUGraphicsPipeline {
+create_clear_pipeline :: proc(r: ^Renderer, samples: sdl.GPUSampleCount) -> ^sdl.GPUGraphicsPipeline {
 	vert := sdl.CreateGPUShader(r.device, {
 		code_size = len(CLEAR_VERT_SPV), code = raw_data(CLEAR_VERT_SPV), entrypoint = "main",
 		format = {.SPIRV}, stage = .VERTEX,
@@ -394,6 +477,7 @@ create_clear_pipeline :: proc(r: ^Renderer) -> ^sdl.GPUGraphicsPipeline {
 		rasterizer_state = {fill_mode = .FILL, cull_mode = .NONE},
 		// Writes far-plane depth everywhere it lands, whatever was there.
 		depth_stencil_state = {compare_op = .ALWAYS, enable_depth_test = true, enable_depth_write = true},
+		multisample_state = {sample_count = samples},
 		target_info = {
 			color_target_descriptions = &color_targets[0],
 			num_color_targets = len(color_targets),
@@ -407,35 +491,42 @@ create_clear_pipeline :: proc(r: ^Renderer) -> ^sdl.GPUGraphicsPipeline {
 	return pipeline
 }
 
-// Ensures the target matches the requested size. Old textures are released; SDL_GPU
-// defers the actual free until in-flight command buffers no longer reference them.
-viewport_target_resize :: proc(r: ^Renderer, vt: ^Viewport_Target, requested_width, requested_height: u32) -> bool {
+// Ensures the target matches the requested size and sample count (the main viewport
+// passes Renderer.samples; thumbnails and the navigation head stay at one sample, as the
+// interface samples them). Old textures are released; SDL_GPU defers the actual free
+// until in-flight command buffers no longer reference them.
+viewport_target_resize :: proc(r: ^Renderer, vt: ^Viewport_Target, requested_width, requested_height: u32, samples := sdl.GPUSampleCount._1) -> bool {
 	width, height := max(requested_width, 1), max(requested_height, 1)
-	if vt.color != nil && vt.width == width && vt.height == height do return true
+	if vt.color != nil && vt.width == width && vt.height == height && vt.samples == samples do return true
 	viewport_target_destroy(r, vt)
 
+	multi := samples != ._1
 	vt.color = sdl.CreateGPUTexture(r.device, {
 		type = .D2, format = VIEWPORT_COLOR_FORMAT, usage = {.COLOR_TARGET, .SAMPLER},
 		width = width, height = height, layer_count_or_depth = 1, num_levels = 1,
 	})
+	if multi {
+		vt.multi_color = sdl.CreateGPUTexture(r.device, {
+			type = .D2, format = VIEWPORT_COLOR_FORMAT, usage = {.COLOR_TARGET},
+			width = width, height = height, layer_count_or_depth = 1, num_levels = 1, sample_count = samples,
+		})
+	}
+	// A multisampled texture cannot be sampled: the studio render draws its own depth then.
 	vt.depth = sdl.CreateGPUTexture(r.device, {
-		type = .D2, format = r.depth_format, usage = {.DEPTH_STENCIL_TARGET, .SAMPLER} if r.depth_sampled else {.DEPTH_STENCIL_TARGET},
-		width = width, height = height, layer_count_or_depth = 1, num_levels = 1,
+		type = .D2, format = r.depth_format, usage = {.DEPTH_STENCIL_TARGET, .SAMPLER} if r.depth_sampled && !multi else {.DEPTH_STENCIL_TARGET},
+		width = width, height = height, layer_count_or_depth = 1, num_levels = 1, sample_count = samples,
 	})
-	if vt.color == nil || vt.depth == nil {
+	if vt.color == nil || vt.depth == nil || multi && vt.multi_color == nil {
 		log.errorf("viewport target creation failed: %s", sdl.GetError())
 		viewport_target_destroy(r, vt)
 		return false
 	}
-	vt.width, vt.height = width, height
+	vt.width, vt.height, vt.samples = width, height, samples
 	return true
 }
 
 viewport_target_destroy :: proc(r: ^Renderer, vt: ^Viewport_Target) {
-	if vt.color != nil do sdl.ReleaseGPUTexture(r.device, vt.color)
-	if vt.depth != nil do sdl.ReleaseGPUTexture(r.device, vt.depth)
-	if vt.cache.color != nil do sdl.ReleaseGPUTexture(r.device, vt.cache.color)
-	if vt.cache.depth != nil do sdl.ReleaseGPUTexture(r.device, vt.cache.depth)
+	for t in ([5]^sdl.GPUTexture{vt.color, vt.depth, vt.multi_color, vt.cache.color, vt.cache.depth}) do if t != nil do sdl.ReleaseGPUTexture(r.device, t)
 	vt^ = {}
 }
 
@@ -446,11 +537,11 @@ static_cache_ensure :: proc(r: ^Renderer, vt: ^Viewport_Target) -> bool {
 	if vt.cache.color != nil do return true
 	vt.cache.color = sdl.CreateGPUTexture(r.device, {
 		type = .D2, format = VIEWPORT_COLOR_FORMAT, usage = {.COLOR_TARGET},
-		width = vt.width, height = vt.height, layer_count_or_depth = 1, num_levels = 1,
+		width = vt.width, height = vt.height, layer_count_or_depth = 1, num_levels = 1, sample_count = vt.samples,
 	})
 	vt.cache.depth = sdl.CreateGPUTexture(r.device, {
 		type = .D2, format = r.depth_format, usage = {.DEPTH_STENCIL_TARGET},
-		width = vt.width, height = vt.height, layer_count_or_depth = 1, num_levels = 1,
+		width = vt.width, height = vt.height, layer_count_or_depth = 1, num_levels = 1, sample_count = vt.samples,
 	})
 	vt.cache.key = 0
 	if vt.cache.color == nil || vt.cache.depth == nil {
@@ -868,11 +959,22 @@ damage_rect :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item) -
 // every item that fall inside it, scissored to it.
 @(private)
 render_rect :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, view, proj: Mat4, items: []Draw_Item, rect: Rect, stats: ^Viewport_Stats) {
-	// Maps the rectangle to the whole of clip space, so culling against the narrowed
-	// frustum keeps only the chunks that can touch it.
+	// With multisampling the meshes are drawn one pixel wider than the rectangle that is
+	// cleared. A rasterizer may test the scissor at each sample's position for triangles
+	// crossing its edge (llvmpipe does), which would leave samples of the rectangle's edge
+	// pixels with only the clear: a seam the full redraw does not have. The extra pixel
+	// all round is drawn again at the depth it already holds, which the depth test keeps.
+	drawn := rect
+	if vt.samples != ._1 {
+		x0, y0 := max(rect.x - 1, 0), max(rect.y - 1, 0)
+		x1, y1 := min(rect.x + rect.w + 1, i32(vt.width)), min(rect.y + rect.h + 1, i32(vt.height))
+		drawn = {x0, y0, x1 - x0, y1 - y0}
+	}
+	// Maps the drawn rectangle to the whole of clip space, so culling against the
+	// narrowed frustum keeps only the chunks that can touch it.
 	W, H := f32(vt.width), f32(vt.height)
-	nx0, nx1 := 2 * f32(rect.x) / W - 1, 2 * f32(rect.x + rect.w) / W - 1
-	ny0, ny1 := 1 - 2 * f32(rect.y + rect.h) / H, 1 - 2 * f32(rect.y) / H
+	nx0, nx1 := 2 * f32(drawn.x) / W - 1, 2 * f32(drawn.x + drawn.w) / W - 1
+	ny0, ny1 := 1 - 2 * f32(drawn.y + drawn.h) / H, 1 - 2 * f32(drawn.y) / H
 	cx, hx := (nx0 + nx1) / 2, (nx1 - nx0) / 2
 	cy, hy := (ny0 + ny1) / 2, (ny1 - ny0) / 2
 	narrow := Mat4{
@@ -882,14 +984,16 @@ render_rect :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Targ
 		0, 0, 0, 1,
 	}
 	prepare_draws(r, cmd, view, proj, items, nil, stats, narrow)
-	pass := begin_mesh_pass(r, cmd, vt.color, vt.depth, load = true, keep_depth = true)
+	pipes := mesh_pipelines(r, vt.samples)
+	pass := target_pass(r, cmd, vt, load = true)
 	sdl.SetGPUScissor(pass, {rect.x, rect.y, rect.w, rect.h})
-	sdl.BindGPUGraphicsPipeline(pass, r.clear_pipeline)
+	sdl.BindGPUGraphicsPipeline(pass, pipes.clear)
 	background := BACKGROUND
 	sdl.PushGPUFragmentUniformData(cmd, 0, &background, size_of(background))
 	sdl.DrawGPUPrimitives(pass, 3, 1, 0, 0)
-	sdl.BindGPUGraphicsPipeline(pass, r.mesh_pipeline)
-	draw_items(r, cmd, pass, view, proj, items, nil, stats)
+	sdl.BindGPUGraphicsPipeline(pass, pipes.mesh)
+	if drawn != rect do sdl.SetGPUScissor(pass, {drawn.x, drawn.y, drawn.w, drawn.h})
+	draw_items(r, cmd, pass, pipes, view, proj, items, nil, stats)
 	sdl.EndGPURenderPass(pass)
 	stats.redrawn_px = u64(rect.w) * u64(rect.h)
 }
@@ -899,6 +1003,7 @@ render_rect :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Targ
 frame_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lod_px: f32) -> u64 {
 	Keyed :: struct {
 		mesh:     ^Mesh_Buffers,
+		matcap:   ^sdl.GPUTexture,
 		model:    Mat4,
 		color:    [4]f32,
 		material: [4]f32,
@@ -910,7 +1015,7 @@ frame_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lod
 		paint:    b32,
 		groups:   b32, // no padding: every byte is hashed
 	}
-	#assert(size_of(Keyed) == 160)
+	#assert(size_of(Keyed) == 168)
 	Header :: struct { // no padding: every byte is hashed
 		view, proj:    Mat4,
 		width, height: u32,
@@ -920,7 +1025,7 @@ frame_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lod
 	header := Header{view, proj, vt.width, vt.height, u32(len(items)), lod_px}
 	h := hash.fnv64a(slice.bytes_from_ptr(&header, size_of(header)))
 	for item in items {
-		k := Keyed{item.mesh, item.model, item.color, item.material, item.checker, item.look, item.surface, b32(item.wireframe), b32(item.flat), b32(item.paint), b32(item.groups)}
+		k := Keyed{item.mesh, item.matcap, item.model, item.color, item.material, item.checker, item.look, item.surface, b32(item.wireframe), b32(item.flat), b32(item.paint), b32(item.groups)}
 		h = hash.fnv64a(slice.bytes_from_ptr(&k, size_of(k)), h)
 	}
 	return max(h, 1)
@@ -938,8 +1043,8 @@ render_full :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Targ
 	if !use_cache || live == 0 || live == len(items) || !static_cache_ensure(r, vt) {
 		vt.cache.key = 0
 		prepare_draws(r, cmd, view, proj, items, nil, stats, lod = lod)
-		pass := begin_mesh_pass(r, cmd, vt.color, vt.depth, load = false, keep_depth = true)
-		draw_items(r, cmd, pass, view, proj, items, nil, stats)
+		pass := target_pass(r, cmd, vt, load = false)
+		draw_items(r, cmd, pass, mesh_pipelines(r, vt.samples), view, proj, items, nil, stats)
 		sdl.EndGPURenderPass(pass)
 		return
 	}
@@ -949,21 +1054,24 @@ render_full :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Targ
 	redraw := key != vt.cache.key
 	prepare_draws(r, cmd, view, proj, items, nil if redraw else true, stats, lod = lod)
 	if redraw {
-		pass := begin_mesh_pass(r, cmd, vt.cache.color, vt.cache.depth, load = false, keep_depth = true)
-		draw_items(r, cmd, pass, view, proj, items, false, stats)
+		pipes := mesh_pipelines(r, vt.samples)
+		pass := begin_mesh_pass(r, cmd, pipes, vt.cache.color, vt.cache.depth, load = false, keep_depth = true)
+		draw_items(r, cmd, pass, pipes, view, proj, items, false, stats)
 		sdl.EndGPURenderPass(pass)
 		vt.cache.key = key
 		stats.cache_redrawn = true
 	}
 
 	copy_pass := sdl.BeginGPUCopyPass(cmd)
-	for pair in ([2][2]^sdl.GPUTexture{{vt.cache.color, vt.color}, {vt.cache.depth, vt.depth}}) {
+	// Multisampled textures copy as they are, sample for sample (Vulkan copies images of
+	// equal sample counts).
+	for pair in ([2][2]^sdl.GPUTexture{{vt.cache.color, target_color(vt)}, {vt.cache.depth, vt.depth}}) {
 		sdl.CopyGPUTextureToTexture(copy_pass, {texture = pair[0]}, {texture = pair[1]}, vt.width, vt.height, 1, cycle = true)
 	}
 	sdl.EndGPUCopyPass(copy_pass)
 
-	pass := begin_mesh_pass(r, cmd, vt.color, vt.depth, load = true, keep_depth = true)
-	draw_items(r, cmd, pass, view, proj, items, true, stats)
+	pass := target_pass(r, cmd, vt, load = true)
+	draw_items(r, cmd, pass, mesh_pipelines(r, vt.samples), view, proj, items, true, stats)
 	sdl.EndGPURenderPass(pass)
 }
 
@@ -1071,6 +1179,7 @@ indirect_ensure :: proc(r: ^Renderer, mb: ^Mesh_Buffers, commands: u32) -> bool 
 static_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lod_px: f32) -> u64 {
 	Keyed :: struct {
 		mesh:     ^Mesh_Buffers,
+		matcap:   ^sdl.GPUTexture,
 		version:  u64,
 		model:    Mat4,
 		color:    [4]f32,
@@ -1083,7 +1192,7 @@ static_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lo
 		paint:    b32,
 		groups:   b32, // no padding: every byte is hashed
 	}
-	#assert(size_of(Keyed) == 168)
+	#assert(size_of(Keyed) == 176)
 	Header :: struct {
 		view, proj:    Mat4,
 		width, height: u32,
@@ -1093,20 +1202,39 @@ static_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lo
 	h := hash.fnv64a(slice.bytes_from_ptr(&header, size_of(header)))
 	for item in items {
 		if item.live do continue
-		k := Keyed{item.mesh, item.mesh.version, item.model, item.color, item.material, item.checker, item.look, item.surface, b32(item.wireframe), b32(item.flat), b32(item.paint), b32(item.groups)}
+		k := Keyed{item.mesh, item.matcap, item.mesh.version, item.model, item.color, item.material, item.checker, item.look, item.surface, b32(item.wireframe), b32(item.flat), b32(item.paint), b32(item.groups)}
 		h = hash.fnv64a(slice.bytes_from_ptr(&k, size_of(k)), h)
 	}
 	return max(h, 1) // 0 means empty
 }
 
+// The colour texture passes draw the viewport into: the multisampled one, or `color`.
 @(private)
-begin_mesh_pass :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, color_tex, depth_tex: ^sdl.GPUTexture, load, keep_depth: bool, background := BACKGROUND) -> ^sdl.GPURenderPass {
+target_color :: proc(vt: ^Viewport_Target) -> ^sdl.GPUTexture {
+	return vt.multi_color if vt.multi_color != nil else vt.color
+}
+
+// Opens a pass drawing into the viewport, keeping its depth; with multisampling it keeps
+// the samples too, for the next partial redraw to load, and resolves them into `color`.
+@(private)
+target_pass :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, load: bool) -> ^sdl.GPURenderPass {
+	return begin_mesh_pass(r, cmd, mesh_pipelines(r, vt.samples), target_color(vt), vt.depth, load, keep_depth = true, resolve = vt.color if vt.multi_color != nil else nil)
+}
+
+// Opens a pass into `color_tex` and `depth_tex`, cleared to `background` or loaded, with
+// `pipes.mesh` bound. With `resolve`, `color_tex` is multisampled and the pass ends by
+// resolving it into `resolve`, keeping its samples.
+@(private)
+begin_mesh_pass :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pipes: ^Mesh_Pipelines, color_tex, depth_tex: ^sdl.GPUTexture, load, keep_depth: bool, background := BACKGROUND, resolve: ^sdl.GPUTexture = nil) -> ^sdl.GPURenderPass {
 	color := sdl.GPUColorTargetInfo {
 		texture     = color_tex,
 		clear_color = sdl.FColor(background),
 		load_op     = .LOAD if load else .CLEAR,
-		store_op    = .STORE,
+		store_op    = .RESOLVE_AND_STORE if resolve != nil else .STORE,
 		cycle       = !load,
+		// The resolve writes all of it, so a frame still showing the last one need not wait.
+		resolve_texture = resolve,
+		cycle_resolve_texture = resolve != nil,
 	}
 	depth := sdl.GPUDepthStencilTargetInfo {
 		texture          = depth_tex,
@@ -1118,37 +1246,39 @@ begin_mesh_pass :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, color_tex, dep
 		cycle            = !load,
 	}
 	pass := sdl.BeginGPURenderPass(cmd, &color, 1, &depth)
-	sdl.BindGPUGraphicsPipeline(pass, r.mesh_pipeline)
+	sdl.BindGPUGraphicsPipeline(pass, pipes.mesh)
 	return pass
 }
 
 // Draws the items whose `live` flag matches (all of them when `live` is nil) with the
 // clay material: the visible runs prepare_draws found, or the whole mesh.
 @(private)
-draw_items :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURenderPass, view, proj: Mat4, items: []Draw_Item, live: Maybe(bool), stats: ^Viewport_Stats) {
+draw_items :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURenderPass, pipes: ^Mesh_Pipelines, view, proj: Mat4, items: []Draw_Item, live: Maybe(bool), stats: ^Viewport_Stats) {
 	for item in items {
 		if want, filtered := live.?; filtered && item.live != want do continue
 		mb := item.mesh
 		show_paint, show_groups := item.paint && mb.paint != nil, item.groups && mb.paint != nil
 		frame := Frame_Uniforms{view_proj = proj * view, view = view, model = item.model, options = {f32(int(show_paint)), f32(int(show_groups)), 0, 0}}
 		params := item.material if item.material != {} else DEFAULT_MATERIAL
-		surface := [4]f32{item.surface.x, item.surface.y, 1 if item.flat else 0, 0}
+		surface := [4]f32{item.surface.x, item.surface.y, 1 if item.flat else 0, 1 if item.matcap != nil else 0}
 		material := Material_Uniforms{base_color = item.color, params = params, surface = surface, checker = item.checker, look = item.look}
 		sdl.PushGPUVertexUniformData(cmd, 0, &frame, size_of(frame))
 		sdl.PushGPUFragmentUniformData(cmd, 0, &material, size_of(material))
 		paint := [1]^sdl.GPUBuffer{mb.paint if mb.paint != nil else r.no_paint}
 		sdl.BindGPUVertexStorageBuffers(pass, 0, &paint[0], 1)
+		matcap := [1]sdl.GPUTextureSamplerBinding{{texture = item.matcap if item.matcap != nil else r.no_matcap, sampler = r.matcap_sampler}}
+		sdl.BindGPUFragmentSamplers(pass, 0, &matcap[0], 1)
 		vbufs := [2]sdl.GPUBufferBinding{{buffer = mb.positions}, {buffer = mb.normals}}
 		sdl.BindGPUVertexBuffers(pass, 0, &vbufs[0], len(vbufs))
 		draw_item_triangles(r, pass, item, stats)
-		if item.wireframe && r.wire_pipeline != nil {
+		if item.wireframe && pipes.wire != nil {
 			// The same triangles again as lines in one flat colour (a negative specular
 			// strength tells the shader so).
 			wire := Material_Uniforms{base_color = WIRE_COLOR, params = {0, -1, 0, 0}}
 			sdl.PushGPUFragmentUniformData(cmd, 0, &wire, size_of(wire))
-			sdl.BindGPUGraphicsPipeline(pass, r.wire_pipeline)
+			sdl.BindGPUGraphicsPipeline(pass, pipes.wire)
 			draw_item_triangles(r, pass, item, nil)
-			sdl.BindGPUGraphicsPipeline(pass, r.mesh_pipeline)
+			sdl.BindGPUGraphicsPipeline(pass, pipes.mesh)
 		}
 	}
 }

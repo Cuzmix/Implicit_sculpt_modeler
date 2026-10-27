@@ -138,7 +138,7 @@ settings_reset :: proc(app: ^App, tab: Settings_Tab) {
 	case .Touch:
 		n.finger_model, n.empty_drag, n.palm_rejection = d.finger_model, d.empty_drag, d.palm_rejection
 		n.pinch_zoom, n.two_finger_pan, n.zoom_toward, n.twist_roll = d.pinch_zoom, d.two_finger_pan, d.zoom_toward, d.twist_roll
-		n.three_finger, n.gestures = d.three_finger, d.gestures
+		n.three_finger, n.gestures, n.touch_strength = d.three_finger, d.gestures, d.touch_strength
 		n.double_tap, n.lift_one_orbit = d.double_tap, d.lift_one_orbit
 		n.shape_apply = d.shape_apply
 	case .Keys:
@@ -148,6 +148,7 @@ settings_reset :: proc(app: ^App, tab: Settings_Tab) {
 	case .Performance:
 		k.stats, k.stats_advanced = false, false
 		app.vsync = true
+		app.msaa = MSAA_DEFAULT
 		app.autosave.minutes = AUTOSAVE_DEFAULT_MINUTES
 		app.versions_kept = VERSIONS_DEFAULT
 	}
@@ -213,13 +214,15 @@ settings_camera :: proc(app: ^App) {
 	ctx := &app.kit.ctx
 	n := &app.nav
 	ui.caption(ctx, "ORBIT")
-	styles := [len(camera.Orbit_Style)]string{"Free", "Turntable"}
+	styles := [len(camera.Orbit_Style)]string{"Free", "Turntable", "X axis", "Z axis"}
 	if picked := ui.tabs(ctx, "Orbit style", styles[:], int(n.orbit_style)); picked >= 0 do n.orbit_style = camera.Orbit_Style(picked)
 	switch n.orbit_style {
 	case .Free:
-		ui.paragraph(ctx, "As ZBrush's default (Rot XYZ): a drag turns the model about the screen's own axes, so any view is one drag away, all the way round both ways.")
+		ui.paragraph(ctx, "The default: a drag turns the model about the screen's own axes, so any view is one drag away, all the way round both ways.")
 	case .Turntable:
-		ui.paragraph(ctx, "As ZBrush's Rot Y: sideways turns about the model's up axis and up and down tilts, so the horizon stays level. Goes all the way round both ways, over the top too.")
+		ui.paragraph(ctx, "Sideways turns about the model's up axis (Y) and up and down tilts, so the horizon stays level. Goes all the way round both ways, over the top too.")
+	case .Axis_X, .Axis_Z:
+		ui.paragraph(ctx, fmt.tprintf("Sideways turns about the world's %s axis; up and down turns freely, as Free does. Which way round is decided as each drag begins, so the model follows the pointer.", "X" if n.orbit_style == .Axis_X else "Z"))
 	}
 	_ = ui.switch_row(ctx, "Stop at the top and bottom", &n.limit_pitch, enabled = n.orbit_style == .Turntable)
 	speed_slider(ctx, "Orbit speed", &n.orbit_speed)
@@ -262,6 +265,8 @@ settings_touch :: proc(app: ^App) {
 	ui.label(ctx, "On the model")
 	if picked := ui.tabs(ctx, "Finger on the model", model[:], int(n.finger_model)); picked >= 0 do n.finger_model = Finger_Model(picked)
 	ui.paragraph(ctx, "On empty space one finger always turns the view. Turns the view leaves sculpting to the pen, as on a drawing tablet.")
+	_ = ui.slider(ctx, "Touch strength", &n.touch_strength, TOUCH_STRENGTH_MIN, 1, .Linear, fmt.tprintf("%.0f%%", 100 * n.touch_strength), enabled = n.finger_model == .Sculpt)
+	ui.paragraph(ctx, "A finger's strokes work at this much of the brush's strength, so a finger can soften what the pen builds up. The pen and the mouse always work at full strength.")
 	ui.spacer(ctx, 8)
 	ui.caption(ctx, "PEN AND MOUSE ON EMPTY SPACE")
 	empty := [len(Empty_Drag)]string{"Turns the view", "Waits for the model"}
@@ -308,6 +313,9 @@ settings_performance :: proc(app: ^App) {
 	ui.caption(ctx, "DISPLAY")
 	_ = ui.switch_row(ctx, "VSync", &app.vsync)
 	ui.paragraph(ctx, "Draws in step with the screen's refresh: no tearing, and no frames drawn that the screen would never show. Off, frames come as fast as they can, which lowers input delay a little.")
+	ui.label(ctx, "Anti-aliasing")
+	if picked := ui.tabs(ctx, "Anti-aliasing", MSAA_NAMES[:], int(app.msaa)); picked >= 0 do app.msaa = Msaa(picked)
+	ui.paragraph(ctx, "Smooths the stepped edges of outlines and wireframe lines by taking 2 or 4 samples a pixel. It costs GPU memory and a little time every frame; Off draws as fast as it can.")
 	ui.spacer(ctx, 8)
 	ui.caption(ctx, "AUTOSAVE")
 	a := &app.autosave

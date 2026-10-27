@@ -124,6 +124,9 @@ App :: struct {
 	bindings:           [MAX_BINDINGS]Binding,
 	binding_count:      int,
 	stroke_seed: u64, // the seed the next stroke takes (Stroke.seed), one more each stroke
+	// The strength scale the next stroke takes (Stroke.scale) when above 0, as a replay
+	// or a waiting tap sets it; 0 takes it from the pointer.
+	stroke_scale_from: f32,
 	stroke_end:  Stroke_End, // where the last stroke ended, for Join strokes
 	samples:  [dynamic]Input_Sample, // this frame's pointer samples, in window coordinates
 	pen_pressure: f32, // the pen's latest pressure
@@ -140,7 +143,10 @@ App :: struct {
 	drag:     Drag, // who the press on the viewport belongs to (navigate.odin)
 	dab_wait: Dab_Wait, // a finger tap's dab waiting for a second tap (navigate.odin)
 	pivot:    Stroke_Pivot, // the last stroke's middle, which orbits turn about (navigate.odin)
+	orbit_sign: f32, // the single-axis orbit's way round for the turn under way (orbit_latch)
 	double_tap: Double_Tap, // the last finger tap a double tap could follow (navigate.odin)
+	one_tap:  f64, // input_clock when a one-finger tap waiting to run lifted, 0 for none (one_tap_wait)
+	one_taps: int, // one-finger taps that ran their gesture, for the exit stats
 	cursor:   Brush_Cursor, // the surface under the brush ring this frame (cursor.odin)
 	mask_seen: Mask_Seen, // whether the selected object has a mask, kept (history.odin)
 	sets_lost: int, // selection sets a rebuild dropped, for the note of the command that ran it (selection_sets.odin)
@@ -195,6 +201,11 @@ App :: struct {
 	split_made, merged, aligned: int,
 	material:  int,  // the index in MATERIALS objects are shaded with, or CUSTOM_MATERIAL
 	custom:    Material, // what the Material section's sliders made
+	// The built-in matcaps' textures (nil where the device refused one), and the image
+	// loaded with Load MatCap with its path ("" for none).
+	matcaps:      [len(MATCAP_RECIPES)]^sdl.GPUTexture,
+	matcap_image: ^sdl.GPUTexture,
+	matcap_path:  string,
 	flat:      bool, // shade with each triangle's own normal (faceted) instead of smoothed normals
 	wireframe: bool, // draw the selected object's edges over it
 	// How the viewport shows its shading (View > Material): brighter or darker in stops,
@@ -213,6 +224,7 @@ App :: struct {
 	view_key:    u64,       // camera, viewport size and object transforms last frame
 	view_moved:  time.Tick, // when view_key last changed
 	vsync:    bool, // wanted present mode, applied at the start of the next frame
+	msaa:     Msaa, // wanted anti-aliasing, applied before the next frame sizes the viewport (msaa.odin)
 	time_gpu: bool, // wait for each frame's 3D work, to measure its GPU time
 	window:   ^sdl.Window, // what file dialogs belong to
 	scene_path: string, // where the scene was last saved or opened from, for Ctrl+S (owned)
@@ -314,6 +326,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	defer results_destroy(&app)
 	if !render.renderer_init(&app.renderer, window, opts.gpu_debug) do return false
 	defer render.renderer_destroy(&app.renderer)
+	matcaps_create(&app)
+	defer matcaps_destroy(&app)
 	defer render.smooth_compute_destroy(&app.renderer, &app.smooth_gpu)
 	defer render.studio_destroy(&app.renderer, &app.studio)
 	defer render.nav_head_destroy(&app.renderer, &app.nav_head)
@@ -417,13 +431,15 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 
 	if len(app.scene.objects) > 1 do frame_all(&app)
 	app.cache_idle = !opts.no_cache
-	app.custom = MATERIALS[len(MATERIALS) - 1]
+	// Custom starts as PBR clay, the last physically based preset, until a slider changes it.
+	app.custom = MATERIALS[FIRST_MATCAP - 1]
 	app.custom.label = "Custom"
 	app.renderer.cull = !opts.no_cull
 	app.renderer.partial = !opts.no_partial
 	app.simplify = !opts.no_simplify
 	app.simplify_px = 1
 	app.vsync = !opts.no_vsync && opts.gpubench == ""
+	app.msaa = MSAA_DEFAULT
 	app.time_gpu = opts.time_gpu || opts.gpubench != ""
 	app.ui = ui_state_default()
 	app.curve, app.insert = CURVE_DEFAULTS, INSERT_DEFAULTS
@@ -623,7 +639,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		// Resize to the size the interface asked for last frame, before it references the
 		// texture, so it never draws a texture released this frame.
 		want := app.ui.viewport_request
-		if !render.viewport_target_resize(&app.renderer, &app.target, u32(want.x), u32(want.y)) do return false
+		msaa_apply(&app)
+		if !msaa_viewport_resize(&app, u32(want.x), u32(want.y)) do return false
 
 		// A tap's dab that waited for a second tap plays before anything this frame does.
 		waited_dab := dab_wait_resolve(&app)
@@ -764,6 +781,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 					surface = {material.metallic, material.roughness},
 					flat = app.flat,
 					look = viewport_look(&app),
+					matcap = material_matcap(&app, material),
 					wireframe = selected && app.wireframe,
 					paint  = sculpt.sculptor_has_color(&lv.sculptor) && !obj.paint_off,
 					groups = app.show_groups && sculpt.sculptor_has_groups(&lv.sculptor),
@@ -793,6 +811,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 					surface  = {material.metallic, material.roughness},
 					flat     = app.flat,
 					look     = viewport_look(&app),
+					matcap   = material_matcap(&app, material),
 					damage   = geom.AABB_EMPTY,
 				})
 			}
@@ -1205,7 +1224,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	if s := app.stats; s.file_read_ms > 0 || s.file_write_ms > 0 {
 		fmt.printfln("file_read_ms=%.1f file_parse_ms=%.1f file_write_ms=%.1f", s.file_read_ms, s.file_parse_ms, s.file_write_ms)
 	}
-	fmt.printfln("idle_cache=%v cache_redraws=%d last_frame_triangles=%d", app.cache_idle, app.stats.cache_redraws, app.stats.viewport.triangles)
+	fmt.printfln("idle_cache=%v cache_redraws=%d last_frame_triangles=%d msaa=%v", app.cache_idle, app.stats.cache_redraws, app.stats.viewport.triangles, app.msaa)
 	v := app.stats.viewport
 	fmt.printfln("cull=%v last_frame_draws=%d chunks=%d culled_view=%d culled_back=%d cull_ms=%.3f", app.renderer.cull, v.draws, v.chunks, v.culled_view, v.culled_back, v.cull_ms)
 	fmt.printfln("partial=%v partial_frames=%d last_frame_partial=%v last_frame_redrawn_px=%d viewport_px=%d", app.renderer.partial, app.stats.partial_frames, v.partial, v.redrawn_px, app.target.width * app.target.height)

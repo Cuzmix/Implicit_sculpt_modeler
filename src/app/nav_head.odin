@@ -125,6 +125,7 @@ kit_nav_head :: proc(app: ^App) {
 	n := &k.nav
 	if a.pressed {
 		n.from, n.last, n.turned = a.mouse, a.mouse, false
+		orbit_latch(app)
 	}
 	if a.held {
 		if !n.turned && linalg.length(a.mouse - n.from) > ctx.theme.slop do n.turned = true

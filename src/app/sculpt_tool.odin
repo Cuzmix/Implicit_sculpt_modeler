@@ -109,6 +109,9 @@ Stroke :: struct {
 	held:     bool, // ...and whether that is the brush held, with its alpha and stroke mode
 	mode:     Stroke_Mode, // the held brush's stroke mode as it began; Dots for any other
 	invert:   bool, // whether it started inverted, for the History panel
+	// What its brush's strength is multiplied by: Touch strength for a finger, 1 for the
+	// pen and mouse, or what a replay recorded (App.stroke_scale_from).
+	scale:    f32,
 	// The stroke's random numbers (Spray's scatter, a Random alpha's turn) come from its
 	// seed (App.stroke_seed, kept by the recorder) and the step, one a dab, so a replayed
 	// stroke lands the same dabs; turn is a Spray dab's turn of the alpha, for
@@ -353,6 +356,7 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 	st.kind, st.held = stroke_brush(app, input), held_brush(input)
 	st.seed, st.step, st.turn = app.stroke_seed, 0, 0
 	app.stroke_seed += 1
+	st.scale = app.stroke_scale_from if app.stroke_scale_from > 0 else (app.nav.touch_strength if app.device.pointer == .Finger else 1)
 	st.pos, st.pressure, st.tilt, st.travel, st.size = s.pos, s.pressure, s.tilt, 0, input.size
 	st.dir = {}
 	st.line, st.line_leaving, st.joined, st.smooth_was = false, false, false, input.smooth
@@ -796,6 +800,7 @@ brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pres
 	// the rail's Mask masks at the Mask brush's.
 	strength := app.brush.strengths[kind]
 	if app.brush.pressure_strength do strength *= pressure_curved(app, pressure)
+	strength *= app.stroke.scale
 	turn: matrix[3, 3]f32
 	if app.brush.tilt_strength > 0 && tilt != {} {
 		r := transform_rotation(t)
