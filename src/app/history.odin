@@ -444,12 +444,13 @@ clip_command :: proc(app: ^App, a, b: [2]f32, flip: bool, size: [2]f32) {
 }
 
 // Lists the stroke (or mask command) the object's current sculptor just finished as
-// the newest undo step.
-history_record :: proc(app: ^App, obj: ^Object, kind: History_Kind, what: string) {
+// the newest undo step, or with `chain` as part of the newest (the rest of a get from
+// Blender).
+history_record :: proc(app: ^App, obj: ^Object, kind: History_Kind, what: string, chain := false) {
 	history_drop_redo(app)
 	app.history.serial += 1
 	if !object_in_hd(obj) do app.history.edits += 1
-	append(&app.history.done, History_Entry{id = obj.id, level = HD_LEVEL if object_in_hd(obj) else obj.levels.current, kind = kind, what = what, at = time.tick_now()})
+	append(&app.history.done, History_Entry{id = obj.id, level = HD_LEVEL if object_in_hd(obj) else obj.levels.current, kind = kind, what = what, at = time.tick_now(), chain = chain && len(app.history.done) > 0})
 }
 
 @(private = "file", rodata)
@@ -521,7 +522,6 @@ history_can_redo :: proc(app: ^App) -> bool {return !history_busy(app) && len(ap
 // A stroke, a gizmo or inspector drag of a transform, or a deformer's Amount drag is
 // under way: it becomes a step of its own when it ends, so nothing is undone or redone
 // beneath it.
-@(private = "file")
 history_busy :: proc(app: ^App) -> bool {
 	return app.stroke.active || app.move.drag.handle != .None || topo_held(app) || app.ui.transform_drag.active || app.ui.deform.drag.active
 }

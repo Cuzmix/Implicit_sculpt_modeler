@@ -43,6 +43,8 @@ File_Kind :: enum u8 {
 	Install_Pack, // a content pack goes into the library (pack.odin)
 	Make_Pack,    // the person's own alphas and presets go to a content pack file (pack_make.odin)
 	Matcap,       // an image of a lit sphere becomes the Custom material's MatCap (matcaps.odin)
+	Link_Send,    // the selected objects go to the Blender link's folder (link.odin); no path
+	Link_Get,     // what Blender left in the link's folder comes in; the path is LINK_AUTO for the focus check's
 }
 
 File_Request :: struct {
@@ -54,7 +56,7 @@ File_Request :: struct {
 // be in a console nobody watches. `at` tells a new note from the one already shown.
 // The native scene file starts with these bytes, then its version.
 SCENE_MAGIC :: "SCULPTSC"
-SCENE_VERSION :: u32(16) // 2: each object's rotation; 3: the current level's polypaint and polygroups; 4: sculpt layers, and a retopologized object's quads and UVs (sculpt.levels_write); 5: each object's boolean mode; 6: the base level's node layout (sculpt.levels_write); 7: the camera's roll; 8: each object's eye and ghost, and Solo; 9: folders, and each object's folder; 10: selection sets (sculpt.levels_write); 11: each object's polypaint shown or not (a third view bit); 12: stored visibility (V1 to V8): the slot chosen and used, and each folder's and object's eyes in them; 13: each object's kind (mesh or voxel), a voxel object's resolution and clay after its empty level (voxel.clay_write); 14: each object's material (material_put); 15: each object's polygroups with materials of their own (group_materials_put); 16: the content pack parts of the object's and its groups' materials, by name (material_refs)
+SCENE_VERSION :: u32(17) // 2: each object's rotation; 3: the current level's polypaint and polygroups; 4: sculpt layers, and a retopologized object's quads and UVs (sculpt.levels_write); 5: each object's boolean mode; 6: the base level's node layout (sculpt.levels_write); 7: the camera's roll; 8: each object's eye and ghost, and Solo; 9: folders, and each object's folder; 10: selection sets (sculpt.levels_write); 11: each object's polypaint shown or not (a third view bit); 12: stored visibility (V1 to V8): the slot chosen and used, and each folder's and object's eyes in them; 13: each object's kind (mesh or voxel), a voxel object's resolution and clay after its empty level (voxel.clay_write); 14: each object's material (material_put); 15: each object's polygroups with materials of their own (group_materials_put); 16: the content pack parts of the object's and its groups' materials, by name (material_refs); 17: the scene's Blender link token (link.odin)
 
 // The request waiting for the next frame, and whether a dialog is showing. Kept here
 // rather than in App because SDL may call a dialog back on another thread, even after
@@ -172,6 +174,16 @@ file_post :: proc(kind: File_Kind, path: string) {
 	defer sync.unlock(&pending.lock)
 	delete(pending.req.path, heap)
 	pending.req = {kind, strings.clone(path, heap)}
+}
+
+// Queues a request only when no dialog shows and none waits, checked and queued under one
+// lock, so a dialog's answer is never replaced. Returns whether it was queued.
+file_post_when_idle :: proc(kind: File_Kind, path: string) -> bool {
+	sync.lock(&pending.lock)
+	defer sync.unlock(&pending.lock)
+	if pending.dialog || pending.req.kind != .None do return false
+	pending.req = {kind, strings.clone(path, runtime.heap_allocator())}
+	return true
 }
 
 // The waiting request, if any, which the caller frees with file_request_free; notes a
@@ -298,6 +310,17 @@ file_apply :: proc(app: ^App, req: File_Request) -> bool {
 		autosave_discard(app, req.path)
 	case .Run_Script:
 		script_file_run(app, req.path)
+	case .Link_Send, .Link_Get:
+		// As a big save: the window says what it waits for before the frame stops.
+		big := link_send_bytes(app) if req.kind == .Link_Send else link_get_bytes(app)
+		if big > SAVE_SHOW_FIRST {
+			app.saving = {req.kind, strings.clone(req.path, runtime.heap_allocator())}
+			app.saving_at = app.kit.ctx.time
+			report(app, nil, {.Busy}, "Sending to Blender..." if req.kind == .Link_Send else "Getting from Blender...")
+			return true
+		}
+		if req.kind == .Link_Send do link_send(app)
+		else do return link_get(app, req.path == LINK_AUTO)
 	}
 	return true
 }
@@ -657,6 +680,15 @@ save_pending :: proc(app: ^App, now: bool) {
 		}
 		return
 	}
+	if req.kind == .Link_Send {
+		link_send(app)
+		return
+	}
+	if req.kind == .Link_Get {
+		// Only a GPU failure stops a get, and the app cannot go on without the GPU.
+		if !link_get(app, req.path == LINK_AUTO) do app.running = false
+		return
+	}
 	autosave_settle(app)
 	scene_save_request(app, req)
 }
@@ -699,6 +731,7 @@ scene_header_put :: proc(app: ^App, out: ^[dynamic]u8) {
 	// Version 12: the stored visibility chosen and those in use.
 	geom.byte_put(out, u8(app.scene.vis_slot))
 	geom.byte_put(out, app.scene.vis_used)
+	geom.byte_put(out, app.scene.link_token) // version 17
 }
 
 // The folders a scene file of `version` lists after its header, owned; ok is false
@@ -770,6 +803,7 @@ scene_open :: proc(app: ^App, path: string) -> (opened, ok: bool) {
 		vis_slot = geom.byte_get(&r, u8)
 		vis_used = geom.byte_get(&r, u8)
 	}
+	link_token := geom.byte_get(&r, u64) if version >= 17 else 0
 	if !folders_ok || !r.ok || solo > 1 || vis_slot > VIS_SLOTS || (vis_slot > 0 && vis_used & (1 << (vis_slot - 1)) == 0) || count > len(data) || selected >= count || !finite(view.target) || !finite({view.distance, view.yaw, view.pitch}) || !finite({view.roll, 0, 0}) {
 		file_note(app, true, "Cannot open %s: it is damaged", name)
 		return false, true
@@ -802,6 +836,7 @@ scene_open :: proc(app: ^App, path: string) -> (opened, ok: bool) {
 	app.scene.folders, folders = folders, nil
 	app.scene.next_folder_id = max(next_folder_id, 0)
 	app.scene.vis_slot, app.scene.vis_used = int(vis_slot), vis_used
+	app.scene.link_token = link_token
 	scene_folders_normalize(app)
 	scene_selection_fix(app)
 	autosave_scene_saved(app, path)
@@ -838,6 +873,9 @@ scene_replace :: proc(app: ^App, objects: []^Object, selected, next_id: int, vie
 	folders_clear(&app.scene.folders)
 	app.scene.next_folder_id = 0
 	app.scene.vis_slot, app.scene.vis_used = 0, 0
+	// A new scene has no link with Blender until it sends; an opened one gets its own back.
+	app.scene.link_token = 0
+	clear(&app.link.sent)
 	// A drag over the old tree, and the column changes it queued, name the old objects.
 	app.kit.tree_drag, app.kit.tree_column = {}, {}
 	clear(&app.scene.also)
@@ -1030,7 +1068,6 @@ get_transform :: proc(r: ^geom.Byte_Reader) -> Transform {
 	return t
 }
 
-@(private = "file")
 finite :: proc(v: Vec3) -> bool {
 	for x in v do if math.is_nan(x) || math.is_inf(x) do return false
 	return true

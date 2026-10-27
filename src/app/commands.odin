@@ -30,6 +30,8 @@ Command_Id :: enum u8 {
 	Import_Mesh,
 	Export_Mesh,
 	Screenshot,
+	Send_To_Blender,
+	Get_From_Blender,
 	// Edit
 	Undo,
 	Redo,
@@ -312,6 +314,20 @@ COMMANDS := [Command_Id]Command {
 		icon = ui.ICON_EXPORT,
 		run = proc(app: ^App, _: int) {file_dialog(app, .Export)},
 		enabled = has_object,
+	},
+	.Send_To_Blender = {
+		label = "Send to Blender",
+		help = "Writes the selected objects to the Blender link's folder, for Get from Sculpt in Blender's Sculpt tab (Settings > System > Blender link).",
+		icon = ui.ICON_EXPORT,
+		run = proc(app: ^App, _: int) {file_post(.Link_Send, "")},
+		enabled = proc(app: ^App, _: int) -> bool {return link_can_send(app)},
+	},
+	.Get_From_Blender = {
+		label = "Get from Blender",
+		help = "Brings back what Blender's Send to Sculpt left in the link's folder: same triangles move the vertices, others rebuild the object, new ones are added; one undo step. Switching back to Sculpt does it too.",
+		icon = ui.ICON_IMPORT,
+		run = proc(app: ^App, _: int) {file_post(.Link_Get, "")},
+		enabled = proc(app: ^App, _: int) -> bool {return link_can_get(app)},
 	},
 	.Screenshot = {
 		label = "Save screenshot...",

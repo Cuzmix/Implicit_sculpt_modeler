@@ -391,13 +391,14 @@ folders_round_trip_in_the_file :: proc(t: ^testing.T) {
 	defer delete(head)
 	scene_header_put(&app, &head)
 	r := geom.byte_reader(head[:])
-	r.at = len(head) - (4 + 4 + 4 + len("Ears") + 1 + 1 + 4 + 2)
+	// The folders come before the stored visibility's two bytes and the link token's eight.
+	r.at = len(head) - (4 + 4 + 4 + len("Ears") + 1 + 1 + 4 + 2 + 8)
 	folders, next, ok := folders_get(&r, SCENE_VERSION)
 	defer {
 		folders_clear(&folders)
 		delete(folders)
 	}
-	testing.expect(t, ok && r.ok && r.at == len(head) - 2)
+	testing.expect(t, ok && r.ok && r.at == len(head) - 2 - 8)
 	testing.expect_value(t, len(folders), 1)
 	testing.expect(t, folders[0].id == f.id && folders[0].name == "Ears" && folders[0].off && !folders[0].open && !folders[0].ghost)
 	testing.expect_value(t, next, app.scene.next_folder_id)
