@@ -359,14 +359,14 @@ light_name :: proc(set: ^Light_Set, i: int) -> string {
 // lumens a watt glTF's importers count.
 LIGHT_SUN_LUX :: math.PI * 683
 
-// The scene's lights that are on, as a file exported from `obj` carries them: placed and
-// pointing as the view shows them now, in the object's own space as its mesh is written;
-// a point light's or a spot's candela are what makes it as bright as the sun of its
-// Intensity at the distance it matches one (Light.ref), in the object's units.
-export_lights :: proc(app: ^App, obj: ^Object) -> []geom.Export_Light {
+// The scene's lights that are on, as a file carries them: placed and pointing as the
+// view shows them now, in the space placement `t` puts an object's mesh (the exported
+// object's, or none for the scene's own axes); a point light's or a spot's candela are
+// what makes it as bright as the sun of its Intensity at the distance it matches one
+// (Light.ref), in that space's units.
+export_lights :: proc(app: ^App, t := Transform{scale = 1}) -> []geom.Export_Light {
 	set := &app.scene.lights
 	out := make([dynamic]geom.Export_Light, 0, int(set.count), context.temp_allocator)
-	t := obj.transform
 	for l, i in set.lights[:set.count] {
 		if !l.on || l.strength <= 0 do continue
 		e := geom.Export_Light {
