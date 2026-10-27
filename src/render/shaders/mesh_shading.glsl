@@ -234,10 +234,6 @@ void main() {
 	{
 		vec3 nv = in_view_normal;
 		vec3 tv = in_view_tangent.xyz;
-		if (!gl_FrontFacing) {
-			nv = -nv;
-			tv = -tv;
-		}
 		n = normalize(nv);
 		if ((view_mode == 1 || view_mode == 2) && maps.z > 0.5) {
 			vec3 tn = texture(normal_map, uv).xyz * 2.0 - 1.0;
@@ -245,6 +241,9 @@ void main() {
 			vec3 mapped = tn.x * tv + tn.y * bv + tn.z * nv;
 			if (dot(mapped, mapped) > 0.0) n = normalize(mapped);
 		}
+		// The back of the surface: the mapped normal turned round whole, so the map is not
+		// mirrored there.
+		if (!gl_FrontFacing) n = -n;
 	}
 	if (view_mode == 1 && maps.y > 0.5) {
 		vec3 orm = texture(orm_map, uv).rgb;

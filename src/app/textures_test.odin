@@ -94,6 +94,11 @@ scene_keeps_textures :: proc(t: ^testing.T) {
 	testing.expect(t, r.ok && r.at == len(out))
 	for m in render.Texture_Map do testing.expect_value(t, string(back.image[m]), string(maps.image[m]))
 	testing.expect(t, back.stamp != 0, "read maps must be new to the preview")
+	none: [dynamic]u8
+	defer delete(none)
+	textures_put(&none, {})
+	r = geom.byte_reader(none[:])
+	testing.expect(t, textures_get(&r).stamp == 0 && r.ok, "no maps, nothing to decode")
 
 	// A bit past the maps, a count past the end, and bytes that are no image.
 	for damage in 0 ..< 3 {
@@ -129,16 +134,21 @@ textures_undo_and_redo :: proc(t: ^testing.T) {
 	testing.expect(t, object_has_textures(obj))
 	stamp := obj.textures.stamp
 	layout := raw_data(obj.levels.faces.uv.uvs)
+	counter := obj.textures.layout
+	testing.expect_value(t, counter, 0)
 
 	object_layout_uvs(&app, obj)
 	testing.expect(t, !object_has_textures(obj), "New UVs keeps maps made on the old layout")
 	testing.expect(t, raw_data(obj.levels.faces.uv.uvs) != layout)
+	testing.expect(t, obj.textures.layout != counter, "the preview must see the new layout")
+	counter = obj.textures.layout
 	testing.expect_value(t, len(app.history.done), 2)
 	testing.expect_value(t, app.history.done[1].kind, History_Kind.Textures)
 
 	history_undo(&app)
 	testing.expect(t, object_has_textures(obj) && raw_data(obj.levels.faces.uv.uvs) == layout, "undo of New UVs brings both back")
 	testing.expect(t, obj.textures.stamp != stamp, "the preview must see the change")
+	testing.expect(t, obj.textures.layout != counter, "nor may it miss the old layout coming back")
 	history_undo(&app)
 	testing.expect(t, !object_has_textures(obj))
 	history_redo(&app)

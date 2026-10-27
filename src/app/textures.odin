@@ -22,6 +22,10 @@ import "../sculpt"
 Object_Textures :: struct {
 	image: [render.Texture_Map][]u8,
 	stamp: u32, // changes on every change, for the GPU copy (Texture_Preview.maps_stamp)
+	// Changes when a .Textures step replaces the object's UV layout (New UVs, its undo
+	// and redo), for the preview's vertices (Texture_Preview.layout); not saved, and kept
+	// when the maps are replaced.
+	layout: u32,
 }
 
 // Images larger than this a side are refused: core:image's own limit is 8192 x 8192.
@@ -35,12 +39,15 @@ TEXTURE_PREVIEW_SIDE :: 2048 when ODIN_PLATFORM_SUBTARGET == .Android else 4096
 Texture_Preview :: struct {
 	mesh:       render.Textured_Mesh,
 	shape:      u64,    // the base level's Mesh_Buffers.version the vertices were made from
-	layout:     rawptr, // the UV layout they were made with (Uv_Layout.uvs), which New UVs and its undo replace
+	layout:     u32,    // the Object_Textures.layout the vertices were made with
 	maps_stamp: u32,    // the Object_Textures.stamp the maps hold
 	decoder:    ^Texture_Decoder,
 	// Maps whose image did not decode, so they are not tried again until they change;
 	// the object shows without them.
 	failed:     [render.Texture_Map]bool,
+	// The GPU refused the textured mesh, so the object draws as clay (said once) until
+	// its shape or layout changes.
+	broken:     bool,
 }
 
 // A thread turning an object's images into RGBA8 pixels: it works on copies, so the
@@ -122,9 +129,11 @@ textures_replace :: proc(app: ^App, obj: ^Object, t: Object_Textures, what: stri
 	step.textures = obj.textures
 	obj.textures = t
 	obj.textures.stamp = step.textures.stamp + 1
+	obj.textures.layout = step.textures.layout
 	if layout, ok := uvs.?; ok {
 		step.uvs, step.has_uvs = obj.levels.faces.uv, true
 		obj.levels.faces.uv = layout
+		obj.textures.layout += 1
 	}
 	history_record_textures(app, obj, step, what)
 	app.scene_edits += 1
@@ -157,10 +166,14 @@ texture_step_bytes :: proc(step: ^Texture_Step) -> int {
 // Undoes or redoes a .Textures step on `obj`: its maps (and layout) and the step's trade
 // places.
 texture_step_swap :: proc(obj: ^Object, step: ^Texture_Step) {
-	stamp := obj.textures.stamp
+	stamp, layout := obj.textures.stamp, obj.textures.layout
 	obj.textures, step.textures = step.textures, obj.textures
 	obj.textures.stamp = max(stamp, step.textures.stamp) + 1
-	if step.has_uvs do obj.levels.faces.uv, step.uvs = step.uvs, obj.levels.faces.uv
+	obj.textures.layout = layout
+	if step.has_uvs {
+		obj.levels.faces.uv, step.uvs = step.uvs, obj.levels.faces.uv
+		obj.textures.layout += 1
+	}
 }
 
 // New UVs as a scene command: lays the selected quad object's UVs out again and drops its
@@ -196,21 +209,27 @@ object_textured :: proc(app: ^App, obj: ^Object, lv: ^sculpt.Level) -> bool {
 
 // Brings `obj`'s preview up to date for this frame, after its base level's upload (`gpu`)
 // on the frame's `cmd`, and returns the textured mesh to draw, or nil to draw it as clay.
-// Starts decoding changed maps on a thread; until they are in, the object shows without
-// them. False only on a GPU failure.
-texture_preview_frame :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer, obj: ^Object, gpu: ^render.Mesh_Buffers) -> (mesh: ^render.Textured_Mesh, ok: bool) {
+// Starts decoding changed maps on a thread, one object at a time (each decode holds its
+// pixels until the frame loop takes them); until they are in, the object shows without
+// them. A GPU failure leaves the object as clay with a note.
+texture_preview_frame :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer, obj: ^Object, gpu: ^render.Mesh_Buffers) -> ^render.Textured_Mesh {
 	p := &obj.preview
 	texture_decoder_poll(app, obj)
-	if p.decoder == nil && p.maps_stamp != obj.textures.stamp do texture_decoder_start(app, obj)
+	if p.decoder == nil && p.maps_stamp != obj.textures.stamp && app.texture_decodes == 0 do texture_decoder_start(app, obj)
 	lv := sculpt.levels_current(&obj.levels)
-	if !object_textured(app, obj, lv) do return nil, true
-	layout := rawptr(raw_data(obj.levels.faces.uv.uvs))
-	if p.shape != gpu.version || p.layout != layout || p.mesh.index_count == 0 {
+	if !object_textured(app, obj, lv) do return nil
+	current := p.shape == gpu.version && p.layout == obj.textures.layout
+	if p.broken && current do return nil
+	if !current || p.mesh.index_count == 0 {
 		vertices, indices := textured_vertices(obj)
-		if !render.textured_mesh_upload(&app.renderer, cmd, &p.mesh, vertices, indices) do return nil, false
-		p.shape, p.layout = gpu.version, layout
+		p.shape, p.layout = gpu.version, obj.textures.layout
+		p.broken = !render.textured_mesh_upload(&app.renderer, cmd, &p.mesh, vertices, indices)
+		if p.broken {
+			file_note(app, true, "The GPU refused the textured copy of %s; it shows as clay", object_label(obj))
+			return nil
+		}
 	}
-	return &p.mesh, true
+	return &p.mesh
 }
 
 // The preview's vertices: the base level's quads split where the UVs are, with the same
@@ -263,9 +282,12 @@ texture_decoder_start :: proc(app: ^App, obj: ^Object) {
 	d.image = textures_clone(obj.textures).image
 	d.side = TEXTURE_PREVIEW_SIDE
 	obj.preview.decoder = d
+	app.texture_decodes += 1
 	d.thread = thread.create_and_start_with_data(d, proc(data: rawptr) {
 		d := (^Texture_Decoder)(data)
-		// Its own temp memory, freed at the end.
+		// The pixels it leaves are freed by the frame loop with the same heap allocator,
+		// and its temp memory is its own, freed at the end.
+		context.allocator = runtime.heap_allocator()
 		arena: runtime.Arena
 		context.temp_allocator = runtime.arena_allocator(&arena)
 		defer runtime.arena_destroy(&arena)
@@ -291,9 +313,10 @@ texture_decoder_poll :: proc(app: ^App, obj: ^Object, wait := false) {
 	thread.join(d.thread)
 	thread.destroy(d.thread)
 	p.decoder = nil
+	app.texture_decodes -= 1
 	defer {
 		for img in d.image do delete(img)
-		for px in d.pixels do delete(px)
+		for px in d.pixels do delete(px, runtime.heap_allocator())
 		free(d)
 	}
 	if wait do return
@@ -394,8 +417,9 @@ textures_get :: proc(r: ^geom.Byte_Reader) -> (t: Object_Textures) {
 		t.image[m] = clone_bytes(img)
 	}
 	if !r.ok do textures_free(&t)
-	// Read maps are new to the object's preview, which starts at stamp 0.
-	t.stamp = 1
+	// Read maps are new to the object's preview, which starts at stamp 0; with none, the
+	// two agree and nothing is decoded.
+	if bits != 0 && r.ok do t.stamp = 1
 	return
 }
 

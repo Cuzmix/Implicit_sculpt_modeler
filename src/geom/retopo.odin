@@ -69,6 +69,7 @@ quad_mesh_diagonals :: proc(q: Quad_Mesh, indices: []u32, faces: Vertex_Faces, a
 quad_mesh_destroy :: proc(q: ^Quad_Mesh, allocator := context.allocator) {
 	delete(q.positions, allocator)
 	delete(q.quads, allocator)
+	delete(q.across, allocator)
 	q^ = {}
 }
 

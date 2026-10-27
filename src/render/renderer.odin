@@ -1233,16 +1233,17 @@ frame_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lod
 		k := Keyed{item.mesh, item.matcap, item.model, item.color, item.material, item.checker, item.look, item.lights, item.surface, b32(item.wireframe), b32(item.flat), b32(item.paint), b32(item.groups), item.slots != nil, false}
 		h = hash.fnv64a(slice.bytes_from_ptr(&k, size_of(k)), h)
 		if item.slots != nil do h = hash.fnv64a(slice.bytes_from_ptr(item.slots, size_of(Material_Slots)), h)
-		h = textured_key(item, h, false)
+		h = textured_key(item, h)
 	}
 	return max(h, 1)
 }
 
-// Folds what a textured item shows into a frame key: the mesh, its maps and the view, and
-// for the idle cache (`contents`) the vertices too, which a live item's damage boxes
-// account for instead. Nothing for an item drawn without its textured mesh.
+// Folds what a textured item shows into a frame key: the mesh, its vertices, its maps and
+// the view. Its vertices change when its sculpt buffers do (damage boxes cover those)
+// but also when only its UVs do, which no damage box sees, so both keys take them: a
+// textured object is small, and a full redraw when it changes costs little.
 @(private)
-textured_key :: proc(item: Draw_Item, h: u64, contents: bool) -> u64 {
+textured_key :: proc(item: Draw_Item, h: u64) -> u64 {
 	if item.textured == nil || item.texture_view == .Off do return h
 	Keyed :: struct { // no padding: every byte is hashed
 		mesh:       ^Textured_Mesh,
@@ -1250,7 +1251,7 @@ textured_key :: proc(item: Draw_Item, h: u64, contents: bool) -> u64 {
 		stamp:      u64,
 		view:       u64,
 	}
-	k := Keyed{item.textured, item.textured.maps_stamp, item.textured.stamp if contents else 0, u64(item.texture_view)}
+	k := Keyed{item.textured, item.textured.maps_stamp, item.textured.stamp, u64(item.texture_view)}
 	return hash.fnv64a(slice.bytes_from_ptr(&k, size_of(k)), h)
 }
 
@@ -1443,7 +1444,7 @@ static_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lo
 		k := Keyed{item.mesh, item.matcap, item.mesh.version, item.model, item.color, item.material, item.checker, item.look, item.lights, item.surface, b32(item.wireframe), b32(item.flat), b32(item.paint), b32(item.groups), item.slots != nil, false}
 		h = hash.fnv64a(slice.bytes_from_ptr(&k, size_of(k)), h)
 		if item.slots != nil do h = hash.fnv64a(slice.bytes_from_ptr(item.slots, size_of(Material_Slots)), h)
-		h = textured_key(item, h, true)
+		h = textured_key(item, h)
 	}
 	return max(h, 1) // 0 means empty
 }
@@ -1593,7 +1594,7 @@ draw_scene :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURende
 	draw_items(r, cmd, pass, pipes, view, proj, items, live, stats)
 	if rect, ok := inside.?; ok do sdl.SetGPUScissor(pass, {rect.x, rect.y, rect.w, rect.h})
 	draw_floor(r, cmd, pass, pipes, view, proj)
-	if pipes.see == nil do return
+	if pipes.see == nil && pipes.textured_see == nil do return
 	for item in items do if blended(pipes, item) {
 		draw_items(r, cmd, pass, pipes, view, proj, items, live, stats, see = true)
 		break

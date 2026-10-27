@@ -213,6 +213,7 @@ App :: struct {
 	flat:      bool, // shade with each triangle's own normal (faceted) instead of smoothed normals
 	// What objects with texture maps show of them (textures.odin): .Off draws them as clay.
 	texture_view: render.Texture_View,
+	texture_decodes: int, // texture decode threads running: one at a time
 	// Polyframe (the Wireframe command): while on, the selected object shows its edges when
 	// `polyframe_lines` is set and its polygroups' colours when `polyframe_fill` is.
 	wireframe:       bool,
@@ -812,15 +813,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 				uploaded += bytes
 				// The textured preview follows the base level as this frame uploaded it.
 				textured: ^render.Textured_Mesh
-				if part == 0 {
-					preview_ok: bool
-					textured, preview_ok = texture_preview_frame(&app, cmd, obj, gpu)
-					if !preview_ok {
-						_ = sdl.SubmitGPUCommandBuffer(cmd)
-						_ = sdl.SubmitGPUCommandBuffer(present_cmd)
-						return false
-					}
-				}
+				if part == 0 do textured = texture_preview_frame(&app, cmd, obj, gpu)
 				// Simplified copies are built a batch a frame, for one level at a time, and
 				// never during a stroke, whose frames should stay as short as they can be.
 				if app.simplify && !app.stroke.active && lod_ms < 0 && sculpt.sculptor_lod_pending(&lv.sculptor) > 0 {

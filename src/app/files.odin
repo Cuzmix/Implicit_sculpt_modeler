@@ -1017,9 +1017,12 @@ object_get_fields :: proc(r: ^geom.Byte_Reader, obj: ^Object, version := SCENE_V
 // nothing yet. The caller has waited for the GPU.
 object_discard :: proc(app: ^App, obj: ^Object) {
 	for &gpu in obj.gpu do render.mesh_buffers_destroy(&app.renderer, &gpu)
+	texture_preview_release(app, obj)
 	sculpt.levels_destroy(&obj.levels)
 	voxel_part_free(app, obj)
 	delete(obj.name)
+	delete(obj.group_materials)
+	textures_free(&obj.textures)
 	free(obj)
 }
 
