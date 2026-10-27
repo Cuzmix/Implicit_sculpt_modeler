@@ -154,7 +154,7 @@ object_split :: proc(app: ^App, obj: ^Object, mode: Split_Mode) -> (parts: [dyna
 		// Not temporary: building frees the temp allocator before the name is copied.
 		name := fmt.aprintf("%s %d", object_label(obj), k + 1)
 		defer delete(name)
-		if !scene_add_mesh(app, mesh, name, obj.file, obj.transform, cut, surface = surfaces[k]) do return parts, true, false
+		if !scene_add_mesh(app, mesh, name, obj.file, obj.transform, cut, surface = surfaces[k], material = obj.material) do return parts, true, false
 		piece := app.scene.objects[len(app.scene.objects) - 1]
 		object_carry_layers(app, piece, layered, counted = false)
 		piece.folder = obj.folder
@@ -308,7 +308,8 @@ merge_visible :: proc(app: ^App, folder: int) -> bool {
 	// Not temporary: building frees the temp allocator before the name is copied.
 	name := fmt.aprintf("%s merged", folder_label(folder_by_id(app, folder))) if folder != 0 else strings.clone("Merged")
 	defer delete(name)
-	if !scene_add_mesh(app, mesh, name, {scale = 1}, {scale = 1}, time.tick_now(), surface = surface) do return false
+	// The merged object is shaded as the first of them was.
+	if !scene_add_mesh(app, mesh, name, {scale = 1}, {scale = 1}, time.tick_now(), surface = surface, material = objs[0].material) do return false
 	history_record_added(app)
 	app.merged += count
 	report(app, nil, {.Undo}, "%s: %d objects into %s", what, count, name)

@@ -83,7 +83,7 @@ object_retopo :: proc(app: ^App, obj: ^Object, quads: int) -> (made, ok: bool) {
 	defer delete(name)
 	t := obj.transform
 	t.position = next_free_position(app)
-	if !scene_add_mesh(app, mesh, name, obj.file, t, start, old_to_new) {
+	if !scene_add_mesh(app, mesh, name, obj.file, t, start, old_to_new, material = obj.material) {
 		delete(q.quads)
 		geom.uv_layout_destroy(&uv)
 		return false, false

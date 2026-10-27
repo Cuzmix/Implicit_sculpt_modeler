@@ -16,11 +16,19 @@ Glb_Json :: struct {
 		primitives: []struct {
 			attributes: map[string]int,
 			indices:    int,
+			material:   Maybe(int),
 			targets:    []map[string]int,
 		},
 		weights:    []f32,
 		extras:     struct {
 			targetNames: []string,
+		},
+	},
+	materials:   []struct {
+		name:                 string,
+		pbrMetallicRoughness: struct {
+			baseColorFactor:                 [4]f32,
+			metallicFactor, roughnessFactor: f32,
 		},
 	},
 	bufferViews: []struct {
@@ -225,4 +233,35 @@ glb_is_the_same_on_the_pool :: proc(t: ^testing.T) {
 	testing.expect(t, mesh_write_glb(&parallel, m, &pool))
 	free_all(context.temp_allocator)
 	testing.expect(t, len(serial) == len(parallel) && mem.compare(serial[:], parallel[:]) == 0, "the pool changed the file")
+}
+
+// A material goes as glTF's metallic-roughness material on the primitive, its values
+// clamped to what the format allows; with none the file has no materials.
+@(test)
+glb_carries_the_material :: proc(t: ^testing.T) {
+	sphere := icosphere(1)
+	defer mesh_destroy(&sphere)
+	out := make([dynamic]u8)
+	defer delete(out)
+	m := Mesh_Export{name = "Sphere", positions = sphere.positions[:], normals = sphere.normals[:], indices = sphere.indices[:]}
+	m.material = Export_Material{name = "Gold \"1\"", base = {1, 0.77, 1.5}, metallic = 1, roughness = 0.3}
+	testing.expect(t, mesh_write_glb(&out, m))
+	doc, _, read := glb_chunks(t, out[:])
+	defer free_all(context.temp_allocator)
+	if !read do return
+	testing.expect_value(t, len(doc.materials), 1)
+	testing.expect_value(t, doc.meshes[0].primitives[0].material.?, 0)
+	mat := doc.materials[0]
+	testing.expect_value(t, mat.name, "Gold \"1\"")
+	testing.expect_value(t, mat.pbrMetallicRoughness.baseColorFactor, [4]f32{1, 0.77, 1, 1})
+	testing.expect_value(t, mat.pbrMetallicRoughness.metallicFactor, 1)
+	testing.expect_value(t, mat.pbrMetallicRoughness.roughnessFactor, 0.3)
+	clear(&out)
+	m.material = nil
+	testing.expect(t, mesh_write_glb(&out, m))
+	plain, _, plain_read := glb_chunks(t, out[:])
+	if !plain_read do return
+	testing.expect_value(t, len(plain.materials), 0)
+	_, has := plain.meshes[0].primitives[0].material.?
+	testing.expect(t, !has)
 }

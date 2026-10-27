@@ -138,9 +138,10 @@ save_scene :: proc(app: ^App) {
 
 // Back to the starting view, keeping the projection.
 reset_camera :: proc(app: ^App) {
-	ortho := app.camera.ortho
+	ortho, fov := app.camera.ortho, app.camera.fov_y
 	app.camera = camera.orbit_default()
 	app.camera.ortho = ortho
+	camera.orbit_set_fov(&app.camera, fov)
 	app.pivot.set, app.pivot.pinned = false, false
 }
 

@@ -412,6 +412,34 @@ SCENE_SECTIONS := [?]Kit_Tab_Section {
 	{.Lights, "Lights", kit_lights, nil},
 	{.Studio, "Studio render", kit_studio, nil},
 	{.Camera, "Camera", kit_camera, nil},
+	{.Floor, "Floor grid", kit_floor, nil},
+}
+
+// The floor grid: whether it shows, which planes, the axes, and its cells.
+@(private = "file")
+kit_floor :: proc(app: ^App) {
+	ctx := &app.kit.ctx
+	f := &app.floor
+	on := f.on
+	if ui.switch_row(ctx, "Floor grid", &on, keys = command_hint(app, .Floor_Grid)) do command_run(app, .Floor_Grid)
+	ui.caption(ctx, "PLANES")
+	ui.begin(ctx, "floor planes", {direction = .Row, gap = 4})
+	planes := [3]struct {
+		name, tip: string,
+	}{{"Side", "The wall square to X, on the far side"}, {"Floor", "The floor, under the scene"}, {"Back", "The wall square to Z, behind the scene"}}
+	// Floor first, then the walls.
+	for axis in ([3]int{1, 2, 0}) {
+		p := planes[axis]
+		if ui.toggle_button(ctx, p.name, f.planes[axis], 92, tooltip = p.tip) do f.planes[axis] = !f.planes[axis]
+	}
+	ui.end(ctx)
+	if kit_more(app, .Floor) {
+		_ = ui.switch_row(ctx, "Axes in colour", &f.axes)
+		_ = ui.switch_row(ctx, "Fit cells to the scene", &f.fit)
+		if !f.fit do _ = ui.slider(ctx, "Cell size", &f.cell, FLOOR_CELL_MIN, FLOOR_CELL_MAX, .Logarithmic, fmt.tprintf("%.3g", f.cell))
+		kit_more_end(app)
+	}
+	ui.paragraph(ctx, "The floor lies under everything shown and the walls behind it as you look, with a brighter line every fifth cell. Red is X, green Y, blue Z.")
 }
 
 @(private = "file")
@@ -462,18 +490,26 @@ kit_add :: proc(app: ^App) {
 	ui.paragraph(ctx, fmt.tprintf("Builds %s%s vertices%s, about %s of memory.", "" if k.add_shape == .Sphere else "about ", count_label(built), on, bytes_label(memory * BYTES_PER_VERTEX)))
 }
 
-// The classic presets, the physically based ones, the MatCaps, and sliders that edit
-// whichever is in use into the Custom material.
+// The selected object's material: the classic presets, the physically based ones, the
+// MatCaps, and sliders that edit whichever is in use into a Custom one. A change goes to
+// every selected object as a Scene_Command and becomes the material new objects take;
+// with nothing selected it only sets that.
 @(private = "file")
 kit_material :: proc(app: ^App) {
 	ctx := &app.kit.ctx
+	sel := selected_object(app)
+	m := object_material(app, sel) if sel != nil else current_material(app)
+	index := material_index(m)
+	// Custom in the list is the object's own Custom, or the last one made.
+	custom := m if index == CUSTOM_MATERIAL else app.custom
 	names: [len(MATERIALS) + 1]string
-	for m, i in MATERIALS do names[i] = string(m.label) if i < FIRST_PBR || m.matcap != 0 else fmt.tprintf("%s (physically based)", m.label)
-	names[CUSTOM_MATERIAL] = "Custom" if app.custom.matcap == 0 else fmt.tprintf("Custom (%s MatCap)", matcap_label(app, app.custom.matcap))
-	if picked := ui.select(ctx, "material", names[:], app.material); picked >= 0 do app.material = picked
-	// The sliders show the material in use; moving one copies it into Custom first, so a
-	// preset is never changed. A classic preset has no roughness yet, so it starts rough.
-	m := current_material(app)
+	for p, i in MATERIALS do names[i] = string(p.label) if i < FIRST_PBR || p.matcap != 0 else fmt.tprintf("%s (physically based)", p.label)
+	names[CUSTOM_MATERIAL] = "Custom" if custom.matcap == 0 else fmt.tprintf("Custom (%s MatCap)", matcap_label(app, custom.matcap))
+	if picked := ui.select(ctx, "material", names[:], index); picked >= 0 {
+		app.ui.scene_command = {kind = .Material, material = custom if picked == CUSTOM_MATERIAL else MATERIALS[picked]}
+	}
+	// The sliders show the material in use; moving one makes it Custom, so a preset is
+	// never changed. A classic preset has no roughness yet, so it starts rough.
 	if m.roughness == 0 do m.roughness = CUSTOM_ROUGHNESS
 	changed := kit_color(app, "material colour", (^[3]f32)(&m.selected), linear = true)
 	// How every material is shown, kept apart from the materials themselves: Cavity
@@ -488,14 +524,14 @@ kit_material :: proc(app: ^App) {
 		}
 		_ = ui.slider(ctx, "Ridge", &app.ridge, 0, 1, .Linear, fmt.tprintf("%.2f", app.ridge))
 		_ = ui.slider(ctx, "Exposure", &app.exposure, -EXPOSURE_RANGE, EXPOSURE_RANGE, .Linear, fmt.tprintf("%+.1f stops", app.exposure))
+		_ = ui.switch_row(ctx, "Dim the others", &app.dim_others)
 		kit_more_end(app)
 	}
 	if changed {
 		m.label = "Custom"
-		app.custom = m
-		app.material = CUSTOM_MATERIAL
+		app.ui.scene_command = {kind = .Material, material = m}
 	}
-	ui.paragraph(ctx, "Moving the colour, Metallic or Roughness makes a Custom material from the one in use; the presets stay as they are. A MatCap is a picture of a lit sphere that stands in for the lights, tinted by the colour. Cavity darkens creases and Ridge lightens crests on every material.")
+	ui.paragraph(ctx, "Each object has its own material, kept in the scene file; this sets the selected objects' and the one new objects take. Moving the colour, Metallic or Roughness makes it Custom; the presets stay as they are. A MatCap is a picture of a lit sphere that stands in for the lights, tinted by the colour. Cavity darkens creases and Ridge lightens crests on every material. Dim the others shows the objects not selected in a muted colour.")
 }
 
 // The light rig's turn, height and strengths, and whether it stays with the camera or

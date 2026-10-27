@@ -356,3 +356,16 @@ single_axis_styles_turn_about_their_axis :: proc(t: ^testing.T) {
 	// Ten drags right roll the picture one way only: the right vector turned 100 drags' worth.
 	testing.expectf(t, near_eq(linalg.dot(right, r0), math.cos(f32(100 * ORBIT_SPEED)), 2e-3), "the turn went back and forth: %v", linalg.dot(right, r0))
 }
+
+@(test)
+fov_change_keeps_the_target_plane_the_same_width :: proc(t: ^testing.T) {
+	c := orbit_default()
+	wide := 2 * c.distance * math.tan(c.fov_y / 2)
+	orbit_set_fov(&c, math.to_radians(f32(80)))
+	testing.expect(t, near_eq(c.fov_y, math.to_radians(f32(80))))
+	testing.expect(t, near_eq(2 * c.distance * math.tan(c.fov_y / 2), wide))
+	// Wider than the range stops at its end, and the width still holds.
+	orbit_set_fov(&c, math.PI)
+	testing.expect(t, near_eq(c.fov_y, FOV_MAX))
+	testing.expect(t, near_eq(2 * c.distance * math.tan(c.fov_y / 2), wide))
+}

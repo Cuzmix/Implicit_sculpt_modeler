@@ -194,3 +194,55 @@ usda_is_the_same_on_the_pool :: proc(t: ^testing.T) {
 	free_all(context.temp_allocator)
 	testing.expect(t, len(serial) == len(parallel) && mem.compare(serial[:], parallel[:]) == 0, "the pool changed the file")
 }
+
+// A material goes as a UsdPreviewSurface bound to the mesh, named apart from it; with
+// paint its diffuse colour reads the displayColor primvar, the material's colour only
+// the fallback.
+@(test)
+usda_carries_the_material :: proc(t: ^testing.T) {
+	m := Mesh_Export {
+		name      = "Gold",
+		positions = []Vec3{{0, 0, 0}, {1, 0, 0}, {0, 1, 0}},
+		normals   = []Vec3{{0, 0, 1}, {0, 0, 1}, {0, 0, 1}},
+		indices   = []u32{0, 1, 2},
+		material  = Export_Material{name = "Gold", base = {1, 0.5, 0.25}, metallic = 1, roughness = 0.3},
+	}
+	out := make([dynamic]u8)
+	defer delete(out)
+	mesh_write_usda(&out, m)
+	free_all(context.temp_allocator)
+	text := string(out[:])
+	for want in ([]string {
+		`def Mesh "Gold" (
+        prepend apiSchemas = ["MaterialBindingAPI"]
+    )`,
+		`rel material:binding = </Root/Gold_2>`,
+		`def Material "Gold_2"`,
+		`token outputs:surface.connect = </Root/Gold_2/Surface.outputs:surface>`,
+		`uniform token info:id = "UsdPreviewSurface"`,
+		`color3f inputs:diffuseColor = (1, 0.5, 0.25)`,
+		`float inputs:metallic = 1`,
+		`float inputs:roughness = 0.3`,
+	}) {
+		testing.expectf(t, strings.contains(text, want), "no %q in\n%s", want, text)
+	}
+	testing.expect(t, !strings.contains(text, "UsdPrimvarReader_float3"))
+	m.colors = [][3]u8{{255, 0, 0}, {0, 255, 0}, {0, 0, 255}}
+	clear(&out)
+	mesh_write_usda(&out, m)
+	free_all(context.temp_allocator)
+	text = string(out[:])
+	for want in ([]string {
+		`color3f inputs:diffuseColor.connect = </Root/Gold_2/Paint.outputs:result>`,
+		`uniform token info:id = "UsdPrimvarReader_float3"`,
+		`string inputs:varname = "displayColor"`,
+	}) {
+		testing.expectf(t, strings.contains(text, want), "no %q in\n%s", want, text)
+	}
+	// None leaves the file as it was.
+	m.material, m.colors = nil, nil
+	clear(&out)
+	mesh_write_usda(&out, m)
+	free_all(context.temp_allocator)
+	testing.expect(t, !strings.contains(string(out[:]), "Material"))
+}

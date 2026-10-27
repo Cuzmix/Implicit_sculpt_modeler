@@ -12,7 +12,8 @@ layout(set = 3, binding = 0) uniform Material_Uniforms {
 	vec4 params;  // x: ambient, y: specular strength (below 0: flat base_color, for lines), z: specular power, w: wrap
 	vec4 surface; // x: metallic, y: roughness (0: the classic shading above, else physically based), z: 1 for flat shading, w: 1 for the matcap
 	vec4 checker; // the density preview: xyz the first lattice point in mesh space, w the cell size (0: none)
-	vec4 look;    // x: exposure in stops, y: cavity strength, z: ridge strength (0 to 1); all 0 is plain
+	vec4 look;    // x: exposure in stops, y: cavity strength, z: ridge strength (0 to 1); all 0 is plain;
+	              // w: how opaque a see-through object is drawn, 0 for fully (the scene's Transparency)
 	// The light rig's turn into view space, as the columns of a rotation, with the key
 	// light's strength in light_x.w and the fill's in light_y.w (render.Draw_Item.lights).
 	vec4 light_x;
@@ -103,8 +104,13 @@ vec3 tone_map(vec3 c) {
 }
 
 // What a lit colour shows as: scaled by the exposure, tone mapped, sRGB encoded.
+// How opaque the surface is drawn: see-through only while look.w says so.
+float opacity() {
+	return look.w > 0.0 ? look.w : 1.0;
+}
+
 vec4 display(vec3 c) {
-	return vec4(srgb_encode(tone_map(c * exp2(look.x))), 1.0);
+	return vec4(srgb_encode(tone_map(c * exp2(look.x))), opacity());
 }
 
 // How much the surface bends where this pixel sees it, as the angle the normal turns
@@ -215,7 +221,7 @@ void main() {
 		float b = -v.x * v.y * k;
 		vec2 m = vec2(dot(vec3(1.0 - v.x * v.x * k, b, -v.x), n), dot(vec3(b, 1.0 - v.y * v.y * k, -v.y), n));
 		vec3 lit = texture(matcap, vec2(0.5 + 0.496 * m.x, 0.5 - 0.496 * m.y)).rgb;
-		out_color = vec4(srgb_encode(lit * albedo * relief * exp2(look.x)), 1.0);
+		out_color = vec4(srgb_encode(lit * albedo * relief * exp2(look.x)), opacity());
 		return;
 	}
 

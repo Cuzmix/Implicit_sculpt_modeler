@@ -221,7 +221,7 @@ extract_masked :: proc(app: ^App) -> bool {
 	name := fmt.aprintf("%s extract", object_label(obj))
 	defer delete(name)
 	vertices := len(shell.positions)
-	if !scene_add_mesh(app, shell, name, obj.file, obj.transform, time.tick_now()) do return false
+	if !scene_add_mesh(app, shell, name, obj.file, obj.transform, time.tick_now(), material = obj.material) do return false
 	history_record_added(app)
 	log.infof("extract: a shell of %d vertices from %s", vertices, object_label(obj))
 	return true

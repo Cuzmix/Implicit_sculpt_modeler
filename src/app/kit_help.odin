@@ -58,7 +58,7 @@ command_group :: proc(id: Command_Id) -> Command_Group {
 	case .Tool_Move ..= .Replay_Stroke:       return .Tools
 	case .Remesh ..= .Reset_Transform:        return .Object
 	case .Add_Object ..= .Rename_Object:      return .Scene
-	case .View_Axis ..= .Studio_Render:       return .View
+	case .View_Axis ..= .Transparency:        return .View
 	case .Stats ..= .Save_Pack:               return .App
 	}
 	return .App

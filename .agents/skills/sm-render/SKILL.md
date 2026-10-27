@@ -43,6 +43,15 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   `D32_FLOAT` else `D24_UNORM` (`renderer.odin:178-181`); the clear pipeline draws a full-screen triangle at the far plane to clear a
   scissored rectangle (`renderer.odin:320`, `clear.vert`). `renderer_init` creates the device with `{.SPIRV}` and the debug flag from
   `--gpu-debug` (`renderer.odin:165-186`); failures are `log.errorf(…, sdl.GetError())` and `return false`.
+- Blending passes (`Mesh_Pipelines.see`, `.floor`, both optional: nil logs a warning and the feature degrades): see-through
+  items are those with `Draw_Item.look.w > 0` (the app's Transparency; `mesh.frag` writes it as alpha via `opacity()`), drawn
+  with `BLEND_OVER` (colour by source alpha, target alpha kept at 1, since the interface blends the viewport by its alpha)
+  and no depth write. `draw_scene` orders every viewport pass: opaque items, then `draw_floor` (the `Renderer.floor`
+  `Floor_Grid`, one full-screen `floor.vert` triangle a plane; `floor.frag` unprojects the pixel, meets the plane, writes
+  `gl_FragDepth`, takes `fwidth` before any `discard`), then see-through items; in `render_rect` those blended layers stay
+  inside the cleared rect, not the 1 px MSAA ring. `Renderer.floor` is in `frame_key` only; the grid is never drawn into
+  the idle cache (the live items would cover it), any see-through item skips the cache, and with MSAA it skips partial
+  redraw too. `studio_view_depth` leaves see-through items out; nav head and thumbnails never draw the grid or blend.
 - The frame (`src/app/main.odin:298-504`): apply the scene command (`:300`) → change vsync before acquiring (`:311`;
   `renderer_set_vsync` recreates the swapchain, `src/render/renderer.odin:197-204`) → wait the previous fence when timing
   → acquire `present_cmd` and the swapchain texture (`src/app/main.odin:324-330`) → events → `viewport_target_resize`
@@ -50,7 +59,7 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   work (`:413`) → per object and part (current level, plus the HD window, `:423`): `sculptor_flush` → `level_upload`
   (`src/app/scene.odin:217`: vertex ranges with the mask, dynamic topology's index pages, new buffers when the mesh
   outgrew them), then once per frame and never during a stroke `sculptor_lod_update` → `mesh_buffers_upload_lod`
-  (`src/app/main.odin:440-451`) → a `Draw_Item` per part, the material's colours (the Scene tab's Material; selected and idle) and `wireframe` on the selected one (`:452`) →
+  (`src/app/main.odin:440-451`) → a `Draw_Item` per part, each object's own material (`object_material`; `Object.material`, set through the `.Material` Scene_Command, saved from scene version 14; selected colour, idle when `dim_others`) and `wireframe` on the selected one (`:452`) →
   `render_viewport` (`:469`) → submit, with a fence when `time_gpu` (`:472`) → `kit_upload` and the interface's
   pass (`ui_pass_draw`) into the swapchain on `present_cmd`.
 - `render_viewport` (`renderer.odin:628-650`): with `partial` on and an unchanged `frame_key` (camera, size, item

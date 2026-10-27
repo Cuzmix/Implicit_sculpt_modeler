@@ -211,7 +211,16 @@ App :: struct {
 	matcap_image: ^sdl.GPUTexture,
 	matcap_path:  string,
 	flat:      bool, // shade with each triangle's own normal (faceted) instead of smoothed normals
-	wireframe: bool, // draw the selected object's edges over it
+	// Polyframe (the Wireframe command): while on, the selected object shows its edges when
+	// `polyframe_lines` is set and its polygroups' colours when `polyframe_fill` is.
+	wireframe:       bool,
+	polyframe_lines: bool,
+	polyframe_fill:  bool,
+	floor:           Floor_Settings, // the floor grid (floor_grid.odin)
+	floor_state:     Floor_State,
+	// Transparency: every shown object but the selected one is drawn see-through, at
+	// SEE_THROUGH_OPACITY, so the selected one shows through whatever stands before it.
+	see_through:     bool,
 	// How the viewport shows its shading (View > Material): brighter or darker in stops,
 	// creases darkened and crests lightened by the surface's curvature, 0 to 1 each.
 	exposure:  f32,
@@ -222,6 +231,9 @@ App :: struct {
 	light_turn, light_height: f32,
 	light_key, light_fill:    f32,
 	lights_fixed:             bool,
+	// Objects other than the selected one show their material's muted colour (on by
+	// default), so the one being sculpted stands out; off, each shows its own colour.
+	dim_others:               bool,
 	show_groups: bool, // draw every object's polygroups in their colours instead of its clay and paint
 	cache_idle: bool, // draw unselected objects from the viewport cache while they stay put
 	hd_window_vertices: int, // size of the HD windows the A key opens
@@ -440,6 +452,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 
 	if len(app.scene.objects) > 1 do frame_all(&app)
 	app.cache_idle = !opts.no_cache
+	app.polyframe_lines = true
+	app.floor = FLOOR_DEFAULT
 	// Custom starts as PBR clay, the last physically based preset, until a slider changes it.
 	app.custom = MATERIALS[FIRST_MATCAP - 1]
 	app.custom.label = "Custom"
@@ -449,6 +463,10 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	app.simplify_px = 1
 	app.vsync = !opts.no_vsync && opts.gpubench == ""
 	app.msaa = MSAA_DEFAULT
+	// Before the settings file, which brings back what earlier runs chose.
+	app.cavity, app.ridge = CAVITY_DEFAULT, RIDGE_DEFAULT
+	lights_reset(&app)
+	app.dim_others = true
 	app.time_gpu = opts.time_gpu || opts.gpubench != ""
 	app.ui = ui_state_default()
 	app.curve, app.insert = CURVE_DEFAULTS, INSERT_DEFAULTS
@@ -488,8 +506,6 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		app.ui.rebuild_goal, app.ui.rebuild_even, app.rebuild.pinned = .Even, rebuild_count(opts.density_preview), true
 	}
 	app.studio_samples, app.studio_ao, app.studio_shadow = STUDIO_SAMPLES_DEFAULT, 0.85, 0.6
-	app.cavity, app.ridge = CAVITY_DEFAULT, RIDGE_DEFAULT
-	lights_reset(&app)
 	app.stroke_seed = 1
 	app.tool = .Brush
 	app.running = true
@@ -530,6 +546,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		// selection stays on an object in view and in reach.
 		scene_folders_normalize(&app)
 		scene_selection_fix(&app)
+		materials_settle(&app)
 		if !script_frame(&app) do return false
 		// Until the script is done its frames are set-up: the run's own count from where
 		// it ends (--frames, the bench stroke, --load-strokes, --timelapse, --ui-events).
@@ -743,7 +760,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 				uploaded += bytes
 				if !object_shown(&app, obj) || boolean_hides(&app, obj, i) || len(vp.clay.surface.chunks) == 0 do continue
 				color, live, selected := object_draw_tint(&app, obj, i)
-				material := current_material(&app)
+				material := object_material(&app, obj)
 				append(&draws, render.Draw_Item {
 					mesh      = &vp.gpu,
 					model     = transform_matrix(obj.transform),
@@ -751,10 +768,10 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 					material  = material.shading,
 					surface   = {material.metallic, material.roughness},
 					flat      = app.flat,
-					look      = viewport_look(&app),
+					look      = object_look(&app, selected),
 					matcap    = material_matcap(&app, material),
 					lights    = viewport_lights(&app),
-					wireframe = selected && app.wireframe,
+					wireframe = selected && app.wireframe && app.polyframe_lines,
 					live      = live,
 					chunks    = vp.clay.surface.chunks[:],
 					damage    = damage,
@@ -790,7 +807,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 				// The live boolean's preview stands in for it (drawn below).
 				if boolean_hides(&app, obj, i) do continue
 				color, live, selected := object_draw_tint(&app, obj, i)
-				material := current_material(&app)
+				material := object_material(&app, obj)
 				append(&draws, render.Draw_Item {
 					mesh   = gpu,
 					model  = transform_matrix(obj.transform),
@@ -798,12 +815,12 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 					material = material.shading,
 					surface = {material.metallic, material.roughness},
 					flat = app.flat,
-					look = viewport_look(&app),
+					look = object_look(&app, selected),
 					lights = viewport_lights(&app),
 					matcap = material_matcap(&app, material),
-					wireframe = selected && app.wireframe,
+					wireframe = selected && app.wireframe && app.polyframe_lines,
 					paint  = sculpt.sculptor_has_color(&lv.sculptor) && !obj.paint_off,
-					groups = app.show_groups && sculpt.sculptor_has_groups(&lv.sculptor),
+					groups = (app.show_groups || selected && app.wireframe && app.polyframe_fill) && sculpt.sculptor_has_groups(&lv.sculptor),
 					live   = live,
 					chunks = lv.sculptor.chunks,
 					chunk_groups = sculpt.sculptor_chunk_groups(&lv.sculptor),
@@ -819,7 +836,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		}
 		if b := &app.ui.boolean; b.shown {
 			if base := object_by_id(&app, b.base); base != nil && object_shown(&app, base) {
-				material := current_material(&app)
+				material := object_material(&app, base)
 				color := material.selected
 				if _, ghost := object_flags(&app, base); ghost do color.rgb *= GHOST_SHADE
 				append(&draws, render.Draw_Item {
@@ -841,6 +858,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		if view_changed(&app, view, proj) do app.view_moved = time.tick_now()
 		moving := time.tick_since(app.view_moved) < LOD_SETTLE
 		app.renderer.lod_px = app.simplify_px if app.simplify && moving && !timelapse_capturing(&app) else 0
+		app.renderer.floor = floor_grid_frame(&app)
 		drawn := render.render_viewport(&app.renderer, cmd, &app.target, view, proj, draws[:], app.cache_idle)
 		if app.studio_on {
 			// Anything redrawn this frame starts the samples over.
@@ -1096,6 +1114,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			pie := app.ui.pie
 			fmt.printfln("pie_open=%d pie_hover=%d pie_runs=%d pie_editor=%d favourites=%d pie1=%s pie3=%s wireframe=%d ortho=%d", pie.which if pie.open else -1, pie.hover if pie.open else -1,
 				app.kit.pie_runs, int(app.kit.pie_editor), app.kit.favourite_count, pie_names(&app, 0), pie_names(&app, 2), int(app.wireframe), int(app.camera.ortho))
+			fmt.printfln("floor_grid=%d floor_planes=%d%d%d transparent=%d fov=%.0f polyframe_lines=%d polyframe_fill=%d", int(app.floor.on), int(app.floor.planes[0]), int(app.floor.planes[1]), int(app.floor.planes[2]), int(app.see_through), math.to_degrees(app.camera.fov_y), int(app.polyframe_lines), int(app.polyframe_fill))
 		}
 		{
 			// What the last stroke was, the rail's latches, and whether the selected object
@@ -1318,6 +1337,17 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 STUDIO_SAMPLES_DEFAULT :: 256
 STUDIO_SAMPLES_MAX :: 1024
 
+// How opaque Transparency draws the objects other than the selected one.
+SEE_THROUGH_OPACITY :: 0.3
+
+// How an object is shown (Draw_Item.look): the viewport's look, see-through while
+// Transparency is on and it is not the selected object.
+object_look :: proc(app: ^App, selected: bool) -> [4]f32 {
+	look := viewport_look(app)
+	if app.see_through && !selected do look.w = SEE_THROUGH_OPACITY
+	return look
+}
+
 // How long the view has to stay put before simplified drawing gives way to full detail.
 LOD_SETTLE :: 250 * time.Millisecond
 
@@ -1330,9 +1360,11 @@ object_draw_tint :: proc(app: ^App, obj: ^Object, i: int) -> (color: [4]f32, liv
 	selected = i == app.scene.selected
 	chosen := object_in_selection(app, obj)
 	moving := app.move.drag.handle != .None || app.ui.transform_drag.active
-	material := current_material(app)
-	color = material.selected if selected else material.idle
-	if chosen && !selected do color = linalg.lerp(material.idle, material.selected, SELECTION_TINT)
+	material := object_material(app, obj)
+	// With Dim the others off, every object shows its own colour.
+	idle := material.idle if app.dim_others else material.selected
+	color = material.selected if selected else idle
+	if chosen && !selected do color = linalg.lerp(idle, material.selected, SELECTION_TINT)
 	if _, ghost := object_flags(app, obj); ghost do color.rgb *= GHOST_SHADE
 	live = selected || (chosen && moving)
 	return

@@ -157,7 +157,7 @@ curve_make :: proc(app: ^App) -> bool {
 // Adds `mesh` (in world space) as a new object around its middle, selected, as one undo
 // step, marked `mode`. Returns false only on a GPU failure.
 @(private = "file")
-add_made_object :: proc(app: ^App, mesh: ^geom.Mesh, label: string, mode: Boolean_Mode, start: time.Tick) -> bool {
+add_made_object :: proc(app: ^App, mesh: ^geom.Mesh, label: string, mode: Boolean_Mode, start: time.Tick, material: Material = {}) -> bool {
 	bounds := geom.AABB_EMPTY
 	for p in mesh.positions do geom.aabb_grow(&bounds, p)
 	middle := 0.5 * (bounds.lo + bounds.hi)
@@ -165,7 +165,7 @@ add_made_object :: proc(app: ^App, mesh: ^geom.Mesh, label: string, mode: Boolea
 	stroke_finish(app)
 	name := fmt.aprintf("%s %d", label, app.scene.next_id + 1)
 	defer delete(name)
-	if !scene_add_mesh(app, mesh^, name, {scale = 1}, {position = middle, scale = 1}, start) do return false
+	if !scene_add_mesh(app, mesh^, name, {scale = 1}, {position = middle, scale = 1}, start, material = material) do return false
 	selected_object(app).boolean = mode
 	history_record_added(app)
 	log.infof("%s: %d vertices in %.0f ms", name, len(mesh.positions), time.duration_milliseconds(time.tick_since(start)))
@@ -205,7 +205,9 @@ insert_make :: proc(app: ^App, at, normal: Vec3, half: f32) -> bool {
 	start := time.tick_now()
 	source: geom.Mesh
 	label: string
+	material: Material // a copy of an object is shaded as the object is
 	if src := object_by_id(app, s.object); src != nil {
+		material = src.material
 		if object_dynamic(src) {
 			mask: []u8
 			source, mask = sculpt.sculptor_compact_mesh(object_sculptor(src))
@@ -245,7 +247,7 @@ insert_make :: proc(app: ^App, at, normal: Vec3, half: f32) -> bool {
 		p = base + q.x * x + q.y * normal + q.z * z
 	}
 	// The label is in temp memory, which building the object frees after naming it.
-	return add_made_object(app, &source, label, s.mode, start)
+	return add_made_object(app, &source, label, s.mode, start, material)
 }
 
 // Draws the curve being drawn, or the size of the shape being inserted.

@@ -136,6 +136,8 @@ Command_Id :: enum u8 {
 	Flat_Shading,
 	Polygroups,
 	Studio_Render,
+	Floor_Grid,
+	Transparency,
 	// The app
 	Stats,
 	Inspector,
@@ -1050,7 +1052,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Reset_Camera = {
 		label = "Reset camera",
-		help = "Goes back to the starting view, keeping the projection.",
+		help = "Goes back to the starting view, keeping the projection and the field of view.",
 		icon = ui.ICON_SUN,
 		run = proc(app: ^App, _: int) {reset_camera(app)},
 	},
@@ -1068,7 +1070,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Wireframe = {
 		label = "Wireframe",
-		help = "Shows the mesh's edges over the surface.",
+		help = "Shows the selected object's polyframe: its edges, its polygroups in their colours, or both (a long press on its button picks).",
 		run = proc(app: ^App, _: int) {app.wireframe = !app.wireframe},
 		checked = proc(app: ^App, _: int) -> bool {return app.wireframe},
 	},
@@ -1083,6 +1085,18 @@ COMMANDS := [Command_Id]Command {
 		help = "Colours each polygroup differently.",
 		run = proc(app: ^App, _: int) {app.show_groups = !app.show_groups},
 		checked = proc(app: ^App, _: int) -> bool {return app.show_groups},
+	},
+	.Floor_Grid = {
+		label = "Floor grid",
+		help = "Draws a grid under the scene, and behind it on the walls you pick, with the axes in their colours.",
+		run = proc(app: ^App, _: int) {app.floor.on = !app.floor.on},
+		checked = proc(app: ^App, _: int) -> bool {return app.floor.on},
+	},
+	.Transparency = {
+		label = "Transparency",
+		help = "Shows every object but the selected one see-through, so the selected one shows through what stands before it.",
+		run = proc(app: ^App, _: int) {app.see_through = !app.see_through},
+		checked = proc(app: ^App, _: int) -> bool {return app.see_through},
 	},
 	.Studio_Render = {
 		label = "Studio render",
@@ -1297,6 +1311,7 @@ DEFAULT_BINDINGS := [?]Binding {
 	{{sdl.K_P, {}, false}, .Ortho_Toggle, 0},
 	{{sdl.K_KP_5, {}, false}, .Ortho_Toggle, 0},
 	{{sdl.K_F, {.Shift}, false}, .Wireframe, 0},
+	{{sdl.K_P, {.Shift}, false}, .Floor_Grid, 0},
 	{{sdl.K_F, {}, false}, .Focus_Selected, 0},
 	{{sdl.K_R, {.Shift}, false}, .Studio_Render, 0},
 	{{sdl.K_LEFT, {.Alt}, false}, .View_Back, 0},

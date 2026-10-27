@@ -200,6 +200,9 @@ studio_view_depth :: proc(r: ^Renderer, st: ^Studio, cmd: ^sdl.GPUCommandBuffer,
 	pass := sdl.BeginGPURenderPass(cmd, nil, 0, &depth)
 	sdl.BindGPUGraphicsPipeline(pass, st.depth_pipeline)
 	for item in items {
+		// See-through items leave the viewport's own depth be, so they stay out of this
+		// one too: the anti-aliased viewport then shades as the plain one does.
+		if blended(&r.single, item) do continue
 		u := Shadow_Uniforms{proj * view, item.model}
 		sdl.PushGPUVertexUniformData(cmd, 0, &u, size_of(u))
 		vbufs := [1]sdl.GPUBufferBinding{{buffer = item.mesh.positions}}

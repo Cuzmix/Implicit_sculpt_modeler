@@ -76,6 +76,9 @@ Object :: struct {
 	// `levels` hold one empty level, so what reads the selected object's sculptor reads
 	// nothing; the clay is what is drawn and sculpted.
 	voxel:     ^Voxel_Part,
+	// How it is shaded: a preset's values or its own (label "Custom"); a nil label until
+	// materials_settle gives it the default (object_material).
+	material:  Material,
 }
 
 // The level being sculpted: the HD window while one is open.
@@ -141,7 +144,7 @@ Surface :: struct {
 	groups: []u16,
 }
 
-Scene_Command_Kind :: enum u8 {None, Add, New, Remesh, Decimate, Retopo, Delete, Duplicate, Symmetrize, Slice, Subdivide, Set_Level, Delete_Higher, Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete, Dyntopo, Boolean, Extract, View, Arrange, Copy, Paste, Delete_Others, Levels_All, Split, Merge, Align, Distribute, Voxel_To_Mesh}
+Scene_Command_Kind :: enum u8 {None, Add, New, Remesh, Decimate, Retopo, Delete, Duplicate, Symmetrize, Slice, Subdivide, Set_Level, Delete_Higher, Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete, Dyntopo, Boolean, Extract, View, Arrange, Copy, Paste, Delete_Others, Levels_All, Split, Merge, Align, Distribute, Material, Voxel_To_Mesh}
 
 // The commands that work on a mesh object's level, and so refuse a voxel object until it
 // is converted to a mesh (Voxel_To_Mesh); the rest place, copy, list or delete objects of
@@ -176,6 +179,7 @@ Scene_Command :: struct {
 	folder:   int, // Arrange: the folder an object goes into
 	before:   int, // Arrange Reorder, Reorder_Folder: the object it goes before, 0 for the end
 	name:     [NAME_BYTES]u8, // Arrange: a new name, ending at the first zero
+	material: Material, // Material: what the selected objects are shaded with
 }
 
 scene_destroy :: proc(app: ^App) {
@@ -292,17 +296,17 @@ STARTER_LEVELS :: 3
 // whose own space sits at `file` in its file, and selects it. `name` must not be in
 // temp memory, which building frees. `start` is when making the mesh began, for the
 // log. Returns false on a GPU failure.
-scene_add_mesh :: proc(app: ^App, mesh: geom.Mesh, name: string, file, t: Transform, start: time.Tick, old_to_new: []u32 = nil, surface: Surface = {}) -> bool {
-	obj := object_from_mesh(app, mesh, name, file, t, start, old_to_new, surface) or_return
+scene_add_mesh :: proc(app: ^App, mesh: geom.Mesh, name: string, file, t: Transform, start: time.Tick, old_to_new: []u32 = nil, surface: Surface = {}, material: Material = {}) -> bool {
+	obj := object_from_mesh(app, mesh, name, file, t, start, old_to_new, surface, material) or_return
 	scene_append(app, obj)
 	return true
 }
 
 // A new object of `mesh`, built (as scene_add_mesh says) but in no scene yet; nil on a
-// GPU failure.
-object_from_mesh :: proc(app: ^App, mesh: geom.Mesh, name: string, file, t: Transform, start: time.Tick, old_to_new: []u32 = nil, surface: Surface = {}) -> (obj: ^Object, ok: bool) {
+// GPU failure. `material` is the one it is shaded with, or none for the default.
+object_from_mesh :: proc(app: ^App, mesh: geom.Mesh, name: string, file, t: Transform, start: time.Tick, old_to_new: []u32 = nil, surface: Surface = {}, material: Material = {}) -> (obj: ^Object, ok: bool) {
 	obj = new(Object)
-	obj.transform, obj.file = t, file
+	obj.transform, obj.file, obj.material = t, file, material
 	if !object_build_from(app, obj, mesh, start, normals = true, old_to_new = old_to_new, surface = surface) {
 		free(obj)
 		return nil, false
@@ -467,7 +471,7 @@ object_slice :: proc(app: ^App, obj: ^Object, point, normal: Vec3) -> (part: ^Ob
 	}
 	object_carry_layers(app, obj, layered)
 	index := app.scene.selected
-	if !scene_add_mesh(app, front, obj.name, obj.file, obj.transform, cut) do return nil, true, false
+	if !scene_add_mesh(app, front, obj.name, obj.file, obj.transform, cut, material = obj.material) do return nil, true, false
 	part = app.scene.objects[len(app.scene.objects) - 1]
 	object_carry_layers(app, part, layered, counted = false)
 	part.folder = obj.folder
@@ -812,6 +816,8 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 		return extract_masked(app)
 	case .View:
 		scene_view(app, cmd.view, cmd.id)
+	case .Material:
+		material_set(app, cmd.material)
 	case .Arrange:
 		scene_arrange(app, cmd)
 	case .Copy:

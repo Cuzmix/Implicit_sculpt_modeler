@@ -550,7 +550,11 @@ script_verb :: proc(app: ^App, st: Script_Statement) -> (failure: string, ok: bo
 script_set :: proc(app: ^App, st: Script_Statement) {
 	#partial switch st.kind {
 	case .Set:  setting_write(app, st.setting, st.value)
-	case .Line: st.set.apply(app, st.line_value)
+	case .Line:
+		st.set.apply(app, st.line_value)
+		// A script's material is the selection's too, as picking one in the Material
+		// section is; the settings file only sets the default new objects take.
+		if st.set.key == "material" do material_set(app, current_material(app))
 	}
 }
 
