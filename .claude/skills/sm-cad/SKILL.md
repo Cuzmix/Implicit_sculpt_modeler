@@ -17,9 +17,10 @@ description: CAD-style mesh tools inside this app on geom.Mesh — primitives, b
   (`starter_levels`). Menu > New scene is `.New_Scene` → `Scene_Command.New` → `scene_new`, which hands the object to
   `scene_replace` (shared with `scene_open`: build first, then free the old scene, clear the History, stop replay,
   timeline and time-lapse). Its guard is `new_scene_run`'s arm-then-confirm, as Settings' Reset everything.
-- Files (`src/app/files.odin`, README "Files"): OBJ and PLY in and out (`geom.mesh_read_obj`, `mesh_read_ply`,
-  `mesh_write_obj`, `mesh_write_ply`, `src/geom/mesh_file.odin`), an import cleanup (`mesh_clean`, `mesh_normalize`,
-  `mesh_edges`, `mesh_flip`), and the native `.sculpt` scene (`scene_save`/`scene_open`, levels through
+- Files (`src/app/files.odin`, README "Files"): OBJ, PLY and STL in and out (`geom.mesh_read_obj`, `mesh_read_ply`,
+  `mesh_read_stl`, `mesh_write_*`, `src/geom/mesh_file.odin`; `mesh_file_kind` picks a `Mesh_Kind` by extension, or
+  by the bytes for an Android content:// URI; `export_check.py FILE.stl` checks the layout and Blender's import), an
+  import cleanup (`mesh_clean`, `mesh_normalize`, `mesh_edges`, `mesh_flip`), and the native `.sculpt` scene (`scene_save`/`scene_open`, levels through
   `sculpt.levels_write`/`levels_read`). `Object.file` keeps where an import was in its file, for export. A new
   per-object field that should survive a save goes in both `scene_save` and `scene_open` with a `SCENE_VERSION` bump,
   and `scene_open` must keep reading the older versions. Every file action ends in one `file_note`. Since v22 the

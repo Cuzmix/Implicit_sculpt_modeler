@@ -339,13 +339,13 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Import_Mesh = {
 		label = "Import mesh...",
-		help = "Adds an OBJ or PLY mesh to the scene.",
+		help = "Adds an OBJ, PLY or STL mesh to the scene.",
 		icon = ui.ICON_IMPORT,
 		run = proc(app: ^App, _: int) {file_dialog(app, .Import)},
 	},
 	.Export_Mesh = {
 		label = "Export mesh...",
-		help = "Writes the selected object as OBJ, PLY or glTF.",
+		help = "Writes the selected object as OBJ, PLY, STL, glTF or USD.",
 		icon = ui.ICON_EXPORT,
 		run = proc(app: ^App, _: int) {file_dialog(app, .Export)},
 		enabled = has_object,

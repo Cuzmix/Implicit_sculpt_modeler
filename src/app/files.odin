@@ -20,7 +20,7 @@ import "../render"
 import "../sculpt"
 import "../voxel"
 
-// Files: meshes in and out as OBJ or PLY, and whole scenes saved and opened in the
+// Files: meshes in and out as OBJ, PLY or STL (and out as glTF and USD), and whole scenes saved and opened in the
 // native format. A request comes from a File menu dialog, a shortcut or a flag and runs
 // at the start of a frame (file_take), as a Scene_Command does.
 
@@ -77,13 +77,13 @@ pending: struct {
 // What the dialogs offer. SDL reads them until the dialog calls back, so they live for
 // the whole run.
 @(private = "file")
-MESH_FILTERS := [?]sdl.DialogFileFilter{{"Meshes (OBJ, PLY)", "obj;ply"}, {"OBJ", "obj"}, {"PLY", "ply"}}
+MESH_FILTERS := [?]sdl.DialogFileFilter{{"Meshes (OBJ, PLY, STL)", "obj;ply;stl"}, {"OBJ", "obj"}, {"PLY", "ply"}, {"STL", "stl"}}
 // Export writes two formats Import does not read, so it offers its own list; a name
 // typed without an extension takes the one of the filter chosen (EXPORT_SUFFIX).
 @(private = "file")
-EXPORT_FILTERS := [?]sdl.DialogFileFilter{{"Meshes (OBJ, PLY, glTF, USD)", "obj;ply;glb;usda"}, {"OBJ", "obj"}, {"PLY", "ply"}, {"glTF binary (layers as shape keys)", "glb"}, {"USD text (layers as blend shapes)", "usda"}}
+EXPORT_FILTERS := [?]sdl.DialogFileFilter{{"Meshes (OBJ, PLY, STL, glTF, USD)", "obj;ply;stl;glb;usda"}, {"OBJ", "obj"}, {"PLY", "ply"}, {"STL (3D printing)", "stl"}, {"glTF binary (layers as shape keys)", "glb"}, {"USD text (layers as blend shapes)", "usda"}}
 @(private = "file")
-EXPORT_SUFFIX := [len(EXPORT_FILTERS)]string{".obj", ".obj", ".ply", ".glb", ".usda"}
+EXPORT_SUFFIX := [len(EXPORT_FILTERS)]string{".obj", ".obj", ".ply", ".stl", ".glb", ".usda"}
 @(private = "file")
 SCENE_FILTERS := [?]sdl.DialogFileFilter{{"Sculpt scene", "sculpt"}}
 @(private = "file")
@@ -391,7 +391,7 @@ scene_remember_path :: proc(app: ^App, path: string) {
 	versions_refresh(app)
 }
 
-// Reads an OBJ or PLY file into a new object beside the others, sized like a sphere
+// Reads an OBJ, PLY or STL file into a new object beside the others, sized like a sphere
 // (its place in the file is kept for export: see Object.file). Returns false only on a
 // GPU failure.
 scene_import :: proc(app: ^App, path: string) -> bool {
@@ -413,21 +413,42 @@ Mesh_Import :: struct {
 	read_ms, parse_ms: f64,
 }
 
+Mesh_Kind :: enum u8 {
+	None, // not a mesh file the app reads
+	OBJ,
+	PLY,
+	STL,
+}
+
 // Which reader a mesh file takes: by its extension, or for a content:// URI from
-// Android's picker, which has none, by its bytes (a PLY file starts with "ply", and
-// anything else is tried as OBJ text). False for a file of another kind.
-mesh_file_kind :: proc(path: string, data: []u8) -> (ply, ok: bool) {
-	kind := strings.to_lower(filepath.ext(path), context.temp_allocator)
-	if strings.has_prefix(path, "content://") && kind != ".obj" && kind != ".ply" do kind = ".ply" if strings.has_prefix(string(data), "ply") else ".obj"
-	return kind == ".ply", kind == ".obj" || kind == ".ply"
+// Android's picker, which has none, by its bytes (a PLY file starts with "ply", an STL
+// file with "solid" or with a triangle count its length matches, and anything else is
+// tried as OBJ text).
+mesh_file_kind :: proc(path: string, data: []u8) -> Mesh_Kind {
+	switch strings.to_lower(filepath.ext(path), context.temp_allocator) {
+	case ".obj": return .OBJ
+	case ".ply": return .PLY
+	case ".stl": return .STL
+	}
+	if !strings.has_prefix(path, "content://") do return .None
+	text := string(data)
+	switch {
+	case strings.has_prefix(text, "ply"): return .PLY
+	case strings.has_prefix(text, "solid"): return .STL
+	case len(data) >= geom.STL_HEADER && geom.STL_HEADER + geom.STL_ROW * int((^u32le)(&data[80])^) == len(data): return .STL
+	}
+	return .OBJ
 }
 
 // Parses and cleans a mesh file's bytes, as Import and a content pack's install both
 // do; a nil pool runs it on the calling thread. `line` names the line of a parse error
 // (0 for none).
-mesh_file_parse :: proc(data: []u8, ply: bool, pool: ^jobs.Pool) -> (mesh: geom.Mesh, cleaned: geom.Mesh_Clean_Report, failed: geom.Mesh_File_Error, line: int) {
-	if ply do mesh, failed, line = geom.mesh_read_ply(data, pool)
-	else do mesh, failed, line = geom.mesh_read_obj(data, pool)
+mesh_file_parse :: proc(data: []u8, kind: Mesh_Kind, pool: ^jobs.Pool) -> (mesh: geom.Mesh, cleaned: geom.Mesh_Clean_Report, failed: geom.Mesh_File_Error, line: int) {
+	switch kind {
+	case .PLY: mesh, failed, line = geom.mesh_read_ply(data, pool)
+	case .STL: mesh, failed, line = geom.mesh_read_stl(data, pool)
+	case .OBJ, .None: mesh, failed, line = geom.mesh_read_obj(data, pool)
+	}
 	if failed == .None do cleaned, failed = geom.mesh_clean(&mesh, pool)
 	if failed != .None do geom.mesh_destroy(&mesh)
 	return
@@ -449,12 +470,12 @@ mesh_import_read :: proc(app: ^App, path, what: string) -> (m: Mesh_Import, ok: 
 	}
 	defer delete(data)
 	read := time.tick_now()
-	ply, kind_ok := mesh_file_kind(path, data)
-	if !kind_ok {
-		file_note(app, true, "Cannot import %s: only .obj and .ply files import", name)
+	kind := mesh_file_kind(path, data)
+	if kind == .None {
+		file_note(app, true, "Cannot import %s: only .obj, .ply and .stl files import", name)
 		return
 	}
-	mesh, cleaned, failed, line := mesh_file_parse(data, ply, &app.pool)
+	mesh, cleaned, failed, line := mesh_file_parse(data, kind, &app.pool)
 	if failed != .None {
 		if line > 0 {
 			file_note(app, true, "Cannot read %s, line %d: %s", name, line, geom.MESH_FILE_ERROR_TEXT[failed])
@@ -482,6 +503,8 @@ mesh_import_read :: proc(app: ^App, path, what: string) -> (m: Mesh_Import, ok: 
 		strings.write_string(&note, fmt.tprintf(", but its surface is not closed (%d border edges, %d flipped or shared by more than two triangles): it sculpts, but subdivision, HD and remesh need a closed one.", edges.border, edges.bad))
 	}
 	strings.write_string(&note, fmt.tprintf(" %d vertices, %d triangles, read in %.0f ms and parsed in %.0f ms", geom.mesh_vertex_count(mesh), geom.mesh_triangle_count(mesh), m.read_ms, m.parse_ms))
+	// Every corner of an STL file comes on its own, so welding them is no news.
+	if kind == .STL do cleaned.dropped_vertices, cleaned.welded = cleaned.dropped_vertices - cleaned.welded, 0
 	if cleaned != {} do strings.write_string(&note, fmt.tprintf("; %d vertices welded, %d triangles and %d vertices dropped", cleaned.welded, cleaned.dropped_triangles, cleaned.dropped_vertices))
 	if flipped do strings.write_string(&note, "; turned outward")
 	file_note(app, !closed, "%s", strings.to_string(note))
@@ -489,8 +512,8 @@ mesh_import_read :: proc(app: ^App, path, what: string) -> (m: Mesh_Import, ok: 
 	return m, true
 }
 
-// Writes the object's shown level (packed, if dynamic) to an OBJ, PLY, binary glTF or
-// USD text file, where it was in the file it came from (Object.file); Move tool placement
+// Writes the object's shown level (packed, if dynamic) to an OBJ, PLY, STL, binary glTF
+// or USD text file, where it was in the file it came from (Object.file); Move tool placement
 // is not written. glTF and USD also carry the normals, the materials (the object's and its
 // groups') and the sculpt layers, as morph targets or blend shapes (shape keys) at their
 // strengths; USD the polygroups too, and a retopologized base level as its quads and UVs,
@@ -499,8 +522,8 @@ object_export :: proc(app: ^App, obj: ^Object, path: string) -> bool {
 	start := time.tick_now()
 	name := filepath.base(path)
 	ext := strings.to_lower(filepath.ext(path), context.temp_allocator)
-	if ext != ".obj" && ext != ".ply" && ext != ".glb" && ext != ".usda" {
-		file_note(app, true, "Cannot export to %s: the name needs to end in .obj, .ply, .glb or .usda", name)
+	if ext != ".obj" && ext != ".ply" && ext != ".stl" && ext != ".glb" && ext != ".usda" {
+		file_note(app, true, "Cannot export to %s: the name needs to end in .obj, .ply, .stl, .glb or .usda", name)
 		return false
 	}
 	// A stroke, pose or slider drag under way would otherwise land half in the file, and
@@ -600,6 +623,9 @@ object_export :: proc(app: ^App, obj: ^Object, path: string) -> bool {
 		geom.quad_mesh_write_obj(&out, q.positions, q.quads, obj.levels.faces.uv.uvs, obj.file.scale, obj.file.position)
 	case ext == ".obj":
 		geom.mesh_write_obj(&out, positions, indices, obj.file.scale, obj.file.position, &app.pool, colors)
+	case ext == ".stl":
+		// STL carries no colour, which 3D printing tools would not read anyway.
+		geom.mesh_write_stl(&out, positions, indices, obj.file.scale, obj.file.position, &app.pool)
 	case:
 		geom.mesh_write_ply(&out, positions, indices, obj.file.scale, obj.file.position, &app.pool, colors)
 	}
@@ -708,6 +734,8 @@ scene_save_bytes :: proc(app: ^App) -> int {
 object_export_bytes :: proc(obj: ^Object, path := "") -> int {
 	lv := sculpt.levels_current(&obj.levels)
 	if strings.equal_fold(filepath.ext(path), ".usda") do return 130 * len(lv.mesh.positions) + 10 * len(lv.mesh.indices)
+	// STL spells out every triangle's corners and normal.
+	if strings.equal_fold(filepath.ext(path), ".stl") do return 50 * len(lv.mesh.indices) / 3
 	return 40 * len(lv.mesh.positions) + 4 * len(lv.mesh.indices)
 }
 
