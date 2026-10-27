@@ -65,16 +65,19 @@ History_Entry :: struct {
 	// A .Textures entry's maps (and UV layout) on the other side of the change
 	// (textures.odin), owned.
 	textures: ^Texture_Step,
+	// A .Lights entry's scene lights before the change and after it (lights.odin), owned.
+	lights: ^Light_Step,
 }
 
 Arrange_Step :: struct {
 	before, after: ^Scene_Layout,
 }
 
-// Frees what an entry owns: a swap's snapshot, an arrangement's layouts or a group
-// command's tables.
+// Frees what an entry owns: a swap's snapshot, an arrangement's layouts, a group
+// command's tables or the lights.
 @(private = "file")
 entry_free :: proc(h: ^History, e: History_Entry) {
+	free(e.lights)
 	group_table_step_free(e.group_table)
 	if e.textures != nil {
 		h.swap_bytes -= texture_step_bytes(e.textures)
@@ -103,6 +106,7 @@ History_Kind :: enum u8 {
 	Transform, // the object moved, turned or scaled
 	Arrange, // the tree changed: folders, names or order
 	Textures, // texture maps baked, loaded or removed, or the UVs laid out again
+	Lights,   // the scene's lights changed
 }
 
 // An object as object_put writes it, or that it did not exist. Undoing or redoing a swap
@@ -295,7 +299,7 @@ history_next_label :: proc(list: []History_Entry) -> string {
 	if len(list) == 0 do return "stroke"
 	e := list[len(list) - 1]
 	if e.swap != nil do return e.swap.what
-	if e.kind == .Transform || e.kind == .Arrange || e.kind == .Textures do return e.what
+	if e.kind == .Transform || e.kind == .Arrange || e.kind == .Textures || e.kind == .Lights do return e.what
 	return "stroke"
 }
 
@@ -615,7 +619,7 @@ history_push :: proc(app: ^App, e: History_Entry) {
 @(private = "file")
 history_drop_redo :: proc(app: ^App) {
 	for e in app.history.undone {
-		if e.swap != nil || e.arrange != nil || e.kind == .Transform || e.kind == .Textures {
+		if e.swap != nil || e.arrange != nil || e.lights != nil || e.kind == .Transform || e.kind == .Textures {
 			// Nothing of it is kept anywhere else.
 		} else if obj := object_by_id(app, e.id); obj != nil && obj.voxel != nil {
 			voxel.clay_clear_redo(&obj.voxel.clay)
@@ -634,7 +638,7 @@ history_can_redo :: proc(app: ^App) -> bool {return !history_busy(app) && len(ap
 // under way: it becomes a step of its own when it ends, so nothing is undone or redone
 // beneath it.
 history_busy :: proc(app: ^App) -> bool {
-	return app.stroke.active || app.move.drag.handle != .None || topo_held(app) || app.ui.transform_drag.active || app.ui.deform.drag.active
+	return app.stroke.active || app.move.drag.handle != .None || topo_held(app) || app.ui.transform_drag.active || app.ui.deform.drag.active || app.ui.light_drag.active
 }
 
 history_undo :: proc(app: ^App) {
@@ -669,6 +673,12 @@ history_step :: proc(app: ^App, from, to: ^[dynamic]History_Entry, can, step: pr
 		if e.level != HD_LEVEL || e.swap != nil do app.history.edits += 1
 		if e.swap != nil {
 			if !history_swap(app, e) do app.running = false // GPU failure
+			append(to, e)
+			return true
+		}
+		if e.lights != nil {
+			// The lights belong to the scene, not to any object, level or sculptor.
+			app.scene.lights = e.lights.before if from == &app.history.done else e.lights.after
 			append(to, e)
 			return true
 		}
@@ -829,7 +839,7 @@ history_forget_strokes :: proc(app: ^App, id: int) {
 	for list in ([2]^[dynamic]History_Entry{&app.history.done, &app.history.undone}) {
 		kept := 0
 		for e in list {
-			if e.id != id || e.swap != nil || e.arrange != nil || e.kind == .Transform || e.kind == .Textures {
+			if e.id != id || e.swap != nil || e.arrange != nil || e.lights != nil || e.kind == .Transform || e.kind == .Textures {
 				list[kept] = e
 				kept += 1
 			} else {
@@ -849,7 +859,7 @@ history_forget_level :: proc(app: ^App, id: int, level: Maybe(int)) {
 		kept := 0
 		for e in list {
 			only, one := level.?
-			if e.id != id || e.arrange != nil || (one && (e.level != only || e.swap != nil || e.kind == .Transform || e.kind == .Textures)) {
+			if e.id != id || e.arrange != nil || e.lights != nil || (one && (e.level != only || e.swap != nil || e.kind == .Transform || e.kind == .Textures)) {
 				list[kept] = e
 				kept += 1
 			} else {
