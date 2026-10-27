@@ -39,6 +39,15 @@ Hide_Command :: enum {
 	// the two hide exactly complementary parts. What is hidden already stays hidden.
 	Masked,   // hide the masked triangles
 	Unmasked, // hide the rest
+	// Added later, so the ones before keep their numbers. The edge of the shown part is
+	// every vertex with a shown triangle and either a hidden one or an open border among
+	// the shown (vertex_on_open_border).
+	Grow,        // show each hidden triangle with a corner on a shown one: one ring more
+	Shrink,      // hide each shown triangle with a corner on the edge: one ring less
+	Grow_All,    // show every triangle of each piece (joined at shared vertices) with anything shown
+	Outer_Ring,  // keep shown only the shown triangles with a corner on the edge
+	Grow_Groups, // show every triangle of each polygroup with anything shown
+	Show_Masked, // show the hidden triangles masked at least half at every corner
 }
 
 // The mask value from which a corner counts as masked, for hiding by mask: half of 255,
@@ -157,11 +166,58 @@ sculptor_hidden_indices :: proc(s: ^Sculptor, uploaded: u32) -> (indices: []u32,
 // as in ZBrush.
 sculptor_hide_command :: proc(s: ^Sculptor, command: Hide_Command) -> bool {
 	_ = sculptor_stroke_end(s)
-	if command == .Show_All && s.hide.count == 0 do return false
+	#partial switch command {
+	case .Show_All, .Grow, .Grow_All, .Grow_Groups, .Show_Masked:
+		// These only show: with nothing hidden there is nothing to show.
+		if s.hide.count == 0 do return false
+	}
 	// No mask is all unmasked: nothing to hide by it, and hiding the rest would hide all.
-	if (command == .Masked || command == .Unmasked) && s.mask == nil do return false
+	if (command == .Masked || command == .Unmasked || command == .Show_Masked) && s.mask == nil do return false
+	if command == .Grow_Groups && s.groups.tris == nil do return false
 	job := Hide_Job{s = s, command = command}
+	// What the triangles' answers depend on, worked out before either pass, since the
+	// second changes the hidden flags the answers would otherwise read.
+	#partial switch command {
+	case .Shrink, .Outer_Ring:
+		job.edge = hide_edge(s)
+	case .Grow_All:
+		piece, count := geom.mesh_components(s.mesh^, context.temp_allocator)
+		job.piece = piece
+		job.shown = make([]bool, count, context.temp_allocator)
+		for p, t in piece do if !s.hide.tris[t] do job.shown[p] = true
+	case .Grow_Groups:
+		job.shown = make([]bool, int(max(u16)) + 1, context.temp_allocator)
+		for g, t in s.groups.tris do if !s.hide.tris[t] do job.shown[g] = true
+	}
 	return hide_apply(&job)
+}
+
+// Per vertex: whether it is on the edge of the shown part (see Hide_Command). In
+// parallel over the nodes' own vertices; only reads.
+@(private = "file")
+hide_edge :: proc(s: ^Sculptor) -> []bool {
+	Job :: struct {
+		s:    ^Sculptor,
+		edge: []bool,
+	}
+	job := Job{s, make([]bool, len(s.mesh.positions), context.temp_allocator)}
+	jobs.parallel_ranges(s.pool, len(s.nodes), &job, proc(data: rawptr, lo, hi: int) {
+		job := cast(^Job)data
+		s := job.s
+		hidden := sculptor_hidden_tris(s)
+		for id in lo ..< hi {
+			n := s.nodes[id]
+			for v in n.vert_first ..< n.vert_first + n.vert_count {
+				shown, hides := false, false
+				for f in faces_of(s, v) {
+					if hidden != nil && hidden[f] do hides = true
+					else do shown = true
+				}
+				job.edge[v] = shown && (hides || vertex_on_open_border(s, v, hidden))
+			}
+		}
+	}, NODE_GRAIN)
+	return job.edge
 }
 
 // Hides the triangles whose middle falls inside `shape` on screen, or with .Show_Only
@@ -208,6 +264,9 @@ Hide_Job :: struct {
 	mode:    Hide_Shape,
 	clip:    matrix[4, 4]f32,
 	grid:    Coverage,
+	edge:    []bool, // Shrink, Outer_Ring: per vertex, on the edge of the shown part
+	piece:   []u32,  // Grow_All: per triangle, its piece
+	shown:   []bool, // Grow_All: per piece, Grow_Groups: per group, whether any of it is shown
 	write:   bool, // false: only count; true: change the triangles
 	changes: []bool, // per node: some triangle of it changes
 	after:   []u32,  // per node: hidden triangles once the change is made
@@ -224,10 +283,20 @@ hide_after :: #force_inline proc(job: ^Hide_Job, t: int) -> bool {
 		switch job.command {
 		case .Show_All: return false
 		case .Invert:   return !was
-		case .Masked, .Unmasked:
+		case .Masked, .Unmasked, .Show_Masked:
 			i := m.indices[3 * t:][:3]
 			masked := s.mask[i[0]] >= MASK_HALF && s.mask[i[1]] >= MASK_HALF && s.mask[i[2]] >= MASK_HALF
+			if job.command == .Show_Masked do return was && !masked
 			return was || masked == (job.command == .Masked)
+		case .Grow:
+			i := m.indices[3 * t:][:3]
+			return was && vertex_hidden(s, i[0]) && vertex_hidden(s, i[1]) && vertex_hidden(s, i[2])
+		case .Shrink, .Outer_Ring:
+			i := m.indices[3 * t:][:3]
+			on := job.edge[i[0]] || job.edge[i[1]] || job.edge[i[2]]
+			return was || on == (job.command == .Shrink)
+		case .Grow_All:    return was && !job.shown[job.piece[t]]
+		case .Grow_Groups: return was && !job.shown[s.groups.tris[t]]
 		}
 	}
 	c := (m.positions[m.indices[3 * t]] + m.positions[m.indices[3 * t + 1]] + m.positions[m.indices[3 * t + 2]]) * (1.0 / 3)

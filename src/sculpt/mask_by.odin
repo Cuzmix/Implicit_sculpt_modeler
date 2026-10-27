@@ -239,8 +239,7 @@ color_hue_saturation :: proc(c: [3]u8) -> (hue, saturation: f32) {
 	return
 }
 
-// Whether vertex v is on one of the job's features: an edge of the shown triangles with
-// only one of them (Open_Borders), triangles of more than one group (Group_Borders), or
+// Whether vertex v is on one of the job's features: an open border (Open_Borders), triangles of more than one group (Group_Borders), or
 // an edge between two shown triangles whose normals part by more than the angle (Creases).
 @(private = "file")
 vertex_on_feature :: proc(job: ^By_Job, v: u32) -> bool {
@@ -259,6 +258,7 @@ vertex_on_feature :: proc(job: ^By_Job, v: u32) -> bool {
 		}
 		return false
 	}
+	if job.by == .Open_Borders do return vertex_on_open_border(s, v, hidden)
 	// Each other corner of v's shown triangles ends an edge from v; the triangles holding
 	// that edge are those of v's that hold the corner too.
 	for f in faces {
@@ -275,11 +275,33 @@ vertex_on_feature :: proc(job: ^By_Job, v: u32) -> bool {
 					if e != f do other = e
 				}
 			}
-			if job.by == .Open_Borders {
-				if count == 1 do return true
-				continue
-			}
 			if count == 2 && linalg.dot(face_normal(m, f), face_normal(m, other)) < job.cos do return true
+		}
+	}
+	return false
+}
+
+// Whether vertex v ends an edge that only one of the triangles shown under `hidden` (nil:
+// all) holds: the edge of a hole, or of the shown part. Mask by open borders, and the edge
+// Shrink and Outer ring work from (hide.odin), both ask it.
+@(private)
+vertex_on_open_border :: proc(s: ^Sculptor, v: u32, hidden: []bool) -> bool {
+	m := s.mesh
+	faces := faces_of(s, v)
+	shown :: #force_inline proc(hidden: []bool, f: u32) -> bool {return hidden == nil || !hidden[f]}
+	// Each other corner of v's shown triangles ends an edge from v; the triangles holding
+	// that edge are those of v's that hold the corner too.
+	for f in faces {
+		if !shown(hidden, f) do continue
+		for c in 0 ..< u32(3) {
+			a := m.indices[3 * f + c]
+			if a == v do continue
+			count := 0
+			for e in faces {
+				if !shown(hidden, e) do continue
+				if m.indices[3 * e] == a || m.indices[3 * e + 1] == a || m.indices[3 * e + 2] == a do count += 1
+			}
+			if count == 1 do return true
 		}
 	}
 	return false

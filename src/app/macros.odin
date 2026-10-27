@@ -138,7 +138,9 @@ macro_reads :: proc(app: ^App, id: Command_Id, arg: int) -> []string {
 	case .Mask_By:     return MASK_BY
 	case .Mask_Adjust: return MASK_ADJUST
 	case .Group:
-		if sculpt.Group_Command(arg) == .Creases do return CREASES
+		#partial switch sculpt.Group_Command(arg) {
+		case .Creases, .Normals: return CREASES
+		}
 	case .Paint:
 		if sculpt.Paint_Command(arg) == .Fill do return PAINT
 	}

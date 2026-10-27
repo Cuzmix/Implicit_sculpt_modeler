@@ -263,6 +263,13 @@ kit_visibility :: proc(app: ^App, obj: ^Object) {
 	ui.paragraph(ctx, fmt.tprintf("%s shows all; %s inverts. Hide masked and Hide unmasked hide by the mask; Mask hidden (Mask, More options) turns what is hidden into a mask.", command_keys(app, .Show_All), command_keys(app, .Invert_Hidden)))
 	kit_last_result(app, .Visibility)
 	if app.stats.slice_ms > 0 do ui.paragraph(ctx, fmt.tprintf("Last slice: %.0f ms, ready in %.0f ms more.", app.stats.slice_ms, app.stats.slice_setup_ms))
+	if kit_more(app, .Visibility) {
+		kit_command_pair(app, .Grow_Visible, .Shrink_Visible, label_a = "Grow", label_b = "Shrink")
+		kit_command_pair(app, .Grow_All_Visible, .Outer_Ring)
+		kit_command_pair(app, .Grow_To_Groups, .Show_Masked)
+		ui.paragraph(ctx, "Grow shows one ring more round what is shown and Shrink hides one off its edge (holes and open borders count as edge too). Grow all shows the whole of each piece with anything shown, Grow to groups the whole of each polygroup. Outer ring keeps only the ring along the edge. Show masked shows the masked hidden part, undoing Hide masked.")
+		kit_more_end(app)
+	}
 }
 
 @(private = "file")
@@ -281,9 +288,11 @@ kit_groups :: proc(app: ^App) {
 	_ = ui.switch_row(ctx, "Show polygroups", &app.show_groups, keys = command_hint(app, .Polygroups))
 	ui.paragraph(ctx, fmt.tprintf("%s groups the masked part (clearing the mask), or with nothing masked what is shown. Ctrl + Shift click a group to show only it (again: everything but it); with Alt, to mask it. %s shows the groups. Not in HD or with dynamic topology.", command_keys(app, .Group_Shortcut), command_keys(app, .Polygroups)))
 	if kit_more(app, .Groups) {
-		_ = ui.slider(ctx, "Crease angle", &app.ui.crease_degrees, 1, 90, .Linear, fmt.tprintf("%.0f°", app.ui.crease_degrees))
-		kit_command_pair(app, .Group, .Group, int(sculpt.Group_Command.Creases), int(sculpt.Group_Command.Clear), "Groups by creases", "Clear groups", tone_b = .Danger)
-		ui.paragraph(ctx, "Groups by creases starts a new group wherever the surface bends by more than the crease angle.")
+		_ = ui.slider(ctx, "Angle", &app.ui.crease_degrees, 1, 90, .Linear, fmt.tprintf("%.0f°", app.ui.crease_degrees))
+		kit_command_pair(app, .Group, .Group, int(sculpt.Group_Command.Creases), int(sculpt.Group_Command.Normals), "Groups by creases", "Groups by normals")
+		kit_command_pair(app, .Group, .Group, int(sculpt.Group_Command.Pieces), int(sculpt.Group_Command.Uv_Charts), "Groups by pieces", "Groups by UVs")
+		kit_command_pair(app, .Group, .Group, int(sculpt.Group_Command.Merge_Similar), int(sculpt.Group_Command.Clear), "Merge similar", "Clear groups", tone_b = .Danger)
+		ui.paragraph(ctx, "Groups by creases starts a new group wherever the surface bends by more than the angle; Groups by normals keeps each group within the angle of the way its first triangle faces, so a smooth curve is cut into facets. Groups by pieces gives each piece joined by edges its own group, Groups by UVs each UV chart of a retopologized object. Merge similar makes groups of as many triangles and much the same area one. Each groups only what is shown.")
 		kit_more_end(app)
 	}
 }

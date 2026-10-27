@@ -63,12 +63,15 @@ group_command :: proc(app: ^App, command: sculpt.Group_Command) {
 	if len(obj.group_materials) > 0 {
 		if g := sculpt.sculptor_groups(s); g != nil do before = slice.clone(g, context.temp_allocator)
 	}
-	changed := sculpt.sculptor_group_command(s, command, app.ui.crease_degrees)
+	changed := sculpt.levels_group_uv_charts(&obj.levels) if command == .Uv_Charts else sculpt.sculptor_group_command(s, command, app.ui.crease_degrees)
 	groups := 0
 	if g := sculpt.sculptor_groups(s); g != nil {
-		seen := make(map[u16]bool, 64, context.temp_allocator)
-		for x in g do seen[x] = true
-		groups = len(seen)
+		// A flag per group number: a map over 20M triangles takes a second.
+		seen := make([]bool, int(max(u16)) + 1, context.temp_allocator)
+		for x in g {
+			if !seen[x] do groups += 1
+			seen[x] = true
+		}
 	}
 	log.infof("polygroups %v: %d groups, %.0f ms%s", command, groups, time.duration_milliseconds(time.tick_since(start)), "" if changed else ", nothing changed")
 	if !changed do return
@@ -91,10 +94,14 @@ group_command :: proc(app: ^App, command: sculpt.Group_Command) {
 
 @(rodata)
 GROUP_COMMAND_NAMES := [sculpt.Group_Command]string {
-	.Visible = "Group visible",
-	.Masked  = "Group masked",
-	.Creases = "Group by creases",
-	.Clear   = "Clear groups",
+	.Visible       = "Group visible",
+	.Masked        = "Group masked",
+	.Creases       = "Group by creases",
+	.Clear         = "Clear groups",
+	.Pieces        = "Group by pieces",
+	.Normals       = "Group by normals",
+	.Merge_Similar = "Merge similar groups",
+	.Uv_Charts     = "Group by UVs",
 }
 
 // What Ctrl+W does, as ZBrush's: with something masked, the masked part becomes a group
