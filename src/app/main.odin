@@ -251,6 +251,9 @@ App :: struct {
 	// strength `rim` and `underside` of the ambient light under the forms; off, the classic
 	// rim and an even ambient light.
 	styled:    bool,
+	// Scene > Look (look.odin): a preset was put on, by hand or on the first run; the
+	// settings keep it, so the first run's happens once.
+	look_chosen: bool,
 	rim:       f32,
 	underside: f32,
 	// The lights (lights.odin; the scene's own are Scene.lights): those a new scene starts
@@ -512,6 +515,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	app.cavity, app.ridge = CAVITY_DEFAULT, RIDGE_DEFAULT
 	app.rim, app.underside = RIM_DEFAULT, UNDERSIDE_DEFAULT
 	app.studio_softness = render.STUDIO_KEY_SOFTNESS
+	app.studio_samples, app.studio_ao, app.studio_shadow = STUDIO_SAMPLES_DEFAULT, STUDIO_AO_DEFAULT, STUDIO_SHADOW_DEFAULT
 	environment_settings_default(&app)
 	app.dim_others = true
 	app.time_gpu = opts.time_gpu || opts.gpubench != ""
@@ -536,6 +540,9 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	// names, and before the renderer goes, which their textures need: keep it here.
 	defer library_destroy(&app)
 	settings_load(&app, settings)
+	// Only for the settings of everyday use: a run with a settings file of its own (a test's)
+	// keeps the code's look unless the file says otherwise.
+	if remember && opts.settings_file == "" do look_first_run(&app)
 	// The first scene is lit by the starting lights, as every new one is, unless it was
 	// opened from a file that keeps its own.
 	if !app.scene.lights_own do app.scene.lights = app.start_lights
@@ -565,7 +572,6 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	if opts.density_preview > 0 {
 		app.ui.rebuild_goal, app.ui.rebuild_even, app.rebuild.pinned = .Even, rebuild_count(opts.density_preview), true
 	}
-	app.studio_samples, app.studio_ao, app.studio_shadow = STUDIO_SAMPLES_DEFAULT, 0.85, 0.6
 	app.live_ao_reach = LIVE_AO_REACH_DEFAULT
 	app.stroke_seed = 1
 	app.tool = .Brush

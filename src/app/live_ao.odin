@@ -9,7 +9,7 @@ import "../ui"
 // Live ambient occlusion (stage 4.2, render/live_ao.odin): Scene > Studio render's
 // Occlusion while working darkens creases and contact every frame, sculpting included,
 // with the studio render's Occlusion strength. A view setting, as flat shading is: the
-// switch is remembered in the settings; its Reach is not, as the studio's strengths are not.
+// switch is remembered in the settings; its Reach is not.
 
 // Tablets work it out at half size each way, a quarter of the pixels; the blur upsamples it.
 LIVE_AO_SCALE :: 2 when ODIN_PLATFORM_SUBTARGET == .Android else 1

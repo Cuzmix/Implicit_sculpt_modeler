@@ -166,6 +166,7 @@ Command_Id :: enum u8 {
 	Polygroups,
 	Studio_Render,
 	Live_Occlusion,
+	Viewport_Look, // the argument is the Look_Preset
 	Floor_Grid,
 	Transparency,
 	// The app
@@ -1373,6 +1374,13 @@ COMMANDS := [Command_Id]Command {
 		run = proc(app: ^App, _: int) {app.live_ao_on = !app.live_ao_on},
 		checked = proc(app: ^App, _: int) -> bool {return app.live_ao_on},
 	},
+	.Viewport_Look = {
+		label = "Look",
+		help = "Puts on a look: the material, lights, background, shading style, occlusion and studio render together.",
+		args = len(Look_Preset),
+		run = proc(app: ^App, arg: int) {look_apply(app, Look_Preset(arg), true)},
+		checked = proc(app: ^App, arg: int) -> bool {p, ok := look_current(app).?; return ok && int(p) == arg},
+	},
 	.Stats = {
 		label = "Stats",
 		help = "Shows how smoothly the app runs.",
@@ -1657,6 +1665,8 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 		return fmt.tprintf("%s brush", BRUSHES[sculpt.Brush_Kind(arg)].name)
 	case .View_Axis:
 		return fmt.tprintf("%v view", camera.Axis_View(arg))
+	case .Viewport_Look:
+		return fmt.tprintf("Look: %s", LOOK_PRESET_NAMES[Look_Preset(arg)])
 	case .Mask:
 		return MASK_COMMAND_LABELS[sculpt.Mask_Command(arg)]
 	case .Mask_By:

@@ -35,6 +35,8 @@ MATERIALS := [?]Material {
 	{"White", {0.82, 0.82, 0.80, 1}, {0.50, 0.50, 0.52, 1}, {0.12, 0.15, 24, 0.1}, 0, 0, 0, 0},
 	{"Grey", {0.50, 0.50, 0.52, 1}, {0.34, 0.34, 0.36, 1}, {0.10, 0.35, 80, 0}, 0, 0, 0, 0},
 	{"Skin", {0.78, 0.55, 0.45, 1}, {0.45, 0.40, 0.38, 1}, {0.07, 0.12, 20, 0.5}, 0, 0, 0, 0},
+	// Scene > Look's Sculpt studio: a soft grey with a broad, faint sheen and a little wrap.
+	{"Studio grey", {0.55, 0.55, 0.55, 1}, {0.42, 0.42, 0.44, 1}, {0.12, 0.10, 14, 0.15}, 0, 0, 0, 0},
 	{"Gold", {1.00, 0.77, 0.34, 1}, {0.42, 0.42, 0.44, 1}, {}, 1, 0.30, 0, 0},
 	{"Copper", {0.95, 0.64, 0.54, 1}, {0.42, 0.42, 0.44, 1}, {}, 1, 0.35, 0, 0},
 	{"Chrome", {0.55, 0.56, 0.55, 1}, {0.42, 0.42, 0.44, 1}, {}, 1, 0.08, 0, 0},
@@ -53,9 +55,9 @@ MATERIALS := [?]Material {
 }
 
 // The index of the first physically based material, where the View menu starts a new group.
-FIRST_PBR :: 5
+FIRST_PBR :: 6
 // The index of the first matcap, where the next group starts.
-FIRST_MATCAP :: 13
+FIRST_MATCAP :: 14
 
 // app.material's value for the material the View > Material sliders made (app.custom).
 CUSTOM_MATERIAL :: len(MATERIALS)

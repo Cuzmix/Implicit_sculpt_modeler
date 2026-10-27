@@ -151,7 +151,6 @@ SCRIPT_VALUES := [?]Setting {
 	{"extract_thickness", U + offset_of(Ui_State, boolean) + offset_of(Boolean_State, thickness), f32, 0.002, 0.2},
 	{"hd_window", offset_of(App, hd_window_vertices), int, 10_000, 16_000_000},
 	{"studio_samples", offset_of(App, studio_samples), i32, 1, STUDIO_SAMPLES_MAX},
-	{"studio_ao", offset_of(App, studio_ao), f32, 0, 1},
 	{"live_ao_reach", offset_of(App, live_ao_reach), f32, LIVE_AO_REACH_MIN, LIVE_AO_REACH_MAX},
 	{"cloth_mode", offset_of(App, brush) + offset_of(Brush_Settings, cloth_mode), sculpt.Cloth_Mode, 0, 0},
 }

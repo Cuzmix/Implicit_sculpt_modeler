@@ -410,6 +410,7 @@ kit_tree_autoscroll :: proc(app: ^App, scroll: Tree_Scroll) {
 @(rodata)
 SCENE_SECTIONS := [?]Kit_Tab_Section {
 	{.Add, "Add object", kit_add, nil},
+	{.Look, "Look", kit_look, nil},
 	{.Material, "Material", kit_material, nil},
 	{.Lights, "Lights", kit_lights, nil},
 	{.Environment, "Environment", kit_environment, nil},

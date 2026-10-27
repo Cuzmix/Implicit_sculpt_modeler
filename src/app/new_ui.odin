@@ -379,6 +379,7 @@ Kit_Section :: enum u8 {
 	// The Scene palette's.
 	Objects,
 	Add,
+	Look,
 	Material,
 	Lights,
 	Environment,

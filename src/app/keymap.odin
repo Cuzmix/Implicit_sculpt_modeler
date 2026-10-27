@@ -219,6 +219,7 @@ command_arg_name :: proc(id: Command_Id, arg: int) -> string {
 	#partial switch id {
 	case .Brush:     return fmt.tprint(sculpt.Brush_Kind(arg))
 	case .View_Axis: return fmt.tprint(camera.Axis_View(arg))
+	case .Viewport_Look: return fmt.tprint(Look_Preset(arg))
 	case .Mask:      return fmt.tprint(sculpt.Mask_Command(arg))
 	case .Mask_By:   return fmt.tprint(sculpt.Mask_By(arg))
 	case .Layer_Edit: return fmt.tprint(Layer_Action(arg))
