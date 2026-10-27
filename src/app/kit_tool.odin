@@ -79,13 +79,46 @@ Kit_Tab_Section :: struct {
 BRUSH_SECTIONS := [?]Kit_Tab_Section {
 	{.Preset, "Preset", kit_preset, nil},
 	{.Stroke, "Stroke", kit_stroke, nil},
-	{.Paint_Color, "Colour", proc(app: ^App) {_ = kit_color(app, "brush colour", &app.brush.color)}, proc(app: ^App) -> bool {return .Paint in BRUSHES[app.brush.kind].flags}},
+	{.Paint_Color, "Colour", kit_brush_colors, nil},
 	{.Recall, "History brush", kit_recall, proc(app: ^App) -> bool {return app.brush.kind == .History}},
 	{.Falloff, "Falloff", kit_falloff, nil},
 	{.Alpha, "Alpha", kit_alpha_section, nil},
 	{.Pen, "Pen", kit_pen, nil},
 	{.Options, "Options", kit_brush_options, nil},
 	{.Recorder, "Stroke recorder", kit_replay_section, nil},
+}
+
+// The colours brushes paint and what the sculpting brushes change: the surface, it and
+// its polypaint, or only the polypaint. The secondary colour and Swap are under More.
+@(private = "file")
+kit_brush_colors :: proc(app: ^App) {
+	ctx := &app.kit.ctx
+	b := &app.brush
+	if .Paint in BRUSHES[b.kind].flags {
+		ui.paragraph(ctx, "Paint lays the main colour; Ctrl, or Subtract, takes paint off.")
+	} else if channel_brush(b.kind) {
+		names := [sculpt.Channel]string{.Sculpt = "Sculpt", .Both = "Both", .Color = "Paint"}
+		options: [len(sculpt.Channel)]string
+		for c in sculpt.Channel do options[c] = names[c]
+		if picked := ui.tabs(ctx, "paint channel", options[:], int(b.channel), glyphs = {ICON_CHANNEL_SCULPT, ICON_CHANNEL_BOTH, ICON_CHANNEL_COLOR}); picked >= 0 do b.channel = sculpt.Channel(picked)
+		ui.paragraph(ctx, CHANNEL_HELP[b.channel])
+	} else {
+		ui.paragraph(ctx, fmt.tprintf("%s keeps to what it changes; Sculpt, Both and Paint are for the sculpting brushes.", BRUSHES[b.kind].name))
+	}
+	_ = kit_color(app, "brush colour", &b.color)
+	if kit_more(app, .Paint_Color) {
+		ui.caption(ctx, "SECONDARY")
+		_ = kit_color(app, "secondary colour", &b.color2)
+		_ = command_button(app, .Swap_Colors, glyph = ICON_SWAP_COLORS)
+		kit_more_end(app)
+	}
+}
+
+@(rodata)
+CHANNEL_HELP := [sculpt.Channel]string {
+	.Sculpt = "The brushes move the surface and leave its colour.",
+	.Both   = "The brushes move the surface and paint it the main colour under the same falloff.",
+	.Color  = "The brushes paint the main colour under their falloff and move nothing.",
 }
 
 // What a dab works on, as Nomad's filter section: front faces only, Lock plane and

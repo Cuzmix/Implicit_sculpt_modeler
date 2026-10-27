@@ -240,19 +240,32 @@ points_bottom :: proc(app: ^App) -> f32 {
 	return TOP_BAR_H + 4 + points.y + 8
 }
 
+// Where the brush bar's top goes, in points down the safe area, from last frame's size:
+// centred down the left edge, kept between the readout and the dock where it fits, and
+// raised clear of the modifier wheel in the corner under it where there is room, so the
+// wheel keeps its corner. A window too short for that keeps it clear of the dock and puts
+// the readout beside it.
+brush_bar_top :: proc(app: ^App) -> f32 {
+	ctx := &app.kit.ctx
+	area := ui.safe_area(ctx)
+	bar, _ := ui.prev_layout(ctx, "brush bar")
+	low := area.h - ctx.theme.edge - dock_stack(app) - 8 - bar.y
+	top := clamp((area.h - bar.y) * 0.5, points_bottom(app), max(low, points_bottom(app)))
+	if app.kit.rail_side == .Left {
+		above := area.h - ctx.theme.edge - rail_size(app).y - 8 - bar.y
+		if above >= points_bottom(app) do top = min(top, above)
+	}
+	if low < points_bottom(app) do top = max(low, TOP_BAR_H + 4)
+	return top
+}
+
 // The column at the left: the brush and what shapes its stroke, then its falloff, size
 // and strength, then undo and redo. Returns the Brushes button, which the brush browser
 // opens beside.
 kit_brush_bar :: proc(app: ^App) -> (brushes_anchor: ui.Rect) {
 	k := &app.kit
 	ctx := &k.ctx
-	// Centred down the left edge, kept between the readout and the dock where it fits;
-	// a window too short for that keeps it clear of the dock and puts the readout beside it.
-	area := ui.safe_area(ctx)
-	bar, _ := ui.prev_layout(ctx, "brush bar")
-	low := area.h - ctx.theme.edge - dock_stack(app) - 8 - bar.y
-	top := clamp((area.h - bar.y) * 0.5, points_bottom(app), max(low, points_bottom(app)))
-	if low < points_bottom(app) do top = max(low, TOP_BAR_H + 4)
+	top := brush_bar_top(app)
 	ui.begin_anchored(ctx, "brush bar", .Start, .Start, {BAR_EDGE, top}, {direction = .Column, padding = 3, radius = ctx.theme.radius_large, background = .Panel, center = true})
 	// The brush in use; a tap shows every brush and preset beside it, a long press the
 	// brush's settings.
@@ -271,7 +284,16 @@ kit_brush_bar :: proc(app: ^App) -> (brushes_anchor: ui.Rect) {
 	section_button(app, "Stroke", ICON_STROKE, .Stroke)
 	section_button(app, "Alpha", ICON_ALPHA, .Alpha)
 	section_button(app, "Material", ICON_MATERIAL, .Material)
+	// The colours: a tap opens them, a long press swaps the main and secondary ones, and
+	// the corner shows both, the main one in front. Then the channel the sculpting
+	// brushes work on, which a tap steps and a long press opens with the colours.
 	section_button(app, "Colour", ICON_COLOUR, .Paint_Color)
+	if ui.secondary(ctx) do command_run(app, .Swap_Colors)
+	bar_swatches(app, ctx.last_rect)
+	channel_glyph := [sculpt.Channel]rune{.Sculpt = ICON_CHANNEL_SCULPT, .Both = ICON_CHANNEL_BOTH, .Color = ICON_CHANNEL_COLOR}
+	channel_name := [sculpt.Channel]string{.Sculpt = "Sculpt only", .Both = "Sculpt and paint", .Color = "Paint only"}
+	_ = bar_command(app, .Paint_Channel, channel_glyph[app.brush.channel], name = fmt.tprintf("%s##channel", channel_name[app.brush.channel]), corner = true)
+	if ui.secondary(ctx) do bar_pop_toggle(app, .Section, ctx.last_rect, .Right, .Paint_Color)
 	ui.divider(ctx, 32, across = true)
 	// Focal shift, size and strength open their tall sliders; a long press dragged sets
 	// them on the spot, and one let go still opens the falloff curve, or the pen's settings
@@ -280,6 +302,9 @@ kit_brush_bar :: proc(app: ^App) -> (brushes_anchor: ui.Rect) {
 	bar_value_button(app, .Size, fmt.tprintf("Draw size %.0f##size", app.brush.radius_px), ui.ICON_SIZE, slider_hint(app, "S, [ ]", .Size_Up), .Pen)
 	bar_value_button(app, .Strength, fmt.tprintf("Strength %.2f##strength", brush_strength(app)^), ui.ICON_STRENGTH, slider_hint(app, "U, Shift+[ ]", .Strength_Up), .Pen)
 	bar_scrub_update(app)
+	// Add and Subtract, which way the brushes work: Subtract latches the wheel's Invert.
+	_ = bar_command(app, .Brush_Add, ICON_ADD)
+	_ = bar_command(app, .Brush_Subtract, ICON_SUBTRACT)
 	ui.divider(ctx, 32, across = true)
 	// A long press on either opens the History panel, to go back or forward many steps.
 	undo := fmt.tprintf("Undo %s##undo", history_next_label(app.history.done[:]))
@@ -290,6 +315,24 @@ kit_brush_bar :: proc(app: ^App) -> (brushes_anchor: ui.Rect) {
 	if ui.secondary(ctx) do k.history = true
 	ui.end(ctx)
 	return
+}
+
+// The main and secondary colours as two small squares in the lower corner of the Colour
+// button at `r`, the main one in front.
+@(private = "file")
+bar_swatches :: proc(app: ^App, r: ui.Rect) {
+	ctx := &app.kit.ctx
+	t := ctx.theme
+	side: f32 = 9
+	main := ui.Rect{r.x + r.w - side - 6, r.y + r.h - side - 6, side, side}
+	back := main
+	back.x -= 4
+	back.y -= 4
+	for c, i in ([2][3]f32{app.brush.color2, app.brush.color}) {
+		at := back if i == 0 else main
+		ui.fill_rect(ctx, at, 2, overlay_color({c.r, c.g, c.b, 1}))
+		ui.stroke_rect(ctx, at, 2, t.border_strong, 1)
+	}
 }
 
 // A brush bar button for a value (Size, Focal or Strength): a tap opens its tall slider
@@ -642,6 +685,13 @@ ICON_SPLIT :: rune(0xe445) // split
 ICON_MERGE :: rune(0xe444) // merge
 ICON_ORTHO :: rune(0xe529) // cuboid
 ICON_SYMMETRY :: rune(0xe362) // flip-horizontal-2
+ICON_ADD :: rune(0xe086) // circle-plus: brushes raise and build
+ICON_SUBTRACT :: rune(0xe083) // circle-minus: brushes dig and carve
+ICON_SWAP_COLORS :: rune(0xe24a) // arrow-left-right
+// The paint channel's three states: the surface, the surface and its colour, the colour.
+ICON_CHANNEL_SCULPT :: rune(0xe231) // mountain
+ICON_CHANNEL_BOTH :: rune(0xe5a1) // blend
+ICON_CHANNEL_COLOR :: rune(0xe0b8) // droplet
 ICON_LOCAL_SYMMETRY :: rune(0xe364) // flip-vertical-2: a mirror through the object's own middle
 ICON_WIREFRAME :: rune(0xe0ec) // grid-3x3
 ICON_FLOOR :: rune(0xe2fe) // axis-3d: the axes over the floor

@@ -112,7 +112,11 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
 - Polypaint (`src/sculpt/paint.odin`): `Sculptor.color []Color` (`[4]u8`: sRGB and coverage), nil until painted; `paint_dab`
   (from `dab_once` like `mask_dab`, no area pass without an alpha) mixes with `paint_mix` (paint laid over: coverage grows by `w`
   of what is left, colour mixed by coverage, at least one step a dab), marks `.Paint`, saves `Saved_Node.colors` through
-  `record_color` (`History.color_saved` stamps, nodes listed in `painted`); `sculptor_paint_command(.Fill | .Clear)`. Polygroups
+  `record_color` (`History.color_saved` stamps, nodes listed in `painted`); `sculptor_paint_command(.Fill | .Clear)`.
+  `Brush.channel` (`Channel{Sculpt, Both, Color}`, zero = Sculpt) makes any sculpting kind paint too:
+  `paint_channel_dab` runs `paint_dab` on a copy of the `Dab` (not inverted) before the move and zeroes the partials;
+  `.Color` returns before moving. The app sets it only for the held brush (`brush_channel`, Both drops to Sculpt in HD,
+  dyntopo or voxels; a Colour stroke there is refused in stroke start). Polygroups
   (`src/sculpt/groups.odin`): `Sculptor.groups{tris []u16, vertex, lead, edited}`; `sculptor_group_command(.Visible | .Masked |
   .Creases | .Clear)` → `groups_commit` (one step, `Saved_Node.groups`, `Undo_Step.grouped`) → `groups_refresh` picks the group
   each vertex carries and each triangle's lead corner (`drawn_triangle`), bumps `paint_stamp` and queues every node through the
