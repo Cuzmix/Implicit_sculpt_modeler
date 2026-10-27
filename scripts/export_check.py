@@ -7,6 +7,7 @@
     python scripts/export_check.py build/out.glb --vertices 642 --triangles 1280 \\
         --keys "Layer 1=1.5,Layer 2=0" --colors --material "Gold,1,0.3" --require
     python scripts/export_check.py build/out.glb --face-materials "Gold=2,Steel=10"
+    python scripts/export_check.py build/out.usda --lights "SUN=3.1416,POINT=145.08"
 
 Two checks for each, each reported on its own line as PASS, FAIL or SKIP:
 - validator: for .glb, the Khronos glTF validator (npm package gltf-validator, run with
@@ -17,8 +18,8 @@ Two checks for each, each reported on its own line as PASS, FAIL or SKIP:
   triangles, its shape keys with their values, whether it has a colour attribute, and the
   objects the import made (for USD at frame 1, where the weights are keyed), and the first
   material's base colour, metallic and roughness and its image textures, the UV maps, and
-  how many faces each material shades. The --vertices, --triangles, --keys, --colors,
-  --material, --uv, --textures and --face-materials options say
+  how many faces each material shades, and each light's type and energy. The --vertices,
+  --triangles, --keys, --colors, --material, --uv, --textures, --face-materials and --lights options say
   what to expect; without them the check only needs the import to succeed.
 
 A tool that is not installed is reported as SKIP, never as PASS, and the exit code is 0
@@ -63,6 +64,9 @@ importer(filepath=path)
 bpy.context.scene.frame_set(1)
 meshes = [o for o in bpy.data.objects if o.type == 'MESH']
 out = {'objects': sorted(o.type for o in bpy.data.objects), 'version': bpy.app.version_string}
+# The lights, by their objects' names: each one's type and energy (a sun's strength in
+# watts a square metre, a point's or spot's power in watts).
+out['lights'] = [[o.data.type, round(o.data.energy, 4)] for o in sorted(bpy.data.objects, key=lambda o: o.name) if o.type == 'LIGHT']
 if meshes:
     me = meshes[0].data
     out['vertices'] = len(me.vertices)
@@ -224,6 +228,18 @@ def check_blender(path, args):
                 want[name] = int(count)
             if got["face_materials"] != want:
                 wrong.append("faces by material %s, expected %s" % (got["face_materials"], want))
+        if args.lights is not None:
+            want = []
+            for item in filter(None, args.lights.split(",")):
+                kind, _, energy = item.partition("=")
+                want.append((kind, float(energy)))
+            lights = got.get("lights", [])
+            if [k for k, _ in lights] != [k for k, _ in want]:
+                wrong.append("lights %s, expected %s" % ([k for k, _ in lights], [k for k, _ in want]))
+            else:
+                for (kind, energy), (_, expect) in zip(lights, want):
+                    if abs(energy - expect) > 0.01 * abs(expect) + 1e-4:
+                        wrong.append("a %s light of %g, expected %g" % (kind, energy, expect))
         if args.keys is not None:
             expected = []
             for item in filter(None, args.keys.split(",")):
@@ -240,6 +256,8 @@ def check_blender(path, args):
         got.get("version"), got.get("vertices"), got.get("triangles"),
         ", ".join("%s=%g" % (n, v) for n, v in got.get("keys", [])) or "none",
         ", ".join(got.get("colors", [])) or "none", ", ".join(got["objects"]))
+    if got.get("lights"):
+        detail += ", lights %s" % ", ".join("%s=%g" % (k, e) for k, e in got["lights"])
     if "material" in got:
         detail += ", material %s" % json.dumps(got["material"])
     if got.get("uv_layers"):
@@ -265,6 +283,7 @@ def main():
     parser.add_argument("--uv", action="store_true", help="expect a UV map")
     parser.add_argument("--textures", type=int, help="how many distinct pictures the first material's image textures show (and that one feeds the normal)")
     parser.add_argument("--face-materials", help='the faces each material shades: "Gold=2,Steel=10"')
+    parser.add_argument("--lights", help='the lights by name, each its type and energy to 1%%: "SUN=3.14,SPOT=290"')
     parser.add_argument("--require", action="store_true", help="a skipped check fails the run")
     args = parser.parse_args()
     if args.setup:

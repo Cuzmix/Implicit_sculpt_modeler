@@ -291,3 +291,36 @@ usda_binds_face_materials :: proc(t: ^testing.T) {
 	// An unused slot has neither a subset nor a material.
 	testing.expect(t, !strings.contains(text, "Unused"))
 }
+
+// Lights go as UsdLux prims beside the mesh, named apart from it: a DistantLight turned
+// only, SphereLights treated as points standing where they are in the file's units, the
+// spot shaped into its cone, with the intensities Blender's importer reads as the watts
+// its glTF importer gives the same lights.
+@(test)
+usda_carries_the_lights :: proc(t: ^testing.T) {
+	m := Mesh_Export {
+		name      = "Key",
+		positions = []Vec3{{0, 0, 0}, {1, 0, 0}, {0, 1, 0}},
+		normals   = []Vec3{{0, 0, 1}, {0, 0, 1}, {0, 0, 1}},
+		indices   = []u32{0, 1, 2},
+		scale     = 2,
+		offset    = {0, 0, 1},
+		lights    = []Export_Light {
+			{name = "Key", kind = .Directional, color = 1, intensity = 683 * 4, direction = {0, -1, 0}},
+			{name = "Lamp", kind = .Spot, color = {1, 0.5, 0.25}, intensity = 683.0 / 16, position = {1, 2, 3}, direction = {0, 0, -1}, inner_cone = 0.25, outer_cone = 0.5},
+		},
+	}
+	out := make([dynamic]u8)
+	defer delete(out)
+	mesh_write_usda(&out, m)
+	text := string(out[:])
+	defer free_all(context.temp_allocator)
+	for want in ([]string {
+			"def Mesh \"Key\"",
+			"def DistantLight \"Key_2\"\n    {\n        color3f inputs:color = (1, 1, 1)\n        float inputs:intensity = 1\n        quatf xformOp:orient = (0.707106829, -0.707106829, 0, 0)\n        uniform token[] xformOpOrder = [\"xformOp:orient\"]\n    }",
+			"def SphereLight \"Lamp\" (\n        prepend apiSchemas = [\"ShapingAPI\"]\n    )",
+			"float inputs:intensity = 1\n        bool treatAsPoint = 1\n        float inputs:shaping:cone:angle = 28.6478882\n        float inputs:shaping:cone:softness = 0.5\n        double3 xformOp:translate = (2, 4, 7)\n        quatf xformOp:orient = (1, 0, 0, 0)",
+		}) {
+		testing.expectf(t, strings.contains(text, want), "no %q in\n%s", want, text)
+	}
+}
