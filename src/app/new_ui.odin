@@ -111,6 +111,8 @@ Kit_State :: struct {
 	// hex field is being typed in), so a half-typed code survives the frames between keys.
 	color_hex:    [8]u8,
 	color_hex_of: ui.Id,
+	// Which edge's colour Scene > Background's picker edits while the gradient is on.
+	background_bottom: bool,
 	help:       bool, // the Help window (Menu > Help, F1), in Settings' place
 	action_bar: bool, // the contextual action bar over the dock (Settings > Interface)
 	gizmo_entry: Gizmo_Entry, // the value a tap on a gizmo handle asks for (move_tool.odin)
@@ -328,7 +330,7 @@ window_slide :: proc(w: ui.Window, default: ui.Anchor) -> f32 {
 }
 
 // The sections of the tray's palettes, then the Stats panel's: the tray's come first and
-// end with Floor (TRAY_SECTIONS), each palette's together (section_palette).
+// end with Background (TRAY_SECTIONS), each palette's together (section_palette).
 Kit_Section :: enum u8 {
 	// The Brush palette's.
 	Preset,
@@ -369,6 +371,7 @@ Kit_Section :: enum u8 {
 	Studio,
 	Camera,
 	Floor,
+	Background,
 	// The Stats panel's.
 	Frame,
 	Drawing,

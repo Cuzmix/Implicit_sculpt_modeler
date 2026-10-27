@@ -40,8 +40,13 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   uniform scale) only, because culling takes the eye into mesh space with its inverse; `damage` is the mesh-space box of what
   changed, before and after; a version bump without a damage box forces a full redraw; `hidden` is per chunk then per group.
 - Pipelines: mesh culls `.BACK` with `.COUNTER_CLOCKWISE` front faces (`renderer.odin:284`), colour `R8G8B8A8_UNORM`, depth
-  `D32_FLOAT` else `D24_UNORM` (`renderer.odin:178-181`); the clear pipeline draws a full-screen triangle at the far plane to clear a
-  scissored rectangle (`renderer.odin:320`, `clear.vert`). `renderer_init` creates the device with `{.SPIRV}` and the debug flag from
+  `D32_FLOAT` else `D24_UNORM` (`renderer.odin:178-181`); the clear pipeline draws a full-screen triangle at the far plane
+  (`clear.vert`) painting `Renderer.background` (`Background{top, bottom}`, display values, set by the app each frame from
+  `src/app/background.odin`; equal edges mean flat): `draw_background` runs after the clear op in the full pass and the
+  cache pass only for a gradient (a flat one is the clear colour, so the default 0.17 grey stays bit-identical), and always
+  in `render_rect`; `clear.frag` dithers a gradient with a 4x4 Bayer pattern keyed on `gl_FragCoord`, so partial and full
+  redraws match bit for bit. The background is in `frame_key` and `static_key` (the cache holds it); thumbnails and the
+  nav head pass a transparent `background` to `begin_mesh_pass` and never draw it. `renderer_init` creates the device with `{.SPIRV}` and the debug flag from
   `--gpu-debug` (`renderer.odin:165-186`); failures are `log.errorf(…, sdl.GetError())` and `return false`.
 - Blending passes (`Mesh_Pipelines.see`, `.floor`, both optional: nil logs a warning and the feature degrades): see-through
   items are those with `Draw_Item.look.w > 0` (the app's Transparency; `mesh.frag` writes it as alpha via `opacity()`), drawn
