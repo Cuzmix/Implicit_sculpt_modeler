@@ -228,16 +228,24 @@ bake_glb :: proc(out: ^[dynamic]u8, low: ^Object, quads: geom.Quad_Mesh, src: ge
 		metallic  = own.metallic,
 		roughness = own.roughness,
 	}
-	_ = quad_object_glb(out, low, quads, name, {.Base_Color = base_color, .Orm = orm, .Normal = normal}, mat, occlusion)
+	_, _ = quad_object_glb(out, low, quads, name, {.Base_Color = base_color, .Orm = orm, .Normal = normal}, mat, occlusion)
 }
 
 // Quad object `obj` (`quads`, its base level) as a binary glTF: its quads as triangles,
 // split where the UVs are, with normals, UVs and the tangents the normal map was baked
 // in, and material `mat` with `maps` (nil for none) embedded as its textures: a base
 // colour map stands for the material's colour, and an ORM map for its roughness and metal
-// and, with `occlusion`, its occlusion. `morphs` are the base level's layers, carried onto
-// the split vertices. False when the file would pass glTF's 4 GB.
-quad_object_glb :: proc(out: ^[dynamic]u8, obj: ^Object, quads: geom.Quad_Mesh, name: string, maps: [render.Texture_Map][]u8, mat: geom.Export_Material, occlusion: bool, morphs: []geom.Morph_Target = nil) -> bool {
+// and, with `occlusion`, its occlusion. A map that is neither PNG nor JPEG, the two glTF
+// reads, goes as PNG. `morphs` are the base level's layers and `colors` its vertex colours
+// (nil for none), carried onto the split vertices. Returns how many vertices were
+// written; false when the file would pass glTF's 4 GB.
+quad_object_glb :: proc(out: ^[dynamic]u8, obj: ^Object, quads: geom.Quad_Mesh, name: string, maps: [render.Texture_Map][]u8, mat: geom.Export_Material, occlusion: bool, morphs: []geom.Morph_Target = nil, colors: [][3]u8 = nil) -> (vertices: int, ok: bool) {
+	maps := maps
+	for &img in maps {
+		if img == nil || geom.image_mime(img) == "image/jpeg" || (len(img) >= 4 && string(img[:4]) == "\x89PNG") do continue
+		pixels, w, h, failed := matcap_pixels(img, context.temp_allocator)
+		img = png_write.encode(pixels, w, h, false, context.temp_allocator) if failed == "" else nil
+	}
 	uvs := obj.levels.faces.uv
 	normals := geom.quad_mesh_normals(quads, context.temp_allocator)
 	frame := geom.quad_mesh_tangents(quads, uvs, normals, context.temp_allocator)
@@ -272,6 +280,11 @@ quad_object_glb :: proc(out: ^[dynamic]u8, obj: ^Object, quads: geom.Quad_Mesh, 
 		}
 		split[k] = {m.name, m.weight, vertices[:], deltas[:]}
 	}
+	split_colors: [][3]u8
+	if colors != nil {
+		split_colors = make([][3]u8, len(frame.vertex), context.temp_allocator)
+		for v, slot in frame.vertex do split_colors[slot] = colors[v]
+	}
 	m := geom.Mesh_Export {
 		name      = name,
 		positions = positions,
@@ -282,10 +295,11 @@ quad_object_glb :: proc(out: ^[dynamic]u8, obj: ^Object, quads: geom.Quad_Mesh, 
 		images    = images[:],
 		material  = mat,
 		morphs    = split,
+		colors    = split_colors,
 		scale     = obj.file.scale,
 		offset    = obj.file.position,
 	}
-	return geom.mesh_write_glb(out, m)
+	return len(positions), geom.mesh_write_glb(out, m)
 }
 
 // What a bake reads from object `src`, whose top level (or packed copy, when dynamic) is

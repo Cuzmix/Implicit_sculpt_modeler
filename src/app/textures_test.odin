@@ -1,5 +1,8 @@
 package main
 
+import "core:bytes"
+import "core:image"
+import "core:image/qoi"
 import "core:math/linalg"
 import "core:os"
 import "core:strings"
@@ -29,6 +32,28 @@ quad_object :: proc(t: ^testing.T, obj: ^Object) -> bool {
 	sculpt.levels_set_quads(&obj.levels, q.quads)
 	sculpt.levels_set_uvs(&obj.levels, uv)
 	return true
+}
+
+// A tiny QOI image of one colour, which glTF cannot embed.
+@(private = "file")
+qoi_of :: proc(c: [4]u8, side := 4) -> []u8 {
+	c := c
+	pixels := make([]u8, side * side * 4, context.temp_allocator)
+	for i in 0 ..< side * side do copy(pixels[4 * i:], c[:])
+	img := image.Image{width = side, height = side, channels = 4, depth = 8}
+	bytes.buffer_init(&img.pixels, pixels)
+	defer bytes.buffer_destroy(&img.pixels)
+	out: bytes.Buffer
+	_ = qoi.save_to_buffer(&out, &img)
+	return out.buf[:]
+}
+
+// The JSON chunk of the .glb at `path`, in temporary memory.
+@(private = "file")
+glb_json :: proc(t: ^testing.T, path: string) -> string {
+	data, err := os.read_entire_file(path, context.temp_allocator)
+	if !testing.expect(t, err == nil && len(data) > 20) do return ""
+	return string(data[20:][:int((^u32le)(&data[12])^)])
 }
 
 // A tiny PNG of one colour.
@@ -262,8 +287,9 @@ maps_load_and_remove :: proc(t: ^testing.T) {
 	free_all(context.temp_allocator)
 }
 
-// A textured object's .glb carries its maps through its UVs, with tangents and its layers;
-// on a higher level, or as OBJ, it goes as before.
+// A textured object's .glb carries its maps through its UVs, with tangents and its layers,
+// a map glTF cannot hold (QOI here) as PNG, and its polypaint only without a base colour
+// map; on a higher level it goes as before.
 @(test)
 textured_export_carries_the_maps :: proc(t: ^testing.T) {
 	FOLDER :: "build/textures_test_export/"
@@ -283,20 +309,29 @@ textured_export_carries_the_maps :: proc(t: ^testing.T) {
 	if !quad_object(t, obj) do return
 	_ = sculpt.sculptor_layer_add(object_sculptor(obj))
 	testing.expect(t, !object_exports_textures(obj), "no maps yet")
+	s := object_sculptor(obj)
+	s.color = make([]sculpt.Color, len(s.mesh.positions))
+	for &c in s.color do c = {200, 30, 20, 255}
 	maps: Object_Textures
-	maps.image[.Base_Color] = png_of({200, 30, 20, 255})
+	maps.image[.Base_Color] = qoi_of({200, 30, 20, 255})
 	maps.image[.Normal] = png_of({128, 128, 255, 255})
 	textures_replace(&app, obj, maps, "bake maps")
 	testing.expect(t, object_exports_textures(obj))
 	if !testing.expect(t, object_export(&app, obj, path)) do return
-	data, err := os.read_entire_file(path, context.allocator)
-	defer delete(data)
-	if !testing.expect(t, err == nil && len(data) > 20) do return
-	json := string(data[20:][:int((^u32le)(&data[12])^)])
+	json := glb_json(t, path)
 	for want in ([?]string{`"TEXCOORD_0"`, `"TANGENT"`, `"baseColorTexture"`, `"normalTexture"`, `"targets"`}) {
 		testing.expectf(t, strings.contains(json, want), "the file has no %s", want)
 	}
-	testing.expect_value(t, strings.count(json, `"mimeType"`), 2)
+	testing.expect_value(t, strings.count(json, `"mimeType":"image/png"`), 2)
+	testing.expect(t, !strings.contains(json, `"COLOR_0"`), "the base colour map stands for the paint")
+
+	// With the normal map alone, the paint goes as vertex colours.
+	only: Object_Textures
+	only.image[.Normal] = png_of({128, 128, 255, 255})
+	textures_replace(&app, obj, only, "load normal map")
+	if !testing.expect(t, object_export(&app, obj, path)) do return
+	json = glb_json(t, path)
+	testing.expect(t, strings.contains(json, `"COLOR_0"`) && strings.contains(json, `"normalTexture"`))
 	testing.expect(t, sculpt.levels_subdivide(&obj.levels))
 	testing.expect(t, !object_exports_textures(obj), "the maps follow the base level's UVs only")
 	free_all(context.temp_allocator)

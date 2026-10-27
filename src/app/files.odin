@@ -537,12 +537,14 @@ object_export :: proc(app: ^App, obj: ^Object, path: string) -> bool {
 		layers = len(morphs)
 		if ext == ".glb" && object_exports_textures(obj) {
 			// Its maps go as the material's textures, through the UVs, on the quads split
-			// where the UVs are, as a bake's own .glb has them (retopo.odin); the maps
-			// stand for vertex colours and polygroup materials.
-			mat := export_material(object_material(app, obj))
+			// where the UVs are, as a bake's own .glb has them (retopo.odin), with the
+			// polypaint unless a base colour map stands for it (glTF would multiply the
+			// two); polygroup materials stay out, since the maps give one material.
 			q := sculpt.levels_quad_mesh(&obj.levels)
-			vertices = len(q.positions)
-			if !quad_object_glb(&out, obj, q, object_label(obj), obj.textures.image, mat, true, morphs) {
+			paint := colors if obj.textures.image[.Base_Color] == nil else nil
+			written: bool
+			vertices, written = quad_object_glb(&out, obj, q, object_label(obj), obj.textures.image, material, true, morphs, paint)
+			if !written {
 				free_all(context.temp_allocator)
 				file_note(app, true, "Cannot export %s: a glTF file holds at most 4 GB", name)
 				return false
