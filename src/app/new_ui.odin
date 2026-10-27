@@ -1102,9 +1102,6 @@ kit_menu :: proc(app: ^App, anchor: ui.Rect) {
 	for id in ([?]Command_Id{.Open_Scene, .Save_Scene, .Save_Scene_As, .Save_Scene_Copy, .Scene_Versions, .Open_Last_Autosave, .Import_Mesh, .Export_Mesh, .Screenshot}) {
 		if command_menu_item(app, id) do pick = true
 	}
-	when LINK_AVAILABLE {
-		for id in ([?]Command_Id{.Send_To_Blender, .Get_From_Blender}) do if command_menu_item(app, id) do pick = true
-	}
 	ui.divider(ctx, across = true)
 	ui.caption(ctx, "  NEW SCENE")
 	// Three to a row, each its shape's name; one armed by a first tap (the scene has work
