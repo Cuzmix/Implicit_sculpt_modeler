@@ -56,6 +56,9 @@ group_material_set :: proc(obj: ^Object, group: u16, m: Material, clear := false
 	m := m
 	m.selected.a, m.idle.a = 1, 1
 	if m.label == nil do m.label = "Custom"
+	// A Custom one made from a content pack's material (the object's, say) is no longer
+	// the pack's.
+	if m.label == "Custom" do m.pack = 0
 	if exists {
 		obj.group_materials[at].material = m
 		return ""
@@ -173,20 +176,21 @@ group_materials_replace :: proc(app: ^App, obj: ^Object, table: []Group_Material
 }
 
 // The scene file's form of an object's table (object_put, version 15): the count, then
-// each group and its material.
-group_materials_put :: proc(out: ^[dynamic]u8, obj: ^Object) {
+// each group and its material, with its content pack parts by name, one of `refs` a
+// group (version 16; none for none).
+group_materials_put :: proc(out: ^[dynamic]u8, obj: ^Object, refs: []Material_Refs = nil) {
 	geom.byte_put(out, u16(len(obj.group_materials)))
-	for e in obj.group_materials {
+	for e, k in obj.group_materials {
 		geom.byte_put(out, e.group)
-		material_put(out, e.material)
+		material_put(out, e.material, refs[k] if k < len(refs) else {})
 	}
 }
 
 // Reads what group_materials_put writes into obj.group_materials; r.ok goes false on a
 // table no object has: too long, groups not rising from 1, or a material that is unset, a
 // MatCap or damaged. Groups need not exist: a table may hold groups a later step brings
-// back.
-group_materials_get :: proc(r: ^geom.Byte_Reader, obj: ^Object) {
+// back. A content pack's material is looked up in `app` as material_get does.
+group_materials_get :: proc(r: ^geom.Byte_Reader, obj: ^Object, app: ^App = nil, version := SCENE_VERSION, missing: ^int = nil) {
 	n := int(geom.byte_get(r, u16))
 	if !r.ok || n > GROUP_MATERIALS_MAX {
 		r.ok = false
@@ -195,7 +199,7 @@ group_materials_get :: proc(r: ^geom.Byte_Reader, obj: ^Object) {
 	last := u16(0)
 	for _ in 0 ..< n {
 		group := geom.byte_get(r, u16)
-		m := material_get(r)
+		m := material_get(r, app, version, missing)
 		if !r.ok || group <= last || m.label == nil || !group_material_allowed(m) {
 			r.ok = false
 			return

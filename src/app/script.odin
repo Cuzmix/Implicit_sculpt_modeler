@@ -110,7 +110,7 @@ Script_Statement :: struct {
 	verb:    Script_Verb,
 	numbers: [4]f32, // .Verb: move and rotate's x y z, mask_rect's edges, layer's strength
 	flip:    bool, // .Verb: hide's - side, a hidden layer
-	text:    string, // .Verb: alpha's name or file, matcap's file; heap
+	text:    string, // .Verb: alpha's name or file, matcap's file; .Line: a pack's material, `<id>/<name>`; heap
 }
 
 Script_Error :: struct {
@@ -280,7 +280,11 @@ script_statement :: proc(s: ^Script, line: int, words: []string) {
 				return
 			}
 			st.kind, st.setting, st.value = .Set, row, v
-		} else if set := setting_line(key); set.parse != nil {
+		} else if set := setting_line(key); key == "material" && strings.contains_rune(strings.join(args[1:], " ", context.temp_allocator), '/') {
+			// A content pack's material, looked up when the line runs, since a pack an
+			// earlier line installs is not there yet.
+			st.kind, st.set, st.text = .Line, set, strings.clone(preset_unescape(strings.join(args[1:], " ", context.temp_allocator)))
+		} else if set.parse != nil {
 			v, v_ok := set.parse(args[1:])
 			if !v_ok {
 				script_error(s, line, "%q is not a value of %s", strings.join(args[1:], " ", context.temp_allocator), key)
@@ -566,10 +570,19 @@ script_set :: proc(app: ^App, st: Script_Statement) {
 	#partial switch st.kind {
 	case .Set:  setting_write(app, st.setting, st.value)
 	case .Line:
-		st.set.apply(app, st.line_value)
+		if st.text != "" {
+			// A content pack's material (script_statement).
+			if j := pack_material_by_ref(app, st.text); j >= 0 do app.material = PACK_MATERIAL + j
+		} else {
+			st.set.apply(app, st.line_value)
+		}
 		// A script's material is the selection's too, as picking one in the Material
 		// section is; the settings file only sets the default new objects take.
-		if st.set.key == "material" do material_set(app, current_material(app))
+		if st.set.key == "material" {
+			// The autosave thread may be reading the objects' materials.
+			autosave_settle(app)
+			material_set(app, current_material(app))
+		}
 	}
 }
 
@@ -711,6 +724,7 @@ script_step :: proc(app: ^App, st: Script_Statement) -> (failure: string, ok: bo
 	switch st.kind {
 	case .Wait:
 	case .Set, .Line:
+		if st.text != "" && pack_material_by_ref(app, st.text) < 0 do return fmt.tprintf("no content pack has a material named %q", st.text), true
 		script_set(app, st)
 	case .Select:
 		n := len(app.scene.objects)

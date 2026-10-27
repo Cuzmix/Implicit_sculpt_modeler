@@ -41,6 +41,9 @@ Library :: struct {
 	packs:        [dynamic]Pack, // sorted by id at start, then in the order installed
 	presets:      [dynamic]Pack_Preset, // every pack's brush presets, a removed pack's marked gone
 	meshes:       [dynamic]Pack_Mesh, // every pack's base meshes, a removed pack's marked gone
+	matcaps:      [dynamic]Pack_Matcap, // every pack's matcaps, likewise
+	materials:    [dynamic]Pack_Material, // every pack's materials, likewise
+	textures_made: int,   // pack matcap textures made this run, as they were first shown
 	installed:    int,    // packs installed this run
 	refused:      int,    // packs refused this run
 	worker:       ^Pack_Worker,    // the install under way, or nil
@@ -87,6 +90,12 @@ library_destroy :: proc(app: ^App) {
 	delete(l.presets)
 	for &m in l.meshes do pack_mesh_free(&m)
 	delete(l.meshes)
+	// Objects and the settings may hold the materials' labels until here: this runs after
+	// settings_save and the scene's last use, and before the renderer goes.
+	for &m in l.matcaps do pack_matcap_free(app, &m)
+	delete(l.matcaps)
+	for &m in l.materials do pack_material_free(&m)
+	delete(l.materials)
 	delete(l.folder)
 	l^ = {}
 }
@@ -137,6 +146,12 @@ library_load :: proc(app: ^App, folder: string) {
 				p.presets = pack_presets_add(app, p.id, read[:])
 			}
 			p.meshes = pack_meshes_load(app, p.id, fi.fullpath)
+			refused: bool
+			p.materials, refused = pack_materials_load(app, p.id, fi.fullpath)
+			if refused {
+				if first_skipped == "" do first_skipped = fmt.tprintf("%s/%s", fi.name, PACK_MATERIALS)
+				l.skipped += 1
+			}
 			append(&l.packs, p)
 		}
 	}
