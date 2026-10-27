@@ -1358,3 +1358,29 @@ tree_row_grip_drags_and_toggles_hold_for_a_column :: proc(t: ^testing.T) {
 	testing.expect(t, !dragging && rows[1].held_toggle == 0)
 	testing.expect_value(t, scroll, 0)
 }
+
+// fill_mesh adds its points in physical pixels with their own colours after whatever was
+// drawn before, offsets its indices by them, and leaves out a triangle naming a point it
+// was not given.
+@(test)
+fill_mesh_adds_coloured_triangles_after_what_was_drawn :: proc(t: ^testing.T) {
+	ctx: Context
+	init(&ctx)
+	defer destroy(&ctx)
+	input := input_at({-1, -1})
+	input.pixel_density = 2
+	frame_begin(&ctx, input)
+	fill_rect(&ctx, {0, 0, 10, 10}, 0, {255, 255, 255, 255})
+	base := len(ctx.draw.vertices)
+	indices_before := len(ctx.draw.indices)
+	points := [3][2]f32{{10, 10}, {20, 10}, {10, 20}}
+	colors := [3]Color{{255, 0, 0, 255}, {0, 255, 0, 255}, {0, 0, 255, 255}}
+	fill_mesh(&ctx, points[:], colors[:], {0, 1, 2, 0, 2, 7})
+	testing.expect_value(t, len(ctx.draw.vertices), base + 3)
+	testing.expect_value(t, ctx.draw.vertices[base + 1].pos, [2]f32{40, 20})
+	testing.expect_value(t, ctx.draw.vertices[base + 2].color, Color{0, 0, 255, 255})
+	testing.expect_value(t, len(ctx.draw.indices), indices_before + 3)
+	added := ctx.draw.indices[indices_before:]
+	testing.expect_value(t, [3]u32{added[0], added[1], added[2]}, [3]u32{u32(base), u32(base + 1), u32(base + 2)})
+	frame_end(&ctx)
+}

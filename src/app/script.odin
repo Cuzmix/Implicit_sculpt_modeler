@@ -168,6 +168,13 @@ script_command :: proc(name: string) -> Command_Id {
 
 // The setting row a script names `name`, from either table.
 script_setting :: proc(name: string) -> (Setting, bool) {
+	// The first two lights' strengths by the names they had when there were only a key
+	// and a fill, so older scripts still run.
+	name := name
+	switch name {
+	case "light_key":  name = "light1_strength"
+	case "light_fill": name = "light2_strength"
+	}
 	for s in SETTINGS do if s.key == name do return s, true
 	for s in SCRIPT_VALUES do if s.key == name do return s, true
 	return {}, false
