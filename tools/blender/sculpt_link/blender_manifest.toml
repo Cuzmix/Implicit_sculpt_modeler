@@ -1,7 +1,7 @@
-schema_version = "1.1.0"
+schema_version = "1.0.0"
 
 id = "sculpt_link"
-version = "1.0.0"
+version = "1.2.0"
 name = "Sculpt link"
 tagline = "Sends meshes to and from the Sculpt app, as GoZ does for ZBrush"
 maintainer = "Implicit"

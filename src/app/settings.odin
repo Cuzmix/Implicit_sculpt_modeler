@@ -91,20 +91,23 @@ LIGHT_FIELDS := [?]Light_Field {
 	{"blend", offset_of(Light, blend), f32, 0, 1},
 	// A colour temperature: 0 for none, else at least LIGHT_KELVIN_MIN (lights_settle).
 	{"kelvin", offset_of(Light, kelvin), f32, 0, LIGHT_KELVIN_MAX},
+	// Its size: a sun's angle in degrees, a point or spot light's radius in scene units.
+	{"angle", offset_of(Light, angle), f32, 0, LIGHT_ANGLE_MAX},
+	{"radius", offset_of(Light, radius), f32, 0, LIGHT_RADIUS_MAX},
 }
 
 // Each light's keys, LIGHT_FIELDS' names after "light<N>_": constants, since a row keeps
 // its key (a test checks they match).
 @(rodata)
 LIGHT_KEYS := [LIGHT_COUNT][len(LIGHT_FIELDS)]string {
-	{"light1_on", "light1_kind", "light1_space", "light1_x", "light1_y", "light1_z", "light1_px", "light1_py", "light1_pz", "light1_strength", "light1_ref", "light1_reach", "light1_cone", "light1_blend", "light1_kelvin"},
-	{"light2_on", "light2_kind", "light2_space", "light2_x", "light2_y", "light2_z", "light2_px", "light2_py", "light2_pz", "light2_strength", "light2_ref", "light2_reach", "light2_cone", "light2_blend", "light2_kelvin"},
-	{"light3_on", "light3_kind", "light3_space", "light3_x", "light3_y", "light3_z", "light3_px", "light3_py", "light3_pz", "light3_strength", "light3_ref", "light3_reach", "light3_cone", "light3_blend", "light3_kelvin"},
-	{"light4_on", "light4_kind", "light4_space", "light4_x", "light4_y", "light4_z", "light4_px", "light4_py", "light4_pz", "light4_strength", "light4_ref", "light4_reach", "light4_cone", "light4_blend", "light4_kelvin"},
-	{"light5_on", "light5_kind", "light5_space", "light5_x", "light5_y", "light5_z", "light5_px", "light5_py", "light5_pz", "light5_strength", "light5_ref", "light5_reach", "light5_cone", "light5_blend", "light5_kelvin"},
-	{"light6_on", "light6_kind", "light6_space", "light6_x", "light6_y", "light6_z", "light6_px", "light6_py", "light6_pz", "light6_strength", "light6_ref", "light6_reach", "light6_cone", "light6_blend", "light6_kelvin"},
-	{"light7_on", "light7_kind", "light7_space", "light7_x", "light7_y", "light7_z", "light7_px", "light7_py", "light7_pz", "light7_strength", "light7_ref", "light7_reach", "light7_cone", "light7_blend", "light7_kelvin"},
-	{"light8_on", "light8_kind", "light8_space", "light8_x", "light8_y", "light8_z", "light8_px", "light8_py", "light8_pz", "light8_strength", "light8_ref", "light8_reach", "light8_cone", "light8_blend", "light8_kelvin"},
+	{"light1_on", "light1_kind", "light1_space", "light1_x", "light1_y", "light1_z", "light1_px", "light1_py", "light1_pz", "light1_strength", "light1_ref", "light1_reach", "light1_cone", "light1_blend", "light1_kelvin", "light1_angle", "light1_radius"},
+	{"light2_on", "light2_kind", "light2_space", "light2_x", "light2_y", "light2_z", "light2_px", "light2_py", "light2_pz", "light2_strength", "light2_ref", "light2_reach", "light2_cone", "light2_blend", "light2_kelvin", "light2_angle", "light2_radius"},
+	{"light3_on", "light3_kind", "light3_space", "light3_x", "light3_y", "light3_z", "light3_px", "light3_py", "light3_pz", "light3_strength", "light3_ref", "light3_reach", "light3_cone", "light3_blend", "light3_kelvin", "light3_angle", "light3_radius"},
+	{"light4_on", "light4_kind", "light4_space", "light4_x", "light4_y", "light4_z", "light4_px", "light4_py", "light4_pz", "light4_strength", "light4_ref", "light4_reach", "light4_cone", "light4_blend", "light4_kelvin", "light4_angle", "light4_radius"},
+	{"light5_on", "light5_kind", "light5_space", "light5_x", "light5_y", "light5_z", "light5_px", "light5_py", "light5_pz", "light5_strength", "light5_ref", "light5_reach", "light5_cone", "light5_blend", "light5_kelvin", "light5_angle", "light5_radius"},
+	{"light6_on", "light6_kind", "light6_space", "light6_x", "light6_y", "light6_z", "light6_px", "light6_py", "light6_pz", "light6_strength", "light6_ref", "light6_reach", "light6_cone", "light6_blend", "light6_kelvin", "light6_angle", "light6_radius"},
+	{"light7_on", "light7_kind", "light7_space", "light7_x", "light7_y", "light7_z", "light7_px", "light7_py", "light7_pz", "light7_strength", "light7_ref", "light7_reach", "light7_cone", "light7_blend", "light7_kelvin", "light7_angle", "light7_radius"},
+	{"light8_on", "light8_kind", "light8_space", "light8_x", "light8_y", "light8_z", "light8_px", "light8_py", "light8_pz", "light8_strength", "light8_ref", "light8_reach", "light8_cone", "light8_blend", "light8_kelvin", "light8_angle", "light8_radius"},
 }
 
 // Each light's colour in linear light, as paint_color is written.

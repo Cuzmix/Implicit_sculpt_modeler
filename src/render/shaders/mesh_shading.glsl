@@ -37,7 +37,8 @@ layout(set = 3, binding = 0) uniform Material_Uniforms {
 	// linear light with its strength in w (0 for off); a spot's axis with the cosine of
 	// half its cone in w; and its shape: x the distance at which it is as bright as a sun
 	// of its strength, y where it fades to nothing (0: never), z the cosine where a spot's
-	// edge starts to fade.
+	// edge starts to fade, w its size: the sine of a sun's angular radius, or a point or
+	// spot light's radius (0: no size).
 	vec4 light_pos[LIGHT_COUNT];
 	vec4 light_color[LIGHT_COUNT];
 	vec4 light_spot[LIGHT_COUNT];
@@ -222,20 +223,66 @@ vec3 direct(vec3 n, vec3 v, vec3 l, vec3 diffuse, vec3 f0, float a) {
 	return (diffuse / PI + D * V * F) * n_dot_l;
 }
 
+// The direction inside a light seen as a disc of angular radius asin(spread) about `l`
+// that is nearest the mirror direction `r`: Karis's representative point ("Real Shading
+// in Unreal Engine 4"), as Filament shades its sun's disc. Where the mirror direction
+// falls inside the light it is the mirror direction itself.
+vec3 nearest_in_light(vec3 l, vec3 r, float spread) {
+	float cos_r = sqrt(max(1.0 - spread * spread, 0.0));
+	float l_dot_r = dot(l, r);
+	if (l_dot_r >= cos_r) return r;
+	vec3 s = r - l_dot_r * l;
+	float s2 = dot(s, s);
+	// The mirror direction straight away from the light has no nearest side.
+	if (s2 < 1e-12) return l;
+	return normalize(l * cos_r + s * (inversesqrt(s2) * spread));
+}
+
+// How much a light's size spreads a highlight of GGX width `a`: the width it is widened
+// to, so the energy the representative point adds is taken out again, (a / a')^2.
+float widened(float a, float spread) {
+	float wide = min(a + 0.5 * spread, 1.0);
+	return (a * a) / (wide * wide);
+}
+
+// direct() for a light with a size: the diffuse part from its middle, the specular from
+// the point of it nearest the mirror direction `r`, normalized by how much it widens.
+vec3 direct_sized(vec3 n, vec3 v, vec3 l, vec3 r, float spread, vec3 diffuse, vec3 f0, float a) {
+	vec3 color = diffuse / PI * max(dot(n, l), 0.0);
+	vec3 ls = nearest_in_light(l, r, spread);
+	float n_dot_l = max(dot(n, ls), 0.0);
+	if (n_dot_l <= 0.0) return color;
+	vec3 h = normalize(ls + v);
+	float n_dot_v = max(dot(n, v), 1e-4);
+	float n_dot_h = max(dot(n, h), 0.0);
+	float a2 = a * a;
+	float d = n_dot_h * n_dot_h * (a2 - 1.0) + 1.0;
+	float D = a2 / (PI * d * d) * widened(a, spread);
+	float V = 0.5 / max(mix(2.0 * n_dot_l * n_dot_v, n_dot_l + n_dot_v, a), 1e-4);
+	vec3 F = f0 + (1.0 - f0) * pow(1.0 - max(dot(v, h), 0.0), 5.0);
+	return color + D * V * F * n_dot_l;
+}
+
 // Light `i` at this pixel: toward it in `l`, and how much of its strength arrives. A sun
 // arrives whole. A point or spot light falls off with the square of the distance, equal to
 // a sun at light_shape.x, faded smoothly to nothing at its reach (Karis's window, so a far
 // light never pops off), and a spot only inside its cone, its edge faded over the blend.
-float light_at(int i, out vec3 l) {
+// `spread` is how big the light looks from here, the sine of its angular radius: a sun's
+// is fixed, a point or spot light's grows as the surface nears it, all of the sky once
+// the surface is inside it; 0 for a light with no size.
+float light_at(int i, out vec3 l, out float spread) {
 	vec4 p = light_pos[i];
+	vec4 shape = light_shape[i];
 	if (p.w < 0.5) {
 		l = p.xyz;
+		spread = shape.w;
 		return 1.0;
 	}
 	vec3 d = p.xyz - in_view_pos;
 	float dist2 = max(dot(d, d), 1e-8);
-	l = d * inversesqrt(dist2);
-	vec4 shape = light_shape[i];
+	float inv = inversesqrt(dist2);
+	l = d * inv;
+	spread = min(shape.w * inv, 1.0);
 	float k = shape.x * shape.x / dist2;
 	if (shape.y > 0.0) {
 		float x = dist2 / (shape.y * shape.y);
@@ -403,21 +450,24 @@ void main() {
 		vec3 diffuse = albedo * (1.0 - metallic);
 		vec3 f0 = mix(vec3(0.04), albedo, metallic);
 		float n_dot_v = max(dot(n, v), 1e-4);
+		vec3 r = reflect(-v, n);
 
 		vec3 color = vec3(0.0);
 		for (int i = 0; i < LIGHT_COUNT; i++) {
 			float s = light_color[i].w;
 			if (s <= 0.0) continue;
 			vec3 l;
-			float k = light_at(i, l);
-			if (k > 0.0) color += direct(n, v, l, diffuse, f0, a) * light_color[i].rgb * (3.0 * (s * k));
+			float spread;
+			float k = light_at(i, l, spread);
+			if (k <= 0.0) continue;
+			vec3 lit = spread > 0.0 ? direct_sized(n, v, l, r, spread, diffuse, f0, a) : direct(n, v, l, diffuse, f0, a);
+			color += lit * light_color[i].rgb * (3.0 * (s * k));
 		}
 		// Light from the whole studio or image environment, which turns with the rig: the
 		// studio's blurriest version scaled by the ambient light (or the image's harmonics)
 		// for the diffuse part, and the reflection blurred by roughness for the specular.
 		// The studio's diffuse is dimmed to sit with its lights; an image's is taken at its
 		// own Strength, so a white surface in a white environment reads white.
-		vec3 r = reflect(-v, n);
 		vec2 ab = env_brdf(n_dot_v, rough);
 		mat3 to_rig = transpose(rig);
 		if (env.x > 0.5) {
@@ -438,14 +488,25 @@ void main() {
 	float wrap = shading.w;
 	vec3 lit = vec3(shading.x * ao * ambient);
 	vec3 spec = vec3(0.0);
+	vec3 mirror = reflect(-v, n);
 	for (int i = 0; i < LIGHT_COUNT; i++) {
 		float s = light_color[i].w;
 		if (s <= 0.0) continue;
 		vec3 l;
-		s *= light_at(i, l);
+		float spread;
+		s *= light_at(i, l, spread);
 		if (s <= 0.0) continue;
 		lit += light_color[i].rgb * (max((dot(n, l) + wrap) / (1.0 + wrap), 0.0) * s);
-		spec += light_color[i].rgb * (pow(max(dot(n, normalize(l + v)), 0.0), shading.z) * shading.y * s);
+		// A light with a size: the highlight from its point nearest the mirror direction,
+		// dimmed as it widens, taking the Blinn-Phong power as a GGX width
+		// (a = sqrt(2 / (power + 2)), Walter et al.).
+		vec3 h = normalize(l + v);
+		float shrink = 1.0;
+		if (spread > 0.0) {
+			h = normalize(nearest_in_light(l, mirror, spread) + v);
+			shrink = widened(sqrt(2.0 / (shading.z + 2.0)), spread);
+		}
+		spec += light_color[i].rgb * (pow(max(dot(n, h), 0.0), shading.z) * shading.y * s * shrink);
 	}
 	float rim  = pow(1.0 - max(dot(n, v), 0.0), 3.0) * 0.25;
 	if (style.w > 0.5) {

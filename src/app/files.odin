@@ -61,7 +61,7 @@ File_Request :: struct {
 // be in a console nobody watches. `at` tells a new note from the one already shown.
 // The native scene file starts with these bytes, then its version.
 SCENE_MAGIC :: "SCULPTSC"
-SCENE_VERSION :: u32(20) // 2: each object's rotation; 3: the current level's polypaint and polygroups; 4: sculpt layers, and a retopologized object's quads and UVs (sculpt.levels_write); 5: each object's boolean mode; 6: the base level's node layout (sculpt.levels_write); 7: the camera's roll; 8: each object's eye and ghost, and Solo; 9: folders, and each object's folder; 10: selection sets (sculpt.levels_write); 11: each object's polypaint shown or not (a third view bit); 12: stored visibility (V1 to V8): the slot chosen and used, and each folder's and object's eyes in them; 13: each object's kind (mesh or voxel), a voxel object's resolution and clay after its empty level (voxel.clay_write); 14: each object's material (material_put); 15: each object's polygroups with materials of their own (group_materials_put); 16: the content pack parts of the object's and its groups' materials, by name (material_refs); 17: the scene's Blender link token (link.odin); 18: each object's texture maps (textures_put); 19: the scene's lights (lights_put); 20: each light's colour temperature and name
+SCENE_VERSION :: u32(21) // 2: each object's rotation; 3: the current level's polypaint and polygroups; 4: sculpt layers, and a retopologized object's quads and UVs (sculpt.levels_write); 5: each object's boolean mode; 6: the base level's node layout (sculpt.levels_write); 7: the camera's roll; 8: each object's eye and ghost, and Solo; 9: folders, and each object's folder; 10: selection sets (sculpt.levels_write); 11: each object's polypaint shown or not (a third view bit); 12: stored visibility (V1 to V8): the slot chosen and used, and each folder's and object's eyes in them; 13: each object's kind (mesh or voxel), a voxel object's resolution and clay after its empty level (voxel.clay_write); 14: each object's material (material_put); 15: each object's polygroups with materials of their own (group_materials_put); 16: the content pack parts of the object's and its groups' materials, by name (material_refs); 17: the scene's Blender link token (link.odin); 18: each object's texture maps (textures_put); 19: the scene's lights (lights_put); 20: each light's colour temperature and name; 21: each light's size (a sun's angle, a lamp's radius)
 
 // The request waiting for the next frame, and whether a dialog is showing. Kept here
 // rather than in App because SDL may call a dialog back on another thread, even after
@@ -775,7 +775,7 @@ scene_header_put :: proc(app: ^App, out: ^[dynamic]u8) {
 	geom.byte_put(out, u8(app.scene.vis_slot))
 	geom.byte_put(out, app.scene.vis_used)
 	geom.byte_put(out, app.scene.link_token) // version 17
-	lights_put(out, app.scene.lights) // version 19, 20
+	lights_put(out, app.scene.lights) // version 19, 20, 21
 }
 
 // The lights as a scene file stores them: how many, the ambient light, then each light.
@@ -798,6 +798,8 @@ lights_put :: proc(out: ^[dynamic]u8, set: Light_Set) {
 		geom.byte_put(out, l.color)
 		geom.byte_put(out, l.kelvin)
 		geom.byte_put(out, l.name)
+		geom.byte_put(out, l.angle) // version 21
+		geom.byte_put(out, l.radius)
 	}
 }
 
@@ -835,6 +837,12 @@ lights_get :: proc(r: ^geom.Byte_Reader, rest: Light_Set, version := SCENE_VERSI
 			for n < LIGHT_NAME && l.name[n] != 0 do n += 1
 			if n == LIGHT_NAME || !utf8.valid_string(string(l.name[:n])) do return {}, false
 			for b in l.name[n:] do if b != 0 do return {}, false
+		}
+		l.angle, l.radius = 0, 0
+		if version >= 21 {
+			l.angle = geom.byte_get(r, f32)
+			l.radius = geom.byte_get(r, f32)
+			if !r.ok || !(l.angle >= 0 && l.angle <= LIGHT_ANGLE_MAX) || !(l.radius >= 0 && l.radius <= LIGHT_RADIUS_MAX) do return {}, false
 		}
 	}
 	return set, true

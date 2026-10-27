@@ -409,6 +409,16 @@ usd_light :: proc(out: ^[dynamic]u8, u: ^Usd, l: Export_Light, name: string) {
 	usd_float(out, max(intensity, 0) * usd_light_scale(l.kind))
 	w(out, "\n")
 	if l.kind != .Directional do w(out, "        bool treatAsPoint = 1\n")
+	// A sun's size is the angle it fills across, in degrees, as UsdLux's DistantLight
+	// gives it (the real sun's 0.53), which leaves its strength alone. Blender's importer
+	// reads it as half the angle (its Angle comes in twice this), but the file follows the
+	// schema every other reader keeps. A lamp stays a point: USD measures a sphere
+	// light's intensity per area of it, so a radius would change what importers make of it.
+	if l.kind == .Directional && l.size > 0 {
+		w(out, "        float inputs:angle = ")
+		usd_float(out, l.size * 180 / math.PI)
+		w(out, "\n")
+	}
 	if l.kind == .Spot {
 		outer := clamp(l.outer_cone, 1e-4, math.PI / 2)
 		w(out, "        float inputs:shaping:cone:angle = ")

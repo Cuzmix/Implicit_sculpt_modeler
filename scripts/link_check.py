@@ -7,11 +7,12 @@ tools/blender/sculpt_link driven by bpy, and the app again.
     python scripts/link_check.py --package      # build/sculpt_link.zip, to install in Blender
 
 1. The app starts with two spheres, moves and turns the first, sends it (`send_to_blender`) and saves the
-   scene, which keeps the link's token. The scene's third light is made a point light and
-   switched on first, so the send lists three lights.
+   scene, which keeps the link's token. The scene's third light is made a point light of
+   radius 0.25 and switched on, and the key given a 10 degree angle, first, so the send
+   lists three lights with their sizes.
 2. In Blender the add-on's Get from Sculpt brings it in: the counts and the placement (Y up
    turned to Z up) are checked, and the lights: two suns at the watts a glTF export gives
-   them and a point light. Its first vertex is raised, the object moved one unit
+   them, a point light, and the sizes. Its first vertex is raised, the object moved one unit
    along Blender's X, and a cube of quads made beside it; Send to Sculpt sends both. A
    second Get from Sculpt must update the same object rather than make another. Then the
    add-on is enabled as a person enables it, and its two buttons run.
@@ -59,7 +60,8 @@ out = {"objects": len(got), "vertices": len(sphere.data.vertices), "triangles": 
        "matrix": [list(r) for r in sphere.matrix_world], "name": sphere.name}
 # The app's lights that are on, in their collection, as Blender's glTF importer gives them.
 shown = bpy.data.collections.get("Sculpt lights")
-out["lights"] = [[o.name, o.data.type, round(o.data.energy, 4), list(o.matrix_world.to_3x3() @ __import__("mathutils").Vector((0, 0, -1)))]
+out["lights"] = [[o.name, o.data.type, round(o.data.energy, 4), list(o.matrix_world.to_3x3() @ __import__("mathutils").Vector((0, 0, -1))),
+                  round(o.data.angle if o.data.type == "SUN" else o.data.shadow_soft_size, 4)]
                  for o in sorted(shown.objects, key=lambda o: o.name)] if shown else []
 v = sphere.data.vertices[0]
 v.co.z += 0.25
@@ -168,7 +170,7 @@ def main():
     before, after = os.path.join(WORK, "before.ply"), os.path.join(WORK, "after.ply")
     ok = True
 
-    s = app(f"--settings-file={settings}", "--spheres=2", "--subdiv=3", "--frames=2", "--script=select 1; move 1 2 3; rotate 10 20 30; set light3_kind point; set light3_on on; wait 1; send_to_blender", f"--save={scene}", f"--export={before}")
+    s = app(f"--settings-file={settings}", "--spheres=2", "--subdiv=3", "--frames=2", "--script=select 1; move 1 2 3; rotate 10 20 30; set light3_kind point; set light3_on on; set light3_radius 0.25; set light1_angle 10; wait 1; send_to_blender", f"--save={scene}", f"--export={before}")
     ok &= report("send", s.get("link_sent") == "1" and s.get("link_token") == "1", f"link_sent={s.get('link_sent')} link_token={s.get('link_token')}")
     placed = [float(x) for x in s.get("transform", "0,0,0,0,0,0,1").split(",")]
 
@@ -191,8 +193,11 @@ def main():
     # light made from the third, each as its own light in the Sculpt lights collection.
     kinds = [l[1] for l in b["lights"]]
     energies = [l[2] for l in b["lights"]]
-    ok &= report("blender lights", kinds == ["SUN", "SUN", "POINT"] and abs(energies[0] - math.pi) < 1e-3 and abs(energies[1] - math.pi * FILL_STRENGTH) < 1e-3 and energies[2] > 0,
-                 f"{[(l[0], l[1], l[2]) for l in b['lights']]}")
+    # Their sizes: the key's 10 degree angle, none for the fill, the lamp's 0.25 radius.
+    sizes = [l[4] for l in b["lights"]]
+    ok &= report("blender lights", kinds == ["SUN", "SUN", "POINT"] and abs(energies[0] - math.pi) < 1e-3 and abs(energies[1] - math.pi * FILL_STRENGTH) < 1e-3 and energies[2] > 0
+                 and len(sizes) == 3 and abs(sizes[0] - math.radians(10)) < 1e-3 and sizes[1] == 0 and abs(sizes[2] - 0.25) < 1e-3,
+                 f"{[(l[0], l[1], l[2], l[4]) for l in b['lights']]}")
     ok &= report("blender send", b["sent"] == 3 and b["again_same"], f"sent {b['sent']}, a second get kept one object: {b['again_same']}")
     ok &= report("blender add-on", b["operators"] == [["FINISHED"], ["FINISHED"]], f"enabled, Get from Sculpt and Send to Sculpt gave {b['operators']}")
 
