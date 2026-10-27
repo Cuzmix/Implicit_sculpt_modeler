@@ -60,6 +60,7 @@ Options :: struct {
 	density_preview: int `usage:"Show Object > Shape > Rebuild's density checkerboard on the selected object for an even remesh of this many vertices, held on as holding its Density slider shows it (for screenshots and timing)."`,
 	bench_tilt: f32 `usage:"Lean the synthetic pen of --bench-stroke this many degrees to the right (with set tilt_strength in a start-up script)."`,
 	no_vsync:  bool `usage:"Show each frame as soon as it is ready instead of waiting for the display's refresh, so frame times are not capped at the refresh rate."`,
+	frame_limit: int `usage:"Draw at most N frames a second (Settings > System > Frame rate > Limit)."`,
 	time_gpu:  bool `usage:"Measure the GPU time of the 3D viewport every frame. Waits for the GPU each frame, so frames no longer overlap."`,
 	gpubench:  string `usage:"Time the GPU and CPU while orbiting and sculpting one sphere at 500k, 1M, 5M, 7M and 10M vertices (only --vertices when given), with each speed setting on and off; write the markdown tables to this path and exit."`,
 	gpu_smooth: bool `usage:"Start with the Object palette's Deformation > On the GPU on, so Smooth all runs as a compute shader (the GPU compute trial)."`,
@@ -262,7 +263,9 @@ App :: struct {
 	lod_finish:  bool, // build every pending copy each frame, not a batch (gpubench)
 	view_key:    u64,       // camera, viewport size and object transforms last frame
 	view_moved:  time.Tick, // when view_key last changed
-	vsync:    bool, // wanted present mode, applied at the start of the next frame
+	frame_rate:  Frame_Rate, // how often to draw (frame_rate.odin), applied at the start of the next frame
+	frame_limit: i32,        // frames a second at most, for Frame_Rate.Limit
+	pacer:       Frame_Pacer,
 	msaa:     Msaa, // wanted anti-aliasing, applied before the next frame sizes the viewport (msaa.odin)
 	time_gpu: bool, // wait for each frame's 3D work, to measure its GPU time
 	window:   ^sdl.Window, // what file dialogs belong to
@@ -483,7 +486,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	app.renderer.partial = !opts.no_partial
 	app.simplify = !opts.no_simplify
 	app.simplify_px = 1
-	app.vsync = !opts.no_vsync && opts.gpubench == ""
+	app.frame_rate = .Unlimited if opts.no_vsync || opts.gpubench != "" else .Match_Display
+	app.frame_limit = FRAME_LIMIT_DEFAULT
 	app.msaa = MSAA_DEFAULT
 	// Before the settings file, which brings back what earlier runs chose.
 	app.cavity, app.ridge = CAVITY_DEFAULT, RIDGE_DEFAULT
@@ -525,7 +529,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	app.coach_run = (remember && opts.frames == 0) || opts.coach
 	if opts.coach do app.kit.coach = 0
 	app.kit.fixed_dt = opts.ui_dt
-	if opts.no_vsync do app.vsync = false
+	if opts.no_vsync do app.frame_rate = .Unlimited
+	if opts.frame_limit > 0 do app.frame_rate, app.frame_limit = .Limit, i32(clamp(opts.frame_limit, FRAME_LIMIT_MIN, FRAME_LIMIT_MAX))
 	app.ui.smooth_on_gpu = opts.gpu_smooth
 	if opts.bake_size > 0 do app.ui.bake.size = i32(opts.bake_size)
 	defer if remember do _ = settings_save(&app, settings)
@@ -615,16 +620,12 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		timeline_frame(&app)
 		history_cap(&app)
 		camera_history_frame(&app)
-		// Changing the present mode recreates the swapchain, so it happens before this
-		// frame acquires a swapchain texture.
-		if app.vsync != (app.renderer.present_mode == .VSYNC) {
-			if !render.renderer_set_vsync(&app.renderer, app.vsync) do app.vsync = app.renderer.present_mode == .VSYNC
-		}
-
-		// Wait for the display, and while timing the GPU for the previous frame too,
-		// before reading input: the frame then shows the newest input rather than input
-		// that sat through the wait.
+		// Wait for the display, or the frame rate limit, and while timing the GPU for the
+		// previous frame too, before reading input: the frame then shows the newest input
+		// rather than input that sat through the wait. Changing the present mode recreates
+		// the swapchain, so frame_pace runs before this frame acquires a swapchain texture.
 		wait_start := time.tick_now()
+		frame_pace(&app, window)
 		if present_fence != nil {
 			_ = sdl.WaitForGPUFences(app.renderer.device, true, &present_fence, 1)
 			sdl.ReleaseGPUFence(app.renderer.device, present_fence)
@@ -675,6 +676,9 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 				app.running = false
 			case .WINDOW_FOCUS_GAINED:
 				link_focus(&app)
+			case .DID_ENTER_FOREGROUND:
+				// The window comes back with a new surface, which has to ask for its frame rate again.
+				app.pacer.voted_window = nil
 			case .DID_ENTER_BACKGROUND:
 				// The system may end the app from the background without another word.
 				if app.settings_file != "" do _ = settings_save(&app, app.settings_file)
