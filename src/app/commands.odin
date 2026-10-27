@@ -202,6 +202,7 @@ Command_Id :: enum u8 {
 	Workspace_Delete,
 	View_Pass, // the argument is the render.View_Pass (passes.odin)
 	View_Pass_Last,
+	View_Grid, // the argument is the Grid_Preset (grid.odin)
 	Settings,
 	Reduce_Motion,
 	Command_Palette,
@@ -1680,6 +1681,16 @@ COMMANDS := [Command_Id]Command {
 		run = proc(app: ^App, _: int) {pass_back(&app.kit)},
 		enabled = proc(app: ^App, _: int) -> bool {return app.kit.passes.last != app.kit.passes.pass},
 	},
+	.View_Grid = {
+		label = "View grid",
+		help = "Splits the viewport into panes: the main view, where you sculpt, and views beside it from the front, the side or the top, each with its own camera and pass, drawn again once a stroke is over.",
+		icon = ui.ICON_GRID,
+		args = len(Grid_Preset),
+		run = proc(app: ^App, arg: int) {grid_set(&app.kit, Grid_Preset(arg))},
+		checked = proc(app: ^App, arg: int) -> bool {return app.kit.grid.preset == Grid_Preset(arg)},
+		// A recording keeps the frame it began with.
+		enabled = proc(app: ^App, _: int) -> bool {return !app.kit.passes.recording},
+	},
 	.Settings = {
 		label = "Settings...",
 		help = "Opens the app's settings.",
@@ -1985,6 +1996,8 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 		return fmt.tprintf("Pin %s as a panel", tray_section_title(sec))
 	case .View_Pass:
 		return fmt.tprintf("Pass: %s", PASS_LABELS[render.View_Pass(arg)])
+	case .View_Grid:
+		return fmt.tprintf("Grid: %s", GRID_NAMES[Grid_Preset(arg)])
 	case .Workspace:
 		// An own workspace's name is the user's, which no label here knows; menus show it.
 		if b, ok := workspace_built_in(arg); ok do return fmt.tprintf("Workspace: %v", b)

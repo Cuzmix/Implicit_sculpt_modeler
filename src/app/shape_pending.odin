@@ -259,10 +259,12 @@ kit_shape_bar :: proc(app: ^App) {
 	t := ctx.theme
 	lo, hi := p.points[0], p.points[0]
 	for q in p.points do lo, hi = linalg.min(lo, q), linalg.max(hi, q)
-	lo, hi = lo / k.scale, hi / k.scale
+	// The shape's points are the main pane's; the bar is placed in the window's points.
+	o := app.ui.viewport_origin
+	lo, hi = (lo + o) / k.scale, (hi + o) / k.scale
 	if shape_is_line(p.kind) {
 		// A line reaches across the view: the bar goes by the end it was dragged to.
-		lo, hi = p.points[1] / k.scale, p.points[1] / k.scale
+		lo, hi = (p.points[1] + o) / k.scale, (p.points[1] + o) / k.scale
 	}
 	size, _ := ui.prev_layout(ctx, "shape bar")
 	if size == {} do size = {300, t.target + 8}

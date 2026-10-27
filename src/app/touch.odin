@@ -289,7 +289,7 @@ touch_route :: proc(app: ^App, input: ^Viewport_Input) {
 		if nav.two_finger_pan do input.touch_pan = change.pan * nav.pan_speed
 		if nav.pinch_zoom && change.zoom != 1 do input.touch_zoom = math.pow(change.zoom, nav.zoom_speed)
 		// The pinch zooms toward the fingers and the twist rolls about them.
-		if nav.zoom_toward do input.touch_at = change.middle - input.size * 0.5
+		if nav.zoom_toward do input.touch_at = viewport_point(app, change.middle) - input.size * 0.5
 		// Twisting rolls the view (ZBrush's Allow Roll Gesture), once the fingers turned
 		// further than a pinch's wobble, and only where the view may roll.
 		if twist_rolls(nav) {
@@ -342,12 +342,12 @@ touch_lift_orbit :: proc(app: ^App, input: ^Viewport_Input) -> bool {
 		l.decided = true
 		still := f.travel <= slop && t.hold.fired == 0
 		l.armed = app.nav.lift_one_orbit && still && !t.palm && !t.pen_near && !t.pen_down
-		l.from, l.last = f.down[0].at, f.down[0].at
+		l.from, l.last = viewport_point(app, f.down[0].at), viewport_point(app, f.down[0].at)
 	}
 	// The pen coming near is the hand going back to work: the finger stops turning.
 	if t.pen_near || t.pen_down do l.armed = false
 	if !l.armed do return false
-	at := f.down[0].at
+	at := viewport_point(app, f.down[0].at)
 	if !l.moving {
 		if linalg.length(at - l.from) <= slop do return true
 		l.moving, l.last = true, at
@@ -370,7 +370,7 @@ touch_hold_history :: proc(app: ^App, change: ui.Finger_Change) -> bool {
 	h := &t.hold
 	h.zoom *= change.zoom
 	h.twist += change.twist
-	h.at, h.most = change.middle, f.most
+	h.at, h.most = viewport_point(app, change.middle), f.most
 	if h.off do return h.fired > 0
 	slop := app.kit.ctx.theme.slop * app.kit.scale
 	still := f.travel <= slop && abs(math.ln(h.zoom)) < HOLD_ZOOM && abs(h.twist) < HOLD_TWIST

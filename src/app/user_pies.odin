@@ -63,11 +63,13 @@ pie_toggle :: proc(app: ^App, which: int) {
 	k := &app.kit
 	area := ui.safe_area(&k.ctx)
 	s := k.scale
-	center := app.device.mouse if app.ui.viewport_hovered && !k.laying_out else [2]f32{area.x + area.w * 0.5, area.y + area.h * 0.5} * s
+	// In the main pane's coordinates, as the brush pie's and the overlay's are.
+	o := app.ui.viewport_origin
+	center := app.device.mouse - o if app.ui.viewport_hovered && !k.laying_out else [2]f32{area.x + area.w * 0.5, area.y + area.h * 0.5} * s - o
 	if p.open do center = p.center
 	// The labels reach past the ring a little; keep them on screen too.
 	r := (PIE_OUTER + 24) * s
-	lo, hi := [2]f32{area.x, area.y} * s + r, [2]f32{area.x + area.w, area.y + area.h} * s - r
+	lo, hi := [2]f32{area.x, area.y} * s + r - o, [2]f32{area.x + area.w, area.y + area.h} * s - r - o
 	center = {clamp(center.x, lo.x, max(hi.x, lo.x)), clamp(center.y, lo.y, max(hi.y, lo.y))}
 	p^ = {open = true, which = which, center = center, opened = input_clock(app), opened_frame = k.frame, hover = -1, space_down = p.space_down}
 	if k.palette do palette_close(app)

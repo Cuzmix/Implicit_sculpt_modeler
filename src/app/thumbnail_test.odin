@@ -17,12 +17,12 @@ second_view_presets_look_along_their_axis :: proc(t: ^testing.T) {
 	// Silhouette with the viewport's camera is the zero value, as the thumbnail was.
 	testing.expect_value(t, app.kit.second.camera, Second_Camera.Follow)
 	testing.expect_value(t, second_view_pass(app.kit.second.pass), render.View_Pass.Silhouette)
-	testing.expect_value(t, second_orbit(app), app.camera)
+	testing.expect_value(t, second_orbit(app, &app.kit.second), app.camera)
 
 	for dir, c in (#partial [Second_Camera][3]f32{.Front = {0, 0, 1}, .Back = {0, 0, -1}, .Right = {1, 0, 0}, .Left = {-1, 0, 0}, .Top = {0, 1, 0}, .Bottom = {0, -1, 0}}) {
 		if c == .Follow || c == .Free do continue
 		app.kit.second.camera = c
-		o := second_orbit(app)
+		o := second_orbit(app, &app.kit.second)
 		got := linalg.normalize(camera.orbit_eye(o) - o.target)
 		testing.expectf(t, linalg.dot(got, dir) > 0.999, "%v: eye direction %v", c, got)
 		testing.expectf(t, o.ortho && o.roll == 0 && o.distance == app.camera.distance, "%v is not a level orthographic view at the camera's distance", c)
@@ -32,13 +32,13 @@ second_view_presets_look_along_their_axis :: proc(t: ^testing.T) {
 
 	// Free before any turn starts from what the view showed, then keeps its own.
 	app.kit.second.camera = .Top
-	top := second_orbit(app)
-	second_free(app)
+	top := second_orbit(app, &app.kit.second)
+	second_free(app, &app.kit.second)
 	testing.expect_value(t, app.kit.second.camera, Second_Camera.Free)
-	testing.expect_value(t, second_orbit(app), top)
-	app.second_orbit.yaw += 1
-	second_free(app)
-	testing.expect_value(t, second_orbit(app).yaw, top.yaw + 1)
+	testing.expect_value(t, second_orbit(app, &app.kit.second), top)
+	app.kit.second.orbit.yaw += 1
+	second_free(app, &app.kit.second)
+	testing.expect_value(t, second_orbit(app, &app.kit.second).yaw, top.yaw + 1)
 }
 
 @(test)

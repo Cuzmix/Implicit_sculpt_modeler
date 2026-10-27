@@ -7,7 +7,11 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
 
 ## Model (README: the app row of "Layout", "Interface", "Controls")
 - One interface, drawn by the kit (`src/ui`, no SDL or `render` imports) through the renderer's UI pass
-  (`src/render/ui_pass.odin`). The viewport fills the window: `ui.image` draws it first, then the panels float over it.
+  (`src/render/ui_pass.odin`). The viewport fills the window, or the view grid's main pane (`k.grid.main`,
+  `src/app/grid.odin`): `kit_grid` draws its image first, marks the overlay's layer, then the view panes and dividers,
+  then the panels float over it. Viewport_Input, the overlay (`Overlay.origin`), the pies, the safe zone
+  (`edge_inner`) and the light markers are in the main pane's coordinates: `viewport_point(app, window_point)`
+  subtracts `app.ui.viewport_origin` (zero in Single); a new reader of `d.mouse` or a finger for the view converts.
 - The frame (`src/app/main.odin`): `kit_events_push` (`--ui-events` as SDL events) → events → `device_event`
   (`src/app/device.odin:59`), `touch_event` (`touch.odin`), pointer samples → `device_frame_end` (modifiers) →
   `viewport_target_resize` → `kit_frame` (`new_ui.odin:392`: `kit_begin` builds the kit's `ui.Input` from the Device,
@@ -99,6 +103,10 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   too) or `key_held` (backquote by keycode, intercepted in main.odin's event loop as Space is, reserved in
   `chord_reserved`), ignored while a time-lapse or turntable records (`recording`).
   Read what shows with `viewport_pass(k)`; the layout writes `pass` only when not Shaded and never a peek.
+- View grid (`src/app/grid.odin`, `k.grid: View_Grid`, command `View_Grid`): presets only (`grid_cells`, pixel-snapped),
+  pane 0 is the main view, panes 1-3 are `Second_View`s per preset drawn by `picture_frame` into `App.panes` (one
+  picture a frame, `app.pictures_drawn`); `view_grid_room` spans the docked columns; a divider drag freezes the target and
+  pane sizes (`g.dragged`); layout lines `grid`/`pane` only when not Single, splits in thousandths.
 - Second view (`src/app/thumbnail.odin`, `k.second: Second_View`, the Thumbnail window and command): the picture is a
   `ui.area` whose drag past the slop calls `second_free` (Free seeded from the camera shown, the orbit sign latched)
   and turns `App.second_orbit`; the wheel zooms it. Camera and pass are two `ui.select`s, with Flip, Maximise

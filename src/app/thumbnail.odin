@@ -53,6 +53,9 @@ Second_Pass :: enum u8 {
 // The second view's choices, which the settings keep (the Free camera's turn excepted),
 // and its picture's drag.
 Second_View :: struct {
+	// The Free camera; never kept, so a restart shows Follow's turn. Before `camera`,
+	// whose name would hide the package's.
+	orbit:    camera.Orbit,
 	camera:   Second_Camera,
 	pass:     Second_Pass,
 	max:      bool, // maximised; never kept
@@ -109,30 +112,32 @@ second_axis :: proc(c: Second_Camera) -> (camera.Axis_View, bool) {
 	return .Front, false
 }
 
-// The camera the second view sees through: the viewport's, an axis view of it, or its own.
-second_orbit :: proc(app: ^App) -> camera.Orbit {
+// The camera a second view sees through: the viewport's, an axis view of it, or its own.
+second_orbit :: proc(app: ^App, sv: ^Second_View) -> camera.Orbit {
 	c := app.camera
-	switch app.kit.second.camera {
+	switch sv.camera {
 	case .Follow:
 	case .Front, .Back, .Left, .Right, .Top, .Bottom:
-		axis, _ := second_axis(app.kit.second.camera)
+		axis, _ := second_axis(sv.camera)
 		camera.orbit_axis_view(&c, axis)
 		c.ortho = true
 	case .Free:
 		// Never turned yet (a restart keeps no turn): it starts as the camera is.
-		if app.second_orbit.distance > 0 do c = app.second_orbit
+		if sv.orbit.distance > 0 do c = sv.orbit
 	}
 	return c
 }
 
-// Turns the second view to the Free camera, starting from what it shows.
-second_free :: proc(app: ^App) {
-	if app.kit.second.camera == .Free && app.second_orbit.distance > 0 do return
-	app.second_orbit = second_orbit(app)
-	app.kit.second.camera = .Free
+// Turns a second view to the Free camera, starting from what it shows.
+second_free :: proc(app: ^App, sv: ^Second_View) {
+	if sv.camera == .Free && sv.orbit.distance > 0 do return
+	sv.orbit = second_orbit(app, sv)
+	sv.camera = .Free
 }
 
-Thumbnail_State :: struct {
+// A second view's picture on the device, and when it was drawn: the thumbnail window's and
+// each view pane's (grid.odin).
+Picture :: struct {
 	view:  render.Thumbnail_View,
 	shown: ^sdl.GPUTexture, // what the window shows this frame, nil for nothing yet
 	key:   u64, // what the texture holds; 0 for nothing
@@ -146,26 +151,36 @@ Thumbnail_State :: struct {
 @(private = "file")
 ICON_FLIP :: rune(0xe361) // flip-horizontal
 
+picture_destroy :: proc(app: ^App, pic: ^Picture) {
+	render.thumbnail_view_destroy(&app.renderer, &pic.view)
+	pic^ = {}
+}
+
 thumbnail_destroy :: proc(app: ^App) {
-	render.thumbnail_view_destroy(&app.renderer, &app.thumbnail.view)
-	app.thumbnail = {}
+	picture_destroy(app, &app.thumbnail)
 }
 
 // Draws the second view on `cmd` when the window is laid out and what it shows changed,
 // from the frame's `draws` (shaded, as the viewport's own pass is cleared before this).
 thumbnail_frame :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer, draws: []render.Draw_Item) {
-	th := &app.thumbnail
 	k := &app.kit
 	size := k.thumbnail_px
-	th.due = false
 	if !k.thumbnail || k.home || size.x == 0 || size.y == 0 {
-		th.shown = nil
+		app.thumbnail.shown, app.thumbnail.due = nil, false
 		return
 	}
-	orbit := second_orbit(app)
+	picture_frame(app, cmd, draws, &k.second, &app.thumbnail, size, 1 if k.second.max else render.THUMBNAIL_SUPERSAMPLE)
+}
+
+// Draws second view `sv` into `pic`, `size` pixels as shown at `supersample` times that,
+// when what it shows changed and its turn came: never while a stroke or a turn of the view
+// goes on, at most every THUMBNAIL_EVERY seconds, and every frame while its own camera is
+// dragged.
+picture_frame :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer, draws: []render.Draw_Item, sv: ^Second_View, pic: ^Picture, size: [2]u32, supersample: u32) {
+	pic.due = false
+	orbit := second_orbit(app, sv)
 	view, proj := camera.orbit_view(orbit), camera.orbit_proj(orbit, f32(size.x) / f32(size.y))
-	pass := second_view_pass(k.second.pass)
-	supersample := u32(1 if k.second.max else render.THUMBNAIL_SUPERSAMPLE)
+	pass := second_view_pass(sv.pass)
 	Keyed :: struct {
 		view, proj:  render.Mat4,
 		scene:       u64,
@@ -175,20 +190,21 @@ thumbnail_frame :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer, draws: []render.D
 	}
 	keyed := Keyed{view, proj, scene_fingerprint(app), size, pass, supersample}
 	key := max(hash.fnv64a(mem.ptr_to_bytes(&keyed)), 1)
-	if th.shown != nil && key == th.key do return
+	if pic.shown != nil && key == pic.key do return
 	// Each picture draws every object whole, without the viewport's culling or simplified
 	// copies, so it waits while a stroke or a turn of the view goes on; a drag on the
 	// picture itself is the one thing moving then, and draws it every frame.
 	moving := app.stroke.active || time.tick_since(app.view_moved) < LOD_SETTLE
-	if th.shown != nil && !k.second.dragging && (moving || time.duration_seconds(time.tick_since(th.at)) < THUMBNAIL_EVERY) {
-		th.due = true
+	// One picture a frame at most, so the panes due after a stroke share out their cost.
+	if pic.shown != nil && !sv.dragging && (moving || app.pictures_drawn > 0 || time.duration_seconds(time.tick_since(pic.at)) < THUMBNAIL_EVERY) {
+		pic.due = true
 		return
 	}
 	start := time.tick_now()
 	items := make([]render.Draw_Item, len(draws), context.temp_allocator)
 	copy(items, draws)
 	// Lights fixed to the scene are turned into the view the second view sees through.
-	if k.second.camera != .Follow && pass == .Shaded {
+	if sv.camera != .Follow && pass == .Shaded {
 		saved := app.camera
 		app.camera = orbit
 		lights := viewport_lights(app)
@@ -206,10 +222,11 @@ thumbnail_frame :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer, draws: []render.D
 	pass_items(items, view, pass)
 	ground, own := pass_ground(pass)
 	if !own do ground = {render.THUMBNAIL_DARK, render.THUMBNAIL_DARK}
-	if tex := render.thumbnail_view_draw(&app.renderer, &th.view, cmd, size, view, proj, items, ground.top, supersample); tex != nil {
-		th.shown, th.key, th.at = tex, key, time.tick_now()
-		th.draws += 1
-		th.ms = time.duration_milliseconds(time.tick_since(start))
+	if tex := render.thumbnail_view_draw(&app.renderer, &pic.view, cmd, size, view, proj, items, ground.top, supersample); tex != nil {
+		pic.shown, pic.key, pic.at = tex, key, time.tick_now()
+		pic.draws += 1
+		app.pictures_drawn += 1
+		pic.ms = time.duration_milliseconds(time.tick_since(start))
 	}
 }
 
@@ -259,14 +276,14 @@ kit_thumbnail :: proc(app: ^App) -> (raised: bool) {
 		if k.thumbnail_flip do lo.x, hi.x = 1, 0
 		ui.image_part(ctx, pic, KIT_THUMBNAIL_IMAGE, lo, hi)
 	}
-	second_view_input(app, a)
+	second_view_input(app, sv, a)
 	// The camera and the pass side by side, then Flip, Maximise and Close.
 	ui.begin(ctx, "second view choices", {direction = .Row, center = true, gap = 4})
 	each := (width - 4) / 2
 	cameras := make([]string, len(Second_Camera), context.temp_allocator)
 	for name, c in SECOND_CAMERA_NAMES do cameras[c] = name
 	if picked := ui.select(ctx, "Second view camera", cameras, int(sv.camera), each); picked >= 0 && Second_Camera(picked) != sv.camera {
-		if Second_Camera(picked) == .Free do second_free(app)
+		if Second_Camera(picked) == .Free do second_free(app, sv)
 		else do sv.camera = Second_Camera(picked)
 	}
 	passes := make([]string, len(Second_Pass), context.temp_allocator)
@@ -288,20 +305,19 @@ kit_thumbnail :: proc(app: ^App) -> (raised: bool) {
 
 // A drag on the picture turns the second view's own camera once it passes the slop, from
 // whatever it showed, the way a drag turns the viewport's; the wheel over it zooms it.
-second_view_input :: proc(app: ^App, a: ui.Area) {
+second_view_input :: proc(app: ^App, sv: ^Second_View, a: ui.Area) {
 	ctx := &app.kit.ctx
-	sv := &app.kit.second
 	if a.pressed do sv.from, sv.last, sv.dragging = a.mouse, a.mouse, false
 	if a.held {
 		if !sv.dragging && linalg.length(a.mouse - sv.from) > ctx.theme.slop {
-			second_free(app)
+			second_free(app, sv)
 			sv.dragging = true
-			sv.sign = camera.orbit_axis_sign(app.second_orbit, app.nav.orbit_style)
+			sv.sign = camera.orbit_axis_sign(sv.orbit, app.nav.orbit_style)
 		}
 		if sv.dragging && a.mouse != sv.last {
 			s := orbit_settings(app)
 			s.axis_sign = sv.sign
-			camera.orbit_rotate(&app.second_orbit, (a.mouse - sv.last) * app.kit.scale, s)
+			camera.orbit_rotate(&sv.orbit, (a.mouse - sv.last) * app.kit.scale, s)
 			sv.turns += 1
 		}
 		sv.last = a.mouse
@@ -309,7 +325,7 @@ second_view_input :: proc(app: ^App, a: ui.Area) {
 		sv.dragging = false
 	}
 	if a.hovered && ctx.input.wheel != 0 {
-		second_free(app)
-		camera.orbit_zoom(&app.second_orbit, ctx.input.wheel)
+		second_free(app, sv)
+		camera.orbit_zoom(&sv.orbit, ctx.input.wheel)
 	}
 }

@@ -9,18 +9,20 @@ import "../gizmo"
 import "../sculpt"
 import "../ui"
 
-// Drawing over the viewport through the kit, in the window coordinates Viewport_Input
-// uses: the kit's points are window coordinates over `scale`. Widths and radii are
-// window coordinates too, as the tools measure them.
+// Drawing over the viewport through the kit, in the main pane's coordinates Viewport_Input
+// uses: the kit's points are window coordinates over `scale`, and the pane starts at
+// `origin` in the window. Widths and radii are window coordinates too, as the tools
+// measure them.
 Overlay :: struct {
-	ctx:   ^ui.Context,
-	scale: f32,
+	ctx:    ^ui.Context,
+	scale:  f32,
+	origin: [2]f32,
 }
 
 // A viewport point in the kit's points.
 @(private = "file")
 at :: proc(o: Overlay, p: [2]f32) -> [2]f32 {
-	return p / o.scale
+	return (p + o.origin) / o.scale
 }
 
 // A colour given as red, green, blue and alpha from 0 to 1.
@@ -137,7 +139,7 @@ draw_hold_history :: proc(app: ^App, o: Overlay) {
 draw_viewport_overlay :: proc(app: ^App, input: Viewport_Input) {
 	k := &app.kit
 	ctx := &k.ctx
-	o := Overlay{ctx, k.scale}
+	o := Overlay{ctx, k.scale, app.ui.viewport_origin}
 	if layer, ok := k.layer.?; ok {
 		k.layer = nil
 		from := ui.layer_begin(ctx)

@@ -260,7 +260,7 @@ RADIAL_COPIES = ((1351, 687), (1530, 687))
 FLOOR_BACK = (1381, 609)
 POLYFRAME_FILL = (1450, 686)
 # The Camera menu's Field of view slider, under Orthographic.
-FOV_SLIDER = (1300, 459)
+FOV_SLIDER = (1300, 268)
 
 
 @scenario
@@ -2526,14 +2526,15 @@ def save_as_new_workspace_is_remembered():
 
 @scenario
 def the_current_workspace_comes_back():
-    """A settings file naming Inspect as current starts in Inspect: Stats and the thumbnail docked on the left."""
+    """A settings file naming Inspect as current starts in Inspect: Stats docked on the left and the view grid's four panes."""
     with open(settings_file(), "w") as f:
         f.write("workspace_current 2\n")
     s = Script()
     s.add("move:800,450")
     s.wait(10)
     return s, [f"--settings-file={settings_file()}"], camera_still({"dabs": near(0), "workspace": is_text("Inspect"),
-                                                                     "column_left": is_text("thumbnail,stats"), "zones_hidden": is_text("brush_bar,dock")})
+                                                                     "column_left": is_text("stats"), "zones_hidden": is_text("brush_bar,dock"),
+                                                                     "grid": is_text("Four")})
 
 
 # Arrange's head at 1600 x 900 (arrange.odin): Panels, the Dock's Show switch, the dock's
@@ -5774,6 +5775,81 @@ def turntable_frames_slider_by_finger():
     return s, ["--script=show_section turntable"], camera_still({"turntable_frames": lambda v: 24 <= int(v) < 100, "turntable_written": near(0), "dabs": near(0)})
 
 
+# The Camera menu's View grid rows at 1600 x 900 (Side by side), and with the tray docked
+# on the right, Side by side's divider, its view pane's middle and that pane's Maximise
+# (Restore once it fills the grid).
+GRID_SIDE_BY_SIDE = (1350, 647)
+GRID_DIVIDER = (519, 600)
+GRID_PANE = (800, 600)
+GRID_PANE_MAX = (795, 93)
+GRID_PANE_RESTORE = (343, 93)
+
+
+@scenario
+def camera_menu_splits_the_view_side_by_side():
+    """The Camera menu's View grid row Side by side splits the viewport: the main view keeps the left half of the room left of the tray, and the view pane beside it looks from the front."""
+    s = Script()
+    s.wait(3)
+    s.ftap(*UI["camera"])
+    s.wait(8)
+    s.ftap(*GRID_SIDE_BY_SIDE)
+    s.wait(10)
+    return s, [], camera_still({"grid": is_text("Side_By_Side"), "grid_main": lambda v: 450 < float(v.split("x")[0]) < 560,
+                                "pane_camera": is_text("Front"), "pane_draws": lambda v: int(v) >= 1, "dabs": near(0)})
+
+
+@scenario
+def stroke_in_the_main_pane_beside_a_left_column():
+    """With the tray docked on the left the main pane starts right of it; a stroke inside the pane sculpts where the finger is, not where the window's point would be, and the camera stays still."""
+    s = Script()
+    s.ftap(*PANEL_OPTIONS)
+    s.wait(10)
+    s.ftap(*PANEL_MENU_DOCK_LEFT)
+    s.wait(10)
+    s.fdrag(line((940, 420), (990, 470), 16))
+    s.wait(6)
+    return s, ["--script=view_grid side_by_side"], camera_still({"viewport_origin": is_text("562,0"), "dabs": lambda v: int(v) > 0,
+                                                                "undo_steps": near(1), "column_left": is_text("inspector")})
+
+
+@scenario
+def view_pane_drag_turns_its_own_camera():
+    """A finger dragged across the view pane turns its own camera, which becomes Free; the main camera stays still and nothing is sculpted."""
+    s = Script()
+    s.wait(4)
+    x, y = GRID_PANE
+    s.fdrag([(x - 40 + i * 8, y) for i in range(11)])
+    s.wait(6)
+    return s, ["--script=view_grid side_by_side"], camera_still({"pane_camera": is_text("Free"), "pane_turns": lambda v: int(v) >= 5, "dabs": near(0)})
+
+
+@scenario
+def grid_divider_drag_moves_the_split():
+    """Dragging the divider between the main view and the view pane moves the split, the main view growing; the camera stays still and nothing is sculpted."""
+    s = Script()
+    s.wait(4)
+    s.fdrag(line(GRID_DIVIDER, (GRID_DIVIDER[0] + 120, GRID_DIVIDER[1]), 12))
+    s.wait(6)
+    return s, ["--script=view_grid side_by_side"], camera_still({"grid_split": lambda v: float(v.split(",")[0]) > 0.6, "grid_drags": lambda v: int(v) > 0,
+                                                                "grid_main": lambda v: float(v.split("x")[0]) > 600, "dabs": near(0)})
+
+
+@scenario
+def view_pane_maximises_and_restores():
+    """Maximise on the view pane fills the grid's room with it; Restore brings the two panes back."""
+    def run(restore):
+        s = Script()
+        s.wait(4)
+        s.ftap(*GRID_PANE_MAX)
+        s.wait(8)
+        if restore:
+            s.ftap(*GRID_PANE_RESTORE)
+            s.wait(8)
+        size = (lambda v: 450 < int(v.split("x")[0]) < 560) if restore else (lambda v: int(v.split("x")[0]) > 1000)
+        return (s, ["--script=view_grid side_by_side"], camera_still({"grid_max": near(0 if restore else 1), "pane_px": size, "dabs": near(0)}))
+    return Steps([run(False), run(True)])
+
+
 @scenario
 def thumbnail_follows_a_stroke_and_closes():
     """A stroke on the model draws the thumbnail again; its Close shuts the window."""
@@ -7051,7 +7127,7 @@ def adjust_retopo_and_extract():
 
 
 # Camera history (camera_history.odin): Camera menu rows at 1600x900.
-VIEW_BACK, VIEW_FORWARD = (1399, 639), (1399, 683)
+VIEW_BACK, VIEW_FORWARD = (1399, 448), (1399, 492)
 CAMERA_KEYS = ("camera_yaw", "camera_pitch", "camera_roll", "camera_distance", "camera_target")
 
 
@@ -7372,7 +7448,7 @@ def shading_and_camera_have_their_own_buttons():
 
 # The Shading menu's Wireframe row and the Camera menu's Orthographic row, at 1600x900.
 SHADING_WIREFRAME = (1399, 294)
-CAMERA_ORTHO = (1399, 391)
+CAMERA_ORTHO = (1399, 200)
 
 
 @scenario

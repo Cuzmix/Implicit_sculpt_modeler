@@ -345,6 +345,8 @@ orbit_latch :: proc(app: ^App) {
 // drags with how far the pointer moved. Runs in kit_viewport_input after touch_route.
 pointer_route :: proc(app: ^App, input: ^Viewport_Input) {
 	d := &app.device
+	// The pointer in the main pane's coordinates, as the input has it.
+	mouse := viewport_point(app, d.mouse)
 	t := &app.touch
 	g := &app.drag
 	buttons := d.down & {.Left, .Right, .Middle}
@@ -380,18 +382,18 @@ pointer_route :: proc(app: ^App, input: ^Viewport_Input) {
 		// A one-finger tap still waiting runs before anything else acts, unless this press
 		// may be the second tap of a double tap, which decides on its lift.
 		if app.one_tap > 0 && !(owner == .Orbit && empty && d.pointer == .Finger) do one_tap_run(app)
-		g^ = {owner = owner, empty = empty, from = d.mouse, last = d.mouse, at = input_clock(app), held = g.held, edge = in_edge(app, d.mouse), selected = app.scene.selected}
+		g^ = {owner = owner, empty = empty, from = mouse, last = mouse, at = input_clock(app), held = g.held, edge = in_edge(app, mouse), selected = app.scene.selected}
 		g.mods = {input.smooth, input.invert, input.mask, input.mask_shape, input.alt}
 		// Only a finger's tap that turns the view can be the second of a double tap.
 		if !(owner == .Orbit && d.pointer == .Finger && !g.edge) do app.double_tap.valid = false
 		g.moving = d.pointer == .Mouse
 		// A finger's press the lights take (a marker, or the model with Place highlight on)
 		// or Pick focus waits for acts as it lands, never waiting to see whether it is a tap.
-		g.pending = g.owner == .Tool && d.pointer == .Finger && app.tool == .Brush && !lights_take_press(app, d.mouse, input.size) && !app.ui.focus_armed
+		g.pending = g.owner == .Tool && d.pointer == .Finger && app.tool == .Brush && !lights_take_press(app, mouse, input.size) && !app.ui.focus_armed
 		// Not the presses that go to the mask and hide shapes or a clip, nor during a replay.
 		g.defer_tap = g.pending && app.nav.double_tap && !d.shift && !d.ctrl && !d.alt && !rail_keeps_empty_space(app.rail.press.mods) && !replay_busy(app)
 		if owner == .Tool && app.tool == .Brush && !d.shift && (input.mask || input.mask_shape) && !replay_busy(app) {
-			origin, dir := mouse_ray(app.camera, d.mouse, input.size)
+			origin, dir := mouse_ray(app.camera, mouse, input.size)
 			_, _, on := scene_raycast(app, origin, dir)
 			// Ctrl on the model inverts the brush; only off it does Ctrl mask.
 			g.mask_tap = input.mask || !on
@@ -401,20 +403,20 @@ pointer_route :: proc(app: ^App, input: ^Viewport_Input) {
 		clear(&g.held)
 		if owner == .Orbit {
 			orbit_latch(app)
-			g.pivot, app.pivot.from = orbit_pivot(app, d.mouse, input.size)
+			g.pivot, app.pivot.from = orbit_pivot(app, mouse, input.size)
 			app.pivot.used = g.pivot
 		}
-		if owner == .Shape do shape_grab(app, shape_handle_at(app, d.mouse))
+		if owner == .Shape do shape_grab(app, shape_handle_at(app, mouse))
 	}
 	if g.owner == .None {
 		input.orbit_drag, input.pan_drag, input.primary, input.press = false, false, false, false
 		return
 	}
 
-	g.travel = max(g.travel, linalg.length(d.mouse - g.from))
+	g.travel = max(g.travel, linalg.length(mouse - g.from))
 	slop := app.kit.ctx.theme.slop * app.kit.scale
-	delta := d.mouse - g.last
-	g.last = d.mouse
+	delta := mouse - g.last
+	g.last = mouse
 	if !g.moving && g.travel > slop {
 		// Past the slop: from here on it moves, from where it is now.
 		g.moving = true
@@ -568,17 +570,18 @@ one_tap_run :: proc(app: ^App, now := false) {
 @(private = "file")
 drag_decide :: proc(app: ^App, input: Viewport_Input) -> (owner: Drag_Owner, empty: bool) {
 	d := &app.device
+	mouse := input.mouse_pos
 	if by_button, decided := mouse_button_owner(app.nav.mouse_scheme, d.down + d.pressed, d.ctrl, d.shift, d.alt); decided do return by_button, false
 	if d.pointer == .Finger && app.touch.palm do return .Muted, false
 	// A handle of the shape waiting for Apply, before the model or the safe zone under it.
-	if shape_handle_at(app, d.mouse) >= 0 do return .Shape, false
+	if shape_handle_at(app, mouse) >= 0 do return .Shape, false
 	// A handle of the Move tool's gizmo, before the model, the safe zone or empty space
 	// under it, so every pointer grabs a handle off the model's silhouette.
-	if app.tool == .Move && gizmo_pick(app, d.mouse, input.size) != .None do return .Tool, false
+	if app.tool == .Move && gizmo_pick(app, mouse, input.size) != .None do return .Tool, false
 	// So does a point of the lattice's cage, which stands in for the gizmo.
-	if app.tool == .Move && lattice_pick(app, d.mouse, input.size) > 0 do return .Tool, false
+	if app.tool == .Move && lattice_pick(app, mouse, input.size) > 0 do return .Tool, false
 	// And a light's marker, while the Lights section shows them, for any tool.
-	if light_marker_pressed(app, d.mouse, input.size) do return .Tool, false
+	if light_marker_pressed(app, mouse, input.size) do return .Tool, false
 	if d.pointer == .Finger && app.nav.finger_model == .Orbit do return .Orbit, false
 	// The rail's Mask or Hide, for the brushes, keeps empty space for their shapes as Ctrl
 	// does; only held there by a finger does it take the safe zone too, so a view filled
@@ -587,13 +590,13 @@ drag_decide :: proc(app: ^App, input: Viewport_Input) -> (owner: Drag_Owner, emp
 	shapes := app.tool == .Brush && rail_keeps_empty_space(press.mods)
 	// The safe zone turns the view whatever is under it, for every tool; Ctrl keeps it for
 	// the mask and hide shapes, as on empty space.
-	if !d.ctrl && !(shapes && press.held) && in_edge(app, d.mouse) do return .Orbit, false
+	if !d.ctrl && !(shapes && press.held) && in_edge(app, mouse) do return .Orbit, false
 	// Empty space turns the view for the brushes and the Move tool; Ctrl keeps it for the
 	// mask and hide shapes, which start there.
 	if (app.tool == .Brush || app.tool == .Move) && !d.ctrl && !shapes {
 		empty := app.nav.empty_drag[d.pointer] if d.pointer != .Finger else .Orbit
 		if empty == .Orbit {
-			origin, dir := mouse_ray(app.camera, d.mouse, input.size)
+			origin, dir := mouse_ray(app.camera, mouse, input.size)
 			if _, _, hit := scene_raycast(app, origin, dir); !hit do return .Orbit, true
 		}
 	}
@@ -755,18 +758,25 @@ orbit_pivot :: proc(app: ^App, at, size: [2]f32) -> (pivot: Vec3, from: Pivot_So
 	}
 }
 
-// Where the safe zone ends, in window coordinates: the safe area less `edge_size` points
-// on every side, the top one counted from under the top bar. Inside it the tools and empty
-// space decide; outside, the edges turn the view.
+// Where the safe zone ends, in the main pane's coordinates: the safe area within the pane
+// less `edge_size` points on every side, the top one counted from under the top bar.
+// Inside it the tools and empty space decide; outside, the edges
+// turn the view.
 edge_inner :: proc(app: ^App) -> (lo, hi: [2]f32) {
 	k := &app.kit
 	area := ui.safe_area(&k.ctx)
+	if pane := k.grid.main; pane.w > 0 && pane.h > 0 {
+		x0, y0 := max(area.x, pane.x), max(area.y, pane.y)
+		area = {x0, y0, min(area.x + area.w, pane.x + pane.w) - x0, min(area.y + area.h, pane.y + pane.h) - y0}
+	}
 	band := app.nav.edge_size
-	// The top band starts under the top bar, which covers the window's top edge.
-	return [2]f32{area.x + band, area.y + TOP_BAR_H + band} * k.scale, [2]f32{area.x + area.w - band, area.y + area.h - band} * k.scale
+	// The top band starts under the top bar, which covers the window's top edge (the main
+	// pane is always the grid's top left).
+	o := app.ui.viewport_origin
+	return [2]f32{area.x + band, area.y + TOP_BAR_H + band} * k.scale - o, [2]f32{area.x + area.w - band, area.y + area.h - band} * k.scale - o
 }
 
-// Whether `p` (window coordinates) is in the safe zone, when it is on.
+// Whether `p` (the main pane's coordinates) is in the safe zone, when it is on.
 in_edge :: proc(app: ^App, p: [2]f32) -> bool {
 	if !app.nav.edge_orbit do return false
 	lo, hi := edge_inner(app)
