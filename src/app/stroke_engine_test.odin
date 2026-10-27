@@ -169,10 +169,11 @@ roll_dabs_a_diameter_apart_along_the_stroke :: proc(t: ^testing.T) {
 	app.stroke.active = false
 }
 
-// A Spray stroke, with Lock plane and Connected on, saved to a .strokes file and replayed
-// on another sphere lays the same dabs as drawn, and leaves the replaying app's own seed
-// as it was; a version 3 file, from before the spread and seed, and a version 5 file,
-// from before Lock plane and Connected, still read.
+// A Spray stroke, with Lock plane and Connected on and a focal shift, saved to a .strokes
+// file and replayed on another sphere lays the same dabs as drawn, and leaves the replaying
+// app's own seed as it was; a version 3 file, from before the spread and seed, a version 5
+// file, from before Lock plane and Connected, and a version 6 file, from before the focal
+// shift, still read.
 @(test)
 spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	path := "build/spray_test.strokes"
@@ -185,6 +186,7 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	oa, ob := stroke_sphere(&a), stroke_sphere(&b)
 	a.brush.radius_px, a.brush.stroke, a.brush.spray_spread = 20, .Spray, 0.8
 	a.brush.lock_plane, a.brush.connected = true, true
+	a.brush.falloffs[a.brush.kind].focal = 30
 	a.stroke_seed = 41
 	strip := [?][2]f32{{430, 380}, {470, 390}, {510, 400}, {550, 410}}
 	_ = stroke_recorded(&a, strip[:])
@@ -195,19 +197,38 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	testing.expect_value(t, b.replay.take.brushes[0].spray_spread, 0.8)
 	testing.expect_value(t, b.replay.take.seeds[0], 41)
 	testing.expect(t, b.replay.take.brushes[0].lock_plane && b.replay.take.brushes[0].connected)
+	testing.expect_value(t, b.replay.take.brushes[0].falloffs[a.brush.kind].focal, 30)
 	replay_start(&b, &b.replay.take)
 	for replay_busy(&b) do _ = replay_frame(&b, {})
 	testing.expect(t, slice.equal(object_sculptor(oa).mesh.positions[:], object_sculptor(ob).mesh.positions[:]))
 	testing.expect_value(t, b.stroke_seed, 7)
 
-	// Version 5 had no Lock plane and Connected bytes after the brush's Line and Join:
-	// the one brush ends 64 + 14 bytes after the header's 16.
+	// Version 6 had no focal shift after the brush's Lock plane and Connected: the one
+	// brush ends 64 + 16 bytes after the header's 16, where version 7's has 4 more.
 	data, err := os.read_entire_file(path, context.allocator)
 	testing.expect(t, err == nil)
 	defer delete(data)
+	BRUSH :: 64 + 20
+	six := make([dynamic]u8, context.temp_allocator)
+	append(&six, ..data[:16 + 64 + 16])
+	append(&six, ..data[16 + BRUSH:])
+	six[len(STROKES_MAGIC)] = 6
+	testing.expect(t, os.write_entire_file(path, six[:]) == nil)
+	e: App
+	defer replay_destroy(&e.replay)
+	defer results_destroy(&e)
+	testing.expect(t, strokes_load(&e, path))
+	if len(e.replay.take.brushes) == 1 {
+		testing.expect(t, e.replay.take.brushes[0].lock_plane && e.replay.take.brushes[0].connected)
+		testing.expect_value(t, e.replay.take.brushes[0].falloffs[a.brush.kind].focal, 0)
+		testing.expect_value(t, e.replay.take.seeds[0], 41)
+	}
+
+	// Version 5 had no Lock plane and Connected bytes after the brush's Line and Join:
+	// the one brush ends 64 + 14 bytes after the header's 16.
 	five := make([dynamic]u8, context.temp_allocator)
 	append(&five, ..data[:16 + 64 + 14])
-	append(&five, ..data[16 + 64 + 16:])
+	append(&five, ..data[16 + BRUSH:])
 	five[len(STROKES_MAGIC)] = 5
 	testing.expect(t, os.write_entire_file(path, five[:]) == nil)
 	d: App
@@ -224,7 +245,7 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	// brush's cloth mode: the one brush ends 64 bytes after the header's 16.
 	old := make([dynamic]u8, context.temp_allocator)
 	append(&old, ..data[:16 + 64])
-	append(&old, ..data[16 + 64 + 16:])
+	append(&old, ..data[16 + BRUSH:])
 	old[len(STROKES_MAGIC)] = 3
 	testing.expect(t, os.write_entire_file(path, old[:]) == nil)
 	c: App

@@ -1163,6 +1163,18 @@ value_row :: proc(ctx: ^Context, s: string, value: string) {
 	text(ctx, value, r.x + r.w, r.y + r.h * 0.5, t.small_size, t.text, .Regular, .Right)
 }
 
+// A thin track across the column's width filled to `fraction` (0 to 1) in the accent: a
+// value's place in its range, shown without a knob where nothing here takes the pointer.
+gauge :: proc(ctx: ^Context, fraction: f32) {
+	t := ctx.theme
+	w := fill_width(ctx)
+	if w <= 0 do w = 120
+	r := place(ctx, {w, 12})
+	track := Rect{r.x, r.y + 4, r.w, 4}
+	fill_rect(ctx, track, 2, t.fill)
+	fill_rect(ctx, {track.x, track.y, track.w * clamp(fraction, 0, 1), track.h}, 2, t.accent)
+}
+
 // A line through recent samples across the column's width, `height` points tall, `lo`
 // at the bottom and `hi` at the top (values past them are held at the edge). `values` is
 // a ring read from `first`, oldest first; `caption` names it in the corner.

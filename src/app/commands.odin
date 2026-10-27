@@ -1403,9 +1403,9 @@ command_gesture :: proc(app: ^App, id: Command_Id, arg := 0) -> string {
 	case .Frame_All:
 		if n.double_tap && empty_taps do builtin = "Double tap empty space, nothing selected"
 	case .Size_Up, .Size_Down:
-		if n.three_finger do builtin = "Three fingers up or down"
+		builtin = "Three fingers up or down" if n.three_finger else "Long press the bar's Size and drag"
 	case .Strength_Up, .Strength_Down:
-		if n.three_finger do builtin = "Three fingers sideways"
+		builtin = "Long press the bar's Strength and drag"
 	case .Mask:
 		// The mask taps are the Sculpt tool's (mask_tap_act), and only the modifier
 		// buttons' Mask turns them on: with the buttons off there is no way to do them.
