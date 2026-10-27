@@ -195,6 +195,7 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.Polygroups       = "polyframe colours colors",
 	.Studio_Render    = "bpr render",
 	.Live_Occlusion   = "ambient occlusion ao ssao gtao live shadows creases",
+	.Render_Mode      = "render path trace tracing cycles rendered view global illumination gi bounce final",
 	.Viewport_Look    = "look matcap shading style preset viewport sculpt studio classic grey",
 	.View_Back        = "camera undo back history last view",
 	.View_Forward     = "camera redo forward history",

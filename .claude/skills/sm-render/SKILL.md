@@ -150,6 +150,13 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   (material default, lights through Light_Set's fields, background, cavity, style, live AO, studio strengths). Code
   defaults stay Classic; `look_first_run` applies Sculpt studio once for the everyday settings file only
   (`look_chosen`), never under --no-settings, --frames or --settings-file, so scripted images do not move.
+- Render mode (`src/render/path.odin`, `render_trace.comp`, `render_display.frag`, app `render_mode.odin`): its own
+  `Tracer` for `trace_prepare`, then GPU copies of every traced item's positions, indices, normals, paint, chunk nodes
+  and order into 7 merged read-only buffers (Scene_Buffer order = shader bindings), CPU-built chunk records (item in
+  the top 12 bits of w) and a world TLAS appended to Nodes at `extra.x`. Ping-pong RGBA32F `accum`, a band of rows a
+  frame (adaptive on frame time, never on content: a pixel's RNG depends only on pixel and sample), `shown` composited
+  over `vt.color` by coverage. `studio_env.glsl` holds `studio()` for both mesh_shading and the kernel: change it and
+  recheck 0 px. While render mode runs the studio gets max_samples 0 (paused); off, `render_mode_frame` releases it.
 - Traced studio (`src/render/trace.odin`, `studio_trace.comp`, `blas_refit.comp`, `studio_trace_add.frag`): at
   `samples == 0` `trace_prepare` decides the run (`Studio.traced`); false falls back to the gather, never half done.
   Needs `Draw_Item.source` (the CPU mesh as uploaded) and `Mesh_Buffers.storage` (positions and indices with

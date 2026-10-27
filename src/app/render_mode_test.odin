@@ -1,0 +1,92 @@
+package main
+
+import "core:math"
+import "core:math/linalg"
+import "core:os"
+import "core:testing"
+
+import "../geom"
+import "../render"
+
+// Render mode takes the viewport's lights into the world, with sizes whose light arrives
+// as strongly as the viewport's (three times the strength), and pick chances that add up.
+@(test)
+render_lights_reach_the_world :: proc(t: ^testing.T) {
+	l := render.lights_default()
+	l.pos[2] = {0, 0, -5, render.LIGHT_POINT}
+	l.color[2] = {1, 0.5, 0.25, 2}
+	l.shape[2].x = 2
+	softness: f32 = 0.1
+	// The view turns a quarter about y, so the world's x is the view's z.
+	view := linalg.matrix4_rotate_f32(math.PI / 2, {0, 1, 0})
+	w := render.lights_to_world(l, view, {}, softness)
+	to_world := linalg.inverse(view)
+	key := to_world * [4]f32{l.pos[0].x, l.pos[0].y, l.pos[0].z, 0}
+	for c in 0 ..< 3 do testing.expect(t, abs(w.pos[0][c] - key[c]) < 1e-5)
+	testing.expect(t, abs(linalg.length(w.pos[0].xyz) - 1) < 1e-5)
+
+	// A sun: a cone of half-angle `softness` whose radiance gives 3 x strength.
+	sun := w.size[0].y * math.PI * math.pow(math.sin(softness), 2)
+	testing.expect(t, abs(sun - 3) < 1e-4)
+	testing.expect(t, abs(w.size[0].x - math.cos(softness)) < 1e-6)
+	// A point light: a sphere as wide as that angle from the scene's middle, giving
+	// 3 x strength at its reference distance.
+	at := to_world * [4]f32{0, 0, -5, 1}
+	for c in 0 ..< 3 do testing.expect(t, abs(w.pos[2][c] - at[c]) < 1e-4)
+	radius := w.size[2].x
+	testing.expect(t, abs(radius - 5 * math.tan(softness)) < 1e-4)
+	point := w.size[2].y * math.PI * radius * radius / (2 * 2)
+	testing.expect(t, abs(point - 3 * 2) < 1e-3)
+
+	// Chances by strength times the brightest channel, adding up to one; the last light
+	// picked takes whatever rounding leaves.
+	total: f32
+	for i in 0 ..< render.LIGHT_COUNT do total += w.size[i].w
+	testing.expect(t, abs(total - 1) < 1e-5)
+	testing.expect(t, abs(w.size[2].w / w.size[0].w - 2) < 1e-4)
+	testing.expect_value(t, w.size[2].z, f32(2))
+	testing.expect_value(t, w.size[3].w, f32(0))
+}
+
+// The classic shading's highlight power becomes the GGX roughness of about the same
+// width; a physically based material keeps its own.
+@(test)
+render_roughness_follows_the_highlight :: proc(t: ^testing.T) {
+	testing.expect(t, abs(render.path_roughness({0.1, 0.2, 14, 0}, {}) - math.pow(f32(2) / 16, 0.25)) < 1e-6)
+	testing.expect(t, render.path_roughness({0.1, 0.2, 200, 0}, {}) < render.path_roughness({0.1, 0.2, 10, 0}, {}))
+	testing.expect_value(t, render.path_roughness({0.1, 0.2, 14, 0}, {1, 0.3}), f32(0.3))
+}
+
+// A box through a similarity holds the turned, scaled and moved box.
+@(test)
+render_boxes_reach_the_world :: proc(t: ^testing.T) {
+	model := linalg.matrix4_translate_f32({1, 0, 0}) * linalg.matrix4_rotate_f32(math.PI / 4, {0, 0, 1}) * linalg.matrix4_scale_f32(2)
+	b := render.aabb_transform(geom.Aabb{{-1, -1, -1}, {1, 1, 1}}, model)
+	r := f32(2 * math.SQRT_TWO)
+	want := geom.Aabb{{1 - r, -r, -2}, {1 + r, r, 2}}
+	for c in 0 ..< 3 {
+		testing.expect(t, abs(b.lo[c] - want.lo[c]) < 1e-4)
+		testing.expect(t, abs(b.hi[c] - want.hi[c]) < 1e-4)
+	}
+}
+
+// Render mode is a command, off at the start of every run; its samples and bounces are
+// remembered.
+@(test)
+render_mode_is_not_remembered :: proc(t: ^testing.T) {
+	path := "build/render_mode_test.txt"
+	defer os.remove(path)
+	a: App
+	defer results_destroy(&a)
+	command_run(&a, .Render_Mode)
+	testing.expect(t, a.render_on && command_checked(&a, .Render_Mode, 0))
+	a.render_samples, a.render_bounces = 300, 3
+	testing.expect(t, settings_save(&a, path))
+
+	b: App
+	defer results_destroy(&b)
+	settings_load(&b, path)
+	testing.expect(t, !b.render_on)
+	testing.expect_value(t, b.render_samples, i32(300))
+	testing.expect_value(t, b.render_bounces, i32(3))
+}

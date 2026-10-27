@@ -32,11 +32,13 @@ live_ao_view_frame :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer, view, proj: re
 	_ = render.live_ao_frame(&app.renderer, &app.live_ao, cmd, &app.target, view, proj, items, drawn, reach, app.studio_ao, LIVE_AO_SCALE)
 }
 
-// The texture the viewport shows: the studio render's while it is on and has samples
-// enough to look better than live occlusion, live occlusion's while that is on, then the
-// studio's copy of the viewport, else nil for the viewport's own colour. The panel,
+// The texture the viewport shows: render mode's once it has RENDER_SHOW_MIN samples, the
+// studio render's while it is on and has samples enough to look better than live
+// occlusion, live occlusion's while that is on, then the studio's copy of the viewport,
+// else nil for the viewport's own colour. The panel,
 // screenshots and the time-lapse all read it, so each shows what the others do.
 viewport_shown :: proc(app: ^App) -> ^sdl.GPUTexture {
+	if render_running(app) && app.path.samples >= RENDER_SHOW_MIN do return render.render_texture(&app.path)
 	studio := studio_running(app)
 	if studio && (app.studio.samples >= STUDIO_SHOW_MIN || !app.live_ao_on) do return render.studio_texture(&app.studio)
 	if app.live_ao_on do return render.live_ao_texture(&app.live_ao)

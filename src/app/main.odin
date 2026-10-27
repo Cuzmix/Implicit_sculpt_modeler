@@ -203,6 +203,12 @@ App :: struct {
 	live_ao:        render.Live_AO,
 	live_ao_on:     bool,
 	live_ao_reach:  f32, // a share of the scene's radius
+	// Scene > Render (render_mode.odin): the view path traced while it stays still. Not
+	// remembered; its samples and bounces are.
+	path:           render.Path_Render,
+	render_on:      bool,
+	render_samples: i32,
+	render_bounces: i32,
 	// The navigation head in the top-right corner (nav_head.odin), and the texture it was
 	// drawn into this frame, for the interface to show; nil when there is none.
 	nav_head:       render.Nav_Head,
@@ -389,6 +395,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	defer render.smooth_compute_destroy(&app.renderer, &app.smooth_gpu)
 	defer render.studio_destroy(&app.renderer, &app.studio)
 	defer render.live_ao_destroy(&app.renderer, &app.live_ao)
+	defer render.path_render_destroy(&app.renderer, &app.path)
 	defer render.nav_head_destroy(&app.renderer, &app.nav_head)
 	defer render.thumbs_destroy(&app.renderer, &app.thumbs)
 	defer delete(app.clipboard)
@@ -516,6 +523,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	app.rim, app.underside = RIM_DEFAULT, UNDERSIDE_DEFAULT
 	app.studio_softness = render.STUDIO_KEY_SOFTNESS
 	app.studio_samples, app.studio_ao, app.studio_shadow = STUDIO_SAMPLES_DEFAULT, STUDIO_AO_DEFAULT, STUDIO_SHADOW_DEFAULT
+	app.render_samples, app.render_bounces = render.RENDER_SAMPLES_DEFAULT, render.RENDER_BOUNCES_DEFAULT
 	environment_settings_default(&app)
 	app.dim_others = true
 	app.time_gpu = opts.time_gpu || opts.gpubench != ""
@@ -966,11 +974,14 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		app.renderer.background = background_frame(app.background)
 		environment_view(&app)
 		drawn := render.render_viewport(&app.renderer, cmd, &app.target, view, proj, draws[:], app.cache_idle)
+		// Anything redrawn this frame starts the samples over.
+		changed := !drawn.partial || drawn.redrawn_px > 0
 		if studio_running(&app) {
-			// Anything redrawn this frame starts the samples over.
-			changed := !drawn.partial || drawn.redrawn_px > 0
-			_ = render.studio_frame(&app.renderer, &app.studio, cmd, &app.target, view, proj, draws[:], changed, int(app.studio_samples), app.studio_ao, app.studio_shadow, viewport_lights(&app), &app.pool, app.studio_softness)
+			// Render mode takes the GPU while it runs; the studio waits, keeping what it built.
+			studio_max := 0 if render_running(&app) else int(app.studio_samples)
+			_ = render.studio_frame(&app.renderer, &app.studio, cmd, &app.target, view, proj, draws[:], changed, studio_max, app.studio_ao, app.studio_shadow, viewport_lights(&app), &app.pool, app.studio_softness)
 		}
+		render_mode_frame(&app, cmd, view, proj, draws[:], changed)
 		live_ao_view_frame(&app, cmd, view, proj, draws[:], drawn)
 
 		nav_head_frame(&app, cmd)
@@ -1247,6 +1258,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			tr := app.studio.trace
 			fmt.printfln("trace=%d trace_mb=%.1f trace_build_ms=%.1f trace_chunks_built=%d", tr.samples, f64(tr.bytes) / (1 << 20), tr.build_ms, tr.chunks_built)
 			fmt.printfln("live_ao=%d live_ao_full=%d live_ao_partial=%d live_ao_skipped=%d", int(app.live_ao_on), lao.full, lao.partial, lao.skipped)
+			pr := app.path
+			fmt.printfln("render=%d render_samples=%d render_ms=%.1f render_mb=%.1f render_failed=%d", int(app.render_on), pr.total_samples, pr.total_ms / f64(max(pr.total_samples, 1)), f64(pr.bytes) / (1 << 20), int(pr.failed))
 			env := app.env
 			fmt.printfln("environment=%s environment_size=%dx%d environment_background=%d environment_mb=%.1f", "image" if env.kind == .Image && env.gpu.source != nil else "built_in", env.gpu.width, env.gpu.height, int(env.background), f32(render.environment_bytes(env.gpu)) / (1024 * 1024))
 		}
