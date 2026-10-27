@@ -636,6 +636,28 @@ def first_touch_scrolls_inspector():
                                 "inspector_scroll": lambda v: float(v) > 50})
 
 
+# The Lights section's sphere, where the tray shows it at 1600 x 900: its centre and
+# radius in points.
+LIGHT_SPHERE = (1377, 249)
+LIGHT_SPHERE_R = 80
+
+
+@scenario
+def light_sphere_moves_and_flips_lights():
+    """In Scene: Lights, a finger drag from the first light's marker on the sphere moves that light to where it lets go (in front still); a tap on it then sends it behind the model; nothing is sculpted and the camera stays."""
+    s = Script()
+    cx, cy = LIGHT_SPHERE
+    # The first light (the key) shows up and to the left: -0.51, 0.61 of the radius.
+    key = (cx - 0.508 * LIGHT_SPHERE_R, cy - 0.609 * LIGHT_SPHERE_R)
+    to = (cx + 0.5 * LIGHT_SPHERE_R, cy)
+    s.fdrag(line(key, to, 16))
+    s.wait(4)
+    s.ftap(*to)
+    s.wait(4)
+    return s, ["--script=show_section lights"], camera_still({"dabs": near(0), "light_pick": near(1), "light1_on": near(1), "light_flips": near(1),
+                                                             "light1": lambda v: all(abs(float(a) - b) < 0.03 for a, b in zip(v.split(","), (0.5, 0, -0.866)))})
+
+
 # The Mask section's Steps slider, where the tray shows it at 1600 x 900.
 MASK_STEPS = (1376, 362)
 

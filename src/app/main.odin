@@ -233,10 +233,13 @@ App :: struct {
 	exposure:  f32,
 	cavity:    f32,
 	ridge:     f32,
-	// The light rig (lights.odin): its turn about the up axis and up or down in degrees,
-	// the key and fill lights' strengths, and whether it stays with the scene.
+	// The lights (lights.odin): each light, the one the Lights section edits, the
+	// ambient light's strength, the turn of the whole set about the up axis and up or down
+	// in degrees, and whether it stays with the scene.
+	lights:                   [LIGHT_COUNT]Light,
+	light_pick:               int,
+	light_ambient:            f32,
 	light_turn, light_height: f32,
-	light_key, light_fill:    f32,
 	lights_fixed:             bool,
 	// Objects other than the selected one show their material's muted colour (on by
 	// default), so the one being sculpted stands out; off, each shows its own colour.
@@ -1131,6 +1134,12 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			if obj := selected_object(&app); obj != nil do for q in object_sculptor(obj).mesh.positions do mesh_sum += f64(q.x) + f64(q.y) + f64(q.z)
 			fmt.printfln("stroke_lines=%d stroke_joins=%d", app.stroke_end.lines, app.stroke_end.joins)
 			fmt.printfln("gesture=%s mask_shape=%s", lower(app.gesture), lower(app.ui.mask_shape_kind))
+			// The lights: which is picked, how many are on, the first one's view-space
+			// direction as the sphere shows it, and taps that flipped a light's side.
+			lights_on := 0
+			for light in app.lights do lights_on += int(light.on)
+			l1 := light_view_dir(&app, 0)
+			fmt.printfln("light_pick=%d lights_on=%d light1=%.2f,%.2f,%.2f light1_on=%d light_flips=%d", app.light_pick + 1, lights_on, l1.x, l1.y, l1.z, int(app.lights[0].on), app.kit.light_sphere.flips)
 			fmt.printfln("brush_front_only=%d brush_lock_plane=%d brush_connected=%d brush_grab_depth=%d brush_smooth_only=%v", int(app.brush.front_only), int(app.brush.lock_plane), int(app.brush.connected), int(app.brush.grab_depth), app.brush.smooth_only)
 			fmt.printfln("pose_mode=%d pose_drags=%d pose_moved=%d mesh_sum=%.4f topo_masks=%d topo_reach=%.3f", int(pose_mode(&app)), m.pose_drags, m.pose_moved, mesh_sum, m.topo_masks, m.topo_reach)
 			fmt.printfln("gizmo_at=%.0f,%.0f gizmo_mode=%s gizmo_hover=%s gizmo_last=%s gizmo_drags=%d gizmo_snap=%d transform=%.4f,%.4f,%.4f,%.3f,%.3f,%.3f,%.4f transform_undo=%d",
