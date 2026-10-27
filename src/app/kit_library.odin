@@ -52,7 +52,7 @@ kit_library :: proc(app: ^App) -> (raised: bool) {
 		ui.caption(ctx, fmt.tprintf("INSTALLED  %d PACK%s", len(l.packs), "" if len(l.packs) == 1 else "S"))
 
 		// The list scrolls in the room the controls above and the note below leave.
-		foot := "This run keeps no library: it keeps no settings." if l.folder == "" else fmt.tprintf("A content pack is a .sculptpack file: a ZIP archive of images under alphas/ and a pack.txt naming it. Packs only add to what is built in and hold no code. They are kept in the folder %s beside the settings file.", filepath.base(l.folder))
+		foot := "This run keeps no library: it keeps no settings." if l.folder == "" else fmt.tprintf("A content pack is a .sculptpack file: a ZIP archive of images under alphas/, brush presets in brushes.txt and a pack.txt naming it. Packs only add to what is built in and hold no code. They are kept in the folder %s beside the settings file.", filepath.base(l.folder))
 		_, foot_size := ui.prev_layout(ctx, "library foot")
 		_, head_size := ui.prev_layout(ctx, "library pending")
 		extra := head_size.y + 8 if l.pending != nil else 0
@@ -61,7 +61,7 @@ kit_library :: proc(app: ^App) -> (raised: bool) {
 		scroll := kit_scroll_begin(ctx, "library body", &k.library_scroll, id, inner, body_h, 4)
 		kit_library_row(app, -1, inner)
 		for _, i in l.packs do kit_library_row(app, i, inner)
-		if len(l.packs) == 0 do ui.paragraph(ctx, "No packs yet. Install pack adds one from a .sculptpack file; its alphas then show in the Brush palette's Alpha section under its name.")
+		if len(l.packs) == 0 do ui.paragraph(ctx, "No packs yet. Install pack adds one from a .sculptpack file; its alphas then show in the Brush palette's Alpha section and its presets in the brush browser, under its name.")
 		kit_scroll_end(ctx, scroll)
 		ui.begin(ctx, "library foot", {direction = .Column, width = inner})
 		ui.paragraph(ctx, foot)
@@ -113,7 +113,7 @@ kit_library_row :: proc(app: ^App, i: int, inner: f32) {
 	} else {
 		p := app.library.packs[i]
 		name = p.name
-		detail = fmt.tprintf("%d alpha%s", p.alphas, "" if p.alphas == 1 else "s")
+		detail = pack_holds(p)
 		if p.version != "" do detail = fmt.tprintf("%s · %s", p.version, detail)
 		if p.author != "" do detail = fmt.tprintf("by %s · %s", p.author, detail)
 		if p.license != "" do detail = fmt.tprintf("%s · %s", detail, p.license)

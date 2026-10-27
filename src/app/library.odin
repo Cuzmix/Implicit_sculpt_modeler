@@ -39,6 +39,7 @@ Library :: struct {
 	alphas:       int,    // the person's own, read at start or kept since
 	skipped:      int,    // files and pack folders in the library it cannot read
 	packs:        [dynamic]Pack, // sorted by id at start, then in the order installed
+	presets:      [dynamic]Pack_Preset, // every pack's brush presets, a removed pack's marked gone
 	installed:    int,    // packs installed this run
 	refused:      int,    // packs refused this run
 	worker:       ^Pack_Worker,    // the install under way, or nil
@@ -81,6 +82,8 @@ library_destroy :: proc(app: ^App) {
 	}
 	for &p in l.packs do pack_free(&p)
 	delete(l.packs)
+	for &p in l.presets do delete(p.pack)
+	delete(l.presets)
 	delete(l.folder)
 	l^ = {}
 }
@@ -118,6 +121,18 @@ library_load :: proc(app: ^App, folder: string) {
 			p.id = strings.clone(fi.name)
 			alphas, _ := filepath.join({fi.fullpath, LIBRARY_ALPHAS}, context.temp_allocator)
 			p.alphas = library_alphas_load(app, alphas, p.id, &first_skipped)
+			// Install wrote brushes.txt as it checked it, so a line now refused was changed
+			// by hand, and is left out like a file the app cannot read.
+			brushes_path, _ := filepath.join({fi.fullpath, PACK_BRUSHES}, context.temp_allocator)
+			if brushes, brushes_err := os.read_entire_file(brushes_path, context.temp_allocator); brushes_err == nil {
+				read: [dynamic]Pack_Preset_Read
+				read.allocator = context.temp_allocator
+				if bad := pack_brushes_parse(string(brushes), alphas_of_pack(app, p.id), &read, context.temp_allocator); bad > 0 {
+					if first_skipped == "" do first_skipped = fmt.tprintf("%s/%s", fi.name, PACK_BRUSHES)
+					l.skipped += 1
+				}
+				p.presets = pack_presets_add(app, p.id, read[:])
+			}
 			append(&l.packs, p)
 		}
 	}
@@ -303,5 +318,6 @@ alphas_retarget :: proc(app: ^App) -> (dropped: int) {
 	_ = retarget(app, &app.brush.alpha)
 	_ = retarget(app, &app.brush.plain.alpha)
 	for &p in app.presets[:app.preset_count] do dropped += int(retarget(app, &p.values.alpha))
+	for &p in app.library.presets do if !p.gone do _ = retarget(app, &p.preset.values.alpha)
 	return
 }
