@@ -6,6 +6,8 @@ layout(location = 2) in float in_mask;
 layout(location = 3) in vec4 in_paint;
 layout(location = 4) flat in vec3 in_group;
 layout(location = 5) in vec3 in_mesh_pos;
+// The material slot of the triangle's polygroup (mesh.vert), 0 for the item's own material.
+layout(location = 6) flat in uint in_slot;
 
 layout(set = 3, binding = 0) uniform Material_Uniforms {
 	vec4 base_color;
@@ -19,6 +21,14 @@ layout(set = 3, binding = 0) uniform Material_Uniforms {
 	vec4 light_x;
 	vec4 light_y;
 	vec4 light_z;
+};
+
+// Polygroups' own materials (render.Slot_Uniforms), by slot from 1: the colour, params
+// and surface that stand in for the item's; read only behind in_slot > 0.
+layout(set = 3, binding = 1) uniform Slot_Uniforms {
+	vec4 slot_color[16];
+	vec4 slot_params[16];
+	vec4 slot_surface[16];
 };
 
 // The matcap (render/matcap.odin): a lit sphere, sRGB, so it samples as linear light.
@@ -154,6 +164,18 @@ void main() {
 		out_color = vec4(srgb_encode(base_color.rgb), 1.0);
 		return;
 	}
+	// A polygroup with a material of its own takes its colour, shading and metal and
+	// roughness; flat shading stays the item's, and it is lit even on a matcap item (the
+	// one sampler is the item's matcap).
+	vec4 base = base_color;
+	vec4 shading = params;
+	vec4 surf = surface;
+	if (in_slot > 0u) {
+		base = slot_color[in_slot];
+		shading = slot_params[in_slot];
+		surf.xy = slot_surface[in_slot].xy;
+		surf.w = 0.0;
+	}
 	vec3 v = normalize(-in_view_pos);
 	vec3 n;
 	if (surface.z > 0.5) {
@@ -185,7 +207,7 @@ void main() {
 	float relief = (1.0 - 0.75 * cavity) * (1.0 + 0.6 * ridge);
 
 	// Paint covers the clay as far as it reaches; groups show instead of both.
-	vec3 albedo = mix(base_color.rgb, in_paint.rgb, in_paint.a);
+	vec3 albedo = mix(base.rgb, in_paint.rgb, in_paint.a);
 	if (in_group.r >= 0.0) albedo = in_group;
 	// The density preview: the cells a remesh would build, every other one darker and
 	// each edged with a thin line, so a cell reads as about one vertex of the result.
@@ -211,7 +233,7 @@ void main() {
 	albedo *= 1.0 - 0.7 * in_mask;
 	float highlight = 1.0 - 0.5 * in_mask;
 
-	if (surface.w > 0.5) {
+	if (surf.w > 0.5) {
 		// The matcap's sphere where it faces the way this pixel's normal does as the eye
 		// sees it: Blender's basis around the ray to the eye, which keeps the lookup right
 		// toward the edges of a perspective view instead of sliding with it. The picture's
@@ -225,13 +247,13 @@ void main() {
 		return;
 	}
 
-	if (surface.y > 0.0) {
-		float metallic = clamp(surface.x, 0.0, 1.0);
+	if (surf.y > 0.0) {
+		float metallic = clamp(surf.x, 0.0, 1.0);
 		// Specular anti-aliasing (Tokuyoshi and Kaplanyan 2021, as Filament does it): where
 		// the normal varies within a pixel, as on a dense sculpt seen from afar, widen the
 		// highlight by that variance so it stays a highlight instead of sparkling.
 		float variance = 0.25 * (dot(dndx, dndx) + dot(dndy, dndy));
-		float a = surface.y * surface.y;
+		float a = surf.y * surf.y;
 		float rough = clamp(sqrt(sqrt(clamp(a * a + min(2.0 * variance, 0.18), 0.0, 1.0))), 0.04, 1.0);
 		a = rough * rough;
 		vec3 diffuse = albedo * (1.0 - metallic);
@@ -253,14 +275,14 @@ void main() {
 
 	// The classic studio clay shading: wrap lets light reach past the side facing it,
 	// softening the terminator as wax and skin do; 0 is plain Lambert.
-	float wrap = params.w;
+	float wrap = shading.w;
 	vec3 key_dir = rig * KEY_DIR;
 	float key  = max((dot(n, key_dir) + wrap) / (1.0 + wrap), 0.0) * light_x.w;
 	float fill = max((dot(n, rig * FILL_DIR) + wrap) / (1.0 + wrap), 0.0) * (0.3 * light_y.w);
 	float rim  = pow(1.0 - max(dot(n, v), 0.0), 3.0) * 0.25;
 	vec3 h     = normalize(key_dir + v);
-	float spec = pow(max(dot(n, h), 0.0), params.z) * params.y * light_x.w;
-	vec3 color = albedo * (params.x + key + fill) + vec3(spec + rim) * highlight;
+	float spec = pow(max(dot(n, h), 0.0), shading.z) * shading.y * light_x.w;
+	vec3 color = albedo * (shading.x + key + fill) + vec3(spec + rim) * highlight;
 	// The viewport texture is a UNORM texture the interface shows as-is, so the shader
 	// encodes for the display itself.
 	out_color = display(color * relief);

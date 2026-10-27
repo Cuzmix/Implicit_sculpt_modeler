@@ -26,6 +26,7 @@ tree_free :: proc(app: ^App) {
 	for obj in app.scene.objects {
 		sculpt.levels_destroy(&obj.levels)
 		delete(obj.name)
+		delete(obj.group_materials)
 		free(obj)
 	}
 	delete(app.scene.objects)

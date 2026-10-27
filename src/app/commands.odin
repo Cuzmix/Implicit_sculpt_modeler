@@ -78,6 +78,7 @@ Command_Id :: enum u8 {
 	Restore_Selection_Set, // the argument is the set's place, from 0
 	Paint, // the argument is the sculpt.Paint_Command
 	Group, // the argument is the sculpt.Group_Command
+	Pick_Group,
 	Delete_Lower_Levels,
 	Delete_Higher_Levels,
 	Hd_Divide,
@@ -624,6 +625,16 @@ COMMANDS := [Command_Id]Command {
 		args = len(sculpt.Group_Command),
 		run = proc(app: ^App, arg: int) {group_command(app, sculpt.Group_Command(arg))},
 		enabled = paint_ready,
+	},
+	.Pick_Group = {
+		label = "Pick a group",
+		help = "The next press on the selected object picks the polygroup under it, for Scene > Material to give it a material of its own.",
+		run = proc(app: ^App, _: int) {group_pick_toggle(app)},
+		checked = proc(app: ^App, _: int) -> bool {return app.ui.group_pick},
+		enabled = proc(app: ^App, _: int) -> bool {
+			obj := selected_object(app)
+			return obj != nil && obj.voxel == nil && !object_in_hd(obj) && sculpt.sculptor_has_groups(object_sculptor(obj))
+		},
 	},
 	.Delete_Lower_Levels = {
 		label = "Delete lower levels",

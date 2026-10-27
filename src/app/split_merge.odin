@@ -162,18 +162,48 @@ object_split :: proc(app: ^App, obj: ^Object, mode: Split_Mode) -> (parts: [dyna
 		inject_at(&app.scene.objects, index + k, piece)
 		append(&parts, piece.id)
 	}
+	// Each piece keeps the group materials of the groups it has; one left with a single
+	// group that had its own takes that as its material.
+	table := slice.clone(obj.group_materials[:], context.temp_allocator)
+	split_group_materials(app, obj, table, surfaces[0].groups)
+	for id, k in parts do split_group_materials(app, object_by_id(app, id), table, surfaces[k + 1].groups)
 	app.scene.selected = index
 	app.split_made += count - 1
 	log.infof("%s: %d objects in %.0f ms, ready in %.0f ms more", SPLIT_NAMES[mode], count, time.duration_milliseconds(time.tick_diff(start, cut)), time.duration_milliseconds(time.tick_since(cut)))
 	return parts, true, true
 }
 
+// Gives split piece `piece`, with per-triangle groups `groups`, the entries of `table`
+// for the groups it has. A piece of a single group that had its own material takes it as
+// the piece's material instead (as Split by groups makes them).
+@(private = "file")
+split_group_materials :: proc(app: ^App, piece: ^Object, table: []Group_Material, groups: []u16) {
+	if piece == nil do return
+	kept := make([dynamic]Group_Material, 0, len(table), context.temp_allocator)
+	if groups != nil && len(table) > 0 {
+		present := make([]bool, 1 << 16, context.temp_allocator)
+		for g in groups do present[g] = true
+		for e in table do if present[e.group] do append(&kept, e)
+		single := true
+		for g in groups do single &&= g == groups[0]
+		if single && len(kept) == 1 {
+			autosave_settle(app)
+			piece.material = kept[0].material
+			clear(&kept)
+		}
+	}
+	group_materials_replace(app, piece, kept[:])
+}
+
 // The shown level of each of `objs` in the space `into` places, as one mesh with zero
 // normals, and its surface: polypaint when any of them has it, and polygroups numbered
 // on from the ones before for each (each object's own numbered densely, in the order of
 // their first triangles), so their parts stay apart (owned). ok is false, with nothing
-// made, when that takes more polygroups than there are numbers for.
-merge_meshes :: proc(objs: []^Object, into: Transform) -> (out: geom.Mesh, surface: Surface, ok: bool) {
+// made, when that takes more polygroups than there are numbers for. With `table`, the
+// merged object's group materials go there: each object's own, renumbered, and for every
+// object after the first its other groups in its own material, so each part looks as it
+// did (at most GROUP_MATERIALS_MAX, in group order).
+merge_meshes :: proc(objs: []^Object, into: Transform, table: ^[dynamic]Group_Material = nil) -> (out: geom.Mesh, surface: Surface, ok: bool) {
 	// The groups first, as they decide whether the merge can be made.
 	tris := 0
 	for obj in objs do tris += sculpt.sculptor_triangle_count(object_sculptor(obj))
@@ -181,8 +211,10 @@ merge_meshes :: proc(objs: []^Object, into: Transform) -> (out: geom.Mesh, surfa
 	number := make([]u32, int(max(u16)) + 1, context.temp_allocator)
 	slice.fill(number, geom.SPLIT_NONE)
 	used := make([dynamic]u16, 0, 64, context.temp_allocator)
-	base := 0
-	for obj in objs {
+	// Numbering starts at 1 when the first object has group materials, so none of its
+	// groups lands on 0, which shows the merged object's own.
+	base := 1 if len(objs) > 0 && len(objs[0].group_materials) > 0 else 0
+	for obj, k in objs {
 		s := object_sculptor(obj)
 		tcount := sculpt.sculptor_triangle_count(s)
 		// Under dynamic topology there are no groups (and no paint).
@@ -201,6 +233,15 @@ merge_meshes :: proc(objs: []^Object, into: Transform) -> (out: geom.Mesh, surfa
 			}
 			append(&groups_out, u16(base + int(number[g])))
 		}
+		if table != nil {
+			for g in used {
+				m, own := Material{}, false
+				for e in obj.group_materials do if e.group == g do m, own = e.material, true
+				if !own && k > 0 && obj.material.label != nil && group_material_allowed(obj.material) do m, own = obj.material, true
+				to := u16(base + int(number[g]))
+				if own && to != 0 do append(table, Group_Material{to, m})
+			}
+		}
 		for g in used do number[g] = geom.SPLIT_NONE
 		clear(&used)
 		base += top
@@ -214,6 +255,13 @@ merge_meshes :: proc(objs: []^Object, into: Transform) -> (out: geom.Mesh, surfa
 	defer for &m in meshes do geom.mesh_destroy(&m)
 	out = geom.mesh_join(meshes)
 	assert(len(groups_out) == len(out.indices) / 3)
+	if table != nil {
+		slice.sort_by(table[:], proc(a, b: Group_Material) -> bool {return a.group < b.group})
+		if len(table) > GROUP_MATERIALS_MAX {
+			log.warnf("merge: %d groups had materials of their own; the first %d keep them", len(table), GROUP_MATERIALS_MAX)
+			resize(table, GROUP_MATERIALS_MAX)
+		}
+	}
 	surface.groups = groups_out[:]
 	if painted do surface.color = make([]sculpt.Color, len(out.positions))
 	vertex := 0
@@ -244,7 +292,9 @@ merge_down :: proc(app: ^App) -> bool {
 	object_hd_leave(app, obj)
 	object_hd_leave(app, other)
 	pair := [2]^Object{obj, other}
-	mesh, surface, made := merge_meshes(pair[:], obj.transform)
+	table: [dynamic]Group_Material
+	defer delete(table)
+	mesh, surface, made := merge_meshes(pair[:], obj.transform, &table)
 	if !made {
 		report(app, nil, {.Warning}, "Merge down: together they have more polygroups than one object can keep")
 		return true
@@ -263,6 +313,7 @@ merge_down :: proc(app: ^App) -> bool {
 		scene_delete_selected(app, undoable = false)
 		return false
 	}
+	group_materials_replace(app, obj, table[:])
 	history_record_swap(app, obj.id, before)
 	// The object merged in goes, chained to the rebuild.
 	app.scene.selected = below
@@ -295,7 +346,9 @@ merge_visible :: proc(app: ^App, folder: int) -> bool {
 		report(app, nil, {.Warning}, "%s: the new object would need about %d MB; the limit is %d MB", what, bytes >> 20, MAX_SUBDIVIDE_BYTES >> 20)
 		return true
 	}
-	mesh, surface, made := merge_meshes(objs[:], {scale = 1})
+	table: [dynamic]Group_Material
+	defer delete(table)
+	mesh, surface, made := merge_meshes(objs[:], {scale = 1}, &table)
 	if !made {
 		report(app, nil, {.Warning}, "%s: together they have more polygroups than one object can keep", what)
 		return true
@@ -310,6 +363,7 @@ merge_visible :: proc(app: ^App, folder: int) -> bool {
 	defer delete(name)
 	// The merged object is shaded as the first of them was.
 	if !scene_add_mesh(app, mesh, name, {scale = 1}, {scale = 1}, time.tick_now(), surface = surface, material = objs[0].material) do return false
+	group_materials_replace(app, app.scene.objects[len(app.scene.objects) - 1], table[:])
 	history_record_added(app)
 	app.merged += count
 	report(app, nil, {.Undo}, "%s: %d objects into %s", what, count, name)

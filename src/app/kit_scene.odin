@@ -520,6 +520,15 @@ kit_add :: proc(app: ^App) {
 kit_material :: proc(app: ^App) {
 	ctx := &app.kit.ctx
 	sel := selected_object(app)
+	// With polygroups the section edits the object's material or one group's.
+	if sel != nil && command_enabled(app, .Pick_Group, 0) {
+		targets := [2]string{"Object", "Group"}
+		if picked := ui.tabs(ctx, "material target", targets[:], int(app.ui.material_groups)); picked >= 0 do app.ui.material_groups = picked == 1
+		if app.ui.material_groups {
+			kit_group_material(app, sel)
+			return
+		}
+	}
 	m := object_material(app, sel) if sel != nil else current_material(app)
 	index := material_index(m)
 	// Custom in the list is the object's own Custom, or the last one made.
@@ -554,6 +563,53 @@ kit_material :: proc(app: ^App) {
 		app.ui.scene_command = {kind = .Material, material = m}
 	}
 	ui.paragraph(ctx, "Each object has its own material, kept in the scene file; this sets the selected objects' and the one new objects take. Moving the colour, Metallic or Roughness makes it Custom; the presets stay as they are. A MatCap is a picture of a lit sphere that stands in for the lights, tinted by the colour. Cavity darkens creases and Ridge lightens crests on every material. Dim the others shows the objects not selected in a muted colour.")
+}
+
+// One polygroup's material: Pick a group, then a lit preset or Custom values for it, as the
+// object's own are picked; under More its Metallic and Roughness, and Use the object's
+// material to give its own back.
+@(private = "file")
+kit_group_material :: proc(app: ^App, obj: ^Object) {
+	ctx := &app.kit.ctx
+	u := &app.ui
+	_ = command_button(app, .Pick_Group, label = "Press on a group..." if u.group_pick else "", variant = .Bordered, tone = .Accent if u.group_pick else .Neutral)
+	if u.group_target_id != obj.id || u.group_target == 0 {
+		ui.paragraph(ctx, "Pick a group, then a material for it: gold trim on a steel plate, in one object. Every other group keeps the object's material. Up to 15 groups an object; not MatCaps, whose picture is the object's.")
+		return
+	}
+	group := u.group_target
+	m, own := group_material_of(app, obj, group)
+	// A MatCap object's material is lit for its groups.
+	if m.matcap != 0 {
+		m.matcap = 0
+		m.label = "Custom"
+	}
+	index := material_index(m)
+	custom := m if index == CUSTOM_MATERIAL || index >= FIRST_MATCAP else app.custom
+	custom.matcap, custom.label = 0, "Custom"
+	names: [FIRST_MATCAP + 1]string
+	for i in 0 ..< FIRST_MATCAP do names[i] = string(MATERIALS[i].label) if i < FIRST_PBR else fmt.tprintf("%s (physically based)", MATERIALS[i].label)
+	names[FIRST_MATCAP] = "Custom"
+	send :: proc(app: ^App, obj: ^Object, group: u16, m: Material, clear := false) {
+		app.ui.scene_command = {kind = .Group_Material, id = obj.id, group = group, material = m, on = clear}
+	}
+	shown := index if index < FIRST_MATCAP else FIRST_MATCAP
+	if picked := ui.select(ctx, fmt.tprintf("Group %d", group), names[:], shown); picked >= 0 {
+		send(app, obj, group, custom if picked == FIRST_MATCAP else MATERIALS[picked])
+	}
+	if m.roughness == 0 do m.roughness = CUSTOM_ROUGHNESS
+	changed := kit_color(app, "group colour", (^[3]f32)(&m.selected), linear = true)
+	if kit_more(app, .Material) {
+		changed |= ui.slider(ctx, "Metallic", &m.metallic, 0, 1, .Linear, fmt.tprintf("%.2f", m.metallic))
+		changed |= ui.slider(ctx, "Roughness", &m.roughness, 0.04, 1, .Linear, fmt.tprintf("%.2f", m.roughness))
+		if ui.button(ctx, "Use the object's material", .Bordered, enabled = own) do send(app, obj, group, {}, clear = true)
+		kit_more_end(app)
+	}
+	if changed {
+		m.label = "Custom"
+		send(app, obj, group, m)
+	}
+	ui.paragraph(ctx, fmt.tprintf("Group %d shows %s. Picking or moving anything here gives it its own; the object's other groups keep theirs.", group, "its own material" if own else "the object's material"))
 }
 
 // The light rig's turn, height and strengths, and whether it stays with the camera or

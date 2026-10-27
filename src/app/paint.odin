@@ -1,6 +1,7 @@
 package main
 
 import "core:log"
+import "core:slice"
 import "core:time"
 import sdl "vendor:sdl3"
 
@@ -36,6 +37,11 @@ group_command :: proc(app: ^App, command: sculpt.Group_Command) {
 	if obj == nil || !paint_allowed(obj) do return
 	start := time.tick_now()
 	s := object_sculptor(obj)
+	// The groups as they were, for the group materials to follow.
+	before: []u16
+	if len(obj.group_materials) > 0 {
+		if g := sculpt.sculptor_groups(s); g != nil do before = slice.clone(g, context.temp_allocator)
+	}
 	changed := sculpt.sculptor_group_command(s, command, app.ui.crease_degrees)
 	groups := 0
 	if g := sculpt.sculptor_groups(s); g != nil {
@@ -48,6 +54,18 @@ group_command :: proc(app: ^App, command: sculpt.Group_Command) {
 	// Grouping is easiest to follow seen.
 	app.show_groups = true
 	history_record(app, obj, .Paint, GROUP_COMMAND_NAMES[command])
+	if len(obj.group_materials) > 0 {
+		after := group_materials_follow(obj.group_materials[:], before, sculpt.sculptor_groups(s))
+		if slice.equal(after[:], obj.group_materials[:]) {
+			delete(after)
+			return
+		}
+		step := new(Group_Table_Step)
+		step.before = slice.clone_to_dynamic(obj.group_materials[:])
+		step.after = after
+		app.history.done[len(app.history.done) - 1].group_table = step
+		group_materials_replace(app, obj, after[:])
+	}
 }
 
 @(rodata)

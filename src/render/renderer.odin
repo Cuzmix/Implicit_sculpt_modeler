@@ -206,7 +206,30 @@ Frame_Uniforms :: struct {
 	view_proj: Mat4,
 	view:      Mat4,
 	model:     Mat4,
-	options:   [4]f32, // x: show the paint, y: show the polygroups
+	options:   [4]f32, // x: show the paint, y: show the polygroups, z: look up material slots
+	slot_group: [GROUP_SLOTS]u32, // Material_Slots.groups, as mesh.vert's uvec4 slot_group[4]
+}
+
+// How many material slots an item has: slot 0 is its own material, the rest polygroups'.
+GROUP_SLOTS :: 16
+
+// Material_Slots.groups of a slot no polygroup uses.
+SLOT_NONE :: max(u32)
+
+// Polygroups shaded with materials of their own: slot k (from 1) shades the triangles of
+// polygroup groups[k] with uniforms' entry k in place of the item's colour, shading and
+// metal and roughness. groups[0] is unused (SLOT_NONE). The triangle's group is the one
+// its first corner carries (Mesh_Buffers.paint), so the mesh needs its paint buffer.
+Material_Slots :: struct {
+	groups:   [GROUP_SLOTS]u32,
+	uniforms: Slot_Uniforms,
+}
+
+// Matches Slot_Uniforms in mesh.frag (std140: arrays of vec4).
+Slot_Uniforms :: struct {
+	color:   [GROUP_SLOTS][4]f32, // as Draw_Item.color
+	params:  [GROUP_SLOTS][4]f32, // as Draw_Item.material
+	surface: [GROUP_SLOTS][4]f32, // x, y as Draw_Item.surface
 }
 
 // One mesh to draw this frame: where it sits in the world and its clay colour.
@@ -242,6 +265,8 @@ Draw_Item :: struct {
 	// lights and its studio into view space, with the key light's strength in [0].w and
 	// the fill's in [1].w; zero for DEFAULT_LIGHTS, fixed to the camera.
 	lights:    [3][4]f32,
+	// Polygroups with materials of their own; nil for none. Read during the frame only.
+	slots:     ^Material_Slots,
 	live:   bool,
 	chunks: []geom.Chunk,
 	chunk_groups: []geom.Chunk, // geom.chunk_group of each geom.CHUNK_GROUP chunks, to cull a group at a time; nil to test every chunk
@@ -471,7 +496,7 @@ create_mesh_pipeline :: proc(r: ^Renderer, mode: Mesh_Mode, samples: sdl.GPUSamp
 		format              = {.SPIRV},
 		stage               = .FRAGMENT,
 		num_samplers        = 1,
-		num_uniform_buffers = 1,
+		num_uniform_buffers = 2,
 	})
 	// Shaders are only needed until the pipeline is built.
 	defer if vert != nil do sdl.ReleaseGPUShader(r.device, vert)
@@ -1137,9 +1162,11 @@ frame_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lod
 		wire:     b32,
 		flat:     b32,
 		paint:    b32,
-		groups:   b32, // no padding: every byte is hashed
+		groups:   b32,
+		slotted:  b32, // with Material_Slots, hashed after it
+		_:        b32, // no padding: every byte is hashed
 	}
-	#assert(size_of(Keyed) == 216)
+	#assert(size_of(Keyed) == 224)
 	Header :: struct { // no padding: every byte is hashed
 		view, proj:    Mat4,
 		width, height: u32,
@@ -1152,8 +1179,9 @@ frame_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lod
 	header := Header{view, proj, vt.width, vt.height, u32(len(items)), lod_px, floor, background}
 	h := hash.fnv64a(slice.bytes_from_ptr(&header, size_of(header)))
 	for item in items {
-		k := Keyed{item.mesh, item.matcap, item.model, item.color, item.material, item.checker, item.look, item.lights, item.surface, b32(item.wireframe), b32(item.flat), b32(item.paint), b32(item.groups)}
+		k := Keyed{item.mesh, item.matcap, item.model, item.color, item.material, item.checker, item.look, item.lights, item.surface, b32(item.wireframe), b32(item.flat), b32(item.paint), b32(item.groups), item.slots != nil, false}
 		h = hash.fnv64a(slice.bytes_from_ptr(&k, size_of(k)), h)
+		if item.slots != nil do h = hash.fnv64a(slice.bytes_from_ptr(item.slots, size_of(Material_Slots)), h)
 	}
 	return max(h, 1)
 }
@@ -1328,9 +1356,11 @@ static_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lo
 		wire:     b32,
 		flat:     b32,
 		paint:    b32,
-		groups:   b32, // no padding: every byte is hashed
+		groups:   b32,
+		slotted:  b32, // with Material_Slots, hashed after it
+		_:        b32, // no padding: every byte is hashed
 	}
-	#assert(size_of(Keyed) == 224)
+	#assert(size_of(Keyed) == 232)
 	Header :: struct { // no padding: every byte is hashed
 		view, proj:    Mat4,
 		width, height: u32,
@@ -1342,8 +1372,9 @@ static_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lo
 	h := hash.fnv64a(slice.bytes_from_ptr(&header, size_of(header)))
 	for item in items {
 		if item.live do continue
-		k := Keyed{item.mesh, item.matcap, item.mesh.version, item.model, item.color, item.material, item.checker, item.look, item.lights, item.surface, b32(item.wireframe), b32(item.flat), b32(item.paint), b32(item.groups)}
+		k := Keyed{item.mesh, item.matcap, item.mesh.version, item.model, item.color, item.material, item.checker, item.look, item.lights, item.surface, b32(item.wireframe), b32(item.flat), b32(item.paint), b32(item.groups), item.slots != nil, false}
 		h = hash.fnv64a(slice.bytes_from_ptr(&k, size_of(k)), h)
+		if item.slots != nil do h = hash.fnv64a(slice.bytes_from_ptr(item.slots, size_of(Material_Slots)), h)
 	}
 	return max(h, 1) // 0 means empty
 }
@@ -1414,7 +1445,13 @@ draw_items :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURende
 		if blended(pipes, item) != see do continue
 		mb := item.mesh
 		show_paint, show_groups := item.paint && mb.paint != nil, item.groups && mb.paint != nil
-		frame := Frame_Uniforms{view_proj = proj * view, view = view, model = item.model, options = {f32(int(show_paint)), f32(int(show_groups)), 0, 0}}
+		slotted := item.slots != nil && mb.paint != nil
+		frame := Frame_Uniforms{view_proj = proj * view, view = view, model = item.model, options = {f32(int(show_paint)), f32(int(show_groups)), f32(int(slotted)), 0}}
+		frame.slot_group = SLOT_NONE
+		if slotted {
+			frame.slot_group = item.slots.groups
+			sdl.PushGPUFragmentUniformData(cmd, 1, &item.slots.uniforms, size_of(Slot_Uniforms))
+		}
 		params := item.material if item.material != {} else DEFAULT_MATERIAL
 		surface := [4]f32{item.surface.x, item.surface.y, 1 if item.flat else 0, 1 if item.matcap != nil else 0}
 		lights := item.lights if item.lights != {} else DEFAULT_LIGHTS
