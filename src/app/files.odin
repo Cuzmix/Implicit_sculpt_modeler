@@ -13,6 +13,7 @@ import sdl "vendor:sdl3"
 
 import "../camera"
 import "../geom"
+import "../jobs"
 import "../png_write"
 import "../render"
 import "../sculpt"
@@ -340,41 +341,73 @@ scene_remember_path :: proc(app: ^App, path: string) {
 // (its place in the file is kept for export: see Object.file). Returns false only on a
 // GPU failure.
 scene_import :: proc(app: ^App, path: string) -> bool {
-	start := time.tick_now()
-	name := filepath.base(path)
+	m, read := mesh_import_read(app, path, fmt.tprintf("Imported %s", filepath.base(path)))
+	if !read do return true
+	stem := filepath.stem(path)
+	if !scene_add_mesh(app, m.mesh, stem if stem != "" else "Import", m.file, {position = next_free_position(app), scale = 1}, m.start) do return false
+	// After the new object's stats reset.
+	app.stats.file_read_ms, app.stats.file_parse_ms = m.read_ms, m.parse_ms
+	return true
+}
+
+// A mesh file read for a new object: the cleaned mesh, centred and sized like a sphere,
+// where it sat in its file, and how long reading took.
+Mesh_Import :: struct {
+	mesh:              geom.Mesh,
+	file:              Transform,
+	start:             time.Tick,
+	read_ms, parse_ms: f64,
+}
+
+// Which reader a mesh file takes: by its extension, or for a content:// URI from
+// Android's picker, which has none, by its bytes (a PLY file starts with "ply", and
+// anything else is tried as OBJ text). False for a file of another kind.
+mesh_file_kind :: proc(path: string, data: []u8) -> (ply, ok: bool) {
+	kind := strings.to_lower(filepath.ext(path), context.temp_allocator)
+	if strings.has_prefix(path, "content://") && kind != ".obj" && kind != ".ply" do kind = ".ply" if strings.has_prefix(string(data), "ply") else ".obj"
+	return kind == ".ply", kind == ".obj" || kind == ".ply"
+}
+
+// Parses and cleans a mesh file's bytes, as Import and a content pack's install both
+// do; a nil pool runs it on the calling thread. `line` names the line of a parse error
+// (0 for none).
+mesh_file_parse :: proc(data: []u8, ply: bool, pool: ^jobs.Pool) -> (mesh: geom.Mesh, cleaned: geom.Mesh_Clean_Report, failed: geom.Mesh_File_Error, line: int) {
+	if ply do mesh, failed, line = geom.mesh_read_ply(data, pool)
+	else do mesh, failed, line = geom.mesh_read_obj(data, pool)
+	if failed == .None do cleaned, failed = geom.mesh_clean(&mesh, pool)
+	if failed != .None do geom.mesh_destroy(&mesh)
+	return
+}
+
+// Reads the mesh file at `path` for a new object, with a note led by `what` ("Imported
+// rock.obj") saying what it holds; false, with a note saying why, when it cannot.
+mesh_import_read :: proc(app: ^App, path, what: string) -> (m: Mesh_Import, ok: bool) {
+	m.start = time.tick_now()
+	// Kept apart from temp memory, which reading frees before the note is written.
+	head := strings.clone(what)
+	defer delete(head)
+	name := strings.clone(filepath.base(path))
+	defer delete(name)
 	data, err := file_read_any(path, context.allocator)
 	if err != nil {
-		file_note(app, true, "Cannot import %s: %v", name, err)
-		return true
+		file_note(app, true, "Cannot read %s: %v", name, err)
+		return
 	}
 	defer delete(data)
 	read := time.tick_now()
-	mesh: geom.Mesh
-	failed: geom.Mesh_File_Error
-	line: int
-	kind := strings.to_lower(filepath.ext(path), context.temp_allocator)
-	// A content:// URI from Android's picker has no extension, so there the bytes decide:
-	// a PLY file starts with "ply", and anything else is tried as OBJ text.
-	if strings.has_prefix(path, "content://") && kind != ".obj" && kind != ".ply" do kind = ".ply" if strings.has_prefix(string(data), "ply") else ".obj"
-	switch kind {
-	case ".obj":
-		mesh, failed, line = geom.mesh_read_obj(data, &app.pool)
-	case ".ply":
-		mesh, failed, line = geom.mesh_read_ply(data, &app.pool)
-	case:
+	ply, kind_ok := mesh_file_kind(path, data)
+	if !kind_ok {
 		file_note(app, true, "Cannot import %s: only .obj and .ply files import", name)
-		return true
+		return
 	}
-	cleaned: geom.Mesh_Clean_Report
-	if failed == .None do cleaned, failed = geom.mesh_clean(&mesh, &app.pool)
+	mesh, cleaned, failed, line := mesh_file_parse(data, ply, &app.pool)
 	if failed != .None {
-		geom.mesh_destroy(&mesh)
 		if line > 0 {
-			file_note(app, true, "Cannot import %s, line %d: %s", name, line, geom.MESH_FILE_ERROR_TEXT[failed])
+			file_note(app, true, "Cannot read %s, line %d: %s", name, line, geom.MESH_FILE_ERROR_TEXT[failed])
 		} else {
-			file_note(app, true, "Cannot import %s: %s", name, geom.MESH_FILE_ERROR_TEXT[failed])
+			file_note(app, true, "Cannot read %s: %s", name, geom.MESH_FILE_ERROR_TEXT[failed])
 		}
-		return true
+		return
 	}
 	parsed := time.tick_now()
 	center, radius := geom.mesh_normalize(&mesh, &app.pool)
@@ -383,26 +416,23 @@ scene_import :: proc(app: ^App, path: string) -> bool {
 	// A closed surface facing inward would be culled from outside, and remeshes empty.
 	if flipped do geom.mesh_flip(&mesh, &app.pool)
 	free_all(context.temp_allocator)
-	read_ms := time.duration_milliseconds(time.tick_diff(start, read))
-	parse_ms := time.duration_milliseconds(time.tick_diff(read, parsed))
+	m.read_ms = time.duration_milliseconds(time.tick_diff(m.start, read))
+	m.parse_ms = time.duration_milliseconds(time.tick_diff(read, parsed))
 	// The note leads with what matters most: a surface that is not closed, then the size.
 	closed := geom.mesh_edges_closed(edges)
 	note := strings.builder_make(context.temp_allocator)
-	strings.write_string(&note, fmt.tprintf("Imported %s", name))
+	strings.write_string(&note, head)
 	if closed {
 		strings.write_string(&note, ":")
 	} else {
 		strings.write_string(&note, fmt.tprintf(", but its surface is not closed (%d border edges, %d flipped or shared by more than two triangles): it sculpts, but subdivision, HD and remesh need a closed one.", edges.border, edges.bad))
 	}
-	strings.write_string(&note, fmt.tprintf(" %d vertices, %d triangles, read in %.0f ms and parsed in %.0f ms", geom.mesh_vertex_count(mesh), geom.mesh_triangle_count(mesh), read_ms, parse_ms))
+	strings.write_string(&note, fmt.tprintf(" %d vertices, %d triangles, read in %.0f ms and parsed in %.0f ms", geom.mesh_vertex_count(mesh), geom.mesh_triangle_count(mesh), m.read_ms, m.parse_ms))
 	if cleaned != {} do strings.write_string(&note, fmt.tprintf("; %d vertices welded, %d triangles and %d vertices dropped", cleaned.welded, cleaned.dropped_triangles, cleaned.dropped_vertices))
 	if flipped do strings.write_string(&note, "; turned outward")
 	file_note(app, !closed, "%s", strings.to_string(note))
-	stem := filepath.stem(path)
-	if !scene_add_mesh(app, mesh, stem if stem != "" else "Import", {position = center, scale = radius}, {position = next_free_position(app), scale = 1}, start) do return false
-	// After the new object's stats reset.
-	app.stats.file_read_ms, app.stats.file_parse_ms = read_ms, parse_ms
-	return true
+	m.mesh, m.file = mesh, {position = center, scale = radius}
+	return m, true
 }
 
 // Writes the object's shown level (packed, if dynamic) to an OBJ, PLY, binary glTF or

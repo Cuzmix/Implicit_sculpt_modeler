@@ -833,11 +833,15 @@ COMMANDS := [Command_Id]Command {
 
 	.Add_Object = {
 		label = "Add object",
-		help = "Adds the shape and size picked in the Scene palette's Add object section, or with As voxels a voxel sphere of that size.",
+		help = "Adds the shape and size picked in the Scene palette's Add object section (with As voxels a voxel sphere of that size), or the content pack's mesh picked there.",
 		icon = ui.ICON_PLUS,
 		run = proc(app: ^App, _: int) {
 			k := &app.kit
 			vertices := int(SPHERE_PRESETS[k.add_size].vertices)
+			if _, ok := pack_mesh_at(app, k.add_mesh - 1); ok {
+				app.ui.scene_command = {kind = .Add, mesh = k.add_mesh}
+				return
+			}
 			app.ui.scene_command = {kind = .Add, vertices = vertices, shape = k.add_shape, voxels = voxel_resolution_for(vertices) if k.add_voxel else 0}
 		},
 	},

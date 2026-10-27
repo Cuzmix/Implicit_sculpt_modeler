@@ -4851,6 +4851,35 @@ def pack_presets_reach_the_browser():
     ])
 
 
+# An octahedron, a small closed mesh for a pack.
+OCTA_OBJ = ("v 1 0 0\nv -1 0 0\nv 0 1 0\nv 0 -1 0\nv 0 0 1\nv 0 0 -1\n"
+            "f 1 3 5\nf 3 2 5\nf 2 4 5\nf 4 1 5\nf 3 1 6\nf 2 3 6\nf 4 2 6\nf 1 4 6\n")
+# Menu > New scene's first pack mesh, under the six shapes and the pack's name, at 1600x900.
+MENU_PACK_MESH = (48, 645)
+
+
+@scenario
+def pack_meshes_start_and_add():
+    """A pack's meshes: a script installs it and adds its Boulder beside the sphere (one
+    set-up step); the next start's Menu > New scene lists the pack's meshes under its name,
+    and a tap on Boulder starts a scene of it alone, since a fresh scene has no work to
+    lose."""
+    pack = autosave_folder() + "-meshes.sculptpack"
+    make_pack(pack, "Rock Set", [], [("meshes/Boulder.obj", OCTA_OBJ), ("meshes/Pillar.obj", OCTA_OBJ)])
+    s = Script()
+    s.wait(3)
+    click(s, UI["menu"])
+    s.wait(6)
+    click(s, MENU_PACK_MESH)
+    s.wait(6)
+    return Steps([
+        (Script(), [f"--settings-file={settings_file()}", f"--script=install_pack {pack}; pack_mesh rock-set/boulder"],
+         {"pack_meshes": near(2, 0), "objects": near(2, 0), "selected_name": is_text("Boulder")}),
+        (s, [f"--settings-file={settings_file()}"],
+         {"objects": near(1, 0), "selected_name": is_text("Boulder"), "undo_steps": near(0, 0), "menu": near(0)}),
+    ])
+
+
 @scenario
 def gltf_export_keeps_layers():
     """Layers as glTF morph targets (export_keeps_layers): Blender shows 1.5 as it is."""

@@ -212,6 +212,7 @@ Kit_State :: struct {
 	coach_last:  Coach_Step,
 	scroll:     f32, // the inspector's scroll, where it is heading
 	add_shape:  geom.Primitive,
+	add_mesh:   int, // a content pack's mesh to add instead (Library.meshes, from 1), or 0
 	add_size:   int, // into SPHERE_PRESETS
 	add_voxel:  bool, // Add object makes a voxel sphere of the size's resolution (voxel_object.odin)
 	note_at:    time.Tick, // the result last shown as a toast
@@ -1108,6 +1109,24 @@ kit_menu :: proc(app: ^App, anchor: ui.Rect) {
 			if command_button(app, .New_Scene, i, label = label, variant = .Solid if armed else .Flat, tone = .Danger if armed else .Neutral, width = w) && !new_scene_armed(app, i) do pick = true
 		}
 		ui.end(ctx)
+	}
+	// Each content pack's meshes, three to a row under its name, armed the same way.
+	for pack, p in app.library.packs {
+		if pack.meshes == 0 do continue
+		ui.caption(ctx, ui.text_fit(ctx, fmt.tprintf("  %s", strings.to_upper(pack.name, context.temp_allocator)), ctx.theme.caption_size, body_w - 8, .Semibold))
+		n := 0
+		for m, j in app.library.meshes {
+			if m.gone || m.pack != pack.id do continue
+			if n % 3 == 0 do ui.begin(ctx, fmt.tprintf("new scene pack %d row %d", p, n / 3), {direction = .Row, gap = 6})
+			armed := new_mesh_armed(app, j)
+			label := "Discard?" if armed else ui.text_fit(ctx, m.stem, ctx.theme.text_size, w - 12)
+			if ui.button(ctx, fmt.tprintf("%s##new scene mesh %d", label, j), .Solid if armed else .Flat, .Danger if armed else .Neutral, width = w) {
+				new_mesh_run(app, j)
+				if !new_mesh_armed(app, j) do pick = true
+			}
+			n += 1
+			if n % 3 == 0 || n == pack.meshes do ui.end(ctx)
+		}
 	}
 	ui.divider(ctx, across = true)
 	ui.caption(ctx, "  APP")

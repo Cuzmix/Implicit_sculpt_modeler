@@ -40,6 +40,7 @@ Library :: struct {
 	skipped:      int,    // files and pack folders in the library it cannot read
 	packs:        [dynamic]Pack, // sorted by id at start, then in the order installed
 	presets:      [dynamic]Pack_Preset, // every pack's brush presets, a removed pack's marked gone
+	meshes:       [dynamic]Pack_Mesh, // every pack's base meshes, a removed pack's marked gone
 	installed:    int,    // packs installed this run
 	refused:      int,    // packs refused this run
 	worker:       ^Pack_Worker,    // the install under way, or nil
@@ -84,6 +85,8 @@ library_destroy :: proc(app: ^App) {
 	delete(l.packs)
 	for &p in l.presets do delete(p.pack)
 	delete(l.presets)
+	for &m in l.meshes do pack_mesh_free(&m)
+	delete(l.meshes)
 	delete(l.folder)
 	l^ = {}
 }
@@ -133,6 +136,7 @@ library_load :: proc(app: ^App, folder: string) {
 				}
 				p.presets = pack_presets_add(app, p.id, read[:])
 			}
+			p.meshes = pack_meshes_load(app, p.id, fi.fullpath)
 			append(&l.packs, p)
 		}
 	}
