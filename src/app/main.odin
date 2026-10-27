@@ -1335,6 +1335,9 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		// The Colors card's tab, how many colours its history and your palettes hold, and
 		// whether the eyedropper still waits for a press.
 		fmt.printfln("colors_tab=%s color_history=%d color_palettes=%d eyedropper=%d", strings.to_lower(fmt.tprint(k.colors.tab), context.temp_allocator), k.colors.history_count, k.colors.palette_count, int(app.ui.eyedrop_armed))
+		// The brush browser's category, what Recent and Favorites hold, whether its
+		// categories are hidden or a search is open, and how many tiles it picked from.
+		fmt.printfln("brush_category=%s brush_recent=%d brush_favorites=%d brush_sidebar=%d brush_search=%d brush_browser_picks=%d", strings.to_lower(fmt.tprint(k.brushes.category), context.temp_allocator), k.brushes.recent_count, k.brushes.favorite_count, int(!k.brushes.sidebar_hidden), int(k.brushes.searching), k.brushes.picks)
 		// Where the modifier rail and what must stay clear of it ended up, in points, for
 		// touch_check's window size scenarios.
 		for name in ([?]string{"modifier rail", "brush bar", "dock", "dock pages", "points", "inspector", "action bar", "coach", "view bar", "top bar", "adjust last", "shape bar"}) {

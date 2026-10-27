@@ -209,7 +209,7 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
 - Widgets (`widgets.odin`): `label`, `paragraph`, `caption`, `icon_button`, `button` (variant, tone, width, glyph,
   enabled, keys: a tooltip hint), `toggle_button`, `tabs` (segmented control; `chosen` -1 shows none; `keys` a hint per option), `switch_row`, `slider` (linear or
   logarithmic), `vslider`, `drag_value` (drag sideways, from the press value), `text_field` (a `[]u8` buffer),
-  `select`, `gradient_slider` (a track of colour stops, for channels), `swatch` (a colour cell a whole target, `long` its menu), `list_row`, `tree_row` (indent, chevron, trailing `Row_Toggle`s, `grip` that drags the row and claims the press, `held_toggle` for a column drag: at once for a mouse, after the tooltip's hold for a finger or pen), `menu_item`, `brush_tile`, `section`/`section_end`, `value_row`, `plot`, `area` (a space to draw
+  `select`, `gradient_slider` (a track of colour stops, for channels), `swatch` (a colour cell a whole target, `long` its menu), `list_row`, `tree_row` (indent, chevron, trailing `Row_Toggle`s, `grip` that drags the row and claims the press, `held_toggle` for a column drag: at once for a mouse, after the tooltip's hold for a finger or pen), `menu_item`, `brush_tile`, `preview_tile` (a large tile: a `fill_ball` material ball with an icon over a name; `selected` rings it, several at once in a row, `menu` its long press), `section`/`section_end`, `value_row`, `plot`, `area` (a space to draw
   into that reports the pointer: graphs, bars, thumbnails), `grey_image`, `divider`. Shapes (`ui.odin`): `fill_rect`,
   `stroke_rect`, `fill_circle`, `stroke_circle`, `line`, `polyline`, `fill_convex`, `text`, `icon`.
 - Every pressable widget has default, hover, pressed, selected and disabled looks through `feedback`; selected tabs,
@@ -287,7 +287,8 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
 | the same widget twice in one container | ids come from labels: give each a `##` suffix (`"Clay##slot 3"`); the text after `##` is not shown |
 | a shortcut's text or the keys a command has | `command_keys(app, …)` / `command_chords(app, …)` / `keymap(app)` (keymap.odin), never DEFAULT_BINDINGS: the user's `key` overrides change them (Ctrl+Alt+click → Assign key, kit_bind.odin) |
 | a control that runs a command | through `command_run` during the layout: a Ctrl+Alt click there opens Assign key instead (`bind_click`, `ui.Context.clicked_rect`); an action that is no command (presets) is not bindable |
-| a dock slot or the brush browser | `dock.odin`: `Kit_State.dock` slots (three pages of `DOCK_PAGE`; a brush or a preset from 1), `kit_brush_grid` for every brush and preset, `dock_preset_deleted` when presets shift; the slot menu is `k.dock_menu` |
+| a dock slot | `dock.odin`: `Kit_State.dock` slots (three pages of `DOCK_PAGE`; a brush or a preset from 1), `kit_brush_grid` for every brush and preset, `dock_preset_deleted` when presets shift; the slot menu is `k.dock_menu` |
+| the brush browser | `kit_brushes.odin`: ZBrush's Brushes palette over `k.browser`; everything it lists is a `Brush_Item` (brush or preset slot, tool, mask shape, gesture) with a `brush_item_key` that Recent and Favorites keep; a new kind of item needs its name, icon, key, category, pick and settings there |
 
 ## Verify
 - `--ui-events="5:move:800,450;6:down;7:up;9:right;12:wheel:-3;14:fdown:0:300,300;16:fup:0"` drives the mouse,
