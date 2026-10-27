@@ -48,6 +48,8 @@ mesh_write_usda :: proc(out: ^[dynamic]u8, m: Mesh_Export, pool: ^jobs.Pool = ni
 	taken := make([dynamic]string, 0, len(m.morphs) + 2, context.temp_allocator)
 	append(&taken, "Skel")
 	mesh_name := usd_identifier(&taken, m.name, "Mesh")
+	material, has_material := m.material.?
+	material_name := usd_identifier(&taken, material.name, "Material") if has_material else ""
 	shapes := make([]string, len(m.morphs), context.temp_allocator)
 	clear(&taken)
 	for t, k in m.morphs do shapes[k] = usd_identifier(&taken, t.name, fmt.tprintf("Layer_%d", k + 1))
@@ -58,7 +60,12 @@ mesh_write_usda :: proc(out: ^[dynamic]u8, m: Mesh_Export, pool: ^jobs.Pool = ni
 	w(out, "def SkelRoot \"Root\"\n{\n" if skinned else "def Xform \"Root\"\n{\n")
 	fmt.sbprintf(&u.b, "    def Mesh \"%s\"", mesh_name)
 	usd_flush(out, &u)
-	w(out, " (\n        prepend apiSchemas = [\"SkelBindingAPI\"]\n    )\n    {\n" if skinned else "\n    {\n")
+	switch {
+	case skinned && has_material: w(out, " (\n        prepend apiSchemas = [\"SkelBindingAPI\", \"MaterialBindingAPI\"]\n    )\n    {\n")
+	case skinned:                 w(out, " (\n        prepend apiSchemas = [\"SkelBindingAPI\"]\n    )\n    {\n")
+	case has_material:            w(out, " (\n        prepend apiSchemas = [\"MaterialBindingAPI\"]\n    )\n    {\n")
+	case:                         w(out, "\n    {\n")
+	}
 	w(out, "        float3[] extent = [")
 	usd_vec3(out, extent[0])
 	w(out, ", ")
@@ -89,6 +96,10 @@ mesh_write_usda :: proc(out: ^[dynamic]u8, m: Mesh_Export, pool: ^jobs.Pool = ni
 		usd_array(out, &u, .Uvs, 4 * len(m.uvs), pool)
 		w(out, " (\n            interpolation = \"faceVarying\"\n        )\n")
 	}
+	if has_material {
+		fmt.sbprintf(&u.b, "        rel material:binding = </Root/%s>\n", material_name)
+		usd_flush(out, &u)
+	}
 	// The surface as it is, not a cage to subdivide.
 	w(out, "        uniform token subdivisionScheme = \"none\"\n")
 	if skinned {
@@ -117,6 +128,7 @@ mesh_write_usda :: proc(out: ^[dynamic]u8, m: Mesh_Export, pool: ^jobs.Pool = ni
 		}
 	}
 	w(out, "    }\n")
+	if has_material do usd_material(out, &u, material, material_name, m.colors != nil)
 	if skinned {
 		w(out, "\n    def Skeleton \"Skel\" (\n        prepend apiSchemas = [\"SkelBindingAPI\"]\n    )\n    {\n")
 		w(out, "        uniform token[] joints = []\n        uniform matrix4d[] bindTransforms = []\n        uniform matrix4d[] restTransforms = []\n")
@@ -325,4 +337,32 @@ usd_identifier :: proc(taken: ^[dynamic]string, name, fallback: string) -> strin
 	}
 	append(taken, id)
 	return id
+}
+
+// The mesh's material as a UsdPreviewSurface, the surface every USD reader knows. With
+// `painted` its diffuse colour is the mesh's displayColor (the paint, read by a primvar
+// reader) times nothing more, so `m.base` is only the fallback where a reader has none.
+@(private = "file")
+usd_material :: proc(out: ^[dynamic]u8, u: ^Usd, m: Export_Material, name: string, painted: bool) {
+	w :: proc(out: ^[dynamic]u8, s: string) {append(out, s)}
+	fmt.sbprintf(&u.b, "\n    def Material \"%s\"\n    {{\n        token outputs:surface.connect = </Root/%s/Surface.outputs:surface>\n", name, name)
+	usd_flush(out, u)
+	w(out, "\n        def Shader \"Surface\"\n        {\n            uniform token info:id = \"UsdPreviewSurface\"\n            color3f inputs:diffuseColor = ")
+	base := Vec3{clamp(m.base.r, 0, 1), clamp(m.base.g, 0, 1), clamp(m.base.b, 0, 1)}
+	usd_vec3(out, base)
+	if painted {
+		fmt.sbprintf(&u.b, "\n            color3f inputs:diffuseColor.connect = </Root/%s/Paint.outputs:result>", name)
+		usd_flush(out, u)
+	}
+	w(out, "\n            float inputs:metallic = ")
+	usd_float(out, clamp(m.metallic, 0, 1))
+	w(out, "\n            float inputs:roughness = ")
+	usd_float(out, clamp(m.roughness, 0, 1))
+	w(out, "\n            token outputs:surface\n        }\n")
+	if painted {
+		w(out, "\n        def Shader \"Paint\"\n        {\n            uniform token info:id = \"UsdPrimvarReader_float3\"\n            string inputs:varname = \"displayColor\"\n            float3 inputs:fallback = ")
+		usd_vec3(out, base)
+		w(out, "\n            float3 outputs:result\n        }\n")
+	}
+	w(out, "    }\n")
 }

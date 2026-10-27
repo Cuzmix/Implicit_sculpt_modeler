@@ -27,12 +27,13 @@ description: CAD-style mesh tools inside this app on geom.Mesh — primitives, b
   sculpt layers go as sparse morph targets (`sculpt.sculptor_layer_sparse`), the base written is the shown surface
   less each layer at `layer_weight`, colours linear, the JSON gets a slot sized for its bounds so the big arrays are
   written once, straight into `out`. A change to what an export writes is checked by a scripted run and
-  `python scripts/export_check.py FILE.glb --vertices N --triangles N --keys "Layer 1=1.5,Layer 2=0" --colors`
+  `python scripts/export_check.py FILE.glb --vertices N --triangles N --keys "Layer 1=1.5,Layer 2=0" --colors --material "Gold,1,0.3"`
   (the Khronos validator and a Blender import; `--setup` installs both into `build/export-tools`; a missing tool is
   SKIP, never PASS): e.g. `--script="new_layer; smooth_all; layer 1 1.5" --export=build/x.glb`. Blender reads the
   file Y up into Z up: compare it to an OBJ of the same run as `(x, z, -y)`.
 - USD text out (`geom.mesh_write_usda`, `src/geom/usd_write.odin`, by the `.usda` name) takes the same `Mesh_Export`
-  plus `quads`/`uvs`/`groups` (USD only). Layers are `BlendShape`s named by token (any UTF-8) with prims as sanitized
+  plus `quads`/`uvs`/`groups` (USD only); `Mesh_Export.material` (`app.export_material`) goes as a glTF material and a
+  bound UsdPreviewSurface, its diffuse reading `displayColor` when painted (paint is then composed over the material colour). Layers are `BlendShape`s named by token (any UTF-8) with prims as sanitized
   identifiers; weights go as default AND a frame-1 time sample (Blender reads only time samples, clamps keys to 0-1);
   an empty shape still names one point (Blender drops a shape with no offsets). `export_check.py FILE.usda` runs
   USD's 30 validators (usd-core's `UsdValidation`) and Blender at frame 1. A `{` in an `fmt.sbprintf` format is
