@@ -10,6 +10,7 @@ import "core:strconv"
 import "core:strings"
 import "core:sync"
 import "core:time"
+import sdl "vendor:sdl3"
 
 import "../geom"
 import "../jobs"
@@ -364,6 +365,15 @@ link_object_ply :: proc(app: ^App, obj: ^Object, out: ^[dynamic]u8) -> (vertices
 	}
 	geom.mesh_write_ply(out, positions, indices, 1, {}, &app.pool, colors)
 	return len(positions), len(indices) / 3
+}
+
+// Puts the link folder's path on the clipboard, for the add-on's Link folder.
+link_copy_path :: proc(app: ^App) {
+	if sdl.SetClipboardText(strings.clone_to_cstring(app.link.folder, context.temp_allocator)) {
+		report(app, nil, {}, "Copied the link folder's path: paste it into Link folder in Blender's Sculpt tab")
+	} else {
+		report(app, nil, {.Warning}, "Cannot copy the path: %s", sdl.GetError())
+	}
 }
 
 // The window has the focus again: Blender may have sent something.

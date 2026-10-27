@@ -2,7 +2,6 @@ package main
 
 import "core:fmt"
 import "core:strings"
-import sdl "vendor:sdl3"
 
 import "../camera"
 import "../ui"
@@ -359,11 +358,7 @@ settings_performance :: proc(app: ^App) {
 		shown := "This run keeps no settings, so it has no link folder." if folder == "" else text_fit_end(ctx, folder, ctx.theme.small_size, KIT_SETTINGS_W - 2 * 16)
 		ui.paragraph(ctx, shown, color = ctx.theme.text_secondary)
 		if ui.button(ctx, "Copy path", .Bordered, enabled = folder != "") {
-			if sdl.SetClipboardText(strings.clone_to_cstring(folder, context.temp_allocator)) {
-				report(app, nil, {}, "Copied the link folder's path: paste it into Link folder in Blender's Sculpt tab")
-			} else {
-				report(app, nil, {.Warning}, "Cannot copy the path: %s", sdl.GetError())
-			}
+			link_copy_path(app)
 		}
 		half := (KIT_SETTINGS_W - 2 * 16 - 8) / f32(2)
 		ui.begin(ctx, "link buttons", {direction = .Row, gap = 8})
