@@ -53,7 +53,7 @@ COMMAND_GROUP_NAMES := [Command_Group]string {
 // the compiler names any command added outside these ranges.
 command_group :: proc(id: Command_Id) -> Command_Group {
 	switch id {
-	case .None, .New_Scene ..= .Get_From_Blender: return .File
+	case .None, .Home ..= .Get_From_Blender: return .File
 	case .Undo ..= .Duplicate_Object:         return .Edit
 	case .Tool_Move ..= .Replay_Stroke:       return .Tools
 	case .Remesh ..= .Reset_Transform:        return .Object

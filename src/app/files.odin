@@ -296,7 +296,12 @@ file_apply :: proc(app: ^App, req: File_Request) -> bool {
 		scene_save_request(app, req)
 	case .Open:
 		opened, ok := scene_open(app, req.path)
-		if opened do scene_remember_path(app, req.path)
+		if opened {
+			scene_remember_path(app, req.path)
+			recent_scene_add(app, req.path)
+			// Opened from a shortcut while Home showed: the scene is what is wanted now.
+			if app.kit.home do home_close(app)
+		}
 		return ok
 	case .Open_Version:
 		return version_open(app, req.path)
@@ -745,6 +750,7 @@ scene_save_request :: proc(app: ^App, req: File_Request) {
 		_ = scene_save(app, req.path, copy = true)
 	} else if scene_save(app, req.path) {
 		scene_remember_path(app, req.path)
+		recent_scene_add(app, req.path)
 	}
 }
 

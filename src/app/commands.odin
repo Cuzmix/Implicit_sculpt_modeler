@@ -21,6 +21,7 @@ import "../ui"
 Command_Id :: enum u8 {
 	None,
 	// File
+	Home,
 	New_Scene, // the argument is into NEW_SCENE_SHAPES
 	Open_Scene,
 	Save_Scene,
@@ -270,6 +271,16 @@ has_hidden :: proc(app: ^App, arg: int) -> bool {
 @(rodata)
 COMMANDS := [Command_Id]Command {
 	.None = {},
+	.Home = {
+		label = "Home",
+		help = "Shows the Home screen: new scenes, and the scenes saved lately and the autosaves of earlier sessions as pictures, to open one.",
+		icon = ICON_HOME,
+		run = proc(app: ^App, _: int) {
+			if app.kit.home do home_close(app)
+			else do home_open(app)
+		},
+		checked = proc(app: ^App, _: int) -> bool {return app.kit.home},
+	},
 	.New_Scene = {
 		label = "New scene",
 		help = "Replaces the scene with this one shape at the Scene palette's Add size; with work to lose, it goes ahead on a second run.",
@@ -1852,6 +1863,9 @@ commands_handle_keys :: proc(app: ^App) {
 	if typing(app) do return
 	for b in keymap(app) {
 		if !chord_down(&app.device, b.chord) do continue
+		// Home stands in for the panels and the scene: only its own keys and opening a file
+		// reach past it.
+		if app.kit.home && b.command != .Home && b.command != .Open_Scene do continue
 		// The Move tool's key, pressed again with it on, steps the gizmo's mode; the
 		// toolbar's button only ever picks the tool.
 		if b.command == .Tool_Move && app.tool == .Move {

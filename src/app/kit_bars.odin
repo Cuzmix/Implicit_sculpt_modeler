@@ -169,17 +169,18 @@ bar_command :: proc(app: ^App, id: Command_Id, glyph: rune, arg := 0, name := ""
 	return false
 }
 
-// The strip across the top: the menu and the file actions at the left, the scene's file
-// name in the middle, the History, pies, Help and Settings at the right. Returns the
-// menu button, which the menu opens under.
+// The strip across the top: Home, the menu and the file actions at the left, the
+// scene's file name in the middle, the History, pies, Help and Settings at the right.
+// Returns the menu button, which the menu opens under.
 kit_top_bar :: proc(app: ^App) -> (menu_anchor: ui.Rect) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
 	area := ui.safe_area(ctx)
 	ui.begin_anchored(ctx, "top bar", .Start, .Start, {0, 0}, {direction = .Row, width = area.w, height = TOP_BAR_H, padding = 2, background = .Panel, center = true})
-	LEFT :: 4
+	LEFT :: 5
 	RIGHT :: 4
+	_ = bar_command(app, .Home, ICON_HOME, name = "Home")
 	if ui.icon_button(ctx, "Menu", ui.ICON_MENU, selected = k.menu) {
 		k.menu = !k.menu
 		k.menu_scroll = 0

@@ -210,6 +210,10 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   buffer and never touches the per-frame indirect commands the viewport recorded. The app draws at most one a frame
   after `nav_head_frame`, never mid-stroke or while the view moves, and only once its object's `thumb_key` has held
   for `THUMB_SETTLE`; the kit shows cells as `KIT_THUMBS_IMAGE` with `ui.image_part` and the smooth sampler.
+- `Pictures` (`pictures.odin`): an atlas of pictures the CPU decoded (Home's scene previews), 6 x 6 cells of
+  `PICTURE_PX`, filled by `pictures_upload` on the frame's own command buffer at most `PICTURES_PER_FRAME` a frame
+  through one transfer buffer mapped with `cycle = true`; a picture sits at its cell's top left (`picture_uv`). The
+  kit shows it as `KIT_PICTURES_IMAGE`; Home frees it on close (`pictures_destroy` waits for the GPU).
 
 ## Verify what you draw
     build\sculpt.exe --vertices=500000 --frames=60 --dump-viewport=build\a.ppm

@@ -127,6 +127,7 @@ settings_reset :: proc(app: ^App, tab: Settings_Tab) {
 		k.ui_scale = 1
 		k.ctx.reduced_motion = false
 		k.ctx.mirror = false
+		app.start_home = true
 		k.surface_ring = true
 		k.action_bar = true
 		k.rail_side, k.wheel_size, k.wheel_offset = .Left, .Medium, {}
@@ -188,6 +189,10 @@ settings_interface :: proc(app: ^App) {
 	ui.caption(ctx, "MOTION")
 	_ = ui.switch_row(ctx, "Reduce motion", &ctx.reduced_motion)
 	ui.paragraph(ctx, "Panels and menus appear and change without animating.")
+	ui.spacer(ctx, 8)
+	ui.caption(ctx, "STARTING")
+	_ = ui.switch_row(ctx, "Start at Home", &app.start_home)
+	ui.paragraph(ctx, "Opens on the Home screen, with new scenes and pictures of the scenes you saved lately; off, it opens straight on a sphere. Opening a scene file with the app skips Home either way.")
 	ui.spacer(ctx, 8)
 	ui.caption(ctx, "BRUSH RING")
 	_ = ui.switch_row(ctx, "Lay the brush ring on the surface", &k.surface_ring)

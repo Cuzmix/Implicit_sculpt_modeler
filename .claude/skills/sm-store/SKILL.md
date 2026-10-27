@@ -58,7 +58,11 @@ re-check the stores' pages before a first submission, because they move every ye
   account deletion inside the app if accounts exist.
 - Apple privacy manifest (`PrivacyInfo.xcprivacy`) lists every "required reason" API the binary and its libraries
   call (file timestamps, system boot time, disk space, user defaults); SDL and our code must be checked when the iPad
-  build is made.
+  build is made. Home says when a scene was saved from the time its preview block stores, not the file's timestamp,
+  to stay off that list.
+- Home's Recent keeps paths across runs (`recent_scenes`). UNVERIFIED on the tablets: a `content://` URI the picker
+  gave is readable in a later run only if the grant was persisted (`takePersistableUriPermission`; iPad needs a
+  security-scoped bookmark); until then such a scene shows as gone on Home after a restart rather than failing.
 
 ## Code and network
 - No downloading or running code after review (Apple 2.5.2; Play device and network abuse policy): brushes, alphas,

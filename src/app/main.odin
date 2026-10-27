@@ -8,6 +8,7 @@ import "core:math"
 import "core:math/linalg"
 @(require) import "core:mem" // only used when ODIN_DEBUG
 import "core:os"
+import "core:path/filepath"
 import "core:slice"
 import "core:strconv"
 import "core:strings"
@@ -187,6 +188,10 @@ App :: struct {
 	rebuild:    Rebuild_Preview, // the Rebuild panel's density checkerboard (rebuild.odin)
 	autosave: Autosave, // the background autosave and crash recovery (autosave.odin)
 	preview:  Scene_Preview, // the picture scene files keep for the Home screen (scene_preview.odin)
+	home:     Home, // the Home screen's pictures and autosaves (home.odin)
+	// The scenes saved or opened lately, newest first, at most HOME_RECENT_MAX (remembered).
+	recent_scenes: [dynamic]string,
+	start_home: bool, // an interactive run given no scene starts on Home (Settings > Interface)
 	timeline: Timeline, // the History panel's scrubbing, playback and time-lapse (timeline.odin)
 	replay:   Replay, // the Stroke recorder's last stroke, recording and replay (replay.odin)
 	// View > Studio render (Shift+R): ambient occlusion and soft shadows built up while
@@ -519,6 +524,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	app.frame_rate = .Unlimited if opts.no_vsync || opts.gpubench != "" else .Match_Display
 	app.frame_limit = FRAME_LIMIT_DEFAULT
 	app.idle_sleep = true
+	app.start_home = true
 	app.idle.forced = opts.idle_sleep
 	app.msaa = MSAA_DEFAULT
 	// Before the settings file, which brings back what earlier runs chose.
@@ -575,11 +581,19 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	if opts.frame_limit > 0 do app.frame_rate, app.frame_limit = .Limit, i32(clamp(opts.frame_limit, FRAME_LIMIT_MIN, FRAME_LIMIT_MAX))
 	app.ui.smooth_on_gpu = opts.gpu_smooth
 	if opts.bake_size > 0 do app.ui.bake.size = i32(opts.bake_size)
+	// Freed after the settings are saved at exit, which write them.
+	defer {
+		for s in app.recent_scenes do delete(s)
+		delete(app.recent_scenes)
+	}
 	defer if remember do _ = settings_save(&app, settings)
 	interactive := opts.frames == 0 && opts.gpubench == "" && opts.bench_stroke == 0 && opts.compute_bench == ""
 	autosave_init(&app, interactive, f64(opts.autosave), opts.autosave_folder, f64(opts.autosave_rest), opts.check_autosave, opts.crash_after_autosave)
 	defer autosave_destroy(&app)
 	defer scene_preview_destroy(&app)
+	defer home_destroy(&app)
+	// After autosave_init, whose folder Home's Autosaves lists.
+	if home_at_start(&app, opts, interactive) do home_open(&app)
 	// The benchmark's autosave writes the scene it starts with.
 	if opts.bench_after_autosave do app.autosave.clean = 0
 	if opts.density_preview > 0 {
@@ -993,6 +1007,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 
 		nav_head_frame(&app, cmd)
 		thumbs_frame(&app, cmd)
+		home_frame(&app, cmd)
 
 		gpu_wait: time.Duration
 		if app.time_gpu {
@@ -1136,6 +1151,9 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	// The scene file's preview picture: how many were taken, the last one's size and the
 	// milliseconds it took to shrink and encode.
 	fmt.printfln("previews=%d preview_size=%dx%d preview_kb=%.1f preview_ms=%.2f", app.preview.taken, app.preview.w, app.preview.h, f64(len(app.preview.png)) / 1024, app.preview.ms)
+	// The scene's file by its name alone, which a test compares; "none" for no file.
+	scene_name := filepath.base(app.scene_path) if app.scene_path != "" else "none"
+	fmt.printfln("home=%d home_opened=%d home_read=%d home_pictures=%d recent_scenes=%d home_autosaves=%d scene_name=%s", int(app.kit.home), app.home.opened, app.home.read, app.home.uploaded, len(app.recent_scenes), len(app.home.autosaves), scene_name)
 
 	print_stat :: proc(name: string, r: Sample_Ring) {
 		p50, p99 := ring_percentiles(r)

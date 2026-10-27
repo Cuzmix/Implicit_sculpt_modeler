@@ -5,6 +5,7 @@ import "core:log"
 import "core:math"
 import "core:os"
 import "core:reflect"
+import "core:slice"
 import "core:strconv"
 import "core:strings"
 import sdl "vendor:sdl3"
@@ -247,6 +248,7 @@ SETTINGS := [?]Setting {
 	{"frame_rate", offset_of(App, frame_rate), Frame_Rate, 0, 0},
 	{"frame_limit", offset_of(App, frame_limit), i32, FRAME_LIMIT_MIN, FRAME_LIMIT_MAX},
 	{"idle_sleep", offset_of(App, idle_sleep), bool, 0, 0},
+	{"start_home", offset_of(App, start_home), bool, 0, 0},
 	{"msaa", offset_of(App, msaa), Msaa, 0, 0},
 	{"autosave_minutes", offset_of(App, autosave) + offset_of(Autosave, minutes), i32, 0, 10},
 	{"versions_kept", offset_of(App, versions_kept), i32, 0, 10},
@@ -715,6 +717,16 @@ settings_load :: proc(app: ^App, path: string) {
 				}
 			}
 			c.palette_count += 1
+		case "recent_scenes":
+			// recent_scenes <path, escaped> ..., newest first: Home's Recent. A path given
+			// twice counts once; a file gone since stays, and Home says so.
+			for s in app.recent_scenes do delete(s)
+			clear(&app.recent_scenes)
+			for word in f[1:] {
+				if len(app.recent_scenes) == HOME_RECENT_MAX do break
+				scene := preset_unescape(word)
+				if scene != "" && !slice.contains(app.recent_scenes[:], scene) do append(&app.recent_scenes, strings.clone(scene))
+			}
 		case "palette_recent":
 			// The command palette's recents, most recent first, by name; names this version
 			// does not know are skipped, and a name given twice counts once. Remembered
@@ -932,6 +944,11 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 		if i := strings.index_byte(name, 0); i >= 0 do name = name[:i]
 		fmt.sbprintf(&out, "color_palette %s", preset_escape(name if name != "" else "Palette"))
 		for rgb in p.colors[:p.count] do fmt.sbprintf(&out, " %s", hex_text(rgb))
+		strings.write_byte(&out, '\n')
+	}
+	if len(app.recent_scenes) > 0 {
+		strings.write_string(&out, "recent_scenes")
+		for s in app.recent_scenes do fmt.sbprintf(&out, " %s", preset_escape(s))
 		strings.write_byte(&out, '\n')
 	}
 	if app.kit.palette_recent_count > 0 {
