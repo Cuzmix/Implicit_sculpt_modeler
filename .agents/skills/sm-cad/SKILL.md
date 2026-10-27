@@ -48,6 +48,8 @@ description: CAD-style mesh tools inside this app on geom.Mesh — primitives, b
   (lux / candela in the mesh's units, the writer scales candela by scale²), USD DistantLight / SphereLight treatAsPoint
   (+ ShapingAPI). USD intensities undo Blender's USD importer (sun x4, point x pi) so both formats import with the same
   watts; a sun of strength 1 is pi*683 lux. Check with `export_check.py FILE --lights "SUN=3.1416,SPOT=290.17"`.
+  The Blender link sends the same lights in world space as `light` lines of link.txt (`link_manifest_text`); the
+  add-on's `set_lights` makes them in a "Sculpt lights" collection; `scripts/link_check.py` checks them in bpy.
 - Voxel remesh exists (README "Voxel remesh (DynaMesh)"): `geom.remesh_voxel(m, target, pool)` and
   `remesh_voxel_spacing(m, h, pool)` (`src/geom/remesh.odin:57, 68`) rebuild a mesh as an even, closed, manifold surface:
   winding-number rays along each axis decide inside, marching cubes with a rule-built table keeps ambiguous faces

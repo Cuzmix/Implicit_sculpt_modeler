@@ -31,12 +31,20 @@ import "../voxel"
 //	scene <token>                 the scene the objects are from, 16 hex digits
 //	sent <n>                      rises with each send, so a reader can tell a new one
 //	object <id> <level> <name> <file> <vertices> <triangles> <x y z> <rx ry rz> <scale>
+//	light <name> <kind> <x y z> <dx dy dz> <r g b> <intensity> <range> <inner> <outer>
 //
 // A name is escaped as the settings escape one (preset_escape); the transform is the
 // object's (Transform), in the app's axes, Y up. Blender gives id 0 to an object it made.
 // The scene token is made by the first send from a scene and saved with it (scene file
 // version 17), so ids from another scene, which may name an unrelated object here, never
 // replace anything: they come back as new objects.
+//
+// Each send also lists the scene's lights that are on, in Sculpt's axes, as a glTF export
+// gives them (export_lights: directional, point or spot; the place, unused by a
+// directional one; the way it shines; linear colour; lux or candela; range, 0 for none;
+// a spot's inner and outer half angles in radians), so Blender lights the objects as
+// Sculpt does. They go one way: Blender sends no lights back, and a reader that does not
+// know the line skips it.
 
 LINK_FOLDER :: "link"
 LINK_SENT_FILE :: "link.txt"
@@ -128,7 +136,7 @@ link_manifest_free :: proc(m: ^Link_Manifest) {
 
 // A manifest as its file holds it, `head` being sculpt_link or blender_link. In the temp
 // allocator.
-link_manifest_text :: proc(head: string, m: Link_Manifest) -> string {
+link_manifest_text :: proc(head: string, m: Link_Manifest, lights: []geom.Export_Light = nil) -> string {
 	b := strings.builder_make(context.temp_allocator)
 	fmt.sbprintf(&b, "%s %d\nscene %016x\nsent %d\n", head, LINK_VERSION, m.token, m.seq)
 	for o in m.objects {
@@ -136,7 +144,19 @@ link_manifest_text :: proc(head: string, m: Link_Manifest) -> string {
 		p, r := o.transform.position, o.transform.rotation
 		fmt.sbprintf(&b, "object %d %d %s %s %d %d %v %v %v %v %v %v %v\n", o.id, o.level, link_name_word(o.name), o.file, o.vertices, o.triangles, p.x, p.y, p.z, r.x, r.y, r.z, o.transform.scale)
 	}
+	for l in lights {
+		p, d, c := l.position, l.direction, l.color
+		fmt.sbprintf(&b, "light %s %s %v %v %v %v %v %v %v %v %v %v %v %v %v\n", link_name_word(l.name), LINK_LIGHT_KINDS[l.kind], p.x, p.y, p.z, d.x, d.y, d.z, c.r, c.g, c.b, l.intensity, l.range, l.inner_cone, l.outer_cone)
+	}
 	return strings.to_string(b)
+}
+
+// Each kind of light as a manifest names it, as glTF does.
+@(rodata)
+LINK_LIGHT_KINDS := [geom.Export_Light_Kind]string {
+	.Directional = "directional",
+	.Point       = "point",
+	.Spot        = "spot",
 }
 
 // A name as one word of a manifest: %, every control byte and space, and every byte of a
@@ -328,7 +348,7 @@ link_send :: proc(app: ^App) {
 		}
 	}
 	// The manifest goes last, so Blender never reads one whose files are not all there.
-	if err := write_durably(link_path(app, LINK_SENT_FILE), transmute([]u8)link_manifest_text("sculpt_link", m)); err != "" {
+	if err := write_durably(link_path(app, LINK_SENT_FILE), transmute([]u8)link_manifest_text("sculpt_link", m, export_lights(app))); err != "" {
 		file_note(app, true, "Cannot send to Blender: %s", err)
 		return
 	}

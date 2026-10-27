@@ -73,6 +73,16 @@ link_manifest_round_trip :: proc(t: ^testing.T) {
 		testing.expect_value(t, m.objects[0].name, "Big head %1")
 		testing.expect_value(t, m.objects[1].file, "blender-new-1.ply")
 	}
+	// The lights go as a line each after the objects, names escaped as theirs, which a
+	// reader of the objects skips.
+	lights := []geom.Export_Light {
+		{name = "Key light", kind = .Directional, color = 1, intensity = 2145.7078, direction = {0, -1, 0}},
+		{name = "Lamp", kind = .Spot, color = {1, 0.5, 0.25}, intensity = 1000, position = {1, 2, 3}, direction = {0, 0, -1}, range = 9, inner_cone = 0.25, outer_cone = 0.5},
+	}
+	lit := link_manifest_text("sculpt_link", {token = 1, seq = 2, objects = objects}, lights)
+	testing.expect(t, strings.has_suffix(lit, "\nlight Key%20light directional 0 0 0 0 -1 0 1 1 1 2145.7078 0 0 0\nlight Lamp spot 1 2 3 0 0 -1 1 0.5 0.25 1000 9 0.25 0.5\n"))
+	with_lights, lit_ok := link_manifest_parse(lit, "sculpt_link", context.temp_allocator)
+	testing.expect(t, lit_ok && len(with_lights.objects) == 3)
 	// The other app's head is not this one's.
 	_, other := link_manifest_parse(text, "blender_link", context.temp_allocator)
 	testing.expect(t, !other)
