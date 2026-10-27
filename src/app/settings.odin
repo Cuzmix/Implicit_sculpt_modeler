@@ -225,6 +225,7 @@ SETTINGS := [?]Setting {
 	{"stats_advanced", K + offset_of(Kit_State, stats_advanced), bool, 0, 0},
 	{"frame_rate", offset_of(App, frame_rate), Frame_Rate, 0, 0},
 	{"frame_limit", offset_of(App, frame_limit), i32, FRAME_LIMIT_MIN, FRAME_LIMIT_MAX},
+	{"idle_sleep", offset_of(App, idle_sleep), bool, 0, 0},
 	{"msaa", offset_of(App, msaa), Msaa, 0, 0},
 	{"autosave_minutes", offset_of(App, autosave) + offset_of(Autosave, minutes), i32, 0, 10},
 	{"versions_kept", offset_of(App, versions_kept), i32, 0, 10},
