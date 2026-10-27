@@ -732,8 +732,9 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		shape_pending_frame(&app, input.size)
 		// A gizmo drag the tool changed under ends as it is.
 		if app.tool != .Move do move_end(&app)
-		// A press that picks a polygroup for its material (Pick a group) is no tool's.
-		if group_pick_frame(&app, input) {
+		// A press that picks a polygroup for its material (Pick a group) or a colour (the
+		// Eyedropper) is no tool's.
+		if group_pick_frame(&app, input) || eyedropper_frame(&app, input) {
 			brush_stroke_finish(&app)
 		} else {
 			switch app.tool {
@@ -1270,8 +1271,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		recall_pinned := false
 		if obj := selected_object(&app); obj != nil do recall_pinned = sculpt.sculptor_recall_pinned(object_sculptor(obj))
 		fmt.printfln("recall_back=%d recall_reach=%d recall_pinned=%d recall_ms=%.1f", recall_back, recall_reach, int(recall_pinned), app.stats.recall_ms)
-		open := [Kit_Window]bool{.Inspector = k.inspector && !side_panel_open(k), .Stats = k.stats, .History = k.history, .Settings = k.settings, .Help = k.help, .Macros = k.macros, .Library = k.library, .Objects = k.objects_card}
-		names := [Kit_Window]string{.Inspector = "inspector", .Stats = "stats", .History = "history panel", .Settings = "settings", .Help = "help", .Macros = "macros", .Library = "library", .Objects = "objects card"}
+		open := [Kit_Window]bool{.Inspector = k.inspector && !side_panel_open(k), .Stats = k.stats, .History = k.history, .Settings = k.settings, .Help = k.help, .Macros = k.macros, .Library = k.library, .Objects = k.objects_card, .Colors = k.colors_card}
+		names := [Kit_Window]string{.Inspector = "inspector", .Stats = "stats", .History = "history panel", .Settings = "settings", .Help = "help", .Macros = "macros", .Library = "library", .Objects = "objects card", .Colors = "colors card"}
 		for w, which in k.windows {
 			r := ui.prev_rect(&k.ctx, names[which])
 			fmt.printf("window_%s=%d,%d,%.0f,%.0f ", strings.to_lower(fmt.tprint(which), context.temp_allocator), int(open[which]), int(w.minimized), r.x, r.y)
@@ -1292,6 +1293,9 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		color_hex_format(app.brush.color, main_hex[:])
 		color_hex_format(app.brush.color2, second_hex[:])
 		fmt.printfln("paint_channel=%s paint_color=%s paint_color2=%s brush_subtract=%d painted_vertices=%d", strings.to_lower(fmt.tprint(app.brush.channel), context.temp_allocator), string(main_hex[1:7]), string(second_hex[1:7]), int(.Invert in app.rail.latched), painted)
+		// The Colors card's tab, how many colours its history and your palettes hold, and
+		// whether the eyedropper still waits for a press.
+		fmt.printfln("colors_tab=%s color_history=%d color_palettes=%d eyedropper=%d", strings.to_lower(fmt.tprint(k.colors.tab), context.temp_allocator), k.colors.history_count, k.colors.palette_count, int(app.ui.eyedrop_armed))
 		// Where the modifier rail and what must stay clear of it ended up, in points, for
 		// touch_check's window size scenarios.
 		for name in ([?]string{"modifier rail", "brush bar", "dock", "dock pages", "points", "inspector", "action bar", "coach", "view bar", "top bar", "adjust last", "shape bar"}) {

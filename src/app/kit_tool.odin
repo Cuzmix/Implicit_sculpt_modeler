@@ -89,7 +89,8 @@ BRUSH_SECTIONS := [?]Kit_Tab_Section {
 }
 
 // The colours brushes paint and what the sculpting brushes change: the surface, it and
-// its polypaint, or only the polypaint. The secondary colour and Swap are under More.
+// its polypaint, or only the polypaint, and Open Colors for the Colors card (kit_colors.odin).
+// The secondary colour and Swap are under More.
 @(private = "file")
 kit_brush_colors :: proc(app: ^App) {
 	ctx := &app.kit.ctx
@@ -106,6 +107,7 @@ kit_brush_colors :: proc(app: ^App) {
 		ui.paragraph(ctx, fmt.tprintf("%s keeps to what it changes; Sculpt, Both and Paint are for the sculpting brushes.", BRUSHES[b.kind].name))
 	}
 	_ = kit_color(app, "brush colour", &b.color)
+	_ = command_button(app, .Colors_Card, label = "Open Colors", glyph = ICON_COLOUR, width = ui.fill_width(ctx))
 	if kit_more(app, .Paint_Color) {
 		ui.caption(ctx, "SECONDARY")
 		_ = kit_color(app, "secondary colour", &b.color2)

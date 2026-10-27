@@ -42,6 +42,13 @@ Ui_State :: struct {
 	material_groups:    bool,
 	group_pick:         bool,
 	group_pick_held:    bool,
+	// The Eyedropper (kit_colors.odin): armed, it waits for a press on the viewport; held,
+	// the loupe at `eyedrop_at` (window pixels) shows the colour under it, if it `hit` one.
+	eyedrop_armed:      bool,
+	eyedrop_held:       bool,
+	eyedrop_at:         [2]f32,
+	eyedrop_color:      [3]f32,
+	eyedrop_hit:        bool,
 	group_target:       u16,
 	group_target_id:    int,
 	layer_selected:     int,  // the Layers section's row that Delete and Bake act on
