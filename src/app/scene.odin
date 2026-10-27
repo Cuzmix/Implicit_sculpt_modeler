@@ -159,12 +159,12 @@ Surface :: struct {
 	groups: []u16,
 }
 
-Scene_Command_Kind :: enum u8 {None, Add, New, Remesh, Decimate, Retopo, Delete, Duplicate, Symmetrize, Slice, Subdivide, Set_Level, Delete_Higher, Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete, Dyntopo, Boolean, Extract, View, Arrange, Copy, Paste, Delete_Others, Levels_All, Split, Merge, Align, Distribute, Material, Group_Material, Voxel_To_Mesh, Layout_Uvs, Remove_Textures, Mesh_To_Voxels, Knife, Voxel_Resample}
+Scene_Command_Kind :: enum u8 {None, Add, New, Remesh, Decimate, Retopo, Delete, Duplicate, Symmetrize, Slice, Subdivide, Set_Level, Delete_Higher, Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete, Dyntopo, Boolean, Extract, View, Arrange, Copy, Paste, Delete_Others, Levels_All, Split, Merge, Align, Distribute, Material, Group_Material, Voxel_To_Mesh, Layout_Uvs, Remove_Textures, Mesh_To_Voxels, Knife, Voxel_Resample, Repair}
 
 // The commands that work on a mesh object's level, and so refuse a voxel object until it
 // is converted to a mesh (Voxel_To_Mesh); the rest place, copy, list or delete objects of
 // either kind.
-MESH_ONLY_COMMANDS :: bit_set[Scene_Command_Kind]{.Remesh, .Decimate, .Retopo, .Symmetrize, .Slice, .Knife, .Subdivide, .Set_Level, .Delete_Higher, .Delete_Lower, .Hd_Enter, .Hd_Leave, .Hd_Steps, .Hd_Delete, .Dyntopo, .Extract, .Split, .Merge, .Group_Material, .Layout_Uvs, .Remove_Textures}
+MESH_ONLY_COMMANDS :: bit_set[Scene_Command_Kind]{.Remesh, .Decimate, .Retopo, .Symmetrize, .Slice, .Knife, .Subdivide, .Set_Level, .Delete_Higher, .Delete_Lower, .Hd_Enter, .Hd_Leave, .Hd_Steps, .Hd_Delete, .Dyntopo, .Extract, .Split, .Merge, .Group_Material, .Layout_Uvs, .Remove_Textures, .Repair}
 
 Scene_Command :: struct {
 	kind:     Scene_Command_Kind,
@@ -175,9 +175,10 @@ Scene_Command :: struct {
 	// Dyntopo: turn dynamic topology on, or off; Symmetrize: keep the + side; Delete_Others:
 	// the selected objects too; Levels_All: every object to its highest level, or its lowest;
 	// Add: below the selected object, in its folder, rather than at the end of the list;
-	// Merge: the shown objects into a new one, rather than the selected one and the next.
+	// Merge: the shown objects into a new one, rather than the selected one and the next;
+	// Repair: Close holes leaves the largest open, Delete half keeps the + side.
 	on:       bool,
-	axis:     int, // Symmetrize, Align, Distribute: 0 x, 1 y, 2 z
+	axis:     int, // Symmetrize, Align, Distribute, Repair's Delete half: 0 x, 1 y, 2 z
 	edge:     int, // Align, Distribute: 0 each object's low side, 1 its middle, 2 its high side
 	split:    Split_Mode, // Split: what becomes objects of their own
 	level:    int, // Set_Level; HD steps for Hd_Steps
@@ -196,6 +197,8 @@ Scene_Command :: struct {
 	name:     [NAME_BYTES]u8, // Arrange: a new name, ending at the first zero
 	material: Material, // Material: what the selected objects are shaded with; Group_Material: the group's
 	group:    u16, // Group_Material: the polygroup of object `id` it changes (`on`: back to the object's material)
+	repair:   Repair_Kind, // Repair: which
+	distance: f32, // Repair's Weld points: how far apart vertices weld, as a share of the object's largest side
 }
 
 scene_destroy :: proc(app: ^App) {
@@ -911,6 +914,18 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 			if part != nil do history_record_swap(app, part.id, history_snapshot(app, nil, "slice"), chain = true)
 			return ok
 		}
+	case .Repair:
+		obj := selected_object(app)
+		if obj == nil || cmd.repair == .Check_Mesh do return true
+		before := history_snapshot(app, obj, REPAIR_UNDO_NAMES[cmd.repair])
+		changed, ok := object_repair(app, obj, cmd)
+		if !ok {
+			history_snapshot_drop(before)
+			scene_delete_selected(app, undoable = false)
+			return false
+		}
+		if changed do history_record_swap(app, obj.id, before)
+		else do history_snapshot_drop(before)
 	case .Boolean:
 		return boolean_make(app)
 	case .Extract:
@@ -1237,15 +1252,15 @@ object_replace_mesh :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh) -> bool {
 
 // Rebuilds the object from `mesh` (taking it), a new surface for the level it is on: its
 // levels, HD detail, mask and strokes go, but that level's sculpt layers come across
-// (sculpt layer_carry.odin), mirrored as Mirror and weld made it. `normals` works out
-// the mesh's normals, for a mesh that comes without them. The caller waits for the GPU
-// first. Returns false only when the new mesh could not be uploaded.
-@(private = "file")
-object_rebuild :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, start: time.Tick, normals: bool, mirror: sculpt.Surface_Mirror = {}) -> bool {
+// (sculpt layer_carry.odin), mirrored as Mirror and weld made it, and `surface` gives
+// its polypaint and polygroups (a repair's). `normals` works out the mesh's normals, for
+// a mesh that comes without them. The caller waits for the GPU first. Returns false
+// only when the new mesh could not be uploaded.
+object_rebuild :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, start: time.Tick, normals: bool, mirror: sculpt.Surface_Mirror = {}, surface: Surface = {}) -> bool {
 	layered := object_take_layered(app, obj)
 	defer sculpt.layered_level_free(&layered)
 	object_release_mesh(app, obj)
-	if !object_build_from(app, obj, mesh, start, normals = normals) do return false
+	if !object_build_from(app, obj, mesh, start, normals = normals, surface = surface) do return false
 	object_carry_layers(app, obj, layered, mirror)
 	return true
 }

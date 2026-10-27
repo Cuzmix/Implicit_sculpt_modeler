@@ -123,6 +123,12 @@ Command_Id :: enum u8 {
 	Decimate_To, // ...and here too
 	Rebuild,
 	Mirror_Weld,
+	Close_Holes,
+	Delete_Hidden,
+	Weld_Points,
+	Check_Mesh,
+	Fix_Mesh,
+	Delete_Half,
 	Retopologize,
 	Make_Boolean,
 	Live_Boolean,
@@ -233,6 +239,12 @@ Binding :: struct {
 }
 
 has_object :: proc(app: ^App, _: int) -> bool {return selected_object(app) != nil}
+
+// Whether a mesh object is selected (not a voxel one, which has its own repair).
+has_mesh_object :: proc(app: ^App, _: int) -> bool {
+	obj := selected_object(app)
+	return obj != nil && obj.voxel == nil
+}
 
 // Whether any object has subdivision levels to step between.
 any_levels :: proc(app: ^App, _: int) -> bool {
@@ -1049,6 +1061,46 @@ COMMANDS := [Command_Id]Command {
 		help = "Replaces one half of the object with a mirror image of the other, across the axis and side the Mirror section picks.",
 		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Symmetrize, axis = int(app.ui.mirror_axis), on = !app.ui.mirror_negative}},
 		enabled = has_object,
+	},
+	.Close_Holes = {
+		label = "Close holes",
+		help = "Caps every hole of the selected object with a surface as even as the one around it, each cap a polygroup of its own; Leave the largest hole keeps its biggest opening.",
+		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Repair, repair = .Close_Holes, on = app.ui.holes_leave_largest}},
+		enabled = has_mesh_object,
+	},
+	.Delete_Hidden = {
+		label = "Delete hidden",
+		help = "Deletes the hidden part of the selected object, leaving holes Close holes can cap.",
+		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Repair, repair = .Delete_Hidden}},
+		enabled = proc(app: ^App, _: int) -> bool {
+			obj := selected_object(app)
+			return obj != nil && obj.voxel == nil && !object_dynamic(obj) && sculpt.sculptor_hidden_count(object_sculptor(obj)) > 0
+		},
+	},
+	.Weld_Points = {
+		label = "Weld points",
+		help = "Joins vertices of the selected object closer together than the Weld distance, dropping the triangles that collapse.",
+		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Repair, repair = .Weld_Points, distance = app.ui.weld_distance}},
+		enabled = has_mesh_object,
+	},
+	.Check_Mesh = {
+		label = "Check mesh",
+		help = "Counts the selected object's holes, pieces, edges of more than two triangles, triangles facing the wrong way and duplicates, changing nothing.",
+		// It changes nothing, so it runs at once rather than as a scene command.
+		run = proc(app: ^App, _: int) {if obj := selected_object(app); obj != nil do repair_check(app, obj)},
+		enabled = has_mesh_object,
+	},
+	.Fix_Mesh = {
+		label = "Fix mesh",
+		help = "Drops the selected object's broken and duplicate triangles and loose vertices, and turns triangles and inside-out pieces to face the right way.",
+		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Repair, repair = .Fix_Mesh}},
+		enabled = has_mesh_object,
+	},
+	.Delete_Half = {
+		label = "Delete half",
+		help = "Deletes the half of the selected object across its own plane on the Modify topology axis that Keep the - side does not keep, leaving it open there.",
+		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Repair, repair = .Delete_Half, axis = int(app.ui.mirror_axis), on = !app.ui.mirror_negative}},
+		enabled = has_mesh_object,
 	},
 	.Retopologize = {
 		label = "Retopologize",
