@@ -79,6 +79,11 @@ Hold_History :: struct {
 
 // Fingers of a hold land within this many seconds of the first, as a hand's do.
 HOLD_LAND :: 0.15
+// Seconds two or three fingers stay still before the hold's first step, and when its ring
+// starts to show. Kept apart from the Hold delay of controls, as Procreate keeps its Rapid
+// Undo delay apart, since fingers resting before a pinch must not undo.
+HOLD_LONG :: 0.45
+HOLD_RING :: 0.15
 // Seconds between repeated steps once the hold fired.
 HOLD_REPEAT :: 0.12
 // A spread change this large (as a log) or a twist this large (radians) is a pinch or a
@@ -364,14 +369,13 @@ touch_hold_history :: proc(app: ^App, change: ui.Finger_Change) -> bool {
 		h.off = true
 		return h.fired > 0
 	}
-	theme := app.kit.ctx.theme
 	held := input_clock(app) - h.since
 	repeats := gesture_repeats(s)
-	h.ring = clamp(f32(held - f64(theme.long_ring)) / (theme.long_press - theme.long_ring), 0, 1) if held >= f64(theme.long_ring) else -1
+	h.ring = clamp(f32(held - HOLD_RING) / (HOLD_LONG - HOLD_RING), 0, 1) if held >= HOLD_RING else -1
 	// Once a command that runs once has run, the ring is done too.
 	if !repeats && h.fired > 0 do h.ring = -1
 	// One step a frame at most: an undo that swaps a mesh can take longer than the gap.
-	if hold_due(held, f64(theme.long_press), HOLD_REPEAT) > h.fired && (repeats || h.fired == 0) {
+	if hold_due(held, HOLD_LONG, HOLD_REPEAT) > h.fired && (repeats || h.fired == 0) {
 		h.fired += 1
 		if gesture_run(app, slot) do h.taken, h.done = h.taken + 1, h.done + 1
 	}

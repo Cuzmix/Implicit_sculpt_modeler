@@ -23,7 +23,7 @@ double_tap_needs_the_gap_and_the_reach :: proc(t: ^testing.T) {
 // HOLD_REPEAT after.
 @(test)
 hold_repeats_after_the_long_press :: proc(t: ^testing.T) {
-	LONG :: 0.45
+	LONG :: HOLD_LONG
 	testing.expect_value(t, hold_due(0, LONG, HOLD_REPEAT), 0)
 	testing.expect_value(t, hold_due(LONG - 0.01, LONG, HOLD_REPEAT), 0)
 	testing.expect_value(t, hold_due(LONG, LONG, HOLD_REPEAT), 1)

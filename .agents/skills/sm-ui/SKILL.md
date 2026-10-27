@@ -171,7 +171,9 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   them the safe zone only when held (`Rail_Press.held`). A new `Viewport_Input` flag a stroke depends on is also a
   `Take_Frame` flag in `replay.odin` (bump `STROKES_VERSION`).
 - Long press (`ui.odin`: `Long_Press`, `long_due`, `secondary`, `long_cancel`, `long_press_decide`): a finger or pen held
-  `theme.long_press` (0.45 s) within the slop on the held widget. A widget with a secondary action calls
+  `theme.long_press` within the slop on the held widget: Settings > Touch > Hold delay (`Nav_Prefs.hold_delay`, 0.3 s by
+  default), which `kit_begin` puts in the theme each frame with `long_ring` at half of it at most; the two- and
+  three-finger hold keeps its own `HOLD_LONG` (touch.odin). A widget with a secondary action calls
   `ui.secondary(ctx)` right after it (it acts on `ctx.last_id`, which `place` clears and `interact` sets, so a disabled
   widget never passes on its neighbour's); it fires once (or on a right press and release on that widget), wins the
   arena (`press_won`) and the release is no click. Unclaimed, a widget with a tooltip shows it at frame end
