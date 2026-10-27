@@ -1,24 +1,27 @@
 #!/usr/bin/env python3
-"""Checks an exported .glb with the tools other programs will read it with.
+"""Checks an exported .glb or .usda with the tools other programs will read it with.
 
     python scripts/export_check.py --setup                        # once: the tools, into build/export-tools
     python scripts/export_check.py build/out.glb
+    python scripts/export_check.py build/out.usda --keys "Layer 1=1.5"
     python scripts/export_check.py build/out.glb --vertices 642 --triangles 1280 \\
         --keys "Layer 1=1.5,Layer 2=0" --colors --require
 
-Two checks, each reported on its own line as PASS, FAIL or SKIP:
-- validator: the Khronos glTF validator (npm package gltf-validator, run with node). Any
+Two checks for each, each reported on its own line as PASS, FAIL or SKIP:
+- validator: for .glb, the Khronos glTF validator (npm package gltf-validator, run with
+  node); for .usda, USD's own validators (UsdValidation, from the usd-core wheel). Any
   error fails; warnings are listed.
 - blender: Blender itself (the bpy wheel from PyPI, Python 3.13) imports the file into an
   empty scene, and the check reads back what a person would see: the mesh's vertices and
   triangles, its shape keys with their values, whether it has a colour attribute, and the
-  objects the import made. The --vertices, --triangles, --keys and --colors options say
+  objects the import made (for USD at frame 1, where the weights are keyed). The --vertices, --triangles, --keys and --colors options say
   what to expect; without them the check only needs the import to succeed.
 
 A tool that is not installed is reported as SKIP, never as PASS, and the exit code is 0
 unless something failed (or, with --require, something was skipped). The tools are
 development aids only: nothing of them ships with the app. --setup installs them into
-build/export-tools (a Python venv with bpy, and node_modules with the validator); the
+build/export-tools (a Python venv with bpy and usd-core, and node_modules with the glTF
+validator); the
 SCULPT_BPY_PYTHON and SCULPT_NODE_PATH environment variables point at others instead.
 """
 
@@ -51,6 +54,9 @@ path = sys.argv[-1]
 bpy.ops.wm.read_factory_settings(use_empty=True)
 importer = bpy.ops.import_scene.gltf if path.lower().endswith('.glb') else bpy.ops.wm.usd_import
 importer(filepath=path)
+# Blender keys a USD file's blend shape weights in an action, which applies once the
+# scene is at a frame.
+bpy.context.scene.frame_set(1)
 meshes = [o for o in bpy.data.objects if o.type == 'MESH']
 out = {'objects': sorted(o.type for o in bpy.data.objects), 'version': bpy.app.version_string}
 if meshes:
@@ -77,6 +83,8 @@ def setup():
     # bpy's wheel needs the Python version its Blender release was built against.
     if subprocess.run([VENV_PYTHON, "-m", "pip", "install", "bpy"]).returncode != 0:
         print("setup: pip could not install bpy here (it wants Python 3.13); the blender check will be skipped")
+    if subprocess.run([VENV_PYTHON, "-m", "pip", "install", "usd-core"]).returncode != 0:
+        print("setup: pip could not install usd-core; the USD validator check will be skipped")
     return 0
 
 
@@ -116,6 +124,34 @@ def check_validator(path):
     if result["messages"]:
         detail += ": " + "; ".join(result["messages"])
     return ("FAIL" if result["errors"] else "PASS"), detail
+
+
+# Run by a Python that has pxr (usd-core); prints one JSON line.
+USD_VALIDATE_PY = r"""
+import json, sys
+from pxr import Usd, UsdValidation
+stage = Usd.Stage.Open(sys.argv[-1])
+validators = UsdValidation.ValidationRegistry().GetOrLoadAllValidators()
+errors = UsdValidation.ValidationContext(validators).Validate(stage)
+print('RESULT ' + json.dumps({'validators': len(validators), 'errors': [e.GetErrorAsString() for e in errors][:8], 'count': len(errors)}))
+"""
+
+
+def check_usd(path):
+    for python in (os.environ.get("SCULPT_BPY_PYTHON"), VENV_PYTHON, sys.executable):
+        if python and os.path.exists(python) and subprocess.run([python, "-c", "from pxr import UsdValidation"], capture_output=True).returncode == 0:
+            break
+    else:
+        return "SKIP", "no Python with usd-core (--setup)"
+    run = subprocess.run([python, "-c", USD_VALIDATE_PY, path], capture_output=True, text=True)
+    lines = [line for line in run.stdout.splitlines() if line.startswith("RESULT ")]
+    if not lines:
+        return "FAIL", "USD could not open the file: " + run.stderr.strip()[-400:]
+    got = json.loads(lines[-1][len("RESULT "):])
+    detail = "%d validators, %d errors" % (got["validators"], got["count"])
+    if got["errors"]:
+        detail += ": " + "; ".join(got["errors"])
+    return ("FAIL" if got["count"] else "PASS"), detail
 
 
 def check_blender(path, args):
@@ -160,7 +196,7 @@ def check_blender(path, args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    parser.add_argument("file", nargs="?", help="the exported .glb")
+    parser.add_argument("file", nargs="?", help="the exported .glb or .usda")
     parser.add_argument("--setup", action="store_true", help="install the tools into build/export-tools")
     parser.add_argument("--vertices", type=int)
     parser.add_argument("--triangles", type=int)
@@ -179,6 +215,8 @@ def main():
     results = []
     if path.lower().endswith(".glb"):
         results.append(("validator",) + check_validator(path))
+    else:
+        results.append(("validator",) + check_usd(path))
     results.append(("blender",) + check_blender(path, args))
     for name, verdict, detail in results:
         print("%-4s %-9s %s" % (verdict, name, detail))

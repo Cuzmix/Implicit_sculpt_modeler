@@ -25,8 +25,8 @@ Morph_Target :: struct {
 	deltas:   []Vec3,
 }
 
-// What a mesh file carries beyond its triangles. `positions` are the surface as shown,
-// with every morph at its weight; `colors` are sRGB, nil for none.
+// What a glTF or USD file carries beyond its triangles. `positions` are the surface as
+// shown, with every morph at its weight; `colors` are sRGB, nil for none.
 Mesh_Export :: struct {
 	name:      string,
 	positions: []Vec3,
@@ -36,6 +36,11 @@ Mesh_Export :: struct {
 	morphs:    []Morph_Target,
 	scale:     f32, // the file's units: positions become scale * p + offset, deltas scale * d
 	offset:    Vec3,
+	// USD only (usd_write.odin): the faces as quads in place of `indices` (a retopologized
+	// base level), their UVs a corner at a time, and each face's polygroup; nil for none.
+	quads:     [][4]u32,
+	uvs:       [][4][2]f32,
+	groups:    []u16,
 }
 
 // glTF's numbers for what the accessors and views hold.

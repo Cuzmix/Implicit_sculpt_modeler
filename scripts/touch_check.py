@@ -3831,6 +3831,28 @@ def glb_read(path):
     return list(zip(names, weights)), points
 
 
+def usda_read(path):
+    """A .usda's blend shapes (name, weight) and its points with every shape added at its
+    weight, as glb_read gives a .glb's."""
+    import re
+    text = open(path).read()
+
+    def tuples(name):
+        body = re.search(name + r" = \[([^\]]*)\]", text).group(1)
+        return [[float(x) for x in t.split(",")] for t in re.findall(r"\(([^)]*)\)", body)]
+
+    points = tuples(r"point3f\[\] points")
+    names = re.findall(r'"((?:[^"\\]|\\.)*)"', re.search(r"skel:blendShapes = \[([^\]]*)\]", text).group(1)) if "skel:blendShapes" in text else []
+    weights = [float(x) for x in re.search(r"float\[\] blendShapeWeights = \[([^\]]*)\]", text).group(1).split(",")] if names else []
+    shapes = re.findall(r"offsets = \[([^\]]*)\]\s*uniform int\[\] pointIndices = \[([^\]]*)\]", text)
+    for (offsets, indices), weight in zip(shapes, weights):
+        d = [[float(x) for x in t.split(",")] for t in re.findall(r"\(([^)]*)\)", offsets)]
+        for v, off in zip((int(i) for i in indices.split(",")), d):
+            for k in range(3):
+                points[v][k] += weight * off[k]
+    return list(zip(names, weights)), points
+
+
 def obj_points(path):
     return [[float(x) for x in line.split()[1:4]] for line in open(path) if line.startswith("v ")]
 
@@ -4181,21 +4203,21 @@ def macros_panel_runs_renames_and_deletes():
         "wireframe": near(1, 0), "window_macros": lambda v: v.startswith("1,0,"), "@the files": files})
 
 
-@scenario
-def gltf_export_keeps_layers():
+def export_keeps_layers(ext, read, blender_keys):
     """Three sculpt layers (the first at 1.5, the second hidden, the third recording a
-    mouse stroke) and paint, exported as .glb and as .obj: the glTF names the layers as
+    mouse stroke) and paint, exported as `ext` and as .obj: the file names the layers as
     shape keys at their strengths, and its base plus the keys at those values is the
-    shown surface the OBJ holds. Blender and the Khronos validator are asked too when
-    scripts/export_check.py finds them (a skip is not a failure here)."""
-    glb, obj = autosave_folder() + "-layers.glb", autosave_folder() + "-shown.obj"
+    shown surface the OBJ holds. Blender and a validator are asked too when
+    scripts/export_check.py finds them (a skip is not a failure here), expecting
+    `blender_keys`."""
+    path, obj = autosave_folder() + "-layers" + ext, autosave_folder() + "-shown.obj"
     setup = ("--script=set paint_color 0.8 0.2 0.1; mask_rect 0 0 0.5 1; paint fill; mask clear; "
              "new_layer; set smooth_steps 2; smooth_all; new_layer; mask_rect 0.5 0 1 1; mask invert; smooth_all; mask clear; "
              "layer 2 0.4 hidden; layer 1 1.5; new_layer")
     keys = [("Layer 1", 1.5), ("Layer 2", 0), ("Layer 3", 1)]
 
     def rebuilt(_):
-        got, points = glb_read(glb)
+        got, points = read(path)
         if [(n, round(w, 6)) for n, w in got] != keys:
             return f"shape keys {got}, expected {keys}"
         shown = obj_points(obj)
@@ -4205,16 +4227,29 @@ def gltf_export_keeps_layers():
         return worst < 1e-5 or f"the keys rebuild the surface {worst:g} away"
 
     def outside_tools(_):
-        run = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "export_check.py"), glb, "--keys",
-                              ",".join(f"{n}={w}" for n, w in keys), "--colors"], capture_output=True, text=True)
+        run = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "export_check.py"), path, "--keys",
+                              ",".join(f"{n}={w}" for n, w in blender_keys), "--colors"], capture_output=True, text=True)
         return run.returncode == 0 or run.stdout.strip()
 
     return Steps([
         (stroke_then_rest(Script(), 5), [setup, f"--export={obj}"], {"layers": near(3, 0)}),
-        (stroke_then_rest(Script(), 5), [setup, f"--export={glb}"],
+        (stroke_then_rest(Script(), 5), [setup, f"--export={path}"],
          {"layers": near(3, 0), "dabs": lambda v: int(v) > 0, "@the keys rebuild the shown surface": rebuilt,
           "@the validator and Blender agree": outside_tools}),
     ])
+
+
+@scenario
+def gltf_export_keeps_layers():
+    """Layers as glTF morph targets (export_keeps_layers): Blender shows 1.5 as it is."""
+    return export_keeps_layers(".glb", glb_read, [("Layer 1", 1.5), ("Layer 2", 0), ("Layer 3", 1)])
+
+
+@scenario
+def usd_export_keeps_layers():
+    """Layers as USD blend shapes (export_keeps_layers). Blender's USD importer keys the
+    1.5 in an action but keeps the shape key's range at 0 to 1, so it shows 1."""
+    return export_keeps_layers(".usda", usda_read, [("Layer 1", 1), ("Layer 2", 0), ("Layer 3", 1)])
 
 
 @scenario

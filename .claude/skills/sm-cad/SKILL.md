@@ -31,6 +31,12 @@ description: CAD-style mesh tools inside this app on geom.Mesh — primitives, b
   (the Khronos validator and a Blender import; `--setup` installs both into `build/export-tools`; a missing tool is
   SKIP, never PASS): e.g. `--script="new_layer; smooth_all; layer 1 1.5" --export=build/x.glb`. Blender reads the
   file Y up into Z up: compare it to an OBJ of the same run as `(x, z, -y)`.
+- USD text out (`geom.mesh_write_usda`, `src/geom/usd_write.odin`, by the `.usda` name) takes the same `Mesh_Export`
+  plus `quads`/`uvs`/`groups` (USD only). Layers are `BlendShape`s named by token (any UTF-8) with prims as sanitized
+  identifiers; weights go as default AND a frame-1 time sample (Blender reads only time samples, clamps keys to 0-1);
+  an empty shape still names one point (Blender drops a shape with no offsets). `export_check.py FILE.usda` runs
+  USD's 30 validators (usd-core's `UsdValidation`) and Blender at frame 1. A `{` in an `fmt.sbprintf` format is
+  `{{`: an unescaped one wrote `%!(MISSING ...)` into both writers once.
 - Voxel remesh exists (README "Voxel remesh (DynaMesh)"): `geom.remesh_voxel(m, target, pool)` and
   `remesh_voxel_spacing(m, h, pool)` (`src/geom/remesh.odin:57, 68`) rebuild a mesh as an even, closed, manifold surface:
   winding-number rays along each axis decide inside, marching cubes with a rule-built table keeps ambiguous faces
