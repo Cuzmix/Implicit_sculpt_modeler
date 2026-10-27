@@ -169,7 +169,7 @@ gpubench_write :: proc(app: ^App, b: ^Gpubench) -> bool {
 	}
 	fmt.sbprintf(&sb, "## GPU benchmark\n\n")
 	fmt.sbprintf(&sb, "- GPU: %s\n", render.gpu_description(&app.renderer))
-	fmt.sbprintf(&sb, "- Viewport: %d x %d px. Present mode: %s. Anti-aliasing: %s.\n", app.target.width, app.target.height, present, MSAA_NAMES[app.msaa])
+	fmt.sbprintf(&sb, "- Viewport: %d x %d px. Present mode: %s. Display refresh: %.0f Hz. Anti-aliasing: %s.\n", app.target.width, app.target.height, present, display_refresh(app.window), MSAA_NAMES[app.msaa])
 	fmt.sbprintf(&sb, "- One sphere per size. Each case runs %d warm-up frames, then measures %d frames. ", GPUBENCH_WARMUP, b.frames)
 	fmt.sbprintf(&sb, "Orbit turns the camera once around the sphere. Stroke drags the Draw brush (%.0f px) back and forth across it, ", app.brush.radius_px)
 	fmt.sbprintf(&sb, "%.0f px a frame, and counts only frames that sculpted.\n", GPUBENCH_STROKE_STEP * app.brush.radius_px)

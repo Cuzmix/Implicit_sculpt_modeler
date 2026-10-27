@@ -642,6 +642,22 @@ LIGHT_SPHERE = (1377, 249)
 LIGHT_SPHERE_R = 80
 
 
+# The Lights section's Add Point button, and the first light's eye in its list, in points.
+LIGHT_ADD_POINT = (1388, 583)
+LIGHT1_EYE = (1498, 367)
+
+
+@scenario
+def lights_added_and_switched_off_in_the_list():
+    """In Scene: Lights, a tap on Add Point adds a fifth light, a point light, and picks it; a tap on the first light's eye switches it off; each is one undo step and nothing is sculpted."""
+    s = Script()
+    s.ftap(*LIGHT_ADD_POINT)
+    s.wait(4)
+    s.ftap(*LIGHT1_EYE)
+    s.wait(4)
+    return s, ["--script=show_section lights"], camera_still({"dabs": near(0), "light_count": near(5), "light_pick": near(5), "light1_on": near(0), "undo_steps": near(2)})
+
+
 @scenario
 def light_sphere_moves_and_flips_lights():
     """In Scene: Lights, a finger drag from the first light's marker on the sphere moves that light to where it lets go (in front still); a tap on it then sends it behind the model; nothing is sculpted and the camera stays."""
