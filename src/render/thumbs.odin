@@ -55,8 +55,8 @@ thumbs_draw :: proc(r: ^Renderer, t: ^Thumbs, cmd: ^sdl.GPUCommandBuffer, slot: 
 	if thumbs_atlas(r, t, cmd) == nil || slot < 0 || slot >= THUMB_SLOTS do return false
 	whole := item
 	whole.chunks, whole.chunk_groups, whole.hidden = nil, nil, nil
-	pass := begin_mesh_pass(r, cmd, t.scratch.color, t.scratch.depth, load = false, keep_depth = false, background = {0, 0, 0, 0})
-	draw_items(r, cmd, pass, view, proj, {whole}, nil, nil)
+	pass := begin_mesh_pass(r, cmd, &r.single, t.scratch.color, t.scratch.depth, load = false, keep_depth = false, background = {0, 0, 0, 0})
+	draw_items(r, cmd, pass, &r.single, view, proj, {whole}, nil, nil)
 	sdl.EndGPURenderPass(pass)
 	copy_pass := sdl.BeginGPUCopyPass(cmd)
 	x, y := u32(slot % THUMB_CELLS) * THUMB_PX, u32(slot / THUMB_CELLS) * THUMB_PX

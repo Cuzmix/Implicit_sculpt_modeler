@@ -6,9 +6,17 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
 # Rendering
 
 ## Model (README: the render row of "Layout", "Idle objects", "Simplified drawing while the view moves", "GPU benchmark and frame timing")
-- `Renderer{device, window, depth_format, mesh_pipeline, clear_pipeline, last_version, cull, partial, present_mode,
-  lod_px}` (`src/render/renderer.odin:21-35`); `BACKGROUND` linear `{0.16, 0.17, 0.19}` (`:38`); `PARTIAL_MAX_AREA 0.6`
-  (`:42`); `Viewport_Target{color, depth, width, height, cache, frame_key}` (`:45-55`); `Static_Cache` (`:57-65`).
+- `Renderer{device, window, depth_format, single, multi: Mesh_Pipelines{mesh, wire, clear}, samples, last_version,
+  cull, partial, present_mode, lod_px}` (`src/render/renderer.odin`); `BACKGROUND`; `PARTIAL_MAX_AREA 0.6`;
+  `Viewport_Target{color, depth, multi_color, samples, width, height, cache, frame_key}`; `Static_Cache`.
+- MSAA (`renderer_set_msaa`, app side `src/app/msaa.odin`, setting `msaa`): a pipeline only draws into targets of its
+  sample count, so every pass takes its `^Mesh_Pipelines` (`mesh_pipelines(r, vt.samples)`; thumbnails and the nav head
+  pass `&r.single` and stay 1x, because the interface samples them and SDL refuses to sample an MSAA texture). With
+  MSAA the viewport draws into `multi_color` + MSAA `depth` (kept with STORE so partial redraw can LOAD them) and every
+  pass resolves into the 1x `color` (`target_pass`: RESOLVE_AND_STORE, `cycle_resolve_texture`); the cache is MSAA and
+  copied MSAA->MSAA (fine on Vulkan, equal sample counts); `render_rect` draws meshes 1 px past the cleared rect
+  (llvmpipe scissors per sample); the studio draws its own 1x camera depth (`studio_view_depth`) at `samples == 0`.
+  MSAA depth cannot be resolved or sampled. `set msaa off` gives the old images bit for bit.
 - `Mesh_Buffers` (`:67-96`): `positions` (FLOAT3) and `normals` (octahedral SHORT2_NORM) in two vertex buffers, 32-bit
   `indices`, one `transfer` of `TRANSFER_BUFFER_SIZE = 16 MB` (`:104-106`), `version`/`drawn_version`, the `indirect`
   command buffer sized for every chunk, `lod_indices` for the copies. `VERTEX_BYTES = 16`.
