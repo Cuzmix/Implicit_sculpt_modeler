@@ -175,7 +175,8 @@ roll_dabs_a_diameter_apart_along_the_stroke :: proc(t: ^testing.T) {
 // the same dabs as drawn, and leaves the replaying app's own seed as it was; a version 3
 // file, from before the spread and seed, a version 5 file, from before Lock plane and
 // Connected, a version 6 file, from before the focal shift, a version 7 file, from before
-// the strength scale, and a version 8 file, from before local and radial symmetry, still read.
+// the strength scale, a version 8 file, from before local and radial symmetry, and a version
+// 9 file, from before the paint channel, still read.
 @(test)
 spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	path := "build/spray_test.strokes"
@@ -190,6 +191,7 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	a.brush.lock_plane, a.brush.connected = true, true
 	a.brush.falloffs[a.brush.kind].focal = 30
 	a.brush.radial_on, a.brush.radial_count, a.brush.radial_axis = true, 3, .Z
+	a.brush.channel = .Both
 	a.stroke_seed = 41
 	a.device.pointer, a.nav.touch_strength = .Finger, 0.5
 	b.nav.touch_strength = 1
@@ -207,18 +209,35 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	testing.expect(t, b.replay.take.brushes[0].radial_on && !b.replay.take.brushes[0].sym_local)
 	testing.expect_value(t, b.replay.take.brushes[0].radial_count, 3)
 	testing.expect_value(t, b.replay.take.brushes[0].radial_axis, sculpt.Axis.Z)
+	testing.expect_value(t, b.replay.take.brushes[0].channel, sculpt.Channel.Both)
 	replay_start(&b, &b.replay.take)
 	for replay_busy(&b) do _ = replay_frame(&b, {})
 	testing.expect(t, slice.equal(object_sculptor(oa).mesh.positions[:], object_sculptor(ob).mesh.positions[:]))
 	testing.expect_value(t, b.stroke_seed, 7)
 	testing.expect_value(t, b.stroke_scale_from, 0)
 
-	// Version 8 had no symmetry bytes after the strength scale: the one brush ends 64 + 24
-	// bytes after the header's 16, where version 9's has 4 more, and reads with radial off.
+	// Version 9 had no paint channel after the symmetry bytes: the one brush ends 64 + 28
+	// bytes after the header's 16, where version 10's has 1 more, and only sculpts.
 	data, err := os.read_entire_file(path, context.allocator)
 	testing.expect(t, err == nil)
 	defer delete(data)
-	BRUSH :: 64 + 28
+	BRUSH :: 64 + 29
+	nine := make([dynamic]u8, context.temp_allocator)
+	append(&nine, ..data[:16 + 64 + 28])
+	append(&nine, ..data[16 + BRUSH:])
+	nine[len(STROKES_MAGIC)] = 9
+	testing.expect(t, os.write_entire_file(path, nine[:]) == nil)
+	n: App
+	defer replay_destroy(&n.replay)
+	defer results_destroy(&n)
+	testing.expect(t, strokes_load(&n, path))
+	if len(n.replay.take.brushes) == 1 {
+		testing.expect_value(t, n.replay.take.brushes[0].channel, sculpt.Channel.Sculpt)
+		testing.expect(t, n.replay.take.brushes[0].radial_on)
+	}
+
+	// Version 8 had no symmetry bytes after the strength scale: the one brush ends 64 + 24
+	// bytes after the header's 16, and reads with radial off.
 	eight := make([dynamic]u8, context.temp_allocator)
 	append(&eight, ..data[:16 + 64 + 24])
 	append(&eight, ..data[16 + BRUSH:])

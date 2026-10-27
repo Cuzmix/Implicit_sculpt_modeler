@@ -54,6 +54,19 @@ paint_dab :: proc(s: ^Sculptor, d: ^Dab, pool: ^jobs.Pool) -> int {
 	return painted
 }
 
+// A sculpting brush's paint, under its channel (Brush.channel): one Paint dab with the
+// same centre, falloff and alpha, laying the brush's colour whichever way the brush is
+// turned (the inverted brush digs, it does not take paint off). Leaves the partials as it
+// found them, zero, for the move that follows. Returns how many vertices changed colour.
+@(private)
+paint_channel_dab :: proc(s: ^Sculptor, d: ^Dab, pool: ^jobs.Pool) -> int {
+	paint := d^
+	paint.brush.invert = false
+	painted := paint_dab(s, &paint, pool)
+	for &p in s.partials do p.moved = 0
+	return painted
+}
+
 @(private)
 job_paint :: proc(data: rawptr, i: int) {
 	d := cast(^Dab)data

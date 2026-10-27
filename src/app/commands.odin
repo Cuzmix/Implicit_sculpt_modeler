@@ -48,6 +48,10 @@ Command_Id :: enum u8 {
 	Symmetry_X,
 	Local_Symmetry,
 	Radial_Symmetry,
+	Brush_Add,
+	Brush_Subtract,
+	Paint_Channel,
+	Swap_Colors,
 	Front_Only,
 	Lock_Plane,
 	Connected,
@@ -415,6 +419,36 @@ COMMANDS := [Command_Id]Command {
 		help = "Repeats every stroke evenly round an axis, as many times as the Symmetry settings say (a long press on Symmetry).",
 		run = proc(app: ^App, _: int) {app.brush.radial_on = !app.brush.radial_on},
 		checked = proc(app: ^App, _: int) -> bool {return app.brush.radial_on},
+	},
+	.Brush_Add = {
+		label = "Add",
+		help = "Brushes work their usual way: Draw raises, Clay builds up (as without Ctrl).",
+		icon = ICON_ADD,
+		run = proc(app: ^App, _: int) {app.rail.latched -= {.Invert}},
+		checked = proc(app: ^App, _: int) -> bool {return .Invert not_in app.rail.latched},
+	},
+	.Brush_Subtract = {
+		label = "Subtract",
+		help = "Brushes work the other way until Add is chosen: Draw digs, Clay carves (as with Ctrl held, or the wheel's Invert latched).",
+		icon = ICON_SUBTRACT,
+		run = proc(app: ^App, _: int) {app.rail.latched += {.Invert}},
+		checked = proc(app: ^App, _: int) -> bool {return .Invert in app.rail.latched},
+	},
+	.Paint_Channel = {
+		label = "Sculpt and paint",
+		help = "Steps the sculpting brushes from moving the surface, to moving and painting it with the colour, to only painting it (Paint, Mask, Grab and Cloth keep to their own).",
+		icon = ICON_CHANNEL_BOTH,
+		run = proc(app: ^App, _: int) {
+			c := &app.brush.channel
+			c^ = sculpt.Channel((int(c^) + 1) % len(sculpt.Channel))
+		},
+		checked = proc(app: ^App, _: int) -> bool {return app.brush.channel != .Sculpt},
+	},
+	.Swap_Colors = {
+		label = "Swap colours",
+		help = "Trades the main colour, which brushes paint, with the secondary one.",
+		icon = ICON_SWAP_COLORS,
+		run = proc(app: ^App, _: int) {swap_colors(app)},
 	},
 	.Front_Only = {
 		label = "Front faces only",
@@ -1310,6 +1344,7 @@ DEFAULT_BINDINGS := [?]Binding {
 	{{sdl.K_9, {}, false}, .Brush, 8},
 	{{sdl.K_0, {}, false}, .Brush, 9},
 	{{sdl.K_X, {}, false}, .Symmetry_X, 0},
+	{{sdl.K_V, {}, false}, .Swap_Colors, 0},
 	{{sdl.K_LEFTBRACKET, {}, true}, .Size_Down, 0},
 	{{sdl.K_RIGHTBRACKET, {}, true}, .Size_Up, 0},
 	{{sdl.K_LEFTBRACKET, {.Shift}, true}, .Strength_Down, 0},

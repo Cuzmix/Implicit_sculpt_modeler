@@ -75,6 +75,7 @@ SETTINGS := [?]Setting {
 	{"radial", B + offset_of(Brush_Settings, radial_on), bool, 0, 0},
 	{"radial_count", B + offset_of(Brush_Settings, radial_count), i32, RADIAL_MIN, sculpt.RADIAL_MAX},
 	{"radial_axis", B + offset_of(Brush_Settings, radial_axis), sculpt.Axis, 0, 0},
+	{"paint_channel", B + offset_of(Brush_Settings, channel), sculpt.Channel, 0, 0},
 	{"stroke", B + offset_of(Brush_Settings, stroke), Stroke_Mode, 0, 0},
 	{"stroke_spread", B + offset_of(Brush_Settings, spray_spread), f32, 0, SPRAY_MAX_SPREAD},
 	{"stroke_line", B + offset_of(Brush_Settings, line), bool, 0, 0},
@@ -313,6 +314,13 @@ SETTING_LINES := [?]Setting_Line {
 		proc(app: ^App) -> string {return rgb_text(app.background.bottom)},
 	},
 	{
+		// The secondary colour, which Swap colours trades with the main one, as paint_color.
+		"paint_color2",
+		proc(f: []string) -> (Setting_Line_Value, bool) {return setting_line("paint_color").parse(f)},
+		proc(app: ^App, v: Setting_Line_Value) {app.brush.color2 = v.([3]f32)},
+		proc(app: ^App) -> string {c := app.brush.color2; return fmt.tprintf("%g %g %g", c.r, c.g, c.b)},
+	},
+	{
 		// A material by its name, which may have spaces ("red wax").
 		"material",
 		proc(f: []string) -> (Setting_Line_Value, bool) {
@@ -409,7 +417,7 @@ settings_load :: proc(app: ^App, path: string) {
 				if kind, ok := brush_by_name(f[1]); ok do b.falloffs[kind].focal = clamp(number(f[2], 0), sculpt.FOCAL_MIN, sculpt.FOCAL_MAX)
 			}
 		case "pressure_curve": if len(f) == 5 do b.pressure_curve = curve(f[1:], b.pressure_curve)
-		case "symmetry", "paint_color", "background_top", "background_bottom", "material", "new_vertices":
+		case "symmetry", "paint_color", "paint_color2", "background_top", "background_bottom", "material", "new_vertices":
 			line := setting_line(f[0])
 			if v, ok := line.parse(f[1:]); ok do line.apply(app, v)
 		case "custom_material":

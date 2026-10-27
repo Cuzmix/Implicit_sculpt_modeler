@@ -17,6 +17,27 @@ brush_color_bytes :: proc(app: ^App) -> [3]u8 {
 	return {u8(clamp(c.r, 0, 1) * 255 + 0.5), u8(clamp(c.g, 0, 1) * 255 + 0.5), u8(clamp(c.b, 0, 1) * 255 + 0.5)}
 }
 
+// Whether the brush `kind` takes the paint channel (Brush_Settings.channel): the
+// sculpting brushes do; Paint, Mask, Grab and Cloth keep to what they change.
+channel_brush :: proc(kind: sculpt.Brush_Kind) -> bool {
+	return kind not_in bit_set[sculpt.Brush_Kind]{.Paint, .Mask, .Grab, .Cloth}
+}
+
+// The channel the held brush's dabs take on `obj`. Paint needs a level's own vertices,
+// so in an HD window, under dynamic topology and on voxel clay, Both only sculpts (a
+// Colour stroke there is refused before it starts, stroke_start).
+brush_channel :: proc(app: ^App, obj: ^Object) -> sculpt.Channel {
+	c := app.brush.channel
+	if c == .Both && (obj == nil || obj.voxel != nil || object_in_hd(obj) || object_dynamic(obj)) do return .Sculpt
+	return c
+}
+
+// Trades the brush's main and secondary colours.
+swap_colors :: proc(app: ^App) {
+	b := &app.brush
+	b.color, b.color2 = b.color2, b.color
+}
+
 // Fills the selected object with the brush colour, or clears its paint, as an undo
 // step of its own (sculpt.sculptor_paint_command).
 paint_command :: proc(app: ^App, command: sculpt.Paint_Command) {

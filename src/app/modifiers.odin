@@ -453,7 +453,7 @@ rail_inset :: proc(app: ^App, lift: f32) -> f32 {
 	if k.rail_side != .Left do return t.edge
 	area := ui.safe_area(ctx)
 	bar, _ := ui.prev_layout(ctx, "brush bar")
-	if (area.h + bar.y) * 0.5 + 8 > area.h - lift - rail_size(app).y do return kit_left(app)
+	if brush_bar_top(app) + bar.y + 8 > area.h - lift - rail_size(app).y do return kit_left(app)
 	return t.edge
 }
 

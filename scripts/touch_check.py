@@ -46,8 +46,9 @@ MODEL = (800, 450)  # the sphere's middle; it reaches about 368 points out
 EMPTY = (250, 150)  # viewport with nothing on it
 UI = {
     "menu": (26, 26), "save": (74, 26), "history": (1430, 26), "help": (1526, 26), "settings": (1574, 26),
-    "brushes": (31, 233), "stroke": (31, 281), "focal": (31, 474), "size": (31, 522), "strength": (31, 570),
-    "undo": (31, 619), "redo": (31, 667),
+    "brushes": (31, 143), "stroke": (31, 191), "colour": (31, 335), "channel": (31, 383),
+    "focal": (31, 432), "size": (31, 480), "strength": (31, 528), "add": (31, 576), "subtract": (31, 624),
+    "undo": (31, 673), "redo": (31, 721),
     # The navigation head (nav_head.odin), and the view bar under it.
     "nav_head": (1568, 88),
     "search": (1569, 155), "inspector": (1569, 203), "objects": (1569, 251),
@@ -59,7 +60,7 @@ UI = {
     "browser_curve": (743, 480), "browser_insert": (807, 480),
     "size_slider": (91, 663),  # in the popover the Size button opens
     # The tray's list of palettes and sections (kit_tray.odin), with the Brush palette open.
-    "list_brush": (1116, 158), "list_object": (1116, 542), "list_scene": (1116, 590), "status": (69, 80),
+    "list_brush": (1116, 158), "list_object": (1116, 590), "list_scene": (1116, 638), "status": (69, 80),
     "palette_row1": (1327, 211), "palette_row2": (1327, 257),
     "earlier_save2": (90, 150),
 }
@@ -255,6 +256,8 @@ def tap_ui():
 SYMMETRY_AXES = {"x": (1325, 497), "y": (1377, 497), "z": (1429, 497), "local": (1489, 497)}
 RADIAL_ROW = {"radial": (1333, 575), "x": (1393, 575), "y": (1445, 575), "z": (1497, 575)}
 RADIAL_COPIES = ((1351, 639), (1530, 639))
+# The Colour section's channel tabs, in the popover the brush bar's Colour opens.
+COLOUR_CHANNEL = {"sculpt": (122, 395), "both": (216, 395), "paint": (312, 395)}
 # The Floor grid section's Back toggle, and the polyframe popover's Fill, beside the bar.
 FLOOR_BACK = (1381, 561)
 POLYFRAME_FILL = (1450, 638)
@@ -401,6 +404,56 @@ def radial_stroke_lays_its_copies():
     s.mouse_drag([(760 + 8 * i, 200 + 4 * i) for i in range(8)])
     s.wait(4)
     return s, [], {"symmetry": is_text("none+radial8y"), "dabs": lambda v: int(v) > 0, "undo_steps": near(1)}
+
+
+@scenario
+def channel_button_paints_with_draw():
+    """A tap on the brush bar's channel steps Sculpt only to Sculpt and paint: a Draw stroke
+    then raises the model and paints it, as one undo step."""
+    s = Script()
+    s.ftap(*UI["channel"])
+    s.wait(4)
+    s.mouse_drag([(760 + 8 * i, 300 + 4 * i) for i in range(8)])
+    s.wait(4)
+    return s, [], {"paint_channel": is_text("both"), "dabs": lambda v: int(v) > 0, "undo_steps": near(1),
+                   "painted_vertices": lambda v: int(v) > 0}
+
+
+@scenario
+def colour_long_press_swaps_colours():
+    """A long press on the brush bar's Colour swaps the main and secondary colours and opens
+    nothing; a tap opens the Colour section, whose Paint makes the brushes only paint, so a
+    Draw stroke paints and leaves the model where it was."""
+    s = Script()
+    long_press(s, *UI["colour"])
+    s.wait(8)
+    paint = Script()
+    paint.ftap(*UI["colour"])
+    paint.wait(8)
+    paint.ftap(*COLOUR_CHANNEL["paint"])
+    paint.wait(4)
+    paint.ftap(*UI["colour"])
+    paint.wait(8)
+    paint.mouse_drag([(760 + 8 * i, 300 + 4 * i) for i in range(8)])
+    paint.wait(4)
+    return Steps([(s, [], camera_still({"paint_color": is_text("F2EBD9"), "paint_color2": is_text("BF3326"), "bar_pop": is_text("none")})),
+                  (paint, [], {"paint_channel": is_text("color"), "painted_vertices": lambda v: int(v) > 0, "undo_steps": near(1),
+                               "bar_pop": is_text("none")})])
+
+
+@scenario
+def add_and_subtract_buttons():
+    """Subtract on the brush bar latches the wheel's Invert, so brushes dig; Add lets it go."""
+    s = Script()
+    s.ftap(*UI["subtract"])
+    s.wait(4)
+    both = Script()
+    both.ftap(*UI["subtract"])
+    both.wait(4)
+    both.ftap(*UI["add"])
+    both.wait(4)
+    return Steps([(s, [], camera_still({"brush_subtract": near(1), "rail_latched": is_text("invert")})),
+                  (both, [], camera_still({"brush_subtract": near(0)}))])
 
 
 @scenario
