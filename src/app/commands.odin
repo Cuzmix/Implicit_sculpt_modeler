@@ -108,6 +108,15 @@ Command_Id :: enum u8 {
 	Show_All_Objects,
 	Solo_Object,
 	New_Folder,
+	Objects_Card,
+	Copy_Object,
+	Paste_Object,
+	Object_To_Top,
+	Object_To_Bottom,
+	Delete_Other_Objects,
+	Delete_All_Objects,
+	All_Lowest_Level,
+	All_Highest_Level,
 	Rename_Object,
 	// The view
 	View_Axis, // the argument is the camera.Axis_View
@@ -169,6 +178,26 @@ Binding :: struct {
 }
 
 has_object :: proc(app: ^App, _: int) -> bool {return selected_object(app) != nil}
+
+// Whether any object has subdivision levels to step between.
+any_levels :: proc(app: ^App, _: int) -> bool {
+	for obj in app.scene.objects do if len(obj.levels.levels) > 1 do return true
+	return false
+}
+
+// Moves the selected object to the top (or the bottom) of the list, or of its folder when
+// it is in one: before the first object there, or after the last.
+object_to_end :: proc(app: ^App, top: bool) {
+	obj := selected_object(app)
+	if obj == nil do return
+	objects := app.scene.objects[:]
+	first, end := 0, len(objects)
+	if obj.folder != 0 do first, end = folder_span(app, obj.folder)
+	before := 0
+	if top do before = objects[first].id
+	else if end < len(objects) do before = objects[end].id
+	app.ui.scene_command = {kind = .Arrange, arrange = .Reorder, id = obj.id, before = before, folder = obj.folder}
+}
 
 // How many selection sets the commands reach by number, as keys 1 to 9 would.
 SET_COMMANDS :: 9
@@ -841,6 +870,69 @@ COMMANDS := [Command_Id]Command {
 		},
 		enabled = has_object,
 	},
+	.Objects_Card = {
+		label = "Objects card",
+		help = "Opens the card listing every object with its picture, beside the view bar; hold its dots to put it back in the Scene palette.",
+		icon = ICON_OBJECTS,
+		run = proc(app: ^App, _: int) {objects_card_toggle(app)},
+		checked = proc(app: ^App, _: int) -> bool {return app.kit.objects_card},
+	},
+	.Copy_Object = {
+		label = "Copy",
+		help = "Copies the selected object, to paste into this scene or another one later, even once the object is deleted.",
+		icon = ui.ICON_COPY,
+		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Copy}},
+		enabled = has_object,
+	},
+	.Paste_Object = {
+		label = "Paste",
+		help = "Adds a copy of the object last copied, below the selected one; one undo step.",
+		icon = ui.ICON_PASTE,
+		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Paste}},
+		enabled = proc(app: ^App, _: int) -> bool {return len(app.clipboard) > 0},
+	},
+	.Object_To_Top = {
+		label = "Bring to top",
+		help = "Moves the selected object to the top of the list, or of its folder; one undo step.",
+		icon = ui.ICON_TO_TOP,
+		run = proc(app: ^App, _: int) {object_to_end(app, top = true)},
+		enabled = has_object,
+	},
+	.Object_To_Bottom = {
+		label = "Send to bottom",
+		help = "Moves the selected object to the bottom of the list, or of its folder; one undo step.",
+		icon = ui.ICON_TO_BOTTOM,
+		run = proc(app: ^App, _: int) {object_to_end(app, top = false)},
+		enabled = has_object,
+	},
+	.Delete_Other_Objects = {
+		label = "Delete other",
+		help = "Deletes every object but the selected ones; one undo step brings them all back.",
+		icon = ui.ICON_TRASH,
+		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Delete_Others}},
+		enabled = proc(app: ^App, _: int) -> bool {return selected_object(app) != nil && len(app.scene.objects) > len(selection_ids(app))},
+	},
+	.Delete_All_Objects = {
+		label = "Delete all",
+		help = "Deletes every object in the scene; one undo step brings them all back.",
+		icon = ui.ICON_TRASH,
+		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Delete_Others, on = true}},
+		enabled = proc(app: ^App, _: int) -> bool {return len(app.scene.objects) > 0},
+	},
+	.All_Lowest_Level = {
+		label = "All low",
+		help = "Shows every object at its lowest subdivision level, to keep a heavy scene light while posing or arranging it.",
+		icon = ui.ICON_CHEVRON_DOWN,
+		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Levels_All}},
+		enabled = any_levels,
+	},
+	.All_Highest_Level = {
+		label = "All high",
+		help = "Shows every object at its highest subdivision level again.",
+		icon = ui.ICON_CHEVRON_UP,
+		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Levels_All, on = true}},
+		enabled = any_levels,
+	},
 	.Rename_Object = {
 		label = "Rename...",
 		help = "Gives the selected object a name of your own, shown in the Scene palette and kept in the scene file; one undo step.",
@@ -1090,6 +1182,8 @@ DEFAULT_BINDINGS := [?]Binding {
 	{{sdl.K_S, {.Shift}, false}, .Solo_Object, 0},
 	{{sdl.K_G, {.Ctrl}, false}, .New_Folder, 0},
 	{{sdl.K_F2, {}, false}, .Rename_Object, 0},
+	{{sdl.K_C, {.Ctrl}, false}, .Copy_Object, 0},
+	{{sdl.K_V, {.Ctrl}, false}, .Paste_Object, 0},
 	{{sdl.K_KP_1, {}, false}, .View_Axis, int(camera.Axis_View.Front)},
 	{{sdl.K_KP_1, {.Ctrl}, false}, .View_Axis, int(camera.Axis_View.Back)},
 	{{sdl.K_KP_3, {}, false}, .View_Axis, int(camera.Axis_View.Right)},
@@ -1334,12 +1428,14 @@ commands_handle_keys :: proc(app: ^App) {
 // A menu row for the command, with its icon, shortcut and state from the table, and a
 // tooltip with the shortcut and gesture when it has a gesture; `label` replaces the
 // table's where the menu words it its own way. Runs it when picked and returns true then.
-command_menu_item :: proc(app: ^App, id: Command_Id, arg := 0, label := "", tone := ui.Tone.Neutral) -> bool {
+command_menu_item :: proc(app: ^App, id: Command_Id, arg := 0, label := "", tone := ui.Tone.Neutral, trailing := false) -> bool {
 	c := &COMMANDS[id]
 	text := label if label != "" else command_label(id, arg)
 	gesture := command_gesture(app, id, arg)
-	hint := hint_join(command_keys(app, id, arg), gesture) if gesture != "" else ""
-	if !ui.menu_item(&app.kit.ctx, text, command_keys(app, id, arg), c.icon, command_checked(app, id, arg), tone, command_enabled(app, id, arg), hint = hint) do return false
+	keys := command_keys(app, id, arg)
+	// With the icon where the shortcut goes, the shortcut moves to the tooltip.
+	hint := hint_join(keys, gesture) if gesture != "" || (trailing && keys != "") else ""
+	if !ui.menu_item(&app.kit.ctx, text, keys, c.icon, command_checked(app, id, arg), tone, command_enabled(app, id, arg), hint = hint, trailing = trailing) do return false
 	return command_run(app, id, arg)
 }
 

@@ -49,7 +49,7 @@ File_Request :: struct {
 // be in a console nobody watches. `at` tells a new note from the one already shown.
 // The native scene file starts with these bytes, then its version.
 SCENE_MAGIC :: "SCULPTSC"
-SCENE_VERSION :: u32(10) // 2: each object's rotation; 3: the current level's polypaint and polygroups; 4: sculpt layers, and a retopologized object's quads and UVs (sculpt.levels_write); 5: each object's boolean mode; 6: the base level's node layout (sculpt.levels_write); 7: the camera's roll; 8: each object's eye and ghost, and Solo; 9: folders, and each object's folder; 10: selection sets (sculpt.levels_write)
+SCENE_VERSION :: u32(11) // 2: each object's rotation; 3: the current level's polypaint and polygroups; 4: sculpt layers, and a retopologized object's quads and UVs (sculpt.levels_write); 5: each object's boolean mode; 6: the base level's node layout (sculpt.levels_write); 7: the camera's roll; 8: each object's eye and ghost, and Solo; 9: folders, and each object's folder; 10: selection sets (sculpt.levels_write); 11: each object's polypaint shown or not (a third view bit)
 
 // The request waiting for the next frame, and whether a dialog is showing. Kept here
 // rather than in App because SDL may call a dialog back on another thread, even after
@@ -813,7 +813,6 @@ object_put_bytes :: proc(out: ^[dynamic]u8, obj: ^Object, opts := sculpt.Write_O
 // About how many bytes object_put writes for `obj`: every level's positions and sculpt
 // layers, the base's triangles and node layout, and the shown level's mask, paint and
 // groups.
-@(private = "file")
 object_put_estimate :: proc(obj: ^Object) -> int {
 	bytes := 4096
 	for lv, j in obj.levels.levels {
@@ -832,9 +831,10 @@ object_put_estimate :: proc(obj: ^Object) -> int {
 	return bytes
 }
 
-// An object's eye (off is 1) and ghost (2) as the scene file stores them.
-OBJECT_VIEW_BITS :: 3
-object_view_bits :: proc(obj: ^Object) -> u8 {return u8(obj.off) | u8(obj.ghost) << 1}
+// An object's eye (off is 1), ghost (2) and polypaint left out (4, from version 11) as
+// the scene file stores them.
+OBJECT_VIEW_BITS :: 7
+object_view_bits :: proc(obj: ^Object) -> u8 {return u8(obj.off) | u8(obj.ghost) << 1 | u8(obj.paint_off) << 2}
 
 // Reads one object written by object_put (by a scene file of `version`) and uploads
 // its shown level. `read` is false
@@ -874,8 +874,8 @@ object_get_fields :: proc(r: ^geom.Byte_Reader, obj: ^Object, version := SCENE_V
 	}
 	if version >= 8 {
 		bits := geom.byte_get(r, u8)
-		if bits > OBJECT_VIEW_BITS do r.ok = false
-		obj.off, obj.ghost = bits & 1 != 0, bits & 2 != 0
+		if bits > (OBJECT_VIEW_BITS if version >= 11 else 3) do r.ok = false
+		obj.off, obj.ghost, obj.paint_off = bits & 1 != 0, bits & 2 != 0, bits & 4 != 0
 	}
 	if version >= 9 {
 		obj.folder = int(geom.byte_get(r, i32))

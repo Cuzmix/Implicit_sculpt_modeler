@@ -8,7 +8,6 @@ import "../ui"
 
 // Three objects with no GPU buffers along x, 3 apart, the first selected; tree_free
 // undoes it.
-@(private = "file")
 tree_scene :: proc(app: ^App) -> [3]^Object {
 	out: [3]^Object
 	for i in 0 ..< 3 {
@@ -23,7 +22,6 @@ tree_scene :: proc(app: ^App) -> [3]^Object {
 	return out
 }
 
-@(private = "file")
 tree_free :: proc(app: ^App) {
 	for obj in app.scene.objects {
 		sculpt.levels_destroy(&obj.levels)
@@ -147,8 +145,9 @@ solo_follows_the_selection_and_keeps_the_eyes :: proc(t: ^testing.T) {
 	testing.expect(t, !app.scene.solo)
 }
 
-// The scene file keeps each object's eye and ghost from version 8, reads older files
-// with everything in view, and refuses flags it does not know.
+// The scene file keeps each object's eye and ghost from version 8 and its polypaint left
+// out from version 11, reads older files with everything in view, and refuses flags it
+// does not know.
 @(test)
 view_flags_round_trip_in_the_file :: proc(t: ^testing.T) {
 	app: App
@@ -183,7 +182,20 @@ view_flags_round_trip_in_the_file :: proc(t: ^testing.T) {
 		testing.expect(t, r7.ok && !seven.off && !seven.ghost)
 		testing.expect_value(t, r7.at, flags)
 
+		// The polypaint bit is known from version 11: a file of version 10 with it set is
+		// damaged, and no version knows the bit after it.
 		out[flags] = 4
+		painted: Object
+		rp := geom.byte_reader(out[:])
+		object_get_fields(&rp, &painted)
+		defer delete(painted.name)
+		testing.expect(t, rp.ok && painted.paint_off && !painted.off && !painted.ghost)
+		ten: Object
+		r10 := geom.byte_reader(out[:])
+		object_get_fields(&r10, &ten, 10)
+		defer delete(ten.name)
+		testing.expect(t, !r10.ok)
+		out[flags] = 8
 		damaged: Object
 		rd := geom.byte_reader(out[:])
 		object_get_fields(&rd, &damaged)
@@ -212,7 +224,6 @@ a_hidden_base_lets_the_cutters_draw :: proc(t: ^testing.T) {
 }
 
 // The ids in list order and each one's folder, to compare trees by.
-@(private = "file")
 tree_of :: proc(app: ^App) -> (ids, folders: [8]int) {
 	for obj, i in app.scene.objects[:min(len(app.scene.objects), 8)] do ids[i], folders[i] = obj.id, obj.folder
 	return

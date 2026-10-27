@@ -103,3 +103,48 @@ window_clamp :: proc(ctx: ^Context, pos: [2]f32, size: [2]f32, padding: f32) -> 
 	p.y = clamp(p.y, area.y, max(area.y + area.h - (2 * padding + ctx.theme.target), area.y))
 	return p
 }
+
+// Opens the card `name`, a window without a title bar, as ZBrush for iPad's quick-access
+// cards are: a strip of dots along its top that drags it like a title bar, then `title`
+// large and centred. Placed as window_begin places a window. Returns whether a press
+// landed on it this frame, to bring it to the front, and whether the dots were long
+// pressed (the app docks the card back into its palette). Close it with window_end.
+card_begin :: proc(ctx: ^Context, name, title: string, w: ^Window, x, y: Anchor, offset: [2]f32, box: Box) -> (raised, dock: bool) {
+	t := ctx.theme
+	id := id_of(ctx, name)
+	size := prev_size(ctx, id, box)
+	if in_ := ctx.input; w.held != 0 && ctx.active == w.held && .Left in in_.down && !in_.cancel {
+		if !w.dragging && linalg.length(in_.mouse - ctx.press_mouse) > t.slop do w.dragging = true
+		if w.dragging do window_move(ctx, w, in_.mouse - w.grab, size, box.padding)
+	}
+	ax, ay, off := x, y, offset
+	if w.moved do ax, ay, off = w.x, w.y, w.offset
+	pos := window_clamp(ctx, anchored_pos(safe_area(ctx), ax, ay, off, size), size, box.padding)
+	raised = !box.inert && ctx.pointer_root == id && .Left in ctx.input.pressed
+	open(ctx, id, {pos.x, pos.y, size.x, size.y}, box, root = true)
+
+	inner := fill_width(ctx)
+	// The dots are a thin strip to look at but a full target to hold.
+	GRIP_H :: 18
+	r := place(ctx, {inner, GRIP_H})
+	grip := id_of(ctx, "card grip")
+	hit := Rect{r.x, r.y - (t.target - GRIP_H) * 0.5, r.w, t.target}
+	hovered, held, _, pressed := interact(ctx, grip, hit)
+	if pressed {
+		_ = claim_drag(ctx, -1)
+		w.grab, w.dragging = ctx.input.mouse - pos, false
+	}
+	dock = secondary(ctx)
+	w.held = grip if held else 0
+	if !held do w.dragging = false
+	color := t.accent if held else (t.text if hovered else t.text_tertiary)
+	for row in 0 ..< 2 do for col in 0 ..< 6 {
+		c := [2]f32{r.x + r.w * 0.5 + (f32(col) - 2.5) * 5, r.y + r.h * 0.5 + (f32(row) - 0.5) * 5}
+		fill_circle(ctx, c, 1.2, color)
+	}
+	tip(ctx, grip, hit, "Drag to move; hold to put back in the palette")
+	// Large, as the cards' titles are: about half again the panels' headings.
+	title_r := place(ctx, {inner, 40})
+	text(ctx, label_text(title), title_r.x + title_r.w * 0.5, title_r.y + title_r.h * 0.5, t.heading_size * 1.4, t.text, .Semibold, .Center)
+	return
+}

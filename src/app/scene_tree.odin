@@ -41,6 +41,10 @@ View_Change :: enum u8 {
 	Folder_Ghost, // makes every object in a folder a ghost
 	Folder_Unghost,
 	Folder_Fold, // folds an open folder in the Scene palette, or opens a folded one
+	Paint_Hide, // leaves the object's polypaint out of the drawing
+	Paint_Show,
+	Folder_Paint_Hide, // leaves the polypaint of every object in a folder out
+	Folder_Paint_Show,
 }
 
 // Changes to the tree that are undo steps.
@@ -280,6 +284,12 @@ scene_view :: proc(app: ^App, change: View_Change, id: int) {
 	case .Folder_Fold:
 		if folder == nil do return
 		folder.open = !folder.open
+	case .Paint_Hide, .Paint_Show:
+		if obj == nil do return
+		obj.paint_off = change == .Paint_Hide
+	case .Folder_Paint_Hide, .Folder_Paint_Show:
+		if folder == nil do return
+		for o in s.objects do if o.folder == folder.id do o.paint_off = change == .Folder_Paint_Hide
 	}
 	app.view_edits += 1
 	scene_selection_fix(app)

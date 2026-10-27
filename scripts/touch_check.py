@@ -2101,7 +2101,8 @@ def long_press(s, x, y, finger=0, frames=LONG_PRESS_FRAMES):
 
 INSPECTOR_BUTTON = UI["inspector"]
 FOCUS_BUTTON, FRAME_ALL_BUTTON = (1300, 282), (1452, 282)  # the Move tool's palette, above the gizmo's settings
-SCENE_TAB, SCENE_ROW = UI["objects"], (1376, 186)
+# The first object's row in the tray's Scene palette (scene_tab opens it).
+SCENE_ROW = (1376, 186)
 
 
 @scenario
@@ -2148,8 +2149,7 @@ def long_press_shows_the_tooltip_and_does_not_tap():
 def long_press_a_scene_row_opens_its_menu():
     """A long press on an object in the Scene tab opens its menu (Focus, Duplicate, Delete), as a right-click does."""
     s = Script()
-    s.ftap(*SCENE_TAB)
-    s.wait(10)
+    scene_tab(s)
     long_press(s, *SCENE_ROW)
     return s, [], camera_still({"dabs": near(0), "object_menu": near(1), "selected": near(0)})
 
@@ -2164,8 +2164,145 @@ SPHERES3 = [(630, 410), (800, 450), (1006, 498)]
 
 
 def scene_tab(s):
-    s.ftap(*SCENE_TAB)
+    """Opens the tray's Scene palette on Objects, whatever the tool: the Objects card, docked
+    back into the tray by holding its dots."""
+    objects_card(s)
+    long_press(s, *OBJECTS_CARD["dots"])
     s.wait(10)
+
+
+def objects_card(s):
+    """Opens the Objects card from the view bar, waiting for its pictures to be drawn."""
+    s.ftap(*UI["objects"])
+    s.wait(12)
+
+
+# The Objects card at 1600 x 900 (kit_objects_card.odin): its dots, its buttons, and its
+# rows' bodies, boolean switches, polypaint toggles and eyes.
+OBJECTS_CARD = {"dots": (1378, 89), "add": (1258, 174), "more": (1497, 174)}
+CARD_ROWS_Y = [233, 293, 353]
+CARD_ROW_X, CARD_SWITCH_X, CARD_PAINT_X, CARD_EYE_X = 1360, 1312, 1446, 1494
+
+
+@scenario
+def objects_card_opens_with_pictures():
+    """The view bar's Objects button opens the Objects card in the tray's place, with a row and a picture for each object."""
+    s = Script()
+    objects_card(s)
+    return s, THREE, {"dabs": near(0), "window_objects": lambda v: v.startswith("1,0,"), "window_inspector": lambda v: v.startswith("0,"),
+                      "card_rows": near(3), "thumbs_drawn": near(3)}
+
+
+@scenario
+def objects_card_long_press_opens_the_menu():
+    """A long press on the selected row opens its full menu; on another row, only how that object takes part in booleans, leaving the selection alone."""
+    mine = Script()
+    objects_card(mine)
+    long_press(mine, CARD_ROW_X, CARD_ROWS_Y[0])
+    other = Script()
+    objects_card(other)
+    long_press(other, CARD_ROW_X, CARD_ROWS_Y[1])
+    return Steps([
+        (mine, THREE, {"card_menu": near(1), "card_menu_full": near(1), "selected": near(0), "dabs": near(0)}),
+        (other, THREE, {"card_menu": near(1), "card_menu_full": near(0), "selected": near(0), "dabs": near(0)}),
+    ])
+
+
+@scenario
+def objects_card_long_press_then_drag_moves_a_row():
+    """A finger held on the third row until its menu opens, then dragged above the first, moves that object to the top as one undo step and closes the menu; a quick drag without the hold moves nothing."""
+    held = Script()
+    objects_card(held)
+    held.add(f"fdown:0:{CARD_ROW_X},{CARD_ROWS_Y[2]}")
+    held.wait(LONG_PRESS_FRAMES)
+    for y in range(CARD_ROWS_Y[2] - 4, CARD_ROWS_Y[0] - 32, -8):
+        held.add(f"fmove:0:{CARD_ROW_X},{y}")
+        held.wait(1)
+    held.wait(2)
+    held.add("fup:0")
+    held.wait(6)
+    quick = Script()
+    objects_card(quick)
+    quick.fdrag(line((CARD_ROW_X, CARD_ROWS_Y[2]), (CARD_ROW_X, CARD_ROWS_Y[0] - 28), 12))
+    quick.wait(6)
+    return Steps([
+        (held, THREE, {"scene_order": is_text("3,1,2"), "undo_steps": near(1), "card_menu": near(0), "dabs": near(0)}),
+        (quick, THREE, {"scene_order": is_text("1,2,3"), "undo_steps": near(0), "dabs": near(0)}),
+    ])
+
+
+@scenario
+def objects_card_mouse_drag_moves_a_row():
+    """With a mouse a row drags at once: the third dropped above the first goes to the top."""
+    s = Script()
+    s.mouse_drag([(1569, 251)])
+    s.wait(12)
+    s.mouse_drag(line((CARD_ROW_X, CARD_ROWS_Y[2]), (CARD_ROW_X, CARD_ROWS_Y[0] - 28), 12))
+    s.wait(6)
+    return s, THREE, {"scene_order": is_text("3,1,2"), "undo_steps": near(1), "dabs": near(0)}
+
+
+@scenario
+def objects_card_toggles_eye_paint_and_boolean():
+    """A row's eye hides its object, its polypaint toggle leaves the paint out, and the switch under its name makes it a boolean, none of them selecting it."""
+    s = Script()
+    objects_card(s)
+    s.ftap(CARD_EYE_X, CARD_ROWS_Y[1])
+    s.wait(6)
+    s.ftap(CARD_PAINT_X, CARD_ROWS_Y[2])
+    s.wait(6)
+    s.ftap(CARD_SWITCH_X, CARD_ROWS_Y[2] + 12)
+    s.wait(6)
+    return s, THREE, {"objects_off": near(1), "paint_off": near(1), "booleans": near(1), "selected": near(0), "dabs": near(0)}
+
+
+@scenario
+def objects_card_holding_its_dots_docks_it():
+    """Holding the card's dots puts it back in the Scene palette: the card closes and the tray opens on Objects."""
+    s = Script()
+    objects_card(s)
+    long_press(s, *OBJECTS_CARD["dots"])
+    s.wait(6)
+    return s, THREE, {"window_objects": lambda v: v.startswith("0,"), "window_inspector": lambda v: v.startswith("1,0,"), "tree_rows": near(3)}
+
+
+@scenario
+def objects_card_gives_way_to_the_tray():
+    """Opening the palette tray closes the card, which shares its place; the Objects button opens the card again and closes the tray."""
+    closed = Script()
+    objects_card(closed)
+    closed.ftap(*UI["inspector"])
+    closed.wait(8)
+    again = Script()
+    objects_card(again)
+    again.ftap(*UI["inspector"])
+    again.wait(8)
+    objects_card(again)
+    return Steps([
+        (closed, THREE, {"window_objects": lambda v: v.startswith("0,"), "window_inspector": lambda v: v.startswith("1,")}),
+        (again, THREE, {"window_objects": lambda v: v.startswith("1,"), "window_inspector": lambda v: v.startswith("0,")}),
+    ])
+
+
+@scenario
+def copy_and_paste_an_object():
+    """Ctrl+C copies the selected object and Ctrl+V adds it below the selection as one undo step; Ctrl+Z takes it away again."""
+    s = Script()
+    s.press("c", ("ctrl",))
+    s.wait(4)
+    s.press("v", ("ctrl",))
+    s.wait(6)
+    undo = Script()
+    undo.press("c", ("ctrl",))
+    undo.wait(4)
+    undo.press("v", ("ctrl",))
+    undo.wait(6)
+    undo.press("z", ("ctrl",))
+    undo.wait(6)
+    return Steps([
+        (s, THREE, {"objects": near(4), "scene_order": is_text("1,4,2,3"), "selected": near(1), "undo_steps": near(1), "clipboard_bytes": lambda v: int(v) > 0}),
+        (undo, THREE, {"objects": near(3), "scene_order": is_text("1,2,3"), "redo_steps": near(1)}),
+    ])
 
 
 @scenario
@@ -2274,7 +2411,7 @@ def undo_keeps_an_object_hidden():
 # and its menu's rows where a right-click at FOLDER_MENU_AT puts them.
 FOLDER_CHEVRON = (1260, 186)
 FOLDER_MENU_AT = (1366, 186)
-FOLDER_MENU = {"rename": (1376, 214), "select": (1376, 258), "ungroup": (1376, 303), "delete": (1376, 347)}
+FOLDER_MENU = {"rename": (1376, 214), "select": (1376, 258), "ungroup": (1376, 303), "show_paint": (1376, 347), "hide_paint": (1376, 392), "delete": (1376, 436)}
 
 
 def folder_first(s):

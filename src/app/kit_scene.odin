@@ -57,7 +57,7 @@ kit_scene_objects :: proc(app: ^App) {
 		if first, end := folder_span(app, f.id); end > first do continue
 		kit_folder_row(app, &spots, &f, 0, 0)
 	}
-	kit_tree_drags(app, spots[:])
+	kit_tree_drags(app, spots[:], {k.inspector_body, &k.scroll, k.inspector_limit})
 	// The switch above the note, so it stays put under a finger as the note comes and goes.
 	_ = ui.switch_row(ctx, "Select several", &k.select_several, keys = "Shift + click")
 	if n := len(selection_ids(app)); n > 1 {
@@ -104,7 +104,7 @@ kit_object_row :: proc(app: ^App, spots: ^[dynamic]Tree_Spot, i: int, base: ^Obj
 	dragged := k.tree_drag.active && k.tree_drag.key == obj.id
 	row := ui.tree_row(ctx, fmt.tprintf("%s##%d", object_label(obj), obj.id), detail, object_in_selection(app, obj), depth, all_toggles = toggles[:], glyph = ui.ICON_FRAME, dim = dragged || !object_shown(app, obj), grip = true)
 	append(spots, Tree_Spot{rect = row.rect, id = obj.id, folder = obj.folder, next = objects[i + 1].id if i + 1 < len(objects) else 0, off = obj.off, ghost = obj.ghost})
-	kit_row_drags(app, row, obj.id, obj.ghost, obj.off)
+	kit_row_drags(app, row.grip, row.held_toggle, row.rect, obj.id, obj.ghost, obj.off)
 	// A press running down the column sets the rows it crosses instead (kit_tree_drags).
 	if !k.tree_column.active {
 		switch row.toggled {
@@ -152,7 +152,7 @@ kit_folder_row :: proc(app: ^App, spots: ^[dynamic]Tree_Spot, f: ^Folder, first,
 	if len(members) > 0 do spot.first = members[0].id
 	if end < len(objects) && len(members) > 0 do spot.next = objects[end].id
 	append(spots, spot)
-	kit_row_drags(app, row, -f.id, f.ghost, f.off)
+	kit_row_drags(app, row.grip, row.held_toggle, row.rect, -f.id, f.ghost, f.off)
 	if row.folded do app.ui.scene_command = {kind = .View, view = .Folder_Fold, id = f.id}
 	if !k.tree_column.active {
 		switch row.toggled {
@@ -267,31 +267,40 @@ tree_drop :: proc(spots: []Tree_Spot, folder_drag: bool, at: [2]f32) -> (d: Tree
 	return
 }
 
-// Notes what a row's grip and toggles hold this frame; `key` is the object's id, or minus
-// the folder's.
-@(private = "file")
-kit_row_drags :: proc(app: ^App, row: ui.Tree_Row_Result, key: int, ghost, off: bool) {
+// Notes what a row's grip and toggles hold this frame: `grip`, whether whatever drags the
+// row is held, and `held_toggle`, which toggle is (0 the ghost, 1 the eye; -1 none).
+// `rect` is the row's and `key` the object's id, or minus the folder's. The Scene palette's tree and the
+// Objects card both drag through this, never both at once (the card and the tray share
+// their place, so only one is open).
+kit_row_drags :: proc(app: ^App, grip: bool, held_toggle: int, rect: ui.Rect, key: int, ghost, off: bool) {
 	k := &app.kit
-	if row.grip {
+	if grip {
 		if k.tree_drag.key != key do k.tree_drag = {key = key}
 		k.tree_drag.held = true
 		if k.ctx.long.travel > k.ctx.theme.slop do k.tree_drag.active = true
 	}
 	c := &k.tree_column
-	if row.held_toggle >= 0 {
+	if held_toggle >= 0 {
 		if !c.armed {
-			c.armed, c.active, c.column, c.row, c.folder_count = true, false, row.held_toggle, row.rect, 0
-			c.value = !(ghost if row.held_toggle == 0 else off)
+			c.armed, c.active, c.column, c.row, c.folder_count = true, false, held_toggle, rect, 0
+			c.value = !(ghost if held_toggle == 0 else off)
 		}
 		c.held = true
 	}
 }
 
+// The scrolling body a list of rows is in, as last laid out: a drag near its top or
+// bottom scrolls it.
+Tree_Scroll :: struct {
+	body:  ui.Rect,
+	value: ^f32,
+	limit: f32,
+}
+
 // After the tree's rows: runs a column drag over the rows it crossed, shows where a
-// dragged row would go and moves it there when let go, scrolls the inspector while either
-// is near its top or bottom, and sends the column's next change.
-@(private = "file")
-kit_tree_drags :: proc(app: ^App, spots: []Tree_Spot) {
+// dragged row would go and moves it there when let go, scrolls the body the rows are in
+// while either is near its top or bottom, and sends the column's next change.
+kit_tree_drags :: proc(app: ^App, spots: []Tree_Spot, scroll: Tree_Scroll) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
@@ -336,7 +345,7 @@ kit_tree_drags :: proc(app: ^App, spots: []Tree_Spot) {
 				}
 			}
 			c.last_y = y
-			kit_tree_autoscroll(app)
+			kit_tree_autoscroll(app, scroll)
 		}
 	}
 	c.held = false
@@ -347,7 +356,7 @@ kit_tree_drags :: proc(app: ^App, spots: []Tree_Spot) {
 	if d.held {
 		d.held = false
 		if !d.active || !drop.ok do return
-		kit_tree_autoscroll(app)
+		kit_tree_autoscroll(app, scroll)
 		if drop.into >= 0 {
 			r := spots[drop.into].rect
 			ui.stroke_rect(ctx, {r.x, r.y + (r.h - t.row) * 0.5, r.w, t.row}, t.radius_medium, t.accent, 2)
@@ -379,20 +388,20 @@ tree_column_send :: proc(app: ^App) {
 	c.count -= 1
 }
 
-// Scrolls the inspector while a drag over the tree is near the top or bottom of its
-// body, faster the nearer the edge, so a long list can be dragged along.
+// Scrolls the body while a drag over the rows is near its top or bottom, faster the
+// nearer the edge, so a long list can be dragged along.
 @(private = "file")
-kit_tree_autoscroll :: proc(app: ^App) {
+kit_tree_autoscroll :: proc(app: ^App, scroll: Tree_Scroll) {
 	k := &app.kit
 	EDGE :: 48 // a touch target: a finger can rest there without leaving the panel
 	SPEED :: 900 // points a second at the very edge
-	body := k.inspector_body
+	body := scroll.body
 	y := k.ctx.input.mouse.y
 	v: f32
 	if y < body.y + EDGE do v = (y - body.y - EDGE) / EDGE
 	else if y > body.y + body.h - EDGE do v = (y - body.y - body.h + EDGE) / EDGE
 	if v == 0 do return
-	k.scroll = clamp(k.scroll + clamp(v, -1, 1) * SPEED * k.ctx.input.dt, 0, k.inspector_limit)
+	scroll.value^ = clamp(scroll.value^ + clamp(v, -1, 1) * SPEED * k.ctx.input.dt, 0, scroll.limit)
 }
 
 // The Scene palette's sections in the order listed, after Objects.

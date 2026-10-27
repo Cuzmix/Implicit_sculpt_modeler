@@ -967,8 +967,14 @@ shadow_circle :: proc(ctx: ^Context, center: [2]f32, radius: f32, color: Color) 
 
 // An image the app registered (such as the 3D viewport), stretched over `r`.
 image :: proc(ctx: ^Context, r: Rect, image_id: u64) {
+	image_part(ctx, r, image_id, {0, 0}, {1, 1})
+}
+
+// The part of a registered image between texture coordinates `lo` and `hi` (0 to 1),
+// stretched over `r`: a cell of an atlas, such as the objects' thumbnails.
+image_part :: proc(ctx: ^Context, r: Rect, image_id: u64, lo, hi: [2]f32) {
 	draw_set_state(&ctx.draw, .Image, image_id, ctx.clip)
-	draw_quad(&ctx.draw, to_px(ctx, r), {0, 0}, {1, 1}, {255, 255, 255, 255})
+	draw_quad(&ctx.draw, to_px(ctx, r), lo, hi, {255, 255, 255, 255})
 }
 
 // Whether the press on `id` became a long press: its secondary action ran or its

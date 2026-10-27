@@ -81,6 +81,12 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   kit shows it as image id `KIT_NAV_HEAD_IMAGE`; its `Ui_Draw.smooth` binds a linear sampler (a 2x2 box filter at
   that ratio) and `ui.frag` divides the colour by alpha (params.w), so its edge neither aliases nor darkens. Any other
   small 3D picture over the interface should reuse this rather than draw into the viewport target.
+- Object pictures (`src/render/thumbs.odin`, kept by `src/app/object_thumbs.odin`): an atlas of `THUMB_CELLS`²
+  cells of `THUMB_PX`, each drawn into a scratch target and copied into its cell (`CopyGPUTextureToTexture`,
+  `cycle = false`, or other cells are lost). A picture's `Draw_Item` has `chunks` nil, so it draws the whole index
+  buffer and never touches the per-frame indirect commands the viewport recorded. The app draws at most one a frame
+  after `nav_head_frame`, never mid-stroke or while the view moves, and only once its object's `thumb_key` has held
+  for `THUMB_SETTLE`; the kit shows cells as `KIT_THUMBS_IMAGE` with `ui.image_part` and the smooth sampler.
 
 ## Verify what you draw
     build\sculpt.exe --vertices=500000 --frames=60 --dump-viewport=build\a.ppm

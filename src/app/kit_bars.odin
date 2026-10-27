@@ -275,12 +275,8 @@ kit_view_bar :: proc(app: ^App) -> (search_anchor, view_anchor: ui.Rect) {
 	}
 	search_anchor = ctx.last_rect
 	_ = bar_command(app, .Inspector, ui.ICON_PANEL, selected = k.inspector && !side_panel_open(k))
-	// Objects: the tray on the Scene palette's list of objects; a second tap puts it away.
-	objects := k.inspector && !side_panel_open(k) && k.tab == .Scene && tray_section(app, .Scene) == .Objects
-	if ui.icon_button(ctx, "Objects", ICON_OBJECTS, selected = objects) {
-		if objects do k.inspector = false
-		else do tray_open(app, .Objects)
-	}
+	// Objects: the Objects card beside the bar; a second tap puts it away.
+	_ = bar_command(app, .Objects_Card, ICON_OBJECTS, name = "Objects")
 	ui.end(ctx)
 
 	ui.begin(ctx, "view column", column)
