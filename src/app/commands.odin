@@ -170,6 +170,7 @@ Command_Id :: enum u8 {
 	Render_Mode,
 	Viewport_Look, // the argument is the Look_Preset
 	Floor_Grid,
+	Thumbnail,
 	Transparency,
 	// The app
 	Stats,
@@ -1367,6 +1368,13 @@ COMMANDS := [Command_Id]Command {
 		help = "Draws a grid under the scene, and behind it on the walls you pick, with the axes in their colours.",
 		run = proc(app: ^App, _: int) {app.floor.on = !app.floor.on},
 		checked = proc(app: ^App, _: int) -> bool {return app.floor.on},
+	},
+	.Thumbnail = {
+		label = "Thumbnail",
+		help = "Shows the scene small in a window of its own, as a silhouette or shaded, and flipped if you like: to judge the whole form as if from across the room.",
+		icon = rune(0xe3b2), // picture-in-picture
+		run = proc(app: ^App, _: int) {app.kit.thumbnail = !app.kit.thumbnail},
+		checked = proc(app: ^App, _: int) -> bool {return app.kit.thumbnail},
 	},
 	.Transparency = {
 		label = "Transparency",

@@ -189,6 +189,7 @@ App :: struct {
 	autosave: Autosave, // the background autosave and crash recovery (autosave.odin)
 	preview:  Scene_Preview, // the picture scene files keep for the Home screen (scene_preview.odin)
 	home:     Home, // the Home screen's pictures and autosaves (home.odin)
+	thumbnail: Thumbnail_State, // View > Thumbnail's picture (thumbnail.odin)
 	// The scenes saved or opened lately, newest first, at most HOME_RECENT_MAX (remembered).
 	recent_scenes: [dynamic]string,
 	start_home: bool, // an interactive run given no scene starts on Home (Settings > Interface)
@@ -592,6 +593,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	defer autosave_destroy(&app)
 	defer scene_preview_destroy(&app)
 	defer home_destroy(&app)
+	defer thumbnail_destroy(&app)
 	// After autosave_init, whose folder Home's Autosaves lists.
 	if home_at_start(&app, opts, interactive) do home_open(&app)
 	// The benchmark's autosave writes the scene it starts with.
@@ -1008,6 +1010,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		nav_head_frame(&app, cmd)
 		thumbs_frame(&app, cmd)
 		home_frame(&app, cmd)
+		thumbnail_frame(&app, cmd, view, draws[:])
 
 		gpu_wait: time.Duration
 		if app.time_gpu {
@@ -1151,6 +1154,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	// The scene file's preview picture: how many were taken, the last one's size and the
 	// milliseconds it took to shrink and encode.
 	fmt.printfln("previews=%d preview_size=%dx%d preview_kb=%.1f preview_ms=%.2f", app.preview.taken, app.preview.w, app.preview.h, f64(len(app.preview.png)) / 1024, app.preview.ms)
+	fmt.printfln("thumbnail=%d thumbnail_draws=%d thumbnail_ms=%.2f thumbnail_px=%dx%d thumbnail_flip=%d thumbnail_shaded=%d", int(app.kit.thumbnail), app.thumbnail.draws, app.thumbnail.ms, app.kit.thumbnail_px.x, app.kit.thumbnail_px.y, int(app.kit.thumbnail_flip), int(app.kit.thumbnail_shaded))
 	// The scene's file by its name alone, which a test compares; "none" for no file.
 	scene_name := filepath.base(app.scene_path) if app.scene_path != "" else "none"
 	fmt.printfln("home=%d home_opened=%d home_read=%d home_pictures=%d recent_scenes=%d home_autosaves=%d scene_name=%s", int(app.kit.home), app.home.opened, app.home.read, app.home.uploaded, len(app.recent_scenes), len(app.home.autosaves), scene_name)
@@ -1375,8 +1379,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		recall_pinned := false
 		if obj := selected_object(&app); obj != nil do recall_pinned = sculpt.sculptor_recall_pinned(object_sculptor(obj))
 		fmt.printfln("recall_back=%d recall_reach=%d recall_pinned=%d recall_ms=%.1f", recall_back, recall_reach, int(recall_pinned), app.stats.recall_ms)
-		open := [Kit_Window]bool{.Inspector = k.inspector && !side_panel_open(k), .Stats = k.stats, .History = k.history, .Settings = k.settings, .Help = k.help, .Macros = k.macros, .Library = k.library, .Objects = k.objects_card, .Colors = k.colors_card}
-		names := [Kit_Window]string{.Inspector = "inspector", .Stats = "stats", .History = "history panel", .Settings = "settings", .Help = "help", .Macros = "macros", .Library = "library", .Objects = "objects card", .Colors = "colors card"}
+		open := [Kit_Window]bool{.Inspector = k.inspector && !side_panel_open(k), .Stats = k.stats, .History = k.history, .Settings = k.settings, .Help = k.help, .Macros = k.macros, .Library = k.library, .Objects = k.objects_card, .Colors = k.colors_card, .Thumbnail = k.thumbnail}
+		names := [Kit_Window]string{.Inspector = "inspector", .Stats = "stats", .History = "history panel", .Settings = "settings", .Help = "help", .Macros = "macros", .Library = "library", .Objects = "objects card", .Colors = "colors card", .Thumbnail = "thumbnail"}
 		for w, which in k.windows {
 			r := ui.prev_rect(&k.ctx, names[which])
 			fmt.printf("window_%s=%d,%d,%.0f,%.0f ", strings.to_lower(fmt.tprint(which), context.temp_allocator), int(open[which]), int(w.minimized), r.x, r.y)

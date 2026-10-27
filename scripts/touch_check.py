@@ -260,7 +260,7 @@ RADIAL_COPIES = ((1351, 639), (1530, 639))
 FLOOR_BACK = (1381, 561)
 POLYFRAME_FILL = (1450, 638)
 # The view menu's Field of view slider, under Orthographic.
-FOV_SLIDER = (1300, 688)
+FOV_SLIDER = (1300, 644)
 
 
 @scenario
@@ -5203,6 +5203,39 @@ def first_save():
     s = Script()
     s.wait(2)
     return s, [f"--save={path}"], {"@saved": lambda _: os.path.exists(path)}
+
+
+# The thumbnail window at 1600x900 (thumbnail.odin), under the object's readout: its
+# Shaded tab, Flip and Close.
+THUMBNAIL_SHADED = (175, 310)
+THUMBNAIL_FLIP = (239, 310)
+THUMBNAIL_CLOSE = (292, 310)
+
+
+@scenario
+def thumbnail_switches_to_shaded_and_flips():
+    """Taps on the thumbnail window's Shaded tab and Flip draw it shaded and mirrored, and
+    sculpt nothing."""
+    s = Script()
+    s.wait(4)
+    s.ftap(*THUMBNAIL_SHADED)
+    s.wait(4)
+    s.ftap(*THUMBNAIL_FLIP)
+    s.wait(10)
+    return s, ["--script=thumbnail on"], camera_still({"thumbnail": near(1, 0), "thumbnail_shaded": near(1, 0), "thumbnail_flip": near(1, 0),
+                                                     "thumbnail_draws": lambda v: int(v) >= 2, "dabs": near(0)})
+
+
+@scenario
+def thumbnail_follows_a_stroke_and_closes():
+    """A stroke on the model draws the thumbnail again; its Close shuts the window."""
+    s = Script()
+    s.wait(4)
+    s.mouse_drag([(800, 450), (830, 465), (860, 480)])
+    s.wait(12)
+    s.ftap(*THUMBNAIL_CLOSE)
+    s.wait(4)
+    return s, ["--script=thumbnail on"], {"thumbnail": near(0, 0), "thumbnail_draws": lambda v: int(v) >= 2, "dabs": lambda v: int(v) > 0}
 
 
 # The Home screen at 1600x900 (kit_home.odin): the Head starter, and the first scene tile.

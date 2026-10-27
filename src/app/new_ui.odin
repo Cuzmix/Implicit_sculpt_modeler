@@ -222,6 +222,12 @@ Kit_State :: struct {
 	// The Colors card (kit_colors.odin): open, and its tab, history and palettes.
 	colors_card:    bool,
 	colors:         Colors_Card,
+	// The thumbnail window (thumbnail.odin): open, shaded rather than a silhouette, mirrored,
+	// and its picture's size in pixels as laid out this frame (zero while it is not).
+	thumbnail:        bool,
+	thumbnail_shaded: bool,
+	thumbnail_flip:   bool,
+	thumbnail_px:     [2]u32,
 	inspector_body: ui.Rect,
 	inspector_limit:  f32,
 	inspector_shown:  f32, // how far the body is scrolled as drawn (the scroll tweens toward k.scroll)
@@ -265,11 +271,12 @@ Kit_Window :: enum u8 {
 	Library,
 	Objects, // the Objects card (kit_objects_card.odin), a card rather than a window
 	Colors, // the Colors card (kit_colors.odin), beside the brush bar
+	Thumbnail, // the thumbnail window (thumbnail.odin), a card under the object's readout
 }
 
 // The order the windows start in, back to front: Settings, Help, Macros and Library over
 // the rest, as they opened.
-KIT_WINDOW_ORDER :: [len(Kit_Window)]Kit_Window{.Inspector, .Objects, .Colors, .Stats, .History, .Settings, .Help, .Macros, .Library}
+KIT_WINDOW_ORDER :: [len(Kit_Window)]Kit_Window{.Inspector, .Objects, .Colors, .Thumbnail, .Stats, .History, .Settings, .Help, .Macros, .Library}
 
 // Settings, Help, Macros and Library share the inspector's place on the right: one at a
 // time, with the inspector hidden while one is open.
@@ -654,6 +661,8 @@ KIT_NAV_HEAD_IMAGE :: 2
 KIT_THUMBS_IMAGE :: 3
 // ...and the atlas of the Home screen's pictures of scenes (home.odin).
 KIT_PICTURES_IMAGE :: 4
+// ...and the thumbnail window's picture of the scene (thumbnail.odin).
+KIT_THUMBNAIL_IMAGE :: 5
 
 // The inspector's width, and the toolbars' height: one touch target.
 KIT_INSPECTOR_W :: 312
@@ -1034,6 +1043,7 @@ kit_layout :: proc(app: ^App) {
 		case .Library:   raised = kit_library(app)
 		case .Objects:   raised = kit_objects_card(app)
 		case .Colors:    raised = kit_colors_card(app)
+		case .Thumbnail: raised = kit_thumbnail(app)
 		}
 		if raised do top = which
 	}
@@ -1232,6 +1242,7 @@ kit_view_menu :: proc(app: ^App, anchor: ui.Rect, side: ui.Side) {
 	ui.begin(ctx, "view menu fov", {direction = .Column, padding = 10})
 	kit_field_of_view(app)
 	ui.end(ctx)
+	_ = command_menu_item(app, .Thumbnail)
 	if command_menu_item(app, .Focus_Selected) do k.view_menu = false
 	if command_menu_item(app, .Reset_Camera) do k.view_menu = false
 	// The menu stays open over these, to step back or forward several views.
@@ -1422,8 +1433,8 @@ kit_rename :: proc(app: ^App) {
 // The interface's draw commands for the renderer: the viewport's texture (or the
 // studio render's or live occlusion's while on, viewport_shown) where the kit drew
 // KIT_VIEWPORT_IMAGE, the navigation head's where it drew KIT_NAV_HEAD_IMAGE, the
-// objects' pictures where it drew KIT_THUMBS_IMAGE and the scenes' where it drew
-// KIT_PICTURES_IMAGE.
+// objects' pictures where it drew KIT_THUMBS_IMAGE, the scenes' where it drew
+// KIT_PICTURES_IMAGE and the thumbnail window's where it drew KIT_THUMBNAIL_IMAGE.
 kit_draws :: proc(app: ^App, dl: ^ui.Draw_List) -> []render.Ui_Draw {
 	shown := app.target.color
 	if tex := viewport_shown(app); tex != nil do shown = tex
@@ -1443,6 +1454,10 @@ kit_draws :: proc(app: ^App, dl: ^ui.Draw_List) -> []render.Ui_Draw {
 		if c.texture == .Image && c.image == KIT_THUMBS_IMAGE {
 			draws[i].image, draws[i].smooth = app.thumbs.atlas, true
 			if app.thumbs.atlas == nil do draws[i].index_count = 0
+		}
+		if c.texture == .Image && c.image == KIT_THUMBNAIL_IMAGE {
+			draws[i].image, draws[i].smooth = app.thumbnail.shown, true
+			if app.thumbnail.shown == nil do draws[i].index_count = 0
 		}
 		if c.texture == .Image && c.image == KIT_PICTURES_IMAGE {
 			draws[i].image, draws[i].smooth = app.home.pictures.atlas, true
