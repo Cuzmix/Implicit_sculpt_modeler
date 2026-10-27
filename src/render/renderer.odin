@@ -79,6 +79,7 @@ Clear_Uniforms :: struct {
 	env:              [4]f32, // x: 1 to show the environment, y: its strength, z: the level shown, w: the exposure
 	clip_to_env:      Mat4,   // the inverse projection, then the view's turn into the panorama's axes
 }
+#assert(size_of(Clear_Uniforms) == 128)
 
 // The grid drawn on up to three planes square to the world's axes, round the scene: per
 // axis, whether the plane across it shows (`shown`, as 1 or 0, so the struct hashes with no

@@ -36,7 +36,9 @@ void main() {
 	vec3 b = cross(n, t);
 	float a = rough * rough;
 	float a2 = a * a;
-	// A source texel's solid angle at the equator: the panorama's 4 pi over its texels.
+	// A source texel's mean solid angle: the panorama's 4 pi over its texels (an equator
+	// texel is a little larger, one near a pole much smaller, so the poles read a finer mip
+	// than they need, at the cost of a little noise there).
 	float texel = 12.5663706 / (params.y * params.z);
 	vec3 sum = vec3(0.0);
 	float weight = 0.0;

@@ -9,8 +9,9 @@ import "core:strings"
 
 // Environment panoramas from files (stage 4.1, notes/rendering/stage4-design.md): a
 // Radiance `.hdr` (RGBE) or any image core:image reads, equirectangular, twice as wide as
-// tall, as linear RGB at most `max_width` wide, halved by 2 x 2 box averages while the
-// file is read, so an 8k panorama never sits in memory at full size.
+// tall, as linear RGB at most `max_width` wide, halved by 2 x 2 box averages as rows are
+// read, so a Radiance file, which streams row by row, never sits in memory at full size
+// (a picture is decoded whole first, once its header says it is not too big).
 
 // Panoramas wider than this are refused: 8192 x 4096 is the largest common HDRI size and
 // what core:image accepts. Picture files (not Radiance) stop at 4096 on Android, where a
@@ -56,10 +57,17 @@ environment_decode :: proc(data: []u8, max_width: int, allocator := context.allo
 // row straight from the decoded pixels.
 @(private = "file")
 picture_decode :: proc(data: []u8, max_width: int, allocator := context.allocator) -> (img: Environment_Image, why: string) {
+	// The header first, so a picture too big for this device is refused before its pixels
+	// take the memory.
+	head, head_err := image.load_from_bytes(data, {.info})
+	if head_err != nil do return {}, fmt.tprintf("%v (Radiance .hdr, PNG, JPEG, BMP, TGA and QOI panoramas work)", head_err)
+	width, height := head.width, head.height
+	image.destroy(head)
+	if why = panorama_size_check(width, height, ENVIRONMENT_MAX_PICTURE_SIDE); why != "" do return
 	src, err := image.load_from_bytes(data)
 	if err != nil do return {}, fmt.tprintf("%v (Radiance .hdr, PNG, JPEG, BMP, TGA and QOI panoramas work)", err)
 	defer image.destroy(src)
-	if why = panorama_size_check(src.width, src.height, ENVIRONMENT_MAX_PICTURE_SIDE); why != "" do return
+	if src.width != width || src.height != height do return {}, "its size changed between its header and its pixels"
 	if src.depth != 8 && src.depth != 16 do return {}, fmt.tprintf("%d-bit channels are not supported", src.depth)
 	// Eight-bit values take their linear value from a table rather than a power per channel.
 	lut: [256]f32

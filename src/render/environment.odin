@@ -25,8 +25,8 @@ Environment :: struct {
 	levels:        int, // the prefiltered texture's
 	width, height: int, // the source's
 	sh:            [9][3]f32,
-	// Counts the environments made in this run, so the frame keys tell a new one from an
-	// old one at the same address.
+	// From Renderer.last_version, so the frame keys tell a new one from an old one at the
+	// same address.
 	stamp:         u64,
 }
 
@@ -51,9 +51,6 @@ Prefilter_Uniforms :: struct {
 }
 
 ENV_PREFILTER_FRAG_SPV :: #load("shaders/env_prefilter.frag.spv")
-
-@(private = "file")
-environment_stamps: u64
 
 // Makes an environment from `pixels`, linear RGB rows top (straight up) to bottom,
 // `width` by `height` (2:1, at least 64 wide), and its harmonics `sh`: uploads it,
@@ -116,8 +113,8 @@ environment_create :: proc(r: ^Renderer, pixels: [][3]f32, width, height: int, s
 		log.errorf("environment prefilter wait: %s", sdl.GetError())
 		return
 	}
-	environment_stamps += 1
-	env.stamp = environment_stamps
+	r.last_version += 1
+	env.stamp = r.last_version
 	return env, true
 }
 

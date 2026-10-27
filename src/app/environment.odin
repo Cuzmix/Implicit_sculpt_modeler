@@ -32,6 +32,7 @@ Environment_Kind :: enum u8 {
 	Image,    // the loaded panorama, while there is one
 }
 
+@(rodata)
 ENVIRONMENT_KIND_LABELS := [len(Environment_Kind)]string{"Built-in", "Image"}
 
 Environment_State :: struct {
@@ -154,12 +155,22 @@ environment_poll :: proc(app: ^App, wait := false) -> (why: string) {
 	return
 }
 
-// Waits for any decode and releases the environment.
+// Waits for any decode, dropping what it made unseen (the app is closing), and releases
+// the environment.
 environment_destroy :: proc(app: ^App) {
 	e := &app.env
-	delete(e.next, runtime.heap_allocator())
+	heap := runtime.heap_allocator()
+	delete(e.next, heap)
 	e.next = ""
-	if e.decode != nil do _ = environment_poll(app, wait = true)
+	if d := e.decode; d != nil {
+		thread.join(d.thread)
+		thread.destroy(d.thread)
+		delete(d.path, heap)
+		delete(d.why, heap)
+		environment_image_destroy(&d.image, heap)
+		free(d, heap)
+		e.decode = nil
+	}
 	render.environment_destroy(&app.renderer, &e.gpu)
 	delete(e.path, runtime.heap_allocator())
 	e.path = ""

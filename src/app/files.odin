@@ -89,8 +89,13 @@ SCENE_FILTERS := [?]sdl.DialogFileFilter{{"Sculpt scene", "sculpt"}}
 PNG_FILTERS := [?]sdl.DialogFileFilter{{"PNG image", "png"}}
 @(private = "file")
 IMAGE_FILTERS := [?]sdl.DialogFileFilter{{"Images (PNG, JPEG, BMP, TGA, QOI)", "png;jpg;jpeg;bmp;tga;qoi"}}
-@(private = "file")
-ENVIRONMENT_FILTERS := [?]sdl.DialogFileFilter{{"Panoramas (Radiance HDR, PNG, JPEG, BMP, TGA, QOI)", "hdr;png;jpg;jpeg;bmp;tga;qoi"}}
+// Android's picker knows no MIME type for `.hdr` and would hide Radiance files, so there
+// every file is offered and the decoder's own check of the bytes decides, as for packs.
+when ODIN_PLATFORM_SUBTARGET == .Android {
+	ENVIRONMENT_FILTERS := [?]sdl.DialogFileFilter{{"All files", "*"}}
+} else {
+	ENVIRONMENT_FILTERS := [?]sdl.DialogFileFilter{{"Panoramas (Radiance HDR, PNG, JPEG, BMP, TGA, QOI)", "hdr;png;jpg;jpeg;bmp;tga;qoi"}}
+}
 @(private = "file")
 STROKES_FILTERS := [?]sdl.DialogFileFilter{{"Recorded strokes", "strokes"}}
 @(private = "file")
