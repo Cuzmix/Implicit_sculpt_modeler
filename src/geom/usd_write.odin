@@ -9,7 +9,7 @@ import "core:unicode/utf8"
 
 import "../jobs"
 
-// USD text (.usda) out: one mesh under a root prim, in the form Blender's, Houdini's and
+// USD text (.usda) out: one mesh under a root prim, with its lights beside it (UsdLux), in the form Blender's, Houdini's and
 // Maya's importers read. Sculpt layers become blend shapes (each the vertices it moves and
 // how far) bound to a skeleton without joints, whose animation gives their strengths;
 // the weights are written both as the default and as a time sample at frame 1, since
@@ -55,6 +55,9 @@ mesh_write_usda :: proc(out: ^[dynamic]u8, m: Mesh_Export, pool: ^jobs.Pool = ni
 	if has_material {
 		for gm, k in m.group_materials do group_names[k] = usd_identifier(&taken, gm.name, "Material")
 	}
+	// The lights are the root's children too, so their names are kept from the others'.
+	light_names := make([]string, len(m.lights), context.temp_allocator)
+	for l, k in m.lights do light_names[k] = usd_identifier(&taken, l.name, fmt.tprintf("Light_%d", k + 1))
 	shapes := make([]string, len(m.morphs), context.temp_allocator)
 	clear(&taken)
 	for t, k in m.morphs do shapes[k] = usd_identifier(&taken, t.name, fmt.tprintf("Layer_%d", k + 1))
@@ -168,6 +171,7 @@ mesh_write_usda :: proc(out: ^[dynamic]u8, m: Mesh_Export, pool: ^jobs.Pool = ni
 			if slot > 0 && len(faces) > 0 do usd_material(out, &u, m.group_materials[slot - 1], group_names[slot - 1], m.colors != nil)
 		}
 	}
+	for l, k in m.lights do usd_light(out, &u, l, light_names[k])
 	if skinned {
 		w(out, "\n    def Skeleton \"Skel\" (\n        prepend apiSchemas = [\"SkelBindingAPI\"]\n    )\n    {\n")
 		w(out, "        uniform token[] joints = []\n        uniform matrix4d[] bindTransforms = []\n        uniform matrix4d[] restTransforms = []\n")
@@ -380,6 +384,61 @@ usd_identifier :: proc(taken: ^[dynamic]string, name, fallback: string) -> strin
 	}
 	append(taken, id)
 	return id
+}
+
+// Light `l` as a UsdLux light named `name`: a DistantLight for a directional one, a
+// SphereLight treated as a point for the others, a spot shaped into its cone
+// (ShapingAPI: the cone's half angle, softened over the share of it the inner angle
+// leaves). Both shine along their -Z. The intensity is glTF's turned into the numbers
+// Blender's USD importer reads as the watts its glTF importer gives the same light (it
+// takes a DistantLight's intensity times 4 as a sun's strength and a point's times pi as
+// its power), so a scene comes into Blender the same through either file.
+@(private = "file")
+usd_light :: proc(out: ^[dynamic]u8, u: ^Usd, l: Export_Light, name: string) {
+	w :: proc(out: ^[dynamic]u8, s: string) {append(out, s)}
+	at, turn, intensity, _ := export_light_place(u.m, l)
+	switch l.kind {
+	case .Directional: fmt.sbprintf(&u.b, "\n    def DistantLight \"%s\"\n    {{\n", name)
+	case .Point:       fmt.sbprintf(&u.b, "\n    def SphereLight \"%s\"\n    {{\n", name)
+	case .Spot:        fmt.sbprintf(&u.b, "\n    def SphereLight \"%s\" (\n        prepend apiSchemas = [\"ShapingAPI\"]\n    )\n    {{\n", name)
+	}
+	usd_flush(out, u)
+	w(out, "        color3f inputs:color = ")
+	usd_vec3(out, {clamp(l.color.r, 0, 1), clamp(l.color.g, 0, 1), clamp(l.color.b, 0, 1)})
+	w(out, "\n        float inputs:intensity = ")
+	usd_float(out, max(intensity, 0) * usd_light_scale(l.kind))
+	w(out, "\n")
+	if l.kind != .Directional do w(out, "        bool treatAsPoint = 1\n")
+	if l.kind == .Spot {
+		outer := clamp(l.outer_cone, 1e-4, math.PI / 2)
+		w(out, "        float inputs:shaping:cone:angle = ")
+		usd_float(out, outer * 180 / math.PI)
+		w(out, "\n        float inputs:shaping:cone:softness = ")
+		usd_float(out, clamp(1 - l.inner_cone / outer, 0, 1))
+		w(out, "\n")
+	}
+	if l.kind != .Directional {
+		w(out, "        double3 xformOp:translate = ")
+		usd_vec3(out, at)
+		w(out, "\n")
+	}
+	w(out, "        quatf xformOp:orient = (")
+	usd_float(out, real(turn))
+	for x in ([3]f32{imag(turn), jmag(turn), kmag(turn)}) {
+		w(out, ", ")
+		usd_float(out, x)
+	}
+	w(out, ")\n        uniform token[] xformOpOrder = [\"xformOp:translate\", \"xformOp:orient\"]\n    }\n" if l.kind != .Directional else ")\n        uniform token[] xformOpOrder = [\"xformOp:orient\"]\n    }\n")
+}
+
+// What a light's glTF intensity, in the file's units, is multiplied by for USD, undoing
+// what Blender's USD importer multiplies it by.
+@(private = "file")
+usd_light_scale :: proc(kind: Export_Light_Kind) -> f32 {
+	// Lux over 683 lumens a watt are a sun's watts a square metre; candela times 4 pi over
+	// 683 a point's watts, as glTF's importers count both.
+	if kind == .Directional do return 1.0 / (683 * 4)
+	return 4.0 / 683
 }
 
 // The mesh's material as a UsdPreviewSurface, the surface every USD reader knows. With

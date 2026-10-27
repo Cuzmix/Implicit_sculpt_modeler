@@ -3,6 +3,7 @@ package geom
 import "core:encoding/endian"
 import "core:encoding/json"
 import "core:math"
+import "core:math/linalg"
 import "core:mem"
 import "core:testing"
 
@@ -11,6 +12,35 @@ import "../jobs"
 // What the tests read back of a .glb's JSON.
 @(private = "file")
 Glb_Json :: struct {
+	scenes:         []struct {
+		nodes: []int,
+	},
+	nodes:          []struct {
+		name:        string,
+		mesh:        Maybe(int),
+		translation: [3]f32,
+		rotation:    [4]f32,
+		extensions:  struct {
+			KHR_lights_punctual: Maybe(struct {
+				light: int,
+			}),
+		},
+	},
+	extensionsUsed: []string,
+	extensions:     struct {
+		KHR_lights_punctual: struct {
+			lights: []struct {
+				name:      string,
+				type:      string,
+				color:     [3]f32,
+				intensity: f32,
+				range:     Maybe(f32),
+				spot:      Maybe(struct {
+					innerConeAngle, outerConeAngle: f32,
+				}),
+			},
+		},
+	},
 	meshes:      []struct {
 		name:       string,
 		primitives: []struct {
@@ -415,4 +445,55 @@ glb_embeds_textures :: proc(t: ^testing.T) {
 	tangent := doc.accessors[attributes["TANGENT"]]
 	testing.expect_value(t, tangent.type, "VEC4")
 	testing.expect_value(t, mem.slice_data_cast([]f32, view_of(doc, bin, tangent.bufferView.?))[11], -1)
+}
+
+// Lights go as KHR_lights_punctual: a node each after the mesh's, in the scene, turned so
+// its -Z shines the light's way and, but for a directional light, standing where the
+// light is in the file's units, with candela and range grown with them.
+@(test)
+glb_carries_the_lights :: proc(t: ^testing.T) {
+	sphere := icosphere(1)
+	defer mesh_destroy(&sphere)
+	out := make([dynamic]u8)
+	defer delete(out)
+	lights := []Export_Light {
+		{name = "Key", kind = .Directional, color = {1, 0.9, 0.8}, intensity = 2000, direction = {0, 0, 1}},
+		{name = "Lamp", kind = .Spot, color = {2, 1, -1}, intensity = 50, position = {1, 2, 3}, direction = {0, -1, 0}, range = 4, inner_cone = 0.2, outer_cone = 0.5},
+		{name = "Bulb", kind = .Point, color = 1, intensity = 10, position = {-1, 0, 0}, direction = {1, 0, 0}},
+	}
+	m := Mesh_Export{name = "Sphere", positions = sphere.positions[:], normals = sphere.normals[:], indices = sphere.indices[:], scale = 2, offset = {10, 0, 0}, lights = lights}
+	testing.expect(t, mesh_write_glb(&out, m))
+	doc, _, read := glb_chunks(t, out[:])
+	defer free_all(context.temp_allocator)
+	if !read do return
+	testing.expect_value(t, len(doc.scenes[0].nodes), 4)
+	testing.expect_value(t, len(doc.nodes), 4)
+	testing.expect(t, len(doc.extensionsUsed) == 1 && doc.extensionsUsed[0] == "KHR_lights_punctual")
+	got := doc.extensions.KHR_lights_punctual.lights
+	if !testing.expect_value(t, len(got), 3) do return
+	testing.expect(t, got[0].type == "directional" && got[1].type == "spot" && got[2].type == "point")
+	testing.expect_value(t, got[0].intensity, 2000)
+	testing.expect_value(t, got[1].intensity, 200) // candela grow with the square of the units
+	testing.expect_value(t, got[1].color, [3]f32{1, 1, 0})
+	testing.expect_value(t, got[1].range.?, 8)
+	spot := got[1].spot.?
+	testing.expect(t, spot.innerConeAngle == 0.2 && spot.outerConeAngle == 0.5)
+	_, has_range := got[2].range.?
+	testing.expect(t, !has_range)
+	for l, k in lights {
+		node := doc.nodes[1 + k]
+		testing.expect_value(t, node.name, l.name)
+		testing.expect_value(t, node.extensions.KHR_lights_punctual.?.light, k)
+		q := quaternion(w = node.rotation[3], x = node.rotation[0], y = node.rotation[1], z = node.rotation[2])
+		shines := linalg.quaternion_mul_vector3(q, Vec3{0, 0, -1})
+		testing.expectf(t, linalg.length(shines - l.direction) < 1e-5, "%s shines %v", l.name, shines)
+		if l.kind != .Directional do testing.expect_value(t, node.translation, l.position * 2 + {10, 0, 0})
+	}
+	// Without lights the file has no extension.
+	clear(&out)
+	m.lights = nil
+	testing.expect(t, mesh_write_glb(&out, m))
+	plain, _, plain_read := glb_chunks(t, out[:])
+	if !plain_read do return
+	testing.expect(t, len(plain.nodes) == 1 && len(plain.extensionsUsed) == 0)
 }

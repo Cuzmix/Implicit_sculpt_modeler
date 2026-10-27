@@ -44,6 +44,10 @@ description: CAD-style mesh tools inside this app on geom.Mesh — primitives, b
   gives faces in no subset the FIRST subset's material, not the mesh binding. Painted: glTF copies seam vertices
   (`geom.mesh_export_split_materials`, morph entries appended for the copies), USD writes `corner_colors` faceVarying.
   Check with `export_check.py FILE --face-materials "Gold=13778,Steel=55112"` (faces a material, by name).
+- Lights in exports (`app.export_lights`, `Mesh_Export.lights`, `geom.export_light_place`): glTF KHR_lights_punctual
+  (lux / candela in the mesh's units, the writer scales candela by scale²), USD DistantLight / SphereLight treatAsPoint
+  (+ ShapingAPI). USD intensities undo Blender's USD importer (sun x4, point x pi) so both formats import with the same
+  watts; a sun of strength 1 is pi*683 lux. Check with `export_check.py FILE --lights "SUN=3.1416,SPOT=290.17"`.
 - Voxel remesh exists (README "Voxel remesh (DynaMesh)"): `geom.remesh_voxel(m, target, pool)` and
   `remesh_voxel_spacing(m, h, pool)` (`src/geom/remesh.odin:57, 68`) rebuild a mesh as an even, closed, manifold surface:
   winding-number rays along each axis decide inside, marching cubes with a rule-built table keeps ambiguous faces

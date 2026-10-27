@@ -11,7 +11,8 @@ import "core:unicode/utf8"
 
 import "../jobs"
 
-// Binary glTF 2.0 (.glb) out: one mesh in one node in one scene, with positions,
+// Binary glTF 2.0 (.glb) out: one mesh in one node in one scene, and a node for each
+// light (KHR_lights_punctual), with positions,
 // normals, optional vertex colours, triangles and morph targets, and a primitive for each
 // material its triangles use (all sharing the vertices and targets). The JSON is written by
 // hand (its shape is small and fixed) and the binary chunk is laid out before anything is
@@ -63,6 +64,54 @@ Mesh_Export :: struct {
 	texcoords:       [][2]f32,
 	tangents:        [][4]f32,
 	images:          []Export_Image,
+	// The lights beside the mesh: KHR_lights_punctual in glTF, UsdLux lights in USD.
+	lights:          []Export_Light,
+}
+
+Export_Light_Kind :: enum u8 {
+	Directional, // from a direction, as the sun
+	Point,       // every way from a place
+	Spot,        // from a place into a cone
+}
+
+@(rodata)
+GLTF_LIGHT_TYPES := [Export_Light_Kind]string {
+	.Directional = `,"type":"directional"`,
+	.Point       = `,"type":"point"`,
+	.Spot        = `,"type":"spot"`,
+}
+
+// A light a glTF or USD file carries beside its mesh.
+Export_Light :: struct {
+	name:       string,
+	kind:       Export_Light_Kind,
+	color:      [3]f32, // linear, 0 to 1
+	// glTF's units: lux for a directional light; for the others candela measured in the
+	// mesh's own units (lux at one unit away), which the writers scale to the file's.
+	intensity:  f32,
+	position:   Vec3, // in the mesh's space, as `positions` are; unused by a directional light
+	direction:  Vec3, // the way it shines, unit length, in the mesh's axes
+	range:      f32, // where it fades to nothing, in the mesh's units; 0 for never
+	inner_cone: f32, // a spot's half angles in radians: full strength inside the inner,
+	outer_cone: f32, // ...nothing outside the outer
+}
+
+// Where light `l` stands in the file and how it is turned (its local -Z, which both
+// formats shine along, turned onto its direction), with its intensity and range in the
+// file's units: candela grows with the square of the units, as lux at one unit away.
+export_light_place :: proc(m: Mesh_Export, l: Export_Light) -> (at: Vec3, turn: quaternion128, intensity, range: f32) {
+	scale := m.scale if m.scale != 0 else 1
+	at = l.position * scale + m.offset
+	d := linalg.normalize(l.direction) if linalg.length(l.direction) > 1e-12 else Vec3{0, 0, -1}
+	if linalg.dot(d, Vec3{0, 0, -1}) < -0.999999 {
+		// Straight back along +Z: half a turn about y, as any axis across would do.
+		turn = quaternion(w = 0, x = 0, y = 1, z = 0)
+	} else {
+		turn = linalg.quaternion_between_two_vector3(Vec3{0, 0, -1}, d)
+	}
+	intensity = l.intensity if l.kind == .Directional else l.intensity * scale * scale
+	range = l.range * scale
+	return
 }
 
 // A picture for a material's texture: PNG or JPEG bytes (the two glTF reads), written
@@ -418,9 +467,24 @@ glb_fill :: proc(g: ^Glb, pool: ^jobs.Pool) {
 glb_json :: proc(j: ^strings.Builder, g: ^Glb) {
 	m := g.m
 	n := len(m.positions)
-	strings.write_string(j, `{"asset":{"version":"2.0","generator":"Sculpt"},"scene":0,"scenes":[{"nodes":[0]}],"nodes":[{"mesh":0,"name":`)
+	strings.write_string(j, `{"asset":{"version":"2.0","generator":"Sculpt"},"scene":0,"scenes":[{"nodes":[0`)
+	for _, k in m.lights do fmt.sbprintf(j, ",%d", 1 + k)
+	strings.write_string(j, `]}],"nodes":[{"mesh":0,"name":`)
 	json_string(j, m.name)
-	strings.write_string(j, `}],"meshes":[{"name":`)
+	strings.write_byte(j, '}')
+	for l, k in m.lights {
+		at, turn, _, _ := export_light_place(m, l)
+		strings.write_string(j, `,{"name":`)
+		json_string(j, l.name)
+		if l.kind != .Directional {
+			strings.write_string(j, `,"translation":`)
+			json_numbers(j, {at.x, at.y, at.z})
+		}
+		strings.write_string(j, `,"rotation":`)
+		json_numbers(j, {imag(turn), jmag(turn), kmag(turn), real(turn)})
+		fmt.sbprintf(j, `,"extensions":{{"KHR_lights_punctual":{{"light":%d}}}}}}`, k)
+	}
+	strings.write_string(j, `],"meshes":[{"name":`)
 	json_string(j, m.name)
 	// Accessors: 0 positions, 1 normals, then colours, UVs and tangents if any, then each
 	// primitive's indices, then one per morph target.
@@ -493,6 +557,34 @@ glb_json :: proc(j: ^strings.Builder, g: ^Glb) {
 		strings.write_string(j, `],"samplers":[{"magFilter":9729,"minFilter":9987,"wrapS":10497,"wrapT":10497}],"textures":[`)
 		for _, k in m.images do fmt.sbprintf(j, `%s{{"sampler":0,"source":%d}}`, "," if k > 0 else "", k)
 		strings.write_byte(j, ']')
+	}
+	if len(m.lights) > 0 {
+		strings.write_string(j, `,"extensionsUsed":["KHR_lights_punctual"],"extensions":{"KHR_lights_punctual":{"lights":[`)
+		for l, k in m.lights {
+			_, _, intensity, range := export_light_place(m, l)
+			if k > 0 do strings.write_byte(j, ',')
+			strings.write_string(j, `{"name":`)
+			json_string(j, l.name)
+			strings.write_string(j, GLTF_LIGHT_TYPES[l.kind])
+			strings.write_string(j, `,"color":`)
+			json_numbers(j, {clamp(l.color.r, 0, 1), clamp(l.color.g, 0, 1), clamp(l.color.b, 0, 1)})
+			strings.write_string(j, `,"intensity":`)
+			json_number(j, max(intensity, 0))
+			if range > 0 && l.kind != .Directional {
+				strings.write_string(j, `,"range":`)
+				json_number(j, range)
+			}
+			if l.kind == .Spot {
+				outer := clamp(l.outer_cone, 1e-4, math.PI / 2)
+				strings.write_string(j, `,"spot":{"innerConeAngle":`)
+				json_number(j, clamp(l.inner_cone, 0, outer * 0.9999))
+				strings.write_string(j, `,"outerConeAngle":`)
+				json_number(j, outer)
+				strings.write_byte(j, '}')
+			}
+			strings.write_byte(j, '}')
+		}
+		strings.write_string(j, `]}}`)
 	}
 	fmt.sbprintf(j, `,"buffers":[{{"byteLength":%d}}],"bufferViews":[`, g.bin_len)
 	for v, k in g.views {
@@ -583,6 +675,17 @@ json_string :: proc(b: ^strings.Builder, s: string) {
 json_number :: proc(b: ^strings.Builder, x: f32) {
 	tmp: [32]u8
 	strings.write_bytes(b, tmp[:format_f32(tmp[:], x)])
+}
+
+// A JSON array of numbers.
+@(private = "file")
+json_numbers :: proc(b: ^strings.Builder, xs: []f32) {
+	strings.write_byte(b, '[')
+	for x, k in xs {
+		if k > 0 do strings.write_byte(b, ',')
+		json_number(b, x)
+	}
+	strings.write_byte(b, ']')
 }
 
 // An accessor's "min" and "max".
