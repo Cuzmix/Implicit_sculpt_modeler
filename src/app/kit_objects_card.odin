@@ -196,7 +196,7 @@ kit_objects_card :: proc(app: ^App) -> (raised: bool) {
 		ui.section_end(ctx)
 	}
 	ui.window_end(ctx)
-	ui.transform_since(ctx, mark, shown, 1, {}, {window_slide(win^, .End) * (1 - shown) * 16, 0})
+	ui.transform_since(ctx, mark, shown, 1, {}, {window_slide(ctx, win^, .End) * (1 - shown) * 16, 0})
 	return
 }
 

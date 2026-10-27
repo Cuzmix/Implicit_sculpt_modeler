@@ -152,6 +152,7 @@ SETTINGS := [?]Setting {
 	{"dim_others", offset_of(App, dim_others), bool, 0, 0},
 	{"ridge", offset_of(App, ridge), f32, 0, 1},
 	{"reduce_motion", K + offset_of(Kit_State, ctx) + offset_of(ui.Context, reduced_motion), bool, 0, 0},
+	{"left_handed", K + offset_of(Kit_State, ctx) + offset_of(ui.Context, mirror), bool, 0, 0},
 	{"ortho", offset_of(App, camera) + offset_of(camera.Orbit, ortho), bool, 0, 0},
 	{"fov", offset_of(App, camera) + offset_of(camera.Orbit, fov_y), f32, camera.FOV_MIN, camera.FOV_MAX},
 	// Settings > Interface, Camera, Touch and Performance.
@@ -172,6 +173,7 @@ SETTINGS := [?]Setting {
 	{"msaa", offset_of(App, msaa), Msaa, 0, 0},
 	{"autosave_minutes", offset_of(App, autosave) + offset_of(Autosave, minutes), i32, 0, 10},
 	{"versions_kept", offset_of(App, versions_kept), i32, 0, 10},
+	{"undo_steps", offset_of(App, undo_steps), i32, 0, 1000},
 	{"orbit_style", N + offset_of(Nav_Prefs, orbit_style), camera.Orbit_Style, 0, 0},
 	{"mouse_scheme", N + offset_of(Nav_Prefs, mouse_scheme), Mouse_Scheme, 0, 0},
 	{"limit_pitch", N + offset_of(Nav_Prefs, limit_pitch), bool, 0, 0},
@@ -724,6 +726,8 @@ settings_load :: proc(app: ^App, path: string) {
 	// or not anyone picked it, so the turntable that replaced it as the default takes
 	// its place once; the file saved next keeps whatever is picked after.
 	if version < 2 && app.nav.orbit_style == .Free do app.nav.orbit_style = .Turntable
+	// The windows and the wheel were saved where they were for the layout saved with them.
+	app.kit.placed_mirrored = app.kit.ctx.mirror
 	log.infof("settings: read %s", path)
 
 	number :: proc(s: string, fallback: f32) -> f32 {

@@ -184,6 +184,11 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   direction, gap, padding, size, background, clip, scroll, inert), widgets that return what was done, `frame_end`.
   State kept between frames: the held widget, where each container ended up (`placed_prev`: anchored containers are
   placed by last frame's size; `prev_layout` reads it), the text field with the keys, tweens.
+- Left-handed layout: `ctx.mirror` (Settings > Interface > Screen layout, `left_handed`) swaps every default x anchor
+  (`ui.mirrored`: Start and End, a Center offset negated) in `begin_anchored`, `window_begin` and `card_begin`, and
+  popovers' `.Left`/`.Right`; a moved window keeps its own anchor and `kit_mirror` flips it once when the hand changes.
+  So write offsets as "from the brush bar's side" (`kit_left`) or "from the view bar's side" (`kit_right`) and anchor
+  with them; anything measured from a real rect's `x` must mirror itself (`kit_card_place`, the wheel's drag sign).
 - Ids hash the label into the parent container's id; text after `##` is part of the id but not shown. Two widgets with
   one label in one container are one widget: give repeated rows `##index` suffixes.
 - The pointer: only the topmost anchored container under it answers; a press outside every container is a

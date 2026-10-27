@@ -25,7 +25,7 @@ kit_stats :: proc(app: ^App) -> (raised: bool) {
 	body, closed, raised_now := ui.window_begin(ctx, "stats", "Statistics", win, .Start, .Start, {kit_left(app), TOP_BAR_H + 4 + points.y + 8}, {direction = .Column, gap = 2, padding = 12, width = KIT_STATS_W, radius = t.radius_large, background = .Panel, inert = !k.stats}, "F11")
 	raised = raised_now
 	if closed do k.stats = false
-	slide := window_slide(win^, .Start) * (1 - shown) * 16
+	slide := window_slide(ctx, win^, .Start) * (1 - shown) * 16
 	if !body {
 		ui.window_end(ctx)
 		ui.transform_since(ctx, mark, shown, 1, {}, {slide, 0})

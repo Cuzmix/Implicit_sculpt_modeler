@@ -524,7 +524,9 @@ kit_modifier_rail :: proc(app: ^App) {
 	}
 	turn := math.to_radians(k.wheel_turn)
 	x := ui.Anchor.Start if k.rail_side == .Left else .End
-	side: f32 = 1 if x == .Start else -1
+	// The drag is on the screen, so its sign follows the side the layout puts the wheel.
+	screen_x, _ := ui.mirrored(ctx, x, {})
+	side: f32 = 1 if screen_x == .Start else -1
 	base_lift := rail_lift(app)
 	base_inset := rail_inset(app, base_lift)
 	// Dragged: as far from its place as the grip went, kept inside the window.
