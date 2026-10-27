@@ -87,12 +87,18 @@ help_touch_rows_follow_the_settings :: proc(t: ^testing.T) {
 	testing.expect(t, has(&app, "Pinch two fingers"))
 	app.nav.pinch_zoom = false
 	testing.expect(t, !has(&app, "Pinch two fingers"))
-	// Rolling needs the Free orbit style (the trackball), which is not the default.
+	// Rolling needs the Free orbit style (the trackball), which is not the default, or the
+	// turntable's roll unlocked.
 	testing.expect(t, !has(&app, "Twist two fingers"))
 	app.nav.orbit_style = .Free
 	testing.expect(t, has(&app, "Twist two fingers"))
 	app.nav.orbit_style = .Turntable
 	testing.expect(t, !has(&app, "Twist two fingers"))
+	app.nav.turntable_roll = true
+	testing.expect(t, has(&app, "Twist two fingers"))
+	app.nav.twist_roll = false
+	testing.expect(t, !has(&app, "Twist two fingers"))
+	app.nav.turntable_roll, app.nav.twist_roll = false, true
 	// The modifier wheel, and the mask taps its Mask turns on, only while they are
 	// shown; the mask taps only for Sculpt.
 	testing.expect(t, !has(&app, "Modifier wheel: tap or hold; Smooth and Mask together hide"))

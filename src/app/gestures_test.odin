@@ -31,3 +31,26 @@ hold_repeats_after_the_long_press :: proc(t: ^testing.T) {
 	testing.expect_value(t, hold_due(LONG + HOLD_REPEAT + 0.001, LONG, HOLD_REPEAT), 2)
 	testing.expect_value(t, hold_due(LONG + 10 * HOLD_REPEAT + 0.001, LONG, HOLD_REPEAT), 11)
 }
+
+// The turntable's roll holds level within ROLL_LEVEL of it, catches up without a jump by
+// twice that, and is itself beyond; the start of a twist reads what is shown back.
+@(test)
+roll_holds_level_near_level_without_a_jump :: proc(t: ^testing.T) {
+	L :: ROLL_LEVEL
+	testing.expect_value(t, roll_level_detent(0), 0)
+	testing.expect_value(t, roll_level_detent(L * 0.9), 0)
+	testing.expect_value(t, roll_level_detent(-L * 0.9), 0)
+	testing.expect(t, abs(roll_level_detent(L * 1.5) - L) < 1e-6)
+	testing.expect_value(t, roll_level_detent(-2 * L), -2 * L)
+	testing.expect_value(t, roll_level_detent(1.2), 1.2)
+	// No jump: small steps of the twist move what is shown by small steps.
+	prev := roll_level_detent(-3 * L)
+	for i in 1 ..= 600 {
+		r := roll_level_detent(-3 * L + f32(i) * L / 100)
+		testing.expect(t, abs(r - prev) <= 2 * L / 100 + 1e-6, "the detent jumped")
+		prev = r
+	}
+	for shown in ([]f32{0, L * 0.5, -L * 1.7, 2 * L, -1}) {
+		testing.expect(t, abs(roll_level_detent(roll_level_undetent(shown)) - shown) < 1e-6, "the start of a twist moved the view")
+	}
+}

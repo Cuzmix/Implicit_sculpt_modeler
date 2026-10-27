@@ -22,7 +22,7 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
 - `Viewport_Input` (`ui.odin:108`), filled by `kit_viewport_input` (`new_ui.odin:436`): size and pointer in window
   coordinates, `hovered` (pointer over no panel), `dragging` (a press that began on the viewport, `ui.viewport_dragging`),
   `orbit_drag`, `pan_drag`, `zoom_drag`, `mouse_delta`, `primary`, `press`, `smooth` (Shift), `invert` (Ctrl), `alt`,
-  `samples`, `pen_tilt`, the fingers' `touch_pan`, `touch_zoom`, `touch_zoom_at`, `touch_roll`; `touch_route` and
+  `samples`, `pen_tilt`, the fingers' `touch_pan`, `touch_zoom`, `touch_roll`, `touch_at`; `touch_route` and
   `pointer_route` fill the navigation and decide who gets the press, then `pie_update` and `adjust_update` may mute it
   (`viewport_mute`). Nothing else reaches the camera or the tools.
 - `Ui_State` (`ui.odin:15`): `viewport_request`, `scene_command`, the pointer over the viewport for shortcuts that act
@@ -138,7 +138,8 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   events with `which == PEN_MOUSEID` are `.Pen`. Only `DIRECT` touch devices count (touchpads report fingers too).
 - One owner per touch (React Native's responder): `Touch.owner` is decided in `touch_route` once the kit said where
   the first finger landed (`ui.viewport_dragging`): Interface keeps it to the end and ignores other fingers; Viewport
-  turns 2+ fingers into `touch_pan`/`touch_zoom`/`touch_roll` (`ui.fingers_change`, `src/ui/fingers.odin`), 3 into
+  turns 2+ fingers into `touch_pan`/`touch_zoom`/`touch_roll` (`ui.fingers_change`, `src/ui/fingers.odin`; a twist
+  rolls where `twist_rolls` says, a turntable's through `roll_level_detent`, about `touch_at`), 3 into
   size/strength, quick taps into undo/redo. A second finger releases the pointer (never on Interface); lifting never
   hands the touch back. Palm: a lone finger while the pen is near (`Touch.palm`). `FINGER_CANCELED` and the pen
   going down set `d.cancel`: widgets let go without a click and a stroke is taken back (`stroke_cancel`).
@@ -179,15 +180,16 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   `Take_Frame` flag in `replay.odin` (bump `STROKES_VERSION`).
 - Long press (`ui.odin`: `Long_Press`, `long_due`, `secondary`, `long_cancel`, `press_used`, `long_press_decide`): a
   finger or pen held `theme.long_press` within the slop on the held widget: Settings > Touch > Hold delay
-  (`Nav_Prefs.hold_delay`, 0.25 s by default, 0.1 to 1.5), which `kit_begin` puts in the theme each frame with `long_ring` at half of it at most; the two- and
-  three-finger hold keeps its own `HOLD_LONG` (touch.odin). A widget with a secondary action calls
-  `ui.secondary(ctx)` right after it (it acts on `ctx.last_id`, which `place` clears and `interact` sets, so a disabled
-  widget never passes on its neighbour's); it fires once (or on a right press and release on that widget), wins the
-  arena (`press_won`) and the release is no click. Unclaimed, a widget with a tooltip shows it at frame end
-  (`.Tip`, also no click); with neither, nothing fires and the release clicks. A widget that moves a value while held
-  calls `long_cancel`; one that takes the press for a drag of its own (the brush bar's values) calls `press_used`:
-  no long press, no click, the arena won. `vslider(reset = v)` resets on a long press. `list_row.menu` is `secondary`. `tree_row`
-  lays out its trailing toggles and chevron before its body, so a press on them never selects the row or opens its menu.
+  (`Nav_Prefs.hold_delay`, 0.25 s by default, 0.1 to 1.5), which `kit_begin` puts in the theme each frame with
+  `long_ring` at half of it at most; the two- and three-finger hold keeps its own `HOLD_LONG` (touch.odin). A widget
+  with a secondary action calls `ui.secondary(ctx)` right after it (it acts on `ctx.last_id`, which `place` clears and
+  `interact` sets, so a disabled widget never passes on its neighbour's); it fires once (or on a right press and
+  release on that widget), wins the arena (`press_won`) and the release is no click. Unclaimed, a widget with a
+  tooltip shows it at frame end (`.Tip`, also no click); with neither, nothing fires and the release clicks. A widget
+  that moves a value while held calls `long_cancel`; one that takes the press for a drag of its own (the brush bar's
+  values) calls `press_used`: no long press, no click, the arena won. `vslider(reset = v)` resets on a long press.
+  `list_row.menu` is `secondary`. `tree_row` lays out its trailing toggles and chevron before its body, so a press on
+  them never selects the row or opens its menu.
 - The gesture arena in the kit (Flutter's): `interact` (`ui.odin:628`) records `press_host`, the innermost
   `drag_scroll` container under a press; a finger or pen press there is tentative (`press_won` false), a mouse press
   wins at once. `scroll_update` (`ui.odin:711`) steals a tentative press that moves vertically past the slop (no click

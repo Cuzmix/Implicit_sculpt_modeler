@@ -1172,10 +1172,58 @@ def twist_wobble_rolls_nothing():
 
 @scenario
 def twist_rolls_nothing_in_turntable():
-    """Turntable keeps the horizon level: a twist does not roll."""
+    """Turntable keeps the horizon level by default: a twist does not roll."""
     s = Script()
     twist(s, math.radians(45))
     return s, ["--script=set orbit_style turntable"], {"camera_roll": near(0), "dabs": near(0)}
+
+
+def twist_path(s, turns, frames=20):
+    """Two fingers 100 points apart about (300, 300), turning clockwise through each of `turns` (radians from where they land) in one touch."""
+    mid, r = (300, 300), 50
+    for i in (0, 1):
+        s.add(f"fdown:{i}:{mid[0] + (r if i else -r):g},{mid[1]:g}")
+    s.wait(2)
+    a0 = 0
+    for turn in turns:
+        for k in range(1, frames + 1):
+            a = a0 + (turn - a0) * k / frames
+            for i, sign in ((0, -1), (1, 1)):
+                s.add(f"fmove:{i}:{mid[0] + sign * r * math.cos(a):g},{mid[1] + sign * r * math.sin(a):g}")
+            s.wait(1)
+        a0 = turn
+    for i in (0, 1):
+        s.add(f"fup:{i}")
+    s.wait(3)
+
+
+@scenario
+def turntable_twist_rolls_when_unlocked():
+    """With Twist two fingers to roll the turntable on, twisting 45 degrees rolls the view with the fingers, less the 10 degree deadzone, about the point between them, and the turn stays as it was."""
+    s = Script()
+    twist(s, math.radians(45))
+    return s, ["--script=set turntable_roll on"], {"camera_roll": lambda v: math.radians(30) < float(v) < math.radians(45), "camera_yaw": near(0.6),
+                                                   "camera_pitch": near(0.35), "camera_distance": near(3.5, 0.05), "camera_target": lambda v: v != "0.0000,0.0000,0.0000", "dabs": near(0)}
+
+
+@scenario
+def turntable_twist_back_holds_level():
+    """Twisted 40 degrees and back to 12 in one touch, the unlocked turntable's roll lands within the level detent and holds exactly level."""
+    s = Script()
+    twist_path(s, [math.radians(40), math.radians(12)])
+    return s, ["--script=set turntable_roll on"], {"camera_roll": near(0, 1e-5), "dabs": near(0)}
+
+
+@scenario
+def rolled_turntable_drag_follows_the_finger():
+    """Rolled about 80 degrees, the turntable reads a drag along the rolled screen: one finger dragged 100 points down on empty space turns the model about its up axis (the yaw), nearly not the tilt, and the roll stays."""
+    s = Script()
+    twist(s, math.radians(90))
+    s.wait(4)
+    s.fdrag(past_slop((1000, 150), (1000, 250), 20))
+    s.wait(3)
+    return s, ["--script=set turntable_roll on"], {"camera_roll": lambda v: math.radians(70) < float(v) < math.radians(90), "camera_pitch": near(0.35, 0.2),
+                                                   "camera_yaw": lambda v: abs(float(v) - 0.6) > 0.6, "dabs": near(0)}
 
 
 @scenario
@@ -1697,9 +1745,9 @@ def settings_scroll_and_persist():
         os.remove(settings_file())
     s = Script()
     open_settings(s, "camera")
-    s.ftap(1495, 440)  # Invert sideways orbit
+    s.ftap(1495, 492)  # Invert sideways orbit
     s.wait(4)
-    s.fdrag(line((1246, 395), (1251, 95), 20))  # from the Orbit speed slider, upward
+    s.fdrag(line((1246, 447), (1251, 147), 20))  # from the Orbit speed slider, upward
     s.wait(16)
     s.ftap(1427, 766)  # Done
     s.wait(4)

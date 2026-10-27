@@ -164,7 +164,7 @@ TOUCH_HELP := [?]Help_Line {
 	{group = "VIEW", what = "Turn the view", how = "Drag the navigation head"},
 	{group = "VIEW", what = "Pan", how = "Drag two fingers", show = proc(app: ^App) -> bool {return app.nav.two_finger_pan}},
 	{group = "VIEW", what = "Zoom", how = "Pinch two fingers", show = proc(app: ^App) -> bool {return app.nav.pinch_zoom}},
-	{group = "VIEW", what = "Roll", how = "Twist two fingers", show = proc(app: ^App) -> bool {return app.nav.twist_roll && app.nav.orbit_style == .Free}},
+	{group = "VIEW", what = "Roll", how = "Twist two fingers", show = proc(app: ^App) -> bool {return twist_rolls(app.nav)}},
 	{group = "VIEW", what = "Turn about a point", how = "Double tap the model", show = proc(app: ^App) -> bool {return app.nav.double_tap && (app.tool == .Brush || app.nav.finger_model == .Orbit)}},
 	{group = "SCULPT", what = "Brush pie", command = .Brush_Pie},
 	{group = "VIEW", command = .Focus_Selected},
