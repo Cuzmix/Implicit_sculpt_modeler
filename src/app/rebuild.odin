@@ -208,6 +208,66 @@ kit_rebuild :: proc(app: ^App, obj: ^Object) {
 	if goal^ != .Quads do ui.paragraph(ctx, fmt.tprintf("Levels, mask and strokes go; Ctrl+Z brings them back. %s remeshes at the object's own count.", command_keys(app, .Remesh)))
 }
 
+// The Remesh button's quick menu, its long press on the bottom bar, after Nomad's voxel
+// popup and the reference app's long press on its remesh: the density with the object's
+// own count a tap away, the checkerboard on the object while Density is held (as in the
+// Rebuild section, whose even goal it sets), and one big Remesh. Fewer polygons and quads
+// are under More options, the Rebuild section itself.
+REMESH_QUICK_W :: 300
+
+remesh_quick_open :: proc(app: ^App, at: ui.Rect) {
+	if bar_pop_showing(app, .Remesh_Quick) {
+		app.kit.bar_pop.open = false
+		return
+	}
+	app.ui.rebuild_goal = .Even
+	bar_pop_toggle(app, .Remesh_Quick, at, .Above_Center)
+}
+
+kit_remesh_quick :: proc(app: ^App) {
+	k := &app.kit
+	ctx := &k.ctx
+	t := ctx.theme
+	inner := f32(REMESH_QUICK_W - 24)
+	ui.begin(ctx, "remesh quick head", {direction = .Row, center = true})
+	ui.begin(ctx, "remesh quick title", {direction = .Column, width = inner - t.target})
+	ui.label(ctx, "Remesh", t.title_size, t.text, .Semibold)
+	ui.end(ctx)
+	if ui.icon_button(ctx, "Close", ui.ICON_CLOSE, keys = "Esc") do k.bar_pop.open = false
+	ui.end(ctx)
+	obj := selected_object(app)
+	if obj == nil {
+		ui.paragraph(ctx, "Add or select an object first.")
+		return
+	}
+	even := &app.ui.rebuild_even
+	label := "Density"
+	_ = kit_count(ctx, label, even, REBUILD_MIN_VERTICES, REBUILD_MAX_VERTICES)
+	id := ui.id_of(ctx, label)
+	if ctx.active == id || (ctx.hot == id && app.device.pointer == .Mouse) do rebuild_preview_hold(app)
+	// The object's own count, and half and twice it: the steps taken most.
+	now := object_vertex_count(obj)
+	third := (inner - 16) / 3
+	ui.begin(ctx, "remesh quick steps", {direction = .Row, gap = 8})
+	if ui.button(ctx, "Half", .Bordered, width = third) do even^ = rebuild_count(now / 2)
+	if ui.button(ctx, "Same", .Bordered, width = third) do even^ = rebuild_count(now)
+	if ui.button(ctx, "Double", .Bordered, width = third) do even^ = rebuild_count(now * 2)
+	ui.end(ctx)
+	p := &app.rebuild
+	measured := p.measured && p.version == obj.gpu[obj.levels.current].version
+	if measured && p.shown {
+		ui.paragraph(ctx, fmt.tprintf("Now %s vertices; cells %s wide.", count_label(now), length_label(p.cell * obj.transform.scale)))
+	} else {
+		ui.paragraph(ctx, fmt.tprintf("Now %s vertices. Hold Density to see its cells.", count_label(now)))
+	}
+	if ui.button(ctx, "Remesh##quick", .Flat, .Accent, inner, ICON_REMESH, enabled = command_enabled(app, .Remesh), keys = command_hint(app, .Rebuild)) {
+		app.ui.rebuild_goal = .Even
+		rebuild_command(app)
+	}
+	kit_last_result(app, .Remesh)
+	if ui.menu_item(ctx, "More options", glyph = ui.ICON_SETTINGS) do bar_pop_toggle(app, .Section, k.bar_pop.at, .Above_Center, .Remesh)
+}
+
 // A length in scene units with three significant figures.
 @(private = "file")
 length_label :: proc(x: f32) -> string {

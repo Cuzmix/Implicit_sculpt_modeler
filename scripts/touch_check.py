@@ -52,8 +52,8 @@ UI = {
     # The navigation head (nav_head.odin), and the view bar under it.
     "nav_head": (1568, 88),
     "search": (1569, 155), "inspector": (1569, 203), "objects": (1569, 251),
-    "ortho": (1569, 365), "floor": (1569, 413), "sym_x": (1569, 461), "sym_local": (1569, 509),
-    "wireframe": (1569, 605), "transparency": (1569, 653),
+    "shading": (1569, 317), "camera": (1569, 365), "studio": (1569, 413), "floor": (1569, 461),
+    "sym_x": (1569, 509), "sym_local": (1569, 557), "wireframe": (1569, 653), "transparency": (1569, 701),
     "dock_draw": (426, 843), "dock_smooth": (490, 843), "browser": (872, 843), "gizmo": (933, 843),
     "remesh": (990, 843), "dyntopo": (1038, 843), "retopo": (1086, 843), "subdivide": (1134, 843),
     "live_boolean": (1182, 843), "dock_page1": (772, 888), "dock_page2": (800, 888), "dock_page3": (828, 888),
@@ -242,7 +242,7 @@ def tap_ui():
     """A finger tapping every major region of the interface never moves the camera or sculpts."""
     s = Script()
     for name in ["menu", "menu", "undo", "history", "history", "gizmo", "dock_draw", "sym_x", "sym_x",
-                 "ortho", "ortho", "size", "size", "strength", "strength", "stroke", "stroke", "dock_smooth", "dock_draw",
+                 "camera", "camera", "shading", "shading", "size", "size", "strength", "strength", "stroke", "stroke", "dock_smooth", "dock_draw",
                  "browser", "browser", "brushes", "brushes", "list_object", "list_brush", "objects", "objects", "status"]:
         s.ftap(*UI[name])
     # Just past the drawn edge of the brush dock and the top bar, inside their targets.
@@ -253,14 +253,14 @@ def tap_ui():
 
 # The symmetry popover a long press on Symmetry opens at 1600 x 900: its X, Y, Z and Local;
 # the Radial row's switch and axes; and the Copies slider's two ends.
-SYMMETRY_AXES = {"x": (1325, 497), "y": (1377, 497), "z": (1429, 497), "local": (1489, 497)}
-RADIAL_ROW = {"radial": (1333, 575), "x": (1393, 575), "y": (1445, 575), "z": (1497, 575)}
-RADIAL_COPIES = ((1351, 639), (1530, 639))
+SYMMETRY_AXES = {"x": (1325, 545), "y": (1377, 545), "z": (1429, 545), "local": (1489, 545)}
+RADIAL_ROW = {"radial": (1333, 623), "x": (1393, 623), "y": (1445, 623), "z": (1497, 623)}
+RADIAL_COPIES = ((1351, 687), (1530, 687))
 # The Floor grid section's Back toggle, and the polyframe popover's Fill, beside the bar.
-FLOOR_BACK = (1381, 561)
-POLYFRAME_FILL = (1450, 638)
-# The view menu's Field of view slider, under Orthographic.
-FOV_SLIDER = (1300, 644)
+FLOOR_BACK = (1381, 609)
+POLYFRAME_FILL = (1450, 686)
+# The Camera menu's Field of view slider, under Orthographic.
+FOV_SLIDER = (1300, 459)
 
 
 @scenario
@@ -655,11 +655,11 @@ def polyframe_long_press_picks_fill():
 
 
 @scenario
-def field_of_view_from_the_view_menu():
-    """A long press on Orthographic opens the view menu, whose Field of view slider widens
+def field_of_view_from_the_camera_menu():
+    """The right bar's Camera button opens the Camera menu, whose Field of view slider widens
     the lens; the eye comes in to keep the model's size, so the distance shrinks."""
     s = Script()
-    long_press(s, *UI["ortho"])
+    s.ftap(*UI["camera"])
     s.wait(8)
     s.fdrag([(FOV_SLIDER[0] + 12 * i, FOV_SLIDER[1]) for i in range(11)])
     s.wait(4)
@@ -726,7 +726,7 @@ def brush_key_brings_its_dock_page():
 
 @scenario
 def mesh_tools_on_the_bottom_bar():
-    """The bottom bar's mesh tools: Dynamic topology and Live boolean turn on by a tap; Subdivide adds a level; a long press on Remesh opens its section above the bar, and a tap on Retopologize opens its own."""
+    """The bottom bar's mesh tools: Dynamic topology and Live boolean turn on by a tap; Subdivide adds a level; a long press on Remesh opens its quick menu above the bar, and a tap on Retopologize opens its own."""
     toggles, divide, remesh, retopo = Script(), Script(), Script(), Script()
     toggles.ftap(*UI["dyntopo"])
     toggles.wait(8)
@@ -741,7 +741,7 @@ def mesh_tools_on_the_bottom_bar():
     return Steps([
         (toggles, [], camera_still({"dabs": near(0), "dynamic": near(1), "live_boolean": near(1)})),
         (divide, [], camera_still({"dabs": near(0), "selected_levels": near(2)})),
-        (remesh, [], camera_still({"dabs": near(0), "bar_pop": is_text("remesh"), "undo_steps": near(0)})),
+        (remesh, [], camera_still({"dabs": near(0), "bar_pop": is_text("remesh_quick"), "undo_steps": near(0)})),
         (retopo, [], camera_still({"dabs": near(0), "bar_pop": is_text("retopo"), "undo_steps": near(0)})),
     ])
 
@@ -6579,8 +6579,8 @@ def adjust_retopo_and_extract():
     ])
 
 
-# Camera history (camera_history.odin): View menu rows at 1600x900.
-VIEW_BACK, VIEW_FORWARD = (1399, 824), (1399, 868)
+# Camera history (camera_history.odin): Camera menu rows at 1600x900.
+VIEW_BACK, VIEW_FORWARD = (1399, 639), (1399, 683)
 CAMERA_KEYS = ("camera_yaw", "camera_pitch", "camera_roll", "camera_distance", "camera_target")
 
 
@@ -6605,8 +6605,8 @@ def camera_back_twice_is_the_start():
 
 
 @scenario
-def camera_back_and_forward_from_the_view_menu():
-    """View > Previous view goes back one orbit and Next view comes forward again: the
+def camera_back_and_forward_from_the_camera_menu():
+    """Camera > Previous view goes back one orbit and Next view comes forward again: the
     camera is where the two orbits alone leave it."""
     after = {}
     def remember(stats):
@@ -6615,10 +6615,8 @@ def camera_back_and_forward_from_the_view_menu():
     s = Script()
     s.wait(3)
     two_orbits(s)
-    s.add("move:{:g},{:g}".format(*UI["ortho"]))  # a right-click on Orthographic opens the view menu
+    click(s, UI["camera"])  # the Camera button opens the Camera menu
     s.wait(3)
-    s.add("right")
-    s.wait(5)
     click(s, VIEW_BACK)
     s.wait(5)
     click(s, VIEW_FORWARD)
@@ -6837,6 +6835,73 @@ def rebuild_density_shows_the_cells():
         (fewer, [], camera_still({"rebuild_goal": is_text("fewer"), "rebuild_preview": near(0)})),
         (held, [], camera_still({"rebuild_goal": is_text("even"), "rebuild_preview": near(1), "rebuild_cell": lambda v: float(v) > 0, "dabs": near(0)})),
     ])
+
+
+# Remesh's quick menu (kit_remesh_quick, rebuild.odin), a long press on the bottom bar's
+# Remesh at 1600x900: Density's track, its Half / Same / Double, the Remesh button and More
+# options.
+REMESH_QUICK = {"density": (1019, 600), "half": (894, 647), "same": (989, 647), "double": (1083, 647),
+                "remesh": (990, 725), "more": (929, 777)}
+
+
+@scenario
+def remesh_long_press_opens_its_quick_menu():
+    """A long press on the bottom bar's Remesh opens its small menu over it, not the whole
+    section; Double sets twice the sphere's 40k and Remesh rebuilds it at that, in one undo
+    step, with the menu still open to try again."""
+    s = Script()
+    s.wait(3)
+    long_press(s, *UI["remesh"])
+    s.wait(8)
+    s.ftap(*REMESH_QUICK["double"])
+    s.wait(3)
+    s.ftap(*REMESH_QUICK["remesh"])
+    s.wait(10)
+    return s, [], camera_still({"bar_pop": is_text("remesh_quick"), "rebuild_goal": is_text("even"), "undo_steps": near(1),
+                                "vertices": lambda v: 75_000 < int(v) < 90_000, "dabs": near(0)})
+
+
+@scenario
+def remesh_quick_menu_density_shows_the_cells():
+    """A finger held on the quick menu's Density shows the remesh's cells on the object, as
+    the Rebuild section's does; More options then opens that section in its place."""
+    held, more = Script(), Script()
+    for sc in (held, more):
+        sc.wait(3)
+        long_press(sc, *UI["remesh"])
+        sc.wait(8)
+    x, y = REMESH_QUICK["density"]
+    held.fdrag([(x, y), (x - 30, y), (x - 50, y)], lift=False)
+    held.wait(20)
+    more.ftap(*REMESH_QUICK["more"])
+    more.wait(8)
+    return Steps([
+        (more, [], camera_still({"bar_pop": is_text("remesh"), "undo_steps": near(0)})),
+        (held, [], camera_still({"rebuild_preview": near(1), "rebuild_cell": lambda v: float(v) > 0, "undo_steps": near(0), "dabs": near(0)})),
+    ])
+
+
+@scenario
+def shading_and_camera_have_their_own_buttons():
+    """The right bar's Shading button opens the Shading menu, whose Wireframe row turns the
+    wireframe on; Camera then opens the Camera menu in its place, whose Orthographic row
+    switches the projection."""
+    s = Script()
+    s.wait(3)
+    s.ftap(*UI["shading"])
+    s.wait(8)
+    s.ftap(*SHADING_WIREFRAME)
+    s.wait(3)
+    s.ftap(*UI["camera"])
+    s.wait(8)
+    s.ftap(*CAMERA_ORTHO)
+    s.wait(4)
+    return s, [], camera_still({"bar_pop": is_text("camera"), "wireframe": near(1), "ortho": near(1), "dabs": near(0)})
+
+
+# The Shading menu's Wireframe row and the Camera menu's Orthographic row, at 1600x900.
+SHADING_WIREFRAME = (1399, 294)
+CAMERA_ORTHO = (1399, 391)
 
 
 @scenario

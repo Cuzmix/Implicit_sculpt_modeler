@@ -73,8 +73,9 @@ Kit_State :: struct {
 	menu_scroll: f32, // the menu's, on a window too short for all of it
 	version_armed: int,
 	version_armed_at: f64,
-	view_menu:  bool,
-	view_at:    ui.Rect, // the view menu opens beside this: the button a long press was on
+	// Where each button that opens a bar menu (Shading, Camera) was last drawn: the menu
+	// opens beside it, from search and keys too.
+	bar_at:     [Bar_Pop_Kind]ui.Rect,
 	bar_pop:    Bar_Pop, // the side bars' popover (kit_bars.odin)
 	bar_scrub:  Bar_Scrub, // a long press dragging a value on the brush bar (kit_bars.odin)
 	look:       Look, // the interface's colours (Settings > Interface)
@@ -694,7 +695,7 @@ kit_init :: proc(app: ^App) {
 // which gives the keys back as it closes: palette_close). The one list, so that a new
 // popover added here closes whenever another opens and on Escape.
 kit_floats_close :: proc(k: ^Kit_State) {
-	k.menu, k.versions, k.view_menu, k.browser, k.dock_menu, k.object_menu, k.action_pop = false, false, false, false, false, false, false
+	k.menu, k.versions, k.browser, k.dock_menu, k.object_menu, k.action_pop = false, false, false, false, false, false
 	k.bar_pop.open = false
 	k.bind.open, k.pie_editor, k.adjust_pop, k.gizmo_entry.open = false, false, false, false
 	k.folder_menu, k.rename.open, k.macro_save.open, k.home_menu = false, false, false, false
@@ -707,7 +708,7 @@ kit_floats_close :: proc(k: ^Kit_State) {
 // first-run tip hides under it.
 kit_floating :: proc(app: ^App) -> bool {
 	k := &app.kit
-	return app.ui.pie.open || app.ui.adjust.kind != .None || k.action_pop || k.adjust_pop || k.menu || k.versions || k.view_menu || k.browser || k.dock_menu || k.bind.open || k.pie_editor || k.object_menu || k.folder_menu || k.rename.open || k.macro_save.open || k.palette || k.gizmo_entry.open || k.bar_pop.open || k.colors.palette_menu || k.colors.swatch_menu || k.home_menu || k.ctx.select_open != 0
+	return app.ui.pie.open || app.ui.adjust.kind != .None || k.action_pop || k.adjust_pop || k.menu || k.versions || k.browser || k.dock_menu || k.bind.open || k.pie_editor || k.object_menu || k.folder_menu || k.rename.open || k.macro_save.open || k.palette || k.gizmo_entry.open || k.bar_pop.open || k.colors.palette_menu || k.colors.swatch_menu || k.home_menu || k.ctx.select_open != 0
 }
 
 kit_destroy :: proc(app: ^App) {
@@ -1013,7 +1014,7 @@ kit_layout :: proc(app: ^App) {
 	kit_points(app)
 	browser_anchor := kit_brush_bar(app)
 	kit_nav_head(app)
-	palette_anchor, view_anchor := kit_view_bar(app)
+	palette_anchor := kit_view_bar(app)
 
 	kit_modifier_rail(app)
 
@@ -1061,7 +1062,6 @@ kit_layout :: proc(app: ^App) {
 	kit_dock_menu(app)
 	kit_menu(app, menu_anchor)
 	kit_versions(app, menu_anchor)
-	kit_view_menu(app, view_anchor, .Left)
 	kit_object_menu(app)
 	kit_objects_card_menus(app)
 	kit_folder_menu(app)
@@ -1229,30 +1229,45 @@ kit_menu :: proc(app: ^App, anchor: ui.Rect) {
 	if pick do k.menu = false
 }
 
-// How the viewport shows the scene.
-@(private = "file")
-kit_view_menu :: proc(app: ^App, anchor: ui.Rect, side: ui.Side) {
+// The Shading menu (the right bar's Shading button): how the surface is drawn, how it is
+// lit and the looks, then the texture views for objects with maps (none ticked is clay).
+kit_shading_menu :: proc(app: ^App) {
+	ui.caption(&app.kit.ctx, "  SHADING")
+	for id in ([?]Command_Id{.Wireframe, .Flat_Shading, .Polygroups, .Transparency}) do _ = command_menu_item(app, id)
+	ui.divider(&app.kit.ctx, across = true)
+	ui.caption(&app.kit.ctx, "  LIGHT")
+	for id in ([?]Command_Id{.Studio_Render, .Live_Occlusion, .Render_Mode}) do _ = command_menu_item(app, id)
+	for look in Look_Preset do _ = command_menu_item(app, .Viewport_Look, int(look))
+	ui.divider(&app.kit.ctx, across = true)
+	ui.caption(&app.kit.ctx, "  TEXTURES")
+	for v in render.Texture_View.Textured ..= render.Texture_View.Uv_Checker do _ = command_menu_item(app, .Texture_View, int(v))
+	if ui.menu_item(&app.kit.ctx, "Lights and look settings", glyph = ui.ICON_SETTINGS) {
+		bar_pop_toggle(app, .Section, app.kit.bar_pop.at, .Left, .Studio)
+	}
+}
+
+// The Camera menu (the right bar's Camera button): the projection and its field of view,
+// framing, the views stepped through, the thumbnail and the camera's settings.
+kit_camera_menu :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
-	if !ui.popover_begin(ctx, "view menu", &k.view_menu, anchor, side, {direction = .Column, padding = 6, width = 268}) do return
-	ui.caption(ctx, "  SHADING")
-	for id in ([?]Command_Id{.Wireframe, .Flat_Shading, .Polygroups, .Studio_Render}) do _ = command_menu_item(app, id)
-	// Objects with maps: their maps, the normal map alone or the UV checker (none ticked is clay).
-	for v in render.Texture_View.Textured ..= render.Texture_View.Uv_Checker do _ = command_menu_item(app, .Texture_View, int(v))
-	ui.divider(ctx, across = true)
 	ui.caption(ctx, "  CAMERA")
 	_ = command_menu_item(app, .Ortho_Toggle)
 	// Inset as the menu's rows are.
-	ui.begin(ctx, "view menu fov", {direction = .Column, padding = 10})
+	ui.begin(ctx, "camera menu fov", {direction = .Column, padding = 10})
 	kit_field_of_view(app)
 	ui.end(ctx)
-	_ = command_menu_item(app, .Thumbnail)
-	if command_menu_item(app, .Focus_Selected) do k.view_menu = false
-	if command_menu_item(app, .Reset_Camera) do k.view_menu = false
+	if command_menu_item(app, .Focus_Selected) do k.bar_pop.open = false
+	if command_menu_item(app, .Frame_All) do k.bar_pop.open = false
+	if command_menu_item(app, .Reset_Camera) do k.bar_pop.open = false
 	// The menu stays open over these, to step back or forward several views.
 	_ = command_menu_item(app, .View_Back)
 	_ = command_menu_item(app, .View_Forward)
-	ui.popover_end(ctx)
+	_ = command_menu_item(app, .Thumbnail)
+	if ui.menu_item(ctx, "Camera settings", glyph = ui.ICON_SETTINGS) {
+		k.bar_pop.open = false
+		_ = settings_open(app, .Camera)
+	}
 }
 
 // The field of view, in degrees: the eye moves along its line as it changes, so the model
