@@ -450,6 +450,18 @@ slice_request :: proc(app: ^App, a, b, size: [2]f32) {
 	app.ui.scene_command = {kind = .Slice, point = point, normal = normal}
 }
 
+// Asks for the selected object to be cut along the screen line `a`-`b` with its shaded
+// side (the right of the drag, or with `flip` the left) thrown away, at the start of the
+// next frame (object_knife).
+knife_request :: proc(app: ^App, a, b: [2]f32, flip: bool, size: [2]f32) {
+	stroke_finish(app)
+	obj := selected_object(app)
+	if obj == nil do return
+	point, normal := screen_line_plane(app, obj, a, b, size)
+	if flip do normal = -normal
+	app.ui.scene_command = {kind = .Knife, point = point, normal = normal}
+}
+
 // Clips the selected object along the screen line `a`-`b` (viewport pixels), as an undo
 // step of its own (sculpt.sculptor_clip).
 clip_command :: proc(app: ^App, a, b: [2]f32, flip: bool, size: [2]f32) {

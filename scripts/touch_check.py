@@ -57,7 +57,7 @@ UI = {
     "dock_draw": (426, 843), "dock_smooth": (490, 843), "browser": (872, 843), "gizmo": (933, 843),
     "remesh": (990, 843), "dyntopo": (1038, 843), "retopo": (1086, 843), "subdivide": (1134, 843),
     "live_boolean": (1182, 843), "dock_page1": (772, 888), "dock_page2": (800, 888), "dock_page3": (828, 888),
-    "browser_curve": (743, 295), "browser_insert": (807, 295),
+    "browser_curve": (743, 152), "browser_insert": (807, 152),
     "size_slider": (91, 663),  # in the popover the Size button opens
     # The tray's list of palettes and sections (kit_tray.odin), with the Brush palette open.
     "list_brush": (1116, 158), "list_object": (1116, 590), "list_scene": (1116, 638), "status": (69, 80),
@@ -3256,7 +3256,7 @@ def browser_picks_a_preset():
 
 # The brush browser's built-in Move all depth, at 1600 by 900 with one preset of the
 # person's own.
-BROWSER_MOVE_ALL_DEPTH = (743, 617)
+BROWSER_MOVE_ALL_DEPTH = (743, 474)
 
 
 @scenario
@@ -3269,6 +3269,63 @@ def browser_picks_a_built_in_preset():
     s.wait(6)
     return s, [one_preset_settings()], camera_still({"dabs": near(0), "preset_name": is_text("Move_all_depth"), "brush_kind": is_text("grab"),
                                                      "brush_grab_depth": near(1), "browser": near(0)})
+
+
+# The brush browser's mask, hide and cut tiles at 1600 x 900: Mask lasso in the first
+# row, Knife at the end of the second.
+BROWSER_MASK_LASSO = (807, 652)
+BROWSER_KNIFE = (1000, 712)
+
+
+@scenario
+def browser_picks_the_knife_and_mask_lasso():
+    """The brush browser lists the mask, hide and cut tools after the library: a tap on
+    Knife makes it what Ctrl + Shift + drag runs and closes the browser, leaving the brush
+    held; a tap on Mask lasso does the same for Ctrl + drag's shape."""
+    s = Script()
+    s.ftap(*UI["browser"])
+    s.wait(12)
+    s.ftap(*BROWSER_KNIFE)
+    s.wait(6)
+    s.ftap(*UI["browser"])
+    s.wait(12)
+    s.ftap(*BROWSER_MASK_LASSO)
+    s.wait(6)
+    return s, [], camera_still({"dabs": near(0), "gesture": is_text("knife"), "mask_shape": is_text("lasso"),
+                                "brush_kind": is_text("draw"), "browser": near(0)})
+
+
+@scenario
+def knife_cuts_away_the_shaded_side():
+    """Ctrl + Shift + drag down the middle with Knife the gesture tool cuts the sphere and
+    throws away the half on the right of the drag (the screen's left, going down), closing
+    the cut, as one undo step that Ctrl+Z takes back; Alt keeps that half instead (the
+    sum of the kept coordinates changes sign). A recording layer comes across, a dynamic topology
+    sphere is compacted and cut too, and the script's `knife x` cuts across the middle."""
+    def cut(keys=("ctrl", "shift"), undo=False):
+        s = Script()
+        s.wait(3)
+        s.mouse_drag(line((800, 60), (800, 840), 10), keys=keys)
+        s.wait(5)
+        if undo:
+            s.press("z", ("ctrl",))
+            s.wait(5)
+        return s
+    settings = settings_file()
+    os.makedirs(os.path.dirname(settings), exist_ok=True)
+    with open(settings, "w") as f:
+        f.write("version 1\ngesture knife\n")
+    use = f"--settings-file={settings}"
+    # Half the sphere's 40962 vertices and the cap closing the cut, which is as dense as
+    # the cut's edges.
+    half = lambda v: 20481 < int(v) < 40962
+    steps = [(cut(), [use], {"objects": near(1, 0), "vertices": half, "undo_steps": near(1, 0), "mesh_sum": lambda v: float(v) > 1000}),
+             (cut(undo=True), [use], {"objects": near(1, 0), "vertices": near(40962, 0), "undo_steps": near(0, 0)}),
+             (cut(keys=("ctrl", "shift", "alt")), [use], {"objects": near(1, 0), "vertices": half, "undo_steps": near(1, 0), "mesh_sum": lambda v: float(v) < -1000}),
+             (cut(), [use, "--script=new_layer"], {"vertices": half, "layers": near(1, 0), "layers_noted": near(1, 0)}),
+             (cut(), [use, "--script=dyntopo_toggle on"], {"objects": near(1, 0), "vertices": half}),
+             (Script(), ["--script=knife x"], {"objects": near(1, 0), "vertices": half})]
+    return Steps([(sc, args, camera_still(want)) for sc, args, want in steps])
 
 
 # The Assign key popover beside the Palettes button, at 1600 by 900: Use it here and Keep
