@@ -66,9 +66,15 @@ description: The src/geom package — the structure-of-arrays geom.Mesh and its 
   2k+1 per quad; `quad_mesh_write_obj` writes quads with per-corner `vt`. `bvh_raycast_with(b, m, o, d, limit, stack)` is
   the thread-safe raycast. UVs (`uv_unwrap.odin`): charts grown from a seed within `UV_CHART_DEGREES` of its normal,
   planar projection (no flips), min-area turn, shelf packing at the largest common scale; `Uv_Layout{uvs per quad corner,
-  chart, charts, filled}`. Baking (`bake.odin`): `bake_maps(low, uvs, source, bvh, size, reach, pool)` rasterizes owners
-  serially, rays in parallel by rows, tangents per (vertex, chart), `BAKE_DILATE` rings; `bake_displacement_samples` for
-  16-bit PNG (`png_write.encode_gray16`). Tests in `retopo_test.odin`.
+  chart, charts, filled}`. Baking (`bake.odin`): `bake_maps(low, uvs, Bake_Source{mesh, bvh, paint, groups, slots,
+  surfaces, occlusion_rays, occlusion_reach}, size, reach, kinds: bit_set[Bake_Kind{Base_Color, Orm, Id}], pool)`
+  rasterizes owners serially, rays in parallel by rows, `BAKE_DILATE` rings (normal/displacement from chart texels, the
+  set from texels that hit; ID dilates by majority). ONE tangent frame for bake and export: `quad_mesh_tangents` (per
+  (vertex, chart) slot, unit, w ±1) read per texel MikkTSpace-style (vN, vT blended unnormalized, vB = w·cross(vN, vT),
+  sculpt normal solved in that basis); `quad_mesh_split_uvs` makes the glTF vertices from the same slots, so any change
+  to one changes both (test `normal_map_reads_back_through_the_tangents`). Paint blends in LINEAR (decode per corner, as
+  mesh.vert does); occlusion uses `bvh_any_hit` around the face normal with a texel-hashed turn (deterministic).
+  `bake_displacement_samples` for 16-bit PNG (`png_write.encode_gray16`). Tests in `retopo_test.odin`, `bake_test.odin`.
 - Booleans (`src/geom/boolean.odin`, README "Booleans and Extract"): `remesh_run(m, h, split, op, pool)` treats triangles
   from `split` on as B, weighting their crossings by `BOOL_WEIGHT` (1<<12) so `inside(op, wind)` decodes A's and B's winding;
   `Remesh_Op{Merge, Union, Subtract, Intersect}`. `mesh_boolean(a, b, op, target, project)` joins (`mesh_join`), remeshes
