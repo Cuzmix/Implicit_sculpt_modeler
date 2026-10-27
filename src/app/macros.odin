@@ -111,6 +111,8 @@ macro_reads :: proc(app: ^App, id: Command_Id, arg: int) -> []string {
 	@(static, rodata) BOOLEAN := []string{"boolean_vertices"}
 	@(static, rodata) MASK := []string{"mask_steps"}
 	@(static, rodata) CREASES := []string{"crease_degrees"}
+	@(static, rodata) MASK_BY := []string{"mask_by_strength", "mask_by_blur", "mask_by_curve", "crease_degrees", "paint_color"}
+	@(static, rodata) MASK_ADJUST := []string{"mask_adjust_blur", "mask_adjust_curve"}
 	@(static, rodata) PAINT := []string{"paint_color"}
 	@(static, rodata) ADD := []string{"new_shape", "new_vertices", "new_voxels"}
 	#partial switch id {
@@ -133,6 +135,8 @@ macro_reads :: proc(app: ^App, id: Command_Id, arg: int) -> []string {
 		#partial switch sculpt.Mask_Command(arg) {
 		case .Blur, .Sharpen, .Grow, .Shrink: return MASK
 		}
+	case .Mask_By:     return MASK_BY
+	case .Mask_Adjust: return MASK_ADJUST
 	case .Group:
 		if sculpt.Group_Command(arg) == .Creases do return CREASES
 	case .Paint:

@@ -1442,6 +1442,26 @@ def show_every_option_needs_no_fold():
     return s, [f"--settings-file={settings_file()}"], camera_still({"dabs": near(0), "more": is_text("none"), "all_options": near(1)})
 
 
+# The Mask by Apply button once the tray is dragged 600 px up, with every option shown.
+MASK_BY_APPLY = (1377, 730)
+
+
+@scenario
+def mask_by_from_the_section():
+    """With Show every option on, the Mask section's Mask by Apply masks what faces away from the view as one undo step."""
+    with open(settings_file(), "w") as f:
+        f.write("all_options 1\nmask_by_kind facing_away\n")
+    s = Script()
+    select_page(s)
+    s.fdrag(line((1380, 760), (1380, 160), 30))
+    s.wait(20)
+    s.ftap(*MASK_BY_APPLY)
+    s.wait(10)
+    return s, [f"--settings-file={settings_file()}"], camera_still({
+        "dabs": near(0), "undo_steps": near(1), "mask_by": is_text("facing_away"), "last_op": is_text("Mask_by_facing_away"),
+        "masked": near(1), "mask_mean": lambda v: 0.3 < float(v) < 0.7})
+
+
 # The first-run tip's Skip tips button at 1600 x 900 (the card sits under the tool bar).
 COACH_SKIP = (960, 106)
 

@@ -167,6 +167,10 @@ SETTINGS := [?]Setting {
 	{"new_voxels", K + offset_of(Kit_State, add_voxel), bool, 0, 0},
 	{"mask_steps", U + offset_of(Ui_State, mask_steps), i32, 1, 50},
 	{"mask_shape", U + offset_of(Ui_State, mask_shape_kind), Mask_Shape_Kind, 0, 0},
+	{"mask_by_kind", U + offset_of(Ui_State, mask_by) + offset_of(Mask_By_Settings, kind), sculpt.Mask_By, 0, 0},
+	{"mask_by_strength", U + offset_of(Ui_State, mask_by) + offset_of(Mask_By_Settings, strength), f32, 0, 1},
+	{"mask_by_blur", U + offset_of(Ui_State, mask_by) + offset_of(Mask_By_Settings, blur), i32, 0, MASK_BY_BLUR_MAX},
+	{"mask_adjust_blur", U + offset_of(Ui_State, mask_by) + offset_of(Mask_By_Settings, adjust_blur), i32, 0, MASK_BY_BLUR_MAX},
 	{"gesture", offset_of(App, gesture), Gesture_Tool, 0, 0},
 	{"curve", offset_of(App, curve) + offset_of(Curve_Tool, kind), Curve_Kind, 0, 0},
 	{"curve_width", offset_of(App, curve) + offset_of(Curve_Tool, size), f32, 0.05, 2},
@@ -263,6 +267,7 @@ Setting_Line_Value :: union {
 	sculpt.Symmetry,
 	[3]f32,
 	int,
+	geom.Curve,
 }
 
 @(rodata)
@@ -353,6 +358,38 @@ SETTING_LINES := [?]Setting_Line {
 		proc(app: ^App, v: Setting_Line_Value) {app.kit.add_size = v.(int)},
 		proc(app: ^App) -> string {return fmt.tprint(SPHERE_PRESETS[app.kit.add_size].vertices)},
 	},
+	{
+		// Mask by's profile, as its two control points' x and y from 0 to 1.
+		"mask_by_curve",
+		curve_parse,
+		proc(app: ^App, v: Setting_Line_Value) {app.ui.mask_by.curve = v.(geom.Curve)},
+		proc(app: ^App) -> string {return curve_text(app.ui.mask_by.curve)},
+	},
+	{
+		// Mask adjust's curve, as mask_by_curve.
+		"mask_adjust_curve",
+		curve_parse,
+		proc(app: ^App, v: Setting_Line_Value) {app.ui.mask_by.adjust_curve = v.(geom.Curve)},
+		proc(app: ^App) -> string {return curve_text(app.ui.mask_by.adjust_curve)},
+	},
+}
+
+// A curve's line: its control points' x and y, each from 0 to 1.
+@(private = "file")
+curve_parse :: proc(f: []string) -> (Setting_Line_Value, bool) {
+	if len(f) != 4 do return nil, false
+	v: [4]f32
+	for k in 0 ..< 4 {
+		n, ok := strconv.parse_f32(f[k])
+		if !ok || !(n >= 0 && n <= 1) do return nil, false
+		v[k] = n
+	}
+	return geom.Curve{{v[0], v[1]}, {v[2], v[3]}}, true
+}
+
+@(private = "file")
+curve_text :: proc(c: geom.Curve) -> string {
+	return fmt.tprintf("%g %g %g %g", c.c1.x, c.c1.y, c.c2.x, c.c2.y)
 }
 
 // A colour's line: red, green and blue from 0 to 1.
@@ -430,7 +467,7 @@ settings_load :: proc(app: ^App, path: string) {
 			}
 			line := setting_line(f[0])
 			if v, ok := line.parse(f[1:]); ok do line.apply(app, v)
-		case "symmetry", "paint_color", "paint_color2", "background_top", "background_bottom", "new_vertices":
+		case "symmetry", "paint_color", "paint_color2", "background_top", "background_bottom", "new_vertices", "mask_by_curve", "mask_adjust_curve":
 			line := setting_line(f[0])
 			if v, ok := line.parse(f[1:]); ok do line.apply(app, v)
 		case "custom_material":
