@@ -181,6 +181,11 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   base, vertex base, slot|view<<4|maps<<8; maps bound as 9 named samplers `map0..map8` (RENDER_TEXTURED_MAX 3, 12 of
   16 samplers) through a switch, never an array (non-uniform indexing is a device feature). A map's maps_stamp change
   restarts the view (`pr.tex_stamps`). The normal-map bend (reflect below ng) applies to textured hits only.
+  Depth of field (`render.Lens`, app `lens.odin`): uniforms `lens_eye..lens_fwd` (radius 0 = pinhole, exactly the
+  old path: the lens draws its two `rnd()` only when on, after the jitter). Guides are two ping-pong pairs
+  (`guides[guide_at]` is read as samplers 3-4); with a lens every sample writes running means over hits and atrous
+  (params.w) renormalizes the mean normals. The display composites over `pr.backdrop` (background + floor, drawn
+  at sample 0) instead of `vt.color`, so the sharp clay never shows through blurred edges. 14 of 16 samplers used.
 - Traced studio (`src/render/trace.odin`, `studio_trace.comp`, `blas_refit.comp`, `studio_trace_add.frag`): at
   `samples == 0` `trace_prepare` decides the run (`Studio.traced`); false falls back to the gather, never half done.
   Needs `Draw_Item.source` (the CPU mesh as uploaded) and `Mesh_Buffers.storage` (positions and indices with

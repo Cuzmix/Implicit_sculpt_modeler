@@ -94,10 +94,20 @@ Path_Render :: struct {
 	accum:          [2]^sdl.GPUTexture,
 	current:        int,
 	shown:          ^sdl.GPUTexture, // what the viewport panel shows
-	// The first sample's colour and normal with distance, and the denoiser's two images,
-	// one pass reading the other.
-	guides:         [2]^sdl.GPUTexture,
+	// The denoiser's guides, two pairs of the colour and the normal with distance:
+	// guides[guide_at] holds the first sample's (with depth of field, the means so far)
+	// and the kernel writes the other pair, which takes over once it has; and the
+	// denoiser's two images, one pass reading the other.
+	guides:         [2][2]^sdl.GPUTexture,
+	guide_at:       int,
 	filtered:       [2]^sdl.GPUTexture,
+	// With depth of field, what render mode is laid over instead of the viewport's image,
+	// whose sharp clay would show through the blurred edges: the background and floor
+	// alone, drawn at the first sample of the view, with a depth image for that pass.
+	lens:           Lens,
+	lens_on:        bool, // this view's lens blurs
+	backdrop:       ^sdl.GPUTexture,
+	backdrop_depth: ^sdl.GPUTexture,
 	// The textured items whose maps this view binds, by map slot, with their maps' stamps
 	// when it was built (a map that changes since starts the view over), and how many more
 	// showed textured than there are slots.
@@ -147,11 +157,12 @@ Scene_Buffer :: enum {
 }
 
 // How many textured items render mode shows with their maps: three maps each, after the
-// sum, the environment and its table, 12 of the 16 samplers a stage may bind. Others show
+// sum, the environment and its table and the guides, 14 of the 16 samplers a stage may
+// bind. Others show
 // their material, and the Render section says so.
 RENDER_TEXTURED_MAX :: 3
 @(private = "file")
-RENDER_SAMPLERS :: 3 + 3 * RENDER_TEXTURED_MAX
+RENDER_SAMPLERS :: 5 + 3 * RENDER_TEXTURED_MAX
 
 // Item_Record.tex.w: the item's map slot in the low bits (RENDER_TEXTURED_MAX for none,
 // which only the UV checker needs), the view from bit 4, and from bit 8 which maps it has.
@@ -186,7 +197,22 @@ Render_Uniforms :: struct {
 	scene:         [4]f32,
 	counts:        [4]u32, // this sample, the band's first row, bounces, where paint starts
 	extra:         [4]u32, // where the scene tree starts in the nodes, 1 when it is empty
+	// The eye and the lens's radius (0: none), the camera's right and the focal plane's
+	// distance, its up, its forward (all in the world).
+	lens:          [4][4]f32,
 }
+
+// Depth of field: whether it is on, Blur (0 to 1: the lens's radius as a share of a quarter
+// of the scene's radius, so it reads the same at any size) and the point in focus (world).
+Lens :: struct {
+	on:    bool,
+	blur:  f32,
+	focus: [3]f32,
+}
+
+// The lens's radius at Blur 1, as a share of the scene's radius.
+@(private = "file")
+LENS_RADIUS_MAX :: 0.25
 
 // The lights in world space with each one's size and pick chance: render_trace.comp's
 // light_pos through light_size, then rig_x, y and z.
@@ -198,7 +224,7 @@ Lights_World :: struct {
 	size:  [LIGHT_COUNT][4]f32,
 	rig:   [3][4]f32,
 }
-#assert(size_of(Render_Uniforms) == 64 + size_of(Lights_World) + 48 + 64)
+#assert(size_of(Render_Uniforms) == 64 + size_of(Lights_World) + 48 + 64 + 64)
 
 // Records this frame's render mode work after render_viewport: starts over when `changed`
 // (anything was redrawn this frame) or the bounces or softness changed; otherwise, at the first band
@@ -209,8 +235,9 @@ Lights_World :: struct {
 // Shadow softness, the angle a sun spans and, at a light's distance from the scene's
 // middle, a point or spot light's radius. Returns false only when the device cannot run
 // it, after which it never tries again. `half` traces a quarter of the pixels, half the
-// viewport's size each way, and lays them out over it smoothly: what tablets take.
-render_frame :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, view, proj: Mat4, items: []Draw_Item, changed: bool, max_samples, bounces: int, lights: Lights, softness, exposure: f32, denoise: bool, half := false, pool: ^jobs.Pool = nil) -> bool {
+// viewport's size each way, and lays them out over it smoothly: what tablets take. `lens`
+// gives depth of field; changing it starts over, as nothing in the viewport changes.
+render_frame :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, view, proj: Mat4, items: []Draw_Item, changed: bool, max_samples, bounces: int, lights: Lights, softness, exposure: f32, denoise: bool, half := false, lens := Lens{}, pool: ^jobs.Pool = nil) -> bool {
 	if pr.failed do return false
 	if !path_ensure(r, pr, vt, half) {
 		path_render_destroy(r, pr)
@@ -220,9 +247,9 @@ render_frame :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer,
 	now := time.tick_now()
 	interval := time.tick_diff(pr.last_frame, now) if pr.last_frame != {} else 0
 	pr.last_frame = now
-	if changed || !pr.valid || bounces != pr.bounces || softness != pr.softness {
+	if changed || !pr.valid || bounces != pr.bounces || softness != pr.softness || lens != pr.lens {
 		path_render_reset(pr)
-		pr.valid, pr.bounces, pr.softness = true, bounces, softness
+		pr.valid, pr.bounces, pr.softness, pr.lens = true, bounces, softness, lens
 		return true
 	}
 	if pr.samples >= max_samples || pr.refused != "" {
@@ -250,7 +277,8 @@ render_frame :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer,
 	rows := min(pr.rows, pr.height - pr.row)
 	u := pr.uniforms
 	u.counts.x, u.counts.y, u.counts.z = u32(pr.samples), pr.row, u32(bounces)
-	bindings := [3]sdl.GPUStorageTextureReadWriteBinding{{texture = pr.accum[1 - pr.current]}, {texture = pr.guides[0]}, {texture = pr.guides[1]}}
+	written := pr.guides[1 - pr.guide_at]
+	bindings := [3]sdl.GPUStorageTextureReadWriteBinding{{texture = pr.accum[1 - pr.current]}, {texture = written[0]}, {texture = written[1]}}
 	pass := sdl.BeginGPUComputePass(cmd, &bindings[0], len(bindings), nil, 0)
 	sdl.BindGPUComputePipeline(pass, pr.pipeline)
 	// The image itself, not its prefiltered copy: the paths find its blur on their own,
@@ -259,12 +287,13 @@ render_frame :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer,
 	table := r.environment.table if r.environment != nil else pr.studio_table
 	samplers: [RENDER_SAMPLERS]sdl.GPUTextureSamplerBinding
 	samplers[0], samplers[1], samplers[2] = {texture = pr.accum[pr.current], sampler = pr.sampler}, {texture = env_map, sampler = r.env_sampler}, {texture = table, sampler = pr.sampler}
+	samplers[3], samplers[4] = {texture = pr.guides[pr.guide_at][0], sampler = pr.sampler}, {texture = pr.guides[pr.guide_at][1], sampler = pr.sampler}
 	defaults := [Texture_Map]^sdl.GPUTexture{.Base_Color = r.no_matcap, .Orm = r.no_matcap, .Normal = r.no_normal_map}
 	for slot in 0 ..< RENDER_TEXTURED_MAX {
 		t := pr.tex_meshes[slot]
 		for m in Texture_Map {
 			tex := t.maps[m] if t != nil && t.maps[m] != nil else defaults[m]
-			samplers[3 + 3 * slot + int(m)] = {texture = tex, sampler = r.texture_sampler}
+			samplers[5 + 3 * slot + int(m)] = {texture = tex, sampler = r.texture_sampler}
 		}
 	}
 	sdl.BindGPUComputeSamplers(pass, 0, &samplers[0], len(samplers))
@@ -278,6 +307,8 @@ render_frame :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer,
 
 	pr.row = 0
 	pr.current = 1 - pr.current
+	// The kernel wrote the guides at the first sample, and at every one with a lens.
+	if pr.samples == 0 || pr.lens_on do pr.guide_at = 1 - pr.guide_at
 	pr.samples += 1
 	pr.total_samples += 1
 	pr.total_ms += time.duration_milliseconds(time.tick_since(pr.sample_started))
@@ -295,7 +326,7 @@ render_texture :: proc(pr: ^Path_Render) -> ^sdl.GPUTexture {
 // Makes the next render_frame start over.
 path_render_reset :: proc(pr: ^Path_Render) {
 	pr.samples, pr.row, pr.current = 0, 0, 0
-	pr.valid, pr.built, pr.refused = false, false, ""
+	pr.valid, pr.built, pr.refused, pr.lens_on = false, false, "", false
 }
 
 path_render_destroy :: proc(r: ^Renderer, pr: ^Path_Render) {
@@ -432,11 +463,13 @@ path_ensure :: proc(r: ^Renderer, pr: ^Path_Render, vt: ^Viewport_Target, half: 
 			width = width, height = height, layer_count_or_depth = 1, num_levels = 1,
 		})
 	}
-	for &t in pr.guides {
-		t = sdl.CreateGPUTexture(r.device, {
-			type = .D2, format = RENDER_GUIDE_FORMAT, usage = {.SAMPLER, .COMPUTE_STORAGE_WRITE},
-			width = width, height = height, layer_count_or_depth = 1, num_levels = 1,
-		})
+	for &pair in pr.guides {
+		for &t in pair {
+			t = sdl.CreateGPUTexture(r.device, {
+				type = .D2, format = RENDER_GUIDE_FORMAT, usage = {.SAMPLER, .COMPUTE_STORAGE_WRITE},
+				width = width, height = height, layer_count_or_depth = 1, num_levels = 1,
+			})
+		}
 	}
 	for &t in pr.filtered {
 		t = sdl.CreateGPUTexture(r.device, {
@@ -450,11 +483,40 @@ path_ensure :: proc(r: ^Renderer, pr: ^Path_Render, vt: ^Viewport_Target, half: 
 	})
 	pr.width, pr.height, pr.view_width, pr.view_height, pr.half, pr.rows = width, height, vt.width, vt.height, half, 0
 	path_render_reset(pr)
-	if pr.accum[0] == nil || pr.accum[1] == nil || pr.shown == nil || pr.guides[0] == nil || pr.guides[1] == nil || pr.filtered[0] == nil || pr.filtered[1] == nil {
+	if pr.accum[0] == nil || pr.accum[1] == nil || pr.shown == nil || pr.guides[0][0] == nil || pr.guides[0][1] == nil || pr.guides[1][0] == nil || pr.guides[1][1] == nil || pr.filtered[0] == nil || pr.filtered[1] == nil {
 		log.errorf("render mode: target creation failed (%s); it stays off", sdl.GetError())
 		return false
 	}
 	return true
+}
+
+// Draws the background and the floor alone into pr.backdrop, at the viewport's size, for
+// depth of field to lay its blurred edges over. Without it (the device refused the
+// images, said in the log) render mode lays itself over the viewport's image as without
+// a lens.
+@(private = "file")
+path_backdrop :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, view, proj: Mat4) {
+	if pr.backdrop == nil {
+		pr.backdrop = sdl.CreateGPUTexture(r.device, {
+			type = .D2, format = VIEWPORT_COLOR_FORMAT, usage = {.COLOR_TARGET, .SAMPLER},
+			width = vt.width, height = vt.height, layer_count_or_depth = 1, num_levels = 1,
+		})
+		pr.backdrop_depth = sdl.CreateGPUTexture(r.device, {
+			type = .D2, format = r.depth_format, usage = {.DEPTH_STENCIL_TARGET},
+			width = vt.width, height = vt.height, layer_count_or_depth = 1, num_levels = 1,
+		})
+		if pr.backdrop == nil || pr.backdrop_depth == nil {
+			log.errorf("render mode: depth of field's backdrop: %s", sdl.GetError())
+			if pr.backdrop != nil do sdl.ReleaseGPUTexture(r.device, pr.backdrop)
+			if pr.backdrop_depth != nil do sdl.ReleaseGPUTexture(r.device, pr.backdrop_depth)
+			pr.backdrop, pr.backdrop_depth = nil, nil
+			return
+		}
+	}
+	pass := begin_mesh_pass(r, cmd, &r.single, pr.backdrop, pr.backdrop_depth, load = false, keep_depth = false, background = r.background.top)
+	draw_background(r, cmd, pass, &r.single, vt^, proj, flat_too = true)
+	draw_floor(r, cmd, pass, &r.single, view, proj)
+	sdl.EndGPURenderPass(pass)
 }
 
 // The size render mode traces a `width` by `height` viewport at: the same, or with `half`
@@ -467,8 +529,9 @@ render_size :: proc(width, height: u32, half: bool) -> (u32, u32) {
 // The images the size of the traced image and of the viewport.
 @(private = "file")
 path_targets_release :: proc(r: ^Renderer, pr: ^Path_Render) {
-	targets := [7]^sdl.GPUTexture{pr.accum[0], pr.accum[1], pr.shown, pr.guides[0], pr.guides[1], pr.filtered[0], pr.filtered[1]}
+	targets := [11]^sdl.GPUTexture{pr.accum[0], pr.accum[1], pr.shown, pr.guides[0][0], pr.guides[0][1], pr.guides[1][0], pr.guides[1][1], pr.filtered[0], pr.filtered[1], pr.backdrop, pr.backdrop_depth}
 	for t in targets do if t != nil do sdl.ReleaseGPUTexture(r.device, t)
+	pr.backdrop, pr.backdrop_depth = nil, nil
 }
 
 // How many denoiser passes `samples` take, and how far, relative, light may differ before
@@ -484,6 +547,7 @@ render_denoise_passes :: proc(samples: int) -> (passes: int, spread: f32) {
 @(private = "file")
 path_display :: proc(pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, exposure: f32, denoise: bool) {
 	pr.exposure, pr.denoised = exposure, denoise
+	guides := pr.guides[pr.guide_at]
 	out := 0
 	if denoise {
 		passes, spread := render_denoise_passes(pr.samples)
@@ -492,9 +556,9 @@ path_display :: proc(pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport
 			target := sdl.GPUColorTargetInfo{texture = pr.filtered[out], load_op = .DONT_CARE, store_op = .STORE}
 			pass := sdl.BeginGPURenderPass(cmd, &target, 1, nil)
 			sdl.BindGPUGraphicsPipeline(pass, pr.atrous)
-			samplers := [3]sdl.GPUTextureSamplerBinding{{texture = src, sampler = pr.sampler}, {texture = pr.guides[0], sampler = pr.sampler}, {texture = pr.guides[1], sampler = pr.sampler}}
+			samplers := [3]sdl.GPUTextureSamplerBinding{{texture = src, sampler = pr.sampler}, {texture = guides[0], sampler = pr.sampler}, {texture = guides[1], sampler = pr.sampler}}
 			sdl.BindGPUFragmentSamplers(pass, 0, &samplers[0], len(samplers))
-			params := [4]f32{f32(int(1) << uint(i)), spread / f32(int(1) << uint(i)), 1 if i == 0 else 0, 0}
+			params := [4]f32{f32(int(1) << uint(i)), spread / f32(int(1) << uint(i)), 1 if i == 0 else 0, 1 if pr.lens_on else 0}
 			sdl.PushGPUFragmentUniformData(cmd, 0, &params, size_of(params))
 			sdl.DrawGPUPrimitives(pass, 3, 1, 0, 0)
 			sdl.EndGPURenderPass(pass)
@@ -504,7 +568,8 @@ path_display :: proc(pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport
 	target := sdl.GPUColorTargetInfo{texture = pr.shown, load_op = .DONT_CARE, store_op = .STORE, cycle = true}
 	pass := sdl.BeginGPURenderPass(cmd, &target, 1, nil)
 	sdl.BindGPUGraphicsPipeline(pass, pr.display)
-	samplers := [4]sdl.GPUTextureSamplerBinding{{texture = vt.color, sampler = pr.sampler}, {texture = pr.accum[pr.current], sampler = pr.sampler}, {texture = pr.filtered[1 - out], sampler = pr.sampler}, {texture = pr.guides[0], sampler = pr.sampler}}
+	under := pr.backdrop if pr.lens_on && pr.backdrop != nil else vt.color
+	samplers := [4]sdl.GPUTextureSamplerBinding{{texture = under, sampler = pr.sampler}, {texture = pr.accum[pr.current], sampler = pr.sampler}, {texture = pr.filtered[1 - out], sampler = pr.sampler}, {texture = guides[0], sampler = pr.sampler}}
 	sdl.BindGPUFragmentSamplers(pass, 0, &samplers[0], len(samplers))
 	params := [4]f32{exposure, f32(pr.samples), 1 if denoise else 0, 1 if pr.half else 0}
 	sdl.PushGPUFragmentUniformData(cmd, 0, &params, size_of(params))
@@ -684,6 +749,21 @@ path_scene_build :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuf
 	u.scene = {center.x, center.y, center.z, radius}
 	env_light := math.PI * (r.environment.mean * r.environment_look.strength if r.environment != nil else pr.studio_mean * 0.7 * max(u.lights.rig[0].w, 0))
 	u.env.z = env_share(&u.lights, lights, env_light, smooth = r.environment == nil)
+	// The lens across the eye, while the point in focus lies ahead of it.
+	if pr.lens.on && pr.lens.blur > 0 {
+		to_world := linalg.inverse(view)
+		eye := (to_world * [4]f32{0, 0, 0, 1}).xyz
+		right := (to_world * [4]f32{1, 0, 0, 0}).xyz
+		up := (to_world * [4]f32{0, 1, 0, 0}).xyz
+		fwd := -(to_world * [4]f32{0, 0, 1, 0}).xyz
+		focal := linalg.dot(pr.lens.focus - eye, fwd)
+		aperture := pr.lens.blur * LENS_RADIUS_MAX * radius
+		if focal > 0 && aperture > 0 {
+			u.lens = {{eye.x, eye.y, eye.z, aperture}, {right.x, right.y, right.z, focal}, {up.x, up.y, up.z, 0}, {fwd.x, fwd.y, fwd.z, 0}}
+			pr.lens_on = true
+			path_backdrop(r, pr, cmd, vt, view, proj)
+		}
+	}
 	u.counts.w = paint_base / size_of(u32)
 	u.extra = {node_count, 1 if len(tlas) == 0 else 0, 0, 0}
 	pr.bytes = 0

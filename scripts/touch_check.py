@@ -535,6 +535,24 @@ def colors_eyedropper_key_picks_under_the_pointer():
 
 
 @scenario
+def pick_focus_takes_the_point_from_the_model():
+    """Pick focus from search waits for a finger on the model; its tap puts depth of field's focus on the
+    sphere's surface, sculpting nothing and turning nothing."""
+    s = Script()
+    palette_run(s, "pick focus")
+    s.wait(4)
+    s.ftap(800, 240)
+    s.wait(4)
+
+    def on_the_sphere(v):
+        x, y, z = (float(c) for c in v.split(","))
+        return abs(math.sqrt(x * x + y * y + z * z) - 1) < 0.02 and y > 0.2
+
+    return s, ["--script=set render_dof on"], camera_still({"focus_picked": near(1), "focus_armed": near(0), "render_dof": near(1),
+                                                         "focus": on_the_sphere, "dabs": near(0), "undo_steps": near(0)})
+
+
+@scenario
 def colors_value_hex_sets_the_colour():
     """On the Value tab, typing a hex code and Enter sets the main colour."""
     s = Script()

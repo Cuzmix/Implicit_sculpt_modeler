@@ -37,7 +37,7 @@ render_mode_frame :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer, view, proj: ren
 	}
 	samples := int(clamp(app.render_samples, 1, render.RENDER_SAMPLES_MAX))
 	bounces := int(clamp(app.render_bounces, 1, render.RENDER_BOUNCES_MAX))
-	_ = render.render_frame(&app.renderer, &app.path, cmd, &app.target, view, proj, items, changed, samples, bounces, viewport_lights(app), app.studio_softness, app.exposure, app.render_denoise, app.render_half, &app.pool)
+	_ = render.render_frame(&app.renderer, &app.path, cmd, &app.target, view, proj, items, changed, samples, bounces, viewport_lights(app), app.studio_softness, app.exposure, app.render_denoise, app.render_half, render_lens(app), &app.pool)
 }
 
 // Whether render mode still has samples to build, which keeps the frames coming.

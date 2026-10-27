@@ -404,6 +404,7 @@ Kit_Section :: enum u8 {
 	Environment,
 	Studio,
 	Render,
+	Lens,
 	Camera,
 	Floor,
 	Background,
@@ -915,8 +916,8 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 		else if shape_waits && quiet do app.shape_pending.request = .Cancel
 		else if side_panel_open(k) && quiet do side_panel_close(app)
 		if k.palette do palette_close(app)
-		// An armed eyedropper waits for no press any more.
-		if quiet do app.ui.eyedrop_armed = false
+		// An armed eyedropper or Pick focus waits for no press any more.
+		if quiet do app.ui.eyedrop_armed, app.ui.focus_armed = false, false
 		kit_floats_close(k)
 	}
 	k.ms = time.duration_milliseconds(time.tick_since(start))

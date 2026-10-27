@@ -85,7 +85,7 @@ light_set_world :: proc(app: ^App, i: int, dir: Vec3, at: Maybe(Vec3) = nil) {
 	if p, ok := at.?; ok do l.pos = into * (p - app.camera.target)
 }
 
-@(private = "file")
+// The view's projection times its view, for placing world points over a viewport of `size`.
 view_proj_of :: proc(app: ^App, size: [2]f32) -> matrix[4, 4]f32 {
 	return camera.orbit_proj(app.camera, size.x / max(size.y, 1)) * camera.orbit_view(app.camera)
 }

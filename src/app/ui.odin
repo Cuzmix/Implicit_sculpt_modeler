@@ -49,6 +49,11 @@ Ui_State :: struct {
 	eyedrop_at:         [2]f32,
 	eyedrop_color:      [3]f32,
 	eyedrop_hit:        bool,
+	// Pick focus (lens.odin): armed, it waits for a press on the viewport; held, the press
+	// moves the focus, and `hit` says whether it met the model yet.
+	focus_armed:        bool,
+	focus_held:         bool,
+	focus_hit:          bool,
 	group_target:       u16,
 	group_target_id:    int,
 	layer_selected:     int,  // the Layers section's row that Delete and Bake act on

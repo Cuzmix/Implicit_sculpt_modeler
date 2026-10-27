@@ -63,6 +63,7 @@ Script_Verb :: enum u8 {
 	Texture,
 	Knife,
 	Environment,
+	Render_Focus,
 }
 
 // Each verb's name and what it takes, for errors and the README.
@@ -93,6 +94,7 @@ SCRIPT_VERBS := [Script_Verb]struct {
 	.Texture       = {"texture", "base_color, orm or normal, then an image file to load as that map of the selected object"},
 	.Knife         = {"knife", "x, y or z to cut away the + side of the middle, -x, -y or -z the - side"},
 	.Environment   = {"environment", "a panorama file (Radiance .hdr, PNG or JPEG, twice as wide as tall) to light with, picking Image"},
+	.Render_Focus  = {"render_focus", "three numbers, the point x y z for depth of field to focus on, or pivot to focus on what the view turns about"},
 }
 
 // A command that is on or off (one with `checked`) can be told which: it then runs only
@@ -501,6 +503,9 @@ script_verb_read :: proc(st: ^Script_Statement, args: []string) -> bool {
 		return numbers(st, args, 3, -1e6, 1e6)
 	case .Mask_Rect:
 		return numbers(st, args, 4, 0, 1) && st.numbers[0] != st.numbers[2] && st.numbers[1] != st.numbers[3]
+	case .Render_Focus:
+		st.flip = len(args) == 1 && script_name(args[0]) == "pivot"
+		return st.flip || numbers(st, args, 3, -1e4, 1e4)
 	case .Focal:
 		return numbers(st, args, 1, sculpt.FOCAL_MIN, sculpt.FOCAL_MAX)
 	case .Project:
@@ -574,6 +579,11 @@ script_verb :: proc(app: ^App, st: Script_Statement) -> (failure: string, ok: bo
 		return "", true
 	case .Matcap:
 		if !matcap_load(app, st.text) do return fmt.tprintf("no image could be read as a MatCap at %q", st.text), true
+		return "", true
+	case .Render_Focus:
+		// As Pick focus and Focus on the pivot do.
+		if st.flip do app.focus = nil
+		else do app.focus = st.numbers.xyz
 		return "", true
 	case .Environment:
 		// Waited for, so the next line (a dump, say) sees it.
@@ -666,7 +676,7 @@ script_verb :: proc(app: ^App, st: Script_Statement) -> (failure: string, ok: bo
 			if why := group_material_set(obj, u16(st.count), current_material(app), st.flip); why != "" do return why, true
 			app.scene_edits += 1
 			return "", true
-		case .Falloff, .Focal, .Alpha, .Matcap, .Project, .Draw_Curve, .Insert_Middle, .Install_Pack, .Preset, .Pack_Mesh, .Make_Pack, .Texture, .Environment:
+		case .Falloff, .Focal, .Alpha, .Matcap, .Project, .Draw_Curve, .Insert_Middle, .Install_Pack, .Preset, .Pack_Mesh, .Make_Pack, .Texture, .Environment, .Render_Focus:
 		}
 	}
 	if script_scene_state(app) == before do return "it left the scene as it was (the log says why)", true
