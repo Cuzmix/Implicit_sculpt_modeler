@@ -1,5 +1,6 @@
 package main
 
+import "core:math"
 import "core:os"
 import "core:testing"
 
@@ -172,4 +173,17 @@ pies_are_remembered :: proc(t: ^testing.T) {
 	testing.expect_value(t, b.kit.favourites[0], Pie_Slot{.Flat_Shading, 0})
 	testing.expect_value(t, b.kit.favourites[1], Pie_Slot{.Help, 1})
 	free_all(context.temp_allocator)
+}
+
+// The brush pie's names fit the gap their neighbours leave: beside each other at the top
+// and bottom, a slice's chord less a little; stacked at the sides, as wide as they like.
+@(test)
+pie_labels_fit_between_their_neighbours :: proc(t: ^testing.T) {
+	n := f32(len(sculpt.Brush_Kind))
+	step := 2 * math.PI / n
+	r: f32 = 120
+	top := pie_label_room(r, -math.PI / 2, step, 18)
+	testing.expectf(t, abs(top - (r * math.sin(step) - 4)) < 0.01, "top %.2f", top)
+	side := pie_label_room(r, 0, step, 18)
+	testing.expect_value(t, side, 120)
 }
