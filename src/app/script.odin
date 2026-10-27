@@ -52,6 +52,7 @@ Script_Verb :: enum u8 {
 	Falloff,
 	Alpha,
 	Layer,
+	Matcap,
 }
 
 // Each verb's name and what it takes, for errors and the README.
@@ -72,6 +73,7 @@ SCRIPT_VERBS := [Script_Verb]struct {
 	.Falloff       = {"falloff", "smooth, linear, sharp, firm or flat"},
 	.Alpha         = {"alpha", "a built-in alpha's name or an image file"},
 	.Layer         = {"layer", "the layer's number counting from 1 at the bottom, its strength from -1 to 2, and hidden to hide it"},
+	.Matcap        = {"matcap", "an image file of a lit sphere"},
 }
 
 // A command that is on or off (one with `checked`) can be told which: it then runs only
@@ -96,7 +98,7 @@ Script_Statement :: struct {
 	verb:    Script_Verb,
 	numbers: [4]f32, // .Verb: move and rotate's x y z, mask_rect's edges, layer's strength
 	flip:    bool, // .Verb: hide's - side, a hidden layer
-	text:    string, // .Verb: alpha's name or file; heap
+	text:    string, // .Verb: alpha's name or file, matcap's file; heap
 }
 
 Script_Error :: struct {
@@ -398,7 +400,7 @@ script_verb_read :: proc(st: ^Script_Statement, args: []string) -> bool {
 		n, ok := strconv.parse_int(args[0])
 		st.count = n
 		return ok && n >= 1
-	case .Alpha:
+	case .Alpha, .Matcap:
 		if len(args) != 1 do return false
 		st.text = strings.clone(args[0])
 		return true
@@ -444,6 +446,9 @@ script_verb :: proc(app: ^App, st: Script_Statement) -> (failure: string, ok: bo
 		return "", true
 	case .Alpha:
 		if !alpha_select(app, st.text) do return fmt.tprintf("no alpha is named %q and no image could be read there", st.text), true
+		return "", true
+	case .Matcap:
+		if !matcap_load(app, st.text) do return fmt.tprintf("no image could be read as a MatCap at %q", st.text), true
 		return "", true
 	case .Project:
 		if st.count > len(app.scene.objects) do return fmt.tprintf("the scene has %d object%s", len(app.scene.objects), "" if len(app.scene.objects) == 1 else "s"), true
@@ -494,7 +499,7 @@ script_verb :: proc(app: ^App, st: Script_Statement) -> (failure: string, ok: bo
 			_ = sculpt.sculptor_layer_set(s, st.count - 1, st.numbers[0], !st.flip)
 			if sculpt.sculptor_stroke_end(s) do history_record(app, obj, .Layer, "Layer strength")
 			return "", true
-		case .Falloff, .Alpha, .Project, .Draw_Curve, .Insert_Middle:
+		case .Falloff, .Alpha, .Matcap, .Project, .Draw_Curve, .Insert_Middle:
 		}
 	}
 	if script_scene_state(app) == before do return "it left the scene as it was (the log says why)", true

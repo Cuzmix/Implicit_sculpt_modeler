@@ -10,10 +10,14 @@ layout(location = 5) in vec3 in_mesh_pos;
 layout(set = 3, binding = 0) uniform Material_Uniforms {
 	vec4 base_color;
 	vec4 params;  // x: ambient, y: specular strength (below 0: flat base_color, for lines), z: specular power, w: wrap
-	vec4 surface; // x: metallic, y: roughness (0: the classic shading above, else physically based), z: 1 for flat shading
+	vec4 surface; // x: metallic, y: roughness (0: the classic shading above, else physically based), z: 1 for flat shading, w: 1 for the matcap
 	vec4 checker; // the density preview: xyz the first lattice point in mesh space, w the cell size (0: none)
 	vec4 look;    // x: exposure in stops, y: cavity strength, z: ridge strength (0 to 1); all 0 is plain
 };
+
+// The matcap (render/matcap.odin): a lit sphere, sRGB, so it samples as linear light.
+// SDL_GPU SPIR-V conventions: fragment samplers live in set 2.
+layout(set = 2, binding = 0) uniform sampler2D matcap;
 
 layout(location = 0) out vec4 out_color;
 
@@ -192,6 +196,20 @@ void main() {
 	// Masked areas show darker, as in ZBrush.
 	albedo *= 1.0 - 0.7 * in_mask;
 	float highlight = 1.0 - 0.5 * in_mask;
+
+	if (surface.w > 0.5) {
+		// The matcap's sphere where it faces the way this pixel's normal does as the eye
+		// sees it: Blender's basis around the ray to the eye, which keeps the lookup right
+		// toward the edges of a perspective view instead of sliding with it. The picture's
+		// own light and sheen stand in for the lights, tinted by the colour (and paint and
+		// mask); it is already a finished look, so it is exposed but not tone mapped.
+		float k = 1.0 / (1.0 + v.z);
+		float b = -v.x * v.y * k;
+		vec2 m = vec2(dot(vec3(1.0 - v.x * v.x * k, b, -v.x), n), dot(vec3(b, 1.0 - v.y * v.y * k, -v.y), n));
+		vec3 lit = texture(matcap, vec2(0.5 + 0.496 * m.x, 0.5 - 0.496 * m.y)).rgb;
+		out_color = vec4(srgb_encode(lit * albedo * relief * exp2(look.x)), 1.0);
+		return;
+	}
 
 	if (surface.y > 0.0) {
 		float metallic = clamp(surface.x, 0.0, 1.0);

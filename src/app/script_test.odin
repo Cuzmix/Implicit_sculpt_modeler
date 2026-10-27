@@ -158,11 +158,12 @@ draw_curve stitches
 insert_middle torus
 falloff Firm
 alpha "my alphas/rock 2.png"
-layer 2 -0.5 Hidden`
+layer 2 -0.5 Hidden
+matcap "my matcaps/jade 1.png"`
 	s := script_parse(text, "x")
 	defer script_destroy(&s)
 	testing.expect_value(t, script_report(&s), "")
-	if !testing.expect_value(t, len(s.statements), 12) do return
+	if !testing.expect_value(t, len(s.statements), 13) do return
 	st := s.statements
 	for v, i in Script_Verb {
 		testing.expect_value(t, st[i].kind, Script_Kind.Verb)
@@ -181,10 +182,11 @@ layer 2 -0.5 Hidden`
 	testing.expect_value(t, string(FALLOFF_PRESETS[st[9].arg].label), "Firm")
 	testing.expect_value(t, st[10].text, "my alphas/rock 2.png")
 	testing.expect(t, st[11].count == 2 && st[11].numbers[0] == -0.5 && st[11].flip)
+	testing.expect_value(t, st[12].text, "my matcaps/jade 1.png")
 
-	bad := script_parse("move 1 2\nrotate 0 x 0\nboolean maybe\nslice w\nhide -\nmask_rect 0 0 0 1\nmask_rect 0 0 2 1\nproject 0\ndraw_curve\ninsert_middle blob\nfalloff soft\nalpha\nlayer 0 1\nlayer 1 3\nlayer 1 1 shown", "bad")
+	bad := script_parse("move 1 2\nrotate 0 x 0\nboolean maybe\nslice w\nhide -\nmask_rect 0 0 0 1\nmask_rect 0 0 2 1\nproject 0\ndraw_curve\ninsert_middle blob\nfalloff soft\nalpha\nlayer 0 1\nlayer 1 3\nlayer 1 1 shown\nmatcap", "bad")
 	defer script_destroy(&bad)
-	if !testing.expect_value(t, len(bad.errors), 15) do return
+	if !testing.expect_value(t, len(bad.errors), 16) do return
 	for e, i in bad.errors do testing.expect_value(t, e.line, i + 1)
 	testing.expect(t, strings.contains(bad.errors[0].message, "move takes three numbers"))
 	testing.expect(t, strings.contains(bad.errors[10].message, "smooth, linear, sharp, firm or flat"))

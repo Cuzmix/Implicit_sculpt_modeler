@@ -38,6 +38,7 @@ File_Kind :: enum u8 {
 	Discard_Autosave, // an earlier session's autosaves are deleted; the path names the session
 	Open_Version, // an earlier save of the scene's file replaces the scene, which still saves to its file (versions.odin)
 	Run_Script,   // a command script file runs as the person's own work (macros.odin)
+	Matcap,       // an image of a lit sphere becomes the Custom material's MatCap (matcaps.odin)
 }
 
 File_Request :: struct {
@@ -102,7 +103,7 @@ file_dialog :: proc(app: ^App, kind: File_Kind) {
 		sdl.ShowSaveFileDialog(file_dialog_done, userdata, app.window, raw_data(SCENE_FILTERS[:]), len(SCENE_FILTERS), nil)
 	case .Open:
 		sdl.ShowOpenFileDialog(file_dialog_done, userdata, app.window, raw_data(SCENE_FILTERS[:]), len(SCENE_FILTERS), nil, false)
-	case .Alpha:
+	case .Alpha, .Matcap:
 		sdl.ShowOpenFileDialog(file_dialog_done, userdata, app.window, raw_data(IMAGE_FILTERS[:]), len(IMAGE_FILTERS), nil, false)
 	case .Screenshot:
 		sdl.ShowSaveFileDialog(file_dialog_done, userdata, app.window, raw_data(PNG_FILTERS[:]), len(PNG_FILTERS), nil)
@@ -258,6 +259,8 @@ file_apply :: proc(app: ^App, req: File_Request) -> bool {
 		return version_open(app, req.path)
 	case .Alpha:
 		_ = alpha_keep(app, req.path)
+	case .Matcap:
+		_ = matcap_load(app, req.path)
 	case .Screenshot:
 		_ = screenshot_save(app, req.path)
 	case .Timelapse:

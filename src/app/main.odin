@@ -192,6 +192,11 @@ App :: struct {
 	split_made, merged, aligned: int,
 	material:  int,  // the index in MATERIALS objects are shaded with, or CUSTOM_MATERIAL
 	custom:    Material, // what the Material section's sliders made
+	// The built-in matcaps' textures (nil where the device refused one), and the image
+	// loaded with Load MatCap with its path ("" for none).
+	matcaps:      [len(MATCAP_RECIPES)]^sdl.GPUTexture,
+	matcap_image: ^sdl.GPUTexture,
+	matcap_path:  string,
 	flat:      bool, // shade with each triangle's own normal (faceted) instead of smoothed normals
 	wireframe: bool, // draw the selected object's edges over it
 	// How the viewport shows its shading (View > Material): brighter or darker in stops,
@@ -311,6 +316,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	defer results_destroy(&app)
 	if !render.renderer_init(&app.renderer, window, opts.gpu_debug) do return false
 	defer render.renderer_destroy(&app.renderer)
+	matcaps_create(&app)
+	defer matcaps_destroy(&app)
 	defer render.smooth_compute_destroy(&app.renderer, &app.smooth_gpu)
 	defer render.studio_destroy(&app.renderer, &app.studio)
 	defer render.nav_head_destroy(&app.renderer, &app.nav_head)
@@ -406,7 +413,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 
 	if len(app.scene.objects) > 1 do frame_all(&app)
 	app.cache_idle = !opts.no_cache
-	app.custom = MATERIALS[len(MATERIALS) - 1]
+	// Custom starts as PBR clay, the last physically based preset, until a slider changes it.
+	app.custom = MATERIALS[FIRST_MATCAP - 1]
 	app.custom.label = "Custom"
 	app.renderer.cull = !opts.no_cull
 	app.renderer.partial = !opts.no_partial
@@ -732,6 +740,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 					surface = {material.metallic, material.roughness},
 					flat = app.flat,
 					look = viewport_look(&app),
+					matcap = material_matcap(&app, material),
 					wireframe = selected && app.wireframe,
 					paint  = sculpt.sculptor_has_color(&lv.sculptor) && !obj.paint_off,
 					groups = app.show_groups && sculpt.sculptor_has_groups(&lv.sculptor),
@@ -761,6 +770,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 					surface  = {material.metallic, material.roughness},
 					flat     = app.flat,
 					look     = viewport_look(&app),
+					matcap   = material_matcap(&app, material),
 					damage   = geom.AABB_EMPTY,
 				})
 			}

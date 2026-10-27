@@ -31,6 +31,10 @@ Renderer :: struct {
 	// Bound in place of a mesh's paint buffer when it has none: the mesh shader reads
 	// the binding only for items that show paint or groups, but it must be bound.
 	no_paint:       ^sdl.GPUBuffer,
+	// Bound in place of a matcap for items that have none, as no_paint is; and the
+	// filtering, mipmapped sampler every matcap is read through.
+	no_matcap:      ^sdl.GPUTexture,
+	matcap_sampler: ^sdl.GPUSampler,
 	last_version:   u64,  // source of Mesh_Buffers.version
 	cull:           bool, // skip off-screen and back-facing chunks of items that have them
 	partial:        bool, // while the camera and objects stay put, redraw only what changed
@@ -159,6 +163,9 @@ Draw_Item :: struct {
 	// How the shading is shown: x the exposure in stops, y how much creases darken
 	// (cavity) and z how much crests lighten (ridge), 0 to 1; zero shows it plainly.
 	look:      [4]f32,
+	// A matcap (matcap_create) that shades the item instead of the lights, tinted by
+	// `color`; nil for none.
+	matcap:    ^sdl.GPUTexture,
 	live:   bool,
 	chunks: []geom.Chunk,
 	chunk_groups: []geom.Chunk, // geom.chunk_group of each geom.CHUNK_GROUP chunks, to cull a group at a time; nil to test every chunk
@@ -194,7 +201,7 @@ Viewport_Stats :: struct {
 Material_Uniforms :: struct {
 	base_color: [4]f32,
 	params:     [4]f32, // x: ambient, y: specular strength, z: specular power, w: wrap
-	surface:    [4]f32, // x: metallic, y: roughness (0: classic), z: 1 for flat shading
+	surface:    [4]f32, // x: metallic, y: roughness (0: classic), z: 1 for flat shading, w: 1 for the matcap
 	checker:    [4]f32, // the density preview: first lattice point, cell size (0: none)
 	look:       [4]f32, // exposure in stops, cavity, ridge (Draw_Item.look)
 }
@@ -249,7 +256,15 @@ renderer_init :: proc(r: ^Renderer, window: ^sdl.Window, debug: bool) -> bool {
 	r.clear_pipeline = create_clear_pipeline(r)
 	r.no_paint = sdl.CreateGPUBuffer(r.device, {usage = {.GRAPHICS_STORAGE_READ}, size = size_of(Paint_Packed)})
 	if r.no_paint == nil do log.errorf("paint buffer creation failed: %s", sdl.GetError())
-	return r.mesh_pipeline != nil && r.clear_pipeline != nil && r.no_paint != nil
+	white := [4]u8{255, 255, 255, 255}
+	r.no_matcap = matcap_create(r, white[:], 1, 1)
+	r.matcap_sampler = sdl.CreateGPUSampler(r.device, {
+		min_filter = .LINEAR, mag_filter = .LINEAR, mipmap_mode = .LINEAR,
+		address_mode_u = .CLAMP_TO_EDGE, address_mode_v = .CLAMP_TO_EDGE, address_mode_w = .CLAMP_TO_EDGE,
+		max_lod = 1000,
+	})
+	if r.matcap_sampler == nil do log.errorf("matcap sampler: %s", sdl.GetError())
+	return r.mesh_pipeline != nil && r.clear_pipeline != nil && r.no_paint != nil && r.no_matcap != nil && r.matcap_sampler != nil
 }
 
 // The GPU's name, backend and driver version, for logs and benchmark reports.
@@ -299,6 +314,8 @@ renderer_destroy :: proc(r: ^Renderer) {
 	if r.wire_pipeline != nil do sdl.ReleaseGPUGraphicsPipeline(r.device, r.wire_pipeline)
 	if r.clear_pipeline != nil do sdl.ReleaseGPUGraphicsPipeline(r.device, r.clear_pipeline)
 	if r.no_paint != nil do sdl.ReleaseGPUBuffer(r.device, r.no_paint)
+	if r.no_matcap != nil do sdl.ReleaseGPUTexture(r.device, r.no_matcap)
+	if r.matcap_sampler != nil do sdl.ReleaseGPUSampler(r.device, r.matcap_sampler)
 	sdl.ReleaseWindowFromGPUDevice(r.device, r.window)
 	sdl.DestroyGPUDevice(r.device)
 	r^ = {}
@@ -321,6 +338,7 @@ create_mesh_pipeline :: proc(r: ^Renderer, wire: bool) -> ^sdl.GPUGraphicsPipeli
 		entrypoint          = "main",
 		format              = {.SPIRV},
 		stage               = .FRAGMENT,
+		num_samplers        = 1,
 		num_uniform_buffers = 1,
 	})
 	// Shaders are only needed until the pipeline is built.
@@ -899,6 +917,7 @@ render_rect :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Targ
 frame_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lod_px: f32) -> u64 {
 	Keyed :: struct {
 		mesh:     ^Mesh_Buffers,
+		matcap:   ^sdl.GPUTexture,
 		model:    Mat4,
 		color:    [4]f32,
 		material: [4]f32,
@@ -910,7 +929,7 @@ frame_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lod
 		paint:    b32,
 		groups:   b32, // no padding: every byte is hashed
 	}
-	#assert(size_of(Keyed) == 160)
+	#assert(size_of(Keyed) == 168)
 	Header :: struct { // no padding: every byte is hashed
 		view, proj:    Mat4,
 		width, height: u32,
@@ -920,7 +939,7 @@ frame_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lod
 	header := Header{view, proj, vt.width, vt.height, u32(len(items)), lod_px}
 	h := hash.fnv64a(slice.bytes_from_ptr(&header, size_of(header)))
 	for item in items {
-		k := Keyed{item.mesh, item.model, item.color, item.material, item.checker, item.look, item.surface, b32(item.wireframe), b32(item.flat), b32(item.paint), b32(item.groups)}
+		k := Keyed{item.mesh, item.matcap, item.model, item.color, item.material, item.checker, item.look, item.surface, b32(item.wireframe), b32(item.flat), b32(item.paint), b32(item.groups)}
 		h = hash.fnv64a(slice.bytes_from_ptr(&k, size_of(k)), h)
 	}
 	return max(h, 1)
@@ -1071,6 +1090,7 @@ indirect_ensure :: proc(r: ^Renderer, mb: ^Mesh_Buffers, commands: u32) -> bool 
 static_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lod_px: f32) -> u64 {
 	Keyed :: struct {
 		mesh:     ^Mesh_Buffers,
+		matcap:   ^sdl.GPUTexture,
 		version:  u64,
 		model:    Mat4,
 		color:    [4]f32,
@@ -1083,7 +1103,7 @@ static_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lo
 		paint:    b32,
 		groups:   b32, // no padding: every byte is hashed
 	}
-	#assert(size_of(Keyed) == 168)
+	#assert(size_of(Keyed) == 176)
 	Header :: struct {
 		view, proj:    Mat4,
 		width, height: u32,
@@ -1093,7 +1113,7 @@ static_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lo
 	h := hash.fnv64a(slice.bytes_from_ptr(&header, size_of(header)))
 	for item in items {
 		if item.live do continue
-		k := Keyed{item.mesh, item.mesh.version, item.model, item.color, item.material, item.checker, item.look, item.surface, b32(item.wireframe), b32(item.flat), b32(item.paint), b32(item.groups)}
+		k := Keyed{item.mesh, item.matcap, item.mesh.version, item.model, item.color, item.material, item.checker, item.look, item.surface, b32(item.wireframe), b32(item.flat), b32(item.paint), b32(item.groups)}
 		h = hash.fnv64a(slice.bytes_from_ptr(&k, size_of(k)), h)
 	}
 	return max(h, 1) // 0 means empty
@@ -1132,12 +1152,14 @@ draw_items :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURende
 		show_paint, show_groups := item.paint && mb.paint != nil, item.groups && mb.paint != nil
 		frame := Frame_Uniforms{view_proj = proj * view, view = view, model = item.model, options = {f32(int(show_paint)), f32(int(show_groups)), 0, 0}}
 		params := item.material if item.material != {} else DEFAULT_MATERIAL
-		surface := [4]f32{item.surface.x, item.surface.y, 1 if item.flat else 0, 0}
+		surface := [4]f32{item.surface.x, item.surface.y, 1 if item.flat else 0, 1 if item.matcap != nil else 0}
 		material := Material_Uniforms{base_color = item.color, params = params, surface = surface, checker = item.checker, look = item.look}
 		sdl.PushGPUVertexUniformData(cmd, 0, &frame, size_of(frame))
 		sdl.PushGPUFragmentUniformData(cmd, 0, &material, size_of(material))
 		paint := [1]^sdl.GPUBuffer{mb.paint if mb.paint != nil else r.no_paint}
 		sdl.BindGPUVertexStorageBuffers(pass, 0, &paint[0], 1)
+		matcap := [1]sdl.GPUTextureSamplerBinding{{texture = item.matcap if item.matcap != nil else r.no_matcap, sampler = r.matcap_sampler}}
+		sdl.BindGPUFragmentSamplers(pass, 0, &matcap[0], 1)
 		vbufs := [2]sdl.GPUBufferBinding{{buffer = mb.positions}, {buffer = mb.normals}}
 		sdl.BindGPUVertexBuffers(pass, 0, &vbufs[0], len(vbufs))
 		draw_item_triangles(r, pass, item, stats)

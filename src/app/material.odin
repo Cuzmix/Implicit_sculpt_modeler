@@ -13,6 +13,9 @@ Material :: struct {
 	shading:   [4]f32,
 	metallic:  f32,
 	roughness: f32,
+	// A matcap shades it instead of the lights: 1 + an index into MATCAP_RECIPES, or
+	// MATCAP_IMAGE for the loaded image; 0 for none (matcaps.odin).
+	matcap:    int,
 }
 
 // The View menu's materials. Clay is what the viewport always used; wrap lets the light
@@ -20,23 +23,32 @@ Material :: struct {
 // physically based: metals take their colour from measured reflectances (linear F0), and
 // the classic `shading` is left at the default as they do not use it.
 MATERIALS := [?]Material {
-	{"Clay", {0.55, 0.40, 0.32, 1}, {0.42, 0.42, 0.44, 1}, {0.08, 0.2, 40, 0}, 0, 0},
-	{"Red wax", {0.62, 0.16, 0.12, 1}, {0.40, 0.30, 0.29, 1}, {0.06, 0.45, 60, 0.35}, 0, 0},
-	{"White", {0.82, 0.82, 0.80, 1}, {0.50, 0.50, 0.52, 1}, {0.12, 0.15, 24, 0.1}, 0, 0},
-	{"Grey", {0.50, 0.50, 0.52, 1}, {0.34, 0.34, 0.36, 1}, {0.10, 0.35, 80, 0}, 0, 0},
-	{"Skin", {0.78, 0.55, 0.45, 1}, {0.45, 0.40, 0.38, 1}, {0.07, 0.12, 20, 0.5}, 0, 0},
-	{"Gold", {1.00, 0.77, 0.34, 1}, {0.42, 0.42, 0.44, 1}, {}, 1, 0.30},
-	{"Copper", {0.95, 0.64, 0.54, 1}, {0.42, 0.42, 0.44, 1}, {}, 1, 0.35},
-	{"Chrome", {0.55, 0.56, 0.55, 1}, {0.42, 0.42, 0.44, 1}, {}, 1, 0.08},
-	{"Steel", {0.56, 0.57, 0.58, 1}, {0.42, 0.42, 0.44, 1}, {}, 1, 0.45},
-	{"Plastic", {0.06, 0.18, 0.55, 1}, {0.42, 0.42, 0.44, 1}, {}, 0, 0.25},
-	{"Ceramic", {0.70, 0.69, 0.66, 1}, {0.42, 0.42, 0.44, 1}, {}, 0, 0.12},
-	{"Rubber", {0.025, 0.025, 0.025, 1}, {0.42, 0.42, 0.44, 1}, {}, 0, 0.85},
-	{"PBR clay", {0.55, 0.40, 0.32, 1}, {0.42, 0.42, 0.44, 1}, {}, 0, 0.60},
+	{"Clay", {0.55, 0.40, 0.32, 1}, {0.42, 0.42, 0.44, 1}, {0.08, 0.2, 40, 0}, 0, 0, 0},
+	{"Red wax", {0.62, 0.16, 0.12, 1}, {0.40, 0.30, 0.29, 1}, {0.06, 0.45, 60, 0.35}, 0, 0, 0},
+	{"White", {0.82, 0.82, 0.80, 1}, {0.50, 0.50, 0.52, 1}, {0.12, 0.15, 24, 0.1}, 0, 0, 0},
+	{"Grey", {0.50, 0.50, 0.52, 1}, {0.34, 0.34, 0.36, 1}, {0.10, 0.35, 80, 0}, 0, 0, 0},
+	{"Skin", {0.78, 0.55, 0.45, 1}, {0.45, 0.40, 0.38, 1}, {0.07, 0.12, 20, 0.5}, 0, 0, 0},
+	{"Gold", {1.00, 0.77, 0.34, 1}, {0.42, 0.42, 0.44, 1}, {}, 1, 0.30, 0},
+	{"Copper", {0.95, 0.64, 0.54, 1}, {0.42, 0.42, 0.44, 1}, {}, 1, 0.35, 0},
+	{"Chrome", {0.55, 0.56, 0.55, 1}, {0.42, 0.42, 0.44, 1}, {}, 1, 0.08, 0},
+	{"Steel", {0.56, 0.57, 0.58, 1}, {0.42, 0.42, 0.44, 1}, {}, 1, 0.45, 0},
+	{"Plastic", {0.06, 0.18, 0.55, 1}, {0.42, 0.42, 0.44, 1}, {}, 0, 0.25, 0},
+	{"Ceramic", {0.70, 0.69, 0.66, 1}, {0.42, 0.42, 0.44, 1}, {}, 0, 0.12, 0},
+	{"Rubber", {0.025, 0.025, 0.025, 1}, {0.42, 0.42, 0.44, 1}, {}, 0, 0.85, 0},
+	{"PBR clay", {0.55, 0.40, 0.32, 1}, {0.42, 0.42, 0.44, 1}, {}, 0, 0.60, 0},
+	// The matcaps, in white so their pictures show as painted.
+	{"Red wax MatCap", {1, 1, 1, 1}, MATCAP_IDLE, {}, 0, 0, 1},
+	{"Clay MatCap", {1, 1, 1, 1}, MATCAP_IDLE, {}, 0, 0, 2},
+	{"Grey MatCap", {1, 1, 1, 1}, MATCAP_IDLE, {}, 0, 0, 3},
+	{"Skin MatCap", {1, 1, 1, 1}, MATCAP_IDLE, {}, 0, 0, 4},
+	{"Pearl MatCap", {1, 1, 1, 1}, MATCAP_IDLE, {}, 0, 0, 5},
+	{"Toon MatCap", {1, 1, 1, 1}, MATCAP_IDLE, {}, 0, 0, 6},
 }
 
 // The index of the first physically based material, where the View menu starts a new group.
 FIRST_PBR :: 5
+// The index of the first matcap, where the next group starts.
+FIRST_MATCAP :: 13
 
 // app.material's value for the material the View > Material sliders made (app.custom).
 CUSTOM_MATERIAL :: len(MATERIALS)
