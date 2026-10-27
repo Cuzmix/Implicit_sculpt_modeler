@@ -280,7 +280,8 @@ lights_are_remembered :: proc(t: ^testing.T) {
 	defer results_destroy(&a)
 	lights_reset(&a)
 	a.start_lights.lights[2] = {on = true, kind = .Spot, space = .Scene, dir = linalg.normalize([3]f32{0.2, -0.5, -0.6}), pos = {1.5, -2, 3.25}, strength = 1.4, ref = 2.5, reach = 7, cone = 33, blend = 0.6, color = {0.9, 0.3, 0.1}}
-	a.start_lights.lights[6] = {on = true, kind = .Point, dir = {0, 1, 0}, strength = 0.5, cone = 45, color = 1}
+	a.start_lights.lights[6] = {on = true, kind = .Point, dir = {0, 1, 0}, strength = 0.5, cone = 45, color = 1, kelvin = 3200}
+	light_name_set(&a.start_lights.lights[6], "Warm #2 lamp")
 	a.start_lights.lights[0].on = false
 	a.start_lights.ambient, a.start_lights.count = 0.4, 7
 	testing.expect(t, settings_save(&a, path))
@@ -292,6 +293,7 @@ lights_are_remembered :: proc(t: ^testing.T) {
 		x, y := a.start_lights.lights[i], b.start_lights.lights[i]
 		testing.expectf(t, x.on == y.on && x.kind == y.kind && x.space == y.space, "light %d: %v against %v", i + 1, y, x)
 		testing.expectf(t, near(y.dir, x.dir, 1e-4) && near(y.pos, x.pos, 1e-4) && near(y.color, x.color, 1e-5), "light %d at %v against %v", i + 1, y, x)
+		testing.expectf(t, y.kelvin == x.kelvin && y.name == x.name, "light %d named %q at %v K against %q at %v K", i + 1, light_name(&b.start_lights, i), y.kelvin, light_name(&a.start_lights, i), x.kelvin)
 		testing.expectf(t, abs(y.strength - x.strength) < 1e-5 && abs(y.ref - x.ref) < 1e-5 && abs(y.reach - x.reach) < 1e-5 && abs(y.cone - x.cone) < 1e-4 && abs(y.blend - x.blend) < 1e-5, "light %d: %v against %v", i + 1, y, x)
 	}
 	testing.expect_value(t, b.start_lights.ambient, 0.4)
@@ -339,6 +341,7 @@ light_keys_name_their_fields :: proc(t: ^testing.T) {
 		_, ok := light_color_key(key)
 		testing.expect(t, ok && script_line(key).parse != nil)
 	}
+	for key, i in LIGHT_NAME_KEYS do testing.expect_value(t, key, fmt_light_key(i, "name"))
 	_, ok := light_setting(0, "light9_on")
 	testing.expect(t, !ok)
 }
@@ -359,7 +362,8 @@ fmt_light_key :: proc(i: int, field: string) -> string {
 @(test)
 lights_round_trip_in_the_scene_file :: proc(t: ^testing.T) {
 	set := LIGHTS_DEFAULT
-	set.lights[1] = {on = true, kind = .Spot, space = .Scene, dir = {0.1, -0.2, 0.3}, pos = {-4, 5.5, 1e-3}, strength = 1.75, ref = 3, reach = 12, cone = 70, blend = 0.4, color = {0.2, 0.4, 1}}
+	set.lights[1] = {on = true, kind = .Spot, space = .Scene, dir = {0.1, -0.2, 0.3}, pos = {-4, 5.5, 1e-3}, strength = 1.75, ref = 3, reach = 12, cone = 70, blend = 0.4, color = {0.2, 0.4, 1}, kelvin = 4100}
+	light_name_set(&set.lights[1], "Rim ü")
 	set.count, set.ambient = 3, 0.25
 	out: [dynamic]u8
 	defer delete(out)
@@ -393,6 +397,23 @@ lights_round_trip_in_the_scene_file :: proc(t: ^testing.T) {
 	damage(t, set, 5 + 3, 0xff, 4) // the first direction's x a NaN
 	damage(t, set, 5 + 3 + 24, 0xff, 4) // the strength a NaN
 	damage(t, set, 5 + 3 + 24 + 12, 0, 4) // the cone 0 degrees
+	LIGHT_BYTES :: 3 + 24 + 5 * 4 + 12 + 4 + LIGHT_NAME
+	damage(t, set, 5 + LIGHT_BYTES + 59, 0x10, 4) // the second light's temperature far too cold
+	damage(t, set, 5 + LIGHT_BYTES + 63 + LIGHT_NAME - 1, 'x') // its name not ended by a zero
+	damage(t, set, 5 + LIGHT_BYTES + 63 + 1, 0xff) // its name not UTF-8
+	damage(t, set, 5 + LIGHT_BYTES + 63 + 10, 'x') // a byte after its name's zero
+	// A file from before version 20 has neither, and reads as no temperature and no name.
+	clear(&out)
+	set.count = 2
+	lights_put(&out, set)
+	old: [dynamic]u8
+	defer delete(old)
+	append(&old, ..out[:5])
+	for i in 0 ..< 2 do append(&old, ..out[5 + i * LIGHT_BYTES:][:LIGHT_BYTES - 4 - LIGHT_NAME])
+	r = geom.byte_reader(old[:])
+	back, ok = lights_get(&r, LIGHTS_DEFAULT, 19)
+	testing.expect(t, ok && r.at == len(old))
+	testing.expect(t, back.lights[1].kelvin == 0 && back.lights[1].name == {} && back.lights[1].color == set.lights[1].color)
 	// Cut short.
 	clear(&out)
 	lights_put(&out, set)
@@ -540,4 +561,53 @@ place_highlight_puts_the_highlight_under_the_finger :: proc(t: ^testing.T) {
 	l := app.scene.lights.lights[3]
 	testing.expectf(t, abs(linalg.length(l.pos - hit) - 2.5) < 1e-4, "the spot stands %v from the spot it lights", linalg.length(l.pos - hit))
 	testing.expectf(t, near(linalg.normalize(l.pos - hit), l.dir, 1e-5), "the spot is aimed at it: %v", l.dir)
+}
+
+// A colour temperature shines warm below daylight and cool above it, its largest channel
+// 1; a light with one shines in it whatever its colour, and a name is cut to what fits
+// without splitting a character, or the light keeps its number for a name.
+@(test)
+colour_temperatures_and_names :: proc(t: ^testing.T) {
+	day := kelvin_rgb(6500)
+	testing.expectf(t, min(day.r, day.g, day.b) > 0.9 && max(day.r, day.g, day.b) == 1, "6500 K is %v", day)
+	warm := kelvin_rgb(2700)
+	testing.expectf(t, warm.r == 1 && warm.g < 0.75 && warm.b < 0.5, "2700 K is %v", warm)
+	cool := kelvin_rgb(10000)
+	testing.expectf(t, cool.b == 1 && cool.r < 0.85, "10000 K is %v", cool)
+	testing.expect(t, kelvin_rgb(3000).b < kelvin_rgb(4000).b && kelvin_rgb(4000).b < kelvin_rgb(5000).b)
+	l := Light{color = {0.1, 0.2, 0.3}}
+	testing.expect_value(t, light_rgb(l), [3]f32{0.1, 0.2, 0.3})
+	l.kelvin = 2700
+	testing.expect_value(t, light_rgb(l), warm)
+
+	set := LIGHTS_DEFAULT
+	testing.expect_value(t, light_name(&set, 2), "Light 3")
+	light_name_set(&set.lights[2], "  Key ##light  ")
+	testing.expect_value(t, light_name(&set, 2), "Key #light")
+	// 22 ASCII letters then a two-byte letter: the letter does not fit in 23 bytes whole.
+	light_name_set(&set.lights[2], "abcdefghijklmnopqrstuvé")
+	testing.expect_value(t, light_name(&set, 2), "abcdefghijklmnopqrstuv")
+	testing.expect_value(t, set.lights[2].name[LIGHT_NAME - 1], 0)
+	free_all(context.temp_allocator)
+}
+
+// The Distance slider moves a point light or a spot along the line from the orbit's
+// centre, and a spot keeps pointing the way it did.
+@(test)
+light_distance_moves_along_the_line_from_the_centre :: proc(t: ^testing.T) {
+	app: App
+	app.camera = camera.orbit_default()
+	app.camera.target = {0.5, 0, -0.25}
+	lights_reset(&app)
+	for space in Light_Space {
+		app.scene.lights.lights[2] = {on = true, kind = .Spot, dir = linalg.normalize([3]f32{0, 1, 1}), pos = {1, 2, 2}, ref = 2, strength = 1, color = 1, cone = 45}
+		light_set_space(&app, 2, space)
+		before := light_world_pos(&app, app.scene.lights.lights[2])
+		pointing := light_world_dir(&app, 2)
+		light_set_center_distance(&app, 2, 7.5)
+		after := light_world_pos(&app, app.scene.lights.lights[2])
+		testing.expectf(t, abs(light_center_distance(&app, 2) - 7.5) < 1e-4, "%v: %v from the centre", space, light_center_distance(&app, 2))
+		testing.expect(t, near(linalg.normalize(after - app.camera.target), linalg.normalize(before - app.camera.target), 1e-5))
+		testing.expect(t, near(light_world_dir(&app, 2), pointing, 1e-5))
+	}
 }

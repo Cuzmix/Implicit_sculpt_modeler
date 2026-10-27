@@ -811,6 +811,23 @@ def place_highlight_lights_where_the_finger_taps():
                                                              "light1": lambda v: all(abs(float(a) - b) < 0.03 for a, b in zip(v.split(","), (0, 0, 1)))})
 
 
+# The Lights section's name field for the picked light, with every option shown.
+LIGHT_NAME_FIELD = (1376, 748)
+
+
+@scenario
+def light_renamed_by_typing_is_one_step():
+    """In Scene: Lights, with every option shown, a tap on the name field and typing "Key lamp" then Enter names the first light; the typing is one undo step and nothing is sculpted."""
+    s = Script()
+    write_settings("all_options 1\n")
+    s.ftap(*LIGHT_NAME_FIELD)
+    s.wait(4)
+    s.type("Key lamp")
+    s.press("Return")
+    s.wait(4)
+    return s, ["--script=show_section lights", f"--settings-file={settings_file()}"], camera_still({"dabs": near(0), "light1_name": is_text("Key_lamp"), "undo_steps": near(1)})
+
+
 # The Mask section's Steps slider, where the tray shows it at 1600 x 900.
 MASK_STEPS = (1376, 362)
 

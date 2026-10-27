@@ -18,6 +18,9 @@ import "../ui"
 // and KeyShot's highlight tool do: a sun turns, a point light or a spot moves round the
 // spot at the distance it was, a spot aimed at it. Each drag is one undo step.
 
+// The Lights section's Distance range, as shares of the camera's distance.
+LIGHT_DISTANCE_MIN :: 0.05
+LIGHT_DISTANCE_MAX :: 20
 // The circle the suns' markers stand on, as a share of the viewport's shorter side.
 SUN_MARKER_RADIUS :: 0.42
 // How far inside the viewport's edge a marker held there stands, in points.
@@ -71,6 +74,20 @@ light_set_world :: proc(app: ^App, i: int, dir: Vec3, at: Maybe(Vec3) = nil) {
 @(private = "file")
 view_proj_of :: proc(app: ^App, size: [2]f32) -> matrix[4, 4]f32 {
 	return camera.orbit_proj(app.camera, size.x / max(size.y, 1)) * camera.orbit_view(app.camera)
+}
+
+// How far point or spot light `i` stands from the orbit's centre.
+light_center_distance :: proc(app: ^App, i: int) -> f32 {
+	return linalg.length(light_world_pos(app, app.scene.lights.lights[i]) - app.camera.target)
+}
+
+// Moves point or spot light `i` toward or away from the orbit's centre to `far` from it,
+// pointing as it did.
+light_set_center_distance :: proc(app: ^App, i: int, far: f32) {
+	at := light_world_pos(app, app.scene.lights.lights[i])
+	out := at - app.camera.target
+	way := linalg.normalize(out) if linalg.length(out) > 1e-6 else light_world_dir(app, i)
+	light_set_world(app, i, light_world_dir(app, i), app.camera.target + way * far)
 }
 
 // Where a dragged spot is aimed: as far along its direction as the orbit's centre is.
@@ -274,7 +291,7 @@ draw_light_markers :: proc(app: ^App, o: Overlay, size: [2]f32) {
 			if e, seen := gizmo.project(vp, spot_aim(app, i), size); seen do overlay_line(o, s, e, overlay_color({1, 0.9, 0.6, 0.6 * alpha}), 1.5 * px)
 		}
 		r := (12 if edge else 15) * px
-		shown := l.color
+		shown := light_rgb(l)
 		for &c in shown do c = srgb_encode(min(c, 1))
 		if front {
 			overlay_disc(o, s, r, overlay_color({0.08, 0.08, 0.09, 0.85 * alpha}))
