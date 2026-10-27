@@ -64,6 +64,8 @@ Theme :: struct {
 	tooltip_time:   f32,
 	// A finger or a pen held still on a control this long is a long press (long_due),
 	// and the ring that counts toward it shows from long_ring on, so a tap shows nothing.
+	// Shorter than Android's 0.4 s and iOS's and Flutter's 0.5 s, since a long press here
+	// is a tool (a value's drag, a menu) used again and again rather than a rare extra.
 	long_press:     f32,
 	long_ring:      f32,
 	popover_time:   f32,
@@ -113,7 +115,7 @@ THEME_DARK :: Theme {
 	hover_time     = 0.14,
 	tooltip_delay  = 0.45,
 	tooltip_time   = 0.15,
-	long_press     = 0.45,
+	long_press     = 0.3,
 	long_ring      = 0.15,
 	popover_time   = 0.18,
 	indicator_time = 0.22,
@@ -164,7 +166,7 @@ THEME_STUDIO :: Theme {
 	hover_time     = 0.14,
 	tooltip_delay  = 0.45,
 	tooltip_time   = 0.15,
-	long_press     = 0.45,
+	long_press     = 0.3,
 	long_ring      = 0.15,
 	popover_time   = 0.18,
 	indicator_time = 0.22,

@@ -48,6 +48,7 @@ Options :: struct {
 	dump_viewport: string `usage:"On exit, write the last viewport image to this path: a PNG, or a binary PPM when it ends in .ppm (for checking renders), as Menu > Save screenshot does."`,
 	check_mesh: bool `usage:"On exit, check every object's current mesh (closed, consistently wound, no degenerate triangles or NaN) and print the counts as mesh_* lines (slow on large meshes)."`,
 	no_partial: bool `usage:"Redraw the whole viewport every frame instead of only what changed (for comparison)."`,
+	no_trace: bool `usage:"Give the studio render's occlusion and shadow from shadow maps only, never by casting rays at the triangles (for comparison)."`,
 	no_simplify: bool `usage:"Draw every chunk at full detail while the view moves too, instead of simplified copies of the far ones (for comparison)."`,
 	orbit:     bool `usage:"Turn the camera around the scene by itself, once every 240 frames (to watch or time drawing while the view moves)."`,
 	bench_stroke: int `usage:"Run a synthetic brush stroke over this many frames, print brush stats, then exit."`,
@@ -60,6 +61,7 @@ Options :: struct {
 	density_preview: int `usage:"Show Object > Shape > Rebuild's density checkerboard on the selected object for an even remesh of this many vertices, held on as holding its Density slider shows it (for screenshots and timing)."`,
 	bench_tilt: f32 `usage:"Lean the synthetic pen of --bench-stroke this many degrees to the right (with set tilt_strength in a start-up script)."`,
 	no_vsync:  bool `usage:"Show each frame as soon as it is ready instead of waiting for the display's refresh, so frame times are not capped at the refresh rate."`,
+	idle_sleep: bool `usage:"Rest when idle (Settings > System) in a scripted run too, which otherwise never rests: for testing it."`,
 	frame_limit: int `usage:"Draw at most N frames a second (Settings > System > Frame rate > Limit)."`,
 	time_gpu:  bool `usage:"Measure the GPU time of the 3D viewport every frame. Waits for the GPU each frame, so frames no longer overlap."`,
 	gpubench:  string `usage:"Time the GPU and CPU while orbiting and sculpting one sphere at 500k, 1M, 5M, 7M and 10M vertices (only --vertices when given), with each speed setting on and off; write the markdown tables to this path and exit."`,
@@ -264,6 +266,8 @@ App :: struct {
 	frame_rate:  Frame_Rate, // how often to draw (frame_rate.odin), applied at the start of the next frame
 	frame_limit: i32,        // frames a second at most, for Frame_Rate.Limit
 	pacer:       Frame_Pacer,
+	idle_sleep:  bool, // rest between frames while nothing changes (idle.odin)
+	idle:        Idle,
 	msaa:     Msaa, // wanted anti-aliasing, applied before the next frame sizes the viewport (msaa.odin)
 	time_gpu: bool, // wait for each frame's 3D work, to measure its GPU time
 	window:   ^sdl.Window, // what file dialogs belong to
@@ -383,6 +387,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	if opts.compute_bench != "" do return computebench_run(&app, opts.compute_bench, opts.vertices)
 	app.scene.selected = -1
 	defer render.mesh_buffers_destroy(&app.renderer, &app.ui.boolean.preview)
+	defer geom.mesh_destroy(&app.ui.boolean.preview_mesh)
 	defer boolean_coarse_drop(&app)
 	defer scene_destroy(&app)
 	defer history_destroy(&app.history)
@@ -486,10 +491,13 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	app.custom.label = "Custom"
 	app.renderer.cull = !opts.no_cull
 	app.renderer.partial = !opts.no_partial
+	app.renderer.trace = !opts.no_trace
 	app.simplify = !opts.no_simplify
 	app.simplify_px = 1
 	app.frame_rate = .Unlimited if opts.no_vsync || opts.gpubench != "" else .Match_Display
 	app.frame_limit = FRAME_LIMIT_DEFAULT
+	app.idle_sleep = true
+	app.idle.forced = opts.idle_sleep
 	app.msaa = MSAA_DEFAULT
 	// Before the settings file, which brings back what earlier runs chose.
 	app.cavity, app.ridge = CAVITY_DEFAULT, RIDGE_DEFAULT
@@ -560,7 +568,10 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		sdl.ReleaseGPUFence(app.renderer.device, present_fence)
 	}
 
+	// Only a run a person drives rests when idle; a scripted one keeps every frame.
+	driven := interactive && opts.run == "" && opts.script == "" && opts.ui_events == "" && opts.load_strokes == "" && opts.timelapse == "" && !opts.orbit
 	for app.running {
+		idle_rest(&app, driven)
 		frame_start := time.tick_now()
 		// A waiting save or export goes first: before a scene command or file request
 		// changes what it would write. A second Save during a save (Ctrl+S again) is
@@ -661,6 +672,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		if !setting_up do kit_events_push(&app, window)
 		e: sdl.Event
 		for sdl.PollEvent(&e) {
+			app.idle.events += 1
 			// Space over the viewport is the brush pie's (pie.odin) rather than a key of the
 			// frame; once it went down there, its release is the pie's too.
 			if (e.type == .KEY_DOWN || e.type == .KEY_UP) && e.key.scancode == .SPACE {
@@ -749,8 +761,9 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		shape_pending_frame(&app, input.size)
 		// A gizmo drag the tool changed under ends as it is.
 		if app.tool != .Move do move_end(&app)
-		// A press that picks a polygroup for its material (Pick a group) is no tool's.
-		if group_pick_frame(&app, input) {
+		// A press that picks a polygroup for its material (Pick a group) or a colour (the
+		// Eyedropper) is no tool's.
+		if group_pick_frame(&app, input) || eyedropper_frame(&app, input) {
 			brush_stroke_finish(&app)
 		} else {
 			switch app.tool {
@@ -832,6 +845,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 					lights    = viewport_lights(&app),
 					wireframe = selected && app.wireframe && app.polyframe_lines,
 					live      = live,
+					source    = &vp.clay.surface.mesh,
 					chunks    = vp.clay.surface.chunks[:],
 					damage    = damage,
 				})
@@ -889,6 +903,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 					// The HD window's mesh carries no groups.
 					slots  = object_material_slots(&app, obj, i) if part == 0 && sculpt.sculptor_has_groups(&lv.sculptor) else nil,
 					live   = live,
+					source = &lv.mesh,
 					chunks = lv.sculptor.chunks,
 					chunk_groups = sculpt.sculptor_chunk_groups(&lv.sculptor),
 					damage = lv.sculptor.changed_bounds,
@@ -909,6 +924,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 				if _, ghost := object_flags(&app, base); ghost do color.rgb *= GHOST_SHADE
 				append(&draws, render.Draw_Item {
 					mesh     = &b.preview,
+					source   = &b.preview_mesh,
 					model    = transform_matrix(base.transform),
 					color    = color,
 					material = material.shading,
@@ -933,7 +949,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		if app.studio_on {
 			// Anything redrawn this frame starts the samples over.
 			changed := !drawn.partial || drawn.redrawn_px > 0
-			app.studio_on = render.studio_frame(&app.renderer, &app.studio, cmd, &app.target, view, proj, draws[:], changed, int(app.studio_samples), app.studio_ao, app.studio_shadow, viewport_lights(&app))
+			app.studio_on = render.studio_frame(&app.renderer, &app.studio, cmd, &app.target, view, proj, draws[:], changed, int(app.studio_samples), app.studio_ao, app.studio_shadow, viewport_lights(&app), &app.pool)
 		}
 		live_ao_view_frame(&app, cmd, view, proj, draws[:], drawn)
 
@@ -1014,6 +1030,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		app.stats.cache_redraws += int(drawn.cache_redrawn)
 		app.stats.partial_frames += int(drawn.partial)
 		if lod_ms >= 0 do ring_push(&app.stats.lod_ms, lod_ms)
+		idle_note(&app, drawn, sculpted.dabs)
 		if sculpted.dabs > 0 {
 			ring_push(&app.stats.raycast_ms, sculpted.raycast_ms)
 			ring_push(&app.stats.brush_ms, sculpted.brush_ms)
@@ -1206,6 +1223,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			bg := app.background
 			fmt.printfln("background_gradient=%d background_top=%s background_bottom=%s", int(bg.gradient), hex_text(bg.top), hex_text(bg.bottom))
 			lao := app.live_ao
+			tr := app.studio.trace
+			fmt.printfln("trace=%d trace_mb=%.1f trace_build_ms=%.1f trace_chunks_built=%d", tr.samples, f64(tr.bytes) / (1 << 20), tr.build_ms, tr.chunks_built)
 			fmt.printfln("live_ao=%d live_ao_full=%d live_ao_partial=%d live_ao_skipped=%d", int(app.live_ao_on), lao.full, lao.partial, lao.skipped)
 			env := app.env
 			fmt.printfln("environment=%s environment_size=%dx%d environment_background=%d environment_mb=%.1f", "image" if env.kind == .Image && env.gpu.source != nil else "built_in", env.gpu.width, env.gpu.height, int(env.background), f32(render.environment_bytes(env.gpu)) / (1024 * 1024))
@@ -1291,8 +1310,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		recall_pinned := false
 		if obj := selected_object(&app); obj != nil do recall_pinned = sculpt.sculptor_recall_pinned(object_sculptor(obj))
 		fmt.printfln("recall_back=%d recall_reach=%d recall_pinned=%d recall_ms=%.1f", recall_back, recall_reach, int(recall_pinned), app.stats.recall_ms)
-		open := [Kit_Window]bool{.Inspector = k.inspector && !side_panel_open(k), .Stats = k.stats, .History = k.history, .Settings = k.settings, .Help = k.help, .Macros = k.macros, .Library = k.library, .Objects = k.objects_card}
-		names := [Kit_Window]string{.Inspector = "inspector", .Stats = "stats", .History = "history panel", .Settings = "settings", .Help = "help", .Macros = "macros", .Library = "library", .Objects = "objects card"}
+		open := [Kit_Window]bool{.Inspector = k.inspector && !side_panel_open(k), .Stats = k.stats, .History = k.history, .Settings = k.settings, .Help = k.help, .Macros = k.macros, .Library = k.library, .Objects = k.objects_card, .Colors = k.colors_card}
+		names := [Kit_Window]string{.Inspector = "inspector", .Stats = "stats", .History = "history panel", .Settings = "settings", .Help = "help", .Macros = "macros", .Library = "library", .Objects = "objects card", .Colors = "colors card"}
 		for w, which in k.windows {
 			r := ui.prev_rect(&k.ctx, names[which])
 			fmt.printf("window_%s=%d,%d,%.0f,%.0f ", strings.to_lower(fmt.tprint(which), context.temp_allocator), int(open[which]), int(w.minimized), r.x, r.y)
@@ -1313,6 +1332,9 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		color_hex_format(app.brush.color, main_hex[:])
 		color_hex_format(app.brush.color2, second_hex[:])
 		fmt.printfln("paint_channel=%s paint_color=%s paint_color2=%s brush_subtract=%d painted_vertices=%d", strings.to_lower(fmt.tprint(app.brush.channel), context.temp_allocator), string(main_hex[1:7]), string(second_hex[1:7]), int(.Invert in app.rail.latched), painted)
+		// The Colors card's tab, how many colours its history and your palettes hold, and
+		// whether the eyedropper still waits for a press.
+		fmt.printfln("colors_tab=%s color_history=%d color_palettes=%d eyedropper=%d", strings.to_lower(fmt.tprint(k.colors.tab), context.temp_allocator), k.colors.history_count, k.colors.palette_count, int(app.ui.eyedrop_armed))
 		// Where the modifier rail and what must stay clear of it ended up, in points, for
 		// touch_check's window size scenarios.
 		for name in ([?]string{"modifier rail", "brush bar", "dock", "dock pages", "points", "inspector", "action bar", "coach", "view bar", "top bar", "adjust last", "shape bar"}) {
@@ -1374,6 +1396,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	fmt.printfln("idle_cache=%v cache_redraws=%d last_frame_triangles=%d msaa=%v", app.cache_idle, app.stats.cache_redraws, app.stats.viewport.triangles, app.msaa)
 	v := app.stats.viewport
 	fmt.printfln("cull=%v last_frame_draws=%d chunks=%d culled_view=%d culled_back=%d cull_ms=%.3f", app.renderer.cull, v.draws, v.chunks, v.culled_view, v.culled_back, v.cull_ms)
+	fmt.printfln("idle_rests=%d idle_rest_ms=%.0f", app.idle.rests, app.idle.rest_ms)
 	fmt.printfln("partial=%v partial_frames=%d last_frame_partial=%v last_frame_redrawn_px=%d viewport_px=%d", app.renderer.partial, app.stats.partial_frames, v.partial, v.redrawn_px, app.target.width * app.target.height)
 	lod_pending := 0
 	for obj in app.scene.objects do lod_pending += sculpt.sculptor_lod_pending(object_sculptor(obj))

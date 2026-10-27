@@ -76,6 +76,13 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   `command_button(..., icon_only = true)`: the icon alone, the label in its tooltip. Touch scenarios reach section
   bodies by header coordinates (`OBJECTS_CARD` in touch_check), which move by `CARD_ROW_H` with each row the list
   gains or loses.
+  The Colors card (`kit_colors.odin`, `Kit_Window.Colors`, `Colors_Card` command, the brush bar's Colour) is the other:
+  beside the brush bar, Procreate's tabs (`Colors_Tab`) as `brush_tile`s along its bottom over a `kit_scroll` body,
+  its state in `Kit_State.colors` (`Colors_Card`: the HSV it edits, kept apart from the RGB so a grey keeps its hue,
+  `colors_sync` re-reading it when the colour changed elsewhere; history; your palettes). A pick goes through
+  `colors_set_hsv`/`colors_set_rgb` and joins the history when the pointer lets go; `colors_pick` for taps. The
+  Eyedropper is `eyedropper_frame` beside `group_pick_frame` in the frame loop, its loupe `draw_eyedropper` in the
+  overlay; `COLORS_CARD` in touch_check holds the card's coordinates.
 - Palette tray (`kit_inspector` in `new_ui.odin`, the rest in `kit_tray.odin`; still the "inspector" window and
   layout name): palettes `Kit_Tab` Tool (`kit_tool_tab`, `kit_tool.odin`: the brush's `BRUSH_SECTIONS`; Curve and
   Insert settings; Move help), Object (`kit_object.odin`, `OBJECT_SECTIONS`) and Scene (`kit_scene.odin`: Objects,
@@ -164,7 +171,9 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   them the safe zone only when held (`Rail_Press.held`). A new `Viewport_Input` flag a stroke depends on is also a
   `Take_Frame` flag in `replay.odin` (bump `STROKES_VERSION`).
 - Long press (`ui.odin`: `Long_Press`, `long_due`, `secondary`, `long_cancel`, `long_press_decide`): a finger or pen held
-  `theme.long_press` (0.45 s) within the slop on the held widget. A widget with a secondary action calls
+  `theme.long_press` within the slop on the held widget: Settings > Touch > Hold delay (`Nav_Prefs.hold_delay`, 0.3 s by
+  default), which `kit_begin` puts in the theme each frame with `long_ring` at half of it at most; the two- and
+  three-finger hold keeps its own `HOLD_LONG` (touch.odin). A widget with a secondary action calls
   `ui.secondary(ctx)` right after it (it acts on `ctx.last_id`, which `place` clears and `interact` sets, so a disabled
   widget never passes on its neighbour's); it fires once (or on a right press and release on that widget), wins the
   arena (`press_won`) and the release is no click. Unclaimed, a widget with a tooltip shows it at frame end
@@ -200,7 +209,7 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
 - Widgets (`widgets.odin`): `label`, `paragraph`, `caption`, `icon_button`, `button` (variant, tone, width, glyph,
   enabled, keys: a tooltip hint), `toggle_button`, `tabs` (segmented control; `chosen` -1 shows none; `keys` a hint per option), `switch_row`, `slider` (linear or
   logarithmic), `vslider`, `drag_value` (drag sideways, from the press value), `text_field` (a `[]u8` buffer),
-  `select`, `list_row`, `tree_row` (indent, chevron, trailing `Row_Toggle`s, `grip` that drags the row and claims the press, `held_toggle` for a column drag: at once for a mouse, after the tooltip's hold for a finger or pen), `menu_item`, `brush_tile`, `section`/`section_end`, `value_row`, `plot`, `area` (a space to draw
+  `select`, `gradient_slider` (a track of colour stops, for channels), `swatch` (a colour cell a whole target, `long` its menu), `list_row`, `tree_row` (indent, chevron, trailing `Row_Toggle`s, `grip` that drags the row and claims the press, `held_toggle` for a column drag: at once for a mouse, after the tooltip's hold for a finger or pen), `menu_item`, `brush_tile`, `section`/`section_end`, `value_row`, `plot`, `area` (a space to draw
   into that reports the pointer: graphs, bars, thumbnails), `grey_image`, `divider`. Shapes (`ui.odin`): `fill_rect`,
   `stroke_rect`, `fill_circle`, `stroke_circle`, `line`, `polyline`, `fill_convex`, `text`, `icon`.
 - Every pressable widget has default, hover, pressed, selected and disabled looks through `feedback`; selected tabs,
@@ -250,7 +259,7 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
 | something the pen does while hovering over a control | the pen arrives as the mouse with `ui.Input.pointer == .Pen`: test `ctx.hot == ctx.last_id` after the widget and `input.down == {}`; a bar value's label carries its value, so its id changes as it does (track it by kind and rect, as `bar_roll` does); hover tooltips follow `Nav_Prefs.pen_tips` through `ui.Input.no_hover_tips`; `tip_showing=` in the exit stats is the tooltip the last frame drew |
 | a touch gesture that runs a command | a `Gesture_Slot` in `gesture_map.odin` (name, default, its place in `GESTURE_SLOT_ORDER`, `gesture_slot` for its fingers) and a `gesture_run` where it is recognised; tooltips, the palette and Help follow `gesture_text`; an overlap the user should know of is a line in `gesture_notes`, never silent. Any command `gesture_lists` allows can go on a slot: `GESTURE_CHOICES` is only the dropdown's short list, and its Any command... row opens the palette in choosing mode (`palette_open_for`, `Kit.palette_for`), where `palette_run` assigns instead of running |
 | a per-pointer strength or scale on a stroke | set it once in `stroke_start` into `Stroke` (as `Stroke.scale`, Touch strength for a finger), read it in `brush_at`; record it per stroke in `Take` and the `.strokes` file (bump `STROKES_VERSION`, old files read the neutral value), and have `replay_frame` and `dab_wait_resolve` force it through `App.stroke_scale_from`, since the pointer then is not the one that drew |
-| a curve to drag, a colour, a count | `kit_curve_editor`, `kit_color`, `kit_count` (`kit_widgets.odin`); `kit_color` shows sRGB with a hex field (`linear = true` for a colour stored as linear light, as materials are) and counts as one control in the five-control test |
+| a curve to drag, a colour, a count | `kit_curve_editor`, `kit_color`, `kit_count` (`kit_widgets.odin`); `kit_color` shows sRGB with a hex field (`kit_hex_field`, which the Colors card's Value tab shares) (`linear = true` for a colour stored as linear light, as materials are) and counts as one control in the five-control test |
 
 ## Traps
 | You might expect | What happens |

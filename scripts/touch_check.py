@@ -183,7 +183,7 @@ def line(a, b, steps):
 
 SLOP = 10  # theme.slop at UI scale 1
 UI_DT = 1 / 60  # --ui-dt: seconds the interface's clock moves a frame
-LONG_PRESS_FRAMES = 30  # theme.long_press (0.45 s) is 27 frames of UI_DT; a few more
+LONG_PRESS_FRAMES = 30  # Settings > Touch > Hold delay (0.3 s by default) is 18 frames of UI_DT; room for a longer one
 
 
 def past_slop(a, b, steps):
@@ -256,8 +256,6 @@ def tap_ui():
 SYMMETRY_AXES = {"x": (1325, 497), "y": (1377, 497), "z": (1429, 497), "local": (1489, 497)}
 RADIAL_ROW = {"radial": (1333, 575), "x": (1393, 575), "y": (1445, 575), "z": (1497, 575)}
 RADIAL_COPIES = ((1351, 639), (1530, 639))
-# The Colour section's channel tabs, in the popover the brush bar's Colour opens.
-COLOUR_CHANNEL = {"sculpt": (122, 395), "both": (216, 395), "paint": (312, 395)}
 # The Floor grid section's Back toggle, and the polyframe popover's Fill, beside the bar.
 FLOOR_BACK = (1381, 561)
 POLYFRAME_FILL = (1450, 638)
@@ -287,10 +285,10 @@ def long_press_draw_size_opens_the_pen():
     return s, [], camera_still({"dabs": near(0), "bar_pop": is_text("pen"), "brush_radius_px": near(60)})
 
 
-def long_press_drag(s, x, y, dy, finger=0, steps=10):
+def long_press_drag(s, x, y, dy, finger=0, steps=10, frames=LONG_PRESS_FRAMES):
     """A long press on (x, y), then, still held, a drag `dy` points down (negative: up) and a lift."""
     s.add(f"fdown:{finger}:{x:g},{y:g}")
-    s.wait(LONG_PRESS_FRAMES)
+    s.wait(frames)
     for k in range(1, steps + 1):
         s.add(f"fmove:{finger}:{x:g},{y + dy * k / steps:g}")
         s.wait(1)
@@ -305,6 +303,33 @@ def long_press_drag_draw_size():
     long_press_drag(s, *UI["size"], -150 - 10)
     s.wait(4)
     return s, [], camera_still({"dabs": near(0), "bar_pop": is_text("none"), "brush_radius_px": lambda v: 105 < float(v) <= 120})
+
+
+@scenario
+def hold_delay_is_short_by_default():
+    """Draw size held 0.35 s, just past the default Hold delay of 0.3 s, then dragged up scrubs the size: the hold is no longer the 0.45 s it was."""
+    s = Script()
+    long_press_drag(s, *UI["size"], -150 - 10, frames=21)
+    s.wait(4)
+    return s, [], camera_still({"dabs": near(0), "bar_pop": is_text("none"), "brush_radius_px": lambda v: 105 < float(v) <= 120})
+
+
+@scenario
+def hold_delay_setting_keeps_a_shorter_hold_a_tap():
+    """With the Hold delay at 0.8 s, Draw size held 0.5 s is still a tap: its slider opens, not the Pen section."""
+    s = Script()
+    long_press(s, *UI["size"], frames=30)
+    s.wait(8)
+    return s, ["--script=set hold_delay 0.8"], camera_still({"dabs": near(0), "bar_pop": is_text("size"), "long_tip": lambda v: v == "none"})
+
+
+@scenario
+def hold_delay_setting_still_long_presses():
+    """With the Hold delay at 0.8 s, Draw size held 0.9 s is a long press: the Pen section opens."""
+    s = Script()
+    long_press(s, *UI["size"], frames=54)
+    s.wait(8)
+    return s, ["--script=set hold_delay 0.8"], camera_still({"dabs": near(0), "bar_pop": is_text("pen"), "brush_radius_px": near(60)})
 
 
 @scenario
@@ -422,23 +447,107 @@ def channel_button_paints_with_draw():
 @scenario
 def colour_long_press_swaps_colours():
     """A long press on the brush bar's Colour swaps the main and secondary colours and opens
-    nothing; a tap opens the Colour section, whose Paint makes the brushes only paint, so a
-    Draw stroke paints and leaves the model where it was."""
+    nothing; two taps on the channel make the brushes only paint, so a Draw stroke paints
+    and leaves the model where it was."""
     s = Script()
     long_press(s, *UI["colour"])
     s.wait(8)
     paint = Script()
-    paint.ftap(*UI["colour"])
-    paint.wait(8)
-    paint.ftap(*COLOUR_CHANNEL["paint"])
+    paint.ftap(*UI["channel"])
+    paint.ftap(*UI["channel"])
     paint.wait(4)
-    paint.ftap(*UI["colour"])
-    paint.wait(8)
     paint.mouse_drag([(760 + 8 * i, 300 + 4 * i) for i in range(8)])
     paint.wait(4)
-    return Steps([(s, [], camera_still({"paint_color": is_text("F2EBD9"), "paint_color2": is_text("BF3326"), "bar_pop": is_text("none")})),
+    return Steps([(s, [], camera_still({"paint_color": is_text("F2EBD9"), "paint_color2": is_text("BF3326"), "bar_pop": is_text("none"),
+                                        "window_colors": lambda v: v.startswith("0,")})),
                   (paint, [], {"paint_channel": is_text("color"), "painted_vertices": lambda v: int(v) > 0, "undo_steps": near(1),
                                "bar_pop": is_text("none")})])
+
+
+# The Colors card beside the brush bar at 1600 x 900: its header's buttons, its tabs, the
+# first swatch of the default palette (Skin) under the Disc and the Value tab's hex field.
+COLORS_CARD = {"main": (102, 173), "secondary": (150, 173), "swap": (198, 173), "fill": (246, 173), "gradient": (294, 173),
+               "eyedropper": (342, 173), "close": (390, 173), "disc": (110, 760), "classic": (178, 760), "harmony": (246, 760),
+               "value": (314, 760), "palettes": (381, 760), "skin": (102, 645), "hex": (353, 432)}
+
+
+@scenario
+def colors_card_picks_a_swatch():
+    """A tap on the brush bar's Colour opens the Colors card; a tap on a palette swatch makes
+    it the main colour and puts it in the history; Classic stays the tab picked; Close
+    puts the card away; nothing is sculpted and the view stays."""
+    s = Script()
+    s.ftap(*UI["colour"])
+    s.wait(10)
+    s.ftap(*COLORS_CARD["skin"])
+    s.wait(4)
+    s.ftap(*COLORS_CARD["classic"])
+    s.wait(4)
+    closed = Script()
+    closed.ftap(*UI["colour"])
+    closed.wait(10)
+    closed.ftap(*COLORS_CARD["close"])
+    closed.wait(10)
+    return Steps([(s, [], camera_still({"window_colors": lambda v: v.startswith("1,"), "paint_color": is_text("F8E1D4"), "color_history": near(1),
+                                        "colors_tab": is_text("classic"), "dabs": near(0)})),
+                  (closed, [], {"window_colors": lambda v: v.startswith("0,"), "dabs": near(0)})])
+
+
+@scenario
+def colors_secondary_swatch_takes_the_pick():
+    """With the secondary swatch chosen, a palette swatch sets the secondary colour and leaves the main one."""
+    s = Script()
+    s.ftap(*UI["colour"])
+    s.wait(10)
+    s.ftap(*COLORS_CARD["secondary"])
+    s.wait(4)
+    s.ftap(*COLORS_CARD["skin"])
+    s.wait(4)
+    return s, [], {"paint_color": is_text("BF3326"), "paint_color2": is_text("F8E1D4"), "dabs": near(0)}
+
+
+@scenario
+def colors_eyedropper_picks_from_the_model():
+    """Fill gradient paints the model as one undo step; the Eyedropper then waits for a finger on the
+    model, whose drag and lift pick the paint under it, sculpting nothing and turning nothing."""
+    s = Script()
+    s.ftap(*UI["colour"])
+    s.wait(10)
+    s.ftap(*COLORS_CARD["gradient"])
+    s.wait(4)
+    s.ftap(*COLORS_CARD["eyedropper"])
+    s.wait(4)
+    s.fdrag([(800, 220)] + line((800, 240), (800, 260), 6))
+    s.wait(4)
+    return s, [], camera_still({"undo_steps": near(1), "dabs": near(0), "eyedropper": near(0), "color_history": near(1),
+                                "paint_color": lambda v: v != "BF3326", "painted_vertices": lambda v: int(v) > 0})
+
+
+@scenario
+def colors_eyedropper_key_picks_under_the_pointer():
+    """Shift+C over the model picks the colour under the pointer at once: unpainted, the clay's."""
+    s = Script()
+    s.add("move:800,300")
+    s.wait(4)
+    s.press("c", mods=("shift",))
+    s.wait(4)
+    return s, [], camera_still({"paint_color": lambda v: v != "BF3326", "color_history": near(1), "dabs": near(0), "eyedropper": near(0)})
+
+
+@scenario
+def colors_value_hex_sets_the_colour():
+    """On the Value tab, typing a hex code and Enter sets the main colour."""
+    s = Script()
+    s.ftap(*UI["colour"])
+    s.wait(10)
+    s.ftap(*COLORS_CARD["value"])
+    s.wait(6)
+    s.ftap(*COLORS_CARD["hex"])
+    s.wait(4)
+    s.type("3A7")
+    s.press("Return")
+    s.wait(4)
+    return s, [], {"paint_color": is_text("33AA77"), "color_history": near(1), "dabs": near(0)}
 
 
 @scenario
@@ -3210,11 +3319,11 @@ def slow_tap_on_a_folded_title_still_opens_it():
 
 @scenario
 def a_press_short_of_long_still_taps():
-    """A finger held 0.3 s on the Inspector button is still a tap: no tooltip, and the inspector closes."""
+    """A finger held 0.2 s on the Inspector button, short of the 0.3 s Hold delay, is still a tap: no tooltip, and the inspector closes."""
     s = Script()
     x, y = INSPECTOR_BUTTON
     s.add(f"fdown:0:{x:g},{y:g}")
-    s.wait(18)
+    s.wait(12)
     s.add(f"fup:0")
     s.wait(4)
     return s, [], camera_still({"long_tip": lambda v: v == "none", "window_inspector": lambda v: v.startswith("0,")})

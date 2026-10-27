@@ -81,11 +81,18 @@ rect_narrow :: proc(rect: Rect, width, height: u32) -> Mat4 {
 	}
 }
 
-// A sphere around every item's chunks in the world. False with nothing to draw.
+// A sphere around every item's chunks in the world, or for an item without chunks (the
+// live boolean's preview), its CPU mesh's vertices. False with nothing to draw.
 @(private)
 scene_sphere :: proc(items: []Draw_Item) -> (center: [3]f32, radius: f32, ok: bool) {
 	box := geom.AABB_EMPTY
 	for item in items {
+		if len(item.chunks) == 0 && item.source != nil {
+			for p in item.source.positions {
+				w := item.model * [4]f32{p.x, p.y, p.z, 1}
+				geom.aabb_grow(&box, w.xyz)
+			}
+		}
 		for c in item.chunks {
 			if c.bounds.lo.x > c.bounds.hi.x do continue
 			for corner in 0 ..< 8 {

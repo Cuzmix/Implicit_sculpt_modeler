@@ -1396,3 +1396,98 @@ paragraph :: proc(ctx: ^Context, s: string, width: f32 = 0, color: Color = {}) {
 		}
 	}
 }
+
+// A slider whose track shows what each place on it gives (a colour channel): `colors`
+// are evenly spaced stops from its start to its end, blended between. `s` is a short
+// label at the left (H, S, B; R, G, B) and `shown` the value at the right; the knob is
+// filled with the stop under it, so it reads as the colour it sets. A finger's press
+// waits to see whether a scrolling panel takes it, as a slider's does; a tap puts the
+// value where it landed. Returns true when the value changed (0 to 1).
+gradient_slider :: proc(ctx: ^Context, s: string, value: ^f32, colors: []Color, shown: string) -> bool {
+	ctx.controls += 1
+	t := ctx.theme
+	w := fill_width(ctx)
+	if w <= 0 do w = 220
+	r := place(ctx, {w, t.target})
+	id := id_of(ctx, s)
+	LABEL_W :: 22
+	VALUE_W :: 52
+	track := Rect{r.x + LABEL_W + 8, r.y + r.h * 0.5 - 6, r.w - LABEL_W - VALUE_W - 16, 12}
+	text(ctx, label_text(s), r.x, r.y + r.h * 0.5, t.text_size, t.text_secondary, .Semibold)
+	text(ctx, shown, r.x + r.w, r.y + r.h * 0.5, t.text_size, t.text, .Regular, .Right)
+	hovered, held, clicked, _ := interact(ctx, id, r)
+	changed := false
+	if (held && claim_drag(ctx, 0)) || clicked {
+		v := clamp((ctx.input.mouse.x - track.x) / max(track.w, 1), 0, 1)
+		if v != value^ {
+			value^ = v
+			changed = true
+			long_cancel(ctx)
+		}
+	}
+	// The track as quads between the stops, its ends rounded by caps of the end colours.
+	n := len(colors)
+	if n > 0 {
+		half := track.h * 0.5
+		fill_circle(ctx, {track.x, track.y + half}, half, colors[0])
+		fill_circle(ctx, {track.x + track.w, track.y + half}, half, colors[n - 1])
+		if n == 1 {
+			fill_rect(ctx, track, 0, colors[0])
+		} else {
+			points := make([][2]f32, 2 * n, context.temp_allocator)
+			shades := make([]Color, 2 * n, context.temp_allocator)
+			indices := make([]u32, 6 * (n - 1), context.temp_allocator)
+			for c, i in colors {
+				x := track.x + track.w * f32(i) / f32(n - 1)
+				points[2 * i], points[2 * i + 1] = {x, track.y}, {x, track.y + track.h}
+				shades[2 * i], shades[2 * i + 1] = c, c
+			}
+			for i in 0 ..< n - 1 {
+				a := u32(2 * i)
+				copy(indices[6 * i:], []u32{a, a + 1, a + 3, a, a + 3, a + 2})
+			}
+			fill_mesh(ctx, points, shades, indices)
+		}
+	}
+	f := clamp(value^, 0, 1)
+	knob := [2]f32{track.x + track.w * f, track.y + track.h * 0.5}
+	under := colors[clamp(int(math.round(f * f32(max(n - 1, 0)))), 0, max(n - 1, 0))] if n > 0 else t.knob
+	grow := tween(ctx, salt(id, 1), 1 if held else (0.5 if hovered else 0), t.press_time)
+	kr: f32 = 10 + 2 * grow
+	fill_circle(ctx, knob + {0, 1}, kr + 1, color_fade(t.shadow, 0.6))
+	fill_circle(ctx, knob, kr, t.knob)
+	fill_circle(ctx, knob, kr - 3, under)
+	return changed
+}
+
+// What a swatch did this frame.
+Swatch_Result :: struct {
+	clicked: bool,
+	held:    bool,
+	long:    bool, // a long press (or a right click): its menu
+}
+
+// A colour to pick from a palette or the history: a square `side` points (at least the
+// touch target) filled with `color`, or with `empty` a dim slot to fill. `selected` rings
+// it with the accent. `s` is its id and its tooltip.
+swatch :: proc(ctx: ^Context, s: string, color: Color, side: f32, selected := false, empty := false) -> (res: Swatch_Result) {
+	ctx.controls += 1
+	t := ctx.theme
+	cell := place(ctx, {side, side})
+	vis := centered(cell, {side - 4, side - 4})
+	id := id_of(ctx, s)
+	hovered, held, clicked, _ := interact(ctx, id, hit_area(ctx, cell))
+	res.clicked, res.held = clicked, held
+	if empty {
+		fill_rect(ctx, vis, t.radius_small, t.fill)
+		_ = feedback(ctx, id, vis, t.radius_small, hovered, held)
+	} else {
+		fill_rect(ctx, vis, t.radius_small, color)
+		stroke_rect(ctx, vis, t.radius_small, t.border_strong, 1)
+		if hovered || held do stroke_rect(ctx, vis, t.radius_small, color_fade(t.text, 0.6), 1.5)
+	}
+	if selected do stroke_rect(ctx, centered(cell, {side - 1, side - 1}), t.radius_small + 1, t.accent, 2)
+	res.long = secondary(ctx)
+	tip(ctx, id, vis, label_text(s))
+	return
+}

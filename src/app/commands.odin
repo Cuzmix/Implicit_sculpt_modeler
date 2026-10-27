@@ -57,6 +57,8 @@ Command_Id :: enum u8 {
 	Brush_Subtract,
 	Paint_Channel,
 	Swap_Colors,
+	Colors_Card,
+	Eyedropper,
 	Front_Only,
 	Lock_Plane,
 	Connected,
@@ -513,6 +515,20 @@ COMMANDS := [Command_Id]Command {
 		icon = ICON_SWAP_COLORS,
 		run = proc(app: ^App, _: int) {swap_colors(app)},
 	},
+	.Colors_Card = {
+		label = "Colors",
+		help = "Opens the Colors card beside the brush bar: Disc, Classic, Harmony, Value and Palettes, the colours picked last, Fill and the Eyedropper.",
+		icon = ICON_COLOUR,
+		run = proc(app: ^App, _: int) {colors_card_toggle(app)},
+		checked = proc(app: ^App, _: int) -> bool {return app.kit.colors_card},
+	},
+	.Eyedropper = {
+		label = "Eyedropper",
+		help = "Picks the colour of the surface under the pointer; from a button, the next press on the model picks it, and dragging shows it in a loupe first.",
+		icon = ICON_EYEDROPPER,
+		run = proc(app: ^App, _: int) {eyedropper_command(app)},
+		checked = proc(app: ^App, _: int) -> bool {return app.ui.eyedrop_armed || app.ui.eyedrop_held},
+	},
 	.Front_Only = {
 		label = "Front faces only",
 		help = "Brushes and mask shapes leave what faces away from you, such as the far side of a thin part.",
@@ -767,7 +783,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Paint = {
 		label = "Paint",
-		help = "Fills the selected object with the paint colour, or takes the paint off, skipping what is masked or hidden.",
+		help = "Fills the selected object with the paint colour, or with a gradient from it at the top to the secondary colour at the bottom as seen, or takes the paint off, skipping what is masked or hidden.",
 		args = len(sculpt.Paint_Command),
 		run = proc(app: ^App, arg: int) {paint_command(app, sculpt.Paint_Command(arg))},
 		enabled = paint_ready,
@@ -1554,6 +1570,7 @@ DEFAULT_BINDINGS := [?]Binding {
 	{{sdl.K_0, {}, false}, .Brush, 9},
 	{{sdl.K_X, {}, false}, .Symmetry_X, 0},
 	{{sdl.K_V, {}, false}, .Swap_Colors, 0},
+	{{sdl.K_C, {.Shift}, false}, .Eyedropper, 0},
 	{{sdl.K_LEFTBRACKET, {}, true}, .Size_Down, 0},
 	{{sdl.K_RIGHTBRACKET, {}, true}, .Size_Up, 0},
 	{{sdl.K_LEFTBRACKET, {.Shift}, true}, .Strength_Down, 0},
@@ -1653,7 +1670,7 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 	case .Restore_Selection_Set:
 		return fmt.tprintf("Restore selection set %d", arg + 1)
 	case .Paint:
-		return "Fill with colour" if sculpt.Paint_Command(arg) == .Fill else "Clear paint"
+		return PAINT_COMMAND_NAMES[sculpt.Paint_Command(arg)]
 	case .Group:
 		return GROUP_COMMAND_NAMES[sculpt.Group_Command(arg)]
 	case .Deformer:

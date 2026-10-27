@@ -53,6 +53,7 @@ settings_read_back_what_they_wrote :: proc(t: ^testing.T) {
 		case bool: (^bool)(at)^ = true
 		case f32:  (^f32)(at)^ = s.lo + (s.hi - s.lo) * 0.375 if s.lo < s.hi else 12.5
 		case i32:  (^i32)(at)^ = i32(s.lo + (s.hi - s.lo) * 0.5)
+		case int:  (^int)(at)^ = int(s.lo + (s.hi - s.lo) * 0.5)
 		case:
 			names := reflect.enum_field_names(s.type)
 			testing.expect(t, setting_read(&a, s, names[len(names) - 1]))
@@ -66,6 +67,12 @@ settings_read_back_what_they_wrote :: proc(t: ^testing.T) {
 	a.custom = MATERIALS[FIRST_MATCAP + 2]
 	a.custom.selected = {0.25, 0.75, 1, 1}
 	a.kit.windows[.Stats] = {moved = true, offset = {40, -20}, minimized = true}
+	color_history_push(&a.kit.colors, {1, 0.5, 0})
+	color_history_push(&a.kit.colors, {0, 0, 1})
+	mine := palette_new(&a.kit.colors)
+	palette_name_set(&a.kit.colors.palettes[mine], "Orc skin 2")
+	a.kit.colors.palettes[mine].colors[0] = {0.2, 0.4, 0.6}
+	a.kit.colors.palettes[mine].count = 1
 	palette_remember(&a.kit.palette_recent, &a.kit.palette_recent_count, {.Command, .Wireframe, 0})
 	palette_remember(&a.kit.palette_recent, &a.kit.palette_recent_count, {.Command, .View_Axis, int(camera.Axis_View.Top)})
 	testing.expect(t, settings_save(&a, path))
@@ -85,6 +92,13 @@ settings_read_back_what_they_wrote :: proc(t: ^testing.T) {
 	testing.expect_value(t, b.kit.windows[.Stats], a.kit.windows[.Stats])
 	testing.expect_value(t, b.kit.palette_recent_count, 2)
 	testing.expect(t, b.kit.palette_recent == a.kit.palette_recent)
+	testing.expect_value(t, b.kit.colors.history_count, 2)
+	testing.expect_value(t, color_bytes(b.kit.colors.history[0]), [3]u8{0, 0, 255})
+	testing.expect_value(t, color_bytes(b.kit.colors.history[1]), [3]u8{255, 128, 0})
+	testing.expect_value(t, b.kit.colors.palette_count, 1)
+	testing.expect_value(t, string(b.kit.colors.palettes[0].name[:10]), "Orc skin 2")
+	testing.expect_value(t, b.kit.colors.palettes[0].count, 1)
+	testing.expect_value(t, color_bytes(b.kit.colors.palettes[0].colors[0]), color_bytes({0.2, 0.4, 0.6}))
 	free_all(context.temp_allocator)
 }
 

@@ -140,6 +140,16 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   key light) into a 2048² map, `studio_gather.frag` (full-screen `clear.vert`, additive blend into RGBA16F `accum`; normals
   from neighbouring viewport depths), `studio_composite.frag` into `shown`. Needs `Renderer.depth_sampled` (viewport depth
   has `.SAMPLER`). The viewport panel and `viewport_download(…, texture)` use `studio_texture` while on.
+- Traced studio (`src/render/trace.odin`, `studio_trace.comp`, `blas_refit.comp`, `studio_trace_add.frag`): at
+  `samples == 0` `trace_prepare` decides the run (`Studio.traced`); false falls back to the gather, never half done.
+  Needs `Draw_Item.source` (the CPU mesh as uploaded) and `Mesh_Buffers.storage` (positions and indices with
+  `.COMPUTE_STORAGE_READ`, retried without). `Mesh_Buffers.trace` holds per-run `geom.Chunk_Bvh` trees keyed by
+  `chunk_bvh_key` (rechecked only when `index_version` moved: creation and `upload_indices`, not packed/hidden uploads),
+  refit when `version` moved, a TLAS (leaf = run id) from the item's chunk bounds minus `hidden`. Node layout and the
+  u16-pairs order are shared with geom (`Gpu_Bvh_Node`, children after parent); keep `chunk_bvh_any_hit` and the shader
+  walk in step, and the shader's STACK at 2 x `CHUNK_BVH_STACK`. A sample: clear `visible` (R32F, render pass), one
+  compute pass with a dispatch per item that only stores 0, then an additive pass into `accum` in the gather's encoding.
+  Check: `--no-trace` equals the base to the bit; traced vs gather within ~12/255 off silhouettes; two runs 0 px.
 - Compute (the GPU compute trial, `src/render/smooth_compute.odin`): `Smooth_Compute` holds the `smooth_all.comp` pipeline,
   six storage buffers (indices, CSR offsets and tris, weights, two position buffers) and an upload and a download transfer
   buffer, all grown on demand and kept; `smooth_compute_run` uploads (topology only when its key changed or is 0),

@@ -141,7 +141,7 @@ settings_reset :: proc(app: ^App, tab: Settings_Tab) {
 	case .Touch:
 		n.finger_model, n.empty_drag, n.palm_rejection = d.finger_model, d.empty_drag, d.palm_rejection
 		n.pinch_zoom, n.two_finger_pan, n.zoom_toward, n.twist_roll = d.pinch_zoom, d.two_finger_pan, d.zoom_toward, d.twist_roll
-		n.three_finger, n.gestures, n.touch_strength = d.three_finger, d.gestures, d.touch_strength
+		n.three_finger, n.gestures, n.touch_strength, n.hold_delay = d.three_finger, d.gestures, d.touch_strength, d.hold_delay
 		n.double_tap, n.lift_one_orbit = d.double_tap, d.lift_one_orbit
 		n.shape_apply, n.pen_tips = d.shape_apply, d.pen_tips
 	case .Keys:
@@ -151,6 +151,7 @@ settings_reset :: proc(app: ^App, tab: Settings_Tab) {
 	case .Performance:
 		k.stats, k.stats_advanced = false, false
 		app.frame_rate, app.frame_limit = .Match_Display, FRAME_LIMIT_DEFAULT
+		app.idle_sleep = true
 		app.msaa = MSAA_DEFAULT
 		app.autosave.minutes = AUTOSAVE_DEFAULT_MINUTES
 		app.versions_kept = VERSIONS_DEFAULT
@@ -292,6 +293,11 @@ settings_touch :: proc(app: ^App) {
 	_ = ui.slider(ctx, "Touch strength", &n.touch_strength, TOUCH_STRENGTH_MIN, 1, .Linear, fmt.tprintf("%.0f%%", 100 * n.touch_strength), enabled = n.finger_model == .Sculpt)
 	ui.paragraph(ctx, "A finger's strokes work at this much of the brush's strength, so a finger can soften what the pen builds up. The pen and the mouse always work at full strength.")
 	ui.spacer(ctx, 8)
+	ui.caption(ctx, "PRESS AND HOLD")
+	// In steps of 0.05 s, so the value shown is the value used.
+	if ui.slider(ctx, "Hold delay", &n.hold_delay, HOLD_DELAY_MIN, HOLD_DELAY_MAX, .Linear, fmt.tprintf("%.2f s", n.hold_delay)) do n.hold_delay = f32(int(n.hold_delay * 20 + 0.5)) / 20
+	ui.paragraph(ctx, "How long a finger or the pen holds a button still before its long press: dragging Draw size, Strength or Focal shift on the brush bar, a button's menu, a name and shortcut. Shorter is quicker; longer leaves more time for a slow tap.")
+	ui.spacer(ctx, 8)
 	ui.caption(ctx, "PEN AND MOUSE ON EMPTY SPACE")
 	empty := [len(Empty_Drag)]string{"Turns the view", "Waits for the model"}
 	ui.label(ctx, "Pen")
@@ -342,6 +348,8 @@ settings_performance :: proc(app: ^App) {
 	ui.spacer(ctx, 8)
 	ui.caption(ctx, "DISPLAY")
 	frame_rate_controls(app)
+	_ = ui.switch_row(ctx, "Rest when idle", &app.idle_sleep)
+	ui.paragraph(ctx, "When nothing on screen has changed for a second, waits for your next touch, key or pen instead of drawing the same frame again, which saves the battery and keeps the fans quiet. The first stroke after a rest is not delayed.")
 	ui.label(ctx, "Anti-aliasing")
 	if picked := ui.tabs(ctx, "Anti-aliasing", MSAA_NAMES[:], int(app.msaa)); picked >= 0 do app.msaa = Msaa(picked)
 	ui.paragraph(ctx, "Smooths the stepped edges of outlines and wireframe lines by taking 2 or 4 samples a pixel. It costs GPU memory and a little time every frame; Off draws as fast as it can.")

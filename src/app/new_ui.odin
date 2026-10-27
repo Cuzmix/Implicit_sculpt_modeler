@@ -205,6 +205,9 @@ Kit_State :: struct {
 	// The Objects card (kit_objects_card.odin): open, and its list, menus and size.
 	objects_card:   bool,
 	card:           Objects_Card,
+	// The Colors card (kit_colors.odin): open, and its tab, history and palettes.
+	colors_card:    bool,
+	colors:         Colors_Card,
 	inspector_body: ui.Rect,
 	inspector_limit:  f32,
 	inspector_shown:  f32, // how far the body is scrolled as drawn (the scroll tweens toward k.scroll)
@@ -247,11 +250,12 @@ Kit_Window :: enum u8 {
 	Macros,
 	Library,
 	Objects, // the Objects card (kit_objects_card.odin), a card rather than a window
+	Colors, // the Colors card (kit_colors.odin), beside the brush bar
 }
 
 // The order the windows start in, back to front: Settings, Help, Macros and Library over
 // the rest, as they opened.
-KIT_WINDOW_ORDER :: [len(Kit_Window)]Kit_Window{.Inspector, .Objects, .Stats, .History, .Settings, .Help, .Macros, .Library}
+KIT_WINDOW_ORDER :: [len(Kit_Window)]Kit_Window{.Inspector, .Objects, .Colors, .Stats, .History, .Settings, .Help, .Macros, .Library}
 
 // Settings, Help, Macros and Library share the inspector's place on the right: one at a
 // time, with the inspector hidden while one is open.
@@ -664,6 +668,7 @@ kit_floats_close :: proc(k: ^Kit_State) {
 	k.bar_pop.open = false
 	k.bind.open, k.pie_editor, k.adjust_pop, k.gizmo_entry.open = false, false, false, false
 	k.folder_menu, k.rename.open, k.macro_save.open = false, false, false
+	k.colors.palette_menu, k.colors.swatch_menu = false, false
 	k.ctx.select_open = 0
 }
 
@@ -672,7 +677,7 @@ kit_floats_close :: proc(k: ^Kit_State) {
 // first-run tip hides under it.
 kit_floating :: proc(app: ^App) -> bool {
 	k := &app.kit
-	return app.ui.pie.open || app.ui.adjust.kind != .None || k.action_pop || k.adjust_pop || k.menu || k.versions || k.view_menu || k.browser || k.dock_menu || k.bind.open || k.pie_editor || k.object_menu || k.folder_menu || k.rename.open || k.macro_save.open || k.palette || k.gizmo_entry.open || k.bar_pop.open || k.ctx.select_open != 0
+	return app.ui.pie.open || app.ui.adjust.kind != .None || k.action_pop || k.adjust_pop || k.menu || k.versions || k.view_menu || k.browser || k.dock_menu || k.bind.open || k.pie_editor || k.object_menu || k.folder_menu || k.rename.open || k.macro_save.open || k.palette || k.gizmo_entry.open || k.bar_pop.open || k.colors.palette_menu || k.colors.swatch_menu || k.ctx.select_open != 0
 }
 
 kit_destroy :: proc(app: ^App) {
@@ -754,6 +759,12 @@ kit_begin :: proc(app: ^App, window: ^sdl.Window) -> (size, pixels: [2]i32) {
 	k.last_frame = now
 	k.scale = scale
 	k.ctx.theme = LOOK_THEMES[k.look]
+	// Settings > Touch > Hold delay. The ring that counts toward the long press shows from
+	// halfway, never later than the theme has it, so a quick tap still shows nothing.
+	if d := app.nav.hold_delay; d >= HOLD_DELAY_MIN {
+		k.ctx.theme.long_press = d
+		k.ctx.theme.long_ring = min(k.ctx.theme.long_ring, d / 2)
+	}
 	kit_mirror(k)
 	ui.frame_begin(&k.ctx, in_)
 	return {w, h}, {pw, ph}
@@ -876,6 +887,8 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 		if shape_waits && quiet do app.shape_pending.request = .Cancel
 		else if side_panel_open(k) && quiet do side_panel_close(app)
 		if k.palette do palette_close(app)
+		// An armed eyedropper waits for no press any more.
+		if quiet do app.ui.eyedrop_armed = false
 		kit_floats_close(k)
 	}
 	k.ms = time.duration_milliseconds(time.tick_since(start))
@@ -994,6 +1007,7 @@ kit_layout :: proc(app: ^App) {
 		case .Macros:    raised = kit_macros(app)
 		case .Library:   raised = kit_library(app)
 		case .Objects:   raised = kit_objects_card(app)
+		case .Colors:    raised = kit_colors_card(app)
 		}
 		if raised do top = which
 	}

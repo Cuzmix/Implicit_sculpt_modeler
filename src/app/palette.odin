@@ -220,7 +220,7 @@ SETTINGS_SEARCH_WORDS := [Settings_Tab]string {
 	.Camera      = "preferences orbit turn pivot",
 	.Touch       = "preferences pen finger gesture tablet stylus pressure",
 	.Keys        = "keymap shortcuts hotkeys bindings mouse buttons navigation blender maya zbrush",
-	.Performance = "preferences performance speed fps frame rate refresh hz vsync threads statistics autosave recovery backup crash",
+	.Performance = "preferences performance speed fps frame rate refresh hz vsync battery idle rest threads statistics autosave recovery backup crash",
 }
 
 // Every entry the palette searches, in the registry's order then the Settings tabs': a
