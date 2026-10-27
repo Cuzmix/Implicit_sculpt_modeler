@@ -280,7 +280,7 @@ lights_are_remembered :: proc(t: ^testing.T) {
 	defer results_destroy(&a)
 	lights_reset(&a)
 	a.start_lights.lights[2] = {on = true, kind = .Spot, space = .Scene, dir = linalg.normalize([3]f32{0.2, -0.5, -0.6}), pos = {1.5, -2, 3.25}, strength = 1.4, ref = 2.5, reach = 7, cone = 33, blend = 0.6, color = {0.9, 0.3, 0.1}}
-	a.start_lights.lights[6] = {on = true, kind = .Point, dir = {0, 1, 0}, strength = 0.5, cone = 45, color = 1, kelvin = 3200}
+	a.start_lights.lights[6] = {on = true, kind = .Point, dir = {0, 1, 0}, strength = 0.5, cone = 45, color = 1, kelvin = 3200, radius = 0.4, angle = 7}
 	light_name_set(&a.start_lights.lights[6], "Warm #2 lamp")
 	a.start_lights.lights[0].on = false
 	a.start_lights.ambient, a.start_lights.count = 0.4, 7
@@ -293,6 +293,7 @@ lights_are_remembered :: proc(t: ^testing.T) {
 		x, y := a.start_lights.lights[i], b.start_lights.lights[i]
 		testing.expectf(t, x.on == y.on && x.kind == y.kind && x.space == y.space, "light %d: %v against %v", i + 1, y, x)
 		testing.expectf(t, near(y.dir, x.dir, 1e-4) && near(y.pos, x.pos, 1e-4) && near(y.color, x.color, 1e-5), "light %d at %v against %v", i + 1, y, x)
+		testing.expectf(t, abs(y.angle - x.angle) < 1e-4 && abs(y.radius - x.radius) < 1e-5, "light %d sized %v %v against %v %v", i + 1, y.angle, y.radius, x.angle, x.radius)
 		testing.expectf(t, y.kelvin == x.kelvin && y.name == x.name, "light %d named %q at %v K against %q at %v K", i + 1, light_name(&b.start_lights, i), y.kelvin, light_name(&a.start_lights, i), x.kelvin)
 		testing.expectf(t, abs(y.strength - x.strength) < 1e-5 && abs(y.ref - x.ref) < 1e-5 && abs(y.reach - x.reach) < 1e-5 && abs(y.cone - x.cone) < 1e-4 && abs(y.blend - x.blend) < 1e-5, "light %d: %v against %v", i + 1, y, x)
 	}
@@ -362,7 +363,7 @@ fmt_light_key :: proc(i: int, field: string) -> string {
 @(test)
 lights_round_trip_in_the_scene_file :: proc(t: ^testing.T) {
 	set := LIGHTS_DEFAULT
-	set.lights[1] = {on = true, kind = .Spot, space = .Scene, dir = {0.1, -0.2, 0.3}, pos = {-4, 5.5, 1e-3}, strength = 1.75, ref = 3, reach = 12, cone = 70, blend = 0.4, color = {0.2, 0.4, 1}, kelvin = 4100}
+	set.lights[1] = {on = true, kind = .Spot, space = .Scene, dir = {0.1, -0.2, 0.3}, pos = {-4, 5.5, 1e-3}, strength = 1.75, ref = 3, reach = 12, cone = 70, blend = 0.4, color = {0.2, 0.4, 1}, kelvin = 4100, angle = 4.5, radius = 0.75}
 	light_name_set(&set.lights[1], "Rim ü")
 	set.count, set.ambient = 3, 0.25
 	out: [dynamic]u8
@@ -397,11 +398,13 @@ lights_round_trip_in_the_scene_file :: proc(t: ^testing.T) {
 	damage(t, set, 5 + 3, 0xff, 4) // the first direction's x a NaN
 	damage(t, set, 5 + 3 + 24, 0xff, 4) // the strength a NaN
 	damage(t, set, 5 + 3 + 24 + 12, 0, 4) // the cone 0 degrees
-	LIGHT_BYTES :: 3 + 24 + 5 * 4 + 12 + 4 + LIGHT_NAME
+	LIGHT_BYTES :: 3 + 24 + 5 * 4 + 12 + 4 + LIGHT_NAME + 8
 	damage(t, set, 5 + LIGHT_BYTES + 59, 0x10, 4) // the second light's temperature far too cold
 	damage(t, set, 5 + LIGHT_BYTES + 63 + LIGHT_NAME - 1, 'x') // its name not ended by a zero
 	damage(t, set, 5 + LIGHT_BYTES + 63 + 1, 0xff) // its name not UTF-8
 	damage(t, set, 5 + LIGHT_BYTES + 63 + 10, 'x') // a byte after its name's zero
+	damage(t, set, 5 + LIGHT_BYTES + 87, 0xff, 4) // its angle a NaN
+	damage(t, set, 5 + LIGHT_BYTES + 91, 0x7f, 4) // its radius far too big
 	// A file from before version 20 has neither, and reads as no temperature and no name.
 	clear(&out)
 	set.count = 2
@@ -409,11 +412,20 @@ lights_round_trip_in_the_scene_file :: proc(t: ^testing.T) {
 	old: [dynamic]u8
 	defer delete(old)
 	append(&old, ..out[:5])
-	for i in 0 ..< 2 do append(&old, ..out[5 + i * LIGHT_BYTES:][:LIGHT_BYTES - 4 - LIGHT_NAME])
+	for i in 0 ..< 2 do append(&old, ..out[5 + i * LIGHT_BYTES:][:LIGHT_BYTES - 8 - 4 - LIGHT_NAME])
 	r = geom.byte_reader(old[:])
 	back, ok = lights_get(&r, LIGHTS_DEFAULT, 19)
 	testing.expect(t, ok && r.at == len(old))
 	testing.expect(t, back.lights[1].kelvin == 0 && back.lights[1].name == {} && back.lights[1].color == set.lights[1].color)
+	testing.expect(t, back.lights[1].angle == 0 && back.lights[1].radius == 0)
+	// One from version 20 has the temperature and name but no size, which reads as none.
+	clear(&old)
+	append(&old, ..out[:5])
+	for i in 0 ..< 2 do append(&old, ..out[5 + i * LIGHT_BYTES:][:LIGHT_BYTES - 8])
+	r = geom.byte_reader(old[:])
+	back, ok = lights_get(&r, LIGHTS_DEFAULT, 20)
+	testing.expect(t, ok && r.at == len(old))
+	testing.expect(t, back.lights[1].kelvin == 4100 && light_name(&back, 1) == "Rim ü" && back.lights[1].angle == 0 && back.lights[1].radius == 0)
 	// Cut short.
 	clear(&out)
 	lights_put(&out, set)
@@ -640,4 +652,29 @@ lights_go_out_with_an_export :: proc(t: ^testing.T) {
 	testing.expectf(t, abs(spot.intensity - 0.5 * math.PI * 683 * 1.5 * 1.5) < 1e-2, "the spot's %v candela", spot.intensity)
 	testing.expect_value(t, spot.range, 5)
 	testing.expect(t, abs(spot.outer_cone - math.to_radians(f32(30))) < 1e-6 && abs(spot.inner_cone - math.to_radians(f32(15))) < 1e-6)
+}
+
+// A light's size reaches the shader as light_shape.w: the sine of a sun's angular radius,
+// a lamp's radius as it is (the view never scales), and nothing for a light without one,
+// so the default lights shade exactly as before.
+@(test)
+light_size_reaches_the_shader :: proc(t: ^testing.T) {
+	app: App
+	defer results_destroy(&app)
+	lights_reset(&app)
+	app.camera = camera.orbit_default()
+	for w in viewport_lights(&app).shape do testing.expect_value(t, w.w, 0)
+	app.scene.lights.lights[0].angle = 60
+	app.scene.lights.lights[1].angle = LIGHT_ANGLE_MAX + 50 // a script's, past the end
+	_ = light_add(&app, .Point)
+	app.scene.lights.lights[4].radius = 0.3
+	app.scene.lights.lights[4].angle = 20 // kept for when it is a sun again, unused now
+	lights_settle(&app)
+	testing.expect_value(t, app.scene.lights.lights[1].angle, LIGHT_ANGLE_MAX)
+	l := viewport_lights(&app)
+	testing.expectf(t, abs(l.shape[0].w - 0.5) < 1e-6, "a 60 degree sun %v", l.shape[0].w)
+	testing.expect_value(t, l.shape[4].w, 0.3)
+	app.scene.lights.lights[4].kind = .Sun
+	l = viewport_lights(&app)
+	testing.expectf(t, abs(l.shape[4].w - math.sin(math.to_radians(f32(10)))) < 1e-6, "back to a sun %v", l.shape[4].w)
 }

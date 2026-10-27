@@ -106,6 +106,14 @@ kit_lights :: proc(app: ^App) {
 			moved := clamp(far, near_end, far_end)
 			if ui.slider(ctx, "Distance", &moved, near_end, far_end, .Logarithmic, fmt.tprintf("%.2f", far)) do light_set_center_distance(app, app.light_pick, moved)
 		}
+		// Its size, which broadens and softens its highlights: a sun's angle in the sky, a
+		// lamp's radius, its slider reaching half the camera's distance or the radius set.
+		if light.kind == .Sun {
+			_ = ui.slider(ctx, "Angle", &light.angle, 0, LIGHT_ANGLE_MAX, .Linear, fmt.tprintf("%.1f°", light.angle))
+		} else {
+			widest := clamp(max(light.radius, app.camera.distance * 0.5), 1e-3, LIGHT_RADIUS_MAX)
+			_ = ui.slider(ctx, "Radius", &light.radius, 0, widest, .Linear, fmt.tprintf("%.2f", light.radius))
+		}
 		if light.kind == .Spot {
 			_ = ui.slider(ctx, "Cone", &light.cone, LIGHT_CONE_MIN, LIGHT_CONE_MAX, .Linear, fmt.tprintf("%.0f°", light.cone))
 			_ = ui.slider(ctx, "Soft edge", &light.blend, 0, 1, .Linear, fmt.tprintf("%.0f%%", light.blend * 100))

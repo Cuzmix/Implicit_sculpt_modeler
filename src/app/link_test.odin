@@ -77,10 +77,10 @@ link_manifest_round_trip :: proc(t: ^testing.T) {
 	// reader of the objects skips.
 	lights := []geom.Export_Light {
 		{name = "Key light", kind = .Directional, color = 1, intensity = 2145.7078, direction = {0, -1, 0}},
-		{name = "Lamp", kind = .Spot, color = {1, 0.5, 0.25}, intensity = 1000, position = {1, 2, 3}, direction = {0, 0, -1}, range = 9, inner_cone = 0.25, outer_cone = 0.5},
+		{name = "Lamp", kind = .Spot, color = {1, 0.5, 0.25}, intensity = 1000, position = {1, 2, 3}, direction = {0, 0, -1}, range = 9, inner_cone = 0.25, outer_cone = 0.5, size = 0.125},
 	}
 	lit := link_manifest_text("sculpt_link", {token = 1, seq = 2, objects = objects}, lights)
-	testing.expect(t, strings.has_suffix(lit, "\nlight Key%20light directional 0 0 0 0 -1 0 1 1 1 2145.7078 0 0 0\nlight Lamp spot 1 2 3 0 0 -1 1 0.5 0.25 1000 9 0.25 0.5\n"))
+	testing.expect(t, strings.has_suffix(lit, "\nlight Key%20light directional 0 0 0 0 -1 0 1 1 1 2145.7078 0 0 0 0\nlight Lamp spot 1 2 3 0 0 -1 1 0.5 0.25 1000 9 0.25 0.5 0.125\n"))
 	with_lights, lit_ok := link_manifest_parse(lit, "sculpt_link", context.temp_allocator)
 	testing.expect(t, lit_ok && len(with_lights.objects) == 3)
 	// The other app's head is not this one's.

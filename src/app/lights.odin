@@ -33,6 +33,11 @@ LIGHT_KELVIN_MIN :: 1700
 LIGHT_KELVIN_MAX :: 12000
 // The bytes a light's name keeps, its last always 0, so it is at most 23 long.
 LIGHT_NAME :: 24
+// A sun's size, the full angle it fills in the sky in degrees (the real sun's is about
+// half a degree), and a point or spot light's, its radius in scene units: 0 for a light
+// with no size, whose highlight is the sharpest the surface's roughness allows.
+LIGHT_ANGLE_MAX :: 60
+LIGHT_RADIUS_MAX :: 1000
 
 Light_Kind :: enum u8 {
 	Sun,   // from a direction, as from far away
@@ -81,6 +86,13 @@ Light :: struct {
 	// for the colour as picked.
 	kelvin:   f32,
 	name:     [LIGHT_NAME]u8, // as typed, 0 after it; empty for "Light <N>"
+	// How big the light is, as Blender sets a sun's angle and a lamp's radius: a sun's
+	// full angle in degrees, 0 to LIGHT_ANGLE_MAX, and a point or spot light's radius in
+	// scene units, 0 to LIGHT_RADIUS_MAX. Each is kept while the light is the other kind,
+	// so switching back finds it as it was. A bigger light gives broader, softer
+	// highlights, smooth surfaces most (viewport_lights, light_shape.w).
+	angle:    f32,
+	radius:   f32,
 }
 
 // The scene's lights: the first `count` of `lights` are the scene's, and the ambient
@@ -200,6 +212,7 @@ lights_settle :: proc(app: ^App) {
 	for &l, i in set.lights[:set.count] {
 		// A script's colour temperature below the range is the warmest there is.
 		if l.kelvin > 0 do l.kelvin = clamp(l.kelvin, LIGHT_KELVIN_MIN, LIGHT_KELVIN_MAX)
+		l.angle, l.radius = clamp(l.angle, 0, LIGHT_ANGLE_MAX), clamp(l.radius, 0, LIGHT_RADIUS_MAX)
 		if l.kind == .Sun do continue
 		if l.pos == {} {
 			dir := l.dir
@@ -227,12 +240,14 @@ viewport_lights :: proc(app: ^App) -> render.Lights {
 		out.color[i] = {rgb.r, rgb.g, rgb.b, l.strength}
 		if l.kind == .Sun {
 			out.pos[i] = {axis.x, axis.y, axis.z, render.LIGHT_SUN}
+			out.shape[i].w = math.sin(math.to_radians(clamp(l.angle, 0, LIGHT_ANGLE_MAX)) * 0.5)
 			continue
 		}
 		at := light_view_pos(app, l)
 		out.pos[i] = {at.x, at.y, at.z, render.LIGHT_POINT if l.kind == .Point else render.LIGHT_SPOT}
 		ref := l.ref if l.ref > 0 else app.camera.distance
-		out.shape[i] = {ref, max(l.reach, 0), 0, 0}
+		// The view is the scene turned and moved, never scaled, so the radius carries over.
+		out.shape[i] = {ref, max(l.reach, 0), 0, clamp(l.radius, 0, LIGHT_RADIUS_MAX)}
 		if l.kind == .Spot {
 			half := math.to_radians(clamp(l.cone, LIGHT_CONE_MIN, LIGHT_CONE_MAX)) * 0.5
 			outer := math.cos(half)
@@ -374,6 +389,7 @@ export_lights :: proc(app: ^App, t := Transform{scale = 1}) -> []geom.Export_Lig
 			color     = light_rgb(l),
 			intensity = l.strength * LIGHT_SUN_LUX,
 			direction = linalg.normalize(to_local_dir(t, -light_world_dir(app, i))),
+			size      = math.to_radians(clamp(l.angle, 0, LIGHT_ANGLE_MAX)),
 		}
 		if l.kind != .Sun && l.pos != {} {
 			e.kind = .Point if l.kind == .Point else .Spot
@@ -381,6 +397,7 @@ export_lights :: proc(app: ^App, t := Transform{scale = 1}) -> []geom.Export_Lig
 			ref := l.ref / t.scale
 			e.intensity *= ref * ref
 			e.range = l.reach / t.scale
+			e.size = clamp(l.radius, 0, LIGHT_RADIUS_MAX) / t.scale
 			half := math.to_radians(clamp(l.cone, LIGHT_CONE_MIN, LIGHT_CONE_MAX)) * 0.5
 			e.outer_cone, e.inner_cone = half, half * (1 - clamp(l.blend, 0, 1))
 		}

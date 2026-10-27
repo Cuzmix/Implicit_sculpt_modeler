@@ -1729,7 +1729,9 @@ Lights :: struct {
 	// x: the distance at which a point or spot light is as bright as a sun of its strength
 	// (it falls off with the square of the distance from there), y: where it fades to
 	// nothing (0: never), z: the cosine of half a spot's cone less its blend, where its
-	// edge starts to fade; w unused.
+	// edge starts to fade; w: how big the light is, the sine of the angle a sun's disc
+	// spans from its middle to its edge, or a point or spot light's radius in view units,
+	// 0 for a light with no size (which shades exactly as before lights had one).
 	shape: [LIGHT_COUNT][4]f32,
 }
 #assert(size_of(Lights) == 560)

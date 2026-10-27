@@ -31,7 +31,7 @@ import "../voxel"
 //	scene <token>                 the scene the objects are from, 16 hex digits
 //	sent <n>                      rises with each send, so a reader can tell a new one
 //	object <id> <level> <name> <file> <vertices> <triangles> <x y z> <rx ry rz> <scale>
-//	light <name> <kind> <x y z> <dx dy dz> <r g b> <intensity> <range> <inner> <outer>
+//	light <name> <kind> <x y z> <dx dy dz> <r g b> <intensity> <range> <inner> <outer> <size>
 //
 // A name is escaped as the settings escape one (preset_escape); the transform is the
 // object's (Transform), in the app's axes, Y up. Blender gives id 0 to an object it made.
@@ -146,7 +146,7 @@ link_manifest_text :: proc(head: string, m: Link_Manifest, lights: []geom.Export
 	}
 	for l in lights {
 		p, d, c := l.position, l.direction, l.color
-		fmt.sbprintf(&b, "light %s %s %v %v %v %v %v %v %v %v %v %v %v %v %v\n", link_name_word(l.name), LINK_LIGHT_KINDS[l.kind], p.x, p.y, p.z, d.x, d.y, d.z, c.r, c.g, c.b, l.intensity, l.range, l.inner_cone, l.outer_cone)
+		fmt.sbprintf(&b, "light %s %s %v %v %v %v %v %v %v %v %v %v %v %v %v %v\n", link_name_word(l.name), LINK_LIGHT_KINDS[l.kind], p.x, p.y, p.z, d.x, d.y, d.z, c.r, c.g, c.b, l.intensity, l.range, l.inner_cone, l.outer_cone, l.size)
 	}
 	return strings.to_string(b)
 }

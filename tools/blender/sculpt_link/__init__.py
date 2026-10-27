@@ -33,7 +33,7 @@ from mathutils import Euler, Matrix, Vector
 bl_info = {
     "name": "Sculpt link",
     "author": "Implicit",
-    "version": (1, 1, 0),
+    "version": (1, 2, 0),
     "blender": (4, 2, 0),
     "location": "3D Viewport > Sidebar > Sculpt",
     "description": "Sends meshes to and from the Sculpt app, as GoZ does for ZBrush",
@@ -105,8 +105,10 @@ def read_manifest(path, head):
     anywhere: one send is taken whole or not at all. Each object is a dict of id, level,
     name, file, vertices, triangles and transform (the seven words as written, so an
     untouched one goes back exactly); each light one of name, type (Blender's), position,
-    direction, colour, intensity (lux or candela), range and inner and outer half angles,
-    in Sculpt's axes."""
+    direction, colour, intensity (lux or candela), range, inner and outer half angles and
+    size (a sun's angle in radians, a lamp's radius; 0 when a Sculpt from before sizes
+    sent none), in Sculpt's axes. Words past those a light line is known to have are
+    left for a later Sculpt to add."""
     try:
         with open(path, encoding="utf-8") as f:
             lines = f.read().split("\n")
@@ -135,14 +137,14 @@ def read_manifest(path, head):
                 objects.append({"id": int(f[1]), "level": int(f[2]), "name": name_from_word(f[3]), "file": f[4],
                                 "vertices": int(f[5]), "triangles": int(f[6]), "transform": f[7:]})
             elif f[0] == "light":
-                if len(f) != 16 or f[2] not in LIGHT_TYPES:
+                if len(f) < 16 or f[2] not in LIGHT_TYPES:
                     return None
-                values = [float(w) for w in f[3:]]
-                if not all(math.isfinite(v) for v in values) or min(values[6:11]) < 0:
+                values = [float(w) for w in f[3:17]] + [0.0] * (17 - min(len(f), 17))
+                if not all(math.isfinite(v) for v in values) or min(values[6:11]) < 0 or values[13] < 0:
                     return None
                 lights.append({"name": name_from_word(f[1]), "type": LIGHT_TYPES[f[2]], "position": values[0:3],
                                "direction": values[3:6], "color": values[6:9], "intensity": values[9],
-                               "range": values[10], "inner": values[11], "outer": values[12]})
+                               "range": values[10], "inner": values[11], "outer": values[12], "size": values[13]})
         except ValueError:
             return None
     if token is None or seq is None:
@@ -306,7 +308,8 @@ def set_lights(lights, token):
     made from it before (by name), else a new one is made, and one an earlier send made
     that this one does not list goes. A sun's strength is its lux over 683 lumens a watt
     and a lamp's power its candela times 4 pi over 683, as Blender's glTF importer gives
-    them, with no radius, as glTF's lights have none. Returns the light objects."""
+    them; a sun's angle and a lamp's radius are its size in Sculpt. Returns the light
+    objects."""
     collection = bpy.data.collections.get(LIGHT_COLLECTION)
     if collection is None:
         if not lights:
@@ -329,9 +332,10 @@ def set_lights(lights, token):
         light.color = l["color"]
         if l["type"] == "SUN":
             light.energy = l["intensity"] / LUMENS_PER_WATT
+            light.angle = min(l["size"], math.pi)
         else:
             light.energy = l["intensity"] * 4 * math.pi / LUMENS_PER_WATT
-            light.shadow_soft_size = 0
+            light.shadow_soft_size = l["size"]
         if l["type"] == "SPOT":
             outer = max(l["outer"], 1e-4)
             light.spot_size = 2 * outer

@@ -50,6 +50,9 @@ description: CAD-style mesh tools inside this app on geom.Mesh — primitives, b
   watts; a sun of strength 1 is pi*683 lux. Check with `export_check.py FILE --lights "SUN=3.1416,SPOT=290.17"`.
   The Blender link sends the same lights in world space as `light` lines of link.txt (`link_manifest_text`); the
   add-on's `set_lights` makes them in a "Sculpt lights" collection; `scripts/link_check.py` checks them in bpy.
+  `Export_Light.size` (a sun's angle across in radians, a lamp's radius) goes as the link line's 17th word (Blender's
+  `angle` / `shadow_soft_size`) and as a USD DistantLight's `inputs:angle` in degrees (UsdLux: across; Blender reads
+  it as half); never a SphereLight radius (USD intensity is per area) and never in glTF (no field).
 - Voxel remesh exists (README "Voxel remesh (DynaMesh)"): `geom.remesh_voxel(m, target, pool)` and
   `remesh_voxel_spacing(m, h, pool)` (`src/geom/remesh.odin:57, 68`) rebuild a mesh as an even, closed, manifold surface:
   winding-number rays along each axis decide inside, marching cubes with a rule-built table keeps ambiguous faces
