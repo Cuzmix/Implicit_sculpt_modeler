@@ -44,7 +44,7 @@ kit_library :: proc(app: ^App) -> (raised: bool) {
 	raised = raised_now
 	if closed do k.library = false
 	if body {
-		_ = command_button(app, .Pick_Pack, variant = .Bordered, width = inner, glyph = ui.ICON_IMPORT)
+		kit_command_pair(app, .Pick_Pack, .Save_Pack, label_a = "Install pack...", label_b = "Make a pack...")
 		if w := l.worker; w != nil {
 			ui.label(ctx, ui.text_fit(ctx, fmt.tprintf("Installing %s...", filepath.base(w.path)), t.caption_size, inner), t.caption_size, t.text_secondary)
 		}
@@ -52,7 +52,7 @@ kit_library :: proc(app: ^App) -> (raised: bool) {
 		ui.caption(ctx, fmt.tprintf("INSTALLED  %d PACK%s", len(l.packs), "" if len(l.packs) == 1 else "S"))
 
 		// The list scrolls in the room the controls above and the note below leave.
-		foot := "This run keeps no library: it keeps no settings." if l.folder == "" else fmt.tprintf("A content pack is a .sculptpack file: a ZIP archive of images under alphas/, brush presets in brushes.txt, OBJ or PLY meshes under meshes/ and a pack.txt naming it. Packs only add to what is built in and hold no code. They are kept in the folder %s beside the settings file.", filepath.base(l.folder))
+		foot := "This run keeps no library: it keeps no settings." if l.folder == "" else fmt.tprintf("A content pack is a .sculptpack file: a ZIP archive of images under alphas/, brush presets in brushes.txt, OBJ or PLY meshes under meshes/ and a pack.txt naming it. Make a pack writes your own alphas and presets as one, named after its file. Packs only add to what is built in and hold no code. They are kept in the folder %s beside the settings file.", filepath.base(l.folder))
 		_, foot_size := ui.prev_layout(ctx, "library foot")
 		_, head_size := ui.prev_layout(ctx, "library pending")
 		extra := head_size.y + 8 if l.pending != nil else 0
@@ -109,7 +109,7 @@ kit_library_row :: proc(app: ^App, i: int, inner: f32) {
 	name, detail: string
 	if i < 0 {
 		name = "Your own"
-		detail = fmt.tprintf("%d alpha%s from Load image", app.library.alphas, "" if app.library.alphas == 1 else "s")
+		detail = fmt.tprintf("%d alpha%s from Load image and %d preset%s, which Make a pack writes", app.library.alphas, "" if app.library.alphas == 1 else "s", app.preset_count, "" if app.preset_count == 1 else "s")
 	} else {
 		p := app.library.packs[i]
 		name = p.name
