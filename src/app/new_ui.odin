@@ -54,6 +54,18 @@ Kit_State :: struct {
 	light_sphere: Light_Sphere_State, // a press on the Lights section's sphere (kit_lights.odin)
 	tab_serial: u64, // counts tab changes, so each one fades its content in afresh
 	recover_shown: bool, // the recovery card showed this frame (kit_recover.odin)
+	// The Home screen (kit_home.odin): open, its tab and scroll, the tile a first tap
+	// armed while the scene had work to lose (its index + 1) and when, and a tile's long
+	// press menu: over which tile, and whether Delete was tapped once.
+	home:        bool,
+	home_tab:    Home_Tab,
+	home_scroll: f32,
+	home_armed:  int,
+	home_armed_at: f64,
+	home_menu:   bool,
+	home_menu_at: ui.Rect,
+	home_menu_item: int,
+	home_menu_armed: bool,
 	menu:       bool,
 	// Menu > Earlier saves (kit_versions), and the row a first tap armed while the scene had
 	// work to lose (its index + 1) and when: a second tap soon after opens it.
@@ -640,6 +652,8 @@ KIT_VIEWPORT_IMAGE :: 1
 KIT_NAV_HEAD_IMAGE :: 2
 // ...and the atlas of the Objects card's pictures of objects (object_thumbs.odin).
 KIT_THUMBS_IMAGE :: 3
+// ...and the atlas of the Home screen's pictures of scenes (home.odin).
+KIT_PICTURES_IMAGE :: 4
 
 // The inspector's width, and the toolbars' height: one touch target.
 KIT_INSPECTOR_W :: 312
@@ -671,7 +685,7 @@ kit_floats_close :: proc(k: ^Kit_State) {
 	k.menu, k.versions, k.view_menu, k.browser, k.dock_menu, k.object_menu, k.action_pop = false, false, false, false, false, false, false
 	k.bar_pop.open = false
 	k.bind.open, k.pie_editor, k.adjust_pop, k.gizmo_entry.open = false, false, false, false
-	k.folder_menu, k.rename.open, k.macro_save.open = false, false, false
+	k.folder_menu, k.rename.open, k.macro_save.open, k.home_menu = false, false, false, false
 	k.colors.palette_menu, k.colors.swatch_menu = false, false
 	k.ctx.select_open = 0
 }
@@ -681,7 +695,7 @@ kit_floats_close :: proc(k: ^Kit_State) {
 // first-run tip hides under it.
 kit_floating :: proc(app: ^App) -> bool {
 	k := &app.kit
-	return app.ui.pie.open || app.ui.adjust.kind != .None || k.action_pop || k.adjust_pop || k.menu || k.versions || k.view_menu || k.browser || k.dock_menu || k.bind.open || k.pie_editor || k.object_menu || k.folder_menu || k.rename.open || k.macro_save.open || k.palette || k.gizmo_entry.open || k.bar_pop.open || k.colors.palette_menu || k.colors.swatch_menu || k.ctx.select_open != 0
+	return app.ui.pie.open || app.ui.adjust.kind != .None || k.action_pop || k.adjust_pop || k.menu || k.versions || k.view_menu || k.browser || k.dock_menu || k.bind.open || k.pie_editor || k.object_menu || k.folder_menu || k.rename.open || k.macro_save.open || k.palette || k.gizmo_entry.open || k.bar_pop.open || k.colors.palette_menu || k.colors.swatch_menu || k.home_menu || k.ctx.select_open != 0
 }
 
 kit_destroy :: proc(app: ^App) {
@@ -888,7 +902,8 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 		// search) was the field's. The recovery card, when nothing is above it, waits
 		// for the next start.
 		if k.recover_shown && quiet && !shape_waits && !side_panel_open(k) do app.autosave.offer_hidden = true
-		if shape_waits && quiet do app.shape_pending.request = .Cancel
+		if k.home && quiet do home_close(app)
+		else if shape_waits && quiet do app.shape_pending.request = .Cancel
 		else if side_panel_open(k) && quiet do side_panel_close(app)
 		if k.palette do palette_close(app)
 		// An armed eyedropper waits for no press any more.
@@ -967,6 +982,13 @@ kit_layout :: proc(app: ^App) {
 	ctx := &k.ctx
 	t := ctx.theme
 	E := t.edge
+
+	// The Home screen covers the window and stands in for every panel while it shows.
+	if k.home {
+		k.recover_shown = false
+		kit_home(app)
+		return
+	}
 
 	// First, so that every panel and popover laid out after it is above it.
 	kit_shape_bar(app)
@@ -1399,8 +1421,9 @@ kit_rename :: proc(app: ^App) {
 
 // The interface's draw commands for the renderer: the viewport's texture (or the
 // studio render's or live occlusion's while on, viewport_shown) where the kit drew
-// KIT_VIEWPORT_IMAGE, the navigation head's where it drew KIT_NAV_HEAD_IMAGE, and the
-// objects' pictures where it drew KIT_THUMBS_IMAGE.
+// KIT_VIEWPORT_IMAGE, the navigation head's where it drew KIT_NAV_HEAD_IMAGE, the
+// objects' pictures where it drew KIT_THUMBS_IMAGE and the scenes' where it drew
+// KIT_PICTURES_IMAGE.
 kit_draws :: proc(app: ^App, dl: ^ui.Draw_List) -> []render.Ui_Draw {
 	shown := app.target.color
 	if tex := viewport_shown(app); tex != nil do shown = tex
@@ -1420,6 +1443,10 @@ kit_draws :: proc(app: ^App, dl: ^ui.Draw_List) -> []render.Ui_Draw {
 		if c.texture == .Image && c.image == KIT_THUMBS_IMAGE {
 			draws[i].image, draws[i].smooth = app.thumbs.atlas, true
 			if app.thumbs.atlas == nil do draws[i].index_count = 0
+		}
+		if c.texture == .Image && c.image == KIT_PICTURES_IMAGE {
+			draws[i].image, draws[i].smooth = app.home.pictures.atlas, true
+			if app.home.pictures.atlas == nil do draws[i].index_count = 0
 		}
 	}
 	return draws

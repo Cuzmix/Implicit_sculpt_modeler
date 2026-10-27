@@ -1493,3 +1493,45 @@ preview_tile_clicks_and_has_a_menu :: proc(t: ^testing.T) {
 	one_tile(&ctx, input_at(at, down = {.Right}, pressed = {.Right}))
 	testing.expect(t, one_tile(&ctx, input_at(at, released = {.Right})).menu)
 }
+
+one_picture_tile :: proc(ctx: ^Context, input: Input, aspect: f32) -> (res: Tile_Result, uv_lo, uv_hi: [2]f32) {
+	frame_begin(ctx, input)
+	begin_anchored(ctx, "pictures", .Start, .Start, {16, 16}, {direction = .Row})
+	res = picture_tile(ctx, "/scenes/dragon.sculpt##tile", 240, {image = 9, lo = {0, 0}, hi = {1, 1}, aspect = aspect}, "dragon", "Just now")
+	end(ctx)
+	dl := frame_end(ctx)
+	uv_lo, uv_hi = {1e9, 1e9}, {-1e9, -1e9}
+	for c in dl.cmds {
+		if c.texture != .Image || c.image != 9 do continue
+		for i in dl.indices[c.first_index:][:c.index_count] {
+			uv_lo = {min(uv_lo.x, dl.vertices[i].uv.x), min(uv_lo.y, dl.vertices[i].uv.y)}
+			uv_hi = {max(uv_hi.x, dl.vertices[i].uv.x), max(uv_hi.y, dl.vertices[i].uv.y)}
+		}
+	}
+	return
+}
+
+// A picture tile cuts its picture to the well's 4:3 shape rather than shrinking it into
+// it: a wide picture loses its sides, a tall one its top and bottom, evenly. A tap
+// anywhere on the tile clicks it and a right-click is its menu.
+@(test)
+picture_tile_cuts_the_picture_to_its_well :: proc(t: ^testing.T) {
+	ctx: Context
+	init(&ctx)
+	defer destroy(&ctx)
+	_, _, _ = one_picture_tile(&ctx, input_at({-1, -1}), 2)
+	res, lo, hi := one_picture_tile(&ctx, input_at({-1, -1}), 2)
+	testing.expect_value(t, res.picture.h, 180)
+	// A 2:1 picture in a 4:3 well keeps the middle two thirds of its width.
+	testing.expectf(t, abs(lo.x - 1.0 / 6) < 1e-4 && abs(hi.x - 5.0 / 6) < 1e-4 && lo.y == 0 && hi.y == 1, "uv %v to %v", lo, hi)
+	// A 3:4 one keeps the middle 9/16 of its height.
+	_, lo, hi = one_picture_tile(&ctx, input_at({-1, -1}), 0.75)
+	testing.expectf(t, abs(lo.y - 7.0 / 32) < 1e-4 && abs(hi.y - 25.0 / 32) < 1e-4 && lo.x == 0 && hi.x == 1, "uv %v to %v", lo, hi)
+	at := [2]f32{16 + 120, 16 + 200}
+	one_picture_tile(&ctx, input_at(at, down = {.Left}, pressed = {.Left}), 2)
+	res, _, _ = one_picture_tile(&ctx, input_at(at, released = {.Left}), 2)
+	testing.expect(t, res.clicked)
+	one_picture_tile(&ctx, input_at(at, down = {.Right}, pressed = {.Right}), 2)
+	res, _, _ = one_picture_tile(&ctx, input_at(at, released = {.Right}), 2)
+	testing.expect(t, res.menu)
+}

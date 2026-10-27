@@ -45,7 +45,7 @@ CAMERA0 = {"camera_yaw": 0.6, "camera_pitch": 0.35, "camera_roll": 0.0, "camera_
 MODEL = (800, 450)  # the sphere's middle; it reaches about 368 points out
 EMPTY = (250, 150)  # viewport with nothing on it
 UI = {
-    "menu": (26, 26), "save": (74, 26), "history": (1430, 26), "help": (1526, 26), "settings": (1574, 26),
+    "home": (26, 26), "menu": (74, 26), "save": (122, 26), "history": (1430, 26), "help": (1526, 26), "settings": (1574, 26),
     "brushes": (31, 143), "stroke": (31, 191), "colour": (31, 335), "channel": (31, 383),
     "focal": (31, 432), "size": (31, 480), "strength": (31, 528), "add": (31, 576), "subtract": (31, 624),
     "undo": (31, 673), "redo": (31, 721),
@@ -62,7 +62,7 @@ UI = {
     # The tray's list of palettes and sections (kit_tray.odin), with the Brush palette open.
     "list_brush": (1116, 158), "list_object": (1116, 590), "list_scene": (1116, 638), "status": (69, 80),
     "palette_row1": (1327, 211), "palette_row2": (1327, 257),
-    "earlier_save2": (90, 150),
+    "earlier_save2": (138, 150),
 }
 # Menu rows at 1600x900, from kit_menu's order (new_ui.odin): add a FILE row here, not to
 # every coordinate under it. Rows are 44 points apart; a divider and caption take 69.
@@ -76,9 +76,9 @@ _app_y = {name: _grid_y + 48 + 69 + 44 * i for i, name in enumerate(MENU_APP_ROW
 # On a 1280x720 window, with the menu scrolled to its end, the last row's middle.
 MENU_SHORT_LAST_Y = 688
 UI.update({
-    "menu_earlier_saves": (75, _file_y["earlier_saves"]),
-    "new_sphere": (48, _grid_y), "new_head": (135, _grid_y), "new_hand": (135, _grid_y + 48),
-    "menu_settings": (75, _app_y["settings"]), "menu_macros": (75, _app_y["macros"]), "menu_library": (75, _app_y["library"]),
+    "menu_earlier_saves": (123, _file_y["earlier_saves"]),
+    "new_sphere": (96, _grid_y), "new_head": (183, _grid_y), "new_hand": (183, _grid_y + 48),
+    "menu_settings": (123, _app_y["settings"]), "menu_macros": (123, _app_y["macros"]), "menu_library": (123, _app_y["library"]),
 })
 # The Macros panel (kit_macros.odin) with two macros: each row's Run, Key, Rename and
 # Delete, rows 52 points apart.
@@ -5205,6 +5205,83 @@ def first_save():
     return s, [f"--save={path}"], {"@saved": lambda _: os.path.exists(path)}
 
 
+# The Home screen at 1600x900 (kit_home.odin): the Head starter, and the first scene tile.
+HOME_NEW_HEAD = (180, 145)
+HOME_TILE1 = (385, 190)
+
+
+@scenario
+def home_opens_from_the_top_bar():
+    """A tap on the top bar's Home shows the Home screen over everything."""
+    s = Script()
+    s.ftap(*UI["home"])
+    s.wait(4)
+    return s, [], {"home": near(1, 0), "home_opened": near(1, 0), "dabs": near(0)}
+
+
+@scenario
+def home_closes_on_escape():
+    """Escape closes the Home screen and goes back to the scene as it was."""
+    s = Script()
+    s.ftap(*UI["home"])
+    s.wait(4)
+    s.press("Escape")
+    return s, [], camera_still({"home": near(0, 0), "home_opened": near(1, 0), "objects": near(1, 0)})
+
+
+@scenario
+def home_starts_a_new_scene_from_a_tile():
+    """The Head starter on Home replaces the untouched sphere at once and closes Home."""
+    s = Script()
+    s.ftap(*UI["home"])
+    s.wait(4)
+    s.ftap(*HOME_NEW_HEAD)
+    s.wait(10)
+    return s, [], {"home": near(0, 0), "objects": near(1, 0), "selected_name": lambda v: v.startswith("Head")}
+
+
+@scenario
+def home_opens_a_recent_scene():
+    """A scene saved earlier shows on Home's Recent with its picture; a tap opens it."""
+    path = scene_file()
+    s = Script()
+    s.ftap(*UI["home"])
+    s.wait(20)
+    s.ftap(*HOME_TILE1)
+    s.wait(6)
+
+    def second():
+        write_settings(f"recent_scenes {path}\n")
+        return s, [f"--settings-file={settings_file()}"], {"home": near(0, 0), "home_pictures": near(1, 0), "home_read": near(1, 0),
+                                                           "scene_name": is_text("head.sculpt"), "recent_scenes": near(1, 0)}
+    return Steps([first_save(), second()])
+
+
+@scenario
+def home_drops_a_scene_that_is_gone():
+    """A tap on a Recent scene whose file is gone takes it off Recent and opens nothing."""
+    write_settings(f"recent_scenes {scene_file()}\n")
+    s = Script()
+    s.ftap(*UI["home"])
+    s.wait(10)
+    s.ftap(*HOME_TILE1)
+    s.wait(4)
+    return s, [f"--settings-file={settings_file()}"], {"home": near(1, 0), "recent_scenes": near(0, 0), "scene_name": is_text("none")}
+
+
+@scenario
+def home_recovers_a_crashed_sessions_autosave():
+    """After a crash Home opens on Autosaves, where the crashed session's autosave is; a tap
+    recovers it."""
+    after = Script()
+    after.wait(10)
+    after.ftap(*UI["home"])
+    after.wait(10)
+    after.ftap(*HOME_TILE1)
+    after.wait(10)
+    return Steps([crash_after_stroke(), (after, autosave_args(), {"home": near(0, 0), "home_autosaves": near(1, 0), "recovered": near(1, 0)})])
+
+
 @scenario
 def save_over_a_file_keeps_the_earlier_one():
     """Ctrl+S twice over an opened file, a stroke before each: each save keeps the file it
@@ -5220,7 +5297,7 @@ def save_over_a_file_keeps_the_earlier_one():
 
 
 # The Save popover's Save next row, under the top bar's Save.
-SAVE_POP_NEXT = (150, 172)
+SAVE_POP_NEXT = (198, 172)
 
 
 @scenario
@@ -5314,12 +5391,12 @@ def menu_scrolls_on_a_short_window():
     s.wait(3)
     click(s, UI["menu"])
     s.wait(4)
-    s.add("move:120,400")
+    s.add("move:168,400")
     s.add("wheel:-10")
     s.wait(1)
     s.add("wheel:-10")
     s.wait(20)
-    click(s, (85, MENU_SHORT_LAST_Y - 44 * (len(MENU_APP_ROWS) - 1 - MENU_APP_ROWS.index("settings"))))
+    click(s, (133, MENU_SHORT_LAST_Y - 44 * (len(MENU_APP_ROWS) - 1 - MENU_APP_ROWS.index("settings"))))
     s.wait(10)
     return s, ["--width=1280", "--height=720"], {"settings_open": near(1, 0)}
 
@@ -5590,7 +5667,7 @@ def pack_presets_reach_the_browser():
 OCTA_OBJ = ("v 1 0 0\nv -1 0 0\nv 0 1 0\nv 0 -1 0\nv 0 0 1\nv 0 0 -1\n"
             "f 1 3 5\nf 3 2 5\nf 2 4 5\nf 4 1 5\nf 3 1 6\nf 2 3 6\nf 4 2 6\nf 1 4 6\n")
 # Menu > New scene's first pack mesh, under the six shapes and the pack's name, at 1600x900.
-MENU_PACK_MESH = (48, 645)
+MENU_PACK_MESH = (96, 645)
 
 
 @scenario
