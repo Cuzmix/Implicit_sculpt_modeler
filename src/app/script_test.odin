@@ -363,3 +363,20 @@ setting_lines_write_what_they_read :: proc(t: ^testing.T) {
 	testing.expect_value(t, SPHERE_PRESETS[app.kit.add_size].vertices, 1_000_000)
 	testing.expect_value(t, app.ui.boolean.vertices, 300_000)
 }
+
+// The viewport's look is set by script as by its sliders, within their ranges, and
+// reaches what the objects are drawn with.
+@(test)
+script_sets_the_viewport_look :: proc(t: ^testing.T) {
+	s := script_parse("set cavity 0.8; set ridge 0; set exposure -1.5", "test")
+	defer script_destroy(&s)
+	testing.expect_value(t, len(s.errors), 0)
+	if !testing.expect_value(t, len(s.statements), 3) do return
+	app: App
+	for st in s.statements do setting_write(&app, st.setting, st.value)
+	testing.expect_value(t, viewport_look(&app), [4]f32{-1.5, 0.8, 0, 0})
+
+	bad := script_parse("set exposure 4\nset cavity 1.5", "test")
+	defer script_destroy(&bad)
+	testing.expect_value(t, len(bad.errors), 2)
+}

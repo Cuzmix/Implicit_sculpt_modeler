@@ -57,3 +57,16 @@ material_by_name :: proc(name: string) -> (index: int, ok: bool) {
 current_material :: proc(app: ^App) -> Material {
 	return app.custom if app.material == CUSTOM_MATERIAL else MATERIALS[app.material]
 }
+
+// How strongly creases darken and crests lighten unless the settings say otherwise:
+// enough for sculpted detail to read at any light angle without outlining every form.
+CAVITY_DEFAULT :: 0.5
+RIDGE_DEFAULT :: 0.3
+
+// The furthest the exposure goes either way, in stops.
+EXPOSURE_RANGE :: 3
+
+// The viewport's look for render.Draw_Item.look: exposure, cavity and ridge.
+viewport_look :: proc(app: ^App) -> [4]f32 {
+	return {app.exposure, app.cavity, app.ridge, 0}
+}

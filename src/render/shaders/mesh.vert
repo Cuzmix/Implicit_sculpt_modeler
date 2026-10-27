@@ -34,6 +34,11 @@ vec3 group_color(uint g) {
 	return mix(vec3(1.0), rgb, 0.55) * light;
 }
 
+// The sRGB curve back to linear light (IEC 61966-2-1), for the polypaint bytes.
+vec3 srgb_decode(vec3 c) {
+	return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c));
+}
+
 vec3 oct_decode(vec2 e) {
 	vec3 v = vec3(e, 1.0 - abs(e.x) - abs(e.y));
 	if (v.z < 0.0) v.xy = (1.0 - abs(e.yx)) * vec2(e.x >= 0.0 ? 1.0 : -1.0, e.y >= 0.0 ? 1.0 : -1.0);
@@ -50,7 +55,7 @@ void main() {
 	out_group = vec3(-1.0);
 	if (options.x > 0.5 || options.y > 0.5) {
 		uvec2 p = paint[gl_VertexIndex];
-		if (options.x > 0.5) out_paint = vec4(pow(unpackUnorm4x8(p.x).rgb, vec3(2.2)), unpackUnorm4x8(p.x).a);
+		if (options.x > 0.5) out_paint = vec4(srgb_decode(unpackUnorm4x8(p.x).rgb), unpackUnorm4x8(p.x).a);
 		if (options.y > 0.5) out_group = group_color(p.y & 0xffffu);
 	}
 	vec4 world      = model * vec4(in_position, 1.0);
