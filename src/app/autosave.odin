@@ -127,7 +127,7 @@ Autosave_Job :: struct {
 	header:  [dynamic]u8,
 	objects: [dynamic]^Object,
 	hd:      [dynamic]bool, // per object: an HD window is open
-	refs:    [dynamic]Material_Refs, // per object: its material's pack parts, owned
+	refs:    [dynamic][]Material_Refs, // per object: its and its groups' material pack parts, owned
 	path:    string,
 	info:    Session_Info, // the session file once this autosave is written
 	check:   bool,
@@ -365,8 +365,10 @@ autosave_start :: proc(app: ^App, fp: u64) {
 		append(&job.objects, obj)
 		append(&job.hd, hd)
 		// By name, here on the frame loop, which owns the library the thread must not read.
-		refs := material_refs(app, obj.material)
-		append(&job.refs, Material_Refs{strings.clone(refs.material), strings.clone(refs.matcap)})
+		refs := object_material_refs(app, obj)
+		owned := make([]Material_Refs, len(refs))
+		for r, k in refs do owned[k] = {strings.clone(r.material), strings.clone(r.matcap)}
+		append(&job.refs, owned)
 		vertices += object_vertex_count(obj)
 	}
 	a.sync_ms = time.duration_milliseconds(time.tick_since(start))
@@ -504,9 +506,12 @@ job_free :: proc(job: ^Autosave_Job) {
 	delete(job.header)
 	delete(job.objects)
 	delete(job.hd)
-	for r in job.refs {
-		delete(r.material)
-		delete(r.matcap)
+	for list in job.refs {
+		for r in list {
+			delete(r.material)
+			delete(r.matcap)
+		}
+		delete(list)
 	}
 	delete(job.refs)
 	delete(job.path)

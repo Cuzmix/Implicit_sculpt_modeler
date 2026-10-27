@@ -591,6 +591,29 @@ pack_materials_install_and_follow :: proc(t: ^testing.T) {
 		testing.expect(t, r.ok && r.at == len(out) && back == MATERIALS[3])
 	}
 
+	// A group's material is kept by name too; a table from version 15 has no references.
+	{
+		obj, back, old: Object
+		defer delete(obj.group_materials)
+		defer delete(back.group_materials)
+		defer delete(old.group_materials)
+		append(&obj.group_materials, Group_Material{2, l.materials[brass].material})
+		out: [dynamic]u8
+		defer delete(out)
+		group_materials_put(&out, &obj, object_material_refs(&a, &obj)[1:])
+		r := geom.byte_reader(out[:])
+		group_materials_get(&r, &back, &a)
+		testing.expect(t, r.ok && r.at == len(out) && len(back.group_materials) == 1)
+		testing.expect_value(t, back.group_materials[0].material, l.materials[brass].material)
+		clear(&out)
+		obj.group_materials[0].material = MATERIALS[5]
+		group_materials_put(&out, &obj)
+		resize(&out, len(out) - 8)
+		r = geom.byte_reader(out[:])
+		group_materials_get(&r, &old, &a, 15)
+		testing.expect(t, r.ok && r.at == len(out) && old.group_materials[0].material == MATERIALS[5])
+	}
+
 	// The settings keep the default and Custom's matcap by name.
 	a.material = PACK_MATERIAL + brass
 	a.custom = custom

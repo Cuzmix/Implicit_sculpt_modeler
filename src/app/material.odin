@@ -150,7 +150,7 @@ materials_settle :: proc(app: ^App) {
 
 // The scene file's form of a material (object_put): its label ("" for none yet, which
 // reads back as none), colours, classic shading, metallic, roughness and matcap, then
-// (version 15) what of it is a content pack's, by name: the material as `<id>/<name>`
+// (version 16) what of it is a content pack's, by name: the material as `<id>/<name>`
 // and the matcap as `<id>/<stem>`, each "" for none (material_refs). A pack's matcap
 // goes as 0, so a scene opened where the pack is not installed shows the lights.
 material_put :: proc(out: ^[dynamic]u8, m: Material, refs := Material_Refs{}) {
@@ -181,7 +181,7 @@ material_get :: proc(r: ^geom.Byte_Reader, app: ^App = nil, version := SCENE_VER
 	m.metallic, m.roughness = surface[0], surface[1]
 	m.matcap = int(geom.byte_get(r, i32))
 	refs: Material_Refs
-	if version >= 15 {
+	if version >= 16 {
 		refs = {geom.byte_get_string(r), geom.byte_get_string(r)}
 	}
 	defer delete(refs.material)

@@ -54,7 +54,7 @@ File_Request :: struct {
 // be in a console nobody watches. `at` tells a new note from the one already shown.
 // The native scene file starts with these bytes, then its version.
 SCENE_MAGIC :: "SCULPTSC"
-SCENE_VERSION :: u32(15) // 2: each object's rotation; 3: the current level's polypaint and polygroups; 4: sculpt layers, and a retopologized object's quads and UVs (sculpt.levels_write); 5: each object's boolean mode; 6: the base level's node layout (sculpt.levels_write); 7: the camera's roll; 8: each object's eye and ghost, and Solo; 9: folders, and each object's folder; 10: selection sets (sculpt.levels_write); 11: each object's polypaint shown or not (a third view bit); 12: stored visibility (V1 to V8): the slot chosen and used, and each folder's and object's eyes in them; 13: each object's kind (mesh or voxel), a voxel object's resolution and clay after its empty level (voxel.clay_write); 14: each object's material (material_put); 15: a material's content pack parts by name (material_refs)
+SCENE_VERSION :: u32(16) // 2: each object's rotation; 3: the current level's polypaint and polygroups; 4: sculpt layers, and a retopologized object's quads and UVs (sculpt.levels_write); 5: each object's boolean mode; 6: the base level's node layout (sculpt.levels_write); 7: the camera's roll; 8: each object's eye and ghost, and Solo; 9: folders, and each object's folder; 10: selection sets (sculpt.levels_write); 11: each object's polypaint shown or not (a third view bit); 12: stored visibility (V1 to V8): the slot chosen and used, and each folder's and object's eyes in them; 13: each object's kind (mesh or voxel), a voxel object's resolution and clay after its empty level (voxel.clay_write); 14: each object's material (material_put); 15: each object's polygroups with materials of their own (group_materials_put); 16: the content pack parts of the object's and its groups' materials, by name (material_refs)
 
 // The request waiting for the next frame, and whether a dialog is showing. Kept here
 // rather than in App because SDL may call a dialog back on another thread, even after
@@ -443,10 +443,10 @@ mesh_import_read :: proc(app: ^App, path, what: string) -> (m: Mesh_Import, ok: 
 
 // Writes the object's shown level (packed, if dynamic) to an OBJ, PLY, binary glTF or
 // USD text file, where it was in the file it came from (Object.file); Move tool placement
-// is not written. glTF and USD also carry the normals and the sculpt layers, as morph
-// targets or blend shapes (shape keys) at their strengths; USD the polygroups too, and a
-// retopologized base level as its quads and UVs, as OBJ does. Returns whether it was
-// written.
+// is not written. glTF and USD also carry the normals, the materials (the object's and its
+// groups') and the sculpt layers, as morph targets or blend shapes (shape keys) at their
+// strengths; USD the polygroups too, and a retopologized base level as its quads and UVs,
+// as OBJ does. Returns whether it was written.
 object_export :: proc(app: ^App, obj: ^Object, path: string) -> bool {
 	start := time.tick_now()
 	name := filepath.base(path)
@@ -481,9 +481,7 @@ object_export :: proc(app: ^App, obj: ^Object, path: string) -> bool {
 			material.base = 1
 		}
 		colors = make([][3]u8, len(c), context.temp_allocator)
-		for x, v in c {
-			for k in 0 ..< 3 do colors[v][k] = u8((u32(x[k]) * u32(x.a) + under[k] * (255 - u32(x.a)) + 127) / 255)
-		}
+		for x, v in c do colors[v] = paint_over(x, under)
 	}
 	if object_dynamic(obj) {
 		mask: []u8
@@ -494,6 +492,8 @@ object_export :: proc(app: ^App, obj: ^Object, path: string) -> bool {
 	out := make([dynamic]u8)
 	defer delete(out)
 	layers := 0
+	// glTF copies the vertices on a seam between two group materials.
+	vertices := len(positions)
 	switch {
 	case ext == ".glb" || ext == ".usda":
 		// Dynamic topology bakes the layers, so a dynamic object has none to write.
@@ -516,8 +516,13 @@ object_export :: proc(app: ^App, obj: ^Object, path: string) -> bool {
 			offset    = obj.file.position,
 			material  = material,
 		}
+		if ext == ".usda" do usd_extras(obj, lv, &m)
+		if object_shows_group_materials(obj) && !object_dynamic(obj) {
+			faces := m.groups if ext == ".usda" else lv.sculptor.groups.tris
+			export_group_materials(app, obj, &m, faces, lv.sculptor.color, ext == ".glb")
+		}
+		vertices = len(m.positions)
 		if ext == ".usda" {
-			usd_extras(obj, lv, &m)
 			geom.mesh_write_usda(&out, m, &app.pool)
 		} else if !geom.mesh_write_glb(&out, m, &app.pool) {
 			free_all(context.temp_allocator)
@@ -539,7 +544,7 @@ object_export :: proc(app: ^App, obj: ^Object, path: string) -> bool {
 	app.stats.file_read_ms, app.stats.file_parse_ms = 0, 0
 	app.stats.file_write_ms = time.duration_milliseconds(time.tick_since(start))
 	with := fmt.tprintf(", %d %s as shape keys", layers, "layer" if layers == 1 else "layers") if layers > 0 else ""
-	file_note(app, false, "Exported %s: %d vertices, %d triangles%s, %d MB in %.0f ms", name, len(positions), len(indices) / 3, with, len(out) >> 20, app.stats.file_write_ms)
+	file_note(app, false, "Exported %s: %d vertices, %d triangles%s, %d MB in %.0f ms", name, vertices, len(indices) / 3, with, len(out) >> 20, app.stats.file_write_ms)
 	return true
 }
 
@@ -874,14 +879,15 @@ scene_new :: proc(app: ^App, shape: geom.Primitive, vertices: int) -> bool {
 // level with the mask. Leaves any HD window first, whose detail is not stored.
 object_put :: proc(app: ^App, out: ^[dynamic]u8, obj: ^Object) {
 	object_hd_leave(app, obj)
-	_ = object_put_bytes(out, obj, refs = material_refs(app, obj.material))
+	_ = object_put_bytes(out, obj, refs = object_material_refs(app, obj))
 	free_all(context.temp_allocator)
 }
 
 // object_put without leaving HD, for the autosave thread, which writes as `opts` says
-// and may be stopped (false, with part of the object in `out`). `refs` are the material's
-// content pack parts by name, which the frame loop works out, since the library is its.
-object_put_bytes :: proc(out: ^[dynamic]u8, obj: ^Object, opts := sculpt.Write_Options{}, refs := Material_Refs{}) -> bool {
+// and may be stopped (false, with part of the object in `out`). `refs` are the content
+// pack parts by name of its material and then each group's (object_material_refs), which
+// the frame loop works out, since the library is its; none for none.
+object_put_bytes :: proc(out: ^[dynamic]u8, obj: ^Object, opts := sculpt.Write_Options{}, refs: []Material_Refs = nil) -> bool {
 	// Room for it up front: a 50M-vertex object is about 2 GB, and growing the buffer to
 	// that a doubling at a time copies it all over again and touches twice the memory.
 	reserve(out, len(out) + object_put_estimate(obj))
@@ -895,7 +901,8 @@ object_put_bytes :: proc(out: ^[dynamic]u8, obj: ^Object, opts := sculpt.Write_O
 	geom.byte_put(out, i32(obj.folder)) // version 9
 	geom.byte_put(out, obj.vis_off) // version 12
 	geom.byte_put(out, u8(OBJECT_KIND_VOXEL if obj.voxel != nil else OBJECT_KIND_MESH)) // version 13
-	material_put(out, obj.material, refs) // version 14, its references 15
+	material_put(out, obj.material, refs[0] if len(refs) > 0 else {}) // version 14, its references 16
+	group_materials_put(out, obj, refs[1:] if len(refs) > 0 else nil) // version 15, their references 16
 	// A voxel object's clay and the resolution it started at stand where a mesh's levels
 	// go; its empty level is made again on reading.
 	if vp := obj.voxel; vp != nil {
@@ -949,7 +956,9 @@ object_get :: proc(app: ^App, r: ^geom.Byte_Reader, version := SCENE_VERSION, mi
 	// An older scene has no materials: its objects take the default (materials_settle),
 	// which is how they showed.
 	if version >= 14 do obj.material = material_get(r, app, version, missing)
-	fields_ok := r.ok && obj.transform.scale > 0 && obj.file.scale > 0 && kind <= OBJECT_KIND_VOXEL
+	if version >= 15 do group_materials_get(r, obj, app, version, missing)
+	// A voxel object has no polygroups to shade.
+	fields_ok := r.ok && obj.transform.scale > 0 && obj.file.scale > 0 && kind <= OBJECT_KIND_VOXEL && !(kind == OBJECT_KIND_VOXEL && len(obj.group_materials) > 0)
 	if fields_ok && kind == OBJECT_KIND_VOXEL {
 		read, made = voxel_part_get(app, r, obj)
 		if read {
@@ -963,6 +972,7 @@ object_get :: proc(app: ^App, r: ^geom.Byte_Reader, version := SCENE_VERSION, mi
 		return obj, true, made
 	}
 	delete(obj.name)
+	delete(obj.group_materials)
 	free(obj)
 	free_all(context.temp_allocator)
 	return nil, false, false

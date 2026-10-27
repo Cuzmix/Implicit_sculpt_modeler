@@ -246,3 +246,48 @@ usda_carries_the_material :: proc(t: ^testing.T) {
 	free_all(context.temp_allocator)
 	testing.expect(t, !strings.contains(string(out[:]), "Material"))
 }
+
+// Face materials go as a partition of GeomSubsets, the faces of each used slot, each bound
+// to its own UsdPreviewSurface; corner colours go faceVarying.
+@(test)
+usda_binds_face_materials :: proc(t: ^testing.T) {
+	m := Mesh_Export {
+		name            = "Plate",
+		positions       = []Vec3{{0, 0, 0}, {1, 0, 0}, {1, 1, 0}, {0, 1, 0}},
+		normals         = []Vec3{{0, 0, 1}, {0, 0, 1}, {0, 0, 1}, {0, 0, 1}},
+		indices         = []u32{0, 1, 2, 0, 2, 3},
+		colors          = [][3]u8{{255, 0, 0}, {0, 255, 0}, {0, 0, 255}, {255, 0, 0}, {0, 0, 255}, {255, 255, 255}},
+		corner_colors   = true,
+		material        = Export_Material{name = "Steel", base = 1, metallic = 1, roughness = 0.4},
+		group_materials = []Export_Material{{name = "Gold", base = 1, metallic = 1, roughness = 0.2}, {name = "Unused"}},
+		face_material   = []u8{0, 1},
+	}
+	out := make([dynamic]u8)
+	defer delete(out)
+	mesh_write_usda(&out, m)
+	free_all(context.temp_allocator)
+	text := string(out[:])
+	for want in ([]string {
+		`uniform token subsetFamily:materialBind:familyType = "partition"`,
+		`def GeomSubset "Steel_faces"`,
+		`int[] indices = [0]`,
+		`def GeomSubset "Gold_faces" (
+            prepend apiSchemas = ["MaterialBindingAPI"]
+        )
+        {
+            uniform token elementType = "face"
+            uniform token familyName = "materialBind"
+            int[] indices = [1]
+            rel material:binding = </Root/Gold>
+        }`,
+		`rel material:binding = </Root/Steel>`,
+		`def Material "Gold"`,
+		`float inputs:roughness = 0.2`,
+		`color3f inputs:diffuseColor.connect = </Root/Gold/Paint.outputs:result>`,
+		`interpolation = "faceVarying"`,
+	}) {
+		testing.expectf(t, strings.contains(text, want), "no %q in\n%s", want, text)
+	}
+	// An unused slot has neither a subset nor a material.
+	testing.expect(t, !strings.contains(text, "Unused"))
+}

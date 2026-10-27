@@ -58,6 +58,7 @@ Script_Verb :: enum u8 {
 	Preset,
 	Pack_Mesh,
 	Make_Pack,
+	Group_Material,
 }
 
 // Each verb's name and what it takes, for errors and the README.
@@ -84,6 +85,7 @@ SCRIPT_VERBS := [Script_Verb]struct {
 	.Preset        = {"preset", "a brush preset's name (yours, or PACK/NAME for a content pack's), or none for the plain brush"},
 	.Pack_Mesh     = {"pack_mesh", "a content pack's mesh as PACK/NAME, added as a new object"},
 	.Make_Pack     = {"make_pack", "a .sculptpack file to write your own alphas and presets to, named after the file"},
+	.Group_Material = {"group_material", "a polygroup's number from 1, given the material `set material` chose, and off to give it the object's again"},
 }
 
 // A command that is on or off (one with `checked`) can be told which: it then runs only
@@ -421,6 +423,12 @@ script_verb_read :: proc(st: ^Script_Statement, args: []string) -> bool {
 		if len(args) == 0 do return false
 		st.text = strings.join(args, " ")
 		return true
+	case .Group_Material:
+		if len(args) < 1 || len(args) > 2 do return false
+		n, ok := strconv.parse_int(args[0])
+		st.count = n
+		st.flip = len(args) == 2
+		return ok && n >= 1 && n <= int(max(u16)) && (len(args) == 1 || script_name(args[1]) == "off")
 	case .Layer:
 		if len(args) < 2 || len(args) > 3 do return false
 		n, ok := strconv.parse_int(args[0])
@@ -510,7 +518,7 @@ script_verb :: proc(app: ^App, st: Script_Statement) -> (failure: string, ok: bo
 		_, hit, n, on := scene_raycast_surface(app, origin, dir)
 		if !on do return "no surface is under the middle of the view", true
 		if !insert_make(app, hit, n, app.brush.radius_px * camera.orbit_world_per_px(app.camera, hit, size.y)) do return "", false
-	case .Move, .Rotate, .Boolean, .Slice, .Hide, .Mask_Rect, .Layer:
+	case .Move, .Rotate, .Boolean, .Slice, .Hide, .Mask_Rect, .Layer, .Group_Material:
 		if obj == nil do return "nothing is selected", true
 		switch st.verb {
 		case .Move, .Rotate:
@@ -542,6 +550,13 @@ script_verb :: proc(app: ^App, st: Script_Statement) -> (failure: string, ok: bo
 			if l.strength == st.numbers[0] && l.visible == !st.flip do return "", true
 			_ = sculpt.sculptor_layer_set(s, st.count - 1, st.numbers[0], !st.flip)
 			if sculpt.sculptor_stroke_end(s) do history_record(app, obj, .Layer, "Layer strength")
+			return "", true
+		case .Group_Material:
+			// As the Material section's Group target does, in place so the next line sees it.
+			if obj.voxel != nil do return "a voxel object has no polygroups", true
+			autosave_settle(app)
+			if why := group_material_set(obj, u16(st.count), current_material(app), st.flip); why != "" do return why, true
+			app.scene_edits += 1
 			return "", true
 		case .Falloff, .Focal, .Alpha, .Matcap, .Project, .Draw_Curve, .Insert_Middle, .Install_Pack, .Preset, .Pack_Mesh, .Make_Pack:
 		}

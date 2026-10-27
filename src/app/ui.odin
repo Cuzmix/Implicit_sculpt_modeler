@@ -31,6 +31,14 @@ Ui_State :: struct {
 	smooth_strength:    f32, // how far each step moves a vertex toward its neighbours' average, 0 to 1
 	smooth_on_gpu:      bool, // run Smooth all as a compute shader (the GPU compute trial); off by default
 	crease_degrees:     f32, // Polygroups' Creases: how sharp a crease starts a new group
+	// Scene > Material's Group target (group_materials.odin): the section edits polygroup
+	// group_target's material, of object group_target_id (0 for none picked); Pick a group
+	// waits for a press on the selected object, which is held out of the tools until it lifts.
+	material_groups:    bool,
+	group_pick:         bool,
+	group_pick_held:    bool,
+	group_target:       u16,
+	group_target_id:    int,
 	layer_selected:     int,  // the Layers section's row that Delete and Bake act on
 	set_selected:       int,  // the Selection sets section's set that Add, Subtract, Store over and Delete act on
 	layer_dragging:     bool, // a layer's strength slider is being dragged: one undo step

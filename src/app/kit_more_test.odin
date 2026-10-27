@@ -147,3 +147,25 @@ show_every_option_unfolds_the_sections :: proc(t: ^testing.T) {
 		testing.expectf(t, folded < all, "%v: More hides nothing (%d)", f.section, folded)
 	}
 }
+
+// With polygroups the Material section gains its Object and Group tabs, and still shows
+// at most five controls folded on either.
+@(test)
+material_tabs_keep_five_controls :: proc(t: ^testing.T) {
+	app: App
+	obj := section_scene(&app)
+	defer section_scene_free(&app)
+	testing.expect(t, sculpt.sculptor_group_command(object_sculptor(obj), .Visible))
+	// A group picked, so the Group tab shows its material.
+	app.ui.group_target, app.ui.group_target_id = sculpt.sculptor_groups(object_sculptor(obj))[0], obj.id
+	for sec in SCENE_SECTIONS {
+		if sec.section != .Material do continue
+		tab_draw = sec.draw
+		for groups in ([?]bool{false, true}) {
+			app.ui.material_groups = groups
+			n := section_controls(&app, sec.section, by_tab, obj, false)
+			testing.expectf(t, n <= 5, "Material, %s tab: %d controls", "Group" if groups else "Object", n)
+			testing.expectf(t, n >= 4, "Material, %v: only %d controls", groups, n)
+		}
+	}
+}

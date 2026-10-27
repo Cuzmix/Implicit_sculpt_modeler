@@ -38,6 +38,12 @@ description: CAD-style mesh tools inside this app on geom.Mesh — primitives, b
   an empty shape still names one point (Blender drops a shape with no offsets). `export_check.py FILE.usda` runs
   USD's 30 validators (usd-core's `UsdValidation`) and Blender at frame 1. A `{` in an `fmt.sbprintf` format is
   `{{`: an unescaped one wrote `%!(MISSING ...)` into both writers once.
+- Group materials in exports (`app.export_group_materials`): `Mesh_Export.group_materials` + `face_material` (a slot a
+  written face, 0 the object's) make glTF one primitive a used slot (every primitive repeats the targets: the mesh's
+  weights are for all) and USD a `materialBind` partition of GeomSubsets, slot 0 included, because Blender's importer
+  gives faces in no subset the FIRST subset's material, not the mesh binding. Painted: glTF copies seam vertices
+  (`geom.mesh_export_split_materials`, morph entries appended for the copies), USD writes `corner_colors` faceVarying.
+  Check with `export_check.py FILE --face-materials "Gold=13778,Steel=55112"` (faces a material, by name).
 - Voxel remesh exists (README "Voxel remesh (DynaMesh)"): `geom.remesh_voxel(m, target, pool)` and
   `remesh_voxel_spacing(m, h, pool)` (`src/geom/remesh.odin:57, 68`) rebuild a mesh as an even, closed, manifold surface:
   winding-number rays along each axis decide inside, marching cubes with a rule-built table keeps ambiguous faces

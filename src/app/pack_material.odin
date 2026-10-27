@@ -283,6 +283,15 @@ material_refs :: proc(app: ^App, m: Material) -> (refs: Material_Refs) {
 	return
 }
 
+// The content pack parts by name (temp memory) of `obj`'s material and then of each of its
+// groups' (object_put_bytes).
+object_material_refs :: proc(app: ^App, obj: ^Object) -> []Material_Refs {
+	refs := make([]Material_Refs, 1 + len(obj.group_materials), context.temp_allocator)
+	refs[0] = material_refs(app, obj.material)
+	for e, k in obj.group_materials do refs[1 + k] = material_refs(app, e.material)
+	return refs
+}
+
 // After a pack's matcaps and materials were marked gone: what used one (the default new
 // objects take, Custom, and every object) moves to the one of the same pack and name
 // now, as a replaced pack has, or falls back: a material to a Custom one of the same
@@ -302,8 +311,19 @@ pack_materials_retarget :: proc(app: ^App) -> (fell: int) {
 	changed := false
 	for obj in app.scene.objects {
 		m, dropped := pack_material_moved(app, obj.material)
+		// Its groups' too: one that falls back counts the object once.
+		group_dropped := false
+		for &e in obj.group_materials {
+			g, gone := pack_material_moved(app, e.material)
+			if g == e.material do continue
+			// The autosave thread may be reading the object's materials.
+			if !changed do autosave_settle(app)
+			e.material = g
+			changed = true
+			group_dropped ||= gone
+		}
+		if group_dropped && !dropped do fell += 1
 		if m == obj.material do continue
-		// The autosave thread may be reading the object's material.
 		if !changed do autosave_settle(app)
 		obj.material = m
 		changed = true

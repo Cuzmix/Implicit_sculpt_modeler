@@ -7,7 +7,10 @@ layout(set = 1, binding = 0) uniform Frame_Uniforms {
 	mat4 view_proj;
 	mat4 view;
 	mat4 model; // rotation, translation and uniform scale only, so it also transforms normals
-	vec4 options; // x: 1 to show the paint, y: 1 to show the polygroups (both read `paint`)
+	vec4 options; // x: 1 to show the paint, y: 1 to show the polygroups, z: 1 to look up material slots (all read `paint`)
+	// Slot k's polygroup in component k & 3 of element k >> 2 (render.Material_Slots), from
+	// slot 1; 0xffffffff for an unused slot.
+	uvec4 slot_group[4];
 };
 
 // Per vertex: its polypaint (sRGB red, green, blue and coverage, one byte each, red
@@ -24,6 +27,9 @@ layout(location = 3) out vec4 out_paint;  // linear colour, and how much it cove
 layout(location = 4) flat out vec3 out_group;
 // Where the vertex is in the mesh's own space, for the density preview's checker.
 layout(location = 5) out vec3 out_mesh_pos;
+// The material slot of the triangle's polygroup, from the corner it is drawn from (the
+// one carrying its group); 0 for the item's own material.
+layout(location = 6) flat out uint out_slot;
 
 // A colour per group that neighbouring numbers keep far apart: hues a golden angle
 // apart, in two lightnesses.
@@ -53,10 +59,17 @@ void main() {
 	out_mask        = float(((raw.x & 15) << 4) | (raw.y & 15)) / 255.0;
 	out_paint = vec4(0.0);
 	out_group = vec3(-1.0);
-	if (options.x > 0.5 || options.y > 0.5) {
+	out_slot = 0u;
+	if (options.x > 0.5 || options.y > 0.5 || options.z > 0.5) {
 		uvec2 p = paint[gl_VertexIndex];
+		uint group = p.y & 0xffffu;
 		if (options.x > 0.5) out_paint = vec4(srgb_decode(unpackUnorm4x8(p.x).rgb), unpackUnorm4x8(p.x).a);
-		if (options.y > 0.5) out_group = group_color(p.y & 0xffffu);
+		if (options.y > 0.5) out_group = group_color(group);
+		if (options.z > 0.5) {
+			for (uint k = 1u; k < 16u; k++) {
+				if (slot_group[k >> 2][k & 3u] == group) out_slot = k;
+			}
+		}
 	}
 	vec4 world      = model * vec4(in_position, 1.0);
 	gl_Position     = view_proj * world;
