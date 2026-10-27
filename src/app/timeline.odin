@@ -276,7 +276,7 @@ kit_history_panel :: proc(app: ^App) -> (raised: bool) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
-	shown := ui.presence(ctx, ui.id_of(ctx, "history panel"), k.history, t.panel_time)
+	shown := ui.presence(ctx, panel_id(Kit_Window.History), k.history, t.panel_time)
 	if shown <= 0 do return
 	tl := &app.timeline
 	lapse := &tl.lapse
@@ -291,11 +291,13 @@ kit_history_panel :: proc(app: ^App) -> (raised: bool) {
 	side := max(kit_right(app) + right, kit_left(app))
 	width := clamp(ui.safe_area(ctx).w - 2 * side, KIT_HISTORY_MIN_W, KIT_HISTORY_W)
 	mark := ui.vertex_mark(ctx)
-	body, closed, raised_now := ui.window_begin(ctx, "history panel", "History", &k.windows[.History], .Center, .End, {0, t.edge + dock.y + 8}, {direction = .Column, gap = 4, padding = 10, width = width, radius = t.radius_large, background = .Panel, inert = !k.history})
-	raised = raised_now
-	if closed do k.history = false
-	if !body {
-		ui.window_end(ctx)
+	p := panel_begin(app, Kit_Window.History, "History", .Center, .End, {0, t.edge + dock.y + 8}, {direction = .Column, gap = 4, padding = 10, width = width, radius = t.radius_large, background = .Panel, inert = !k.history})
+	raised = p.raised
+	if p.closed do k.history = false
+	// Docked, its rows take the column's width.
+	if p.docked && p.body do width = p.scroll.at.w + 2 * 10
+	if !p.body {
+		panel_end(app, &p)
 		ui.transform_since(ctx, mark, shown, 1, {}, {0, (1 - shown) * 16})
 		return
 	}
@@ -378,7 +380,7 @@ kit_history_panel :: proc(app: ^App) -> (raised: bool) {
 	}
 	ui.end(ctx)
 	ui.paragraph(ctx, "Record time-lapse asks for a folder, replays the History from the start to where the bar stands, and saves the viewport each frame as numbered PNGs (frame_00000.png...) that any video tool turns into a film; Turn spins the camera a little each frame.", width - 20)
-	ui.window_end(ctx)
+	panel_end(app, &p)
 	ui.transform_since(ctx, mark, shown, 1, {}, {0, (1 - shown) * 16})
 	return
 }

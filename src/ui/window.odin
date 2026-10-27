@@ -27,10 +27,12 @@ Window :: struct {
 // place it with `x`, `y` and `offset`, and in either case with its whole title bar inside
 // the safe area. Draws the title bar: the title, which drags the window and, folded,
 // opens it again at a tap; Minimise (Restore, folded); and Close, whose tooltip shows
-// `close_keys`. Returns whether to lay out the window's content (false while folded),
-// whether Close was clicked, and whether a press landed anywhere on the window this
-// frame, for the app to bring it in front of the others. Close it with window_end.
-window_begin :: proc(ctx: ^Context, name, title: string, w: ^Window, x, y: Anchor, offset: [2]f32, box: Box, close_keys := "") -> (body, closed, raised: bool) {
+// `close_keys`; with `options`, a button before Minimise that sets it when tapped (the
+// app's menu of where the window can go), which leaves Minimise and Close where they
+// are. Returns whether to lay out the window's content (false while folded), whether
+// Close was clicked, and whether a press landed anywhere on the window this frame, for
+// the app to bring it in front of the others. Close it with window_end.
+window_begin :: proc(ctx: ^Context, name, title: string, w: ^Window, x, y: Anchor, offset: [2]f32, box: Box, close_keys := "", options: ^bool = nil) -> (body, closed, raised: bool) {
 	t := ctx.theme
 	id := id_of(ctx, name)
 	box := box
@@ -51,7 +53,8 @@ window_begin :: proc(ctx: ^Context, name, title: string, w: ^Window, x, y: Ancho
 
 	inner := fill_width(ctx)
 	begin(ctx, "window bar", {direction = .Row, width = inner, center = true})
-	r := place(ctx, {max(inner - 2 * t.target, t.target), t.target})
+	buttons: f32 = 3 if options != nil else 2
+	r := place(ctx, {max(inner - buttons * t.target, t.target), t.target})
 	bar := id_of(ctx, "window title")
 	hovered, held, clicked, pressed := interact(ctx, bar, r)
 	if pressed {
@@ -64,6 +67,7 @@ window_begin :: proc(ctx: ^Context, name, title: string, w: ^Window, x, y: Ancho
 	if !held do w.dragging = false
 	_ = feedback(ctx, bar, r, t.radius_medium, hovered, held)
 	text(ctx, label_text(title), r.x + 6, r.y + r.h * 0.5, t.text_size, t.text, .Semibold)
+	if options != nil && icon_button(ctx, "Panel options", ICON_MORE) do options^ = true
 	if icon_button(ctx, "Restore" if w.minimized else "Minimise", ICON_RESTORE if w.minimized else ICON_MINIMISE) do w.minimized = !w.minimized
 	if icon_button(ctx, "Close", ICON_CLOSE, keys = close_keys) do closed = true
 	end(ctx)
@@ -109,8 +113,9 @@ window_clamp :: proc(ctx: ^Context, pos: [2]f32, size: [2]f32, padding: f32) -> 
 // cards are: a strip of dots along its top that drags it like a title bar, then `title`
 // large and centred. Placed as window_begin places a window. Returns whether a press
 // landed on it this frame, to bring it to the front, and whether the dots were long
-// pressed (the app docks the card back into its palette). Close it with window_end.
-card_begin :: proc(ctx: ^Context, name, title: string, w: ^Window, x, y: Anchor, offset: [2]f32, box: Box) -> (raised, dock: bool) {
+// pressed (the app docks the card back into its palette); with `options`, a button at
+// the title's right that sets it when tapped. Close it with window_end.
+card_begin :: proc(ctx: ^Context, name, title: string, w: ^Window, x, y: Anchor, offset: [2]f32, box: Box, options: ^bool = nil) -> (raised, dock: bool) {
 	t := ctx.theme
 	id := id_of(ctx, name)
 	size := prev_size(ctx, id, box)
@@ -148,7 +153,41 @@ card_begin :: proc(ctx: ^Context, name, title: string, w: ^Window, x, y: Anchor,
 	// Large, as the cards' titles are: about half again the panels' headings; a card with
 	// no title goes straight on to its content.
 	if title == "" do return
-	title_r := place(ctx, {inner, 40})
+	if options == nil {
+		title_r := place(ctx, {inner, 40})
+		text(ctx, label_text(title), title_r.x + title_r.w * 0.5, title_r.y + title_r.h * 0.5, t.heading_size * 1.4, t.text, .Semibold, .Center)
+		return
+	}
+	// The button takes a target at the right and as much room is left at the left, so the
+	// title stays centred over the card.
+	begin(ctx, "card title", {direction = .Row, width = inner, height = 40, center = true})
+	spacer(ctx, t.target)
+	title_r := place(ctx, {max(inner - 2 * t.target, 0), 40})
 	text(ctx, label_text(title), title_r.x + title_r.w * 0.5, title_r.y + title_r.h * 0.5, t.heading_size * 1.4, t.text, .Semibold, .Center)
+	if icon_button(ctx, "Panel options", ICON_MORE) do options^ = true
+	end(ctx)
 	return
+}
+
+// The id of the title bar window_begin draws for the window `name` (or, with `card`, the
+// grip card_begin draws), laid out as a root container: what holds the pointer while the
+// window is dragged.
+window_bar_id :: proc(ctx: ^Context, name: string, card := false) -> Id {
+	root := hash_under(0, name)
+	if card do return hash_under(root, "card grip")
+	return hash_under(hash_under(root, "window bar"), "window title")
+}
+
+// Hands the press the pointer holds now to the title bar (or grip) of window `name`, so
+// the window follows the pointer from the next frame as if its bar had been pressed:
+// `grab` is where on the window the pointer holds it. What the app calls when a docked
+// panel is dragged out of its column and floats on under the finger.
+window_grab :: proc(ctx: ^Context, w: ^Window, name: string, grab: [2]f32, card := false) {
+	if ctx.active == 0 do return
+	bar := window_bar_id(ctx, name, card)
+	ctx.active, ctx.active_seen = bar, true
+	// The press has moved past the slop: it is a drag, never a long press.
+	ctx.long.id, ctx.long.fired = bar, .Off
+	ctx.press_won, ctx.press_host = true, 0
+	w.held, w.grab, w.dragging = bar, grab, true
 }

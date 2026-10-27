@@ -444,7 +444,13 @@ viewport_dragging :: proc(ctx: ^Context) -> bool {
 id_of :: proc(ctx: ^Context, label: string) -> Id {
 	seed := ctx.id_seed
 	if n := len(ctx.stack); n > 0 do seed = ctx.stack[n - 1].id
-	return hash.fnv64a(transmute([]byte)label, seed if seed != 0 else 0xcbf29ce484222325)
+	return hash_under(seed, label)
+}
+
+// The id `label` has in the container whose id is `parent` (0 at the root, outside every
+// container), as id_of gives it there.
+hash_under :: proc(parent: Id, label: string) -> Id {
+	return hash.fnv64a(transmute([]byte)label, parent if parent != 0 else 0xcbf29ce484222325)
 }
 
 // Copies as much of `s` into `dst` as fits without cutting a UTF-8 sequence, and
@@ -604,6 +610,13 @@ end :: proc(ctx: ^Context) {
 		p.cursor[axis] += size[axis] - c.placed_size[axis]
 		p.content = {max(p.content.x, c.rect.x + size.x), max(p.content.y, c.rect.y + size.y)}
 	}
+}
+
+// Where the container that ended last went this frame: what the app records of a
+// panel it laid out, to find it again (a drop zone, a menu beside it).
+last_ended :: proc(ctx: ^Context) -> Rect {
+	if len(ctx.placed) == 0 do return {}
+	return ctx.placed[len(ctx.placed) - 1].rect
 }
 
 // Reserves room for a widget of `size` points in the current container and returns

@@ -133,7 +133,7 @@ light_marker_room :: proc(app: ^App, size: [2]f32) -> (lo, hi: [2]f32) {
 	// A window too small for the bars keeps its edge alone.
 	if hi.x - lo.x < size.x * 0.25 do lo.x, hi.x = inset, size.x - inset
 	if hi.y - lo.y < size.y * 0.25 do lo.y, hi.y = inset, size.y - inset
-	panel := ui.prev_rect(&k.ctx, "inspector")
+	panel := panel_rect(app, Kit_Window.Inspector)
 	if panel.w <= 0 do return
 	left, right := panel.x * k.scale, (panel.x + panel.w) * k.scale
 	// Off the side the palette stands on, unless that leaves too little room to show.

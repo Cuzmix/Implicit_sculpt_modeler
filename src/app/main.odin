@@ -1427,9 +1427,29 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		names := [Kit_Window]string{.Inspector = "inspector", .Stats = "stats", .History = "history panel", .Settings = "settings", .Help = "help", .Macros = "macros", .Library = "library", .Objects = "objects card", .Colors = "colors card", .Thumbnail = "thumbnail"}
 		for w, which in k.windows {
 			r := ui.prev_rect(&k.ctx, names[which])
+			if which in PANEL_WINDOWS do r = panel_rect(&app, which)
 			fmt.printf("window_%s=%d,%d,%.0f,%.0f ", strings.to_lower(fmt.tprint(which), context.temp_allocator), int(open[which]), int(w.minimized), r.x, r.y)
 		}
 		fmt.println()
+		// What each column holds, top to bottom, and which sections are pinned as panels.
+		for side in Column_Side {
+			b := strings.builder_make(context.temp_allocator)
+			for r, i in k.panels.columns[side] {
+				if i > 0 do strings.write_byte(&b, ',')
+				switch v in r {
+				case Kit_Window:  strings.write_string(&b, strings.to_lower(fmt.tprint(v), context.temp_allocator))
+				case Kit_Section: strings.write_string(&b, strings.to_lower(fmt.tprint(v), context.temp_allocator))
+				}
+			}
+			fmt.printf("column_%s=%s ", "left" if side == .Left else "right", strings.to_string(b) if len(k.panels.columns[side]) > 0 else "none")
+		}
+		pins := strings.builder_make(context.temp_allocator)
+		for pin, sec in k.panels.pins {
+			if !pin.on do continue
+			if strings.builder_len(pins) > 0 do strings.write_byte(&pins, ',')
+			strings.write_string(&pins, strings.to_lower(fmt.tprint(sec), context.temp_allocator))
+		}
+		fmt.printfln("panel_pins=%s panel_moves=%d panel_menu=%d", strings.to_string(pins) if strings.builder_len(pins) > 0 else "none", k.panels.moves, int(k.panels.menu))
 		// The side bars' popover: what it shows (a section by its name), or none; the look.
 		pop := "none"
 		if p := k.bar_pop; p.open do pop = strings.to_lower(fmt.tprint(p.section) if p.kind == .Section else fmt.tprint(p.kind), context.temp_allocator)
@@ -1455,9 +1475,11 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		// touch_check's window size scenarios.
 		for name in ([?]string{"modifier rail", "brush bar", "dock", "dock pages", "points", "inspector", "action bar", "coach", "view bar", "top bar", "adjust last", "shape bar"}) {
 			r := ui.prev_rect(&k.ctx, name)
+			if name == "inspector" do r = panel_rect(&app, Kit_Window.Inspector)
 			key, _ := strings.replace_all(name, " ", "_", context.temp_allocator)
 			fmt.printf("layout_%s=%.0f,%.0f,%.0f,%.0f ", key, r.x, r.y, r.w, r.h)
 		}
+		for r, side in k.panels.rect do fmt.printf("layout_%s_column=%.0f,%.0f,%.0f,%.0f ", "left" if side == .Left else "right", r.x, r.y, r.w, r.h)
 		fmt.println()
 	}
 	if opts.check_mesh {

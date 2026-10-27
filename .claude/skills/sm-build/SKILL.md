@@ -55,7 +55,8 @@ description: Build, run, test and verify the sculpt modeler through build.bat (W
   `orbit_pivot=x,y,z pivot_source=centre|stroke|pointer|object` (the last orbit's), `undo_steps= redo_steps=
   brush_radius_px= brush_strength= selected=`, `inspector_scroll= settings_scroll= settings_open=`, `cursor_hit=
   cursor_normal=x,y,z` and `window_inspector= window_stats= window_history= window_settings=` (each
-  `open,folded,left,top`): what scripted input did. These are the numbers to quote; `--frames=N` ends a run by itself.
+  `open,folded,left,top`), `column_left= column_right= panel_pins=` (docked panels top to bottom, pinned
+  sections, or none): what scripted input did. These are the numbers to quote; `--frames=N` ends a run by itself.
 
 ## Seeing the viewport
     build\sculpt.exe --vertices=500000 --frames=60 --dump-viewport=build\view.ppm

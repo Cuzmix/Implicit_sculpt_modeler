@@ -71,6 +71,18 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   `window_raise`; the draw order is the hit-test order from the next frame. `window_room` is the height it has where
   it is; `window_slide` the side it slides from. Positions and folds are `window` lines in the settings;
   `windows_reset` puts them back (Settings > Interface > Reset panel positions).
+- Panels and columns (`src/app/panels.odin`): `Panel_Ref :: union {Kit_Window, Kit_Section}` names a panel, a
+  window or a tray section pinned on its own (`k.panels.pins`, `panel_pin_toggle`, `panel_pinnable`). Each panel proc
+  calls `panel_begin(app, ref, title, x, y, offset, box)` … `panel_end`, never `ui.window_begin` itself: floating it
+  is the window or card as before; docked (`k.panels.columns[side]`, laid out by `kit_columns`) it is its own root
+  container placed at `k.panels.at[side]`, with a header (title, summary when folded, options, Minimise, Close) and a
+  body scrolled by `Kit_Scroll` in the height `panel_water_fill` allots. Size the body from `Panel_Frame.room`, scroll
+  from `Panel_Frame.owner`, and set `p.want` to the height the body would like. Docked panels are separate roots so
+  hit testing and `prev_rect` by root name keep working; never nest one panel proc in another's container. A header
+  dragged past the slop calls `panel_undock`, which floats the window under the finger and hands it the press with
+  `ui.window_grab`; `panel_drag_follow` docks a floating panel let go over `column_zone`. `kit_panel_menu` is the
+  options popover. `column` and `pinned` lines in the settings (`panels_save`, `panels_load_line`); `windows_reset`
+  calls `panels_default`. Exit stats `column_left= column_right= panel_pins= panel_moves= panel_menu=`.
 - Cards (`ui.card_begin`): a window with no title bar, as ZBrush for iPad's quick-access cards, its dots on top
   dragging it like a title bar and a long press on them returning `dock`, then a large centred title. The Objects
   card (`kit_objects_card.odin`, `Kit_Window.Objects`, `Objects_Card` command) is one: Add / Duplicate / New folder /

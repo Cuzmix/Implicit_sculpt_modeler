@@ -92,11 +92,12 @@ DISTRIBUTE_GLYPHS := [3][3]rune {
 	{0xe03f, 0xe03d, 0xe03e},
 }
 
-// Opens the card, closing the tray and the side panels, which share its place, or closes it.
+// Opens the card, closing the tray and the side panels, which share its place while it
+// floats, or closes it.
 objects_card_toggle :: proc(app: ^App) {
 	k := &app.kit
 	k.objects_card = !k.objects_card
-	if k.objects_card {
+	if _, _, docked := panel_docked(k, Kit_Window.Objects); k.objects_card && !docked {
 		side_panel_close(app)
 		k.inspector = false
 	}
@@ -108,13 +109,12 @@ kit_objects_card :: proc(app: ^App) -> (raised: bool) {
 	ctx := &k.ctx
 	t := ctx.theme
 	c := &k.card
-	// The tray or a side panel opening takes the card's place.
+	// The tray or a side panel opening takes the floating card's place.
 	tray := k.inspector || side_panel_open(k)
-	if tray && !c.tray_was do k.objects_card = false
+	if _, _, docked := panel_docked(k, Kit_Window.Objects); tray && !c.tray_was && !docked do k.objects_card = false
 	c.tray_was = tray
 	if !k.objects_card do c.add, c.more, c.menu = false, false, false
-	id := ui.id_of(ctx, "objects card")
-	shown := ui.presence(ctx, id, k.objects_card, t.panel_time)
+	shown := ui.presence(ctx, panel_id(Kit_Window.Objects), k.objects_card, t.panel_time)
 	c.rows = 0
 	if shown <= 0 do return
 	win := &k.windows[.Objects]
@@ -123,12 +123,19 @@ kit_objects_card :: proc(app: ^App) -> (raised: bool) {
 	inner := f32(KIT_INSPECTOR_W - 2 * PADDING)
 	top := kit_top()
 	mark := ui.vertex_mark(ctx)
-	raised_now, dock := ui.card_begin(ctx, "objects card", "Objects", win, .End, .Start, {kit_right(app), top}, {direction = .Column, gap = GAP, padding = PADDING, width = KIT_INSPECTOR_W, radius = t.radius_large, background = .Panel, inert = !k.objects_card})
-	raised = raised_now
-	if dock && k.objects_card {
+	p := panel_begin(app, Kit_Window.Objects, "Objects", .End, .Start, {kit_right(app), top}, {direction = .Column, gap = GAP, padding = PADDING, width = KIT_INSPECTOR_W, radius = t.radius_large, background = .Panel, inert = !k.objects_card}, card = true)
+	raised = p.raised
+	id := p.owner
+	if p.closed do k.objects_card = false
+	if p.dock && k.objects_card {
 		k.objects_card = false
 		tray_open(app, .Objects)
 		c.tray_was = true
+	}
+	if !p.body {
+		panel_end(app, &p)
+		ui.transform_since(ctx, mark, shown, 1, {}, {window_slide(ctx, win^, .End) * (1 - shown) * 16, 0})
+		return
 	}
 
 	// The four buttons, spread across the card as ZBrush has them.
@@ -148,7 +155,7 @@ kit_objects_card :: proc(app: ^App) -> (raised: bool) {
 	// The list, as tall as the bar under it says and no taller than the window has room for
 	// beside the Actions' header, and with the Actions open, beside some of them too.
 	header := t.target - 8 + GAP
-	room := window_room(app, win^, top) - (18 + 40 + t.target + t.target + 2 * PADDING + 4 * GAP) - header
+	room := p.room - (t.target + t.target + 2 * GAP) - header
 	list_room := room - CARD_ACTIONS_MIN - GAP if c.actions else room
 	list_h := clamp(c.list_h if c.list_h > 0 else CARD_LIST_H, CARD_LIST_MIN, max(list_room, CARD_LIST_MIN))
 	scroll := kit_scroll_begin(ctx, "objects card list", &c.scroll, id, inner, list_h, 0)
@@ -195,7 +202,7 @@ kit_objects_card :: proc(app: ^App) -> (raised: bool) {
 		kit_scroll_end(ctx, body)
 		ui.section_end(ctx)
 	}
-	ui.window_end(ctx)
+	panel_end(app, &p)
 	ui.transform_since(ctx, mark, shown, 1, {}, {window_slide(ctx, win^, .End) * (1 - shown) * 16, 0})
 	return
 }

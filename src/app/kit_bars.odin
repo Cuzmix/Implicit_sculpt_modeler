@@ -775,9 +775,15 @@ kit_bar_popover :: proc(app: ^App) {
 		defer ui.popover_end(ctx)
 		title, draw, obj_draw, found := bar_section(app, p.section)
 		ui.begin(ctx, "bar section head", {direction = .Row, center = true})
-		ui.begin(ctx, "bar section title", {direction = .Column, width = WIDTH - 2 * PADDING - t.target})
+		pinnable := panel_pinnable(p.section)
+		ui.begin(ctx, "bar section title", {direction = .Column, width = WIDTH - 2 * PADDING - (2 if pinnable else 1) * t.target})
 		ui.label(ctx, title, t.title_size, t.text, .Semibold)
 		ui.end(ctx)
+		// Pin keeps the popover's section as a panel of its own, in the right column.
+		if pinnable && ui.icon_button(ctx, command_label(.Pin_Section, int(p.section)), ui.ICON_PANEL, selected = command_checked(app, .Pin_Section, int(p.section)), keys = command_hint(app, .Pin_Section, int(p.section))) {
+			if !command_checked(app, .Pin_Section, int(p.section)) do command_run(app, .Pin_Section, int(p.section))
+			p.open = false
+		}
 		if ui.icon_button(ctx, "Close", ui.ICON_CLOSE, keys = "Esc") do p.open = false
 		ui.end(ctx)
 		// The body scrolls in the room the window leaves under the popover's top, or over
@@ -804,7 +810,6 @@ kit_bar_popover :: proc(app: ^App) {
 
 // Section `sec` of the tray, wherever its palette lists it: its title and what draws it
 // (for the Object palette's, with the object).
-@(private = "file")
 bar_section :: proc(app: ^App, sec: Kit_Section) -> (title: string, draw: proc(app: ^App), obj_draw: proc(app: ^App, obj: ^Object), found: bool) {
 	for s in BRUSH_SECTIONS do if s.section == sec do return s.title, s.draw, nil, true
 	for s in SCENE_SECTIONS do if s.section == sec do return s.title, s.draw, nil, true

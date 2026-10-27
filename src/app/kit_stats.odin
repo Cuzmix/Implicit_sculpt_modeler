@@ -16,18 +16,18 @@ kit_stats :: proc(app: ^App) -> (raised: bool) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
-	shown := ui.presence(ctx, ui.id_of(ctx, "stats"), k.stats, t.panel_time)
+	shown := ui.presence(ctx, panel_id(Kit_Window.Stats), k.stats, t.panel_time)
 	if shown <= 0 do return
 	s := &app.stats
 	win := &k.windows[.Stats]
 	points, _ := ui.prev_layout(ctx, "points")
 	mark := ui.vertex_mark(ctx)
-	body, closed, raised_now := ui.window_begin(ctx, "stats", "Statistics", win, .Start, .Start, {kit_left(app), TOP_BAR_H + 4 + points.y + 8}, {direction = .Column, gap = 2, padding = 12, width = KIT_STATS_W, radius = t.radius_large, background = .Panel, inert = !k.stats}, "F11")
-	raised = raised_now
-	if closed do k.stats = false
+	p := panel_begin(app, Kit_Window.Stats, "Statistics", .Start, .Start, {kit_left(app), TOP_BAR_H + 4 + points.y + 8}, {direction = .Column, gap = 2, padding = 12, width = KIT_STATS_W, radius = t.radius_large, background = .Panel, inert = !k.stats}, "F11")
+	raised = p.raised
+	if p.closed do k.stats = false
 	slide := window_slide(ctx, win^, .Start) * (1 - shown) * 16
-	if !body {
-		ui.window_end(ctx)
+	if !p.body {
+		panel_end(app, &p)
 		ui.transform_since(ctx, mark, shown, 1, {}, {slide, 0})
 		return
 	}
@@ -36,7 +36,7 @@ kit_stats :: proc(app: ^App) -> (raised: bool) {
 	ui.spacer(ctx, 4)
 	if !k.stats_advanced {
 		kit_stats_simple(app)
-		ui.window_end(ctx)
+		panel_end(app, &p)
 		ui.transform_since(ctx, mark, shown, 1, {}, {slide, 0})
 		return
 	}
@@ -112,7 +112,7 @@ kit_stats :: proc(app: ^App) -> (raised: bool) {
 	}
 	kit_stats_last(app)
 	kit_stats_help(app)
-	ui.window_end(ctx)
+	panel_end(app, &p)
 	ui.transform_since(ctx, mark, shown, 1, {}, {slide, 0})
 	return
 }
