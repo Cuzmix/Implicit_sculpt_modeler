@@ -753,6 +753,25 @@ def roll_stroke_by_finger():
 
 
 @scenario
+def drag_dot_stroke_by_finger():
+    """A Drag dot stroke by finger slides its one stamp with the finger, a dab each frame it
+    moves, and is one undo step."""
+    s = Script()
+    s.fdrag(line((760, 430), (860, 470), 20))
+    return s, ["--script=set stroke drag_dot"], camera_still({"dabs": lambda v: int(v) > 2, "undo_steps": near(1)})
+
+
+@scenario
+def stroke_section_shows_spray_and_colour_spray():
+    """The brush bar's Stroke opens the Stroke section with its five modes and, on Spray, the
+    Spread and Colour spray sliders; nothing moves."""
+    s = Script()
+    s.ftap(*UI["stroke"])
+    s.wait(8)
+    return s, ["--script=set stroke spray"], camera_still({"dabs": near(0), "bar_pop": is_text("stroke")})
+
+
+@scenario
 def finger_orbits_empty_space():
     """One finger on empty space turns the view, and a stroke started there keeps turning over the model."""
     s = Script()
@@ -781,6 +800,16 @@ def orbit_full_turns_turntable():
         s.fdrag(past_slop((150, 120), (150 + ORBIT_TURN, 120), 60))
     s.fdrag(past_slop((250, 80), (250, 80 + ORBIT_TURN), 60))
     return s, ["--script=set orbit_style turntable"], {"dabs": near(0)} | {k: near(v, 5e-3) for k, v in CAMERA0.items()}
+
+
+@scenario
+def orbit_default_is_turntable():
+    """With no setting changed, a sideways drag on empty space turns about the up axis: the tilt and the horizon stay as they were, and a twist does not roll."""
+    s = Script()
+    s.fdrag(past_slop((150, 120), (350, 120), 20))
+    s.wait(3)
+    twist(s, math.radians(45))
+    return s, [], {"dabs": near(0), "camera_yaw": near(wrap(0.6 - 200 * 0.008), 2e-3), "camera_pitch": near(0.35), "camera_roll": near(0)}
 
 
 @scenario

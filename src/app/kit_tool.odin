@@ -244,12 +244,16 @@ kit_stroke :: proc(app: ^App) {
 			ui.paragraph(ctx, "One stamp where the drag starts: its size is how far you drag and, with an alpha, its top faces the pointer. For placing alphas; not with dynamic topology.")
 		case .Spray:
 			_ = ui.slider(ctx, "Spread", &app.brush.spray_spread, 0, SPRAY_MAX_SPREAD, .Linear, fmt.tprintf("%.2f", app.brush.spray_spread))
-			ui.paragraph(ctx, "Dabs scatter up to the spread (in brush sizes) from the path, each a little smaller or weaker and, with an alpha, turned its own way: texture without a visible repeat.")
+			_ = ui.slider(ctx, "Colour spray", &app.brush.color_spray, 0, 1, .Linear, "off" if app.brush.color_spray <= 0 else fmt.tprintf("%.0f%%", app.brush.color_spray * 100))
+			ui.paragraph(ctx, "Dabs scatter up to the spread (in brush sizes) from the path, each a little smaller or weaker and, with an alpha, turned its own way: texture without a visible repeat. Colour spray makes each dab's paint a little lighter or darker in each channel, for mottled skin and stone.")
 		case .Roll:
 			ui.paragraph(ctx, "Dabs a brush width apart with the alpha's top along the stroke, so an alpha tiles like a tape rolled out: stitches, zips, chains.")
+		case .Drag_Dot:
+			ui.paragraph(ctx, "One stamp at the brush's size that slides with the pointer until you let go, so you can place a detail exactly before it stays. Not with dynamic topology.")
 		}
-		// Rectangle lays one stamp, so how a path is followed means nothing to it.
-		if app.brush.stroke != .Drag_Rect {
+		// Rectangle and Drag dot lay one stamp, so how a path is followed means nothing
+		// to them.
+		if app.brush.stroke != .Drag_Rect && app.brush.stroke != .Drag_Dot {
 			// Said while folded too, since it changes every stroke.
 			if app.brush.line do ui.paragraph(ctx, "Line is on (under More): every stroke is a straight line from its press (not with dynamic topology).")
 			kit_stroke_path(app)
@@ -271,10 +275,15 @@ kit_stroke_path :: proc(app: ^App) {
 	ctx := &app.kit.ctx
 	if !kit_more(app, .Stroke) do return
 	_ = ui.slider(ctx, "Lazy mouse", &app.brush.lazy_px, 0, 150, .Linear, "off" if app.brush.lazy_px < 0.5 else fmt.tprintf("%.0f px", app.brush.lazy_px))
+	// Spray and Roll space their dabs for their own look.
+	if app.brush.stroke == .Dots {
+		if app.brush.spacing <= 0 do app.brush.spacing = DAB_SPACING
+		_ = ui.slider(ctx, "Spacing", &app.brush.spacing, MIN_SPACING, MAX_SPACING, .Logarithmic, fmt.tprintf("%.0f%%", app.brush.spacing * 100))
+	}
 	_ = ui.switch_row(ctx, "Line", &app.brush.line)
 	_ = ui.switch_row(ctx, "Join strokes", &app.brush.join)
 	_ = kit_stroke_amount(app, "Last stroke")
-	ui.paragraph(ctx, "Shift (or holding the Smooth button) mid-stroke lays the stroke again as a straight line from where it began to the pointer; letting go carries on freehand. Line makes every stroke one. Join strokes carries a stroke on from where the last one ended when you press near it, so a line drawn in pieces has no blob at the joins. Last stroke sets how much of the newest stroke stays, from none to half as much again.")
+	ui.paragraph(ctx, "Shift (or holding the Smooth button) mid-stroke lays the stroke again as a straight line from where it began to the pointer; letting go carries on freehand. Line makes every stroke one. Spacing is how far apart the dabs are, as a share of the brush's radius: wider gaps make a dotted line, narrower a smoother one. Join strokes carries a stroke on from where the last one ended when you press near it, so a line drawn in pieces has no blob at the joins. Last stroke sets how much of the newest stroke stays, from none to half as much again.")
 	kit_more_end(app)
 }
 

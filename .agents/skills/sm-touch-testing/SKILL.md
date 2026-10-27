@@ -35,7 +35,7 @@ as a user would, with each kind of pointer, then say exactly how it was tested.
 | `src/app/touch.odin` | `touch_event` (first finger drives the pointer with `jump = true`), `touch_route` (one owner per touch, gestures, taps, palm, cancel) |
 | `src/app/navigate.odin` | `pointer_route` / `drag_decide` (one owner per drag: Tool, Orbit, Pan, Zoom, Muted), the slop, `FINGER_HOLD`, `camera_apply_input`, `Nav_Prefs` |
 | `src/ui/ui.odin` | `interact` (tentative presses in `drag_scroll` areas), `claim_drag`, `scroll_update`, `scroll_take`, `hit_extend`; `src/ui/fingers.odin` |
-| `src/camera/camera.odin` | `orbit_rotate` (Free, Turntable, Axis_X and Axis_Z, whose sideways sign `orbit_latch` fixes as a drag begins), `orbit_turn_about` (the pivot stays put), `orbit_roll`, `orbit_snap`, `orbit_zoom_toward` |
+| `src/camera/camera.odin` | `orbit_rotate` (Turntable, the default; Free, the trackball; Axis_X and Axis_Z, whose sideways sign `orbit_latch` fixes as a drag begins), `orbit_turn_about` (the pivot stays put), `orbit_roll`, `orbit_snap`, `orbit_zoom_toward` |
 | `src/app/kit_settings.odin`, `settings.odin` | every touch and camera preference, its default, reset and saved key |
 
 Red flags while reading: a camera or tool path reachable from a press the interface took; a delta taken from SDL's
@@ -170,7 +170,7 @@ what was done, what should happen, what happened; a screen recording when someth
 2. First touch on a tray slider in a section taller than the tray, drag up: the tray scrolls, the slider keeps its value; drag sideways: it sets.
 3. One finger on the model sculpts at once with no dot left by a second finger landing; on empty space it orbits.
 4. Pen on the model sculpts with pressure; a palm resting while the pen hovers does nothing; the pen landing mid-touch cancels it.
-5. Two fingers: pan, pinch toward the fingers, twist to roll (Free); quick two-finger tap undoes, three redoes.
+5. Two fingers: pan, pinch toward the fingers, twist to roll (Trackball only, `set orbit_style free`); quick two-finger tap undoes, three redoes.
 6. Three fingers up and down size the brush, sideways set its focal shift; a long press dragged on the bar's Strength sets that.
 7. Orbit round and round both ways and over the top: smooth, no jump, no flip; Shift snap with a keyboard if attached.
 8. Pull down the notification shade or switch apps mid-stroke: the stroke is taken back, nothing stays pressed.

@@ -249,7 +249,7 @@ EDGE_MIN :: 24
 EDGE_MAX :: 200
 
 NAV_DEFAULT :: Nav_Prefs {
-	orbit_style    = .Free,
+	orbit_style    = .Turntable,
 	pivot          = .Stroke,
 	orbit_speed    = 1,
 	pan_speed      = 1,

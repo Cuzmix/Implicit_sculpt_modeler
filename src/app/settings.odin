@@ -38,8 +38,8 @@ settings_path :: proc() -> string {
 }
 
 // The version settings_save writes on the first line. A file from a newer version is
-// read as far as this one knows its lines.
-SETTINGS_VERSION :: 1
+// read as far as this one knows its lines. 2: the default orbit became the turntable.
+SETTINGS_VERSION :: 2
 
 // One remembered value that is a plain field of App: its key in the file, where it is,
 // what type it is (bool, f32, i32, int or an enum) and, for numbers, the range a value read
@@ -81,6 +81,8 @@ SETTINGS := [?]Setting {
 	{"paint_channel", B + offset_of(Brush_Settings, channel), sculpt.Channel, 0, 0},
 	{"stroke", B + offset_of(Brush_Settings, stroke), Stroke_Mode, 0, 0},
 	{"stroke_spread", B + offset_of(Brush_Settings, spray_spread), f32, 0, SPRAY_MAX_SPREAD},
+	{"stroke_spacing", B + offset_of(Brush_Settings, spacing), f32, MIN_SPACING, MAX_SPACING},
+	{"color_spray", B + offset_of(Brush_Settings, color_spray), f32, 0, 1},
 	{"stroke_line", B + offset_of(Brush_Settings, line), bool, 0, 0},
 	{"stroke_join", B + offset_of(Brush_Settings, join), bool, 0, 0},
 	{"detail_px", B + offset_of(Brush_Settings, detail_px), f32, 2, 40},
@@ -446,6 +448,8 @@ settings_load :: proc(app: ^App, path: string) {
 	renamed.allocator = context.temp_allocator
 	// The plain brush's alpha, by reference, put on before the preset, which brings its own.
 	plain_alpha := ""
+	// The file's version, 0 for one written before the line existed.
+	version := 0
 	lines: for line in strings.split_lines_iterator(&text) {
 		f := strings.fields(line, context.temp_allocator)
 		if len(f) < 2 do continue
@@ -456,7 +460,7 @@ settings_load :: proc(app: ^App, path: string) {
 		}
 		switch f[0] {
 		case "version":
-			// Nothing to migrate yet: every version so far reads the same lines.
+			version, _ = strconv.parse_int(f[1])
 		case "brush":
 			if kind, ok := brush_by_name(f[1]); ok do b.kind = kind
 		case "strength":
@@ -646,6 +650,10 @@ settings_load :: proc(app: ^App, path: string) {
 	for name, slot in dock_presets {
 		if n := preset_by_ref(app, name); name != "" && n > 0 do dock_put(app, slot, .Draw, n)
 	}
+	// Every file saved before version 2 holds the trackball, the default then, whether
+	// or not anyone picked it, so the turntable that replaced it as the default takes
+	// its place once; the file saved next keeps whatever is picked after.
+	if version < 2 && app.nav.orbit_style == .Free do app.nav.orbit_style = .Turntable
 	log.infof("settings: read %s", path)
 
 	number :: proc(s: string, fallback: f32) -> f32 {

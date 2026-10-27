@@ -87,7 +87,9 @@ help_touch_rows_follow_the_settings :: proc(t: ^testing.T) {
 	testing.expect(t, has(&app, "Pinch two fingers"))
 	app.nav.pinch_zoom = false
 	testing.expect(t, !has(&app, "Pinch two fingers"))
-	// Rolling needs the Free orbit style.
+	// Rolling needs the Free orbit style (the trackball), which is not the default.
+	testing.expect(t, !has(&app, "Twist two fingers"))
+	app.nav.orbit_style = .Free
 	testing.expect(t, has(&app, "Twist two fingers"))
 	app.nav.orbit_style = .Turntable
 	testing.expect(t, !has(&app, "Twist two fingers"))
