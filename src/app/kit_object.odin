@@ -258,6 +258,8 @@ kit_visibility :: proc(app: ^App, obj: ^Object) {
 		ui.paragraph(ctx, "Letting go flattens the selected object on the shaded side (Alt: the other side) onto the line, through to the back. It follows symmetry and leaves masked and hidden parts. Not with dynamic topology.")
 	case .Slice:
 		ui.paragraph(ctx, "Letting go cuts the selected object in two along the line, through to the back, and closes each cut: the part on the right of the drag becomes an object of its own. Levels, mask and hiding are dropped.")
+	case .Knife:
+		ui.paragraph(ctx, "Letting go cuts the selected object along the line, through to the back, throws away the shaded side (Alt: the other side) and closes the cut. It ignores symmetry, which Clip follows. Levels, mask and hiding are dropped; layers stay.")
 	}
 	kit_command_pair(app, .Show_All, .Invert_Hidden, label_b = "Invert hiding")
 	kit_command_pair(app, .Hide_Masked, .Hide_Unmasked)

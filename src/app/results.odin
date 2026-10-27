@@ -113,6 +113,7 @@ SCENE_REPORTS := #partial [type_of(Scene_Command{}.kind)]struct {
 	.Retopo        = {"Retopologized %s", .Retopo},
 	.Symmetrize    = {"Mirrored and welded %s", .Mirror},
 	.Slice         = {"Sliced %s in two", .Visibility},
+	.Knife         = {"Cut %s with the knife", .Visibility},
 	.Boolean       = {"Made %s from the boolean", .Booleans},
 	.Extract       = {"Extracted a shell from %s", .Extract},
 	.Subdivide     = {"Subdivided %s", .Levels}, // only with layers, when it is a swap

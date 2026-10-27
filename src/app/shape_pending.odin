@@ -4,7 +4,7 @@ import "core:math/linalg"
 
 import "../ui"
 
-// Two-phase shapes, as Nomad's: a mask or hide shape, or a Clip or Slice line, drawn with
+// Two-phase shapes, as Nomad's: a mask or hide shape, or a Clip, Slice or Knife line, drawn with
 // a finger or the pen waits on screen with Apply, Flip and Cancel under it instead of
 // applying as the drag lets go, since a finger draws roughly and the view often wants
 // turning first. Its handles (corners, a line's ends, the middle to move it all) can be
@@ -17,6 +17,12 @@ Shape_Kind :: enum u8 {
 	Hide,
 	Clip,
 	Slice,
+	Knife,
+}
+
+// Whether shapes of `kind` are a line of two points across the view.
+shape_is_line :: proc(kind: Shape_Kind) -> bool {
+	return kind == .Clip || kind == .Slice || kind == .Knife
 }
 
 // When a drawn shape applies (Settings > Touch).
@@ -64,7 +70,7 @@ shape_finish :: proc(app: ^App, kind: Shape_Kind, points: [][2]f32, rectangle, f
 	p := &app.shape_pending
 	p.kind, p.rectangle, p.flip, p.size, p.grab, p.request = kind, rectangle, flip, size, -1, .None
 	clear(&p.points)
-	if rectangle || kind == .Clip || kind == .Slice {
+	if rectangle || shape_is_line(kind) {
 		append(&p.points, points[0], points[len(points) - 1])
 	} else {
 		append(&p.points, ..points)
@@ -89,6 +95,8 @@ shape_apply :: proc(app: ^App) {
 		clip_command(app, p.points[0], p.points[1], p.flip, size)
 	case .Slice:
 		slice_request(app, p.points[0], p.points[1], size)
+	case .Knife:
+		knife_request(app, p.points[0], p.points[1], p.flip, size)
 	}
 }
 
@@ -140,7 +148,7 @@ shape_handles :: proc(p: ^Shape_Pending) -> (handles: [5][2]f32, n: int) {
 	lo, hi := p.points[0], p.points[0]
 	for q in p.points do lo, hi = linalg.min(lo, q), linalg.max(hi, q)
 	switch {
-	case p.kind == .Clip || p.kind == .Slice:
+	case shape_is_line(p.kind):
 		handles[0], handles[1], n = p.points[0], p.points[1], 2
 	case p.rectangle:
 		a, b := p.points[0], p.points[1]
@@ -186,7 +194,7 @@ shape_drag :: proc(app: ^App, delta: [2]f32) {
 		for &q in p.points do q += delta
 		return
 	}
-	if !p.rectangle || p.kind == .Clip || p.kind == .Slice {
+	if !p.rectangle || shape_is_line(p.kind) {
 		p.points[p.grab] += delta
 		return
 	}
@@ -226,8 +234,9 @@ draw_shape_pending :: proc(app: ^App, o: Overlay, size: [2]f32) {
 		color := overlay_color({0.45, 0.9, 0.5, 1} if !p.flip else {1, 0.45, 0.4, 1})
 		fill := overlay_color({0.45, 0.9, 0.5, 0.12} if !p.flip else {1, 0.45, 0.4, 0.12})
 		draw_shape_outline(o, p.points[:], p.points[len(p.points) - 1], p.rectangle, color, fill)
-	case .Clip, .Slice:
-		draw_clip_line(o, p.points[0], p.points[1], p.flip, p.kind == .Clip, size)
+	case .Clip, .Slice, .Knife:
+		// Clip and Knife shade the side that goes; Slice keeps both.
+		draw_clip_line(o, p.points[0], p.points[1], p.flip, p.kind != .Slice, size)
 	}
 	handles, n := shape_handles(p)
 	r := 6 * app.kit.scale
@@ -251,7 +260,7 @@ kit_shape_bar :: proc(app: ^App) {
 	lo, hi := p.points[0], p.points[0]
 	for q in p.points do lo, hi = linalg.min(lo, q), linalg.max(hi, q)
 	lo, hi = lo / k.scale, hi / k.scale
-	if p.kind == .Clip || p.kind == .Slice {
+	if shape_is_line(p.kind) {
 		// A line reaches across the view: the bar goes by the end it was dragged to.
 		lo, hi = p.points[1] / k.scale, p.points[1] / k.scale
 	}
@@ -280,6 +289,7 @@ SHAPE_FLIP_NAMES := [Shape_Kind]string {
 	.Hide  = "Hide inside",
 	.Clip  = "Other side",
 	.Slice = "",
+	.Knife = "Other side",
 }
 
 @(rodata, private = "file")
@@ -289,4 +299,5 @@ SHAPE_UNFLIP_NAMES := [Shape_Kind]string {
 	.Hide  = "Show inside",
 	.Clip  = "Other side",
 	.Slice = "",
+	.Knife = "Other side",
 }
