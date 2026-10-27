@@ -3,6 +3,8 @@ package main
 import "base:runtime"
 import "core:fmt"
 import "core:image"
+import "core:path/filepath"
+import "core:strings"
 import "core:sync"
 import "core:thread"
 import sdl "vendor:sdl3"
@@ -10,6 +12,7 @@ import sdl "vendor:sdl3"
 import "../geom"
 import "../render"
 import "../sculpt"
+import "../ui"
 
 // Texture maps on a retopologized object (stage 3.3, notes/rendering/textured-preview-
 // design.md): the bake leaves its base colour, ORM and normal maps on the quad object it
@@ -188,6 +191,52 @@ object_layout_uvs :: proc(app: ^App, obj: ^Object) {
 	report(app, Kit_Section.Retopo, {}, "New UVs on %s: %d charts filling %.0f%%%s", object_label(obj), uv.charts, 100 * uv.filled, note)
 }
 
+// What a .Textures step that loads map `m` is called in the History (constants: the
+// History does not own its labels).
+TEXTURE_LOAD_LABELS := [render.Texture_Map]string {
+	.Base_Color = "load base colour map",
+	.Orm        = "load ORM map",
+	.Normal     = "load normal map",
+}
+
+// Why `obj` cannot take maps ("" when it can): they are drawn and exported through the
+// UVs of a quad object's base level.
+texture_target_check :: proc(obj: ^Object) -> string {
+	if obj == nil do return "Select an object with UVs first"
+	if obj.voxel != nil || !sculpt.levels_has_quads(&obj.levels) || !sculpt.levels_has_uvs(&obj.levels) {
+		return fmt.tprintf("%s has no UVs: Shape > Rebuild > Quads makes an object with them", object_label(obj))
+	}
+	return ""
+}
+
+// Loads the image file at `path` as `obj`'s map `m`, in place of any it had, as one undo
+// step, and turns the texture view on when it was off so the map shows. Only the header is
+// read here: the decode is the preview's thread's, which says if the rest is damaged.
+// Returns why nothing was loaded, "" when it was.
+texture_load :: proc(app: ^App, obj: ^Object, m: render.Texture_Map, path: string) -> string {
+	if why := texture_target_check(obj); why != "" do return why
+	data, err := file_read_any(path)
+	if err != nil do return fmt.tprintf("Cannot read %s: %v", filepath.base(path), err)
+	if why := texture_image_check(data); why != "" {
+		delete(data)
+		return fmt.tprintf("Cannot use %s as a map: %s", filepath.base(path), why)
+	}
+	t := textures_clone(obj.textures)
+	delete(t.image[m])
+	t.image[m] = data
+	textures_replace(app, obj, t, TEXTURE_LOAD_LABELS[m])
+	if app.texture_view == .Off do app.texture_view = .Textured
+	report(app, Kit_Section.Textures, {}, "Loaded %s as the %s map of %s", filepath.base(path), TEXTURE_MAP_NAMES[m], object_label(obj))
+	return ""
+}
+
+// Removes all of `obj`'s maps as one undo step.
+texture_remove :: proc(app: ^App, obj: ^Object) {
+	if obj == nil || !object_has_textures(obj) do return
+	textures_replace(app, obj, {}, "remove maps")
+	report(app, Kit_Section.Textures, {}, "Removed the maps of %s", object_label(obj))
+}
+
 // Whether `obj` draws through its textured preview this frame, with `lv` the level shown:
 // a view is on, the object is on its base level with quads and UVs, sculpted in no other
 // way that the preview cannot show (dynamic topology, HD, hidden parts, polygroup colours,
@@ -340,6 +389,61 @@ TEXTURE_VIEW_NAMES := [render.Texture_View]string {
 	.Textured   = "Show textures",
 	.Normal_Map = "Normal map only",
 	.Uv_Checker = "UV checker",
+}
+
+// The file request that loads each map, and its command's choices.
+TEXTURE_FILE_KINDS := [render.Texture_Map]File_Kind {
+	.Base_Color = .Base_Color_Map,
+	.Orm        = .Orm_Map,
+	.Normal     = .Normal_Map,
+}
+
+TEXTURE_LOAD_NAMES := [render.Texture_Map]string {
+	.Base_Color = "Load base colour map...",
+	.Orm        = "Load ORM map...",
+	.Normal     = "Load normal map...",
+}
+
+// The Object palette's Textures section: how objects with maps show, and the selected
+// object's maps, each with what the viewport holds of it and its Load button; under More,
+// Remove maps.
+kit_textures_section :: proc(app: ^App) {
+	ctx := &app.kit.ctx
+	obj := selected_object(app)
+	kit_last_result(app, .Textures)
+	if texture_target_check(obj) != "" {
+		ui.paragraph(ctx, "Shows and loads texture maps on an object with UVs: make one with Shape > Rebuild > Quads, then bake onto it under UVs and baking or load maps here.")
+		return
+	}
+	views := [len(render.Texture_View)]string{"Clay", "Maps", "Normal", "Checker"}
+	if picked := ui.tabs(ctx, "texture view", views[:], int(app.texture_view)); picked >= 0 do app.texture_view = render.Texture_View(picked)
+	shown := make([dynamic]string, context.temp_allocator)
+	p := &obj.preview
+	for m in render.Texture_Map {
+		state: string
+		switch {
+		case obj.textures.image[m] == nil:    state = "none"
+		case p.failed[m]:                     state = "unreadable"
+		case p.maps_stamp != obj.textures.stamp: state = "loading"
+		case p.mesh.maps[m] == nil:           state = "not shown"
+		case:                                 state = fmt.tprintf("%d x %d", p.mesh.sizes[m].x, p.mesh.sizes[m].y)
+		}
+		append(&shown, fmt.tprintf("%s: %s", TEXTURE_MAP_LABELS[m], state))
+	}
+	ui.paragraph(ctx, strings.join(shown[:], ", ", context.temp_allocator))
+	for m in render.Texture_Map do _ = command_button(app, .Load_Texture, int(m), label = TEXTURE_LOAD_NAMES[m], variant = .Bordered)
+	ui.paragraph(ctx, "Clay shows objects without their maps; Maps shows them, Normal the object's own material through its normal map, and Checker a grid laid out by the UVs. A loaded map replaces the one before it, and undo brings that back. ORM is occlusion, roughness and metal in red, green and blue, as glTF reads them.")
+	if kit_more(app, .Textures) {
+		_ = command_button(app, .Remove_Textures, variant = .Bordered)
+		kit_more_end(app)
+	}
+}
+
+// Each map's name to start a sentence.
+TEXTURE_MAP_LABELS := [render.Texture_Map]string {
+	.Base_Color = "Base colour",
+	.Orm        = "ORM",
+	.Normal     = "Normal",
 }
 
 TEXTURE_MAP_NAMES := [render.Texture_Map]string {

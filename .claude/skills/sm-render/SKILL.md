@@ -102,6 +102,9 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   only ambient and studio terms; `Material_Uniforms.maps` (x, y, z present, w the view) is zero on the sculpt path, whose
   pictures the move left identical to the pixel. `textured.vert` writes every `mesh.vert` output (4 and 6 flat) plus
   UV (7) and tangent (8), turning by `mat3(view) * mat3(model)` divided by its scale.
+  App side: maps come from a bake, `texture_load` (Textures section, `Load_Texture` command, `texture` script verb) or a
+  scene file and leave by `texture_remove`, all `textures_replace` (one `.Textures` undo step); a `.glb` export of an
+  object with maps goes through `quad_object_glb` (the bake's writer, layers carried onto the split vertices).
 - Studio render (`src/render/studio.odin`, app `studio_on`/Shift+R): `studio_frame` after `render_viewport` on the same
   `cmd`; a frame whose stats show any redraw (`!partial || redrawn_px > 0`) copies `vt.color` into `Studio.shown` and resets,
   a still one adds one sample: `shadow.vert`/`.frag` depth pass from an R2-sequence direction (every 4th around the view-space

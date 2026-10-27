@@ -153,12 +153,12 @@ Surface :: struct {
 	groups: []u16,
 }
 
-Scene_Command_Kind :: enum u8 {None, Add, New, Remesh, Decimate, Retopo, Delete, Duplicate, Symmetrize, Slice, Subdivide, Set_Level, Delete_Higher, Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete, Dyntopo, Boolean, Extract, View, Arrange, Copy, Paste, Delete_Others, Levels_All, Split, Merge, Align, Distribute, Material, Group_Material, Voxel_To_Mesh, Layout_Uvs}
+Scene_Command_Kind :: enum u8 {None, Add, New, Remesh, Decimate, Retopo, Delete, Duplicate, Symmetrize, Slice, Subdivide, Set_Level, Delete_Higher, Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete, Dyntopo, Boolean, Extract, View, Arrange, Copy, Paste, Delete_Others, Levels_All, Split, Merge, Align, Distribute, Material, Group_Material, Voxel_To_Mesh, Layout_Uvs, Remove_Textures}
 
 // The commands that work on a mesh object's level, and so refuse a voxel object until it
 // is converted to a mesh (Voxel_To_Mesh); the rest place, copy, list or delete objects of
 // either kind.
-MESH_ONLY_COMMANDS :: bit_set[Scene_Command_Kind]{.Remesh, .Decimate, .Retopo, .Symmetrize, .Slice, .Subdivide, .Set_Level, .Delete_Higher, .Delete_Lower, .Hd_Enter, .Hd_Leave, .Hd_Steps, .Hd_Delete, .Dyntopo, .Boolean, .Extract, .Split, .Merge, .Group_Material, .Layout_Uvs}
+MESH_ONLY_COMMANDS :: bit_set[Scene_Command_Kind]{.Remesh, .Decimate, .Retopo, .Symmetrize, .Slice, .Subdivide, .Set_Level, .Delete_Higher, .Delete_Lower, .Hd_Enter, .Hd_Leave, .Hd_Steps, .Hd_Delete, .Dyntopo, .Boolean, .Extract, .Split, .Merge, .Group_Material, .Layout_Uvs, .Remove_Textures}
 
 Scene_Command :: struct {
 	kind:     Scene_Command_Kind,
@@ -740,6 +740,8 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 		}
 	case .Layout_Uvs:
 		if obj := selected_object(app); obj != nil do object_layout_uvs(app, obj)
+	case .Remove_Textures:
+		texture_remove(app, selected_object(app))
 	case .Retopo:
 		if obj := selected_object(app); obj != nil {
 			made, ok := object_retopo(app, obj, cmd.vertices)

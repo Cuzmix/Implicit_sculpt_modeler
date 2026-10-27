@@ -43,6 +43,9 @@ File_Kind :: enum u8 {
 	Install_Pack, // a content pack goes into the library (pack.odin)
 	Make_Pack,    // the person's own alphas and presets go to a content pack file (pack_make.odin)
 	Matcap,       // an image of a lit sphere becomes the Custom material's MatCap (matcaps.odin)
+	Base_Color_Map, // an image becomes the selected object's base colour map (textures.odin)
+	Orm_Map,        // ... its occlusion, roughness and metal map
+	Normal_Map,     // ... its normal map
 	Link_Send,    // the selected objects go to the Blender link's folder (link.odin); no path
 	Link_Get,     // what Blender left in the link's folder comes in; the path is LINK_AUTO for the focus check's
 }
@@ -117,7 +120,7 @@ file_dialog :: proc(app: ^App, kind: File_Kind) {
 		sdl.ShowSaveFileDialog(file_dialog_done, userdata, app.window, raw_data(SCENE_FILTERS[:]), len(SCENE_FILTERS), nil)
 	case .Open:
 		sdl.ShowOpenFileDialog(file_dialog_done, userdata, app.window, raw_data(SCENE_FILTERS[:]), len(SCENE_FILTERS), nil, false)
-	case .Alpha, .Matcap:
+	case .Alpha, .Matcap, .Base_Color_Map, .Orm_Map, .Normal_Map:
 		sdl.ShowOpenFileDialog(file_dialog_done, userdata, app.window, raw_data(IMAGE_FILTERS[:]), len(IMAGE_FILTERS), nil, false)
 	case .Screenshot:
 		sdl.ShowSaveFileDialog(file_dialog_done, userdata, app.window, raw_data(PNG_FILTERS[:]), len(PNG_FILTERS), nil)
@@ -290,6 +293,10 @@ file_apply :: proc(app: ^App, req: File_Request) -> bool {
 		_ = alpha_keep(app, req.path)
 	case .Matcap:
 		_ = matcap_load(app, req.path)
+	case .Base_Color_Map, .Orm_Map, .Normal_Map:
+		for kind, m in TEXTURE_FILE_KINDS do if kind == req.kind {
+			if why := texture_load(app, selected_object(app), m, req.path); why != "" do file_note(app, true, "%s", why)
+		}
 	case .Screenshot:
 		_ = screenshot_save(app, req.path)
 	case .Timelapse:
@@ -528,6 +535,20 @@ object_export :: proc(app: ^App, obj: ^Object, path: string) -> bool {
 			morphs[k] = {sculpt.sculptor_layer_name(&l), sculpt.layer_weight(l), vertices, deltas}
 		}
 		layers = len(morphs)
+		if ext == ".glb" && object_exports_textures(obj) {
+			// Its maps go as the material's textures, through the UVs, on the quads split
+			// where the UVs are, as a bake's own .glb has them (retopo.odin); the maps
+			// stand for vertex colours and polygroup materials.
+			mat := export_material(object_material(app, obj))
+			q := sculpt.levels_quad_mesh(&obj.levels)
+			vertices = len(q.positions)
+			if !quad_object_glb(&out, obj, q, object_label(obj), obj.textures.image, mat, true, morphs) {
+				free_all(context.temp_allocator)
+				file_note(app, true, "Cannot export %s: a glTF file holds at most 4 GB", name)
+				return false
+			}
+			break
+		}
 		m := geom.Mesh_Export {
 			name      = object_label(obj),
 			positions = positions,
@@ -569,6 +590,12 @@ object_export :: proc(app: ^App, obj: ^Object, path: string) -> bool {
 	with := fmt.tprintf(", %d %s as shape keys", layers, "layer" if layers == 1 else "layers") if layers > 0 else ""
 	file_note(app, false, "Exported %s: %d vertices, %d triangles%s, %d MB in %.0f ms", name, vertices, len(indices) / 3, with, len(out) >> 20, app.stats.file_write_ms)
 	return true
+}
+
+// Whether a .glb export of `obj` carries its maps: it has some and shows its base level,
+// whose quads and UVs they follow, without dynamic topology.
+object_exports_textures :: proc(obj: ^Object) -> bool {
+	return object_has_textures(obj) && obj.voxel == nil && obj.levels.current == 0 && !object_dynamic(obj) && !object_in_hd(obj) && texture_target_check(obj) == ""
 }
 
 // What USD carries beyond glTF: a retopologized base level's quads and UVs, as OBJ

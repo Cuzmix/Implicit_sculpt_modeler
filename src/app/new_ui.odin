@@ -360,6 +360,7 @@ Kit_Section :: enum u8 {
 	Mirror,
 	Voxels,
 	Retopo,
+	Textures,
 	Project,
 	Booleans,
 	Extract,
