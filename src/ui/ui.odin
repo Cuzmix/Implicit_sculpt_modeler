@@ -1059,6 +1059,14 @@ long_cancel :: proc(ctx: ^Context) {
 	if ctx.active != 0 && ctx.long.id == ctx.active && ctx.long.fired == .None do ctx.long.fired = .Off
 }
 
+// The held widget took the press for a drag of its own (a bar value dragged at once): no
+// long press follows, letting go is no click, and no scroll takes the drag from it.
+press_used :: proc(ctx: ^Context) {
+	if ctx.active == 0 || ctx.long.id != ctx.active || ctx.long.fired != .None do return
+	ctx.long.fired = .Action
+	ctx.press_won = true
+}
+
 // At the frame's end, once every widget had its chance to claim the press: a long press
 // on a widget with no secondary action but a tooltip shows the tooltip. Returns whether
 // the ring counting toward a long press should show: only on a press that would do

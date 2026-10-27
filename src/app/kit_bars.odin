@@ -300,9 +300,9 @@ kit_brush_bar :: proc(app: ^App) -> (brushes_anchor: ui.Rect) {
 	_ = bar_command(app, .Paint_Channel, channel_glyph[app.brush.channel], name = fmt.tprintf("%s##channel", channel_name[app.brush.channel]), corner = true)
 	if ui.secondary(ctx) do bar_pop_toggle(app, .Section, ctx.last_rect, .Right, .Paint_Color)
 	ui.divider(ctx, 32, across = true)
-	// Focal shift, size and strength open their tall sliders; a long press dragged sets
-	// them on the spot, and one let go still opens the falloff curve, or the pen's settings
-	// that scale size and strength by pressure.
+	// Focal shift, size and strength open their tall sliders; a drag up or down sets them
+	// on the spot, at once or after a long press, and a long press let go still opens the
+	// falloff curve, or the pen's settings that scale size and strength by pressure.
 	bar_value_button(app, .Focal, fmt.tprintf("Focal shift %.0f##focal", focal_shift(app)^), ICON_FOCAL, focal_hint(app), .Falloff)
 	bar_value_button(app, .Size, fmt.tprintf("Draw size %.0f##size", app.brush.radius_px), ui.ICON_SIZE, slider_hint(app, "S, [ ]", .Size_Up), .Pen)
 	bar_value_button(app, .Strength, fmt.tprintf("Strength %.2f##strength", brush_strength(app)^), ui.ICON_STRENGTH, slider_hint(app, "U, Shift+[ ]", .Strength_Up), .Pen)
@@ -341,8 +341,9 @@ bar_swatches :: proc(app: ^App, r: ui.Rect) {
 }
 
 // A brush bar button for a value (Size, Focal or Strength): a tap opens its tall slider
-// beside it; a finger's or the pen's long press starts a Bar_Scrub, and the mouse's right
-// click, which has no drag to follow, opens section `still` as a long press let go does.
+// beside it; a press dragged up or down, or a finger's or the pen's long press, starts a
+// Bar_Scrub, and the mouse's right click, which has no drag to follow, opens section
+// `still` as a long press let go does.
 @(private = "file")
 bar_value_button :: proc(app: ^App, kind: Bar_Pop_Kind, name: string, glyph: rune, keys: string, still: Kit_Section) {
 	k := &app.kit
@@ -350,8 +351,19 @@ bar_value_button :: proc(app: ^App, kind: Bar_Pop_Kind, name: string, glyph: run
 	pop := &k.bar_pop
 	if ui.icon_button(ctx, name, glyph, selected = pop.open && pop.kind == kind || k.bar_scrub.active && k.bar_scrub.kind == kind, keys = keys, corner = true) do bar_pop_toggle(app, kind, ctx.last_rect, .Right)
 	bar_roll(app, kind)
-	if !ui.secondary(ctx) do return
 	in_ := ctx.input
+	// A press dragged up or down past the slop sets the value at once, as Nomad's and
+	// Procreate's side sliders do, so the long press is needed only to start on the spot.
+	if ctx.active == ctx.last_id && .Left in in_.down && !in_.cancel && !k.bar_scrub.active {
+		d := in_.mouse - ctx.press_mouse
+		if abs(d.y) > ctx.theme.slop && abs(d.y) >= abs(d.x) {
+			ui.press_used(ctx)
+			kit_floats_close(k)
+			k.bar_scrub = {active = true, shown = true, kind = kind, at = ctx.last_rect, from = in_.mouse.y, start = bar_value(app, kind)^, moved = true}
+			return
+		}
+	}
+	if !ui.secondary(ctx) do return
 	if in_.pointer == .Mouse || .Left not_in in_.down {
 		bar_pop_toggle(app, .Section, ctx.last_rect, .Right, still)
 		return
