@@ -176,6 +176,16 @@ file_post :: proc(kind: File_Kind, path: string) {
 	pending.req = {kind, strings.clone(path, heap)}
 }
 
+// Queues a request only when no dialog shows and none waits, checked and queued under one
+// lock, so a dialog's answer is never replaced. Returns whether it was queued.
+file_post_when_idle :: proc(kind: File_Kind, path: string) -> bool {
+	sync.lock(&pending.lock)
+	defer sync.unlock(&pending.lock)
+	if pending.dialog || pending.req.kind != .None do return false
+	pending.req = {kind, strings.clone(path, runtime.heap_allocator())}
+	return true
+}
+
 // The waiting request, if any, which the caller frees with file_request_free; notes a
 // dialog failure first.
 file_take :: proc(app: ^App) -> (req: File_Request, ok: bool) {
@@ -189,13 +199,6 @@ file_take :: proc(app: ^App) -> (req: File_Request, ok: bool) {
 	if pending.req.kind == .None do return {}, false
 	req, pending.req = pending.req, {}
 	return req, true
-}
-
-// Whether a file dialog is showing, whose answer becomes a request.
-file_dialog_showing :: proc() -> bool {
-	sync.lock(&pending.lock)
-	defer sync.unlock(&pending.lock)
-	return pending.dialog
 }
 
 // Whether a request waits for the next frame, which the autosave's rest counts as busy.

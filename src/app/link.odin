@@ -1,6 +1,7 @@
 package main
 
 import "core:fmt"
+import "core:log"
 import "core:math/rand"
 import "core:os"
 import "core:path/filepath"
@@ -39,6 +40,9 @@ import "../voxel"
 LINK_FOLDER :: "link"
 LINK_SENT_FILE :: "link.txt"
 LINK_BACK_FILE :: "blender.txt"
+// The newest of Blender's sends taken, `taken <token> <n>`, kept in the folder so a send is
+// taken once even across runs.
+LINK_TAKEN_FILE :: "taken.txt"
 LINK_VERSION :: 1
 // More objects than a manifest may list, and a longer name than one may give: damage.
 LINK_MAX_OBJECTS :: 256
@@ -51,10 +55,6 @@ Link :: struct {
 	folder: string, // owned; "" in a run that keeps no settings, which has no link
 	sent:   [dynamic]Link_Sent,
 	seq:    int, // the last send's number
-	// The newest of Blender's sends taken, and the scene it was for, so a get takes each
-	// once.
-	taken_token: u64,
-	taken:       int,
 	// The window got the focus back: Blender's folder is looked at once nothing else is
 	// waiting (link_frame). Only in a run with a person (`auto`).
 	check: bool,
@@ -90,6 +90,7 @@ Link_Manifest :: struct {
 // What a get does with an object Blender sent back.
 Link_Action :: enum u8 {
 	Project, // its vertices move to Blender's: the same triangles, at the level sent
+	Keep,    // a voxel or dynamic object Blender sent back exactly as it went: only its place comes back
 	Swap,    // it is rebuilt from Blender's mesh: other triangles, or not a plain mesh here
 	Add,     // a new object: one Blender made, or one this scene does not know
 }
@@ -137,11 +138,17 @@ link_manifest_text :: proc(head: string, m: Link_Manifest) -> string {
 	return strings.to_string(b)
 }
 
-// A name as one word of a manifest: escaped as the settings escape one, and "-" for no
-// name (a name that is "-" itself is escaped).
+// A name as one word of a manifest: %, every control byte and space, and every byte of a
+// character past ASCII (some of which are white space to a reader splitting at it) as %XX,
+// which preset_unescape reads; "-" for no name (a name that is "-" itself is escaped).
 @(private = "file")
 link_name_word :: proc(name: string) -> string {
-	word := preset_escape(name)
+	b := strings.builder_make(context.temp_allocator)
+	for c in transmute([]u8)name {
+		if c > ' ' && c < 0x7f && c != '%' do strings.write_byte(&b, c)
+		else do fmt.sbprintf(&b, "%%%02X", c)
+	}
+	word := strings.to_string(b)
 	switch word {
 	case "":  return "-"
 	case "-": return "%2D"
@@ -372,14 +379,22 @@ link_focus :: proc(app: ^App) {
 link_frame :: proc(app: ^App) {
 	l := &app.link
 	if !l.check do return
-	if file_pending() || file_dialog_showing() || app.saving.kind != .None || history_busy(app) || app.script.running || pack_busy(app) do return
-	l.check = false
+	// The History rewound by the timeline or a replay would lose its redo to the get's step.
+	if file_pending() || app.saving.kind != .None || history_busy(app) || timeline_busy(app) || replay_busy(app) || app.script.running || pack_busy(app) do return
 	data, err := os.read_entire_file(link_path(app, LINK_BACK_FILE), context.temp_allocator)
-	if err != nil do return
+	if err != nil {
+		l.check = false
+		return
+	}
 	m, ok := link_manifest_parse(string(data), "blender_link", context.temp_allocator)
-	if !ok || m.token != app.scene.link_token || app.scene.link_token == 0 do return
-	if m.token == l.taken_token && m.seq <= l.taken do return
-	file_post(.Link_Get, LINK_AUTO)
+	taken_token, taken := link_taken(app)
+	if !ok || m.token != app.scene.link_token || app.scene.link_token == 0 || (m.token == taken_token && m.seq <= taken) {
+		l.check = false
+		return
+	}
+	// Posted only when no dialog shows and nothing waits, under the requests' lock, so a
+	// dialog's answer landing meanwhile is never replaced; tried again next frame.
+	if file_post_when_idle(.Link_Get, LINK_AUTO) do l.check = false
 }
 
 // The path of a get the focus asked for, which says nothing when there is nothing new.
@@ -404,7 +419,7 @@ Link_Why :: enum u8 {
 	Dynamic,  // dynamic topology, whose packed mesh is new to it
 	Other_Scene,
 	Gone,       // deleted here since it was sent
-	Level_Gone, // its level was deleted
+	Level_Gone, // its level was deleted, or is not the one sent (levels deleted below it)
 	Made,       // made in Blender
 }
 
@@ -414,7 +429,6 @@ Link_Why :: enum u8 {
 // is the focus check's: it says nothing when there is nothing new. Returns false only on
 // a GPU failure.
 link_get :: proc(app: ^App, auto := false) -> bool {
-	l := &app.link
 	if !link_can_get(app) {
 		file_note(app, true, "This run keeps no settings, so it has no link folder for Blender")
 		return true
@@ -432,10 +446,22 @@ link_get :: proc(app: ^App, auto := false) -> bool {
 		file_note(app, true, "Cannot get from Blender: its %s is damaged", LINK_BACK_FILE)
 		return true
 	}
-	if m.token == l.taken_token && m.seq <= l.taken {
+	if taken_token, taken := link_taken(app); m.token == taken_token && m.seq <= taken {
 		if !auto do file_note(app, false, "Nothing new from Blender since the last get")
 		return true
 	}
+	if timeline_busy(app) || replay_busy(app) {
+		file_note(app, true, "Cannot get from Blender while the History plays or a stroke replays: stop it first")
+		return true
+	}
+	// What was sent, to tell a level changed since and an object sent back untouched.
+	sent: Link_Manifest
+	have_sent := false
+	if text, serr := os.read_entire_file(link_path(app, LINK_SENT_FILE), context.allocator); serr == nil {
+		sent, have_sent = link_manifest_parse(string(text), "sculpt_link")
+		delete(text)
+	}
+	defer link_manifest_free(&sent)
 	meshes := make([]geom.Mesh, len(m.objects))
 	defer {
 		for &mesh in meshes do geom.mesh_destroy(&mesh)
@@ -464,35 +490,76 @@ link_get :: proc(app: ^App, auto := false) -> bool {
 	}
 	chain := false
 	for &o, i in m.objects {
-		action, obj, why := link_plan(app, o, m.token, meshes[i])
+		action, obj, why := link_plan(app, o, m.token, meshes[i], &sent if have_sent && sent.token == m.token else nil)
 		r := Link_Result{action = action, why = why}
 		if obj != nil do r.edited = link_edited(app, obj.id)
 		if !link_apply(app, o, &meshes[i], action, obj, &chain, &r) do return false
 		// Nothing of a change made here was replaced when nothing came back different.
-		r.edited &&= r.action != .Project || r.moved > 0
+		r.edited &&= r.action == .Swap || r.action == .Project && r.moved > 0
 		append(&results, r)
 	}
 	// What came back is where the next get's changes are counted from, as a send is.
 	now := time.tick_now()
 	for r in results do if r.id != 0 do link_sent_mark(app, r.id, now)
-	l.taken_token, l.taken = m.token, m.seq
-	link_note(app, results[:], time.duration_milliseconds(time.tick_since(start)))
+	if err := link_take(app, m.token, m.seq); err != "" do log.warnf("blender link: cannot note the send as taken: %s", err)
+	link_note(app, results[:], chain, time.duration_milliseconds(time.tick_since(start)))
 	return true
 }
 
-// What a get does with object line `o` of a manifest for scene `token`, carrying `mesh`:
-// the object it acts on (nil for Add), and why when it is not the plain Project.
-link_plan :: proc(app: ^App, o: Link_Object, token: u64, mesh: geom.Mesh) -> (action: Link_Action, obj: ^Object, why: Link_Why) {
+// What a get does with object line `o` of a manifest for scene `token`, carrying `mesh`,
+// given what the app last sent for that scene (`sent`, nil for nothing known): the object
+// it acts on (nil for Add), and why when it is not the plain Project.
+link_plan :: proc(app: ^App, o: Link_Object, token: u64, mesh: geom.Mesh, sent: ^Link_Manifest = nil) -> (action: Link_Action, obj: ^Object, why: Link_Why) {
 	if o.id == 0 do return .Add, nil, .Made
 	if token == 0 || token != app.scene.link_token do return .Add, nil, .Other_Scene
 	obj = object_by_id(app, o.id)
 	if obj == nil do return .Add, nil, .Gone
-	if obj.voxel != nil do return .Swap, obj, .Voxel
-	if object_dynamic(obj) do return .Swap, obj, .Dynamic
+	went: ^Link_Object
+	if sent != nil do for &s in sent.objects do if s.id == o.id do went = &s
+	if obj.voxel != nil || object_dynamic(obj) {
+		if went != nil && link_same_as_sent(app, went.file, mesh) do return .Keep, obj, .None
+		return .Swap, obj, .Voxel if obj.voxel != nil else .Dynamic
+	}
 	if o.level >= len(obj.levels.levels) do return .Add, nil, .Level_Gone
 	level := obj.levels.levels[o.level]
+	// A level deleted below the one sent renumbers it: the level of that number now is
+	// another, which the mesh must not replace.
+	if went != nil && went.level == o.level && len(level.mesh.positions) != went.vertices do return .Add, nil, .Level_Gone
 	if len(level.mesh.positions) != len(mesh.positions) || !link_same_triangles(level.mesh.indices[:], mesh.indices[:], &app.pool) do return .Swap, obj, .Topology
 	return .Project, obj, .None
+}
+
+// Whether `mesh` is what the app sent as `file`, vertex for vertex and triangle for
+// triangle.
+@(private = "file")
+link_same_as_sent :: proc(app: ^App, file: string, mesh: geom.Mesh) -> bool {
+	data, err := os.read_entire_file(link_path(app, file), context.allocator)
+	if err != nil do return false
+	went, failed, _ := geom.mesh_read_ply(data, &app.pool)
+	delete(data)
+	defer geom.mesh_destroy(&went)
+	if failed != .None || len(went.positions) != len(mesh.positions) do return false
+	return link_count_moved(went.positions[:], mesh.positions[:], &app.pool) == 0 && link_same_triangles(went.indices[:], mesh.indices[:], &app.pool)
+}
+
+// The newest of Blender's sends taken (LINK_TAKEN_FILE): its scene token and number, 0s
+// for none.
+link_taken :: proc(app: ^App) -> (token: u64, seq: int) {
+	data, err := os.read_entire_file(link_path(app, LINK_TAKEN_FILE), context.temp_allocator)
+	if err != nil do return
+	f := strings.fields(string(data), context.temp_allocator)
+	if len(f) != 3 || f[0] != "taken" do return
+	t, t_ok := strconv.parse_u64_of_base(f[1], 16)
+	n, n_ok := strconv.parse_int(f[2])
+	if !t_ok || !n_ok do return 0, 0
+	return t, n
+}
+
+// Notes Blender's send `seq` for scene `token` as taken. Returns what went wrong, "" for
+// nothing.
+@(private = "file")
+link_take :: proc(app: ^App, token: u64, seq: int) -> string {
+	return write_durably(link_path(app, LINK_TAKEN_FILE), transmute([]u8)fmt.tprintf("taken %016x %d\n", token, seq))
 }
 
 // Notes that object `id` matches the other side as of `at`.
@@ -519,6 +586,8 @@ link_edited :: proc(app: ^App, id: int) -> bool {
 link_apply :: proc(app: ^App, o: Link_Object, mesh: ^geom.Mesh, action: Link_Action, obj: ^Object, chain: ^bool, r: ^Link_Result) -> bool {
 	l := &app.link
 	switch action {
+	case .Keep:
+		r.moved = 0
 	case .Project:
 		// HD detail rides on the top level's moves, as for Project detail.
 		object_hd_leave(app, obj)
@@ -562,8 +631,10 @@ link_apply :: proc(app: ^App, o: Link_Object, mesh: ^geom.Mesh, action: Link_Act
 			return true
 		}
 		name := o.name if o.name != "" else "Blender"
-		if !scene_add_mesh(app, mesh^, name, {scale = 1}, o.transform, time.tick_now()) do return false
+		// Taken by the new object, or freed when it could not be made.
+		made := scene_add_mesh(app, mesh^, name, {scale = 1}, o.transform, time.tick_now())
 		mesh^ = {}
+		if !made do return false
 		added := selected_object(app)
 		history_record_swap(app, added.id, history_snapshot(app, nil, "From Blender (new object)"), chain^)
 		chain^ = true
@@ -598,7 +669,7 @@ link_clean :: proc(app: ^App, mesh: ^geom.Mesh) -> bool {
 // One note for the whole get: "From Blender: Head (moved 1,204 vertices), Hat (new
 // topology), Cube (new object)", and what to know about any of them.
 @(private = "file")
-link_note :: proc(app: ^App, results: []Link_Result, ms: f64) {
+link_note :: proc(app: ^App, results: []Link_Result, recorded: bool, ms: f64) {
 	b := strings.builder_make()
 	defer strings.builder_destroy(&b)
 	strings.write_string(&b, "From Blender: ")
@@ -610,7 +681,7 @@ link_note :: proc(app: ^App, results: []Link_Result, ms: f64) {
 		case r.moved < 0:
 			strings.write_string(&b, " (refused: no triangles left)")
 			warn = true
-		case r.action == .Project && r.moved == 0:
+		case r.action == .Keep, r.action == .Project && r.moved == 0:
 			strings.write_string(&b, " (unchanged)")
 		case r.action == .Project && r.held > 0:
 			fmt.sbprintf(&b, " (moved %s; the mask or hiding held %s back)", link_vertices(r.moved - r.held), count_label(r.held))
@@ -623,7 +694,7 @@ link_note :: proc(app: ^App, results: []Link_Result, ms: f64) {
 		case r.why == .Other_Scene:
 			strings.write_string(&b, " (new object: sent from another scene)")
 		case r.why == .Level_Gone:
-			strings.write_string(&b, " (new object: its level is gone)")
+			strings.write_string(&b, " (new object: the level it was sent from is gone)")
 		case:
 			strings.write_string(&b, " (new object)")
 		}
@@ -635,9 +706,7 @@ link_note :: proc(app: ^App, results: []Link_Result, ms: f64) {
 		strings.write_string(&b, ". Changes made here since the send were replaced; Undo brings them back")
 		warn = true
 	}
-	changed := false
-	for r in results do changed ||= r.moved != 0 || r.action != .Project
-	report(app, nil, ({.Warning} if warn else {}) + ({.Undo} if changed else {}), "%s", strings.to_string(b))
+	report(app, nil, ({.Warning} if warn else {}) + ({.Undo} if recorded else {}), "%s", strings.to_string(b))
 }
 
 @(private = "file")

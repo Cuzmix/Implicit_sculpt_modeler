@@ -5211,11 +5211,59 @@ def blender_link_round_trip():
         # One Ctrl+Z takes the whole get back: the move, the rebuild, the new object and
         # the second sphere's new place.
         (get(True), [f"--settings-file={settings_file()}", f"--open={scene}"],
-         {"link_moved": near(1, 0), "link_swapped": near(1, 0), "link_added": near(1, 0), "objects": near(2, 0), "undo_steps": near(0, 0), "redo_steps": near(4, 0)}),
+         {"link_moved": near(1, 0), "link_swapped": near(1, 0), "link_added": near(1, 0), "objects": near(2, 0), "undo_steps": near(0, 0), "redo_steps": near(4, 0),
+          # The folder notes the send as taken, so the next run would not take it again.
+          "@taken once": lambda _: os.path.exists(os.path.join(link_folder(), "taken.txt")) and (os.remove(os.path.join(link_folder(), "taken.txt")) or True)}),
         (get(False), [f"--settings-file={settings_file()}", f"--open={scene}", f"--save={got}"],
          {"objects": near(3, 0), "undo_steps": near(4, 0)}),
         (Script(), [f"--settings-file={settings_file()}", f"--open={got}", "--script=select 1", f"--export={exported}"],
          {"objects": near(3, 0), "link_token": near(1, 0), "@the raised vertex": same_mesh_file(back, exported)}),
+    ])
+
+
+def echo_blender(folder, raise_first=False):
+    """A check that plays Blender between two runs: it sends back the app's one object as
+    it got it, or with its first vertex raised by 0.25, its placement word for word."""
+    def act(_):
+        lines = open(os.path.join(folder, "link.txt")).read().split("\n")
+        token = next(l.split()[1] for l in lines if l.startswith("scene "))
+        sent = next(l.split() for l in lines if l.startswith("object "))
+        points, tris = ply_mesh(os.path.join(folder, sent[4]))
+        if raise_first:
+            points[0] = (points[0][0], points[0][1] + 0.25, points[0][2])
+        ply_write(os.path.join(folder, f"blender-{sent[1]}.ply"), points, tris)
+        with open(os.path.join(folder, "blender.txt"), "w") as f:
+            f.write("\n".join(["blender_link 1", f"scene {token}", "sent 1",
+                               " ".join(["object", sent[1], sent[2], sent[3], f"blender-{sent[1]}.ply"] + sent[5:])]) + "\n")
+        return True
+    return act
+
+
+@scenario
+def blender_link_keeps_voxels_and_dynamic():
+    """A voxel object Blender sends back untouched stays a voxel object, with nothing to
+    undo; a dynamic topology object sent back changed is rebuilt from Blender's mesh with
+    dynamic topology still on, as one undo step."""
+    voxel, dynamic = autosave_folder() + "-voxel.sculpt", autosave_folder() + "-dynamic.sculpt"
+    os.makedirs(os.path.dirname(voxel), exist_ok=True)
+
+    def get():
+        s = Script()
+        s.wait(3)
+        s.press("k", ("ctrl",))
+        s.type("get from blender")
+        s.press("Return")
+        s.wait(6)
+        return s
+    return Steps([
+        (Script(), [f"--settings-file={settings_file()}", "--voxels=64", "--script=send_to_blender", f"--save={voxel}"],
+         {"link_sent": near(1, 0), "voxel_objects": near(1, 0), "@stand-in Blender": echo_blender(link_folder())}),
+        (get(), [f"--settings-file={settings_file()}", f"--open={voxel}"],
+         {"link_swapped": near(0, 0), "voxel_objects": near(1, 0), "undo_steps": near(0, 0)}),
+        (Script(), [f"--settings-file={settings_file()}", "--subdiv=3", "--script=dyntopo_toggle on; send_to_blender", f"--save={dynamic}"],
+         {"link_sent": near(1, 0), "dynamic": near(1, 0), "@stand-in Blender": echo_blender(link_folder(), raise_first=True)}),
+        (get(), [f"--settings-file={settings_file()}", f"--open={dynamic}"],
+         {"link_swapped": near(1, 0), "dynamic": near(1, 0), "undo_steps": near(1, 0)}),
     ])
 
 

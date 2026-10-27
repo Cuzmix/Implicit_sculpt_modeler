@@ -63,11 +63,18 @@ mesh.from_pydata([(x, y, z) for x in (-0.5, 0.5) for y in (-0.5, 0.5) for z in (
 cube = bpy.data.objects.new("Cube", mesh)
 bpy.context.scene.collection.objects.link(cube)
 cube.location = (4, 0, 0)
+# Mirrored, which the app's objects cannot be: it goes into the positions, facing out.
+cube.scale = (-1, 1, 1)
+# A copy keeps the custom properties: it goes as a new object, not as the sphere again.
+copy = sphere.copy()
+copy.data = sphere.data.copy()
+bpy.context.scene.collection.objects.link(copy)
+copy.location.y += 3
 bpy.context.view_layer.update()
-out["sent"] = send_to_sculpt(folder, [sphere, cube])
+out["sent"] = send_to_sculpt(folder, [sphere, cube, copy])
 # A second get updates the same object, not a new one.
 again = get_from_sculpt(folder)
-out["again_same"] = not isinstance(again, str) and again[0] == sphere and len(bpy.data.objects) == 2
+out["again_same"] = not isinstance(again, str) and again[0] == sphere and len(bpy.data.objects) == 3
 # As a person runs it: the add-on enabled, its panel's buttons, on a copy of the folder
 # so the send above stays for the app.
 import addon_utils, shutil
@@ -98,6 +105,9 @@ def app(*args):
             key, eq, value = word.partition("=")
             if eq:
                 stats[key] = value
+    # --check-mesh writes a line an object: how many of them face inward.
+    stats["inverted_objects"] = str(sum(1 for line in run.stdout.splitlines() if "mesh_inverted=true" in line))
+    stats["checked_objects"] = str(sum(1 for line in run.stdout.splitlines() if "mesh_inverted=" in line))
     if run.returncode != 0:
         sys.exit(f"FAIL app {' '.join(args)}: exit code {run.returncode}\n{run.stderr[-2000:]}")
     return stats
@@ -167,14 +177,15 @@ def main():
     where = (m[0][3], m[1][3], m[2][3])
     want = (placed[0], -placed[2], placed[1])
     ok &= report("blender placement", all(abs(p - q) < 1e-5 for p, q in zip(where, want)), f"{where} against {want}")
-    ok &= report("blender send", b["sent"] == 2 and b["again_same"], f"sent {b['sent']}, a second get kept one object: {b['again_same']}")
+    ok &= report("blender send", b["sent"] == 3 and b["again_same"], f"sent {b['sent']}, a second get kept one object: {b['again_same']}")
     ok &= report("blender add-on", b["operators"] == [["FINISHED"], ["FINISHED"]], f"enabled, Get from Sculpt and Send to Sculpt gave {b['operators']}")
 
     s = app(f"--settings-file={settings}", f"--open={scene}", "--frames=2", "--script=get_from_blender", f"--save={got}")
-    ok &= report("get", s.get("link_moved") == "1" and s.get("link_added") == "1" and s.get("link_swapped") == "0" and s.get("objects") == "3",
+    ok &= report("get", s.get("link_moved") == "1" and s.get("link_added") == "2" and s.get("link_swapped") == "0" and s.get("objects") == "4",
                  f"link_moved={s.get('link_moved')} link_added={s.get('link_added')} link_swapped={s.get('link_swapped')} objects={s.get('objects')}")
 
-    s = app(f"--settings-file={settings}", f"--open={got}", "--frames=2", "--script=select 1", f"--export={after}")
+    s = app(f"--settings-file={settings}", f"--open={got}", "--frames=2", "--script=select 1", f"--export={after}", "--check-mesh")
+    ok &= report("every object faces out", s["inverted_objects"] == "0" and s["checked_objects"] == "4", f"{s['inverted_objects']} of {s['checked_objects']} objects face inward")
     old, new = ply_positions(before), ply_positions(after)
     moved = [v for v in range(len(old)) if old[v] != new[v]]
     raised = tuple(struct.unpack("<f", struct.pack("<f", x))[0] for x in b["raised"])

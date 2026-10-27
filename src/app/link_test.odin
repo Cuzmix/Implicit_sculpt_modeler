@@ -58,14 +58,17 @@ link_manifest_round_trip :: proc(t: ^testing.T) {
 	objects := make([dynamic]Link_Object, context.temp_allocator)
 	append(&objects, Link_Object{id = 7, level = 2, name = "Big head %1", file = "7.ply", vertices = 42, triangles = 80, transform = {position = {0.1, -1e-7, 3}, rotation = {0, 1.0 / 3.0, 90}, scale = 0.70710677}})
 	append(&objects, Link_Object{id = 0, level = 0, name = "", file = "blender-new-1.ply", vertices = 8, triangles = 12, transform = {scale = 1}})
+	// White space beyond ASCII's, and a vertical tab, which readers split words at.
+	append(&objects, Link_Object{id = 9, level = 0, name = "Ear\u00a0left\vtwo", file = "9.ply", vertices = 8, triangles = 12, transform = {scale = 1}})
 	text := link_manifest_text("sculpt_link", {token = 0xfeed_0000_0000_0001, seq = 12, objects = objects})
 	m, ok := link_manifest_parse(text, "sculpt_link")
 	defer link_manifest_free(&m)
 	testing.expect(t, ok)
 	testing.expect_value(t, m.token, 0xfeed_0000_0000_0001)
 	testing.expect_value(t, m.seq, 12)
-	testing.expect_value(t, len(m.objects), 2)
-	if len(m.objects) == 2 {
+	testing.expect_value(t, len(m.objects), 3)
+	if len(m.objects) == 3 {
+		testing.expect_value(t, m.objects[2].name, "Ear\u00a0left\vtwo")
 		testing.expect_value(t, m.objects[0], Link_Object{id = 7, level = 2, name = m.objects[0].name, file = m.objects[0].file, vertices = 42, triangles = 80, transform = objects[0].transform})
 		testing.expect_value(t, m.objects[0].name, "Big head %1")
 		testing.expect_value(t, m.objects[1].file, "blender-new-1.ply")
@@ -154,7 +157,9 @@ link_round_trip_moves_and_undoes :: proc(t: ^testing.T) {
 	testing.expect_value(t, link_count_moved(mesh.positions[:], moved, nil), 0)
 	testing.expect_value(t, obj.transform, turned)
 
-	// Taken already: nothing happens.
+	// Taken already, as the folder keeps for the next run too: nothing happens.
+	token, seq := link_taken(&app)
+	testing.expect(t, token == app.scene.link_token && seq == 1)
 	testing.expect(t, link_get(&app))
 	testing.expect_value(t, len(app.history.done), 2)
 	testing.expect(t, strings.contains(app.result.text, "Nothing new"))
@@ -202,6 +207,14 @@ link_plans_and_refuses :: proc(t: ^testing.T) {
 	action, _, why = link_plan(&app, o, 0xabc, {positions = mesh.positions, indices = flipped})
 	testing.expect_value(t, action, Link_Action.Swap)
 	testing.expect_value(t, why, Link_Why.Topology)
+	// Sent from a level of another size: a lower level was deleted since, and level 0 is
+	// another level now, which the mesh must not replace.
+	went := make([dynamic]Link_Object, context.temp_allocator)
+	append(&went, Link_Object{id = 4, level = 0, file = "4.ply", vertices = len(mesh.positions) * 4, triangles = 1})
+	sent := Link_Manifest{token = 0xabc, objects = went}
+	action, _, why = link_plan(&app, o, 0xabc, {positions = mesh.positions, indices = flipped}, &sent)
+	testing.expect_value(t, action, Link_Action.Add)
+	testing.expect_value(t, why, Link_Why.Level_Gone)
 
 	// Serial and parallel compares agree.
 	pool: jobs.Pool
@@ -226,7 +239,8 @@ link_plans_and_refuses :: proc(t: ^testing.T) {
 	_ = os.write_entire_file(FOLDER + "/" + LINK_BACK_FILE, transmute([]u8)text)
 	testing.expect(t, link_get(&app))
 	testing.expect_value(t, len(app.history.done), 0)
-	testing.expect_value(t, app.link.taken, 0)
+	_, seq := link_taken(&app)
+	testing.expect_value(t, seq, 0)
 	testing.expect(t, strings.contains(app.result.text, "still being written"))
 }
 

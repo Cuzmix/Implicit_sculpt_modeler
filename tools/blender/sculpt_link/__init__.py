@@ -60,9 +60,10 @@ def default_folder():
 
 
 def name_word(name):
-    """A name as one word of a manifest: %, white space and nothing else escaped as %XX
-    (as Sculpt's settings escape one), and "-" for no name."""
-    word = "".join(f"%{ord(c):02X}" if c in "% \t\n\r" else c for c in name)
+    """A name as one word of a manifest, as Sculpt writes one: %, every control byte and
+    space, and every byte of a character past ASCII (some of which are white space to a
+    reader splitting at it) as %XX of its UTF-8 bytes, and "-" for no name."""
+    word = "".join(chr(b) if 0x21 <= b < 0x7F and b != 0x25 else f"%{b:02X}" for b in name.encode("utf-8"))
     return {"": "-", "-": "%2D"}.get(word, word)
 
 
@@ -206,7 +207,7 @@ def transform_words(obj):
     """Sculpt's transform words for the object's matrix: those it came with when it has not
     moved since, so an untouched placement goes back exactly; otherwise its place, turn and
     scale in Sculpt's axes. Also the matrix to bake into the positions when the object's
-    scale is not uniform (or sheared), which Sculpt's objects cannot be, else None."""
+    scale is not uniform, sheared or mirrored, which Sculpt's objects cannot be, else None."""
     words = obj.get("sculpt_transform")
     if words and obj.get("sculpt_matrix") and _matrix_same(obj.matrix_world, obj["sculpt_matrix"]):
         return list(words.split()), None
@@ -214,7 +215,7 @@ def transform_words(obj):
     location, rotation, scale = m.decompose()
     rebuilt = Matrix.LocRotScale(location, rotation, scale)
     uniform = max(scale) - min(scale) <= 1e-5 * max(abs(max(scale)), 1e-12)
-    if not uniform or not _matrix_same(rebuilt, m, 1e-5):
+    if not uniform or min(scale) <= 0 or m.to_3x3().determinant() <= 0 or not _matrix_same(rebuilt, m, 1e-5):
         return [repr(float(v)) for v in (location.x, location.y, location.z, 0.0, 0.0, 0.0, 1.0)], Matrix.Translation(location).inverted() @ m
     turn = rotation.to_euler("XYZ")
     s = sum(scale) / 3
@@ -260,6 +261,17 @@ def _set_colours(mesh, colours):
     mesh.color_attributes.active_color = attribute
 
 
+def _same_triangles(mesh, triangles):
+    """Whether the mesh is these triangles over as many vertices, corner for corner."""
+    if len(mesh.polygons) != len(triangles) or len(mesh.loops) != 3 * len(triangles):
+        return False
+    corners = np.empty(len(mesh.loops), np.int32)
+    mesh.loops.foreach_get("vertex_index", corners)
+    starts = np.empty(len(mesh.polygons), np.int32)
+    mesh.polygons.foreach_get("loop_start", starts)
+    return np.array_equal(starts, np.arange(0, len(mesh.loops), 3)) and np.array_equal(corners, triangles.ravel())
+
+
 def get_from_sculpt(folder, collection=None):
     """Brings in what Sculpt sent: each object updates the Blender object made from it
     before (same scene token and id), its vertices only when the counts match, so its UVs,
@@ -286,7 +298,7 @@ def get_from_sculpt(folder, collection=None):
             _set_mesh(mesh, positions, triangles)
             obj = bpy.data.objects.new(o["name"] or "Sculpt", mesh)
             collection.objects.link(obj)
-        elif len(obj.data.vertices) == len(positions) and len(obj.data.polygons) == len(triangles):
+        elif _same_triangles(obj.data, triangles):
             obj.data.vertices.foreach_set("co", positions.ravel())
             obj.data.update()
         else:
@@ -314,7 +326,7 @@ def send_to_sculpt(folder, objects, apply_modifiers=False, depsgraph=None):
     token = sent["token"] if sent else "0" * 16
     back = read_manifest(os.path.join(folder, BACK_FILE), "blender_link")
     seq = (back["seq"] if back else 0) + 1
-    lines, new = [], 0
+    lines, new, taken = [], 0, set()
     for obj in objects:
         mesh = obj.evaluated_get(depsgraph).to_mesh() if apply_modifiers and depsgraph else obj.data
         try:
@@ -340,8 +352,15 @@ def send_to_sculpt(folder, objects, apply_modifiers=False, depsgraph=None):
             # positions.
             rest = np.array(bake.to_3x3(), np.float32)
             positions = positions @ rest.T
-        own = obj.get("sculpt_scene") == token and isinstance(obj.get("sculpt_id"), int) and obj["sculpt_id"] > 0
+        if bake is not None and bake.determinant() < 0:
+            # Mirrored: the positions are mirrored now, so the triangles turn the other way
+            # round to keep facing out.
+            triangles = triangles[:, ::-1].copy()
+        # A copy (Shift+D) keeps the custom properties, so only the first object of an id
+        # goes back as it; the rest are new to Sculpt.
+        own = obj.get("sculpt_scene") == token and isinstance(obj.get("sculpt_id"), int) and obj["sculpt_id"] > 0 and obj["sculpt_id"] not in taken
         if own:
+            taken.add(obj["sculpt_id"])
             ident, file = obj["sculpt_id"], f"blender-{obj['sculpt_id']}.ply"
         else:
             new += 1
