@@ -148,6 +148,7 @@ settings_reset :: proc(app: ^App, tab: Settings_Tab) {
 	case .Performance:
 		k.stats, k.stats_advanced = false, false
 		app.vsync = true
+		app.msaa = MSAA_DEFAULT
 		app.autosave.minutes = AUTOSAVE_DEFAULT_MINUTES
 		app.versions_kept = VERSIONS_DEFAULT
 	}
@@ -312,6 +313,9 @@ settings_performance :: proc(app: ^App) {
 	ui.caption(ctx, "DISPLAY")
 	_ = ui.switch_row(ctx, "VSync", &app.vsync)
 	ui.paragraph(ctx, "Draws in step with the screen's refresh: no tearing, and no frames drawn that the screen would never show. Off, frames come as fast as they can, which lowers input delay a little.")
+	ui.label(ctx, "Anti-aliasing")
+	if picked := ui.tabs(ctx, "Anti-aliasing", MSAA_NAMES[:], int(app.msaa)); picked >= 0 do app.msaa = Msaa(picked)
+	ui.paragraph(ctx, "Smooths the stepped edges of outlines and wireframe lines by taking 2 or 4 samples a pixel. It costs GPU memory and a little time every frame; Off draws as fast as it can.")
 	ui.spacer(ctx, 8)
 	ui.caption(ctx, "AUTOSAVE")
 	a := &app.autosave
