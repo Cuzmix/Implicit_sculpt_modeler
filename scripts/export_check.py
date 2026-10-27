@@ -6,6 +6,7 @@
     python scripts/export_check.py build/out.usda --keys "Layer 1=1.5"
     python scripts/export_check.py build/out.glb --vertices 642 --triangles 1280 \\
         --keys "Layer 1=1.5,Layer 2=0" --colors --material "Gold,1,0.3" --require
+    python scripts/export_check.py build/out.glb --face-materials "Gold=2,Steel=10"
 
 Two checks for each, each reported on its own line as PASS, FAIL or SKIP:
 - validator: for .glb, the Khronos glTF validator (npm package gltf-validator, run with
@@ -15,7 +16,8 @@ Two checks for each, each reported on its own line as PASS, FAIL or SKIP:
   empty scene, and the check reads back what a person would see: the mesh's vertices and
   triangles, its shape keys with their values, whether it has a colour attribute, and the
   objects the import made (for USD at frame 1, where the weights are keyed), and the first
-  material's base colour, metallic and roughness. The --vertices, --triangles, --keys, --colors and --material options say
+  material's base colour, metallic and roughness, and how many faces each material shades.
+  The --vertices, --triangles, --keys, --colors, --material and --face-materials options say
   what to expect; without them the check only needs the import to succeed.
 
 A tool that is not installed is reported as SKIP, never as PASS, and the exit code is 0
@@ -67,6 +69,13 @@ if meshes:
     out['colors'] = [a.name for a in me.color_attributes]
     keys = me.shape_keys.key_blocks if me.shape_keys else []
     out['keys'] = [[k.name, round(k.value, 6)] for k in keys if k != me.shape_keys.reference_key]
+    # How many faces each material slot shades, by the material's name.
+    faces = {}
+    for p in me.polygons:
+        slot = meshes[0].material_slots[p.material_index] if p.material_index < len(meshes[0].material_slots) else None
+        name = slot.material.name if slot and slot.material else ''
+        faces[name] = faces.get(name, 0) + 1
+    out['face_materials'] = faces
     # The first material's Principled BSDF as the import set it up: its base colour (or
     # what feeds it), metallic and roughness.
     mat = meshes[0].active_material
@@ -198,6 +207,13 @@ def check_blender(path, args):
                 for key, text in zip(("metallic", "roughness"), want[1:3]):
                     if isinstance(m[key], str) or abs(m[key] - float(text)) > 1e-3:
                         wrong.append("material %s %s, expected %s" % (key, m[key], text))
+        if args.face_materials is not None:
+            want = {}
+            for item in filter(None, args.face_materials.split(",")):
+                name, _, count = item.rpartition("=")
+                want[name] = int(count)
+            if got["face_materials"] != want:
+                wrong.append("faces by material %s, expected %s" % (got["face_materials"], want))
         if args.keys is not None:
             expected = []
             for item in filter(None, args.keys.split(",")):
@@ -216,6 +232,8 @@ def check_blender(path, args):
         ", ".join(got.get("colors", [])) or "none", ", ".join(got["objects"]))
     if "material" in got:
         detail += ", material %s" % json.dumps(got["material"])
+    if len(got.get("face_materials", {})) > 1:
+        detail += ", faces by material %s" % json.dumps(got["face_materials"], sort_keys=True)
     if wrong:
         return "FAIL", "; ".join(wrong) + " (" + detail + ")"
     return "PASS", detail
@@ -230,6 +248,7 @@ def main():
     parser.add_argument("--keys", help='the shape keys in order with their values: "Layer 1=1.5,Layer 2=0"')
     parser.add_argument("--colors", action="store_true", help="expect a colour attribute")
     parser.add_argument("--material", help='the first material: "NAME,METALLIC,ROUGHNESS" (the base colour is reported)')
+    parser.add_argument("--face-materials", help='the faces each material shades: "Gold=2,Steel=10"')
     parser.add_argument("--require", action="store_true", help="a skipped check fails the run")
     args = parser.parse_args()
     if args.setup:

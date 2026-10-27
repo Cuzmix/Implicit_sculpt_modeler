@@ -59,15 +59,20 @@ History_Entry :: struct {
 	before, after: Transform,
 	// An .Arrange entry's tree before the change and after it (scene_tree.odin), owned.
 	arrange: ^Arrange_Step,
+	// A group command's table of group materials before and after it (group_materials.odin),
+	// owned; nil when the command left the table as it was.
+	group_table: ^Group_Table_Step,
 }
 
 Arrange_Step :: struct {
 	before, after: ^Scene_Layout,
 }
 
-// Frees what an entry owns: a swap's snapshot or an arrangement's layouts.
+// Frees what an entry owns: a swap's snapshot, an arrangement's layouts or a group
+// command's tables.
 @(private = "file")
 entry_free :: proc(h: ^History, e: History_Entry) {
+	group_table_step_free(e.group_table)
 	if e.swap != nil {
 		h.swap_bytes -= len(e.swap.bytes)
 		snapshot_free(e.swap)
@@ -491,15 +496,14 @@ history_push :: proc(app: ^App, e: History_Entry) {
 @(private = "file")
 history_drop_redo :: proc(app: ^App) {
 	for e in app.history.undone {
-		if e.swap != nil || e.arrange != nil {
-			entry_free(&app.history, e)
-		} else if e.kind == .Transform {
+		if e.swap != nil || e.arrange != nil || e.kind == .Transform {
 			// Nothing of it is kept anywhere else.
 		} else if obj := object_by_id(app, e.id); obj != nil && obj.voxel != nil {
 			voxel.clay_clear_redo(&obj.voxel.clay)
 		} else if s := entry_sculptor(app, e); s != nil {
 			sculpt.sculptor_clear_redo(s)
 		}
+		entry_free(&app.history, e)
 	}
 	clear(&app.history.undone)
 }
@@ -561,7 +565,10 @@ history_step :: proc(app: ^App, from, to: ^[dynamic]History_Entry, can, step: pr
 			// Placing the object anew changes no level and no sculptor; an object that is
 			// gone takes the step with it.
 			obj := object_by_id(app, e.id)
-			if obj == nil do continue
+			if obj == nil {
+				entry_free(&app.history, e)
+				continue
+			}
 			obj.transform = e.before if from == &app.history.done else e.after
 			app.move.drag = {}
 			append(to, e)
@@ -572,19 +579,31 @@ history_step :: proc(app: ^App, from, to: ^[dynamic]History_Entry, can, step: pr
 			// again (redo); a step the clay dropped (memory limit) is skipped.
 			c := &obj.voxel.clay
 			backwards := from == &app.history.done
-			if backwards {
-				if !voxel.clay_undo(c) do continue
-			} else if !voxel.clay_redo(c) do continue
+			stepped: bool
+			if backwards do stepped = voxel.clay_undo(c)
+			else do stepped = voxel.clay_redo(c)
+			if !stepped {
+				entry_free(&app.history, e)
+				continue
+			}
 			append(to, e)
 			return true
 		}
 		s := entry_sculptor(app, e)
-		if s == nil || !can(s) do continue
+		if s == nil || !can(s) {
+			entry_free(&app.history, e)
+			continue
+		}
 		// A stroke from outside HD leaves the window first; one inside it is only listed
 		// while the window is open.
 		if e.level != HD_LEVEL && !object_set_level(app, object_by_id(app, e.id), e.level) do app.running = false // GPU failure
 		hidden := sculpt.sculptor_hidden_stamp(s)
 		_ = step(s)
+		// A group command's materials go back or forward with its groups.
+		if t := e.group_table; t != nil {
+			table := t.before if from == &app.history.done else t.after
+			group_materials_replace(app, object_by_id(app, e.id), table[:])
+		}
 		// What is hidden changed: which chunks are drawn changed with it.
 		if sculpt.sculptor_hidden_stamp(s) != hidden do render.viewport_invalidate(&app.target)
 		append(to, e)
@@ -679,6 +698,8 @@ history_forget_strokes :: proc(app: ^App, id: int) {
 			if e.id != id || e.swap != nil || e.arrange != nil || e.kind == .Transform {
 				list[kept] = e
 				kept += 1
+			} else {
+				entry_free(&app.history, e)
 			}
 		}
 		resize(list, kept)

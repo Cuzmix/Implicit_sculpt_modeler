@@ -14,7 +14,8 @@ import "../jobs"
 // how far) bound to a skeleton without joints, whose animation gives their strengths;
 // the weights are written both as the default and as a time sample at frame 1, since
 // Blender's importer reads only time samples (it keys them in an action). Quads with UVs,
-// polygroups and vertex colours go as primvars. The big arrays are written as text a
+// polygroups and vertex colours go as primvars; faces with materials of their own go as
+// GeomSubsets bound to them. The big arrays are written as text a
 // range at a time on the pool, as the OBJ writer does.
 
 // Appends `m` as a .usda file, the big arrays through `pool` (nil: on this thread). The
@@ -50,10 +51,33 @@ mesh_write_usda :: proc(out: ^[dynamic]u8, m: Mesh_Export, pool: ^jobs.Pool = ni
 	mesh_name := usd_identifier(&taken, m.name, "Mesh")
 	material, has_material := m.material.?
 	material_name := usd_identifier(&taken, material.name, "Material") if has_material else ""
+	group_names := make([]string, len(m.group_materials), context.temp_allocator)
+	if has_material {
+		for gm, k in m.group_materials do group_names[k] = usd_identifier(&taken, gm.name, "Material")
+	}
 	shapes := make([]string, len(m.morphs), context.temp_allocator)
 	clear(&taken)
 	for t, k in m.morphs do shapes[k] = usd_identifier(&taken, t.name, fmt.tprintf("Layer_%d", k + 1))
 	skinned := len(m.morphs) > 0
+	// The faces of each slot in rising order, and each slot's material. When any face has
+	// a material of its own, every used slot gets a subset, slot 0 too: the mesh's own
+	// binding covers faces in none, but Blender's importer gives those the first subset's.
+	quads := m.quads != nil
+	face_count := len(m.quads) if quads else len(m.indices) / 3
+	subsets := make([][dynamic]u32, 1 + len(m.group_materials), context.temp_allocator)
+	for &faces in subsets do faces = make([dynamic]u32, context.temp_allocator)
+	if has_material && m.face_material != nil {
+		for f in 0 ..< face_count do append(&subsets[export_face_slot(m, f)], u32(f))
+	}
+	slot_materials := make([]string, len(subsets), context.temp_allocator)
+	slot_materials[0] = material_name
+	copy(slot_materials[1:], group_names)
+	subset_names := make([]string, len(subsets), context.temp_allocator)
+	has_subsets := false
+	for faces in subsets[1:] do has_subsets ||= len(faces) > 0
+	for faces, slot in subsets {
+		if has_subsets && len(faces) > 0 do subset_names[slot] = usd_identifier(&taken, fmt.tprintf("%s_faces", slot_materials[slot]), "Faces")
+	}
 
 	w :: proc(out: ^[dynamic]u8, s: string) {append(out, s)}
 	w(out, "#usda 1.0\n(\n    defaultPrim = \"Root\"\n    doc = \"Written by Sculpt\"\n    metersPerUnit = 1\n    upAxis = \"Y\"\n)\n\n")
@@ -71,7 +95,6 @@ mesh_write_usda :: proc(out: ^[dynamic]u8, m: Mesh_Export, pool: ^jobs.Pool = ni
 	w(out, ", ")
 	usd_vec3(out, extent[1])
 	w(out, "]\n")
-	quads := m.quads != nil
 	w(out, "        int[] faceVertexCounts = ")
 	usd_array(out, &u, .Counts, len(m.quads) if quads else len(m.indices) / 3, pool)
 	w(out, "\n        int[] faceVertexIndices = ")
@@ -83,8 +106,8 @@ mesh_write_usda :: proc(out: ^[dynamic]u8, m: Mesh_Export, pool: ^jobs.Pool = ni
 	w(out, "\n")
 	if m.colors != nil {
 		w(out, "        color3f[] primvars:displayColor = ")
-		usd_array(out, &u, .Colors, n, pool)
-		w(out, " (\n            interpolation = \"vertex\"\n        )\n")
+		usd_array(out, &u, .Colors, len(m.colors), pool)
+		w(out, " (\n            interpolation = \"faceVarying\"\n        )\n" if m.corner_colors else " (\n            interpolation = \"vertex\"\n        )\n")
 	}
 	if m.groups != nil {
 		w(out, "        int[] primvars:polygroup = ")
@@ -102,6 +125,7 @@ mesh_write_usda :: proc(out: ^[dynamic]u8, m: Mesh_Export, pool: ^jobs.Pool = ni
 	}
 	// The surface as it is, not a cage to subdivide.
 	w(out, "        uniform token subdivisionScheme = \"none\"\n")
+	if has_subsets do w(out, "        uniform token subsetFamily:materialBind:familyType = \"partition\"\n")
 	if skinned {
 		w(out, "        uniform token[] skel:blendShapes = ")
 		usd_tokens(out, m.morphs)
@@ -127,8 +151,23 @@ mesh_write_usda :: proc(out: ^[dynamic]u8, m: Mesh_Export, pool: ^jobs.Pool = ni
 			w(out, "\n        }\n")
 		}
 	}
+	for faces, slot in subsets {
+		if !has_subsets || len(faces) == 0 do continue
+		fmt.sbprintf(&u.b, "\n        def GeomSubset \"%s\" (\n            prepend apiSchemas = [\"MaterialBindingAPI\"]\n        )\n        {{\n", subset_names[slot])
+		usd_flush(out, &u)
+		w(out, "            uniform token elementType = \"face\"\n            uniform token familyName = \"materialBind\"\n            int[] indices = ")
+		u.subset = faces[:]
+		usd_array(out, &u, .Subset, len(faces), pool)
+		fmt.sbprintf(&u.b, "\n            rel material:binding = </Root/%s>\n        }}\n", slot_materials[slot])
+		usd_flush(out, &u)
+	}
 	w(out, "    }\n")
-	if has_material do usd_material(out, &u, material, material_name, m.colors != nil)
+	if has_material {
+		usd_material(out, &u, material, material_name, m.colors != nil)
+		for faces, slot in subsets {
+			if slot > 0 && len(faces) > 0 do usd_material(out, &u, m.group_materials[slot - 1], group_names[slot - 1], m.colors != nil)
+		}
+	}
 	if skinned {
 		w(out, "\n    def Skeleton \"Skel\" (\n        prepend apiSchemas = [\"SkelBindingAPI\"]\n    )\n    {\n")
 		w(out, "        uniform token[] joints = []\n        uniform matrix4d[] bindTransforms = []\n        uniform matrix4d[] restTransforms = []\n")
@@ -150,6 +189,7 @@ Usd :: struct {
 	base:   []Vec3,
 	linear: [256]f32,
 	morph:  int, // the blend shape .Offsets and .Point_Indices write
+	subset: []u32, // the faces .Subset writes
 	b:      strings.Builder,
 	kind:   Usd_Kind,
 	parts:  [][dynamic]u8,
@@ -168,6 +208,7 @@ Usd_Kind :: enum u8 {
 	Uvs,
 	Offsets,
 	Point_Indices,
+	Subset,
 }
 
 // Writes an array of `count` items of `kind` as "[a, b, ...]", a range at a time on the
@@ -179,7 +220,7 @@ usd_array :: proc(out: ^[dynamic]u8, u: ^Usd, kind: Usd_Kind, count: int, pool: 
 	jobs.parallel_ranges(pool, count, u, proc(data: rawptr, lo, hi: int) {
 		u := cast(^Usd)data
 		m := u.m
-		WIDTH := [Usd_Kind]int{.Counts = 3, .Indices = 12, .Quad_Corners = 12, .Normals = 56, .Points = 56, .Colors = 56, .Groups = 8, .Uvs = 38, .Offsets = 56, .Point_Indices = 12}
+		WIDTH := [Usd_Kind]int{.Counts = 3, .Indices = 12, .Quad_Corners = 12, .Normals = 56, .Points = 56, .Colors = 56, .Groups = 8, .Uvs = 38, .Offsets = 56, .Point_Indices = 12, .Subset = 12}
 		buf := make([dynamic]u8, 0, WIDTH[u.kind] * (hi - lo), runtime.heap_allocator())
 		for i in lo ..< hi {
 			if i > 0 do append(&buf, ", ")
@@ -214,6 +255,8 @@ usd_array :: proc(out: ^[dynamic]u8, u: ^Usd, kind: Usd_Kind, count: int, pool: 
 				usd_vec3(&buf, m.morphs[u.morph].deltas[i] * u.scale)
 			case .Point_Indices:
 				usd_int(&buf, int(m.morphs[u.morph].vertices[i]))
+			case .Subset:
+				usd_int(&buf, int(u.subset[i]))
 			}
 		}
 		u.parts[lo / RANGE_GRAIN] = buf

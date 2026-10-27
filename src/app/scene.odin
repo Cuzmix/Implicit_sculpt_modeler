@@ -79,6 +79,9 @@ Object :: struct {
 	// How it is shaded: a preset's values or its own (label "Custom"); a nil label until
 	// materials_settle gives it the default (object_material).
 	material:  Material,
+	// Its polygroups with materials of their own, sorted by group (group_materials.odin);
+	// none on a voxel object.
+	group_materials: [dynamic]Group_Material,
 }
 
 // The level being sculpted: the HD window while one is open.
@@ -144,12 +147,12 @@ Surface :: struct {
 	groups: []u16,
 }
 
-Scene_Command_Kind :: enum u8 {None, Add, New, Remesh, Decimate, Retopo, Delete, Duplicate, Symmetrize, Slice, Subdivide, Set_Level, Delete_Higher, Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete, Dyntopo, Boolean, Extract, View, Arrange, Copy, Paste, Delete_Others, Levels_All, Split, Merge, Align, Distribute, Material, Voxel_To_Mesh}
+Scene_Command_Kind :: enum u8 {None, Add, New, Remesh, Decimate, Retopo, Delete, Duplicate, Symmetrize, Slice, Subdivide, Set_Level, Delete_Higher, Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete, Dyntopo, Boolean, Extract, View, Arrange, Copy, Paste, Delete_Others, Levels_All, Split, Merge, Align, Distribute, Material, Group_Material, Voxel_To_Mesh}
 
 // The commands that work on a mesh object's level, and so refuse a voxel object until it
 // is converted to a mesh (Voxel_To_Mesh); the rest place, copy, list or delete objects of
 // either kind.
-MESH_ONLY_COMMANDS :: bit_set[Scene_Command_Kind]{.Remesh, .Decimate, .Retopo, .Symmetrize, .Slice, .Subdivide, .Set_Level, .Delete_Higher, .Delete_Lower, .Hd_Enter, .Hd_Leave, .Hd_Steps, .Hd_Delete, .Dyntopo, .Boolean, .Extract, .Split, .Merge}
+MESH_ONLY_COMMANDS :: bit_set[Scene_Command_Kind]{.Remesh, .Decimate, .Retopo, .Symmetrize, .Slice, .Subdivide, .Set_Level, .Delete_Higher, .Delete_Lower, .Hd_Enter, .Hd_Leave, .Hd_Steps, .Hd_Delete, .Dyntopo, .Boolean, .Extract, .Split, .Merge, .Group_Material}
 
 Scene_Command :: struct {
 	kind:     Scene_Command_Kind,
@@ -179,7 +182,8 @@ Scene_Command :: struct {
 	folder:   int, // Arrange: the folder an object goes into
 	before:   int, // Arrange Reorder, Reorder_Folder: the object it goes before, 0 for the end
 	name:     [NAME_BYTES]u8, // Arrange: a new name, ending at the first zero
-	material: Material, // Material: what the selected objects are shaded with
+	material: Material, // Material: what the selected objects are shaded with; Group_Material: the group's
+	group:    u16, // Group_Material: the polygroup of object `id` it changes (`on`: back to the object's material)
 }
 
 scene_destroy :: proc(app: ^App) {
@@ -608,6 +612,9 @@ object_set_dyntopo :: proc(app: ^App, obj: ^Object, on: bool) -> (changed, ok: b
 			log.warnf("dynamic topology: a vertex is in more than %d triangles; remesh first", sculpt.DYN_FACES)
 			return false, true
 		}
+		// It drops the groups, and the table with them (the swap step keeps both).
+		autosave_settle(app)
+		clear(&obj.group_materials)
 	} else {
 		sculpt.levels_dyn_disable(&obj.levels)
 	}
@@ -818,6 +825,8 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 		scene_view(app, cmd.view, cmd.id)
 	case .Material:
 		material_set(app, cmd.material)
+	case .Group_Material:
+		group_material_apply(app, cmd)
 	case .Arrange:
 		scene_arrange(app, cmd)
 	case .Copy:
@@ -1093,6 +1102,11 @@ object_build :: proc(app: ^App, obj: ^Object, vertices, subdiv: int) -> bool {
 // and polygroups (per vertex and triangle of `mesh`; not temporary, as building frees the
 // temp allocator). `start` is when building the mesh began, for the log.
 object_build_from :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, start: time.Tick, normals := false, old_to_new: []u32 = nil, surface: Surface = {}) -> bool {
+	// Without groups the table has nothing to shade (a remesh, a slice's halves).
+	if surface.groups == nil {
+		autosave_settle(app)
+		clear(&obj.group_materials)
+	}
 	if surface.color == nil && surface.groups == nil {
 		sculpt.levels_init(&obj.levels, mesh, &app.pool, old_to_new = old_to_new)
 	} else {
@@ -1180,5 +1194,6 @@ object_release_mesh :: proc(app: ^App, obj: ^Object, rebuild := true) {
 object_free :: proc(app: ^App, obj: ^Object) {
 	object_release_mesh(app, obj, rebuild = false)
 	delete(obj.name)
+	delete(obj.group_materials)
 	free(obj)
 }

@@ -5,13 +5,15 @@ import "core:fmt"
 import "core:math"
 import "core:math/linalg"
 import "core:mem"
+import "core:slice"
 import "core:strings"
 import "core:unicode/utf8"
 
 import "../jobs"
 
 // Binary glTF 2.0 (.glb) out: one mesh in one node in one scene, with positions,
-// normals, optional vertex colours, triangles and morph targets. The JSON is written by
+// normals, optional vertex colours, triangles and morph targets, and a primitive for each
+// material its triangles use (all sharing the vertices and targets). The JSON is written by
 // hand (its shape is small and fixed) and the binary chunk is laid out before anything is
 // written, so the vertex arrays go straight into `out` without a second copy. Every
 // buffer view starts on a 4-byte boundary, as the spec asks of vertex attributes.
@@ -28,23 +30,117 @@ Morph_Target :: struct {
 // What a glTF or USD file carries beyond its triangles. `positions` are the surface as
 // shown, with every morph at its weight; `colors` are sRGB, nil for none.
 Mesh_Export :: struct {
-	name:      string,
-	positions: []Vec3,
-	normals:   []Vec3,
-	indices:   []u32,
-	colors:    [][3]u8,
-	morphs:    []Morph_Target,
-	scale:     f32, // the file's units: positions become scale * p + offset, deltas scale * d
-	offset:    Vec3,
+	name:            string,
+	positions:       []Vec3,
+	normals:         []Vec3,
+	indices:         []u32,
+	colors:          [][3]u8,
+	morphs:          []Morph_Target,
+	scale:           f32, // the file's units: positions become scale * p + offset, deltas scale * d
+	offset:          Vec3,
 	// USD only (usd_write.odin): the faces as quads in place of `indices` (a retopologized
 	// base level), their UVs a corner at a time, and each face's polygroup; nil for none.
-	quads:     [][4]u32,
-	uvs:       [][4][2]f32,
-	groups:    []u16,
+	quads:           [][4]u32,
+	uvs:             [][4][2]f32,
+	groups:          []u16,
 	// The surface it is shaded with, or nil for none: glTF's material, a UsdPreviewSurface
 	// in USD. With colours the colours are the surface's colour and `base` multiplies
 	// them, as both formats take vertex colours.
-	material:  Maybe(Export_Material),
+	material:        Maybe(Export_Material),
+	// More surfaces for some faces (polygroup materials), with `material` set: each written
+	// face's (a triangle of `indices`, or a quad) is face_material[f], 0 for `material` and
+	// k for group_materials[k - 1]; nil for all `material`. glTF writes a primitive for each
+	// used, USD a GeomSubset.
+	group_materials: []Export_Material,
+	face_material:   []u8,
+	// USD only: `colors` are one a face corner (faceVarying, in the order of `indices` or
+	// of the quads' corners) rather than one a vertex, as paint over the materials of two
+	// faces meeting at a vertex can differ there.
+	corner_colors:   bool,
+}
+
+// The material slot of written face `f` of `m`: 0 for its `material`, k for
+// group_materials[k - 1], and 0 for a number past them.
+export_face_slot :: proc(m: Mesh_Export, f: int) -> int {
+	if m.face_material == nil do return 0
+	s := int(m.face_material[f])
+	return s if s <= len(m.group_materials) else 0
+}
+
+// Gives each material slot of `m`'s triangles vertices of their own: a vertex that faces
+// of two slots share is copied for the later slot (in triangle order), with its normal and
+// its movement in each morph, and those faces use the copy. glTF needs that for paint over
+// the materials, whose colour at a seam differs on its two sides. Returns, per vertex of
+// the new mesh, the vertex it came from and its slot (0 for one no triangle uses); the
+// new arrays, and `m`'s colours copied over to them, are made with `allocator`.
+mesh_export_split_materials :: proc(m: ^Mesh_Export, allocator := context.temp_allocator) -> (from: []u32, slot: []u8) {
+	assert(m.quads == nil)
+	n := len(m.positions)
+	NONE :: max(u8)
+	owner := make([]u8, n, context.temp_allocator)
+	slice.fill(owner, NONE)
+	// The copy of each (vertex, slot) made so far, looked up only, so its order decides
+	// nothing.
+	copies := make(map[u64]u32, 64, context.temp_allocator)
+	extra := make([dynamic]u32, 0, 64, context.temp_allocator)
+	extra_slot := make([dynamic]u8, 0, 64, context.temp_allocator)
+	indices := make([]u32, len(m.indices), allocator)
+	for f in 0 ..< len(m.indices) / 3 {
+		s := u8(export_face_slot(m^, f))
+		for c in 0 ..< 3 {
+			v := m.indices[3 * f + c]
+			if owner[v] == NONE do owner[v] = s
+			if owner[v] == s {
+				indices[3 * f + c] = v
+				continue
+			}
+			key := u64(v) << 8 | u64(s)
+			w, ok := copies[key]
+			if !ok {
+				w = u32(n + len(extra))
+				copies[key] = w
+				append(&extra, v)
+				append(&extra_slot, s)
+			}
+			indices[3 * f + c] = w
+		}
+	}
+	total := n + len(extra)
+	from = make([]u32, total, allocator)
+	slot = make([]u8, total, allocator)
+	for v in 0 ..< n {
+		from[v] = u32(v)
+		slot[v] = owner[v] if owner[v] != NONE else 0
+	}
+	for e, k in extra do from[n + k], slot[n + k] = e, extra_slot[k]
+	m.indices = indices
+	if len(extra) == 0 do return
+	positions := make([]Vec3, total, allocator)
+	normals := make([]Vec3, total, allocator)
+	for v, k in from do positions[k], normals[k] = m.positions[v], m.normals[v]
+	m.positions, m.normals = positions, normals
+	if m.colors != nil {
+		colors := make([][3]u8, total, allocator)
+		for v, k in from do colors[k] = m.colors[v]
+		m.colors = colors
+	}
+	// The copies come after every vertex and in order, so each morph's vertices still rise.
+	morphs := make([]Morph_Target, len(m.morphs), allocator)
+	for t, k in m.morphs {
+		vertices := make([dynamic]u32, 0, len(t.vertices), allocator)
+		deltas := make([dynamic]Vec3, 0, len(t.deltas), allocator)
+		append(&vertices, ..t.vertices)
+		append(&deltas, ..t.deltas)
+		for e, c in extra {
+			if i, found := slice.binary_search(t.vertices, e); found {
+				append(&vertices, u32(n + c))
+				append(&deltas, t.deltas[i])
+			}
+		}
+		morphs[k] = {t.name, t.weight, vertices[:], deltas[:]}
+	}
+	m.morphs = morphs
+	return
 }
 
 // A surface in glTF's metallic-roughness terms, which USD's UsdPreviewSurface shares.
@@ -89,6 +185,7 @@ mesh_write_glb :: proc(out: ^[dynamic]u8, m: Mesh_Export, pool: ^jobs.Pool = nil
 		if len(t.vertices) > 0 do g.morph_views[k] = {glb_view(&g, 4 * len(t.vertices), 0), glb_view(&g, 12 * len(t.vertices), 0)}
 	}
 	g.bounds = make([][2]Vec3, 1 + len(m.morphs), context.temp_allocator)
+	g.prims = glb_primitives(m)
 
 	// The JSON chunk comes first but holds the bounds of what the binary chunk holds, so
 	// it gets a slot as long as any bounds can make it (16 characters a number at most,
@@ -139,8 +236,38 @@ Glb :: struct {
 	morph_views:                                             [][2]int, // per morph: its sparse indices and values, -1 for none
 	bounds:                                                  [][2]Vec3,
 	bin:                                                     []u8,
+	prims:                                                   []Glb_Prim,
 	range_bounds:                                            [][2]Vec3,
 	linear:                                                  [256]u16,
+}
+
+// A primitive: the triangles of material slot `slot`, a run of `count` indices from
+// `first` in the indices view, which holds the slots' runs one after another.
+@(private = "file")
+Glb_Prim :: struct {
+	slot, first, count: int,
+}
+
+// The primitives of `m`, one a used slot in slot order; one with every triangle when it
+// has no face materials, and one with none for a mesh with no triangles, as a glTF mesh
+// has at least one primitive.
+@(private = "file")
+glb_primitives :: proc(m: Mesh_Export) -> []Glb_Prim {
+	prims := make([dynamic]Glb_Prim, 0, 1 + len(m.group_materials), context.temp_allocator)
+	if m.face_material == nil {
+		append(&prims, Glb_Prim{0, 0, len(m.indices)})
+		return prims[:]
+	}
+	counts := make([]int, 1 + len(m.group_materials), context.temp_allocator)
+	for f in 0 ..< len(m.indices) / 3 do counts[export_face_slot(m, f)] += 3
+	first := 0
+	for c, slot in counts {
+		if c == 0 do continue
+		append(&prims, Glb_Prim{slot, first, c})
+		first += c
+	}
+	if len(prims) == 0 do append(&prims, Glb_Prim{})
+	return prims[:]
 }
 
 @(private = "file")
@@ -185,10 +312,22 @@ glb_fill :: proc(g: ^Glb, pool: ^jobs.Pool) {
 			for c, v in m.colors[lo:hi] do linear[lo + v] = {g.linear[c.r], g.linear[c.g], g.linear[c.b], 65535}
 		}
 	}, RANGE_GRAIN)
-	jobs.parallel_ranges(pool, len(m.indices), g, proc(data: rawptr, lo, hi: int) {
-		g := cast(^Glb)data
-		copy(glb_array(g, g.indices_view, u32)[lo:hi], g.m.indices[lo:hi])
-	}, RANGE_GRAIN)
+	if m.face_material != nil {
+		// Each slot's triangles in their run, in the order they come.
+		indices := glb_array(g, g.indices_view, u32)
+		at := make([]int, 1 + len(m.group_materials), context.temp_allocator)
+		for p in g.prims do at[p.slot] = p.first
+		for f in 0 ..< len(m.indices) / 3 {
+			slot := export_face_slot(m, f)
+			copy(indices[at[slot]:][:3], m.indices[3 * f:][:3])
+			at[slot] += 3
+		}
+	} else {
+		jobs.parallel_ranges(pool, len(m.indices), g, proc(data: rawptr, lo, hi: int) {
+			g := cast(^Glb)data
+			copy(glb_array(g, g.indices_view, u32)[lo:hi], g.m.indices[lo:hi])
+		}, RANGE_GRAIN)
+	}
 	// The morphs come off the base one after another, as two may move one vertex.
 	base := glb_array(g, g.positions_view, Vec3)
 	for t in m.morphs {
@@ -232,8 +371,8 @@ glb_json :: proc(j: ^strings.Builder, g: ^Glb) {
 	json_string(j, m.name)
 	strings.write_string(j, `}],"meshes":[{"name":`)
 	json_string(j, m.name)
-	// Accessors: 0 positions, 1 normals, then colours if any, then indices, then one per
-	// morph target.
+	// Accessors: 0 positions, 1 normals, then colours if any, then each primitive's
+	// indices, then one per morph target.
 	accessor := 2
 	colors_accessor := -1
 	if g.colors_view >= 0 {
@@ -241,15 +380,25 @@ glb_json :: proc(j: ^strings.Builder, g: ^Glb) {
 		accessor += 1
 	}
 	indices_accessor := accessor
-	accessor += 1
-	strings.write_string(j, `,"primitives":[{"attributes":{"POSITION":0,"NORMAL":1`)
-	if colors_accessor >= 0 do fmt.sbprintf(j, `,"COLOR_0":%d`, colors_accessor)
-	fmt.sbprintf(j, `}},"indices":%d,"mode":4`, indices_accessor)
-	if _, ok := m.material.?; ok do strings.write_string(j, `,"material":0`)
+	accessor += len(g.prims)
+	material, has_material := m.material.?
+	strings.write_string(j, `,"primitives":[`)
+	for p, k in g.prims {
+		// Every primitive has the same targets, as the mesh's weights are for all of them.
+		strings.write_string(j, `{"attributes":{"POSITION":0,"NORMAL":1` if k == 0 else `,{"attributes":{"POSITION":0,"NORMAL":1`)
+		if colors_accessor >= 0 do fmt.sbprintf(j, `,"COLOR_0":%d`, colors_accessor)
+		fmt.sbprintf(j, `}},"indices":%d,"mode":4`, indices_accessor + k)
+		if has_material do fmt.sbprintf(j, `,"material":%d`, p.slot)
+		if len(m.morphs) > 0 {
+			strings.write_string(j, `,"targets":[`)
+			for _, t in m.morphs do fmt.sbprintf(j, `%s{{"POSITION":%d}}`, "," if t > 0 else "", accessor + t)
+			strings.write_byte(j, ']')
+		}
+		strings.write_byte(j, '}')
+	}
+	strings.write_byte(j, ']')
 	if len(m.morphs) > 0 {
-		strings.write_string(j, `,"targets":[`)
-		for _, k in m.morphs do fmt.sbprintf(j, `%s{{"POSITION":%d}}`, "," if k > 0 else "", accessor + k)
-		strings.write_string(j, `]}],"weights":[`)
+		strings.write_string(j, `,"weights":[`)
 		for t, k in m.morphs {
 			if k > 0 do strings.write_byte(j, ',')
 			json_number(j, t.weight)
@@ -260,23 +409,17 @@ glb_json :: proc(j: ^strings.Builder, g: ^Glb) {
 			if k > 0 do strings.write_byte(j, ',')
 			json_string(j, t.name)
 		}
-		strings.write_string(j, `]}}]`)
-	} else {
-		strings.write_string(j, `}]}]`)
+		strings.write_string(j, `]}`)
 	}
-	if mat, ok := m.material.?; ok {
-		strings.write_string(j, `,"materials":[{"name":`)
-		json_string(j, mat.name)
-		strings.write_string(j, `,"pbrMetallicRoughness":{"baseColorFactor":[`)
-		for c in mat.base {
-			json_number(j, clamp(c, 0, 1))
+	strings.write_string(j, `}]`)
+	if has_material {
+		strings.write_string(j, `,"materials":[`)
+		glb_material(j, material)
+		for gm in m.group_materials {
 			strings.write_byte(j, ',')
+			glb_material(j, gm)
 		}
-		strings.write_string(j, `1],"metallicFactor":`)
-		json_number(j, clamp(mat.metallic, 0, 1))
-		strings.write_string(j, `,"roughnessFactor":`)
-		json_number(j, clamp(mat.roughness, 0, 1))
-		strings.write_string(j, `}}]`)
+		strings.write_byte(j, ']')
 	}
 	fmt.sbprintf(j, `,"buffers":[{{"byteLength":%d}}],"bufferViews":[`, g.bin_len)
 	for v, k in g.views {
@@ -289,7 +432,11 @@ glb_json :: proc(j: ^strings.Builder, g: ^Glb) {
 	json_bounds(j, g.bounds[0])
 	fmt.sbprintf(j, `}},{{"bufferView":%d,"componentType":%d,"count":%d,"type":"VEC3"}}`, g.normals_view, GL_FLOAT, n)
 	if g.colors_view >= 0 do fmt.sbprintf(j, `,{{"bufferView":%d,"componentType":%d,"normalized":true,"count":%d,"type":"VEC4"}}`, g.colors_view, GL_UNSIGNED_SHORT, n)
-	fmt.sbprintf(j, `,{{"bufferView":%d,"componentType":%d,"count":%d,"type":"SCALAR"}}`, g.indices_view, GL_UNSIGNED_INT, len(m.indices))
+	for p in g.prims {
+		fmt.sbprintf(j, `,{{"bufferView":%d,`, g.indices_view)
+		if p.first > 0 do fmt.sbprintf(j, `"byteOffset":%d,`, 4 * p.first)
+		fmt.sbprintf(j, `"componentType":%d,"count":%d,"type":"SCALAR"}}`, GL_UNSIGNED_INT, p.count)
+	}
 	for t, k in m.morphs {
 		// A target is sparse: zeros but for the vertices it moves. One that moves none is
 		// all zeros, which an accessor with no buffer view is.
@@ -301,6 +448,23 @@ glb_json :: proc(j: ^strings.Builder, g: ^Glb) {
 		strings.write_byte(j, '}')
 	}
 	strings.write_string(j, "]}")
+}
+
+// A material in the materials array.
+@(private = "file")
+glb_material :: proc(j: ^strings.Builder, mat: Export_Material) {
+	strings.write_string(j, `{"name":`)
+	json_string(j, mat.name)
+	strings.write_string(j, `,"pbrMetallicRoughness":{"baseColorFactor":[`)
+	for c in mat.base {
+		json_number(j, clamp(c, 0, 1))
+		strings.write_byte(j, ',')
+	}
+	strings.write_string(j, `1],"metallicFactor":`)
+	json_number(j, clamp(mat.metallic, 0, 1))
+	strings.write_string(j, `,"roughnessFactor":`)
+	json_number(j, clamp(mat.roughness, 0, 1))
+	strings.write_string(j, `}}`)
 }
 
 // The linear value of an sRGB channel, both 0 to 1.

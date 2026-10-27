@@ -703,28 +703,33 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		shape_pending_frame(&app, input.size)
 		// A gizmo drag the tool changed under ends as it is.
 		if app.tool != .Move do move_end(&app)
-		switch app.tool {
-		case .Brush:
-			if clip_frame(&app, input) || mask_shape_frame(&app, input) {
+		// A press that picks a polygroup for its material (Pick a group) is no tool's.
+		if group_pick_frame(&app, input) {
+			brush_stroke_finish(&app)
+		} else {
+			switch app.tool {
+			case .Brush:
+				if clip_frame(&app, input) || mask_shape_frame(&app, input) {
+					brush_stroke_finish(&app)
+				} else if replay_busy(&app) {
+					// A replay sculpts in place of the pointer.
+					sculpted = replay_frame(&app, input)
+				} else {
+					replay_frame_begin(&app)
+					sculpted = sculpt_frame(&app, input)
+					replay_record(&app, input, sculpted)
+				}
+			case .Move:
+				replay_stop(&app)
 				brush_stroke_finish(&app)
-			} else if replay_busy(&app) {
-				// A replay sculpts in place of the pointer.
-				sculpted = replay_frame(&app, input)
-			} else {
-				replay_frame_begin(&app)
-				sculpted = sculpt_frame(&app, input)
-				replay_record(&app, input, sculpted)
+				move_tool_frame(&app, input)
+			case .Curve:
+				brush_stroke_finish(&app)
+				if !curve_tool_frame(&app, input) do return false
+			case .Insert:
+				brush_stroke_finish(&app)
+				if !insert_tool_frame(&app, input) do return false
 			}
-		case .Move:
-			replay_stop(&app)
-			brush_stroke_finish(&app)
-			move_tool_frame(&app, input)
-		case .Curve:
-			brush_stroke_finish(&app)
-			if !curve_tool_frame(&app, input) do return false
-		case .Insert:
-			brush_stroke_finish(&app)
-			if !insert_tool_frame(&app, input) do return false
 		}
 		sculpted.dabs += waited_dab.dabs
 		sculpted.raycast_ms += waited_dab.raycast_ms
@@ -824,6 +829,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 					wireframe = selected && app.wireframe && app.polyframe_lines,
 					paint  = sculpt.sculptor_has_color(&lv.sculptor) && !obj.paint_off,
 					groups = (app.show_groups || selected && app.wireframe && app.polyframe_fill) && sculpt.sculptor_has_groups(&lv.sculptor),
+					// The HD window's mesh carries no groups.
+					slots  = object_material_slots(&app, obj, i) if part == 0 && sculpt.sculptor_has_groups(&lv.sculptor) else nil,
 					live   = live,
 					chunks = lv.sculptor.chunks,
 					chunk_groups = sculpt.sculptor_chunk_groups(&lv.sculptor),
@@ -1374,12 +1381,8 @@ object_draw_tint :: proc(app: ^App, obj: ^Object, i: int) -> (color: [4]f32, liv
 	selected = i == app.scene.selected
 	chosen := object_in_selection(app, obj)
 	moving := app.move.drag.handle != .None || app.ui.transform_drag.active
-	material := object_material(app, obj)
 	// With Dim the others off, every object shows its own colour.
-	idle := material.idle if app.dim_others else material.selected
-	color = material.selected if selected else idle
-	if chosen && !selected do color = linalg.lerp(idle, material.selected, SELECTION_TINT)
-	if _, ghost := object_flags(app, obj); ghost do color.rgb *= GHOST_SHADE
+	color = material_draw_tint(app, obj, i, object_material(app, obj))
 	live = selected || (chosen && moving)
 	return
 }

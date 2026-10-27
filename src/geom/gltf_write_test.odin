@@ -36,6 +36,7 @@ Glb_Json :: struct {
 	},
 	accessors:   []struct {
 		bufferView:    Maybe(int),
+		byteOffset:    int,
 		componentType: int,
 		normalized:    bool,
 		count:         int,
@@ -264,4 +265,80 @@ glb_carries_the_material :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(plain.materials), 0)
 	_, has := plain.meshes[0].primitives[0].material.?
 	testing.expect(t, !has)
+}
+
+// Face materials go as a primitive a used slot, in slot order, each with its material,
+// its run of the shared indices view (the triangles in their order) and every target.
+@(test)
+glb_writes_a_primitive_a_material :: proc(t: ^testing.T) {
+	positions := []Vec3{{0, 0, 0}, {1, 0, 0}, {1, 1, 0}, {0, 1, 0}, {2, 0, 0}}
+	normals := []Vec3{{0, 0, 1}, {0, 0, 1}, {0, 0, 1}, {0, 0, 1}, {0, 0, 1}}
+	indices := []u32{0, 1, 2, 0, 2, 3, 1, 4, 2}
+	m := Mesh_Export{name = "Plate", positions = positions, normals = normals, indices = indices}
+	m.material = Export_Material{name = "Steel", base = 0.5, metallic = 1, roughness = 0.4}
+	m.group_materials = []Export_Material{{name = "Unused", base = 1}, {name = "Gold", base = {1, 0.7, 0.2}, metallic = 1, roughness = 0.2}}
+	// Slot 1 is unused and gets no primitive; a number past the slots is slot 0.
+	m.face_material = []u8{2, 0, 9}
+	m.morphs = []Morph_Target{{name = "Lift", weight = 1, vertices = []u32{2}, deltas = []Vec3{{0, 0, 1}}}}
+	out := make([dynamic]u8)
+	defer delete(out)
+	testing.expect(t, mesh_write_glb(&out, m))
+	doc, bin, read := glb_chunks(t, out[:])
+	defer free_all(context.temp_allocator)
+	if !read do return
+	testing.expect_value(t, len(doc.materials), 3)
+	testing.expect_value(t, doc.materials[2].name, "Gold")
+	prims := doc.meshes[0].primitives
+	if !testing.expect_value(t, len(prims), 2) do return
+	testing.expect_value(t, prims[0].material.?, 0)
+	testing.expect_value(t, prims[1].material.?, 2)
+	testing.expect_value(t, len(doc.meshes[0].weights), 1)
+	for p in prims {
+		testing.expect_value(t, len(p.targets), 1)
+		testing.expect_value(t, p.targets[0]["POSITION"], prims[0].targets[0]["POSITION"])
+		testing.expect_value(t, p.attributes["POSITION"], 0)
+	}
+	want := [2][]u32{{0, 2, 3, 1, 4, 2}, {0, 1, 2}}
+	for p, k in prims {
+		a := doc.accessors[p.indices]
+		testing.expect_value(t, a.count, len(want[k]))
+		run := mem.slice_data_cast([]u32, view_of(doc, bin, a.bufferView.?)[a.byteOffset:])[:a.count]
+		for x, i in want[k] do testing.expect_value(t, run[i], x)
+	}
+}
+
+// Splitting by material copies each vertex two slots share for the later one, with its
+// normal, colour and movement, and leaves a mesh of one slot as it was.
+@(test)
+split_materials_copies_seam_vertices :: proc(t: ^testing.T) {
+	positions := []Vec3{{0, 0, 0}, {1, 0, 0}, {1, 1, 0}, {0, 1, 0}}
+	normals := []Vec3{{0, 0, 1}, {0, 0, 1}, {0, 0, 1}, {0, 0, 1}}
+	colors := [][3]u8{{1, 1, 1}, {2, 2, 2}, {3, 3, 3}, {4, 4, 4}}
+	m := Mesh_Export{positions = positions, normals = normals, colors = colors, indices = []u32{0, 1, 2, 0, 2, 3}}
+	m.group_materials = []Export_Material{{name = "Gold"}}
+	m.face_material = []u8{0, 1}
+	m.morphs = []Morph_Target{{name = "A", weight = 1, vertices = []u32{1, 2, 3}, deltas = []Vec3{{1, 0, 0}, {2, 0, 0}, {3, 0, 0}}}}
+	defer free_all(context.temp_allocator)
+	from, slot := mesh_export_split_materials(&m)
+	// Vertices 0 and 2 are on the seam: copies 4 and 5 serve the second triangle.
+	testing.expect(t, slice_equal(from, []u32{0, 1, 2, 3, 0, 2}))
+	testing.expect(t, slice_equal(slot, []u8{0, 0, 0, 1, 1, 1}))
+	testing.expect(t, slice_equal(m.indices, []u32{0, 1, 2, 4, 5, 3}))
+	testing.expect_value(t, len(m.positions), 6)
+	testing.expect_value(t, m.positions[5], positions[2])
+	testing.expect_value(t, m.colors[4], colors[0])
+	testing.expect(t, slice_equal(m.morphs[0].vertices, []u32{1, 2, 3, 5}))
+	testing.expect_value(t, m.morphs[0].deltas[3], Vec3{2, 0, 0})
+	one := Mesh_Export{positions = positions, normals = normals, indices = []u32{0, 1, 2, 0, 2, 3}, face_material = []u8{1, 1}, group_materials = m.group_materials}
+	from, slot = mesh_export_split_materials(&one)
+	testing.expect_value(t, len(from), 4)
+	testing.expect_value(t, len(one.positions), 4)
+	testing.expect(t, slice_equal(slot, []u8{1, 1, 1, 1}))
+}
+
+@(private = "file")
+slice_equal :: proc(a, b: []$T) -> bool {
+	if len(a) != len(b) do return false
+	for x, i in a do if x != b[i] do return false
+	return true
 }
