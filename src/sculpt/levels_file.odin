@@ -365,7 +365,7 @@ levels_read :: proc(l: ^Levels, r: ^geom.Byte_Reader, pool: ^jobs.Pool, node_tri
 		geom.byte_get_slice(r, layout)
 	}
 	file_order := make([]u32, len(mesh.positions), context.temp_allocator)
-	levels_init(l, mesh, pool, node_triangles, file_order, allocator, layout)
+	levels_init(l, mesh, pool, node_triangles, file_order, allocator = allocator, layout = layout)
 	sculptor_recompute_all(&l.levels[0].sculptor)
 	ok := false
 	defer if !ok do levels_destroy(l)

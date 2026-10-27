@@ -2186,9 +2186,14 @@ def objects_card(s):
 
 # The Objects card at 1600 x 900 (kit_objects_card.odin): its dots, its buttons, and its
 # rows' bodies, boolean switches, polypaint toggles and eyes.
-OBJECTS_CARD = {"dots": (1378, 89), "add": (1258, 174), "more": (1497, 174)}
+OBJECTS_CARD = {"dots": (1378, 89), "add": (1258, 174), "more": (1497, 174), "actions": (1300, 444),
+                # With the Actions open and their sections folded: the headers, then what a
+                # section shows open (Split above Merge, Align once scrolled up).
+                "split": (1300, 567), "merge": (1300, 613), "align": (1300, 751),
+                "split_parts": (1451, 670), "merge_down": (1378, 664), "align_x_max": (1480, 563)}
 CARD_ROWS_Y = [233, 293, 353]
 CARD_ROW_X, CARD_SWITCH_X, CARD_PAINT_X, CARD_EYE_X = 1360, 1312, 1446, 1494
+CARD_ROW_H = 60
 
 
 @scenario
@@ -2289,6 +2294,92 @@ def objects_card_gives_way_to_the_tray():
         (closed, THREE, {"window_objects": lambda v: v.startswith("0,"), "window_inspector": lambda v: v.startswith("1,")}),
         (again, THREE, {"window_objects": lambda v: v.startswith("1,"), "window_inspector": lambda v: v.startswith("0,")}),
     ])
+
+
+def card_slot(k):
+    """Where Store visibility's V`k` tile is, with the Actions open."""
+    return (CARD_SLOT_X0 + (k - 1) * CARD_SLOT_STEP, CARD_SLOT_Y)
+
+
+CARD_SLOT_X0, CARD_SLOT_STEP, CARD_SLOT_Y = 1250, 36.5, 518
+
+
+def card_actions(s):
+    """Opens the Objects card and unfolds its Actions."""
+    objects_card(s)
+    s.ftap(*OBJECTS_CARD["actions"])
+    s.wait(12)
+
+
+@scenario
+def objects_card_actions_store_visibility():
+    """Store visibility: V1 keeps the eyes turned while it is chosen, V2 its own, and choosing V1 again brings its eyes back."""
+    s = Script()
+    card_actions(s)
+    s.ftap(*card_slot(1))
+    s.wait(4)
+    s.ftap(CARD_EYE_X, CARD_ROWS_Y[1])
+    s.wait(4)
+    s.ftap(*card_slot(2))
+    s.wait(4)
+    s.ftap(CARD_EYE_X, CARD_ROWS_Y[1])
+    s.wait(2)
+    s.ftap(CARD_EYE_X, CARD_ROWS_Y[2])
+    s.wait(4)
+    back = Script()
+    card_actions(back)
+    for step in (lambda: back.ftap(*card_slot(1)), lambda: back.ftap(CARD_EYE_X, CARD_ROWS_Y[1]), lambda: back.ftap(*card_slot(2)),
+                 lambda: back.ftap(CARD_EYE_X, CARD_ROWS_Y[1]), lambda: back.ftap(CARD_EYE_X, CARD_ROWS_Y[2]), lambda: back.ftap(*card_slot(1))):
+        step()
+        back.wait(4)
+    return Steps([
+        (s, THREE, {"card_actions": near(1), "vis_slot": near(2), "vis_used": near(3), "objects_off": near(1), "dabs": near(0)}),
+        (back, THREE, {"vis_slot": near(1), "objects_off": near(1), "dabs": near(0)}),
+    ])
+
+
+@scenario
+def objects_card_actions_merge_down_and_split_to_parts():
+    """Merge down makes the first two objects one, as one undo step; Split to parts makes them two again, with the third left as it was."""
+    merged = Script()
+    card_actions(merged)
+    merged.ftap(*OBJECTS_CARD["merge"])
+    merged.wait(6)
+    merged.ftap(*OBJECTS_CARD["merge_down"])
+    merged.wait(12)
+    split = Script()
+    card_actions(split)
+    split.ftap(*OBJECTS_CARD["merge"])
+    split.wait(6)
+    split.ftap(*OBJECTS_CARD["merge_down"])
+    split.wait(12)
+    # One row fewer: everything under the list is a row higher.
+    x, y = OBJECTS_CARD["split"]
+    split.ftap(x, y - CARD_ROW_H)
+    split.wait(10)
+    x, y = OBJECTS_CARD["split_parts"]
+    split.ftap(x, y - CARD_ROW_H)
+    split.wait(12)
+    return Steps([
+        # undo_steps counts entries: a merge is two chained (the rebuild and the delete),
+        # a split two more (the rebuild and the part it added).
+        (merged, THREE, {"objects": near(2), "scene_order": is_text("1,3"), "merged": near(2), "undo_steps": near(2), "dabs": near(0)}),
+        (split, THREE, {"objects": near(3), "scene_order": is_text("1,4,3"), "split_made": near(1), "undo_steps": near(4), "dabs": near(0)}),
+    ])
+
+
+@scenario
+def objects_card_actions_align_lines_up():
+    """Align's X max tile moves the selected object, alone, to the right edge of everything shown, as one undo step."""
+    s = Script()
+    card_actions(s)
+    s.ftap(*OBJECTS_CARD["align"])
+    s.wait(10)
+    s.fdrag(line((1380, 820), (1380, 560), 12))
+    s.wait(20)
+    s.ftap(*OBJECTS_CARD["align_x_max"])
+    s.wait(6)
+    return s, THREE, {"aligned": near(1), "undo_steps": near(1), "dabs": near(0)}
 
 
 @scenario

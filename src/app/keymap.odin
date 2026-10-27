@@ -231,6 +231,9 @@ command_arg_name :: proc(id: Command_Id, arg: int) -> string {
 	case .Restore_Selection_Set: return fmt.tprint(arg + 1)
 	case .Gizmo:     return fmt.tprint(gizmo.Mode(arg))
 	case .Deformer:  return deformer_name(arg)
+	case .Visibility_Slot: return fmt.tprintf("V%d", arg + 1)
+	case .Split_Object: return fmt.tprint(Split_Mode(arg))
+	case .Align_Objects, .Distribute_Objects: return fmt.tprintf("%s_%s", AXIS_NAMES[arg / 3], EDGE_NAMES[arg % 3])
 	}
 	return fmt.tprint(arg)
 }

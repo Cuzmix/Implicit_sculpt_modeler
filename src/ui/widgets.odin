@@ -251,12 +251,15 @@ Tone :: enum u8 {
 
 // A button with a label and an optional icon before it. `width` 0 takes the column's
 // fill width, or fits the label when the column has none. With `keys` (its shortcut and
-// gesture) hovering it or a long press shows them in a tooltip. Returns true when clicked.
-button :: proc(ctx: ^Context, s: string, variant := Variant.Flat, tone := Tone.Neutral, width: f32 = 0, glyph: rune = 0, enabled := true, keys := "") -> bool {
+// gesture) hovering it or a long press shows them in a tooltip. With `icon_only` the
+// button shows its icon alone, larger, and the label only in its tooltip, as a tile in a
+// grid of them. Returns true when clicked.
+button :: proc(ctx: ^Context, s: string, variant := Variant.Flat, tone := Tone.Neutral, width: f32 = 0, glyph: rune = 0, enabled := true, keys := "", icon_only := false) -> bool {
 	ctx.controls += 1
 	t := ctx.theme
 	shown := label_text(s)
 	content := text_width(ctx, shown, t.text_size, .Semibold) + (t.icon_small + 6 if glyph != 0 else 0)
+	if icon_only do content = t.icon_size
 	w := width
 	if w <= 0 do w = fill_width(ctx)
 	if w <= 0 do w = content + 28
@@ -291,13 +294,17 @@ button :: proc(ctx: ^Context, s: string, variant := Variant.Flat, tone := Tone.N
 	if variant == .Bordered do stroke_rect(ctx, vis, t.radius_medium, t.border_strong, 1)
 	scale := feedback(ctx, id, vis, t.radius_medium, hovered, held)
 	x := vis.x + (vis.w - content) * 0.5
-	if glyph != 0 {
-		icon(ctx, glyph, {x + t.icon_small * 0.5, vis.y + vis.h * 0.5}, t.icon_small, fg)
-		x += t.icon_small + 6
+	if icon_only {
+		icon(ctx, glyph, {vis.x + vis.w * 0.5, vis.y + vis.h * 0.5}, t.icon_size, fg)
+	} else {
+		if glyph != 0 {
+			icon(ctx, glyph, {x + t.icon_small * 0.5, vis.y + vis.h * 0.5}, t.icon_small, fg)
+			x += t.icon_small + 6
+		}
+		text(ctx, shown, x, vis.y + vis.h * 0.5, t.text_size, fg, .Semibold)
 	}
-	text(ctx, shown, x, vis.y + vis.h * 0.5, t.text_size, fg, .Semibold)
 	press_scale(ctx, mark, vis, scale)
-	if keys != "" do tip(ctx, id, vis, shown, keys)
+	if keys != "" || icon_only do tip(ctx, id, vis, shown, keys)
 	return clicked
 }
 

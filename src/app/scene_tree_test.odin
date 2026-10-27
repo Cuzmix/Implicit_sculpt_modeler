@@ -29,6 +29,7 @@ tree_free :: proc(app: ^App) {
 		free(obj)
 	}
 	delete(app.scene.objects)
+	delete(app.scene.also)
 	folders_clear(&app.scene.folders)
 	delete(app.scene.folders)
 	history_destroy(&app.history)
@@ -167,10 +168,10 @@ view_flags_round_trip_in_the_file :: proc(t: ^testing.T) {
 		testing.expect_value(t, back.ghost, obj.ghost)
 		testing.expect_value(t, back.transform, obj.transform)
 
-		// Version 7 had no flags byte and no folder: write a 7-shaped head by dropping the
-		// five bytes after the boolean mode.
+		// Version 7 had no flags byte, no folder and no stored eyes: write a 7-shaped head
+		// by dropping the six bytes after the boolean mode.
 		head := r.at
-		flags := head - 5
+		flags := head - 6
 		old := make([dynamic]u8, 0, len(out))
 		defer delete(old)
 		append(&old, ..out[:flags])
@@ -389,13 +390,13 @@ folders_round_trip_in_the_file :: proc(t: ^testing.T) {
 	defer delete(head)
 	scene_header_put(&app, &head)
 	r := geom.byte_reader(head[:])
-	r.at = len(head) - (4 + 4 + 4 + len("Ears") + 1 + 4)
+	r.at = len(head) - (4 + 4 + 4 + len("Ears") + 1 + 1 + 4 + 2)
 	folders, next, ok := folders_get(&r, SCENE_VERSION)
 	defer {
 		folders_clear(&folders)
 		delete(folders)
 	}
-	testing.expect(t, ok && r.ok && r.at == len(head))
+	testing.expect(t, ok && r.ok && r.at == len(head) - 2)
 	testing.expect_value(t, len(folders), 1)
 	testing.expect(t, folders[0].id == f.id && folders[0].name == "Ears" && folders[0].off && !folders[0].open && !folders[0].ghost)
 	testing.expect_value(t, next, app.scene.next_folder_id)
@@ -406,6 +407,7 @@ folders_round_trip_in_the_file :: proc(t: ^testing.T) {
 	for _ in 0 ..< 2 {
 		geom.byte_put(&twice, i32(1))
 		geom.byte_put_string(&twice, "a")
+		geom.byte_put(&twice, u8(0))
 		geom.byte_put(&twice, u8(0))
 	}
 	geom.byte_put(&twice, i32(1))
@@ -423,9 +425,9 @@ folders_round_trip_in_the_file :: proc(t: ^testing.T) {
 	testing.expect(t, ro.ok && back.folder == f.id)
 }
 
-// Past the swap limit the oldest steps go, and an Arrange entry at the head of a chain
-// (Delete folder's) goes with its layouts freed, leaving the swaps after it standing
-// alone; the tracking allocator checks nothing leaks.
+// Past the swap limit the oldest steps go whole, and an Arrange entry at the head of a
+// chain (Delete folder's) goes with its layouts freed and the swaps chained to it; the
+// tracking allocator checks nothing leaks.
 @(test)
 the_swap_limit_drops_an_arrange_head :: proc(t: ^testing.T) {
 	app: App

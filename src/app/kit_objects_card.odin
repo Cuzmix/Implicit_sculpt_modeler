@@ -39,8 +39,56 @@ Objects_Card :: struct {
 	menu_at:  ui.Rect,
 	menu_all: bool,
 	booleans: bool, // the menu's Boolean process rows are unfolded
+	// The Actions under the list: unfolded or not, where they are scrolled, and which of
+	// their sections are open.
+	actions:  bool,
+	actions_scroll: f32,
+	open:     [Card_Action]bool,
 	tray_was: bool, // the tray or a side panel was open last frame
 	rows:     int, // rows drawn last frame, for the exit stats
+}
+
+// The sections of the card's Actions, in ZBrush's order.
+Card_Action :: enum u8 {
+	Split,
+	Merge,
+	Transpose,
+	Boolean,
+	Align,
+	Distribute,
+	Project,
+	Extract,
+}
+
+@(rodata)
+CARD_ACTION_NAMES := [Card_Action]string {
+	.Split      = "Split",
+	.Merge      = "Merge",
+	.Transpose  = "Transpose",
+	.Boolean    = "Boolean",
+	.Align      = "Align",
+	.Distribute = "Distribute",
+	.Project    = "Project",
+	.Extract    = "Extract",
+}
+
+// The least height the Actions get when open: the list gives up the rest of its room.
+CARD_ACTIONS_MIN :: 3 * ui.THUMB_ROW_H
+
+// The icons of Align's and Distribute's tiles, by axis (the rows) and edge (low side,
+// middle, high side): lines and blocks as ZBrush's card draws them. Z, the depth, takes
+// X's, as seen from above.
+@(rodata)
+ALIGN_GLYPHS := [3][3]rune {
+	{0xe271, 0xe26d, 0xe26f}, // align-start-, -center- and -end-vertical
+	{0xe26e, 0xe26c, 0xe270}, // align-end-, -center- and -start-horizontal: bottom, middle, top
+	{0xe271, 0xe26d, 0xe26f},
+}
+@(rodata)
+DISTRIBUTE_GLYPHS := [3][3]rune {
+	{0xe03f, 0xe03d, 0xe03e}, // align-horizontal-distribute-start, -center, -end
+	{0xe27f, 0xe27e, 0xe280}, // align-vertical-distribute-end, -center, -start: bottom, middle, top
+	{0xe03f, 0xe03d, 0xe03e},
 }
 
 // Opens the card, closing the tray and the side panels, which share its place, or closes it.
@@ -96,9 +144,12 @@ kit_objects_card :: proc(app: ^App) -> (raised: bool) {
 	}
 	ui.end(ctx)
 
-	// The list, as tall as the bar under it says and no taller than the window has room for.
-	room := window_room(app, win^, top) - (18 + 40 + t.target + t.target + 2 * PADDING + 4 * GAP)
-	list_h := clamp(c.list_h if c.list_h > 0 else CARD_LIST_H, CARD_LIST_MIN, max(room, CARD_LIST_MIN))
+	// The list, as tall as the bar under it says and no taller than the window has room for
+	// beside the Actions' header, and with the Actions open, beside some of them too.
+	header := t.target - 8 + GAP
+	room := window_room(app, win^, top) - (18 + 40 + t.target + t.target + 2 * PADDING + 4 * GAP) - header
+	list_room := room - CARD_ACTIONS_MIN - GAP if c.actions else room
+	list_h := clamp(c.list_h if c.list_h > 0 else CARD_LIST_H, CARD_LIST_MIN, max(list_room, CARD_LIST_MIN))
 	scroll := kit_scroll_begin(ctx, "objects card list", &c.scroll, id, inner, list_h, 0)
 	objects := app.scene.objects[:]
 	spots := make([dynamic]Tree_Spot, 0, len(objects) + len(app.scene.folders), context.temp_allocator)
@@ -129,12 +180,84 @@ kit_objects_card :: proc(app: ^App) -> (raised: bool) {
 		c.from_h, c.from_y = list_h, bar.mouse.y
 		_ = ui.claim_drag(ctx, -1)
 	}
-	if bar.held do c.list_h = clamp(c.from_h + bar.mouse.y - c.from_y, CARD_LIST_MIN, max(room, CARD_LIST_MIN))
+	if bar.held do c.list_h = clamp(c.from_h + bar.mouse.y - c.from_y, CARD_LIST_MIN, max(list_room, CARD_LIST_MIN))
 	pill := t.accent if bar.held else (t.text if bar.hovered else t.text_tertiary)
 	ui.fill_rect(ctx, {bar.rect.x + bar.rect.w * 0.5 - 20, bar.rect.y + bar.rect.h * 0.5 - 2, 40, 4}, 2, pill)
+
+	// The Actions, folded under the list at first, as ZBrush's card has them; open, they
+	// scroll in the room the list leaves.
+	if ui.section(ctx, "Actions##objects card", &c.actions) {
+		// The list takes no more than its rows need, so the rest goes to the Actions.
+		shown_h := min(list_h, scroll.natural) if scroll.natural > 0 else list_h
+		body := kit_scroll_begin(ctx, "objects card actions", &c.actions_scroll, id, inner, max(room - shown_h - GAP, CARD_ACTIONS_MIN), GAP)
+		card_actions(app, inner)
+		kit_scroll_end(ctx, body)
+		ui.section_end(ctx)
+	}
 	ui.window_end(ctx)
 	ui.transform_since(ctx, mark, shown, 1, {}, {window_slide(win^, .End) * (1 - shown) * 16, 0})
 	return
+}
+
+// The Actions' content: Store visibility's V1 to V8, then a section for each action.
+@(private = "file")
+card_actions :: proc(app: ^App, inner: f32) {
+	ctx := &app.kit.ctx
+	t := ctx.theme
+	c := &app.kit.card
+	ui.label(ctx, "Store visibility", t.small_size, t.text_secondary)
+	ui.begin(ctx, "objects card slots", {direction = .Row, width = inner, gap = 4})
+	slot_w := (inner - 4 * (VIS_SLOTS - 1)) / VIS_SLOTS
+	// Outlined tiles, the one chosen in the accent, as ZBrush's.
+	for k in 0 ..< VIS_SLOTS {
+		chosen := app.scene.vis_slot == k + 1
+		_ = command_button(app, .Visibility_Slot, k, fmt.tprintf("V%d##visibility slot", k + 1), .Flat if chosen else .Bordered, .Accent if chosen else .Neutral, slot_w)
+	}
+	ui.end(ctx)
+	half := (inner - 6) / 2
+	for action in Card_Action {
+		if !ui.section(ctx, fmt.tprintf("%s##card action", CARD_ACTION_NAMES[action]), &c.open[action]) do continue
+		defer ui.section_end(ctx)
+		switch action {
+		case .Split:
+			for row in 0 ..< 2 {
+				ui.begin(ctx, fmt.tprintf("card split %d", row), {direction = .Row, width = inner, gap = 6})
+				for col in 0 ..< 2 do _ = command_button(app, .Split_Object, 2 * row + col, width = half)
+				ui.end(ctx)
+			}
+			ui.paragraph(ctx, "The object keeps the first part and each other part becomes an object below it. The levels go; the polypaint and polygroups stay.")
+		case .Merge:
+			_ = command_button(app, .Merge_Down, width = inner)
+			_ = command_button(app, .Merge_Visible, width = inner)
+			ui.paragraph(ctx, "Each object merged in keeps polygroups of its own, so Groups split takes them apart again. Merge down drops the levels and layers of the selected object.")
+		case .Transpose:
+			ui.paragraph(ctx, fmt.tprintf("Select several objects (Ctrl or Shift and a tap, or Select several) and the Move tool's gizmo (%s) moves, turns and scales them together; to pose part of one object, mask the rest and use the gizmo.", command_keys(app, .Tool_Move)))
+		case .Boolean:
+			kit_boolean_section(app)
+		case .Align, .Distribute:
+			id := Command_Id.Align_Objects if action == .Align else .Distribute_Objects
+			glyphs := ALIGN_GLYPHS if action == .Align else DISTRIBUTE_GLYPHS
+			LABEL :: 22
+			tile := (inner - LABEL - 3 * 6) / 3
+			for axis in 0 ..< 3 {
+				ui.begin(ctx, fmt.tprintf("card %v %d", action, axis), {direction = .Row, width = inner, gap = 6, center = true})
+				ui.begin(ctx, fmt.tprintf("card %v %d label", action, axis), {width = LABEL})
+				ui.label(ctx, AXIS_NAMES[axis], t.small_size, t.text_secondary, .Semibold)
+				ui.end(ctx)
+				for edge in 0 ..< 3 do _ = command_button(app, id, 3 * axis + edge, width = tile, glyph = glyphs[axis][edge], icon_only = true)
+				ui.end(ctx)
+			}
+			if action == .Align {
+				ui.paragraph(ctx, "Several selected line up with the first selected; one alone lines up with everything shown.")
+			} else {
+				ui.paragraph(ctx, "Spaces the selected objects evenly, or every shown object when fewer than three are selected; the outermost two stay.")
+			}
+		case .Project:
+			kit_project_section(app)
+		case .Extract:
+			kit_extract_section(app)
+		}
+	}
 }
 
 // An object's row, the list's `i`th: its picture, name, boolean switch, polypaint and eye.

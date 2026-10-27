@@ -409,7 +409,7 @@ levels_hd_enter :: proc(l: ^Levels, at: Vec3, budget := HD_WINDOW_VERTICES) -> b
 	}
 	// The window as a level: sculptor_init renumbers its vertices.
 	b.old_to_new = make([]u32, wcount, context.temp_allocator)
-	sculptor_init(&lv.sculptor, wm, l.pool, l.node_triangles, b.old_to_new, l.allocator)
+	sculptor_init(&lv.sculptor, wm, l.pool, l.node_triangles, b.old_to_new, allocator = l.allocator)
 	lv.parents = make([][4]u32, wcount, l.allocator)
 	lv.sculptor.fade = make([]u8, wcount, l.allocator)
 	r.home = make([]u32, wcount, l.allocator)

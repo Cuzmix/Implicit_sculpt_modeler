@@ -117,6 +117,12 @@ Command_Id :: enum u8 {
 	Delete_All_Objects,
 	All_Lowest_Level,
 	All_Highest_Level,
+	Visibility_Slot, // the argument is the stored visibility, V1 being 0
+	Split_Object, // the argument is the Split_Mode
+	Merge_Down,
+	Merge_Visible,
+	Align_Objects, // the argument is the axis times 3 plus the edge (min, centre, max)
+	Distribute_Objects, // as Align_Objects
 	Rename_Object,
 	// The view
 	View_Axis, // the argument is the camera.Axis_View
@@ -933,6 +939,66 @@ COMMANDS := [Command_Id]Command {
 		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Levels_All, on = true}},
 		enabled = any_levels,
 	},
+	.Visibility_Slot = {
+		label = "Objects shown",
+		help = "Keeps which objects are shown in the stored visibility chosen, and brings back the ones of another (V1 to V8); the selected object always stays in view.",
+		icon = ui.ICON_EYE,
+		args = VIS_SLOTS,
+		run = proc(app: ^App, arg: int) {app.ui.scene_command = {kind = .View, view = .Visibility_Slot, id = arg + 1}},
+		checked = proc(app: ^App, arg: int) -> bool {return app.scene.vis_slot == arg + 1},
+	},
+	.Split_Object = {
+		label = "Split",
+		help = "Makes part of the selected object an object of its own: its hidden part, its masked part, each polygroup or each connected piece; one undo step.",
+		icon = ICON_SPLIT,
+		args = len(Split_Mode),
+		run = proc(app: ^App, arg: int) {app.ui.scene_command = {kind = .Split, split = Split_Mode(arg)}},
+		// Each mode while there is something to split by (Split to parts finds out on the
+		// press, as counting pieces takes a pass over the mesh).
+		enabled = proc(app: ^App, arg: int) -> bool {
+			obj := selected_object(app)
+			if obj == nil || object_dynamic(obj) do return false
+			s := object_sculptor(obj)
+			switch Split_Mode(arg) {
+			case .Hidden: return sculpt.sculptor_hidden_count(s) > 0
+			case .Masked: return object_has_mask(app, obj)
+			case .Groups: return sculpt.sculptor_has_groups(s)
+			case .Parts:
+			}
+			return true
+		},
+	},
+	.Merge_Down = {
+		label = "Merge down",
+		help = "Makes the selected object and the one below it in the list one object, each keeping its own polygroups; one undo step.",
+		icon = ICON_MERGE,
+		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Merge}},
+		enabled = proc(app: ^App, _: int) -> bool {return app.scene.selected >= 0 && app.scene.selected + 1 < len(app.scene.objects)},
+	},
+	.Merge_Visible = {
+		label = "Merge visible",
+		help = "Adds one new object made of every shown object, each keeping its own polygroups; the objects stay as they are.",
+		icon = ICON_MERGE,
+		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Merge, on = true}},
+		enabled = proc(app: ^App, _: int) -> bool {
+			shown := 0
+			for obj in app.scene.objects do if object_shown(app, obj) do shown += 1
+			return shown >= 2
+		},
+	},
+	.Align_Objects = {
+		label = "Align",
+		help = "Lines objects up along an axis by their low sides, middles or high sides: the selected ones with the first selected, or one object with everything shown; one undo step.",
+		args = 9,
+		run = proc(app: ^App, arg: int) {app.ui.scene_command = {kind = .Align, axis = arg / 3, edge = arg % 3}},
+		enabled = has_object,
+	},
+	.Distribute_Objects = {
+		label = "Distribute",
+		help = "Spaces objects evenly along an axis, by their low sides, middles or high sides: the selected ones when three or more are, or else every shown object; one undo step.",
+		args = 9,
+		run = proc(app: ^App, arg: int) {app.ui.scene_command = {kind = .Distribute, axis = arg / 3, edge = arg % 3}},
+	},
 	.Rename_Object = {
 		label = "Rename...",
 		help = "Gives the selected object a name of your own, shown in the Scene palette and kept in the scene file; one undo step.",
@@ -1277,6 +1343,12 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 		return fmt.tprintf("Pie %d", arg + 1)
 	case .Run_Macro:
 		return fmt.tprintf("Macro %d", arg + 1)
+	case .Visibility_Slot:
+		return fmt.tprintf("Objects shown V%d", arg + 1)
+	case .Split_Object:
+		return SPLIT_NAMES[Split_Mode(arg)]
+	case .Align_Objects, .Distribute_Objects:
+		return fmt.tprintf("%s %s %s", COMMANDS[id].label, AXIS_NAMES[arg / 3], EDGE_NAMES[arg % 3])
 	}
 	return COMMANDS[id].label
 }
@@ -1443,10 +1515,10 @@ command_menu_item :: proc(app: ^App, id: Command_Id, arg := 0, label := "", tone
 // tooltip, enabled while the command can run (and `enabled`). Runs it when clicked and
 // returns true then. Every panel button that runs a command is one of these, so none
 // leaves out its shortcut.
-command_button :: proc(app: ^App, id: Command_Id, arg := 0, label := "", variant := ui.Variant.Flat, tone := ui.Tone.Neutral, width: f32 = 0, glyph: rune = 0, enabled := true) -> bool {
+command_button :: proc(app: ^App, id: Command_Id, arg := 0, label := "", variant := ui.Variant.Flat, tone := ui.Tone.Neutral, width: f32 = 0, glyph: rune = 0, enabled := true, icon_only := false) -> bool {
 	text := label if label != "" else command_label(id, arg)
 	can := enabled && command_enabled(app, id, arg)
-	if !ui.button(&app.kit.ctx, text, variant, tone, width, glyph, can, command_hint(app, id, arg)) do return false
+	if !ui.button(&app.kit.ctx, text, variant, tone, width, glyph, can, command_hint(app, id, arg), icon_only) do return false
 	return command_run(app, id, arg)
 }
 
