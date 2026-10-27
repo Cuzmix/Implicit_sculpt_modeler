@@ -431,6 +431,7 @@ kit_background :: proc(app: ^App) {
 	_ = ui.switch_row(ctx, "Gradient", &b.gradient)
 	if !b.gradient {
 		_ = kit_color(app, "background colour", &b.top)
+		kit_background_transparent(app)
 		return
 	}
 	edges := [2]string{"Top", "Bottom"}
@@ -441,6 +442,14 @@ kit_background :: proc(app: ^App) {
 		_ = kit_color(app, "background top", &b.top)
 	}
 	ui.paragraph(ctx, "The top colour shades into the bottom one down the viewport. Screenshots and the studio render show it too.")
+	kit_background_transparent(app)
+}
+
+// Whether screenshots leave the background out.
+@(private = "file")
+kit_background_transparent :: proc(app: ^App) {
+	on := app.screenshot_transparent
+	if ui.switch_row(&app.kit.ctx, "Screenshots without background", &on, keys = command_hint(app, .Screenshot_Transparent)) do command_run(app, .Screenshot_Transparent)
 }
 
 // The floor grid: whether it shows, which planes, the axes, and its cells.

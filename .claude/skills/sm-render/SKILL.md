@@ -224,6 +224,11 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
 - `Thumbnail_View` (`thumbnail_view.odin`): the frame's draw items again into a small target of its own at
   `THUMBNAIL_SUPERSAMPLE`, whole (chunks, groups, hidden and LOD cleared, as thumbnails are), a silhouette by black
   colour and `look.x = -40` stops rather than a shader of its own. The app (thumbnail.odin) draws it only at rest.
+- Transparent screenshots (app `capture.odin`): `render_viewport` again, after the frame's viewport and live AO, into a
+  second `Viewport_Target` of the same size and samples with `background = {}`, `floor = {}`, `lod_px = 0` and the
+  environment picture off (restored after); the clear's alpha 0 and the meshes' alpha 1 resolve to coverage. Written
+  after submit: `viewport_shown` where coverage is 255, the second drawing unpremultiplied at edges. `BLEND_OVER`
+  keeps the target's alpha, so see-through items add none.
 - `Pictures` (`pictures.odin`): an atlas of pictures the CPU decoded (Home's scene previews), 6 x 6 cells of
   `PICTURE_PX`, filled by `pictures_upload` on the frame's own command buffer at most `PICTURES_PER_FRAME` a frame
   through one transfer buffer mapped with `cycle = true`; a picture sits at its cell's top left (`picture_uv`). The

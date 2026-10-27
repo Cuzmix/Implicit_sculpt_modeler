@@ -190,6 +190,7 @@ App :: struct {
 	preview:  Scene_Preview, // the picture scene files keep for the Home screen (scene_preview.odin)
 	home:     Home, // the Home screen's pictures and autosaves (home.odin)
 	thumbnail: Thumbnail_State, // View > Thumbnail's picture (thumbnail.odin)
+	capture:   Capture, // a transparent screenshot waiting for its frame (capture.odin)
 	// The scenes saved or opened lately, newest first, at most HOME_RECENT_MAX (remembered).
 	recent_scenes: [dynamic]string,
 	start_home: bool, // an interactive run given no scene starts on Home (Settings > Interface)
@@ -258,6 +259,8 @@ App :: struct {
 	floor:           Floor_Settings, // the floor grid (floor_grid.odin)
 	floor_state:     Floor_State,
 	background:      Background_Settings, // the viewport's background (background.odin)
+	// Screenshots on a see-through ground (capture.odin).
+	screenshot_transparent: bool,
 	sym_center:      Symmetry_Center, // local symmetry's middle, kept (symmetry.odin)
 	// Transparency: every shown object but the selected one is drawn see-through, at
 	// SEE_THROUGH_OPACITY, so the selected one shows through whatever stands before it.
@@ -600,6 +603,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	defer scene_preview_destroy(&app)
 	defer home_destroy(&app)
 	defer thumbnail_destroy(&app)
+	defer capture_destroy(&app)
 	// After autosave_init, whose folder Home's Autosaves lists.
 	if home_at_start(&app, opts, interactive) do home_open(&app)
 	// The benchmark's autosave writes the scene it starts with.
@@ -1013,6 +1017,9 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		}
 		render_mode_frame(&app, cmd, view, proj, draws[:], changed)
 		live_ao_view_frame(&app, cmd, view, proj, draws[:], drawn)
+		// A --dump-viewport run's last frame draws its transparent picture, when that is on.
+		if opts.dump_viewport != "" && app.screenshot_transparent && opts.frames > 0 && frame_index == opts.frames - 1 do capture_request(&app, opts.dump_viewport)
+		capture_frame(&app, cmd, view, proj, draws[:])
 
 		nav_head_frame(&app, cmd)
 		thumbs_frame(&app, cmd)
@@ -1105,6 +1112,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		// A scripted stroke or replay changes the scene with no input to show for it.
 		app.autosave.scripted = (opts.bench_stroke > 0 && !bench_waits && bench_frame < opts.bench_stroke) || opts.gpubench != "" ||
 			(opts.load_strokes != "" && frame_index <= max(opts.bench_stroke, LOAD_STROKES_FRAME)) || (opts.timelapse != "" && frame_index <= opts.bench_stroke)
+		capture_finish(&app)
 		preview_frame(&app)
 		autosave_frame(&app)
 		free_all(context.temp_allocator)
@@ -1127,7 +1135,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		return false
 	}
 
-	if opts.dump_viewport != "" do _ = screenshot_save(&app, opts.dump_viewport)
+	if opts.dump_viewport != "" && !(app.screenshot_transparent && opts.frames > 0) do _ = screenshot_save(&app, opts.dump_viewport)
 	if opts.dump_screen != "" {
 		if app.kit_drew {
 			_ = kit_screen_save(&app, opts.dump_screen, app.kit_size)
@@ -1162,6 +1170,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	// milliseconds it took to shrink and encode.
 	fmt.printfln("previews=%d preview_size=%dx%d preview_kb=%.1f preview_ms=%.2f", app.preview.taken, app.preview.w, app.preview.h, f64(len(app.preview.png)) / 1024, app.preview.ms)
 	fmt.printfln("thumbnail=%d thumbnail_draws=%d thumbnail_ms=%.2f thumbnail_px=%dx%d thumbnail_flip=%d thumbnail_shaded=%d", int(app.kit.thumbnail), app.thumbnail.draws, app.thumbnail.ms, app.kit.thumbnail_px.x, app.kit.thumbnail_px.y, int(app.kit.thumbnail_flip), int(app.kit.thumbnail_shaded))
+	fmt.printfln("screenshot_transparent=%d", int(app.screenshot_transparent))
 	// The scene's file by its name alone, which a test compares; "none" for no file.
 	scene_name := filepath.base(app.scene_path) if app.scene_path != "" else "none"
 	fmt.printfln("home=%d home_opened=%d home_read=%d home_pictures=%d recent_scenes=%d home_autosaves=%d scene_name=%s", int(app.kit.home), app.home.opened, app.home.read, app.home.uploaded, len(app.recent_scenes), len(app.home.autosaves), scene_name)

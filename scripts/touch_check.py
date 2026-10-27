@@ -5244,6 +5244,21 @@ def thumbnail_switches_to_shaded_and_flips():
                                                      "thumbnail_draws": lambda v: int(v) >= 2, "dabs": near(0)})
 
 
+# Scene: Background's Screenshots without background switch, under the colours.
+TRANSPARENT_SWITCH = (1499, 569)
+
+
+@scenario
+def transparent_screenshots_switch_in_the_background_section():
+    """A tap on Scene: Background's Screenshots without background switch turns it on, and sculpts
+    nothing."""
+    s = Script()
+    s.wait(4)
+    s.ftap(*TRANSPARENT_SWITCH)
+    s.wait(4)
+    return s, ["--script=show_section background"], camera_still({"screenshot_transparent": near(1, 0), "dabs": near(0)})
+
+
 @scenario
 def thumbnail_follows_a_stroke_and_closes():
     """A stroke on the model draws the thumbnail again; its Close shuts the window."""

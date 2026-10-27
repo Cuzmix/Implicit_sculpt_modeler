@@ -316,7 +316,8 @@ file_apply :: proc(app: ^App, req: File_Request) -> bool {
 			if why := texture_load(app, selected_object(app), m, req.path); why != "" do file_note(app, true, "%s", why)
 		}
 	case .Screenshot:
-		_ = screenshot_save(app, req.path)
+		if app.screenshot_transparent do capture_request(app, req.path)
+		else do _ = screenshot_save(app, req.path)
 	case .Timelapse:
 		timelapse_start(app, req.path)
 	case .Bake:
@@ -367,14 +368,14 @@ screenshot_save :: proc(app: ^App, path: string) -> bool {
 	return true
 }
 
-// Writes RGBA8 rows, top to bottom, to a PNG file (or a binary PPM when the path ends
-// in .ppm), noting a failure.
-image_save :: proc(app: ^App, path: string, pixels: []u8, w, h: int) -> bool {
+// Writes RGBA8 rows, top to bottom, to a PNG file, with its alpha or opaque (or a binary
+// PPM when the path ends in .ppm, which has none), noting a failure.
+image_save :: proc(app: ^App, path: string, pixels: []u8, w, h: int, alpha := false) -> bool {
 	written: bool
 	if strings.equal_fold(filepath.ext(path), ".ppm") {
 		written = write_ppm(path, pixels, w, h)
 	} else {
-		data := png_write.encode(pixels, w, h, alpha = false, allocator = context.temp_allocator)
+		data := png_write.encode(pixels, w, h, alpha = alpha, allocator = context.temp_allocator)
 		written = os.write_entire_file(path, data) == nil
 	}
 	if !written {
