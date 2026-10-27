@@ -743,6 +743,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 					flat      = app.flat,
 					look      = viewport_look(&app),
 					matcap    = material_matcap(&app, material),
+					lights    = viewport_lights(&app),
 					wireframe = selected && app.wireframe,
 					live      = live,
 					chunks    = vp.clay.surface.chunks[:],
