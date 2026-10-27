@@ -469,3 +469,75 @@ lights_are_added_and_deleted :: proc(t: ^testing.T) {
 	testing.expect_value(t, set.count, 0)
 	free_all(context.temp_allocator)
 }
+
+// A light set by where it is in the scene is where the viewport shows it, in either space;
+// a sun straight behind the camera has its marker on the orbit's centre, one turned
+// aside on the circle round it, and a point light behind the camera is held at the edge.
+@(test)
+light_markers_stand_where_the_lights_are :: proc(t: ^testing.T) {
+	app: App
+	app.camera = camera.orbit_default()
+	app.camera.yaw, app.camera.pitch = 0.6, -0.3
+	app.camera.target = {0.2, 0.1, -0.3}
+	lights_reset(&app)
+	app.light_turn = 30
+	set := &app.scene.lights
+	set.lights[2] = {on = true, kind = .Point, dir = {0, 0, 1}, pos = {0.4, 0.2, 1}, ref = 2, strength = 1, color = 1, cone = 45}
+	set.lights[3] = {on = true, kind = .Spot, space = .Scene, dir = {0, 1, 0}, pos = {0, 2, 0}, ref = 2, strength = 1, color = 1, cone = 45}
+	for i in 2 ..= 3 {
+		at := Vec3{1.5, -0.5, 2}
+		dir := linalg.normalize(Vec3{1, -0.5, 2})
+		light_set_world(&app, i, dir, at)
+		testing.expectf(t, near(light_world_pos(&app, set.lights[i]), at, 1e-4), "light %d is at %v", i + 1, light_world_pos(&app, set.lights[i]))
+		testing.expectf(t, near(light_world_dir(&app, i), dir, 1e-5), "light %d points %v", i + 1, light_world_dir(&app, i))
+	}
+
+	size := [2]f32{1600, 900}
+	eye := camera.orbit_eye(app.camera)
+	light_set_world(&app, 0, linalg.normalize(eye - app.camera.target))
+	s, front, edge := light_marker_at(&app, 0, size)
+	testing.expectf(t, linalg.length(s - size * 0.5) < 0.5 && front && !edge, "a sun from the camera at %v", s)
+	light_set_view_dir(&app, 0, {1, 0, 0})
+	s, front, edge = light_marker_at(&app, 0, size)
+	testing.expectf(t, abs(s.x - (800 + SUN_MARKER_RADIUS * 900)) < 0.5 && abs(s.y - 450) < 0.5 && front && !edge, "a sun from the right at %v", s)
+	light_set_view_dir(&app, 0, {0, 0.6, -0.8})
+	s, front, edge = light_marker_at(&app, 0, size)
+	testing.expectf(t, s.y < 450 && !front, "a sun from behind, above, at %v", s)
+
+	light_set_world(&app, 2, {0, 0, 1}, eye + (eye - app.camera.target) * 0.5 + Vec3{0.1, 0, 0})
+	s, _, edge = light_marker_at(&app, 2, size)
+	testing.expectf(t, edge && s.x >= 0 && s.x <= size.x && s.y >= 0 && s.y <= size.y, "a point light behind the camera at %v", s)
+	testing.expect_value(t, light_marker_pick(&app, s + 3, size), 2)
+	testing.expect_value(t, light_marker_pick(&app, {5, 5}, size), -1)
+}
+
+// Place highlight turns a sun so its highlight lands where the finger is: on the surface
+// facing the camera the light comes from the camera, on a tilted one from the mirror
+// direction; a point light keeps its distance from the spot, a spot aimed at it.
+@(test)
+place_highlight_puts_the_highlight_under_the_finger :: proc(t: ^testing.T) {
+	app: App
+	app.camera = camera.orbit_default()
+	app.camera.yaw, app.camera.pitch = -0.4, 0.2
+	lights_reset(&app)
+	eye := camera.orbit_eye(app.camera)
+	hit := app.camera.target
+	view := linalg.normalize(eye - hit)
+	light_place_highlight(&app, 0, hit, view, 1)
+	testing.expectf(t, near(light_world_dir(&app, 0), view, 1e-5), "facing: %v against %v", light_world_dir(&app, 0), view)
+	// Facing away, the normal is turned to the side the camera sees.
+	light_place_highlight(&app, 0, hit, -view, 1)
+	testing.expect(t, near(light_world_dir(&app, 0), view, 1e-5))
+
+	normal := linalg.normalize(view + linalg.normalize(linalg.cross(view, Vec3{0, 1, 0})) * 0.5)
+	light_place_highlight(&app, 0, hit, normal, 1)
+	toward := light_world_dir(&app, 0)
+	testing.expectf(t, abs(linalg.dot(toward, normal) - linalg.dot(view, normal)) < 1e-5, "mirrored about the normal: %v", toward)
+	testing.expectf(t, linalg.length(linalg.normalize(toward + view) - normal) < 1e-5, "the half vector is the normal: %v", toward)
+
+	app.scene.lights.lights[3] = {on = true, kind = .Spot, space = .Scene, dir = {0, 1, 0}, pos = {0, 2, 0}, ref = 2, strength = 1, color = 1, cone = 45}
+	light_place_highlight(&app, 3, hit, normal, 2.5)
+	l := app.scene.lights.lights[3]
+	testing.expectf(t, abs(linalg.length(l.pos - hit) - 2.5) < 1e-4, "the spot stands %v from the spot it lights", linalg.length(l.pos - hit))
+	testing.expectf(t, near(linalg.normalize(l.pos - hit), l.dir, 1e-5), "the spot is aimed at it: %v", l.dir)
+}

@@ -762,8 +762,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		// A gizmo drag the tool changed under ends as it is.
 		if app.tool != .Move do move_end(&app)
 		// A press that picks a polygroup for its material (Pick a group) or a colour (the
-		// Eyedropper) is no tool's.
-		if group_pick_frame(&app, input) || eyedropper_frame(&app, input) {
+		// Eyedropper), or moves a light in the viewport, is no tool's.
+		if group_pick_frame(&app, input) || eyedropper_frame(&app, input) || lights_viewport_frame(&app, input) {
 			brush_stroke_finish(&app)
 		} else {
 			switch app.tool {
@@ -1192,7 +1192,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			set := &app.scene.lights
 			for light in set.lights[:set.count] do lights_on += int(light.on)
 			l1 := light_view_dir(&app, 0)
-			fmt.printfln("light_pick=%d lights_on=%d light1=%.2f,%.2f,%.2f light1_on=%d light_flips=%d light_count=%d light1_kind=%s light1_space=%s", app.light_pick + 1, lights_on, l1.x, l1.y, l1.z, int(set.lights[0].on), app.kit.light_sphere.flips, set.count, lower(set.lights[0].kind), lower(set.lights[0].space))
+			fmt.printfln("light_pick=%d lights_on=%d light1=%.2f,%.2f,%.2f light1_on=%d light_flips=%d light_count=%d light1_kind=%s light1_space=%s light_moves=%d", app.light_pick + 1, lights_on, l1.x, l1.y, l1.z, int(set.lights[0].on), app.kit.light_sphere.flips, set.count, lower(set.lights[0].kind), lower(set.lights[0].space), app.ui.light_press.moves)
 			fmt.printfln("brush_front_only=%d brush_lock_plane=%d brush_connected=%d brush_grab_depth=%d brush_smooth_only=%v", int(app.brush.front_only), int(app.brush.lock_plane), int(app.brush.connected), int(app.brush.grab_depth), app.brush.smooth_only)
 			fmt.printfln("pose_mode=%d pose_drags=%d pose_moved=%d mesh_sum=%.4f topo_masks=%d topo_reach=%.3f", int(pose_mode(&app)), m.pose_drags, m.pose_moved, mesh_sum, m.topo_masks, m.topo_reach)
 			fmt.printfln("gizmo_at=%.0f,%.0f gizmo_mode=%s gizmo_hover=%s gizmo_last=%s gizmo_drags=%d gizmo_snap=%d transform=%.4f,%.4f,%.4f,%.3f,%.3f,%.3f,%.4f transform_undo=%d",
