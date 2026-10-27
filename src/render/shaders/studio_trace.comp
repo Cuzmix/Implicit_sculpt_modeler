@@ -1,0 +1,192 @@
+#version 450
+// One sample of the traced studio render (render/trace.odin) for one item: from every
+// viewport pixel on a surface, a ray toward this sample's light, cast against the
+// item's own triangles through its two-level tree (a tree over its chunks, then each
+// chunk's tree over its triangles). A pixel whose ray hits anything gets 0 in `visible`,
+// which starts each sample at 1; every item's dispatch only ever stores 0, so the
+// result is the same in any order, and a pixel is lit only when no item blocks it.
+// Ambient samples are cosine-weighted about the surface's normal; key samples aim at
+// the key light, jittered over a small disc. Both take this sample's point of the R2
+// sequence turned by a hash of the pixel (Cranley-Patterson rotation), so neighbouring
+// pixels try different directions and the image converges as noise, not bands; the
+// same pixel and sample always cast the same ray, in every item's dispatch.
+//
+// SDL_GPU's SPIR-V layout for compute: set 0 holds the sampled textures, then the
+// read-only storage buffers; set 1 the read-write storage textures; set 2 the uniforms.
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+struct Node {
+	vec3 lo;
+	uint first; // inner: the left child, the right one after it; leaf: see below
+	vec3 hi;
+	uint count; // 0 for an inner node
+};
+
+layout(set = 0, binding = 0) uniform sampler2D view_depth;
+layout(std430, set = 0, binding = 1) readonly buffer Positions { float positions[]; }; // 3 floats a vertex
+layout(std430, set = 0, binding = 2) readonly buffer Indices { uint indices[]; };
+// Every chunk's tree, one after another; a leaf's `first` is into its chunk's order.
+layout(std430, set = 0, binding = 3) readonly buffer Nodes { Node nodes[]; };
+layout(std430, set = 0, binding = 4) readonly buffer Order { uint order[]; }; // two 16-bit offsets a word
+layout(std430, set = 0, binding = 5) readonly buffer Chunks { uvec4 chunks[]; }; // node_off, order_off, first_tri, node_count
+// The tree over the shown chunks; a leaf's `first` is a chunk.
+layout(std430, set = 0, binding = 6) readonly buffer Tlas { Node tlas[]; };
+layout(set = 1, binding = 0, r32f) uniform writeonly image2D visible;
+
+layout(std140, set = 2, binding = 0) uniform Trace_Uniforms {
+	mat4 inv_view_proj; // viewport clip space back to the world
+	mat4 to_mesh;       // the world into the item's mesh space (the inverse of its model)
+	vec4 key_base;      // xyz: toward the key light (world, unit); w: 1 for a key sample
+	vec4 key_side;      // xyz: across the key light's disc; w: the disc's radius
+	vec4 key_up;        // xyz: the disc's other axis
+	vec4 params;        // xy: this sample's point of the R2 sequence; z: the least offset (world)
+};
+
+// geom.CHUNK_BVH_STACK for each level: the chunk tree's entries stay below the one
+// chunk being walked.
+const int STACK = 2 * 57;
+const uint IN_CHUNK = 0x80000000u;
+const float PI = 3.14159265;
+
+vec3 world_at(vec2 frag, float depth, vec2 size) {
+	vec2 uv = frag / size;
+	vec4 w = inv_view_proj * vec4(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, depth, 1.0);
+	return w.xyz / w.w;
+}
+
+vec3 vertex(uint v) {
+	return vec3(positions[3 * v], positions[3 * v + 1], positions[3 * v + 2]);
+}
+
+// The slab test; a box refit empty (lo above hi) is never entered.
+bool enters(Node n, vec3 o, vec3 inv) {
+	if (n.lo.x > n.hi.x) return false;
+	vec3 t0 = (n.lo - o) * inv, t1 = (n.hi - o) * inv;
+	vec3 near = min(t0, t1), far = max(t0, t1);
+	return max(max(near.x, near.y), max(near.z, 0.0)) <= min(far.x, min(far.y, far.z));
+}
+
+// Möller-Trumbore, any hit in front of the origin; a triangle with a repeated corner
+// (hidden, or an unused slot) never hits, nor one seen exactly edge on.
+bool hits(uint tri, vec3 o, vec3 d) {
+	uint a = indices[3 * tri], b = indices[3 * tri + 1], c = indices[3 * tri + 2];
+	if (a == b || b == c || a == c) return false;
+	vec3 p0 = vertex(a);
+	vec3 e1 = vertex(b) - p0, e2 = vertex(c) - p0;
+	vec3 pv = cross(d, e2);
+	float det = dot(e1, pv);
+	if (det == 0.0) return false;
+	float f = 1.0 / det;
+	vec3 tv = o - p0;
+	float u = dot(tv, pv) * f;
+	if (u < 0.0 || u > 1.0) return false;
+	vec3 qv = cross(tv, e1);
+	float v = dot(d, qv) * f;
+	if (v < 0.0 || u + v > 1.0) return false;
+	return dot(e2, qv) * f > 0.0;
+}
+
+bool occluded(vec3 o, vec3 d) {
+	// No component exactly zero, so the slab test never multiplies zero by infinity.
+	vec3 safe = mix(d, vec3(1e-20), equal(d, vec3(0.0)));
+	vec3 inv = 1.0 / safe;
+	uint stack[STACK];
+	int top = 1;
+	stack[0] = 0u;
+	uvec4 ch = uvec4(0u);
+	while (top > 0) {
+		uint e = stack[--top];
+		if ((e & IN_CHUNK) == 0u) {
+			Node n = tlas[e];
+			if (!enters(n, o, inv)) continue;
+			if (n.count == 0u) {
+				stack[top++] = n.first;
+				stack[top++] = n.first + 1u;
+			} else {
+				// Everything pushed from here on is this chunk's, and is walked before
+				// the chunk tree's next entry comes off the stack.
+				ch = chunks[n.first];
+				stack[top++] = IN_CHUNK;
+			}
+			continue;
+		}
+		Node n = nodes[ch.x + (e & ~IN_CHUNK)];
+		if (!enters(n, o, inv)) continue;
+		if (n.count == 0u) {
+			stack[top++] = IN_CHUNK | n.first;
+			stack[top++] = IN_CHUNK | (n.first + 1u);
+			continue;
+		}
+		for (uint j = n.first; j < n.first + n.count; j++) {
+			uint at = ch.y + j;
+			uint word = order[at >> 1];
+			uint tri = ch.z + ((at & 1u) == 0u ? (word & 0xFFFFu) : (word >> 16));
+			if (hits(tri, o, d)) return true;
+		}
+	}
+	return false;
+}
+
+// Two numbers in [0, 1) from the pixel (pcg2d, Jarzynski and Olano 2020).
+vec2 pixel_hash(uvec2 v) {
+	v = v * 1664525u + 1013904223u;
+	v.x += v.y * 1664525u;
+	v.y += v.x * 1664525u;
+	v ^= v >> 16u;
+	v.x += v.y * 1664525u;
+	v.y += v.x * 1664525u;
+	v ^= v >> 16u;
+	return vec2(v >> 8u) / 16777216.0;
+}
+
+void main() {
+	vec2 size = vec2(textureSize(view_depth, 0));
+	ivec2 px = ivec2(gl_GlobalInvocationID.xy);
+	if (px.x >= int(size.x) || px.y >= int(size.y)) return;
+	float d = texelFetch(view_depth, px, 0).r;
+	if (d >= 1.0) return;
+	vec2 frag = vec2(px) + 0.5;
+	vec3 p = world_at(frag, d, size);
+	// The surface normal from the depth of the neighbouring pixels, as studio_gather.frag.
+	ivec2 hi = ivec2(size) - 1;
+	float dl = texelFetch(view_depth, clamp(px - ivec2(1, 0), ivec2(0), hi), 0).r;
+	float dr = texelFetch(view_depth, clamp(px + ivec2(1, 0), ivec2(0), hi), 0).r;
+	float du = texelFetch(view_depth, clamp(px - ivec2(0, 1), ivec2(0), hi), 0).r;
+	float dd = texelFetch(view_depth, clamp(px + ivec2(0, 1), ivec2(0), hi), 0).r;
+	vec3 px_r = abs(dr - d) < abs(d - dl) ? world_at(frag + vec2(1, 0), dr, size) - p : p - world_at(frag - vec2(1, 0), dl, size);
+	vec3 px_d = abs(dd - d) < abs(d - du) ? world_at(frag + vec2(0, 1), dd, size) - p : p - world_at(frag - vec2(0, 1), du, size);
+	vec3 n = normalize(cross(px_d, px_r));
+	vec3 toward_eye = normalize(world_at(frag, 0.0, size) - p);
+	if (dot(n, toward_eye) < 0.0) n = -n;
+
+	vec2 r2 = fract(params.xy + pixel_hash(uvec2(px)));
+	vec3 dir;
+	if (key_base.w > 0.5) {
+		float a = 2.0 * PI * r2.y, rr = key_side.w * sqrt(r2.x);
+		dir = normalize(key_base.xyz + (key_side.xyz * cos(a) + key_up.xyz * sin(a)) * rr);
+		// Facing away: the light never reaches here, which the viewport's shading
+		// already shows, so the pixel keeps 1 as the gather's does.
+		if (dot(n, dir) <= 0.0) return;
+	} else {
+		// A frame about the normal (Duff et al. 2017), then a cosine-weighted direction.
+		float s = n.z >= 0.0 ? 1.0 : -1.0;
+		float a = -1.0 / (s + n.z);
+		float b = n.x * n.y * a;
+		vec3 t = vec3(1.0 + s * n.x * n.x * a, s * b, -s * n.x);
+		vec3 bt = vec3(b, s + n.y * n.y * a, -n.y);
+		float r = sqrt(r2.x), phi = 2.0 * PI * r2.y;
+		dir = normalize(t * (r * cos(phi)) + bt * (r * sin(phi)) + n * sqrt(max(1.0 - r2.x, 0.0)));
+	}
+
+	// Off the surface along its normal and toward the eye, so neither the depth buffer's
+	// rounding nor the triangles' own curve between pixels shadows the pixel itself: by
+	// the least offset, plus twice the pixel's width at this depth, at most a hundred
+	// times the least so a pixel seen at a grazing distance cannot leap through a wall.
+	float footprint = length(world_at(frag + vec2(1, 0), d, size) - p);
+	float eps = params.z + min(2.0 * footprint, 100.0 * params.z);
+	vec3 o = p + (n + toward_eye) * eps;
+	vec3 om = (to_mesh * vec4(o, 1.0)).xyz;
+	vec3 dm = mat3(to_mesh) * dir;
+	if (occluded(om, dm)) imageStore(visible, px, vec4(0.0));
+}
