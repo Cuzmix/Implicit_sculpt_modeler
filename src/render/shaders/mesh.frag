@@ -12,6 +12,7 @@ layout(set = 3, binding = 0) uniform Material_Uniforms {
 	vec4 params;  // x: ambient, y: specular strength (below 0: flat base_color, for lines), z: specular power, w: wrap
 	vec4 surface; // x: metallic, y: roughness (0: the classic shading above, else physically based), z: 1 for flat shading
 	vec4 checker; // the density preview: xyz the first lattice point in mesh space, w the cell size (0: none)
+	vec4 look;    // x: exposure in stops, y: cavity strength, z: ridge strength (0 to 1); all 0 is plain
 };
 
 layout(location = 0) out vec4 out_color;
@@ -22,19 +23,34 @@ const float PI = 3.14159265;
 const vec3 KEY_DIR  = normalize(vec3(-0.5, 0.6, 0.6));
 const vec3 FILL_DIR = normalize(vec3(0.7, -0.2, 0.4));
 
-// The studio the physically based materials reflect, in view space: a grey sky over a
-// dark floor and a large softbox behind the key light. `rough` (0 to 1) blurs it, standing
-// in for a prefiltered environment map at no memory and a few instructions.
+// The studio the physically based materials reflect, in view space, as a photographer
+// would light a product: a cool sky over a dark floor, a warm softbox above and to the
+// side of the key light (not on it, or the key's highlight would be counted twice), a
+// cool strip light behind on the right that catches edges, and a bounce card behind the
+// camera, so a face turned to the viewer reflects something rather than the black floor.
+// `rough` (0 to 1) blurs it, standing in for a prefiltered environment map at no memory
+// and a few instructions.
+const vec3 SOFTBOX_DIR = normalize(vec3(-0.75, 0.85, 0.15));
+const vec3 STRIP_DIR   = normalize(vec3(0.9, 0.35, -0.45));
+const vec3 CARD_DIR    = normalize(vec3(0.1, -0.35, 1.0));
+
+// A light of `color` seen as a lobe around `toward`, `sharp` at the sharpest; it widens
+// with roughness while its energy stays about the same, as a blurred reflection of a
+// bright light does.
+vec3 lobe(vec3 dir, vec3 toward, vec3 color, float sharp, float rough) {
+	float e = mix(sharp, 3.0, sqrt(rough));
+	return color * pow(max(dot(dir, toward), 0.0), e) * (e + 2.0) / (sharp + 2.0);
+}
+
 vec3 studio(vec3 dir, float rough) {
 	float w = 0.08 + 0.9 * rough;
 	float up = smoothstep(-w, w, dir.y);
-	vec3 c = mix(vec3(0.05, 0.05, 0.055), vec3(0.42, 0.44, 0.48), up);
+	vec3 c = mix(vec3(0.07, 0.065, 0.06), vec3(0.40, 0.43, 0.48), up);
 	// A brighter band at the horizon reads as the far wall of the studio.
-	c += vec3(0.12) * exp(-abs(dir.y) / (0.06 + 0.5 * rough));
-	// The softbox: a lobe whose width grows with roughness while its energy stays about
-	// the same, as a blurred reflection of a bright light does.
-	float e = mix(400.0, 3.0, sqrt(rough));
-	c += vec3(4.0, 3.9, 3.7) * pow(max(dot(dir, KEY_DIR), 0.0), e) * (e + 2.0) / 402.0;
+	c += vec3(0.13, 0.12, 0.11) * exp(-abs(dir.y) / (0.06 + 0.5 * rough));
+	c += lobe(dir, SOFTBOX_DIR, vec3(4.0, 3.8, 3.5), 300.0, rough);
+	c += lobe(dir, STRIP_DIR, vec3(1.6, 1.8, 2.1), 600.0, rough);
+	c += lobe(dir, CARD_DIR, vec3(0.5, 0.5, 0.5), 4.0, rough);
 	return c;
 }
 
@@ -47,6 +63,58 @@ vec2 env_brdf(float n_dot_v, float rough) {
 	float a004 = min(r.x * r.x, exp2(-9.28 * n_dot_v)) * r.x + r.y;
 	return vec2(-1.04, 1.04) * a004 + r.zw;
 }
+
+// Linear light to the sRGB curve the viewport texture is shown with (IEC 61966-2-1, the
+// curve image files and the exporters use), not a 2.2 power: that one lifts the darkest
+// values several steps, which greys crevices out.
+vec3 srgb_encode(vec3 c) {
+	c = clamp(c, 0.0, 1.0);
+	return mix(12.92 * c, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c));
+}
+
+// Khronos PBR Neutral tone mapping: below about 0.8 colours pass through with only a
+// small toe, so picked colours stay the colours shown; above it they roll off toward
+// white, desaturating a little, instead of clipping. Both shading paths go through it,
+// so a clay object and a metal one in the same view share one transfer curve.
+vec3 tone_map(vec3 c) {
+	const float START = 0.8 - 0.04;
+	const float DESATURATION = 0.15;
+	float x = min(c.r, min(c.g, c.b));
+	float offset = x < 0.08 ? x - 6.25 * x * x : 0.04;
+	c -= offset;
+	float peak = max(c.r, max(c.g, c.b));
+	if (peak < START) return c;
+	const float d = 1.0 - START;
+	float new_peak = 1.0 - d * d / (peak + d - START);
+	c *= new_peak / peak;
+	float g = 1.0 - 1.0 / (DESATURATION * (peak - new_peak) + 1.0);
+	return mix(c, vec3(new_peak), g);
+}
+
+// What a lit colour shows as: scaled by the exposure, tone mapped, sRGB encoded.
+vec4 display(vec3 c) {
+	return vec4(srgb_encode(tone_map(c * exp2(look.x))), 1.0);
+}
+
+// How much the surface bends where this pixel sees it, as the angle the normal turns
+// across one pixel (radians), positive where it bulges toward the eye and negative in
+// creases: the change of the normal along each screen direction, projected on the way the
+// surface itself moves along it. Sub-pixel grooves and pores give large values and broad
+// forms small ones, which is what cavity shading should pick out.
+float curvature(vec3 n, vec3 p) {
+	vec3 dpx = dFdx(p), dpy = dFdy(p);
+	vec3 dnx = dFdx(n), dny = dFdy(n);
+	float lx = length(dpx), ly = length(dpy);
+	float c = 0.0;
+	if (lx > 0.0) c += dot(dnx, dpx) / lx;
+	if (ly > 0.0) c += dot(dny, dpy) / ly;
+	return c;
+}
+
+// Turns per pixel below CURVE_START leave the shading alone, so smooth broad forms are
+// untouched; by CURVE_FULL a crease or ridge takes the whole strength.
+const float CURVE_START = 0.01;
+const float CURVE_FULL = 0.12;
 
 // One light's GGX (Trowbridge-Reitz) specular and Lambert diffuse, Cook-Torrance style.
 vec3 direct(vec3 n, vec3 v, vec3 l, vec3 diffuse, vec3 f0, float a) {
@@ -65,7 +133,8 @@ vec3 direct(vec3 n, vec3 v, vec3 l, vec3 diffuse, vec3 f0, float a) {
 
 void main() {
 	if (params.y < 0.0) {
-		out_color = vec4(pow(base_color.rgb, vec3(1.0 / 2.2)), 1.0);
+		// Lines: the flat colour, encoded but not lit, exposed or tone mapped.
+		out_color = vec4(srgb_encode(base_color.rgb), 1.0);
 		return;
 	}
 	vec3 v = normalize(-in_view_pos);
@@ -79,6 +148,24 @@ void main() {
 		n = normalize(in_view_normal);
 		if (!gl_FrontFacing) n = -n;
 	}
+	// Derivatives are taken here, where every pixel of a quad runs: cavity and the
+	// specular filtering below both use them. With flat shading the normal only changes
+	// between triangles, so neither applies.
+	vec3 dndx = dFdx(n), dndy = dFdy(n);
+	float bend = curvature(n, in_view_pos);
+	if (surface.z > 0.5) {
+		dndx = vec3(0.0);
+		dndy = vec3(0.0);
+		bend = 0.0;
+	}
+	// Cavity darkens creases and ridge lightens crests, as ZBrush's materials and
+	// Blender's cavity shading do, so fine sculpted detail reads at any light angle.
+	// A ridge is faded toward the silhouette, where every convex form bends fast
+	// across the pixels and would otherwise get a bright outline.
+	float facing = max(dot(n, v), 0.0);
+	float cavity = look.y * smoothstep(CURVE_START, CURVE_FULL, -bend);
+	float ridge = look.z * smoothstep(CURVE_START, CURVE_FULL, bend) * smoothstep(0.1, 0.4, facing);
+	float relief = (1.0 - 0.75 * cavity) * (1.0 + 0.6 * ridge);
 
 	// Paint covers the clay as far as it reaches; groups show instead of both.
 	vec3 albedo = mix(base_color.rgb, in_paint.rgb, in_paint.a);
@@ -108,8 +195,13 @@ void main() {
 
 	if (surface.y > 0.0) {
 		float metallic = clamp(surface.x, 0.0, 1.0);
-		float rough = clamp(surface.y, 0.04, 1.0);
-		float a = rough * rough;
+		// Specular anti-aliasing (Tokuyoshi and Kaplanyan 2021, as Filament does it): where
+		// the normal varies within a pixel, as on a dense sculpt seen from afar, widen the
+		// highlight by that variance so it stays a highlight instead of sparkling.
+		float variance = 0.25 * (dot(dndx, dndx) + dot(dndy, dndy));
+		float a = surface.y * surface.y;
+		float rough = clamp(sqrt(sqrt(clamp(a * a + min(2.0 * variance, 0.18), 0.0, 1.0))), 0.04, 1.0);
+		a = rough * rough;
 		vec3 diffuse = albedo * (1.0 - metallic);
 		vec3 f0 = mix(vec3(0.04), albedo, metallic);
 		float n_dot_v = max(dot(n, v), 1e-4);
@@ -122,9 +214,7 @@ void main() {
 		vec2 ab = env_brdf(n_dot_v, rough);
 		color += diffuse * studio(n, 1.0) * 0.7;
 		color += studio(r, rough) * (f0 * ab.x + ab.y) * highlight;
-		// Filmic curve (Narkowicz's ACES fit) so bright reflections roll off instead of clipping.
-		color = clamp((color * (2.51 * color + 0.03)) / (color * (2.43 * color + 0.59) + 0.14), 0.0, 1.0);
-		out_color = vec4(pow(color, vec3(1.0 / 2.2)), 1.0);
+		out_color = display(color * relief);
 		return;
 	}
 
@@ -137,6 +227,7 @@ void main() {
 	vec3 h     = normalize(KEY_DIR + v);
 	float spec = pow(max(dot(n, h), 0.0), params.z) * params.y;
 	vec3 color = albedo * (params.x + key + fill) + vec3(spec + rim) * highlight;
-	// Linear to sRGB; the viewport target is a UNORM texture the interface shows as-is.
-	out_color = vec4(pow(color, vec3(1.0 / 2.2)), 1.0);
+	// The viewport texture is a UNORM texture the interface shows as-is, so the shader
+	// encodes for the display itself.
+	out_color = display(color * relief);
 }

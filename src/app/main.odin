@@ -194,6 +194,11 @@ App :: struct {
 	custom:    Material, // what the Material section's sliders made
 	flat:      bool, // shade with each triangle's own normal (faceted) instead of smoothed normals
 	wireframe: bool, // draw the selected object's edges over it
+	// How the viewport shows its shading (View > Material): brighter or darker in stops,
+	// creases darkened and crests lightened by the surface's curvature, 0 to 1 each.
+	exposure:  f32,
+	cavity:    f32,
+	ridge:     f32,
 	show_groups: bool, // draw every object's polygroups in their colours instead of its clay and paint
 	cache_idle: bool, // draw unselected objects from the viewport cache while they stay put
 	hd_window_vertices: int, // size of the HD windows the A key opens
@@ -447,6 +452,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		app.ui.rebuild_goal, app.ui.rebuild_even, app.rebuild.pinned = .Even, rebuild_count(opts.density_preview), true
 	}
 	app.studio_samples, app.studio_ao, app.studio_shadow = STUDIO_SAMPLES_DEFAULT, 0.85, 0.6
+	app.cavity, app.ridge = CAVITY_DEFAULT, RIDGE_DEFAULT
 	app.stroke_seed = 1
 	app.tool = .Brush
 	app.running = true
@@ -725,6 +731,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 					material = material.shading,
 					surface = {material.metallic, material.roughness},
 					flat = app.flat,
+					look = viewport_look(&app),
 					wireframe = selected && app.wireframe,
 					paint  = sculpt.sculptor_has_color(&lv.sculptor) && !obj.paint_off,
 					groups = app.show_groups && sculpt.sculptor_has_groups(&lv.sculptor),
@@ -753,6 +760,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 					material = material.shading,
 					surface  = {material.metallic, material.roughness},
 					flat     = app.flat,
+					look     = viewport_look(&app),
 					damage   = geom.AABB_EMPTY,
 				})
 			}

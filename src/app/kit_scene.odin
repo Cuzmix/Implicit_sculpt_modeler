@@ -447,9 +447,14 @@ kit_material :: proc(app: ^App) {
 	m := current_material(app)
 	if m.roughness == 0 do m.roughness = CUSTOM_ROUGHNESS
 	changed := kit_color(ctx, "material colour", (^[3]f32)(&m.selected))
+	// How every material is shown, kept apart from the materials themselves: Cavity
+	// darkens creases and Ridge lightens crests, so fine detail reads at any light angle.
+	_ = ui.slider(ctx, "Cavity", &app.cavity, 0, 1, .Linear, fmt.tprintf("%.2f", app.cavity))
 	if kit_more(app, .Material) {
 		changed |= ui.slider(ctx, "Metallic", &m.metallic, 0, 1, .Linear, fmt.tprintf("%.2f", m.metallic))
 		changed |= ui.slider(ctx, "Roughness", &m.roughness, 0.04, 1, .Linear, fmt.tprintf("%.2f", m.roughness))
+		_ = ui.slider(ctx, "Ridge", &app.ridge, 0, 1, .Linear, fmt.tprintf("%.2f", app.ridge))
+		_ = ui.slider(ctx, "Exposure", &app.exposure, -EXPOSURE_RANGE, EXPOSURE_RANGE, .Linear, fmt.tprintf("%+.1f stops", app.exposure))
 		kit_more_end(app)
 	}
 	if changed {
@@ -457,7 +462,7 @@ kit_material :: proc(app: ^App) {
 		app.custom = m
 		app.material = CUSTOM_MATERIAL
 	}
-	ui.paragraph(ctx, "Moving a slider makes a Custom material from the one in use; the presets stay as they are.")
+	ui.paragraph(ctx, "Moving the colour, Metallic or Roughness makes a Custom material from the one in use; the presets stay as they are. Cavity darkens creases and Ridge lightens crests on every material.")
 }
 
 @(private = "file")

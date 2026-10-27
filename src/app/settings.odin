@@ -89,6 +89,9 @@ SETTINGS := [?]Setting {
 	{"retopo_quads", U + offset_of(Ui_State, retopo_quads), i32, 100, 1_000_000},
 	{"wireframe", offset_of(App, wireframe), bool, 0, 0},
 	{"flat", offset_of(App, flat), bool, 0, 0},
+	{"exposure", offset_of(App, exposure), f32, -EXPOSURE_RANGE, EXPOSURE_RANGE},
+	{"cavity", offset_of(App, cavity), f32, 0, 1},
+	{"ridge", offset_of(App, ridge), f32, 0, 1},
 	{"reduce_motion", K + offset_of(Kit_State, ctx) + offset_of(ui.Context, reduced_motion), bool, 0, 0},
 	{"ortho", offset_of(App, camera) + offset_of(camera.Orbit, ortho), bool, 0, 0},
 	// Settings > Interface, Camera, Touch and Performance.
