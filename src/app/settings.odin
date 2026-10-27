@@ -801,19 +801,11 @@ settings_load :: proc(app: ^App, path: string) {
 		case "dock_count":
 			// dock_count <n>: how many slots the dock uses, before its dock lines.
 			if n, ok := strconv.parse_int(f[1]); ok && len(f) == 2 do app.kit.dock_count = clamp(n, 1, DOCK_SLOTS)
-		case "bar_count":
+		case "bar_count", "bar":
 			// bar_count <zone> <n>: how many buttons a bar's zone (BAR_ZONES) has, before its
-			// bar lines; a bar that differs from a fresh install's is written whole.
-			if len(f) != 3 do continue
-			which, zone_ok := bar_zone(f[1])
-			if n, ok := strconv.parse_int(f[2]); ok && zone_ok do bar_list(app, which).count = clamp(n, 0, bar_capacity(which))
-		case "bar":
-			// bar <zone> <slot> <command name>.
-			if len(f) != 4 do continue
-			which, zone_ok := bar_zone(f[1])
-			slot, slot_ok := strconv.parse_int(f[2])
-			if !zone_ok || !slot_ok || slot < 0 || slot >= bar_capacity(which) do continue
-			if id, arg, ok := command_from_name(f[3]); ok && bar_lists(id) do bar_list(app, which).slots[slot] = {id, arg}
+			// bar <zone> <slot> <command name> lines; a bar that differs from a fresh
+			// install's is written whole.
+			bars_load_line(&app.kit, f)
 		case "dock_pack":
 			// dock_pack <slot> <pack id> <name, escaped>: a slot holding a content pack's
 			// preset, written after the slot's own dock line, which older versions read.
@@ -1034,12 +1026,7 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 			}
 		}
 	}
-	for which in ([2]Bar_Which{.Shortcuts, .Tools}) {
-		if !bar_changed(app, which) do continue
-		used := bar_used(app, which)
-		fmt.sbprintfln(&out, "bar_count %s %d", BAR_ZONES[which], len(used))
-		for s, i in used do fmt.sbprintfln(&out, "bar %s %d %s", BAR_ZONES[which], i, command_name(s.id, s.arg))
-	}
+	bars_save(&app.kit, &out)
 	for n in 0 ..< USER_PIES {
 		if !pie_changed(app, n) do continue
 		for s, i in app.kit.pies[n] do fmt.sbprintfln(&out, "pie %d %d %s", n, i, command_name(s.id, s.arg) if s.id != .None else "empty")

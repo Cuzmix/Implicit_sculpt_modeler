@@ -13,8 +13,10 @@ built_in_workspaces_read_back_as_written :: proc(t: ^testing.T) {
 		kit_layout_put(&s, text)
 		testing.expectf(t, kit_layout_text(&s) == text, "%v does not read back as written:\n%s", b, text)
 	}
-	// Sculpt is the layout as it starts: the tray docked on the right, open, and nothing else.
+	// Sculpt is the layout as it starts: the tray docked on the right, open, the bars as
+	// installed, and nothing else.
 	k: Kit_State
+	bars_reset(&k)
 	panels_default(&k)
 	k.inspector = true
 	testing.expect(t, kit_layout_text(&k) == built_in_layout(.Sculpt), "Sculpt is not the starting layout")
@@ -25,6 +27,7 @@ switching_workspaces_keeps_what_was_left :: proc(t: ^testing.T) {
 	defer free_all(context.temp_allocator)
 	a: App
 	k := &a.kit
+	bars_reset(k)
 	panels_default(k)
 	k.inspector = true
 	workspaces_init(k)
@@ -141,4 +144,43 @@ an_older_settings_file_keeps_its_layout_as_sculpt :: proc(t: ^testing.T) {
 	workspaces_frame(&a.kit)
 	testing.expect(t, a.kit.stats && !a.kit.workspaces.modified, "an older file's layout shows as a change")
 	testing.expect_value(t, a.kit.workspaces.current, int(Built_In.Sculpt))
+}
+
+@(test)
+a_workspace_keeps_its_bars_but_not_the_dock :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	a: App
+	k := &a.kit
+	bars_reset(k)
+	panels_default(k)
+	k.inspector = true
+	workspaces_init(k)
+	defer workspaces_destroy(k)
+	w := &k.workspaces
+	workspaces_frame(k)
+	testing.expect(t, !w.modified, "the fresh bars read as changed")
+
+	// A shortcut taken off marks the workspace and stays with it; Focus has every one.
+	fresh := k.shortcuts.count
+	bar_remove(&a, .Shortcuts, 0)
+	workspaces_frame(k)
+	testing.expect(t, w.modified, "a shortcut taken off is no change")
+	workspace_switch(k, int(Built_In.Focus))
+	testing.expect_value(t, k.shortcuts.count, fresh)
+	workspace_switch(k, int(Built_In.Sculpt))
+	testing.expect_value(t, k.shortcuts.count, fresh - 1)
+
+	// The dock is the user's own set, the same in every workspace.
+	bar_remove(&a, .Dock, 0)
+	dock := k.dock
+	workspace_switch(k, int(Built_In.Studio))
+	testing.expect(t, k.dock == dock, "a workspace changed the dock")
+
+	// A layout written before workspaces held the bars keeps the bars as they are.
+	kit_layout_put(k, "open Inspector\n")
+	testing.expect_value(t, k.shortcuts.count, fresh)
+	bar_remove(&a, .Tools, 0)
+	tools := k.tools.count
+	kit_layout_put(k, "open Stats\n")
+	testing.expect_value(t, k.tools.count, tools)
 }
