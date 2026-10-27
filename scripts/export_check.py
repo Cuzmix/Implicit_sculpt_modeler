@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Checks an exported .glb or .usda with the tools other programs will read it with.
+"""Checks an exported .glb, .usda or .stl with the tools other programs will read it with.
 
     python scripts/export_check.py --setup                        # once: the tools, into build/export-tools
     python scripts/export_check.py build/out.glb
@@ -8,11 +8,14 @@
         --keys "Layer 1=1.5,Layer 2=0" --colors --material "Gold,1,0.3" --require
     python scripts/export_check.py build/out.glb --face-materials "Gold=2,Steel=10"
     python scripts/export_check.py build/out.usda --lights "SUN=3.1416,POINT=145.08"
+    python scripts/export_check.py build/out.stl --vertices 642 --triangles 1280
 
 Two checks for each, each reported on its own line as PASS, FAIL or SKIP:
 - validator: for .glb, the Khronos glTF validator (npm package gltf-validator, run with
-  node); for .usda, USD's own validators (UsdValidation, from the usd-core wheel). Any
-  error fails; warnings are listed.
+  node); for .usda, USD's own validators (UsdValidation, from the usd-core wheel); for
+  .stl, a check of the binary layout here (the length the count gives, a header that does
+  not start as a text file's does, finite numbers, each normal of unit length and on the
+  side its corners wind to). Any error fails; warnings are listed.
 - blender: Blender itself (the bpy wheel from PyPI, Python 3.13) imports the file into an
   empty scene, and the check reads back what a person would see: the mesh's vertices and
   triangles, its shape keys with their values, whether it has a colour attribute, and the
@@ -57,7 +60,7 @@ BLENDER_PY = r"""
 import bpy, json, sys
 path = sys.argv[-1]
 bpy.ops.wm.read_factory_settings(use_empty=True)
-importer = bpy.ops.import_scene.gltf if path.lower().endswith('.glb') else bpy.ops.wm.usd_import
+importer = {'.glb': bpy.ops.import_scene.gltf, '.stl': bpy.ops.wm.stl_import}.get(path.lower()[-4:], bpy.ops.wm.usd_import)
 importer(filepath=path)
 # Blender keys a USD file's blend shape weights in an action, which applies once the
 # scene is at a frame.
@@ -117,6 +120,43 @@ def setup():
     if subprocess.run([VENV_PYTHON, "-m", "pip", "install", "usd-core"]).returncode != 0:
         print("setup: pip could not install usd-core; the USD validator check will be skipped")
     return 0
+
+
+def check_stl(path):
+    """The binary STL layout, read here: no tool is needed."""
+    import math
+    import struct
+    with open(path, "rb") as f:
+        data = f.read()
+    if len(data) < 84:
+        return "FAIL", "%d bytes, shorter than the header" % len(data)
+    count = struct.unpack_from("<I", data, 80)[0]
+    if len(data) != 84 + 50 * count:
+        return "FAIL", "%d bytes, but %d triangles take %d" % (len(data), count, 84 + 50 * count)
+    errors = []
+    if data[:5].lower() == b"solid":
+        errors.append("the header starts with 'solid', as a text file does")
+    zero = 0
+    for t in range(count):
+        row = struct.unpack_from("<12fH", data, 84 + 50 * t)
+        if not all(math.isfinite(x) for x in row[:12]):
+            errors.append("triangle %d has a NaN or infinite number" % t)
+            break
+        n, a, b, c = row[0:3], row[3:6], row[6:9], row[9:12]
+        length = math.sqrt(sum(x * x for x in n))
+        if length == 0:
+            zero += 1
+            continue
+        u = [b[k] - a[k] for k in range(3)]
+        v = [c[k] - a[k] for k in range(3)]
+        cross = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]]
+        if abs(length - 1) > 1e-3 or sum(n[k] * cross[k] for k in range(3)) <= 0:
+            errors.append("triangle %d's normal is not of unit length on its winding's side" % t)
+            break
+    detail = "%d triangles, %d with a zero normal" % (count, zero)
+    if errors:
+        return "FAIL", "; ".join(errors) + " (" + detail + ")"
+    return "PASS", detail
 
 
 def bpy_python():
@@ -273,7 +313,7 @@ def check_blender(path, args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    parser.add_argument("file", nargs="?", help="the exported .glb or .usda")
+    parser.add_argument("file", nargs="?", help="the exported .glb, .usda or .stl")
     parser.add_argument("--setup", action="store_true", help="install the tools into build/export-tools")
     parser.add_argument("--vertices", type=int)
     parser.add_argument("--triangles", type=int)
@@ -297,6 +337,8 @@ def main():
     results = []
     if path.lower().endswith(".glb"):
         results.append(("validator",) + check_validator(path))
+    elif path.lower().endswith(".stl"):
+        results.append(("validator",) + check_stl(path))
     else:
         results.append(("validator",) + check_usd(path))
     results.append(("blender",) + check_blender(path, args))
