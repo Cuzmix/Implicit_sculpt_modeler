@@ -51,7 +51,8 @@ UI = {
     # The navigation head (nav_head.odin), and the view bar under it.
     "nav_head": (1568, 88),
     "search": (1569, 155), "inspector": (1569, 203), "objects": (1569, 251),
-    "ortho": (1569, 365), "sym_x": (1569, 413), "wireframe": (1569, 509),
+    "ortho": (1569, 365), "floor": (1569, 413), "sym_x": (1569, 461), "wireframe": (1569, 557),
+    "transparency": (1569, 605),
     "dock_draw": (426, 843), "dock_smooth": (490, 843), "browser": (872, 843), "gizmo": (933, 843),
     "remesh": (990, 843), "dyntopo": (1038, 843), "retopo": (1086, 843), "subdivide": (1134, 843),
     "live_boolean": (1182, 843), "dock_page1": (772, 888), "dock_page2": (800, 888), "dock_page3": (828, 888),
@@ -250,7 +251,12 @@ def tap_ui():
 
 
 # The symmetry popover a long press on Symmetry opens at 1600 x 900: its X, Y and Z.
-SYMMETRY_AXES = {"x": (1401, 449), "y": (1453, 449), "z": (1505, 449)}
+SYMMETRY_AXES = {"x": (1401, 497), "y": (1453, 497), "z": (1505, 497)}
+# The Floor grid section's Back toggle, and the polyframe popover's Fill, beside the bar.
+FLOOR_BACK = (1381, 561)
+POLYFRAME_FILL = (1450, 590)
+# The view menu's Field of view slider, under Orthographic.
+FOV_SLIDER = (1300, 640)
 
 
 @scenario
@@ -341,6 +347,61 @@ def symmetry_tap_and_long_press():
     s.ftap(*SYMMETRY_AXES["y"])
     s.wait(4)
     return s, [], camera_still({"dabs": near(0), "symmetry": is_text("xy"), "bar_pop": is_text("symmetry")})
+
+
+@scenario
+def floor_grid_tap_and_long_press():
+    """A tap on Floor grid shows the grid; a long press opens its settings beside the bar,
+    where a tap on Back adds the back wall to the floor."""
+    s = Script()
+    s.ftap(*UI["floor"])
+    s.wait(4)
+    long_press(s, *UI["floor"])
+    s.wait(8)
+    s.ftap(*FLOOR_BACK)
+    s.wait(4)
+    return s, [], camera_still({"dabs": near(0), "floor_grid": near(1), "floor_planes": is_text("011"), "bar_pop": is_text("floor")})
+
+
+@scenario
+def transparency_tap():
+    """A tap on Transparency shows the other objects see-through; another puts them back."""
+    s = Script()
+    s.ftap(*UI["transparency"])
+    s.wait(4)
+    once = Script()
+    once.ftap(*UI["transparency"])
+    once.wait(4)
+    once.ftap(*UI["transparency"])
+    once.wait(4)
+    return Steps([(s, [], camera_still({"transparent": near(1), "dabs": near(0)})),
+                  (once, [], camera_still({"transparent": near(0), "dabs": near(0)}))])
+
+
+@scenario
+def polyframe_long_press_picks_fill():
+    """A long press on Wireframe opens what the polyframe shows; Fill adds the polygroups'
+    colours to the lines, and a tap on the button shows it."""
+    s = Script()
+    long_press(s, *UI["wireframe"])
+    s.wait(8)
+    s.ftap(*POLYFRAME_FILL)
+    s.wait(4)
+    s.ftap(*UI["wireframe"])
+    s.wait(4)
+    return s, [], camera_still({"dabs": near(0), "polyframe_fill": near(1), "polyframe_lines": near(1), "wireframe": near(1)})
+
+
+@scenario
+def field_of_view_from_the_view_menu():
+    """A long press on Orthographic opens the view menu, whose Field of view slider widens
+    the lens; the eye comes in to keep the model's size, so the distance shrinks."""
+    s = Script()
+    long_press(s, *UI["ortho"])
+    s.wait(8)
+    s.fdrag([(FOV_SLIDER[0] + 12 * i, FOV_SLIDER[1]) for i in range(11)])
+    s.wait(4)
+    return s, [], {"dabs": near(0), "@wider": lambda st: float(st["fov"]) > 50, "@nearer": lambda st: float(st["camera_distance"]) < 3.4}
 
 
 @scenario
@@ -5315,7 +5376,7 @@ def adjust_retopo_and_extract():
 
 
 # Camera history (camera_history.odin): View menu rows at 1600x900.
-VIEW_BACK, VIEW_FORWARD = (1399, 722), (1399, 766)
+VIEW_BACK, VIEW_FORWARD = (1399, 794), (1399, 838)
 CAMERA_KEYS = ("camera_yaw", "camera_pitch", "camera_roll", "camera_distance", "camera_target")
 
 

@@ -2,6 +2,7 @@ package main
 
 import "core:fmt"
 import "core:log"
+import "core:math"
 import "core:slice"
 import "core:strconv"
 import "core:strings"
@@ -9,6 +10,7 @@ import "core:time"
 
 import sdl "vendor:sdl3"
 
+import "../camera"
 import "../geom"
 import "../render"
 import "../sculpt"
@@ -326,7 +328,7 @@ window_slide :: proc(w: ui.Window, default: ui.Anchor) -> f32 {
 }
 
 // The sections of the tray's palettes, then the Stats panel's: the tray's come first and
-// end with Camera (TRAY_SECTIONS), each palette's together (section_palette).
+// end with Floor (TRAY_SECTIONS), each palette's together (section_palette).
 Kit_Section :: enum u8 {
 	// The Brush palette's.
 	Preset,
@@ -366,6 +368,7 @@ Kit_Section :: enum u8 {
 	Lights,
 	Studio,
 	Camera,
+	Floor,
 	// The Stats panel's.
 	Frame,
 	Drawing,
@@ -1152,12 +1155,25 @@ kit_view_menu :: proc(app: ^App, anchor: ui.Rect, side: ui.Side) {
 	ui.divider(ctx, across = true)
 	ui.caption(ctx, "  CAMERA")
 	_ = command_menu_item(app, .Ortho_Toggle)
+	// Inset as the menu's rows are.
+	ui.begin(ctx, "view menu fov", {direction = .Column, padding = 10})
+	kit_field_of_view(app)
+	ui.end(ctx)
 	if command_menu_item(app, .Focus_Selected) do k.view_menu = false
 	if command_menu_item(app, .Reset_Camera) do k.view_menu = false
 	// The menu stays open over these, to step back or forward several views.
 	_ = command_menu_item(app, .View_Back)
 	_ = command_menu_item(app, .View_Forward)
 	ui.popover_end(ctx)
+}
+
+// The field of view, in degrees: the eye moves along its line as it changes, so the model
+// keeps its size on screen and only the perspective strengthens or flattens.
+kit_field_of_view :: proc(app: ^App) {
+	ctx := &app.kit.ctx
+	degrees := math.to_degrees(app.camera.fov_y)
+	lo, hi := math.to_degrees(camera.FOV_MIN), math.to_degrees(camera.FOV_MAX)
+	if ui.slider(ctx, "Field of view", &degrees, lo, hi, .Linear, fmt.tprintf("%.0f°", degrees)) do camera.orbit_set_fov(&app.camera, math.to_radians(math.round(degrees)))
 }
 
 // A size or strength slider's tooltip: its keys, and the three-finger drag when that is on.

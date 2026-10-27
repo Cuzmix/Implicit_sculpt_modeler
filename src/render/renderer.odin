@@ -44,6 +44,32 @@ Renderer :: struct {
 	// copy instead (see Draw_Item.lod); 0 draws everything at full detail. The app
 	// sets it while the view moves.
 	lod_px:         f32,
+	// The floor grid the viewport draws behind and among its items; set by the app each
+	// frame, as lod_px is.
+	floor:          Floor_Grid,
+}
+
+// The grid drawn on up to three planes square to the world's axes, round the scene: per
+// axis, whether the plane across it shows (`shown`, as 1 or 0, so the struct hashes with no
+// padding) and where along the axis it sits (`at`); the side of a cell; how far from
+// `center` its lines fade out; and whether the axes' own lines show in their colours.
+Floor_Grid :: struct {
+	shown:  [3]b32,
+	at:     [3]f32,
+	center: [3]f32,
+	cell:   f32,
+	radius: f32,
+	axes:   b32,
+}
+#assert(size_of(Floor_Grid) == 48)
+
+// Matches Floor_Uniforms in floor.frag.
+Floor_Uniforms :: struct {
+	inv_view_proj: Mat4,
+	view_proj:     Mat4,
+	plane:         [4]f32, // x: the axis across the plane, y: where along it the plane sits
+	grid:          [4]f32, // x: a cell's side, y: the fade radius, z: 1 to draw the axes
+	center:        [4]f32,
 }
 
 // The pipelines that draw meshes into targets of one sample count.
@@ -53,6 +79,22 @@ Mesh_Pipelines :: struct {
 	// show over the surface they outline; nil where the device cannot draw lines.
 	wire:  ^sdl.GPUGraphicsPipeline,
 	clear: ^sdl.GPUGraphicsPipeline, // clears a scissored rectangle to the background
+	// The mesh shaders blending over what is behind and leaving the depth be, for items
+	// drawn see-through (Draw_Item.look.w); nil where the device refused it, and those items
+	// are then drawn solid.
+	see:   ^sdl.GPUGraphicsPipeline,
+	// The floor grid (Floor_Grid), one full-screen triangle a plane; nil where the device
+	// refused it, and the grid is then not drawn.
+	floor: ^sdl.GPUGraphicsPipeline,
+}
+
+// How a mesh pipeline draws its triangles: filled and opaque, as lines, or filled and
+// blended (see-through).
+@(private)
+Mesh_Mode :: enum u8 {
+	Solid,
+	Wire,
+	See_Through,
 }
 
 // Viewport background, linear values written as-is (like the mesh shader's output).
@@ -229,6 +271,8 @@ MESH_VERT_SPV :: #load("shaders/mesh.vert.spv")
 MESH_FRAG_SPV :: #load("shaders/mesh.frag.spv")
 CLEAR_VERT_SPV :: #load("shaders/clear.vert.spv")
 CLEAR_FRAG_SPV :: #load("shaders/clear.frag.spv")
+FLOOR_VERT_SPV :: #load("shaders/floor.vert.spv")
+FLOOR_FRAG_SPV :: #load("shaders/floor.frag.spv")
 
 renderer_init :: proc(r: ^Renderer, window: ^sdl.Window, debug: bool) -> bool {
 	r.window = window
@@ -378,20 +422,22 @@ mesh_pipelines :: proc(r: ^Renderer, samples: sdl.GPUSampleCount) -> ^Mesh_Pipel
 @(private)
 mesh_pipelines_create :: proc(r: ^Renderer, samples: sdl.GPUSampleCount) -> Mesh_Pipelines {
 	return {
-		mesh = create_mesh_pipeline(r, wire = false, samples = samples),
-		wire = create_mesh_pipeline(r, wire = true, samples = samples),
+		mesh = create_mesh_pipeline(r, .Solid, samples),
+		wire = create_mesh_pipeline(r, .Wire, samples),
 		clear = create_clear_pipeline(r, samples),
+		see = create_mesh_pipeline(r, .See_Through, samples),
+		floor = create_floor_pipeline(r, samples),
 	}
 }
 
 @(private)
 mesh_pipelines_destroy :: proc(r: ^Renderer, p: ^Mesh_Pipelines) {
-	for pipeline in ([3]^sdl.GPUGraphicsPipeline{p.mesh, p.wire, p.clear}) do if pipeline != nil do sdl.ReleaseGPUGraphicsPipeline(r.device, pipeline)
+	for pipeline in ([5]^sdl.GPUGraphicsPipeline{p.mesh, p.wire, p.clear, p.see, p.floor}) do if pipeline != nil do sdl.ReleaseGPUGraphicsPipeline(r.device, pipeline)
 	p^ = {}
 }
 
 @(private)
-create_mesh_pipeline :: proc(r: ^Renderer, wire: bool, samples: sdl.GPUSampleCount) -> ^sdl.GPUGraphicsPipeline {
+create_mesh_pipeline :: proc(r: ^Renderer, mode: Mesh_Mode, samples: sdl.GPUSampleCount) -> ^sdl.GPUGraphicsPipeline {
 	vert := sdl.CreateGPUShader(r.device, {
 		code_size           = len(MESH_VERT_SPV),
 		code                = raw_data(MESH_VERT_SPV),
@@ -426,7 +472,8 @@ create_mesh_pipeline :: proc(r: ^Renderer, wire: bool, samples: sdl.GPUSampleCou
 		{location = 0, buffer_slot = 0, format = .FLOAT3},
 		{location = 1, buffer_slot = 1, format = .SHORT2_NORM},
 	}
-	color_targets := [1]sdl.GPUColorTargetDescription{{format = VIEWPORT_COLOR_FORMAT}}
+	wire := mode == .Wire
+	color_targets := [1]sdl.GPUColorTargetDescription{{format = VIEWPORT_COLOR_FORMAT, blend_state = BLEND_OVER if mode == .See_Through else {}}}
 
 	pipeline := sdl.CreateGPUGraphicsPipeline(r.device, {
 		vertex_shader = vert,
@@ -443,7 +490,7 @@ create_mesh_pipeline :: proc(r: ^Renderer, wire: bool, samples: sdl.GPUSampleCou
 			// Toward the eye, so a line wins against the triangle it borders.
 			enable_depth_bias = true, depth_bias_constant_factor = -2, depth_bias_slope_factor = -1,
 		} : sdl.GPURasterizerState{fill_mode = .FILL, cull_mode = .BACK, front_face = .COUNTER_CLOCKWISE},
-		depth_stencil_state = {compare_op = .LESS_OR_EQUAL if wire else .LESS, enable_depth_test = true, enable_depth_write = !wire},
+		depth_stencil_state = {compare_op = .LESS_OR_EQUAL if wire else .LESS, enable_depth_test = true, enable_depth_write = mode == .Solid},
 		multisample_state = {sample_count = samples},
 		target_info = {
 			color_target_descriptions = &color_targets[0],
@@ -452,9 +499,62 @@ create_mesh_pipeline :: proc(r: ^Renderer, wire: bool, samples: sdl.GPUSampleCou
 			has_depth_stencil_target = true,
 		},
 	})
-	if pipeline == nil && !wire {
+	switch {
+	case pipeline != nil:
+	case mode == .Solid:
 		log.errorf("CreateGPUGraphicsPipeline failed: %s", sdl.GetError())
+	case mode == .See_Through:
+		log.warnf("see-through objects are drawn solid: the blended pipeline could not be made: %s", sdl.GetError())
 	}
+	return pipeline
+}
+
+// Colour blended over what is there by the source's alpha; the target's alpha kept as it
+// is, so the viewport image stays opaque wherever the interface shows it.
+@(private)
+BLEND_OVER :: sdl.GPUColorTargetBlendState {
+	enable_blend          = true,
+	src_color_blendfactor = .SRC_ALPHA,
+	dst_color_blendfactor = .ONE_MINUS_SRC_ALPHA,
+	color_blend_op        = .ADD,
+	src_alpha_blendfactor = .ZERO,
+	dst_alpha_blendfactor = .ONE,
+	alpha_blend_op        = .ADD,
+}
+
+@(private)
+create_floor_pipeline :: proc(r: ^Renderer, samples: sdl.GPUSampleCount) -> ^sdl.GPUGraphicsPipeline {
+	vert := sdl.CreateGPUShader(r.device, {
+		code_size = len(FLOOR_VERT_SPV), code = raw_data(FLOOR_VERT_SPV), entrypoint = "main",
+		format = {.SPIRV}, stage = .VERTEX,
+	})
+	frag := sdl.CreateGPUShader(r.device, {
+		code_size = len(FLOOR_FRAG_SPV), code = raw_data(FLOOR_FRAG_SPV), entrypoint = "main",
+		format = {.SPIRV}, stage = .FRAGMENT, num_uniform_buffers = 1,
+	})
+	defer if vert != nil do sdl.ReleaseGPUShader(r.device, vert)
+	defer if frag != nil do sdl.ReleaseGPUShader(r.device, frag)
+	if vert == nil || frag == nil {
+		log.warnf("the floor grid stays off: its shaders could not be made: %s", sdl.GetError())
+		return nil
+	}
+	color_targets := [1]sdl.GPUColorTargetDescription{{format = VIEWPORT_COLOR_FORMAT, blend_state = BLEND_OVER}}
+	pipeline := sdl.CreateGPUGraphicsPipeline(r.device, {
+		vertex_shader = vert,
+		fragment_shader = frag,
+		primitive_type = .TRIANGLELIST,
+		rasterizer_state = {fill_mode = .FILL, cull_mode = .NONE},
+		// Tested against the meshes' depth, which it leaves as it is.
+		depth_stencil_state = {compare_op = .LESS_OR_EQUAL, enable_depth_test = true, enable_depth_write = false},
+		multisample_state = {sample_count = samples},
+		target_info = {
+			color_target_descriptions = &color_targets[0],
+			num_color_targets = len(color_targets),
+			depth_stencil_format = r.depth_format,
+			has_depth_stencil_target = true,
+		},
+	})
+	if pipeline == nil do log.warnf("the floor grid stays off: its pipeline could not be made: %s", sdl.GetError())
 	return pipeline
 }
 
@@ -889,12 +989,17 @@ upload_index_ranges :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: ^Mesh_
 // keeps the previous colour and depth and redraws only the screen rectangle the items'
 // damage boxes cover, or nothing at all when nothing changed.
 render_viewport :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, view, proj: Mat4, items: []Draw_Item, use_cache: bool) -> (stats: Viewport_Stats) {
-	key := frame_key(vt^, view, proj, items, r.lod_px)
+	key := frame_key(vt^, view, proj, items, r.lod_px, r.floor)
 	defer {
 		vt.frame_key = key
 		for item in items do item.mesh.drawn_version = item.mesh.version
 	}
-	if r.partial && key == vt.frame_key {
+	// With multisampling a rectangle's edge may keep samples of the frame before (see
+	// render_rect), which a see-through item blended again would show as a seam.
+	pipes := mesh_pipelines(r, vt.samples)
+	see := false
+	for item in items do see ||= blended(pipes, item)
+	if r.partial && key == vt.frame_key && !(see && vt.samples != ._1) {
 		if rect, ok := damage_rect(vt^, view, proj, items); ok {
 			stats.partial = true
 			if rect.w > 0 && rect.h > 0 do render_rect(r, cmd, vt, view, proj, items, rect, &stats)
@@ -996,16 +1101,15 @@ render_rect :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Targ
 	background := BACKGROUND
 	sdl.PushGPUFragmentUniformData(cmd, 0, &background, size_of(background))
 	sdl.DrawGPUPrimitives(pass, 3, 1, 0, 0)
-	sdl.BindGPUGraphicsPipeline(pass, pipes.mesh)
 	if drawn != rect do sdl.SetGPUScissor(pass, {drawn.x, drawn.y, drawn.w, drawn.h})
-	draw_items(r, cmd, pass, pipes, view, proj, items, nil, stats)
+	draw_scene(r, cmd, pass, pipes, view, proj, items, nil, stats, rect if drawn != rect else nil)
 	sdl.EndGPURenderPass(pass)
 	stats.redrawn_px = u64(rect.w) * u64(rect.h)
 }
 
 // Hash of what frame_key in Viewport_Target describes.
 @(private)
-frame_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lod_px: f32) -> u64 {
+frame_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lod_px: f32, floor: Floor_Grid) -> u64 {
 	Keyed :: struct {
 		mesh:     ^Mesh_Buffers,
 		matcap:   ^sdl.GPUTexture,
@@ -1027,8 +1131,10 @@ frame_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lod
 		width, height: u32,
 		items:         u32,
 		lod_px:        f32,
+		floor:         Floor_Grid,
 	}
-	header := Header{view, proj, vt.width, vt.height, u32(len(items)), lod_px}
+	#assert(size_of(Header) == 2 * size_of(Mat4) + 16 + size_of(Floor_Grid))
+	header := Header{view, proj, vt.width, vt.height, u32(len(items)), lod_px, floor}
 	h := hash.fnv64a(slice.bytes_from_ptr(&header, size_of(header)))
 	for item in items {
 		k := Keyed{item.mesh, item.matcap, item.model, item.color, item.material, item.checker, item.look, item.lights, item.surface, b32(item.wireframe), b32(item.flat), b32(item.paint), b32(item.groups)}
@@ -1043,14 +1149,21 @@ frame_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lod
 render_full :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, view, proj: Mat4, items: []Draw_Item, use_cache: bool, stats: ^Viewport_Stats) {
 	// Pixels a mesh unit covers one unit in front of the eye (perspective only).
 	lod := Lod_View{r.lod_px, proj[1, 1] * f32(vt.height) / 2} if r.lod_px > 0 && proj[3, 3] == 0 else {}
-	live := 0
-	for item in items do live += int(item.live)
-	// With nothing live (or nothing idle) there is nothing to reuse.
-	if !use_cache || live == 0 || live == len(items) || !static_cache_ensure(r, vt) {
+	pipes := mesh_pipelines(r, vt.samples)
+	live, see := 0, 0
+	for item in items {
+		live += int(item.live)
+		see += int(blended(pipes, item))
+	}
+	// With nothing live (or nothing idle) there is nothing to reuse; and see-through items
+	// must blend over everything drawn before them, which a cache of the idle ones drawn
+	// first would break (while the scene is see-through, the idle ones are all
+	// see-through anyway).
+	if !use_cache || see > 0 || live == 0 || live == len(items) || !static_cache_ensure(r, vt) {
 		vt.cache.key = 0
 		prepare_draws(r, cmd, view, proj, items, nil, stats, lod = lod)
 		pass := target_pass(r, cmd, vt, load = false)
-		draw_items(r, cmd, pass, mesh_pipelines(r, vt.samples), view, proj, items, nil, stats)
+		draw_scene(r, cmd, pass, pipes, view, proj, items, nil, stats)
 		sdl.EndGPURenderPass(pass)
 		return
 	}
@@ -1060,7 +1173,6 @@ render_full :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Targ
 	redraw := key != vt.cache.key
 	prepare_draws(r, cmd, view, proj, items, nil if redraw else true, stats, lod = lod)
 	if redraw {
-		pipes := mesh_pipelines(r, vt.samples)
 		pass := begin_mesh_pass(r, cmd, pipes, vt.cache.color, vt.cache.depth, load = false, keep_depth = true)
 		draw_items(r, cmd, pass, pipes, view, proj, items, false, stats)
 		sdl.EndGPURenderPass(pass)
@@ -1076,8 +1188,10 @@ render_full :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Targ
 	}
 	sdl.EndGPUCopyPass(copy_pass)
 
+	// The grid only here, after the live items, and never into the cache: a live item drawn
+	// over the cache's depth, which has no grid, would cover grid in front of it.
 	pass := target_pass(r, cmd, vt, load = true)
-	draw_items(r, cmd, pass, mesh_pipelines(r, vt.samples), view, proj, items, true, stats)
+	draw_scene(r, cmd, pass, pipes, view, proj, items, true, stats)
 	sdl.EndGPURenderPass(pass)
 }
 
@@ -1260,9 +1374,12 @@ begin_mesh_pass :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pipes: ^Mesh_P
 // Draws the items whose `live` flag matches (all of them when `live` is nil) with the
 // clay material: the visible runs prepare_draws found, or the whole mesh.
 @(private)
-draw_items :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURenderPass, pipes: ^Mesh_Pipelines, view, proj: Mat4, items: []Draw_Item, live: Maybe(bool), stats: ^Viewport_Stats) {
+draw_items :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURenderPass, pipes: ^Mesh_Pipelines, view, proj: Mat4, items: []Draw_Item, live: Maybe(bool), stats: ^Viewport_Stats, see := false) {
+	main := pipes.see if see else pipes.mesh
+	sdl.BindGPUGraphicsPipeline(pass, main)
 	for item in items {
 		if want, filtered := live.?; filtered && item.live != want do continue
+		if blended(pipes, item) != see do continue
 		mb := item.mesh
 		show_paint, show_groups := item.paint && mb.paint != nil, item.groups && mb.paint != nil
 		frame := Frame_Uniforms{view_proj = proj * view, view = view, model = item.model, options = {f32(int(show_paint)), f32(int(show_groups)), 0, 0}}
@@ -1270,6 +1387,8 @@ draw_items :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURende
 		surface := [4]f32{item.surface.x, item.surface.y, 1 if item.flat else 0, 1 if item.matcap != nil else 0}
 		lights := item.lights if item.lights != {} else DEFAULT_LIGHTS
 		material := Material_Uniforms{base_color = item.color, params = params, surface = surface, checker = item.checker, look = item.look, lights = lights}
+		// Drawn solid after all where the blended pipeline is missing, and opaque then.
+		if !see do material.look.w = 0
 		sdl.PushGPUVertexUniformData(cmd, 0, &frame, size_of(frame))
 		sdl.PushGPUFragmentUniformData(cmd, 0, &material, size_of(material))
 		paint := [1]^sdl.GPUBuffer{mb.paint if mb.paint != nil else r.no_paint}
@@ -1286,8 +1405,53 @@ draw_items :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURende
 			sdl.PushGPUFragmentUniformData(cmd, 0, &wire, size_of(wire))
 			sdl.BindGPUGraphicsPipeline(pass, pipes.wire)
 			draw_item_triangles(r, pass, item, nil)
-			sdl.BindGPUGraphicsPipeline(pass, pipes.mesh)
+			sdl.BindGPUGraphicsPipeline(pass, main)
 		}
+	}
+}
+
+// Whether `item` is drawn see-through, blended over what is behind it: it asks to be
+// (Draw_Item.look.w) and the device made the blended pipeline.
+@(private)
+blended :: proc(pipes: ^Mesh_Pipelines, item: Draw_Item) -> bool {
+	return item.look.w > 0 && pipes.see != nil
+}
+
+// Draws the viewport's items whose `live` matches in the order blending needs: the opaque
+// ones, then the floor grid, then the see-through ones over both. In render_rect the opaque
+// ones are drawn a pixel past the rectangle (see there); everything blended stays inside
+// `inside`, as drawing it twice at the edge would blend it twice.
+@(private)
+draw_scene :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURenderPass, pipes: ^Mesh_Pipelines, view, proj: Mat4, items: []Draw_Item, live: Maybe(bool), stats: ^Viewport_Stats, inside: Maybe(Rect) = nil) {
+	draw_items(r, cmd, pass, pipes, view, proj, items, live, stats)
+	if rect, ok := inside.?; ok do sdl.SetGPUScissor(pass, {rect.x, rect.y, rect.w, rect.h})
+	draw_floor(r, cmd, pass, pipes, view, proj)
+	if pipes.see == nil do return
+	for item in items do if blended(pipes, item) {
+		draw_items(r, cmd, pass, pipes, view, proj, items, live, stats, see = true)
+		break
+	}
+}
+
+// Draws Renderer.floor's planes, each as a full-screen triangle whose pixels find where
+// their ray meets the plane (floor.frag).
+@(private)
+draw_floor :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURenderPass, pipes: ^Mesh_Pipelines, view, proj: Mat4) {
+	f := r.floor
+	if pipes.floor == nil || f.shown == {} || f.cell <= 0 do return
+	view_proj := proj * view
+	u := Floor_Uniforms {
+		inv_view_proj = linalg.inverse(view_proj),
+		view_proj     = view_proj,
+		grid          = {f.cell, f.radius, f32(int(f.axes)), 0},
+		center        = {f.center.x, f.center.y, f.center.z, 0},
+	}
+	sdl.BindGPUGraphicsPipeline(pass, pipes.floor)
+	for axis in 0 ..< 3 {
+		if !f.shown[axis] do continue
+		u.plane = {f32(axis), f.at[axis], 0, 0}
+		sdl.PushGPUFragmentUniformData(cmd, 0, &u, size_of(u))
+		sdl.DrawGPUPrimitives(pass, 3, 1, 0, 0)
 	}
 }
 

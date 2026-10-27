@@ -62,6 +62,11 @@ PITCH_LIMIT :: math.PI / 2 - 0.01
 MIN_DISTANCE :: 0.05
 MAX_DISTANCE :: 1000
 
+// The field of view's range, in radians: from a long lens's flat look to a wide angle's
+// strong perspective.
+FOV_MIN :: f32(15 * math.PI / 180)
+FOV_MAX :: f32(100 * math.PI / 180)
+
 orbit_default :: proc() -> Orbit {
 	return Orbit{distance = 3.5, yaw = 0.6, pitch = 0.35, fov_y = math.to_radians(f32(40)), near = 0.01, far = 100}
 }
@@ -339,6 +344,16 @@ perspective :: proc(fov_y, aspect, near, far: f32) -> Mat4 {
 		0, 0, far / (near - far), near * far / (near - far),
 		0, 0, -1, 0,
 	}
+}
+
+// Sets the field of view to `fov_y` (clamped to FOV_MIN..FOV_MAX), moving the eye along
+// its line so the target's plane spans as much of the view as before: the model keeps its
+// size on screen while the perspective strengthens or flattens, and an orthographic view,
+// which is as wide as that plane, does not change at all.
+orbit_set_fov :: proc(c: ^Orbit, fov_y: f32) {
+	fov := clamp(fov_y, FOV_MIN, FOV_MAX)
+	c.distance = clamp(c.distance * math.tan(c.fov_y / 2) / math.tan(fov / 2), MIN_DISTANCE, MAX_DISTANCE)
+	c.fov_y = fov
 }
 
 // The six views along the axes, as Blender's numpad keys give them.

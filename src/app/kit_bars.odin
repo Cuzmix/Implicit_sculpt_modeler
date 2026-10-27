@@ -37,7 +37,7 @@ TOP_BAR_H :: 52
 BAR_EDGE :: 4
 
 // What a side bar's popover holds: one tray section, a value's tall slider, the
-// three symmetry axes, or the save actions.
+// three symmetry axes, the save actions, or what the polyframe shows.
 Bar_Pop_Kind :: enum u8 {
 	Section,
 	Size,
@@ -45,6 +45,7 @@ Bar_Pop_Kind :: enum u8 {
 	Focal,
 	Symmetry,
 	Save,
+	Polyframe,
 }
 
 // A finger's or the pen's long press on the brush bar's size, focal shift or strength,
@@ -414,9 +415,9 @@ kit_bar_scrub :: proc(app: ^App) {
 }
 
 // The two columns at the right, under the navigation head: search, the palette tray and
-// the objects; then the view: studio render, orthographic, symmetry, framing, wireframe,
-// ghost and solo. Returns the Search button and the view menu's anchor (a long press on
-// Orthographic or Wireframe).
+// the objects; then the view: studio render, orthographic, the floor grid, symmetry,
+// framing, wireframe, transparency, ghost and solo. Returns the Search button and the view menu's anchor (a long press on
+// Orthographic).
 kit_view_bar :: proc(app: ^App) -> (search_anchor, view_anchor: ui.Rect) {
 	k := &app.kit
 	ctx := &k.ctx
@@ -442,15 +443,15 @@ kit_view_bar :: proc(app: ^App) -> (search_anchor, view_anchor: ui.Rect) {
 		kit_floats_close(k)
 		k.view_menu, k.view_at = true, ctx.last_rect
 	}
+	_ = bar_command(app, .Floor_Grid, ICON_FLOOR, corner = true)
+	if ui.secondary(ctx) do bar_pop_toggle(app, .Section, ctx.last_rect, .Left, .Floor)
 	sym := &app.brush.symmetry
 	_ = bar_command(app, .Symmetry_X, ICON_SYMMETRY, selected = sym^ != {}, corner = true)
 	if ui.secondary(ctx) do bar_pop_toggle(app, .Symmetry, ctx.last_rect, .Left)
 	_ = bar_command(app, .Focus_Selected, ui.ICON_FRAME)
 	_ = bar_command(app, .Wireframe, ICON_WIREFRAME, corner = true)
-	if ui.secondary(ctx) {
-		kit_floats_close(k)
-		k.view_menu, k.view_at = true, ctx.last_rect
-	}
+	if ui.secondary(ctx) do bar_pop_toggle(app, .Polyframe, ctx.last_rect, .Left)
+	_ = bar_command(app, .Transparency, ICON_TRANSPARENCY)
 	_ = bar_command(app, .Ghost_Object, ui.ICON_GHOST)
 	_ = bar_command(app, .Solo_Object, ICON_SOLO)
 	ui.end(ctx)
@@ -555,6 +556,14 @@ kit_bar_popover :: proc(app: ^App) {
 			if ui.toggle_button(ctx, name, axis in app.brush.symmetry, 48, command_hint(app, .Symmetry_X) if axis == .X else "", tip) do app.brush.symmetry ~= {axis}
 		}
 		ui.end(ctx)
+	case .Polyframe:
+		if !ui.popover_begin(ctx, "bar polyframe", &p.open, p.at, p.side, {direction = .Column, gap = 4, padding = 10, width = 220}) do return
+		defer ui.popover_end(ctx)
+		ui.caption(ctx, "POLYFRAME SHOWS")
+		ui.begin(ctx, "polyframe parts", {direction = .Row, gap = 4})
+		if ui.toggle_button(ctx, "Lines", app.polyframe_lines, 96, tooltip = "The selected object's edges") do app.polyframe_lines = !app.polyframe_lines
+		if ui.toggle_button(ctx, "Fill", app.polyframe_fill, 96, tooltip = "The selected object's polygroups in their colours") do app.polyframe_fill = !app.polyframe_fill
+		ui.end(ctx)
 	case .Save:
 		if !ui.popover_begin(ctx, "bar save", &p.open, p.at, p.side, {direction = .Column, padding = 6, width = 268}) do return
 		defer ui.popover_end(ctx)
@@ -619,6 +628,8 @@ ICON_MERGE :: rune(0xe444) // merge
 ICON_ORTHO :: rune(0xe529) // cuboid
 ICON_SYMMETRY :: rune(0xe362) // flip-horizontal-2
 ICON_WIREFRAME :: rune(0xe0ec) // grid-3x3
+ICON_FLOOR :: rune(0xe2fe) // axis-3d: the axes over the floor
+ICON_TRANSPARENCY :: rune(0xe4a7) // square-stack: shapes seen through one another
 ICON_SOLO :: rune(0xe53b) // scan-eye
 ICON_GIZMO :: rune(0xe2e5) // move-3d
 ICON_REMESH :: rune(0xe0eb) // globe: a sphere of even lines

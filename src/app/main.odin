@@ -211,7 +211,16 @@ App :: struct {
 	matcap_image: ^sdl.GPUTexture,
 	matcap_path:  string,
 	flat:      bool, // shade with each triangle's own normal (faceted) instead of smoothed normals
-	wireframe: bool, // draw the selected object's edges over it
+	// Polyframe (the Wireframe command): while on, the selected object shows its edges when
+	// `polyframe_lines` is set and its polygroups' colours when `polyframe_fill` is.
+	wireframe:       bool,
+	polyframe_lines: bool,
+	polyframe_fill:  bool,
+	floor:           Floor_Settings, // the floor grid (floor_grid.odin)
+	floor_state:     Floor_State,
+	// Transparency: every shown object but the selected one is drawn see-through, at
+	// SEE_THROUGH_OPACITY, so the selected one shows through whatever stands before it.
+	see_through:     bool,
 	// How the viewport shows its shading (View > Material): brighter or darker in stops,
 	// creases darkened and crests lightened by the surface's curvature, 0 to 1 each.
 	exposure:  f32,
@@ -443,6 +452,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 
 	if len(app.scene.objects) > 1 do frame_all(&app)
 	app.cache_idle = !opts.no_cache
+	app.polyframe_lines = true
+	app.floor = FLOOR_DEFAULT
 	// Custom starts as PBR clay, the last physically based preset, until a slider changes it.
 	app.custom = MATERIALS[FIRST_MATCAP - 1]
 	app.custom.label = "Custom"
@@ -757,10 +768,10 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 					material  = material.shading,
 					surface   = {material.metallic, material.roughness},
 					flat      = app.flat,
-					look      = viewport_look(&app),
+					look      = object_look(&app, selected),
 					matcap    = material_matcap(&app, material),
 					lights    = viewport_lights(&app),
-					wireframe = selected && app.wireframe,
+					wireframe = selected && app.wireframe && app.polyframe_lines,
 					live      = live,
 					chunks    = vp.clay.surface.chunks[:],
 					damage    = damage,
@@ -804,12 +815,12 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 					material = material.shading,
 					surface = {material.metallic, material.roughness},
 					flat = app.flat,
-					look = viewport_look(&app),
+					look = object_look(&app, selected),
 					lights = viewport_lights(&app),
 					matcap = material_matcap(&app, material),
-					wireframe = selected && app.wireframe,
+					wireframe = selected && app.wireframe && app.polyframe_lines,
 					paint  = sculpt.sculptor_has_color(&lv.sculptor) && !obj.paint_off,
-					groups = app.show_groups && sculpt.sculptor_has_groups(&lv.sculptor),
+					groups = (app.show_groups || selected && app.wireframe && app.polyframe_fill) && sculpt.sculptor_has_groups(&lv.sculptor),
 					live   = live,
 					chunks = lv.sculptor.chunks,
 					chunk_groups = sculpt.sculptor_chunk_groups(&lv.sculptor),
@@ -847,6 +858,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		if view_changed(&app, view, proj) do app.view_moved = time.tick_now()
 		moving := time.tick_since(app.view_moved) < LOD_SETTLE
 		app.renderer.lod_px = app.simplify_px if app.simplify && moving && !timelapse_capturing(&app) else 0
+		app.renderer.floor = floor_grid_frame(&app)
 		drawn := render.render_viewport(&app.renderer, cmd, &app.target, view, proj, draws[:], app.cache_idle)
 		if app.studio_on {
 			// Anything redrawn this frame starts the samples over.
@@ -1102,6 +1114,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			pie := app.ui.pie
 			fmt.printfln("pie_open=%d pie_hover=%d pie_runs=%d pie_editor=%d favourites=%d pie1=%s pie3=%s wireframe=%d ortho=%d", pie.which if pie.open else -1, pie.hover if pie.open else -1,
 				app.kit.pie_runs, int(app.kit.pie_editor), app.kit.favourite_count, pie_names(&app, 0), pie_names(&app, 2), int(app.wireframe), int(app.camera.ortho))
+			fmt.printfln("floor_grid=%d floor_planes=%d%d%d transparent=%d fov=%.0f polyframe_lines=%d polyframe_fill=%d", int(app.floor.on), int(app.floor.planes[0]), int(app.floor.planes[1]), int(app.floor.planes[2]), int(app.see_through), math.to_degrees(app.camera.fov_y), int(app.polyframe_lines), int(app.polyframe_fill))
 		}
 		{
 			// What the last stroke was, the rail's latches, and whether the selected object
@@ -1323,6 +1336,17 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 // of them shadow the key light and the rest give the occlusion.
 STUDIO_SAMPLES_DEFAULT :: 256
 STUDIO_SAMPLES_MAX :: 1024
+
+// How opaque Transparency draws the objects other than the selected one.
+SEE_THROUGH_OPACITY :: 0.3
+
+// How an object is shown (Draw_Item.look): the viewport's look, see-through while
+// Transparency is on and it is not the selected object.
+object_look :: proc(app: ^App, selected: bool) -> [4]f32 {
+	look := viewport_look(app)
+	if app.see_through && !selected do look.w = SEE_THROUGH_OPACITY
+	return look
+}
 
 // How long the view has to stay put before simplified drawing gives way to full detail.
 LOD_SETTLE :: 250 * time.Millisecond
