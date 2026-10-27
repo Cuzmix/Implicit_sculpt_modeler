@@ -69,9 +69,9 @@ MESH_FILTERS := [?]sdl.DialogFileFilter{{"Meshes (OBJ, PLY)", "obj;ply"}, {"OBJ"
 // Export writes two formats Import does not read, so it offers its own list; a name
 // typed without an extension takes the one of the filter chosen (EXPORT_SUFFIX).
 @(private = "file")
-EXPORT_FILTERS := [?]sdl.DialogFileFilter{{"Meshes (OBJ, PLY, glTF)", "obj;ply;glb"}, {"OBJ", "obj"}, {"PLY", "ply"}, {"glTF binary (layers as shape keys)", "glb"}}
+EXPORT_FILTERS := [?]sdl.DialogFileFilter{{"Meshes (OBJ, PLY, glTF, USD)", "obj;ply;glb;usda"}, {"OBJ", "obj"}, {"PLY", "ply"}, {"glTF binary (layers as shape keys)", "glb"}, {"USD text (layers as blend shapes)", "usda"}}
 @(private = "file")
-EXPORT_SUFFIX := [len(EXPORT_FILTERS)]string{".obj", ".obj", ".ply", ".glb"}
+EXPORT_SUFFIX := [len(EXPORT_FILTERS)]string{".obj", ".obj", ".ply", ".glb", ".usda"}
 @(private = "file")
 SCENE_FILTERS := [?]sdl.DialogFileFilter{{"Sculpt scene", "sculpt"}}
 @(private = "file")
@@ -216,7 +216,7 @@ file_apply :: proc(app: ^App, req: File_Request) -> bool {
 			file_note(app, true, "Select an object to export first")
 			return true
 		}
-		if object_export_bytes(obj) > SAVE_SHOW_FIRST {
+		if object_export_bytes(obj, req.path) > SAVE_SHOW_FIRST {
 			// As a big save: the window says what it waits for before the frame stops.
 			app.saving = {req.kind, strings.clone(req.path, runtime.heap_allocator())}
 			app.saving_at = app.kit.ctx.time
@@ -369,16 +369,18 @@ scene_import :: proc(app: ^App, path: string) -> bool {
 	return true
 }
 
-// Writes the object's shown level (packed, if dynamic) to an OBJ, PLY or binary glTF
-// file, where it was in the file it came from (Object.file); Move tool placement is not
-// written. glTF also carries the normals and the sculpt layers, as morph targets (shape
-// keys) at their strengths. Returns whether it was written.
+// Writes the object's shown level (packed, if dynamic) to an OBJ, PLY, binary glTF or
+// USD text file, where it was in the file it came from (Object.file); Move tool placement
+// is not written. glTF and USD also carry the normals and the sculpt layers, as morph
+// targets or blend shapes (shape keys) at their strengths; USD the polygroups too, and a
+// retopologized base level as its quads and UVs, as OBJ does. Returns whether it was
+// written.
 object_export :: proc(app: ^App, obj: ^Object, path: string) -> bool {
 	start := time.tick_now()
 	name := filepath.base(path)
 	ext := strings.to_lower(filepath.ext(path), context.temp_allocator)
-	if ext != ".obj" && ext != ".ply" && ext != ".glb" {
-		file_note(app, true, "Cannot export to %s: the name needs to end in .obj, .ply or .glb", name)
+	if ext != ".obj" && ext != ".ply" && ext != ".glb" && ext != ".usda" {
+		file_note(app, true, "Cannot export to %s: the name needs to end in .obj, .ply, .glb or .usda", name)
 		return false
 	}
 	// A stroke, pose or slider drag under way would otherwise land half in the file, and
@@ -407,7 +409,7 @@ object_export :: proc(app: ^App, obj: ^Object, path: string) -> bool {
 	defer delete(out)
 	layers := 0
 	switch {
-	case ext == ".glb":
+	case ext == ".glb" || ext == ".usda":
 		// Dynamic topology bakes the layers, so a dynamic object has none to write.
 		sculpt.sculptor_refresh_normals(&lv.sculptor)
 		list := sculpt.sculptor_layers(&lv.sculptor)
@@ -417,8 +419,20 @@ object_export :: proc(app: ^App, obj: ^Object, path: string) -> bool {
 			morphs[k] = {sculpt.sculptor_layer_name(&l), sculpt.layer_weight(l), vertices, deltas}
 		}
 		layers = len(morphs)
-		m := geom.Mesh_Export{object_label(obj), positions, normals, indices, colors, morphs, obj.file.scale, obj.file.position}
-		if !geom.mesh_write_glb(&out, m, &app.pool) {
+		m := geom.Mesh_Export {
+			name      = object_label(obj),
+			positions = positions,
+			normals   = normals,
+			indices   = indices,
+			colors    = colors,
+			morphs    = morphs,
+			scale     = obj.file.scale,
+			offset    = obj.file.position,
+		}
+		if ext == ".usda" {
+			usd_extras(obj, lv, &m)
+			geom.mesh_write_usda(&out, m, &app.pool)
+		} else if !geom.mesh_write_glb(&out, m, &app.pool) {
 			free_all(context.temp_allocator)
 			file_note(app, true, "Cannot export %s: a glTF file holds at most 4 GB; fewer layers or a lower level would fit", name)
 			return false
@@ -440,6 +454,26 @@ object_export :: proc(app: ^App, obj: ^Object, path: string) -> bool {
 	with := fmt.tprintf(", %d %s as shape keys", layers, "layer" if layers == 1 else "layers") if layers > 0 else ""
 	file_note(app, false, "Exported %s: %d vertices, %d triangles%s, %d MB in %.0f ms", name, len(positions), len(indices) / 3, with, len(out) >> 20, app.stats.file_write_ms)
 	return true
+}
+
+// What USD carries beyond glTF: a retopologized base level's quads and UVs, as OBJ
+// writes them, and the polygroups, one a face. A quad takes the group its first corner
+// shows, since the base's triangles are in the sculptor's order rather than two a quad.
+@(private = "file")
+usd_extras :: proc(obj: ^Object, lv: ^sculpt.Level, m: ^geom.Mesh_Export) {
+	g := lv.sculptor.groups
+	if obj.levels.current == 0 && sculpt.levels_has_quads(&obj.levels) && !object_dynamic(obj) {
+		m.quads, m.uvs = obj.levels.faces.quads, obj.levels.faces.uv.uvs
+		if g.tris != nil && g.vertex != nil {
+			groups := make([]u16, len(m.quads), context.temp_allocator)
+			for q, i in m.quads do groups[i] = g.vertex[q[0]]
+			m.groups = groups
+		}
+		return
+	}
+	// A dynamic object's packed triangles are not the sculptor's, and it has no groups
+	// to write.
+	if g.tris != nil && !object_dynamic(obj) do m.groups = g.tris
 }
 
 // Saves every object with all its levels and mask, and the camera. HD detail is not
@@ -505,9 +539,11 @@ scene_save_bytes :: proc(app: ^App) -> int {
 	return bytes
 }
 
-// About what exporting the object's shown level writes, in the biggest of the formats.
-object_export_bytes :: proc(obj: ^Object) -> int {
+// About what exporting the object's shown level writes, in the biggest of the binary
+// formats, or as USD text, which spells out every number and takes several times as long.
+object_export_bytes :: proc(obj: ^Object, path := "") -> int {
 	lv := sculpt.levels_current(&obj.levels)
+	if strings.equal_fold(filepath.ext(path), ".usda") do return 130 * len(lv.mesh.positions) + 10 * len(lv.mesh.indices)
 	return 40 * len(lv.mesh.positions) + 4 * len(lv.mesh.indices)
 }
 
