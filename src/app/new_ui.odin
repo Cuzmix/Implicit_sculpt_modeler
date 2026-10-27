@@ -759,6 +759,12 @@ kit_begin :: proc(app: ^App, window: ^sdl.Window) -> (size, pixels: [2]i32) {
 	k.last_frame = now
 	k.scale = scale
 	k.ctx.theme = LOOK_THEMES[k.look]
+	// Settings > Touch > Hold delay. The ring that counts toward the long press shows from
+	// halfway, never later than the theme has it, so a quick tap still shows nothing.
+	if d := app.nav.hold_delay; d >= HOLD_DELAY_MIN {
+		k.ctx.theme.long_press = d
+		k.ctx.theme.long_ring = min(k.ctx.theme.long_ring, d / 2)
+	}
 	kit_mirror(k)
 	ui.frame_begin(&k.ctx, in_)
 	return {w, h}, {pw, ph}

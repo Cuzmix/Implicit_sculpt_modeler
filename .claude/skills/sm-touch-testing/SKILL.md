@@ -75,7 +75,7 @@ on window focus or hover to decide ownership; a widget that acts on a finger pre
 | folds, opens, closes, reopens and drags the panel windows, and finds them where they were after a restart | `window_minimise_folds_to_the_title_bar`, `window_tap_on_folded_title_opens_it`, `window_close_and_reopen`, `window_drag_by_title_is_remembered`, `window_position_comes_back` |
 | pinches, pans and twists with two fingers | `pinch_zoom`, `two_finger_pan`, `twist_rolls_free_only`, `twist_wobble_rolls_nothing`, `twist_rolls_nothing_in_turntable` |
 | lands several fingers at once or one after another | `second_finger_on_model_sculpts_nothing`, `second_finger_soon_after_sculpts_nothing`, `three_finger_size`, `three_finger_focal_shift` |
-| long presses the brush bar's Focal shift, Draw size or Strength and drags, lets go still, or is cancelled mid-drag | `long_press_drag_draw_size`, `long_press_drag_strength_and_focal`, `long_press_focal_shift_opens_the_falloff`, `long_press_draw_size_opens_the_pen`, `cancelled_scrub_puts_the_size_back` |
+| long presses the brush bar's Focal shift, Draw size or Strength and drags, lets go still, or is cancelled mid-drag | `long_press_drag_draw_size`, `long_press_drag_strength_and_focal`, `long_press_focal_shift_opens_the_falloff`, `long_press_draw_size_opens_the_pen`, `cancelled_scrub_puts_the_size_back`; the Hold delay: `hold_delay_is_short_by_default`, `hold_delay_setting_keeps_a_shorter_hold_a_tap`, `hold_delay_setting_still_long_presses` |
 | taps two or three fingers to undo and redo, on the viewport and on a panel | `tap_history`, `two_finger_tap_on_panel_does_nothing` |
 | has the touch cancelled by the system, or by the pen landing | `cancelled_stroke_is_taken_back`, `pen_landing_cancels_finger_stroke` |
 | uses the desktop mouse and keys | `mouse_controls`, `shift_snaps_orbit` |
@@ -154,7 +154,8 @@ are on the device checklist.
   scales with pressure (the mask) changes nothing: use a finger stroke to check the effect.
 - The interface's clock is fixed: `touch_check` passes `--ui-dt=1/60`, so tweens, tooltip delays and long presses
   count frames (`LONG_PRESS_FRAMES`, 30, is a long press; `long_press(s, x, y)` makes one). Never hold a finger still
-  on a control for 27 frames or more unless the scenario means a long press. Every timed gesture in the app reads
+  on a control for 18 frames or more (the default Hold delay, 0.3 s) unless the scenario means a long press; a
+  scenario that sets `set hold_delay` counts its own frames. Every timed gesture in the app reads
   `input_clock(app)` (touch.odin), which is that fixed clock under `--ui-dt`: `FINGER_HOLD` (90 ms, 6 frames), the
   fingers' 0.25 s tap window (15 frames), the rail's taps and the pie's tap. A new timed gesture uses it too, never
   `time.tick_now`, or its scenario passes alone and fails when the machine is busy.
@@ -183,7 +184,8 @@ what was done, what should happen, what happened; a screen recording when someth
     system's home-gesture band (a swipe up from them must not leave the app, and a tap must reach the button).
 13. Long press: hold a finger still on Undo or a dock brush: the ring fills and the tooltip shows,
     and lifting does not press it; a quick tap still presses. Long-press an object in the Scene tab: its menu opens.
-    Note whether 0.45 s feels right and whether the ring shows round the fingertip.
+    Note whether the 0.3 s Hold delay feels right (Settings > Touch changes it) and whether the ring shows round
+    the fingertip.
 
 ## 7. Recording a failure
     Title: <what went wrong, in the user's words>

@@ -215,6 +215,9 @@ Nav_Prefs :: struct {
 	zoom_toward:    bool, // ZBrush's Center Navigation on Pinch
 	three_finger:   bool, // three fingers drag the brush's size and focal shift
 	touch_strength: f32, // a finger's strokes at this much of the brush's strength, TOUCH_STRENGTH_MIN to 1
+	// Seconds a finger or the pen holds a control still for its long press (the theme's
+	// long_press), HOLD_DELAY_MIN to HOLD_DELAY_MAX, as Android's Touch & hold delay.
+	hold_delay:     f32,
 	palm_rejection: bool, // a lone finger does nothing while the pen is near
 	double_tap:     bool, // a finger's double tap frames, or pins the pivot on the model
 	lift_one_orbit: bool, // two fingers down, one lifted: the other turns the view
@@ -244,6 +247,11 @@ Pen_Tips :: enum u8 {
 // light touch where the pen does the heavy work.
 TOUCH_STRENGTH_MIN :: 0.1
 
+// The Hold delay's range: from just longer than a quick tap to Android's Long (1.5 s), for
+// hands that need the time.
+HOLD_DELAY_MIN :: 0.15
+HOLD_DELAY_MAX :: 1.5
+
 // The safe zone's width, in points: from half a touch target to a broad band.
 EDGE_MIN :: 24
 EDGE_MAX :: 200
@@ -262,6 +270,7 @@ NAV_DEFAULT :: Nav_Prefs {
 	zoom_toward    = true,
 	three_finger   = true,
 	touch_strength = 1,
+	hold_delay     = 0.3,
 	palm_rejection = true,
 	double_tap     = true,
 	lift_one_orbit = true,
