@@ -4,6 +4,46 @@
 	"version": "0.2.0",
 	"configurations": [
 		{
+			// Runs build.bat itself in the terminal, so the build's output stays visible and nothing is launched after it.
+			"name": "Build (debug)",
+			"type": "cppvsdbg",
+			"request": "launch",
+			"program": "C:\\Windows\\System32\\cmd.exe",
+			"args": ["/d", "/c", "${workspaceFolder}\\build.bat", "debug"],
+			"cwd": "${workspaceFolder}",
+			"console": "integratedTerminal"
+		},
+		{
+			// build.bat run builds the debug app and starts it without the debugger attached.
+			"name": "Build & Run (debug, no debugger)",
+			"type": "cppvsdbg",
+			"request": "launch",
+			"program": "C:\\Windows\\System32\\cmd.exe",
+			"args": ["/d", "/c", "${workspaceFolder}\\build.bat", "run"],
+			"cwd": "${workspaceFolder}",
+			"console": "integratedTerminal"
+		},
+		{
+			// Gradle builds the arm64 debug APK into android\app\build\outputs\apk\debug\app-debug.apk.
+			"name": "Build (Android APK)",
+			"type": "cppvsdbg",
+			"request": "launch",
+			"program": "C:\\Windows\\System32\\cmd.exe",
+			"args": ["/d", "/c", "${workspaceFolder}\\build.bat", "android"],
+			"cwd": "${workspaceFolder}",
+			"console": "integratedTerminal"
+		},
+		{
+			// Builds the APK, installs it on the tablet adb sees and starts it there.
+			"name": "Build & Run (Android tablet)",
+			"type": "cppvsdbg",
+			"request": "launch",
+			"program": "C:\\Windows\\System32\\cmd.exe",
+			"args": ["/d", "/c", "${workspaceFolder}\\build.bat", "androidrun"],
+			"cwd": "${workspaceFolder}",
+			"console": "integratedTerminal"
+		},
+		{
 			"name": "Sculpt (debug)",
 			"type": "cppvsdbg",
 			"request": "launch",
