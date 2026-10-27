@@ -65,10 +65,16 @@ Mesh_Export :: struct {
 	images:          []Export_Image,
 }
 
-// A picture for a material's texture: PNG bytes, written into the file as they are.
+// A picture for a material's texture: PNG or JPEG bytes (the two glTF reads), written
+// into the file as they are.
 Export_Image :: struct {
 	name: string,
-	png:  []u8,
+	data: []u8,
+}
+
+// The glTF media type of an image's bytes: JPEG by its start-of-image marker, else PNG.
+image_mime :: proc(data: []u8) -> string {
+	return "image/jpeg" if len(data) >= 3 && data[0] == 0xff && data[1] == 0xd8 && data[2] == 0xff else "image/png"
 }
 
 // What a material's texture stands for, in glTF's terms: base colour (sRGB), roughness
@@ -212,7 +218,7 @@ mesh_write_glb :: proc(out: ^[dynamic]u8, m: Mesh_Export, pool: ^jobs.Pool = nil
 		if len(t.vertices) > 0 do g.morph_views[k] = {glb_view(&g, 4 * len(t.vertices), 0), glb_view(&g, 12 * len(t.vertices), 0)}
 	}
 	g.image_views = make([]int, len(m.images), context.temp_allocator)
-	for im, k in m.images do g.image_views[k] = glb_view(&g, len(im.png), 0)
+	for im, k in m.images do g.image_views[k] = glb_view(&g, len(im.data), 0)
 	g.bounds = make([][2]Vec3, 1 + len(m.morphs), context.temp_allocator)
 	g.prims = glb_primitives(m)
 
@@ -401,8 +407,8 @@ glb_fill :: proc(g: ^Glb, pool: ^jobs.Pool) {
 	// The pictures, each padded with zeros to the next view.
 	for im, k in m.images {
 		v := g.views[g.image_views[k]]
-		copy(g.bin[v.offset:], im.png)
-		for &c in g.bin[v.offset + len(im.png):][:((len(im.png) + 3) &~ 3) - len(im.png)] do c = 0
+		copy(g.bin[v.offset:], im.data)
+		for &c in g.bin[v.offset + len(im.data):][:((len(im.data) + 3) &~ 3) - len(im.data)] do c = 0
 	}
 }
 
@@ -480,7 +486,7 @@ glb_json :: proc(j: ^strings.Builder, g: ^Glb) {
 		// A texture a picture, all through one sampler: smooth, mipmapped, repeating.
 		strings.write_string(j, `,"images":[`)
 		for im, k in m.images {
-			fmt.sbprintf(j, `%s{{"bufferView":%d,"mimeType":"image/png","name":`, "," if k > 0 else "", g.image_views[k])
+			fmt.sbprintf(j, `%s{{"bufferView":%d,"mimeType":"%s","name":`, "," if k > 0 else "", g.image_views[k], image_mime(im.data))
 			json_string(j, im.name)
 			strings.write_byte(j, '}')
 		}

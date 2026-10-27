@@ -6,6 +6,7 @@ import "core:testing"
 
 import "../camera"
 import "../geom"
+import "../render"
 import "../sculpt"
 
 // Every kind of statement, with comments, quotes, `;` and blank lines between them, reads
@@ -165,11 +166,12 @@ matcap "my matcaps/jade 1.png"
 preset rock-set/Stone Clay
 pack_mesh rock-set/Big Boulder
 make_pack my brushes.sculptpack
-group_material 3 off`
+group_material 3 off
+texture Normal my maps/rock n.png`
 	s := script_parse(text, "x")
 	defer script_destroy(&s)
 	testing.expect_value(t, script_report(&s), "")
-	if !testing.expect_value(t, len(s.statements), 19) do return
+	if !testing.expect_value(t, len(s.statements), 20) do return
 	st := s.statements
 	for v, i in Script_Verb {
 		testing.expect_value(t, st[i].kind, Script_Kind.Verb)
@@ -195,15 +197,18 @@ group_material 3 off`
 	testing.expect_value(t, st[16].text, "rock-set/Big Boulder")
 	testing.expect_value(t, st[17].text, "my brushes.sculptpack")
 	testing.expect(t, st[18].count == 3 && st[18].flip)
+	testing.expect(t, render.Texture_Map(st[19].arg) == .Normal && st[19].text == "my maps/rock n.png")
 
 	bad := script_parse("move 1 2\nrotate 0 x 0\nboolean maybe\nslice w\nhide -\nmask_rect 0 0 0 1\nmask_rect 0 0 2 1\nproject 0\ndraw_curve\ninsert_middle blob\nfalloff soft\nalpha\nlayer 0 1\nlayer 1 3\nlayer 1 1 shown\ninstall_pack\nfocal 101\nmatcap\npreset\npack_mesh", "bad")
 	defer script_destroy(&bad)
 	if !testing.expect_value(t, len(bad.errors), 20) do return
 	for e, i in bad.errors do testing.expect_value(t, e.line, i + 1)
 	// Past 20 errors the list stops, so the last verb is tried on its own.
-	lone := script_parse("make_pack", "bad")
-	defer script_destroy(&lone)
-	testing.expect_value(t, len(lone.errors), 1)
+	for line in ([?]string{"make_pack", "texture normal", "texture height x.png"}) {
+		lone := script_parse(line, "bad")
+		defer script_destroy(&lone)
+		testing.expectf(t, len(lone.errors) == 1, "%q was read", line)
+	}
 	testing.expect(t, strings.contains(bad.errors[0].message, "move takes three numbers"))
 	testing.expect(t, strings.contains(bad.errors[10].message, "smooth, linear, sharp, firm or flat"))
 }

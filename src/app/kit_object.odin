@@ -80,6 +80,7 @@ OBJECT_SECTIONS := [?]Object_Section {
 	{.Surface, .Deformers, "Deformers", kit_deformers},
 	{.Build, .Voxels, "Voxels", kit_voxels},
 	{.Build, .Retopo, "UVs and baking", proc(app: ^App, _: ^Object) {kit_retopo_section(app)}},
+	{.Build, .Textures, "Textures", proc(app: ^App, _: ^Object) {kit_textures_section(app)}},
 	{.Build, .Project, "Project detail", proc(app: ^App, _: ^Object) {kit_project_section(app)}},
 	{.Build, .Booleans, "Booleans", proc(app: ^App, _: ^Object) {kit_boolean_section(app)}},
 	{.Build, .Extract, "Extract", proc(app: ^App, _: ^Object) {kit_extract_section(app)}},

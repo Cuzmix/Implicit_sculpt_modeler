@@ -11,6 +11,7 @@ import "core:time"
 
 import "../camera"
 import "../geom"
+import "../render"
 import "../sculpt"
 
 // Command scripts (README "Command scripts"): plain text, one statement a line or `;`
@@ -59,6 +60,7 @@ Script_Verb :: enum u8 {
 	Pack_Mesh,
 	Make_Pack,
 	Group_Material,
+	Texture,
 }
 
 // Each verb's name and what it takes, for errors and the README.
@@ -86,6 +88,7 @@ SCRIPT_VERBS := [Script_Verb]struct {
 	.Pack_Mesh     = {"pack_mesh", "a content pack's mesh as PACK/NAME, added as a new object"},
 	.Make_Pack     = {"make_pack", "a .sculptpack file to write your own alphas and presets to, named after the file"},
 	.Group_Material = {"group_material", "a polygroup's number from 1, given the material `set material` chose, and off to give it the object's again"},
+	.Texture       = {"texture", "base_color, orm or normal, then an image file to load as that map of the selected object"},
 }
 
 // A command that is on or off (one with `checked`) can be told which: it then runs only
@@ -423,6 +426,13 @@ script_verb_read :: proc(st: ^Script_Statement, args: []string) -> bool {
 		if len(args) == 0 do return false
 		st.text = strings.join(args, " ")
 		return true
+	case .Texture:
+		// The file may have spaces: it is the rest of the line.
+		if len(args) < 2 do return false
+		st.arg = choice(args[0], reflect.enum_field_names(render.Texture_Map))
+		if st.arg < 0 do return false
+		st.text = strings.join(args[1:], " ")
+		return true
 	case .Group_Material:
 		if len(args) < 1 || len(args) > 2 do return false
 		n, ok := strconv.parse_int(args[0])
@@ -477,6 +487,10 @@ script_verb :: proc(app: ^App, st: Script_Statement) -> (failure: string, ok: bo
 		return "", true
 	case .Matcap:
 		if !matcap_load(app, st.text) do return fmt.tprintf("no image could be read as a MatCap at %q", st.text), true
+		return "", true
+	case .Texture:
+		// As the Textures section's Load button does, in place so the next line sees it.
+		if why := texture_load(app, obj, render.Texture_Map(st.arg), st.text); why != "" do return why, true
 		return "", true
 	case .Install_Pack:
 		// In place, not on the install thread, so the next line sees the pack.
@@ -558,7 +572,7 @@ script_verb :: proc(app: ^App, st: Script_Statement) -> (failure: string, ok: bo
 			if why := group_material_set(obj, u16(st.count), current_material(app), st.flip); why != "" do return why, true
 			app.scene_edits += 1
 			return "", true
-		case .Falloff, .Focal, .Alpha, .Matcap, .Project, .Draw_Curve, .Insert_Middle, .Install_Pack, .Preset, .Pack_Mesh, .Make_Pack:
+		case .Falloff, .Focal, .Alpha, .Matcap, .Project, .Draw_Curve, .Insert_Middle, .Install_Pack, .Preset, .Pack_Mesh, .Make_Pack, .Texture:
 		}
 	}
 	if script_scene_state(app) == before do return "it left the scene as it was (the log says why)", true
