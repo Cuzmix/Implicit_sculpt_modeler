@@ -3,6 +3,7 @@ package main
 import "core:fmt"
 import "core:math"
 import "core:math/linalg"
+import "core:strings"
 
 import "../ui"
 
@@ -29,27 +30,58 @@ Light_Sphere_State :: struct {
 	flips:      int, // lights sent behind or brought to the front by a tap, for the exit stats
 }
 
+// The icon of each kind of light: a sun, a bulb and a lamp hanging from the ceiling.
+@(rodata)
+LIGHT_KIND_ICONS := [Light_Kind]rune {
+	.Sun   = ui.ICON_SUN,
+	.Point = ICON_LIGHTBULB,
+	.Spot  = ICON_LAMP_CEILING,
+}
+ICON_LIGHTBULB :: rune(0xe1c2)
+ICON_LAMP_CEILING :: rune(0xe2d9)
+
 kit_lights :: proc(app: ^App) {
 	ctx := &app.kit.ctx
 	set := &app.scene.lights
-	// Everything changed here, from a press to its release, is one undo step.
+	// Everything changed here, from a press to its release, is one undo step, named by
+	// what made it.
 	before := set^
+	what := "Lights"
 	defer {
 		lights_settle(app)
-		if set^ != before do light_drag_changed(app, before)
+		if set^ != before do light_drag_changed(app, before, what)
 	}
 	app.light_pick = clamp(app.light_pick, 0, max(int(set.count) - 1, 0))
 	kit_light_sphere(app)
+	// The list: each light's kind, name and what it moves with, its eye switching it on or
+	// off, as the Scene palette lists objects.
+	for &l, i in set.lights[:set.count] {
+		toggles := [1]ui.Row_Toggle{{name = "Switch off" if l.on else "Switch on", glyph = ui.ICON_EYE if l.on else ui.ICON_EYE_OFF, faint = !l.on}}
+		detail := fmt.tprintf("%s, %s", LIGHT_KIND_LABELS[l.kind], "in the scene" if l.space == .Scene else "with the camera")
+		row := ui.tree_row(ctx, fmt.tprintf("%s##light row %d", light_name(i), i), detail, i == app.light_pick, all_toggles = toggles[:], glyph = LIGHT_KIND_ICONS[l.kind], dim = !l.on)
+		if row.toggled == 0 do l.on = !l.on
+		else if row.clicked do app.light_pick = i
+	}
+	// Add, then one button a kind sharing the rest of the width, each showing the kind's
+	// icon and name.
+	add_w := ui.text_width(ctx, "Add", ctx.theme.text_size)
+	each := (ui.fill_width(ctx) - add_w - 3 * 8) / 3
+	ui.begin(ctx, "light add", {direction = .Row, gap = 8, center = true})
+	ui.label(ctx, "Add")
+	for kind in Light_Kind {
+		label := fmt.tprintf("%s##add %s light", LIGHT_KIND_LABELS[kind], strings.to_lower(LIGHT_KIND_LABELS[kind], context.temp_allocator))
+		if ui.button(ctx, label, .Bordered, width = each, glyph = LIGHT_KIND_ICONS[kind], enabled = set.count < LIGHT_COUNT) {
+			_ = light_add(app, kind)
+			what = "Add light"
+		}
+	}
+	ui.end(ctx)
 	if set.count <= 0 {
-		ui.paragraph(ctx, "The scene has no lights; its ambient light and the environment light it.")
 		_ = ui.slider(ctx, "Ambient", &set.ambient, 0, LIGHT_STRENGTH_MAX, .Linear, fmt.tprintf("%.2f", set.ambient))
+		ui.paragraph(ctx, "The scene has no lights: its ambient light and the environment light it.")
 		return
 	}
-	names := make([]string, set.count, context.temp_allocator)
-	for &name, i in names do name = fmt.tprintf("%d", i + 1)
-	if picked := ui.tabs(ctx, "light picked", names, app.light_pick); picked >= 0 do app.light_pick = picked
 	light := &set.lights[app.light_pick]
-	_ = ui.switch_row(ctx, "On", &light.on)
 	_ = ui.slider(ctx, "Intensity", &light.strength, 0, LIGHT_STRENGTH_MAX, .Linear, fmt.tprintf("%.2f", light.strength))
 	_ = ui.slider(ctx, "Ambient", &set.ambient, 0, LIGHT_STRENGTH_MAX, .Linear, fmt.tprintf("%.2f", set.ambient))
 	if kit_more(app, .Lights) {
@@ -61,6 +93,10 @@ kit_lights :: proc(app: ^App) {
 		}
 		ui.label(ctx, "Moves with")
 		if space := ui.tabs(ctx, "light space", LIGHT_SPACE_LABELS[:], int(light.space)); space >= 0 do light_set_space(app, app.light_pick, Light_Space(space))
+		if ui.button(ctx, fmt.tprintf("Delete %s", light_name(app.light_pick)), .Bordered, .Danger, glyph = ui.ICON_TRASH) {
+			light_delete(app, app.light_pick)
+			what = "Delete light"
+		}
 		fixed := lights_fixed(app)
 		if ui.switch_row(ctx, "All fixed to the scene", &fixed) do lights_fix(app, fixed)
 		_ = ui.slider(ctx, "Turn all", &app.light_turn, -180, 180, .Linear, fmt.tprintf("%+.0f°", app.light_turn))

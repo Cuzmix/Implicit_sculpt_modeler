@@ -432,3 +432,40 @@ light_changes_are_undo_steps :: proc(t: ^testing.T) {
 	light_drag_end(&app)
 	testing.expect_value(t, len(app.history.done), 1)
 }
+
+// Add puts a light of the kind after the others and picks it: a sun with the camera, a
+// point light or a spot in the scene, as far away as the camera, a spot aimed at the
+// orbit's centre; past eight there is no room. Delete moves the ones after it up.
+@(test)
+lights_are_added_and_deleted :: proc(t: ^testing.T) {
+	app: App
+	app.camera = camera.orbit_default()
+	app.camera.target = {0.2, 0.1, -0.3}
+	lights_reset(&app)
+	set := &app.scene.lights
+	testing.expect_value(t, light_add(&app, .Spot), 4)
+	testing.expect_value(t, app.light_pick, 4)
+	spot := set.lights[4]
+	testing.expect(t, spot.on && spot.kind == .Spot && spot.space == .Scene && set.count == 5)
+	testing.expectf(t, abs(light_distance(&app, spot) - app.camera.distance) < 1e-4 && abs(spot.ref - app.camera.distance) < 1e-4, "placed at %v", spot.pos)
+	l := viewport_lights(&app)
+	aim := linalg.normalize(view_target(&app) - l.pos[4].xyz)
+	testing.expectf(t, near(l.spot[4].xyz, aim, 1e-4), "aimed along %v, the centre is along %v", l.spot[4].xyz, aim)
+	testing.expect_value(t, light_add(&app, .Sun), 5)
+	testing.expect(t, set.lights[5].space == .Camera)
+	for set.count < LIGHT_COUNT do _ = light_add(&app, .Point)
+	testing.expect_value(t, light_add(&app, .Point), -1)
+
+	third := set.lights[2]
+	light_delete(&app, 1)
+	testing.expect_value(t, set.count, LIGHT_COUNT - 1)
+	testing.expect_value(t, set.lights[1], third)
+	app.light_pick = LIGHT_COUNT - 2
+	light_delete(&app, LIGHT_COUNT - 2)
+	testing.expect_value(t, app.light_pick, LIGHT_COUNT - 3)
+	for set.count > 0 do light_delete(&app, 0)
+	testing.expect_value(t, app.light_pick, 0)
+	light_delete(&app, 0)
+	testing.expect_value(t, set.count, 0)
+	free_all(context.temp_allocator)
+}

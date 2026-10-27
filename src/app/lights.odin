@@ -1,5 +1,6 @@
 package main
 
+import "core:fmt"
 import "core:math"
 import "core:math/linalg"
 import "core:time"
@@ -301,17 +302,54 @@ light_flip :: proc(app: ^App, i: int) {
 	light_set_view_dir(app, i, {v.x, v.y, -v.z})
 }
 
+// Adds a light of `kind` after the others, picked, and returns its place; -1 when there
+// are LIGHT_COUNT already. A sun moves with the camera, shining from the upper right in
+// front, as a fill is placed; a point light or a spot stands in the scene, as a lamp does
+// in Blender or KeyShot, up and to the right of the orbit's centre, as far away as the
+// camera, a spot aimed at the centre.
+light_add :: proc(app: ^App, kind: Light_Kind) -> int {
+	set := &app.scene.lights
+	if set.count >= LIGHT_COUNT do return -1
+	i := int(set.count)
+	set.lights[i] = {on = true, kind = kind, dir = {0.5, 0.45, 0.75}, strength = 1, color = 1, cone = 45, blend = 0.25}
+	set.count += 1
+	lights_settle(app)
+	if kind != .Sun do light_set_space(app, i, .Scene)
+	app.light_pick = i
+	return i
+}
+
+// Deletes light `i`, the ones after it moving up; the pick stays on the light after it,
+// or the last.
+light_delete :: proc(app: ^App, i: int) {
+	set := &app.scene.lights
+	if i < 0 || i >= int(set.count) do return
+	copy(set.lights[i:set.count], set.lights[i + 1:set.count])
+	set.count -= 1
+	// The slot the last light left keeps a copy of it, past the count, where nothing reads
+	// it; a light added later is made whole.
+	app.light_pick = clamp(app.light_pick, 0, max(int(set.count) - 1, 0))
+}
+
+// A light's name in the Lights section and the History: its place, as the markers on the
+// sphere number it.
+light_name :: proc(i: int) -> string {
+	return fmt.tprintf("Light %d", i + 1)
+}
+
 // A change to the lights in the Lights section, from its press to its release: one undo
 // step, as a drag of the Transform values is.
 Light_Drag :: struct {
 	active: bool,
 	from:   Light_Set,
+	what:   string, // the step's name in the History (a constant)
 }
 
-// Notes that the Lights section changed the lights from `before` this frame.
-light_drag_changed :: proc(app: ^App, before: Light_Set) {
+// Notes that the Lights section changed the lights from `before` this frame; `what` names
+// the step, unless an earlier change of the same press already did.
+light_drag_changed :: proc(app: ^App, before: Light_Set, what := "Lights") {
 	d := &app.ui.light_drag
-	if !d.active do d^ = {active = true, from = before}
+	if !d.active do d^ = {active = true, from = before, what = what}
 }
 
 // Ends a change to the lights once the pointer lets go (or at once with `force`), as one
@@ -320,7 +358,7 @@ light_drag_end :: proc(app: ^App, force := false) {
 	d := &app.ui.light_drag
 	if !d.active || (!force && .Left in app.device.down) do return
 	d.active = false
-	if app.scene.lights != d.from do history_record_lights(app, d.from, "Lights")
+	if app.scene.lights != d.from do history_record_lights(app, d.from, d.what if d.what != "" else "Lights")
 }
 
 // A .Lights entry's lights before the change and after it, owned by the entry.
