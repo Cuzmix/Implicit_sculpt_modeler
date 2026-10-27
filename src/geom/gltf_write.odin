@@ -94,6 +94,10 @@ Export_Light :: struct {
 	range:      f32, // where it fades to nothing, in the mesh's units; 0 for never
 	inner_cone: f32, // a spot's half angles in radians: full strength inside the inner,
 	outer_cone: f32, // ...nothing outside the outer
+	// How big it is: a directional light's full angle across in radians, another's radius
+	// in the mesh's units; 0 for none. glTF's lights have no size, so only USD and the
+	// Blender link carry it, a directional light's in USD.
+	size:       f32,
 }
 
 // Where light `l` stands in the file and how it is turned (its local -Z, which both

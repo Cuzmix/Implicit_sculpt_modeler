@@ -307,7 +307,8 @@ usda_carries_the_lights :: proc(t: ^testing.T) {
 		offset    = {0, 0, 1},
 		lights    = []Export_Light {
 			{name = "Key", kind = .Directional, color = 1, intensity = 683 * 4, direction = {0, -1, 0}},
-			{name = "Lamp", kind = .Spot, color = {1, 0.5, 0.25}, intensity = 683.0 / 16, position = {1, 2, 3}, direction = {0, 0, -1}, inner_cone = 0.25, outer_cone = 0.5},
+			{name = "Lamp", kind = .Spot, color = {1, 0.5, 0.25}, intensity = 683.0 / 16, position = {1, 2, 3}, direction = {0, 0, -1}, inner_cone = 0.25, outer_cone = 0.5, size = 0.3},
+			{name = "Sky", kind = .Directional, color = 1, intensity = 683 * 4, direction = {0, -1, 0}, size = 0.5},
 		},
 	}
 	out := make([dynamic]u8)
@@ -320,6 +321,8 @@ usda_carries_the_lights :: proc(t: ^testing.T) {
 			"def DistantLight \"Key_2\"\n    {\n        color3f inputs:color = (1, 1, 1)\n        float inputs:intensity = 1\n        quatf xformOp:orient = (0.707106829, -0.707106829, 0, 0)\n        uniform token[] xformOpOrder = [\"xformOp:orient\"]\n    }",
 			"def SphereLight \"Lamp\" (\n        prepend apiSchemas = [\"ShapingAPI\"]\n    )",
 			"float inputs:intensity = 1\n        bool treatAsPoint = 1\n        float inputs:shaping:cone:angle = 28.6478882\n        float inputs:shaping:cone:softness = 0.5\n        double3 xformOp:translate = (2, 4, 7)\n        quatf xformOp:orient = (1, 0, 0, 0)",
+			// A sized sun gives its angle across in degrees; a lamp's radius stays out.
+			"def DistantLight \"Sky\"\n    {\n        color3f inputs:color = (1, 1, 1)\n        float inputs:intensity = 1\n        float inputs:angle = 28.6478882\n",
 		}) {
 		testing.expectf(t, strings.contains(text, want), "no %q in\n%s", want, text)
 	}
