@@ -784,6 +784,16 @@ def orbit_full_turns_turntable():
 
 
 @scenario
+def orbit_default_is_turntable():
+    """With no setting changed, a sideways drag on empty space turns about the up axis: the tilt and the horizon stay as they were, and a twist does not roll."""
+    s = Script()
+    s.fdrag(past_slop((150, 120), (350, 120), 20))
+    s.wait(3)
+    twist(s, math.radians(45))
+    return s, [], {"dabs": near(0), "camera_yaw": near(wrap(0.6 - 200 * 0.008), 2e-3), "camera_pitch": near(0.35), "camera_roll": near(0)}
+
+
+@scenario
 def pinch_zoom():
     """Two fingers spreading three times apart zoom three times closer."""
     s = Script()
