@@ -133,6 +133,22 @@ Colors_Card :: struct {
 	swatch_menu_at:  ui.Rect,
 	swatch_menu_of:  [2]int, // the palette (yours) and the swatch
 	tray_was:        bool,
+	// The colour popover (kit_color_popover), which a tap on any colour field's well
+	// opens: open, which field (its well's id) and where; the field's colour as it last
+	// showed it, what the popover set and whether the field is still to take that (next
+	// frame, so the field reports the change as its own), whether the field was drawn this
+	// frame (a popover whose panel closed goes with it), and a pick waiting for the history.
+	pop:         bool,
+	pop_of:      ui.Id,
+	pop_at:      ui.Rect,
+	pop_value:   [3]f32,
+	pop_set:     [3]f32,
+	pop_dirty:   bool,
+	pop_alive:   bool,
+	pop_changed: bool,
+	pop_scroll:  f32,
+	// Set only while the popover draws: the colour its pickers set instead of the brush's.
+	override:    ^[3]f32,
 }
 
 // Opens the card, or puts it away.
@@ -142,9 +158,19 @@ colors_card_toggle :: proc(app: ^App) {
 	if k.colors_card do k.bar_pop.open = false
 }
 
-// The colour the pickers set: the brush's main or secondary one.
+// The colour the pickers set: the colour popover's while it draws, else the brush's main
+// or secondary one.
 colors_target :: proc(app: ^App) -> ^[3]f32 {
-	return &app.brush.color2 if app.kit.colors.editing == 1 else &app.brush.color
+	c := &app.kit.colors
+	if c.override != nil do return c.override
+	return &app.brush.color2 if c.editing == 1 else &app.brush.color
+}
+
+// Which colour the pickers set, as colors_sync compares it: 0 and 1 the brush's, 2 the
+// popover's.
+@(private = "file")
+colors_editing :: proc(c: ^Colors_Card) -> int {
+	return 2 if c.override != nil else c.editing
 }
 
 // Re-reads the edited colour as hue, saturation and brightness when it changed elsewhere
@@ -153,9 +179,9 @@ colors_target :: proc(app: ^App) -> ^[3]f32 {
 colors_sync :: proc(app: ^App) {
 	c := &app.kit.colors
 	rgb := colors_target(app)^
-	if rgb == c.seen && c.seen_of == c.editing do return
+	if rgb == c.seen && c.seen_of == colors_editing(c) do return
 	c.hsv = rgb_to_hsv(rgb, c.hsv)
-	c.seen, c.seen_of = rgb, c.editing
+	c.seen, c.seen_of = rgb, colors_editing(c)
 }
 
 // Sets the edited colour from hue, saturation and brightness.
@@ -163,7 +189,7 @@ colors_set_hsv :: proc(app: ^App, hsv: [3]f32) {
 	c := &app.kit.colors
 	c.hsv = hsv
 	colors_target(app)^ = hsv_to_rgb(hsv)
-	c.seen, c.seen_of, c.changed = colors_target(app)^, c.editing, true
+	c.seen, c.seen_of, c.changed = colors_target(app)^, colors_editing(c), true
 }
 
 // Sets the edited colour from display red, green and blue.
@@ -171,7 +197,7 @@ colors_set_rgb :: proc(app: ^App, rgb: [3]f32) {
 	c := &app.kit.colors
 	colors_target(app)^ = rgb
 	c.hsv = rgb_to_hsv(rgb, c.hsv)
-	c.seen, c.seen_of, c.changed = rgb, c.editing, true
+	c.seen, c.seen_of, c.changed = rgb, colors_editing(c), true
 }
 
 // Makes `rgb` the edited colour at once and puts it in the history: a swatch tapped, the
@@ -407,6 +433,65 @@ kit_colors_card :: proc(app: ^App) -> (raised: bool) {
 	}
 	kit_colors_menus(app)
 	return
+}
+
+// The colour popover, as Procreate's: a tap on a colour field's well (the brush's
+// colours, the material's, a group's, a light's, the background's) opens it under the
+// field, with the Colors card's tabs, pickers, history and default palette setting that
+// field's colour. It is drawn with what floats over the panels, after the field; the
+// field takes what it set on the next frame (kit_color), so a field that acts on a change
+// (a light's colour, the material on the selected objects) acts on this one too, and no
+// pointer into a panel is kept. It goes when its field is no longer drawn.
+kit_color_popover :: proc(app: ^App) {
+	k := &app.kit
+	ctx := &k.ctx
+	c := &k.colors
+	if !c.pop_alive do c.pop = false
+	c.pop_alive = false
+	shown := c.pop_set if c.pop_dirty else c.pop_value
+	was := shown
+	inner := f32(SWATCH_COLUMNS * SWATCH_SIDE)
+	owner := ui.id_of(ctx, "colour popover")
+	// Beside the field, toward the middle of the window, so the field and its panel stay
+	// in view: left of a field in the tray, right of one in a card at the left.
+	side := ui.Side.Left if c.pop_at.x + c.pop_at.w * 0.5 > ctx.input.window.x * 0.5 else ui.Side.Right
+	if !ui.popover_begin(ctx, "colour popover", &c.pop, c.pop_at, side, {direction = .Column, gap = COLORS_GAP, padding = COLORS_PADDING, width = COLORS_CARD_W}) do return
+	// The pickers set `shown`; the card's pending history pick is kept apart from this one.
+	card_changed := c.changed
+	c.changed = false
+	c.override = &shown
+	colors_sync(app)
+	ui.begin(ctx, "colour popover tabs", {direction = .Row, width = inner, gap = (inner - 5 * ui.BRUSH_TILE.x) / 4})
+	for tab in Colors_Tab {
+		if ui.brush_tile(ctx, fmt.tprintf("%s##colour popover tab", COLORS_TAB_NAMES[tab]), COLORS_TAB_ICONS[tab], c.tab == tab) {
+			c.tab = tab
+			c.pop_scroll = 0
+		}
+	}
+	ui.end(ctx)
+	// The body scrolls where the window is too short for it.
+	room := max(ctx.input.window.y - BRUSH_TILE_H - 2 * COLORS_PADDING - COLORS_GAP - 24, 160)
+	_, natural := ui.prev_layout(ctx, "colour popover body")
+	body := kit_scroll_begin(ctx, "colour popover body", &c.pop_scroll, owner, inner, min(natural.y, room) if natural.y > 0 else room, COLORS_GAP)
+	switch c.tab {
+	case .Disc:     colors_disc(app, inner)
+	case .Classic:  colors_classic(app, inner)
+	case .Harmony:  colors_harmony(app, inner)
+	case .Value:    colors_value(app, inner)
+	case .Palettes: colors_palettes(app, inner)
+	}
+	if c.tab != .Palettes do colors_history_and_default(app, inner)
+	kit_scroll_end(ctx, body)
+	ui.popover_end(ctx)
+	if !k.colors_card do kit_colors_menus(app)
+	c.override = nil
+	if shown != was do c.pop_set, c.pop_dirty = shown, true
+	c.pop_changed ||= c.changed
+	c.changed = card_changed
+	if c.pop_changed && .Left not_in ctx.input.down && !ui.typing(ctx) {
+		color_history_push(c, shown)
+		c.pop_changed = false
+	}
 }
 
 // The brush tile's height, which the tabs take.

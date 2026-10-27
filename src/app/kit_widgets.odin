@@ -82,12 +82,26 @@ kit_color :: proc(app: ^App, name: string, rgb: ^[3]f32, linear := false) -> (ch
 	hex_w: f32 = 104
 	swatch_w := max(ui.fill_width(ctx) - hex_w - 8, 28)
 	ui.begin(ctx, fmt.tprintf("swatch##%s", name), {direction = .Row, gap = 8})
-	// The swatch stands as tall as the field beside it.
-	r := ui.place(ctx, {swatch_w, t.target})
-	r.y += (t.target - t.control) * 0.5
-	r.h = t.control
-	ui.fill_rect(ctx, r, t.radius_medium, overlay_color({shown.r, shown.g, shown.b, 1}))
-	ui.stroke_rect(ctx, r, t.radius_medium, t.border_strong, 1)
+	// The well is a whole touch target: a tap opens the colour popover on this colour (a
+	// second tap puts it away), as Procreate's colour well does. What the popover set last
+	// frame is taken here, so the caller sees it as this field's change.
+	c := &app.kit.colors
+	well := fmt.tprintf("Pick a colour##%s well", name)
+	id := ui.id_of(ctx, well)
+	open := c.pop && c.pop_of == id
+	if open && c.pop_dirty {
+		shown = c.pop_set
+		rgb^ = shown
+		if linear do for &v in rgb do v = srgb_decode(v)
+		c.pop_dirty = false
+		changed = true
+	}
+	if ui.swatch(ctx, well, overlay_color({shown.r, shown.g, shown.b, 1}), t.target, selected = open, width = swatch_w).clicked {
+		if open do c.pop = false
+		else do c.pop, c.pop_of, c.pop_dirty, c.pop_changed, c.pop_scroll = true, id, false, false, 0
+		open = c.pop
+	}
+	if open do c.pop_at, c.pop_value, c.pop_alive = ctx.last_rect, shown, true
 	if typed, ok := kit_hex_field(app, name, shown, hex_w); ok {
 		shown = typed
 		rgb^ = typed

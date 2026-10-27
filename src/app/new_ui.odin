@@ -699,7 +699,7 @@ kit_floats_close :: proc(k: ^Kit_State) {
 	k.bar_pop.open = false
 	k.bind.open, k.pie_editor, k.adjust_pop, k.gizmo_entry.open = false, false, false, false
 	k.folder_menu, k.rename.open, k.macro_save.open, k.home_menu = false, false, false, false
-	k.colors.palette_menu, k.colors.swatch_menu = false, false
+	k.colors.palette_menu, k.colors.swatch_menu, k.colors.pop = false, false, false
 	k.ctx.select_open = 0
 }
 
@@ -708,7 +708,7 @@ kit_floats_close :: proc(k: ^Kit_State) {
 // first-run tip hides under it.
 kit_floating :: proc(app: ^App) -> bool {
 	k := &app.kit
-	return app.ui.pie.open || app.ui.adjust.kind != .None || k.action_pop || k.adjust_pop || k.menu || k.versions || k.browser || k.dock_menu || k.bind.open || k.pie_editor || k.object_menu || k.folder_menu || k.rename.open || k.macro_save.open || k.palette || k.gizmo_entry.open || k.bar_pop.open || k.colors.palette_menu || k.colors.swatch_menu || k.home_menu || k.ctx.select_open != 0
+	return app.ui.pie.open || app.ui.adjust.kind != .None || k.action_pop || k.adjust_pop || k.menu || k.versions || k.browser || k.dock_menu || k.bind.open || k.pie_editor || k.object_menu || k.folder_menu || k.rename.open || k.macro_save.open || k.palette || k.gizmo_entry.open || k.bar_pop.open || k.colors.palette_menu || k.colors.swatch_menu || k.colors.pop || k.home_menu || k.ctx.select_open != 0
 }
 
 kit_destroy :: proc(app: ^App) {
@@ -1059,6 +1059,8 @@ kit_layout :: proc(app: ^App) {
 	else do kit_brush_browser(app, browser_anchor, .Right)
 	kit_bar_popover(app)
 	kit_bar_scrub(app)
+	// After the bar's popover, as a colour field in its section opens this one over it.
+	kit_color_popover(app)
 	kit_dock_menu(app)
 	kit_menu(app, menu_anchor)
 	kit_versions(app, menu_anchor)
