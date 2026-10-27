@@ -369,3 +369,46 @@ fov_change_keeps_the_target_plane_the_same_width :: proc(t: ^testing.T) {
 	testing.expect(t, near_eq(c.fov_y, FOV_MAX))
 	testing.expect(t, near_eq(2 * c.distance * math.tan(c.fov_y / 2), wide))
 }
+
+// Rolled any way, a turntable still turns about the world's up, and a drag moves the point
+// in front of the target along the drag on screen: the model follows the pointer, up to
+// the squash every turntable has away from the horizon, where a sideways drag turns the
+// front less on screen than an up and down one (cos(pitch) as much).
+@(test)
+a_rolled_turntable_keeps_the_model_under_the_pointer :: proc(t: ^testing.T) {
+	s := Orbit_Settings{style = .Turntable, speed = ORBIT_SPEED}
+	for roll in ([]f32{0, 0.5, 1.6, 3.0, -2.2}) {
+		for pitch in ([]f32{0.35, 2.4}) {
+			for drag in ([]Vec2{{6, 0}, {0, 6}, {-4, 5}}) {
+				c := orbit_default()
+				c.pitch, c.roll = pitch, roll
+				_, _, back := orbit_basis(c)
+				q := c.target + back * 0.5
+				before := project(orbit_proj(c, 1) * orbit_view(c), q)
+				orbit_rotate(&c, drag, s)
+				after := project(orbit_proj(c, 1) * orbit_view(c), q)
+				moved := linalg.normalize(Vec2{after.x - before.x, after.y - before.y})
+				// NDC's y is up, the drag's down.
+				want := linalg.normalize(Vec2{drag.x, -drag.y})
+				testing.expectf(t, linalg.dot(moved, want) > 0.98, "roll %v pitch %v drag %v moved the model along %v", roll, pitch, drag, moved)
+				testing.expect(t, near_eq(c.roll, roll), "the turntable changed the roll")
+			}
+		}
+	}
+}
+
+@(test)
+roll_about_keeps_the_point_between_the_fingers :: proc(t: ^testing.T) {
+	c := orbit_default()
+	height: f32 = 800
+	right, up, _ := orbit_basis(c)
+	offset := Vec2{-150, 120} // left of and below the middle, in pixels
+	wpp := 2 * c.distance * math.tan(c.fov_y / 2) / height
+	p := c.target + (right * offset.x - up * offset.y) * wpp // on the target's plane
+	before := project(orbit_proj(c, 1) * orbit_view(c), p)
+	orbit_roll_about(&c, 0.7, offset, height)
+	after := project(orbit_proj(c, 1) * orbit_view(c), p)
+	testing.expect(t, near_eq(before.x, after.x, 1e-4) && near_eq(before.y, after.y, 1e-4), "the point under the fingers moved")
+	testing.expect(t, near_eq(c.roll, 0.7), "did not roll")
+	testing.expect(t, near_eq(c.distance, orbit_default().distance), "rolling zoomed")
+}

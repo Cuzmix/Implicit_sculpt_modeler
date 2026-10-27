@@ -131,8 +131,8 @@ Viewport_Input :: struct {
 	zoom_drag:   bool, // Ctrl + right mouse: up zooms in
 	touch_pan:   [2]f32, // two fingers' middle moved this far (touch.odin)
 	touch_zoom:  f32, // ...and their spread grew this many times; 0 for no fingers
-	touch_zoom_at: [2]f32, // ...toward this point, from the viewport's middle (x right, y down)
-	touch_roll:  f32, // ...and they twisted this many radians clockwise
+	touch_roll:  f32, // ...and they twisted this many radians clockwise...
+	touch_at:    [2]f32, // ...toward and about this point, from the viewport's middle (x right, y down)
 	touch_orbit: [2]f32, // the finger left of two moved this far, turning the view...
 	touch_pivot: Vec3, // ...about this point (touch_lift_orbit)
 }

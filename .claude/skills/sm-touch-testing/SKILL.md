@@ -171,7 +171,7 @@ what was done, what should happen, what happened; a screen recording when someth
 2. First touch on a tray slider in a section taller than the tray, drag up: the tray scrolls, the slider keeps its value; drag sideways: it sets.
 3. One finger on the model sculpts at once with no dot left by a second finger landing; on empty space it orbits.
 4. Pen on the model sculpts with pressure; a palm resting while the pen hovers does nothing; the pen landing mid-touch cancels it.
-5. Two fingers: pan, pinch toward the fingers, twist to roll (Trackball only, `set orbit_style free`); quick two-finger tap undoes, three redoes.
+5. Two fingers: pan, pinch toward the fingers, twist to roll (Trackball, `set orbit_style free`, or Turntable with `set turntable_roll on`); quick two-finger tap undoes, three redoes.
 6. Three fingers up and down size the brush, sideways set its focal shift; a long press dragged on the bar's Strength sets that.
 7. Orbit round and round both ways and over the top: smooth, no jump, no flip; Shift snap with a keyboard if attached.
 8. Pull down the notification shade or switch apps mid-stroke: the stroke is taken back, nothing stays pressed.

@@ -5,6 +5,7 @@ import "core:math/linalg"
 import "core:time"
 import sdl "vendor:sdl3"
 
+import "../camera"
 import "../sculpt"
 import "../ui"
 
@@ -40,7 +41,9 @@ Touch :: struct {
 	pen_near:  bool, // the pen is near enough for the screen to see it
 	// The gesture's running totals, from the touch's first finger down (touch_route).
 	twist:     f32,
-	rolling:   bool, // the twist passed TWIST_DEADZONE: the view rolls with it
+	rolling:   bool, // the twist passed TWIST_DEADZONE: the view rolls with it...
+	roll_from: f32, // ...from the camera's roll then...
+	twist_from: f32, // ...and the twist then
 	adjust:    [2]f32, // three fingers' travel...
 	axis:      int, // ...and what it sets: 0 focal shift, 1 size, -1 not yet decided
 	focal:     f32, // the focal shift as the fingers have it, fractions and all...
@@ -284,16 +287,24 @@ touch_route :: proc(app: ^App, input: ^Viewport_Input) {
 	nav := app.nav
 	if f.most == 2 {
 		if nav.two_finger_pan do input.touch_pan = change.pan * nav.pan_speed
-		if nav.pinch_zoom && change.zoom != 1 {
-			input.touch_zoom = math.pow(change.zoom, nav.zoom_speed)
-			if nav.zoom_toward do input.touch_zoom_at = change.middle - input.size * 0.5
-		}
+		if nav.pinch_zoom && change.zoom != 1 do input.touch_zoom = math.pow(change.zoom, nav.zoom_speed)
+		// The pinch zooms toward the fingers and the twist rolls about them.
+		if nav.zoom_toward do input.touch_at = change.middle - input.size * 0.5
 		// Twisting rolls the view (ZBrush's Allow Roll Gesture), once the fingers turned
 		// further than a pinch's wobble, and only where the view may roll.
-		if nav.twist_roll && nav.orbit_style == .Free {
+		if twist_rolls(nav) {
+			if !t.rolling && abs(t.twist + change.twist) > TWIST_DEADZONE {
+				t.rolling, t.roll_from, t.twist_from = true, roll_level_undetent(app.camera.roll), t.twist
+			}
 			t.twist += change.twist
-			if abs(t.twist) > TWIST_DEADZONE do t.rolling = true
-			if t.rolling do input.touch_roll = change.twist
+			if t.rolling && nav.orbit_style == .Turntable {
+				// The roll the fingers ask for, from where it was as they began to roll, held
+				// level near level: a turntable's level is the one that matters.
+				want := roll_level_detent(camera.wrap_angle(t.roll_from + t.twist - t.twist_from))
+				input.touch_roll = camera.wrap_angle(want - app.camera.roll)
+			} else if t.rolling {
+				input.touch_roll = change.twist
+			}
 		}
 	} else if nav.three_finger {
 		// Three fingers: up and down sizes the brush, sideways sets its focal shift (the
