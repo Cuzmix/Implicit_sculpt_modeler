@@ -25,6 +25,8 @@ Brush_Settings :: struct {
 	front_only:        bool, // brushes and mask shapes leave what faces away from the viewer (sculpt.Brush.facing)
 	lock_plane:        bool, // keep the plane the stroke's first dab found (sculpt.Brush.lock_plane)
 	connected:         bool, // work only on what joins the dab's centre through the surface (sculpt.Brush.connected)
+	grab_depth:        bool, // Grab reaches through the whole depth under the brush (sculpt.Brush.through)
+	smooth_only:       sculpt.Smooth_Only, // which vertices Smooth evens out: all, valleys or peaks
 	stroke:            Stroke_Mode,
 	spray_spread:      f32, // Spray: how far from the path dabs scatter, in brush radii
 	line:              bool, // every stroke a straight line from its press (Stroke.line)
@@ -830,6 +832,8 @@ brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pres
 	if alpha != nil do up = to_local_dir(t, alpha_world_up(app))
 	facing: Vec3
 	if app.brush.front_only do facing = to_local_dir(t, -camera.orbit_toward(app.camera, to_world(t, hit)))
+	through: Vec3
+	if kind == .Grab && app.brush.grab_depth do through = to_local_dir(t, camera.orbit_toward(app.camera, to_world(t, hit)))
 	sym := brush_symmetry(app, selected_object(app))
 	return sculpt.Brush {
 		kind     = kind,
@@ -851,6 +855,8 @@ brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pres
 		channel  = brush_channel(app, selected_object(app)) if app.stroke.held else .Sculpt,
 		lock_plane = app.brush.lock_plane,
 		connected  = app.brush.connected,
+		through    = through,
+		smooth_only = app.brush.smooth_only if kind == .Smooth else .All,
 	}
 }
 

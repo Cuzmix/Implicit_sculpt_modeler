@@ -138,6 +138,9 @@ Scene :: struct {
 	// their vis_off (scene_tree.odin's visibility_slot).
 	vis_slot: int,
 	vis_used: u8,
+	// Names the scene to the Blender link, so objects sent from another scene never
+	// replace this one's (link.odin); 0 until something is sent. Saved with the scene.
+	link_token: u64,
 }
 
 // Changes to the object list or the selected object's levels requested by the UI,

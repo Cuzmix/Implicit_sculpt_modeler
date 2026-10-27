@@ -24,8 +24,9 @@ MAX_PRESETS :: 24
 PRESET_NAME_MAX :: 32
 
 // How Brush_Settings.preset and Dock_Slot.preset number presets: 0 is the plain brush, 1
-// to preset_count the person's own (from 1), and PACK_PRESET + j the library's preset j,
-// whose index never changes during a run (a removed pack's are marked gone).
+// to preset_count the person's own (from 1), BUILT_IN_PRESET + j the built-in preset j
+// (builtin_presets.odin), and PACK_PRESET + j the library's preset j, whose index never
+// changes during a run (a removed pack's are marked gone).
 PACK_PRESET :: 1 << 16
 
 // What a preset sets, besides its name.
@@ -43,6 +44,8 @@ Preset_Values :: struct {
 	cloth_mode:  sculpt.Cloth_Mode,
 	lock_plane:  bool,
 	connected:   bool,
+	grab_depth:  bool,
+	smooth_only: sculpt.Smooth_Only,
 }
 
 Brush_Preset :: struct {
@@ -61,7 +64,8 @@ preset_values_of :: proc(b: ^Brush_Settings, kind: sculpt.Brush_Kind) -> Preset_
 	return {
 		kind = kind, strength = b.strengths[kind], falloff = b.falloffs[kind], alpha = b.alpha, alpha_mode = b.alpha_mode,
 		alpha_angle = b.alpha_angle, stroke = b.stroke, spread = b.spray_spread, lazy_px = b.lazy_px, color = b.color,
-		cloth_mode = b.cloth_mode, lock_plane = b.lock_plane, connected = b.connected,
+		cloth_mode = b.cloth_mode, lock_plane = b.lock_plane, connected = b.connected, grab_depth = b.grab_depth,
+		smooth_only = b.smooth_only,
 	}
 }
 
@@ -72,10 +76,17 @@ preset_values_put :: proc(b: ^Brush_Settings, v: Preset_Values) {
 	b.alpha, b.alpha_mode, b.alpha_angle = v.alpha, v.alpha_mode, v.alpha_angle
 	b.stroke, b.spray_spread, b.lazy_px, b.color, b.cloth_mode = v.stroke, v.spread, v.lazy_px, v.color, v.cloth_mode
 	b.lock_plane, b.connected = v.lock_plane, v.connected
+	b.grab_depth, b.smooth_only = v.grab_depth, v.smooth_only
 }
 
 // The preset numbered `n` (PACK_PRESET), if there is one.
 preset_at :: proc(app: ^App, n: int) -> (^Brush_Preset, bool) {
+	if preset_built_in(n) {
+		// Made on first use, so an App of zeroes (tests, scripts) has them too.
+		j := n - BUILT_IN_PRESET
+		if app.built_in[j].name[0] == 0 do app.built_in[j] = built_in_preset(j)
+		return &app.built_in[j], true
+	}
 	if n >= PACK_PRESET {
 		j := n - PACK_PRESET
 		if j >= len(app.library.presets) || app.library.presets[j].gone do return nil, false
@@ -134,8 +145,8 @@ brush_plain :: proc(app: ^App) -> Brush_Settings {
 
 // Whether the brush's values differ from its preset's, in what the base brush uses: the
 // colour only for painting, the cloth mode only for the Cloth brush, the alpha not for
-// Grab, which takes none, and Lock plane and Connected not for Grab or Cloth, which
-// leave both.
+// Grab, which takes none, Lock plane not for Grab or Cloth and Connected not for Cloth,
+// which leave them, All depth only for Grab and Smooth only only for Smooth.
 preset_changed :: proc(app: ^App) -> bool {
 	p, ok := brush_preset(app)
 	if !ok do return false
@@ -149,7 +160,10 @@ preset_same :: proc(app: ^App, a, b: Preset_Values) -> bool {
 	if a.falloff.drawn && a.falloff.curve != b.falloff.curve do return false
 	if a.falloff.focal != b.falloff.focal do return false
 	if a.stroke != b.stroke || a.lazy_px != b.lazy_px || (a.stroke == .Spray && a.spread != b.spread) do return false
-	if flags & {.Grab, .Cloth} == {} && (a.lock_plane != b.lock_plane || a.connected != b.connected) do return false
+	if flags & {.Grab, .Cloth} == {} && a.lock_plane != b.lock_plane do return false
+	if .Cloth not_in flags && a.connected != b.connected do return false
+	if .Grab in flags && a.grab_depth != b.grab_depth do return false
+	if a.kind == .Smooth && a.smooth_only != b.smooth_only do return false
 	if .Grab not_in flags && (round(app, a.alpha) != round(app, b.alpha) || a.alpha_mode != b.alpha_mode || a.alpha_angle != b.alpha_angle) do return false
 	if .Paint in flags && a.color != b.color do return false
 	if .Cloth in flags && a.cloth_mode != b.cloth_mode do return false
@@ -165,9 +179,10 @@ preset_save_new :: proc(app: ^App) -> bool {
 	}
 	b := &app.brush
 	p := Brush_Preset{values = preset_values_of(b, b.kind)}
-	// A copy of a pack's preset is named after it, so it reads as that one made yours.
+	// A copy of a pack's or a built-in preset is named after it, so it reads as that one
+	// made yours.
 	base := BRUSHES[b.kind].name
-	if from, on := brush_preset(app); on && preset_of_pack(b.preset) do base = strings.clone(preset_name_fit_room(preset_name(from), 3), context.temp_allocator)
+	if from, on := brush_preset(app); on && preset_read_only(b.preset) do base = strings.clone(preset_name_fit_room(preset_name(from), 3), context.temp_allocator)
 	for n := 1; ; n += 1 {
 		name := fmt.tprintf("%s %d", base, n)
 		if preset_find(app, name) < 0 {
@@ -187,7 +202,7 @@ preset_save_new :: proc(app: ^App) -> bool {
 
 // Stores the brush's values in the preset it is on, when it is one of the person's own.
 preset_save :: proc(app: ^App) {
-	if preset_of_pack(app.brush.preset) do return
+	if preset_read_only(app.brush.preset) do return
 	if p, ok := brush_preset(app); ok do p.values = preset_values_of(&app.brush, p.values.kind)
 }
 
@@ -205,7 +220,7 @@ preset_delete :: proc(app: ^App, i: int) {
 	copy(app.presets[i:app.preset_count], app.presets[i + 1:app.preset_count])
 	app.preset_count -= 1
 	app.presets[app.preset_count] = {}
-	if b.preset > i + 1 do b.preset -= 1
+	if b.preset > i + 1 && !preset_read_only(b.preset) do b.preset -= 1
 	dock_preset_deleted(app, i)
 }
 
@@ -224,6 +239,7 @@ preset_rename :: proc(app: ^App, i: int, typed: string) -> bool {
 	if name == "" do return false
 	if other := preset_find(app, name); other >= 0 && other != i do return false
 	if _, ok := brush_by_name(name); ok do return false
+	if built_in_preset_find(name) > 0 do return false
 	preset_name_set(&app.presets[i], name)
 	return true
 }
@@ -242,17 +258,18 @@ preset_name_fit_room :: proc(name: string, room: int) -> string {
 	return strings.trim_right_space(name[:n])
 }
 
-// The preset a name stands for in scripts: one of the person's own by its name, or a
-// pack's as `<pack id>/<name>` (ignoring case); 0 for none.
+// The preset a name stands for in scripts: one of the person's own by its name, then a
+// built-in by its name, or a pack's as `<pack id>/<name>` (ignoring case); 0 for none.
 preset_by_ref :: proc(app: ^App, ref: string) -> int {
 	if i := preset_find(app, ref); i >= 0 do return i + 1
+	if n := built_in_preset_find(ref); n > 0 do return n
 	slash := strings.index_byte(ref, '/')
 	if slash < 0 do return 0
 	return pack_preset_find(app, ref[:slash], ref[slash + 1:])
 }
 
-// How scripts and notes name the preset numbered `n`: its name, or `<pack id>/<name>`
-// for a pack's.
+// How scripts and notes name the preset numbered `n`: its name (a built-in's too), or
+// `<pack id>/<name>` for a pack's.
 preset_ref :: proc(app: ^App, n: int) -> string {
 	p, ok := preset_at(app, n)
 	if !ok do return ""
@@ -265,11 +282,13 @@ preset_ref :: proc(app: ^App, n: int) -> string {
 // damaged line.
 // preset <name> <brush> <strength> <drawn 0|1> c1x c1y c2x c2y <alpha|-> <alpha mode>
 //        <alpha angle> <stroke> <lazy px> r g b <cloth mode> [<spread> [<lock plane 0|1>
-//        <connected 0|1> [<focal shift>]]]; names escaped (preset_escape). Lines from
-// before Spray have no spread and take the default; lines from before Lock plane and
-// Connected have both off; lines from before focal shift have none.
+//        <connected 0|1> [<focal shift> [<all depth 0|1> <smooth only>]]]]; names escaped
+// (preset_escape). Lines from before Spray have no spread and take the default; lines
+// from before Lock plane and Connected have both off; lines from before focal shift have
+// none; lines from before All depth and Smooth only have Grab's round reach and Smooth
+// on everything.
 preset_parse :: proc(f: []string) -> (name: string, v: Preset_Values, alpha: string, ok: bool) {
-	if len(f) != 18 && len(f) != 19 && len(f) != 21 && len(f) != 22 do return
+	if len(f) != 18 && len(f) != 19 && len(f) != 21 && len(f) != 22 && len(f) != 24 do return
 	kind, kind_ok := brush_by_name(f[2])
 	alpha_mode, mode_ok := reflect.enum_from_name(Alpha_Mode, f[10])
 	stroke, stroke_ok := reflect.enum_from_name(Stroke_Mode, f[12])
@@ -290,7 +309,12 @@ preset_parse :: proc(f: []string) -> (name: string, v: Preset_Values, alpha: str
 		spread = clamp(number(f[18], SPRAY_DEFAULT_SPREAD), 0, SPRAY_MAX_SPREAD) if len(f) >= 19 else SPRAY_DEFAULT_SPREAD,
 		lock_plane = len(f) >= 21 && f[19] == "1", connected = len(f) >= 21 && f[20] == "1",
 	}
-	if len(f) == 22 do v.falloff.focal = clamp(number(f[21], 0), sculpt.FOCAL_MIN, sculpt.FOCAL_MAX)
+	if len(f) >= 22 do v.falloff.focal = clamp(number(f[21], 0), sculpt.FOCAL_MIN, sculpt.FOCAL_MAX)
+	if len(f) == 24 {
+		only, only_ok := reflect.enum_from_name(sculpt.Smooth_Only, f[23])
+		if !only_ok do return
+		v.grab_depth, v.smooth_only = f[22] == "1", only
+	}
 	for k in 0 ..< 3 do v.color[k] = clamp(number(f[14 + k], 0), 0, 1)
 	return preset_unescape(f[1]), v, preset_unescape(f[9]), true
 }
@@ -301,9 +325,12 @@ preset_line :: proc(out: ^strings.Builder, name: string, v: Preset_Values, alpha
 	fmt.sbprintf(out, "preset %s %v %g %d %g %g %g %g %s %v %g %v %g %g %g %g %v %g %d %d", preset_escape(name), v.kind, v.strength, bit(v.falloff.drawn),
 		v.falloff.curve.c1.x, v.falloff.curve.c1.y, v.falloff.curve.c2.x, v.falloff.curve.c2.y, preset_escape(alpha), v.alpha_mode, v.alpha_angle, v.stroke, v.lazy_px,
 		v.color.r, v.color.g, v.color.b, v.cloth_mode, v.spread, bit(v.lock_plane), bit(v.connected))
-	// Only a preset with a focal shift has the field, so the builds from before it,
-	// which skip a line of a length they do not know, keep every other preset.
-	if v.falloff.focal != 0 do fmt.sbprintf(out, " %g", v.falloff.focal)
+	// Only a preset with a focal shift, All depth or Smooth only has the fields, so the
+	// builds from before them, which skip a line of a length they do not know, keep every
+	// other preset.
+	extra := v.grab_depth || v.smooth_only != .All
+	if v.falloff.focal != 0 || extra do fmt.sbprintf(out, " %g", v.falloff.focal)
+	if extra do fmt.sbprintf(out, " %d %v", bit(v.grab_depth), v.smooth_only)
 	strings.write_byte(out, '\n')
 }
 

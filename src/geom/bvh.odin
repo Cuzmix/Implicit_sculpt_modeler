@@ -400,6 +400,42 @@ bvh_query_leaves :: proc(b: ^Bvh, center: Vec3, radius: f32, out: ^[dynamic]u32)
 	}
 }
 
+// Appends the index of every leaf whose bounds come within `radius` of the infinite line
+// through `origin` along `dir` (a unit vector): each node's bounds grown by the radius
+// are tested against the whole line, a superset of the leaves a cylinder of that radius
+// touches.
+bvh_query_leaves_line :: proc(b: ^Bvh, origin, dir: Vec3, radius: f32, out: ^[dynamic]u32) {
+	if len(b.nodes) == 0 do return
+	clear(&b.stack)
+	append(&b.stack, 0)
+	for len(b.stack) > 0 {
+		n := pop(&b.stack)
+		node := b.nodes[n]
+		if !line_hits_box(origin, dir, node.bounds.lo - radius, node.bounds.hi + radius) do continue
+		if node.count > 0 {
+			append(out, n)
+		} else {
+			append(&b.stack, node.first, node.first + 1)
+		}
+	}
+}
+
+// Whether the infinite line through `origin` along `dir` passes through the box: the
+// slabs' entry and exit along the line overlap.
+@(private = "file")
+line_hits_box :: proc(origin, dir, lo, hi: Vec3) -> bool {
+	enter, exit := min(f32), max(f32)
+	for k in 0 ..< 3 {
+		if dir[k] == 0 {
+			if origin[k] < lo[k] || origin[k] > hi[k] do return false
+			continue
+		}
+		a, b := (lo[k] - origin[k]) / dir[k], (hi[k] - origin[k]) / dir[k]
+		enter, exit = max(enter, min(a, b)), min(exit, max(a, b))
+	}
+	return enter <= exit
+}
+
 // Linear BVH build: sorts triangles along a Morton curve with a radix sort and splits
 // ranges at the highest differing code bit. Linear time apart from the sort, so it
 // builds 20M triangles in well under a second; split quality is lower than SAH, which

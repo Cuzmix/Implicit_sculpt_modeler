@@ -72,6 +72,8 @@ SETTINGS := [?]Setting {
 	{"front_only", B + offset_of(Brush_Settings, front_only), bool, 0, 0},
 	{"lock_plane", B + offset_of(Brush_Settings, lock_plane), bool, 0, 0},
 	{"connected", B + offset_of(Brush_Settings, connected), bool, 0, 0},
+	{"grab_depth", B + offset_of(Brush_Settings, grab_depth), bool, 0, 0},
+	{"smooth_only", B + offset_of(Brush_Settings, smooth_only), sculpt.Smooth_Only, 0, 0},
 	{"symmetry_local", B + offset_of(Brush_Settings, sym_local), bool, 0, 0},
 	{"radial", B + offset_of(Brush_Settings, radial_on), bool, 0, 0},
 	{"radial_count", B + offset_of(Brush_Settings, radial_count), i32, RADIAL_MIN, sculpt.RADIAL_MAX},
@@ -437,6 +439,11 @@ settings_load :: proc(app: ^App, path: string) {
 	on_preset := ""
 	// The dock's preset slots, by name, put in once the presets are read.
 	dock_presets: [DOCK_SLOTS]string
+	// Presets of the person's own named as a built-in one now is, from a file written
+	// before there were built-ins: each is kept as "<name> N", and the brush and the dock
+	// slots the file put on it follow it there.
+	renamed: [dynamic][2]string
+	renamed.allocator = context.temp_allocator
 	// The plain brush's alpha, by reference, put on before the preset, which brings its own.
 	plain_alpha := ""
 	lines: for line in strings.split_lines_iterator(&text) {
@@ -535,6 +542,17 @@ settings_load :: proc(app: ^App, path: string) {
 			v.alpha = alpha_find(app, alpha)
 			app.presets[app.preset_count].values = v
 			app.preset_count += 1
+			if built_in_preset_find(name) > 0 {
+				base := strings.clone(preset_name_fit_room(name, 3), context.temp_allocator)
+				for n := 1; ; n += 1 {
+					free_name := fmt.tprintf("%s %d", base, n)
+					if preset_find(app, free_name) < 0 && built_in_preset_find(free_name) == 0 {
+						append(&renamed, [2]string{name, free_name})
+						name = free_name
+						break
+					}
+				}
+			}
 			if !preset_rename(app, app.preset_count - 1, name) {
 				app.preset_count -= 1
 				app.presets[app.preset_count] = {}
@@ -615,6 +633,12 @@ settings_load :: proc(app: ^App, path: string) {
 	// On a preset of the brush the file names, it is put back on it; its plain values are
 	// the ones just read.
 	if plain_alpha != "" do b.alpha = alpha_find(app, plain_alpha)
+	follow :: proc(renamed: [][2]string, name: string) -> string {
+		for r in renamed do if strings.equal_fold(r[0], name) do return r[1]
+		return name
+	}
+	on_preset = follow(renamed[:], on_preset)
+	for &name in dock_presets do name = follow(renamed[:], name)
 	if n := preset_by_ref(app, on_preset); n > 0 {
 		if p, _ := preset_at(app, n); p.values.kind == b.kind do preset_use(app, n)
 	}
@@ -686,6 +710,12 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 	for s, slot in app.kit.dock {
 		if s.preset > 0 && s.preset <= app.preset_count {
 			fmt.sbprintfln(&out, "dock %d preset %s", slot, preset_escape(preset_name(&app.presets[s.preset - 1])))
+		} else if preset_built_in(s.preset) {
+			// Its brush first, which a build from before the built-ins keeps; then the
+			// preset by name, as the person's own are (no preset of theirs takes a
+			// built-in's name), which a later line of the same slot wins over.
+			fmt.sbprintfln(&out, "dock %d brush %v", slot, s.kind)
+			fmt.sbprintfln(&out, "dock %d preset %s", slot, preset_escape(BUILT_IN_PRESETS[s.preset - BUILT_IN_PRESET].name))
 		} else {
 			fmt.sbprintfln(&out, "dock %d brush %v", slot, s.kind)
 			if p, ok := preset_at(app, s.preset); ok && preset_of_pack(s.preset) {

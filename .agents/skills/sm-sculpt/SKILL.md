@@ -60,7 +60,14 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
   Connected (after dyntopo's split): a marks job, then per-leaf union along the leaf's shown triangles (reading marks
   only once all are written), foreign edges run-deduped to root pairs, serial union, a mark pass; it starts from the
   triangle under the centre (`l.under`), not the nearest vertex (the next finger's). Joined strokes keep `locked`. Folded into
-  `facing_weight` and `job_area`. 10M Clay: 1.8 ms brush a frame vs 0.7.
+  `facing_weight` and `job_area`. 10M Clay: 1.8 ms brush a frame vs 0.7. Grab: `grab_reach` floods once per symmetry
+  image (each image's round-reach leaves as `s.hit`, a bare `Dab{s, center, r2}`) into a sorted temp list per image,
+  since the next flood's stamp makes earlier marks stale; `s.hit` is restored to the grab's leaves before `record_hit`.
+- Grab `Brush.through` (All depth): the per-image view direction; distance is across that line, leaves come from
+  `geom.bvh_query_leaves_line`; it wins over `connected`. `Brush.smooth_only` (`smooth_takes`): Valleys moves a vertex
+  whose step to the neighbours' mean points along its normal, Peaks against. App applies it to every Smooth-kind stroke.
+- Built-in presets (`app/builtin_presets.odin`): numbered `BUILT_IN_PRESET` (1<<15) + j, read-only like packs'
+  (`preset_read_only`), made lazily in `preset_at`; saved by name (`brush_preset`, `dock N brush` then `dock N preset`).
 - Adjust last stroke (`adjust.odin`): `sculptor_stroke_adjust(s, k)` lerps the newest step's saved nodes from before
   to an `after` copy kept on the `Undo_Step` at the first adjust (counted in `step_bytes`, freed by `step_move`), exact
   at 0 and 1 (`adjust_vec`), then `sculptor_nodes_moved`. Refused under dyntopo or for hide/group/layer-op steps.

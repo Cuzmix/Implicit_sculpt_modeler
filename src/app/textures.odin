@@ -380,7 +380,7 @@ texture_preview_release :: proc(app: ^App, obj: ^Object) {
 	obj.preview = {}
 }
 
-// The scene file's form of an object's maps (version 17): a byte of which maps there are
+// The scene file's form of an object's maps (version 18): a byte of which maps there are
 // (bit k for Texture_Map k), then each one's byte count and bytes, in that order.
 textures_put :: proc(out: ^[dynamic]u8, t: Object_Textures) {
 	bits: u8

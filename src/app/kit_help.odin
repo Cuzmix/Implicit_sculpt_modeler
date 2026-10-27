@@ -53,7 +53,7 @@ COMMAND_GROUP_NAMES := [Command_Group]string {
 // the compiler names any command added outside these ranges.
 command_group :: proc(id: Command_Id) -> Command_Group {
 	switch id {
-	case .None, .New_Scene ..= .Screenshot:   return .File
+	case .None, .New_Scene ..= .Get_From_Blender: return .File
 	case .Undo ..= .Duplicate_Object:         return .Edit
 	case .Tool_Move ..= .Replay_Stroke:       return .Tools
 	case .Remesh ..= .Reset_Transform:        return .Object
@@ -201,7 +201,9 @@ GLOSSARY := [?]Glossary_Entry {
 	{"Brush", "Brush (ZBrush, Blender), tool (Nomad)", "What a stroke does to the surface: Draw, Clay, Smooth and the rest, each with its own size and strength. Keys 1 to 9 and 0 pick the first ten.", "", {}},
 	{"Adjust last stroke", "Adjust Last (ZBrush), Adjust Last Operation (Blender)", "How much of the newest stroke stays, set after drawing it, from none to half as much again (Stroke > More, or the palette's Adjust last operation).", "", {}},
 	{"History brush", "HistoryRecall brush (ZBrush), history brush (Photoshop)", "A local undo: the History brush paints the surface back to how it was before an earlier step, only where you brush (Brush palette > History brush says which step).", "historyrecall", {.Recall_Earlier, .Recall_Later, .Recall_Oldest}},
-	{"Connected only", "Topological auto masking (ZBrush), auto-masking topology (Blender), connected (Nomad)", "A brush working only on the surface joined to where it presses, leaving a finger or fold beside it that is only near in space (Brush palette > Options).", "automasking", {.Connected}},
+	{"Connected only", "Topological auto masking (ZBrush), auto-masking topology (Blender), connected (Nomad)", "A brush working only on the surface joined to where it presses, leaving a finger or fold beside it that is only near in space; Grab then picks up only that part (Brush palette > Options).", "automasking", {.Connected}},
+	{"All depth", "Move Infinite Depth (ZBrush)", "Grab picking up everything under the brush however deep, the back of the model too, rather than a ball round the press (Brush palette > Options, or the Move all depth preset).", "", {}},
+	{"Smooth only", "Smooth Valleys and Smooth Peaks (ZBrush)", "Smooth evening out only the dents (Valleys) or only the bumps (Peaks), leaving the rest (Brush palette > Options with Smooth, or those two presets).", "", {}},
 	{"Lock plane", "Original plane (ZBrush), plane lock (Nomad), original normal (Blender)", "A stroke keeping the plane its first dab found, so a long Flatten or Clay stroke does not drift with the surface (Brush palette > Options).", "original", {.Lock_Plane}},
 	{"Mask", "Mask (ZBrush, Blender, Nomad), freeze (3DCoat)", "Paint on the surface that no brush can move. Masked parts show darker.", "freeze", {.Mask}},
 	{"Pose", "Gizmo 3D with a mask (ZBrush), Pose brush (Blender, Nomad), Pose tool (3DCoat)", "The Move tool's handles bending the unmasked part of an object about the gizmo, the mask's soft edge as the joint, instead of moving the whole object. Ctrl + drag from the model masks along the surface for it (a topological mask).", "posing", {.Gizmo}},

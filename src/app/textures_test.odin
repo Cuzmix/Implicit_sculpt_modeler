@@ -78,7 +78,7 @@ textured_vertices_follow_the_split :: proc(t: ^testing.T) {
 }
 
 // The scene file keeps the maps byte for byte and refuses damaged ones; a file of version
-// 16 has none.
+// 17 has none.
 @(test)
 scene_keeps_textures :: proc(t: ^testing.T) {
 	maps: Object_Textures

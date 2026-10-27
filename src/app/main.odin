@@ -116,8 +116,10 @@ App :: struct {
 	macro:    Macro_State, // the recording and the macros kept (macros.odin)
 	alphas:   [dynamic]Alpha_Entry, // the brush alphas the Brush palette offers (alphas.odin)
 	library:  Library, // the folder that keeps the person's own alphas across starts (library.odin)
+	link:     Link, // the live link with Blender (link.odin)
 	presets:      [MAX_PRESETS]Brush_Preset, // the user's brush presets (presets.odin), the first preset_count in use
 	preset_count: int,
+	built_in:     [len(BUILT_IN_PRESETS)]Brush_Preset, // the built-in presets (builtin_presets.odin), each made on first use
 	// The user's key changes (keymap.odin), and the bindings in effect built from them.
 	key_overrides:      [MAX_KEY_OVERRIDES]Key_Override,
 	key_override_count: int,
@@ -498,6 +500,10 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	app.settings_file = settings
 	// Macros are kept beside the settings, so a run that keeps no settings keeps none.
 	macros_load(&app, macros_folder(settings))
+	// The focus check only where a person switches windows: a scripted run's focus
+	// comes and goes with the test machine's windows, which no check may depend on.
+	link_init(&app, link_folder(settings), opts.frames == 0 && opts.gpubench == "" && opts.bench_stroke == 0 && opts.compute_bench == "" && opts.run == "" && opts.script == "")
+	defer link_destroy(&app)
 	app.coach_run = (remember && opts.frames == 0) || opts.coach
 	if opts.coach do app.kit.coach = 0
 	app.kit.fixed_dt = opts.ui_dt
@@ -543,6 +549,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			if app.macro.pending.active do macro_settle(&app, script_scene_state(&app) != before)
 		}
 		library_frame(&app)
+		link_frame(&app)
 		if req, ok := file_take(&app); ok {
 			autosave_settle(&app)
 			inspector_drags_end(&app)
@@ -645,6 +652,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			#partial switch e.type {
 			case .QUIT, .WINDOW_CLOSE_REQUESTED:
 				app.running = false
+			case .WINDOW_FOCUS_GAINED:
+				link_focus(&app)
 			case .DID_ENTER_BACKGROUND:
 				// The system may end the app from the background without another word.
 				if app.settings_file != "" do _ = settings_save(&app, app.settings_file)
@@ -1051,6 +1060,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	pack_matcaps := 0
 	for m in app.library.matcaps do if !m.gone do pack_matcaps += 1
 	fmt.printfln("library_alphas=%d library_skipped=%d alpha=%s packs=%d pack_alphas=%d pack_presets=%d pack_meshes=%d pack_materials=%d pack_matcaps=%d pack_matcap_textures=%d packs_installed=%d packs_refused=%d", app.library.alphas, app.library.skipped, alpha_ref(&app, app.brush.alpha), len(app.library.packs), pack_alphas, pack_presets, pack_meshes, pack_materials, pack_matcaps, app.library.textures_made, app.library.installed, app.library.refused)
+	fmt.printfln("link_sent=%d link_moved=%d link_swapped=%d link_added=%d link_token=%d", app.link.sends, app.link.moved, app.link.swapped, app.link.added, int(app.scene.link_token != 0))
 	fmt.printfln("macros=%d macro_recording=%d macro_entries=%d macro_left_out=%d macros_run=%d scripts_run=%d macro_steps=%d", macros_kept, int(app.macro.recording), len(app.macro.entries), app.macro.left_out, app.macro.runs, app.macro.scripts, app.macro.steps)
 	fmt.printfln("frames=%d dabs=%d objects=%d vertices=%d", frame_index, app.stats.dabs_total, len(app.scene.objects), vertices)
 	{
@@ -1119,7 +1129,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			mesh_sum: f64
 			if obj := selected_object(&app); obj != nil do for q in object_sculptor(obj).mesh.positions do mesh_sum += f64(q.x) + f64(q.y) + f64(q.z)
 			fmt.printfln("stroke_lines=%d stroke_joins=%d", app.stroke_end.lines, app.stroke_end.joins)
-			fmt.printfln("brush_front_only=%d brush_lock_plane=%d brush_connected=%d", int(app.brush.front_only), int(app.brush.lock_plane), int(app.brush.connected))
+			fmt.printfln("brush_front_only=%d brush_lock_plane=%d brush_connected=%d brush_grab_depth=%d brush_smooth_only=%v", int(app.brush.front_only), int(app.brush.lock_plane), int(app.brush.connected), int(app.brush.grab_depth), app.brush.smooth_only)
 			fmt.printfln("pose_mode=%d pose_drags=%d pose_moved=%d mesh_sum=%.4f topo_masks=%d topo_reach=%.3f", int(pose_mode(&app)), m.pose_drags, m.pose_moved, mesh_sum, m.topo_masks, m.topo_reach)
 			fmt.printfln("gizmo_at=%.0f,%.0f gizmo_mode=%s gizmo_hover=%s gizmo_last=%s gizmo_drags=%d gizmo_snap=%d transform=%.4f,%.4f,%.4f,%.3f,%.3f,%.3f,%.4f transform_undo=%d",
 				m.drawn.x, m.drawn.y, lower(m.mode), lower(m.hover), lower(m.last), m.drags, int(m.snap), tr.position.x, tr.position.y, tr.position.z, tr.rotation.x, tr.rotation.y, tr.rotation.z, tr.scale, transform_undo)

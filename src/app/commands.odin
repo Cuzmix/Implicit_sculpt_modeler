@@ -31,6 +31,8 @@ Command_Id :: enum u8 {
 	Import_Mesh,
 	Export_Mesh,
 	Screenshot,
+	Send_To_Blender,
+	Get_From_Blender,
 	// Edit
 	Undo,
 	Redo,
@@ -315,6 +317,20 @@ COMMANDS := [Command_Id]Command {
 		run = proc(app: ^App, _: int) {file_dialog(app, .Export)},
 		enabled = has_object,
 	},
+	.Send_To_Blender = {
+		label = "Send to Blender",
+		help = "Writes the selected objects to the Blender link's folder, for Get from Sculpt in Blender's Sculpt tab (Settings > System > Blender link).",
+		icon = ui.ICON_EXPORT,
+		run = proc(app: ^App, _: int) {file_post(.Link_Send, "")},
+		enabled = proc(app: ^App, _: int) -> bool {return link_can_send(app)},
+	},
+	.Get_From_Blender = {
+		label = "Get from Blender",
+		help = "Brings back what Blender's Send to Sculpt left in the link's folder: same triangles move the vertices, others rebuild the object, new ones are added; one undo step. Switching back to Sculpt does it too.",
+		icon = ui.ICON_IMPORT,
+		run = proc(app: ^App, _: int) {file_post(.Link_Get, "")},
+		enabled = proc(app: ^App, _: int) -> bool {return link_can_get(app)},
+	},
 	.Screenshot = {
 		label = "Save screenshot...",
 		help = "Saves the window as a PNG image.",
@@ -487,7 +503,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Connected = {
 		label = "Connected only",
-		help = "Brushes work only on the surface joined to where they press, leaving a finger or fold that is only near in space.",
+		help = "Brushes work only on the surface joined to where they press, leaving a finger or fold that is only near in space; Grab picks up only that part.",
 		run = proc(app: ^App, _: int) {app.brush.connected = !app.brush.connected},
 		checked = proc(app: ^App, _: int) -> bool {return app.brush.connected},
 	},
@@ -526,7 +542,7 @@ COMMANDS := [Command_Id]Command {
 		label = "Save preset changes",
 		help = "Stores the brush's changes in the preset it is on.",
 		run = proc(app: ^App, _: int) {preset_save(app)},
-		enabled = proc(app: ^App, _: int) -> bool {return preset_changed(app) && !preset_of_pack(app.brush.preset)},
+		enabled = proc(app: ^App, _: int) -> bool {return preset_changed(app) && !preset_read_only(app.brush.preset)},
 	},
 	.Preset_Revert = {
 		label = "Revert preset",
@@ -540,7 +556,7 @@ COMMANDS := [Command_Id]Command {
 		help = "Deletes the preset the brush is on; the brush goes back to its plain self.",
 		icon = ui.ICON_TRASH,
 		run = proc(app: ^App, _: int) {preset_delete(app, app.brush.preset - 1)},
-		enabled = proc(app: ^App, _: int) -> bool {return app.brush.preset > 0 && !preset_of_pack(app.brush.preset)},
+		enabled = proc(app: ^App, _: int) -> bool {return app.brush.preset > 0 && !preset_read_only(app.brush.preset)},
 	},
 	.Brush_Reset = {
 		label = "Reset brush",
