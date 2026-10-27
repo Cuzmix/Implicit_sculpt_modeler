@@ -62,6 +62,9 @@ History_Entry :: struct {
 	// A group command's table of group materials before and after it (group_materials.odin),
 	// owned; nil when the command left the table as it was.
 	group_table: ^Group_Table_Step,
+	// A .Textures entry's maps (and UV layout) on the other side of the change
+	// (textures.odin), owned.
+	textures: ^Texture_Step,
 }
 
 Arrange_Step :: struct {
@@ -73,6 +76,10 @@ Arrange_Step :: struct {
 @(private = "file")
 entry_free :: proc(h: ^History, e: History_Entry) {
 	group_table_step_free(e.group_table)
+	if e.textures != nil {
+		h.swap_bytes -= texture_step_bytes(e.textures)
+		texture_step_free(e.textures)
+	}
 	if e.swap != nil {
 		h.swap_bytes -= len(e.swap.bytes)
 		snapshot_free(e.swap)
@@ -95,6 +102,7 @@ History_Kind :: enum u8 {
 	Layer,   // a sculpt layer added, removed, shown, hidden or dialled
 	Transform, // the object moved, turned or scaled
 	Arrange, // the tree changed: folders, names or order
+	Textures, // texture maps baked, loaded or removed, or the UVs laid out again
 }
 
 // An object as object_put writes it, or that it did not exist. Undoing or redoing a swap
@@ -164,18 +172,34 @@ history_record_swap :: proc(app: ^App, id: int, before: ^Object_Snapshot, chain 
 	app.history.edits += 1
 	append(&app.history.done, History_Entry{id = id, swap = before, chain = chain && len(app.history.done) > 0, kind = .Rebuild, what = before.what, at = time.tick_now()})
 	app.history.swap_bytes += len(before.bytes)
-	// Over the limit, the oldest snapshots go, with every entry older than them, since
-	// undo cannot skip a swap; strokes older than a swap are dropped anyway, so the
-	// only older entries are other objects' strokes. A step goes whole, with every entry
-	// chained to it, and the newest step never goes: half a step undone would leave, say,
-	// a merged object beside the one merged into it.
+	history_trim(app)
+}
+
+// Lists `step`, a change of `obj`'s maps already made (textures_replace), as the newest
+// undo step.
+history_record_textures :: proc(app: ^App, obj: ^Object, step: ^Texture_Step, what: string) {
+	history_drop_redo(app)
+	app.history.serial += 1
+	app.history.edits += 1
+	append(&app.history.done, History_Entry{id = obj.id, kind = .Textures, what = what, at = time.tick_now(), textures = step})
+	app.history.swap_bytes += texture_step_bytes(step)
+	history_trim(app)
+}
+
+// Over the memory limit, the oldest snapshots and texture steps go, with every entry
+// older than them, since undo cannot skip one; strokes older than a swap are dropped
+// anyway, so the only older entries are other objects' strokes. A step goes whole, with
+// every entry chained to it, and the newest step never goes: half a step undone would
+// leave, say, a merged object beside the one merged into it.
+@(private = "file")
+history_trim :: proc(app: ^App) {
 	h := &app.history
 	limit := h.swap_limit if h.swap_limit > 0 else SWAP_LIMIT_BYTES
 	for h.swap_bytes > limit {
 		newest := len(h.done) - 1
 		for newest > 0 && h.done[newest].chain do newest -= 1
 		oldest := -1
-		for e, i in h.done do if e.swap != nil {oldest = i; break}
+		for e, i in h.done do if e.swap != nil || e.textures != nil {oldest = i; break}
 		if oldest < 0 || oldest >= newest do break
 		end := oldest + 1
 		for end < len(h.done) && h.done[end].chain do end += 1
@@ -196,7 +220,7 @@ history_next_label :: proc(list: []History_Entry) -> string {
 	if len(list) == 0 do return "stroke"
 	e := list[len(list) - 1]
 	if e.swap != nil do return e.swap.what
-	if e.kind == .Transform || e.kind == .Arrange do return e.what
+	if e.kind == .Transform || e.kind == .Arrange || e.kind == .Textures do return e.what
 	return "stroke"
 }
 
@@ -444,12 +468,13 @@ clip_command :: proc(app: ^App, a, b: [2]f32, flip: bool, size: [2]f32) {
 }
 
 // Lists the stroke (or mask command) the object's current sculptor just finished as
-// the newest undo step.
-history_record :: proc(app: ^App, obj: ^Object, kind: History_Kind, what: string) {
+// the newest undo step, or with `chain` as part of the newest (the rest of a get from
+// Blender).
+history_record :: proc(app: ^App, obj: ^Object, kind: History_Kind, what: string, chain := false) {
 	history_drop_redo(app)
 	app.history.serial += 1
 	if !object_in_hd(obj) do app.history.edits += 1
-	append(&app.history.done, History_Entry{id = obj.id, level = HD_LEVEL if object_in_hd(obj) else obj.levels.current, kind = kind, what = what, at = time.tick_now()})
+	append(&app.history.done, History_Entry{id = obj.id, level = HD_LEVEL if object_in_hd(obj) else obj.levels.current, kind = kind, what = what, at = time.tick_now(), chain = chain && len(app.history.done) > 0})
 }
 
 @(private = "file", rodata)
@@ -503,7 +528,7 @@ history_push :: proc(app: ^App, e: History_Entry) {
 @(private = "file")
 history_drop_redo :: proc(app: ^App) {
 	for e in app.history.undone {
-		if e.swap != nil || e.arrange != nil || e.kind == .Transform {
+		if e.swap != nil || e.arrange != nil || e.kind == .Transform || e.kind == .Textures {
 			// Nothing of it is kept anywhere else.
 		} else if obj := object_by_id(app, e.id); obj != nil && obj.voxel != nil {
 			voxel.clay_clear_redo(&obj.voxel.clay)
@@ -521,7 +546,6 @@ history_can_redo :: proc(app: ^App) -> bool {return !history_busy(app) && len(ap
 // A stroke, a gizmo or inspector drag of a transform, or a deformer's Amount drag is
 // under way: it becomes a step of its own when it ends, so nothing is undone or redone
 // beneath it.
-@(private = "file")
 history_busy :: proc(app: ^App) -> bool {
 	return app.stroke.active || app.move.drag.handle != .None || topo_held(app) || app.ui.transform_drag.active || app.ui.deform.drag.active
 }
@@ -565,6 +589,22 @@ history_step :: proc(app: ^App, from, to: ^[dynamic]History_Entry, can, step: pr
 			// The tree changes no level and no sculptor; layout_apply copes with objects
 			// that came or went since.
 			layout_apply(app, e.arrange.before if from == &app.history.done else e.arrange.after)
+			append(to, e)
+			return true
+		}
+		if e.kind == .Textures {
+			// The maps (and layout) trade places with the step's; no level or sculptor
+			// changes, and an object that is gone takes the step with it.
+			obj := object_by_id(app, e.id)
+			if obj == nil {
+				entry_free(&app.history, e)
+				continue
+			}
+			stroke_finish(app)
+			app.history.swap_bytes -= texture_step_bytes(e.textures)
+			texture_step_swap(obj, e.textures)
+			app.history.swap_bytes += texture_step_bytes(e.textures)
+			app.scene_edits += 1
 			append(to, e)
 			return true
 		}
@@ -694,15 +734,15 @@ history_forget :: proc(app: ^App, id: int) {
 	history_forget_level(app, id, nil)
 }
 
-// Drops an object's strokes on every level but keeps its swap and transform entries,
-// which hold the whole object or only where it is placed, and so stay right whatever
-// happened to its sculptors.
+// Drops an object's strokes on every level but keeps its swap, transform and texture
+// entries, which hold the whole object, where it is placed or its maps, and so stay right
+// whatever happened to its sculptors.
 history_forget_strokes :: proc(app: ^App, id: int) {
 	app.history.serial += 1
 	for list in ([2]^[dynamic]History_Entry{&app.history.done, &app.history.undone}) {
 		kept := 0
 		for e in list {
-			if e.id != id || e.swap != nil || e.arrange != nil || e.kind == .Transform {
+			if e.id != id || e.swap != nil || e.arrange != nil || e.kind == .Transform || e.kind == .Textures {
 				list[kept] = e
 				kept += 1
 			} else {
@@ -722,7 +762,7 @@ history_forget_level :: proc(app: ^App, id: int, level: Maybe(int)) {
 		kept := 0
 		for e in list {
 			only, one := level.?
-			if e.id != id || e.arrange != nil || (one && (e.level != only || e.swap != nil || e.kind == .Transform)) {
+			if e.id != id || e.arrange != nil || (one && (e.level != only || e.swap != nil || e.kind == .Transform || e.kind == .Textures)) {
 				list[kept] = e
 				kept += 1
 			} else {

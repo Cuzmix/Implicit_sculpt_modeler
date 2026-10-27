@@ -262,7 +262,7 @@ COLOUR_CHANNEL = {"sculpt": (122, 395), "both": (216, 395), "paint": (312, 395)}
 FLOOR_BACK = (1381, 561)
 POLYFRAME_FILL = (1450, 638)
 # The view menu's Field of view slider, under Orthographic.
-FOV_SLIDER = (1300, 640)
+FOV_SLIDER = (1300, 688)
 
 
 @scenario
@@ -753,6 +753,25 @@ def roll_stroke_by_finger():
 
 
 @scenario
+def drag_dot_stroke_by_finger():
+    """A Drag dot stroke by finger slides its one stamp with the finger, a dab each frame it
+    moves, and is one undo step."""
+    s = Script()
+    s.fdrag(line((760, 430), (860, 470), 20))
+    return s, ["--script=set stroke drag_dot"], camera_still({"dabs": lambda v: int(v) > 2, "undo_steps": near(1)})
+
+
+@scenario
+def stroke_section_shows_spray_and_colour_spray():
+    """The brush bar's Stroke opens the Stroke section with its five modes and, on Spray, the
+    Spread and Colour spray sliders; nothing moves."""
+    s = Script()
+    s.ftap(*UI["stroke"])
+    s.wait(8)
+    return s, ["--script=set stroke spray"], camera_still({"dabs": near(0), "bar_pop": is_text("stroke")})
+
+
+@scenario
 def finger_orbits_empty_space():
     """One finger on empty space turns the view, and a stroke started there keeps turning over the model."""
     s = Script()
@@ -781,6 +800,16 @@ def orbit_full_turns_turntable():
         s.fdrag(past_slop((150, 120), (150 + ORBIT_TURN, 120), 60))
     s.fdrag(past_slop((250, 80), (250, 80 + ORBIT_TURN), 60))
     return s, ["--script=set orbit_style turntable"], {"dabs": near(0)} | {k: near(v, 5e-3) for k, v in CAMERA0.items()}
+
+
+@scenario
+def orbit_default_is_turntable():
+    """With no setting changed, a sideways drag on empty space turns about the up axis: the tilt and the horizon stay as they were, and a twist does not roll."""
+    s = Script()
+    s.fdrag(past_slop((150, 120), (350, 120), 20))
+    s.wait(3)
+    twist(s, math.radians(45))
+    return s, [], {"dabs": near(0), "camera_yaw": near(wrap(0.6 - 200 * 0.008), 2e-3), "camera_pitch": near(0.35), "camera_roll": near(0)}
 
 
 @scenario
@@ -1263,6 +1292,11 @@ def macros_folder():
 def library_folder():
     """Where the scenario's library is kept: beside its settings file, named after it."""
     return settings_file()[:-len(".txt")] + "-library"
+
+
+def link_folder():
+    """The scenario's Blender link folder: beside its settings file, named after it."""
+    return settings_file()[:-len(".txt")] + "-link"
 
 
 def saved(**want):
@@ -4411,6 +4445,7 @@ def run(name, screens, displays=None):
         os.remove(settings_file())
     shutil.rmtree(macros_folder(), ignore_errors=True)
     shutil.rmtree(library_folder(), ignore_errors=True)
+    shutil.rmtree(link_folder(), ignore_errors=True)
     shutil.rmtree(autosave_folder(), ignore_errors=True)
     result = SCENARIOS[name]()
     steps = result if isinstance(result, Steps) else [result]
@@ -5167,6 +5202,173 @@ def pack_materials_shade_and_stay():
     ])
 
 
+def ply_mesh(path):
+    """The vertices and triangles of a binary little-endian PLY as the app writes it
+    (x y z floats, perhaps rgb bytes; a uchar count and int indices a face)."""
+    data = open(path, "rb").read()
+    end = data.index(b"end_header\n") + len(b"end_header\n")
+    head = data[:end].decode()
+    vertices = int(head.split("element vertex ")[1].split()[0])
+    faces = int(head.split("element face ")[1].split()[0])
+    stride = 15 if "property uchar red" in head else 12
+    points = [struct.unpack_from("<3f", data, end + stride * v) for v in range(vertices)]
+    at = end + stride * vertices
+    tris = [struct.unpack_from("<3i", data, at + 13 * f + 1) for f in range(faces)]
+    return points, tris
+
+
+def ply_write(path, points, tris):
+    """A binary PLY of `points` and `tris`, as Blender's side of the link writes one."""
+    head = (f"ply\nformat binary_little_endian 1.0\nelement vertex {len(points)}\nproperty float x\nproperty float y\n"
+            f"property float z\nelement face {len(tris)}\nproperty list uchar int vertex_indices\nend_header\n")
+    with open(path, "wb") as f:
+        f.write(head.encode())
+        for p in points:
+            f.write(struct.pack("<3f", *p))
+        for t in tris:
+            f.write(struct.pack("<B3i", 3, *t))
+
+
+def fake_blender(folder):
+    """A check that plays Blender between two runs: from the app's send it returns the
+    object sent with its first vertex raised by 0.25 (as moved vertices), sphere 2 as a
+    tetrahedron (new topology for a known object) and a tetrahedron of its own (a new
+    object), each line echoing the sent transform words, as the add-on does."""
+    def act(_):
+        lines = open(os.path.join(folder, "link.txt")).read().split("\n")
+        token = next(l.split()[1] for l in lines if l.startswith("scene "))
+        sent = next(l.split() for l in lines if l.startswith("object "))
+        points, tris = ply_mesh(os.path.join(folder, sent[4]))
+        points[0] = (points[0][0], points[0][1] + 0.25, points[0][2])
+        ply_write(os.path.join(folder, f"blender-{sent[1]}.ply"), points, tris)
+        tetra = [(0, 0, 0), (1, 0, 0), (0, 1, 0), (0, 0, 1)]
+        faces = [(0, 2, 1), (0, 1, 3), (0, 3, 2), (1, 2, 3)]
+        ply_write(os.path.join(folder, "blender-2.ply"), tetra, faces)
+        ply_write(os.path.join(folder, "blender-new-1.ply"), tetra, faces)
+        out = ["blender_link 1", f"scene {token}", "sent 1",
+               " ".join(["object", sent[1], sent[2], sent[3], f"blender-{sent[1]}.ply", sent[5], sent[6]] + sent[7:]),
+               "object 2 0 Tetra blender-2.ply 4 4 2.5 0 0 0 0 0 1",
+               "object 0 0 Made%20in%20Blender blender-new-1.ply 4 4 5 0 0 0 0 0 1"]
+        with open(os.path.join(folder, "blender.txt"), "w") as f:
+            f.write("\n".join(out) + "\n")
+        return True
+    return act
+
+
+def same_mesh_file(a, b):
+    """A check that PLY files `a` and `b` hold the same vertices and triangles."""
+    def check(_):
+        x, y = ply_mesh(a), ply_mesh(b)
+        if x == y:
+            return True
+        moved = sum(1 for p, q in zip(x[0], y[0]) if p != q)
+        return f"{len(x[0])} and {len(y[0])} vertices, {moved} not the same; {len(x[1])} and {len(y[1])} triangles ({a} and {b})"
+    return check
+
+
+@scenario
+def blender_link_round_trip():
+    """Send to Blender writes the selected sphere and a manifest, and the saved scene keeps
+    the link's token; after a stand-in Blender's send, the scene opened again gets it from
+    the palette's Get from Blender: the sphere's raised vertex (the stand-in's mesh, vertex
+    for vertex), the second sphere rebuilt as the tetrahedron, and a new object, as one
+    undo step."""
+    scene, got = autosave_folder() + "-link.sculpt", autosave_folder() + "-got.sculpt"
+    back, exported = os.path.join(link_folder(), "blender-1.ply"), autosave_folder() + "-got.ply"
+    os.makedirs(os.path.dirname(scene), exist_ok=True)
+    def get(undo):
+        s = Script()
+        s.wait(3)
+        s.press("k", ("ctrl",))
+        s.type("get from blender")
+        s.press("Return")
+        s.wait(6)
+        if undo:
+            s.press("z", ("ctrl",))
+            s.wait(4)
+        return s
+    return Steps([
+        (Script(), [f"--settings-file={settings_file()}", "--spheres=2", "--subdiv=3", "--script=select 1; send_to_blender", f"--save={scene}"],
+         {"link_sent": near(1, 0), "link_token": near(1, 0), "@stand-in Blender": fake_blender(link_folder())}),
+        # One Ctrl+Z takes the whole get back: the move, the rebuild, the new object and
+        # the second sphere's new place.
+        (get(True), [f"--settings-file={settings_file()}", f"--open={scene}"],
+         {"link_moved": near(1, 0), "link_swapped": near(1, 0), "link_added": near(1, 0), "objects": near(2, 0), "undo_steps": near(0, 0), "redo_steps": near(4, 0),
+          # The folder notes the send as taken, so the next run would not take it again.
+          "@taken once": lambda _: os.path.exists(os.path.join(link_folder(), "taken.txt")) and (os.remove(os.path.join(link_folder(), "taken.txt")) or True)}),
+        (get(False), [f"--settings-file={settings_file()}", f"--open={scene}", f"--save={got}"],
+         {"objects": near(3, 0), "undo_steps": near(4, 0)}),
+        (Script(), [f"--settings-file={settings_file()}", f"--open={got}", "--script=select 1", f"--export={exported}"],
+         {"objects": near(3, 0), "link_token": near(1, 0), "@the raised vertex": same_mesh_file(back, exported)}),
+    ])
+
+
+def echo_blender(folder, raise_first=False):
+    """A check that plays Blender between two runs: it sends back the app's one object as
+    it got it, or with its first vertex raised by 0.25, its placement word for word."""
+    def act(_):
+        lines = open(os.path.join(folder, "link.txt")).read().split("\n")
+        token = next(l.split()[1] for l in lines if l.startswith("scene "))
+        sent = next(l.split() for l in lines if l.startswith("object "))
+        points, tris = ply_mesh(os.path.join(folder, sent[4]))
+        if raise_first:
+            points[0] = (points[0][0], points[0][1] + 0.25, points[0][2])
+        ply_write(os.path.join(folder, f"blender-{sent[1]}.ply"), points, tris)
+        with open(os.path.join(folder, "blender.txt"), "w") as f:
+            f.write("\n".join(["blender_link 1", f"scene {token}", "sent 1",
+                               " ".join(["object", sent[1], sent[2], sent[3], f"blender-{sent[1]}.ply"] + sent[5:])]) + "\n")
+        return True
+    return act
+
+
+@scenario
+def blender_link_keeps_voxels_and_dynamic():
+    """A voxel object Blender sends back untouched stays a voxel object, with nothing to
+    undo; a dynamic topology object sent back changed is rebuilt from Blender's mesh with
+    dynamic topology still on, as one undo step."""
+    voxel, dynamic = autosave_folder() + "-voxel.sculpt", autosave_folder() + "-dynamic.sculpt"
+    os.makedirs(os.path.dirname(voxel), exist_ok=True)
+
+    def get():
+        s = Script()
+        s.wait(3)
+        s.press("k", ("ctrl",))
+        s.type("get from blender")
+        s.press("Return")
+        s.wait(6)
+        return s
+    return Steps([
+        (Script(), [f"--settings-file={settings_file()}", "--voxels=64", "--script=send_to_blender", f"--save={voxel}"],
+         {"link_sent": near(1, 0), "voxel_objects": near(1, 0), "@stand-in Blender": echo_blender(link_folder())}),
+        (get(), [f"--settings-file={settings_file()}", f"--open={voxel}"],
+         {"link_swapped": near(0, 0), "voxel_objects": near(1, 0), "undo_steps": near(0, 0)}),
+        (Script(), [f"--settings-file={settings_file()}", "--subdiv=3", "--script=dyntopo_toggle on; send_to_blender", f"--save={dynamic}"],
+         {"link_sent": near(1, 0), "dynamic": near(1, 0), "@stand-in Blender": echo_blender(link_folder(), raise_first=True)}),
+        (get(), [f"--settings-file={settings_file()}", f"--open={dynamic}"],
+         {"link_swapped": near(1, 0), "dynamic": near(1, 0), "undo_steps": near(1, 0)}),
+    ])
+
+
+@scenario
+def settings_system_shows_the_link():
+    """Settings > System, scrolled to the end, shows the Blender link's folder with Copy
+    path, and Send to Blender there writes the selected sphere to it."""
+    s = Script()
+    s.press("k", ("ctrl",))
+    s.type("system")
+    s.press("Return")
+    s.wait(3)
+    s.add("move:1400,500")
+    s.add("wheel:-30")
+    s.wait(10)
+    s.press("k", ("ctrl",))
+    s.type("send to blender")
+    s.press("Return")
+    s.wait(4)
+    return s, [f"--settings-file={settings_file()}"], {"settings_open": near(1), "settings_tab": is_text("Performance"), "link_sent": near(1, 0),
+                                                       "@the manifest": lambda _: os.path.exists(os.path.join(link_folder(), "link.txt")) or "no link.txt"}
+
+
 @scenario
 def gltf_export_keeps_layers():
     """Layers as glTF morph targets (export_keeps_layers): Blender shows 1.5 as it is."""
@@ -5602,7 +5804,7 @@ def adjust_retopo_and_extract():
 
 
 # Camera history (camera_history.odin): View menu rows at 1600x900.
-VIEW_BACK, VIEW_FORWARD = (1399, 794), (1399, 838)
+VIEW_BACK, VIEW_FORWARD = (1399, 824), (1399, 868)
 CAMERA_KEYS = ("camera_yaw", "camera_pitch", "camera_roll", "camera_distance", "camera_target")
 
 

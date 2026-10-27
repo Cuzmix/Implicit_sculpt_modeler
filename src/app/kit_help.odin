@@ -53,7 +53,7 @@ COMMAND_GROUP_NAMES := [Command_Group]string {
 // the compiler names any command added outside these ranges.
 command_group :: proc(id: Command_Id) -> Command_Group {
 	switch id {
-	case .None, .New_Scene ..= .Screenshot:   return .File
+	case .None, .New_Scene ..= .Get_From_Blender: return .File
 	case .Undo ..= .Duplicate_Object:         return .Edit
 	case .Tool_Move ..= .Replay_Stroke:       return .Tools
 	case .Remesh ..= .Reset_Transform:        return .Object
@@ -203,6 +203,9 @@ GLOSSARY := [?]Glossary_Entry {
 	{"History brush", "HistoryRecall brush (ZBrush), history brush (Photoshop)", "A local undo: the History brush paints the surface back to how it was before an earlier step, only where you brush (Brush palette > History brush says which step).", "historyrecall", {.Recall_Earlier, .Recall_Later, .Recall_Oldest}},
 	{"Connected only", "Topological auto masking (ZBrush), auto-masking topology (Blender), connected (Nomad)", "A brush working only on the surface joined to where it presses, leaving a finger or fold beside it that is only near in space; Grab then picks up only that part (Brush palette > Options).", "automasking", {.Connected}},
 	{"All depth", "Move Infinite Depth (ZBrush)", "Grab picking up everything under the brush however deep, the back of the model too, rather than a ball round the press (Brush palette > Options, or the Move all depth preset).", "", {}},
+	{"Drag dot", "DragDot (ZBrush)", "A stroke of one stamp at the brush's size that slides with the pointer until let go, to place a detail exactly (Brush palette > Stroke).", "", {}},
+	{"Spacing", "LazyStep (ZBrush), spacing (Blender, Nomad)", "How far apart a Dots stroke's dabs are, as a share of the brush's radius (Brush palette > Stroke > More).", "", {}},
+	{"Colour spray", "Color Spray (ZBrush), jitter (Blender)", "A Spray stroke's dabs each painting a slightly lighter or darker shade of the colour (Brush palette > Stroke with Spray).", "", {}},
 	{"Smooth only", "Smooth Valleys and Smooth Peaks (ZBrush)", "Smooth evening out only the dents (Valleys) or only the bumps (Peaks), leaving the rest (Brush palette > Options with Smooth, or those two presets).", "", {}},
 	{"Lock plane", "Original plane (ZBrush), plane lock (Nomad), original normal (Blender)", "A stroke keeping the plane its first dab found, so a long Flatten or Clay stroke does not drift with the surface (Brush palette > Options).", "original", {.Lock_Plane}},
 	{"Mask", "Mask (ZBrush, Blender, Nomad), freeze (3DCoat)", "Paint on the surface that no brush can move. Masked parts show darker.", "freeze", {.Mask}},

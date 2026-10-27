@@ -1,6 +1,7 @@
 package main
 
 import "core:fmt"
+import "core:strings"
 
 import "../camera"
 import "../ui"
@@ -221,15 +222,19 @@ settings_camera :: proc(app: ^App) {
 	ctx := &app.kit.ctx
 	n := &app.nav
 	ui.caption(ctx, "ORBIT")
-	styles := [len(camera.Orbit_Style)]string{"Free", "Turntable", "X axis", "Z axis"}
-	if picked := ui.tabs(ctx, "Orbit style", styles[:], int(n.orbit_style)); picked >= 0 do n.orbit_style = camera.Orbit_Style(picked)
+	// The default first; Free is the trackball.
+	order := [len(camera.Orbit_Style)]camera.Orbit_Style{.Turntable, .Free, .Axis_X, .Axis_Z}
+	styles := [len(camera.Orbit_Style)]string{"Turntable", "Trackball", "X axis", "Z axis"}
+	at := 0
+	for style, i in order do if style == n.orbit_style do at = i
+	if picked := ui.tabs(ctx, "Orbit style", styles[:], at); picked >= 0 do n.orbit_style = order[picked]
 	switch n.orbit_style {
-	case .Free:
-		ui.paragraph(ctx, "The default: a drag turns the model about the screen's own axes, so any view is one drag away, all the way round both ways.")
 	case .Turntable:
-		ui.paragraph(ctx, "Sideways turns about the model's up axis (Y) and up and down tilts, so the horizon stays level. Goes all the way round both ways, over the top too.")
+		ui.paragraph(ctx, "The default, as most 3D apps orbit: sideways turns about the model's up axis (Y) and up and down tilts, so the horizon stays level. Goes all the way round both ways, over the top too.")
+	case .Free:
+		ui.paragraph(ctx, "ZBrush's own: a drag turns the model about the screen's own axes, like rolling a ball, so any view is one drag away and the view may end up tilted. Two fingers twist to roll only in this style.")
 	case .Axis_X, .Axis_Z:
-		ui.paragraph(ctx, fmt.tprintf("Sideways turns about the world's %s axis; up and down turns freely, as Free does. Which way round is decided as each drag begins, so the model follows the pointer.", "X" if n.orbit_style == .Axis_X else "Z"))
+		ui.paragraph(ctx, fmt.tprintf("Sideways turns about the world's %s axis; up and down turns freely, as Trackball does. Which way round is decided as each drag begins, so the model follows the pointer.", "X" if n.orbit_style == .Axis_X else "Z"))
 	}
 	_ = ui.switch_row(ctx, "Stop at the top and bottom", &n.limit_pitch, enabled = n.orbit_style == .Turntable)
 	speed_slider(ctx, "Orbit speed", &n.orbit_speed)
@@ -296,7 +301,7 @@ settings_touch :: proc(app: ^App) {
 	_ = ui.switch_row(ctx, "Zoom toward the fingers", &n.zoom_toward, enabled = n.pinch_zoom)
 	_ = ui.switch_row(ctx, "Two-finger drag pans", &n.two_finger_pan)
 	_ = ui.switch_row(ctx, "Twist two fingers to roll", &n.twist_roll, enabled = n.orbit_style == .Free)
-	if n.orbit_style != .Free do ui.paragraph(ctx, "Rolling needs the Free orbit style (Camera).")
+	if n.orbit_style != .Free do ui.paragraph(ctx, "Rolling needs the Trackball orbit style (Camera).")
 	_ = ui.switch_row(ctx, "Three fingers: size and focal shift", &n.three_finger)
 	ui.paragraph(ctx, "Drag three fingers up and down for the brush size, sideways for its focal shift. Strength, like size and focal shift, follows a long press dragged up or down on its button on the brush bar.")
 	_ = ui.switch_row(ctx, "Lift one of two fingers to turn", &n.lift_one_orbit)
@@ -348,6 +353,39 @@ settings_performance :: proc(app: ^App) {
 	ui.label(ctx, "Keep the files a save replaces")
 	if picked := ui.select(ctx, "Earlier saves kept", VERSIONS_KEPT_NAMES[:], chosen); picked >= 0 do app.versions_kept = VERSIONS_KEPT[picked]
 	ui.paragraph(ctx, "Saving over a scene file first keeps the old one in a folder beside it (for head.sculpt, \"head versions\"), the newest ones kept. Off keeps none and deletes none already there.")
+	when LINK_AVAILABLE {
+		ui.spacer(ctx, 8)
+		ui.caption(ctx, "BLENDER LINK")
+		folder := app.link.folder
+		// A path has no spaces to wrap at: its end, which names the folder, is what shows,
+		// and Copy path gives the whole of it.
+		shown := "This run keeps no settings, so it has no link folder." if folder == "" else text_fit_end(ctx, folder, ctx.theme.small_size, KIT_SETTINGS_W - 2 * 16)
+		ui.paragraph(ctx, shown, color = ctx.theme.text_secondary)
+		if ui.button(ctx, "Copy path", .Bordered, enabled = folder != "") {
+			link_copy_path(app)
+		}
+		half := (KIT_SETTINGS_W - 2 * 16 - 8) / f32(2)
+		ui.begin(ctx, "link buttons", {direction = .Row, gap = 8})
+		_ = command_button(app, .Send_To_Blender, width = half)
+		_ = command_button(app, .Get_From_Blender, width = half)
+		ui.end(ctx)
+		ui.paragraph(ctx, "Install the add-on in tools/blender in Blender, give it this folder, then Send to Blender here and Get from Sculpt there; Send to Sculpt there comes back here when you switch to Sculpt, or with Get from Blender.")
+	}
+}
+
+// `s` as it fits in `width` points: whole, or its end with "..." before it.
+@(private = "file")
+text_fit_end :: proc(ctx: ^ui.Context, s: string, size, width: f32) -> string {
+	if ui.text_width(ctx, s, size) <= width do return s
+	room := width - ui.text_width(ctx, "...", size)
+	start := len(s)
+	for _, i in s {
+		if ui.text_width(ctx, s[i:], size) <= room {
+			start = i
+			break
+		}
+	}
+	return strings.concatenate({"...", s[start:]}, context.temp_allocator)
 }
 
 // A speed from a quarter to four times the default, equal steps doubling it.

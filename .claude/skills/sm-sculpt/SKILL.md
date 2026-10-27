@@ -38,8 +38,9 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
   | Cloth | a cloth simulation of the region within `CLOTH_REACH` radii (`cloth.odin`): `sculptor_cloth_begin` (record_hit, sim vertices with pin/drive weights, edge links via `vertex_faces_of`), `sculptor_cloth_step` each frame (Verlet + `Cloth_Mode` force, Jacobi edge rounds with buckle and bending, write back, `sculptor_nodes_moved` + `record_changed_node`), `sculptor_cloth_end` in `stroke_finish`; app `cloth_follow`; not with dyntopo, no symmetry | Pinch↔Expand, Gravity rises |
 - Drag rectangle (`Stroke_Mode.Drag_Rect`, app `rect_follow`): each frame `sculptor_stroke_restore` (`undo.odin`) copies the
   current step's saved nodes back (kept: one step; refused under dyntopo), then one dab at the start sized by the drag.
-- Spray and Roll (`Stroke_Mode.Spray`/`.Roll`, app `stroke_walk`): spacing per mode (`stroke_spacing`). Spray's dabs
-  (`spray_dab`) scatter on screen before the raycast and scale size and strength (`Dab_Scatter`); every random number is
+  Drag dot (`.Drag_Dot`, app `dot_follow`) is the same restore, then one brush-sized dab raycast at the pointer.
+- Spray and Roll (`Stroke_Mode.Spray`/`.Roll`, app `stroke_walk`): spacing per mode (`stroke_spacing`; Dots' is `Brush_Settings.spacing`). Spray's dabs
+  (`spray_dab`) scatter on screen before the raycast and scale size, strength and, with Colour spray, paint (`Dab_Scatter.tint`); every random number is
   `stroke_random(Stroke.seed, Stroke.step, k)`, the seed from `App.stroke_seed` (kept per stroke in `Take.seeds` and
   `.strokes` v4), so a replay lands the same dabs; never use a global generator for anything a replay must repeat. Roll
   starts with `travel` at a radius and forces the alpha along the stroke (`alpha_screen_angle`). The stroke latches
@@ -276,6 +277,10 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
   `history_busy` refuses undo while a stroke, `app.move.drag` or `app.ui.transform_drag` is open (`move_tool.odin`:
   `move_end` records on release, `move_cancel` restores unrecorded, `transform_drag_changed`/`transform_drag_end` make an
   inspector drag one step). A new kind of change to where an object sits goes through these, never a bare write.
+  An object's texture maps (and, for New UVs, its UV layout) change only through `textures_replace` (src/app/textures.odin),
+  a `.Textures` entry owning a `Texture_Step` that undo and redo swap with the object's, handled like `.Transform` (own
+  `history_step` branch, no sculptor redo, kept by the forget procs, excluded from `entry_is_step`), its bytes counted in
+  `swap_bytes`; `textures_settle` drops maps whose quads and UVs went.
 
 ## Rules that bite
 - A voxel object (`Object.voxel != nil`, sm-sdf) has an EMPTY level: its dabs go through `object_dab`, its picks through

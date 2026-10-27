@@ -57,6 +57,8 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.Open_Last_Autosave = "recover restore crash backup autosave lost unsaved quicksave",
 	.Import_Mesh      = "obj ply load append file",
 	.Export_Mesh      = "obj ply file",
+	.Send_To_Blender  = "goz blender link export round trip",
+	.Get_From_Blender = "goz blender link import round trip back",
 	.Macro_Record     = "macro record recording automate repeat actions steps",
 	.Run_Macro        = "macro play replay run recorded automate repeat",
 	.Macros           = "macros list manage rename delete key recorded automate",
@@ -181,6 +183,7 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.Floor_Grid       = "floor ground plane wall axes axis lines",
 	.Transparency     = "transparent see through xray x-ray transp",
 	.Flat_Shading     = "faceted",
+	.Texture_View     = "textures maps uv checker normal map bake preview textured",
 	.Polygroups       = "polyframe colours colors",
 	.Studio_Render    = "bpr render",
 	.View_Back        = "camera undo back history last view",
@@ -244,6 +247,7 @@ entry_title :: proc(app: ^App, e: Palette_Entry) -> string {
 // where the pointer is (A's HD window and R's replay), which over the palette would act
 // on the palette's spot; the Object palette and Sculpt HD cover them.
 palette_lists :: proc(id: Command_Id) -> bool {
+	if !LINK_AVAILABLE && (id == .Send_To_Blender || id == .Get_From_Blender) do return false
 	return id != .None && id != .Command_Palette && id != .Hd_Toggle && id != .Replay_Stroke
 }
 

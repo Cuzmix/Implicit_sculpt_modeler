@@ -1,7 +1,6 @@
 package render
 
 import "core:log"
-import "core:math/bits"
 import sdl "vendor:sdl3"
 
 // MatCaps: a picture of a lit sphere that the mesh shader looks up by the surface's
@@ -17,21 +16,7 @@ MATCAP_FORMAT :: sdl.GPUTextureFormat.R8G8B8A8_UNORM_SRGB
 // a command buffer of their own and submitted, so it may be called outside a frame. Nil,
 // with the reason logged, when the device refuses.
 matcap_create :: proc(r: ^Renderer, pixels: []u8, width, height: int) -> ^sdl.GPUTexture {
-	assert(width > 0 && height > 0 && len(pixels) == width * height * 4)
-	levels := u32(bits.log2(uint(max(width, height)))) + 1
-	tex := sdl.CreateGPUTexture(r.device, {
-		type = .D2, format = MATCAP_FORMAT, usage = {.SAMPLER, .COLOR_TARGET},
-		width = u32(width), height = u32(height), layer_count_or_depth = 1, num_levels = levels,
-	})
-	if tex == nil {
-		log.errorf("matcap texture: %s", sdl.GetError())
-		return nil
-	}
-	if !texture_upload(r, tex, pixels, width, height, mips = levels > 1) {
-		sdl.ReleaseGPUTexture(r.device, tex)
-		return nil
-	}
-	return tex
+	return texture_create(r, MATCAP_FORMAT, pixels, width, height)
 }
 
 // Waits for the GPU (a frame in flight may still sample it) and releases the texture.

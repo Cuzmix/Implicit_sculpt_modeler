@@ -22,11 +22,54 @@ import "../jobs"
 Quad_Mesh :: struct {
 	positions: []Vec3,
 	quads:     [][4]u32,
+	// Per quad, whether its triangles meet along corners 1-3 rather than 0-2, as the
+	// mesh drawn and sculpted has them (quad_mesh_diagonals); nil: every quad along 0-2.
+	// Whatever is rasterized or written as triangles over the quads follows it, so it
+	// lies exactly on the surface the viewport shows.
+	across:    []bool,
+}
+
+// A quad's two triangles as corner numbers (0 to 3), along the diagonal `across` gives;
+// the same split quad_split makes.
+quad_halves :: proc(q: Quad_Mesh, i: int) -> [2][3]int {
+	if q.across != nil && q.across[i] do return {{0, 1, 3}, {1, 2, 3}}
+	return {{0, 1, 2}, {0, 2, 3}}
+}
+
+// Which diagonal each quad of `q` is split along in the triangle mesh `indices` (whose
+// vertices are the quads'), with `faces` that mesh's triangles round each vertex: true
+// where corners 0 and 2 share no triangle. A quad whose diagonal cannot be found reads
+// as 0-2.
+quad_mesh_diagonals :: proc(q: Quad_Mesh, indices: []u32, faces: Vertex_Faces, allocator := context.allocator) -> []bool {
+	across := make([]bool, len(q.quads), allocator)
+	for f, i in q.quads {
+		a, c := f[0], f[2]
+		shared := false
+		for t in faces.tris[faces.offsets[a]:faces.offsets[a + 1]] {
+			tri := indices[3 * t:][:3]
+			if tri[0] == c || tri[1] == c || tri[2] == c {
+				shared = true
+				break
+			}
+		}
+		if !shared {
+			b, d := f[1], f[3]
+			for t in faces.tris[faces.offsets[b]:faces.offsets[b + 1]] {
+				tri := indices[3 * t:][:3]
+				if tri[0] == d || tri[1] == d || tri[2] == d {
+					across[i] = true
+					break
+				}
+			}
+		}
+	}
+	return across
 }
 
 quad_mesh_destroy :: proc(q: ^Quad_Mesh, allocator := context.allocator) {
 	delete(q.positions, allocator)
 	delete(q.quads, allocator)
+	delete(q.across, allocator)
 	q^ = {}
 }
 
@@ -178,7 +221,7 @@ cut_into_quads :: proc(positions: []Vec3, faces: [][4]u32, allocator: runtime.Al
 			append(&quads, [4]u32{f[k], next, c, prev})
 		}
 	}
-	return {points[:], quads[:]}
+	return {positions = points[:], quads = quads[:]}
 }
 
 // Normals of a quad mesh's vertices: each the sum of its quads' diagonal cross

@@ -6,6 +6,7 @@ import sdl "vendor:sdl3"
 
 import "../camera"
 import "../geom"
+import "../render"
 import "../gizmo"
 import "../sculpt"
 import "../ui"
@@ -30,6 +31,8 @@ Command_Id :: enum u8 {
 	Import_Mesh,
 	Export_Mesh,
 	Screenshot,
+	Send_To_Blender,
+	Get_From_Blender,
 	// Edit
 	Undo,
 	Redo,
@@ -151,6 +154,7 @@ Command_Id :: enum u8 {
 	View_Forward,
 	Wireframe,
 	Flat_Shading,
+	Texture_View,
 	Polygroups,
 	Studio_Render,
 	Floor_Grid,
@@ -313,6 +317,20 @@ COMMANDS := [Command_Id]Command {
 		icon = ui.ICON_EXPORT,
 		run = proc(app: ^App, _: int) {file_dialog(app, .Export)},
 		enabled = has_object,
+	},
+	.Send_To_Blender = {
+		label = "Send to Blender",
+		help = "Writes the selected objects to the Blender link's folder, for Get from Sculpt in Blender's Sculpt tab (Settings > System > Blender link).",
+		icon = ui.ICON_EXPORT,
+		run = proc(app: ^App, _: int) {file_post(.Link_Send, "")},
+		enabled = proc(app: ^App, _: int) -> bool {return link_can_send(app)},
+	},
+	.Get_From_Blender = {
+		label = "Get from Blender",
+		help = "Brings back what Blender's Send to Sculpt left in the link's folder: same triangles move the vertices, others rebuild the object, new ones are added; one undo step. Switching back to Sculpt does it too.",
+		icon = ui.ICON_IMPORT,
+		run = proc(app: ^App, _: int) {file_post(.Link_Get, "")},
+		enabled = proc(app: ^App, _: int) -> bool {return link_can_get(app)},
 	},
 	.Screenshot = {
 		label = "Save screenshot...",
@@ -1237,6 +1255,17 @@ COMMANDS := [Command_Id]Command {
 		run = proc(app: ^App, _: int) {app.flat = !app.flat},
 		checked = proc(app: ^App, _: int) -> bool {return app.flat},
 	},
+	.Texture_View = {
+		label = "Texture view",
+		help = "Shows objects with texture maps as clay, with their maps, with their normal map alone, or with a checker laid out by their UVs.",
+		args = len(render.Texture_View),
+		run = proc(app: ^App, arg: int) {
+			// Picking the view on again goes back to clay.
+			v := render.Texture_View(arg)
+			app.texture_view = .Off if app.texture_view == v else v
+		},
+		checked = proc(app: ^App, arg: int) -> bool {return app.texture_view == render.Texture_View(arg)},
+	},
 	.Polygroups = {
 		label = "Polygroups",
 		help = "Colours each polygroup differently.",
@@ -1533,6 +1562,8 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 		return MASK_COMMAND_LABELS[sculpt.Mask_Command(arg)]
 	case .Mask_By:
 		return MASK_BY_NAMES[sculpt.Mask_By(arg)]
+	case .Texture_View:
+		return TEXTURE_VIEW_NAMES[render.Texture_View(arg)]
 	case .Layer_Edit:
 		return LAYER_ACTION_NAMES[Layer_Action(arg)]
 	case .Restore_Selection_Set:

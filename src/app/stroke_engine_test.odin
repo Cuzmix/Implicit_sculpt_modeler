@@ -195,6 +195,7 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	a.brush.channel = .Both
 	// Neither changes a Draw stroke, but both are kept with it.
 	a.brush.grab_depth, a.brush.smooth_only = true, .Peaks
+	a.brush.spacing, a.brush.color_spray = 0.6, 0.4
 	a.stroke_seed = 41
 	a.device.pointer, a.nav.touch_strength = .Finger, 0.5
 	b.nav.touch_strength = 1
@@ -215,18 +216,38 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	testing.expect_value(t, b.replay.take.brushes[0].channel, sculpt.Channel.Both)
 	testing.expect(t, b.replay.take.brushes[0].grab_depth)
 	testing.expect_value(t, b.replay.take.brushes[0].smooth_only, sculpt.Smooth_Only.Peaks)
+	testing.expect_value(t, b.replay.take.brushes[0].spacing, 0.6)
+	testing.expect_value(t, b.replay.take.brushes[0].color_spray, 0.4)
 	replay_start(&b, &b.replay.take)
 	for replay_busy(&b) do _ = replay_frame(&b, {})
 	testing.expect(t, slice.equal(object_sculptor(oa).mesh.positions[:], object_sculptor(ob).mesh.positions[:]))
+	testing.expect(t, slice.equal(object_sculptor(oa).color[:], object_sculptor(ob).color[:]))
 	testing.expect_value(t, b.stroke_seed, 7)
 	testing.expect_value(t, b.stroke_scale_from, 0)
 
-	// Version 10 had no All depth and Smooth only after the paint channel: the one brush
-	// ends 64 + 29 bytes after the header's 16, where version 11's has 2 more.
+	// Version 11 had no spacing and colour spray after Smooth only: the one brush ends
+	// 64 + 31 bytes after the header's 16, where version 12's has 8 more.
 	data, err := os.read_entire_file(path, context.allocator)
 	testing.expect(t, err == nil)
 	defer delete(data)
-	BRUSH :: 64 + 31
+	BRUSH :: 64 + 39
+	eleven := make([dynamic]u8, context.temp_allocator)
+	append(&eleven, ..data[:16 + 64 + 31])
+	append(&eleven, ..data[16 + BRUSH:])
+	eleven[len(STROKES_MAGIC)] = 11
+	testing.expect(t, os.write_entire_file(path, eleven[:]) == nil)
+	l: App
+	defer replay_destroy(&l.replay)
+	defer results_destroy(&l)
+	testing.expect(t, strokes_load(&l, path))
+	if len(l.replay.take.brushes) == 1 {
+		testing.expect_value(t, l.replay.take.brushes[0].spacing, DAB_SPACING)
+		testing.expect_value(t, l.replay.take.brushes[0].color_spray, 0)
+		testing.expect_value(t, l.replay.take.brushes[0].smooth_only, sculpt.Smooth_Only.Peaks)
+	}
+
+	// Version 10 had no All depth and Smooth only after the paint channel: the one brush
+	// ends 64 + 29 bytes after the header's 16, where version 11's has 2 more.
 	ten := make([dynamic]u8, context.temp_allocator)
 	append(&ten, ..data[:16 + 64 + 29])
 	append(&ten, ..data[16 + BRUSH:])
@@ -790,4 +811,63 @@ touch_strength_lightens_a_fingers_strokes :: proc(t: ^testing.T) {
 	testing.expect(t, mouse > 0)
 	testing.expect(t, slice.equal(mouse_at[:], full_at[:]))
 	testing.expect(t, half < 0.75 * full && half > 0.25 * full)
+}
+
+// A Drag dot stroke's one dab slides with the pointer: dragged across the sphere, what is
+// left is a single press laid where it was let go, as one undo step.
+@(test)
+drag_dot_leaves_one_dab_where_it_is_let_go :: proc(t: ^testing.T) {
+	path := [?][2]f32{{440, 380}, {470, 390}, {500, 400}, {530, 410}, {560, 420}}
+	dragged, pressed: App
+	defer stroke_scene_free(&dragged)
+	defer stroke_scene_free(&pressed)
+	a, b := stroke_sphere(&dragged), stroke_sphere(&pressed)
+	dragged.brush.stroke = .Drag_Dot
+	stroke_along(&dragged, path[:], len(path))
+	stroke_along(&pressed, path[len(path) - 1:], 1)
+	testing.expect_value(t, len(dragged.history.done), 1)
+	testing.expect(t, meshes_near(a, b))
+}
+
+// Spacing sets how far apart a Dots stroke's dabs are: four times the spacing lays about
+// a quarter as many along the same path.
+@(test)
+spacing_sets_how_far_apart_dabs_are :: proc(t: ^testing.T) {
+	path := make([dynamic][2]f32, context.temp_allocator)
+	for x := f32(400); x <= 600; x += 10 do append(&path, [2]f32{x, 400})
+	totals: [2]int
+	for spacing, i in ([2]f32{0.25, 1}) {
+		app: App
+		defer stroke_scene_free(&app)
+		defer replay_destroy(&app.replay)
+		_ = stroke_sphere(&app)
+		app.brush.radius_px, app.brush.spacing = 20, spacing
+		for d in stroke_recorded(&app, path[:]) do totals[i] += d
+	}
+	// 200 px at 5 px and at 20 px a dab, and the press's.
+	testing.expectf(t, totals[0] >= 40 && totals[1] <= 12 && totals[1] >= 10, "dabs %v", totals)
+}
+
+// Colour spray gives each Spray dab's paint its own shade, the same for the same seed.
+@(test)
+color_spray_varies_the_paint_and_repeats_with_its_seed :: proc(t: ^testing.T) {
+	path := [?][2]f32{{420, 400}, {460, 400}, {500, 400}, {540, 400}, {580, 400}}
+	apps: [3]App
+	objs: [3]^Object
+	for &app, i in apps {
+		objs[i] = stroke_sphere(&app)
+		app.brush.kind, app.brush.radius_px, app.brush.stroke, app.brush.spray_spread = .Paint, 20, .Spray, 1
+		app.brush.strengths[.Paint], app.brush.color = 1, {0.5, 0.4, 0.3}
+		app.brush.color_spray = 0 if i == 0 else 0.5
+		app.stroke_seed = 5
+		_ = stroke_recorded(&app, path[:])
+	}
+	defer for &app in apps {
+		replay_destroy(&app.replay)
+		stroke_scene_free(&app)
+	}
+	plain, sprayed := object_sculptor(objs[0]).color[:], object_sculptor(objs[1]).color[:]
+	testing.expect(t, len(plain) > 0 && len(plain) == len(sprayed))
+	testing.expect(t, !slice.equal(plain, sprayed))
+	testing.expect(t, slice.equal(sprayed, object_sculptor(objs[2]).color[:]))
 }

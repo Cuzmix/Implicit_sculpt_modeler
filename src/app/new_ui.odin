@@ -1156,6 +1156,8 @@ kit_view_menu :: proc(app: ^App, anchor: ui.Rect, side: ui.Side) {
 	if !ui.popover_begin(ctx, "view menu", &k.view_menu, anchor, side, {direction = .Column, padding = 6, width = 268}) do return
 	ui.caption(ctx, "  SHADING")
 	for id in ([?]Command_Id{.Wireframe, .Flat_Shading, .Polygroups, .Studio_Render}) do _ = command_menu_item(app, id)
+	// Objects with maps: their maps, the normal map alone or the UV checker (none ticked is clay).
+	for v in render.Texture_View.Textured ..= render.Texture_View.Uv_Checker do _ = command_menu_item(app, .Texture_View, int(v))
 	ui.divider(ctx, across = true)
 	ui.caption(ctx, "  CAMERA")
 	_ = command_menu_item(app, .Ortho_Toggle)
