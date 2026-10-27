@@ -376,6 +376,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	if opts.compute_bench != "" do return computebench_run(&app, opts.compute_bench, opts.vertices)
 	app.scene.selected = -1
 	defer render.mesh_buffers_destroy(&app.renderer, &app.ui.boolean.preview)
+	defer boolean_coarse_drop(&app)
 	defer scene_destroy(&app)
 	defer history_destroy(&app.history)
 	timeline_init(&app.timeline)

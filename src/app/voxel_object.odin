@@ -22,6 +22,17 @@ Voxel_Part :: struct {
 	clay:       voxel.Clay,
 	gpu:        render.Mesh_Buffers, // the clay's surface, remade when its arrays grow
 	resolution: int, // voxels across the sphere it started as (its voxel size follows)
+	edits:      u64, // a stamp of the clay's state: new whenever a stroke, an undo, a resample or a boolean changed it (boolean_stamp reads it)
+}
+
+// The stamp the last changed clay took: every change takes the next, so no two states
+// of any clay in a run share one.
+voxel_edit_serial: u64
+
+// Marks the part's clay changed, for whatever caches a result made from it.
+voxel_part_edited :: proc(vp: ^Voxel_Part) {
+	voxel_edit_serial += 1
+	vp.edits = voxel_edit_serial
 }
 
 // A voxel sphere's resolution for the vertex count a size preset names: the surface of a
@@ -71,6 +82,7 @@ voxel_part_attach :: proc(app: ^App, obj: ^Object, vp: ^Voxel_Part, start: time.
 	}
 	vp.gpu = gpu
 	obj.voxel = vp
+	voxel_part_edited(vp)
 	vertices, triangles := voxel.surface_counts(&vp.clay.surface)
 	log.infof("voxels: %d bricks, %d vertices, %d triangles; ready to sculpt in %.0f ms, uploaded in %.0f ms", voxel.volume_brick_count(&vp.clay.volume), vertices, triangles,
 		time.duration_milliseconds(time.tick_diff(start, ready)), time.duration_milliseconds(time.tick_since(ready)))
@@ -251,6 +263,7 @@ object_voxel_resample :: proc(app: ^App, obj: ^Object, resolution: int) -> bool 
 		return false
 	}
 	vp.resolution = resolution
+	voxel_part_edited(vp)
 	_ = voxel.clay_flush(&vp.clay)
 	log.infof("voxel resolution: %d across, %d bricks in %.0f ms", resolution, voxel.volume_brick_count(&vp.clay.volume), time.duration_milliseconds(time.tick_since(start)))
 	return true
@@ -295,15 +308,15 @@ kit_voxels :: proc(app: ^App, obj: ^Object) {
 	ui.paragraph(ctx, fmt.tprintf("Res+ doubles the voxels along each side (%d across, about %s vertices) and Res− halves them (%d across, about %s vertices), each as one undo step; detail finer than a voxel goes with Res−.",
 		min(vp.resolution * 2, VOXELS_MAX), count_label(voxel_vertices_for(min(vp.resolution * 2, VOXELS_MAX))), max(vp.resolution / 2, VOXELS_MIN), count_label(voxel_vertices_for(max(vp.resolution / 2, VOXELS_MIN)))))
 	_ = command_button(app, .Convert_To_Mesh, variant = .Solid, tone = .Accent)
-	ui.paragraph(ctx, "Draw, Clay and Layer add clay (Ctrl takes it away), Smooth, Flatten and Inflate work as on a mesh; the other brushes, masks, levels and the rebuild tools need a mesh. Convert to mesh keeps the shape as triangles and is an undo step.")
+	ui.paragraph(ctx, "Draw, Clay and Layer add clay (Ctrl takes it away), Smooth, Flatten and Inflate work as on a mesh, and booleans (the Booleans section) merge, cut and intersect the clay itself; the other brushes, masks, levels and the rebuild tools need a mesh. Convert to mesh keeps the shape as triangles and is an undo step.")
 	kit_last_result(app, .Voxels)
 }
 
 // Whether the Object palette offers section `sec` for the selected object: a voxel object
-// has its placement and its Voxels section, and a mesh every section (Voxels then says
-// what voxel objects are).
+// has its placement, its Voxels section and Booleans (which work on clay), and a mesh every
+// section (Voxels then says what voxel objects are).
 object_section_offered :: proc(app: ^App, sec: Kit_Section) -> bool {
 	obj := selected_object(app)
-	if obj != nil && obj.voxel != nil do return sec == .Transform || sec == .Voxels
+	if obj != nil && obj.voxel != nil do return sec == .Transform || sec == .Voxels || sec == .Booleans
 	return true
 }
