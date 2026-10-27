@@ -3728,33 +3728,121 @@ def one_finger_tap_keeps_the_move_selection():
 
 @scenario
 def gesture_any_command_from_search():
-    """Settings > Touch: One-finger tap's Any command... opens the search to choose; Wireframe picked there then runs from a tap on empty space, and nothing ran while choosing."""
+    """Settings > Touch: Pen side button's Any command... opens the search to choose; Wireframe picked there then runs from the pen's side button, and nothing ran while choosing."""
     s = Script()
     open_settings(s, "touch")
     s.add("move:1330,600")
     s.wait(1)
-    # Down to the gesture map, whose first row is One-finger tap.
-    for _ in range(7):
-        s.add("wheel:-2")
+    # Down to the end of the tab, where the gesture map's last row is Pen side button.
+    for _ in range(14):
+        s.add("wheel:-5")
         s.wait(2)
     s.wait(10)
-    s.ftap(1333, 630)
+    s.ftap(1333, 562)
     s.wait(12)
     # Its list's last row is Any command...
     for _ in range(6):
-        s.fdrag(line((1330, 560), (1330, 60), 10))
+        s.fdrag(line((1330, 480), (1330, 20), 10))
         s.wait(4)
     s.wait(20)
-    s.ftap(1250, 580)
+    s.ftap(1250, 512)
     s.wait(14)
     s.type("wireframe")
     s.press("Return")
     s.wait(6)
     s.ftap(1427, 750)
     s.wait(16)
-    s.ftap(*EMPTY)
-    s.wait(24)
-    return s, [], camera_still({"wireframe": near(1), "palette": near(0), "palette_runs": near(0), "dabs": near(0)})
+    s.add("pnear")
+    s.add("pmove:800,450")
+    s.wait(4)
+    s.add("pright")
+    s.wait(6)
+    return s, [], camera_still({"wireframe": near(1), "palette": near(0), "palette_runs": near(0), "pie_open": near(-1), "dabs": near(0)})
+
+
+# Gap list PR 4: the wheel's two-finger resize and turn, its labels, the pen's hover names and roll.
+
+@scenario
+def wheel_two_fingers_spread_resize_it():
+    """Two fingers on the wheel's ring spreading apart make it larger (the nearest size, 3XL here), latch nothing and sculpt nothing."""
+    s = Script()
+    s.add("fdown:8:78,770")
+    s.add("fdown:9:78,874")
+    s.wait(2)
+    for k in range(1, 16):
+        s.add(f"fmove:8:78,{770 - 4 * k:g}")
+        s.add(f"fmove:9:78,{874 + 1.4 * k:g}")
+        s.wait(1)
+    s.add("fup:8")
+    s.add("fup:9")
+    s.wait(4)
+    return s, [], camera_still({"wheel_size": is_text("xl3"), "wheel_turn": near(0), "rail_latched": is_text("none"), "dabs": near(0)})
+
+
+@scenario
+def wheel_two_fingers_twist_turn_it():
+    """Two fingers on the wheel's ring, one on the brush pie's sector, twisted 45 degrees clockwise turn it 45 degrees, keep its size and open no pie."""
+    s = Script()
+    s.add("fdown:8:35,822")
+    s.wait(1)
+    s.add("fdown:9:121,822")
+    s.wait(2)
+    for k in range(1, 16):
+        a = math.radians(3 * k)
+        s.add(f"fmove:8:{78 - 43 * math.cos(a):.2f},{822 - 43 * math.sin(a):.2f}")
+        s.add(f"fmove:9:{78 + 43 * math.cos(a):.2f},{822 + 43 * math.sin(a):.2f}")
+        s.wait(1)
+    s.add("fup:8")
+    s.add("fup:9")
+    s.wait(4)
+    return s, [], camera_still({"wheel_size": is_text("medium"), "wheel_turn": near(45), "rail_latched": is_text("none"), "pie_open": near(-1), "dabs": near(0)})
+
+
+@scenario
+def wheel_turned_taps_the_turned_sector():
+    """With the wheel turned a quarter turn clockwise, Smooth sits on the right: a tap there latches Smooth."""
+    s = Script()
+    s.ftap(121, 822, finger=RAIL_FINGER)
+    return s, ["--script=set wheel_turn 90; set wheel_labels icons_and_names"], camera_still({"rail_latched": is_text("smooth"), "wheel_labels": is_text("icons_and_names"), "pie_open": near(-1)})
+
+
+def pen_hover(s, x, y, frames=60):
+    s.add("pnear")
+    s.add(f"pmove:{x:g},{y:g}")
+    s.wait(frames)
+
+
+@scenario
+def pen_hover_shows_the_name():
+    """The pen held over the brush bar's Draw size without touching shows its name, as the mouse resting on it does."""
+    s = Script()
+    pen_hover(s, *UI["size"])
+    return s, [], camera_still({"tip_showing": lambda v: v.startswith("Draw_size"), "dabs": near(0)})
+
+
+@scenario
+def pen_hover_names_off():
+    """With Names while the pen hovers set to Never, the hovering pen shows no name; the mouse still does."""
+    s = Script()
+    pen_hover(s, *UI["size"])
+    pen = Script()
+    pen.events, pen.frame = list(s.events), s.frame
+    mouse = Script()
+    mouse.add(f"move:{UI['size'][0]:g},{UI['size'][1]:g}")
+    mouse.wait(60)
+    return Steps([(pen, ["--script=set pen_tips never"], camera_still({"tip_showing": is_text("none")})),
+            (mouse, ["--script=set pen_tips never"], camera_still({"tip_showing": lambda v: v.startswith("Draw_size")}))])
+
+
+@scenario
+def pen_roll_sets_the_size():
+    """The pen hovering on Draw size and turned a quarter turn clockwise, across the half turn where its numbers wrap, doubles the size and shows the readout."""
+    s = Script()
+    pen_hover(s, *UI["size"], frames=4)
+    for deg in (150, 170, -170, -150, -120):
+        s.add(f"proll:{deg}")
+        s.wait(2)
+    return s, [], camera_still({"brush_radius_px": near(2 * 60, 0.5), "dabs": near(0)})
 
 
 def camera_back(stats):

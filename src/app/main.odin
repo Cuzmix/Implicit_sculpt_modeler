@@ -132,6 +132,10 @@ App :: struct {
 	pen_pressure: f32, // the pen's latest pressure
 	pen_tilt: [2]f32, // the pen's latest lean in degrees, x to the right and y down
 	pen_seen: bool,
+	// How far the pen turned about its own length this frame, degrees clockwise, where the
+	// platform reports it (pen_roll_take), and the turn it last reported.
+	pen_roll: f32,
+	pen_roll_last: Maybe(f32),
 	// The first-run tips (kit_coach.odin): whether this run shows them, and the steps
 	// done since the card last moved on.
 	coach_run:  bool,
@@ -596,6 +600,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		// follow the whole path. A pen also sends mouse events, marked PEN_MOUSEID; its
 		// pressure arrives separately as an axis event.
 		clear(&app.samples)
+		app.pen_roll = 0
 		device_frame_begin(&app.device)
 		// Scripted events count from the end of the set-up, and none go in before it.
 		if !setting_up do kit_events_push(&app, window)
@@ -640,8 +645,13 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 					app.pen_tilt.x = e.paxis.value
 				case .YTILT:
 					app.pen_tilt.y = e.paxis.value
+				case .ROTATION:
+					pen_roll_take(&app, e.paxis.value)
 				}
 				app.pen_seen = true
+			case .PEN_PROXIMITY_OUT:
+				// A pen brought back may be turned otherwise: its first report starts afresh.
+				app.pen_roll_last = nil
 			}
 		}
 		device_frame_end(&app.device)
@@ -1111,6 +1121,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 				mask_mean /= max(f64(len(s.mask)) * 255, 1)
 			}
 			fmt.printfln("stroke_kind=%s stroke_invert=%d rail_latched=%s masked=%d mask_mean=%.4f", strings.to_lower(fmt.tprint(app.stroke.kind), context.temp_allocator), int(app.stroke.invert), latched, int(masked), mask_mean)
+			fmt.printfln("wheel_size=%s wheel_turn=%.0f wheel_labels=%s", strings.to_lower(fmt.tprint(app.kit.wheel_size), context.temp_allocator), app.kit.wheel_turn, strings.to_lower(fmt.tprint(app.kit.wheel_labels), context.temp_allocator))
 			// What the last operation said, up to its first comma, spaces as underscores.
 			last := app.result.text
 			if i := strings.index_byte(last, ','); i >= 0 do last = last[:i]
@@ -1123,6 +1134,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		long_tip, _ := strings.replace_all(tip_text, " ", "_", context.temp_allocator)
 		long_tip_keys, _ := strings.replace_all(tip_keys, " ", "_", context.temp_allocator)
 		fmt.printfln("long_tip_keys=%s", long_tip_keys if long_tip_keys != "" else "none")
+		hover_tip, _ := strings.replace_all(ui.tip_showing(&app.kit.ctx), " ", "_", context.temp_allocator)
+		fmt.printfln("tip_showing=%s", hover_tip if hover_tip != "" else "none")
 		fmt.printfln("long_tip=%s object_menu=%d inspector_tab=%s brush_kind=%s", long_tip if long_tip != "" else "none", int(app.kit.object_menu), strings.to_lower(fmt.tprint(app.kit.tab), context.temp_allocator), strings.to_lower(fmt.tprint(app.brush.kind), context.temp_allocator))
 		fmt.printfln("inspector_scroll=%.1f settings_scroll=%.1f settings_open=%d", app.kit.scroll, app.kit.settings_scroll, int(app.kit.settings))
 		n := app.cursor.normal
@@ -1357,4 +1370,16 @@ write_ppm :: proc(path: string, rgba: []u8, width, height: int) -> bool {
 	append(&out, ..transmute([]u8)fmt.tprintf("P6\n%d %d\n255\n", width, height))
 	for i := 0; i < len(rgba); i += 4 do append(&out, rgba[i], rgba[i + 1], rgba[i + 2])
 	return os.write_entire_file(path, out[:]) == nil
+}
+
+// Adds the pen's turn about its own length since its last report, `degrees` from -180 to
+// 180, to this frame's roll, the short way round, so turning past the half turn where the
+// numbers wrap reads as the small turn it is.
+pen_roll_take :: proc(app: ^App, degrees: f32) {
+	if last, ok := app.pen_roll_last.?; ok {
+		d := degrees - last
+		d -= 360 * math.floor((d + 180) / 360)
+		app.pen_roll += d
+	}
+	app.pen_roll_last = degrees
 }

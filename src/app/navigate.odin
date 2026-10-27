@@ -228,6 +228,16 @@ Nav_Prefs :: struct {
 	edge_show:      bool, // outline where the band ends
 	mouse_scheme:   Mouse_Scheme,
 	shape_apply:    Shape_Apply, // when a drawn mask, hide or clip shape applies (shape_pending.odin)
+	pen_tips:       Pen_Tips, // when a hovering pen shows a control's name
+}
+
+// When the pen, held over a control without touching, shows its name and shortcut, as
+// the mouse resting on it does: always, only while a keyboard is connected (when the
+// shortcuts it shows can be used), or never. A long press shows it whatever this says.
+Pen_Tips :: enum u8 {
+	Always,
+	With_Keyboard,
+	Never,
 }
 
 // The least Touch strength: a finger's strokes at a tenth of the brush's strength, for a
@@ -585,7 +595,7 @@ dab_wait_event :: proc(app: ^App, e: ^sdl.Event, window: ^sdl.Window) {
 		ww, wh: i32
 		_ = sdl.GetWindowSize(window, &ww, &wh)
 		at := [2]f32{f.x * f32(ww), f.y * f32(wh)}
-		if _, rail := rail_claims(app, at); rail do return
+		if _, rail := rail_claims(app, at); rail || rail_claims_plain(app, at) do return
 		near := linalg.length(at - w.pos) <= DOUBLE_TAP_REACH * app.kit.scale
 		if app.touch.fingers.count == 0 && !w.second && near && input_clock(app) - w.at <= DOUBLE_TAP_GAP {
 			w.second = true
