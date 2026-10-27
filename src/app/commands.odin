@@ -194,6 +194,7 @@ Command_Id :: enum u8 {
 	Settings,
 	Reduce_Motion,
 	Command_Palette,
+	Customise_Bars,
 	Help, // the argument is the Help_Tab
 	Coach_Tips,
 	Pie, // the argument is the user pie, from 0 (user_pies.odin)
@@ -1593,6 +1594,19 @@ COMMANDS := [Command_Id]Command {
 		help = "Finds any command or setting by typing part of its name.",
 		icon = ui.ICON_SEARCH,
 		run = proc(app: ^App, _: int) {palette_open(app)},
+	},
+	.Customise_Bars = {
+		label = "Customise bars",
+		help = "Turns on customising: tap a ringed button on the right bar, the bottom bar or the dock to put another command there, move it or remove it, or + to add one; Done ends it.",
+		icon = ICON_CUSTOMISE,
+		run = proc(app: ^App, _: int) {
+			k := &app.kit
+			k.bars_edit = !k.bars_edit
+			// The bars show whole: Settings, over the right bar's side, closes (saving).
+			if k.bars_edit && k.settings do settings_close(app)
+			kit_floats_close(k)
+		},
+		checked = proc(app: ^App, _: int) -> bool {return app.kit.bars_edit},
 	},
 	.Help = {
 		label = "Help",

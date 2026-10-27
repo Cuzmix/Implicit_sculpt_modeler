@@ -787,6 +787,108 @@ def mesh_tools_on_the_bottom_bar():
     ])
 
 
+# Customise bars (bars.odin) at 1600x900: the strip's Done, the right column's + under its
+# eleven buttons, a slot popover's Move earlier, Move later, Remove and Add after, opened
+# on Ghost (its middle at 749), and the dock slot popover's "A command instead...", opened
+# by a long press on Draw.
+BARS_DONE = (1033, 98)
+SHORTCUT_ADD = (1569, 843)
+SHORTCUT_MENU = {"up": (1306, 736), "down": (1359, 736), "remove": (1410, 736), "add": (1462, 736)}
+GHOST = (1569, 749)
+DOCK_A_COMMAND = (370, 236)
+
+
+@scenario
+def customise_bars_changes_the_right_bar():
+    """Customise bars rings the bars' buttons, and a tap on one runs nothing: on Ghost it
+    opens the slot's popover, whose Remove takes it off; the column's + then chooses a
+    command in Search (Orthographic) for a new last button, and Done ends it. The settings
+    file keeps the column, and a second start shows it so."""
+    s = Script()
+    s.wait(3)
+    palette_run(s, "customise bars")
+    s.wait(8)
+    s.ftap(*GHOST)
+    s.wait(8)
+    s.ftap(*SHORTCUT_MENU["remove"])
+    s.wait(6)
+    s.ftap(SHORTCUT_ADD[0], SHORTCUT_ADD[1] - 48)  # one button fewer: the + moved up
+    s.wait(8)
+    s.type("orthographic")
+    s.press("Return")
+    s.wait(6)
+    s.ftap(*BARS_DONE)
+    s.wait(4)
+    column = "Shading_Menu,Camera_Menu,Studio_Render,Floor_Grid,Symmetry_X,Local_Symmetry,Focus_Selected,Wireframe,Transparency,Solo_Object,Ortho_Toggle"
+    again = Script()
+    again.wait(5)
+    return Steps([
+        (s, [f"--settings-file={settings_file()}"], camera_still({"shortcuts": is_text(column), "bars_edit": near(0), "objects_ghost": near(0),
+                                                                "ortho": near(0), "dabs": near(0), "@saved": saved_line("bar right_rail 10 Ortho_Toggle")})),
+        (again, [f"--settings-file={settings_file()}"], {"shortcuts": is_text(column)}),
+    ])
+
+
+@scenario
+def customise_bars_moves_a_shortcut_up():
+    """While customising, Ghost's Move earlier puts it above Transparency."""
+    s = Script()
+    s.wait(3)
+    palette_run(s, "customise bars")
+    s.wait(8)
+    s.ftap(*GHOST)
+    s.wait(8)
+    s.ftap(*SHORTCUT_MENU["up"])
+    s.wait(4)
+    return s, [], camera_still({"shortcuts": lambda v: ",Ghost_Object,Transparency," in v, "bars_edit": near(1), "bar_slot_menu": near(1)})
+
+
+@scenario
+def dock_slot_holds_a_command():
+    """A long press on the dock's Draw, then "A command instead..." and Search's first
+    match for "remesh": the slot holds Remesh, and a tap on it remeshes the sphere."""
+    s = Script()
+    s.wait(3)
+    long_press(s, *UI["dock_draw"])
+    s.wait(8)
+    s.ftap(*DOCK_A_COMMAND)
+    s.wait(8)
+    s.type("remesh")
+    s.press("Return")
+    s.wait(6)
+    s.ftap(*UI["dock_draw"])
+    s.wait(10)
+    return s, [f"--settings-file={settings_file()}"], camera_still({"dock": lambda v: v.startswith("Remesh,Smooth"), "undo_steps": near(1),
+                                                                    "dabs": near(0), "@saved": saved_line("dock 0 command Remesh")})
+
+
+@scenario
+def dock_swipe_turns_the_page():
+    """A finger swiping left over the dock's slots turns to the next page and picks no
+    brush; swiping right turns back; a short drag turns nothing; the mouse wheel over the
+    slots turns a page a notch."""
+    left, back, short, wheel = Script(), Script(), Script(), Script()
+    for sc in (left, back, short):
+        sc.wait(3)
+        sc.fdrag(line((700, 843), (450, 843), 8))
+        sc.wait(10)
+    back.fdrag(line((450, 843), (700, 843), 8))
+    back.wait(10)
+    short.fdrag(line((600, 843), (585, 843), 3))
+    short.wait(10)
+    wheel.wait(3)
+    wheel.add("move:600,843")
+    wheel.wait(2)
+    wheel.add("wheel:-1")
+    wheel.wait(10)
+    return Steps([
+        (left, [], camera_still({"dock_page": near(1), "dock": lambda v: v.startswith("Pinch"), "brush_kind": is_text("draw"), "dabs": near(0)})),
+        (back, [], camera_still({"dock_page": near(0), "brush_kind": is_text("draw"), "dabs": near(0)})),
+        (short, [], camera_still({"dock_page": near(1), "brush_kind": is_text("draw"), "dabs": near(0)})),
+        (wheel, [], camera_still({"dock_page": near(1), "dabs": near(0)})),
+    ])
+
+
 @scenario
 def narrow_dock_has_more_pages():
     """At 820 x 640 the dock shows fewer slots a page, on more pages, and the bottom bar stays clear of the modifier rail."""
@@ -3636,10 +3738,10 @@ def long_press_dock_tile_opens_its_slot_menu():
 
 
 DEFAULT_DOCK = "Draw,Smooth,Clay,Flatten,Inflate,Grab,Mask"
-# The slot menu over the dock's Smooth, and the brush browser, at 1600 by 900 with no
-# preset or one: Brush settings, Pinch, the first preset and Reset dock in the menu; the
-# first preset in the browser.
-SLOT_SETTINGS, SLOT_PINCH, SLOT_PRESET, SLOT_RESET = (410, 282), (362, 373), (362, 723), (400, 774)
+# The slot menu over the dock's Smooth at 1600 by 900. It grows up from the dock, so
+# Brush settings is where it sits with no preset, Pinch and the first preset where they
+# sit with one, and Reset dock, at its foot, the same either way.
+SLOT_SETTINGS, SLOT_PINCH, SLOT_PRESET, SLOT_RESET = (410, 190), (367, 330), (367, 678), (400, 774)
 # The brush browser opened from the dock, at 1600 by 900: its header's Search, the
 # heart beside the current brush, the categories down its left, its tiles' middles
 # (three columns, the first row at the top) and its A to Z index.

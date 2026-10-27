@@ -7,7 +7,7 @@ import "../sculpt"
 
 @(private = "file")
 dock_app :: proc(app: ^App) {
-	app.kit.dock = DOCK_DEFAULT
+	dock_reset(&app.kit)
 	app.tool = .Brush
 	app.brush.kind = .Clay
 	app.brush.alpha = -1

@@ -194,6 +194,7 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.Ortho_Toggle     = "orthographic perspective camera",
 	.Focus_Selected   = "frame zoom fit",
 	.Reset_Camera     = "home view",
+	.Customise_Bars   = "customize toolbar toolbars shortcuts edit buttons arrange dock add remove",
 	.Camera_Menu      = "view lens projection fov field perspective orthographic",
 	.Shading_Menu     = "draw display render look matcap lighting textures view menu",
 	.Wireframe        = "edges polyframe",
@@ -505,6 +506,13 @@ palette_open_for :: proc(app: ^App, slot: Gesture_Slot) {
 	app.kit.palette_for = slot
 }
 
+// What the palette chooses for while it is not running anything: a gesture, or a bar's
+// slot (Bar_Pick).
+Palette_For :: union {
+	Gesture_Slot,
+	Bar_Pick,
+}
+
 // Closes it and gives the keys back.
 palette_close :: proc(app: ^App) {
 	app.kit.palette = false
@@ -517,11 +525,17 @@ palette_close :: proc(app: ^App) {
 // puts the entry on the gesture instead, which neither runs it nor counts as a recent.
 palette_run :: proc(app: ^App, e: Palette_Entry) {
 	k := &app.kit
-	if slot, choosing := k.palette_for.?; choosing {
+	switch slot in k.palette_for {
+	case Gesture_Slot:
 		palette_close(app)
 		if e.kind != .Command || !gesture_lists(e.id) do return
 		app.nav.gestures[slot] = {e.id, e.arg}
 		report(app, nil, {}, "%s now runs %s", GESTURE_SLOT_NAMES[slot], pie_slot_label({e.id, e.arg}))
+		return
+	case Bar_Pick:
+		palette_close(app)
+		if e.kind != .Command || !bar_lists(e.id) do return
+		bar_put(app, slot, {e.id, e.arg})
 		return
 	}
 	palette_close(app)
@@ -566,14 +580,21 @@ kit_palette :: proc(app: ^App, anchor: ui.Rect, side: ui.Side) {
 	}
 	query := string(cstring(&k.palette_query[0]))
 	entries := palette_entries_shown(app)
-	choosing_for, choosing := k.palette_for.?
-	if choosing {
+	choosing := k.palette_for != nil
+	switch choosing_for in k.palette_for {
+	case Gesture_Slot:
 		// Only what a gesture may hold, the palette itself included.
 		kept := make([dynamic]Palette_Entry, 0, len(entries) + 1, context.temp_allocator)
 		for e in entries do if e.kind == .Command && gesture_lists(e.id) do append(&kept, e)
 		append(&kept, Palette_Entry{.Command, .Command_Palette, 0})
 		entries = kept[:]
 		ui.caption(ctx, fmt.tprintf("  CHOOSE WHAT %s RUNS", strings.to_upper(GESTURE_SLOT_NAMES[choosing_for], context.temp_allocator)))
+	case Bar_Pick:
+		kept := make([dynamic]Palette_Entry, 0, len(entries) + 1, context.temp_allocator)
+		for e in entries do if e.kind == .Command && bar_lists(e.id) do append(&kept, e)
+		if bar_lists(.Command_Palette) do append(&kept, Palette_Entry{.Command, .Command_Palette, 0})
+		entries = kept[:]
+		ui.caption(ctx, fmt.tprintf("  CHOOSE A BUTTON FOR %s", BAR_NAMES[choosing_for.which]))
 	}
 	enabled := make([]bool, len(entries), context.temp_allocator)
 	titles := make([]string, len(entries), context.temp_allocator)

@@ -230,6 +230,10 @@ Context :: struct {
 	// scroll_from less the pointer's height.
 	scrolling:      Id,
 	scroll_from:    f32,
+	// The paged row a sideways drag is turning now (swipe_update), and where the press
+	// that started it was across.
+	swiping:        Id,
+	swipe_from:     f32,
 	id_seed:        Id,
 
 	time:           f64, // seconds of input dt so far: the clock every tween runs on
@@ -408,6 +412,7 @@ frame_end :: proc(ctx: ^Context) -> ^Draw_List {
 	if .Right not_in ctx.input.down do ctx.right_on = 0
 	if ctx.active != 0 && (!ctx.active_seen || ctx.input.down == {} || ctx.input.cancel) do ctx.active = 0
 	if ctx.scrolling != 0 && ctx.active != ctx.scrolling do ctx.scrolling = 0
+	if ctx.swiping != 0 && ctx.active != ctx.swiping do ctx.swiping = 0
 	if !ctx.text_seen do ctx.text_focus = 0
 	if ctx.input.down == {} {
 		ctx.viewport_drag = false
@@ -841,6 +846,42 @@ scroll_update :: proc(ctx: ^Context, id: Id, rect: Rect, scroll: ^f32, limit: f3
 	}
 	scroll^ = clamp(scroll^, 0, limit)
 	return ctx.scrolling == id
+}
+
+// How far across its width a paged row must be swiped to turn the page.
+SWIPE_TURN :: 0.18
+
+// Turns the pages of a row by a sideways drag, as a launcher's home screen turns: call it
+// before laying out the row's container (with Box.drag_scroll set, so a finger or pen
+// pressed on a control in it waits to see which way the drag goes), with `id` that
+// container's id and `rect` where it was last frame. A drag that goes further across than
+// the slop and than up or down takes the press from the control, which lets go without a
+// click. Returns how far the drag has carried the row, points, to slide what it shows by;
+// and on the frame it lets go, +1 for a swipe to the left far enough to turn to the next
+// page, -1 to the right for the one before. A mouse's press on a control is the control's
+// at once, so the mouse turns the pages by other means (the wheel, dots).
+swipe_update :: proc(ctx: ^Context, id: Id, rect: Rect) -> (offset: f32, turn: int) {
+	in_ := ctx.input
+	if ctx.swiping == id {
+		offset = in_.mouse.x - ctx.swipe_from
+		if .Left in in_.down && !in_.cancel {
+			ctx.active, ctx.active_seen = id, true
+			return
+		}
+		// Let go: a cancelled swipe turns nothing.
+		ctx.swiping = 0
+		if !in_.cancel && abs(offset) > max(rect.w * SWIPE_TURN, ctx.theme.slop * 3) do turn = -1 if offset > 0 else 1
+		return 0, turn
+	}
+	if ctx.press_host == id && ctx.active != 0 && ctx.active != id && !ctx.press_won && .Left in in_.down && !in_.cancel {
+		d := in_.mouse - ctx.press_mouse
+		if abs(d.x) > ctx.theme.slop && abs(d.x) > abs(d.y) {
+			ctx.swiping, ctx.swipe_from = id, ctx.press_mouse.x
+			ctx.active, ctx.active_seen = id, true
+			offset = d.x
+		}
+	}
+	return
 }
 
 // Starts scrolling the area `id` at once when a press in it landed where no control
