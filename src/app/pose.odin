@@ -124,6 +124,7 @@ pose_is_still :: proc(p: sculpt.Pose) -> bool {
 	case .Scale: return p.factor == 1
 	case .Deform: return p.deform.amount == 0
 	case .Lattice: return p.lattice.offset == {}
+	case .Reshape: return p.reshape.amount == 0
 	}
 	return true
 }

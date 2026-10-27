@@ -265,6 +265,7 @@ deform_run :: proc(app: ^App, obj: ^Object, d: sculpt.Deform) -> bool {
 inspector_drags_end :: proc(app: ^App) {
 	layer_drag_finish(app)
 	deform_drag_end(app, force = true)
+	reshape_drag_end(app, force = true)
 	light_drag_end(app, force = true)
 }
 

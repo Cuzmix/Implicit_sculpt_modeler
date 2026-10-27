@@ -63,6 +63,7 @@ Ui_State :: struct {
 	layer_drag_id:      int,  // the object whose layer is being dragged, which the selection may leave meanwhile
 	layer_drag_wide:    bool, // the dragged strength slider began on the wide range, which it keeps until release
 	deform:             Deform_Panel, // the Deformers section's choices and its Amount drag (deformers.odin)
+	reshape:            Reshape_Panel, // the Deformation section's choices and its Amount drag (reshape.odin)
 	transform_drag:     Transform_Drag, // the Transform section's values are being dragged: one undo step
 	light_drag:         Light_Drag, // the Lights section's values are being changed: one undo step
 	light_press:        Light_Press, // a press on the lights in the viewport (light_markers.odin)
@@ -149,7 +150,7 @@ CLOTH_MODE_HELP := [sculpt.Cloth_Mode]cstring {
 }
 
 ui_state_default :: proc() -> Ui_State {
-	return {viewport_request = {1280, 720}, mask_steps = 3, mask_by = MASK_BY_SETTINGS_DEFAULT, smooth_steps = 5, smooth_strength = 0.5, crease_degrees = sculpt.CREASE_GROUP_DEGREES, retopo_quads = 4000, rebuild_even = 500_000, rebuild_fewer = 100_000, bake = {size = 2048, reach_edges = 2, base_color = true, orm = true, occlusion_rays = 16, occlusion_reach = 0.2}, boolean = {live_vertices = 200_000, vertices = 1_000_000, thickness = 0.02}, project = PROJECT_DEFAULTS, deform = {along = .Y, lattice = {points = LATTICE_POINTS_DEFAULT}}}
+	return {viewport_request = {1280, 720}, mask_steps = 3, mask_by = MASK_BY_SETTINGS_DEFAULT, smooth_steps = 5, smooth_strength = 0.5, crease_degrees = sculpt.CREASE_GROUP_DEGREES, retopo_quads = 4000, rebuild_even = 500_000, rebuild_fewer = 100_000, bake = {size = 2048, reach_edges = 2, base_color = true, orm = true, occlusion_rays = 16, occlusion_reach = 0.2}, boolean = {live_vertices = 200_000, vertices = 1_000_000, thickness = 0.02}, project = PROJECT_DEFAULTS, deform = {along = .Y, lattice = {points = LATTICE_POINTS_DEFAULT}}, reshape = reshape_panel_default()}
 }
 
 // Turns the studio render on or off; on, it starts from the plain viewport.

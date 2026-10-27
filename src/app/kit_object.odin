@@ -311,20 +311,6 @@ kit_morph :: proc(app: ^App, obj: ^Object) {
 	ui.paragraph(ctx, "Store keeps the surface as it is now; the Morph brush then brings any part back to it. One per level, not saved with the scene; not with dynamic topology.")
 }
 
-// Whole-object smoothing, and the switch that runs it on the GPU instead.
-@(private = "file")
-kit_deformation :: proc(app: ^App, obj: ^Object) {
-	ctx := &app.kit.ctx
-	can := !object_dynamic(obj)
-	_ = command_button(app, .Smooth_All, tone = .Accent)
-	_ = ui.switch_row(ctx, "On the GPU", &app.ui.smooth_on_gpu, enabled = can)
-	steps := f32(app.ui.smooth_steps)
-	if ui.slider(ctx, "Steps", &steps, 1, 100, .Logarithmic, fmt.tprintf("%d", app.ui.smooth_steps), enabled = can) do app.ui.smooth_steps = i32(steps + 0.5)
-	_ = ui.slider(ctx, "Strength", &app.ui.smooth_strength, 0.05, 1, .Linear, fmt.tprintf("%.2f", app.ui.smooth_strength), enabled = can)
-	ui.paragraph(ctx, "Smooths the whole object, each step moving every vertex toward its neighbours' average. Masked parts stay. One undo step; not with dynamic topology. On the GPU runs the steps as a compute shader, a trial of GPU sculpting.")
-	kit_last_result(app, .Deform)
-}
-
 @(private = "file")
 kit_mirror :: proc(app: ^App) {
 	ctx := &app.kit.ctx
