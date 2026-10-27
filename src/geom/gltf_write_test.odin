@@ -379,7 +379,7 @@ glb_embeds_textures :: proc(t: ^testing.T) {
 		indices   = []u32{0, 1, 2},
 		texcoords = [][2]f32{{0, 0}, {1, 0}, {0, 0.25}},
 		tangents  = [][4]f32{{1, 0, 0, 1}, {1, 0, 0, 1}, {1, 0, 0, -1}},
-		images    = []Export_Image{{"base colour", []u8{1, 2, 3, 4, 5}}, {"normal", []u8{9, 8, 7, 6, 5, 4, 3}}},
+		images    = []Export_Image{{"base colour", []u8{0xff, 0xd8, 0xff, 4, 5}}, {"normal", []u8{9, 8, 7, 6, 5, 4, 3}}},
 	}
 	mat := Export_Material{name = "Baked", base = 1, metallic = 1, roughness = 1}
 	mat.textures[.Base_Color], mat.textures[.Normal] = 1, 2
@@ -394,11 +394,11 @@ glb_embeds_textures :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(doc.textures), 2)
 	testing.expect_value(t, len(doc.samplers), 1)
 	for im, k in doc.images {
-		testing.expect_value(t, im.mimeType, "image/png")
+		testing.expect_value(t, im.mimeType, "image/jpeg" if k == 0 else "image/png")
 		testing.expect_value(t, doc.textures[k].source, k)
 		v := doc.bufferViews[im.bufferView]
 		testing.expect_value(t, v.byteOffset % 4, 0)
-		testing.expect(t, mem.compare(bin[v.byteOffset:][:v.byteLength], m.images[k].png) == 0, "a picture's bytes changed")
+		testing.expect(t, mem.compare(bin[v.byteOffset:][:v.byteLength], m.images[k].data) == 0, "a picture's bytes changed")
 	}
 	pbr := doc.materials[0].pbrMetallicRoughness
 	testing.expect_value(t, pbr.baseColorTexture.?.index, 0)

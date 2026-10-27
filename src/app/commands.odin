@@ -155,6 +155,8 @@ Command_Id :: enum u8 {
 	Wireframe,
 	Flat_Shading,
 	Texture_View,
+	Load_Texture, // the argument is the render.Texture_Map
+	Remove_Textures,
 	Polygroups,
 	Studio_Render,
 	Floor_Grid,
@@ -1266,6 +1268,22 @@ COMMANDS := [Command_Id]Command {
 		},
 		checked = proc(app: ^App, arg: int) -> bool {return app.texture_view == render.Texture_View(arg)},
 	},
+	.Load_Texture = {
+		label = "Load map",
+		help = "Loads an image (PNG, JPEG, BMP, TGA or QOI) as the selected object's base colour, ORM or normal map, drawn and exported through its UVs.",
+		args = len(render.Texture_Map),
+		run = proc(app: ^App, arg: int) {file_dialog(app, TEXTURE_FILE_KINDS[render.Texture_Map(arg)])},
+		enabled = proc(app: ^App, _: int) -> bool {return texture_target_check(selected_object(app)) == ""},
+	},
+	.Remove_Textures = {
+		label = "Remove maps",
+		help = "Removes the selected object's texture maps (undo brings them back).",
+		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Remove_Textures}},
+		enabled = proc(app: ^App, _: int) -> bool {
+			obj := selected_object(app)
+			return obj != nil && object_has_textures(obj)
+		},
+	},
 	.Polygroups = {
 		label = "Polygroups",
 		help = "Colours each polygroup differently.",
@@ -1564,6 +1582,8 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 		return MASK_BY_NAMES[sculpt.Mask_By(arg)]
 	case .Texture_View:
 		return TEXTURE_VIEW_NAMES[render.Texture_View(arg)]
+	case .Load_Texture:
+		return TEXTURE_LOAD_NAMES[render.Texture_Map(arg)]
 	case .Layer_Edit:
 		return LAYER_ACTION_NAMES[Layer_Action(arg)]
 	case .Restore_Selection_Set:

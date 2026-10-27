@@ -1,6 +1,11 @@
 package main
 
+import "core:bytes"
+import "core:image"
+import "core:image/qoi"
 import "core:math/linalg"
+import "core:os"
+import "core:strings"
 import "core:testing"
 
 import "../geom"
@@ -27,6 +32,28 @@ quad_object :: proc(t: ^testing.T, obj: ^Object) -> bool {
 	sculpt.levels_set_quads(&obj.levels, q.quads)
 	sculpt.levels_set_uvs(&obj.levels, uv)
 	return true
+}
+
+// A tiny QOI image of one colour, which glTF cannot embed.
+@(private = "file")
+qoi_of :: proc(c: [4]u8, side := 4) -> []u8 {
+	c := c
+	pixels := make([]u8, side * side * 4, context.temp_allocator)
+	for i in 0 ..< side * side do copy(pixels[4 * i:], c[:])
+	img := image.Image{width = side, height = side, channels = 4, depth = 8}
+	bytes.buffer_init(&img.pixels, pixels)
+	defer bytes.buffer_destroy(&img.pixels)
+	out: bytes.Buffer
+	_ = qoi.save_to_buffer(&out, &img)
+	return out.buf[:]
+}
+
+// The JSON chunk of the .glb at `path`, in temporary memory.
+@(private = "file")
+glb_json :: proc(t: ^testing.T, path: string) -> string {
+	data, err := os.read_entire_file(path, context.temp_allocator)
+	if !testing.expect(t, err == nil && len(data) > 20) do return ""
+	return string(data[20:][:int((^u32le)(&data[12])^)])
 }
 
 // A tiny PNG of one colour.
@@ -208,4 +235,104 @@ maps_halve_to_the_preview_size :: proc(t: ^testing.T) {
 	testing.expect_value(t, small, [2]int{1, 1})
 	same, kept := texture_halve_to(out, 1, 1, 2)
 	testing.expect(t, raw_data(same) == raw_data(out) && kept == [2]int{1, 1})
+}
+
+// Loading takes an image as one map of an object with UVs, as one undo step, and refuses
+// an object without UVs, a missing file, bytes that are no image and an image past the
+// size limit; Remove maps takes them all in one step.
+@(test)
+maps_load_and_remove :: proc(t: ^testing.T) {
+	FOLDER :: "build/textures_test_load/"
+	_ = os.remove_all(FOLDER)
+	defer os.remove_all(FOLDER)
+	testing.expect(t, os.make_directory_all(FOLDER) == nil)
+	// Writes `data` (taken) to `name`.
+	write :: proc(name: string, data: []u8, owned := true) -> string {
+		_ = os.write_entire_file(name, data)
+		if owned do delete(data)
+		return name
+	}
+	red := write(FOLDER + "red.png", png_of({200, 30, 20, 255}))
+	flat := write(FOLDER + "flat.png", png_of({128, 128, 255, 255}, 8))
+	notes := write(FOLDER + "notes.png", transmute([]u8)string("not a picture"), owned = false)
+	wide := write(FOLDER + "wide.png", png_write.encode(make([]u8, (TEXTURE_MAX_SIDE + 1) * 4, context.temp_allocator), TEXTURE_MAX_SIDE + 1, 1, false))
+
+	app: App
+	defer tree_free(&app)
+	defer results_destroy(&app)
+	objs := tree_scene(&app)
+	obj := objs[0]
+	defer textures_free(&obj.textures)
+	testing.expect(t, texture_load(&app, obj, .Base_Color, red) != "", "a sphere has no UVs")
+	if !quad_object(t, obj) do return
+	for path in ([?]string{FOLDER + "gone.png", notes, wide}) {
+		testing.expectf(t, texture_load(&app, obj, .Base_Color, path) != "", "%s was loaded", path)
+	}
+	testing.expect(t, !object_has_textures(obj) && len(app.history.done) == 0, "a refused file changes nothing")
+
+	testing.expect_value(t, texture_load(&app, obj, .Base_Color, red), "")
+	testing.expect_value(t, texture_load(&app, obj, .Normal, flat), "")
+	want, _ := os.read_entire_file(red, context.temp_allocator)
+	testing.expect_value(t, string(obj.textures.image[.Base_Color]), string(want))
+	testing.expect(t, obj.textures.image[.Orm] == nil && obj.textures.image[.Normal] != nil)
+	testing.expect_value(t, app.texture_view, render.Texture_View.Textured)
+	history_undo(&app)
+	testing.expect(t, obj.textures.image[.Base_Color] != nil && obj.textures.image[.Normal] == nil, "undo takes the last map only")
+	history_redo(&app)
+
+	texture_remove(&app, obj)
+	testing.expect(t, !object_has_textures(obj))
+	history_undo(&app)
+	testing.expect(t, obj.textures.image[.Base_Color] != nil && obj.textures.image[.Normal] != nil, "undo of Remove brings every map back")
+	free_all(context.temp_allocator)
+}
+
+// A textured object's .glb carries its maps through its UVs, with tangents and its layers,
+// a map glTF cannot hold (QOI here) as PNG, and its polypaint only without a base colour
+// map; on a higher level it goes as before.
+@(test)
+textured_export_carries_the_maps :: proc(t: ^testing.T) {
+	FOLDER :: "build/textures_test_export/"
+	_ = os.remove_all(FOLDER)
+	defer os.remove_all(FOLDER)
+	testing.expect(t, os.make_directory_all(FOLDER) == nil)
+	// Not temporary: an export frees the temporary allocator, as the frame does.
+	path := strings.clone(FOLDER + "maps.glb")
+	defer delete(path)
+
+	app: App
+	defer tree_free(&app)
+	defer results_destroy(&app)
+	objs := tree_scene(&app)
+	obj := objs[0]
+	defer textures_free(&obj.textures)
+	if !quad_object(t, obj) do return
+	_ = sculpt.sculptor_layer_add(object_sculptor(obj))
+	testing.expect(t, !object_exports_textures(obj), "no maps yet")
+	s := object_sculptor(obj)
+	s.color = make([]sculpt.Color, len(s.mesh.positions))
+	for &c in s.color do c = {200, 30, 20, 255}
+	maps: Object_Textures
+	maps.image[.Base_Color] = qoi_of({200, 30, 20, 255})
+	maps.image[.Normal] = png_of({128, 128, 255, 255})
+	textures_replace(&app, obj, maps, "bake maps")
+	testing.expect(t, object_exports_textures(obj))
+	if !testing.expect(t, object_export(&app, obj, path)) do return
+	json := glb_json(t, path)
+	for want in ([?]string{`"TEXCOORD_0"`, `"TANGENT"`, `"baseColorTexture"`, `"normalTexture"`, `"targets"`}) {
+		testing.expectf(t, strings.contains(json, want), "the file has no %s", want)
+	}
+	testing.expect_value(t, strings.count(json, `"mimeType":"image/png"`), 2)
+	testing.expect(t, !strings.contains(json, `"COLOR_0"`), "the base colour map stands for the paint")
+
+	// With the normal map alone, the paint goes as vertex colours.
+	only: Object_Textures
+	only.image[.Normal] = png_of({128, 128, 255, 255})
+	textures_replace(&app, obj, only, "load normal map")
+	if !testing.expect(t, object_export(&app, obj, path)) do return
+	json = glb_json(t, path)
+	testing.expect(t, strings.contains(json, `"COLOR_0"`) && strings.contains(json, `"normalTexture"`))
+	testing.expect(t, sculpt.levels_subdivide(&obj.levels))
+	testing.expect(t, !object_exports_textures(obj), "the maps follow the base level's UVs only")
+	free_all(context.temp_allocator)
 }
