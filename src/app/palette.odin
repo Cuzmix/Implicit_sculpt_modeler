@@ -192,6 +192,7 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.Remove_Textures  = "texture maps remove delete clear",
 	.Polygroups       = "polyframe colours colors",
 	.Studio_Render    = "bpr render",
+	.Live_Occlusion   = "ambient occlusion ao ssao gtao live shadows creases",
 	.View_Back        = "camera undo back history last view",
 	.View_Forward     = "camera redo forward history",
 	.Stats            = "performance fps statistics",

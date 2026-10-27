@@ -119,6 +119,17 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   return when it shows. `Environment_Keyed{stamp, look}` (zero without one) is in both frame keys; the stamp is a run
   counter. The image path's diffuse is `irradiance(n) * ao` without the studio's 0.7, so the white furnace reads
   `1 + f0 A + B` (240/255 after the tone map).
+- Live occlusion (`render/live_ao.odin`, app `src/app/live_ao.odin`): GTAO (`gtao.frag`, 2 slices x 6 steps, a 4x4
+  pattern of turns and offsets, never time) into an R16F `ao` (half size on Android via `LIVE_AO_SCALE`), then
+  `ao_blur.frag` (4x4 depth-weighted, clamps to 1 after averaging: a pixel's own value may pass 1) multiplies the
+  viewport colour into `shown`. It runs after `render_viewport` and uses `Viewport_Stats.redrawn` (the partial rect):
+  GTAO reruns that rect padded by `LIVE_AO_MAX_PX + 3` (in ao texels, rounded out), the blur 3 texels more, with LOAD
+  and `cycle = false`; anything in `live_ao_key` (proj, size, samples, scale, reach, strength) or a frame it did not run
+  (`live_ao_reset`) forces a full pass. Under MSAA it draws its own 1x depth through `view_depth_draw` (shared with the
+  studio in `screen_pass.odin`, with `create_fullscreen_pipeline`, `create_shadow_pipeline`, the far-plane
+  `create_depth_clear_pipeline` and `rect_narrow`), partial too. Partial must equal `--no-partial` to the bit (check
+  with a bench stroke, MSAA off and x4). `viewport_shown(app)` picks studio, live AO or the plain colour for the panel,
+  screenshots and the time-lapse; add any new post pass there.
   App side: maps come from a bake, `texture_load` (Textures section, `Load_Texture` command, `texture` script verb) or a
   scene file and leave by `texture_remove`, all `textures_replace` (one `.Textures` undo step); a `.glb` export of an
   object with maps goes through `quad_object_glb` (the bake's writer: layers, and paint when no base colour map, carried

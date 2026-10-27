@@ -192,6 +192,11 @@ App :: struct {
 	studio_samples: i32, // samples it stops at
 	studio_ao:      f32, // how strongly occlusion darkens, 0 to 1
 	studio_shadow:  f32, // ...and the key light's shadow
+	// Scene > Studio render > Occlusion while working (live_ao.odin): screen-space ambient
+	// occlusion every frame, with studio_ao's strength.
+	live_ao:        render.Live_AO,
+	live_ao_on:     bool,
+	live_ao_reach:  f32, // a share of the scene's radius
 	// The navigation head in the top-right corner (nav_head.odin), and the texture it was
 	// drawn into this frame, for the interface to show; nil when there is none.
 	nav_head:       render.Nav_Head,
@@ -365,6 +370,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	defer environment_destroy(&app)
 	defer render.smooth_compute_destroy(&app.renderer, &app.smooth_gpu)
 	defer render.studio_destroy(&app.renderer, &app.studio)
+	defer render.live_ao_destroy(&app.renderer, &app.live_ao)
 	defer render.nav_head_destroy(&app.renderer, &app.nav_head)
 	defer render.thumbs_destroy(&app.renderer, &app.thumbs)
 	defer delete(app.clipboard)
@@ -531,6 +537,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		app.ui.rebuild_goal, app.ui.rebuild_even, app.rebuild.pinned = .Even, rebuild_count(opts.density_preview), true
 	}
 	app.studio_samples, app.studio_ao, app.studio_shadow = STUDIO_SAMPLES_DEFAULT, 0.85, 0.6
+	app.live_ao_reach = LIVE_AO_REACH_DEFAULT
 	app.stroke_seed = 1
 	app.tool = .Brush
 	app.running = true
@@ -916,6 +923,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			changed := !drawn.partial || drawn.redrawn_px > 0
 			app.studio_on = render.studio_frame(&app.renderer, &app.studio, cmd, &app.target, view, proj, draws[:], changed, int(app.studio_samples), app.studio_ao, app.studio_shadow, viewport_lights(&app))
 		}
+		live_ao_view_frame(&app, cmd, view, proj, draws[:], drawn)
 
 		nav_head_frame(&app, cmd)
 		thumbs_frame(&app, cmd)
@@ -1184,6 +1192,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			fmt.printfln("floor_grid=%d floor_planes=%d%d%d transparent=%d fov=%.0f polyframe_lines=%d polyframe_fill=%d", int(app.floor.on), int(app.floor.planes[0]), int(app.floor.planes[1]), int(app.floor.planes[2]), int(app.see_through), math.to_degrees(app.camera.fov_y), int(app.polyframe_lines), int(app.polyframe_fill))
 			bg := app.background
 			fmt.printfln("background_gradient=%d background_top=%s background_bottom=%s", int(bg.gradient), hex_text(bg.top), hex_text(bg.bottom))
+			lao := app.live_ao
+			fmt.printfln("live_ao=%d live_ao_full=%d live_ao_partial=%d live_ao_skipped=%d", int(app.live_ao_on), lao.full, lao.partial, lao.skipped)
 			env := app.env
 			fmt.printfln("environment=%s environment_size=%dx%d environment_background=%d environment_mb=%.1f", "image" if env.kind == .Image && env.gpu.source != nil else "built_in", env.gpu.width, env.gpu.height, int(env.background), f32(render.environment_bytes(env.gpu)) / (1024 * 1024))
 		}

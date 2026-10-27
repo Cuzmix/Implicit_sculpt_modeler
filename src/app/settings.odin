@@ -118,6 +118,7 @@ SETTINGS := [?]Setting {
 	{"background_gradient", offset_of(App, background) + offset_of(Background_Settings, gradient), bool, 0, 0},
 	{"transparent", offset_of(App, see_through), bool, 0, 0},
 	{"flat", offset_of(App, flat), bool, 0, 0},
+	{"live_ao", offset_of(App, live_ao_on), bool, 0, 0},
 	{"texture_view", offset_of(App, texture_view), render.Texture_View, 0, 0},
 	{"exposure", offset_of(App, exposure), f32, -EXPOSURE_RANGE, EXPOSURE_RANGE},
 	{"cavity", offset_of(App, cavity), f32, 0, 1},
