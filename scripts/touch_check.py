@@ -6877,6 +6877,15 @@ def voxel_convert_to_mesh_undoes_and_redoes():
 
 
 @scenario
+def voxel_object_has_a_picture_in_the_objects_card():
+    """The Objects card shows a picture of a voxel object, drawn from its clay's surface as a
+    mesh's is from its current level."""
+    s = Script()
+    objects_card(s)
+    return s, ["--voxels=96"], {"voxel_objects": near(1), "card_rows": near(1), "thumbs_drawn": near(1), "dabs": near(0)}
+
+
+@scenario
 def voxel_mesh_converts_to_voxels_and_back():
     """Convert to voxels (from the command palette) makes the mesh sphere a voxel object as one
     undo step and a stroke on the clay another; two Ctrl+Z bring the mesh back. Undoing the swap
