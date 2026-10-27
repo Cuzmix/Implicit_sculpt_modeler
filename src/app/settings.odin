@@ -391,37 +391,24 @@ settings_load :: proc(app: ^App, path: string) {
 				if e, ok := palette_entry_from_name(name); ok do palette_remember(&k.palette_recent, &k.palette_recent_count, e)
 			}
 		case "preset":
-			// preset <name> <brush> <strength> <drawn 0|1> c1x c1y c2x c2y <alpha|-> <alpha mode>
-			//        <alpha angle> <stroke> <lazy px> r g b <cloth mode> [<spread> [<lock plane 0|1>
-			//        <connected 0|1>]]; names escaped (preset_escape). Lines from before Spray
-			// have no spread and take the default; lines from before Lock plane and
-			// Connected have both off. A damaged line, or one whose name is taken, is skipped.
-			if (len(f) != 18 && len(f) != 19 && len(f) != 21) || app.preset_count == MAX_PRESETS do continue
-			kind, kind_ok := brush_by_name(f[2])
-			alpha_mode, mode_ok := reflect.enum_from_name(Alpha_Mode, f[10])
-			stroke, stroke_ok := reflect.enum_from_name(Stroke_Mode, f[12])
-			cloth, cloth_ok := reflect.enum_from_name(sculpt.Cloth_Mode, f[17])
-			if !kind_ok || !mode_ok || !stroke_ok || !cloth_ok do continue
-			v := Preset_Values {
-				kind = kind, strength = clamp(number(f[3], BRUSHES[kind].strength), MIN_STRENGTH, 1),
-				falloff = {drawn = f[4] == "1", curve = curve(f[5:9], FALLOFF_SMOOTH_CURVE)},
-				alpha = -1, alpha_mode = alpha_mode, alpha_angle = number(f[11], 0), stroke = stroke,
-				lazy_px = clamp(number(f[13], 0), 0, MAX_RADIUS_PX), cloth_mode = cloth,
-				spread = clamp(number(f[18], SPRAY_DEFAULT_SPREAD), 0, SPRAY_MAX_SPREAD) if len(f) >= 19 else SPRAY_DEFAULT_SPREAD,
-				lock_plane = len(f) == 21 && f[19] == "1", connected = len(f) == 21 && f[20] == "1",
-			}
-			for k in 0 ..< 3 do v.color[k] = clamp(number(f[14 + k], 0), 0, 1)
+			// The line preset_parse reads. A damaged line, or one whose name is taken, is
+			// skipped.
+			name, v, alpha, ok := preset_parse(f)
+			if !ok || app.preset_count == MAX_PRESETS do continue
 			// By reference: a built-in's name or a library alpha's `mine/<stem>`; one that is
 			// not there (taken out of the library) leaves the preset round.
-			v.alpha = alpha_find(app, preset_unescape(f[9]))
+			v.alpha = alpha_find(app, alpha)
 			app.presets[app.preset_count].values = v
 			app.preset_count += 1
-			if !preset_rename(app, app.preset_count - 1, preset_unescape(f[1])) {
+			if !preset_rename(app, app.preset_count - 1, name) {
 				app.preset_count -= 1
 				app.presets[app.preset_count] = {}
 			}
 		case "brush_preset":
 			on_preset = strings.clone(preset_unescape(f[1]), context.temp_allocator)
+		case "brush_pack_preset":
+			// brush_pack_preset <pack id> <name, escaped>: the brush is on a content pack's preset.
+			if len(f) == 3 do on_preset = fmt.tprintf("%s/%s", f[1], preset_unescape(f[2]))
 		case "brush_alpha":
 			plain_alpha = strings.clone(preset_unescape(f[1]), context.temp_allocator)
 		case "key":
@@ -447,6 +434,12 @@ settings_load :: proc(app: ^App, path: string) {
 			case "preset":
 				dock_presets[slot] = strings.clone(preset_unescape(f[3]), context.temp_allocator)
 			}
+		case "dock_pack":
+			// dock_pack <slot> <pack id> <name, escaped>: a slot holding a content pack's
+			// preset, written after the slot's own dock line, which older versions read.
+			slot, slot_ok := strconv.parse_int(f[1])
+			if len(f) != 4 || !slot_ok || slot < 0 || slot >= DOCK_SLOTS do continue
+			dock_presets[slot] = fmt.tprintf("%s/%s", f[2], preset_unescape(f[3]))
 		case "pie":
 			// pie <pie 0-3> <slot 0-7> <command name|empty>: a pie that differs from a fresh
 			// install's is written whole, so every slot the file names is set.
@@ -487,10 +480,12 @@ settings_load :: proc(app: ^App, path: string) {
 	// On a preset of the brush the file names, it is put back on it; its plain values are
 	// the ones just read.
 	if plain_alpha != "" do b.alpha = alpha_find(app, plain_alpha)
-	if i := preset_find(app, on_preset); on_preset != "" && i >= 0 && app.presets[i].values.kind == b.kind do preset_pick(app, i)
-	// A slot naming a preset the file does not have keeps what it held.
+	if n := preset_by_ref(app, on_preset); n > 0 {
+		if p, _ := preset_at(app, n); p.values.kind == b.kind do preset_use(app, n)
+	}
+	// A slot naming a preset the file (or the library) does not have keeps what it held.
 	for name, slot in dock_presets {
-		if i := preset_find(app, name); name != "" && i >= 0 do dock_put(app, slot, app.presets[i].values.kind, i + 1)
+		if n := preset_by_ref(app, name); name != "" && n > 0 do dock_put(app, slot, .Draw, n)
 	}
 	log.infof("settings: read %s", path)
 
@@ -539,15 +534,11 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 		for e in app.kit.palette_recent[:app.kit.palette_recent_count] do fmt.sbprintf(&out, " %s", palette_entry_name(e))
 		strings.write_byte(&out, '\n')
 	}
-	for i in 0 ..< app.preset_count {
-		p := &app.presets[i]
-		v := p.values
-		alpha := alpha_ref(app, v.alpha)
-		fmt.sbprintfln(&out, "preset %s %v %g %d %g %g %g %g %s %v %g %v %g %g %g %g %v %g %d %d", preset_escape(preset_name(p)), v.kind, v.strength, bit(v.falloff.drawn),
-			v.falloff.curve.c1.x, v.falloff.curve.c1.y, v.falloff.curve.c2.x, v.falloff.curve.c2.y, preset_escape(alpha), v.alpha_mode, v.alpha_angle, v.stroke, v.lazy_px,
-			v.color.r, v.color.g, v.color.b, v.cloth_mode, v.spread, bit(v.lock_plane), bit(v.connected))
+	for i in 0 ..< app.preset_count do preset_line(&out, preset_name(&app.presets[i]), app.presets[i].values, alpha_ref(app, app.presets[i].values.alpha))
+	if p, ok := preset_at(app, on.preset); ok {
+		if preset_of_pack(on.preset) do fmt.sbprintfln(&out, "brush_pack_preset %s %s", app.library.presets[on.preset - PACK_PRESET].pack, preset_escape(preset_name(p)))
+		else do fmt.sbprintfln(&out, "brush_preset %s", preset_escape(preset_name(p)))
 	}
-	if on.preset > 0 && on.preset <= app.preset_count do fmt.sbprintfln(&out, "brush_preset %s", preset_escape(preset_name(&app.presets[on.preset - 1])))
 	fmt.sbprintfln(&out, "brush_alpha %s", preset_escape(alpha_ref(app, app.brush.alpha)))
 	for o in app.key_overrides[:app.key_override_count] {
 		fmt.sbprintfln(&out, "key %s %s", command_name(o.command, o.arg), "none" if o.none else chord_text(o.chord))
@@ -557,6 +548,9 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 			fmt.sbprintfln(&out, "dock %d preset %s", slot, preset_escape(preset_name(&app.presets[s.preset - 1])))
 		} else {
 			fmt.sbprintfln(&out, "dock %d brush %v", slot, s.kind)
+			if p, ok := preset_at(app, s.preset); ok && preset_of_pack(s.preset) {
+				fmt.sbprintfln(&out, "dock_pack %d %s %s", slot, app.library.presets[s.preset - PACK_PRESET].pack, preset_escape(preset_name(p)))
+			}
 		}
 	}
 	for n in 0 ..< USER_PIES {

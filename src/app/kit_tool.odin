@@ -103,24 +103,48 @@ kit_brush_options :: proc(app: ^App) {
 }
 
 // The brush's preset (presets.odin): which it is on, or none; on a plain brush, saving
-// it as a preset and resetting it; on a preset, its name, saving or reverting changes,
-// saving a copy, and (under More) deleting it.
+// it as a preset and resetting it; on one of the person's own, its name, saving or
+// reverting changes, saving a copy, and (under More) deleting it; on a content pack's,
+// which pack it is from, reverting and saving a copy, as a pack's presets are read-only.
 @(private = "file")
 kit_preset :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
 	b := &app.brush
-	names := make([]string, app.preset_count + 1, context.temp_allocator)
-	names[0] = fmt.tprintf("None: the plain %s brush", BRUSHES[b.kind].name)
-	for i in 0 ..< app.preset_count do names[i + 1] = fmt.tprintf("%s (%s)", preset_name(&app.presets[i]), BRUSHES[app.presets[i].values.kind].name)
-	if picked := ui.select(ctx, "preset", names, b.preset); picked >= 0 && picked != b.preset {
-		if picked == 0 do command_run(app, .Brush, int(b.kind))
-		else do preset_pick(app, picked - 1)
+	// The list: none, the person's own, then every pack's, each as the number the brush
+	// keeps (PACK_PRESET).
+	names := make([dynamic]string, context.temp_allocator)
+	numbers := make([dynamic]int, context.temp_allocator)
+	append(&names, fmt.tprintf("None: the plain %s brush", BRUSHES[b.kind].name))
+	append(&numbers, 0)
+	for i in 0 ..< app.preset_count {
+		append(&names, fmt.tprintf("%s (%s)", preset_name(&app.presets[i]), BRUSHES[app.presets[i].values.kind].name))
+		append(&numbers, i + 1)
+	}
+	for pack in app.library.packs {
+		for &p, j in app.library.presets {
+			if p.gone || p.pack != pack.id do continue
+			append(&names, fmt.tprintf("%s (%s, from %s)", preset_name(&p.preset), BRUSHES[p.preset.values.kind].name, pack.name))
+			append(&numbers, PACK_PRESET + j)
+		}
+	}
+	shown := 0
+	for n, i in numbers do if n == b.preset do shown = i
+	if picked := ui.select(ctx, "preset", names[:], shown); picked >= 0 && picked != shown {
+		if numbers[picked] == 0 do command_run(app, .Brush, int(b.kind))
+		else do preset_use(app, numbers[picked])
 	}
 	p, on := brush_preset(app)
 	if !on {
 		kit_command_pair(app, .Preset_Save_New, .Brush_Reset, label_a = "Save as preset", tone_a = .Accent)
 		ui.paragraph(ctx, "A preset keeps this brush's strength, falloff, alpha, stroke kind and lazy mouse under a name, to pick again here. The size and the pen settings stay the same for every brush.")
+		return
+	}
+	if preset_of_pack(b.preset) {
+		pack := app.library.presets[b.preset - PACK_PRESET].pack
+		for q in app.library.packs do if q.id == pack do pack = q.name
+		kit_command_pair(app, .Preset_Save_New, .Preset_Revert, label_a = "Save as new preset", label_b = "Revert", tone_a = .Accent)
+		ui.paragraph(ctx, fmt.tprintf("From the content pack %s, which keeps its presets as they came. Save as new preset keeps your changes as a preset of your own; Menu > Library lists the pack.", pack))
 		return
 	}
 	// The name is typed into a copy, and renames the preset once typing ends (Enter, or a

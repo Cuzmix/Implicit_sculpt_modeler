@@ -53,6 +53,7 @@ Script_Verb :: enum u8 {
 	Alpha,
 	Layer,
 	Install_Pack,
+	Preset,
 }
 
 // Each verb's name and what it takes, for errors and the README.
@@ -74,6 +75,7 @@ SCRIPT_VERBS := [Script_Verb]struct {
 	.Alpha         = {"alpha", "an alpha's name (a built-in's, or mine/NAME or PACK/NAME from the library) or an image file"},
 	.Layer         = {"layer", "the layer's number counting from 1 at the bottom, its strength from -1 to 2, and hidden to hide it"},
 	.Install_Pack  = {"install_pack", "a content pack file (.sculptpack), which replaces an installed pack of its name and author"},
+	.Preset        = {"preset", "a brush preset's name (yours, or PACK/NAME for a content pack's), or none for the plain brush"},
 }
 
 // A command that is on or off (one with `checked`) can be told which: it then runs only
@@ -400,7 +402,7 @@ script_verb_read :: proc(st: ^Script_Statement, args: []string) -> bool {
 		n, ok := strconv.parse_int(args[0])
 		st.count = n
 		return ok && n >= 1
-	case .Alpha, .Install_Pack:
+	case .Alpha, .Install_Pack, .Preset:
 		// A name or path may have spaces: it is the rest of the line.
 		if len(args) == 0 do return false
 		st.text = strings.join(args, " ")
@@ -454,6 +456,16 @@ script_verb :: proc(app: ^App, st: Script_Statement) -> (failure: string, ok: bo
 		if pack_busy(app) do return "another pack is being installed", true
 		if failed := pack_install_finish(app, pack_unpack(st.text, app.library.folder), replace = true); failed != "" do return failed, true
 		return "", true
+	case .Preset:
+		// As picking it in the Preset section does.
+		if script_name(st.text) == "none" {
+			command_run(app, .Brush, int(app.brush.kind))
+			return "", true
+		}
+		n := preset_by_ref(app, st.text)
+		if n == 0 do return fmt.tprintf("no preset is named %q", st.text), true
+		preset_use(app, n)
+		return "", true
 	case .Project:
 		if st.count > len(app.scene.objects) do return fmt.tprintf("the scene has %d object%s", len(app.scene.objects), "" if len(app.scene.objects) == 1 else "s"), true
 		from := app.scene.objects[st.count - 1]
@@ -503,7 +515,7 @@ script_verb :: proc(app: ^App, st: Script_Statement) -> (failure: string, ok: bo
 			_ = sculpt.sculptor_layer_set(s, st.count - 1, st.numbers[0], !st.flip)
 			if sculpt.sculptor_stroke_end(s) do history_record(app, obj, .Layer, "Layer strength")
 			return "", true
-		case .Falloff, .Alpha, .Project, .Draw_Curve, .Insert_Middle, .Install_Pack:
+		case .Falloff, .Alpha, .Project, .Draw_Curve, .Insert_Middle, .Install_Pack, .Preset:
 		}
 	}
 	if script_scene_state(app) == before do return "it left the scene as it was (the log says why)", true

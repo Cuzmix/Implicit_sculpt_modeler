@@ -7,6 +7,7 @@ import "core:testing"
 import "core:thread"
 
 import "../png_write"
+import "../sculpt"
 
 // A ZIP archive of stored entries, as a zip tool writes one: (name, bytes) pairs.
 @(private = "file")
@@ -238,5 +239,104 @@ pack_text_reads_its_keys :: proc(t: ^testing.T) {
 	defer pack_free(&q)
 	testing.expect(t, !pack_text_parse("author Someone\n", &q))
 	testing.expect(t, !pack_text_parse("name \xff\n", &q))
+	free_all(context.temp_allocator)
+}
+
+// A pack's brushes.txt brings presets named after it, read-only, whose alphas are the
+// pack's own or built-ins; lines it cannot use are skipped and counted. The brush and the
+// dock keep a pack preset across a restart; a replace keeps them on a preset of the same
+// name and Remove sends them back to the plain brush.
+@(test)
+pack_presets_join_the_brush_and_dock :: proc(t: ^testing.T) {
+	FOLDER :: "build/pack_preset_test/"
+	_ = os.remove_all(FOLDER)
+	defer os.remove_all(FOLDER)
+	testing.expect(t, os.make_directory_all(FOLDER) == nil)
+	settings := FOLDER + "run.txt"
+	LIBRARY :: FOLDER + "run-library"
+	lines :: proc(presets: ..struct {
+			name, alpha: string,
+			kind:        sculpt.Brush_Kind,
+			strength:    f32,
+		}) -> string {
+		out := strings.builder_make(context.temp_allocator)
+		for p in presets {
+			v := Preset_Values{kind = p.kind, strength = p.strength, alpha = -1, falloff = {curve = FALLOFF_SMOOTH_CURVE}}
+			preset_line(&out, p.name, v, p.alpha)
+		}
+		return strings.to_string(out)
+	}
+	v1, v2 := FOLDER + "set.sculptpack", FOLDER + "set-2.sculptpack"
+	brushes := strings.concatenate({
+		lines({"Stone Clay", "stone", .Clay, 0.6}, {"Noisy Draw", "noise", .Draw, 0.3}, {"Draw", "-", .Draw, 0.5}, {"stone clay", "-", .Clay, 0.5}, {"Lost", "missing", .Clay, 0.5}),
+		"hello there\npreset Broken Clay\n",
+	}, context.temp_allocator)
+	pack_write(t, v1, {{"pack.txt", "name Brush Set\nauthor Bolt\n"}, {"alphas/Stone.png", pack_png(0)}, {"brushes.txt", brushes}})
+	pack_write(t, v2, {{"pack.txt", "name Brush Set\nauthor Bolt\nversion 2\n"}, {"brushes.txt", lines({"Stone Clay", "-", .Clay, 0.9})}})
+
+	a: App
+	defer pack_app_free(&a)
+	pack_app(&a, settings)
+	testing.expect_value(t, pack_install_finish(&a, pack_unpack(v1, a.library.folder), replace = false), "")
+	testing.expect(t, strings.contains(a.result.text, "Installed Brush Set: 1 alpha and 2 presets; skipped 5 lines of brushes.txt"), a.result.text)
+	stone := pack_preset_find(&a, "brush-set", "STONE CLAY")
+	noisy := preset_by_ref(&a, "brush-set/Noisy Draw")
+	testing.expect(t, preset_of_pack(stone) && preset_of_pack(noisy))
+	p, _ := preset_at(&a, stone)
+	testing.expect_value(t, alpha_ref(&a, p.values.alpha), "brush-set/Stone")
+	q, _ := preset_at(&a, noisy)
+	testing.expect_value(t, alpha_ref(&a, q.values.alpha), "Noise")
+
+	// Read-only: Save changes and Delete are not offered; Revert and Save as new are.
+	preset_use(&a, stone)
+	testing.expect_value(t, a.brush.preset, stone)
+	testing.expect_value(t, a.brush.strengths[.Clay], f32(0.6))
+	a.brush.strengths[.Clay] = 0.2
+	testing.expect(t, preset_changed(&a))
+	testing.expect(t, !command_enabled(&a, .Preset_Save) && !command_enabled(&a, .Preset_Delete))
+	preset_save(&a)
+	testing.expect_value(t, p.values.strength, f32(0.6))
+	preset_revert(&a)
+	testing.expect(t, !preset_changed(&a))
+	dock_put(&a, 2, .Draw, stone)
+	dock_put(&a, 3, .Clay, noisy)
+	testing.expect_value(t, a.kit.dock[2], Dock_Slot{kind = .Clay, preset = stone})
+	testing.expect_value(t, dock_slot_label(&a, a.kit.dock[3]), "Noisy Draw")
+	testing.expect(t, settings_save(&a, settings))
+
+	b: App
+	defer pack_app_free(&b)
+	pack_app(&b, settings)
+	settings_load(&b, settings)
+	testing.expect_value(t, b.library.packs[0].presets, 2)
+	testing.expect_value(t, b.library.skipped, 0)
+	testing.expect_value(t, preset_ref(&b, b.brush.preset), "brush-set/Stone Clay")
+	testing.expect_value(t, preset_ref(&b, b.kit.dock[2].preset), "brush-set/Stone Clay")
+	testing.expect_value(t, preset_ref(&b, b.kit.dock[3].preset), "brush-set/Noisy Draw")
+	written, _ := os.read_entire_file(LIBRARY + "/brush-set/brushes.txt", context.temp_allocator)
+	testing.expect_value(t, strings.count(string(written), "\n"), 2)
+
+	// Save as new makes one of the person's own, named after it.
+	testing.expect(t, preset_save_new(&b))
+	testing.expect_value(t, preset_name(&b.presets[0]), "Stone Clay 1")
+	testing.expect_value(t, b.brush.preset, 1)
+	preset_use(&b, b.kit.dock[2].preset)
+
+	// Version 2 has Stone Clay still and no Noisy Draw.
+	testing.expect_value(t, pack_install_finish(&b, pack_unpack(v2, b.library.folder), replace = true), "")
+	testing.expect_value(t, preset_ref(&b, b.brush.preset), "brush-set/Stone Clay")
+	testing.expect(t, preset_changed(&b))
+	preset_revert(&b)
+	testing.expect_value(t, b.brush.strengths[.Clay], f32(0.9))
+	testing.expect_value(t, preset_ref(&b, b.kit.dock[2].preset), "brush-set/Stone Clay")
+	testing.expect_value(t, b.kit.dock[3], Dock_Slot{kind = .Draw})
+
+	// Remove sends the brush back to plain Clay, with its own strength, and the slot to Clay.
+	testing.expect(t, pack_remove(&b, 0))
+	testing.expect_value(t, b.brush.preset, 0)
+	testing.expect_value(t, b.brush.kind, sculpt.Brush_Kind.Clay)
+	testing.expect_value(t, b.kit.dock[2], Dock_Slot{kind = .Clay})
+	testing.expect_value(t, preset_by_ref(&b, "brush-set/Stone Clay"), 0)
+	testing.expect_value(t, preset_name(&b.presets[0]), "Stone Clay 1")
 	free_all(context.temp_allocator)
 }
