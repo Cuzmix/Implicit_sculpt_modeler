@@ -16,6 +16,16 @@ description: Implicit and SDF modelling for this app — the src/sdf_trial spike
   jobs write disjoint bricks or node slots; the directory changes only in serial passes; a brick dirties the nodes whose
   20³ meshing window sees a change within `NEAR` (3 voxels) of the surface; unused index slots are zeros on a dummy vertex 0;
   the arrays grow only when `Flush.regrow` says so (the GPU copy is remade then). `build/bench --voxel` measures it.
+- In the app (`src/app/voxel_object.odin`): `Object.voxel: ^Voxel_Part{clay, gpu, resolution}` is the voxel object kind.
+  A voxel object keeps one EMPTY level (`levels_init` with no vertices) so the hundreds of readers of the selected
+  object's sculptor see nothing rather than nil; everything that changes a level checks `obj.voxel` first:
+  `scene_apply` refuses `MESH_ONLY_COMMANDS`, `stroke_start` refuses brushes `voxel_brush_of` cannot map, dabs go through
+  `object_dab` and picking through `object_raycast_local`, `brush_stroke_finish`/`history_step`/`history_drop_redo`/
+  `object_forget_history` branch to `clay_stroke_end`/`clay_undo`/`clay_redo`/`clay_clear_redo`/`clay_clear_history`,
+  the frame loop branches to `voxel_upload` before `levels_current`, and `object_put_bytes` writes the kind byte and the
+  clay in the levels' place (scene file version 13). `Voxel_To_Mesh` is the swap entry that converts (`clay_to_mesh`).
+  Add a voxel path wherever you add a mesh path that touches a level; never call `sculpt.*` on a voxel object expecting
+  vertices.
 
 ## What exists: the spike (`src/sdf_trial/main.odin`)
 - A standalone, time-boxed comparison, not part of the app or the build scripts (`:1-5`; README "Layout" and the last

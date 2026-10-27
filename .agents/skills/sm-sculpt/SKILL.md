@@ -242,6 +242,9 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
   inspector drag one step). A new kind of change to where an object sits goes through these, never a bare write.
 
 ## Rules that bite
+- A voxel object (`Object.voxel != nil`, sm-sdf) has an EMPTY level: its dabs go through `object_dab`, its picks through
+  `object_raycast_local`, its strokes end in `clay_stroke_end`; add a voxel branch to any new path that moves vertices
+  or starts a stroke, and refuse mesh-only commands on it (`MESH_ONLY_COMMANDS`).
 - Every position change goes through `apply_dab` or `sculptor_nodes_moved`; otherwise BVH bounds, normals, chunks, LOD
   staleness and `edited` drift apart (tests `incremental_updates_match_full_recompute`, `flush_leaves_no_stale_normal`,
   `synced_levels_stay_consistent`).

@@ -146,6 +146,7 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.Make_Boolean     = "live boolean subtract union intersect",
 	.Live_Boolean     = "preview subtract union intersect",
 	.Extract_Masked   = "extract shell",
+	.Convert_To_Mesh  = "voxels clay volume triangles surface",
 	.Adjust_Last      = "redo last tweak change settings again stroke amount",
 	.Add_Object       = "subtool primitive append sphere cube",
 	.Frame_All        = "fit zoom extents home",

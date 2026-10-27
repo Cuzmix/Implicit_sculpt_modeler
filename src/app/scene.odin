@@ -12,6 +12,7 @@ import "../geom"
 import "../gizmo"
 import "../render"
 import "../sculpt"
+import "../voxel"
 
 // Where an object sits in the world. Meshes stay in their own local space; the brush
 // works in local space too, so moving or turning an object never touches its vertices.
@@ -71,6 +72,10 @@ Object :: struct {
 	paint_off: bool,
 	folder:    int, // the Folder it is in, by id; 0 for none
 	vis_off:   u8, // its eye in each stored visibility (bit k for V(k+1)): off (scene_tree.odin)
+	// A voxel object's clay (voxel_object.odin); nil for a mesh object. A voxel object's
+	// `levels` hold one empty level, so what reads the selected object's sculptor reads
+	// nothing; the clay is what is drawn and sculpted.
+	voxel:     ^Voxel_Part,
 }
 
 // The level being sculpted: the HD window while one is open.
@@ -78,13 +83,27 @@ object_level :: proc(obj: ^Object) -> ^sculpt.Level {return sculpt.levels_active
 object_sculptor :: proc(obj: ^Object) -> ^sculpt.Sculptor {return &object_level(obj).sculptor}
 object_mesh :: proc(obj: ^Object) -> ^geom.Mesh {return &object_level(obj).mesh}
 object_gpu :: proc(obj: ^Object) -> ^render.Mesh_Buffers {
+	if obj.voxel != nil do return &obj.voxel.gpu
 	if object_in_hd(obj) do return &obj.hd_gpu
 	return &obj.gpu[obj.levels.current]
 }
 object_in_hd :: proc(obj: ^Object) -> bool {return obj.levels.hd.window != nil}
-// With dynamic topology on, the mesh's arrays hold unused slots: count these instead.
-object_vertex_count :: proc(obj: ^Object) -> int {return sculpt.sculptor_vertex_count(object_sculptor(obj))}
-object_triangle_count :: proc(obj: ^Object) -> int {return sculpt.sculptor_triangle_count(object_sculptor(obj))}
+// With dynamic topology on, the mesh's arrays hold unused slots: count these instead; a
+// voxel object's counts are its surface's.
+object_vertex_count :: proc(obj: ^Object) -> int {
+	if vp := obj.voxel; vp != nil {
+		vertices, _ := voxel.surface_counts(&vp.clay.surface)
+		return vertices
+	}
+	return sculpt.sculptor_vertex_count(object_sculptor(obj))
+}
+object_triangle_count :: proc(obj: ^Object) -> int {
+	if vp := obj.voxel; vp != nil {
+		_, triangles := voxel.surface_counts(&vp.clay.surface)
+		return triangles
+	}
+	return sculpt.sculptor_triangle_count(object_sculptor(obj))
+}
 object_dynamic :: proc(obj: ^Object) -> bool {return sculpt.levels_dynamic(&obj.levels)}
 // How the object is shown in panels and logs: "Sphere <id>", or its file's name.
 object_label :: proc(obj: ^Object) -> string {
@@ -122,10 +141,18 @@ Surface :: struct {
 	groups: []u16,
 }
 
+Scene_Command_Kind :: enum u8 {None, Add, New, Remesh, Decimate, Retopo, Delete, Duplicate, Symmetrize, Slice, Subdivide, Set_Level, Delete_Higher, Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete, Dyntopo, Boolean, Extract, View, Arrange, Copy, Paste, Delete_Others, Levels_All, Split, Merge, Align, Distribute, Voxel_To_Mesh}
+
+// The commands that work on a mesh object's level, and so refuse a voxel object until it
+// is converted to a mesh (Voxel_To_Mesh); the rest place, copy, list or delete objects of
+// either kind.
+MESH_ONLY_COMMANDS :: bit_set[Scene_Command_Kind]{.Remesh, .Decimate, .Retopo, .Symmetrize, .Slice, .Subdivide, .Set_Level, .Delete_Higher, .Delete_Lower, .Hd_Enter, .Hd_Leave, .Hd_Steps, .Hd_Delete, .Dyntopo, .Boolean, .Extract, .Split, .Merge}
+
 Scene_Command :: struct {
-	kind:     enum u8 {None, Add, New, Remesh, Decimate, Retopo, Delete, Duplicate, Symmetrize, Slice, Subdivide, Set_Level, Delete_Higher, Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete, Dyntopo, Boolean, Extract, View, Arrange, Copy, Paste, Delete_Others, Levels_All, Split, Merge, Align, Distribute},
+	kind:     Scene_Command_Kind,
 	vertices: int,
 	shape:    geom.Primitive, // Add, New: what to add
+	voxels:   int, // Add: a voxel sphere this many voxels across instead of the shape (0 for a mesh)
 	// Dyntopo: turn dynamic topology on, or off; Symmetrize: keep the + side; Delete_Others:
 	// the selected objects too; Levels_All: every object to its highest level, or its lowest;
 	// Add: below the selected object, in its folder, rather than at the end of the list;
@@ -188,6 +215,24 @@ scene_add_primitive :: proc(app: ^App, shape: geom.Primitive, vertices: int, t: 
 	if obj == nil do return ok
 	scene_append(app, obj)
 	log.infof("%s: %d vertices, %d triangles, %d levels", object_label(obj), object_vertex_count(obj), object_triangle_count(obj), len(obj.levels.levels))
+	return true
+}
+
+// Adds a voxel sphere of radius 1 (the size every starting shape has), `resolution`
+// voxels across, as a new object named after it, and selects it. Returns false only on a
+// GPU failure.
+scene_add_voxel_sphere :: proc(app: ^App, resolution: int, t: Transform) -> bool {
+	obj := new(Object)
+	obj.transform, obj.file = t, {scale = 1}
+	obj.name = fmt.aprintf("Voxels %d", app.scene.next_id + 1)
+	if !object_build_voxel(app, obj, resolution) {
+		delete(obj.name)
+		free(obj)
+		return false
+	}
+	scene_append(app, obj)
+	vertices, triangles := object_vertex_count(obj), object_triangle_count(obj)
+	log.infof("%s: %d voxels across, %d bricks, %d vertices, %d triangles", object_label(obj), resolution, voxel.volume_brick_count(&obj.voxel.clay.volume), vertices, triangles)
 	return true
 }
 
@@ -628,12 +673,19 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 		transform_drag_end(app, force = true)
 		inspector_drags_end(app)
 	}
+	if obj := selected_object(app); obj != nil && obj.voxel != nil && cmd.kind in MESH_ONLY_COMMANDS {
+		report(app, Kit_Section.Voxels, {.Warning}, "%v needs a mesh: convert %s to a mesh first (Object palette, Voxels)", cmd.kind, object_label(obj))
+		return true
+	}
 	switch cmd.kind {
 	case .None:
 	case .Add:
 		before := len(app.scene.objects)
 		sel := selected_object(app)
-		if !scene_add_primitive(app, cmd.shape, cmd.vertices, {position = next_free_position(app), scale = 1}) do return false
+		at := Transform{position = next_free_position(app), scale = 1}
+		if cmd.voxels > 0 {
+			if !scene_add_voxel_sphere(app, cmd.voxels, at) do return false
+		} else if !scene_add_primitive(app, cmd.shape, cmd.vertices, at) do return false
 		if len(app.scene.objects) > before {
 			// Inserted below the selection, in its folder, rather than at the end.
 			if cmd.on && sel != nil {
@@ -663,6 +715,17 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 			made, ok := object_retopo(app, obj, cmd.vertices)
 			if made do history_record_added(app)
 			return ok
+		}
+	case .Voxel_To_Mesh:
+		if obj := selected_object(app); obj != nil && obj.voxel != nil {
+			before := history_snapshot(app, obj, "convert to mesh")
+			if !object_voxel_to_mesh(app, obj) {
+				// The clay is gone; drop the empty object rather than draw nothing.
+				history_snapshot_drop(before)
+				scene_delete_selected(app, undoable = false)
+				return false
+			}
+			history_record_swap(app, obj.id, before)
 		}
 	case .Delete:
 		// Every selected object, as one undo step. The ids are copied out of temp memory,
@@ -986,7 +1049,7 @@ scene_raycast :: proc(app: ^App, origin, dir: Vec3) -> (index: int, hit: Vec3, o
 	for obj, i in app.scene.objects {
 		if !object_pickable(app, obj) do continue
 		t := obj.transform
-		local_hit, local_ok := sculpt.sculptor_raycast(object_sculptor(obj), to_local(t, origin), to_local_dir(t, dir))
+		local_hit, _, local_ok := object_raycast_local(obj, to_local(t, origin), to_local_dir(t, dir))
 		if !local_ok do continue
 		world_hit := to_world(t, local_hit)
 		if d := linalg.length(world_hit - origin); d < best {
@@ -1094,6 +1157,7 @@ object_release_mesh :: proc(app: ^App, obj: ^Object, rebuild := true) {
 	for &gpu in obj.gpu do render.mesh_buffers_destroy(&app.renderer, &gpu)
 	render.mesh_buffers_destroy(&app.renderer, &obj.hd_gpu)
 	sculpt.levels_destroy(&obj.levels)
+	voxel_part_free(app, obj)
 }
 
 object_free :: proc(app: ^App, obj: ^Object) {

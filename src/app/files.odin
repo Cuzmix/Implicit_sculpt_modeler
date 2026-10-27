@@ -16,6 +16,7 @@ import "../geom"
 import "../png_write"
 import "../render"
 import "../sculpt"
+import "../voxel"
 
 // Files: meshes in and out as OBJ or PLY, and whole scenes saved and opened in the
 // native format. A request comes from a File menu dialog, a shortcut or a flag and runs
@@ -50,7 +51,7 @@ File_Request :: struct {
 // be in a console nobody watches. `at` tells a new note from the one already shown.
 // The native scene file starts with these bytes, then its version.
 SCENE_MAGIC :: "SCULPTSC"
-SCENE_VERSION :: u32(12) // 2: each object's rotation; 3: the current level's polypaint and polygroups; 4: sculpt layers, and a retopologized object's quads and UVs (sculpt.levels_write); 5: each object's boolean mode; 6: the base level's node layout (sculpt.levels_write); 7: the camera's roll; 8: each object's eye and ghost, and Solo; 9: folders, and each object's folder; 10: selection sets (sculpt.levels_write); 11: each object's polypaint shown or not (a third view bit); 12: stored visibility (V1 to V8): the slot chosen and used, and each folder's and object's eyes in them
+SCENE_VERSION :: u32(13) // 2: each object's rotation; 3: the current level's polypaint and polygroups; 4: sculpt layers, and a retopologized object's quads and UVs (sculpt.levels_write); 5: each object's boolean mode; 6: the base level's node layout (sculpt.levels_write); 7: the camera's roll; 8: each object's eye and ghost, and Solo; 9: folders, and each object's folder; 10: selection sets (sculpt.levels_write); 11: each object's polypaint shown or not (a third view bit); 12: stored visibility (V1 to V8): the slot chosen and used, and each folder's and object's eyes in them; 13: each object's kind (mesh or voxel), a voxel object's resolution and clay after its empty level (voxel.clay_write)
 
 // The request waiting for the next frame, and whether a dialog is showing. Kept here
 // rather than in App because SDL may call a dialog back on another thread, even after
@@ -421,6 +422,13 @@ object_export :: proc(app: ^App, obj: ^Object, path: string) -> bool {
 	inspector_drags_end(app)
 	lv := sculpt.levels_current(&obj.levels)
 	positions, normals, indices := lv.mesh.positions[:], lv.mesh.normals[:], lv.mesh.indices[:]
+	packed: geom.Mesh
+	defer geom.mesh_destroy(&packed)
+	if vp := obj.voxel; vp != nil {
+		// A voxel object's surface, welded, as Convert to mesh would make it.
+		packed = voxel.clay_to_mesh(&vp.clay)
+		positions, normals, indices = packed.positions[:], packed.normals[:], packed.indices[:]
+	}
 	// Polypaint as plain vertex colours: the paint over white as far as it covers.
 	colors: [][3]u8
 	if c := lv.sculptor.color; c != nil && !object_dynamic(obj) {
@@ -429,8 +437,6 @@ object_export :: proc(app: ^App, obj: ^Object, path: string) -> bool {
 			for k in 0 ..< 3 do colors[v][k] = u8((u32(x[k]) * u32(x.a) + 255 * (255 - u32(x.a)) + 127) / 255)
 		}
 	}
-	packed: geom.Mesh
-	defer geom.mesh_destroy(&packed)
 	if object_dynamic(obj) {
 		mask: []u8
 		packed, mask = sculpt.sculptor_compact_mesh(&lv.sculptor)
@@ -833,8 +839,20 @@ object_put_bytes :: proc(out: ^[dynamic]u8, obj: ^Object, opts := sculpt.Write_O
 	geom.byte_put(out, object_view_bits(obj)) // version 8
 	geom.byte_put(out, i32(obj.folder)) // version 9
 	geom.byte_put(out, obj.vis_off) // version 12
+	geom.byte_put(out, u8(OBJECT_KIND_VOXEL if obj.voxel != nil else OBJECT_KIND_MESH)) // version 13
+	// A voxel object's clay and the resolution it started at stand where a mesh's levels
+	// go; its empty level is made again on reading.
+	if vp := obj.voxel; vp != nil {
+		geom.byte_put(out, i32(vp.resolution))
+		return voxel.clay_write(&vp.clay, out, opts.abort)
+	}
 	return sculpt.levels_write(&obj.levels, out, opts)
 }
+
+// What an object is in the scene file, from version 13: a mesh with levels, or a voxel
+// object (its resolution and clay in the levels' place).
+OBJECT_KIND_MESH :: 0
+OBJECT_KIND_VOXEL :: 1
 
 // About how many bytes object_put writes for `obj`: every level's positions and sculpt
 // layers, the base's triangles and node layout, and the shown level's mask, paint and
@@ -854,6 +872,7 @@ object_put_estimate :: proc(obj: ^Object) -> int {
 	if s.groups.tris != nil do bytes += size_of(u16) * len(s.groups.tris)
 	// A set is written again in file order, at most a byte a vertex.
 	for set in sculpt.levels_sets(&obj.levels) do bytes += 64 + set.vertices
+	if vp := obj.voxel; vp != nil do bytes += 4 + voxel.clay_write_estimate(&vp.clay)
 	return bytes
 }
 
@@ -869,16 +888,24 @@ object_view_bits :: proc(obj: ^Object) -> u8 {return u8(obj.off) | u8(obj.ghost)
 object_get :: proc(app: ^App, r: ^geom.Byte_Reader, version := SCENE_VERSION) -> (obj: ^Object, read, made: bool) {
 	obj = new(Object)
 	object_get_fields(r, obj, version)
-	if !r.ok || obj.transform.scale <= 0 || obj.file.scale <= 0 || !sculpt.levels_read(&obj.levels, r, &app.pool) {
-		delete(obj.name)
-		free(obj)
+	kind := geom.byte_get(r, u8) if version >= 13 else OBJECT_KIND_MESH
+	fields_ok := r.ok && obj.transform.scale > 0 && obj.file.scale > 0 && kind <= OBJECT_KIND_VOXEL
+	if fields_ok && kind == OBJECT_KIND_VOXEL {
+		read, made = voxel_part_get(app, r, obj)
+		if read {
+			free_all(context.temp_allocator)
+			return obj, true, made
+		}
+	} else if fields_ok && sculpt.levels_read(&obj.levels, r, &app.pool) {
+		lv := sculpt.levels_current(&obj.levels)
+		obj.gpu[obj.levels.current], made = render.mesh_buffers_create(&app.renderer, lv.mesh, lv.sculptor.mask)
 		free_all(context.temp_allocator)
-		return nil, false, false
+		return obj, true, made
 	}
-	lv := sculpt.levels_current(&obj.levels)
-	obj.gpu[obj.levels.current], made = render.mesh_buffers_create(&app.renderer, lv.mesh, lv.sculptor.mask)
+	delete(obj.name)
+	free(obj)
 	free_all(context.temp_allocator)
-	return obj, true, made
+	return nil, false, false
 }
 
 // Reads what object_put writes before the levels: the id, name, placement, boolean mode,
@@ -915,6 +942,7 @@ object_get_fields :: proc(r: ^geom.Byte_Reader, obj: ^Object, version := SCENE_V
 object_discard :: proc(app: ^App, obj: ^Object) {
 	for &gpu in obj.gpu do render.mesh_buffers_destroy(&app.renderer, &gpu)
 	sculpt.levels_destroy(&obj.levels)
+	voxel_part_free(app, obj)
 	delete(obj.name)
 	free(obj)
 }

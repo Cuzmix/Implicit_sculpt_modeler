@@ -201,6 +201,7 @@ Kit_State :: struct {
 	scroll:     f32, // the inspector's scroll, where it is heading
 	add_shape:  geom.Primitive,
 	add_size:   int, // into SPHERE_PRESETS
+	add_voxel:  bool, // Add object makes a voxel sphere of the size's resolution (voxel_object.odin)
 	note_at:    time.Tick, // the result last shown as a toast
 	busy_toast: ui.Id, // the last "under way" toast (Report_Flag.Busy), dismissed by the next result
 	undo_toast: struct {
@@ -340,6 +341,7 @@ Kit_Section :: enum u8 {
 	Deformers,
 	Remesh,
 	Mirror,
+	Voxels,
 	Retopo,
 	Project,
 	Booleans,

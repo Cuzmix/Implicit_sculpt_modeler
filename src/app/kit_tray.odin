@@ -40,7 +40,7 @@ tray_sections :: proc(app: ^App, tab: Kit_Tab) -> []Tray_Section {
 		if app.tool != .Brush do break
 		for s in BRUSH_SECTIONS do if s.shown == nil || s.shown(app) do append(&out, Tray_Section{s.section, s.title})
 	case .Object:
-		for s in OBJECT_SECTIONS do append(&out, Tray_Section{s.section, s.title})
+		for s in OBJECT_SECTIONS do if object_section_offered(app, s.section) do append(&out, Tray_Section{s.section, s.title})
 	case .Scene:
 		append(&out, Tray_Section{.Objects, "Objects"})
 		for s in SCENE_SECTIONS do append(&out, Tray_Section{s.section, s.title})
@@ -164,6 +164,7 @@ COMMAND_HOMES := #partial [Command_Id]Maybe(Kit_Section) {
 	.Smooth_All            = .Deform,
 	.Make_Boolean          = .Booleans,
 	.Extract_Masked        = .Extract,
+	.Convert_To_Mesh       = .Voxels,
 	.Duplicate_Object      = .Objects,
 	.Delete_Object         = .Objects,
 	.Add_Object            = .Add,

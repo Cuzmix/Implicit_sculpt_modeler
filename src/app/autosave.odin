@@ -16,6 +16,7 @@ import "core:time"
 import sdl "vendor:sdl3"
 
 import "../sculpt"
+import "../voxel"
 
 // Autosave and crash recovery. Once the scene changed and the interval passed, the
 // first moment of rest (no button, key, finger, stroke or anything else that could
@@ -589,6 +590,7 @@ read_hash :: proc(job: ^Autosave_Job) -> u64 {
 			h = hash_bytes(slice.to_bytes(lv.mesh.indices[:]), h)
 			for n in lv.sculptor.nodes do h = xxhash.XXH3_64(mem.ptr_to_bytes(&[2]u32{n.tri_count, n.vert_count}), h)
 		}
+		if vp := obj.voxel; vp != nil do h = xxhash.XXH3_64(mem.ptr_to_bytes(&[1]u64{voxel.clay_hash(&vp.clay)}), h)
 	}
 	return h
 }

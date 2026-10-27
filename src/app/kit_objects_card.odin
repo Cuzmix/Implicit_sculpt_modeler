@@ -361,6 +361,10 @@ kit_objects_card_menus :: proc(app: ^App) {
 				c.add = false
 			}
 		}
+		if ui.menu_item(ctx, "Voxel sphere##objects card add", glyph = ui.ICON_PLUS, trailing = true) {
+			app.ui.scene_command = {kind = .Add, vertices = vertices, voxels = voxel_resolution_for(vertices), on = !c.append}
+			c.add = false
+		}
 		ui.divider(ctx, across = true)
 		if command_menu_item(app, .Import_Mesh, trailing = true) do c.add = false
 		ui.popover_end(ctx)
