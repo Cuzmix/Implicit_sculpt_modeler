@@ -270,6 +270,7 @@ App :: struct {
 	saving:     File_Request, // a big save waiting a few frames for its "Saving..." toast to show (save_pending)
 	saving_at:  f64, // the interface time it started waiting
 	versions_kept: i32, // earlier saves kept beside a scene file (versions.odin), 0 for none
+	undo_steps:    i32, // undo steps the History keeps (history_cap), 0 for no limit but memory's
 	versions:   [dynamic]Version_Row, // the scene file's earlier saves, newest first (versions_refresh)
 	saved_fp:   u64, // scene_fingerprint when the scene last matched its file (autosave_scene_saved)
 	result:     Op_Result, // what the last operation did (results.odin)
@@ -612,6 +613,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			}
 		}
 		timeline_frame(&app)
+		history_cap(&app)
 		camera_history_frame(&app)
 		// Changing the present mode recreates the swapchain, so it happens before this
 		// frame acquires a swapchain texture.

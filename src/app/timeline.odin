@@ -26,7 +26,16 @@ Timeline :: struct {
 	owed:    f64, // steps playback owes from earlier frames, below one
 	last:    time.Tick, // when playback last advanced
 	lapse:   Timelapse,
+	// Marker is on: the next tap on a done step of the bar makes it what the History brush
+	// paints back to, as a long press does, instead of going there.
+	marking: bool,
+	// When Delete older history was tapped once, to take a second tap within
+	// DELETE_OLDER_ARM_TIME as the go-ahead; 0 when it is not armed.
+	delete_armed_at: f64,
 }
+
+// How long Delete older history waits for its second tap, in seconds.
+DELETE_OLDER_ARM_TIME :: 3
 
 // A time-lapse records the History as numbered PNG frames: it undoes everything, then
 // redoes `steps` steps a frame, saving the viewport after each, optionally turning the
@@ -300,7 +309,16 @@ kit_history_panel :: proc(app: ^App) -> (raised: bool) {
 	if ui.icon_button(ctx, "Step forward", ui.ICON_STEP_FORWARD, enabled = can && done < total) do timeline_seek_to(tl, done + 1)
 	if ui.icon_button(ctx, "Forward to the newest step", ui.ICON_SKIP_FORWARD, enabled = can) do timeline_seek_to(tl, total)
 	ui.spacer(ctx, 10)
-	ui.label(ctx, fmt.tprintf("Step %d of %d", done, total), t.text_size, t.text, .Semibold)
+	// While Marker is on, or Delete older history waits for its second tap, what the next
+	// tap does takes the step count's place.
+	status, status_color := fmt.tprintf("Step %d of %d", done, total), t.text
+	if tl.marking {
+		status, status_color = "Tap a step to mark it", t.accent
+	} else if tl.delete_armed_at > 0 {
+		n := history_step_count(app.history.done[:])
+		status, status_color = fmt.tprintf("Deletes %d step%s; redo stays", n, "" if n == 1 else "s"), t.danger
+	}
+	ui.label(ctx, status, t.text_size, status_color, .Semibold)
 	ui.end(ctx)
 	if done > 0 {
 		e := app.history.done[done - 1]
@@ -336,6 +354,23 @@ kit_history_panel :: proc(app: ^App) -> (raised: bool) {
 		ui.end(ctx)
 		ui.end(ctx)
 	}
+	// The marker for the History brush, and forgetting what can be undone to free its
+	// memory, which takes a second tap. At the panel's foot, and with their hints in the
+	// step count's place, so turning either on never moves the bar under the next tap.
+	ui.begin(ctx, "history tools", {direction = .Row, gap = 12, center = true})
+	if !can || tl.seeking do tl.marking = false
+	if ui.toggle_button(ctx, "Marker", tl.marking, half, tooltip = "Tap a step on the bar to make it what the History brush paints back to") && can && !tl.seeking do tl.marking = !tl.marking
+	armed := tl.delete_armed_at > 0 && ctx.time - tl.delete_armed_at < DELETE_OLDER_ARM_TIME
+	if !armed do tl.delete_armed_at = 0
+	if ui.button(ctx, "Tap again to delete" if armed else "Delete older history", .Bordered, .Danger if armed else .Neutral, width = half, glyph = ui.ICON_TRASH, enabled = can && !timeline_busy(app) && done > 0, keys = command_hint(app, .Delete_Older_History)) {
+		if armed {
+			tl.delete_armed_at = 0
+			command_run(app, .Delete_Older_History)
+		} else {
+			tl.delete_armed_at = max(ctx.time, 1e-6)
+		}
+	}
+	ui.end(ctx)
 	ui.paragraph(ctx, "Record time-lapse asks for a folder, replays the History from the start to where the bar stands, and saves the viewport each frame as numbered PNGs (frame_00000.png...) that any video tool turns into a film; Turn spins the camera a little each frame.", width - 20)
 	ui.window_end(ctx)
 	ui.transform_since(ctx, mark, shown, 1, {}, {0, (1 - shown) * 16})
@@ -362,23 +397,31 @@ kit_timeline_bar :: proc(app: ^App, enabled: bool) {
 	}
 	under_step := clamp(int((a.mouse.x - r.x) / r.w * f32(max(total, 1))), 0, max(total - 1, 0))
 	// A right-click or long press on a step makes it what the History brush paints back
-	// to; a finger or the pen therefore scrubs only once it moves past the slop, or taps.
-	if enabled && total > 0 && ui.secondary(ctx) {
-		// The press is spent: drifting off as the finger lifts scrubs nothing.
-		tl.picked = true
+	// to, and so does a tap while Marker is on; a finger or the pen therefore scrubs only
+	// once it moves past the slop, or taps.
+	mark :: proc(app: ^App, step, done: int) {
 		switch {
-		case tl.seeking:
+		case app.timeline.seeking:
 			// The step may be undone by the seek still under way.
 			report(app, Kit_Section.Recall, {.Warning}, "History brush: wait for the History to stop moving, then choose the step")
-		case under_step < done:
-			_ = recall_to_entry(app, under_step)
+		case step < done:
+			_ = recall_to_entry(app, step)
 		case:
 			report(app, Kit_Section.Recall, {.Warning}, "History brush: redo up to that step first; it paints back only to a step that is done")
 		}
 	}
-	if a.pressed do tl.scrubbing, tl.picked = ctx.input.pointer == .Mouse, false
+	if enabled && total > 0 && ui.secondary(ctx) {
+		// The press is spent: drifting off as the finger lifts scrubs nothing.
+		tl.picked = true
+		mark(app, under_step, done)
+	}
+	if a.pressed do tl.scrubbing, tl.picked = ctx.input.pointer == .Mouse && !tl.marking, tl.marking
+	if a.clicked && tl.marking && enabled && total > 0 {
+		mark(app, under_step, done)
+		tl.marking = false
+	}
 	if a.held && !tl.picked && linalg.length(a.mouse - ctx.press_mouse) > ctx.theme.slop do tl.scrubbing = true
-	if enabled && total > 0 && ((a.held && tl.scrubbing) || a.clicked) {
+	if enabled && total > 0 && ((a.held && tl.scrubbing) || (a.clicked && !tl.picked)) {
 		// Where the History is heading: the target while seeking, else where it stands.
 		under := clamp(int((a.mouse.x - r.x) / r.w * f32(total) + 0.5), 0, total)
 		heading := tl.target if tl.seeking else done

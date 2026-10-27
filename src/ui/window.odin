@@ -42,7 +42,8 @@ window_begin :: proc(ctx: ^Context, name, title: string, w: ^Window, x, y: Ancho
 		if !w.dragging && linalg.length(in_.mouse - ctx.press_mouse) > t.slop do w.dragging = true
 		if w.dragging do window_move(ctx, w, in_.mouse - w.grab, size, box.padding)
 	}
-	ax, ay, off := x, y, offset
+	ax, off := mirrored(ctx, x, offset)
+	ay := y
 	if w.moved do ax, ay, off = w.x, w.y, w.offset
 	pos := window_clamp(ctx, anchored_pos(safe_area(ctx), ax, ay, off, size), size, box.padding)
 	raised = !box.inert && ctx.pointer_root == id && .Left in ctx.input.pressed
@@ -117,7 +118,8 @@ card_begin :: proc(ctx: ^Context, name, title: string, w: ^Window, x, y: Anchor,
 		if !w.dragging && linalg.length(in_.mouse - ctx.press_mouse) > t.slop do w.dragging = true
 		if w.dragging do window_move(ctx, w, in_.mouse - w.grab, size, box.padding)
 	}
-	ax, ay, off := x, y, offset
+	ax, off := mirrored(ctx, x, offset)
+	ay := y
 	if w.moved do ax, ay, off = w.x, w.y, w.offset
 	pos := window_clamp(ctx, anchored_pos(safe_area(ctx), ax, ay, off, size), size, box.padding)
 	raised = !box.inert && ctx.pointer_root == id && .Left in ctx.input.pressed

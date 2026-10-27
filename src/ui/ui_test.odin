@@ -40,6 +40,55 @@ anchored_column_settles_in_one_frame :: proc(t: ^testing.T) {
 	testing.expect_value(t, third, second)
 }
 
+// The left-handed layout puts what is anchored to one side against the other, as far
+// in; a centred container moves the other way; a popover meant for the right of its
+// button opens on its left; a window the user moved stays where it was put.
+@(test)
+the_mirrored_layout_swaps_the_sides :: proc(t: ^testing.T) {
+	ctx: Context
+	init(&ctx)
+	defer destroy(&ctx)
+	ctx.mirror = true
+	two_buttons(&ctx, input_at({-1, -1}))
+	_, _, column := two_buttons(&ctx, input_at({-1, -1}))
+	testing.expect_value(t, column, Rect{16, 16, 56, 112})
+	x, off := mirrored(&ctx, .Center, {30, 5})
+	testing.expect_value(t, x, Anchor.Center)
+	testing.expect_value(t, off, [2]f32{-30, 5})
+
+	open := true
+	anchor := Rect{400, 100, 40, 40}
+	popover :: proc(ctx: ^Context, open: ^bool, anchor: Rect) -> Rect {
+		frame_begin(ctx, input_at({-1, -1}))
+		if popover_begin(ctx, "pop", open, anchor, .Right, {width = 100, height = 50}) do popover_end(ctx)
+		frame_end(ctx)
+		for p in ctx.placed do if p.id == id_of(ctx, "pop") do return p.rect
+		return {}
+	}
+	settle :: proc(ctx: ^Context, open: ^bool, anchor: Rect) {
+		for _ in 0 ..< 30 do _ = popover(ctx, open, anchor)
+	}
+	settle(&ctx, &open, anchor)
+	testing.expect_value(t, popover(&ctx, &open, anchor).x, 400 - 6 - 100)
+	ctx.mirror = false
+	testing.expect_value(t, popover(&ctx, &open, anchor).x, 400 + 40 + 6)
+
+	ctx.mirror = true
+	w := Window{moved = true, x = .Start, y = .Start, offset = {100, 100}}
+	window :: proc(ctx: ^Context, w: ^Window) -> Rect {
+		frame_begin(ctx, input_at({-1, -1}))
+		_, _, _ = window_begin(ctx, "win", "Win", w, .End, .Start, {16, 16}, {width = 200, height = 100})
+		window_end(ctx)
+		frame_end(ctx)
+		for p in ctx.placed do if p.id == id_of(ctx, "win") do return p.rect
+		return {}
+	}
+	window(&ctx, &w)
+	testing.expect_value(t, window(&ctx, &w).x, 100)
+	w.moved = false
+	testing.expect_value(t, window(&ctx, &w).x, 16)
+}
+
 @(test)
 anchored_column_stays_inside_the_safe_area :: proc(t: ^testing.T) {
 	ctx: Context

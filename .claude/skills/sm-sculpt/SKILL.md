@@ -270,7 +270,9 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
   origin, or with Local symmetry its shown level's box middle (`src/app/symmetry.odin`: `brush_symmetry`, cached in
   `App.sym_center` by object, level and history serial); X toggles X; `symmetry_label` is the exit stat. `History` orders strokes and mask commands across objects and levels, newest last, `HD_LEVEL =
   -1`; undoing a stroke from another level switches to it first (`src/app/history.odin:7-22, 78-92`); `stroke_finish`
-  ends Grab and records the stroke (`:31`), `mask_command` records a mask command (`:43`). `Scene_Command` kinds and
+  ends Grab and records the stroke (`:31`), `mask_command` records a mask command (`:43`). Undo steps kept
+  (`App.undo_steps`) and Delete older history drop whole oldest steps (`history_drop_oldest`), then trim each touched
+  sculptor or clay to the entries still naming it (`sculptor_drop_oldest`, `clay_drop_oldest`), never while busy. `Scene_Command` kinds and
   `scene_apply` (`src/app/scene.odin:84-91, 245`). Placing an object (gizmo drag, inspector Transform drag, Reset
   transform) is a `.Transform` entry: `history_record_transform(app, obj, before, what)` stores `before`/`after`, level 0,
   no sculptor; `history_step` sets one or the other, the forget procs keep it unless every level is forgotten, and

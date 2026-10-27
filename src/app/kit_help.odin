@@ -208,6 +208,8 @@ GLOSSARY := [?]Glossary_Entry {
 	{"Spacing", "LazyStep (ZBrush), spacing (Blender, Nomad)", "How far apart a Dots stroke's dabs are, as a share of the brush's radius (Brush palette > Stroke > More).", "", {}},
 	{"Colour spray", "Color Spray (ZBrush), jitter (Blender)", "A Spray stroke's dabs each painting a slightly lighter or darker shade of the colour (Brush palette > Stroke with Spray).", "", {}},
 	{"Smooth only", "Smooth Valleys and Smooth Peaks (ZBrush)", "Smooth evening out only the dents (Valleys) or only the bumps (Peaks), leaving the rest (Brush palette > Options with Smooth, or those two presets).", "", {}},
+	{"Save next", "Save Next (ZBrush for iPad), Save Incremental (Blender)", "Saving the scene as the next numbered file beside its own, dragon_002 after dragon, and saving there from then on, so each stage stays as a file (a long press on Save).", "increment", {.Save_Scene_Next}},
+	{"Screen layout", "Screen Layout (ZBrush for iPad), left-handed mode (Nomad)", "Right-handed or Left-handed: left-handed swaps the sides, the brush bar and the wheel to the right, the navigation and the palettes to the left (Settings > Interface).", "", {}},
 	{"Light sphere", "Light palette (ZBrush), studio lights (Blender), lights (Nomad)", "A ball in Scene palette > Lights showing where each light shines from: drag on it to move the picked light, tap the light to send it behind the model.", "", {}},
 	{"Lock plane", "Original plane (ZBrush), plane lock (Nomad), original normal (Blender)", "A stroke keeping the plane its first dab found, so a long Flatten or Clay stroke does not drift with the surface (Brush palette > Options).", "original", {.Lock_Plane}},
 	{"Mask", "Mask (ZBrush, Blender, Nomad), freeze (3DCoat)", "Paint on the surface that no brush can move. Masked parts show darker.", "freeze", {.Mask}},
@@ -339,7 +341,7 @@ kit_help :: proc(app: ^App) -> (raised: bool) {
 		kit_scroll_end(ctx, scroll)
 	}
 	ui.window_end(ctx)
-	ui.transform_since(ctx, mark, shown, 1, {}, {window_slide(win^, .End) * (1 - shown) * 16, 0})
+	ui.transform_since(ctx, mark, shown, 1, {}, {window_slide(ctx, win^, .End) * (1 - shown) * 16, 0})
 	return
 }
 
