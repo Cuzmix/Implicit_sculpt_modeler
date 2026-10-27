@@ -175,15 +175,16 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   and `viewport_mute` clear all of them. `drag_decide` keeps empty space for Mask/Hide (Brush tool only) and gives
   them the safe zone only when held (`Rail_Press.held`). A new `Viewport_Input` flag a stroke depends on is also a
   `Take_Frame` flag in `replay.odin` (bump `STROKES_VERSION`).
-- Long press (`ui.odin`: `Long_Press`, `long_due`, `secondary`, `long_cancel`, `long_press_decide`): a finger or pen held
-  `theme.long_press` within the slop on the held widget: Settings > Touch > Hold delay (`Nav_Prefs.hold_delay`, 0.3 s by
-  default), which `kit_begin` puts in the theme each frame with `long_ring` at half of it at most; the two- and
+- Long press (`ui.odin`: `Long_Press`, `long_due`, `secondary`, `long_cancel`, `press_used`, `long_press_decide`): a
+  finger or pen held `theme.long_press` within the slop on the held widget: Settings > Touch > Hold delay
+  (`Nav_Prefs.hold_delay`, 0.25 s by default, 0.1 to 1.5), which `kit_begin` puts in the theme each frame with `long_ring` at half of it at most; the two- and
   three-finger hold keeps its own `HOLD_LONG` (touch.odin). A widget with a secondary action calls
   `ui.secondary(ctx)` right after it (it acts on `ctx.last_id`, which `place` clears and `interact` sets, so a disabled
   widget never passes on its neighbour's); it fires once (or on a right press and release on that widget), wins the
   arena (`press_won`) and the release is no click. Unclaimed, a widget with a tooltip shows it at frame end
   (`.Tip`, also no click); with neither, nothing fires and the release clicks. A widget that moves a value while held
-  calls `long_cancel`. `vslider(reset = v)` resets on a long press. `list_row.menu` is `secondary`. `tree_row`
+  calls `long_cancel`; one that takes the press for a drag of its own (the brush bar's values) calls `press_used`:
+  no long press, no click, the arena won. `vslider(reset = v)` resets on a long press. `list_row.menu` is `secondary`. `tree_row`
   lays out its trailing toggles and chevron before its body, so a press on them never selects the row or opens its menu.
 - The gesture arena in the kit (Flutter's): `interact` (`ui.odin:628`) records `press_host`, the innermost
   `drag_scroll` container under a press; a finger or pen press there is tentative (`press_won` false), a mouse press

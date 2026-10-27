@@ -298,7 +298,7 @@ touch_route :: proc(app: ^App, input: ^Viewport_Input) {
 	} else if nav.three_finger {
 		// Three fingers: up and down sizes the brush, sideways sets its focal shift (the
 		// reference app's three-finger drags), whichever way they went first past the slop.
-		// Strength is a long press dragged on the brush bar's Strength (Bar_Scrub).
+		// Strength is a drag on the brush bar's Strength (Bar_Scrub).
 		t.adjust += change.pan
 		if t.axis < 0 && max(abs(t.adjust.x), abs(t.adjust.y)) > app.kit.ctx.theme.slop * app.kit.scale {
 			t.axis = 1 if abs(t.adjust.y) >= abs(t.adjust.x) else 0

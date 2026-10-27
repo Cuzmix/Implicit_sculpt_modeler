@@ -340,11 +340,14 @@ setting_parse :: proc(s: Setting, value: string, strict: bool) -> (v: f64, ok: b
 		if n != n do return
 		// A count takes a whole number from a script; the file never held anything else.
 		if strict && s.type != f32 && n != math.floor(n) do return
+		// A real number is the f32 it is stored as before it meets the range, so a bound
+		// such as 0.1, which f32 holds only nearly, takes its own text.
+		if s.type == f32 do n = f64(f32(n))
 		if s.lo < s.hi {
 			if strict && (n < f64(s.lo) || n > f64(s.hi)) do return
 			n = clamp(n, f64(s.lo), f64(s.hi))
 		}
-		return n if s.type != f32 else f64(f32(n)), true
+		return n, true
 	}
 	// An enum, by the name of one of its values, in any case.
 	want := value
