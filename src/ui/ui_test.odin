@@ -1535,3 +1535,27 @@ picture_tile_cuts_the_picture_to_its_well :: proc(t: ^testing.T) {
 	res, _, _ = one_picture_tile(&ctx, input_at(at, released = {.Right}), 2)
 	testing.expect(t, res.menu)
 }
+
+// A press inside a popover drawn over another (one opened from a control in it) leaves
+// the one under it open; a press on neither closes both.
+@(test)
+a_popover_over_a_popover_keeps_it_open :: proc(t: ^testing.T) {
+	ctx: Context
+	init(&ctx)
+	defer destroy(&ctx)
+	under, over := true, true
+	frame :: proc(ctx: ^Context, input: Input, under, over: ^bool) {
+		frame_begin(ctx, input)
+		if popover_begin(ctx, "under", under, {100, 100, 40, 40}, .Right, {width = 100, height = 100}) do popover_end(ctx)
+		if popover_begin(ctx, "over", over, {400, 100, 40, 40}, .Right, {width = 100, height = 100}) do popover_end(ctx)
+		frame_end(ctx)
+	}
+	for _ in 0 ..< 3 do frame(&ctx, input_at({-1, -1}), &under, &over)
+	frame(&ctx, input_at({500, 140}, down = {.Left}, pressed = {.Left}), &under, &over)
+	testing.expect(t, under)
+	testing.expect(t, over)
+	frame(&ctx, input_at({500, 140}, released = {.Left}), &under, &over)
+	frame(&ctx, input_at({700, 500}, down = {.Left}, pressed = {.Left}), &under, &over)
+	testing.expect(t, !under)
+	testing.expect(t, !over)
+}

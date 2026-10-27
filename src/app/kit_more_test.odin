@@ -137,8 +137,9 @@ show_every_option_unfolds_the_sections :: proc(t: ^testing.T) {
 	// since Mask region, Mask by (Peaks: kind, Strength, Blur, curve, Apply) and Mask
 	// adjust (curve, Blur, Apply) joined its fold; Polygroups 10 since Groups by normals,
 	// pieces and UVs and Merge similar joined its; Hide, clip and slice folds Grow,
-	// Shrink, Grow all, Outer ring, Grow to groups and Show masked.
-	full := [?]Full{{.Preset, 6}, {.Recorder, 7}, {.Transform, 8}, {.Mask, 20}, {.Groups, 10}, {.Visibility, 11}, {.Retopo, 10}, {.Project, 6}, {.Material, 9}, {.Camera, 6}}
+	// Shrink, Grow all, Outer ring, Grow to groups and Show masked. Material has 10 since
+	// the colour field's well became a control of its own, which opens the colour popover.
+	full := [?]Full{{.Preset, 6}, {.Recorder, 7}, {.Transform, 8}, {.Mask, 20}, {.Groups, 10}, {.Visibility, 11}, {.Retopo, 10}, {.Project, 6}, {.Material, 10}, {.Camera, 6}}
 	app.brush.kind = .Clay
 	_ = preset_save_new(&app)
 	for f in full {

@@ -107,6 +107,33 @@ a_typed_hex_code_sets_the_colour :: proc(t: ^testing.T) {
 	testing.expect_value(t, app.kit.color_hex_of, ui.Id(0))
 }
 
+// A tap on a colour field's well opens the colour popover on that field and a second one
+// puts it away; what the popover set reaches the field on its next frame as the field's
+// own change, through the sRGB curve for a colour stored as linear light.
+@(test)
+a_colour_well_opens_the_popover :: proc(t: ^testing.T) {
+	app: App
+	kit_init(&app)
+	defer ui.destroy(&app.kit.ctx)
+	c := &app.kit.colors
+	rgb := [3]f32{0.5, 0.5, 0.5}
+	_ = color_frame(&app, &rgb, true, {})
+	_ = color_frame(&app, &rgb, true, {})
+	at := [2]f32{1600 - KIT_INSPECTOR_W + 40, 22}
+	_ = color_frame(&app, &rgb, true, {mouse = at, mouse_valid = true, pressed = {.Left}, down = {.Left}})
+	_ = color_frame(&app, &rgb, true, {mouse = at, mouse_valid = true, released = {.Left}})
+	testing.expect(t, c.pop)
+	testing.expect(t, c.pop_alive)
+	testing.expect(t, abs(c.pop_value.r - srgb_encode(0.5)) < 1e-6)
+	c.pop_set, c.pop_dirty = {1, 0, 0.5}, true
+	testing.expect(t, color_frame(&app, &rgb, true, {mouse = at, mouse_valid = true}))
+	testing.expect(t, !c.pop_dirty)
+	testing.expect_value(t, rgb, [3]f32{1, 0, srgb_decode(0.5)})
+	_ = color_frame(&app, &rgb, true, {mouse = at, mouse_valid = true, pressed = {.Left}, down = {.Left}})
+	_ = color_frame(&app, &rgb, true, {mouse = at, mouse_valid = true, released = {.Left}})
+	testing.expect(t, !c.pop)
+}
+
 // Hue, saturation and brightness turn into red, green and blue and back to within a
 // byte, the primaries land where the wheels show them, and a grey or a black keeps the
 // hue (and a black the saturation) it was given, so a picker never jumps back to red.

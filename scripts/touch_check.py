@@ -471,6 +471,47 @@ COLORS_CARD = {"main": (102, 173), "secondary": (150, 173), "swap": (198, 173), 
                "value": (314, 760), "palettes": (381, 760), "skin": (102, 645), "hex": (353, 432)}
 
 
+# The Colour section's well with the Paint brush (Brush > Colour in the tray), and the
+# popover's first Skin swatch, left of it, at 1600 by 900.
+COLOUR_WELL, POPOVER_SKIN = (1321, 315), (903, 806)
+
+
+@scenario
+def colour_well_opens_the_picker():
+    """A tap on the Colour section's well opens the colour popover beside it, as
+    Procreate's colour well does; a tap on a swatch in it sets the paint colour and puts it
+    in the history, with the popover still open; a second tap on the well puts it away."""
+    setup = "--script=brush paint; show_section paint_color"
+    s = Script()
+    s.ftap(*COLOUR_WELL)
+    s.wait(10)
+    s.ftap(*POPOVER_SKIN)
+    s.wait(6)
+    closed = Script()
+    closed.ftap(*COLOUR_WELL)
+    closed.wait(10)
+    closed.ftap(*COLOUR_WELL)
+    closed.wait(10)
+    return Steps([(s, [setup], camera_still({"dabs": near(0), "color_popover": near(1), "paint_color": is_text("F8E1D4"), "color_history": near(1)})),
+                  (closed, [setup], camera_still({"dabs": near(0), "color_popover": near(0)}))])
+
+
+@scenario
+def colour_well_in_a_bar_popover():
+    """The Colour section opened from the brush bar (a long press on the paint channel)
+    is a popover; a tap on its well opens the colour popover over it, and a tap on a
+    swatch there sets the paint colour while both stay open."""
+    s = Script()
+    long_press(s, *UI["channel"])
+    s.wait(10)
+    s.ftap(160, 490)
+    s.wait(10)
+    s.ftap(290, 806)
+    s.wait(6)
+    return s, ["--script=brush paint"], camera_still({"dabs": near(0), "bar_pop": is_text("paint_color"), "color_popover": near(1),
+                                                       "paint_color": is_text("F8E1D4")})
+
+
 @scenario
 def colors_card_picks_a_swatch():
     """A tap on the brush bar's Colour opens the Colors card; a tap on a palette swatch makes

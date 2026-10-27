@@ -239,15 +239,19 @@ popover_begin :: proc(ctx: ^Context, name: string, open: ^bool, anchor: Rect, si
 	if box.height > 0 do size.y = box.height
 	// Only a popover that was on screen last frame can be dismissed: the press that opens
 	// one (a right click opening a context menu) is not outside it.
-	popup, shown_before := Rect{}, false
-	for p in ctx.placed_prev {
+	popup, shown_before, at := Rect{}, false, 0
+	for p, i in ctx.placed_prev {
 		if p.id == id {
-			popup, shown_before = p.hit, true
+			popup, shown_before, at = p.hit, true, i
 		}
 	}
 	if open^ && shown_before && ctx.input.pressed != {} && ctx.input.mouse_valid {
 		m := ctx.input.mouse
-		if !rect_contains(popup, m) && !rect_contains(anchor, m) {
+		// A press on something drawn over this popover, as a popover opened from one of
+		// its controls (a colour field's picker), is not outside it.
+		over := false
+		for p in ctx.placed_prev[at + 1:] do if p.root && rect_contains(p.hit, m) do over = true
+		if !over && !rect_contains(popup, m) && !rect_contains(anchor, m) {
 			open^ = false
 			if ctx.pointer_root == 0 || ctx.viewport_drag {
 				ctx.swallow = true
