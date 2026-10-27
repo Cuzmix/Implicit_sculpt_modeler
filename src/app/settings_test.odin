@@ -88,6 +88,37 @@ settings_read_back_what_they_wrote :: proc(t: ^testing.T) {
 	free_all(context.temp_allocator)
 }
 
+// A file from before the turntable became the default orbit holds the trackball, the
+// default then, so it reads as the turntable; a style picked since is kept.
+@(test)
+settings_move_the_old_default_orbit :: proc(t: ^testing.T) {
+	path := "build/settings_orbit_test.txt"
+	defer os.remove(path)
+	for test in ([?]struct {
+		text: string,
+		want: camera.Orbit_Style,
+	} {
+		{"version 1\norbit_style Free\n", .Turntable},
+		{"orbit_style Free\n", .Turntable},
+		{"version 1\norbit_style Axis_X\n", .Axis_X},
+		{"version 2\norbit_style Free\n", .Free},
+	}) {
+		testing.expect(t, os.write_entire_file(path, transmute([]u8)test.text) == nil)
+		a: App
+		a.nav = NAV_DEFAULT
+		settings_load(&a, path)
+		testing.expectf(t, a.nav.orbit_style == test.want, "%q: read %v", test.text, a.nav.orbit_style)
+	}
+	a: App
+	a.nav = NAV_DEFAULT
+	a.nav.orbit_style = .Free
+	testing.expect(t, settings_save(&a, path))
+	b: App
+	settings_load(&b, path)
+	testing.expect_value(t, b.nav.orbit_style, camera.Orbit_Style.Free)
+	free_all(context.temp_allocator)
+}
+
 // A value out of range is clamped; one that is not a value of its type leaves the field.
 @(test)
 settings_refuse_what_they_cannot_read :: proc(t: ^testing.T) {

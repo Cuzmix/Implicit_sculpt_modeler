@@ -25,15 +25,16 @@ Orbit :: struct {
 	ortho:    bool, // parallel projection, as wide at the target as the perspective view
 }
 
-// How a drag turns the view (Settings > Navigation): ZBrush's two kinds of rotation.
+// How a drag turns the view (Settings > Camera): ZBrush's kinds of rotation.
 Orbit_Style :: enum u8 {
-	// ZBrush's Rot XYZ, its default: a drag turns the model about the screen's own axes,
-	// sideways about the screen's up and up and down about its right, so every view is
-	// one drag away and the view may end up rolled.
+	// A trackball, ZBrush's Rot XYZ and its default: a drag turns the model about the
+	// screen's own axes, sideways about the screen's up and up and down about its right,
+	// so every view is one drag away and the view may end up rolled.
 	Free,
-	// ZBrush's Rot Y: sideways turns about the world's up axis, up and down tilts, so
-	// the horizon stays level. Round and round both ways without end, over the top too
-	// unless `limit_pitch` stops it at straight up and straight down.
+	// ZBrush's Rot Y, and the app's default, as most 3D apps orbit: sideways turns about
+	// the world's up axis, up and down tilts, so the horizon stays level. Round and round
+	// both ways without end, over the top too unless `limit_pitch` stops it at straight up
+	// and straight down.
 	Turntable,
 	// ZBrush's Rot X and Rot Z: sideways turns about the world's X (or Z) axis, and up
 	// and down turns about the screen's right, as Free does.
@@ -56,7 +57,7 @@ Orbit_Settings :: struct {
 }
 
 ORBIT_SPEED :: 0.008 // radians per pixel at 1x
-ORBIT_DEFAULT :: Orbit_Settings{style = .Free, speed = ORBIT_SPEED}
+ORBIT_DEFAULT :: Orbit_Settings{style = .Turntable, speed = ORBIT_SPEED}
 
 PITCH_LIMIT :: math.PI / 2 - 0.01
 MIN_DISTANCE :: 0.05

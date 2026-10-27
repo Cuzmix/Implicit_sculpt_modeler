@@ -222,15 +222,19 @@ settings_camera :: proc(app: ^App) {
 	ctx := &app.kit.ctx
 	n := &app.nav
 	ui.caption(ctx, "ORBIT")
-	styles := [len(camera.Orbit_Style)]string{"Free", "Turntable", "X axis", "Z axis"}
-	if picked := ui.tabs(ctx, "Orbit style", styles[:], int(n.orbit_style)); picked >= 0 do n.orbit_style = camera.Orbit_Style(picked)
+	// The default first; Free is the trackball.
+	order := [len(camera.Orbit_Style)]camera.Orbit_Style{.Turntable, .Free, .Axis_X, .Axis_Z}
+	styles := [len(camera.Orbit_Style)]string{"Turntable", "Trackball", "X axis", "Z axis"}
+	at := 0
+	for style, i in order do if style == n.orbit_style do at = i
+	if picked := ui.tabs(ctx, "Orbit style", styles[:], at); picked >= 0 do n.orbit_style = order[picked]
 	switch n.orbit_style {
-	case .Free:
-		ui.paragraph(ctx, "The default: a drag turns the model about the screen's own axes, so any view is one drag away, all the way round both ways.")
 	case .Turntable:
-		ui.paragraph(ctx, "Sideways turns about the model's up axis (Y) and up and down tilts, so the horizon stays level. Goes all the way round both ways, over the top too.")
+		ui.paragraph(ctx, "The default, as most 3D apps orbit: sideways turns about the model's up axis (Y) and up and down tilts, so the horizon stays level. Goes all the way round both ways, over the top too.")
+	case .Free:
+		ui.paragraph(ctx, "ZBrush's own: a drag turns the model about the screen's own axes, like rolling a ball, so any view is one drag away and the view may end up tilted. Two fingers twist to roll only in this style.")
 	case .Axis_X, .Axis_Z:
-		ui.paragraph(ctx, fmt.tprintf("Sideways turns about the world's %s axis; up and down turns freely, as Free does. Which way round is decided as each drag begins, so the model follows the pointer.", "X" if n.orbit_style == .Axis_X else "Z"))
+		ui.paragraph(ctx, fmt.tprintf("Sideways turns about the world's %s axis; up and down turns freely, as Trackball does. Which way round is decided as each drag begins, so the model follows the pointer.", "X" if n.orbit_style == .Axis_X else "Z"))
 	}
 	_ = ui.switch_row(ctx, "Stop at the top and bottom", &n.limit_pitch, enabled = n.orbit_style == .Turntable)
 	speed_slider(ctx, "Orbit speed", &n.orbit_speed)
@@ -297,7 +301,7 @@ settings_touch :: proc(app: ^App) {
 	_ = ui.switch_row(ctx, "Zoom toward the fingers", &n.zoom_toward, enabled = n.pinch_zoom)
 	_ = ui.switch_row(ctx, "Two-finger drag pans", &n.two_finger_pan)
 	_ = ui.switch_row(ctx, "Twist two fingers to roll", &n.twist_roll, enabled = n.orbit_style == .Free)
-	if n.orbit_style != .Free do ui.paragraph(ctx, "Rolling needs the Free orbit style (Camera).")
+	if n.orbit_style != .Free do ui.paragraph(ctx, "Rolling needs the Trackball orbit style (Camera).")
 	_ = ui.switch_row(ctx, "Three fingers: size and focal shift", &n.three_finger)
 	ui.paragraph(ctx, "Drag three fingers up and down for the brush size, sideways for its focal shift. Strength, like size and focal shift, follows a long press dragged up or down on its button on the brush bar.")
 	_ = ui.switch_row(ctx, "Lift one of two fingers to turn", &n.lift_one_orbit)
