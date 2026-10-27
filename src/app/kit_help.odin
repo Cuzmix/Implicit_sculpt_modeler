@@ -59,7 +59,7 @@ command_group :: proc(id: Command_Id) -> Command_Group {
 	case .Remesh ..= .Reset_Transform:        return .Object
 	case .Add_Object ..= .Rename_Object:      return .Scene
 	case .View_Axis ..= .Studio_Render:       return .View
-	case .Stats ..= .Run_Script:              return .App
+	case .Stats ..= .Pick_Pack:               return .App
 	}
 	return .App
 }
@@ -276,7 +276,7 @@ help_name :: proc(id: Command_Id, arg: int) -> string {
 help_open :: proc(app: ^App, tab: Help_Tab) {
 	k := &app.kit
 	if k.settings do settings_close(app)
-	k.macros = false
+	k.macros, k.library = false, false
 	k.help, k.help_tab, k.help_scroll = true, tab, 0
 	k.windows[.Help].minimized = false
 	window_raise(k, .Help)
