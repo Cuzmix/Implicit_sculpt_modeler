@@ -162,8 +162,7 @@ material_matcap :: proc(app: ^App, m: Material) -> ^sdl.GPUTexture {
 // the file note; false when it failed, leaving the matcap and material that were there.
 matcap_load :: proc(app: ^App, path: string) -> bool {
 	if !matcap_image_load(app, path) do return false
-	app.custom = {label = "Custom", selected = {1, 1, 1, 1}, idle = MATCAP_IDLE, matcap = MATCAP_IMAGE}
-	app.material = CUSTOM_MATERIAL
+	material_set(app, {label = "Custom", selected = {1, 1, 1, 1}, idle = MATCAP_IDLE, matcap = MATCAP_IMAGE})
 	return true
 }
 

@@ -640,7 +640,8 @@ history_swap :: proc(app: ^App, e: History_Entry) -> bool {
 	if obj != nil {
 		// Whether it is in view is not part of the step: the object comes back as it is
 		// shown now, not as it was when the snapshot was taken.
-		if restored != nil do restored.off, restored.ghost, restored.folder, restored.vis_off = obj.off, obj.ghost, obj.folder, obj.vis_off
+		// Nor is its material, which no step records.
+		if restored != nil do restored.off, restored.ghost, restored.folder, restored.vis_off, restored.material = obj.off, obj.ghost, obj.folder, obj.vis_off, obj.material
 		index := live.index
 		ordered_remove(&scene.objects, index)
 		object_free(app, obj)
