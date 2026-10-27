@@ -113,12 +113,15 @@ SCENE_REPORTS := #partial [type_of(Scene_Command{}.kind)]struct {
 	.Retopo        = {"Retopologized %s", .Retopo},
 	.Symmetrize    = {"Mirrored and welded %s", .Mirror},
 	.Slice         = {"Sliced %s in two", .Visibility},
+	.Knife         = {"Cut %s with the knife", .Visibility},
 	.Boolean       = {"Made %s from the boolean", .Booleans},
 	.Extract       = {"Extracted a shell from %s", .Extract},
 	.Subdivide     = {"Subdivided %s", .Levels}, // only with layers, when it is a swap
 	.Delete_Higher = {"Deleted the levels above on %s", .Levels},
 	.Delete_Lower  = {"Deleted the levels below on %s", .Levels},
 	.Voxel_To_Mesh = {"Converted %s to a mesh", .Voxels},
+	.Mesh_To_Voxels = {"Converted %s to voxels", .Voxels},
+	.Voxel_Resample = {"Resampled %s", .Voxels},
 }
 
 // Runs a deferred scene command (scene_apply) and, when a destructive one left an undo
@@ -150,7 +153,7 @@ scene_run :: proc(app: ^App, cmd: Scene_Command) -> bool {
 		// It said nothing itself.
 		vertices := -1
 		#partial switch cmd.kind {
-		case .Remesh, .Decimate, .Symmetrize, .Voxel_To_Mesh:
+		case .Remesh, .Decimate, .Symmetrize, .Voxel_To_Mesh, .Mesh_To_Voxels, .Voxel_Resample:
 			if obj := selected_object(app); obj != nil do vertices = object_vertex_count(obj)
 		}
 		report(app, what.section, {}, "%s", scene_report_line(what.verb, label, vertices, ms))

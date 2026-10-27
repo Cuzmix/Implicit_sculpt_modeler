@@ -181,6 +181,81 @@ object_dab :: proc(app: ^App, obj: ^Object, brush: sculpt.Brush, at, normal: Vec
 	}
 }
 
+// The resolution Convert to voxels uses for `obj`: the Voxels section's choice, or the one
+// its vertex count maps to, in whole nodes within the range.
+voxel_across_chosen :: proc(app: ^App, obj: ^Object) -> int {
+	across := int(app.kit.voxel_across)
+	if across <= 0 do across = voxel_resolution_for(object_vertex_count(obj))
+	across = (across + voxel.NODE / 2) / voxel.NODE * voxel.NODE
+	return clamp(across, VOXELS_MIN, VOXELS_MAX)
+}
+
+// Rebuilds the mesh object as a voxel object of its shape, `across` voxels along its
+// longest side (voxel.clay_from_mesh: inside is where the winding number says): its levels,
+// HD detail, mask, layers and strokes go, and the clay is ready for the voxel brushes. The
+// caller records the swap. `changed` is false when the mesh could not be voxelised (said
+// in a warning, nothing changed); ok is false only when the mesh is gone and the clay could
+// not be uploaded.
+object_mesh_to_voxels :: proc(app: ^App, obj: ^Object, across: int) -> (changed, ok: bool) {
+	stroke_finish(app)
+	object_hd_leave(app, obj)
+	start := time.tick_now()
+	source := object_mesh(obj)^
+	packed: geom.Mesh
+	if object_dynamic(obj) {
+		// Without the unused slots of the dynamic layout.
+		mask: []u8
+		packed, mask = sculpt.sculptor_compact_mesh(object_sculptor(obj))
+		delete(mask)
+		source = packed
+	}
+	_, bounds := geom.mesh_area_bounds(source, &app.pool)
+	vp := new(Voxel_Part)
+	vp.resolution = clamp(across, VOXELS_MIN, VOXELS_MAX)
+	built := voxel.clay_from_mesh(&vp.clay, source, voxel.voxel_size_for(bounds, vp.resolution), &app.pool)
+	geom.mesh_destroy(&packed)
+	free_all(context.temp_allocator)
+	if !built {
+		free(vp)
+		log.warn("convert to voxels: the mesh has no volume to voxelise")
+		return false, true
+	}
+	_ = voxel.clay_flush(&vp.clay)
+	_ = sdl.WaitForGPUIdle(app.renderer.device)
+	// The groups go with the mesh, and their table with them: a voxel object with group
+	// materials is a scene file the app refuses (the swap step keeps the table).
+	autosave_settle(app)
+	clear(&obj.group_materials)
+	app.layers_lost += sculpt.levels_layer_count(&obj.levels) // for the command's note
+	object_release_mesh(app, obj)
+	return true, voxel_part_attach(app, obj, vp, start)
+}
+
+// Res+ and Res−: rebuilds the voxel object's clay at `resolution` voxels across, twice or
+// half what it has (voxel.clay_resample), its surface sampled from the old field and its
+// band solved again. The clay's own undo steps go (the caller records the swap) and the
+// next upload remakes the GPU copy. Returns false, with the object as it was and a note,
+// for a resolution that is not a doubling or halving within range, or clay that would not
+// fit the finer lattice's domain.
+object_voxel_resample :: proc(app: ^App, obj: ^Object, resolution: int) -> bool {
+	vp := obj.voxel
+	if resolution < VOXELS_MIN || resolution > VOXELS_MAX || (resolution != vp.resolution * 2 && resolution * 2 != vp.resolution) {
+		log.warnf("voxel resolution: %d across is not a step from %d", resolution, vp.resolution)
+		return false
+	}
+	stroke_finish(app)
+	start := time.tick_now()
+	factor := voxel.RESAMPLE_UP if resolution > vp.resolution else voxel.RESAMPLE_DOWN
+	if !voxel.clay_resample(&vp.clay, factor) {
+		log.warn("voxel resolution: the clay reaches too far from the object's middle for the finer lattice")
+		return false
+	}
+	vp.resolution = resolution
+	_ = voxel.clay_flush(&vp.clay)
+	log.infof("voxel resolution: %d across, %d bricks in %.0f ms", resolution, voxel.volume_brick_count(&vp.clay.volume), time.duration_milliseconds(time.tick_since(start)))
+	return true
+}
+
 // Rebuilds the voxel object as a mesh object of its surface (voxel.clay_to_mesh: the
 // nodes' border vertices welded): its clay and strokes go, and the mesh is ready for every
 // mesh tool. The caller records the swap. Returns false only when the mesh could not be
@@ -199,13 +274,26 @@ kit_voxels :: proc(app: ^App, obj: ^Object) {
 	ctx := &app.kit.ctx
 	vp := obj.voxel
 	if vp == nil {
-		ui.paragraph(ctx, "A mesh object. Voxel objects come from the Scene palette's Add object with As voxels on: clay sculpted as a volume, with no topology to stretch or tear.")
+		// The resolution shown is the choice, or the object's own when there is none.
+		k := &app.kit
+		across := voxel_across_chosen(app, obj)
+		shown := f32(across)
+		if ui.slider(ctx, "Voxels across", &shown, VOXELS_MIN, VOXELS_MAX, .Logarithmic, fmt.tprintf("%d, about %s vertices", across, count_label(voxel_vertices_for(across)))) {
+			k.voxel_across = i32(shown + 0.5)
+		}
+		_ = command_button(app, .Convert_To_Voxels, variant = .Solid, tone = .Accent)
+		ui.paragraph(ctx, "Convert to voxels rebuilds the object as clay sculpted as a volume, with no topology to stretch or tear: Draw, Clay and Layer add clay, Ctrl takes it away, pieces merge and holes go through. Its levels, mask, layers and paint go, as one undo step.")
+		kit_command_pair(app, .Voxel_Res_Down, .Voxel_Res_Up, enabled_a = false, enabled_b = false)
 		_ = command_button(app, .Convert_To_Mesh, variant = .Solid, tone = .Accent, enabled = false)
+		kit_last_result(app, .Voxels)
 		return
 	}
 	bricks := voxel.volume_brick_count(&vp.clay.volume)
 	ui.paragraph(ctx, fmt.tprintf("%d voxels across at the start (%.4f a voxel), %s bricks, %s of field, %s of surface, %s of undo.", vp.resolution, vp.clay.volume.voxel,
 		count_label(bricks), bytes_label(voxel.volume_bytes(&vp.clay.volume)), bytes_label(voxel.surface_bytes(&vp.clay.surface)), bytes_label(voxel.clay_undo_bytes(&vp.clay))))
+	kit_command_pair(app, .Voxel_Res_Down, .Voxel_Res_Up)
+	ui.paragraph(ctx, fmt.tprintf("Res+ doubles the voxels along each side (%d across, about %s vertices) and Res− halves them (%d across, about %s vertices), each as one undo step; detail finer than a voxel goes with Res−.",
+		min(vp.resolution * 2, VOXELS_MAX), count_label(voxel_vertices_for(min(vp.resolution * 2, VOXELS_MAX))), max(vp.resolution / 2, VOXELS_MIN), count_label(voxel_vertices_for(max(vp.resolution / 2, VOXELS_MIN)))))
 	_ = command_button(app, .Convert_To_Mesh, variant = .Solid, tone = .Accent)
 	ui.paragraph(ctx, "Draw, Clay and Layer add clay (Ctrl takes it away), Smooth, Flatten and Inflate work as on a mesh; the other brushes, masks, levels and the rebuild tools need a mesh. Convert to mesh keeps the shape as triangles and is an undo step.")
 	kit_last_result(app, .Voxels)

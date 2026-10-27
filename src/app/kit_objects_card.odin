@@ -384,7 +384,7 @@ kit_objects_card_menus :: proc(app: ^App) {
 	}
 	if ui.popover_begin(ctx, "objects card more", &c.more, c.more_at, .Below, {direction = .Column, padding = 6, width = 248}) {
 		picked := false
-		for id in ([?]Command_Id{.Rename_Object, .All_Lowest_Level, .All_Highest_Level, .Copy_Object, .Paste_Object, .Duplicate_Object}) {
+		for id in ([?]Command_Id{.Rename_Object, .All_Lowest_Level, .All_Highest_Level, .Copy_Object, .Paste_Object, .Duplicate_Object, .Convert_To_Voxels, .Convert_To_Mesh}) {
 			if command_menu_item(app, id, trailing = true) do picked = true
 		}
 		ui.divider(ctx, across = true)

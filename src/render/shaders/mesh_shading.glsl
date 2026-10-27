@@ -17,6 +17,9 @@ layout(location = 7) in vec2 in_uv;
 layout(location = 8) in vec4 in_view_tangent;
 #endif
 
+// render.LIGHT_COUNT.
+#define LIGHT_COUNT 4
+
 layout(set = 3, binding = 0) uniform Material_Uniforms {
 	vec4 base_color;
 	vec4 params;  // x: ambient, y: specular strength (below 0: flat base_color, for lines), z: specular power, w: wrap
@@ -24,11 +27,15 @@ layout(set = 3, binding = 0) uniform Material_Uniforms {
 	vec4 checker; // the density preview: xyz the first lattice point in mesh space, w the cell size (0: none)
 	vec4 look;    // x: exposure in stops, y: cavity strength, z: ridge strength (0 to 1); all 0 is plain;
 	              // w: how opaque a see-through object is drawn, 0 for fully (the scene's Transparency)
-	// The light rig's turn into view space, as the columns of a rotation, with the key
-	// light's strength in light_x.w and the fill's in light_y.w (render.Draw_Item.lights).
+	// The studio's turn into view space, as the columns of a rotation, with the ambient
+	// light's strength in light_x.w (render.Lights).
 	vec4 light_x;
 	vec4 light_y;
 	vec4 light_z;
+	// Each light: toward it in view space, unit length, with its strength in w (0 for
+	// off), and its colour in linear light.
+	vec4 light_dir[LIGHT_COUNT];
+	vec4 light_color[LIGHT_COUNT];
 	// Textured items: x, y, z 1 where the base colour, ORM and normal maps are bound, w the
 	// view (1 the maps, 2 the normal map alone, 3 the UV checker); all 0 on the sculpt mesh.
 	vec4 maps;
@@ -95,15 +102,10 @@ layout(location = 0) out vec4 out_color;
 
 const float PI = 3.14159265;
 
-// The lights in the rig's own space. Turned by the light_* uniforms into view space: by
-// default not at all, so they stay fixed relative to the camera like a studio clay
-// render; the Lights section turns the rig, or fixes it to the scene.
-const vec3 KEY_DIR  = normalize(vec3(-0.5, 0.6, 0.6));
-const vec3 FILL_DIR = normalize(vec3(0.7, -0.2, 0.4));
-
-// The studio the physically based materials reflect, in view space, as a photographer
+// The studio the physically based materials reflect, in its own space (turned into view
+// space by light_x, y and z: by default not at all), as a photographer
 // would light a product: a cool sky over a dark floor, a warm softbox above and to the
-// side of the key light (not on it, or the key's highlight would be counted twice), a
+// side of the default key light (not on it, or the key's highlight would be counted twice), a
 // cool strip light behind on the right that catches edges, and a bounce card behind the
 // camera, so a face turned to the viewer reflects something rather than the black floor.
 // `rough` (0 to 1) blurs it, standing in for a prefiltered environment map at no memory
@@ -325,6 +327,7 @@ void main() {
 		albedo *= mix(shade, 0.86, tiny);
 	}
 	mat3 rig = mat3(light_x.xyz, light_y.xyz, light_z.xyz);
+	float ambient = light_x.w;
 	// Masked areas show darker, as in ZBrush.
 	albedo *= 1.0 - 0.7 * in_mask;
 	float highlight = 1.0 - 0.5 * in_mask;
@@ -356,20 +359,22 @@ void main() {
 		vec3 f0 = mix(vec3(0.04), albedo, metallic);
 		float n_dot_v = max(dot(n, v), 1e-4);
 
-		vec3 color = direct(n, v, rig * KEY_DIR, diffuse, f0, a) * (3.0 * light_x.w);
-		color += direct(n, v, rig * FILL_DIR, diffuse, f0, a) * (0.35 * light_y.w);
+		vec3 color = vec3(0.0);
+		for (int i = 0; i < LIGHT_COUNT; i++) {
+			if (light_dir[i].w > 0.0) color += direct(n, v, light_dir[i].xyz, diffuse, f0, a) * light_color[i].rgb * (3.0 * light_dir[i].w);
+		}
 		// Light from the whole studio or image environment, which turns with the rig: the
-		// studio's blurriest version (or the image's harmonics) for the diffuse part, and
-		// the reflection blurred by roughness for the specular. The studio's diffuse is
-		// dimmed to sit with its lights; an image's is taken at full strength, so a white
-		// surface in a white environment reads white.
+		// studio's blurriest version scaled by the ambient light (or the image's harmonics)
+		// for the diffuse part, and the reflection blurred by roughness for the specular.
+		// The studio's diffuse is dimmed to sit with its lights; an image's is taken at its
+		// own Strength, so a white surface in a white environment reads white.
 		vec3 r = reflect(-v, n);
 		vec2 ab = env_brdf(n_dot_v, rough);
 		mat3 to_rig = transpose(rig);
 		if (env.x > 0.5) {
 			color += diffuse * irradiance(n) * ao;
 		} else {
-			color += diffuse * studio(to_rig * n, 1.0) * (0.7 * ao);
+			color += diffuse * studio(to_rig * n, 1.0) * (0.7 * ao * ambient);
 		}
 		color += reflected(r, rough, to_rig) * (f0 * ab.x + ab.y) * (highlight * ao);
 		out_color = display(color * relief);
@@ -377,15 +382,20 @@ void main() {
 	}
 
 	// The classic studio clay shading: wrap lets light reach past the side facing it,
-	// softening the terminator as wax and skin do; 0 is plain Lambert.
+	// softening the terminator as wax and skin do; 0 is plain Lambert. Each light adds
+	// its share in its colour, and a highlight of its own.
 	float wrap = shading.w;
-	vec3 key_dir = rig * KEY_DIR;
-	float key  = max((dot(n, key_dir) + wrap) / (1.0 + wrap), 0.0) * light_x.w;
-	float fill = max((dot(n, rig * FILL_DIR) + wrap) / (1.0 + wrap), 0.0) * (0.3 * light_y.w);
+	vec3 lit = vec3(shading.x * ao * ambient);
+	vec3 spec = vec3(0.0);
+	for (int i = 0; i < LIGHT_COUNT; i++) {
+		float s = light_dir[i].w;
+		if (s <= 0.0) continue;
+		vec3 l = light_dir[i].xyz;
+		lit += light_color[i].rgb * (max((dot(n, l) + wrap) / (1.0 + wrap), 0.0) * s);
+		spec += light_color[i].rgb * (pow(max(dot(n, normalize(l + v)), 0.0), shading.z) * shading.y * s);
+	}
 	float rim  = pow(1.0 - max(dot(n, v), 0.0), 3.0) * 0.25;
-	vec3 h     = normalize(key_dir + v);
-	float spec = pow(max(dot(n, h), 0.0), shading.z) * shading.y * light_x.w;
-	vec3 color = albedo * (shading.x * ao + key + fill) + vec3(spec + rim) * highlight;
+	vec3 color = albedo * lit + (spec + rim) * highlight;
 	// The viewport texture is a UNORM texture the interface shows as-is, so the shader
 	// encodes for the display itself.
 	out_color = display(color * relief);

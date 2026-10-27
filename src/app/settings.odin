@@ -61,6 +61,8 @@ N :: offset_of(App, nav)
 K :: offset_of(App, kit)
 @(private = "file")
 U :: offset_of(App, ui)
+@(private = "file")
+L :: offset_of(App, lights)
 
 @(rodata)
 SETTINGS := [?]Setting {
@@ -121,8 +123,27 @@ SETTINGS := [?]Setting {
 	{"cavity", offset_of(App, cavity), f32, 0, 1},
 	{"light_turn", offset_of(App, light_turn), f32, -180, 180},
 	{"light_height", offset_of(App, light_height), f32, -90, 90},
-	{"light_key", offset_of(App, light_key), f32, 0, LIGHT_STRENGTH_MAX},
-	{"light_fill", offset_of(App, light_fill), f32, 0, LIGHT_STRENGTH_MAX},
+	{"light1_on", L + 0 * size_of(Light) + offset_of(Light, on), bool, 0, 0},
+	{"light1_x", L + 0 * size_of(Light) + offset_of(Light, dir) + 0 * size_of(f32), f32, -1, 1},
+	{"light1_y", L + 0 * size_of(Light) + offset_of(Light, dir) + 1 * size_of(f32), f32, -1, 1},
+	{"light1_z", L + 0 * size_of(Light) + offset_of(Light, dir) + 2 * size_of(f32), f32, -1, 1},
+	{"light1_strength", L + 0 * size_of(Light) + offset_of(Light, strength), f32, 0, LIGHT_STRENGTH_MAX},
+	{"light2_on", L + 1 * size_of(Light) + offset_of(Light, on), bool, 0, 0},
+	{"light2_x", L + 1 * size_of(Light) + offset_of(Light, dir) + 0 * size_of(f32), f32, -1, 1},
+	{"light2_y", L + 1 * size_of(Light) + offset_of(Light, dir) + 1 * size_of(f32), f32, -1, 1},
+	{"light2_z", L + 1 * size_of(Light) + offset_of(Light, dir) + 2 * size_of(f32), f32, -1, 1},
+	{"light2_strength", L + 1 * size_of(Light) + offset_of(Light, strength), f32, 0, LIGHT_STRENGTH_MAX},
+	{"light3_on", L + 2 * size_of(Light) + offset_of(Light, on), bool, 0, 0},
+	{"light3_x", L + 2 * size_of(Light) + offset_of(Light, dir) + 0 * size_of(f32), f32, -1, 1},
+	{"light3_y", L + 2 * size_of(Light) + offset_of(Light, dir) + 1 * size_of(f32), f32, -1, 1},
+	{"light3_z", L + 2 * size_of(Light) + offset_of(Light, dir) + 2 * size_of(f32), f32, -1, 1},
+	{"light3_strength", L + 2 * size_of(Light) + offset_of(Light, strength), f32, 0, LIGHT_STRENGTH_MAX},
+	{"light4_on", L + 3 * size_of(Light) + offset_of(Light, on), bool, 0, 0},
+	{"light4_x", L + 3 * size_of(Light) + offset_of(Light, dir) + 0 * size_of(f32), f32, -1, 1},
+	{"light4_y", L + 3 * size_of(Light) + offset_of(Light, dir) + 1 * size_of(f32), f32, -1, 1},
+	{"light4_z", L + 3 * size_of(Light) + offset_of(Light, dir) + 2 * size_of(f32), f32, -1, 1},
+	{"light4_strength", L + 3 * size_of(Light) + offset_of(Light, strength), f32, 0, LIGHT_STRENGTH_MAX},
+	{"light_ambient", offset_of(App, light_ambient), f32, 0, LIGHT_STRENGTH_MAX},
 	{"lights_fixed", offset_of(App, lights_fixed), bool, 0, 0},
 	{"environment_source", offset_of(App, env) + offset_of(Environment_State, kind), Environment_Kind, 0, 0},
 	{"environment_strength", offset_of(App, env) + offset_of(Environment_State, strength), f32, -ENVIRONMENT_STRENGTH_RANGE, ENVIRONMENT_STRENGTH_RANGE},
@@ -181,6 +202,7 @@ SETTINGS := [?]Setting {
 	// The Scene and Object palettes' choices, and the tools'.
 	{"new_shape", K + offset_of(Kit_State, add_shape), geom.Primitive, 0, 0},
 	{"new_voxels", K + offset_of(Kit_State, add_voxel), bool, 0, 0},
+	{"voxel_across", K + offset_of(Kit_State, voxel_across), i32, 0, VOXELS_MAX},
 	{"mask_steps", U + offset_of(Ui_State, mask_steps), i32, 1, 50},
 	{"mask_shape", U + offset_of(Ui_State, mask_shape_kind), Mask_Shape_Kind, 0, 0},
 	{"layer_wide", U + offset_of(Ui_State, layer_wide), bool, 0, 0},
@@ -329,6 +351,31 @@ SETTING_LINES := [?]Setting_Line {
 		proc(app: ^App) -> string {return rgb_text(app.background.top)},
 	},
 	{
+		// Each light's colour (lights.odin) in linear light, as paint_color is written.
+		"light1_color",
+		rgb_parse,
+		proc(app: ^App, v: Setting_Line_Value) {app.lights[0].color = v.([3]f32)},
+		proc(app: ^App) -> string {return rgb_text(app.lights[0].color)},
+	},
+	{
+		"light2_color",
+		rgb_parse,
+		proc(app: ^App, v: Setting_Line_Value) {app.lights[1].color = v.([3]f32)},
+		proc(app: ^App) -> string {return rgb_text(app.lights[1].color)},
+	},
+	{
+		"light3_color",
+		rgb_parse,
+		proc(app: ^App, v: Setting_Line_Value) {app.lights[2].color = v.([3]f32)},
+		proc(app: ^App) -> string {return rgb_text(app.lights[2].color)},
+	},
+	{
+		"light4_color",
+		rgb_parse,
+		proc(app: ^App, v: Setting_Line_Value) {app.lights[3].color = v.([3]f32)},
+		proc(app: ^App) -> string {return rgb_text(app.lights[3].color)},
+	},
+	{
 		// The gradient's colour along the bottom edge.
 		"background_bottom",
 		rgb_parse,
@@ -465,6 +512,13 @@ settings_load :: proc(app: ^App, path: string) {
 		switch f[0] {
 		case "version":
 			version, _ = strconv.parse_int(f[1])
+		case "light_key":
+			// Before there were four lights: the key's strength, now the first light's.
+			app.lights[0].strength = clamp(number(f[1], app.lights[0].strength), 0, LIGHT_STRENGTH_MAX)
+		case "light_fill":
+			// ...and the fill's, as a share of its full strength then, now the second
+			// light's strength itself.
+			app.lights[1].strength = clamp(number(f[1], 1) * render.FILL_STRENGTH, 0, LIGHT_STRENGTH_MAX)
 		case "brush":
 			if kind, ok := brush_by_name(f[1]); ok do b.kind = kind
 		case "strength":
@@ -491,7 +545,7 @@ settings_load :: proc(app: ^App, path: string) {
 			}
 			line := setting_line(f[0])
 			if v, ok := line.parse(f[1:]); ok do line.apply(app, v)
-		case "symmetry", "paint_color", "paint_color2", "background_top", "background_bottom", "new_vertices", "mask_by_curve", "mask_adjust_curve":
+		case "symmetry", "paint_color", "paint_color2", "background_top", "background_bottom", "new_vertices", "mask_by_curve", "mask_adjust_curve", "light1_color", "light2_color", "light3_color", "light4_color":
 			line := setting_line(f[0])
 			if v, ok := line.parse(f[1:]); ok do line.apply(app, v)
 		case "custom_material":

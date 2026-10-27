@@ -634,24 +634,6 @@ kit_group_material :: proc(app: ^App, obj: ^Object) {
 	ui.paragraph(ctx, fmt.tprintf("Group %d shows %s. Picking or moving anything here gives it its own; the object's other groups keep theirs.", group, "its own material" if own else "the object's material"))
 }
 
-// The light rig's turn, height and strengths, and whether it stays with the camera or
-// the scene (lights.odin).
-@(private = "file")
-kit_lights :: proc(app: ^App) {
-	ctx := &app.kit.ctx
-	_ = ui.slider(ctx, "Turn", &app.light_turn, -180, 180, .Linear, fmt.tprintf("%+.0f°", app.light_turn))
-	_ = ui.slider(ctx, "Height", &app.light_height, -90, 90, .Linear, fmt.tprintf("%+.0f°", app.light_height))
-	_ = ui.slider(ctx, "Key light", &app.light_key, 0, LIGHT_STRENGTH_MAX, .Linear, fmt.tprintf("%.2f", app.light_key))
-	fixed := app.lights_fixed
-	if ui.switch_row(ctx, "Fixed to the scene", &fixed) do lights_fix(app, fixed)
-	if kit_more(app, .Lights) {
-		_ = ui.slider(ctx, "Fill light", &app.light_fill, 0, LIGHT_STRENGTH_MAX, .Linear, fmt.tprintf("%.2f", app.light_fill))
-		if ui.button(ctx, "Reset lights", .Bordered) do lights_reset(app)
-		kit_more_end(app)
-	}
-	ui.paragraph(ctx, "Turn and Height swing the key light, the fill and the studio's reflections round together; Turn also spins an image environment. Fixed to the scene, they stay put while the camera goes round, as on a turntable; otherwise they turn with the camera. MatCaps carry their own light.")
-}
-
 @(private = "file")
 kit_studio :: proc(app: ^App) {
 	ctx := &app.kit.ctx

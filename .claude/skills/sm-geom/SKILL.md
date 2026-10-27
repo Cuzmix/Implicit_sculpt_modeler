@@ -59,6 +59,12 @@ description: The src/geom package — the structure-of-arrays geom.Mesh and its 
   keeps the result closed and manifold, three rounds of tangential relaxation even it out (`:11-29`); storage grows with
   the surface, not the volume; at most `REMESH_MAX_LATTICE` (4096) per axis. Tests in `remesh_test.odin`
   (`expect_closed_manifold`, Euler characteristic 2, distance to the sphere within 0.6 of the spacing).
+- Lattice rays (`src/geom/lattice_rays.odin`): the remesh's ray casting, public so `voxel.clay_from_mesh` shares it.
+  `lattice_quantize(m, origin, h, pool, allocator)` snaps vertices to `LATTICE_FIX` (2¹⁶) units of the spacing;
+  `lattice_rays_cast(m, q, origin, h, n, axis, split, weight, pool, allocator) -> Lattice_Rays` casts every ray of the
+  lattice along `axis` (two passes: count, then fill; each ray's hits sorted and summed into a running winding, one per
+  crossing, triangles from `split` on counting `weight` times, as the remesh's booleans keep two meshes apart in one sum);
+  `lattice_ray_hits(r, u, v)` reads a ray. Changing them changes remesh output: the remesh and boolean tests plus `bench --remesh` are the evidence.
 - Retopology (`src/geom/retopo.odin`, README "Retopology, UVs and baking"): `Quad_Mesh{positions, quads: [][4]u32}`;
   `mesh_retopo(source, bvh, wanted, pool)` = `mesh_decimate` to 0.45·wanted triangles → `pair_triangles` (greedy by corner
   squareness + fold, sorted so runs match) → `cut_into_quads` (Catmull-Clark topology, middles) → `relax_onto` (tangential

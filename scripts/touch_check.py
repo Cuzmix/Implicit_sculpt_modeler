@@ -57,7 +57,7 @@ UI = {
     "dock_draw": (426, 843), "dock_smooth": (490, 843), "browser": (872, 843), "gizmo": (933, 843),
     "remesh": (990, 843), "dyntopo": (1038, 843), "retopo": (1086, 843), "subdivide": (1134, 843),
     "live_boolean": (1182, 843), "dock_page1": (772, 888), "dock_page2": (800, 888), "dock_page3": (828, 888),
-    "browser_curve": (743, 295), "browser_insert": (807, 295),
+    "browser_curve": (743, 152), "browser_insert": (807, 152),
     "size_slider": (91, 663),  # in the popover the Size button opens
     # The tray's list of palettes and sections (kit_tray.odin), with the Brush palette open.
     "list_brush": (1116, 158), "list_object": (1116, 590), "list_scene": (1116, 638), "status": (69, 80),
@@ -634,6 +634,28 @@ def first_touch_scrolls_inspector():
     s.fdrag(line(MASK_STEPS, (MASK_STEPS[0] + 5, MASK_STEPS[1] - 220), 22))
     return s, ["--script=show_section mask", f"--settings-file={settings_file()}"], camera_still({"dabs": near(0), "mask_steps": near(3),
                                 "inspector_scroll": lambda v: float(v) > 50})
+
+
+# The Lights section's sphere, where the tray shows it at 1600 x 900: its centre and
+# radius in points.
+LIGHT_SPHERE = (1377, 249)
+LIGHT_SPHERE_R = 80
+
+
+@scenario
+def light_sphere_moves_and_flips_lights():
+    """In Scene: Lights, a finger drag from the first light's marker on the sphere moves that light to where it lets go (in front still); a tap on it then sends it behind the model; nothing is sculpted and the camera stays."""
+    s = Script()
+    cx, cy = LIGHT_SPHERE
+    # The first light (the key) shows up and to the left: -0.51, 0.61 of the radius.
+    key = (cx - 0.508 * LIGHT_SPHERE_R, cy - 0.609 * LIGHT_SPHERE_R)
+    to = (cx + 0.5 * LIGHT_SPHERE_R, cy)
+    s.fdrag(line(key, to, 16))
+    s.wait(4)
+    s.ftap(*to)
+    s.wait(4)
+    return s, ["--script=show_section lights"], camera_still({"dabs": near(0), "light_pick": near(1), "light1_on": near(1), "light_flips": near(1),
+                                                             "light1": lambda v: all(abs(float(a) - b) < 0.03 for a, b in zip(v.split(","), (0.5, 0, -0.866)))})
 
 
 # The Mask section's Steps slider, where the tray shows it at 1600 x 900.
@@ -3256,7 +3278,7 @@ def browser_picks_a_preset():
 
 # The brush browser's built-in Move all depth, at 1600 by 900 with one preset of the
 # person's own.
-BROWSER_MOVE_ALL_DEPTH = (743, 617)
+BROWSER_MOVE_ALL_DEPTH = (743, 474)
 
 
 @scenario
@@ -3269,6 +3291,63 @@ def browser_picks_a_built_in_preset():
     s.wait(6)
     return s, [one_preset_settings()], camera_still({"dabs": near(0), "preset_name": is_text("Move_all_depth"), "brush_kind": is_text("grab"),
                                                      "brush_grab_depth": near(1), "browser": near(0)})
+
+
+# The brush browser's mask, hide and cut tiles at 1600 x 900: Mask lasso in the first
+# row, Knife at the end of the second.
+BROWSER_MASK_LASSO = (807, 652)
+BROWSER_KNIFE = (1000, 712)
+
+
+@scenario
+def browser_picks_the_knife_and_mask_lasso():
+    """The brush browser lists the mask, hide and cut tools after the library: a tap on
+    Knife makes it what Ctrl + Shift + drag runs and closes the browser, leaving the brush
+    held; a tap on Mask lasso does the same for Ctrl + drag's shape."""
+    s = Script()
+    s.ftap(*UI["browser"])
+    s.wait(12)
+    s.ftap(*BROWSER_KNIFE)
+    s.wait(6)
+    s.ftap(*UI["browser"])
+    s.wait(12)
+    s.ftap(*BROWSER_MASK_LASSO)
+    s.wait(6)
+    return s, [], camera_still({"dabs": near(0), "gesture": is_text("knife"), "mask_shape": is_text("lasso"),
+                                "brush_kind": is_text("draw"), "browser": near(0)})
+
+
+@scenario
+def knife_cuts_away_the_shaded_side():
+    """Ctrl + Shift + drag down the middle with Knife the gesture tool cuts the sphere and
+    throws away the half on the right of the drag (the screen's left, going down), closing
+    the cut, as one undo step that Ctrl+Z takes back; Alt keeps that half instead (the
+    sum of the kept coordinates changes sign). A recording layer comes across, a dynamic topology
+    sphere is compacted and cut too, and the script's `knife x` cuts across the middle."""
+    def cut(keys=("ctrl", "shift"), undo=False):
+        s = Script()
+        s.wait(3)
+        s.mouse_drag(line((800, 60), (800, 840), 10), keys=keys)
+        s.wait(5)
+        if undo:
+            s.press("z", ("ctrl",))
+            s.wait(5)
+        return s
+    settings = settings_file()
+    os.makedirs(os.path.dirname(settings), exist_ok=True)
+    with open(settings, "w") as f:
+        f.write("version 1\ngesture knife\n")
+    use = f"--settings-file={settings}"
+    # Half the sphere's 40962 vertices and the cap closing the cut, which is as dense as
+    # the cut's edges.
+    half = lambda v: 20481 < int(v) < 40962
+    steps = [(cut(), [use], {"objects": near(1, 0), "vertices": half, "undo_steps": near(1, 0), "mesh_sum": lambda v: float(v) > 1000}),
+             (cut(undo=True), [use], {"objects": near(1, 0), "vertices": near(40962, 0), "undo_steps": near(0, 0)}),
+             (cut(keys=("ctrl", "shift", "alt")), [use], {"objects": near(1, 0), "vertices": half, "undo_steps": near(1, 0), "mesh_sum": lambda v: float(v) < -1000}),
+             (cut(), [use, "--script=new_layer"], {"vertices": half, "layers": near(1, 0), "layers_noted": near(1, 0)}),
+             (cut(), [use, "--script=dyntopo_toggle on"], {"objects": near(1, 0), "vertices": half}),
+             (Script(), ["--script=knife x"], {"objects": near(1, 0), "vertices": half})]
+    return Steps([(sc, args, camera_still(want)) for sc, args, want in steps])
 
 
 # The Assign key popover beside the Palettes button, at 1600 by 900: Use it here and Keep
@@ -6525,6 +6604,46 @@ def voxel_convert_to_mesh_undoes_and_redoes():
     strokes(s, 1)
     return s, ["--voxels=96"], camera_still({"voxel_objects": near(1), "dabs": lambda v: int(v) > 0, "palette": near(0),
                                             "undo_steps": near(1), "redo_steps": near(0)})
+
+
+@scenario
+def voxel_mesh_converts_to_voxels_and_back():
+    """Convert to voxels (from the command palette) makes the mesh sphere a voxel object as one
+    undo step and a stroke on the clay another; two Ctrl+Z bring the mesh back. Undoing the swap
+    forgets the clay's strokes (as any rebuild does), so one redo step is left: the conversion."""
+    s = Script()
+    s.press("k", ("ctrl",))
+    s.type("convert to voxels")
+    s.press("Return")
+    s.wait(8)
+    strokes(s, 1)
+    s.press("z", ("ctrl",))
+    s.wait(4)
+    s.press("z", ("ctrl",))
+    s.wait(6)
+    return s, [], camera_still({"voxel_objects": near(0), "objects": near(1), "dabs": lambda v: int(v) > 0, "palette": near(0),
+                                "undo_steps": near(0), "redo_steps": near(1)})
+
+
+@scenario
+def voxel_resolution_steps_up_and_down_as_undo_steps():
+    """Res+ (from the command palette) doubles a 64-across voxel sphere to 128 as one undo step and
+    Res- halves it back to 64 as another; Ctrl+Z returns it to 128, and a stroke then sculpts the
+    finer clay, which drops the redo step as any stroke does."""
+    s = Script()
+    s.press("k", ("ctrl",))
+    s.type("res+")
+    s.press("Return")
+    s.wait(6)
+    s.press("k", ("ctrl",))
+    s.type("res-")
+    s.press("Return")
+    s.wait(6)
+    s.press("z", ("ctrl",))
+    s.wait(6)
+    strokes(s, 1)
+    return s, ["--voxels=64"], camera_still({"voxel_objects": near(1), "voxel_resolution": near(128), "dabs": lambda v: int(v) > 0,
+                                            "palette": near(0), "undo_steps": near(2), "redo_steps": near(0)})
 
 
 @scenario

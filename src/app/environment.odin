@@ -195,7 +195,7 @@ environment_view :: proc(app: ^App) {
 	}
 }
 
-// The panorama's axes in view space: turned with the light rig's Turn about the up axis
+// The panorama's axes in view space: turned with the lights' Turn all about the up axis
 // (never tilted by its Height, as a world's rotation spins it), and fixed to the scene
 // with the lights, so the camera then orbits inside it.
 environment_rotation :: proc(app: ^App) -> [3][4]f32 {
@@ -230,5 +230,5 @@ kit_environment :: proc(app: ^App) {
 	case:
 		ui.paragraph(ctx, "No image loaded: Load environment picks a panorama (Radiance .hdr, PNG or JPEG, twice as wide as tall).")
 	}
-	ui.paragraph(ctx, "Physically based materials reflect the environment and take their light from it; Lights' Turn spins it, and Fixed to the scene keeps it with the scene. MatCaps and the clay materials are not lit by it.")
+	ui.paragraph(ctx, "Physically based materials reflect the environment and take their light from it; Lights' Turn all spins it, and Fixed to the scene keeps it with the scene. MatCaps and the clay materials are not lit by it.")
 }

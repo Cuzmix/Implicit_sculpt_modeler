@@ -153,19 +153,19 @@ Surface :: struct {
 	groups: []u16,
 }
 
-Scene_Command_Kind :: enum u8 {None, Add, New, Remesh, Decimate, Retopo, Delete, Duplicate, Symmetrize, Slice, Subdivide, Set_Level, Delete_Higher, Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete, Dyntopo, Boolean, Extract, View, Arrange, Copy, Paste, Delete_Others, Levels_All, Split, Merge, Align, Distribute, Material, Group_Material, Voxel_To_Mesh, Layout_Uvs, Remove_Textures}
+Scene_Command_Kind :: enum u8 {None, Add, New, Remesh, Decimate, Retopo, Delete, Duplicate, Symmetrize, Slice, Subdivide, Set_Level, Delete_Higher, Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete, Dyntopo, Boolean, Extract, View, Arrange, Copy, Paste, Delete_Others, Levels_All, Split, Merge, Align, Distribute, Material, Group_Material, Voxel_To_Mesh, Layout_Uvs, Remove_Textures, Mesh_To_Voxels, Knife, Voxel_Resample}
 
 // The commands that work on a mesh object's level, and so refuse a voxel object until it
 // is converted to a mesh (Voxel_To_Mesh); the rest place, copy, list or delete objects of
 // either kind.
-MESH_ONLY_COMMANDS :: bit_set[Scene_Command_Kind]{.Remesh, .Decimate, .Retopo, .Symmetrize, .Slice, .Subdivide, .Set_Level, .Delete_Higher, .Delete_Lower, .Hd_Enter, .Hd_Leave, .Hd_Steps, .Hd_Delete, .Dyntopo, .Boolean, .Extract, .Split, .Merge, .Group_Material, .Layout_Uvs, .Remove_Textures}
+MESH_ONLY_COMMANDS :: bit_set[Scene_Command_Kind]{.Remesh, .Decimate, .Retopo, .Symmetrize, .Slice, .Knife, .Subdivide, .Set_Level, .Delete_Higher, .Delete_Lower, .Hd_Enter, .Hd_Leave, .Hd_Steps, .Hd_Delete, .Dyntopo, .Boolean, .Extract, .Split, .Merge, .Group_Material, .Layout_Uvs, .Remove_Textures}
 
 Scene_Command :: struct {
 	kind:     Scene_Command_Kind,
 	vertices: int,
 	shape:    geom.Primitive, // Add, New: what to add
 	mesh:     int, // Add, New: a content pack's mesh to add instead (Library.meshes, from 1), or 0
-	voxels:   int, // Add: a voxel sphere this many voxels across instead of the shape (0 for a mesh)
+	voxels:   int, // Add: a voxel sphere this many voxels across instead of the shape (0 for a mesh); Mesh_To_Voxels: voxels across the object's longest side; Voxel_Resample: the voxel object's new resolution, twice or half its own
 	// Dyntopo: turn dynamic topology on, or off; Symmetrize: keep the + side; Delete_Others:
 	// the selected objects too; Levels_All: every object to its highest level, or its lowest;
 	// Add: below the selected object, in its folder, rather than at the end of the list;
@@ -177,8 +177,8 @@ Scene_Command :: struct {
 	level:    int, // Set_Level; HD steps for Hd_Steps
 	at:       [2]f32, // Hd_Enter: the viewport point to open the window around
 	size:     [2]f32, // ...in a viewport of this size
-	point:    Vec3, // Slice: a point of the plane, in the selected object's space
-	normal:   Vec3, // ...and the way to the part that becomes a new object
+	point:    Vec3, // Slice, Knife: a point of the plane, in the selected object's space
+	normal:   Vec3, // ...and the way to the part that becomes a new object (Slice) or goes (Knife)
 	// Runs the command again in place of the last one of its kind, from before it
 	// (adjust_last.odin): Remesh, Decimate, Symmetrize, Retopo and Extract.
 	adjust:   bool,
@@ -495,6 +495,53 @@ object_slice :: proc(app: ^App, obj: ^Object, point, normal: Vec3) -> (part: ^Ob
 	return part, true, true
 }
 
+// Cuts the object along the plane through `point` across `normal` (in its own space) and
+// throws away the part `normal` points to, closing the cut on what stays (geom.mesh_slice),
+// as ZBrush's KnifeCurve does. Like Mirror and weld it rebuilds the object, so its levels,
+// HD detail, mask, hidden parts and strokes go but the level's layers come across (the
+// caller records the swap that takes it back). `changed` says whether it cut; ok is false
+// only when the old mesh is gone and the new one could not be uploaded.
+object_knife :: proc(app: ^App, obj: ^Object, point, normal: Vec3) -> (changed, ok: bool) {
+	stroke_finish(app)
+	object_hd_leave(app, obj)
+	start := time.tick_now()
+	source := object_mesh(obj)^
+	packed: geom.Mesh
+	if object_dynamic(obj) {
+		mask: []u8
+		packed, mask = sculpt.sculptor_compact_mesh(object_sculptor(obj))
+		delete(mask)
+		source = packed
+	}
+	front, back, made := geom.mesh_slice(source, point, normal, true, &app.pool)
+	geom.mesh_destroy(&packed)
+	geom.mesh_destroy(&front)
+	free_all(context.temp_allocator)
+	if !made {
+		log.warn("knife: the line does not cross the object, or would take all of it")
+		return false, true
+	}
+	cut := time.tick_now()
+	_ = sdl.WaitForGPUIdle(app.renderer.device)
+	if !object_rebuild(app, obj, back, cut, normals = true) do return true, false
+	app.stats.slice_ms = time.duration_milliseconds(time.tick_diff(start, cut))
+	app.stats.slice_setup_ms = time.duration_milliseconds(time.tick_since(cut))
+	log.infof("knife: %d vertices kept in %.0f ms, ready in %.0f ms more", object_vertex_count(obj), app.stats.slice_ms, app.stats.slice_setup_ms)
+	return true, true
+}
+
+// Cuts `obj` across the middle of its bounds along `axis` (0 x, 1 y, 2 z), throwing away
+// the + side when `positive` (else the - side), for a script's `knife`. Returns false
+// only on a GPU failure.
+scene_knife_axis :: proc(app: ^App, obj: ^Object, axis: int, positive: bool) -> bool {
+	bounds := geom.AABB_EMPTY
+	for p in object_mesh(obj).positions do geom.aabb_grow(&bounds, p)
+	normal: Vec3
+	normal[axis] = 1 if positive else -1
+	for o, i in app.scene.objects do if o == obj do app.scene.selected = i
+	return scene_apply(app, {kind = .Knife, point = (bounds.lo + bounds.hi) / 2, normal = normal})
+}
+
 // Slices `obj` across the middle of its bounds along `axis` (0 x, 1 y, 2 z), for
 // a script's `slice`. Returns false only on a GPU failure.
 scene_slice_axis :: proc(app: ^App, obj: ^Object, axis: int) -> bool {
@@ -759,6 +806,25 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 			}
 			history_record_swap(app, obj.id, before)
 		}
+	case .Mesh_To_Voxels:
+		if obj := selected_object(app); obj != nil && obj.voxel == nil {
+			before := history_snapshot(app, obj, "convert to voxels")
+			changed, ok := object_mesh_to_voxels(app, obj, cmd.voxels)
+			if !ok {
+				// The mesh is gone; drop the empty object rather than draw nothing.
+				history_snapshot_drop(before)
+				scene_delete_selected(app, undoable = false)
+				return false
+			}
+			if changed do history_record_swap(app, obj.id, before)
+			else do history_snapshot_drop(before)
+		}
+	case .Voxel_Resample:
+		if obj := selected_object(app); obj != nil && obj.voxel != nil {
+			before := history_snapshot(app, obj, "voxel resolution")
+			if object_voxel_resample(app, obj, cmd.voxels) do history_record_swap(app, obj.id, before)
+			else do history_snapshot_drop(before)
+		}
 	case .Delete:
 		// Every selected object, as one undo step. The ids are copied out of temp memory,
 		// which taking a snapshot may free.
@@ -806,6 +872,18 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 		if obj := selected_object(app); obj != nil {
 			before := history_snapshot(app, obj, "mirror and weld")
 			changed, ok := object_symmetrize(app, obj, cmd.axis, cmd.on)
+			if !ok {
+				history_snapshot_drop(before)
+				scene_delete_selected(app, undoable = false)
+				return false
+			}
+			if changed do history_record_swap(app, obj.id, before)
+			else do history_snapshot_drop(before)
+		}
+	case .Knife:
+		if obj := selected_object(app); obj != nil {
+			before := history_snapshot(app, obj, "knife")
+			changed, ok := object_knife(app, obj, cmd.point, cmd.normal)
 			if !ok {
 				history_snapshot_drop(before)
 				scene_delete_selected(app, undoable = false)

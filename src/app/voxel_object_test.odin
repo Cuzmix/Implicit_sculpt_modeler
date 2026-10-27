@@ -61,6 +61,40 @@ voxel_objects_offer_transform_and_voxels_only :: proc(t: ^testing.T) {
 	}
 	app.scene.selected = 1
 	for s in OBJECT_SECTIONS do testing.expectf(t, object_section_offered(&app, s.section), "%v not offered to a mesh", s.section)
-	testing.expect(t, MESH_ONLY_COMMANDS & {.Add, .Delete, .Duplicate, .Copy, .Paste, .View, .Arrange, .Voxel_To_Mesh} == {})
+	testing.expect(t, MESH_ONLY_COMMANDS & {.Add, .Delete, .Duplicate, .Copy, .Paste, .View, .Arrange, .Voxel_To_Mesh, .Mesh_To_Voxels, .Voxel_Resample} == {})
 	testing.expect(t, .Remesh in MESH_ONLY_COMMANDS && .Subdivide in MESH_ONLY_COMMANDS && .Boolean in MESH_ONLY_COMMANDS)
+}
+
+// Convert to mesh is for voxel objects and Convert to voxels for mesh objects; the
+// resolution a conversion takes is the section's choice in whole nodes, or the one the
+// object's vertex count maps to.
+@(test)
+convert_commands_follow_the_object_kind :: proc(t: ^testing.T) {
+	app: App
+	part: Voxel_Part
+	clay, mesh := Object{id = 1, voxel = &part}, Object{id = 2}
+	append(&app.scene.objects, &clay, &mesh)
+	defer delete(app.scene.objects)
+	app.scene.selected = 0
+	testing.expect(t, COMMANDS[.Convert_To_Mesh].enabled(&app, 0), "Convert to mesh refused a voxel object")
+	testing.expect(t, !COMMANDS[.Convert_To_Voxels].enabled(&app, 0), "Convert to voxels offered to a voxel object")
+	// Res+ and Res− step within the range: at the top only Res−, at the bottom only Res+.
+	part.resolution = 256
+	testing.expect(t, COMMANDS[.Voxel_Res_Up].enabled(&app, 0) && COMMANDS[.Voxel_Res_Down].enabled(&app, 0), "Res+ or Res− refused at 256")
+	part.resolution = VOXELS_MAX
+	testing.expect(t, !COMMANDS[.Voxel_Res_Up].enabled(&app, 0) && COMMANDS[.Voxel_Res_Down].enabled(&app, 0), "Res+ at the top")
+	part.resolution = VOXELS_MIN
+	testing.expect(t, COMMANDS[.Voxel_Res_Up].enabled(&app, 0) && !COMMANDS[.Voxel_Res_Down].enabled(&app, 0), "Res− at the bottom")
+	app.scene.selected = 1
+	testing.expect(t, !COMMANDS[.Convert_To_Mesh].enabled(&app, 0), "Convert to mesh offered to a mesh object")
+	testing.expect(t, COMMANDS[.Convert_To_Voxels].enabled(&app, 0), "Convert to voxels refused a mesh object")
+	testing.expect(t, !COMMANDS[.Voxel_Res_Up].enabled(&app, 0) && !COMMANDS[.Voxel_Res_Down].enabled(&app, 0), "Res+ or Res− offered to a mesh object")
+	// The choice is rounded to whole nodes and kept in range (0 would ask the object's
+	// level for its vertex count, which this bare object has none of).
+	app.kit.voxel_across = 100
+	testing.expect_value(t, voxel_across_chosen(&app, &mesh), 96)
+	app.kit.voxel_across = 100_000
+	testing.expect_value(t, voxel_across_chosen(&app, &mesh), VOXELS_MAX)
+	app.kit.voxel_across = 1
+	testing.expect_value(t, voxel_across_chosen(&app, &mesh), VOXELS_MIN)
 }

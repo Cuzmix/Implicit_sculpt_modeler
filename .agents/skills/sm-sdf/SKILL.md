@@ -23,7 +23,30 @@ description: Implicit and SDF modelling for this app — the src/sdf_trial spike
   `object_dab` and picking through `object_raycast_local`, `brush_stroke_finish`/`history_step`/`history_drop_redo`/
   `object_forget_history` branch to `clay_stroke_end`/`clay_undo`/`clay_redo`/`clay_clear_redo`/`clay_clear_history`,
   the frame loop branches to `voxel_upload` before `levels_current`, and `object_put_bytes` writes the kind byte and the
-  clay in the levels' place (scene file version 13). `Voxel_To_Mesh` is the swap entry that converts (`clay_to_mesh`).
+  clay in the levels' place (scene file version 13). `Voxel_To_Mesh` is the swap entry that converts (`clay_to_mesh`) and
+  `Mesh_To_Voxels` the one that converts the other way (`object_mesh_to_voxels` → `clay_from_mesh`, which clears the
+  object's `group_materials` too, since `object_get` refuses a voxel object with any).
+- Mesh → voxels (`voxelize.odin`): `clay_from_mesh(c, m, voxel, pool)` lays the voxel grid over the mesh's box (centred in
+  the domain, `VOXELIZE_MARGIN` voxels around; `voxel_size_for(bounds, across)` picks the voxel), casts `geom.lattice_rays_cast`
+  along x, y and z (the remesh's exact fixed-point crossings, now public in `src/geom/lattice_rays.odin`), takes inside
+  = x-ray winding > 0 (an open mesh fills as Remesh fills it), marks the bricks within `VOXELIZE_REACH` of an x crossing
+  per z slab, fills the rest as `TILE_INSIDE` or empty, seeds each marked brick in parallel (the sign window, then for a
+  voxel beside a sign change the planar distance from its axes' crossings, `CROSSING_MARGIN` away from the lattice
+  points), then `band_mark` + `band_repair` + `surface_mark_all`. Refuses (false, nothing allocated) an empty mesh, a bad
+  voxel size or a grid past `VOXELIZE_MAX` along an axis. Tests: `voxelize_test.odin` (sphere within a voxel and 5 %
+  volume, torus keeps its hole, cube with faces on voxel rows, serial == parallel hash, refusals); `bench --voxel`
+  prints `From mesh ms`.
+- Res+ / Res− (`resample.odin`): `clay_resample(c, RESAMPLE_UP | RESAMPLE_DOWN) -> bool` rebuilds the volume at
+  half or twice the voxel, the domain kept centred (so ×2 halves it in object space: clay past `DOMAIN/2 − BAND − 2`
+  new voxels from the centre is refused, the clay untouched). Candidates are each old brick's 8 children (×2) or
+  parent (÷2), filled in parallel from a gathered old window (trilinear; ÷2 lands on old centres); all-clamp ones
+  collapse. ×2 needs no repair (the old band covers the new clamp and interpolation error is curvature·voxel²/8); ÷2
+  runs `band_repair`, then `grow_band` rounds (dilate_band's face test, no undo) until the band meets the clamp.
+  It calls `clay_clear_history` (no stroke may be running) and starts the surface over (`regrow`, so the app's next
+  `voxel_upload` remakes the GPU copy). App: `Scene_Command_Kind.Voxel_Resample` (`cmd.voxels` = the new
+  resolution, a doubling or halving within VOXELS_MIN..MAX), commands `Voxel_Res_Up`/`Voxel_Res_Down`, swap undo entry
+  via `object_voxel_resample`; exit stat `voxel_resolution`. Tests `resample_test.odin`; bench columns `Res− ms`,
+  `Res+ ms`.
   Add a voxel path wherever you add a mesh path that touches a level; never call `sculpt.*` on a voxel object expecting
   vertices.
 

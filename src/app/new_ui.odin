@@ -51,6 +51,7 @@ Kit_State :: struct {
 	},
 	in_tray:    bool,
 	nav:        Nav_State, // the navigation head (nav_head.odin)
+	light_sphere: Light_Sphere_State, // a press on the Lights section's sphere (kit_lights.odin)
 	tab_serial: u64, // counts tab changes, so each one fades its content in afresh
 	recover_shown: bool, // the recovery card showed this frame (kit_recover.odin)
 	menu:       bool,
@@ -219,6 +220,7 @@ Kit_State :: struct {
 	add_mesh:   int, // a content pack's mesh to add instead (Library.meshes, from 1), or 0
 	add_size:   int, // into SPHERE_PRESETS
 	add_voxel:  bool, // Add object makes a voxel sphere of the size's resolution (voxel_object.odin)
+	voxel_across: i32, // Convert to voxels' resolution; 0 takes the one the object's vertex count maps to
 	note_at:    time.Tick, // the result last shown as a toast
 	busy_toast: ui.Id, // the last "under way" toast (Report_Flag.Busy), dismissed by the next result
 	undo_toast: struct {
