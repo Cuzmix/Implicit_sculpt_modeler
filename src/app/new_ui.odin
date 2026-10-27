@@ -1126,7 +1126,7 @@ kit_menu :: proc(app: ^App, anchor: ui.Rect) {
 	scroll := kit_scroll_begin(ctx, "menu body", &k.menu_scroll, owner, body_w, room, 0)
 	pick := false
 	ui.caption(ctx, "  FILE")
-	for id in ([?]Command_Id{.Open_Scene, .Save_Scene, .Save_Scene_As, .Save_Scene_Copy, .Save_Scene_Next, .Scene_Versions, .Open_Last_Autosave, .Import_Mesh, .Export_Mesh, .Screenshot}) {
+	for id in ([?]Command_Id{.Open_Scene, .Save_Scene, .Save_Scene_As, .Save_Scene_Copy, .Scene_Versions, .Open_Last_Autosave, .Import_Mesh, .Export_Mesh, .Screenshot}) {
 		if command_menu_item(app, id) do pick = true
 	}
 	ui.divider(ctx, across = true)

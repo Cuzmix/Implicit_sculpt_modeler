@@ -66,7 +66,7 @@ UI = {
 }
 # Menu rows at 1600x900, from kit_menu's order (new_ui.odin): add a FILE row here, not to
 # every coordinate under it. Rows are 44 points apart; a divider and caption take 69.
-MENU_FILE_ROWS = ["open", "save", "save_as", "save_copy", "save_next", "earlier_saves", "last_autosave", "import", "export", "screenshot"]
+MENU_FILE_ROWS = ["open", "save", "save_as", "save_copy", "earlier_saves", "last_autosave", "import", "export", "screenshot"]
 _file_y = {name: 106 + 44 * i for i, name in enumerate(MENU_FILE_ROWS)}
 _grid_y = _file_y[MENU_FILE_ROWS[-1]] + 69
 # The menu's APP rows in order (new_ui.odin), under the New scene grid: a row added there is
@@ -76,7 +76,7 @@ _app_y = {name: _grid_y + 48 + 69 + 44 * i for i, name in enumerate(MENU_APP_ROW
 # On a 1280x720 window, with the menu scrolled to its end, the last row's middle.
 MENU_SHORT_LAST_Y = 688
 UI.update({
-    "menu_earlier_saves": (75, _file_y["earlier_saves"]), "menu_save_next": (75, _file_y["save_next"]),
+    "menu_earlier_saves": (75, _file_y["earlier_saves"]),
     "new_sphere": (48, _grid_y), "new_head": (135, _grid_y), "new_hand": (135, _grid_y + 48),
     "menu_settings": (75, _app_y["settings"]), "menu_macros": (75, _app_y["macros"]), "menu_library": (75, _app_y["library"]),
 })
@@ -4906,10 +4906,15 @@ def save_over_a_file_keeps_the_earlier_one():
     return Steps([first_save(), (s, [f"--open={path}"], {"@two versions": lambda _: len(versions_of(path)) == 2, "@no partial": lambda _: not os.path.exists(path + ".partial")})])
 
 
+# The Save popover's Save next row, under the top bar's Save.
+SAVE_POP_NEXT = (150, 172)
+
+
 @scenario
 def save_next_numbers_the_files():
-    """Menu > Save next twice over an opened file, a stroke before each: head_002 and then
-    head_003 are written beside head, and the scene saves to the newest."""
+    """Save next from the long press on Save, twice over an opened file, a stroke before
+    each: head_002 and then head_003 are written beside head, and the scene saves to the
+    newest."""
     path = scene_file()
     folder = os.path.dirname(path)
     s = Script()
@@ -4917,9 +4922,9 @@ def save_next_numbers_the_files():
     for at in ((800, 450), (700, 400)):
         s.mouse_drag([at, (at[0] + 30, at[1] + 15)])
         s.wait(3)
-        click(s, UI["menu"])
+        long_press(s, *UI["save"])
         s.wait(10)
-        click(s, UI["menu_save_next"])
+        click(s, SAVE_POP_NEXT)
         s.wait(6)
     ctrl_s(s)
     numbered = lambda _: all(os.path.exists(os.path.join(folder, f"head_00{n}.sculpt")) for n in (2, 3))
