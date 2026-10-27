@@ -81,6 +81,8 @@ clay_read :: proc(c: ^Clay, r: ^geom.Byte_Reader, pool: ^jobs.Pool, allocator :=
 		clay_destroy(c)
 		return false
 	}
+	// A file written before the field kept no saddle faces may hold some.
+	resolve_all_saddles(c)
 	surface_mark_all(c)
 	return true
 }

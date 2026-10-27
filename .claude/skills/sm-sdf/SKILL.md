@@ -36,6 +36,18 @@ description: Implicit and SDF modelling for this app — the src/sdf_trial spike
   voxel size or a grid past `VOXELIZE_MAX` along an axis. Tests: `voxelize_test.odin` (sphere within a voxel and 5 %
   volume, torus keeps its hole, cube with faces on voxel rows, serial == parallel hash, refusals); `bench --voxel`
   prints `From mesh ms`.
+- Manifold surface (`saddle.odin`, `mesh.odin`): the field keeps NO SADDLE FACE (a 2×2 voxel face with the inside
+  corners on a diagonal). `resolve_saddles(c, slots, record)` scans the faces with a lower corner in those bricks or
+  the layer before them (10³ window, parallel), then flips serially with a worklist (the inside corner with the
+  smaller |d| → `SADDLE_FLIP` = +1 unit; ties to the lower z, y, x; a corner in an Inside tile makes a brick; the
+  brick is `undo_record`ed when `record`, `band_mark`ed and its nodes marked); a flip only turns inside voxels
+  outside, so it ends. Runs at `clay_stroke_end` over the stroke's saved bricks (a per-dab scan cost 1.2 ms a dab
+  at 1024, so between dabs a saddle may stand), and `resolve_all_saddles` after `clay_fill_sphere`, `clay_from_mesh`,
+  `clay_resample` and `clay_read`. `mesh_node` makes one vertex per LOOP of crossed edges in a cell (`Cell_Verts`,
+  edges joined through `CELL_FACES`, `cell_edge(axis, corner)` names the edge a quad takes in each of its four
+  cells); with no saddle faces every quad side is in exactly two quads and each vertex's quads form one cycle:
+  `mesh_check` reports 0 non-manifold edges. Tests `saddle_test.odin`; the app's `--check-mesh` finishes the stroke
+  first.
 - Res+ / Res− (`resample.odin`): `clay_resample(c, RESAMPLE_UP | RESAMPLE_DOWN) -> bool` rebuilds the volume at
   half or twice the voxel, the domain kept centred (so ×2 halves it in object space: clay past `DOMAIN/2 − BAND − 2`
   new voxels from the centre is refused, the clay untouched). Candidates are each old brick's 8 children (×2) or
