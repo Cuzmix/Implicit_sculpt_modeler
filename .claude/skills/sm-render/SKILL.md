@@ -136,13 +136,17 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   onto the split vertices; maps other than PNG or JPEG re-encoded as PNG; `geom.image_mime` names each).
 - Studio render (`src/render/studio.odin`, app `studio_on`/Shift+R): `studio_frame` after `render_viewport` on the same
   `cmd`; a frame whose stats show any redraw (`!partial || redrawn_px > 0`) copies `vt.color` into `Studio.shown` and resets,
-  a still one adds one sample: `shadow.vert`/`.frag` depth pass from an R2-sequence direction (every 4th around the view-space
-  key light) into a 2048² map, `studio_gather.frag` (full-screen `clear.vert`, additive blend into RGBA16F `accum`; normals
+  a still one adds one sample: `shadow.vert`/`.frag` depth pass from an R2-sequence direction (every 4th around one light,
+  `studio_light`: picked by brightness through an R3 sequence over the light samples) into a 2048² map, `studio_gather.frag` (full-screen `clear.vert`, additive blend into RGBA16F `accum`; normals
   from neighbouring viewport depths), `studio_composite.frag` into `shown`. Needs `Renderer.depth_sampled` (viewport depth
   has `.SAMPLER`). The viewport panel and `viewport_download(…, texture)` use `studio_texture` while on, once it has
   `STUDIO_SHOW_MIN` samples when live AO is on (live AO runs under the studio and shows until then). `softness` (the
   key disc's radius) restarts it on change; `ao`/`shadow` changes after convergence recomposite (`Studio.strengths`).
   `studio_on` is a remembered setting: a device failure lives only in `Studio.failed` (`studio_running`), never saved.
+  Light samples add (vis·w + amb, w + amb) (`studio_weight.glsl`: w the picked light's n·l·falloff over Σ chance·reach +
+  ambient, amb `STUDIO_AMBIENT_SHARE`·ambient / total brightness), so b/a is the unshadowed share of all light; mean
+  weight 1 keeps half floats safe. Sphere lights trace to a disc of radius r·d/√(d²−r²) with tmax 1; suns tmax +inf.
+  `light_window.glsl` is shared with render_trace.comp.
 - Style (`Draw_Item.style`, `Material_Uniforms.style`, in both frame keys): w > 0.5 turns on the underside falloff of
   the ambient (`underside()`, rig up = `rig[1]`) and the narrow upper rim, classic and PBR studio ambient; w = 0 must
   run the old lines verbatim (check 0 px against the base). Thumbnails and the nav head pass zero.

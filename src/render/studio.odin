@@ -53,6 +53,11 @@ STUDIO_SOFTNESS_MAX :: 0.5
 STUDIO_DEPTH_BIAS_TEXELS :: 2
 STUDIO_NORMAL_OFFSET_TEXELS :: 1.5
 
+// How much of the ambient light's strength a surface takes, beside a light's strength
+// facing it: about what the classic materials' ambient (0.06 to 0.12) and the physically
+// based studio's diffuse give. Shadows take away only the lights' share of a pixel.
+STUDIO_AMBIENT_SHARE :: 0.1
+
 STUDIO_ACCUM_FORMAT :: sdl.GPUTextureFormat.R16G16B16A16_FLOAT
 
 SHADOW_VERT_SPV :: #load("shaders/shadow.vert.spv")
@@ -67,14 +72,29 @@ Gather_Uniforms :: struct {
 	light_view_proj: Mat4,
 	light_dir:       [4]f32,
 	params:          [4]f32,
+	shadow:          Shadow_Lights,
 }
+#assert(size_of(Gather_Uniforms) == 160 + size_of(Shadow_Lights))
+
+// Matches the shadow_ uniforms studio_weight.glsl reads: the lights in the world (as
+// lights_to_world gives them), each one's distance, reach and spot edge with the chance
+// it is picked in shape.w, and in pick x the light this sample took and z the ambient
+// light (STUDIO_AMBIENT_SHARE of it over the lights' total brightness).
+Shadow_Lights :: struct {
+	pos:   [LIGHT_COUNT][4]f32,
+	shape: [LIGHT_COUNT][4]f32,
+	spot:  [LIGHT_COUNT][4]f32,
+	pick:  [4]f32,
+}
+#assert(size_of(Shadow_Lights) == 400)
 
 // Records this frame's studio work after render_viewport: starts over when `changed`
 // (anything was redrawn this frame), otherwise adds a sample until there are
 // `max_samples`, and leaves the result in Studio.shown. `ao` and `shadow` (0 to 1) are
-// how strongly occlusion and the key light's shadow darken the image; `lights` are the
-// lights the items are shaded with, whose brightest casts the shadow (lights_key), and
-// `softness` the radius in radians of the key light's disc, which a change starts over. A
+// how strongly occlusion and the lights' shadows darken the image; `lights` are the
+// lights the items are shaded with, every one of which casts a shadow (studio_light), and
+// `softness` the radius in radians of the disc of a light without a size of its own,
+// which a change starts over. A
 // change of `ao` or `shadow` once the samples are done composites them again. A traced
 // view builds what changed of its trees on `pool` at its first sample. Returns false only
 // when the studio cannot run on this device, after which it never tries again.
@@ -103,21 +123,21 @@ studio_frame :: proc(r: ^Renderer, st: ^Studio, cmd: ^sdl.GPUCommandBuffer, vt: 
 	center, radius, ok := scene_sphere(items)
 	if !ok do return true
 
-	// This sample's light: all round the scene for ambient, around the key light for the
-	// shadow. The R2 sequence spreads consecutive samples evenly at any count.
+	// This sample's light: all round the scene for ambient, around one of the lights for
+	// the shadow. The R2 sequence spreads consecutive samples evenly at any count.
 	k := st.samples
 	u := math.mod(0.5 + f32(k) * 0.7548777, 1)
 	v := math.mod(0.5 + f32(k) * 0.5698403, 1)
+	sl := studio_light(lights, view, center, soft, k)
 	// With no light on there is no shadow, and every sample goes to the occlusion.
-	key_dir, lit := lights_key(lights, (view * [4]f32{center.x, center.y, center.z, 1}).xyz)
-	key := lit && k % STUDIO_KEY_EVERY == STUDIO_KEY_EVERY - 1
+	key := sl.lit && k % STUDIO_KEY_EVERY == STUDIO_KEY_EVERY - 1
+	if key do u, v = sl.r2.x, sl.r2.y
 	dir, base, side, up: [3]f32
 	if key {
-		rot := linalg.transpose(linalg.Matrix3f32{view[0, 0], view[0, 1], view[0, 2], view[1, 0], view[1, 1], view[1, 2], view[2, 0], view[2, 1], view[2, 2]})
-		base = linalg.normalize(rot * key_dir)
+		base = sl.dir
 		side = linalg.normalize(linalg.cross(base, [3]f32{0, 1, 0} if abs(base.y) < 0.99 else [3]f32{1, 0, 0}))
 		up = linalg.cross(side, base)
-		a, rr := 2 * math.PI * v, soft * math.sqrt(u)
+		a, rr := 2 * math.PI * v, sl.radius * math.sqrt(u)
 		dir = linalg.normalize(base + (side * math.cos(a) + up * math.sin(a)) * rr)
 	} else {
 		z := 1 - 2 * u
@@ -140,7 +160,7 @@ studio_frame :: proc(r: ^Renderer, st: ^Studio, cmd: ^sdl.GPUCommandBuffer, vt: 
 	if st.traced {
 		// The ray of each pixel spreads this sample's point over the hemisphere or the
 		// key light's disc itself, so the gather's direction is not used.
-		light := Trace_Light{key = key, base = base, side = side, up = up, radius = soft, r2 = {u, v}}
+		light := Trace_Light{key = key, base = base, side = side, up = up, radius = sl.radius, r2 = {u, v}, sphere = key && sl.sphere, at = sl.at, sphere_radius = sl.sphere_radius, shadow = sl.shadow}
 		trace_sample(r, &st.trace, cmd, st.accum, view_depth, st.sampler, view, proj, items, light, TRACE_EPSILON * radius, st.samples == 0)
 		st.samples += 1
 		studio_composite(st, cmd, vt, ao, shadow)
@@ -178,6 +198,7 @@ studio_frame :: proc(r: ^Renderer, st: ^Studio, cmd: ^sdl.GPUCommandBuffer, vt: 
 		light_view_proj = light,
 		light_dir       = {dir.x, dir.y, dir.z, 1 if key else 0},
 		params          = {STUDIO_DEPTH_BIAS_TEXELS / f32(STUDIO_SHADOW_SIZE), STUDIO_NORMAL_OFFSET_TEXELS * texel, 1 / f32(STUDIO_SHADOW_SIZE), 0},
+		shadow          = sl.shadow,
 	}
 	target := sdl.GPUColorTargetInfo {
 		texture  = st.accum,
@@ -194,6 +215,65 @@ studio_frame :: proc(r: ^Renderer, st: ^Studio, cmd: ^sdl.GPUCommandBuffer, vt: 
 	st.samples += 1
 	studio_composite(st, cmd, vt, ao, shadow)
 	return true
+}
+
+// The light a studio sample's shadow comes from (studio_light).
+Studio_Light :: struct {
+	lit:           bool, // any light is on
+	r2:            [2]f32, // the point of the light's disc
+	dir:           [3]f32, // toward the light from the scene's middle (world, unit)
+	radius:        f32, // the disc's radius around dir, as a tangent
+	sphere:        bool, // a point or spot light, which the traced rays end at
+	at:            [3]f32, // ...where it is (world)
+	sphere_radius: f32,
+	shadow:        Shadow_Lights,
+}
+
+// Which light studio sample `k` takes its shadow from, and its disc: each light sample
+// picks one by its share of the lights' brightness through a golden-ratio sequence, and
+// its disc's point from two more dimensions of the same family (R3), so every light's
+// disc is covered evenly however the samples are shared. A sun's disc is as wide as its
+// own size (Lights.shape.w, the sine of its angular radius) or else `softness`; a point
+// or spot light's sphere is its own radius, or else `softness` seen from `center`.
+studio_light :: proc(lights: Lights, view: Mat4, center: [3]f32, softness: f32, k: int) -> (sl: Studio_Light) {
+	l := lights if lights != {} else lights_default()
+	world := lights_to_world(l, view, center, softness)
+	brightness: f32
+	for i in 0 ..< LIGHT_COUNT {
+		if world.size[i].w <= 0 do continue
+		c := l.color[i]
+		brightness += c.w * max(c.r, c.g, c.b)
+		sl.shadow.pos[i] = world.pos[i]
+		sl.shadow.shape[i] = {world.shape[i].x, world.shape[i].y, world.shape[i].z, world.size[i].w}
+		sl.shadow.spot[i] = world.spot[i]
+	}
+	if brightness <= 0 do return
+	sl.lit = true
+	m := f32(k / STUDIO_KEY_EVERY)
+	pick := math.mod(0.5 + m * 0.8191725, 1)
+	j := -1
+	for i in 0 ..< LIGHT_COUNT {
+		if world.size[i].w <= 0 do continue
+		j = i
+		if pick < world.size[i].z do break
+	}
+	sl.r2 = {math.mod(0.5 + m * 0.6710436, 1), math.mod(0.5 + m * 0.5497005, 1)}
+	sl.shadow.pick = {f32(j), 0, STUDIO_AMBIENT_SHARE * max(l.rig[0].w, 0) / brightness, 0}
+	size := l.shape[j].w
+	if l.pos[j].w == LIGHT_SUN {
+		sl.dir = world.pos[j].xyz
+		sl.radius = math.tan(math.asin(min(size, 0.99))) if size > 0 else softness
+		return
+	}
+	sl.sphere = true
+	sl.at = world.pos[j].xyz
+	sl.sphere_radius = world.size[j].x
+	// The shadow map's stand-in: one direction from the middle, over the sphere's angle.
+	to := sl.at - center
+	dist := linalg.length(to)
+	sl.dir = to / dist if dist > 1e-6 else {0, 1, 0}
+	sl.radius = sl.sphere_radius / max(dist, 1e-6)
+	return
 }
 
 // The image shown: the viewport darkened by what the samples found.

@@ -101,16 +101,32 @@ Trace_Uniforms :: struct {
 	key_side:      [4]f32,
 	key_up:        [4]f32,
 	params:        [4]f32,
+	sphere:        [4]f32,
 }
+#assert(size_of(Trace_Uniforms) == 208)
 
-// One sample's light for trace_sample: around the key light, whose direction (world,
-// toward it) is `base` and whose disc spans `side` and `up` out to `radius`, or all round
-// the surface; and this sample's point of the R2 sequence.
+// Matches Add_Uniforms in studio_trace_add.frag.
+@(private = "file")
+Add_Uniforms :: struct {
+	inv_view_proj: Mat4,
+	params:        [4]f32, // x: 1 for a light sample
+	shadow:        Shadow_Lights,
+}
+#assert(size_of(Add_Uniforms) == 64 + 16 + size_of(Shadow_Lights))
+
+// One sample's light for trace_sample: a light (`key`) or all round the surface; and this
+// sample's point of the R2 sequence. A sun's direction (world, toward it) is `base`, its
+// disc spanning `side` and `up` out to `radius`; a point or spot light (`sphere`) is a
+// sphere at `at` of radius `sphere_radius`. `shadow` weighs the sample among the lights.
 Trace_Light :: struct {
 	key:            bool,
 	base, side, up: [3]f32,
 	radius:         f32,
 	r2:             [2]f32,
+	sphere:         bool,
+	at:             [3]f32,
+	sphere_radius:  f32,
+	shadow:         Shadow_Lights,
 }
 
 // Readies every item's trees for this still view: builds the chunk trees whose triangles
@@ -162,7 +178,8 @@ trace_sample :: proc(r: ^Renderer, tr: ^Tracer, cmd: ^sdl.GPUCommandBuffer, accu
 		key_base      = {light.base.x, light.base.y, light.base.z, 1 if light.key else 0},
 		key_side      = {light.side.x, light.side.y, light.side.z, light.radius},
 		key_up        = {light.up.x, light.up.y, light.up.z, 0},
-		params        = {light.r2.x, light.r2.y, epsilon, 0},
+		params        = {light.r2.x, light.r2.y, epsilon, 1 if light.sphere else 0},
+		sphere        = {light.at.x, light.at.y, light.at.z, light.sphere_radius},
 	}
 	for item in items {
 		if blended(&r.single, item) do continue
@@ -185,8 +202,8 @@ trace_sample :: proc(r: ^Renderer, tr: ^Tracer, cmd: ^sdl.GPUCommandBuffer, accu
 	sdl.BindGPUGraphicsPipeline(add, tr.add_pipeline)
 	samplers := [2]sdl.GPUTextureSamplerBinding{{texture = tr.visible, sampler = sampler}, {texture = view_depth, sampler = sampler}}
 	sdl.BindGPUFragmentSamplers(add, 0, &samplers[0], 2)
-	params := [4]f32{1 if light.key else 0, 0, 0, 0}
-	sdl.PushGPUFragmentUniformData(cmd, 0, &params, size_of(params))
+	au := Add_Uniforms{inv_view_proj = u.inv_view_proj, params = {1 if light.key else 0, 0, 0, 0}, shadow = light.shadow}
+	sdl.PushGPUFragmentUniformData(cmd, 0, &au, size_of(au))
 	sdl.DrawGPUPrimitives(add, 3, 1, 0, 0)
 	sdl.EndGPURenderPass(add)
 	tr.samples += 1
