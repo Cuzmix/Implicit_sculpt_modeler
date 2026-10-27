@@ -919,6 +919,23 @@ fill_convex :: proc(ctx: ^Context, points: [][2]f32, color: Color) {
 	draw_convex(&ctx.draw, ctx.path[:], color)
 }
 
+// Triangles through `points` with a colour at each (`colors`, one a point), blended
+// across each triangle, for shaded previews such as a lit sphere. `indices` take three a
+// triangle; its edges are not feathered, so a caller outlines the shape.
+fill_mesh :: proc(ctx: ^Context, points: [][2]f32, colors: []Color, indices: []u32) {
+	if len(points) == 0 || len(colors) < len(points) || len(indices) < 3 do return
+	d := px(ctx)
+	draw_set_state(&ctx.draw, .Atlas, 0, ctx.clip)
+	base := u32(len(ctx.draw.vertices))
+	for p, i in points do append(&ctx.draw.vertices, Vertex{p * d, WHITE_UV, colors[i]})
+	n := u32(len(points))
+	for t := 0; t + 3 <= len(indices); t += 3 {
+		a, b, c := indices[t], indices[t + 1], indices[t + 2]
+		if a >= n || b >= n || c >= n do continue
+		draw_add_indices(&ctx.draw, base + a, base + b, base + c)
+	}
+}
+
 // A place in the draw order kept for drawing done later: what is drawn between
 // layer_begin and layer_end goes under everything drawn after layer_mark took it. The
 // app draws the viewport's overlay (the brush circle, the gizmo) once its tools have run,

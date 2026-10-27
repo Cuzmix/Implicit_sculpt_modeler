@@ -39,8 +39,6 @@ STUDIO_SHADOW_SIZE :: 2048
 STUDIO_KEY_EVERY :: 4
 // Radius of the disc the key light is jittered over, in radians: its shadow's softness.
 STUDIO_KEY_SOFTNESS :: 0.06
-// The mesh shader's key light (KEY_DIR in mesh.frag), in view space.
-STUDIO_KEY_DIR :: [3]f32{-0.5, 0.6, 0.6}
 // Depth bias and normal offset in shadow map texels: enough to keep a curved surface
 // from shadowing itself without letting thin gaps leak light.
 STUDIO_DEPTH_BIAS_TEXELS :: 2
@@ -72,10 +70,10 @@ Gather_Uniforms :: struct {
 // Records this frame's studio work after render_viewport: starts over when `changed`
 // (anything was redrawn this frame), otherwise adds a sample until there are
 // `max_samples`, and leaves the result in Studio.shown. `ao` and `shadow` (0 to 1) are
-// how strongly occlusion and the key light's shadow darken the image; `lights` is the
-// light rig the items are shaded with, which the key light's shadow follows. Returns false
+// how strongly occlusion and the key light's shadow darken the image; `lights` are the
+// lights the items are shaded with, whose brightest casts the shadow (lights_key). Returns false
 // only when the studio cannot run on this device, after which it never tries again.
-studio_frame :: proc(r: ^Renderer, st: ^Studio, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, view, proj: Mat4, items: []Draw_Item, changed: bool, max_samples: int, ao, shadow: f32, lights: [3][4]f32 = {}) -> bool {
+studio_frame :: proc(r: ^Renderer, st: ^Studio, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, view, proj: Mat4, items: []Draw_Item, changed: bool, max_samples: int, ao, shadow: f32, lights: Lights = {}) -> bool {
 	if st.failed do return false
 	if !studio_ensure(r, st, vt) {
 		st.failed = true
@@ -100,11 +98,13 @@ studio_frame :: proc(r: ^Renderer, st: ^Studio, cmd: ^sdl.GPUCommandBuffer, vt: 
 	k := st.samples
 	u := math.mod(0.5 + f32(k) * 0.7548777, 1)
 	v := math.mod(0.5 + f32(k) * 0.5698403, 1)
-	key := k % STUDIO_KEY_EVERY == STUDIO_KEY_EVERY - 1
+	// With no light on there is no shadow, and every sample goes to the occlusion.
+	key_dir, lit := lights_key(lights)
+	key := lit && k % STUDIO_KEY_EVERY == STUDIO_KEY_EVERY - 1
 	dir: [3]f32
 	if key {
 		rot := linalg.transpose(linalg.Matrix3f32{view[0, 0], view[0, 1], view[0, 2], view[1, 0], view[1, 1], view[1, 2], view[2, 0], view[2, 1], view[2, 2]})
-		base := linalg.normalize(rot * lights_turn(lights, linalg.normalize(STUDIO_KEY_DIR)))
+		base := linalg.normalize(rot * key_dir)
 		side := linalg.normalize(linalg.cross(base, [3]f32{0, 1, 0} if abs(base.y) < 0.99 else [3]f32{1, 0, 0}))
 		up := linalg.cross(side, base)
 		a, rr := 2 * math.PI * v, STUDIO_KEY_SOFTNESS * math.sqrt(u)

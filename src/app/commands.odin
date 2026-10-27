@@ -119,6 +119,8 @@ Command_Id :: enum u8 {
 	Extract_Masked,
 	Convert_To_Mesh,
 	Convert_To_Voxels,
+	Voxel_Res_Up,
+	Voxel_Res_Down,
 	Adjust_Last,
 	Reset_Transform,
 	// The scene
@@ -1004,6 +1006,28 @@ COMMANDS := [Command_Id]Command {
 		enabled = proc(app: ^App, _: int) -> bool {
 			obj := selected_object(app)
 			return obj != nil && obj.voxel == nil
+		},
+	},
+	.Voxel_Res_Up = {
+		label = "Res+",
+		help = "Doubles the selected voxel object's voxels along each side, the surface kept where it is, as one undo step.",
+		run = proc(app: ^App, _: int) {
+			if obj := selected_object(app); obj != nil && obj.voxel != nil do app.ui.scene_command = {kind = .Voxel_Resample, voxels = obj.voxel.resolution * 2}
+		},
+		enabled = proc(app: ^App, _: int) -> bool {
+			obj := selected_object(app)
+			return obj != nil && obj.voxel != nil && obj.voxel.resolution * 2 <= VOXELS_MAX
+		},
+	},
+	.Voxel_Res_Down = {
+		label = "Res−",
+		help = "Halves the selected voxel object's voxels along each side, dropping detail finer than the coarser voxel, as one undo step.",
+		run = proc(app: ^App, _: int) {
+			if obj := selected_object(app); obj != nil && obj.voxel != nil do app.ui.scene_command = {kind = .Voxel_Resample, voxels = obj.voxel.resolution / 2}
+		},
+		enabled = proc(app: ^App, _: int) -> bool {
+			obj := selected_object(app)
+			return obj != nil && obj.voxel != nil && obj.voxel.resolution / 2 >= VOXELS_MIN
 		},
 	},
 	.Reset_Transform = {

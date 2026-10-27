@@ -636,6 +636,28 @@ def first_touch_scrolls_inspector():
                                 "inspector_scroll": lambda v: float(v) > 50})
 
 
+# The Lights section's sphere, where the tray shows it at 1600 x 900: its centre and
+# radius in points.
+LIGHT_SPHERE = (1377, 249)
+LIGHT_SPHERE_R = 80
+
+
+@scenario
+def light_sphere_moves_and_flips_lights():
+    """In Scene: Lights, a finger drag from the first light's marker on the sphere moves that light to where it lets go (in front still); a tap on it then sends it behind the model; nothing is sculpted and the camera stays."""
+    s = Script()
+    cx, cy = LIGHT_SPHERE
+    # The first light (the key) shows up and to the left: -0.51, 0.61 of the radius.
+    key = (cx - 0.508 * LIGHT_SPHERE_R, cy - 0.609 * LIGHT_SPHERE_R)
+    to = (cx + 0.5 * LIGHT_SPHERE_R, cy)
+    s.fdrag(line(key, to, 16))
+    s.wait(4)
+    s.ftap(*to)
+    s.wait(4)
+    return s, ["--script=show_section lights"], camera_still({"dabs": near(0), "light_pick": near(1), "light1_on": near(1), "light_flips": near(1),
+                                                             "light1": lambda v: all(abs(float(a) - b) < 0.03 for a, b in zip(v.split(","), (0.5, 0, -0.866)))})
+
+
 # The Mask section's Steps slider, where the tray shows it at 1600 x 900.
 MASK_STEPS = (1376, 362)
 
@@ -6643,6 +6665,27 @@ def voxel_mesh_converts_to_voxels_and_back():
     s.wait(6)
     return s, [], camera_still({"voxel_objects": near(0), "objects": near(1), "dabs": lambda v: int(v) > 0, "palette": near(0),
                                 "undo_steps": near(0), "redo_steps": near(1)})
+
+
+@scenario
+def voxel_resolution_steps_up_and_down_as_undo_steps():
+    """Res+ (from the command palette) doubles a 64-across voxel sphere to 128 as one undo step and
+    Res- halves it back to 64 as another; Ctrl+Z returns it to 128, and a stroke then sculpts the
+    finer clay, which drops the redo step as any stroke does."""
+    s = Script()
+    s.press("k", ("ctrl",))
+    s.type("res+")
+    s.press("Return")
+    s.wait(6)
+    s.press("k", ("ctrl",))
+    s.type("res-")
+    s.press("Return")
+    s.wait(6)
+    s.press("z", ("ctrl",))
+    s.wait(6)
+    strokes(s, 1)
+    return s, ["--voxels=64"], camera_still({"voxel_objects": near(1), "voxel_resolution": near(128), "dabs": lambda v: int(v) > 0,
+                                            "palette": near(0), "undo_steps": near(2), "redo_steps": near(0)})
 
 
 @scenario
