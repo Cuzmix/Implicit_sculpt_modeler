@@ -77,6 +77,15 @@ description: Implicit and SDF modelling for this app — the src/sdf_trial spike
   vertices.
 
 ## What exists: the spike (`src/sdf_trial/main.odin`)
+- Booleans on the field (`combine.odin`): `clay_combine(c, other_volume, to_other, scale, op, blend)` reads the other
+  volume at c's voxel centres through `to_other` (c object space → other object space; `scale` = c units per other
+  unit), union = smin, subtract = −smin(−a, o), intersect = −smin(−a, −o), `blend` in c's voxels; only bricks in the
+  other's box (± band + blend) are visited, a brick the other is one tile over becomes a tile without computing;
+  Intersect first drops every brick and Inside tile outside the box; then resolve_saddles → band_mark → band_repair →
+  grow_band rounds, surface_mark_all; history cleared (caller records a swap). `clay_copy` duplicates a clay (node
+  indices reset to NODE_NONE). The app (`boolean.odin`) applies marks to a copy of the base, voxelising a mesh mark
+  with `clay_from_mesh` at the base's voxel size; the preview uses a cached copy brought ≤ 256 across by Res− steps,
+  keyed on `Voxel_Part.edits` (bumped by `voxel_part_edited` at stroke end, undo/redo, resample, boolean, attach).
 - A standalone, time-boxed comparison, not part of the app or the build scripts (`:1-5`; README "Layout" and the last
   line of "GPU benchmark and frame timing"). Build and run it with the strict flags, which it passes:
   `deps\odin\odin.exe build src\sdf_trial -o:speed -collection:deps=deps -vet -strict-style -warnings-as-errors

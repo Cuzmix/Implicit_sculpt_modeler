@@ -73,7 +73,7 @@ description: CAD-style mesh tools inside this app on geom.Mesh — primitives, b
 - Split and Merge exist (`src/app/split_merge.odin`, the Objects card's Actions): `geom.mesh_components` numbers
   connected pieces and `geom.mesh_split(m, part, count)` makes one mesh per part with `vertex_from`/`tri_from`
   (`src/geom/split.odin`, serial and deterministic). `object_split` follows `object_slice` (layers carried to every
-  piece) and `merge_down`/`merge_visible` follow `boolean_make`; both keep polypaint and polygroups by building with
+  piece) and `merge_down`/`merge_visible` follow `boolean_make` (whose voxel-base branch runs on the field, sm-sdf); both keep polypaint and polygroups by building with
   `object_build_from(..., surface = Surface{color, groups})`, which asks `levels_init` for `tri_from` and calls
   `sculpt.levels_take_surface`. Merge numbers each source's groups densely after the ones before. `align_objects` and
   `distribute_objects` move positions only, one chained `history_record_transform` per moved object. Past the swap

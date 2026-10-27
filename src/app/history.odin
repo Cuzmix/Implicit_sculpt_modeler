@@ -330,7 +330,10 @@ brush_stroke_finish :: proc(app: ^App) {
 	if obj == nil do return
 	if vp := obj.voxel; vp != nil {
 		// The clay's stroke: its band is repaired and its step kept when it changed anything.
-		if voxel.clay_stroke_end(&vp.clay) do history_record(app, obj, .Stroke, BRUSHES[app.stroke.kind].name)
+		if voxel.clay_stroke_end(&vp.clay) {
+			voxel_part_edited(vp)
+			history_record(app, obj, .Stroke, BRUSHES[app.stroke.kind].name)
+		}
 		return
 	}
 	// A stroke joining this one keeps its locked plane, so a long Flatten laid in
@@ -730,6 +733,7 @@ history_step :: proc(app: ^App, from, to: ^[dynamic]History_Entry, can, step: pr
 				entry_free(&app.history, e)
 				continue
 			}
+			voxel_part_edited(obj.voxel)
 			append(to, e)
 			return true
 		}
