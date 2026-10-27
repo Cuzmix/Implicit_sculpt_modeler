@@ -1,0 +1,610 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+// One sample of render mode (render/path.odin) for a band of rows: a path per pixel from
+// the camera, through the merged scene (every traced item's triangles, their chunk trees
+// and a tree over all the chunks in world space), bouncing off Lambert and GGX surfaces.
+// Each surface the path meets takes light from one of the scene's lights picked by
+// strength (next-event estimation) and continues in a direction its material picks;
+// a direction that meets a light counts it too, the two weighted by the power heuristic
+// so neither is counted twice. A path that leaves the scene takes the environment.
+// The camera's ray is jittered within its pixel, so the image is anti-aliased; every
+// random number comes from the pixel and the sample, so a sample is the same however the
+// rows are split between dispatches and on every run.
+//
+// SDL_GPU's SPIR-V layout for compute: set 0 holds the sampled textures, then the
+// read-only storage buffers; set 1 the read-write storage textures; set 2 the uniforms.
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+struct Node {
+	vec3 lo;
+	uint first; // inner: the left child, the right one after it; leaf: see below
+	vec3 hi;
+	uint count; // 0 for an inner node
+};
+
+// One traced item (render.Item_Record).
+struct Item {
+	mat4 model;      // mesh space into the world, a similarity
+	mat4 inv_model;
+	vec4 color;      // the base colour, linear
+	vec4 surface;    // x: metallic, y: roughness
+	uvec4 offs;      // x: the item's first vertex in the merged buffers, y: ITEM_ flags
+	uvec4 slot_group[4];   // the polygroup of each material slot from 1
+	vec4 slot_color[16];   // each slot's colour, as `color`
+	vec4 slot_surface[16]; // ...and surface, as `surface`
+};
+
+const uint ITEM_PAINT = 1u;  // the polypaint shows over the colour
+const uint ITEM_GROUPS = 2u; // each polygroup shows in its own colour instead
+const uint ITEM_SLOTS = 4u;  // groups may have materials of their own
+
+// The sum so far: radiance over the samples whose camera ray met the scene in rgb, and
+// how many did in a.
+layout(set = 0, binding = 0) uniform sampler2D prev;
+// The image environment prefiltered by roughness (render/environment.odin); a black 1 x 1
+// one while none is bound.
+layout(set = 0, binding = 1) uniform sampler2D environment_map;
+layout(std430, set = 0, binding = 2) readonly buffer Positions { float positions[]; }; // 3 floats a vertex, mesh space
+layout(std430, set = 0, binding = 3) readonly buffer Indices { uint indices[]; }; // each item's own, from its first vertex
+// Each vertex's normal (render.Normal_Packed, one word), then from counts.w each vertex's
+// render.Paint_Packed (two words).
+layout(std430, set = 0, binding = 4) readonly buffer Attributes { uint attributes[]; };
+// Every chunk's tree, one after another, a leaf's `first` into its chunk's order; then
+// from extra.x the tree over every chunk, a leaf's `first` a chunk.
+layout(std430, set = 0, binding = 5) readonly buffer Nodes { Node nodes[]; };
+layout(std430, set = 0, binding = 6) readonly buffer Order { uint order[]; }; // two 16-bit offsets a word
+// node_off, order_off, first_tri, and the node count with the item in the top 12 bits.
+layout(std430, set = 0, binding = 7) readonly buffer Chunks { uvec4 chunks[]; };
+layout(std430, set = 0, binding = 8) readonly buffer Items { Item items[]; };
+layout(set = 1, binding = 0, rgba32f) uniform writeonly image2D next;
+
+#define LIGHT_COUNT 8
+
+layout(std140, set = 2, binding = 0) uniform Render_Uniforms {
+	mat4 inv_view_proj; // clip space back to the world
+	// The lights in world space, as render.Lights carries them in view space (light_at in
+	// mesh_shading.glsl): toward a sun or where a point or spot light is, kind in w; colour
+	// and strength; a spot's axis and cone; distance, reach and spot edge.
+	vec4 light_pos[LIGHT_COUNT];
+	vec4 light_color[LIGHT_COUNT];
+	vec4 light_spot[LIGHT_COUNT];
+	vec4 light_shape[LIGHT_COUNT];
+	// Each light as an area: x a sun's cone's cosine or a sphere's radius, y the radiance
+	// a unit of its colour stands for, z the chance it is picked up to and including it, w
+	// the chance it is picked.
+	vec4 light_size[LIGHT_COUNT];
+	// The built-in studio's turn into the world, with the ambient light in rig_x.w.
+	vec4 rig_x;
+	vec4 rig_y;
+	vec4 rig_z;
+	// The image environment's axes in the world.
+	vec4 env_x;
+	vec4 env_y;
+	vec4 env_z;
+	vec4 env;     // x: 1 while an image environment is bound, y: its strength
+	vec4 scene;   // xyz: the scene's centre, w: its radius
+	uvec4 counts; // x: this sample, y: the first row of this band, z: bounces, w: where paint starts in `attributes`
+	uvec4 extra;  // x: where the scene tree starts in `nodes`, y: 1 when it is empty
+};
+
+#include "panorama.glsl"
+#include "studio_env.glsl"
+
+const float PI = 3.14159265;
+// geom.CHUNK_BVH_STACK for each level: a chunk's entries stay above the scene tree's.
+const int STACK = 2 * 57;
+const uint IN_CHUNK = 0x80000000u;
+const float FAR = 3.0e38;
+// How blurred the built-in studio is where paths leave the scene: its two narrow lobes
+// sharp would be found by a diffuse bounce too rarely to converge.
+const float STUDIO_BLUR = 0.25;
+// The largest radiance one sample may add to a pixel: a rare path that finds a bright
+// light through a narrow gap would otherwise leave a white speck for hundreds of samples.
+const float SAMPLE_CLAMP = 16.0;
+
+// PCG (O'Neill 2014), the state per invocation.
+uint rng;
+
+uint pcg_next() {
+	uint s = rng;
+	rng = s * 747796405u + 2891336453u;
+	uint w = ((s >> ((s >> 28u) + 4u)) ^ s) * 277803737u;
+	return (w >> 22u) ^ w;
+}
+
+float rnd() {
+	return float(pcg_next() >> 8) / 16777216.0;
+}
+
+vec3 vertex(uint v) {
+	return vec3(positions[3u * v], positions[3u * v + 1u], positions[3u * v + 2u]);
+}
+
+vec3 oct_decode(vec2 e) {
+	vec3 v = vec3(e, 1.0 - abs(e.x) - abs(e.y));
+	if (v.z < 0.0) v.xy = (1.0 - abs(e.yx)) * vec2(e.x >= 0.0 ? 1.0 : -1.0, e.y >= 0.0 ? 1.0 : -1.0);
+	return normalize(v);
+}
+
+// A vertex's normal in mesh space: two 16-bit halves, the mask in the low 4 bits of each,
+// which render mode leaves out.
+vec3 vertex_normal(uint v) {
+	uint w = attributes[v];
+	ivec2 raw = ivec2(int(w << 16) >> 16, int(w) >> 16);
+	return oct_decode(vec2(raw & ~15) / 32767.0);
+}
+
+uvec2 vertex_paint(uint v) {
+	uint at = counts.w + 2u * v;
+	return uvec2(attributes[at], attributes[at + 1u]);
+}
+
+vec3 srgb_decode(vec3 c) {
+	return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c));
+}
+
+// As mesh.vert's: hues a golden angle apart, in two lightnesses.
+vec3 group_color(uint g) {
+	float h = fract(float(g) * 0.618034 + 0.12);
+	vec3 rgb = clamp(abs(fract(h + vec3(0.0, 2.0, 1.0) / 3.0) * 6.0 - 3.0) - 1.0, 0.0, 1.0);
+	float light = (g & 1u) == 0u ? 0.75 : 0.55;
+	return mix(vec3(1.0), rgb, 0.55) * light;
+}
+
+// Where a ray along `d` enters the box, or -1 where it misses it or enters beyond `t_max`;
+// a box refit empty (lo above hi) is never entered.
+float enters(Node n, vec3 o, vec3 inv, float t_max) {
+	if (n.lo.x > n.hi.x) return -1.0;
+	vec3 t0 = (n.lo - o) * inv, t1 = (n.hi - o) * inv;
+	vec3 near = min(t0, t1), far = max(t0, t1);
+	float t_in = max(max(near.x, near.y), max(near.z, 0.0));
+	float t_out = min(far.x, min(far.y, far.z));
+	return t_in <= t_out && t_in < t_max ? t_in : -1.0;
+}
+
+vec3 safe_inverse(vec3 d) {
+	// No component exactly zero, so the slab test never multiplies zero by infinity.
+	return 1.0 / mix(d, vec3(1e-20), equal(d, vec3(0.0)));
+}
+
+struct Hit {
+	float t;
+	uint tri;  // in the merged index buffer
+	uint item;
+	vec2 uv;   // barycentrics of the second and third corners
+};
+
+// The nearest triangle along the ray before `t_max`, or with `any` the first one found.
+// The scene tree is in world space; at a chunk the ray goes into its item's mesh space
+// unnormalised, so t keeps measuring the world ray.
+bool trace(vec3 o, vec3 d, float t_max, bool any, out Hit hit) {
+	hit.t = t_max;
+	hit.tri = 0u;
+	hit.item = 0u;
+	hit.uv = vec2(0.0);
+	if (extra.y != 0u) return false;
+	bool found = false;
+	vec3 inv = safe_inverse(d);
+	uint stack[STACK];
+	int top = 1;
+	stack[0] = extra.x;
+	uvec4 ch = uvec4(0u);
+	uint item = 0u, base = 0u;
+	vec3 om = vec3(0.0), dm = vec3(0.0), inv_m = vec3(0.0);
+	while (top > 0) {
+		uint e = stack[--top];
+		if ((e & IN_CHUNK) == 0u) {
+			Node n = nodes[e];
+			if (enters(n, o, inv, hit.t) < 0.0) continue;
+			if (n.count == 0u) {
+				// The nearer child is walked first, so later boxes are cut by its hits.
+				uint a = extra.x + n.first, b = a + 1u;
+				float ta = enters(nodes[a], o, inv, hit.t), tb = enters(nodes[b], o, inv, hit.t);
+				if (ta >= 0.0 && tb >= 0.0) {
+					stack[top++] = ta < tb ? b : a;
+					stack[top++] = ta < tb ? a : b;
+				} else if (ta >= 0.0) {
+					stack[top++] = a;
+				} else if (tb >= 0.0) {
+					stack[top++] = b;
+				}
+			} else {
+				// Everything pushed from here on is this chunk's, and is walked before the
+				// scene tree's next entry comes off the stack.
+				ch = chunks[n.first];
+				item = ch.w >> 20;
+				base = items[item].offs.x;
+				mat4 to_mesh = items[item].inv_model;
+				om = (to_mesh * vec4(o, 1.0)).xyz;
+				dm = mat3(to_mesh) * d;
+				inv_m = safe_inverse(dm);
+				stack[top++] = IN_CHUNK;
+			}
+			continue;
+		}
+		Node n = nodes[ch.x + (e & ~IN_CHUNK)];
+		if (enters(n, om, inv_m, hit.t) < 0.0) continue;
+		if (n.count == 0u) {
+			uint a = n.first, b = a + 1u;
+			float ta = enters(nodes[ch.x + a], om, inv_m, hit.t), tb = enters(nodes[ch.x + b], om, inv_m, hit.t);
+			if (ta >= 0.0 && tb >= 0.0) {
+				stack[top++] = IN_CHUNK | (ta < tb ? b : a);
+				stack[top++] = IN_CHUNK | (ta < tb ? a : b);
+			} else if (ta >= 0.0) {
+				stack[top++] = IN_CHUNK | a;
+			} else if (tb >= 0.0) {
+				stack[top++] = IN_CHUNK | b;
+			}
+			continue;
+		}
+		for (uint j = n.first; j < n.first + n.count; j++) {
+			uint at = ch.y + j;
+			uint word = order[at >> 1];
+			uint tri = ch.z + ((at & 1u) == 0u ? (word & 0xFFFFu) : (word >> 16));
+			uint ia = indices[3u * tri], ib = indices[3u * tri + 1u], ic = indices[3u * tri + 2u];
+			// A triangle with a repeated corner (hidden, or an unused slot) never hits.
+			if (ia == ib || ib == ic || ia == ic) continue;
+			// Möller-Trumbore, both sides.
+			vec3 p0 = vertex(base + ia);
+			vec3 e1 = vertex(base + ib) - p0, e2 = vertex(base + ic) - p0;
+			vec3 pv = cross(dm, e2);
+			float det = dot(e1, pv);
+			if (det == 0.0) continue;
+			float f = 1.0 / det;
+			vec3 tv = om - p0;
+			float u = dot(tv, pv) * f;
+			if (u < 0.0 || u > 1.0) continue;
+			vec3 qv = cross(tv, e1);
+			float v = dot(dm, qv) * f;
+			if (v < 0.0 || u + v > 1.0) continue;
+			float t = dot(e2, qv) * f;
+			if (t <= 0.0 || t >= hit.t) continue;
+			hit.t = t;
+			hit.tri = tri;
+			hit.item = item;
+			hit.uv = vec2(u, v);
+			found = true;
+			if (any) return true;
+		}
+	}
+	return found;
+}
+
+// Off the surface along its geometric normal by a few steps of the float grid, which
+// scales with the position itself (Wächter and Binder, "A Fast and Robust Method for
+// Avoiding Self-Intersection", Ray Tracing Gems 2019).
+vec3 offset_ray(vec3 p, vec3 n) {
+	const float ORIGIN = 1.0 / 32.0;
+	const float FLOAT_SCALE = 1.0 / 65536.0;
+	const float INT_SCALE = 256.0;
+	ivec3 of = ivec3(INT_SCALE * n);
+	vec3 p_i = vec3(
+		intBitsToFloat(floatBitsToInt(p.x) + (p.x < 0.0 ? -of.x : of.x)),
+		intBitsToFloat(floatBitsToInt(p.y) + (p.y < 0.0 ? -of.y : of.y)),
+		intBitsToFloat(floatBitsToInt(p.z) + (p.z < 0.0 ? -of.z : of.z)));
+	return vec3(
+		abs(p.x) < ORIGIN ? p.x + FLOAT_SCALE * n.x : p_i.x,
+		abs(p.y) < ORIGIN ? p.y + FLOAT_SCALE * n.y : p_i.y,
+		abs(p.z) < ORIGIN ? p.z + FLOAT_SCALE * n.z : p_i.z);
+}
+
+// A frame about `n` (Duff et al. 2017): tangent, bitangent.
+void basis(vec3 n, out vec3 t, out vec3 b) {
+	float s = n.z >= 0.0 ? 1.0 : -1.0;
+	float a = -1.0 / (s + n.z);
+	float c = n.x * n.y * a;
+	t = vec3(1.0 + s * n.x * n.x * a, s * c, -s * n.x);
+	b = vec3(c, s + n.y * n.y * a, -n.y);
+}
+
+float luminance(vec3 c) {
+	return dot(c, vec3(0.2126, 0.7152, 0.0722));
+}
+
+struct Surface {
+	vec3 diffuse; // the Lambert part's colour
+	vec3 f0;      // reflectance seen straight on
+	float a;      // GGX alpha, roughness squared
+};
+
+vec3 fresnel(vec3 f0, float c) {
+	return f0 + (1.0 - f0) * pow(1.0 - clamp(c, 0.0, 1.0), 5.0);
+}
+
+float ggx_d(float n_dot_h, float a) {
+	float a2 = a * a;
+	float d = n_dot_h * n_dot_h * (a2 - 1.0) + 1.0;
+	return a2 / (PI * d * d);
+}
+
+// Smith's Lambda for GGX.
+float ggx_lambda(float c, float a) {
+	float c2 = max(c * c, 1e-8);
+	return 0.5 * (-1.0 + sqrt(1.0 + a * a * (1.0 - c2) / c2));
+}
+
+// The chance the specular lobe is picked, from the Fresnel straight toward the eye: the
+// half vector is not known before the lobe is.
+float specular_chance(Surface s, float n_dot_v) {
+	vec3 fv = fresnel(s.f0, n_dot_v);
+	float es = luminance(fv), ed = luminance(s.diffuse * (1.0 - fv));
+	if (ed <= 0.0) return 1.0;
+	return clamp(es / max(es + ed, 1e-6), 0.05, 0.95);
+}
+
+// The BSDF times the cosine toward `l`, and the pdf of picking `l` with bsdf_sample (the
+// mixture of both lobes).
+vec3 bsdf_eval(Surface s, vec3 n, vec3 v, vec3 l, out float pdf) {
+	pdf = 0.0;
+	float n_dot_l = dot(n, l), n_dot_v = dot(n, v);
+	if (n_dot_l <= 0.0 || n_dot_v <= 0.0) return vec3(0.0);
+	vec3 h = normalize(v + l);
+	float n_dot_h = max(dot(n, h), 0.0), v_dot_h = max(dot(v, h), 0.0);
+	float D = ggx_d(n_dot_h, s.a);
+	float lv = ggx_lambda(n_dot_v, s.a), ll = ggx_lambda(n_dot_l, s.a);
+	vec3 F = fresnel(s.f0, v_dot_h);
+	vec3 spec = F * (D / ((1.0 + lv + ll) * 4.0 * n_dot_v * n_dot_l));
+	vec3 diff = s.diffuse * (1.0 - fresnel(s.f0, n_dot_v)) / PI;
+	float ps = specular_chance(s, n_dot_v);
+	// The visible normals' pdf of h, carried over to l: G1(v) D / (4 n.v).
+	float pdf_spec = D / ((1.0 + lv) * 4.0 * n_dot_v);
+	pdf = ps * pdf_spec + (1.0 - ps) * n_dot_l / PI;
+	return (diff + spec) * n_dot_l;
+}
+
+// A half vector from GGX's visible normals (Heitz 2018), in the frame where n is +z.
+vec3 sample_vndf(vec3 ve, float a, vec2 u) {
+	vec3 vh = normalize(vec3(a * ve.x, a * ve.y, ve.z));
+	float lensq = vh.x * vh.x + vh.y * vh.y;
+	vec3 t1 = lensq > 0.0 ? vec3(-vh.y, vh.x, 0.0) * inversesqrt(lensq) : vec3(1.0, 0.0, 0.0);
+	vec3 t2 = cross(vh, t1);
+	float r = sqrt(u.x), phi = 2.0 * PI * u.y;
+	float p1 = r * cos(phi), p2 = r * sin(phi);
+	float s = 0.5 * (1.0 + vh.z);
+	p2 = (1.0 - s) * sqrt(max(1.0 - p1 * p1, 0.0)) + s * p2;
+	vec3 nh = p1 * t1 + p2 * t2 + sqrt(max(1.0 - p1 * p1 - p2 * p2, 0.0)) * vh;
+	return normalize(vec3(a * nh.x, a * nh.y, max(nh.z, 0.0)));
+}
+
+// A direction to continue in, picked from one lobe; false where it would go under the
+// surface.
+bool bsdf_sample(Surface s, vec3 n, vec3 v, out vec3 l) {
+	vec3 t, b;
+	basis(n, t, b);
+	float n_dot_v = max(dot(n, v), 1e-4);
+	vec2 u = vec2(rnd(), rnd());
+	if (rnd() < specular_chance(s, n_dot_v)) {
+		vec3 ve = vec3(dot(v, t), dot(v, b), dot(v, n));
+		vec3 hl = sample_vndf(ve, s.a, u);
+		vec3 h = t * hl.x + b * hl.y + n * hl.z;
+		l = reflect(-v, h);
+	} else {
+		float r = sqrt(u.x), phi = 2.0 * PI * u.y;
+		l = normalize(t * (r * cos(phi)) + b * (r * sin(phi)) + n * sqrt(max(1.0 - u.x, 0.0)));
+	}
+	return dot(n, l) > 0.0;
+}
+
+// A direction in the cone of cosine `cos_max` about `axis`, uniformly.
+vec3 sample_cone(vec3 axis, float cos_max) {
+	vec3 t, b;
+	basis(axis, t, b);
+	float c = 1.0 - rnd() * (1.0 - cos_max);
+	float s = sqrt(max(1.0 - c * c, 0.0)), phi = 2.0 * PI * rnd();
+	return normalize(t * (s * cos(phi)) + b * (s * sin(phi)) + axis * c);
+}
+
+float cone_pdf(float cos_max) {
+	return 1.0 / (2.0 * PI * max(1.0 - cos_max, 1e-7));
+}
+
+// How much of a point or spot light's radiance arrives at distance² `d2` from it along `l`
+// (toward the light): Karis's window at its reach and a spot's cone, as light_at.
+float light_falloff(int i, float d2, vec3 l) {
+	vec4 shape = light_shape[i];
+	float k = 1.0;
+	if (shape.y > 0.0) {
+		float x = d2 / (shape.y * shape.y);
+		float w = clamp(1.0 - x * x, 0.0, 1.0);
+		k *= w * w;
+	}
+	if (light_pos[i].w > 1.5) k *= smoothstep(light_spot[i].w, shape.z, dot(-l, light_spot[i].xyz));
+	return k;
+}
+
+// Where a ray from `o` along unit `d` meets the sphere, or -1.
+float sphere_hit(vec3 o, vec3 d, vec3 c, float r) {
+	vec3 oc = o - c;
+	float b = dot(oc, d);
+	float q = dot(oc, oc) - r * r;
+	float disc = b * b - q;
+	if (disc < 0.0) return -1.0;
+	float s = sqrt(disc);
+	float t = -b - s;
+	if (t < 0.0) t = -b + s;
+	return t;
+}
+
+// The cone of directions sphere light `i` fills seen from `p`: its cosine, or 2 when `p`
+// is inside it.
+float sphere_cone(int i, vec3 p) {
+	vec3 d = light_pos[i].xyz - p;
+	float d2 = dot(d, d), r = light_size[i].x;
+	if (d2 <= r * r) return 2.0;
+	return sqrt(1.0 - r * r / d2);
+}
+
+float power_weight(float a, float b) {
+	return a * a / max(a * a + b * b, 1e-30);
+}
+
+// One light's light at a surface (next-event estimation): a light picked by strength, a
+// direction toward it, the BSDF there and a shadow ray, weighted against finding the
+// light by the BSDF.
+vec3 direct_light(Surface s, vec3 p, vec3 ng, vec3 n, vec3 v) {
+	float pick = rnd();
+	int i = -1;
+	for (int k = 0; k < LIGHT_COUNT; k++) {
+		if (light_size[k].w > 0.0 && pick < light_size[k].z) {
+			i = k;
+			break;
+		}
+	}
+	if (i < 0) return vec3(0.0);
+	vec3 l;
+	float dist = FAR, pdf_dir;
+	vec3 radiance = light_color[i].rgb * light_size[i].y;
+	if (light_pos[i].w < 0.5) {
+		l = sample_cone(light_pos[i].xyz, light_size[i].x);
+		pdf_dir = cone_pdf(light_size[i].x);
+	} else {
+		float cos_max = sphere_cone(i, p);
+		if (cos_max > 1.0) return vec3(0.0);
+		vec3 to = light_pos[i].xyz - p;
+		l = sample_cone(normalize(to), cos_max);
+		pdf_dir = cone_pdf(cos_max);
+		dist = sphere_hit(p, l, light_pos[i].xyz, light_size[i].x);
+		if (dist <= 0.0) return vec3(0.0);
+		radiance *= light_falloff(i, dot(to, to), normalize(to));
+	}
+	if (dot(ng, l) <= 0.0 || luminance(radiance) <= 0.0) return vec3(0.0);
+	float pdf_bsdf;
+	vec3 f = bsdf_eval(s, n, v, l, pdf_bsdf);
+	if (luminance(f) <= 0.0) return vec3(0.0);
+	float pdf_light = light_size[i].w * pdf_dir;
+	Hit shadow;
+	if (trace(offset_ray(p, ng), l, dist, true, shadow)) return vec3(0.0);
+	return f * radiance * (power_weight(pdf_light, pdf_bsdf) / pdf_light);
+}
+
+// The lights a ray picked by the BSDF meets before `t_hit` (suns only when it leaves the
+// scene), weighted against finding them by next-event estimation.
+vec3 lights_met(vec3 o, vec3 d, float t_hit, bool escaped, float pdf_bsdf) {
+	vec3 sum = vec3(0.0);
+	for (int i = 0; i < LIGHT_COUNT; i++) {
+		if (light_size[i].w <= 0.0) continue;
+		vec3 radiance = light_color[i].rgb * light_size[i].y;
+		float pdf_dir;
+		if (light_pos[i].w < 0.5) {
+			if (!escaped || dot(d, light_pos[i].xyz) < light_size[i].x) continue;
+			pdf_dir = cone_pdf(light_size[i].x);
+		} else {
+			float t = sphere_hit(o, d, light_pos[i].xyz, light_size[i].x);
+			float cos_max = sphere_cone(i, o);
+			if (t <= 0.0 || t >= t_hit || cos_max > 1.0) continue;
+			vec3 to = light_pos[i].xyz - o;
+			radiance *= light_falloff(i, dot(to, to), normalize(to));
+			pdf_dir = cone_pdf(cos_max);
+		}
+		sum += radiance * power_weight(pdf_bsdf, light_size[i].w * pdf_dir);
+	}
+	return sum;
+}
+
+// What a path that leaves the scene along `d` takes: the image environment, or the
+// built-in studio at the ambient light's strength as the viewport's diffuse takes it.
+vec3 environment(vec3 d) {
+	if (env.x > 0.5) {
+		vec3 e = transpose(mat3(env_x.xyz, env_y.xyz, env_z.xyz)) * d;
+		return textureLod(environment_map, panorama_uv(e), 0.0).rgb * env.y;
+	}
+	mat3 to_rig = transpose(mat3(rig_x.xyz, rig_y.xyz, rig_z.xyz));
+	return studio(to_rig * d, STUDIO_BLUR) * (0.7 * rig_x.w);
+}
+
+void main() {
+	ivec2 size = textureSize(prev, 0);
+	ivec2 px = ivec2(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y + counts.y);
+	if (px.x >= size.x || px.y >= size.y) return;
+	rng = uint(px.y * size.x + px.x) * 9781u + counts.x * 6271u + 1u;
+	pcg_next();
+	rng ^= counts.x * 2654435761u;
+	pcg_next();
+
+	// The camera's ray through a random point of the pixel.
+	vec2 uv = (vec2(px) + vec2(rnd(), rnd())) / vec2(size);
+	vec2 ndc = vec2(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
+	vec4 near = inv_view_proj * vec4(ndc, 0.0, 1.0);
+	vec4 far = inv_view_proj * vec4(ndc, 1.0, 1.0);
+	vec3 o = near.xyz / near.w;
+	vec3 d = normalize(far.xyz / far.w - o);
+
+	vec3 radiance = vec3(0.0), weight = vec3(1.0);
+	float covered = 0.0, pdf_bsdf = 0.0;
+	int bounces = int(counts.z);
+	for (int bounce = 0; bounce <= bounces; bounce++) {
+		Hit hit;
+		bool met = trace(o, d, FAR, false, hit);
+		// The camera never sees the lights, as in the viewport.
+		if (bounce > 0) radiance += weight * lights_met(o, d, met ? hit.t : FAR, !met, pdf_bsdf);
+		if (!met) {
+			if (bounce > 0) radiance += weight * environment(d);
+			break;
+		}
+		if (bounce == 0) covered = 1.0;
+		if (bounce == bounces) break;
+
+		uint ia = indices[3u * hit.tri], ib = indices[3u * hit.tri + 1u], ic = indices[3u * hit.tri + 2u];
+		uint base = items[hit.item].offs.x, flags = items[hit.item].offs.y;
+		mat4 model = items[hit.item].model;
+		float w0 = 1.0 - hit.uv.x - hit.uv.y;
+		vec3 p0 = vertex(base + ia), p1 = vertex(base + ib), p2 = vertex(base + ic);
+		vec3 p = (model * vec4(p0 * w0 + p1 * hit.uv.x + p2 * hit.uv.y, 1.0)).xyz;
+		vec3 ng = normalize(mat3(model) * cross(p1 - p0, p2 - p0));
+		if (dot(ng, d) > 0.0) ng = -ng;
+		vec3 n = normalize(mat3(model) * (vertex_normal(base + ia) * w0 + vertex_normal(base + ib) * hit.uv.x + vertex_normal(base + ic) * hit.uv.y));
+		if (dot(n, ng) < 0.0) n = -n;
+		vec3 v = -d;
+		// A shading normal facing away from the eye shades as the triangle does.
+		if (dot(n, v) <= 0.0) n = ng;
+
+		vec3 albedo = items[hit.item].color.rgb;
+		vec2 surf = items[hit.item].surface.xy;
+		if ((flags & (ITEM_PAINT | ITEM_GROUPS | ITEM_SLOTS)) != 0u) {
+			// The group from the corner the triangle is drawn from, as mesh.vert takes it.
+			uint group = vertex_paint(base + ia).y & 0xFFFFu;
+			if ((flags & ITEM_SLOTS) != 0u) {
+				for (uint k = 1u; k < 16u; k++) {
+					if (items[hit.item].slot_group[k >> 2][k & 3u] == group) {
+						albedo = items[hit.item].slot_color[k].rgb;
+						surf = items[hit.item].slot_surface[k].xy;
+					}
+				}
+			}
+			if ((flags & ITEM_PAINT) != 0u) {
+				vec4 c0 = unpackUnorm4x8(vertex_paint(base + ia).x);
+				vec4 c1 = unpackUnorm4x8(vertex_paint(base + ib).x);
+				vec4 c2 = unpackUnorm4x8(vertex_paint(base + ic).x);
+				vec4 paint = vec4(srgb_decode(c0.rgb), c0.a) * w0 + vec4(srgb_decode(c1.rgb), c1.a) * hit.uv.x + vec4(srgb_decode(c2.rgb), c2.a) * hit.uv.y;
+				albedo = mix(albedo, paint.rgb, paint.a);
+			}
+			if ((flags & ITEM_GROUPS) != 0u) albedo = group_color(group);
+		}
+		Surface s;
+		float metallic = clamp(surf.x, 0.0, 1.0);
+		s.diffuse = albedo * (1.0 - metallic);
+		s.f0 = mix(vec3(0.04), albedo, metallic);
+		s.a = max(surf.y * surf.y, 1e-3);
+
+		radiance += weight * direct_light(s, p, ng, n, v);
+
+		vec3 l;
+		if (!bsdf_sample(s, n, v, l) || dot(l, ng) <= 0.0) break;
+		vec3 f = bsdf_eval(s, n, v, l, pdf_bsdf);
+		if (pdf_bsdf <= 0.0) break;
+		weight *= f / pdf_bsdf;
+		o = offset_ray(p, ng);
+		d = l;
+		// Russian roulette from the third bounce on, by how much the path still carries.
+		if (bounce >= 2) {
+			float q = clamp(max(weight.r, max(weight.g, weight.b)), 0.05, 0.95);
+			if (rnd() > q) break;
+			weight /= q;
+		}
+	}
+	float lum = luminance(radiance);
+	if (lum > SAMPLE_CLAMP) radiance *= SAMPLE_CLAMP / lum;
+	vec4 sum = counts.x == 0u ? vec4(0.0) : texelFetch(prev, px, 0);
+	imageStore(next, px, sum + vec4(radiance, covered));
+}

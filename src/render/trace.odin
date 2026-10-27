@@ -379,20 +379,7 @@ trace_mesh_update :: proc(r: ^Renderer, tr: ^Tracer, cmd: ^sdl.GPUCommandBuffer,
 
 	// The tree over the shown chunks, from their boxes, wherever those moved or the
 	// hidden ones changed.
-	shown := make([dynamic]u32, context.temp_allocator)
-	bounds := make([dynamic]geom.Aabb, context.temp_allocator)
-	for c, i in tm.chunk_of {
-		b: geom.Aabb
-		if c == max(u32) {
-			b = tm.range_bounds[i]
-		} else {
-			if item.hidden != nil && int(c) < len(item.hidden) && item.hidden[c] do continue
-			b = item.chunks[c].bounds
-		}
-		if b.lo.x > b.hi.x do continue
-		append(&shown, u32(i))
-		append(&bounds, b)
-	}
+	shown, bounds := trace_shown(item, tm)
 	key := max(hash.fnv64a(slice.to_bytes(bounds[:]), hash.fnv64a(slice.to_bytes(shown[:]))), 1)
 	tm.tlas_empty = len(shown) == 0
 	if key == tm.tlas_key || tm.tlas_empty do return true
@@ -407,6 +394,27 @@ trace_mesh_update :: proc(r: ^Renderer, tr: ^Tracer, cmd: ^sdl.GPUCommandBuffer,
 	}
 	tm.tlas_key = key
 	return true
+}
+
+// The runs of an item's trees that are shown and not empty, and their boxes in mesh space,
+// in temp memory: what the tree over its chunks is built from, here and in render mode.
+@(private)
+trace_shown :: proc(item: Draw_Item, tm: ^Trace_Mesh) -> (shown: [dynamic]u32, bounds: [dynamic]geom.Aabb) {
+	shown = make([dynamic]u32, context.temp_allocator)
+	bounds = make([dynamic]geom.Aabb, context.temp_allocator)
+	for c, i in tm.chunk_of {
+		b: geom.Aabb
+		if c == max(u32) {
+			b = tm.range_bounds[i]
+		} else {
+			if item.hidden != nil && int(c) < len(item.hidden) && item.hidden[c] do continue
+			b = item.chunks[c].bounds
+		}
+		if b.lo.x > b.hi.x do continue
+		append(&shown, u32(i))
+		append(&bounds, b)
+	}
+	return
 }
 
 // Makes the next trace_mesh_update upload everything again after an upload failed part

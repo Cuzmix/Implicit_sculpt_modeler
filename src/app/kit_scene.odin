@@ -415,6 +415,7 @@ SCENE_SECTIONS := [?]Kit_Tab_Section {
 	{.Lights, "Lights", kit_lights, nil},
 	{.Environment, "Environment", kit_environment, nil},
 	{.Studio, "Studio render", kit_studio, nil},
+	{.Render, "Render", kit_render, nil},
 	{.Camera, "Camera", kit_camera, nil},
 	{.Floor, "Floor grid", kit_floor, nil},
 	{.Background, "Background", kit_background, nil},

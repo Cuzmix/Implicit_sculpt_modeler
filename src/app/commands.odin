@@ -166,6 +166,7 @@ Command_Id :: enum u8 {
 	Polygroups,
 	Studio_Render,
 	Live_Occlusion,
+	Render_Mode,
 	Viewport_Look, // the argument is the Look_Preset
 	Floor_Grid,
 	Transparency,
@@ -1373,6 +1374,12 @@ COMMANDS := [Command_Id]Command {
 		help = "Darkens creases and contact every frame, sculpting too, with screen-space ambient occlusion.",
 		run = proc(app: ^App, _: int) {app.live_ao_on = !app.live_ao_on},
 		checked = proc(app: ^App, _: int) -> bool {return app.live_ao_on},
+	},
+	.Render_Mode = {
+		label = "Render mode",
+		help = "Path traces the view while it is still: every light with soft shadows, the environment, and light bounced between surfaces.",
+		run = proc(app: ^App, _: int) {render_toggle(app)},
+		checked = proc(app: ^App, _: int) -> bool {return app.render_on},
 	},
 	.Viewport_Look = {
 		label = "Look",
