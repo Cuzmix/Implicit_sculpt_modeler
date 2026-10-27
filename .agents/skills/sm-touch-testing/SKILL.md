@@ -35,7 +35,7 @@ as a user would, with each kind of pointer, then say exactly how it was tested.
 | `src/app/touch.odin` | `touch_event` (first finger drives the pointer with `jump = true`), `touch_route` (one owner per touch, gestures, taps, palm, cancel) |
 | `src/app/navigate.odin` | `pointer_route` / `drag_decide` (one owner per drag: Tool, Orbit, Pan, Zoom, Muted), the slop, `FINGER_HOLD`, `camera_apply_input`, `Nav_Prefs` |
 | `src/ui/ui.odin` | `interact` (tentative presses in `drag_scroll` areas), `claim_drag`, `scroll_update`, `scroll_take`, `hit_extend`; `src/ui/fingers.odin` |
-| `src/camera/camera.odin` | `orbit_rotate` (Free, Turntable), `orbit_turn_about` (the pivot stays put), `orbit_roll`, `orbit_snap`, `orbit_zoom_toward` |
+| `src/camera/camera.odin` | `orbit_rotate` (Free, Turntable, Axis_X and Axis_Z, whose sideways sign `orbit_latch` fixes as a drag begins), `orbit_turn_about` (the pivot stays put), `orbit_roll`, `orbit_snap`, `orbit_zoom_toward` |
 | `src/app/kit_settings.odin`, `settings.odin` | every touch and camera preference, its default, reset and saved key |
 
 Red flags while reading: a camera or tool path reachable from a press the interface took; a delta taken from SDL's
@@ -91,10 +91,12 @@ on window focus or hover to decide ownership; a widget that acts on a finger pre
 | taps the model once: the dab lands after the double tap's gap, or at once before an Undo tap, a stroke or a pinch; with double taps off, at once | `single_tap_dab_lands_after_the_gap`, `tap_dab_waits_for_nothing_else`, `tap_then_stroke_keeps_both`, `tap_then_two_fingers_keeps_the_dab`, `double_tap_off_taps_dab_at_once` |
 | puts two fingers down and lifts one to turn the view; not after a pinch, not when off | `lift_one_finger_turns_the_view`, `pinch_then_lift_turns_nothing`, `lift_one_off_turns_nothing` |
 | holds two or three fingers still to repeat undo or redo; never with the pen near, a late (palm) finger, a slow pinch, or when off | `hold_two_fingers_repeats_undo`, `hold_three_fingers_repeats_redo`, `hold_with_the_pen_near_does_nothing`, `hold_with_a_late_finger_does_nothing`, `slow_pinch_never_undoes`, `hold_off_undoes_nothing` |
+| taps one finger on empty space with One-finger tap mapped: it runs after the double tap's gap, gives way to a double tap, is dropped by the pen coming near, and replaces the Move tool's deselect; Any command... chooses it from the Search | `one_finger_tap_runs_its_command`, `one_finger_tap_gives_way_to_a_double_tap`, `one_finger_tap_dropped_by_the_pen`, `one_finger_tap_keeps_the_move_selection`, `gesture_any_command_from_search` |
+| drags sideways on empty space with the X axis or Z axis orbit: the eye keeps its height along that axis (`camera_back`) | `x_axis_orbit_setting`, `z_axis_orbit_setting` |
 | with the Move tool and the rail's Mask, drags from the model to mask along the surface (posing's topological mask); Esc mid-drag puts it back | `topo_mask_by_finger_with_the_rail`, `topo_mask_ctrl_drag_masks_along_the_surface` |
 
 Repeat the critical ones (taps, first-touch scroll, full turns, pinch) after any change to camera or touch settings,
-with the setting changed by a start-up script (`--script=set orbit_style turntable`, `set finger_model orbit`,
+with the setting changed by a start-up script (`--script=set orbit_style turntable` or `axis_x`/`axis_z`, `set finger_model orbit`,
 `set orbit_pivot centre`, `set edge_orbit off`), or through the Settings panel as
 `changed_touch_setting_takes_effect` does). Live window resizing, rotation and split screen cannot be scripted: they
 are on the device checklist.

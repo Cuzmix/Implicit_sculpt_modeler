@@ -443,19 +443,36 @@ palette_open :: proc(app: ^App) {
 	k := &app.kit
 	k.palette, k.palette_pick, k.palette_first = true, 0, 0
 	k.palette_query = {}
+	k.palette_for = nil
 	kit_floats_close(k)
+}
+
+// Opens the palette to choose what gesture `slot` runs: every command a gesture may hold,
+// whether or not it can run now, and no Settings tabs; a pick puts it on the gesture.
+palette_open_for :: proc(app: ^App, slot: Gesture_Slot) {
+	palette_open(app)
+	app.kit.palette_for = slot
 }
 
 // Closes it and gives the keys back.
 palette_close :: proc(app: ^App) {
 	app.kit.palette = false
+	app.kit.palette_for = nil
 	app.kit.ctx.text_focus = 0
 }
 
 // Runs the entry as its menu row or button would, then closes the palette; what ran is
-// remembered as recent (and counted for the exit stats).
+// remembered as recent (and counted for the exit stats). While choosing for a gesture, it
+// puts the entry on the gesture instead, which neither runs it nor counts as a recent.
 palette_run :: proc(app: ^App, e: Palette_Entry) {
 	k := &app.kit
+	if slot, choosing := k.palette_for.?; choosing {
+		palette_close(app)
+		if e.kind != .Command || !gesture_lists(e.id) do return
+		app.nav.gestures[slot] = {e.id, e.arg}
+		report(app, nil, {}, "%s now runs %s", GESTURE_SLOT_NAMES[slot], pie_slot_label({e.id, e.arg}))
+		return
+	}
 	palette_close(app)
 	ran := false
 	switch e.kind {
@@ -498,9 +515,19 @@ kit_palette :: proc(app: ^App, anchor: ui.Rect, side: ui.Side) {
 	}
 	query := string(cstring(&k.palette_query[0]))
 	entries := palette_entries_shown(app)
+	choosing_for, choosing := k.palette_for.?
+	if choosing {
+		// Only what a gesture may hold, the palette itself included.
+		kept := make([dynamic]Palette_Entry, 0, len(entries) + 1, context.temp_allocator)
+		for e in entries do if e.kind == .Command && gesture_lists(e.id) do append(&kept, e)
+		append(&kept, Palette_Entry{.Command, .Command_Palette, 0})
+		entries = kept[:]
+		ui.caption(ctx, fmt.tprintf("  CHOOSE WHAT %s RUNS", strings.to_upper(GESTURE_SLOT_NAMES[choosing_for], context.temp_allocator)))
+	}
 	enabled := make([]bool, len(entries), context.temp_allocator)
 	titles := make([]string, len(entries), context.temp_allocator)
-	for e, i in entries do enabled[i], titles[i] = palette_enabled(app, e), entry_title(app, e)
+	// A gesture may hold a command that cannot run now (Level up with no levels yet).
+	for e, i in entries do enabled[i], titles[i] = choosing || palette_enabled(app, e), entry_title(app, e)
 	hits := palette_rank(query, entries, k.palette_recent[:k.palette_recent_count], enabled, favourite_entries(app), titles)
 	n := len(hits)
 	if k.palette && n > 0 {
@@ -513,7 +540,7 @@ kit_palette :: proc(app: ^App, anchor: ui.Rect, side: ui.Side) {
 	if k.palette_pick >= k.palette_first + rows do k.palette_first = k.palette_pick - rows + 1
 	k.palette_first = clamp(k.palette_first, 0, max(n - rows, 0))
 
-	if query == "" {
+	if query == "" && !choosing {
 		switch {
 		case k.favourite_count > 0 && k.palette_recent_count > 0: ui.caption(ctx, "  STARRED, RECENT, THEN EVERYTHING")
 		case k.favourite_count > 0:                               ui.caption(ctx, "  STARRED, THEN EVERYTHING")
@@ -552,7 +579,7 @@ kit_palette :: proc(app: ^App, anchor: ui.Rect, side: ui.Side) {
 	// controls that can run now): a star, a pie's slot, a key. A Settings tab is none of
 	// these, so its row stays, empty, and the popover keeps its height.
 	ui.begin(ctx, "palette actions", {direction = .Row, gap = 8, height = t.target})
-	if n > 0 && entries[hits[k.palette_pick].entry].kind == .Command {
+	if n > 0 && entries[hits[k.palette_pick].entry].kind == .Command && !choosing {
 		e := entries[hits[k.palette_pick].entry]
 		third := (width - 16 - 16) / 3
 		starred := favourite_find(app, e.id, e.arg) >= 0
