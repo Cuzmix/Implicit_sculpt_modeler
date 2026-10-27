@@ -455,10 +455,16 @@ history_record :: proc(app: ^App, obj: ^Object, kind: History_Kind, what: string
 
 @(private = "file", rodata)
 HIDE_COMMAND_NAMES := [sculpt.Hide_Command]string {
-	.Show_All = "show all",
-	.Invert   = "invert visibility",
-	.Masked   = "hide masked",
-	.Unmasked = "hide unmasked",
+	.Show_All    = "show all",
+	.Invert      = "invert visibility",
+	.Masked      = "hide masked",
+	.Unmasked    = "hide unmasked",
+	.Grow        = "grow visibility",
+	.Shrink      = "shrink visibility",
+	.Grow_All    = "grow all",
+	.Outer_Ring  = "outer ring",
+	.Grow_Groups = "grow to groups",
+	.Show_Masked = "show masked",
 }
 
 @(private = "file", rodata)

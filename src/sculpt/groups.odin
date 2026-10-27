@@ -35,6 +35,11 @@ Group_Command :: enum {
 	Masked,  // what is masked becomes one new group
 	Creases, // a group for each part between creases sharper than the angle given
 	Clear,   // everything back to group 0
+	// Added later, so the ones before keep their numbers.
+	Pieces,        // a group for each connected piece of what is shown
+	Normals,       // a group for each part facing within the angle given of its first triangle (each flood starts at the first triangle no earlier one reached)
+	Merge_Similar, // groups of as many triangles and much the same area become one
+	Uv_Charts,     // a group for each UV chart: needs the levels (levels_group_uv_charts)
 }
 
 // Angle between neighbouring triangles beyond which Creases starts a new group, by default.
@@ -58,14 +63,17 @@ groups_destroy :: proc(s: ^Sculptor) {
 	s.groups = {}
 }
 
-// Changes the groups as one undo step: Creases takes the angle in degrees. Returns true
-// when a group changed. Refused (false) under dynamic topology; Masked does nothing
-// without a mask. Hidden triangles keep their groups.
+// Changes the groups as one undo step: Creases and Normals take the angle in degrees.
+// Returns true when a group changed. Refused (false) under dynamic topology and for
+// Uv_Charts (levels_group_uv_charts runs it); Masked does nothing without a mask, Clear
+// and Merge similar nothing without groups. Hidden triangles keep their groups.
 sculptor_group_command :: proc(s: ^Sculptor, command: Group_Command, degrees: f32 = CREASE_GROUP_DEGREES) -> bool {
 	_ = sculptor_stroke_end(s)
 	if s.dyn != nil do return false
 	if command == .Masked && s.mask == nil do return false
-	if command == .Clear && s.groups.tris == nil do return false
+	if (command == .Clear || command == .Merge_Similar) && s.groups.tris == nil do return false
+	// The charts belong to the base level's quads, which a sculptor does not know.
+	if command == .Uv_Charts do return false
 	tcount := len(s.mesh.indices) / 3
 	after := make([]u16, tcount, context.temp_allocator)
 	if s.groups.tris != nil do copy(after, s.groups.tris)
@@ -84,8 +92,16 @@ sculptor_group_command :: proc(s: ^Sculptor, command: Group_Command, degrees: f3
 		}
 	case .Creases:
 		groups_by_creases(s, after, hidden, math.cos(math.to_radians(degrees)))
+	case .Pieces:
+		// No edge is sharp enough to stop the flood.
+		groups_by_creases(s, after, hidden, -2)
+	case .Normals:
+		groups_by_creases(s, after, hidden, math.cos(math.to_radians(degrees)), from_seed = true)
 	case .Clear:
 		for &g, t in after do if hidden == nil || !hidden[t] do g = 0
+	case .Merge_Similar:
+		groups_merge_similar(s, after, hidden)
+	case .Uv_Charts:
 	}
 	return groups_commit(s, after)
 }
@@ -101,9 +117,11 @@ groups_next :: proc(s: ^Sculptor) -> u16 {
 }
 
 // Floods each part of the shown surface between edges whose triangles meet at a cosine
-// below `cos_limit`, numbering the parts 0, 1, ... in triangle order.
+// below `cos_limit`, numbering the parts 0, 1, ... in triangle order. With `from_seed`, a
+// triangle joins when its normal is within `cos_limit` of the part's first triangle's
+// instead, so a part stays one way round however gently it turns (Group by normals).
 @(private = "file")
-groups_by_creases :: proc(s: ^Sculptor, out: []u16, hidden: []bool, cos_limit: f32) {
+groups_by_creases :: proc(s: ^Sculptor, out: []u16, hidden: []bool, cos_limit: f32, from_seed := false) {
 	m := s.mesh
 	tcount := len(out)
 	normal := make([]Vec3, tcount, context.temp_allocator)
@@ -127,22 +145,69 @@ groups_by_creases :: proc(s: ^Sculptor, out: []u16, hidden: []bool, cos_limit: f
 		if seen[start] || (hidden != nil && hidden[start]) do continue
 		seen[start] = true
 		append(&stack, u32(start))
+		seed := normal[start]
 		for len(stack) > 0 {
 			t := pop(&stack)
 			out[t] = group
+			against := seed if from_seed else normal[t]
 			for k in 0 ..< 3 {
 				a, b := m.indices[3 * t + u32(k)], m.indices[3 * t + u32((k + 1) % 3)]
 				for f in geom.vertex_faces_of(s.faces, a) {
 					if seen[f] || (hidden != nil && hidden[f]) do continue
 					if !tri_has(m.indices[:], f, b) do continue
-					if linalg.dot(normal[t], normal[f]) < cos_limit do continue
+					if linalg.dot(against, normal[f]) < cos_limit do continue
 					seen[f] = true
 					append(&stack, f)
 				}
 			}
 		}
-		group += 1
+		// Past the last number a u16 holds, the rest share it rather than wrap to 0.
+		if group < max(u16) do group += 1
 	}
+}
+
+// Merges groups alike in size, as ZBrush's Merge similar groups does: over the shown
+// triangles, each group's triangle count and area; groups sorted by those, and each run
+// of the same count whose areas are within 1% of the run's first becomes the run's
+// lowest group. Only shown triangles change, so a group partly hidden keeps its number
+// on the hidden part. Serial and in a fixed order, so the result never depends on threads.
+@(private = "file")
+groups_merge_similar :: proc(s: ^Sculptor, out: []u16, hidden: []bool) {
+	Stat :: struct {
+		count: int,
+		area:  f64,
+		group: u16,
+	}
+	stats := make([]Stat, int(max(u16)) + 1, context.temp_allocator)
+	m := s.mesh
+	for g, t in out {
+		if hidden != nil && hidden[t] do continue
+		a, b, c := m.positions[m.indices[3 * t]], m.positions[m.indices[3 * t + 1]], m.positions[m.indices[3 * t + 2]]
+		stats[g].count += 1
+		stats[g].area += f64(linalg.length(linalg.cross(b - a, c - a))) / 2
+	}
+	used := make([dynamic]Stat, 0, 64, context.temp_allocator)
+	for &st, g in stats {
+		st.group = u16(g)
+		if st.count > 0 do append(&used, st)
+	}
+	slice.sort_by(used[:], proc(x, y: Stat) -> bool {
+		if x.count != y.count do return x.count < y.count
+		if x.area != y.area do return x.area < y.area
+		return x.group < y.group
+	})
+	into := make([]u16, len(stats), context.temp_allocator)
+	for &g, i in into do g = u16(i)
+	for i := 0; i < len(used); {
+		j, lowest := i + 1, used[i].group
+		for j < len(used) && used[j].count == used[i].count && used[j].area - used[i].area <= 0.01 * used[i].area {
+			lowest = min(lowest, used[j].group)
+			j += 1
+		}
+		for k in i ..< j do into[used[k].group] = lowest
+		i = j
+	}
+	for &g, t in out do if hidden == nil || !hidden[t] do g = into[g]
 }
 
 @(private = "file")
@@ -357,4 +422,58 @@ levels_carry_groups :: proc(l: ^Levels, from, to: int) {
 		}
 		groups_refresh(dst)
 	}
+}
+
+// Gives each UV chart of a retopologized object its own group (the chart's number + 1)
+// on the level shown, as ZBrush's Groups by UVs does, in one undo step: each base
+// triangle takes the chart of the quad it is half of, and each triangle above the chart
+// of the one it was cut from. Hidden triangles keep their groups. False without UVs,
+// under dynamic topology, and when nothing changes.
+levels_group_uv_charts :: proc(l: ^Levels) -> bool {
+	if !levels_has_uvs(l) || l.hd.window != nil do return false
+	s := &levels_current(l).sculptor
+	_ = sculptor_stroke_end(s)
+	if s.dyn != nil do return false
+	base := l.levels[0]
+	m := base.mesh
+	// The quads at each base vertex, to find the one holding a triangle's three corners.
+	// As offsets into one list: vertex v's quads are list[first[v]:first[v + 1]].
+	first := make([]u32, len(m.positions) + 1, context.temp_allocator)
+	for q in l.faces.quads do for v in q do first[v + 1] += 1
+	for v in 0 ..< len(m.positions) do first[v + 1] += first[v]
+	list := make([]u32, 4 * len(l.faces.quads), context.temp_allocator)
+	fill := slice.clone(first, context.temp_allocator)
+	for q, i in l.faces.quads {
+		for v in q {
+			list[fill[v]] = u32(i)
+			fill[v] += 1
+		}
+	}
+	chart := make([]u32, len(m.indices) / 3, context.temp_allocator)
+	for &c, t in chart {
+		i := m.indices[3 * t:][:3]
+		found := false
+		for q in list[first[i[0]]:first[i[0] + 1]] {
+			quad := l.faces.quads[q]
+			if slice.contains(quad[:], i[1]) && slice.contains(quad[:], i[2]) {
+				c, found = l.faces.uv.chart[q], true
+				break
+			}
+		}
+		// The base level's triangles are its quads' halves, in its own vertex numbers.
+		assert(found, "a base triangle is no quad's half")
+	}
+	for j in 1 ..= l.current {
+		parent := level_tri_parents(l, j)
+		up := make([]u32, len(parent), context.temp_allocator)
+		for p, t in parent do up[t] = chart[p]
+		chart = up
+	}
+	after := make([]u16, len(chart), context.temp_allocator)
+	if s.groups.tris != nil do copy(after, s.groups.tris)
+	hidden := sculptor_hidden_tris(s)
+	// Hidden triangles keep their groups, so the charts' start past those, as Creases' do.
+	start := u32(groups_next(s)) if hidden != nil else 1
+	for c, t in chart do if hidden == nil || !hidden[t] do after[t] = u16(min(c + start, u32(max(u16))))
+	return groups_commit(s, after)
 }
