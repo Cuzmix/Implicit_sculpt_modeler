@@ -110,8 +110,14 @@ Orbit_Pivot :: enum u8 {
 	// turns about that spot. A press on empty space turns as Stroke does.
 	Pointer,
 	// The middle of the view, the camera's target: the model swings about the screen's
-	// middle wherever it is.
+	// middle wherever it is, as Blender turns with Orbit Around Selection off.
 	Centre,
+	// The middle of the selected objects, as Blender's Orbit Around Selection in Object
+	// Mode and Nomad's Selection pivot: strokes do not move it.
+	Selection,
+	// The middle of every shown object, as Nomad's Scene pivot: the whole scene turns as
+	// one piece.
+	Scene,
 }
 
 // Where the pivot of the last orbit came from, for the exit stats.
@@ -121,6 +127,9 @@ Pivot_Source :: enum u8 {
 	Pointer,
 	Object,
 	Tapped, // a double tap pinned it
+	Selection,
+	Scene,
+	Air, // Pointer off the model, with Turn about the air under the pointer on
 }
 
 // The middle of the last stroke, in its object's own space so it follows the object when
@@ -221,6 +230,13 @@ Nav_Prefs :: struct {
 	palm_rejection: bool, // a lone finger does nothing while the pen is near
 	double_tap:     bool, // a finger's double tap frames, or pins the pivot on the model
 	lift_one_orbit: bool, // two fingers down, one lifted: the other turns the view
+	// Pointer off the model: turn about the point under the pointer as deep as the view's
+	// middle (Nomad's Allow air pivot) instead of about the last stroke.
+	air_pivot:      bool,
+	pivot_dot:      bool, // show the dot the view turns about while it turns (Nomad can hide it)
+	// The wheel zooms toward the pointer, keeping what is under it there, as Blender's Zoom
+	// to Mouse Position and a pinch toward the fingers do; off, toward the middle.
+	wheel_toward:   bool,
 	// What the multi-finger taps and holds and the pen's side button run (gesture_map.odin).
 	gestures:       [Gesture_Slot]Pie_Slot,
 	// The safe zone, as the SculptNavigation add-on's border: a press this close to an
@@ -274,6 +290,7 @@ NAV_DEFAULT :: Nav_Prefs {
 	palm_rejection = true,
 	double_tap     = true,
 	lift_one_orbit = true,
+	pivot_dot      = true,
 	gestures       = GESTURE_DEFAULTS,
 	edge_orbit     = true,
 	// A touch target and a bit, near the add-on's 75 pixels.
@@ -676,6 +693,19 @@ orbit_pivot :: proc(app: ^App, at, size: [2]f32) -> (pivot: Vec3, from: Pivot_So
 	case .Pointer:
 		origin, dir := mouse_ray(c, at, size)
 		if _, hit, ok := scene_raycast(app, origin, dir); ok && in_front(c, hit) do return hit, .Pointer
+		if app.nav.air_pivot {
+			// As deep along the view as its middle, so the turn feels as it does about the
+			// middle but swings about the place pressed.
+			_, _, back := camera.orbit_basis(c)
+			depth := linalg.dot(c.target - origin, -back)
+			if along := linalg.dot(dir, -back); depth > c.near && along > 1e-4 do return origin + dir * (depth / along), .Air
+		}
+	case .Selection:
+		if lo, hi, ok := objects_bounds(app, true); ok do return (lo + hi) / 2, .Selection
+		return c.target, .Centre
+	case .Scene:
+		if lo, hi, ok := objects_bounds(app, false); ok do return (lo + hi) / 2, .Scene
+		return c.target, .Centre
 	case .Stroke:
 	}
 	if p := app.pivot; p.set {
@@ -715,6 +745,25 @@ in_edge :: proc(app: ^App, p: [2]f32) -> bool {
 
 // The middle of the object's bounds in world space: its sculptor's BVH root box, which
 // follows every stroke, or its origin before it has one.
+// The world box round the selected objects' (or every shown object's) surfaces, from
+// their nodes' bounds: false when there are none.
+objects_bounds :: proc(app: ^App, selected: bool) -> (lo, hi: Vec3, ok: bool) {
+	lo, hi = Vec3(max(f32)), Vec3(min(f32))
+	for obj in app.scene.objects {
+		take := object_in_selection(app, obj) if selected else object_shown(app, obj)
+		if !take do continue
+		s := object_sculptor(obj)
+		if len(s.bvh.nodes) == 0 do continue
+		b := s.bvh.nodes[0].bounds
+		for corner in 0 ..< 8 {
+			p := Vec3{b.hi.x if corner & 1 != 0 else b.lo.x, b.hi.y if corner & 2 != 0 else b.lo.y, b.hi.z if corner & 4 != 0 else b.lo.z}
+			w := to_world(obj.transform, p)
+			lo, hi = linalg.min(lo, w), linalg.max(hi, w)
+		}
+	}
+	return lo, hi, lo.x <= hi.x
+}
+
 object_middle :: proc(obj: ^Object) -> Vec3 {
 	s := object_sculptor(obj)
 	if len(s.bvh.nodes) == 0 do return obj.transform.position
@@ -777,6 +826,12 @@ camera_apply_input :: proc(app: ^App, in_: Viewport_Input) {
 		camera.orbit_zoom(c, -in_.mouse_delta.y * 0.04 * nav.zoom_speed)
 	}
 	if in_.hovered && in_.wheel != 0 {
-		camera.orbit_zoom(c, (-in_.wheel if nav.invert_wheel else in_.wheel) * nav.zoom_speed)
+		steps := (-in_.wheel if nav.invert_wheel else in_.wheel) * nav.zoom_speed
+		if nav.wheel_toward {
+			// orbit_zoom's step, as a factor closer.
+			camera.orbit_zoom_toward(c, math.pow(f32(0.88), -steps), in_.mouse_pos - in_.size * 0.5, in_.size.y)
+		} else {
+			camera.orbit_zoom(c, steps)
+		}
 	}
 }

@@ -1360,6 +1360,73 @@ def orbit_about_the_centre_setting():
         "camera_yaw": near(wrap(0.6 - 200 * 0.008), 2e-3)}
 
 
+def three_start(st):
+    """The camera THREE starts with: the default turn, framing the three spheres in a row
+    along x (at 0, 2.25 and 4.5) about the middle one. An orbit keeps the distance."""
+    return {"camera_yaw": 0.6, "camera_pitch": 0.35, "camera_roll": 0, "camera_distance": st["camera_distance"], "camera_target": "2.25,0,0"}
+
+
+@scenario
+def orbit_about_the_selection_setting():
+    """With Turn about set to the selected objects, an orbit turns about the selected sphere's middle, which stays put on screen."""
+    s = Script()
+    s.fdrag(past_slop((250, 120), (450, 120), 20))
+    def at_selected(st):
+        x, y, z = (float(v) for v in st["transform"].split(",")[:3])
+        return math.dist(pivot(st), (x, y, z)) < 0.05 and abs(x) > 0.5
+    return s, THREE + ["--script=set orbit_style turntable; set orbit_pivot selection; select 3"], {
+        "dabs": near(0), "pivot_source": lambda v: v == "selection", "@pivot_at_selected": at_selected,
+        "@pivot_stays_put": lambda st: math.dist(on_screen(st, pivot(st)), on_screen(three_start(st), pivot(st))) < 2e-3}
+
+
+@scenario
+def orbit_about_the_whole_scene_setting():
+    """With Turn about set to the whole scene, an orbit turns about the middle of all three spheres, not the selected one."""
+    s = Script()
+    s.fdrag(past_slop((250, 120), (450, 120), 20))
+    def not_selected(st):
+        x, y, z = (float(v) for v in st["transform"].split(",")[:3])
+        return math.dist(pivot(st), (x, y, z)) > 0.5
+    return s, THREE + ["--script=set orbit_style turntable; set orbit_pivot scene; select 3"], {
+        "dabs": near(0), "pivot_source": lambda v: v == "scene", "@pivot_not_the_selected": not_selected,
+        "@pivot_stays_put": lambda st: math.dist(on_screen(st, pivot(st)), on_screen(three_start(st), pivot(st))) < 2e-3}
+
+
+@scenario
+def orbit_about_the_air_under_the_pointer():
+    """With Turn about the pointer and the air pivot on, a drag off the model turns about the point under the press, as deep as the view's middle."""
+    s = Script()
+    s.fdrag(past_slop((250, 400), (450, 400), 20))
+    return s, ["--script=set orbit_style turntable; set orbit_pivot pointer; set air_pivot on"], {
+        "dabs": near(0), "pivot_source": lambda v: v == "air", "camera_target": lambda v: v != "0.0000,0.0000,0.0000",
+        "@pivot_left_of_the_sphere": lambda st: on_screen(None, pivot(st))[0] < -0.3,
+        "@pivot_stays_put": lambda st: math.dist(on_screen(st, pivot(st)), on_screen(None, pivot(st))) < 2e-3}
+
+
+@scenario
+def wheel_zooms_toward_the_pointer_setting():
+    """With Wheel zooms toward the pointer on, three notches over the sphere's upper right zoom in and move the view's middle toward it."""
+    s = Script()
+    s.add("move:1000,300")
+    s.wait(1)
+    s.add("wheel:3")
+    s.wait(3)
+    return s, ["--script=set wheel_toward on"], {
+        "dabs": near(0), "camera_distance": lambda v: float(v) < 3.0,
+        "@target_moved": lambda st: math.dist(tuple(float(v) for v in st["camera_target"].split(",")), (0, 0, 0)) > 0.05}
+
+
+@scenario
+def wheel_zooms_toward_the_middle_by_default():
+    """By default the same three notches zoom toward the middle: the view's middle stays where it was."""
+    s = Script()
+    s.add("move:1000,300")
+    s.wait(1)
+    s.add("wheel:3")
+    s.wait(3)
+    return s, [], {"dabs": near(0), "camera_distance": lambda v: float(v) < 3.0, "camera_target": is_text("0.0000,0.0000,0.0000")}
+
+
 def zoomed_in(s):
     """Eight wheel notches in: the sphere fills the whole window, with no empty space left."""
     s.add("move:800,450")
@@ -1505,7 +1572,7 @@ def settings_scroll_and_persist():
         os.remove(settings_file())
     s = Script()
     open_settings(s, "camera")
-    s.ftap(1495, 717)  # Edges always turn the view
+    s.ftap(1495, 440)  # Invert sideways orbit
     s.wait(4)
     s.fdrag(line((1246, 395), (1251, 95), 20))  # from the Orbit speed slider, upward
     s.wait(16)
@@ -1513,7 +1580,7 @@ def settings_scroll_and_persist():
     s.wait(4)
     return s, [f"--settings-file={settings_file()}"], camera_still({
         "dabs": near(0), "settings_open": near(0), "settings_scroll": lambda v: float(v) > 100,
-        "@saved": saved(edge_orbit="0", zoom_speed="1", orbit_speed="1")})
+        "@saved": saved(invert_x="1", zoom_speed="1", orbit_speed="1")})
 
 
 @scenario
