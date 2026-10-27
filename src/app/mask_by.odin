@@ -65,7 +65,7 @@ MASK_BY_HELP := [sculpt.Mask_By]string {
 	.Color_Saturation = "Masks by how vivid the polypaint is.",
 	.Open_Borders     = "Masks the edges of holes and of the shown part.",
 	.Group_Borders    = "Masks where polygroups meet.",
-	.Creases          = "Masks edges sharper than the Polygroups' crease angle.",
+	.Creases          = "Masks edges sharper than the Polygroups section's Angle.",
 }
 
 // Masks the selected object by `by` as an undo step of its own, with the Mask section's

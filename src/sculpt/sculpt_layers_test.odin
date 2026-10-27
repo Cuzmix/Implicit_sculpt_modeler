@@ -205,3 +205,176 @@ layers_bake_under_dyntopo :: proc(t: ^testing.T) {
 	testing.expect_value(t, sculptor_layer_add(&s), -1)
 	testing.expect(t, stroke(&s, SIDE))
 }
+
+// Duplicate adds a hidden copy, so nothing moves until its eye shows it, which doubles the
+// layer's work; Invert turns the work the other way and undoes bit for bit.
+@(test)
+layer_duplicate_and_invert :: proc(t: ^testing.T) {
+	m := geom.icosphere(4)
+	s: Sculptor
+	sculptor_init(&s, &m, nil, 64)
+	defer {sculptor_destroy(&s); geom.mesh_destroy(&m)}
+	p0 := slice.clone(m.positions[:], context.temp_allocator)
+	_ = sculptor_layer_add(&s)
+	testing.expect(t, stroke(&s, UP))
+	p1 := slice.clone(m.positions[:], context.temp_allocator)
+	testing.expect_value(t, sculptor_layer_duplicate(&s, 0), 1)
+	testing.expect_value(t, sculptor_layer_name(&s.layers.list[1]), "Layer 1 copy")
+	testing.expect(t, slice.equal(m.positions[:], p1), "duplicating moved the surface")
+	testing.expect_value(t, sculptor_layer_recording(&s), 0)
+	testing.expect(t, sculptor_layer_set(&s, 1, 1, true))
+	_ = sculptor_stroke_end(&s)
+	for p, v in m.positions do testing.expect(t, linalg.length(p - (p0[v] + 2 * (p1[v] - p0[v]))) < 1e-5)
+	testing.expect(t, sculptor_undo(&s))
+	testing.expect(t, sculptor_undo(&s))
+	testing.expect_value(t, len(s.layers.list), 1)
+	testing.expect(t, slice.equal(m.positions[:], p1))
+
+	testing.expect(t, sculptor_layer_invert(&s, 0))
+	for p, v in m.positions do testing.expect(t, linalg.length(p - (p0[v] - (p1[v] - p0[v]))) < 1e-5)
+	testing.expect(t, sculptor_undo(&s))
+	testing.expect(t, slice.equal(m.positions[:], p1), "undoing an invert did not put the surface back")
+	testing.expect(t, sculptor_redo(&s))
+	testing.expect(t, sculptor_undo(&s))
+	// An invert is the layer's own step, which Adjust last stroke leaves alone.
+	testing.expect(t, sculptor_layer_invert(&s, 0))
+	testing.expect(t, !sculptor_can_adjust(&s), "an invert offered to Adjust last stroke")
+}
+
+// Merge down leaves the surface as it was with one layer fewer holding both layers' work,
+// and undoes to both; Move swaps two layers and undoes to the old order, after which the
+// older steps' undo still finds their layers; a recording layer keeps recording through a
+// move and its undo and redo.
+@(test)
+layer_merge_down_and_move :: proc(t: ^testing.T) {
+	m := geom.icosphere(4)
+	s: Sculptor
+	sculptor_init(&s, &m, nil, 64)
+	defer {sculptor_destroy(&s); geom.mesh_destroy(&m)}
+	_ = sculptor_layer_add(&s)
+	testing.expect(t, stroke(&s, UP))
+	_ = sculptor_layer_add(&s)
+	testing.expect(t, stroke(&s, SIDE))
+	testing.expect(t, sculptor_layer_set(&s, 1, 0.5, true))
+	_ = sculptor_stroke_end(&s)
+	before := slice.clone(m.positions[:], context.temp_allocator)
+	testing.expect(t, !sculptor_layer_merge_down(&s, 0), "merged the lowest layer down")
+	testing.expect(t, sculptor_layer_merge_down(&s, 1))
+	testing.expect_value(t, len(s.layers.list), 1)
+	testing.expect(t, near(m.positions[:], before, 1e-6), "merging moved the surface")
+	// At strength 0 the merged layer takes both strokes' work off.
+	testing.expect(t, sculptor_layer_set(&s, 0, 0, true))
+	_ = sculptor_stroke_end(&s)
+	testing.expect(t, sculptor_undo(&s))
+	testing.expect(t, sculptor_undo(&s))
+	testing.expect_value(t, len(s.layers.list), 2)
+	testing.expect(t, slice.equal(m.positions[:], before))
+	testing.expect_value(t, s.layers.list[1].strength, 0.5)
+
+	testing.expect(t, sculptor_layer_move(&s, 0, true))
+	testing.expect_value(t, sculptor_layer_name(&s.layers.list[0]), "Layer 2")
+	testing.expect(t, !sculptor_layer_move(&s, 1, true), "moved the top layer up")
+	// Undoing a move puts Layer 2 back on top, so undoing on past the strength change and
+	// the side stroke takes the side stroke off Layer 2, not Layer 1.
+	testing.expect(t, sculptor_undo(&s))
+	testing.expect_value(t, sculptor_layer_name(&s.layers.list[1]), "Layer 2")
+	testing.expect(t, sculptor_layer_move(&s, 1, false))
+	testing.expect(t, sculptor_undo(&s))
+	testing.expect(t, sculptor_undo(&s))
+	testing.expect(t, sculptor_undo(&s))
+	testing.expect(t, sculptor_layer_used(s.layers.list[0]) && !sculptor_layer_used(s.layers.list[1]), "the side stroke's undo left the wrong layer")
+	testing.expect(t, sculptor_redo(&s))
+	testing.expect(t, sculptor_redo(&s))
+
+	// Layer 1 records, moves above Layer 2 and keeps recording through the move's undo and
+	// redo; the next stroke goes into it, leaving Layer 2 as it was.
+	testing.expect(t, !sculptor_layer_record(&s, 0))
+	testing.expect(t, sculptor_layer_move(&s, 0, true))
+	testing.expect_value(t, sculptor_layer_recording(&s), 1)
+	testing.expect(t, sculptor_undo(&s))
+	testing.expect_value(t, sculptor_layer_recording(&s), 0)
+	testing.expect(t, sculptor_redo(&s))
+	testing.expect_value(t, sculptor_layer_recording(&s), 1)
+	under, rec := layer_bytes(s.layers.list[0]), layer_bytes(s.layers.list[1])
+	testing.expect(t, stroke(&s, -UP))
+	testing.expect_value(t, layer_bytes(s.layers.list[0]), under)
+	testing.expect(t, layer_bytes(s.layers.list[1]) > rec, "the stroke after the move missed the recording layer")
+}
+
+// Merging a small top layer into a full lower one at strength 1 keeps only the nodes the
+// top layer touches in the step, and a merge that zeroes a node leaves it nil.
+@(test)
+layer_merge_down_saves_only_what_changes :: proc(t: ^testing.T) {
+	m := geom.icosphere(5)
+	s: Sculptor
+	sculptor_init(&s, &m, nil, 64)
+	defer {sculptor_destroy(&s); geom.mesh_destroy(&m)}
+	_ = sculptor_layer_add(&s)
+	sculptor_stroke_begin(&s)
+	_ = apply_dab(&s, {kind = .Inflate, radius = 4, strength = 0.2}, UP)
+	_ = sculptor_stroke_end(&s)
+	full := layer_bytes(s.layers.list[0])
+	_ = sculptor_layer_add(&s)
+	testing.expect(t, stroke(&s, UP))
+	top := layer_bytes(s.layers.list[1])
+	testing.expect(t, top < full / 4, "the top layer is not small")
+	testing.expect(t, sculptor_layer_merge_down(&s, 1))
+	step := s.history.done[len(s.history.done) - 1]
+	testing.expect(t, step_bytes(step) < top + full / 4, "the merge saved nodes it left alone")
+	testing.expect(t, sculptor_undo(&s))
+
+	// Hidden, the lower layer weighs nothing, so merging an empty top layer zeroes it.
+	testing.expect(t, sculptor_layer_set(&s, 0, 1, false))
+	_ = sculptor_stroke_end(&s)
+	_ = sculptor_layer_remove(&s, 1, bake = false)
+	_ = sculptor_layer_add(&s)
+	testing.expect(t, sculptor_layer_merge_down(&s, 1))
+	testing.expect(t, !sculptor_layer_used(s.layers.list[0]), "a zeroed merge kept slices")
+	testing.expect(t, !sculptor_layer_invert(&s, 0), "inverted a layer that moves nothing")
+}
+
+// Bake all is one step holding every layer, so one undo puts them all back even when the
+// history's limit trims older steps, and the surface stays as it was throughout.
+@(test)
+layers_bake_all_is_one_step :: proc(t: ^testing.T) {
+	m := geom.icosphere(4)
+	s: Sculptor
+	sculptor_init(&s, &m, nil, 64)
+	defer {sculptor_destroy(&s); geom.mesh_destroy(&m)}
+	for at in ([3]Vec3{UP, SIDE, -UP}) {
+		_ = sculptor_layer_add(&s)
+		testing.expect(t, stroke(&s, at))
+	}
+	before := slice.clone(m.positions[:], context.temp_allocator)
+	s.history.limit = 1
+	testing.expect(t, sculptor_layers_bake(&s))
+	testing.expect_value(t, len(s.layers.list), 0)
+	testing.expect_value(t, len(s.history.done), 1)
+	testing.expect(t, slice.equal(m.positions[:], before))
+	testing.expect(t, sculptor_undo(&s))
+	testing.expect_value(t, len(s.layers.list), 3)
+	testing.expect_value(t, sculptor_layer_recording(&s), 2)
+	for l in s.layers.list do testing.expect(t, sculptor_layer_used(l))
+	testing.expect(t, sculptor_redo(&s))
+	testing.expect_value(t, len(s.layers.list), 0)
+	testing.expect(t, !sculptor_layers_bake(&s), "baked with no layers")
+	testing.expect(t, slice.equal(m.positions[:], before))
+}
+
+// Under dynamic topology the layers are baked, so the layer calls refuse rather than index
+// an empty list.
+@(test)
+layer_calls_refuse_under_dyntopo :: proc(t: ^testing.T) {
+	m := geom.icosphere(3)
+	s: Sculptor
+	sculptor_init(&s, &m, nil, 64)
+	defer {sculptor_destroy(&s); geom.mesh_destroy(&m)}
+	_ = sculptor_layer_add(&s)
+	testing.expect(t, stroke(&s, UP))
+	testing.expect(t, sculptor_dyn_enable(&s))
+	testing.expect(t, !sculptor_layer_invert(&s, 0))
+	testing.expect(t, !sculptor_layer_merge_down(&s, 1))
+	testing.expect(t, !sculptor_layer_move(&s, 0, true))
+	testing.expect_value(t, sculptor_layer_duplicate(&s, 0), -1)
+	testing.expect(t, !sculptor_layers_bake(&s))
+}

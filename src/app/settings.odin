@@ -175,6 +175,7 @@ SETTINGS := [?]Setting {
 	{"new_voxels", K + offset_of(Kit_State, add_voxel), bool, 0, 0},
 	{"mask_steps", U + offset_of(Ui_State, mask_steps), i32, 1, 50},
 	{"mask_shape", U + offset_of(Ui_State, mask_shape_kind), Mask_Shape_Kind, 0, 0},
+	{"layer_wide", U + offset_of(Ui_State, layer_wide), bool, 0, 0},
 	{"mask_by_kind", U + offset_of(Ui_State, mask_by) + offset_of(Mask_By_Settings, kind), sculpt.Mask_By, 0, 0},
 	{"mask_by_strength", U + offset_of(Ui_State, mask_by) + offset_of(Mask_By_Settings, strength), f32, 0, 1},
 	{"mask_by_blur", U + offset_of(Ui_State, mask_by) + offset_of(Mask_By_Settings, blur), i32, 0, MASK_BY_BLUR_MAX},

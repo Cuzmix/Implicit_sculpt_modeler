@@ -1462,6 +1462,42 @@ def mask_by_from_the_section():
         "masked": near(1), "mask_mean": lambda v: 0.3 < float(v) < 0.7})
 
 
+# Hide, clip and slice's Grow at 1600 x 900 with every option shown.
+HIDE_GROW = (1303, 620)
+
+
+@scenario
+def grow_visibility_from_the_section():
+    """With half the sphere hidden and Show every option on, a finger tap on Hide, clip and slice's Grow shows one ring more as one undo step."""
+    with open(settings_file(), "w") as f:
+        f.write("all_options 1\n")
+    s = Script()
+    palette_run(s, "object hide clip")
+    s.wait(10)
+    s.ftap(*HIDE_GROW)
+    s.wait(10)
+    # hide x hides 40,960 of the 81,920 triangles; a ring more shows about 400 of them.
+    return s, [f"--settings-file={settings_file()}", "--script=hide x"], camera_still({
+        "dabs": near(0), "undo_steps": near(1), "hidden_triangles": lambda v: 39000 < int(v) < 40900, "action_bar": is_text("hidden")})
+
+
+# The Layers section's Duplicate at 1600 x 900 with one layer and every option shown.
+LAYER_DUPLICATE = (1303, 541)
+
+
+@scenario
+def layer_duplicate_from_the_section():
+    """With a layer and Show every option on, a finger tap on the Layers section's Duplicate adds a hidden copy as one undo step (the script's layer is no step of the run's)."""
+    with open(settings_file(), "w") as f:
+        f.write("all_options 1\n")
+    s = Script()
+    palette_run(s, "object layers")
+    s.wait(10)
+    s.ftap(*LAYER_DUPLICATE)
+    s.wait(10)
+    return s, [f"--settings-file={settings_file()}", "--script=new_layer"], camera_still({"dabs": near(0), "layers": near(2), "undo_steps": near(1)})
+
+
 # The first-run tip's Skip tips button at 1600 x 900 (the card sits under the tool bar).
 COACH_SKIP = (960, 106)
 
@@ -1899,8 +1935,8 @@ def rail_clear(*others):
 # Hidden group alone, on an 820 x 640 window the folded Mask button and the first row of
 # its popover, and on a 1400 x 900 window with Settings open the folded Mask button.
 BAR_MASK_INVERT = (595, 786)
-BAR_SHOW_ALL = (750, 786)
-BAR_MASK_HIDDEN = (900, 786)  # Mask it, the third of the Hidden group alone
+BAR_SHOW_ALL = (682, 786)
+BAR_MASK_HIDDEN = (968, 786)  # Mask it, the fifth of the Hidden group alone
 BAR_NARROW_MASK = (357, 526)
 BAR_NARROW_FIRST = (354, 164)
 BAR_SETTINGS_MASK = (700, 786)

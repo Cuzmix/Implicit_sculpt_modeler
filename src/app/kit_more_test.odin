@@ -135,8 +135,10 @@ show_every_option_unfolds_the_sections :: proc(t: ^testing.T) {
 	// UVs and baking has 10: its Quads count and Retopologize moved to Shape > Rebuild,
 	// and the bake set brought its maps' switches and occlusion's sliders. Mask has 20
 	// since Mask region, Mask by (Peaks: kind, Strength, Blur, curve, Apply) and Mask
-	// adjust (curve, Blur, Apply) joined its fold.
-	full := [?]Full{{.Preset, 6}, {.Recorder, 7}, {.Transform, 8}, {.Mask, 20}, {.Groups, 6}, {.Retopo, 10}, {.Project, 6}, {.Material, 9}, {.Camera, 6}}
+	// adjust (curve, Blur, Apply) joined its fold; Polygroups 10 since Groups by normals,
+	// pieces and UVs and Merge similar joined its; Hide, clip and slice folds Grow,
+	// Shrink, Grow all, Outer ring, Grow to groups and Show masked.
+	full := [?]Full{{.Preset, 6}, {.Recorder, 7}, {.Transform, 8}, {.Mask, 20}, {.Groups, 10}, {.Visibility, 11}, {.Retopo, 10}, {.Project, 6}, {.Material, 9}, {.Camera, 6}}
 	app.brush.kind = .Clay
 	_ = preset_save_new(&app)
 	for f in full {

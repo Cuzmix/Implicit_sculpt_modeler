@@ -128,7 +128,9 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
   `.Color` returns before moving. The app sets it only for the held brush (`brush_channel`, Both drops to Sculpt in HD,
   dyntopo or voxels; a Colour stroke there is refused in stroke start). Polygroups
   (`src/sculpt/groups.odin`): `Sculptor.groups{tris []u16, vertex, lead, edited}`; `sculptor_group_command(.Visible | .Masked |
-  .Creases | .Clear)` → `groups_commit` (one step, `Saved_Node.groups`, `Undo_Step.grouped`) → `groups_refresh` picks the group
+  .Creases | .Clear | .Pieces | .Normals | .Merge_Similar)` (Pieces and Normals are `groups_by_creases` with no limit or
+  `from_seed`; `.Uv_Charts` is refused there and runs as `levels_group_uv_charts`: base triangle → its quad's chart,
+  up through `level_tri_parents`) → `groups_commit` (one step, `Saved_Node.groups`, `Undo_Step.grouped`) → `groups_refresh` picks the group
   each vertex carries and each triangle's lead corner (`drawn_triangle`), bumps `paint_stamp` and queues every node through the
   hidden-index path (`sculptor_hidden_indices` turns triangles to start at their lead corner); `sculptor_hide_group` (hide.odin),
   `sculptor_mask_group` (mask.odin), `sculptor_group_at`. Levels: `levels_carry_paint` carries colours (`levels_carry_color`) and
@@ -139,8 +141,11 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
   0 none), named}`, each `Sculpt_Layer{name [32]u8, strength, visible, delta [][]Vec3}` (per node, nil where unmoved); positions
   always hold base + Σ weight·delta. `sculptor_stroke_end` calls `layer_take_stroke` (adds live − saved positions of each saved
   node to the recording layer, appending `Saved_Node{is_delta, delta (old), delta_layer}`, swapped by pointer on undo).
-  `Undo_Step.layer_op` (add/remove; the step `held`s a removed layer) and `.layer_set` (old strength/visible) are swapped in
-  `layer_step_swap`; `step_move` re-counts `h.bytes` since swaps change what a step holds. `sculptor_layer_set` begins or
+  `Undo_Step.layer_op` (add/remove; the step `held`s a removed layer), `.layer_set` (old strength/visible; Invert sets it
+  unchanged to mark its step as the layer's, not a stroke), `.layer_move` (a swap, its own inverse) and `.layer_stack`
+  (Bake all: the whole list moved into the step, one undo entry) are swapped in `layer_step_swap`; a step's is_delta nodes
+  must name layers below its `layer_op.index` (redo removes first). Multi-entry app work is one sculptor step, not a
+  `chain` of many: the sculptor's memory limit may trim a chain's oldest steps and undo only half of it; `step_move` re-counts `h.bytes` since swaps change what a step holds. `sculptor_layer_set` begins or
   continues a stroke (a drag = one step; app ends it on release), `layer_displace` moves only nodes with delta. Files:
   `LEVELS_LAYERS` (canon order). `sculptor_dyn_enable` bakes them; refused in HD; rebuilds carry them (`layer_carry.odin`).
 - Chunk groups (`brush.odin`, `sculptor_chunk_groups`): one `geom.chunk_group` per 64 chunks for grouped culling; every
@@ -169,6 +174,9 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
   dyntopo or in HD, never hide everything; `bvh_raycast` skips hidden triangles. Hide `.Masked`/`.Unmasked` split
   triangles at `MASK_HALF` on all three corners (exact complements); `Mask_Command.Hidden` is the one mask command that
   writes hidden vertices (every corner of a hidden triangle 255, the rest 0), refused when nothing is hidden.
+  Hide `.Grow/.Shrink/.Grow_All/.Outer_Ring/.Grow_Groups/.Show_Masked` keep `hide_after` a pure per-triangle function:
+  what they read (`hide_edge` per vertex, `geom.mesh_components` pieces, per-group shown flags) is built before both
+  passes, since pass 2 writes `hide.tris`; the edge is a shown vertex with a hidden triangle or `vertex_on_open_border`.
   Selection sets (`src/sculpt/selection_sets.odin`): `Levels.sets`, each kept by its level in that level's vertex
   order (runs `{u32 count, u8}` when smaller, else raw), restored on any level through `set_values_at` +
   `carried_mask` (the live mask's carry rule) and `sculptor_mask_values`; `levels_destroy` frees them (so every

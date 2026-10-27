@@ -81,6 +81,12 @@ Command_Id :: enum u8 {
 	Invert_Hidden,
 	Hide_Masked,
 	Hide_Unmasked,
+	Grow_Visible,
+	Shrink_Visible,
+	Grow_All_Visible,
+	Outer_Ring,
+	Grow_To_Groups,
+	Show_Masked,
 	Store_Selection_Set,
 	Restore_Selection_Set, // the argument is the set's place, from 0
 	Paint, // the argument is the sculpt.Paint_Command
@@ -95,6 +101,7 @@ Command_Id :: enum u8 {
 	Morph_Store,
 	Morph_Delete,
 	New_Layer,
+	Layer_Edit, // the argument is the Layer_Action, on the Layers section's selected layer
 	Recall_Earlier,
 	Recall_Later,
 	Recall_Oldest,
@@ -230,6 +237,18 @@ SET_COMMANDS :: 9
 has_mask :: proc(app: ^App, _: int) -> bool {
 	obj := selected_object(app)
 	return obj != nil && !object_in_hd(obj) && !object_dynamic(obj) && object_has_mask(app, obj)
+}
+
+// Whether the selected object can change what is hidden: not in HD or under dynamic
+// topology.
+hide_ready :: proc(app: ^App, _: int) -> bool {
+	obj := selected_object(app)
+	return obj != nil && !object_in_hd(obj) && !object_dynamic(obj)
+}
+
+// ...and has something hidden, to show.
+has_hidden :: proc(app: ^App, arg: int) -> bool {
+	return hide_ready(app, arg) && sculpt.sculptor_hidden_count(object_sculptor(selected_object(app))) > 0
 }
 
 @(rodata)
@@ -643,6 +662,50 @@ COMMANDS := [Command_Id]Command {
 		run = proc(app: ^App, _: int) {hide_command(app, .Unmasked)},
 		enabled = has_mask,
 	},
+	.Grow_Visible = {
+		label = "Grow visibility",
+		help = "Shows one ring more of the hidden triangles round what is shown.",
+		icon = ui.ICON_EYE,
+		run = proc(app: ^App, _: int) {hide_command(app, .Grow)},
+		enabled = has_hidden,
+	},
+	.Shrink_Visible = {
+		label = "Shrink visibility",
+		help = "Hides one ring of triangles off the edge of what is shown, holes and open borders included.",
+		icon = ui.ICON_EYE_OFF,
+		run = proc(app: ^App, _: int) {hide_command(app, .Shrink)},
+		enabled = hide_ready,
+	},
+	.Grow_All_Visible = {
+		label = "Grow all",
+		help = "Shows the whole of each piece of the object that has anything shown.",
+		icon = ui.ICON_EYE,
+		run = proc(app: ^App, _: int) {hide_command(app, .Grow_All)},
+		enabled = has_hidden,
+	},
+	.Outer_Ring = {
+		label = "Outer ring",
+		help = "Keeps only the ring of triangles along the edge of what is shown.",
+		icon = ui.ICON_EYE_OFF,
+		run = proc(app: ^App, _: int) {hide_command(app, .Outer_Ring)},
+		enabled = hide_ready,
+	},
+	.Grow_To_Groups = {
+		label = "Grow to groups",
+		help = "Shows the whole of each polygroup that has anything shown.",
+		icon = ui.ICON_EYE,
+		run = proc(app: ^App, _: int) {hide_command(app, .Grow_Groups)},
+		enabled = proc(app: ^App, arg: int) -> bool {
+			return has_hidden(app, arg) && sculpt.sculptor_has_groups(object_sculptor(selected_object(app)))
+		},
+	},
+	.Show_Masked = {
+		label = "Show masked",
+		help = "Shows the hidden triangles masked at least half at every corner, undoing Hide masked.",
+		icon = ui.ICON_EYE,
+		run = proc(app: ^App, _: int) {hide_command(app, .Show_Masked)},
+		enabled = proc(app: ^App, arg: int) -> bool {return has_hidden(app, arg) && has_mask(app, arg)},
+	},
 	.Store_Selection_Set = {
 		label = "Store mask as set",
 		help = "Keeps the selected object's mask as a selection set, to bring back later (Object palette > Selection sets).",
@@ -671,10 +734,13 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Group = {
 		label = "Polygroups",
-		help = "Makes polygroups from what is shown, what is masked or the creases, or clears them.",
+		help = "Makes polygroups from what is shown, what is masked, the creases, the pieces, the normals or the UV charts, merges similar ones, or clears them.",
 		args = len(sculpt.Group_Command),
 		run = proc(app: ^App, arg: int) {group_command(app, sculpt.Group_Command(arg))},
-		enabled = paint_ready,
+		enabled = proc(app: ^App, arg: int) -> bool {
+			if !paint_ready(app, arg) do return false
+			return sculpt.Group_Command(arg) != .Uv_Charts || sculpt.levels_has_uvs(&selected_object(app).levels)
+		},
 	},
 	.Pick_Group = {
 		label = "Pick a group",
@@ -775,6 +841,13 @@ COMMANDS := [Command_Id]Command {
 			obj := selected_object(app)
 			return layers_allowed(obj) && len(sculpt.sculptor_layers(object_sculptor(obj))) < sculpt.MAX_SCULPT_LAYERS
 		},
+	},
+	.Layer_Edit = {
+		label = "Layer",
+		help = "Duplicates, inverts, merges down or moves the Layers section's selected layer, or bakes every layer.",
+		args = len(Layer_Action),
+		run = proc(app: ^App, arg: int) {layer_action(app, Layer_Action(arg))},
+		enabled = proc(app: ^App, arg: int) -> bool {return layer_action_ready(app, Layer_Action(arg))},
 	},
 	.Recall_Earlier = {
 		label = "History brush: earlier",
@@ -1463,6 +1536,8 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 		return MASK_BY_NAMES[sculpt.Mask_By(arg)]
 	case .Texture_View:
 		return TEXTURE_VIEW_NAMES[render.Texture_View(arg)]
+	case .Layer_Edit:
+		return LAYER_ACTION_NAMES[Layer_Action(arg)]
 	case .Restore_Selection_Set:
 		return fmt.tprintf("Restore selection set %d", arg + 1)
 	case .Paint:
