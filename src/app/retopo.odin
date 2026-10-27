@@ -8,6 +8,7 @@ import "core:strings"
 import "core:time"
 
 import "../geom"
+import "../render"
 import "../png_write"
 import "../sculpt"
 import "../ui"
@@ -106,16 +107,6 @@ object_retopo :: proc(app: ^App, obj: ^Object, quads: int) -> (made, ok: bool) {
 	return true, true
 }
 
-// Lays the selected quad object's UVs out again, for when its shape changed a lot since.
-object_layout_uvs :: proc(app: ^App, obj: ^Object) {
-	if !sculpt.levels_has_quads(&obj.levels) do return
-	sculpt.levels_sync(&obj.levels)
-	uv := geom.quad_uv_unwrap(sculpt.levels_quad_mesh(&obj.levels), UV_PADDING)
-	sculpt.levels_set_uvs(&obj.levels, uv)
-	app.scene_edits += 1
-	log.infof("UVs: %d charts filling %.0f%%", uv.charts, 100 * uv.filled)
-}
-
 // The object Bake maps... reads the detail from: the one chosen, else the one the
 // quads came from, else none.
 bake_source :: proc(app: ^App, low: ^Object) -> ^Object {
@@ -205,9 +196,20 @@ bake_to_folder :: proc(app: ^App, folder: string) {
 	bake_glb(&glb, low, quads, source, object_label(low), normal_png, pngs[0], pngs[1], set.occlusion_rays > 0)
 	if !write_file_safely(app, path(folder, base, ".glb"), glb[:], "bake") do return
 	append(&written, ".glb")
+	// The maps stay on the object, shown through its UVs (textures.odin): the first bake of
+	// a run turns the view on so the result shows at once. The ID map is a mask source, not
+	// a look, so it stays a file.
+	kept: Object_Textures
+	for img, m in ([render.Texture_Map][]u8{.Base_Color = pngs[0], .Orm = pngs[1], .Normal = normal_png}) {
+		if img == nil do continue
+		kept.image[m] = make([]u8, len(img))
+		copy(kept.image[m], img)
+	}
+	textures_replace(app, low, kept, "bake maps")
+	if app.texture_view == .Off do app.texture_view = .Textured
 	share := 100 * f64(maps.hit) / f64(max(maps.covered, 1))
 	more := strings.join(written[:], ", ", context.temp_allocator)
-	report(app, Kit_Section.Retopo, {.Warning} if share < 99 else {}, "Baked %s from %s at %d x %d in %.0f ms: %.1f%% of texels found the surface, displacement up to %.4g; %s_normal.png, _displacement.png%s%s and .obj written%s",
+	report(app, Kit_Section.Retopo, {.Warning} if share < 99 else {}, "Baked %s from %s at %d x %d in %.0f ms: %.1f%% of texels found the surface, displacement up to %.4g; %s_normal.png, _displacement.png%s%s and .obj written, and the maps shown on it (View > Textures)%s",
 		object_label(low), object_label(src), size, size, baked_ms, share, full, base, ", " if more != "" else "", more,
 		"; it has dynamic topology, so no paint or polygroups to bake" if object_dynamic(src) && kinds & {.Base_Color, .Id} != {} else "")
 }
@@ -310,7 +312,7 @@ kit_retopo_section :: proc(app: ^App) {
 	if picked := ui.select(ctx, "bake from", names[:], chosen); picked >= 0 do app.ui.bake.source = ids[picked]
 	bake, uvs := kit_button_pair(ctx, "Bake maps...", "New UVs")
 	if bake do file_dialog(app, .Bake)
-	if uvs do object_layout_uvs(app, obj)
+	if uvs do app.ui.scene_command = {kind = .Layout_Uvs}
 	ui.paragraph(ctx, "Bakes the source's detail (its top level) into normal and displacement maps on this object's UVs, with its colour and the other maps chosen under More options, and writes them with the quads as OBJ into a folder.")
 	if kit_more(app, .Retopo) {
 		sizes: [len(BAKE_SIZES)]string

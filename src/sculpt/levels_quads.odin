@@ -34,8 +34,11 @@ levels_drop_quads :: proc(l: ^Levels) {
 	l.faces = {}
 }
 
-// The base level as a quad mesh (its positions, not copied, and the quads).
-levels_quad_mesh :: proc(l: ^Levels) -> geom.Quad_Mesh {
+// The base level as a quad mesh: its positions and the quads, not copied, and which way
+// each quad's triangles are split there (geom.Quad_Mesh.across, made with `allocator`).
+levels_quad_mesh :: proc(l: ^Levels, allocator := context.temp_allocator) -> geom.Quad_Mesh {
 	base := l.levels[0]
-	return {positions = base.mesh.positions[:], quads = l.faces.quads}
+	q := geom.Quad_Mesh{positions = base.mesh.positions[:], quads = l.faces.quads}
+	if q.quads != nil do q.across = geom.quad_mesh_diagonals(q, base.mesh.indices[:], base.sculptor.faces, allocator)
+	return q
 }

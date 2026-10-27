@@ -211,6 +211,8 @@ App :: struct {
 	matcap_image: ^sdl.GPUTexture,
 	matcap_path:  string,
 	flat:      bool, // shade with each triangle's own normal (faceted) instead of smoothed normals
+	// What objects with texture maps show of them (textures.odin): .Off draws them as clay.
+	texture_view: render.Texture_View,
 	// Polyframe (the Wireframe command): while on, the selected object shows its edges when
 	// `polyframe_lines` is set and its polygroups' colours when `polyframe_fill` is.
 	wireframe:       bool,
@@ -552,6 +554,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		scene_folders_normalize(&app)
 		scene_selection_fix(&app)
 		materials_settle(&app)
+		textures_settle(&app)
 		if !script_frame(&app) do return false
 		// Until the script is done its frames are set-up: the run's own count from where
 		// it ends (--frames, the bench stroke, --load-strokes, --timelapse, --ui-events).
@@ -807,6 +810,17 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 					return false
 				}
 				uploaded += bytes
+				// The textured preview follows the base level as this frame uploaded it.
+				textured: ^render.Textured_Mesh
+				if part == 0 {
+					preview_ok: bool
+					textured, preview_ok = texture_preview_frame(&app, cmd, obj, gpu)
+					if !preview_ok {
+						_ = sdl.SubmitGPUCommandBuffer(cmd)
+						_ = sdl.SubmitGPUCommandBuffer(present_cmd)
+						return false
+					}
+				}
 				// Simplified copies are built a batch a frame, for one level at a time, and
 				// never during a stroke, whose frames should stay as short as they can be.
 				if app.simplify && !app.stroke.active && lod_ms < 0 && sculpt.sculptor_lod_pending(&lv.sculptor) > 0 {
@@ -821,8 +835,11 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 				if boolean_hides(&app, obj, i) do continue
 				color, live, selected := object_draw_tint(&app, obj, i)
 				material := object_material(&app, obj)
+				if textured != nil do color = textured_color(color, material, app.texture_view == .Textured && textured.maps[.Base_Color] != nil)
 				append(&draws, render.Draw_Item {
 					mesh   = gpu,
+					textured = textured,
+					texture_view = app.texture_view if textured != nil else .Off,
 					model  = transform_matrix(obj.transform),
 					color  = color,
 					material = material.shading,
@@ -840,7 +857,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 					chunks = lv.sculptor.chunks,
 					chunk_groups = sculpt.sculptor_chunk_groups(&lv.sculptor),
 					damage = lv.sculptor.changed_bounds,
-					lod    = lv.sculptor.lod.tree,
+					// A textured item's wireframe follows its full triangles, never a simplified copy.
+					lod    = lv.sculptor.lod.tree if textured == nil else {},
 					hidden = sculpt.levels_hd_hidden(&obj.levels) if part == 0 && obj.levels.hd.window != nil else sculpt.sculptor_hidden_units(&lv.sculptor),
 				})
 			}

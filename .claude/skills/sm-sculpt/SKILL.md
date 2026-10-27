@@ -261,6 +261,10 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
   `history_busy` refuses undo while a stroke, `app.move.drag` or `app.ui.transform_drag` is open (`move_tool.odin`:
   `move_end` records on release, `move_cancel` restores unrecorded, `transform_drag_changed`/`transform_drag_end` make an
   inspector drag one step). A new kind of change to where an object sits goes through these, never a bare write.
+  An object's texture maps (and, for New UVs, its UV layout) change only through `textures_replace` (src/app/textures.odin),
+  a `.Textures` entry owning a `Texture_Step` that undo and redo swap with the object's, handled like `.Transform` (own
+  `history_step` branch, no sculptor redo, kept by the forget procs, excluded from `entry_is_step`), its bytes counted in
+  `swap_bytes`; `textures_settle` drops maps whose quads and UVs went.
 
 ## Rules that bite
 - A voxel object (`Object.voxel != nil`, sm-sdf) has an EMPTY level: its dabs go through `object_dab`, its picks through

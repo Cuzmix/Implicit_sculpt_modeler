@@ -85,6 +85,23 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   cycled transfer buffer and bumps `version` (`:488`); `mesh_buffers_upload_indices` uploads index ranges (dynamic
   topology's whole changed pages, `sculptor_index_ranges`) and asserts they fit `index_count` (`:575`); `mesh_buffers_upload_lod` drops the LOD buffer on failure so the mesh
   draws at full detail; `viewport_download` returns RGBA8 rows top to bottom after waiting for the GPU (tests and dumps).
+- Textured preview (`src/render/textured.odin`, app `src/app/textures.odin`; design notes/rendering/textured-preview-design.md):
+  `Textured_Mesh` (one interleaved 32-byte `Textured_Vertex`: FLOAT3 position, SHORT2_NORM masked octahedral normal,
+  SHORT4_NORM tangent with w ±1, FLOAT2 UV v-up; buffers grown by powers of two and uploaded in a copy pass on the
+  frame's `cmd` with a cycled transfer buffer; `maps` per `Texture_Map{Base_Color (sRGB), Orm, Normal}` made by
+  `texture_create` with GPU mips, also behind `matcap_create`; `stamp` for vertices, `maps_stamp` for maps). A
+  `Draw_Item` with `textured` and `texture_view != .Off` draws it whole with `Mesh_Pipelines.textured`/`textured_see`
+  (`create_mesh_pipeline(…, textured = true)`: no storage buffer, 4 fragment samplers: MatCap then the maps, defaults
+  `no_matcap`/`no_normal_map`, `texture_sampler` repeat + 8x anisotropy where `Renderer.anisotropy`; 1 fragment
+  uniform buffer) and keeps `mesh` for its wireframe (`wire_pass` after rebinding the sculpt buffers), the studio's
+  shadows and the damage boxes; `draws_textured` and `blended` pick per item; `textured_key` folds mesh, maps stamp
+  and view into both frame keys (vertices too into the idle cache's). Shaders: `mesh.frag` and `textured.frag` are
+  `#version 450` + `GL_GOOGLE_include_directive` + `#include "mesh_shading.glsl"` (never compiled alone), `textured.frag`
+  defining `TEXTURED` first; under it the normal map is read MikkTSpace's way (interpolated N and T unnormalized,
+  B = w·cross(N, T)), flat shading and group slots are off, ORM drives the physically based path and occlusion dims
+  only ambient and studio terms; `Material_Uniforms.maps` (x, y, z present, w the view) is zero on the sculpt path, whose
+  pictures the move left identical to the pixel. `textured.vert` writes every `mesh.vert` output (4 and 6 flat) plus
+  UV (7) and tangent (8), turning by `mat3(view) * mat3(model)` divided by its scale.
 - Studio render (`src/render/studio.odin`, app `studio_on`/Shift+R): `studio_frame` after `render_viewport` on the same
   `cmd`; a frame whose stats show any redraw (`!partial || redrawn_px > 0`) copies `vt.color` into `Studio.shown` and resets,
   a still one adds one sample: `shadow.vert`/`.frag` depth pass from an R2-sequence direction (every 4th around the view-space

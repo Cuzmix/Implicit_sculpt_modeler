@@ -36,6 +36,12 @@ Renderer :: struct {
 	// filtering, mipmapped sampler every matcap is read through.
 	no_matcap:      ^sdl.GPUTexture,
 	matcap_sampler: ^sdl.GPUSampler,
+	// Bound in place of a textured mesh's normal map when it has none (a flat normal);
+	// its base colour and ORM stand-in is no_matcap, white. The textured maps' sampler:
+	// filtering, mipmapped, repeating, and anisotropic where the device allows it.
+	no_normal_map:   ^sdl.GPUTexture,
+	texture_sampler: ^sdl.GPUSampler,
+	anisotropy:      bool, // the device was made with anisotropic filtering
 	last_version:   u64,  // source of Mesh_Buffers.version
 	cull:           bool, // skip off-screen and back-facing chunks of items that have them
 	partial:        bool, // while the camera and objects stay put, redraw only what changed
@@ -101,6 +107,10 @@ Mesh_Pipelines :: struct {
 	// The floor grid (Floor_Grid), one full-screen triangle a plane; nil where the device
 	// refused it, and the grid is then not drawn.
 	floor: ^sdl.GPUGraphicsPipeline,
+	// Textured meshes (textured.odin), opaque and see-through; nil where the device refused
+	// them, and those items then draw through their sculpt buffers as clay.
+	textured:     ^sdl.GPUGraphicsPipeline,
+	textured_see: ^sdl.GPUGraphicsPipeline,
 }
 
 // How a mesh pipeline draws its triangles: filled and opaque, as lines, or filled and
@@ -267,6 +277,11 @@ Draw_Item :: struct {
 	lights:    [3][4]f32,
 	// Polygroups with materials of their own; nil for none. Read during the frame only.
 	slots:     ^Material_Slots,
+	// A textured mesh drawn in place of `mesh`'s triangles while `texture_view` is not
+	// .Off (textured.odin); `mesh` still draws the wireframe and stands for the item in
+	// the frame keys and damage boxes. Nil for none.
+	textured:     ^Textured_Mesh,
+	texture_view: Texture_View,
 	live:   bool,
 	chunks: []geom.Chunk,
 	chunk_groups: []geom.Chunk, // geom.chunk_group of each geom.CHUNK_GROUP chunks, to cull a group at a time; nil to test every chunk
@@ -306,10 +321,14 @@ Material_Uniforms :: struct {
 	checker:    [4]f32, // the density preview: first lattice point, cell size (0: none)
 	look:       [4]f32, // exposure in stops, cavity, ridge (Draw_Item.look)
 	lights:     [3][4]f32, // the light rig's turn and strengths (Draw_Item.lights)
+	maps:       [4]f32, // textured items: x, y, z which maps are bound (base colour, ORM, normal), w the Texture_View; zero otherwise
 }
+#assert(size_of(Material_Uniforms) == 144)
 
 MESH_VERT_SPV :: #load("shaders/mesh.vert.spv")
 MESH_FRAG_SPV :: #load("shaders/mesh.frag.spv")
+TEXTURED_VERT_SPV :: #load("shaders/textured.vert.spv")
+TEXTURED_FRAG_SPV :: #load("shaders/textured.frag.spv")
 CLEAR_VERT_SPV :: #load("shaders/clear.vert.spv")
 CLEAR_FRAG_SPV :: #load("shaders/clear.frag.spv")
 FLOOR_VERT_SPV :: #load("shaders/floor.vert.spv")
@@ -332,6 +351,7 @@ renderer_init :: proc(r: ^Renderer, window: ^sdl.Window, debug: bool) -> bool {
 		r.device = sdl.CreateGPUDeviceWithProperties(props)
 	} else {
 		r.device = sdl.CreateGPUDevice({.SPIRV}, debug, nil)
+		r.anisotropy = true
 	}
 	if r.device == nil {
 		log.errorf("CreateGPUDevice failed: %s", sdl.GetError())
@@ -367,7 +387,16 @@ renderer_init :: proc(r: ^Renderer, window: ^sdl.Window, debug: bool) -> bool {
 		max_lod = 1000,
 	})
 	if r.matcap_sampler == nil do log.errorf("matcap sampler: %s", sdl.GetError())
-	return r.single.mesh != nil && r.single.clear != nil && r.no_paint != nil && r.no_matcap != nil && r.matcap_sampler != nil
+	flat_normal := [4]u8{128, 128, 255, 255}
+	r.no_normal_map = texture_create(r, TEXTURE_FORMATS[.Normal], flat_normal[:], 1, 1)
+	r.texture_sampler = sdl.CreateGPUSampler(r.device, {
+		min_filter = .LINEAR, mag_filter = .LINEAR, mipmap_mode = .LINEAR,
+		address_mode_u = .REPEAT, address_mode_v = .REPEAT, address_mode_w = .REPEAT,
+		max_lod = 1000, max_anisotropy = 8, enable_anisotropy = r.anisotropy,
+	})
+	if r.texture_sampler == nil do log.errorf("texture sampler: %s", sdl.GetError())
+	if r.single.textured == nil do log.warn("textures: the textured pipeline could not be made; textured objects draw as clay")
+	return r.single.mesh != nil && r.single.clear != nil && r.no_paint != nil && r.no_matcap != nil && r.matcap_sampler != nil && r.no_normal_map != nil && r.texture_sampler != nil && r.single.clear != nil && r.no_paint != nil && r.no_matcap != nil && r.matcap_sampler != nil
 }
 
 // The GPU's name, backend and driver version, for logs and benchmark reports.
@@ -418,6 +447,8 @@ renderer_destroy :: proc(r: ^Renderer) {
 	if r.no_paint != nil do sdl.ReleaseGPUBuffer(r.device, r.no_paint)
 	if r.no_matcap != nil do sdl.ReleaseGPUTexture(r.device, r.no_matcap)
 	if r.matcap_sampler != nil do sdl.ReleaseGPUSampler(r.device, r.matcap_sampler)
+	if r.no_normal_map != nil do sdl.ReleaseGPUTexture(r.device, r.no_normal_map)
+	if r.texture_sampler != nil do sdl.ReleaseGPUSampler(r.device, r.texture_sampler)
 	sdl.ReleaseWindowFromGPUDevice(r.device, r.window)
 	sdl.DestroyGPUDevice(r.device)
 	r^ = {}
@@ -469,34 +500,40 @@ mesh_pipelines_create :: proc(r: ^Renderer, samples: sdl.GPUSampleCount) -> Mesh
 		clear = create_clear_pipeline(r, samples),
 		see = create_mesh_pipeline(r, .See_Through, samples),
 		floor = create_floor_pipeline(r, samples),
+		textured = create_mesh_pipeline(r, .Solid, samples, textured = true),
+		textured_see = create_mesh_pipeline(r, .See_Through, samples, textured = true),
 	}
 }
 
 @(private)
 mesh_pipelines_destroy :: proc(r: ^Renderer, p: ^Mesh_Pipelines) {
-	for pipeline in ([5]^sdl.GPUGraphicsPipeline{p.mesh, p.wire, p.clear, p.see, p.floor}) do if pipeline != nil do sdl.ReleaseGPUGraphicsPipeline(r.device, pipeline)
+	for pipeline in ([7]^sdl.GPUGraphicsPipeline{p.mesh, p.wire, p.clear, p.see, p.floor, p.textured, p.textured_see}) do if pipeline != nil do sdl.ReleaseGPUGraphicsPipeline(r.device, pipeline)
 	p^ = {}
 }
 
+// With `textured`, the pipeline of textured meshes (textured.odin): their 32-byte
+// interleaved vertex, no paint buffer, the MatCap and three maps, and no polygroup slots.
 @(private)
-create_mesh_pipeline :: proc(r: ^Renderer, mode: Mesh_Mode, samples: sdl.GPUSampleCount) -> ^sdl.GPUGraphicsPipeline {
+create_mesh_pipeline :: proc(r: ^Renderer, mode: Mesh_Mode, samples: sdl.GPUSampleCount, textured := false) -> ^sdl.GPUGraphicsPipeline {
+	vert_spv, frag_spv := MESH_VERT_SPV, MESH_FRAG_SPV
+	if textured do vert_spv, frag_spv = TEXTURED_VERT_SPV, TEXTURED_FRAG_SPV
 	vert := sdl.CreateGPUShader(r.device, {
-		code_size           = len(MESH_VERT_SPV),
-		code                = raw_data(MESH_VERT_SPV),
+		code_size           = len(vert_spv),
+		code                = raw_data(vert_spv),
 		entrypoint          = "main",
 		format              = {.SPIRV},
 		stage               = .VERTEX,
 		num_uniform_buffers = 1,
-		num_storage_buffers = 1,
+		num_storage_buffers = 0 if textured else 1,
 	})
 	frag := sdl.CreateGPUShader(r.device, {
-		code_size           = len(MESH_FRAG_SPV),
-		code                = raw_data(MESH_FRAG_SPV),
+		code_size           = len(frag_spv),
+		code                = raw_data(frag_spv),
 		entrypoint          = "main",
 		format              = {.SPIRV},
 		stage               = .FRAGMENT,
-		num_samplers        = 1,
-		num_uniform_buffers = 2,
+		num_samplers        = 4 if textured else 1,
+		num_uniform_buffers = 1 if textured else 2,
 	})
 	// Shaders are only needed until the pipeline is built.
 	defer if vert != nil do sdl.ReleaseGPUShader(r.device, vert)
@@ -510,9 +547,21 @@ create_mesh_pipeline :: proc(r: ^Renderer, mode: Mesh_Mode, samples: sdl.GPUSamp
 		{slot = 0, pitch = size_of(geom.Vec3), input_rate = .VERTEX},
 		{slot = 1, pitch = size_of(Normal_Packed), input_rate = .VERTEX},
 	}
-	attributes := [2]sdl.GPUVertexAttribute {
+	attributes := [4]sdl.GPUVertexAttribute {
 		{location = 0, buffer_slot = 0, format = .FLOAT3},
 		{location = 1, buffer_slot = 1, format = .SHORT2_NORM},
+		{}, {},
+	}
+	num_buffers, num_attributes := 2, 2
+	if textured {
+		buffers[0] = {slot = 0, pitch = size_of(Textured_Vertex), input_rate = .VERTEX}
+		attributes = {
+			{location = 0, buffer_slot = 0, format = .FLOAT3, offset = u32(offset_of(Textured_Vertex, position))},
+			{location = 1, buffer_slot = 0, format = .SHORT2_NORM, offset = u32(offset_of(Textured_Vertex, normal))},
+			{location = 2, buffer_slot = 0, format = .SHORT4_NORM, offset = u32(offset_of(Textured_Vertex, tangent))},
+			{location = 3, buffer_slot = 0, format = .FLOAT2, offset = u32(offset_of(Textured_Vertex, uv))},
+		}
+		num_buffers, num_attributes = 1, 4
 	}
 	wire := mode == .Wire
 	color_targets := [1]sdl.GPUColorTargetDescription{{format = VIEWPORT_COLOR_FORMAT, blend_state = BLEND_OVER if mode == .See_Through else {}}}
@@ -522,9 +571,9 @@ create_mesh_pipeline :: proc(r: ^Renderer, mode: Mesh_Mode, samples: sdl.GPUSamp
 		fragment_shader = frag,
 		vertex_input_state = {
 			vertex_buffer_descriptions = &buffers[0],
-			num_vertex_buffers = len(buffers),
+			num_vertex_buffers = u32(num_buffers),
 			vertex_attributes = &attributes[0],
-			num_vertex_attributes = len(attributes),
+			num_vertex_attributes = u32(num_attributes),
 		},
 		primitive_type = .TRIANGLELIST,
 		rasterizer_state = wire ? sdl.GPURasterizerState{
@@ -543,6 +592,8 @@ create_mesh_pipeline :: proc(r: ^Renderer, mode: Mesh_Mode, samples: sdl.GPUSamp
 	})
 	switch {
 	case pipeline != nil:
+	case textured:
+		log.warnf("textured %v pipeline: %s", mode, sdl.GetError())
 	case mode == .Solid:
 		log.errorf("CreateGPUGraphicsPipeline failed: %s", sdl.GetError())
 	case mode == .See_Through:
@@ -1182,8 +1233,25 @@ frame_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lod
 		k := Keyed{item.mesh, item.matcap, item.model, item.color, item.material, item.checker, item.look, item.lights, item.surface, b32(item.wireframe), b32(item.flat), b32(item.paint), b32(item.groups), item.slots != nil, false}
 		h = hash.fnv64a(slice.bytes_from_ptr(&k, size_of(k)), h)
 		if item.slots != nil do h = hash.fnv64a(slice.bytes_from_ptr(item.slots, size_of(Material_Slots)), h)
+		h = textured_key(item, h, false)
 	}
 	return max(h, 1)
+}
+
+// Folds what a textured item shows into a frame key: the mesh, its maps and the view, and
+// for the idle cache (`contents`) the vertices too, which a live item's damage boxes
+// account for instead. Nothing for an item drawn without its textured mesh.
+@(private)
+textured_key :: proc(item: Draw_Item, h: u64, contents: bool) -> u64 {
+	if item.textured == nil || item.texture_view == .Off do return h
+	Keyed :: struct { // no padding: every byte is hashed
+		mesh:       ^Textured_Mesh,
+		maps_stamp: u64,
+		stamp:      u64,
+		view:       u64,
+	}
+	k := Keyed{item.textured, item.textured.maps_stamp, item.textured.stamp if contents else 0, u64(item.texture_view)}
+	return hash.fnv64a(slice.bytes_from_ptr(&k, size_of(k)), h)
 }
 
 // Redraws the whole viewport: the live items over the idle ones, which come from the
@@ -1375,6 +1443,7 @@ static_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lo
 		k := Keyed{item.mesh, item.matcap, item.mesh.version, item.model, item.color, item.material, item.checker, item.look, item.lights, item.surface, b32(item.wireframe), b32(item.flat), b32(item.paint), b32(item.groups), item.slots != nil, false}
 		h = hash.fnv64a(slice.bytes_from_ptr(&k, size_of(k)), h)
 		if item.slots != nil do h = hash.fnv64a(slice.bytes_from_ptr(item.slots, size_of(Material_Slots)), h)
+		h = textured_key(item, h, true)
 	}
 	return max(h, 1) // 0 means empty
 }
@@ -1438,14 +1507,20 @@ begin_mesh_pass :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pipes: ^Mesh_P
 // clay material: the visible runs prepare_draws found, or the whole mesh.
 @(private)
 draw_items :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURenderPass, pipes: ^Mesh_Pipelines, view, proj: Mat4, items: []Draw_Item, live: Maybe(bool), stats: ^Viewport_Stats, see := false) {
-	main := pipes.see if see else pipes.mesh
-	sdl.BindGPUGraphicsPipeline(pass, main)
+	bound: ^sdl.GPUGraphicsPipeline
 	for item in items {
 		if want, filtered := live.?; filtered && item.live != want do continue
 		if blended(pipes, item) != see do continue
+		textured := draws_textured(pipes, item)
+		main := pipes.see if see else pipes.mesh
+		if textured do main = pipes.textured_see if see else pipes.textured
+		if main != bound {
+			sdl.BindGPUGraphicsPipeline(pass, main)
+			bound = main
+		}
 		mb := item.mesh
 		show_paint, show_groups := item.paint && mb.paint != nil, item.groups && mb.paint != nil
-		slotted := item.slots != nil && mb.paint != nil
+		slotted := item.slots != nil && mb.paint != nil && !textured
 		frame := Frame_Uniforms{view_proj = proj * view, view = view, model = item.model, options = {f32(int(show_paint)), f32(int(show_groups)), f32(int(slotted)), 0}}
 		frame.slot_group = SLOT_NONE
 		if slotted {
@@ -1458,6 +1533,23 @@ draw_items :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURende
 		material := Material_Uniforms{base_color = item.color, params = params, surface = surface, checker = item.checker, look = item.look, lights = lights}
 		// Drawn solid after all where the blended pipeline is missing, and opaque then.
 		if !see do material.look.w = 0
+		if textured {
+			frame.options = {}
+			draw_textured_item(r, cmd, pass, item, &frame, &material, stats)
+			if item.wireframe && pipes.wire != nil {
+				// The wire pass draws the sculpt buffers, which hold the same surface.
+				sdl.PushGPUVertexUniformData(cmd, 0, &frame, size_of(frame))
+				paint := [1]^sdl.GPUBuffer{r.no_paint}
+				sdl.BindGPUVertexStorageBuffers(pass, 0, &paint[0], 1)
+				matcap := [1]sdl.GPUTextureSamplerBinding{{texture = r.no_matcap, sampler = r.matcap_sampler}}
+				sdl.BindGPUFragmentSamplers(pass, 0, &matcap[0], 1)
+				vbufs := [2]sdl.GPUBufferBinding{{buffer = mb.positions}, {buffer = mb.normals}}
+				sdl.BindGPUVertexBuffers(pass, 0, &vbufs[0], len(vbufs))
+				wire_pass(r, cmd, pass, pipes, item)
+				bound = pipes.wire
+			}
+			continue
+		}
 		sdl.PushGPUVertexUniformData(cmd, 0, &frame, size_of(frame))
 		sdl.PushGPUFragmentUniformData(cmd, 0, &material, size_of(material))
 		paint := [1]^sdl.GPUBuffer{mb.paint if mb.paint != nil else r.no_paint}
@@ -1468,21 +1560,27 @@ draw_items :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURende
 		sdl.BindGPUVertexBuffers(pass, 0, &vbufs[0], len(vbufs))
 		draw_item_triangles(r, pass, item, stats)
 		if item.wireframe && pipes.wire != nil {
-			// The same triangles again as lines in one flat colour (a negative specular
-			// strength tells the shader so).
-			wire := Material_Uniforms{base_color = WIRE_COLOR, params = {0, -1, 0, 0}}
-			sdl.PushGPUFragmentUniformData(cmd, 0, &wire, size_of(wire))
-			sdl.BindGPUGraphicsPipeline(pass, pipes.wire)
-			draw_item_triangles(r, pass, item, nil)
-			sdl.BindGPUGraphicsPipeline(pass, main)
+			wire_pass(r, cmd, pass, pipes, item)
+			bound = pipes.wire
 		}
 	}
+}
+
+// The item's triangles again as lines in one flat colour (a negative specular strength
+// tells the shader so), with the sculpt buffers bound by the caller.
+@(private)
+wire_pass :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURenderPass, pipes: ^Mesh_Pipelines, item: Draw_Item) {
+	wire := Material_Uniforms{base_color = WIRE_COLOR, params = {0, -1, 0, 0}}
+	sdl.PushGPUFragmentUniformData(cmd, 0, &wire, size_of(wire))
+	sdl.BindGPUGraphicsPipeline(pass, pipes.wire)
+	draw_item_triangles(r, pass, item, nil)
 }
 
 // Whether `item` is drawn see-through, blended over what is behind it: it asks to be
 // (Draw_Item.look.w) and the device made the blended pipeline.
 @(private)
 blended :: proc(pipes: ^Mesh_Pipelines, item: Draw_Item) -> bool {
+	if draws_textured(pipes, item) do return item.look.w > 0 && pipes.textured_see != nil
 	return item.look.w > 0 && pipes.see != nil
 }
 
