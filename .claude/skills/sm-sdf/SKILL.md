@@ -11,7 +11,11 @@ description: Implicit and SDF modelling for this app — the src/sdf_trial spike
   in `volume.odin`; `Clay` (volume + `Surface` + undo + pool) with `clay_init/destroy/fill_sphere/raycast/stroke_begin/dab/
   stroke_end/flush/to_mesh/write/read/undo/redo` in `clay.odin`, `mesh.odin`, `undo.odin`, `file.odin`, `convert.odin`;
   brushes `Add, Subtract, Smooth, Flatten, Inflate` as a stamp `smin`, a 27-mean, a plane clip or fill and an offset
-  (`brush.odin`); band repair by Godunov sweeps at `clay_stroke_end` (`band.odin`). Negative is inside, as here.
+  (`brush.odin`); band repair by Godunov sweeps at `clay_stroke_end` (`band.odin`): the region's bricks run in WAVEFRONTS
+  (bricks of one coordinate sum share no face, so a wavefront is one `parallel_for` reading neighbours live: Gauss-Seidel
+  across bricks, no snapshot), a sweep per direction (`sweep & 7`), stopping at the first sweep that moves no value by
+  more than `REPAIR_SETTLED` (`Clay.repair_sweeps` says how many; `band_repair(c, every_sweep = true)` runs them all for
+  the test). Negative is inside, as here.
 - Rules it keeps: every new value depends on old values only (serial == parallel, `serial_and_parallel_strokes_agree_bit_for_bit`);
   jobs write disjoint bricks or node slots; the directory changes only in serial passes; a brick dirties the nodes whose
   20³ meshing window sees a change within `NEAR` (3 voxels) of the surface; unused index slots are zeros on a dummy vertex 0;
@@ -59,6 +63,16 @@ description: Implicit and SDF modelling for this app — the src/sdf_trial spike
   resolution, a doubling or halving within VOXELS_MIN..MAX), commands `Voxel_Res_Up`/`Voxel_Res_Down`, swap undo entry
   via `object_voxel_resample`; exit stat `voxel_resolution`. Tests `resample_test.odin`; bench columns `Res− ms`,
   `Res+ ms`.
+- Weld by codes (`convert.odin`, `mesh.odin`): every vertex slot has a `Surface.codes` u32 beside its position
+  (`Mesh_Result.codes`, copied in the flush, grown in `surface_alloc_verts`, carried by `surface_compact`): the cell as
+  its OWNER node indexes it (12 bits), the loop (`CODE_LOOP_SHIFT`), and the axes this node sees the cell at −1 along
+  (`CODE_OFFSET_SHIFT`; owner = node − those). A node also makes vertices for its far-face cells (15 along an axis)
+  that only the next node's edges cross, so every owned cell has its vertex. `clay_to_mesh` is five `parallel_for`
+  passes over nodes (sort owned codes per node, find each copy's owner by binary search through `surface_node_find`,
+  prefix sums, write vertices, remap copies and write triangles), the same mesh on one thread and many; a copy with no
+  owner (domain edge) keeps its vertex. `clay_to_mesh_by_position` is the old serial sort weld, kept as the test
+  oracle (`weld_test.odin`). Zero voxel values are read as `ZERO_OUTSIDE` where a crossing is placed, so no two cells
+  put a vertex on one lattice point. Any new per-vertex array (a mask) follows `codes` through those three places.
   Add a voxel path wherever you add a mesh path that touches a level; never call `sculpt.*` on a voxel object expecting
   vertices.
 

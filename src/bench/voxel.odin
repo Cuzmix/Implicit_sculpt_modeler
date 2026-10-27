@@ -16,10 +16,11 @@ import "../voxel"
 // dab, the conversion to a plain mesh and that mesh voxelised again at the same voxel size.
 // Times are medians over the stroke, in milliseconds, with the worst frame beside the
 // flush. Regrows are the frames that had to remake the GPU copy because the mesh arrays
-// grew; Mesh MB is the arrays with their slack.
+// grew; Mesh MB is the arrays with their slack; Sweeps is how many the stroke's band repair
+// took to settle.
 voxel_header :: proc() {
-	fmt.println("| Voxels across | Bricks | Field MB | Fill ms | First mesh ms | Vertices | Triangles | Raycast ms | Add dab ms | Bricks/dab | Flush ms | Flush ms max | Upload KB/frame | Regrows | Mesh MB | Stroke end ms | Undo MB | Undo ms | Redo ms | Smooth dab ms | Inflate dab ms | To mesh ms | From mesh ms | Res− ms | Res+ ms |")
-	fmt.println("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+	fmt.println("| Voxels across | Bricks | Field MB | Fill ms | First mesh ms | Vertices | Triangles | Raycast ms | Add dab ms | Bricks/dab | Flush ms | Flush ms max | Upload KB/frame | Regrows | Mesh MB | Stroke end ms | Sweeps | Undo MB | Undo ms | Redo ms | Smooth dab ms | Inflate dab ms | To mesh ms | From mesh ms | Res− ms | Res+ ms |")
+	fmt.println("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
 }
 
 run_voxel :: proc(across: int, pool: ^jobs.Pool) {
@@ -74,6 +75,7 @@ run_voxel :: proc(across: int, pool: ^jobs.Pool) {
 	_ = voxel.clay_stroke_end(&c)
 	_ = voxel.clay_flush(&c)
 	end_ms := time.duration_milliseconds(time.tick_since(e0))
+	sweeps := c.repair_sweeps
 	undo_mb := f64(voxel.clay_undo_bytes(&c)) / (1 << 20)
 	u0 := time.tick_now()
 	_ = voxel.clay_undo(&c)
@@ -109,7 +111,7 @@ run_voxel :: proc(across: int, pool: ^jobs.Pool) {
 	defer free_all(context.temp_allocator)
 
 	fmt.printfln(
-		"| %d | %s | %.1f | %.0f | %.0f | %s | %s | %.3f | %.2f | %d | %.2f | %.2f | %.0f | %d | %.0f | %.0f | %.1f | %.1f | %.1f | %.2f | %.2f | %.0f | %.0f | %.0f | %.0f |",
+		"| %d | %s | %.1f | %.0f | %.0f | %s | %s | %.3f | %.2f | %d | %.2f | %.2f | %.0f | %d | %.0f | %.0f | %d | %.1f | %.1f | %.1f | %.2f | %.2f | %.0f | %.0f | %.0f | %.0f |",
 		across,
 		thousands(bricks),
 		field_mb,
@@ -126,6 +128,7 @@ run_voxel :: proc(across: int, pool: ^jobs.Pool) {
 		regrows,
 		mesh_mb,
 		end_ms,
+		sweeps,
 		undo_mb,
 		undo_ms,
 		redo_ms,
