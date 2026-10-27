@@ -67,10 +67,16 @@ UI = {
 MENU_FILE_ROWS = ["open", "save", "save_as", "save_copy", "earlier_saves", "last_autosave", "import", "export", "screenshot"]
 _file_y = {name: 106 + 44 * i for i, name in enumerate(MENU_FILE_ROWS)}
 _grid_y = _file_y[MENU_FILE_ROWS[-1]] + 69
+# The menu's APP rows in order (new_ui.odin), under the New scene grid: a row added there is
+# added here, and every tap on these rows follows.
+MENU_APP_ROWS = ["reduce_motion", "settings", "stats", "help", "macros", "library"]
+_app_y = {name: _grid_y + 48 + 69 + 44 * i for i, name in enumerate(MENU_APP_ROWS)}
+# On a 1280x720 window, with the menu scrolled to its end, the last row's middle.
+MENU_SHORT_LAST_Y = 688
 UI.update({
     "menu_earlier_saves": (75, _file_y["earlier_saves"]),
     "new_sphere": (48, _grid_y), "new_head": (135, _grid_y), "new_hand": (135, _grid_y + 48),
-    "menu_settings": (75, _grid_y + 48 + 69 + 44), "menu_macros": (75, _grid_y + 48 + 69 + 44 * 4),
+    "menu_settings": (75, _app_y["settings"]), "menu_macros": (75, _app_y["macros"]), "menu_library": (75, _app_y["library"]),
 })
 # The Macros panel (kit_macros.odin) with two macros: each row's Run, Key, Rename and
 # Delete, rows 52 points apart.
@@ -4313,7 +4319,7 @@ def menu_scrolls_on_a_short_window():
     s.wait(1)
     s.add("wheel:-10")
     s.wait(20)
-    click(s, (85, 556))
+    click(s, (85, MENU_SHORT_LAST_Y - 44 * (len(MENU_APP_ROWS) - 1 - MENU_APP_ROWS.index("settings"))))
     s.wait(10)
     return s, ["--width=1280", "--height=720"], {"settings_open": near(1, 0)}
 
@@ -4500,6 +4506,55 @@ def library_alphas_survive_a_restart():
          {"library_alphas": near(1, 0), "library_skipped": near(1, 0), "alpha": is_text("mine/rock")}),
         (Script(), [f"--settings-file={settings_file()}", "--script=show_section alpha"],
          {"library_alphas": near(1, 0), "alpha": is_text("mine/rock"), "@saved": saved(brush_alpha="mine/rock")}),
+    ])
+
+
+def make_pack(path, name, alphas, extra=()):
+    """Writes a content pack: pack.txt naming it, by Bolt, and grey PNG alphas."""
+    import zipfile
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    folder = path + ".parts"
+    os.makedirs(folder, exist_ok=True)
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("pack.txt", f"name {name}\nauthor Bolt\nversion 1.0\nlicense CC0\ndescription Pebbles and cracks for stone\n")
+        for i, stem in enumerate(alphas):
+            png = os.path.join(folder, stem + ".png")
+            grey_png(png, 16 + i)
+            z.write(png, f"alphas/{stem}.png")
+        for entry, text in extra:
+            z.writestr(entry, text)
+    shutil.rmtree(folder)
+
+
+# The Library panel's Remove for the first pack, below Your own, at 1600x900.
+LIBRARY_PACK1_REMOVE = (1494, 291)
+
+
+@scenario
+def content_pack_installs_and_removes():
+    """A script installs a pack (its macros/ folder left out as code) and picks one of its
+    alphas, which the Alpha section shows under the pack's name; the next start has the
+    pack back, and the Library panel (Menu > Library) removes it with two taps on its
+    bin, taking its folder away and the brush back to round."""
+    pack = autosave_folder() + "-rocks.sculptpack"
+    make_pack(pack, "Rock Set", ["Pebble", "crack"], [("macros/evil.cmd", "remesh\n")])
+    s = Script()
+    s.wait(3)
+    click(s, UI["menu"])
+    s.wait(4)
+    click(s, UI["menu_library"])
+    s.wait(10)
+    click(s, LIBRARY_PACK1_REMOVE)
+    s.wait(3)
+    click(s, LIBRARY_PACK1_REMOVE)
+    s.wait(5)
+    folder = os.path.join(library_folder(), "rock-set")
+    return Steps([
+        (Script(), [f"--settings-file={settings_file()}", f"--script=install_pack {pack}; alpha rock-set/crack; show_section alpha"],
+         {"packs": near(1, 0), "pack_alphas": near(2, 0), "packs_installed": near(1, 0), "alpha": is_text("rock-set/crack"),
+          "@unpacked": lambda _: os.path.exists(os.path.join(folder, "alphas", "crack.png")) and not os.path.exists(os.path.join(folder, "macros"))}),
+        (s, [f"--settings-file={settings_file()}"],
+         {"packs": near(0, 0), "pack_alphas": near(0, 0), "alpha": is_text("-"), "@removed": lambda _: not os.path.exists(folder)}),
     ])
 
 

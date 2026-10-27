@@ -151,6 +151,8 @@ Command_Id :: enum u8 {
 	Run_Macro, // the argument is the slot, from 0 (macros.odin)
 	Macros,
 	Run_Script,
+	Library,
+	Pick_Pack,
 }
 
 Command :: struct {
@@ -1114,7 +1116,7 @@ COMMANDS := [Command_Id]Command {
 		// Unfolded and in front, wherever it was left, in Help's place (they share it).
 		run = proc(app: ^App, _: int) {
 			k := &app.kit
-			k.settings, k.help, k.macros = true, false, false
+			k.settings, k.help, k.macros, k.library = true, false, false, false
 			k.windows[.Settings].minimized = false
 			window_raise(k, .Settings)
 		},
@@ -1193,6 +1195,19 @@ COMMANDS := [Command_Id]Command {
 		icon = ui.ICON_OPEN,
 		run = proc(app: ^App, _: int) {file_dialog(app, .Run_Script)},
 		enabled = proc(app: ^App, _: int) -> bool {return script_can_start(app)},
+	},
+	.Library = {
+		label = "Library...",
+		help = "Lists the content packs installed and your own alphas, to install a pack or remove one.",
+		icon = ui.ICON_FOLDER,
+		run = proc(app: ^App, _: int) {library_open(app)},
+	},
+	.Pick_Pack = {
+		label = "Install pack...",
+		help = "Adds a content pack (.sculptpack) to your library: its alphas join the Alpha section under its name.",
+		icon = ui.ICON_IMPORT,
+		run = proc(app: ^App, _: int) {file_dialog(app, .Install_Pack)},
+		enabled = proc(app: ^App, _: int) -> bool {return app.library.folder != "" && !pack_busy(app)},
 	},
 	.Pie_Editor = {
 		label = "Edit pies",

@@ -84,7 +84,7 @@ macro_kind :: proc(id: Command_Id) -> Macro_Kind {
 	#partial switch id {
 	case .None, .Undo, .Redo, .Macro_Record, .Run_Macro:
 		return .Skip
-	case .Inspector, .Objects_Card, .Show_Section, .Settings, .Help, .Stats, .Coach_Tips, .Adjust_Last, .Reduce_Motion, .Macros:
+	case .Inspector, .Objects_Card, .Show_Section, .Settings, .Help, .Stats, .Coach_Tips, .Adjust_Last, .Reduce_Motion, .Macros, .Library:
 		return .Skip
 	case .View_Axis, .Focus_Selected, .Frame_All, .Reset_Camera, .View_Back, .View_Forward:
 		return .Skip
@@ -528,7 +528,7 @@ macro_delete :: proc(app: ^App, slot: int) -> bool {
 macros_open :: proc(app: ^App) {
 	k := &app.kit
 	if k.settings do settings_close(app)
-	k.help, k.macros, k.macro_armed = false, true, 0
+	k.help, k.macros, k.library, k.macro_armed = false, true, false, 0
 	k.windows[.Macros].minimized = false
 	window_raise(k, .Macros)
 }

@@ -138,8 +138,9 @@ are on the device checklist.
   means the shape to apply presses `Return` after it (or taps the bar's Apply); a mouse's applies at once.
 - A popover whose height follows its text keeps its controls at its foot, by the anchor, so their positions hold
   whatever the lines above say (the adjust popover: `ADJUST_SIZES`, `ADJUST_AXES`).
-- The menu's rows are computed from `MENU_FILE_ROWS` (touch_check.py, kit_menu's order): a new File row goes in that
-  list, never as hand-shifted coordinates. A scenario with several app runs (a save, then an open) returns
+- The menu's rows are computed from `MENU_FILE_ROWS` and `MENU_APP_ROWS` (touch_check.py, kit_menu's order): a new
+  File or App row goes in those lists, never as hand-shifted coordinates; `menu_scrolls_on_a_short_window` counts back
+  from the last row (`MENU_SHORT_LAST_Y`), so a row added at the end moves nothing. A scenario with several app runs (a save, then an open) returns
   `Steps([...])`; files a scenario makes go under `autosave_folder()`, its own per-scenario path.
 - Write the scenario for a bug before fixing it, and confirm it fails on the old code (build the old commit in a git
   worktree if the old code cannot run the new events, and replay the closest event sequence it understands).

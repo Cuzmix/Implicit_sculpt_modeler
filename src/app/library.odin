@@ -6,6 +6,7 @@ import "core:os"
 import "core:path/filepath"
 import "core:slice"
 import "core:strings"
+import "core:thread"
 import "core:unicode"
 import "core:unicode/utf8"
 
@@ -13,10 +14,11 @@ import "../sculpt"
 import "../zip"
 
 // The library: a folder beside the settings file that keeps what the person adds, so it
-// is there at the next start. Its subfolder `mine` holds their own; content packs will
-// each have a folder of their own beside it. Today it keeps brush alphas: Load image
-// copies the image into mine/alphas, and presets, the settings and scripts name such an
-// alpha `mine/<stem>`, so a preset that uses it comes back with it.
+// is there at the next start. Its subfolder `mine` holds their own, and each content
+// pack installed has a folder of its own beside it (pack.odin). Today it keeps brush
+// alphas: Load image copies the image into mine/alphas, and presets, the settings and
+// scripts name an alpha `mine/<stem>` or `<pack>/<stem>`, so a preset that uses one comes
+// back with it.
 
 LIBRARY_FOLDER :: "library"
 LIBRARY_MINE :: "mine"
@@ -33,9 +35,14 @@ ALPHA_REMOVE_ARM_TIME :: 3
 ALPHA_EXTENSIONS := [?]string{".png", ".jpg", ".jpeg", ".bmp", ".tga", ".qoi"}
 
 Library :: struct {
-	folder:  string, // owned; "" for a run that keeps no settings, and so no library
-	alphas:  int,    // read at start or kept since
-	skipped: int,    // files in the library that are not alphas it can read
+	folder:       string, // owned; "" for a run that keeps no settings, and so no library
+	alphas:       int,    // the person's own, read at start or kept since
+	skipped:      int,    // files and pack folders in the library it cannot read
+	packs:        [dynamic]Pack, // sorted by id at start, then in the order installed
+	installed:    int,    // packs installed this run
+	refused:      int,    // packs refused this run
+	worker:       ^Pack_Worker,    // the install under way, or nil
+	pending:      ^Pack_Unpacked,  // a pack waiting on Replace, or nil
 }
 
 // The library's folder: `library` beside the settings file or, for a settings file of
@@ -55,32 +62,91 @@ library_alphas_folder :: proc(app: ^App) -> string {
 	return path
 }
 
+// Waits for an install under way (a closing app leaves no half-written pack), and frees
+// the library's list.
 library_destroy :: proc(app: ^App) {
-	delete(app.library.folder)
-	app.library = {}
+	l := &app.library
+	if l.worker != nil {
+		thread.join(l.worker.thread)
+		if u := l.worker.result; u != nil do pack_unpacked_free(u)
+		thread.destroy(l.worker.thread)
+		delete(l.worker.path)
+		delete(l.worker.library)
+		free(l.worker)
+	}
+	if l.pending != nil do pack_unpacked_free(l.pending)
+	if l.folder != "" {
+		incoming, _ := filepath.join({l.folder, PACK_INCOMING}, context.temp_allocator)
+		_ = os.remove_all(incoming)
+	}
+	for &p in l.packs do pack_free(&p)
+	delete(l.packs)
+	delete(l.folder)
+	l^ = {}
 }
 
-// Reads the person's alphas from the library at `folder` (library_folder), after the
-// built-ins and sorted by name, so every start lists them alike. A file that is not
-// an image the app reads is skipped and counted, with one note naming the first; it
-// stays on disk for the person to look at.
+// Reads the library at `folder` (library_folder): the person's own alphas after the
+// built-ins, then each pack's, packs sorted by folder name and alphas by name, so every
+// start lists them alike. Whatever an interrupted install or replace left is cleared
+// first. A file that is not an image the app reads, or a pack folder without a
+// pack.txt, is skipped and counted, with one note naming the first; it stays on disk
+// for the person to look at.
 library_load :: proc(app: ^App, folder: string) {
 	if folder == "" do return
-	app.library.folder = strings.clone(folder)
-	infos, err := os.read_directory_by_path(library_alphas_folder(app), -1, context.temp_allocator)
+	l := &app.library
+	l.folder = strings.clone(folder)
+	for leftover in ([]string{PACK_INCOMING, PACK_ASIDE}) {
+		path, _ := filepath.join({folder, leftover}, context.temp_allocator)
+		_ = os.remove_all(path)
+	}
+	first_skipped := ""
+	l.alphas = library_alphas_load(app, library_alphas_folder(app), LIBRARY_MINE, &first_skipped)
+	infos, err := os.read_directory_by_path(folder, -1, context.temp_allocator)
+	if err == nil {
+		slice.sort_by(infos, proc(a, b: os.File_Info) -> bool {return a.name < b.name})
+		for fi in infos {
+			if fi.type != .Directory || strings.has_prefix(fi.name, ".") || strings.equal_fold(fi.name, LIBRARY_MINE) do continue
+			p := Pack{}
+			text_path, _ := filepath.join({fi.fullpath, PACK_FILE}, context.temp_allocator)
+			text, text_err := os.read_entire_file(text_path, context.temp_allocator)
+			if text_err != nil || !zip.name_safe(fi.name) || !pack_text_parse(string(text), &p) {
+				pack_free(&p)
+				if first_skipped == "" do first_skipped = fi.name
+				l.skipped += 1
+				continue
+			}
+			p.id = strings.clone(fi.name)
+			alphas, _ := filepath.join({fi.fullpath, LIBRARY_ALPHAS}, context.temp_allocator)
+			p.alphas = library_alphas_load(app, alphas, p.id, &first_skipped)
+			append(&l.packs, p)
+		}
+	}
+	switch {
+	case first_skipped == "":
+	case l.skipped == 1:
+		file_note(app, true, "Skipped %s in the library: the app cannot read it", first_skipped)
+	case:
+		file_note(app, true, "Skipped %d files and folders in the library that the app cannot read, %s first", l.skipped, first_skipped)
+	}
+}
+
+// Reads the images in `dir` as alphas named `<prefix>/<stem>`, sorted by stem; returns
+// how many, counting what it skips in the library's `skipped`.
+@(private = "file")
+library_alphas_load :: proc(app: ^App, dir, prefix: string, first_skipped: ^string) -> (loaded: int) {
+	infos, err := os.read_directory_by_path(dir, -1, context.temp_allocator)
 	if err != nil do return
 	// By stem first, so "rock" comes before "rock-2" whatever their extensions.
 	slice.sort_by(infos, proc(a, b: os.File_Info) -> bool {
 		sa, sb := filepath.stem(a.name), filepath.stem(b.name)
 		return sa < sb if sa != sb else a.name < b.name
 	})
-	first_skipped := ""
 	for fi in infos {
 		if fi.type != .Regular || strings.has_prefix(fi.name, ".") || !alpha_extension(fi.name) do continue
 		stem := filepath.stem(fi.name)
-		ref := fmt.tprintf("%s/%s", LIBRARY_MINE, stem)
+		ref := fmt.tprintf("%s/%s", prefix, stem)
 		// Two files of one stem (rock.png and rock.jpg) would be one name: the first wins.
-		if app.library.alphas >= LIBRARY_ALPHAS_MAX || alpha_find(app, ref) >= 0 {
+		if loaded >= LIBRARY_ALPHAS_MAX || alpha_find(app, ref) >= 0 {
 			app.library.skipped += 1
 			continue
 		}
@@ -92,31 +158,24 @@ library_load :: proc(app: ^App, folder: string) {
 		defer delete(data)
 		alpha, _, _, failed := alpha_decode(data)
 		if failed != "" {
-			if first_skipped == "" do first_skipped = fi.name
+			if first_skipped^ == "" do first_skipped^ = fmt.tprintf("%s/%s", prefix, fi.name)
 			app.library.skipped += 1
 			continue
 		}
-		library_alpha_add(app, stem, ref, fi.fullpath, data, alpha)
+		library_alpha_add(app, stem, ref, fi.fullpath, hash.crc32(data), len(data), alpha)
+		loaded += 1
 	}
-	switch {
-	case first_skipped == "":
-	case app.library.skipped == 1:
-		file_note(app, true, "Skipped %s in the library: it is not an image the app reads", first_skipped)
-	case:
-		file_note(app, true, "Skipped %d files in the library that are not images the app reads, %s first", app.library.skipped, first_skipped)
-	}
+	return
 }
 
-@(private = "file")
-library_alpha_add :: proc(app: ^App, stem, ref, file: string, data: []u8, alpha: sculpt.Alpha) -> int {
+// Adds an alpha read from the library file `file`, and returns its index.
+library_alpha_add :: proc(app: ^App, stem, ref, file: string, sum: u32, size: int, alpha: sculpt.Alpha) -> int {
 	i := alpha_add(app, stem, ref, alpha)
 	e := &app.alphas[i]
-	e.file, e.sum, e.size = strings.clone(file), hash.crc32(data), len(data)
-	app.library.alphas += 1
+	e.file, e.sum, e.size = strings.clone(file), sum, size
 	return i
 }
 
-@(private = "file")
 alpha_extension :: proc(name: string) -> bool {
 	ext := strings.to_lower(filepath.ext(name), context.temp_allocator)
 	return slice.contains(ALPHA_EXTENSIONS[:], ext)
@@ -163,7 +222,8 @@ alpha_keep :: proc(app: ^App, path: string) -> bool {
 		alpha_loaded_note(app, name, alpha, width, height, fmt.tprintf(", for this run only: the library could not keep a copy (%s)", failed))
 		return true
 	}
-	app.brush.alpha = library_alpha_add(app, stem, fmt.tprintf("%s/%s", LIBRARY_MINE, stem), file, data, alpha)
+	app.brush.alpha = library_alpha_add(app, stem, fmt.tprintf("%s/%s", LIBRARY_MINE, stem), file, sum, len(data), alpha)
+	app.library.alphas += 1
 	alpha_loaded_note(app, name, alpha, width, height, ", and kept it in your library")
 	return true
 }
@@ -202,11 +262,19 @@ library_stem :: proc(folder, wanted, path: string, data: []u8) -> (stem, ext: st
 	}
 }
 
-// Takes the kept alpha at index `i` out of the library: its file goes, and the brush and
-// every preset that used it fall back to round, with a note counting those presets. Its
-// slot stays, marked gone, so that every index held elsewhere stays valid.
+// Whether the alpha at `i` is one of the person's own in the library, which Remove from
+// library takes out (a pack's go with their pack).
+alpha_is_mine :: proc(app: ^App, i: int) -> bool {
+	if i < 0 || i >= len(app.alphas) do return false
+	e := app.alphas[i]
+	return !e.gone && e.file != "" && strings.has_prefix(e.ref, LIBRARY_MINE + "/")
+}
+
+// Takes the person's alpha at index `i` out of the library: its file goes, and the brush
+// and every preset that used it fall back to round, with a note counting those presets.
+// Its slot stays, marked gone, so that every index held elsewhere stays valid.
 alpha_remove :: proc(app: ^App, i: int) -> bool {
-	if i < 0 || i >= len(app.alphas) || app.alphas[i].file == "" || app.alphas[i].gone do return false
+	if !alpha_is_mine(app, i) do return false
 	e := &app.alphas[i]
 	if err := os.remove(e.file); err != nil && os.exists(e.file) {
 		file_note(app, true, "Cannot remove alpha %s from your library: %v", e.name, err)
@@ -214,17 +282,26 @@ alpha_remove :: proc(app: ^App, i: int) -> bool {
 	}
 	e.gone = true
 	app.library.alphas -= 1
-	if app.brush.alpha == i do app.brush.alpha = -1
-	used := 0
-	for &p in app.presets[:app.preset_count] {
-		if p.values.alpha != i do continue
-		p.values.alpha = -1
-		used += 1
-	}
+	used := alphas_retarget(app)
 	if used == 0 {
 		file_note(app, false, "Removed alpha %s from your library", e.name)
 	} else {
 		file_note(app, false, "Removed alpha %s from your library; %d preset%s that used it %s round now", e.name, used, "" if used == 1 else "s", "is" if used == 1 else "are")
 	}
 	return true
+}
+
+// After alphas were taken out (marked gone), and maybe others of the same names added (a
+// pack replaced): the brush, its plain values and every preset holding a gone alpha get
+// the alpha now of that name, or round. Returns how many presets went round.
+alphas_retarget :: proc(app: ^App) -> (dropped: int) {
+	retarget :: proc(app: ^App, i: ^int) -> bool {
+		if i^ < 0 || i^ >= len(app.alphas) || !app.alphas[i^].gone do return false
+		i^ = alpha_find(app, app.alphas[i^].ref)
+		return i^ < 0
+	}
+	_ = retarget(app, &app.brush.alpha)
+	_ = retarget(app, &app.brush.plain.alpha)
+	for &p in app.presets[:app.preset_count] do dropped += int(retarget(app, &p.values.alpha))
+	return
 }

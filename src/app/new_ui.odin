@@ -163,6 +163,12 @@ Kit_State :: struct {
 	macros_scroll:  f32,
 	macro_armed:    int,
 	macro_armed_at: f64,
+	// The Library panel (kit_library.odin): open, how far its list is scrolled, and the
+	// pack whose Remove a first tap armed (from 1), and when.
+	library:        bool,
+	library_scroll: f32,
+	pack_armed:     int,
+	pack_armed_at:  f64,
 	// The library alpha whose Remove from library a first tap armed (from 1), and when.
 	alpha_armed:    int,
 	alpha_armed_at: f64,
@@ -215,24 +221,25 @@ Kit_Window :: enum u8 {
 	Settings,
 	Help,
 	Macros,
+	Library,
 	Objects, // the Objects card (kit_objects_card.odin), a card rather than a window
 }
 
-// The order the windows start in, back to front: Settings, Help and Macros over the
-// rest, as they opened.
-KIT_WINDOW_ORDER :: [len(Kit_Window)]Kit_Window{.Inspector, .Objects, .Stats, .History, .Settings, .Help, .Macros}
+// The order the windows start in, back to front: Settings, Help, Macros and Library over
+// the rest, as they opened.
+KIT_WINDOW_ORDER :: [len(Kit_Window)]Kit_Window{.Inspector, .Objects, .Stats, .History, .Settings, .Help, .Macros, .Library}
 
-// Settings, Help and Macros share the inspector's place on the right: one at a time,
-// with the inspector hidden while one is open.
+// Settings, Help, Macros and Library share the inspector's place on the right: one at a
+// time, with the inspector hidden while one is open.
 side_panel_open :: proc(k: ^Kit_State) -> bool {
-	return k.settings || k.help || k.macros
+	return k.settings || k.help || k.macros || k.library
 }
 
-// Closes Settings, Help or Macros, whichever is open, giving the place back to the
-// inspector.
+// Closes Settings, Help, Macros or Library, whichever is open, giving the place back to
+// the inspector.
 side_panel_close :: proc(app: ^App) {
 	if app.kit.settings do settings_close(app)
-	app.kit.help, app.kit.macros = false, false
+	app.kit.help, app.kit.macros, app.kit.library = false, false, false
 }
 
 // Brings `which` in front of the other windows.
@@ -915,6 +922,7 @@ kit_layout :: proc(app: ^App) {
 		case .Settings:  raised = kit_settings(app)
 		case .Help:      raised = kit_help(app)
 		case .Macros:    raised = kit_macros(app)
+		case .Library:   raised = kit_library(app)
 		case .Objects:   raised = kit_objects_card(app)
 		}
 		if raised do top = which
@@ -1072,6 +1080,7 @@ kit_menu :: proc(app: ^App, anchor: ui.Rect) {
 	_ = command_menu_item(app, .Stats)
 	if command_menu_item(app, .Help, int(Help_Tab.Keys), "Help...") do pick = true
 	if command_menu_item(app, .Macros) do pick = true
+	if command_menu_item(app, .Library) do pick = true
 	kit_scroll_end(ctx, scroll)
 	ui.popover_end(ctx)
 	if pick do k.menu = false

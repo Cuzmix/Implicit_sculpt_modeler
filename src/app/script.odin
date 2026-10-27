@@ -52,6 +52,7 @@ Script_Verb :: enum u8 {
 	Falloff,
 	Alpha,
 	Layer,
+	Install_Pack,
 }
 
 // Each verb's name and what it takes, for errors and the README.
@@ -70,8 +71,9 @@ SCRIPT_VERBS := [Script_Verb]struct {
 	.Draw_Curve    = {"draw_curve", "tube, stitches or zipper"},
 	.Insert_Middle = {"insert_middle", "sphere, cube, cylinder, cone or torus"},
 	.Falloff       = {"falloff", "smooth, linear, sharp, firm or flat"},
-	.Alpha         = {"alpha", "a built-in alpha's name or an image file"},
+	.Alpha         = {"alpha", "an alpha's name (a built-in's, or mine/NAME or PACK/NAME from the library) or an image file"},
 	.Layer         = {"layer", "the layer's number counting from 1 at the bottom, its strength from -1 to 2, and hidden to hide it"},
+	.Install_Pack  = {"install_pack", "a content pack file (.sculptpack), which replaces an installed pack of its name and author"},
 }
 
 // A command that is on or off (one with `checked`) can be told which: it then runs only
@@ -398,9 +400,10 @@ script_verb_read :: proc(st: ^Script_Statement, args: []string) -> bool {
 		n, ok := strconv.parse_int(args[0])
 		st.count = n
 		return ok && n >= 1
-	case .Alpha:
-		if len(args) != 1 do return false
-		st.text = strings.clone(args[0])
+	case .Alpha, .Install_Pack:
+		// A name or path may have spaces: it is the rest of the line.
+		if len(args) == 0 do return false
+		st.text = strings.join(args, " ")
 		return true
 	case .Layer:
 		if len(args) < 2 || len(args) > 3 do return false
@@ -444,6 +447,12 @@ script_verb :: proc(app: ^App, st: Script_Statement) -> (failure: string, ok: bo
 		return "", true
 	case .Alpha:
 		if !alpha_select(app, st.text) do return fmt.tprintf("no alpha is named %q and no image could be read there", st.text), true
+		return "", true
+	case .Install_Pack:
+		// In place, not on the install thread, so the next line sees the pack.
+		if app.library.folder == "" do return "this run keeps no library: give it --settings-file", true
+		if pack_busy(app) do return "another pack is being installed", true
+		if failed := pack_install_finish(app, pack_unpack(st.text, app.library.folder), replace = true); failed != "" do return failed, true
 		return "", true
 	case .Project:
 		if st.count > len(app.scene.objects) do return fmt.tprintf("the scene has %d object%s", len(app.scene.objects), "" if len(app.scene.objects) == 1 else "s"), true
@@ -494,7 +503,7 @@ script_verb :: proc(app: ^App, st: Script_Statement) -> (failure: string, ok: bo
 			_ = sculpt.sculptor_layer_set(s, st.count - 1, st.numbers[0], !st.flip)
 			if sculpt.sculptor_stroke_end(s) do history_record(app, obj, .Layer, "Layer strength")
 			return "", true
-		case .Falloff, .Alpha, .Project, .Draw_Curve, .Insert_Middle:
+		case .Falloff, .Alpha, .Project, .Draw_Curve, .Insert_Middle, .Install_Pack:
 		}
 	}
 	if script_scene_state(app) == before do return "it left the scene as it was (the log says why)", true
@@ -519,7 +528,7 @@ script_allows :: proc(id: Command_Id) -> bool {
 		return false
 	// No script records or runs a macro or a script file, so none starts another or
 	// records itself.
-	case .Macro_Record, .Run_Macro, .Run_Script:
+	case .Macro_Record, .Run_Macro, .Run_Script, .Pick_Pack:
 		return false
 	// The last stroke replays where the pointer is, and the last autosave is whatever an
 	// earlier run left: neither is something a script can say beforehand.

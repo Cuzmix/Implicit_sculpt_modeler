@@ -481,6 +481,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			if !scene_run(&app, command) do return false
 			if app.macro.pending.active do macro_settle(&app, script_scene_state(&app) != before)
 		}
+		library_frame(&app)
 		if req, ok := file_take(&app); ok {
 			autosave_settle(&app)
 			inspector_drags_end(&app)
@@ -930,7 +931,9 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	}
 	macros_kept := 0
 	for s in app.macro.slots do macros_kept += int(s.name != "")
-	fmt.printfln("library_alphas=%d library_skipped=%d alpha=%s", app.library.alphas, app.library.skipped, alpha_ref(&app, app.brush.alpha))
+	pack_alphas := 0
+	for p in app.library.packs do pack_alphas += p.alphas
+	fmt.printfln("library_alphas=%d library_skipped=%d alpha=%s packs=%d pack_alphas=%d packs_installed=%d packs_refused=%d", app.library.alphas, app.library.skipped, alpha_ref(&app, app.brush.alpha), len(app.library.packs), pack_alphas, app.library.installed, app.library.refused)
 	fmt.printfln("macros=%d macro_recording=%d macro_entries=%d macro_left_out=%d macros_run=%d scripts_run=%d macro_steps=%d", macros_kept, int(app.macro.recording), len(app.macro.entries), app.macro.left_out, app.macro.runs, app.macro.scripts, app.macro.steps)
 	fmt.printfln("frames=%d dabs=%d objects=%d vertices=%d", frame_index, app.stats.dabs_total, len(app.scene.objects), vertices)
 	{
@@ -1087,8 +1090,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		recall_pinned := false
 		if obj := selected_object(&app); obj != nil do recall_pinned = sculpt.sculptor_recall_pinned(object_sculptor(obj))
 		fmt.printfln("recall_back=%d recall_reach=%d recall_pinned=%d recall_ms=%.1f", recall_back, recall_reach, int(recall_pinned), app.stats.recall_ms)
-		open := [Kit_Window]bool{.Inspector = k.inspector && !side_panel_open(k), .Stats = k.stats, .History = k.history, .Settings = k.settings, .Help = k.help, .Macros = k.macros, .Objects = k.objects_card}
-		names := [Kit_Window]string{.Inspector = "inspector", .Stats = "stats", .History = "history panel", .Settings = "settings", .Help = "help", .Macros = "macros", .Objects = "objects card"}
+		open := [Kit_Window]bool{.Inspector = k.inspector && !side_panel_open(k), .Stats = k.stats, .History = k.history, .Settings = k.settings, .Help = k.help, .Macros = k.macros, .Library = k.library, .Objects = k.objects_card}
+		names := [Kit_Window]string{.Inspector = "inspector", .Stats = "stats", .History = "history panel", .Settings = "settings", .Help = "help", .Macros = "macros", .Library = "library", .Objects = "objects card"}
 		for w, which in k.windows {
 			r := ui.prev_rect(&k.ctx, names[which])
 			fmt.printf("window_%s=%d,%d,%.0f,%.0f ", strings.to_lower(fmt.tprint(which), context.temp_allocator), int(open[which]), int(w.minimized), r.x, r.y)
