@@ -151,7 +151,82 @@ SCRIPT_VALUES := [?]Setting {
 	{"extract_thickness", U + offset_of(Ui_State, boolean) + offset_of(Boolean_State, thickness), f32, 0.002, 0.2},
 	{"hd_window", offset_of(App, hd_window_vertices), int, 10_000, 16_000_000},
 	{"studio_samples", offset_of(App, studio_samples), i32, 1, STUDIO_SAMPLES_MAX},
+	{"studio_ao", offset_of(App, studio_ao), f32, 0, 1},
+	{"live_ao_reach", offset_of(App, live_ao_reach), f32, LIVE_AO_REACH_MIN, LIVE_AO_REACH_MAX},
 	{"cloth_mode", offset_of(App, brush) + offset_of(Brush_Settings, cloth_mode), sculpt.Cloth_Mode, 0, 0},
+}
+
+// Values with more to them that only scripts set, as SETTING_LINES are set: the scene's
+// lights' colours, and the whole set fixed to the scene or not, as `lights_fixed` did
+// before each light had its own space (lights_fixed_set).
+@(rodata)
+SCRIPT_LINES := [?]Setting_Line {
+	{
+		"light1_color",
+		rgb_parse,
+		proc(app: ^App, v: Setting_Line_Value) {app.scene.lights.lights[0].color = v.([3]f32)},
+		proc(app: ^App) -> string {return rgb_text(app.scene.lights.lights[0].color)},
+	},
+	{
+		"light2_color",
+		rgb_parse,
+		proc(app: ^App, v: Setting_Line_Value) {app.scene.lights.lights[1].color = v.([3]f32)},
+		proc(app: ^App) -> string {return rgb_text(app.scene.lights.lights[1].color)},
+	},
+	{
+		"light3_color",
+		rgb_parse,
+		proc(app: ^App, v: Setting_Line_Value) {app.scene.lights.lights[2].color = v.([3]f32)},
+		proc(app: ^App) -> string {return rgb_text(app.scene.lights.lights[2].color)},
+	},
+	{
+		"light4_color",
+		rgb_parse,
+		proc(app: ^App, v: Setting_Line_Value) {app.scene.lights.lights[3].color = v.([3]f32)},
+		proc(app: ^App) -> string {return rgb_text(app.scene.lights.lights[3].color)},
+	},
+	{
+		"light5_color",
+		rgb_parse,
+		proc(app: ^App, v: Setting_Line_Value) {app.scene.lights.lights[4].color = v.([3]f32)},
+		proc(app: ^App) -> string {return rgb_text(app.scene.lights.lights[4].color)},
+	},
+	{
+		"light6_color",
+		rgb_parse,
+		proc(app: ^App, v: Setting_Line_Value) {app.scene.lights.lights[5].color = v.([3]f32)},
+		proc(app: ^App) -> string {return rgb_text(app.scene.lights.lights[5].color)},
+	},
+	{
+		"light7_color",
+		rgb_parse,
+		proc(app: ^App, v: Setting_Line_Value) {app.scene.lights.lights[6].color = v.([3]f32)},
+		proc(app: ^App) -> string {return rgb_text(app.scene.lights.lights[6].color)},
+	},
+	{
+		"light8_color",
+		rgb_parse,
+		proc(app: ^App, v: Setting_Line_Value) {app.scene.lights.lights[7].color = v.([3]f32)},
+		proc(app: ^App) -> string {return rgb_text(app.scene.lights.lights[7].color)},
+	},
+	{
+		"lights_fixed",
+		proc(f: []string) -> (Setting_Line_Value, bool) {
+			if len(f) != 1 do return nil, false
+			v, ok := setting_parse({type = bool}, f[0], strict = true)
+			return int(v), ok
+		},
+		proc(app: ^App, v: Setting_Line_Value) {lights_fixed_set(app, &app.scene.lights, v.(int) == 1)},
+		proc(app: ^App) -> string {return "1" if lights_fixed(app) else "0"},
+	},
+}
+
+// The value with more to it a script names `key`, from SETTING_LINES or SCRIPT_LINES;
+// none (no parse) for none.
+script_line :: proc(key: string) -> Setting_Line {
+	if line := setting_line(key); line.parse != nil do return line
+	for line in SCRIPT_LINES do if line.key == key do return line
+	return {}
 }
 
 // A name as scripts write it: lower case, `-` and `_` alike.
@@ -168,7 +243,8 @@ script_command :: proc(name: string) -> Command_Id {
 	return .None
 }
 
-// The setting row a script names `name`, from either table.
+// The setting row a script names `name`: the scene's lights first, whose names the
+// settings file gives the starting lights, then either table.
 script_setting :: proc(name: string) -> (Setting, bool) {
 	// The first two lights' strengths by the names they had when there were only a key
 	// and a fill, so older scripts still run.
@@ -177,6 +253,7 @@ script_setting :: proc(name: string) -> (Setting, bool) {
 	case "light_key":  name = "light1_strength"
 	case "light_fill": name = "light2_strength"
 	}
+	if s, ok := light_setting(offset_of(App, scene) + offset_of(Scene, lights), name); ok do return s, true
 	for s in SETTINGS do if s.key == name do return s, true
 	for s in SCRIPT_VALUES do if s.key == name do return s, true
 	return {}, false
@@ -294,7 +371,7 @@ script_statement :: proc(s: ^Script, line: int, words: []string) {
 				return
 			}
 			st.kind, st.setting, st.value = .Set, row, v
-		} else if set := setting_line(key); key == "material" && strings.contains_rune(strings.join(args[1:], " ", context.temp_allocator), '/') {
+		} else if set := script_line(key); key == "material" && strings.contains_rune(strings.join(args[1:], " ", context.temp_allocator), '/') {
 			// A content pack's material, looked up when the line runs, since a pack an
 			// earlier line installs is not there yet.
 			st.kind, st.set, st.text = .Line, set, strings.clone(preset_unescape(strings.join(args[1:], " ", context.temp_allocator)))

@@ -643,10 +643,16 @@ kit_studio :: proc(app: ^App) {
 	_ = ui.slider(ctx, "Shadow", &app.studio_shadow, 0, 1, .Linear, fmt.tprintf("%.2f", app.studio_shadow))
 	samples := f32(app.studio_samples)
 	if ui.slider(ctx, "Samples", &samples, 16, STUDIO_SAMPLES_MAX, .Logarithmic, fmt.tprintf("%d", app.studio_samples)) do app.studio_samples = i32(samples + 0.5)
+	kit_live_ao(app)
+	if kit_more(app, .Studio) {
+		kit_live_ao_reach(app)
+		kit_more_end(app)
+	}
 	if app.studio_on && app.studio.samples > 0 && app.studio.samples < int(app.studio_samples) {
 		ui.paragraph(ctx, fmt.tprintf("Built up %d of %d samples.", app.studio.samples, app.studio_samples))
 	}
 	ui.paragraph(ctx, fmt.tprintf("Ambient occlusion and soft shadows build up while the view stays still; any change starts them over. %s", command_keys(app, .Studio_Render)))
+	ui.paragraph(ctx, "Occlusion while working darkens creases every frame, sculpting too, with the same Occlusion strength; Reach is how far it looks, as a share of the scene's size. The studio render shows instead while it is on.")
 }
 
 @(private = "file")

@@ -141,6 +141,10 @@ Scene :: struct {
 	// Names the scene to the Blender link, so objects sent from another scene never
 	// replace this one's (link.odin); 0 until something is sent. Saved with the scene.
 	link_token: u64,
+	// The scene's lights (lights.odin), saved with it, and whether they came from its file
+	// rather than the starting lights (a file from before scenes kept lights, or none).
+	lights:     Light_Set,
+	lights_own: bool,
 }
 
 // Changes to the object list or the selected object's levels requested by the UI,

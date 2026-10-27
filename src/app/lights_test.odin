@@ -6,11 +6,36 @@ import "core:os"
 import "core:testing"
 
 import "../camera"
+import "../geom"
 import "../render"
 
 @(private = "file")
 near :: proc(a, b: [3]f32, eps: f32 = 1e-5) -> bool {
 	return linalg.length(a - b) < eps
+}
+
+// The shader's light_at (mesh_shading.glsl) on the CPU: toward light `i` from `p` (view
+// space) and how much of its strength arrives there.
+@(private = "file")
+light_at :: proc(l: render.Lights, i: int, p: [3]f32) -> (k: f32, toward: [3]f32) {
+	at := l.pos[i]
+	if at.w < 0.5 do return 1, at.xyz
+	d := at.xyz - p
+	dist2 := max(linalg.dot(d, d), 1e-8)
+	toward = d / math.sqrt(dist2)
+	shape := l.shape[i]
+	k = shape.x * shape.x / dist2
+	if shape.y > 0 {
+		x := dist2 / (shape.y * shape.y)
+		w := clamp(1 - x * x, 0, 1)
+		k *= w * w
+	}
+	if at.w > 1.5 {
+		e0, e1 := l.spot[i].w, shape.z
+		c := clamp((linalg.dot(-toward, l.spot[i].xyz) - e0) / (e1 - e0), 0, 1)
+		k *= c * c * (3 - 2 * c)
+	}
+	return
 }
 
 // Reset, the lights are the renderer's default: the key and fill on, the other two off,
@@ -24,9 +49,10 @@ lights_default_to_the_renderers_lights :: proc(t: ^testing.T) {
 	got, want := viewport_lights(&app), render.lights_default()
 	for c in 0 ..< 3 do testing.expectf(t, linalg.length(got.rig[c] - want.rig[c]) < 1e-6, "studio column %d: %v against %v", c, got.rig[c], want.rig[c])
 	for i in 0 ..< LIGHT_COUNT {
-		testing.expectf(t, abs(got.dir[i].w - want.dir[i].w) < 1e-6, "light %d strength %v against %v", i + 1, got.dir[i].w, want.dir[i].w)
-		if want.dir[i].w > 0 do testing.expectf(t, near(got.dir[i].xyz, want.dir[i].xyz), "light %d at %v against %v", i + 1, got.dir[i].xyz, want.dir[i].xyz)
+		testing.expectf(t, linalg.length(got.pos[i] - want.pos[i]) < 1e-6, "light %d at %v against %v", i + 1, got.pos[i], want.pos[i])
 		testing.expect_value(t, got.color[i], want.color[i])
+		testing.expect_value(t, got.spot[i], want.spot[i])
+		testing.expect_value(t, got.shape[i], want.shape[i])
 	}
 	key := light_view_dir(&app, 0)
 	app.light_turn = 90
@@ -34,16 +60,118 @@ lights_default_to_the_renderers_lights :: proc(t: ^testing.T) {
 	testing.expectf(t, turned.x > 0.5 && abs(turned.y - key.y) < 1e-5, "turned key %v", turned)
 	app.light_height = 30
 	testing.expect(t, light_view_dir(&app, 0).y > turned.y)
-	// Lights that are off send no strength; the colour goes through as it is.
-	app.lights[0].on = false
-	app.lights[1].color = {1, 0.5, 0.25}
+	// Lights that are off, or past the count, send nothing; the colour goes through with
+	// the strength.
+	app.scene.lights.lights[0].on = false
+	app.scene.lights.lights[1].color = {1, 0.5, 0.25}
+	app.scene.lights.lights[5].on = true
 	l := viewport_lights(&app)
-	testing.expect_value(t, l.dir[0].w, 0)
-	testing.expect_value(t, l.color[1], [4]f32{1, 0.5, 0.25, 0})
+	testing.expect_value(t, l.color[0], [4]f32{})
+	testing.expect_value(t, l.pos[0], [4]f32{})
+	testing.expect_value(t, l.color[1], [4]f32{1, 0.5, 0.25, render.FILL_STRENGTH})
+	testing.expect_value(t, l.color[5], [4]f32{})
 }
 
-// Fixing the lights to the scene keeps them where they are for a camera turned about the
-// up axis, and they then stay put in the scene while the camera turns further.
+// A point light is as bright as a sun of its strength at its reference distance and
+// falls off with the square of the distance, faded to nothing at its reach; a spot lights
+// only inside its cone, its edge faded over the soft edge.
+@(test)
+point_and_spot_lights_fall_off :: proc(t: ^testing.T) {
+	app: App
+	app.camera = camera.orbit_default()
+	lights_reset(&app)
+	set := &app.scene.lights
+	set.lights[2] = {on = true, kind = .Point, dir = {0, 0, 1}, strength = 1, color = 1, cone = 45, blend = 0.25}
+	lights_settle(&app)
+	p := set.lights[2]
+	testing.expectf(t, abs(p.ref - app.camera.distance) < 1e-4, "placed at %v, ref %v", p.pos, p.ref)
+	testing.expect(t, near(p.pos, {0, 0, app.camera.distance}, 1e-4))
+	l := viewport_lights(&app)
+	target := view_target(&app)
+	testing.expect(t, near(l.pos[2].xyz, target + {0, 0, app.camera.distance}, 1e-4))
+	testing.expect_value(t, l.pos[2].w, f32(render.LIGHT_POINT))
+	k, toward := light_at(l, 2, target)
+	testing.expectf(t, abs(k - 1) < 1e-4 && near(toward, {0, 0, 1}), "at the target %v %v", k, toward)
+	half := target + {0, 0, app.camera.distance * 0.5}
+	k, _ = light_at(l, 2, half)
+	testing.expectf(t, abs(k - 4) < 1e-3, "twice as close is four times as bright: %v", k)
+	set.lights[2].reach = app.camera.distance * 1.5
+	l = viewport_lights(&app)
+	k, _ = light_at(l, 2, target)
+	window := 1 - math.pow(f32(1) / 1.5, 4)
+	testing.expectf(t, abs(k - window * window) < 1e-4, "inside its reach %v", k)
+	k, _ = light_at(l, 2, target - {0, 0, app.camera.distance})
+	testing.expectf(t, k == 0, "past its reach %v", k)
+
+	// A spot aimed at the target: full on its axis, nothing outside its cone.
+	set.lights[2].kind, set.lights[2].reach, set.lights[2].cone, set.lights[2].blend = .Spot, 0, 40, 0.5
+	l = viewport_lights(&app)
+	testing.expect(t, near(l.spot[2].xyz, {0, 0, -1}))
+	testing.expectf(t, abs(l.spot[2].w - math.cos(math.to_radians(f32(20)))) < 1e-6, "outer %v", l.spot[2].w)
+	testing.expectf(t, abs(l.shape[2].z - math.cos(math.to_radians(f32(10)))) < 1e-6, "inner %v", l.shape[2].z)
+	k, _ = light_at(l, 2, target)
+	testing.expectf(t, abs(k - 1) < 1e-4, "on the axis %v", k)
+	side := target + {app.camera.distance * math.tan(math.to_radians(f32(30))), 0, 0}
+	k, _ = light_at(l, 2, side)
+	testing.expectf(t, k == 0, "outside the cone %v", k)
+	edge := target + {app.camera.distance * math.tan(math.to_radians(f32(15))), 0, 0}
+	k, _ = light_at(l, 2, edge)
+	testing.expectf(t, k > 0.05 && k < 1, "in the soft edge %v", k)
+	// A hard edge still has an inner cosine above the outer one.
+	set.lights[2].blend = 0
+	l = viewport_lights(&app)
+	testing.expect(t, l.shape[2].z > l.spot[2].w)
+	// The studio render's shadow comes from where the brightest light stands.
+	set.lights[0].strength, set.lights[1].on, set.lights[2].strength = 0.5, false, 2
+	dir, lit := render.lights_key(viewport_lights(&app), target - {1, 0, 0})
+	testing.expectf(t, lit && near(dir, linalg.normalize([3]f32{1, 0, app.camera.distance})), "key from %v", dir)
+}
+
+// A light moving with the camera stays where it is on screen while the camera goes
+// round; one in the scene stays where it is in the scene. Moving a light from one to the
+// other keeps it where it is, and back again gives the numbers it had.
+@(test)
+camera_and_scene_lights_stay_where_they_belong :: proc(t: ^testing.T) {
+	app: App
+	app.camera = camera.orbit_default()
+	app.camera.yaw, app.camera.pitch = 0.4, -0.2
+	app.camera.target = {0.3, -0.1, 0.2}
+	lights_reset(&app)
+	app.light_turn, app.light_height = 25, 10
+	set := &app.scene.lights
+	set.lights[2] = {on = true, kind = .Spot, dir = {0.3, 0.5, 0.8}, pos = {0.5, 0.8, 1.6}, ref = 2, strength = 1, color = 1, cone = 30}
+	set.lights[3] = {on = true, kind = .Point, space = .Scene, dir = {0, 1, 0}, pos = {1, 2, -1}, ref = 2, strength = 1, color = 1, cone = 45}
+	first := viewport_lights(&app)
+	world :: proc(app: ^App, at: [3]f32) -> [3]f32 {
+		v := camera.orbit_view(app.camera)
+		inv := linalg.inverse(v)
+		return (inv * [4]f32{at.x, at.y, at.z, 1}).xyz
+	}
+	held := world(&app, first.pos[3].xyz)
+	testing.expect(t, near(held, {1, 2, -1}, 1e-4))
+	app.camera.yaw += 1.3
+	app.camera.pitch = 0.5
+	second := viewport_lights(&app)
+	testing.expectf(t, near(second.pos[2].xyz, first.pos[2].xyz, 1e-4), "the camera's spot moved on screen: %v to %v", first.pos[2], second.pos[2])
+	testing.expect(t, near(second.spot[2].xyz, first.spot[2].xyz, 1e-5))
+	testing.expectf(t, near(world(&app, second.pos[3].xyz), held, 1e-4), "the scene's point moved in the scene")
+
+	// Round trips, both ways, keep the light where it is and its numbers.
+	for i in 2 ..= 3 {
+		was := set.lights[i]
+		shown := viewport_lights(&app)
+		other := Light_Space.Scene if was.space == .Camera else .Camera
+		light_set_space(&app, i, other)
+		moved := viewport_lights(&app)
+		testing.expectf(t, near(moved.pos[i].xyz, shown.pos[i].xyz, 1e-4) && near(moved.spot[i].xyz, shown.spot[i].xyz, 1e-5), "light %d moved on screen going to %v", i + 1, other)
+		light_set_space(&app, i, was.space)
+		back := set.lights[i]
+		testing.expectf(t, near(back.dir, was.dir) && near(back.pos, was.pos) && back.space == was.space, "light %d came back as %v, was %v", i + 1, back, was)
+	}
+}
+
+// Fixing the lights to the scene keeps every one exactly where it is on screen, and they
+// then stay put in the scene while the camera turns; the environment goes with them.
 @(test)
 lights_fixed_to_the_scene_stay_put :: proc(t: ^testing.T) {
 	app: App
@@ -54,15 +182,13 @@ lights_fixed_to_the_scene_stay_put :: proc(t: ^testing.T) {
 	app.light_turn = 20
 	before := light_view_dir(&app, 0)
 	lights_fix(&app, true)
-	testing.expect(t, app.lights_fixed)
+	testing.expect(t, lights_fixed(&app) && app.env.fixed)
 	after := light_view_dir(&app, 0)
 	testing.expectf(t, near(after, before, 1e-4), "fixing moved the key from %v to %v", before, after)
 
 	// In the scene: the view-space key turned back by the camera's turn is the same.
 	world :: proc(app: ^App, dir: [3]f32) -> [3]f32 {
-		v := camera.orbit_view(app.camera)
-		r := linalg.Matrix3f32{v[0, 0], v[0, 1], v[0, 2], v[1, 0], v[1, 1], v[1, 2], v[2, 0], v[2, 1], v[2, 2]}
-		return linalg.transpose(r) * dir
+		return linalg.transpose(view_rotation(app)) * dir
 	}
 	held := world(&app, after)
 	app.camera.yaw += 1.1
@@ -70,14 +196,17 @@ lights_fixed_to_the_scene_stay_put :: proc(t: ^testing.T) {
 	moved := world(&app, light_view_dir(&app, 0))
 	testing.expectf(t, near(moved, held, 1e-4), "the key moved in the scene from %v to %v", held, moved)
 
+	shown := light_view_dir(&app, 0)
 	lights_fix(&app, false)
-	testing.expect(t, !app.lights_fixed)
+	testing.expect(t, !lights_fixed(&app) && !app.env.fixed)
+	testing.expect(t, near(light_view_dir(&app, 0), shown, 1e-4))
 	testing.expect(t, app.light_turn >= -180 && app.light_turn <= 180)
 }
 
 // The sphere places a light as the camera sees it, whatever the set's turn or the
 // camera: a point on the sphere is where the light then shows, on the side it was on; a
-// point past the outline is pulled onto it; a flip sends it behind at the same place.
+// point past the outline is pulled onto it; a flip sends it behind at the same place. A
+// point light moves round the target at the distance it was.
 @(test)
 the_light_sphere_places_lights_as_the_camera_sees_them :: proc(t: ^testing.T) {
 	app: App
@@ -102,14 +231,26 @@ the_light_sphere_places_lights_as_the_camera_sees_them :: proc(t: ^testing.T) {
 	light_flip(&app, 2)
 	testing.expect(t, near(light_view_dir(&app, 2), d))
 
+	set := &app.scene.lights
+	for space in Light_Space {
+		set.lights[1].kind, set.lights[1].ref, set.lights[1].pos = .Point, 0, {}
+		light_set_space(&app, 1, space)
+		lights_settle(&app)
+		far := light_distance(&app, set.lights[1])
+		light_set_view_dir(&app, 1, d)
+		testing.expectf(t, near(light_view_dir(&app, 1), d, 1e-4), "a %v point light shows at %v, placed at %v", space, light_view_dir(&app, 1), d)
+		testing.expectf(t, abs(light_distance(&app, set.lights[1]) - far) < 1e-4, "and stays as far away")
+	}
+
 	// A direction set to nothing (a script setting it number by number) is its default's.
-	app.lights[3].dir = {}
-	app.lights_fixed, app.light_turn, app.light_height = false, 0, 0
-	testing.expect(t, near(light_view_dir(&app, 3), linalg.normalize(LIGHTS_DEFAULT[3].dir)))
+	set.lights[3].dir = {}
+	lights_fix(&app, false)
+	app.light_turn, app.light_height = 0, 0
+	testing.expect(t, near(light_view_dir(&app, 3), linalg.normalize(LIGHTS_DEFAULT.lights[3].dir)))
 }
 
 // A press picks the nearest light that is on within the reach of a finger; lights that
-// are off have no marker to press.
+// are off, or past the count, have no marker to press.
 @(test)
 the_light_sphere_picks_the_nearest_light :: proc(t: ^testing.T) {
 	app: App
@@ -121,13 +262,16 @@ the_light_sphere_picks_the_nearest_light :: proc(t: ^testing.T) {
 	testing.expect_value(t, light_sphere_hit(&app, centre, radius, light_marker(&app, 1, centre, radius), 22), 1)
 	testing.expect_value(t, light_sphere_hit(&app, centre, radius, centre, 22), -1)
 	testing.expect_value(t, light_sphere_hit(&app, centre, radius, light_marker(&app, 2, centre, radius), 22), -1)
-	app.lights[2].on = true
+	app.scene.lights.lights[2].on = true
 	testing.expect_value(t, light_sphere_hit(&app, centre, radius, light_marker(&app, 2, centre, radius), 22), 2)
+	app.scene.lights.count = 2
+	testing.expect_value(t, light_sphere_hit(&app, centre, radius, light_marker(&app, 2, centre, radius), 22), -1)
 }
 
-// The settings file keeps every light, its colour and the ambient light; a file from
-// before the four lights keeps its key and fill strengths, the fill's as the share of
-// its full strength it was.
+// The settings file keeps every starting light, its kind, place and colour, how many
+// there are and the ambient light; a file from before the four lights keeps its key and
+// fill strengths, the fill's as the share of its full strength it was, and one from
+// before each light had its own space keeps lights fixed to the scene where they were.
 @(test)
 lights_are_remembered :: proc(t: ^testing.T) {
 	path := "build/lights_test.txt"
@@ -135,33 +279,156 @@ lights_are_remembered :: proc(t: ^testing.T) {
 	a: App
 	defer results_destroy(&a)
 	lights_reset(&a)
-	a.lights[2] = {on = true, dir = linalg.normalize([3]f32{0.2, -0.5, -0.6}), strength = 1.4, color = {0.9, 0.3, 0.1}}
-	a.lights[0].on = false
-	a.light_ambient = 0.4
+	a.start_lights.lights[2] = {on = true, kind = .Spot, space = .Scene, dir = linalg.normalize([3]f32{0.2, -0.5, -0.6}), pos = {1.5, -2, 3.25}, strength = 1.4, ref = 2.5, reach = 7, cone = 33, blend = 0.6, color = {0.9, 0.3, 0.1}}
+	a.start_lights.lights[6] = {on = true, kind = .Point, dir = {0, 1, 0}, strength = 0.5, cone = 45, color = 1}
+	a.start_lights.lights[0].on = false
+	a.start_lights.ambient, a.start_lights.count = 0.4, 7
 	testing.expect(t, settings_save(&a, path))
 	b: App
 	defer results_destroy(&b)
 	lights_reset(&b)
 	settings_load(&b, path)
 	for i in 0 ..< LIGHT_COUNT {
-		testing.expect_value(t, b.lights[i].on, a.lights[i].on)
-		testing.expectf(t, near(b.lights[i].dir, a.lights[i].dir, 1e-4), "light %d at %v against %v", i + 1, b.lights[i].dir, a.lights[i].dir)
-		testing.expectf(t, abs(b.lights[i].strength - a.lights[i].strength) < 1e-5, "light %d strength", i + 1)
-		testing.expectf(t, near(b.lights[i].color, a.lights[i].color, 1e-5), "light %d colour %v", i + 1, b.lights[i].color)
+		x, y := a.start_lights.lights[i], b.start_lights.lights[i]
+		testing.expectf(t, x.on == y.on && x.kind == y.kind && x.space == y.space, "light %d: %v against %v", i + 1, y, x)
+		testing.expectf(t, near(y.dir, x.dir, 1e-4) && near(y.pos, x.pos, 1e-4) && near(y.color, x.color, 1e-5), "light %d at %v against %v", i + 1, y, x)
+		testing.expectf(t, abs(y.strength - x.strength) < 1e-5 && abs(y.ref - x.ref) < 1e-5 && abs(y.reach - x.reach) < 1e-5 && abs(y.cone - x.cone) < 1e-4 && abs(y.blend - x.blend) < 1e-5, "light %d: %v against %v", i + 1, y, x)
 	}
-	testing.expect_value(t, b.light_ambient, 0.4)
+	testing.expect_value(t, b.start_lights.ambient, 0.4)
+	testing.expect_value(t, b.start_lights.count, 7)
+	// The scene's own lights are not the settings'.
+	testing.expect_value(t, b.scene.lights, LIGHTS_DEFAULT)
 
-	testing.expect(t, os.write_entire_file(path, transmute([]u8)string("light_key 1.5\nlight_fill 2\n")) == nil)
+	testing.expect(t, os.write_entire_file(path, transmute([]u8)string("light_key 1.5\nlight_fill 2\nlight3_on 1\nlight3_x 0\nlight3_y 0\nlight3_z 1\nlight_turn 90\nlights_fixed 1\n")) == nil)
 	c: App
 	defer results_destroy(&c)
 	lights_reset(&c)
 	settings_load(&c, path)
-	testing.expect_value(t, c.lights[0].strength, 1.5)
-	testing.expectf(t, abs(c.lights[1].strength - 2 * render.FILL_STRENGTH) < 1e-6, "fill %v", c.lights[1].strength)
-	// Older scripts still set the first two lights' strengths by their old names.
+	testing.expect_value(t, c.start_lights.lights[0].strength, 1.5)
+	testing.expectf(t, abs(c.start_lights.lights[1].strength - 2 * render.FILL_STRENGTH) < 1e-6, "fill %v", c.start_lights.lights[1].strength)
+	// Fixed then meant the set turned by Turn all in the scene's axes: a light toward the
+	// viewer turned a quarter to the right is toward +x in the scene.
+	l3 := c.start_lights.lights[2]
+	testing.expectf(t, l3.space == .Scene && near(l3.dir, {1, 0, 0}, 1e-5), "the old fixed light 3 is %v", l3)
+	testing.expect(t, c.env.fixed)
+	// Older scripts still set the first two lights' strengths by their old names, and
+	// scripts set the scene's lights, not the starting ones.
 	for key in ([2]string{"light_key", "light_fill"}) {
-		_, found := script_setting(key)
+		s, found := script_setting(key)
 		testing.expectf(t, found, "%s is a script value", key)
+		testing.expect(t, s.offset >= offset_of(App, scene) && s.offset < offset_of(App, scene) + size_of(Scene))
 	}
 	free_all(context.temp_allocator)
+}
+
+// Every light key names the light and field its row writes, scripts' and the settings
+// file's alike, and lands on a field of the type it says.
+@(test)
+light_keys_name_their_fields :: proc(t: ^testing.T) {
+	for keys, i in LIGHT_KEYS {
+		for key, f in keys {
+			testing.expect_value(t, key, fmt_light_key(i, LIGHT_FIELDS[f].name))
+			for base in ([2]uintptr{offset_of(App, start_lights), offset_of(App, scene) + offset_of(Scene, lights)}) {
+				row, ok := light_setting(base, key)
+				testing.expect(t, ok && row == light_row(base, i, f))
+				testing.expect(t, row.offset >= base && row.offset + uintptr(size_of(f32)) <= base + size_of(Light_Set))
+			}
+		}
+	}
+	for key in LIGHT_COLOR_KEYS {
+		_, ok := light_color_key(key)
+		testing.expect(t, ok && script_line(key).parse != nil)
+	}
+	_, ok := light_setting(0, "light9_on")
+	testing.expect(t, !ok)
+}
+
+@(private = "file")
+fmt_light_key :: proc(i: int, field: string) -> string {
+	buf: [32]u8
+	n := copy(buf[:], "light")
+	buf[n] = u8('1' + i)
+	n += 1
+	buf[n] = '_'
+	n += 1
+	n += copy(buf[n:], field)
+	return string(buf[:n])
+}
+
+// The scene file keeps the lights as they were, bit for bit, and refuses damaged ones.
+@(test)
+lights_round_trip_in_the_scene_file :: proc(t: ^testing.T) {
+	set := LIGHTS_DEFAULT
+	set.lights[1] = {on = true, kind = .Spot, space = .Scene, dir = {0.1, -0.2, 0.3}, pos = {-4, 5.5, 1e-3}, strength = 1.75, ref = 3, reach = 12, cone = 70, blend = 0.4, color = {0.2, 0.4, 1}}
+	set.count, set.ambient = 3, 0.25
+	out: [dynamic]u8
+	defer delete(out)
+	lights_put(&out, set)
+	r := geom.byte_reader(out[:])
+	back, ok := lights_get(&r, LIGHTS_DEFAULT)
+	testing.expect(t, ok && r.ok && r.at == len(out))
+	testing.expect_value(t, back, set)
+	// Past the count the lights are the ones given for the rest.
+	set.count = 1
+	clear(&out)
+	lights_put(&out, set)
+	r = geom.byte_reader(out[:])
+	back, ok = lights_get(&r, LIGHTS_DEFAULT)
+	testing.expect(t, ok && back.lights[1] == LIGHTS_DEFAULT.lights[1] && back.count == 1)
+
+	damage :: proc(t: ^testing.T, set: Light_Set, at: int, value: u8, bytes := 1) {
+		out: [dynamic]u8
+		defer delete(out)
+		lights_put(&out, set)
+		for &b in out[at:][:bytes] do b = value
+		r := geom.byte_reader(out[:])
+		_, ok := lights_get(&r, LIGHTS_DEFAULT)
+		testing.expectf(t, !ok, "byte %d set to %d was read", at, value)
+	}
+	set.count = 2
+	damage(t, set, 0, 9) // too many lights
+	damage(t, set, 5, 2) // `on` is not 0 or 1
+	damage(t, set, 6, 3) // no such kind
+	damage(t, set, 7, 2) // no such space
+	damage(t, set, 5 + 3, 0xff, 4) // the first direction's x a NaN
+	damage(t, set, 5 + 3 + 24, 0xff, 4) // the strength a NaN
+	damage(t, set, 5 + 3 + 24 + 12, 0, 4) // the cone 0 degrees
+	// Cut short.
+	clear(&out)
+	lights_put(&out, set)
+	r = geom.byte_reader(out[:len(out) - 1])
+	_, ok = lights_get(&r, LIGHTS_DEFAULT)
+	testing.expect(t, !ok)
+}
+
+// A change in the Lights section, from press to release, is one undo step, which undo
+// takes back and redo puts back; nothing is undone under it while it lasts.
+@(test)
+light_changes_are_undo_steps :: proc(t: ^testing.T) {
+	app: App
+	defer history_destroy(&app.history)
+	app.camera = camera.orbit_default()
+	lights_reset(&app)
+	before := app.scene.lights
+	app.device.down += {.Left}
+	app.scene.lights.lights[0].strength = 0.5
+	light_drag_changed(&app, before)
+	app.scene.lights.lights[0].strength = 0.25
+	light_drag_changed(&app, before)
+	light_drag_end(&app)
+	testing.expect(t, history_busy(&app))
+	testing.expect_value(t, len(app.history.done), 0)
+	app.device.down -= {.Left}
+	light_drag_end(&app)
+	testing.expect_value(t, len(app.history.done), 1)
+	testing.expect_value(t, history_next_label(app.history.done[:]), "Lights")
+	testing.expect(t, !entry_is_step(app.history.done[0]))
+	history_undo(&app)
+	testing.expect_value(t, app.scene.lights, before)
+	history_redo(&app)
+	testing.expect_value(t, app.scene.lights.lights[0].strength, 0.25)
+	// A change that ends where it began is no step.
+	light_drag_changed(&app, app.scene.lights)
+	light_drag_end(&app)
+	testing.expect_value(t, len(app.history.done), 1)
 }

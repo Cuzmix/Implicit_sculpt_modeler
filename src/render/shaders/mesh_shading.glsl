@@ -18,7 +18,7 @@ layout(location = 8) in vec4 in_view_tangent;
 #endif
 
 // render.LIGHT_COUNT.
-#define LIGHT_COUNT 4
+#define LIGHT_COUNT 8
 
 layout(set = 3, binding = 0) uniform Material_Uniforms {
 	vec4 base_color;
@@ -32,10 +32,16 @@ layout(set = 3, binding = 0) uniform Material_Uniforms {
 	vec4 light_x;
 	vec4 light_y;
 	vec4 light_z;
-	// Each light: toward it in view space, unit length, with its strength in w (0 for
-	// off), and its colour in linear light.
-	vec4 light_dir[LIGHT_COUNT];
+	// Each light (render.Lights), in view space: toward a sun, unit length, or where a
+	// point or spot light is, with its kind in w (0 sun, 1 point, 2 spot); its colour in
+	// linear light with its strength in w (0 for off); a spot's axis with the cosine of
+	// half its cone in w; and its shape: x the distance at which it is as bright as a sun
+	// of its strength, y where it fades to nothing (0: never), z the cosine where a spot's
+	// edge starts to fade.
+	vec4 light_pos[LIGHT_COUNT];
 	vec4 light_color[LIGHT_COUNT];
+	vec4 light_spot[LIGHT_COUNT];
+	vec4 light_shape[LIGHT_COUNT];
 	// Textured items: x, y, z 1 where the base colour, ORM and normal maps are bound, w the
 	// view (1 the maps, 2 the normal map alone, 3 the UV checker); all 0 on the sculpt mesh.
 	vec4 maps;
@@ -212,6 +218,30 @@ vec3 direct(vec3 n, vec3 v, vec3 l, vec3 diffuse, vec3 f0, float a) {
 	return (diffuse / PI + D * V * F) * n_dot_l;
 }
 
+// Light `i` at this pixel: toward it in `l`, and how much of its strength arrives. A sun
+// arrives whole. A point or spot light falls off with the square of the distance, equal to
+// a sun at light_shape.x, faded smoothly to nothing at its reach (Karis's window, so a far
+// light never pops off), and a spot only inside its cone, its edge faded over the blend.
+float light_at(int i, out vec3 l) {
+	vec4 p = light_pos[i];
+	if (p.w < 0.5) {
+		l = p.xyz;
+		return 1.0;
+	}
+	vec3 d = p.xyz - in_view_pos;
+	float dist2 = max(dot(d, d), 1e-8);
+	l = d * inversesqrt(dist2);
+	vec4 shape = light_shape[i];
+	float k = shape.x * shape.x / dist2;
+	if (shape.y > 0.0) {
+		float x = dist2 / (shape.y * shape.y);
+		float w = clamp(1.0 - x * x, 0.0, 1.0);
+		k *= w * w;
+	}
+	if (p.w > 1.5) k *= smoothstep(light_spot[i].w, shape.z, dot(-l, light_spot[i].xyz));
+	return k;
+}
+
 void main() {
 	if (params.y < 0.0) {
 		// Lines: the flat colour, encoded but not lit, exposed or tone mapped.
@@ -361,7 +391,11 @@ void main() {
 
 		vec3 color = vec3(0.0);
 		for (int i = 0; i < LIGHT_COUNT; i++) {
-			if (light_dir[i].w > 0.0) color += direct(n, v, light_dir[i].xyz, diffuse, f0, a) * light_color[i].rgb * (3.0 * light_dir[i].w);
+			float s = light_color[i].w;
+			if (s <= 0.0) continue;
+			vec3 l;
+			float k = light_at(i, l);
+			if (k > 0.0) color += direct(n, v, l, diffuse, f0, a) * light_color[i].rgb * (3.0 * (s * k));
 		}
 		// Light from the whole studio or image environment, which turns with the rig: the
 		// studio's blurriest version scaled by the ambient light (or the image's harmonics)
@@ -388,9 +422,11 @@ void main() {
 	vec3 lit = vec3(shading.x * ao * ambient);
 	vec3 spec = vec3(0.0);
 	for (int i = 0; i < LIGHT_COUNT; i++) {
-		float s = light_dir[i].w;
+		float s = light_color[i].w;
 		if (s <= 0.0) continue;
-		vec3 l = light_dir[i].xyz;
+		vec3 l;
+		s *= light_at(i, l);
+		if (s <= 0.0) continue;
 		lit += light_color[i].rgb * (max((dot(n, l) + wrap) / (1.0 + wrap), 0.0) * s);
 		spec += light_color[i].rgb * (pow(max(dot(n, normalize(l + v)), 0.0), shading.z) * shading.y * s);
 	}

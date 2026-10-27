@@ -56,6 +56,9 @@ autosave_fingerprint_follows_the_scene :: proc(t: ^testing.T) {
 		proc(app: ^App) {app.scene.objects[0].levels.current = 1},
 		proc(app: ^App) {app.scene.objects[0].levels.hd.steps = 2},
 		proc(app: ^App) {app.scene.objects[0].id = 4},
+		proc(app: ^App) {app.scene.lights.count = 1},
+		proc(app: ^App) {app.scene.lights.lights[0].strength += 0.5},
+		proc(app: ^App) {app.scene.lights.ambient = 0.3},
 	}
 	for change, i in changes {
 		before := scene_fingerprint(&app)

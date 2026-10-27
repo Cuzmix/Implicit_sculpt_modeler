@@ -40,6 +40,9 @@ Environment_State :: struct {
 	strength:   f32, // stops
 	background: bool,
 	blur:       f32, // 0 to 1: which prefiltered roughness the background shows
+	// The panorama stays with the scene, as the lights fixed to it do, rather than turning
+	// with the camera (lights_fix).
+	fixed:      bool,
 	path:       string, // the file the GPU copy came from (heap), "" while there is none
 	gpu:        render.Environment,
 	decode:     ^Environment_Decode,
@@ -200,7 +203,7 @@ environment_view :: proc(app: ^App) {
 // with the lights, so the camera then orbits inside it.
 environment_rotation :: proc(app: ^App) -> [3][4]f32 {
 	rig := linalg.matrix3_rotate_f32(math.to_radians(app.light_turn), {0, 1, 0})
-	if app.lights_fixed {
+	if app.env.fixed {
 		v := camera.orbit_view(app.camera)
 		rig = linalg.Matrix3f32{v[0, 0], v[0, 1], v[0, 2], v[1, 0], v[1, 1], v[1, 2], v[2, 0], v[2, 1], v[2, 2]} * rig
 	}
@@ -230,5 +233,5 @@ kit_environment :: proc(app: ^App) {
 	case:
 		ui.paragraph(ctx, "No image loaded: Load environment picks a panorama (Radiance .hdr, PNG or JPEG, twice as wide as tall).")
 	}
-	ui.paragraph(ctx, "Physically based materials reflect the environment and take their light from it; Lights' Turn all spins it, and Fixed to the scene keeps it with the scene. MatCaps and the clay materials are not lit by it.")
+	ui.paragraph(ctx, "Physically based materials reflect the environment and take their light from it; Lights' Turn all spins it, and All fixed to the scene keeps it with the scene. MatCaps and the clay materials are not lit by it.")
 }

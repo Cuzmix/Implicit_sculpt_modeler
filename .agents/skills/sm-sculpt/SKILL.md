@@ -279,6 +279,8 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
   `history_busy` refuses undo while a stroke, `app.move.drag` or `app.ui.transform_drag` is open (`move_tool.odin`:
   `move_end` records on release, `move_cancel` restores unrecorded, `transform_drag_changed`/`transform_drag_end` make an
   inspector drag one step). A new kind of change to where an object sits goes through these, never a bare write.
+  The scene's lights (`app.scene.lights`, lights.odin) are a `.Lights` entry, id 0, owning a `Light_Step` (before/after),
+  from `light_drag_changed`/`light_drag_end` (one step per press, in `history_busy` and `inspector_drags_end`).
   An object's texture maps (and, for New UVs, its UV layout) change only through `textures_replace` (src/app/textures.odin),
   a `.Textures` entry owning a `Texture_Step` that undo and redo swap with the object's, handled like `.Transform` (own
   `history_step` branch, no sculptor redo, kept by the forget procs, excluded from `entry_is_step`), its bytes counted in

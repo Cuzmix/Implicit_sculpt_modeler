@@ -849,6 +849,7 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 	deform_drag_end(app)
 	lattice_frame(app)
 	transform_drag_end(app)
+	light_drag_end(app)
 	tree_column_send(app)
 	// Text input (and with it a tablet's on-screen keyboard) is on only while a text
 	// field has the keys.
@@ -1379,14 +1380,12 @@ kit_rename :: proc(app: ^App) {
 }
 
 // The interface's draw commands for the renderer: the viewport's texture (or the
-// studio render's, while it is on) where the kit drew KIT_VIEWPORT_IMAGE, the
-// navigation head's where it drew KIT_NAV_HEAD_IMAGE, and the objects' pictures where it
-// drew KIT_THUMBS_IMAGE.
+// studio render's or live occlusion's while on, viewport_shown) where the kit drew
+// KIT_VIEWPORT_IMAGE, the navigation head's where it drew KIT_NAV_HEAD_IMAGE, and the
+// objects' pictures where it drew KIT_THUMBS_IMAGE.
 kit_draws :: proc(app: ^App, dl: ^ui.Draw_List) -> []render.Ui_Draw {
 	shown := app.target.color
-	if app.studio_on {
-		if tex := render.studio_texture(&app.studio); tex != nil do shown = tex
-	}
+	if tex := viewport_shown(app); tex != nil do shown = tex
 	draws := make([]render.Ui_Draw, len(dl.cmds), context.temp_allocator)
 	for c, i in dl.cmds {
 		draws[i] = {

@@ -163,6 +163,7 @@ Command_Id :: enum u8 {
 	Remove_Textures,
 	Polygroups,
 	Studio_Render,
+	Live_Occlusion,
 	Floor_Grid,
 	Transparency,
 	// The app
@@ -1349,6 +1350,12 @@ COMMANDS := [Command_Id]Command {
 		help = "Renders the view with soft shadows while it is still.",
 		run = proc(app: ^App, _: int) {studio_toggle(app)},
 		checked = proc(app: ^App, _: int) -> bool {return app.studio_on},
+	},
+	.Live_Occlusion = {
+		label = "Occlusion while working",
+		help = "Darkens creases and contact every frame, sculpting too, with screen-space ambient occlusion.",
+		run = proc(app: ^App, _: int) {app.live_ao_on = !app.live_ao_on},
+		checked = proc(app: ^App, _: int) -> bool {return app.live_ao_on},
 	},
 	.Stats = {
 		label = "Stats",

@@ -60,7 +60,7 @@ File_Request :: struct {
 // be in a console nobody watches. `at` tells a new note from the one already shown.
 // The native scene file starts with these bytes, then its version.
 SCENE_MAGIC :: "SCULPTSC"
-SCENE_VERSION :: u32(18) // 2: each object's rotation; 3: the current level's polypaint and polygroups; 4: sculpt layers, and a retopologized object's quads and UVs (sculpt.levels_write); 5: each object's boolean mode; 6: the base level's node layout (sculpt.levels_write); 7: the camera's roll; 8: each object's eye and ghost, and Solo; 9: folders, and each object's folder; 10: selection sets (sculpt.levels_write); 11: each object's polypaint shown or not (a third view bit); 12: stored visibility (V1 to V8): the slot chosen and used, and each folder's and object's eyes in them; 13: each object's kind (mesh or voxel), a voxel object's resolution and clay after its empty level (voxel.clay_write); 14: each object's material (material_put); 15: each object's polygroups with materials of their own (group_materials_put); 16: the content pack parts of the object's and its groups' materials, by name (material_refs); 17: the scene's Blender link token (link.odin); 18: each object's texture maps (textures_put)
+SCENE_VERSION :: u32(19) // 2: each object's rotation; 3: the current level's polypaint and polygroups; 4: sculpt layers, and a retopologized object's quads and UVs (sculpt.levels_write); 5: each object's boolean mode; 6: the base level's node layout (sculpt.levels_write); 7: the camera's roll; 8: each object's eye and ghost, and Solo; 9: folders, and each object's folder; 10: selection sets (sculpt.levels_write); 11: each object's polypaint shown or not (a third view bit); 12: stored visibility (V1 to V8): the slot chosen and used, and each folder's and object's eyes in them; 13: each object's kind (mesh or voxel), a voxel object's resolution and clay after its empty level (voxel.clay_write); 14: each object's material (material_put); 15: each object's polygroups with materials of their own (group_materials_put); 16: the content pack parts of the object's and its groups' materials, by name (material_refs); 17: the scene's Blender link token (link.odin); 18: each object's texture maps (textures_put); 19: the scene's lights (lights_put)
 
 // The request waiting for the next frame, and whether a dialog is showing. Kept here
 // rather than in App because SDL may call a dialog back on another thread, even after
@@ -349,8 +349,8 @@ file_apply :: proc(app: ^App, req: File_Request) -> bool {
 screenshot_save :: proc(app: ^App, path: string) -> bool {
 	start := time.tick_now()
 	w, h := int(app.target.width), int(app.target.height)
-	// What the viewport shows: the studio render's image while it is on.
-	shown := render.studio_texture(&app.studio) if app.studio_on else nil
+	// What the viewport shows: the studio render's or live occlusion's image while on.
+	shown := viewport_shown(app)
 	pixels := render.viewport_download(&app.renderer, &app.target, context.temp_allocator, shown)
 	if pixels == nil {
 		file_note(app, true, "Could not read the viewport back: %s", sdl.GetError())
@@ -773,6 +773,56 @@ scene_header_put :: proc(app: ^App, out: ^[dynamic]u8) {
 	geom.byte_put(out, u8(app.scene.vis_slot))
 	geom.byte_put(out, app.scene.vis_used)
 	geom.byte_put(out, app.scene.link_token) // version 17
+	lights_put(out, app.scene.lights) // version 19
+}
+
+// The lights as a scene file stores them: how many, the ambient light, then each light.
+lights_put :: proc(out: ^[dynamic]u8, set: Light_Set) {
+	set := set
+	count := clamp(set.count, 0, LIGHT_COUNT)
+	geom.byte_put(out, u8(count))
+	geom.byte_put(out, set.ambient)
+	for l in set.lights[:count] {
+		geom.byte_put(out, u8(l.on))
+		geom.byte_put(out, u8(l.kind))
+		geom.byte_put(out, u8(l.space))
+		geom.byte_put(out, l.dir)
+		geom.byte_put(out, l.pos)
+		geom.byte_put(out, l.strength)
+		geom.byte_put(out, l.ref)
+		geom.byte_put(out, l.reach)
+		geom.byte_put(out, l.cone)
+		geom.byte_put(out, l.blend)
+		geom.byte_put(out, l.color)
+	}
+}
+
+// The lights lights_put wrote, the ones past their count as `rest` has them; ok is false
+// when they are damaged: too many, an unknown kind or space, a number that is not finite
+// or out of its range.
+lights_get :: proc(r: ^geom.Byte_Reader, rest: Light_Set) -> (set: Light_Set, ok: bool) {
+	set = rest
+	count := int(geom.byte_get(r, u8))
+	set.count = i32(count)
+	set.ambient = geom.byte_get(r, f32)
+	if !r.ok || count > LIGHT_COUNT || !(set.ambient >= 0 && set.ambient <= LIGHT_STRENGTH_MAX) do return {}, false
+	for &l in set.lights[:count] {
+		on, kind, space := geom.byte_get(r, u8), geom.byte_get(r, u8), geom.byte_get(r, u8)
+		l.dir = geom.byte_get(r, Vec3)
+		l.pos = geom.byte_get(r, Vec3)
+		l.strength = geom.byte_get(r, f32)
+		l.ref = geom.byte_get(r, f32)
+		l.reach = geom.byte_get(r, f32)
+		l.cone = geom.byte_get(r, f32)
+		l.blend = geom.byte_get(r, f32)
+		l.color = geom.byte_get(r, Vec3)
+		if !r.ok || on > 1 || kind >= len(Light_Kind) || space >= len(Light_Space) || !finite(l.dir) || !finite(l.pos) || !finite(l.color) do return {}, false
+		// Written as `!(in range)`, so NaN is refused too.
+		if !(l.strength >= 0 && l.strength <= LIGHT_STRENGTH_MAX) || !(l.ref >= 0 && l.ref < 1e30) || !(l.reach >= 0 && l.reach < 1e30) do return {}, false
+		if !(l.cone >= LIGHT_CONE_MIN && l.cone <= LIGHT_CONE_MAX) || !(l.blend >= 0 && l.blend <= 1) || min(l.color.r, l.color.g, l.color.b) < 0 do return {}, false
+		l.on, l.kind, l.space = on == 1, Light_Kind(kind), Light_Space(space)
+	}
+	return set, true
 }
 
 // The folders a scene file of `version` lists after its header, owned; ok is false
@@ -845,7 +895,10 @@ scene_open :: proc(app: ^App, path: string) -> (opened, ok: bool) {
 		vis_used = geom.byte_get(&r, u8)
 	}
 	link_token := geom.byte_get(&r, u64) if version >= 17 else 0
-	if !folders_ok || !r.ok || solo > 1 || vis_slot > VIS_SLOTS || (vis_slot > 0 && vis_used & (1 << (vis_slot - 1)) == 0) || count > len(data) || selected >= count || !finite(view.target) || !finite({view.distance, view.yaw, view.pitch}) || !finite({view.roll, 0, 0}) {
+	// A scene from before scenes held lights is lit by the starting lights, as a new one is.
+	lights, lights_ok := app.start_lights, true
+	if version >= 19 do lights, lights_ok = lights_get(&r, app.start_lights)
+	if !lights_ok || !folders_ok || !r.ok || solo > 1 || vis_slot > VIS_SLOTS || (vis_slot > 0 && vis_used & (1 << (vis_slot - 1)) == 0) || count > len(data) || selected >= count || !finite(view.target) || !finite({view.distance, view.yaw, view.pitch}) || !finite({view.roll, 0, 0}) {
 		file_note(app, true, "Cannot open %s: it is damaged", name)
 		return false, true
 	}
@@ -878,6 +931,7 @@ scene_open :: proc(app: ^App, path: string) -> (opened, ok: bool) {
 	app.scene.next_folder_id = max(next_folder_id, 0)
 	app.scene.vis_slot, app.scene.vis_used = int(vis_slot), vis_used
 	app.scene.link_token = link_token
+	app.scene.lights, app.scene.lights_own = lights, version >= 19
 	scene_folders_normalize(app)
 	scene_selection_fix(app)
 	autosave_scene_saved(app, path)
@@ -917,6 +971,10 @@ scene_replace :: proc(app: ^App, objects: []^Object, selected, next_id: int, vie
 	// A new scene has no link with Blender until it sends; an opened one gets its own back.
 	app.scene.link_token = 0
 	clear(&app.link.sent)
+	// A new scene is lit by the starting lights; an opened one gets its own back. A change
+	// to the old scene's lights still under way goes with its History.
+	app.scene.lights, app.scene.lights_own = app.start_lights, false
+	app.ui.light_drag = {}
 	// A drag over the old tree, and the column changes it queued, name the old objects.
 	app.kit.tree_drag, app.kit.tree_column = {}, {}
 	clear(&app.scene.also)
