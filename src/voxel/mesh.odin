@@ -30,6 +30,7 @@ Node :: struct {
 
 Surface :: struct {
 	mesh:         geom.Mesh,
+	codes:        [dynamic]u32, // per vertex slot, beside mesh.positions: the vertex's code (below)
 	nodes:        [dynamic]Node,
 	chunks:       [dynamic]geom.Chunk, // one per node with triangles, sorted by first_index, for the Draw_Item
 	free_verts:   [dynamic]geom.Vertex_Range, // holes, sorted and merged
@@ -81,18 +82,32 @@ Mesh_Result :: struct {
 	node:      u32,
 	positions: [dynamic]Vec3,
 	normals:   [dynamic]Vec3,
+	codes:     [dynamic]u32,
 	indices:   [dynamic]u32,
 	bounds:    geom.Aabb,
 }
+
+// A vertex's code names what it stands for: the cell, as the node that owns the cell
+// indexes it (a node owns the cells 0 to 15 along each axis of its 16³; 12 bits), the loop
+// of crossings in that cell (2 bits) and the axes along which this node sees the cell at
+// −1 (3 bits: the owner is this node less one along each). A border vertex and its copy in
+// the neighbour node thus carry the same cell and loop and name each other's owner, so the
+// weld (convert.odin) matches them without comparing positions.
+CODE_LOOP_SHIFT :: 12
+CODE_OFFSET_SHIFT :: 14
+CODE_KEY_MASK :: (1 << CODE_OFFSET_SHIFT) - 1
+#assert(NODE == 16, "a cell's owner-local index takes four bits an axis")
 
 surface_init :: proc(s: ^Surface, allocator: runtime.Allocator) {
 	s.allocator = allocator
 	s.mesh.positions = make([dynamic]Vec3, allocator)
 	s.mesh.normals = make([dynamic]Vec3, allocator)
 	s.mesh.indices = make([dynamic]u32, allocator)
+	s.codes = make([dynamic]u32, allocator)
 	// Vertex 0 is the dummy every unused index slot points at.
 	append(&s.mesh.positions, Vec3{})
 	append(&s.mesh.normals, Vec3{})
+	append(&s.codes, 0)
 	s.nodes = make([dynamic]Node, allocator)
 	s.chunks = make([dynamic]geom.Chunk, allocator)
 	s.free_verts = make([dynamic]geom.Vertex_Range, allocator)
@@ -106,6 +121,7 @@ surface_init :: proc(s: ^Surface, allocator: runtime.Allocator) {
 
 surface_destroy :: proc(s: ^Surface) {
 	geom.mesh_destroy(&s.mesh)
+	delete(s.codes)
 	delete(s.nodes)
 	delete(s.chunks)
 	delete(s.free_verts)
@@ -117,9 +133,9 @@ surface_destroy :: proc(s: ^Surface) {
 	s^ = {}
 }
 
-// Bytes held by the mesh arrays (slack included) and the nodes.
+// Bytes held by the mesh arrays (slack included), the codes and the nodes.
 surface_bytes :: proc(s: ^Surface) -> int {
-	return len(s.mesh.positions) * 2 * size_of(Vec3) + len(s.mesh.indices) * size_of(u32) + len(s.nodes) * size_of(Node)
+	return len(s.mesh.positions) * (2 * size_of(Vec3) + size_of(u32)) + len(s.mesh.indices) * size_of(u32) + len(s.nodes) * size_of(Node)
 }
 
 // Vertices in use (the dummy left out) and triangles in use.
@@ -129,6 +145,16 @@ surface_counts :: proc(s: ^Surface) -> (vertices, triangles: int) {
 		triangles += int(n.idx_count) / 3
 	}
 	return
+}
+
+// The index of the node at `nc`, if there is one.
+@(private)
+surface_node_find :: proc(c: ^Clay, nc: [3]i32) -> (index: u32, ok: bool) {
+	if nc.x < 0 || nc.y < 0 || nc.z < 0 || nc.x >= MAX_NODES || nc.y >= MAX_NODES || nc.z >= MAX_NODES do return 0, false
+	table := volume_table(&c.volume, nc * NODE_BRICKS)
+	if table == nil do return 0, false
+	index = table.nodes[node_slot_in_chunk(nc)]
+	return index, index != NODE_NONE
 }
 
 // The index of the node at `nc`, made (empty, clean) when there was none.
@@ -262,6 +288,7 @@ clay_flush :: proc(c: ^Clay) -> (f: Flush) {
 		n := s.nodes[r.node]
 		copy(s.mesh.positions[n.vert_first:][:n.vert_count], r.positions[:])
 		copy(s.mesh.normals[n.vert_first:][:n.vert_count], r.normals[:])
+		copy(s.codes[n.vert_first:][:n.vert_count], r.codes[:])
 		out := s.mesh.indices[n.idx_first:][:n.idx_cap]
 		for k, j in r.indices do out[j] = n.vert_first + k
 		slice.zero(out[n.idx_count:])
@@ -286,8 +313,9 @@ clay_flush :: proc(c: ^Clay) -> (f: Flush) {
 mesh_result_destroy :: proc(r: ^Mesh_Result) {
 	delete(r.positions)
 	delete(r.normals)
+	delete(r.codes)
 	delete(r.indices)
-	r.positions, r.normals, r.indices = nil, nil, nil
+	r.positions, r.normals, r.codes, r.indices = nil, nil, nil, nil
 }
 
 @(private)
@@ -381,8 +409,10 @@ surface_alloc_verts :: proc(s: ^Surface, count: u32) -> u32 {
 	// touch, and four threads faulting the same mapping in the copy pass run slower than one.
 	non_zero_resize(&s.mesh.positions, int(first + count + slack))
 	non_zero_resize(&s.mesh.normals, int(first + count + slack))
+	non_zero_resize(&s.codes, int(first + count + slack))
 	slice.zero(s.mesh.positions[first:])
 	slice.zero(s.mesh.normals[first:])
+	slice.zero(s.codes[first:])
 	if slack > 0 do free_insert_verts(&s.free_verts, {first + count, slack})
 	s.regrow = true
 	return first
@@ -475,24 +505,37 @@ surface_compact_if_needed :: proc(c: ^Clay) {
 	holes := 0
 	for h in s.free_verts do holes += int(h.count)
 	if f32(holes) < f32(len(s.mesh.positions)) * COMPACT_FRACTION do return
+	surface_compact(s)
+}
+
+// Lays every slot out again, in node order, with no holes between them (the weld test
+// compacts on purpose; the surface otherwise compacts when it has to, above).
+@(private)
+surface_compact :: proc(s: ^Surface) {
+	holes := 0
+	for h in s.free_verts do holes += int(h.count)
 	positions := make([dynamic]Vec3, 1, len(s.mesh.positions) - holes, s.allocator)
 	normals := make([dynamic]Vec3, 1, len(s.mesh.positions) - holes, s.allocator)
+	codes := make([dynamic]u32, 1, len(s.mesh.positions) - holes, s.allocator)
 	indices := make([dynamic]u32, s.allocator)
 	for &n in s.nodes {
 		if n.vert_cap == 0 do continue
 		vf, ifi := u32(len(positions)), u32(len(indices))
 		append(&positions, ..s.mesh.positions[n.vert_first:][:n.vert_count])
 		append(&normals, ..s.mesh.normals[n.vert_first:][:n.vert_count])
+		append(&codes, ..s.codes[n.vert_first:][:n.vert_count])
 		resize(&positions, int(vf + n.vert_cap))
 		resize(&normals, int(vf + n.vert_cap))
+		resize(&codes, int(vf + n.vert_cap))
 		resize(&indices, int(ifi + n.idx_cap))
 		for k, j in s.mesh.indices[n.idx_first:][:n.idx_count] do indices[int(ifi) + j] = k - n.vert_first + vf
 		n.vert_first, n.idx_first = vf, ifi
 	}
 	delete(s.mesh.positions)
 	delete(s.mesh.normals)
+	delete(s.codes)
 	delete(s.mesh.indices)
-	s.mesh.positions, s.mesh.normals, s.mesh.indices = positions, normals, indices
+	s.mesh.positions, s.mesh.normals, s.codes, s.mesh.indices = positions, normals, codes, indices
 	clear(&s.free_verts)
 	clear(&s.free_indices)
 	surface_chunks_rebuild(s)
@@ -520,6 +563,7 @@ mesh_node :: proc(c: ^Clay, r: ^Mesh_Result) {
 	for &cell in cells do cell.first = CELL_NONE
 	r.positions = make([dynamic]Vec3, heap)
 	r.normals = make([dynamic]Vec3, heap)
+	r.codes = make([dynamic]u32, heap)
 	r.indices = make([dynamic]u32, heap)
 	r.bounds = geom.AABB_EMPTY
 	for axis in 0 ..< 3 {
@@ -552,6 +596,35 @@ mesh_node :: proc(c: ^Clay, r: ^Mesh_Result) {
 			append(&r.indices, quad[0], quad[1], quad[2], quad[0], quad[2], quad[3])
 		}
 	}
+	// A cell on the node's far faces (15 along an axis) may be crossed only through edges
+	// whose lower voxel is at 16 along another axis, which the next node owns and the loop
+	// above never visits; those edges are checked here and the far cells around them get
+	// their vertices all the same, since this node owns the cells and the weld
+	// (convert.odin) sends the neighbours' copies to it.
+	for axis in 0 ..< 3 {
+		b, cc := (axis + 1) % 3, (axis + 2) % 3
+		for pass in 0 ..< 2 {
+			o := b if pass == 0 else cc // the axis at 16
+			p := cc if pass == 0 else b // and the other
+			for i in 0 ..< NODE do for j in 0 ..< NODE + 1 - pass { // the corner edge (both at 16) once
+				g: [3]int
+				g[axis], g[o], g[p] = i, NODE, j
+				i0 := window_index(g + 2)
+				h := g
+				h[axis] += 1
+				if (window[i0] < 0) == (window[window_index(h + 2)] < 0) do continue
+				for side in 0 ..< 2 {
+					cell := g
+					cell[o] -= 1
+					cell[p] -= side
+					if cell[p] < 0 || cell[p] >= NODE do continue
+					if cells[((cell.z + 1) * MESH_CELLS + cell.y + 1) * MESH_CELLS + cell.x + 1].first != CELL_NONE do continue
+					corner := 1 << uint(o) | side << uint(p)
+					_ = cell_vertex(c, r, window, cells, n.coord, cell, cell_edge(axis, corner))
+				}
+			}
+		}
+	}
 	for p in r.positions do geom.aabb_grow(&r.bounds, p)
 }
 
@@ -570,6 +643,8 @@ CELL_FACES :: [6][4]int{{4, 6, 8, 10}, {5, 7, 9, 11}, {0, 2, 8, 9}, {1, 3, 10, 1
 // most two groups); four is what twelve edges in loops of three would allow.
 CELL_LOOPS :: 4
 LOOP_NONE :: i8(-1)
+// What a zero voxel value is read as where a crossing is placed: a quarter of a quantum.
+ZERO_OUTSIDE :: f32(0.25)
 
 // A cell's vertices: the index of the first (CELL_NONE until the cell is met) and, per
 // edge, which of its loops the edge is in.
@@ -649,6 +724,16 @@ cell_vertex :: #force_no_inline proc(c: ^Clay, r: ^Mesh_Result, window: []i16, c
 	}
 	assert(count >= 1 && count <= CELL_LOOPS, "a crossed cell has one to four loops")
 	cv.first = u32(len(r.positions))
+	// The cell's code: its index in the node that owns it, and the axes it is at −1 along.
+	code := u32(0)
+	for a in 0 ..< 3 {
+		coord := cell[a]
+		if coord < 0 {
+			code |= 1 << uint(CODE_OFFSET_SHIFT + a)
+			coord = NODE - 1
+		}
+		code |= u32(coord) << uint(4 * a)
+	}
 	v := &c.volume
 	for l in 0 ..< count {
 		// The mean of the loop's crossings.
@@ -657,6 +742,11 @@ cell_vertex :: #force_no_inline proc(c: ^Clay, r: ^Mesh_Result, window: []i16, c
 		for e, i in CELL_EDGES {
 			if cv.loop[i] != i8(l) do continue
 			a, b := corner[e[0]], corner[e[1]]
+			// A voxel exactly on the surface (0, which counts as outside) would put the
+			// crossing on the lattice point, where every cell around the point would set
+			// its vertex, one on top of another; it is read as a hair outside instead.
+			if a == 0 do a = ZERO_OUTSIDE
+			if b == 0 do b = ZERO_OUTSIDE
 			t := a / (a - b)
 			p0 := Vec3{f32(e[0] & 1), f32(e[0] >> 1 & 1), f32(e[0] >> 2 & 1)}
 			p1 := Vec3{f32(e[1] & 1), f32(e[1] >> 1 & 1), f32(e[1] >> 2 & 1)}
@@ -684,6 +774,7 @@ cell_vertex :: #force_no_inline proc(c: ^Clay, r: ^Mesh_Result, window: []i16, c
 		vox := Vec3{f32(nc.x * NODE + i32(cell.x)), f32(nc.y * NODE + i32(cell.y)), f32(nc.z * NODE + i32(cell.z))} + local
 		append(&r.positions, v.origin + vox * v.voxel)
 		append(&r.normals, normal)
+		append(&r.codes, code | u32(l) << CODE_LOOP_SHIFT)
 	}
 	return cv.first + u32(cv.loop[edge])
 }

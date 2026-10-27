@@ -30,9 +30,12 @@ Clay :: struct {
 	region:        [dynamic]u32,
 	fixed:         [dynamic][BRICK_VOXELS / 64]u64,
 	settled:       [dynamic]bool, // per region brick: the last sweep changed nothing in it
-	settled_next:  [dynamic]bool,
+	changed:       [dynamic]bool, // per region brick: the running sweep changed it
+	levels:        [dynamic]u64, // the region's bricks in the running sweep's wavefront order: level over index
+	level_first:   int, // where the running wavefront starts in `levels`
 	repair_gen:    u32,
 	sweep:         int,
+	repair_sweeps: int, // sweeps the last repair took before every brick had settled
 	in_stroke:     bool,
 	stroke_bricks: int, // bricks written by the stroke's dabs, for the stats (one a dab each)
 	stroke_dabs:   int,
@@ -63,7 +66,8 @@ clay_init :: proc(c: ^Clay, voxel: f32, centre: Vec3, pool: ^jobs.Pool, allocato
 	c.region = make([dynamic]u32, allocator)
 	c.fixed = make([dynamic][BRICK_VOXELS / 64]u64, allocator)
 	c.settled = make([dynamic]bool, allocator)
-	c.settled_next = make([dynamic]bool, allocator)
+	c.changed = make([dynamic]bool, allocator)
+	c.levels = make([dynamic]u64, allocator)
 	// Slots start stamped 0, so the first generation must not be 0.
 	c.repair_gen = 1
 }
@@ -80,7 +84,8 @@ clay_destroy :: proc(c: ^Clay) {
 	delete(c.region)
 	delete(c.fixed)
 	delete(c.settled)
-	delete(c.settled_next)
+	delete(c.changed)
+	delete(c.levels)
 	c^ = {}
 }
 
@@ -223,19 +228,14 @@ clay_dab :: proc(c: ^Clay, brush: Brush, centre: Vec3) -> int {
 
 // Copies the `n`³ voxels from `lo` into `out`, x fastest, reading tiles as their values.
 // Whole bricks are copied at a time rather than a voxel at a time through the directory.
-// With `snapshot`, a brick in the running band repair's region is read from the repair's
-// snapshot (Clay.scratch) rather than live, since another job may be writing it.
 @(private)
-gather_window :: proc(v: ^Volume, lo: [3]i32, n: int, out: []i16, snapshot: ^Clay = nil) {
+gather_window :: proc(v: ^Volume, lo: [3]i32, n: int, out: []i16) {
 	assert(len(out) == n * n * n, "window size")
 	hi := lo + i32(n - 1)
 	blo, bhi := shr3(lo, 3), shr3(hi, 3) // BRICK is 8
 	for bz in blo.z ..= bhi.z do for by in blo.y ..= bhi.y do for bx in blo.x ..= bhi.x {
 		bc := [3]i32{bx, by, bz}
 		tile, brick := volume_tile(v, bc)
-		if snapshot != nil && brick != nil {
-			if slot := volume_slot(v, bc); v.pending[slot] == IN_REGION do brick = &snapshot.scratch[v.region[slot]]
-		}
 		base := bc * BRICK
 		// The window's voxels this brick covers, in the brick's coordinates.
 		l := linalg.max(lo - base, [3]i32{0, 0, 0})
