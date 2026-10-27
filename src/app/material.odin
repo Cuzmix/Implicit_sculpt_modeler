@@ -2,6 +2,8 @@ package main
 
 import "core:strings"
 
+import "../geom"
+
 // How objects are shaded in the viewport: a colour for the selected object, one for the
 // others, the classic light's ambient, specular, shininess and wrap
 // (render.Draw_Item.material), and for physically based materials metallic and roughness
@@ -81,4 +83,81 @@ EXPOSURE_RANGE :: 3
 // The viewport's look for render.Draw_Item.look: exposure, cavity and ridge.
 viewport_look :: proc(app: ^App) -> [4]f32 {
 	return {app.exposure, app.cavity, app.ridge, 0}
+}
+
+// The material `obj` is shaded with: its own, or the default (current_material) while it
+// has none yet, which materials_settle gives it at the start of the next frame.
+object_material :: proc(app: ^App, obj: ^Object) -> Material {
+	return obj.material if obj.material.label != nil else current_material(app)
+}
+
+// Where `m` is in the Material section's list: its preset, or Custom.
+material_index :: proc(m: Material) -> int {
+	if m.label == nil do return 0
+	i, found := material_by_name(string(m.label))
+	return i if found else CUSTOM_MATERIAL
+}
+
+// Gives every selected object material `m` (a Scene_Command's .Material) and makes it the
+// default new objects take, as picking a material does in the Material section. It is no
+// undo step (a ZBrush material is outside its Undo History too), but the scene counts as
+// changed.
+material_set :: proc(app: ^App, m: Material) {
+	m := m
+	m.selected.a, m.idle.a = 1, 1
+	if m.label == nil do m.label = "Custom"
+	i := material_index(m)
+	if i == CUSTOM_MATERIAL do app.custom = m
+	app.material = i
+	for obj in app.scene.objects do if object_in_selection(app, obj) do obj.material = m
+	app.scene_edits += 1
+}
+
+// Gives each object that has no material yet (made this frame, or read from a scene
+// older than version 13) the default, so it keeps it when the default changes.
+materials_settle :: proc(app: ^App) {
+	for obj in app.scene.objects {
+		if obj.material.label != nil do continue
+		autosave_settle(app)
+		obj.material = current_material(app)
+	}
+}
+
+// The scene file's form of a material (object_put): its label ("" for none yet, which
+// reads back as none), colours, classic shading, metallic, roughness and matcap.
+material_put :: proc(out: ^[dynamic]u8, m: Material) {
+	geom.byte_put_string(out, string(m.label) if m.label != nil else "")
+	geom.byte_put(out, m.selected.rgb)
+	geom.byte_put(out, m.idle.rgb)
+	geom.byte_put(out, m.shading)
+	geom.byte_put(out, [2]f32{m.metallic, m.roughness})
+	geom.byte_put(out, i32(m.matcap))
+}
+
+// Reads what material_put writes; r.ok goes false on values no material has. A preset's
+// name takes the preset's own label and any other name becomes Custom, so the label never
+// points into the file's bytes.
+material_get :: proc(r: ^geom.Byte_Reader) -> (m: Material) {
+	name := geom.byte_get_string(r)
+	defer delete(name)
+	m.selected.rgb = geom.byte_get(r, [3]f32)
+	m.idle.rgb = geom.byte_get(r, [3]f32)
+	m.selected.a, m.idle.a = 1, 1
+	m.shading = geom.byte_get(r, [4]f32)
+	surface := geom.byte_get(r, [2]f32)
+	m.metallic, m.roughness = surface[0], surface[1]
+	m.matcap = int(geom.byte_get(r, i32))
+	unit :: proc(v: f32) -> bool {return v >= 0 && v <= 1}
+	ok := unit(m.metallic) && unit(m.roughness) && m.matcap >= 0 && m.matcap <= MATCAP_IMAGE
+	for k in 0 ..< 3 do ok &&= unit(m.selected[k]) && unit(m.idle[k])
+	// Shininess goes well past 1; only a finite, non-negative value makes sense.
+	for v in m.shading do ok &&= v >= 0 && v < 1e6
+	if !ok {
+		r.ok = false
+		return {}
+	}
+	if name == "" do return {}
+	i, found := material_by_name(name)
+	m.label = MATERIALS[i].label if found && i < len(MATERIALS) else "Custom"
+	return
 }

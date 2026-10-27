@@ -218,6 +218,9 @@ App :: struct {
 	light_turn, light_height: f32,
 	light_key, light_fill:    f32,
 	lights_fixed:             bool,
+	// Objects other than the selected one show their material's muted colour (on by
+	// default), so the one being sculpted stands out; off, each shows its own colour.
+	dim_others:               bool,
 	show_groups: bool, // draw every object's polygroups in their colours instead of its clay and paint
 	cache_idle: bool, // draw unselected objects from the viewport cache while they stay put
 	hd_window_vertices: int, // size of the HD windows the A key opens
@@ -445,6 +448,10 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	app.simplify_px = 1
 	app.vsync = !opts.no_vsync && opts.gpubench == ""
 	app.msaa = MSAA_DEFAULT
+	// Before the settings file, which brings back what earlier runs chose.
+	app.cavity, app.ridge = CAVITY_DEFAULT, RIDGE_DEFAULT
+	lights_reset(&app)
+	app.dim_others = true
 	app.time_gpu = opts.time_gpu || opts.gpubench != ""
 	app.ui = ui_state_default()
 	app.curve, app.insert = CURVE_DEFAULTS, INSERT_DEFAULTS
@@ -484,8 +491,6 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		app.ui.rebuild_goal, app.ui.rebuild_even, app.rebuild.pinned = .Even, rebuild_count(opts.density_preview), true
 	}
 	app.studio_samples, app.studio_ao, app.studio_shadow = STUDIO_SAMPLES_DEFAULT, 0.85, 0.6
-	app.cavity, app.ridge = CAVITY_DEFAULT, RIDGE_DEFAULT
-	lights_reset(&app)
 	app.stroke_seed = 1
 	app.tool = .Brush
 	app.running = true
@@ -526,6 +531,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		// selection stays on an object in view and in reach.
 		scene_folders_normalize(&app)
 		scene_selection_fix(&app)
+		materials_settle(&app)
 		if !script_frame(&app) do return false
 		// Until the script is done its frames are set-up: the run's own count from where
 		// it ends (--frames, the bench stroke, --load-strokes, --timelapse, --ui-events).
@@ -733,7 +739,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 				uploaded += bytes
 				if !object_shown(&app, obj) || boolean_hides(&app, obj, i) || len(vp.clay.surface.chunks) == 0 do continue
 				color, live, selected := object_draw_tint(&app, obj, i)
-				material := current_material(&app)
+				material := object_material(&app, obj)
 				append(&draws, render.Draw_Item {
 					mesh      = &vp.gpu,
 					model     = transform_matrix(obj.transform),
@@ -780,7 +786,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 				// The live boolean's preview stands in for it (drawn below).
 				if boolean_hides(&app, obj, i) do continue
 				color, live, selected := object_draw_tint(&app, obj, i)
-				material := current_material(&app)
+				material := object_material(&app, obj)
 				append(&draws, render.Draw_Item {
 					mesh   = gpu,
 					model  = transform_matrix(obj.transform),
@@ -809,7 +815,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		}
 		if b := &app.ui.boolean; b.shown {
 			if base := object_by_id(&app, b.base); base != nil && object_shown(&app, base) {
-				material := current_material(&app)
+				material := object_material(&app, base)
 				color := material.selected
 				if _, ghost := object_flags(&app, base); ghost do color.rgb *= GHOST_SHADE
 				append(&draws, render.Draw_Item {
@@ -1317,9 +1323,11 @@ object_draw_tint :: proc(app: ^App, obj: ^Object, i: int) -> (color: [4]f32, liv
 	selected = i == app.scene.selected
 	chosen := object_in_selection(app, obj)
 	moving := app.move.drag.handle != .None || app.ui.transform_drag.active
-	material := current_material(app)
-	color = material.selected if selected else material.idle
-	if chosen && !selected do color = linalg.lerp(material.idle, material.selected, SELECTION_TINT)
+	material := object_material(app, obj)
+	// With Dim the others off, every object shows its own colour.
+	idle := material.idle if app.dim_others else material.selected
+	color = material.selected if selected else idle
+	if chosen && !selected do color = linalg.lerp(idle, material.selected, SELECTION_TINT)
 	if _, ghost := object_flags(app, obj); ghost do color.rgb *= GHOST_SHADE
 	live = selected || (chosen && moving)
 	return

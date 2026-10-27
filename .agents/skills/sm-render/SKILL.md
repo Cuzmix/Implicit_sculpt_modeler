@@ -50,7 +50,7 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   work (`:413`) → per object and part (current level, plus the HD window, `:423`): `sculptor_flush` → `level_upload`
   (`src/app/scene.odin:217`: vertex ranges with the mask, dynamic topology's index pages, new buffers when the mesh
   outgrew them), then once per frame and never during a stroke `sculptor_lod_update` → `mesh_buffers_upload_lod`
-  (`src/app/main.odin:440-451`) → a `Draw_Item` per part, the material's colours (the Scene tab's Material; selected and idle) and `wireframe` on the selected one (`:452`) →
+  (`src/app/main.odin:440-451`) → a `Draw_Item` per part, each object's own material (`object_material`; `Object.material`, set through the `.Material` Scene_Command, saved from scene version 14; selected colour, idle when `dim_others`) and `wireframe` on the selected one (`:452`) →
   `render_viewport` (`:469`) → submit, with a fence when `time_gpu` (`:472`) → `kit_upload` and the interface's
   pass (`ui_pass_draw`) into the swapchain on `present_cmd`.
 - `render_viewport` (`renderer.odin:628-650`): with `partial` on and an unchanged `frame_key` (camera, size, item

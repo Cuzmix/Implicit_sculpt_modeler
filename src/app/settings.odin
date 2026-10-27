@@ -96,6 +96,7 @@ SETTINGS := [?]Setting {
 	{"light_key", offset_of(App, light_key), f32, 0, LIGHT_STRENGTH_MAX},
 	{"light_fill", offset_of(App, light_fill), f32, 0, LIGHT_STRENGTH_MAX},
 	{"lights_fixed", offset_of(App, lights_fixed), bool, 0, 0},
+	{"dim_others", offset_of(App, dim_others), bool, 0, 0},
 	{"ridge", offset_of(App, ridge), f32, 0, 1},
 	{"reduce_motion", K + offset_of(Kit_State, ctx) + offset_of(ui.Context, reduced_motion), bool, 0, 0},
 	{"ortho", offset_of(App, camera) + offset_of(camera.Orbit, ortho), bool, 0, 0},
