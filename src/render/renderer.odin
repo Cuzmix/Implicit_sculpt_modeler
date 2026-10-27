@@ -291,6 +291,11 @@ Draw_Item :: struct {
 	// How the shading is shown: x the exposure in stops, y how much creases darken
 	// (cavity) and z how much crests lighten (ridge), 0 to 1; zero shows it plainly.
 	look:      [4]f32,
+	// The shading's style, for the classic and physically based materials: x how bright
+	// the rim at the silhouette is, y how much of the ambient light reaches a surface
+	// facing straight down (1 as much as one facing up), w 1 to use them. Zero keeps the
+	// classic rim and an even ambient light, as thumbnails and the navigation head draw.
+	style:     [4]f32,
 	// A matcap (matcap_create) that shades the item instead of the lights, tinted by
 	// `color`; nil for none.
 	matcap:    ^sdl.GPUTexture,
@@ -353,8 +358,9 @@ Material_Uniforms :: struct {
 	env:        [4]f32, // x: 1 when bound, y: its strength, z: its prefiltered levels less one
 	env_axes:   [3][4]f32, // the panorama's axes in view space (Environment_Look.rotation)
 	env_sh:     [9][4]f32, // its diffuse light's harmonics, rgb
+	style:      [4]f32, // Draw_Item.style
 }
-#assert(size_of(Material_Uniforms) == 864)
+#assert(size_of(Material_Uniforms) == 880)
 #assert(offset_of(Material_Uniforms, maps) == 640)
 
 MESH_VERT_SPV :: #load("shaders/mesh.vert.spv")
@@ -1254,6 +1260,7 @@ frame_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lod
 		material: [4]f32,
 		checker:  [4]f32,
 		look:     [4]f32,
+		style:    [4]f32,
 		lights:   Lights,
 		surface:  [2]f32,
 		wire:     b32,
@@ -1263,7 +1270,7 @@ frame_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lod
 		slotted:  b32, // with Material_Slots, hashed after it
 		_:        b32, // no padding: every byte is hashed
 	}
-	#assert(size_of(Keyed) == 736)
+	#assert(size_of(Keyed) == 752)
 	Header :: struct { // no padding: every byte is hashed
 		view, proj:    Mat4,
 		width, height: u32,
@@ -1277,7 +1284,7 @@ frame_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lod
 	header := Header{view, proj, vt.width, vt.height, u32(len(items)), lod_px, floor, background, environment}
 	h := hash.fnv64a(slice.bytes_from_ptr(&header, size_of(header)))
 	for item in items {
-		k := Keyed{item.mesh, item.matcap, item.model, item.color, item.material, item.checker, item.look, item.lights, item.surface, b32(item.wireframe), b32(item.flat), b32(item.paint), b32(item.groups), item.slots != nil, false}
+		k := Keyed{item.mesh, item.matcap, item.model, item.color, item.material, item.checker, item.look, item.style, item.lights, item.surface, b32(item.wireframe), b32(item.flat), b32(item.paint), b32(item.groups), item.slots != nil, false}
 		h = hash.fnv64a(slice.bytes_from_ptr(&k, size_of(k)), h)
 		if item.slots != nil do h = hash.fnv64a(slice.bytes_from_ptr(item.slots, size_of(Material_Slots)), h)
 		h = textured_key(item, h)
@@ -1474,6 +1481,7 @@ static_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lo
 		material: [4]f32,
 		checker:  [4]f32,
 		look:     [4]f32,
+		style:    [4]f32,
 		lights:   Lights,
 		surface:  [2]f32,
 		wire:     b32,
@@ -1483,7 +1491,7 @@ static_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lo
 		slotted:  b32, // with Material_Slots, hashed after it
 		_:        b32, // no padding: every byte is hashed
 	}
-	#assert(size_of(Keyed) == 744)
+	#assert(size_of(Keyed) == 760)
 	Header :: struct { // no padding: every byte is hashed
 		view, proj:    Mat4,
 		width, height: u32,
@@ -1497,7 +1505,7 @@ static_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lo
 	h := hash.fnv64a(slice.bytes_from_ptr(&header, size_of(header)))
 	for item in items {
 		if item.live do continue
-		k := Keyed{item.mesh, item.matcap, item.mesh.version, item.model, item.color, item.material, item.checker, item.look, item.lights, item.surface, b32(item.wireframe), b32(item.flat), b32(item.paint), b32(item.groups), item.slots != nil, false}
+		k := Keyed{item.mesh, item.matcap, item.mesh.version, item.model, item.color, item.material, item.checker, item.look, item.style, item.lights, item.surface, b32(item.wireframe), b32(item.flat), b32(item.paint), b32(item.groups), item.slots != nil, false}
 		h = hash.fnv64a(slice.bytes_from_ptr(&k, size_of(k)), h)
 		if item.slots != nil do h = hash.fnv64a(slice.bytes_from_ptr(item.slots, size_of(Material_Slots)), h)
 		h = textured_key(item, h)
@@ -1600,7 +1608,7 @@ draw_items :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURende
 		params := item.material if item.material != {} else DEFAULT_MATERIAL
 		surface := [4]f32{item.surface.x, item.surface.y, 1 if item.flat else 0, 1 if item.matcap != nil else 0}
 		lights := item.lights if item.lights != {} else lights_default()
-		material := Material_Uniforms{base_color = item.color, params = params, surface = surface, checker = item.checker, look = item.look, lights = lights}
+		material := Material_Uniforms{base_color = item.color, params = params, surface = surface, checker = item.checker, look = item.look, lights = lights, style = item.style}
 		material_environment(r, &material)
 		// Drawn solid after all where the blended pipeline is missing, and opaque then.
 		if !see do material.look.w = 0

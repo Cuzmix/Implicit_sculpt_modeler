@@ -19,10 +19,12 @@ LIVE_AO_REACH_MIN :: 0.01
 LIVE_AO_REACH_MAX :: 0.4
 
 // Runs this frame's live occlusion after render_viewport, whose stats are `drawn`, while
-// it is on and the studio render is not (which shows converged occlusion of its own);
-// otherwise makes its next run start in full.
+// it is on, the studio render's too: the studio shows its own occlusion only once it has
+// STUDIO_SHOW_MIN samples, and this shows until then, so sculpting with the studio on
+// keeps its occlusion. A still view redraws nothing, which costs it nothing. Off, it
+// makes its next run start in full.
 live_ao_view_frame :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer, view, proj: render.Mat4, items: []render.Draw_Item, drawn: render.Viewport_Stats) {
-	if !app.live_ao_on || app.studio_on {
+	if !app.live_ao_on {
 		render.live_ao_reset(&app.live_ao)
 		return
 	}
@@ -30,13 +32,24 @@ live_ao_view_frame :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer, view, proj: re
 	_ = render.live_ao_frame(&app.renderer, &app.live_ao, cmd, &app.target, view, proj, items, drawn, reach, app.studio_ao, LIVE_AO_SCALE)
 }
 
-// The texture the viewport shows: the studio render's while it is on, live occlusion's
-// while that is on, else nil for the viewport's own colour. The panel, screenshots and
-// the time-lapse all read it, so each shows what the others do.
+// The texture the viewport shows: the studio render's while it is on and has samples
+// enough to look better than live occlusion, live occlusion's while that is on, then the
+// studio's copy of the viewport, else nil for the viewport's own colour. The panel,
+// screenshots and the time-lapse all read it, so each shows what the others do.
 viewport_shown :: proc(app: ^App) -> ^sdl.GPUTexture {
-	if app.studio_on do return render.studio_texture(&app.studio)
+	studio := studio_running(app)
+	if studio && (app.studio.samples >= STUDIO_SHOW_MIN || !app.live_ao_on) do return render.studio_texture(&app.studio)
 	if app.live_ao_on do return render.live_ao_texture(&app.live_ao)
 	return nil
+}
+
+// The studio render's samples before it shows instead of live occlusion: about a quarter
+// of a second at 60 frames a second, when its noise has settled below live occlusion's blur.
+STUDIO_SHOW_MIN :: 16
+
+// Whether the studio render runs: it is on, and the device can run it.
+studio_running :: proc(app: ^App) -> bool {
+	return app.studio_on && !app.studio.failed
 }
 
 // Scene > Studio render's live occlusion switch, disabled with the reason where the device

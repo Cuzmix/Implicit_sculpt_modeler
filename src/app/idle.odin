@@ -66,7 +66,7 @@ idle_note :: proc(app: ^App, drawn: render.Viewport_Stats, dabs: int) {
 	id.thumbs = app.thumb_slots.drawn
 	held := app.device.down != {} || app.touch.fingers.count > 0 || app.ui.pie.space_down
 	busy := app.stroke.active || replay_busy(app) || timelapse_capturing(app) || app.script.running ||
-		(app.studio_on && app.studio.samples < int(app.studio_samples))
+		(studio_running(app) && app.studio.samples < int(app.studio_samples))
 	viewport := !drawn.partial || drawn.redrawn_px > 0 || drawn.cache_redrawn
 	// The view settles into full detail LOD_SETTLE after it stops: that redraw is
 	// timed, not driven by input, so the quiet run waits for it.

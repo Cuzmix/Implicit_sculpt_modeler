@@ -191,10 +191,13 @@ App :: struct {
 	// View > Studio render (Shift+R): ambient occlusion and soft shadows built up while
 	// the view stays still (render.Studio).
 	studio:         render.Studio,
+	// Remembered; a device that cannot run it leaves it on and shows the plain viewport
+	// (studio_running), so a failure never saves as "off".
 	studio_on:      bool,
 	studio_samples: i32, // samples it stops at
 	studio_ao:      f32, // how strongly occlusion darkens, 0 to 1
 	studio_shadow:  f32, // ...and the key light's shadow
+	studio_softness: f32, // the key light's radius in radians, how soft its shadow's edge is
 	// Scene > Studio render > Occlusion while working (live_ao.odin): screen-space ambient
 	// occlusion every frame, with studio_ao's strength.
 	live_ao:        render.Live_AO,
@@ -244,6 +247,12 @@ App :: struct {
 	exposure:  f32,
 	cavity:    f32,
 	ridge:     f32,
+	// The shading's style (render.Draw_Item.style, viewport_style): while on, a rim of
+	// strength `rim` and `underside` of the ambient light under the forms; off, the classic
+	// rim and an even ambient light.
+	styled:    bool,
+	rim:       f32,
+	underside: f32,
 	// The lights (lights.odin; the scene's own are Scene.lights): those a new scene starts
 	// with, which the settings keep, the one the Lights section edits, and the turn of the
 	// camera's lights and the studio about the up axis and up or down in degrees.
@@ -501,6 +510,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	app.msaa = MSAA_DEFAULT
 	// Before the settings file, which brings back what earlier runs chose.
 	app.cavity, app.ridge = CAVITY_DEFAULT, RIDGE_DEFAULT
+	app.rim, app.underside = RIM_DEFAULT, UNDERSIDE_DEFAULT
+	app.studio_softness = render.STUDIO_KEY_SOFTNESS
 	environment_settings_default(&app)
 	app.dim_others = true
 	app.time_gpu = opts.time_gpu || opts.gpubench != ""
@@ -841,6 +852,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 					surface   = {material.metallic, material.roughness},
 					flat      = app.flat,
 					look      = object_look(&app, selected),
+					style     = viewport_style(&app),
 					matcap    = material_matcap(&app, material),
 					lights    = viewport_lights(&app),
 					wireframe = selected && app.wireframe && app.polyframe_lines,
@@ -895,6 +907,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 					surface = {material.metallic, material.roughness},
 					flat = app.flat,
 					look = object_look(&app, selected),
+					style = viewport_style(&app),
 					lights = viewport_lights(&app),
 					matcap = material_matcap(&app, material),
 					wireframe = selected && app.wireframe && app.polyframe_lines,
@@ -931,6 +944,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 					surface  = {material.metallic, material.roughness},
 					flat     = app.flat,
 					look     = viewport_look(&app),
+					style    = viewport_style(&app),
 					lights   = viewport_lights(&app),
 					matcap   = material_matcap(&app, material),
 					damage   = geom.AABB_EMPTY,
@@ -946,10 +960,10 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		app.renderer.background = background_frame(app.background)
 		environment_view(&app)
 		drawn := render.render_viewport(&app.renderer, cmd, &app.target, view, proj, draws[:], app.cache_idle)
-		if app.studio_on {
+		if studio_running(&app) {
 			// Anything redrawn this frame starts the samples over.
 			changed := !drawn.partial || drawn.redrawn_px > 0
-			app.studio_on = render.studio_frame(&app.renderer, &app.studio, cmd, &app.target, view, proj, draws[:], changed, int(app.studio_samples), app.studio_ao, app.studio_shadow, viewport_lights(&app), &app.pool)
+			_ = render.studio_frame(&app.renderer, &app.studio, cmd, &app.target, view, proj, draws[:], changed, int(app.studio_samples), app.studio_ao, app.studio_shadow, viewport_lights(&app), &app.pool, app.studio_softness)
 		}
 		live_ao_view_frame(&app, cmd, view, proj, draws[:], drawn)
 

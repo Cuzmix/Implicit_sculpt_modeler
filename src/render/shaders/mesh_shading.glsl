@@ -56,6 +56,10 @@ layout(set = 3, binding = 0) uniform Material_Uniforms {
 	// Its diffuse light as nine spherical harmonics in the panorama's axes, already
 	// convolved with the cosine lobe and over pi (app/environment_file.odin), rgb each.
 	vec4 env_sh[9];
+	// The shading's style (render.Draw_Item.style): x the rim's strength, y how much of the
+	// ambient light reaches a surface facing straight down, w 1 to use them (0: the
+	// classic rim and an even ambient light).
+	vec4 style;
 };
 
 #ifndef TEXTURED
@@ -242,6 +246,17 @@ float light_at(int i, out vec3 l) {
 	return k;
 }
 
+// How far `n` faces the rig's up axis, 0 straight down to 1 straight up.
+float sky_facing(vec3 n, mat3 rig) {
+	return 0.5 + 0.5 * dot(n, rig[1]);
+}
+
+// The share of the ambient light a surface facing `n` gets under a style: style.y facing
+// straight down, all of it facing up.
+float underside(vec3 n, mat3 rig) {
+	return mix(style.y, 1.0, sky_facing(n, rig));
+}
+
 void main() {
 	if (params.y < 0.0) {
 		// Lines: the flat colour, encoded but not lit, exposed or tone mapped.
@@ -407,6 +422,8 @@ void main() {
 		mat3 to_rig = transpose(rig);
 		if (env.x > 0.5) {
 			color += diffuse * irradiance(n) * ao;
+		} else if (style.w > 0.5) {
+			color += diffuse * studio(to_rig * n, 1.0) * (0.7 * ao * ambient * underside(n, rig));
 		} else {
 			color += diffuse * studio(to_rig * n, 1.0) * (0.7 * ao * ambient);
 		}
@@ -431,6 +448,13 @@ void main() {
 		spec += light_color[i].rgb * (pow(max(dot(n, normalize(l + v)), 0.0), shading.z) * shading.y * s);
 	}
 	float rim  = pow(1.0 - max(dot(n, v), 0.0), 3.0) * 0.25;
+	if (style.w > 0.5) {
+		// A styled look, as in a studio's sculpt photographs: the ambient light falls off
+		// under the forms, so a chin shades the neck, and the rim is narrower and gathers on
+		// the upper silhouettes, where a light from above and behind would catch them.
+		lit -= vec3(shading.x * ao * ambient * (1.0 - underside(n, rig)));
+		rim = pow(1.0 - max(dot(n, v), 0.0), 4.0) * style.x * mix(0.3, 1.0, sky_facing(n, rig));
+	}
 	vec3 color = albedo * lit + (spec + rim) * highlight;
 	// The viewport texture is a UNORM texture the interface shows as-is, so the shader
 	// encodes for the display itself.
