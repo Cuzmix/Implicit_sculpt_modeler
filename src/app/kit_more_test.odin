@@ -130,8 +130,10 @@ show_every_option_unfolds_the_sections :: proc(t: ^testing.T) {
 		section:  Kit_Section,
 		controls: int,
 	}
-	// UVs and baking has 5: its Quads count and Retopologize moved to Shape > Rebuild.
-	full := [?]Full{{.Preset, 6}, {.Recorder, 7}, {.Transform, 8}, {.Mask, 11}, {.Groups, 6}, {.Retopo, 5}, {.Project, 6}, {.Material, 9}, {.Camera, 6}}
+	// UVs and baking has 5: its Quads count and Retopologize moved to Shape > Rebuild. Mask
+	// has 20 since Mask region, Mask by (Peaks: kind, Strength, Blur, curve, Apply) and
+	// Mask adjust (curve, Blur, Apply) joined its fold.
+	full := [?]Full{{.Preset, 6}, {.Recorder, 7}, {.Transform, 8}, {.Mask, 20}, {.Groups, 6}, {.Retopo, 5}, {.Project, 6}, {.Material, 9}, {.Camera, 6}}
 	app.brush.kind = .Clay
 	_ = preset_save_new(&app)
 	for f in full {

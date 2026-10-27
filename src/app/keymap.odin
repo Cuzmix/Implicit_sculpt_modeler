@@ -220,6 +220,7 @@ command_arg_name :: proc(id: Command_Id, arg: int) -> string {
 	case .Brush:     return fmt.tprint(sculpt.Brush_Kind(arg))
 	case .View_Axis: return fmt.tprint(camera.Axis_View(arg))
 	case .Mask:      return fmt.tprint(sculpt.Mask_Command(arg))
+	case .Mask_By:   return fmt.tprint(sculpt.Mask_By(arg))
 	case .Paint:     return fmt.tprint(sculpt.Paint_Command(arg))
 	case .Group:     return fmt.tprint(sculpt.Group_Command(arg))
 	case .Remesh_To, .Decimate_To: return fmt.tprint(SPHERE_PRESETS[arg].vertices)

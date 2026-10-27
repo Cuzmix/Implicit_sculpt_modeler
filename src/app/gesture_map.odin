@@ -74,6 +74,7 @@ GESTURE_CHOICES := [?]Pie_Slot {
 	{.Subdivide, 0}, {.Level_Up, 0}, {.Level_Down, 0}, {.Remesh, 0}, {.Dyntopo_Toggle, 0}, {.Adjust_Last, 0},
 	{.Mask, int(sculpt.Mask_Command.Invert)}, {.Mask, int(sculpt.Mask_Command.Clear)}, {.Mask, int(sculpt.Mask_Command.Blur)},
 	{.Mask, int(sculpt.Mask_Command.Sharpen)}, {.Mask, int(sculpt.Mask_Command.Grow)}, {.Mask, int(sculpt.Mask_Command.Shrink)},
+	{.Mask, int(sculpt.Mask_Command.Region)}, {.Mask_By, int(sculpt.Mask_By.Facing_Away)}, {.Mask_By, int(sculpt.Mask_By.Curvature)}, {.Mask_Adjust, 0},
 	{.Show_All, 0}, {.Invert_Hidden, 0}, {.Hide_Masked, 0}, {.Hide_Unmasked, 0},
 	{.Group, int(sculpt.Group_Command.Masked)}, {.Group, int(sculpt.Group_Command.Visible)},
 	{.Tool_Move, 0}, {.Tool_Sculpt, 0},

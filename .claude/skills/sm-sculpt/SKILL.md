@@ -109,6 +109,16 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
   and rechecks only nodes with a moved corner (the owner and the nodes listing it): 10 ms a press at 10M instead of
   85-107 ms a step; the whole mask is built in a copy first so only changed nodes are recorded; `levels_carry_mask` copies it to the level being shown (`:327`); an HD window starts unmasked and its mask is
   dropped when it closes. On the GPU the mask rides in the low 4 bits of each normal half (`geom.oct_encode_masked`, sm-render).
+- Mask by (`src/sculpt/mask_by.odin`): `sculptor_mask_by(s, Mask_By, Mask_By_Options)` writes a whole `after` buffer
+  in parallel over owned ranges (a measure per shown vertex, through a 256-entry table of the `curve`, never
+  `geom.curve_at` per vertex) and commits it through `mask_commit_blurred` (`mask.odin`): `blur` Blur steps on the same
+  `Mask_Job`, hidden vertices put back, one undo step. Peaks, Curvature and Smoothness reuse `cavity_depth`; Depth
+  reduces min/max per node; the view is a `Front_Only`-style {parallel, eye, toward}. `sculptor_mask_adjust` maps the
+  mask through a u8 table. `Mask_Command.Region` (`mask_region`): union-find labels of pieces (all shown triangles) and
+  of unmasked parts (edges between two vertices under `MASK_HALF`), built per node in parallel with each node's
+  cross-node links merged serially, lower root winning, so the labels do not depend on the thread count; the largest part
+  by area (triangle thirds, f64; ties to the lower root) of each piece holding mask stays, the rest fill to 255; false
+  with one part. Tests: `mask_by_test.odin` (serial == parallel for every kind).
 - Polypaint (`src/sculpt/paint.odin`): `Sculptor.color []Color` (`[4]u8`: sRGB and coverage), nil until painted; `paint_dab`
   (from `dab_once` like `mask_dab`, no area pass without an alpha) mixes with `paint_mix` (paint laid over: coverage grows by `w`
   of what is left, colour mixed by coverage, at least one step a dab), marks `.Paint`, saves `Saved_Node.colors` through
