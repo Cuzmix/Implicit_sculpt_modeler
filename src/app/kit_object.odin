@@ -68,7 +68,7 @@ OBJECT_SECTIONS := [?]Object_Section {
 	{.Shape, .Hd, "HD detail", kit_hd},
 	{.Shape, .Topology, "Dynamic topology", kit_dyntopo},
 	{.Shape, .Remesh, "Rebuild", kit_rebuild},
-	{.Shape, .Mirror, "Mirror and weld", proc(app: ^App, _: ^Object) {kit_mirror(app)}},
+	{.Shape, .Mirror, "Modify topology", proc(app: ^App, _: ^Object) {kit_topology(app)}},
 	{.Select, .Mask, "Mask", proc(app: ^App, _: ^Object) {kit_mask(app)}},
 	{.Select, .Sets, "Selection sets", kit_sets},
 	{.Select, .Groups, "Polygroups", proc(app: ^App, _: ^Object) {kit_groups(app)}},
@@ -309,14 +309,4 @@ kit_morph :: proc(app: ^App, obj: ^Object) {
 	kit_command_pair(app, .Morph_Store, .Morph_Delete, label_a = "Store", label_b = "Delete", tone_a = .Accent, tone_b = .Danger)
 	ui.paragraph(ctx, "Stored for this level." if has else "None stored.")
 	ui.paragraph(ctx, "Store keeps the surface as it is now; the Morph brush then brings any part back to it. One per level, not saved with the scene; not with dynamic topology.")
-}
-
-@(private = "file")
-kit_mirror :: proc(app: ^App) {
-	ctx := &app.kit.ctx
-	axes := [3]string{"X", "Y", "Z"}
-	if picked := ui.tabs(ctx, "mirror axis", axes[:], int(app.ui.mirror_axis)); picked >= 0 do app.ui.mirror_axis = i32(picked)
-	_ = ui.switch_row(ctx, "Keep the - side", &app.ui.mirror_negative)
-	_ = command_button(app, .Mirror_Weld, tone = .Accent)
-	ui.paragraph(ctx, "Replaces one half of the object with a mirror image of the other, across its own plane (the one symmetry uses), welded along the cut. Levels and mask go; Ctrl+Z brings them back.")
 }

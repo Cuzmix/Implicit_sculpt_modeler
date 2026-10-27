@@ -103,6 +103,8 @@ macro_kind :: proc(id: Command_Id) -> Macro_Kind {
 macro_reads :: proc(app: ^App, id: Command_Id, arg: int) -> []string {
 	@(static, rodata) SMOOTH := []string{"smooth_steps", "smooth_strength"}
 	@(static, rodata) MIRROR := []string{"mirror_axis", "mirror_negative"}
+	@(static, rodata) HOLES := []string{"holes_leave_largest"}
+	@(static, rodata) WELD := []string{"weld_distance"}
 	@(static, rodata) EVEN := []string{"rebuild_goal", "rebuild_even"}
 	@(static, rodata) FEWER := []string{"rebuild_goal", "rebuild_fewer"}
 	@(static, rodata) QUADS := []string{"rebuild_goal", "retopo_quads"}
@@ -117,7 +119,9 @@ macro_reads :: proc(app: ^App, id: Command_Id, arg: int) -> []string {
 	@(static, rodata) ADD := []string{"new_shape", "new_vertices", "new_voxels"}
 	#partial switch id {
 	case .Smooth_All:     return SMOOTH
-	case .Mirror_Weld:    return MIRROR
+	case .Mirror_Weld, .Delete_Half: return MIRROR
+	case .Close_Holes:    return HOLES
+	case .Weld_Points:    return WELD
 	case .Retopologize:   return RETOPO
 	case .Extract_Masked: return EXTRACT
 	case .Make_Boolean:   return BOOLEAN

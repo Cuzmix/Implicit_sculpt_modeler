@@ -198,6 +198,7 @@ App :: struct {
 	turntable_frames: i32, // how many frames it takes, remembered
 	print_unit:    Print_Unit, // Scene > 3D print's unit, remembered
 	print_exports: int, // files exported for printing, for the exit stats
+	repair:        Repair_Stats, // Modify topology's repairs, for the exit stats
 	// The scenes saved or opened lately, newest first, at most HOME_RECENT_MAX (remembered).
 	recent_scenes: [dynamic]string,
 	start_home: bool, // an interactive run given no scene starts on Home (Settings > Interface)
@@ -1489,6 +1490,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	fmt.printfln("layers=%d layers_noted=%d layers_carry_ms=%.1f", layers, app.layers_noted, app.stats.layers_carry_ms)
 	fmt.printfln("deforms=%d deform_ms=%.1f deform_kind=%v", app.ui.deform.count, app.ui.deform.ms, app.ui.deform.last)
 	fmt.printfln("reshapes=%d reshape_ms=%.1f reshape_kind=%v", app.ui.reshape.count, app.ui.reshape.ms, app.ui.reshape.last.choice)
+	check := app.repair.check
+	fmt.printfln("repairs=%d repair_ms=%.1f repair_last=%v check_holes=%d check_pieces=%d check_non_manifold=%d check_duplicates=%d", app.repair.count, app.repair.ms, app.repair.last, check.holes, check.pieces, check.check.non_manifold_edges, check.duplicate_triangles)
 	{
 		l := app.ui.deform.lattice
 		fmt.printfln("lattice_on=%d lattice_made=%d lattice_points=%d lattice_drags=%d lattice_ms=%.1f lattice_last=%.0f,%.0f", int(l.on), int(l.made), l.n, l.drags, l.ms, l.last_at.x, l.last_at.y)

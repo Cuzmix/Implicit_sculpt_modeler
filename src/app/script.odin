@@ -149,6 +149,8 @@ SCRIPT_VALUES := [?]Setting {
 	{"smooth_strength", U + offset_of(Ui_State, smooth_strength), f32, 0, 1},
 	{"mirror_axis", U + offset_of(Ui_State, mirror_axis), i32, 0, 2},
 	{"mirror_negative", U + offset_of(Ui_State, mirror_negative), bool, 0, 0},
+	{"holes_leave_largest", U + offset_of(Ui_State, holes_leave_largest), bool, 0, 0},
+	{"weld_distance", U + offset_of(Ui_State, weld_distance), f32, 0, WELD_DISTANCE_MAX},
 	{"boolean_vertices", U + offset_of(Ui_State, boolean) + offset_of(Boolean_State, vertices), i32, 10_000, 20_000_000},
 	{"extract_thickness", U + offset_of(Ui_State, boolean) + offset_of(Boolean_State, thickness), f32, 0.002, 0.2},
 	{"hd_window", offset_of(App, hd_window_vertices), int, 10_000, 16_000_000},
