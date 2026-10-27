@@ -7,6 +7,7 @@ import "core:time"
 
 import "../camera"
 import "../render"
+import "../ui"
 
 // Lights: up to eight lights of the scene's own, each a sun that shines from a direction,
 // a point light that shines every way from a place, or a spot that shines from a place
@@ -25,6 +26,12 @@ LIGHT_COUNT :: render.LIGHT_COUNT
 // A spot's cone, its full angle in degrees.
 LIGHT_CONE_MIN :: 1
 LIGHT_CONE_MAX :: 160
+// A colour temperature's range in kelvin: candlelight to a clear blue sky, where the
+// Planckian locus fit kelvin_rgb uses holds.
+LIGHT_KELVIN_MIN :: 1700
+LIGHT_KELVIN_MAX :: 12000
+// The bytes a light's name keeps, its last always 0, so it is at most 23 long.
+LIGHT_NAME :: 24
 
 Light_Kind :: enum u8 {
 	Sun,   // from a direction, as from far away
@@ -68,6 +75,11 @@ Light :: struct {
 	cone:     f32, // a spot's full angle in degrees, LIGHT_CONE_MIN to LIGHT_CONE_MAX
 	blend:    f32, // how much of the spot's cone, from its edge in, fades: 0 a hard edge, 1 all of it
 	color:    [3]f32, // linear light
+	// A colour temperature in kelvin, LIGHT_KELVIN_MIN to LIGHT_KELVIN_MAX, which the light
+	// shines in instead of `color`, as a lamp in Blender, KeyShot or Marmoset is set; 0
+	// for the colour as picked.
+	kelvin:   f32,
+	name:     [LIGHT_NAME]u8, // as typed, 0 after it; empty for "Light <N>"
 }
 
 // The scene's lights: the first `count` of `lights` are the scene's, and the ambient
@@ -185,6 +197,8 @@ lights_settle :: proc(app: ^App) {
 	set := &app.scene.lights
 	set.count = clamp(set.count, 0, LIGHT_COUNT)
 	for &l, i in set.lights[:set.count] {
+		// A script's colour temperature below the range is the warmest there is.
+		if l.kelvin > 0 do l.kelvin = clamp(l.kelvin, LIGHT_KELVIN_MIN, LIGHT_KELVIN_MAX)
 		if l.kind == .Sun do continue
 		if l.pos == {} {
 			dir := l.dir
@@ -208,7 +222,8 @@ viewport_lights :: proc(app: ^App) -> render.Lights {
 	for l, i in set.lights[:clamp(set.count, 0, LIGHT_COUNT)] {
 		if !l.on || l.strength <= 0 do continue
 		axis := light_view_axis(app, i)
-		out.color[i] = {l.color.r, l.color.g, l.color.b, l.strength}
+		rgb := light_rgb(l)
+		out.color[i] = {rgb.r, rgb.g, rgb.b, l.strength}
 		if l.kind == .Sun {
 			out.pos[i] = {axis.x, axis.y, axis.z, render.LIGHT_SUN}
 			continue
@@ -331,10 +346,48 @@ light_delete :: proc(app: ^App, i: int) {
 	app.light_pick = clamp(app.light_pick, 0, max(int(set.count) - 1, 0))
 }
 
-// A light's name in the Lights section and the History: its place, as the markers on the
-// sphere number it.
-light_name :: proc(i: int) -> string {
+// A light's name in the Lights section and the History: the one typed for it, else its
+// place, as the markers on the sphere number it.
+light_name :: proc(set: ^Light_Set, i: int) -> string {
+	if name := rename_text(set.lights[i].name[:]); name != "" do return name
 	return fmt.tprintf("Light %d", i + 1)
+}
+
+// Names light `l` `text`, cut to what LIGHT_NAME keeps without splitting a character.
+light_name_set :: proc(l: ^Light, text: string) {
+	l.name = {}
+	n := min(len(text), LIGHT_NAME - 1)
+	for n > 0 && n < len(text) && text[n] & 0xc0 == 0x80 do n -= 1
+	_ = copy(l.name[:], text[:n])
+}
+
+// The colour light `l` shines in, linear: its colour temperature's when it has one.
+light_rgb :: proc(l: Light) -> [3]f32 {
+	return kelvin_rgb(l.kelvin) if l.kelvin > 0 else l.color
+}
+
+// The colour of a black body at `kelvin`, linear sRGB scaled so its largest channel is 1:
+// the Planckian locus's chromaticity by Kim et al.'s cubic fit (good from 1667 K to
+// 25000 K), at a luminance of 1, through XYZ to linear sRGB, the negatives clipped.
+// 6500 K is a faintly pink white, as the locus runs just above D65.
+kelvin_rgb :: proc(kelvin: f32) -> [3]f32 {
+	t := f64(clamp(kelvin, LIGHT_KELVIN_MIN, LIGHT_KELVIN_MAX))
+	t1, t2, t3 := 1e3 / t, 1e6 / (t * t), 1e9 / (t * t * t)
+	x := -0.2661239 * t3 - 0.2343589 * t2 + 0.8776956 * t1 + 0.179910 if t <= 4000 else -3.0258469 * t3 + 2.1070379 * t2 + 0.2226347 * t1 + 0.240390
+	y: f64
+	switch {
+	case t <= 2222: y = -1.1063814 * x * x * x - 1.34811020 * x * x + 2.18555832 * x - 0.20219683
+	case t <= 4000: y = -0.9549476 * x * x * x - 1.37418593 * x * x + 2.09137015 * x - 0.16748867
+	case:           y = 3.0817580 * x * x * x - 5.87338670 * x * x + 3.75112997 * x - 0.37001483
+	}
+	X, Y, Z := x / y, 1.0, (1 - x - y) / y
+	rgb := [3]f64{
+		max(3.2404542 * X - 1.5371385 * Y - 0.4985314 * Z, 0),
+		max(-0.9692660 * X + 1.8760108 * Y + 0.0415560 * Z, 0),
+		max(0.0556434 * X - 0.2040259 * Y + 1.0572252 * Z, 0),
+	}
+	top := max(rgb.r, rgb.g, rgb.b)
+	return {f32(rgb.r / top), f32(rgb.g / top), f32(rgb.b / top)}
 }
 
 // A change to the lights in the Lights section, from its press to its release: one undo
@@ -343,20 +396,25 @@ Light_Drag :: struct {
 	active: bool,
 	from:   Light_Set,
 	what:   string, // the step's name in the History (a constant)
+	// The text field typed into, which keeps the step open while it has the keys, so a
+	// name typed is one step; 0 for none.
+	field:  ui.Id,
 }
 
 // Notes that the Lights section changed the lights from `before` this frame; `what` names
-// the step, unless an earlier change of the same press already did.
-light_drag_changed :: proc(app: ^App, before: Light_Set, what := "Lights") {
+// the step, unless an earlier change of the same press already did, and `field` is a text
+// field typed into, which keeps the step open while it has the keys.
+light_drag_changed :: proc(app: ^App, before: Light_Set, what := "Lights", field: ui.Id = 0) {
 	d := &app.ui.light_drag
 	if !d.active do d^ = {active = true, from = before, what = what}
+	if field != 0 do d.field = field
 }
 
 // Ends a change to the lights once the pointer lets go (or at once with `force`), as one
 // undo step. Runs every frame, so a drag ends even if the section closed meanwhile.
 light_drag_end :: proc(app: ^App, force := false) {
 	d := &app.ui.light_drag
-	if !d.active || (!force && .Left in app.device.down) do return
+	if !d.active || (!force && (.Left in app.device.down || (d.field != 0 && app.kit.ctx.text_focus == d.field))) do return
 	d.active = false
 	if app.scene.lights != d.from do history_record_lights(app, d.from, d.what if d.what != "" else "Lights")
 }

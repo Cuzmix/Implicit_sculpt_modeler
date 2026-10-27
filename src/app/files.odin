@@ -9,6 +9,7 @@ import "core:path/filepath"
 import "core:strings"
 import "core:sync"
 import "core:time"
+import "core:unicode/utf8"
 import sdl "vendor:sdl3"
 
 import "../camera"
@@ -60,7 +61,7 @@ File_Request :: struct {
 // be in a console nobody watches. `at` tells a new note from the one already shown.
 // The native scene file starts with these bytes, then its version.
 SCENE_MAGIC :: "SCULPTSC"
-SCENE_VERSION :: u32(19) // 2: each object's rotation; 3: the current level's polypaint and polygroups; 4: sculpt layers, and a retopologized object's quads and UVs (sculpt.levels_write); 5: each object's boolean mode; 6: the base level's node layout (sculpt.levels_write); 7: the camera's roll; 8: each object's eye and ghost, and Solo; 9: folders, and each object's folder; 10: selection sets (sculpt.levels_write); 11: each object's polypaint shown or not (a third view bit); 12: stored visibility (V1 to V8): the slot chosen and used, and each folder's and object's eyes in them; 13: each object's kind (mesh or voxel), a voxel object's resolution and clay after its empty level (voxel.clay_write); 14: each object's material (material_put); 15: each object's polygroups with materials of their own (group_materials_put); 16: the content pack parts of the object's and its groups' materials, by name (material_refs); 17: the scene's Blender link token (link.odin); 18: each object's texture maps (textures_put); 19: the scene's lights (lights_put)
+SCENE_VERSION :: u32(20) // 2: each object's rotation; 3: the current level's polypaint and polygroups; 4: sculpt layers, and a retopologized object's quads and UVs (sculpt.levels_write); 5: each object's boolean mode; 6: the base level's node layout (sculpt.levels_write); 7: the camera's roll; 8: each object's eye and ghost, and Solo; 9: folders, and each object's folder; 10: selection sets (sculpt.levels_write); 11: each object's polypaint shown or not (a third view bit); 12: stored visibility (V1 to V8): the slot chosen and used, and each folder's and object's eyes in them; 13: each object's kind (mesh or voxel), a voxel object's resolution and clay after its empty level (voxel.clay_write); 14: each object's material (material_put); 15: each object's polygroups with materials of their own (group_materials_put); 16: the content pack parts of the object's and its groups' materials, by name (material_refs); 17: the scene's Blender link token (link.odin); 18: each object's texture maps (textures_put); 19: the scene's lights (lights_put); 20: each light's colour temperature and name
 
 // The request waiting for the next frame, and whether a dialog is showing. Kept here
 // rather than in App because SDL may call a dialog back on another thread, even after
@@ -773,7 +774,7 @@ scene_header_put :: proc(app: ^App, out: ^[dynamic]u8) {
 	geom.byte_put(out, u8(app.scene.vis_slot))
 	geom.byte_put(out, app.scene.vis_used)
 	geom.byte_put(out, app.scene.link_token) // version 17
-	lights_put(out, app.scene.lights) // version 19
+	lights_put(out, app.scene.lights) // version 19, 20
 }
 
 // The lights as a scene file stores them: how many, the ambient light, then each light.
@@ -794,13 +795,16 @@ lights_put :: proc(out: ^[dynamic]u8, set: Light_Set) {
 		geom.byte_put(out, l.cone)
 		geom.byte_put(out, l.blend)
 		geom.byte_put(out, l.color)
+		geom.byte_put(out, l.kelvin)
+		geom.byte_put(out, l.name)
 	}
 }
 
-// The lights lights_put wrote, the ones past their count as `rest` has them; ok is false
-// when they are damaged: too many, an unknown kind or space, a number that is not finite
-// or out of its range.
-lights_get :: proc(r: ^geom.Byte_Reader, rest: Light_Set) -> (set: Light_Set, ok: bool) {
+// The lights lights_put wrote in a scene file of `version`, the ones past their count as
+// `rest` has them; ok is false when they are damaged: too many, an unknown kind or space,
+// a number that is not finite or out of its range, a name not ended by a zero or not
+// UTF-8.
+lights_get :: proc(r: ^geom.Byte_Reader, rest: Light_Set, version := SCENE_VERSION) -> (set: Light_Set, ok: bool) {
 	set = rest
 	count := int(geom.byte_get(r, u8))
 	set.count = i32(count)
@@ -821,6 +825,16 @@ lights_get :: proc(r: ^geom.Byte_Reader, rest: Light_Set) -> (set: Light_Set, ok
 		if !(l.strength >= 0 && l.strength <= LIGHT_STRENGTH_MAX) || !(l.ref >= 0 && l.ref < 1e30) || !(l.reach >= 0 && l.reach < 1e30) do return {}, false
 		if !(l.cone >= LIGHT_CONE_MIN && l.cone <= LIGHT_CONE_MAX) || !(l.blend >= 0 && l.blend <= 1) || min(l.color.r, l.color.g, l.color.b) < 0 do return {}, false
 		l.on, l.kind, l.space = on == 1, Light_Kind(kind), Light_Space(space)
+		l.kelvin, l.name = 0, {}
+		if version >= 20 {
+			l.kelvin = geom.byte_get(r, f32)
+			l.name = geom.byte_get(r, [LIGHT_NAME]u8)
+			if !r.ok || !(l.kelvin == 0 || (l.kelvin >= LIGHT_KELVIN_MIN && l.kelvin <= LIGHT_KELVIN_MAX)) do return {}, false
+			n := 0
+			for n < LIGHT_NAME && l.name[n] != 0 do n += 1
+			if n == LIGHT_NAME || !utf8.valid_string(string(l.name[:n])) do return {}, false
+			for b in l.name[n:] do if b != 0 do return {}, false
+		}
 	}
 	return set, true
 }
@@ -897,7 +911,7 @@ scene_open :: proc(app: ^App, path: string) -> (opened, ok: bool) {
 	link_token := geom.byte_get(&r, u64) if version >= 17 else 0
 	// A scene from before scenes held lights is lit by the starting lights, as a new one is.
 	lights, lights_ok := app.start_lights, true
-	if version >= 19 do lights, lights_ok = lights_get(&r, app.start_lights)
+	if version >= 19 do lights, lights_ok = lights_get(&r, app.start_lights, version)
 	if !lights_ok || !folders_ok || !r.ok || solo > 1 || vis_slot > VIS_SLOTS || (vis_slot > 0 && vis_used & (1 << (vis_slot - 1)) == 0) || count > len(data) || selected >= count || !finite(view.target) || !finite({view.distance, view.yaw, view.pitch}) || !finite({view.roll, 0, 0}) {
 		file_note(app, true, "Cannot open %s: it is damaged", name)
 		return false, true
