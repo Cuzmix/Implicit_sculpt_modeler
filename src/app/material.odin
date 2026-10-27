@@ -1,5 +1,6 @@
 package main
 
+import "core:math"
 import "core:strings"
 
 import "../geom"
@@ -160,4 +161,30 @@ material_get :: proc(r: ^geom.Byte_Reader) -> (m: Material) {
 	i, found := material_by_name(name)
 	m.label = MATERIALS[i].label if found && i < len(MATERIALS) else "Custom"
 	return
+}
+
+// `m` in glTF's metallic-roughness terms, for the glTF and USD exports. Physically based
+// materials go as they are. A classic one's highlight becomes the roughness whose GGX
+// lobe is about as wide (Blinn-Phong power n is GGX alpha sqrt(2 / (n + 2)), and
+// roughness is alpha's square root), with no metal. A MatCap has no lights to go by: a
+// built-in one gives its painted colour and the roughness its highlight has, a loaded
+// image a mid grey; both tinted by the colour, as the viewport tints them.
+export_material :: proc(m: Material) -> geom.Export_Material {
+	out := geom.Export_Material {
+		name      = string(m.label) if m.label != nil else "Custom",
+		base      = m.selected.rgb,
+		metallic  = m.metallic,
+		roughness = m.roughness,
+	}
+	phong :: proc(power: f32) -> f32 {return clamp(math.sqrt(math.sqrt(2 / (max(power, 0) + 2))), 0.04, 1)}
+	switch {
+	case m.matcap == MATCAP_IMAGE:
+		out.base, out.metallic, out.roughness = 0.5 * m.selected.rgb, 0, 0.5
+	case m.matcap > 0 && m.matcap <= len(MATCAP_RECIPES):
+		r := MATCAP_RECIPES[m.matcap - 1]
+		out.base, out.metallic, out.roughness = r.base * m.selected.rgb, 0, phong(r.spec_power)
+	case m.roughness == 0:
+		out.metallic, out.roughness = 0, phong(m.shading[2])
+	}
+	return out
 }

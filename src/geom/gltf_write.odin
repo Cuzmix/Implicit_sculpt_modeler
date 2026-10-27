@@ -41,6 +41,19 @@ Mesh_Export :: struct {
 	quads:     [][4]u32,
 	uvs:       [][4][2]f32,
 	groups:    []u16,
+	// The surface it is shaded with, or nil for none: glTF's material, a UsdPreviewSurface
+	// in USD. With colours the colours are the surface's colour and `base` multiplies
+	// them, as both formats take vertex colours.
+	material:  Maybe(Export_Material),
+}
+
+// A surface in glTF's metallic-roughness terms, which USD's UsdPreviewSurface shares.
+// `base` is linear, 0 to 1 each.
+Export_Material :: struct {
+	name:      string,
+	base:      [3]f32,
+	metallic:  f32,
+	roughness: f32,
 }
 
 // glTF's numbers for what the accessors and views hold.
@@ -232,6 +245,7 @@ glb_json :: proc(j: ^strings.Builder, g: ^Glb) {
 	strings.write_string(j, `,"primitives":[{"attributes":{"POSITION":0,"NORMAL":1`)
 	if colors_accessor >= 0 do fmt.sbprintf(j, `,"COLOR_0":%d`, colors_accessor)
 	fmt.sbprintf(j, `}},"indices":%d,"mode":4`, indices_accessor)
+	if _, ok := m.material.?; ok do strings.write_string(j, `,"material":0`)
 	if len(m.morphs) > 0 {
 		strings.write_string(j, `,"targets":[`)
 		for _, k in m.morphs do fmt.sbprintf(j, `%s{{"POSITION":%d}}`, "," if k > 0 else "", accessor + k)
@@ -249,6 +263,20 @@ glb_json :: proc(j: ^strings.Builder, g: ^Glb) {
 		strings.write_string(j, `]}}]`)
 	} else {
 		strings.write_string(j, `}]}]`)
+	}
+	if mat, ok := m.material.?; ok {
+		strings.write_string(j, `,"materials":[{"name":`)
+		json_string(j, mat.name)
+		strings.write_string(j, `,"pbrMetallicRoughness":{"baseColorFactor":[`)
+		for c in mat.base {
+			json_number(j, clamp(c, 0, 1))
+			strings.write_byte(j, ',')
+		}
+		strings.write_string(j, `1],"metallicFactor":`)
+		json_number(j, clamp(mat.metallic, 0, 1))
+		strings.write_string(j, `,"roughnessFactor":`)
+		json_number(j, clamp(mat.roughness, 0, 1))
+		strings.write_string(j, `}}]`)
 	}
 	fmt.sbprintf(j, `,"buffers":[{{"byteLength":%d}}],"bufferViews":[`, g.bin_len)
 	for v, k in g.views {

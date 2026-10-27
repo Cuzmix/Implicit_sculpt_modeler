@@ -148,3 +148,28 @@ dim_the_others_mutes_the_unselected :: proc(t: ^testing.T) {
 	other, _, _ = object_draw_tint(&app, objs[1], 1)
 	testing.expect_value(t, other, MATERIALS[red].selected)
 }
+
+// Exports describe each kind of material in glTF's terms: physically based as it is, a
+// classic one with the roughness its highlight has and no metal, a MatCap by its painted
+// colour, all tinted as the viewport tints them.
+@(test)
+materials_export_in_metallic_roughness_terms :: proc(t: ^testing.T) {
+	gold, _ := material_by_name("gold")
+	g := export_material(MATERIALS[gold])
+	testing.expect_value(t, g.name, "Gold")
+	testing.expect_value(t, g.base, MATERIALS[gold].selected.rgb)
+	testing.expect(t, g.metallic == 1 && g.roughness == MATERIALS[gold].roughness)
+	// Clay's highlight power of 40 is GGX alpha sqrt(2/42), about 0.47 roughness.
+	clay := export_material(MATERIALS[0])
+	testing.expect(t, clay.metallic == 0 && abs(clay.roughness - 0.467) < 0.001)
+	// A sharper highlight is smoother.
+	grey, _ := material_by_name("grey")
+	testing.expect(t, export_material(MATERIALS[grey]).roughness < clay.roughness)
+	toon := MATERIALS[FIRST_MATCAP + 5]
+	toon.selected = {0.5, 1, 1, 1}
+	e := export_material(toon)
+	testing.expect_value(t, e.base, MATCAP_RECIPES[5].base * [3]f32{0.5, 1, 1})
+	testing.expect_value(t, e.metallic, 0)
+	image := export_material({label = "Custom", selected = {1, 1, 1, 1}, matcap = MATCAP_IMAGE})
+	testing.expect(t, image.base == 0.5 && image.roughness == 0.5 && image.name == "Custom")
+}

@@ -462,12 +462,21 @@ object_export :: proc(app: ^App, obj: ^Object, path: string) -> bool {
 		packed = voxel.clay_to_mesh(&vp.clay)
 		positions, normals, indices = packed.positions[:], packed.normals[:], packed.indices[:]
 	}
-	// Polypaint as plain vertex colours: the paint over white as far as it covers.
+	// Polypaint as plain vertex colours: the paint over white as far as it covers, or for
+	// glTF and USD, which carry the material, over the material's colour, as the viewport
+	// shows it; the material's colour then goes as white, since both formats multiply
+	// the two.
+	material := export_material(object_material(app, obj))
 	colors: [][3]u8
 	if c := lv.sculptor.color; c != nil && !object_dynamic(obj) {
+		under := [3]u32{255, 255, 255}
+		if ext == ".glb" || ext == ".usda" {
+			for k in 0 ..< 3 do under[k] = u32(math.round(srgb_encode(material.base[k]) * 255))
+			material.base = 1
+		}
 		colors = make([][3]u8, len(c), context.temp_allocator)
 		for x, v in c {
-			for k in 0 ..< 3 do colors[v][k] = u8((u32(x[k]) * u32(x.a) + 255 * (255 - u32(x.a)) + 127) / 255)
+			for k in 0 ..< 3 do colors[v][k] = u8((u32(x[k]) * u32(x.a) + under[k] * (255 - u32(x.a)) + 127) / 255)
 		}
 	}
 	if object_dynamic(obj) {
@@ -499,6 +508,7 @@ object_export :: proc(app: ^App, obj: ^Object, path: string) -> bool {
 			morphs    = morphs,
 			scale     = obj.file.scale,
 			offset    = obj.file.position,
+			material  = material,
 		}
 		if ext == ".usda" {
 			usd_extras(obj, lv, &m)
