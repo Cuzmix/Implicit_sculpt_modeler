@@ -250,7 +250,8 @@ SETTINGS := [?]Setting {
 	{"coach", K + offset_of(Kit_State, coach), i32, 0, f32(COACH_DONE)},
 	{"stats", K + offset_of(Kit_State, stats), bool, 0, 0},
 	{"thumbnail", K + offset_of(Kit_State, thumbnail), bool, 0, 0},
-	{"thumbnail_shaded", K + offset_of(Kit_State, thumbnail_shaded), bool, 0, 0},
+	{"second_camera", K + offset_of(Kit_State, second) + offset_of(Second_View, camera), Second_Camera, 0, 0},
+	{"second_pass", K + offset_of(Kit_State, second) + offset_of(Second_View, pass), Second_Pass, 0, 0},
 	{"thumbnail_flip", K + offset_of(Kit_State, thumbnail_flip), bool, 0, 0},
 	{"stats_advanced", K + offset_of(Kit_State, stats_advanced), bool, 0, 0},
 	{"frame_rate", offset_of(App, frame_rate), Frame_Rate, 0, 0},
@@ -673,6 +674,9 @@ settings_load :: proc(app: ^App, path: string) {
 			window_load_line(&app.kit, f)
 		case "column", "pinned":
 			panels_load_line(&app.kit, f)
+		case "thumbnail_shaded":
+			// Before the second view had passes, Shaded was a switch over the silhouette.
+			if f[1] == "1" do app.kit.second.pass = .Shaded
 		case "workspace", "workspace_saved", "workspace_live", "workspace_current":
 			workspaces_load_line(&app.kit, f)
 		case "brush_recent", "brush_favorite":

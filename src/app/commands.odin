@@ -1498,8 +1498,8 @@ COMMANDS := [Command_Id]Command {
 		checked = proc(app: ^App, _: int) -> bool {return app.floor.on},
 	},
 	.Thumbnail = {
-		label = "Thumbnail",
-		help = "Shows the scene small in a window of its own, as a silhouette or shaded, and flipped if you like: to judge the whole form as if from across the room.",
+		label = "Second view",
+		help = "Shows the scene again in a window of its own (the thumbnail): following the camera or from the front, side or top, as a silhouette, shaded or a pass, and flipped if you like, to judge the whole form as if from across the room.",
 		icon = rune(0xe3b2), // picture-in-picture
 		run = proc(app: ^App, _: int) {app.kit.thumbnail = !app.kit.thumbnail},
 		checked = proc(app: ^App, _: int) -> bool {return app.kit.thumbnail},
