@@ -145,7 +145,7 @@ draws_textured :: proc(pipes: ^Mesh_Pipelines, item: Draw_Item) -> bool {
 }
 
 // Draws `item` from its textured mesh with the textured pipeline (bound by the caller),
-// its maps bound after the MatCap and defaults for the ones it lacks.
+// its maps bound after the MatCap and the environment, and defaults for the ones it lacks.
 @(private)
 draw_textured_item :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURenderPass, item: Draw_Item, frame: ^Frame_Uniforms, material: ^Material_Uniforms, stats: ^Viewport_Stats) {
 	tm := item.textured
@@ -154,8 +154,8 @@ draw_textured_item :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.
 	sdl.PushGPUVertexUniformData(cmd, 0, frame, size_of(Frame_Uniforms))
 	sdl.PushGPUFragmentUniformData(cmd, 0, material, size_of(Material_Uniforms))
 	defaults := [Texture_Map]^sdl.GPUTexture{.Base_Color = r.no_matcap, .Orm = r.no_matcap, .Normal = r.no_normal_map}
-	samplers := [4]sdl.GPUTextureSamplerBinding{{texture = item.matcap if item.matcap != nil else r.no_matcap, sampler = r.matcap_sampler}, {}, {}, {}}
-	for m in Texture_Map do samplers[1 + int(m)] = {texture = tm.maps[m] if tm.maps[m] != nil else defaults[m], sampler = r.texture_sampler}
+	samplers := [5]sdl.GPUTextureSamplerBinding{{texture = item.matcap if item.matcap != nil else r.no_matcap, sampler = r.matcap_sampler}, environment_binding(r), {}, {}, {}}
+	for m in Texture_Map do samplers[2 + int(m)] = {texture = tm.maps[m] if tm.maps[m] != nil else defaults[m], sampler = r.texture_sampler}
 	sdl.BindGPUFragmentSamplers(pass, 0, &samplers[0], len(samplers))
 	vbuf := sdl.GPUBufferBinding{buffer = tm.vertices}
 	sdl.BindGPUVertexBuffers(pass, 0, &vbuf, 1)

@@ -91,7 +91,7 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   frame's `cmd` with a cycled transfer buffer; `maps` per `Texture_Map{Base_Color (sRGB), Orm, Normal}` made by
   `texture_create` with GPU mips, also behind `matcap_create`; `stamp` for vertices, `maps_stamp` for maps). A
   `Draw_Item` with `textured` and `texture_view != .Off` draws it whole with `Mesh_Pipelines.textured`/`textured_see`
-  (`create_mesh_pipeline(…, textured = true)`: no storage buffer, 4 fragment samplers: MatCap then the maps, defaults
+  (`create_mesh_pipeline(…, textured = true)`: no storage buffer, 5 fragment samplers: MatCap, environment, then the maps, defaults
   `no_matcap`/`no_normal_map`, `texture_sampler` repeat + 8x anisotropy where `Renderer.anisotropy`; 1 fragment
   uniform buffer) and keeps `mesh` for its wireframe (`wire_pass` after rebinding the sculpt buffers), the studio's
   shadows and the damage boxes; `draws_textured` and `blended` pick per item; `textured_key` folds mesh, maps stamp
@@ -102,6 +102,23 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   only ambient and studio terms; `Material_Uniforms.maps` (x, y, z present, w the view) is zero on the sculpt path, whose
   pictures the move left identical to the pixel. `textured.vert` writes every `mesh.vert` output (4 and 6 flat) plus
   UV (7) and tangent (8), turning by `mat3(view) * mat3(model)` divided by its scale.
+- Image environments (`render/environment.odin`, app `src/app/environment.odin` + `environment_file.odin`): every
+  pipeline whose shader declares a sampler must have it bound on every draw (debug SDL aborts "Missing fragment sampler
+  binding"): the mesh pipeline has 2 (MatCap, `environment_map`), the textured one 5 (MatCap, environment, 3 maps), the
+  clear one 1; `environment_binding(r)` gives the prefiltered map or the 1x1 black `r.no_environment`, through
+  `r.env_sampler` (repeat u, clamp v, explicit `textureLod`, so no derivative seam at the wrap). `Material_Uniforms`
+  (352 B) ends with `env` (x on, y strength, z levels-1), `env_axes` (the panorama's axes in view space,
+  `Environment_Look.rotation`: Turn and fixed-to-scene only, never Height) and `env_sh[9]` (cosine-convolved SH9 over
+  pi, in the panorama's axes); all zero keeps the studio branch, bit-identical. The source is RGBA16F with full mips;
+  `prefiltered` is half size with up to `ENV_LEVELS` = 6 levels (fewer when the height runs out), level k roughness
+  k/(levels-1), made once by `env_prefilter.frag` into `mip_level` targets (64 Hammersley GGX samples, Colbert-Krivanek
+  lod) on its own command buffer behind a fence. Equirect mapping lives in `panorama.glsl` (`u = atan(x, -z)/2pi + 0.5`,
+  `v = acos(y)/pi`, row 0 up), the display curve in `display.glsl` (`display_color(c, stops)`), both included by
+  `mesh_shading.glsl` and `clear.frag`. `clear.frag` shows the background from `Clear_Uniforms.env` and `clip_to_env`
+  (rotation transpose times inverse projection, unprojected like `floor.frag`); `draw_background` skips its flat early
+  return when it shows. `Environment_Keyed{stamp, look}` (zero without one) is in both frame keys; the stamp is a run
+  counter. The image path's diffuse is `irradiance(n) * ao` without the studio's 0.7, so the white furnace reads
+  `1 + f0 A + B` (240/255 after the tone map).
   App side: maps come from a bake, `texture_load` (Textures section, `Load_Texture` command, `texture` script verb) or a
   scene file and leave by `texture_remove`, all `textures_replace` (one `.Textures` undo step); a `.glb` export of an
   object with maps goes through `quad_object_glb` (the bake's writer: layers, and paint when no base colour map, carried

@@ -410,6 +410,7 @@ SCENE_SECTIONS := [?]Kit_Tab_Section {
 	{.Add, "Add object", kit_add, nil},
 	{.Material, "Material", kit_material, nil},
 	{.Lights, "Lights", kit_lights, nil},
+	{.Environment, "Environment", kit_environment, nil},
 	{.Studio, "Studio render", kit_studio, nil},
 	{.Camera, "Camera", kit_camera, nil},
 	{.Floor, "Floor grid", kit_floor, nil},
@@ -648,7 +649,7 @@ kit_lights :: proc(app: ^App) {
 		if ui.button(ctx, "Reset lights", .Bordered) do lights_reset(app)
 		kit_more_end(app)
 	}
-	ui.paragraph(ctx, "Turn and Height swing the key light, the fill and the studio's reflections round together. Fixed to the scene, they stay put while the camera goes round, as on a turntable; otherwise they turn with the camera. MatCaps carry their own light.")
+	ui.paragraph(ctx, "Turn and Height swing the key light, the fill and the studio's reflections round together; Turn also spins an image environment. Fixed to the scene, they stay put while the camera goes round, as on a turntable; otherwise they turn with the camera. MatCaps carry their own light.")
 }
 
 @(private = "file")

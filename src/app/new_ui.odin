@@ -369,6 +369,7 @@ Kit_Section :: enum u8 {
 	Add,
 	Material,
 	Lights,
+	Environment,
 	Studio,
 	Camera,
 	Floor,

@@ -124,6 +124,10 @@ SETTINGS := [?]Setting {
 	{"light_key", offset_of(App, light_key), f32, 0, LIGHT_STRENGTH_MAX},
 	{"light_fill", offset_of(App, light_fill), f32, 0, LIGHT_STRENGTH_MAX},
 	{"lights_fixed", offset_of(App, lights_fixed), bool, 0, 0},
+	{"environment_source", offset_of(App, env) + offset_of(Environment_State, kind), Environment_Kind, 0, 0},
+	{"environment_strength", offset_of(App, env) + offset_of(Environment_State, strength), f32, -ENVIRONMENT_STRENGTH_RANGE, ENVIRONMENT_STRENGTH_RANGE},
+	{"environment_background", offset_of(App, env) + offset_of(Environment_State, background), bool, 0, 0},
+	{"environment_blur", offset_of(App, env) + offset_of(Environment_State, blur), f32, 0, 1},
 	{"dim_others", offset_of(App, dim_others), bool, 0, 0},
 	{"ridge", offset_of(App, ridge), f32, 0, 1},
 	{"reduce_motion", K + offset_of(Kit_State, ctx) + offset_of(ui.Context, reduced_motion), bool, 0, 0},
@@ -508,6 +512,13 @@ settings_load :: proc(app: ^App, path: string) {
 		case "matcap_image":
 			// matcap_image <path, escaped>: the image Load MatCap loaded last.
 			_ = matcap_image_load(app, preset_unescape(f[1]), quiet = true)
+		case "environment_image":
+			// environment_image <path, escaped>: the panorama Load environment loaded last,
+			// waited for so the first frame shows it. A file gone since leaves the note and
+			// the built-in studio.
+			kind := app.env.kind
+			if environment_load(app, preset_unescape(f[1]), wait = true, quiet = true) != "" do app.env.kind = .Built_In
+			else do app.env.kind = kind
 		case "ui_scale":
 			want := number(f[1], 1)
 			for s in UI_SCALES do if abs(s - want) < 0.01 do app.kit.ui_scale = s
@@ -696,6 +707,7 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 	else if m.matcap >= PACK_MATCAP do matcap = "0"
 	fmt.sbprintfln(&out, "custom_material %g %g %g %g %g %s", m.selected.r, m.selected.g, m.selected.b, m.metallic, m.roughness, matcap)
 	if app.matcap_path != "" do fmt.sbprintfln(&out, "matcap_image %s", preset_escape(app.matcap_path))
+	if app.env.path != "" do fmt.sbprintfln(&out, "environment_image %s", preset_escape(app.env.path))
 	k := app.kit
 	fmt.sbprintfln(&out, "ui_scale %g", k.ui_scale)
 	for w, which in k.windows {

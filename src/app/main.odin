@@ -212,6 +212,8 @@ App :: struct {
 	matcaps:      [len(MATCAP_RECIPES)]^sdl.GPUTexture,
 	matcap_image: ^sdl.GPUTexture,
 	matcap_path:  string,
+	// The image environment the physically based materials light with (environment.odin).
+	env:       Environment_State,
 	flat:      bool, // shade with each triangle's own normal (faceted) instead of smoothed normals
 	// What objects with texture maps show of them (textures.odin): .Off draws them as clay.
 	texture_view: render.Texture_View,
@@ -356,6 +358,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	defer render.renderer_destroy(&app.renderer)
 	matcaps_create(&app)
 	defer matcaps_destroy(&app)
+	defer environment_destroy(&app)
 	defer render.smooth_compute_destroy(&app.renderer, &app.smooth_gpu)
 	defer render.studio_destroy(&app.renderer, &app.studio)
 	defer render.nav_head_destroy(&app.renderer, &app.nav_head)
@@ -474,6 +477,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	// Before the settings file, which brings back what earlier runs chose.
 	app.cavity, app.ridge = CAVITY_DEFAULT, RIDGE_DEFAULT
 	lights_reset(&app)
+	environment_settings_default(&app)
 	app.dim_others = true
 	app.time_gpu = opts.time_gpu || opts.gpubench != ""
 	app.ui = ui_state_default()
@@ -754,6 +758,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		// No pass is open yet, so a pack matcap first shown this frame can be uploaded
 		// (with its own command buffer) and drawn with now.
 		pack_matcaps_settle(&app)
+		// Likewise a finished environment decode, whose prefilter has its own.
+		_ = environment_poll(&app)
 
 		// The 3D viewport goes in its own command buffer, submitted ahead of the one that
 		// presents, so its GPU time can be measured on its own.
@@ -895,6 +901,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		app.renderer.lod_px = app.simplify_px if app.simplify && moving && !timelapse_capturing(&app) else 0
 		app.renderer.floor = floor_grid_frame(&app)
 		app.renderer.background = background_frame(app.background)
+		environment_view(&app)
 		drawn := render.render_viewport(&app.renderer, cmd, &app.target, view, proj, draws[:], app.cache_idle)
 		if app.studio_on {
 			// Anything redrawn this frame starts the samples over.
@@ -1158,6 +1165,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			fmt.printfln("floor_grid=%d floor_planes=%d%d%d transparent=%d fov=%.0f polyframe_lines=%d polyframe_fill=%d", int(app.floor.on), int(app.floor.planes[0]), int(app.floor.planes[1]), int(app.floor.planes[2]), int(app.see_through), math.to_degrees(app.camera.fov_y), int(app.polyframe_lines), int(app.polyframe_fill))
 			bg := app.background
 			fmt.printfln("background_gradient=%d background_top=%s background_bottom=%s", int(bg.gradient), hex_text(bg.top), hex_text(bg.bottom))
+			env := app.env
+			fmt.printfln("environment=%s environment_size=%dx%d environment_background=%d environment_mb=%.1f", "image" if env.kind == .Image && env.gpu.source != nil else "built_in", env.gpu.width, env.gpu.height, int(env.background), f32(render.environment_bytes(env.gpu)) / (1024 * 1024))
 		}
 		{
 			// What the last stroke was, the rail's latches, and whether the selected object
