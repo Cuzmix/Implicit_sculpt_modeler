@@ -1276,7 +1276,7 @@ textured_key :: proc(item: Draw_Item, h: u64) -> u64 {
 @(private)
 render_full :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, view, proj: Mat4, items: []Draw_Item, use_cache: bool, stats: ^Viewport_Stats) {
 	// Pixels a mesh unit covers one unit in front of the eye (perspective only).
-	lod := Lod_View{r.lod_px, proj[1, 1] * f32(vt.height) / 2} if r.lod_px > 0 && proj[3, 3] == 0 else {}
+	lod := lod_view(r, vt.height, proj)
 	pipes := mesh_pipelines(r, vt.samples)
 	live, see := 0, 0
 	for item in items {
@@ -1330,6 +1330,13 @@ render_full :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Targ
 @(private)
 Lod_View :: struct {
 	max_px, px_per_unit: f32,
+}
+
+// The Lod_View a full redraw of a target `height` pixels tall through `proj` uses:
+// Renderer.lod_px under perspective, nothing otherwise.
+@(private)
+lod_view :: proc(r: ^Renderer, height: u32, proj: Mat4) -> Lod_View {
+	return Lod_View{r.lod_px, proj[1, 1] * f32(height) / 2} if r.lod_px > 0 && proj[3, 3] == 0 else {}
 }
 
 // For every item that will be drawn this frame (those whose `live` matches, all of

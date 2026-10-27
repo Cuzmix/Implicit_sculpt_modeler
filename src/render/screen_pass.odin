@@ -22,13 +22,18 @@ Shadow_Uniforms :: struct {
 // viewport's size) through the same culled runs of chunks the viewport draws, so hidden
 // parts stay out of it, with `depth_pipeline` (create_shadow_pipeline with cull_back).
 // With `rect`, only that rectangle is cleared (by `clear_pipeline`, from
-// create_depth_clear_pipeline) and drawn again, culled to it, and the rest keeps what it
-// held; without, all of it is.
+// create_depth_clear_pipeline) and drawn again, culled to it at full detail as render_rect
+// draws, and the rest keeps what it held; without, all of it is, simplified where a full
+// redraw of the viewport simplifies (lod_view), so the depth is the surface the colour shows.
 @(private)
 view_depth_draw :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, depth_pipeline, clear_pipeline: ^sdl.GPUGraphicsPipeline, target: ^sdl.GPUTexture, width, height: u32, view, proj: Mat4, items: []Draw_Item, rect: Maybe(Rect) = nil) {
 	stats: Viewport_Stats
 	part, partial := rect.?
-	prepare_draws(r, cmd, view, proj, items, nil, &stats, rect_narrow(part, width, height) if partial else IDENTITY)
+	if partial {
+		prepare_draws(r, cmd, view, proj, items, nil, &stats, rect_narrow(part, width, height))
+	} else {
+		prepare_draws(r, cmd, view, proj, items, nil, &stats, lod = lod_view(r, height, proj))
+	}
 	depth := sdl.GPUDepthStencilTargetInfo {
 		texture          = target,
 		clear_depth      = 1,

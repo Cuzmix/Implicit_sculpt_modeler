@@ -19,7 +19,7 @@ Live_AO :: struct {
 	gtao_pipeline:  ^sdl.GPUGraphicsPipeline,
 	blur_pipeline:  ^sdl.GPUGraphicsPipeline,
 	depth_pipeline: ^sdl.GPUGraphicsPipeline, // the camera's depth at one sample, under multisampling
-	clear_pipeline: ^sdl.GPUGraphicsPipeline, // ...and the clear of a rectangle of it
+	clear_pipeline: ^sdl.GPUGraphicsPipeline, // clears a rectangle of that depth for a partial redraw
 	sampler:        ^sdl.GPUSampler,
 	ao:             ^sdl.GPUTexture, // LIVE_AO_FORMAT, the viewport's size divided by `scale`
 	shown:          ^sdl.GPUTexture, // what the viewport panel shows
@@ -107,8 +107,11 @@ live_ao_frame :: proc(r: ^Renderer, lao: ^Live_AO, cmd: ^sdl.GPUCommandBuffer, v
 		view_depth_draw(r, cmd, lao.depth_pipeline, lao.clear_pipeline, lao.view_depth, vt.width, vt.height, view, proj, items, rect if partial else nil)
 	}
 
-	// What each pass must redo: an ao texel reads depth up to LIVE_AO_MAX_PX + 2 pixels from
-	// its own, and a shown pixel ao texels up to 2 away (blur_rect), each rounded out.
+	// What each pass must redo. An ao texel reads depth at most LIVE_AO_MAX_PX + 1 pixels
+	// from its own (the farthest step, 48 + 1.3 rounded) and its neighbours 1 pixel away for
+	// the normal; a shown pixel reads ao texels 2 away and their depths. Each pad is one
+	// more than that, and rounded out to whole texels, so nothing a changed pixel reaches is
+	// left with last frame's value.
 	s := i32(lao.scale)
 	aw, ah := i32(lao.width + lao.scale - 1) / s, i32(lao.height + lao.scale - 1) / s
 	ao_rect := Rect{0, 0, aw, ah}
@@ -226,6 +229,7 @@ live_ao_ensure :: proc(r: ^Renderer, lao: ^Live_AO, vt: ^Viewport_Target, scale:
 	}
 	want_view_depth := vt.samples != ._1
 	if lao.ao != nil && lao.width == vt.width && lao.height == vt.height && lao.scale == scale && want_view_depth == (lao.view_depth != nil) do return true
+	// A frame in flight may still read these; SDL_GPU defers the release until it is done.
 	for t in ([3]^sdl.GPUTexture{lao.ao, lao.shown, lao.view_depth}) do if t != nil do sdl.ReleaseGPUTexture(r.device, t)
 	lao.ao, lao.shown, lao.view_depth = nil, nil, nil
 	lao.key = 0

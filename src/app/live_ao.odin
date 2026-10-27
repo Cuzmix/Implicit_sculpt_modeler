@@ -46,7 +46,10 @@ kit_live_ao :: proc(app: ^App) {
 	supported := render.live_ao_supported(&app.renderer, &app.live_ao)
 	on := app.live_ao_on
 	if ui.switch_row(ctx, "Occlusion while working", &on, enabled = supported, keys = command_hint(app, .Live_Occlusion)) do command_run(app, .Live_Occlusion)
-	if !supported do ui.paragraph(ctx, "Occlusion while working needs a GPU that can read depth in a shader; this one cannot.")
+	switch {
+	case !app.renderer.depth_sampled: ui.paragraph(ctx, "Occlusion while working needs a GPU that can read depth in a shader; this one cannot.")
+	case !supported:                  ui.paragraph(ctx, "Occlusion while working could not be set up on this GPU; the log says why.")
+	}
 }
 
 // The Reach slider, under the section's More.

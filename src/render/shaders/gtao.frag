@@ -104,8 +104,9 @@ void main() {
 				else horizon_minus = max(horizon_minus, mix(low_minus, c, w));
 			}
 		}
-		float h0 = gamma + clamp(-acos(horizon_minus) - gamma, -PI / 2.0, PI / 2.0);
-		float h1 = gamma + clamp(acos(horizon_plus) - gamma, -PI / 2.0, PI / 2.0);
+		// Clamped first: a rounding error past 1 would make acos give NaN.
+		float h0 = gamma + clamp(-acos(clamp(horizon_minus, -1.0, 1.0)) - gamma, -PI / 2.0, PI / 2.0);
+		float h1 = gamma + clamp(acos(clamp(horizon_plus, -1.0, 1.0)) - gamma, -PI / 2.0, PI / 2.0);
 		float arc0 = (cos_n + 2.0 * h0 * sin(gamma) - cos(2.0 * h0 - gamma)) / 4.0;
 		float arc1 = (cos_n + 2.0 * h1 * sin(gamma) - cos(2.0 * h1 - gamma)) / 4.0;
 		visibility += projected_len * (arc0 + arc1);
