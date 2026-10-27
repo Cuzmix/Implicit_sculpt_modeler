@@ -6,6 +6,7 @@ import "core:math/linalg"
 import "core:time"
 
 import "../camera"
+import "../geom"
 import "../render"
 import "../ui"
 
@@ -351,6 +352,41 @@ light_delete :: proc(app: ^App, i: int) {
 light_name :: proc(set: ^Light_Set, i: int) -> string {
 	if name := rename_text(set.lights[i].name[:]); name != "" do return name
 	return fmt.tprintf("Light %d", i + 1)
+}
+
+// The illuminance, in lux, a sun of strength 1 stands for in a file: a white surface
+// facing it shows white, as a sun of pi watts a square metre does in Blender, at the 683
+// lumens a watt glTF's importers count.
+LIGHT_SUN_LUX :: math.PI * 683
+
+// The scene's lights that are on, as a file exported from `obj` carries them: placed and
+// pointing as the view shows them now, in the object's own space as its mesh is written;
+// a point light's or a spot's candela are what makes it as bright as the sun of its
+// Intensity at the distance it matches one (Light.ref), in the object's units.
+export_lights :: proc(app: ^App, obj: ^Object) -> []geom.Export_Light {
+	set := &app.scene.lights
+	out := make([dynamic]geom.Export_Light, 0, int(set.count), context.temp_allocator)
+	t := obj.transform
+	for l, i in set.lights[:set.count] {
+		if !l.on || l.strength <= 0 do continue
+		e := geom.Export_Light {
+			name      = light_name(set, i),
+			color     = light_rgb(l),
+			intensity = l.strength * LIGHT_SUN_LUX,
+			direction = linalg.normalize(to_local_dir(t, -light_world_dir(app, i))),
+		}
+		if l.kind != .Sun && l.pos != {} {
+			e.kind = .Point if l.kind == .Point else .Spot
+			e.position = to_local(t, light_world_pos(app, l))
+			ref := l.ref / t.scale
+			e.intensity *= ref * ref
+			e.range = l.reach / t.scale
+			half := math.to_radians(clamp(l.cone, LIGHT_CONE_MIN, LIGHT_CONE_MAX)) * 0.5
+			e.outer_cone, e.inner_cone = half, half * (1 - clamp(l.blend, 0, 1))
+		}
+		append(&out, e)
+	}
+	return out[:]
 }
 
 // Names light `l` `text`, cut to what LIGHT_NAME keeps without splitting a character.

@@ -237,9 +237,10 @@ bake_glb :: proc(out: ^[dynamic]u8, low: ^Object, quads: geom.Quad_Mesh, src: ge
 // colour map stands for the material's colour, and an ORM map for its roughness and metal
 // and, with `occlusion`, its occlusion. A map that is neither PNG nor JPEG, the two glTF
 // reads, goes as PNG. `morphs` are the base level's layers and `colors` its vertex colours
-// (nil for none), carried onto the split vertices. Returns how many vertices were
+// (nil for none), carried onto the split vertices, and `lights` go beside the mesh.
+// Returns how many vertices were
 // written; false when the file would pass glTF's 4 GB.
-quad_object_glb :: proc(out: ^[dynamic]u8, obj: ^Object, quads: geom.Quad_Mesh, name: string, maps: [render.Texture_Map][]u8, mat: geom.Export_Material, occlusion: bool, morphs: []geom.Morph_Target = nil, colors: [][3]u8 = nil) -> (vertices: int, ok: bool) {
+quad_object_glb :: proc(out: ^[dynamic]u8, obj: ^Object, quads: geom.Quad_Mesh, name: string, maps: [render.Texture_Map][]u8, mat: geom.Export_Material, occlusion: bool, morphs: []geom.Morph_Target = nil, colors: [][3]u8 = nil, lights: []geom.Export_Light = nil) -> (vertices: int, ok: bool) {
 	maps := maps
 	for &img in maps {
 		if img == nil || geom.image_mime(img) == "image/jpeg" || (len(img) >= 4 && string(img[:4]) == "\x89PNG") do continue
@@ -298,6 +299,7 @@ quad_object_glb :: proc(out: ^[dynamic]u8, obj: ^Object, quads: geom.Quad_Mesh, 
 		colors    = split_colors,
 		scale     = obj.file.scale,
 		offset    = obj.file.position,
+		lights    = lights,
 	}
 	return len(positions), geom.mesh_write_glb(out, m)
 }

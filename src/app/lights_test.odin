@@ -611,3 +611,33 @@ light_distance_moves_along_the_line_from_the_centre :: proc(t: ^testing.T) {
 		testing.expect(t, near(light_world_dir(&app, 2), pointing, 1e-5))
 	}
 }
+
+// An exported object's file carries the lights that are on, where the view shows them,
+// in the object's own space: a sun of strength 1 as pi watts a square metre's lux, a
+// point light or a spot that bright at its matching distance in the object's units.
+@(test)
+lights_go_out_with_an_export :: proc(t: ^testing.T) {
+	app: App
+	app.camera = camera.orbit_default()
+	app.camera.yaw = 0.7
+	lights_reset(&app)
+	set := &app.scene.lights
+	set.lights[1].on = false
+	set.lights[2] = {on = true, kind = .Spot, space = .Scene, dir = {0, 1, 0}, pos = {1, 4, 2}, ref = 3, reach = 10, strength = 0.5, color = 1, kelvin = 3000, cone = 60, blend = 0.5}
+	light_name_set(&set.lights[2], "Lamp")
+	obj := Object{transform = {position = {1, 0, 0}, scale = 2, rotation = {0, 90, 0}}}
+	got := export_lights(&app, &obj)
+	defer free_all(context.temp_allocator)
+	if !testing.expect_value(t, len(got), 2) do return
+	sun := got[0]
+	testing.expect(t, sun.kind == .Directional && sun.name == "Light 1")
+	testing.expectf(t, abs(sun.intensity - math.PI * 683) < 1e-2, "the sun's %v lux", sun.intensity)
+	testing.expect(t, near(to_world_dir(obj.transform, sun.direction), -light_world_dir(&app, 0), 1e-5))
+	spot := got[1]
+	testing.expect(t, spot.kind == .Spot && spot.name == "Lamp" && spot.color == kelvin_rgb(3000))
+	testing.expect(t, near(to_world(obj.transform, spot.position), {1, 4, 2}, 1e-4))
+	testing.expect(t, near(to_world_dir(obj.transform, spot.direction), {0, -1, 0}, 1e-5))
+	testing.expectf(t, abs(spot.intensity - 0.5 * math.PI * 683 * 1.5 * 1.5) < 1e-2, "the spot's %v candela", spot.intensity)
+	testing.expect_value(t, spot.range, 5)
+	testing.expect(t, abs(spot.outer_cone - math.to_radians(f32(30))) < 1e-6 && abs(spot.inner_cone - math.to_radians(f32(15))) < 1e-6)
+}
