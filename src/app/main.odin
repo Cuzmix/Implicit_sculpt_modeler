@@ -187,6 +187,9 @@ App :: struct {
 	// An object copied with Copy, as the scene file stores it, for Paste (scene_paste);
 	// kept across new scenes, as a clipboard is.
 	clipboard:      [dynamic]u8,
+	// Objects Split made, objects Merge took, and objects Align and Distribute moved, for
+	// the exit stats (split_merge.odin).
+	split_made, merged, aligned: int,
 	material:  int,  // the index in MATERIALS objects are shaded with, or CUSTOM_MATERIAL
 	custom:    Material, // what the Material section's sliders made
 	flat:      bool, // shade with each triangle's own normal (faceted) instead of smoothed normals
@@ -946,6 +949,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			if obj.boolean != .None do booleans += 1
 		}
 		fmt.printfln("card_rows=%d thumbs_drawn=%d card_menu=%d card_menu_full=%d clipboard_bytes=%d paint_off=%d booleans=%d", app.kit.card.rows, app.thumb_slots.drawn, int(app.kit.card.menu), int(app.kit.card.menu_all), len(app.clipboard), paint_off, booleans)
+		fmt.printfln("card_actions=%d vis_slot=%d vis_used=%d split_made=%d merged=%d aligned=%d", int(app.kit.card.actions), app.scene.vis_slot, app.scene.vis_used, app.split_made, app.merged, app.aligned)
 	}
 	{
 		c := app.camera

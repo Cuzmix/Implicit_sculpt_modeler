@@ -64,6 +64,12 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   shares the tray's place: the tray or a side panel opening closes it (`tray_was`), `objects_card_toggle` closes
   them. Its menus are popovers in `kit_objects_card_menus`; `menu_item(trailing = true)` puts the icon at the right
   as iPad menus do.
+  Under the list's size bar a `ui.section` "Actions" unfolds a `kit_scroll` body (`card_actions`): the V1 to V8 tiles
+  (`.Visibility_Slot`, a `View_Change`), then one `ui.section` per `Card_Action`. Sections reuse other panels' content
+  procs (`kit_boolean_section`, `kit_project_section`, `kit_extract_section`) rather than copies. Tile grids use
+  `command_button(..., icon_only = true)`: the icon alone, the label in its tooltip. Touch scenarios reach section
+  bodies by header coordinates (`OBJECTS_CARD` in touch_check), which move by `CARD_ROW_H` with each row the list
+  gains or loses.
 - Palette tray (`kit_inspector` in `new_ui.odin`, the rest in `kit_tray.odin`; still the "inspector" window and
   layout name): palettes `Kit_Tab` Tool (`kit_tool_tab`, `kit_tool.odin`: the brush's `BRUSH_SECTIONS`; Curve and
   Insert settings; Move help), Object (`kit_object.odin`, `OBJECT_SECTIONS`) and Scene (`kit_scene.odin`: Objects,

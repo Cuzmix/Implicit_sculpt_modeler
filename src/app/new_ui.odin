@@ -1198,6 +1198,11 @@ kit_folder_menu :: proc(app: ^App) {
 		app.ui.scene_command = {kind = .View, view = .Folder_Paint_Hide, id = f.id}
 		picked = true
 	}
+	// Its shown objects as one new object at the end of the list, as ZBrush's Merge Folder.
+	if end - first >= 2 && ui.menu_item(ctx, "Merge folder", glyph = ICON_MERGE) {
+		app.ui.scene_command = {kind = .Merge, on = true, id = f.id}
+		picked = true
+	}
 	ui.divider(ctx, across = true)
 	if ui.menu_item(ctx, "Delete folder and its objects", glyph = ui.ICON_TRASH, tone = .Danger) {
 		app.ui.scene_command = {kind = .Arrange, arrange = .Delete_Folder, id = f.id}

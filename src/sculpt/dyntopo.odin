@@ -309,7 +309,7 @@ sculptor_dyn_disable :: proc(s: ^Sculptor, allocator := context.allocator) {
 	m^ = mesh
 	old_to_new: []u32
 	if mask != nil do old_to_new = make([]u32, len(m.positions), context.temp_allocator)
-	sculptor_init(s, m, pool, node_triangles, old_to_new, allocator)
+	sculptor_init(s, m, pool, node_triangles, old_to_new, allocator = allocator)
 	if mask != nil {
 		s.mask = make([]u8, len(m.positions), s.history.allocator)
 		for k, old in mask do s.mask[old_to_new[old]] = k

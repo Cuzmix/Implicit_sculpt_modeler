@@ -23,6 +23,7 @@ Folder :: struct {
 	open:  bool,
 	off:   bool,
 	ghost: bool,
+	vis_off: u8, // its eye in each stored visibility, as Object.vis_off
 }
 
 // The longest name a rename takes, in bytes.
@@ -45,7 +46,11 @@ View_Change :: enum u8 {
 	Paint_Show,
 	Folder_Paint_Hide, // leaves the polypaint of every object in a folder out
 	Folder_Paint_Show,
+	Visibility_Slot, // keeps the eyes in the stored visibility chosen, and brings back those of V`id`
 }
+
+// How many visibilities Store visibility keeps.
+VIS_SLOTS :: 8
 
 // Changes to the tree that are undo steps.
 Arrange_Change :: enum u8 {
@@ -290,9 +295,40 @@ scene_view :: proc(app: ^App, change: View_Change, id: int) {
 	case .Folder_Paint_Hide, .Folder_Paint_Show:
 		if folder == nil do return
 		for o in s.objects do if o.folder == folder.id do o.paint_off = change == .Folder_Paint_Hide
+	case .Visibility_Slot:
+		visibility_slot(app, id)
 	}
 	app.view_edits += 1
 	scene_selection_fix(app)
+}
+
+// Chooses stored visibility `slot` (1 to VIS_SLOTS), as ZBrush's V1 to V8: the eyes as
+// they are go into the one chosen before, and the new one's come back; one that holds
+// none yet takes the eyes as they are, so choosing it changes nothing until eyes are
+// turned. Not an undo step, as turning an eye is not. The selected object stays in view,
+// as ZBrush keeps it whatever its slot says.
+visibility_slot :: proc(app: ^App, slot: int) {
+	s := &app.scene
+	if slot < 1 || slot > VIS_SLOTS || slot == s.vis_slot do return
+	if s.vis_slot != 0 {
+		bit := u8(1) << uint(s.vis_slot - 1)
+		for o in s.objects do o.vis_off = o.vis_off &~ bit | (bit if o.off else 0)
+		for &f in s.folders do f.vis_off = f.vis_off &~ bit | (bit if f.off else 0)
+	}
+	bit := u8(1) << uint(slot - 1)
+	if s.vis_used & bit != 0 {
+		for o in s.objects do o.off = o.vis_off & bit != 0
+		for &f in s.folders do f.off = f.vis_off & bit != 0
+	} else {
+		s.vis_used |= bit
+		for o in s.objects do o.vis_off = o.vis_off &~ bit | (bit if o.off else 0)
+		for &f in s.folders do f.vis_off = f.vis_off &~ bit | (bit if f.off else 0)
+	}
+	s.vis_slot = slot
+	if sel := selected_object(app); sel != nil {
+		sel.off = false
+		if f := folder_by_id(app, sel.folder); f != nil do f.off = false
+	}
 }
 
 // Asks for `change` on the selected object at the start of the next frame.
@@ -469,7 +505,7 @@ layout_apply :: proc(app: ^App, l: ^Scene_Layout) {
 	for f in l.folders {
 		g := f
 		g.name = strings.clone(f.name)
-		if old := folder_by_id(app, f.id); old != nil do g.open, g.off, g.ghost = old.open, old.off, old.ghost
+		if old := folder_by_id(app, f.id); old != nil do g.open, g.off, g.ghost, g.vis_off = old.open, old.off, old.ghost, old.vis_off
 		append(&folders, g)
 		s.next_folder_id = max(s.next_folder_id, f.id)
 	}
