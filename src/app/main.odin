@@ -1457,7 +1457,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			for ws in w.list do if ws.used do count += 1
 			zones := strings.builder_make(context.temp_allocator)
 			for z in Zone do if z in k.hidden do fmt.sbprintf(&zones, "%s%s", "," if strings.builder_len(zones) > 0 else "", strings.to_lower(fmt.tprint(z), context.temp_allocator))
-			fmt.printfln("workspace=%s workspace_modified=%d workspace_count=%d workspace_menu=%d workspace_switches=%d zones_hidden=%s", preset_escape(workspace_name(k, w.current)), int(w.modified), count, int(w.menu), w.switches, strings.to_string(zones) if strings.builder_len(zones) > 0 else "none")
+			fmt.printfln("workspace=%s workspace_modified=%d workspace_count=%d workspace_menu=%d workspace_switches=%d arrange_drawer=%d zones_hidden=%s", preset_escape(workspace_name(k, w.current)), int(w.modified), count, int(w.menu), w.switches, int(k.arrange_drawer), strings.to_string(zones) if strings.builder_len(zones) > 0 else "none")
 		}
 		// The side bars' popover: what it shows (a section by its name), or none; the look.
 		pop := "none"

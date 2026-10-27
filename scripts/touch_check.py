@@ -787,11 +787,11 @@ def mesh_tools_on_the_bottom_bar():
     ])
 
 
-# Customise bars (bars.odin) at 1600x900: the strip's Done, the right column's + under its
+# Customise bars (bars.odin) at 1600x900: Arrange's Done (arrange.odin), the right column's + under its
 # eleven buttons, a slot popover's Move earlier, Move later, Remove and Add after, opened
 # on Ghost (its middle at 749), and the dock slot popover's "A command instead...", opened
 # by a long press on Draw.
-BARS_DONE = (1033, 98)
+BARS_DONE = (881, 100)
 SHORTCUT_ADD = (1569, 843)
 SHORTCUT_MENU = {"up": (1306, 736), "down": (1359, 736), "remove": (1410, 736), "add": (1462, 736)}
 GHOST = (1569, 749)
@@ -2534,6 +2534,39 @@ def the_current_workspace_comes_back():
     s.wait(10)
     return s, [f"--settings-file={settings_file()}"], camera_still({"dabs": near(0), "workspace": is_text("Inspect"),
                                                                      "column_left": is_text("thumbnail,stats"), "zones_hidden": is_text("brush_bar,dock")})
+
+
+# Arrange's head at 1600 x 900 (arrange.odin): Panels, the Dock's Show switch, the dock's
+# outline's Show once hidden, and in the Panels drawer the Statistics row's Left.
+ARRANGE_PANELS, ARRANGE_DOCK, ARRANGE_SHOW_DOCK, ARRANGE_STATS_LEFT = (622, 154), (821, 208), (800, 836), (817, 300)
+
+
+@scenario
+def arrange_hides_the_dock_and_shows_it_again():
+    """In Arrange the Dock switch hides the dock, which marks the workspace; its outline's Show brings it back."""
+    def run(show):
+        s = Script()
+        s.ftap(*ARRANGE_DOCK)
+        s.wait(10)
+        if show:
+            s.ftap(*ARRANGE_SHOW_DOCK)
+            s.wait(10)
+        hidden = "none" if show else "dock"
+        return s, ["--script=customise_bars"], camera_still({"dabs": near(0), "zones_hidden": is_text(hidden), "bars_edit": near(1),
+                                                             "workspace_modified": near(0 if show else 1)})
+    return Steps([run(False), run(True)])
+
+
+@scenario
+def arrange_drawer_docks_stats_on_the_left():
+    """In Arrange's Panels drawer, Left on the Statistics row opens Stats docked in the left column."""
+    s = Script()
+    s.ftap(*ARRANGE_PANELS)
+    s.wait(10)
+    s.ftap(*ARRANGE_STATS_LEFT)
+    s.wait(10)
+    return s, ["--script=customise_bars"], camera_still({"dabs": near(0), "column_left": is_text("stats"), "arrange_drawer": near(1),
+                                                         "window_stats": lambda v: v.startswith("1,")})
 
 
 @scenario

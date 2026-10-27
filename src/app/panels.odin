@@ -495,11 +495,23 @@ column_zone :: proc(app: ^App, side: Column_Side) -> ui.Rect {
 }
 
 // While a floating panel is dragged: each column's drop zone, the one under the pointer
-// lit with a line where the panel would go. Drawn over the panels.
+// lit with a line where the panel would go. Drawn over the panels. While arranging, with
+// nothing dragged, each column's outline, an empty one saying what it is for.
 kit_column_drop :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
+	if k.panels.drag == nil && k.bars_edit && !side_panel_open(k) {
+		for side in Column_Side {
+			zone := column_zone(app, side)
+			ui.stroke_rect(ctx, zone, t.radius_large, ui.color_fade(t.accent, 0.35), 1)
+			if k.panels.rect[side].w > 0 do continue
+			c := [2]f32{zone.x + zone.w * 0.5, zone.y + zone.h * 0.5}
+			ui.text(ctx, "Drop a panel", c.x, c.y - 9, t.small_size, t.text_secondary, align = .Center)
+			ui.text(ctx, "here", c.x, c.y + 9, t.small_size, t.text_secondary, align = .Center)
+		}
+		return
+	}
 	if k.panels.drag == nil do return
 	p := k.panels.drag_at
 	hit_side, index, hit := column_drop_at(app, p)

@@ -376,7 +376,7 @@ kit_dock_menu :: proc(app: ^App) {
 		dock_slot_settings(app, pick.slot)
 		k.dock_menu = false
 	}
-	if !k.bars_edit && ui.menu_item(ctx, "Customise bars", glyph = ICON_CUSTOMISE) {
+	if !k.bars_edit && ui.menu_item(ctx, "Arrange the interface", glyph = ICON_CUSTOMISE) {
 		k.dock_menu = false
 		k.bars_edit = true
 	}

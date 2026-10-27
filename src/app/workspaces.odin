@@ -135,6 +135,11 @@ kit_layout_text :: proc(k: ^Kit_State) -> string {
 	if mirror do for &p in k.panels.pins do window_mirror(&p.window)
 	panels_save(k, &out)
 	if mirror do for &p in k.panels.pins do window_mirror(&p.window)
+	// The right bar's column and the bottom bar's strip, after a line that says the layout
+	// holds them (one saved before it did keeps the bars as they are). The dock holds the
+	// user's brushes, which are no layout's: it stays as it is in every workspace.
+	strings.write_string(&out, "bars\n")
+	bars_save(k, &out)
 	return strings.to_string(out)
 }
 
@@ -158,6 +163,11 @@ kit_layout_put :: proc(k: ^Kit_State, text: string) {
 			for w in LAYOUT_WINDOWS do if len(f) > 1 && strings.equal_fold(f[1], fmt.tprint(w)) do window_load_line(k, f)
 		case "column", "pinned":
 			panels_load_line(k, f)
+		case "bars":
+			shortcuts, tools := SHORTCUTS_DEFAULT, TOOLS_DEFAULT
+			k.shortcuts, k.tools = bar_list_of(shortcuts[:]), bar_list_of(tools[:])
+		case "bar_count", "bar":
+			bars_load_line(k, f)
 		}
 	}
 	if k.ctx.mirror {
@@ -185,9 +195,10 @@ built_in_layout :: proc(b: Built_In) -> string {
 		text = "open Thumbnail\ncolumn right Inspector section:Lights section:Material section:Environment\n" +
 			"pinned Lights 0 Start Start 0 0 0\npinned Material 0 Start Start 0 0 0\npinned Environment 0 Start Start 0 0 0\n"
 	}
-	// Read and written again, so it is exactly what the layout writes when it is in place.
+	// Read and written again, so it is exactly what the layout writes when it is in place;
+	// every built-in has the bars a fresh install has.
 	s := new(Kit_State, context.temp_allocator)
-	kit_layout_put(s, text)
+	kit_layout_put(s, strings.concatenate({text, "bars\n"}, context.temp_allocator))
 	return kit_layout_text(s)
 }
 

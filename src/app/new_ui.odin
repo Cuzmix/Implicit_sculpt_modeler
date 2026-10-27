@@ -89,10 +89,13 @@ Kit_State :: struct {
 	dock_slide: f32, // how far the page just turned still slides in, points (eases to 0)
 	dock_wheel: f32, // the mouse wheel over the dock, until it adds up to a page
 	// The right bar's shortcut column and the bottom bar's tool strip (bars.odin), and
-	// Customise bars: on, and the slot popover a tap on a slot opens while it is.
+	// Arrange (once Customise bars): on, and the slot popover a tap on a slot opens while it is.
 	shortcuts:  Bar_List,
 	tools:      Bar_List,
 	bars_edit:  bool,
+	// Arrange's drawer of panels (arrange.odin): open, and its button.
+	arrange_drawer:    bool,
+	arrange_drawer_at: ui.Rect,
 	shortcut_scroll: f32, // the shortcut column's, on a window too short for all of it
 	bar_slot:   Bar_Slot_Menu,
 	dock_page:  int, // the page the bottom bar shows
@@ -723,7 +726,7 @@ kit_floats_close :: proc(k: ^Kit_State) {
 	k.bind.open, k.pie_editor, k.adjust_pop, k.gizmo_entry.open = false, false, false, false
 	k.folder_menu, k.rename.open, k.macro_save.open, k.home_menu = false, false, false, false
 	k.colors.palette_menu, k.colors.swatch_menu, k.colors.pop = false, false, false
-	k.panels.menu, k.workspaces.menu = false, false
+	k.panels.menu, k.workspaces.menu, k.arrange_drawer = false, false, false
 	k.ctx.select_open = 0
 }
 
@@ -732,7 +735,7 @@ kit_floats_close :: proc(k: ^Kit_State) {
 // first-run tip hides under it.
 kit_floating :: proc(app: ^App) -> bool {
 	k := &app.kit
-	return app.ui.pie.open || app.ui.adjust.kind != .None || k.action_pop || k.adjust_pop || k.menu || k.versions || k.browser || k.dock_menu || k.bind.open || k.pie_editor || k.object_menu || k.folder_menu || k.rename.open || k.macro_save.open || k.palette || k.gizmo_entry.open || k.bar_pop.open || k.bar_slot.open || k.colors.palette_menu || k.colors.swatch_menu || k.colors.pop || k.home_menu || k.panels.menu || k.workspaces.menu || k.ctx.select_open != 0
+	return app.ui.pie.open || app.ui.adjust.kind != .None || k.action_pop || k.adjust_pop || k.menu || k.versions || k.browser || k.dock_menu || k.bind.open || k.pie_editor || k.object_menu || k.folder_menu || k.rename.open || k.macro_save.open || k.palette || k.gizmo_entry.open || k.bar_pop.open || k.bar_slot.open || k.colors.palette_menu || k.colors.swatch_menu || k.colors.pop || k.home_menu || k.panels.menu || k.workspaces.menu || k.arrange_drawer || k.ctx.select_open != 0
 }
 
 kit_destroy :: proc(app: ^App) {
@@ -1097,7 +1100,8 @@ kit_layout :: proc(app: ^App) {
 	// What floats over the panels comes last, so it is drawn and hit tested on top.
 	if k.browser_at == .Dock do kit_brush_browser(app, dock_anchor, .Above_Center)
 	else do kit_brush_browser(app, browser_anchor, .Right)
-	kit_bars_edit_head(app)
+	kit_arrange_ghosts(app)
+	kit_arrange_head(app)
 	kit_bar_popover(app)
 	kit_bar_scrub(app)
 	// After the bar's popover, as a colour field in its section opens this one over it.
@@ -1106,6 +1110,7 @@ kit_layout :: proc(app: ^App) {
 	kit_bar_slot_menu(app)
 	kit_menu(app, menu_anchor)
 	kit_workspace_menu(app)
+	kit_arrange_drawer(app)
 	kit_versions(app, menu_anchor)
 	kit_object_menu(app)
 	kit_objects_card_menus(app)

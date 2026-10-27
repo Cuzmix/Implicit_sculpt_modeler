@@ -1,6 +1,7 @@
 package main
 
 import "core:fmt"
+import "core:strconv"
 import "core:strings"
 
 import "../sculpt"
@@ -120,19 +121,55 @@ bar_count :: proc(app: ^App, which: Bar_Which) -> ^int {
 
 // Whether bar `which` differs from a fresh install's.
 bar_changed :: proc(app: ^App, which: Bar_Which) -> bool {
+	if which == .Dock do return dock_changed(app)
+	return bar_list_changed(&app.kit, which)
+}
+
+// Whether the column's or the strip's list differs from a fresh install's.
+@(private = "file")
+bar_list_changed :: proc(k: ^Kit_State, which: Bar_Which) -> bool {
 	fresh: Bar_List
-	switch which {
-	case .Dock:
-		return dock_changed(app)
-	case .Shortcuts:
+	if which == .Shortcuts {
 		d := SHORTCUTS_DEFAULT
 		fresh = bar_list_of(d[:])
-	case .Tools:
+	} else {
 		d := TOOLS_DEFAULT
 		fresh = bar_list_of(d[:])
 	}
-	l := bar_list(app, which)
+	l := &k.shortcuts if which == .Shortcuts else &k.tools
 	return l.count != fresh.count || l.slots != fresh.slots
+}
+
+// The lines of the column and the strip, each written whole where it differs from a fresh
+// install's (`bar_count <zone> N`, then `bar <zone> <slot> <command>`): the settings
+// file's and a workspace's layout's.
+bars_save :: proc(k: ^Kit_State, out: ^strings.Builder) {
+	for which in ([2]Bar_Which{.Shortcuts, .Tools}) {
+		if !bar_list_changed(k, which) do continue
+		l := &k.shortcuts if which == .Shortcuts else &k.tools
+		used := l.slots[:clamp(l.count, 0, bar_capacity(which))]
+		fmt.sbprintfln(out, "bar_count %s %d", BAR_ZONES[which], len(used))
+		for s, i in used do fmt.sbprintfln(out, "bar %s %d %s", BAR_ZONES[which], i, command_name(s.id, s.arg))
+	}
+}
+
+// Reads a bar_count or bar line (`f` split by spaces), as bars_save writes them; a zone,
+// slot or command that names nothing is passed over.
+bars_load_line :: proc(k: ^Kit_State, f: []string) {
+	switch f[0] {
+	case "bar_count":
+		if len(f) != 3 do return
+		which, zone_ok := bar_zone(f[1])
+		l := &k.shortcuts if which == .Shortcuts else &k.tools
+		if n, ok := strconv.parse_int(f[2]); ok && zone_ok do l.count = clamp(n, 0, bar_capacity(which))
+	case "bar":
+		if len(f) != 4 do return
+		which, zone_ok := bar_zone(f[1])
+		slot, slot_ok := strconv.parse_int(f[2])
+		if !zone_ok || !slot_ok || slot < 0 || slot >= bar_capacity(which) do return
+		l := &k.shortcuts if which == .Shortcuts else &k.tools
+		if id, arg, ok := command_from_name(f[3]); ok && bar_lists(id) do l.slots[slot] = {id, arg}
+	}
 }
 
 // Whether a command can sit on a bar: whatever Search runs, and Search itself. Not one
@@ -445,24 +482,6 @@ kit_bar_slot_menu :: proc(app: ^App) {
 		m.open = false
 		bar_choose(app, {which = m.which, slot = m.slot})
 	}
-}
-
-// While customising, a strip under the top bar's middle saying how, with Reset bars and
-// Done.
-kit_bars_edit_head :: proc(app: ^App) {
-	k := &app.kit
-	if !k.bars_edit do return
-	ctx := &k.ctx
-	t := ctx.theme
-	ui.begin_anchored(ctx, "customise bars", .Center, .Start, {0, kit_top()}, {direction = .Row, gap = 8, padding = 6, radius = t.radius_large, background = .Raised, center = true})
-	ui.begin(ctx, "customise bars text", {direction = .Column, padding = 4})
-	ui.label(ctx, "Customise bars", t.text_size, t.text, .Semibold)
-	ui.label(ctx, "Tap a ringed button to change, move or remove it; + adds one.", t.small_size, t.text_secondary)
-	ui.end(ctx)
-	changed := bar_changed(app, .Shortcuts) || bar_changed(app, .Tools) || bar_changed(app, .Dock)
-	if ui.button(ctx, "Reset bars", .Bordered, enabled = changed) do bars_reset(k)
-	if ui.button(ctx, "Done", .Flat, .Accent) do k.bars_edit = false
-	ui.end(ctx)
 }
 
 // Bar `which`'s commands by name, comma separated, for the exit stats ("none" for none).

@@ -54,8 +54,10 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   dock sits `DOCK_LIFT` above the edge margin, so measure it with `dock_stack`). A dock slot is a brush, a preset or a
   command (`Dock_Slot.command`), `dock_used` of up to `DOCK_SLOTS`. Customise bars (`k.bars_edit`, `.Customise_Bars`)
   rings every slot; a tap opens `kit_bar_slot_menu` (column, strip) or `kit_dock_menu`, both with `bar_slot_actions`,
-  and Search chooses a command through `Palette_For`'s `Bar_Pick` (`bar_choose`, `bar_put`); `kit_bars_edit_head`
-  holds Reset bars and Done. Curve and Insert are tiles in
+  and Search chooses a command through `Palette_For`'s `Bar_Pick` (`bar_choose`, `bar_put`). That mode is Arrange
+  (`src/app/arrange.odin`): `kit_arrange_head` (zone switches via `zone_toggle`, Panels, Reset bars, Revert, Save as
+  new, Done), `kit_arrange_drawer` (each panel Hidden/Left/Right/Float), `kit_arrange_ghosts` (a hidden dock, wheel
+  or action bar as an outline with Show), and `kit_column_drop` outlines both columns while it is on. Curve and Insert are tiles in
   the brush browser; then the four windows in `k.order` (back to front) and last the popovers. Panels under the top bar
   start at `kit_top()`, clear of the side bars at `kit_left(app)`/`kit_right(app)`; a card under the top bar uses
   `kit_card_place`; a right-side panel keeps clear of the dock with `side_panel_below`. A bar button opens the one
@@ -89,7 +91,8 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   canonical by construction. A hidden `Zone` skips its bar in `kit_layout` (the top bar takes Undo/Redo or
   Search/Palettes); read the wheel's side with `rail_shown(k)`, never `k.rail_side`, and the action bar with
   `action_bar_shown`. A new panel that a layout should open goes in `LAYOUT_PANELS`. Commands `Workspace` (slot arg),
-  `Workspace_Save/_Save_As/_Revert/_Reset/_Rename/_Delete`.
+  `Workspace_Save/_Save_As/_Revert/_Reset/_Rename/_Delete`. The layout holds the column and strip bars (a `bars`
+  line, then `bars_save`), never the dock, which is the user's own set; a text with no `bars` line keeps the bars.
 - Cards (`ui.card_begin`): a window with no title bar, as ZBrush for iPad's quick-access cards, its dots on top
   dragging it like a title bar and a long press on them returning `dock`, then a large centred title. The Objects
   card (`kit_objects_card.odin`, `Kit_Window.Objects`, `Objects_Card` command) is one: Add / Duplicate / New folder /
