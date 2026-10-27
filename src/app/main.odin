@@ -216,6 +216,7 @@ App :: struct {
 	view_key:    u64,       // camera, viewport size and object transforms last frame
 	view_moved:  time.Tick, // when view_key last changed
 	vsync:    bool, // wanted present mode, applied at the start of the next frame
+	msaa:     Msaa, // wanted anti-aliasing, applied before the next frame sizes the viewport (msaa.odin)
 	time_gpu: bool, // wait for each frame's 3D work, to measure its GPU time
 	window:   ^sdl.Window, // what file dialogs belong to
 	scene_path: string, // where the scene was last saved or opened from, for Ctrl+S (owned)
@@ -422,6 +423,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	app.simplify = !opts.no_simplify
 	app.simplify_px = 1
 	app.vsync = !opts.no_vsync && opts.gpubench == ""
+	app.msaa = MSAA_DEFAULT
 	app.time_gpu = opts.time_gpu || opts.gpubench != ""
 	app.ui = ui_state_default()
 	app.curve, app.insert = CURVE_DEFAULTS, INSERT_DEFAULTS
@@ -621,7 +623,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		// Resize to the size the interface asked for last frame, before it references the
 		// texture, so it never draws a texture released this frame.
 		want := app.ui.viewport_request
-		if !render.viewport_target_resize(&app.renderer, &app.target, u32(want.x), u32(want.y)) do return false
+		msaa_apply(&app)
+		if !msaa_viewport_resize(&app, u32(want.x), u32(want.y)) do return false
 
 		// A tap's dab that waited for a second tap plays before anything this frame does.
 		waited_dab := dab_wait_resolve(&app)
@@ -1163,7 +1166,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	if s := app.stats; s.file_read_ms > 0 || s.file_write_ms > 0 {
 		fmt.printfln("file_read_ms=%.1f file_parse_ms=%.1f file_write_ms=%.1f", s.file_read_ms, s.file_parse_ms, s.file_write_ms)
 	}
-	fmt.printfln("idle_cache=%v cache_redraws=%d last_frame_triangles=%d", app.cache_idle, app.stats.cache_redraws, app.stats.viewport.triangles)
+	fmt.printfln("idle_cache=%v cache_redraws=%d last_frame_triangles=%d msaa=%v", app.cache_idle, app.stats.cache_redraws, app.stats.viewport.triangles, app.msaa)
 	v := app.stats.viewport
 	fmt.printfln("cull=%v last_frame_draws=%d chunks=%d culled_view=%d culled_back=%d cull_ms=%.3f", app.renderer.cull, v.draws, v.chunks, v.culled_view, v.culled_back, v.cull_ms)
 	fmt.printfln("partial=%v partial_frames=%d last_frame_partial=%v last_frame_redrawn_px=%d viewport_px=%d", app.renderer.partial, app.stats.partial_frames, v.partial, v.redrawn_px, app.target.width * app.target.height)

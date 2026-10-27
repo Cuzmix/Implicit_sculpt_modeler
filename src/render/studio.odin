@@ -17,12 +17,16 @@ import "../geom"
 // the plain viewport is copied through, so the cost while working is one copy a frame.
 Studio :: struct {
 	shadow_pipeline:    ^sdl.GPUGraphicsPipeline,
+	depth_pipeline:     ^sdl.GPUGraphicsPipeline, // the camera's depth, front faces only, as the mesh pipeline
 	gather_pipeline:    ^sdl.GPUGraphicsPipeline,
 	composite_pipeline: ^sdl.GPUGraphicsPipeline,
 	sampler:            ^sdl.GPUSampler,
 	shadow:             ^sdl.GPUTexture, // depth from the light of the current sample
 	accum:              ^sdl.GPUTexture, // summed samples: see studio_gather.frag
 	shown:              ^sdl.GPUTexture, // what the viewport panel shows
+	// The camera's depth at one sample, drawn when the viewport is multisampled, whose
+	// own depth shaders cannot read; nil otherwise.
+	view_depth:         ^sdl.GPUTexture,
 	width, height:      u32, // of accum and shown
 	samples:            int, // in accum
 	shown_valid:        bool, // shown holds this frame's viewport, with or without samples
@@ -111,6 +115,14 @@ studio_frame :: proc(r: ^Renderer, st: ^Studio, cmd: ^sdl.GPUCommandBuffer, vt: 
 	}
 	light := light_view_proj(center, radius, dir)
 
+	// The depth the gather reads: the viewport's own, or with multisampling the camera's
+	// drawn again at one sample, once per still view (it is the same for every sample).
+	view_depth := vt.depth
+	if vt.samples != ._1 {
+		view_depth = st.view_depth
+		if st.samples == 0 do studio_view_depth(r, st, cmd, view, proj, items)
+	}
+
 	// Depth from the light, every triangle of every item.
 	depth := sdl.GPUDepthStencilTargetInfo {
 		texture          = st.shadow,
@@ -149,7 +161,7 @@ studio_frame :: proc(r: ^Renderer, st: ^Studio, cmd: ^sdl.GPUCommandBuffer, vt: 
 	}
 	pass = sdl.BeginGPURenderPass(cmd, &target, 1, nil)
 	sdl.BindGPUGraphicsPipeline(pass, st.gather_pipeline)
-	samplers := [2]sdl.GPUTextureSamplerBinding{{texture = vt.depth, sampler = st.sampler}, {texture = st.shadow, sampler = st.sampler}}
+	samplers := [2]sdl.GPUTextureSamplerBinding{{texture = view_depth, sampler = st.sampler}, {texture = st.shadow, sampler = st.sampler}}
 	sdl.BindGPUFragmentSamplers(pass, 0, &samplers[0], 2)
 	sdl.PushGPUFragmentUniformData(cmd, 0, &g, size_of(g))
 	sdl.DrawGPUPrimitives(pass, 3, 1, 0, 0)
@@ -167,6 +179,33 @@ studio_frame :: proc(r: ^Renderer, st: ^Studio, cmd: ^sdl.GPUCommandBuffer, vt: 
 	sdl.DrawGPUPrimitives(pass, 3, 1, 0, 0)
 	sdl.EndGPURenderPass(pass)
 	return true
+}
+
+// Draws the camera's depth into view_depth through the same culled runs of chunks the
+// viewport draws, so hidden parts stay out of it.
+@(private = "file")
+studio_view_depth :: proc(r: ^Renderer, st: ^Studio, cmd: ^sdl.GPUCommandBuffer, view, proj: Mat4, items: []Draw_Item) {
+	stats: Viewport_Stats
+	prepare_draws(r, cmd, view, proj, items, nil, &stats)
+	depth := sdl.GPUDepthStencilTargetInfo {
+		texture          = st.view_depth,
+		clear_depth      = 1,
+		load_op          = .CLEAR,
+		store_op         = .STORE,
+		stencil_load_op  = .DONT_CARE,
+		stencil_store_op = .DONT_CARE,
+		cycle            = true,
+	}
+	pass := sdl.BeginGPURenderPass(cmd, nil, 0, &depth)
+	sdl.BindGPUGraphicsPipeline(pass, st.depth_pipeline)
+	for item in items {
+		u := Shadow_Uniforms{proj * view, item.model}
+		sdl.PushGPUVertexUniformData(cmd, 0, &u, size_of(u))
+		vbufs := [1]sdl.GPUBufferBinding{{buffer = item.mesh.positions}}
+		sdl.BindGPUVertexBuffers(pass, 0, &vbufs[0], 1)
+		draw_item_triangles(r, pass, item, nil)
+	}
+	sdl.EndGPURenderPass(pass)
 }
 
 // What the viewport panel should show while the studio render is on: its image, or nil
@@ -187,10 +226,11 @@ studio_destroy :: proc(r: ^Renderer, st: ^Studio) {
 	if r.device == nil do return
 	_ = sdl.WaitForGPUIdle(r.device)
 	if st.shadow_pipeline != nil do sdl.ReleaseGPUGraphicsPipeline(r.device, st.shadow_pipeline)
+	if st.depth_pipeline != nil do sdl.ReleaseGPUGraphicsPipeline(r.device, st.depth_pipeline)
 	if st.gather_pipeline != nil do sdl.ReleaseGPUGraphicsPipeline(r.device, st.gather_pipeline)
 	if st.composite_pipeline != nil do sdl.ReleaseGPUGraphicsPipeline(r.device, st.composite_pipeline)
 	if st.sampler != nil do sdl.ReleaseGPUSampler(r.device, st.sampler)
-	for t in ([3]^sdl.GPUTexture{st.shadow, st.accum, st.shown}) do if t != nil do sdl.ReleaseGPUTexture(r.device, t)
+	for t in ([4]^sdl.GPUTexture{st.shadow, st.accum, st.shown, st.view_depth}) do if t != nil do sdl.ReleaseGPUTexture(r.device, t)
 	st^ = {}
 }
 
@@ -253,7 +293,8 @@ studio_ensure :: proc(r: ^Renderer, st: ^Studio, vt: ^Viewport_Target) -> bool {
 		return false
 	}
 	if st.shadow_pipeline == nil {
-		st.shadow_pipeline = create_shadow_pipeline(r)
+		st.shadow_pipeline = create_shadow_pipeline(r, cull_back = false)
+		st.depth_pipeline = create_shadow_pipeline(r, cull_back = true)
 		st.gather_pipeline = create_fullscreen_pipeline(r, STUDIO_GATHER_FRAG_SPV, STUDIO_ACCUM_FORMAT, additive = true)
 		st.composite_pipeline = create_fullscreen_pipeline(r, STUDIO_COMPOSITE_FRAG_SPV, VIEWPORT_COLOR_FORMAT, additive = false)
 		st.sampler = sdl.CreateGPUSampler(r.device, {
@@ -264,14 +305,21 @@ studio_ensure :: proc(r: ^Renderer, st: ^Studio, vt: ^Viewport_Target) -> bool {
 			type = .D2, format = r.depth_format, usage = {.DEPTH_STENCIL_TARGET, .SAMPLER},
 			width = STUDIO_SHADOW_SIZE, height = STUDIO_SHADOW_SIZE, layer_count_or_depth = 1, num_levels = 1,
 		})
-		if st.shadow_pipeline == nil || st.gather_pipeline == nil || st.composite_pipeline == nil || st.sampler == nil || st.shadow == nil {
+		if st.shadow_pipeline == nil || st.depth_pipeline == nil || st.gather_pipeline == nil || st.composite_pipeline == nil || st.sampler == nil || st.shadow == nil {
 			log.errorf("studio render: setup failed (%s); it stays off", sdl.GetError())
 			return false
 		}
 	}
-	if st.accum != nil && st.width == vt.width && st.height == vt.height do return true
-	if st.accum != nil do sdl.ReleaseGPUTexture(r.device, st.accum)
-	if st.shown != nil do sdl.ReleaseGPUTexture(r.device, st.shown)
+	want_view_depth := vt.samples != ._1
+	if st.accum != nil && st.width == vt.width && st.height == vt.height && want_view_depth == (st.view_depth != nil) do return true
+	for t in ([3]^sdl.GPUTexture{st.accum, st.shown, st.view_depth}) do if t != nil do sdl.ReleaseGPUTexture(r.device, t)
+	st.view_depth = nil
+	if want_view_depth {
+		st.view_depth = sdl.CreateGPUTexture(r.device, {
+			type = .D2, format = r.depth_format, usage = {.DEPTH_STENCIL_TARGET, .SAMPLER},
+			width = vt.width, height = vt.height, layer_count_or_depth = 1, num_levels = 1,
+		})
+	}
 	st.accum = sdl.CreateGPUTexture(r.device, {
 		type = .D2, format = STUDIO_ACCUM_FORMAT, usage = {.COLOR_TARGET, .SAMPLER},
 		width = vt.width, height = vt.height, layer_count_or_depth = 1, num_levels = 1,
@@ -282,7 +330,7 @@ studio_ensure :: proc(r: ^Renderer, st: ^Studio, vt: ^Viewport_Target) -> bool {
 	})
 	st.width, st.height = vt.width, vt.height
 	st.samples, st.shown_valid = 0, false
-	if st.accum == nil || st.shown == nil {
+	if st.accum == nil || st.shown == nil || want_view_depth && st.view_depth == nil {
 		log.errorf("studio render: target creation failed (%s); it stays off", sdl.GetError())
 		return false
 	}
@@ -290,7 +338,7 @@ studio_ensure :: proc(r: ^Renderer, st: ^Studio, vt: ^Viewport_Target) -> bool {
 }
 
 @(private = "file")
-create_shadow_pipeline :: proc(r: ^Renderer) -> ^sdl.GPUGraphicsPipeline {
+create_shadow_pipeline :: proc(r: ^Renderer, cull_back: bool) -> ^sdl.GPUGraphicsPipeline {
 	vert := sdl.CreateGPUShader(r.device, {
 		code_size = len(SHADOW_VERT_SPV), code = raw_data(SHADOW_VERT_SPV), entrypoint = "main",
 		format = {.SPIRV}, stage = .VERTEX, num_uniform_buffers = 1,
@@ -314,8 +362,9 @@ create_shadow_pipeline :: proc(r: ^Renderer) -> ^sdl.GPUGraphicsPipeline {
 			num_vertex_attributes = 1,
 		},
 		primitive_type = .TRIANGLELIST,
-		// Both faces: an open mesh or a hole still casts its shadow.
-		rasterizer_state = {fill_mode = .FILL, cull_mode = .NONE},
+		// From a light both faces, so an open mesh or a hole still casts its shadow; for
+		// the camera's depth the front ones, matching what the viewport drew.
+		rasterizer_state = {fill_mode = .FILL, cull_mode = .BACK if cull_back else .NONE, front_face = .COUNTER_CLOCKWISE},
 		depth_stencil_state = {compare_op = .LESS, enable_depth_test = true, enable_depth_write = true},
 		target_info = {depth_stencil_format = r.depth_format, has_depth_stencil_target = true},
 	})

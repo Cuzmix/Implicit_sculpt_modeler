@@ -86,8 +86,8 @@ nav_head_draw :: proc(r: ^Renderer, nh: ^Nav_Head, cmd: ^sdl.GPUCommandBuffer, s
 	if key == nh.key do return nh.target.color
 
 	item := Draw_Item{mesh = &nh.mesh, model = IDENTITY, color = color, damage = geom.AABB_EMPTY}
-	pass := begin_mesh_pass(r, cmd, nh.target.color, nh.target.depth, load = false, keep_depth = false, background = {0, 0, 0, 0})
-	draw_items(r, cmd, pass, view, proj, {item}, nil, nil)
+	pass := begin_mesh_pass(r, cmd, &r.single, nh.target.color, nh.target.depth, load = false, keep_depth = false, background = {0, 0, 0, 0})
+	draw_items(r, cmd, pass, &r.single, view, proj, {item}, nil, nil)
 	sdl.EndGPURenderPass(pass)
 	nh.key = key
 	return nh.target.color
