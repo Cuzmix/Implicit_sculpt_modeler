@@ -127,9 +127,23 @@ Brush :: struct {
 	// Keep the area the stroke's first dab found (filters.odin). Not Grab, Snake hook,
 	// Smooth, Inflate, Layer or Morph, which do not work along it, unless with an alpha.
 	lock_plane: bool,
-	// Work only on what joins the dab's centre through the surface (filters.odin).
-	// Grab ignores it.
+	// Work only on what joins the dab's centre through the surface (filters.odin); for
+	// Grab, what joins where the grab began (Move connected), unless `through` is set.
 	connected:  bool,
+	// Grab: the view direction in the mesh's space, along which the brush reaches through
+	// the whole depth: a vertex is in it when it lies within the radius of the line through
+	// the centre (Move all depth). Zero keeps the round reach.
+	through:    Vec3,
+	// Smooth: which vertices it evens out, all or only those in dents or on bumps.
+	smooth_only: Smooth_Only,
+}
+
+// Which vertices the Smooth brush moves: a vertex lies in a valley when the average of
+// its neighbours is above it along its normal, and on a peak when below.
+Smooth_Only :: enum u8 {
+	All,
+	Valleys,
+	Peaks,
 }
 
 // A vertex's Layer height, and the stroke it belongs to (0: none).
@@ -1196,7 +1210,7 @@ job_smooth_apply :: proc(data: rawptr, i: int) {
 		delta := m.positions[v] - d.center
 		d2 := linalg.dot(delta, delta)
 		if d2 < d.r2 {
-			if w := shield(fade, mask, v) * facing_weight(d, m.normals[:], v); w > 0 {
+			if w := shield(fade, mask, v) * facing_weight(d, m.normals[:], v); w > 0 && smooth_takes(d.brush.smooth_only, targets[v - first] - m.positions[v], m.normals[v]) {
 				t := clamp(d.brush.strength * dab_weight(d, delta, d2), 0, 1) * w
 				m.positions[v] = linalg.lerp(m.positions[v], targets[v - first], t)
 				moved += 1
@@ -1206,6 +1220,18 @@ job_smooth_apply :: proc(data: rawptr, i: int) {
 	}
 	s.partials[i].moved = moved
 	s.partials[i].bounds = bounds
+}
+
+// Whether Smooth moves a vertex whose step toward its neighbours' average is `step`:
+// along its normal it rises out of a valley, against it it comes down off a peak.
+@(private)
+smooth_takes :: #force_inline proc(only: Smooth_Only, step, normal: Vec3) -> bool {
+	switch only {
+	case .All:     return true
+	case .Valleys: return linalg.dot(step, normal) > 0
+	case .Peaks:   return linalg.dot(step, normal) < 0
+	}
+	return true
 }
 
 // A leaf's triangles use exactly its owned vertices plus its shared ones, so their

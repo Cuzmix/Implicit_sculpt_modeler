@@ -121,9 +121,10 @@ CHANNEL_HELP := [sculpt.Channel]string {
 	.Color  = "The brushes paint the main colour under their falloff and move nothing.",
 }
 
-// What a dab works on, as Nomad's filter section: front faces only, Lock plane and
-// Connected. Each switch greys out on brushes it does nothing for, still showing how it
-// is set, and is a command too (Front_Only, Lock_Plane, Connected) for keys and pies.
+// What a dab works on, as Nomad's filter section: front faces only, Lock plane,
+// Connected, and for Grab All depth and for Smooth which vertices it smooths. Each switch
+// greys out on brushes it does nothing for, still showing how it is set; the first three
+// are commands too (Front_Only, Lock_Plane, Connected) for keys and pies.
 @(private = "file")
 kit_brush_options :: proc(app: ^App) {
 	ctx := &app.kit.ctx
@@ -132,21 +133,27 @@ kit_brush_options :: proc(app: ^App) {
 	_ = ui.switch_row(ctx, "Front faces only", &b.front_only, .Grab not_in flags, keys = command_hint(app, .Front_Only))
 	locks := flags & {.Grab, .Cloth} == {} && sculpt.brush_locks_plane(b.kind, brush_alpha(app) != nil)
 	_ = ui.switch_row(ctx, "Lock plane", &b.lock_plane, locks, keys = command_hint(app, .Lock_Plane))
-	_ = ui.switch_row(ctx, "Connected only", &b.connected, flags & {.Grab, .Cloth} == {}, keys = command_hint(app, .Connected))
-	ui.paragraph(ctx, "Front faces only leaves the far side of a thin part (an ear, a fin). Lock plane keeps the plane the stroke began on, so long Flatten or Clay strokes do not drift. Connected only leaves what is near in space but not joined through the surface, such as the next finger.")
+	// All depth reaches past what Connected's flood keeps to, so on Grab it wins.
+	_ = ui.switch_row(ctx, "Connected only", &b.connected, .Cloth not_in flags && !(b.kind == .Grab && b.grab_depth), keys = command_hint(app, .Connected))
+	if b.kind == .Grab do _ = ui.switch_row(ctx, "All depth", &b.grab_depth)
+	if b.kind == .Smooth {
+		if picked := ui.tabs(ctx, "smooth only", {"All", "Valleys", "Peaks"}, int(b.smooth_only)); picked >= 0 do b.smooth_only = sculpt.Smooth_Only(picked)
+	}
+	ui.paragraph(ctx, "Front faces only leaves the far side of a thin part (an ear, a fin). Lock plane keeps the plane the stroke began on, so long Flatten or Clay strokes do not drift. Connected only leaves what is near in space but not joined through the surface, such as the next finger. All depth lets Grab move everything under the brush however deep, the back too, and then Connected only does not apply. Smooth can even out only the dents (Valleys) or only the bumps (Peaks); Shift smoothing with any brush does the same.")
 }
 
 // The brush's preset (presets.odin): which it is on, or none; on a plain brush, saving
 // it as a preset and resetting it; on one of the person's own, its name, saving or
-// reverting changes, saving a copy, and (under More) deleting it; on a content pack's,
-// which pack it is from, reverting and saving a copy, as a pack's presets are read-only.
+// reverting changes, saving a copy, and (under More) deleting it; on a built-in one or a
+// content pack's (which pack it is from), reverting and saving a copy, as those are
+// read-only.
 @(private = "file")
 kit_preset :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
 	b := &app.brush
-	// The list: none, the person's own, then every pack's, each as the number the brush
-	// keeps (PACK_PRESET).
+	// The list: none, the person's own, the built-ins, then every pack's, each as the
+	// number the brush keeps (PACK_PRESET, BUILT_IN_PRESET).
 	names := make([dynamic]string, context.temp_allocator)
 	numbers := make([dynamic]int, context.temp_allocator)
 	append(&names, fmt.tprintf("None: the plain %s brush", BRUSHES[b.kind].name))
@@ -154,6 +161,10 @@ kit_preset :: proc(app: ^App) {
 	for i in 0 ..< app.preset_count {
 		append(&names, fmt.tprintf("%s (%s)", preset_name(&app.presets[i]), BRUSHES[app.presets[i].values.kind].name))
 		append(&numbers, i + 1)
+	}
+	for r, j in BUILT_IN_PRESETS {
+		append(&names, fmt.tprintf("%s (%s, built in)", r.name, BRUSHES[r.kind].name))
+		append(&numbers, BUILT_IN_PRESET + j)
 	}
 	for pack in app.library.packs {
 		for &p, j in app.library.presets {
@@ -172,6 +183,11 @@ kit_preset :: proc(app: ^App) {
 	if !on {
 		kit_command_pair(app, .Preset_Save_New, .Brush_Reset, label_a = "Save as preset", tone_a = .Accent)
 		ui.paragraph(ctx, "A preset keeps this brush's strength, falloff, alpha, stroke kind and lazy mouse under a name, to pick again here. The size and the pen settings stay the same for every brush.")
+		return
+	}
+	if preset_built_in(b.preset) {
+		kit_command_pair(app, .Preset_Save_New, .Preset_Revert, label_a = "Save as new preset", label_b = "Revert", tone_a = .Accent)
+		ui.paragraph(ctx, "A built-in preset, which stays as it came. Save as new preset keeps your changes as a preset of your own.")
 		return
 	}
 	if preset_of_pack(b.preset) {

@@ -176,7 +176,8 @@ roll_dabs_a_diameter_apart_along_the_stroke :: proc(t: ^testing.T) {
 // file, from before the spread and seed, a version 5 file, from before Lock plane and
 // Connected, a version 6 file, from before the focal shift, a version 7 file, from before
 // the strength scale, a version 8 file, from before local and radial symmetry, and a version
-// 9 file, from before the paint channel, still read.
+// 9 file, from before the paint channel, and a version 10 file, from before All depth and
+// Smooth only, still read.
 @(test)
 spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	path := "build/spray_test.strokes"
@@ -192,6 +193,8 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	a.brush.falloffs[a.brush.kind].focal = 30
 	a.brush.radial_on, a.brush.radial_count, a.brush.radial_axis = true, 3, .Z
 	a.brush.channel = .Both
+	// Neither changes a Draw stroke, but both are kept with it.
+	a.brush.grab_depth, a.brush.smooth_only = true, .Peaks
 	a.stroke_seed = 41
 	a.device.pointer, a.nav.touch_strength = .Finger, 0.5
 	b.nav.touch_strength = 1
@@ -210,18 +213,37 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	testing.expect_value(t, b.replay.take.brushes[0].radial_count, 3)
 	testing.expect_value(t, b.replay.take.brushes[0].radial_axis, sculpt.Axis.Z)
 	testing.expect_value(t, b.replay.take.brushes[0].channel, sculpt.Channel.Both)
+	testing.expect(t, b.replay.take.brushes[0].grab_depth)
+	testing.expect_value(t, b.replay.take.brushes[0].smooth_only, sculpt.Smooth_Only.Peaks)
 	replay_start(&b, &b.replay.take)
 	for replay_busy(&b) do _ = replay_frame(&b, {})
 	testing.expect(t, slice.equal(object_sculptor(oa).mesh.positions[:], object_sculptor(ob).mesh.positions[:]))
 	testing.expect_value(t, b.stroke_seed, 7)
 	testing.expect_value(t, b.stroke_scale_from, 0)
 
-	// Version 9 had no paint channel after the symmetry bytes: the one brush ends 64 + 28
-	// bytes after the header's 16, where version 10's has 1 more, and only sculpts.
+	// Version 10 had no All depth and Smooth only after the paint channel: the one brush
+	// ends 64 + 29 bytes after the header's 16, where version 11's has 2 more.
 	data, err := os.read_entire_file(path, context.allocator)
 	testing.expect(t, err == nil)
 	defer delete(data)
-	BRUSH :: 64 + 29
+	BRUSH :: 64 + 31
+	ten := make([dynamic]u8, context.temp_allocator)
+	append(&ten, ..data[:16 + 64 + 29])
+	append(&ten, ..data[16 + BRUSH:])
+	ten[len(STROKES_MAGIC)] = 10
+	testing.expect(t, os.write_entire_file(path, ten[:]) == nil)
+	o: App
+	defer replay_destroy(&o.replay)
+	defer results_destroy(&o)
+	testing.expect(t, strokes_load(&o, path))
+	if len(o.replay.take.brushes) == 1 {
+		testing.expect(t, !o.replay.take.brushes[0].grab_depth)
+		testing.expect_value(t, o.replay.take.brushes[0].smooth_only, sculpt.Smooth_Only.All)
+		testing.expect_value(t, o.replay.take.brushes[0].channel, sculpt.Channel.Both)
+	}
+
+	// Version 9 had no paint channel after the symmetry bytes: the one brush ends 64 + 28
+	// bytes after the header's 16, and only sculpts.
 	nine := make([dynamic]u8, context.temp_allocator)
 	append(&nine, ..data[:16 + 64 + 28])
 	append(&nine, ..data[16 + BRUSH:])

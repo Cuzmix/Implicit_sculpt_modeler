@@ -166,3 +166,49 @@ morton_bvh_is_valid_and_raycasts :: proc(t: ^testing.T) {
 	tri_t, _, ok := bvh_raycast(&b, m, {0.1, 0.2, 5}, {0, 0, -1})
 	testing.expect(t, ok && math.abs(tri_t - (5 - math.sqrt(f32(0.95)))) < 0.01, "ray should hit the front of the sphere")
 }
+
+// The line query returns every leaf holding a vertex within the radius of the line, and
+// only leaves whose bounds come that near it.
+@(test)
+bvh_line_query_finds_the_leaves_near_the_line :: proc(t: ^testing.T) {
+	m := icosphere(4)
+	defer mesh_destroy(&m)
+	b := bvh_build(m)
+	defer bvh_destroy(&b)
+	origin, dir, radius := Vec3{0.2, -0.1, 3}, linalg.normalize(Vec3{0.1, 0.05, -1}), f32(0.3)
+	found: [dynamic]u32
+	defer delete(found)
+	bvh_query_leaves_line(&b, origin, dir, radius, &found)
+	is_found := make([]bool, len(b.nodes), context.temp_allocator)
+	for n in found do is_found[n] = true
+	near :: proc(p, origin, dir: Vec3, radius: f32) -> bool {
+		d := p - origin
+		across := d - linalg.dot(d, dir) * dir
+		return linalg.dot(across, across) < radius * radius
+	}
+	wanted := 0
+	for node, n in b.nodes {
+		if node.count == 0 do continue
+		has := false
+		for i in node.first ..< node.first + node.count {
+			tri := b.tri_order[i]
+			for c in 0 ..< u32(3) do has ||= near(m.positions[m.indices[3 * tri + c]], origin, dir, radius)
+		}
+		if has {
+			wanted += 1
+			testing.expectf(t, is_found[n], "leaf %d near the line was missed", n)
+		}
+		if is_found[n] {
+			// Its bounds' centre along the line's nearest point: the box grown by the radius
+			// holds a point of the line.
+			lo, hi := node.bounds.lo - radius, node.bounds.hi + radius
+			hit := false
+			for k in 0 ..= 4000 {
+				p := origin + dir * (f32(k) * 0.002)
+				if p.x >= lo.x && p.x <= hi.x && p.y >= lo.y && p.y <= hi.y && p.z >= lo.z && p.z <= hi.z do hit = true
+			}
+			testing.expectf(t, hit, "leaf %d is far from the line", n)
+		}
+	}
+	testing.expect(t, wanted > 0 && len(found) < len(b.nodes) / 2)
+}
