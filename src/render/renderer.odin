@@ -55,6 +55,15 @@ Renderer :: struct {
 	floor:          Floor_Grid,
 	// What the viewport shows behind everything; set by the app each frame, as floor is.
 	background:     Background,
+	// The image environment the physically based materials light with (environment.odin),
+	// nil for the built-in studio, and how it shows; set by the app each frame. The app
+	// owns the environment. Bound in its place while there is none: a black texture; and
+	// the sampler both are read through: filtering, mipmapped, repeating round the
+	// panorama and clamped at its poles.
+	environment:      ^Environment,
+	environment_look: Environment_Look,
+	no_environment:   ^sdl.GPUTexture,
+	env_sampler:      ^sdl.GPUSampler,
 }
 
 // The viewport's background in display values, written as-is: `top` along the top edge
@@ -66,8 +75,11 @@ Background :: struct {
 // Matches Clear_Uniforms in clear.frag.
 Clear_Uniforms :: struct {
 	using background: Background,
-	extent:           [4]f32, // x: the target's height in pixels
+	extent:           [4]f32, // x: the target's height in pixels, y: its width
+	env:              [4]f32, // x: 1 to show the environment, y: its strength, z: the level shown, w: the exposure
+	clip_to_env:      Mat4,   // the inverse projection, then the view's turn into the panorama's axes
 }
+#assert(size_of(Clear_Uniforms) == 128)
 
 // The grid drawn on up to three planes square to the world's axes, round the scene: per
 // axis, whether the plane across it shows (`shown`, as 1 or 0, so the struct hashes with no
@@ -321,8 +333,12 @@ Material_Uniforms :: struct {
 	look:       [4]f32, // exposure in stops, cavity, ridge (Draw_Item.look)
 	lights:     Lights, // Draw_Item.lights
 	maps:       [4]f32, // textured items: x, y, z which maps are bound (base colour, ORM, normal), w the Texture_View; zero otherwise
+	// The image environment (environment.odin's material_environment); zero for the studio.
+	env:        [4]f32, // x: 1 when bound, y: its strength, z: its prefiltered levels less one
+	env_axes:   [3][4]f32, // the panorama's axes in view space (Environment_Look.rotation)
+	env_sh:     [9][4]f32, // its diffuse light's harmonics, rgb
 }
-#assert(size_of(Material_Uniforms) == 272)
+#assert(size_of(Material_Uniforms) == 480)
 
 MESH_VERT_SPV :: #load("shaders/mesh.vert.spv")
 MESH_FRAG_SPV :: #load("shaders/mesh.frag.spv")
@@ -394,8 +410,16 @@ renderer_init :: proc(r: ^Renderer, window: ^sdl.Window, debug: bool) -> bool {
 		max_lod = 1000, max_anisotropy = 8, enable_anisotropy = r.anisotropy,
 	})
 	if r.texture_sampler == nil do log.errorf("texture sampler: %s", sdl.GetError())
+	black := [4]u8{0, 0, 0, 255}
+	r.no_environment = texture_create(r, .R8G8B8A8_UNORM, black[:], 1, 1)
+	r.env_sampler = sdl.CreateGPUSampler(r.device, {
+		min_filter = .LINEAR, mag_filter = .LINEAR, mipmap_mode = .LINEAR,
+		address_mode_u = .REPEAT, address_mode_v = .CLAMP_TO_EDGE, address_mode_w = .CLAMP_TO_EDGE,
+		max_lod = 1000,
+	})
+	if r.env_sampler == nil do log.errorf("environment sampler: %s", sdl.GetError())
 	if r.single.textured == nil do log.warn("textures: the textured pipeline could not be made; textured objects draw as clay")
-	return r.single.mesh != nil && r.single.clear != nil && r.no_paint != nil && r.no_matcap != nil && r.matcap_sampler != nil && r.no_normal_map != nil && r.texture_sampler != nil && r.single.clear != nil && r.no_paint != nil && r.no_matcap != nil && r.matcap_sampler != nil
+	return r.single.mesh != nil && r.single.clear != nil && r.no_paint != nil && r.no_matcap != nil && r.matcap_sampler != nil && r.no_normal_map != nil && r.texture_sampler != nil && r.no_environment != nil && r.env_sampler != nil
 }
 
 // The GPU's name, backend and driver version, for logs and benchmark reports.
@@ -448,6 +472,8 @@ renderer_destroy :: proc(r: ^Renderer) {
 	if r.matcap_sampler != nil do sdl.ReleaseGPUSampler(r.device, r.matcap_sampler)
 	if r.no_normal_map != nil do sdl.ReleaseGPUTexture(r.device, r.no_normal_map)
 	if r.texture_sampler != nil do sdl.ReleaseGPUSampler(r.device, r.texture_sampler)
+	if r.no_environment != nil do sdl.ReleaseGPUTexture(r.device, r.no_environment)
+	if r.env_sampler != nil do sdl.ReleaseGPUSampler(r.device, r.env_sampler)
 	sdl.ReleaseWindowFromGPUDevice(r.device, r.window)
 	sdl.DestroyGPUDevice(r.device)
 	r^ = {}
@@ -511,7 +537,8 @@ mesh_pipelines_destroy :: proc(r: ^Renderer, p: ^Mesh_Pipelines) {
 }
 
 // With `textured`, the pipeline of textured meshes (textured.odin): their 32-byte
-// interleaved vertex, no paint buffer, the MatCap and three maps, and no polygroup slots.
+// interleaved vertex, no paint buffer, the MatCap, the environment and three maps, and no
+// polygroup slots. Every mesh pipeline samples the MatCap and the environment.
 @(private)
 create_mesh_pipeline :: proc(r: ^Renderer, mode: Mesh_Mode, samples: sdl.GPUSampleCount, textured := false) -> ^sdl.GPUGraphicsPipeline {
 	vert_spv, frag_spv := MESH_VERT_SPV, MESH_FRAG_SPV
@@ -531,7 +558,7 @@ create_mesh_pipeline :: proc(r: ^Renderer, mode: Mesh_Mode, samples: sdl.GPUSamp
 		entrypoint          = "main",
 		format              = {.SPIRV},
 		stage               = .FRAGMENT,
-		num_samplers        = 4 if textured else 1,
+		num_samplers        = 5 if textured else 2,
 		num_uniform_buffers = 1 if textured else 2,
 	})
 	// Shaders are only needed until the pipeline is built.
@@ -658,7 +685,7 @@ create_clear_pipeline :: proc(r: ^Renderer, samples: sdl.GPUSampleCount) -> ^sdl
 	})
 	frag := sdl.CreateGPUShader(r.device, {
 		code_size = len(CLEAR_FRAG_SPV), code = raw_data(CLEAR_FRAG_SPV), entrypoint = "main",
-		format = {.SPIRV}, stage = .FRAGMENT, num_uniform_buffers = 1,
+		format = {.SPIRV}, stage = .FRAGMENT, num_samplers = 1, num_uniform_buffers = 1,
 	})
 	defer if vert != nil do sdl.ReleaseGPUShader(r.device, vert)
 	defer if frag != nil do sdl.ReleaseGPUShader(r.device, frag)
@@ -1081,7 +1108,7 @@ upload_index_ranges :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: ^Mesh_
 // keeps the previous colour and depth and redraws only the screen rectangle the items'
 // damage boxes cover, or nothing at all when nothing changed.
 render_viewport :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, view, proj: Mat4, items: []Draw_Item, use_cache: bool) -> (stats: Viewport_Stats) {
-	key := frame_key(vt^, view, proj, items, r.lod_px, r.floor, r.background)
+	key := frame_key(vt^, view, proj, items, r.lod_px, r.floor, r.background, environment_keyed(r))
 	defer {
 		vt.frame_key = key
 		for item in items do item.mesh.drawn_version = item.mesh.version
@@ -1189,7 +1216,7 @@ render_rect :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Targ
 	pipes := mesh_pipelines(r, vt.samples)
 	pass := target_pass(r, cmd, vt, load = true)
 	sdl.SetGPUScissor(pass, {rect.x, rect.y, rect.w, rect.h})
-	draw_background(r, cmd, pass, pipes, vt^, flat_too = true)
+	draw_background(r, cmd, pass, pipes, vt^, proj, flat_too = true)
 	if drawn != rect do sdl.SetGPUScissor(pass, {drawn.x, drawn.y, drawn.w, drawn.h})
 	draw_scene(r, cmd, pass, pipes, view, proj, items, nil, stats, rect if drawn != rect else nil)
 	sdl.EndGPURenderPass(pass)
@@ -1198,7 +1225,7 @@ render_rect :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Targ
 
 // Hash of what frame_key in Viewport_Target describes.
 @(private)
-frame_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lod_px: f32, floor: Floor_Grid, background: Background) -> u64 {
+frame_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lod_px: f32, floor: Floor_Grid, background: Background, environment: Environment_Keyed) -> u64 {
 	Keyed :: struct {
 		mesh:     ^Mesh_Buffers,
 		matcap:   ^sdl.GPUTexture,
@@ -1224,9 +1251,10 @@ frame_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lod
 		lod_px:        f32,
 		floor:         Floor_Grid,
 		background:    Background,
+		environment:   Environment_Keyed,
 	}
-	#assert(size_of(Header) == 2 * size_of(Mat4) + 16 + size_of(Floor_Grid) + size_of(Background))
-	header := Header{view, proj, vt.width, vt.height, u32(len(items)), lod_px, floor, background}
+	#assert(size_of(Header) == 2 * size_of(Mat4) + 16 + size_of(Floor_Grid) + size_of(Background) + size_of(Environment_Keyed))
+	header := Header{view, proj, vt.width, vt.height, u32(len(items)), lod_px, floor, background, environment}
 	h := hash.fnv64a(slice.bytes_from_ptr(&header, size_of(header)))
 	for item in items {
 		k := Keyed{item.mesh, item.matcap, item.model, item.color, item.material, item.checker, item.look, item.lights, item.surface, b32(item.wireframe), b32(item.flat), b32(item.paint), b32(item.groups), item.slots != nil, false}
@@ -1274,19 +1302,19 @@ render_full :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Targ
 		vt.cache.key = 0
 		prepare_draws(r, cmd, view, proj, items, nil, stats, lod = lod)
 		pass := target_pass(r, cmd, vt, load = false)
-		draw_background(r, cmd, pass, pipes, vt^)
+		draw_background(r, cmd, pass, pipes, vt^, proj)
 		draw_scene(r, cmd, pass, pipes, view, proj, items, nil, stats)
 		sdl.EndGPURenderPass(pass)
 		return
 	}
 	stats.cache_used = true
 
-	key := static_key(vt^, view, proj, items, r.lod_px, r.background)
+	key := static_key(vt^, view, proj, items, r.lod_px, r.background, environment_keyed(r))
 	redraw := key != vt.cache.key
 	prepare_draws(r, cmd, view, proj, items, nil if redraw else true, stats, lod = lod)
 	if redraw {
 		pass := begin_mesh_pass(r, cmd, pipes, vt.cache.color, vt.cache.depth, load = false, keep_depth = true, background = r.background.top)
-		draw_background(r, cmd, pass, pipes, vt^)
+		draw_background(r, cmd, pass, pipes, vt^, proj)
 		draw_items(r, cmd, pass, pipes, view, proj, items, false, stats)
 		sdl.EndGPURenderPass(pass)
 		vt.cache.key = key
@@ -1409,7 +1437,7 @@ indirect_ensure :: proc(r: ^Renderer, mb: ^Mesh_Buffers, commands: u32) -> bool 
 // Identifies the cache contents: the target size, camera, simplification, and every
 // idle item's buffers (by identity and version), transform and colour.
 @(private)
-static_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lod_px: f32, background: Background) -> u64 {
+static_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lod_px: f32, background: Background, environment: Environment_Keyed) -> u64 {
 	Keyed :: struct {
 		mesh:     ^Mesh_Buffers,
 		matcap:   ^sdl.GPUTexture,
@@ -1434,9 +1462,11 @@ static_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lo
 		width, height: u32,
 		lod_px:        f32,
 		background:    Background,
+		_:             u32,
+		environment:   Environment_Keyed,
 	}
-	#assert(size_of(Header) == 2 * size_of(Mat4) + 12 + size_of(Background))
-	header := Header{view, proj, vt.width, vt.height, lod_px, background}
+	#assert(size_of(Header) == 2 * size_of(Mat4) + 16 + size_of(Background) + size_of(Environment_Keyed))
+	header := Header{view, proj, vt.width, vt.height, lod_px, background, 0, environment}
 	h := hash.fnv64a(slice.bytes_from_ptr(&header, size_of(header)))
 	for item in items {
 		if item.live do continue
@@ -1461,15 +1491,28 @@ target_pass :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Targ
 	return begin_mesh_pass(r, cmd, mesh_pipelines(r, vt.samples), target_color(vt), vt.depth, load, keep_depth = true, background = r.background.top, resolve = vt.color if vt.multi_color != nil else nil)
 }
 
-// Paints Renderer.background over the pass (its scissor, if set) at the far plane. A flat
-// one is the colour the pass was cleared to, so it is drawn only with `flat_too`, where
-// part of an earlier frame is being cleared.
+// Paints Renderer.background over the pass (its scissor, if set) at the far plane, or the
+// environment seen through `proj` when the background shows it. A flat one is the colour
+// the pass was cleared to, so it is drawn only with `flat_too`, where part of an earlier
+// frame is being cleared.
 @(private)
-draw_background :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURenderPass, pipes: ^Mesh_Pipelines, vt: Viewport_Target, flat_too := false) {
+draw_background :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURenderPass, pipes: ^Mesh_Pipelines, vt: Viewport_Target, proj: Mat4, flat_too := false) {
 	b := r.background
-	if b.top == b.bottom && !flat_too do return
-	uniforms := Clear_Uniforms{background = b, extent = {f32(vt.height), 0, 0, 0}}
+	shown := environment_background(r)
+	if b.top == b.bottom && !flat_too && !shown do return
+	uniforms := Clear_Uniforms{background = b, extent = {f32(vt.height), f32(vt.width), 0, 0}}
+	if shown {
+		look := r.environment_look
+		// The panorama's axes are the columns of its turn into view space, so its
+		// transpose turns view space into the panorama's.
+		to_env := IDENTITY
+		for c in 0 ..< 3 do for k in 0 ..< 3 do to_env[c, k] = look.rotation[c][k]
+		uniforms.env = {1, look.strength, look.blur * f32(r.environment.levels - 1), look.exposure}
+		uniforms.clip_to_env = to_env * linalg.inverse(proj)
+	}
 	sdl.BindGPUGraphicsPipeline(pass, pipes.clear)
+	binding := environment_binding(r)
+	sdl.BindGPUFragmentSamplers(pass, 0, &binding, 1)
 	sdl.PushGPUFragmentUniformData(cmd, 0, &uniforms, size_of(uniforms))
 	sdl.DrawGPUPrimitives(pass, 3, 1, 0, 0)
 }
@@ -1531,6 +1574,7 @@ draw_items :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURende
 		surface := [4]f32{item.surface.x, item.surface.y, 1 if item.flat else 0, 1 if item.matcap != nil else 0}
 		lights := item.lights if item.lights != {} else lights_default()
 		material := Material_Uniforms{base_color = item.color, params = params, surface = surface, checker = item.checker, look = item.look, lights = lights}
+		material_environment(r, &material)
 		// Drawn solid after all where the blended pipeline is missing, and opaque then.
 		if !see do material.look.w = 0
 		if textured {
@@ -1541,8 +1585,8 @@ draw_items :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURende
 				sdl.PushGPUVertexUniformData(cmd, 0, &frame, size_of(frame))
 				paint := [1]^sdl.GPUBuffer{r.no_paint}
 				sdl.BindGPUVertexStorageBuffers(pass, 0, &paint[0], 1)
-				matcap := [1]sdl.GPUTextureSamplerBinding{{texture = r.no_matcap, sampler = r.matcap_sampler}}
-				sdl.BindGPUFragmentSamplers(pass, 0, &matcap[0], 1)
+				samplers := [2]sdl.GPUTextureSamplerBinding{{texture = r.no_matcap, sampler = r.matcap_sampler}, environment_binding(r)}
+				sdl.BindGPUFragmentSamplers(pass, 0, &samplers[0], len(samplers))
 				vbufs := [2]sdl.GPUBufferBinding{{buffer = mb.positions}, {buffer = mb.normals}}
 				sdl.BindGPUVertexBuffers(pass, 0, &vbufs[0], len(vbufs))
 				wire_pass(r, cmd, pass, pipes, item)
@@ -1554,8 +1598,8 @@ draw_items :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURende
 		sdl.PushGPUFragmentUniformData(cmd, 0, &material, size_of(material))
 		paint := [1]^sdl.GPUBuffer{mb.paint if mb.paint != nil else r.no_paint}
 		sdl.BindGPUVertexStorageBuffers(pass, 0, &paint[0], 1)
-		matcap := [1]sdl.GPUTextureSamplerBinding{{texture = item.matcap if item.matcap != nil else r.no_matcap, sampler = r.matcap_sampler}}
-		sdl.BindGPUFragmentSamplers(pass, 0, &matcap[0], 1)
+		samplers := [2]sdl.GPUTextureSamplerBinding{{texture = item.matcap if item.matcap != nil else r.no_matcap, sampler = r.matcap_sampler}, environment_binding(r)}
+		sdl.BindGPUFragmentSamplers(pass, 0, &samplers[0], len(samplers))
 		vbufs := [2]sdl.GPUBufferBinding{{buffer = mb.positions}, {buffer = mb.normals}}
 		sdl.BindGPUVertexBuffers(pass, 0, &vbufs[0], len(vbufs))
 		draw_item_triangles(r, pass, item, stats)

@@ -48,6 +48,7 @@ File_Kind :: enum u8 {
 	Normal_Map,     // ... its normal map
 	Link_Send,    // the selected objects go to the Blender link's folder (link.odin); no path
 	Link_Get,     // what Blender left in the link's folder comes in; the path is LINK_AUTO for the focus check's
+	Environment,  // a panorama lights the physically based materials (environment.odin)
 }
 
 File_Request :: struct {
@@ -88,6 +89,13 @@ SCENE_FILTERS := [?]sdl.DialogFileFilter{{"Sculpt scene", "sculpt"}}
 PNG_FILTERS := [?]sdl.DialogFileFilter{{"PNG image", "png"}}
 @(private = "file")
 IMAGE_FILTERS := [?]sdl.DialogFileFilter{{"Images (PNG, JPEG, BMP, TGA, QOI)", "png;jpg;jpeg;bmp;tga;qoi"}}
+// Android's picker knows no MIME type for `.hdr` and would hide Radiance files, so there
+// every file is offered and the decoder's own check of the bytes decides, as for packs.
+when ODIN_PLATFORM_SUBTARGET == .Android {
+	ENVIRONMENT_FILTERS := [?]sdl.DialogFileFilter{{"All files", "*"}}
+} else {
+	ENVIRONMENT_FILTERS := [?]sdl.DialogFileFilter{{"Panoramas (Radiance HDR, PNG, JPEG, BMP, TGA, QOI)", "hdr;png;jpg;jpeg;bmp;tga;qoi"}}
+}
 @(private = "file")
 STROKES_FILTERS := [?]sdl.DialogFileFilter{{"Recorded strokes", "strokes"}}
 @(private = "file")
@@ -122,6 +130,8 @@ file_dialog :: proc(app: ^App, kind: File_Kind) {
 		sdl.ShowOpenFileDialog(file_dialog_done, userdata, app.window, raw_data(SCENE_FILTERS[:]), len(SCENE_FILTERS), nil, false)
 	case .Alpha, .Matcap, .Base_Color_Map, .Orm_Map, .Normal_Map:
 		sdl.ShowOpenFileDialog(file_dialog_done, userdata, app.window, raw_data(IMAGE_FILTERS[:]), len(IMAGE_FILTERS), nil, false)
+	case .Environment:
+		sdl.ShowOpenFileDialog(file_dialog_done, userdata, app.window, raw_data(ENVIRONMENT_FILTERS[:]), len(ENVIRONMENT_FILTERS), nil, false)
 	case .Screenshot:
 		sdl.ShowSaveFileDialog(file_dialog_done, userdata, app.window, raw_data(PNG_FILTERS[:]), len(PNG_FILTERS), nil)
 	case .Save_Strokes:
@@ -293,6 +303,8 @@ file_apply :: proc(app: ^App, req: File_Request) -> bool {
 		_ = alpha_keep(app, req.path)
 	case .Matcap:
 		_ = matcap_load(app, req.path)
+	case .Environment:
+		_ = environment_load(app, req.path)
 	case .Base_Color_Map, .Orm_Map, .Normal_Map:
 		for kind, m in TEXTURE_FILE_KINDS do if kind == req.kind {
 			if why := texture_load(app, selected_object(app), m, req.path); why != "" do file_note(app, true, "%s", why)

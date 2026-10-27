@@ -410,6 +410,7 @@ SCENE_SECTIONS := [?]Kit_Tab_Section {
 	{.Add, "Add object", kit_add, nil},
 	{.Material, "Material", kit_material, nil},
 	{.Lights, "Lights", kit_lights, nil},
+	{.Environment, "Environment", kit_environment, nil},
 	{.Studio, "Studio render", kit_studio, nil},
 	{.Camera, "Camera", kit_camera, nil},
 	{.Floor, "Floor grid", kit_floor, nil},
