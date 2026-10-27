@@ -256,7 +256,8 @@ autosave_quiet :: proc(app: ^App) -> bool {
 // What decides whether the scene changed since the last autosave: the History's edits,
 // the changes it does not list, and per object what object_put stores outside its
 // levels' undo (its name, placement and boolean mode) and the level shown, the number
-// of levels and HD steps. The camera is left out: a new view alone is not worth a write.
+// of levels and HD steps, and the scene's lights as the file stores them. The camera is
+// left out: a new view alone is not worth a write.
 scene_fingerprint :: proc(app: ^App) -> u64 {
 	Part :: struct {
 		id:         i64,
@@ -270,6 +271,9 @@ scene_fingerprint :: proc(app: ^App) -> u64 {
 		name:       u64,
 	}
 	h := xxhash.XXH3_64(mem.ptr_to_bytes(&[4]u64{app.history.edits, app.scene_edits, app.view_edits, u64(len(app.scene.objects))}))
+	lights := make([dynamic]u8, 0, 1024, context.temp_allocator)
+	lights_put(&lights, app.scene.lights)
+	h = xxhash.XXH3_64(lights[:], h)
 	for obj in app.scene.objects {
 		t := obj.transform
 		part := Part {

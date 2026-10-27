@@ -31,23 +31,48 @@ Light_Sphere_State :: struct {
 
 kit_lights :: proc(app: ^App) {
 	ctx := &app.kit.ctx
+	set := &app.scene.lights
+	// Everything changed here, from a press to its release, is one undo step.
+	before := set^
+	defer {
+		lights_settle(app)
+		if set^ != before do light_drag_changed(app, before)
+	}
+	app.light_pick = clamp(app.light_pick, 0, max(int(set.count) - 1, 0))
 	kit_light_sphere(app)
-	names := [LIGHT_COUNT]string{"Light 1", "Light 2", "Light 3", "Light 4"}
-	if picked := ui.tabs(ctx, "light picked", names[:], app.light_pick); picked >= 0 do app.light_pick = picked
-	light := &app.lights[app.light_pick]
+	if set.count <= 0 {
+		ui.paragraph(ctx, "The scene has no lights; its ambient light and the environment light it.")
+		_ = ui.slider(ctx, "Ambient", &set.ambient, 0, LIGHT_STRENGTH_MAX, .Linear, fmt.tprintf("%.2f", set.ambient))
+		return
+	}
+	names := make([]string, set.count, context.temp_allocator)
+	for &name, i in names do name = fmt.tprintf("%d", i + 1)
+	if picked := ui.tabs(ctx, "light picked", names, app.light_pick); picked >= 0 do app.light_pick = picked
+	light := &set.lights[app.light_pick]
 	_ = ui.switch_row(ctx, "On", &light.on)
 	_ = ui.slider(ctx, "Intensity", &light.strength, 0, LIGHT_STRENGTH_MAX, .Linear, fmt.tprintf("%.2f", light.strength))
-	_ = ui.slider(ctx, "Ambient", &app.light_ambient, 0, LIGHT_STRENGTH_MAX, .Linear, fmt.tprintf("%.2f", app.light_ambient))
+	_ = ui.slider(ctx, "Ambient", &set.ambient, 0, LIGHT_STRENGTH_MAX, .Linear, fmt.tprintf("%.2f", set.ambient))
 	if kit_more(app, .Lights) {
 		_ = kit_color(app, fmt.tprintf("light %d colour", app.light_pick + 1), &light.color, linear = true)
-		fixed := app.lights_fixed
-		if ui.switch_row(ctx, "Fixed to the scene", &fixed) do lights_fix(app, fixed)
+		if kind := ui.tabs(ctx, "light kind", LIGHT_KIND_LABELS[:], int(light.kind)); kind >= 0 do light.kind = Light_Kind(kind)
+		if light.kind == .Spot {
+			_ = ui.slider(ctx, "Cone", &light.cone, LIGHT_CONE_MIN, LIGHT_CONE_MAX, .Linear, fmt.tprintf("%.0f°", light.cone))
+			_ = ui.slider(ctx, "Soft edge", &light.blend, 0, 1, .Linear, fmt.tprintf("%.0f%%", light.blend * 100))
+		}
+		ui.label(ctx, "Moves with")
+		if space := ui.tabs(ctx, "light space", LIGHT_SPACE_LABELS[:], int(light.space)); space >= 0 do light_set_space(app, app.light_pick, Light_Space(space))
+		fixed := lights_fixed(app)
+		if ui.switch_row(ctx, "All fixed to the scene", &fixed) do lights_fix(app, fixed)
 		_ = ui.slider(ctx, "Turn all", &app.light_turn, -180, 180, .Linear, fmt.tprintf("%+.0f°", app.light_turn))
 		_ = ui.slider(ctx, "Height all", &app.light_height, -90, 90, .Linear, fmt.tprintf("%+.0f°", app.light_height))
-		if ui.button(ctx, "Reset lights", .Bordered) do lights_reset(app)
+		if ui.button(ctx, "Use as starting lights", .Bordered) {
+			app.start_lights = set^
+			report(app, Kit_Section.Lights, {}, "New scenes start with these lights")
+		}
+		if ui.button(ctx, "Reset lights", .Bordered) do set^ = LIGHTS_DEFAULT
 		kit_more_end(app)
 	}
-	ui.paragraph(ctx, "Drag on the sphere to move the picked light; tap it to send it behind the model or bring it back. Fixed to the scene, the lights stay put while the camera goes round, as on a turntable; otherwise they turn with the camera. MatCaps carry their own light.")
+	ui.paragraph(ctx, "Drag on the sphere to move the picked light; tap it to send it behind the model or bring it back. A sun shines from a direction; a point light and a spot shine from where they are, brighter close up. A light moving with the camera keeps lighting the model the same way while it turns; one in the scene stays put, as on a turntable. The lights are saved with the scene. MatCaps carry their own light.")
 }
 
 // The light sphere: a ball lit by the lights as the camera sees them, each light that is
@@ -62,6 +87,7 @@ kit_light_sphere :: proc(app: ^App) {
 	radius := min(a.rect.w, a.rect.h) * 0.5 - 8
 	centre := [2]f32{a.rect.x + a.rect.w * 0.5, a.rect.y + a.rect.h * 0.5}
 	light_sphere_draw(app, centre, radius)
+	if app.scene.lights.count <= 0 do return
 
 	st := &app.kit.light_sphere
 	at := (a.mouse - centre) / radius
@@ -75,7 +101,7 @@ kit_light_sphere :: proc(app: ^App) {
 	pick := app.light_pick
 	place :: proc(app: ^App, i: int, at: [2]f32) {
 		light_set_view_dir(app, i, light_sphere_dir(at, light_view_dir(app, i).z >= 0))
-		app.lights[i].on = true
+		app.scene.lights.lights[i].on = true
 	}
 	if a.held {
 		if !st.moved && linalg.length(a.mouse - st.from) > t.slop do st.moved = true
@@ -97,7 +123,8 @@ kit_light_sphere :: proc(app: ^App) {
 // -1 for none.
 light_sphere_hit :: proc(app: ^App, centre: [2]f32, radius: f32, p: [2]f32, reach: f32) -> int {
 	best, at := reach, -1
-	for light, i in app.lights {
+	set := &app.scene.lights
+	for light, i in set.lights[:set.count] {
 		if !light.on do continue
 		if d := linalg.length(light_marker(app, i, centre, radius) - p); d <= best do best, at = d, i
 	}
@@ -122,12 +149,14 @@ light_sphere_draw :: proc(app: ^App, centre: [2]f32, radius: f32) {
 	points: [COUNT][2]f32
 	colors: [COUNT]ui.Color
 	indices: [(SPHERE_SEGMENTS + (SPHERE_RINGS - 1) * SPHERE_SEGMENTS * 2) * 3]u32
+	set := &app.scene.lights
 	view: [LIGHT_COUNT][3]f32
-	for &d, i in view do d = light_view_dir(app, i)
+	for &d, i in view[:set.count] do d = light_view_dir(app, i)
 	shade :: proc(app: ^App, view: [LIGHT_COUNT][3]f32, at: [2]f32) -> ui.Color {
 		n := [3]f32{at.x, at.y, math.sqrt(max(1 - at.x * at.x - at.y * at.y, 0))}
-		c := [3]f32{0.12, 0.12, 0.12} * app.light_ambient
-		for light, i in app.lights {
+		set := &app.scene.lights
+		c := [3]f32{0.12, 0.12, 0.12} * set.ambient
+		for light, i in set.lights[:set.count] {
 			if !light.on do continue
 			c += light.color * (light.strength * 0.7 * max(linalg.dot(n, view[i]), 0))
 		}
@@ -166,7 +195,7 @@ light_sphere_draw :: proc(app: ^App, centre: [2]f32, radius: f32) {
 
 	// The markers, those behind first so the ones in front cover them.
 	for front in ([2]bool{false, true}) {
-		for light, i in app.lights {
+		for light, i in set.lights[:set.count] {
 			if !light.on || (view[i].z >= 0) != front do continue
 			p := light_marker(app, i, centre, radius)
 			shown := light.color
