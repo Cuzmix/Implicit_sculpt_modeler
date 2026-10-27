@@ -247,6 +247,7 @@ SETTINGS := [?]Setting {
 	{"twist_roll", N + offset_of(Nav_Prefs, twist_roll), bool, 0, 0},
 	{"three_finger", N + offset_of(Nav_Prefs, three_finger), bool, 0, 0},
 	{"touch_strength", N + offset_of(Nav_Prefs, touch_strength), f32, TOUCH_STRENGTH_MIN, 1},
+	{"hold_delay", N + offset_of(Nav_Prefs, hold_delay), f32, HOLD_DELAY_MIN, HOLD_DELAY_MAX},
 	{"palm_rejection", N + offset_of(Nav_Prefs, palm_rejection), bool, 0, 0},
 	{"double_tap", N + offset_of(Nav_Prefs, double_tap), bool, 0, 0},
 	{"lift_one_orbit", N + offset_of(Nav_Prefs, lift_one_orbit), bool, 0, 0},
