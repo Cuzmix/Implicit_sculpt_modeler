@@ -7,6 +7,10 @@ objects as `blender-<id>.ply` and then `blender.txt`, which Sculpt takes back wi
 Blender, or by itself when its window gets the focus. Nothing else passes between the two:
 no network, no program started.
 
+Each send from Sculpt also lists its lights that are on, which Get from Sculpt makes
+Blender lights of in a "Sculpt lights" collection, with the same watts a glTF export of
+them gives (Bring lights in the panel; on by default). Lights go one way only.
+
 Positions stay in the object's own space and are never converted, so a mesh left alone
 goes back to Sculpt bit for bit; the turn from Sculpt's Y up to Blender's Z up is in the
 object's matrix instead. A mesh from Sculpt is triangles already and keeps its vertex and
@@ -29,12 +33,17 @@ from mathutils import Euler, Matrix, Vector
 bl_info = {
     "name": "Sculpt link",
     "author": "Implicit",
-    "version": (1, 0, 0),
+    "version": (1, 1, 0),
     "blender": (4, 2, 0),
     "location": "3D Viewport > Sidebar > Sculpt",
     "description": "Sends meshes to and from the Sculpt app, as GoZ does for ZBrush",
     "category": "Import-Export",
 }
+
+LIGHT_COLLECTION = "Sculpt lights"
+LIGHT_TYPES = {"directional": "SUN", "point": "POINT", "spot": "SPOT"}
+# Lumens a watt, as glTF's importers turn lux and candela into a sun's and a lamp's watts.
+LUMENS_PER_WATT = 683
 
 SENT_FILE = "link.txt"
 BACK_FILE = "blender.txt"
@@ -95,7 +104,9 @@ def read_manifest(path, head):
     """A manifest as a dict (token, seq, objects), or None when it is missing or damaged
     anywhere: one send is taken whole or not at all. Each object is a dict of id, level,
     name, file, vertices, triangles and transform (the seven words as written, so an
-    untouched one goes back exactly)."""
+    untouched one goes back exactly); each light one of name, type (Blender's), position,
+    direction, colour, intensity (lux or candela), range and inner and outer half angles,
+    in Sculpt's axes."""
     try:
         with open(path, encoding="utf-8") as f:
             lines = f.read().split("\n")
@@ -104,7 +115,7 @@ def read_manifest(path, head):
     first = lines[0].split()
     if len(first) != 2 or first[0] != head:
         return None
-    token, seq, objects = None, None, []
+    token, seq, objects, lights = None, None, [], []
     for line in lines[1:]:
         f = line.split()
         if not f:
@@ -123,11 +134,20 @@ def read_manifest(path, head):
                     return None
                 objects.append({"id": int(f[1]), "level": int(f[2]), "name": name_from_word(f[3]), "file": f[4],
                                 "vertices": int(f[5]), "triangles": int(f[6]), "transform": f[7:]})
+            elif f[0] == "light":
+                if len(f) != 16 or f[2] not in LIGHT_TYPES:
+                    return None
+                values = [float(w) for w in f[3:]]
+                if not all(math.isfinite(v) for v in values) or min(values[6:11]) < 0:
+                    return None
+                lights.append({"name": name_from_word(f[1]), "type": LIGHT_TYPES[f[2]], "position": values[0:3],
+                               "direction": values[3:6], "color": values[6:9], "intensity": values[9],
+                               "range": values[10], "inner": values[11], "outer": values[12]})
         except ValueError:
             return None
     if token is None or seq is None:
         return None
-    return {"token": token, "seq": seq, "objects": objects}
+    return {"token": token, "seq": seq, "objects": objects, "lights": lights}
 
 
 def write_manifest(path, head, token, seq, objects):
@@ -272,11 +292,67 @@ def _same_triangles(mesh, triangles):
     return np.array_equal(starts, np.arange(0, len(mesh.loops), 3)) and np.array_equal(corners, triangles.ravel())
 
 
-def get_from_sculpt(folder, collection=None):
+def light_matrix(position, direction):
+    """Blender's matrix_world for a light at Sculpt's `position` shining Sculpt's
+    `direction`: its -Z, which a Blender light shines along, turned onto it, Z up."""
+    shines = Y_UP_TO_Z_UP.to_3x3() @ Vector(direction)
+    shines = shines.normalized() if shines.length > 1e-12 else Vector((0, 0, -1))
+    turn = Vector((0, 0, -1)).rotation_difference(shines).to_matrix().to_4x4()
+    return Matrix.Translation(Y_UP_TO_Z_UP @ Vector(position)) @ turn
+
+
+def set_lights(lights, token):
+    """Makes the "Sculpt lights" collection hold Sculpt's lights: each updates the light
+    made from it before (by name), else a new one is made, and one an earlier send made
+    that this one does not list goes. A sun's strength is its lux over 683 lumens a watt
+    and a lamp's power its candela times 4 pi over 683, as Blender's glTF importer gives
+    them, with no radius, as glTF's lights have none. Returns the light objects."""
+    collection = bpy.data.collections.get(LIGHT_COLLECTION)
+    if collection is None:
+        if not lights:
+            return []
+        collection = bpy.data.collections.new(LIGHT_COLLECTION)
+        bpy.context.scene.collection.children.link(collection)
+    old = {o["sculpt_light"]: o for o in collection.objects if o.type == "LIGHT" and "sculpt_light" in o}
+    made = []
+    for k, l in enumerate(lights):
+        key = l["name"] or f"Light {k + 1}"
+        while any(o.get("sculpt_light") == key for o in made):
+            key += " +"
+        obj = old.pop(key, None)
+        if obj is None:
+            obj = bpy.data.objects.new(key, bpy.data.lights.new(key, l["type"]))
+            collection.objects.link(obj)
+        elif obj.data.type != l["type"]:
+            obj.data.type = l["type"]
+        light = obj.data
+        light.color = l["color"]
+        if l["type"] == "SUN":
+            light.energy = l["intensity"] / LUMENS_PER_WATT
+        else:
+            light.energy = l["intensity"] * 4 * math.pi / LUMENS_PER_WATT
+            light.shadow_soft_size = 0
+        if l["type"] == "SPOT":
+            outer = max(l["outer"], 1e-4)
+            light.spot_size = 2 * outer
+            light.spot_blend = min(max(1 - l["inner"] / outer, 0), 1)
+        obj.matrix_world = light_matrix(l["position"], l["direction"])
+        obj["sculpt_light"], obj["sculpt_scene"] = key, token
+        made.append(obj)
+    for gone in old.values():
+        data = gone.data
+        bpy.data.objects.remove(gone)
+        if data.users == 0:
+            bpy.data.lights.remove(data)
+    return made
+
+
+def get_from_sculpt(folder, collection=None, lights=True):
     """Brings in what Sculpt sent: each object updates the Blender object made from it
     before (same scene token and id), its vertices only when the counts match, so its UVs,
     modifiers and materials stay, or else a new mesh; otherwise a new object is made in
-    `collection` (the scene's by default). Returns the objects, or a message on failure."""
+    `collection` (the scene's by default). With `lights` the lights come too (set_lights).
+    Returns the objects, or a message on failure."""
     sent = read_manifest(os.path.join(folder, SENT_FILE), "sculpt_link")
     if sent is None:
         return f"No send from Sculpt in {folder}: Send to Blender in Sculpt first"
@@ -309,6 +385,8 @@ def get_from_sculpt(folder, collection=None):
         obj.matrix_world = sculpt_matrix(o["transform"])
         obj["sculpt_matrix"] = [obj.matrix_world[i][j] for i in range(4) for j in range(4)]
         made.append(obj)
+    if lights:
+        set_lights(sent["lights"], sent["token"])
     bpy.context.scene["sculpt_link_got"] = sent["seq"]
     return made
 
@@ -397,7 +475,7 @@ class SCULPTLINK_OT_get(bpy.types.Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
-        result = get_from_sculpt(_folder(context))
+        result = get_from_sculpt(_folder(context), lights=context.window_manager.sculpt_link.bring_lights)
         if isinstance(result, str):
             self.report({"WARNING"}, result)
             return {"CANCELLED"}
@@ -428,7 +506,7 @@ def _auto_get():
         return None
     sent = read_manifest(os.path.join(_folder(context), SENT_FILE), "sculpt_link")
     if sent and sent["seq"] > context.scene.get("sculpt_link_got", 0):
-        get_from_sculpt(_folder(context))
+        get_from_sculpt(_folder(context), lights=settings.bring_lights)
     return 1.0
 
 
@@ -440,6 +518,8 @@ def _auto_changed(self, context):
 class SCULPTLINK_Settings(bpy.types.PropertyGroup):
     apply_modifiers: bpy.props.BoolProperty(name="Apply modifiers", default=False,
                                             description="Sends the meshes as the modifiers leave them; Sculpt then rebuilds its objects from them rather than moving their vertices")
+    bring_lights: bpy.props.BoolProperty(name="Bring lights", default=True,
+                                         description="Get from Sculpt also makes Sculpt's lights that are on, in a Sculpt lights collection")
     auto_get: bpy.props.BoolProperty(name="Auto get", default=False, update=_auto_changed,
                                      description="Gets each new send from Sculpt by itself, looking once a second")
 
@@ -455,6 +535,7 @@ class SCULPTLINK_PT_panel(bpy.types.Panel):
         settings = context.window_manager.sculpt_link
         layout.operator(SCULPTLINK_OT_get.bl_idname, icon="IMPORT")
         layout.prop(settings, "auto_get")
+        layout.prop(settings, "bring_lights")
         layout.separator()
         layout.operator(SCULPTLINK_OT_send.bl_idname, icon="EXPORT")
         layout.prop(settings, "apply_modifiers")

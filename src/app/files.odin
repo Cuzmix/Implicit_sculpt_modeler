@@ -556,7 +556,7 @@ object_export :: proc(app: ^App, obj: ^Object, path: string) -> bool {
 			q := sculpt.levels_quad_mesh(&obj.levels)
 			paint := colors if obj.textures.image[.Base_Color] == nil else nil
 			written: bool
-			vertices, written = quad_object_glb(&out, obj, q, object_label(obj), obj.textures.image, material, true, morphs, paint, export_lights(app, obj))
+			vertices, written = quad_object_glb(&out, obj, q, object_label(obj), obj.textures.image, material, true, morphs, paint, export_lights(app, obj.transform))
 			if !written {
 				free_all(context.temp_allocator)
 				file_note(app, true, "Cannot export %s: a glTF file holds at most 4 GB", name)
@@ -574,7 +574,7 @@ object_export :: proc(app: ^App, obj: ^Object, path: string) -> bool {
 			scale     = obj.file.scale,
 			offset    = obj.file.position,
 			material  = material,
-			lights    = export_lights(app, obj),
+			lights    = export_lights(app, obj.transform),
 		}
 		if ext == ".usda" do usd_extras(obj, lv, &m)
 		if object_shows_group_materials(obj) && !object_dynamic(obj) {

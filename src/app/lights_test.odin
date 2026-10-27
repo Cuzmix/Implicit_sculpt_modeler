@@ -626,7 +626,7 @@ lights_go_out_with_an_export :: proc(t: ^testing.T) {
 	set.lights[2] = {on = true, kind = .Spot, space = .Scene, dir = {0, 1, 0}, pos = {1, 4, 2}, ref = 3, reach = 10, strength = 0.5, color = 1, kelvin = 3000, cone = 60, blend = 0.5}
 	light_name_set(&set.lights[2], "Lamp")
 	obj := Object{transform = {position = {1, 0, 0}, scale = 2, rotation = {0, 90, 0}}}
-	got := export_lights(&app, &obj)
+	got := export_lights(&app, obj.transform)
 	defer free_all(context.temp_allocator)
 	if !testing.expect_value(t, len(got), 2) do return
 	sun := got[0]
