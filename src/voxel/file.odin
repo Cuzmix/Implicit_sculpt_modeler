@@ -13,7 +13,7 @@ import "../jobs"
 // what is left before anything is read.
 
 SVOX_TAG :: u32(0x584F_5653) // "SVOX" in the file
-SVOX_VERSION :: u32(1)
+SVOX_VERSION :: u32(2) // 2: a brick may carry a mask (code 3: its values, then a byte a voxel)
 
 // Tile codes in the file.
 @(private = "file")
@@ -22,6 +22,8 @@ FILE_EMPTY :: u8(0)
 FILE_INSIDE :: u8(1)
 @(private = "file")
 FILE_BRICK :: u8(2)
+@(private = "file")
+FILE_BRICK_MASKED :: u8(3)
 
 // Appends the clay's field to `out`. `abort`, when given, is read between chunks (the
 // autosave thread asks the writer to stop before a change): false when it was set.
@@ -53,12 +55,13 @@ clay_write :: proc(c: ^Clay, out: ^[dynamic]u8, abort: ^bool = nil) -> bool {
 			case TILE_INSIDE:
 				codes[i] = FILE_INSIDE
 			case:
-				codes[i] = FILE_BRICK
+				codes[i] = FILE_BRICK_MASKED if mask_of(v, slot) != nil else FILE_BRICK
 			}
 		}
 		for slot in table.bricks {
 			if slot == TILE_EMPTY || slot == TILE_INSIDE do continue
 			geom.byte_put_slice(out, v.bricks[slot].d[:])
+			if m := mask_of(v, slot); m != nil do geom.byte_put_slice(out, m.m[:])
 		}
 	}
 	return true
@@ -68,7 +71,8 @@ clay_write :: proc(c: ^Clay, out: ^[dynamic]u8, abort: ^bool = nil) -> bool {
 // `c` left empty, when the bytes are not a clay. Every node is queued for meshing.
 clay_read :: proc(c: ^Clay, r: ^geom.Byte_Reader, pool: ^jobs.Pool, allocator := context.allocator) -> bool {
 	if geom.byte_get(r, u32) != SVOX_TAG do return false
-	if geom.byte_get(r, u32) != SVOX_VERSION do return false
+	version := geom.byte_get(r, u32)
+	if version < 1 || version > SVOX_VERSION do return false
 	voxel := geom.byte_get(r, f32)
 	origin := geom.byte_get(r, Vec3)
 	count := int(geom.byte_get(r, u32))
@@ -76,7 +80,7 @@ clay_read :: proc(c: ^Clay, r: ^geom.Byte_Reader, pool: ^jobs.Pool, allocator :=
 	for x in origin do if math.is_nan(x) || math.is_inf(x) do return false
 	clay_init(c, voxel, {}, pool, allocator)
 	c.volume.origin = origin
-	ok := clay_read_chunks(c, r, count)
+	ok := clay_read_chunks(c, r, count, version)
 	if !ok {
 		clay_destroy(c)
 		return false
@@ -88,7 +92,7 @@ clay_read :: proc(c: ^Clay, r: ^geom.Byte_Reader, pool: ^jobs.Pool, allocator :=
 }
 
 @(private = "file")
-clay_read_chunks :: proc(c: ^Clay, r: ^geom.Byte_Reader, count: int) -> bool {
+clay_read_chunks :: proc(c: ^Clay, r: ^geom.Byte_Reader, count: int, version: u32) -> bool {
 	v := &c.volume
 	for _ in 0 ..< count {
 		cc := geom.byte_get(r, [3]u32)
@@ -97,21 +101,23 @@ clay_read_chunks :: proc(c: ^Clay, r: ^geom.Byte_Reader, count: int) -> bool {
 		if volume_table(v, bc) != nil do return false // listed twice
 		codes := geom.byte_get_bytes(r, CHUNK_BRICKS * CHUNK_BRICKS * CHUNK_BRICKS)
 		if codes == nil do return false
-		bricks := 0
+		bricks, masked := 0, 0
 		for code in codes {
-			if code > FILE_BRICK do return false
+			if code > FILE_BRICK_MASKED || (version < 2 && code == FILE_BRICK_MASKED) do return false
 			if code == FILE_BRICK do bricks += 1
+			if code == FILE_BRICK_MASKED do masked += 1
 		}
-		if len(r.data) - r.at < bricks * size_of(Brick) do return false
+		if len(r.data) - r.at < (bricks + masked) * size_of(Brick) + masked * size_of(Mask_Brick) do return false
 		table := volume_table_make(v, bc)
 		for code, i in codes {
 			lb := [3]i32{i32(i % CHUNK_BRICKS), i32(i / CHUNK_BRICKS % CHUNK_BRICKS), i32(i / (CHUNK_BRICKS * CHUNK_BRICKS))}
 			switch code {
 			case FILE_INSIDE:
 				table.bricks[i] = TILE_INSIDE
-			case FILE_BRICK:
-				_, brick := volume_brick_make(v, bc + lb, 0)
+			case FILE_BRICK, FILE_BRICK_MASKED:
+				slot, brick := volume_brick_make(v, bc + lb, 0)
 				geom.byte_get_slice(r, brick.d[:])
+				if code == FILE_BRICK_MASKED do geom.byte_get_slice(r, mask_make(v, slot).m[:])
 			}
 		}
 	}
@@ -122,7 +128,9 @@ clay_read_chunks :: proc(c: ^Clay, r: ^geom.Byte_Reader, count: int) -> bool {
 clay_write_estimate :: proc(c: ^Clay) -> int {
 	v := &c.volume
 	// The header: tag, version, voxel, origin and the chunk count.
-	return 28 + len(v.tables) * (12 + CHUNK_BRICKS * CHUNK_BRICKS * CHUNK_BRICKS) + volume_brick_count(v) * size_of(Brick)
+	masked := 0
+	for coord, slot in v.coords do if coord != BRICK_FREE && mask_of(v, u32(slot)) != nil do masked += 1
+	return 28 + len(v.tables) * (12 + CHUNK_BRICKS * CHUNK_BRICKS * CHUNK_BRICKS) + volume_brick_count(v) * size_of(Brick) + masked * size_of(Mask_Brick)
 }
 
 // A hash of the field, for the autosave's torn-file check: a sum of per-brick hashes, so

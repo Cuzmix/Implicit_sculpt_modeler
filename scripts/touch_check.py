@@ -642,6 +642,22 @@ LIGHT_SPHERE = (1377, 249)
 LIGHT_SPHERE_R = 80
 
 
+# The Lights section's Add Point button, and the first light's eye in its list, in points.
+LIGHT_ADD_POINT = (1388, 583)
+LIGHT1_EYE = (1498, 367)
+
+
+@scenario
+def lights_added_and_switched_off_in_the_list():
+    """In Scene: Lights, a tap on Add Point adds a fifth light, a point light, and picks it; a tap on the first light's eye switches it off; each is one undo step and nothing is sculpted."""
+    s = Script()
+    s.ftap(*LIGHT_ADD_POINT)
+    s.wait(4)
+    s.ftap(*LIGHT1_EYE)
+    s.wait(4)
+    return s, ["--script=show_section lights"], camera_still({"dabs": near(0), "light_count": near(5), "light_pick": near(5), "light1_on": near(0), "undo_steps": near(2)})
+
+
 @scenario
 def light_sphere_moves_and_flips_lights():
     """In Scene: Lights, a finger drag from the first light's marker on the sphere moves that light to where it lets go (in front still); a tap on it then sends it behind the model; nothing is sculpted and the camera stays."""
@@ -5676,7 +5692,13 @@ def layers_survive_a_rebuild():
              (run(subdivide), ["--script=new_layer"], {"layers": near(1, 0), "layers_noted": near(1, 0), "vertices": near(163842, 0), "undo_steps": near(1, 0), "selected_levels": near(2, 0)}),
              (run(subdivide, undo=True), ["--script=new_layer"], {"layers": near(1, 0), "vertices": near(40962, 0), "undo_steps": near(0, 0), "selected_levels": near(1, 0)}),
              (run(lambda s: palette_run(s, "make boolean")), ["--spheres=2", "--script=new_layer; select 2; boolean union; move 0.9 0 0; select 1"],
-              {"objects": near(1, 0), "layers": near(1, 0), "layers_noted": near(1, 0)})]
+              {"objects": near(1, 0), "layers": near(1, 0), "layers_noted": near(1, 0)}),
+             # A voxel base: the copy is cut out of the sphere on the field, and one clay object is left.
+             (run(lambda s: palette_run(s, "make boolean")), ["--voxels=96", "--script=duplicate_object; boolean subtract; move 0.9 0 0; select 1"],
+              {"objects": near(1, 0), "voxel_objects": near(1, 0)}),
+             # Clay takes a mask shape and the whole-mask commands: the top half masked, then inverted, then cleared, three undo steps.
+             (run(lambda s: (palette_run(s, "invert mask"), palette_run(s, "clear mask"))), ["--voxels=96", "--script=mask_rect 0 0 1 0.5"],
+              {"voxel_objects": near(1, 0), "undo_steps": near(3, 0), "mask_scans": lambda v: int(v) > 0})]
     # Two spheres start with the view framing both, so the last run is not checked for a still camera.
     return Steps([(sc, args, camera_still(want) if k < 7 else want) for k, (sc, args, want) in enumerate(steps)])
 

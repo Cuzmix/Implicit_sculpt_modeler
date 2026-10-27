@@ -13,7 +13,7 @@ import "../jobs"
 // the cell, so each node finds the owners of its copies on its own, every pass runs a node
 // a job and one thread and many give the same mesh. A copy whose owner node does not exist
 // (its cell lies on the domain's edge) keeps its own vertex.
-clay_to_mesh :: proc(c: ^Clay, allocator := context.allocator) -> (m: geom.Mesh) {
+clay_to_mesh :: proc(c: ^Clay, allocator := context.allocator, mask: ^[]u8 = nil) -> (m: geom.Mesh) {
 	s := &c.surface
 	// Flush first, so the mesh is the clay as it is now.
 	_ = clay_flush(c)
@@ -27,6 +27,7 @@ clay_to_mesh :: proc(c: ^Clay, allocator := context.allocator) -> (m: geom.Mesh)
 		kept:   []u32, // per node: the vertices it keeps (owned and orphans), then where they start
 		tris:   []u32, // per node: the triangles it keeps, then where they start
 		m:      ^geom.Mesh,
+		mask:   []u8, // per mesh vertex: its mask, when asked for
 	}
 	n := len(s.nodes)
 	total := len(s.mesh.positions)
@@ -111,6 +112,10 @@ clay_to_mesh :: proc(c: ^Clay, allocator := context.allocator) -> (m: geom.Mesh)
 	w.kept[n] = vertices
 	m.positions = make([dynamic]Vec3, int(vertices), allocator)
 	m.normals = make([dynamic]Vec3, int(vertices), allocator)
+	if mask != nil {
+		mask^ = make([]u8, int(vertices), allocator)
+		w.mask = mask^
+	}
 	// The kept vertices go into the mesh in node order, then slot order.
 	jobs.parallel_for(c.pool, n, &w, proc(data: rawptr, i: int) {
 		w := cast(^Weld)data
@@ -122,6 +127,7 @@ clay_to_mesh :: proc(c: ^Clay, allocator := context.allocator) -> (m: geom.Mesh)
 			w.remap[k] = at
 			w.m.positions[at] = s.mesh.positions[k]
 			w.m.normals[at] = s.mesh.normals[k]
+			if w.mask != nil do w.mask[at] = s.mask[k]
 			at += 1
 		}
 	})

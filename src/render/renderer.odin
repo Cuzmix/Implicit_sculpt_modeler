@@ -354,7 +354,8 @@ Material_Uniforms :: struct {
 	env_axes:   [3][4]f32, // the panorama's axes in view space (Environment_Look.rotation)
 	env_sh:     [9][4]f32, // its diffuse light's harmonics, rgb
 }
-#assert(size_of(Material_Uniforms) == 480)
+#assert(size_of(Material_Uniforms) == 864)
+#assert(offset_of(Material_Uniforms, maps) == 640)
 
 MESH_VERT_SPV :: #load("shaders/mesh.vert.spv")
 MESH_FRAG_SPV :: #load("shaders/mesh.frag.spv")
@@ -1262,7 +1263,7 @@ frame_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lod
 		slotted:  b32, // with Material_Slots, hashed after it
 		_:        b32, // no padding: every byte is hashed
 	}
-	#assert(size_of(Keyed) == 352)
+	#assert(size_of(Keyed) == 736)
 	Header :: struct { // no padding: every byte is hashed
 		view, proj:    Mat4,
 		width, height: u32,
@@ -1482,7 +1483,7 @@ static_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lo
 		slotted:  b32, // with Material_Slots, hashed after it
 		_:        b32, // no padding: every byte is hashed
 	}
-	#assert(size_of(Keyed) == 360)
+	#assert(size_of(Keyed) == 744)
 	Header :: struct { // no padding: every byte is hashed
 		view, proj:    Mat4,
 		width, height: u32,
@@ -1694,19 +1695,36 @@ draw_floor :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURende
 
 DEFAULT_MATERIAL :: [4]f32{0.08, 0.2, 40, 0}
 // How many lights the shader takes (Lights): the mesh shader's arrays are this long.
-LIGHT_COUNT :: 4
+LIGHT_COUNT :: 8
+
+// What kind of light each of Lights' entries is, in its pos.w: a sun shines from a
+// direction, a point light from a place in every direction, a spot from a place into a cone.
+LIGHT_SUN :: 0
+LIGHT_POINT :: 1
+LIGHT_SPOT :: 2
 
 // The lights a Draw_Item is shaded with, as Material_Uniforms carries them (light_x, y
-// and z, light_dir and light_color in mesh_shading.glsl).
+// and z, light_pos, light_color, light_spot and light_shape in mesh_shading.glsl), in
+// view space.
 Lights :: struct {
 	// The columns of the rotation that takes the studio the physically based materials
 	// reflect into view space, with the ambient light's strength in [0].w.
 	rig:   [3][4]f32,
-	// Toward each light in view space, unit length, with its strength in w: 0 for a
-	// light that is off.
-	dir:   [LIGHT_COUNT][4]f32,
-	color: [LIGHT_COUNT][4]f32, // each light's colour in linear light; w unused
+	// Toward a sun, unit length, or where a point or spot light is, with its kind
+	// (LIGHT_SUN, LIGHT_POINT, LIGHT_SPOT) in w.
+	pos:   [LIGHT_COUNT][4]f32,
+	// Each light's colour in linear light, with its strength in w: 0 for a light that is
+	// off, which the shader skips.
+	color: [LIGHT_COUNT][4]f32,
+	// A spot's axis, the way it shines, unit length, with the cosine of half its cone in w.
+	spot:  [LIGHT_COUNT][4]f32,
+	// x: the distance at which a point or spot light is as bright as a sun of its strength
+	// (it falls off with the square of the distance from there), y: where it fades to
+	// nothing (0: never), z: the cosine of half a spot's cone less its blend, where its
+	// edge starts to fade; w unused.
+	shape: [LIGHT_COUNT][4]f32,
 }
+#assert(size_of(Lights) == 560)
 
 // The key and fill lights' directions as the lights fixed to the camera have them, toward
 // the light in view space (not unit length): the key above and to the left of the
@@ -1717,15 +1735,16 @@ FILL_DIR :: [3]f32{0.7, -0.2, 0.4}
 FILL_STRENGTH :: 0.3
 
 // The lights fixed to the camera, unturned: the key at full strength and the fill, both
-// white, the studio unturned and full ambient light. What a Draw_Item with no lights of
-// its own is shaded with (thumbnails, the navigation head).
+// white suns, the studio unturned and full ambient light. What a Draw_Item with no lights
+// of its own is shaded with (thumbnails, the navigation head).
 lights_default :: proc() -> Lights {
 	l: Lights
 	l.rig = {{1, 0, 0, 1}, {0, 1, 0, 0}, {0, 0, 1, 0}}
 	key, fill := linalg.normalize(KEY_DIR), linalg.normalize(FILL_DIR)
-	l.dir[0] = {key.x, key.y, key.z, 1}
-	l.dir[1] = {fill.x, fill.y, fill.z, FILL_STRENGTH}
-	for &c in l.color do c = {1, 1, 1, 0}
+	l.pos[0] = {key.x, key.y, key.z, LIGHT_SUN}
+	l.pos[1] = {fill.x, fill.y, fill.z, LIGHT_SUN}
+	l.color[0] = {1, 1, 1, 1}
+	l.color[1] = {1, 1, 1, FILL_STRENGTH}
 	return l
 }
 
@@ -1737,16 +1756,22 @@ lights_turn :: proc(lights: Lights, dir: [3]f32) -> [3]f32 {
 }
 
 // The light that casts the studio render's shadow: the brightest one that is on (its
-// strength times its strongest colour channel), in view space; false with every light off
-// or black, when there is no shadow to cast.
-lights_key :: proc(lights: Lights) -> (dir: [3]f32, ok: bool) {
+// strength times its strongest colour channel), as the direction toward it in view space
+// from `centre` (the scene's middle, in view space), so a point or spot light shadows
+// from where it stands; false with every light off or black, when there is no shadow to
+// cast.
+lights_key :: proc(lights: Lights, centre: [3]f32) -> (dir: [3]f32, ok: bool) {
 	l := lights if lights != {} else lights_default()
 	best, at := f32(0), -1
-	for d, i in l.dir {
-		if b := d.w * max(l.color[i].r, l.color[i].g, l.color[i].b); b > best do best, at = b, i
+	for c, i in l.color {
+		if b := c.w * max(c.r, c.g, c.b); b > best do best, at = b, i
 	}
 	if at < 0 do return {}, false
-	return linalg.normalize(l.dir[at].xyz), true
+	p := l.pos[at]
+	if p.w == LIGHT_SUN do return linalg.normalize(p.xyz), true
+	toward := p.xyz - centre
+	if linalg.length(toward) < 1e-6 do return {}, false
+	return linalg.normalize(toward), true
 }
 WIRE_COLOR :: [4]f32{0.05, 0.05, 0.06, 1}
 

@@ -63,12 +63,7 @@ kit_stats :: proc(app: ^App) -> (raised: bool) {
 
 	if ui.section(ctx, "Drawing", &k.open[.Drawing]) {
 		v := s.viewport
-		_ = ui.switch_row(ctx, "VSync", &app.vsync)
-		switch app.renderer.present_mode {
-		case .VSYNC:     ui.paragraph(ctx, "Frame rate capped at the display's.")
-		case .MAILBOX:   ui.paragraph(ctx, "Off: mailbox.")
-		case .IMMEDIATE: ui.paragraph(ctx, "Off: immediate, may tear.")
-		}
+		frame_rate_controls(app, explain = false)
 		if ui.switch_row(ctx, "Time GPU work", &app.time_gpu) do s.gpu_ms = {}
 		ui.paragraph(ctx, "Waits for the GPU every frame.")
 		ui.value_row(ctx, "Triangles drawn", fmt.tprintf("%s in %d draws", count_label(int(v.triangles)), v.draws))
@@ -146,7 +141,11 @@ kit_stats_simple :: proc(app: ^App) {
 		gpu50, _ := ring_percentiles(s.gpu_ms)
 		ui.value_row(ctx, "3D drawing on the GPU, typical", ms(gpu50))
 	}
-	if app.vsync do ui.paragraph(ctx, "VSync is on, so the frame time includes waiting for the screen: it sits near the screen's refresh time even when the app has time to spare.")
+	switch app.frame_rate {
+	case .Match_Display: ui.paragraph(ctx, "Frame rate is Match display, so the frame time includes waiting for the screen: it sits near the screen's refresh time even when the app has time to spare.")
+	case .Limit:         ui.paragraph(ctx, "Frame rate is limited, so the frame time includes waiting for the limit even when the app has time to spare.")
+	case .Unlimited:
+	}
 
 	if s.brush_ms.count > 0 {
 		ui.spacer(ctx, 6)

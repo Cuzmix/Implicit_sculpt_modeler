@@ -97,7 +97,7 @@ studio_frame :: proc(r: ^Renderer, st: ^Studio, cmd: ^sdl.GPUCommandBuffer, vt: 
 	u := math.mod(0.5 + f32(k) * 0.7548777, 1)
 	v := math.mod(0.5 + f32(k) * 0.5698403, 1)
 	// With no light on there is no shadow, and every sample goes to the occlusion.
-	key_dir, lit := lights_key(lights)
+	key_dir, lit := lights_key(lights, (view * [4]f32{center.x, center.y, center.z, 1}).xyz)
 	key := lit && k % STUDIO_KEY_EVERY == STUDIO_KEY_EVERY - 1
 	dir, base, side, up: [3]f32
 	if key {

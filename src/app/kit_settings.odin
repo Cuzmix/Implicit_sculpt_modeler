@@ -26,7 +26,7 @@ SETTINGS_TAB_NAMES := [Settings_Tab]string {
 	.Camera      = "Camera",
 	.Touch       = "Touch",
 	.Keys        = "Keys",
-	// "Performance" is wider than a fifth of the panel; the statistics and VSync are the
+	// "Performance" is wider than a fifth of the panel; the statistics and the frame rate are the
 	// system's side of things.
 	.Performance = "System",
 }
@@ -150,7 +150,7 @@ settings_reset :: proc(app: ^App, tab: Settings_Tab) {
 		k.keys_query = {}
 	case .Performance:
 		k.stats, k.stats_advanced = false, false
-		app.vsync = true
+		app.frame_rate, app.frame_limit = .Match_Display, FRAME_LIMIT_DEFAULT
 		app.msaa = MSAA_DEFAULT
 		app.autosave.minutes = AUTOSAVE_DEFAULT_MINUTES
 		app.versions_kept = VERSIONS_DEFAULT
@@ -341,8 +341,7 @@ settings_performance :: proc(app: ^App) {
 	ui.paragraph(ctx, "Simple shows how smooth the app runs in plain words; Advanced shows every measurement by its exact name, the drawing switches for comparing speed included. F11 shows and hides the panel.")
 	ui.spacer(ctx, 8)
 	ui.caption(ctx, "DISPLAY")
-	_ = ui.switch_row(ctx, "VSync", &app.vsync)
-	ui.paragraph(ctx, "Draws in step with the screen's refresh: no tearing, and no frames drawn that the screen would never show. Off, frames come as fast as they can, which lowers input delay a little.")
+	frame_rate_controls(app)
 	ui.label(ctx, "Anti-aliasing")
 	if picked := ui.tabs(ctx, "Anti-aliasing", MSAA_NAMES[:], int(app.msaa)); picked >= 0 do app.msaa = Msaa(picked)
 	ui.paragraph(ctx, "Smooths the stepped edges of outlines and wireframe lines by taking 2 or 4 samples a pixel. It costs GPU memory and a little time every frame; Off draws as fast as it can.")

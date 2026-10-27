@@ -34,7 +34,7 @@ voxel_brushes_stand_for_the_mesh_brushes_that_have_a_meaning_on_clay :: proc(t: 
 	}{
 		{.Draw, .Add, true}, {.Clay, .Add, true}, {.Layer, .Add, true}, {.Smooth, .Smooth, true},
 		{.Flatten, .Flatten, true}, {.Inflate, .Inflate, true},
-		{.Grab, .Add, false}, {.Mask, .Add, false}, {.Pinch, .Add, false}, {.Paint, .Add, false}, {.Cloth, .Add, false},
+		{.Grab, .Add, false}, {.Mask, .Mask, true}, {.Pinch, .Add, false}, {.Paint, .Add, false}, {.Cloth, .Add, false},
 	}
 	for c in cases {
 		vb, ok := voxel_brush_of({kind = c.kind, radius = 0.1, strength = 0.5, invert = true}, {0, 0, 1})
@@ -45,10 +45,10 @@ voxel_brushes_stand_for_the_mesh_brushes_that_have_a_meaning_on_clay :: proc(t: 
 	}
 }
 
-// A voxel object's Object palette offers its placement and its Voxels section only; a
-// mesh object's offers every section, and the Voxels section is on one page.
+// A voxel object's Object palette offers its placement, its Voxels section and Booleans
+// only; a mesh object's offers every section, and the Voxels section is on one page.
 @(test)
-voxel_objects_offer_transform_and_voxels_only :: proc(t: ^testing.T) {
+voxel_objects_offer_transform_voxels_and_booleans_only :: proc(t: ^testing.T) {
 	app: App
 	part: Voxel_Part
 	clay, mesh := Object{id = 1, voxel = &part}, Object{id = 2}
@@ -56,13 +56,13 @@ voxel_objects_offer_transform_and_voxels_only :: proc(t: ^testing.T) {
 	defer delete(app.scene.objects)
 	app.scene.selected = 0
 	for s in OBJECT_SECTIONS {
-		want := s.section == .Transform || s.section == .Voxels
+		want := s.section == .Transform || s.section == .Voxels || s.section == .Booleans
 		testing.expectf(t, object_section_offered(&app, s.section) == want, "%v offered to a voxel object: %v", s.section, !want)
 	}
 	app.scene.selected = 1
 	for s in OBJECT_SECTIONS do testing.expectf(t, object_section_offered(&app, s.section), "%v not offered to a mesh", s.section)
 	testing.expect(t, MESH_ONLY_COMMANDS & {.Add, .Delete, .Duplicate, .Copy, .Paste, .View, .Arrange, .Voxel_To_Mesh, .Mesh_To_Voxels, .Voxel_Resample} == {})
-	testing.expect(t, .Remesh in MESH_ONLY_COMMANDS && .Subdivide in MESH_ONLY_COMMANDS && .Boolean in MESH_ONLY_COMMANDS)
+	testing.expect(t, .Remesh in MESH_ONLY_COMMANDS && .Subdivide in MESH_ONLY_COMMANDS && .Boolean not_in MESH_ONLY_COMMANDS)
 }
 
 // Convert to mesh is for voxel objects and Convert to voxels for mesh objects; the

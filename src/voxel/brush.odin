@@ -18,6 +18,7 @@ Brush_Kind :: enum u8 {
 	Smooth,
 	Flatten,
 	Inflate,
+	Mask, // paints the mask (mask.odin) rather than the field; inverted it erases
 }
 
 Brush :: struct {
@@ -128,12 +129,16 @@ Dab_Effect :: struct {
 NEAR :: i16(3 * SCALE)
 
 // Applies the dab to brick `bc`'s values `b` (in place). Smooth reads the dab's window and
-// writes `out`; the others ignore the window and write `b` (out is b then).
-dab_brick :: proc(d: ^Dab, bc: [3]i32, b: ^Brick, out: ^Brick) -> (e: Dab_Effect) {
+// writes `out`; the others ignore the window and write `b` (out is b then). A masked voxel
+// (`mask`, nil for an unmasked brick) takes only the unmasked share of its new value. Not
+// for the Mask brush, which is dab_mask_brick.
+dab_brick :: proc(d: ^Dab, bc: [3]i32, b: ^Brick, out: ^Brick, mask: ^Mask_Brick) -> (e: Dab_Effect) {
 	e.lo, e.hi = {BRICK, BRICK, BRICK}, {-1, -1, -1}
 	p0 := Vec3{f32(bc.x), f32(bc.y), f32(bc.z)} * BRICK
 	inv_r2 := 1 / (d.radius * d.radius)
 	switch d.kind {
+	case .Mask:
+		unreachable()
 	case .Add, .Subtract:
 		// The union or difference stays a distance field except where the blend acts.
 		adds := dab_adds(d)
@@ -145,7 +150,7 @@ dab_brick :: proc(d: ^Dab, bc: [3]i32, b: ^Brick, out: ^Brick) -> (e: Dab_Effect
 			v := f32(b.d[i]) / SCALE
 			r := smin(v, s, d.blend) if adds else -smin(-v, s, d.blend)
 			// Only values the blend shaped, and only within the band, need the repair.
-			if put(&e, &b.d[i], quantize(r), x, y, z) && abs(v - s) < d.blend && abs(r) < BAND do e.repair = true
+			if put(&e, &b.d[i], masked(b.d[i], quantize(r), mask, i), x, y, z) && abs(v - s) < d.blend && abs(r) < BAND do e.repair = true
 		}
 	case .Inflate:
 		h := -d.height if d.invert else d.height
@@ -155,7 +160,7 @@ dab_brick :: proc(d: ^Dab, bc: [3]i32, b: ^Brick, out: ^Brick) -> (e: Dab_Effect
 			w := falloff(linalg.dot(delta, delta) * inv_r2) * d.strength
 			if w == 0 do continue
 			i := voxel_index(x, y, z)
-			put(&e, &b.d[i], quantize(f32(b.d[i]) / SCALE - h * w), x, y, z)
+			put(&e, &b.d[i], masked(b.d[i], quantize(f32(b.d[i]) / SCALE - h * w), mask, i), x, y, z)
 		}
 		e.repair = e.changed
 	case .Flatten:
@@ -175,7 +180,7 @@ dab_brick :: proc(d: ^Dab, bc: [3]i32, b: ^Brick, out: ^Brick) -> (e: Dab_Effect
 			} else {
 				target = max(v, plane)
 			}
-			put(&e, &b.d[i], quantize(math.lerp(v, target, w)), x, y, z)
+			put(&e, &b.d[i], masked(b.d[i], quantize(math.lerp(v, target, w)), mask, i), x, y, z)
 		}
 		e.repair = e.changed
 	case .Smooth:
@@ -195,9 +200,44 @@ dab_brick :: proc(d: ^Dab, bc: [3]i32, b: ^Brick, out: ^Brick) -> (e: Dab_Effect
 				sum += i32(d.window[((wz + dz) * W + wy + dy) * W + wx + dx])
 			}
 			mean := f32(sum) / (27 * SCALE)
-			put(&e, &out.d[i], quantize(math.lerp(f32(b.d[i]) / SCALE, mean, w)), x, y, z)
+			put(&e, &out.d[i], masked(b.d[i], quantize(math.lerp(f32(b.d[i]) / SCALE, mean, w)), mask, i), x, y, z)
 		}
 		e.repair = e.changed
+	}
+	return
+}
+
+// The value a masked voxel takes: `new` where it is unmasked, `old` where fully masked,
+// between in proportion. A brick without a mask takes `new`.
+@(private)
+masked :: #force_inline proc(old, new: i16, mask: ^Mask_Brick, i: int) -> i16 {
+	if mask == nil do return new
+	m := mask.m[i]
+	if m == 0 do return new
+	if m == MASK_FULL do return old
+	return i16(f32(old) + (f32(new) - f32(old)) * (1 - f32(m) / 255))
+}
+
+// Applies a Mask dab to brick `bc`'s mask `m`: each voxel within the brush is masked by
+// the falloff times the strength more (or, inverted, less). The box is of every voxel
+// that changed, since the mask shows wherever the surface passes.
+dab_mask_brick :: proc(d: ^Dab, bc: [3]i32, m: ^Mask_Brick) -> (e: Dab_Effect) {
+	e.lo, e.hi = {BRICK, BRICK, BRICK}, {-1, -1, -1}
+	p0 := Vec3{f32(bc.x), f32(bc.y), f32(bc.z)} * BRICK
+	inv_r2 := 1 / (d.radius * d.radius)
+	for z in 0 ..< BRICK do for y in 0 ..< BRICK do for x in 0 ..< BRICK {
+		p := p0 + {f32(x), f32(y), f32(z)}
+		delta := p - d.centre
+		w := falloff(linalg.dot(delta, delta) * inv_r2) * d.strength
+		if w == 0 do continue
+		i := voxel_index(x, y, z)
+		amount := 255 * w
+		value := u8(clamp(f32(m.m[i]) + (-amount if d.invert else amount), 0, 255) + 0.5)
+		if value == m.m[i] do continue
+		m.m[i] = value
+		e.lo = linalg.min(e.lo, [3]i8{i8(x), i8(y), i8(z)})
+		e.hi = linalg.max(e.hi, [3]i8{i8(x), i8(y), i8(z)})
+		e.changed = true
 	}
 	return
 }
@@ -244,9 +284,9 @@ dab_touches :: proc(d: ^Dab, bc: [3]i32, tile: Tile, reach: f32) -> bool {
 		mid := Vec3{f32(bc.x), f32(bc.y), f32(bc.z)} * BRICK + (BRICK - 1) * 0.5
 		HALF_DIAGONAL :: BRICK * 0.8660254 // sqrt(3) / 2
 		return abs(linalg.dot(mid - d.centre, d.normal)) - HALF_DIAGONAL < BAND + 1
-	case .Smooth, .Inflate:
-		// They move the surface less than a voxel: the band grows into tiles through
-		// band dilation after the dab, not here.
+	case .Smooth, .Inflate, .Mask:
+		// They move the surface less than a voxel (the band grows into tiles through band
+		// dilation after the dab, not here), and a mask lives on bricks only.
 		return false
 	}
 	return false

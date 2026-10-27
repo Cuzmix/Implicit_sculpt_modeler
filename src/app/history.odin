@@ -65,16 +65,19 @@ History_Entry :: struct {
 	// A .Textures entry's maps (and UV layout) on the other side of the change
 	// (textures.odin), owned.
 	textures: ^Texture_Step,
+	// A .Lights entry's scene lights before the change and after it (lights.odin), owned.
+	lights: ^Light_Step,
 }
 
 Arrange_Step :: struct {
 	before, after: ^Scene_Layout,
 }
 
-// Frees what an entry owns: a swap's snapshot, an arrangement's layouts or a group
-// command's tables.
+// Frees what an entry owns: a swap's snapshot, an arrangement's layouts, a group
+// command's tables or the lights.
 @(private = "file")
 entry_free :: proc(h: ^History, e: History_Entry) {
+	free(e.lights)
 	group_table_step_free(e.group_table)
 	if e.textures != nil {
 		h.swap_bytes -= texture_step_bytes(e.textures)
@@ -103,6 +106,7 @@ History_Kind :: enum u8 {
 	Transform, // the object moved, turned or scaled
 	Arrange, // the tree changed: folders, names or order
 	Textures, // texture maps baked, loaded or removed, or the UVs laid out again
+	Lights,   // the scene's lights changed
 }
 
 // An object as object_put writes it, or that it did not exist. Undoing or redoing a swap
@@ -295,7 +299,7 @@ history_next_label :: proc(list: []History_Entry) -> string {
 	if len(list) == 0 do return "stroke"
 	e := list[len(list) - 1]
 	if e.swap != nil do return e.swap.what
-	if e.kind == .Transform || e.kind == .Arrange || e.kind == .Textures do return e.what
+	if e.kind == .Transform || e.kind == .Arrange || e.kind == .Textures || e.kind == .Lights do return e.what
 	return "stroke"
 }
 
@@ -326,7 +330,10 @@ brush_stroke_finish :: proc(app: ^App) {
 	if obj == nil do return
 	if vp := obj.voxel; vp != nil {
 		// The clay's stroke: its band is repaired and its step kept when it changed anything.
-		if voxel.clay_stroke_end(&vp.clay) do history_record(app, obj, .Stroke, BRUSHES[app.stroke.kind].name)
+		if voxel.clay_stroke_end(&vp.clay) {
+			voxel_part_edited(vp)
+			history_record(app, obj, .Mask if .Mask in BRUSHES[app.stroke.kind].flags else .Stroke, BRUSHES[app.stroke.kind].name)
+		}
 		return
 	}
 	// A stroke joining this one keeps its locked plane, so a long Flatten laid in
@@ -351,7 +358,24 @@ mask_command :: proc(app: ^App, command: sculpt.Mask_Command, toast := false) {
 	if obj == nil do return
 	start := time.tick_now()
 	steps := int(max(app.ui.mask_steps, 1))
-	changed := sculpt.sculptor_mask_command(object_sculptor(obj), command, steps)
+	changed: bool
+	if vp := obj.voxel; vp != nil {
+		// Clay takes the whole-mask commands; the ones that read the mesh's shape or its
+		// hidden part need a mesh.
+		op: voxel.Mask_Op
+		#partial switch command {
+		case .Clear:  op = .Clear
+		case .Invert: op = .Invert
+		case .Fill:   op = .Fill
+		case:
+			report(app, Kit_Section.Mask, {.Warning}, "%s needs a mesh: convert %s to a mesh first (Object palette, Voxels)", MASK_COMMAND_NAMES[command], object_label(obj))
+			return
+		}
+		changed = voxel.clay_mask_command(&vp.clay, op)
+		if changed do voxel_part_edited(vp)
+	} else {
+		changed = sculpt.sculptor_mask_command(object_sculptor(obj), command, steps)
+	}
 	ms := time.duration_milliseconds(time.tick_since(start))
 	if changed do history_record(app, obj, .Mask, MASK_COMMAND_NAMES[command])
 	// A tap that changed nothing still says so, without Undo.
@@ -377,10 +401,44 @@ mask_shape_command :: proc(app: ^App, shape: [][2]f32, size: [2]f32, unmask: boo
 			toward   = to_local_dir(t, -camera.orbit_toward(app.camera, app.camera.target)),
 		}
 	}
-	changed := sculpt.sculptor_mask_shape(object_sculptor(obj), object_clip(app, obj, size), shape, unmask, front)
+	changed: bool
+	if vp := obj.voxel; vp != nil {
+		changed = voxel_mask_shape(app, obj, shape, size, unmask, front)
+		if changed do voxel_part_edited(vp)
+	} else {
+		changed = sculpt.sculptor_mask_shape(object_sculptor(obj), object_clip(app, obj, size), shape, unmask, front)
+	}
 	ms := time.duration_milliseconds(time.tick_since(start))
 	report(app, Kit_Section.Mask, {.Quiet}, "%s in %.0f ms%s", "Unmask shape" if unmask else "Mask shape", ms, "" if changed else ", nothing changed")
 	if changed do history_record(app, obj, .Mask, "Unmask shape" if unmask else "Mask shape")
+}
+
+// A mask shape on clay (voxel.clay_mask_shape): a voxel within the band is masked when its
+// centre projects inside the shape (the sculptor's coverage grid), and faces the eye when
+// Front only is on (the field's gradient stands in for the vertex normal).
+@(private = "file")
+voxel_mask_shape :: proc(app: ^App, obj: ^Object, shape: [][2]f32, size: [2]f32, unmask: bool, front: sculpt.Front_Only) -> bool {
+	if len(shape) < 3 do return false
+	Shape_Test :: struct {
+		clip:  matrix[4, 4]f32,
+		grid:  sculpt.Coverage,
+		front: sculpt.Front_Only,
+		v:     ^voxel.Volume,
+	}
+	st := Shape_Test{clip = object_clip(app, obj, size), grid = sculpt.coverage_make(shape), front = front, v = &obj.voxel.clay.volume}
+	if st.grid.cells == nil do return false
+	inside :: proc(p: Vec3, user: rawptr) -> bool {
+		st := cast(^Shape_Test)user
+		c := st.clip * [4]f32{p.x, p.y, p.z, 1}
+		if c.w <= 1e-6 do return false
+		if !sculpt.coverage_at(st.grid, {c.x / c.w, c.y / c.w}) do return false
+		if f := st.front; f.on {
+			toward := f.toward if f.parallel else f.eye - p
+			if linalg.dot(voxel.volume_gradient(st.v, p), toward) < 0 do return false
+		}
+		return true
+	}
+	return voxel.clay_mask_shape(&obj.voxel.clay, inside, &st, unmask)
 }
 
 // Smooths the whole selected object `steps` times as an undo step of its own
@@ -615,7 +673,7 @@ history_push :: proc(app: ^App, e: History_Entry) {
 @(private = "file")
 history_drop_redo :: proc(app: ^App) {
 	for e in app.history.undone {
-		if e.swap != nil || e.arrange != nil || e.kind == .Transform || e.kind == .Textures {
+		if e.swap != nil || e.arrange != nil || e.lights != nil || e.kind == .Transform || e.kind == .Textures {
 			// Nothing of it is kept anywhere else.
 		} else if obj := object_by_id(app, e.id); obj != nil && obj.voxel != nil {
 			voxel.clay_clear_redo(&obj.voxel.clay)
@@ -634,7 +692,7 @@ history_can_redo :: proc(app: ^App) -> bool {return !history_busy(app) && len(ap
 // under way: it becomes a step of its own when it ends, so nothing is undone or redone
 // beneath it.
 history_busy :: proc(app: ^App) -> bool {
-	return app.stroke.active || app.move.drag.handle != .None || topo_held(app) || app.ui.transform_drag.active || app.ui.deform.drag.active
+	return app.stroke.active || app.move.drag.handle != .None || topo_held(app) || app.ui.transform_drag.active || app.ui.deform.drag.active || app.ui.light_drag.active
 }
 
 history_undo :: proc(app: ^App) {
@@ -669,6 +727,12 @@ history_step :: proc(app: ^App, from, to: ^[dynamic]History_Entry, can, step: pr
 		if e.level != HD_LEVEL || e.swap != nil do app.history.edits += 1
 		if e.swap != nil {
 			if !history_swap(app, e) do app.running = false // GPU failure
+			append(to, e)
+			return true
+		}
+		if e.lights != nil {
+			// The lights belong to the scene, not to any object, level or sculptor.
+			app.scene.lights = e.lights.before if from == &app.history.done else e.lights.after
 			append(to, e)
 			return true
 		}
@@ -720,6 +784,7 @@ history_step :: proc(app: ^App, from, to: ^[dynamic]History_Entry, can, step: pr
 				entry_free(&app.history, e)
 				continue
 			}
+			voxel_part_edited(obj.voxel)
 			append(to, e)
 			return true
 		}
@@ -829,7 +894,7 @@ history_forget_strokes :: proc(app: ^App, id: int) {
 	for list in ([2]^[dynamic]History_Entry{&app.history.done, &app.history.undone}) {
 		kept := 0
 		for e in list {
-			if e.id != id || e.swap != nil || e.arrange != nil || e.kind == .Transform || e.kind == .Textures {
+			if e.id != id || e.swap != nil || e.arrange != nil || e.lights != nil || e.kind == .Transform || e.kind == .Textures {
 				list[kept] = e
 				kept += 1
 			} else {
@@ -849,7 +914,7 @@ history_forget_level :: proc(app: ^App, id: int, level: Maybe(int)) {
 		kept := 0
 		for e in list {
 			only, one := level.?
-			if e.id != id || e.arrange != nil || (one && (e.level != only || e.swap != nil || e.kind == .Transform || e.kind == .Textures)) {
+			if e.id != id || e.arrange != nil || e.lights != nil || (one && (e.level != only || e.swap != nil || e.kind == .Transform || e.kind == .Textures)) {
 				list[kept] = e
 				kept += 1
 			} else {
@@ -899,7 +964,11 @@ object_has_mask :: proc(app: ^App, obj: ^Object) -> bool {
 	if m.valid && m.id == obj.id && m.level == level && m.levels == len(obj.levels.levels) && m.serial == app.history.serial do return m.has
 	s := object_sculptor(obj)
 	m^ = {id = obj.id, level = level, levels = len(obj.levels.levels), serial = app.history.serial, valid = true, scans = m.scans}
-	if s.mask != nil {
+	if vp := obj.voxel; vp != nil {
+		// Clay: its mask bricks, under the same rule (every mask change on clay is a step).
+		m.has = voxel.clay_has_mask(&vp.clay)
+		m.scans += 1
+	} else if s.mask != nil {
 		m.has = sculpt.sculptor_has_mask(s)
 		m.scans += 1
 	}
