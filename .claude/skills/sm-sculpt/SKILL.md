@@ -141,8 +141,11 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
   0 none), named}`, each `Sculpt_Layer{name [32]u8, strength, visible, delta [][]Vec3}` (per node, nil where unmoved); positions
   always hold base + Σ weight·delta. `sculptor_stroke_end` calls `layer_take_stroke` (adds live − saved positions of each saved
   node to the recording layer, appending `Saved_Node{is_delta, delta (old), delta_layer}`, swapped by pointer on undo).
-  `Undo_Step.layer_op` (add/remove; the step `held`s a removed layer) and `.layer_set` (old strength/visible) are swapped in
-  `layer_step_swap`; `step_move` re-counts `h.bytes` since swaps change what a step holds. `sculptor_layer_set` begins or
+  `Undo_Step.layer_op` (add/remove; the step `held`s a removed layer), `.layer_set` (old strength/visible; Invert sets it
+  unchanged to mark its step as the layer's, not a stroke), `.layer_move` (a swap, its own inverse) and `.layer_stack`
+  (Bake all: the whole list moved into the step, one undo entry) are swapped in `layer_step_swap`; a step's is_delta nodes
+  must name layers below its `layer_op.index` (redo removes first). Multi-entry app work is one sculptor step, not a
+  `chain` of many: the sculptor's memory limit may trim a chain's oldest steps and undo only half of it; `step_move` re-counts `h.bytes` since swaps change what a step holds. `sculptor_layer_set` begins or
   continues a stroke (a drag = one step; app ends it on release), `layer_displace` moves only nodes with delta. Files:
   `LEVELS_LAYERS` (canon order). `sculptor_dyn_enable` bakes them; refused in HD; rebuilds carry them (`layer_carry.odin`).
 - Chunk groups (`brush.odin`, `sculptor_chunk_groups`): one `geom.chunk_group` per 64 chunks for grouped culling; every

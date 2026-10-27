@@ -43,7 +43,9 @@ Ui_State :: struct {
 	layer_selected:     int,  // the Layers section's row that Delete and Bake act on
 	set_selected:       int,  // the Selection sets section's set that Add, Subtract, Store over and Delete act on
 	layer_dragging:     bool, // a layer's strength slider is being dragged: one undo step
+	layer_wide:         bool, // the strength sliders go from -5 to 5 rather than -1 to 2
 	layer_drag_id:      int,  // the object whose layer is being dragged, which the selection may leave meanwhile
+	layer_drag_wide:    bool, // the dragged strength slider began on the wide range, which it keeps until release
 	deform:             Deform_Panel, // the Deformers section's choices and its Amount drag (deformers.odin)
 	transform_drag:     Transform_Drag, // the Transform section's values are being dragged: one undo step
 	retopo_quads:       i32,  // quads Retopologize asks for

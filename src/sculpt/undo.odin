@@ -44,6 +44,8 @@ Undo_Step :: struct {
 	grouped: [dynamic]u32, // nodes whose triangles changed group (groups.odin)
 	layer_op:  Layer_Op,  // a sculpt layer added or removed (sculpt_layers.odin)
 	layer_set: Layer_Set, // a sculpt layer's strength or visibility changed
+	layer_move: Layer_Move, // two sculpt layers swapped places
+	layer_stack: Layer_Stack, // every sculpt layer taken out at once (Bake all)
 	// Adjust last stroke (adjust.odin): set once the newest step is adjusted, with what
 	// the stroke left of each saved node, at after_at[i] in the block of its kind.
 	adjusting:    bool,
@@ -138,7 +140,7 @@ sculptor_stroke_end :: proc(s: ^Sculptor) -> bool {
 	h := &s.history
 	if !h.recording do return false
 	h.recording = false
-	if len(h.current.nodes) == 0 && len(h.current.painted) == 0 && len(h.current.shown) == 0 && len(h.current.grouped) == 0 && !h.current.layer_op.active && !h.current.layer_set.active {
+	if len(h.current.nodes) == 0 && len(h.current.painted) == 0 && len(h.current.shown) == 0 && len(h.current.grouped) == 0 && !h.current.layer_op.active && !h.current.layer_set.active && !h.current.layer_move.active && !h.current.layer_stack.active {
 		step_reset(h, &h.current)
 		return false
 	}
@@ -428,6 +430,7 @@ step_bytes :: proc(step: Undo_Step) -> int {
 		bytes += len(sv.colors) * size_of(Color) + len(sv.groups) * size_of(u16) + len(sv.delta) * size_of(Vec3)
 	}
 	if step.layer_op.held do bytes += layer_bytes(step.layer_op.layer)
+	for l in step.layer_stack.list do bytes += layer_bytes(l)
 	return bytes + adjust_bytes(step)
 }
 
@@ -447,13 +450,15 @@ step_reset :: proc(h: ^Undo_History, step: ^Undo_Step) {
 		delete(sv.delta, h.allocator)
 	}
 	if step.layer_op.held do layer_destroy(&step.layer_op.layer, h.allocator)
+	for &l in step.layer_stack.list do layer_destroy(&l, h.allocator)
+	delete(step.layer_stack.list)
 	adjust_free(h, step)
 	clear(&step.saved)
 	clear(&step.nodes)
 	clear(&step.painted)
 	clear(&step.shown)
 	clear(&step.grouped)
-	step.layer_op, step.layer_set = {}, {}
+	step.layer_op, step.layer_set, step.layer_move, step.layer_stack = {}, {}, {}, {}
 }
 
 @(private)
@@ -472,6 +477,8 @@ step_destroy :: proc(h: ^Undo_History, step: ^Undo_Step) {
 		delete(sv.delta, h.allocator)
 	}
 	if step.layer_op.held do layer_destroy(&step.layer_op.layer, h.allocator)
+	for &l in step.layer_stack.list do layer_destroy(&l, h.allocator)
+	delete(step.layer_stack.list)
 	adjust_free(h, step)
 	delete(step.saved)
 	delete(step.nodes)

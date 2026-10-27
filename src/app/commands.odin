@@ -102,6 +102,7 @@ Command_Id :: enum u8 {
 	Morph_Store,
 	Morph_Delete,
 	New_Layer,
+	Layer_Edit, // the argument is the Layer_Action, on the Layers section's selected layer
 	Recall_Earlier,
 	Recall_Later,
 	Recall_Oldest,
@@ -855,6 +856,13 @@ COMMANDS := [Command_Id]Command {
 			return layers_allowed(obj) && len(sculpt.sculptor_layers(object_sculptor(obj))) < sculpt.MAX_SCULPT_LAYERS
 		},
 	},
+	.Layer_Edit = {
+		label = "Layer",
+		help = "Duplicates, inverts, merges down or moves the Layers section's selected layer, or bakes every layer.",
+		args = len(Layer_Action),
+		run = proc(app: ^App, arg: int) {layer_action(app, Layer_Action(arg))},
+		enabled = proc(app: ^App, arg: int) -> bool {return layer_action_ready(app, Layer_Action(arg))},
+	},
 	.Recall_Earlier = {
 		label = "History brush: earlier",
 		help = "Moves what the History brush paints back to one step earlier in the History.",
@@ -1529,6 +1537,8 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 		return MASK_COMMAND_LABELS[sculpt.Mask_Command(arg)]
 	case .Mask_By:
 		return MASK_BY_NAMES[sculpt.Mask_By(arg)]
+	case .Layer_Edit:
+		return LAYER_ACTION_NAMES[Layer_Action(arg)]
 	case .Restore_Selection_Set:
 		return fmt.tprintf("Restore selection set %d", arg + 1)
 	case .Paint:
