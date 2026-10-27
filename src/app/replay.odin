@@ -43,6 +43,7 @@ Take :: struct {
 	samples: [dynamic]Input_Sample,
 	brushes: [dynamic]Brush_Settings, // one per stroke, as it began
 	seeds:   [dynamic]u64, // ...and each stroke's seed (Stroke.seed), so its random dabs replay
+	scales:  [dynamic]f32, // ...and its strength scale (Stroke.scale), so a finger's replays as light
 }
 
 Take_Frame :: struct {
@@ -71,6 +72,7 @@ take_destroy :: proc(t: ^Take) {
 	delete(t.samples)
 	delete(t.brushes)
 	delete(t.seeds)
+	delete(t.scales)
 	t^ = {}
 }
 
@@ -80,6 +82,7 @@ take_clear :: proc(t: ^Take) {
 	clear(&t.samples)
 	clear(&t.brushes)
 	clear(&t.seeds)
+	clear(&t.scales)
 }
 
 take_strokes :: proc(t: ^Take) -> int {return len(t.brushes)}
@@ -114,6 +117,7 @@ take_append :: proc(t: ^Take, app: ^App, input: Viewport_Input, began: bool) {
 	if began || len(t.brushes) == 0 || (app.stroke.active && app.stroke.seed != t.seeds[len(t.seeds) - 1]) {
 		append(&t.brushes, app.brush)
 		append(&t.seeds, app.stroke.seed)
+		append(&t.scales, app.stroke.scale if app.stroke.scale > 0 else 1)
 	}
 	append(&t.frames, Take_Frame {
 		first = u32(len(t.samples)), count = u32(len(input.samples)), brush = u32(len(t.brushes) - 1),
@@ -178,8 +182,8 @@ replay_frame :: proc(app: ^App, now: Viewport_Input) -> (res: Sculpt_Frame_Resul
 	t := p.playing
 	if t == nil || (p.at_pointer && (now.size.x < 1 || now.size.y < 1)) do return
 	// The seed too: the user's next stroke takes the one it would have without the replay.
-	saved_camera, saved_brush, saved_seed := app.camera, app.brush, app.stroke_seed
-	defer app.camera, app.brush, app.stroke_seed = saved_camera, saved_brush, saved_seed
+	saved_camera, saved_brush, saved_seed, saved_scale := app.camera, app.brush, app.stroke_seed, app.stroke_scale_from
+	defer app.camera, app.brush, app.stroke_seed, app.stroke_scale_from = saved_camera, saved_brush, saved_seed, saved_scale
 	for p.frame < len(t.frames) {
 		f := t.frames[p.frame]
 		p.frame += 1
@@ -197,6 +201,7 @@ replay_frame :: proc(app: ^App, now: Viewport_Input) -> (res: Sculpt_Frame_Resul
 		}
 		app.brush = t.brushes[f.brush] if p.recorded_brush else saved_brush
 		app.stroke_seed = t.seeds[f.brush]
+		app.stroke_scale_from = t.scales[f.brush]
 		r := sculpt_frame(app, input)
 		res.dabs += r.dabs
 		res.raycast_ms += r.raycast_ms
@@ -222,14 +227,15 @@ replay_shortcut :: proc(app: ^App) {
 // The .strokes file: "SCSTROKE", a version, then the brushes and the frames, every
 // number little-endian. A brush keeps what makes a stroke what it is (kind, size,
 // strength, falloff, pressure, lazy mouse, front faces, stroke mode, symmetry, colour,
-// cloth mode, Spray's spread, the stroke's seed, Line and Join strokes); the rest
+// cloth mode, Spray's spread, the stroke's seed and strength scale, Line and Join strokes); the rest
 // (alpha, tilt, dynamic topology detail) comes from the brush as set when the file is
 // loaded, since an alpha names an image that may not be there.
 STROKES_MAGIC :: "SCSTROKE"
 // 2: each frame's camera roll; 3: the rail's Mask in a frame's flags; 4: each brush's
 // spread and seed after its cloth mode; 5: its Line and Join switches after those; 6: its
-// Lock plane and Connected switches after those; 7: its focal shift after those.
-STROKES_VERSION :: u32(7)
+// Lock plane and Connected switches after those; 7: its focal shift after those; 8: the
+// stroke's strength scale (Touch strength) after that.
+STROKES_VERSION :: u32(8)
 
 strokes_save :: proc(app: ^App, path: string) -> bool {
 	t := replay_source(app)
@@ -264,6 +270,7 @@ strokes_save :: proc(app: ^App, path: string) -> bool {
 		geom.byte_put(&out, u8(b.lock_plane))
 		geom.byte_put(&out, u8(b.connected))
 		geom.byte_put(&out, f.focal)
+		geom.byte_put(&out, t.scales[i])
 	}
 	geom.byte_put(&out, u32(len(t.frames)))
 	for f in t.frames {
@@ -370,11 +377,14 @@ strokes_read :: proc(app: ^App, data: []u8, t: ^Take) -> bool {
 		// Nor, before version 7, a focal shift.
 		focal: f32
 		if version >= 7 do focal = geom.byte_get(&r, f32)
+		// Nor, before version 8, a strength scale: every stroke was at full strength.
+		scale := f32(1)
+		if version >= 8 do scale = geom.byte_get(&r, f32)
 		if !r.ok || int(kind) >= len(sculpt.Brush_Kind) || int(stroke) >= len(Stroke_Mode) || int(cloth) >= len(sculpt.Cloth_Mode) do return false
 		all_axes := transmute(u8)sculpt.Symmetry{.X, .Y, .Z}
 		if symmetry & ~all_axes != 0 || drawn > 1 || pressure_strength > 1 || pressure_size > 1 || front > 1 || line > 1 || join > 1 || lock_plane > 1 || connected > 1 do return false
-		if !finite(radius, strength, lazy, spread, color.r, color.g, color.b, focal) || !curve_ok(falloff) || !curve_ok(pressure_curve) do return false
-		if focal < sculpt.FOCAL_MIN || focal > sculpt.FOCAL_MAX do return false
+		if !finite(radius, strength, lazy, spread, color.r, color.g, color.b, focal, scale) || !curve_ok(falloff) || !curve_ok(pressure_curve) do return false
+		if focal < sculpt.FOCAL_MIN || focal > sculpt.FOCAL_MAX || scale < TOUCH_STRENGTH_MIN || scale > 1 do return false
 		b.kind = sculpt.Brush_Kind(kind)
 		b.radius_px = clamp(radius, MIN_RADIUS_PX, MAX_RADIUS_PX)
 		b.strengths[b.kind] = clamp(strength, MIN_STRENGTH, 1)
@@ -389,6 +399,7 @@ strokes_read :: proc(app: ^App, data: []u8, t: ^Take) -> bool {
 		b.lock_plane, b.connected = lock_plane == 1, connected == 1
 		append(&t.brushes, b)
 		append(&t.seeds, seed)
+		append(&t.scales, scale)
 	}
 	frames := int(geom.byte_get(&r, u32))
 	if !r.ok || frames < 1 || frames > len(data) do return false

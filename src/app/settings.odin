@@ -126,6 +126,7 @@ SETTINGS := [?]Setting {
 	{"two_finger_pan", N + offset_of(Nav_Prefs, two_finger_pan), bool, 0, 0},
 	{"twist_roll", N + offset_of(Nav_Prefs, twist_roll), bool, 0, 0},
 	{"three_finger", N + offset_of(Nav_Prefs, three_finger), bool, 0, 0},
+	{"touch_strength", N + offset_of(Nav_Prefs, touch_strength), f32, TOUCH_STRENGTH_MIN, 1},
 	{"palm_rejection", N + offset_of(Nav_Prefs, palm_rejection), bool, 0, 0},
 	{"double_tap", N + offset_of(Nav_Prefs, double_tap), bool, 0, 0},
 	{"lift_one_orbit", N + offset_of(Nav_Prefs, lift_one_orbit), bool, 0, 0},
@@ -482,7 +483,7 @@ settings_load :: proc(app: ^App, path: string) {
 			if len(f) != 3 || !slot_ok do continue
 			if f[2] == "none" {
 				app.nav.gestures[slot] = {}
-			} else if id, arg, ok := command_from_name(f[2]); ok && palette_lists(id) {
+			} else if id, arg, ok := command_from_name(f[2]); ok && gesture_lists(id) {
 				app.nav.gestures[slot] = {id, arg}
 			}
 		case "tap_history", "hold_history":

@@ -10,6 +10,7 @@ import "core:testing"
 import "../camera"
 import "../geom"
 import "../sculpt"
+import "../ui"
 
 // A selected sphere at the world's middle with no GPU buffers, the Draw brush held.
 @(private = "file")
@@ -169,11 +170,12 @@ roll_dabs_a_diameter_apart_along_the_stroke :: proc(t: ^testing.T) {
 	app.stroke.active = false
 }
 
-// A Spray stroke, with Lock plane and Connected on and a focal shift, saved to a .strokes
-// file and replayed on another sphere lays the same dabs as drawn, and leaves the replaying
-// app's own seed as it was; a version 3 file, from before the spread and seed, a version 5
-// file, from before Lock plane and Connected, and a version 6 file, from before the focal
-// shift, still read.
+// A finger's Spray stroke at half Touch strength, with Lock plane and Connected on and a
+// focal shift, saved to a .strokes file and replayed with the mouse on another sphere lays
+// the same dabs as drawn, and leaves the replaying app's own seed as it was; a version 3
+// file, from before the spread and seed, a version 5 file, from before Lock plane and
+// Connected, a version 6 file, from before the focal shift, and a version 7 file, from
+// before the strength scale, still read.
 @(test)
 spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	path := "build/spray_test.strokes"
@@ -188,6 +190,8 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	a.brush.lock_plane, a.brush.connected = true, true
 	a.brush.falloffs[a.brush.kind].focal = 30
 	a.stroke_seed = 41
+	a.device.pointer, a.nav.touch_strength = .Finger, 0.5
+	b.nav.touch_strength = 1
 	strip := [?][2]f32{{430, 380}, {470, 390}, {510, 400}, {550, 410}}
 	_ = stroke_recorded(&a, strip[:])
 	testing.expect(t, strokes_save(&a, path))
@@ -198,17 +202,35 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	testing.expect_value(t, b.replay.take.seeds[0], 41)
 	testing.expect(t, b.replay.take.brushes[0].lock_plane && b.replay.take.brushes[0].connected)
 	testing.expect_value(t, b.replay.take.brushes[0].falloffs[a.brush.kind].focal, 30)
+	testing.expect_value(t, b.replay.take.scales[0], 0.5)
 	replay_start(&b, &b.replay.take)
 	for replay_busy(&b) do _ = replay_frame(&b, {})
 	testing.expect(t, slice.equal(object_sculptor(oa).mesh.positions[:], object_sculptor(ob).mesh.positions[:]))
 	testing.expect_value(t, b.stroke_seed, 7)
+	testing.expect_value(t, b.stroke_scale_from, 0)
 
-	// Version 6 had no focal shift after the brush's Lock plane and Connected: the one
-	// brush ends 64 + 16 bytes after the header's 16, where version 7's has 4 more.
+	// Version 7 had no strength scale after the focal shift: the one brush ends 64 + 20
+	// bytes after the header's 16, where version 8's has 4 more, and replays at full strength.
 	data, err := os.read_entire_file(path, context.allocator)
 	testing.expect(t, err == nil)
 	defer delete(data)
-	BRUSH :: 64 + 20
+	BRUSH :: 64 + 24
+	seven := make([dynamic]u8, context.temp_allocator)
+	append(&seven, ..data[:16 + 64 + 20])
+	append(&seven, ..data[16 + BRUSH:])
+	seven[len(STROKES_MAGIC)] = 7
+	testing.expect(t, os.write_entire_file(path, seven[:]) == nil)
+	g: App
+	defer replay_destroy(&g.replay)
+	defer results_destroy(&g)
+	testing.expect(t, strokes_load(&g, path))
+	if len(g.replay.take.brushes) == 1 {
+		testing.expect_value(t, g.replay.take.brushes[0].falloffs[a.brush.kind].focal, 30)
+		testing.expect_value(t, g.replay.take.scales[0], 1)
+	}
+
+	// Version 6 had no focal shift after the brush's Lock plane and Connected: the one
+	// brush ends 64 + 16 bytes after the header's 16.
 	six := make([dynamic]u8, context.temp_allocator)
 	append(&six, ..data[:16 + 64 + 16])
 	append(&six, ..data[16 + BRUSH:])
@@ -302,6 +324,7 @@ spray_strokes_ending_and_starting_in_one_frame_replay :: proc(t: ^testing.T) {
 	append(&take.samples, ..a.replay.take.samples[:])
 	append(&take.brushes, ..a.replay.take.brushes[:])
 	append(&take.seeds, ..a.replay.take.seeds[:])
+	append(&take.scales, ..a.replay.take.scales[:])
 	replay_start(&b, take)
 	for replay_busy(&b) do _ = replay_frame(&b, {})
 	testing.expect(t, slice.equal(object_sculptor(oa).mesh.positions[:], object_sculptor(ob).mesh.positions[:]))
@@ -678,4 +701,31 @@ history_brush_point_from_the_timeline :: proc(t: ^testing.T) {
 	testing.expect(t, !recall_to_entry(&app, 4))
 	testing.expect(t, !recall_to_entry(&app, 5))
 	testing.expect_value(t, recall_marker(&app), 2)
+}
+
+// Touch strength scales a finger's strokes only: a finger at full Touch strength sculpts as
+// the mouse does, at half it moves the surface less, and the mouse ignores the setting.
+@(test)
+touch_strength_lightens_a_fingers_strokes :: proc(t: ^testing.T) {
+	moved :: proc(pointer: ui.Pointer_Kind, touch: f32) -> (total: f32, positions: [dynamic]Vec3) {
+		app: App
+		defer stroke_scene_free(&app)
+		defer replay_destroy(&app.replay)
+		obj := stroke_sphere(&app)
+		app.device.pointer, app.nav.touch_strength = pointer, touch
+		before := slice.clone(object_sculptor(obj).mesh.positions[:], context.temp_allocator)
+		path := [?][2]f32{{480, 380}, {520, 400}}
+		_ = stroke_recorded(&app, path[:])
+		after := object_sculptor(obj).mesh.positions[:]
+		for p, i in after do total += linalg.length(p - before[i])
+		positions = make([dynamic]Vec3, context.temp_allocator)
+		append(&positions, ..after)
+		return
+	}
+	mouse, mouse_at := moved(.Mouse, 0.5)
+	full, full_at := moved(.Finger, 1)
+	half, _ := moved(.Finger, 0.5)
+	testing.expect(t, mouse > 0)
+	testing.expect(t, slice.equal(mouse_at[:], full_at[:]))
+	testing.expect(t, half < 0.75 * full && half > 0.25 * full)
 }
