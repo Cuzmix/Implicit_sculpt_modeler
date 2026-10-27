@@ -122,6 +122,9 @@ App :: struct {
 	bindings:           [MAX_BINDINGS]Binding,
 	binding_count:      int,
 	stroke_seed: u64, // the seed the next stroke takes (Stroke.seed), one more each stroke
+	// The strength scale the next stroke takes (Stroke.scale) when above 0, as a replay
+	// or a waiting tap sets it; 0 takes it from the pointer.
+	stroke_scale_from: f32,
 	stroke_end:  Stroke_End, // where the last stroke ended, for Join strokes
 	samples:  [dynamic]Input_Sample, // this frame's pointer samples, in window coordinates
 	pen_pressure: f32, // the pen's latest pressure
@@ -138,7 +141,10 @@ App :: struct {
 	drag:     Drag, // who the press on the viewport belongs to (navigate.odin)
 	dab_wait: Dab_Wait, // a finger tap's dab waiting for a second tap (navigate.odin)
 	pivot:    Stroke_Pivot, // the last stroke's middle, which orbits turn about (navigate.odin)
+	orbit_sign: f32, // the single-axis orbit's way round for the turn under way (orbit_latch)
 	double_tap: Double_Tap, // the last finger tap a double tap could follow (navigate.odin)
+	one_tap:  f64, // input_clock when a one-finger tap waiting to run lifted, 0 for none (one_tap_wait)
+	one_taps: int, // one-finger taps that ran their gesture, for the exit stats
 	cursor:   Brush_Cursor, // the surface under the brush ring this frame (cursor.odin)
 	mask_seen: Mask_Seen, // whether the selected object has a mask, kept (history.odin)
 	sets_lost: int, // selection sets a rebuild dropped, for the note of the command that ran it (selection_sets.odin)

@@ -331,6 +331,7 @@ touch_lift_orbit :: proc(app: ^App, input: ^Viewport_Input) -> bool {
 	if !l.moving {
 		if linalg.length(at - l.from) <= slop do return true
 		l.moving, l.last = true, at
+		orbit_latch(app)
 		l.pivot, app.pivot.from = orbit_pivot(app, at, input.size)
 		app.pivot.used = l.pivot
 		return true

@@ -35,6 +35,10 @@ Orbit_Style :: enum u8 {
 	// the horizon stays level. Round and round both ways without end, over the top too
 	// unless `limit_pitch` stops it at straight up and straight down.
 	Turntable,
+	// ZBrush's Rot X and Rot Z: sideways turns about the world's X (or Z) axis, and up
+	// and down turns about the screen's right, as Free does.
+	Axis_X,
+	Axis_Z,
 }
 
 // How the pointer turns the view.
@@ -44,6 +48,11 @@ Orbit_Settings :: struct {
 	speed:       f32, // radians per pixel
 	invert_x:    bool, // dragging right turns the model left
 	invert_y:    bool, // dragging down tilts the model away
+	// Axis_X and Axis_Z: which way round a sideways drag turns about the axis, +1 or -1,
+	// decided once as the drag begins (orbit_axis_sign), since the view's own up may lie
+	// square to the axis, where a wobble up and down would flip it mid-drag. 0 decides from
+	// the view as it is now.
+	axis_sign:   f32,
 }
 
 ORBIT_SPEED :: 0.008 // radians per pixel at 1x
@@ -100,7 +109,35 @@ orbit_rotate :: proc(c: ^Orbit, delta: Vec2, s := ORBIT_DEFAULT) {
 		} else {
 			c.pitch = wrap_angle(c.pitch + d.y)
 		}
+	case .Axis_X, .Axis_Z:
+		// About the world's axis, applied in world space, then the screen's right in the
+		// camera's own frame.
+		axis := orbit_style_axis(s.style)
+		sign := s.axis_sign if s.axis_sign != 0 else orbit_axis_sign(c^, s.style)
+		m := linalg.matrix3_rotate(-d.x * sign, axis) * orbit_rotation(c^) * linalg.matrix3_rotate(-d.y, Vec3{1, 0, 0})
+		orbit_set_rotation(c, m)
 	}
+}
+
+// The world axis a single-axis style turns about sideways (Y for the turntable).
+orbit_style_axis :: proc(style: Orbit_Style) -> Vec3 {
+	#partial switch style {
+	case .Axis_X: return {1, 0, 0}
+	case .Axis_Z: return {0, 0, 1}
+	}
+	return {0, 1, 0}
+}
+
+// Which way round a sideways drag turns the view about a single-axis style's axis so the
+// model follows the pointer: as the turntable does, by whether the screen's up points
+// along the axis or against it; where the up lies nearly square to the axis (a front or
+// side view, for Z), by whether the view looks along it.
+orbit_axis_sign :: proc(c: Orbit, style: Orbit_Style) -> f32 {
+	axis := orbit_style_axis(style)
+	_, up, back := orbit_basis(c)
+	along := linalg.dot(up, axis)
+	if abs(along) < 0.2 do along = linalg.dot(back, axis)
+	return -1 if along < 0 else 1
 }
 
 // Moves the target of `c`, whose angles have just changed from those of `before`, so that

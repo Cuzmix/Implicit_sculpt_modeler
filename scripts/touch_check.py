@@ -3681,6 +3681,117 @@ def pen_button_runs_its_command():
 
 
 @scenario
+def one_finger_tap_runs_its_command():
+    """With One-finger tap set to Wireframe, a tap on empty space turns wireframe on once no second tap came, and sculpts nothing."""
+    s = Script()
+    write_settings("gesture_map One_Tap Wireframe\n")
+    s.ftap(*EMPTY)
+    s.wait(24)
+    return s, [f"--settings-file={settings_file()}"], camera_still({"wireframe": near(1), "dabs": near(0), "framed": near(0)})
+
+
+@scenario
+def one_finger_tap_gives_way_to_a_double_tap():
+    """With One-finger tap set to Wireframe, a double tap on empty space still frames the object, and wireframe stays off."""
+    s = Script()
+    write_settings("gesture_map One_Tap Wireframe\n")
+    zoom_a_little(s)
+    double_tap(s, *EMPTY)
+    s.wait(24)
+    return s, [f"--settings-file={settings_file()}"], {"camera_distance": near(3.5), "framed": near(1), "wireframe": near(0)}
+
+
+@scenario
+def one_finger_tap_dropped_by_the_pen():
+    """A finger's tap on empty space that the pen comes near within the gap was the hand, not a tap: wireframe stays off."""
+    s = Script()
+    write_settings("gesture_map One_Tap Wireframe\n")
+    s.ftap(*EMPTY, gap=2)
+    s.add("pnear")
+    s.add("pmove:800,450")
+    s.wait(24)
+    s.add("pfar")
+    s.wait(3)
+    return s, [f"--settings-file={settings_file()}"], camera_still({"wireframe": near(0), "dabs": near(0)})
+
+
+@scenario
+def one_finger_tap_keeps_the_move_selection():
+    """With the Move tool, a tap on empty space runs One-finger tap's command in place of clearing the selection."""
+    s = Script()
+    write_settings("gesture_map One_Tap Wireframe\n")
+    s.press("w")
+    s.ftap(*EMPTY)
+    s.wait(24)
+    return s, [f"--settings-file={settings_file()}"], camera_still({"wireframe": near(1), "selected": near(0), "tool": is_text("move")})
+
+
+@scenario
+def gesture_any_command_from_search():
+    """Settings > Touch: One-finger tap's Any command... opens the search to choose; Wireframe picked there then runs from a tap on empty space, and nothing ran while choosing."""
+    s = Script()
+    open_settings(s, "touch")
+    s.add("move:1330,600")
+    s.wait(1)
+    # Down to the gesture map, whose first row is One-finger tap.
+    for _ in range(7):
+        s.add("wheel:-2")
+        s.wait(2)
+    s.wait(10)
+    s.ftap(1333, 630)
+    s.wait(12)
+    # Its list's last row is Any command...
+    for _ in range(6):
+        s.fdrag(line((1330, 560), (1330, 60), 10))
+        s.wait(4)
+    s.wait(20)
+    s.ftap(1250, 580)
+    s.wait(14)
+    s.type("wireframe")
+    s.press("Return")
+    s.wait(6)
+    s.ftap(1427, 750)
+    s.wait(16)
+    s.ftap(*EMPTY)
+    s.wait(24)
+    return s, [], camera_still({"wireframe": near(1), "palette": near(0), "palette_runs": near(0), "dabs": near(0)})
+
+
+def camera_back(stats):
+    """The camera's back direction (toward the viewer) from its yaw and pitch, as orbit_basis has it."""
+    y, p = float(stats["camera_yaw"]), float(stats["camera_pitch"])
+    return (math.cos(p) * math.sin(y), math.sin(p), math.cos(p) * math.cos(y))
+
+
+def axis_orbit(axis):
+    """A finger dragged sideways on empty space turns the view about the world's `axis` only: the eye keeps its height along that axis."""
+    s = Script()
+    s.fdrag(past_slop(EMPTY, (EMPTY[0] + 120, EMPTY[1]), 20))
+    s.wait(3)
+    b0 = (math.cos(0.35) * math.sin(0.6), math.sin(0.35), math.cos(0.35) * math.cos(0.6))
+    def check(stats):
+        b = camera_back(stats)
+        if abs(b[axis] - b0[axis]) >= 2e-3:
+            return f"the eye's height along the axis moved from {b0[axis]:.4f} to {b[axis]:.4f}"
+        return True
+    return s, check
+
+
+@scenario
+def x_axis_orbit_setting():
+    """With the X axis orbit style, a sideways finger drag on empty space turns the view about the world's X axis."""
+    s, check = axis_orbit(0)
+    return s, ["--script=set orbit_style axis_x"], {"camera_distance": near(3.5), "camera_pitch": lambda v: abs(float(v) - 0.35) > 0.05, "dabs": near(0), "@axis": check}
+
+
+@scenario
+def z_axis_orbit_setting():
+    """With the Z axis orbit style, a sideways finger drag on empty space turns the view about the world's Z axis."""
+    s, check = axis_orbit(2)
+    return s, ["--script=set orbit_style axis_z"], {"camera_distance": near(3.5), "dabs": near(0), "@axis": check}
+
+
+@scenario
 def slow_pinch_never_undoes():
     """Two fingers spreading slowly for a second, under the slop, zoom and never undo."""
     s = Script()

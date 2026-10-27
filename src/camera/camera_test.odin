@@ -47,6 +47,9 @@ rotate_keeps_distance_and_a_limited_turntable_stops_at_the_poles :: proc(t: ^tes
 orbit_path_is_smooth :: proc(t: ^testing.T, s: Orbit_Settings, delta: Vec2, steps: int) -> Orbit {
 	c := orbit_default()
 	step := linalg.length(delta) * s.speed * c.distance // the arc one drag moves the eye
+	// A single-axis style's two turns are about axes that need not be square to each other,
+	// so a diagonal drag may move the eye as far as both parts in a line.
+	if s.style == .Axis_X || s.style == .Axis_Z do step = (abs(delta.x) + abs(delta.y)) * s.speed * c.distance
 	prev_eye := orbit_eye(c)
 	_, prev_up, _ := orbit_basis(c)
 	for _ in 0 ..< steps {
@@ -315,4 +318,41 @@ pinch_zoom_moves_the_eye_by_the_spread :: proc(t: ^testing.T) {
 	testing.expect(t, near_eq(c.distance, start), "a zero factor is ignored")
 	orbit_zoom_by(&c, 1e9)
 	testing.expect_value(t, c.distance, MIN_DISTANCE)
+}
+
+// A single-axis style turns sideways about its world axis, which keeps how the view's
+// directions lie along that axis, and up and down as Free does; the sign decided at the
+// press holds through a view whose up is square to the axis, where the view's own sign
+// would flip with a wobble.
+@(test)
+single_axis_styles_turn_about_their_axis :: proc(t: ^testing.T) {
+	for style in ([2]Orbit_Style{.Axis_X, .Axis_Z}) {
+		axis := orbit_style_axis(style)
+		c := orbit_default()
+		_, up0, back0 := orbit_basis(c)
+		s := Orbit_Settings{style = style, speed = ORBIT_SPEED, axis_sign = orbit_axis_sign(c, style)}
+		for _ in 0 ..< 50 do orbit_rotate(&c, {13, 0}, s)
+		_, up, back := orbit_basis(c)
+		testing.expectf(t, near_eq(linalg.dot(back, axis), linalg.dot(back0, axis), 1e-3) && near_eq(linalg.dot(up, axis), linalg.dot(up0, axis), 1e-3), "%v: the view's lie along the axis changed", style)
+		testing.expectf(t, linalg.length(orbit_eye(c) - orbit_eye(orbit_default())) > 0.5, "%v: a sideways drag did not turn the view", style)
+		// Up and down is Free's.
+		a, b := orbit_default(), orbit_default()
+		orbit_rotate(&a, {0, 40}, s)
+		orbit_rotate(&b, {0, 40}, {style = .Free, speed = ORBIT_SPEED})
+		testing.expectf(t, linalg.length(orbit_eye(a) - orbit_eye(b)) < 1e-3, "%v: up and down differs from Free", style)
+	}
+	// Looking at the front, Z's axis points at the viewer and the up is square to it: the
+	// view's sign comes from where it looks, and a latched sign keeps a drag turning one
+	// way across a wobble through that up.
+	c := orbit_default()
+	c.yaw, c.pitch, c.roll = 0, 0, 0
+	sign := orbit_axis_sign(c, .Axis_Z)
+	testing.expect_value(t, sign, 1)
+	s := Orbit_Settings{style = .Axis_Z, speed = ORBIT_SPEED, axis_sign = sign}
+	before := c
+	for k in 0 ..< 10 do orbit_rotate(&c, {10, 1 if k % 2 == 0 else -1}, s)
+	right, _, _ := orbit_basis(c)
+	r0, _, _ := orbit_basis(before)
+	// Ten drags right roll the picture one way only: the right vector turned 100 drags' worth.
+	testing.expectf(t, near_eq(linalg.dot(right, r0), math.cos(f32(100 * ORBIT_SPEED)), 2e-3), "the turn went back and forth: %v", linalg.dot(right, r0))
 }
