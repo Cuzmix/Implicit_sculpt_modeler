@@ -151,6 +151,7 @@ settings_reset :: proc(app: ^App, tab: Settings_Tab) {
 	case .Performance:
 		k.stats, k.stats_advanced = false, false
 		app.frame_rate, app.frame_limit = .Match_Display, FRAME_LIMIT_DEFAULT
+		app.idle_sleep = true
 		app.msaa = MSAA_DEFAULT
 		app.autosave.minutes = AUTOSAVE_DEFAULT_MINUTES
 		app.versions_kept = VERSIONS_DEFAULT
@@ -342,6 +343,8 @@ settings_performance :: proc(app: ^App) {
 	ui.spacer(ctx, 8)
 	ui.caption(ctx, "DISPLAY")
 	frame_rate_controls(app)
+	_ = ui.switch_row(ctx, "Rest when idle", &app.idle_sleep)
+	ui.paragraph(ctx, "When nothing on screen has changed for a second, waits for your next touch, key or pen instead of drawing the same frame again, which saves the battery and keeps the fans quiet. The first stroke after a rest is not delayed.")
 	ui.label(ctx, "Anti-aliasing")
 	if picked := ui.tabs(ctx, "Anti-aliasing", MSAA_NAMES[:], int(app.msaa)); picked >= 0 do app.msaa = Msaa(picked)
 	ui.paragraph(ctx, "Smooths the stepped edges of outlines and wireframe lines by taking 2 or 4 samples a pixel. It costs GPU memory and a little time every frame; Off draws as fast as it can.")

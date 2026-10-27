@@ -60,6 +60,7 @@ Options :: struct {
 	density_preview: int `usage:"Show Object > Shape > Rebuild's density checkerboard on the selected object for an even remesh of this many vertices, held on as holding its Density slider shows it (for screenshots and timing)."`,
 	bench_tilt: f32 `usage:"Lean the synthetic pen of --bench-stroke this many degrees to the right (with set tilt_strength in a start-up script)."`,
 	no_vsync:  bool `usage:"Show each frame as soon as it is ready instead of waiting for the display's refresh, so frame times are not capped at the refresh rate."`,
+	idle_sleep: bool `usage:"Rest when idle (Settings > System) in a scripted run too, which otherwise never rests: for testing it."`,
 	frame_limit: int `usage:"Draw at most N frames a second (Settings > System > Frame rate > Limit)."`,
 	time_gpu:  bool `usage:"Measure the GPU time of the 3D viewport every frame. Waits for the GPU each frame, so frames no longer overlap."`,
 	gpubench:  string `usage:"Time the GPU and CPU while orbiting and sculpting one sphere at 500k, 1M, 5M, 7M and 10M vertices (only --vertices when given), with each speed setting on and off; write the markdown tables to this path and exit."`,
@@ -264,6 +265,8 @@ App :: struct {
 	frame_rate:  Frame_Rate, // how often to draw (frame_rate.odin), applied at the start of the next frame
 	frame_limit: i32,        // frames a second at most, for Frame_Rate.Limit
 	pacer:       Frame_Pacer,
+	idle_sleep:  bool, // rest between frames while nothing changes (idle.odin)
+	idle:        Idle,
 	msaa:     Msaa, // wanted anti-aliasing, applied before the next frame sizes the viewport (msaa.odin)
 	time_gpu: bool, // wait for each frame's 3D work, to measure its GPU time
 	window:   ^sdl.Window, // what file dialogs belong to
@@ -490,6 +493,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	app.simplify_px = 1
 	app.frame_rate = .Unlimited if opts.no_vsync || opts.gpubench != "" else .Match_Display
 	app.frame_limit = FRAME_LIMIT_DEFAULT
+	app.idle_sleep = true
+	app.idle.forced = opts.idle_sleep
 	app.msaa = MSAA_DEFAULT
 	// Before the settings file, which brings back what earlier runs chose.
 	app.cavity, app.ridge = CAVITY_DEFAULT, RIDGE_DEFAULT
@@ -560,7 +565,10 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		sdl.ReleaseGPUFence(app.renderer.device, present_fence)
 	}
 
+	// Only a run a person drives rests when idle; a scripted one keeps every frame.
+	driven := interactive && opts.run == "" && opts.script == "" && opts.ui_events == "" && opts.load_strokes == "" && opts.timelapse == "" && !opts.orbit
 	for app.running {
+		idle_rest(&app, driven)
 		frame_start := time.tick_now()
 		// A waiting save or export goes first: before a scene command or file request
 		// changes what it would write. A second Save during a save (Ctrl+S again) is
@@ -661,6 +669,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		if !setting_up do kit_events_push(&app, window)
 		e: sdl.Event
 		for sdl.PollEvent(&e) {
+			app.idle.events += 1
 			// Space over the viewport is the brush pie's (pie.odin) rather than a key of the
 			// frame; once it went down there, its release is the pie's too.
 			if (e.type == .KEY_DOWN || e.type == .KEY_UP) && e.key.scancode == .SPACE {
@@ -1014,6 +1023,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		app.stats.cache_redraws += int(drawn.cache_redrawn)
 		app.stats.partial_frames += int(drawn.partial)
 		if lod_ms >= 0 do ring_push(&app.stats.lod_ms, lod_ms)
+		idle_note(&app, drawn, sculpted.dabs)
 		if sculpted.dabs > 0 {
 			ring_push(&app.stats.raycast_ms, sculpted.raycast_ms)
 			ring_push(&app.stats.brush_ms, sculpted.brush_ms)
@@ -1374,6 +1384,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	fmt.printfln("idle_cache=%v cache_redraws=%d last_frame_triangles=%d msaa=%v", app.cache_idle, app.stats.cache_redraws, app.stats.viewport.triangles, app.msaa)
 	v := app.stats.viewport
 	fmt.printfln("cull=%v last_frame_draws=%d chunks=%d culled_view=%d culled_back=%d cull_ms=%.3f", app.renderer.cull, v.draws, v.chunks, v.culled_view, v.culled_back, v.cull_ms)
+	fmt.printfln("idle_rests=%d idle_rest_ms=%.0f", app.idle.rests, app.idle.rest_ms)
 	fmt.printfln("partial=%v partial_frames=%d last_frame_partial=%v last_frame_redrawn_px=%d viewport_px=%d", app.renderer.partial, app.stats.partial_frames, v.partial, v.redrawn_px, app.target.width * app.target.height)
 	lod_pending := 0
 	for obj in app.scene.objects do lod_pending += sculpt.sculptor_lod_pending(object_sculptor(obj))
