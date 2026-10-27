@@ -16,7 +16,11 @@ import "../ui"
 // circle, as on the light sphere. With Place highlight on, a press on the model moves the
 // picked light so its highlight lands under the finger, as Marmoset's light placement
 // and KeyShot's highlight tool do: a sun turns, a point light or a spot moves round the
-// spot at the distance it was, a spot aimed at it. Each drag is one undo step.
+// spot at the distance it was, a spot aimed at it. The picked point light or spot also
+// has the Move tool's handles about its marker, as Blender's lamps take its axis moves
+// and Marmoset's lights their gizmo: an arm along each of the scene's axes moves it
+// along that axis, a square between two arms across their plane. Each drag is one undo
+// step.
 
 // The Lights section's Distance range, as shares of the camera's distance.
 LIGHT_DISTANCE_MIN :: 0.05
@@ -38,7 +42,17 @@ Light_Press :: struct {
 	aim:     Vec3, // where a dragged spot was aimed, in the scene
 	reach:   f32, // how far a placed point light or spot stays from the surface
 	moves:   int, // drags and placements made, for the exit stats
+	// A drag of the picked light's handles: which one (None for the marker's drag), how
+	// far along its axis the press was, or where it met its plane, in the scene.
+	handle:  gizmo.Handle,
+	along:   f32,
+	met:     Vec3,
+	hover:   gizmo.Handle, // the handle under a mouse or pen hovering, drawn lit
 }
+
+// How far from a marker's middle its plate reaches, in points (a marker held at the
+// edge is smaller).
+LIGHT_MARKER_PX :: 15
 
 // Whether the Lights section is what the tray shows, so the markers are up.
 lights_section_shown :: proc(app: ^App) -> bool {
@@ -161,6 +175,75 @@ light_marker_at :: proc(app: ^App, i: int, size: [2]f32) -> (at: [2]f32, front, 
 	return mid + d * k, front, true
 }
 
+// The handles of point or spot light `i` as they appear on screen, about where it
+// stands; not ok for a sun, a light not placed yet, or one whose marker is held at the
+// edge of the room, whose place is not where its marker shows.
+light_gizmo :: proc(app: ^App, i: int, size: [2]f32) -> (s: gizmo.Screen) {
+	set := &app.scene.lights
+	if i < 0 || i >= int(set.count) || size.x <= 0 || size.y <= 0 do return
+	l := set.lights[i]
+	if l.kind == .Sun || l.pos == {} do return
+	if _, _, edge := light_marker_at(app, i, size); edge do return
+	center := light_world_pos(app, l)
+	arm_px := gizmo.ARM_PX * gizmo_scale(app)
+	arm := arm_px * camera.orbit_world_per_px(app.camera, center, size.y)
+	return gizmo.screen(view_proj_of(app, size), center, arm, -camera.orbit_toward(app.camera, center), size, arm_px)
+}
+
+// The picked light's handle under `at` while the Lights section shows: an arm or a plane
+// square, never the middle, which is its marker's.
+light_gizmo_pick :: proc(app: ^App, at, size: [2]f32) -> gizmo.Handle {
+	if !lights_section_shown(app) do return .None
+	sc := light_gizmo(app, app.light_pick, size)
+	if !sc.ok || linalg.length(at - sc.center) <= LIGHT_MARKER_PX * gizmo_scale(app) do return .None
+	h := gizmo.pick(sc, .Move, at, gizmo_radius(app))
+	return .None if h == .View else h
+}
+
+// Starts a drag of light `i`'s handle `h` from a press at `at`: where the light stands
+// and where the press meets the handle's axis or plane. False when it cannot be dragged
+// from there (an axis seen end on, a plane edge on).
+light_gizmo_begin :: proc(app: ^App, p: ^Light_Press, i: int, h: gizmo.Handle, at, size: [2]f32) -> bool {
+	stands := light_world_pos(app, app.scene.lights.lights[i])
+	origin, dir := mouse_ray(app.camera, at, size)
+	p.handle, p.depth, p.aim = h, stands, spot_aim(app, i)
+	#partial switch h {
+	case .X, .Y, .Z:
+		p.along = gizmo.closest_on_axis(stands, gizmo.AXES[int(h) - int(gizmo.Handle.X)], origin, dir) or_return
+	case .YZ, .XZ, .XY:
+		p.met = gizmo.ray_plane(origin, dir, stands, gizmo.AXES[int(h) - int(gizmo.Handle.YZ)]) or_return
+	case:
+		return false
+	}
+	return true
+}
+
+// Moves light `i` by its handle's drag to the pointer at `at`: along the axis, or across
+// the plane, from where it stood at the press, a spot still aimed where it was.
+light_gizmo_drag :: proc(app: ^App, p: ^Light_Press, i: int, at, size: [2]f32) {
+	origin, dir := mouse_ray(app.camera, at, size)
+	moved := p.depth
+	#partial switch p.handle {
+	case .X, .Y, .Z:
+		axis := gizmo.AXES[int(p.handle) - int(gizmo.Handle.X)]
+		s, ok := gizmo.closest_on_axis(p.depth, axis, origin, dir)
+		if !ok do return
+		moved += axis * (s - p.along)
+	case .YZ, .XZ, .XY:
+		k := int(p.handle) - int(gizmo.Handle.YZ)
+		hit, ok := gizmo.ray_plane(origin, dir, p.depth, gizmo.AXES[k])
+		if !ok do return
+		delta := hit - p.met
+		// Exactly in the plane, whatever the rounding.
+		delta[k] = 0
+		moved += delta
+	case:
+		return
+	}
+	aim := moved - p.aim
+	light_set_world(app, i, linalg.normalize(aim) if linalg.length(aim) > 1e-6 else light_world_dir(app, i), moved)
+}
+
 // The light whose marker is nearest `at` within the pointer's reach, the later one where
 // two are as near (it is drawn over the other); -1 for none.
 light_marker_pick :: proc(app: ^App, at, size: [2]f32) -> int {
@@ -174,14 +257,14 @@ light_marker_pick :: proc(app: ^App, at, size: [2]f32) -> int {
 
 // Whether a press at `at` lands on a light's marker in the viewport.
 light_marker_pressed :: proc(app: ^App, at, size: [2]f32) -> bool {
-	return lights_section_shown(app) && light_marker_pick(app, at, size) >= 0
+	return lights_section_shown(app) && (light_marker_pick(app, at, size) >= 0 || light_gizmo_pick(app, at, size) != .None)
 }
 
 // Whether a press at `at` is the lights' rather than a tool's: on a marker, or anywhere
 // with Place highlight on (a press off the model still turns the view).
 lights_take_press :: proc(app: ^App, at, size: [2]f32) -> bool {
 	if !lights_section_shown(app) || app.scene.lights.count <= 0 do return false
-	return app.ui.light_place || light_marker_pick(app, at, size) >= 0
+	return app.ui.light_place || light_marker_pick(app, at, size) >= 0 || light_gizmo_pick(app, at, size) != .None
 }
 
 // Moves the picked light so its highlight, seen from the camera, lands on the surface at
@@ -205,6 +288,7 @@ light_place_highlight :: proc(app: ^App, i: int, hit, normal: Vec3, reach: f32) 
 lights_viewport_frame :: proc(app: ^App, input: Viewport_Input) -> bool {
 	p := &app.ui.light_press
 	set := &app.scene.lights
+	if !p.active do p.hover = light_gizmo_pick(app, input.mouse_pos, input.size) if input.hovered && !input.primary else .None
 	if p.active {
 		if !input.primary || app.light_pick >= int(set.count) {
 			p.active = false
@@ -212,6 +296,10 @@ lights_viewport_frame :: proc(app: ^App, input: Viewport_Input) -> bool {
 			return true
 		}
 		i := app.light_pick
+		if p.handle != .None {
+			light_gizmo_drag(app, p, i, input.mouse_pos, input.size)
+			return true
+		}
 		if p.placing {
 			origin, dir := mouse_ray(app.camera, input.mouse_pos, input.size)
 			if _, hit, normal, ok := scene_raycast_surface(app, origin, dir); ok do light_place_highlight(app, i, hit, normal, p.reach)
@@ -254,6 +342,16 @@ lights_viewport_frame :: proc(app: ^App, input: Viewport_Input) -> bool {
 		light_place_highlight(app, i, hit, normal, reach)
 		return true
 	}
+	// The picked light's handles first: they stand clear of its marker, which another
+	// light's may be under.
+	if h := light_gizmo_pick(app, start, input.size); h != .None {
+		next := Light_Press{active = true, from = start, moves = p.moves}
+		if light_gizmo_begin(app, &next, app.light_pick, h, start, input.size) {
+			light_drag_changed(app, set^, "Move light")
+			p^ = next
+			return true
+		}
+	}
 	i := light_marker_pick(app, start, input.size)
 	if i < 0 do return false
 	app.light_pick = i
@@ -283,6 +381,11 @@ draw_light_markers :: proc(app: ^App, o: Overlay, size: [2]f32) {
 	t := o.ctx.theme
 	vp := view_proj_of(app, size)
 	px := gizmo_scale(app)
+	// The picked point light's or spot's handles, under the markers.
+	if sc := light_gizmo(app, app.light_pick, size); sc.ok {
+		p := app.ui.light_press
+		draw_move_handles(o, sc, p.handle if p.active && p.handle != .None else p.hover, px)
+	}
 	for i in 0 ..< int(set.count) {
 		l := set.lights[i]
 		s, front, edge := light_marker_at(app, i, size)
@@ -290,7 +393,7 @@ draw_light_markers :: proc(app: ^App, o: Overlay, size: [2]f32) {
 		if l.kind == .Spot && l.pos != {} && !edge {
 			if e, seen := gizmo.project(vp, spot_aim(app, i), size); seen do overlay_line(o, s, e, overlay_color({1, 0.9, 0.6, 0.6 * alpha}), 1.5 * px)
 		}
-		r := (12 if edge else 15) * px
+		r := (12 if edge else LIGHT_MARKER_PX) * px
 		shown := light_rgb(l)
 		for &c in shown do c = srgb_encode(min(c, 1))
 		if front {

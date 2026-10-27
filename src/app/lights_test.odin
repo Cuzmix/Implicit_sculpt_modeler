@@ -7,6 +7,7 @@ import "core:testing"
 
 import "../camera"
 import "../geom"
+import "../gizmo"
 import "../render"
 
 @(private = "file")
@@ -677,4 +678,44 @@ light_size_reaches_the_shader :: proc(t: ^testing.T) {
 	app.scene.lights.lights[4].kind = .Sun
 	l = viewport_lights(&app)
 	testing.expectf(t, abs(l.shape[4].w - math.sin(math.to_radians(f32(10)))) < 1e-6, "back to a sun %v", l.shape[4].w)
+}
+
+// The picked point light's or spot's handles move it as the Move tool's do: along an arm
+// it moves on that axis alone, by as much as the arm's world length the pointer covered;
+// across a plane square it keeps the held axis exactly; a spot stays aimed where it was.
+@(test)
+light_gizmo_moves_along_an_axis_or_across_a_plane :: proc(t: ^testing.T) {
+	app: App
+	app.camera = camera.orbit_default()
+	app.camera.yaw, app.camera.pitch = 0.5, -0.35
+	lights_reset(&app)
+	set := &app.scene.lights
+	set.lights[2] = {on = true, kind = .Spot, space = .Scene, dir = {0, 1, 0}, pos = {0.5, 0.6, 0.3}, ref = 2, strength = 1, color = 1, cone = 45}
+	size := [2]f32{1600, 900}
+	aim := light_world_pos(&app, set.lights[2]) - light_world_dir(&app, 2) * linalg.length(set.lights[2].pos - app.camera.target)
+
+	sc := light_gizmo(&app, 2, size)
+	testing.expect(t, sc.ok && gizmo.arm_shows(sc, 0))
+	testing.expect(t, !light_gizmo(&app, 0, size).ok) // a sun has none
+	p: Light_Press
+	from := (sc.center + sc.tips[0]) * 0.5
+	testing.expect(t, light_gizmo_begin(&app, &p, 2, .X, from, size))
+	start := set.lights[2].pos
+	light_gizmo_drag(&app, &p, 2, from + (sc.tips[0] - sc.center) * 0.5, size)
+	moved := set.lights[2].pos - start
+	arm := gizmo.ARM_PX * camera.orbit_world_per_px(app.camera, start, size.y)
+	testing.expectf(t, moved.y == 0 && moved.z == 0 && abs(moved.x - 0.5 * arm) < 0.05 * arm, "along x by %v, the arm %v", moved, arm)
+	testing.expectf(t, near(light_world_dir(&app, 2), linalg.normalize(set.lights[2].pos - aim), 1e-5), "the spot points %v", light_world_dir(&app, 2))
+
+	// Across the plane square that holds y still.
+	sc = light_gizmo(&app, 2, size)
+	q, ok := gizmo.square_of(sc, 1)
+	testing.expect(t, ok)
+	inside := (q[0] + q[2]) * 0.5
+	p = {}
+	testing.expect(t, light_gizmo_begin(&app, &p, 2, .XZ, inside, size))
+	start = set.lights[2].pos
+	light_gizmo_drag(&app, &p, 2, inside + {40, 25}, size)
+	moved = set.lights[2].pos - start
+	testing.expectf(t, moved.y == 0 && abs(moved.x) + abs(moved.z) > 0.01, "across xz by %v", moved)
 }
