@@ -39,7 +39,7 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   top right, `NAV_HEAD_W` x `NAV_HEAD_H`, a `ui.area` showing the renderer's picture; tap = `View_Axis` from that side,
   drag = orbit), `kit_view_bar` (right, from `nav_head_bottom()`: Search, Palettes (the tray), Objects (the card); then Studio
   render, Orthographic (long press: the view menu with `kit_field_of_view`), Floor grid (long press: Scene's Floor
-  section), Symmetry, Focus, Wireframe (long press: the `.Polyframe` pop, Lines and Fill), Transparency, Ghost, Solo;
+  section), Symmetry (lit for radial too; long press: X, Y, Z, Local, the Radial row and Copies), Local symmetry, Focus, Wireframe (long press: the `.Polyframe` pop, Lines and Fill), Transparency, Ghost, Solo;
   touch_check's `UI` table has each button's place, so a button added here shifts the ones under it there); bottom `kit_bottom_bar` (a page of the dock's 21 slots,
   `dock_page_slots`/`dock_per_page`, with `ui.page_dots` under it; All brushes; Gizmo; then `mesh_tool` buttons
   Remesh, Dynamic topology, Retopologize, Subdivide, Live boolean, whose long press opens their Object section above

@@ -165,7 +165,7 @@ voxel_brush_allowed :: proc(app: ^App, kind: sculpt.Brush_Kind, say: bool) -> bo
 }
 
 // One dab on the object at `at` (its space): the sculptor's for a mesh, the clay's for a
-// voxel object, mirrored as the brush's symmetry says. `normal` is the surface normal at
+// voxel object, mirrored and turned as the brush's symmetry says. `normal` is the surface normal at
 // the hit, which the voxel brushes need and the mesh brushes work out themselves.
 object_dab :: proc(app: ^App, obj: ^Object, brush: sculpt.Brush, at, normal: Vec3) {
 	vp := obj.voxel
@@ -175,9 +175,9 @@ object_dab :: proc(app: ^App, obj: ^Object, brush: sculpt.Brush, at, normal: Vec
 	}
 	vb, ok := voxel_brush_of(brush, normal)
 	if !ok do return
-	for sign in sculpt.mirrors(brush.symmetry) {
-		vb.normal = normal * sign
-		_ = voxel.clay_dab(&vp.clay, vb, at * sign)
+	for img in sculpt.symmetry_images(brush) {
+		vb.normal = img.turn * normal
+		_ = voxel.clay_dab(&vp.clay, vb, sculpt.sym_point(img, brush.sym_center, at))
 	}
 }
 

@@ -51,8 +51,8 @@ UI = {
     # The navigation head (nav_head.odin), and the view bar under it.
     "nav_head": (1568, 88),
     "search": (1569, 155), "inspector": (1569, 203), "objects": (1569, 251),
-    "ortho": (1569, 365), "floor": (1569, 413), "sym_x": (1569, 461), "wireframe": (1569, 557),
-    "transparency": (1569, 605),
+    "ortho": (1569, 365), "floor": (1569, 413), "sym_x": (1569, 461), "sym_local": (1569, 509),
+    "wireframe": (1569, 605), "transparency": (1569, 653),
     "dock_draw": (426, 843), "dock_smooth": (490, 843), "browser": (872, 843), "gizmo": (933, 843),
     "remesh": (990, 843), "dyntopo": (1038, 843), "retopo": (1086, 843), "subdivide": (1134, 843),
     "live_boolean": (1182, 843), "dock_page1": (772, 888), "dock_page2": (800, 888), "dock_page3": (828, 888),
@@ -250,11 +250,14 @@ def tap_ui():
     return s, [], camera_still({"dabs": near(0)})
 
 
-# The symmetry popover a long press on Symmetry opens at 1600 x 900: its X, Y and Z.
-SYMMETRY_AXES = {"x": (1401, 497), "y": (1453, 497), "z": (1505, 497)}
+# The symmetry popover a long press on Symmetry opens at 1600 x 900: its X, Y, Z and Local;
+# the Radial row's switch and axes; and the Copies slider's two ends.
+SYMMETRY_AXES = {"x": (1325, 497), "y": (1377, 497), "z": (1429, 497), "local": (1489, 497)}
+RADIAL_ROW = {"radial": (1333, 575), "x": (1393, 575), "y": (1445, 575), "z": (1497, 575)}
+RADIAL_COPIES = ((1351, 639), (1530, 639))
 # The Floor grid section's Back toggle, and the polyframe popover's Fill, beside the bar.
 FLOOR_BACK = (1381, 561)
-POLYFRAME_FILL = (1450, 590)
+POLYFRAME_FILL = (1450, 638)
 # The view menu's Field of view slider, under Orthographic.
 FOV_SLIDER = (1300, 640)
 
@@ -347,6 +350,57 @@ def symmetry_tap_and_long_press():
     s.ftap(*SYMMETRY_AXES["y"])
     s.wait(4)
     return s, [], camera_still({"dabs": near(0), "symmetry": is_text("xy"), "bar_pop": is_text("symmetry")})
+
+
+@scenario
+def local_symmetry_tap():
+    """A tap on Local symmetry mirrors about the object's own middle, beside the X axis a tap
+    on Symmetry turned on; a second tap puts the world's middle back."""
+    s = Script()
+    s.ftap(*UI["sym_x"])
+    s.wait(4)
+    s.ftap(*UI["sym_local"])
+    s.wait(4)
+    twice = Script()
+    for _ in range(2):
+        twice.ftap(*UI["sym_local"])
+        twice.wait(4)
+    return Steps([(s, [], camera_still({"dabs": near(0), "symmetry": is_text("x+local")})),
+                  (twice, [], camera_still({"dabs": near(0), "symmetry": is_text("none")}))])
+
+
+@scenario
+def radial_symmetry_from_the_popover():
+    """In the symmetry popover, Radial turns on copies round Y, a tap on Z turns them round
+    Z, and dragging Copies to its end gives the most copies; with no mirror axis on, the
+    Symmetry button still shows lit."""
+    s = Script()
+    long_press(s, *UI["sym_x"])
+    s.wait(8)
+    s.ftap(*RADIAL_ROW["radial"])
+    s.wait(4)
+    s.ftap(*RADIAL_ROW["z"])
+    s.wait(4)
+    (x0, y), (x1, _) = RADIAL_COPIES
+    s.fdrag([(x0 + (x1 - x0) * i / 6, y) for i in range(7)])
+    s.wait(4)
+    return s, [], camera_still({"dabs": near(0), "symmetry": is_text("none+radial32z"), "bar_pop": is_text("symmetry")})
+
+
+@scenario
+def radial_stroke_lays_its_copies():
+    """With Radial on from the popover, a short mouse stroke on the model lays its dab and
+    the copies round Y, all in one undo step."""
+    s = Script()
+    long_press(s, *UI["sym_x"])
+    s.wait(8)
+    s.ftap(*RADIAL_ROW["radial"])
+    s.wait(4)
+    s.mouse_drag([(760, 200)])
+    s.wait(4)
+    s.mouse_drag([(760 + 8 * i, 200 + 4 * i) for i in range(8)])
+    s.wait(4)
+    return s, [], {"symmetry": is_text("none+radial8y"), "dabs": lambda v: int(v) > 0, "undo_steps": near(1)}
 
 
 @scenario
