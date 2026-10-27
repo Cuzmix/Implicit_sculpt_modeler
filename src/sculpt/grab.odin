@@ -31,6 +31,12 @@ Grab_Job :: struct {
 	inv_r2:  f32,
 	offset:  Vec3,
 	shape:   ^Falloff, // the brush's drawn falloff, or nil for the built-in one
+	// Per image: the direction it reaches through the whole depth along (Brush.through
+	// turned as the image is), or zero for the round reach.
+	dirs:    [dynamic; SYM_IMAGES_MAX]Vec3,
+	// With Connected, per image: the vertices joined to where it presses, sorted.
+	connected: bool,
+	reach:   [dynamic; SYM_IMAGES_MAX][]u32,
 }
 
 // Starts dragging the vertices within the brush around `center`. Call inside a stroke
@@ -40,11 +46,15 @@ sculptor_grab_begin :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
 	if g.leaves == nil do grab_init(g, s.history.allocator)
 	clear(&g.leaves)
 	j := Grab_Job{s = s, r2 = brush.radius * brush.radius, inv_r2 = 1 / (brush.radius * brush.radius), shape = brush.falloff_shape}
+	through := linalg.normalize0(brush.through)
 	for img in symmetry_images(brush) {
 		at := sym_point(img, brush.sym_center, center)
+		dir := img.turn * through
 		append(&j.centers, at)
 		append(&j.turns, img.turn)
-		geom.bvh_query_leaves(&s.bvh, at, brush.radius, &g.leaves)
+		append(&j.dirs, dir)
+		if dir != {} do geom.bvh_query_leaves_line(&s.bvh, at, dir, brush.radius, &g.leaves)
+		else do geom.bvh_query_leaves(&s.bvh, at, brush.radius, &g.leaves)
 	}
 	slice.sort(g.leaves[:])
 	resize(&g.leaves, len(slice.unique(g.leaves[:])))
@@ -52,6 +62,11 @@ sculptor_grab_begin :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
 	resize(&g.touched, n)
 	resize(&g.first, n + 1)
 	if n == 0 do return 0
+	// Reaching through the depth wins over Connected, whose flood keeps to the round reach.
+	if brush.connected && through == {} {
+		j.connected = true
+		for k in 0 ..< len(j.centers) do append(&j.reach, grab_reach(s, j.centers[k], brush.radius))
+	}
 	clear(&s.hit)
 	append(&s.hit, ..g.leaves[:])
 	if s.history.recording do record_hit(s, masks = false)
@@ -142,11 +157,40 @@ grab_follow :: #force_inline proc(j: ^Grab_Job, v: u32) -> (f: matrix[3, 3]f32) 
 	p := j.s.mesh.positions[v]
 	for c, k in j.centers {
 		delta := p - c
+		// Reaching through the depth, only the distance across the line counts.
+		if dir := j.dirs[k]; dir != {} do delta -= linalg.dot(delta, dir) * dir
 		d2 := linalg.dot(delta, delta)
-		if d2 < j.r2 do f += mat_scaled(j.turns[k], falloff_drawn(j.shape, d2 * j.inv_r2) if j.shape != nil else falloff(d2 * j.inv_r2))
+		if d2 >= j.r2 do continue
+		if j.connected {
+			if _, found := slice.binary_search(j.reach[k], v); !found do continue
+		}
+		f += mat_scaled(j.turns[k], falloff_drawn(j.shape, d2 * j.inv_r2) if j.shape != nil else falloff(d2 * j.inv_r2))
 	}
 	if f != 0 do f = mat_scaled(f, shield(j.s.fade, j.s.mask, v))
 	return
+}
+
+// The vertices joined through the shown surface to where a grab image presses at
+// `center`, without leaving the round reach of `radius` (filters.odin's flood), sorted;
+// on the temp allocator, for grab_begin alone. It leaves `s.hit` as the image's leaves.
+@(private = "file")
+grab_reach :: proc(s: ^Sculptor, center: Vec3, radius: f32) -> []u32 {
+	clear(&s.hit)
+	geom.bvh_query_leaves(&s.bvh, center, radius, &s.hit)
+	slice.sort(s.hit[:])
+	resize(&s.hit, len(slice.unique(s.hit[:])))
+	d := Dab{s = s, center = center, r2 = radius * radius, inv_r2 = 1 / (radius * radius)}
+	verts: u32
+	for leaf in s.hit do verts += s.nodes[s.node_of[leaf]].vert_count
+	connected_flood(s, &d, s.pool if verts >= PARALLEL_MIN_VERTS else nil)
+	c := &s.connected
+	out := make([dynamic]u32, context.temp_allocator)
+	for leaf in s.hit {
+		first, last := owned(s, leaf)
+		for v in first ..< last do if c.mark[v] == c.stamp + 1 do append(&out, v)
+	}
+	slice.sort(out[:])
+	return out[:]
 }
 
 // Every entry of `m` times `k`.

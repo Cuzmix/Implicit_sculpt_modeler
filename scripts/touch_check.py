@@ -57,7 +57,7 @@ UI = {
     "dock_draw": (426, 843), "dock_smooth": (490, 843), "browser": (872, 843), "gizmo": (933, 843),
     "remesh": (990, 843), "dyntopo": (1038, 843), "retopo": (1086, 843), "subdivide": (1134, 843),
     "live_boolean": (1182, 843), "dock_page1": (772, 888), "dock_page2": (800, 888), "dock_page3": (828, 888),
-    "browser_curve": (743, 480), "browser_insert": (807, 480),
+    "browser_curve": (743, 295), "browser_insert": (807, 295),
     "size_slider": (91, 663),  # in the popover the Size button opens
     # The tray's list of palettes and sections (kit_tray.odin), with the Brush palette open.
     "list_brush": (1116, 158), "list_object": (1116, 590), "list_scene": (1116, 638), "status": (69, 80),
@@ -3149,7 +3149,7 @@ DEFAULT_DOCK = "Draw,Smooth,Clay,Flatten,Inflate,Grab,Mask"
 # The slot menu over the dock's Smooth, and the brush browser, at 1600 by 900 with no
 # preset or one: Brush settings, Pinch, the first preset and Reset dock in the menu; the
 # first preset in the browser.
-SLOT_SETTINGS, SLOT_PINCH, SLOT_PRESET, SLOT_RESET = (410, 464), (362, 571), (362, 723), (400, 774)
+SLOT_SETTINGS, SLOT_PINCH, SLOT_PRESET, SLOT_RESET = (410, 282), (362, 373), (362, 723), (400, 774)
 BROWSER_PRESET = (743, 767)
 
 
@@ -3218,6 +3218,23 @@ def browser_picks_a_preset():
     s.ftap(*BROWSER_PRESET)
     s.wait(6)
     return s, [one_preset_settings()], camera_still({"dabs": near(0), "preset": near(1), "preset_name": is_text("Soft_clay"), "browser": near(0)})
+
+
+# The brush browser's built-in Move all depth, at 1600 by 900 with one preset of the
+# person's own.
+BROWSER_MOVE_ALL_DEPTH = (743, 617)
+
+
+@scenario
+def browser_picks_a_built_in_preset():
+    """The brush browser lists the built-in library between the brushes and the presets; a tap on Move all depth puts the brush on it (Grab reaching through the depth) and closes the browser."""
+    s = Script()
+    s.ftap(*UI["browser"])
+    s.wait(12)
+    s.ftap(*BROWSER_MOVE_ALL_DEPTH)
+    s.wait(6)
+    return s, [one_preset_settings()], camera_still({"dabs": near(0), "preset_name": is_text("Move_all_depth"), "brush_kind": is_text("grab"),
+                                                     "brush_grab_depth": near(1), "browser": near(0)})
 
 
 # The Assign key popover beside the Palettes button, at 1600 by 900: Use it here and Keep

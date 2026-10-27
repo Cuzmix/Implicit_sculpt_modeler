@@ -132,7 +132,7 @@ dock_has_brush :: proc(app: ^App) -> bool {
 // pack's presets are numbered apart and stay.
 dock_preset_deleted :: proc(app: ^App, i: int) {
 	for &s in app.kit.dock {
-		if preset_of_pack(s.preset) do continue
+		if preset_read_only(s.preset) do continue
 		if s.preset == i + 1 do s.preset = 0
 		else if s.preset > i + 1 do s.preset -= 1
 	}
@@ -177,7 +177,7 @@ Grid_Pick :: struct {
 	tapped, pressed: bool, // tapped picks; pressed is the long press (or right-click)
 }
 
-// Every brush, then the person's presets, then each content pack's under its name, as
+// Every brush, then the built-in presets, the person's, then each content pack's under its name, as
 // tiles GRID_PER_ROW to a row in a body that scrolls when taller than `height`: the
 // brush browser's and the slot popover's. `chosen` is lit when `lit` is set.
 // `owner` is the popover the body is in.
@@ -189,6 +189,10 @@ kit_brush_grid :: proc(app: ^App, owner: ui.Id, chosen: Dock_Slot, lit: bool, he
 	tiles := make([dynamic]Dock_Slot, context.temp_allocator)
 	for kind in sculpt.Brush_Kind do append(&tiles, Dock_Slot{kind = kind})
 	kit_grid_rows(app, "brush row", tiles[:], chosen, lit, height, &scroll, &pick)
+	ui.caption(ctx, "LIBRARY")
+	clear(&tiles)
+	for r, j in BUILT_IN_PRESETS do append(&tiles, Dock_Slot{kind = r.kind, preset = BUILT_IN_PRESET + j})
+	kit_grid_rows(app, "built-in row", tiles[:], chosen, lit, height, &scroll, &pick)
 	ui.caption(ctx, "PRESETS")
 	clear(&tiles)
 	for p, i in app.presets[:app.preset_count] do append(&tiles, Dock_Slot{kind = p.values.kind, preset = i + 1})
@@ -222,6 +226,9 @@ kit_grid_rows :: proc(app: ^App, row: string, slots: []Dock_Slot, chosen: Dock_S
 		case preset_of_pack(s.preset):
 			p, _ := preset_at(app, s.preset)
 			label = fmt.tprintf("%s##pack preset %d", preset_name(p), s.preset - PACK_PRESET)
+		case preset_built_in(s.preset):
+			p, _ := preset_at(app, s.preset)
+			label = fmt.tprintf("%s##built-in preset %d", preset_name(p), s.preset - BUILT_IN_PRESET)
 		case:
 			label = fmt.tprintf("%s##preset %d", preset_name(&app.presets[s.preset - 1]), s.preset - 1)
 		}

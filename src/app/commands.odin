@@ -485,7 +485,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Connected = {
 		label = "Connected only",
-		help = "Brushes work only on the surface joined to where they press, leaving a finger or fold that is only near in space.",
+		help = "Brushes work only on the surface joined to where they press, leaving a finger or fold that is only near in space; Grab picks up only that part.",
 		run = proc(app: ^App, _: int) {app.brush.connected = !app.brush.connected},
 		checked = proc(app: ^App, _: int) -> bool {return app.brush.connected},
 	},
@@ -524,7 +524,7 @@ COMMANDS := [Command_Id]Command {
 		label = "Save preset changes",
 		help = "Stores the brush's changes in the preset it is on.",
 		run = proc(app: ^App, _: int) {preset_save(app)},
-		enabled = proc(app: ^App, _: int) -> bool {return preset_changed(app) && !preset_of_pack(app.brush.preset)},
+		enabled = proc(app: ^App, _: int) -> bool {return preset_changed(app) && !preset_read_only(app.brush.preset)},
 	},
 	.Preset_Revert = {
 		label = "Revert preset",
@@ -538,7 +538,7 @@ COMMANDS := [Command_Id]Command {
 		help = "Deletes the preset the brush is on; the brush goes back to its plain self.",
 		icon = ui.ICON_TRASH,
 		run = proc(app: ^App, _: int) {preset_delete(app, app.brush.preset - 1)},
-		enabled = proc(app: ^App, _: int) -> bool {return app.brush.preset > 0 && !preset_of_pack(app.brush.preset)},
+		enabled = proc(app: ^App, _: int) -> bool {return app.brush.preset > 0 && !preset_read_only(app.brush.preset)},
 	},
 	.Brush_Reset = {
 		label = "Reset brush",
