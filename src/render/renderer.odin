@@ -1816,6 +1816,65 @@ viewport_download :: proc(r: ^Renderer, vt: ^Viewport_Target, allocator := conte
 	return texture_download(r, texture if texture != nil else vt.color, vt.width, vt.height, allocator)
 }
 
+// A texture read back without waiting for it: the copy is submitted after the frame's
+// work and collected once its fence has signalled, so the frame loop never stops for it
+// (the scene file's preview picture).
+Readback :: struct {
+	transfer:      ^sdl.GPUTransferBuffer,
+	fence:         ^sdl.GPUFence,
+	width, height: u32,
+}
+
+// Starts reading the `width` by `height` RGBA8 `texture` back, dropping a readback still
+// under way. False when the device refused, with nothing left to collect.
+readback_start :: proc(r: ^Renderer, rb: ^Readback, texture: ^sdl.GPUTexture, width, height: u32) -> bool {
+	readback_cancel(r, rb)
+	if texture == nil || width == 0 || height == 0 do return false
+	rb.transfer = sdl.CreateGPUTransferBuffer(r.device, {usage = .DOWNLOAD, size = width * height * 4})
+	if rb.transfer == nil do return false
+	cmd := sdl.AcquireGPUCommandBuffer(r.device)
+	if cmd == nil {
+		readback_cancel(r, rb)
+		return false
+	}
+	pass := sdl.BeginGPUCopyPass(cmd)
+	sdl.DownloadFromGPUTexture(pass, {texture = texture, w = width, h = height, d = 1}, {transfer_buffer = rb.transfer})
+	sdl.EndGPUCopyPass(pass)
+	rb.fence = sdl.SubmitGPUCommandBufferAndAcquireFence(cmd)
+	if rb.fence == nil {
+		readback_cancel(r, rb)
+		return false
+	}
+	rb.width, rb.height = width, height
+	return true
+}
+
+// The pixels once the GPU has copied them (RGBA8, rows top to bottom), with done false
+// while it has not; done with nil pixels when there was nothing to collect or mapping failed.
+readback_poll :: proc(r: ^Renderer, rb: ^Readback, allocator := context.allocator) -> (pixels: []u8, done: bool) {
+	if rb.transfer == nil do return nil, true
+	if !sdl.QueryGPUFence(r.device, rb.fence) do return nil, false
+	size := rb.width * rb.height * 4
+	if src := sdl.MapGPUTransferBuffer(r.device, rb.transfer, false); src != nil {
+		pixels = make([]u8, size, allocator)
+		copy(pixels, ([^]u8)(src)[:size])
+		sdl.UnmapGPUTransferBuffer(r.device, rb.transfer)
+	}
+	readback_cancel(r, rb)
+	return pixels, true
+}
+
+// Drops a readback, waiting for its copy first so its buffer is not released under the GPU.
+readback_cancel :: proc(r: ^Renderer, rb: ^Readback) {
+	if rb.fence != nil {
+		fence := rb.fence
+		_ = sdl.WaitForGPUFences(r.device, true, ([^]^sdl.GPUFence)(&fence), 1)
+		sdl.ReleaseGPUFence(r.device, fence)
+	}
+	if rb.transfer != nil do sdl.ReleaseGPUTransferBuffer(r.device, rb.transfer)
+	rb^ = {}
+}
+
 // Reads a `width` by `height` RGBA8 texture back as rows top to bottom, after waiting
 // for the GPU; nil on failure.
 texture_download :: proc(r: ^Renderer, texture: ^sdl.GPUTexture, width, height: u32, allocator := context.allocator) -> []u8 {

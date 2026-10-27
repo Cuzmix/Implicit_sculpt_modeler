@@ -22,7 +22,9 @@ description: CAD-style mesh tools inside this app on geom.Mesh — primitives, b
   `mesh_edges`, `mesh_flip`), and the native `.sculpt` scene (`scene_save`/`scene_open`, levels through
   `sculpt.levels_write`/`levels_read`). `Object.file` keeps where an import was in its file, for export. A new
   per-object field that should survive a save goes in both `scene_save` and `scene_open` with a `SCENE_VERSION` bump,
-  and `scene_open` must keep reading the older versions. Every file action ends in one `file_note`.
+  and `scene_open` must keep reading the older versions. Every file action ends in one `file_note`. Since v22 the
+  header's first field is the preview block (`scene_preview.odin`: `preview_block_put`/`preview_block_skip`,
+  `scene_preview_read` reads only the file's start through SDL IO); new header fields go after it, never before.
 - Binary glTF out (`geom.mesh_write_glb`, `src/geom/gltf_write.odin`, from `object_export` by the `.glb` name): the
   sculpt layers go as sparse morph targets (`sculpt.sculptor_layer_sparse`), the base written is the shown surface
   less each layer at `layer_weight`, colours linear, the JSON gets a slot sized for its bounds so the big arrays are
