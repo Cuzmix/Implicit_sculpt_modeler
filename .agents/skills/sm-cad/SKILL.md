@@ -61,6 +61,14 @@ description: CAD-style mesh tools inside this app on geom.Mesh — primitives, b
   front (the normal's side) and back, caps each border loop (ear clipping, holes bridged) and evens the cap (longest
   edge bisection, Delaunay flips, guarded smoothing). Wired as `Scene_Command .Slice` → `object_slice` (front becomes
   a new object; both swaps undo as one through `History_Entry.chain`), the Slice gesture tool, the script verb `slice x|y|z`.
+- Split and Merge exist (`src/app/split_merge.odin`, the Objects card's Actions): `geom.mesh_components` numbers
+  connected pieces and `geom.mesh_split(m, part, count)` makes one mesh per part with `vertex_from`/`tri_from`
+  (`src/geom/split.odin`, serial and deterministic). `object_split` follows `object_slice` (layers carried to every
+  piece) and `merge_down`/`merge_visible` follow `boolean_make`; both keep polypaint and polygroups by building with
+  `object_build_from(..., surface = Surface{color, groups})`, which asks `levels_init` for `tri_from` and calls
+  `sculpt.levels_take_surface`. Merge numbers each source's groups densely after the ones before. `align_objects` and
+  `distribute_objects` move positions only, one chained `history_record_transform` per moved object. Past the swap
+  limit `history_record_swap` drops whole steps and never the newest, so a chained rebuild and delete undo together.
 - Dynamic topology (sm-sculpt) splits and collapses edges under the brush; a tool reading a dynamic object's mesh takes
   `sculpt.sculptor_compact_mesh` first, as `object_remesh` does, since the paged layout has unused slots.
 - There are no booleans or trims, `Transform` is position, uniform scale and Euler rotation in degrees (`transform_rotation`,

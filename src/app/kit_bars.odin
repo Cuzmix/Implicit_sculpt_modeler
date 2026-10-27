@@ -456,6 +456,8 @@ ICON_MATERIAL :: rune(0xe5a2) // eclipse: a lit sphere
 ICON_COLOUR :: rune(0xe1dd) // palette
 ICON_FALLOFF :: rune(0xe038) // activity
 ICON_OBJECTS :: rune(0xe104) // layers
+ICON_SPLIT :: rune(0xe445) // split
+ICON_MERGE :: rune(0xe444) // merge
 ICON_ORTHO :: rune(0xe529) // cuboid
 ICON_SYMMETRY :: rune(0xe362) // flip-horizontal-2
 ICON_WIREFRAME :: rune(0xe0ec) // grid-3x3

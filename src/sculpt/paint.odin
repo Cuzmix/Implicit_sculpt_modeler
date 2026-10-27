@@ -167,6 +167,26 @@ record_color :: proc(s: ^Sculptor, id: u32) {
 // while it stays the same, apart from the painted nodes each flush reports.
 sculptor_paint_stamp :: proc(s: ^Sculptor) -> u32 {return s.paint_stamp}
 
+// Gives the base level of levels just made (levels_init) the polypaint and polygroups of
+// the mesh it was made from, for a rebuild that keeps the surface's parts, as Split and
+// Merge do: `color` per vertex and `groups` per triangle of that mesh (either nil when it
+// had none), `old_to_new` and `tri_from` as levels_init filled them. Not an undo step, as
+// nothing came before it.
+levels_take_surface :: proc(l: ^Levels, color: []Color, groups: []u16, old_to_new, tri_from: []u32) {
+	s := &l.levels[0].sculptor
+	if color != nil {
+		color_ensure(s)
+		for c, old in color do s.color[old_to_new[old]] = c
+	}
+	if groups != nil {
+		a := s.history.allocator
+		s.groups.tris = make([]u16, len(tri_from), a)
+		for old, t in tri_from do s.groups.tris[t] = groups[old]
+		groups_refresh(s)
+	}
+	s.color_edited, s.groups.edited = s.color != nil, s.groups.tris != nil
+}
+
 // Copies the colours from level `from` to level `to`, through the levels between: a
 // vertex continuing one below takes its colour, a vertex on an edge the average of the
 // edge's ends, and going down a vertex takes the colour of the vertex it became above.

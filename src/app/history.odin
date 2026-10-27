@@ -30,6 +30,9 @@ History :: struct {
 	// forgetting, and not the steps inside an HD window, whose detail no file holds.
 	// The autosave's fingerprint (autosave.odin) follows it.
 	edits:  u64,
+	// The bytes swap snapshots may take before the oldest go; 0 for SWAP_LIMIT_BYTES (a
+	// test sets a small one).
+	swap_limit: int,
 }
 
 History_Entry :: struct {
@@ -157,18 +160,23 @@ history_record_swap :: proc(app: ^App, id: int, before: ^Object_Snapshot, chain 
 	app.history.swap_bytes += len(before.bytes)
 	// Over the limit, the oldest snapshots go, with every entry older than them, since
 	// undo cannot skip a swap; strokes older than a swap are dropped anyway, so the
-	// only older entries are other objects' strokes.
+	// only older entries are other objects' strokes. A step goes whole, with every entry
+	// chained to it, and the newest step never goes: half a step undone would leave, say,
+	// a merged object beside the one merged into it.
 	h := &app.history
-	for h.swap_bytes > SWAP_LIMIT_BYTES {
+	limit := h.swap_limit if h.swap_limit > 0 else SWAP_LIMIT_BYTES
+	for h.swap_bytes > limit {
+		newest := len(h.done) - 1
+		for newest > 0 && h.done[newest].chain do newest -= 1
 		oldest := -1
 		for e, i in h.done do if e.swap != nil {oldest = i; break}
-		if oldest < 0 || oldest == len(h.done) - 1 do break
+		if oldest < 0 || oldest >= newest do break
+		end := oldest + 1
+		for end < len(h.done) && h.done[end].chain do end += 1
 		// The strokes among them stay in their sculptors, out of reach, until the
 		// sculptors' own limit drops them.
-		for e in h.done[:oldest + 1] do entry_free(h, e)
-		remove_range(&h.done, 0, oldest + 1)
-		// What was chained to the dropped entry stands alone now.
-		if len(h.done) > 0 do h.done[0].chain = false
+		for e in h.done[:end] do entry_free(h, e)
+		remove_range(&h.done, 0, end)
 	}
 }
 
@@ -613,7 +621,7 @@ history_swap :: proc(app: ^App, e: History_Entry) -> bool {
 	if obj != nil {
 		// Whether it is in view is not part of the step: the object comes back as it is
 		// shown now, not as it was when the snapshot was taken.
-		if restored != nil do restored.off, restored.ghost, restored.folder = obj.off, obj.ghost, obj.folder
+		if restored != nil do restored.off, restored.ghost, restored.folder, restored.vis_off = obj.off, obj.ghost, obj.folder, obj.vis_off
 		index := live.index
 		ordered_remove(&scene.objects, index)
 		object_free(app, obj)

@@ -65,9 +65,11 @@ Levels :: struct {
 EVEN :: max(u32)
 
 // Takes `mesh` as the base level and prepares it for sculpting (see sculptor_init,
-// which renumbers the vertices and fills `old_to_new` when given one). With a `layout`
-// that fits the mesh (see sculptor_init_laid_out), the mesh keeps its order instead.
-levels_init :: proc(l: ^Levels, mesh: geom.Mesh, pool: ^jobs.Pool, node_triangles: u32 = NODE_TRIANGLES, old_to_new: []u32 = nil, allocator := context.allocator, layout: []Node_Sizes = nil) {
+// which renumbers the vertices and fills `old_to_new` when given one, and `tri_from`, per
+// triangle its number before). With a `layout` that fits the mesh (see
+// sculptor_init_laid_out), the mesh keeps its order instead.
+levels_init :: proc(l: ^Levels, mesh: geom.Mesh, pool: ^jobs.Pool, node_triangles: u32 = NODE_TRIANGLES, old_to_new: []u32 = nil, tri_from: []u32 = nil, allocator := context.allocator, layout: []Node_Sizes = nil) {
+	assert(tri_from == nil || len(tri_from) == len(mesh.indices) / 3)
 	l.pool, l.node_triangles, l.allocator = pool, node_triangles, allocator
 	l.levels = make([dynamic]^Level, 0, MAX_LEVELS, allocator)
 	l.residual = make([dynamic]Vec3, allocator)
@@ -76,8 +78,9 @@ levels_init :: proc(l: ^Levels, mesh: geom.Mesh, pool: ^jobs.Pool, node_triangle
 	base.mesh = mesh
 	if layout != nil && sculptor_init_laid_out(&base.sculptor, &base.mesh, pool, layout, node_triangles, allocator) {
 		for &v, i in old_to_new do v = u32(i)
+		for &t, i in tri_from do t = u32(i)
 	} else {
-		sculptor_init(&base.sculptor, &base.mesh, pool, node_triangles, old_to_new, allocator)
+		sculptor_init(&base.sculptor, &base.mesh, pool, node_triangles, old_to_new, tri_from, allocator)
 	}
 	base.node_of_vertex = node_of_vertex_build(&base.sculptor, allocator)
 	append(&l.levels, base)
@@ -639,7 +642,7 @@ level_above :: proc(l: ^Levels, below: ^Level) -> (^Level, bool) {
 	}, geom.RANGE_GRAIN)
 
 	old_to_new := make([]u32, fine_count, context.temp_allocator)
-	sculptor_init(&lv.sculptor, m, l.pool, l.node_triangles, old_to_new, l.allocator)
+	sculptor_init(&lv.sculptor, m, l.pool, l.node_triangles, old_to_new, allocator = l.allocator)
 	lv.parents = make([][4]u32, fine_count, l.allocator)
 	lv.detail = make([]Vec3, fine_count, l.allocator)
 	lv.even_of = make([]u32, vcount, l.allocator)
