@@ -215,6 +215,10 @@ SETTINGS := [?]Setting {
 	{"wheel_x", K + offset_of(Kit_State, wheel_offset) + 0 * size_of(f32), f32, 0, 0},
 	{"wheel_y", K + offset_of(Kit_State, wheel_offset) + 1 * size_of(f32), f32, 0, 0},
 	{"look", K + offset_of(Kit_State, look), Look, 0, 0},
+	{"colors_tab", K + offset_of(Kit_State, colors) + offset_of(Colors_Card, tab), Colors_Tab, 0, 0},
+	{"colors_harmony", K + offset_of(Kit_State, colors) + offset_of(Colors_Card, harmony), Harmony, 0, 0},
+	{"colors_value_rgb", K + offset_of(Kit_State, colors) + offset_of(Colors_Card, value_rgb), bool, 0, 0},
+	{"color_default", K + offset_of(Kit_State, colors) + offset_of(Colors_Card, default_palette), int, 0, f32(len(BUILT_IN_PALETTES) + USER_PALETTES - 1)},
 	{"all_options", K + offset_of(Kit_State, all_options), bool, 0, 0},
 	{"coach", K + offset_of(Kit_State, coach), i32, 0, f32(COACH_DONE)},
 	{"stats", K + offset_of(Kit_State, stats), bool, 0, 0},
@@ -635,6 +639,33 @@ settings_load :: proc(app: ^App, path: string) {
 					w.offset = {clamp(number(f[5], 0), -WINDOW_OFFSET_MAX, WINDOW_OFFSET_MAX), clamp(number(f[6], 0), -WINDOW_OFFSET_MAX, WINDOW_OFFSET_MAX)}
 				}
 			}
+		case "color_history":
+			// color_history #RRGGBB ..., most recent first; codes that are not colours are
+			// skipped.
+			c := &app.kit.colors
+			c.history_count = 0
+			for code in f[1:] {
+				if c.history_count == COLOR_HISTORY do break
+				if rgb, ok := color_hex_parse(code); ok {
+					c.history[c.history_count] = rgb
+					c.history_count += 1
+				}
+			}
+		case "color_palette":
+			// color_palette <name, escaped> #RRGGBB ...: one of your palettes, in order.
+			c := &app.kit.colors
+			if len(f) < 2 || c.palette_count == USER_PALETTES do continue
+			p := &c.palettes[c.palette_count]
+			p^ = {}
+			palette_name_set(p, preset_unescape(f[1]))
+			for code in f[2:] {
+				if p.count == PALETTE_SWATCHES do break
+				if rgb, ok := color_hex_parse(code); ok {
+					p.colors[p.count] = rgb
+					p.count += 1
+				}
+			}
+			c.palette_count += 1
 		case "palette_recent":
 			// The command palette's recents, most recent first, by name; names this version
 			// does not know are skipped, and a name given twice counts once. Remembered
@@ -830,6 +861,18 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 	fmt.sbprintfln(&out, "ui_scale %g", k.ui_scale)
 	for w, which in k.windows {
 		fmt.sbprintfln(&out, "window %v %d %v %v %g %g %d", which, bit(w.moved), w.x, w.y, w.offset.x, w.offset.y, bit(w.minimized))
+	}
+	if c := &app.kit.colors; c.history_count > 0 {
+		strings.write_string(&out, "color_history")
+		for rgb in c.history[:c.history_count] do fmt.sbprintf(&out, " %s", hex_text(rgb))
+		strings.write_byte(&out, '\n')
+	}
+	for &p in app.kit.colors.palettes[:app.kit.colors.palette_count] {
+		name := string(p.name[:])
+		if i := strings.index_byte(name, 0); i >= 0 do name = name[:i]
+		fmt.sbprintf(&out, "color_palette %s", preset_escape(name if name != "" else "Palette"))
+		for rgb in p.colors[:p.count] do fmt.sbprintf(&out, " %s", hex_text(rgb))
+		strings.write_byte(&out, '\n')
 	}
 	if app.kit.palette_recent_count > 0 {
 		strings.write_string(&out, "palette_recent")

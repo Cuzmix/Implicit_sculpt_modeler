@@ -280,7 +280,8 @@ kit_paint :: proc(app: ^App) {
 	ctx := &app.kit.ctx
 	_ = kit_color(app, "paint colour", &app.brush.color)
 	kit_command_pair(app, .Paint, .Paint, int(sculpt.Paint_Command.Fill), int(sculpt.Paint_Command.Clear), tone_b = .Danger)
-	ui.paragraph(ctx, "The Paint brush paints this colour over the clay, Ctrl takes it off. Fill and Clear skip what is masked or hidden. Each level keeps its own paint.")
+	_ = command_button(app, .Paint, int(sculpt.Paint_Command.Gradient), width = ui.fill_width(ctx))
+	ui.paragraph(ctx, "The Paint brush paints this colour over the clay, Ctrl takes it off. Fill gradient runs from the main colour at the top, as seen, to the secondary at the bottom. Fill and Clear skip what is masked or hidden. Each level keeps its own paint.")
 }
 
 // Polygroups: making them, and showing them.

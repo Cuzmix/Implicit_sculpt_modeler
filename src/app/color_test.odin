@@ -106,3 +106,101 @@ a_typed_hex_code_sets_the_colour :: proc(t: ^testing.T) {
 	testing.expect(t, ctx.text_focus != id)
 	testing.expect_value(t, app.kit.color_hex_of, ui.Id(0))
 }
+
+// Hue, saturation and brightness turn into red, green and blue and back to within a
+// byte, the primaries land where the wheels show them, and a grey or a black keeps the
+// hue (and a black the saturation) it was given, so a picker never jumps back to red.
+@(test)
+colors_hsv_round_trips :: proc(t: ^testing.T) {
+	near :: proc(a, b: [3]f32) -> bool {return abs(a.x - b.x) < 0.004 && abs(a.y - b.y) < 0.004 && abs(a.z - b.z) < 0.004}
+	testing.expect(t, near(hsv_to_rgb({0, 1, 1}), {1, 0, 0}))
+	testing.expect(t, near(hsv_to_rgb({1.0 / 3, 1, 1}), {0, 1, 0}))
+	testing.expect(t, near(hsv_to_rgb({2.0 / 3, 1, 1}), {0, 0, 1}))
+	testing.expect(t, near(hsv_to_rgb({1, 1, 1}), {1, 0, 0}))
+	for h in 0 ..< 24 {
+		for s in 1 ..= 4 {
+			for v in 1 ..= 4 {
+				hsv := [3]f32{f32(h) / 24, f32(s) / 4, f32(v) / 4}
+				back := rgb_to_hsv(hsv_to_rgb(hsv))
+				testing.expectf(t, near(back, hsv), "%v came back as %v", hsv, back)
+			}
+		}
+	}
+	grey := rgb_to_hsv({0.5, 0.5, 0.5}, {0.3, 0.8, 1})
+	testing.expectf(t, grey.x == 0.3 && grey.y == 0 && abs(grey.z - 0.5) < 1e-6, "grey reads %v", grey)
+	black := rgb_to_hsv({0, 0, 0}, {0.3, 0.8, 1})
+	testing.expectf(t, black == {0.3, 0.8, 0}, "black reads %v", black)
+}
+
+// The Disc's inner circle maps the square into the circle and back: the corners reach
+// the rim, the middle stays put, and every point comes back where it was.
+@(test)
+colors_disc_maps_the_square_both_ways :: proc(t: ^testing.T) {
+	for corner in ([4][2]f32{{1, 1}, {-1, 1}, {-1, -1}, {1, -1}}) {
+		q := disc_from_square(corner)
+		testing.expectf(t, abs(math.sqrt(q.x * q.x + q.y * q.y) - 1) < 1e-4, "corner %v lands at %v", corner, q)
+	}
+	for i in 0 ..= 10 {
+		for j in 0 ..= 10 {
+			p := [2]f32{f32(i) / 5 - 1, f32(j) / 5 - 1}
+			back := square_from_disc(disc_from_square(p))
+			testing.expectf(t, abs(back.x - p.x) < 2e-3 && abs(back.y - p.y) < 2e-3, "%v came back as %v", p, back)
+		}
+	}
+	// A point past the rim reads as the rim.
+	far := square_from_disc({3, 0})
+	testing.expectf(t, abs(far.x - 1) < 1e-4 && abs(far.y) < 1e-4, "far right reads %v", far)
+}
+
+// Each scheme has Procreate's count of colours, the first the colour itself, spaced as
+// its name says.
+@(test)
+colors_harmonies_space_their_hues :: proc(t: ^testing.T) {
+	counts := [Harmony]int{.Complementary = 2, .Split_Complementary = 3, .Analogous = 3, .Triadic = 3, .Tetradic = 4}
+	for h in Harmony {
+		o := harmony_offsets(h)
+		testing.expectf(t, len(o) == counts[h] && o[0] == 0, "%v: %v", h, o)
+	}
+	testing.expect_value(t, harmony_offsets(.Complementary)[1], 0.5)
+	testing.expect(t, abs(harmony_offsets(.Triadic)[2] - 2.0 / 3) < 1e-6)
+	testing.expect(t, abs(harmony_offsets(.Split_Complementary)[1] - 5.0 / 12) < 1e-6)
+}
+
+// The history keeps the last COLOR_HISTORY colours, newest first, and a colour picked
+// again moves to the front rather than showing twice.
+@(test)
+colors_history_moves_a_repeat_to_the_front :: proc(t: ^testing.T) {
+	c: Colors_Card
+	for i in 0 ..< COLOR_HISTORY + 3 do color_history_push(&c, {f32(i) / 20, 0, 0})
+	testing.expect_value(t, c.history_count, COLOR_HISTORY)
+	testing.expect_value(t, color_bytes(c.history[0]), color_bytes({f32(COLOR_HISTORY + 2) / 20, 0, 0}))
+	again := c.history[3]
+	color_history_push(&c, again)
+	testing.expect_value(t, c.history_count, COLOR_HISTORY)
+	testing.expect_value(t, c.history[0], again)
+	seen := 0
+	for h in c.history do if color_bytes(h) == color_bytes(again) do seen += 1
+	testing.expect_value(t, seen, 1)
+}
+
+// Your palettes: + makes one the default, deleting it gives the default back to the
+// first built-in, and the swatches after a deleted one move up.
+@(test)
+colors_palettes_add_and_delete :: proc(t: ^testing.T) {
+	c: Colors_Card
+	i := palette_new(&c)
+	j := palette_new(&c)
+	testing.expect_value(t, c.default_palette, len(BUILT_IN_PALETTES) + j)
+	p := &c.palettes[i]
+	for k in 0 ..< 3 do p.colors[k] = {f32(k) / 4, 0, 0}
+	p.count = 3
+	palette_swatch_delete(&c, i, 1)
+	testing.expect_value(t, p.count, 2)
+	testing.expect_value(t, p.colors[1], [3]f32{0.5, 0, 0})
+	palette_delete(&c, j)
+	testing.expect_value(t, c.palette_count, 1)
+	testing.expect_value(t, c.default_palette, 0)
+	for _ in 0 ..< USER_PALETTES do _ = palette_new(&c)
+	testing.expect_value(t, c.palette_count, USER_PALETTES)
+	testing.expect_value(t, palette_new(&c), -1)
+}

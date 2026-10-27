@@ -76,43 +76,23 @@ kit_curve_editor :: proc(ctx: ^ui.Context, name: string, curve: ^geom.Curve, han
 // shown. Returns true when it changed.
 kit_color :: proc(app: ^App, name: string, rgb: ^[3]f32, linear := false) -> (changed: bool) {
 	ctx := &app.kit.ctx
-	k := &app.kit
 	t := ctx.theme
 	shown := rgb^
 	if linear do for &c in shown do c = srgb_encode(c)
 	hex_w: f32 = 104
 	swatch_w := max(ui.fill_width(ctx) - hex_w - 8, 28)
 	ui.begin(ctx, fmt.tprintf("swatch##%s", name), {direction = .Row, gap = 8})
-	field := fmt.tprintf("hex##%s", name)
-	id := ui.id_of(ctx, field)
-	// While the field is typed in it keeps what was typed, so "#3" on the way to "#3A7"
-	// is not replaced by the colour; otherwise it shows the colour. A tap empties it to
-	// type a new code over its hint, the code it had, as the field has no selection to
-	// type over.
-	editing := ctx.text_focus == id && k.color_hex_of == id
-	code: [8]u8
-	color_hex_format(shown, code[:])
-	text := code
-	buf := k.color_hex[:] if editing else text[:]
 	// The swatch stands as tall as the field beside it.
 	r := ui.place(ctx, {swatch_w, t.target})
 	r.y += (t.target - t.control) * 0.5
 	r.h = t.control
 	ui.fill_rect(ctx, r, t.radius_medium, overlay_color({shown.r, shown.g, shown.b, 1}))
 	ui.stroke_rect(ctx, r, t.radius_medium, t.border_strong, 1)
-	if ui.text_field(ctx, field, buf, hex_w, hint = fmt.tprint(string(code[:7]))) {
-		if typed, ok := color_hex_parse(string(buf[:color_hex_len(buf)])); ok {
-			shown = typed
-			rgb^ = typed
-			if linear do for &c in rgb do c = srgb_decode(c)
-			changed = true
-		}
-	}
-	if ctx.text_focus == id && !editing {
-		k.color_hex = {}
-		k.color_hex_of = id
-	} else if ctx.text_focus != id && k.color_hex_of == id {
-		k.color_hex_of = 0
+	if typed, ok := kit_hex_field(app, name, shown, hex_w); ok {
+		shown = typed
+		rgb^ = typed
+		if linear do for &c in rgb do c = srgb_decode(c)
+		changed = true
 	}
 	ui.end(ctx)
 	for channel, i in ([3]string{"Red", "Green", "Blue"}) {
@@ -142,13 +122,6 @@ hex_text :: proc(rgb: [3]f32) -> string {
 	buf := make([]u8, 8, context.temp_allocator)
 	color_hex_format(rgb, buf)
 	return string(buf[:7])
-}
-
-// The bytes before the zero that ends `buf`, or all of them.
-@(private = "file")
-color_hex_len :: proc(buf: []u8) -> int {
-	for b, i in buf do if b == 0 do return i
-	return len(buf)
 }
 
 // A hex colour code as display values: six digits, or three that each stand for two

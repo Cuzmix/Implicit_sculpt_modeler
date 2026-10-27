@@ -2,6 +2,7 @@ package sculpt
 
 import "core:math/linalg"
 
+import "../geom"
 import "../jobs"
 
 // Polypaint, as in ZBrush: a colour per vertex, painted with the Paint brush and drawn
@@ -19,6 +20,18 @@ Color :: [4]u8
 Paint_Command :: enum {
 	Fill,  // paint every vertex the brush could reach with the brush colour
 	Clear, // take the paint off every vertex the brush could reach
+	// paint every vertex the brush could reach from the brush colour to a second one
+	// along an axis (Paint_Gradient), as ZBrush's FillObject Grad
+	Gradient,
+}
+
+// Where Gradient runs: the colour at the far end, and the direction from the brush
+// colour toward it (in the mesh's own space; its length does not matter). The vertex
+// furthest back along `axis` takes the brush colour and the one furthest along it `to`,
+// counted over the vertices shown, so the gradient spans what is seen.
+Paint_Gradient :: struct {
+	to:   [3]u8,
+	axis: Vec3,
 }
 
 // Whether the sculptor holds colours (painted or cleared since).
@@ -110,10 +123,10 @@ paint_mix :: #force_inline proc(c: Color, paint: [3]u8, w: f32, erase: bool) -> 
 	return out
 }
 
-// Fills or clears the paint of every vertex the brush could reach, weighted by the mask
-// and hiding as a dab is, as one undo step. Returns true when it changed a colour.
-// Refused (false) under dynamic topology.
-sculptor_paint_command :: proc(s: ^Sculptor, command: Paint_Command, color: [3]u8) -> bool {
+// Fills or clears the paint of every vertex the brush could reach, or fills it with
+// `gradient` (Gradient), weighted by the mask and hiding as a dab is, as one undo step.
+// Returns true when it changed a colour. Refused (false) under dynamic topology.
+sculptor_paint_command :: proc(s: ^Sculptor, command: Paint_Command, color: [3]u8, gradient := Paint_Gradient{}) -> bool {
 	_ = sculptor_stroke_end(s)
 	if s.dyn != nil do return false
 	if s.color == nil && command == .Clear do return false
@@ -123,12 +136,31 @@ sculptor_paint_command :: proc(s: ^Sculptor, command: Paint_Command, color: [3]u
 		command: Paint_Command,
 		color:   [3]u8,
 		changes: []bool,
+		to:      [3]u8,
+		axis:    Vec3,
+		lo, per: f32, // the axis' first shown value, and 1 over its span
 	}
-	job := Job{s, command, color, make([]bool, len(s.nodes), context.temp_allocator)}
+	job := Job{s, command, color, make([]bool, len(s.nodes), context.temp_allocator), gradient.to, gradient.axis, 0, 0}
+	if command == .Gradient {
+		// The span over the vertices shown: a serial pass, as a min and a max are the same
+		// whichever thread finds them, and one pass over 10M positions is a few ms.
+		lo, hi := max(f32), -max(f32)
+		for p, v in s.mesh.positions {
+			if s.fade != nil && s.fade[v] == 0 do continue
+			x := linalg.dot(p, gradient.axis)
+			lo, hi = min(lo, x), max(hi, x)
+		}
+		if hi > lo do job.lo, job.per = lo, 1 / (hi - lo)
+	}
 	after :: #force_inline proc(job: ^Job, v: u32) -> Color {
 		w := shield(job.s.fade, job.s.mask, v)
 		if w <= 0 do return job.s.color[v]
-		return paint_mix(job.s.color[v], job.color, w, job.command == .Clear)
+		paint := job.color
+		if job.command == .Gradient {
+			f := clamp((linalg.dot(job.s.mesh.positions[v], job.axis) - job.lo) * job.per, 0, 1)
+			for k in 0 ..< 3 do paint[k] = u8(f32(job.color[k]) + (f32(job.to[k]) - f32(job.color[k])) * f + 0.5)
+		}
+		return paint_mix(job.s.color[v], paint, w, job.command == .Clear)
 	}
 	// Twice: first to find the nodes that change, so only those are saved.
 	jobs.parallel_ranges(s.pool, len(s.nodes), &job, proc(data: rawptr, lo, hi: int) {
@@ -160,6 +192,36 @@ sculptor_paint_command :: proc(s: ^Sculptor, command: Paint_Command, color: [3]u
 	}
 	s.color_edited = true
 	return sculptor_stroke_end(s)
+}
+
+// The paint where the ray from `origin` along `dir` (mesh space) first meets a shown
+// triangle: its corners' colours blended by where it hit, coverage included (0 is bare
+// clay, as everywhere in polypaint). `hit` is false when the ray misses; with no paint the
+// colour is zero, which the caller shows as the clay. For the eyedropper.
+sculptor_color_at :: proc(s: ^Sculptor, origin, dir: Vec3) -> (c: Color, hit: bool) {
+	along, tri, on := geom.bvh_raycast(&s.bvh, s.mesh^, origin, dir, sculptor_hidden_tris(s))
+	hit = on
+	if !hit || s.color == nil do return
+	m := s.mesh
+	i := m.indices[3 * tri:][:3]
+	a, b, cc := m.positions[i[0]], m.positions[i[1]], m.positions[i[2]]
+	p := origin + dir * along
+	// Barycentric weights of p in the triangle, by the areas it cuts the triangle into.
+	n := linalg.cross(b - a, cc - a)
+	area := linalg.dot(n, n)
+	if area <= 0 {
+		c = s.color[i[0]]
+		return
+	}
+	wb := linalg.dot(linalg.cross(p - a, cc - a), n) / area
+	wc := linalg.dot(linalg.cross(b - a, p - a), n) / area
+	w := [3]f32{clamp(1 - wb - wc, 0, 1), clamp(wb, 0, 1), clamp(wc, 0, 1)}
+	sum := w[0] + w[1] + w[2]
+	for k in 0 ..< 4 {
+		x := (f32(s.color[i[0]][k]) * w[0] + f32(s.color[i[1]][k]) * w[1] + f32(s.color[i[2]][k]) * w[2]) / max(sum, 1e-6)
+		c[k] = u8(clamp(x + 0.5, 0, 255))
+	}
+	return
 }
 
 // Saves a node's colours before the stroke first changes them. The sculptor must have
