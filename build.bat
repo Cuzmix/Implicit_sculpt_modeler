@@ -14,6 +14,8 @@ set COMMON=-collection:deps="%DEPS%" -vet -strict-style -warnings-as-errors
 if "%MODE%"=="check" goto check
 if "%MODE%"=="android" goto android
 if "%MODE%"=="androidrun" goto android
+rem The app links Luau for script plugins, which setup_deps builds from source.
+if not exist "%DEPS%\luau\luau.lib" ( echo Luau missing: run scripts\setup_deps.bat, which builds deps\luau & exit /b 1 )
 
 rem Recompile shaders when glslangValidator (Vulkan SDK) is available; otherwise use the committed .spv files.
 where glslangValidator >nul 2>nul && (
@@ -43,6 +45,7 @@ rem Library packages have no main, hence -no-entry-point; it is harmless on the 
 "%ODIN%" check "%ROOT%src\camera" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\gizmo" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\jobs" -no-entry-point %COMMON% || exit /b 1
+"%ODIN%" check "%ROOT%src\luau" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\png_write" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\render" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\sculpt" -no-entry-point %COMMON% || exit /b 1
@@ -51,7 +54,7 @@ rem Library packages have no main, hence -no-entry-point; it is harmless on the 
 "%ODIN%" check "%ROOT%src\voxel" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\zip" -no-entry-point %COMMON% || exit /b 1
 python "%ROOT%scripts\agents_sync.py" --check || exit /b 1
-echo check: 13 packages type-check, agent mirror current
+echo check: 14 packages type-check, agent mirror current
 exit /b 0
 
 :debug
@@ -83,6 +86,7 @@ exit /b 0
 "%ODIN%" test "%ROOT%src\png_write" -out:"%ROOT%build\test_png_write.exe" %COMMON% || exit /b 1
 "%ODIN%" test "%ROOT%src\zip" -out:"%ROOT%build\test_zip.exe" %COMMON% || exit /b 1
 "%ODIN%" test "%ROOT%src\ui" -out:"%ROOT%build\test_ui.exe" %COMMON% || exit /b 1
+"%ODIN%" test "%ROOT%src\luau" -out:"%ROOT%build\test_luau.exe" %COMMON% || exit /b 1
 "%ODIN%" test "%ROOT%src\app" -out:"%ROOT%build\test_app.exe" %COMMON% || exit /b 1
 exit /b 0
 

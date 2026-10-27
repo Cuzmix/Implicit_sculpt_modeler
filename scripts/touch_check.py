@@ -1299,6 +1299,11 @@ def link_folder():
     return settings_file()[:-len(".txt")] + "-link"
 
 
+def plugins_folder():
+    """The scenario's script plugins folder: beside its settings file, named after it."""
+    return settings_file()[:-len(".txt")] + "-plugins"
+
+
 def saved(**want):
     """A check on the settings file the scenario's app wrote on closing Settings."""
     def ok(_):
@@ -4503,6 +4508,7 @@ def run(name, screens, displays=None):
     shutil.rmtree(macros_folder(), ignore_errors=True)
     shutil.rmtree(library_folder(), ignore_errors=True)
     shutil.rmtree(link_folder(), ignore_errors=True)
+    shutil.rmtree(plugins_folder(), ignore_errors=True)
     shutil.rmtree(autosave_folder(), ignore_errors=True)
     result = SCENARIOS[name]()
     steps = result if isinstance(result, Steps) else [result]
@@ -5357,6 +5363,42 @@ def blender_link_round_trip():
          {"objects": near(3, 0), "undo_steps": near(4, 0)}),
         (Script(), [f"--settings-file={settings_file()}", f"--open={got}", "--script=select 1", f"--export={exported}"],
          {"objects": near(3, 0), "link_token": near(1, 0), "@the raised vertex": same_mesh_file(back, exported)}),
+    ])
+
+
+@scenario
+def plugin_runs_from_search():
+    """A script plugin's command, found in Search by its name and run with Return, runs its
+    sculpt.run statements as one undo step each (a duplicate, then a move); a plugin that
+    fails to load leaves the others working. The settings remember the command's slot."""
+    def plugins(_):
+        os.makedirs(plugins_folder(), exist_ok=True)
+        with open(os.path.join(plugins_folder(), "tools.luau"), "w") as f:
+            f.write("\n".join([
+                'sculpt.command{name = "Twin and shift", help = "Duplicates the selected object and moves the copy.", run = function()',
+                '    sculpt.run("duplicate_object")',
+                '    sculpt.run("move 1.5 0 0")',
+                '    sculpt.note(string.format("%d objects", #sculpt.objects()))',
+                'end}',
+                'sculpt.command{name = "Wires", run = function() sculpt.run("wireframe on") end}',
+            ]) + "\n")
+        with open(os.path.join(plugins_folder(), "broken.luau"), "w") as f:
+            f.write("sculpt.command{name = 'Never', run = 1}\n")
+        return True
+    s = Script()
+    s.wait(3)
+    s.press("k", ("ctrl",))
+    s.type("twin and shift")
+    s.press("Return")
+    s.wait(6)
+    def slot_kept(_):
+        text = open(settings_file()).read()
+        return "plugin_slot 0 tools.luau/Twin%20and%20shift" in text and "plugin_slot 1 tools.luau/Wires" in text
+    return Steps([
+        (Script(), [f"--settings-file={settings_file()}"], {"plugins": near(0, 0), "@a plugins folder": plugins}),
+        (s, [f"--settings-file={settings_file()}", "--spheres=1"],
+         {"plugins": near(1, 0), "plugin_commands": near(2, 0), "plugin_errors": near(1, 0), "plugin_runs": near(1, 0), "plugin_steps": near(2, 0),
+          "objects": near(2, 0), "undo_steps": near(2, 0), "@the slots kept": slot_kept}),
     ])
 
 

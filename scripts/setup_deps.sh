@@ -42,4 +42,7 @@ if [ ! -f "$DEPS/sdl3/lib/libSDL3.so" ]; then
 	ninja -C "$DEPS/sdl3-src/build" install > "$DEPS/sdl3-build.log"
 fi
 
+# Luau, the language of script plugins, built from source (scripts/build_luau.py)
+python3 "$ROOT/scripts/build_luau.py"
+
 echo "Dependencies ready in $DEPS"

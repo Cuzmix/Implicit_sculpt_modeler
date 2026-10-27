@@ -62,6 +62,8 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.Macro_Record     = "macro record recording automate repeat actions steps",
 	.Run_Macro        = "macro play replay run recorded automate repeat",
 	.Macros           = "macros list manage rename delete key recorded automate",
+	.Run_Plugin       = "plugin script luau run automate extension add-on",
+	.Reload_Plugins   = "plugins reload refresh script luau extension add-on",
 	.Run_Script       = "script file run commands automate batch cmd",
 	.Library          = "library packs content assets alphas installed manage remove",
 	.Pick_Pack        = "content pack install add sculptpack zip alphas assets",
@@ -234,6 +236,8 @@ palette_entries_shown :: proc(app: ^App) -> []Palette_Entry {
 	out := make([dynamic]Palette_Entry, 0, 160, context.temp_allocator)
 	for e in palette_entries() {
 		if e.kind == .Command && e.id == .Run_Macro && app.macro.slots[e.arg].name == "" do continue
+		if e.kind == .Command && e.id == .Run_Plugin && !plugin_slot_loaded(app, e.arg) do continue
+		if e.kind == .Command && e.id == .Reload_Plugins && !PLUGINS_AVAILABLE do continue
 		append(&out, e)
 	}
 	return out[:]
@@ -242,6 +246,7 @@ palette_entries_shown :: proc(app: ^App) -> []Palette_Entry {
 // What the palette and Settings > Keys show for the entry: a macro by its name.
 entry_title :: proc(app: ^App, e: Palette_Entry) -> string {
 	if e.kind == .Command && e.id == .Run_Macro && app.macro.slots[e.arg].name != "" do return fmt.tprintf("Macro: %s", app.macro.slots[e.arg].name)
+	if e.kind == .Command && e.id == .Run_Plugin && app.plugins.slots[e.arg].key != "" do return plugin_slot_title(app, e.arg)
 	return palette_label(e)
 }
 

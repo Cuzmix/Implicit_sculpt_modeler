@@ -42,15 +42,22 @@ compile_shaders() {
 common=(-collection:deps="$DEPS" -vet -strict-style -warnings-as-errors
 	"-extra-linker-flags:-L$DEPS/sdl3/lib -Wl,-rpath,$DEPS/sdl3/lib")
 
+# The app links Luau for script plugins, which setup_deps builds from source.
+need_luau() {
+	[ -f "$DEPS/luau/libluau.a" ] || { echo "Luau missing: run scripts/setup_deps.sh, which builds deps/luau"; exit 1; }
+}
+
 mkdir -p "$ROOT/build"
 case "$mode" in
 	debug|run|smoke)
+		need_luau
 		compile_shaders
 		"$ODIN" build "$ROOT/src/app" -out:"$ROOT/build/sculpt" -debug "${common[@]}"
 		if [ "$mode" = run ]; then exec "$ROOT/build/sculpt" "$@"; fi
 		if [ "$mode" = smoke ]; then SDL_ASSERT=abort exec "$ROOT/build/sculpt" --frames=300 --gpu-debug "$@"; fi
 		;;
 	release|gpubench|computebench)
+		need_luau
 		compile_shaders
 		"$ODIN" build "$ROOT/src/app" -out:"$ROOT/build/sculpt" -o:speed -no-bounds-check "${common[@]}"
 		if [ "$mode" = gpubench ]; then exec "$ROOT/build/sculpt" --gpubench "$ROOT/build/gpubench.md" "$@"; fi
@@ -62,19 +69,20 @@ case "$mode" in
 		;;
 	test)
 		compile_shaders
-		for pkg in geom camera sculpt jobs gizmo png_write zip voxel ui app; do
+		need_luau
+		for pkg in geom camera sculpt jobs gizmo png_write zip voxel ui luau app; do
 			"$ODIN" test "$ROOT/src/$pkg" -out:"$ROOT/build/test_$pkg" "${common[@]}"
 		done
 		;;
 	check)
 		# Library packages have no main, hence -no-entry-point; it is harmless on the executables.
 		# odin check takes no linker flags, so this is wincheck's flag list, not common's.
-		for pkg in app bench geom camera gizmo jobs png_write render sculpt sdf_trial ui voxel zip; do
+		for pkg in app bench geom camera gizmo jobs luau png_write render sculpt sdf_trial ui voxel zip; do
 			"$ODIN" check "$ROOT/src/$pkg" -no-entry-point \
 				-collection:deps="$DEPS" -vet -strict-style -warnings-as-errors
 		done
 		python3 "$ROOT/scripts/agents_sync.py" --check
-		echo "check: 13 packages type-check, agent mirror current"
+		echo "check: 14 packages type-check, agent mirror current"
 		;;
 	wincheck)
 		# Object files need no Windows SDK; the empty root only satisfies the flag.

@@ -114,6 +114,7 @@ App :: struct {
 	script:   Script_Run, // the script running: the start-up one (--run, --script), or a macro
 	startup_script: Script_Outcome, // how the start-up script went, for the exit stats and files
 	macro:    Macro_State, // the recording and the macros kept (macros.odin)
+	plugins:  Plugins, // the script plugins and their commands' slots (plugins.odin)
 	alphas:   [dynamic]Alpha_Entry, // the brush alphas the Brush palette offers (alphas.odin)
 	library:  Library, // the folder that keeps the person's own alphas across starts (library.odin)
 	link:     Link, // the live link with Blender (link.odin)
@@ -500,6 +501,9 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	app.settings_file = settings
 	// Macros are kept beside the settings, so a run that keeps no settings keeps none.
 	macros_load(&app, macros_folder(settings))
+	// Plugins too, after the settings, which remember which slot each command has.
+	plugins_load(&app, plugins_folder(settings))
+	defer plugins_destroy(&app)
 	// The focus check only where a person switches windows: a scripted run's focus
 	// comes and goes with the test machine's windows, which no check may depend on.
 	link_init(&app, link_folder(settings), opts.frames == 0 && opts.gpubench == "" && opts.bench_stroke == 0 && opts.compute_bench == "" && opts.run == "" && opts.script == "")
@@ -564,6 +568,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		materials_settle(&app)
 		textures_settle(&app)
 		if !script_frame(&app) do return false
+		if !plugins_frame(&app) do return false
 		// Until the script is done its frames are set-up: the run's own count from where
 		// it ends (--frames, the bench stroke, --load-strokes, --timelapse, --ui-events).
 		setting_up := app.script.running && app.script.setup
@@ -1062,6 +1067,9 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	fmt.printfln("library_alphas=%d library_skipped=%d alpha=%s packs=%d pack_alphas=%d pack_presets=%d pack_meshes=%d pack_materials=%d pack_matcaps=%d pack_matcap_textures=%d packs_installed=%d packs_refused=%d", app.library.alphas, app.library.skipped, alpha_ref(&app, app.brush.alpha), len(app.library.packs), pack_alphas, pack_presets, pack_meshes, pack_materials, pack_matcaps, app.library.textures_made, app.library.installed, app.library.refused)
 	fmt.printfln("link_sent=%d link_moved=%d link_swapped=%d link_added=%d link_token=%d", app.link.sends, app.link.moved, app.link.swapped, app.link.added, int(app.scene.link_token != 0))
 	fmt.printfln("macros=%d macro_recording=%d macro_entries=%d macro_left_out=%d macros_run=%d scripts_run=%d macro_steps=%d", macros_kept, int(app.macro.recording), len(app.macro.entries), app.macro.left_out, app.macro.runs, app.macro.scripts, app.macro.steps)
+	plugin_commands := 0
+	for _, slot in app.plugins.slots do plugin_commands += int(plugin_slot_loaded(&app, slot))
+	fmt.printfln("plugins=%d plugin_commands=%d plugin_errors=%d plugin_runs=%d plugin_steps=%d", len(app.plugins.plugins) - plugins_failed(&app), plugin_commands, app.plugins.errors, app.plugins.runs, app.plugins.steps)
 	fmt.printfln("frames=%d dabs=%d objects=%d vertices=%d", frame_index, app.stats.dabs_total, len(app.scene.objects), vertices)
 	{
 		// The voxel objects: how many, their bricks, and what their fields, surfaces and undo

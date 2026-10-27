@@ -626,6 +626,11 @@ settings_load :: proc(app: ^App, path: string) {
 			if f[1] != "0" do continue
 			if f[0] == "tap_history" do app.nav.gestures[.Two_Tap], app.nav.gestures[.Three_Tap] = {}, {}
 			else do app.nav.gestures[.Two_Hold], app.nav.gestures[.Three_Hold] = {}, {}
+		case "plugin_slot":
+			// plugin_slot <slot> <file/name, escaped>: the Run plugin slot a plugin's command
+			// keeps, so its key stays on it however the folder changes.
+			slot, slot_ok := strconv.parse_int(f[1])
+			if len(f) == 3 && slot_ok do plugin_slot_remember(app, slot, preset_unescape(f[2]))
 		case "favourite":
 			// favourite <command name>, in the order they were starred.
 			id, arg, ok := command_from_name(f[1])
@@ -737,6 +742,7 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 		for s, i in app.kit.pies[n] do fmt.sbprintfln(&out, "pie %d %d %s", n, i, command_name(s.id, s.arg) if s.id != .None else "empty")
 	}
 	for f in app.kit.favourites[:app.kit.favourite_count] do fmt.sbprintfln(&out, "favourite %s", command_name(f.id, f.arg))
+	for s, slot in app.plugins.slots do if s.key != "" do fmt.sbprintfln(&out, "plugin_slot %d %s", slot, preset_escape(s.key))
 	gestures := GESTURE_DEFAULTS
 	for s, slot in app.nav.gestures {
 		if s != gestures[slot] do fmt.sbprintfln(&out, "gesture_map %v %s", slot, command_name(s.id, s.arg) if s.id != .None else "none")

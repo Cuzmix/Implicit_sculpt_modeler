@@ -612,9 +612,9 @@ script_allows :: proc(id: Command_Id) -> bool {
 		return false
 	case .Rename_Object, .Command_Palette, .Pie, .Pie_Editor, .Brush_Pie:
 		return false
-	// No script records or runs a macro or a script file, so none starts another or
-	// records itself.
-	case .Macro_Record, .Run_Macro, .Run_Script, .Pick_Pack, .Save_Pack:
+	// No script records or runs a macro, a script file or a plugin, so none starts
+	// another, records itself or runs the plugin that runs it.
+	case .Macro_Record, .Run_Macro, .Run_Script, .Run_Plugin, .Reload_Plugins, .Pick_Pack, .Save_Pack:
 		return false
 	// The last stroke replays where the pointer is, and the last autosave is whatever an
 	// earlier run left: neither is something a script can say beforehand.
@@ -681,20 +681,46 @@ script_start :: proc(app: ^App, text, source: string, setup, scripted: bool) -> 
 	script_unload(app)
 	r := &app.script
 	r.script = script_parse(text, source)
-	if !setup do for st in r.script.statements {
-		if len(r.script.errors) >= SCRIPT_ERRORS_MAX do break
-		if st.kind == .Wait do append(&r.script.errors, Script_Error{st.line, strings.clone("wait is only for start-up scripts")})
-		if st.kind == .Command && st.command == .New_Scene do append(&r.script.errors, Script_Error{st.line, strings.clone("new_scene is only for start-up scripts: it empties the History")})
-	}
+	if !setup do script_check_work(&r.script)
 	if len(r.script.errors) > 0 {
-		// Errors found after reading are on later lines than none, but listed by line.
-		slice.sort_by(r.script.errors[:], proc(a, b: Script_Error) -> bool {return a.line < b.line})
 		report := script_report(&r.script)
 		script_unload(app)
 		return report
 	}
 	r.running, r.setup, r.scripted = true, setup, scripted && setup
 	return ""
+}
+
+// The checks a person's script (a macro, a script file, a plugin's sculpt.run) has on
+// top of reading: no `wait` and no `new_scene`, since it is done within the frame it
+// starts in and its steps are the History's. The errors end up listed by line.
+script_check_work :: proc(s: ^Script) {
+	for st in s.statements {
+		if len(s.errors) >= SCRIPT_ERRORS_MAX do break
+		if st.kind == .Wait do append(&s.errors, Script_Error{st.line, strings.clone("wait is only for start-up scripts")})
+		if st.kind == .Command && st.command == .New_Scene do append(&s.errors, Script_Error{st.line, strings.clone("new_scene is only for start-up scripts: it empties the History")})
+	}
+	// Errors found after reading are on later lines than none, but listed by line.
+	slice.sort_by(s.errors[:], proc(a, b: Script_Error) -> bool {return a.line < b.line})
+}
+
+// Runs a person's script text now, statement by statement as script_frame does, each
+// its own undo step: for a plugin's sculpt.run, which runs at a frame's start. The
+// script's first error, or what stopped it ("line 2: remesh did nothing (why)"), in the
+// temp allocator, with how many statements ran first; ok false only on a GPU failure.
+script_run_now :: proc(app: ^App, text, source: string) -> (failure: string, ran: int, ok: bool) {
+	s := script_parse(text, source)
+	defer script_destroy(&s)
+	script_check_work(&s)
+	if len(s.errors) > 0 do return fmt.tprintf("line %d: %s", s.errors[0].line, s.errors[0].message), 0, true
+	for st in s.statements {
+		why: string
+		why, ok = script_step(app, st)
+		if !ok do return "", ran, false
+		if why != "" do return fmt.tprintf("line %d: %s did nothing (%s)", st.line, script_statement_name(st), why), ran, true
+		ran += 1
+	}
+	return "", ran, true
 }
 
 script_unload :: proc(app: ^App) {
