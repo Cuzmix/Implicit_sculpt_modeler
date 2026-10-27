@@ -78,7 +78,7 @@ textured_vertices_follow_the_split :: proc(t: ^testing.T) {
 	s := &sculpt.levels_current(&obj.levels).sculptor
 	s.mask = make([]u8, len(s.mesh.positions))
 	for &m, v in s.mask do m = u8(v * 37 % 256)
-	vertices, indices := textured_vertices(obj)
+	vertices, indices, corners := textured_vertices(obj)
 	quads := sculpt.levels_quad_mesh(&obj.levels)
 	normals := geom.quad_mesh_normals(quads, context.temp_allocator)
 	frame := geom.quad_mesh_tangents(quads, obj.levels.faces.uv, normals, context.temp_allocator)
@@ -94,6 +94,10 @@ textured_vertices_follow_the_split :: proc(t: ^testing.T) {
 	}
 	// Each triangle is one of the base level's, corner for corner.
 	base := sculpt.levels_current(&obj.levels).mesh.indices[:]
+	// And each of the base level's corners, as render mode traces them, has a slot of its
+	// own vertex.
+	testing.expect_value(t, len(corners), len(base))
+	for c, i in corners do testing.expectf(t, int(c) < len(vertices) && frame.vertex[c] == base[i], "corner %d: slot %d", i, c)
 	found := make(map[[3]u32]bool, len(base) / 3, context.temp_allocator)
 	for i := 0; i < len(base); i += 3 do found[{base[i], base[i + 1], base[i + 2]}] = true
 	for i := 0; i < len(indices); i += 3 {

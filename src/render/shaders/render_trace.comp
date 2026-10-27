@@ -37,11 +37,16 @@ struct Item {
 	uvec4 slot_group[4];   // the polygroup of each material slot from 1
 	vec4 slot_color[16];   // each slot's colour, as `color`
 	vec4 slot_surface[16]; // ...and surface, as `surface`
+	// ITEM_TEXTURED: its first triangle, where its corners and its preview vertices start
+	// in `textured`, and its map slot (bits 0-3, 3 for none), view (4-7: 1 the maps, 2 the
+	// normal map, 3 the UV checker) and maps it has (8-10: base colour, ORM, normal)
+	uvec4 tex;
 };
 
 const uint ITEM_PAINT = 1u;  // the polypaint shows over the colour
 const uint ITEM_GROUPS = 2u; // each polygroup shows in its own colour instead
 const uint ITEM_SLOTS = 4u;  // groups may have materials of their own
+const uint ITEM_TEXTURED = 8u; // shows its maps through its preview's UVs
 
 // The sum so far: radiance over the samples whose camera ray met the scene in rgb, and
 // how many did in a.
@@ -52,18 +57,33 @@ layout(set = 0, binding = 1) uniform sampler2D environment_map;
 // The table for sampling the environment by its brightness: the image's, or the built-in
 // studio's in its own space (render.Env_Table).
 layout(set = 0, binding = 2) uniform sampler2D env_table;
-layout(std430, set = 0, binding = 3) readonly buffer Positions { float positions[]; }; // 3 floats a vertex, mesh space
-layout(std430, set = 0, binding = 4) readonly buffer Indices { uint indices[]; }; // each item's own, from its first vertex
+// Each map slot's base colour (sRGB, so it samples linear), ORM and normal maps
+// (render.Texture_Map), defaults where an item lacks one (its flags say so).
+layout(set = 0, binding = 3) uniform sampler2D map0;
+layout(set = 0, binding = 4) uniform sampler2D map1;
+layout(set = 0, binding = 5) uniform sampler2D map2;
+layout(set = 0, binding = 6) uniform sampler2D map3;
+layout(set = 0, binding = 7) uniform sampler2D map4;
+layout(set = 0, binding = 8) uniform sampler2D map5;
+layout(set = 0, binding = 9) uniform sampler2D map6;
+layout(set = 0, binding = 10) uniform sampler2D map7;
+layout(set = 0, binding = 11) uniform sampler2D map8;
+layout(std430, set = 0, binding = 12) readonly buffer Positions { float positions[]; }; // 3 floats a vertex, mesh space
+layout(std430, set = 0, binding = 13) readonly buffer Indices { uint indices[]; }; // each item's own, from its first vertex
 // Each vertex's normal (render.Normal_Packed, one word), then from counts.w each vertex's
 // render.Paint_Packed (two words).
-layout(std430, set = 0, binding = 5) readonly buffer Attributes { uint attributes[]; };
+layout(std430, set = 0, binding = 14) readonly buffer Attributes { uint attributes[]; };
 // Every chunk's tree, one after another, a leaf's `first` into its chunk's order; then
 // from extra.x the tree over every chunk, a leaf's `first` a chunk.
-layout(std430, set = 0, binding = 6) readonly buffer Nodes { Node nodes[]; };
-layout(std430, set = 0, binding = 7) readonly buffer Order { uint order[]; }; // two 16-bit offsets a word
+layout(std430, set = 0, binding = 15) readonly buffer Nodes { Node nodes[]; };
+layout(std430, set = 0, binding = 16) readonly buffer Order { uint order[]; }; // two 16-bit offsets a word
 // node_off, order_off, first_tri, and the node count with the item in the top 12 bits.
-layout(std430, set = 0, binding = 8) readonly buffer Chunks { uvec4 chunks[]; };
-layout(std430, set = 0, binding = 9) readonly buffer Items { Item items[]; };
+layout(std430, set = 0, binding = 17) readonly buffer Chunks { uvec4 chunks[]; };
+layout(std430, set = 0, binding = 18) readonly buffer Items { Item items[]; };
+// Each textured item's preview vertices (render.Textured_Vertex: position, packed normal,
+// tangent as four 16-bit snorms, uv; 8 words), then its corners: for each triangle of its
+// sculpt mesh, the vertex each corner takes.
+layout(std430, set = 0, binding = 19) readonly buffer Textured { uint textured[]; };
 layout(set = 1, binding = 0, rgba32f) uniform writeonly image2D next;
 // The guides, written by the first sample only: the base colour the camera's ray met with
 // 1 in a (0 everywhere for a miss), and its normal (world) with the distance in a.
@@ -139,12 +159,69 @@ vec3 oct_decode(vec2 e) {
 	return normalize(v);
 }
 
-// A vertex's normal in mesh space: two 16-bit halves, the mask in the low 4 bits of each,
-// which render mode leaves out.
-vec3 vertex_normal(uint v) {
-	uint w = attributes[v];
+// A normal packed as render.Normal_Packed: two 16-bit halves, the mask in the low 4 bits
+// of each, which render mode leaves out.
+vec3 normal_decode(uint w) {
 	ivec2 raw = ivec2(int(w << 16) >> 16, int(w) >> 16);
 	return oct_decode(vec2(raw & ~15) / 32767.0);
+}
+
+// A vertex's normal in mesh space.
+vec3 vertex_normal(uint v) {
+	return normal_decode(attributes[v]);
+}
+
+// A textured item's preview vertex at word `at` of `textured`: its normal and tangent
+// (w the bitangent's side) in mesh space, and its UV (v up).
+struct Tex_Vertex {
+	vec3 n;
+	vec4 t;
+	vec2 uv;
+};
+
+Tex_Vertex tex_vertex(uint at) {
+	Tex_Vertex v;
+	v.n = normal_decode(textured[at + 3u]);
+	uint a = textured[at + 4u], b = textured[at + 5u];
+	v.t = max(vec4(int(a << 16) >> 16, int(a) >> 16, int(b << 16) >> 16, int(b) >> 16) / 32767.0, vec4(-1.0));
+	v.uv = vec2(uintBitsToFloat(textured[at + 6u]), uintBitsToFloat(textured[at + 7u]));
+	return v;
+}
+
+// Map `kind` (0 base colour, 1 ORM, 2 normal) of map slot `slot` at `uv`, at the level
+// whose texels are as wide as `lod` says the pixel is, in log2 of the UV square (so the
+// map's own size adds half the log2 of its texel count). The samplers are named, not an
+// array: indexing one by a value that differs between pixels needs a device feature
+// tablets do not promise.
+#define MAP_AT(s) { vec2 size = vec2(textureSize(s, 0)); return textureLod(s, uv, max(lod + 0.5 * log2(size.x * size.y), 0.0)); }
+vec4 map_at(uint slot, uint kind, vec2 uv, float lod) {
+	switch (slot * 3u + kind) {
+	case 0u: MAP_AT(map0)
+	case 1u: MAP_AT(map1)
+	case 2u: MAP_AT(map2)
+	case 3u: MAP_AT(map3)
+	case 4u: MAP_AT(map4)
+	case 5u: MAP_AT(map5)
+	case 6u: MAP_AT(map6)
+	case 7u: MAP_AT(map7)
+	case 8u: MAP_AT(map8)
+	}
+	return vec4(0.0);
+}
+
+// The viewport's UV checker (mesh_shading.glsl): 8 by 8 cells, every other one darker,
+// each edged with a line and tinted by its column and row; the lines a fixed share of a
+// cell, since render mode smooths edges by its samples rather than by pixel derivatives.
+vec3 uv_checker(vec2 uv) {
+	vec2 c = uv * 8.0;
+	vec2 f = fract(c);
+	float line = step(min(min(f.x, 1.0 - f.x), min(f.y, 1.0 - f.y)), 0.015);
+	vec2 cell = floor(c);
+	float odd = mod(cell.x + cell.y, 2.0);
+	float h = (cell.x + 0.5) / 8.0;
+	vec3 hue = clamp(abs(fract(h + vec3(0.0, 2.0, 1.0) / 3.0) * 6.0 - 3.0) - 1.0, 0.0, 1.0);
+	vec3 tint = mix(vec3(1.0), hue, 0.35) * mix(0.7, 1.0, (cell.y + 0.5) / 8.0);
+	return tint * mix(1.0, 0.72, odd) * (1.0 - 0.5 * line);
 }
 
 uvec2 vertex_paint(uint v) {
@@ -582,6 +659,13 @@ void main() {
 	vec4 far = inv_view_proj * vec4(ndc, 1.0, 1.0);
 	vec3 o = near.xyz / near.w;
 	vec3 d = normalize(far.xyz / far.w - o);
+	// The ray through the next pixel across, for how wide a pixel is where the camera's ray
+	// meets something (the maps' level).
+	vec2 ndc_dx = ndc + vec2(2.0 / float(size.x), 0.0);
+	vec4 near_dx = inv_view_proj * vec4(ndc_dx, 0.0, 1.0);
+	vec4 far_dx = inv_view_proj * vec4(ndc_dx, 1.0, 1.0);
+	vec3 o_dx = near_dx.xyz / near_dx.w;
+	vec3 d_dx = normalize(far_dx.xyz / far_dx.w - o_dx);
 
 	vec3 radiance = vec3(0.0), weight = vec3(1.0);
 	float covered = 0.0, pdf_bsdf = 0.0;
@@ -635,6 +719,61 @@ void main() {
 				albedo = mix(albedo, paint.rgb, paint.a);
 			}
 			if ((flags & ITEM_GROUPS) != 0u) albedo = group_color(group);
+		}
+		if ((flags & ITEM_TEXTURED) != 0u) {
+			// The preview's corners for this triangle, in its own corner order.
+			uvec4 tex = items[hit.item].tex;
+			uint at = tex.y + 3u * (hit.tri - tex.x);
+			Tex_Vertex t0 = tex_vertex(tex.z + 8u * textured[at]);
+			Tex_Vertex t1 = tex_vertex(tex.z + 8u * textured[at + 1u]);
+			Tex_Vertex t2 = tex_vertex(tex.z + 8u * textured[at + 2u]);
+			uint slot = tex.w & 15u, view = (tex.w >> 4) & 15u, maps = tex.w >> 8;
+			vec2 uv_up = t0.uv * w0 + t1.uv * hit.uv.x + t2.uv * hit.uv.y;
+			vec2 uv = vec2(uv_up.x, 1.0 - uv_up.y);
+			// The level the maps are read at: the camera's ray at the size of its pixel
+			// where it meets the triangle, over the triangle's UVs; a path's later
+			// bounces, which only gather light, a coarse one.
+			float lod = -6.0;
+			if (bounce == 0) {
+				vec3 e1 = mat3(model) * (p1 - p0), e2 = mat3(model) * (p2 - p0);
+				vec2 u1 = t1.uv - t0.uv, u2 = t2.uv - t0.uv;
+				float world_area = length(cross(e1, e2));
+				float uv_area = abs(u1.x * u2.y - u1.y * u2.x);
+				float footprint = length(o_dx + d_dx * hit.t - p);
+				lod = log2(max(footprint * sqrt(uv_area / max(world_area, 1e-30)), 1e-12));
+			}
+			// The normal from the preview's vertices, then the normal map, in the frame the
+			// bake solved for (the interpolated normal and tangent, unnormalized, the
+			// bitangent from their cross product), all turned without the object's scale,
+			// as textured.vert does; then turned round whole on the back, as the viewport
+			// does, so the map is not mirrored there.
+			mat3 turn = mat3(model) / length(model[0].xyz);
+			vec3 nv = turn * (t0.n * w0 + t1.n * hit.uv.x + t2.n * hit.uv.y);
+			vec4 tw = t0.t * w0 + t1.t * hit.uv.x + t2.t * hit.uv.y;
+			vec3 tv = turn * tw.xyz;
+			vec3 mapped = normalize(nv);
+			if ((view == 1u || view == 2u) && (maps & 4u) != 0u) {
+				vec3 tn = map_at(slot, 2u, uv, lod).xyz * 2.0 - 1.0;
+				vec3 bv = (tw.w < 0.0 ? -1.0 : 1.0) * cross(nv, tv);
+				vec3 m = tn.x * tv + tn.y * bv + tn.z * nv;
+				if (dot(m, m) > 0.0) mapped = normalize(m);
+			}
+			if (dot(mat3(model) * cross(p1 - p0, p2 - p0), d) > 0.0) mapped = -mapped;
+			n = dot(mapped, v) > 0.0 ? mapped : ng;
+			// A normal map tilts the normal far from the triangle's, and the eye's mirror
+			// direction about it can then point into the surface, where a smooth surface's
+			// paths end black: bend the normal just enough to keep that direction on the
+			// surface's side (the half vector between the eye and the mirror direction laid
+			// on the horizon, as production path tracers do).
+			vec3 r = reflect(-v, n);
+			float under = dot(ng, r);
+			if (under < 0.0) n = normalize(v + normalize(r - ng * (under - 1e-3)));
+			if (view == 1u && (maps & 1u) != 0u) albedo = items[hit.item].color.rgb * map_at(slot, 0u, uv, lod).rgb;
+			if (view == 1u && (maps & 2u) != 0u) {
+				vec3 orm = map_at(slot, 1u, uv, lod).rgb;
+				surf = vec2(orm.b, max(orm.g, 0.04));
+			}
+			if (view == 3u) albedo *= uv_checker(uv);
 		}
 		if (bounce == 0) {
 			guide_a = vec4(albedo, 1.0);

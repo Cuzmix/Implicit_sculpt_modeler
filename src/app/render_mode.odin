@@ -67,6 +67,9 @@ kit_render :: proc(app: ^App) {
 		ms := pr.total_ms / f64(max(pr.total_samples, 1))
 		ui.paragraph(ctx, fmt.tprintf("Built up %d of %d samples, %.0f ms a sample.", pr.samples, app.render_samples, ms))
 	}
-	ui.paragraph(ctx, fmt.tprintf("Path traces the view while it stays still: the lights with soft shadows as wide as the studio's Shadow softness, the environment, materials and paint, and light bounced between surfaces. Any change starts it over; see-through objects are left out. Denoise smooths the grain along the surfaces' edges, colours and normals, less as samples build up. Half resolution traces a quarter of the pixels, four times as fast, for tablets. %s", command_keys(app, .Render_Mode)))
+	if render_running(app) && pr.tex_left_out > 0 {
+		ui.paragraph(ctx, fmt.tprintf("Render mode shows the maps of %d textured objects; %d more show their material.", render.RENDER_TEXTURED_MAX, pr.tex_left_out))
+	}
+	ui.paragraph(ctx, fmt.tprintf("Path traces the view while it stays still: the lights with soft shadows as wide as the studio's Shadow softness, the environment, materials, paint and texture maps, and light bounced between surfaces. Any change starts it over; see-through objects are left out. Denoise smooths the grain along the surfaces' edges, colours and normals, less as samples build up. Half resolution traces a quarter of the pixels, four times as fast, for tablets. %s", command_keys(app, .Render_Mode)))
 }
 

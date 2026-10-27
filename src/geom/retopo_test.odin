@@ -156,3 +156,65 @@ diagonals_follow_the_triangles :: proc(t: ^testing.T) {
 	}
 	free_all(context.temp_allocator)
 }
+
+// The triangles over two quads, reordered and each started from another corner, still
+// find their quad's slots in their own corner order; a pillow of two quads over the same
+// four vertices, wound opposite ways, gives each triangle its own quad's slots; and a
+// triangle wound the wrong way is no half.
+@(test)
+triangle_corners_follow_each_triangle :: proc(t: ^testing.T) {
+	positions := []Vec3{{0, 0, 0}, {1, -0.4, 0}, {2.5, 1.2, 0}, {0, 1, 0}, {3, 0, 0}, {4, 0, 0}, {4, 1, 0}, {2.6, 1.4, 0}}
+	q := Quad_Mesh{positions = positions, quads = [][4]u32{{0, 1, 2, 3}, {4, 5, 6, 7}}}
+	m := quad_mesh_triangulate(q)
+	defer mesh_destroy(&m)
+	tris := len(m.indices) / 3
+	shuffled := make([]u32, len(m.indices), context.temp_allocator)
+	for k in 0 ..< tris {
+		from := m.indices[3 * (tris - 1 - k):][:3]
+		for c in 0 ..< 3 do shuffled[3 * k + c] = from[(c + k) % 3]
+	}
+	copy(m.indices[:], shuffled)
+	faces := vertex_faces_build(m)
+	defer vertex_faces_destroy(&faces)
+	q.across = quad_mesh_diagonals(q, m.indices[:], faces, context.temp_allocator)
+	uvs := Uv_Layout{uvs = [][4][2]f32{{{0, 0}, {0.4, 0}, {0.4, 0.4}, {0, 0.4}}, {{0.5, 0}, {0.9, 0}, {0.9, 0.4}, {0.5, 0.4}}}, chart = []u32{0, 1}, charts = 2}
+	normals := quad_mesh_normals(q, context.temp_allocator)
+	frame := quad_mesh_tangents(q, uvs, normals, context.temp_allocator)
+	_, _, texcoords, split := quad_mesh_split_uvs(q, uvs, normals, frame, context.temp_allocator)
+	corners, ok := quad_mesh_triangle_corners(q, split, m.indices[:], faces, context.temp_allocator)
+	testing.expect(t, ok)
+	for c, i in corners {
+		testing.expectf(t, frame.vertex[c] == m.indices[i], "corner %d takes vertex %d's slot, not %d's", i, frame.vertex[c], m.indices[i])
+		quad := 0 if m.indices[i] < 4 else 1
+		k := 0
+		for q.quads[quad][k] != m.indices[i] do k += 1
+		testing.expect_value(t, texcoords[c], uvs.uvs[quad][k])
+	}
+
+	// The pillow: the same four vertices, the second quad wound back.
+	pillow := Quad_Mesh{positions = positions[:4], quads = [][4]u32{{0, 1, 2, 3}, {0, 3, 2, 1}}}
+	pm := quad_mesh_triangulate(pillow)
+	defer mesh_destroy(&pm)
+	pfaces := vertex_faces_build(pm)
+	defer vertex_faces_destroy(&pfaces)
+	pillow.across = quad_mesh_diagonals(pillow, pm.indices[:], pfaces, context.temp_allocator)
+	puvs := Uv_Layout{uvs = uvs.uvs, chart = []u32{0, 1}, charts = 2}
+	pnormals := quad_mesh_normals(pillow, context.temp_allocator)
+	pframe := quad_mesh_tangents(pillow, puvs, pnormals, context.temp_allocator)
+	_, _, ptex, psplit := quad_mesh_split_uvs(pillow, puvs, pnormals, pframe, context.temp_allocator)
+	pcorners, pok := quad_mesh_triangle_corners(pillow, psplit, pm.indices[:], pfaces, context.temp_allocator)
+	testing.expect(t, pok)
+	for c, i in pcorners {
+		// quad_mesh_triangulate keeps quad order: the first two triangles are the first quad's.
+		quad := i / 6
+		testing.expectf(t, (ptex[c].x < 0.45) == (quad == 0), "corner %d of quad %d took the other quad's UV %v", i, quad, ptex[c])
+	}
+
+	// A triangle wound the wrong way.
+	m.indices[1], m.indices[2] = m.indices[2], m.indices[1]
+	wrong := vertex_faces_build(m)
+	defer vertex_faces_destroy(&wrong)
+	_, wrong_ok := quad_mesh_triangle_corners(q, split, m.indices[:], wrong, context.temp_allocator)
+	testing.expect(t, !wrong_ok)
+	free_all(context.temp_allocator)
+}

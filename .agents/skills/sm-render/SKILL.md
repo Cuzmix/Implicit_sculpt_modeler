@@ -175,6 +175,12 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   at the viewport's size (`view_width`); the kernel derives rays from `textureSize(prev)`. render_display.frag blends
   the four traced texels premultiplied by coverage when `params.w` is 1; at 0 it keeps the exact full-size path
   (0 px against the old display: keep it so).
+  Textured items (ITEM_TEXTURED): `Textured_Mesh.corners` (geom.quad_mesh_triangle_corners, 3 slots a base-level
+  triangle in its own corner order, uploaded with the preview) and its vertices are gpu-copied into Scene_Buffer
+  `.Textured` (the 8th storage buffer: the per-stage limit is 8, none left). `Item_Record.tex` = first tri, corner
+  base, vertex base, slot|view<<4|maps<<8; maps bound as 9 named samplers `map0..map8` (RENDER_TEXTURED_MAX 3, 12 of
+  16 samplers) through a switch, never an array (non-uniform indexing is a device feature). A map's maps_stamp change
+  restarts the view (`pr.tex_stamps`). The normal-map bend (reflect below ng) applies to textured hits only.
 - Traced studio (`src/render/trace.odin`, `studio_trace.comp`, `blas_refit.comp`, `studio_trace_add.frag`): at
   `samples == 0` `trace_prepare` decides the run (`Studio.traced`); false falls back to the gather, never half done.
   Needs `Draw_Item.source` (the CPU mesh as uploaded) and `Mesh_Buffers.storage` (positions and indices with
