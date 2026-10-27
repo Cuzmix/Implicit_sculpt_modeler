@@ -1,5 +1,6 @@
 package ui
 
+import "core:fmt"
 import "core:math"
 import "core:strings"
 
@@ -60,6 +61,13 @@ ICON_ZOOM_IN :: rune(0xe1b6)
 ICON_STAR :: rune(0xe17a)
 ICON_PIE :: rune(0xe06f) // chart-pie
 ICON_KEYBOARD :: rune(0xe284)
+ICON_CIRCLE_PLUS :: rune(0xe086)
+ICON_MORE :: rune(0xe34a) // circle-ellipsis
+ICON_PAINTBRUSH :: rune(0xe2e7)
+ICON_PASTE :: rune(0xe3ec) // clipboard-paste
+ICON_TO_TOP :: rune(0xe460) // arrow-up-to-line
+ICON_TO_BOTTOM :: rune(0xe45a) // arrow-down-to-line
+ICON_DOTS :: rune(0xe0ed) // grip-horizontal: the handle a card is dragged by
 
 // Every pressable control shares this: the wash under the pointer fades in, deepens
 // while held, and the control dips to 97% while held. Returns the scale to draw at.
@@ -693,13 +701,158 @@ tree_row :: proc(ctx: ^Context, s: string, detail := "", selected := false, dept
 	return
 }
 
+// What happened to a thumbnail row: a list row's click and menu, which toggle was
+// pressed (-1 for none) and which is held (-1 for none), whether the switch under the
+// name or the chevron was, and whether the row's body is held and being dragged to a
+// new place in the list (`drags`).
+Thumb_Row_Result :: struct {
+	using row:   Row_Result,
+	toggled:     int,
+	held_toggle: int,
+	under:       bool,
+	folded:      bool,
+	held:        bool,
+	dragged:     bool,
+}
+
+// A thumbnail row's height, in points.
+THUMB_ROW_H :: 60
+
+// The parts of a thumbnail row besides its name: the picture, either cell `lo` to `hi`
+// of registered image `image` or, with image 0, `glyph` with `count` written in it when
+// 0 or more (a folder and how many it holds); `under`, a small switch under the name
+// when its name is set; `open` puts a chevron after the name that folds the row.
+Thumb_Row :: struct {
+	image:    u64,
+	lo, hi:   [2]f32,
+	glyph:    rune,
+	count:    int,
+	under:    Row_Toggle,
+	under_on: bool,
+	open:     ^bool,
+}
+
+// A tall row of a list of objects, as ZBrush for iPad's Subtools list has them: the
+// picture, the name with an optional switch under it, an optional chevron, and
+// `all_toggles` at the right end, each a full touch target. A selected row is outlined
+// in the accent colour; `dim` fades the name (an object out of view). Pressing a toggle,
+// the switch or the chevron neither selects the row nor opens its menu. With `drags`
+// the row can be dragged to reorder the list, as ZBrush for iPad's rows are: a mouse
+// drags it at once (the list does not scroll from it), while a finger or a pen first
+// holds it for the long press, which opens its menu, so a quick swipe still scrolls.
+thumb_row :: proc(ctx: ^Context, s: string, parts: Thumb_Row, selected := false, dim := false, all_toggles: []Row_Toggle = nil, drags := false) -> (res: Thumb_Row_Result) {
+	ctx.controls += 1
+	t := ctx.theme
+	shown := label_text(s)
+	w := fill_width(ctx)
+	if w <= 0 do w = 300
+	cell := place(ctx, {w, THUMB_ROW_H})
+	vis := Rect{cell.x, cell.y + 2, cell.w, cell.h - 4}
+	id := id_of(ctx, s)
+	res.toggled, res.held_toggle = -1, -1
+	res.rect = cell
+	mid := cell.y + cell.h * 0.5
+
+	// The toggles, the chevron and the switch take the press before the row, whose cell
+	// holds them, as the first widget laid out under the pointer wins it.
+	toggles := all_toggles[:min(len(all_toggles), MAX_ROW_TOGGLES)]
+	first := cell.x + cell.w - 4 - f32(len(toggles)) * t.target
+	toggle_hover, toggle_held: [MAX_ROW_TOGGLES]bool
+	for _, i in toggles {
+		r := Rect{first + f32(i) * t.target, mid - t.target * 0.5, t.target, t.target}
+		hovered, held, clicked, _ := interact(ctx, salt(id, u64(100 + i)), r)
+		toggle_hover[i], toggle_held[i] = hovered, held
+		if clicked do res.toggled = i
+		if held do res.held_toggle = i
+	}
+	right := first
+	chevron := Rect{right - t.target, mid - t.target * 0.5, t.target, t.target}
+	chevron_hover, chevron_held := false, false
+	if parts.open != nil {
+		clicked: bool
+		chevron_hover, chevron_held, clicked, _ = interact(ctx, salt(id, 99), chevron)
+		if clicked {
+			parts.open^ = !parts.open^
+			res.folded = true
+		}
+		right = chevron.x
+	}
+	PICTURE :: 44
+	x := cell.x + 10 + PICTURE + 12
+	has_under := parts.under.name != ""
+	name_y := mid - 9 if has_under else mid
+	knob := Rect{x, mid + 4, 26, 15}
+	under_hover, under_held := false, false
+	if has_under {
+		clicked: bool
+		under_hover, under_held, clicked, _ = interact(ctx, salt(id, 97), {knob.x - 11, knob.y + knob.h * 0.5 - t.target * 0.5, t.target, t.target})
+		res.under = clicked
+	}
+	body := Rect{cell.x, cell.y, right - cell.x, cell.h}
+	hovered, held, clicked, pressed := interact(ctx, id, body)
+	// A press that went somewhere was a drag, not a tap.
+	res.clicked, res.held = clicked && (!drags || ctx.long.travel <= t.slop), held
+	res.menu = secondary(ctx)
+	if drags && held {
+		mouse := ctx.input.pointer == .Mouse
+		if pressed && mouse do _ = claim_drag(ctx, -1)
+		// The long press counts once it fired on this row, the finger still down.
+		long_won := ctx.long.id == id && ctx.long.fired == .Action
+		res.dragged = (mouse || long_won) && ctx.long.travel > t.slop
+	}
+
+	mark := vertex_mark(ctx)
+	scale := feedback(ctx, id, vis, t.radius_medium, hovered && !selected, held)
+	o := tween(ctx, salt(id, 1), 1 if selected else 0, t.hover_time)
+	if o > 0 do stroke_rect(ctx, vis, t.radius_medium, color_fade(t.accent, o), 2)
+	picture := Rect{cell.x + 10, mid - PICTURE * 0.5, PICTURE, PICTURE}
+	fade: f32 = 0.45 if dim else 1
+	if parts.image != 0 {
+		image_part(ctx, picture, parts.image, parts.lo, parts.hi)
+	} else if parts.glyph != 0 {
+		icon(ctx, parts.glyph, {picture.x + picture.w * 0.5, mid}, 34, color_fade(t.text_secondary, fade))
+		if parts.count >= 0 do text(ctx, fmt.tprint(parts.count), picture.x + picture.w * 0.5, mid + 3, t.caption_size, color_fade(t.text, fade), .Semibold, .Center)
+	}
+	font := Font.Semibold if selected else .Regular
+	text(ctx, text_fit(ctx, shown, t.text_size, right - 8 - x, font), x, name_y, t.text_size, color_fade(t.text, fade), font)
+	if has_under {
+		on := tween(ctx, salt(id, 2), 1 if parts.under_on else 0, t.indicator_time)
+		_ = feedback(ctx, salt(id, 97), {knob.x - 4, knob.y - 4, knob.w + 8, knob.h + 8}, t.radius_small, under_hover, under_held)
+		fill_rect(ctx, knob, knob.h * 0.5, color_mix(t.fill, t.accent, on))
+		kx := knob.x + 2 + (knob.w - 4 - (knob.h - 4)) * on
+		fill_rect(ctx, {kx, knob.y + 2, knob.h - 4, knob.h - 4}, (knob.h - 4) * 0.5, t.knob)
+		tip(ctx, salt(id, 97), knob, parts.under.name, parts.under.keys)
+	}
+	if parts.open != nil {
+		_ = feedback(ctx, salt(id, 99), centered(chevron, {t.control, t.control}), t.radius_small, chevron_hover, chevron_held)
+		icon(ctx, ICON_CHEVRON_DOWN if parts.open^ else ICON_CHEVRON_RIGHT, {chevron.x + chevron.w * 0.5, mid}, t.icon_small, t.text_secondary)
+		tip(ctx, salt(id, 99), chevron, "Fold" if parts.open^ else "Unfold")
+	}
+	press_scale(ctx, mark, vis, scale)
+
+	for tg, i in toggles {
+		r := Rect{first + f32(i) * t.target, mid - t.target * 0.5, t.target, t.target}
+		tid := salt(id, u64(100 + i))
+		box := centered(r, {t.control, t.control})
+		_ = feedback(ctx, tid, box, t.radius_small, toggle_hover[i], toggle_held[i])
+		color := t.text_secondary
+		if tg.lit do color = t.accent
+		if tg.faint do color = color_fade(t.text_secondary, 0.4)
+		if toggle_hover[i] && !tg.lit do color = t.text
+		icon(ctx, tg.glyph, {r.x + r.w * 0.5, mid}, t.icon_small, color)
+		tip(ctx, tid, box, tg.name, tg.keys)
+	}
+	return
+}
+
 // An item in a menu or a select's list: an optional icon, the label, and on the right
 // the shortcut or a check when `checked`. `hint`, when given, shows in a tooltip beside
 // the label (the shortcut with a touch gesture, which the row has no room for). `starred`
 // puts a small star after the label (the palette's favourites). `keys_accent` draws the
 // shortcut in the accent colour (a key the user chose), `keys_muted` fainter (none).
-// Returns true when picked.
-menu_item :: proc(ctx: ^Context, s: string, keys := "", glyph: rune = 0, checked := false, tone := Tone.Neutral, enabled := true, highlight := false, hint := "", starred := false, keys_accent := false, keys_muted := false) -> bool {
+// `trailing` puts the icon at the right end in place of the shortcut, as iPad menus have
+// it. Returns true when picked.
+menu_item :: proc(ctx: ^Context, s: string, keys := "", glyph: rune = 0, checked := false, tone := Tone.Neutral, enabled := true, highlight := false, hint := "", starred := false, keys_accent := false, keys_muted := false, trailing := false) -> bool {
 	ctx.controls += 1
 	t := ctx.theme
 	shown := label_text(s)
@@ -715,8 +868,9 @@ menu_item :: proc(ctx: ^Context, s: string, keys := "", glyph: rune = 0, checked
 	fg := t.danger if tone == .Danger else t.text
 	if !enabled do fg = color_fade(t.text_secondary, 0.4)
 	x := vis.x + 10
-	if glyph != 0 {
-		icon(ctx, glyph, {x + t.icon_small * 0.5, vis.y + vis.h * 0.5}, t.icon_small, fg if tone == .Danger else t.text_secondary)
+	glyph_color := fg if tone == .Danger || !enabled else t.text_secondary
+	if glyph != 0 && !trailing {
+		icon(ctx, glyph, {x + t.icon_small * 0.5, vis.y + vis.h * 0.5}, t.icon_small, glyph_color)
 		x += t.icon_small + 10
 	}
 	text(ctx, shown, x, vis.y + vis.h * 0.5, t.text_size, fg)
@@ -727,6 +881,8 @@ menu_item :: proc(ctx: ^Context, s: string, keys := "", glyph: rune = 0, checked
 	right := vis.x + vis.w - 10
 	if checked {
 		icon(ctx, ICON_CHECK, {right - t.icon_small * 0.5, vis.y + vis.h * 0.5}, t.icon_small, t.accent)
+	} else if glyph != 0 && trailing {
+		icon(ctx, glyph, {right - t.icon_small * 0.5, vis.y + vis.h * 0.5}, t.icon_small, glyph_color)
 	} else if keys != "" {
 		color := t.accent if keys_accent else (color_fade(t.text_tertiary, 0.6) if keys_muted else t.text_tertiary)
 		text(ctx, keys, right, vis.y + vis.h * 0.5, t.small_size, color, .Semibold if keys_accent else .Regular, .Right)

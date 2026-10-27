@@ -172,6 +172,9 @@ Kit_State :: struct {
 	// which a drag near its edge scrolls.
 	tree_drag:      Tree_Drag,
 	tree_column:    Tree_Column,
+	// The Objects card (kit_objects_card.odin): open, and its list, menus and size.
+	objects_card:   bool,
+	card:           Objects_Card,
 	inspector_body: ui.Rect,
 	inspector_limit:  f32,
 	inspector_shown:  f32, // how far the body is scrolled as drawn (the scroll tweens toward k.scroll)
@@ -209,11 +212,12 @@ Kit_Window :: enum u8 {
 	Settings,
 	Help,
 	Macros,
+	Objects, // the Objects card (kit_objects_card.odin), a card rather than a window
 }
 
 // The order the windows start in, back to front: Settings, Help and Macros over the
 // rest, as they opened.
-KIT_WINDOW_ORDER :: [len(Kit_Window)]Kit_Window{.Inspector, .Stats, .History, .Settings, .Help, .Macros}
+KIT_WINDOW_ORDER :: [len(Kit_Window)]Kit_Window{.Inspector, .Objects, .Stats, .History, .Settings, .Help, .Macros}
 
 // Settings, Help and Macros share the inspector's place on the right: one at a time,
 // with the inspector hidden while one is open.
@@ -577,6 +581,8 @@ KIT_CANVAS :: ui.Color{0x11, 0x12, 0x14, 0xff}
 KIT_VIEWPORT_IMAGE :: 1
 // ...and the navigation head's (nav_head.odin).
 KIT_NAV_HEAD_IMAGE :: 2
+// ...and the atlas of the Objects card's pictures of objects (object_thumbs.odin).
+KIT_THUMBS_IMAGE :: 3
 
 // The inspector's width, and the toolbars' height: one touch target.
 KIT_INSPECTOR_W :: 312
@@ -906,6 +912,7 @@ kit_layout :: proc(app: ^App) {
 		case .Settings:  raised = kit_settings(app)
 		case .Help:      raised = kit_help(app)
 		case .Macros:    raised = kit_macros(app)
+		case .Objects:   raised = kit_objects_card(app)
 		}
 		if raised do top = which
 	}
@@ -920,6 +927,7 @@ kit_layout :: proc(app: ^App) {
 	kit_versions(app, menu_anchor)
 	kit_view_menu(app, view_anchor, .Left)
 	kit_object_menu(app)
+	kit_objects_card_menus(app)
 	kit_folder_menu(app)
 	kit_rename(app)
 	kit_palette(app, palette_anchor, .Left)
@@ -1178,6 +1186,15 @@ kit_folder_menu :: proc(app: ^App) {
 		app.ui.scene_command = {kind = .Arrange, arrange = .Ungroup, id = f.id}
 		picked = true
 	}
+	// Polypaint for every object in it at once, as ZBrush's folder menu offers.
+	if end > first && ui.menu_item(ctx, "Show polypaint##folder", glyph = ui.ICON_PAINTBRUSH) {
+		app.ui.scene_command = {kind = .View, view = .Folder_Paint_Show, id = f.id}
+		picked = true
+	}
+	if end > first && ui.menu_item(ctx, "Hide polypaint##folder", glyph = ui.ICON_PAINTBRUSH) {
+		app.ui.scene_command = {kind = .View, view = .Folder_Paint_Hide, id = f.id}
+		picked = true
+	}
 	ui.divider(ctx, across = true)
 	if ui.menu_item(ctx, "Delete folder and its objects", glyph = ui.ICON_TRASH, tone = .Danger) {
 		app.ui.scene_command = {kind = .Arrange, arrange = .Delete_Folder, id = f.id}
@@ -1242,8 +1259,9 @@ kit_rename :: proc(app: ^App) {
 }
 
 // The interface's draw commands for the renderer: the viewport's texture (or the
-// studio render's, while it is on) where the kit drew KIT_VIEWPORT_IMAGE, and the
-// navigation head's where it drew KIT_NAV_HEAD_IMAGE.
+// studio render's, while it is on) where the kit drew KIT_VIEWPORT_IMAGE, the
+// navigation head's where it drew KIT_NAV_HEAD_IMAGE, and the objects' pictures where it
+// drew KIT_THUMBS_IMAGE.
 kit_draws :: proc(app: ^App, dl: ^ui.Draw_List) -> []render.Ui_Draw {
 	shown := app.target.color
 	if app.studio_on {
@@ -1261,6 +1279,10 @@ kit_draws :: proc(app: ^App, dl: ^ui.Draw_List) -> []render.Ui_Draw {
 			draws[i].image, draws[i].smooth = app.nav_shown, true
 			// Without its texture, the head is not drawn at all: a nil image is the atlas.
 			if app.nav_shown == nil do draws[i].index_count = 0
+		}
+		if c.texture == .Image && c.image == KIT_THUMBS_IMAGE {
+			draws[i].image, draws[i].smooth = app.thumbs.atlas, true
+			if app.thumbs.atlas == nil do draws[i].index_count = 0
 		}
 	}
 	return draws

@@ -66,6 +66,9 @@ Object :: struct {
 	// Not hidden triangles, which are the sculptor's.
 	off:       bool,
 	ghost:     bool, // drawn dimmed as a reference, never picked by a press in the viewport
+	// Its polypaint is left out of the drawing (the paint toggle of its row in the Objects
+	// card), as ZBrush's SubTool rows turn colour off: the colours are kept, only unseen.
+	paint_off: bool,
 	folder:    int, // the Folder it is in, by id; 0 for none
 }
 
@@ -107,10 +110,13 @@ Scene :: struct {
 // applied at the start of the next frame so no panel ever draws an object (or GPU
 // buffer) freed during the same frame.
 Scene_Command :: struct {
-	kind:     enum u8 {None, Add, New, Remesh, Decimate, Retopo, Delete, Duplicate, Symmetrize, Slice, Subdivide, Set_Level, Delete_Higher, Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete, Dyntopo, Boolean, Extract, View, Arrange},
+	kind:     enum u8 {None, Add, New, Remesh, Decimate, Retopo, Delete, Duplicate, Symmetrize, Slice, Subdivide, Set_Level, Delete_Higher, Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete, Dyntopo, Boolean, Extract, View, Arrange, Copy, Paste, Delete_Others, Levels_All},
 	vertices: int,
 	shape:    geom.Primitive, // Add, New: what to add
-	on:       bool, // Dyntopo: turn dynamic topology on, or off; Symmetrize: keep the + side
+	// Dyntopo: turn dynamic topology on, or off; Symmetrize: keep the + side; Delete_Others:
+	// the selected objects too; Levels_All: every object to its highest level, or its lowest;
+	// Add: below the selected object, in its folder, rather than at the end of the list.
+	on:       bool,
 	axis:     int, // Symmetrize: 0 x, 1 y, 2 z
 	level:    int, // Set_Level; HD steps for Hd_Steps
 	at:       [2]f32, // Hd_Enter: the viewport point to open the window around
@@ -436,14 +442,80 @@ scene_duplicate :: proc(app: ^App, obj: ^Object) -> bool {
 	twin.transform.position = next_free_position(app)
 	scene_append(app, twin)
 	// Beside its source in the list (and so in its folder), selected.
+	scene_place_after(app, twin, obj)
+	log.infof("duplicate: object %d is a copy of %d", twin.id, obj.id)
+	return true
+}
+
+// Copies the object to the app's clipboard as the scene file stores it, so a paste works
+// after the object is gone or another scene is open.
+scene_copy :: proc(app: ^App, obj: ^Object) {
+	stroke_finish(app)
+	clear(&app.clipboard)
+	object_put(app, &app.clipboard, obj)
+	report(app, nil, {.Quiet}, "Copied %s", object_label(obj))
+	log.infof("copy: object %d, %.1f MB on the clipboard", obj.id, f64(len(app.clipboard)) / (1 << 20))
+}
+
+// Adds a copy of what the clipboard holds below the selected object (in its folder), in
+// view and selected, as an undo step. False only on a GPU failure.
+scene_paste :: proc(app: ^App) -> bool {
+	if len(app.clipboard) == 0 do return true
+	stroke_finish(app)
+	r := geom.byte_reader(app.clipboard[:])
+	twin, read, made := object_get(app, &r)
+	if !read do return true
+	if !made {
+		_ = sdl.WaitForGPUIdle(app.renderer.device)
+		object_discard(app, twin)
+		return false
+	}
+	sel := selected_object(app)
+	// The folder it was copied from may be gone, or in another scene: it goes where the
+	// selection is. Hidden or a ghost, the selection would move straight off it.
+	twin.folder = sel.folder if sel != nil else 0
+	twin.off, twin.ghost = false, false
+	twin.transform.position = next_free_position(app)
+	scene_append(app, twin)
+	if sel != nil do scene_place_after(app, twin, sel)
+	history_record_swap(app, twin.id, history_snapshot(app, nil, "paste object"))
+	report(app, nil, {.Undo}, "Pasted %s", object_label(twin))
+	return true
+}
+
+// Moves `twin`, the list's last object, to just after `obj`, and selects it.
+@(private = "file")
+scene_place_after :: proc(app: ^App, twin, obj: ^Object) {
 	for o, i in app.scene.objects do if o == obj {
 		ordered_remove(&app.scene.objects, len(app.scene.objects) - 1)
 		inject_at(&app.scene.objects, i + 1, twin)
 		app.scene.selected = i + 1
 		break
 	}
-	log.infof("duplicate: object %d is a copy of %d", twin.id, obj.id)
-	return true
+}
+
+// Deletes every object but the selected ones, or with `all` every object, as one undo
+// step. Refused when the copies undo keeps would pass the History's limit, which would
+// drop the oldest of them and leave the step only partly undoable.
+scene_delete_others :: proc(app: ^App, all: bool) {
+	ids := make([dynamic]int, 0, len(app.scene.objects))
+	defer delete(ids)
+	bytes := 0
+	for obj in app.scene.objects {
+		if !all && object_in_selection(app, obj) do continue
+		append(&ids, obj.id)
+		bytes += object_put_estimate(obj)
+	}
+	if len(ids) == 0 do return
+	if bytes > SWAP_LIMIT_BYTES {
+		report(app, nil, {.Warning}, "Too much to delete in one undoable step (%.1f GB); delete fewer objects at a time", f64(bytes) / (1 << 30))
+		return
+	}
+	for id, k in ids {
+		select_object(app, object_by_id(app, id))
+		scene_delete_selected(app, chain = k > 0)
+	}
+	report(app, nil, {.Undo}, "Deleted %d object%s", len(ids), "" if len(ids) == 1 else "s")
 }
 
 // Turns dynamic topology on or off for the object (see sculpt.levels_dyn_enable). It
@@ -544,8 +616,17 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 	case .None:
 	case .Add:
 		before := len(app.scene.objects)
+		sel := selected_object(app)
 		if !scene_add_primitive(app, cmd.shape, cmd.vertices, {position = next_free_position(app), scale = 1}) do return false
-		if len(app.scene.objects) > before do history_record_added(app)
+		if len(app.scene.objects) > before {
+			// Inserted below the selection, in its folder, rather than at the end.
+			if cmd.on && sel != nil {
+				added := selected_object(app)
+				added.folder = sel.folder
+				scene_place_after(app, added, sel)
+			}
+			history_record_added(app)
+		}
 	case .New:
 		return scene_new(app, cmd.shape, cmd.vertices)
 	case .Remesh:
@@ -643,6 +724,17 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 		scene_view(app, cmd.view, cmd.id)
 	case .Arrange:
 		scene_arrange(app, cmd)
+	case .Copy:
+		if obj := selected_object(app); obj != nil do scene_copy(app, obj)
+	case .Paste:
+		return scene_paste(app)
+	case .Delete_Others:
+		scene_delete_others(app, cmd.on)
+	case .Levels_All:
+		// Not an undo step, as choosing a level with its slider is not.
+		for obj in app.scene.objects {
+			if !object_set_level(app, obj, len(obj.levels.levels) - 1 if cmd.on else 0) do return false
+		}
 	case .Dyntopo:
 		if obj := selected_object(app); obj != nil {
 			object_hd_leave(app, obj)

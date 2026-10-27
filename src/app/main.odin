@@ -179,6 +179,13 @@ App :: struct {
 	// drawn into this frame, for the interface to show; nil when there is none.
 	nav_head:       render.Nav_Head,
 	nav_shown:      ^sdl.GPUTexture,
+	// The Objects card's pictures of objects (object_thumbs.odin): the atlas they are drawn
+	// into and which object each of its cells shows.
+	thumbs:         render.Thumbs,
+	thumb_slots:    Thumb_Slots,
+	// An object copied with Copy, as the scene file stores it, for Paste (scene_paste);
+	// kept across new scenes, as a clipboard is.
+	clipboard:      [dynamic]u8,
 	material:  int,  // the index in MATERIALS objects are shaded with, or CUSTOM_MATERIAL
 	custom:    Material, // what the Material section's sliders made
 	flat:      bool, // shade with each triangle's own normal (faceted) instead of smoothed normals
@@ -298,6 +305,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	defer render.smooth_compute_destroy(&app.renderer, &app.smooth_gpu)
 	defer render.studio_destroy(&app.renderer, &app.studio)
 	defer render.nav_head_destroy(&app.renderer, &app.nav_head)
+	defer render.thumbs_destroy(&app.renderer, &app.thumbs)
+	defer delete(app.clipboard)
 
 	jobs.pool_init(&app.pool, opts.threads - 1 if opts.threads > 0 else 0)
 	defer jobs.pool_destroy(&app.pool)
@@ -709,7 +718,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 					surface = {material.metallic, material.roughness},
 					flat = app.flat,
 					wireframe = selected && app.wireframe,
-					paint  = sculpt.sculptor_has_color(&lv.sculptor),
+					paint  = sculpt.sculptor_has_color(&lv.sculptor) && !obj.paint_off,
 					groups = app.show_groups && sculpt.sculptor_has_groups(&lv.sculptor),
 					live   = selected || (chosen && moving),
 					chunks = lv.sculptor.chunks,
@@ -753,6 +762,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		}
 
 		nav_head_frame(&app, cmd)
+		thumbs_frame(&app, cmd)
 
 		gpu_wait: time.Duration
 		if app.time_gpu {
@@ -922,6 +932,14 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		for &f, i in app.scene.folders do fmt.sbprintf(&names, "%s%s:%s", ";" if i == 0 else ",", folder_label(&f), "open" if f.open else "folded")
 		spaced, _ := strings.replace_all(strings.to_string(names), " ", "_", context.temp_allocator)
 		fmt.printfln("folders=%d tree_rows=%d scene_order=%s scene_folders=%s scene_names=%s scene_positions=%s", len(app.scene.folders), app.kit.tree_rows, strings.to_string(order), strings.to_string(folders), spaced, strings.to_string(places))
+		// The Objects card: rows drawn last frame, pictures drawn, its row menu, what Copy holds,
+		// how many objects have their polypaint left out, and how many take part in booleans.
+		paint_off, booleans := 0, 0
+		for obj in app.scene.objects {
+			if obj.paint_off do paint_off += 1
+			if obj.boolean != .None do booleans += 1
+		}
+		fmt.printfln("card_rows=%d thumbs_drawn=%d card_menu=%d card_menu_full=%d clipboard_bytes=%d paint_off=%d booleans=%d", app.kit.card.rows, app.thumb_slots.drawn, int(app.kit.card.menu), int(app.kit.card.menu_all), len(app.clipboard), paint_off, booleans)
 	}
 	{
 		c := app.camera
@@ -1051,8 +1069,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		recall_pinned := false
 		if obj := selected_object(&app); obj != nil do recall_pinned = sculpt.sculptor_recall_pinned(object_sculptor(obj))
 		fmt.printfln("recall_back=%d recall_reach=%d recall_pinned=%d recall_ms=%.1f", recall_back, recall_reach, int(recall_pinned), app.stats.recall_ms)
-		open := [Kit_Window]bool{.Inspector = k.inspector && !side_panel_open(k), .Stats = k.stats, .History = k.history, .Settings = k.settings, .Help = k.help, .Macros = k.macros}
-		names := [Kit_Window]string{.Inspector = "inspector", .Stats = "stats", .History = "history panel", .Settings = "settings", .Help = "help", .Macros = "macros"}
+		open := [Kit_Window]bool{.Inspector = k.inspector && !side_panel_open(k), .Stats = k.stats, .History = k.history, .Settings = k.settings, .Help = k.help, .Macros = k.macros, .Objects = k.objects_card}
+		names := [Kit_Window]string{.Inspector = "inspector", .Stats = "stats", .History = "history panel", .Settings = "settings", .Help = "help", .Macros = "macros", .Objects = "objects card"}
 		for w, which in k.windows {
 			r := ui.prev_rect(&k.ctx, names[which])
 			fmt.printf("window_%s=%d,%d,%.0f,%.0f ", strings.to_lower(fmt.tprint(which), context.temp_allocator), int(open[which]), int(w.minimized), r.x, r.y)
