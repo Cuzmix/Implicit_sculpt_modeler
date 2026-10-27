@@ -840,3 +840,72 @@ has_mask_finds_any_masked_vertex :: proc(t: ^testing.T) {
 		s.mask[at] = 0
 	}
 }
+
+// Radial symmetry lays a dab's copies evenly round its axis: on a sphere about Y, each of
+// the four quarter turns of the point pressed is sculpted as a dab of its own there would.
+@(test)
+radial_symmetry_turns_every_dab :: proc(t: ^testing.T) {
+	sp := sphere_make(4)
+	defer sphere_free(sp)
+	center := linalg.normalize(Vec3{0.7, 0.3, 0.5})
+	brush := Brush{kind = .Draw, radius = 0.3, strength = 1}
+	radial := brush
+	radial.radial, radial.radial_axis = 4, .Y
+	_ = apply_dab(&sp.sculptor, radial, center)
+	turned := [4]Vec3{center, {center.z, center.y, -center.x}, {-center.x, center.y, -center.z}, {-center.z, center.y, center.x}}
+	for p, k in turned {
+		one := sphere_make(4)
+		defer sphere_free(one)
+		_ = apply_dab(&one.sculptor, brush, p)
+		v := nearest(sp.before, p)
+		got, want := sp.mesh.positions[v] - sp.before[v], one.mesh.positions[v] - one.before[v]
+		testing.expect(t, linalg.length(want) > 0.005, "the dab pushed nothing out")
+		testing.expectf(t, linalg.length(got - want) < 1e-4, "copy %d moved %v, a dab of its own %v", k, got, want)
+	}
+	// Between the copies nothing moved.
+	between := linalg.normalize(Vec3{0.7, 0.3, 0.5} + Vec3{0.5, 0.3, -0.7})
+	v := nearest(sp.before, between)
+	testing.expect_value(t, sp.mesh.positions[v], sp.before[v])
+	images := symmetry_images({symmetry = {.X}, radial = 3})
+	testing.expect_value(t, len(images), 6)
+	testing.expect(t, images[0].turn == 1 && !images[0].flipped, "the dab itself comes first, unturned")
+}
+
+// Local symmetry mirrors about the object's middle rather than its origin: a sphere built
+// off the origin is sculpted on both sides of its own middle.
+@(test)
+local_symmetry_mirrors_about_the_middle :: proc(t: ^testing.T) {
+	middle := Vec3{2, 0, 0}
+	mesh := geom.icosphere(4)
+	defer geom.mesh_destroy(&mesh)
+	for &p in mesh.positions do p += middle
+	s: Sculptor
+	sculptor_init(&s, &mesh, nil, 64)
+	defer sculptor_destroy(&s)
+	before := slice.clone(mesh.positions[:], context.temp_allocator)
+	center := linalg.normalize(Vec3{0.6, 0.2, 0.8}) + middle
+	_ = apply_dab(&s, {kind = .Draw, radius = 0.3, strength = 1, symmetry = {.X}, sym_center = middle}, center)
+	a, b := nearest(before, center), nearest(before, {2 * middle.x - center.x, center.y, center.z})
+	rise_a := linalg.length(mesh.positions[a] - middle) - linalg.length(before[a] - middle)
+	rise_b := linalg.length(mesh.positions[b] - middle) - linalg.length(before[b] - middle)
+	testing.expect(t, rise_a > 0.005, "the dab pushed nothing out")
+	testing.expectf(t, abs(rise_b - rise_a) < 1e-4, "the image rose %f, the dab %f", rise_b, rise_a)
+}
+
+// A grab with radial symmetry drags each copy's vertices the turned way.
+@(test)
+grab_follows_radial_turns :: proc(t: ^testing.T) {
+	sp := sphere_make(4)
+	defer sphere_free(sp)
+	s := &sp.sculptor
+	sculptor_stroke_begin(s)
+	center := linalg.normalize(Vec3{0.9, 0, 0.4})
+	held := sculptor_grab_begin(s, {kind = .Grab, radius = 0.3, strength = 1, radial = 2, radial_axis = .Y}, center)
+	testing.expect(t, held > 0, "grab held nothing")
+	offset := Vec3{0.05, 0.1, 0.02}
+	_ = sculptor_grab_move(s, offset)
+	opposite := nearest(sp.before, Vec3{-center.x, center.y, -center.z})
+	step := sp.mesh.positions[opposite] - sp.before[opposite]
+	testing.expectf(t, linalg.length(step - Vec3{-offset.x, offset.y, -offset.z}) < 0.02, "the half-turned copy moved %v", step)
+	sculptor_stroke_end(s)
+}

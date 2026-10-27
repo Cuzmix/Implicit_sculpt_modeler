@@ -174,8 +174,8 @@ roll_dabs_a_diameter_apart_along_the_stroke :: proc(t: ^testing.T) {
 // focal shift, saved to a .strokes file and replayed with the mouse on another sphere lays
 // the same dabs as drawn, and leaves the replaying app's own seed as it was; a version 3
 // file, from before the spread and seed, a version 5 file, from before Lock plane and
-// Connected, a version 6 file, from before the focal shift, and a version 7 file, from
-// before the strength scale, still read.
+// Connected, a version 6 file, from before the focal shift, a version 7 file, from before
+// the strength scale, and a version 8 file, from before local and radial symmetry, still read.
 @(test)
 spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	path := "build/spray_test.strokes"
@@ -189,6 +189,7 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	a.brush.radius_px, a.brush.stroke, a.brush.spray_spread = 20, .Spray, 0.8
 	a.brush.lock_plane, a.brush.connected = true, true
 	a.brush.falloffs[a.brush.kind].focal = 30
+	a.brush.radial_on, a.brush.radial_count, a.brush.radial_axis = true, 3, .Z
 	a.stroke_seed = 41
 	a.device.pointer, a.nav.touch_strength = .Finger, 0.5
 	b.nav.touch_strength = 1
@@ -203,18 +204,38 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	testing.expect(t, b.replay.take.brushes[0].lock_plane && b.replay.take.brushes[0].connected)
 	testing.expect_value(t, b.replay.take.brushes[0].falloffs[a.brush.kind].focal, 30)
 	testing.expect_value(t, b.replay.take.scales[0], 0.5)
+	testing.expect(t, b.replay.take.brushes[0].radial_on && !b.replay.take.brushes[0].sym_local)
+	testing.expect_value(t, b.replay.take.brushes[0].radial_count, 3)
+	testing.expect_value(t, b.replay.take.brushes[0].radial_axis, sculpt.Axis.Z)
 	replay_start(&b, &b.replay.take)
 	for replay_busy(&b) do _ = replay_frame(&b, {})
 	testing.expect(t, slice.equal(object_sculptor(oa).mesh.positions[:], object_sculptor(ob).mesh.positions[:]))
 	testing.expect_value(t, b.stroke_seed, 7)
 	testing.expect_value(t, b.stroke_scale_from, 0)
 
-	// Version 7 had no strength scale after the focal shift: the one brush ends 64 + 20
-	// bytes after the header's 16, where version 8's has 4 more, and replays at full strength.
+	// Version 8 had no symmetry bytes after the strength scale: the one brush ends 64 + 24
+	// bytes after the header's 16, where version 9's has 4 more, and reads with radial off.
 	data, err := os.read_entire_file(path, context.allocator)
 	testing.expect(t, err == nil)
 	defer delete(data)
-	BRUSH :: 64 + 24
+	BRUSH :: 64 + 28
+	eight := make([dynamic]u8, context.temp_allocator)
+	append(&eight, ..data[:16 + 64 + 24])
+	append(&eight, ..data[16 + BRUSH:])
+	eight[len(STROKES_MAGIC)] = 8
+	testing.expect(t, os.write_entire_file(path, eight[:]) == nil)
+	h: App
+	defer replay_destroy(&h.replay)
+	defer results_destroy(&h)
+	testing.expect(t, strokes_load(&h, path))
+	if len(h.replay.take.brushes) == 1 {
+		testing.expect(t, !h.replay.take.brushes[0].radial_on)
+		testing.expect_value(t, h.replay.take.brushes[0].radial_count, RADIAL_DEFAULT)
+		testing.expect_value(t, h.replay.take.scales[0], 0.5)
+	}
+
+	// Version 7 had no strength scale after the focal shift: the one brush ends 64 + 20
+	// bytes after the header's 16, and replays at full strength.
 	seven := make([dynamic]u8, context.temp_allocator)
 	append(&seven, ..data[:16 + 64 + 20])
 	append(&seven, ..data[16 + BRUSH:])

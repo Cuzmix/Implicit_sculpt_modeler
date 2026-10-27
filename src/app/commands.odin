@@ -46,6 +46,8 @@ Command_Id :: enum u8 {
 	Gizmo_Pivot_Reset,
 	Brush, // the argument is the sculpt.Brush_Kind
 	Symmetry_X,
+	Local_Symmetry,
+	Radial_Symmetry,
 	Front_Only,
 	Lock_Plane,
 	Connected,
@@ -399,6 +401,18 @@ COMMANDS := [Command_Id]Command {
 		help = "Mirrors strokes across the X axis.",
 		run = proc(app: ^App, _: int) {app.brush.symmetry ~= {.X}},
 		checked = proc(app: ^App, _: int) -> bool {return .X in app.brush.symmetry},
+	},
+	.Local_Symmetry = {
+		label = "Local symmetry",
+		help = "Mirrors strokes about the object's own middle instead of its origin, so an object built or moved off centre keeps its symmetry.",
+		run = proc(app: ^App, _: int) {app.brush.sym_local = !app.brush.sym_local},
+		checked = proc(app: ^App, _: int) -> bool {return app.brush.sym_local},
+	},
+	.Radial_Symmetry = {
+		label = "Radial symmetry",
+		help = "Repeats every stroke evenly round an axis, as many times as the Symmetry settings say (a long press on Symmetry).",
+		run = proc(app: ^App, _: int) {app.brush.radial_on = !app.brush.radial_on},
+		checked = proc(app: ^App, _: int) -> bool {return app.brush.radial_on},
 	},
 	.Front_Only = {
 		label = "Front faces only",
