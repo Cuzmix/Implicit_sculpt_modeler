@@ -145,7 +145,9 @@ card_begin :: proc(ctx: ^Context, name, title: string, w: ^Window, x, y: Anchor,
 		fill_circle(ctx, c, 1.2, color)
 	}
 	tip(ctx, grip, hit, "Drag to move; hold to put back in the palette")
-	// Large, as the cards' titles are: about half again the panels' headings.
+	// Large, as the cards' titles are: about half again the panels' headings; a card with
+	// no title goes straight on to its content.
+	if title == "" do return
 	title_r := place(ctx, {inner, 40})
 	text(ctx, label_text(title), title_r.x + title_r.w * 0.5, title_r.y + title_r.h * 0.5, t.heading_size * 1.4, t.text, .Semibold, .Center)
 	return
