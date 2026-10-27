@@ -502,6 +502,22 @@ sculptor_clear_redo :: proc(s: ^Sculptor) {
 	clear_steps(&s.history, &s.history.undone)
 }
 
+// Discards the oldest done steps until at most `keep` are left, newest kept, leaving the
+// steps to redo as they are: the app's History dropped the entries that named them (a cap
+// on its steps, or Delete older history). Returns the bytes freed.
+sculptor_drop_oldest :: proc(s: ^Sculptor, keep: int) -> int {
+	h := &s.history
+	n := len(h.done) - max(keep, 0)
+	if n <= 0 || h.recording do return 0
+	before := h.bytes
+	for &step in h.done[:n] {
+		h.bytes -= step_bytes(step)
+		step_destroy(h, &step)
+	}
+	remove_range(&h.done, 0, n)
+	return before - h.bytes
+}
+
 // Discards every stroke, done and undone.
 sculptor_clear_history :: proc(s: ^Sculptor) {
 	_ = sculptor_stroke_end(s)

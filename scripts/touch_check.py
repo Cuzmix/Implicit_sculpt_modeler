@@ -2314,6 +2314,42 @@ def wheel_moves_by_its_grip():
     ])
 
 
+def layout_x(name, test):
+    """A check on where the layout put `name` across the window: `test` takes its left edge and width."""
+    def ok(stats):
+        x, _, w, _ = (float(v) for v in stats[f"layout_{name}"].split(","))
+        return w > 0 and test(x, w)
+    return ok
+
+
+@scenario
+def left_handed_layout_swaps_the_sides():
+    """In the left-handed layout the brush bar, its popovers and the wheel are on the right and the view bar on the left: a finger on the mirrored wheel latches Smooth, and on the mirrored Focal shift opens its slider to the bar's left."""
+    s = Script()
+    s.wait(4)
+    s.ftap(1600 - RAIL["smooth"][0], RAIL["smooth"][1])
+    s.wait(6)
+    s.ftap(1600 - UI["focal"][0], UI["focal"][1])
+    s.wait(8)
+    # The first-run tip and the History panel keep clear of the bars on their new sides.
+    coach = Script()
+    coach.wait(4)
+    coach.ftap(*UI["history"])
+    coach.wait(12)
+    return Steps([
+        (s, ["--script=set left_handed 1"], camera_still({
+            "dabs": near(0), "bar_pop": is_text("focal"), "rail_latched": is_text("smooth"),
+            "@brush bar on the right": layout_x("brush_bar", lambda x, w: x + w > 1590 and x > 1500),
+            "@view bar on the left": layout_x("view_bar", lambda x, w: x < 20),
+            "@wheel on the right": layout_x("modifier_rail", lambda x, w: x > 1400),
+        })),
+        (coach, ["--script=set left_handed 1", "--coach"], {
+            "@readout on the right": layout_x("points", lambda x, w: x + w > 1580),
+            "@tip clear": clear_of("coach", "brush_bar", "points", "view_bar", "inspector"),
+        }),
+    ])
+
+
 @scenario
 def rail_hide_gesture():
     """Smooth and Mask latched together are Hide: a finger drags the hide rectangle over part of the model, and once applied (Enter) the rest is hidden."""
@@ -4870,6 +4906,33 @@ def save_over_a_file_keeps_the_earlier_one():
     return Steps([first_save(), (s, [f"--open={path}"], {"@two versions": lambda _: len(versions_of(path)) == 2, "@no partial": lambda _: not os.path.exists(path + ".partial")})])
 
 
+# The Save popover's Save next row, under the top bar's Save.
+SAVE_POP_NEXT = (150, 172)
+
+
+@scenario
+def save_next_numbers_the_files():
+    """Save next from the long press on Save, twice over an opened file, a stroke before
+    each: head_002 and then head_003 are written beside head, and the scene saves to the
+    newest."""
+    path = scene_file()
+    folder = os.path.dirname(path)
+    s = Script()
+    s.wait(5)
+    for at in ((800, 450), (700, 400)):
+        s.mouse_drag([at, (at[0] + 30, at[1] + 15)])
+        s.wait(3)
+        long_press(s, *UI["save"])
+        s.wait(10)
+        click(s, SAVE_POP_NEXT)
+        s.wait(6)
+    ctrl_s(s)
+    numbered = lambda _: all(os.path.exists(os.path.join(folder, f"head_00{n}.sculpt")) for n in (2, 3))
+    # Ctrl+S saved over head_003, keeping the one it replaced: only that file has an earlier save.
+    newest = lambda _: len(versions_of(os.path.join(folder, "head_003.sculpt"))) == 1 and not versions_of(path)
+    return Steps([first_save(), (s, [f"--open={path}"], {"@numbered files": numbered, "@saves to the newest": newest})])
+
+
 def two_earlier_saves(control):
     """The first save (a plain sphere, exported to `control`), then a run that strokes
     and saves twice: the file's two earlier saves are that sphere and the first stroke."""
@@ -5528,7 +5591,10 @@ def adjust_remesh_from_the_bar():
 # its Amount slider's left end (0%) here at 1600x900.
 ADJUST_STROKE_NONE = (662, 788)
 # The middles of the History panel bar's three steps, after three strokes.
-TIMELINE_STEPS_OF_3 = [(647, 597), (800, 597), (952, 597)]
+TIMELINE_STEPS_OF_3 = [(647, 545), (800, 545), (952, 545)]
+# The History panel's Marker and Delete older history buttons, at its foot.
+HISTORY_MARKER = (683, 704)
+HISTORY_DELETE_OLDER = (916, 704)
 # mesh_sum after the History scenario's two Draw strokes, before the History brush.
 HISTORY_DRAWN_SUM = 7.81
 
@@ -5771,6 +5837,37 @@ def history_point_by_right_click():
 
 
 @scenario
+def history_marker_and_delete_older():
+    """Three strokes and the History panel: with Marker on, a finger's tap on the second
+    step makes the History brush paint back to before it (two steps back) and goes nowhere;
+    Delete older history then takes two taps and forgets all three steps, and an undone
+    step stays to redo."""
+    def run(delete):
+        s = Script()
+        s.wait(3)
+        for _ in range(3):
+            s.mouse_drag(line((700, 380), (800, 420), 12))
+            s.wait(2)
+        click(s, UI["history"])
+        s.wait(20)
+        if not delete:
+            s.ftap(*HISTORY_MARKER)
+            s.wait(4)
+            s.ftap(*TIMELINE_STEPS_OF_3[1])
+            s.wait(6)
+            return s, [], camera_still({"undo_steps": near(3, 0), "redo_steps": near(0, 0), "recall_back": near(2, 0),
+                                        "recall_pinned": near(1, 0)})
+        s.press("z", ("ctrl",))
+        s.wait(4)
+        s.ftap(*HISTORY_DELETE_OLDER)
+        s.wait(4)
+        s.ftap(*HISTORY_DELETE_OLDER)
+        s.wait(6)
+        return s, [], camera_still({"undo_steps": near(0, 0), "redo_steps": near(1, 0)})
+    return Steps([run(False), run(True)])
+
+
+@scenario
 def timeline_tap_and_drag_by_finger():
     """A finger's tap on the History panel's bar goes to that point, and a drag along it
     scrubs: after a tap at the first step's end one step is done, after a drag back to the
@@ -5784,9 +5881,9 @@ def timeline_tap_and_drag_by_finger():
         click(s, UI["history"])
         s.wait(20)
         if drag:
-            s.fdrag(line(TIMELINE_STEPS_OF_3[2], (480, 597), 12))
+            s.fdrag(line(TIMELINE_STEPS_OF_3[2], (480, 545), 12))
         else:
-            s.ftap(718, 597)
+            s.ftap(718, 545)
         s.wait(30)
         done = 0 if drag else 1
         return s, [], camera_still({"undo_steps": near(done, 0), "redo_steps": near(3 - done, 0)})

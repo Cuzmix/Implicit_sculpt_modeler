@@ -1,6 +1,10 @@
 package main
 
 import "core:fmt"
+import "core:os"
+import "core:path/filepath"
+import "core:strconv"
+import "core:strings"
 
 import "../camera"
 import "../geom"
@@ -146,6 +150,54 @@ save_scene :: proc(app: ^App) {
 	} else {
 		file_dialog(app, .Save)
 	}
+}
+
+// Saves the scene as the next numbered file beside the one it saves to (save_next_path),
+// which it then saves to, as Save as does. Needs a file to number from.
+save_scene_next :: proc(app: ^App) {
+	if !save_next_allowed(app) do return
+	next, ok := save_next_path(app.scene_path, proc(path: string) -> bool {return os.exists(path)})
+	if !ok {
+		file_note(app, true, "Cannot save next: the next thousand numbered names beside %s are all taken", filepath.base(app.scene_path))
+		return
+	}
+	file_post(.Save, next)
+}
+
+// Whether Save next has a file to number from that it can write beside: not an Android
+// content:// document, which is read through the picker but never written by name.
+save_next_allowed :: proc(app: ^App) -> bool {
+	return app.scene_path != "" && !strings.has_prefix(app.scene_path, "content://")
+}
+
+// The file Save next writes after `path`: its name's trailing `_NNN` counted up, keeping
+// at least that many digits ("dragon_009" to "dragon_010"), or "_002" added to a name
+// without one, the file itself standing for the first; a number whose file `taken` says
+// exists is passed over, up to a thousand of them (false then: nothing is free). The
+// result is in the temp allocator.
+save_next_path :: proc(path: string, taken: proc(path: string) -> bool) -> (string, bool) {
+	// The folder as written, separator and all, so the result sits beside `path`.
+	file := filepath.base(path)
+	dir := path[:len(path) - len(file)]
+	ext := filepath.ext(file)
+	stem := file[:len(file) - len(ext)]
+	number, width := 1, 3
+	if i := strings.last_index_byte(stem, '_'); i >= 0 && i + 1 < len(stem) && len(stem) - i - 1 <= 6 {
+		digits := stem[i + 1:]
+		if n, ok := strconv.parse_int(digits, 10); ok && strings.trim_left(digits, "0123456789") == "" {
+			number, width, stem = n, max(len(digits), 3), stem[:i]
+		}
+	}
+	numbered :: proc(dir, stem: string, number, width: int, ext: string) -> string {
+		digits := fmt.tprintf("%d", number)
+		zeros := strings.repeat("0", max(width - len(digits), 0), context.temp_allocator)
+		return fmt.tprintf("%s%s_%s%s%s", dir, stem, zeros, digits, ext)
+	}
+	for _ in 0 ..< 1000 {
+		number += 1
+		if next := numbered(dir, stem, number, width, ext); !taken(next) do return next, true
+	}
+	return "", false
 }
 
 // Back to the starting view, keeping the projection.
