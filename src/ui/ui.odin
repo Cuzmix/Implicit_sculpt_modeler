@@ -64,6 +64,9 @@ Input :: struct {
 	// The system took the pointer back (a palm was recognised, the app lost the touch):
 	// what is held lets go this frame without a click.
 	cancel:        bool,
+	// A pointer resting on a control shows no tooltip, as a hovering pen does when the
+	// app's settings say so; a long press still shows one.
+	no_hover_tips: bool,
 }
 
 Id :: u64
@@ -245,6 +248,9 @@ Context :: struct {
 	tip_len:        int,
 	tip_keys:       [80]u8, // its shortcut and gesture, shown dimmer beside it
 	tip_keys_len:   int,
+	// The tooltip the last frame drew, for scripted checks (tip_showing).
+	tip_drawn:      [160]u8,
+	tip_drawn_len:  int,
 	tip_rect:       Rect,
 	tip_shown:      Id,
 	tip_last:       f64, // when a tooltip last showed: the next one comes without delay
@@ -1061,4 +1067,9 @@ long_press_draw :: proc(ctx: ^Context) {
 // The text of the last tooltip a long press showed, or "" for none, and its keys.
 long_tip_shown :: proc(ctx: ^Context) -> (text, keys: string) {
 	return string(ctx.long.shown[:ctx.long.shown_len]), string(ctx.long.shown_keys[:ctx.long.shown_keys_len])
+}
+
+// The tooltip the last frame drew, by a long press or a pointer resting, or "" for none.
+tip_showing :: proc(ctx: ^Context) -> string {
+	return string(ctx.tip_drawn[:ctx.tip_drawn_len])
 }

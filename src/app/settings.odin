@@ -104,6 +104,8 @@ SETTINGS := [?]Setting {
 	{"action_bar", K + offset_of(Kit_State, action_bar), bool, 0, 0},
 	{"modifier_rail", K + offset_of(Kit_State, rail_side), Rail_Side, 0, 0},
 	{"wheel_size", K + offset_of(Kit_State, wheel_size), Wheel_Size, 0, 0},
+	{"wheel_labels", K + offset_of(Kit_State, wheel_labels), Wheel_Labels, 0, 0},
+	{"wheel_turn", K + offset_of(Kit_State, wheel_turn), f32, -180, 180},
 	{"wheel_x", K + offset_of(Kit_State, wheel_offset) + 0 * size_of(f32), f32, 0, 0},
 	{"wheel_y", K + offset_of(Kit_State, wheel_offset) + 1 * size_of(f32), f32, 0, 0},
 	{"look", K + offset_of(Kit_State, look), Look, 0, 0},
@@ -141,6 +143,7 @@ SETTINGS := [?]Setting {
 	{"edge_size", N + offset_of(Nav_Prefs, edge_size), f32, EDGE_MIN, EDGE_MAX},
 	{"edge_show", N + offset_of(Nav_Prefs, edge_show), bool, 0, 0},
 	{"shape_apply", N + offset_of(Nav_Prefs, shape_apply), Shape_Apply, 0, 0},
+	{"pen_tips", N + offset_of(Nav_Prefs, pen_tips), Pen_Tips, 0, 0},
 	// The Scene and Object palettes' choices, and the tools'.
 	{"new_shape", K + offset_of(Kit_State, add_shape), geom.Primitive, 0, 0},
 	{"new_voxels", K + offset_of(Kit_State, add_voxel), bool, 0, 0},

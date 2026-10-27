@@ -126,8 +126,13 @@ Kit_State :: struct {
 	surface_ring: bool, // the brush ring lies on the surface rather than flat on the screen (cursor.odin)
 	rail_side:  Rail_Side, // where the modifier wheel sits, if anywhere (modifiers.odin)
 	wheel_size: Wheel_Size,
+	wheel_labels: Wheel_Labels, // what its sectors show
+	wheel_turn: f32, // how far it is turned clockwise, in degrees, -180 to 180
 	wheel_offset: [2]f32, // how far its grip dragged it from its place, in points
 	wheel_from: [2]f32, // ...where it was when the drag under way took hold
+	// Its size across and its turn when two fingers began resizing and turning it.
+	wheel_from_size: f32,
+	wheel_from_turn: f32,
 	history:    bool, // the History panel, over the dock
 	// The command palette (palette.odin): open, what is typed, the picked result and the
 	// first shown, the recents (most recent first), and for the exit stats how many
@@ -405,6 +410,7 @@ Kit_Event_Kind :: enum u8 {
 	Pen_Far,
 	Pen_Right, // the pen's side button pressed and let go, hovering where the pointer is
 	Pen_Pressure, // how hard the pen presses from then on, 0 to 1
+	Pen_Roll, // the pen's turn about its own length from then on, degrees from -180 to 180
 }
 
 // Reads --ui-events. Returns false, after saying why, when the list is malformed.
@@ -446,10 +452,14 @@ kit_events_parse :: proc(app: ^App, spec: string) -> bool {
 			case "pnear":  ev.kind = .Pen_Near
 			case "pfar":   ev.kind = .Pen_Far
 			case "pright": ev.kind = .Pen_Right
-			case "wheel", "ppress":
+			case "wheel", "ppress", "proll":
 				ok = len(parts) == 3
 				if ok do ev.value, ok = strconv.parse_f32(parts[2])
-				ev.kind = .Wheel if parts[1] == "wheel" else .Pen_Pressure
+				switch parts[1] {
+				case "wheel":  ev.kind = .Wheel
+				case "ppress": ev.kind = .Pen_Pressure
+				case:          ev.kind = .Pen_Roll
+				}
 			case "text":
 				// Everything after the kind, colons and spaces too (from the untrimmed item).
 				raw := strings.trim_left_space(item)
@@ -574,6 +584,9 @@ kit_events_push :: proc(app: ^App, window: ^sdl.Window) {
 		case .Pen_Pressure:
 			e.paxis = {type = .PEN_AXIS, timestamp = now, windowID = win, which = 1, x = d.mouse.x, y = d.mouse.y, axis = .PRESSURE, value = clamp(ev.value, 0, 1)}
 			push(e)
+		case .Pen_Roll:
+			e.paxis = {type = .PEN_AXIS, timestamp = now, windowID = win, which = 1, x = d.mouse.x, y = d.mouse.y, axis = .ROTATION, value = clamp(ev.value, -180, 180)}
+			push(e)
 		case .Pen_Down, .Pen_Move, .Pen_Up:
 			if ev.kind != .Pen_Up {
 				e.motion = {type = .MOUSE_MOTION, timestamp = now, windowID = win, which = sdl.PEN_MOUSEID, x = at.x, y = at.y}
@@ -667,6 +680,16 @@ kit_content_scale :: proc(window: ^sdl.Window) -> f32 {
 	return max(display / density, 1)
 }
 
+// Whether a hovering pen shows tooltips now, as Settings > Touch says.
+pen_tips_shown :: proc(tips: Pen_Tips) -> bool {
+	switch tips {
+	case .Always:        return true
+	case .With_Keyboard: return sdl.HasKeyboard()
+	case .Never:         return false
+	}
+	return true
+}
+
 // Starts the kit's frame with this frame's pointer, in points, and returns the window's
 // size in window coordinates and in pixels.
 @(private = "file")
@@ -694,6 +717,7 @@ kit_begin :: proc(app: ^App, window: ^sdl.Window) -> (size, pixels: [2]i32) {
 		text          = string(d.text[:d.text_len]),
 		pointer       = d.pointer,
 		cancel        = d.cancel,
+		no_hover_tips = d.pointer == .Pen && !pen_tips_shown(app.nav.pen_tips),
 	}
 	// An open pie, and the click that picked from it until it is let go, are over the
 	// panels too: nothing under them is pressed or hovered.
