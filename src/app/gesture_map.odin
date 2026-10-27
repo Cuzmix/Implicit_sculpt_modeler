@@ -19,6 +19,22 @@ Gesture_Slot :: enum u8 {
 	Three_Hold,
 	Four_Hold,
 	Pen_Button, // the pen's side button, which SDL sends as a right click from the pen
+	// A finger's tap on empty space (never on the model, where it sculpts, nor in the safe
+	// zone). Last, so the taps and holds above keep their places.
+	One_Tap,
+}
+
+// The order Settings lists the slots in: the taps by fingers, the holds, the pen.
+@(rodata)
+GESTURE_SLOT_ORDER := [Gesture_Slot]Gesture_Slot {
+	.Two_Tap    = .One_Tap,
+	.Three_Tap  = .Two_Tap,
+	.Four_Tap   = .Three_Tap,
+	.Two_Hold   = .Four_Tap,
+	.Three_Hold = .Two_Hold,
+	.Four_Hold  = .Three_Hold,
+	.Pen_Button = .Four_Hold,
+	.One_Tap    = .Pen_Button,
 }
 
 GESTURE_SLOT_NAMES := [Gesture_Slot]string {
@@ -29,6 +45,7 @@ GESTURE_SLOT_NAMES := [Gesture_Slot]string {
 	.Three_Hold = "Hold three fingers",
 	.Four_Hold  = "Hold four fingers",
 	.Pen_Button = "Pen side button",
+	.One_Tap    = "One-finger tap",
 }
 
 GESTURE_DEFAULTS :: [Gesture_Slot]Pie_Slot {
@@ -39,18 +56,32 @@ GESTURE_DEFAULTS :: [Gesture_Slot]Pie_Slot {
 	.Three_Hold = {.Redo, 0},
 	.Four_Hold  = {},
 	.Pen_Button = {.Brush_Pie, 0},
+	.One_Tap    = {},
 }
 
-// What a gesture can run from Settings: what a tablet without a keyboard reaches for. A
-// settings file may name any other command a pie may hold; the select then lists it too.
+// What a gesture's select lists in Settings: what a tablet without a keyboard reaches for,
+// as the reference app's tap actions (subdivide, levels, solo, polyframe, symmetry, the
+// mask and hiding, a new group, dynamic topology, render). Any other command a gesture may
+// hold (gesture_lists) is one search away (Any command...), and the select then lists it
+// too.
 @(rodata)
 GESTURE_CHOICES := [?]Pie_Slot {
 	{.Undo, 0}, {.Redo, 0}, {.Brush_Pie, 0}, {.Pie, 0}, {.Pie, 1}, {.Pie, 2}, {.Pie, 3}, {.Command_Palette, 0},
-	{.Inspector, 0}, {.Settings, 0}, {.Help, 0}, {.Stats, 0},
+	{.Inspector, 0}, {.Objects_Card, 0}, {.Settings, 0}, {.Help, 0}, {.Stats, 0},
 	{.Frame_All, 0}, {.Focus_Selected, 0}, {.Reset_Camera, 0}, {.View_Back, 0}, {.View_Forward, 0}, {.Ortho_Toggle, 0},
-	{.Wireframe, 0}, {.Flat_Shading, 0}, {.Studio_Render, 0}, {.Screenshot, 0}, {.Symmetry_X, 0},
-	{.Mask, int(sculpt.Mask_Command.Invert)}, {.Mask, int(sculpt.Mask_Command.Clear)}, {.Mask, int(sculpt.Mask_Command.Blur)}, {.Mask, int(sculpt.Mask_Command.Grow)},
-	{.Show_All, 0}, {.Invert_Hidden, 0}, {.Tool_Move, 0}, {.Tool_Sculpt, 0},
+	{.Wireframe, 0}, {.Polygroups, 0}, {.Flat_Shading, 0}, {.Studio_Render, 0}, {.Screenshot, 0}, {.Symmetry_X, 0},
+	{.Solo_Object, 0}, {.Show_All_Objects, 0}, {.New_Folder, 0},
+	{.Subdivide, 0}, {.Level_Up, 0}, {.Level_Down, 0}, {.Remesh, 0}, {.Dyntopo_Toggle, 0}, {.Adjust_Last, 0},
+	{.Mask, int(sculpt.Mask_Command.Invert)}, {.Mask, int(sculpt.Mask_Command.Clear)}, {.Mask, int(sculpt.Mask_Command.Blur)},
+	{.Mask, int(sculpt.Mask_Command.Sharpen)}, {.Mask, int(sculpt.Mask_Command.Grow)}, {.Mask, int(sculpt.Mask_Command.Shrink)},
+	{.Show_All, 0}, {.Invert_Hidden, 0}, {.Hide_Masked, 0}, {.Hide_Unmasked, 0},
+	{.Group, int(sculpt.Group_Command.Masked)}, {.Group, int(sculpt.Group_Command.Visible)},
+	{.Tool_Move, 0}, {.Tool_Sculpt, 0},
+}
+
+// Whether a gesture may hold `id`: any command the palette lists, and the palette itself.
+gesture_lists :: proc(id: Command_Id) -> bool {
+	return palette_lists(id) || id == .Command_Palette
 }
 
 // The tap or hold slot for a gesture of `fingers` (2 or more).
@@ -105,6 +136,10 @@ gesture_text :: proc(app: ^App, id: Command_Id, arg: int) -> string {
 		if strings.builder_len(b) > 0 do strings.write_string(&b, ", ")
 		strings.write_string(&b, "Pen side button")
 	}
+	if is(app, .One_Tap, id, arg) {
+		if strings.builder_len(b) > 0 do strings.write_string(&b, ", ")
+		strings.write_string(&b, "One-finger tap on empty space")
+	}
 	return strings.to_string(b)
 }
 
@@ -114,6 +149,9 @@ gesture_notes :: proc(app: ^App) -> []string {
 	out := make([dynamic]string, 0, 6, context.temp_allocator)
 	if g[.Four_Tap].id != .None || g[.Four_Hold].id != .None {
 		append(&out, "Some tablets keep three- and four-finger touches for the system (Windows' touch gestures, some Android skins): if one does nothing here, turn the system's off.")
+	}
+	if g[.One_Tap].id != .None && app.nav.double_tap {
+		append(&out, "A one-finger tap waits 0.3 s before it runs, in case a second tap makes it a double tap (Double tap to frame, above).")
 	}
 	if g[.Pen_Button] != {.Brush_Pie, 0} {
 		append(&out, "The pen's side button no longer opens the brush pie: Space, the mouse's right click and Search still do.")
@@ -144,7 +182,7 @@ settings_gesture_map :: proc(app: ^App) {
 	ctx := &app.kit.ctx
 	t := ctx.theme
 	ui.caption(ctx, "GESTURE MAP")
-	for slot in Gesture_Slot {
+	for slot in GESTURE_SLOT_ORDER {
 		s := &app.nav.gestures[slot]
 		choices := make([dynamic]Pie_Slot, 0, len(GESTURE_CHOICES) + 2, context.temp_allocator)
 		append(&choices, Pie_Slot{})
@@ -155,11 +193,16 @@ settings_gesture_map :: proc(app: ^App) {
 			append(&choices, s^)
 			chosen = len(choices) - 1
 		}
-		names := make([]string, len(choices), context.temp_allocator)
+		// Last, a row that is no command: it opens the palette to choose any.
+		names := make([]string, len(choices) + 1, context.temp_allocator)
 		for c, i in choices do names[i] = "Nothing" if c.id == .None else pie_slot_label(c)
+		names[len(choices)] = "Any command..."
 		ui.label(ctx, GESTURE_SLOT_NAMES[slot])
-		if picked := ui.select(ctx, fmt.tprintf("%s##gesture", GESTURE_SLOT_NAMES[slot]), names, chosen); picked >= 0 do s^ = choices[picked]
+		if picked := ui.select(ctx, fmt.tprintf("%s##gesture", GESTURE_SLOT_NAMES[slot]), names, chosen); picked >= 0 {
+			if picked < len(choices) do s^ = choices[picked]
+			else do palette_open_for(app, slot)
+		}
 	}
-	ui.paragraph(ctx, "A hold fills a ring, then runs its command; Undo and Redo go on repeating while the fingers stay still. Never while the pen is near.")
+	ui.paragraph(ctx, "A hold fills a ring, then runs its command; Undo and Redo go on repeating while the fingers stay still. Never while the pen is near. The one-finger tap is a tap on empty space: on the model a tap sculpts.")
 	for note in gesture_notes(app) do ui.paragraph(ctx, note, color = t.warning)
 }

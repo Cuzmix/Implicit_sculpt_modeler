@@ -214,6 +214,7 @@ Nav_Prefs :: struct {
 	twist_roll:     bool, // ZBrush's Allow Roll Gesture
 	zoom_toward:    bool, // ZBrush's Center Navigation on Pinch
 	three_finger:   bool, // three fingers drag the brush's size and focal shift
+	touch_strength: f32, // a finger's strokes at this much of the brush's strength, TOUCH_STRENGTH_MIN to 1
 	palm_rejection: bool, // a lone finger does nothing while the pen is near
 	double_tap:     bool, // a finger's double tap frames, or pins the pivot on the model
 	lift_one_orbit: bool, // two fingers down, one lifted: the other turns the view
@@ -228,6 +229,10 @@ Nav_Prefs :: struct {
 	mouse_scheme:   Mouse_Scheme,
 	shape_apply:    Shape_Apply, // when a drawn mask, hide or clip shape applies (shape_pending.odin)
 }
+
+// The least Touch strength: a finger's strokes at a tenth of the brush's strength, for a
+// light touch where the pen does the heavy work.
+TOUCH_STRENGTH_MIN :: 0.1
 
 // The safe zone's width, in points: from half a touch target to a broad band.
 EDGE_MIN :: 24
@@ -246,6 +251,7 @@ NAV_DEFAULT :: Nav_Prefs {
 	twist_roll     = true,
 	zoom_toward    = true,
 	three_finger   = true,
+	touch_strength = 1,
 	palm_rejection = true,
 	double_tap     = true,
 	lift_one_orbit = true,
@@ -259,7 +265,13 @@ NAV_DEFAULT :: Nav_Prefs {
 // The camera's turn as the settings have it.
 orbit_settings :: proc(app: ^App) -> camera.Orbit_Settings {
 	n := app.nav
-	return {style = n.orbit_style, limit_pitch = n.limit_pitch, speed = camera.ORBIT_SPEED * n.orbit_speed, invert_x = n.invert_x, invert_y = n.invert_y}
+	return {style = n.orbit_style, limit_pitch = n.limit_pitch, speed = camera.ORBIT_SPEED * n.orbit_speed, invert_x = n.invert_x, invert_y = n.invert_y, axis_sign = app.orbit_sign}
+}
+
+// Decides, as a turn of the view begins, which way round the X and Z axis orbits go for
+// the rest of it (camera.Orbit_Settings.axis_sign).
+orbit_latch :: proc(app: ^App) {
+	app.orbit_sign = camera.orbit_axis_sign(app.camera, app.nav.orbit_style)
 }
 
 // Gives this frame's pointer on the viewport to its drag's owner: the tool sees primary,
@@ -270,6 +282,7 @@ pointer_route :: proc(app: ^App, input: ^Viewport_Input) {
 	t := &app.touch
 	g := &app.drag
 	buttons := d.down & {.Left, .Right, .Middle}
+	one_tap_wait(app)
 
 	// A gesture or a cancel ends the drag the pointer began: a stroke not yet begun is
 	// dropped, one begun is kept (or, cancelled, taken back).
@@ -298,6 +311,9 @@ pointer_route :: proc(app: ^App, input: ^Viewport_Input) {
 	// after a cancel, while still held.
 	if g.owner == .None && input.dragging && (buttons != {} || d.pressed & {.Left, .Right, .Middle} != {}) {
 		owner, empty := drag_decide(app, input^)
+		// A one-finger tap still waiting runs before anything else acts, unless this press
+		// may be the second tap of a double tap, which decides on its lift.
+		if app.one_tap > 0 && !(owner == .Orbit && empty && d.pointer == .Finger) do one_tap_run(app)
 		g^ = {owner = owner, empty = empty, from = d.mouse, last = d.mouse, at = input_clock(app), held = g.held, edge = in_edge(app, d.mouse), selected = app.scene.selected}
 		g.mods = {input.smooth, input.invert, input.mask, input.mask_shape, input.alt}
 		// Only a finger's tap that turns the view can be the second of a double tap.
@@ -316,6 +332,7 @@ pointer_route :: proc(app: ^App, input: ^Viewport_Input) {
 		if w := &app.dab_wait; w.active && !(g.defer_tap && w.second) do w.play = true
 		clear(&g.held)
 		if owner == .Orbit {
+			orbit_latch(app)
 			g.pivot, app.pivot.from = orbit_pivot(app, d.mouse, input.size)
 			app.pivot.used = g.pivot
 		}
@@ -427,15 +444,26 @@ pointer_route :: proc(app: ^App, input: ^Viewport_Input) {
 		// before empty space turned the view; while Select several is on, or Shift held,
 		// one that misses keeps the selection being built.
 		several := app.kit.select_several || app.device.shift
-		if g.owner == .Orbit && g.empty && app.tool == .Move && g.travel <= slop && !several do scene_deselect(app)
+		now := input_clock(app)
+		// A finger's tap on empty space runs the one-finger tap gesture, when it holds one, in
+		// place of the Move tool's deselecting; with double taps on, once one cannot follow.
+		one := g.owner == .Orbit && g.empty && d.pointer == .Finger && g.travel <= slop && now - g.at < ui.FINGER_TAP && app.nav.gestures[.One_Tap].id != .None && !t.palm && !t.gesture && !t.pen_near && !t.pen_down
+		if g.owner == .Orbit && g.empty && app.tool == .Move && g.travel <= slop && !several && !one do scene_deselect(app)
+		if one && !(app.nav.double_tap && double_tap_follows(app.double_tap, g.at, g.from, DOUBLE_TAP_REACH * app.kit.scale)) {
+			// A tap elsewhere than the one waiting: that one runs now, this one waits in turn.
+			if app.one_tap > 0 do one_tap_run(app)
+			if app.nav.double_tap do app.one_tap = max(now, 1e-9)
+			else do one_tap_run(app, true)
+		}
 		if g.owner == .Shape do shape_release(app, false)
 		if g.owner == .Orbit && d.pointer == .Finger && !g.edge && app.nav.double_tap {
-			now := input_clock(app)
 			if g.travel > slop || now - g.at >= ui.FINGER_TAP {
 				app.double_tap.valid = false
 			} else if double_tap_follows(app.double_tap, g.at, g.from, DOUBLE_TAP_REACH * app.kit.scale) {
 				app.scene.selected = app.double_tap.selected
 				app.double_tap.valid = false
+				// The first tap was half of this double tap, not a one-finger tap.
+				app.one_tap = 0
 				double_tap_act(app, g.from, input.size)
 			} else {
 				app.double_tap = {valid = true, at = now, pos = g.from, selected = g.selected, framed = app.double_tap.framed}
@@ -443,6 +471,29 @@ pointer_route :: proc(app: ^App, input: ^Viewport_Input) {
 		}
 		g.owner = .None
 	}
+}
+
+// A one-finger tap on empty space waiting to see whether a second makes it a double tap
+// (App.one_tap): it runs its gesture once DOUBLE_TAP_GAP passes, and is dropped when the
+// pen comes near or lands, a palm rests on the screen or more fingers come down, the
+// usual ways a hand touches by accident.
+@(private = "file")
+one_tap_wait :: proc(app: ^App) {
+	if app.one_tap == 0 do return
+	t := &app.touch
+	if t.pen_near || t.pen_down || (t.fingers.count > 0 && (t.palm || t.gesture)) {
+		app.one_tap = 0
+		return
+	}
+	if input_clock(app) - app.one_tap > DOUBLE_TAP_GAP do one_tap_run(app)
+}
+
+// Runs the one-finger tap gesture: the one waiting, or with `now`, a tap that need not wait.
+@(private = "file")
+one_tap_run :: proc(app: ^App, now := false) {
+	if app.one_tap == 0 && !now do return
+	app.one_tap = 0
+	if gesture_run(app, .One_Tap) do app.one_taps += 1
 }
 
 // Who a press on the viewport belongs to (see Drag).
@@ -562,9 +613,10 @@ dab_wait_resolve :: proc(app: ^App) -> (res: Sculpt_Frame_Result) {
 	w.active, w.play, w.second, w.checked = false, false, false, false
 	// It plays whatever the tool is now: it was tapped with the brush.
 	if len(w.samples) == 0 do return
-	saved_camera, saved_brush := app.camera, app.brush
-	defer app.camera, app.brush = saved_camera, saved_brush
-	app.camera, app.brush = w.camera, w.brush
+	// Only a finger's tap waits, so it lands at Touch strength whatever points now.
+	saved_camera, saved_brush, saved_scale := app.camera, app.brush, app.stroke_scale_from
+	defer app.camera, app.brush, app.stroke_scale_from = saved_camera, saved_brush, saved_scale
+	app.camera, app.brush, app.stroke_scale_from = w.camera, w.brush, app.nav.touch_strength
 	samples := make([]Input_Sample, len(w.samples), context.temp_allocator)
 	copy(samples, w.samples[:])
 	m := w.mods

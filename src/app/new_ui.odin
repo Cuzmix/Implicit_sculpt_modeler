@@ -137,6 +137,9 @@ Kit_State :: struct {
 	palette_runs:   int,
 	palette_last:   Palette_Entry,
 	palette_ran:    bool,
+	// While set, the palette chooses what that gesture runs rather than running anything
+	// (palette_open_for, from Settings > Touch's Any command...).
+	palette_for:    Maybe(Gesture_Slot),
 	// The panels as windows: where each was dragged to and whether it is folded
 	// (remembered by settings.odin), and the order they are drawn in, the last on top.
 	windows:    [Kit_Window]ui.Window,
