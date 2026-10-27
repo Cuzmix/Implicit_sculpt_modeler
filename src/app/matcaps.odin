@@ -124,6 +124,12 @@ srgb_encode :: proc(linear: f32) -> f32 {
 	return 12.92 * c if c <= 0.0031308 else 1.055 * math.pow(c, 1 / 2.4) - 0.055
 }
 
+// The sRGB curve back to linear light, as the shader's srgb_decode.
+srgb_decode :: proc(encoded: f32) -> f32 {
+	c := clamp(encoded, 0, 1)
+	return c / 12.92 if c <= 0.04045 else math.pow((c + 0.055) / 1.055, 2.4)
+}
+
 // Paints the built-in matcaps into textures; one that cannot be made stays nil, and its
 // presets then draw with the lights instead.
 matcaps_create :: proc(app: ^App) {

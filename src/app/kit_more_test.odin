@@ -69,6 +69,8 @@ section_controls :: proc(app: ^App, sec: Kit_Section, draw: proc(app: ^App, obj:
 	#partial switch sec {
 	case .Alpha:  n -= len(app.alphas) + 1
 	case .Layers: n -= 4 * len(sculpt.sculptor_layers(object_sculptor(obj)))
+	// A colour (kit_color) is one choice, made by its hex field or by its three sliders.
+	case .Material, .Paint, .Paint_Color: n -= 3
 	}
 	return n
 }
@@ -129,7 +131,7 @@ show_every_option_unfolds_the_sections :: proc(t: ^testing.T) {
 		controls: int,
 	}
 	// UVs and baking has 5: its Quads count and Retopologize moved to Shape > Rebuild.
-	full := [?]Full{{.Preset, 6}, {.Recorder, 7}, {.Transform, 8}, {.Mask, 11}, {.Groups, 6}, {.Retopo, 5}, {.Project, 6}, {.Material, 10}, {.Camera, 6}}
+	full := [?]Full{{.Preset, 6}, {.Recorder, 7}, {.Transform, 8}, {.Mask, 11}, {.Groups, 6}, {.Retopo, 5}, {.Project, 6}, {.Material, 8}, {.Camera, 6}}
 	app.brush.kind = .Clay
 	_ = preset_save_new(&app)
 	for f in full {

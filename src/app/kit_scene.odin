@@ -455,7 +455,7 @@ kit_material :: proc(app: ^App) {
 	// preset is never changed. A classic preset has no roughness yet, so it starts rough.
 	m := current_material(app)
 	if m.roughness == 0 do m.roughness = CUSTOM_ROUGHNESS
-	changed := kit_color(ctx, "material colour", (^[3]f32)(&m.selected))
+	changed := kit_color(app, "material colour", (^[3]f32)(&m.selected), linear = true)
 	// How every material is shown, kept apart from the materials themselves: Cavity
 	// darkens creases and Ridge lightens crests, so fine detail reads at any light angle.
 	_ = ui.slider(ctx, "Cavity", &app.cavity, 0, 1, .Linear, fmt.tprintf("%.2f", app.cavity))

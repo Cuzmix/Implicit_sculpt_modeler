@@ -235,7 +235,7 @@ kit_visibility :: proc(app: ^App, obj: ^Object) {
 @(private = "file")
 kit_paint :: proc(app: ^App) {
 	ctx := &app.kit.ctx
-	_ = kit_color(ctx, "paint colour", &app.brush.color)
+	_ = kit_color(app, "paint colour", &app.brush.color)
 	kit_command_pair(app, .Paint, .Paint, int(sculpt.Paint_Command.Fill), int(sculpt.Paint_Command.Clear), tone_b = .Danger)
 	ui.paragraph(ctx, "The Paint brush paints this colour over the clay, Ctrl takes it off. Fill and Clear skip what is masked or hidden. Each level keeps its own paint.")
 }
