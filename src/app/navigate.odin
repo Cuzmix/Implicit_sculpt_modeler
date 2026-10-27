@@ -356,8 +356,8 @@ pointer_route :: proc(app: ^App, input: ^Viewport_Input) {
 		if !(owner == .Orbit && d.pointer == .Finger && !g.edge) do app.double_tap.valid = false
 		g.moving = d.pointer == .Mouse
 		// A finger's press the lights take (a marker, or the model with Place highlight on)
-		// acts as it lands, never waiting to see whether it is a tap.
-		g.pending = g.owner == .Tool && d.pointer == .Finger && app.tool == .Brush && !lights_take_press(app, d.mouse, input.size)
+		// or Pick focus waits for acts as it lands, never waiting to see whether it is a tap.
+		g.pending = g.owner == .Tool && d.pointer == .Finger && app.tool == .Brush && !lights_take_press(app, d.mouse, input.size) && !app.ui.focus_armed
 		// Not the presses that go to the mask and hide shapes or a clip, nor during a replay.
 		g.defer_tap = g.pending && app.nav.double_tap && !d.shift && !d.ctrl && !d.alt && !rail_keeps_empty_space(app.rail.press.mods) && !replay_busy(app)
 		if owner == .Tool && app.tool == .Brush && !d.shift && (input.mask || input.mask_shape) && !replay_busy(app) {

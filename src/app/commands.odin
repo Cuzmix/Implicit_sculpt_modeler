@@ -169,6 +169,8 @@ Command_Id :: enum u8 {
 	Studio_Render,
 	Live_Occlusion,
 	Render_Mode,
+	Pick_Focus,
+	Focus_Pivot,
 	Viewport_Look, // the argument is the Look_Preset
 	Floor_Grid,
 	Thumbnail,
@@ -1407,6 +1409,18 @@ COMMANDS := [Command_Id]Command {
 		help = "Path traces the view while it is still: every light with soft shadows, the environment, and light bounced between surfaces.",
 		run = proc(app: ^App, _: int) {render_toggle(app)},
 		checked = proc(app: ^App, _: int) -> bool {return app.render_on},
+	},
+	.Pick_Focus = {
+		label = "Pick focus",
+		help = "Render mode's depth of field focuses where the next press meets the model; dragging moves the focus with the finger.",
+		run = proc(app: ^App, _: int) {focus_pick_command(app)},
+		checked = proc(app: ^App, _: int) -> bool {return app.ui.focus_armed || app.ui.focus_held},
+	},
+	.Focus_Pivot = {
+		label = "Focus on the pivot",
+		help = "Render mode's depth of field focuses on the pivot the view turns about again, instead of a picked point.",
+		run = proc(app: ^App, _: int) {app.focus = nil},
+		enabled = proc(app: ^App, _: int) -> bool {_, picked := app.focus.?; return picked},
 	},
 	.Viewport_Look = {
 		label = "Look",

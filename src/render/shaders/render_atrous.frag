@@ -15,7 +15,9 @@ layout(set = 2, binding = 2) uniform sampler2D guide_normal;
 layout(set = 3, binding = 0) uniform Atrous_Uniforms {
 	// x: the taps' step in pixels; y: how far light may differ, relative, before a tap
 	// stops counting; z: 1 when `src` is render mode's sum (the first pass), whose mean
-	// this pass takes and divides by the colour, 0 when it is the previous pass's output
+	// this pass takes and divides by the colour, 0 when it is the previous pass's output;
+	// w: 1 when the guides are means over the samples (depth of field), whose normals are
+	// shorter than one where they blur
 	vec4 params;
 };
 
@@ -46,6 +48,7 @@ void main() {
 		return;
 	}
 	vec4 gn = texelFetch(guide_normal, px, 0);
+	if (params.w > 0.5) gn.xyz = normalize(gn.xyz + vec3(0.0, 0.0, 1e-6));
 	int step = int(params.x);
 	float l0 = luminance(centre);
 	vec3 sum = vec3(0.0);
@@ -56,6 +59,7 @@ void main() {
 			vec4 qa = texelFetch(guide_albedo, q, 0);
 			if (qa.a <= 0.0) continue;
 			vec4 qn = texelFetch(guide_normal, q, 0);
+			if (params.w > 0.5) qn.xyz = normalize(qn.xyz + vec3(0.0, 0.0, 1e-6));
 			vec3 c = light_at(q);
 			float w = KERNEL[abs(x)] * KERNEL[abs(y)];
 			w *= pow(max(dot(gn.xyz, qn.xyz), 0.0), 64.0);

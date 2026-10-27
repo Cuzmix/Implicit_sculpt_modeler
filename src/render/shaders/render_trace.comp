@@ -11,7 +11,8 @@
 // the bounces that find it the same way.
 // The camera's ray is jittered within its pixel, so the image is anti-aliased, but for
 // the first sample's, through the pixel's centre, which also writes the denoiser's guides
-// (render_atrous.frag): what the ray met's colour, normal and distance. Every
+// (render_atrous.frag): what the ray met's colour, normal and distance; with depth of
+// field every sample adds to them, so they blur as the image does. Every
 // random number comes from the pixel and the sample, so a sample is the same however the
 // rows are split between dispatches and on every run.
 //
@@ -57,35 +58,39 @@ layout(set = 0, binding = 1) uniform sampler2D environment_map;
 // The table for sampling the environment by its brightness: the image's, or the built-in
 // studio's in its own space (render.Env_Table).
 layout(set = 0, binding = 2) uniform sampler2D env_table;
+// The guides so far (below), which with depth of field each sample adds to.
+layout(set = 0, binding = 3) uniform sampler2D prev_albedo;
+layout(set = 0, binding = 4) uniform sampler2D prev_normal;
 // Each map slot's base colour (sRGB, so it samples linear), ORM and normal maps
 // (render.Texture_Map), defaults where an item lacks one (its flags say so).
-layout(set = 0, binding = 3) uniform sampler2D map0;
-layout(set = 0, binding = 4) uniform sampler2D map1;
-layout(set = 0, binding = 5) uniform sampler2D map2;
-layout(set = 0, binding = 6) uniform sampler2D map3;
-layout(set = 0, binding = 7) uniform sampler2D map4;
-layout(set = 0, binding = 8) uniform sampler2D map5;
-layout(set = 0, binding = 9) uniform sampler2D map6;
-layout(set = 0, binding = 10) uniform sampler2D map7;
-layout(set = 0, binding = 11) uniform sampler2D map8;
-layout(std430, set = 0, binding = 12) readonly buffer Positions { float positions[]; }; // 3 floats a vertex, mesh space
-layout(std430, set = 0, binding = 13) readonly buffer Indices { uint indices[]; }; // each item's own, from its first vertex
+layout(set = 0, binding = 5) uniform sampler2D map0;
+layout(set = 0, binding = 6) uniform sampler2D map1;
+layout(set = 0, binding = 7) uniform sampler2D map2;
+layout(set = 0, binding = 8) uniform sampler2D map3;
+layout(set = 0, binding = 9) uniform sampler2D map4;
+layout(set = 0, binding = 10) uniform sampler2D map5;
+layout(set = 0, binding = 11) uniform sampler2D map6;
+layout(set = 0, binding = 12) uniform sampler2D map7;
+layout(set = 0, binding = 13) uniform sampler2D map8;
+layout(std430, set = 0, binding = 14) readonly buffer Positions { float positions[]; }; // 3 floats a vertex, mesh space
+layout(std430, set = 0, binding = 15) readonly buffer Indices { uint indices[]; }; // each item's own, from its first vertex
 // Each vertex's normal (render.Normal_Packed, one word), then from counts.w each vertex's
 // render.Paint_Packed (two words).
-layout(std430, set = 0, binding = 14) readonly buffer Attributes { uint attributes[]; };
+layout(std430, set = 0, binding = 16) readonly buffer Attributes { uint attributes[]; };
 // Every chunk's tree, one after another, a leaf's `first` into its chunk's order; then
 // from extra.x the tree over every chunk, a leaf's `first` a chunk.
-layout(std430, set = 0, binding = 15) readonly buffer Nodes { Node nodes[]; };
-layout(std430, set = 0, binding = 16) readonly buffer Order { uint order[]; }; // two 16-bit offsets a word
+layout(std430, set = 0, binding = 17) readonly buffer Nodes { Node nodes[]; };
+layout(std430, set = 0, binding = 18) readonly buffer Order { uint order[]; }; // two 16-bit offsets a word
 // node_off, order_off, first_tri, and the node count with the item in the top 12 bits.
-layout(std430, set = 0, binding = 17) readonly buffer Chunks { uvec4 chunks[]; };
-layout(std430, set = 0, binding = 18) readonly buffer Items { Item items[]; };
+layout(std430, set = 0, binding = 19) readonly buffer Chunks { uvec4 chunks[]; };
+layout(std430, set = 0, binding = 20) readonly buffer Items { Item items[]; };
 // Each textured item's preview vertices (render.Textured_Vertex: position, packed normal,
 // tangent as four 16-bit snorms, uv; 8 words), then its corners: for each triangle of its
 // sculpt mesh, the vertex each corner takes.
-layout(std430, set = 0, binding = 19) readonly buffer Textured { uint textured[]; };
+layout(std430, set = 0, binding = 21) readonly buffer Textured { uint textured[]; };
 layout(set = 1, binding = 0, rgba32f) uniform writeonly image2D next;
-// The guides, written by the first sample only: the base colour the camera's ray met with
+// The guides, written by the first sample only (by every sample, as running means over
+// the samples, with depth of field): the base colour the camera's ray met with
 // 1 in a (0 everywhere for a miss), and its normal (world) with the distance in a.
 layout(set = 1, binding = 1, rgba16f) uniform writeonly image2D guide_albedo;
 layout(set = 1, binding = 2, rgba16f) uniform writeonly image2D guide_normal;
@@ -117,6 +122,13 @@ layout(std140, set = 2, binding = 0) uniform Render_Uniforms {
 	vec4 scene;   // xyz: the scene's centre, w: its radius
 	uvec4 counts; // x: this sample, y: the first row of this band, z: bounces, w: where paint starts in `attributes`
 	uvec4 extra;  // x: where the scene tree starts in `nodes`, y: 1 when it is empty
+	// Depth of field (render.Lens): the eye with the lens's radius in w (0: a pinhole),
+	// the camera's right with the focal plane's distance along its forward in w, its up,
+	// and its forward.
+	vec4 lens_eye;
+	vec4 lens_right;
+	vec4 lens_up;
+	vec4 lens_fwd;
 };
 
 #include "panorama.glsl"
@@ -666,6 +678,30 @@ void main() {
 	vec4 far_dx = inv_view_proj * vec4(ndc_dx, 1.0, 1.0);
 	vec3 o_dx = near_dx.xyz / near_dx.w;
 	vec3 d_dx = normalize(far_dx.xyz / far_dx.w - o_dx);
+	// Depth of field: a thin lens across the eye. The pixel's ray meets the focal plane
+	// where it would through a pinhole, and the ray goes there from a point of the lens
+	// instead, picked over its disc (Shirley's concentric map), then starts back where the
+	// pinhole's did, so the near plane clips as the viewport does. Measured from the eye's
+	// plane, so it holds for an orthographic view too, whose rays start far behind it.
+	bool lens = lens_eye.w > 0.0;
+	if (lens) {
+		vec2 u = 2.0 * vec2(rnd(), rnd()) - 1.0;
+		vec2 disc = vec2(0.0);
+		if (u != vec2(0.0)) {
+			bool wide = abs(u.x) > abs(u.y);
+			float r = wide ? u.x : u.y;
+			float phi = wide ? 0.78539816 * (u.y / u.x) : 1.57079633 - 0.78539816 * (u.x / u.y);
+			disc = r * vec2(cos(phi), sin(phi));
+		}
+		vec3 fwd = lens_fwd.xyz;
+		float along = dot(d, fwd);
+		vec3 e = o + d * (dot(lens_eye.xyz - o, fwd) / along);
+		vec3 focal = e + d * (lens_right.w / along);
+		vec3 from = e + lens_eye.w * (disc.x * lens_right.xyz + disc.y * lens_up.xyz);
+		vec3 dl = normalize(focal - from);
+		o = from + dl * (dot(o - from, fwd) / dot(dl, fwd));
+		d = dl;
+	}
 
 	vec3 radiance = vec3(0.0), weight = vec3(1.0);
 	float covered = 0.0, pdf_bsdf = 0.0;
@@ -805,7 +841,21 @@ void main() {
 	if (lum > SAMPLE_CLAMP) radiance *= SAMPLE_CLAMP / lum;
 	vec4 sum = first ? vec4(0.0) : texelFetch(prev, px, 0);
 	imageStore(next, px, sum + vec4(radiance, covered));
-	if (first) {
+	if (lens) {
+		// Running means over the samples whose ray met the scene, the share that did in
+		// the colour's a, so the colour divided out is the colour the blurred light has.
+		vec4 prev_a = first ? vec4(0.0) : texelFetch(prev_albedo, px, 0);
+		vec4 prev_n = first ? vec4(0.0) : texelFetch(prev_normal, px, 0);
+		float done = float(counts.x);
+		float hit = guide_a.a, hits_before = prev_a.a * done;
+		float hits = hits_before + hit;
+		if (hits > 0.0) {
+			guide_a = vec4((prev_a.rgb * hits_before + guide_a.rgb * hit) / hits, hits / (done + 1.0));
+			guide_n = (prev_n * hits_before + guide_n * hit) / hits;
+		}
+		imageStore(guide_albedo, px, guide_a);
+		imageStore(guide_normal, px, guide_n);
+	} else if (first) {
 		imageStore(guide_albedo, px, guide_a);
 		imageStore(guide_normal, px, guide_n);
 	}

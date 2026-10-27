@@ -79,8 +79,8 @@ render_boxes_reach_the_world :: proc(t: ^testing.T) {
 	}
 }
 
-// Render mode is a command, off at the start of every run; its samples, bounces, denoise
-// and half resolution are remembered.
+// Render mode is a command, off at the start of every run; its samples, bounces, denoise,
+// half resolution, depth of field and blur are remembered, and the point in focus is not.
 @(test)
 render_mode_is_not_remembered :: proc(t: ^testing.T) {
 	path := "build/render_mode_test.txt"
@@ -90,6 +90,7 @@ render_mode_is_not_remembered :: proc(t: ^testing.T) {
 	command_run(&a, .Render_Mode)
 	testing.expect(t, a.render_on && command_checked(&a, .Render_Mode, 0))
 	a.render_samples, a.render_bounces, a.render_denoise, a.render_half = 300, 3, false, true
+	a.render_dof, a.render_blur, a.focus = true, 0.75, Vec3{1, 2, 3}
 	testing.expect(t, settings_save(&a, path))
 
 	b: App
@@ -100,6 +101,31 @@ render_mode_is_not_remembered :: proc(t: ^testing.T) {
 	testing.expect_value(t, b.render_bounces, i32(3))
 	testing.expect(t, !b.render_denoise)
 	testing.expect(t, b.render_half)
+	testing.expect(t, b.render_dof)
+	testing.expect_value(t, b.render_blur, f32(0.75))
+	_, picked := b.focus.?
+	testing.expect(t, !picked)
+}
+
+// Depth of field focuses on the pivot until a point is picked, which Focus on the pivot
+// lets go of; off, the lens is none, so moving the pivot starts nothing over.
+@(test)
+render_lens_focuses_on_the_pivot_or_the_picked_point :: proc(t: ^testing.T) {
+	a: App
+	defer results_destroy(&a)
+	a.camera.target = {0, 1, 0}
+	a.render_blur = 0.5
+	testing.expect_value(t, render_lens(&a), render.Lens{})
+	a.render_dof = true
+	testing.expect_value(t, render_lens(&a), render.Lens{on = true, blur = 0.5, focus = {0, 1, 0}})
+	testing.expect(t, !command_enabled(&a, .Focus_Pivot))
+	a.focus = Vec3{2, 0, 0}
+	testing.expect_value(t, render_lens(&a).focus, [3]f32{2, 0, 0})
+	testing.expect(t, command_run(&a, .Focus_Pivot))
+	testing.expect_value(t, render_lens(&a).focus, [3]f32{0, 1, 0})
+	// Pick focus waits for a press, and run again waits no more.
+	testing.expect(t, command_run(&a, .Pick_Focus) && a.ui.focus_armed)
+	testing.expect(t, command_run(&a, .Pick_Focus) && !a.ui.focus_armed)
 }
 
 // Half resolution traces half the viewport each way, rounded up so every pixel is covered.

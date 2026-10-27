@@ -205,6 +205,8 @@ SETTINGS := [?]Setting {
 	{"render_bounces", offset_of(App, render_bounces), i32, 1, render.RENDER_BOUNCES_MAX},
 	{"render_denoise", offset_of(App, render_denoise), bool, 0, 0},
 	{"render_half", offset_of(App, render_half), bool, 0, 0},
+	{"render_dof", offset_of(App, render_dof), bool, 0, 0},
+	{"render_blur", offset_of(App, render_blur), f32, 0, 1},
 	{"studio_shadow", offset_of(App, studio_shadow), f32, 0, 1},
 	{"look_chosen", offset_of(App, look_chosen), bool, 0, 0},
 	{"styled", offset_of(App, styled), bool, 0, 0},

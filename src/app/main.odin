@@ -219,6 +219,11 @@ App :: struct {
 	render_bounces: i32,
 	render_denoise: bool,
 	render_half:    bool, // trace at half size each way: on by default on tablets
+	// Scene > Lens (lens.odin): depth of field and its Blur, remembered, and the point
+	// Pick focus took, for the session (none: the pivot).
+	render_dof:     bool,
+	render_blur:    f32,
+	focus:          Maybe(Vec3),
 	// The navigation head in the top-right corner (nav_head.odin), and the texture it was
 	// drawn into this frame, for the interface to show; nil when there is none.
 	nav_head:       render.Nav_Head,
@@ -538,6 +543,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	app.studio_samples, app.studio_ao, app.studio_shadow = STUDIO_SAMPLES_DEFAULT, STUDIO_AO_DEFAULT, STUDIO_SHADOW_DEFAULT
 	app.render_samples, app.render_bounces, app.render_denoise = render.RENDER_SAMPLES_DEFAULT, render.RENDER_BOUNCES_DEFAULT, true
 	app.render_half = ODIN_PLATFORM_SUBTARGET == .Android
+	app.render_blur = RENDER_BLUR_DEFAULT
 	environment_settings_default(&app)
 	app.dim_others = true
 	app.time_gpu = opts.time_gpu || opts.gpubench != ""
@@ -813,9 +819,10 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		shape_pending_frame(&app, input.size)
 		// A gizmo drag the tool changed under ends as it is.
 		if app.tool != .Move do move_end(&app)
-		// A press that picks a polygroup for its material (Pick a group) or a colour (the
-		// Eyedropper), or moves a light in the viewport, is no tool's.
-		if group_pick_frame(&app, input) || eyedropper_frame(&app, input) || lights_viewport_frame(&app, input) {
+		// A press that picks a polygroup for its material (Pick a group), a colour (the
+		// Eyedropper) or the point in focus (Pick focus), or moves a light in the
+		// viewport, is no tool's.
+		if group_pick_frame(&app, input) || eyedropper_frame(&app, input) || focus_pick_frame(&app, input) || lights_viewport_frame(&app, input) {
 			brush_stroke_finish(&app)
 		} else {
 			switch app.tool {
@@ -1304,6 +1311,11 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			fmt.printfln("live_ao=%d live_ao_full=%d live_ao_partial=%d live_ao_skipped=%d", int(app.live_ao_on), lao.full, lao.partial, lao.skipped)
 			pr := app.path
 			fmt.printfln("render=%d render_samples=%d render_ms=%.1f render_mb=%.1f render_failed=%d", int(app.render_on), pr.total_samples, pr.total_ms / f64(max(pr.total_samples, 1)), f64(pr.bytes) / (1 << 20), int(pr.failed))
+			// Depth of field, whether a point was picked to focus on and where the focus is,
+			// and whether Pick focus still waits for a press.
+			focus := focus_point(&app)
+			_, picked := app.focus.?
+			fmt.printfln("render_dof=%d render_blur=%.2f focus_picked=%d focus=%.3f,%.3f,%.3f focus_armed=%d", int(app.render_dof), app.render_blur, int(picked), focus.x, focus.y, focus.z, int(app.ui.focus_armed))
 			env := app.env
 			fmt.printfln("environment=%s environment_size=%dx%d environment_background=%d environment_mb=%.1f", "image" if env.kind == .Image && env.gpu.source != nil else "built_in", env.gpu.width, env.gpu.height, int(env.background), f32(render.environment_bytes(env.gpu)) / (1024 * 1024))
 		}
