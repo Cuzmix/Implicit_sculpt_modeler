@@ -250,3 +250,34 @@ paint_and_groups_round_trip_the_file :: proc(t: ^testing.T) {
 		testing.expect(t, found && s.groups.tris[other] == g)
 	}
 }
+
+// Levels made from a mesh take its colours per vertex and groups per triangle through
+// the renumbering levels_init reports: each triangle keeps the corners and group it had.
+@(test)
+levels_take_the_surface_of_the_mesh_they_are_made_from :: proc(t: ^testing.T) {
+	m := geom.icosphere(4)
+	source := geom.Mesh{positions = slice.clone_to_dynamic(m.positions[:]), indices = slice.clone_to_dynamic(m.indices[:])}
+	defer geom.mesh_destroy(&source)
+	tcount := len(m.indices) / 3
+	color := make([]Color, len(m.positions))
+	defer delete(color)
+	for &c, v in color do c = {u8(v), u8(v >> 8), 7, 255}
+	groups := make([]u16, tcount)
+	defer delete(groups)
+	for &g, tri in groups do g = u16(tri % 5)
+	old_to_new := make([]u32, len(m.positions))
+	defer delete(old_to_new)
+	tri_from := make([]u32, tcount)
+	defer delete(tri_from)
+	l: Levels
+	levels_init(&l, m, nil, 64, old_to_new = old_to_new, tri_from = tri_from)
+	defer levels_destroy(&l)
+	levels_take_surface(&l, color, groups, old_to_new, tri_from)
+	s := &l.levels[0].sculptor
+	for old, tri in tri_from {
+		for c in 0 ..< 3 do testing.expect_value(t, s.mesh.indices[3 * tri + c], old_to_new[source.indices[3 * int(old) + c]])
+		testing.expect_value(t, s.groups.tris[tri], groups[old])
+	}
+	for c, old in color do testing.expect_value(t, s.color[old_to_new[old]], c)
+	testing.expect(t, s.color_edited && s.groups.edited)
+}

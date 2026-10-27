@@ -58,9 +58,9 @@ boolean_base :: proc(app: ^App) -> ^Object {
 	return base if marked else nil
 }
 
-// The shape of `obj`'s shown level in `base`'s space (a copy).
-@(private = "file")
-shape_in :: proc(obj, base: ^Object) -> geom.Mesh {
+// The shape of `obj`'s shown level in the space `into` places (a copy, with zero normals),
+// without the unused slots of dynamic topology's layout.
+shape_in :: proc(obj: ^Object, into: Transform) -> geom.Mesh {
 	src := object_mesh(obj)^
 	packed: geom.Mesh
 	if object_dynamic(obj) {
@@ -75,7 +75,7 @@ shape_in :: proc(obj, base: ^Object) -> geom.Mesh {
 		normals   = make([dynamic]geom.Vec3, len(src.positions)),
 	}
 	copy(out.indices[:], src.indices[:])
-	for p, v in src.positions do out.positions[v] = to_local(base.transform, to_world(obj.transform, p))
+	for p, v in src.positions do out.positions[v] = to_local(into, to_world(obj.transform, p))
 	geom.mesh_destroy(&packed)
 	return out
 }
@@ -83,10 +83,10 @@ shape_in :: proc(obj, base: ^Object) -> geom.Mesh {
 // The base with every marked object applied, at about `vertices` vertices.
 @(private = "file")
 boolean_result :: proc(app: ^App, base: ^Object, vertices: int, project: bool) -> (out: geom.Mesh, ok: bool) {
-	out = shape_in(base, base)
+	out = shape_in(base, base.transform)
 	for obj in app.scene.objects {
 		if obj.boolean == .None do continue
-		other := shape_in(obj, base)
+		other := shape_in(obj, base.transform)
 		next, made := geom.mesh_boolean(out, other, BOOLEAN_OPS[obj.boolean], vertices, project, &app.pool)
 		geom.mesh_destroy(&other)
 		geom.mesh_destroy(&out)

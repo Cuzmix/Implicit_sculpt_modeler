@@ -50,7 +50,7 @@ File_Request :: struct {
 // be in a console nobody watches. `at` tells a new note from the one already shown.
 // The native scene file starts with these bytes, then its version.
 SCENE_MAGIC :: "SCULPTSC"
-SCENE_VERSION :: u32(11) // 2: each object's rotation; 3: the current level's polypaint and polygroups; 4: sculpt layers, and a retopologized object's quads and UVs (sculpt.levels_write); 5: each object's boolean mode; 6: the base level's node layout (sculpt.levels_write); 7: the camera's roll; 8: each object's eye and ghost, and Solo; 9: folders, and each object's folder; 10: selection sets (sculpt.levels_write); 11: each object's polypaint shown or not (a third view bit)
+SCENE_VERSION :: u32(12) // 2: each object's rotation; 3: the current level's polypaint and polygroups; 4: sculpt layers, and a retopologized object's quads and UVs (sculpt.levels_write); 5: each object's boolean mode; 6: the base level's node layout (sculpt.levels_write); 7: the camera's roll; 8: each object's eye and ghost, and Solo; 9: folders, and each object's folder; 10: selection sets (sculpt.levels_write); 11: each object's polypaint shown or not (a third view bit); 12: stored visibility (V1 to V8): the slot chosen and used, and each folder's and object's eyes in them
 
 // The request waiting for the next frame, and whether a dialog is showing. Kept here
 // rather than in App because SDL may call a dialog back on another thread, even after
@@ -633,8 +633,12 @@ scene_header_put :: proc(app: ^App, out: ^[dynamic]u8) {
 		geom.byte_put(out, i32(f.id))
 		geom.byte_put_string(out, f.name)
 		geom.byte_put(out, u8(f.open) | u8(f.off) << 1 | u8(f.ghost) << 2)
+		geom.byte_put(out, f.vis_off) // version 12
 	}
 	geom.byte_put(out, i32(app.scene.next_folder_id))
+	// Version 12: the stored visibility chosen and those in use.
+	geom.byte_put(out, u8(app.scene.vis_slot))
+	geom.byte_put(out, app.scene.vis_used)
 }
 
 // The folders a scene file of `version` lists after its header, owned; ok is false
@@ -648,6 +652,7 @@ folders_get :: proc(r: ^geom.Byte_Reader, version: u32) -> (folders: [dynamic]Fo
 		f := Folder{id = int(geom.byte_get(r, i32)), name = geom.byte_get_string(r)}
 		bits := geom.byte_get(r, u8)
 		f.open, f.off, f.ghost = bits & 1 != 0, bits & 2 != 0, bits & 4 != 0
+		if version >= 12 do f.vis_off = geom.byte_get(r, u8)
 		append(&folders, f)
 		unique := true
 		for g in folders[:len(folders) - 1] do unique &&= g.id != f.id
@@ -700,7 +705,12 @@ scene_open :: proc(app: ^App, path: string) -> (opened, ok: bool) {
 		folders_clear(&folders)
 		delete(folders)
 	}
-	if !folders_ok || !r.ok || solo > 1 || count > len(data) || selected >= count || !finite(view.target) || !finite({view.distance, view.yaw, view.pitch}) || !finite({view.roll, 0, 0}) {
+	vis_slot, vis_used: u8
+	if version >= 12 {
+		vis_slot = geom.byte_get(&r, u8)
+		vis_used = geom.byte_get(&r, u8)
+	}
+	if !folders_ok || !r.ok || solo > 1 || vis_slot > VIS_SLOTS || (vis_slot > 0 && vis_used & (1 << (vis_slot - 1)) == 0) || count > len(data) || selected >= count || !finite(view.target) || !finite({view.distance, view.yaw, view.pitch}) || !finite({view.roll, 0, 0}) {
 		file_note(app, true, "Cannot open %s: it is damaged", name)
 		return false, true
 	}
@@ -730,6 +740,7 @@ scene_open :: proc(app: ^App, path: string) -> (opened, ok: bool) {
 	delete(app.scene.folders)
 	app.scene.folders, folders = folders, nil
 	app.scene.next_folder_id = max(next_folder_id, 0)
+	app.scene.vis_slot, app.scene.vis_used = int(vis_slot), vis_used
 	scene_folders_normalize(app)
 	scene_selection_fix(app)
 	autosave_scene_saved(app, path)
@@ -761,6 +772,7 @@ scene_replace :: proc(app: ^App, objects: []^Object, selected, next_id: int, vie
 	app.scene.solo = false
 	folders_clear(&app.scene.folders)
 	app.scene.next_folder_id = 0
+	app.scene.vis_slot, app.scene.vis_used = 0, 0
 	// A drag over the old tree, and the column changes it queued, name the old objects.
 	app.kit.tree_drag, app.kit.tree_column = {}, {}
 	clear(&app.scene.also)
@@ -820,6 +832,7 @@ object_put_bytes :: proc(out: ^[dynamic]u8, obj: ^Object, opts := sculpt.Write_O
 	geom.byte_put(out, u8(obj.boolean)) // version 5
 	geom.byte_put(out, object_view_bits(obj)) // version 8
 	geom.byte_put(out, i32(obj.folder)) // version 9
+	geom.byte_put(out, obj.vis_off) // version 12
 	return sculpt.levels_write(&obj.levels, out, opts)
 }
 
@@ -868,8 +881,8 @@ object_get :: proc(app: ^App, r: ^geom.Byte_Reader, version := SCENE_VERSION) ->
 	return obj, true, made
 }
 
-// Reads what object_put writes before the levels: the id, name, placement, boolean mode
-// and view flags, as a file of `version` has them; r.ok goes false on damage. The
+// Reads what object_put writes before the levels: the id, name, placement, boolean mode,
+// view flags, folder and stored eyes, as a file of `version` has them; r.ok goes false on damage. The
 // caller owns obj.name.
 object_get_fields :: proc(r: ^geom.Byte_Reader, obj: ^Object, version := SCENE_VERSION) {
 	obj.id = int(geom.byte_get(r, i32))
@@ -894,6 +907,7 @@ object_get_fields :: proc(r: ^geom.Byte_Reader, obj: ^Object, version := SCENE_V
 		obj.folder = int(geom.byte_get(r, i32))
 		if obj.folder < 0 do r.ok = false
 	}
+	if version >= 12 do obj.vis_off = geom.byte_get(r, u8)
 }
 
 // Frees an object read for a scene that never got it: it has no history and draws
