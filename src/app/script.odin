@@ -56,6 +56,7 @@ Script_Verb :: enum u8 {
 	Install_Pack,
 	Matcap,
 	Preset,
+	Pack_Mesh,
 }
 
 // Each verb's name and what it takes, for errors and the README.
@@ -80,6 +81,7 @@ SCRIPT_VERBS := [Script_Verb]struct {
 	.Install_Pack  = {"install_pack", "a content pack file (.sculptpack), which replaces an installed pack of its name and author"},
 	.Matcap        = {"matcap", "an image file of a lit sphere"},
 	.Preset        = {"preset", "a brush preset's name (yours, or PACK/NAME for a content pack's), or none for the plain brush"},
+	.Pack_Mesh     = {"pack_mesh", "a content pack's mesh as PACK/NAME, added as a new object"},
 }
 
 // A command that is on or off (one with `checked`) can be told which: it then runs only
@@ -408,7 +410,7 @@ script_verb_read :: proc(st: ^Script_Statement, args: []string) -> bool {
 		n, ok := strconv.parse_int(args[0])
 		st.count = n
 		return ok && n >= 1
-	case .Alpha, .Install_Pack, .Matcap, .Preset:
+	case .Alpha, .Install_Pack, .Matcap, .Preset, .Pack_Mesh:
 		// A name or path may have spaces: it is the rest of the line.
 		if len(args) == 0 do return false
 		st.text = strings.join(args, " ")
@@ -478,6 +480,11 @@ script_verb :: proc(app: ^App, st: Script_Statement) -> (failure: string, ok: bo
 		if n == 0 do return fmt.tprintf("no preset is named %q", st.text), true
 		preset_use(app, n)
 		return "", true
+	case .Pack_Mesh:
+		// As Add object does with the mesh picked, in place so the next line sees it.
+		j := pack_mesh_by_ref(app, st.text)
+		if j < 0 do return fmt.tprintf("no content pack has a mesh named %q", st.text), true
+		if !scene_run(app, {kind = .Add, mesh = j + 1}) do return "", false
 	case .Project:
 		if st.count > len(app.scene.objects) do return fmt.tprintf("the scene has %d object%s", len(app.scene.objects), "" if len(app.scene.objects) == 1 else "s"), true
 		from := app.scene.objects[st.count - 1]
@@ -527,7 +534,7 @@ script_verb :: proc(app: ^App, st: Script_Statement) -> (failure: string, ok: bo
 			_ = sculpt.sculptor_layer_set(s, st.count - 1, st.numbers[0], !st.flip)
 			if sculpt.sculptor_stroke_end(s) do history_record(app, obj, .Layer, "Layer strength")
 			return "", true
-		case .Falloff, .Focal, .Alpha, .Matcap, .Project, .Draw_Curve, .Insert_Middle, .Install_Pack, .Preset:
+		case .Falloff, .Focal, .Alpha, .Matcap, .Project, .Draw_Curve, .Insert_Middle, .Install_Pack, .Preset, .Pack_Mesh:
 		}
 	}
 	if script_scene_state(app) == before do return "it left the scene as it was (the log says why)", true
