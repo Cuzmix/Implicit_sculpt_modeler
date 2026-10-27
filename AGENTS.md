@@ -30,7 +30,7 @@ skill whose description fits the request BEFORE you form a plan.
     python scripts\gate.py                          # section 6 in one command: check, test, build, smoke, touch (+ wincheck, androidcheck on Linux)
     build.bat check                                   # the gate: odin check of every package + the skill mirror check
     build.bat                                         # debug app -> build\sculpt.exe (tracking allocator: a leak exits 1)
-    build.bat test                                    # odin test on geom, camera, sculpt, jobs, gizmo, png_write, ui, app
+    build.bat test                                    # odin test on geom, camera, sculpt, jobs, gizmo, png_write, zip, ui, app
     python scripts\test_only.py sculpt 'deform_*'     # just those tests of one package, while working
     build.bat smoke                                   # 300 frames under GPU validation, SDL_ASSERT=abort
     python scripts\touch_check.py ['long_press*']    # scripted finger, pen and mouse scenarios (a desktop simulation), in parallel on Linux
@@ -53,6 +53,7 @@ skill whose description fits the request BEFORE you form a plan.
 | `src/sculpt` | brushes over a `Mesh` split into nodes, dirty ranges, undo, subdivision levels, HD windows, simplified copies |
 | `src/ui` | the interface kit: immediate-mode layout, widgets, hit testing, CPU tessellation, fonts (no SDL, no render) |
 | `src/jobs` | the persistent worker pool (`parallel_for`, `parallel_ranges`) |
+| `src/zip` | ZIP archives in, as content packs come: entries, names checked against zip slip and case clashes, inflating capped by the declared size |
 | `src/bench` | the headless CPU benchmark (markdown tables) |
 | `src/sdf_trial` | the standalone SDF/voxel comparison spike (not in the build scripts) |
 | `android/` | the Android app: Gradle project, manifest, `app/jni/CMakeLists.txt` (SDL3, stb and `src/app` built by Odin into `libmain.so`), `android_main.c` |
@@ -62,7 +63,7 @@ skill whose description fits the request BEFORE you form a plan.
 
 ## 5. Hard rules
 - Odin is pinned (`scripts/versions.env`, `deps/odin`): never write from memory of older Odin; grep the install.
-- Package boundaries: `geom`, `camera`, `gizmo` and `jobs` know nothing of rendering or UI; `ui` knows nothing of SDL or `render`; only `render` and `app`
+- Package boundaries: `geom`, `camera`, `gizmo`, `jobs` and `zip` know nothing of rendering or UI; `ui` knows nothing of SDL or `render`; only `render` and `app`
   import `vendor:sdl3`; `bench` never imports `render` or `app`; `sdf_trial` stands alone.
 - Determinism: serial and parallel results are bit-identical and tests compare them; no map order decides output.
 - Allocations inside jobs use `runtime.heap_allocator()` for both make and delete; only the frame loop and the setup
