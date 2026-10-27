@@ -154,6 +154,9 @@ Kit_State :: struct {
 	ui_scale:   f32, // the interface's size, times what the display asks for (Settings > Interface)
 	surface_ring: bool, // the brush ring lies on the surface rather than flat on the screen (cursor.odin)
 	rail_side:  Rail_Side, // where the modifier wheel sits, if anywhere (modifiers.odin)
+	// What the workspace hides, and the workspaces (workspaces.odin).
+	hidden:     bit_set[Zone],
+	workspaces: Workspaces,
 	wheel_size: Wheel_Size,
 	wheel_labels: Wheel_Labels, // what its sectors show
 	wheel_turn: f32, // how far it is turned clockwise, in degrees, -180 to 180
@@ -317,10 +320,12 @@ window_raise :: proc(k: ^Kit_State, which: Panel_Ref) {
 }
 
 // Puts every window back where it starts, open and in the starting order, the tray back
-// in the right column and nothing pinned (panels_default).
+// in the right column, nothing pinned (panels_default) and every bar shown.
 windows_reset :: proc(k: ^Kit_State) {
 	k.windows = {}
 	panels_default(k)
+	// Every bar comes back too, so a workspace that hides them is never a dead end.
+	k.hidden = {}
 }
 
 // The most height a window can have where it is: from its top edge to the bottom of the
@@ -705,6 +710,7 @@ kit_init :: proc(app: ^App) {
 	bars_reset(k)
 	k.pies = PIE_DEFAULTS
 	panels_default(k)
+	workspaces_init(k)
 	k.last_frame = time.tick_now()
 }
 
@@ -717,7 +723,7 @@ kit_floats_close :: proc(k: ^Kit_State) {
 	k.bind.open, k.pie_editor, k.adjust_pop, k.gizmo_entry.open = false, false, false, false
 	k.folder_menu, k.rename.open, k.macro_save.open, k.home_menu = false, false, false, false
 	k.colors.palette_menu, k.colors.swatch_menu, k.colors.pop = false, false, false
-	k.panels.menu = false
+	k.panels.menu, k.workspaces.menu = false, false
 	k.ctx.select_open = 0
 }
 
@@ -726,7 +732,7 @@ kit_floats_close :: proc(k: ^Kit_State) {
 // first-run tip hides under it.
 kit_floating :: proc(app: ^App) -> bool {
 	k := &app.kit
-	return app.ui.pie.open || app.ui.adjust.kind != .None || k.action_pop || k.adjust_pop || k.menu || k.versions || k.browser || k.dock_menu || k.bind.open || k.pie_editor || k.object_menu || k.folder_menu || k.rename.open || k.macro_save.open || k.palette || k.gizmo_entry.open || k.bar_pop.open || k.bar_slot.open || k.colors.palette_menu || k.colors.swatch_menu || k.colors.pop || k.home_menu || k.panels.menu || k.ctx.select_open != 0
+	return app.ui.pie.open || app.ui.adjust.kind != .None || k.action_pop || k.adjust_pop || k.menu || k.versions || k.browser || k.dock_menu || k.bind.open || k.pie_editor || k.object_menu || k.folder_menu || k.rename.open || k.macro_save.open || k.palette || k.gizmo_entry.open || k.bar_pop.open || k.bar_slot.open || k.colors.palette_menu || k.colors.swatch_menu || k.colors.pop || k.home_menu || k.panels.menu || k.workspaces.menu || k.ctx.select_open != 0
 }
 
 kit_destroy :: proc(app: ^App) {
@@ -734,6 +740,7 @@ kit_destroy :: proc(app: ^App) {
 	delete(app.kit.events)
 	render.ui_pass_destroy(&app.renderer, &app.kit.pass)
 	ui.destroy(&app.kit.ctx)
+	workspaces_destroy(&app.kit)
 }
 
 // Window coordinates per interface point. SDL gives the pointer and the window's size in
@@ -829,16 +836,16 @@ kit_mirror :: proc(k: ^Kit_State) {
 	for &w in k.windows do window_mirror(&w)
 	for &p in k.panels.pins do window_mirror(&p.window)
 	k.wheel_offset.x = -k.wheel_offset.x
+}
 
-	// A centred window's offset turns over; 0 stays 0 rather than becoming -0, which
-	// would be written differently.
-	window_mirror :: proc(w: ^ui.Window) {
-		if !w.moved do return
-		switch w.x {
-		case .Start:  w.x = .End
-		case .End:    w.x = .Start
-		case .Center: w.offset.x = 0 - w.offset.x
-		}
+// A moved window to the other side, as far in as it was. A centred window's offset turns
+// over; 0 stays 0 rather than becoming -0, which would be written differently.
+window_mirror :: proc(w: ^ui.Window) {
+	if !w.moved do return
+	switch w.x {
+	case .Start:  w.x = .End
+	case .End:    w.x = .Start
+	case .Center: w.offset.x = 0 - w.offset.x
 	}
 }
 
@@ -1034,16 +1041,32 @@ kit_layout :: proc(app: ^App) {
 	// Round the edges: the top bar, the object's readout under it, the brush bar at the
 	// left, and the navigation head and the view bars under it at the right (kit_bars.odin,
 	// nav_head.odin).
-	menu_anchor := kit_top_bar(app)
+	// A bar the workspace hides is not laid out (workspaces.odin): what opened from it opens
+	// from the top bar, which takes Undo, Redo, Search and the tray's button in its place.
+	workspaces_frame(k)
+	menu_anchor, search_anchor := kit_top_bar(app)
 	kit_points(app)
-	browser_anchor := kit_brush_bar(app)
+	browser_anchor := menu_anchor
+	if !zone_hidden(k, .Brush_Bar) do browser_anchor = kit_brush_bar(app)
+	else do k.bar_scrub = {}
 	kit_nav_head(app)
-	palette_anchor := kit_view_bar(app)
+	palette_anchor := search_anchor
+	if !zone_hidden(k, .View_Bar) {
+		palette_anchor = kit_view_bar(app)
+	} else {
+		for kind in ([]Bar_Pop_Kind{.Shading, .Camera}) do k.bar_at[kind], k.bar_side[kind] = search_anchor, .Below
+	}
 
 	kit_modifier_rail(app)
 
 	// Bottom middle: a page of the brush dock, then the mesh tools (kit_bars.odin).
-	dock_anchor := kit_bottom_bar(app)
+	dock_anchor := menu_anchor
+	if !zone_hidden(k, .Dock) {
+		dock_anchor = kit_bottom_bar(app)
+	} else {
+		k.dock_shown, k.dock_menu = {}, false
+		if k.browser_at == .Dock do k.browser_at = .Bar
+	}
 	// Over the dock, the next steps for what is active (kit_action_bar.odin); notes rise
 	// above both.
 	kit_action_bar(app)
@@ -1082,6 +1105,7 @@ kit_layout :: proc(app: ^App) {
 	kit_dock_menu(app)
 	kit_bar_slot_menu(app)
 	kit_menu(app, menu_anchor)
+	kit_workspace_menu(app)
 	kit_versions(app, menu_anchor)
 	kit_object_menu(app)
 	kit_objects_card_menus(app)
@@ -1447,6 +1471,7 @@ Rename_Entry :: struct {
 	typing: bool, // its field had the keys, which go back when it closes
 	id:     int, // the object, or minus the folder; the slot for a macro
 	macro:  bool,
+	workspace: bool, // the slot of an own workspace
 	at:     ui.Rect,
 	text:   [NAME_BYTES]u8,
 }
@@ -1464,6 +1489,7 @@ kit_rename :: proc(app: ^App) {
 	r := &k.rename
 	gone := object_by_id(app, r.id) == nil && folder_by_id(app, -r.id) == nil
 	if r.macro do gone = app.macro.slots[r.id].name == ""
+	if r.workspace do gone = !k.workspaces.list[r.id].used
 	if r.open && gone do r.open = false
 	if !r.open && r.typing {
 		ctx.text_focus = 0
@@ -1471,10 +1497,12 @@ kit_rename :: proc(app: ^App) {
 	}
 	if !ui.popover_begin(ctx, "rename", &r.open, r.at, .Below, {direction = .Column, gap = 4, padding = 12, width = 280}) do return
 	defer ui.popover_end(ctx)
-	ui.caption(ctx, "RENAME MACRO" if r.macro else "RENAME FOLDER" if r.id < 0 else "RENAME OBJECT")
+	ui.caption(ctx, "RENAME MACRO" if r.macro else "RENAME WORKSPACE" if r.workspace else "RENAME FOLDER" if r.id < 0 else "RENAME OBJECT")
 	now := ""
 	if r.macro {
 		now = app.macro.slots[r.id].name
+	} else if r.workspace {
+		now = workspace_name(k, r.id)
 	} else {
 		if obj := object_by_id(app, r.id); obj != nil do now = object_label(obj)
 		if f := folder_by_id(app, -r.id); f != nil do now = folder_label(f)
@@ -1488,6 +1516,9 @@ kit_rename :: proc(app: ^App) {
 	if apply && r.open && r.macro && rename_text(r.text[:]) != "" {
 		// A macro is no part of the scene: its file changes at once, outside the History.
 		_ = macro_rename(app, r.id, rename_text(r.text[:]))
+	} else if apply && r.open && r.workspace {
+		// A workspace is no part of the scene either: the settings keep its name.
+		workspace_rename(k, r.id, rename_text(r.text[:]))
 	} else if apply && r.open && rename_text(r.text[:]) != "" {
 		cmd := Scene_Command{kind = .Arrange, arrange = .Rename_Folder if r.id < 0 else .Rename_Object, id = abs(r.id)}
 		copy(cmd.name[:], r.text[:])

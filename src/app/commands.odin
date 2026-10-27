@@ -193,6 +193,13 @@ Command_Id :: enum u8 {
 	Show_Section, // the argument is the Kit_Section, below TRAY_SECTIONS
 	Pin_Section, // the argument is the Kit_Section, below TRAY_SECTIONS (panels.odin)
 	Panels_Reset,
+	Workspace, // the argument is the workspace's slot, below WORKSPACE_SLOTS (workspaces.odin)
+	Workspace_Save,
+	Workspace_Save_As,
+	Workspace_Revert,
+	Workspace_Reset,
+	Workspace_Rename,
+	Workspace_Delete,
 	Settings,
 	Reduce_Motion,
 	Command_Palette,
@@ -1584,9 +1591,74 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Panels_Reset = {
 		label = "Reset panels",
-		help = "Puts every panel back where it starts: the palette tray in the right column, the others floating, nothing pinned.",
+		help = "Puts every panel back where it starts (the palette tray in the right column, the others floating, nothing pinned) and shows every bar.",
 		icon = ui.ICON_PANEL,
 		run = proc(app: ^App, _: int) {windows_reset(&app.kit)},
+	},
+	.Workspace = {
+		label = "Workspace",
+		help = "Switches to this workspace's layout of bars and panels, as you left it.",
+		icon = ui.ICON_PANEL,
+		args = WORKSPACE_SLOTS,
+		run = proc(app: ^App, arg: int) {workspace_switch(&app.kit, arg)},
+		enabled = proc(app: ^App, arg: int) -> bool {return arg < len(app.kit.workspaces.list) && app.kit.workspaces.list[arg].used},
+		checked = proc(app: ^App, arg: int) -> bool {return app.kit.workspaces.current == arg},
+	},
+	.Workspace_Save = {
+		label = "Save workspace",
+		help = "Keeps the bars and panels as they are now as this workspace's layout.",
+		icon = ui.ICON_SAVE,
+		run = proc(app: ^App, _: int) {workspace_save(&app.kit)},
+		enabled = proc(app: ^App, _: int) -> bool {return app.kit.workspaces.modified},
+	},
+	.Workspace_Save_As = {
+		label = "Save as a new workspace",
+		help = "Keeps the bars and panels as they are now as a new workspace of your own, and switches to it.",
+		icon = ui.ICON_PLUS,
+		run = proc(app: ^App, _: int) {_ = workspace_save_as(&app.kit)},
+		enabled = proc(app: ^App, _: int) -> bool {
+			for ws, slot in app.kit.workspaces.list do if slot >= len(Built_In) && !ws.used do return true
+			return false
+		},
+	},
+	.Workspace_Revert = {
+		label = "Revert workspace",
+		help = "Puts this workspace's saved layout back, dropping the changes since.",
+		icon = ui.ICON_UNDO,
+		run = proc(app: ^App, _: int) {workspace_revert(&app.kit)},
+		enabled = proc(app: ^App, _: int) -> bool {return app.kit.workspaces.modified},
+	},
+	.Workspace_Reset = {
+		label = "Reset workspace",
+		help = "Puts this built-in workspace back as it comes with the app.",
+		icon = ui.ICON_HISTORY,
+		run = proc(app: ^App, _: int) {workspace_reset(&app.kit)},
+		enabled = proc(app: ^App, _: int) -> bool {
+			w := &app.kit.workspaces
+			b, built_in := workspace_built_in(w.current)
+			return built_in && len(w.list) > 0 && (w.modified || w.list[w.current].saved != built_in_layout(b))
+		},
+	},
+	.Workspace_Rename = {
+		label = "Rename workspace...",
+		help = "Gives this workspace of your own another name.",
+		icon = ui.ICON_PENCIL,
+		run = proc(app: ^App, _: int) {
+			k := &app.kit
+			k.rename = {open = true, id = k.workspaces.current, workspace = true, at = k.workspaces.menu_at}
+		},
+		enabled = proc(app: ^App, _: int) -> bool {_, built_in := workspace_built_in(app.kit.workspaces.current); return !built_in},
+	},
+	.Workspace_Delete = {
+		label = "Delete workspace...",
+		help = "Deletes this workspace of your own, after asking, and goes to Sculpt.",
+		icon = ui.ICON_TRASH,
+		run = proc(app: ^App, _: int) {
+			w := &app.kit.workspaces
+			kit_floats_close(&app.kit)
+			w.menu, w.deleting = true, true
+		},
+		enabled = proc(app: ^App, _: int) -> bool {_, built_in := workspace_built_in(app.kit.workspaces.current); return !built_in},
 	},
 	.Settings = {
 		label = "Settings...",
@@ -1884,6 +1956,10 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 	case .Pin_Section:
 		sec := Kit_Section(arg)
 		return fmt.tprintf("Pin %s as a panel", tray_section_title(sec))
+	case .Workspace:
+		// An own workspace's name is the user's, which no label here knows; menus show it.
+		if b, ok := workspace_built_in(arg); ok do return fmt.tprintf("Workspace: %v", b)
+		return fmt.tprintf("Workspace: your own %d", arg - len(Built_In) + 1)
 	case .Gizmo:
 		return fmt.tprintf("%v gizmo", gizmo.Mode(arg))
 	case .Pie:
@@ -1943,7 +2019,7 @@ command_gesture :: proc(app: ^App, id: Command_Id, arg := 0) -> string {
 	case .Mask:
 		// The mask taps are the Sculpt tool's (mask_tap_act), and only the modifier
 		// buttons' Mask turns them on: with the buttons off there is no way to do them.
-		if app.tool != .Brush || app.kit.rail_side == .Off do break
+		if app.tool != .Brush || rail_shown(&app.kit) == .Off do break
 		#partial switch sculpt.Mask_Command(arg) {
 		case .Invert:  builtin = "With Mask on, tap off the model"
 		case .Blur:    builtin = "With Mask on, tap the mask"

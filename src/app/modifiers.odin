@@ -450,9 +450,11 @@ rail_inset :: proc(app: ^App, lift: f32) -> f32 {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
-	if k.rail_side != .Left do return t.edge
+	if rail_shown(k) != .Left do return t.edge
 	area := ui.safe_area(ctx)
 	bar, _ := ui.prev_layout(ctx, "brush bar")
+	// No brush bar (the workspace hides it), nothing to keep clear of.
+	if bar.y <= 0 do return t.edge
 	if brush_bar_top(app) + bar.y + 8 > area.h - lift - rail_size(app).y do return kit_left(app)
 	return t.edge
 }
@@ -461,7 +463,7 @@ rail_inset :: proc(app: ^App, lift: f32) -> f32 {
 // zero when it is elsewhere or was dragged away from its place, for what must stay clear
 // of it.
 rail_reach :: proc(app: ^App, side: Rail_Side) -> f32 {
-	if app.kit.rail_side != side || side == .Off || app.kit.wheel_offset != {} do return 0
+	if rail_shown(&app.kit) != side || side == .Off || app.kit.wheel_offset != {} do return 0
 	return rail_lift(app) + rail_size(app).y
 }
 
@@ -469,7 +471,7 @@ rail_reach :: proc(app: ^App, side: Rail_Side) -> f32 {
 // bottom bar to keep clear of; zero when it is off or was dragged elsewhere.
 rail_reach_across :: proc(app: ^App) -> f32 {
 	k := &app.kit
-	if k.rail_side == .Off || k.wheel_offset != {} do return 0
+	if rail_shown(k) == .Off || k.wheel_offset != {} do return 0
 	return rail_inset(app, rail_lift(app)) + rail_size(app).x
 }
 
@@ -492,7 +494,7 @@ kit_modifier_rail :: proc(app: ^App) {
 	r := &app.rail
 	k := &app.kit
 	r.center, r.outer, r.hole, r.turn, r.root = {}, 0, 0, 0, 0
-	if k.rail_side == .Off {
+	if rail_shown(k) == .Off {
 		r.latched = {}
 		rail_forget(r)
 		return
@@ -523,7 +525,7 @@ kit_modifier_rail :: proc(app: ^App) {
 		}
 	}
 	turn := math.to_radians(k.wheel_turn)
-	x := ui.Anchor.Start if k.rail_side == .Left else .End
+	x := ui.Anchor.Start if rail_shown(k) == .Left else .End
 	// The drag is on the screen, so its sign follows the side the layout puts the wheel.
 	screen_x, _ := ui.mirrored(ctx, x, {})
 	side: f32 = 1 if screen_x == .Start else -1
@@ -560,7 +562,7 @@ kit_modifier_rail :: proc(app: ^App) {
 rail_claims :: proc(app: ^App, p: [2]f32) -> (which: Modifier, ok: bool) {
 	k := &app.kit
 	r := &app.rail
-	if k.rail_side == .Off || r.root == 0 do return
+	if rail_shown(k) == .Off || r.root == 0 do return
 	if k.menu || k.versions || k.browser || k.object_menu || k.ctx.select_open != 0 || k.ctx.popup_open != 0 do return
 	which = rail_hit(r, p) or_return
 	return which, ui.root_at(&k.ctx, p / k.scale) == r.root
@@ -572,7 +574,7 @@ rail_claims :: proc(app: ^App, p: [2]f32) -> (which: Modifier, ok: bool) {
 rail_claims_plain :: proc(app: ^App, p: [2]f32) -> bool {
 	k := &app.kit
 	r := &app.rail
-	if r.count == 0 || k.rail_side == .Off || r.root == 0 || linalg.length(p - r.center) > r.outer * 0.5 do return false
+	if r.count == 0 || rail_shown(k) == .Off || r.root == 0 || linalg.length(p - r.center) > r.outer * 0.5 do return false
 	if k.menu || k.versions || k.browser || k.object_menu || k.ctx.select_open != 0 || k.ctx.popup_open != 0 do return false
 	return ui.root_at(&k.ctx, p / k.scale) == r.root
 }

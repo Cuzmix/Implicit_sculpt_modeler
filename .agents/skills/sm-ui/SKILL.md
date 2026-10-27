@@ -83,6 +83,13 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   `ui.window_grab`; `panel_drag_follow` docks a floating panel let go over `column_zone`. `kit_panel_menu` is the
   options popover. `column` and `pinned` lines in the settings (`panels_save`, `panels_load_line`); `windows_reset`
   calls `panels_default`. Exit stats `column_left= column_right= panel_pins= panel_moves= panel_menu=`.
+- Workspaces (`src/app/workspaces.odin`): a layout is text, `kit_layout_text(k)` (`hidden`, `open`, `window`,
+  `column`, `pinned` lines, places written right-handed) and `kit_layout_put(k, text)`; the modified dot is that text
+  against the current workspace's `saved`, once a frame (`workspaces_frame`). Built-ins are `built_in_layout(b)`,
+  canonical by construction. A hidden `Zone` skips its bar in `kit_layout` (the top bar takes Undo/Redo or
+  Search/Palettes); read the wheel's side with `rail_shown(k)`, never `k.rail_side`, and the action bar with
+  `action_bar_shown`. A new panel that a layout should open goes in `LAYOUT_PANELS`. Commands `Workspace` (slot arg),
+  `Workspace_Save/_Save_As/_Revert/_Reset/_Rename/_Delete`.
 - Cards (`ui.card_begin`): a window with no title bar, as ZBrush for iPad's quick-access cards, its dots on top
   dragging it like a title bar and a long press on them returning `dock`, then a large centred title. The Objects
   card (`kit_objects_card.odin`, `Kit_Window.Objects`, `Objects_Card` command) is one: Add / Duplicate / New folder /

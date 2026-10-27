@@ -101,7 +101,7 @@ panels_read_back_what_they_wrote :: proc(t: ^testing.T) {
 	// Words that name nothing, and a panel named twice, are passed over.
 	c: App
 	panels_default(&c.kit)
-	panels_load_line(&c, {"column", "right", "Inspector", "section:Nothing", "Settings", "inspector", "section:Objects", "Stats"})
+	panels_load_line(&c.kit, {"column", "right", "Inspector", "section:Nothing", "Settings", "inspector", "section:Objects", "Stats"})
 	testing.expect_value(t, len(c.kit.panels.columns[.Right]), 2)
 	testing.expect(t, c.kit.panels.columns[.Right][1] == Panel_Ref(Kit_Window.Stats), "a word that names no panel was read")
 }

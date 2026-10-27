@@ -574,6 +574,8 @@ panel_begin :: proc(app: ^App, ref: Panel_Ref, title: string, x, y: ui.Anchor, o
 	head := ui.area(ctx, "panel title", {max(inner - 3 * t.target, t.target), t.target})
 	if head.hovered || head.held do ui.fill_rect(ctx, head.rect, t.radius_medium, t.fill_pressed if head.held else t.fill_hover)
 	ty := head.rect.y + head.rect.h * 0.5
+	// A card with no title of its own (the Thumbnail) still names itself in a column.
+	title := title if title != "" else panel_title(app, ref)
 	ui.text(ctx, ui.label_text(title), head.rect.x + 6, ty, t.text_size, t.text, .Semibold)
 	if w.minimized {
 		used := ui.text_width(ctx, ui.label_text(title), t.text_size, .Semibold) + 14
@@ -748,8 +750,7 @@ kit_panel_menu :: proc(app: ^App) {
 
 // The settings lines of the panels: each column that is not as it starts, then each
 // pinned section with where it floats.
-panels_save :: proc(app: ^App, out: ^strings.Builder) {
-	k := &app.kit
+panels_save :: proc(k: ^Kit_State, out: ^strings.Builder) {
 	def: Kit_State
 	panels_default(&def)
 	for c, side in k.panels.columns {
@@ -775,8 +776,7 @@ panels_save :: proc(app: ^App, out: ^strings.Builder) {
 // Reads one panels line (`f` split by spaces): column <left|right> <ref>... or pinned
 // <Section> <moved> <x anchor> <y anchor> <x offset> <y offset> <minimised>. Words that
 // name nothing are skipped; a panel named twice keeps its first place.
-panels_load_line :: proc(app: ^App, f: []string) {
-	k := &app.kit
+panels_load_line :: proc(k: ^Kit_State, f: []string) {
 	switch f[0] {
 	case "column":
 		if len(f) < 2 do return

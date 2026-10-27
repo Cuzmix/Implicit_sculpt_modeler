@@ -192,14 +192,18 @@ bar_command :: proc(app: ^App, id: Command_Id, glyph: rune, arg := 0, name := ""
 // The strip across the top: Home, the menu and the file actions at the left, the
 // scene's file name in the middle, the History, pies, Help and Settings at the right.
 // Returns the menu button, which the menu opens under.
-kit_top_bar :: proc(app: ^App) -> (menu_anchor: ui.Rect) {
+kit_top_bar :: proc(app: ^App) -> (menu_anchor, search_anchor: ui.Rect) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
 	area := ui.safe_area(ctx)
 	ui.begin_anchored(ctx, "top bar", .Start, .Start, {0, 0}, {direction = .Row, width = area.w, height = TOP_BAR_H, padding = 2, background = .Panel, center = true})
-	LEFT :: 5
-	RIGHT :: 4
+	// Undo and Redo, and Search and the tray's button, come here when the workspace hides
+	// the bar that holds them, after Export and before History, so that nothing else moves.
+	left_anchors := zone_hidden(k, .Brush_Bar)
+	right_anchors := zone_hidden(k, .View_Bar)
+	LEFT := 5 + (2 if left_anchors else 0)
+	RIGHT := 4 + (2 if right_anchors else 0)
 	_ = bar_command(app, .Home, ICON_HOME, name = "Home")
 	if ui.icon_button(ctx, "Menu", ui.ICON_MENU, selected = k.menu) {
 		k.menu = !k.menu
@@ -211,10 +215,20 @@ kit_top_bar :: proc(app: ^App) -> (menu_anchor: ui.Rect) {
 	if ui.secondary(ctx) do bar_pop_toggle(app, .Save, ctx.last_rect, .Below)
 	_ = bar_command(app, .Import_Mesh, ui.ICON_IMPORT, name = "Import a mesh")
 	_ = bar_command(app, .Export_Mesh, ui.ICON_EXPORT, name = "Export the mesh")
-
-	// The middle: the file the scene saves to, with a star while it holds changes the
-	// file does not, centred in the room between the two ends.
+	if left_anchors {
+		undo := fmt.tprintf("Undo %s##undo", history_next_label(app.history.done[:]))
+		redo := fmt.tprintf("Redo %s##redo", history_next_label(app.history.undone[:]))
+		if ui.icon_button(ctx, undo, ui.ICON_UNDO, enabled = command_enabled(app, .Undo), keys = command_hint(app, .Undo)) do command_run(app, .Undo)
+		if ui.icon_button(ctx, redo, ui.ICON_REDO, enabled = command_enabled(app, .Redo), keys = command_hint(app, .Redo)) do command_run(app, .Redo)
+	}
+	// The workspace switcher, then the middle: the file the scene saves to, with a star
+	// while it holds changes the file does not, centred in the room left between the ends.
+	// A window too narrow for it leaves the switcher to Search ("workspace").
 	middle := area.w - 4 - f32(LEFT + RIGHT) * t.target
+	if middle >= WORKSPACE_CHIP_ROOM {
+		kit_workspace_chip(app)
+		middle -= ctx.last_rect.w
+	}
 	r := ui.place(ctx, {max(middle, 0), TOP_BAR_H - 4})
 	name := filepath.base(app.scene_path) if app.scene_path != "" else "Untitled"
 	// A scene with no file is marked only once there is work in it to lose.
@@ -222,6 +236,14 @@ kit_top_bar :: proc(app: ^App) -> (menu_anchor: ui.Rect) {
 	shown := fmt.tprintf("%s%s", name, "*" if unsaved else "")
 	if middle > ui.text_width(ctx, shown, t.text_size) + 16 do ui.text(ctx, shown, r.x + r.w * 0.5, r.y + r.h * 0.5, t.text_size, t.text_secondary, align = .Center)
 
+	if right_anchors {
+		if ui.icon_button(ctx, "Search commands", ui.ICON_SEARCH, selected = k.palette, keys = command_hint(app, .Command_Palette)) {
+			if k.palette do palette_close(app)
+			else do palette_open(app)
+		}
+		search_anchor = ctx.last_rect
+		_ = bar_command(app, .Inspector, ui.ICON_PANEL, selected = k.inspector && !side_panel_open(k))
+	}
 	if ui.icon_button(ctx, "History", ui.ICON_HISTORY, selected = k.history) do k.history = !k.history
 	if bar_command(app, .Pie_Editor, ui.ICON_PIE, name = "Edit pies") do k.pie_editor_at = ctx.last_rect
 	_ = bar_command(app, .Help, ui.ICON_HELP, int(Help_Tab.Keys), name = "Help", selected = k.help)
@@ -275,7 +297,7 @@ brush_bar_top :: proc(app: ^App) -> f32 {
 	bar, _ := ui.prev_layout(ctx, "brush bar")
 	low := area.h - ctx.theme.edge - dock_stack(app) - 8 - bar.y
 	top := clamp((area.h - bar.y) * 0.5, points_bottom(app), max(low, points_bottom(app)))
-	if app.kit.rail_side == .Left {
+	if rail_shown(&app.kit) == .Left {
 		above := area.h - ctx.theme.edge - rail_size(app).y - 8 - bar.y
 		if above >= points_bottom(app) do top = min(top, above)
 	}

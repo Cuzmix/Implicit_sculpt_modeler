@@ -2455,6 +2455,87 @@ def pinned_sections_stack_in_the_right_column():
         "panel_pins": is_text("layers,camera")})
 
 
+# The top bar's workspace switcher at 1600 x 900, just after Export, and the rows of the
+# menu it opens: the four built-ins, then Save, Save as new, Revert and Reset.
+WORKSPACE_CHIP = (275, 26)
+WORKSPACE_ROWS = {"sculpt": 106, "focus": 150, "inspect": 194, "studio": 238, "save": 283, "save_as": 327, "revert": 371, "reset": 415}
+# With the brush bar and the view bar hidden (Focus), Undo and Search in the top bar.
+TOP_UNDO, TOP_SEARCH = (266, 26), (1334, 26)
+
+
+@scenario
+def workspace_switcher_picks_focus():
+    """The switcher's menu, then Focus: the side bars and the action bar go, the tray closes, and the menu with them."""
+    s = Script()
+    s.ftap(*WORKSPACE_CHIP)
+    s.wait(10)
+    s.ftap(WORKSPACE_CHIP[0], WORKSPACE_ROWS["focus"])
+    s.wait(10)
+    return s, [], camera_still({"dabs": near(0), "workspace": is_text("Focus"), "zones_hidden": is_text("brush_bar,view_bar,action_bar"),
+                                "workspace_menu": near(0), "window_inspector": lambda v: v.startswith("0,"), "workspace_modified": near(0)})
+
+
+@scenario
+def a_closed_panel_marks_the_workspace_and_revert_puts_it_back():
+    """Closing the tray marks Sculpt as changed; Revert in the switcher's menu opens it again and clears the mark."""
+    s = Script()
+    s.ftap(*INSPECTOR_CLOSE)
+    s.wait(10)
+    s.ftap(*WORKSPACE_CHIP)
+    s.wait(10)
+    s.ftap(WORKSPACE_CHIP[0], WORKSPACE_ROWS["revert"])
+    s.wait(10)
+    return s, [], camera_still({"dabs": near(0), "workspace": is_text("Sculpt"), "workspace_modified": near(0),
+                                "window_inspector": lambda v: v.startswith("1,")})
+
+
+@scenario
+def a_changed_workspace_shows_its_mark():
+    """Closing the tray leaves Sculpt marked as changed."""
+    s = Script()
+    s.ftap(*INSPECTOR_CLOSE)
+    s.wait(10)
+    return s, [], camera_still({"dabs": near(0), "workspace_modified": near(1)})
+
+
+@scenario
+def focus_moves_undo_and_search_to_the_top_bar():
+    """In Focus a stroke, then Undo in the top bar takes it back, and Search there opens the palette."""
+    s = Script()
+    s.fdrag(line((760, 430), (860, 470), 20))
+    s.wait(4)
+    s.ftap(*TOP_UNDO)
+    s.wait(4)
+    s.ftap(*TOP_SEARCH)
+    s.wait(10)
+    return s, ["--script=workspace focus"], {"undo_steps": near(0), "redo_steps": near(1), "palette": near(1), "workspace": is_text("Focus")}
+
+
+@scenario
+def save_as_new_workspace_is_remembered():
+    """Save as a new workspace from the switcher makes "Workspace 1", current, and the settings keep it."""
+    s = Script()
+    s.ftap(*WORKSPACE_CHIP)
+    s.wait(10)
+    s.ftap(WORKSPACE_CHIP[0], WORKSPACE_ROWS["save_as"])
+    s.wait(10)
+    return s, [f"--settings-file={settings_file()}"], camera_still({
+        "dabs": near(0), "workspace": is_text("Workspace%201"), "workspace_count": near(5),
+        "@saved": saved_line("workspace 4 Workspace%201")})
+
+
+@scenario
+def the_current_workspace_comes_back():
+    """A settings file naming Inspect as current starts in Inspect: Stats and the thumbnail docked on the left."""
+    with open(settings_file(), "w") as f:
+        f.write("workspace_current 2\n")
+    s = Script()
+    s.add("move:800,450")
+    s.wait(10)
+    return s, [f"--settings-file={settings_file()}"], camera_still({"dabs": near(0), "workspace": is_text("Inspect"),
+                                                                     "column_left": is_text("thumbnail,stats"), "zones_hidden": is_text("brush_bar,dock")})
+
+
 @scenario
 def window_position_comes_back():
     """A remembered window position and fold come back on the next start."""
