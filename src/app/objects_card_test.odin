@@ -77,6 +77,23 @@ thumb_key_follows_what_the_picture_shows :: proc(t: ^testing.T) {
 	testing.expect(t, thumb_key(obj) != moved)
 }
 
+// A voxel object's key follows its clay's surface buffers, not a mesh level's.
+@(test)
+thumb_key_of_a_voxel_object_follows_its_clay :: proc(t: ^testing.T) {
+	app: App
+	defer tree_free(&app)
+	objs := tree_scene(&app)
+	obj := objs[0]
+	vp: Voxel_Part
+	obj.voxel = &vp
+	defer obj.voxel = nil
+	key := thumb_key(obj)
+	obj.gpu[0].version += 1
+	testing.expect_value(t, thumb_key(obj), key)
+	vp.gpu.version += 1
+	testing.expect(t, thumb_key(obj) != key)
+}
+
 // Each object shown gets its own cell; once every cell is taken, a new object gets the
 // one shown longest ago, never one shown this frame.
 @(test)

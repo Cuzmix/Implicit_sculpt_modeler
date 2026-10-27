@@ -83,8 +83,9 @@ kit_lights :: proc(app: ^App) {
 	}
 	light := &set.lights[app.light_pick]
 	_ = ui.slider(ctx, "Intensity", &light.strength, 0, LIGHT_STRENGTH_MAX, .Linear, fmt.tprintf("%.2f", light.strength))
-	_ = ui.slider(ctx, "Ambient", &set.ambient, 0, LIGHT_STRENGTH_MAX, .Linear, fmt.tprintf("%.2f", set.ambient))
+	_ = ui.switch_row(ctx, "Place highlight", &app.ui.light_place)
 	if kit_more(app, .Lights) {
+		_ = ui.slider(ctx, "Ambient", &set.ambient, 0, LIGHT_STRENGTH_MAX, .Linear, fmt.tprintf("%.2f", set.ambient))
 		_ = kit_color(app, fmt.tprintf("light %d colour", app.light_pick + 1), &light.color, linear = true)
 		if kind := ui.tabs(ctx, "light kind", LIGHT_KIND_LABELS[:], int(light.kind)); kind >= 0 do light.kind = Light_Kind(kind)
 		if light.kind == .Spot {
@@ -108,7 +109,7 @@ kit_lights :: proc(app: ^App) {
 		if ui.button(ctx, "Reset lights", .Bordered) do set^ = LIGHTS_DEFAULT
 		kit_more_end(app)
 	}
-	ui.paragraph(ctx, "Drag on the sphere to move the picked light; tap it to send it behind the model or bring it back. A sun shines from a direction; a point light and a spot shine from where they are, brighter close up. A light moving with the camera keeps lighting the model the same way while it turns; one in the scene stays put, as on a turntable. The lights are saved with the scene. MatCaps carry their own light.")
+	ui.paragraph(ctx, "Drag on the sphere, or a light's marker in the view, to move it; tap the picked light on the sphere to send it behind the model or bring it back. With Place highlight on, touch the model where the picked light's highlight should be. A sun shines from a direction; a point light and a spot shine from where they are, brighter close up. A light moving with the camera keeps lighting the model the same way while it turns; one in the scene stays put, as on a turntable. The lights are saved with the scene. MatCaps carry their own light.")
 }
 
 // The light sphere: a ball lit by the lights as the camera sees them, each light that is

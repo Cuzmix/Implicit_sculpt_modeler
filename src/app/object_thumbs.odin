@@ -41,13 +41,30 @@ Thumb_Slots :: struct {
 	drawn: int, // pictures drawn, for the exit stats
 }
 
-// What decides how the object's picture looks: its current level's buffers (positions,
-// normals and mask), its paint and whether that shows, and its turn.
+// What decides how the object's picture looks: its drawn buffers (positions, normals
+// and mask; a clay's surface has one set, a mesh its current level's), its paint and
+// whether that shows, and its turn.
 thumb_key :: proc(obj: ^Object) -> u64 {
-	gpu := &obj.gpu[obj.levels.current]
+	gpu, _, _ := thumb_shape(obj)
 	r := obj.transform.rotation
 	keyed := [7]u64{gpu.version, u64(gpu.paint_stamp), u64(obj.levels.current), u64(obj.paint_off), u64(transmute(u32)r.x), u64(transmute(u32)r.y), u64(transmute(u32)r.z)}
 	return max(hash.fnv64a(mem.slice_to_bytes(keyed[:])), 1)
+}
+
+// What the picture draws: the object's buffers, the object-space box they fill (AABB_EMPTY
+// without triangles) and whether its paint shows. A voxel object's are its clay's surface
+// and the box around its meshed nodes; a mesh's are its current level's.
+@(private = "file")
+thumb_shape :: proc(obj: ^Object) -> (gpu: ^render.Mesh_Buffers, local: geom.Aabb, paint: bool) {
+	local = geom.AABB_EMPTY
+	if vp := obj.voxel; vp != nil {
+		for c in vp.clay.surface.chunks do local = geom.aabb_union(local, c.bounds)
+		return &vp.gpu, local, false
+	}
+	lv := sculpt.levels_current(&obj.levels)
+	for c in lv.sculptor.chunks do local = geom.aabb_union(local, c.bounds)
+	if len(lv.sculptor.chunks) == 0 do for p in lv.mesh.positions do geom.aabb_grow(&local, p)
+	return &obj.gpu[obj.levels.current], local, sculpt.sculptor_has_color(&lv.sculptor) && !obj.paint_off
 }
 
 // The atlas cell showing `obj`, as texture coordinates, giving it one when it has none;
@@ -93,15 +110,14 @@ thumbs_frame :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer) {
 			s = {}
 			continue
 		}
-		gpu := &obj.gpu[obj.levels.current]
+		gpu, local, paint := thumb_shape(obj)
 		if gpu.index_count == 0 do continue
-		lv := sculpt.levels_current(&obj.levels)
-		view, proj, model := thumb_camera(obj, lv)
+		view, proj, model := thumb_camera(obj, local)
 		item := render.Draw_Item {
 			mesh   = gpu,
 			model  = model,
 			color  = THUMB_COLOR,
-			paint  = sculpt.sculptor_has_color(&lv.sculptor) && !obj.paint_off,
+			paint  = paint,
 			damage = geom.AABB_EMPTY,
 		}
 		if render.thumbs_draw(&app.renderer, &app.thumbs, cmd, i, view, proj, item) {
@@ -113,13 +129,11 @@ thumbs_frame :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer) {
 }
 
 // The object turned as it is in the scene but not moved or scaled, seen from the front
-// in parallel projection, fitted to its bounds with a small margin.
+// in parallel projection, fitted to its object-space box `local` with a small margin.
 @(private = "file")
-thumb_camera :: proc(obj: ^Object, lv: ^sculpt.Level) -> (view, proj, model: render.Mat4) {
+thumb_camera :: proc(obj: ^Object, local: geom.Aabb) -> (view, proj, model: render.Mat4) {
 	model = transform_matrix({scale = 1, rotation = obj.transform.rotation})
-	local := geom.AABB_EMPTY
-	for c in lv.sculptor.chunks do local = geom.aabb_union(local, c.bounds)
-	if len(lv.sculptor.chunks) == 0 do for p in lv.mesh.positions do geom.aabb_grow(&local, p)
+	local := local
 	if local.lo.x > local.hi.x do local = {lo = -1, hi = 1}
 	world := geom.AABB_EMPTY
 	for corner in 0 ..< 8 {
