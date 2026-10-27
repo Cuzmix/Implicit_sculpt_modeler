@@ -219,7 +219,8 @@ SETTINGS := [?]Setting {
 	{"coach", K + offset_of(Kit_State, coach), i32, 0, f32(COACH_DONE)},
 	{"stats", K + offset_of(Kit_State, stats), bool, 0, 0},
 	{"stats_advanced", K + offset_of(Kit_State, stats_advanced), bool, 0, 0},
-	{"vsync", offset_of(App, vsync), bool, 0, 0},
+	{"frame_rate", offset_of(App, frame_rate), Frame_Rate, 0, 0},
+	{"frame_limit", offset_of(App, frame_limit), i32, FRAME_LIMIT_MIN, FRAME_LIMIT_MAX},
 	{"msaa", offset_of(App, msaa), Msaa, 0, 0},
 	{"autosave_minutes", offset_of(App, autosave) + offset_of(Autosave, minutes), i32, 0, 10},
 	{"versions_kept", offset_of(App, versions_kept), i32, 0, 10},
@@ -548,6 +549,9 @@ settings_load :: proc(app: ^App, path: string) {
 		switch f[0] {
 		case "version":
 			version, _ = strconv.parse_int(f[1])
+		case "vsync":
+			// Before the frame rate choice: VSync off is Unlimited now.
+			if f[1] != "1" do app.frame_rate = .Unlimited
 		case "lights_fixed":
 			// Before each light had its own space: the whole set fixed to the scene.
 			fixed_lights = f[1] == "1"
