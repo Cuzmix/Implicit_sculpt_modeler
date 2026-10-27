@@ -37,6 +37,7 @@ Boolean_State :: struct {
 	live_vertices: i32,
 	vertices:      i32,
 	preview:       render.Mesh_Buffers, // the live result, in the base's space
+	preview_mesh:  geom.Mesh,           // ...on the CPU, which the traced studio render casts from
 	shown:         bool,                // preview holds the result for `stamp`
 	stamp:         u64,
 	base:          int,                 // id of the base the preview was made for
@@ -132,15 +133,18 @@ boolean_live_update :: proc(app: ^App) -> bool {
 	b.stamp, b.base = stamp, base.id
 	if b.shown do _ = sdl.WaitForGPUIdle(app.renderer.device)
 	render.mesh_buffers_destroy(&app.renderer, &b.preview)
+	geom.mesh_destroy(&b.preview_mesh)
 	b.shown = false
 	if !ok {
 		log.warn("live boolean: the result is empty")
 		return true
 	}
-	defer geom.mesh_destroy(&mesh)
 	preview, made := render.mesh_buffers_create(&app.renderer, mesh, nil)
-	if !made do return false
-	b.preview, b.shown = preview, true
+	if !made {
+		geom.mesh_destroy(&mesh)
+		return false
+	}
+	b.preview, b.preview_mesh, b.shown = preview, mesh, true
 	b.ms = time.duration_milliseconds(time.tick_since(start))
 	render.viewport_invalidate(&app.target)
 	return true

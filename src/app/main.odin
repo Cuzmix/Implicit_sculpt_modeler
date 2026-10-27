@@ -48,6 +48,7 @@ Options :: struct {
 	dump_viewport: string `usage:"On exit, write the last viewport image to this path: a PNG, or a binary PPM when it ends in .ppm (for checking renders), as Menu > Save screenshot does."`,
 	check_mesh: bool `usage:"On exit, check every object's current mesh (closed, consistently wound, no degenerate triangles or NaN) and print the counts as mesh_* lines (slow on large meshes)."`,
 	no_partial: bool `usage:"Redraw the whole viewport every frame instead of only what changed (for comparison)."`,
+	no_trace: bool `usage:"Give the studio render's occlusion and shadow from shadow maps only, never by casting rays at the triangles (for comparison)."`,
 	no_simplify: bool `usage:"Draw every chunk at full detail while the view moves too, instead of simplified copies of the far ones (for comparison)."`,
 	orbit:     bool `usage:"Turn the camera around the scene by itself, once every 240 frames (to watch or time drawing while the view moves)."`,
 	bench_stroke: int `usage:"Run a synthetic brush stroke over this many frames, print brush stats, then exit."`,
@@ -382,6 +383,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	if opts.compute_bench != "" do return computebench_run(&app, opts.compute_bench, opts.vertices)
 	app.scene.selected = -1
 	defer render.mesh_buffers_destroy(&app.renderer, &app.ui.boolean.preview)
+	defer geom.mesh_destroy(&app.ui.boolean.preview_mesh)
 	defer scene_destroy(&app)
 	defer history_destroy(&app.history)
 	timeline_init(&app.timeline)
@@ -481,6 +483,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	app.custom.label = "Custom"
 	app.renderer.cull = !opts.no_cull
 	app.renderer.partial = !opts.no_partial
+	app.renderer.trace = !opts.no_trace
 	app.simplify = !opts.no_simplify
 	app.simplify_px = 1
 	app.vsync = !opts.no_vsync && opts.gpubench == ""
@@ -822,6 +825,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 					lights    = viewport_lights(&app),
 					wireframe = selected && app.wireframe && app.polyframe_lines,
 					live      = live,
+					source    = &vp.clay.surface.mesh,
 					chunks    = vp.clay.surface.chunks[:],
 					damage    = damage,
 				})
@@ -879,6 +883,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 					// The HD window's mesh carries no groups.
 					slots  = object_material_slots(&app, obj, i) if part == 0 && sculpt.sculptor_has_groups(&lv.sculptor) else nil,
 					live   = live,
+					source = &lv.mesh,
 					chunks = lv.sculptor.chunks,
 					chunk_groups = sculpt.sculptor_chunk_groups(&lv.sculptor),
 					damage = lv.sculptor.changed_bounds,
@@ -899,6 +904,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 				if _, ghost := object_flags(&app, base); ghost do color.rgb *= GHOST_SHADE
 				append(&draws, render.Draw_Item {
 					mesh     = &b.preview,
+					source   = &b.preview_mesh,
 					model    = transform_matrix(base.transform),
 					color    = color,
 					material = material.shading,
@@ -923,7 +929,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		if app.studio_on {
 			// Anything redrawn this frame starts the samples over.
 			changed := !drawn.partial || drawn.redrawn_px > 0
-			app.studio_on = render.studio_frame(&app.renderer, &app.studio, cmd, &app.target, view, proj, draws[:], changed, int(app.studio_samples), app.studio_ao, app.studio_shadow, viewport_lights(&app))
+			app.studio_on = render.studio_frame(&app.renderer, &app.studio, cmd, &app.target, view, proj, draws[:], changed, int(app.studio_samples), app.studio_ao, app.studio_shadow, viewport_lights(&app), &app.pool)
 		}
 		live_ao_view_frame(&app, cmd, view, proj, draws[:], drawn)
 
@@ -1195,6 +1201,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			bg := app.background
 			fmt.printfln("background_gradient=%d background_top=%s background_bottom=%s", int(bg.gradient), hex_text(bg.top), hex_text(bg.bottom))
 			lao := app.live_ao
+			tr := app.studio.trace
+			fmt.printfln("trace=%d trace_mb=%.1f trace_build_ms=%.1f trace_chunks_built=%d", tr.samples, f64(tr.bytes) / (1 << 20), tr.build_ms, tr.chunks_built)
 			fmt.printfln("live_ao=%d live_ao_full=%d live_ao_partial=%d live_ao_skipped=%d", int(app.live_ao_on), lao.full, lao.partial, lao.skipped)
 			env := app.env
 			fmt.printfln("environment=%s environment_size=%dx%d environment_background=%d environment_mb=%.1f", "image" if env.kind == .Image && env.gpu.source != nil else "built_in", env.gpu.width, env.gpu.height, int(env.background), f32(render.environment_bytes(env.gpu)) / (1024 * 1024))
