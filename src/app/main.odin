@@ -42,7 +42,7 @@ Options :: struct {
 	hd_open:   bool `usage:"Start sculpting HD on the first sphere, in a window around the side facing the camera (needs --hd)."`,
 	no_cache:  bool `usage:"Draw every object every frame instead of caching the idle ones (for comparison)."`,
 	no_cull:   bool `usage:"Draw every triangle instead of skipping off-screen and back-facing chunks (for comparison)."`,
-	ui_dt:     f32 `usage:"Move the interface's clock (animations, tooltips, long presses) this many seconds a frame instead of by the time that passed, for scripted runs whose checks must not depend on how fast frames come (scripts/touch_check.py passes 1/60). The 90 ms a finger waits before it sculpts and the right tap that opens the pie stay on the real clock."`,
+	ui_dt:     f32 `usage:"Move the interface's clock (animations, tooltips, long presses) this many seconds a frame instead of by the time that passed, for scripted runs whose checks must not depend on how fast frames come (scripts/touch_check.py passes 1/60). A stroke then lays every dab its frame's samples ask for, up to 64, however long they take. The 90 ms a finger waits before it sculpts and the right tap that opens the pie stay on the real clock."`,
 	ui_events: string `usage:"Drive the pointer, fingers and pen as SDL events would, for tests: FRAME:move:X,Y, FRAME:down, FRAME:up, FRAME:right (a right click), FRAME:mdown, FRAME:mup, FRAME:rdown and FRAME:rup (the middle and right buttons held and let go), FRAME:wheel:N, FRAME:key:NAME (a key press: shift, ctrl, alt held until FRAME:keyup:NAME), FRAME:fdown:ID:X,Y, FRAME:fmove:ID:X,Y, FRAME:fup:ID and FRAME:fcancel:ID (finger ID on a touch screen), FRAME:pdown:X,Y, FRAME:pmove:X,Y, FRAME:pup, FRAME:pnear / FRAME:pfar, FRAME:pright (the pen, the last its side button) and FRAME:ppress:P (the pen's pressure from then on, 0 to 1; 0 until set), separated by semicolons; X and Y in window points."`,
 	dump_screen: string `usage:"On exit, write the whole window as the interface drew it (viewport and panels) to this path: a PNG, or a binary PPM when it ends in .ppm."`,
 	dump_viewport: string `usage:"On exit, write the last viewport image to this path: a PNG, or a binary PPM when it ends in .ppm (for checking renders), as Menu > Save screenshot does."`,
@@ -762,8 +762,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		// A gizmo drag the tool changed under ends as it is.
 		if app.tool != .Move do move_end(&app)
 		// A press that picks a polygroup for its material (Pick a group) or a colour (the
-		// Eyedropper) is no tool's.
-		if group_pick_frame(&app, input) || eyedropper_frame(&app, input) {
+		// Eyedropper), or moves a light in the viewport, is no tool's.
+		if group_pick_frame(&app, input) || eyedropper_frame(&app, input) || lights_viewport_frame(&app, input) {
 			brush_stroke_finish(&app)
 		} else {
 			switch app.tool {
@@ -1192,7 +1192,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			set := &app.scene.lights
 			for light in set.lights[:set.count] do lights_on += int(light.on)
 			l1 := light_view_dir(&app, 0)
-			fmt.printfln("light_pick=%d lights_on=%d light1=%.2f,%.2f,%.2f light1_on=%d light_flips=%d light_count=%d light1_kind=%s light1_space=%s", app.light_pick + 1, lights_on, l1.x, l1.y, l1.z, int(set.lights[0].on), app.kit.light_sphere.flips, set.count, lower(set.lights[0].kind), lower(set.lights[0].space))
+			fmt.printfln("light_pick=%d lights_on=%d light1=%.2f,%.2f,%.2f light1_on=%d light_flips=%d light_count=%d light1_kind=%s light1_space=%s light_moves=%d", app.light_pick + 1, lights_on, l1.x, l1.y, l1.z, int(set.lights[0].on), app.kit.light_sphere.flips, set.count, lower(set.lights[0].kind), lower(set.lights[0].space), app.ui.light_press.moves)
 			fmt.printfln("brush_front_only=%d brush_lock_plane=%d brush_connected=%d brush_grab_depth=%d brush_smooth_only=%v", int(app.brush.front_only), int(app.brush.lock_plane), int(app.brush.connected), int(app.brush.grab_depth), app.brush.smooth_only)
 			fmt.printfln("pose_mode=%d pose_drags=%d pose_moved=%d mesh_sum=%.4f topo_masks=%d topo_reach=%.3f", int(pose_mode(&app)), m.pose_drags, m.pose_moved, mesh_sum, m.topo_masks, m.topo_reach)
 			fmt.printfln("gizmo_at=%.0f,%.0f gizmo_mode=%s gizmo_hover=%s gizmo_last=%s gizmo_drags=%d gizmo_snap=%d transform=%.4f,%.4f,%.4f,%.3f,%.3f,%.3f,%.4f transform_undo=%d",
@@ -1335,6 +1335,9 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		// The Colors card's tab, how many colours its history and your palettes hold, and
 		// whether the eyedropper still waits for a press.
 		fmt.printfln("colors_tab=%s color_history=%d color_palettes=%d eyedropper=%d", strings.to_lower(fmt.tprint(k.colors.tab), context.temp_allocator), k.colors.history_count, k.colors.palette_count, int(app.ui.eyedrop_armed))
+		// The brush browser's category, what Recent and Favorites hold, whether its
+		// categories are hidden or a search is open, and how many tiles it picked from.
+		fmt.printfln("brush_category=%s brush_recent=%d brush_favorites=%d brush_sidebar=%d brush_search=%d brush_browser_picks=%d", strings.to_lower(fmt.tprint(k.brushes.category), context.temp_allocator), k.brushes.recent_count, k.brushes.favorite_count, int(!k.brushes.sidebar_hidden), int(k.brushes.searching), k.brushes.picks)
 		// Where the modifier rail and what must stay clear of it ended up, in points, for
 		// touch_check's window size scenarios.
 		for name in ([?]string{"modifier rail", "brush bar", "dock", "dock pages", "points", "inspector", "action bar", "coach", "view bar", "top bar", "adjust last", "shape bar"}) {

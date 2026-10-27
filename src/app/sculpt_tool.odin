@@ -209,6 +209,8 @@ MIN_DAB_SPACING_PX :: 1
 MAX_DABS_PER_FRAME :: 64 // the rest of the path waits for the next frame
 // ...and once the frame's dabs have taken this long, as they can when dynamic topology
 // has many triangles to make, so the frame rate holds and the stroke catches up later.
+// A run on the interface's fixed clock (--ui-dt) has no such limit: where the stroke
+// stops would depend on how busy the machine is, and the dabs after it on that.
 MAX_BRUSH_MS_PER_FRAME :: 10
 MAX_PENDING_SAMPLES :: 4096 // beyond this a lagging stroke drops its oldest samples
 MIN_PRESSURE_SIZE :: 0.05 // smallest share of the radius pen pressure can shrink it to
@@ -614,7 +616,7 @@ dot_follow :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: In
 // Moves the stroke in a straight line on screen to `target`, where the pressure is
 // `pressure` and the pen leans `tilt`, with a dab every spacing pixels. Returns false,
 // with the stroke stopped partway, once the frame has used MAX_DABS_PER_FRAME dabs or
-// MAX_BRUSH_MS_PER_FRAME.
+// MAX_BRUSH_MS_PER_FRAME (only on the real clock).
 @(private = "file")
 stroke_walk :: proc(app: ^App, obj: ^Object, input: Viewport_Input, inv: matrix[4, 4]f32, target: [2]f32, pressure: f32, tilt: [2]f32, res: ^Sculpt_Frame_Result, bounded := true) -> bool {
 	st := &app.stroke
@@ -630,7 +632,8 @@ stroke_walk :: proc(app: ^App, obj: ^Object, input: Viewport_Input, inv: matrix[
 			st.pos, st.pressure, st.tilt = target, pressure, tilt
 			return true
 		}
-		if bounded && (res.dabs >= MAX_DABS_PER_FRAME || res.brush_ms + res.raycast_ms >= MAX_BRUSH_MS_PER_FRAME) do return false
+		slow := app.kit.fixed_dt == 0 && res.brush_ms + res.raycast_ms >= MAX_BRUSH_MS_PER_FRAME
+		if bounded && (res.dabs >= MAX_DABS_PER_FRAME || slow) do return false
 		if need > 0 {
 			f := need / l
 			st.pos += d * f

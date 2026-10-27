@@ -219,6 +219,8 @@ SETTINGS := [?]Setting {
 	{"colors_harmony", K + offset_of(Kit_State, colors) + offset_of(Colors_Card, harmony), Harmony, 0, 0},
 	{"colors_value_rgb", K + offset_of(Kit_State, colors) + offset_of(Colors_Card, value_rgb), bool, 0, 0},
 	{"color_default", K + offset_of(Kit_State, colors) + offset_of(Colors_Card, default_palette), int, 0, f32(len(BUILT_IN_PALETTES) + USER_PALETTES - 1)},
+	{"brush_category", K + offset_of(Kit_State, brushes) + offset_of(Brush_Palette, category), Brush_Category, 0, 0},
+	{"brush_sidebar_hidden", K + offset_of(Kit_State, brushes) + offset_of(Brush_Palette, sidebar_hidden), bool, 0, 0},
 	{"all_options", K + offset_of(Kit_State, all_options), bool, 0, 0},
 	{"coach", K + offset_of(Kit_State, coach), i32, 0, f32(COACH_DONE)},
 	{"stats", K + offset_of(Kit_State, stats), bool, 0, 0},
@@ -253,6 +255,9 @@ SETTINGS := [?]Setting {
 	{"double_tap", N + offset_of(Nav_Prefs, double_tap), bool, 0, 0},
 	{"lift_one_orbit", N + offset_of(Nav_Prefs, lift_one_orbit), bool, 0, 0},
 	{"orbit_pivot", N + offset_of(Nav_Prefs, pivot), Orbit_Pivot, 0, 0},
+	{"air_pivot", N + offset_of(Nav_Prefs, air_pivot), bool, 0, 0},
+	{"pivot_dot", N + offset_of(Nav_Prefs, pivot_dot), bool, 0, 0},
+	{"wheel_toward", N + offset_of(Nav_Prefs, wheel_toward), bool, 0, 0},
 	{"edge_orbit", N + offset_of(Nav_Prefs, edge_orbit), bool, 0, 0},
 	{"edge_size", N + offset_of(Nav_Prefs, edge_size), f32, EDGE_MIN, EDGE_MAX},
 	{"edge_show", N + offset_of(Nav_Prefs, edge_show), bool, 0, 0},
@@ -641,6 +646,24 @@ settings_load :: proc(app: ^App, path: string) {
 					w.offset = {clamp(number(f[5], 0), -WINDOW_OFFSET_MAX, WINDOW_OFFSET_MAX), clamp(number(f[6], 0), -WINDOW_OFFSET_MAX, WINDOW_OFFSET_MAX)}
 				}
 			}
+		case "brush_recent", "brush_favorite":
+			// brush_recent <key, escaped> ..., most recent first, and brush_favorite <key,
+			// escaped> ..., in the order added: what the brush browser's Recent and
+			// Favorites list, by brush_item_key. A key naming nothing (a preset deleted
+			// since, a pack removed) is kept, as the pack may come back, and lists nothing.
+			p := &app.kit.brushes
+			recent := f[0] == "brush_recent"
+			if recent do p.recent_count = 0
+			else do p.favorite_count = 0
+			for word in f[1:] {
+				key := preset_unescape(word)
+				if recent && p.recent_count < BRUSH_RECENT {
+					brush_key_set(&p.recent[p.recent_count], key)
+					p.recent_count += 1
+				} else if !recent {
+					if _, dup := brush_favorite(p, key); !dup do brush_favorite_toggle(p, key)
+				}
+			}
 		case "color_history":
 			// color_history #RRGGBB ..., most recent first; codes that are not colours are
 			// skipped.
@@ -863,6 +886,16 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 	fmt.sbprintfln(&out, "ui_scale %g", k.ui_scale)
 	for w, which in k.windows {
 		fmt.sbprintfln(&out, "window %v %d %v %v %g %g %d", which, bit(w.moved), w.x, w.y, w.offset.x, w.offset.y, bit(w.minimized))
+	}
+	if p := &app.kit.brushes; p.recent_count > 0 {
+		strings.write_string(&out, "brush_recent")
+		for &k in p.recent[:p.recent_count] do fmt.sbprintf(&out, " %s", preset_escape(brush_key_text(&k)))
+		strings.write_byte(&out, '\n')
+	}
+	if p := &app.kit.brushes; p.favorite_count > 0 {
+		strings.write_string(&out, "brush_favorite")
+		for &k in p.favorites[:p.favorite_count] do fmt.sbprintf(&out, " %s", preset_escape(brush_key_text(&k)))
+		strings.write_byte(&out, '\n')
 	}
 	if c := &app.kit.colors; c.history_count > 0 {
 		strings.write_string(&out, "color_history")

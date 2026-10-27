@@ -339,7 +339,7 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
 | a `fade == 0` vertex moves a little | never: an HD window's border meets the level drawn around it |
 | `sculptor_lod_update` returns ranges mid-stroke | nothing while `history.recording` (`lod.odin:164`) |
 | more than 64 dabs land in one frame | the rest of the path waits for the next frame; a lagging stroke drops its oldest samples past 4096 |
-| a frame lays every dab its samples ask for | it stops once its dabs have taken `MAX_BRUSH_MS_PER_FRAME` (10 ms), as heavy dynamic topology can; the rest waits |
+| a frame lays every dab its samples ask for | it stops once its dabs have taken `MAX_BRUSH_MS_PER_FRAME` (10 ms), as heavy dynamic topology can; the rest waits (not on `--ui-dt`'s fixed clock, so scripted strokes land the same under load) |
 | a split edge's opposite vertex can sit on it | splits bisect each triangle across its longest side, so slivers never form; `dyn_long_stroke_keeps_a_clean_surface` checks angles and folds |
 
 ## Tests

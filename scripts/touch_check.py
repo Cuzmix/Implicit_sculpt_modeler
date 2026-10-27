@@ -57,7 +57,7 @@ UI = {
     "dock_draw": (426, 843), "dock_smooth": (490, 843), "browser": (872, 843), "gizmo": (933, 843),
     "remesh": (990, 843), "dyntopo": (1038, 843), "retopo": (1086, 843), "subdivide": (1134, 843),
     "live_boolean": (1182, 843), "dock_page1": (772, 888), "dock_page2": (800, 888), "dock_page3": (828, 888),
-    "browser_curve": (743, 152), "browser_insert": (807, 152),
+    "browser_curve": (860, 387), "browser_insert": (860, 723),
     "size_slider": (91, 663),  # in the popover the Size button opens
     # The tray's list of palettes and sections (kit_tray.odin), with the Brush palette open.
     "list_brush": (1116, 158), "list_object": (1116, 590), "list_scene": (1116, 638), "status": (69, 80),
@@ -783,6 +783,34 @@ def light_sphere_moves_and_flips_lights():
                                                              "light1": lambda v: all(abs(float(a) - b) < 0.03 for a, b in zip(v.split(","), (0.5, 0, -0.866)))})
 
 
+# The Lights section's Place highlight switch, in points; and the first light's marker
+# in the viewport, on the circle 0.42 of the view's height round its middle.
+LIGHT_PLACE = (1490, 695)
+LIGHT1_MARKER = (800 - 0.508 * 378, 450 - 0.609 * 378)
+
+
+@scenario
+def light_marker_dragged_in_the_viewport():
+    """In Scene: Lights, a finger drag on the first light's marker in the viewport moves the light round the circle to the right (in front still), as the light sphere would; one undo step, nothing sculpted, the camera stays."""
+    s = Script()
+    s.fdrag(line(LIGHT1_MARKER, (800 + 0.5 * 378, 450), 16))
+    s.wait(4)
+    return s, ["--script=show_section lights"], camera_still({"dabs": near(0), "light_pick": near(1), "light_moves": near(1), "undo_steps": near(1),
+                                                             "light1": lambda v: all(abs(float(a) - b) < 0.03 for a, b in zip(v.split(","), (0.5, 0, 0.866)))})
+
+
+@scenario
+def place_highlight_lights_where_the_finger_taps():
+    """In Scene: Lights, with Place highlight switched on a tap in the middle of the sphere turns the first light to shine from the camera, so its highlight lands there; one undo step, nothing sculpted, the camera stays."""
+    s = Script()
+    s.ftap(*LIGHT_PLACE)
+    s.wait(4)
+    s.ftap(800, 450)
+    s.wait(4)
+    return s, ["--script=show_section lights"], camera_still({"dabs": near(0), "light_pick": near(1), "light_moves": near(1), "undo_steps": near(1),
+                                                             "light1": lambda v: all(abs(float(a) - b) < 0.03 for a, b in zip(v.split(","), (0, 0, 1)))})
+
+
 # The Mask section's Steps slider, where the tray shows it at 1600 x 900.
 MASK_STEPS = (1376, 362)
 
@@ -1332,6 +1360,73 @@ def orbit_about_the_centre_setting():
         "camera_yaw": near(wrap(0.6 - 200 * 0.008), 2e-3)}
 
 
+def three_start(st):
+    """The camera THREE starts with: the default turn, framing the three spheres in a row
+    along x (at 0, 2.25 and 4.5) about the middle one. An orbit keeps the distance."""
+    return {"camera_yaw": 0.6, "camera_pitch": 0.35, "camera_roll": 0, "camera_distance": st["camera_distance"], "camera_target": "2.25,0,0"}
+
+
+@scenario
+def orbit_about_the_selection_setting():
+    """With Turn about set to the selected objects, an orbit turns about the selected sphere's middle, which stays put on screen."""
+    s = Script()
+    s.fdrag(past_slop((250, 120), (450, 120), 20))
+    def at_selected(st):
+        x, y, z = (float(v) for v in st["transform"].split(",")[:3])
+        return math.dist(pivot(st), (x, y, z)) < 0.05 and abs(x) > 0.5
+    return s, THREE + ["--script=set orbit_style turntable; set orbit_pivot selection; select 3"], {
+        "dabs": near(0), "pivot_source": lambda v: v == "selection", "@pivot_at_selected": at_selected,
+        "@pivot_stays_put": lambda st: math.dist(on_screen(st, pivot(st)), on_screen(three_start(st), pivot(st))) < 2e-3}
+
+
+@scenario
+def orbit_about_the_whole_scene_setting():
+    """With Turn about set to the whole scene, an orbit turns about the middle of all three spheres, not the selected one."""
+    s = Script()
+    s.fdrag(past_slop((250, 120), (450, 120), 20))
+    def not_selected(st):
+        x, y, z = (float(v) for v in st["transform"].split(",")[:3])
+        return math.dist(pivot(st), (x, y, z)) > 0.5
+    return s, THREE + ["--script=set orbit_style turntable; set orbit_pivot scene; select 3"], {
+        "dabs": near(0), "pivot_source": lambda v: v == "scene", "@pivot_not_the_selected": not_selected,
+        "@pivot_stays_put": lambda st: math.dist(on_screen(st, pivot(st)), on_screen(three_start(st), pivot(st))) < 2e-3}
+
+
+@scenario
+def orbit_about_the_air_under_the_pointer():
+    """With Turn about the pointer and the air pivot on, a drag off the model turns about the point under the press, as deep as the view's middle."""
+    s = Script()
+    s.fdrag(past_slop((250, 400), (450, 400), 20))
+    return s, ["--script=set orbit_style turntable; set orbit_pivot pointer; set air_pivot on"], {
+        "dabs": near(0), "pivot_source": lambda v: v == "air", "camera_target": lambda v: v != "0.0000,0.0000,0.0000",
+        "@pivot_left_of_the_sphere": lambda st: on_screen(None, pivot(st))[0] < -0.3,
+        "@pivot_stays_put": lambda st: math.dist(on_screen(st, pivot(st)), on_screen(None, pivot(st))) < 2e-3}
+
+
+@scenario
+def wheel_zooms_toward_the_pointer_setting():
+    """With Wheel zooms toward the pointer on, three notches over the sphere's upper right zoom in and move the view's middle toward it."""
+    s = Script()
+    s.add("move:1000,300")
+    s.wait(1)
+    s.add("wheel:3")
+    s.wait(3)
+    return s, ["--script=set wheel_toward on"], {
+        "dabs": near(0), "camera_distance": lambda v: float(v) < 3.0,
+        "@target_moved": lambda st: math.dist(tuple(float(v) for v in st["camera_target"].split(",")), (0, 0, 0)) > 0.05}
+
+
+@scenario
+def wheel_zooms_toward_the_middle_by_default():
+    """By default the same three notches zoom toward the middle: the view's middle stays where it was."""
+    s = Script()
+    s.add("move:1000,300")
+    s.wait(1)
+    s.add("wheel:3")
+    s.wait(3)
+    return s, [], {"dabs": near(0), "camera_distance": lambda v: float(v) < 3.0, "camera_target": is_text("0.0000,0.0000,0.0000")}
+
+
 def zoomed_in(s):
     """Eight wheel notches in: the sphere fills the whole window, with no empty space left."""
     s.add("move:800,450")
@@ -1477,7 +1572,7 @@ def settings_scroll_and_persist():
         os.remove(settings_file())
     s = Script()
     open_settings(s, "camera")
-    s.ftap(1495, 717)  # Edges always turn the view
+    s.ftap(1495, 440)  # Invert sideways orbit
     s.wait(4)
     s.fdrag(line((1246, 395), (1251, 95), 20))  # from the Orbit speed slider, upward
     s.wait(16)
@@ -1485,7 +1580,7 @@ def settings_scroll_and_persist():
     s.wait(4)
     return s, [f"--settings-file={settings_file()}"], camera_still({
         "dabs": near(0), "settings_open": near(0), "settings_scroll": lambda v: float(v) > 100,
-        "@saved": saved(edge_orbit="0", zoom_speed="1", orbit_speed="1")})
+        "@saved": saved(invert_x="1", zoom_speed="1", orbit_speed="1")})
 
 
 @scenario
@@ -3372,7 +3467,19 @@ DEFAULT_DOCK = "Draw,Smooth,Clay,Flatten,Inflate,Grab,Mask"
 # preset or one: Brush settings, Pinch, the first preset and Reset dock in the menu; the
 # first preset in the browser.
 SLOT_SETTINGS, SLOT_PINCH, SLOT_PRESET, SLOT_RESET = (410, 282), (362, 373), (362, 723), (400, 774)
-BROWSER_PRESET = (743, 767)
+# The brush browser opened from the dock, at 1600 by 900: its header's Search, the
+# heart beside the current brush, the categories down its left, its tiles' middles
+# (three columns, the first row at the top) and its A to Z index.
+BROWSER_SEARCH, BROWSER_HEART = (1079, 89), (724, 191)
+BROWSER_CATEGORY = {"recent": (690, 264), "favorites": (690, 312), "all": (690, 360), "move": (690, 552),
+                    "mask": (690, 648), "clip": (690, 744)}
+BROWSER_COLUMNS, BROWSER_ROWS = (860, 964, 1068), (163, 275, 387, 499, 611, 723)
+BROWSER_INDEX_X, BROWSER_INDEX_A, BROWSER_INDEX_STEP = 1139, 135, 25.85
+
+
+def browser_tile(column, row):
+    """The middle of the brush browser's tile in `column` and `row` (from 0) as scrolled."""
+    return BROWSER_COLUMNS[column], BROWSER_ROWS[row]
 
 
 def one_preset_settings(extra=""):
@@ -3433,54 +3540,97 @@ def dock_comes_back_from_settings():
 
 @scenario
 def browser_picks_a_preset():
-    """The brush browser lists the presets under the brushes; a tap on Soft clay puts the brush on it and closes the browser."""
+    """The brush browser's Search finds your preset Soft clay by part of its name, in any
+    case; a tap on it puts the brush on it and closes the browser."""
     s = Script()
     s.ftap(*UI["browser"])
     s.wait(12)
-    s.ftap(*BROWSER_PRESET)
+    s.ftap(*BROWSER_SEARCH)
+    s.wait(4)
+    s.type("SOFT")
+    s.wait(4)
+    s.ftap(*browser_tile(0, 0))
     s.wait(6)
-    return s, [one_preset_settings()], camera_still({"dabs": near(0), "preset": near(1), "preset_name": is_text("Soft_clay"), "browser": near(0)})
-
-
-# The brush browser's built-in Move all depth, at 1600 by 900 with one preset of the
-# person's own.
-BROWSER_MOVE_ALL_DEPTH = (743, 474)
+    return s, [one_preset_settings()], camera_still({"dabs": near(0), "preset": near(1), "preset_name": is_text("Soft_clay"), "browser": near(0),
+                                                     "brush_browser_picks": near(1)})
 
 
 @scenario
 def browser_picks_a_built_in_preset():
-    """The brush browser lists the built-in library between the brushes and the presets; a tap on Move all depth puts the brush on it (Grab reaching through the depth) and closes the browser."""
+    """The brush browser's Move category lists Grab and the library's moves alphabetically:
+    a tap on the third, Move all depth, puts the brush on it (Grab reaching through the
+    depth) and closes the browser."""
     s = Script()
     s.ftap(*UI["browser"])
     s.wait(12)
-    s.ftap(*BROWSER_MOVE_ALL_DEPTH)
+    s.ftap(*BROWSER_CATEGORY["move"])
+    s.wait(6)
+    s.ftap(*browser_tile(2, 0))
     s.wait(6)
     return s, [one_preset_settings()], camera_still({"dabs": near(0), "preset_name": is_text("Move_all_depth"), "brush_kind": is_text("grab"),
                                                      "brush_grab_depth": near(1), "browser": near(0)})
 
 
-# The brush browser's mask, hide and cut tiles at 1600 x 900: Mask lasso in the first
-# row, Knife at the end of the second.
-BROWSER_MASK_LASSO = (807, 652)
-BROWSER_KNIFE = (1000, 712)
-
-
 @scenario
 def browser_picks_the_knife_and_mask_lasso():
-    """The brush browser lists the mask, hide and cut tools after the library: a tap on
-    Knife makes it what Ctrl + Shift + drag runs and closes the browser, leaving the brush
-    held; a tap on Mask lasso does the same for Ctrl + drag's shape."""
+    """The brush browser lists the hide and cut tools under Clip and hide and the mask
+    shapes under Mask: a tap on Knife (Clip, Hide lasso, Hide rectangle, Knife) makes it
+    what Ctrl + Shift + drag runs and closes the browser, leaving the brush held; a tap on
+    Mask lasso (Mask, Mask lasso) does the same for Ctrl + drag's shape, and the browser
+    stays on the last category."""
     s = Script()
     s.ftap(*UI["browser"])
     s.wait(12)
-    s.ftap(*BROWSER_KNIFE)
+    s.ftap(*BROWSER_CATEGORY["clip"])
+    s.wait(6)
+    s.ftap(*browser_tile(0, 1))
     s.wait(6)
     s.ftap(*UI["browser"])
     s.wait(12)
-    s.ftap(*BROWSER_MASK_LASSO)
+    s.ftap(*BROWSER_CATEGORY["mask"])
+    s.wait(6)
+    s.ftap(*browser_tile(1, 0))
     s.wait(6)
     return s, [], camera_still({"dabs": near(0), "gesture": is_text("knife"), "mask_shape": is_text("lasso"),
-                                "brush_kind": is_text("draw"), "browser": near(0)})
+                                "brush_kind": is_text("draw"), "browser": near(0), "brush_category": is_text("mask")})
+
+
+@scenario
+def browser_heart_keeps_a_favorite():
+    """The heart beside the current brush puts it in Favorites, whose count and list show
+    it; a brush picked from the dock comes first in Recent; both are remembered."""
+    s = Script()
+    s.ftap(*UI["dock_smooth"])
+    s.wait(4)
+    s.ftap(*UI["browser"])
+    s.wait(12)
+    s.ftap(*BROWSER_HEART)
+    s.wait(4)
+    s.ftap(*BROWSER_CATEGORY["favorites"])
+    s.wait(6)
+    s.ftap(*browser_tile(0, 0))
+    s.wait(6)
+    return Steps([
+        (s, [f"--settings-file={settings_file()}"],
+         camera_still({"dabs": near(0), "brush_kind": is_text("smooth"), "brush_favorites": near(1), "brush_recent": near(1),
+                       "brush_category": is_text("favorites"), "browser": near(0), "brush_browser_picks": near(1)})),
+        (Script(), [f"--settings-file={settings_file()}"], {"brush_favorites": near(1), "brush_recent": near(1), "brush_category": is_text("favorites")}),
+    ])
+
+
+@scenario
+def browser_index_jumps_to_a_letter():
+    """A tap on S in the brush browser's A to Z index scrolls All to the brushes starting
+    with S: as far down as the grid goes, which puts Sharp crease in the third row's first
+    tile, where a tap picks it."""
+    s = Script()
+    s.ftap(*UI["browser"])
+    s.wait(12)
+    s.ftap(BROWSER_INDEX_X, BROWSER_INDEX_A + BROWSER_INDEX_STEP * (ord("S") - ord("A")))
+    s.wait(16)
+    s.ftap(*browser_tile(0, 2))
+    s.wait(6)
+    return s, [], camera_still({"dabs": near(0), "preset_name": is_text("Sharp_crease"), "browser": near(0)})
 
 
 @scenario
@@ -5370,17 +5520,11 @@ def content_pack_installs_and_removes():
     ])
 
 
-# The brush browser's first pack preset, under PRESETS (empty) and the pack's name, at
-# 1600x900.
-BROWSER_PACK_PRESET = (743, 770)
-
-
 @scenario
 def pack_presets_reach_the_browser():
     """A pack's brushes.txt brings its presets: a script installs it and puts the brush on
-    Stone clay; the next start has the brush back on it, and the brush browser lists the
-    pack's presets under its name, where a tap on the first picks it again after a plain
-    brush was picked."""
+    Stone clay; the next start has the brush back on it, and the brush browser's search
+    finds the pack's preset, where a tap picks it again after a plain brush was picked."""
     pack = autosave_folder() + "-brushes.sculptpack"
     line = "preset Stone%20clay Clay 0.35 0 0 0 0 0 Stone Stroke 0 Dots 0 0 0 0 Drag\n"
     make_pack(pack, "Brush Set", ["Stone"], [("brushes.txt", line + line.replace("Stone%20clay", "Ring%20draw").replace("Clay", "Draw").replace(" Stone ", " Rings "))])
@@ -5390,7 +5534,11 @@ def pack_presets_reach_the_browser():
     s.wait(3)
     s.ftap(*UI["browser"])
     s.wait(12)
-    s.ftap(*BROWSER_PACK_PRESET)
+    s.ftap(*BROWSER_SEARCH)
+    s.wait(4)
+    s.type("stone")
+    s.wait(4)
+    s.ftap(*browser_tile(0, 0))
     s.wait(6)
     return Steps([
         (Script(), [f"--settings-file={settings_file()}", f"--script=install_pack {pack}; preset brush-set/stone clay"],
