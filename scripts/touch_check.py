@@ -5758,7 +5758,10 @@ def layers_survive_a_rebuild():
              (run(subdivide), ["--script=new_layer"], {"layers": near(1, 0), "layers_noted": near(1, 0), "vertices": near(163842, 0), "undo_steps": near(1, 0), "selected_levels": near(2, 0)}),
              (run(subdivide, undo=True), ["--script=new_layer"], {"layers": near(1, 0), "vertices": near(40962, 0), "undo_steps": near(0, 0), "selected_levels": near(1, 0)}),
              (run(lambda s: palette_run(s, "make boolean")), ["--spheres=2", "--script=new_layer; select 2; boolean union; move 0.9 0 0; select 1"],
-              {"objects": near(1, 0), "layers": near(1, 0), "layers_noted": near(1, 0)})]
+              {"objects": near(1, 0), "layers": near(1, 0), "layers_noted": near(1, 0)}),
+             # A voxel base: the copy is cut out of the sphere on the field, and one clay object is left.
+             (run(lambda s: palette_run(s, "make boolean")), ["--voxels=96", "--script=duplicate_object; boolean subtract; move 0.9 0 0; select 1"],
+              {"objects": near(1, 0), "voxel_objects": near(1, 0)})]
     # Two spheres start with the view framing both, so the last run is not checked for a still camera.
     return Steps([(sc, args, camera_still(want) if k < 7 else want) for k, (sc, args, want) in enumerate(steps)])
 

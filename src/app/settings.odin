@@ -61,8 +61,78 @@ N :: offset_of(App, nav)
 K :: offset_of(App, kit)
 @(private = "file")
 U :: offset_of(App, ui)
-@(private = "file")
-L :: offset_of(App, lights)
+
+// One of a light's values that settings files and scripts name, as "light<N>_<name>"
+// (LIGHT_KEYS), with where it is in a Light, its type and its range, as Setting has them.
+Light_Field :: struct {
+	name:   string,
+	offset: uintptr,
+	type:   typeid,
+	lo, hi: f32,
+}
+
+@(rodata)
+LIGHT_FIELDS := [?]Light_Field {
+	{"on", offset_of(Light, on), bool, 0, 0},
+	{"kind", offset_of(Light, kind), Light_Kind, 0, 0},
+	{"space", offset_of(Light, space), Light_Space, 0, 0},
+	// Toward the light; a script sets each number in turn, so none is unit length alone.
+	{"x", offset_of(Light, dir) + 0 * size_of(f32), f32, -1, 1},
+	{"y", offset_of(Light, dir) + 1 * size_of(f32), f32, -1, 1},
+	{"z", offset_of(Light, dir) + 2 * size_of(f32), f32, -1, 1},
+	// Where a point or spot light is, in scene units: any number.
+	{"px", offset_of(Light, pos) + 0 * size_of(f32), f32, 0, 0},
+	{"py", offset_of(Light, pos) + 1 * size_of(f32), f32, 0, 0},
+	{"pz", offset_of(Light, pos) + 2 * size_of(f32), f32, 0, 0},
+	{"strength", offset_of(Light, strength), f32, 0, LIGHT_STRENGTH_MAX},
+	{"ref", offset_of(Light, ref), f32, 0, 1e6},
+	{"reach", offset_of(Light, reach), f32, 0, 1e6},
+	{"cone", offset_of(Light, cone), f32, LIGHT_CONE_MIN, LIGHT_CONE_MAX},
+	{"blend", offset_of(Light, blend), f32, 0, 1},
+}
+
+// Each light's keys, LIGHT_FIELDS' names after "light<N>_": constants, since a row keeps
+// its key (a test checks they match).
+@(rodata)
+LIGHT_KEYS := [LIGHT_COUNT][len(LIGHT_FIELDS)]string {
+	{"light1_on", "light1_kind", "light1_space", "light1_x", "light1_y", "light1_z", "light1_px", "light1_py", "light1_pz", "light1_strength", "light1_ref", "light1_reach", "light1_cone", "light1_blend"},
+	{"light2_on", "light2_kind", "light2_space", "light2_x", "light2_y", "light2_z", "light2_px", "light2_py", "light2_pz", "light2_strength", "light2_ref", "light2_reach", "light2_cone", "light2_blend"},
+	{"light3_on", "light3_kind", "light3_space", "light3_x", "light3_y", "light3_z", "light3_px", "light3_py", "light3_pz", "light3_strength", "light3_ref", "light3_reach", "light3_cone", "light3_blend"},
+	{"light4_on", "light4_kind", "light4_space", "light4_x", "light4_y", "light4_z", "light4_px", "light4_py", "light4_pz", "light4_strength", "light4_ref", "light4_reach", "light4_cone", "light4_blend"},
+	{"light5_on", "light5_kind", "light5_space", "light5_x", "light5_y", "light5_z", "light5_px", "light5_py", "light5_pz", "light5_strength", "light5_ref", "light5_reach", "light5_cone", "light5_blend"},
+	{"light6_on", "light6_kind", "light6_space", "light6_x", "light6_y", "light6_z", "light6_px", "light6_py", "light6_pz", "light6_strength", "light6_ref", "light6_reach", "light6_cone", "light6_blend"},
+	{"light7_on", "light7_kind", "light7_space", "light7_x", "light7_y", "light7_z", "light7_px", "light7_py", "light7_pz", "light7_strength", "light7_ref", "light7_reach", "light7_cone", "light7_blend"},
+	{"light8_on", "light8_kind", "light8_space", "light8_x", "light8_y", "light8_z", "light8_px", "light8_py", "light8_pz", "light8_strength", "light8_ref", "light8_reach", "light8_cone", "light8_blend"},
+}
+
+// Each light's colour in linear light, as paint_color is written.
+@(rodata)
+LIGHT_COLOR_KEYS := [LIGHT_COUNT]string{"light1_color", "light2_color", "light3_color", "light4_color", "light5_color", "light6_color", "light7_color", "light8_color"}
+
+// The row of light `i`'s field `f` in the Light_Set at `set` (an offset in App): the
+// scene's lights for scripts, the starting lights for the settings file.
+light_row :: proc(set: uintptr, i, f: int) -> Setting {
+	field := LIGHT_FIELDS[f]
+	return {LIGHT_KEYS[i][f], set + offset_of(Light_Set, lights) + uintptr(i) * size_of(Light) + field.offset, field.type, field.lo, field.hi}
+}
+
+// The row a light's value is named by `key` in the Light_Set at `set`, with how many
+// lights there are and the ambient light; false for no such key.
+light_setting :: proc(set: uintptr, key: string) -> (Setting, bool) {
+	switch key {
+	case "light_count":   return {"light_count", set + offset_of(Light_Set, count), i32, 0, LIGHT_COUNT}, true
+	case "light_ambient": return {"light_ambient", set + offset_of(Light_Set, ambient), f32, 0, LIGHT_STRENGTH_MAX}, true
+	}
+	if !strings.has_prefix(key, "light") do return {}, false
+	for keys, i in LIGHT_KEYS do for k, f in keys do if k == key do return light_row(set, i, f), true
+	return {}, false
+}
+
+// Which light's colour `key` names; false for none.
+light_color_key :: proc(key: string) -> (int, bool) {
+	for k, i in LIGHT_COLOR_KEYS do if k == key do return i, true
+	return 0, false
+}
 
 @(rodata)
 SETTINGS := [?]Setting {
@@ -118,33 +188,13 @@ SETTINGS := [?]Setting {
 	{"background_gradient", offset_of(App, background) + offset_of(Background_Settings, gradient), bool, 0, 0},
 	{"transparent", offset_of(App, see_through), bool, 0, 0},
 	{"flat", offset_of(App, flat), bool, 0, 0},
+	{"live_ao", offset_of(App, live_ao_on), bool, 0, 0},
 	{"texture_view", offset_of(App, texture_view), render.Texture_View, 0, 0},
 	{"exposure", offset_of(App, exposure), f32, -EXPOSURE_RANGE, EXPOSURE_RANGE},
 	{"cavity", offset_of(App, cavity), f32, 0, 1},
 	{"light_turn", offset_of(App, light_turn), f32, -180, 180},
 	{"light_height", offset_of(App, light_height), f32, -90, 90},
-	{"light1_on", L + 0 * size_of(Light) + offset_of(Light, on), bool, 0, 0},
-	{"light1_x", L + 0 * size_of(Light) + offset_of(Light, dir) + 0 * size_of(f32), f32, -1, 1},
-	{"light1_y", L + 0 * size_of(Light) + offset_of(Light, dir) + 1 * size_of(f32), f32, -1, 1},
-	{"light1_z", L + 0 * size_of(Light) + offset_of(Light, dir) + 2 * size_of(f32), f32, -1, 1},
-	{"light1_strength", L + 0 * size_of(Light) + offset_of(Light, strength), f32, 0, LIGHT_STRENGTH_MAX},
-	{"light2_on", L + 1 * size_of(Light) + offset_of(Light, on), bool, 0, 0},
-	{"light2_x", L + 1 * size_of(Light) + offset_of(Light, dir) + 0 * size_of(f32), f32, -1, 1},
-	{"light2_y", L + 1 * size_of(Light) + offset_of(Light, dir) + 1 * size_of(f32), f32, -1, 1},
-	{"light2_z", L + 1 * size_of(Light) + offset_of(Light, dir) + 2 * size_of(f32), f32, -1, 1},
-	{"light2_strength", L + 1 * size_of(Light) + offset_of(Light, strength), f32, 0, LIGHT_STRENGTH_MAX},
-	{"light3_on", L + 2 * size_of(Light) + offset_of(Light, on), bool, 0, 0},
-	{"light3_x", L + 2 * size_of(Light) + offset_of(Light, dir) + 0 * size_of(f32), f32, -1, 1},
-	{"light3_y", L + 2 * size_of(Light) + offset_of(Light, dir) + 1 * size_of(f32), f32, -1, 1},
-	{"light3_z", L + 2 * size_of(Light) + offset_of(Light, dir) + 2 * size_of(f32), f32, -1, 1},
-	{"light3_strength", L + 2 * size_of(Light) + offset_of(Light, strength), f32, 0, LIGHT_STRENGTH_MAX},
-	{"light4_on", L + 3 * size_of(Light) + offset_of(Light, on), bool, 0, 0},
-	{"light4_x", L + 3 * size_of(Light) + offset_of(Light, dir) + 0 * size_of(f32), f32, -1, 1},
-	{"light4_y", L + 3 * size_of(Light) + offset_of(Light, dir) + 1 * size_of(f32), f32, -1, 1},
-	{"light4_z", L + 3 * size_of(Light) + offset_of(Light, dir) + 2 * size_of(f32), f32, -1, 1},
-	{"light4_strength", L + 3 * size_of(Light) + offset_of(Light, strength), f32, 0, LIGHT_STRENGTH_MAX},
-	{"light_ambient", offset_of(App, light_ambient), f32, 0, LIGHT_STRENGTH_MAX},
-	{"lights_fixed", offset_of(App, lights_fixed), bool, 0, 0},
+	{"environment_fixed", offset_of(App, env) + offset_of(Environment_State, fixed), bool, 0, 0},
 	{"environment_source", offset_of(App, env) + offset_of(Environment_State, kind), Environment_Kind, 0, 0},
 	{"environment_strength", offset_of(App, env) + offset_of(Environment_State, strength), f32, -ENVIRONMENT_STRENGTH_RANGE, ENVIRONMENT_STRENGTH_RANGE},
 	{"environment_background", offset_of(App, env) + offset_of(Environment_State, background), bool, 0, 0},
@@ -357,31 +407,6 @@ SETTING_LINES := [?]Setting_Line {
 		proc(app: ^App) -> string {return rgb_text(app.background.top)},
 	},
 	{
-		// Each light's colour (lights.odin) in linear light, as paint_color is written.
-		"light1_color",
-		rgb_parse,
-		proc(app: ^App, v: Setting_Line_Value) {app.lights[0].color = v.([3]f32)},
-		proc(app: ^App) -> string {return rgb_text(app.lights[0].color)},
-	},
-	{
-		"light2_color",
-		rgb_parse,
-		proc(app: ^App, v: Setting_Line_Value) {app.lights[1].color = v.([3]f32)},
-		proc(app: ^App) -> string {return rgb_text(app.lights[1].color)},
-	},
-	{
-		"light3_color",
-		rgb_parse,
-		proc(app: ^App, v: Setting_Line_Value) {app.lights[2].color = v.([3]f32)},
-		proc(app: ^App) -> string {return rgb_text(app.lights[2].color)},
-	},
-	{
-		"light4_color",
-		rgb_parse,
-		proc(app: ^App, v: Setting_Line_Value) {app.lights[3].color = v.([3]f32)},
-		proc(app: ^App) -> string {return rgb_text(app.lights[3].color)},
-	},
-	{
 		// The gradient's colour along the bottom edge.
 		"background_bottom",
 		rgb_parse,
@@ -463,7 +488,6 @@ curve_text :: proc(c: geom.Curve) -> string {
 }
 
 // A colour's line: red, green and blue from 0 to 1.
-@(private = "file")
 rgb_parse :: proc(f: []string) -> (Setting_Line_Value, bool) {
 	if len(f) != 3 do return nil, false
 	c: [3]f32
@@ -475,7 +499,6 @@ rgb_parse :: proc(f: []string) -> (Setting_Line_Value, bool) {
 	return c, true
 }
 
-@(private = "file")
 rgb_text :: proc(c: [3]f32) -> string {
 	return fmt.tprintf("%g %g %g", c.r, c.g, c.b)
 }
@@ -507,6 +530,8 @@ settings_load :: proc(app: ^App, path: string) {
 	plain_alpha := ""
 	// The file's version, 0 for one written before the line existed.
 	version := 0
+	// A file from before each light had its own space fixed the whole set to the scene.
+	fixed_lights := false
 	lines: for line in strings.split_lines_iterator(&text) {
 		f := strings.fields(line, context.temp_allocator)
 		if len(f) < 2 do continue
@@ -515,16 +540,29 @@ settings_load :: proc(app: ^App, path: string) {
 			_ = setting_read(app, s, f[1])
 			continue lines
 		}
+		// The starting lights, by the names scripts give the scene's.
+		if s, ok := light_setting(offset_of(App, start_lights), f[0]); ok {
+			_ = setting_read(app, s, f[1])
+			continue lines
+		}
+		if i, ok := light_color_key(f[0]); ok {
+			if v, rgb_ok := rgb_parse(f[1:]); rgb_ok do app.start_lights.lights[i].color = v.([3]f32)
+			continue lines
+		}
 		switch f[0] {
 		case "version":
 			version, _ = strconv.parse_int(f[1])
+		case "lights_fixed":
+			// Before each light had its own space: the whole set fixed to the scene.
+			fixed_lights = f[1] == "1"
 		case "light_key":
 			// Before there were four lights: the key's strength, now the first light's.
-			app.lights[0].strength = clamp(number(f[1], app.lights[0].strength), 0, LIGHT_STRENGTH_MAX)
+			l := &app.start_lights.lights[0]
+			l.strength = clamp(number(f[1], l.strength), 0, LIGHT_STRENGTH_MAX)
 		case "light_fill":
 			// ...and the fill's, as a share of its full strength then, now the second
 			// light's strength itself.
-			app.lights[1].strength = clamp(number(f[1], 1) * render.FILL_STRENGTH, 0, LIGHT_STRENGTH_MAX)
+			app.start_lights.lights[1].strength = clamp(number(f[1], 1) * render.FILL_STRENGTH, 0, LIGHT_STRENGTH_MAX)
 		case "brush":
 			if kind, ok := brush_by_name(f[1]); ok do b.kind = kind
 		case "strength":
@@ -551,7 +589,7 @@ settings_load :: proc(app: ^App, path: string) {
 			}
 			line := setting_line(f[0])
 			if v, ok := line.parse(f[1:]); ok do line.apply(app, v)
-		case "symmetry", "paint_color", "paint_color2", "background_top", "background_bottom", "new_vertices", "mask_by_curve", "mask_adjust_curve", "light1_color", "light2_color", "light3_color", "light4_color":
+		case "symmetry", "paint_color", "paint_color2", "background_top", "background_bottom", "new_vertices", "mask_by_curve", "mask_adjust_curve":
 			line := setting_line(f[0])
 			if v, ok := line.parse(f[1:]); ok do line.apply(app, v)
 		case "custom_material":
@@ -737,6 +775,7 @@ settings_load :: proc(app: ^App, path: string) {
 			}
 		}
 	}
+	if fixed_lights do lights_fixed_set(app, &app.start_lights, true)
 	// On a preset of the brush the file names, it is put back on it; its plain values are
 	// the ones just read.
 	if plain_alpha != "" do b.alpha = alpha_find(app, plain_alpha)
@@ -795,6 +834,18 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 	c := b.pressure_curve
 	fmt.sbprintfln(&out, "pressure_curve %g %g %g %g", c.c1.x, c.c1.y, c.c2.x, c.c2.y)
 	for line in SETTING_LINES do fmt.sbprintfln(&out, "%s %s", line.key, line.text(app))
+	// The starting lights, every one of them, so a light added later starts as it was set.
+	for s in ([2]string{"light_count", "light_ambient"}) {
+		row, _ := light_setting(offset_of(App, start_lights), s)
+		fmt.sbprintfln(&out, "%s %s", s, setting_text(app, row))
+	}
+	for i in 0 ..< LIGHT_COUNT {
+		for f in 0 ..< len(LIGHT_FIELDS) {
+			row := light_row(offset_of(App, start_lights), i, f)
+			fmt.sbprintfln(&out, "%s %s", row.key, setting_text(app, row))
+		}
+		fmt.sbprintfln(&out, "%s %s", LIGHT_COLOR_KEYS[i], rgb_text(app.start_lights.lights[i].color))
+	}
 	m := app.custom
 	matcap := fmt.tprint(m.matcap)
 	if refs := material_refs(app, m); refs.matcap != "" do matcap = preset_escape(refs.matcap)

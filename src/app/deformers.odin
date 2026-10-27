@@ -259,12 +259,13 @@ deform_run :: proc(app: ^App, obj: ^Object, d: sculpt.Deform) -> bool {
 	return true
 }
 
-// Ends the drags held in the inspector (a layer's strength, a deformer's Amount), each as
-// its own undo step, before a command, a scene command, a file or an undo changes what
-// they act on.
+// Ends the drags held in the inspector (a layer's strength, a deformer's Amount, the
+// lights), each as its own undo step, before a command, a scene command, a file or an
+// undo changes what they act on.
 inspector_drags_end :: proc(app: ^App) {
 	layer_drag_finish(app)
 	deform_drag_end(app, force = true)
+	light_drag_end(app, force = true)
 }
 
 // Whether `obj` can be deformed: not in an HD window, nor under dynamic topology, whose

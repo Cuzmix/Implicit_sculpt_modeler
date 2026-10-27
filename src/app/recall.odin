@@ -14,9 +14,9 @@ import "../ui"
 // undone, dropped or out of reach.
 
 // Whether a History entry is a step of its sculptor's own: not a transform, a change to
-// the tree, a change of maps, or a swap.
+// the tree, a change of maps or lights, or a swap.
 entry_is_step :: proc(e: History_Entry) -> bool {
-	return e.swap == nil && e.kind != .Transform && e.kind != .Arrange && e.kind != .Textures
+	return e.swap == nil && e.kind != .Transform && e.kind != .Arrange && e.kind != .Textures && e.kind != .Lights
 }
 
 // The History entry of the step `back` steps back on `obj` as shown now (its level, or
