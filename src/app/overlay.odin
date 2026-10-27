@@ -247,24 +247,7 @@ draw_gizmo :: proc(app: ^App, o: Overlay, input: Viewport_Input) {
 	}
 	switch m.mode {
 	case .Move:
-		// The plane squares first, under the arms, each in the colour of the axis it
-		// holds still.
-		for i in 0 ..< 3 {
-			q, ok := gizmo.square_of(sc, i)
-			if !ok do continue
-			h := gizmo.Handle(int(gizmo.Handle.YZ) + i)
-			c := colors[i]
-			c.a = 0.75 if h == active else 0.3
-			overlay_fill(o, q[:], color_of(h, active, c))
-			c.a = 0.9
-			overlay_polyline(o, q[:], color_of(h, active, c), 1.5 * px, closed = true)
-		}
-		for i in 0 ..< 3 {
-			if !gizmo.arm_shows(sc, i) do continue
-			color := color_of(gizmo.Handle(int(gizmo.Handle.X) + i), active, colors[i])
-			overlay_line(o, sc.center, sc.tips[i], color, 3 * px)
-			overlay_disc(o, sc.tips[i], 5 * px, color)
-		}
+		draw_move_handles(o, sc, active, px)
 		r := f32(gizmo.CENTER_PX) * px
 		overlay_box(o, sc.center - r, sc.center + r, color_of(.View, active, {1, 1, 1, 0.85}), {}, 2 * px)
 	case .Turn:
@@ -295,6 +278,32 @@ draw_gizmo :: proc(app: ^App, o: Overlay, input: Viewport_Input) {
 		}
 	}
 	draw_move_labels(app, o, input)
+}
+
+// The move handles of a gizmo seen as `sc`, `active` lit: the plane squares first,
+// under the arms, each in the colour of the axis it holds still, then an arm along each
+// axis. The middle is the caller's: the Move tool's square, a light's marker.
+draw_move_handles :: proc(o: Overlay, sc: gizmo.Screen, active: gizmo.Handle, px: f32) {
+	colors := GIZMO_AXIS_COLORS
+	color_of :: proc(h, active: gizmo.Handle, c: [4]f32) -> ui.Color {
+		return overlay_color(GIZMO_HIGHLIGHT if h == active else c)
+	}
+	for i in 0 ..< 3 {
+		q, ok := gizmo.square_of(sc, i)
+		if !ok do continue
+		h := gizmo.Handle(int(gizmo.Handle.YZ) + i)
+		c := colors[i]
+		c.a = 0.75 if h == active else 0.3
+		overlay_fill(o, q[:], color_of(h, active, c))
+		c.a = 0.9
+		overlay_polyline(o, q[:], color_of(h, active, c), 1.5 * px, closed = true)
+	}
+	for i in 0 ..< 3 {
+		if !gizmo.arm_shows(sc, i) do continue
+		color := color_of(gizmo.Handle(int(gizmo.Handle.X) + i), active, colors[i])
+		overlay_line(o, sc.center, sc.tips[i], color, 3 * px)
+		overlay_disc(o, sc.tips[i], 5 * px, color)
+	}
 }
 
 // What the Move tool shows by the pointer whatever stands in the middle: a topological

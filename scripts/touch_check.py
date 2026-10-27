@@ -799,6 +799,27 @@ def light_marker_dragged_in_the_viewport():
                                                              "light1": lambda v: all(abs(float(a) - b) < 0.03 for a, b in zip(v.split(","), (0.5, 0, 0.866)))})
 
 
+# The scene's x axis on screen from the middle, as the default camera (yaw 0.6, pitch
+# 0.35) sees it: its right is (cos yaw, 0, -sin yaw) and its up (-sin pitch sin yaw,
+# cos pitch, -sin pitch cos yaw).
+GIZMO_X_WAY = (math.cos(0.6), math.sin(0.35) * math.sin(0.6))
+GIZMO_X_WAY = (GIZMO_X_WAY[0] / math.hypot(*GIZMO_X_WAY), GIZMO_X_WAY[1] / math.hypot(*GIZMO_X_WAY))
+
+
+@scenario
+def light_gizmo_arm_moves_the_light_along_x():
+    """In Scene: Lights, with the first light a point light standing 1.5 in front of the orbit's centre (in the middle of the view), a finger drag along its x arm, out from its marker, moves it along the scene's x alone; one undo step, nothing sculpted, the camera stays."""
+    s = Script()
+    w = GIZMO_X_WAY
+    s.fdrag(line((800 + 40 * w[0], 450 + 40 * w[1]), (800 + 120 * w[0], 450 + 120 * w[1]), 16))
+    s.wait(4)
+    setup = "show_section lights; set light1_kind point; set light1_px 0; set light1_py 0; set light1_pz 1.5; wait 2"
+    # Where it stood: the orbit's centre plus 1.5 toward the eye, (0.80, 0.51, 1.16).
+    at = lambda v: [float(x) for x in v.split(",")]
+    return s, [f"--script={setup}"], camera_still({"dabs": near(0), "light_pick": near(1), "light_moves": near(1), "undo_steps": near(1),
+                                                    "light1_at": lambda v: at(v)[0] > 0.9 and abs(at(v)[1] - 0.51) < 0.015 and abs(at(v)[2] - 1.16) < 0.015})
+
+
 @scenario
 def place_highlight_lights_where_the_finger_taps():
     """In Scene: Lights, with Place highlight switched on a tap in the middle of the sphere turns the first light to shine from the camera, so its highlight lands there; one undo step, nothing sculpted, the camera stays."""
