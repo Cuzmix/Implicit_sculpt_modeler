@@ -439,7 +439,7 @@ script_file_run :: proc(app: ^App, path: string) {
 		report(app, nil, {.Warning}, "Cannot run %s now: a recording, a script, a stroke or a save is under way", name)
 		return
 	}
-	data, err := os.read_entire_file(path, context.temp_allocator)
+	data, err := file_read_any(path, context.temp_allocator)
 	if err != nil {
 		report(app, nil, {.Warning}, "Cannot read %s: %v", name, err)
 		return

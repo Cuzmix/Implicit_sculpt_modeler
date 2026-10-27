@@ -9,7 +9,6 @@ import _ "core:image/qoi"
 import _ "core:image/tga"
 import "core:math"
 import "core:mem"
-import "core:os"
 import "core:path/filepath"
 import "core:strings"
 
@@ -92,7 +91,7 @@ alpha_select :: proc(app: ^App, name_or_path: string) -> bool {
 // false when it failed.
 alpha_load :: proc(app: ^App, path: string) -> bool {
 	name := filepath.base(path)
-	data, err := os.read_entire_file(path, context.allocator)
+	data, err := file_read_any(path, context.allocator)
 	if err != nil {
 		file_note(app, true, "Cannot load alpha %s: %v", name, err)
 		return false

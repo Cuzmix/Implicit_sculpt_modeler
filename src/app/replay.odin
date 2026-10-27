@@ -2,7 +2,6 @@ package main
 
 import "core:fmt"
 import "core:math"
-import "core:os"
 import "core:path/filepath"
 
 import "../camera"
@@ -292,7 +291,7 @@ strokes_save :: proc(app: ^App, path: string) -> bool {
 // Reads a .strokes file into the recording. Every number is checked (finite, in range)
 // before it can reach a brush, so a damaged file is refused rather than sculpting NaNs.
 strokes_load :: proc(app: ^App, path: string) -> bool {
-	data, err := os.read_entire_file(path, context.allocator)
+	data, err := file_read_any(path, context.allocator)
 	if err != nil {
 		file_note(app, true, "Cannot open %s: %v", filepath.base(path), err)
 		return false

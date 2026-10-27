@@ -87,13 +87,31 @@ chunk :: proc(out: ^[dynamic]u8, kind: string, body: []u8) {
 	append(out, ..n[:])
 }
 
-// A zlib stream of `data`: one deflate block with the fixed codes.
+// A zlib stream of `data`: the deflate stream between zlib's header and checksum.
 @(private)
 zlib :: proc(data: []u8, allocator := context.allocator) -> []u8 {
 	w := Bits{out = make([dynamic]u8, 0, len(data) / 4 + 64, allocator)}
 	append(&w.out, 0x78, 0x01)
-	bits(&w, 1, 1) // the last block
-	bits(&w, 1, 2) // fixed Huffman codes
+	deflate_into(&w, data)
+	sum := adler32(data)
+	tail: [4]u8
+	put_u32(tail[:], sum)
+	append(&w.out, ..tail[:])
+	return w.out[:]
+}
+
+// `data` as a raw deflate stream (no zlib header or checksum), as ZIP entries hold it:
+// one block with the fixed codes and greedy matches.
+deflate :: proc(data: []u8, allocator := context.allocator) -> []u8 {
+	w := Bits{out = make([dynamic]u8, 0, len(data) / 4 + 64, allocator)}
+	deflate_into(&w, data)
+	return w.out[:]
+}
+
+@(private)
+deflate_into :: proc(w: ^Bits, data: []u8) {
+	bits(w, 1, 1) // the last block
+	bits(w, 1, 2) // fixed Huffman codes
 	HASH_BITS :: 15
 	head := make([]i32, 1 << HASH_BITS, context.temp_allocator)
 	for &h in head do h = -1
@@ -112,22 +130,17 @@ zlib :: proc(data: []u8, allocator := context.allocator) -> []u8 {
 			head[k] = i32(i)
 		}
 		if length >= 3 {
-			put_match(&w, length, distance)
+			put_match(w, length, distance)
 			// Remember the positions inside the match too, sparsely, for later matches.
 			for p := i + 1; p < i + length && p + 3 <= len(data); p += 4 do head[key(data, p)] = i32(p)
 			i += length
 		} else {
-			put_literal(&w, int(data[i]))
+			put_literal(w, int(data[i]))
 			i += 1
 		}
 	}
-	put_literal(&w, 256) // end of block
+	put_literal(w, 256) // end of block
 	if w.count > 0 do append(&w.out, u8(w.acc))
-	sum := adler32(data)
-	tail: [4]u8
-	put_u32(tail[:], sum)
-	append(&w.out, ..tail[:])
-	return w.out[:]
 }
 
 @(private)

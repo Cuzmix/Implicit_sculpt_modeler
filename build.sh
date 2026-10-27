@@ -62,19 +62,19 @@ case "$mode" in
 		;;
 	test)
 		compile_shaders
-		for pkg in geom camera sculpt jobs gizmo png_write ui app; do
+		for pkg in geom camera sculpt jobs gizmo png_write zip ui app; do
 			"$ODIN" test "$ROOT/src/$pkg" -out:"$ROOT/build/test_$pkg" "${common[@]}"
 		done
 		;;
 	check)
 		# Library packages have no main, hence -no-entry-point; it is harmless on the executables.
 		# odin check takes no linker flags, so this is wincheck's flag list, not common's.
-		for pkg in app bench geom camera gizmo jobs png_write render sculpt sdf_trial ui; do
+		for pkg in app bench geom camera gizmo jobs png_write render sculpt sdf_trial ui zip; do
 			"$ODIN" check "$ROOT/src/$pkg" -no-entry-point \
 				-collection:deps="$DEPS" -vet -strict-style -warnings-as-errors
 		done
 		python3 "$ROOT/scripts/agents_sync.py" --check
-		echo "check: 11 packages type-check, agent mirror current"
+		echo "check: 12 packages type-check, agent mirror current"
 		;;
 	wincheck)
 		# Object files need no Windows SDK; the empty root only satisfies the flag.

@@ -196,6 +196,21 @@ file_shutdown :: proc(app: ^App) {
 	sync.unlock(&pending.lock)
 }
 
+// The bytes of a file the person picked: an import, a scene, an alpha, a script or a
+// stroke recording. Android's picker hands back a content:// URI, which only SDL's IO
+// can open (through the activity's content resolver), so such a path is read with
+// SDL_LoadFile; every other path goes through os, whose errors say more.
+file_read_any :: proc(path: string, allocator := context.allocator) -> (data: []u8, err: os.Error) {
+	if !strings.has_prefix(path, "content://") do return os.read_entire_file(path, allocator)
+	size: uint
+	raw := sdl.LoadFile(strings.clone_to_cstring(path, context.temp_allocator), &size)
+	if raw == nil do return nil, .Not_Exist
+	defer sdl.free(raw)
+	data = make([]u8, int(size), allocator) or_return
+	copy(data, ([^]u8)(raw)[:size])
+	return data, nil
+}
+
 // Reports a file action's outcome (results.odin), which shows as a toast.
 file_note :: proc(app: ^App, warning: bool, format: string, args: ..any) {
 	report(app, nil, {.Warning} if warning else {}, format, ..args)
@@ -310,7 +325,7 @@ scene_remember_path :: proc(app: ^App, path: string) {
 scene_import :: proc(app: ^App, path: string) -> bool {
 	start := time.tick_now()
 	name := filepath.base(path)
-	data, err := os.read_entire_file(path, context.allocator)
+	data, err := file_read_any(path, context.allocator)
 	if err != nil {
 		file_note(app, true, "Cannot import %s: %v", name, err)
 		return true
@@ -320,7 +335,11 @@ scene_import :: proc(app: ^App, path: string) -> bool {
 	mesh: geom.Mesh
 	failed: geom.Mesh_File_Error
 	line: int
-	switch strings.to_lower(filepath.ext(path), context.temp_allocator) {
+	kind := strings.to_lower(filepath.ext(path), context.temp_allocator)
+	// A content:// URI from Android's picker has no extension, so there the bytes decide:
+	// a PLY file starts with "ply", and anything else is tried as OBJ text.
+	if strings.has_prefix(path, "content://") && kind != ".obj" && kind != ".ply" do kind = ".ply" if strings.has_prefix(string(data), "ply") else ".obj"
+	switch kind {
 	case ".obj":
 		mesh, failed, line = geom.mesh_read_obj(data, &app.pool)
 	case ".ply":
@@ -639,7 +658,7 @@ MAX_FOLDERS :: 4096
 scene_open :: proc(app: ^App, path: string) -> (opened, ok: bool) {
 	start := time.tick_now()
 	name := filepath.base(path)
-	data, err := os.read_entire_file(path, context.allocator)
+	data, err := file_read_any(path, context.allocator)
 	if err != nil {
 		file_note(app, true, "Cannot open %s: %v", name, err)
 		return false, true
