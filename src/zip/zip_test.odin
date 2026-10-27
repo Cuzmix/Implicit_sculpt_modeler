@@ -231,3 +231,28 @@ refuses_names_that_escape_or_clash :: proc(t: ^testing.T) {
 	testing.expect_value(t, read_all(archive({{name = "alphas/"}, {name = "Alphas/"}})), Error.Duplicate)
 	free_all(context.temp_allocator)
 }
+
+// What write makes reads back entry for entry, the same files make the same bytes, and
+// an unsafe name or two names that differ only in case are refused.
+@(test)
+writes_what_it_reads :: proc(t: ^testing.T) {
+	files := []File{{"pack.txt", transmute([]u8)string("name Mine\n")}, {"alphas/", nil}, {"alphas/Rock é.png", transmute([]u8)string("\x89PNG not really")}}
+	out, ok := write(files, context.temp_allocator)
+	testing.expect(t, ok)
+	again, _ := write(files, context.temp_allocator)
+	testing.expect_value(t, string(again), string(out))
+	list, err := entries(out, {entries = 10, total = 1 << 20}, context.temp_allocator)
+	if !testing.expect_value(t, err, Error.None) do return
+	testing.expect_value(t, len(list), 3)
+	for e, i in list {
+		testing.expect_value(t, e.name, files[i].name)
+		data, read_err := read(out, e, context.temp_allocator)
+		testing.expect_value(t, read_err, Error.None)
+		testing.expect_value(t, string(data), string(files[i].data))
+	}
+	_, bad := write({{"../escape.png", nil}}, context.temp_allocator)
+	testing.expect(t, !bad)
+	_, twice := write({{"a.png", nil}, {"A.PNG", nil}}, context.temp_allocator)
+	testing.expect(t, !twice)
+	free_all(context.temp_allocator)
+}

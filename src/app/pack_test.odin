@@ -451,3 +451,50 @@ pack_meshes_install_and_list :: proc(t: ^testing.T) {
 	testing.expect(t, slice.equal(serial.positions[:], parallel.positions[:]) && slice.equal(serial.indices[:], parallel.indices[:]))
 	free_all(context.temp_allocator)
 }
+
+// Make a pack writes the person's own alphas and presets, named after the file; installed
+// into another library it brings them back: the same values, the preset on a kept alpha
+// now on the pack's copy, a built-in kept by name, and one on another pack's alpha round.
+@(test)
+pack_make_round_trips :: proc(t: ^testing.T) {
+	FOLDER :: "build/pack_make_test/"
+	_ = os.remove_all(FOLDER)
+	defer os.remove_all(FOLDER)
+	testing.expect(t, os.make_directory_all(FOLDER) == nil)
+	other, rock, made := FOLDER + "other.sculptpack", FOLDER + "Rock face.png", FOLDER + "Bolt clay.sculptpack"
+	pack_write(t, other, {{"pack.txt", "name Other\n"}, {"alphas/Crack.png", pack_png(7)}})
+	testing.expect(t, os.write_entire_file(rock, transmute([]u8)pack_png(3)) == nil)
+
+	a: App
+	defer pack_app_free(&a)
+	pack_app(&a, FOLDER + "a.txt")
+	testing.expect(t, !command_enabled(&a, .Save_Pack))
+	testing.expect(t, strings.contains(pack_make(&a, made), "nothing of yours"))
+	testing.expect_value(t, pack_install_finish(&a, pack_unpack(other, a.library.folder), replace = false), "")
+	testing.expect(t, alpha_keep(&a, rock))
+	saved := [3]string{"Rock face", "Noise", "other/Crack"}
+	for ref, i in saved {
+		testing.expect(t, alpha_select(&a, ref))
+		a.brush.strengths[.Clay] = 0.1 * f32(i + 1)
+		testing.expect(t, preset_save_new(&a))
+		preset_leave(&a)
+	}
+	testing.expect_value(t, pack_make(&a, made), "")
+	testing.expect(t, strings.contains(a.result.text, "Made Bolt clay.sculptpack: 1 alpha and 3 presets; 1 preset used another pack's alpha"), a.result.text)
+
+	b: App
+	defer pack_app_free(&b)
+	pack_app(&b, FOLDER + "b.txt")
+	testing.expect_value(t, pack_install_finish(&b, pack_unpack(made, b.library.folder), replace = false), "")
+	testing.expect_value(t, b.library.packs[0].name, "Bolt clay")
+	testing.expect_value(t, b.library.packs[0].presets, 3)
+	want := [3]string{"bolt-clay/Rock face", "Noise", "-"}
+	for i in 0 ..< 3 {
+		n := pack_preset_find(&b, "bolt-clay", preset_name(&a.presets[i]))
+		p, ok := preset_at(&b, n)
+		if !testing.expect(t, ok) do continue
+		testing.expect_value(t, p.values.strength, a.presets[i].values.strength)
+		testing.expect_value(t, alpha_ref(&b, p.values.alpha), want[i])
+	}
+	free_all(context.temp_allocator)
+}

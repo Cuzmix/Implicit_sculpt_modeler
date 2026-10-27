@@ -41,6 +41,7 @@ File_Kind :: enum u8 {
 	Open_Version, // an earlier save of the scene's file replaces the scene, which still saves to its file (versions.odin)
 	Run_Script,   // a command script file runs as the person's own work (macros.odin)
 	Install_Pack, // a content pack goes into the library (pack.odin)
+	Make_Pack,    // the person's own alphas and presets go to a content pack file (pack_make.odin)
 	Matcap,       // an image of a lit sphere becomes the Custom material's MatCap (matcaps.odin)
 }
 
@@ -126,6 +127,8 @@ file_dialog :: proc(app: ^App, kind: File_Kind) {
 		sdl.ShowOpenFileDialog(file_dialog_done, userdata, app.window, raw_data(SCRIPT_FILTERS[:]), len(SCRIPT_FILTERS), nil, false)
 	case .Install_Pack:
 		sdl.ShowOpenFileDialog(file_dialog_done, userdata, app.window, raw_data(PACK_FILTERS[:]), len(PACK_FILTERS), nil, false)
+	case .Make_Pack:
+		sdl.ShowSaveFileDialog(file_dialog_done, userdata, app.window, raw_data(PACK_FILTERS[:]), len(PACK_FILTERS), nil)
 	case .Timelapse, .Bake:
 		sdl.ShowOpenFolderDialog(file_dialog_done, userdata, app.window, nil, false)
 	}
@@ -155,6 +158,7 @@ file_dialog_done :: proc "c" (userdata: rawptr, filelist: [^]cstring, filter: c.
 		case .Export: suffix = EXPORT_SUFFIX[filter] if filter >= 0 && int(filter) < len(EXPORT_SUFFIX) else ".obj"
 		case .Screenshot: suffix = ".png"
 		case .Save_Strokes: suffix = ".strokes"
+		case .Make_Pack: suffix = ".sculptpack"
 		}
 	}
 	delete(pending.req.path, heap)
@@ -286,6 +290,8 @@ file_apply :: proc(app: ^App, req: File_Request) -> bool {
 		_ = strokes_load(app, req.path)
 	case .Install_Pack:
 		pack_install_start(app, req.path)
+	case .Make_Pack:
+		_ = pack_make(app, req.path)
 	case .Recover:
 		return autosave_recover(app, req.path)
 	case .Discard_Autosave:
