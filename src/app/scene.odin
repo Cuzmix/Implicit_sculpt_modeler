@@ -145,6 +145,8 @@ Scene :: struct {
 	// rather than the starting lights (a file from before scenes kept lights, or none).
 	lights:     Light_Set,
 	lights_own: bool,
+	// Millimetres per scene unit when printed (print.odin), saved with the scene.
+	print_mm: f32,
 }
 
 // Changes to the object list or the selected object's levels requested by the UI,

@@ -708,7 +708,7 @@ script_set :: proc(app: ^App, st: Script_Statement) {
 // a menu to pick from, which would wait on a person a script does not have.
 script_allows :: proc(id: Command_Id) -> bool {
 	#partial switch id {
-	case .Open_Scene, .Save_Scene, .Save_Scene_As, .Save_Scene_Copy, .Scene_Versions, .Import_Mesh, .Export_Mesh, .Screenshot, .Record_Turntable:
+	case .Open_Scene, .Save_Scene, .Save_Scene_As, .Save_Scene_Copy, .Scene_Versions, .Import_Mesh, .Export_Mesh, .Export_Print, .Screenshot, .Record_Turntable:
 		return false
 	case .Rename_Object, .Command_Palette, .Pie, .Pie_Editor, .Brush_Pie:
 		return false

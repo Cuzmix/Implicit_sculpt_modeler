@@ -407,6 +407,7 @@ Kit_Section :: enum u8 {
 	Lens,
 	Camera,
 	Turntable,
+	Print,
 	Floor,
 	Background,
 	// The Stats panel's.

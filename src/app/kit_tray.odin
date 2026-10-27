@@ -189,6 +189,7 @@ COMMAND_HOMES := #partial [Command_Id]Maybe(Kit_Section) {
 	.Focus_Selected        = .Camera,
 	.Reset_Camera          = .Camera,
 	.Record_Turntable      = .Turntable,
+	.Export_Print          = .Print,
 	.Floor_Grid            = .Floor,
 	.Screenshot_Transparent = .Background,
 }

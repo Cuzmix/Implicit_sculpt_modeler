@@ -28,6 +28,7 @@ File_Kind :: enum u8 {
 	None,
 	Import, // a mesh file becomes a new object
 	Export, // the selected object's shown level goes to a mesh file
+	Export_Print, // ...to an STL file at its print size (print.odin)
 	Save,   // the scene goes to a .sculpt file
 	Save_Copy, // the scene goes to a .sculpt file, and stays the file it was (versions.odin)
 	Open,   // a .sculpt file replaces the scene
@@ -62,7 +63,7 @@ File_Request :: struct {
 // be in a console nobody watches. `at` tells a new note from the one already shown.
 // The native scene file starts with these bytes, then its version.
 SCENE_MAGIC :: "SCULPTSC"
-SCENE_VERSION :: u32(22) // 2: each object's rotation; 3: the current level's polypaint and polygroups; 4: sculpt layers, and a retopologized object's quads and UVs (sculpt.levels_write); 5: each object's boolean mode; 6: the base level's node layout (sculpt.levels_write); 7: the camera's roll; 8: each object's eye and ghost, and Solo; 9: folders, and each object's folder; 10: selection sets (sculpt.levels_write); 11: each object's polypaint shown or not (a third view bit); 12: stored visibility (V1 to V8): the slot chosen and used, and each folder's and object's eyes in them; 13: each object's kind (mesh or voxel), a voxel object's resolution and clay after its empty level (voxel.clay_write); 14: each object's material (material_put); 15: each object's polygroups with materials of their own (group_materials_put); 16: the content pack parts of the object's and its groups' materials, by name (material_refs); 17: the scene's Blender link token (link.odin); 18: each object's texture maps (textures_put); 19: the scene's lights (lights_put); 20: each light's colour temperature and name; 21: each light's size (a sun's angle, a lamp's radius); 22: the preview block after the version (scene_preview.odin)
+SCENE_VERSION :: u32(23) // 2: each object's rotation; 3: the current level's polypaint and polygroups; 4: sculpt layers, and a retopologized object's quads and UVs (sculpt.levels_write); 5: each object's boolean mode; 6: the base level's node layout (sculpt.levels_write); 7: the camera's roll; 8: each object's eye and ghost, and Solo; 9: folders, and each object's folder; 10: selection sets (sculpt.levels_write); 11: each object's polypaint shown or not (a third view bit); 12: stored visibility (V1 to V8): the slot chosen and used, and each folder's and object's eyes in them; 13: each object's kind (mesh or voxel), a voxel object's resolution and clay after its empty level (voxel.clay_write); 14: each object's material (material_put); 15: each object's polygroups with materials of their own (group_materials_put); 16: the content pack parts of the object's and its groups' materials, by name (material_refs); 17: the scene's Blender link token (link.odin); 18: each object's texture maps (textures_put); 19: the scene's lights (lights_put); 20: each light's colour temperature and name; 21: each light's size (a sun's angle, a lamp's radius); 22: the preview block after the version (scene_preview.odin); 23: the millimetres per unit a print takes (print.odin)
 
 // The request waiting for the next frame, and whether a dialog is showing. Kept here
 // rather than in App because SDL may call a dialog back on another thread, even after
@@ -85,6 +86,8 @@ MESH_FILTERS := [?]sdl.DialogFileFilter{{"Meshes (OBJ, PLY, STL)", "obj;ply;stl"
 EXPORT_FILTERS := [?]sdl.DialogFileFilter{{"Meshes (OBJ, PLY, STL, glTF, USD)", "obj;ply;stl;glb;usda"}, {"OBJ", "obj"}, {"PLY", "ply"}, {"STL (3D printing)", "stl"}, {"glTF binary (layers as shape keys)", "glb"}, {"USD text (layers as blend shapes)", "usda"}}
 @(private = "file")
 EXPORT_SUFFIX := [len(EXPORT_FILTERS)]string{".obj", ".obj", ".ply", ".stl", ".glb", ".usda"}
+@(private = "file")
+STL_FILTERS := [?]sdl.DialogFileFilter{{"STL (3D printing)", "stl"}}
 @(private = "file")
 SCENE_FILTERS := [?]sdl.DialogFileFilter{{"Sculpt scene", "sculpt"}}
 @(private = "file")
@@ -126,6 +129,8 @@ file_dialog :: proc(app: ^App, kind: File_Kind) {
 		sdl.ShowOpenFileDialog(file_dialog_done, userdata, app.window, raw_data(MESH_FILTERS[:]), len(MESH_FILTERS), nil, false)
 	case .Export:
 		sdl.ShowSaveFileDialog(file_dialog_done, userdata, app.window, raw_data(EXPORT_FILTERS[:]), len(EXPORT_FILTERS), nil)
+	case .Export_Print:
+		sdl.ShowSaveFileDialog(file_dialog_done, userdata, app.window, raw_data(STL_FILTERS[:]), len(STL_FILTERS), nil)
 	case .Save, .Save_Copy:
 		sdl.ShowSaveFileDialog(file_dialog_done, userdata, app.window, raw_data(SCENE_FILTERS[:]), len(SCENE_FILTERS), nil)
 	case .Open:
@@ -173,6 +178,7 @@ file_dialog_done :: proc "c" (userdata: rawptr, filelist: [^]cstring, filter: c.
 		#partial switch kind {
 		case .Save, .Save_Copy: suffix = ".sculpt"
 		case .Export: suffix = EXPORT_SUFFIX[filter] if filter >= 0 && int(filter) < len(EXPORT_SUFFIX) else ".obj"
+		case .Export_Print: suffix = ".stl"
 		case .Screenshot: suffix = ".png"
 		case .Save_Strokes: suffix = ".strokes"
 		case .Make_Pack: suffix = ".sculptpack"
@@ -270,7 +276,7 @@ file_apply :: proc(app: ^App, req: File_Request) -> bool {
 		before := len(app.scene.objects)
 		if !scene_import(app, req.path) do return false
 		if len(app.scene.objects) > before do history_record_added(app)
-	case .Export:
+	case .Export, .Export_Print:
 		obj := selected_object(app)
 		if obj == nil {
 			file_note(app, true, "Select an object to export first")
@@ -283,7 +289,7 @@ file_apply :: proc(app: ^App, req: File_Request) -> bool {
 			report(app, nil, {.Busy}, "Exporting %s...", filepath.base(req.path))
 			return true
 		}
-		_ = object_export(app, obj, req.path)
+		_ = object_export(app, obj, req.path, print = req.kind == .Export_Print)
 	case .Save, .Save_Copy:
 		if app.saving.kind != .None do return true
 		if scene_save_bytes(app) > SAVE_SHOW_FIRST {
@@ -522,10 +528,14 @@ mesh_import_read :: proc(app: ^App, path, what: string) -> (m: Mesh_Import, ok: 
 // groups') and the sculpt layers, as morph targets or blend shapes (shape keys) at their
 // strengths; USD the polygroups too, and a retopologized base level as its quads and UVs,
 // as OBJ does. Returns whether it was written.
-object_export :: proc(app: ^App, obj: ^Object, path: string) -> bool {
+object_export :: proc(app: ^App, obj: ^Object, path: string, print := false) -> bool {
 	start := time.tick_now()
 	name := filepath.base(path)
 	ext := strings.to_lower(filepath.ext(path), context.temp_allocator)
+	if print && ext != ".stl" {
+		file_note(app, true, "Cannot export %s for printing: the name needs to end in .stl", name)
+		return false
+	}
 	if ext != ".obj" && ext != ".ply" && ext != ".stl" && ext != ".glb" && ext != ".usda" {
 		file_note(app, true, "Cannot export to %s: the name needs to end in .obj, .ply, .stl, .glb or .usda", name)
 		return false
@@ -567,6 +577,9 @@ object_export :: proc(app: ^App, obj: ^Object, path: string) -> bool {
 	out := make([dynamic]u8)
 	defer delete(out)
 	layers := 0
+	// The print note outlives the temp memory, freed before the file is written.
+	printed: string
+	defer delete(printed)
 	// glTF copies the vertices on a seam between two group materials.
 	vertices := len(positions)
 	switch {
@@ -627,6 +640,10 @@ object_export :: proc(app: ^App, obj: ^Object, path: string) -> bool {
 		geom.quad_mesh_write_obj(&out, q.positions, q.quads, obj.levels.faces.uv.uvs, obj.file.scale, obj.file.position)
 	case ext == ".obj":
 		geom.mesh_write_obj(&out, positions, indices, obj.file.scale, obj.file.position, &app.pool, colors)
+	case print:
+		at := print_positions(positions, obj.transform, print_scale(app))
+		geom.mesh_write_stl(&out, at, indices, pool = &app.pool)
+		printed = strings.clone(print_note(at, indices))
 	case ext == ".stl":
 		// STL carries no colour, which 3D printing tools would not read anyway.
 		geom.mesh_write_stl(&out, positions, indices, obj.file.scale, obj.file.position, &app.pool)
@@ -639,6 +656,11 @@ object_export :: proc(app: ^App, obj: ^Object, path: string) -> bool {
 	app.stats.file_read_ms, app.stats.file_parse_ms = 0, 0
 	app.stats.file_write_ms = time.duration_milliseconds(time.tick_since(start))
 	with := fmt.tprintf(", %d %s as shape keys", layers, "layer" if layers == 1 else "layers") if layers > 0 else ""
+	if print {
+		app.print_exports += 1
+		file_note(app, false, "Exported %s for printing: %s; %d triangles in %.0f ms", name, printed, len(indices) / 3, app.stats.file_write_ms)
+		return true
+	}
 	file_note(app, false, "Exported %s: %d vertices, %d triangles%s, %d MB in %.0f ms", name, vertices, len(indices) / 3, with, len(out) >> 20, app.stats.file_write_ms)
 	return true
 }
@@ -753,9 +775,9 @@ save_pending :: proc(app: ^App, now: bool) {
 	req := app.saving
 	app.saving = {}
 	defer file_request_free(req)
-	if req.kind == .Export {
+	if req.kind == .Export || req.kind == .Export_Print {
 		if obj := selected_object(app); obj != nil {
-			_ = object_export(app, obj, req.path)
+			_ = object_export(app, obj, req.path, print = req.kind == .Export_Print)
 		} else {
 			file_note(app, true, "Select an object to export first")
 		}
@@ -816,6 +838,7 @@ scene_header_put :: proc(app: ^App, out: ^[dynamic]u8) {
 	geom.byte_put(out, app.scene.vis_used)
 	geom.byte_put(out, app.scene.link_token) // version 17
 	lights_put(out, app.scene.lights) // version 19, 20, 21
+	geom.byte_put(out, print_scale(app)) // version 23
 }
 
 // The lights as a scene file stores them: how many, the ambient light, then each light.
@@ -965,7 +988,10 @@ scene_open :: proc(app: ^App, path: string) -> (opened, ok: bool) {
 	// A scene from before scenes held lights is lit by the starting lights, as a new one is.
 	lights, lights_ok := app.start_lights, true
 	if version >= 19 do lights, lights_ok = lights_get(&r, app.start_lights, version)
-	if !lights_ok || !folders_ok || !r.ok || solo > 1 || vis_slot > VIS_SLOTS || (vis_slot > 0 && vis_used & (1 << (vis_slot - 1)) == 0) || count > len(data) || selected >= count || !finite(view.target) || !finite({view.distance, view.yaw, view.pitch}) || !finite({view.roll, 0, 0}) {
+	// A scene from before prints were sized prints at a new scene's scale.
+	print_mm := f32(PRINT_MM_DEFAULT)
+	if version >= 23 do print_mm = geom.byte_get(&r, f32)
+	if !lights_ok || !folders_ok || !r.ok || !(print_mm >= PRINT_MM_MIN && print_mm <= PRINT_MM_MAX) || solo > 1 || vis_slot > VIS_SLOTS || (vis_slot > 0 && vis_used & (1 << (vis_slot - 1)) == 0) || count > len(data) || selected >= count || !finite(view.target) || !finite({view.distance, view.yaw, view.pitch}) || !finite({view.roll, 0, 0}) {
 		file_note(app, true, "Cannot open %s: it is damaged", name)
 		return false, true
 	}
@@ -999,6 +1025,7 @@ scene_open :: proc(app: ^App, path: string) -> (opened, ok: bool) {
 	app.scene.vis_slot, app.scene.vis_used = int(vis_slot), vis_used
 	app.scene.link_token = link_token
 	app.scene.lights, app.scene.lights_own = lights, version >= 19
+	app.scene.print_mm = print_mm
 	scene_folders_normalize(app)
 	scene_selection_fix(app)
 	autosave_scene_saved(app, path)
@@ -1038,6 +1065,8 @@ scene_replace :: proc(app: ^App, objects: []^Object, selected, next_id: int, vie
 	// A new scene has no link with Blender until it sends; an opened one gets its own back.
 	app.scene.link_token = 0
 	clear(&app.link.sent)
+	// A new scene prints at the starting scale; an opened one gets its own back.
+	app.scene.print_mm = PRINT_MM_DEFAULT
 	// A new scene is lit by the starting lights; an opened one gets its own back. A change
 	// to the old scene's lights still under way goes with its History.
 	app.scene.lights, app.scene.lights_own = app.start_lights, false

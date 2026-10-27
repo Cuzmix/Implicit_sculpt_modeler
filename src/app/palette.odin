@@ -59,6 +59,7 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.Open_Last_Autosave = "recover restore crash backup autosave lost unsaved quicksave",
 	.Import_Mesh      = "obj ply load append file",
 	.Export_Mesh      = "obj ply file",
+	.Export_Print     = "stl 3d printer printing millimetres inches size scale units",
 	.Send_To_Blender  = "goz blender link export round trip",
 	.Get_From_Blender = "goz blender link import round trip back",
 	.Macro_Record     = "macro record recording automate repeat actions steps",

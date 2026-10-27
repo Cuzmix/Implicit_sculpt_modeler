@@ -76,6 +76,7 @@ Options :: struct {
 	open:      string `usage:"Start with the scene saved in this .sculpt file instead of spheres, as Menu > Open scene... does."`,
 	import_mesh: string `args:"name=import" usage:"Start with the mesh in this .obj, .ply or .stl file instead of spheres (after any --open), as Menu > Import mesh... does."`,
 	export:    string `usage:"On exit, write the selected object's shown level to this .obj, .ply, .stl, .glb or .usda file, as Menu > Export mesh... does."`,
+	export_print: string `usage:"On exit, write the selected object to this .stl file at its print size, as Scene > 3D print > Export for printing... does."`,
 	save:      string `usage:"On exit, save the scene to this .sculpt file, as Menu > Save scene does."`,
 	autosave:  f32 `usage:"Autosave every this many seconds once the scene changed and the app rested, as Settings > System > Autosave does every few minutes; scripted runs only autosave with this or --autosave-folder."`,
 	autosave_folder: string `usage:"Keep the autosaves in this folder instead of the app's own (and offer the ones a crashed run left there, as an interactive start does)."`,
@@ -195,6 +196,8 @@ App :: struct {
 	capture:   Capture, // a transparent screenshot waiting for its frame (capture.odin)
 	turntable: Turntable, // Scene > Turntable's recording (turntable.odin)
 	turntable_frames: i32, // how many frames it takes, remembered
+	print_unit:    Print_Unit, // Scene > 3D print's unit, remembered
+	print_exports: int, // files exported for printing, for the exit stats
 	// The scenes saved or opened lately, newest first, at most HOME_RECENT_MAX (remembered).
 	recent_scenes: [dynamic]string,
 	start_home: bool, // an interactive run given no scene starts on Home (Settings > Interface)
@@ -1171,6 +1174,10 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		obj := selected_object(&app)
 		if obj == nil || !object_export(&app, obj, opts.export) do return false
 	}
+	if opts.export_print != "" && set_up {
+		obj := selected_object(&app)
+		if obj == nil || !object_export(&app, obj, opts.export_print, print = true) do return false
+	}
 	if opts.save != "" && set_up && !scene_save(&app, opts.save) do return false
 	if opts.save_strokes != "" && set_up && !strokes_save(&app, opts.save_strokes) do return false
 	save_pending(&app, true)
@@ -1184,6 +1191,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	fmt.printfln("previews=%d preview_size=%dx%d preview_kb=%.1f preview_ms=%.2f", app.preview.taken, app.preview.w, app.preview.h, f64(len(app.preview.png)) / 1024, app.preview.ms)
 	fmt.printfln("thumbnail=%d thumbnail_draws=%d thumbnail_ms=%.2f thumbnail_px=%dx%d thumbnail_flip=%d thumbnail_shaded=%d", int(app.kit.thumbnail), app.thumbnail.draws, app.thumbnail.ms, app.kit.thumbnail_px.x, app.kit.thumbnail_px.y, int(app.kit.thumbnail_flip), int(app.kit.thumbnail_shaded))
 	fmt.printfln("screenshot_transparent=%d turntable_frames=%d turntable_written=%d", int(app.screenshot_transparent), app.turntable_frames, app.turntable.frame)
+	fmt.printfln("print_mm=%g print_unit=%d print_exports=%d", print_scale(&app), int(app.print_unit), app.print_exports)
 	// The scene's file by its name alone, which a test compares; "none" for no file.
 	scene_name := filepath.base(app.scene_path) if app.scene_path != "" else "none"
 	fmt.printfln("home=%d home_opened=%d home_read=%d home_pictures=%d recent_scenes=%d home_autosaves=%d scene_name=%s", int(app.kit.home), app.home.opened, app.home.read, app.home.uploaded, len(app.recent_scenes), len(app.home.autosaves), scene_name)
