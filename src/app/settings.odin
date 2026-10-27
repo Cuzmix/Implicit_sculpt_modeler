@@ -89,25 +89,29 @@ LIGHT_FIELDS := [?]Light_Field {
 	{"reach", offset_of(Light, reach), f32, 0, 1e6},
 	{"cone", offset_of(Light, cone), f32, LIGHT_CONE_MIN, LIGHT_CONE_MAX},
 	{"blend", offset_of(Light, blend), f32, 0, 1},
+	// A colour temperature: 0 for none, else at least LIGHT_KELVIN_MIN (lights_settle).
+	{"kelvin", offset_of(Light, kelvin), f32, 0, LIGHT_KELVIN_MAX},
 }
 
 // Each light's keys, LIGHT_FIELDS' names after "light<N>_": constants, since a row keeps
 // its key (a test checks they match).
 @(rodata)
 LIGHT_KEYS := [LIGHT_COUNT][len(LIGHT_FIELDS)]string {
-	{"light1_on", "light1_kind", "light1_space", "light1_x", "light1_y", "light1_z", "light1_px", "light1_py", "light1_pz", "light1_strength", "light1_ref", "light1_reach", "light1_cone", "light1_blend"},
-	{"light2_on", "light2_kind", "light2_space", "light2_x", "light2_y", "light2_z", "light2_px", "light2_py", "light2_pz", "light2_strength", "light2_ref", "light2_reach", "light2_cone", "light2_blend"},
-	{"light3_on", "light3_kind", "light3_space", "light3_x", "light3_y", "light3_z", "light3_px", "light3_py", "light3_pz", "light3_strength", "light3_ref", "light3_reach", "light3_cone", "light3_blend"},
-	{"light4_on", "light4_kind", "light4_space", "light4_x", "light4_y", "light4_z", "light4_px", "light4_py", "light4_pz", "light4_strength", "light4_ref", "light4_reach", "light4_cone", "light4_blend"},
-	{"light5_on", "light5_kind", "light5_space", "light5_x", "light5_y", "light5_z", "light5_px", "light5_py", "light5_pz", "light5_strength", "light5_ref", "light5_reach", "light5_cone", "light5_blend"},
-	{"light6_on", "light6_kind", "light6_space", "light6_x", "light6_y", "light6_z", "light6_px", "light6_py", "light6_pz", "light6_strength", "light6_ref", "light6_reach", "light6_cone", "light6_blend"},
-	{"light7_on", "light7_kind", "light7_space", "light7_x", "light7_y", "light7_z", "light7_px", "light7_py", "light7_pz", "light7_strength", "light7_ref", "light7_reach", "light7_cone", "light7_blend"},
-	{"light8_on", "light8_kind", "light8_space", "light8_x", "light8_y", "light8_z", "light8_px", "light8_py", "light8_pz", "light8_strength", "light8_ref", "light8_reach", "light8_cone", "light8_blend"},
+	{"light1_on", "light1_kind", "light1_space", "light1_x", "light1_y", "light1_z", "light1_px", "light1_py", "light1_pz", "light1_strength", "light1_ref", "light1_reach", "light1_cone", "light1_blend", "light1_kelvin"},
+	{"light2_on", "light2_kind", "light2_space", "light2_x", "light2_y", "light2_z", "light2_px", "light2_py", "light2_pz", "light2_strength", "light2_ref", "light2_reach", "light2_cone", "light2_blend", "light2_kelvin"},
+	{"light3_on", "light3_kind", "light3_space", "light3_x", "light3_y", "light3_z", "light3_px", "light3_py", "light3_pz", "light3_strength", "light3_ref", "light3_reach", "light3_cone", "light3_blend", "light3_kelvin"},
+	{"light4_on", "light4_kind", "light4_space", "light4_x", "light4_y", "light4_z", "light4_px", "light4_py", "light4_pz", "light4_strength", "light4_ref", "light4_reach", "light4_cone", "light4_blend", "light4_kelvin"},
+	{"light5_on", "light5_kind", "light5_space", "light5_x", "light5_y", "light5_z", "light5_px", "light5_py", "light5_pz", "light5_strength", "light5_ref", "light5_reach", "light5_cone", "light5_blend", "light5_kelvin"},
+	{"light6_on", "light6_kind", "light6_space", "light6_x", "light6_y", "light6_z", "light6_px", "light6_py", "light6_pz", "light6_strength", "light6_ref", "light6_reach", "light6_cone", "light6_blend", "light6_kelvin"},
+	{"light7_on", "light7_kind", "light7_space", "light7_x", "light7_y", "light7_z", "light7_px", "light7_py", "light7_pz", "light7_strength", "light7_ref", "light7_reach", "light7_cone", "light7_blend", "light7_kelvin"},
+	{"light8_on", "light8_kind", "light8_space", "light8_x", "light8_y", "light8_z", "light8_px", "light8_py", "light8_pz", "light8_strength", "light8_ref", "light8_reach", "light8_cone", "light8_blend", "light8_kelvin"},
 }
 
 // Each light's colour in linear light, as paint_color is written.
 @(rodata)
 LIGHT_COLOR_KEYS := [LIGHT_COUNT]string{"light1_color", "light2_color", "light3_color", "light4_color", "light5_color", "light6_color", "light7_color", "light8_color"}
+// ...and its name, kept for a starting light that has one.
+LIGHT_NAME_KEYS := [LIGHT_COUNT]string{"light1_name", "light2_name", "light3_name", "light4_name", "light5_name", "light6_name", "light7_name", "light8_name"}
 
 // The row of light `i`'s field `f` in the Light_Set at `set` (an offset in App): the
 // scene's lights for scripts, the starting lights for the settings file.
@@ -224,6 +228,8 @@ SETTINGS := [?]Setting {
 	{"colors_harmony", K + offset_of(Kit_State, colors) + offset_of(Colors_Card, harmony), Harmony, 0, 0},
 	{"colors_value_rgb", K + offset_of(Kit_State, colors) + offset_of(Colors_Card, value_rgb), bool, 0, 0},
 	{"color_default", K + offset_of(Kit_State, colors) + offset_of(Colors_Card, default_palette), int, 0, f32(len(BUILT_IN_PALETTES) + USER_PALETTES - 1)},
+	{"brush_category", K + offset_of(Kit_State, brushes) + offset_of(Brush_Palette, category), Brush_Category, 0, 0},
+	{"brush_sidebar_hidden", K + offset_of(Kit_State, brushes) + offset_of(Brush_Palette, sidebar_hidden), bool, 0, 0},
 	{"all_options", K + offset_of(Kit_State, all_options), bool, 0, 0},
 	{"coach", K + offset_of(Kit_State, coach), i32, 0, f32(COACH_DONE)},
 	{"stats", K + offset_of(Kit_State, stats), bool, 0, 0},
@@ -258,6 +264,9 @@ SETTINGS := [?]Setting {
 	{"double_tap", N + offset_of(Nav_Prefs, double_tap), bool, 0, 0},
 	{"lift_one_orbit", N + offset_of(Nav_Prefs, lift_one_orbit), bool, 0, 0},
 	{"orbit_pivot", N + offset_of(Nav_Prefs, pivot), Orbit_Pivot, 0, 0},
+	{"air_pivot", N + offset_of(Nav_Prefs, air_pivot), bool, 0, 0},
+	{"pivot_dot", N + offset_of(Nav_Prefs, pivot_dot), bool, 0, 0},
+	{"wheel_toward", N + offset_of(Nav_Prefs, wheel_toward), bool, 0, 0},
 	{"edge_orbit", N + offset_of(Nav_Prefs, edge_orbit), bool, 0, 0},
 	{"edge_size", N + offset_of(Nav_Prefs, edge_size), f32, EDGE_MIN, EDGE_MAX},
 	{"edge_show", N + offset_of(Nav_Prefs, edge_show), bool, 0, 0},
@@ -557,6 +566,11 @@ settings_load :: proc(app: ^App, path: string) {
 			if v, rgb_ok := rgb_parse(f[1:]); rgb_ok do app.start_lights.lights[i].color = v.([3]f32)
 			continue lines
 		}
+		for key, i in LIGHT_NAME_KEYS {
+			if key != f[0] do continue
+			light_name_set(&app.start_lights.lights[i], preset_unescape(strings.join(f[1:], " ", context.temp_allocator)))
+			continue lines
+		}
 		switch f[0] {
 		case "version":
 			version, _ = strconv.parse_int(f[1])
@@ -644,6 +658,24 @@ settings_load :: proc(app: ^App, path: string) {
 						if strings.equal_fold(f[4], fmt.tprint(a)) do w.y = a
 					}
 					w.offset = {clamp(number(f[5], 0), -WINDOW_OFFSET_MAX, WINDOW_OFFSET_MAX), clamp(number(f[6], 0), -WINDOW_OFFSET_MAX, WINDOW_OFFSET_MAX)}
+				}
+			}
+		case "brush_recent", "brush_favorite":
+			// brush_recent <key, escaped> ..., most recent first, and brush_favorite <key,
+			// escaped> ..., in the order added: what the brush browser's Recent and
+			// Favorites list, by brush_item_key. A key naming nothing (a preset deleted
+			// since, a pack removed) is kept, as the pack may come back, and lists nothing.
+			p := &app.kit.brushes
+			recent := f[0] == "brush_recent"
+			if recent do p.recent_count = 0
+			else do p.favorite_count = 0
+			for word in f[1:] {
+				key := preset_unescape(word)
+				if recent && p.recent_count < BRUSH_RECENT {
+					brush_key_set(&p.recent[p.recent_count], key)
+					p.recent_count += 1
+				} else if !recent {
+					if _, dup := brush_favorite(p, key); !dup do brush_favorite_toggle(p, key)
 				}
 			}
 		case "color_history":
@@ -856,6 +888,7 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 			fmt.sbprintfln(&out, "%s %s", row.key, setting_text(app, row))
 		}
 		fmt.sbprintfln(&out, "%s %s", LIGHT_COLOR_KEYS[i], rgb_text(app.start_lights.lights[i].color))
+		if name := rename_text(app.start_lights.lights[i].name[:]); name != "" do fmt.sbprintfln(&out, "%s %s", LIGHT_NAME_KEYS[i], preset_escape(name))
 	}
 	m := app.custom
 	matcap := fmt.tprint(m.matcap)
@@ -868,6 +901,16 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 	fmt.sbprintfln(&out, "ui_scale %g", k.ui_scale)
 	for w, which in k.windows {
 		fmt.sbprintfln(&out, "window %v %d %v %v %g %g %d", which, bit(w.moved), w.x, w.y, w.offset.x, w.offset.y, bit(w.minimized))
+	}
+	if p := &app.kit.brushes; p.recent_count > 0 {
+		strings.write_string(&out, "brush_recent")
+		for &k in p.recent[:p.recent_count] do fmt.sbprintf(&out, " %s", preset_escape(brush_key_text(&k)))
+		strings.write_byte(&out, '\n')
+	}
+	if p := &app.kit.brushes; p.favorite_count > 0 {
+		strings.write_string(&out, "brush_favorite")
+		for &k in p.favorites[:p.favorite_count] do fmt.sbprintf(&out, " %s", preset_escape(brush_key_text(&k)))
+		strings.write_byte(&out, '\n')
 	}
 	if c := &app.kit.colors; c.history_count > 0 {
 		strings.write_string(&out, "color_history")

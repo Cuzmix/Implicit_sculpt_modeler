@@ -87,9 +87,11 @@ draw_pivot :: proc(app: ^App, o: Overlay, size: [2]f32) {
 		overlay_disc(o, p, 3.5, overlay_color({1, 0.8, 0.4, 0.95 * alpha}))
 		return
 	}
-	if g := app.drag; g.owner == .Orbit && g.moving {
+	// Show the pivot dot off hides the dot while the view turns; a pin still pulses, as
+	// the double tap's answer.
+	if g := app.drag; app.nav.pivot_dot && g.owner == .Orbit && g.moving {
 		_, _ = dot(o, view_proj, g.pivot, size, 1)
-	} else if l := app.touch.lift; l.moving {
+	} else if l := app.touch.lift; app.nav.pivot_dot && l.moving {
 		_, _ = dot(o, view_proj, l.pivot, size, 1)
 	}
 	p := app.pivot
@@ -154,6 +156,7 @@ overlay_viewport :: proc(app: ^App, o: Overlay, input: Viewport_Input) {
 	}
 	draw_pivot(app, o, input.size)
 	draw_hold_history(app, o)
+	draw_light_markers(app, o, input.size)
 	// While the eyedropper's loupe shows, the brush ring under it would only hide the
 	// colour being picked.
 	if app.ui.eyedrop_held {

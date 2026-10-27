@@ -178,11 +178,9 @@ Grid_Pick :: struct {
 }
 
 // Every brush, then the built-in presets, the person's, then each content pack's under its name, as
-// tiles GRID_PER_ROW to a row in a body that scrolls when taller than `height`: the
-// brush browser's and the slot popover's. `chosen` is lit when `lit` is set.
-// `owner` is the popover the body is in. The browser's (`browser`) also lists the mask,
-// hide and cut tools after the library; those are not brushes, so no slot holds them.
-kit_brush_grid :: proc(app: ^App, owner: ui.Id, chosen: Dock_Slot, lit: bool, height: f32, browser := false) -> (pick: Grid_Pick) {
+// tiles GRID_PER_ROW to a row in a body that scrolls when taller than `height`: the slot
+// popover's. `chosen` is lit when `lit` is set. `owner` is the popover the body is in.
+kit_brush_grid :: proc(app: ^App, owner: ui.Id, chosen: Dock_Slot, lit: bool, height: f32) -> (pick: Grid_Pick) {
 	k := &app.kit
 	ctx := &k.ctx
 	width := ui.BRUSH_TILE.x * GRID_PER_ROW
@@ -194,7 +192,6 @@ kit_brush_grid :: proc(app: ^App, owner: ui.Id, chosen: Dock_Slot, lit: bool, he
 	clear(&tiles)
 	for r, j in BUILT_IN_PRESETS do append(&tiles, Dock_Slot{kind = r.kind, preset = BUILT_IN_PRESET + j})
 	kit_grid_rows(app, "built-in row", tiles[:], chosen, lit, height, &scroll, &pick)
-	if browser do kit_shape_tools(app)
 	ui.caption(ctx, "PRESETS")
 	clear(&tiles)
 	for p, i in app.presets[:app.preset_count] do append(&tiles, Dock_Slot{kind = p.values.kind, preset = i + 1})
@@ -213,31 +210,6 @@ kit_brush_grid :: proc(app: ^App, owner: ui.Id, chosen: Dock_Slot, lit: bool, he
 }
 
 GRID_PER_ROW :: 5
-
-// The mask, hide and cut tools as tiles, as the reference app lists its MaskRect,
-// SelectLasso, ClipCurve and KnifeCurve brushes: a tap makes it what Ctrl + drag on empty
-// space (a mask shape) or Ctrl + Shift + drag (the rest) draws, as the Mask section's and
-// Hide, clip and slice's choices do, leaving the brush held as it is. Each choice's tile
-// is lit, so two are lit at once.
-@(private = "file")
-kit_shape_tools :: proc(app: ^App) {
-	ctx := &app.kit.ctx
-	ui.caption(ctx, "MASK, HIDE AND CUT")
-	// A row lights one tile (its container's indicator), so the mask shapes have a row of
-	// their own and the gesture tools, five, the next.
-	ui.begin(ctx, "mask shape tools", {direction = .Row, gap = 0})
-	for m in Mask_Shape_Kind {
-		name := fmt.tprintf("Mask %s##shape tool", MASK_SHAPE_NAMES[m])
-		if ui.brush_tile(ctx, name, SHAPE_TOOL_ICONS[m], app.ui.mask_shape_kind == m, "Ctrl + drag on empty space, or Mask on the wheel") do shape_tool_pick(app, m)
-	}
-	ui.end(ctx)
-	ui.begin(ctx, "gesture tools", {direction = .Row, gap = 0})
-	for g in Gesture_Tool {
-		name := fmt.tprintf("%s##shape tool", GESTURE_NAMES[g])
-		if ui.brush_tile(ctx, name, GESTURE_ICONS[g], app.gesture == g, "Ctrl + Shift + drag, or Hide on the wheel") do shape_tool_pick(app, g)
-	}
-	ui.end(ctx)
-}
 
 // Makes the mask shape or gesture `tool` the one the modifiers draw, closes the browser
 // and says how to draw it.
@@ -265,13 +237,13 @@ MASK_SHAPE_NAMES := [Mask_Shape_Kind]string {
 // Lucide's square-dashed and lasso for the mask shapes; square-dashed-mouse-pointer and
 // lasso-select for hiding (a selection); crop, scissors-line-dashed and slice (a knife)
 // for the cuts.
-@(rodata, private = "file")
+@(rodata)
 SHAPE_TOOL_ICONS := [Mask_Shape_Kind]rune {
 	.Rectangle = 0xe1cb,
 	.Lasso     = 0xe1ce,
 }
 
-@(rodata, private = "file")
+@(rodata)
 GESTURE_ICONS := [Gesture_Tool]rune {
 	.Hide_Rectangle = 0xe50e,
 	.Hide_Lasso     = 0xe1cf,
@@ -321,27 +293,10 @@ grid_room :: proc(ctx: ^ui.Context, popover_h: f32, anchor: ui.Rect) -> f32 {
 	return max(anchor.y - 16 - besides, ui.BRUSH_TILE.y * 2)
 }
 
-// The room the grid has in a popover beside the brush bar (`popover_h` tall last frame):
-// the safe area's height, less what the popover holds besides the grid and a margin.
-grid_room_beside :: proc(ctx: ^ui.Context, popover_h: f32) -> f32 {
-	body, _ := ui.prev_layout(ctx, "brush grid")
-	besides := popover_h - body.y if popover_h > 0 else 120
-	return max(ui.safe_area(ctx).h - kit_top() - 16 - besides, ui.BRUSH_TILE.y * 2)
-}
-
 // Which button opened the brush browser: All brushes on the dock, or Brushes on the bar.
 Browser_At :: enum u8 {
 	Dock,
 	Bar,
-}
-
-// A tool's tile in the brush browser: a tap picks the tool, a long press (or a
-// right-click) picks it and shows its settings in the inspector's first tab.
-tool_tile :: proc(app: ^App, tool: Tool) {
-	ctx := &app.kit.ctx
-	id := TOOL_COMMANDS[tool]
-	if ui.brush_tile(ctx, fmt.tprintf("%s##tool", kit_tool_name(tool)), TOOL_ICONS[tool], app.tool == tool, command_hint(app, id)) do command_run(app, id)
-	if ui.secondary(ctx) do tool_settings_open(app, tool)
 }
 
 // Picks `tool` and shows its settings: the tray, on the tool's palette.
@@ -365,33 +320,6 @@ TOOL_ICONS := [Tool]rune {
 	.Brush  = ui.ICON_BRUSH,
 	.Curve  = ui.ICON_SPLINE,
 	.Insert = ui.ICON_SHAPES,
-}
-
-// The brush browser, over its button on the dock or beside the brush bar: the Curve and
-// Insert tools, then every brush and preset. A tap picks one; a long press (or a
-// right-click) shows its settings.
-kit_brush_browser :: proc(app: ^App, anchor: ui.Rect, side: ui.Side) {
-	k := &app.kit
-	ctx := &k.ctx
-	size, _ := ui.prev_layout(ctx, "brush browser")
-	owner := ui.id_of(ctx, "brush browser")
-	if !ui.popover_begin(ctx, "brush browser", &k.browser, anchor, side, {direction = .Column, gap = 2, padding = 10}) do return
-	defer ui.popover_end(ctx)
-	kit_grid_head(app, "TOOLS", &k.browser)
-	ui.begin(ctx, "tool row", {direction = .Row, gap = 0})
-	for tool in ([?]Tool{.Curve, .Insert}) {
-		was := app.tool
-		tool_tile(app, tool)
-		if app.tool != was do k.browser = false
-	}
-	ui.end(ctx)
-	ui.caption(ctx, "BRUSHES")
-	chosen, lit := brush_as_slot(app)
-	room := grid_room(ctx, size.y, anchor) if side == .Above_Center else grid_room_beside(ctx, size.y)
-	pick := kit_brush_grid(app, owner, chosen, lit, room, browser = true)
-	if pick.tapped do dock_slot_pick(app, pick.slot)
-	if pick.pressed do dock_slot_settings(app, pick.slot)
-	if pick.tapped || pick.pressed do k.browser = false
 }
 
 // The slot popover, over the dock tile a long press (or a right-click) was on: that

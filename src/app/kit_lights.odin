@@ -47,9 +47,10 @@ kit_lights :: proc(app: ^App) {
 	// what made it.
 	before := set^
 	what := "Lights"
+	typed: ui.Id
 	defer {
 		lights_settle(app)
-		if set^ != before do light_drag_changed(app, before, what)
+		if set^ != before do light_drag_changed(app, before, what, typed)
 	}
 	app.light_pick = clamp(app.light_pick, 0, max(int(set.count) - 1, 0))
 	kit_light_sphere(app)
@@ -58,7 +59,7 @@ kit_lights :: proc(app: ^App) {
 	for &l, i in set.lights[:set.count] {
 		toggles := [1]ui.Row_Toggle{{name = "Switch off" if l.on else "Switch on", glyph = ui.ICON_EYE if l.on else ui.ICON_EYE_OFF, faint = !l.on}}
 		detail := fmt.tprintf("%s, %s", LIGHT_KIND_LABELS[l.kind], "in the scene" if l.space == .Scene else "with the camera")
-		row := ui.tree_row(ctx, fmt.tprintf("%s##light row %d", light_name(i), i), detail, i == app.light_pick, all_toggles = toggles[:], glyph = LIGHT_KIND_ICONS[l.kind], dim = !l.on)
+		row := ui.tree_row(ctx, fmt.tprintf("%s##light row %d", light_name(set, i), i), detail, i == app.light_pick, all_toggles = toggles[:], glyph = LIGHT_KIND_ICONS[l.kind], dim = !l.on)
 		if row.toggled == 0 do l.on = !l.on
 		else if row.clicked do app.light_pick = i
 	}
@@ -83,20 +84,40 @@ kit_lights :: proc(app: ^App) {
 	}
 	light := &set.lights[app.light_pick]
 	_ = ui.slider(ctx, "Intensity", &light.strength, 0, LIGHT_STRENGTH_MAX, .Linear, fmt.tprintf("%.2f", light.strength))
-	_ = ui.slider(ctx, "Ambient", &set.ambient, 0, LIGHT_STRENGTH_MAX, .Linear, fmt.tprintf("%.2f", set.ambient))
+	_ = ui.switch_row(ctx, "Place highlight", &app.ui.light_place)
 	if kit_more(app, .Lights) {
-		_ = kit_color(app, fmt.tprintf("light %d colour", app.light_pick + 1), &light.color, linear = true)
+		// Its name, typed: the typing is one undo step until the field lets the keys go.
+		name_field := fmt.tprintf("name##light %d", app.light_pick + 1)
+		if ui.text_field(ctx, name_field, light.name[:LIGHT_NAME - 1], hint = fmt.tprintf("Light %d", app.light_pick + 1)) {
+			what = "Rename light"
+			typed = ui.id_of(ctx, name_field)
+		}
+		// The colour it shines in: picked, or a colour temperature, as a lamp is bought.
+		shown := light_rgb(light^)
+		if kit_color(app, fmt.tprintf("light %d colour", app.light_pick + 1), &shown, linear = true) do light.color, light.kelvin = shown, 0
+		warm := light.kelvin > 0
+		if ui.switch_row(ctx, "Colour temperature", &warm) do light.kelvin = 6500 if warm else 0
+		if light.kelvin > 0 do _ = ui.slider(ctx, "Temperature", &light.kelvin, LIGHT_KELVIN_MIN, LIGHT_KELVIN_MAX, .Logarithmic, fmt.tprintf("%.0f K", light.kelvin))
 		if kind := ui.tabs(ctx, "light kind", LIGHT_KIND_LABELS[:], int(light.kind)); kind >= 0 do light.kind = Light_Kind(kind)
+		if light.kind != .Sun && light.pos != {} {
+			// How far it stands from the orbit's centre, the depth a marker's drag keeps.
+			far := light_center_distance(app, app.light_pick)
+			near_end, far_end := app.camera.distance * LIGHT_DISTANCE_MIN, app.camera.distance * LIGHT_DISTANCE_MAX
+			moved := clamp(far, near_end, far_end)
+			if ui.slider(ctx, "Distance", &moved, near_end, far_end, .Logarithmic, fmt.tprintf("%.2f", far)) do light_set_center_distance(app, app.light_pick, moved)
+		}
 		if light.kind == .Spot {
 			_ = ui.slider(ctx, "Cone", &light.cone, LIGHT_CONE_MIN, LIGHT_CONE_MAX, .Linear, fmt.tprintf("%.0f°", light.cone))
 			_ = ui.slider(ctx, "Soft edge", &light.blend, 0, 1, .Linear, fmt.tprintf("%.0f%%", light.blend * 100))
 		}
 		ui.label(ctx, "Moves with")
 		if space := ui.tabs(ctx, "light space", LIGHT_SPACE_LABELS[:], int(light.space)); space >= 0 do light_set_space(app, app.light_pick, Light_Space(space))
-		if ui.button(ctx, fmt.tprintf("Delete %s", light_name(app.light_pick)), .Bordered, .Danger, glyph = ui.ICON_TRASH) {
+		if ui.button(ctx, fmt.tprintf("Delete %s##delete light", light_name(set, app.light_pick)), .Bordered, .Danger, glyph = ui.ICON_TRASH) {
 			light_delete(app, app.light_pick)
 			what = "Delete light"
 		}
+		// Then what holds for every light.
+		_ = ui.slider(ctx, "Ambient", &set.ambient, 0, LIGHT_STRENGTH_MAX, .Linear, fmt.tprintf("%.2f", set.ambient))
 		fixed := lights_fixed(app)
 		if ui.switch_row(ctx, "All fixed to the scene", &fixed) do lights_fix(app, fixed)
 		_ = ui.slider(ctx, "Turn all", &app.light_turn, -180, 180, .Linear, fmt.tprintf("%+.0f°", app.light_turn))
@@ -108,7 +129,7 @@ kit_lights :: proc(app: ^App) {
 		if ui.button(ctx, "Reset lights", .Bordered) do set^ = LIGHTS_DEFAULT
 		kit_more_end(app)
 	}
-	ui.paragraph(ctx, "Drag on the sphere to move the picked light; tap it to send it behind the model or bring it back. A sun shines from a direction; a point light and a spot shine from where they are, brighter close up. A light moving with the camera keeps lighting the model the same way while it turns; one in the scene stays put, as on a turntable. The lights are saved with the scene. MatCaps carry their own light.")
+	ui.paragraph(ctx, "Drag on the sphere, or a light's marker in the view, to move it; tap the picked light on the sphere to send it behind the model or bring it back. With Place highlight on, touch the model where the picked light's highlight should be. A sun shines from a direction; a point light and a spot shine from where they are, brighter close up. A light moving with the camera keeps lighting the model the same way while it turns; one in the scene stays put, as on a turntable. The lights are saved with the scene. MatCaps carry their own light.")
 }
 
 // The light sphere: a ball lit by the lights as the camera sees them, each light that is
@@ -194,7 +215,7 @@ light_sphere_draw :: proc(app: ^App, centre: [2]f32, radius: f32) {
 		c := [3]f32{0.12, 0.12, 0.12} * set.ambient
 		for light, i in set.lights[:set.count] {
 			if !light.on do continue
-			c += light.color * (light.strength * 0.7 * max(linalg.dot(n, view[i]), 0))
+			c += light_rgb(light) * (light.strength * 0.7 * max(linalg.dot(n, view[i]), 0))
 		}
 		c *= 0.8
 		return {u8(srgb_encode(c.r) * 255 + 0.5), u8(srgb_encode(c.g) * 255 + 0.5), u8(srgb_encode(c.b) * 255 + 0.5), 255}
@@ -234,7 +255,7 @@ light_sphere_draw :: proc(app: ^App, centre: [2]f32, radius: f32) {
 		for light, i in set.lights[:set.count] {
 			if !light.on || (view[i].z >= 0) != front do continue
 			p := light_marker(app, i, centre, radius)
-			shown := light.color
+			shown := light_rgb(light)
 			for &c in shown do c = srgb_encode(min(c, 1))
 			col := ui.Color{u8(shown.r * 255 + 0.5), u8(shown.g * 255 + 0.5), u8(shown.b * 255 + 0.5), 255}
 			if front {

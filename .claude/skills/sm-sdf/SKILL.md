@@ -93,8 +93,15 @@ description: Implicit and SDF modelling for this app — the src/sdf_trial spike
   (the app passes a proc: clip + `sculpt.coverage_at` + front-only via `volume_gradient`); both are undo steps
   (`Saved_Brick.mask` indexes `Undo_Step.masks`). `Surface.mask` per vertex follows codes everywhere (alloc, compact,
   copy pass); `mesh_node` gathers a u8 window only when `volume_masked_over`; the app uploads `surface.mask` as the
-  mesh_buffers mask (packed into the normals) when `object_has_mask` (which has a clay branch). SVOX v2: code 3 =
-  masked brick, mask bytes after the values; v1 reads. `clay_to_mesh(c, mask = &values)` carries the mask to a mesh.
+  mesh_buffers mask (packed into the normals) when `object_has_mask` (which has a clay branch). SVOX v3 (`pack.odin`): code 3 = masked
+  brick; each brick's values packed after a u16 byte count (0 = raw): first value, then LEB128 tokens, 0 = run of the
+  last value (count byte follows), else zigzag second difference + 1; masks as (count, value) runs; 46 % of raw on a
+  256 sphere (zlib 48 %, measured). v1 and v2 (raw bricks) still read; `clay_write_estimate` is the raw upper bound. `clay_to_mesh(c, mask = &values)` carries the mask to a mesh.
+- Culling and pictures: `mesh_node` ends with the node's normal cone from its triangles' face normals
+  (`geom.normal_cone`; never the gradient vertex normals), kept on `Node.cone_axis/cone_cutoff` and passed to the
+  `geom.Chunk` by `surface_chunks_rebuild`, so the renderer back-face culls clay nodes as mesh chunks. The Objects
+  card's picture of a voxel object draws `vp.gpu` fitted to its surface chunks' bounds (`thumb_shape` in
+  `object_thumbs.odin`), keyed on `vp.gpu.version` and the turn.
 - A standalone, time-boxed comparison, not part of the app or the build scripts (`:1-5`; README "Layout" and the last
   line of "GPU benchmark and frame timing"). Build and run it with the strict flags, which it passes:
   `deps\odin\odin.exe build src\sdf_trial -o:speed -collection:deps=deps -vet -strict-style -warnings-as-errors

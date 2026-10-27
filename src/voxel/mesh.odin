@@ -26,6 +26,10 @@ Node :: struct {
 	idx_cap:    u32,
 	idx_count:  u32,
 	bounds:     geom.Aabb, // object space, AABB_EMPTY without triangles
+	// The normal cone of the node's triangles (geom.normal_cone over their face normals),
+	// for back-face culling of the node's chunk; a cutoff of 1 is a node never culled.
+	cone_axis:   Vec3,
+	cone_cutoff: f32,
 	dirty:      bool,
 }
 
@@ -88,6 +92,8 @@ Mesh_Result :: struct {
 	mask:      [dynamic]u8,
 	indices:   [dynamic]u32,
 	bounds:    geom.Aabb,
+	cone_axis:   Vec3,
+	cone_cutoff: f32,
 }
 
 // A vertex's code names what it stands for: the cell, as the node that owns the cell
@@ -281,6 +287,7 @@ clay_flush :: proc(c: ^Clay) -> (f: Flush) {
 		}
 		n.vert_count, n.idx_count = verts, idx
 		n.bounds = r.bounds
+		n.cone_axis, n.cone_cutoff = r.cone_axis, r.cone_cutoff
 		n.dirty = false
 		f.damage = geom.aabb_union(f.damage, r.bounds)
 		if n.vert_cap > 0 {
@@ -489,8 +496,7 @@ surface_chunks_rebuild :: proc(s: ^Surface) {
 	clear(&s.chunks)
 	for n in s.nodes {
 		if n.idx_count == 0 do continue
-		// A cutoff of 1 means the chunk is never back-face culled: nodes have no normal cone yet.
-		append(&s.chunks, geom.Chunk{bounds = n.bounds, cone_cutoff = 1, first_index = n.idx_first, index_count = n.idx_count})
+		append(&s.chunks, geom.Chunk{bounds = n.bounds, cone_axis = n.cone_axis, cone_cutoff = n.cone_cutoff, first_index = n.idx_first, index_count = n.idx_count})
 	}
 	slice.sort_by(s.chunks[:], proc(a, b: geom.Chunk) -> bool {return a.first_index < b.first_index})
 }
@@ -649,6 +655,19 @@ mesh_node :: proc(c: ^Clay, r: ^Mesh_Result) {
 		}
 	}
 	for p in r.positions do geom.aabb_grow(&r.bounds, p)
+	// The node's normal cone, from its triangles' face normals (never the vertex normals,
+	// which the gradient blends and which can all lean one way on a fold the triangles
+	// cross), so a chunk is culled only when every triangle faces away.
+	r.cone_axis, r.cone_cutoff = {}, 1
+	if len(r.indices) >= 3 {
+		faces := make([]Vec3, len(r.indices) / 3, heap)
+		defer delete(faces, heap)
+		for &f, k in faces {
+			p0, p1, p2 := r.positions[r.indices[3 * k]], r.positions[r.indices[3 * k + 1]], r.positions[r.indices[3 * k + 2]]
+			f = linalg.cross(p1 - p0, p2 - p0)
+		}
+		r.cone_axis, r.cone_cutoff = geom.normal_cone(faces)
+	}
 }
 
 @(private)

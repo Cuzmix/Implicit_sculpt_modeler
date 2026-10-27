@@ -280,7 +280,8 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
   `move_end` records on release, `move_cancel` restores unrecorded, `transform_drag_changed`/`transform_drag_end` make an
   inspector drag one step). A new kind of change to where an object sits goes through these, never a bare write.
   The scene's lights (`app.scene.lights`, lights.odin) are a `.Lights` entry, id 0, owning a `Light_Step` (before/after),
-  from `light_drag_changed`/`light_drag_end` (one step per press, in `history_busy` and `inspector_drags_end`).
+  from `light_drag_changed`/`light_drag_end` (one step per press, or per name typed while its field has the keys
+  (`Light_Drag.field`), in `history_busy` and `inspector_drags_end`).
   An object's texture maps (and, for New UVs, its UV layout) change only through `textures_replace` (src/app/textures.odin),
   a `.Textures` entry owning a `Texture_Step` that undo and redo swap with the object's, handled like `.Transform` (own
   `history_step` branch, no sculptor redo, kept by the forget procs, excluded from `entry_is_step`), its bytes counted in
@@ -339,7 +340,7 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
 | a `fade == 0` vertex moves a little | never: an HD window's border meets the level drawn around it |
 | `sculptor_lod_update` returns ranges mid-stroke | nothing while `history.recording` (`lod.odin:164`) |
 | more than 64 dabs land in one frame | the rest of the path waits for the next frame; a lagging stroke drops its oldest samples past 4096 |
-| a frame lays every dab its samples ask for | it stops once its dabs have taken `MAX_BRUSH_MS_PER_FRAME` (10 ms), as heavy dynamic topology can; the rest waits |
+| a frame lays every dab its samples ask for | it stops once its dabs have taken `MAX_BRUSH_MS_PER_FRAME` (10 ms), as heavy dynamic topology can; the rest waits (not on `--ui-dt`'s fixed clock, so scripted strokes land the same under load) |
 | a split edge's opposite vertex can sit on it | splits bisect each triangle across its longest side, so slivers never form; `dyn_long_stroke_keeps_a_clean_surface` checks angles and folds |
 
 ## Tests

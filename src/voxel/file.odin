@@ -8,12 +8,12 @@ import "../jobs"
 
 // The clay in a scene file: a tag and a version of its own inside the object, then the
 // field chunk by chunk: each occupied chunk's coordinate, its 4096 tile codes and the
-// values of its bricks in table order. The surface is not stored; it is meshed again on
-// reading. Damaged bytes are refused, never asserted on: every count is checked against
-// what is left before anything is read.
+// values of its bricks in table order, packed (pack.odin) with their masks. The surface is
+// not stored; it is meshed again on reading. Damaged bytes are refused, never asserted on:
+// every count is checked against what is left before anything is read.
 
 SVOX_TAG :: u32(0x584F_5653) // "SVOX" in the file
-SVOX_VERSION :: u32(2) // 2: a brick may carry a mask (code 3: its values, then a byte a voxel)
+SVOX_VERSION :: u32(3) // 2: a brick may carry a mask (code 3: its values, then a byte a voxel); 3: values and masks packed (pack.odin), each after its byte count
 
 // Tile codes in the file.
 @(private = "file")
@@ -60,8 +60,8 @@ clay_write :: proc(c: ^Clay, out: ^[dynamic]u8, abort: ^bool = nil) -> bool {
 		}
 		for slot in table.bricks {
 			if slot == TILE_EMPTY || slot == TILE_INSIDE do continue
-			geom.byte_put_slice(out, v.bricks[slot].d[:])
-			if m := mask_of(v, slot); m != nil do geom.byte_put_slice(out, m.m[:])
+			pack_brick(out, &v.bricks[slot])
+			if m := mask_of(v, slot); m != nil do pack_mask(out, m)
 		}
 	}
 	return true
@@ -107,7 +107,11 @@ clay_read_chunks :: proc(c: ^Clay, r: ^geom.Byte_Reader, count: int, version: u3
 			if code == FILE_BRICK do bricks += 1
 			if code == FILE_BRICK_MASKED do masked += 1
 		}
-		if len(r.data) - r.at < (bricks + masked) * size_of(Brick) + masked * size_of(Mask_Brick) do return false
+		// Before version 3 every brick is raw, so the chunk's bytes are known up front; a
+		// packed brick carries its own count and is checked as it is read.
+		left := len(r.data) - r.at
+		if version < 3 && left < (bricks + masked) * size_of(Brick) + masked * size_of(Mask_Brick) do return false
+		if version >= 3 && left < (bricks + masked) * 2 + masked * 2 do return false
 		table := volume_table_make(v, bc)
 		for code, i in codes {
 			lb := [3]i32{i32(i % CHUNK_BRICKS), i32(i / CHUNK_BRICKS % CHUNK_BRICKS), i32(i / (CHUNK_BRICKS * CHUNK_BRICKS))}
@@ -116,21 +120,26 @@ clay_read_chunks :: proc(c: ^Clay, r: ^geom.Byte_Reader, count: int, version: u3
 				table.bricks[i] = TILE_INSIDE
 			case FILE_BRICK, FILE_BRICK_MASKED:
 				slot, brick := volume_brick_make(v, bc + lb, 0)
-				geom.byte_get_slice(r, brick.d[:])
-				if code == FILE_BRICK_MASKED do geom.byte_get_slice(r, mask_make(v, slot).m[:])
+				if version < 3 {
+					geom.byte_get_slice(r, brick.d[:])
+					if code == FILE_BRICK_MASKED do geom.byte_get_slice(r, mask_make(v, slot).m[:])
+				} else {
+					if !unpack_brick(r, brick) do return false
+					if code == FILE_BRICK_MASKED && !unpack_mask(r, mask_make(v, slot)) do return false
+				}
 			}
 		}
 	}
 	return r.ok
 }
 
-// The bytes clay_write appends, to reserve them up front.
+// The most bytes clay_write appends (every brick and mask raw), to reserve them up front.
 clay_write_estimate :: proc(c: ^Clay) -> int {
 	v := &c.volume
 	// The header: tag, version, voxel, origin and the chunk count.
 	masked := 0
 	for coord, slot in v.coords do if coord != BRICK_FREE && mask_of(v, u32(slot)) != nil do masked += 1
-	return 28 + len(v.tables) * (12 + CHUNK_BRICKS * CHUNK_BRICKS * CHUNK_BRICKS) + volume_brick_count(v) * size_of(Brick) + masked * size_of(Mask_Brick)
+	return 28 + len(v.tables) * (12 + CHUNK_BRICKS * CHUNK_BRICKS * CHUNK_BRICKS) + volume_brick_count(v) * (2 + size_of(Brick)) + masked * (2 + size_of(Mask_Brick))
 }
 
 // A hash of the field, for the autosave's torn-file check: a sum of per-brick hashes, so

@@ -125,9 +125,9 @@ undo_brings_a_collapsed_brick_s_mask_back :: proc(t: ^testing.T) {
 	}
 }
 
-// The file keeps the masks (version 2), and a version 1 file still reads.
+// The file keeps the masks (the old raw versions are read in pack_test.odin).
 @(test)
-the_file_keeps_the_masks_and_reads_the_old_version :: proc(t: ^testing.T) {
+the_file_keeps_the_masks :: proc(t: ^testing.T) {
 	c := masked_sphere(64)
 	defer clay_destroy(&c)
 	top_stroke(&c, .Mask, 0.5)
@@ -144,18 +144,6 @@ the_file_keeps_the_masks_and_reads_the_old_version :: proc(t: ^testing.T) {
 		testing.expect_value(t, mask_value(&back.volume, g), mask_value(&c.volume, g))
 	}
 	testing.expect(t, mask_value(&back.volume, {2048, 2048, 2048 + 31}) > 200, "the top voxel's mask did not survive the file")
-	// The same clay without masks, written as version 1.
-	plain := masked_sphere(64)
-	defer clay_destroy(&plain)
-	old := make([dynamic]u8)
-	defer delete(old)
-	testing.expect(t, clay_write(&plain, &old))
-	old[4], old[5], old[6], old[7] = 1, 0, 0, 0
-	back1: Clay
-	r1 := geom.Byte_Reader{data = old[:], ok = true}
-	testing.expect(t, clay_read(&back1, &r1, nil), "a version 1 clay did not read")
-	defer clay_destroy(&back1)
-	testing.expect_value(t, clay_hash(&back1), clay_hash(&plain))
 }
 
 // Masked dabs and mask dabs agree on one thread and three.
