@@ -362,6 +362,10 @@ kit_objects_card_menus :: proc(app: ^App) {
 				c.add = false
 			}
 		}
+		if ui.menu_item(ctx, "Voxel sphere##objects card add", glyph = ui.ICON_PLUS, trailing = true) {
+			app.ui.scene_command = {kind = .Add, vertices = vertices, voxels = voxel_resolution_for(vertices), on = !c.append}
+			c.add = false
+		}
 		// Each content pack's meshes, under its name.
 		for pack in app.library.packs {
 			if pack.meshes == 0 do continue

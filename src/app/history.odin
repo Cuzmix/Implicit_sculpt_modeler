@@ -10,6 +10,7 @@ import "../camera"
 import "../geom"
 import "../render"
 import "../sculpt"
+import "../voxel"
 
 // Scene-wide undo order. Each level of each object keeps its own strokes; this records
 // which object and level each stroke belongs to, newest last, so Ctrl+Z walks back
@@ -219,6 +220,11 @@ brush_stroke_finish :: proc(app: ^App) {
 	}
 	obj := object_by_id(app, app.stroke.object)
 	if obj == nil do return
+	if vp := obj.voxel; vp != nil {
+		// The clay's stroke: its band is repaired and its step kept when it changed anything.
+		if voxel.clay_stroke_end(&vp.clay) do history_record(app, obj, .Stroke, BRUSHES[app.stroke.kind].name)
+		return
+	}
 	// A stroke joining this one keeps its locked plane, so a long Flatten laid in
 	// pieces flattens to one plane.
 	e.locked = sculpt.sculptor_locked_plane(object_sculptor(obj))
@@ -488,6 +494,8 @@ history_drop_redo :: proc(app: ^App) {
 			entry_free(&app.history, e)
 		} else if e.kind == .Transform {
 			// Nothing of it is kept anywhere else.
+		} else if obj := object_by_id(app, e.id); obj != nil && obj.voxel != nil {
+			voxel.clay_clear_redo(&obj.voxel.clay)
 		} else if s := entry_sculptor(app, e); s != nil {
 			sculpt.sculptor_clear_redo(s)
 		}
@@ -555,6 +563,17 @@ history_step :: proc(app: ^App, from, to: ^[dynamic]History_Entry, can, step: pr
 			if obj == nil do continue
 			obj.transform = e.before if from == &app.history.done else e.after
 			app.move.drag = {}
+			append(to, e)
+			return true
+		}
+		if obj := object_by_id(app, e.id); obj != nil && obj.voxel != nil {
+			// A voxel stroke: the clay swaps the bricks the step saved back in (undo) or out
+			// again (redo); a step the clay dropped (memory limit) is skipped.
+			c := &obj.voxel.clay
+			backwards := from == &app.history.done
+			if backwards {
+				if !voxel.clay_undo(c) do continue
+			} else if !voxel.clay_redo(c) do continue
 			append(to, e)
 			return true
 		}
@@ -689,6 +708,7 @@ history_forget_level :: proc(app: ^App, id: int, level: Maybe(int)) {
 // on any level, has been undone.
 object_forget_history :: proc(app: ^App, obj: ^Object) {
 	history_forget_strokes(app, obj.id)
+	if vp := obj.voxel; vp != nil do voxel.clay_clear_history(&vp.clay)
 	for lv in obj.levels.levels {
 		sculpt.sculptor_clear_history(&lv.sculptor)
 		// The History brush's target is out of reach without the steps (and 12 bytes a vertex).

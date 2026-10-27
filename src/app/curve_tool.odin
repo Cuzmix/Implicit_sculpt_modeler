@@ -9,6 +9,7 @@ import "../camera"
 import "../geom"
 import "../sculpt"
 import "../ui"
+import "../voxel"
 
 // The Curve and Insert tools, after ZBrush's curve brushes and insert mesh brushes. A
 // Curve drag over the surface makes, on release, a new object along the path: a tube,
@@ -66,6 +67,17 @@ scene_raycast_surface :: proc(app: ^App, origin, dir: Vec3) -> (index: int, hit,
 		t := obj.transform
 		s := object_sculptor(obj)
 		lo, ld := to_local(t, origin), to_local_dir(t, dir)
+		if vp := obj.voxel; vp != nil {
+			// The clay's surface, with the field's gradient for the normal.
+			local_hit, local_normal, on := voxel.clay_raycast(&vp.clay, lo, ld)
+			if !on do continue
+			world := to_world(t, local_hit)
+			if dist := linalg.length(world - origin); dist < best {
+				best, index, hit, ok = dist, i, world, true
+				normal = linalg.normalize0(to_world_dir(t, local_normal))
+			}
+			continue
+		}
 		d, tri, found := geom.bvh_raycast(&s.bvh, s.mesh^, lo, ld, sculpt.sculptor_hidden_tris(s))
 		if !found do continue
 		world := to_world(t, lo + d * ld)

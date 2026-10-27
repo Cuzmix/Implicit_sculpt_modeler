@@ -3,6 +3,7 @@ package main
 import "core:fmt"
 import "core:math"
 import "core:math/linalg"
+import "core:strings"
 
 import "../geom"
 import "../ui"
@@ -68,16 +69,110 @@ kit_curve_editor :: proc(ctx: ^ui.Context, name: string, curve: ^geom.Curve, han
 	return
 }
 
-// A colour as a swatch over three sliders. Returns true when it changed.
-kit_color :: proc(ctx: ^ui.Context, name: string, rgb: ^[3]f32) -> (changed: bool) {
+// A colour as a swatch beside its hex code, over Red, Green and Blue sliders, all in the
+// values a screen shows (sRGB, as image editors give them). `linear` says the colour is
+// stored as linear light (a material's, which the shader lights as is), so it is shown
+// through the sRGB curve and only the channel moved is converted back; paint is stored as
+// shown. Returns true when it changed.
+kit_color :: proc(app: ^App, name: string, rgb: ^[3]f32, linear := false) -> (changed: bool) {
+	ctx := &app.kit.ctx
+	k := &app.kit
 	t := ctx.theme
-	r := ui.place(ctx, {ui.fill_width(ctx), 28})
-	ui.fill_rect(ctx, r, t.radius_medium, overlay_color({rgb.r, rgb.g, rgb.b, 1}))
+	shown := rgb^
+	if linear do for &c in shown do c = srgb_encode(c)
+	hex_w: f32 = 104
+	swatch_w := max(ui.fill_width(ctx) - hex_w - 8, 28)
+	ui.begin(ctx, fmt.tprintf("swatch##%s", name), {direction = .Row, gap = 8})
+	field := fmt.tprintf("hex##%s", name)
+	id := ui.id_of(ctx, field)
+	// While the field is typed in it keeps what was typed, so "#3" on the way to "#3A7"
+	// is not replaced by the colour; otherwise it shows the colour. A tap empties it to
+	// type a new code over its hint, the code it had, as the field has no selection to
+	// type over.
+	editing := ctx.text_focus == id && k.color_hex_of == id
+	code: [8]u8
+	color_hex_format(shown, code[:])
+	text := code
+	buf := k.color_hex[:] if editing else text[:]
+	// The swatch stands as tall as the field beside it.
+	r := ui.place(ctx, {swatch_w, t.target})
+	r.y += (t.target - t.control) * 0.5
+	r.h = t.control
+	ui.fill_rect(ctx, r, t.radius_medium, overlay_color({shown.r, shown.g, shown.b, 1}))
 	ui.stroke_rect(ctx, r, t.radius_medium, t.border_strong, 1)
+	if ui.text_field(ctx, field, buf, hex_w, hint = fmt.tprint(string(code[:7]))) {
+		if typed, ok := color_hex_parse(string(buf[:color_hex_len(buf)])); ok {
+			shown = typed
+			rgb^ = typed
+			if linear do for &c in rgb do c = srgb_decode(c)
+			changed = true
+		}
+	}
+	if ctx.text_focus == id && !editing {
+		k.color_hex = {}
+		k.color_hex_of = id
+	} else if ctx.text_focus != id && k.color_hex_of == id {
+		k.color_hex_of = 0
+	}
+	ui.end(ctx)
 	for channel, i in ([3]string{"Red", "Green", "Blue"}) {
-		changed |= ui.slider(ctx, fmt.tprintf("%s##%s", channel, name), &rgb[i], 0, 1, .Linear, fmt.tprintf("%.2f", rgb[i]))
+		if ui.slider(ctx, fmt.tprintf("%s##%s", channel, name), &shown[i], 0, 1, .Linear, fmt.tprintf("%d", int(math.round(shown[i] * 255)))) {
+			rgb[i] = srgb_decode(shown[i]) if linear else shown[i]
+			changed = true
+		}
 	}
 	return
+}
+
+// A colour of display values as "#RRGGBB" into `buf`, ended by a zero byte.
+color_hex_format :: proc(rgb: [3]f32, buf: []u8) {
+	digits := "0123456789ABCDEF"
+	if len(buf) < 8 do return
+	buf[0] = '#'
+	for c, i in rgb {
+		b := int(math.round(clamp(c, 0, 1) * 255))
+		buf[1 + 2 * i] = digits[b >> 4]
+		buf[2 + 2 * i] = digits[b & 15]
+	}
+	buf[7] = 0
+}
+
+// The bytes before the zero that ends `buf`, or all of them.
+@(private = "file")
+color_hex_len :: proc(buf: []u8) -> int {
+	for b, i in buf do if b == 0 do return i
+	return len(buf)
+}
+
+// A hex colour code as display values: six digits, or three that each stand for two
+// ("#3A7" is "#33AA77"), with or without the "#" and in either case, spaces around
+// allowed. Anything else is not a colour.
+color_hex_parse :: proc(text: string) -> (rgb: [3]f32, ok: bool) {
+	s := strings.trim_prefix(strings.trim_space(text), "#")
+	digit :: proc(c: u8) -> (int, bool) {
+		switch c {
+		case '0' ..= '9': return int(c - '0'), true
+		case 'a' ..= 'f': return int(c - 'a') + 10, true
+		case 'A' ..= 'F': return int(c - 'A') + 10, true
+		}
+		return 0, false
+	}
+	short := len(s) == 3
+	if !short && len(s) != 6 do return
+	for i in 0 ..< 3 {
+		hi, lo: int
+		ok_hi, ok_lo: bool
+		if short {
+			hi, ok_hi = digit(s[i])
+			lo, ok_lo = hi, ok_hi
+		} else {
+			hi, ok_hi = digit(s[2 * i])
+			lo, ok_lo = digit(s[2 * i + 1])
+		}
+		if !ok_hi || !ok_lo do return
+		rgb[i] = f32(hi * 16 + lo) / 255
+	}
+	return rgb, true
 }
 
 // A count (vertices, quads) on a logarithmic slider, rounded to two significant

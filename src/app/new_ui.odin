@@ -105,6 +105,10 @@ Kit_State :: struct {
 	// when typing ends; 0 while the field is not being typed in.
 	preset_name:    [PRESET_NAME_MAX]u8,
 	preset_editing: int,
+	// A colour's hex field while it is typed in: the text, and the field's id (0 when no
+	// hex field is being typed in), so a half-typed code survives the frames between keys.
+	color_hex:    [8]u8,
+	color_hex_of: ui.Id,
 	help:       bool, // the Help window (Menu > Help, F1), in Settings' place
 	action_bar: bool, // the contextual action bar over the dock (Settings > Interface)
 	gizmo_entry: Gizmo_Entry, // the value a tap on a gizmo handle asks for (move_tool.odin)
@@ -205,6 +209,7 @@ Kit_State :: struct {
 	add_shape:  geom.Primitive,
 	add_mesh:   int, // a content pack's mesh to add instead (Library.meshes, from 1), or 0
 	add_size:   int, // into SPHERE_PRESETS
+	add_voxel:  bool, // Add object makes a voxel sphere of the size's resolution (voxel_object.odin)
 	note_at:    time.Tick, // the result last shown as a toast
 	busy_toast: ui.Id, // the last "under way" toast (Report_Flag.Busy), dismissed by the next result
 	undo_toast: struct {
@@ -344,6 +349,7 @@ Kit_Section :: enum u8 {
 	Deformers,
 	Remesh,
 	Mirror,
+	Voxels,
 	Retopo,
 	Project,
 	Booleans,
@@ -352,6 +358,7 @@ Kit_Section :: enum u8 {
 	Objects,
 	Add,
 	Material,
+	Lights,
 	Studio,
 	Camera,
 	// The Stats panel's.

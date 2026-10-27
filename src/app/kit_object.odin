@@ -78,6 +78,7 @@ OBJECT_SECTIONS := [?]Object_Section {
 	{.Surface, .Morph, "Morph target", kit_morph},
 	{.Surface, .Deform, "Deformation", kit_deformation},
 	{.Surface, .Deformers, "Deformers", kit_deformers},
+	{.Build, .Voxels, "Voxels", kit_voxels},
 	{.Build, .Retopo, "UVs and baking", proc(app: ^App, _: ^Object) {kit_retopo_section(app)}},
 	{.Build, .Project, "Project detail", proc(app: ^App, _: ^Object) {kit_project_section(app)}},
 	{.Build, .Booleans, "Booleans", proc(app: ^App, _: ^Object) {kit_boolean_section(app)}},
@@ -234,7 +235,7 @@ kit_visibility :: proc(app: ^App, obj: ^Object) {
 @(private = "file")
 kit_paint :: proc(app: ^App) {
 	ctx := &app.kit.ctx
-	_ = kit_color(ctx, "paint colour", &app.brush.color)
+	_ = kit_color(app, "paint colour", &app.brush.color)
 	kit_command_pair(app, .Paint, .Paint, int(sculpt.Paint_Command.Fill), int(sculpt.Paint_Command.Clear), tone_b = .Danger)
 	ui.paragraph(ctx, "The Paint brush paints this colour over the clay, Ctrl takes it off. Fill and Clear skip what is masked or hidden. Each level keeps its own paint.")
 }
