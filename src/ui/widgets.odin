@@ -1539,6 +1539,75 @@ preview_tile :: proc(ctx: ^Context, s: string, glyph: rune, ball: Color, selecte
 	return
 }
 
+// What a picture tile shows in its well: part of a registered image (an atlas cell, from
+// `lo` to `hi`, `aspect` its width over its height), or with `image` 0 a glyph.
+Picture :: struct {
+	image:  u64,
+	lo, hi: [2]f32,
+	aspect: f32,
+	glyph:  rune,
+}
+
+// How a picture tile's well is ringed: a hairline, the accent (what is open now) or the
+// danger colour (a first tap armed it).
+Tile_Ring :: enum u8 {
+	Hairline,
+	Accent,
+	Danger,
+}
+
+// A large tile of a grid of things to open, such as saved scenes: `pic` filling a well
+// `width` wide and three quarters as tall (a picture is cut to the well's shape rather
+// than shrunk into it), with `title` and `line` under it. `banner`, when set, lies over
+// the well's foot in the danger colour: what a second tap does. `dim` greys the title
+// (a file gone). `s` is its id and its tooltip.
+picture_tile :: proc(ctx: ^Context, s: string, width: f32, pic: Picture, title, line: string, line_color: Color = {}, ring := Tile_Ring.Hairline, banner := "", dim := false) -> (res: Tile_Result) {
+	ctx.controls += 1
+	t := ctx.theme
+	ph := math.round(width * 0.75)
+	cell := place(ctx, {width, ph + 44})
+	id := id_of(ctx, s)
+	hovered, held, clicked, _ := interact(ctx, id, cell)
+	res.clicked = clicked
+	res.menu = secondary(ctx)
+	mark := vertex_mark(ctx)
+	well := Rect{cell.x, cell.y, width, ph}
+	res.picture = well
+	fill_rect(ctx, well, t.radius_medium, t.surface)
+	center := [2]f32{well.x + well.w * 0.5, well.y + well.h * 0.5}
+	if pic.image != 0 && pic.aspect > 0 {
+		lo, hi := pic.lo, pic.hi
+		wa := well.w / well.h
+		if pic.aspect > wa {
+			cut := (hi.x - lo.x) * (1 - wa / pic.aspect) * 0.5
+			lo.x, hi.x = lo.x + cut, hi.x - cut
+		} else {
+			cut := (hi.y - lo.y) * (1 - pic.aspect / wa) * 0.5
+			lo.y, hi.y = lo.y + cut, hi.y - cut
+		}
+		image_part(ctx, {well.x + 1, well.y + 1, well.w - 2, well.h - 2}, pic.image, lo, hi)
+	} else if pic.glyph != 0 {
+		icon(ctx, pic.glyph, center, t.icon_size + 8, t.text_tertiary)
+	}
+	scale := feedback(ctx, id, well, t.radius_medium, hovered, held)
+	if banner != "" {
+		band := Rect{well.x, well.y + well.h - 30, well.w, 30}
+		fill_rect(ctx, band, 0, color_fade(t.surface_raised, 0.92))
+		text(ctx, text_fit(ctx, banner, t.small_size, well.w - 8, .Semibold), center.x, band.y + band.h * 0.5, t.small_size, t.danger, .Semibold, .Center)
+	}
+	switch ring {
+	case .Hairline: stroke_rect(ctx, well, t.radius_medium, t.border, 1)
+	case .Accent:   stroke_rect(ctx, well, t.radius_medium, t.accent, 2)
+	case .Danger:   stroke_rect(ctx, well, t.radius_medium, t.danger, 2)
+	}
+	title_color := t.text_tertiary if dim else color_mix(t.text_secondary, t.text, 0.3 + f32(int(hovered)) * 0.7)
+	text(ctx, text_fit(ctx, title, t.text_size, width, .Semibold), well.x, well.y + ph + 13, t.text_size, title_color, .Semibold)
+	text(ctx, text_fit(ctx, line, t.small_size, width), well.x, well.y + ph + 32, t.small_size, line_color if line_color.a > 0 else t.text_secondary)
+	press_scale(ctx, mark, cell, scale)
+	tip(ctx, id, well, label_text(s))
+	return
+}
+
 // A ball of `color`, `radius` points across from `center`, lit from the upper left with a
 // highlight and a darkening toward its rim, as a material's preview sphere: a disc of
 // rings shaded per vertex, over a circle of its rim's colour that gives the edge its

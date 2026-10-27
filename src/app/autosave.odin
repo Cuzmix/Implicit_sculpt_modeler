@@ -727,6 +727,30 @@ sessions_found :: proc(app: ^App) -> []Found_Session {
 	return found[:]
 }
 
+// An earlier session's newest autosave, as the Home screen's Autosaves lists it.
+Autosave_Entry :: struct {
+	session: string,
+	path:    string, // the newest autosave
+	scene:   string, // the scene's own file, "" for none
+	at:      i64, // unix seconds it was made
+	crashed: bool, // the session never closed: its last save may not hold this work
+}
+
+// Every earlier session with an autosave, newest first, leaving out copies of the app
+// still running. In the temp allocator.
+autosave_entries :: proc(app: ^App) -> []Autosave_Entry {
+	if !app.autosave.on do return nil
+	now := unix_now()
+	out := make([dynamic]Autosave_Entry, context.temp_allocator)
+	for f in sessions_found(app) {
+		if len(f.slots) == 0 || session_alive(f, now) do continue
+		append(&out, Autosave_Entry{f.name, f.slots[0].path, f.info.scene, f.slots[0].at / 1e9, !f.has_info || f.info.closed == 0})
+	}
+	// The session's name breaks a tie, so the folder's order never decides it.
+	slice.sort_by(out[:], proc(x, y: Autosave_Entry) -> bool {return x.at > y.at || (x.at == y.at && x.session > y.session)})
+	return out[:]
+}
+
 // Whether a session is another copy of the app still running: its process is there and
 // runs this app (a crash's number may since have gone to some other program). Where the
 // system will not say, a session that said it was alive lately counts as alive. A phone
