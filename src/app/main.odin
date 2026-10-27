@@ -211,6 +211,7 @@ App :: struct {
 	render_samples: i32,
 	render_bounces: i32,
 	render_denoise: bool,
+	render_half:    bool, // trace at half size each way: on by default on tablets
 	// The navigation head in the top-right corner (nav_head.odin), and the texture it was
 	// drawn into this frame, for the interface to show; nil when there is none.
 	nav_head:       render.Nav_Head,
@@ -526,6 +527,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	app.studio_softness = render.STUDIO_KEY_SOFTNESS
 	app.studio_samples, app.studio_ao, app.studio_shadow = STUDIO_SAMPLES_DEFAULT, STUDIO_AO_DEFAULT, STUDIO_SHADOW_DEFAULT
 	app.render_samples, app.render_bounces, app.render_denoise = render.RENDER_SAMPLES_DEFAULT, render.RENDER_BOUNCES_DEFAULT, true
+	app.render_half = ODIN_PLATFORM_SUBTARGET == .Android
 	environment_settings_default(&app)
 	app.dim_others = true
 	app.time_gpu = opts.time_gpu || opts.gpubench != ""
