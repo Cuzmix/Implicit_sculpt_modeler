@@ -84,17 +84,22 @@ kit_thumbnail :: proc(app: ^App) -> (raised: bool) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
-	id := ui.id_of(ctx, "thumbnail")
-	shown := ui.presence(ctx, id, k.thumbnail, t.panel_time)
+	shown := ui.presence(ctx, panel_id(Kit_Window.Thumbnail), k.thumbnail, t.panel_time)
 	k.thumbnail_px = {}
 	if shown <= 0 do return
 	win := &k.windows[.Thumbnail]
 	PADDING :: 10
 	mark := ui.vertex_mark(ctx)
-	raised_now, dock := ui.card_begin(ctx, "thumbnail", "", win, .Start, .Start, {kit_left(app), points_bottom(app)}, {direction = .Column, gap = 8, padding = PADDING, width = THUMBNAIL_W + 2 * PADDING, radius = t.radius_large, background = .Panel, inert = !k.thumbnail})
-	raised = raised_now
-	// The card's grip held long closes it, as the other cards go back to their palettes.
-	if dock do k.thumbnail = false
+	p := panel_begin(app, Kit_Window.Thumbnail, "", .Start, .Start, {kit_left(app), points_bottom(app)}, {direction = .Column, gap = 8, padding = PADDING, width = THUMBNAIL_W + 2 * PADDING, radius = t.radius_large, background = .Panel, inert = !k.thumbnail}, card = true)
+	raised = p.raised
+	if p.closed do k.thumbnail = false
+	// Its grip held long is Panel options: it has no title to put the button beside.
+	if p.dock do panel_menu_open(app, Kit_Window.Thumbnail)
+	if !p.body {
+		panel_end(app, &p)
+		ui.transform_since(ctx, mark, shown, 1, {}, {window_slide(ctx, win^, .Start) * (1 - shown) * 16, 0})
+		return
+	}
 	aspect := f32(1.33)
 	if app.target.height > 0 do aspect = clamp(f32(app.target.width) / f32(app.target.height), 0.6, 2)
 	pic := ui.place(ctx, {THUMBNAIL_W, THUMBNAIL_W / aspect})
@@ -111,9 +116,10 @@ kit_thumbnail :: proc(app: ^App) -> (raised: bool) {
 	modes := [2]string{"Silhouette", "Shaded"}
 	if picked := ui.tabs(ctx, "Thumbnail shows", modes[:], int(k.thumbnail_shaded), item_width = (THUMBNAIL_W - 2 * t.target - 8) / 2); picked >= 0 do k.thumbnail_shaded = picked == 1
 	if ui.icon_button(ctx, "Flip left to right", ICON_FLIP, selected = k.thumbnail_flip) do k.thumbnail_flip = !k.thumbnail_flip
-	if ui.icon_button(ctx, "Close", ui.ICON_CLOSE) do k.thumbnail = false
+	// Floating, Close sits here; docked, the header has it.
+	if !p.docked && ui.icon_button(ctx, "Close", ui.ICON_CLOSE) do k.thumbnail = false
 	ui.end(ctx)
-	ui.window_end(ctx)
+	panel_end(app, &p)
 	ui.transform_since(ctx, mark, shown, 1, {}, {window_slide(ctx, win^, .Start) * (1 - shown) * 16, 0})
 	return
 }

@@ -191,6 +191,8 @@ Command_Id :: enum u8 {
 	Stats,
 	Inspector,
 	Show_Section, // the argument is the Kit_Section, below TRAY_SECTIONS
+	Pin_Section, // the argument is the Kit_Section, below TRAY_SECTIONS (panels.odin)
+	Panels_Reset,
 	Settings,
 	Reduce_Motion,
 	Command_Palette,
@@ -1571,6 +1573,21 @@ COMMANDS := [Command_Id]Command {
 		// The brush's Colour and History brush sections only for the brushes that have them.
 		enabled = proc(app: ^App, arg: int) -> bool {return tray_offers(app, Kit_Section(arg))},
 	},
+	.Pin_Section = {
+		label = "Pin as a panel",
+		help = "Keeps this section as a panel of its own, docked in the right column, or puts the pinned panel away.",
+		icon = ui.ICON_PANEL,
+		args = TRAY_SECTIONS,
+		run = proc(app: ^App, arg: int) {panel_pin_toggle(app, Kit_Section(arg))},
+		enabled = proc(app: ^App, arg: int) -> bool {return panel_pinnable(Kit_Section(arg))},
+		checked = proc(app: ^App, arg: int) -> bool {return app.kit.panels.pins[Kit_Section(arg)].on},
+	},
+	.Panels_Reset = {
+		label = "Reset panels",
+		help = "Puts every panel back where it starts: the palette tray in the right column, the others floating, nothing pinned.",
+		icon = ui.ICON_PANEL,
+		run = proc(app: ^App, _: int) {windows_reset(&app.kit)},
+	},
 	.Settings = {
 		label = "Settings...",
 		help = "Opens the app's settings.",
@@ -1864,6 +1881,9 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 	case .Show_Section:
 		sec := Kit_Section(arg)
 		return fmt.tprintf("%s: %s", palette_name(section_palette(sec)), tray_section_title(sec))
+	case .Pin_Section:
+		sec := Kit_Section(arg)
+		return fmt.tprintf("Pin %s as a panel", tray_section_title(sec))
 	case .Gizmo:
 		return fmt.tprintf("%v gizmo", gizmo.Mode(arg))
 	case .Pie:

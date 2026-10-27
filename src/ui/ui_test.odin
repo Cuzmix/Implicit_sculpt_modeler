@@ -1101,6 +1101,35 @@ a_window_dragged_by_its_title_keeps_to_the_nearer_edges :: proc(t: ^testing.T) {
 }
 
 @(test)
+a_press_handed_to_a_window_drags_it_on :: proc(t: ^testing.T) {
+	ctx: Context
+	init(&ctx)
+	defer destroy(&ctx)
+	w: Window
+	// A frame with a button somewhere else, held, then handed to the window, which is not
+	// laid out that frame (it is somewhere else in the app's layout).
+	held_frame :: proc(ctx: ^Context, input: Input, w: ^Window, hand: bool) {
+		input := input
+		input.window = {800, 600}
+		frame_begin(ctx, input)
+		begin_anchored(ctx, "elsewhere", .Start, .Start, {100, 100}, {width = 200})
+		_ = button(ctx, "handle")
+		if hand && .Left in ctx.input.down do window_grab(ctx, w, "win", {40, 24})
+		end(ctx)
+		frame_end(ctx)
+	}
+	held_frame(&ctx, input_at({-1, -1}), &w, false)
+	held_frame(&ctx, input_at({110, 110}, down = {.Left}, pressed = {.Left}), &w, false)
+	held_frame(&ctx, input_at({130, 130}, down = {.Left}), &w, true)
+	testing.expect_value(t, ctx.active, window_bar_id(&ctx, "win"))
+	_, _, _, r := one_window(&ctx, input_at({300, 260}, down = {.Left}), &w)
+	testing.expect_value(t, r.x, 300 - 40)
+	testing.expect_value(t, r.y, 260 - 24)
+	_, _, inside, _ := one_window(&ctx, input_at({300, 260}, released = {.Left}), &w)
+	testing.expect(t, !inside && w.moved && !w.dragging, "the handed press did not end as a drag")
+}
+
+@(test)
 a_window_dragged_off_the_screen_keeps_its_title_bar_inside :: proc(t: ^testing.T) {
 	ctx: Context
 	init(&ctx)

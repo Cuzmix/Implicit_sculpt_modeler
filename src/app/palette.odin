@@ -216,6 +216,8 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.Stats            = "performance fps statistics",
 	.Inspector        = "panel properties tray subpalette",
 	.Show_Section     = "palette section subpalette panel go",
+	.Pin_Section      = "pin dock panel keep float column",
+	.Panels_Reset     = "reset panels layout columns dock windows restore default",
 	.Settings         = "preferences options",
 	.Reduce_Motion    = "animation accessibility",
 }

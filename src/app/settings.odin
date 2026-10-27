@@ -684,6 +684,8 @@ settings_load :: proc(app: ^App, path: string) {
 					w.offset = {clamp(number(f[5], 0), -WINDOW_OFFSET_MAX, WINDOW_OFFSET_MAX), clamp(number(f[6], 0), -WINDOW_OFFSET_MAX, WINDOW_OFFSET_MAX)}
 				}
 			}
+		case "column", "pinned":
+			panels_load_line(app, f)
 		case "brush_recent", "brush_favorite":
 			// brush_recent <key, escaped> ..., most recent first, and brush_favorite <key,
 			// escaped> ..., in the order added: what the brush browser's Recent and
@@ -955,6 +957,7 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 	for w, which in k.windows {
 		fmt.sbprintfln(&out, "window %v %d %v %v %g %g %d", which, bit(w.moved), w.x, w.y, w.offset.x, w.offset.y, bit(w.minimized))
 	}
+	panels_save(app, &out)
 	if p := &app.kit.brushes; p.recent_count > 0 {
 		strings.write_string(&out, "brush_recent")
 		for &k in p.recent[:p.recent_count] do fmt.sbprintf(&out, " %s", preset_escape(brush_key_text(&k)))

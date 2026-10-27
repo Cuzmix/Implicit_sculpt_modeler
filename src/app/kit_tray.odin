@@ -248,11 +248,12 @@ tray_mark_draw :: proc(app: ^App) {
 }
 
 // The list beside the content on a wide window: each palette, and under the open one
-// its sections; a tap on a palette opens it on the section it last showed.
-kit_tray_list :: proc(app: ^App, height: f32) {
+// its sections; a tap on a palette opens it on the section it last showed. `owner` is the
+// root container a press on the tray lands in. Returns the list's natural height.
+kit_tray_list :: proc(app: ^App, height: f32, owner: ui.Id) -> f32 {
 	k := &app.kit
 	ctx := &k.ctx
-	scroll := kit_scroll_begin(ctx, "tray list", &k.list_scroll, ui.id_of(ctx, "inspector"), TRAY_NAV_W, height, 0)
+	scroll := kit_scroll_begin(ctx, "tray list", &k.list_scroll, owner, TRAY_NAV_W, height, 0)
 	for tab in Kit_Tab {
 		// The open palette is lit itself only when it has no sections to light instead.
 		lit := tab == k.tab && len(tray_sections(app, tab)) == 0
@@ -278,6 +279,7 @@ kit_tray_list :: proc(app: ^App, height: f32) {
 	// scroll as far as it can.
 	if k.list_reveal > 0 do k.list_reveal -= 1
 	kit_scroll_end(ctx, scroll)
+	return scroll.natural
 }
 
 // The same list in a select over the content, on a window too narrow for it beside:

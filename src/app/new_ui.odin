@@ -185,7 +185,9 @@ Kit_State :: struct {
 	// The panels as windows: where each was dragged to and whether it is folded
 	// (remembered by settings.odin), and the order they are drawn in, the last on top.
 	windows:    [Kit_Window]ui.Window,
-	order:      [len(Kit_Window)]Kit_Window,
+	order:      [dynamic; len(Kit_Window) + TRAY_SECTIONS]Panel_Ref,
+	// Lens's panels: the two columns, the pinned sections and the panel menu (panels.odin).
+	panels:     Panels,
 	text_input: bool, // SDL's text input is on, for the text field that has the keys
 	// Where the viewport's overlay goes in the draw order: over the viewport image and
 	// under the panels. Set while a frame is laid out, until the overlay is drawn.
@@ -304,18 +306,21 @@ side_panel_close :: proc(app: ^App) {
 	app.kit.help, app.kit.macros, app.kit.library = false, false, false
 }
 
-// Brings `which` in front of the other windows.
-window_raise :: proc(k: ^Kit_State, which: Kit_Window) {
-	at := 0
-	for w, i in k.order do if w == which do at = i
-	for i in at ..< len(k.order) - 1 do k.order[i] = k.order[i + 1]
-	k.order[len(k.order) - 1] = which
+// Brings `which` (a window, or a pinned section's panel) in front of the others.
+window_raise :: proc(k: ^Kit_State, which: Panel_Ref) {
+	for w, i in k.order {
+		if w != which do continue
+		ordered_remove(&k.order, i)
+		break
+	}
+	if len(k.order) < cap(k.order) do append(&k.order, which)
 }
 
-// Puts every window back where it starts, open and in the starting order.
+// Puts every window back where it starts, open and in the starting order, the tray back
+// in the right column and nothing pinned (panels_default).
 windows_reset :: proc(k: ^Kit_State) {
 	k.windows = {}
-	k.order = KIT_WINDOW_ORDER
+	panels_default(k)
 }
 
 // The most height a window can have where it is: from its top edge to the bottom of the
@@ -699,7 +704,7 @@ kit_init :: proc(app: ^App) {
 	k.action_bar = true
 	bars_reset(k)
 	k.pies = PIE_DEFAULTS
-	k.order = KIT_WINDOW_ORDER
+	panels_default(k)
 	k.last_frame = time.tick_now()
 }
 
@@ -712,6 +717,7 @@ kit_floats_close :: proc(k: ^Kit_State) {
 	k.bind.open, k.pie_editor, k.adjust_pop, k.gizmo_entry.open = false, false, false, false
 	k.folder_menu, k.rename.open, k.macro_save.open, k.home_menu = false, false, false, false
 	k.colors.palette_menu, k.colors.swatch_menu, k.colors.pop = false, false, false
+	k.panels.menu = false
 	k.ctx.select_open = 0
 }
 
@@ -720,7 +726,7 @@ kit_floats_close :: proc(k: ^Kit_State) {
 // first-run tip hides under it.
 kit_floating :: proc(app: ^App) -> bool {
 	k := &app.kit
-	return app.ui.pie.open || app.ui.adjust.kind != .None || k.action_pop || k.adjust_pop || k.menu || k.versions || k.browser || k.dock_menu || k.bind.open || k.pie_editor || k.object_menu || k.folder_menu || k.rename.open || k.macro_save.open || k.palette || k.gizmo_entry.open || k.bar_pop.open || k.bar_slot.open || k.colors.palette_menu || k.colors.swatch_menu || k.colors.pop || k.home_menu || k.ctx.select_open != 0
+	return app.ui.pie.open || app.ui.adjust.kind != .None || k.action_pop || k.adjust_pop || k.menu || k.versions || k.browser || k.dock_menu || k.bind.open || k.pie_editor || k.object_menu || k.folder_menu || k.rename.open || k.macro_save.open || k.palette || k.gizmo_entry.open || k.bar_pop.open || k.bar_slot.open || k.colors.palette_menu || k.colors.swatch_menu || k.colors.pop || k.home_menu || k.panels.menu || k.ctx.select_open != 0
 }
 
 kit_destroy :: proc(app: ^App) {
@@ -820,15 +826,20 @@ kit_begin :: proc(app: ^App, window: ^sdl.Window) -> (size, pixels: [2]i32) {
 kit_mirror :: proc(k: ^Kit_State) {
 	if k.ctx.mirror == k.placed_mirrored do return
 	k.placed_mirrored = k.ctx.mirror
-	for &w in k.windows {
-		if !w.moved do continue
+	for &w in k.windows do window_mirror(&w)
+	for &p in k.panels.pins do window_mirror(&p.window)
+	k.wheel_offset.x = -k.wheel_offset.x
+
+	// A centred window's offset turns over; 0 stays 0 rather than becoming -0, which
+	// would be written differently.
+	window_mirror :: proc(w: ^ui.Window) {
+		if !w.moved do return
 		switch w.x {
 		case .Start:  w.x = .End
 		case .End:    w.x = .Start
-		case .Center: w.offset.x = -w.offset.x
+		case .Center: w.offset.x = 0 - w.offset.x
 		}
 	}
-	k.wheel_offset.x = -k.wheel_offset.x
 }
 
 // A new result (saved, opened, remeshed, deleted) shows as a toast, with Undo when it
@@ -1046,26 +1057,19 @@ kit_layout :: proc(app: ^App) {
 	kit_recover(app)
 	kit_macro_chip(app)
 
-	// The windows, back to front: the last drawn is hit tested first. One pressed comes to
-	// the front from the next frame on.
-	top: Maybe(Kit_Window)
-	for which in k.order {
-		raised: bool
-		switch which {
-		case .Inspector: raised = kit_inspector(app)
-		case .Stats:     raised = kit_stats(app)
-		case .History:   raised = kit_history_panel(app)
-		case .Settings:  raised = kit_settings(app)
-		case .Help:      raised = kit_help(app)
-		case .Macros:    raised = kit_macros(app)
-		case .Library:   raised = kit_library(app)
-		case .Objects:   raised = kit_objects_card(app)
-		case .Colors:    raised = kit_colors_card(app)
-		case .Thumbnail: raised = kit_thumbnail(app)
-		}
-		if raised do top = which
+	// The two columns, under the windows (panels.odin); then the windows and floating
+	// panels, back to front: the last drawn is hit tested first. One pressed comes to the
+	// front from the next frame on. A docked panel is its column's, shown or not.
+	kit_columns(app, panel_draw)
+	top: Maybe(Panel_Ref)
+	order := k.order
+	for which in order {
+		if _, _, docked := panel_docked(k, which); docked do continue
+		if panel_draw(app, which) do top = which
 	}
 	if which, ok := top.?; ok do window_raise(k, which)
+	// While a floating panel is dragged, where it would dock.
+	kit_column_drop(app)
 
 	// What floats over the panels comes last, so it is drawn and hit tested on top.
 	if k.browser_at == .Dock do kit_brush_browser(app, dock_anchor, .Above_Center)
@@ -1090,6 +1094,30 @@ kit_layout :: proc(app: ^App) {
 	kit_bind_popover(app)
 	kit_macro_save(app)
 	kit_pie_editor(app)
+	kit_panel_menu(app)
+}
+
+// Lays out panel `which` by its own proc, docked or floating as it is placed. Returns
+// true when a press landed on it, to bring it to the front.
+panel_draw :: proc(app: ^App, which: Panel_Ref) -> (raised: bool) {
+	switch w in which {
+	case Kit_Section:
+		return kit_pinned(app, w)
+	case Kit_Window:
+		switch w {
+		case .Inspector: return kit_inspector(app)
+		case .Stats:     return kit_stats(app)
+		case .History:   return kit_history_panel(app)
+		case .Settings:  return kit_settings(app)
+		case .Help:      return kit_help(app)
+		case .Macros:    return kit_macros(app)
+		case .Library:   return kit_library(app)
+		case .Objects:   return kit_objects_card(app)
+		case .Colors:    return kit_colors_card(app)
+		case .Thumbnail: return kit_thumbnail(app)
+		}
+	}
+	return false
 }
 
 // The palette tray (kit_tray.odin): the tool's, the object's or the scene's palette, a
@@ -1105,43 +1133,43 @@ kit_inspector :: proc(app: ^App) -> (raised: bool) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
-	id := ui.id_of(ctx, "inspector")
 	// Settings or Help takes its place while open.
-	shown := ui.presence(ctx, id, k.inspector && !side_panel_open(k), t.panel_time)
+	shown := ui.presence(ctx, panel_id(Kit_Window.Inspector), k.inspector && !side_panel_open(k), t.panel_time)
 	if shown <= 0 do return
 	win := &k.windows[.Inspector]
 	top := kit_top()
 	right := kit_right(app)
-	room := window_room(app, win^, top)
 	width := tray_width(app)
-	if !win.moved {
-		// Where it starts, clear of what sits below it: the modifier wheel when it is on
-		// the right, and the dock when the window is narrow enough for them to meet.
-		area := ui.safe_area(ctx)
-		dock_size, _ := ui.prev_layout(ctx, "dock")
-		below: f32 = 0
-		stack_h := dock_stack(app)
-		if area.w * 0.5 + dock_size.x * 0.5 + 8 > area.w - right - width do below = max(below, stack_h + 8)
-		if reach := rail_reach(app, .Right); reach > 0 do below = max(below, reach - t.edge + 8)
-		room -= below
-	}
 	PADDING :: 12
 	GAP :: 6
 	inner := f32(KIT_INSPECTOR_W - 2 * PADDING)
 	wide := tray_wide(app)
 
 	mark := ui.vertex_mark(ctx)
-	body, closed, raised_now := ui.window_begin(ctx, "inspector", palette_title(app, k.tab), win, .End, .Start, {right, top}, {direction = .Column, gap = GAP, padding = PADDING, width = width, radius = t.radius_large, background = .Panel, inert = !k.inspector || side_panel_open(k)}, "Tab")
-	raised = raised_now
-	if closed do k.inspector = false
-	if body {
+	p := panel_begin(app, Kit_Window.Inspector, palette_title(app, k.tab), .End, .Start, {right, top}, {direction = .Column, gap = GAP, padding = PADDING, width = width, radius = t.radius_large, background = .Panel, inert = !k.inspector || side_panel_open(k)}, "Tab")
+	raised = p.raised
+	if p.closed do k.inspector = false
+	if p.body {
+		room := p.room
+		if !win.moved && !p.docked {
+			// Where it starts, clear of what sits below it: the modifier wheel when it is on
+			// the right, and the dock when the window is narrow enough for them to meet.
+			area := ui.safe_area(ctx)
+			dock_size, _ := ui.prev_layout(ctx, "dock")
+			below: f32 = 0
+			stack_h := dock_stack(app)
+			if area.w * 0.5 + dock_size.x * 0.5 + 8 > area.w - right - width do below = max(below, stack_h + 8)
+			if reach := rail_reach(app, .Right); reach > 0 do below = max(below, reach - t.edge + 8)
+			room -= below
+		}
 		// The list and the section scroll apart under the title bar, in the room left.
-		body_h := max(room - 2 * PADDING - t.target - GAP, 120)
+		body_h := max(room, 120)
+		list: f32 = 0
 		if wide {
 			ui.begin(ctx, "tray", {direction = .Row, gap = TRAY_NAV_GAP})
-			kit_tray_list(app, body_h)
+			list = kit_tray_list(app, body_h, p.owner)
 		}
-		scroll := kit_scroll_begin(ctx, "inspector body", &k.scroll, id, inner, body_h, GAP)
+		scroll := kit_scroll_begin(ctx, "inspector body", &k.scroll, p.owner, inner, body_h, GAP)
 		k.inspector_body, k.inspector_limit, k.inspector_shown = scroll.at, scroll.limit, scroll.shown
 		if !wide do kit_tray_select(app)
 		// A new section's content fades in: each change starts a tween of its own from 0.
@@ -1153,13 +1181,15 @@ kit_inspector :: proc(app: ^App) -> (raised: bool) {
 		case .Scene:  kit_scene_tab(app)
 		}
 		k.in_tray = false
-		fade := ui.tween_from(ctx, ui.salt(id, 1000 + k.tab_serial), 0, 1, t.indicator_time)
+		fade := ui.tween_from(ctx, ui.salt(panel_id(Kit_Window.Inspector), 1000 + k.tab_serial), 0, 1, t.indicator_time)
 		ui.transform_since(ctx, content, fade)
 		tray_mark_draw(app)
 		kit_scroll_end(ctx, scroll)
 		if wide do ui.end(ctx)
+		// Docked, it asks its column for all its list or its section holds.
+		p.want = max(scroll.natural, list)
 	}
-	ui.window_end(ctx)
+	panel_end(app, &p)
 	ui.transform_since(ctx, mark, shown, 1, {}, {window_slide(ctx, win^, .End) * (1 - shown) * 16, 0})
 	return
 }

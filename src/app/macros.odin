@@ -84,7 +84,7 @@ macro_kind :: proc(id: Command_Id) -> Macro_Kind {
 	#partial switch id {
 	case .None, .Undo, .Redo, .Macro_Record, .Run_Macro, .Run_Plugin, .Reload_Plugins:
 		return .Skip
-	case .Inspector, .Objects_Card, .Show_Section, .Settings, .Help, .Stats, .Coach_Tips, .Adjust_Last, .Reduce_Motion, .Macros, .Library:
+	case .Inspector, .Objects_Card, .Show_Section, .Pin_Section, .Panels_Reset, .Settings, .Help, .Stats, .Coach_Tips, .Adjust_Last, .Reduce_Motion, .Macros, .Library:
 		return .Skip
 	case .View_Axis, .Focus_Selected, .Frame_All, .Reset_Camera, .View_Back, .View_Forward:
 		return .Skip

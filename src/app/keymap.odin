@@ -227,7 +227,7 @@ command_arg_name :: proc(id: Command_Id, arg: int) -> string {
 	case .Group:     return fmt.tprint(sculpt.Group_Command(arg))
 	case .Remesh_To, .Decimate_To: return fmt.tprint(SPHERE_PRESETS[arg].vertices)
 	case .Help:      return fmt.tprint(Help_Tab(arg))
-	case .Show_Section: return fmt.tprint(Kit_Section(arg))
+	case .Show_Section, .Pin_Section: return fmt.tprint(Kit_Section(arg))
 	case .New_Scene: return fmt.tprint(NEW_SCENE_SHAPES[arg])
 	case .Pie:       return fmt.tprint(arg + 1) // as the menus count them
 	case .Run_Macro: return fmt.tprint(arg + 1)

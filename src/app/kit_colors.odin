@@ -381,8 +381,7 @@ kit_colors_card :: proc(app: ^App) -> (raised: bool) {
 	t := ctx.theme
 	c := &k.colors
 	if !k.colors_card do c.palette_menu, c.swatch_menu = false, false
-	id := ui.id_of(ctx, "colors card")
-	shown := ui.presence(ctx, id, k.colors_card, t.panel_time)
+	shown := ui.presence(ctx, panel_id(Kit_Window.Colors), k.colors_card, t.panel_time)
 	if shown <= 0 do return
 	// A default left by a palette deleted, or read before your palettes were.
 	if c.default_palette >= len(BUILT_IN_PALETTES) + c.palette_count do c.default_palette = 0
@@ -391,17 +390,25 @@ kit_colors_card :: proc(app: ^App) -> (raised: bool) {
 	inner := f32(SWATCH_COLUMNS * SWATCH_SIDE)
 	top := kit_top()
 	mark := ui.vertex_mark(ctx)
-	raised_now, dock := ui.card_begin(ctx, "colors card", "Colors", win, .Start, .Start, {kit_left(app), top}, {direction = .Column, gap = COLORS_GAP, padding = COLORS_PADDING, width = COLORS_CARD_W, radius = t.radius_large, background = .Panel, inert = !k.colors_card})
-	raised = raised_now
-	if dock && k.colors_card {
+	p := panel_begin(app, Kit_Window.Colors, "Colors", .Start, .Start, {kit_left(app), top}, {direction = .Column, gap = COLORS_GAP, padding = COLORS_PADDING, width = COLORS_CARD_W, radius = t.radius_large, background = .Panel, inert = !k.colors_card}, card = true)
+	raised = p.raised
+	id := p.owner
+	if p.closed do k.colors_card = false
+	if p.dock && k.colors_card {
 		k.colors_card = false
 		tray_open(app, .Paint_Color)
+	}
+	if !p.body {
+		panel_end(app, &p)
+		ui.transform_since(ctx, mark, shown, 1, {}, {window_slide(ctx, win^, .Start) * (1 - shown) * 16, 0})
+		kit_colors_menus(app)
+		return
 	}
 	colors_header(app)
 
 	// The body scrolls when the window is too short for it, between the header and the tabs.
-	fixed := 18 + 40 + t.target + BRUSH_TILE_H + 2 * COLORS_PADDING + 4 * COLORS_GAP
-	room := max(window_room(app, win^, top) - fixed, 120)
+	fixed := t.target + BRUSH_TILE_H + 2 * COLORS_GAP
+	room := max(p.room - fixed, 120)
 	_, natural := ui.prev_layout(ctx, "colors body")
 	body := kit_scroll_begin(ctx, "colors body", &c.scroll, id, inner, min(natural.y, room) if natural.y > 0 else room, COLORS_GAP)
 	switch c.tab {
@@ -423,7 +430,7 @@ kit_colors_card :: proc(app: ^App) -> (raised: bool) {
 		}
 	}
 	ui.end(ctx)
-	ui.window_end(ctx)
+	panel_end(app, &p)
 	ui.transform_since(ctx, mark, shown, 1, {}, {window_slide(ctx, win^, .Start) * (1 - shown) * 16, 0})
 
 	// A pick joins the history once the finger or the pen lets go, or the hex field is done.

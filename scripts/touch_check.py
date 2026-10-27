@@ -2403,6 +2403,58 @@ def window_drag_by_title_is_remembered():
         "@saved": saved_line("window Stats 1 Start Start 616 264 0")})
 
 
+# The docked tray's Panel options button, beside Minimise, and the panel menu's Dock on the
+# left row it opens (panels.odin).
+PANEL_OPTIONS = (1400, 103)
+PANEL_MENU_DOCK_LEFT = (1440, 184)
+
+
+@scenario
+def docked_tray_drags_out_to_float():
+    """A finger drags the docked tray by its header past the slop: it leaves the right column and floats on under the finger."""
+    s = Script()
+    s.fdrag(line(INSPECTOR_TITLE, (700, 300), 20))
+    s.wait(4)
+    return s, [], camera_still({"dabs": near(0), "column_right": is_text("none"), "panel_moves": near(1),
+                                "window_inspector": lambda v: v == "1,0,460,265"})
+
+
+@scenario
+def stats_dropped_on_the_right_column_docks_it():
+    """Floating Stats dragged over the right column, under the tray, docks there when the finger lifts."""
+    with open(settings_file(), "w") as f:
+        f.write("stats 1\n")
+    s = Script()
+    s.fdrag(line(STATS_TITLE, (1290, 650), 30))
+    s.wait(4)
+    return s, [f"--settings-file={settings_file()}"], camera_still({
+        "dabs": near(0), "column_right": is_text("inspector,stats"), "panel_moves": near(1),
+        "@saved": saved_line("column right Inspector Stats")})
+
+
+@scenario
+def panel_menu_docks_the_tray_on_the_left():
+    """Panel options on the docked tray, then Dock on the left: the tray moves to the left column and the menu closes."""
+    s = Script()
+    s.ftap(*PANEL_OPTIONS)
+    s.wait(10)
+    s.ftap(*PANEL_MENU_DOCK_LEFT)
+    s.wait(10)
+    return s, [], camera_still({"dabs": near(0), "column_left": is_text("inspector"), "column_right": is_text("none"),
+                                "panel_menu": near(0)})
+
+
+@scenario
+def pinned_sections_stack_in_the_right_column():
+    """Pin as a panel (here from a script) docks Layers and then Camera under the tray, each its own panel."""
+    s = Script()
+    s.add("move:800,450")
+    s.wait(10)
+    return s, ["--script=pin_section layers; pin_section camera"], camera_still({
+        "dabs": near(0), "column_right": is_text("inspector,layers,camera"),
+        "panel_pins": is_text("layers,camera")})
+
+
 @scenario
 def window_position_comes_back():
     """A remembered window position and fold come back on the next start."""
@@ -3678,13 +3730,26 @@ def folder_menu_selects_its_objects():
 
 
 @scenario
-def slow_tap_on_a_folded_title_still_opens_it():
-    """A long press on a folded window's title, which has no tooltip and no other action, is still a tap."""
+def long_press_on_a_folded_docked_header_opens_its_options():
+    """A long press on the docked tray's folded header opens Panel options, as a right-click does, and leaves it folded; a tap then unfolds it."""
     s = Script()
     s.ftap(*INSPECTOR_MINIMISE)
     s.wait(4)
     long_press(s, *INSPECTOR_TITLE)
-    return s, [], camera_still({"dabs": near(0), "window_inspector": lambda v: v.startswith("1,0,"), "long_tip": lambda v: v == "none"})
+    s.wait(4)
+    return s, [], camera_still({"dabs": near(0), "window_inspector": lambda v: v.startswith("1,1,"), "panel_menu": near(1),
+                                "long_tip": lambda v: v == "none"})
+
+
+@scenario
+def tap_on_a_folded_docked_header_unfolds_it():
+    """A tap on the docked tray's folded header opens it again."""
+    s = Script()
+    s.ftap(*INSPECTOR_MINIMISE)
+    s.wait(4)
+    s.ftap(*INSPECTOR_TITLE)
+    s.wait(4)
+    return s, [], camera_still({"dabs": near(0), "window_inspector": lambda v: v.startswith("1,0,"), "panel_menu": near(0)})
 
 
 @scenario
