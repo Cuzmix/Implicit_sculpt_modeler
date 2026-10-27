@@ -73,7 +73,7 @@ voxel_part_attach :: proc(app: ^App, obj: ^Object, vp: ^Voxel_Part, start: time.
 	sculpt.levels_init(&obj.levels, empty_mesh(), &app.pool)
 	free_all(context.temp_allocator)
 	ready := time.tick_now()
-	gpu, ok := render.mesh_buffers_create(&app.renderer, vp.clay.surface.mesh, nil)
+	gpu, ok := render.mesh_buffers_create(&app.renderer, vp.clay.surface.mesh, voxel_surface_mask(vp))
 	if !ok {
 		sculpt.levels_destroy(&obj.levels)
 		voxel.clay_destroy(&vp.clay)
@@ -124,21 +124,31 @@ voxel_part_get :: proc(app: ^App, r: ^geom.Byte_Reader, obj: ^Object) -> (read, 
 	return true, voxel_part_attach(app, obj, vp, start)
 }
 
+// The surface's per-vertex mask for the upload (it rides in the packed normals), or nil
+// when nothing is masked, which is the unmasked look at no cost.
+@(private = "file")
+voxel_surface_mask :: proc(vp: ^Voxel_Part) -> []u8 {
+	if !voxel.clay_has_mask(&vp.clay) do return nil
+	return vp.clay.surface.mask[:]
+}
+
 // Remeshes what the frame's strokes changed and records the upload: the vertex and index
 // slots that changed, or a new GPU copy of the whole surface when its arrays grew or were
 // laid out again. Returns the bytes sent and the damage, and false on a GPU failure.
-voxel_upload :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer, vp: ^Voxel_Part) -> (bytes: int, damage: geom.Aabb, ok: bool) {
+voxel_upload :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer, obj: ^Object, vp: ^Voxel_Part) -> (bytes: int, damage: geom.Aabb, ok: bool) {
 	f := voxel.clay_flush(&vp.clay)
 	m := vp.clay.surface.mesh
+	mask: []u8
+	if object_has_mask(app, obj) do mask = vp.clay.surface.mask[:]
 	if f.regrow || u32(len(m.positions)) > vp.gpu.vertex_capacity || u32(len(m.indices)) > vp.gpu.index_count {
 		_ = sdl.WaitForGPUIdle(app.renderer.device)
 		render.mesh_buffers_destroy(&app.renderer, &vp.gpu)
-		vp.gpu = render.mesh_buffers_create(&app.renderer, m, nil) or_return
+		vp.gpu = render.mesh_buffers_create(&app.renderer, m, mask) or_return
 		render.viewport_invalidate(&app.target)
 		app.stats.gpu_regrows += 1
 		return len(m.positions) * render.VERTEX_BYTES + len(m.indices) * size_of(u32), f.damage, true
 	}
-	render.mesh_buffers_upload_ranges(&app.renderer, cmd, &vp.gpu, m, f.ranges, nil)
+	render.mesh_buffers_upload_ranges(&app.renderer, cmd, &vp.gpu, m, f.ranges, mask)
 	render.mesh_buffers_upload_indices(&app.renderer, cmd, &vp.gpu, m.indices[:], f.indices)
 	for r in f.ranges do bytes += int(r.count) * render.VERTEX_BYTES
 	for r in f.indices do bytes += int(r.index_count) * size_of(u32)
@@ -163,6 +173,7 @@ voxel_brush_of :: proc(b: sculpt.Brush, normal: Vec3) -> (vb: voxel.Brush, ok: b
 	case .Smooth:  vb.kind = .Smooth
 	case .Flatten: vb.kind = .Flatten
 	case .Inflate: vb.kind = .Inflate
+	case .Mask:    vb.kind = .Mask
 	case: return vb, false
 	}
 	return vb, true
@@ -172,7 +183,7 @@ voxel_brush_of :: proc(b: sculpt.Brush, normal: Vec3) -> (vb: voxel.Brush, ok: b
 // not, so the press does nothing in silence.
 voxel_brush_allowed :: proc(app: ^App, kind: sculpt.Brush_Kind, say: bool) -> bool {
 	if _, ok := voxel_brush_of({kind = kind}, {}); ok do return true
-	if say do report(app, Kit_Section.Voxels, {.Warning}, "%s is not a voxel brush: voxels take Draw, Clay, Layer, Smooth, Flatten and Inflate; convert the object to a mesh for the rest", BRUSHES[kind].name)
+	if say do report(app, Kit_Section.Voxels, {.Warning}, "%s is not a voxel brush: voxels take Draw, Clay, Layer, Smooth, Flatten, Inflate and Mask; convert the object to a mesh for the rest", BRUSHES[kind].name)
 	return false
 }
 
@@ -271,15 +282,20 @@ object_voxel_resample :: proc(app: ^App, obj: ^Object, resolution: int) -> bool 
 
 // Rebuilds the voxel object as a mesh object of its surface (voxel.clay_to_mesh: the
 // nodes' border vertices welded): its clay and strokes go, and the mesh is ready for every
-// mesh tool. The caller records the swap. Returns false only when the mesh could not be
-// uploaded.
+// mesh tool, with the clay's mask as the mesh's. The caller records the swap. Returns
+// false only when the mesh could not be uploaded.
 object_voxel_to_mesh :: proc(app: ^App, obj: ^Object) -> bool {
 	stroke_finish(app)
 	start := time.tick_now()
-	mesh := voxel.clay_to_mesh(&obj.voxel.clay)
+	masked := voxel.clay_has_mask(&obj.voxel.clay)
+	values: []u8
+	defer delete(values)
+	mesh := voxel.clay_to_mesh(&obj.voxel.clay, mask = &values if masked else nil)
 	_ = sdl.WaitForGPUIdle(app.renderer.device)
 	object_release_mesh(app, obj)
-	return object_build_from(app, obj, mesh, start, normals = true)
+	if !object_build_from(app, obj, mesh, start, normals = true) do return false
+	if masked do _ = sculpt.sculptor_mask_values(object_sculptor(obj), values, .Replace)
+	return true
 }
 
 // The Object palette's Voxels section: what the clay is, and Convert to mesh.
@@ -308,7 +324,7 @@ kit_voxels :: proc(app: ^App, obj: ^Object) {
 	ui.paragraph(ctx, fmt.tprintf("Res+ doubles the voxels along each side (%d across, about %s vertices) and Res− halves them (%d across, about %s vertices), each as one undo step; detail finer than a voxel goes with Res−.",
 		min(vp.resolution * 2, VOXELS_MAX), count_label(voxel_vertices_for(min(vp.resolution * 2, VOXELS_MAX))), max(vp.resolution / 2, VOXELS_MIN), count_label(voxel_vertices_for(max(vp.resolution / 2, VOXELS_MIN)))))
 	_ = command_button(app, .Convert_To_Mesh, variant = .Solid, tone = .Accent)
-	ui.paragraph(ctx, "Draw, Clay and Layer add clay (Ctrl takes it away), Smooth, Flatten and Inflate work as on a mesh, and booleans (the Booleans section) merge, cut and intersect the clay itself; the other brushes, masks, levels and the rebuild tools need a mesh. Convert to mesh keeps the shape as triangles and is an undo step.")
+	ui.paragraph(ctx, "Draw, Clay and Layer add clay (Ctrl takes it away), Smooth, Flatten and Inflate work as on a mesh, the mask is painted, drawn as a shape, inverted and cleared as on a mesh and holds the clay still under it, and booleans (the Booleans section) merge, cut and intersect the clay itself; the other brushes, levels and the rebuild tools need a mesh. Convert to mesh keeps the shape as triangles, and the mask, and is an undo step.")
 	kit_last_result(app, .Voxels)
 }
 

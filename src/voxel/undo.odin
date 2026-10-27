@@ -14,6 +14,7 @@ UNDO_LIMIT_BYTES :: 512 << 20
 Saved_Brick :: struct {
 	coord: [3]i32,
 	tile:  Tile, // Empty or Inside: the brick was that tile and `values` is unused
+	mask:  i32, // the brick's mask, an index into the step's masks, or -1 for none
 	d:     [BRICK_VOXELS]i16,
 }
 
@@ -23,6 +24,7 @@ Saved_Brick :: struct {
 // entries unwind in the order they were made and the step stays its own inverse.
 Undo_Step :: struct {
 	bricks: [dynamic]Saved_Brick,
+	masks:  [dynamic]Mask_Brick, // the saved bricks' masks, those that had one
 }
 
 Undo_History :: struct {
@@ -50,12 +52,13 @@ undo_destroy :: proc(h: ^Undo_History) {
 @(private)
 undo_step_destroy :: proc(s: ^Undo_Step) {
 	delete(s.bricks)
+	delete(s.masks)
 	s^ = {}
 }
 
 @(private)
 undo_step_bytes :: proc(s: ^Undo_Step) -> int {
-	return len(s.bricks) * size_of(Saved_Brick)
+	return len(s.bricks) * size_of(Saved_Brick) + len(s.masks) * size_of(Mask_Brick)
 }
 
 // Starts a stroke's step: the redo steps are dropped, as a new stroke makes them unreachable.
@@ -67,7 +70,7 @@ undo_begin :: proc(h: ^Undo_History) {
 		undo_step_destroy(&h.steps[i])
 	}
 	resize(&h.steps, h.cursor)
-	append(&h.steps, Undo_Step{bricks = make([dynamic]Saved_Brick, h.allocator)})
+	append(&h.steps, Undo_Step{bricks = make([dynamic]Saved_Brick, h.allocator), masks = make([dynamic]Mask_Brick, h.allocator)})
 	h.stroke += 1
 	h.recording = true
 }
@@ -87,6 +90,7 @@ undo_record :: proc(h: ^Undo_History, v: ^Volume, bc: [3]i32) {
 	step := undo_current(h)
 	saved := Saved_Brick {
 		coord = bc,
+		mask  = -1,
 	}
 	tile, brick := volume_tile(v, bc)
 	saved.tile = tile
@@ -95,6 +99,11 @@ undo_record :: proc(h: ^Undo_History, v: ^Volume, bc: [3]i32) {
 		if v.saved[slot] == h.stroke do return
 		v.saved[slot] = h.stroke
 		saved.d = brick.d
+		if m := mask_of(v, slot); m != nil {
+			saved.mask = i32(len(step.masks))
+			append(&step.masks, m^)
+			h.bytes += size_of(Mask_Brick)
+		}
 	}
 	append(&step.bricks, saved)
 	h.bytes += size_of(Saved_Brick)
@@ -136,15 +145,36 @@ undo_swap :: proc(c: ^Clay, s: ^Undo_Step, backwards: bool) {
 		bc := saved.coord
 		live_tile, live := volume_tile(v, bc)
 		live_d: [BRICK_VOXELS]i16
-		if live != nil do live_d = live.d
+		live_mask: Mask_Brick
+		had_mask := false
+		if live != nil {
+			live_d = live.d
+			if m := mask_of(v, volume_slot(v, bc)); m != nil {
+				live_mask, had_mask = m^, true
+			}
+		}
 		if saved.tile == .Brick {
-			_, b := volume_brick_make(v, bc, 0)
+			slot, b := volume_brick_make(v, bc, 0)
 			b.d = saved.d
+			if saved.mask >= 0 do mask_make(v, slot)^ = s.masks[saved.mask]
+			else do mask_drop(v, slot)
 		} else {
 			volume_brick_collapse(v, bc, saved.tile)
 		}
 		saved.tile = live_tile
 		saved.d = live_d
+		// The live mask takes the saved one's place in the step, or a place of its own.
+		if had_mask {
+			if saved.mask < 0 {
+				saved.mask = i32(len(s.masks))
+				append(&s.masks, live_mask)
+				c.history.bytes += size_of(Mask_Brick)
+			} else {
+				s.masks[saved.mask] = live_mask
+			}
+		} else {
+			saved.mask = -1
+		}
 		surface_mark_brick(c, bc)
 	}
 }

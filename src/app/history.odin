@@ -332,7 +332,7 @@ brush_stroke_finish :: proc(app: ^App) {
 		// The clay's stroke: its band is repaired and its step kept when it changed anything.
 		if voxel.clay_stroke_end(&vp.clay) {
 			voxel_part_edited(vp)
-			history_record(app, obj, .Stroke, BRUSHES[app.stroke.kind].name)
+			history_record(app, obj, .Mask if .Mask in BRUSHES[app.stroke.kind].flags else .Stroke, BRUSHES[app.stroke.kind].name)
 		}
 		return
 	}
@@ -358,7 +358,24 @@ mask_command :: proc(app: ^App, command: sculpt.Mask_Command, toast := false) {
 	if obj == nil do return
 	start := time.tick_now()
 	steps := int(max(app.ui.mask_steps, 1))
-	changed := sculpt.sculptor_mask_command(object_sculptor(obj), command, steps)
+	changed: bool
+	if vp := obj.voxel; vp != nil {
+		// Clay takes the whole-mask commands; the ones that read the mesh's shape or its
+		// hidden part need a mesh.
+		op: voxel.Mask_Op
+		#partial switch command {
+		case .Clear:  op = .Clear
+		case .Invert: op = .Invert
+		case .Fill:   op = .Fill
+		case:
+			report(app, Kit_Section.Mask, {.Warning}, "%s needs a mesh: convert %s to a mesh first (Object palette, Voxels)", MASK_COMMAND_NAMES[command], object_label(obj))
+			return
+		}
+		changed = voxel.clay_mask_command(&vp.clay, op)
+		if changed do voxel_part_edited(vp)
+	} else {
+		changed = sculpt.sculptor_mask_command(object_sculptor(obj), command, steps)
+	}
 	ms := time.duration_milliseconds(time.tick_since(start))
 	if changed do history_record(app, obj, .Mask, MASK_COMMAND_NAMES[command])
 	// A tap that changed nothing still says so, without Undo.
@@ -384,10 +401,44 @@ mask_shape_command :: proc(app: ^App, shape: [][2]f32, size: [2]f32, unmask: boo
 			toward   = to_local_dir(t, -camera.orbit_toward(app.camera, app.camera.target)),
 		}
 	}
-	changed := sculpt.sculptor_mask_shape(object_sculptor(obj), object_clip(app, obj, size), shape, unmask, front)
+	changed: bool
+	if vp := obj.voxel; vp != nil {
+		changed = voxel_mask_shape(app, obj, shape, size, unmask, front)
+		if changed do voxel_part_edited(vp)
+	} else {
+		changed = sculpt.sculptor_mask_shape(object_sculptor(obj), object_clip(app, obj, size), shape, unmask, front)
+	}
 	ms := time.duration_milliseconds(time.tick_since(start))
 	report(app, Kit_Section.Mask, {.Quiet}, "%s in %.0f ms%s", "Unmask shape" if unmask else "Mask shape", ms, "" if changed else ", nothing changed")
 	if changed do history_record(app, obj, .Mask, "Unmask shape" if unmask else "Mask shape")
+}
+
+// A mask shape on clay (voxel.clay_mask_shape): a voxel within the band is masked when its
+// centre projects inside the shape (the sculptor's coverage grid), and faces the eye when
+// Front only is on (the field's gradient stands in for the vertex normal).
+@(private = "file")
+voxel_mask_shape :: proc(app: ^App, obj: ^Object, shape: [][2]f32, size: [2]f32, unmask: bool, front: sculpt.Front_Only) -> bool {
+	if len(shape) < 3 do return false
+	Shape_Test :: struct {
+		clip:  matrix[4, 4]f32,
+		grid:  sculpt.Coverage,
+		front: sculpt.Front_Only,
+		v:     ^voxel.Volume,
+	}
+	st := Shape_Test{clip = object_clip(app, obj, size), grid = sculpt.coverage_make(shape), front = front, v = &obj.voxel.clay.volume}
+	if st.grid.cells == nil do return false
+	inside :: proc(p: Vec3, user: rawptr) -> bool {
+		st := cast(^Shape_Test)user
+		c := st.clip * [4]f32{p.x, p.y, p.z, 1}
+		if c.w <= 1e-6 do return false
+		if !sculpt.coverage_at(st.grid, {c.x / c.w, c.y / c.w}) do return false
+		if f := st.front; f.on {
+			toward := f.toward if f.parallel else f.eye - p
+			if linalg.dot(voxel.volume_gradient(st.v, p), toward) < 0 do return false
+		}
+		return true
+	}
+	return voxel.clay_mask_shape(&obj.voxel.clay, inside, &st, unmask)
 }
 
 // Smooths the whole selected object `steps` times as an undo step of its own
@@ -913,7 +964,11 @@ object_has_mask :: proc(app: ^App, obj: ^Object) -> bool {
 	if m.valid && m.id == obj.id && m.level == level && m.levels == len(obj.levels.levels) && m.serial == app.history.serial do return m.has
 	s := object_sculptor(obj)
 	m^ = {id = obj.id, level = level, levels = len(obj.levels.levels), serial = app.history.serial, valid = true, scans = m.scans}
-	if s.mask != nil {
+	if vp := obj.voxel; vp != nil {
+		// Clay: its mask bricks, under the same rule (every mask change on clay is a step).
+		m.has = voxel.clay_has_mask(&vp.clay)
+		m.scans += 1
+	} else if s.mask != nil {
 		m.has = sculpt.sculptor_has_mask(s)
 		m.scans += 1
 	}

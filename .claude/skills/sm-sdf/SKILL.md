@@ -86,6 +86,15 @@ description: Implicit and SDF modelling for this app — the src/sdf_trial spike
   indices reset to NODE_NONE). The app (`boolean.odin`) applies marks to a copy of the base, voxelising a mesh mark
   with `clay_from_mesh` at the base's voxel size; the preview uses a cached copy brought ≤ 256 across by Res− steps,
   keyed on `Voxel_Part.edits` (bumped by `voxel_part_edited` at stroke end, undo/redo, resample, boolean, attach).
+- Masks on clay (`mask.odin`): `Volume.masks[slot]` → `mask_bricks` (`[512]u8`, 255 masked) or MASK_NONE; tiles have
+  none; `volume_brick_collapse` drops the mask, `volume_brick_make` starts unmasked. `dab_brick(..., mask)` weights
+  every brush's new value by (1 − m/255) (`masked`); `Brush_Kind.Mask` → `dab_mask_brick` (falloff × strength, invert
+  erases), bricks only. `clay_mask_command(.Clear/.Invert/.Fill)`, `clay_mask_shape(c, inside_proc, user, unmask)`
+  (the app passes a proc: clip + `sculpt.coverage_at` + front-only via `volume_gradient`); both are undo steps
+  (`Saved_Brick.mask` indexes `Undo_Step.masks`). `Surface.mask` per vertex follows codes everywhere (alloc, compact,
+  copy pass); `mesh_node` gathers a u8 window only when `volume_masked_over`; the app uploads `surface.mask` as the
+  mesh_buffers mask (packed into the normals) when `object_has_mask` (which has a clay branch). SVOX v2: code 3 =
+  masked brick, mask bytes after the values; v1 reads. `clay_to_mesh(c, mask = &values)` carries the mask to a mesh.
 - A standalone, time-boxed comparison, not part of the app or the build scripts (`:1-5`; README "Layout" and the last
   line of "GPU benchmark and frame timing"). Build and run it with the strict flags, which it passes:
   `deps\odin\odin.exe build src\sdf_trial -o:speed -collection:deps=deps -vet -strict-style -warnings-as-errors

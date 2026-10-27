@@ -805,7 +805,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			if vp := obj.voxel; vp != nil {
 				// A voxel object draws its clay's surface, remeshed where the frame's dabs landed.
 				t_flush := time.tick_now()
-				bytes, damage, uploaded_ok := voxel_upload(&app, cmd, vp)
+				bytes, damage, uploaded_ok := voxel_upload(&app, cmd, obj, vp)
 				normals_ms += time.duration_milliseconds(time.tick_since(t_flush))
 				if !uploaded_ok {
 					_ = sdl.SubmitGPUCommandBuffer(cmd)
