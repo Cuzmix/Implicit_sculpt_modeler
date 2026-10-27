@@ -242,14 +242,12 @@ App :: struct {
 	exposure:  f32,
 	cavity:    f32,
 	ridge:     f32,
-	// The lights (lights.odin): each light, the one the Lights section edits, the
-	// ambient light's strength, the turn of the whole set about the up axis and up or down
-	// in degrees, and whether it stays with the scene.
-	lights:                   [LIGHT_COUNT]Light,
+	// The lights (lights.odin; the scene's own are Scene.lights): those a new scene starts
+	// with, which the settings keep, the one the Lights section edits, and the turn of the
+	// camera's lights and the studio about the up axis and up or down in degrees.
+	start_lights:             Light_Set,
 	light_pick:               int,
-	light_ambient:            f32,
 	light_turn, light_height: f32,
-	lights_fixed:             bool,
 	// Objects other than the selected one show their material's muted colour (on by
 	// default), so the one being sculpted stands out; off, each shows its own colour.
 	dim_others:               bool,
@@ -385,6 +383,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	if opts.compute_bench != "" do return computebench_run(&app, opts.compute_bench, opts.vertices)
 	app.scene.selected = -1
 	defer render.mesh_buffers_destroy(&app.renderer, &app.ui.boolean.preview)
+	defer boolean_coarse_drop(&app)
 	defer scene_destroy(&app)
 	defer history_destroy(&app.history)
 	timeline_init(&app.timeline)
@@ -403,6 +402,9 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	defer rebuild_preview_destroy(&app.rebuild)
 	defer curve_tool_destroy(&app.curve)
 	app.hd_window_vertices = sculpt.HD_WINDOW_VERTICES
+	// Before a scene opens, which keeps the starting lights for the rest of the lights it
+	// lists; the settings file brings back what earlier runs chose further down.
+	lights_reset(&app)
 	if opts.open != "" {
 		opened, ok := scene_open(&app, opts.open)
 		if !ok || !opened do return false
@@ -491,7 +493,6 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	app.msaa = MSAA_DEFAULT
 	// Before the settings file, which brings back what earlier runs chose.
 	app.cavity, app.ridge = CAVITY_DEFAULT, RIDGE_DEFAULT
-	lights_reset(&app)
 	environment_settings_default(&app)
 	app.dim_others = true
 	app.time_gpu = opts.time_gpu || opts.gpubench != ""
@@ -516,6 +517,9 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	// names, and before the renderer goes, which their textures need: keep it here.
 	defer library_destroy(&app)
 	settings_load(&app, settings)
+	// The first scene is lit by the starting lights, as every new one is, unless it was
+	// opened from a file that keeps its own.
+	if !app.scene.lights_own do app.scene.lights = app.start_lights
 	app.settings_file = settings
 	// Macros are kept beside the settings, so a run that keeps no settings keeps none.
 	macros_load(&app, macros_folder(settings))
@@ -619,6 +623,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		}
 		timeline_frame(&app)
 		history_cap(&app)
+		// A point or spot light a script or an undo just made gets its place.
+		lights_settle(&app)
 		camera_history_frame(&app)
 		// Wait for the display, or the frame rate limit, and while timing the GPU for the
 		// previous frame too, before reading input: the frame then shows the newest input
@@ -1166,9 +1172,10 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			// The lights: which is picked, how many are on, the first one's view-space
 			// direction as the sphere shows it, and taps that flipped a light's side.
 			lights_on := 0
-			for light in app.lights do lights_on += int(light.on)
+			set := &app.scene.lights
+			for light in set.lights[:set.count] do lights_on += int(light.on)
 			l1 := light_view_dir(&app, 0)
-			fmt.printfln("light_pick=%d lights_on=%d light1=%.2f,%.2f,%.2f light1_on=%d light_flips=%d", app.light_pick + 1, lights_on, l1.x, l1.y, l1.z, int(app.lights[0].on), app.kit.light_sphere.flips)
+			fmt.printfln("light_pick=%d lights_on=%d light1=%.2f,%.2f,%.2f light1_on=%d light_flips=%d light_count=%d light1_kind=%s light1_space=%s", app.light_pick + 1, lights_on, l1.x, l1.y, l1.z, int(set.lights[0].on), app.kit.light_sphere.flips, set.count, lower(set.lights[0].kind), lower(set.lights[0].space))
 			fmt.printfln("brush_front_only=%d brush_lock_plane=%d brush_connected=%d brush_grab_depth=%d brush_smooth_only=%v", int(app.brush.front_only), int(app.brush.lock_plane), int(app.brush.connected), int(app.brush.grab_depth), app.brush.smooth_only)
 			fmt.printfln("pose_mode=%d pose_drags=%d pose_moved=%d mesh_sum=%.4f topo_masks=%d topo_reach=%.3f", int(pose_mode(&app)), m.pose_drags, m.pose_moved, mesh_sum, m.topo_masks, m.topo_reach)
 			fmt.printfln("gizmo_at=%.0f,%.0f gizmo_mode=%s gizmo_hover=%s gizmo_last=%s gizmo_drags=%d gizmo_snap=%d transform=%.4f,%.4f,%.4f,%.3f,%.3f,%.3f,%.4f transform_undo=%d",

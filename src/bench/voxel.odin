@@ -19,8 +19,8 @@ import "../voxel"
 // grew; Mesh MB is the arrays with their slack; Sweeps is how many the stroke's band repair
 // took to settle.
 voxel_header :: proc() {
-	fmt.println("| Voxels across | Bricks | Field MB | Fill ms | First mesh ms | Vertices | Triangles | Raycast ms | Add dab ms | Bricks/dab | Flush ms | Flush ms max | Upload KB/frame | Regrows | Mesh MB | Stroke end ms | Sweeps | Undo MB | Undo ms | Redo ms | Smooth dab ms | Inflate dab ms | To mesh ms | From mesh ms | Res− ms | Res+ ms |")
-	fmt.println("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+	fmt.println("| Voxels across | Bricks | Field MB | Fill ms | First mesh ms | Vertices | Triangles | Raycast ms | Add dab ms | Bricks/dab | Flush ms | Flush ms max | Upload KB/frame | Regrows | Mesh MB | Stroke end ms | Sweeps | Undo MB | Undo ms | Redo ms | Smooth dab ms | Inflate dab ms | To mesh ms | From mesh ms | Res− ms | Res+ ms | Union ms |")
+	fmt.println("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
 }
 
 run_voxel :: proc(across: int, pool: ^jobs.Pool) {
@@ -108,10 +108,25 @@ run_voxel :: proc(across: int, pool: ^jobs.Pool) {
 	up0 := time.tick_now()
 	_ = voxel.clay_resample(&c, voxel.RESAMPLE_UP)
 	res_up_ms := time.duration_milliseconds(time.tick_since(up0))
+	// A union with a second sphere of the same size, 1.2 radii over, on the field: what
+	// Make boolean costs with a voxel base (the band is solved again along the seam).
+	other: voxel.Clay
+	voxel.clay_init(&other, 2 / f32(across), {}, pool)
+	voxel.clay_fill_sphere(&other, {}, 1)
+	shift := matrix[4, 4]f32{
+		1, 0, 0, -1.2,
+		0, 1, 0, 0,
+		0, 0, 1, 0,
+		0, 0, 0, 1,
+	}
+	un0 := time.tick_now()
+	_ = voxel.clay_combine(&c, &other.volume, shift, 1, .Union)
+	union_ms := time.duration_milliseconds(time.tick_since(un0))
+	voxel.clay_destroy(&other)
 	defer free_all(context.temp_allocator)
 
 	fmt.printfln(
-		"| %d | %s | %.1f | %.0f | %.0f | %s | %s | %.3f | %.2f | %d | %.2f | %.2f | %.0f | %d | %.0f | %.0f | %d | %.1f | %.1f | %.1f | %.2f | %.2f | %.0f | %.0f | %.0f | %.0f |",
+		"| %d | %s | %.1f | %.0f | %.0f | %s | %s | %.3f | %.2f | %d | %.2f | %.2f | %.0f | %d | %.0f | %.0f | %d | %.1f | %.1f | %.1f | %.2f | %.2f | %.0f | %.0f | %.0f | %.0f | %.0f |",
 		across,
 		thousands(bricks),
 		field_mb,
@@ -138,6 +153,7 @@ run_voxel :: proc(across: int, pool: ^jobs.Pool) {
 		from_mesh_ms,
 		res_down_ms,
 		res_up_ms,
+		union_ms,
 	)
 }
 

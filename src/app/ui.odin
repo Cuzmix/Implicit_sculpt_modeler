@@ -52,6 +52,7 @@ Ui_State :: struct {
 	layer_drag_wide:    bool, // the dragged strength slider began on the wide range, which it keeps until release
 	deform:             Deform_Panel, // the Deformers section's choices and its Amount drag (deformers.odin)
 	transform_drag:     Transform_Drag, // the Transform section's values are being dragged: one undo step
+	light_drag:         Light_Drag, // the Lights section's values are being changed: one undo step
 	retopo_quads:       i32,  // quads Retopologize asks for
 	rebuild_goal:       Rebuild_Goal, // what the Rebuild section makes: an even mesh, fewer polygons or quads
 	rebuild_even:       i32,  // vertices Rebuild's Even goal asks for

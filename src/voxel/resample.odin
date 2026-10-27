@@ -139,8 +139,8 @@ clay_resample :: proc(c: ^Clay, factor: f32) -> bool {
 // Makes a brick of every tile beside a face of one of `slots` (bricks the repair just
 // solved) that the band still reaches through, queued for the next repair, and returns
 // their slots. The face test is dilate_band's (clay.odin); nothing is recorded for undo,
-// since a resample is a swap step of the caller's.
-@(private = "file")
+// since a resample, as a boolean (combine.odin), is a swap step of the caller's.
+@(private)
 grow_band :: proc(c: ^Clay, slots: []u32, allocator: runtime.Allocator) -> (made: [dynamic]u32) {
 	v := &c.volume
 	made = make([dynamic]u32, allocator)
