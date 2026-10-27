@@ -89,18 +89,21 @@ split_parts :: proc(obj: ^Object, mode: Split_Mode) -> (part: []u32, count: int,
 // is not masked, the first group or piece) and each other part becomes a new object after
 // it in the list, in its folder, with its transform, so nothing moves. Its levels, HD
 // detail, mask, hidden parts and strokes go; polypaint, polygroups and the shown level's
-// sculpt layers stay (the caller records the change). `parts` lists the new objects' ids
-// in order (owned); ok is false only on a GPU failure.
-object_split :: proc(app: ^App, obj: ^Object, mode: Split_Mode) -> (parts: [dynamic]int, changed, ok: bool) {
+// sculpt layers stay (the caller records the change). Without `keep_parts` the other
+// parts are thrown away instead (Delete hidden). `parts` lists the new objects' ids in
+// order (owned); ok is false only on a GPU failure.
+object_split :: proc(app: ^App, obj: ^Object, mode: Split_Mode, keep_parts := true) -> (parts: [dynamic]int, changed, ok: bool) {
 	stroke_finish(app)
 	object_hd_leave(app, obj)
 	if object_dynamic(obj) {
 		report(app, nil, {.Warning}, "%s: turn dynamic topology off first", SPLIT_NAMES[mode])
 		return nil, false, true
 	}
+	what := SPLIT_NAMES[mode] if keep_parts else "Delete hidden"
 	part, count, why := split_parts(obj, mode)
+	if why == "" && !keep_parts && !slice.contains(part, 0) do why = "all of it is hidden"
 	if why != "" {
-		report(app, nil, {.Warning}, "%s: %s", SPLIT_NAMES[mode], why)
+		report(app, nil, {.Warning}, "%s: %s", what, why)
 		return nil, false, true
 	}
 	start := time.tick_now()
@@ -125,6 +128,7 @@ object_split :: proc(app: ^App, obj: ^Object, mode: Split_Mode) -> (parts: [dyna
 		delete(surfaces)
 	}
 	for p, k in pieces {
+		if k > 0 && !keep_parts do break
 		if s.color != nil {
 			surfaces[k].color = make([]sculpt.Color, len(p.vertex_from))
 			for v, i in p.vertex_from do surfaces[k].color[i] = s.color[v]
@@ -148,7 +152,7 @@ object_split :: proc(app: ^App, obj: ^Object, mode: Split_Mode) -> (parts: [dyna
 	index := -1
 	for o, i in app.scene.objects do if o == obj do index = i
 	parts = make([dynamic]int, 0, count - 1)
-	for k in 1 ..< count {
+	for k in 1 ..< (count if keep_parts else 1) {
 		mesh := pieces[k].mesh
 		pieces[k].mesh = {}
 		// Not temporary: building frees the temp allocator before the name is copied.
@@ -168,8 +172,8 @@ object_split :: proc(app: ^App, obj: ^Object, mode: Split_Mode) -> (parts: [dyna
 	split_group_materials(app, obj, table, surfaces[0].groups)
 	for id, k in parts do split_group_materials(app, object_by_id(app, id), table, surfaces[k + 1].groups)
 	app.scene.selected = index
-	app.split_made += count - 1
-	log.infof("%s: %d objects in %.0f ms, ready in %.0f ms more", SPLIT_NAMES[mode], count, time.duration_milliseconds(time.tick_diff(start, cut)), time.duration_milliseconds(time.tick_since(cut)))
+	app.split_made += len(parts)
+	log.infof("%s: %d objects in %.0f ms, ready in %.0f ms more", what, len(parts) + 1, time.duration_milliseconds(time.tick_diff(start, cut)), time.duration_milliseconds(time.tick_since(cut)))
 	return parts, true, true
 }
 

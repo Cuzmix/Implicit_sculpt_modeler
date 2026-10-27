@@ -31,7 +31,9 @@ Ui_State :: struct {
 	mask_by:            Mask_By_Settings, // the Mask section's Mask by and Mask adjust (mask_by_command)
 	mask_shape_kind:    Mask_Shape_Kind, // what Ctrl + drag on empty space draws
 	mirror_axis:        i32, // Mirror and weld: 0 x, 1 y, 2 z
-	mirror_negative:    bool, // Mirror and weld keeps the - side instead of the + side
+	mirror_negative:    bool, // Mirror and weld and Delete half keep the - side instead of the + side
+	holes_leave_largest: bool, // Close holes leaves the hole with the longest border open
+	weld_distance:      f32, // Weld points: how far apart vertices weld, as a share of the object's largest side
 	smooth_steps:       i32, // steps each Smooth all press takes
 	smooth_strength:    f32, // how far each step moves a vertex toward its neighbours' average, 0 to 1
 	smooth_on_gpu:      bool, // run Smooth all as a compute shader (the GPU compute trial); off by default
@@ -150,7 +152,7 @@ CLOTH_MODE_HELP := [sculpt.Cloth_Mode]cstring {
 }
 
 ui_state_default :: proc() -> Ui_State {
-	return {viewport_request = {1280, 720}, mask_steps = 3, mask_by = MASK_BY_SETTINGS_DEFAULT, smooth_steps = 5, smooth_strength = 0.5, crease_degrees = sculpt.CREASE_GROUP_DEGREES, retopo_quads = 4000, rebuild_even = 500_000, rebuild_fewer = 100_000, bake = {size = 2048, reach_edges = 2, base_color = true, orm = true, occlusion_rays = 16, occlusion_reach = 0.2}, boolean = {live_vertices = 200_000, vertices = 1_000_000, thickness = 0.02}, project = PROJECT_DEFAULTS, deform = {along = .Y, lattice = {points = LATTICE_POINTS_DEFAULT}}, reshape = reshape_panel_default()}
+	return {viewport_request = {1280, 720}, mask_steps = 3, mask_by = MASK_BY_SETTINGS_DEFAULT, smooth_steps = 5, smooth_strength = 0.5, crease_degrees = sculpt.CREASE_GROUP_DEGREES, retopo_quads = 4000, rebuild_even = 500_000, rebuild_fewer = 100_000, bake = {size = 2048, reach_edges = 2, base_color = true, orm = true, occlusion_rays = 16, occlusion_reach = 0.2}, boolean = {live_vertices = 200_000, vertices = 1_000_000, thickness = 0.02}, project = PROJECT_DEFAULTS, deform = {along = .Y, lattice = {points = LATTICE_POINTS_DEFAULT}}, reshape = reshape_panel_default(), weld_distance = WELD_DISTANCE_DEFAULT}
 }
 
 // Turns the studio render on or off; on, it starts from the plain viewport.

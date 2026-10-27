@@ -5350,6 +5350,25 @@ def deformation_amount_by_finger():
     return s, ["--script=show_section deform"], camera_still({"reshapes": near(1, 0), "undo_steps": near(1, 0), "dabs": near(0)})
 
 
+# Object > Shape > Modify topology at 1600x900 (repair.odin): Close holes and Delete hidden.
+TOPOLOGY_CLOSE_HOLES = (1377, 393)
+TOPOLOGY_DELETE_HIDDEN = (1377, 447)
+
+
+@scenario
+def delete_hidden_then_close_holes_by_finger():
+    """With half the sphere hidden, a tap on Modify topology's Delete hidden deletes that
+    half and a tap on Close holes caps the opening: two repairs, sculpting nothing and
+    turning nothing."""
+    s = Script()
+    s.wait(4)
+    s.ftap(*TOPOLOGY_DELETE_HIDDEN)
+    s.wait(6)
+    s.ftap(*TOPOLOGY_CLOSE_HOLES)
+    s.wait(6)
+    return s, ["--script=show_section mirror; hide y", "--check-mesh"], camera_still({"repairs": near(2, 0), "mesh_closed": lambda got: got == "true", "dabs": near(0)})
+
+
 # The Home screen at 1600x900 (kit_home.odin): the Head starter, and the first scene tile.
 HOME_NEW_HEAD = (180, 145)
 HOME_TILE1 = (385, 190)

@@ -82,6 +82,16 @@ description: CAD-style mesh tools inside this app on geom.Mesh — primitives, b
   a new object; both swaps undo as one through `History_Entry.chain`), the Slice gesture tool, the script verb `slice x|y|z`.
   Knife (`Scene_Command .Knife` → `object_knife`) is the same cut keeping only `back` (destroys `front` at once) and
   rebuilding through `object_rebuild` as Mirror and weld does: one swap step, layers carried; script `knife x|-x|...`.
+- Mesh repair exists (`src/geom/repair.odin`, Object > Shape > Modify topology, `src/app/repair.odin`): `mesh_close_holes`
+  (loops from `border_edges`, back-facing spikes trimmed first, ear clip + slice.odin's `cap_even` along the loop's
+  Newell normal, then `cap_settle` raises the new vertices to a membrane by SOR; a loop that crosses itself seen flat
+  is fanned), `mesh_weld_points` (cells twice the distance, eight looked up through a radix-sorted `Run_Table`),
+  `mesh_fix` (drop broken and duplicate triangles, `orient` piece by piece, turn inward closed pieces) and
+  `mesh_integrity` (mesh_check's counts in parallel plus holes, pieces, duplicates, loose vertices; equal to
+  `mesh_check`, tested). Each returns a `Repair_Map` (`vertex_from`, `tri_from`, `REPAIR_NEW + k` for cap k) that
+  `repair_surface` turns into polypaint and polygroups for `object_rebuild(..., surface)`. All are `Scene_Command
+  .Repair` with a `Repair_Kind`, except Check mesh, which changes nothing and runs from its command at once (a
+  script statement that leaves the scene unchanged fails). Delete hidden is `object_split(.Hidden, keep_parts = false)`.
 - Split and Merge exist (`src/app/split_merge.odin`, the Objects card's Actions): `geom.mesh_components` numbers
   connected pieces and `geom.mesh_split(m, part, count)` makes one mesh per part with `vertex_from`/`tri_from`
   (`src/geom/split.odin`, serial and deterministic). `object_split` follows `object_slice` (layers carried to every

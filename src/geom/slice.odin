@@ -409,14 +409,14 @@ Ear_Node :: struct {
 	gone:       bool,
 }
 
-@(private = "file")
+@(private)
 cross2 :: #force_inline proc(a, b, c: [2]f64) -> f64 {
 	return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)
 }
 
 // Triangulates the outer loop `outer` (counter-clockwise in the u, v plane) with the
 // `holes` inside it (clockwise), appending the triangles to `out`.
-@(private = "file")
+@(private)
 ear_clip :: proc(positions: []Vec3, loop_verts: []u32, outer: $L, holes: []L, origin, u, v: Vec3, out: ^[dynamic]u32) {
 	nodes := make([dynamic]Ear_Node, 0, outer.count + 16, context.temp_allocator)
 	add_ring :: proc(nodes: ^[dynamic]Ear_Node, positions: []Vec3, ids: []u32, origin, u, v: Vec3) -> int {
@@ -559,7 +559,7 @@ bridge_hole :: proc(nodes: ^[dynamic]Ear_Node, start, h: int) {
 // Evens out a cap in place: splits inner edges longer than about `target`, flips to
 // Delaunay triangles and smooths the inner vertices, new ones going into `extra` (cap
 // triangle corners at or past len(positions) are in it). The cap's border is kept.
-@(private = "file")
+@(private)
 cap_even :: proc(positions: []Vec3, cap: ^[dynamic]u32, extra: ^[dynamic]Vec3, origin, u, v: Vec3, target: f64) {
 	// The cap's own numbering: its corners, then the vertices splitting adds.
 	local := make(map[u32]u32, len(cap) / 2 + 16, context.temp_allocator)

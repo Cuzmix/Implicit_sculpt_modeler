@@ -122,6 +122,7 @@ SCENE_REPORTS := #partial [type_of(Scene_Command{}.kind)]struct {
 	.Voxel_To_Mesh = {"Converted %s to a mesh", .Voxels},
 	.Mesh_To_Voxels = {"Converted %s to voxels", .Voxels},
 	.Voxel_Resample = {"Resampled %s", .Voxels},
+	.Repair        = {"Repaired %s", .Mirror},
 }
 
 // Runs a deferred scene command (scene_apply) and, when a destructive one left an undo
