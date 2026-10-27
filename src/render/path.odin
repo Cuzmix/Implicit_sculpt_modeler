@@ -44,6 +44,9 @@ RENDER_SAMPLES_MAX :: 4096
 RENDER_BOUNCES_DEFAULT :: 6
 RENDER_BOUNCES_MAX :: 12
 
+// render_trace.comp's STUDIO_BLUR: how blurred the built-in studio is where paths leave.
+@(private = "file")
+RENDER_STUDIO_BLUR :: 0.25
 // Matches local_size in render_trace.comp.
 @(private = "file")
 RENDER_GROUP :: 8
@@ -79,6 +82,10 @@ Path_Render :: struct {
 	display:        ^sdl.GPUGraphicsPipeline,
 	atrous:         ^sdl.GPUGraphicsPipeline,
 	sampler:        ^sdl.GPUSampler,
+	// The built-in studio's table for sampling it by brightness, in its own space, and its
+	// mean luminance.
+	studio_table:   ^sdl.GPUTexture,
+	studio_mean:    f32,
 	transfer:       ^sdl.GPUTransferBuffer,
 	// The sum of the samples done in accum[current]; the sample under way is written to
 	// the other one, band by band.
@@ -205,9 +212,12 @@ render_frame :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer,
 	bindings := [3]sdl.GPUStorageTextureReadWriteBinding{{texture = pr.accum[1 - pr.current]}, {texture = pr.guides[0]}, {texture = pr.guides[1]}}
 	pass := sdl.BeginGPUComputePass(cmd, &bindings[0], len(bindings), nil, 0)
 	sdl.BindGPUComputePipeline(pass, pr.pipeline)
-	env_map := r.environment.prefiltered if r.environment != nil else r.no_environment
-	samplers := [2]sdl.GPUTextureSamplerBinding{{texture = pr.accum[pr.current], sampler = pr.sampler}, {texture = env_map, sampler = r.env_sampler}}
-	sdl.BindGPUComputeSamplers(pass, 0, &samplers[0], 2)
+	// The image itself, not its prefiltered copy: the paths find its blur on their own,
+	// and the table is built over it.
+	env_map := r.environment.source if r.environment != nil else r.no_environment
+	table := r.environment.table if r.environment != nil else pr.studio_table
+	samplers := [3]sdl.GPUTextureSamplerBinding{{texture = pr.accum[pr.current], sampler = pr.sampler}, {texture = env_map, sampler = r.env_sampler}, {texture = table, sampler = pr.sampler}}
+	sdl.BindGPUComputeSamplers(pass, 0, &samplers[0], len(samplers))
 	reads: [Scene_Buffer]^sdl.GPUBuffer = pr.buffers
 	sdl.BindGPUComputeStorageBuffers(pass, 0, &reads[Scene_Buffer(0)], len(Scene_Buffer))
 	sdl.PushGPUComputeUniformData(cmd, 0, &u, size_of(u))
@@ -245,6 +255,7 @@ path_render_destroy :: proc(r: ^Renderer, pr: ^Path_Render) {
 	if pr.display != nil do sdl.ReleaseGPUGraphicsPipeline(r.device, pr.display)
 	if pr.atrous != nil do sdl.ReleaseGPUGraphicsPipeline(r.device, pr.atrous)
 	if pr.sampler != nil do sdl.ReleaseGPUSampler(r.device, pr.sampler)
+	if pr.studio_table != nil do sdl.ReleaseGPUTexture(r.device, pr.studio_table)
 	if pr.transfer != nil do sdl.ReleaseGPUTransferBuffer(r.device, pr.transfer)
 	path_targets_release(r, pr)
 	for b in pr.buffers do if b != nil do sdl.ReleaseGPUBuffer(r.device, b)
@@ -345,7 +356,7 @@ path_ensure :: proc(r: ^Renderer, pr: ^Path_Render, vt: ^Viewport_Target) -> boo
 		}
 		pr.pipeline = sdl.CreateGPUComputePipeline(r.device, {
 			code_size = len(RENDER_TRACE_COMP_SPV), code = raw_data(RENDER_TRACE_COMP_SPV), entrypoint = "main",
-			format = {.SPIRV}, num_samplers = 2, num_readonly_storage_buffers = len(Scene_Buffer), num_readwrite_storage_textures = 3,
+			format = {.SPIRV}, num_samplers = 3, num_readonly_storage_buffers = len(Scene_Buffer), num_readwrite_storage_textures = 3,
 			num_uniform_buffers = 1, threadcount_x = RENDER_GROUP, threadcount_y = RENDER_GROUP, threadcount_z = 1,
 		})
 		pr.display = create_fullscreen_pipeline(r, RENDER_DISPLAY_FRAG_SPV, VIEWPORT_COLOR_FORMAT, samplers = 4)
@@ -355,7 +366,9 @@ path_ensure :: proc(r: ^Renderer, pr: ^Path_Render, vt: ^Viewport_Target) -> boo
 			address_mode_u = .CLAMP_TO_EDGE, address_mode_v = .CLAMP_TO_EDGE, address_mode_w = .CLAMP_TO_EDGE,
 		})
 		pr.transfer = sdl.CreateGPUTransferBuffer(r.device, {usage = .UPLOAD, size = RENDER_TRANSFER_SIZE})
-		if pr.pipeline == nil || pr.display == nil || pr.atrous == nil || pr.sampler == nil || pr.transfer == nil {
+		studio := studio_table_build(context.temp_allocator)
+		pr.studio_table, pr.studio_mean = env_table_texture(r, studio), studio.mean
+		if pr.studio_table == nil || pr.pipeline == nil || pr.display == nil || pr.atrous == nil || pr.sampler == nil || pr.transfer == nil {
 			log.errorf("render mode: setup failed (%s); it stays off", sdl.GetError())
 			return false
 		}
@@ -581,11 +594,54 @@ path_scene_build :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuf
 		u.env = {1, look.strength, 0, 0}
 	}
 	u.scene = {center.x, center.y, center.z, radius}
+	env_light := math.PI * (r.environment.mean * r.environment_look.strength if r.environment != nil else pr.studio_mean * 0.7 * max(u.lights.rig[0].w, 0))
+	u.env.z = env_share(&u.lights, lights, env_light, smooth = r.environment == nil)
 	u.counts.w = paint_base / size_of(u32)
 	u.extra = {node_count, 1 if len(tlas) == 0 else 0, 0, 0}
 	pr.bytes = 0
 	for c in pr.capacity do pr.bytes += int(c)
 	return true
+}
+
+// The built-in studio's table, over its luminance in its own space.
+@(private = "file")
+studio_table_build :: proc(allocator := context.allocator) -> Env_Table {
+	w, h := STUDIO_TABLE_WIDTH, STUDIO_TABLE_WIDTH / 2
+	lum := make([]f32, w * h, context.temp_allocator)
+	for y in 0 ..< h do for x in 0 ..< w do lum[y * w + x] = studio_luminance(panorama_direction(x, y, w, h), RENDER_STUDIO_BLUR)
+	return env_table_build(lum, w, h, allocator)
+}
+
+// The chance a light sample takes the environment, by the light each gives a surface
+// facing it (`env_light` for the environment, π times its mean radiance; three times the
+// strength for a light, as the viewport's), at least a tenth for either while both give
+// any; the lights' chances in `world` shrink to share the rest. A `smooth` environment,
+// the built-in studio, takes none while a light is on: the bounces find its broad light
+// well enough, and every sample it took from the lights left their shadows noisier (16
+// samples of the three spheres under the default lights: 17% more noise at its share by
+// light, 5% even at a twentieth), while with no light on it is all there is and sampling
+// it is a little better than the bounces alone (8% less).
+env_share :: proc(world: ^Lights_World, lights: Lights, env_light: f32, smooth := false) -> f32 {
+	l := lights if lights != {} else lights_default()
+	light_total: f32
+	for i in 0 ..< LIGHT_COUNT {
+		if world.size[i].w <= 0 do continue
+		c := l.color[i]
+		light_total += 3 * c.w * max(c.r, c.g, c.b)
+	}
+	share: f32
+	switch {
+	case env_light <= 0:   share = 0
+	case light_total <= 0: share = 1
+	case smooth:           share = 0
+	case:                  share = clamp(env_light / (env_light + light_total), 0.1, 0.9)
+	}
+	for i in 0 ..< LIGHT_COUNT {
+		if world.size[i].w <= 0 do continue
+		world.size[i].w *= 1 - share
+		if world.size[i].z <= 1 do world.size[i].z = share + (1 - share) * world.size[i].z
+	}
+	return share
 }
 
 // An item's record: where it sits, its material as render mode takes it, and its groups'

@@ -165,6 +165,12 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   recheck 0 px. While render mode runs the studio gets max_samples 0 (paused); off, `render_mode_frame` releases it.
   Sample 0 is unjittered and writes the denoiser guides (set 1 bindings 1-2, RGBA16F: albedo+hit, normal+t);
   `render_atrous.frag` passes ping-pong `filtered` (pass 0 reads the sum and demodulates), display remodulates.
+  Environment sampling (`env_sample.odin`): an RGBA32F alias table per environment (`Environment.table`, at most 512
+  wide; the studio's built in `path_ensure` from `studio_luminance`, a CPU copy of `studio()`: keep them in step or
+  only noise suffers). Texels are weighed by their 3 x 3 neighbourhood's brightest luminance, because the shader's
+  bilinear lookup bleeds a sun's edge half a texel out: without it a sky-weight texel returns sun radiance, a
+  speckle. Render mode binds `Environment.source` (full size) not `prefiltered`, so the table matches what it reads.
+  `env.z` = `env_share` (0 for the studio while any light is on: measured noisier, see its comment).
 - Traced studio (`src/render/trace.odin`, `studio_trace.comp`, `blas_refit.comp`, `studio_trace_add.frag`): at
   `samples == 0` `trace_prepare` decides the run (`Studio.traced`); false falls back to the gather, never half done.
   Needs `Draw_Item.source` (the CPU mesh as uploaded) and `Mesh_Buffers.storage` (positions and indices with

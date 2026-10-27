@@ -25,6 +25,12 @@ Environment :: struct {
 	levels:        int, // the prefiltered texture's
 	width, height: int, // the source's
 	sh:            [9][3]f32,
+	// Render mode's table for sampling it by brightness (env_sample.odin), its size, and
+	// its mean luminance over the sphere.
+	table:         ^sdl.GPUTexture,
+	table_width:   int,
+	table_height:  int,
+	mean:          f32,
 	// From Renderer.last_version, so the frame keys tell a new one from an old one at the
 	// same address.
 	stamp:         u64,
@@ -80,6 +86,11 @@ environment_create :: proc(r: ^Renderer, pixels: [][3]f32, width, height: int, s
 	defer delete(half)
 	for p, i in pixels do half[i] = {f16(p.x), f16(p.y), f16(p.z), 1}
 	if !texture_upload(r, env.source, mem.slice_to_bytes(half), width, height, mips = true) do return
+	lum, tw, th := env_table_luminance(pixels, width, height, context.temp_allocator)
+	table := env_table_build(lum, tw, th, context.temp_allocator)
+	env.table = env_table_texture(r, table)
+	if env.table == nil do return
+	env.table_width, env.table_height, env.mean = tw, th, table.mean
 
 	pipeline := create_prefilter_pipeline(r)
 	if pipeline == nil do return
@@ -120,10 +131,11 @@ environment_create :: proc(r: ^Renderer, pixels: [][3]f32, width, height: int, s
 
 // Waits for the GPU (a frame in flight may still sample it) and releases the textures.
 environment_destroy :: proc(r: ^Renderer, env: ^Environment) {
-	if env.source == nil && env.prefiltered == nil do return
+	if env.source == nil && env.prefiltered == nil && env.table == nil do return
 	_ = sdl.WaitForGPUIdle(r.device)
 	if env.source != nil do sdl.ReleaseGPUTexture(r.device, env.source)
 	if env.prefiltered != nil do sdl.ReleaseGPUTexture(r.device, env.prefiltered)
+	if env.table != nil do sdl.ReleaseGPUTexture(r.device, env.table)
 	env^ = {}
 }
 
@@ -134,7 +146,7 @@ environment_bytes :: proc(env: Environment) -> int {
 	source := env.width * env.height * 8 * 4 / 3
 	prefiltered := 0
 	for level in 0 ..< env.levels do prefiltered += max(env.width / 2 >> uint(level), 1) * max(env.height / 2 >> uint(level), 1) * 8
-	return source + prefiltered
+	return source + prefiltered + env.table_width * env.table_height * 16
 }
 
 // The environment's part of a mesh draw's uniforms, left zero (the studio) without one.
