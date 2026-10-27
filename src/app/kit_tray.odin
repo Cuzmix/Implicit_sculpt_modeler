@@ -13,7 +13,7 @@ import "../ui"
 // command and marks its control (tray_show).
 
 // How many sections the tray has: Kit_Section's first ones, before the Stats panel's.
-TRAY_SECTIONS :: int(Kit_Section.Floor) + 1
+TRAY_SECTIONS :: int(Kit_Section.Background) + 1
 
 // The list's width, the gap after it (where its scroll bar goes), and the narrowest safe
 // area with room for it beside the content.

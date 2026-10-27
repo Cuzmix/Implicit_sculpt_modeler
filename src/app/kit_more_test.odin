@@ -70,7 +70,7 @@ section_controls :: proc(app: ^App, sec: Kit_Section, draw: proc(app: ^App, obj:
 	case .Alpha:  n -= len(app.alphas) + 1
 	case .Layers: n -= 4 * len(sculpt.sculptor_layers(object_sculptor(obj)))
 	// A colour (kit_color) is one choice, made by its hex field or by its three sliders.
-	case .Material, .Paint, .Paint_Color: n -= 3
+	case .Material, .Paint, .Paint_Color, .Background: n -= 3
 	}
 	return n
 }

@@ -47,6 +47,20 @@ Renderer :: struct {
 	// The floor grid the viewport draws behind and among its items; set by the app each
 	// frame, as lod_px is.
 	floor:          Floor_Grid,
+	// What the viewport shows behind everything; set by the app each frame, as floor is.
+	background:     Background,
+}
+
+// The viewport's background in display values, written as-is: `top` along the top edge
+// shading to `bottom` along the bottom one, and one flat colour when the two are equal.
+Background :: struct {
+	top, bottom: [4]f32,
+}
+
+// Matches Clear_Uniforms in clear.frag.
+Clear_Uniforms :: struct {
+	using background: Background,
+	extent:           [4]f32, // x: the target's height in pixels
 }
 
 // The grid drawn on up to three planes square to the world's axes, round the scene: per
@@ -78,7 +92,8 @@ Mesh_Pipelines :: struct {
 	// The same shaders drawing triangle edges as lines, pulled toward the eye so they
 	// show over the surface they outline; nil where the device cannot draw lines.
 	wire:  ^sdl.GPUGraphicsPipeline,
-	clear: ^sdl.GPUGraphicsPipeline, // clears a scissored rectangle to the background
+	// Fills the target, or a scissored rectangle of it, with the background at the far plane.
+	clear: ^sdl.GPUGraphicsPipeline,
 	// The mesh shaders blending over what is behind and leaving the depth be, for items
 	// drawn see-through (Draw_Item.look.w); nil where the device refused it, and those items
 	// are then drawn solid.
@@ -97,7 +112,8 @@ Mesh_Mode :: enum u8 {
 	See_Through,
 }
 
-// Viewport background, linear values written as-is (like the mesh shader's output).
+// The flat grey the viewport shows until the app sets Renderer.background, in display
+// values written as-is (like the mesh shader's output).
 BACKGROUND :: [4]f32{0.17, 0.17, 0.17, 1}
 
 // A partial redraw is skipped in favour of a full one when the changed rectangle
@@ -276,6 +292,7 @@ FLOOR_FRAG_SPV :: #load("shaders/floor.frag.spv")
 
 renderer_init :: proc(r: ^Renderer, window: ^sdl.Window, debug: bool) -> bool {
 	r.window = window
+	r.background = {BACKGROUND, BACKGROUND}
 	when ODIN_PLATFORM_SUBTARGET == .Android {
 		// Tablet GPUs may lack Vulkan features SDL asks for by default; nothing here clips
 		// with gl_ClipDistance, samples anisotropically or starts an indirect draw past
@@ -989,7 +1006,7 @@ upload_index_ranges :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: ^Mesh_
 // keeps the previous colour and depth and redraws only the screen rectangle the items'
 // damage boxes cover, or nothing at all when nothing changed.
 render_viewport :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, view, proj: Mat4, items: []Draw_Item, use_cache: bool) -> (stats: Viewport_Stats) {
-	key := frame_key(vt^, view, proj, items, r.lod_px, r.floor)
+	key := frame_key(vt^, view, proj, items, r.lod_px, r.floor, r.background)
 	defer {
 		vt.frame_key = key
 		for item in items do item.mesh.drawn_version = item.mesh.version
@@ -1097,10 +1114,7 @@ render_rect :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Targ
 	pipes := mesh_pipelines(r, vt.samples)
 	pass := target_pass(r, cmd, vt, load = true)
 	sdl.SetGPUScissor(pass, {rect.x, rect.y, rect.w, rect.h})
-	sdl.BindGPUGraphicsPipeline(pass, pipes.clear)
-	background := BACKGROUND
-	sdl.PushGPUFragmentUniformData(cmd, 0, &background, size_of(background))
-	sdl.DrawGPUPrimitives(pass, 3, 1, 0, 0)
+	draw_background(r, cmd, pass, pipes, vt^, flat_too = true)
 	if drawn != rect do sdl.SetGPUScissor(pass, {drawn.x, drawn.y, drawn.w, drawn.h})
 	draw_scene(r, cmd, pass, pipes, view, proj, items, nil, stats, rect if drawn != rect else nil)
 	sdl.EndGPURenderPass(pass)
@@ -1109,7 +1123,7 @@ render_rect :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Targ
 
 // Hash of what frame_key in Viewport_Target describes.
 @(private)
-frame_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lod_px: f32, floor: Floor_Grid) -> u64 {
+frame_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lod_px: f32, floor: Floor_Grid, background: Background) -> u64 {
 	Keyed :: struct {
 		mesh:     ^Mesh_Buffers,
 		matcap:   ^sdl.GPUTexture,
@@ -1132,9 +1146,10 @@ frame_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lod
 		items:         u32,
 		lod_px:        f32,
 		floor:         Floor_Grid,
+		background:    Background,
 	}
-	#assert(size_of(Header) == 2 * size_of(Mat4) + 16 + size_of(Floor_Grid))
-	header := Header{view, proj, vt.width, vt.height, u32(len(items)), lod_px, floor}
+	#assert(size_of(Header) == 2 * size_of(Mat4) + 16 + size_of(Floor_Grid) + size_of(Background))
+	header := Header{view, proj, vt.width, vt.height, u32(len(items)), lod_px, floor, background}
 	h := hash.fnv64a(slice.bytes_from_ptr(&header, size_of(header)))
 	for item in items {
 		k := Keyed{item.mesh, item.matcap, item.model, item.color, item.material, item.checker, item.look, item.lights, item.surface, b32(item.wireframe), b32(item.flat), b32(item.paint), b32(item.groups)}
@@ -1163,17 +1178,19 @@ render_full :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Targ
 		vt.cache.key = 0
 		prepare_draws(r, cmd, view, proj, items, nil, stats, lod = lod)
 		pass := target_pass(r, cmd, vt, load = false)
+		draw_background(r, cmd, pass, pipes, vt^)
 		draw_scene(r, cmd, pass, pipes, view, proj, items, nil, stats)
 		sdl.EndGPURenderPass(pass)
 		return
 	}
 	stats.cache_used = true
 
-	key := static_key(vt^, view, proj, items, r.lod_px)
+	key := static_key(vt^, view, proj, items, r.lod_px, r.background)
 	redraw := key != vt.cache.key
 	prepare_draws(r, cmd, view, proj, items, nil if redraw else true, stats, lod = lod)
 	if redraw {
-		pass := begin_mesh_pass(r, cmd, pipes, vt.cache.color, vt.cache.depth, load = false, keep_depth = true)
+		pass := begin_mesh_pass(r, cmd, pipes, vt.cache.color, vt.cache.depth, load = false, keep_depth = true, background = r.background.top)
+		draw_background(r, cmd, pass, pipes, vt^)
 		draw_items(r, cmd, pass, pipes, view, proj, items, false, stats)
 		sdl.EndGPURenderPass(pass)
 		vt.cache.key = key
@@ -1296,7 +1313,7 @@ indirect_ensure :: proc(r: ^Renderer, mb: ^Mesh_Buffers, commands: u32) -> bool 
 // Identifies the cache contents: the target size, camera, simplification, and every
 // idle item's buffers (by identity and version), transform and colour.
 @(private)
-static_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lod_px: f32) -> u64 {
+static_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lod_px: f32, background: Background) -> u64 {
 	Keyed :: struct {
 		mesh:     ^Mesh_Buffers,
 		matcap:   ^sdl.GPUTexture,
@@ -1314,12 +1331,14 @@ static_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lo
 		groups:   b32, // no padding: every byte is hashed
 	}
 	#assert(size_of(Keyed) == 224)
-	Header :: struct {
+	Header :: struct { // no padding: every byte is hashed
 		view, proj:    Mat4,
 		width, height: u32,
 		lod_px:        f32,
+		background:    Background,
 	}
-	header := Header{view, proj, vt.width, vt.height, lod_px}
+	#assert(size_of(Header) == 2 * size_of(Mat4) + 12 + size_of(Background))
+	header := Header{view, proj, vt.width, vt.height, lod_px, background}
 	h := hash.fnv64a(slice.bytes_from_ptr(&header, size_of(header)))
 	for item in items {
 		if item.live do continue
@@ -1339,7 +1358,20 @@ target_color :: proc(vt: ^Viewport_Target) -> ^sdl.GPUTexture {
 // the samples too, for the next partial redraw to load, and resolves them into `color`.
 @(private)
 target_pass :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, load: bool) -> ^sdl.GPURenderPass {
-	return begin_mesh_pass(r, cmd, mesh_pipelines(r, vt.samples), target_color(vt), vt.depth, load, keep_depth = true, resolve = vt.color if vt.multi_color != nil else nil)
+	return begin_mesh_pass(r, cmd, mesh_pipelines(r, vt.samples), target_color(vt), vt.depth, load, keep_depth = true, background = r.background.top, resolve = vt.color if vt.multi_color != nil else nil)
+}
+
+// Paints Renderer.background over the pass (its scissor, if set) at the far plane. A flat
+// one is the colour the pass was cleared to, so it is drawn only with `flat_too`, where
+// part of an earlier frame is being cleared.
+@(private)
+draw_background :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURenderPass, pipes: ^Mesh_Pipelines, vt: Viewport_Target, flat_too := false) {
+	b := r.background
+	if b.top == b.bottom && !flat_too do return
+	uniforms := Clear_Uniforms{background = b, extent = {f32(vt.height), 0, 0, 0}}
+	sdl.BindGPUGraphicsPipeline(pass, pipes.clear)
+	sdl.PushGPUFragmentUniformData(cmd, 0, &uniforms, size_of(uniforms))
+	sdl.DrawGPUPrimitives(pass, 3, 1, 0, 0)
 }
 
 // Opens a pass into `color_tex` and `depth_tex`, cleared to `background` or loaded, with

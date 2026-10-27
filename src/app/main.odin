@@ -218,6 +218,7 @@ App :: struct {
 	polyframe_fill:  bool,
 	floor:           Floor_Settings, // the floor grid (floor_grid.odin)
 	floor_state:     Floor_State,
+	background:      Background_Settings, // the viewport's background (background.odin)
 	sym_center:      Symmetry_Center, // local symmetry's middle, kept (symmetry.odin)
 	// Transparency: every shown object but the selected one is drawn see-through, at
 	// SEE_THROUGH_OPACITY, so the selected one shows through whatever stands before it.
@@ -455,6 +456,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	app.cache_idle = !opts.no_cache
 	app.polyframe_lines = true
 	app.floor = FLOOR_DEFAULT
+	app.background = BACKGROUND_DEFAULT
 	// Custom starts as PBR clay, the last physically based preset, until a slider changes it.
 	app.custom = MATERIALS[FIRST_MATCAP - 1]
 	app.custom.label = "Custom"
@@ -860,6 +862,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		moving := time.tick_since(app.view_moved) < LOD_SETTLE
 		app.renderer.lod_px = app.simplify_px if app.simplify && moving && !timelapse_capturing(&app) else 0
 		app.renderer.floor = floor_grid_frame(&app)
+		app.renderer.background = background_frame(app.background)
 		drawn := render.render_viewport(&app.renderer, cmd, &app.target, view, proj, draws[:], app.cache_idle)
 		if app.studio_on {
 			// Anything redrawn this frame starts the samples over.
@@ -1116,6 +1119,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			fmt.printfln("pie_open=%d pie_hover=%d pie_runs=%d pie_editor=%d favourites=%d pie1=%s pie3=%s wireframe=%d ortho=%d", pie.which if pie.open else -1, pie.hover if pie.open else -1,
 				app.kit.pie_runs, int(app.kit.pie_editor), app.kit.favourite_count, pie_names(&app, 0), pie_names(&app, 2), int(app.wireframe), int(app.camera.ortho))
 			fmt.printfln("floor_grid=%d floor_planes=%d%d%d transparent=%d fov=%.0f polyframe_lines=%d polyframe_fill=%d", int(app.floor.on), int(app.floor.planes[0]), int(app.floor.planes[1]), int(app.floor.planes[2]), int(app.see_through), math.to_degrees(app.camera.fov_y), int(app.polyframe_lines), int(app.polyframe_fill))
+			bg := app.background
+			fmt.printfln("background_gradient=%d background_top=%s background_bottom=%s", int(bg.gradient), hex_text(bg.top), hex_text(bg.bottom))
 		}
 		{
 			// What the last stroke was, the rail's latches, and whether the selected object
