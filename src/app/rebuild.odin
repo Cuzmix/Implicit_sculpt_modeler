@@ -128,10 +128,10 @@ rebuild_preview_frame :: proc(app: ^App) -> [4]f32 {
 	// A stroke ends it: every dab would change the mesh to measure.
 	if app.stroke.active do p.until = 0
 	if obj == nil || goal == .Fewer || (app.kit.ctx.time >= p.until && !p.pinned) do return {}
-	// Not in a time-lapse, which is a picture of the sculpt; nor on a live boolean, whose
+	// Not in a time-lapse or turntable, which are pictures of the sculpt; nor on a live boolean, whose
 	// preview stands in for the object. The studio render starts over while it shows, as
 	// for any other change.
-	if timelapse_capturing(app) || app.ui.boolean.shown do return {}
+	if timelapse_capturing(app) || turntable_recording(app) || app.ui.boolean.shown do return {}
 	if !rebuild_measure_step(app, obj) do return {}
 	ok: bool
 	switch goal {

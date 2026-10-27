@@ -34,6 +34,7 @@ Command_Id :: enum u8 {
 	Export_Mesh,
 	Screenshot,
 	Screenshot_Transparent,
+	Record_Turntable,
 	Send_To_Blender,
 	Get_From_Blender,
 	// Edit
@@ -379,6 +380,17 @@ COMMANDS := [Command_Id]Command {
 		icon = ui.ICON_IMAGE,
 		run = proc(app: ^App, _: int) {app.screenshot_transparent = !app.screenshot_transparent},
 		checked = proc(app: ^App, _: int) -> bool {return app.screenshot_transparent},
+	},
+	.Record_Turntable = {
+		label = "Record turntable...",
+		help = "Turns the camera once round the scene and saves every frame into a folder you pick, as numbered PNG pictures and one animated PNG that plays in a browser; again, while it records, stops it.",
+		icon = ui.ICON_FILM,
+		run = proc(app: ^App, _: int) {
+			if turntable_recording(app) do turntable_stop(app, "stopped")
+			else do file_dialog(app, .Turntable)
+		},
+		enabled = proc(app: ^App, _: int) -> bool {return !app.stroke.active && app.timeline.lapse.state == .Off},
+		checked = proc(app: ^App, _: int) -> bool {return turntable_recording(app)},
 	},
 	.Undo = {
 		label = "Undo",

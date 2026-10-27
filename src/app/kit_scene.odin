@@ -418,6 +418,7 @@ SCENE_SECTIONS := [?]Kit_Tab_Section {
 	{.Render, "Render", kit_render, nil},
 	{.Lens, "Lens", kit_lens, nil},
 	{.Camera, "Camera", kit_camera, nil},
+	{.Turntable, "Turntable", kit_turntable, nil},
 	{.Floor, "Floor grid", kit_floor, nil},
 	{.Background, "Background", kit_background, nil},
 }
@@ -443,6 +444,23 @@ kit_background :: proc(app: ^App) {
 	}
 	ui.paragraph(ctx, "The top colour shades into the bottom one down the viewport. Screenshots and the studio render show it too.")
 	kit_background_transparent(app)
+}
+
+// The turntable: how many frames the turn takes, and Record or, while it records, Stop
+// with how far it is.
+@(private = "file")
+kit_turntable :: proc(app: ^App) {
+	ctx := &app.kit.ctx
+	tt := &app.turntable
+	frames := f32(app.turntable_frames)
+	seconds := fmt.tprintf("%d · %.1f s", app.turntable_frames, frames / TURNTABLE_FPS)
+	if ui.slider(ctx, "Frames", &frames, TURNTABLE_FRAMES_MIN, TURNTABLE_FRAMES_MAX, .Logarithmic, seconds, enabled = !tt.on) do app.turntable_frames = i32(frames + 0.5)
+	if tt.on {
+		_ = command_button(app, .Record_Turntable, label = fmt.tprintf("Stop recording (%d of %d)", tt.frame, tt.frames), variant = .Solid, tone = .Danger, width = ui.fill_width(ctx), glyph = ui.ICON_STOP)
+	} else {
+		_ = command_button(app, .Record_Turntable, width = ui.fill_width(ctx), glyph = ui.ICON_FILM)
+	}
+	ui.paragraph(ctx, "The camera goes once round the scene. Each frame is saved as a picture, and the whole as one animated picture that loops; without the background when Screenshots without background is on.")
 }
 
 // Whether screenshots leave the background out.

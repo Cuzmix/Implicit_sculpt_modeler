@@ -58,6 +58,8 @@ Options :: struct {
 	timelapse: string `usage:"Record a time-lapse of the History into this folder, as History > Record time-lapse does: once --bench-stroke ends, or at the start; the run lasts until it is done."`,
 	timelapse_steps: int `usage:"Steps of the History each --timelapse frame shows (default 1)."`,
 	timelapse_spin: f32 `usage:"Degrees the camera turns each --timelapse frame (default 0)."`,
+	turntable: string `usage:"Record a turntable into this folder at the last of the --frames (or once --bench-stroke ends), as Scene > Turntable > Record turntable... does; the run lasts until it is done."`,
+	turntable_frames: int `usage:"Frames of the --turntable (24 to 720; default the remembered setting, 120 at first)."`,
 	bench_loops: int `usage:"Make --bench-stroke this many circles around the middle of the sphere instead of a wavy line."`,
 	density_preview: int `usage:"Show Object > Shape > Rebuild's density checkerboard on the selected object for an even remesh of this many vertices, held on as holding its Density slider shows it (for screenshots and timing)."`,
 	bench_tilt: f32 `usage:"Lean the synthetic pen of --bench-stroke this many degrees to the right (with set tilt_strength in a start-up script)."`,
@@ -191,6 +193,8 @@ App :: struct {
 	home:     Home, // the Home screen's pictures and autosaves (home.odin)
 	thumbnail: Thumbnail_State, // View > Thumbnail's picture (thumbnail.odin)
 	capture:   Capture, // a transparent screenshot waiting for its frame (capture.odin)
+	turntable: Turntable, // Scene > Turntable's recording (turntable.odin)
+	turntable_frames: i32, // how many frames it takes, remembered
 	// The scenes saved or opened lately, newest first, at most HOME_RECENT_MAX (remembered).
 	recent_scenes: [dynamic]string,
 	start_home: bool, // an interactive run given no scene starts on Home (Settings > Interface)
@@ -544,6 +548,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	app.render_samples, app.render_bounces, app.render_denoise = render.RENDER_SAMPLES_DEFAULT, render.RENDER_BOUNCES_DEFAULT, true
 	app.render_half = ODIN_PLATFORM_SUBTARGET == .Android
 	app.render_blur = RENDER_BLUR_DEFAULT
+	app.turntable_frames = TURNTABLE_FRAMES_DEFAULT
 	environment_settings_default(&app)
 	app.dim_others = true
 	app.time_gpu = opts.time_gpu || opts.gpubench != ""
@@ -604,6 +609,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	defer home_destroy(&app)
 	defer thumbnail_destroy(&app)
 	defer capture_destroy(&app)
+	defer turntable_destroy(&app)
 	// After autosave_init, whose folder Home's Autosaves lists.
 	if home_at_start(&app, opts, interactive) do home_open(&app)
 	// The benchmark's autosave writes the scene it starts with.
@@ -668,6 +674,11 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			app.timeline.lapse.spin = opts.timelapse_spin
 			timelapse_start(&app, opts.timelapse)
 		}
+		// At the run's last frame, so that what led up to it (a script, a stroke) is done.
+		if opts.turntable != "" && frame_index == max(opts.frames - 1, opts.bench_stroke, 0) && !setting_up && !turntable_recording(&app) && app.turntable.frame == 0 {
+			if opts.turntable_frames > 0 do app.turntable_frames = i32(opts.turntable_frames)
+			turntable_start(&app, opts.turntable)
+		}
 		if opts.load_strokes != "" && frame_index == max(opts.bench_stroke, LOAD_STROKES_FRAME) && !setting_up {
 			if !strokes_load(&app, opts.load_strokes) do return false
 			if opts.replay_shift != "" {
@@ -689,6 +700,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			}
 		}
 		timeline_frame(&app)
+		turntable_frame(&app)
 		history_cap(&app)
 		// A point or spot light a script or an undo just made gets its place.
 		lights_settle(&app)
@@ -1003,7 +1015,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		view, proj := camera.orbit_view(app.camera), camera.orbit_proj(app.camera, aspect)
 		if view_changed(&app, view, proj) do app.view_moved = time.tick_now()
 		moving := time.tick_since(app.view_moved) < LOD_SETTLE
-		app.renderer.lod_px = app.simplify_px if app.simplify && moving && !timelapse_capturing(&app) else 0
+		app.renderer.lod_px = app.simplify_px if app.simplify && moving && !timelapse_capturing(&app) && !turntable_recording(&app) else 0
 		app.renderer.floor = floor_grid_frame(&app)
 		app.renderer.background = background_frame(app.background)
 		environment_view(&app)
@@ -1123,7 +1135,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			// A --timelapse run goes on until the recording is done.
 			// So does one replaying --load-strokes, which starts the frame after.
 			replaying := replay_busy(&app) || (opts.load_strokes != "" && frame_index <= max(opts.bench_stroke, LOAD_STROKES_FRAME))
-			if (opts.timelapse == "" || (frame_index > opts.bench_stroke && !timeline_busy(&app))) && !replaying do app.running = false
+			// And a --turntable run until its last frame is written.
+			if (opts.timelapse == "" || (frame_index > opts.bench_stroke && !timeline_busy(&app))) && !replaying && !turntable_recording(&app) do app.running = false
 		}
 		if opts.gpubench != "" && gpubench_end_frame(&app, &bench, time.duration_milliseconds(gpu_wait), time.duration_milliseconds(cpu_time), sculpted.dabs) {
 			app.running = false
@@ -1170,7 +1183,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	// milliseconds it took to shrink and encode.
 	fmt.printfln("previews=%d preview_size=%dx%d preview_kb=%.1f preview_ms=%.2f", app.preview.taken, app.preview.w, app.preview.h, f64(len(app.preview.png)) / 1024, app.preview.ms)
 	fmt.printfln("thumbnail=%d thumbnail_draws=%d thumbnail_ms=%.2f thumbnail_px=%dx%d thumbnail_flip=%d thumbnail_shaded=%d", int(app.kit.thumbnail), app.thumbnail.draws, app.thumbnail.ms, app.kit.thumbnail_px.x, app.kit.thumbnail_px.y, int(app.kit.thumbnail_flip), int(app.kit.thumbnail_shaded))
-	fmt.printfln("screenshot_transparent=%d", int(app.screenshot_transparent))
+	fmt.printfln("screenshot_transparent=%d turntable_frames=%d turntable_written=%d", int(app.screenshot_transparent), app.turntable_frames, app.turntable.frame)
 	// The scene's file by its name alone, which a test compares; "none" for no file.
 	scene_name := filepath.base(app.scene_path) if app.scene_path != "" else "none"
 	fmt.printfln("home=%d home_opened=%d home_read=%d home_pictures=%d recent_scenes=%d home_autosaves=%d scene_name=%s", int(app.kit.home), app.home.opened, app.home.read, app.home.uploaded, len(app.recent_scenes), len(app.home.autosaves), scene_name)

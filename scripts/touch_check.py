@@ -5259,6 +5259,22 @@ def transparent_screenshots_switch_in_the_background_section():
     return s, ["--script=show_section background"], camera_still({"screenshot_transparent": near(1, 0), "dabs": near(0)})
 
 
+# Scene: Turntable's Frames slider knob at 120 frames.
+TURNTABLE_FRAMES_KNOB = (1370, 197)
+
+
+@scenario
+def turntable_frames_slider_by_finger():
+    """A finger drag left on Scene: Turntable's Frames slider takes fewer frames,
+    and turns the camera and sculpts nothing."""
+    s = Script()
+    s.wait(4)
+    x, y = TURNTABLE_FRAMES_KNOB
+    s.fdrag(line((x, y), (x - 90, y), 10))
+    s.wait(4)
+    return s, ["--script=show_section turntable"], camera_still({"turntable_frames": lambda v: 24 <= int(v) < 100, "turntable_written": near(0), "dabs": near(0)})
+
+
 @scenario
 def thumbnail_follows_a_stroke_and_closes():
     """A stroke on the model draws the thumbnail again; its Close shuts the window."""
