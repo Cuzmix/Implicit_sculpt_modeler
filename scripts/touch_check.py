@@ -262,7 +262,7 @@ COLOUR_CHANNEL = {"sculpt": (122, 395), "both": (216, 395), "paint": (312, 395)}
 FLOOR_BACK = (1381, 561)
 POLYFRAME_FILL = (1450, 638)
 # The view menu's Field of view slider, under Orthographic.
-FOV_SLIDER = (1300, 640)
+FOV_SLIDER = (1300, 688)
 
 
 @scenario
@@ -5775,7 +5775,7 @@ def adjust_retopo_and_extract():
 
 
 # Camera history (camera_history.odin): View menu rows at 1600x900.
-VIEW_BACK, VIEW_FORWARD = (1399, 794), (1399, 838)
+VIEW_BACK, VIEW_FORWARD = (1399, 824), (1399, 868)
 CAMERA_KEYS = ("camera_yaw", "camera_pitch", "camera_roll", "camera_distance", "camera_target")
 
 

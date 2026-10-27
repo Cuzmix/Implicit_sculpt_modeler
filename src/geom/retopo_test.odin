@@ -126,3 +126,33 @@ bake_finds_the_source_surface :: proc(t: ^testing.T) {
 		testing.expectf(t, tilted < 256 * 256 / 200, "grow %v: %d texels tilted", grow, tilted)
 	}
 }
+
+// Two quads side by side, one long the 0-2 way and one long the 1-3 way: the triangle
+// mesh splits them on different diagonals, and the split mesh written over the quads
+// follows the same ones.
+@(test)
+diagonals_follow_the_triangles :: proc(t: ^testing.T) {
+	positions := []Vec3{{0, 0, 0}, {1, -0.4, 0}, {2.5, 1.2, 0}, {0, 1, 0}, {3, 0, 0}, {4, 0, 0}, {4, 1, 0}, {2.6, 1.4, 0}}
+	q := Quad_Mesh{positions = positions, quads = [][4]u32{{0, 1, 2, 3}, {4, 5, 6, 7}}}
+	m := quad_mesh_triangulate(q)
+	defer mesh_destroy(&m)
+	faces := vertex_faces_build(m)
+	defer vertex_faces_destroy(&faces)
+	across := quad_mesh_diagonals(q, m.indices[:], faces)
+	defer delete(across)
+	for f, i in q.quads {
+		split := quad_split(positions, f)
+		testing.expectf(t, across[i] == (split[2] != f[2]), "quad %d: across %v, but its triangles are %v", i, across[i], split)
+	}
+	testing.expect(t, across[0] != across[1], "the two quads should split differently")
+
+	q.across = across
+	uvs := Uv_Layout{uvs = [][4][2]f32{{{0, 0}, {0.4, 0}, {0.4, 0.4}, {0, 0.4}}, {{0.5, 0}, {0.9, 0}, {0.9, 0.4}, {0.5, 0.4}}}, chart = []u32{0, 1}, charts = 2}
+	normals := quad_mesh_normals(q, context.temp_allocator)
+	frame := quad_mesh_tangents(q, uvs, normals, context.temp_allocator)
+	_, _, _, indices := quad_mesh_split_uvs(q, uvs, normals, frame, context.temp_allocator)
+	for i in 0 ..< len(indices) {
+		testing.expectf(t, frame.vertex[indices[i]] == m.indices[i], "corner %d is vertex %d in the split mesh but %d in the triangles", i, frame.vertex[indices[i]], m.indices[i])
+	}
+	free_all(context.temp_allocator)
+}

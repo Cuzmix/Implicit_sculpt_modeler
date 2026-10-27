@@ -11,6 +11,7 @@ import sdl "vendor:sdl3"
 
 import "../camera"
 import "../geom"
+import "../render"
 import "../gizmo"
 import "../sculpt"
 import "../ui"
@@ -113,6 +114,7 @@ SETTINGS := [?]Setting {
 	{"background_gradient", offset_of(App, background) + offset_of(Background_Settings, gradient), bool, 0, 0},
 	{"transparent", offset_of(App, see_through), bool, 0, 0},
 	{"flat", offset_of(App, flat), bool, 0, 0},
+	{"texture_view", offset_of(App, texture_view), render.Texture_View, 0, 0},
 	{"exposure", offset_of(App, exposure), f32, -EXPOSURE_RANGE, EXPOSURE_RANGE},
 	{"cavity", offset_of(App, cavity), f32, 0, 1},
 	{"light_turn", offset_of(App, light_turn), f32, -180, 180},

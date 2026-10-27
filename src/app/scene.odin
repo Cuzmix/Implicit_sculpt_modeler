@@ -82,6 +82,9 @@ Object :: struct {
 	// Its polygroups with materials of their own, sorted by group (group_materials.odin);
 	// none on a voxel object.
 	group_materials: [dynamic]Group_Material,
+	// Its texture maps, while it has quads and UVs (textures.odin), and their GPU copy.
+	textures:  Object_Textures,
+	preview:   Texture_Preview,
 }
 
 // The level being sculpted: the HD window while one is open.
@@ -150,12 +153,12 @@ Surface :: struct {
 	groups: []u16,
 }
 
-Scene_Command_Kind :: enum u8 {None, Add, New, Remesh, Decimate, Retopo, Delete, Duplicate, Symmetrize, Slice, Subdivide, Set_Level, Delete_Higher, Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete, Dyntopo, Boolean, Extract, View, Arrange, Copy, Paste, Delete_Others, Levels_All, Split, Merge, Align, Distribute, Material, Group_Material, Voxel_To_Mesh}
+Scene_Command_Kind :: enum u8 {None, Add, New, Remesh, Decimate, Retopo, Delete, Duplicate, Symmetrize, Slice, Subdivide, Set_Level, Delete_Higher, Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete, Dyntopo, Boolean, Extract, View, Arrange, Copy, Paste, Delete_Others, Levels_All, Split, Merge, Align, Distribute, Material, Group_Material, Voxel_To_Mesh, Layout_Uvs}
 
 // The commands that work on a mesh object's level, and so refuse a voxel object until it
 // is converted to a mesh (Voxel_To_Mesh); the rest place, copy, list or delete objects of
 // either kind.
-MESH_ONLY_COMMANDS :: bit_set[Scene_Command_Kind]{.Remesh, .Decimate, .Retopo, .Symmetrize, .Slice, .Subdivide, .Set_Level, .Delete_Higher, .Delete_Lower, .Hd_Enter, .Hd_Leave, .Hd_Steps, .Hd_Delete, .Dyntopo, .Boolean, .Extract, .Split, .Merge, .Group_Material}
+MESH_ONLY_COMMANDS :: bit_set[Scene_Command_Kind]{.Remesh, .Decimate, .Retopo, .Symmetrize, .Slice, .Subdivide, .Set_Level, .Delete_Higher, .Delete_Lower, .Hd_Enter, .Hd_Leave, .Hd_Steps, .Hd_Delete, .Dyntopo, .Boolean, .Extract, .Split, .Merge, .Group_Material, .Layout_Uvs}
 
 Scene_Command :: struct {
 	kind:     Scene_Command_Kind,
@@ -735,6 +738,8 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 			if changed do history_record_swap(app, obj.id, before)
 			else do history_snapshot_drop(before)
 		}
+	case .Layout_Uvs:
+		if obj := selected_object(app); obj != nil do object_layout_uvs(app, obj)
 	case .Retopo:
 		if obj := selected_object(app); obj != nil {
 			made, ok := object_retopo(app, obj, cmd.vertices)
@@ -1190,6 +1195,7 @@ object_release_mesh :: proc(app: ^App, obj: ^Object, rebuild := true) {
 	history_forget_strokes(app, obj.id)
 	for &gpu in obj.gpu do render.mesh_buffers_destroy(&app.renderer, &gpu)
 	render.mesh_buffers_destroy(&app.renderer, &obj.hd_gpu)
+	texture_preview_release(app, obj)
 	sculpt.levels_destroy(&obj.levels)
 	voxel_part_free(app, obj)
 }
@@ -1198,5 +1204,6 @@ object_free :: proc(app: ^App, obj: ^Object) {
 	object_release_mesh(app, obj, rebuild = false)
 	delete(obj.name)
 	delete(obj.group_materials)
+	textures_free(&obj.textures)
 	free(obj)
 }

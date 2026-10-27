@@ -56,7 +56,7 @@ File_Request :: struct {
 // be in a console nobody watches. `at` tells a new note from the one already shown.
 // The native scene file starts with these bytes, then its version.
 SCENE_MAGIC :: "SCULPTSC"
-SCENE_VERSION :: u32(17) // 2: each object's rotation; 3: the current level's polypaint and polygroups; 4: sculpt layers, and a retopologized object's quads and UVs (sculpt.levels_write); 5: each object's boolean mode; 6: the base level's node layout (sculpt.levels_write); 7: the camera's roll; 8: each object's eye and ghost, and Solo; 9: folders, and each object's folder; 10: selection sets (sculpt.levels_write); 11: each object's polypaint shown or not (a third view bit); 12: stored visibility (V1 to V8): the slot chosen and used, and each folder's and object's eyes in them; 13: each object's kind (mesh or voxel), a voxel object's resolution and clay after its empty level (voxel.clay_write); 14: each object's material (material_put); 15: each object's polygroups with materials of their own (group_materials_put); 16: the content pack parts of the object's and its groups' materials, by name (material_refs); 17: the scene's Blender link token (link.odin)
+SCENE_VERSION :: u32(18) // 2: each object's rotation; 3: the current level's polypaint and polygroups; 4: sculpt layers, and a retopologized object's quads and UVs (sculpt.levels_write); 5: each object's boolean mode; 6: the base level's node layout (sculpt.levels_write); 7: the camera's roll; 8: each object's eye and ghost, and Solo; 9: folders, and each object's folder; 10: selection sets (sculpt.levels_write); 11: each object's polypaint shown or not (a third view bit); 12: stored visibility (V1 to V8): the slot chosen and used, and each folder's and object's eyes in them; 13: each object's kind (mesh or voxel), a voxel object's resolution and clay after its empty level (voxel.clay_write); 14: each object's material (material_put); 15: each object's polygroups with materials of their own (group_materials_put); 16: the content pack parts of the object's and its groups' materials, by name (material_refs); 17: the scene's Blender link token (link.odin); 18: each object's texture maps (textures_put)
 
 // The request waiting for the next frame, and whether a dialog is showing. Kept here
 // rather than in App because SDL may call a dialog back on another thread, even after
@@ -941,6 +941,7 @@ object_put_bytes :: proc(out: ^[dynamic]u8, obj: ^Object, opts := sculpt.Write_O
 	geom.byte_put(out, u8(OBJECT_KIND_VOXEL if obj.voxel != nil else OBJECT_KIND_MESH)) // version 13
 	material_put(out, obj.material, refs[0] if len(refs) > 0 else {}) // version 14, its references 16
 	group_materials_put(out, obj, refs[1:] if len(refs) > 0 else nil) // version 15, their references 16
+	textures_put(out, obj.textures) // version 18
 	// A voxel object's clay and the resolution it started at stand where a mesh's levels
 	// go; its empty level is made again on reading.
 	if vp := obj.voxel; vp != nil {
@@ -974,6 +975,7 @@ object_put_estimate :: proc(obj: ^Object) -> int {
 	// A set is written again in file order, at most a byte a vertex.
 	for set in sculpt.levels_sets(&obj.levels) do bytes += 64 + set.vertices
 	if vp := obj.voxel; vp != nil do bytes += 4 + voxel.clay_write_estimate(&vp.clay)
+	bytes += textures_bytes(obj.textures)
 	return bytes
 }
 
@@ -995,22 +997,26 @@ object_get :: proc(app: ^App, r: ^geom.Byte_Reader, version := SCENE_VERSION, mi
 	// which is how they showed.
 	if version >= 14 do obj.material = material_get(r, app, version, missing)
 	if version >= 15 do group_materials_get(r, obj, app, version, missing)
-	// A voxel object has no polygroups to shade.
-	fields_ok := r.ok && obj.transform.scale > 0 && obj.file.scale > 0 && kind <= OBJECT_KIND_VOXEL && !(kind == OBJECT_KIND_VOXEL && len(obj.group_materials) > 0)
+	if version >= 18 do obj.textures = textures_get(r)
+	// A voxel object has no polygroups to shade, nor UVs to lay maps on.
+	fields_ok := r.ok && obj.transform.scale > 0 && obj.file.scale > 0 && kind <= OBJECT_KIND_VOXEL && !(kind == OBJECT_KIND_VOXEL && (len(obj.group_materials) > 0 || object_has_textures(obj)))
 	if fields_ok && kind == OBJECT_KIND_VOXEL {
 		read, made = voxel_part_get(app, r, obj)
 		if read {
 			free_all(context.temp_allocator)
 			return obj, true, made
 		}
-	} else if fields_ok && sculpt.levels_read(&obj.levels, r, &app.pool) {
+	} else if fields_ok && sculpt.levels_read(&obj.levels, r, &app.pool) && (sculpt.levels_has_uvs(&obj.levels) || !object_has_textures(obj)) {
 		lv := sculpt.levels_current(&obj.levels)
 		obj.gpu[obj.levels.current], made = render.mesh_buffers_create(&app.renderer, lv.mesh, lv.sculptor.mask)
 		free_all(context.temp_allocator)
 		return obj, true, made
 	}
+	// Maps without the UVs they were made on are damage too.
+	sculpt.levels_destroy(&obj.levels)
 	delete(obj.name)
 	delete(obj.group_materials)
+	textures_free(&obj.textures)
 	free(obj)
 	free_all(context.temp_allocator)
 	return nil, false, false
@@ -1049,9 +1055,12 @@ object_get_fields :: proc(r: ^geom.Byte_Reader, obj: ^Object, version := SCENE_V
 // nothing yet. The caller has waited for the GPU.
 object_discard :: proc(app: ^App, obj: ^Object) {
 	for &gpu in obj.gpu do render.mesh_buffers_destroy(&app.renderer, &gpu)
+	texture_preview_release(app, obj)
 	sculpt.levels_destroy(&obj.levels)
 	voxel_part_free(app, obj)
 	delete(obj.name)
+	delete(obj.group_materials)
+	textures_free(&obj.textures)
 	free(obj)
 }
 

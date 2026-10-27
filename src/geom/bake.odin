@@ -94,7 +94,7 @@ bake_maps :: proc(low: Quad_Mesh, uvs: Uv_Layout, src: Bake_Source, size: int, r
 	for &o in owner do o = NOBODY
 	fsize := f32(size)
 	for i in 0 ..< len(low.quads) {
-		for half, h in ([2][3]int{{0, 1, 2}, {0, 2, 3}}) {
+		for half, h in quad_halves(low, i) {
 			// Texel (x, y) has its centre at u = (x + 0.5) / size, v = 1 - (y + 0.5) / size.
 			c: [3][2]f32
 			for k in 0 ..< 3 {
@@ -167,7 +167,7 @@ bake_maps :: proc(low: Quad_Mesh, uvs: Uv_Layout, src: Bake_Source, size: int, r
 				if o == max(u32) do continue
 				job.filled[at] = true
 				quad := o / 2
-				half := [3]int{0, 1, 2} if o % 2 == 0 else [3]int{0, 2, 3}
+				half := quad_halves(job.low, int(quad))[o % 2]
 				f := job.low.quads[quad]
 				w := [3]f32{1 - job.where_[at].x - job.where_[at].y, job.where_[at].x, job.where_[at].y}
 				// The frame a reader of the exported tangents builds at this point, as
@@ -278,7 +278,7 @@ quad_mesh_tangents :: proc(low: Quad_Mesh, uvs: Uv_Layout, normals: []Vec3, allo
 			}
 			q.corner_slot[i][k] = slot
 		}
-		for half in ([2][3]int{{0, 1, 2}, {0, 2, 3}}) {
+		for half in quad_halves(low, i) {
 			p0, p1, p2 := low.positions[f[half[0]]], low.positions[f[half[1]]], low.positions[f[half[2]]]
 			t0, t1, t2 := uvs.uvs[i][half[0]], uvs.uvs[i][half[1]], uvs.uvs[i][half[2]]
 			e1, e2 := p1 - p0, p2 - p0
@@ -309,7 +309,7 @@ quad_mesh_tangents :: proc(low: Quad_Mesh, uvs: Uv_Layout, normals: []Vec3, allo
 // The quad mesh `low` as triangles for a file that carries its UVs (a glTF): a vertex per
 // slot of `frame` (each vertex once in each chart it is in), with its position, its
 // smooth normal from `normals`, its UV and its tangent, and each quad as the two
-// triangles the bake rasterizes (corners 0 1 2 and 0 2 3). Made with `allocator`.
+// triangles the bake rasterizes (quad_halves). Made with `allocator`.
 quad_mesh_split_uvs :: proc(low: Quad_Mesh, uvs: Uv_Layout, normals: []Vec3, frame: Quad_Tangents, allocator := context.allocator) -> (positions, split_normals: []Vec3, texcoords: [][2]f32, indices: []u32) {
 	slots := len(frame.vertex)
 	positions = make([]Vec3, slots, allocator)
@@ -319,7 +319,7 @@ quad_mesh_split_uvs :: proc(low: Quad_Mesh, uvs: Uv_Layout, normals: []Vec3, fra
 	indices = make([]u32, 6 * len(low.quads), allocator)
 	for f, i in frame.corner_slot {
 		for k in 0 ..< 4 do texcoords[f[k]] = uvs.uvs[i][k]
-		copy(indices[6 * i:], []u32{f[0], f[1], f[2], f[0], f[2], f[3]})
+		for half, h in quad_halves(low, i) do for k in 0 ..< 3 do indices[6 * i + 3 * h + k] = f[half[k]]
 	}
 	return
 }

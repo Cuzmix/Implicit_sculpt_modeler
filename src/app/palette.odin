@@ -182,6 +182,7 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.Floor_Grid       = "floor ground plane wall axes axis lines",
 	.Transparency     = "transparent see through xray x-ray transp",
 	.Flat_Shading     = "faceted",
+	.Texture_View     = "textures maps uv checker normal map bake preview textured",
 	.Polygroups       = "polyframe colours colors",
 	.Studio_Render    = "bpr render",
 	.View_Back        = "camera undo back history last view",
