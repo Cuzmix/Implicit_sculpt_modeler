@@ -90,6 +90,7 @@ layout(std140, set = 2, binding = 0) uniform Render_Uniforms {
 
 #include "panorama.glsl"
 #include "studio_env.glsl"
+#include "light_window.glsl"
 
 const float PI = 3.14159265;
 // geom.CHUNK_BVH_STACK for each level: a chunk's entries stay above the scene tree's.
@@ -400,17 +401,9 @@ float cone_pdf(float cos_max) {
 }
 
 // How much of a point or spot light's radiance arrives at distance² `d2` from it along `l`
-// (toward the light): Karis's window at its reach and a spot's cone, as light_at.
+// (toward the light): its window at its reach and a spot's cone.
 float light_falloff(int i, float d2, vec3 l) {
-	vec4 shape = light_shape[i];
-	float k = 1.0;
-	if (shape.y > 0.0) {
-		float x = d2 / (shape.y * shape.y);
-		float w = clamp(1.0 - x * x, 0.0, 1.0);
-		k *= w * w;
-	}
-	if (light_pos[i].w > 1.5) k *= smoothstep(light_spot[i].w, shape.z, dot(-l, light_spot[i].xyz));
-	return k;
+	return light_window(light_pos[i], light_shape[i], light_spot[i], d2, l);
 }
 
 // Where a ray from `o` along unit `d` meets the sphere, or -1.

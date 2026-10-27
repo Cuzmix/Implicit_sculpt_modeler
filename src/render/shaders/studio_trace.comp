@@ -5,8 +5,9 @@
 // chunk's tree over its triangles). A pixel whose ray hits anything gets 0 in `visible`,
 // which starts each sample at 1; every item's dispatch only ever stores 0, so the
 // result is the same in any order, and a pixel is lit only when no item blocks it.
-// Ambient samples are cosine-weighted about the surface's normal; key samples aim at
-// the key light, jittered over a small disc. Both take this sample's point of the R2
+// Ambient samples are cosine-weighted about the surface's normal; light samples aim at
+// the light the sample picked, jittered over its disc: a sun's around its direction, a
+// point or spot light's on its sphere, facing the pixel, with the ray stopping there. Both take this sample's point of the R2
 // sequence turned by a hash of the pixel (Cranley-Patterson rotation), so neighbouring
 // pixels try different directions and the image converges as noise, not bands; the
 // same pixel and sample always cast the same ray, in every item's dispatch.
@@ -37,10 +38,11 @@ layout(set = 1, binding = 0, r32f) uniform writeonly image2D visible;
 layout(std140, set = 2, binding = 0) uniform Trace_Uniforms {
 	mat4 inv_view_proj; // viewport clip space back to the world
 	mat4 to_mesh;       // the world into the item's mesh space (the inverse of its model)
-	vec4 key_base;      // xyz: toward the key light (world, unit); w: 1 for a key sample
-	vec4 key_side;      // xyz: across the key light's disc; w: the disc's radius
+	vec4 key_base;      // xyz: toward a sun (world, unit); w: 1 for a light sample
+	vec4 key_side;      // xyz: across a sun's disc; w: the disc's radius
 	vec4 key_up;        // xyz: the disc's other axis
-	vec4 params;        // xy: this sample's point of the R2 sequence; z: the least offset (world)
+	vec4 params;        // xy: this sample's point of the R2 sequence; z: the least offset (world); w: 1 for a point or spot light
+	vec4 sphere;        // xyz: a point or spot light's place (world); w: its radius
 };
 
 // geom.CHUNK_BVH_STACK for each level: the chunk tree's entries stay below the one
@@ -60,16 +62,16 @@ vec3 vertex(uint v) {
 }
 
 // The slab test; a box refit empty (lo above hi) is never entered.
-bool enters(Node n, vec3 o, vec3 inv) {
+bool enters(Node n, vec3 o, vec3 inv, float tmax) {
 	if (n.lo.x > n.hi.x) return false;
 	vec3 t0 = (n.lo - o) * inv, t1 = (n.hi - o) * inv;
 	vec3 near = min(t0, t1), far = max(t0, t1);
-	return max(max(near.x, near.y), max(near.z, 0.0)) <= min(far.x, min(far.y, far.z));
+	return max(max(near.x, near.y), max(near.z, 0.0)) <= min(min(far.x, tmax), min(far.y, far.z));
 }
 
-// Möller-Trumbore, any hit in front of the origin; a triangle with a repeated corner
+// Möller-Trumbore, any hit in front of the origin and before `tmax`; a triangle with a repeated corner
 // (hidden, or an unused slot) never hits, nor one seen exactly edge on.
-bool hits(uint tri, vec3 o, vec3 d) {
+bool hits(uint tri, vec3 o, vec3 d, float tmax) {
 	uint a = indices[3 * tri], b = indices[3 * tri + 1], c = indices[3 * tri + 2];
 	if (a == b || b == c || a == c) return false;
 	vec3 p0 = vertex(a);
@@ -84,10 +86,12 @@ bool hits(uint tri, vec3 o, vec3 d) {
 	vec3 qv = cross(tv, e1);
 	float v = dot(d, qv) * f;
 	if (v < 0.0 || u + v > 1.0) return false;
-	return dot(e2, qv) * f > 0.0;
+	float t = dot(e2, qv) * f;
+	return t > 0.0 && t < tmax;
 }
 
-bool occluded(vec3 o, vec3 d) {
+// Whether anything lies along `d` from `o` before `tmax` times it.
+bool occluded(vec3 o, vec3 d, float tmax) {
 	// No component exactly zero, so the slab test never multiplies zero by infinity.
 	vec3 safe = mix(d, vec3(1e-20), equal(d, vec3(0.0)));
 	vec3 inv = 1.0 / safe;
@@ -99,7 +103,7 @@ bool occluded(vec3 o, vec3 d) {
 		uint e = stack[--top];
 		if ((e & IN_CHUNK) == 0u) {
 			Node n = tlas[e];
-			if (!enters(n, o, inv)) continue;
+			if (!enters(n, o, inv, tmax)) continue;
 			if (n.count == 0u) {
 				stack[top++] = n.first;
 				stack[top++] = n.first + 1u;
@@ -112,7 +116,7 @@ bool occluded(vec3 o, vec3 d) {
 			continue;
 		}
 		Node n = nodes[ch.x + (e & ~IN_CHUNK)];
-		if (!enters(n, o, inv)) continue;
+		if (!enters(n, o, inv, tmax)) continue;
 		if (n.count == 0u) {
 			stack[top++] = IN_CHUNK | n.first;
 			stack[top++] = IN_CHUNK | (n.first + 1u);
@@ -122,7 +126,7 @@ bool occluded(vec3 o, vec3 d) {
 			uint at = ch.y + j;
 			uint word = order[at >> 1];
 			uint tri = ch.z + ((at & 1u) == 0u ? (word & 0xFFFFu) : (word >> 16));
-			if (hits(tri, o, d)) return true;
+			if (hits(tri, o, d, tmax)) return true;
 		}
 	}
 	return false;
@@ -162,7 +166,24 @@ void main() {
 
 	vec2 r2 = fract(params.xy + pixel_hash(uvec2(px)));
 	vec3 dir;
-	if (key_base.w > 0.5) {
+	// A sun's ray goes on for ever; a sphere light's stops at the light, at the far end of
+	// the unnormalised ray.
+	float tmax = uintBitsToFloat(0x7F800000u);
+	if (key_base.w > 0.5 && params.w > 0.5) {
+		// The disc through the sphere's centre, square to the pixel, that the sphere
+		// fills the same cone of: radius r d / sqrt(d² - r²). A pixel inside the light
+		// is lit.
+		vec3 to = sphere.xyz - p;
+		float d2 = dot(to, to), r = sphere.w;
+		if (d2 <= r * r) return;
+		vec3 axis = to * inversesqrt(d2);
+		vec3 side = normalize(cross(axis, abs(axis.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0)));
+		vec3 up = cross(side, axis);
+		float a = 2.0 * PI * r2.y, rr = r * sqrt(d2 / (d2 - r * r)) * sqrt(r2.x);
+		dir = to + (side * cos(a) + up * sin(a)) * rr;
+		if (dot(n, dir) <= 0.0) return;
+		tmax = 1.0;
+	} else if (key_base.w > 0.5) {
 		float a = 2.0 * PI * r2.y, rr = key_side.w * sqrt(r2.x);
 		dir = normalize(key_base.xyz + (key_side.xyz * cos(a) + key_up.xyz * sin(a)) * rr);
 		// Facing away: the light never reaches here, which the viewport's shading
@@ -186,7 +207,10 @@ void main() {
 	float footprint = length(world_at(frag + vec2(1, 0), d, size) - p);
 	float eps = params.z + min(2.0 * footprint, 100.0 * params.z);
 	vec3 o = p + (n + toward_eye) * eps;
+	// Toward a sphere light the ray is aimed from the offset point, so it still ends on the
+	// light. The model is a similarity, so the ray's parameter is the same in mesh space.
+	if (tmax == 1.0) dir = p + dir - o;
 	vec3 om = (to_mesh * vec4(o, 1.0)).xyz;
 	vec3 dm = mat3(to_mesh) * dir;
-	if (occluded(om, dm)) imageStore(visible, px, vec4(0.0));
+	if (occluded(om, dm, tmax)) imageStore(visible, px, vec4(0.0));
 }
