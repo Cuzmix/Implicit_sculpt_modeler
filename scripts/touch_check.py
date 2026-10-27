@@ -5695,7 +5695,10 @@ def layers_survive_a_rebuild():
               {"objects": near(1, 0), "layers": near(1, 0), "layers_noted": near(1, 0)}),
              # A voxel base: the copy is cut out of the sphere on the field, and one clay object is left.
              (run(lambda s: palette_run(s, "make boolean")), ["--voxels=96", "--script=duplicate_object; boolean subtract; move 0.9 0 0; select 1"],
-              {"objects": near(1, 0), "voxel_objects": near(1, 0)})]
+              {"objects": near(1, 0), "voxel_objects": near(1, 0)}),
+             # Clay takes a mask shape and the whole-mask commands: the top half masked, then inverted, then cleared, three undo steps.
+             (run(lambda s: (palette_run(s, "invert mask"), palette_run(s, "clear mask"))), ["--voxels=96", "--script=mask_rect 0 0 1 0.5"],
+              {"voxel_objects": near(1, 0), "undo_steps": near(3, 0), "mask_scans": lambda v: int(v) > 0})]
     # Two spheres start with the view framing both, so the last run is not checked for a still camera.
     return Steps([(sc, args, camera_still(want) if k < 7 else want) for k, (sc, args, want) in enumerate(steps)])
 

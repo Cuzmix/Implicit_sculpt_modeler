@@ -34,7 +34,7 @@ voxel_brushes_stand_for_the_mesh_brushes_that_have_a_meaning_on_clay :: proc(t: 
 	}{
 		{.Draw, .Add, true}, {.Clay, .Add, true}, {.Layer, .Add, true}, {.Smooth, .Smooth, true},
 		{.Flatten, .Flatten, true}, {.Inflate, .Inflate, true},
-		{.Grab, .Add, false}, {.Mask, .Add, false}, {.Pinch, .Add, false}, {.Paint, .Add, false}, {.Cloth, .Add, false},
+		{.Grab, .Add, false}, {.Mask, .Mask, true}, {.Pinch, .Add, false}, {.Paint, .Add, false}, {.Cloth, .Add, false},
 	}
 	for c in cases {
 		vb, ok := voxel_brush_of({kind = c.kind, radius = 0.1, strength = 0.5, invert = true}, {0, 0, 1})

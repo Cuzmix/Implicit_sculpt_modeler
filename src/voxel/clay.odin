@@ -165,6 +165,8 @@ clay_dab :: proc(c: ^Clay, brush: Brush, centre: Vec3) -> int {
 		} else {
 			slot, _ = volume_brick_make(v, bc, tile_value(tile))
 		}
+		// The Mask brush writes the brick's mask, made here (the jobs allocate nothing).
+		if d.kind == .Mask do _ = mask_make(v, slot)
 		append(&c.jobs, Dab_Job{slot = slot, coord = bc})
 	}
 	if len(c.jobs) == 0 do return 0
@@ -189,18 +191,24 @@ clay_dab :: proc(c: ^Clay, brush: Brush, centre: Vec3) -> int {
 			d.window = c.windows[i * WINDOW_VOXELS:][:WINDOW_VOXELS]
 			d.window_lo = job.coord * BRICK - 1
 			gather_window(&c.volume, d.window_lo, WINDOW, d.window)
-			c.jobs[i].effect = dab_brick(&d, job.coord, &c.volume.bricks[job.slot], &c.scratch[i])
+			c.jobs[i].effect = dab_brick(&d, job.coord, &c.volume.bricks[job.slot], &c.scratch[i], mask_of(&c.volume, job.slot))
 		})
 		jobs.parallel_for(c.pool, len(c.jobs), &run, proc(data: rawptr, i: int) {
 			c := (cast(^Run)data).c
 			c.volume.bricks[c.jobs[i].slot] = c.scratch[i]
+		})
+	} else if d.kind == .Mask {
+		jobs.parallel_for(c.pool, len(c.jobs), &run, proc(data: rawptr, i: int) {
+			r := cast(^Run)data
+			job := &r.c.jobs[i]
+			job.effect = dab_mask_brick(&r.d, job.coord, mask_of(&r.c.volume, job.slot))
 		})
 	} else {
 		jobs.parallel_for(c.pool, len(c.jobs), &run, proc(data: rawptr, i: int) {
 			r := cast(^Run)data
 			job := &r.c.jobs[i]
 			b := &r.c.volume.bricks[job.slot]
-			job.effect = dab_brick(&r.d, job.coord, b, b)
+			job.effect = dab_brick(&r.d, job.coord, b, b, mask_of(&r.c.volume, job.slot))
 		})
 	}
 
@@ -213,6 +221,11 @@ clay_dab :: proc(c: ^Clay, brush: Brush, centre: Vec3) -> int {
 	for job in c.jobs {
 		b := &v.bricks[job.slot]
 		surface_mark_box(c, job.coord, job.effect.lo, job.effect.hi)
+		if d.kind == .Mask {
+			// The field is as it was: nothing to collapse, repair or dilate.
+			if job.effect.changed do written += 1
+			continue
+		}
 		if tile := brick_tile(b); tile != .Brick {
 			volume_brick_collapse(v, job.coord, tile)
 			continue
