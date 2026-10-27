@@ -783,6 +783,34 @@ def light_sphere_moves_and_flips_lights():
                                                              "light1": lambda v: all(abs(float(a) - b) < 0.03 for a, b in zip(v.split(","), (0.5, 0, -0.866)))})
 
 
+# The Lights section's Place highlight switch, in points; and the first light's marker
+# in the viewport, on the circle 0.42 of the view's height round its middle.
+LIGHT_PLACE = (1490, 695)
+LIGHT1_MARKER = (800 - 0.508 * 378, 450 - 0.609 * 378)
+
+
+@scenario
+def light_marker_dragged_in_the_viewport():
+    """In Scene: Lights, a finger drag on the first light's marker in the viewport moves the light round the circle to the right (in front still), as the light sphere would; one undo step, nothing sculpted, the camera stays."""
+    s = Script()
+    s.fdrag(line(LIGHT1_MARKER, (800 + 0.5 * 378, 450), 16))
+    s.wait(4)
+    return s, ["--script=show_section lights"], camera_still({"dabs": near(0), "light_pick": near(1), "light_moves": near(1), "undo_steps": near(1),
+                                                             "light1": lambda v: all(abs(float(a) - b) < 0.03 for a, b in zip(v.split(","), (0.5, 0, 0.866)))})
+
+
+@scenario
+def place_highlight_lights_where_the_finger_taps():
+    """In Scene: Lights, with Place highlight switched on a tap in the middle of the sphere turns the first light to shine from the camera, so its highlight lands there; one undo step, nothing sculpted, the camera stays."""
+    s = Script()
+    s.ftap(*LIGHT_PLACE)
+    s.wait(4)
+    s.ftap(800, 450)
+    s.wait(4)
+    return s, ["--script=show_section lights"], camera_still({"dabs": near(0), "light_pick": near(1), "light_moves": near(1), "undo_steps": near(1),
+                                                             "light1": lambda v: all(abs(float(a) - b) < 0.03 for a, b in zip(v.split(","), (0, 0, 1)))})
+
+
 # The Mask section's Steps slider, where the tray shows it at 1600 x 900.
 MASK_STEPS = (1376, 362)
 

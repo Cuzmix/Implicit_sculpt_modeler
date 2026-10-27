@@ -148,7 +148,9 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   stroke's middle `app.pivot`, the selected object's middle, else the target; never behind the eye) into
   `Drag.pivot` and `Viewport_Input.orbit_pivot`, and `camera.orbit_turn_about` keeps it on screen. Fingers and the
   pen move nothing until past `theme.slop` (10 pt); a finger's stroke waits `FINGER_HOLD` (90 ms) with its samples
-  kept, so a second finger makes a gesture first.
+  kept, so a second finger makes a gesture first. A press the lights take (`lights_take_press`, `light_markers.odin`:
+  a light's marker while Scene > Lights shows, or the model with Place highlight on) is the Tool's at once, never
+  pending, and `lights_viewport_frame` runs before the tools, as `group_pick_frame` does.
 - The modifier wheel (`modifiers.odin`, still `Modifier_Rail`/`rail_*` in code; `ui.wheel` in `src/ui/wheel.odin`;
   README "Touch and pen"): sectors Smooth (top), brush pie (right), Invert (bottom), Mask (left) by
   `WHEEL_SECTORS`; Smooth and Mask together are Hide (`rail_toggle`, `rail_mode`, `rail_press_mods`). Its hit test is by
