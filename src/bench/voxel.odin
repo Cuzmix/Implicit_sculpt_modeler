@@ -18,7 +18,7 @@ import "../voxel"
 // flush. Regrows are the frames that had to remake the GPU copy because the mesh arrays
 // grew; Mesh MB is the arrays with their slack.
 voxel_header :: proc() {
-	fmt.println("| Voxels across | Bricks | Field MB | Fill ms | First mesh ms | Vertices | Triangles | Raycast ms | Add dab ms | Bricks/dab | Flush ms | Flush ms max | Upload KB/frame | Regrows | Mesh MB | Stroke end ms | Undo MB | Undo ms | Redo ms | Smooth dab ms | Inflate dab ms | To mesh ms | From mesh ms |")
+	fmt.println("| Voxels across | Bricks | Field MB | Fill ms | First mesh ms | Vertices | Triangles | Raycast ms | Add dab ms | Bricks/dab | Flush ms | Flush ms max | Upload KB/frame | Regrows | Mesh MB | Stroke end ms | Undo MB | Undo ms | Redo ms | Smooth dab ms | Inflate dab ms | To mesh ms | From mesh ms | Res− ms | Res+ ms |")
 	fmt.println("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
 }
 
@@ -97,10 +97,19 @@ run_voxel :: proc(across: int, pool: ^jobs.Pool) {
 	if voxel.clay_from_mesh(&back, m, voxel.voxel_size_for(bounds, across), pool) do voxel.clay_destroy(&back)
 	from_mesh_ms := time.duration_milliseconds(time.tick_since(v0))
 	geom.mesh_destroy(&m)
+	// Res− then Res+ on the sculpted clay: half the voxels along each side, then back. The
+	// surface's size is taken first: a resample starts the surface over.
+	mesh_mb := f64(voxel.surface_bytes(&c.surface)) / (1 << 20)
+	down0 := time.tick_now()
+	_ = voxel.clay_resample(&c, voxel.RESAMPLE_DOWN)
+	res_down_ms := time.duration_milliseconds(time.tick_since(down0))
+	up0 := time.tick_now()
+	_ = voxel.clay_resample(&c, voxel.RESAMPLE_UP)
+	res_up_ms := time.duration_milliseconds(time.tick_since(up0))
 	defer free_all(context.temp_allocator)
 
 	fmt.printfln(
-		"| %d | %s | %.1f | %.0f | %.0f | %s | %s | %.3f | %.2f | %d | %.2f | %.2f | %.0f | %d | %.0f | %.0f | %.1f | %.1f | %.1f | %.2f | %.2f | %.0f | %.0f |",
+		"| %d | %s | %.1f | %.0f | %.0f | %s | %s | %.3f | %.2f | %d | %.2f | %.2f | %.0f | %d | %.0f | %.0f | %.1f | %.1f | %.1f | %.2f | %.2f | %.0f | %.0f | %.0f | %.0f |",
 		across,
 		thousands(bricks),
 		field_mb,
@@ -115,7 +124,7 @@ run_voxel :: proc(across: int, pool: ^jobs.Pool) {
 		max_of(flush_ms[:]),
 		f64(upload_bytes) / f64(max(frames, 1)) / 1024,
 		regrows,
-		f64(voxel.surface_bytes(&c.surface)) / (1 << 20),
+		mesh_mb,
 		end_ms,
 		undo_mb,
 		undo_ms,
@@ -124,6 +133,8 @@ run_voxel :: proc(across: int, pool: ^jobs.Pool) {
 		inflate_ms,
 		to_mesh_ms,
 		from_mesh_ms,
+		res_down_ms,
+		res_up_ms,
 	)
 }
 
