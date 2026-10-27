@@ -7,7 +7,9 @@
 // strength (next-event estimation) and continues in a direction its material picks;
 // a direction that meets a light counts it too, the two weighted by the power heuristic
 // so neither is counted twice. A path that leaves the scene takes the environment.
-// The camera's ray is jittered within its pixel, so the image is anti-aliased; every
+// The camera's ray is jittered within its pixel, so the image is anti-aliased, but for
+// the first sample's, through the pixel's centre, which also writes the denoiser's guides
+// (render_atrous.frag): what the ray met's colour, normal and distance. Every
 // random number comes from the pixel and the sample, so a sample is the same however the
 // rows are split between dispatches and on every run.
 //
@@ -58,6 +60,10 @@ layout(std430, set = 0, binding = 6) readonly buffer Order { uint order[]; }; //
 layout(std430, set = 0, binding = 7) readonly buffer Chunks { uvec4 chunks[]; };
 layout(std430, set = 0, binding = 8) readonly buffer Items { Item items[]; };
 layout(set = 1, binding = 0, rgba32f) uniform writeonly image2D next;
+// The guides, written by the first sample only: the base colour the camera's ray met with
+// 1 in a (0 everywhere for a miss), and its normal (world) with the distance in a.
+layout(set = 1, binding = 1, rgba16f) uniform writeonly image2D guide_albedo;
+layout(set = 1, binding = 2, rgba16f) uniform writeonly image2D guide_normal;
 
 #define LIGHT_COUNT 8
 
@@ -515,8 +521,12 @@ void main() {
 	rng ^= counts.x * 2654435761u;
 	pcg_next();
 
-	// The camera's ray through a random point of the pixel.
-	vec2 uv = (vec2(px) + vec2(rnd(), rnd())) / vec2(size);
+	// The camera's ray through a random point of the pixel, or the first sample's through
+	// its centre.
+	vec2 jitter = vec2(rnd(), rnd());
+	bool first = counts.x == 0u;
+	if (first) jitter = vec2(0.5);
+	vec2 uv = (vec2(px) + jitter) / vec2(size);
 	vec2 ndc = vec2(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
 	vec4 near = inv_view_proj * vec4(ndc, 0.0, 1.0);
 	vec4 far = inv_view_proj * vec4(ndc, 1.0, 1.0);
@@ -525,6 +535,7 @@ void main() {
 
 	vec3 radiance = vec3(0.0), weight = vec3(1.0);
 	float covered = 0.0, pdf_bsdf = 0.0;
+	vec4 guide_a = vec4(0.0), guide_n = vec4(0.0);
 	int bounces = int(counts.z);
 	for (int bounce = 0; bounce <= bounces; bounce++) {
 		Hit hit;
@@ -574,6 +585,10 @@ void main() {
 			}
 			if ((flags & ITEM_GROUPS) != 0u) albedo = group_color(group);
 		}
+		if (bounce == 0) {
+			guide_a = vec4(albedo, 1.0);
+			guide_n = vec4(n, hit.t);
+		}
 		Surface s;
 		float metallic = clamp(surf.x, 0.0, 1.0);
 		s.diffuse = albedo * (1.0 - metallic);
@@ -598,6 +613,10 @@ void main() {
 	}
 	float lum = luminance(radiance);
 	if (lum > SAMPLE_CLAMP) radiance *= SAMPLE_CLAMP / lum;
-	vec4 sum = counts.x == 0u ? vec4(0.0) : texelFetch(prev, px, 0);
+	vec4 sum = first ? vec4(0.0) : texelFetch(prev, px, 0);
 	imageStore(next, px, sum + vec4(radiance, covered));
+	if (first) {
+		imageStore(guide_albedo, px, guide_a);
+		imageStore(guide_normal, px, guide_n);
+	}
 }
