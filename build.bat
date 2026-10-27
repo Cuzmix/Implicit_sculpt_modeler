@@ -48,9 +48,10 @@ rem Library packages have no main, hence -no-entry-point; it is harmless on the 
 "%ODIN%" check "%ROOT%src\sculpt" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\sdf_trial" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\ui" -no-entry-point %COMMON% || exit /b 1
+"%ODIN%" check "%ROOT%src\voxel" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\zip" -no-entry-point %COMMON% || exit /b 1
 python "%ROOT%scripts\agents_sync.py" --check || exit /b 1
-echo check: 12 packages type-check, agent mirror current
+echo check: 13 packages type-check, agent mirror current
 exit /b 0
 
 :debug
@@ -76,6 +77,7 @@ exit /b 0
 "%ODIN%" test "%ROOT%src\geom" -out:"%ROOT%build\test_geom.exe" %COMMON% || exit /b 1
 "%ODIN%" test "%ROOT%src\camera" -out:"%ROOT%build\test_camera.exe" %COMMON% || exit /b 1
 "%ODIN%" test "%ROOT%src\sculpt" -out:"%ROOT%build\test_sculpt.exe" %COMMON% || exit /b 1
+"%ODIN%" test "%ROOT%src\voxel" -out:"%ROOT%build\test_voxel.exe" %COMMON% || exit /b 1
 "%ODIN%" test "%ROOT%src\jobs" -out:"%ROOT%build\test_jobs.exe" %COMMON% || exit /b 1
 "%ODIN%" test "%ROOT%src\gizmo" -out:"%ROOT%build\test_gizmo.exe" %COMMON% || exit /b 1
 "%ODIN%" test "%ROOT%src\png_write" -out:"%ROOT%build\test_png_write.exe" %COMMON% || exit /b 1

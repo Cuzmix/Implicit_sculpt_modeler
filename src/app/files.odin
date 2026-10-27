@@ -38,6 +38,7 @@ File_Kind :: enum u8 {
 	Discard_Autosave, // an earlier session's autosaves are deleted; the path names the session
 	Open_Version, // an earlier save of the scene's file replaces the scene, which still saves to its file (versions.odin)
 	Run_Script,   // a command script file runs as the person's own work (macros.odin)
+	Install_Pack, // a content pack goes into the library (pack.odin)
 	Matcap,       // an image of a lit sphere becomes the Custom material's MatCap (matcaps.odin)
 }
 
@@ -83,6 +84,14 @@ IMAGE_FILTERS := [?]sdl.DialogFileFilter{{"Images (PNG, JPEG, BMP, TGA, QOI)", "
 STROKES_FILTERS := [?]sdl.DialogFileFilter{{"Recorded strokes", "strokes"}}
 @(private = "file")
 SCRIPT_FILTERS := [?]sdl.DialogFileFilter{{"Command scripts", "cmd;txt"}}
+// On Android SDL turns extensions into MIME types, and `sculptpack;zip` becomes
+// application/zip alone, which hides .sculptpack files, so there every file is offered
+// and the archive's own bytes decide.
+when ODIN_PLATFORM_SUBTARGET == .Android {
+	PACK_FILTERS := [?]sdl.DialogFileFilter{{"All files", "*"}}
+} else {
+	PACK_FILTERS := [?]sdl.DialogFileFilter{{"Content packs", "sculptpack;zip"}}
+}
 
 // Shows the dialog that picks the file for `kind`; its answer becomes a request. Does
 // nothing while another dialog is showing.
@@ -113,6 +122,8 @@ file_dialog :: proc(app: ^App, kind: File_Kind) {
 		sdl.ShowOpenFileDialog(file_dialog_done, userdata, app.window, raw_data(STROKES_FILTERS[:]), len(STROKES_FILTERS), nil, false)
 	case .Run_Script:
 		sdl.ShowOpenFileDialog(file_dialog_done, userdata, app.window, raw_data(SCRIPT_FILTERS[:]), len(SCRIPT_FILTERS), nil, false)
+	case .Install_Pack:
+		sdl.ShowOpenFileDialog(file_dialog_done, userdata, app.window, raw_data(PACK_FILTERS[:]), len(PACK_FILTERS), nil, false)
 	case .Timelapse, .Bake:
 		sdl.ShowOpenFolderDialog(file_dialog_done, userdata, app.window, nil, false)
 	}
@@ -271,6 +282,8 @@ file_apply :: proc(app: ^App, req: File_Request) -> bool {
 		_ = strokes_save(app, req.path)
 	case .Load_Strokes:
 		_ = strokes_load(app, req.path)
+	case .Install_Pack:
+		pack_install_start(app, req.path)
 	case .Recover:
 		return autosave_recover(app, req.path)
 	case .Discard_Autosave:

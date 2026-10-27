@@ -74,7 +74,8 @@ on window focus or hover to decide ownership; a widget that acts on a finger pre
 | hovers the brush over the model: the ring lies on the surface; off the model it is flat | `ring_lies_on_the_surface`, `ring_off_the_model_is_flat` |
 | folds, opens, closes, reopens and drags the panel windows, and finds them where they were after a restart | `window_minimise_folds_to_the_title_bar`, `window_tap_on_folded_title_opens_it`, `window_close_and_reopen`, `window_drag_by_title_is_remembered`, `window_position_comes_back` |
 | pinches, pans and twists with two fingers | `pinch_zoom`, `two_finger_pan`, `twist_rolls_free_only`, `twist_wobble_rolls_nothing`, `twist_rolls_nothing_in_turntable` |
-| lands several fingers at once or one after another | `second_finger_on_model_sculpts_nothing`, `second_finger_soon_after_sculpts_nothing`, `three_finger_size` |
+| lands several fingers at once or one after another | `second_finger_on_model_sculpts_nothing`, `second_finger_soon_after_sculpts_nothing`, `three_finger_size`, `three_finger_focal_shift` |
+| long presses the brush bar's Focal shift, Draw size or Strength and drags, lets go still, or is cancelled mid-drag | `long_press_drag_draw_size`, `long_press_drag_strength_and_focal`, `long_press_focal_shift_opens_the_falloff`, `long_press_draw_size_opens_the_pen`, `cancelled_scrub_puts_the_size_back` |
 | taps two or three fingers to undo and redo, on the viewport and on a panel | `tap_history`, `two_finger_tap_on_panel_does_nothing` |
 | has the touch cancelled by the system, or by the pen landing | `cancelled_stroke_is_taken_back`, `pen_landing_cancels_finger_stroke` |
 | uses the desktop mouse and keys | `mouse_controls`, `shift_snaps_orbit` |
@@ -138,8 +139,9 @@ are on the device checklist.
   means the shape to apply presses `Return` after it (or taps the bar's Apply); a mouse's applies at once.
 - A popover whose height follows its text keeps its controls at its foot, by the anchor, so their positions hold
   whatever the lines above say (the adjust popover: `ADJUST_SIZES`, `ADJUST_AXES`).
-- The menu's rows are computed from `MENU_FILE_ROWS` (touch_check.py, kit_menu's order): a new File row goes in that
-  list, never as hand-shifted coordinates. A scenario with several app runs (a save, then an open) returns
+- The menu's rows are computed from `MENU_FILE_ROWS` and `MENU_APP_ROWS` (touch_check.py, kit_menu's order): a new
+  File or App row goes in those lists, never as hand-shifted coordinates; `menu_scrolls_on_a_short_window` counts back
+  from the last row (`MENU_SHORT_LAST_Y`), so a row added at the end moves nothing. A scenario with several app runs (a save, then an open) returns
   `Steps([...])`; files a scenario makes go under `autosave_folder()`, its own per-scenario path.
 - Write the scenario for a bug before fixing it, and confirm it fails on the old code (build the old commit in a git
   worktree if the old code cannot run the new events, and replay the closest event sequence it understands).
@@ -165,7 +167,7 @@ what was done, what should happen, what happened; a screen recording when someth
 3. One finger on the model sculpts at once with no dot left by a second finger landing; on empty space it orbits.
 4. Pen on the model sculpts with pressure; a palm resting while the pen hovers does nothing; the pen landing mid-touch cancels it.
 5. Two fingers: pan, pinch toward the fingers, twist to roll (Free); quick two-finger tap undoes, three redoes.
-6. Three fingers up and down size the brush, sideways set its strength.
+6. Three fingers up and down size the brush, sideways set its focal shift; a long press dragged on the bar's Strength sets that.
 7. Orbit round and round both ways and over the top: smooth, no jump, no flip; Shift snap with a keyboard if attached.
 8. Pull down the notification shade or switch apps mid-stroke: the stroke is taken back, nothing stays pressed.
 9. Rotate the tablet, use split screen, resize a desktop window: panels stay inside the safe area and keep working.

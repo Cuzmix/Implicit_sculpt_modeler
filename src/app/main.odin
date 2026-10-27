@@ -101,10 +101,11 @@ App :: struct {
 	gesture:  Gesture_Tool, // what a Ctrl + Shift + drag does
 	smooth_gpu: render.Smooth_Compute, // Smooth all's compute shader and buffers, made on first use
 	smooth_gpu_failed: bool, // the device refused the compute pipeline; Smooth all stays on the CPU
-	// Each brush's drawn falloff as the sculptor reads it, remade when its curve changes.
+	// Each brush's drawn or shifted falloff as the sculptor reads it, remade when its curve
+	// or focal shift changes.
 	falloff_tables: [sculpt.Brush_Kind]struct {
 		falloff: sculpt.Falloff,
-		curve:   geom.Curve,
+		shape:   Falloff_Setting,
 		built:   bool,
 	},
 	stroke:   Stroke,
@@ -489,6 +490,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			if !scene_run(&app, command) do return false
 			if app.macro.pending.active do macro_settle(&app, script_scene_state(&app) != before)
 		}
+		library_frame(&app)
 		if req, ok := file_take(&app); ok {
 			autosave_settle(&app)
 			inspector_drags_end(&app)
@@ -940,7 +942,9 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	}
 	macros_kept := 0
 	for s in app.macro.slots do macros_kept += int(s.name != "")
-	fmt.printfln("library_alphas=%d library_skipped=%d alpha=%s", app.library.alphas, app.library.skipped, alpha_ref(&app, app.brush.alpha))
+	pack_alphas := 0
+	for p in app.library.packs do pack_alphas += p.alphas
+	fmt.printfln("library_alphas=%d library_skipped=%d alpha=%s packs=%d pack_alphas=%d packs_installed=%d packs_refused=%d", app.library.alphas, app.library.skipped, alpha_ref(&app, app.brush.alpha), len(app.library.packs), pack_alphas, app.library.installed, app.library.refused)
 	fmt.printfln("macros=%d macro_recording=%d macro_entries=%d macro_left_out=%d macros_run=%d scripts_run=%d macro_steps=%d", macros_kept, int(app.macro.recording), len(app.macro.entries), app.macro.left_out, app.macro.runs, app.macro.scripts, app.macro.steps)
 	fmt.printfln("frames=%d dabs=%d objects=%d vertices=%d", frame_index, app.stats.dabs_total, len(app.scene.objects), vertices)
 	{
@@ -974,7 +978,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		fmt.printfln("camera_yaw=%.4f camera_pitch=%.4f camera_roll=%.4f camera_distance=%.4f camera_target=%.4f,%.4f,%.4f", c.yaw, c.pitch, c.roll, c.distance, c.target.x, c.target.y, c.target.z)
 		p := app.pivot.used
 		fmt.printfln("orbit_pivot=%.4f,%.4f,%.4f pivot_source=%s pinned=%d framed=%d touch_repeats=%d", p.x, p.y, p.z, strings.to_lower(fmt.tprint(app.pivot.from), context.temp_allocator), int(app.pivot.pinned), app.double_tap.framed, app.touch.hold.done)
-		fmt.printfln("undo_steps=%d redo_steps=%d brush_radius_px=%.2f brush_strength=%.3f selected=%d", len(app.history.done), len(app.history.undone), app.brush.radius_px, brush_strength(&app)^, app.scene.selected)
+		fmt.printfln("undo_steps=%d redo_steps=%d brush_radius_px=%.2f brush_strength=%.3f brush_focal=%.0f selected=%d", len(app.history.done), len(app.history.undone), app.brush.radius_px, brush_strength(&app)^, focal_shift(&app)^, app.scene.selected)
 		{
 			m := app.move
 			tr: Transform
@@ -1097,8 +1101,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		recall_pinned := false
 		if obj := selected_object(&app); obj != nil do recall_pinned = sculpt.sculptor_recall_pinned(object_sculptor(obj))
 		fmt.printfln("recall_back=%d recall_reach=%d recall_pinned=%d recall_ms=%.1f", recall_back, recall_reach, int(recall_pinned), app.stats.recall_ms)
-		open := [Kit_Window]bool{.Inspector = k.inspector && !side_panel_open(k), .Stats = k.stats, .History = k.history, .Settings = k.settings, .Help = k.help, .Macros = k.macros, .Objects = k.objects_card}
-		names := [Kit_Window]string{.Inspector = "inspector", .Stats = "stats", .History = "history panel", .Settings = "settings", .Help = "help", .Macros = "macros", .Objects = "objects card"}
+		open := [Kit_Window]bool{.Inspector = k.inspector && !side_panel_open(k), .Stats = k.stats, .History = k.history, .Settings = k.settings, .Help = k.help, .Macros = k.macros, .Library = k.library, .Objects = k.objects_card}
+		names := [Kit_Window]string{.Inspector = "inspector", .Stats = "stats", .History = "history panel", .Settings = "settings", .Help = "help", .Macros = "macros", .Library = "library", .Objects = "objects card"}
 		for w, which in k.windows {
 			r := ui.prev_rect(&k.ctx, names[which])
 			fmt.printf("window_%s=%d,%d,%.0f,%.0f ", strings.to_lower(fmt.tprint(which), context.temp_allocator), int(open[which]), int(w.minimized), r.x, r.y)

@@ -117,6 +117,7 @@ preset_same :: proc(app: ^App, a, b: Preset_Values) -> bool {
 	round := proc(app: ^App, i: int) -> int {return i if i >= 0 && i < len(app.alphas) else -1}
 	if a.kind != b.kind || a.strength != b.strength || a.falloff.drawn != b.falloff.drawn do return false
 	if a.falloff.drawn && a.falloff.curve != b.falloff.curve do return false
+	if a.falloff.focal != b.falloff.focal do return false
 	if a.stroke != b.stroke || a.lazy_px != b.lazy_px || (a.stroke == .Spray && a.spread != b.spread) do return false
 	if flags & {.Grab, .Cloth} == {} && (a.lock_plane != b.lock_plane || a.connected != b.connected) do return false
 	if .Grab not_in flags && (round(app, a.alpha) != round(app, b.alpha) || a.alpha_mode != b.alpha_mode || a.alpha_angle != b.alpha_angle) do return false
@@ -208,13 +209,14 @@ preset_name_set :: proc(p: ^Brush_Preset, name: string) {
 	copy(p.name[:PRESET_NAME_MAX - 1], preset_name_fit(name))
 }
 
-// Whether the plain brush's strength or falloff differ from a fresh install's.
+// Whether the plain brush's strength, falloff or focal shift differ from a fresh install's.
 brush_reset_needed :: proc(app: ^App) -> bool {
 	b := &app.brush
-	return b.preset == 0 && (b.strengths[b.kind] != BRUSHES[b.kind].strength || b.falloffs[b.kind].drawn)
+	f := b.falloffs[b.kind]
+	return b.preset == 0 && (b.strengths[b.kind] != BRUSHES[b.kind].strength || f.drawn || f.focal != 0)
 }
 
-// Puts the plain brush's strength and falloff back to a fresh install's.
+// Puts the plain brush's strength, falloff and focal shift back to a fresh install's.
 brush_reset :: proc(app: ^App) {
 	b := &app.brush
 	if b.preset != 0 do return

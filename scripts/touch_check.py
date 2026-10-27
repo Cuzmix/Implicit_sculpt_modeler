@@ -46,7 +46,7 @@ MODEL = (800, 450)  # the sphere's middle; it reaches about 368 points out
 EMPTY = (250, 150)  # viewport with nothing on it
 UI = {
     "menu": (26, 26), "save": (74, 26), "history": (1430, 26), "help": (1526, 26), "settings": (1574, 26),
-    "brushes": (31, 233), "stroke": (31, 281), "falloff": (31, 474), "size": (31, 522), "strength": (31, 570),
+    "brushes": (31, 233), "stroke": (31, 281), "focal": (31, 474), "size": (31, 522), "strength": (31, 570),
     "undo": (31, 619), "redo": (31, 667),
     # The navigation head (nav_head.odin), and the view bar under it.
     "nav_head": (1568, 88),
@@ -67,10 +67,16 @@ UI = {
 MENU_FILE_ROWS = ["open", "save", "save_as", "save_copy", "earlier_saves", "last_autosave", "import", "export", "screenshot"]
 _file_y = {name: 106 + 44 * i for i, name in enumerate(MENU_FILE_ROWS)}
 _grid_y = _file_y[MENU_FILE_ROWS[-1]] + 69
+# The menu's APP rows in order (new_ui.odin), under the New scene grid: a row added there is
+# added here, and every tap on these rows follows.
+MENU_APP_ROWS = ["reduce_motion", "settings", "stats", "help", "macros", "library"]
+_app_y = {name: _grid_y + 48 + 69 + 44 * i for i, name in enumerate(MENU_APP_ROWS)}
+# On a 1280x720 window, with the menu scrolled to its end, the last row's middle.
+MENU_SHORT_LAST_Y = 688
 UI.update({
     "menu_earlier_saves": (75, _file_y["earlier_saves"]),
     "new_sphere": (48, _grid_y), "new_head": (135, _grid_y), "new_hand": (135, _grid_y + 48),
-    "menu_settings": (75, _grid_y + 48 + 69 + 44), "menu_macros": (75, _grid_y + 48 + 69 + 44 * 4),
+    "menu_settings": (75, _app_y["settings"]), "menu_macros": (75, _app_y["macros"]), "menu_library": (75, _app_y["library"]),
 })
 # The Macros panel (kit_macros.odin) with two macros: each row's Run, Key, Rename and
 # Delete, rows 52 points apart.
@@ -249,15 +255,15 @@ SYMMETRY_AXES = {"x": (1401, 449), "y": (1453, 449), "z": (1505, 449)}
 
 @scenario
 def bar_section_opens_beside_the_bar():
-    """A tap on the brush bar's Stroke opens the Stroke section beside it; a second tap closes it; Falloff then opens its own."""
+    """A tap on the brush bar's Stroke opens the Stroke section beside it; a second tap closes it; Focal shift then opens its slider."""
     s = Script()
     s.ftap(*UI["stroke"])
     s.wait(8)
     s.ftap(*UI["stroke"])
     s.wait(8)
-    s.ftap(*UI["falloff"])
+    s.ftap(*UI["focal"])
     s.wait(8)
-    return s, [], camera_still({"dabs": near(0), "bar_pop": is_text("falloff")})
+    return s, [], camera_still({"dabs": near(0), "bar_pop": is_text("focal")})
 
 
 @scenario
@@ -267,6 +273,61 @@ def long_press_draw_size_opens_the_pen():
     long_press(s, *UI["size"])
     s.wait(4)
     return s, [], camera_still({"dabs": near(0), "bar_pop": is_text("pen"), "brush_radius_px": near(60)})
+
+
+def long_press_drag(s, x, y, dy, finger=0, steps=10):
+    """A long press on (x, y), then, still held, a drag `dy` points down (negative: up) and a lift."""
+    s.add(f"fdown:{finger}:{x:g},{y:g}")
+    s.wait(LONG_PRESS_FRAMES)
+    for k in range(1, steps + 1):
+        s.add(f"fmove:{finger}:{x:g},{y + dy * k / steps:g}")
+        s.wait(1)
+    s.add(f"fup:{finger}")
+    s.wait(4)
+
+
+@scenario
+def long_press_drag_draw_size():
+    """A long press on Draw size dragged 150 points up (past the slop, which the drag starts from) about doubles the size, and opens nothing."""
+    s = Script()
+    long_press_drag(s, *UI["size"], -150 - 10)
+    s.wait(4)
+    return s, [], camera_still({"dabs": near(0), "bar_pop": is_text("none"), "brush_radius_px": lambda v: 105 < float(v) <= 120})
+
+
+@scenario
+def long_press_drag_strength_and_focal():
+    """Dragged down, a long press on Strength lowers it; dragged up, one on Focal shift raises it; neither opens anything."""
+    s = Script()
+    long_press_drag(s, *UI["strength"], 60 + 10)
+    long_press_drag(s, *UI["focal"], -60 - 10)
+    s.wait(4)
+    return s, [], camera_still({"dabs": near(0), "bar_pop": is_text("none"), "brush_strength": lambda v: 0.28 <= float(v) <= 0.34,
+                                "brush_focal": lambda v: 30 <= float(v) <= 42})
+
+
+@scenario
+def cancelled_scrub_puts_the_size_back():
+    """A long press on Draw size dragged up, then cancelled by the system, puts the size back and opens nothing."""
+    s = Script()
+    x, y = UI["size"]
+    s.add(f"fdown:0:{x:g},{y:g}")
+    s.wait(LONG_PRESS_FRAMES)
+    for k in range(1, 11):
+        s.add(f"fmove:0:{x:g},{y - 12 * k:g}")
+        s.wait(1)
+    s.add("fcancel:0")
+    s.wait(6)
+    return s, [], camera_still({"dabs": near(0), "bar_pop": is_text("none"), "brush_radius_px": near(60)})
+
+
+@scenario
+def long_press_focal_shift_opens_the_falloff():
+    """A long press on Focal shift let go without dragging opens the Falloff section (the curve), and changes nothing."""
+    s = Script()
+    long_press(s, *UI["focal"])
+    s.wait(4)
+    return s, [], camera_still({"dabs": near(0), "bar_pop": is_text("falloff"), "brush_focal": near(0)})
 
 
 @scenario
@@ -687,6 +748,15 @@ def three_finger_size():
     s = Script()
     s.fingers([(300, 600), (380, 600), (460, 600)], [(0, -200)] * 3, 20)
     return s, [], {"brush_radius_px": lambda v: float(v) > 100, "camera_distance": near(3.5, 0.2), "dabs": near(0)}
+
+
+@scenario
+def three_finger_focal_shift():
+    """Three fingers dragged sideways set the focal shift, 200 points right taking it near +100 (less the slop that decides the way), and leave the strength."""
+    s = Script()
+    s.fingers([(300, 600), (300, 680), (300, 760)], [(200, 0)] * 3, 20)
+    return s, [], {"brush_focal": lambda v: 90 <= float(v) <= 100, "brush_strength": near(0.5, 1e-3), "brush_radius_px": near(60),
+                   "camera_distance": near(3.5, 0.2), "dabs": near(0)}
 
 
 @scenario
@@ -4313,7 +4383,7 @@ def menu_scrolls_on_a_short_window():
     s.wait(1)
     s.add("wheel:-10")
     s.wait(20)
-    click(s, (85, 556))
+    click(s, (85, MENU_SHORT_LAST_Y - 44 * (len(MENU_APP_ROWS) - 1 - MENU_APP_ROWS.index("settings"))))
     s.wait(10)
     return s, ["--width=1280", "--height=720"], {"settings_open": near(1, 0)}
 
@@ -4500,6 +4570,55 @@ def library_alphas_survive_a_restart():
          {"library_alphas": near(1, 0), "library_skipped": near(1, 0), "alpha": is_text("mine/rock")}),
         (Script(), [f"--settings-file={settings_file()}", "--script=show_section alpha"],
          {"library_alphas": near(1, 0), "alpha": is_text("mine/rock"), "@saved": saved(brush_alpha="mine/rock")}),
+    ])
+
+
+def make_pack(path, name, alphas, extra=()):
+    """Writes a content pack: pack.txt naming it, by Bolt, and grey PNG alphas."""
+    import zipfile
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    folder = path + ".parts"
+    os.makedirs(folder, exist_ok=True)
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("pack.txt", f"name {name}\nauthor Bolt\nversion 1.0\nlicense CC0\ndescription Pebbles and cracks for stone\n")
+        for i, stem in enumerate(alphas):
+            png = os.path.join(folder, stem + ".png")
+            grey_png(png, 16 + i)
+            z.write(png, f"alphas/{stem}.png")
+        for entry, text in extra:
+            z.writestr(entry, text)
+    shutil.rmtree(folder)
+
+
+# The Library panel's Remove for the first pack, below Your own, at 1600x900.
+LIBRARY_PACK1_REMOVE = (1494, 291)
+
+
+@scenario
+def content_pack_installs_and_removes():
+    """A script installs a pack (its macros/ folder left out as code) and picks one of its
+    alphas, which the Alpha section shows under the pack's name; the next start has the
+    pack back, and the Library panel (Menu > Library) removes it with two taps on its
+    bin, taking its folder away and the brush back to round."""
+    pack = autosave_folder() + "-rocks.sculptpack"
+    make_pack(pack, "Rock Set", ["Pebble", "crack"], [("macros/evil.cmd", "remesh\n")])
+    s = Script()
+    s.wait(3)
+    click(s, UI["menu"])
+    s.wait(4)
+    click(s, UI["menu_library"])
+    s.wait(10)
+    click(s, LIBRARY_PACK1_REMOVE)
+    s.wait(3)
+    click(s, LIBRARY_PACK1_REMOVE)
+    s.wait(5)
+    folder = os.path.join(library_folder(), "rock-set")
+    return Steps([
+        (Script(), [f"--settings-file={settings_file()}", f"--script=install_pack {pack}; alpha rock-set/crack; show_section alpha"],
+         {"packs": near(1, 0), "pack_alphas": near(2, 0), "packs_installed": near(1, 0), "alpha": is_text("rock-set/crack"),
+          "@unpacked": lambda _: os.path.exists(os.path.join(folder, "alphas", "crack.png")) and not os.path.exists(os.path.join(folder, "macros"))}),
+        (s, [f"--settings-file={settings_file()}"],
+         {"packs": near(0, 0), "pack_alphas": near(0, 0), "alpha": is_text("-"), "@removed": lambda _: not os.path.exists(folder)}),
     ])
 
 

@@ -5,6 +5,7 @@ import "core:math/linalg"
 import "core:time"
 import sdl "vendor:sdl3"
 
+import "../sculpt"
 import "../ui"
 
 // Fingers and the pen on a touch screen, the way ZBrush for iPad uses them. Every touch,
@@ -14,7 +15,7 @@ import "../ui"
 //   the touch do nothing, so a finger resting on a slider never pinches the view;
 // - on the viewport, one finger is the pointer, which navigate.odin gives to the tool or
 //   to the camera; two or more navigate (pan, pinch to zoom, twist to roll), three drag
-//   the brush's size and strength, and a quick tap of two fingers undoes, of three redoes.
+//   the brush's size and focal shift, and a quick tap of two fingers undoes, of three redoes.
 //   A second finger ends what the first began, and lifting fingers never hands the touch
 //   back to the one left down.
 // SDL's own turning of the first finger into the mouse is off (platform_hints): it moves
@@ -41,7 +42,9 @@ Touch :: struct {
 	twist:     f32,
 	rolling:   bool, // the twist passed TWIST_DEADZONE: the view rolls with it
 	adjust:    [2]f32, // three fingers' travel...
-	axis:      int, // ...and what it sets: 0 strength, 1 size, -1 not yet decided
+	axis:      int, // ...and what it sets: 0 focal shift, 1 size, -1 not yet decided
+	focal:     f32, // the focal shift as the fingers have it, fractions and all...
+	focal_held: bool, // ...taken from the brush once this touch began setting it
 	lift:      Lift_Orbit,
 	hold:      Hold_History,
 }
@@ -146,6 +149,7 @@ touch_event :: proc(app: ^App, e: ^sdl.Event, window: ^sdl.Window) {
 			// The first finger of a touch: it becomes the pointer, unless the pen is about.
 			t.owner, t.gesture, t.tap = .None, false, 0
 			t.twist, t.rolling, t.adjust, t.axis = 0, false, {}, -1
+			t.focal_held = false
 			t.lift = {}
 			t.hold = {since = now, zoom = 1, done = t.hold.done, ring = -1}
 			t.palm = app.nav.palm_rejection && (t.pen_near || t.pen_down)
@@ -283,18 +287,24 @@ touch_route :: proc(app: ^App, input: ^Viewport_Input) {
 			if t.rolling do input.touch_roll = change.twist
 		}
 	} else if nav.three_finger {
-		// Three fingers: up and down sizes the brush, sideways sets its strength, whichever
-		// way they went first past the slop (as Nomad's and ZBrush's three-finger drags).
+		// Three fingers: up and down sizes the brush, sideways sets its focal shift (the
+		// reference app's three-finger drags), whichever way they went first past the slop.
+		// Strength is a long press dragged on the brush bar's Strength (Bar_Scrub).
 		t.adjust += change.pan
 		if t.axis < 0 && max(abs(t.adjust.x), abs(t.adjust.y)) > app.kit.ctx.theme.slop * app.kit.scale {
 			t.axis = 1 if abs(t.adjust.y) >= abs(t.adjust.x) else 0
+		}
+		if t.axis == 0 && !t.focal_held {
+			t.focal, t.focal_held = focal_shift(app)^, true
 		}
 		switch t.axis {
 		case 1:
 			app.brush.radius_px = clamp(app.brush.radius_px * math.pow(2, -change.pan.y / (200 * app.kit.scale)), MIN_RADIUS_PX, MAX_RADIUS_PX)
 		case 0:
-			s := brush_strength(app)
-			s^ = clamp(s^ + change.pan.x / (400 * app.kit.scale), MIN_STRENGTH, 1)
+			// Fractions are kept while the fingers move, so a slow drag still gets there;
+			// what the brush keeps is a whole number, as the bar's slider sets.
+			t.focal = clamp(t.focal + change.pan.x * f32(sculpt.FOCAL_MAX - sculpt.FOCAL_MIN) / (THREE_FOCAL_FULL * app.kit.scale), sculpt.FOCAL_MIN, sculpt.FOCAL_MAX)
+			focal_shift(app)^ = math.round(t.focal)
 		}
 	}
 }
@@ -362,6 +372,9 @@ touch_hold_history :: proc(app: ^App, change: ui.Finger_Change) -> bool {
 	}
 	return h.fired > 0
 }
+
+// Points three fingers move sideways to take the focal shift across its whole range.
+THREE_FOCAL_FULL :: 400
 
 // Radians two fingers turn before the twist rolls the view.
 TWIST_DEADZONE :: 10 * math.PI / 180

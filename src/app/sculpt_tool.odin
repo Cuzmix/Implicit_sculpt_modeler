@@ -61,10 +61,11 @@ STROKE_MODE_NAMES := [Stroke_Mode]string {
 }
 
 // A brush's falloff: the built-in smooth one, or a curve the user drew (read from the
-// rim in: sculpt.falloff_set_curve).
+// rim in: sculpt.falloff_set_shaped), reshaped by its focal shift.
 Falloff_Setting :: struct {
 	drawn: bool,
 	curve: geom.Curve,
+	focal: f32, // sculpt.FOCAL_MIN to FOCAL_MAX; 0 leaves the shape as it is
 }
 
 // One pointer sample as SDL reported it. The app keeps every motion event of a frame,
@@ -810,14 +811,17 @@ brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pres
 	}
 }
 
-// The drawn falloff of the brush `kind`, made from its curve, or nil for the built-in.
+// The falloff of the brush `kind` as a table, made from its curve and focal shift, or nil
+// for the built-in one unshifted, which the dabs work out themselves.
 brush_falloff :: proc(app: ^App, kind: sculpt.Brush_Kind) -> ^sculpt.Falloff {
 	f := app.brush.falloffs[kind]
-	if !f.drawn do return nil
+	if !f.drawn && f.focal == 0 do return nil
+	// Only what shapes the table counts: an undrawn curve is not read.
+	if !f.drawn do f.curve = {}
 	table := &app.falloff_tables[kind]
-	if table.curve != f.curve || !table.built {
-		sculpt.falloff_set_curve(&table.falloff, f.curve)
-		table.curve, table.built = f.curve, true
+	if table.shape != f || !table.built {
+		sculpt.falloff_set_shaped(&table.falloff, f.curve if f.drawn else nil, f.focal)
+		table.shape, table.built = f, true
 	}
 	return &table.falloff
 }

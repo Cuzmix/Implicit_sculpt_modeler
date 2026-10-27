@@ -21,6 +21,7 @@
 //   --dyntopo    instead, dynamic topology strokes (see run_dyntopo)
 //   --files      instead, OBJ, PLY and scene files written and read (see run_files)
 //   --masks      instead, every mask command on a half-masked sphere (see run_masks)
+//   --voxel      instead, the voxel clay table; sizes are voxels across (see run_voxel)
 //   --meshes=N   spheres per size, all sculpt-ready; only the first is sculpted
 //   --threads=N  worker count including the caller (default: every core)
 //   --node=N     triangles per sculpt node
@@ -62,6 +63,7 @@ remesh := false
 dyntopo := false
 files := false
 masks := false
+voxels := false
 
 main :: proc() {
 	targets := make([dynamic]int)
@@ -89,6 +91,8 @@ main :: proc() {
 			files = true
 		} else if arg == "--masks" {
 			masks = true
+		} else if arg == "--voxel" {
+			voxels = true
 		} else if strings.has_prefix(arg, "--threads=") {
 			threads = strconv.parse_int(arg[10:]) or_else 0
 		} else if v, ok := strconv.parse_int(arg); ok {
@@ -100,7 +104,9 @@ main :: proc() {
 	}
 	cases := make([dynamic]Case)
 	defer delete(cases)
-	if len(targets) == 0 {
+	if voxels && len(targets) == 0 {
+		for v in ([]int{256, 512, 1024}) do append(&cases, Case{v, 1})
+	} else if len(targets) == 0 {
 		for v in ([]int{500_000, 1_000_000, 5_000_000, 7_000_000, 10_000_000}) do append(&cases, Case{v, max(meshes, 1)})
 		if meshes == 0 do append(&cases, Case{10_000_000, 2})
 	} else {
@@ -143,6 +149,12 @@ main :: proc() {
 		files_header()
 		for c in cases do if c.meshes == 1 do run_files(c.vertices, pool)
 		files_footer()
+		if prefault_mb == 0 do fmt.printfln("peak RSS: %.0f MB", peak_rss_mb())
+		return
+	}
+	if voxels {
+		voxel_header()
+		for c in cases do if c.meshes == 1 do run_voxel(c.vertices, pool)
 		if prefault_mb == 0 do fmt.printfln("peak RSS: %.0f MB", peak_rss_mb())
 		return
 	}

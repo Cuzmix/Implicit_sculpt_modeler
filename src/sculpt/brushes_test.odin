@@ -1,5 +1,6 @@
 package sculpt
 
+import "core:math"
 import "core:math/linalg"
 import "core:slice"
 import "core:testing"
@@ -603,6 +604,45 @@ drawn_falloff_shapes_the_dab :: proc(t: ^testing.T) {
 	testing.expectf(t, c0 > 0 && c1 > 0, "nothing moved: %v %v", c0, c1)
 	testing.expectf(t, r0 < 0.4 * c0, "built-in falloff at 0.7 radii moved %v of %v", r0, c0)
 	testing.expectf(t, r1 > 0.8 * c1, "firm falloff at 0.7 radii moved %v of %v", r1, c1)
+}
+
+// Focal shift reshapes a falloff without changing its ends: 0 leaves the table as it was,
+// a positive shift weighs the middle of the brush less and a negative one more, and every
+// shape falls from 1 at the centre to 0 at the rim.
+@(test)
+focal_shift_moves_the_weight :: proc(t: ^testing.T) {
+	plain, cone, flat, point: Falloff
+	falloff_set_curve(&cone, geom.CURVE_LINEAR)
+	falloff_set_shaped(&flat, geom.CURVE_LINEAR, 0)
+	testing.expect(t, cone.table == flat.table)
+	falloff_set_shaped(&plain, nil, 0)
+	for w, i in plain.table do testing.expect_value(t, w, falloff(f32(i) / FALLOFF_STEPS))
+	half := [?]f32{FOCAL_MIN, -50, 0, 50, FOCAL_MAX}
+	last: f32 = 2
+	for focal in half {
+		f: Falloff
+		falloff_set_shaped(&f, nil, focal)
+		testing.expect_value(t, f.table[0], 1)
+		testing.expect_value(t, f.table[FALLOFF_STEPS], 0)
+		for i in 1 ..= FALLOFF_STEPS do testing.expectf(t, f.table[i] <= f.table[i - 1], "focal %v rises at %d", focal, i)
+		mid := falloff_drawn(&f, 0.25)
+		testing.expectf(t, mid < last, "focal %v at half a radius: %v, not under %v", focal, mid, last)
+		last = mid
+	}
+	// Beyond the first cells, where the tip is rounded off, the table follows the shape.
+	for focal in ([?]f32{50, FOCAL_MAX, -50}) {
+		f: Falloff
+		falloff_set_shaped(&f, nil, focal)
+		p := math.pow(2, -focal / 50)
+		for i in 0 ..= 64 {
+			d := 0.125 + 0.875 * f32(i) / 64
+			exact := falloff(math.pow(d * d, p))
+			testing.expectf(t, abs(falloff_drawn(&f, d * d) - exact) < 0.005, "focal %v at %v: %v, not %v", focal, d, falloff_drawn(&f, d * d), exact)
+		}
+	}
+	falloff_set_shaped(&point, nil, FOCAL_MAX)
+	falloff_set_shaped(&flat, nil, FOCAL_MIN)
+	testing.expectf(t, falloff_drawn(&point, 0.25) < 0.2 && falloff_drawn(&flat, 0.25) > 0.95, "point %v, plateau %v", falloff_drawn(&point, 0.25), falloff_drawn(&flat, 0.25))
 }
 
 // A mask shape masks what falls inside it on screen, through the mesh, and is an undo

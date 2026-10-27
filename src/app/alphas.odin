@@ -260,35 +260,35 @@ draw_alpha_outline :: proc(app: ^App, o: Overlay, center: [2]f32, color: ui.Colo
 // and which way the image faces.
 kit_alpha_section :: proc(app: ^App) {
 	ctx := &app.kit.ctx
-	t := ctx.theme
 	PER_ROW :: 6
 	cell := ui.fill_width(ctx) / PER_ROW
-	// The round brush first, then every alpha not taken out of the library.
-	shown := make([dynamic]int, 0, len(app.alphas) + 1, context.temp_allocator)
-	append(&shown, -1)
-	for e, i in app.alphas do if !e.gone do append(&shown, i)
-	for first := 0; first < len(shown); first += PER_ROW {
-		ui.begin(ctx, fmt.tprintf("alpha row %d", first), {direction = .Row})
-		for i in shown[first:][:min(PER_ROW, len(shown) - first)] {
-			name := "Round (no alpha)" if i < 0 else app.alphas[i].name
-			a := ui.area(ctx, fmt.tprintf("%s##alpha %d", name, i), {cell, cell})
-			if a.clicked do app.brush.alpha = i
-			r := ui.Rect{a.rect.x + 4, a.rect.y + 4, a.rect.w - 8, a.rect.h - 8}
-			ui.fill_rect(ctx, r, t.radius_small, {0, 0, 0, 0xff})
-			if i < 0 {
-				// The round brush's own falloff, as a disc.
-				ui.fill_circle(ctx, {r.x + r.w * 0.5, r.y + r.h * 0.5}, r.w * 0.4, {0xc0, 0xc0, 0xc0, 0xff})
-			} else {
-				ui.grey_image(ctx, {r.x + 2, r.y + 2, r.w - 4, r.h - 4}, {ALPHA_THUMB, ALPHA_THUMB}, app.alphas[i].thumb[:], {0xff, 0xff, 0xff, 0xff})
-			}
-			selected := app.brush.alpha == i || (i < 0 && alpha_ref(app, app.brush.alpha) == "-")
-			ui.stroke_rect(ctx, r, t.radius_small, t.accent if selected else t.border_strong, 2 if selected else 1)
-			ui.tip(ctx, a.id, r, name if i < 0 || app.alphas[i].file == "" else fmt.tprintf("%s (in your library)", name))
+	// The round brush and the built-ins, then the person's own, then each pack's under
+	// its name; alphas taken out of the library are not shown.
+	groups := make([dynamic][dynamic]int, 2 + len(app.library.packs), context.temp_allocator)
+	for &g in groups do g = make([dynamic]int, context.temp_allocator)
+	append(&groups[0], -1)
+	for e, i in app.alphas {
+		if e.gone do continue
+		group := 0
+		if strings.has_prefix(e.ref, LIBRARY_MINE + "/") && e.file != "" do group = 1
+		else if p := pack_of_ref(app, e.ref); p >= 0 do group = 2 + p
+		append(&groups[group], i)
+	}
+	for shown, group in groups {
+		if len(shown) == 0 do continue
+		switch group {
+		case 0:
+		case 1: ui.caption(ctx, "YOUR LIBRARY")
+		case:   ui.caption(ctx, strings.to_upper(app.library.packs[group - 2].name, context.temp_allocator))
 		}
-		ui.end(ctx)
+		for first := 0; first < len(shown); first += PER_ROW {
+			ui.begin(ctx, fmt.tprintf("alpha row %d %d", group, first), {direction = .Row})
+			for i in shown[first:][:min(PER_ROW, len(shown) - first)] do kit_alpha_cell(app, i, cell)
+			ui.end(ctx)
+		}
 	}
 	if ui.button(ctx, "Load image...", .Bordered, glyph = ui.ICON_IMAGE) do file_dialog(app, .Alpha)
-	if i := app.brush.alpha; i >= 0 && i < len(app.alphas) && app.alphas[i].file != "" && !app.alphas[i].gone {
+	if i := app.brush.alpha; alpha_is_mine(app, i) {
 		// Taking an image out deletes its file, so it asks for a second tap.
 		k := &app.kit
 		armed := k.alpha_armed == i + 1 && ctx.time - k.alpha_armed_at < ALPHA_REMOVE_ARM_TIME
@@ -307,5 +307,26 @@ kit_alpha_section :: proc(app: ^App) {
 		if picked := ui.tabs(ctx, "alpha mode", modes[:], int(app.brush.alpha_mode)); picked >= 0 do app.brush.alpha_mode = Alpha_Mode(picked)
 		_ = ui.slider(ctx, "Angle", &app.brush.alpha_angle, -180, 180, .Linear, fmt.tprintf("%.0f°", app.brush.alpha_angle))
 	}
-	ui.paragraph(ctx, "An alpha stamps each dab with an image (PNG, JPEG, BMP, TGA or QOI): white works fully, black not at all. Its square reaches past the circle where the image does. Load image keeps a copy in your library, so it is here at the next start.")
+	ui.paragraph(ctx, "An alpha stamps each dab with an image (PNG, JPEG, BMP, TGA or QOI): white works fully, black not at all. Its square reaches past the circle where the image does. Load image keeps a copy in your library, so it is here at the next start; content packs (Menu > Library) add more.")
+}
+
+// One thumbnail of the Alpha section: the round brush (`i` -1) or alpha `i`, to tap.
+@(private = "file")
+kit_alpha_cell :: proc(app: ^App, i: int, cell: f32) {
+	ctx := &app.kit.ctx
+	t := ctx.theme
+	name := "Round (no alpha)" if i < 0 else app.alphas[i].name
+	a := ui.area(ctx, fmt.tprintf("%s##alpha %d", name, i), {cell, cell})
+	if a.clicked do app.brush.alpha = i
+	r := ui.Rect{a.rect.x + 4, a.rect.y + 4, a.rect.w - 8, a.rect.h - 8}
+	ui.fill_rect(ctx, r, t.radius_small, {0, 0, 0, 0xff})
+	if i < 0 {
+		// The round brush's own falloff, as a disc.
+		ui.fill_circle(ctx, {r.x + r.w * 0.5, r.y + r.h * 0.5}, r.w * 0.4, {0xc0, 0xc0, 0xc0, 0xff})
+	} else {
+		ui.grey_image(ctx, {r.x + 2, r.y + 2, r.w - 4, r.h - 4}, {ALPHA_THUMB, ALPHA_THUMB}, app.alphas[i].thumb[:], {0xff, 0xff, 0xff, 0xff})
+	}
+	selected := app.brush.alpha == i || (i < 0 && alpha_ref(app, app.brush.alpha) == "-")
+	ui.stroke_rect(ctx, r, t.radius_small, t.accent if selected else t.border_strong, 2 if selected else 1)
+	ui.tip(ctx, a.id, r, name if i < 0 else fmt.tprintf("%s (%s)", name, app.alphas[i].ref) if app.alphas[i].file != "" else name)
 }

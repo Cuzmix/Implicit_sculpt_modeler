@@ -151,6 +151,8 @@ Command_Id :: enum u8 {
 	Run_Macro, // the argument is the slot, from 0 (macros.odin)
 	Macros,
 	Run_Script,
+	Library,
+	Pick_Pack,
 }
 
 Command :: struct {
@@ -1114,7 +1116,7 @@ COMMANDS := [Command_Id]Command {
 		// Unfolded and in front, wherever it was left, in Help's place (they share it).
 		run = proc(app: ^App, _: int) {
 			k := &app.kit
-			k.settings, k.help, k.macros = true, false, false
+			k.settings, k.help, k.macros, k.library = true, false, false, false
 			k.windows[.Settings].minimized = false
 			window_raise(k, .Settings)
 		},
@@ -1193,6 +1195,19 @@ COMMANDS := [Command_Id]Command {
 		icon = ui.ICON_OPEN,
 		run = proc(app: ^App, _: int) {file_dialog(app, .Run_Script)},
 		enabled = proc(app: ^App, _: int) -> bool {return script_can_start(app)},
+	},
+	.Library = {
+		label = "Library...",
+		help = "Lists the content packs installed and your own alphas, to install a pack or remove one.",
+		icon = ui.ICON_FOLDER,
+		run = proc(app: ^App, _: int) {library_open(app)},
+	},
+	.Pick_Pack = {
+		label = "Install pack...",
+		help = "Adds a content pack (.sculptpack) to your library: its alphas join the Alpha section under its name.",
+		icon = ui.ICON_IMPORT,
+		run = proc(app: ^App, _: int) {file_dialog(app, .Install_Pack)},
+		enabled = proc(app: ^App, _: int) -> bool {return app.library.folder != "" && !pack_busy(app)},
 	},
 	.Pie_Editor = {
 		label = "Edit pies",
@@ -1388,9 +1403,9 @@ command_gesture :: proc(app: ^App, id: Command_Id, arg := 0) -> string {
 	case .Frame_All:
 		if n.double_tap && empty_taps do builtin = "Double tap empty space, nothing selected"
 	case .Size_Up, .Size_Down:
-		if n.three_finger do builtin = "Three fingers up or down"
+		builtin = "Three fingers up or down" if n.three_finger else "Long press the bar's Size and drag"
 	case .Strength_Up, .Strength_Down:
-		if n.three_finger do builtin = "Three fingers sideways"
+		builtin = "Long press the bar's Strength and drag"
 	case .Mask:
 		// The mask taps are the Sculpt tool's (mask_tap_act), and only the modifier
 		// buttons' Mask turns them on: with the buttons off there is no way to do them.
