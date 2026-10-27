@@ -159,6 +159,7 @@ Command_Id :: enum u8 {
 	Run_Script,
 	Library,
 	Pick_Pack,
+	Save_Pack,
 }
 
 Command :: struct {
@@ -1258,10 +1259,17 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Pick_Pack = {
 		label = "Install pack...",
-		help = "Adds a content pack (.sculptpack) to your library: its alphas join the Alpha section under its name.",
+		help = "Adds a content pack (.sculptpack) to your library: its alphas, brush presets and meshes join the app under its name.",
 		icon = ui.ICON_IMPORT,
 		run = proc(app: ^App, _: int) {file_dialog(app, .Install_Pack)},
 		enabled = proc(app: ^App, _: int) -> bool {return app.library.folder != "" && !pack_busy(app)},
+	},
+	.Save_Pack = {
+		label = "Make a pack...",
+		help = "Writes your own alphas and brush presets as a content pack (.sculptpack) named after its file, to install on another device or pass on.",
+		icon = ui.ICON_EXPORT,
+		run = proc(app: ^App, _: int) {file_dialog(app, .Make_Pack)},
+		enabled = proc(app: ^App, _: int) -> bool {return app.library.alphas > 0 || app.preset_count > 0},
 	},
 	.Pie_Editor = {
 		label = "Edit pies",

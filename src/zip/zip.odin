@@ -9,11 +9,13 @@ import "core:hash"
 import "core:strings"
 import "core:unicode/utf8"
 
-// ZIP archives in: what a content pack is, so that any zip tool can make one. A pure
+// ZIP archives in and out: what a content pack is, so that any zip tool can make one. A pure
 // package (no app, no SDL), as png_write is. Only what such a tool writes is read:
 // entries stored or deflated, one disk, no encryption, no ZIP64. Everything an archive says is checked before it is believed:
 // sizes against the limits and the bytes there, names against climbing out of the folder
-// they unpack into, and each entry's bytes against its CRC once inflated.
+// they unpack into, and each entry's bytes against its CRC once inflated. Archives out
+// (write) hold stored entries only: what goes in a pack is mostly images compressed
+// already.
 
 Error :: enum u8 {
 	None,
@@ -193,3 +195,72 @@ capped_allocator :: proc(c: ^Capped) -> runtime.Allocator {
 	}, data = c}
 }
 
+
+// A file to write into an archive: its name (folders joined by '/') and its bytes.
+File :: struct {
+	name: string,
+	data: []u8,
+}
+
+// An archive of `files`, stored (not compressed), in the order given, dated 1 January
+// 1980 (the format's first day) so the same files always make the same bytes. Every
+// name must be safe (name_safe) and differ from the others in more than case, and the
+// archive must stay within 4 GB and 65535 entries (no ZIP64): false otherwise.
+write :: proc(files: []File, allocator := context.allocator) -> (out: []u8, ok: bool) {
+	if len(files) > 0xffff do return nil, false
+	total := 22
+	for f, i in files {
+		if !name_safe(f.name) || len(f.name) > 0xffff do return nil, false
+		for g in files[:i] do if strings.equal_fold(f.name, g.name) do return nil, false
+		total += 30 + 46 + 2 * len(f.name) + len(f.data)
+	}
+	if total > 0xffffffff do return nil, false
+	buf := make([dynamic]u8, 0, total, allocator)
+	u16le :: proc(b: ^[dynamic]u8, v: int) {append(b, u8(v), u8(v >> 8))}
+	u32le :: proc(b: ^[dynamic]u8, v: u32) {append(b, u8(v), u8(v >> 8), u8(v >> 16), u8(v >> 24))}
+	// 1980-01-01 00:00 in MS-DOS time and date.
+	DOS_DATE :: (0 << 9) | (1 << 5) | 1
+	header :: proc(b: ^[dynamic]u8, f: File, crc: u32) {
+		u16le(b, 20) // the version needed: 2.0
+		u16le(b, 1 << 11) // the name is UTF-8
+		u16le(b, 0) // stored
+		u16le(b, 0)
+		u16le(b, DOS_DATE)
+		u32le(b, crc)
+		u32le(b, u32(len(f.data)))
+		u32le(b, u32(len(f.data)))
+		u16le(b, len(f.name))
+		u16le(b, 0)
+	}
+	offsets := make([]u32, len(files), context.temp_allocator)
+	crcs := make([]u32, len(files), context.temp_allocator)
+	for f, i in files {
+		offsets[i], crcs[i] = u32(len(buf)), hash.crc32(f.data)
+		u32le(&buf, SIG_LOCAL)
+		header(&buf, f, crcs[i])
+		append(&buf, f.name)
+		append(&buf, ..f.data)
+	}
+	directory := len(buf)
+	for f, i in files {
+		u32le(&buf, SIG_CENTRAL)
+		u16le(&buf, 20) // made by 2.0, MS-DOS attributes
+		header(&buf, f, crcs[i])
+		u16le(&buf, 0) // comment
+		u16le(&buf, 0) // disk
+		u16le(&buf, 0) // internal attributes
+		u32le(&buf, 0) // external attributes
+		u32le(&buf, offsets[i])
+		append(&buf, f.name)
+	}
+	directory_size := len(buf) - directory
+	u32le(&buf, SIG_END)
+	u16le(&buf, 0)
+	u16le(&buf, 0)
+	u16le(&buf, len(files))
+	u16le(&buf, len(files))
+	u32le(&buf, u32(directory_size))
+	u32le(&buf, u32(directory))
+	u16le(&buf, 0)
+	return buf[:], true
+}

@@ -57,6 +57,7 @@ Script_Verb :: enum u8 {
 	Matcap,
 	Preset,
 	Pack_Mesh,
+	Make_Pack,
 	Group_Material,
 }
 
@@ -83,6 +84,7 @@ SCRIPT_VERBS := [Script_Verb]struct {
 	.Matcap        = {"matcap", "an image file of a lit sphere"},
 	.Preset        = {"preset", "a brush preset's name (yours, or PACK/NAME for a content pack's), or none for the plain brush"},
 	.Pack_Mesh     = {"pack_mesh", "a content pack's mesh as PACK/NAME, added as a new object"},
+	.Make_Pack     = {"make_pack", "a .sculptpack file to write your own alphas and presets to, named after the file"},
 	.Group_Material = {"group_material", "a polygroup's number from 1, given the material `set material` chose, and off to give it the object's again"},
 }
 
@@ -412,7 +414,7 @@ script_verb_read :: proc(st: ^Script_Statement, args: []string) -> bool {
 		n, ok := strconv.parse_int(args[0])
 		st.count = n
 		return ok && n >= 1
-	case .Alpha, .Install_Pack, .Matcap, .Preset, .Pack_Mesh:
+	case .Alpha, .Install_Pack, .Matcap, .Preset, .Pack_Mesh, .Make_Pack:
 		// A name or path may have spaces: it is the rest of the line.
 		if len(args) == 0 do return false
 		st.text = strings.join(args, " ")
@@ -488,6 +490,9 @@ script_verb :: proc(app: ^App, st: Script_Statement) -> (failure: string, ok: bo
 		if n == 0 do return fmt.tprintf("no preset is named %q", st.text), true
 		preset_use(app, n)
 		return "", true
+	case .Make_Pack:
+		if failed := pack_make(app, st.text); failed != "" do return failed, true
+		return "", true
 	case .Pack_Mesh:
 		// As Add object does with the mesh picked, in place so the next line sees it.
 		j := pack_mesh_by_ref(app, st.text)
@@ -549,7 +554,7 @@ script_verb :: proc(app: ^App, st: Script_Statement) -> (failure: string, ok: bo
 			if why := group_material_set(obj, u16(st.count), current_material(app), st.flip); why != "" do return why, true
 			app.scene_edits += 1
 			return "", true
-		case .Falloff, .Focal, .Alpha, .Matcap, .Project, .Draw_Curve, .Insert_Middle, .Install_Pack, .Preset, .Pack_Mesh:
+		case .Falloff, .Focal, .Alpha, .Matcap, .Project, .Draw_Curve, .Insert_Middle, .Install_Pack, .Preset, .Pack_Mesh, .Make_Pack:
 		}
 	}
 	if script_scene_state(app) == before do return "it left the scene as it was (the log says why)", true
@@ -578,7 +583,7 @@ script_allows :: proc(id: Command_Id) -> bool {
 		return false
 	// No script records or runs a macro or a script file, so none starts another or
 	// records itself.
-	case .Macro_Record, .Run_Macro, .Run_Script, .Pick_Pack:
+	case .Macro_Record, .Run_Macro, .Run_Script, .Pick_Pack, .Save_Pack:
 		return false
 	// The last stroke replays where the pointer is, and the last autosave is whatever an
 	// earlier run left: neither is something a script can say beforehand.
