@@ -287,10 +287,11 @@ kit_brush_bar :: proc(app: ^App) -> (brushes_anchor: ui.Rect) {
 	section_button(app, "Stroke", ICON_STROKE, .Stroke)
 	section_button(app, "Alpha", ICON_ALPHA, .Alpha)
 	section_button(app, "Material", ICON_MATERIAL, .Material)
-	// The colours: a tap opens them, a long press swaps the main and secondary ones, and
-	// the corner shows both, the main one in front. Then the channel the sculpting
-	// brushes work on, which a tap steps and a long press opens with the colours.
-	section_button(app, "Colour", ICON_COLOUR, .Paint_Color)
+	// The colours: a tap opens the Colors card beside the bar, a long press swaps the
+	// main and secondary ones, and the corner shows both, the main one in front. Then the
+	// channel the sculpting brushes work on, which a tap steps and a long press opens with
+	// the colours.
+	_ = bar_command(app, .Colors_Card, ICON_COLOUR, name = "Colour##colors")
 	if ui.secondary(ctx) do command_run(app, .Swap_Colors)
 	bar_swatches(app, ctx.last_rect)
 	channel_glyph := [sculpt.Channel]rune{.Sculpt = ICON_CHANNEL_SCULPT, .Both = ICON_CHANNEL_BOTH, .Color = ICON_CHANNEL_COLOR}

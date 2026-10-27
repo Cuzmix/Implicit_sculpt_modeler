@@ -5,6 +5,7 @@ import "core:slice"
 import "core:time"
 import sdl "vendor:sdl3"
 
+import "../camera"
 import "../render"
 import "../sculpt"
 
@@ -38,16 +39,32 @@ swap_colors :: proc(app: ^App) {
 	b.color, b.color2 = b.color2, b.color
 }
 
-// Fills the selected object with the brush colour, or clears its paint, as an undo
-// step of its own (sculpt.sculptor_paint_command).
+// Fills the selected object with the brush colour, or with a gradient from it to the
+// secondary colour, or clears its paint, as an undo step of its own
+// (sculpt.sculptor_paint_command). The gradient runs down the screen: the main colour at
+// the object's top as seen, the secondary at its bottom, as ZBrush's FillObject Grad.
 paint_command :: proc(app: ^App, command: sculpt.Paint_Command) {
 	stroke_finish(app)
 	obj := selected_object(app)
 	if obj == nil || !paint_allowed(obj) do return
 	start := time.tick_now()
-	changed := sculpt.sculptor_paint_command(object_sculptor(obj), command, brush_color_bytes(app))
-	log.infof("%s: %.0f ms%s", "fill paint" if command == .Fill else "clear paint", time.duration_milliseconds(time.tick_since(start)), "" if changed else ", nothing changed")
-	if changed do history_record(app, obj, .Paint, "Fill paint" if command == .Fill else "Clear paint")
+	gradient: sculpt.Paint_Gradient
+	if command == .Gradient {
+		// From the main colour at the top of the screen to the secondary at its bottom: the
+		// view's down in the object's own space.
+		_, up, _ := camera.orbit_basis(app.camera)
+		gradient = {to = color_bytes(app.brush.color2), axis = -to_local_dir(obj.transform, up)}
+	}
+	changed := sculpt.sculptor_paint_command(object_sculptor(obj), command, brush_color_bytes(app), gradient)
+	log.infof("%s: %.0f ms%s", PAINT_COMMAND_NAMES[command], time.duration_milliseconds(time.tick_since(start)), "" if changed else ", nothing changed")
+	if changed do history_record(app, obj, .Paint, PAINT_COMMAND_NAMES[command])
+}
+
+@(rodata)
+PAINT_COMMAND_NAMES := [sculpt.Paint_Command]string {
+	.Fill     = "Fill with colour",
+	.Clear    = "Clear paint",
+	.Gradient = "Fill gradient",
 }
 
 // Changes the selected object's polygroups as an undo step of its own

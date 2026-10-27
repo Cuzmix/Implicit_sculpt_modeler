@@ -1433,3 +1433,34 @@ fill_mesh_adds_coloured_triangles_after_what_was_drawn :: proc(t: ^testing.T) {
 	testing.expect_value(t, [3]u32{added[0], added[1], added[2]}, [3]u32{u32(base), u32(base + 1), u32(base + 2)})
 	frame_end(&ctx)
 }
+
+// One frame with a 300 point gradient slider at the top left: its track runs from 46 to
+// 270 points across (the label and the value take the rest).
+@(private = "file")
+one_gradient :: proc(ctx: ^Context, input: Input, value: ^f32) -> bool {
+	frame_begin(ctx, input)
+	begin_anchored(ctx, "gradients", .Start, .Start, {16, 16}, {width = 300})
+	changed := gradient_slider(ctx, "H", value, {{255, 0, 0, 255}, {0, 0, 255, 255}}, "")
+	end(ctx)
+	frame_end(ctx)
+	return changed
+}
+
+// A gradient slider puts the value where the pointer is along its track, a tap included,
+// and clamps it at the ends.
+@(test)
+gradient_slider_follows_the_pointer :: proc(t: ^testing.T) {
+	ctx: Context
+	init(&ctx)
+	defer destroy(&ctx)
+	value: f32 = 0.5
+	one_gradient(&ctx, input_at({-1, -1}), &value)
+	one_gradient(&ctx, input_at({-1, -1}), &value)
+	track_x, track_w: f32 = 16 + 22 + 8, 300 - 22 - 52 - 16
+	testing.expect(t, one_gradient(&ctx, input_at({track_x + track_w * 0.25, 40}, down = {.Left}, pressed = {.Left}), &value))
+	testing.expect(t, math.abs(value - 0.25) < 1e-4)
+	one_gradient(&ctx, input_at({track_x + track_w * 2, 40}, down = {.Left}), &value)
+	testing.expect_value(t, value, 1)
+	one_gradient(&ctx, input_at({track_x + track_w * 2, 40}, released = {.Left}), &value)
+	testing.expect_value(t, ctx.active, 0)
+}
