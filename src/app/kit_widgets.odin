@@ -137,6 +137,13 @@ color_hex_format :: proc(rgb: [3]f32, buf: []u8) {
 	buf[7] = 0
 }
 
+// The same "#RRGGBB" as a temp string, for stats and messages.
+hex_text :: proc(rgb: [3]f32) -> string {
+	buf := make([]u8, 8, context.temp_allocator)
+	color_hex_format(rgb, buf)
+	return string(buf[:7])
+}
+
 // The bytes before the zero that ends `buf`, or all of them.
 @(private = "file")
 color_hex_len :: proc(buf: []u8) -> int {

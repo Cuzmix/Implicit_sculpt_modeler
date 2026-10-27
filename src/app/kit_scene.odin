@@ -413,6 +413,28 @@ SCENE_SECTIONS := [?]Kit_Tab_Section {
 	{.Studio, "Studio render", kit_studio, nil},
 	{.Camera, "Camera", kit_camera, nil},
 	{.Floor, "Floor grid", kit_floor, nil},
+	{.Background, "Background", kit_background, nil},
+}
+
+// The background: one colour or a gradient, and with the gradient a choice of which edge's
+// colour the picker below edits.
+@(private = "file")
+kit_background :: proc(app: ^App) {
+	ctx := &app.kit.ctx
+	b := &app.background
+	_ = ui.switch_row(ctx, "Gradient", &b.gradient)
+	if !b.gradient {
+		_ = kit_color(app, "background colour", &b.top)
+		return
+	}
+	edges := [2]string{"Top", "Bottom"}
+	if picked := ui.tabs(ctx, "background edge", edges[:], int(app.kit.background_bottom)); picked >= 0 do app.kit.background_bottom = picked == 1
+	if app.kit.background_bottom {
+		_ = kit_color(app, "background bottom", &b.bottom)
+	} else {
+		_ = kit_color(app, "background top", &b.top)
+	}
+	ui.paragraph(ctx, "The top colour shades into the bottom one down the viewport. Screenshots and the studio render show it too.")
 }
 
 // The floor grid: whether it shows, which planes, the axes, and its cells.

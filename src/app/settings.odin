@@ -97,6 +97,7 @@ SETTINGS := [?]Setting {
 	{"floor_axes", offset_of(App, floor) + offset_of(Floor_Settings, axes), bool, 0, 0},
 	{"floor_fit", offset_of(App, floor) + offset_of(Floor_Settings, fit), bool, 0, 0},
 	{"floor_cell", offset_of(App, floor) + offset_of(Floor_Settings, cell), f32, FLOOR_CELL_MIN, FLOOR_CELL_MAX},
+	{"background_gradient", offset_of(App, background) + offset_of(Background_Settings, gradient), bool, 0, 0},
 	{"transparent", offset_of(App, see_through), bool, 0, 0},
 	{"flat", offset_of(App, flat), bool, 0, 0},
 	{"exposure", offset_of(App, exposure), f32, -EXPOSURE_RANGE, EXPOSURE_RANGE},
@@ -288,18 +289,24 @@ SETTING_LINES := [?]Setting_Line {
 	{
 		// The Paint brush's colour, red, green and blue from 0 to 1.
 		"paint_color",
-		proc(f: []string) -> (Setting_Line_Value, bool) {
-			if len(f) != 3 do return nil, false
-			c: [3]f32
-			for k in 0 ..< 3 {
-				v, ok := strconv.parse_f32(f[k])
-				if !ok || !(v >= 0 && v <= 1) do return nil, false
-				c[k] = v
-			}
-			return c, true
-		},
+		rgb_parse,
 		proc(app: ^App, v: Setting_Line_Value) {app.brush.color = v.([3]f32)},
-		proc(app: ^App) -> string {c := app.brush.color; return fmt.tprintf("%g %g %g", c.r, c.g, c.b)},
+		proc(app: ^App) -> string {return rgb_text(app.brush.color)},
+	},
+	{
+		// The viewport background's colour along its top edge (the whole of it without
+		// the gradient), as paint_color is written.
+		"background_top",
+		rgb_parse,
+		proc(app: ^App, v: Setting_Line_Value) {app.background.top = v.([3]f32)},
+		proc(app: ^App) -> string {return rgb_text(app.background.top)},
+	},
+	{
+		// The gradient's colour along the bottom edge.
+		"background_bottom",
+		rgb_parse,
+		proc(app: ^App, v: Setting_Line_Value) {app.background.bottom = v.([3]f32)},
+		proc(app: ^App) -> string {return rgb_text(app.background.bottom)},
 	},
 	{
 		// A material by its name, which may have spaces ("red wax").
@@ -328,6 +335,24 @@ SETTING_LINES := [?]Setting_Line {
 		proc(app: ^App, v: Setting_Line_Value) {app.kit.add_size = v.(int)},
 		proc(app: ^App) -> string {return fmt.tprint(SPHERE_PRESETS[app.kit.add_size].vertices)},
 	},
+}
+
+// A colour's line: red, green and blue from 0 to 1.
+@(private = "file")
+rgb_parse :: proc(f: []string) -> (Setting_Line_Value, bool) {
+	if len(f) != 3 do return nil, false
+	c: [3]f32
+	for k in 0 ..< 3 {
+		v, ok := strconv.parse_f32(f[k])
+		if !ok || !(v >= 0 && v <= 1) do return nil, false
+		c[k] = v
+	}
+	return c, true
+}
+
+@(private = "file")
+rgb_text :: proc(c: [3]f32) -> string {
+	return fmt.tprintf("%g %g %g", c.r, c.g, c.b)
 }
 
 // The line row of `key`; a row with no procedures when there is none.
@@ -380,7 +405,7 @@ settings_load :: proc(app: ^App, path: string) {
 				if kind, ok := brush_by_name(f[1]); ok do b.falloffs[kind].focal = clamp(number(f[2], 0), sculpt.FOCAL_MIN, sculpt.FOCAL_MAX)
 			}
 		case "pressure_curve": if len(f) == 5 do b.pressure_curve = curve(f[1:], b.pressure_curve)
-		case "symmetry", "paint_color", "material", "new_vertices":
+		case "symmetry", "paint_color", "background_top", "background_bottom", "material", "new_vertices":
 			line := setting_line(f[0])
 			if v, ok := line.parse(f[1:]); ok do line.apply(app, v)
 		case "custom_material":
