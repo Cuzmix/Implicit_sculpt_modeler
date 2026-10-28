@@ -5680,8 +5680,8 @@ def first_save():
 # Restore once maximised.
 SECOND_CAMERA, SECOND_PASS = (132, 310), (250, 310)
 SECOND_FRONT, SECOND_SHADED, SECOND_NORMALS = (107, 404), (250, 404), (250, 448)
-THUMBNAIL_FLIP, SECOND_MAX, THUMBNAIL_CLOSE = (100, 365), (152, 365), (205, 365)
-SECOND_PICTURE, SECOND_RESTORE = (192, 213), (154, 774)
+THUMBNAIL_FLIP, SECOND_LINK, SECOND_MAX, THUMBNAIL_CLOSE = (100, 365), (152, 365), (205, 365), (258, 365)
+SECOND_PICTURE, SECOND_RESTORE = (192, 213), (205, 774)
 
 
 @scenario
@@ -5718,14 +5718,43 @@ def second_view_looks_from_the_front_in_normals():
 
 @scenario
 def second_view_drag_turns_its_own_camera():
-    """A finger dragged across the second view's picture turns its own camera, which becomes Free; the main camera stays still and nothing is sculpted."""
+    """A finger dragged across the second view's picture, looking from the front, turns its own camera, which becomes Free; the main camera stays still and nothing is sculpted."""
     s = Script()
+    s.wait(4)
+    s.ftap(*SECOND_CAMERA)
+    s.wait(4)
+    s.ftap(*SECOND_FRONT)
     s.wait(4)
     x, y = SECOND_PICTURE
     s.fdrag([(x - 40 + i * 8, y) for i in range(11)])
     s.wait(6)
     return s, ["--script=thumbnail on"], camera_still({"second_camera": is_text("Free"), "second_turns": lambda v: int(v) >= 5,
                                                      "thumbnail_draws": lambda v: int(v) >= 3, "dabs": near(0)})
+
+
+@scenario
+def second_view_linked_drag_turns_the_main_camera():
+    """The second view starts linked: a finger dragged across its picture turns the main camera, and the view stays linked; nothing is sculpted."""
+    s = Script()
+    s.wait(4)
+    x, y = SECOND_PICTURE
+    s.fdrag([(x - 40 + i * 8, y) for i in range(11)])
+    s.wait(6)
+    return s, ["--script=thumbnail on"], {"second_camera": is_text("Follow"), "second_linked": lambda v: int(v) >= 5, "second_turns": near(0),
+                                         "camera_yaw": lambda v: abs(float(v) - CAMERA0["camera_yaw"]) > 0.05, "dabs": near(0)}
+
+
+@scenario
+def second_view_unlinks_to_free():
+    """The second view's link button lets it go to its own Free camera at the view it shows; a drag then turns only it."""
+    s = Script()
+    s.wait(4)
+    s.ftap(*SECOND_LINK)
+    s.wait(4)
+    x, y = SECOND_PICTURE
+    s.fdrag([(x - 40 + i * 8, y) for i in range(11)])
+    s.wait(6)
+    return s, ["--script=thumbnail on"], camera_still({"second_camera": is_text("Free"), "second_turns": lambda v: int(v) >= 5, "second_linked": near(0), "dabs": near(0)})
 
 
 @scenario
@@ -5781,8 +5810,10 @@ def turntable_frames_slider_by_finger():
 GRID_SIDE_BY_SIDE = (1350, 647)
 GRID_DIVIDER = (519, 600)
 GRID_PANE = (800, 600)
-GRID_PANE_MAX = (795, 93)
-GRID_PANE_RESTORE = (343, 93)
+GRID_PANE_LINK = (812, 93)
+GRID_PANE_MAX = (865, 93)
+GRID_PANE_RESTORE = (410, 93)
+GRID_PANE_CAMERA, GRID_PANE_LINKED, GRID_PANE_MIRRORED = (600, 93), (590, 144), (590, 496)
 
 
 @scenario
@@ -5832,6 +5863,39 @@ def grid_divider_drag_moves_the_split():
     s.wait(6)
     return s, ["--script=view_grid side_by_side"], camera_still({"grid_split": lambda v: float(v.split(",")[0]) > 0.6, "grid_drags": lambda v: int(v) > 0,
                                                                 "grid_main": lambda v: float(v.split("x")[0]) > 600, "dabs": near(0)})
+
+
+@scenario
+def view_pane_link_turns_the_main_camera():
+    """The view pane's link button links it to the main camera: a drag across it turns the main view with it, and the pane stays linked."""
+    s = Script()
+    s.wait(4)
+    s.ftap(*GRID_PANE_LINK)
+    s.wait(4)
+    x, y = GRID_PANE
+    s.fdrag([(x - 40 + i * 8, y) for i in range(11)])
+    s.wait(6)
+    return s, ["--script=view_grid side_by_side"], {"pane_camera": is_text("Follow"), "pane_links": near(1), "linked_turns": lambda v: int(v) >= 5,
+                                                   "pane_turns": near(0), "camera_yaw": lambda v: abs(float(v) - CAMERA0["camera_yaw"]) > 0.05, "dabs": near(0)}
+
+
+@scenario
+def view_pane_mirrored_turns_the_main_camera_the_other_way():
+    """Mirrored from the view pane's camera list shows the main camera reflected; a drag to the right across it turns the main camera as a drag to the left on the main view would."""
+    def run(mirrored):
+        s = Script()
+        s.wait(4)
+        s.ftap(*GRID_PANE_CAMERA)
+        s.wait(4)
+        s.ftap(*(GRID_PANE_MIRRORED if mirrored else GRID_PANE_LINKED))
+        s.wait(4)
+        x, y = GRID_PANE
+        s.fdrag([(x - 40 + i * 8, y) for i in range(11)])
+        s.wait(6)
+        turned = (lambda v: float(v) > CAMERA0["camera_yaw"] + 0.05) if mirrored else (lambda v: float(v) < CAMERA0["camera_yaw"] - 0.05)
+        return s, ["--script=view_grid side_by_side"], {"pane_camera": is_text("Mirror" if mirrored else "Follow"), "pane_links": near(1),
+                                                       "camera_yaw": turned, "dabs": near(0)}
+    return Steps([run(True), run(False)])
 
 
 @scenario

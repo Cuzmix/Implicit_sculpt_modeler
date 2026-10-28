@@ -274,6 +274,12 @@ kit_grid :: proc(app: ^App) {
 	}
 	g.main = cells[0]
 	ui.image(ctx, g.main, KIT_VIEWPORT_IMAGE)
+	// With other panes beside it, the main pane is outlined in the main camera's colour, the
+	// colour of the dots of the panes linked to it: the pane the tools act in.
+	if n > 1 && g.maximised == 0 {
+		m := g.main
+		ui.stroke_rect(ctx, {m.x + 1, m.y + 1, m.w - 2, m.h - 2}, 0, ctx.theme.camera[0], 2)
+	}
 	// What is drawn over the main view (overlay.odin) goes here, under the view panes.
 	k.layer = ui.layer_mark(ctx)
 	// While a divider is dragged the pictures keep their size, stretched, as the main
@@ -329,6 +335,8 @@ kit_view_pane :: proc(app: ^App, i: int, r: ui.Rect) {
 	ui.end(ctx)
 	head := [2]f32{max(r.x, kit_left(app)) + 6, max(r.y, kit_top() - 8) + 6}
 	ui.begin_at(ctx, fmt.tprintf("view pane %d head", i), head, {direction = .Row, center = true, gap = 4, padding = 4, radius = t.radius_large, background = .Panel})
+	dot, ring := second_color(t, sv, i)
+	camera_dot(ctx, dot, ring)
 	cameras := make([]string, len(Second_Camera), context.temp_allocator)
 	for name, c in SECOND_CAMERA_NAMES do cameras[c] = name
 	if picked := ui.select(ctx, "Camera", cameras, int(sv.camera), GRID_SELECT_W); picked >= 0 && Second_Camera(picked) != sv.camera {
@@ -338,13 +346,18 @@ kit_view_pane :: proc(app: ^App, i: int, r: ui.Rect) {
 	passes := make([]string, len(Second_Pass), context.temp_allocator)
 	for name, kind in SECOND_PASS_NAMES do passes[kind] = name
 	if picked := ui.select(ctx, "Shows", passes, int(sv.pass), GRID_SELECT_W); picked >= 0 do sv.pass = Second_Pass(picked)
+	linked := second_linked(sv)
+	if ui.icon_button(ctx, "Unlink from the main camera" if linked else "Link to the main camera", ICON_LINK, selected = linked) do second_link_toggle(app, sv)
 	maxed := g.maximised == i
 	if ui.icon_button(ctx, "Restore" if maxed else "Maximise", ui.ICON_MINIMISE if maxed else ui.ICON_RESTORE, selected = maxed) do g.maximised = 0 if maxed else i
 	ui.end(ctx)
 }
 
-// A view pane's selects, in points: room for "Curvature" and "Bottom".
+// A view pane's selects, in points: room for "Curvature" and "Mirrored".
 GRID_SELECT_W :: 116
+
+// Lucide's link: a view's camera tied to the main one.
+ICON_LINK :: rune(0xe108)
 
 // Draws each view pane shown whose picture is due, as the second view does (thumbnail.odin).
 grid_frame :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer, draws: []render.Draw_Item) {
