@@ -381,6 +381,7 @@ vk_format :: proc(format: sdl.GPUTextureFormat) -> vk.Format {
 	case .R16_FLOAT:           return .R16_SFLOAT
 	case .R16G16_FLOAT:        return .R16G16_SFLOAT
 	case .R16G16B16A16_FLOAT:  return .R16G16B16A16_SFLOAT
+	case .R11G11B10_UFLOAT:    return .B10G11R11_UFLOAT_PACK32
 	case .R32_FLOAT:           return .R32_SFLOAT
 	case .R32G32_FLOAT:        return .R32G32_SFLOAT
 	case .R32G32B32A32_FLOAT:  return .R32G32B32A32_SFLOAT

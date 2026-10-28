@@ -1743,11 +1743,11 @@ kit_draws :: proc(app: ^App, dl: ^ui.Draw_List) -> []render.Ui_Draw {
 			if app.thumbs.atlas == nil do draws[i].index_count = 0
 		}
 		if c.texture == .Image && c.image == KIT_THUMBNAIL_IMAGE {
-			draws[i].image, draws[i].smooth = app.thumbnail.shown, true
+			draws[i].image, draws[i].smooth = picture_shown(&app.thumbnail), true
 			if app.thumbnail.shown == nil do draws[i].index_count = 0
 		}
 		if c.texture == .Image && c.image >= KIT_PANE_IMAGE && c.image < KIT_PANE_IMAGE + GRID_VIEWS {
-			pic := app.panes[c.image - KIT_PANE_IMAGE].shown
+			pic := picture_shown(&app.panes[c.image - KIT_PANE_IMAGE])
 			draws[i].image, draws[i].smooth = pic, true
 			if pic == nil do draws[i].index_count = 0
 		}

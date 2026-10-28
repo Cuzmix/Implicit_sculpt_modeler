@@ -100,7 +100,34 @@ finish_defaults_change_nothing :: proc(t: ^testing.T) {
 	// The softness and the grain's size alone change nothing.
 	soft := FINISH_DEFAULTS
 	soft.vignette_soft, soft.grain_size = 0.2, 3
+	// Nor do the bloom's size and threshold without a bloom.
+	soft.bloom_size, soft.bloom_threshold = 0.2, 1
 	testing.expect(t, !render.finish_active(finish_look(soft)))
+	for effect in ([?]int{0, 1, 2}) {
+		on := FINISH_DEFAULTS
+		switch effect {
+		case 0: on.bloom = 0.5
+		case 1: on.sharpen = 0.5
+		case 2: on.aberration = 0.5
+		}
+		testing.expectf(t, render.finish_active(finish_look(on)), "effect %d did not turn the finish on", effect)
+	}
+}
+
+// The bloom chain halves from half the picture's size while the smaller side keeps eight
+// pixels, six levels at most, and a tiny picture still gets one.
+@(test)
+finish_bloom_levels_halve :: proc(t: ^testing.T) {
+	sizes, count := render.bloom_levels(2560, 1440)
+	testing.expect_value(t, count, render.BLOOM_LEVELS_MAX)
+	testing.expect_value(t, sizes[0], [2]u32{1280, 720})
+	testing.expect_value(t, sizes[5], [2]u32{40, 22})
+	sizes, count = render.bloom_levels(200, 64)
+	testing.expect_value(t, count, 3)
+	testing.expect_value(t, sizes[2], [2]u32{25, 8})
+	sizes, count = render.bloom_levels(9, 3)
+	testing.expect_value(t, count, 1)
+	testing.expect_value(t, sizes[0], [2]u32{4, 1})
 }
 
 // The finish shows only while the Render switch is on and a control is away from none;

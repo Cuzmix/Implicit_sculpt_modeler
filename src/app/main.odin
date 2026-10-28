@@ -1455,7 +1455,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			fmt.printfln("live_ao=%d live_ao_full=%d live_ao_partial=%d live_ao_skipped=%d", int(app.live_ao_on), lao.full, lao.partial, lao.skipped)
 			pr := app.path
 			fmt.printfln("render_switch=%d render_quality=%s studio=%d", int(render_switch_on(&app)), "full" if app.render_quality == .Full else "preview", int(app.studio_on))
-			fmt.printfln("finish=%d finish_curve=%v finish_passes=%d finish_failed=%d", int(finish_wanted(&app)), app.finish.curve, app.finished.passes, int(app.finished.failed))
+			fmt.printfln("finish=%d finish_curve=%v finish_passes=%d finish_failed=%d finish_bloomed=%d finish_bloom_levels=%d finish_sharpened=%d thumbnail_finish_passes=%d", int(finish_wanted(&app)), app.finish.curve, app.finished.passes, int(app.finished.failed), app.finished.bloomed, app.finished.levels, app.finished.sharpened, app.thumbnail.finished.passes)
 			fmt.printfln("render=%d render_samples=%d render_ms=%.1f render_mb=%.1f render_failed=%d", int(app.render_on), pr.total_samples, pr.total_ms / f64(max(pr.total_samples, 1)), f64(pr.bytes) / (1 << 20), int(pr.failed))
 			// Depth of field, whether a point was picked to focus on and where the focus is,
 			// and whether Pick focus still waits for a press.

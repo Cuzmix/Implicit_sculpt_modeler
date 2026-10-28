@@ -2,12 +2,18 @@
 // camera's picture is. The source is either display values, mostly made with PBR
 // Neutral, which neutral_inverse turns back into the exposed linear light they came
 // from, or render mode's exposed linear light itself. In linear light, as a lens and a
-// sensor see it, come the vignette, white balance, contrast and saturation; then the tone
-// curve; then, on the encoded values, lift, gamma and gain, film grain and a dither, so a
-// curve that steepens a gradient shows no bands.
+// sensor see it, come the chromatic aberration, the bloom, the vignette, white balance,
+// contrast and saturation, the order Unreal's post stack keeps; then the tone curve; then,
+// on the encoded values, lift, gamma and gain, film grain and a dither, so a curve that
+// steepens a gradient shows no bands. When sharpening runs, sharpen.frag.slang takes the
+// grain and the dither, and this pass writes its encoded values unrounded.
 // SDL_GPU SPIR-V conventions: fragment samplers in set 2, uniform buffers in set 3.
 #include "common.slang"
+#include "finish_grain.slang"
+// Filtered bilinearly: the aberration's taps fall between pixels. Exact pixels are read with Load.
 [[vk::binding(0, 2)]] Sampler2D source;
+// The bloom chain's last upsample, half the source's size or less, in linear light.
+[[vk::binding(1, 2)]] Sampler2D bloom;
 
 [[vk::binding(0, 3)]] cbuffer Finish_Uniforms {
 	// x: the tone curve (0 Neutral, 1 AgX, 2 ACES), y: 1 when the source is linear light,
@@ -24,6 +30,10 @@
 	// x: the grain's size in pixels (1 to 4), y: its pattern, which moves on only when the
 	// picture changes, so a still view stays still and a moving one shows no fixed screen of it
 	float4 grain;
+	// x: the share of the light the bloom replaces (0 none), y: the chromatic aberration's
+	// spread, as a share of the distance from the middle (0 none), z: 1 when this pass ends
+	// the picture with the grain and dither, 0 when sharpening follows
+	float4 effects;
 };
 
 #include "display.slang"
@@ -88,35 +98,6 @@ float luminance(float3 c) {
 	return dot(c, float3(0.2126, 0.7152, 0.0722));
 }
 
-// A value from -1 to 1 fixed to a lattice point and the grain's pattern.
-float lattice_noise(int2 p) {
-	uint h = uint(p.x) * 0x8da6b343u ^ uint(p.y) * 0xd8163841u ^ asuint(grain.y) * 0xcb1ab31fu;
-	h ^= h >> 15;
-	h *= 0x2c1b3c6du;
-	h ^= h >> 12;
-	h *= 0x297a2d39u;
-	h ^= h >> 15;
-	return float(h) / 2147483647.5 - 1.0;
-}
-
-// The grain at a pixel: lattice noise `size` pixels across, smoothly blended between
-// lattice points, so a larger size reads as coarser film rather than blocks.
-float grain_at(float2 px, float size) {
-	float2 at = px / size;
-	int2 q = int2(floor(at));
-	float2 f = at - float2(q);
-	f = f * f * (3.0 - 2.0 * f);
-	float a = lerp(lattice_noise(q), lattice_noise(q + int2(1, 0)), f.x);
-	float b = lerp(lattice_noise(q + int2(0, 1)), lattice_noise(q + int2(1, 1)), f.x);
-	return lerp(a, b, f.y);
-}
-
-// Jimenez's interleaved gradient noise, from 0 to 1: a dither fixed to the pixel that does
-// not line up with the ordered one clear.frag.slang already put in the source.
-float gradient_noise(float2 px) {
-	return frac(52.9829189 * frac(dot(px, float2(0.06711056, 0.00583715))));
-}
-
 // Linear light at pixel `frag` through the controls that work on light, then the tone
 // curve: what the display shows of it.
 float3 graded(float3 c, float2 frag) {
@@ -140,25 +121,70 @@ float3 graded(float3 c, float2 frag) {
 	return tone_map(c);
 }
 
+// What source value `v` holds: its exposed linear light `c`, and for display values the
+// colour shown and what Neutral gives back short of it (main says why that matters).
+void decode(float3 v, out float3 c, out float3 shown, out float3 residual) {
+	shown = float3(0.0);
+	residual = float3(0.0);
+	if (params.y > 0.5) {
+		c = max(v, float3(0.0));
+	} else {
+		shown = srgb_decode(v);
+		c = neutral_inverse(shown);
+		residual = shown - tone_map(c);
+	}
+}
+
+// Lateral chromatic aberration, as a lens that bends each wavelength by a little more than
+// the last: the source read at five scales about the middle, each a band of the spectrum
+// from red (scaled least) to blue (most), the bands of each channel weighing one in all, so
+// white stays white and the middle of the picture stays sharp. In linear light, and on what
+// main reads of each pixel, so the fringes reach every path through it.
+static const int ABERRATION_TAPS = 5;
+void aberrated(float2 frag, out float3 c, out float3 shown, out float3 residual) {
+	float2 size = float2(texture_size(source));
+	float2 from_middle = frag / size - 0.5;
+	c = float3(0.0);
+	shown = float3(0.0);
+	residual = float3(0.0);
+	float3 total = float3(0.0);
+	for (int i = 0; i < ABERRATION_TAPS; i++) {
+		float t = float(i) / float(ABERRATION_TAPS - 1);
+		float3 w = float3(saturate(1.0 - 2.0 * t), 1.0 - abs(2.0 * t - 1.0), saturate(2.0 * t - 1.0));
+		float2 at = 0.5 + from_middle * (1.0 + effects.y * (t - 0.5));
+		float3 tc, ts, tr;
+		decode(source.SampleLevel(at, 0.0).rgb, tc, ts, tr);
+		c += w * tc;
+		shown += w * ts;
+		residual += w * tr;
+		total += w;
+	}
+	c /= total;
+	shown /= total;
+	residual /= total;
+}
+
+// Bloom, as light scattered in a lens and a sensor: a share of each pixel's light swapped for
+// the blurred light around it, so it brightens nothing in all and glows only where bright
+// light meets dark (Unity HDRP's and Unreal's energy-conserving mix).
+float3 bloomed(float3 c, float2 frag) {
+	if (effects.x <= 0.0) return c;
+	float3 b = bloom.SampleLevel(frag / float2(texture_size(source)), 0.0).rgb;
+	return lerp(c, b, effects.x);
+}
+
 float4 main(float4 frag_coord : SV_Position) : SV_Target0 {
 	int2 px = int2(frag_coord.xy);
 	float4 s = source.Load(int3(px, 0));
-	float3 c;
 	// What Neutral gives back short of the colour shown: nothing for its own colours but
 	// what an 8-bit step loses near white, where the shoulder is steep; much for a colour
 	// it never shows (a MatCap's highlight, a wire, a picked background), whose light is
 	// a guess. Laid back over the curve's result, it keeps such colours as they were, and
 	// with every control at none, the picture to its 8-bit step.
-	float3 shown = float3(0.0);
-	float3 residual = float3(0.0);
-	if (params.y > 0.5) {
-		c = max(s.rgb, float3(0.0));
-	} else {
-		shown = srgb_decode(s.rgb);
-		c = neutral_inverse(shown);
-		residual = shown - tone_map(c);
-	}
-	float3 kept = graded(c, frag_coord.xy) + residual;
+	float3 c, shown, residual;
+	if (effects.y > 0.0) aberrated(frag_coord.xy, c, shown, residual);
+	else decode(s.rgb, c, shown, residual);
+	float3 kept = graded(bloomed(c, frag_coord.xy), frag_coord.xy) + residual;
 	if (params.y < 0.5) {
 		// Two places Neutral's guess cannot be trusted: a colour far from any it shows,
 		// and anything near white, where its shoulder sends lights of every purity to
@@ -167,9 +193,11 @@ float4 main(float4 frag_coord : SV_Position) : SV_Target0 {
 		// rolls it off differently (a MatCap's highlight going red at its rim), so there
 		// the colour shown is instead scaled, channel by channel, as the finish changes a
 		// grey of its brightness: its hue and purity stay, and the white balance, vignette
-		// and curve still reach it.
+		// and curve still reach it. The bloom adds to it what it adds to that grey.
 		float3 grey = neutral_inverse(float3(luminance(shown)));
-		float3 scaled = shown * graded(grey, frag_coord.xy) / max(tone_map(grey), float3(1e-4));
+		float3 grey_graded = graded(grey, frag_coord.xy);
+		float3 scaled = shown * grey_graded / max(tone_map(grey), float3(1e-4));
+		if (effects.x > 0.0) scaled += graded(bloomed(grey, frag_coord.xy), frag_coord.xy) - grey_graded;
 		float off = smoothstep(0.01, 0.05, max(abs(residual.r), max(abs(residual.g), abs(residual.b))));
 		float bright = smoothstep(0.85, 0.97, max(shown.r, max(shown.g, shown.b)));
 		kept = lerp(kept, scaled, max(off, bright));
@@ -178,11 +206,6 @@ float4 main(float4 frag_coord : SV_Position) : SV_Target0 {
 
 	// Lift, gamma and gain on the encoded values, as a grading panel's three wheels.
 	e = pow(max(grade.z * (e + grade.x * (1.0 - e)), float3(0.0)), float3(1.0 / grade.y));
-	// Film grain, strongest in the midtones, as film's is, and none in black or white.
-	if (grade.w > 0.0) {
-		float l = clamp(dot(e, float3(0.2126, 0.7152, 0.0722)), 0.0, 1.0);
-		e += 0.12 * grade.w * 4.0 * l * (1.0 - l) * grain_at(frag_coord.xy, grain.x);
-	}
-	e += (gradient_noise(frag_coord.xy) - 0.5) / 255.0;
+	if (effects.z > 0.5) e = grain_and_dither(e, frag_coord.xy, grade.w, grain.x, asuint(grain.y));
 	return float4(e, s.a);
 }

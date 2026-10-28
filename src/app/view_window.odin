@@ -414,7 +414,7 @@ view_window_draws :: proc(w: ^View_Window, dl: ^ui.Draw_List) -> []render.Ui_Dra
 			clip        = {i32(c.clip.x), i32(c.clip.y), i32(c.clip.w + 0.5), i32(c.clip.h + 0.5)},
 		}
 		if c.texture != .Image do continue
-		draws[i].image, draws[i].smooth = w.pic.shown, true
+		draws[i].image, draws[i].smooth = picture_shown(&w.pic), true
 		if c.image != VIEW_WINDOW_IMAGE || w.pic.shown == nil do draws[i].index_count = 0
 	}
 	return draws

@@ -636,6 +636,19 @@ def finish_shows_with_the_render_and_resets():
 
 
 @scenario
+def finish_blooms_and_sharpens_the_render_and_second_view():
+    """With Bloom and Sharpen set, the right bar's Render button runs the bloom chain and the sharpening
+    pass on the main picture, and the second view showing Studio finishes its own picture too."""
+    s = Script()
+    s.ftap(*UI["studio"])
+    s.wait(40)
+    return s, ["--script=set finish_bloom 0.5; set finish_sharpen 0.5; thumbnail on; set second_pass studio"], camera_still({
+        "render_switch": near(1), "finish": near(1), "finish_bloomed": lambda v: int(v) > 0,
+        "finish_bloom_levels": lambda v: int(v) > 1, "finish_sharpened": lambda v: int(v) > 0,
+        "thumbnail_finish_passes": lambda v: int(v) > 0, "dabs": near(0), "undo_steps": near(0)})
+
+
+@scenario
 def pick_focus_takes_the_point_from_the_model():
     """Pick focus from search waits for a finger on the model; its tap puts depth of field's focus on the
     sphere's surface, sculpting nothing and turning nothing."""
