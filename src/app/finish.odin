@@ -114,6 +114,7 @@ finish_version :: proc(app: ^App) -> u64 {
 	Version :: struct {
 		redraws:          u64,
 		studio_samples:   int,
+		studio_carries:   int,
 		studio_strengths: [2]f32,
 		path_samples:     int,
 		path_exposure:    f32,
@@ -122,7 +123,7 @@ finish_version :: proc(app: ^App) -> u64 {
 		ao_key:           u64,
 	}
 	v := Version{
-		app.finish_redraws, app.studio.samples, app.studio.strengths, app.path.samples, app.path.exposure, app.path.denoised,
+		app.finish_redraws, app.studio.samples, app.studio.carries, app.studio.strengths, app.path.samples, app.path.exposure, app.path.denoised,
 		app.live_ao.full + app.live_ao.partial, app.live_ao.key,
 	}
 	return hash.fnv64a(mem.ptr_to_bytes(&v))

@@ -1132,13 +1132,16 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		drawn := render.render_viewport(&app.renderer, cmd, &app.target, view, proj, draws[:], app.cache_idle)
 		// Anything redrawn this frame starts the samples over.
 		changed := !drawn.partial || drawn.redrawn_px > 0
+		// Live occlusion first: the studio shows its picture where samples it carried across a
+		// turn of the view are still too few.
+		live_ao_view_frame(&app, cmd, view, proj, draws[:], drawn)
 		if studio_running(&app) {
 			// Render mode takes the GPU while it runs; the studio waits, keeping what it built.
 			studio_max := 0 if render_running(&app) else int(app.studio_samples)
-			_ = render.studio_frame(&app.renderer, &app.studio, cmd, &app.target, view, proj, draws[:], changed, studio_max, app.studio_ao, app.studio_shadow, viewport_lights(&app), &app.pool, app.studio_softness)
+			under := render.live_ao_texture(&app.live_ao) if live_ao_wanted(&app) else nil
+			_ = render.studio_frame(&app.renderer, &app.studio, cmd, &app.target, view, proj, draws[:], changed, studio_max, app.studio_ao, app.studio_shadow, viewport_lights(&app), &app.pool, app.studio_softness, under)
 		}
 		render_mode_frame(&app, cmd, view, proj, draws[:], changed)
-		live_ao_view_frame(&app, cmd, view, proj, draws[:], drawn)
 		finish_view_frame(&app, cmd, changed)
 		// A --dump-viewport run's last frame draws its transparent picture, when that is on.
 		if opts.dump_viewport != "" && app.screenshot_transparent && opts.frames > 0 && frame_index == opts.frames - 1 do capture_request(&app, opts.dump_viewport)
@@ -1487,6 +1490,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			fmt.printfln("live_ao=%d live_ao_full=%d live_ao_partial=%d live_ao_skipped=%d", int(app.live_ao_on), lao.full, lao.partial, lao.skipped)
 			pr := app.path
 			fmt.printfln("render_switch=%d render_quality=%s studio=%d", int(render_switch_on(&app)), "full" if app.render_quality == .Full else "preview", int(app.studio_on))
+			st := &app.studio
+			fmt.printfln("studio_samples=%d studio_sequence=%d studio_carried=%d studio_carries=%d studio_carried_bare=%d studio_restarts=%d", st.samples, st.sequence, int(st.carried), st.carries, st.carried_bare, st.restarts)
 			fmt.printfln("finish=%d finish_curve=%v finish_passes=%d finish_failed=%d finish_bloomed=%d finish_bloom_levels=%d finish_sharpened=%d thumbnail_finish_passes=%d", int(finish_wanted(&app)), app.finish.curve, app.finished.passes, int(app.finished.failed), app.finished.bloomed, app.finished.levels, app.finished.sharpened, app.thumbnail.finished.passes)
 			fmt.printfln("render=%d render_samples=%d render_ms=%.1f render_mb=%.1f render_failed=%d", int(app.render_on), pr.total_samples, pr.total_ms / f64(max(pr.total_samples, 1)), f64(pr.bytes) / (1 << 20), int(pr.failed))
 			// Depth of field, whether a point was picked to focus on and where the focus is,
