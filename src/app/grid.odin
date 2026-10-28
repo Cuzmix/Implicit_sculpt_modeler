@@ -75,6 +75,7 @@ View_Grid :: struct {
 	work_began:  bool,
 	work_ended:  int, // the view pane whose work ended this frame, 0 for none
 	work_shown:  ^sdl.GPUTexture,
+	work_live:   ^sdl.GPUTexture, // what the pane showed last as the work ended, for its picture
 	last_place:  int, // where the last press went: 0 the main pane, else the view pane
 	// For the exit stats: gestures worked in a view pane, and the dabs they laid.
 	works:       int,
@@ -554,6 +555,8 @@ grid_work_end :: proc(app: ^App) {
 		}
 	}
 	g.work_dabs += app.stats.dabs_total - g.work_dabs_from
+	g.work_live = viewport_shown(app)
+	if g.work_live == nil do g.work_live = app.target.color
 	if g.preset == g.work_preset do g.work_ended = g.work
 	app.camera = g.work_back
 	g.work = 0
@@ -577,9 +580,12 @@ grid_work_gpu :: proc(app: ^App) -> bool {
 		pic := &app.panes[i - 1]
 		sv := &g.views[g.preset][i - 1]
 		size := [2]u32{w, h}
-		if size == g.px[i - 1] && render.viewport_copy(&app.renderer, &pic.view.target, app.target.color, w, h) {
+		if size == g.px[i - 1] && render.viewport_copy(&app.renderer, &pic.view.target, g.work_live, w, h) {
 			key, orbit := picture_key(app, sv, size, 1)
 			pic.shown, pic.key, pic.at, pic.orbit = pic.view.target.color, key, time.tick_now(), orbit
+			// A heavy pass reads the picture's own depth, which the copy did not bring: it is
+			// drawn again at rest, the copy showing meanwhile.
+			if second_pass_heavy(sv.pass) do pic.key = 0
 		}
 	}
 	want := app.ui.viewport_request

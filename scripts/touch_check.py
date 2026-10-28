@@ -6091,6 +6091,8 @@ def view_pane_mirrored_turns_the_main_camera_the_other_way():
 FOUR_FRONT_MODEL = (778, 225)
 FOUR_FRONT_EMPTY = (560, 420)
 FOUR_FRONT_LINK = (812, 93)
+# The Front pane's Shows select and its AO only and Studio rows.
+FOUR_FRONT_PASS, FOUR_FRONT_AO, FOUR_FRONT_STUDIO = (724, 94), (706, 364), (701, 408)
 
 
 @scenario
@@ -6128,6 +6130,52 @@ def view_pane_linked_stroke_keeps_the_link():
     s.wait(8)
     return s, ["--script=set panes_under_panels off; view_grid four"], camera_still({"pane_works": near(1), "pane_work_dabs": lambda v: int(v) > 0,
                                                                                                    "pane_camera": is_text("Follow")})
+
+
+@scenario
+def view_pane_studio_gathers_at_rest():
+    """Studio in the Front pane's Shows gathers the studio's samples while the app rests, and a stroke in the main view starts them over once it is done."""
+    def run(stroke):
+        s = Script()
+        s.wait(30)
+        s.ftap(*FOUR_FRONT_PASS)
+        s.wait(10)
+        s.ftap(*FOUR_FRONT_STUDIO)
+        s.wait(290)
+        if stroke:
+            s.fdrag(line((220, 220), (300, 260), 12))
+            s.wait(40)
+        samples = (lambda v: 0 < int(v) < 100) if stroke else near(256)
+        return s, ["--script=set panes_under_panels off; view_grid four"], {"pane_heavy": near(1), "pane_samples": samples, "dabs": (lambda v: int(v) > 0) if stroke else near(0)}
+    return Steps([run(False), run(True)])
+
+
+@scenario
+def view_pane_studio_stroke_in_it_gathers_again():
+    """A stroke worked in a Studio pane draws Shaded live there; once it is done the pane draws its studio picture again and gathers anew (about 190 samples before it, fewer than 120 after)."""
+    s = Script()
+    s.wait(30)
+    s.ftap(*FOUR_FRONT_PASS)
+    s.wait(10)
+    s.ftap(*FOUR_FRONT_STUDIO)
+    s.wait(200)
+    x, y = FOUR_FRONT_MODEL
+    s.fdrag(line((x - 40, y), (x + 40, y + 20), 16))
+    s.wait(60)
+    return s, ["--script=set panes_under_panels off; view_grid four"], camera_still({"pane_works": near(1), "pane_work_dabs": lambda v: int(v) > 0,
+                                                                            "pane_samples": lambda v: 0 < int(v) < 120, "pane_camera": is_text("Front")})
+
+
+@scenario
+def view_pane_ao_only_shows():
+    """AO only in the Front pane's Shows is a heavy pass the pane draws at rest; the main view's pass stays Shaded."""
+    s = Script()
+    s.wait(30)
+    s.ftap(*FOUR_FRONT_PASS)
+    s.wait(10)
+    s.ftap(*FOUR_FRONT_AO)
+    s.wait(30)
+    return s, ["--script=set panes_under_panels off; view_grid four"], camera_still({"pane_heavy": near(1), "pass": is_text("Shaded"), "pane_draws": lambda v: int(v) >= 4, "dabs": near(0)})
 
 
 @scenario

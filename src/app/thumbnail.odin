@@ -44,13 +44,21 @@ Second_Camera :: enum u8 {
 	Mirror, // the main camera reflected in the X symmetry plane: the other side
 }
 
-// What the second view shows: the cheap passes, which need no buffers of their own.
+// What the second view shows: the cheap passes, which need no buffers of their own, then
+// the heavy ones, which keep their own on the picture (Picture.ao, Picture.studio).
 Second_Pass :: enum u8 {
 	Silhouette,
 	Shaded,
 	Normals,
 	Depth,
 	Curvature,
+	Occlusion, // live occlusion alone, as the main view's AO pass
+	Studio, // the studio render, gathering samples at rest
+}
+
+// Whether a pass runs more than the picture's one draw: live occlusion or the studio.
+second_pass_heavy :: proc(p: Second_Pass) -> bool {
+	return p == .Occlusion || p == .Studio
 }
 
 // The second view's choices, which the settings keep (the Free camera's turn excepted),
@@ -90,6 +98,8 @@ SECOND_PASS_NAMES := [Second_Pass]string {
 	.Normals    = "Normals",
 	.Depth      = "Depth",
 	.Curvature  = "Curvature",
+	.Occlusion  = "AO only",
+	.Studio     = "Studio",
 }
 
 // The viewport's pass a second view's pass draws with.
@@ -100,6 +110,8 @@ second_view_pass :: proc(p: Second_Pass) -> render.View_Pass {
 	case .Normals:    return .Normals
 	case .Depth:      return .Depth
 	case .Curvature:  return .Curvature
+	case .Occlusion:  return .AO
+	case .Studio:     return .Shaded
 	}
 	return .Shaded
 }
@@ -180,7 +192,10 @@ Picture :: struct {
 	// The camera it was drawn through, which what is drawn over it (the proportion
 	// guides) follows, since the picture lags the camera while a stroke or turn goes on.
 	orbit: camera.Orbit,
-	due:   bool, // what it shows changed and waits for its turn
+	due:   bool, // what it shows changed and waits for its turn, or the studio gathers
+	// The heavy passes' own buffers, made the first time one is shown.
+	ao:     render.Live_AO,
+	studio: render.Studio,
 	// For the exit stats: how often it was drawn and how long it last took on the CPU.
 	draws: int,
 	ms:    f64,
@@ -191,6 +206,8 @@ ICON_FLIP :: rune(0xe361) // flip-horizontal
 
 picture_destroy :: proc(app: ^App, pic: ^Picture) {
 	render.thumbnail_view_destroy(&app.renderer, &pic.view)
+	render.live_ao_destroy(&app.renderer, &pic.ao)
+	render.studio_destroy(&app.renderer, &pic.studio)
 	pic^ = {}
 }
 
@@ -218,10 +235,12 @@ picture_key :: proc(app: ^App, sv: ^Second_View, size: [2]u32, supersample: u32)
 		view, proj:  render.Mat4,
 		scene:       u64,
 		size:        [2]u32,
-		pass:        render.View_Pass,
+		// The pass drawn and the second view's own (Studio draws as Shaded), as one number.
+		pass:        u32,
 		supersample: u32,
 	}
-	keyed := Keyed{camera.orbit_view(orbit), camera.orbit_proj(orbit, f32(size.x) / f32(size.y)), scene_fingerprint(app), size, second_view_pass(sv.pass), supersample}
+	pass := u32(second_view_pass(sv.pass)) | u32(sv.pass) << 8
+	keyed := Keyed{camera.orbit_view(orbit), camera.orbit_proj(orbit, f32(size.x) / f32(size.y)), scene_fingerprint(app), size, pass, supersample}
 	key = max(hash.fnv64a(mem.ptr_to_bytes(&keyed)), 1)
 	return
 }
@@ -229,20 +248,25 @@ picture_key :: proc(app: ^App, sv: ^Second_View, size: [2]u32, supersample: u32)
 // Draws second view `sv` into `pic`, `size` pixels as shown at `supersample` times that,
 // when what it shows changed and its turn came: never while a stroke or a turn of the view
 // goes on, at most every THUMBNAIL_EVERY seconds, and every frame while its own camera is
-// dragged.
+// dragged. A heavy pass runs on the picture's own target after it: live occlusion once,
+// the studio a sample a frame afterwards, at rest, until it has the studio's count.
 picture_frame :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer, draws: []render.Draw_Item, sv: ^Second_View, pic: ^Picture, size: [2]u32, supersample: u32) {
 	pic.due = false
 	key, orbit := picture_key(app, sv, size, supersample)
 	view, proj := camera.orbit_view(orbit), camera.orbit_proj(orbit, f32(size.x) / f32(size.y))
 	pass := second_view_pass(sv.pass)
-	if pic.shown != nil && key == pic.key do return
+	fresh := pic.shown == nil || key != pic.key
+	gathering := !fresh && picture_gathers(app, sv, pic)
+	if !fresh && !gathering do return
 	// Each picture draws every object whole, without the viewport's culling or simplified
 	// copies, so it waits while a stroke or a turn of the view goes on; a drag on the
 	// picture itself is the one thing moving then, and draws it every frame.
 	// While a view pane is worked in, that pane is the one view drawn live (grid_work).
 	moving := app.stroke.active || time.tick_since(app.view_moved) < LOD_SETTLE || app.kit.grid.work != 0
-	// One picture a frame at most, so the panes due after a stroke share out their cost.
-	if pic.shown != nil && !sv.dragging && (moving || app.pictures_drawn > 0 || time.duration_seconds(time.tick_since(pic.at)) < THUMBNAIL_EVERY) {
+	// One picture a frame at most, so the panes due after a stroke share out their cost; a
+	// studio sample waits for a frame with none, but never holds one back.
+	soon := fresh && time.duration_seconds(time.tick_since(pic.at)) < THUMBNAIL_EVERY
+	if pic.shown != nil && !sv.dragging && (moving || app.pictures_drawn > 0 || soon) {
 		pic.due = true
 		return
 	}
@@ -250,12 +274,19 @@ picture_frame :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer, draws: []render.Dra
 	items := make([]render.Draw_Item, len(draws), context.temp_allocator)
 	copy(items, draws)
 	// Lights fixed to the scene are turned into the view the second view sees through.
+	lights := items[0].lights if len(items) > 0 else {}
 	if sv.camera != .Follow && pass == .Shaded {
 		saved := app.camera
 		app.camera = orbit
-		lights := viewport_lights(app)
+		lights = viewport_lights(app)
 		app.camera = saved
 		for &d in items do d.lights = lights
+	}
+	if gathering {
+		_ = render.studio_frame(&app.renderer, &pic.studio, cmd, &pic.view.target, view, proj, items, false, int(app.studio_samples), app.studio_ao, app.studio_shadow, lights, &app.pool, app.studio_softness)
+		if tex := render.studio_texture(&pic.studio); tex != nil do pic.shown = tex
+		pic.due = picture_gathers(app, sv, pic)
+		return
 	}
 	// A silhouette is the outline alone: no wireframe, paint, groups or maps over it.
 	if pass == .Silhouette {
@@ -273,12 +304,31 @@ picture_frame :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer, draws: []render.Dra
 		pane := color_f32(LOOK_THEMES[app.kit.look].pane)
 		ground = {pane, pane}
 	}
-	if tex := render.thumbnail_view_draw(&app.renderer, &pic.view, cmd, size, view, proj, items, ground.top, supersample); tex != nil {
-		pic.shown, pic.key, pic.at, pic.orbit = tex, key, time.tick_now(), orbit
+	heavy := second_pass_heavy(sv.pass) && render.live_ao_supported(&app.renderer, &pic.ao)
+	if tex := render.thumbnail_view_draw(&app.renderer, &pic.view, cmd, size, view, proj, items, ground.top, supersample, keep_depth = heavy); tex != nil {
+		shown := tex
+		if heavy && sv.pass == .Occlusion {
+			reach := clamp(app.live_ao_reach, LIVE_AO_REACH_MIN, LIVE_AO_REACH_MAX)
+			if render.live_ao_frame(&app.renderer, &pic.ao, cmd, &pic.view.target, view, proj, items, {}, reach, 1, LIVE_AO_SCALE) {
+				if t := render.live_ao_texture(&pic.ao); t != nil do shown = t
+			}
+		} else if heavy && sv.pass == .Studio {
+			if render.studio_frame(&app.renderer, &pic.studio, cmd, &pic.view.target, view, proj, items, true, int(app.studio_samples), app.studio_ao, app.studio_shadow, lights, &app.pool, app.studio_softness) {
+				if t := render.studio_texture(&pic.studio); t != nil do shown = t
+			}
+		}
+		pic.shown, pic.key, pic.at, pic.orbit = shown, key, time.tick_now(), orbit
 		pic.draws += 1
 		app.pictures_drawn += 1
 		pic.ms = time.duration_milliseconds(time.tick_since(start))
+		pic.due = picture_gathers(app, sv, pic)
 	}
+}
+
+// Whether a picture's studio render still gathers samples: it shows Studio, the device runs
+// it, and it has fewer than the studio's count.
+picture_gathers :: proc(app: ^App, sv: ^Second_View, pic: ^Picture) -> bool {
+	return sv.pass == .Studio && render.live_ao_supported(&app.renderer, &pic.ao) && !pic.studio.failed && pic.studio.shown_valid && pic.studio.samples < int(app.studio_samples)
 }
 
 // The window: the picture, then the camera and the pass, Flip, Maximise and Close under

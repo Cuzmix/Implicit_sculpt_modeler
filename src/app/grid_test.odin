@@ -3,6 +3,7 @@ package main
 import "core:strings"
 import "core:testing"
 
+import "../render"
 import "../ui"
 
 @(test)
@@ -125,6 +126,21 @@ a_lower_pane_has_no_top_bar_band :: proc(t: ^testing.T) {
 	app.ui.viewport_origin = {400, 225}
 	lo, _ := edge_inner(app)
 	testing.expect_value(t, lo, [2]f32{20, 20})
+}
+
+@(test)
+a_layout_keeps_a_heavy_pane_pass :: proc(t: ^testing.T) {
+	k := new(Kit_State)
+	defer free(k)
+	grid_reset(&k.grid)
+	grid_layout_read(k, {"grid", "Four"})
+	grid_layout_read(k, {"pane", "1", "Front", "Studio"})
+	grid_layout_read(k, {"pane", "2", "Right", "Occlusion"})
+	testing.expect_value(t, k.grid.views[.Four][0].pass, Second_Pass.Studio)
+	testing.expect_value(t, k.grid.views[.Four][1].pass, Second_Pass.Occlusion)
+	testing.expect(t, strings.contains(grid_layout_lines(k), "pane 1 Front Studio"), "the layout did not write the Studio pass")
+	testing.expect_value(t, second_view_pass(.Occlusion), render.View_Pass.AO)
+	testing.expect_value(t, second_view_pass(.Studio), render.View_Pass.Shaded)
 }
 
 @(test)

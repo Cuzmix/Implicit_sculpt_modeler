@@ -42,8 +42,9 @@ live_ao_view_frame :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer, view, proj: re
 // else nil for the viewport's own colour. The panel,
 // screenshots and the time-lapse all read it, so each shows what the others do.
 viewport_shown :: proc(app: ^App) -> ^sdl.GPUTexture {
-	// A view pane worked in shows the viewport as it draws, with nothing over it.
-	if app.kit.grid.work != 0 do return nil
+	// A view pane worked in shows the viewport as it draws, or its live occlusion when it
+	// shows AO only.
+	if app.kit.grid.work != 0 do return render.live_ao_texture(&app.live_ao) if live_ao_wanted(app) else nil
 	if render_running(app) && app.path.samples >= RENDER_SHOW_MIN do return render.render_texture(&app.path)
 	studio := studio_running(app)
 	if studio && (app.studio.samples >= STUDIO_SHOW_MIN || !live_ao_wanted(app)) do return render.studio_texture(&app.studio)
