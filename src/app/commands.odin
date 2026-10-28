@@ -208,6 +208,7 @@ Command_Id :: enum u8 {
 	View_Wipe, // passes.odin
 	View_Guides, // guides.odin
 	View_Guides_Reset,
+	Render_Preview, // grid.odin
 	Settings,
 	Reduce_Motion,
 	Command_Palette,
@@ -1741,6 +1742,13 @@ COMMANDS := [Command_Id]Command {
 		help = "Puts the proportion guides back at the face's thirds over what is selected (or every shown object), and shows them.",
 		icon = ICON_GUIDES_RESET,
 		run = proc(app: ^App, _: int) {guides_reset(app)},
+	},
+	.Render_Preview = {
+		label = "Render preview pane",
+		help = "Shows render mode's path tracing in a view pane beside the view you sculpt in, linked to its camera and built up while you rest; again, puts the pane back to Shaded.",
+		icon = ICON_RENDER_PREVIEW,
+		run = proc(app: ^App, _: int) {render_preview_toggle(app)},
+		checked = proc(app: ^App, _: int) -> bool {return render_preview_pane(&app.kit) != 0},
 	},
 	.Settings = {
 		label = "Settings...",

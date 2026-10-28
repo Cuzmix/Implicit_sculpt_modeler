@@ -260,7 +260,7 @@ RADIAL_COPIES = ((1351, 687), (1530, 687))
 FLOOR_BACK = (1381, 609)
 POLYFRAME_FILL = (1450, 686)
 # The Camera menu's Field of view slider, under Orthographic.
-FOV_SLIDER = (1300, 224)
+FOV_SLIDER = (1300, 180)
 
 
 @scenario
@@ -5807,7 +5807,7 @@ def turntable_frames_slider_by_finger():
 # The Camera menu's View grid rows at 1600 x 900 (Side by side), and with the tray docked
 # on the right, Side by side's divider, its view pane's middle and that pane's Maximise
 # (Restore once it fills the grid).
-GRID_SIDE_BY_SIDE = (1350, 647)
+GRID_SIDE_BY_SIDE = (1350, 603)
 GRID_DIVIDER = (519, 600)
 GRID_PANE = (800, 600)
 GRID_PANE_LINK = (812, 93)
@@ -6176,6 +6176,21 @@ def view_pane_ao_only_shows():
     s.ftap(*FOUR_FRONT_AO)
     s.wait(30)
     return s, ["--script=set panes_under_panels off; view_grid four"], camera_still({"pane_heavy": near(1), "pass": is_text("Shaded"), "pane_draws": lambda v: int(v) >= 4, "dabs": near(0)})
+
+
+@scenario
+def render_preview_builds_beside_the_main_view():
+    """Render preview puts the grid side by side with its pane linked and on Render; the pane gathers render samples at rest, and a stroke in the main view starts them over once it is done."""
+    def run(stroke):
+        s = Script()
+        s.wait(240)
+        if stroke:
+            s.fdrag(line((360, 420), (420, 470), 12))
+            s.wait(20)
+        samples = (lambda v: 0 <= int(v) < 3) if stroke else (lambda v: int(v) >= 4)
+        return s, ["--script=set panes_under_panels off; render_preview"], {"grid": is_text("Side_By_Side"), "pane_camera": is_text("Follow"), "pane_heavy": near(1),
+                                                                            "pane_render_samples": samples, "dabs": (lambda v: int(v) > 0) if stroke else near(0)}
+    return Steps([run(False), run(True)])
 
 
 @scenario
@@ -7471,7 +7486,7 @@ def adjust_retopo_and_extract():
 
 
 # Camera history (camera_history.odin): Camera menu rows at 1600x900.
-VIEW_BACK, VIEW_FORWARD = (1399, 404), (1399, 448)
+VIEW_BACK, VIEW_FORWARD = (1399, 360), (1399, 404)
 CAMERA_KEYS = ("camera_yaw", "camera_pitch", "camera_roll", "camera_distance", "camera_target")
 
 
@@ -7792,7 +7807,7 @@ def shading_and_camera_have_their_own_buttons():
 
 # The Shading menu's Wireframe row and the Camera menu's Orthographic row, at 1600x900.
 SHADING_WIREFRAME = (1399, 294)
-CAMERA_ORTHO = (1399, 156)
+CAMERA_ORTHO = (1399, 112)
 
 
 @scenario

@@ -54,11 +54,13 @@ Second_Pass :: enum u8 {
 	Curvature,
 	Occlusion, // live occlusion alone, as the main view's AO pass
 	Studio, // the studio render, gathering samples at rest
+	Render, // render mode's path tracing, gathering samples at rest
 }
 
-// Whether a pass runs more than the picture's one draw: live occlusion or the studio.
+// Whether a pass runs more than the picture's one draw: live occlusion, the studio or the
+// path tracer.
 second_pass_heavy :: proc(p: Second_Pass) -> bool {
-	return p == .Occlusion || p == .Studio
+	return p == .Occlusion || p == .Studio || p == .Render
 }
 
 // The second view's choices, which the settings keep (the Free camera's turn excepted),
@@ -100,6 +102,7 @@ SECOND_PASS_NAMES := [Second_Pass]string {
 	.Curvature  = "Curvature",
 	.Occlusion  = "AO only",
 	.Studio     = "Studio",
+	.Render     = "Render",
 }
 
 // The viewport's pass a second view's pass draws with.
@@ -112,6 +115,7 @@ second_view_pass :: proc(p: Second_Pass) -> render.View_Pass {
 	case .Curvature:  return .Curvature
 	case .Occlusion:  return .AO
 	case .Studio:     return .Shaded
+	case .Render:     return .Shaded
 	}
 	return .Shaded
 }
@@ -196,6 +200,7 @@ Picture :: struct {
 	// The heavy passes' own buffers, made the first time one is shown.
 	ao:     render.Live_AO,
 	studio: render.Studio,
+	path:   render.Path_Render, // a copy of the traced scene, given back when it shows another pass
 	// For the exit stats: how often it was drawn and how long it last took on the CPU.
 	draws: int,
 	ms:    f64,
@@ -208,6 +213,7 @@ picture_destroy :: proc(app: ^App, pic: ^Picture) {
 	render.thumbnail_view_destroy(&app.renderer, &pic.view)
 	render.live_ao_destroy(&app.renderer, &pic.ao)
 	render.studio_destroy(&app.renderer, &pic.studio)
+	render.path_render_destroy(&app.renderer, &pic.path)
 	pic^ = {}
 }
 
@@ -252,6 +258,9 @@ picture_key :: proc(app: ^App, sv: ^Second_View, size: [2]u32, supersample: u32)
 // the studio a sample a frame afterwards, at rest, until it has the studio's count.
 picture_frame :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer, draws: []render.Draw_Item, sv: ^Second_View, pic: ^Picture, size: [2]u32, supersample: u32) {
 	pic.due = false
+	// The path tracer's copy of the scene is costly to keep: a picture showing another pass
+	// gives it back.
+	if sv.pass != .Render && pic.path.pipeline != nil do render.path_render_destroy(&app.renderer, &pic.path)
 	key, orbit := picture_key(app, sv, size, supersample)
 	view, proj := camera.orbit_view(orbit), camera.orbit_proj(orbit, f32(size.x) / f32(size.y))
 	pass := second_view_pass(sv.pass)
@@ -283,8 +292,13 @@ picture_frame :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer, draws: []render.Dra
 		for &d in items do d.lights = lights
 	}
 	if gathering {
-		_ = render.studio_frame(&app.renderer, &pic.studio, cmd, &pic.view.target, view, proj, items, false, int(app.studio_samples), app.studio_ao, app.studio_shadow, lights, &app.pool, app.studio_softness)
-		if tex := render.studio_texture(&pic.studio); tex != nil do pic.shown = tex
+		if sv.pass == .Render {
+			picture_render(app, cmd, pic, view, proj, items, lights, orbit, false)
+			if tex := render.render_texture(&pic.path); tex != nil && pic.path.samples >= RENDER_SHOW_MIN do pic.shown = tex
+		} else {
+			_ = render.studio_frame(&app.renderer, &pic.studio, cmd, &pic.view.target, view, proj, items, false, int(app.studio_samples), app.studio_ao, app.studio_shadow, lights, &app.pool, app.studio_softness)
+			if tex := render.studio_texture(&pic.studio); tex != nil do pic.shown = tex
+		}
 		pic.due = picture_gathers(app, sv, pic)
 		return
 	}
@@ -316,6 +330,10 @@ picture_frame :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer, draws: []render.Dra
 			if render.studio_frame(&app.renderer, &pic.studio, cmd, &pic.view.target, view, proj, items, true, int(app.studio_samples), app.studio_ao, app.studio_shadow, lights, &app.pool, app.studio_softness) {
 				if t := render.studio_texture(&pic.studio); t != nil do shown = t
 			}
+		} else if heavy && sv.pass == .Render {
+			// It starts over here and traces from the next frame at rest, the shaded picture
+			// showing until it has samples enough.
+			picture_render(app, cmd, pic, view, proj, items, lights, orbit, true)
 		}
 		pic.shown, pic.key, pic.at, pic.orbit = shown, key, time.tick_now(), orbit
 		pic.draws += 1
@@ -325,10 +343,30 @@ picture_frame :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer, draws: []render.Dra
 	}
 }
 
-// Whether a picture's studio render still gathers samples: it shows Studio, the device runs
-// it, and it has fewer than the studio's count.
+// Whether a picture's studio render or path tracing still gathers samples: it shows Studio
+// or Render, the device runs it, and it has fewer than Scene > Studio render's or Render's
+// count.
 picture_gathers :: proc(app: ^App, sv: ^Second_View, pic: ^Picture) -> bool {
-	return sv.pass == .Studio && render.live_ao_supported(&app.renderer, &pic.ao) && !pic.studio.failed && pic.studio.shown_valid && pic.studio.samples < int(app.studio_samples)
+	if !render.live_ao_supported(&app.renderer, &pic.ao) do return false
+	#partial switch sv.pass {
+	case .Studio:
+		return !pic.studio.failed && pic.studio.shown_valid && pic.studio.samples < int(app.studio_samples)
+	case .Render:
+		pr := &pic.path
+		return !pr.failed && pr.valid && pr.refused == "" && pr.samples < int(clamp(app.render_samples, 1, render.RENDER_SAMPLES_MAX))
+	}
+	return false
+}
+
+// One step of a picture's path tracing, with Scene > Render's settings and the lens seen
+// from the picture's camera; `changed` starts it over.
+@(private = "file")
+picture_render :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer, pic: ^Picture, view, proj: render.Mat4, items: []render.Draw_Item, lights: render.Lights, orbit: camera.Orbit, changed: bool) {
+	samples := int(clamp(app.render_samples, 1, render.RENDER_SAMPLES_MAX))
+	bounces := int(clamp(app.render_bounces, 1, render.RENDER_BOUNCES_MAX))
+	lens := render_lens(app)
+	if lens.on && app.focus == nil do lens.focus = orbit.target
+	_ = render.render_frame(&app.renderer, &pic.path, cmd, &pic.view.target, view, proj, items, changed, samples, bounces, lights, app.studio_softness, app.exposure, app.render_denoise, app.render_half, lens, &app.pool)
 }
 
 // The window: the picture, then the camera and the pass, Flip, Maximise and Close under

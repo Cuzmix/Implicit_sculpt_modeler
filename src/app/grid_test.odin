@@ -144,6 +144,33 @@ a_layout_keeps_a_heavy_pane_pass :: proc(t: ^testing.T) {
 }
 
 @(test)
+render_preview_splits_the_view_and_toggles_back :: proc(t: ^testing.T) {
+	app := new(App)
+	defer free(app)
+	g := &app.kit.grid
+	grid_reset(g)
+	testing.expect_value(t, render_preview_pane(&app.kit), 0)
+	// From a single view the grid goes side by side and its pane follows the main camera on Render.
+	render_preview_toggle(app)
+	testing.expect_value(t, g.preset, Grid_Preset.Side_By_Side)
+	testing.expect_value(t, g.views[.Side_By_Side][0].camera, Second_Camera.Follow)
+	testing.expect_value(t, g.views[.Side_By_Side][0].pass, Second_Pass.Render)
+	testing.expect_value(t, render_preview_pane(&app.kit), 1)
+	// Again, the pane goes back to Shaded and the grid stays.
+	render_preview_toggle(app)
+	testing.expect_value(t, g.preset, Grid_Preset.Side_By_Side)
+	testing.expect_value(t, g.views[.Side_By_Side][0].pass, Second_Pass.Shaded)
+	testing.expect_value(t, render_preview_pane(&app.kit), 0)
+	// A grid that has panes keeps its preset, and a Render pane anywhere in it is the one found.
+	g.preset = .Four
+	g.views[.Four][2].pass = .Render
+	testing.expect_value(t, render_preview_pane(&app.kit), 3)
+	render_preview_toggle(app)
+	testing.expect_value(t, g.preset, Grid_Preset.Four)
+	testing.expect_value(t, render_preview_pane(&app.kit), 0)
+}
+
+@(test)
 work_in_a_pane_lends_the_camera_and_gives_it_back :: proc(t: ^testing.T) {
 	app := new(App)
 	defer free(app)

@@ -591,3 +591,30 @@ grid_work_gpu :: proc(app: ^App) -> bool {
 	want := app.ui.viewport_request
 	return msaa_viewport_resize(app, u32(want.x), u32(want.y))
 }
+
+// Lucide's monitor-play: the render preview pane.
+ICON_RENDER_PREVIEW :: rune(0xe48a)
+
+// The view pane (1 to 3) showing Render in the grid in use, 0 for none.
+render_preview_pane :: proc(k: ^Kit_State) -> int {
+	g := &k.grid
+	for i in 1 ..< grid_count(g.preset) do if g.views[g.preset][i - 1].pass == .Render do return i
+	return 0
+}
+
+// The Render preview pane command, after Blender's second view in Rendered shading and the
+// live render beside the work in Marmoset and Substance: the grid's first view pane (Side by
+// side when the grid was Single) shows Render, linked to the main camera, so the path
+// traced picture follows the view you sculpt in and builds up while you rest. Again, the
+// pane goes back to Shaded and the grid stays as it is.
+render_preview_toggle :: proc(app: ^App) {
+	k := &app.kit
+	g := &k.grid
+	if i := render_preview_pane(k); i != 0 {
+		g.views[g.preset][i - 1].pass = .Shaded
+		return
+	}
+	if g.preset == .Single do grid_set(k, .Side_By_Side)
+	sv := &g.views[g.preset][0]
+	sv.camera, sv.pass = .Follow, .Render
+}
