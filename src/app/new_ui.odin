@@ -462,7 +462,6 @@ Kit_Section :: enum u8 {
 	Material,
 	Lights,
 	Environment,
-	Studio,
 	Render,
 	Lens,
 	Camera,
@@ -1446,7 +1445,7 @@ kit_shading_menu :: proc(app: ^App) {
 	ui.caption(&app.kit.ctx, "  TEXTURES")
 	for v in render.Texture_View.Textured ..= render.Texture_View.Uv_Checker do _ = command_menu_item(app, .Texture_View, int(v))
 	if ui.menu_item(&app.kit.ctx, "Lights and look settings", glyph = ui.ICON_SETTINGS) {
-		bar_pop_toggle(app, .Section, app.kit.bar_pop.at, .Left, .Studio)
+		bar_pop_toggle(app, .Section, app.kit.bar_pop.at, .Left, .Look)
 	}
 }
 

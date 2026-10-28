@@ -6,7 +6,7 @@ import sdl "vendor:sdl3"
 import "../render"
 import "../ui"
 
-// Live ambient occlusion (stage 4.2, render/live_ao.odin): Scene > Studio render's
+// Live ambient occlusion (stage 4.2, render/live_ao.odin): Scene > Look's
 // Occlusion while working darkens creases and contact every frame, sculpting included,
 // with the studio render's Occlusion strength. A view setting, as flat shading is: the
 // switch is remembered in the settings; its Reach is not.
@@ -62,7 +62,7 @@ studio_running :: proc(app: ^App) -> bool {
 	return app.studio_on && !app.studio.failed && pass_shaded(app)
 }
 
-// Scene > Studio render's live occlusion switch, disabled with the reason where the device
+// Scene > Look's live occlusion switch, disabled with the reason where the device
 // cannot read depth in a shader.
 kit_live_ao :: proc(app: ^App) {
 	ctx := &app.kit.ctx

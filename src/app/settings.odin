@@ -204,6 +204,7 @@ SETTINGS := [?]Setting {
 	{"studio_render", offset_of(App, studio_on), bool, 0, 0},
 	{"studio_softness", offset_of(App, studio_softness), f32, render.STUDIO_SOFTNESS_MIN, render.STUDIO_SOFTNESS_MAX},
 	{"studio_ao", offset_of(App, studio_ao), f32, 0, 1},
+	{"render_quality", offset_of(App, render_quality), Render_Quality, 0, 0},
 	{"render_samples", offset_of(App, render_samples), i32, 1, render.RENDER_SAMPLES_MAX},
 	{"render_bounces", offset_of(App, render_bounces), i32, 1, render.RENDER_BOUNCES_MAX},
 	{"render_denoise", offset_of(App, render_denoise), bool, 0, 0},
