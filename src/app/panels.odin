@@ -356,8 +356,9 @@ panel_summary :: proc(app: ^App, ref: Panel_Ref) -> string {
 		case .Objects:
 			n := len(app.scene.objects)
 			return fmt.tprintf("%d object%s", n, "" if n == 1 else "s")
-		case .Studio:
-			return "Render on" if app.studio_on else "Render off"
+		case .Render:
+			if !render_switch_on(app) do return "Off"
+			return "Full" if app.render_on else "Preview"
 		case .Turntable:
 			return fmt.tprintf("%d frames", int(app.turntable_frames))
 		case .Print:

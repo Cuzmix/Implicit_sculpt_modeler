@@ -1,13 +1,11 @@
 package main
 
 import "core:fmt"
-import "core:math"
 import "core:slice"
 import "core:strings"
 
 import "../camera"
 import "../geom"
-import "../render"
 import "../ui"
 
 // The tray's Scene palette: the objects, adding one, and how the whole scene is shown,
@@ -413,7 +411,6 @@ SCENE_SECTIONS := [?]Kit_Tab_Section {
 	{.Material, "Material", kit_material, nil},
 	{.Lights, "Lights", kit_lights, nil},
 	{.Environment, "Environment", kit_environment, nil},
-	{.Studio, "Studio render", kit_studio, nil},
 	{.Render, "Render", kit_render, nil},
 	{.Lens, "Lens", kit_lens, nil},
 	{.Camera, "Camera", kit_camera, nil},
@@ -442,7 +439,7 @@ kit_background :: proc(app: ^App) {
 	} else {
 		_ = kit_color(app, "background top", &b.top)
 	}
-	ui.paragraph(ctx, "The top colour shades into the bottom one down the viewport. Screenshots and the studio render show it too.")
+	ui.paragraph(ctx, "The top colour shades into the bottom one down the viewport. Screenshots and the render show it too.")
 	kit_background_transparent(app)
 }
 
@@ -664,30 +661,6 @@ kit_group_material :: proc(app: ^App, obj: ^Object) {
 		send(app, obj, group, m)
 	}
 	ui.paragraph(ctx, fmt.tprintf("Group %d shows %s. Picking or moving anything here gives it its own; the object's other groups keep theirs.", group, "its own material" if own else "the object's material"))
-}
-
-@(private = "file")
-kit_studio :: proc(app: ^App) {
-	ctx := &app.kit.ctx
-	on := app.studio_on
-	if ui.switch_row(ctx, "Studio render", &on, keys = command_hint(app, .Studio_Render)) do command_run(app, .Studio_Render)
-	_ = ui.slider(ctx, "Occlusion", &app.studio_ao, 0, 1, .Linear, fmt.tprintf("%.2f", app.studio_ao))
-	_ = ui.slider(ctx, "Shadow", &app.studio_shadow, 0, 1, .Linear, fmt.tprintf("%.2f", app.studio_shadow))
-	samples := f32(app.studio_samples)
-	if ui.slider(ctx, "Samples", &samples, 16, STUDIO_SAMPLES_MAX, .Logarithmic, fmt.tprintf("%d", app.studio_samples)) do app.studio_samples = i32(samples + 0.5)
-	kit_live_ao(app)
-	if kit_more(app, .Studio) {
-		_ = ui.slider(ctx, "Shadow softness", &app.studio_softness, render.STUDIO_SOFTNESS_MIN, render.STUDIO_SOFTNESS_MAX, .Logarithmic, fmt.tprintf("%.1f°", math.to_degrees(app.studio_softness)))
-		kit_live_ao_reach(app)
-		kit_more_end(app)
-	}
-	if studio_running(app) && app.studio.samples > 0 && app.studio.samples < int(app.studio_samples) {
-		ui.paragraph(ctx, fmt.tprintf("Built up %d of %d samples.", app.studio.samples, app.studio_samples))
-	}
-	if app.studio_on && app.studio.failed do ui.paragraph(ctx, "The studio render could not be set up on this GPU; the log says why.")
-	if app.studio_on && !app.studio.failed && !pass_shaded(app) do ui.paragraph(ctx, pass_paused_note(app))
-	ui.paragraph(ctx, fmt.tprintf("Ambient occlusion and soft shadows build up while the view stays still; any change starts them over. Shadow softness is how wide the key light is. %s", command_keys(app, .Studio_Render)))
-	ui.paragraph(ctx, "Occlusion while working darkens creases every frame, sculpting too, with the same Occlusion strength; Reach is how far it looks, as a share of the scene's size. With the studio render on it shows until the studio has built up its first samples.")
 }
 
 @(private = "file")

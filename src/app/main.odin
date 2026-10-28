@@ -216,8 +216,8 @@ App :: struct {
 	start_home: bool, // an interactive run given no scene starts on Home (Settings > Interface)
 	timeline: Timeline, // the History panel's scrubbing, playback and time-lapse (timeline.odin)
 	replay:   Replay, // the Stroke recorder's last stroke, recording and replay (replay.odin)
-	// View > Studio render (Shift+R): ambient occlusion and soft shadows built up while
-	// the view stays still (render.Studio).
+	// Scene > Render at Preview quality (render_mode.odin; Shift+R): ambient occlusion and
+	// soft shadows built up while the view stays still (render.Studio).
 	studio:         render.Studio,
 	// Remembered; a device that cannot run it leaves it on and shows the plain viewport
 	// (studio_running), so a failure never saves as "off".
@@ -226,7 +226,7 @@ App :: struct {
 	studio_ao:      f32, // how strongly occlusion darkens, 0 to 1
 	studio_shadow:  f32, // ...and the key light's shadow
 	studio_softness: f32, // the key light's radius in radians, how soft its shadow's edge is
-	// Scene > Studio render > Occlusion while working (live_ao.odin): screen-space ambient
+	// Scene > Look > Occlusion while working (live_ao.odin): screen-space ambient
 	// occlusion every frame, with studio_ao's strength.
 	live_ao:        render.Live_AO,
 	live_ao_on:     bool,
@@ -235,6 +235,7 @@ App :: struct {
 	// remembered; its samples and bounces are.
 	path:           render.Path_Render,
 	render_on:      bool,
+	render_quality: Render_Quality, // Scene > Render's Quality, which the switch turns on
 	render_samples: i32,
 	render_bounces: i32,
 	render_denoise: bool,
@@ -1446,6 +1447,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			fmt.printfln("trace=%d trace_mb=%.1f trace_build_ms=%.1f trace_chunks_built=%d", tr.samples, f64(tr.bytes) / (1 << 20), tr.build_ms, tr.chunks_built)
 			fmt.printfln("live_ao=%d live_ao_full=%d live_ao_partial=%d live_ao_skipped=%d", int(app.live_ao_on), lao.full, lao.partial, lao.skipped)
 			pr := app.path
+			fmt.printfln("render_switch=%d render_quality=%s studio=%d", int(render_switch_on(&app)), "full" if app.render_quality == .Full else "preview", int(app.studio_on))
 			fmt.printfln("render=%d render_samples=%d render_ms=%.1f render_mb=%.1f render_failed=%d", int(app.render_on), pr.total_samples, pr.total_ms / f64(max(pr.total_samples, 1)), f64(pr.bytes) / (1 << 20), int(pr.failed))
 			// Depth of field, whether a point was picked to focus on and where the focus is,
 			// and whether Pick focus still waits for a press.

@@ -1455,7 +1455,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Shading_Menu = {
 		label = "Shading",
-		help = "Opens the shading menu beside its button: wireframe, flat shading, polygroups, the studio render, the looks and the texture views.",
+		help = "Opens the shading menu beside its button: wireframe, flat shading, polygroups, the render, the looks and the texture views.",
 		icon = ICON_SHADING,
 		run = proc(app: ^App, _: int) {bar_menu_toggle(app, .Shading)},
 		checked = proc(app: ^App, _: int) -> bool {return bar_pop_showing(app, .Shading)},
@@ -1525,10 +1525,10 @@ COMMANDS := [Command_Id]Command {
 		checked = proc(app: ^App, _: int) -> bool {return app.see_through},
 	},
 	.Studio_Render = {
-		label = "Studio render",
-		help = "Renders the view with soft shadows while it is still.",
-		run = proc(app: ^App, _: int) {studio_toggle(app)},
-		checked = proc(app: ^App, _: int) -> bool {return app.studio_on},
+		label = "Render",
+		help = "Renders the view while it is still at the Render section's Quality: Preview lays soft shadows and occlusion over the viewport, Full path traces it.",
+		run = proc(app: ^App, _: int) {render_set(app, !render_switch_on(app), app.render_quality)},
+		checked = proc(app: ^App, _: int) -> bool {return render_switch_on(app)},
 	},
 	.Live_Occlusion = {
 		label = "Occlusion while working",
@@ -1537,9 +1537,9 @@ COMMANDS := [Command_Id]Command {
 		checked = proc(app: ^App, _: int) -> bool {return app.live_ao_on},
 	},
 	.Render_Mode = {
-		label = "Render mode",
-		help = "Path traces the view while it is still: every light with soft shadows, the environment, and light bounced between surfaces.",
-		run = proc(app: ^App, _: int) {render_toggle(app)},
+		label = "Full render",
+		help = "Renders the view at Full quality while it is still, path traced: every light with soft shadows, the environment, and light bounced between surfaces.",
+		run = proc(app: ^App, _: int) {render_set(app, !app.render_on, .Full)},
 		checked = proc(app: ^App, _: int) -> bool {return app.render_on},
 	},
 	.Pick_Focus = {
@@ -1556,7 +1556,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Viewport_Look = {
 		label = "Look",
-		help = "Puts on a look: the material, lights, background, shading style, occlusion and studio render together.",
+		help = "Puts on a look: the material, lights, background, shading style, occlusion and the render's Preview together.",
 		args = len(Look_Preset),
 		run = proc(app: ^App, arg: int) {look_apply(app, Look_Preset(arg), true)},
 		checked = proc(app: ^App, arg: int) -> bool {p, ok := look_current(app).?; return ok && int(p) == arg},
