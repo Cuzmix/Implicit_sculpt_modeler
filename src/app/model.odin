@@ -156,6 +156,60 @@ cage_part_get :: proc(app: ^App, r: ^geom.Byte_Reader, obj: ^Object) -> (read, m
 	return true, object_build_cage(app, obj, cage)
 }
 
+// The cage clean-ups of the Model palette: Blender's Limited dissolve and Merge by
+// distance.
+Cage_Tidy :: enum u8 {
+	Dissolve_Flat,
+	Merge_Close,
+}
+
+@(rodata)
+CAGE_TIDY_NAMES := [Cage_Tidy]string {
+	.Dissolve_Flat = "Dissolve flat",
+	.Merge_Close   = "Merge close points",
+}
+
+// How flat two faces must be to join, and how close two points to merge (a share of the
+// cage's largest side).
+CAGE_FLAT_DEGREES :: 5
+CAGE_MERGE_SHARE :: 1e-3
+
+// Runs a clean-up on `obj`'s cage as one undo step, saying what it did. Returns false only
+// on a GPU failure.
+object_tidy_cage :: proc(app: ^App, obj: ^Object, kind: Cage_Tidy) -> bool {
+	cage := &obj.cage.mesh
+	faces, points := len(cage.face_he), len(cage.positions)
+	before := history_snapshot(app, obj, "dissolve flat faces" if kind == .Dissolve_Flat else "merge close points")
+	r: poly.Edit_Result
+	err: poly.Build_Error
+	switch kind {
+	case .Dissolve_Flat:
+		r, err = poly.dissolve_by_angle(cage, CAGE_FLAT_DEGREES)
+	case .Merge_Close:
+		b := poly.mesh_bounds(cage)
+		size := b.hi - b.lo
+		r, _, err = poly.merge_by_distance(cage, CAGE_MERGE_SHARE * max(size.x, size.y, size.z))
+	}
+	poly.edit_result_destroy(&r)
+	if err != .None {
+		history_snapshot_drop(before)
+		report(app, nil, {.Warning}, "%s refused on %s: what it would leave is not a valid cage (%v)", CAGE_TIDY_NAMES[kind], object_label(obj), err)
+		return true
+	}
+	if len(cage.face_he) == faces && len(cage.positions) == points {
+		history_snapshot_drop(before)
+		report(app, nil, {}, "%s: nothing to do on %s", CAGE_TIDY_NAMES[kind], object_label(obj))
+		return true
+	}
+	report(app, nil, {}, "%s: %s went from %d faces and %d points to %d and %d", CAGE_TIDY_NAMES[kind], object_label(obj), faces, points, len(cage.face_he), len(cage.positions))
+	if !cage_rebuild(app, obj) {
+		history_snapshot_drop(before)
+		return false
+	}
+	history_record_swap(app, obj.id, before, kind = .Model)
+	return true
+}
+
 // The commands a cage object refuses: each changes its level in place (vertices, masks,
 // hiding, paint, groups, levels, layers), which the next edit of the cage would undo.
 CAGE_REFUSED_COMMANDS :: bit_set[Command_Id; [4]u64]{
@@ -224,10 +278,17 @@ kit_model_tab :: proc(app: ^App) {
 	for a, i in Model_Action do actions[i] = MODEL_ACTION_NAMES[a]
 	if picked := ui.select(ctx, "model action", actions[:], int(m.action)); picked >= 0 do command_run(app, .Model_Action, picked)
 	ui.caption(ctx, "TARGET")
-	targets: [len(Model_Target)]string
-	for g, i in Model_Target do targets[i] = MODEL_TARGET_NAMES[g]
-	if picked := ui.select(ctx, "model target", targets[:], int(model_target(m, m.action))); picked >= 0 do command_run(app, .Model_Target, picked)
-	how := "Press and drag to set how far; Shift snaps to steps" if m.action in MODEL_DRAGS else "Tap a face to act"
+	// Only the targets the action can take.
+	targets := make([dynamic]string, context.temp_allocator)
+	which := make([dynamic]Model_Target, context.temp_allocator)
+	chosen := 0
+	for g in MODEL_ACTION_TARGETS[m.action] {
+		if g == model_target(m, m.action) do chosen = len(which)
+		append(&targets, MODEL_TARGET_NAMES[g])
+		append(&which, g)
+	}
+	if picked := ui.select(ctx, "model target", targets[:], chosen); picked >= 0 do command_run(app, .Model_Target, int(which[picked]))
+	how := MODEL_ACTION_HOW[m.action]
 	if alt := MODEL_ACTION_ALT[m.action]; alt != "" {
 		ui.paragraph(ctx, fmt.tprintf("%s. Held Ctrl (the wheel's Invert): %s.", how, alt))
 	} else {
@@ -237,6 +298,7 @@ kit_model_tab :: proc(app: ^App) {
 		g := f32(m.group)
 		if ui.slider(ctx, "Polygroup", &g, 0, 64, .Linear, fmt.tprint(m.group)) do m.group = u16(clamp(int(g + 0.5), 0, 64))
 	}
+	kit_command_pair(app, .Tidy_Cage, .Tidy_Cage, arg_a = int(Cage_Tidy.Dissolve_Flat), arg_b = int(Cage_Tidy.Merge_Close), label_a = "Dissolve flat", label_b = "Merge close")
 	ui.caption(ctx, "NEW CAGE")
 	names: [len(poly.Primitive)]string
 	for p, i in poly.Primitive do names[i] = poly.PRIMITIVE_NAMES[p]
