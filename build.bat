@@ -1,5 +1,5 @@
 @echo off
-rem Usage: build.bat [debug|release|test|run|smoke|bench|gpubench|computebench|check|android|androidrun]   (see build.sh for what each does)
+rem Usage: build.bat [debug|release|test|run|smoke|bench|gpubench|computebench|check|iphonecheck|android|androidrun]   (see build.sh for what each does)
 rem Run scripts\setup_deps.bat first.
 rem Modes are labels rather than if-blocks: an `exit /b 1` inside a parenthesised block
 rem returns 0 to whoever ran `cmd /c build.bat`, so a failure would pass unnoticed.
@@ -11,7 +11,10 @@ if not exist "%ODIN%" ( echo deps missing: run scripts\setup_deps.bat first & ex
 set MODE=%1
 if "%MODE%"=="" set MODE=debug
 set COMMON=-collection:deps="%DEPS%" -vet -strict-style -warnings-as-errors
+rem The oldest iPadOS the iPad build runs on; build.sh says why.
+set IOS_MIN=17.4
 if "%MODE%"=="check" goto check
+if "%MODE%"=="iphonecheck" goto iphonecheck
 if "%MODE%"=="android" goto android
 if "%MODE%"=="androidrun" goto android
 rem The app links Luau for script plugins, which setup_deps builds from source.
@@ -59,6 +62,14 @@ rem Library packages have no main, hence -no-entry-point; it is harmless on the 
 python "%ROOT%scripts\agents_sync.py" --check || exit /b 1
 python "%ROOT%scripts\boundary_check.py" || exit /b 1
 echo check: 15 packages type-check, agent mirror current, only render names the GPU API
+exit /b 0
+
+:iphonecheck
+rem The app for the iPad as the arm64 object build.sh ios links on a Mac, without Xcode or
+rem linking, so iOS-only compile errors show up here too.
+if not exist "%ROOT%build\ios" mkdir "%ROOT%build\ios"
+"%ODIN%" build "%ROOT%src\app" -target:darwin_arm64 -subtarget:iphone -build-mode:obj -use-single-module -minimum-os-version:%IOS_MIN% -out:"%ROOT%build\ios\sculpt.o" %COMMON% -o:speed -no-bounds-check || exit /b 1
+echo iphonecheck: app compiles for the iPad (arm64, iPadOS %IOS_MIN%)
 exit /b 0
 
 :debug

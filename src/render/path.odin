@@ -57,7 +57,7 @@ RENDER_GROUP :: 8
 // TRACE_BUFFER_MAX: render mode copies the traced meshes, so a large scene refuses rather
 // than crowd out the rest of the app.
 @(private = "file")
-RENDER_SCENE_MAX :: 256 << 20 when ODIN_PLATFORM_SUBTARGET == .Android else max(int)
+RENDER_SCENE_MAX :: 256 << 20 when MOBILE else max(int)
 // A frame that took longer than this halves the rows a frame takes, one under the
 // shorter doubles them: the sample's cost spread so the interface keeps its frame rate.
 @(private = "file")
@@ -280,7 +280,7 @@ render_frame :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer,
 	}
 	// The bands follow how long frames take, never what the image is: a pixel's samples
 	// depend only on the pixel and the sample.
-	if pr.rows == 0 do pr.rows = pr.height if ODIN_PLATFORM_SUBTARGET != .Android else max(pr.height / 4, RENDER_ROWS_MIN)
+	if pr.rows == 0 do pr.rows = pr.height if !MOBILE else max(pr.height / 4, RENDER_ROWS_MIN)
 	if interval > RENDER_FRAME_SLOW do pr.rows = max(pr.rows / 2, RENDER_ROWS_MIN)
 	else if interval > 0 && interval < RENDER_FRAME_FAST do pr.rows = min(pr.rows * 2, pr.height)
 	if pr.row == 0 do pr.sample_started = now

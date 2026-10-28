@@ -17,9 +17,10 @@ Msaa :: enum u8 {
 // In the order of Msaa, for the Settings panel.
 MSAA_NAMES := [len(Msaa)]string{"Off", "2x", "4x"}
 
-// 4x where the GPU has bandwidth to spare. Android's tiled GPUs pay for keeping the
-// samples between frames (partial redraw and the idle cache load them again), so 2x there.
-MSAA_DEFAULT :: Msaa.X2 when ODIN_PLATFORM_SUBTARGET == .Android else Msaa.X4
+// 4x where the GPU has bandwidth to spare. Tablets' tiled GPUs (Android's and the iPad's)
+// pay for keeping the samples between frames (partial redraw and the idle cache load them
+// again), so 2x there.
+MSAA_DEFAULT :: Msaa.X2 when MOBILE else Msaa.X4
 
 msaa_samples :: proc(m: Msaa) -> render.Sample_Count {
 	switch m {

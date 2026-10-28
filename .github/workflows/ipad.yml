@@ -1,0 +1,54 @@
+name: iPad build
+
+# Builds an unsigned Sculpt.ipa on GitHub's macOS runner (./build.sh ios) for AltStore to
+# sign on the iPad. It runs only when started by hand (Actions > iPad build > Run workflow),
+# so the macOS minutes a private repository pays for go only to builds someone asked for.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ipad-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ipa:
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read the pins
+        run: grep -E '^(ODIN|SDL)_TAG=' scripts/versions.env >> "$GITHUB_ENV"
+
+      - name: Odin, the pinned release
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/odin.tar.gz" \
+            "https://github.com/odin-lang/Odin/releases/download/$ODIN_TAG/odin-macos-arm64-$ODIN_TAG.tar.gz"
+          mkdir -p "$RUNNER_TEMP/odin" deps
+          tar -xzf "$RUNNER_TEMP/odin.tar.gz" -C "$RUNNER_TEMP/odin"
+          mv "$RUNNER_TEMP"/odin/odin-macos-arm64-* deps/odin
+          deps/odin/odin version
+
+      - name: SDL source, the pinned tag
+        run: git clone -q --depth 1 -b "$SDL_TAG" https://github.com/libsdl-org/SDL.git deps/sdl3-src
+
+      - name: SDL built for the iPad, cached
+        uses: actions/cache@v4
+        with:
+          path: build/ios/sdl
+          key: sdl-ios-${{ env.SDL_TAG }}-${{ hashFiles('build.sh') }}
+
+      - name: Build Sculpt.ipa
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
+        run: ./build.sh ios
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Sculpt-ipa
+          path: build/ios/Sculpt.ipa
+          if-no-files-found: error
+          retention-days: 14

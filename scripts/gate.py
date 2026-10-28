@@ -7,6 +7,7 @@ Runs, in order, stopping at the first failure:
     build      the debug app
     smoke      300 frames under GPU validation (no leaks, no asserts)
     touch      scripts/touch_check.py, every scenario, in parallel
+    iphone     the app compiled for the iPad (arm64), to an object file
     wincheck   the app and bench compiled for Windows (Linux only)
     android    the app compiled for Android arm64 (Linux only)
 
@@ -33,7 +34,7 @@ import time
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WINDOWS = os.name == "nt"
 LOGS = os.path.join(ROOT, "build", "gate")
-ORDER = ["check", "test", "build", "smoke", "touch", "wincheck", "android"]
+ORDER = ["check", "test", "build", "smoke", "touch", "iphone", "wincheck", "android"]
 # The display the scripted scenarios need: tall enough for the Settings scenarios.
 XVFB = ["xvfb-run", "-a", "-s", "-screen 0 1600x1400x24"]
 
@@ -81,6 +82,7 @@ def steps(touch_args):
         ("build", build_cmd("debug"), lambda log: ""),
         ("smoke", needs_display(build_cmd("smoke")), summary_smoke),
         ("touch", needs_display([python, os.path.join(ROOT, "scripts", "touch_check.py")] + touch_args), summary_touch),
+        ("iphone", build_cmd("iphonecheck"), summary_last),
     ]
     if not WINDOWS:
         out += [
