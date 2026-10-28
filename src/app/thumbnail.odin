@@ -379,6 +379,7 @@ picture_render :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer, pic: ^Picture, vie
 // Returns true when a press landed on it, to bring it to the front.
 kit_thumbnail :: proc(app: ^App) -> (raised: bool) {
 	k := &app.kit
+	if k.chrome == .Lens do return kit_mini_view(app)
 	ctx := &k.ctx
 	t := ctx.theme
 	sv := &k.second

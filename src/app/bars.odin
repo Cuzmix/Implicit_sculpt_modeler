@@ -24,6 +24,7 @@ Bar_Which :: enum u8 {
 	Shortcuts, // the right bar's column
 	Tools, // the bottom bar's strip
 	Dock,
+	View_Rail, // the Lens layout's view rail, down the pen side (lens_chrome.odin)
 }
 
 @(rodata)
@@ -31,6 +32,7 @@ BAR_NAMES := [Bar_Which]string {
 	.Shortcuts = "THE RIGHT BAR",
 	.Tools     = "THE BOTTOM BAR",
 	.Dock      = "THE DOCK",
+	.View_Rail = "THE VIEW RAIL",
 }
 
 // Each bar's name in settings.txt: the zone of the screen it holds, so a later layout that
@@ -40,6 +42,7 @@ BAR_ZONES := [Bar_Which]string {
 	.Shortcuts = "right_rail",
 	.Tools     = "bottom_tools",
 	.Dock      = "dock",
+	.View_Rail = "view_rail",
 }
 
 // The bar a zone name names; the dock's slots keep their own dock lines.
@@ -50,6 +53,7 @@ bar_zone :: proc(name: string) -> (Bar_Which, bool) {
 
 SHORTCUTS_MAX :: 16
 TOOLS_MAX :: 8
+VIEW_RAIL_MAX :: 12
 
 // A bar's commands, `count` of them in use.
 Bar_List :: struct {
@@ -64,6 +68,13 @@ SHORTCUTS_DEFAULT :: [?]Bar_Slot {
 	{.Focus_Selected, 0}, {.Wireframe, 0}, {.Transparency, 0}, {.Ghost_Object, 0}, {.Solo_Object, 0},
 }
 TOOLS_DEFAULT :: [?]Bar_Slot{{.Tool_Move, 0}, {.Remesh, 0}, {.Dyntopo_Toggle, 0}, {.Retopologize, 0}, {.Subdivide, 0}, {.Live_Boolean, 0}}
+// The Lens view rail's eight one-tap view tools, as the mockups have them: the view
+// layout, the passes, the camera, framing, symmetry, the wireframe, the lights and the
+// mini view.
+VIEW_RAIL_DEFAULT :: [?]Bar_Slot {
+	{.View_Layout_Menu, 0}, {.Pass_Menu, 0}, {.Camera_Menu, 0}, {.Focus_Selected, 0}, {.Symmetry_X, 0}, {.Wireframe, 0},
+	{.Show_Section, int(Kit_Section.Lights)}, {.Thumbnail, 0},
+}
 
 // A slot the palette is choosing a command for: slot `slot` of bar `which`, or with `add`
 // set a new slot put in at `slot`.
@@ -89,13 +100,40 @@ bar_list_of :: proc(slots: []Bar_Slot) -> (l: Bar_List) {
 
 // Puts every bar back as a fresh install has it.
 bars_reset :: proc(k: ^Kit_State) {
-	shortcuts, tools := SHORTCUTS_DEFAULT, TOOLS_DEFAULT
-	k.shortcuts, k.tools = bar_list_of(shortcuts[:]), bar_list_of(tools[:])
+	bar_lists_reset(k)
 	dock_reset(k)
 }
 
+// Puts the column, the strip and the view rail back as a fresh install has them.
+bar_lists_reset :: proc(k: ^Kit_State) {
+	for which in ([3]Bar_Which{.Shortcuts, .Tools, .View_Rail}) do bar_list_k(k, which)^ = bar_fresh(which)
+}
+
+// A fresh install's list for the column, the strip or the view rail.
+bar_fresh :: proc(which: Bar_Which) -> Bar_List {
+	#partial switch which {
+	case .Shortcuts:
+		d := SHORTCUTS_DEFAULT
+		return bar_list_of(d[:])
+	case .View_Rail:
+		d := VIEW_RAIL_DEFAULT
+		return bar_list_of(d[:])
+	}
+	d := TOOLS_DEFAULT
+	return bar_list_of(d[:])
+}
+
 bar_list :: proc(app: ^App, which: Bar_Which) -> ^Bar_List {
-	return &app.kit.shortcuts if which == .Shortcuts else &app.kit.tools
+	return bar_list_k(&app.kit, which)
+}
+
+// The list behind the column, the strip or the view rail (the dock keeps its own slots).
+bar_list_k :: proc(k: ^Kit_State, which: Bar_Which) -> ^Bar_List {
+	#partial switch which {
+	case .Shortcuts: return &k.shortcuts
+	case .View_Rail: return &k.view_rail
+	}
+	return &k.tools
 }
 
 // The commands bar `which` (the column or the strip) shows.
@@ -110,6 +148,7 @@ bar_capacity :: proc(which: Bar_Which) -> int {
 	case .Shortcuts: return SHORTCUTS_MAX
 	case .Tools:     return TOOLS_MAX
 	case .Dock:      return DOCK_SLOTS
+	case .View_Rail: return VIEW_RAIL_MAX
 	}
 	return 0
 }
@@ -125,28 +164,21 @@ bar_changed :: proc(app: ^App, which: Bar_Which) -> bool {
 	return bar_list_changed(&app.kit, which)
 }
 
-// Whether the column's or the strip's list differs from a fresh install's.
+// Whether the column's, the strip's or the view rail's list differs from a fresh install's.
 @(private = "file")
 bar_list_changed :: proc(k: ^Kit_State, which: Bar_Which) -> bool {
-	fresh: Bar_List
-	if which == .Shortcuts {
-		d := SHORTCUTS_DEFAULT
-		fresh = bar_list_of(d[:])
-	} else {
-		d := TOOLS_DEFAULT
-		fresh = bar_list_of(d[:])
-	}
-	l := &k.shortcuts if which == .Shortcuts else &k.tools
+	fresh := bar_fresh(which)
+	l := bar_list_k(k, which)
 	return l.count != fresh.count || l.slots != fresh.slots
 }
 
-// The lines of the column and the strip, each written whole where it differs from a fresh
-// install's (`bar_count <zone> N`, then `bar <zone> <slot> <command>`): the settings
-// file's and a workspace's layout's.
+// The lines of the column, the strip and the view rail, each written whole where it differs
+// from a fresh install's (`bar_count <zone> N`, then `bar <zone> <slot> <command>`): the
+// settings file's and a workspace's layout's.
 bars_save :: proc(k: ^Kit_State, out: ^strings.Builder) {
-	for which in ([2]Bar_Which{.Shortcuts, .Tools}) {
+	for which in ([3]Bar_Which{.Shortcuts, .Tools, .View_Rail}) {
 		if !bar_list_changed(k, which) do continue
-		l := &k.shortcuts if which == .Shortcuts else &k.tools
+		l := bar_list_k(k, which)
 		used := l.slots[:clamp(l.count, 0, bar_capacity(which))]
 		fmt.sbprintfln(out, "bar_count %s %d", BAR_ZONES[which], len(used))
 		for s, i in used do fmt.sbprintfln(out, "bar %s %d %s", BAR_ZONES[which], i, command_name(s.id, s.arg))
@@ -160,14 +192,14 @@ bars_load_line :: proc(k: ^Kit_State, f: []string) {
 	case "bar_count":
 		if len(f) != 3 do return
 		which, zone_ok := bar_zone(f[1])
-		l := &k.shortcuts if which == .Shortcuts else &k.tools
+		l := bar_list_k(k, which)
 		if n, ok := strconv.parse_int(f[2]); ok && zone_ok do l.count = clamp(n, 0, bar_capacity(which))
 	case "bar":
 		if len(f) != 4 do return
 		which, zone_ok := bar_zone(f[1])
 		slot, slot_ok := strconv.parse_int(f[2])
 		if !zone_ok || !slot_ok || slot < 0 || slot >= bar_capacity(which) do return
-		l := &k.shortcuts if which == .Shortcuts else &k.tools
+		l := bar_list_k(k, which)
 		if id, arg, ok := command_from_name(f[3]); ok && bar_lists(id) do l.slots[slot] = {id, arg}
 	}
 }
@@ -204,6 +236,7 @@ bar_title :: proc(which: Bar_Which) -> string {
 	case .Shortcuts: return "The right bar"
 	case .Tools:     return "The bottom bar"
 	case .Dock:      return "The dock"
+	case .View_Rail: return "The view rail"
 	}
 	return ""
 }
@@ -265,7 +298,7 @@ bar_slot_actions :: proc(app: ^App, which: Bar_Which, slot: int) -> (close: bool
 	k := &app.kit
 	ctx := &k.ctx
 	count := bar_count(app, which)^
-	across := which != .Shortcuts
+	across := which != .Shortcuts && which != .View_Rail
 	if ui.icon_button(ctx, "Move earlier", ICON_CHEVRON_LEFT if across else ui.ICON_CHEVRON_UP, enabled = slot > 0) do bar_slot_moved(app, which, bar_move(app, which, slot, -1))
 	if ui.icon_button(ctx, "Move later", ui.ICON_CHEVRON_RIGHT if across else ui.ICON_CHEVRON_DOWN, enabled = slot < count - 1) do bar_slot_moved(app, which, bar_move(app, which, slot, 1))
 	if ui.icon_button(ctx, "Remove from the bar", ui.ICON_TRASH, enabled = which != .Dock || count > 1) {
@@ -293,6 +326,7 @@ bar_label :: proc(s: Bar_Slot) -> string {
 	case .Tool_Move:    return "Gizmo"
 	case .Objects_Card: return "Objects"
 	case .Inspector:    return "Palettes"
+	case .Show_Section: return tray_section_title(Kit_Section(s.arg))
 	}
 	return command_label(s.id, s.arg)
 }
@@ -320,6 +354,12 @@ bar_icon :: proc(s: Bar_Slot) -> rune {
 	case .Objects_Card:    return ICON_OBJECTS
 	case .Command_Palette: return ui.ICON_SEARCH
 	case .Brush:           return BRUSHES[sculpt.Brush_Kind(s.arg)].icon
+	case .Camera_Menu:     return ICON_CAMERA
+	case .Shading_Menu:    return ICON_SHADING
+	case .Thumbnail:       return ICON_MINI_VIEW
+	case .View_Layout_Menu: return ICON_VIEW_LAYOUT
+	case .Pass_Menu:       return ICON_PASSES
+	case .Show_Section:    if Kit_Section(s.arg) == .Lights do return ui.ICON_SUN
 	}
 	return palette_icon({.Command, s.id, s.arg})
 }
@@ -358,6 +398,9 @@ bar_lit :: proc(app: ^App, s: Bar_Slot) -> bool {
 	case .Remesh:          return bar_pop_showing(app, .Remesh_Quick)
 	case .Shading_Menu:    return bar_pop_showing(app, .Shading)
 	case .Camera_Menu:     return bar_pop_showing(app, .Camera)
+	case .View_Layout_Menu: return bar_pop_showing(app, .View_Layout)
+	case .Pass_Menu:       return k.passes.menu
+	case .Show_Section:    return p.open && p.kind == .Section && p.section == Kit_Section(s.arg)
 	case .Inspector:       return tray_shown(app)
 	case .Command_Palette: return k.palette
 	}
@@ -370,13 +413,23 @@ bar_enabled :: proc(app: ^App, s: Bar_Slot) -> bool {
 }
 
 // What a tap on a slot's button does, the button at `at`, its popovers opening `side` of
-// it: Shading and Camera open their menu beside it, Retopologize its section; the rest run.
+// it: Shading, Camera, View layout and Passes open their menu beside it, Retopologize (and
+// in Lens a shown section) their section; the rest run.
 bar_slot_run :: proc(app: ^App, s: Bar_Slot, at: ui.Rect, side: ui.Side) {
 	k := &app.kit
 	#partial switch s.id {
-	case .Shading_Menu, .Camera_Menu:
-		kind := Bar_Pop_Kind.Shading if s.id == .Shading_Menu else .Camera
+	case .Shading_Menu, .Camera_Menu, .View_Layout_Menu:
+		kind := Bar_Pop_Kind.Shading if s.id == .Shading_Menu else .Camera if s.id == .Camera_Menu else .View_Layout
 		k.bar_at[kind], k.bar_side[kind] = at, side
+	case .Pass_Menu:
+		k.passes.menu_at, k.passes.menu_side = at, side
+	case .Show_Section:
+		// In Lens a section on a bar opens beside its button, as the brush bar's do, rather
+		// than in the tray across the window; Classic keeps the tray.
+		if k.chrome == .Lens {
+			bar_pop_toggle(app, .Section, at, side, Kit_Section(s.arg))
+			return
+		}
 	case .Retopologize:
 		bar_pop_toggle(app, .Section, at, side, .Retopo)
 		return
@@ -427,7 +480,7 @@ bar_slot_button :: proc(app: ^App, which: Bar_Which, slot: int, s: Bar_Slot, siz
 
 // Which side of a bar's buttons its popovers open.
 bar_side :: proc(which: Bar_Which) -> ui.Side {
-	return .Left if which == .Shortcuts else .Above_Center
+	return .Left if which == .Shortcuts || which == .View_Rail else .Above_Center
 }
 
 // The ring round a slot while customising.

@@ -25,6 +25,7 @@ Passes :: struct {
 	recording:  bool,
 	menu:       bool,
 	menu_at:    ui.Rect,
+	menu_side:  ui.Side, // under the chip, or beside the view rail's Passes button
 	switches:   int, // for the exit stats
 	// Wipe compare: the main view shows the pass picked left of a line and the last other
 	// pass right of it, the line at `wipe_at` of the pane's width. Never kept, never undone.
@@ -197,14 +198,39 @@ kit_pass_chip :: proc(app: ^App) {
 	ui.begin(ctx, "pass chip cell", {direction = .Row, width = pass_chip_width(ctx)})
 	defer ui.end(ctx)
 	parts := []ui.Chip_Part{{text = "Pass"}, {text = PASS_LABELS[shown], strong = true, accent = shown != .Shaded}}
-	if ui.chip(ctx, "Pass##chip", parts, command_hint(app, .View_Pass, int(ps.pass))) {
+	clicked := ui.chip(ctx, "Pass##chip", parts, command_hint(app, .View_Pass, int(ps.pass)))
+	pass_chip_follow(k, ctx.last_rect, clicked)
+}
+
+// After a pass chip at `at` (the top bar's, or Lens's over the view): a tap opens the list
+// under it or closes it, a hold peeks, and the list follows the chip unless a bar's
+// Passes button opened it beside itself.
+pass_chip_follow :: proc(k: ^Kit_State, at: ui.Rect, clicked: bool) {
+	ps := &k.passes
+	if clicked {
 		was := ps.menu
 		kit_floats_close(k)
 		ps.menu = !was
+		ps.menu_side = .Below
 	}
-	ps.chip_held = ui.held_long(ctx)
+	ps.chip_held = ui.held_long(&k.ctx)
 	if ps.chip_held do ps.menu = false
-	ps.menu_at = ctx.last_rect
+	if ps.menu_side == .Below || ps.menu_at.w <= 0 do ps.menu_at, ps.menu_side = at, .Below
+}
+
+// The Pass_Menu command: opens the list beside the button that last showed it (the chip, or
+// the view rail's Passes), or closes it. Run from Search or keys with neither laid out, it
+// opens beside the top of the view rail.
+pass_menu_toggle :: proc(app: ^App) {
+	k := &app.kit
+	ps := &k.passes
+	if ps.menu {
+		ps.menu = false
+		return
+	}
+	kit_floats_close(k)
+	if ps.menu_at.w <= 0 do ps.menu_at, ps.menu_side = ui.prev_rect(&k.ctx, "view bar"), .Left
+	ps.menu = true
 }
 
 // The chip's list: every pass with its key, then Back to the last one.
@@ -212,7 +238,7 @@ kit_pass_menu :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
 	ps := &k.passes
-	if !ui.popover_begin(ctx, "pass menu", &ps.menu, ps.menu_at, .Below, {direction = .Column, gap = 0, padding = 6, width = 260}) do return
+	if !ui.popover_begin(ctx, "pass menu", &ps.menu, ps.menu_at, ps.menu_side, {direction = .Column, gap = 0, padding = 6, width = 260}) do return
 	defer ui.popover_end(ctx)
 	ui.caption(ctx, "  PASSES")
 	picked := false

@@ -238,6 +238,8 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.View_Windows_Close = "close view windows monitor second screen",
 	.Chrome_Classic   = "classic layout zbrush ipad old interface lens brush bar wheel dock",
 	.Clean_View       = "clean view hide interface chrome controls zen distraction free fullscreen tab",
+	.View_Layout_Menu = "view layout grid split panes quad four single preset menu",
+	.Pass_Menu        = "passes pass menu normals depth curvature silhouette occlusion ao matcap wipe",
 	.Settings         = "preferences options",
 	.Reduce_Motion    = "animation accessibility",
 }
