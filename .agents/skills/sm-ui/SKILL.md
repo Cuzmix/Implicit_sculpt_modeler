@@ -108,7 +108,7 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   Read what shows with `viewport_pass(k)`; the layout writes `pass` only when not Shaded and never a peek.
 - View grid (`src/app/grid.odin`, `k.grid: View_Grid`, command `View_Grid`): presets only (`grid_cells`, pixel-snapped),
   pane 0 is the main view, panes 1-3 are `Second_View`s per preset drawn by `picture_frame` into `App.panes` (one
-  picture a frame, `app.pictures_drawn`); `view_grid_room` spans the docked columns; a divider drag freezes the target and
+  picture a frame, `app.pictures_drawn`); `view_grid_room` is the window while `k.panes_under` (default; panels float over the panes, a head avoids columns and wraps to two rows when narrow), else spans the docked columns; `Theme.panel_shadow` lifts `.Panel`s (Lens only); a divider drag freezes the target and
   pane sizes (`g.dragged`); layout lines `grid`/`pane` only when not Single, splits in thousandths.
 - Second view (`src/app/thumbnail.odin`, `k.second: Second_View`, the Thumbnail window and command): the picture is a
   `ui.area` (`second_view_input`): on a linked view (`second_linked`: Follow, Mirror) a drag turns `app.camera` itself

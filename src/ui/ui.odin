@@ -591,6 +591,7 @@ end :: proc(ctx: ^Context) {
 		switch c.box.background {
 		case .None:
 		case .Panel:
+			if t.panel_shadow.a > 0 do shadow_rect(ctx, c.rect, c.box.radius, t.panel_shadow)
 			fill_rect(ctx, c.rect, c.box.radius, t.surface)
 			stroke_rect(ctx, c.rect, c.box.radius, t.border, 1)
 		case .Raised:

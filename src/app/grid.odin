@@ -193,14 +193,15 @@ grid_set :: proc(k: ^Kit_State, preset: Grid_Preset) {
 	k.grid.preset, k.grid.maximised = preset, 0
 }
 
-// The grid's room in points: the whole window in Single, as the viewport always was;
-// with more panes, the room between the docked columns (as last laid out), so no pane
-// lies under one. Too narrow a room between them keeps the window.
+// The grid's room in points: the whole window in Single, as the viewport always was, and
+// with more panes while they run under the panels (Settings > Interface, the default); else
+// the room between the docked columns (as last laid out), so no pane lies under one. Too
+// narrow a room between them keeps the window.
 view_grid_room :: proc(app: ^App) -> ui.Rect {
 	k := &app.kit
 	win := k.ctx.input.window
 	whole := ui.Rect{0, 0, win.x, win.y}
-	if k.grid.preset == .Single do return whole
+	if k.grid.preset == .Single || k.panes_under do return whole
 	lo, hi := f32(0), win.x
 	for side in Column_Side {
 		c := k.panels.rect[side]
@@ -210,6 +211,18 @@ view_grid_room :: proc(app: ^App) -> ui.Rect {
 	}
 	if hi - lo < win.x * 0.4 do return whole
 	return {lo, 0, hi - lo, win.y}
+}
+
+// Where a docked left column ends, so a pane's head that would lie under it starts right of
+// it instead while the panes run under the panels; 0 with none.
+grid_left_column_edge :: proc(app: ^App) -> f32 {
+	k := &app.kit
+	edge: f32 = 0
+	for side in Column_Side {
+		c := k.panels.rect[side]
+		if c.w > 0 && c.x + c.w * 0.5 < k.ctx.input.window.x * 0.5 do edge = max(edge, c.x + c.w + GRID_COLUMN_GAP)
+	}
+	return edge
 }
 
 // Points between a docked column and the grid.
@@ -333,8 +346,17 @@ kit_view_pane :: proc(app: ^App, i: int, r: ui.Rect) {
 	if app.panes[i - 1].shown != nil do ui.image(ctx, a.rect, KIT_PANE_IMAGE + u64(i - 1))
 	second_view_input(app, sv, a)
 	ui.end(ctx)
-	head := [2]f32{max(r.x, kit_left(app)) + 6, max(r.y, kit_top() - 8) + 6}
-	ui.begin_at(ctx, fmt.tprintf("view pane %d head", i), head, {direction = .Row, center = true, gap = 4, padding = 4, radius = t.radius_large, background = .Panel})
+	head := [2]f32{max(r.x, kit_left(app), grid_left_column_edge(app)) + 6, max(r.y, kit_top() - 8) + 6}
+	// Under the panels a docked right column may cover the pane's right part: a head too
+	// wide for the room left of it takes two rows, so Link and Maximise stay in reach.
+	room := r.x + r.w - head.x - 6
+	for side in Column_Side {
+		c := k.panels.rect[side]
+		if c.w > 0 && c.x > head.x && c.x < r.x + r.w do room = min(room, c.x - GRID_COLUMN_GAP - head.x)
+	}
+	narrow := room < 2 * 4 + 14 + 2 * GRID_SELECT_W + 2 * t.target + 4 * 4
+	ui.begin_at(ctx, fmt.tprintf("view pane %d head", i), head, {direction = .Column, gap = 0, padding = 4, radius = t.radius_large, background = .Panel})
+	ui.begin(ctx, "first row", {direction = .Row, center = true, gap = 4})
 	dot, ring := second_color(t, sv, i)
 	camera_dot(ctx, dot, ring)
 	cameras := make([]string, len(Second_Camera), context.temp_allocator)
@@ -343,13 +365,23 @@ kit_view_pane :: proc(app: ^App, i: int, r: ui.Rect) {
 		if Second_Camera(picked) == .Free do second_free(app, sv)
 		else do sv.camera = Second_Camera(picked)
 	}
+	linked := second_linked(sv)
+	link :: proc(app: ^App, sv: ^Second_View, linked: bool) {
+		if ui.icon_button(&app.kit.ctx, "Unlink from the main camera" if linked else "Link to the main camera", ICON_LINK, selected = linked) do second_link_toggle(app, sv)
+	}
+	if narrow {
+		link(app, sv, linked)
+		ui.end(ctx)
+		ui.begin(ctx, "second row", {direction = .Row, center = true, gap = 4})
+		ui.spacer(ctx, 14)
+	}
 	passes := make([]string, len(Second_Pass), context.temp_allocator)
 	for name, kind in SECOND_PASS_NAMES do passes[kind] = name
 	if picked := ui.select(ctx, "Shows", passes, int(sv.pass), GRID_SELECT_W); picked >= 0 do sv.pass = Second_Pass(picked)
-	linked := second_linked(sv)
-	if ui.icon_button(ctx, "Unlink from the main camera" if linked else "Link to the main camera", ICON_LINK, selected = linked) do second_link_toggle(app, sv)
+	if !narrow do link(app, sv, linked)
 	maxed := g.maximised == i
 	if ui.icon_button(ctx, "Restore" if maxed else "Maximise", ui.ICON_MINIMISE if maxed else ui.ICON_RESTORE, selected = maxed) do g.maximised = 0 if maxed else i
+	ui.end(ctx)
 	ui.end(ctx)
 }
 

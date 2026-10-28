@@ -156,6 +156,9 @@ Kit_State :: struct {
 	help_scroll: f32,
 	ui_scale:   f32, // the interface's size, times what the display asks for (Settings > Interface)
 	surface_ring: bool, // the brush ring lies on the surface rather than flat on the screen (cursor.odin)
+	// The view grid's panes run under the docked columns, the panels floating over them,
+	// rather than stopping beside them (Settings > Interface; grid.odin).
+	panes_under:  bool,
 	rail_side:  Rail_Side, // where the modifier wheel sits, if anywhere (modifiers.odin)
 	// What the workspace hides, and the workspaces (workspaces.odin).
 	hidden:     bit_set[Zone],
@@ -710,6 +713,7 @@ kit_init :: proc(app: ^App) {
 	k.add_size = 2 // 1M
 	k.ui_scale = 1
 	k.surface_ring = true
+	k.panes_under = true
 	k.rail_side, k.wheel_size = .Left, .Medium
 	k.action_bar = true
 	bars_reset(k)
