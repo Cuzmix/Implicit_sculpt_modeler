@@ -477,15 +477,17 @@ kit_model_tab :: proc(app: ^App) {
 		// the cage, which keeps its edges and is what every action works on.
 		ui.caption(ctx, "SURFACE")
 		steps := [poly.SUBDIVIDE_MAX + 1]string{"Off", "1", "2", "3", "4"}
-		if picked := ui.tabs(ctx, "cage smooth", steps[:], obj.cage.look.smooth); picked >= 0 do command_run(app, .Cage_Smooth, picked)
+		hints: [poly.SUBDIVIDE_MAX + 1]string
+		for &h, i in hints do h = command_hint(app, .Cage_Smooth, i)
+		if picked := ui.tabs(ctx, "cage smooth", steps[:], obj.cage.look.smooth, keys = hints[:]); picked >= 0 do command_run(app, .Cage_Smooth, picked)
 		flat := obj.cage.look.flat
-		if ui.switch_row(ctx, "Flat", &flat) do command_run(app, .Cage_Flat)
+		if ui.switch_row(ctx, "Flat", &flat, keys = command_hint(app, .Cage_Flat)) do command_run(app, .Cage_Flat)
 		ui.caption(ctx, "CREASES")
 		kit_command_pair(app, .Crease_Cage, .Crease_Cage, arg_a = int(Cage_Crease.By_Angle), arg_b = int(Cage_Crease.Group_Borders), label_a = "By angle", label_b = "Polygroups")
 		_ = command_button(app, .Crease_Cage, int(Cage_Crease.Clear), "Clear creases", width = ui.fill_width(ctx))
 	}
 	check := m.check
-	if ui.switch_row(ctx, "Mesh check", &check) do command_run(app, .Cage_Check)
+	if ui.switch_row(ctx, "Mesh check", &check, keys = command_hint(app, .Cage_Check)) do command_run(app, .Cage_Check)
 	ui.caption(ctx, "SELECTION")
 	kit_command_pair(app, .Select_Cage, .Select_Cage, arg_a = int(poly.Select_Op.All), arg_b = int(poly.Select_Op.None), label_a = "All", label_b = "None")
 	kit_command_pair(app, .Select_Cage, .Select_Cage, arg_a = int(poly.Select_Op.Grow), arg_b = int(poly.Select_Op.Shrink), label_a = "Grow", label_b = "Shrink")
