@@ -136,6 +136,10 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   the camera is stored, and gate main-only work (studio, live AO, wipe, history) on `k.grid.work == 0`.
   `grid_work_gpu` (after `kit_frame`) copies the still picture or the pane's last live frame and resizes the target
   at once, so no frame draws stretched.
+  Heavy pane passes (`Second_Pass.Occlusion/.Studio`, `second_pass_heavy`): `Picture.ao`/`.studio` run on the
+  picture's own target (drawn with `keep_depth`); `picture_key` folds in the second view's own pass, since Studio
+  draws as Shaded; a studio sample (`picture_gathers`) waits for a frame with no other picture but never counts as
+  one; the end of work clears a heavy pane's key, since the copy brings no depth.
 - Second view (`src/app/thumbnail.odin`, `k.second: Second_View`, the Thumbnail window and command): the picture is a
   `ui.area` (`second_view_input`): on a linked view (`second_linked`: Follow, Mirror) a drag turns `app.camera` itself
   (`orbit_latch` first, x reversed for Mirror, counted in `sv.linked`), on an independent one `second_free` seeds

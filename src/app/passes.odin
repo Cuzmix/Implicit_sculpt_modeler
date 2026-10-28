@@ -126,8 +126,10 @@ live_ao_wanted :: proc(app: ^App) -> bool {
 // on, not at all in the other passes or where the device cannot run it.
 live_ao_strengths :: proc(app: ^App) -> (left, right: f32) {
 	side :: proc(app: ^App, p: render.View_Pass) -> f32 {
-		if !render.live_ao_supported(&app.renderer, &app.live_ao) || app.kit.grid.work != 0 do return 0
+		if !render.live_ao_supported(&app.renderer, &app.live_ao) do return 0
 		if p == .AO do return 1
+		// A view pane worked in shows occlusion only as its AO only pass (grid_work).
+		if app.kit.grid.work != 0 do return 0
 		if p == .Shaded && app.live_ao_on do return max(app.studio_ao, 1e-3)
 		return 0
 	}
