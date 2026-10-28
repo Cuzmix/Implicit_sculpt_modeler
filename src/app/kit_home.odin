@@ -20,13 +20,12 @@ import "../ui"
 @(private = "file")
 HOME_CLAY :: ui.Color{196, 190, 182, 255}
 
-// The new scene tiles' glyphs, in NEW_SCENE_SHAPES' order: Lucide's circle, user-round,
+// Classic's new scene tiles' glyphs, in NEW_SCENES' order: Lucide's circle, user-round,
 // user, person-standing, hand and cat.
 @(rodata)
-HOME_SHAPE_GLYPHS := [len(NEW_SCENE_SHAPES)]rune{0xe07a, 0xe46d, 0xe19f, 0xe21e, 0xe1d7, 0xe390}
+HOME_SHAPE_GLYPHS := [CLASSIC_NEW_SCENES]rune{0xe07a, 0xe46d, 0xe19f, 0xe21e, 0xe1d7, 0xe390}
 
 ICON_HOME :: rune(0xe0f8) // house
-@(private = "file")
 ICON_FILE_GONE :: rune(0xe0d1) // file-x
 
 // A scene tile's picture is at least this wide and at most that, in points.
@@ -66,7 +65,12 @@ kit_home :: proc(app: ^App) {
 	ui.end(ctx)
 
 	room := area.y + area.h - (ctx.last_rect.y + ctx.last_rect.h) - 14 - PAD
-	if width >= HOME_WIDE {
+	if k.chrome == .Lens && width >= LENS_HOME_WIDE {
+		// Lens's page (lens_home.odin), which scrolls as a whole.
+		scroll := kit_scroll_begin(ctx, "home grid", &k.home_scroll, owner, width - 10, room, HOME_GAP)
+		lens_home_body(app, width - 10)
+		kit_scroll_end(ctx, scroll)
+	} else if width >= HOME_WIDE {
 		ui.begin(ctx, "home columns", {direction = .Row, gap = 28})
 		ui.begin(ctx, "home new", {direction = .Column, gap = 8, width = HOME_SIDE_W})
 		home_new_section(app, HOME_SIDE_W, 2)
@@ -99,22 +103,21 @@ home_new_section :: proc(app: ^App, width: f32, per_row: int) {
 	k := &app.kit
 	ctx := &k.ctx
 	ui.caption(ctx, "NEW SCENE")
-	for i in 0 ..< len(NEW_SCENE_SHAPES) {
+	for i in 0 ..< CLASSIC_NEW_SCENES {
 		if i % per_row == 0 do ui.begin(ctx, fmt.tprintf("home new row %d", i / per_row), {direction = .Row, gap = 4})
 		// A first tap with work to lose arms it, and its name asks.
 		armed := new_scene_armed(app, i)
-		name := fmt.tprint(NEW_SCENE_SHAPES[i])
+		name := NEW_SCENES[i].name
 		if ui.preview_tile(ctx, fmt.tprintf("%s##home new %d", "Discard?" if armed else name, i), HOME_SHAPE_GLYPHS[i], HOME_CLAY, armed).clicked {
 			command_run(app, .New_Scene, i)
 			if !new_scene_armed(app, i) do home_close(app)
 		}
-		if i % per_row == per_row - 1 || i == len(NEW_SCENE_SHAPES) - 1 do ui.end(ctx)
+		if i % per_row == per_row - 1 || i == CLASSIC_NEW_SCENES - 1 do ui.end(ctx)
 	}
 	ui.spacer(ctx, 4)
 	if command_button(app, .Open_Scene, label = "Open a file...", glyph = ui.ICON_OPEN, width = width) do home_close(app)
 }
 
-@(private = "file")
 home_tabs :: proc(app: ^App, width: f32) {
 	k := &app.kit
 	names := [len(Home_Tab)]string{"Recent", "Autosaves"}
@@ -124,7 +127,6 @@ home_tabs :: proc(app: ^App, width: f32) {
 }
 
 // The chosen tab's scenes as tiles, as many to a row as fit `width`.
-@(private = "file")
 home_grid :: proc(app: ^App, width: f32) {
 	k := &app.kit
 	ctx := &k.ctx

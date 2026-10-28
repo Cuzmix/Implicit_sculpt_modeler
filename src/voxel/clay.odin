@@ -97,6 +97,14 @@ clay_fill_sphere :: proc(c: ^Clay, centre: Vec3, radius: f32) {
 	surface_mark_all(c)
 }
 
+// Replaces the clay with a box `half` its size on each axis at `centre` (object space),
+// as clay_fill_sphere does.
+clay_fill_box :: proc(c: ^Clay, centre, half: Vec3) {
+	volume_fill(&c.volume, {centre = centre, half = half}, c.pool)
+	resolve_all_saddles(c)
+	surface_mark_all(c)
+}
+
 // Flips every saddle face in the field (saddle.odin) and repairs the band around the
 // flips: what every way of building a whole field ends with.
 @(private)

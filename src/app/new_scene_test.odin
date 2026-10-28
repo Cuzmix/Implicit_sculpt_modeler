@@ -2,6 +2,8 @@ package main
 
 import "core:testing"
 
+import "../geom"
+
 // A starter comes with as many levels as keep its base at the starter minimum, at most
 // STARTER_LEVELS: none at the smallest size, three at 1M and above.
 @(test)
@@ -46,4 +48,45 @@ new_scene_asks_before_discarding_work :: proc(t: ^testing.T) {
 	app.kit.ctx.time += NEW_SCENE_ARM_TIME + 1
 	new_scene_run(&app, 0)
 	testing.expect(t, app.ui.scene_command.kind == .None && new_scene_armed(&app, 0))
+}
+
+// Classic's six starts keep their numbers, so what names one by number still starts it;
+// every start has a name of its own that reads back; Lens's Home shows each start once.
+@(test)
+new_scene_starts_keep_their_numbers_and_names :: proc(t: ^testing.T) {
+	classic := [CLASSIC_NEW_SCENES]geom.Primitive{.Sphere, .Head, .Bust, .Figure, .Hand, .Creature}
+	for shape, i in classic do testing.expect(t, NEW_SCENES[i].kind == .Mesh && NEW_SCENES[i].shape == shape)
+	for _, i in NEW_SCENES {
+		id, arg, ok := command_from_name(command_name(.New_Scene, i))
+		testing.expectf(t, ok && id == .New_Scene && arg == i, "%d: %v %d %v", i, id, arg, ok)
+	}
+	testing.expect_value(t, command_name(.New_Scene, 7), "New_Scene:Plane")
+	testing.expect_value(t, command_name(.New_Scene, 8), "New_Scene:Voxels")
+	// A start-up script names them in lower case.
+	s := script_parse("new_scene plane\nnew_scene empty", "test")
+	defer script_destroy(&s)
+	testing.expect(t, len(s.errors) == 0 && len(s.statements) == 2)
+	testing.expect(t, s.statements[0].command == .New_Scene && s.statements[0].arg == 7)
+	testing.expect_value(t, s.statements[1].arg, 9)
+	shown: [len(NEW_SCENES)]int
+	for i in LENS_HOME_STARTS do shown[i] += 1
+	for i in LENS_HOME_MORE do shown[i] += 1
+	for n, i in shown do testing.expectf(t, n == 1, "%s shows %d times", NEW_SCENES[i].name, n)
+}
+
+// A voxel block asks for a voxel object of the Add size's resolution, and an empty scene
+// for no object.
+@(test)
+new_scene_voxel_block_and_empty :: proc(t: ^testing.T) {
+	app: App
+	defer results_destroy(&app)
+	app.kit.add_size = 2
+	new_scene_run(&app, 8)
+	vertices := int(SPHERE_PRESETS[2].vertices)
+	testing.expect(t, app.ui.scene_command.kind == .New && !app.ui.scene_command.on)
+	testing.expect_value(t, app.ui.scene_command.voxels, voxel_resolution_for(vertices))
+	new_scene_run(&app, 9)
+	testing.expect(t, app.ui.scene_command.kind == .New && app.ui.scene_command.on && app.ui.scene_command.voxels == 0)
+	new_scene_run(&app, 7)
+	testing.expect(t, app.ui.scene_command.shape == .Plane && app.ui.scene_command.voxels == 0 && !app.ui.scene_command.on)
 }
