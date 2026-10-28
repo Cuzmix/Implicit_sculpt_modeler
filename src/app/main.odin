@@ -18,6 +18,7 @@ import sdl "vendor:sdl3"
 import "../camera"
 import "../geom"
 import "../jobs"
+import "../poly"
 import "../render"
 import "../sculpt"
 import "../ui"
@@ -112,6 +113,7 @@ App :: struct {
 	shape_pending: Shape_Pending, // a drawn shape waiting for Apply (shape_pending.odin)
 	clip:     Clip_Gesture, // a Ctrl + Shift + drag in progress (clip.odin)
 	curve:    Curve_Tool,
+	model:    Model_Tool,
 	insert:   Insert_Tool,
 	gesture:  Gesture_Tool, // what a Ctrl + Shift + drag does
 	smooth_gpu: render.Smooth_Compute, // Smooth all's compute shader and buffers, made on first use
@@ -925,6 +927,10 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			case .Insert:
 				brush_stroke_finish(&app)
 				if !insert_tool_frame(&app, input) do return false
+			case .Model:
+				replay_stop(&app)
+				brush_stroke_finish(&app)
+				model_tool_frame(&app, input)
 			}
 		}
 		sculpted.dabs += waited_dab.dabs
@@ -1030,7 +1036,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 					color  = color,
 					material = material.shading,
 					surface = {material.metallic, material.roughness},
-					flat = app.flat,
+					flat = app.flat || obj.cage != nil,
 					look = object_look(&app, selected),
 					style = viewport_style(&app),
 					lights = viewport_lights(&app),
@@ -1038,6 +1044,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 					wireframe = selected && app.wireframe && app.polyframe_lines,
 					paint  = sculpt.sculptor_has_color(&lv.sculptor) && !obj.paint_off,
 					groups = (app.show_groups || selected && app.wireframe && app.polyframe_fill) && sculpt.sculptor_has_groups(&lv.sculptor),
+					// A cage shows its edges, and its faces flat, as a polygon model does.
+					cage_lines = obj.cage != nil,
 					// The HD window's mesh carries no groups.
 					slots  = object_material_slots(&app, obj, i) if part == 0 && sculpt.sculptor_has_groups(&lv.sculptor) else nil,
 					live   = live,
@@ -1360,6 +1368,22 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			undo += voxel.clay_undo_bytes(&vp.clay)
 		}
 		fmt.printfln("voxel_objects=%d voxel_resolution=%d voxel_bricks=%d voxel_field_mb=%.1f voxel_surface_mb=%.1f voxel_undo_mb=%.2f", voxel_objects, resolution, bricks, f64(field) / (1 << 20), f64(surface) / (1 << 20), f64(undo) / (1 << 20))
+	}
+	{
+		// The Model mode cages: how many, what they are made of, and whether every one is sound.
+		cages, points, edges, faces, ngons, broken := 0, 0, 0, 0, 0, 0
+		for obj in app.scene.objects {
+			cp := obj.cage
+			if cp == nil do continue
+			c := poly.mesh_check(&cp.mesh)
+			cages += 1
+			points += c.vertices
+			edges += c.edges
+			faces += c.faces
+			ngons += c.ngons
+			broken += int(!poly.check_ok(c))
+		}
+		fmt.printfln("cages=%d cage_points=%d cage_edges=%d cage_faces=%d cage_ngons=%d cage_broken=%d tool=%v", cages, points, edges, faces, ngons, broken, app.tool)
 	}
 	{
 		off, ghosts := scene_view_counts(&app)

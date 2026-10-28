@@ -37,7 +37,7 @@ a_cube_is_eight_corners_twelve_edges_six_quads :: proc(t: ^testing.T) {
 @(test)
 every_primitive_is_sound_and_faces_out :: proc(t: ^testing.T) {
 	for kind in Primitive {
-		for opts in ([3]Primitive_Options{PRIMITIVE_DEFAULTS, {across = 3, around = 12, along = 4}, {across = 1, around = 3, along = 1}}) {
+		for opts in ([3]Primitive_Options{PRIMITIVE_DEFAULTS, {across = 3, around = 12, along = 4, tube = 5}, {across = 1, around = 3, along = 1, tube = 3}}) {
 			m := primitive(kind, opts)
 			defer mesh_destroy(&m)
 			c := mesh_check(&m)

@@ -295,7 +295,7 @@ brush_items_all :: proc(app: ^App) -> [dynamic]Listed_Brush {
 	for r, j in BUILT_IN_PRESETS do append(&items, Brush_Item{what = .Slot, slot = {kind = r.kind, preset = BUILT_IN_PRESET + j}})
 	for p, i in app.presets[:app.preset_count] do append(&items, Brush_Item{what = .Slot, slot = {kind = p.values.kind, preset = i + 1}})
 	for p, j in app.library.presets do if !p.gone do append(&items, Brush_Item{what = .Slot, slot = {kind = p.preset.values.kind, preset = PACK_PRESET + j}})
-	for tool in ([?]Tool{.Curve, .Insert}) do append(&items, Brush_Item{what = .Tool, tool = tool})
+	for tool in ([?]Tool{.Curve, .Insert, .Model}) do append(&items, Brush_Item{what = .Tool, tool = tool})
 	for m in Mask_Shape_Kind do append(&items, Brush_Item{what = .Mask_Shape, mask = m})
 	for g in Gesture_Tool do append(&items, Brush_Item{what = .Gesture, gesture = g})
 	out := make([dynamic]Listed_Brush, 0, len(items), context.temp_allocator)
@@ -391,7 +391,7 @@ brush_recent_track :: proc(app: ^App) {
 // The item the current brush's card shows: the Curve or Insert tool while one is picked,
 // else the brush or preset held.
 brush_item_current :: proc(app: ^App) -> Brush_Item {
-	if app.tool == .Curve || app.tool == .Insert do return {what = .Tool, tool = app.tool}
+	if app.tool == .Curve || app.tool == .Insert || app.tool == .Model do return {what = .Tool, tool = app.tool}
 	return {what = .Slot, slot = {kind = app.brush.kind, preset = app.brush.preset}}
 }
 

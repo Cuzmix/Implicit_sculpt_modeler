@@ -11,6 +11,7 @@ import "../geom"
 import "../gizmo"
 import "../render"
 import "../sculpt"
+import "../poly"
 import "../voxel"
 
 // Where an object sits in the world. Meshes stay in their own local space; the brush
@@ -78,6 +79,9 @@ Object :: struct {
 	// `levels` hold one empty level, so what reads the selected object's sculptor reads
 	// nothing; the clay is what is drawn and sculpted.
 	voxel:     ^Voxel_Part,
+	// A Model mode cage (model.odin); nil for anything else. A cage object's one level is
+	// the cage cut into triangles, made again from the cage after every edit.
+	cage:      ^Cage_Part,
 	// How it is shaded: a preset's values or its own (label "Custom"); a nil label until
 	// materials_settle gives it the default (object_material).
 	material:  Material,
@@ -163,7 +167,7 @@ Surface :: struct {
 	groups: []u16,
 }
 
-Scene_Command_Kind :: enum u8 {None, Add, New, Remesh, Decimate, Retopo, Delete, Duplicate, Symmetrize, Slice, Subdivide, Set_Level, Delete_Higher, Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete, Dyntopo, Boolean, Extract, View, Arrange, Copy, Paste, Delete_Others, Levels_All, Split, Merge, Align, Distribute, Material, Group_Material, Voxel_To_Mesh, Layout_Uvs, Remove_Textures, Mesh_To_Voxels, Knife, Voxel_Resample, Repair}
+Scene_Command_Kind :: enum u8 {None, Add, New, Remesh, Decimate, Retopo, Delete, Duplicate, Symmetrize, Slice, Subdivide, Set_Level, Delete_Higher, Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete, Dyntopo, Boolean, Extract, View, Arrange, Copy, Paste, Delete_Others, Levels_All, Split, Merge, Align, Distribute, Material, Group_Material, Voxel_To_Mesh, Layout_Uvs, Remove_Textures, Mesh_To_Voxels, Knife, Voxel_Resample, Repair, Add_Cage, Apply_Cage}
 
 // The commands that work on a mesh object's level, and so refuse a voxel object until it
 // is converted to a mesh (Voxel_To_Mesh); the rest place, copy, list or delete objects of
@@ -204,6 +208,8 @@ Scene_Command :: struct {
 	group:    u16, // Group_Material: the polygroup of object `id` it changes (`on`: back to the object's material)
 	repair:   Repair_Kind, // Repair: which
 	distance: f32, // Repair's Weld points: how far apart vertices weld, as a share of the object's largest side
+	cage:     poly.Primitive, // Add_Cage: the primitive to add as a cage...
+	segments: poly.Primitive_Options, // ...with these segments
 }
 
 scene_destroy :: proc(app: ^App) {
@@ -340,7 +346,6 @@ object_from_mesh :: proc(app: ^App, mesh: geom.Mesh, name: string, file, t: Tran
 }
 
 // Gives the object the next id and selects it.
-@(private = "file")
 scene_append :: proc(app: ^App, obj: ^Object) {
 	app.scene.next_id += 1
 	obj.id = app.scene.next_id
@@ -763,6 +768,10 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 		report(app, Kit_Section.Voxels, {.Warning}, "%v needs a mesh: convert %s to a mesh first (Object palette, Voxels)", cmd.kind, object_label(obj))
 		return true
 	}
+	if obj := selected_object(app); obj != nil && obj.cage != nil && cmd.kind in CAGE_REFUSED_SCENE {
+		report(app, nil, {.Warning}, "%v does not apply to a cage: Apply to sculpt makes %s a mesh first", cmd.kind, object_label(obj))
+		return true
+	}
 	switch cmd.kind {
 	case .None:
 	case .Add:
@@ -782,6 +791,15 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 				scene_place_after(app, added, sel)
 			}
 			history_record_added(app)
+		}
+	case .Add_Cage:
+		if !scene_add_cage(app, cmd.cage, cmd.segments, {position = next_free_position(app), scale = 1}) do return false
+		history_record_added(app)
+	case .Apply_Cage:
+		if obj := selected_object(app); obj != nil && obj.cage != nil {
+			before := history_snapshot(app, obj, "apply to sculpt")
+			if object_apply_cage(app, obj) do history_record_swap(app, obj.id, before, kind = .Model)
+			else do history_snapshot_drop(before)
 		}
 	case .New:
 		if cmd.mesh > 0 do return scene_new_pack_mesh(app, cmd.mesh - 1)
@@ -1211,21 +1229,24 @@ object_build :: proc(app: ^App, obj: ^Object, vertices, subdiv: int) -> bool {
 // Makes `mesh` the object's only level, prepares it for sculpting and uploads it,
 // computing its normals first when `normals` is set, and giving it `surface`'s polypaint
 // and polygroups (per vertex and triangle of `mesh`; not temporary, as building frees the
-// temp allocator). `start` is when building the mesh began, for the log.
-object_build_from :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, start: time.Tick, normals := false, old_to_new: []u32 = nil, surface: Surface = {}) -> bool {
+// temp allocator). `start` is when building the mesh began, for the log. `old_to_new` and
+// `tri_from` (not temporary either) receive the renumbering of the mesh's vertices and,
+// per triangle of the level, its triangle in `mesh`, for a caller that keeps maps into the
+// level, as a cage does (model.odin).
+object_build_from :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, start: time.Tick, normals := false, old_to_new: []u32 = nil, surface: Surface = {}, tri_from: []u32 = nil) -> bool {
 	// Without groups the table has nothing to shade (a remesh, a slice's halves).
 	if surface.groups == nil {
 		autosave_settle(app)
 		clear(&obj.group_materials)
 	}
 	if surface.color == nil && surface.groups == nil {
-		sculpt.levels_init(&obj.levels, mesh, &app.pool, old_to_new = old_to_new)
+		sculpt.levels_init(&obj.levels, mesh, &app.pool, old_to_new = old_to_new, tri_from = tri_from)
 	} else {
 		// The surface's parts follow the renumbering onto the level.
 		renumbered := old_to_new if old_to_new != nil else make([]u32, len(mesh.positions), context.temp_allocator)
-		tri_from := make([]u32, len(mesh.indices) / 3, context.temp_allocator)
-		sculpt.levels_init(&obj.levels, mesh, &app.pool, old_to_new = renumbered, tri_from = tri_from)
-		sculpt.levels_take_surface(&obj.levels, surface.color, surface.groups, renumbered, tri_from)
+		from := tri_from if tri_from != nil else make([]u32, len(mesh.indices) / 3, context.temp_allocator)
+		sculpt.levels_init(&obj.levels, mesh, &app.pool, old_to_new = renumbered, tri_from = from)
+		sculpt.levels_take_surface(&obj.levels, surface.color, surface.groups, renumbered, from)
 	}
 	if normals do sculpt.sculptor_recompute_all(object_sculptor(obj))
 	free_all(context.temp_allocator)
@@ -1301,6 +1322,7 @@ object_release_mesh :: proc(app: ^App, obj: ^Object, rebuild := true) {
 	texture_preview_release(app, obj)
 	sculpt.levels_destroy(&obj.levels)
 	voxel_part_free(app, obj)
+	cage_part_free(obj)
 }
 
 object_free :: proc(app: ^App, obj: ^Object) {
