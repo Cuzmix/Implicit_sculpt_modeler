@@ -24,7 +24,7 @@ Studio :: struct {
 	composite_pipeline: ^sdl.GPUGraphicsPipeline,
 	sampler:            ^sdl.GPUSampler,
 	shadow:             ^sdl.GPUTexture, // depth from the light of the current sample
-	accum:              ^sdl.GPUTexture, // summed samples: see studio_gather.frag
+	accum:              ^sdl.GPUTexture, // summed samples: see studio_gather.frag.slang
 	shown:              ^sdl.GPUTexture, // what the viewport panel shows
 	// The camera's depth at one sample, drawn when the viewport is multisampled, whose
 	// own depth shaders cannot read; nil otherwise.
@@ -65,7 +65,7 @@ SHADOW_FRAG_SPV :: #load("shaders/shadow.frag.spv")
 STUDIO_GATHER_FRAG_SPV :: #load("shaders/studio_gather.frag.spv")
 STUDIO_COMPOSITE_FRAG_SPV :: #load("shaders/studio_composite.frag.spv")
 
-// Matches Gather_Uniforms in studio_gather.frag.
+// Matches Gather_Uniforms in studio_gather.frag.slang.
 @(private = "file")
 Gather_Uniforms :: struct {
 	inv_view_proj:   Mat4,
@@ -76,7 +76,7 @@ Gather_Uniforms :: struct {
 }
 #assert(size_of(Gather_Uniforms) == 160 + size_of(Shadow_Lights))
 
-// Matches the shadow_ uniforms studio_weight.glsl reads: the lights in the world (as
+// Matches the shadow_ uniforms studio_weight.slang reads: the lights in the world (as
 // lights_to_world gives them), each one's distance, reach and spot edge with the chance
 // it is picked in shape.w, and in pick x the light this sample took and z the ambient
 // light (STUDIO_AMBIENT_SHARE of it over the lights' total brightness).
@@ -111,9 +111,9 @@ studio_frame :: proc(r: ^Renderer, st: ^Studio, cmd: ^sdl.GPUCommandBuffer, vt: 
 		st.softness = soft
 		st.samples = 0
 		st.shown_valid = true
-		copy_pass := sdl.BeginGPUCopyPass(cmd)
-		sdl.CopyGPUTextureToTexture(copy_pass, {texture = vt.color}, {texture = st.shown}, vt.width, vt.height, 1, cycle = true)
-		sdl.EndGPUCopyPass(copy_pass)
+		copy_pass := gpu_begin_copy_pass(cmd)
+		gpu_copy_texture_to_texture(copy_pass, {texture = vt.color}, {texture = st.shown}, vt.width, vt.height, 1, cycle = true)
+		gpu_end_copy_pass(copy_pass)
 		return true
 	}
 	if st.samples >= max_samples {
@@ -178,18 +178,18 @@ studio_frame :: proc(r: ^Renderer, st: ^Studio, cmd: ^sdl.GPUCommandBuffer, vt: 
 		stencil_store_op = .DONT_CARE,
 		cycle            = true,
 	}
-	pass := sdl.BeginGPURenderPass(cmd, nil, 0, &depth)
-	sdl.BindGPUGraphicsPipeline(pass, st.shadow_pipeline)
+	pass := gpu_begin_render_pass(cmd, nil, 0, &depth)
+	gpu_bind_graphics_pipeline(pass, st.shadow_pipeline)
 	for item in items {
 		mb := item.mesh
 		u := Shadow_Uniforms{light, item.model}
-		sdl.PushGPUVertexUniformData(cmd, 0, &u, size_of(u))
+		gpu_push_vertex_uniform_data(cmd, 0, &u, size_of(u))
 		vbufs := [1]sdl.GPUBufferBinding{{buffer = mb.positions}}
-		sdl.BindGPUVertexBuffers(pass, 0, &vbufs[0], 1)
-		sdl.BindGPUIndexBuffer(pass, {buffer = mb.indices}, ._32BIT)
-		sdl.DrawGPUIndexedPrimitives(pass, mb.index_count, 1, 0, 0, 0)
+		gpu_bind_vertex_buffers(pass, 0, &vbufs[0], 1)
+		gpu_bind_index_buffer(pass, {buffer = mb.indices}, ._32BIT)
+		gpu_draw_indexed_primitives(pass, mb.index_count, 1, 0, 0, 0)
 	}
-	sdl.EndGPURenderPass(pass)
+	gpu_end_render_pass(pass)
 
 	// Add what that light reaches to the accumulation target.
 	texel := 2 * radius / STUDIO_SHADOW_SIZE
@@ -205,13 +205,13 @@ studio_frame :: proc(r: ^Renderer, st: ^Studio, cmd: ^sdl.GPUCommandBuffer, vt: 
 		load_op  = .CLEAR if st.samples == 0 else .LOAD,
 		store_op = .STORE,
 	}
-	pass = sdl.BeginGPURenderPass(cmd, &target, 1, nil)
-	sdl.BindGPUGraphicsPipeline(pass, st.gather_pipeline)
+	pass = gpu_begin_render_pass(cmd, &target, 1, nil)
+	gpu_bind_graphics_pipeline(pass, st.gather_pipeline)
 	samplers := [2]sdl.GPUTextureSamplerBinding{{texture = view_depth, sampler = st.sampler}, {texture = st.shadow, sampler = st.sampler}}
-	sdl.BindGPUFragmentSamplers(pass, 0, &samplers[0], 2)
-	sdl.PushGPUFragmentUniformData(cmd, 0, &g, size_of(g))
-	sdl.DrawGPUPrimitives(pass, 3, 1, 0, 0)
-	sdl.EndGPURenderPass(pass)
+	gpu_bind_fragment_samplers(pass, 0, &samplers[0], 2)
+	gpu_push_fragment_uniform_data(cmd, 0, &g, size_of(g))
+	gpu_draw_primitives(pass, 3, 1, 0, 0)
+	gpu_end_render_pass(pass)
 	st.samples += 1
 	studio_composite(st, cmd, vt, ao, shadow)
 	return true
@@ -281,14 +281,14 @@ studio_light :: proc(lights: Lights, view: Mat4, center: [3]f32, softness: f32, 
 studio_composite :: proc(st: ^Studio, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, ao, shadow: f32) {
 	st.strengths = {ao, shadow}
 	target := sdl.GPUColorTargetInfo{texture = st.shown, load_op = .DONT_CARE, store_op = .STORE, cycle = true}
-	pass := sdl.BeginGPURenderPass(cmd, &target, 1, nil)
-	sdl.BindGPUGraphicsPipeline(pass, st.composite_pipeline)
+	pass := gpu_begin_render_pass(cmd, &target, 1, nil)
+	gpu_bind_graphics_pipeline(pass, st.composite_pipeline)
 	samplers := [2]sdl.GPUTextureSamplerBinding{{texture = vt.color, sampler = st.sampler}, {texture = st.accum, sampler = st.sampler}}
-	sdl.BindGPUFragmentSamplers(pass, 0, &samplers[0], 2)
+	gpu_bind_fragment_samplers(pass, 0, &samplers[0], 2)
 	params := [4]f32{clamp(ao, 0, 1), clamp(shadow, 0, 1), 0, 0}
-	sdl.PushGPUFragmentUniformData(cmd, 0, &params, size_of(params))
-	sdl.DrawGPUPrimitives(pass, 3, 1, 0, 0)
-	sdl.EndGPURenderPass(pass)
+	gpu_push_fragment_uniform_data(cmd, 0, &params, size_of(params))
+	gpu_draw_primitives(pass, 3, 1, 0, 0)
+	gpu_end_render_pass(pass)
 }
 
 // What the viewport panel should show while the studio render is on: its image, or nil
@@ -307,13 +307,13 @@ studio_reset :: proc(st: ^Studio) {
 
 studio_destroy :: proc(r: ^Renderer, st: ^Studio) {
 	if r.device == nil do return
-	_ = sdl.WaitForGPUIdle(r.device)
-	if st.shadow_pipeline != nil do sdl.ReleaseGPUGraphicsPipeline(r.device, st.shadow_pipeline)
-	if st.depth_pipeline != nil do sdl.ReleaseGPUGraphicsPipeline(r.device, st.depth_pipeline)
-	if st.gather_pipeline != nil do sdl.ReleaseGPUGraphicsPipeline(r.device, st.gather_pipeline)
-	if st.composite_pipeline != nil do sdl.ReleaseGPUGraphicsPipeline(r.device, st.composite_pipeline)
-	if st.sampler != nil do sdl.ReleaseGPUSampler(r.device, st.sampler)
-	for t in ([4]^sdl.GPUTexture{st.shadow, st.accum, st.shown, st.view_depth}) do if t != nil do sdl.ReleaseGPUTexture(r.device, t)
+	_ = gpu_wait_for_idle(r.device)
+	if st.shadow_pipeline != nil do gpu_release_graphics_pipeline(r.device, st.shadow_pipeline)
+	if st.depth_pipeline != nil do gpu_release_graphics_pipeline(r.device, st.depth_pipeline)
+	if st.gather_pipeline != nil do gpu_release_graphics_pipeline(r.device, st.gather_pipeline)
+	if st.composite_pipeline != nil do gpu_release_graphics_pipeline(r.device, st.composite_pipeline)
+	if st.sampler != nil do gpu_release_sampler(r.device, st.sampler)
+	for t in ([4]^sdl.GPUTexture{st.shadow, st.accum, st.shown, st.view_depth}) do if t != nil do gpu_release_texture(r.device, t)
 	tracer_destroy(r, &st.trace)
 	st^ = {trace = st.trace}
 }
@@ -357,11 +357,11 @@ studio_ensure :: proc(r: ^Renderer, st: ^Studio, vt: ^Viewport_Target) -> bool {
 		st.depth_pipeline = create_shadow_pipeline(r, cull_back = true)
 		st.gather_pipeline = create_fullscreen_pipeline(r, STUDIO_GATHER_FRAG_SPV, STUDIO_ACCUM_FORMAT, samplers = 2, additive = true)
 		st.composite_pipeline = create_fullscreen_pipeline(r, STUDIO_COMPOSITE_FRAG_SPV, VIEWPORT_COLOR_FORMAT, samplers = 2)
-		st.sampler = sdl.CreateGPUSampler(r.device, {
+		st.sampler = gpu_create_sampler(r.device, {
 			min_filter = .NEAREST, mag_filter = .NEAREST, mipmap_mode = .NEAREST,
 			address_mode_u = .CLAMP_TO_EDGE, address_mode_v = .CLAMP_TO_EDGE, address_mode_w = .CLAMP_TO_EDGE,
 		})
-		st.shadow = sdl.CreateGPUTexture(r.device, {
+		st.shadow = gpu_create_texture(r.device, {
 			type = .D2, format = r.depth_format, usage = {.DEPTH_STENCIL_TARGET, .SAMPLER},
 			width = STUDIO_SHADOW_SIZE, height = STUDIO_SHADOW_SIZE, layer_count_or_depth = 1, num_levels = 1,
 		})
@@ -372,19 +372,19 @@ studio_ensure :: proc(r: ^Renderer, st: ^Studio, vt: ^Viewport_Target) -> bool {
 	}
 	want_view_depth := vt.samples != ._1
 	if st.accum != nil && st.width == vt.width && st.height == vt.height && want_view_depth == (st.view_depth != nil) do return true
-	for t in ([3]^sdl.GPUTexture{st.accum, st.shown, st.view_depth}) do if t != nil do sdl.ReleaseGPUTexture(r.device, t)
+	for t in ([3]^sdl.GPUTexture{st.accum, st.shown, st.view_depth}) do if t != nil do gpu_release_texture(r.device, t)
 	st.view_depth = nil
 	if want_view_depth {
-		st.view_depth = sdl.CreateGPUTexture(r.device, {
+		st.view_depth = gpu_create_texture(r.device, {
 			type = .D2, format = r.depth_format, usage = {.DEPTH_STENCIL_TARGET, .SAMPLER},
 			width = vt.width, height = vt.height, layer_count_or_depth = 1, num_levels = 1,
 		})
 	}
-	st.accum = sdl.CreateGPUTexture(r.device, {
+	st.accum = gpu_create_texture(r.device, {
 		type = .D2, format = STUDIO_ACCUM_FORMAT, usage = {.COLOR_TARGET, .SAMPLER},
 		width = vt.width, height = vt.height, layer_count_or_depth = 1, num_levels = 1,
 	})
-	st.shown = sdl.CreateGPUTexture(r.device, {
+	st.shown = gpu_create_texture(r.device, {
 		type = .D2, format = VIEWPORT_COLOR_FORMAT, usage = {.COLOR_TARGET, .SAMPLER},
 		width = vt.width, height = vt.height, layer_count_or_depth = 1, num_levels = 1,
 	})

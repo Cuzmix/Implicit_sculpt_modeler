@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Fetches and builds pinned dependencies into deps/ (Linux).
 # System packages needed (Ubuntu 24.04):
-#   clang cmake ninja-build git python3 glslang-tools
+#   clang cmake ninja-build git python3 curl xz-utils
 #   libvulkan-dev mesa-vulkan-drivers libx11-dev libxext-dev libxrandr-dev libxcursor-dev
 #   libxi-dev libxss-dev libxtst-dev libwayland-dev libxkbcommon-dev libdecor-0-dev
 #   libegl-dev libdrm-dev libgbm-dev
@@ -41,6 +41,23 @@ if [ ! -f "$DEPS/sdl3/lib/libSDL3.so" ]; then
 		-DCMAKE_INSTALL_PREFIX="$DEPS/sdl3" > "$DEPS/sdl3-configure.log"
 	ninja -C "$DEPS/sdl3-src/build" install > "$DEPS/sdl3-build.log"
 fi
+
+# Slang's compiler (slangc) and its libraries from the LunarG Vulkan SDK, checked against
+# the pinned hash. Only shader authors need it: build.sh compiles src/render/shaders/*.slang
+# when deps/slang/bin/slangc exists, and otherwise the committed .spv files are used.
+if [ ! -x "$DEPS/slang/bin/slangc" ]; then
+	echo "== Slang (Vulkan SDK $VULKAN_SDK)"
+	tmp="$(mktemp -d)"
+	curl -fsSL -o "$tmp/sdk.tar.xz" \
+		"https://sdk.lunarg.com/sdk/download/$VULKAN_SDK/linux/vulkan-sdk-linux-x86_64-$VULKAN_SDK.tar.xz"
+	echo "$VULKAN_SDK_SHA256  $tmp/sdk.tar.xz" | sha256sum -c --quiet
+	tar -xJf "$tmp/sdk.tar.xz" -C "$tmp" --wildcards "$VULKAN_SDK/x86_64/bin/slangc" "$VULKAN_SDK/x86_64/lib/libslang*"
+	rm -rf "$DEPS/slang"
+	mkdir -p "$DEPS/slang"
+	mv "$tmp/$VULKAN_SDK/x86_64/bin" "$tmp/$VULKAN_SDK/x86_64/lib" "$DEPS/slang/"
+	rm -rf "$tmp"
+fi
+"$DEPS/slang/bin/slangc" -version
 
 # Luau, the language of script plugins, built from source (scripts/build_luau.py)
 python3 "$ROOT/scripts/build_luau.py"

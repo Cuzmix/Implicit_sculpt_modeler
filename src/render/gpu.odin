@@ -17,19 +17,19 @@ Sample_Count :: sdl.GPUSampleCount
 // Waits until the GPU has finished everything submitted: before freeing a buffer or
 // texture a frame in flight may still read.
 wait_idle :: proc(r: ^Renderer) {
-	if !sdl.WaitForGPUIdle(r.device) do log.warnf("WaitForGPUIdle failed: %s", sdl.GetError())
+	if !gpu_wait_for_idle(r.device) do log.warnf("WaitForGPUIdle failed: %s", sdl.GetError())
 }
 
 // A command buffer to record into, or nil (logged) when the device has none to give.
 cmd_begin :: proc(r: ^Renderer) -> Cmd {
-	cmd := sdl.AcquireGPUCommandBuffer(r.device)
+	cmd := gpu_acquire_command_buffer(r.device)
 	if cmd == nil do log.errorf("AcquireGPUCommandBuffer failed: %s", sdl.GetError())
 	return cmd
 }
 
 // Sends the recorded work to the GPU; false (logged) when the device refused it.
 cmd_submit :: proc(cmd: Cmd) -> bool {
-	if sdl.SubmitGPUCommandBuffer(cmd) do return true
+	if gpu_submit_command_buffer(cmd) do return true
 	log.errorf("submit failed: %s", sdl.GetError())
 	return false
 }
@@ -37,7 +37,7 @@ cmd_submit :: proc(cmd: Cmd) -> bool {
 // Sends the recorded work with a fence that signals when the GPU has done it; nil
 // (logged) when the device refused it.
 cmd_submit_fenced :: proc(cmd: Cmd) -> Fence {
-	fence := sdl.SubmitGPUCommandBufferAndAcquireFence(cmd)
+	fence := gpu_submit_command_buffer_and_acquire_fence(cmd)
 	if fence == nil do log.errorf("submit failed: %s", sdl.GetError())
 	return fence
 }
@@ -45,14 +45,14 @@ cmd_submit_fenced :: proc(cmd: Cmd) -> Fence {
 // Drops a command buffer unsubmitted. One that holds a swapchain texture cannot be
 // cancelled: submit it instead.
 cmd_cancel :: proc(cmd: Cmd) -> bool {
-	return sdl.CancelGPUCommandBuffer(cmd)
+	return gpu_cancel_command_buffer(cmd)
 }
 
 // Waits for the fence, releases it and clears the handle; nothing for nil.
 fence_finish :: proc(r: ^Renderer, fence: ^Fence) {
 	if fence^ == nil do return
-	_ = sdl.WaitForGPUFences(r.device, true, fence, 1)
-	sdl.ReleaseGPUFence(r.device, fence^)
+	_ = gpu_wait_for_fences(r.device, true, fence, 1)
+	gpu_release_fence(r.device, fence^)
 	fence^ = nil
 }
 
@@ -62,9 +62,9 @@ fence_finish :: proc(r: ^Renderer, fence: ^Fence) {
 // (logged) when the swapchain failed.
 swapchain_acquire :: proc(cmd: Cmd, window: ^sdl.Window, wait: bool) -> (texture: Texture, size: [2]u32, ok: bool) {
 	if wait {
-		ok = sdl.WaitAndAcquireGPUSwapchainTexture(cmd, window, &texture, &size.x, &size.y)
+		ok = gpu_wait_and_acquire_swapchain_texture(cmd, window, &texture, &size.x, &size.y)
 	} else {
-		ok = sdl.AcquireGPUSwapchainTexture(cmd, window, &texture, &size.x, &size.y)
+		ok = gpu_acquire_swapchain_texture(cmd, window, &texture, &size.x, &size.y)
 	}
 	if !ok do log.errorf("acquire swapchain failed: %s", sdl.GetError())
 	return
@@ -80,12 +80,12 @@ ui_present :: proc(r: ^Renderer, up: ^Ui_Pass, cmd: Cmd, window: ^sdl.Window, sw
 		load_op     = .CLEAR,
 		store_op    = .STORE,
 	}
-	pass := sdl.BeginGPURenderPass(cmd, &target, 1, nil)
+	pass := gpu_begin_render_pass(cmd, &target, 1, nil)
 	if draw {
-		format := sdl.GetGPUSwapchainTextureFormat(r.device, window)
+		format := gpu_get_swapchain_texture_format(r.device, window)
 		ui_pass_draw(r, up, cmd, pass, format, size, draws)
 	}
-	sdl.EndGPURenderPass(pass)
+	gpu_end_render_pass(pass)
 }
 
 // Whether the device exists: false before renderer_init and in runs without a window.

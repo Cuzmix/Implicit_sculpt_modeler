@@ -226,7 +226,7 @@ chunk_bvh_build_many :: proc(pool: ^jobs.Pool, positions: []Vec3, indices: []u32
 	})
 }
 
-// The first hit along a ray through a chunk tree, as render/shaders/studio_trace.comp walks it:
+// The first hit along a ray through a chunk tree, as render/shaders/studio_trace.comp.slang walks it:
 // for the tests, which check the GPU layout against the plain BVH. `limit` bounds the
 // distance; degenerate triangles (all three corners one vertex, as hidden ones are drawn)
 // never hit.

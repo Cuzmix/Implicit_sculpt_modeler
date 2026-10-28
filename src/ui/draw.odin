@@ -7,7 +7,7 @@ import "core:slice"
 // One corner of a UI triangle: a position in physical pixels, a texture coordinate
 // and a colour. With the atlas bound the coordinate is in atlas pixels (the shader
 // divides by the atlas size, so coordinates stay right if the atlas grows during the
-// frame); with an image bound it runs 0 to 1 across the image. Matches ui.vert.
+// frame); with an image bound it runs 0 to 1 across the image. Matches ui.vert.slang.
 Vertex :: struct {
 	pos:   [2]f32,
 	uv:    [2]f32,

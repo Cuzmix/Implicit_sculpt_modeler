@@ -81,7 +81,7 @@ description: The src/geom package — the structure-of-arrays geom.Mesh and its 
   (vertex, chart) slot, unit, w ±1) read per texel MikkTSpace-style (vN, vT blended unnormalized, vB = w·cross(vN, vT),
   sculpt normal solved in that basis); `quad_mesh_split_uvs` makes the glTF vertices from the same slots, so any change
   to one changes both (test `normal_map_reads_back_through_the_tangents`). Paint blends in LINEAR (decode per corner, as
-  mesh.vert does); occlusion uses `bvh_any_hit` around the face normal with a texel-hashed turn (deterministic).
+  mesh.vert.slang does); occlusion uses `bvh_any_hit` around the face normal with a texel-hashed turn (deterministic).
   A quad's two triangles come from `quad_halves(q, i)`: `Quad_Mesh.across` (nil = all 0-2) says which diagonal the
   drawn mesh has (`quad_split` picked the shorter one when the object was made); `sculpt.levels_quad_mesh` fills it with
   `quad_mesh_diagonals` from the base level's triangles, so the bake, the split mesh, the .glb and the textured preview

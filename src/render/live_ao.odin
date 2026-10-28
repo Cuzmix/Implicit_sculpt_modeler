@@ -10,7 +10,7 @@ import sdl "vendor:sdl3"
 // Live ambient occlusion (stage 4.2, notes/rendering/stage4-design.md): screen-space
 // occlusion from the camera's depth, every frame, so creases and contact darken while
 // sculpting, not only once the view is still as in the studio render. GTAO
-// (gtao.frag) finds the occlusion into `ao`, possibly at half size; ao_blur.frag
+// (gtao.frag.slang) finds the occlusion into `ao`, possibly at half size; ao_blur.frag.slang
 // averages it and darkens the viewport image with it into `shown`, which the panel then
 // shows. A partial redraw of the viewport reruns both only over the rectangle it
 // redrew, padded by how far they read, and `ao` and `shown` keep the rest, so the cost
@@ -37,17 +37,17 @@ Live_AO :: struct {
 	full, partial, skipped: int,
 }
 
-// The farthest gtao.frag searches, in viewport pixels: it bounds the cost close up, and
+// The farthest gtao.frag.slang searches, in viewport pixels: it bounds the cost close up, and
 // how far a partial redraw's rectangle is padded.
 LIVE_AO_MAX_PX :: 48
 
-// Half floats: a pixel's value may pass 1 (gtao.frag), which the blur's average needs.
+// Half floats: a pixel's value may pass 1 (gtao.frag.slang), which the blur's average needs.
 LIVE_AO_FORMAT :: sdl.GPUTextureFormat.R16_FLOAT
 
 GTAO_FRAG_SPV :: #load("shaders/gtao.frag.spv")
 AO_BLUR_FRAG_SPV :: #load("shaders/ao_blur.frag.spv")
 
-// Matches Gtao_Uniforms in gtao.frag.
+// Matches Gtao_Uniforms in gtao.frag.slang.
 @(private = "file")
 Gtao_Uniforms :: struct {
 	inv_proj: Mat4,
@@ -55,7 +55,7 @@ Gtao_Uniforms :: struct {
 	params:   [4]f32,
 }
 
-// Matches Blur_Uniforms in ao_blur.frag.
+// Matches Blur_Uniforms in ao_blur.frag.slang.
 @(private = "file")
 Blur_Uniforms :: struct {
 	inv_proj: Mat4,
@@ -134,14 +134,14 @@ live_ao_frame :: proc(r: ^Renderer, lao: ^Live_AO, cmd: ^sdl.GPUCommandBuffer, v
 		params   = {world_reach, proj[1, 1] * f32(vt.height) / 2, LIVE_AO_MAX_PX, 0},
 	}
 	target := sdl.GPUColorTargetInfo{texture = lao.ao, load_op = .LOAD if partial else .DONT_CARE, store_op = .STORE, cycle = !partial}
-	pass := sdl.BeginGPURenderPass(cmd, &target, 1, nil)
-	sdl.BindGPUGraphicsPipeline(pass, lao.gtao_pipeline)
-	sdl.SetGPUScissor(pass, {ao_rect.x, ao_rect.y, ao_rect.w, ao_rect.h})
+	pass := gpu_begin_render_pass(cmd, &target, 1, nil)
+	gpu_bind_graphics_pipeline(pass, lao.gtao_pipeline)
+	gpu_set_scissor(pass, {ao_rect.x, ao_rect.y, ao_rect.w, ao_rect.h})
 	binding := sdl.GPUTextureSamplerBinding{texture = depth, sampler = lao.sampler}
-	sdl.BindGPUFragmentSamplers(pass, 0, &binding, 1)
-	sdl.PushGPUFragmentUniformData(cmd, 0, &g, size_of(g))
-	sdl.DrawGPUPrimitives(pass, 3, 1, 0, 0)
-	sdl.EndGPURenderPass(pass)
+	gpu_bind_fragment_samplers(pass, 0, &binding, 1)
+	gpu_push_fragment_uniform_data(cmd, 0, &g, size_of(g))
+	gpu_draw_primitives(pass, 3, 1, 0, 0)
+	gpu_end_render_pass(pass)
 
 	b := Blur_Uniforms {
 		inv_proj = inv_proj,
@@ -150,14 +150,14 @@ live_ao_frame :: proc(r: ^Renderer, lao: ^Live_AO, cmd: ^sdl.GPUCommandBuffer, v
 		params   = {clamp(strength, 0, 1), world_reach * 0.5, line_px, clamp(strength_right, 0, 1)},
 	}
 	target = {texture = lao.shown, load_op = .LOAD if partial else .DONT_CARE, store_op = .STORE, cycle = !partial}
-	pass = sdl.BeginGPURenderPass(cmd, &target, 1, nil)
-	sdl.BindGPUGraphicsPipeline(pass, lao.blur_pipeline)
-	sdl.SetGPUScissor(pass, {blur_rect.x, blur_rect.y, blur_rect.w, blur_rect.h})
+	pass = gpu_begin_render_pass(cmd, &target, 1, nil)
+	gpu_bind_graphics_pipeline(pass, lao.blur_pipeline)
+	gpu_set_scissor(pass, {blur_rect.x, blur_rect.y, blur_rect.w, blur_rect.h})
 	samplers := [3]sdl.GPUTextureSamplerBinding{{texture = vt.color, sampler = lao.sampler}, {texture = lao.ao, sampler = lao.sampler}, {texture = depth, sampler = lao.sampler}}
-	sdl.BindGPUFragmentSamplers(pass, 0, &samplers[0], len(samplers))
-	sdl.PushGPUFragmentUniformData(cmd, 0, &b, size_of(b))
-	sdl.DrawGPUPrimitives(pass, 3, 1, 0, 0)
-	sdl.EndGPURenderPass(pass)
+	gpu_bind_fragment_samplers(pass, 0, &samplers[0], len(samplers))
+	gpu_push_fragment_uniform_data(cmd, 0, &b, size_of(b))
+	gpu_draw_primitives(pass, 3, 1, 0, 0)
+	gpu_end_render_pass(pass)
 	return true
 }
 
@@ -182,10 +182,10 @@ live_ao_supported :: proc(r: ^Renderer, lao: ^Live_AO) -> bool {
 
 live_ao_destroy :: proc(r: ^Renderer, lao: ^Live_AO) {
 	if r.device == nil do return
-	_ = sdl.WaitForGPUIdle(r.device)
-	for p in ([4]^sdl.GPUGraphicsPipeline{lao.gtao_pipeline, lao.blur_pipeline, lao.depth_pipeline, lao.clear_pipeline}) do if p != nil do sdl.ReleaseGPUGraphicsPipeline(r.device, p)
-	if lao.sampler != nil do sdl.ReleaseGPUSampler(r.device, lao.sampler)
-	for t in ([3]^sdl.GPUTexture{lao.ao, lao.shown, lao.view_depth}) do if t != nil do sdl.ReleaseGPUTexture(r.device, t)
+	_ = gpu_wait_for_idle(r.device)
+	for p in ([4]^sdl.GPUGraphicsPipeline{lao.gtao_pipeline, lao.blur_pipeline, lao.depth_pipeline, lao.clear_pipeline}) do if p != nil do gpu_release_graphics_pipeline(r.device, p)
+	if lao.sampler != nil do gpu_release_sampler(r.device, lao.sampler)
+	for t in ([3]^sdl.GPUTexture{lao.ao, lao.shown, lao.view_depth}) do if t != nil do gpu_release_texture(r.device, t)
 	full, partial, skipped := lao.full, lao.partial, lao.skipped
 	lao^ = {}
 	lao.full, lao.partial, lao.skipped = full, partial, skipped
@@ -220,7 +220,7 @@ live_ao_ensure :: proc(r: ^Renderer, lao: ^Live_AO, vt: ^Viewport_Target, scale:
 		lao.blur_pipeline = create_fullscreen_pipeline(r, AO_BLUR_FRAG_SPV, VIEWPORT_COLOR_FORMAT, samplers = 3)
 		lao.depth_pipeline = create_shadow_pipeline(r, cull_back = true)
 		lao.clear_pipeline = create_depth_clear_pipeline(r)
-		lao.sampler = sdl.CreateGPUSampler(r.device, {
+		lao.sampler = gpu_create_sampler(r.device, {
 			min_filter = .NEAREST, mag_filter = .NEAREST, mipmap_mode = .NEAREST,
 			address_mode_u = .CLAMP_TO_EDGE, address_mode_v = .CLAMP_TO_EDGE, address_mode_w = .CLAMP_TO_EDGE,
 		})
@@ -232,20 +232,20 @@ live_ao_ensure :: proc(r: ^Renderer, lao: ^Live_AO, vt: ^Viewport_Target, scale:
 	want_view_depth := vt.samples != ._1
 	if lao.ao != nil && lao.width == vt.width && lao.height == vt.height && lao.scale == scale && want_view_depth == (lao.view_depth != nil) do return true
 	// A frame in flight may still read these; SDL_GPU defers the release until it is done.
-	for t in ([3]^sdl.GPUTexture{lao.ao, lao.shown, lao.view_depth}) do if t != nil do sdl.ReleaseGPUTexture(r.device, t)
+	for t in ([3]^sdl.GPUTexture{lao.ao, lao.shown, lao.view_depth}) do if t != nil do gpu_release_texture(r.device, t)
 	lao.ao, lao.shown, lao.view_depth = nil, nil, nil
 	lao.key = 0
 	if want_view_depth {
-		lao.view_depth = sdl.CreateGPUTexture(r.device, {
+		lao.view_depth = gpu_create_texture(r.device, {
 			type = .D2, format = r.depth_format, usage = {.DEPTH_STENCIL_TARGET, .SAMPLER},
 			width = vt.width, height = vt.height, layer_count_or_depth = 1, num_levels = 1,
 		})
 	}
-	lao.ao = sdl.CreateGPUTexture(r.device, {
+	lao.ao = gpu_create_texture(r.device, {
 		type = .D2, format = LIVE_AO_FORMAT, usage = {.COLOR_TARGET, .SAMPLER},
 		width = (vt.width + scale - 1) / scale, height = (vt.height + scale - 1) / scale, layer_count_or_depth = 1, num_levels = 1,
 	})
-	lao.shown = sdl.CreateGPUTexture(r.device, {
+	lao.shown = gpu_create_texture(r.device, {
 		type = .D2, format = VIEWPORT_COLOR_FORMAT, usage = {.COLOR_TARGET, .SAMPLER},
 		width = vt.width, height = vt.height, layer_count_or_depth = 1, num_levels = 1,
 	})

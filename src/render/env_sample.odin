@@ -10,7 +10,7 @@ import sdl "vendor:sdl3"
 // instead of only when a bounce happens to point at it. Each environment keeps a table
 // over a small copy of its panorama: a texel is picked by its luminance times its share
 // of the sphere (sin θ) through Vose's alias method, in constant time, and a direction
-// is taken evenly within it. render_trace.comp reads the table (env_sample, env_pdf).
+// is taken evenly within it. render_trace.comp.slang reads the table (env_sample, env_pdf).
 
 ENV_TABLE_FORMAT :: sdl.GPUTextureFormat.R32G32B32A32_FLOAT
 // The table's size at most: fine enough to find a sun a degree or so across, and 2 MB.
@@ -114,8 +114,8 @@ env_table_luminance :: proc(pixels: [][3]f32, width, height: int, allocator := c
 	return
 }
 
-// The built-in studio's luminance in its own space (studio() in studio_env.glsl, at
-// render_trace.comp's STUDIO_BLUR), for its table. Kept in step with the shader by hand:
+// The built-in studio's luminance in its own space (studio() in studio_env.slang, at
+// render_trace.comp.slang's STUDIO_BLUR), for its table. Kept in step with the shader by hand:
 // a difference costs only noise, never a wrong image, since the shader's own studio()
 // gives the light and the table only where to look.
 studio_luminance :: proc(dir: [3]f32, rough: f32) -> f32 {
@@ -139,7 +139,7 @@ studio_luminance :: proc(dir: [3]f32, rough: f32) -> f32 {
 	return 0.2126 * c.x + 0.7152 * c.y + 0.0722 * c.z
 }
 
-// The direction at the middle of panorama texel (x, y), as panorama_dir in panorama.glsl.
+// The direction at the middle of panorama texel (x, y), as panorama_dir in panorama.slang.
 panorama_direction :: proc(x, y, width, height: int) -> [3]f32 {
 	theta := (f32(y) + 0.5) / f32(height) * math.PI
 	phi := ((f32(x) + 0.5) / f32(width) - 0.5) * 2 * math.PI
@@ -149,7 +149,7 @@ panorama_direction :: proc(x, y, width, height: int) -> [3]f32 {
 
 // Uploads a table as an RGBA32F texture; nil, logged, when the device refuses.
 env_table_texture :: proc(r: ^Renderer, t: Env_Table) -> ^sdl.GPUTexture {
-	tex := sdl.CreateGPUTexture(r.device, {
+	tex := gpu_create_texture(r.device, {
 		type = .D2, format = ENV_TABLE_FORMAT, usage = {.SAMPLER},
 		width = u32(t.width), height = u32(t.height), layer_count_or_depth = 1, num_levels = 1,
 	})
@@ -158,7 +158,7 @@ env_table_texture :: proc(r: ^Renderer, t: Env_Table) -> ^sdl.GPUTexture {
 		return nil
 	}
 	if !texture_upload(r, tex, mem.slice_to_bytes(t.texels), t.width, t.height, mips = false) {
-		sdl.ReleaseGPUTexture(r.device, tex)
+		gpu_release_texture(r.device, tex)
 		return nil
 	}
 	return tex

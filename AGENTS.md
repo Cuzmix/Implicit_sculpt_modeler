@@ -47,7 +47,7 @@ skill whose description fits the request BEFORE you form a plan.
 | Path | What |
 |---|---|
 | `src/app` | entry point, frame loop, `Options` flags, scene of objects, the tools, the interface's panels (`new_ui.odin`, `kit_*.odin`), keys and pointer (`device.odin`), `Viewport_Input`, cross-object `History`, `--gpubench` |
-| `src/render` | every GPU object the app creates: device, pipelines, viewport target, mesh buffers, indirect draws, partial redraw, the idle cache; `shaders/` GLSL with committed `.spv` |
+| `src/render` | every GPU object the app creates: device, pipelines, viewport target, mesh buffers, indirect draws, partial redraw, the idle cache; `shaders/` Slang with committed `.spv` |
 | `src/geom` | CPU geometry: `Mesh`, icosphere and geodesic fixtures, BVHs, topology, culling math, simplification, the LOD walk, `mesh_check` |
 | `src/camera`, `src/gizmo` | orbit camera math; move gizmo math (both pure, no rendering or UI) |
 | `src/sculpt` | brushes over a `Mesh` split into nodes, dirty ranges, undo, subdivision levels, HD windows, simplified copies |
@@ -59,7 +59,7 @@ skill whose description fits the request BEFORE you form a plan.
 | `src/voxel` | voxel sculpting: narrow-band SDF in 8³ bricks, Add/Subtract/Smooth/Flatten/Inflate dabs, surface nets into mesh slots, per-brick undo, band repair, `SVOX` file section, conversion to a `Mesh` |
 | `src/sdf_trial` | the standalone SDF/voxel comparison spike (not in the build scripts) |
 | `android/` | the Android app: Gradle project, manifest, `app/jni/CMakeLists.txt` (SDL3, stb and `src/app` built by Odin into `libmain.so`), `android_main.c` |
-| `scripts/` | `setup_deps.*`, `versions.env` (the pins), `build_luau.py` (Luau from source, which setup_deps runs), `gate.py` (the done gate in one command), `test_only.py` (some tests of one package), `agents_sync.py` (skill mirror and validation), `ppm.py` (view and diff viewport dumps), `touch_check.py` (touch, pen and camera scenarios), `export_check.py` (a glTF or USD export through its validator and Blender), `link_check.py` (the Blender link's round trip through the add-on in bpy) |
+| `scripts/` | `setup_deps.*`, `versions.env` (the pins), `build_luau.py` (Luau from source, which setup_deps runs), `gate.py` (the done gate in one command), `test_only.py` (some tests of one package), `agents_sync.py` (skill mirror and validation), `ppm.py` (view and diff viewport dumps), `parity_check.py` (19 scenes against a baseline build, pixel for pixel), `touch_check.py` (touch, pen and camera scenarios), `export_check.py` (a glTF or USD export through its validator and Blender), `link_check.py` (the Blender link's round trip through the add-on in bpy) |
 | `tools/blender/` | the Blender add-on of the Blender link (`sculpt_link`, Python, GPL-3.0-or-later as Blender requires): outside the build, never in the APK |
 | `deps/`, `build/` | ignored: the pinned toolchain and third-party sources; build outputs and dumps |
 | `.vscode/`, `.claude/`, `.agents/` | tasks and launch configurations; skills, agents and permissions; the generated skill mirror (never edited by hand) |
@@ -69,7 +69,8 @@ skill whose description fits the request BEFORE you form a plan.
 - Package boundaries: `geom`, `camera`, `gizmo`, `jobs`, `zip`, `voxel` and `luau` know nothing of rendering or UI; `ui` knows nothing of SDL or `render`; only `render` and `app`
   import `vendor:sdl3`, and only `render` names the GPU API: `app` holds `render.Cmd`, `render.Texture`,
   `render.Fence` and `render.Sample_Count` and calls render's procs (`render.wait_idle`, `cmd_begin`, `cmd_submit`,
-  `swapchain_acquire`, `ui_present`; `src/render/gpu.odin`), which `scripts/boundary_check.py` enforces in `check`;
+  `swapchain_acquire`, `ui_present`; `src/render/gpu.odin`), and inside render only `hal.odin` calls SDL_GPU's procs
+  (`gpu_*`), both enforced by `scripts/boundary_check.py` in `check`;
   `bench` never imports `render` or `app`; `sdf_trial` stands alone.
 - Determinism: serial and parallel results are bit-identical and tests compare them; no map order decides output.
 - Allocations inside jobs use `runtime.heap_allocator()` for both make and delete; only the frame loop and the setup

@@ -15,7 +15,7 @@ near :: proc(a, b: [3]f32, eps: f32 = 1e-5) -> bool {
 	return linalg.length(a - b) < eps
 }
 
-// The shader's light_at (mesh_shading.glsl) on the CPU: toward light `i` from `p` (view
+// The shader's light_at (mesh_shading.slang) on the CPU: toward light `i` from `p` (view
 // space) and how much of its strength arrives there.
 @(private = "file")
 light_at :: proc(l: render.Lights, i: int, p: [3]f32) -> (k: f32, toward: [3]f32) {

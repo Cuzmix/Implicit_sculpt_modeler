@@ -34,9 +34,23 @@ ODIN="$DEPS/odin/odin"
 mode="${1:-debug}"; shift || true
 [ "${1:-}" = "--" ] && shift
 
+# Shaders are Slang: each name.stage.slang (stage vert, frag or comp) compiles to the
+# name.stage.spv the renderer embeds, as SPIR-V 1.3 (Vulkan 1.1). The other .slang files
+# are includes. Matrices are row-major, so mul(v, M) is GLSL's M * v (sm-render), and -O0
+# leaves the arithmetic as written: the optimizer turns x / c into x * (1 / c), which moves
+# pixels. A shader whose first line is "// slangc: -fp-mode precise" keeps every multiply
+# and add unfused. Without deps/slang (scripts/setup_deps.sh) the committed .spv files are
+# used as they are.
+SLANGC="$DEPS/slang/bin/slangc"
 compile_shaders() {
-	for src in "$ROOT"/src/render/shaders/*.{vert,frag,comp}; do
-		glslangValidator -V --quiet "$src" -o "$src.spv"
+	[ -x "$SLANGC" ] || { echo "slangc missing: using the committed shaders"; return 0; }
+	local src name stage flags
+	for src in "$ROOT"/src/render/shaders/*.{vert,frag,comp}.slang; do
+		name="${src%.slang}"
+		case "${name##*.}" in vert) stage=vertex;; frag) stage=fragment;; comp) stage=compute;; esac
+		flags=()
+		if head -n 1 "$src" | grep -q '^// slangc: -fp-mode precise'; then flags=(-fp-mode precise); fi
+		"$SLANGC" "$src" -target spirv -profile spirv_1_3 -matrix-layout-row-major -O0 -stage "$stage" -entry main "${flags[@]}" -o "$name.spv"
 	done
 }
 
