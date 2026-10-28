@@ -1661,7 +1661,7 @@ COMMANDS := [Command_Id]Command {
 		enabled = proc(app: ^App, _: int) -> bool {
 			w := &app.kit.workspaces
 			b, built_in := workspace_built_in(w.current)
-			return built_in && len(w.list) > 0 && (w.modified || w.list[w.current].saved != built_in_layout(b))
+			return built_in && len(w.list) > 0 && (w.modified || w.list[w.current].saved != built_in_layout(b, w.chrome))
 		},
 	},
 	.Workspace_Rename = {

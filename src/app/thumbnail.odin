@@ -363,6 +363,22 @@ picture_gathers :: proc(app: ^App, sv: ^Second_View, pic: ^Picture) -> bool {
 	return false
 }
 
+// How many samples a picture's studio render or path tracing has and how many it gathers
+// to, for its chip; zero wanted when it shows neither or the device does not run it.
+picture_samples :: proc(app: ^App, sv: ^Second_View, pic: ^Picture) -> (have, want: int) {
+	if !render.live_ao_supported(&app.renderer, &pic.ao) do return
+	#partial switch sv.pass {
+	case .Studio:
+		if pic.studio.failed || !pic.studio.shown_valid do return
+		return pic.studio.samples, int(app.studio_samples)
+	case .Render:
+		pr := &pic.path
+		if pr.failed || !pr.valid || pr.refused != "" do return
+		return pr.samples, int(clamp(app.render_samples, 1, render.RENDER_SAMPLES_MAX))
+	}
+	return
+}
+
 // One step of a picture's path tracing, with Scene > Render's settings and the lens seen
 // from the picture's camera; `changed` starts it over.
 @(private = "file")

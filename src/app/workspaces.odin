@@ -59,6 +59,7 @@ Workspaces :: struct {
 	menu:     bool, // the switcher's menu
 	menu_at:  ui.Rect,
 	deleting: bool, // the menu asks to confirm deleting the current workspace
+	chrome:   Chrome, // the chrome the built-ins' layouts are for (workspaces_chrome)
 	switches: int, // how many times the workspace changed (an exit stat)
 	loaded:   bool, // the settings named workspaces (an older file names none)
 	// Workspace files written and read (workspace_file.odin), for the exit stats.
@@ -73,9 +74,30 @@ workspaces_init :: proc(k: ^Kit_State) {
 	for b in Built_In {
 		ws := &w.list[int(b)]
 		ws.used = true
-		workspace_text_set(&ws.saved, built_in_layout(b))
+		workspace_text_set(&ws.saved, built_in_layout(b, k.chrome))
 	}
 	w.current = int(Built_In.Sculpt)
+	w.chrome = k.chrome
+}
+
+// Once the chrome changed (Settings > Interface > Layout, the Classic layout command or a
+// settings file read after the workspaces were made): a built-in workspace that is as it
+// comes with the app becomes the other chrome's, saved, left and, when current, in place;
+// one the user saved or changed stays as it is.
+workspaces_chrome :: proc(k: ^Kit_State) {
+	w := &k.workspaces
+	if len(w.list) == 0 || w.chrome == k.chrome do return
+	from := w.chrome
+	w.chrome = k.chrome
+	for b in Built_In {
+		ws := &w.list[int(b)]
+		old, new := built_in_layout(b, from), built_in_layout(b, k.chrome)
+		if old == new do continue
+		if ws.live == old do workspace_text_set(&ws.live, "")
+		if ws.saved != old do continue
+		workspace_text_set(&ws.saved, new)
+		if w.current == int(b) && kit_layout_text(k) == old do kit_layout_put(k, new)
+	}
 }
 
 workspaces_destroy :: proc(k: ^Kit_State) {
@@ -129,6 +151,7 @@ kit_layout_text :: proc(k: ^Kit_State) -> string {
 	}
 	strings.write_string(&out, pass_layout_line(k))
 	strings.write_string(&out, grid_layout_lines(k))
+	if k.second_in_layout do fmt.sbprintfln(&out, "thumbnail %v %v", k.second.camera, k.second.pass)
 	strings.write_string(&out, "open")
 	for w in LAYOUT_PANELS do if layout_open(k, w)^ do fmt.sbprintf(&out, " %v", w)
 	strings.write_byte(&out, '\n')
@@ -167,6 +190,7 @@ kit_layout_put :: proc(k: ^Kit_State, text: string) {
 	k.grid.tree, k.grid.maximised = grid_preset_tree(.Single), 0
 	k.grid.serial += 1
 	k.grid.undo = {}
+	k.second_in_layout = false
 	for line in strings.split_lines(text, context.temp_allocator) {
 		f := strings.fields(line, context.temp_allocator)
 		if len(f) == 0 do continue
@@ -175,6 +199,11 @@ kit_layout_put :: proc(k: ^Kit_State, text: string) {
 			for word in f[1:] do for z in Zone do if strings.equal_fold(word, fmt.tprint(z)) do k.hidden += {z}
 		case "pass":
 			pass_layout_read(k, f)
+		case "thumbnail":
+			if len(f) < 3 do continue
+			for c in Second_Camera do if strings.equal_fold(fmt.tprint(c), f[1]) do k.second.camera = c
+			for p in Second_Pass do if strings.equal_fold(fmt.tprint(p), f[2]) do k.second.pass = p
+			k.second_in_layout = true
 		case "panes", "grid", "pane":
 			grid_layout_read(&k.grid, f)
 		case "open":
@@ -203,8 +232,8 @@ kit_layout_put :: proc(k: ^Kit_State, text: string) {
 	k.bar_scrub = {}
 }
 
-// A built-in workspace's layout, as kit_layout_text writes it.
-built_in_layout :: proc(b: Built_In) -> string {
+// A built-in workspace's layout for the chrome `chrome`, as kit_layout_text writes it.
+built_in_layout :: proc(b: Built_In, chrome := Chrome.Lens) -> string {
 	text: string
 	switch b {
 	case .Sculpt:
@@ -216,6 +245,14 @@ built_in_layout :: proc(b: Built_In) -> string {
 		// and Look stay a tap away on the rail and in Search.
 		text = "hidden Brush_Bar Dock\npanes h500 v500 0 1 v500 2 3\npane 1 Follow Curvature\npane 2 Follow Normals\npane 3 Front Silhouette\nopen\n"
 	case .Studio:
+		// In Lens the look's sections are cards of the stack, after round 2's studio2
+		// screen: Lights and Material open, Environment folded, then Palettes, and the
+		// thumbnail shows the render building up beside the stack's foot, so the stack has
+		// the column's whole height. Classic keeps them as pinned panels.
+		if chrome == .Lens {
+			text = "thumbnail Follow Render\nopen Inspector Thumbnail\nwindow Thumbnail 1 End End 390 112 0\nstack Lights+ Material+ Environment -Brush -Symmetry -Layers -Scene -Tools Palettes\n"
+			break
+		}
 		text = "open Thumbnail\ncolumn right Inspector section:Lights section:Material section:Environment\n" +
 			"pinned Lights 0 Start Start 0 0 0\npinned Material 0 Start Start 0 0 0\npinned Environment 0 Start Start 0 0 0\n"
 	}
@@ -230,6 +267,7 @@ built_in_layout :: proc(b: Built_In) -> string {
 workspaces_frame :: proc(k: ^Kit_State) {
 	w := &k.workspaces
 	if len(w.list) == 0 do return
+	workspaces_chrome(k)
 	w.modified = kit_layout_text(k) != w.list[w.current].saved
 	if !w.menu do w.deleting = false
 }
@@ -332,7 +370,7 @@ workspace_reset :: proc(k: ^Kit_State) {
 	if len(w.list) == 0 do return
 	b, ok := workspace_built_in(w.current)
 	if !ok do return
-	workspace_text_set(&w.list[w.current].saved, built_in_layout(b))
+	workspace_text_set(&w.list[w.current].saved, built_in_layout(b, w.chrome))
 	workspace_revert(k)
 }
 
@@ -441,7 +479,7 @@ workspaces_save :: proc(k: ^Kit_State, out: ^strings.Builder) {
 		if !ws.used do continue
 		b, built_in := workspace_built_in(slot)
 		if !built_in do fmt.sbprintfln(out, "workspace %d %s", slot, preset_escape(workspace_name(k, slot)))
-		if !built_in || ws.saved != built_in_layout(b) do fmt.sbprintfln(out, "workspace_saved %d %s", slot, preset_escape(ws.saved))
+		if !built_in || ws.saved != built_in_layout(b, w.chrome) do fmt.sbprintfln(out, "workspace_saved %d %s", slot, preset_escape(ws.saved))
 		live := kit_layout_text(k) if slot == w.current else ws.live
 		if live != "" && live != ws.saved do fmt.sbprintfln(out, "workspace_live %d %s", slot, preset_escape(live))
 	}

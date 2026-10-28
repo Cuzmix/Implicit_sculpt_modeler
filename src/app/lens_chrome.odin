@@ -281,6 +281,8 @@ kit_mini_view :: proc(app: ^App) -> (raised: bool) {
 		// shows the choices, a tap elsewhere swaps.
 		dot, _ := second_color(t, sv, 1)
 		label := fmt.tprintf("%s · %s", SECOND_CAMERA_NAMES[sv.camera], SECOND_PASS_NAMES[sv.pass])
+		// A render says how far it has come, as round 2's studio2 screen: "Render · 64/256".
+		if have, want := picture_samples(app, sv, &app.thumbnail); want > 0 do label = fmt.tprintf("%s · %d/%d", SECOND_PASS_NAMES[sv.pass], min(have, want), want)
 		room := pic.w - 12
 		label = ui.text_fit(ctx, label, t.small_size, room - lens_chip_width(ctx, "", dot = true, chevron = true), .Semibold)
 		w := min(lens_chip_width(ctx, label, dot = true, chevron = true), room)

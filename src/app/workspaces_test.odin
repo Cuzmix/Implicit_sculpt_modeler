@@ -126,7 +126,8 @@ workspaces_read_back_what_they_wrote :: proc(t: ^testing.T) {
 	workspaces_frame(&b.kit)
 	testing.expect(t, w.modified, "the current workspace's changes came back as saved")
 	workspace_switch(&b.kit, int(Built_In.Studio))
-	testing.expect(t, !b.kit.thumbnail && b.kit.panels.pins[.Lights].on, "Studio came back without how it was left")
+	// In Lens, Studio's Lights are a card of the stack.
+	testing.expect(t, !b.kit.thumbnail && .Lights not_in b.kit.stack.hidden, "Studio came back without how it was left")
 }
 
 @(test)
