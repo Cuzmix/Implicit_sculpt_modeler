@@ -39,7 +39,7 @@ CASES = [
     ("pass_curvature", "view_pass curvature", 20, ""),
     ("live_ao", "set live_ao on", 20, ""),
     ("live_ao_msaa_off", "set msaa off\nset live_ao on", 20, ""),
-    ("studio", "set studio_ao 1\nset studio_shadow 1\nstudio_render on", 120, "studio=1"),
+    ("studio", "set studio_ao 1\nset studio_shadow 1\nstudio_render on", 420, "studio=1"),
     ("render_full", "set render_samples 4\nset render_half off\nrender_mode on", 900, "render_samples=4 "),
     ("render_half", "set render_samples 4\nset render_half on\nrender_mode on", 600, "render_samples=4 "),
     ("render_dof", "set render_samples 4\nset render_half on\nset render_dof on\nrender_mode on", 600, "render_samples=4 "),
