@@ -196,6 +196,7 @@ App :: struct {
 	home:     Home, // the Home screen's pictures and autosaves (home.odin)
 	thumbnail: Picture, // the second view's picture (thumbnail.odin)
 	panes:     [GRID_VIEWS]Picture, // the view panes' pictures (grid.odin)
+	work_still: render.Viewport_Target, // what the main pane holds while a view pane is worked in (grid_work)
 	pictures_drawn: int, // second-view pictures drawn this frame (picture_frame)
 	capture:   Capture, // a transparent screenshot waiting for its frame (capture.odin)
 	turntable: Turntable, // Scene > Turntable's recording (turntable.odin)
@@ -834,6 +835,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		waited_dab := dab_wait_resolve(&app)
 		ui_start := time.tick_now()
 		input := kit_frame(&app, window)
+		if !grid_work_gpu(&app) do return false
 		ring_push(&app.stats.ui_ms, time.duration_milliseconds(time.tick_since(ui_start)))
 		bench_waits := opts.bench_after_autosave && app.autosave.written == 0 && !autosave_writing(&app)
 		if bench_waits && !setting_up do bench_skipped += 1
@@ -1037,7 +1039,10 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		}
 		aspect := f32(app.target.width) / f32(app.target.height)
 		view, proj := camera.orbit_view(app.camera), camera.orbit_proj(app.camera, aspect)
-		if view_changed(&app, view, proj) do app.view_moved = time.tick_now()
+		// The main view's role lent to a view pane or given back is no turn of the view: what
+		// either pane shows was already at rest, so neither is simplified for it.
+		travelled := app.kit.grid.work_began || app.kit.grid.work_ended != 0
+		if view_changed(&app, view, proj) && !travelled do app.view_moved = time.tick_now()
 		moving := time.tick_since(app.view_moved) < LOD_SETTLE
 		app.renderer.lod_px = app.simplify_px if app.simplify && moving && !timelapse_capturing(&app) && !turntable_recording(&app) else 0
 		app.renderer.floor = floor_grid_frame(&app)
@@ -1057,6 +1062,23 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			app.renderer.environment_look.background = false
 		}
 		if shown_pass == .Silhouette do app.renderer.floor = {}
+		// The view pane worked in looks as its own picture does at rest (picture_frame): on its
+		// pass's ground or the pane colour, with no floor, a silhouette without wires or paint.
+		if app.kit.grid.work != 0 {
+			app.renderer.floor = {}
+			if _, own := pass_ground(shown_pass); !own {
+				pane := color_f32(LOOK_THEMES[app.kit.look].pane)
+				app.renderer.background = {pane, pane}
+				app.renderer.environment_look.background = false
+			}
+			if shown_pass == .Silhouette {
+				for &d in draws {
+					d.wireframe, d.paint, d.groups = false, false, false
+					d.matcap, d.textured, d.slots = nil, nil, nil
+					d.checker = {}
+				}
+			}
+		}
 		drawn := render.render_viewport(&app.renderer, cmd, &app.target, view, proj, draws[:], app.cache_idle)
 		// Anything redrawn this frame starts the samples over.
 		changed := !drawn.partial || drawn.redrawn_px > 0
@@ -1240,7 +1262,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			if i + 1 < grid_count(g.preset) && second_linked(&v) do links += 1
 		}
 		split := grid_split(g, g.preset)
-		fmt.printfln("grid=%v grid_panes=%d grid_split=%.3f,%.3f grid_max=%d grid_drags=%d pane_draws=%d pane_ms=%.2f pane_px=%dx%d pane_camera=%v pane_turns=%d pane_links=%d linked_turns=%d viewport_origin=%.0f,%.0f grid_main=%.0fx%.0f", g.preset, grid_count(g.preset), split.x, split.y, g.maximised, g.drags, draws, ms, g.px[0].x, g.px[0].y, g.views[g.preset][0].camera, turns, links, linked, app.ui.viewport_origin.x, app.ui.viewport_origin.y, g.main.w, g.main.h)
+		fmt.printfln("grid=%v grid_panes=%d grid_split=%.3f,%.3f grid_max=%d grid_drags=%d pane_draws=%d pane_ms=%.2f pane_px=%dx%d pane_camera=%v pane_turns=%d pane_links=%d linked_turns=%d viewport_origin=%.0f,%.0f grid_main=%.0fx%.0f pane_work=%d pane_works=%d pane_work_dabs=%d", g.preset, grid_count(g.preset), split.x, split.y, g.maximised, g.drags, draws, ms, g.px[0].x, g.px[0].y, g.views[g.preset][0].camera, turns, links, linked, app.ui.viewport_origin.x, app.ui.viewport_origin.y, g.main.w, g.main.h, g.work, g.works, g.work_dabs + (app.stats.dabs_total - g.work_dabs_from if g.work != 0 else 0))
 	}
 	fmt.printfln("screenshot_transparent=%d turntable_frames=%d turntable_written=%d", int(app.screenshot_transparent), app.turntable_frames, app.turntable.frame)
 	fmt.printfln("print_mm=%g print_unit=%d print_exports=%d", print_scale(&app), int(app.print_unit), app.print_exports)

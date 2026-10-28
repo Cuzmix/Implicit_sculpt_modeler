@@ -120,7 +120,7 @@ second_axis :: proc(c: Second_Camera) -> (camera.Axis_View, bool) {
 // The camera a second view sees through: the viewport's, its reflection, an axis view of
 // it, or its own.
 second_orbit :: proc(app: ^App, sv: ^Second_View) -> camera.Orbit {
-	c := app.camera
+	c := main_camera(app)
 	switch sv.camera {
 	case .Follow:
 	case .Mirror:
@@ -210,15 +210,10 @@ thumbnail_frame :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer, draws: []render.D
 	picture_frame(app, cmd, draws, &k.second, &app.thumbnail, size, 1 if k.second.max else render.THUMBNAIL_SUPERSAMPLE)
 }
 
-// Draws second view `sv` into `pic`, `size` pixels as shown at `supersample` times that,
-// when what it shows changed and its turn came: never while a stroke or a turn of the view
-// goes on, at most every THUMBNAIL_EVERY seconds, and every frame while its own camera is
-// dragged.
-picture_frame :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer, draws: []render.Draw_Item, sv: ^Second_View, pic: ^Picture, size: [2]u32, supersample: u32) {
-	pic.due = false
-	orbit := second_orbit(app, sv)
-	view, proj := camera.orbit_view(orbit), camera.orbit_proj(orbit, f32(size.x) / f32(size.y))
-	pass := second_view_pass(sv.pass)
+// What second view `sv`'s picture at `size` and `supersample` shows, as one number (never 0),
+// and the camera it is seen through.
+picture_key :: proc(app: ^App, sv: ^Second_View, size: [2]u32, supersample: u32) -> (key: u64, orbit: camera.Orbit) {
+	orbit = second_orbit(app, sv)
 	Keyed :: struct {
 		view, proj:  render.Mat4,
 		scene:       u64,
@@ -226,13 +221,26 @@ picture_frame :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer, draws: []render.Dra
 		pass:        render.View_Pass,
 		supersample: u32,
 	}
-	keyed := Keyed{view, proj, scene_fingerprint(app), size, pass, supersample}
-	key := max(hash.fnv64a(mem.ptr_to_bytes(&keyed)), 1)
+	keyed := Keyed{camera.orbit_view(orbit), camera.orbit_proj(orbit, f32(size.x) / f32(size.y)), scene_fingerprint(app), size, second_view_pass(sv.pass), supersample}
+	key = max(hash.fnv64a(mem.ptr_to_bytes(&keyed)), 1)
+	return
+}
+
+// Draws second view `sv` into `pic`, `size` pixels as shown at `supersample` times that,
+// when what it shows changed and its turn came: never while a stroke or a turn of the view
+// goes on, at most every THUMBNAIL_EVERY seconds, and every frame while its own camera is
+// dragged.
+picture_frame :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer, draws: []render.Draw_Item, sv: ^Second_View, pic: ^Picture, size: [2]u32, supersample: u32) {
+	pic.due = false
+	key, orbit := picture_key(app, sv, size, supersample)
+	view, proj := camera.orbit_view(orbit), camera.orbit_proj(orbit, f32(size.x) / f32(size.y))
+	pass := second_view_pass(sv.pass)
 	if pic.shown != nil && key == pic.key do return
 	// Each picture draws every object whole, without the viewport's culling or simplified
 	// copies, so it waits while a stroke or a turn of the view goes on; a drag on the
 	// picture itself is the one thing moving then, and draws it every frame.
-	moving := app.stroke.active || time.tick_since(app.view_moved) < LOD_SETTLE
+	// While a view pane is worked in, that pane is the one view drawn live (grid_work).
+	moving := app.stroke.active || time.tick_since(app.view_moved) < LOD_SETTLE || app.kit.grid.work != 0
 	// One picture a frame at most, so the panes due after a stroke share out their cost.
 	if pic.shown != nil && !sv.dragging && (moving || app.pictures_drawn > 0 || time.duration_seconds(time.tick_since(pic.at)) < THUMBNAIL_EVERY) {
 		pic.due = true

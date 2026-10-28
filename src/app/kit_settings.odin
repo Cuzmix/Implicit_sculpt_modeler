@@ -130,6 +130,7 @@ settings_reset :: proc(app: ^App, tab: Settings_Tab) {
 		app.start_home = true
 		k.surface_ring = true
 		k.panes_under = true
+		k.panes_work = true
 		k.column_popovers = true
 		k.action_bar = true
 		k.rail_side, k.wheel_size, k.wheel_offset = .Left, .Medium, {}
@@ -207,6 +208,7 @@ settings_interface :: proc(app: ^App) {
 	ui.spacer(ctx, 8)
 	ui.caption(ctx, "VIEW GRID")
 	_ = ui.switch_row(ctx, "Views run under panels", &k.panes_under)
+	_ = ui.switch_row(ctx, "Work in any view", &k.panes_work)
 	ui.paragraph(ctx, "With the view split into panes, they fill the window and the docked panels float over them; off, the panes stop beside the panels, so none of a pane is hidden.")
 	ui.spacer(ctx, 8)
 	ui.caption(ctx, "BARS")

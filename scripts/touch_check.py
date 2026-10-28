@@ -6033,13 +6033,13 @@ def stroke_in_the_main_pane_beside_a_left_column():
 
 @scenario
 def view_pane_drag_turns_its_own_camera():
-    """A finger dragged across the view pane turns its own camera, which becomes Free; the main camera stays still and nothing is sculpted."""
+    """With Work in any view off, a finger dragged across the view pane turns its own camera, which becomes Free; the main camera stays still and nothing is sculpted."""
     s = Script()
     s.wait(4)
     x, y = GRID_PANE
     s.fdrag([(x - 40 + i * 8, y) for i in range(11)])
     s.wait(6)
-    return s, ["--script=set panes_under_panels off; view_grid side_by_side"], camera_still({"pane_camera": is_text("Free"), "pane_turns": lambda v: int(v) >= 5, "dabs": near(0)})
+    return s, ["--script=set panes_under_panels off; set panes_work off; view_grid side_by_side"], camera_still({"pane_camera": is_text("Free"), "pane_turns": lambda v: int(v) >= 5, "dabs": near(0)})
 
 
 @scenario
@@ -6063,7 +6063,7 @@ def view_pane_link_turns_the_main_camera():
     x, y = GRID_PANE
     s.fdrag([(x - 40 + i * 8, y) for i in range(11)])
     s.wait(6)
-    return s, ["--script=set panes_under_panels off; view_grid side_by_side"], {"pane_camera": is_text("Follow"), "pane_links": near(1), "linked_turns": lambda v: int(v) >= 5,
+    return s, ["--script=set panes_under_panels off; set panes_work off; view_grid side_by_side"], {"pane_camera": is_text("Follow"), "pane_links": near(1), "linked_turns": lambda v: int(v) >= 5,
                                                    "pane_turns": near(0), "camera_yaw": lambda v: abs(float(v) - CAMERA0["camera_yaw"]) > 0.05, "dabs": near(0)}
 
 
@@ -6081,9 +6081,53 @@ def view_pane_mirrored_turns_the_main_camera_the_other_way():
         s.fdrag([(x - 40 + i * 8, y) for i in range(11)])
         s.wait(6)
         turned = (lambda v: float(v) > CAMERA0["camera_yaw"] + 0.05) if mirrored else (lambda v: float(v) < CAMERA0["camera_yaw"] - 0.05)
-        return s, ["--script=set panes_under_panels off; view_grid side_by_side"], {"pane_camera": is_text("Mirror" if mirrored else "Follow"), "pane_links": near(1),
+        return s, ["--script=set panes_under_panels off; set panes_work off; view_grid side_by_side"], {"pane_camera": is_text("Mirror" if mirrored else "Follow"), "pane_links": near(1),
                                                        "camera_yaw": turned, "dabs": near(0)}
     return Steps([run(True), run(False)])
+
+
+# Four's Front pane (top right, 1600 x 900, panes beside the docked tray): over the model's
+# middle, and a corner of empty space in it.
+FOUR_FRONT_MODEL = (778, 225)
+FOUR_FRONT_EMPTY = (560, 420)
+FOUR_FRONT_LINK = (812, 93)
+
+
+@scenario
+def view_pane_stroke_works_in_the_pane():
+    """With Work in any view on (the default), a finger stroke on the model in Four's Front pane sculpts there, seen from the front: dabs land, the Front pane stays Front, and the main camera is the same after."""
+    s = Script()
+    s.wait(30)
+    x, y = FOUR_FRONT_MODEL
+    s.fdrag(line((x - 40, y), (x + 40, y + 20), 16))
+    s.wait(8)
+    return s, ["--script=set panes_under_panels off; view_grid four"], camera_still({"pane_works": near(1), "pane_work": near(0), "pane_work_dabs": lambda v: int(v) > 0,
+                                                                            "dabs": lambda v: int(v) > 0, "undo_steps": near(1), "pane_camera": is_text("Front")})
+
+
+@scenario
+def view_pane_empty_drag_turns_the_pane():
+    """A one-finger drag on empty space in the Front pane turns that pane's camera as the main view's would turn (it becomes Free), never the main camera, and sculpts nothing."""
+    s = Script()
+    s.wait(30)
+    x, y = FOUR_FRONT_EMPTY
+    s.fdrag([(x + i * 8, y) for i in range(12)])
+    s.wait(8)
+    return s, ["--script=set panes_under_panels off; view_grid four"], camera_still({"pane_works": near(1), "pane_work": near(0), "pane_camera": is_text("Free"), "dabs": near(0)})
+
+
+@scenario
+def view_pane_linked_stroke_keeps_the_link():
+    """A stroke in a pane linked to the main camera sculpts through the main camera's view and the pane stays linked; the main camera does not move."""
+    s = Script()
+    s.wait(30)
+    s.ftap(*FOUR_FRONT_LINK)
+    s.wait(6)
+    x, y = FOUR_FRONT_MODEL
+    s.fdrag(line((x - 40, y), (x + 40, y + 20), 16))
+    s.wait(8)
+    return s, ["--script=set panes_under_panels off; view_grid four"], camera_still({"pane_works": near(1), "pane_work_dabs": lambda v: int(v) > 0,
+                                                                                                   "pane_camera": is_text("Follow")})
 
 
 @scenario

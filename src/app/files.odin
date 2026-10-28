@@ -835,7 +835,7 @@ scene_header_put :: proc(app: ^App, out: ^[dynamic]u8) {
 	geom.byte_put(out, u32(len(app.scene.objects)))
 	geom.byte_put(out, i32(app.scene.selected))
 	geom.byte_put(out, i32(app.scene.next_id))
-	c := app.camera
+	c := main_camera(app)
 	geom.byte_put(out, c.target)
 	geom.byte_put(out, c.distance)
 	geom.byte_put(out, c.yaw)

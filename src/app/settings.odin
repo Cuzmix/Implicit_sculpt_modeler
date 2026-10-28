@@ -234,6 +234,7 @@ SETTINGS := [?]Setting {
 	// Settings > Interface, Camera, Touch and Performance.
 	{"surface_ring", K + offset_of(Kit_State, surface_ring), bool, 0, 0},
 	{"panes_under_panels", K + offset_of(Kit_State, panes_under), bool, 0, 0},
+	{"panes_work", K + offset_of(Kit_State, panes_work), bool, 0, 0},
 	{"column_popovers", K + offset_of(Kit_State, column_popovers), bool, 0, 0},
 	{"action_bar", K + offset_of(Kit_State, action_bar), bool, 0, 0},
 	{"modifier_rail", K + offset_of(Kit_State, rail_side), Rail_Side, 0, 0},
