@@ -2751,6 +2751,71 @@ def lens_left_handed_mirrors_the_chrome():
     return s, LENS_1440 + ["--script=set left_handed 1"], camera_still({"island": rect_x(1360, 1376), "chips": lambda v: float(v.split(",")[0]) > 900, "camera_shift": lambda v: float(v.split(",")[0]) > 0.2})
 
 
+# The Lens shelf at 1440 x 900 (lens_shelf.odin): its tiles, All, the page names under it, and
+# in the brush picker the Paint page and the Draw and Inflate cards.
+LENS_SHELF = {"clay": (396, 830), "draw": (459, 830), "layer": (972, 830), "all": (1044, 830)}
+LENS_SHELF_PAGES = {"sculpt": (633, 883), "paint": (693, 883), "move": (752, 883), "curve": (813, 883)}
+LENS_SHEET = {"paint": (839, 120), "draw": (525, 320), "inflate": (525, 440)}
+LENS_SHELF_SCULPT = "Brush:Clay,Brush:Draw,Brush:Smooth,Brush:Inflate,Brush:Pinch,Brush:Crease,Brush:Grab,Brush:Flatten,Brush:Mask,Brush:Layer"
+
+
+@scenario
+def lens_shelf_tap_picks_a_brush():
+    """A tap on a shelf tile picks its brush, and nothing else opens."""
+    s = Script()
+    s.ftap(*LENS_SHELF["clay"])
+    s.wait(10)
+    return s, LENS_1440, camera_still({"brush_kind": is_text("clay"), "shelf_quick": near(0), "brush_sheet": near(0), "dabs": near(0)})
+
+
+@scenario
+def lens_shelf_long_press_shows_quick_settings():
+    """A long press on a shelf tile picks its brush and shows its quick settings above it."""
+    s = Script()
+    s.ftap(*LENS_SHELF["clay"], hold=LONG_PRESS_FRAMES)
+    s.wait(10)
+    return s, LENS_1440, camera_still({"brush_kind": is_text("clay"), "shelf_quick": near(1), "dabs": near(0)})
+
+
+@scenario
+def lens_shelf_page_names_turn_the_page():
+    """A tap on Paint under the shelf turns it to the Paint page, whose first tile is the Paint brush."""
+    s = Script()
+    s.ftap(*LENS_SHELF_PAGES["paint"])
+    s.wait(10)
+    return s, LENS_1440, camera_still({"shelf_page": is_text("Paint"), "shelf_turns": near(1),
+                                       "shelf": lambda v: v.startswith("Brush:Paint,Brush:Mask,Brush:Smooth,Colors_Card")})
+
+
+@scenario
+def lens_shelf_all_opens_the_picker():
+    """All opens the brush picker over the shelf; a tap on a card picks it and closes the picker; the picker's Paint turns the shelf too."""
+    def run(card):
+        s = Script()
+        s.ftap(*LENS_SHELF["all"])
+        s.wait(10)
+        if card:
+            s.ftap(*LENS_SHEET["inflate"])
+            s.wait(10)
+            return s, LENS_1440, camera_still({"brush_sheet": near(0), "brush_kind": is_text("inflate"), "dabs": near(0)})
+        s.ftap(*LENS_SHEET["paint"])
+        s.wait(10)
+        return s, LENS_1440, camera_still({"brush_sheet": near(1), "shelf_page": is_text("Paint"), "dabs": near(0)})
+    return Steps([run(False), run(True)])
+
+
+@scenario
+def lens_picker_card_dragged_onto_a_tile_keeps_it():
+    """A card dragged from the picker onto the shelf's last tile takes its place there; the picker stays open and nothing is sculpted."""
+    s = Script()
+    s.ftap(*LENS_SHELF["all"])
+    s.wait(10)
+    s.fdrag(line(LENS_SHEET["inflate"], LENS_SHELF["layer"], 12) + [LENS_SHELF["layer"]] * 3)
+    s.wait(10)
+    shelf = LENS_SHELF_SCULPT.replace("Brush:Layer", "Brush:Inflate")
+    return s, LENS_1440, camera_still({"shelf_drops": near(1), "shelf": is_text(shelf), "brush_sheet": near(1), "dabs": near(0)})
+
+
 @scenario
 def save_as_new_workspace_is_remembered():
     """Save as a new workspace from the switcher makes "Workspace 1", current, and the settings keep it."""

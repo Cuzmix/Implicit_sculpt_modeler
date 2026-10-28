@@ -56,10 +56,12 @@ keymap_rebuild :: proc(app: ^App) {
 }
 
 // A default binding as the layout has it: in Lens, Tab hides every control (Clean view)
-// as the mockups have it, Palettes keeping its button.
+// as the mockups have it, Palettes keeping its button, and B opens the brush picker, as
+// picking a brush there goes back to sculpting.
 keymap_default :: proc(app: ^App, b: Binding) -> Binding {
 	b := b
 	if app.keymap_lens && b.command == .Inspector && b.arg == 0 do b.command = .Clean_View
+	if app.keymap_lens && b.command == .Tool_Sculpt && b.arg == 0 do b.command = .Brush_Picker
 	return b
 }
 

@@ -94,6 +94,7 @@ Kit_State :: struct {
 	shortcuts:  Bar_List,
 	tools:      Bar_List,
 	view_rail:  Bar_List, // the Lens layout's (lens_chrome.odin)
+	shelf:      Shelf, // the Lens layout's (lens_shelf.odin)
 	// The Lens mini view (lens_chrome.odin): its choices shown under the picture, and how
 	// often a tap on it swapped it with the main view, for the exit stats.
 	mini_rows:  bool,
@@ -776,6 +777,7 @@ kit_floats_close :: proc(k: ^Kit_State) {
 	k.folder_menu, k.rename.open, k.macro_save.open, k.home_menu = false, false, false, false
 	k.colors.palette_menu, k.colors.swatch_menu, k.colors.pop = false, false, false
 	k.panels.menu, k.workspaces.menu, k.arrange_drawer, k.passes.menu = false, false, false, false
+	k.shelf.quick = false
 	k.ctx.select_open = 0
 }
 
@@ -784,7 +786,7 @@ kit_floats_close :: proc(k: ^Kit_State) {
 // first-run tip hides under it.
 kit_floating :: proc(app: ^App) -> bool {
 	k := &app.kit
-	return app.ui.pie.open || app.ui.adjust.kind != .None || k.action_pop || k.adjust_pop || k.menu || k.versions || k.browser || k.dock_menu || k.bind.open || k.pie_editor || k.object_menu || k.folder_menu || k.rename.open || k.macro_save.open || k.palette || k.gizmo_entry.open || k.bar_pop.open || k.bar_slot.open || k.colors.palette_menu || k.colors.swatch_menu || k.colors.pop || k.home_menu || k.panels.menu || k.workspaces.menu || k.arrange_drawer || k.passes.menu || k.ctx.select_open != 0
+	return app.ui.pie.open || app.ui.adjust.kind != .None || k.action_pop || k.adjust_pop || k.menu || k.versions || k.browser || k.dock_menu || k.bind.open || k.pie_editor || k.object_menu || k.folder_menu || k.rename.open || k.macro_save.open || k.palette || k.gizmo_entry.open || k.bar_pop.open || k.bar_slot.open || k.colors.palette_menu || k.colors.swatch_menu || k.colors.pop || k.home_menu || k.panels.menu || k.workspaces.menu || k.arrange_drawer || k.passes.menu || k.shelf.quick || k.ctx.select_open != 0
 }
 
 kit_destroy :: proc(app: ^App) {
@@ -1145,11 +1147,13 @@ kit_layout :: proc(app: ^App) {
 
 	kit_modifier_rail(app)
 
-	// Bottom middle: a page of the brush dock, then the mesh tools (kit_bars.odin).
+	// Bottom middle: a page of the brush dock, then the mesh tools (kit_bars.odin); in Lens
+	// the shelf and its pages (lens_shelf.odin).
 	dock_anchor := menu_anchor
 	if !zone_hidden(k, .Dock) {
-		dock_anchor = kit_bottom_bar(app)
+		dock_anchor = kit_shelf(app) if lens else kit_bottom_bar(app)
 	} else {
+		k.shelf.quick, k.shelf.carry = false, nil
 		k.dock_shown, k.dock_menu = {}, false
 		if k.browser_at == .Dock do k.browser_at = .Bar
 	}
@@ -1181,8 +1185,10 @@ kit_layout :: proc(app: ^App) {
 	kit_column_drop(app)
 
 	// What floats over the panels comes last, so it is drawn and hit tested on top.
-	if k.browser_at == .Dock do kit_brush_browser(app, dock_anchor, .Above_Center)
+	if lens && k.browser_at == .Dock do kit_brush_sheet(app, dock_anchor)
+	else if k.browser_at == .Dock do kit_brush_browser(app, dock_anchor, .Above_Center)
 	else do kit_brush_browser(app, browser_anchor, .Right)
+	kit_shelf_quick(app)
 	kit_arrange_ghosts(app)
 	kit_arrange_head(app)
 	kit_bar_popover(app)

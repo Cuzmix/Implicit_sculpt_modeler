@@ -497,6 +497,33 @@ brush_palette_side :: proc(app: ^App, owner: ui.Id, all: []Listed_Brush, height:
 	if ui.icon_button(ctx, "Favorite" if !favorite else "Favorite (on)", ICON_HEART, selected = favorite) do brush_favorite_toggle(p, key)
 	ui.end(ctx)
 	ui.end(ctx)
+	card, _ := ui.prev_layout(ctx, "brush current")
+	brush_category_rows(app, owner, all, BRUSH_SIDEBAR_W, max(height - (card.y if card.y > 0 else ui.PREVIEW_TILE.y) - 6, t.target * 2))
+	ui.end(ctx)
+	return
+}
+
+// The Lens brush picker's column (lens_shelf.odin): the categories alone, `width` wide,
+// with a rule down its right. Returns its width.
+brush_palette_categories :: proc(app: ^App, owner: ui.Id, all: []Listed_Brush, height: f32) -> f32 {
+	ctx := &app.kit.ctx
+	t := ctx.theme
+	W :: 200
+	ui.begin(ctx, "brush sheet categories", {direction = .Column, gap = 0, padding = 8, width = W, height = height})
+	brush_category_rows(app, owner, all, W - 16, height - 16)
+	ui.end(ctx)
+	if r := ui.prev_rect(ctx, "brush sheet categories"); r.w > 0 do ui.fill_rect(ctx, {r.x + r.w - 1, r.y, 1, r.h}, 0, t.border)
+	return W
+}
+
+// The categories in the app's order, then each installed pack, each row with how many it
+// holds, in a body that scrolls; a tap shows that category's brushes.
+@(private = "file")
+brush_category_rows :: proc(app: ^App, owner: ui.Id, all: []Listed_Brush, width, height: f32) {
+	k := &app.kit
+	ctx := &k.ctx
+	p := &k.brushes
+	t := ctx.theme
 	counts: [Brush_Category]int
 	packs := make([]int, len(app.library.packs), context.temp_allocator)
 	for l in all {
@@ -506,8 +533,7 @@ brush_palette_side :: proc(app: ^App, owner: ui.Id, all: []Listed_Brush, height:
 	counts[.All] = len(all)
 	counts[.Recent] = len(brush_palette_count(app, all, p.recent[:p.recent_count]))
 	counts[.Favorites] = len(brush_palette_count(app, all, p.favorites[:p.favorite_count]))
-	card, _ := ui.prev_layout(ctx, "brush current")
-	rows := kit_scroll_begin(ctx, "brush categories", &p.side_scroll, owner, BRUSH_SIDEBAR_W, max(height - (card.y if card.y > 0 else ui.PREVIEW_TILE.y) - 6, t.target * 2), 0)
+	rows := kit_scroll_begin(ctx, "brush categories", &p.side_scroll, owner, width, height, 0)
 	for c in BRUSH_CATEGORY_ORDER {
 		on := !p.searching && p.category == c
 		if ui.list_row(ctx, fmt.tprintf("%s##brush category", BRUSH_CATEGORY_NAMES[c]), fmt.tprint(counts[c]), on).clicked {
@@ -517,14 +543,12 @@ brush_palette_side :: proc(app: ^App, owner: ui.Id, all: []Listed_Brush, height:
 	for pack, i in app.library.packs {
 		if packs[i] == 0 do continue
 		on := !p.searching && p.category == .Pack && p.pack == i
-		name := ui.text_fit(ctx, pack.name, t.text_size, BRUSH_SIDEBAR_W - 56)
+		name := ui.text_fit(ctx, pack.name, t.text_size, width - 56)
 		if ui.list_row(ctx, fmt.tprintf("%s##brush pack %d", name, i), fmt.tprint(packs[i]), on).clicked {
 			p.category, p.pack, p.searching, p.search, k.grid_scroll = .Pack, i, false, {}, 0
 		}
 	}
 	kit_scroll_end(ctx, rows)
-	ui.end(ctx)
-	return
 }
 
 // The keys of `keys` that name an item there is.
