@@ -95,6 +95,8 @@ Kit_State :: struct {
 	tools:      Bar_List,
 	view_rail:  Bar_List, // the Lens layout's (lens_chrome.odin)
 	shelf:      Shelf, // the Lens layout's (lens_shelf.odin)
+	brush_pie:  Bar_List, // the Lens layout's brush pie's eight slots (pie.odin)
+	pie_quicks: int, // quick settings opened by resting on the brush pie, for the exit stats
 	stack:      Lens_Stack, // the Lens layout's tray (lens_stack.odin)
 	in_stack:   bool, // the Brush card's groups are being drawn: sections leave out what it shows above them
 	// The Lens mini view (lens_chrome.odin): its choices shown under the picture, and how
@@ -1156,7 +1158,7 @@ kit_layout :: proc(app: ^App) {
 	if !zone_hidden(k, .Dock) {
 		dock_anchor = kit_shelf(app) if lens else kit_bottom_bar(app)
 	} else {
-		k.shelf.quick, k.shelf.carry = false, nil
+		k.shelf.carry = nil
 		k.dock_shown, k.dock_menu = {}, false
 		if k.browser_at == .Dock do k.browser_at = .Bar
 	}

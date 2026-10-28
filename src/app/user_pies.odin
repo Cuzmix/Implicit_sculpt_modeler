@@ -76,9 +76,10 @@ pie_toggle :: proc(app: ^App, which: int) {
 	kit_floats_close(k)
 }
 
-// The slots a pie shows: 14 brushes for the brush pie (0), eight for a user pie.
-pie_slot_count :: proc(which: int) -> int {
-	return len(sculpt.Brush_Kind) if which == 0 else PIE_SLOTS
+// The slots a pie shows: every brush for Classic's brush pie (0), the eight of Lens's, eight
+// for a user pie.
+pie_slot_count :: proc(app: ^App, which: int) -> int {
+	return len(sculpt.Brush_Kind) if which == 0 && app.kit.chrome != .Lens else PIE_SLOTS
 }
 
 // Whether `id` with `arg` is starred, and where.
@@ -172,6 +173,31 @@ kit_pie_editor :: proc(app: ^App) {
 	besides := size.y - body.y if size.y > 0 else 140
 	room := max(area.y + area.h - (at.y + at.h + 6) - 8 - besides, area.y + area.h - 16 - besides)
 	scroll := kit_scroll_begin(ctx, "pie slots", &k.pie_scroll, owner, width, max(room, ui.BRUSH_TILE.y * 2), 2)
+	if k.chrome == .Lens {
+		// Lens's brush pie first, as it is the one a sculptor opens most: a tap puts the
+		// command being put, or without one chooses a command in Search, as a bar's slot does.
+		keys := command_keys(app, .Brush_Pie)
+		ui.caption(ctx, fmt.tprintf("BRUSH PIE · %s", keys) if keys != "" else "BRUSH PIE")
+		ui.begin(ctx, "pie row brush", {direction = .Row, gap = 0})
+		for &s, i in k.brush_pie.slots[:PIE_SLOTS] {
+			glyph := ui.ICON_PLUS if s.id == .None else bar_icon(s)
+			lit := put.id != .None && s == put
+			if ui.brush_tile(ctx, fmt.tprintf("%s##pie brush %d", shelf_label(s) if s.id != .None else "Empty", i), glyph, lit) {
+				if put.id != .None && bar_lists(put.id) {
+					s = put
+					pies_saved(app)
+				} else if put.id == .None {
+					k.pie_editor = false
+					bar_choose(app, {which = .Brush_Pie, slot = i})
+				}
+			}
+			if ui.secondary(ctx) && s.id != .None {
+				s = {}
+				pies_saved(app)
+			}
+		}
+		ui.end(ctx)
+	}
 	for n in 0 ..< USER_PIES {
 		keys := command_keys(app, .Pie, n)
 		ui.caption(ctx, fmt.tprintf("PIE %d · %s", n + 1, keys) if keys != "" else fmt.tprintf("PIE %d", n + 1))
@@ -193,8 +219,10 @@ kit_pie_editor :: proc(app: ^App) {
 	kit_scroll_end(ctx, scroll)
 	changed := false
 	for n in 0 ..< USER_PIES do changed ||= pie_changed(app, n)
+	if k.chrome == .Lens do changed ||= bar_changed(app, .Brush_Pie)
 	if ui.button(ctx, "Reset pies", .Bordered, enabled = changed) {
 		k.pies = PIE_DEFAULTS
+		if k.chrome == .Lens do k.brush_pie = bar_fresh(.Brush_Pie)
 		pies_saved(app)
 	}
 }

@@ -377,7 +377,8 @@ draw_pie :: proc(app: ^App, o: Overlay) {
 	if !p.open do return
 	ctx := o.ctx
 	t := ctx.theme
-	n := pie_slot_count(p.which)
+	n := pie_slot_count(app, p.which)
+	lens := p.which == 0 && app.kit.chrome == .Lens
 	step := 2 * math.PI / f32(n)
 	GAP :: 0.02 // radians between slices
 	ARC :: 12 // segments along each edge of a slice
@@ -390,16 +391,27 @@ draw_pie :: proc(app: ^App, o: Overlay) {
 		hover := i == p.hover && usable
 		// The slice: along its outer edge, then back along its inner one. Its inner edge
 		// dips so little across a slice that it fills as a convex shape.
+		// Lens's slice pointed at stands out from the ring, tinted and outlined, so the
+		// brush it names stays readable in the slice's own colours.
+		outer: f32 = PIE_OUTER + 10 if hover && lens else PIE_OUTER
 		outline: [2 * (ARC + 1)][2]f32
 		for s in 0 ..= ARC {
 			f := f32(s) / ARC
-			outline[s] = p.center + PIE_OUTER * pt * angle_dir(a0 + (a1 - a0) * f)
+			outline[s] = p.center + outer * pt * angle_dir(a0 + (a1 - a0) * f)
 			outline[ARC + 1 + s] = p.center + (PIE_INNER + 6) * pt * angle_dir(a1 - (a1 - a0) * f)
 		}
-		overlay_fill(o, outline[:], t.accent if hover else t.surface)
+		if lens && hover {
+			overlay_fill(o, outline[:], ui.color_mix(t.surface, t.accent, 0.22))
+			overlay_polyline(o, outline[:], t.accent, 1.5 * pt, closed = true)
+		} else {
+			overlay_fill(o, outline[:], t.accent if hover else t.surface)
+		}
 		on: bool
 		slot: Pie_Slot
-		if p.which == 0 {
+		if lens {
+			slot = pie_slot(app, 0, i)
+			on = slot.id != .None && command_checked(app, slot.id, slot.arg)
+		} else if p.which == 0 {
 			on = sculpt.Brush_Kind(i) == app.brush.kind
 		} else {
 			slot = app.kit.pies[p.which - 1][i]
@@ -409,14 +421,14 @@ draw_pie :: proc(app: ^App, o: Overlay) {
 			// The brush in use, or a command that is on: a band along the slice's outside.
 			band: [ARC + 1][2]f32
 			for s in 0 ..= ARC do band[s] = p.center + (PIE_OUTER - 3) * pt * angle_dir(a0 + (a1 - a0) * f32(s) / ARC)
-			overlay_polyline(o, band[:], t.on_accent if hover else t.accent, 4 * pt)
+			overlay_polyline(o, band[:], t.on_accent if hover && !lens else t.accent, 4 * pt)
 		}
 		// Past the ring's middle, where neighbouring slices are furthest apart.
 		r: f32 = PIE_INNER + 0.62 * (PIE_OUTER - PIE_INNER)
 		label := at(o, p.center + r * pt * angle_dir(mid))
 		font := ui.Font.Semibold if hover else ui.Font.Regular
-		color := t.on_accent if hover else t.text
-		if p.which == 0 {
+		color := (t.accent if lens else t.on_accent) if hover else t.text
+		if p.which == 0 && !lens {
 			// Fifteen names round the ring leave the top and bottom ones a slice's chord
 			// apart side by side, so the key's number sits near the middle and the name
 			// further out, fitted to the room its neighbours leave it.
@@ -436,8 +448,10 @@ draw_pie :: proc(app: ^App, o: Overlay) {
 		// label lies flat while the slice turns, so the side slices have more room than that.
 		room := 2 * r * math.sin(step / 2) + 16
 		glyph := ui.ICON_PLUS if slot.id == .None else (COMMANDS[slot.id].icon if COMMANDS[slot.id].icon != 0 else ui.ICON_WAND)
+		name := pie_slot_label(slot)
+		if lens && slot.id != .None do glyph, name = bar_icon(slot), shelf_label(slot)
 		ui.icon(ctx, glyph, {label.x, label.y - 12}, t.icon_small, color)
-		ui.text(ctx, ui.text_fit(ctx, pie_slot_label(slot), t.small_size, room), label.x, label.y + 10, t.small_size, color, font, .Center)
+		ui.text(ctx, ui.text_fit(ctx, name, t.small_size, room), label.x, label.y + 10, t.small_size, color, font, .Center)
 	}
 	// The middle, and which way the pointer points from it. A user pie's middle names it.
 	overlay_disc(o, p.center, PIE_INNER * pt, t.surface)
@@ -445,10 +459,29 @@ draw_pie :: proc(app: ^App, o: Overlay) {
 	if p.which > 0 {
 		c := at(o, p.center)
 		ui.text(ctx, fmt.tprint(p.which), c.x, c.y, t.text_size, t.text_secondary, .Semibold, .Center)
+	} else if lens && p.hover >= 0 {
+		// Lens's middle names the brush pointed at, and how it is picked.
+		c := at(o, p.center)
+		slot := pie_slot(app, 0, p.hover)
+		if slot.id != .None {
+			ui.text(ctx, ui.text_fit(ctx, shelf_label(slot), t.small_size, PIE_INNER * 2 - 8, .Semibold), c.x, c.y - 7, t.small_size, t.accent, .Semibold, .Center)
+			ui.text(ctx, "lift to pick" if p.hold || p.pressed_on > 0 else "tap to pick", c.x, c.y + 8, t.small_size - 1, t.text_tertiary, .Regular, .Center)
+		}
 	}
 	if p.hover >= 0 {
 		d := linalg.normalize0(app.ui.viewport_mouse - p.center)
-		overlay_disc(o, p.center + (PIE_INNER - 6) * pt * d, 4 * pt, t.accent)
+		if !lens {
+			overlay_disc(o, p.center + (PIE_INNER - 6) * pt * d, 4 * pt, t.accent)
+		} else {
+			// Lens draws the flick itself, dotted from the middle's edge to the pointer, so a
+			// short flick shows which way it went.
+			from := p.center + PIE_INNER * pt * d
+			length := min(linalg.length(app.ui.viewport_mouse - from), (PIE_OUTER - PIE_INNER) * pt)
+			DOT :: 6
+			for f: f32 = 0; f < length && linalg.dot(app.ui.viewport_mouse - p.center, d) > PIE_INNER * pt; f += DOT * pt {
+				overlay_disc(o, from + f * d, 1.5 * pt, t.accent)
+			}
+		}
 	}
 }
 

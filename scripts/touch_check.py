@@ -2857,6 +2857,73 @@ def lens_stack_float_floats_a_card():
     return s, LENS_1440, camera_still({"stack": lambda v: "Layers+^" in v.split(","), "dabs": near(0)})
 
 
+# Lens's brush pie at 1440x900: the dial's Pie sector opens it at the viewport's middle;
+# the top slice (Clay) and the editor's first brush slot.
+LENS_PIE = {"dial": (122, 822), "middle": (720, 450), "top": (720, 334), "crease": (800, 520), "editor_first": (764, 190), "search": (1180, 26)}
+
+
+@scenario
+def lens_brush_pie_dial_then_tap_picks():
+    """The dial's Pie opens the brush pie in the middle, pointing at nothing; a tap on its top slice picks Clay and closes it."""
+    def run(tap):
+        s = Script()
+        s.ftap(*LENS_PIE["dial"])
+        s.wait(10)
+        if not tap:
+            return s, LENS_1440, camera_still({"pie_open": near(0), "pie_hover": near(-1), "dabs": near(0)})
+        s.ftap(*LENS_PIE["top"])
+        s.wait(10)
+        return s, LENS_1440, camera_still({"pie_open": near(-1), "brush_kind": is_text("clay"), "dabs": near(0)})
+    return Steps([run(False), run(True)])
+
+
+@scenario
+def lens_brush_pie_space_flick_picks():
+    """Holding Space over the model and letting go toward the lower right picks Crease, without a dab or a turn."""
+    s = Script()
+    s.add(f"move:{LENS_PIE['middle'][0]},{LENS_PIE['middle'][1]}")
+    s.wait(2)
+    s.add("key:Space")
+    s.wait(4)
+    s.add(f"move:{LENS_PIE['crease'][0]},{LENS_PIE['crease'][1]}")
+    s.wait(3)
+    s.add("keyup:Space")
+    s.wait(8)
+    return s, LENS_1440, camera_still({"pie_open": near(-1), "brush_kind": is_text("crease"), "pie_quicks": near(0), "dabs": near(0)})
+
+
+@scenario
+def lens_brush_pie_rest_shows_quick_settings():
+    """Resting on a slice with Space held picks its brush and shows its quick settings there."""
+    s = Script()
+    s.add(f"move:{LENS_PIE['middle'][0]},{LENS_PIE['middle'][1]}")
+    s.wait(2)
+    s.add("key:Space")
+    s.wait(4)
+    s.add(f"move:{LENS_PIE['crease'][0]},{LENS_PIE['crease'][1]}")
+    s.wait(45)
+    s.add("keyup:Space")
+    s.wait(8)
+    return s, LENS_1440, camera_still({"pie_open": near(-1), "brush_kind": is_text("crease"), "pie_quicks": near(1), "shelf_quick": near(1), "dabs": near(0)})
+
+
+@scenario
+def lens_pie_editor_brush_slot_chooses_in_search():
+    """In Lens the pie editor's first row is the brush pie; a tap on a slot there opens Search, and what is chosen there takes the slot."""
+    s = Script()
+    s.ftap(*LENS_PIE["search"])
+    s.wait(8)
+    s.type("pies")
+    s.press("Return")
+    s.wait(8)
+    s.ftap(*LENS_PIE["editor_first"])
+    s.wait(8)
+    s.type("snake hook")
+    s.press("Return")
+    s.wait(8)
+    return s, LENS_1440, camera_still({"pie_editor": near(0), "palette": near(0), "brush_pie": lambda v: v.startswith("Brush:Snake_Hook,Brush:Draw")})
+
+
 @scenario
 def save_as_new_workspace_is_remembered():
     """Save as a new workspace from the switcher makes "Workspace 1", current, and the settings keep it."""
