@@ -1887,8 +1887,9 @@ def settings_reset_everything():
     s.wait(10)
     s.ftap(1240, 766)  # Tap again to reset all
     s.wait(4)
-    s.ftap(1427, 766)  # Done
-    s.wait(4)
+    # Everything back includes the layout, Lens, whose Settings is a sheet: Esc closes it.
+    s.add("key:Escape")
+    s.wait(8)
     return s, [f"--settings-file={settings_file()}"], camera_still({
         "settings_open": near(0), "@saved": saved(orbit_speed="1", invert_wheel="0", finger_model="Sculpt", stats="0")})
 
@@ -3348,6 +3349,30 @@ def lens_lights_card_picks_and_adds():
         s.wait(10)
         return s, LENS_1440, camera_still({"light_count": near(4), "light_pick": near(1), "light_pick_strength": near(1.0), "redo_steps": near(1), "dabs": near(0)})
     return Steps([run(True), run(False)])
+
+
+# Lens's Settings sheet at 1440x900: the top bar's Settings, the side's Touch row and
+# its search field.
+LENS_SETTINGS = {"open": (1410, 26), "touch": (380, 324), "search": (440, 172)}
+
+
+@scenario
+def lens_settings_sections_and_search():
+    """Settings in Lens is one sheet with sections down the side: a tap on Touch opens it, and Search settings narrows the sections to those whose settings match."""
+    def run(find):
+        s = Script()
+        s.ftap(*LENS_SETTINGS["open"])
+        s.wait(12)
+        if not find:
+            s.ftap(*LENS_SETTINGS["touch"])
+            s.wait(8)
+            return s, LENS_1440, camera_still({"settings_open": near(1), "settings_section": is_text("Touch"), "settings_found": is_text("all"), "dabs": near(0)})
+        s.ftap(*LENS_SETTINGS["search"])
+        s.wait(4)
+        s.add("text:autosave")
+        s.wait(8)
+        return s, LENS_1440, camera_still({"settings_section": is_text("Files"), "settings_found": is_text("Files"), "dabs": near(0)})
+    return Steps([run(False), run(True)])
 
 
 # Lens's brush pie at 1440x900: the dial's Pie sector opens it at the viewport's middle;
