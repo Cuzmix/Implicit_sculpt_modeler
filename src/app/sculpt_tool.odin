@@ -382,6 +382,7 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 	}
 	if stroke_brush(app, input) == .History && !recall_ready(app, obj, s.kind == .Press) do return
 	if obj.voxel != nil && !voxel_brush_allowed(app, stroke_brush(app, input), s.kind == .Press) do return
+	if !object_editable(app, obj, s.kind == .Press) do return
 	st := &app.stroke
 	st.active, st.object = true, obj.id
 	st.kind, st.held = stroke_brush(app, input), held_brush(input)

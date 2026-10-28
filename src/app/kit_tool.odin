@@ -17,6 +17,7 @@ kit_tool_name :: proc(tool: Tool) -> string {
 	case .Move:   return "Move"
 	case .Curve:  return "Curve"
 	case .Insert: return "Insert"
+	case .Model:  return "Model"
 	}
 	return ""
 }
@@ -27,6 +28,7 @@ kit_tool_tab :: proc(app: ^App) {
 	case .Move:   kit_move_tab(app)
 	case .Curve:  kit_curve_tab(app)
 	case .Insert: kit_insert_tab(app)
+	case .Model:  kit_model_tab(app)
 	}
 }
 

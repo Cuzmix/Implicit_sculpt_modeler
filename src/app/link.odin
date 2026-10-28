@@ -446,6 +446,7 @@ Link_Why :: enum u8 {
 	None,
 	Topology, // other triangles
 	Voxel,    // a voxel object, rebuilt as a mesh
+	Cage,     // a Model mode cage, which takes no sculpting: rebuilt as a mesh
 	Dynamic,  // dynamic topology, whose packed mesh is new to it
 	Other_Scene,
 	Gone,       // deleted here since it was sent
@@ -546,8 +547,9 @@ link_plan :: proc(app: ^App, o: Link_Object, token: u64, mesh: geom.Mesh, sent: 
 	if obj == nil do return .Add, nil, .Gone
 	went: ^Link_Object
 	if sent != nil do for &s in sent.objects do if s.id == o.id do went = &s
-	if obj.voxel != nil || object_dynamic(obj) {
+	if obj.voxel != nil || obj.cage != nil || object_dynamic(obj) {
 		if went != nil && link_same_as_sent(app, went.file, mesh) do return .Keep, obj, .None
+		if obj.cage != nil do return .Swap, obj, .Cage
 		return .Swap, obj, .Voxel if obj.voxel != nil else .Dynamic
 	}
 	if o.level >= len(obj.levels.levels) do return .Add, nil, .Level_Gone
@@ -717,7 +719,7 @@ link_note :: proc(app: ^App, results: []Link_Result, recorded: bool, ms: f64) {
 			fmt.sbprintf(&b, " (moved %s; the mask or hiding held %s back)", link_vertices(r.moved - r.held), count_label(r.held))
 		case r.action == .Project:
 			fmt.sbprintf(&b, " (moved %s)", link_vertices(r.moved))
-		case r.why == .Voxel:
+		case r.why == .Voxel, r.why == .Cage:
 			strings.write_string(&b, " (new topology: now a mesh)")
 		case r.action == .Swap:
 			strings.write_string(&b, " (new topology)")
