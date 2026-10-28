@@ -68,6 +68,7 @@ Bar_Pop_Kind :: enum u8 {
 	Remesh_Quick,
 	Shading,
 	Camera,
+	View_Layout,
 }
 
 // A finger's or the pen's long press on the brush bar's size, focal shift or strength,
@@ -813,6 +814,10 @@ kit_bar_popover :: proc(app: ^App) {
 		if !ui.popover_begin(ctx, "bar camera", &p.open, p.at, p.side, {direction = .Column, padding = 6, width = 268}) do return
 		defer ui.popover_end(ctx)
 		kit_camera_menu(app)
+	case .View_Layout:
+		if !ui.popover_begin(ctx, "bar view layout", &p.open, p.at, p.side, {direction = .Column, padding = 6, width = 268}) do return
+		defer ui.popover_end(ctx)
+		kit_view_layout_menu(app)
 	case .Section:
 		WIDTH :: KIT_INSPECTOR_W
 		PADDING :: 12

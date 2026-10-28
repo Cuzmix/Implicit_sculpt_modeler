@@ -93,6 +93,11 @@ Kit_State :: struct {
 	// Arrange (once Customise bars): on, and the slot popover a tap on a slot opens while it is.
 	shortcuts:  Bar_List,
 	tools:      Bar_List,
+	view_rail:  Bar_List, // the Lens layout's (lens_chrome.odin)
+	// The Lens mini view (lens_chrome.odin): its choices shown under the picture, and how
+	// often a tap on it swapped it with the main view, for the exit stats.
+	mini_rows:  bool,
+	mini_swaps: int,
 	bars_edit:  bool,
 	// Arrange's drawer of panels (arrange.odin): open, and its button.
 	arrange_drawer:    bool,
@@ -1118,14 +1123,22 @@ kit_layout :: proc(app: ^App) {
 	// from the top bar, which takes Undo, Redo, Search and the tray's button in its place.
 	workspaces_frame(k)
 	menu_anchor, search_anchor := kit_top_bar(app)
-	kit_points(app)
+	// Lens has its own chrome round the view in the bars' places (lens_chrome.odin): the
+	// view chips for the readout, the off-hand island for the brush bar, the view rail for
+	// the view bars. Its brushes open from the dock's All, and Search from the top bar.
+	lens := k.chrome == .Lens
+	if lens do kit_view_chips(app)
+	else do kit_points(app)
 	browser_anchor := menu_anchor
-	if !zone_hidden(k, .Brush_Bar) do browser_anchor = kit_brush_bar(app)
-	else do k.bar_scrub = {}
+	if zone_hidden(k, .Brush_Bar) do k.bar_scrub = {}
+	else if lens do kit_offhand(app)
+	else do browser_anchor = kit_brush_bar(app)
+	if lens && !zone_hidden(k, .Dock) && k.browser_at == .Bar do k.browser_at = .Dock
 	kit_nav_head(app)
 	palette_anchor := search_anchor
 	if !zone_hidden(k, .View_Bar) {
-		palette_anchor = kit_view_bar(app)
+		if lens do kit_view_rail(app)
+		else do palette_anchor = kit_view_bar(app)
 	} else {
 		for kind in ([]Bar_Pop_Kind{.Shading, .Camera}) do k.bar_at[kind], k.bar_side[kind] = search_anchor, .Below
 	}
@@ -1260,6 +1273,7 @@ kit_inspector :: proc(app: ^App) -> (raised: bool) {
 			stack_h := dock_stack(app)
 			if area.w * 0.5 + dock_size.x * 0.5 + 8 > area.w - right - width do below = max(below, stack_h + 8)
 			if reach := rail_reach(app, .Right); reach > 0 do below = max(below, reach - t.edge + 8)
+			if reach := lens_mini_reach(app); reach > 0 do below = max(below, reach - t.edge + 8)
 			room -= below
 		}
 		// The list and the section scroll apart under the title bar, in the room left.

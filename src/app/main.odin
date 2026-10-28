@@ -1575,6 +1575,12 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			fmt.printfln("workspace=%s workspace_modified=%d workspace_count=%d workspace_menu=%d workspace_switches=%d workspace_exports=%d workspace_imports=%d arrange_drawer=%d zones_hidden=%s", preset_escape(workspace_name(k, w.current)), int(w.modified), count, int(w.menu), w.switches, w.exports, w.imports, int(k.arrange_drawer), strings.to_string(zones) if strings.builder_len(zones) > 0 else "none")
 			// The layout, and the second line of the Lens top bar's file block.
 			fmt.printfln("chrome=%s file_status=%s clean_view=%d panels_faded=%d camera_shift=%.3f,%.3f", strings.to_lower(CHROME_NAMES[k.chrome], context.temp_allocator), preset_escape(file_status(&app, time.now())), int(k.clean), k.panels_faded, app.camera.shift.x, app.camera.shift.y)
+			// The Lens chrome round the view: the view rail's slots, the mini view's swaps, the
+			// main camera's projection, and where the island, the chips, the navigation head and
+			// the mini view stood last, in points.
+			island, chips, head := ui.prev_rect(&k.ctx, "brush bar"), ui.prev_rect(&k.ctx, "points"), ui.prev_rect(&k.ctx, "navigation head")
+			mini := panel_rect(&app, Kit_Window.Thumbnail)
+			fmt.printfln("view_rail=%s mini_swaps=%d mini_rows=%d camera_ortho=%d island=%.0f,%.0f,%.0f,%.0f chips=%.0f,%.0f nav_head=%.0f,%.0f mini=%.0f,%.0f,%.0f,%.0f", bar_names(&app, .View_Rail), k.mini_swaps, int(k.mini_rows), int(app.camera.ortho), island.x, island.y, island.w, island.h, chips.x, chips.y, head.x, head.y, mini.x, mini.y, mini.w, mini.h)
 			fmt.printfln("pass=%v pass_shown=%v pass_menu=%d pass_switches=%d", k.passes.pass, viewport_pass(k), int(k.passes.menu), k.passes.switches)
 			fmt.printfln("wipe=%d wipe_at=%.3f wipe_right=%v wipe_drags=%d", int(wipe_shown(k)), k.passes.wipe_at, wipe_right(k), k.passes.wipe_drags)
 			fmt.printfln("guides=%d guide_heights=%s guide_lines=%d guide_drags=%d", int(app.scene.guides.shown), guides_heights_text(app.scene.guides), k.guide_lines, k.guide_drags)

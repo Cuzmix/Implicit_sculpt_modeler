@@ -2657,6 +2657,100 @@ def a_stroke_under_the_tray_fades_it():
     return s, LENS, {"panels_faded": lambda v: int(v) >= 1, "dabs": lambda v: int(v) > 0}
 
 
+# Lens's chrome round the view at 1440x900: the island's Size slider, the view chips,
+# the view rail's buttons and the mini view's picture (with the thumbnail on and a Front
+# camera, it stands at the bottom of the pen side).
+LENS_ISLAND_SIZE = (42, 380)
+LENS_CHIP_CAMERA, LENS_CHIP_OBJECT = (75, 77), (120, 125)
+LENS_RAIL = {"layout": (1403, 133), "passes": (1403, 181), "camera": (1403, 229), "lights": (1403, 421), "mini": (1403, 470)}
+LENS_1440 = LENS + ["--width=1440", "--height=900"]
+LENS_MINI = ["--script=set thumbnail 1;set second_camera Front"]
+LENS_MINI_PICTURE = (1285, 800)
+
+
+def rect_x(lo, hi):
+    """A rect stat (x,y,w,h) whose x lies in [lo, hi]."""
+    return lambda v: lo <= float(v.split(",")[0]) <= hi
+
+
+@scenario
+def lens_rail_holds_the_view_tools():
+    """Lens shows the off-hand island at the left, the chips over the view's top-left corner and the view rail's eight view tools; nothing moves the camera."""
+    s = Script()
+    s.wait(10)
+    rail = "View_Layout_Menu,Pass_Menu,Camera_Menu,Focus_Selected,Symmetry_X,Wireframe,Show_Section:Lights,Thumbnail"
+    return s, LENS_1440, camera_still({"view_rail": is_text(rail), "island": rect_x(8, 16), "chips": lambda v: float(v.split(",")[0]) < 20})
+
+
+@scenario
+def lens_island_drag_raises_the_size():
+    """A finger dragged up the island's Size slider raises the brush size by the drag, without sculpting."""
+    s = Script()
+    s.fdrag(line(LENS_ISLAND_SIZE, (LENS_ISLAND_SIZE[0], LENS_ISLAND_SIZE[1] - 40), 10))
+    return s, LENS_1440, camera_still({"brush_radius_px": lambda v: float(v) > 70, "dabs": near(0)})
+
+
+@scenario
+def lens_camera_chip_opens_the_camera_menu():
+    """A tap on the camera chip opens the Camera menu under it."""
+    s = Script()
+    s.ftap(*LENS_CHIP_CAMERA)
+    s.wait(10)
+    return s, LENS_1440, camera_still({"bar_pop": is_text("camera")})
+
+
+@scenario
+def lens_object_chip_opens_the_scene_palette():
+    """A tap on the object chip opens the tray on the Scene palette."""
+    s = Script()
+    s.ftap(*LENS_CHIP_OBJECT)
+    s.wait(10)
+    return s, LENS_1440, camera_still({"inspector_tab": is_text("scene"), "window_inspector": lambda v: v.startswith("1,")})
+
+
+@scenario
+def lens_rail_opens_beside_itself():
+    """The rail's Passes and Lights open beside the rail, and View layout its menu of grids."""
+    def run(name, checks):
+        s = Script()
+        s.ftap(*LENS_RAIL[name])
+        s.wait(10)
+        return (s, LENS_1440, camera_still(checks))
+    return Steps([run("passes", {"pass_menu": near(1)}), run("lights", {"bar_pop": is_text("lights")}), run("layout", {"bar_pop": is_text("view_layout")})])
+
+
+@scenario
+def lens_rail_mini_view_turns_it_on():
+    """The rail's Mini view shows the second view as the mini view at the pen side's bottom."""
+    s = Script()
+    s.ftap(*LENS_RAIL["mini"])
+    s.wait(10)
+    return s, LENS_1440, camera_still({"thumbnail": near(1), "mini": rect_x(1150, 1250)})
+
+
+@scenario
+def lens_mini_view_tap_swaps_the_cameras():
+    """A tap on the mini view's picture gives the main view its Front camera, and a second tap swaps back."""
+    s = Script()
+    s.ftap(*LENS_MINI_PICTURE)
+    s.wait(10)
+    second = Script()
+    second.ftap(*LENS_MINI_PICTURE)
+    second.wait(10)
+    second.ftap(*LENS_MINI_PICTURE)
+    second.wait(10)
+    return Steps([(s, LENS_1440 + LENS_MINI, {"mini_swaps": near(1), "camera_ortho": near(1), "second_camera": is_text("Free")}),
+                  (second, LENS_1440 + LENS_MINI, camera_still({"mini_swaps": near(2), "camera_ortho": near(0)}))])
+
+
+@scenario
+def lens_left_handed_mirrors_the_chrome():
+    """Left-handed, the island and the chips go to the right and the rail to the left; the model moves right of the middle."""
+    s = Script()
+    s.wait(10)
+    return s, LENS_1440 + ["--script=set left_handed 1"], camera_still({"island": rect_x(1360, 1376), "chips": lambda v: float(v.split(",")[0]) > 900, "camera_shift": lambda v: float(v.split(",")[0]) > 0.2})
+
+
 @scenario
 def save_as_new_workspace_is_remembered():
     """Save as a new workspace from the switcher makes "Workspace 1", current, and the settings keep it."""

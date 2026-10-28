@@ -141,9 +141,10 @@ kit_layout_text :: proc(k: ^Kit_State) -> string {
 	if mirror do for &p in k.panels.pins do window_mirror(&p.window)
 	panels_save(k, &out)
 	if mirror do for &p in k.panels.pins do window_mirror(&p.window)
-	// The right bar's column and the bottom bar's strip, after a line that says the layout
-	// holds them (one saved before it did keeps the bars as they are). The dock holds the
-	// user's brushes, which are no layout's: it stays as it is in every workspace.
+	// The right bar's column, the bottom bar's strip and the view rail, after a line that
+	// says the layout holds them (one saved before it did keeps the bars as they are). The
+	// dock holds the user's brushes, which are no layout's: it stays as it is in every
+	// workspace.
 	strings.write_string(&out, "bars\n")
 	bars_save(k, &out)
 	return strings.to_string(out)
@@ -178,8 +179,7 @@ kit_layout_put :: proc(k: ^Kit_State, text: string) {
 		case "column", "pinned":
 			panels_load_line(k, f)
 		case "bars":
-			shortcuts, tools := SHORTCUTS_DEFAULT, TOOLS_DEFAULT
-			k.shortcuts, k.tools = bar_list_of(shortcuts[:]), bar_list_of(tools[:])
+			bar_lists_reset(k)
 		case "bar_count", "bar":
 			bars_load_line(k, f)
 		}

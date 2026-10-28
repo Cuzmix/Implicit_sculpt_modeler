@@ -88,7 +88,7 @@ kit_arrange_head :: proc(app: ^App) {
 		k.arrange_drawer = !was
 	}
 	k.arrange_drawer_at = ctx.last_rect
-	changed := bar_changed(app, .Shortcuts) || bar_changed(app, .Tools) || bar_changed(app, .Dock)
+	changed := bar_changed(app, .Shortcuts) || bar_changed(app, .Tools) || bar_changed(app, .Dock) || bar_changed(app, .View_Rail)
 	if ui.button(ctx, "Reset bars", .Bordered, enabled = changed) do bars_reset(k)
 	_ = command_button(app, .Workspace_Revert, label = "Revert", variant = .Bordered)
 	_ = command_button(app, .Workspace_Save_As, label = "Save as new", variant = .Bordered)

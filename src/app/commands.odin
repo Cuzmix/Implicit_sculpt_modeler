@@ -213,6 +213,8 @@ Command_Id :: enum u8 {
 	View_Windows_Close,
 	Chrome_Classic, // kit_bars.odin
 	Clean_View, // lens_view.odin
+	View_Layout_Menu, // lens_chrome.odin
+	Pass_Menu, // passes.odin
 	Settings,
 	Reduce_Motion,
 	Command_Palette,
@@ -1774,6 +1776,20 @@ COMMANDS := [Command_Id]Command {
 		icon = ICON_CLEAN_VIEW,
 		run = proc(app: ^App, _: int) {clean_view_set(app, !app.kit.clean)},
 		checked = proc(app: ^App, _: int) -> bool {return app.kit.clean},
+	},
+	.View_Layout_Menu = {
+		label = "View layout",
+		help = "Opens the view layout's menu beside its button: one view or a grid of them, the render preview and a view window.",
+		icon = ICON_VIEW_LAYOUT,
+		run = proc(app: ^App, _: int) {bar_menu_toggle(app, .View_Layout)},
+		checked = proc(app: ^App, _: int) -> bool {return bar_pop_showing(app, .View_Layout)},
+	},
+	.Pass_Menu = {
+		label = "Passes",
+		help = "Opens the list of passes beside its button: shaded, normals, depth, curvature, occlusion or silhouette, and wipe compare.",
+		icon = ICON_PASSES,
+		run = proc(app: ^App, _: int) {pass_menu_toggle(app)},
+		checked = proc(app: ^App, _: int) -> bool {return app.kit.passes.menu},
 	},
 	.View_Windows_Close = {
 		label = "Close view windows",

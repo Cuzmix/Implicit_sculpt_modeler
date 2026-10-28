@@ -422,6 +422,8 @@ column_place :: proc(app: ^App, side: Column_Side, width: f32) -> (offset, top, 
 		offset, top = kit_right(app), kit_top()
 		if area.w * 0.5 + dock_size.x * 0.5 + 8 > area.w - offset - width do below = stack_h + 8
 		if reach := rail_reach(app, .Right); reach > 0 do below = max(below, reach - t.edge + 8)
+		// Lens's mini view sits under the panels on this side.
+		if reach := lens_mini_reach(app); reach > 0 do below = max(below, reach - t.edge + 8)
 	} else {
 		offset, top = kit_left(app), points_bottom(app)
 		if area.w * 0.5 - dock_size.x * 0.5 - 8 < offset + width do below = stack_h + 8

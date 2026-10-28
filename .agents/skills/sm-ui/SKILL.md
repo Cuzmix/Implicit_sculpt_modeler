@@ -43,6 +43,11 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   `lens_free_area`; `view_fit_free` from Frame/Focus/Reset; zeroed outside Lens+Single and in `second_orbit`. Panels
   fade under a viewport stroke (`panel_fade` in `panel_begin`/`panel_end`). Clean view `k.clean` returns early from
   `kit_layout`; Tab maps to it in Lens via `keymap_default` (rebuilt when the chrome changes).
+  Lens chrome (`lens_chrome.odin`) lays out under the Classic names ("brush bar" = off-hand island, "points" = view
+  chips, "view bar" = view rail) so `kit_left`/`kit_right`/`lens_free_area` keep working. The rail is
+  `Bar_Which.View_Rail` (zone `view_rail`). An overlay on a panel's own area takes no hits from a `begin_at` root
+  (the mini view's chip is part of the picture's press). Thumbnail in Lens = `kit_mini_view`; `lens_mini_reach`
+  shortens the right column above it.
 - Layout (`kit_layout`, `new_ui.odin`; the bars in `kit_bars.odin`, after ZBrush for iPad): `kit_top_bar` (a full-width
   strip, `TOP_BAR_H`: Menu, Save, Import, Export | file name | History, Edit pies, Help, Settings), `kit_points` (the
   object's readout under it, at the top left), `kit_brush_bar` (left column, top from `brush_bar_top`, which keeps
