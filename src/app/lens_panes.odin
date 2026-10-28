@@ -167,8 +167,18 @@ lens_pane_head :: proc(app: ^App, i: int, at: [2]f32, r: ui.Rect, cells: [GRID_P
 	ui.begin_at(ctx, fmt.tprintf("view pane %d head", i), at, {direction = .Row, gap = GAP, center = true})
 	dot, _ := second_color(t, sv, i)
 	ortho := sv.camera >= .Front && sv.camera <= .Bottom
+	// As the mock's chips: the projection with "linked" while the pane follows the main
+	// camera, an axis view with "ortho", and "free" for its own camera.
 	name := SECOND_CAMERA_NAMES[sv.camera]
 	sub := "ortho" if ortho else ""
+	#partial switch sv.camera {
+	case .Follow:
+		name, sub = "Ortho" if app.camera.ortho else "Persp", "linked"
+	case .Mirror:
+		sub = "linked"
+	case .Free:
+		name, sub = "Own camera", "free"
+	}
 	if lens_chip_width(ctx, name, sub, dot = true, chevron = true) > left do sub = ""
 	_ = fits(&left, lens_chip_width(ctx, name, sub, dot = true, chevron = true))
 	left = max(left, 0)
@@ -310,7 +320,7 @@ kit_stack_strip :: proc(app: ^App) {
 	ui.begin(ctx, "stack strip", {direction = .Column, gap = 2, padding = 4, width = STACK_STRIP_W, radius = ctx.theme.radius_large, background = .Panel, center = true})
 	defer ui.end(ctx)
 	for c in s.order {
-		if c in s.floated do continue
+		if c in s.floated || c in s.hidden do continue
 		on := s.tab_open && s.tab == c
 		if ui.icon_button(ctx, fmt.tprintf("%s##stack tab", stack_title(app, c)), STACK_CARD_ICONS[c] if c != .Brush else stack_brush_icon(app), selected = on) {
 			if on {

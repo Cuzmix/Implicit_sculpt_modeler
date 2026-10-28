@@ -3295,6 +3295,61 @@ def lens_context_bar_extracts_the_mask():
     return s, LENS_1440 + ["--script=mask fill"], camera_still({"objects": near(2), "dabs": near(0)})
 
 
+# Lens's Inspect workspace at 1440x900: its segment in the top bar's pill, the main pane's
+# pass chip, and Curvature in the popover's DIAGNOSTICS group while nothing is recent.
+LENS_INSPECT = {"workspace": (675, 26), "pass_chip": (186, 77), "curvature": (260, 444)}
+
+
+@scenario
+def lens_pass_popover_groups_the_passes():
+    """In Inspect, which opens no panels over its four panes, the pass chip's popover picks Curvature from DIAGNOSTICS."""
+    s = Script()
+    s.ftap(*LENS_INSPECT["workspace"])
+    s.wait(12)
+    s.ftap(*LENS_INSPECT["pass_chip"])
+    s.wait(8)
+    s.ftap(*LENS_INSPECT["curvature"])
+    s.wait(8)
+    return s, LENS_1440, camera_still({"workspace": is_text("Inspect"), "pass": is_text("Curvature"), "dabs": near(0)})
+
+
+# Lens's Studio at 1440x900: its pill, then on its stack Light 1's Intensity thumb, Add
+# light, the Gold sphere of the Material card, and Undo on the top bar.
+LENS_STUDIO = {"workspace": (747, 26), "intensity": (1218, 206), "add": (1220, 442), "gold": (1278, 636), "undo": (217, 25)}
+
+
+@scenario
+def lens_studio_stack_shows_lights_material_environment():
+    """Studio in Lens shows the Lights and Material cards open, Environment folded and Palettes, the mini view rendering; a tap on a sphere puts that material on."""
+    s = Script()
+    s.ftap(*LENS_STUDIO["workspace"])
+    s.wait(20)
+    s.ftap(*LENS_STUDIO["gold"])
+    s.wait(10)
+    return s, LENS_1440, camera_still({"workspace": is_text("Studio"), "stack": is_text("Lights+,Material+,Environment,Palettes"),
+                                       "second_pass": is_text("Render"), "thumbnail": near(1), "selected_material": is_text("Gold"), "dabs": near(0)})
+
+
+@scenario
+def lens_lights_card_picks_and_adds():
+    """On Studio's Lights card a drag on the picked light's Intensity is one undo step, and Add light adds a point light and picks it."""
+    def run(add):
+        s = Script()
+        s.ftap(*LENS_STUDIO["workspace"])
+        s.wait(20)
+        if add:
+            s.ftap(*LENS_STUDIO["add"])
+            s.wait(10)
+            return s, LENS_1440, camera_still({"light_count": near(5), "light_pick": near(5), "dabs": near(0)})
+        x, y = LENS_STUDIO["intensity"]
+        s.fdrag([(x + 14 * i, y) for i in range(7)])
+        s.wait(10)
+        s.ftap(*LENS_STUDIO["undo"])
+        s.wait(10)
+        return s, LENS_1440, camera_still({"light_count": near(4), "light_pick": near(1), "light_pick_strength": near(1.0), "redo_steps": near(1), "dabs": near(0)})
+    return Steps([run(True), run(False)])
+
+
 # Lens's brush pie at 1440x900: the dial's Pie sector opens it at the viewport's middle;
 # the top slice (Clay) and the editor's first brush slot.
 LENS_PIE = {"dial": (122, 822), "middle": (720, 450), "top": (720, 334), "crease": (800, 520), "editor_first": (764, 190), "search": (1180, 26)}
@@ -3377,14 +3432,14 @@ def save_as_new_workspace_is_remembered():
 
 @scenario
 def the_current_workspace_comes_back():
-    """A settings file naming Inspect as current starts in Inspect: Stats docked on the left and the view grid's four panes."""
+    """A settings file naming Inspect as current starts in Inspect: no panels over the view grid's four panes."""
     with open(settings_file(), "w") as f:
         f.write("workspace_current 2\n")
     s = Script()
     s.add("move:800,450")
     s.wait(10)
     return s, [f"--settings-file={settings_file()}"], camera_still({"dabs": near(0), "workspace": is_text("Inspect"),
-                                                                     "column_left": is_text("stats"), "zones_hidden": is_text("brush_bar,dock"),
+                                                                     "column_left": is_text("none"), "zones_hidden": is_text("brush_bar,dock"),
                                                                      "grid": is_text("Four")})
 
 

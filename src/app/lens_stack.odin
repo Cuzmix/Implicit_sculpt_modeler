@@ -26,6 +26,10 @@ Stack_Card :: enum u8 {
 	Scene,
 	Tools,
 	Palettes,
+	// The look's cards, which a fresh layout leaves out and Studio shows (lens_studio.odin).
+	Lights,
+	Material,
+	Environment,
 }
 
 @(rodata)
@@ -34,8 +38,11 @@ STACK_CARD_NAMES := [Stack_Card]string {
 	.Symmetry = "Symmetry",
 	.Layers   = "Layers",
 	.Scene    = "Scene",
-	.Tools    = "Tools",
-	.Palettes = "Palettes",
+	.Tools       = "Tools",
+	.Palettes    = "Palettes",
+	.Lights      = "Lights",
+	.Material    = "Material",
+	.Environment = "Environment",
 }
 
 @(rodata)
@@ -44,13 +51,19 @@ STACK_CARD_ICONS := [Stack_Card]rune {
 	.Symmetry = ICON_SYMMETRY,
 	.Layers   = ICON_OBJECTS,
 	.Scene    = ui.ICON_SHAPES,
-	.Tools    = ICON_SQUARE_DASHED,
-	.Palettes = ui.ICON_PANEL,
+	.Tools       = ICON_SQUARE_DASHED,
+	.Palettes    = ui.ICON_PANEL,
+	.Lights      = ui.ICON_SUN,
+	.Material    = ICON_MATERIAL,
+	.Environment = ui.ICON_IMAGE,
 }
 
 // As a fresh layout has it: the Brush card open, the others folded to their headers; and
 // the Brush card's groups that start folded (the rest start open).
 STACK_OPEN_DEFAULT :: bit_set[Stack_Card]{.Brush}
+// The cards a fresh layout leaves out of the stack: opening one of their sections, or a
+// workspace's layout naming them, puts them in.
+STACK_HIDDEN_DEFAULT :: bit_set[Stack_Card]{.Lights, .Material, .Environment}
 STACK_SHUT_DEFAULT :: bit_set[Kit_Section]{.Preset, .Paint_Color, .Pen, .Options, .Recorder}
 
 // The stack's state, in Kit_State: the cards' order, which are open and which float (each
@@ -61,6 +74,7 @@ Lens_Stack :: struct {
 	order:   [len(Stack_Card)]Stack_Card,
 	open:    bit_set[Stack_Card],
 	floated: bit_set[Stack_Card],
+	hidden:  bit_set[Stack_Card], // left out of the stack: not drawn, docked or floating
 	windows: [Stack_Card]ui.Window,
 	shut:    bit_set[Kit_Section],
 	carry:   Maybe(Stack_Card),
@@ -100,7 +114,7 @@ Lens_Stack :: struct {
 stack_default :: proc(k: ^Kit_State) {
 	s := &k.stack
 	for c, i in Stack_Card do s.order[i] = c
-	s.open, s.floated, s.shut = STACK_OPEN_DEFAULT, {}, STACK_SHUT_DEFAULT
+	s.open, s.floated, s.shut, s.hidden = STACK_OPEN_DEFAULT, {}, STACK_SHUT_DEFAULT, STACK_HIDDEN_DEFAULT
 	s.windows = {}
 	s.carry, s.menu, s.tab_open = nil, false, false
 	s.width, s.heights, s.sizes, s.scrolls, s.drag = 0, {}, {}, {}, {}
@@ -108,16 +122,16 @@ stack_default :: proc(k: ^Kit_State) {
 }
 
 // The stack's line in a workspace's layout, `stack <card>[+] ...` in its order with a + on
-// the open ones, written only where it differs from a fresh layout's; floating cards
-// dock again when a layout is put in place.
+// the open ones and a card left out written `-Card`, only where it differs from a fresh
+// layout's; floating cards dock again when a layout is put in place.
 stack_layout_save :: proc(k: ^Kit_State, out: ^strings.Builder) {
 	s := &k.stack
 	if !s.set do return
-	same := s.open == STACK_OPEN_DEFAULT
+	same := s.open == STACK_OPEN_DEFAULT && s.hidden == STACK_HIDDEN_DEFAULT
 	for c, i in s.order do same &&= c == Stack_Card(i)
 	if same do return
 	strings.write_string(out, "stack")
-	for c in s.order do fmt.sbprintf(out, " %v%s", c, "+" if c in s.open else "")
+	for c in s.order do fmt.sbprintf(out, " %s%v%s", "-" if c in s.hidden else "", c, "+" if c in s.open else "")
 	strings.write_byte(out, '\n')
 }
 
@@ -128,12 +142,18 @@ stack_layout_read :: proc(k: ^Kit_State, f: []string) {
 	if !s.set do stack_default(k)
 	order: [dynamic; len(Stack_Card)]Stack_Card
 	open: bit_set[Stack_Card]
+	// Cards the line does not name are in or out as in a fresh layout, so a line from
+	// before the look's cards leaves them out.
+	hidden := STACK_HIDDEN_DEFAULT
 	for word in f[1:] {
-		name := strings.trim_suffix(word, "+")
+		left_out := strings.has_prefix(word, "-")
+		name := strings.trim_suffix(strings.trim_prefix(word, "-"), "+")
 		for c in Stack_Card {
 			if !strings.equal_fold(name, fmt.tprint(c)) || slice_has(order[:], c) do continue
 			append(&order, c)
 			if strings.has_suffix(word, "+") do open += {c}
+			if left_out do hidden += {c}
+			else do hidden -= {c}
 		}
 	}
 	// Tools came after the others; a line from before it puts it after Scene, where a
@@ -146,7 +166,8 @@ stack_layout_read :: proc(k: ^Kit_State, f: []string) {
 	}
 	for c in s.order do if !slice_has(order[:], c) do append(&order, c)
 	for c, i in order do s.order[i] = c
-	s.open = open
+	s.open, s.hidden = open, hidden
+	s.floated -= hidden
 }
 
 @(private = "file")
@@ -159,8 +180,11 @@ slice_has :: proc(list: []Stack_Card, c: Stack_Card) -> bool {
 // the brush is the tool), Layers and Scene for theirs, Palettes for the rest.
 stack_card_of :: proc(app: ^App, sec: Kit_Section) -> Stack_Card {
 	#partial switch sec {
-	case .Layers:  return .Layers
-	case .Objects: return .Scene
+	case .Layers:      return .Layers
+	case .Objects:     return .Scene
+	case .Lights:      return .Lights
+	case .Material:    return .Material
+	case .Environment: return .Environment
 	}
 	if section_palette(sec) == .Tool && app.tool == .Brush do return .Brush
 	return .Palettes
@@ -176,6 +200,7 @@ stack_reveal :: proc(app: ^App, sec: Kit_Section) {
 	c := stack_card_of(app, sec)
 	s.open -= {.Brush, .Palettes} - {c}
 	s.open += {c}
+	s.hidden -= {c}
 	if c == .Brush do s.shut -= {sec}
 	k.panels.scroll[.Inspector], k.scroll = 0, 0
 }
@@ -187,7 +212,7 @@ kit_stack :: proc(app: ^App, width: f32, owner: ui.Id) {
 	if !s.set do stack_default(&app.kit)
 	s.owner = owner
 	for c in s.order {
-		if c in s.floated do continue
+		if c in s.floated || c in s.hidden do continue
 		stack_card(app, c, width, false)
 	}
 	stack_carry_update(app)
@@ -202,7 +227,7 @@ kit_stack_floating :: proc(app: ^App) {
 	s := &k.stack
 	if !k.inspector || side_panel_open(k) || k.chrome != .Lens do return
 	for c in s.order {
-		if c not_in s.floated do continue
+		if c not_in s.floated || c in s.hidden do continue
 		name := fmt.tprintf("stack card %v", c)
 		w := &s.windows[c]
 		width := s.sizes[c].x if s.sizes[c].x > 0 else stack_width(k)
@@ -301,6 +326,12 @@ stack_card_body :: proc(app: ^App, c: Stack_Card, inner: f32) {
 		kit_lens_scene(app)
 	case .Tools:
 		kit_lens_tools(app, inner)
+	case .Lights:
+		kit_lens_lights(app)
+	case .Material:
+		kit_lens_material(app)
+	case .Environment:
+		kit_environment(app)
 	case .Palettes:
 		kit_tray_select(app)
 		k.in_tray = true
@@ -408,6 +439,12 @@ stack_summary :: proc(app: ^App, c: Stack_Card) -> string {
 		return line
 	case .Tools:
 		return TOOLS_TAB_NAMES[k.tools_tab]
+	case .Lights:
+		return panel_summary(app, Kit_Section.Lights)
+	case .Material:
+		return panel_summary(app, Kit_Section.Material)
+	case .Environment:
+		return panel_summary(app, Kit_Section.Environment)
 	case .Palettes:
 		if len(tray_sections(app, k.tab)) == 0 do return palette_name(k.tab)
 		return fmt.tprintf("%s · %s", palette_name(k.tab), tray_section_title(tray_section(app, k.tab)))
@@ -427,6 +464,10 @@ stack_open_line :: proc(app: ^App, c: Stack_Card) -> string {
 		if obj := selected_object(app); obj != nil do return object_label(obj)
 	case .Tools:
 		return TOOLS_TAB_NAMES[app.kit.tools_tab]
+	case .Lights:
+		return panel_summary(app, Kit_Section.Lights)
+	case .Material:
+		return panel_summary(app, Kit_Section.Material)
 	}
 	return ""
 }
@@ -562,7 +603,7 @@ stack_drop_at :: proc(app: ^App, p: [2]f32, carried: Stack_Card) -> (at: int, ou
 	lo, hi: [2]f32
 	first := true
 	for c in s.order {
-		if c in s.floated do continue
+		if c in s.floated || c in s.hidden do continue
 		r := s.rects[c]
 		if r.w <= 0 do continue
 		if c != carried && p.y > r.y + r.h * 0.5 do at += 1
@@ -582,7 +623,7 @@ stack_drop_y :: proc(app: ^App, at: int, carried: Stack_Card) -> f32 {
 	i := 0
 	last: f32 = 0
 	for c in s.order {
-		if c in s.floated || c == carried do continue
+		if c in s.floated || c in s.hidden || c == carried do continue
 		r := s.rects[c]
 		if i == at do return r.y - COLUMN_GAP * 0.5
 		last = r.y + r.h + COLUMN_GAP * 0.5
@@ -600,11 +641,12 @@ stack_move_to :: proc(app: ^App, c: Stack_Card, at: int) {
 stack_move_to_k :: proc(k: ^Kit_State, c: Stack_Card, at: int) {
 	s := &k.stack
 	docked := make([dynamic]Stack_Card, 0, len(Stack_Card), context.temp_allocator)
-	for x in s.order do if x != c && x not_in s.floated do append(&docked, x)
+	// Floating and hidden cards keep their places in the order; the docked ones move.
+	for x in s.order do if x != c && x not_in s.floated && x not_in s.hidden do append(&docked, x)
 	inject_at(&docked, clamp(at, 0, len(docked)), c)
 	i := 0
 	for &x in s.order {
-		if x != c && x in s.floated do continue
+		if x != c && (x in s.floated || x in s.hidden) do continue
 		x = docked[i]
 		i += 1
 	}
@@ -630,10 +672,10 @@ kit_stack_menu :: proc(app: ^App) {
 	place := 0
 	for x in s.order {
 		if x == c do break
-		if x not_in s.floated do place += 1
+		if x not_in s.floated && x not_in s.hidden do place += 1
 	}
 	count := 0
-	for x in s.order do if x not_in s.floated do count += 1
+	for x in s.order do if x not_in s.floated && x not_in s.hidden do count += 1
 	floated := c in s.floated
 	if ui.menu_item(ctx, "Move up", glyph = ui.ICON_CHEVRON_UP, enabled = !floated && place > 0) {
 		stack_move_to(app, c, place - 1)
@@ -648,6 +690,20 @@ kit_stack_menu :: proc(app: ^App) {
 		else do stack_float(app, c)
 		s.menu = false
 	}
+	if ui.menu_item(ctx, "Leave out of the stack", glyph = ui.ICON_EYE_OFF, enabled = count > 1 || floated) {
+		s.hidden += {c}
+		s.floated -= {c}
+		s.moves += 1
+		s.menu = false
+	}
+	// The look's cards hold the settings used most; the rest are their tray sections'.
+	if c == .Lights || c == .Material {
+		sec := Kit_Section.Lights if c == .Lights else Kit_Section.Material
+		if ui.menu_item(ctx, "All light settings" if c == .Lights else "All material settings", glyph = ui.ICON_SETTINGS) {
+			lens_show_section(app, sec)
+			s.menu = false
+		}
+	}
 	if ui.menu_item(ctx, "Fold the others") {
 		s.open = {c}
 		s.folds += 1
@@ -659,12 +715,14 @@ kit_stack_menu :: proc(app: ^App) {
 	}
 }
 
-// The stack for the exit stats: its cards in order, + on the open ones, ^ on floating ones.
+// The stack for the exit stats: its cards in order, + on the open ones, ^ on floating ones;
+// the cards left out are not named.
 stack_text :: proc(k: ^Kit_State) -> string {
 	s := &k.stack
 	b := strings.builder_make(context.temp_allocator)
-	for c, i in s.order {
-		if i > 0 do strings.write_byte(&b, ',')
+	for c in s.order {
+		if c in s.hidden do continue
+		if strings.builder_len(b) > 0 do strings.write_byte(&b, ',')
 		fmt.sbprintf(&b, "%v%s%s", c, "+" if c in s.open else "", "^" if c in s.floated else "")
 	}
 	return strings.to_string(b)
