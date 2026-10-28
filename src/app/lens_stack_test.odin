@@ -62,3 +62,26 @@ stack_reveal_opens_the_card_of_a_section :: proc(t: ^testing.T) {
 	app.tool = .Move
 	testing.expect_value(t, stack_card_of(app, .Stroke), Stack_Card.Palettes)
 }
+
+// Windows, pinned panels and floated cards share one floating order: a card floated comes
+// in front of the windows, a window raised goes in front of it, and nothing is in the
+// order twice.
+@(test)
+floating_cards_and_panels_share_one_order :: proc(t: ^testing.T) {
+	app := new(App)
+	defer free(app)
+	k := &app.kit
+	panels_default(k)
+	stack_default(k)
+	n := len(k.order)
+	stack_float(app, .Layers)
+	testing.expect_value(t, k.order[len(k.order) - 1], Float_Ref(Stack_Card.Layers))
+	window_raise(k, Kit_Window.Stats)
+	testing.expect_value(t, k.order[len(k.order) - 1], Float_Ref(Kit_Window.Stats))
+	float_raise(k, Stack_Card.Layers)
+	float_raise(k, Stack_Card.Layers)
+	testing.expect_value(t, k.order[len(k.order) - 1], Float_Ref(Stack_Card.Layers))
+	testing.expect_value(t, len(k.order), n + 1)
+	float_raise(k, nil)
+	testing.expect_value(t, len(k.order), n + 1)
+}

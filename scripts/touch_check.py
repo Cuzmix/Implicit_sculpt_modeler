@@ -3022,6 +3022,46 @@ def lens_stack_float_floats_a_card():
     return s, LENS_1440, camera_still({"stack": lambda v: "Layers+^" in v.split(","), "dabs": near(0)})
 
 
+# Two floating cards at 1440x900: Layers floated and its grip dragged down 200 points, then
+# Scene floated over its top; a point in Layers' padding that Scene leaves clear.
+LENS_FLOATS = {"layers_grip": (894, 166), "layers_padding": (1043, 470)}
+
+
+@scenario
+def lens_floating_card_touched_comes_to_the_front():
+    """Of two floating cards, the one floated last is in front; a touch on the other brings it in front, and runs nothing."""
+    s = Script()
+    s.ftap(*LENS_STACK["brush"])
+    s.wait(6)
+    s.ftap(*LENS_STACK["layers_float"])
+    s.wait(8)
+    grip = LENS_FLOATS["layers_grip"]
+    s.fdrag(line(grip, (grip[0], grip[1] + 200), 8))
+    s.wait(6)
+    # Scene is now where Layers was in the stack.
+    s.ftap(*LENS_STACK["layers_float"])
+    s.wait(8)
+    s.ftap(*LENS_FLOATS["layers_padding"])
+    s.wait(8)
+    return s, LENS_1440, camera_still({"stack": lambda v: "Layers+^" in v.split(",") and "Scene+^" in v.split(","),
+                                       "float_front": is_text("Layers"), "layer_rows": near(0), "dabs": near(0)})
+
+
+@scenario
+def lens_dial_stays_over_a_floating_card():
+    """A floating card dragged over the dial goes under it: a tap on the dial's top sector latches Smooth."""
+    s = Script()
+    s.ftap(*LENS_STACK["brush"])
+    s.wait(6)
+    s.ftap(*LENS_STACK["layers_float"])
+    s.wait(8)
+    s.fdrag(line(LENS_FLOATS["layers_grip"], (182, 718), 8))
+    s.wait(6)
+    s.ftap(*LENS_ARRANGE["dial_top"])
+    s.wait(8)
+    return s, LENS_1440, camera_still({"float_front": is_text("Layers"), "rail_latched": is_text("smooth"), "dabs": near(0)})
+
+
 # Resizing the Lens stack at 1440x900: its inner edge (the strip just left of the cards),
 # where that edge is once 40 points wider, the open Symmetry card's grip with Brush folded,
 # and a floating Layers card's bottom-left corner.
@@ -4321,14 +4361,14 @@ def rail_latched_edge_still_orbits():
 
 
 @scenario
-def rail_under_window_goes_to_window():
-    """Where a window lies over the rail, a finger there is the window's: nothing latches."""
+def rail_over_window_keeps_the_finger():
+    """Where a window lies over the rail, the rail is drawn over it and a finger there is the rail's: Invert latches, and the window stays."""
     with open(settings_file(), "w") as f:
         f.write("stats 1\nwindow Stats 1 Start Start 0 700 0\n")
     s = Script()
     rail_tap(s, "invert")
     s.wait(4)
-    return s, [f"--settings-file={settings_file()}"], {"dabs": near(0), "rail_latched": lambda v: v == "none",
+    return s, [f"--settings-file={settings_file()}"], {"dabs": near(0), "rail_latched": is_text("invert"),
                                                      "window_stats": lambda v: v.startswith("1,")}
 
 

@@ -273,7 +273,7 @@ stack_float_resize :: proc(app: ^App, c: Stack_Card, d: [2]f32) {
 }
 
 // How tall floating card `c`'s content shows: its set height less the dots, the header,
-// the gaps and the padding round them (card_begin's and kit_stack_floating's); 0 while
+// the gaps and the padding round them (card_begin's and stack_float_card's); 0 while
 // it fits its content.
 stack_float_body :: proc(app: ^App, c: Stack_Card) -> f32 {
 	h := app.kit.stack.sizes[c].y

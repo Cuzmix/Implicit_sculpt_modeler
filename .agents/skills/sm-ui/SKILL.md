@@ -50,7 +50,9 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   shortens the right column above it. The shelf (`lens_shelf.odin`) is "dock" (its pages row "dock pages"); its
   pages are `Bar_Which.Shelf_*` (`BAR_LISTS` saves them, `BAR_LAYOUT` leaves them out of workspace layouts); after
   All it shows `Bar_Which.Tools` (Classic's bottom bar strip), `shelf_fit` deciding how many of each. "dock" is
-  drag_scroll, so `ui.swipe_update` on it turns pages (`shelf_turn`); ask a child's `prev_rect` inside its parent. Picker
+  drag_scroll, so `ui.swipe_update` on it turns pages (`shelf_turn`); ask a child's `prev_rect` inside its parent.
+  `k.order` is `Float_Ref` (windows, pinned sections, floated `Stack_Card`s): `float_raise` on a press; the dial
+  (`kit_modifier_rail`) is laid out after the floats, before menus and popovers, so it is the top lasting root. Picker
   = `kit_brush_sheet` (Lens's `k.browser` at `.Dock`); `ui.row_room` right-aligns in a fixed-width row (spacer(0)
   does nothing). The tray in Lens is the stack (`lens_stack.odin`, `kit_inspector`'s Lens branch, `panel_begin(bare)`):
   cards in `k.stack`, layout line `stack`; `tray_open` calls `stack_reveal`; `k.in_stack` lets a section drop what the
