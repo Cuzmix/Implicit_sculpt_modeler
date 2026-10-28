@@ -34,6 +34,7 @@ Ui_State :: struct {
 	curve_handle:       int, // the pressure curve's control point being dragged (1 or 2), or 0
 	falloff_handle:     int, // ...and the falloff curve's
 	mask_steps:         i32, // steps each Blur, Sharpen, Grow or Shrink press takes
+	mask_hidden:        bool, // the view draws masked parts as the rest (the Tools card's Show the mask off), as ZBrush's View mask
 	mask_by:            Mask_By_Settings, // the Mask section's Mask by and Mask adjust (mask_by_command)
 	mask_shape_kind:    Mask_Shape_Kind, // what Ctrl + drag on empty space draws
 	mirror_axis:        i32, // Mirror and weld: 0 x, 1 y, 2 z

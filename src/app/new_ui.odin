@@ -236,6 +236,7 @@ Kit_State :: struct {
 	scene_filter:   [48]u8,
 	scene_query:    bool,
 	scene_rows:     int,
+	tools_tab:      Tools_Tab, // the Lens Tools card's tab
 	layer_rows:     int,
 	palette_bar_puts: int,
 	// While set, the palette chooses what that gesture runs, or what that bar slot holds,

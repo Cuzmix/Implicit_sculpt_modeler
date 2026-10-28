@@ -24,6 +24,7 @@ Stack_Card :: enum u8 {
 	Symmetry,
 	Layers,
 	Scene,
+	Tools,
 	Palettes,
 }
 
@@ -33,6 +34,7 @@ STACK_CARD_NAMES := [Stack_Card]string {
 	.Symmetry = "Symmetry",
 	.Layers   = "Layers",
 	.Scene    = "Scene",
+	.Tools    = "Tools",
 	.Palettes = "Palettes",
 }
 
@@ -42,6 +44,7 @@ STACK_CARD_ICONS := [Stack_Card]rune {
 	.Symmetry = ICON_SYMMETRY,
 	.Layers   = ICON_OBJECTS,
 	.Scene    = ui.ICON_SHAPES,
+	.Tools    = ICON_SQUARE_DASHED,
 	.Palettes = ui.ICON_PANEL,
 }
 
@@ -131,6 +134,14 @@ stack_layout_read :: proc(k: ^Kit_State, f: []string) {
 			if !strings.equal_fold(name, fmt.tprint(c)) || slice_has(order[:], c) do continue
 			append(&order, c)
 			if strings.has_suffix(word, "+") do open += {c}
+		}
+	}
+	// Tools came after the others; a line from before it puts it after Scene, where a
+	// fresh layout has it.
+	if !slice_has(order[:], .Tools) && slice_has(order[:], .Scene) {
+		for c, i in order do if c == .Scene {
+			inject_at(&order, i + 1, Stack_Card.Tools)
+			break
 		}
 	}
 	for c in s.order do if !slice_has(order[:], c) do append(&order, c)
@@ -288,6 +299,8 @@ stack_card_body :: proc(app: ^App, c: Stack_Card, inner: f32) {
 		kit_lens_layers(app)
 	case .Scene:
 		kit_lens_scene(app)
+	case .Tools:
+		kit_lens_tools(app, inner)
 	case .Palettes:
 		kit_tray_select(app)
 		k.in_tray = true
@@ -393,6 +406,8 @@ stack_summary :: proc(app: ^App, c: Stack_Card) -> string {
 		line := fmt.tprintf("%d object%s", n, "" if n == 1 else "s")
 		if obj != nil do line = fmt.tprintf("%s · %s", line, object_label(obj))
 		return line
+	case .Tools:
+		return TOOLS_TAB_NAMES[k.tools_tab]
 	case .Palettes:
 		if len(tray_sections(app, k.tab)) == 0 do return palette_name(k.tab)
 		return fmt.tprintf("%s · %s", palette_name(k.tab), tray_section_title(tray_section(app, k.tab)))
@@ -410,6 +425,8 @@ stack_open_line :: proc(app: ^App, c: Stack_Card) -> string {
 		return fmt.tprintf("%d object%s", n, "" if n == 1 else "s")
 	case .Layers:
 		if obj := selected_object(app); obj != nil do return object_label(obj)
+	case .Tools:
+		return TOOLS_TAB_NAMES[app.kit.tools_tab]
 	}
 	return ""
 }

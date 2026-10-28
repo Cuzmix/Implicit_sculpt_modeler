@@ -18,7 +18,7 @@ stack_layout_reads_back_as_written :: proc(t: ^testing.T) {
 	strings.builder_reset(&b)
 	stack_layout_save(k, &b)
 	line := strings.to_string(b)
-	testing.expect_value(t, line, "stack Scene+ Brush Symmetry Layers+ Palettes\n")
+	testing.expect_value(t, line, "stack Scene+ Brush Symmetry Layers+ Tools Palettes\n")
 
 	c := new(Kit_State)
 	defer free(c)
@@ -27,7 +27,10 @@ stack_layout_reads_back_as_written :: proc(t: ^testing.T) {
 	testing.expect(t, c.stack.order == k.stack.order && c.stack.open == k.stack.open)
 	// Cards a line leaves out keep their places after those it names.
 	stack_layout_read(c, {"stack", "Palettes+", "nothing"})
-	testing.expect_value(t, stack_text(c), "Palettes+,Scene,Brush,Symmetry,Layers")
+	testing.expect_value(t, stack_text(c), "Palettes+,Scene,Brush,Symmetry,Layers,Tools")
+	// A line from before the Tools card puts it after Scene.
+	stack_layout_read(c, {"stack", "Scene+", "Brush", "Symmetry", "Layers+", "Palettes"})
+	testing.expect_value(t, stack_text(c), "Scene+,Tools,Brush,Symmetry,Layers+,Palettes")
 }
 
 // Moving a card among the docked ones leaves a floating card where it was in the order.
@@ -38,7 +41,7 @@ stack_move_keeps_floating_cards_in_place :: proc(t: ^testing.T) {
 	stack_default(k)
 	k.stack.floated = {.Symmetry}
 	stack_move_to_k(k, .Brush, 2)
-	testing.expect_value(t, stack_text(k), "Layers,Symmetry^,Scene,Brush+,Palettes")
+	testing.expect_value(t, stack_text(k), "Layers,Symmetry^,Scene,Brush+,Tools,Palettes")
 }
 
 // A section opens the card that holds it: the brush's on Brush (unfolding its group), Layers

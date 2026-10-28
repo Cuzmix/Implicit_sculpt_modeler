@@ -60,6 +60,37 @@ ACTION_GROUPS := [Action_Group]Action_Group_Info {
 	.Adjust = {"Adjust", {{.Adjust_Last, 0, "Adjust..."}}},
 }
 
+// Lens's context bar (round 2's tools2 screen) keeps the mask's commonest steps and the
+// two that lead on from a mask, By cavity and Extract, and for hidden parts the three the
+// mock names; the rest stay in the Tools card a tap away.
+@(rodata)
+LENS_MASK_ACTIONS := [?]Action {
+	{.Mask, int(sculpt.Mask_Command.Invert), "Invert"},
+	{.Mask, int(sculpt.Mask_Command.Clear), "Clear"},
+	{.Mask, int(sculpt.Mask_Command.Blur), "Blur"},
+	{.Mask, int(sculpt.Mask_Command.Grow), "Grow"},
+	{.Mask, int(sculpt.Mask_Command.Cavity), "By cavity"},
+	{.Extract_Masked, 0, "Extract"},
+}
+
+@(rodata)
+LENS_HIDDEN_ACTIONS := [?]Action {
+	{.Show_All, 0, "Show all"},
+	{.Invert_Hidden, 0, "Invert##hidden"},
+	{.Delete_Hidden, 0, "Delete hidden"},
+}
+
+// A group's actions as the layout shows them.
+action_list :: proc(app: ^App, g: Action_Group) -> []Action {
+	if app.kit.chrome == .Lens {
+		#partial switch g {
+		case .Mask:   return LENS_MASK_ACTIONS[:]
+		case .Hidden: return LENS_HIDDEN_ACTIONS[:]
+		}
+	}
+	return ACTION_GROUPS[g].actions
+}
+
 // A group's caption: the Adjust group's names the operation it adjusts.
 action_caption :: proc(app: ^App, g: Action_Group) -> string {
 	if g == .Adjust do if name := adjust_name(app); name != "" do return name
@@ -128,9 +159,8 @@ action_bar_full_width :: proc(app: ^App, groups: bit_set[Action_Group]) -> f32 {
 	n := 0
 	for g in groups {
 		if n > 0 do w += 1 + 2 * 4 // a divider and the gaps round it
-		info := ACTION_GROUPS[g]
 		w += ui.text_width(ctx, action_caption(app, g), t.small_size) + 4 + 2 * 4
-		for a in info.actions do w += ui.text_width(ctx, ui.label_text(a.label), t.text_size, .Semibold) + 28 + 4
+		for a in action_list(app, g) do w += ui.text_width(ctx, ui.label_text(a.label), t.text_size, .Semibold) + 28 + 4
 		n += 1
 	}
 	return w
@@ -177,7 +207,6 @@ kit_action_bar :: proc(app: ^App) {
 	ui.begin_anchored(ctx, "action bar", .Center, .End, {0, t.edge + DOCK_LIFT + dock.y + ACTION_BAR_GAP}, {direction = .Row, gap = 4, padding = ACTION_BAR_PADDING, radius = t.radius_large + 4, background = .Panel, center = true})
 	n := 0
 	for g in groups {
-		info := ACTION_GROUPS[g]
 		if n > 0 do ui.divider(ctx, 28)
 		n += 1
 		caption := action_caption(app, g)
@@ -198,7 +227,7 @@ kit_action_bar :: proc(app: ^App) {
 		}
 		ui.spacer(ctx, 4)
 		ui.label(ctx, caption, t.small_size)
-		for a in info.actions do _ = action_button(app, a)
+		for a in action_list(app, g) do _ = action_button(app, a)
 	}
 	ui.end(ctx)
 	// The adjust popover sits over the middle of the bar, folded or not, as wide as the
@@ -215,6 +244,8 @@ kit_action_bar :: proc(app: ^App) {
 // toolbar's symmetry buttons do. Runs it when clicked and returns true then.
 @(private = "file")
 action_button :: proc(app: ^App, a: Action, width: f32 = 0) -> bool {
+	// Extract leads on to a new object, so Lens rings it in the accent colour, as the mock.
+	if a.id == .Extract_Masked do return command_button(app, a.id, a.arg, a.label, .Bordered, .Accent, width = width)
 	if COMMANDS[a.id].checked == nil do return command_button(app, a.id, a.arg, a.label, width = width)
 	ctx := &app.kit.ctx
 	w := width if width > 0 else ui.text_width(ctx, ui.label_text(a.label), ctx.theme.text_size, .Semibold) + 28
@@ -228,7 +259,7 @@ kit_action_popover :: proc(app: ^App) {
 	ctx := &k.ctx
 	if !k.action_pop do return
 	if ui.popover_begin(ctx, "action group", &k.action_pop, k.action_anchor, .Above_Center, {direction = .Column, gap = 2, padding = 6, width = 200}) {
-		for a in ACTION_GROUPS[k.action_group].actions {
+		for a in action_list(app, k.action_group) {
 			if action_button(app, a, ui.fill_width(ctx)) do k.action_pop = false
 		}
 		ui.popover_end(ctx)
