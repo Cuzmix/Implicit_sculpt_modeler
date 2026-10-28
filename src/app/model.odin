@@ -213,11 +213,11 @@ object_tidy_cage :: proc(app: ^App, obj: ^Object, kind: Cage_Tidy) -> bool {
 
 @(rodata)
 CAGE_SELECT_NAMES := [poly.Select_Op]string {
-	.All    = "Select all",
-	.None   = "Select none",
-	.Invert = "Invert selection",
-	.Grow   = "Grow selection",
-	.Shrink = "Shrink selection",
+	.All    = "Select all faces",
+	.None   = "Select no faces",
+	.Invert = "Invert selected faces",
+	.Grow   = "Grow selected faces",
+	.Shrink = "Shrink selected faces",
 }
 
 // Changes `obj`'s cage selection as one undo step (a selection is undone as Blender's

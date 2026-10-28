@@ -573,7 +573,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Select_Cage = {
 		label = "Cage selection",
-		help = "Changes the selected cage's selection, the faces the Selection target works on: All, None, Invert, Grow (adds the faces beside the selection) or Shrink (drops its edge). Each is one undo step.",
+		help = "Changes the selected cage's selection, the faces the Selected target works on: All, None, Invert, Grow (adds the faces beside the selection) or Shrink (drops its edge). Each is one undo step.",
 		icon = ui.ICON_GRID,
 		args = len(poly.Select_Op),
 		run = proc(app: ^App, arg: int) {app.ui.scene_command = {kind = .Select_Cage, select = poly.Select_Op(arg)}},

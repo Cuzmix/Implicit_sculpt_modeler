@@ -28,7 +28,7 @@ import "../sculpt"
 // lights the images too, and the action works on both sides as one undo step.
 //
 // The selection (Select, and the palette's All, None, Invert, Grow and Shrink) is a flag
-// per cage face, shown orange; the face actions' Selection target works on it wherever
+// per cage face, shown orange; the face actions' Selected target works on it wherever
 // the press lands on that cage, as Blender's edit mode works on its selection.
 //
 // Modifiers: Ctrl (the wheel's Invert sector) gives the action's variant, ZModeler's Alt;
@@ -138,7 +138,7 @@ MODEL_ACTION_HOW := [Model_Action]string {
 	.Weld           = "Press on a point and lift over another to merge the first into the second",
 	.Connect        = "Press on a point and lift over another corner of its face to split the face between them",
 	.Dissolve_Point = "Tap a point to remove it, joining the faces round it",
-	.Select         = "Tap a face, or drag across faces, to select what the target reaches; the face actions' Selection target then works on them",
+	.Select         = "Tap a face, or drag across faces, to select what the target reaches; the face actions' Selected target then works on them",
 }
 
 // What kind of element each action takes.
@@ -202,7 +202,7 @@ MODEL_TARGET_NAMES := [Model_Target]string {
 	.Edge_Loop    = "Edge loop",
 	.Edge_Ring    = "Edge ring",
 	.Border_Loop  = "Border loop",
-	.Selection    = "Selection",
+	.Selection    = "Selected",
 	.Similar      = "Similar",
 }
 
