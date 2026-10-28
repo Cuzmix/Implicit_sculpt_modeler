@@ -30,14 +30,15 @@ Bar_Which :: enum u8 {
 	Shelf_Paint,
 	Shelf_Move,
 	Shelf_Curve,
+	Brush_Pie, // the Lens layout's brush pie (pie.odin): eight slots, clockwise from the top
 }
 
 // The bars that keep a Bar_List: all but the dock, whose slots hold brushes of their own.
 @(rodata)
-BAR_LISTS := [?]Bar_Which{.Shortcuts, .Tools, .View_Rail, .Shelf_Sculpt, .Shelf_Paint, .Shelf_Move, .Shelf_Curve}
+BAR_LISTS := [?]Bar_Which{.Shortcuts, .Tools, .View_Rail, .Shelf_Sculpt, .Shelf_Paint, .Shelf_Move, .Shelf_Curve, .Brush_Pie}
 
-// The bars a workspace's layout holds: the shelf's pages hold the person's brushes, which
-// are no layout's, as the dock's are not.
+// The bars a workspace's layout holds: the shelf's pages and the brush pie hold the
+// person's brushes, which are no layout's, as the dock's are not.
 @(rodata)
 BAR_LAYOUT := [?]Bar_Which{.Shortcuts, .Tools, .View_Rail}
 
@@ -51,6 +52,7 @@ BAR_NAMES := [Bar_Which]string {
 	.Shelf_Paint  = "THE PAINT SHELF",
 	.Shelf_Move   = "THE MOVE SHELF",
 	.Shelf_Curve  = "THE CURVE SHELF",
+	.Brush_Pie    = "THE BRUSH PIE",
 }
 
 // Each bar's name in settings.txt: the zone of the screen it holds, so a later layout that
@@ -65,6 +67,7 @@ BAR_ZONES := [Bar_Which]string {
 	.Shelf_Paint  = "shelf_paint",
 	.Shelf_Move   = "shelf_move",
 	.Shelf_Curve  = "shelf_curve",
+	.Brush_Pie    = "brush_pie",
 }
 
 // The bar a zone name names; the dock's slots keep their own dock lines.
@@ -124,6 +127,7 @@ bar_list_of :: proc(slots: []Bar_Slot) -> (l: Bar_List) {
 bars_reset :: proc(k: ^Kit_State) {
 	bar_lists_reset(k)
 	shelf_reset(k)
+	k.brush_pie = bar_fresh(.Brush_Pie)
 	dock_reset(k)
 }
 
@@ -143,6 +147,9 @@ bar_fresh :: proc(which: Bar_Which) -> Bar_List {
 	case .View_Rail:
 		d := VIEW_RAIL_DEFAULT
 		return bar_list_of(d[:])
+	case .Brush_Pie:
+		d := BRUSH_PIE_DEFAULT
+		return bar_list_of(d[:])
 	}
 	d := TOOLS_DEFAULT
 	return bar_list_of(d[:])
@@ -159,6 +166,7 @@ bar_list_k :: proc(k: ^Kit_State, which: Bar_Which) -> ^Bar_List {
 	#partial switch which {
 	case .Shortcuts: return &k.shortcuts
 	case .View_Rail: return &k.view_rail
+	case .Brush_Pie: return &k.brush_pie
 	}
 	return &k.tools
 }
@@ -177,6 +185,7 @@ bar_capacity :: proc(which: Bar_Which) -> int {
 	case .Dock:      return DOCK_SLOTS
 	case .View_Rail: return VIEW_RAIL_MAX
 	case .Shelf_Sculpt, .Shelf_Paint, .Shelf_Move, .Shelf_Curve: return SHELF_MAX
+	case .Brush_Pie: return PIE_SLOTS
 	}
 	return 0
 }
@@ -205,7 +214,7 @@ bar_list_changed :: proc(k: ^Kit_State, which: Bar_Which) -> bool {
 // file's, and with `layout` a workspace's layout's, which leaves the shelf's pages out.
 bars_save :: proc(k: ^Kit_State, out: ^strings.Builder, layout := false) {
 	for which in BAR_LISTS {
-		if _, shelf := shelf_page_of(which); shelf && layout do continue
+		if _, shelf := shelf_page_of(which); (shelf || which == .Brush_Pie) && layout do continue
 		if !bar_list_changed(k, which) do continue
 		l := bar_list_k(k, which)
 		used := l.slots[:clamp(l.count, 0, bar_capacity(which))]
@@ -270,6 +279,7 @@ bar_title :: proc(which: Bar_Which) -> string {
 	case .Shelf_Paint:  return "The Paint shelf"
 	case .Shelf_Move:   return "The Move shelf"
 	case .Shelf_Curve:  return "The Curve shelf"
+	case .Brush_Pie:    return "The brush pie"
 	}
 	return ""
 }

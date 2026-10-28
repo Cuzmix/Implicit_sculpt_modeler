@@ -79,3 +79,34 @@ b_opens_the_brush_picker_in_lens :: proc(t: ^testing.T) {
 	command_run(app, .Brush_Picker)
 	testing.expect(t, !app.kit.browser)
 }
+
+// Lens's brush pie is a bar of eight: a fresh install's brushes clockwise from the top,
+// kept in settings.txt and left out of a workspace's layout, as the shelf's pages are.
+@(test)
+brush_pie_is_a_bar_kept_in_settings :: proc(t: ^testing.T) {
+	path := "build/brush_pie_test.txt"
+	defer os.remove(path)
+	a: App
+	defer results_destroy(&a)
+	bars_reset(&a.kit)
+	a.kit.chrome = .Lens
+	testing.expect_value(t, bar_names(&a, .Brush_Pie), "Brush:Clay,Brush:Draw,Brush:Inflate,Brush:Crease,Brush:Grab,Brush:Flatten,Brush:Pinch,Brush:Smooth")
+	testing.expect_value(t, pie_slot_count(&a, 0), PIE_SLOTS)
+	testing.expect(t, pie_slot(&a, 0, 4) == Bar_Slot{.Brush, int(sculpt.Brush_Kind.Grab)})
+	testing.expect(t, pie_slot(&a, 0, PIE_SLOTS) == Bar_Slot{})
+
+	bar_put(&a, {which = .Brush_Pie, slot = 0}, {.Brush, int(sculpt.Brush_Kind.Snake_Hook)})
+	testing.expect(t, bar_changed(&a, .Brush_Pie))
+	testing.expect(t, settings_save(&a, path))
+	b: App
+	defer results_destroy(&b)
+	bars_reset(&b.kit)
+	settings_load(&b, path)
+	testing.expect_value(t, bar_names(&b, .Brush_Pie), bar_names(&a, .Brush_Pie))
+
+	c: App
+	defer results_destroy(&c)
+	bars_reset(&c.kit)
+	kit_layout_put(&c.kit, kit_layout_text(&a.kit))
+	testing.expect(t, !bar_changed(&c, .Brush_Pie))
+}

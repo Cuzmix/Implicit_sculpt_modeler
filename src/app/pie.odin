@@ -3,6 +3,7 @@ package main
 import "core:math"
 import "core:math/linalg"
 import "core:time"
+import "../sculpt"
 import sdl "vendor:sdl3"
 
 // The brush pie: every brush in a ring around the pointer, as Blender's pie menus
@@ -32,6 +33,34 @@ Pie :: struct {
 	// Space over the viewport, which the event loop gives the pie rather than the frame's
 	// keys: whether it is down, and whether it went down or up this frame.
 	space_down, space_pressed, space_released: bool,
+	// Lens's brush pie: the slice a press went down on, plus one (0 for none), which picks
+	// when let go there; and the slice the pointer has rested on since `rest_at`, once
+	// `rest_set` (a rest of PIE_REST shows that brush's quick settings).
+	pressed_on: int,
+	rest:       int,
+	rest_at:    f64,
+	rest_set:   bool,
+}
+
+// How long the pointer rests on a slice of Lens's brush pie before its quick settings show,
+// in seconds: longer than the hold delay, so a flick that slows on its way is still a pick.
+PIE_REST :: 0.5
+
+// A fresh install's brush pie in Lens, clockwise from the top: the mockups' eight, placed by
+// direction so a flick learns them (Clay up, Grab down, Pinch left, Inflate right).
+BRUSH_PIE_DEFAULT :: [?]Bar_Slot {
+	{.Brush, int(sculpt.Brush_Kind.Clay)}, {.Brush, int(sculpt.Brush_Kind.Draw)}, {.Brush, int(sculpt.Brush_Kind.Inflate)},
+	{.Brush, int(sculpt.Brush_Kind.Crease)}, {.Brush, int(sculpt.Brush_Kind.Grab)}, {.Brush, int(sculpt.Brush_Kind.Flatten)},
+	{.Brush, int(sculpt.Brush_Kind.Pinch)}, {.Brush, int(sculpt.Brush_Kind.Smooth)},
+}
+
+// Slot `i` of pie `which`: Lens's brush pie's (0), or a user pie's.
+pie_slot :: proc(app: ^App, which, i: int) -> Bar_Slot {
+	if which == 0 {
+		used := bar_used(app, .Brush_Pie)
+		return used[i] if i >= 0 && i < len(used) else {}
+	}
+	return app.kit.pies[which - 1][i]
 }
 
 // The pie's sizes are interface points, like its labels, so it keeps its proportions on
@@ -70,11 +99,15 @@ pie_update :: proc(app: ^App, input: ^Viewport_Input, right_tap: bool) {
 		} else if !busy && right_tap {
 			p^ = {open = true, center = input.mouse_pos, opened = input_clock(app), space_down = p.space_down}
 		}
-		p.hover = pie_slice(input.mouse_pos - p.center, app.kit.scale, pie_slot_count(p.which))
+		p.hover = pie_slice(input.mouse_pos - p.center, app.kit.scale, pie_slot_count(app, p.which))
 		if p.open do viewport_mute(input)
 		return // what opened it this frame does nothing more
 	}
-	p.hover = pie_slice(input.mouse_pos - p.center, app.kit.scale, pie_slot_count(p.which))
+	p.hover = pie_slice(input.mouse_pos - p.center, app.kit.scale, pie_slot_count(app, p.which))
+	// A lifted finger points at nothing: where it last was (the dial's Pie, say) is not a choice.
+	lens := p.which == 0 && app.kit.chrome == .Lens
+	if lens && d.pointer == .Finger && .Left not_in d.down && p.pressed_on == 0 do p.hover = -1
+	if lens && lens_pie_update(app, input) do return
 	if p.which > 0 && p.opened_frame == app.kit.frame {
 		// Opened during this frame's layout: the press or release that did it is spent.
 		if .Left in d.down do p.swallow = true
@@ -117,12 +150,63 @@ pie_slice :: proc(d: [2]f32, scale: f32, n: int) -> int {
 	return min(int(a / step), n - 1)
 }
 
-// Whether a click on slice `i` of pie `which` runs something: every brush does; a user
-// pie's slot needs a command that can run now.
+// Whether a click on slice `i` of pie `which` runs something: every brush of Classic's
+// brush pie does; a slot of Lens's or of a user pie needs a command that can run now.
 pie_pickable :: proc(app: ^App, which, i: int) -> bool {
-	if which == 0 do return true
-	s := app.kit.pies[which - 1][i]
+	if which == 0 && app.kit.chrome != .Lens do return true
+	s := pie_slot(app, which, i)
 	return s.id != .None && command_enabled(app, s.id, s.arg)
+}
+
+// Lens's brush pie, open: a press on a slice picks it when let go there (a flick from the
+// dial or Space picks on letting go as before), and resting on a slice for PIE_REST, with a
+// press, Space or the pen held over it, picks that brush and shows its quick settings
+// beside the slice instead (lens_shelf.odin). True when it took this frame's input.
+@(private = "file")
+lens_pie_update :: proc(app: ^App, input: ^Viewport_Input) -> bool {
+	p := &app.ui.pie
+	d := &app.device
+	now := input_clock(app)
+	if !p.rest_set || p.hover != p.rest do p.rest, p.rest_at, p.rest_set = p.hover, now, true
+	pressing := p.pressed_on > 0 && p.pressed_on - 1 == p.hover
+	if p.hover >= 0 && now - p.rest_at >= PIE_REST && (p.hold || pressing || d.pointer == .Pen) && pie_pickable(app, 0, p.hover) {
+		pie_quick(app, p.hover)
+		viewport_mute(input)
+		return true
+	}
+	if p.hold do return false
+	if .Left in d.pressed {
+		p.swallow = true
+		if p.hover < 0 do p.open = false
+		else do p.pressed_on, p.rest, p.rest_at = p.hover + 1, p.hover, now
+		viewport_mute(input)
+		return true
+	}
+	if p.pressed_on > 0 && .Left not_in d.down {
+		if p.pressed_on - 1 == p.hover && pie_pickable(app, 0, p.hover) do pie_pick(app, p.hover)
+		p.pressed_on = 0
+		viewport_mute(input)
+		return true
+	}
+	return false
+}
+
+// Picks slice `i` of Lens's brush pie and, for a brush, shows its quick settings beside
+// where the slice's label was.
+@(private = "file")
+pie_quick :: proc(app: ^App, i: int) {
+	p := &app.ui.pie
+	k := &app.kit
+	s := pie_slot(app, 0, i)
+	step := 2 * math.PI / f32(PIE_SLOTS)
+	mid := -math.PI / 2 + f32(i) * step
+	r: f32 = PIE_INNER + 0.62 * (PIE_OUTER - PIE_INNER)
+	at := (p.center + r * k.scale * [2]f32{math.cos(mid), math.sin(mid)} + app.ui.viewport_origin) / k.scale
+	pie_pick(app, i)
+	if s.id != .Brush do return
+	kit_floats_close(k)
+	k.shelf.quick, k.shelf.quick_at = true, {at.x - 20, at.y - 20, 40, 40}
+	k.pie_quicks += 1
 }
 
 // Closes the pie, then runs what the slice holds, so a command that opens something (the
@@ -131,11 +215,15 @@ pie_pickable :: proc(app: ^App, which, i: int) -> bool {
 pie_pick :: proc(app: ^App, slice: int) {
 	which := app.ui.pie.which
 	app.ui.pie.open = false
-	if which == 0 {
+	if which == 0 && app.kit.chrome != .Lens {
 		command_run(app, .Brush, slice)
 		return
 	}
-	s := app.kit.pies[which - 1][slice]
+	s := pie_slot(app, which, slice)
+	if which == 0 {
+		command_run(app, s.id, s.arg)
+		return
+	}
 	app.kit.pie_runs += 1
 	command_run(app, s.id, s.arg)
 }
