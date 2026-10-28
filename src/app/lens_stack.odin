@@ -79,10 +79,15 @@ Lens_Stack :: struct {
 	scrolls:   [Stack_Card]f32,
 	bodies:    [Stack_Card]ui.Rect,
 	drag:      Stack_Drag,
-	tapped:    ui.Id,
-	tapped_at: f64,
+	tap:       Handle_Tap,
 	resizes:   int,
 	owner:     ui.Id,
+	// With panes beside the main one the stack is a strip of tabs (lens_panes.odin): the
+	// card a tab opened over the view and where its tab is, and how many were opened.
+	tab:       Stack_Card,
+	tab_open:  bool,
+	tab_at:    ui.Rect,
+	tabs:      int,
 	// Whether stack_default has set it up: a Kit_State nothing has set up yet (a test's)
 	// holds a fresh layout's stack.
 	set:     bool,
@@ -94,7 +99,7 @@ stack_default :: proc(k: ^Kit_State) {
 	for c, i in Stack_Card do s.order[i] = c
 	s.open, s.floated, s.shut = STACK_OPEN_DEFAULT, {}, STACK_SHUT_DEFAULT
 	s.windows = {}
-	s.carry, s.menu = nil, false
+	s.carry, s.menu, s.tab_open = nil, false, false
 	s.width, s.heights, s.sizes, s.scrolls, s.drag = 0, {}, {}, {}, {}
 	s.set = true
 }
@@ -254,29 +259,7 @@ stack_card :: proc(app: ^App, c: Stack_Card, width: f32, floating: bool) {
 			owner := ui.hash_under(0, fmt.tprintf("stack card %v", c)) if floating else s.owner
 			scroll = kit_scroll_begin(ctx, "stack scroll", &s.scrolls[c], owner, inner, height, 6)
 		}
-		switch c {
-		case .Brush:
-			if app.tool == .Brush do stack_brush(app, inner)
-			else do kit_tool_tab(app)
-		case .Symmetry:
-			symmetry_controls(app)
-		case .Layers:
-			obj := selected_object(app)
-			_, _, draw, _ := bar_section(app, .Layers)
-			if obj == nil do ui.paragraph(ctx, "Add or select an object first.")
-			else do draw(app, obj)
-		case .Scene:
-			kit_scene_objects(app)
-		case .Palettes:
-			kit_tray_select(app)
-			k.in_tray = true
-			switch k.tab {
-			case .Tool:   kit_tool_tab(app)
-			case .Object: kit_object_tab(app)
-			case .Scene:  kit_scene_tab(app)
-			}
-			k.in_tray = false
-		}
+		stack_card_body(app, c, inner)
 		if height > 0 do kit_scroll_end(ctx, scroll)
 		ui.end(ctx)
 		r := ui.last_ended(ctx)
@@ -288,6 +271,36 @@ stack_card :: proc(app: ^App, c: Stack_Card, width: f32, floating: bool) {
 		s.rects[c] = ui.last_ended(ctx)
 	} else {
 		s.rects[c] = ui.prev_rect(ctx, fmt.tprintf("stack card %v", c))
+	}
+}
+
+// Card `c`'s content, `inner` wide: in the stack, on a floating card, or over the view from
+// the strip's tab.
+stack_card_body :: proc(app: ^App, c: Stack_Card, inner: f32) {
+	k := &app.kit
+	ctx := &k.ctx
+	switch c {
+	case .Brush:
+		if app.tool == .Brush do stack_brush(app, inner)
+		else do kit_tool_tab(app)
+	case .Symmetry:
+		symmetry_controls(app)
+	case .Layers:
+		obj := selected_object(app)
+		_, _, draw, _ := bar_section(app, .Layers)
+		if obj == nil do ui.paragraph(ctx, "Add or select an object first.")
+		else do draw(app, obj)
+	case .Scene:
+		kit_scene_objects(app)
+	case .Palettes:
+		kit_tray_select(app)
+		k.in_tray = true
+		switch k.tab {
+		case .Tool:   kit_tool_tab(app)
+		case .Object: kit_object_tab(app)
+		case .Scene:  kit_scene_tab(app)
+		}
+		k.in_tray = false
 	}
 }
 
@@ -358,13 +371,11 @@ stack_head :: proc(app: ^App, c: Stack_Card, inner: f32, floating: bool) {
 
 // The card's title: the tool's name on the first while the tool is not the brush, the
 // palette's on Palettes.
-@(private = "file")
 stack_title :: proc(app: ^App, c: Stack_Card) -> string {
 	if c == .Brush do return kit_tool_name(app.tool)
 	return STACK_CARD_NAMES[c]
 }
 
-@(private = "file")
 stack_brush_icon :: proc(app: ^App) -> rune {
 	return ui.ICON_BRUSH if app.tool == .Brush else TOOL_ICONS[app.tool]
 }

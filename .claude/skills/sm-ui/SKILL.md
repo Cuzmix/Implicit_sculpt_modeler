@@ -56,6 +56,10 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   never in layouts); `pie_slot` reads it, `lens_pie_update` adds tap-to-pick and the rest that opens `pie_quick`.
   Stack sizes live in `lens_resize.odin` (`stack_width`, `heights`, `sizes`, layout line `stack_size`); its handles are
   `ui.begin_at` roots drawn after what they resize, so they win the press.
+  Lens's split views chrome is `lens_panes.odin`: `lens_pane_head` (chips, `k.pane_menu` lists), `grid_divider_lens`
+  (grip, `handle_double_tap` evens, edge close via `grid_close_target`, the main pane never closes), `grid_choose`
+  (the View grid command; `k.new_panes`), and the stack's tab strip while `stack_strip_shown` (`kit_stack_tab` draws a
+  card over the view through `stack_card_body`).
 - Layout (`kit_layout`, `new_ui.odin`; the bars in `kit_bars.odin`, after ZBrush for iPad): `kit_top_bar` (a full-width
   strip, `TOP_BAR_H`: Menu, Save, Import, Export | file name | History, Edit pies, Help, Settings), `kit_points` (the
   object's readout under it, at the top left), `kit_brush_bar` (left column, top from `brush_bar_top`, which keeps

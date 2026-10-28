@@ -98,6 +98,8 @@ Kit_State :: struct {
 	brush_pie:  Bar_List, // the Lens layout's brush pie's eight slots (pie.odin)
 	pie_quicks: int, // quick settings opened by resting on the brush pie, for the exit stats
 	stack:      Lens_Stack, // the Lens layout's tray (lens_stack.odin)
+	new_panes:  New_Panes, // what a pane a view layout adds starts as (lens_panes.odin)
+	pane_menu:  Pane_Menu, // a view pane's camera or pass list in Lens
 	in_stack:   bool, // the Brush card's groups are being drawn: sections leave out what it shows above them
 	// The Lens mini view (lens_chrome.odin): its choices shown under the picture, and how
 	// often a tap on it swapped it with the main view, for the exit stats.
@@ -783,6 +785,7 @@ kit_floats_close :: proc(k: ^Kit_State) {
 	k.colors.palette_menu, k.colors.swatch_menu, k.colors.pop = false, false, false
 	k.panels.menu, k.workspaces.menu, k.arrange_drawer, k.passes.menu = false, false, false, false
 	k.shelf.quick, k.stack.menu = false, false
+	k.stack.tab_open, k.pane_menu.open = false, false
 	k.ctx.select_open = 0
 }
 
@@ -791,7 +794,7 @@ kit_floats_close :: proc(k: ^Kit_State) {
 // first-run tip hides under it.
 kit_floating :: proc(app: ^App) -> bool {
 	k := &app.kit
-	return app.ui.pie.open || app.ui.adjust.kind != .None || k.action_pop || k.adjust_pop || k.menu || k.versions || k.browser || k.dock_menu || k.bind.open || k.pie_editor || k.object_menu || k.folder_menu || k.rename.open || k.macro_save.open || k.palette || k.gizmo_entry.open || k.bar_pop.open || k.bar_slot.open || k.colors.palette_menu || k.colors.swatch_menu || k.colors.pop || k.home_menu || k.panels.menu || k.workspaces.menu || k.arrange_drawer || k.passes.menu || k.shelf.quick || k.stack.menu || k.ctx.select_open != 0
+	return app.ui.pie.open || app.ui.adjust.kind != .None || k.action_pop || k.adjust_pop || k.menu || k.versions || k.browser || k.dock_menu || k.bind.open || k.pie_editor || k.object_menu || k.folder_menu || k.rename.open || k.macro_save.open || k.palette || k.gizmo_entry.open || k.bar_pop.open || k.bar_slot.open || k.colors.palette_menu || k.colors.swatch_menu || k.colors.pop || k.home_menu || k.panels.menu || k.workspaces.menu || k.arrange_drawer || k.passes.menu || k.shelf.quick || k.stack.menu || k.stack.tab_open || k.pane_menu.open || k.ctx.select_open != 0
 }
 
 kit_destroy :: proc(app: ^App) {
@@ -1222,6 +1225,8 @@ kit_layout :: proc(app: ^App) {
 	kit_pie_editor(app)
 	kit_panel_menu(app)
 	kit_stack_menu(app)
+	kit_stack_tab(app)
+	kit_pane_menu(app)
 }
 
 // Lays out panel `which` by its own proc, docked or floating as it is placed. Returns
@@ -1276,7 +1281,8 @@ kit_inspector :: proc(app: ^App) -> (raised: bool) {
 	if k.chrome == .Lens {
 		// Lens draws the tray as the stack of cards (lens_stack.odin): bare in its column,
 		// each card its own surface; floating, one window round them all.
-		stack_w := stack_width(k)
+		strip := stack_strip_shown(app)
+		stack_w := STACK_STRIP_W if strip else stack_width(k)
 		box := ui.Box{direction = .Column, gap = COLUMN_GAP, width = stack_w, inert = !k.inspector || side_panel_open(k)}
 		if _, _, docked := panel_docked(k, Kit_Window.Inspector); !docked do box.padding, box.radius, box.background = PADDING, t.radius_large, .Panel
 		p := panel_begin(app, Kit_Window.Inspector, "Panels", .End, .Start, {right, top}, box, command_keys(app, .Inspector), bare = true)
@@ -1285,11 +1291,12 @@ kit_inspector :: proc(app: ^App) -> (raised: bool) {
 		if p.body {
 			s: Kit_Scroll
 			if !p.docked do s = kit_scroll_begin(ctx, "stack body", &k.scroll, p.owner, stack_w - 2 * PADDING, max(p.room, PANEL_BODY_MIN), COLUMN_GAP)
-			kit_stack(app, stack_w - 2 * box.padding, p.owner)
+			if strip do kit_stack_strip(app)
+			else do kit_stack(app, stack_w - 2 * box.padding, p.owner)
 			if !p.docked do kit_scroll_end(ctx, s)
 		}
 		panel_end(app, &p)
-		if k.inspector && !side_panel_open(k) && p.body do stack_edge(app, ui.prev_rect(ctx, panel_name(Kit_Window.Inspector)))
+		if k.inspector && !side_panel_open(k) && p.body && !strip do stack_edge(app, ui.prev_rect(ctx, panel_name(Kit_Window.Inspector)))
 		ui.transform_since(ctx, mark, shown, 1, {}, {window_slide(ctx, win^, .End) * (1 - shown) * 16, 0})
 		return
 	}
