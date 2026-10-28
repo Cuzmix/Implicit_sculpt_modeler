@@ -66,7 +66,7 @@ Options :: struct {
 	bench_loops: int `usage:"Make --bench-stroke this many circles around the middle of the sphere instead of a wavy line."`,
 	density_preview: int `usage:"Show Object > Shape > Rebuild's density checkerboard on the selected object for an even remesh of this many vertices, held on as holding its Density slider shows it (for screenshots and timing)."`,
 	bench_tilt: f32 `usage:"Lean the synthetic pen of --bench-stroke this many degrees to the right (with set tilt_strength in a start-up script)."`,
-	gpu:       string `usage:"Draw with this GPU backend: sdl (SDL_GPU, the default) or vulkan (render's own Vulkan backend, which falls back to SDL_GPU where the device lacks what it needs)."`,
+	gpu:       string `usage:"Draw with this GPU backend for this run instead of the one Settings > System > Graphics chose: auto (Vulkan, or SDL_GPU on Mac and iPad), vulkan (render's own Vulkan backend, which falls back to SDL_GPU where the device lacks what it needs) or sdl (SDL_GPU)."`,
 	no_vsync:  bool `usage:"Show each frame as soon as it is ready instead of waiting for the display's refresh, so frame times are not capped at the refresh rate."`,
 	idle_sleep: bool `usage:"Rest when idle (Settings > System) in a scripted run too, which otherwise never rests: for testing it."`,
 	frame_limit: int `usage:"Draw at most N frames a second (Settings > System > Frame rate > Limit)."`,
@@ -332,6 +332,9 @@ App :: struct {
 	idle_sleep:  bool, // rest between frames while nothing changes (idle.odin)
 	idle:        Idle,
 	msaa:     Msaa, // wanted anti-aliasing, applied before the next frame sizes the viewport (msaa.odin)
+	graphics:       Graphics, // the backend Settings > System > Graphics chose, for the next start (graphics.odin)
+	graphics_start: Graphics, // the choice this run started with, by the setting or --gpu
+	graphics_loaded: Graphics, // the setting as the run read it, which a change in the menu differs from
 	time_gpu: bool, // wait for each frame's 3D work, to measure its GPU time
 	window:   ^sdl.Window, // what file dialogs belong to
 	scene_path: string, // where the scene was last saved or opened from, for Ctrl+S (owned)
@@ -406,14 +409,18 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	}
 	defer sdl.Quit()
 
-	switch opts.gpu {
-	case "", "sdl":
-	case "vulkan":
-		render.backend_select(.Vulkan)
-	case:
-		log.errorf("--gpu=%s: expected sdl or vulkan", opts.gpu)
+	// What earlier interactive runs left; a start-up script runs after it and wins over it.
+	remember := (opts.frames == 0 && opts.gpubench == "" && opts.bench_stroke == 0 && !opts.no_settings) || opts.settings_file != ""
+	settings := (opts.settings_file if opts.settings_file != "" else settings_path()) if remember else ""
+	if remember do settings = strings.clone(settings)
+	defer delete(settings)
+	// The backend is chosen before the window, which is made for it.
+	graphics, graphics_ok := graphics_choice(opts.gpu, settings)
+	if !graphics_ok {
+		log.errorf("--gpu=%s: expected auto, vulkan or sdl", opts.gpu)
 		return false
 	}
+	render.backend_select(graphics_backend(graphics))
 	window := sdl.CreateWindow("Sculpt", i32(opts.width), i32(opts.height), platform_window_flags())
 	if window == nil {
 		log.errorf("CreateWindow failed: %s", sdl.GetError())
@@ -423,6 +430,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 
 	app: App
 	app.window = window
+	app.graphics_start = graphics
 	// The script is read and checked before the scene is set up, so one with an error
 	// stops before the slow part; it runs once the frame loop has laid out the viewport.
 	// The GPU benchmark makes its own scenes, case by case, which a script would not see.
@@ -598,11 +606,6 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	app.nav = NAV_DEFAULT
 	app.autosave.minutes = AUTOSAVE_DEFAULT_MINUTES
 	app.versions_kept = VERSIONS_DEFAULT
-	// What earlier interactive runs left; a start-up script runs after it and wins over it.
-	remember := (opts.frames == 0 && opts.gpubench == "" && opts.bench_stroke == 0 && !opts.no_settings) || opts.settings_file != ""
-	settings := (opts.settings_file if opts.settings_file != "" else settings_path()) if remember else ""
-	if remember do settings = strings.clone(settings)
-	defer delete(settings)
 	// The alphas come first, the library's too, so that presets and the brush in the
 	// settings find the alphas they name.
 	alphas_init(&app)
@@ -612,6 +615,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	// names, and before the renderer goes, which their textures need: keep it here.
 	defer library_destroy(&app)
 	settings_load(&app, settings)
+	app.graphics_loaded = app.graphics
 	switch opts.chrome {
 	case "":
 	case "lens":    app.kit.chrome = .Lens
@@ -1713,7 +1717,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	for obj in app.scene.objects do lod_pending += sculpt.sculptor_lod_pending(object_sculptor(obj))
 	fmt.printfln("simplify=%v last_frame_lod_px=%.2f last_frame_simplified=%d lod_pending=%d", app.simplify, app.renderer.lod_px, v.simplified, lod_pending)
 	if app.stats.lod_ms.count > 0 do print_stat("lod_build_ms", app.stats.lod_ms)
-	fmt.printfln("gpu_backend=%s", render.backend_name())
+	fmt.printfln("gpu_backend=%s gpu_choice=%v gpu_fallback=%v", render.backend_name(), app.graphics_start, render.backend_fallback() != "")
 	print_stat("frame_ms", app.stats.frame_ms)
 	print_stat("cpu_ms", app.stats.cpu_ms)
 	print_stat("wait_ms", app.stats.wait_ms)
