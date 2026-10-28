@@ -69,7 +69,8 @@ skill whose description fits the request BEFORE you form a plan.
 - Package boundaries: `geom`, `camera`, `gizmo`, `jobs`, `zip`, `voxel` and `luau` know nothing of rendering or UI; `ui` knows nothing of SDL or `render`; only `render` and `app`
   import `vendor:sdl3`, and only `render` names the GPU API: `app` holds `render.Cmd`, `render.Texture`,
   `render.Fence` and `render.Sample_Count` and calls render's procs (`render.wait_idle`, `cmd_begin`, `cmd_submit`,
-  `swapchain_acquire`, `ui_present`; `src/render/gpu.odin`), which `scripts/boundary_check.py` enforces in `check`;
+  `swapchain_acquire`, `ui_present`; `src/render/gpu.odin`), and inside render only `hal.odin` calls SDL_GPU's procs
+  (`gpu_*`), both enforced by `scripts/boundary_check.py` in `check`;
   `bench` never imports `render` or `app`; `sdf_trial` stands alone.
 - Determinism: serial and parallel results are bit-identical and tests compare them; no map order decides output.
 - Allocations inside jobs use `runtime.heap_allocator()` for both make and delete; only the frame loop and the setup

@@ -275,6 +275,10 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   `cmd_begin`/`cmd_submit`/`cmd_submit_fenced`/`cmd_cancel`, `fence_finish`, `swapchain_acquire`, `ui_present`
   (each window's present pass), `renderer_ready`. `scripts/boundary_check.py` (run by `check`) fails on any
   `sdl.*GPU*` name or native GPU import outside `src/render`; a new GPU need is a render proc, never an app call.
+  Inside render, SDL_GPU's procs are called only from the seam `hal.odin` (`gpu_create_texture` for
+  `sdl.CreateGPUTexture`, same arguments), which the Vulkan backend will answer too (notes/vulkan/backend-design.md);
+  the check fails on a direct `sdl.*GPU*(` call anywhere else in render. SDL's types and info structs stay, as opaque
+  handles render never dereferences.
   `render` never reads UI state.
 - Every `sdl.*GPU*` result is consumed (sm-odin); wait for the GPU before destroying anything drawn this frame;
   `renderer_destroy` waits and releases in reverse order.
