@@ -2,6 +2,7 @@ package main
 
 import "core:fmt"
 import "core:log"
+import "core:strings"
 import "core:time"
 
 import "../geom"
@@ -210,6 +211,31 @@ object_tidy_cage :: proc(app: ^App, obj: ^Object, kind: Cage_Tidy) -> bool {
 	return true
 }
 
+@(rodata)
+CAGE_SELECT_NAMES := [poly.Select_Op]string {
+	.All    = "Select all",
+	.None   = "Select none",
+	.Invert = "Invert selection",
+	.Grow   = "Grow selection",
+	.Shrink = "Shrink selection",
+}
+
+// Changes `obj`'s cage selection as one undo step (a selection is undone as Blender's
+// is); nothing is listed when nothing changed. Returns false only on a GPU failure.
+object_select_cage :: proc(app: ^App, obj: ^Object, op: poly.Select_Op) -> bool {
+	before := history_snapshot(app, obj, strings.to_lower(CAGE_SELECT_NAMES[op], context.temp_allocator))
+	if !poly.select_op(&obj.cage.mesh, op) {
+		history_snapshot_drop(before)
+		return true
+	}
+	if !cage_rebuild(app, obj) {
+		history_snapshot_drop(before)
+		return false
+	}
+	history_record_swap(app, obj.id, before, kind = .Model)
+	return true
+}
+
 // The commands a cage object refuses: each changes its level in place (vertices, masks,
 // hiding, paint, groups, levels, layers), which the next edit of the cage would undo.
 CAGE_REFUSED_COMMANDS :: bit_set[Command_Id; [4]u64]{
@@ -250,6 +276,9 @@ Model_Tool :: struct {
 	targets:   [Model_Action]Model_Target,
 	targeted:  bit_set[Model_Action],
 	group:     u16, // the polygroup Polygroup paints
+	// Per drag action, how far it went last (0 for not yet): a tap with it repeats that, as
+	// ZModeler's Extrude does.
+	last:      [Model_Action]f32,
 	hover:     Model_Hover,
 	drag:      Model_Drag,
 	// Since the start, for the exit stats: actions made, and refused.
@@ -298,6 +327,11 @@ kit_model_tab :: proc(app: ^App) {
 		g := f32(m.group)
 		if ui.slider(ctx, "Polygroup", &g, 0, 64, .Linear, fmt.tprint(m.group)) do m.group = u16(clamp(int(g + 0.5), 0, 64))
 	}
+	ui.caption(ctx, "SELECTION")
+	kit_command_pair(app, .Select_Cage, .Select_Cage, arg_a = int(poly.Select_Op.All), arg_b = int(poly.Select_Op.None), label_a = "All", label_b = "None")
+	kit_command_pair(app, .Select_Cage, .Select_Cage, arg_a = int(poly.Select_Op.Grow), arg_b = int(poly.Select_Op.Shrink), label_a = "Grow", label_b = "Shrink")
+	_ = command_button(app, .Select_Cage, int(poly.Select_Op.Invert), "Invert", width = ui.fill_width(ctx))
+	ui.caption(ctx, "TIDY")
 	kit_command_pair(app, .Tidy_Cage, .Tidy_Cage, arg_a = int(Cage_Tidy.Dissolve_Flat), arg_b = int(Cage_Tidy.Merge_Close), label_a = "Dissolve flat", label_b = "Merge close")
 	ui.caption(ctx, "NEW CAGE")
 	names: [len(poly.Primitive)]string

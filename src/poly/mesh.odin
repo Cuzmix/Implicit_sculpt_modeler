@@ -40,9 +40,11 @@ Mesh :: struct {
 	he_face:   [dynamic]u32, // NONE on a border
 	// Per edge (half-edge pair): its crease, 0 smooth up to INFINITE_SHARP.
 	crease:    [dynamic]f32,
-	// Per face: one of its half-edges, and its polygroup.
+	// Per face: one of its half-edges, its polygroup, and whether it is selected (Model
+	// mode's selection, which actions with the Selection target work on).
 	face_he:   [dynamic]u32,
 	group:     [dynamic]u16,
+	selected:  [dynamic]bool,
 }
 
 mesh_destroy :: proc(m: ^Mesh) {
@@ -56,6 +58,7 @@ mesh_destroy :: proc(m: ^Mesh) {
 	delete(m.crease)
 	delete(m.face_he)
 	delete(m.group)
+	delete(m.selected)
 	m^ = {}
 }
 
@@ -72,6 +75,7 @@ mesh_make :: proc(allocator := context.allocator) -> Mesh {
 		crease = make([dynamic]f32, allocator),
 		face_he = make([dynamic]u32, allocator),
 		group = make([dynamic]u16, allocator),
+		selected = make([dynamic]bool, allocator),
 	}
 }
 
@@ -88,6 +92,7 @@ mesh_clone :: proc(m: Mesh, allocator := context.allocator) -> (c: Mesh) {
 	append(&c.crease, ..m.crease[:])
 	append(&c.face_he, ..m.face_he[:])
 	append(&c.group, ..m.group[:])
+	append(&c.selected, ..m.selected[:])
 	return
 }
 
@@ -131,6 +136,7 @@ add_edge :: proc(m: ^Mesh, a, b: u32) -> u32 {
 add_face :: proc(m: ^Mesh, h: u32, group: u16) -> u32 {
 	append(&m.face_he, h)
 	append(&m.group, group)
+	append(&m.selected, false)
 	return u32(len(m.face_he) - 1)
 }
 
