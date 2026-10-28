@@ -61,13 +61,16 @@ idle_note :: proc(app: ^App, drawn: render.Viewport_Stats, dabs: int) {
 	h := xxhash.XXH3_64_default(mem.slice_to_bytes(dl.vertices[:]))
 	h ~= xxhash.XXH3_64_with_seed(mem.slice_to_bytes(dl.indices[:]), 1)
 	h ~= xxhash.XXH3_64_with_seed(mem.slice_to_bytes(dl.cmds[:]), 2)
+	// A view window's interface counts as the main one's (view_window.odin keeps its hash).
+	// Seeded by its number, so two windows changing alike never cancel out.
+	for w in app.view_windows.open do if w != nil do h ~= w.hash ~ u64(w.number) * 0x9e3779b97f4a7c15
 	ui_changed := h != id.ui_hash
 	id.ui_hash = h
 	thumbs_changed := app.thumb_slots.drawn != id.thumbs
 	id.thumbs = app.thumb_slots.drawn
 	held := app.device.down != {} || app.touch.fingers.count > 0 || app.ui.pie.space_down
 	busy := app.stroke.active || replay_busy(app) || timelapse_capturing(app) || app.script.running ||
-		(studio_running(app) && !render_running(app) && app.studio.samples < int(app.studio_samples)) || render_busy(app) || home_busy(app) || app.thumbnail.due || grid_due(app) || app.capture.path != "" || turntable_recording(app)
+		(studio_running(app) && !render_running(app) && app.studio.samples < int(app.studio_samples)) || render_busy(app) || home_busy(app) || app.thumbnail.due || grid_due(app) || view_windows_due(app) || app.capture.path != "" || turntable_recording(app)
 	viewport := !drawn.partial || drawn.redrawn_px > 0 || drawn.cache_redrawn
 	// The view settles into full detail LOD_SETTLE after it stops: that redraw is
 	// timed, not driven by input, so the quiet run waits for it.

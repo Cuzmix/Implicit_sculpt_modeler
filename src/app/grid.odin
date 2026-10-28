@@ -382,7 +382,7 @@ kit_view_pane :: proc(app: ^App, i: int, r: ui.Rect) {
 	} else {
 		ui.fill_rect(ctx, a.rect, 0, t.pane)
 		if app.panes[i - 1].shown != nil do ui.image(ctx, a.rect, KIT_PANE_IMAGE + u64(i - 1))
-		second_view_input(app, sv, a)
+		second_view_input(app, ctx, k.scale, sv, a)
 	}
 	ui.end(ctx)
 	if working {
@@ -399,10 +399,30 @@ kit_view_pane :: proc(app: ^App, i: int, r: ui.Rect) {
 		c := k.panels.rect[side]
 		if c.w > 0 && c.x > head.x && c.x < r.x + r.w do room = min(room, c.x - GRID_COLUMN_GAP - head.x)
 	}
-	narrow := room < 2 * 4 + 14 + 2 * GRID_SELECT_W + 2 * t.target + 4 * 4
+	buttons := 3 if VIEW_WINDOWS_AVAILABLE else 2
+	narrow := room < 2 * 4 + 14 + 2 * GRID_SELECT_W + f32(buttons) * t.target + (2 + f32(buttons)) * 4
 	ui.begin_at(ctx, fmt.tprintf("view pane %d head", i), head, {direction = .Column, gap = 0, padding = 4, radius = t.radius_large, background = .Panel})
 	ui.begin(ctx, "first row", {direction = .Row, center = true, gap = 4})
-	dot, ring := second_color(t, sv, i)
+	view_head_camera(app, ctx, sv, i)
+	if narrow {
+		view_head_link(app, ctx, sv)
+		ui.end(ctx)
+		ui.begin(ctx, "second row", {direction = .Row, center = true, gap = 4})
+		ui.spacer(ctx, 14)
+	}
+	view_head_pass(ctx, sv)
+	if !narrow do view_head_link(app, ctx, sv)
+	maxed := g.maximised == i
+	if ui.icon_button(ctx, "Restore" if maxed else "Maximise", ui.ICON_MINIMISE if maxed else ui.ICON_RESTORE, selected = maxed) do g.maximised = 0 if maxed else i
+	if VIEW_WINDOWS_AVAILABLE && ui.icon_button(ctx, "Open in a window", ICON_VIEW_WINDOW) do view_window_request(app, sv^)
+	ui.end(ctx)
+	ui.end(ctx)
+}
+
+// A view's camera dot and Camera select, in a head's row: a view pane's or a view
+// window's, in the interface `ctx` it is laid out in; `index` picks its own colour.
+view_head_camera :: proc(app: ^App, ctx: ^ui.Context, sv: ^Second_View, index: int) {
+	dot, ring := second_color(ctx.theme, sv, index)
 	camera_dot(ctx, dot, ring)
 	cameras := make([]string, len(Second_Camera), context.temp_allocator)
 	for name, c in SECOND_CAMERA_NAMES do cameras[c] = name
@@ -410,25 +430,23 @@ kit_view_pane :: proc(app: ^App, i: int, r: ui.Rect) {
 		if Second_Camera(picked) == .Free do second_free(app, sv)
 		else do sv.camera = Second_Camera(picked)
 	}
-	linked := second_linked(sv)
-	link :: proc(app: ^App, sv: ^Second_View, linked: bool) {
-		if ui.icon_button(&app.kit.ctx, "Unlink from the main camera" if linked else "Link to the main camera", ICON_LINK, selected = linked) do second_link_toggle(app, sv)
-	}
-	if narrow {
-		link(app, sv, linked)
-		ui.end(ctx)
-		ui.begin(ctx, "second row", {direction = .Row, center = true, gap = 4})
-		ui.spacer(ctx, 14)
-	}
+}
+
+// A view's Shows select.
+view_head_pass :: proc(ctx: ^ui.Context, sv: ^Second_View) {
 	passes := make([]string, len(Second_Pass), context.temp_allocator)
 	for name, kind in SECOND_PASS_NAMES do passes[kind] = name
 	if picked := ui.select(ctx, "Shows", passes, int(sv.pass), GRID_SELECT_W); picked >= 0 do sv.pass = Second_Pass(picked)
-	if !narrow do link(app, sv, linked)
-	maxed := g.maximised == i
-	if ui.icon_button(ctx, "Restore" if maxed else "Maximise", ui.ICON_MINIMISE if maxed else ui.ICON_RESTORE, selected = maxed) do g.maximised = 0 if maxed else i
-	ui.end(ctx)
-	ui.end(ctx)
 }
+
+// A view's link button: links an independent view to the main camera, or lets a linked one go.
+view_head_link :: proc(app: ^App, ctx: ^ui.Context, sv: ^Second_View) {
+	linked := second_linked(sv)
+	if ui.icon_button(ctx, "Unlink from the main camera" if linked else "Link to the main camera", ICON_LINK, selected = linked) do second_link_toggle(app, sv)
+}
+
+// Lucide's monitor-up: a view opened in a window of its own (view_window.odin).
+ICON_VIEW_WINDOW :: rune(0xe427)
 
 // A view pane's selects, in points: room for "Curvature" and "Mirrored".
 GRID_SELECT_W :: 116

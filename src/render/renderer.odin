@@ -475,6 +475,22 @@ gpu_description :: proc(r: ^Renderer) -> string {
 	return fmt.tprintf("%s (%s, driver %s)", name, sdl.GetGPUDeviceDriver(r.device), version)
 }
 
+// Lets the device draw into another window (a view window): mailbox where the window offers
+// it, since such a window is presented only when what it shows changed and must never hold
+// the main window's frame; else the vsync claiming gives.
+window_claim :: proc(r: ^Renderer, window: ^sdl.Window) -> bool {
+	if !sdl.ClaimWindowForGPUDevice(r.device, window) do return false
+	if sdl.WindowSupportsGPUPresentMode(r.device, window, .MAILBOX) && !sdl.SetGPUSwapchainParameters(r.device, window, .SDR, .MAILBOX) {
+		log.warnf("a view window keeps vsync: %s", sdl.GetError())
+	}
+	return true
+}
+
+// Gives a window claimed with window_claim back; the caller waits for the device first.
+window_release :: proc(r: ^Renderer, window: ^sdl.Window) {
+	sdl.ReleaseWindowFromGPUDevice(r.device, window)
+}
+
 // Picks how frames reach the screen. With vsync (the default), a frame waits for the
 // display's refresh: no tearing, and the frame rate is capped at the refresh rate.
 // Without, a frame is shown as soon as it is ready: mailbox where the window offers it

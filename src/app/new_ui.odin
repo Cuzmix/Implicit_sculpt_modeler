@@ -467,6 +467,7 @@ Kit_Event :: struct {
 	value:  f32, // a wheel's turn, or a pen's pressure
 	finger: u64,
 	key:    string, // a key's name, as SDL names keys
+	window: int, // the view window it goes to (1 to VIEW_WINDOWS_MAX), 0 for the main window
 }
 
 Kit_Event_Kind :: enum u8 {
@@ -507,6 +508,13 @@ kit_events_parse :: proc(app: ^App, spec: string) -> bool {
 		frame: int
 		if ok do frame, ok = strconv.parse_int(parts[0])
 		ev.frame = frame
+		// FRAME:winN:kind sends it to view window N, in that window's points.
+		if ok && strings.has_prefix(parts[1], "win") {
+			n, okn := strconv.parse_int(parts[1][3:])
+			ok = okn && n >= 1 && n <= VIEW_WINDOWS_MAX && len(parts) >= 3 && parts[2] != "text"
+			ev.window = n
+			parts = parts[1:]
+		}
 		// FRAME:kind, then the kind's own fields: a finger's id, then X,Y.
 		point :: proc(s: string) -> (at: [2]f32, ok: bool) {
 			xy := strings.split(s, ",", context.temp_allocator)
@@ -585,11 +593,6 @@ kit_events_parse :: proc(app: ^App, spec: string) -> bool {
 // lets them go.
 kit_events_push :: proc(app: ^App, window: ^sdl.Window) {
 	k := &app.kit
-	d := &app.device
-	scale := kit_content_scale(window) * k.ui_scale
-	w, h: i32
-	_ = sdl.GetWindowSize(window, &w, &h)
-	win := sdl.GetWindowID(window)
 	now := sdl.GetTicksNS()
 	push :: proc(e: sdl.Event) {
 		e := e
@@ -598,6 +601,18 @@ kit_events_push :: proc(app: ^App, window: ^sdl.Window) {
 	SCRIPTED_MOUSE :: sdl.MouseID(1)
 	for ev in k.events {
 		if ev.frame + k.events_offset != k.frame do continue
+		// The window it goes to, its scale and size, and the pointer the buttons press at.
+		target, d := window, &app.device
+		if ev.window != 0 {
+			vw: ^View_Window
+			for o in app.view_windows.open do if o != nil && o.number == ev.window do vw = o
+			if vw == nil do continue
+			target, d = vw.window, &vw.device
+		}
+		scale := kit_content_scale(target) * k.ui_scale
+		w, h: i32
+		_ = sdl.GetWindowSize(target, &w, &h)
+		win := sdl.GetWindowID(target)
 		at := ev.at * scale
 		e: sdl.Event
 		switch ev.kind {
@@ -659,6 +674,8 @@ kit_events_push :: proc(app: ^App, window: ^sdl.Window) {
 			if kind == .FINGER_UP || kind == .FINGER_CANCELED {
 				pos = {}
 				for f in app.touch.fingers.down[:app.touch.fingers.count] do if f.id == ev.finger do pos = f.at
+				// A view window's one finger is its pointer.
+				if ev.window != 0 do pos = d.mouse
 			}
 			e.tfinger = {type = kind, timestamp = now, touchID = TOUCH_SCRIPTED, fingerID = sdl.FingerID(ev.finger), x = pos.x / f32(max(w, 1)), y = pos.y / f32(max(h, 1)), pressure = 1, windowID = win}
 			push(e)
@@ -835,16 +852,22 @@ kit_begin :: proc(app: ^App, window: ^sdl.Window) -> (size, pixels: [2]i32) {
 	if k.fixed_dt > 0 do in_.dt = k.fixed_dt
 	k.last_frame = now
 	k.scale = scale
-	k.ctx.theme = LOOK_THEMES[k.look]
-	// Settings > Touch > Hold delay. The ring that counts toward the long press shows from
-	// halfway, never later than the theme has it, so a quick tap still shows nothing.
-	if d := app.nav.hold_delay; d >= HOLD_DELAY_MIN {
-		k.ctx.theme.long_press = d
-		k.ctx.theme.long_ring = min(k.ctx.theme.long_ring, d / 2)
-	}
+	k.ctx.theme = kit_theme(app)
 	kit_mirror(k)
 	ui.frame_begin(&k.ctx, in_)
 	return {w, h}, {pw, ph}
+}
+
+// The look's theme as every interface of the app takes it, the main window's and each view
+// window's: with Settings > Touch > Hold delay, the ring that counts toward the long press
+// showing from halfway, never later than the theme has it, so a quick tap still shows nothing.
+kit_theme :: proc(app: ^App) -> ui.Theme {
+	t := LOOK_THEMES[app.kit.look]
+	if d := app.nav.hold_delay; d >= HOLD_DELAY_MIN {
+		t.long_press = d
+		t.long_ring = min(t.long_ring, d / 2)
+	}
+	return t
 }
 
 // Once the layout changes hands (Settings > Interface > Screen layout, a settings file,

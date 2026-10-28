@@ -197,6 +197,7 @@ Picture :: struct {
 	// guides) follows, since the picture lags the camera while a stroke or turn goes on.
 	orbit: camera.Orbit,
 	due:   bool, // what it shows changed and waits for its turn, or the studio gathers
+	version: int, // counts every change to what it shows, a gathered sample too (a view window presents on it)
 	// The heavy passes' own buffers, made the first time one is shown.
 	ao:     render.Live_AO,
 	studio: render.Studio,
@@ -299,6 +300,7 @@ picture_frame :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer, draws: []render.Dra
 			_ = render.studio_frame(&app.renderer, &pic.studio, cmd, &pic.view.target, view, proj, items, false, int(app.studio_samples), app.studio_ao, app.studio_shadow, lights, &app.pool, app.studio_softness)
 			if tex := render.studio_texture(&pic.studio); tex != nil do pic.shown = tex
 		}
+		pic.version += 1
 		pic.due = picture_gathers(app, sv, pic)
 		return
 	}
@@ -337,6 +339,7 @@ picture_frame :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer, draws: []render.Dra
 		}
 		pic.shown, pic.key, pic.at, pic.orbit = shown, key, time.tick_now(), orbit
 		pic.draws += 1
+		pic.version += 1
 		app.pictures_drawn += 1
 		pic.ms = time.duration_milliseconds(time.tick_since(start))
 		pic.due = picture_gathers(app, sv, pic)
@@ -417,7 +420,7 @@ kit_thumbnail :: proc(app: ^App) -> (raised: bool) {
 	}
 	// A flipped picture is mirrored left to right, which leaves level lines where they are.
 	if app.thumbnail.shown != nil do kit_guides(app, pic, app.thumbnail.orbit, "thumbnail")
-	second_view_input(app, sv, a)
+	second_view_input(app, ctx, k.scale, sv, a)
 	// The camera and the pass side by side, then Flip, Maximise and Close.
 	ui.begin(ctx, "second view choices", {direction = .Row, center = true, gap = 4})
 	// The dot takes its place from the camera's select.
@@ -454,8 +457,9 @@ kit_thumbnail :: proc(app: ^App) -> (raised: bool) {
 // main camera, so the main view and the other linked views turn with it (a mirrored one
 // with the sideways turn reversed, so its picture follows the finger); an independent
 // view turns its own, an axis view becoming Free from what it showed.
-second_view_input :: proc(app: ^App, sv: ^Second_View, a: ui.Area) {
-	ctx := &app.kit.ctx
+// `ctx` is the interface it runs in and `scale` that interface's window coordinates per point
+// (a view window's differ from the main window's).
+second_view_input :: proc(app: ^App, ctx: ^ui.Context, scale: f32, sv: ^Second_View, a: ui.Area) {
 	if a.pressed do sv.from, sv.last, sv.dragging = a.mouse, a.mouse, false
 	if a.held {
 		if !sv.dragging && linalg.length(a.mouse - sv.from) > ctx.theme.slop {
@@ -468,7 +472,7 @@ second_view_input :: proc(app: ^App, sv: ^Second_View, a: ui.Area) {
 			}
 		}
 		if sv.dragging && a.mouse != sv.last {
-			delta := (a.mouse - sv.last) * app.kit.scale
+			delta := (a.mouse - sv.last) * scale
 			if second_linked(sv) {
 				if sv.camera == .Mirror do delta.x = -delta.x
 				camera.orbit_rotate(&app.camera, delta, orbit_settings(app))

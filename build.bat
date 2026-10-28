@@ -69,7 +69,7 @@ exit /b
 
 :smoke
 set SDL_ASSERT=abort
-"%ROOT%build\sculpt.exe" --frames=300 --gpu-debug || exit /b 1
+"%ROOT%build\sculpt.exe" --frames=300 --gpu-debug --view-windows=1 || exit /b 1
 exit /b 0
 
 :release
