@@ -637,7 +637,7 @@ kit_palette :: proc(app: ^App, anchor: ui.Rect, side: ui.Side) {
 		for e in entries do if e.kind == .Command && bar_lists(e.id) do append(&kept, e)
 		if bar_lists(.Command_Palette) do append(&kept, Palette_Entry{.Command, .Command_Palette, 0})
 		entries = kept[:]
-		ui.caption(ctx, fmt.tprintf("  CHOOSE A BUTTON FOR %s", BAR_NAMES[choosing_for.which]))
+		ui.caption(ctx, fmt.tprintf("  CHOOSE A BUTTON FOR %s", strings.to_upper(bar_title(choosing_for.which, app.kit.chrome == .Lens), context.temp_allocator)))
 	case Dial_Pick:
 		// What a bar may hold, as a sector is tapped as a bar's button is.
 		kept := make([dynamic]Palette_Entry, 0, len(entries), context.temp_allocator)
