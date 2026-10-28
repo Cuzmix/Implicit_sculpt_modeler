@@ -151,7 +151,36 @@ file_dialog_export :: proc(app: ^App, f: Export_Filter, name := "") {
 	userdata := rawptr(uintptr(File_Kind.Export) | uintptr(f) << 8)
 	where_: cstring = nil
 	if name != "" do where_ = strings.clone_to_cstring(name, context.temp_allocator)
-	sdl.ShowSaveFileDialog(file_dialog_done, userdata, app.window, &EXPORT_FILTERS[int(f)], 1, where_)
+	dialog_save(app, userdata, EXPORT_FILTERS[int(f):][:1], where_)
+}
+
+// The three dialogs: SDL's own, or on iOS, where SDL 3.4 has none, the document picker
+// (ios.odin). Both answer through file_dialog_done.
+@(private = "file")
+dialog_open :: proc(app: ^App, userdata: rawptr, filters: []sdl.DialogFileFilter) {
+	when ODIN_PLATFORM_SUBTARGET_IOS {
+		sculpt_ios_open_file_dialog(file_dialog_done, userdata, app.window, raw_data(filters), c.int(len(filters)))
+	} else {
+		sdl.ShowOpenFileDialog(file_dialog_done, userdata, app.window, raw_data(filters), c.int(len(filters)), nil, false)
+	}
+}
+
+@(private = "file")
+dialog_save :: proc(app: ^App, userdata: rawptr, filters: []sdl.DialogFileFilter, default_location: cstring = nil) {
+	when ODIN_PLATFORM_SUBTARGET_IOS {
+		sculpt_ios_save_file_dialog(file_dialog_done, userdata, app.window, raw_data(filters), c.int(len(filters)), default_location)
+	} else {
+		sdl.ShowSaveFileDialog(file_dialog_done, userdata, app.window, raw_data(filters), c.int(len(filters)), default_location)
+	}
+}
+
+@(private = "file")
+dialog_folder :: proc(app: ^App, userdata: rawptr) {
+	when ODIN_PLATFORM_SUBTARGET_IOS {
+		sculpt_ios_open_folder_dialog(file_dialog_done, userdata, app.window)
+	} else {
+		sdl.ShowOpenFolderDialog(file_dialog_done, userdata, app.window, nil, false)
+	}
 }
 
 // Shows the dialog that picks the file for `kind`; its answer becomes a request. Does
@@ -165,38 +194,22 @@ file_dialog :: proc(app: ^App, kind: File_Kind) {
 	if busy do return
 	userdata := rawptr(uintptr(kind))
 	#partial switch kind {
-	case .Import:
-		sdl.ShowOpenFileDialog(file_dialog_done, userdata, app.window, raw_data(MESH_FILTERS[:]), len(MESH_FILTERS), nil, false)
-	case .Export:
-		sdl.ShowSaveFileDialog(file_dialog_done, userdata, app.window, raw_data(EXPORT_FILTERS[:]), len(EXPORT_FILTERS), nil)
-	case .Export_Print:
-		sdl.ShowSaveFileDialog(file_dialog_done, userdata, app.window, raw_data(STL_FILTERS[:]), len(STL_FILTERS), nil)
-	case .Save, .Save_Copy:
-		sdl.ShowSaveFileDialog(file_dialog_done, userdata, app.window, raw_data(SCENE_FILTERS[:]), len(SCENE_FILTERS), nil)
-	case .Open:
-		sdl.ShowOpenFileDialog(file_dialog_done, userdata, app.window, raw_data(SCENE_FILTERS[:]), len(SCENE_FILTERS), nil, false)
-	case .Alpha, .Matcap, .Base_Color_Map, .Orm_Map, .Normal_Map:
-		sdl.ShowOpenFileDialog(file_dialog_done, userdata, app.window, raw_data(IMAGE_FILTERS[:]), len(IMAGE_FILTERS), nil, false)
-	case .Environment:
-		sdl.ShowOpenFileDialog(file_dialog_done, userdata, app.window, raw_data(ENVIRONMENT_FILTERS[:]), len(ENVIRONMENT_FILTERS), nil, false)
-	case .Screenshot:
-		sdl.ShowSaveFileDialog(file_dialog_done, userdata, app.window, raw_data(PNG_FILTERS[:]), len(PNG_FILTERS), nil)
-	case .Save_Strokes:
-		sdl.ShowSaveFileDialog(file_dialog_done, userdata, app.window, raw_data(STROKES_FILTERS[:]), len(STROKES_FILTERS), nil)
-	case .Load_Strokes:
-		sdl.ShowOpenFileDialog(file_dialog_done, userdata, app.window, raw_data(STROKES_FILTERS[:]), len(STROKES_FILTERS), nil, false)
-	case .Run_Script:
-		sdl.ShowOpenFileDialog(file_dialog_done, userdata, app.window, raw_data(SCRIPT_FILTERS[:]), len(SCRIPT_FILTERS), nil, false)
-	case .Install_Pack:
-		sdl.ShowOpenFileDialog(file_dialog_done, userdata, app.window, raw_data(PACK_FILTERS[:]), len(PACK_FILTERS), nil, false)
-	case .Make_Pack:
-		sdl.ShowSaveFileDialog(file_dialog_done, userdata, app.window, raw_data(PACK_FILTERS[:]), len(PACK_FILTERS), nil)
-	case .Export_Workspace:
-		sdl.ShowSaveFileDialog(file_dialog_done, userdata, app.window, raw_data(WORKSPACE_FILTERS[:]), len(WORKSPACE_FILTERS), nil)
-	case .Import_Workspace:
-		sdl.ShowOpenFileDialog(file_dialog_done, userdata, app.window, raw_data(WORKSPACE_FILTERS[:]), len(WORKSPACE_FILTERS), nil, false)
-	case .Timelapse, .Turntable, .Bake:
-		sdl.ShowOpenFolderDialog(file_dialog_done, userdata, app.window, nil, false)
+	case .Import:                                                dialog_open(app, userdata, MESH_FILTERS[:])
+	case .Export:                                                dialog_save(app, userdata, EXPORT_FILTERS[:])
+	case .Export_Print:                                          dialog_save(app, userdata, STL_FILTERS[:])
+	case .Save, .Save_Copy:                                      dialog_save(app, userdata, SCENE_FILTERS[:])
+	case .Open:                                                  dialog_open(app, userdata, SCENE_FILTERS[:])
+	case .Alpha, .Matcap, .Base_Color_Map, .Orm_Map, .Normal_Map: dialog_open(app, userdata, IMAGE_FILTERS[:])
+	case .Environment:                                           dialog_open(app, userdata, ENVIRONMENT_FILTERS[:])
+	case .Screenshot:                                            dialog_save(app, userdata, PNG_FILTERS[:])
+	case .Save_Strokes:                                          dialog_save(app, userdata, STROKES_FILTERS[:])
+	case .Load_Strokes:                                          dialog_open(app, userdata, STROKES_FILTERS[:])
+	case .Run_Script:                                            dialog_open(app, userdata, SCRIPT_FILTERS[:])
+	case .Install_Pack:                                          dialog_open(app, userdata, PACK_FILTERS[:])
+	case .Make_Pack:                                             dialog_save(app, userdata, PACK_FILTERS[:])
+	case .Export_Workspace:                                      dialog_save(app, userdata, WORKSPACE_FILTERS[:])
+	case .Import_Workspace:                                      dialog_open(app, userdata, WORKSPACE_FILTERS[:])
+	case .Timelapse, .Turntable, .Bake:                          dialog_folder(app, userdata)
 	}
 }
 
@@ -238,6 +251,18 @@ file_dialog_done :: proc "c" (userdata: rawptr, filelist: [^]cstring, filter: c.
 	}
 	delete(pending.req.path, heap)
 	pending.req = {kind, strings.concatenate({path, suffix}, heap)}
+}
+
+// Whether a save may write beside `path`, as saving over a file does: a partial copy and the
+// versions folder go there before the file is replaced. Not an Android content:// document,
+// which is read through the picker but never written by name, nor on the iPad a file picked
+// alone, whose permission covers that file and not its folder.
+file_writable_beside :: proc(path: string) -> bool {
+	when ODIN_PLATFORM_SUBTARGET_IOS {
+		return sculpt_ios_writable_beside(strings.clone_to_cstring(path, context.temp_allocator))
+	} else {
+		return !strings.has_prefix(path, "content://")
+	}
 }
 
 // Queues a request for a file already named (Ctrl+S on a saved scene, the flags).

@@ -6,24 +6,30 @@ import sdl "vendor:sdl3"
 import "../render"
 
 // What differs when the app runs as an Android app (android/ holds the Gradle project
-// that packages it), and the SDL hints every platform shares.
+// that packages it) or on any tablet, and the SDL hints every platform shares. The iPad's
+// own pieces are in ios.odin.
 
-// On Android standard output goes nowhere, so log lines go through SDL_Log, which
-// writes them to logcat (`adb logcat -s SDL/APP`). Elsewhere the console logger.
+// A tablet build, Android's or the iPad's: less memory and a tiled GPU, a finger before a
+// mouse, the whole screen. What only Android needs tests `.Android` instead.
+MOBILE :: ODIN_PLATFORM_SUBTARGET != .Default
+
+// A tablet app's standard output goes nowhere, so log lines go through SDL_Log, which
+// writes them to logcat on Android (`adb logcat -s SDL/APP`) and to the system log on the
+// iPad. Elsewhere the console logger.
 platform_logger :: proc() -> log.Logger {
-	when ODIN_PLATFORM_SUBTARGET == .Android {
-		return log.Logger{procedure = logcat_logger_proc, lowest_level = .Info when !ODIN_DEBUG else .Debug}
+	when MOBILE {
+		return log.Logger{procedure = system_logger_proc, lowest_level = .Info when !ODIN_DEBUG else .Debug}
 	} else {
 		return log.create_console_logger(.Info when !ODIN_DEBUG else .Debug)
 	}
 }
 
 platform_logger_destroy :: proc(logger: log.Logger) {
-	when ODIN_PLATFORM_SUBTARGET != .Android do log.destroy_console_logger(logger)
+	when !MOBILE do log.destroy_console_logger(logger)
 }
 
 @(private = "file")
-logcat_logger_proc :: proc(data: rawptr, level: log.Level, text: string, options: log.Options, location := #caller_location) {
+system_logger_proc :: proc(data: rawptr, level: log.Level, text: string, options: log.Options, location := #caller_location) {
 	priority: sdl.LogPriority
 	switch level {
 	case .Debug:   priority = .DEBUG
@@ -61,6 +67,6 @@ platform_hints :: proc() {
 // until swiped in; panels stay inside the safe area either way.
 platform_window_flags :: proc() -> sdl.WindowFlags {
 	flags := sdl.WindowFlags{.RESIZABLE, .HIGH_PIXEL_DENSITY} + render.window_flags()
-	when ODIN_PLATFORM_SUBTARGET == .Android do flags += {.FULLSCREEN}
+	when MOBILE do flags += {.FULLSCREEN}
 	return flags
 }

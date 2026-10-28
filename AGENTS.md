@@ -27,7 +27,7 @@ skill whose description fits the request BEFORE you form a plan.
   touching undo or the `History`, a topology-changing tool, a new GPU buffer layout, a shader, or more than ~300 lines.
 
 ## 3. The loop: small change → check → run → look
-    python scripts\gate.py                          # section 6 in one command: check, test, build, smoke, touch (+ wincheck, androidcheck on Linux)
+    python scripts\gate.py                          # section 6 in one command: check, test, build, smoke, touch, iphonecheck (+ wincheck, androidcheck on Linux)
     build.bat check                                   # the gate: odin check of every package + the skill mirror check
     build.bat                                         # debug app -> build\sculpt.exe (tracking allocator: a leak exits 1)
     build.bat test                                    # odin test on geom, poly, camera, sculpt, jobs, gizmo, png_write, zip, voxel, ui, luau, app
@@ -40,7 +40,8 @@ skill whose description fits the request BEFORE you form a plan.
     build.bat release | bench [sizes] [--threads=N] | gpubench
     python scripts\agents_sync.py                     # after editing a skill or agent (check verifies the mirror)
     build.bat android | androidrun                    # the Android APK; androidrun installs and starts it on the tablet
-    (Linux: ./build.sh <mode>, plus wincheck and androidcheck)
+    build.bat iphonecheck                             # the app compiled for the iPad to an object (no Mac): iOS-only compile errors
+    (Linux: ./build.sh <mode>, plus wincheck and androidcheck; macOS: ./build.sh ios, the iPad IPA, which .github/workflows/ipad.yml runs)
 - Fix the first error first; diagnostics are `path(line:col) Error: message`. The app prints key=value stats on exit.
 
 ## 4. Map
@@ -60,6 +61,7 @@ skill whose description fits the request BEFORE you form a plan.
 | `src/voxel` | voxel sculpting: narrow-band SDF in 8³ bricks, Add/Subtract/Smooth/Flatten/Inflate dabs, surface nets into mesh slots, per-brick undo, band repair, `SVOX` file section, conversion to a `Mesh` |
 | `src/sdf_trial` | the standalone SDF/voxel comparison spike (not in the build scripts) |
 | `android/` | the Android app: Gradle project, manifest, `app/jni/CMakeLists.txt` (SDL3, stb and `src/app` built by Odin into `libmain.so`), `android_main.c` |
+| `ios/` | the iPad app: `Info.plist` and `sculpt_ios.m` (the file dialogs SDL lacks on iOS), linked with SDL3, stb and `src/app` by `./build.sh ios` on macOS |
 | `scripts/` | `setup_deps.*`, `versions.env` (the pins), `build_luau.py` (Luau from source, which setup_deps runs), `gate.py` (the done gate in one command), `test_only.py` (some tests of one package), `agents_sync.py` (skill mirror and validation), `ppm.py` (view and diff viewport dumps), `parity_check.py` (19 scenes against a baseline build, pixel for pixel), `touch_check.py` (touch, pen and camera scenarios), `export_check.py` (a glTF or USD export through its validator and Blender), `link_check.py` (the Blender link's round trip through the add-on in bpy) |
 | `tools/blender/` | the Blender add-on of the Blender link (`sculpt_link`, Python, GPL-3.0-or-later as Blender requires): outside the build, never in the APK |
 | `deps/`, `build/` | ignored: the pinned toolchain and third-party sources; build outputs and dumps |

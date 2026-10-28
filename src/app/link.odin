@@ -58,7 +58,7 @@ LINK_MAX_OBJECTS :: 256
 LINK_NAME_MAX :: 256
 
 // The link is a desktop one: there is no Blender on a tablet to link with.
-LINK_AVAILABLE :: ODIN_PLATFORM_SUBTARGET != .Android
+LINK_AVAILABLE :: !MOBILE
 
 Link :: struct {
 	folder: string, // owned; "" in a run that keeps no settings, which has no link

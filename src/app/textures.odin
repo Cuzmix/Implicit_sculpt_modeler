@@ -35,7 +35,7 @@ Object_Textures :: struct {
 TEXTURE_MAX_SIDE :: 8192
 // The viewport shows a map at most this big a side, halved until it fits: three 4096
 // maps with their mips take about 256 MB, which a tablet should not spend on a preview.
-TEXTURE_PREVIEW_SIDE :: 2048 when ODIN_PLATFORM_SUBTARGET == .Android else 4096
+TEXTURE_PREVIEW_SIDE :: 2048 when MOBILE else 4096
 
 // The GPU side of an object's preview, never saved: its textured mesh, what it was built
 // from, and the thread decoding its maps.

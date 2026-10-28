@@ -14,10 +14,10 @@ import "core:strings"
 // (a picture is decoded whole first, once its header says it is not too big).
 
 // Panoramas wider than this are refused: 8192 x 4096 is the largest common HDRI size and
-// what core:image accepts. Picture files (not Radiance) stop at 4096 on Android, where a
+// what core:image accepts. Picture files (not Radiance) stop at 4096 on tablets, where a
 // decoded 8k picture alone would be 128 MB.
 ENVIRONMENT_MAX_SIDE :: 8192
-ENVIRONMENT_MAX_PICTURE_SIDE :: 4096 when ODIN_PLATFORM_SUBTARGET == .Android else ENVIRONMENT_MAX_SIDE
+ENVIRONMENT_MAX_PICTURE_SIDE :: 4096 when MOBILE else ENVIRONMENT_MAX_SIDE
 // Panoramas smaller than this are refused: the renderer prefilters six halvings of it.
 ENVIRONMENT_MIN_WIDTH :: 64
 // A Radiance header longer than this is not one.

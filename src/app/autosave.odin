@@ -469,8 +469,7 @@ autosave_close :: proc(app: ^App, window: ^sdl.Window) {
 	autosave_settle(app)
 	autosave_wait(w)
 	autosave_collect(app)
-	mobile := ODIN_PLATFORM_SUBTARGET != .Default
-	if fp := scene_fingerprint(app); !mobile && autosave_interval(a) > 0 && fp != a.clean {
+	if fp := scene_fingerprint(app); !MOBILE && autosave_interval(a) > 0 && fp != a.clean {
 		_ = sdl.HideWindow(window)
 		autosave_start(app, fp)
 		autosave_wait(w)
@@ -761,7 +760,7 @@ autosave_entries :: proc(app: ^App) -> []Autosave_Entry {
 @(private = "file")
 session_alive :: proc(f: Found_Session, now: i64) -> bool {
 	if !f.has_info || f.info.closed > 0 do return false
-	when ODIN_PLATFORM_SUBTARGET != .Default do return false
+	when MOBILE do return false
 	if f.info.pid <= 0 do return now - f.info.alive < AUTOSAVE_ALIVE
 	if f.info.pid == os.get_pid() do return true
 	theirs, ok := process_exe(f.info.pid)

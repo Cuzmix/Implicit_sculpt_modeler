@@ -31,7 +31,7 @@ coach_step :: proc(app: ^App) -> (step: Coach_Step, ok: bool) {
 // finger before it is first touched (the device starts as a mouse), and a pen with no
 // touch screen seen gets the mouse's words for moving the view.
 coach_pointer :: proc(app: ^App) -> ui.Pointer_Kind {
-	when ODIN_PLATFORM_SUBTARGET == .Android {
+	when MOBILE {
 		if app.device.pointer == .Mouse do return .Finger
 	}
 	return app.device.pointer

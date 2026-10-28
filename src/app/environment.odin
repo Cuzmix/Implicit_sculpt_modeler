@@ -23,7 +23,7 @@ import "../ui"
 // The panorama the GPU holds is halved until it is at most this wide: reflections and
 // the background are blurred enough by then that more costs memory for nothing (a 2048
 // source and its prefiltered copy take about 27 MB, the tablet's 1024 a quarter).
-ENVIRONMENT_SOURCE_WIDTH :: 1024 when ODIN_PLATFORM_SUBTARGET == .Android else 2048
+ENVIRONMENT_SOURCE_WIDTH :: 1024 when MOBILE else 2048
 // The Strength slider's reach either way, in stops.
 ENVIRONMENT_STRENGTH_RANGE :: 4
 

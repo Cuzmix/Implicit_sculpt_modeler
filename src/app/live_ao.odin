@@ -11,7 +11,7 @@ import "../ui"
 // switch is remembered in the settings; its Reach is not.
 
 // Tablets work it out at half size each way, a quarter of the pixels; the blur upsamples it.
-LIVE_AO_SCALE :: 2 when ODIN_PLATFORM_SUBTARGET == .Android else 1
+LIVE_AO_SCALE :: 2 when MOBILE else 1
 // The Reach slider: how far occluders count, as a share of the scene's radius.
 LIVE_AO_REACH_DEFAULT :: 0.1
 LIVE_AO_REACH_MIN :: 0.01

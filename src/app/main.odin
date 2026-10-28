@@ -48,7 +48,7 @@ Options :: struct {
 	ui_events: string `usage:"Drive the pointer, fingers and pen as SDL events would, for tests: FRAME:move:X,Y, FRAME:down, FRAME:up, FRAME:right (a right click), FRAME:mdown, FRAME:mup, FRAME:rdown and FRAME:rup (the middle and right buttons held and let go), FRAME:wheel:N, FRAME:key:NAME (a key press: shift, ctrl, alt held until FRAME:keyup:NAME), FRAME:fdown:ID:X,Y, FRAME:fmove:ID:X,Y, FRAME:fup:ID and FRAME:fcancel:ID (finger ID on a touch screen), FRAME:pdown:X,Y, FRAME:pmove:X,Y, FRAME:pup, FRAME:pnear / FRAME:pfar, FRAME:pright (the pen, the last its side button) and FRAME:ppress:P (the pen's pressure from then on, 0 to 1; 0 until set), separated by semicolons; X and Y in window points. FRAME:winN:... sends an event to view window N (1 to 3) instead, in its points."`,
 	chrome: string `usage:"Lay the interface out as lens (the default) or classic (the earlier layout after ZBrush for iPad), whatever the settings say (Settings > Interface > Layout)."`,
 	dump_view_window: string `usage:"On exit, write view window 1 as its interface drew it (its picture and head) to this path: a PNG, or a binary PPM when it ends in .ppm."`,
-	view_windows: int `usage:"Open this many view windows (up to 3, not on Android) at the start, each showing what Camera > New view window would."`,
+	view_windows: int `usage:"Open this many view windows (up to 3, desktop only) at the start, each showing what Camera > New view window would."`,
 	dump_screen: string `usage:"On exit, write the whole window as the interface drew it (viewport and panels) to this path: a PNG, or a binary PPM when it ends in .ppm."`,
 	dump_viewport: string `usage:"On exit, write the last viewport image to this path: a PNG, or a binary PPM when it ends in .ppm (for checking renders), as Menu > Save screenshot does."`,
 	check_mesh: bool `usage:"On exit, check every object's current mesh (closed, consistently wound, no degenerate triangles or NaN) and print the counts as mesh_* lines (slow on large meshes)."`,
@@ -357,6 +357,19 @@ App :: struct {
 LOAD_STROKES_FRAME :: 3
 
 main :: proc() {
+	// UIKit owns an iPad app's main thread from launch, so there SDL starts UIKit first and
+	// calls app_main back once the app has launched (ios.odin); everywhere else the app
+	// starts here.
+	when ODIN_PLATFORM_SUBTARGET_IOS {
+		ios_start()
+	} else {
+		app_main()
+	}
+}
+
+// The whole run on the main thread: the logger, the debug build's leak tracking, the
+// flags, then run. Exits the process with 1 on a failure, or with the run's own code.
+app_main :: proc() {
 	context.logger = platform_logger()
 	defer platform_logger_destroy(context.logger)
 
@@ -595,7 +608,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	app.studio_softness = render.STUDIO_KEY_SOFTNESS
 	app.studio_samples, app.studio_ao, app.studio_shadow = STUDIO_SAMPLES_DEFAULT, STUDIO_AO_DEFAULT, STUDIO_SHADOW_DEFAULT
 	app.render_samples, app.render_bounces, app.render_denoise = render.RENDER_SAMPLES_DEFAULT, render.RENDER_BOUNCES_DEFAULT, true
-	app.render_half = ODIN_PLATFORM_SUBTARGET == .Android
+	app.render_half = MOBILE
 	app.render_blur = RENDER_BLUR_DEFAULT
 	app.finish = FINISH_DEFAULTS
 	app.turntable_frames = TURNTABLE_FRAMES_DEFAULT

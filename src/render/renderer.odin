@@ -18,6 +18,11 @@ IDENTITY :: Mat4(1)
 
 VIEWPORT_COLOR_FORMAT :: sdl.GPUTextureFormat.R8G8B8A8_UNORM
 
+// A tablet build, Android's or the iPad's: less memory and a slower GPU, so the render
+// mode's budgets are smaller there. What only Android's Vulkan needs tests `.Android`.
+@(private)
+MOBILE :: ODIN_PLATFORM_SUBTARGET != .Default
+
 Renderer :: struct {
 	device:        ^sdl.GPUDevice,
 	window:        ^sdl.Window,

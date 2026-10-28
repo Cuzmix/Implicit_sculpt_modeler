@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Usage: ./build.sh [debug|release|test|run|smoke|bench|gpubench|computebench|wincheck|androidcheck|check|android|androidrun] [-- app args]
+# Usage: ./build.sh [debug|release|test|run|smoke|bench|gpubench|computebench|wincheck|androidcheck|iphonecheck|check|android|androidrun|ios] [-- app args]
 #   check   odin check with the strict flags on every package (no link, no shaders), then
 #           python3 scripts/agents_sync.py --check (the skill mirror under .agents/ is current)
 #   debug   (default) debug build with allocation tracking -> build/sculpt
@@ -26,6 +26,11 @@
 #   android build the Android app (android/, README.md "Android") into a debug APK with
 #           Gradle and the Android SDK and NDK (ANDROID_HOME, default ~/Android/Sdk)
 #   androidrun the same, then install it on the device adb sees and start it
+#   iphonecheck compile the app for the iPad (arm64) to an object file, as `ios` does,
+#           without Xcode or linking, so iOS-only compile errors show up anywhere
+#   ios     macOS with Xcode only: build the iPad app (ios/, README.md "iPad") into an
+#           unsigned build/ios/Sculpt.ipa, which AltStore signs on the iPad
+#           (.github/workflows/ipad.yml runs it on GitHub's macOS runner)
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 DEPS="$ROOT/deps"
@@ -61,6 +66,18 @@ common=(-collection:deps="$DEPS" -vet -strict-style -warnings-as-errors
 # The app links Luau for script plugins, which setup_deps builds from source.
 need_luau() {
 	[ -f "$DEPS/luau/libluau.a" ] || { echo "Luau missing: run scripts/setup_deps.sh, which builds deps/luau"; exit 1; }
+}
+
+# The oldest iPadOS the iPad build runs on. From 17.4 Odin's thread waits use the public
+# os_sync_wait_on_address; below it they fall back to a private call App Review refuses.
+IOS_MIN=17.4
+
+# The app for the iPad as one arm64 object, which `ios` links and `iphonecheck` stops at.
+ios_object() {
+	mkdir -p "$ROOT/build/ios"
+	"$ODIN" build "$ROOT/src/app" -target:darwin_arm64 -subtarget:iphone -build-mode:obj -use-single-module \
+		-minimum-os-version:"$IOS_MIN" -out:"$ROOT/build/ios/sculpt.o" \
+		-collection:deps="$DEPS" -vet -strict-style -warnings-as-errors -o:speed -no-bounds-check
 }
 
 mkdir -p "$ROOT/build"
@@ -161,6 +178,49 @@ case "$mode" in
 			(cd "$ROOT/android" && ./gradlew installDebug)
 			"$ANDROID_HOME/platform-tools/adb" shell am start -n io.github.cuzmix.sculpt/org.libsdl.app.SDLActivity
 		fi
+		;;
+	iphonecheck)
+		ios_object
+		echo "iphonecheck: app compiles for the iPad (arm64, iPadOS $IOS_MIN)"
+		;;
+	ios)
+		# SDL3 as a static library, the app's object, stb_truetype and ios/sculpt_ios.m (the
+		# file dialogs SDL lacks on iOS), linked by Xcode's clang into Sculpt.app, then zipped
+		# unsigned: AltStore signs it with the person's Apple Account on the iPad.
+		[ "$(uname)" = Darwin ] || { echo "ios needs macOS with Xcode; ./build.sh iphonecheck compiles the app for the iPad anywhere"; exit 1; }
+		[ -f "$DEPS/sdl3-src/CMakeLists.txt" ] || { echo "SDL source missing: clone SDL_TAG (scripts/versions.env) into deps/sdl3-src"; exit 1; }
+		command -v pkg-config > /dev/null || { echo "pkg-config missing: brew install pkgconf"; exit 1; }
+		out="$ROOT/build/ios"
+		app="$out/Payload/Sculpt.app"
+		cc=(xcrun -sdk iphoneos clang -target "arm64-apple-ios$IOS_MIN")
+		if [ ! -f "$out/sdl/lib/libSDL3.a" ]; then
+			# CMake's default generator, as SDL's own iOS builds use; an Xcode-generated build's
+			# install is not a path SDL tests.
+			cmake -S "$DEPS/sdl3-src" -B "$out/sdl-build" -DCMAKE_BUILD_TYPE=Release \
+				-DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_ARCHITECTURES=arm64 \
+				-DCMAKE_OSX_DEPLOYMENT_TARGET="$IOS_MIN" -DCMAKE_INSTALL_PREFIX="$out/sdl" \
+				-DSDL_SHARED=OFF -DSDL_STATIC=ON -DSDL_TEST_LIBRARY=OFF -DSDL_TESTS=OFF -DSDL_EXAMPLES=OFF
+			cmake --build "$out/sdl-build" --parallel
+			cmake --install "$out/sdl-build"
+		fi
+		ios_object
+		"${cc[@]}" -O2 -c "$DEPS/odin/vendor/stb/src/stb_truetype.c" -o "$out/stb_truetype.o"
+		"${cc[@]}" -O2 -Wall -fobjc-arc -I"$out/sdl/include" -c "$ROOT/ios/sculpt_ios.m" -o "$out/sculpt_ios.o"
+		rm -rf "$out/Payload"
+		mkdir -p "$app"
+		# SDL's pkg-config file names the libraries and frameworks it needs; the document
+		# picker's content types are one more.
+		libs=$(PKG_CONFIG_PATH="$out/sdl/lib/pkgconfig" pkg-config --static --libs sdl3)
+		[ -n "$libs" ] || { echo "pkg-config gave no flags for SDL's static library"; exit 1; }
+		read -r -a sdl_libs <<< "$libs"
+		"${cc[@]}" "$out/sculpt.o" "$out/stb_truetype.o" "$out/sculpt_ios.o" "${sdl_libs[@]}" \
+			-framework UniformTypeIdentifiers -o "$app/Sculpt"
+		cp "$ROOT/ios/Info.plist" "$app/Info.plist"
+		plutil -replace MinimumOSVersion -string "$IOS_MIN" "$app/Info.plist"
+		plutil -replace CFBundleVersion -string "${BUILD_NUMBER:-1}" "$app/Info.plist"
+		plutil -lint "$app/Info.plist"
+		(cd "$out" && rm -f Sculpt.ipa && zip -qry Sculpt.ipa Payload)
+		echo "ios: build/ios/Sculpt.ipa (unsigned; AltStore signs it on the iPad)"
 		;;
 	*) echo "unknown mode: $mode"; exit 1 ;;
 esac

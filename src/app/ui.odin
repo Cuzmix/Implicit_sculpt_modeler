@@ -168,9 +168,11 @@ studio_toggle :: proc(app: ^App) {
 	render.studio_reset(&app.studio)
 }
 
-// Saves where the scene was last saved or opened, or asks where to the first time.
+// Saves where the scene was last saved or opened, or asks where to the first time. On the
+// iPad it asks too for a scene opened from Files alone, which the app may read but not save
+// over (file_writable_beside).
 save_scene :: proc(app: ^App) {
-	if app.scene_path != "" {
+	if app.scene_path != "" && (!ODIN_PLATFORM_SUBTARGET_IOS || file_writable_beside(app.scene_path)) {
 		file_post(.Save, app.scene_path)
 	} else {
 		file_dialog(app, .Save)
@@ -189,10 +191,9 @@ save_scene_next :: proc(app: ^App) {
 	file_post(.Save, next)
 }
 
-// Whether Save next has a file to number from that it can write beside: not an Android
-// content:// document, which is read through the picker but never written by name.
+// Whether Save next has a file to number from that it can write beside (file_writable_beside).
 save_next_allowed :: proc(app: ^App) -> bool {
-	return app.scene_path != "" && !strings.has_prefix(app.scene_path, "content://")
+	return app.scene_path != "" && file_writable_beside(app.scene_path)
 }
 
 // The file Save next writes after `path`: its name's trailing `_NNN` counted up, keeping

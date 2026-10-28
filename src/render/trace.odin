@@ -39,9 +39,10 @@ MAX_GROUPS_X :: 65535
 @(private = "file")
 TRACE_RANGE_TRIANGLES :: 1024
 // The largest storage buffer Vulkan guarantees a shader can read (maxStorageBufferRange),
-// which SDL gives no way to query: tablets keep to it, so a larger mesh stays on the
-// gather there. Desktop GPUs read any buffer SDL can make.
-TRACE_BUFFER_MAX :: 128 << 20 when ODIN_PLATFORM_SUBTARGET == .Android else int(max(u32))
+// which SDL gives no way to query: Android tablets keep to it, so a larger mesh stays on
+// the gather there, and the iPad, whose Metal reads more, keeps to it as a memory budget.
+// Desktop GPUs read any buffer SDL can make.
+TRACE_BUFFER_MAX :: 128 << 20 when MOBILE else int(max(u32))
 // The least distance a ray starts off the surface, as a share of the scene's radius: well
 // above a float's rounding at the scene's scale.
 TRACE_EPSILON :: 1e-4
