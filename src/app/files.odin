@@ -1176,19 +1176,48 @@ scene_replace :: proc(app: ^App, objects: []^Object, selected, next_id: int, vie
 // (with its subdivision levels), seen from the front, with no file to save to (Save then asks where)
 // and an empty History, as Menu > New scene does. Returns false only on a GPU failure;
 // a shape that cannot be built leaves the scene as it was.
-scene_new :: proc(app: ^App, shape: geom.Primitive, vertices: int) -> bool {
+scene_new :: proc(app: ^App, shape: geom.Primitive, vertices: int, voxels := 0, empty := false) -> bool {
 	start := time.tick_now()
-	obj, ok := object_make_primitive(app, shape, vertices, {scale = 1})
-	if obj == nil do return ok
+	if empty {
+		scene_replace(app, {}, -1, app.scene.next_id, camera.orbit_default())
+		scene_new_done(app)
+		report(app, nil, {}, "New scene: empty; Add object (Scene palette) or Import brings something in")
+		return true
+	}
+	obj: ^Object
+	if voxels > 0 {
+		// A block of clay, which every voxel brush works on as it does on the sphere.
+		obj = new(Object)
+		obj.transform, obj.file = {scale = 1}, {scale = 1}
+		if !object_build_voxel(app, obj, voxels, box = true) {
+			free(obj)
+			return false
+		}
+		obj.name = fmt.aprintf("Voxels %d", app.scene.next_id + 1)
+	} else {
+		ok: bool
+		obj, ok = object_make_primitive(app, shape, vertices, {scale = 1})
+		if obj == nil do return ok
+	}
 	obj.id = app.scene.next_id + 1
 	// The view the app starts with, which shows a starter from the front and a side.
 	scene_replace(app, {obj}, 0, obj.id, camera.orbit_default())
+	scene_new_done(app)
+	took := time.duration_milliseconds(time.tick_since(start))
+	if voxels > 0 {
+		report(app, nil, {}, "New scene: a voxel block %d voxels across, %s surface vertices, in %.0f ms", voxels, count_label(object_vertex_count(obj)), took)
+		return true
+	}
+	levels := len(obj.levels.levels)
+	report(app, nil, {}, "New scene: %v, %d %s, %s vertices, in %.0f ms", shape, levels, "level" if levels == 1 else "levels", count_label(object_vertex_count(obj)), took)
+	return true
+}
+
+// What every new scene ends with: no file yet, and no autosave of one.
+@(private = "file")
+scene_new_done :: proc(app: ^App) {
 	scene_remember_path(app, "")
 	autosave_scene_saved(app, "")
-	levels := len(obj.levels.levels)
-	report(app, nil, {}, "New scene: %v, %d %s, %s vertices, in %.0f ms", shape, levels, "level" if levels == 1 else "levels",
-		count_label(object_vertex_count(obj)), time.duration_milliseconds(time.tick_since(start)))
-	return true
 }
 
 // Appends one object as the scene file stores it: its id, name, placement and every

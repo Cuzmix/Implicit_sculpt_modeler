@@ -7389,6 +7389,34 @@ def home_drops_a_scene_that_is_gone():
     return s, [f"--settings-file={settings_file()}"], {"home": near(1, 0), "recent_scenes": near(0, 0), "scene_name": is_text("none")}
 
 
+# Lens's Home at 1440x900 (--script=home opens it): the Plane and Empty scene tiles of
+# Start new, and the Continue card's picture.
+LENS_HOME = {"plane": (1045, 306), "empty": (1292, 306), "continue": (342, 200)}
+
+
+@scenario
+def lens_home_starts_and_continues():
+    """Lens's Home starts a Plane, or an empty scene, from its Start new tiles; with a scene on Recent the Continue card opens it."""
+    def start(tile, expect):
+        s = Script()
+        s.wait(6)
+        s.ftap(*LENS_HOME[tile])
+        s.wait(10)
+        return s, LENS_1440 + ["--script=home"], expect
+
+    def cont():
+        path = scene_file()
+        write_settings(f"recent_scenes {path}\n")
+        s = Script()
+        s.wait(20)
+        s.ftap(*LENS_HOME["continue"])
+        s.wait(8)
+        return s, LENS_1440 + ["--script=home", f"--settings-file={settings_file()}"], {"home": near(0), "scene_name": is_text("head.sculpt"), "home_pictures": near(1)}
+    return Steps([start("plane", {"home": near(0), "objects": near(1), "selected_name": lambda v: v.startswith("Plane")}),
+                  start("empty", {"home": near(0), "objects": near(0)}),
+                  first_save(), cont()])
+
+
 @scenario
 def home_recovers_a_crashed_sessions_autosave():
     """After a crash Home opens on Autosaves, where the crashed session's autosave is; a tap

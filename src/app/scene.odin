@@ -175,12 +175,13 @@ Scene_Command :: struct {
 	vertices: int,
 	shape:    geom.Primitive, // Add, New: what to add
 	mesh:     int, // Add, New: a content pack's mesh to add instead (Library.meshes, from 1), or 0
-	voxels:   int, // Add: a voxel sphere this many voxels across instead of the shape (0 for a mesh); Mesh_To_Voxels: voxels across the object's longest side; Voxel_Resample: the voxel object's new resolution, twice or half its own
+	voxels:   int, // Add: a voxel sphere this many voxels across instead of the shape (0 for a mesh); New: a voxel block this many across; Mesh_To_Voxels: voxels across the object's longest side; Voxel_Resample: the voxel object's new resolution, twice or half its own
 	// Dyntopo: turn dynamic topology on, or off; Symmetrize: keep the + side; Delete_Others:
 	// the selected objects too; Levels_All: every object to its highest level, or its lowest;
 	// Add: below the selected object, in its folder, rather than at the end of the list;
 	// Merge: the shown objects into a new one, rather than the selected one and the next;
-	// Repair: Close holes leaves the largest open, Delete half keeps the + side.
+	// Repair: Close holes leaves the largest open, Delete half keeps the + side; New: an
+	// empty scene, with no object.
 	on:       bool,
 	axis:     int, // Symmetrize, Align, Distribute, Repair's Delete half: 0 x, 1 y, 2 z
 	edge:     int, // Align, Distribute: 0 each object's low side, 1 its middle, 2 its high side
@@ -784,7 +785,7 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 		}
 	case .New:
 		if cmd.mesh > 0 do return scene_new_pack_mesh(app, cmd.mesh - 1)
-		return scene_new(app, cmd.shape, cmd.vertices)
+		return scene_new(app, cmd.shape, cmd.vertices, cmd.voxels, empty = cmd.on)
 	case .Remesh:
 		if obj := selected_object(app); obj != nil {
 			before := history_snapshot(app, obj, "remesh")
