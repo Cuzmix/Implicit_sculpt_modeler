@@ -5946,6 +5946,50 @@ def guides_are_saved_with_the_scene():
                   (opened, [f"--open={path}"], {"guides": near(1), "guide_heights": lambda v: v == moved.get("heights")})])
 
 
+# A 1024 x 768 window, under the columns' breakpoint: the right column's tab beside the
+# navigation head, the right bar's Palettes button, and a point on the view.
+NARROW = ["--width=1024", "--height=768"]
+NARROW_TAB, NARROW_PALETTES, NARROW_VIEW = (926, 91), (993, 203), (400, 400)
+
+
+@scenario
+def narrow_window_puts_the_column_away():
+    """On a window under 1180 points the right column (the tray) starts put away with a tab at its top; a tap on the tab pops it over the view, and a press on the view puts it away again without sculpting."""
+    def run(taps):
+        s = Script()
+        s.wait(6)
+        if taps > 0:
+            s.ftap(*NARROW_TAB)
+            s.wait(8)
+        if taps > 1:
+            s.ftap(*NARROW_VIEW)
+            s.wait(8)
+        return s, NARROW, camera_still({"columns_narrow": near(1), "column_popped": is_text("right" if taps == 1 else "none"),
+                                        "column_pops": near(1 if taps > 0 else 0), "dabs": near(0), "undo_steps": near(0)})
+    return Steps([run(0), run(1), run(2)])
+
+
+@scenario
+def narrow_window_palettes_pops_the_column():
+    """On a narrow window Palettes pops the tray's column over the view and a second tap puts it away, the tray staying open in it."""
+    def run(taps):
+        s = Script()
+        s.wait(6)
+        for _ in range(taps):
+            s.ftap(*NARROW_PALETTES)
+            s.wait(8)
+        return s, NARROW, camera_still({"column_popped": is_text("right" if taps == 1 else "none"), "window_inspector": lambda v: v.startswith("1,"), "dabs": near(0)})
+    return Steps([run(1), run(2)])
+
+
+@scenario
+def narrow_window_opening_a_panel_pops_its_column():
+    """On a narrow window a section pinned into the right column pops the column, as opening any panel docked there does; with Columns pop over a narrow window off, the columns stay beside the view."""
+    return Steps([(Script(), NARROW + ["--script=pin_section layers"], {"column_popped": is_text("right"), "columns_narrow": near(1)}),
+                  (Script(), NARROW + ["--script=set column_popovers off"], {"columns_narrow": near(0), "column_popped": is_text("none")}),
+                  (Script(), [], {"columns_narrow": near(0)})])
+
+
 @scenario
 def stroke_in_the_main_pane_beside_a_left_column():
     """With the tray docked on the left the main pane starts right of it; a stroke inside the pane sculpts where the finger is, not where the window's point would be, and the camera stays still."""

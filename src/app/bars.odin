@@ -358,7 +358,7 @@ bar_lit :: proc(app: ^App, s: Bar_Slot) -> bool {
 	case .Remesh:          return bar_pop_showing(app, .Remesh_Quick)
 	case .Shading_Menu:    return bar_pop_showing(app, .Shading)
 	case .Camera_Menu:     return bar_pop_showing(app, .Camera)
-	case .Inspector:       return k.inspector && !side_panel_open(k)
+	case .Inspector:       return tray_shown(app)
 	case .Command_Palette: return k.palette
 	}
 	return command_checked(app, s.id, s.arg)

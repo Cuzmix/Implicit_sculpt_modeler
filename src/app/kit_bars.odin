@@ -250,7 +250,7 @@ kit_top_bar :: proc(app: ^App) -> (menu_anchor, search_anchor: ui.Rect) {
 			else do palette_open(app)
 		}
 		search_anchor = ctx.last_rect
-		_ = bar_command(app, .Inspector, ui.ICON_PANEL, selected = k.inspector && !side_panel_open(k))
+		_ = bar_command(app, .Inspector, ui.ICON_PANEL, selected = tray_shown(app))
 	}
 	if pass_chip do kit_pass_chip(app)
 	if ui.icon_button(ctx, "History", ui.ICON_HISTORY, selected = k.history) do k.history = !k.history
@@ -543,7 +543,7 @@ kit_view_bar :: proc(app: ^App) -> (search_anchor: ui.Rect) {
 		else do palette_open(app)
 	}
 	search_anchor = ctx.last_rect
-	_ = bar_command(app, .Inspector, ui.ICON_PANEL, selected = k.inspector && !side_panel_open(k))
+	_ = bar_command(app, .Inspector, ui.ICON_PANEL, selected = tray_shown(app))
 	// Objects: the Objects card beside the bar; a second tap puts it away.
 	_ = bar_command(app, .Objects_Card, ICON_OBJECTS, name = "Objects")
 	ui.end(ctx)

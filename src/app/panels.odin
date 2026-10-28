@@ -86,6 +86,13 @@ Panels :: struct {
 	drag:    Maybe(Panel_Ref),
 	drag_at: [2]f32,
 	moves:   int, // docks, undocks and moves in a column, for the exit stats
+	// On a narrow window (columns_narrow): each column shown over the view now, never
+	// kept; the panels in it that were open last frame (panel_bit), so one that opens pops
+	// its column; and how many times a column popped, for the exit stats.
+	popped:    [Column_Side]bool,
+	open_last: [Column_Side]u64,
+	open_seen: bool, // open_last holds a frame's panels: the first frame pops nothing
+	pops:      int,
 }
 
 // What panel_begin opened, for the caller's content and panel_end.
@@ -332,6 +339,25 @@ panel_summary :: proc(app: ^App, ref: Panel_Ref) -> string {
 			return fmt.tprintf("%d layer%s", n, "" if n == 1 else "s")
 		case .Stroke, .Falloff, .Alpha, .Pen, .Options, .Preset:
 			return BRUSHES[app.brush.kind].name
+		case .Levels:
+			if obj == nil || obj.voxel != nil do return ""
+			return fmt.tprintf("Level %d of %d", obj.levels.current + 1, len(obj.levels.levels))
+		case .Topology:
+			return "Dynamic on" if command_checked(app, .Dyntopo_Toggle, 0) else "Dynamic off"
+		case .Material:
+			if obj == nil || obj.material.label == nil do return ""
+			return string(obj.material.label)
+		case .Objects:
+			n := len(app.scene.objects)
+			return fmt.tprintf("%d object%s", n, "" if n == 1 else "s")
+		case .Studio:
+			return "Render on" if app.studio_on else "Render off"
+		case .Turntable:
+			return fmt.tprintf("%d frames", int(app.turntable_frames))
+		case .Print:
+			return fmt.tprintf("%g mm a unit", print_scale(app))
+		case .Floor:
+			return "Grid on" if app.floor.on else "Grid off"
 		}
 	}
 	return ""
@@ -401,25 +427,126 @@ column_place :: proc(app: ^App, side: Column_Side, width: f32) -> (offset, top, 
 }
 
 // The panels column `side` shows now: the open ones, none on the right while a side
-// panel (Settings, Help...) has its place.
+// panel (Settings, Help...) has its place, and none while the column waits to be popped.
 @(private = "file")
 column_shown :: proc(app: ^App, side: Column_Side) -> []Panel_Ref {
 	k := &app.kit
 	out := make([dynamic]Panel_Ref, 0, COLUMN_MAX, context.temp_allocator)
 	if side == .Right && side_panel_open(k) do return out[:]
+	if !column_visible(app, side) do return out[:]
 	for r in k.panels.columns[side] do if panel_open(app, r) do append(&out, r)
 	return out[:]
+}
+
+// Whether the columns pop over the view rather than stand beside it: a window narrower
+// than the tray's own breakpoint, where a column would cover a third of the view for
+// good (the Lens report's "below 1180 pt columns become popovers from the rails").
+columns_narrow :: proc(app: ^App) -> bool {
+	return app.kit.column_popovers && ui.safe_area(&app.kit.ctx).w < TRAY_NAV_MIN_W
+}
+
+// Whether column `side` is drawn now: always on a wide window; on a narrow one while it is
+// popped, and while arranging or dragging a panel, so its outline and drop zone are there.
+column_visible :: proc(app: ^App, side: Column_Side) -> bool {
+	k := &app.kit
+	return !columns_narrow(app) || k.panels.popped[side] || k.bars_edit || k.panels.drag != nil
+}
+
+// A bit for each panel, for a set of panels in a u64: the windows, then the sections.
+panel_bit :: proc(ref: Panel_Ref) -> u64 {
+	#assert(len(Kit_Window) + TRAY_SECTIONS <= 64)
+	switch r in ref {
+	case Kit_Window:  return 1 << u64(r)
+	case Kit_Section: return 1 << u64(len(Kit_Window) + int(r))
+	}
+	return 0
+}
+
+// Whether the tray is on screen, which lights Palettes: open, not giving its place to a
+// side panel, and not docked in a column put away on a narrow window.
+tray_shown :: proc(app: ^App) -> bool {
+	k := &app.kit
+	if !k.inspector || side_panel_open(k) do return false
+	if side, _, docked := panel_docked(k, Kit_Window.Inspector); docked do return column_visible(app, side)
+	return true
+}
+
+// Pops column `side` over the view, or puts it away.
+column_pop :: proc(app: ^App, side: Column_Side, on: bool) {
+	p := &app.kit.panels
+	if on && !p.popped[side] do p.pops += 1
+	p.popped[side] = on
+}
+
+// On a narrow window, before the columns are laid out: a press on the view puts a popped
+// column away (and goes no further, as a popover's dismissing press does, so it never
+// sculpts), and a panel that opened since last frame pops the column holding it. On a
+// wide window nothing is popped, so narrowing it starts with the columns away.
+@(private = "file")
+columns_pop_update :: proc(app: ^App) {
+	k := &app.kit
+	ctx := &k.ctx
+	p := &k.panels
+	narrow := columns_narrow(app)
+	for side in Column_Side {
+		open: u64
+		for r in p.columns[side] do if panel_open(app, r) do open |= panel_bit(r)
+		if !narrow {
+			p.popped[side] = false
+		} else {
+			if p.open_seen && open & ~p.open_last[side] != 0 do column_pop(app, side, true)
+			if open == 0 do p.popped[side] = false
+			if p.popped[side] && ctx.input.pressed != {} && ctx.input.mouse_valid && (ctx.pointer_root == 0 || ctx.viewport_drag) {
+				p.popped[side] = false
+				ctx.swallow = true
+				ctx.viewport_drag = false
+				ctx.pointer_root = 0
+			}
+		}
+		p.open_last[side] = open
+	}
+	p.open_seen = true
+}
+
+// On a narrow window, a column put away that holds open panels: a tab at its top beside its
+// bar, the column's icon with how many panels it holds when more than one, which pops it.
+@(private = "file")
+kit_column_tab :: proc(app: ^App, side: Column_Side) {
+	k := &app.kit
+	ctx := &k.ctx
+	t := ctx.theme
+	n := 0
+	for r in k.panels.columns[side] do if panel_open(app, r) do n += 1
+	if n == 0 || column_visible(app, side) || (side == .Right && side_panel_open(k)) do return
+	area := ui.safe_area(ctx)
+	offset, top, _ := column_place(app, side, 0)
+	on_left := (side == .Left) != ctx.mirror
+	w := t.target + (14 if n > 1 else 0)
+	x := area.x + offset if on_left else area.x + area.w - offset - w
+	ui.begin_at(ctx, fmt.tprintf("column tab %v", side), {x, area.y + top}, {direction = .Row, center = true, width = w, height = t.target, radius = t.radius_large, background = .Panel})
+	a := ui.area(ctx, "tab", {w, t.target})
+	icon := rune(0xe21d) if on_left else rune(0xe439) // panel-left-open, panel-right-open
+	c := [2]f32{a.rect.x + t.target * 0.5, a.rect.y + a.rect.h * 0.5}
+	ui.icon(ctx, icon, c, t.icon_size, t.accent if a.hovered else t.text)
+	if n > 1 do ui.text(ctx, fmt.tprintf("%d", n), a.rect.x + t.target - 2, c.y, t.small_size, t.text_secondary, .Semibold)
+	ui.tip(ctx, a.id, a.rect, fmt.tprintf("Show the %s column's panels", column_word(app, side)))
+	if a.clicked do column_pop(app, side, true)
+	ui.end(ctx)
 }
 
 // Lays out both columns, each panel by `draw` (kit_layout's, which knows every panel's
 // proc). Before the floating panels, which stay over them.
 kit_columns :: proc(app: ^App, draw: proc(app: ^App, ref: Panel_Ref) -> bool) {
 	k := &app.kit
+	columns_pop_update(app)
 	for side in Column_Side {
 		shown := column_shown(app, side)
 		k.panels.width[side] = 0
 		if len(shown) == 0 {
 			k.panels.rect[side] = {}
+			// A thumbnail put away with its column shows no picture, so none is drawn for it.
+			if s, _, ok := panel_docked(k, Kit_Window.Thumbnail); ok && s == side do k.thumbnail_px = {}
+			kit_column_tab(app, side)
 			continue
 		}
 		width: f32 = 0

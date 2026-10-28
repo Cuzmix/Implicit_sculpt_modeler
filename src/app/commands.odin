@@ -1564,14 +1564,22 @@ COMMANDS := [Command_Id]Command {
 		icon = ui.ICON_PANEL,
 		// While Settings or Help has its place, it comes back in their place rather than
 		// changing unseen.
+		// On a narrow window a docked tray's column pops over the view or goes away, the
+		// tray staying in it (panels.odin).
 		run = proc(app: ^App, _: int) {
 			k := &app.kit
 			if side_panel_open(k) {
 				side_panel_close(app)
 				k.inspector = true
+			} else if side, _, docked := panel_docked(k, Kit_Window.Inspector); docked && columns_narrow(app) && k.inspector {
+				column_pop(app, side, !k.panels.popped[side])
 			} else do k.inspector = !k.inspector
 		},
-		checked = proc(app: ^App, _: int) -> bool {return app.kit.inspector},
+		checked = proc(app: ^App, _: int) -> bool {
+			k := &app.kit
+			if side, _, docked := panel_docked(k, Kit_Window.Inspector); docked && columns_narrow(app) do return k.inspector && k.panels.popped[side]
+			return k.inspector
+		},
 	},
 	.Show_Section = {
 		label = "Show section",
