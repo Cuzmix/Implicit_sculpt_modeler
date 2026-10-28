@@ -70,8 +70,8 @@ look_apply :: proc(app: ^App, preset: Look_Preset, selected: bool) {
 	app.cavity, app.ridge = 0.7 if studio else CAVITY_DEFAULT, RIDGE_DEFAULT
 	app.styled, app.rim, app.underside = studio, RIM_DEFAULT, UNDERSIDE_DEFAULT
 	app.live_ao_on = studio
-	// The look's shadows are Preview's; a Full render running stays, its quality kept.
-	if studio && !app.render_on do render_set(app, true, .Preview)
+	// The look's shadows are Render's at Fast quality; a Full render running stays, its quality kept.
+	if studio && !app.render_on do render_set(app, true, .Fast)
 	else if !studio do app.studio_on = false
 	app.studio_ao = 1 if studio else STUDIO_AO_DEFAULT
 	app.studio_shadow = LOOK_STUDIO_SHADOW if studio else STUDIO_SHADOW_DEFAULT
@@ -124,6 +124,6 @@ kit_look :: proc(app: ^App) {
 		kit_live_ao_reach(app)
 		kit_more_end(app)
 	}
-	ui.paragraph(ctx, "Sculpt studio is soft grey clay under a key light from the upper left, with soft shadows, deep shade under the forms and a light rim; the shadows build up while the view is still. Classic is the look the app always had. Each slider is the control of the same name in Lights, Render's Preview or Background; Underside is how much light reaches surfaces facing down.")
-	ui.paragraph(ctx, "Occlusion while working darkens creases every frame, sculpting too, with the same Occlusion strength; Reach is how far it looks, as a share of the scene's size. With Render's Preview on it shows until Preview has built up its first samples.")
+	ui.paragraph(ctx, "Sculpt studio is soft grey clay under a key light from the upper left, with soft shadows, deep shade under the forms and a light rim; the shadows build up while the view is still. Classic is the look the app always had. Each slider is the control of the same name in Lights, Render's Fast quality or Background; Underside is how much light reaches surfaces facing down.")
+	ui.paragraph(ctx, "Occlusion while working darkens creases every frame, sculpting too, with the same Occlusion strength; Reach is how far it looks, as a share of the scene's size. With Render at Fast quality it shows until Fast has built up its first samples.")
 }

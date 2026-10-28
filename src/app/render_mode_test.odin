@@ -223,14 +223,14 @@ render_environment_shares_light_samples :: proc(t: ^testing.T) {
 }
 
 // Scene > Render's one switch runs the chosen quality and never both: Full takes over from
-// Preview and back, the switch turns either off, and the Sculpt studio look's Preview
+// Fast and back, the switch turns either off, and the Sculpt studio look's Fast
 // leaves a Full render running.
 @(test)
 render_switch_runs_one_quality :: proc(t: ^testing.T) {
 	a: App
 	defer results_destroy(&a)
 	testing.expect(t, command_run(&a, .Studio_Render))
-	testing.expect(t, a.studio_on && !a.render_on && a.render_quality == .Preview)
+	testing.expect(t, a.studio_on && !a.render_on && a.render_quality == .Fast)
 	testing.expect(t, command_run(&a, .Render_Mode))
 	testing.expect(t, !a.studio_on && a.render_on && a.render_quality == .Full)
 	testing.expect(t, command_checked(&a, .Studio_Render) && command_checked(&a, .Render_Mode))
@@ -242,7 +242,7 @@ render_switch_runs_one_quality :: proc(t: ^testing.T) {
 	look_apply(&a, .Sculpt_Studio, false)
 	testing.expect(t, a.render_on && !a.studio_on)
 	testing.expect_value(t, look_current(&a), Maybe(Look_Preset)(.Sculpt_Studio))
-	render_set(&a, true, .Preview)
+	render_set(&a, true, .Fast)
 	testing.expect(t, a.studio_on && !a.render_on)
 	look_apply(&a, .Classic, false)
 	testing.expect(t, !render_switch_on(&a))

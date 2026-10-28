@@ -219,7 +219,7 @@ App :: struct {
 	start_home: bool, // an interactive run given no scene starts on Home (Settings > Interface)
 	timeline: Timeline, // the History panel's scrubbing, playback and time-lapse (timeline.odin)
 	replay:   Replay, // the Stroke recorder's last stroke, recording and replay (replay.odin)
-	// Scene > Render at Preview quality (render_mode.odin; Shift+R): ambient occlusion and
+	// Scene > Render at Fast quality (render_mode.odin; Shift+R): ambient occlusion and
 	// soft shadows built up while the view stays still (render.Studio).
 	studio:         render.Studio,
 	// Remembered; a device that cannot run it leaves it on and shows the plain viewport
@@ -1489,7 +1489,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			fmt.printfln("trace=%d trace_mb=%.1f trace_build_ms=%.1f trace_chunks_built=%d", tr.samples, f64(tr.bytes) / (1 << 20), tr.build_ms, tr.chunks_built)
 			fmt.printfln("live_ao=%d live_ao_full=%d live_ao_partial=%d live_ao_skipped=%d", int(app.live_ao_on), lao.full, lao.partial, lao.skipped)
 			pr := app.path
-			fmt.printfln("render_switch=%d render_quality=%s studio=%d", int(render_switch_on(&app)), "full" if app.render_quality == .Full else "preview", int(app.studio_on))
+			fmt.printfln("render_switch=%d render_quality=%s studio=%d", int(render_switch_on(&app)), "full" if app.render_quality == .Full else "fast", int(app.studio_on))
 			st := &app.studio
 			fmt.printfln("studio_samples=%d studio_sequence=%d studio_carried=%d studio_carries=%d studio_carried_bare=%d studio_restarts=%d", st.samples, st.sequence, int(st.carried), st.carries, st.carried_bare, st.restarts)
 			fmt.printfln("finish=%d finish_curve=%v finish_passes=%d finish_failed=%d finish_bloomed=%d finish_bloom_levels=%d finish_sharpened=%d thumbnail_finish_passes=%d", int(finish_wanted(&app)), app.finish.curve, app.finished.passes, int(app.finished.failed), app.finished.bloomed, app.finished.levels, app.finished.sharpened, app.thumbnail.finished.passes)

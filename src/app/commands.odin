@@ -1591,7 +1591,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Studio_Render = {
 		label = "Render",
-		help = "Renders the view while it is still at the Render section's Quality: Preview lays soft shadows and occlusion over the viewport, Full path traces it.",
+		help = "Renders the view while it is still at the Render section's Quality: Fast lays soft shadows and occlusion over the viewport, Full path traces it.",
 		run = proc(app: ^App, _: int) {render_set(app, !render_switch_on(app), app.render_quality)},
 		checked = proc(app: ^App, _: int) -> bool {return render_switch_on(app)},
 	},
@@ -1627,7 +1627,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Viewport_Look = {
 		label = "Look",
-		help = "Puts on a look: the material, lights, background, shading style, occlusion and the render's Preview together.",
+		help = "Puts on a look: the material, lights, background, shading style, occlusion and the Render switch at Fast quality together.",
 		args = len(Look_Preset),
 		run = proc(app: ^App, arg: int) {look_apply(app, Look_Preset(arg), true)},
 		checked = proc(app: ^App, arg: int) -> bool {p, ok := look_current(app).?; return ok && int(p) == arg},

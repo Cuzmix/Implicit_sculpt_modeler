@@ -385,6 +385,9 @@ setting_parse :: proc(s: Setting, value: string, strict: bool) -> (v: f64, ok: b
 	if strict do want, _ = strings.replace_all(value, "-", "_", context.temp_allocator)
 	names, values := reflect.enum_field_names(s.type), reflect.enum_field_values(s.type)
 	for name, i in names do if strings.equal_fold(name, want) do return f64(values[i]), true
+	// Render's Fast quality was called Preview, and settings files and scripts written
+	// before the rename still name it so.
+	if s.type == Render_Quality && strings.equal_fold(want, "preview") do return f64(Render_Quality.Fast), true
 	return
 }
 
