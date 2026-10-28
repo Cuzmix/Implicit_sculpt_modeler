@@ -200,6 +200,8 @@ Command_Id :: enum u8 {
 	Workspace_Reset,
 	Workspace_Rename,
 	Workspace_Delete,
+	Workspace_Export, // workspace_file.odin
+	Workspace_Import,
 	View_Pass, // the argument is the render.View_Pass (passes.odin)
 	View_Pass_Last,
 	View_Grid, // the argument is the Grid_Preset (grid.odin)
@@ -1673,6 +1675,22 @@ COMMANDS := [Command_Id]Command {
 			w.menu, w.deleting = true, true
 		},
 		enabled = proc(app: ^App, _: int) -> bool {_, built_in := workspace_built_in(app.kit.workspaces.current); return !built_in},
+	},
+	.Workspace_Export = {
+		label = "Export workspace...",
+		help = "Writes this workspace's layout as it is now (bars, panels, columns, pins, view grid and pass) to a small file, to take to another device or give to someone.",
+		icon = ui.ICON_EXPORT,
+		run = proc(app: ^App, _: int) {file_dialog(app, .Export_Workspace)},
+	},
+	.Workspace_Import = {
+		label = "Import workspace...",
+		help = "Reads a workspace file as a new workspace of your own and switches to it.",
+		icon = ui.ICON_IMPORT,
+		run = proc(app: ^App, _: int) {file_dialog(app, .Import_Workspace)},
+		enabled = proc(app: ^App, _: int) -> bool {
+			for ws, slot in app.kit.workspaces.list do if slot >= len(Built_In) && !ws.used do return true
+			return false
+		},
 	},
 	.View_Pass = {
 		label = "Pass",

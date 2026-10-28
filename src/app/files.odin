@@ -52,6 +52,8 @@ File_Kind :: enum u8 {
 	Link_Send,    // the selected objects go to the Blender link's folder (link.odin); no path
 	Link_Get,     // what Blender left in the link's folder comes in; the path is LINK_AUTO for the focus check's
 	Environment,  // a panorama lights the physically based materials (environment.odin)
+	Export_Workspace, // the current workspace goes to a .workspace file (workspace_file.odin)
+	Import_Workspace, // a .workspace file becomes a workspace of the user's own
 }
 
 File_Request :: struct {
@@ -100,6 +102,13 @@ when ODIN_PLATFORM_SUBTARGET == .Android {
 	ENVIRONMENT_FILTERS := [?]sdl.DialogFileFilter{{"All files", "*"}}
 } else {
 	ENVIRONMENT_FILTERS := [?]sdl.DialogFileFilter{{"Panoramas (Radiance HDR, PNG, JPEG, BMP, TGA, QOI)", "hdr;png;jpg;jpeg;bmp;tga;qoi"}}
+}
+// On Android SDL turns an extension it does not know into no MIME type at all, so there
+// every file is offered and the file's own first line decides, as for packs.
+when ODIN_PLATFORM_SUBTARGET == .Android {
+	WORKSPACE_FILTERS := [?]sdl.DialogFileFilter{{"All files", "*"}}
+} else {
+	WORKSPACE_FILTERS := [?]sdl.DialogFileFilter{{"Workspaces", "workspace"}}
 }
 @(private = "file")
 STROKES_FILTERS := [?]sdl.DialogFileFilter{{"Recorded strokes", "strokes"}}
@@ -151,6 +160,10 @@ file_dialog :: proc(app: ^App, kind: File_Kind) {
 		sdl.ShowOpenFileDialog(file_dialog_done, userdata, app.window, raw_data(PACK_FILTERS[:]), len(PACK_FILTERS), nil, false)
 	case .Make_Pack:
 		sdl.ShowSaveFileDialog(file_dialog_done, userdata, app.window, raw_data(PACK_FILTERS[:]), len(PACK_FILTERS), nil)
+	case .Export_Workspace:
+		sdl.ShowSaveFileDialog(file_dialog_done, userdata, app.window, raw_data(WORKSPACE_FILTERS[:]), len(WORKSPACE_FILTERS), nil)
+	case .Import_Workspace:
+		sdl.ShowOpenFileDialog(file_dialog_done, userdata, app.window, raw_data(WORKSPACE_FILTERS[:]), len(WORKSPACE_FILTERS), nil, false)
 	case .Timelapse, .Turntable, .Bake:
 		sdl.ShowOpenFolderDialog(file_dialog_done, userdata, app.window, nil, false)
 	}
@@ -182,6 +195,7 @@ file_dialog_done :: proc "c" (userdata: rawptr, filelist: [^]cstring, filter: c.
 		case .Screenshot: suffix = ".png"
 		case .Save_Strokes: suffix = ".strokes"
 		case .Make_Pack: suffix = ".sculptpack"
+		case .Export_Workspace: suffix = WORKSPACE_FILE_SUFFIX
 		}
 	}
 	delete(pending.req.path, heap)
@@ -339,6 +353,10 @@ file_apply :: proc(app: ^App, req: File_Request) -> bool {
 		pack_install_start(app, req.path)
 	case .Make_Pack:
 		_ = pack_make(app, req.path)
+	case .Export_Workspace:
+		_ = workspace_export(app, req.path)
+	case .Import_Workspace:
+		_ = workspace_import(app, req.path)
 	case .Recover:
 		return autosave_recover(app, req.path)
 	case .Discard_Autosave:

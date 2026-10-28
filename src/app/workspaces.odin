@@ -61,6 +61,9 @@ Workspaces :: struct {
 	deleting: bool, // the menu asks to confirm deleting the current workspace
 	switches: int, // how many times the workspace changed (an exit stat)
 	loaded:   bool, // the settings named workspaces (an older file names none)
+	// Workspace files written and read (workspace_file.odin), for the exit stats.
+	exports:  int,
+	imports:  int,
 }
 
 // The workspaces as they start: the four built-ins, Sculpt current.
@@ -273,6 +276,39 @@ workspace_save_as :: proc(k: ^Kit_State) -> bool {
 	return true
 }
 
+// Adds a workspace of the user's own named `name` (made unique among all the workspaces
+// by a number after it) whose saved layout is `layout`, and switches to it, the one left
+// kept as it was left. False when every own slot is in use.
+workspace_add :: proc(k: ^Kit_State, name, layout: string) -> (slot: int, ok: bool) {
+	w := &k.workspaces
+	slot = -1
+	for i in len(Built_In) ..< len(w.list) {
+		if !w.list[i].used {
+			slot = i
+			break
+		}
+	}
+	if slot < 0 do return
+	unique := name
+	for n := 2; ; n += 1 {
+		taken := false
+		for ws, i in w.list do taken ||= ws.used && workspace_name(k, i) == unique
+		if !taken do break
+		unique = fmt.tprintf("%s %d", name, n)
+	}
+	from := &w.list[w.current]
+	now := kit_layout_text(k)
+	workspace_text_set(&from.live, now if now != from.saved else "")
+	ws := &w.list[slot]
+	ws^ = {used = true}
+	copy(ws.name[:len(ws.name) - 1], unique)
+	workspace_text_set(&ws.saved, layout)
+	kit_layout_put(k, layout)
+	w.current = slot
+	w.switches += 1
+	return slot, true
+}
+
 // Puts the current workspace's saved layout back.
 workspace_revert :: proc(k: ^Kit_State) {
 	w := &k.workspaces
@@ -371,6 +407,8 @@ kit_workspace_menu :: proc(app: ^App) {
 		ui.divider(ctx, across = true)
 		picked ||= command_menu_item(app, .Workspace_Save)
 		picked ||= command_menu_item(app, .Workspace_Save_As)
+		picked ||= command_menu_item(app, .Workspace_Export)
+		picked ||= command_menu_item(app, .Workspace_Import)
 		picked ||= command_menu_item(app, .Workspace_Revert)
 		if _, built_in := workspace_built_in(w.current); built_in {
 			picked ||= command_menu_item(app, .Workspace_Reset)

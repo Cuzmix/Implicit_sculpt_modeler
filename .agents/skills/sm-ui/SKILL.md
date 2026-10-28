@@ -100,6 +100,10 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   `action_bar_shown`. A new panel that a layout should open goes in `LAYOUT_PANELS`. Commands `Workspace` (slot arg),
   `Workspace_Save/_Save_As/_Revert/_Reset/_Rename/_Delete`. The layout holds the column and strip bars (a `bars`
   line, then `bars_save`), never the dock, which is the user's own set; a text with no `bars` line keeps the bars.
+  Workspace files (`workspace_file.odin`, commands `Workspace_Export/_Import`): `SCULPT_WORKSPACE 1` plus escaped
+  `name` and `layout` lines; an import goes through `workspace_layout_clean` (put into a fresh `Kit_State`, written
+  again) and `workspace_add` (a free own slot, a unique name); a format change bumps `WORKSPACE_FILE_VERSION` and
+  keeps reading the older ones. Test by flag: `--export-workspace=PATH`, `--import-workspace=PATH`.
 - Passes (`src/app/passes.odin`, `k.passes`): `kit_pass_chip` in the top bar before History (fixed width,
   `pass_chip_width`), its list `kit_pass_menu`, commands `View_Pass` (arg the pass, Alt+1..6) and
   `View_Pass_Last` (Alt+0); a peek is `chip_held` (from `ui.held_long`, true while a press stays past the long press, mouse
