@@ -403,11 +403,22 @@ volume_sample_voxels :: proc(v: ^Volume, g: Vec3) -> f32 {
 	return volume_sample(v, v.origin + g * v.voxel)
 }
 
-// The voxel-unit distance to a sphere of `radius` (object space) at `centre`, as a fixed-point
-// value, clamped.
+// A shape a volume is filled with: a sphere of `radius` or a box `half` its size on each
+// axis, centred at `centre` (object space).
+Fill_Shape :: struct {
+	centre: Vec3,
+	radius: f32, // a sphere's radius, for a sphere
+	half:   Vec3, // a box's half sizes, for a box (radius 0)
+}
+
+// The signed distance from `p` to the shape's surface (object space): exact for both, so a
+// brick's distance from its middle bounds every voxel's in it.
 @(private)
-sphere_value :: #force_inline proc(p, centre: Vec3, radius, voxel: f32) -> i16 {
-	return quantize((linalg.length(p - centre) - radius) / voxel)
+shape_distance :: #force_inline proc(s: Fill_Shape, p: Vec3) -> f32 {
+	d := p - s.centre
+	if s.radius > 0 do return linalg.length(d) - s.radius
+	q := linalg.abs(d) - s.half
+	return linalg.length(linalg.max(q, 0)) + min(max(q.x, q.y, q.z), 0)
 }
 
 // A voxel-unit distance as the stored value, clamped to ±CLAMP.
@@ -418,6 +429,11 @@ quantize :: #force_inline proc(d: f32) -> i16 {
 // Fills the volume with a sphere of `radius` at `centre` (object space), replacing what
 // was there. Bricks are allocated for the band only; the rest becomes tiles.
 volume_fill_sphere :: proc(v: ^Volume, centre: Vec3, radius: f32, pool: ^jobs.Pool = nil) {
+	volume_fill(v, {centre = centre, radius = radius}, pool)
+}
+
+// Fills the volume with `shape`, replacing what was there, as volume_fill_sphere does.
+volume_fill :: proc(v: ^Volume, shape: Fill_Shape, pool: ^jobs.Pool = nil) {
 	for t in v.tables do free(t, v.allocator)
 	clear(&v.tables)
 	slice.zero(v.chunks)
@@ -430,9 +446,9 @@ volume_fill_sphere :: proc(v: ^Volume, centre: Vec3, radius: f32, pool: ^jobs.Po
 	clear(&v.masks)
 	clear(&v.mask_bricks)
 	clear(&v.mask_free)
-	r_vox := radius / v.voxel
-	c := voxel_coords(v, centre)
-	reach := r_vox + BAND + 2
+	extent := Vec3{shape.radius, shape.radius, shape.radius} if shape.radius > 0 else shape.half
+	reach := extent / v.voxel + BAND + 2
+	c := voxel_coords(v, shape.centre)
 	lo := brick_floor(c - reach)
 	hi := brick_floor(c + reach)
 	// A brick's box lies wholly in a tile when its farthest corner is on the band's one
@@ -443,7 +459,7 @@ volume_fill_sphere :: proc(v: ^Volume, centre: Vec3, radius: f32, pool: ^jobs.Po
 		bc := [3]i32{x, y, z}
 		if !brick_in_domain(bc) do continue
 		mid := Vec3{f32(x), f32(y), f32(z)} * BRICK + (BRICK - 1) * 0.5
-		dist := linalg.length(mid - c) - r_vox
+		dist := shape_distance(shape, v.origin + mid * v.voxel) / v.voxel
 		if dist > HALF_DIAGONAL + BAND + 1 do continue
 		if dist < -(HALF_DIAGONAL + BAND + 1) {
 			table := volume_table_make(v, bc)
@@ -454,29 +470,28 @@ volume_fill_sphere :: proc(v: ^Volume, centre: Vec3, radius: f32, pool: ^jobs.Po
 		append(&made, slot)
 	}
 	Fill :: struct {
-		v:      ^Volume,
-		slots:  []u32,
-		centre: Vec3,
-		radius: f32,
+		v:     ^Volume,
+		slots: []u32,
+		shape: Fill_Shape,
 	}
-	fill := Fill{v, made[:], centre, radius}
+	fill := Fill{v, made[:], shape}
 	jobs.parallel_for(pool, len(made), &fill, proc(data: rawptr, i: int) {
 		f := cast(^Fill)data
 		slot := f.slots[i]
-		brick_fill_sphere(f.v, &f.v.bricks[slot], f.v.coords[slot], f.centre, f.radius)
+		brick_fill(f.v, &f.v.bricks[slot], f.v.coords[slot], f.shape)
 	})
-	// A brick the sphere only grazes may be all one clamp after all.
+	// A brick the shape only grazes may be all one clamp after all.
 	for slot in made {
 		if tile := brick_tile(&v.bricks[slot]); tile != .Brick do volume_brick_collapse(v, v.coords[slot], tile)
 	}
 }
 
 @(private)
-brick_fill_sphere :: proc(v: ^Volume, b: ^Brick, bc: [3]i32, centre: Vec3, radius: f32) {
+brick_fill :: proc(v: ^Volume, b: ^Brick, bc: [3]i32, shape: Fill_Shape) {
 	base := bc * BRICK
 	for z in 0 ..< BRICK do for y in 0 ..< BRICK do for x in 0 ..< BRICK {
 		p := voxel_centre(v, base + {i32(x), i32(y), i32(z)})
-		b.d[voxel_index(x, y, z)] = sphere_value(p, centre, radius, v.voxel)
+		b.d[voxel_index(x, y, z)] = quantize(shape_distance(shape, p) / v.voxel)
 	}
 }
 
