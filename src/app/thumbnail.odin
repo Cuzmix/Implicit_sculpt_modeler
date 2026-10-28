@@ -29,9 +29,11 @@ THUMBNAIL_W :: 232
 // A maximised view's share of the viewport's width.
 SECOND_MAX_SHARE :: 0.6
 
-// Where the second view looks from.
+// Where the second view looks from. Linked and Mirrored are the main camera itself, so a
+// drag on either turns the main view and every linked view with it; the others are the
+// view's own, independent of it. Files name them, so a new one goes at the end.
 Second_Camera :: enum u8 {
-	Follow, // the camera, as the viewport sees
+	Follow, // linked: the main camera, as the viewport sees
 	Front,
 	Back,
 	Left,
@@ -39,6 +41,7 @@ Second_Camera :: enum u8 {
 	Top,
 	Bottom,
 	Free, // its own, turned by dragging the picture
+	Mirror, // the main camera reflected in the X symmetry plane: the other side
 }
 
 // What the second view shows: the cheap passes, which need no buffers of their own.
@@ -64,11 +67,12 @@ Second_View :: struct {
 	dragging: bool, // the drag passed the slop and turns the Free camera
 	sign:     f32, // camera.Orbit_Settings.axis_sign, latched as the drag began
 	turns:    int, // frames a drag turned it, for the exit stats
+	linked:   int, // frames a drag on it turned the main camera, for the exit stats
 }
 
 @(rodata)
 SECOND_CAMERA_NAMES := [Second_Camera]string {
-	.Follow = "Follow",
+	.Follow = "Linked",
 	.Front  = "Front",
 	.Back   = "Back",
 	.Left   = "Left",
@@ -76,6 +80,7 @@ SECOND_CAMERA_NAMES := [Second_Camera]string {
 	.Top    = "Top",
 	.Bottom = "Bottom",
 	.Free   = "Free",
+	.Mirror = "Mirrored",
 }
 
 @(rodata)
@@ -112,11 +117,14 @@ second_axis :: proc(c: Second_Camera) -> (camera.Axis_View, bool) {
 	return .Front, false
 }
 
-// The camera a second view sees through: the viewport's, an axis view of it, or its own.
+// The camera a second view sees through: the viewport's, its reflection, an axis view of
+// it, or its own.
 second_orbit :: proc(app: ^App, sv: ^Second_View) -> camera.Orbit {
 	c := app.camera
 	switch sv.camera {
 	case .Follow:
+	case .Mirror:
+		c = camera.orbit_mirror_x(c)
 	case .Front, .Back, .Left, .Right, .Top, .Bottom:
 		axis, _ := second_axis(sv.camera)
 		camera.orbit_axis_view(&c, axis)
@@ -126,6 +134,33 @@ second_orbit :: proc(app: ^App, sv: ^Second_View) -> camera.Orbit {
 		if sv.orbit.distance > 0 do c = sv.orbit
 	}
 	return c
+}
+
+// Whether a second view sees through the main camera, so that turning it turns the main view.
+second_linked :: proc(sv: ^Second_View) -> bool {
+	return sv.camera == .Follow || sv.camera == .Mirror
+}
+
+// The link button: links an independent view to the main camera, or lets a linked one go
+// to the Free camera at the view it shows, so that nothing jumps either way.
+second_link_toggle :: proc(app: ^App, sv: ^Second_View) {
+	if second_linked(sv) do second_free(app, sv)
+	else do sv.camera = .Follow
+}
+
+// The colour of the dot that says which camera a view sees through: the main camera's for
+// a linked view (a ring for a mirrored one), else the view's own, `index` 1 to 3.
+second_color :: proc(t: ui.Theme, sv: ^Second_View, index: int) -> (color: ui.Color, ring: bool) {
+	if second_linked(sv) do return t.camera[0], sv.camera == .Mirror
+	return t.camera[clamp(index, 1, len(t.camera) - 1)], false
+}
+
+// A camera's colour dot, in a row: a disc, or a ring for a mirrored view.
+camera_dot :: proc(ctx: ^ui.Context, color: ui.Color, ring: bool) {
+	r := ui.place(ctx, {14, 14})
+	c := [2]f32{r.x + r.w * 0.5, r.y + r.h * 0.5}
+	if ring do ui.stroke_circle(ctx, c, 4.5, color, 2)
+	else do ui.fill_circle(ctx, c, 5, color)
 }
 
 // Turns a second view to the Free camera, starting from what it shows.
@@ -284,7 +319,10 @@ kit_thumbnail :: proc(app: ^App) -> (raised: bool) {
 	second_view_input(app, sv, a)
 	// The camera and the pass side by side, then Flip, Maximise and Close.
 	ui.begin(ctx, "second view choices", {direction = .Row, center = true, gap = 4})
-	each := (width - 4) / 2
+	// The dot takes its place from the camera's select.
+	dot, ring := second_color(t, sv, 1)
+	camera_dot(ctx, dot, ring)
+	each := (width - 4 - 18) / 2
 	cameras := make([]string, len(Second_Camera), context.temp_allocator)
 	for name, c in SECOND_CAMERA_NAMES do cameras[c] = name
 	if picked := ui.select(ctx, "Second view camera", cameras, int(sv.camera), each); picked >= 0 && Second_Camera(picked) != sv.camera {
@@ -297,6 +335,8 @@ kit_thumbnail :: proc(app: ^App) -> (raised: bool) {
 	ui.end(ctx)
 	ui.begin(ctx, "thumbnail row", {direction = .Row, center = true, gap = 4})
 	if ui.icon_button(ctx, "Flip left to right", ICON_FLIP, selected = k.thumbnail_flip) do k.thumbnail_flip = !k.thumbnail_flip
+	linked := second_linked(sv)
+	if ui.icon_button(ctx, "Unlink from the main camera" if linked else "Link to the main camera", ICON_LINK, selected = linked) do second_link_toggle(app, sv)
 	if !p.docked {
 		if ui.icon_button(ctx, "Restore" if sv.max else "Maximise", ui.ICON_MINIMISE if sv.max else ui.ICON_RESTORE, selected = sv.max) do sv.max = !sv.max
 		// Floating, Close sits here; docked, the header has it.
@@ -308,29 +348,47 @@ kit_thumbnail :: proc(app: ^App) -> (raised: bool) {
 	return
 }
 
-// A drag on the picture turns the second view's own camera once it passes the slop, from
-// whatever it showed, the way a drag turns the viewport's; the wheel over it zooms it.
+// A drag on the picture turns the camera the view sees through once it passes the slop,
+// the way a drag turns the viewport's; the wheel over it zooms it. A linked view turns the
+// main camera, so the main view and the other linked views turn with it (a mirrored one
+// with the sideways turn reversed, so its picture follows the finger); an independent
+// view turns its own, an axis view becoming Free from what it showed.
 second_view_input :: proc(app: ^App, sv: ^Second_View, a: ui.Area) {
 	ctx := &app.kit.ctx
 	if a.pressed do sv.from, sv.last, sv.dragging = a.mouse, a.mouse, false
 	if a.held {
 		if !sv.dragging && linalg.length(a.mouse - sv.from) > ctx.theme.slop {
-			second_free(app, sv)
 			sv.dragging = true
-			sv.sign = camera.orbit_axis_sign(sv.orbit, app.nav.orbit_style)
+			if second_linked(sv) {
+				orbit_latch(app)
+			} else {
+				second_free(app, sv)
+				sv.sign = camera.orbit_axis_sign(sv.orbit, app.nav.orbit_style)
+			}
 		}
 		if sv.dragging && a.mouse != sv.last {
-			s := orbit_settings(app)
-			s.axis_sign = sv.sign
-			camera.orbit_rotate(&sv.orbit, (a.mouse - sv.last) * app.kit.scale, s)
-			sv.turns += 1
+			delta := (a.mouse - sv.last) * app.kit.scale
+			if second_linked(sv) {
+				if sv.camera == .Mirror do delta.x = -delta.x
+				camera.orbit_rotate(&app.camera, delta, orbit_settings(app))
+				sv.linked += 1
+			} else {
+				s := orbit_settings(app)
+				s.axis_sign = sv.sign
+				camera.orbit_rotate(&sv.orbit, delta, s)
+				sv.turns += 1
+			}
 		}
 		sv.last = a.mouse
 	} else {
 		sv.dragging = false
 	}
 	if a.hovered && ctx.input.wheel != 0 {
-		second_free(app, sv)
-		camera.orbit_zoom(&sv.orbit, ctx.input.wheel)
+		if second_linked(sv) {
+			camera.orbit_zoom(&app.camera, ctx.input.wheel)
+		} else {
+			second_free(app, sv)
+			camera.orbit_zoom(&sv.orbit, ctx.input.wheel)
+		}
 	}
 }

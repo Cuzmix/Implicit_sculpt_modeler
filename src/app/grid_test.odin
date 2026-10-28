@@ -112,3 +112,41 @@ the_main_pane_moves_the_pointer_and_the_safe_zone :: proc(t: ^testing.T) {
 	testing.expect_value(t, hi, [2]f32{460, 860})
 	testing.expect(t, in_edge(app, {10, 400}) && !in_edge(app, {100, 400}), "the safe zone is not the pane's")
 }
+
+@(test)
+linked_panes_share_the_main_cameras_colour :: proc(t: ^testing.T) {
+	th := ui.THEME_LENS
+	linked := Second_View{camera = .Follow}
+	mirrored := Second_View{camera = .Mirror}
+	front := Second_View{camera = .Front}
+	c, ring := second_color(th, &linked, 2)
+	testing.expect(t, c == th.camera[0] && !ring, "a linked pane's dot is not the main camera's")
+	c, ring = second_color(th, &mirrored, 3)
+	testing.expect(t, c == th.camera[0] && ring, "a mirrored pane's dot is not the main camera's ring")
+	c, ring = second_color(th, &front, 2)
+	testing.expect(t, c == th.camera[2] && !ring, "an independent pane's dot is not its own")
+
+	// The link button links an independent pane, and lets a linked one go to Free where it looked.
+	app := new(App)
+	defer free(app)
+	app.camera = {target = {0.2, 0, 0}, distance = 3, yaw = 0.5, pitch = 0.3, fov_y = 0.7, near = 0.01, far = 100}
+	second_link_toggle(app, &front)
+	testing.expect_value(t, front.camera, Second_Camera.Follow)
+	second_link_toggle(app, &mirrored)
+	testing.expect_value(t, mirrored.camera, Second_Camera.Free)
+	testing.expect_value(t, second_orbit(app, &mirrored).yaw, -app.camera.yaw)
+	testing.expect_value(t, second_orbit(app, &mirrored).target.x, -app.camera.target.x)
+}
+
+@(test)
+a_mirrored_pane_reads_back :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	k := new(Kit_State)
+	defer free(k)
+	bars_reset(k)
+	panels_default(k)
+	grid_reset(&k.grid)
+	kit_layout_put(k, "grid Side_By_Side 500 500\npane 1 Mirror Normals\n")
+	testing.expect_value(t, k.grid.views[.Side_By_Side][0], Second_View{camera = .Mirror, pass = .Normals})
+	testing.expect(t, strings.contains(kit_layout_text(k), "pane 1 Mirror Normals\n"), "a mirrored pane is not written")
+}

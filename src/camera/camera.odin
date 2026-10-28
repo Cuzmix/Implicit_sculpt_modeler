@@ -380,6 +380,16 @@ orbit_set_fov :: proc(c: ^Orbit, fov_y: f32) {
 	c.fov_y = fov
 }
 
+// The camera reflected in the X symmetry plane (x = 0): it sees the other side of a
+// symmetric model from the matching place, the right cheek where `c` sees the left, so
+// the two sides can be compared side by side. Reflecting twice gives `c` back.
+orbit_mirror_x :: proc(c: Orbit) -> Orbit {
+	m := c
+	m.target.x = -c.target.x
+	m.yaw, m.roll = -c.yaw, -c.roll
+	return m
+}
+
 // The six views along the axes, as Blender's numpad keys give them.
 Axis_View :: enum {
 	Front,  // from +Z, looking down -Z

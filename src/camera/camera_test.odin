@@ -412,3 +412,17 @@ roll_about_keeps_the_point_between_the_fingers :: proc(t: ^testing.T) {
 	testing.expect(t, near_eq(c.roll, 0.7), "did not roll")
 	testing.expect(t, near_eq(c.distance, orbit_default().distance), "rolling zoomed")
 }
+
+@(test)
+the_mirror_sees_the_other_side :: proc(t: ^testing.T) {
+	c := Orbit{target = {0.3, 0.1, -0.2}, distance = 4, yaw = 0.7, pitch = 0.4, roll = 0.2, fov_y = 0.7, near = 0.01, far = 100}
+	m := orbit_mirror_x(c)
+	e, me := orbit_eye(c), orbit_eye(m)
+	testing.expect(t, linalg.length(me - Vec3{-e.x, e.y, e.z}) < 1e-4, "the mirrored eye is not the eye reflected in x = 0")
+	// Its right is the reflection of the camera's left, so the picture is the other side, not a flipped copy.
+	r, u, _ := orbit_basis(c)
+	mr, mu, _ := orbit_basis(m)
+	testing.expect(t, linalg.length(mr - Vec3{r.x, -r.y, -r.z}) < 1e-4, "the mirrored right is not the reflected left")
+	testing.expect(t, linalg.length(mu - Vec3{-u.x, u.y, u.z}) < 1e-4, "the mirrored up is not the reflected up")
+	testing.expect_value(t, orbit_mirror_x(m), c)
+}

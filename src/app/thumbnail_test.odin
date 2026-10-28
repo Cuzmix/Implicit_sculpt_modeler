@@ -20,7 +20,7 @@ second_view_presets_look_along_their_axis :: proc(t: ^testing.T) {
 	testing.expect_value(t, second_orbit(app, &app.kit.second), app.camera)
 
 	for dir, c in (#partial [Second_Camera][3]f32{.Front = {0, 0, 1}, .Back = {0, 0, -1}, .Right = {1, 0, 0}, .Left = {-1, 0, 0}, .Top = {0, 1, 0}, .Bottom = {0, -1, 0}}) {
-		if c == .Follow || c == .Free do continue
+		if c == .Follow || c == .Free || c == .Mirror do continue
 		app.kit.second.camera = c
 		o := second_orbit(app, &app.kit.second)
 		got := linalg.normalize(camera.orbit_eye(o) - o.target)

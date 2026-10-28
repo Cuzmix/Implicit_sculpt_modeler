@@ -111,10 +111,13 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   picture a frame, `app.pictures_drawn`); `view_grid_room` spans the docked columns; a divider drag freezes the target and
   pane sizes (`g.dragged`); layout lines `grid`/`pane` only when not Single, splits in thousandths.
 - Second view (`src/app/thumbnail.odin`, `k.second: Second_View`, the Thumbnail window and command): the picture is a
-  `ui.area` whose drag past the slop calls `second_free` (Free seeded from the camera shown, the orbit sign latched)
-  and turns `App.second_orbit`; the wheel zooms it. Camera and pass are two `ui.select`s, with Flip, Maximise
-  (floating only, never kept) and Close under them. `Second_Camera`/`Second_Pass` are settings rows; zero is Follow
-  with Silhouette. Not in workspace layouts yet (panes in layouts come with the view grid).
+  `ui.area` (`second_view_input`): on a linked view (`second_linked`: Follow, Mirror) a drag turns `app.camera` itself
+  (`orbit_latch` first, x reversed for Mirror, counted in `sv.linked`), on an independent one `second_free` seeds
+  `sv.orbit` from the camera shown and the drag turns that; the wheel zooms the same camera. `camera.orbit_mirror_x`
+  reflects in x = 0. Camera and pass are two `ui.select`s after `camera_dot` (`second_color`: `Theme.camera[0]` when
+  linked, a ring when mirrored, else `camera[index]`), with Flip, the link button (`second_link_toggle`), Maximise
+  (floating only, never kept) and Close under them. `Second_Camera`/`Second_Pass` are settings rows by name (a new
+  camera goes at the end so touch scenarios' list rows hold); zero is Follow ("Linked") with Silhouette.
 - Cards (`ui.card_begin`): a window with no title bar, as ZBrush for iPad's quick-access cards, its dots on top
   dragging it like a title bar and a long press on them returning `dock`, then a large centred title. The Objects
   card (`kit_objects_card.odin`, `Kit_Window.Objects`, `Objects_Card` command) is one: Add / Duplicate / New folder /
