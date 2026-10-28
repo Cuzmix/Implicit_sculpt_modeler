@@ -440,6 +440,9 @@ autosave_collect :: proc(app: ^App) {
 // clean as it stands. `path` is the scene's file, "" for a new scene.
 autosave_scene_saved :: proc(app: ^App, path: string) {
 	app.saved_fp = scene_fingerprint(app)
+	// The file's own time, which a save has just set and an opened file keeps from before.
+	app.saved_at = {}
+	if path != "" do app.saved_at = os.modification_time_by_path(path) or_else time.now()
 	a := &app.autosave
 	if !a.on do return
 	a.clean = scene_fingerprint(app)

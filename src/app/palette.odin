@@ -236,6 +236,7 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.Render_Preview   = "render preview pane path trace rendered view beside split",
 	.View_Window      = "window monitor second screen display detach tear off pop out view",
 	.View_Windows_Close = "close view windows monitor second screen",
+	.Chrome_Classic   = "classic layout zbrush ipad old interface lens brush bar wheel dock",
 	.Settings         = "preferences options",
 	.Reduce_Motion    = "animation accessibility",
 }

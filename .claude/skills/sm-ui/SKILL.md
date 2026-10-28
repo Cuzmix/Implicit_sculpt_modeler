@@ -34,6 +34,11 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   (`new_ui.odin:30`): the kit context, which tab, which sections are open (`Kit_Section`), menus, Stats (Simple or
   Advanced), Settings (open, tab, scroll) and History panels, the interface size (`ui_scale`), the tray's scroll,
   add shape and size, the overlay's `layer`, text input on or off.
+- Chrome (`k.chrome`, `Chrome {Lens, Classic}` in `kit_bars.odin`): Lens (default) is the Sculpt Workspace Directions
+  mock, built zone by zone (spec and PR order: `notes/lens/mock-layout-design.md`); each zone branches on it and leaves
+  Classic whole. Lens top bar: `kit_top_bar_lens` (`kit_top_lens.odin`): Menu, file block (`file_status`, fixed width so
+  Undo/Redo never move), Undo, Redo | workspace pill (laid inline with spacers: a `begin_at` inside the bar loses hits
+  to it) | Search field, History, Settings. `touch_check` passes `--chrome=classic` unless a scenario names one.
 - Layout (`kit_layout`, `new_ui.odin`; the bars in `kit_bars.odin`, after ZBrush for iPad): `kit_top_bar` (a full-width
   strip, `TOP_BAR_H`: Menu, Save, Import, Export | file name | History, Edit pies, Help, Settings), `kit_points` (the
   object's readout under it, at the top left), `kit_brush_bar` (left column, top from `brush_bar_top`, which keeps

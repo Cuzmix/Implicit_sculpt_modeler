@@ -211,6 +211,7 @@ Command_Id :: enum u8 {
 	Render_Preview, // grid.odin
 	View_Window, // view_window.odin
 	View_Windows_Close,
+	Chrome_Classic, // kit_bars.odin
 	Settings,
 	Reduce_Motion,
 	Command_Palette,
@@ -1759,6 +1760,12 @@ COMMANDS := [Command_Id]Command {
 		run = proc(app: ^App, _: int) {view_window_request(app, view_window_default(app))},
 		// With three open it still runs, to say why no fourth opens.
 		enabled = proc(app: ^App, _: int) -> bool {return VIEW_WINDOWS_AVAILABLE},
+	},
+	.Chrome_Classic = {
+		label = "Classic layout",
+		help = "Lays the interface out as it was before Lens, after ZBrush for iPad: the brush bar, the modifier wheel and the dock; again, goes back to Lens (Settings > Interface > Layout).",
+		run = proc(app: ^App, _: int) {app.kit.chrome = .Lens if app.kit.chrome == .Classic else .Classic},
+		checked = proc(app: ^App, _: int) -> bool {return app.kit.chrome == .Classic},
 	},
 	.View_Windows_Close = {
 		label = "Close view windows",

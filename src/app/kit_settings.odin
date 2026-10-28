@@ -124,6 +124,7 @@ settings_reset :: proc(app: ^App, tab: Settings_Tab) {
 	switch tab {
 	case .Interface:
 		k.look = .Lens
+		k.chrome = .Lens
 		k.ui_scale = 1
 		k.ctx.reduced_motion = false
 		k.ctx.mirror = false
@@ -184,6 +185,12 @@ settings_interface :: proc(app: ^App) {
 	}
 	if picked := ui.select(ctx, "Interface size", names[:], chosen); picked >= 0 do k.ui_scale = UI_SCALES[picked]
 	ui.paragraph(ctx, "How big panels, text and touch targets are, on top of the size the screen asks for.")
+	ui.spacer(ctx, 8)
+	ui.caption(ctx, "LAYOUT")
+	chromes := make([]string, len(Chrome), context.temp_allocator)
+	for name, c in CHROME_NAMES do chromes[c] = name
+	if picked := ui.tabs(ctx, "Layout", chromes, int(k.chrome)); picked >= 0 do k.chrome = Chrome(picked)
+	ui.paragraph(ctx, "Lens lays the interface out as the Lens mockups do: the workspaces and Search across the top, Size, Strength and the hold-to-use brushes under your off hand, the panels in a column and the brushes along a shelf. Classic is the earlier layout after ZBrush for iPad: the brush bar, the modifier wheel and the dock.")
 	ui.spacer(ctx, 8)
 	ui.caption(ctx, "SCREEN LAYOUT")
 	hands := [2]string{"Right-handed", "Left-handed"}
