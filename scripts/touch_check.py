@@ -2456,9 +2456,9 @@ def pinned_sections_stack_in_the_right_column():
 
 
 # The top bar's workspace switcher at 1600 x 900, just after Export, and the rows of the
-# menu it opens: the four built-ins, then Save, Save as new, Revert and Reset.
+# menu it opens: the four built-ins, then Save, Save as new, Export, Import, Revert and Reset.
 WORKSPACE_CHIP = (275, 26)
-WORKSPACE_ROWS = {"sculpt": 106, "focus": 150, "inspect": 194, "studio": 238, "save": 283, "save_as": 327, "revert": 371, "reset": 415}
+WORKSPACE_ROWS = {"sculpt": 106, "focus": 150, "inspect": 194, "studio": 238, "save": 283, "save_as": 327, "export": 371, "import": 415, "revert": 459, "reset": 503}
 # With the brush bar and the view bar hidden (Focus), Undo and Search in the top bar.
 TOP_UNDO, TOP_SEARCH = (266, 26), (1216, 26)
 
@@ -5988,6 +5988,33 @@ def narrow_window_opening_a_panel_pops_its_column():
     return Steps([(Script(), NARROW + ["--script=pin_section layers"], {"column_popped": is_text("right"), "columns_narrow": near(1)}),
                   (Script(), NARROW + ["--script=set column_popovers off"], {"columns_narrow": near(0), "column_popped": is_text("none")}),
                   (Script(), [], {"columns_narrow": near(0)})])
+
+
+def workspace_file():
+    """The workspace file of the scenario running on this thread."""
+    return os.path.join(ROOT, "build", "touch", "settings", CURRENT.name + ".workspace")
+
+
+@scenario
+def workspace_file_carries_a_layout():
+    """Inspect exported to a file and imported in a fresh run comes back as a workspace of one's own, "Inspect 2", with Inspect's hidden bars and its four panes, unchanged from what it saved."""
+    path = workspace_file()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    if os.path.exists(path):
+        os.remove(path)
+    return Steps([(Script(), ["--script=workspace inspect", f"--export-workspace={path}"], {"workspace_exports": near(1), "@written": lambda _: os.path.exists(path)}),
+                  (Script(), [f"--import-workspace={path}"], {"workspace": is_text("Inspect%202"), "workspace_imports": near(1), "workspace_count": near(5),
+                                                               "workspace_modified": near(0), "zones_hidden": is_text("brush_bar,dock"), "grid": is_text("Four")})])
+
+
+@scenario
+def workspace_file_damaged_is_refused():
+    """A file that is not a workspace file is refused with a note: no workspace is added and the layout stays Sculpt's."""
+    path = workspace_file()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        f.write("SCULPT_WORKSPACE 9\nname Future\nlayout open\n")
+    return Script(), [f"--import-workspace={path}"], {"workspace": is_text("Sculpt"), "workspace_imports": near(0), "workspace_count": near(4)}
 
 
 @scenario

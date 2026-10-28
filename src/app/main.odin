@@ -76,6 +76,8 @@ Options :: struct {
 	open:      string `usage:"Start with the scene saved in this .sculpt file instead of spheres, as Menu > Open scene... does."`,
 	import_mesh: string `args:"name=import" usage:"Start with the mesh in this .obj, .ply or .stl file instead of spheres (after any --open), as Menu > Import mesh... does."`,
 	export:    string `usage:"On exit, write the selected object's shown level to this .obj, .ply, .stl, .glb or .usda file, as Menu > Export mesh... does."`,
+	export_workspace: string `usage:"On exit, write the current workspace's layout to this .workspace file, as the workspace menu's Export workspace... does."`,
+	import_workspace: string `usage:"Read this .workspace file as a new workspace of your own and switch to it on the first frame, as the workspace menu's Import workspace... does."`,
 	export_print: string `usage:"On exit, write the selected object to this .stl file at its print size, as Scene > 3D print > Export for printing... does."`,
 	save:      string `usage:"On exit, save the scene to this .sculpt file, as Menu > Save scene does."`,
 	autosave:  f32 `usage:"Autosave every this many seconds once the scene changed and the app rested, as Settings > System > Autosave does every few minutes; scripted runs only autosave with this or --autosave-folder."`,
@@ -622,6 +624,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	defer turntable_destroy(&app)
 	// After autosave_init, whose folder Home's Autosaves lists.
 	if home_at_start(&app, opts, interactive) do home_open(&app)
+	// Read on the first frame, as a file picked in the dialog is.
+	if opts.import_workspace != "" do file_post(.Import_Workspace, opts.import_workspace)
 	// The benchmark's autosave writes the scene it starts with.
 	if opts.bench_after_autosave do app.autosave.clean = 0
 	if opts.density_preview > 0 {
@@ -1215,6 +1219,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	}
 	if opts.save != "" && set_up && !scene_save(&app, opts.save) do return false
 	if opts.save_strokes != "" && set_up && !strokes_save(&app, opts.save_strokes) do return false
+	if opts.export_workspace != "" && set_up && !workspace_export(&app, opts.export_workspace) do return false
 	save_pending(&app, true)
 	autosave_close(&app, window)
 	if as := &app.autosave; as.on {
@@ -1505,7 +1510,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			for ws in w.list do if ws.used do count += 1
 			zones := strings.builder_make(context.temp_allocator)
 			for z in Zone do if z in k.hidden do fmt.sbprintf(&zones, "%s%s", "," if strings.builder_len(zones) > 0 else "", strings.to_lower(fmt.tprint(z), context.temp_allocator))
-			fmt.printfln("workspace=%s workspace_modified=%d workspace_count=%d workspace_menu=%d workspace_switches=%d arrange_drawer=%d zones_hidden=%s", preset_escape(workspace_name(k, w.current)), int(w.modified), count, int(w.menu), w.switches, int(k.arrange_drawer), strings.to_string(zones) if strings.builder_len(zones) > 0 else "none")
+			fmt.printfln("workspace=%s workspace_modified=%d workspace_count=%d workspace_menu=%d workspace_switches=%d workspace_exports=%d workspace_imports=%d arrange_drawer=%d zones_hidden=%s", preset_escape(workspace_name(k, w.current)), int(w.modified), count, int(w.menu), w.switches, w.exports, w.imports, int(k.arrange_drawer), strings.to_string(zones) if strings.builder_len(zones) > 0 else "none")
 			fmt.printfln("pass=%v pass_shown=%v pass_menu=%d pass_switches=%d", k.passes.pass, viewport_pass(k), int(k.passes.menu), k.passes.switches)
 			fmt.printfln("wipe=%d wipe_at=%.3f wipe_right=%v wipe_drags=%d", int(wipe_shown(k)), k.passes.wipe_at, wipe_right(k), k.passes.wipe_drags)
 			fmt.printfln("guides=%d guide_heights=%s guide_lines=%d guide_drags=%d", int(app.scene.guides.shown), guides_heights_text(app.scene.guides), k.guide_lines, k.guide_drags)

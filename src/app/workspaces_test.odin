@@ -184,3 +184,46 @@ a_workspace_keeps_its_bars_but_not_the_dock :: proc(t: ^testing.T) {
 	kit_layout_put(k, "open Stats\n")
 	testing.expect_value(t, k.tools.count, tools)
 }
+
+@(test)
+a_workspace_file_reads_back_and_a_damaged_one_is_refused :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	layout := built_in_layout(.Inspect)
+	text := workspace_file_text("Detail pass", layout)
+	name, back, ok := workspace_file_read(transmute([]u8)text)
+	testing.expect(t, ok, "a written file was refused")
+	testing.expect_value(t, name, "Detail pass")
+	testing.expect_value(t, back, layout)
+	testing.expect_value(t, workspace_layout_clean(back), layout)
+
+	// Not a workspace file, a newer version, binary bytes or no layout: refused.
+	for bad in ([]string{"hello\nname a\nlayout b\n", "SCULPT_WORKSPACE 2\nname a\nlayout b\n", "SCULPT_WORKSPACE 1\nname a\n\n", "SCULPT_WORKSPACE 1\nname \xff\xfe\nlayout b\n"}) {
+		_, _, bad_ok := workspace_file_read(transmute([]u8)bad)
+		testing.expectf(t, !bad_ok, "%q was read", bad)
+	}
+	// A name with control characters or too long is cut to what the switcher shows; none
+	// at all is "Workspace".
+	long, _, _ := workspace_file_read(transmute([]u8)string("SCULPT_WORKSPACE 1\nname %07An%20extremely%20long%20workspace%20name%20indeed\nlayout open\n"))
+	testing.expect(t, len(long) < WORKSPACE_NAME && long[0] == 'A', "the name was not cut")
+	unnamed, _, _ := workspace_file_read(transmute([]u8)string("SCULPT_WORKSPACE 1\nlayout open\n"))
+	testing.expect_value(t, unnamed, "Workspace")
+}
+
+@(test)
+an_imported_workspace_gets_a_name_of_its_own :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	k := new(Kit_State)
+	defer free(k)
+	workspaces_init(k)
+	defer workspaces_destroy(k)
+	bars_reset(k)
+	slot, ok := workspace_add(k, "Inspect", built_in_layout(.Focus))
+	testing.expect(t, ok, "the workspace was not added")
+	testing.expect_value(t, workspace_name(k, slot), "Inspect 2")
+	testing.expect_value(t, k.workspaces.current, slot)
+	testing.expect(t, .Brush_Bar in k.hidden, "the imported layout is not in place")
+	// The eight own slots fill, and then no more is added.
+	for _ in 1 ..< WORKSPACE_OWN do _, _ = workspace_add(k, "Mine", built_in_layout(.Sculpt))
+	_, full := workspace_add(k, "One too many", built_in_layout(.Sculpt))
+	testing.expect(t, !full, "a ninth workspace of one's own was added")
+}

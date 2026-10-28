@@ -209,7 +209,7 @@ home_frame :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer) {
 
 // Whether the run starts on Home: an interactive run given no scene, script or file.
 home_at_start :: proc(app: ^App, opts: Options, interactive: bool) -> bool {
-	return app.start_home && interactive && opts.open == "" && opts.import_mesh == "" && opts.script == "" && opts.run == "" && opts.ui_events == "" && opts.load_strokes == ""
+	return app.start_home && interactive && opts.open == "" && opts.import_mesh == "" && opts.script == "" && opts.run == "" && opts.ui_events == "" && opts.load_strokes == "" && opts.import_workspace == ""
 }
 
 // Puts `path` first in Recent, once, keeping HOME_RECENT_MAX, and remembers it at once,
