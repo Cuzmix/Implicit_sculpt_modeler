@@ -146,6 +146,7 @@ kit_layout_text :: proc(k: ^Kit_State) -> string {
 	// dock holds the user's brushes, which are no layout's: it stays as it is in every
 	// workspace.
 	stack_layout_save(k, &out)
+	stack_sizes_save(k, &out)
 	strings.write_string(&out, "bars\n")
 	bars_save(k, &out, layout = true)
 	return strings.to_string(out)
@@ -182,6 +183,8 @@ kit_layout_put :: proc(k: ^Kit_State, text: string) {
 			panels_load_line(k, f)
 		case "stack":
 			stack_layout_read(k, f)
+		case "stack_size":
+			stack_sizes_read(k, f)
 		case "bars":
 			bar_lists_reset(k)
 		case "bar_count", "bar":

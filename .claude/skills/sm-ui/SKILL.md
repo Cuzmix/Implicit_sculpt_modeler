@@ -54,6 +54,8 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   cards in `k.stack`, layout line `stack`; `tray_open` calls `stack_reveal`; `k.in_stack` lets a section drop what the
   Brush card shows above it. Lens's brush pie is `Bar_Which.Brush_Pie` (`k.brush_pie`, eight slots, settings only,
   never in layouts); `pie_slot` reads it, `lens_pie_update` adds tap-to-pick and the rest that opens `pie_quick`.
+  Stack sizes live in `lens_resize.odin` (`stack_width`, `heights`, `sizes`, layout line `stack_size`); its handles are
+  `ui.begin_at` roots drawn after what they resize, so they win the press.
 - Layout (`kit_layout`, `new_ui.odin`; the bars in `kit_bars.odin`, after ZBrush for iPad): `kit_top_bar` (a full-width
   strip, `TOP_BAR_H`: Menu, Save, Import, Export | file name | History, Edit pies, Help, Settings), `kit_points` (the
   object's readout under it, at the top left), `kit_brush_bar` (left column, top from `brush_bar_top`, which keeps

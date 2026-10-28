@@ -650,6 +650,12 @@ The interface is touch-first, designed in Figma ("Sculpt UI"), and drawn by the 
   - **Palettes**, which holds the whole tray (every palette and section) until later rounds give those sections panels of their own.
   
   Each card's header has a grip (drag it up or down the stack to move the card, or well clear of it to float the card there), the chevron and title (a tap folds or unfolds it; folded, it says what it holds), Float (Dock on a floating card, whose dots also drag it and, held, dock it) and More (Move up, Move down, Float, Fold the others, Where the stack goes). Opening a section (the object chip, Search's Show where, a bar's section) opens its card, folding Brush and Palettes for another. The order and the open cards are part of a workspace's layout (`stack Brush+ Symmetry Layers Scene Palettes`, written only once it differs from a fresh layout's); the groups' folds last for the session.
+- **Resizing the stack** (screen resize2): sizes snap to an 8 point grid, and a double tap on a handle puts it back.
+  - The stack's inner edge (a short bar beside the cards; on the right of the stack when left-handed) drags the stack from 260 to 440 points wide. A pill shows the width and a dashed line where it started. A double tap gives back 312.
+  - An open card's bottom grip sets how much of it shows: the card scrolls inside when its content is taller. Dragged up past its header, the grip folds the card. A double tap fits it to its content again.
+  - A floating card resizes from any of its eight handles (corners and edge middles, 36-point targets that reach only 8 points into the card). The size shows under it while it changes; a drag across keeps the height fitting the content.
+  - The width and the docked cards' heights are part of a workspace's layout (`stack_size 340 Brush=320`), so Sculpt and Studio can keep different ones. A floating card's size lasts for the session.
+  - Settings > Interface > Size scales all of the interface at once.
 
 The rest of the window is still laid out as Classic, described next, until the remaining parts of the mockups arrive.
 

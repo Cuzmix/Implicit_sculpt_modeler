@@ -1276,18 +1276,20 @@ kit_inspector :: proc(app: ^App) -> (raised: bool) {
 	if k.chrome == .Lens {
 		// Lens draws the tray as the stack of cards (lens_stack.odin): bare in its column,
 		// each card its own surface; floating, one window round them all.
-		box := ui.Box{direction = .Column, gap = COLUMN_GAP, width = KIT_INSPECTOR_W, inert = !k.inspector || side_panel_open(k)}
+		stack_w := stack_width(k)
+		box := ui.Box{direction = .Column, gap = COLUMN_GAP, width = stack_w, inert = !k.inspector || side_panel_open(k)}
 		if _, _, docked := panel_docked(k, Kit_Window.Inspector); !docked do box.padding, box.radius, box.background = PADDING, t.radius_large, .Panel
 		p := panel_begin(app, Kit_Window.Inspector, "Panels", .End, .Start, {right, top}, box, command_keys(app, .Inspector), bare = true)
 		raised = p.raised
 		if p.closed do k.inspector = false
 		if p.body {
 			s: Kit_Scroll
-			if !p.docked do s = kit_scroll_begin(ctx, "stack body", &k.scroll, p.owner, KIT_INSPECTOR_W - 2 * PADDING, max(p.room, PANEL_BODY_MIN), COLUMN_GAP)
-			kit_stack(app, KIT_INSPECTOR_W - 2 * box.padding)
+			if !p.docked do s = kit_scroll_begin(ctx, "stack body", &k.scroll, p.owner, stack_w - 2 * PADDING, max(p.room, PANEL_BODY_MIN), COLUMN_GAP)
+			kit_stack(app, stack_w - 2 * box.padding, p.owner)
 			if !p.docked do kit_scroll_end(ctx, s)
 		}
 		panel_end(app, &p)
+		if k.inspector && !side_panel_open(k) && p.body do stack_edge(app, ui.prev_rect(ctx, panel_name(Kit_Window.Inspector)))
 		ui.transform_since(ctx, mark, shown, 1, {}, {window_slide(ctx, win^, .End) * (1 - shown) * 16, 0})
 		return
 	}

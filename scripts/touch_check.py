@@ -2857,6 +2857,60 @@ def lens_stack_float_floats_a_card():
     return s, LENS_1440, camera_still({"stack": lambda v: "Layers+^" in v.split(","), "dabs": near(0)})
 
 
+# Resizing the Lens stack at 1440x900: its inner edge (the strip just left of the cards),
+# where that edge is once 40 points wider, the open Symmetry card's grip with Brush folded,
+# and a floating Layers card's bottom-left corner.
+LENS_RESIZE = {"edge": (1050, 400), "wider": (1010, 400), "wider_edge": (1012, 400), "symmetry_title": (1150, 154),
+               "symmetry_grip": (1218, 416), "layers_corner": (736, 510)}
+
+
+@scenario
+def lens_stack_edge_sets_the_width():
+    """Dragging the stack's inner edge 40 points out makes it 352 wide; a double tap on the edge puts 312 back."""
+    def run(reset):
+        s = Script()
+        s.fdrag(line(LENS_RESIZE["edge"], LENS_RESIZE["wider"], 4))
+        s.wait(6)
+        if not reset:
+            return s, LENS_1440, camera_still({"stack_width": near(352), "stack_resizes": near(1), "dabs": near(0)})
+        s.ftap(*LENS_RESIZE["wider_edge"], gap=2)
+        s.ftap(*LENS_RESIZE["wider_edge"])
+        s.wait(6)
+        return s, LENS_1440, camera_still({"stack_width": near(312), "stack_resizes": near(2), "dabs": near(0)})
+    return Steps([run(False), run(True)])
+
+
+@scenario
+def lens_stack_grip_sets_a_card_height():
+    """An open card's grip dragged up shows less of it, which then scrolls; dragged up past its header it folds the card."""
+    def run(fold):
+        s = Script()
+        s.ftap(*LENS_STACK["brush"])
+        s.wait(6)
+        s.ftap(*LENS_RESIZE["symmetry_title"])
+        s.wait(8)
+        grip = LENS_RESIZE["symmetry_grip"]
+        s.fdrag(line(grip, (grip[0], 140 if fold else 336), 4))
+        s.wait(6)
+        if fold:
+            return s, LENS_1440, camera_still({"stack": lambda v: "Symmetry" in v.split(","), "stack_sizes": is_text("none"), "dabs": near(0)})
+        return s, LENS_1440, camera_still({"stack": lambda v: "Symmetry+" in v.split(","), "stack_sizes": is_text("Symmetry=136"), "stack_resizes": near(1), "dabs": near(0)})
+    return Steps([run(False), run(True)])
+
+
+@scenario
+def lens_stack_floating_card_resizes_from_a_corner():
+    """A floating card's bottom-left corner dragged out and up makes it wider and shorter, on the 8 point grid."""
+    s = Script()
+    s.ftap(*LENS_STACK["brush"])
+    s.wait(6)
+    s.ftap(*LENS_STACK["layers_float"])
+    s.wait(8)
+    s.fdrag(line(LENS_RESIZE["layers_corner"], (690, 420), 4))
+    s.wait(6)
+    return s, LENS_1440, camera_still({"stack_sizes": is_text("Layers+360x272"), "stack_resizes": near(1), "dabs": near(0)})
+
+
 # Lens's brush pie at 1440x900: the dial's Pie sector opens it at the viewport's middle;
 # the top slice (Clay) and the editor's first brush slot.
 LENS_PIE = {"dial": (122, 822), "middle": (720, 450), "top": (720, 334), "crease": (800, 520), "editor_first": (764, 190), "search": (1180, 26)}
