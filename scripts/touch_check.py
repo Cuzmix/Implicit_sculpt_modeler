@@ -92,12 +92,14 @@ class Script:
 
     def __init__(self):
         self.events, self.frame = [], START
+        self.window = 0  # the view window the next events go to (FRAME:winN:...), 0 for the main one
 
     def at(self, frame=None):
         return self.frame if frame is None else frame
 
     def add(self, text, frame=None):
-        self.events.append(f"{self.at(frame)}:{text}")
+        win = f"win{self.window}:" if self.window else ""
+        self.events.append(f"{self.at(frame)}:{win}{text}")
 
     def wait(self, frames):
         self.frame += frames
@@ -5812,6 +5814,7 @@ GRID_DIVIDER = (519, 600)
 GRID_PANE = (800, 600)
 GRID_PANE_LINK = (812, 93)
 GRID_PANE_MAX = (865, 93)
+GRID_PANE_WINDOW = (918, 93)
 GRID_PANE_RESTORE = (410, 93)
 GRID_PANE_CAMERA, GRID_PANE_LINKED, GRID_PANE_MIRRORED = (600, 93), (590, 144), (590, 496)
 
@@ -6191,6 +6194,95 @@ def render_preview_builds_beside_the_main_view():
         return s, ["--script=set panes_under_panels off; render_preview"], {"grid": is_text("Side_By_Side"), "pane_camera": is_text("Follow"), "pane_heavy": near(1),
                                                                             "pane_render_samples": samples, "dabs": (lambda v: int(v) > 0) if stroke else near(0)}
     return Steps([run(False), run(True)])
+
+
+# A view window (960x640 points at scale 1): its picture's middle, and its head's Shows select and Close.
+WINDOW_MIDDLE = (480, 330)
+WINDOW_SHOWS, WINDOW_CLOSE = (206, 34), (346, 34)
+
+
+@scenario
+def view_window_opens_and_draws_its_picture():
+    """--view-windows=1 opens a view window beside the main one: it draws its picture at rest and presents only when something changed, not every frame."""
+    s = Script()
+    s.wait(40)
+    return s, ["--view-windows=1"], camera_still({"view_windows": near(1), "view_window_opens": near(1), "view_window_draws": lambda v: int(v) >= 1,
+                                                  "view_window_presents": lambda v: 1 <= int(v) <= 6, "dabs": near(0)})
+
+
+@scenario
+def view_window_mouse_drag_turns_the_linked_camera():
+    """A mouse drag on a linked view window's picture turns the main camera; the main window's pointer presses nothing, so no stroke is laid."""
+    s = Script()
+    s.wait(10)
+    s.window = 1
+    s.mouse_drag(past_slop(WINDOW_MIDDLE, (WINDOW_MIDDLE[0] + 80, WINDOW_MIDDLE[1]), 8))
+    s.window = 0
+    s.wait(10)
+    return s, ["--view-windows=1"], {"camera_yaw": lambda v: abs(float(v) - 0.6) > 0.05, "view_windows": near(1), "dabs": near(0), "undo_steps": near(0)}
+
+
+@scenario
+def view_window_finger_turns_its_free_camera():
+    """In a view window set to Front, a finger drag turns the window's own camera (it becomes Free) and leaves the main camera still."""
+    s = Script()
+    s.wait(10)
+    s.window = 1
+    s.fdrag(past_slop(WINDOW_MIDDLE, (WINDOW_MIDDLE[0] + 80, WINDOW_MIDDLE[1]), 8))
+    s.window = 0
+    s.wait(10)
+    return s, ["--script=view_grid side_by_side; view_window"], camera_still({"view_windows": near(1), "view_window_camera": is_text("Free"), "dabs": near(0)})
+
+
+@scenario
+def view_window_head_picks_what_it_shows():
+    """The Shows select on a view window's head opens in that window and picks its pass: Normals."""
+    s = Script()
+    s.wait(10)
+    s.window = 1
+    s.ftap(*WINDOW_SHOWS)
+    s.wait(10)
+    s.ftap(WINDOW_SHOWS[0], WINDOW_SHOWS[1] + 51 + 2 * 44)
+    s.window = 0
+    s.wait(20)
+    return s, ["--view-windows=1"], camera_still({"view_window_pass": is_text("Normals"), "view_window_draws": lambda v: int(v) >= 2, "dabs": near(0)})
+
+
+@scenario
+def view_pane_opens_in_a_window():
+    """Open in a window on a view pane's head opens a view window showing that pane's camera and pass (Front, Shaded); the pane stays."""
+    s = Script()
+    s.wait(4)
+    s.ftap(*GRID_PANE_WINDOW)
+    s.wait(20)
+    return s, ["--script=set panes_under_panels off; view_grid side_by_side"], camera_still({"view_windows": near(1), "view_window_camera": is_text("Front"),
+                                                                                          "view_window_pass": is_text("Shaded"), "grid": is_text("Side_By_Side"), "dabs": near(0)})
+
+
+@scenario
+def view_window_close_button_closes_it():
+    """The Close button on a view window's head closes that window only; the app goes on."""
+    s = Script()
+    s.wait(10)
+    s.window = 1
+    s.ftap(*WINDOW_CLOSE)
+    s.window = 0
+    s.wait(10)
+    return s, ["--view-windows=1"], camera_still({"view_windows": near(0), "view_window_opens": near(1), "dabs": near(0)})
+
+
+@scenario
+def view_window_keys_stay_the_main_windows():
+    """A key typed while a view window has the events goes to the main window's commands: P turns the main camera orthographic."""
+    s = Script()
+    s.wait(10)
+    s.window = 1
+    s.add(f"move:{WINDOW_MIDDLE[0]},{WINDOW_MIDDLE[1]}")
+    s.wait(2)
+    s.press("p")
+    s.window = 0
+    s.wait(6)
+    return s, ["--view-windows=1"], {"ortho": near(1), "view_windows": near(1), "dabs": near(0)}
 
 
 @scenario

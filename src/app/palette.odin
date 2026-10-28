@@ -234,6 +234,8 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.View_Guides      = "guides proportion lines heights brow nose chin thirds likeness face",
 	.View_Guides_Reset = "guides proportion reset lines heights thirds",
 	.Render_Preview   = "render preview pane path trace rendered view beside split",
+	.View_Window      = "window monitor second screen display detach tear off pop out view",
+	.View_Windows_Close = "close view windows monitor second screen",
 	.Settings         = "preferences options",
 	.Reduce_Motion    = "animation accessibility",
 }

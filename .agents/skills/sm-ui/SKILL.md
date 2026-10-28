@@ -142,6 +142,14 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   one; the end of work clears a heavy pane's key, since the copy brings no depth.
   `Second_Pass.Render` keeps a `Picture.path` (`render.render_frame` on the picture's target, destroyed once the pass
   changes); `Render_Preview` (`render_preview_toggle`, grid.odin) is its one-tap row in the Camera menu (Scene > Render holds its five controls already).
+  The Camera menu is full height at 900 px: a new row there makes it scroll on a short window (and moves its touch
+  constants up 44); put new view commands in Search and on the heads instead.
+- View windows (`src/app/view_window.odin`, `app.view_windows`): a `Second_View` in an OS window with its own
+  `ui.Context` (theme from `kit_theme`), `Ui_Pass` and `Device`; open and close are requests settled at the top of the
+  frame; `view_windows_event` routes every non-key event by `sdl.GetWindowFromEvent` before `device_event`/touch see
+  it (keys stay the main window's); heads are laid out right after `kit_frame` and share `view_head_camera`,
+  `view_head_pass`, `view_head_link` with the panes; `second_view_input` takes the context and scale it runs in.
+  Scripted events reach a window as `FRAME:winN:...`.
 - Second view (`src/app/thumbnail.odin`, `k.second: Second_View`, the Thumbnail window and command): the picture is a
   `ui.area` (`second_view_input`): on a linked view (`second_linked`: Follow, Mirror) a drag turns `app.camera` itself
   (`orbit_latch` first, x reversed for Mirror, counted in `sv.linked`), on an independent one `second_free` seeds

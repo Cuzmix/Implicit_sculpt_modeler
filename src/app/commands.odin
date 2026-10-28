@@ -209,6 +209,8 @@ Command_Id :: enum u8 {
 	View_Guides, // guides.odin
 	View_Guides_Reset,
 	Render_Preview, // grid.odin
+	View_Window, // view_window.odin
+	View_Windows_Close,
 	Settings,
 	Reduce_Motion,
 	Command_Palette,
@@ -1749,6 +1751,21 @@ COMMANDS := [Command_Id]Command {
 		icon = ICON_RENDER_PREVIEW,
 		run = proc(app: ^App, _: int) {render_preview_toggle(app)},
 		checked = proc(app: ^App, _: int) -> bool {return render_preview_pane(&app.kit) != 0},
+	},
+	.View_Window = {
+		label = "New view window",
+		help = "Opens a view in a window of its own, to move to another monitor: the first view pane's camera and pass, else the main camera shaded, with its own head to change them. Up to three; desktop only.",
+		icon = ICON_VIEW_WINDOW,
+		run = proc(app: ^App, _: int) {view_window_request(app, view_window_default(app))},
+		// With three open it still runs, to say why no fourth opens.
+		enabled = proc(app: ^App, _: int) -> bool {return VIEW_WINDOWS_AVAILABLE},
+	},
+	.View_Windows_Close = {
+		label = "Close view windows",
+		help = "Closes every view window.",
+		icon = ui.ICON_CLOSE,
+		run = proc(app: ^App, _: int) {for w in app.view_windows.open do if w != nil do w.close = true},
+		enabled = proc(app: ^App, _: int) -> bool {o, _, _ := view_windows_stats(app); return o > 0},
 	},
 	.Settings = {
 		label = "Settings...",

@@ -44,7 +44,9 @@ Options :: struct {
 	no_cache:  bool `usage:"Draw every object every frame instead of caching the idle ones (for comparison)."`,
 	no_cull:   bool `usage:"Draw every triangle instead of skipping off-screen and back-facing chunks (for comparison)."`,
 	ui_dt:     f32 `usage:"Move the interface's clock (animations, tooltips, long presses) this many seconds a frame instead of by the time that passed, for scripted runs whose checks must not depend on how fast frames come (scripts/touch_check.py passes 1/60). A stroke then lays every dab its frame's samples ask for, up to 64, however long they take. The 90 ms a finger waits before it sculpts and the right tap that opens the pie stay on the real clock."`,
-	ui_events: string `usage:"Drive the pointer, fingers and pen as SDL events would, for tests: FRAME:move:X,Y, FRAME:down, FRAME:up, FRAME:right (a right click), FRAME:mdown, FRAME:mup, FRAME:rdown and FRAME:rup (the middle and right buttons held and let go), FRAME:wheel:N, FRAME:key:NAME (a key press: shift, ctrl, alt held until FRAME:keyup:NAME), FRAME:fdown:ID:X,Y, FRAME:fmove:ID:X,Y, FRAME:fup:ID and FRAME:fcancel:ID (finger ID on a touch screen), FRAME:pdown:X,Y, FRAME:pmove:X,Y, FRAME:pup, FRAME:pnear / FRAME:pfar, FRAME:pright (the pen, the last its side button) and FRAME:ppress:P (the pen's pressure from then on, 0 to 1; 0 until set), separated by semicolons; X and Y in window points."`,
+	ui_events: string `usage:"Drive the pointer, fingers and pen as SDL events would, for tests: FRAME:move:X,Y, FRAME:down, FRAME:up, FRAME:right (a right click), FRAME:mdown, FRAME:mup, FRAME:rdown and FRAME:rup (the middle and right buttons held and let go), FRAME:wheel:N, FRAME:key:NAME (a key press: shift, ctrl, alt held until FRAME:keyup:NAME), FRAME:fdown:ID:X,Y, FRAME:fmove:ID:X,Y, FRAME:fup:ID and FRAME:fcancel:ID (finger ID on a touch screen), FRAME:pdown:X,Y, FRAME:pmove:X,Y, FRAME:pup, FRAME:pnear / FRAME:pfar, FRAME:pright (the pen, the last its side button) and FRAME:ppress:P (the pen's pressure from then on, 0 to 1; 0 until set), separated by semicolons; X and Y in window points. FRAME:winN:... sends an event to view window N (1 to 3) instead, in its points."`,
+	dump_view_window: string `usage:"On exit, write view window 1 as its interface drew it (its picture and head) to this path: a PNG, or a binary PPM when it ends in .ppm."`,
+	view_windows: int `usage:"Open this many view windows (up to 3, not on Android) at the start, each showing what Camera > New view window would."`,
 	dump_screen: string `usage:"On exit, write the whole window as the interface drew it (viewport and panels) to this path: a PNG, or a binary PPM when it ends in .ppm."`,
 	dump_viewport: string `usage:"On exit, write the last viewport image to this path: a PNG, or a binary PPM when it ends in .ppm (for checking renders), as Menu > Save screenshot does."`,
 	check_mesh: bool `usage:"On exit, check every object's current mesh (closed, consistently wound, no degenerate triangles or NaN) and print the counts as mesh_* lines (slow on large meshes)."`,
@@ -196,6 +198,7 @@ App :: struct {
 	home:     Home, // the Home screen's pictures and autosaves (home.odin)
 	thumbnail: Picture, // the second view's picture (thumbnail.odin)
 	panes:     [GRID_VIEWS]Picture, // the view panes' pictures (grid.odin)
+	view_windows: View_Windows, // second views in OS windows of their own (view_window.odin)
 	work_still: render.Viewport_Target, // what the main pane holds while a view pane is worked in (grid_work)
 	pictures_drawn: int, // second-view pictures drawn this frame (picture_frame)
 	capture:   Capture, // a transparent screenshot waiting for its frame (capture.odin)
@@ -621,6 +624,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	defer home_destroy(&app)
 	defer thumbnail_destroy(&app)
 	defer grid_destroy(&app)
+	// Before the renderer and the interface go, which the windows' buffers belong to.
+	defer view_windows_destroy(&app)
 	defer capture_destroy(&app)
 	defer turntable_destroy(&app)
 	// After autosave_init, whose folder Home's Autosaves lists.
@@ -647,6 +652,9 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 
 	// Only a run a person drives rests when idle; a scripted one keeps every frame.
 	driven := interactive && opts.run == "" && opts.script == "" && opts.ui_events == "" && opts.load_strokes == "" && opts.timelapse == "" && !opts.orbit
+	for _ in 0 ..< min(opts.view_windows, VIEW_WINDOWS_MAX) do view_window_request(&app, view_window_default(&app))
+	// Events of the view windows go to them (view_windows_event); the rest are this window's.
+	main_window := sdl.GetWindowID(window)
 	for app.running {
 		idle_rest(&app, driven)
 		frame_start := time.tick_now()
@@ -673,6 +681,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			file_request_free(req)
 			if !applied do return false
 		}
+		// View windows open and close here, before this frame acquires anything to draw into.
+		view_windows_settle(&app)
 		// Whatever changed the scene last frame (a command, a file, an undo), the
 		// selection stays on an object in view and in reach.
 		scene_folders_normalize(&app)
@@ -751,11 +761,13 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		clear(&app.samples)
 		app.pen_roll = 0
 		device_frame_begin(&app.device)
+		view_windows_frame_begin(&app)
 		// Scripted events count from the end of the set-up, and none go in before it.
 		if !setting_up do kit_events_push(&app, window)
 		e: sdl.Event
 		for sdl.PollEvent(&e) {
 			app.idle.events += 1
+			if view_windows_event(&app, &e, main_window) do continue
 			// Space over the viewport is the brush pie's (pie.odin) rather than a key of the
 			// frame; once it went down there, its release is the pie's too.
 			if (e.type == .KEY_DOWN || e.type == .KEY_UP) && e.key.scancode == .SPACE {
@@ -836,6 +848,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		ui_start := time.tick_now()
 		input := kit_frame(&app, window)
 		if !grid_work_gpu(&app) do return false
+		view_windows_layout(&app)
 		ring_push(&app.stats.ui_ms, time.duration_milliseconds(time.tick_since(ui_start)))
 		bench_waits := opts.bench_after_autosave && app.autosave.written == 0 && !autosave_writing(&app)
 		if bench_waits && !setting_up do bench_skipped += 1
@@ -1101,6 +1114,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		app.pictures_drawn = 0
 		thumbnail_frame(&app, cmd, draws[:])
 		grid_frame(&app, cmd, draws[:])
+		view_windows_pictures(&app, cmd, draws[:])
 
 		gpu_wait: time.Duration
 		if app.time_gpu {
@@ -1166,6 +1180,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 
 		submitted_ns := sdl.GetTicksNS()
 		waited += time.tick_since(present_start)
+		view_windows_present(&app)
 
 		frame_time := time.tick_since(frame_start)
 		cpu_time := frame_time - waited - gpu_wait
@@ -1213,6 +1228,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	}
 
 	if opts.dump_viewport != "" && !(app.screenshot_transparent && opts.frames > 0) do _ = screenshot_save(&app, opts.dump_viewport)
+	if opts.dump_view_window != "" do _ = view_window_save(&app, 1, opts.dump_view_window)
 	if opts.dump_screen != "" {
 		if app.kit_drew {
 			_ = kit_screen_save(&app, opts.dump_screen, app.kit_size)
@@ -1265,6 +1281,15 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		heavy := 0
 		for v, i in g.views[g.preset] do if i + 1 < grid_count(g.preset) && second_pass_heavy(v.pass) do heavy += 1
 		fmt.printfln("grid=%v grid_panes=%d grid_split=%.3f,%.3f grid_max=%d grid_drags=%d pane_draws=%d pane_ms=%.2f pane_px=%dx%d pane_camera=%v pane_turns=%d pane_links=%d linked_turns=%d viewport_origin=%.0f,%.0f grid_main=%.0fx%.0f pane_work=%d pane_works=%d pane_work_dabs=%d pane_samples=%d pane_heavy=%d pane_render_samples=%d", g.preset, grid_count(g.preset), split.x, split.y, g.maximised, g.drags, draws, ms, g.px[0].x, g.px[0].y, g.views[g.preset][0].camera, turns, links, linked, app.ui.viewport_origin.x, app.ui.viewport_origin.y, g.main.w, g.main.h, g.work, g.works, g.work_dabs + (app.stats.dabs_total - g.work_dabs_from if g.work != 0 else 0), app.panes[0].studio.samples, heavy, app.panes[0].path.samples)
+	}
+	{
+		vws := &app.view_windows
+		open, draws, presents := view_windows_stats(&app)
+		// The first window's camera and pass, "none" without one.
+		first := vws.open[0]
+		camera_name := fmt.tprint(first.view.camera) if first != nil else "none"
+		pass_name := fmt.tprint(first.view.pass) if first != nil else "none"
+		fmt.printfln("view_windows=%d view_window_opens=%d view_window_draws=%d view_window_presents=%d view_window_refused=%d view_window_camera=%s view_window_pass=%s", open, vws.opens, draws, presents, vws.refused, camera_name, pass_name)
 	}
 	fmt.printfln("screenshot_transparent=%d turntable_frames=%d turntable_written=%d", int(app.screenshot_transparent), app.turntable_frames, app.turntable.frame)
 	fmt.printfln("print_mm=%g print_unit=%d print_exports=%d", print_scale(&app), int(app.print_unit), app.print_exports)

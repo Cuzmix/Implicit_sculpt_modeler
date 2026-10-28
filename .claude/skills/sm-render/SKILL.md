@@ -73,7 +73,11 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   outgrew them), then once per frame and never during a stroke `sculptor_lod_update` → `mesh_buffers_upload_lod`
   (`src/app/main.odin:440-451`) → a `Draw_Item` per part, each object's own material (`object_material`; `Object.material`, set through the `.Material` Scene_Command, saved from scene version 14; its groups' in `Object.group_materials`, `.Group_Material`, version 15, drawn through `object_material_slots`; selected colour, idle when `dim_others`) and `wireframe` on the selected one (`:452`) →
   `render_viewport` (`:469`) → submit, with a fence when `time_gpu` (`:472`) → `kit_upload` and the interface's
-  pass (`ui_pass_draw`) into the swapchain on `present_cmd`.
+  pass (`ui_pass_draw`) into the swapchain on `present_cmd`. View windows (`src/app/view_window.odin`) are other
+  swapchains on the same device (`render.window_claim`/`window_release`, mailbox where offered): each has its own
+  `Ui_Pass` and its own command buffer submitted after `present_cmd`, acquired with the non-waiting
+  `AcquireGPUSwapchainTexture` and only when what it shows changed (even that acquire blocks in
+  `vkAcquireNextImageKHR`, so a window presented every frame would pace the main one to its monitor).
 - `render_viewport` (`renderer.odin:628-650`): with `partial` on and an unchanged `frame_key` (camera, size, item
   identity, model, colour, `lod_px`), `damage_rect` projects every damage box, pads by 2 px and redraws only that
   rectangle through `render_rect` (`:665-712`); otherwise `render_full` copies the idle objects from the `Static_Cache`
