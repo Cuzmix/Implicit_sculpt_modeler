@@ -7,13 +7,32 @@ import "core:math/linalg"
 import sdl "vendor:sdl3"
 
 // The finishing stack: what the viewport shows, finished as a camera's picture is
-// (finish.frag.slang), in one full-screen pass over what it would show otherwise. The vignette,
-// white balance, contrast and saturation work on linear light, as Unreal orders them, the
-// tone curve comes next, and lift, gamma, gain and grain work on the encoded values, as a
-// grading panel's do. With every control at its none value finish_active is false and
-// nothing runs, so the picture stays the viewport's to the bit.
+// (finish.frag.slang), in one full-screen pass over what it would show otherwise. The
+// chromatic aberration, bloom, vignette, white balance, contrast and saturation work on
+// linear light, as Unreal orders them, the tone curve comes next, and lift, gamma, gain and
+// grain work on the encoded values, as a grading panel's do. The bloom is a chain of half
+// sizes before it (bloom_down and bloom_up), and sharpening a pass after it, which then takes
+// the grain. With every control at its none value finish_active is false and nothing runs,
+// so the picture stays the viewport's to the bit.
 
 FINISH_FRAG_SPV :: #load("shaders/finish.frag.spv")
+BLOOM_DOWN_FRAG_SPV :: #load("shaders/bloom_down.frag.spv")
+BLOOM_UP_FRAG_SPV :: #load("shaders/bloom_up.frag.spv")
+SHARPEN_FRAG_SPV :: #load("shaders/sharpen.frag.spv")
+
+// The bloom chain's sizes at most, from half the picture's down: six halvings reach 1/64 of
+// it, a glow about a fifth of a 1440p picture across at the widest scatter.
+BLOOM_LEVELS_MAX :: 6
+// The smallest side a level is made with: below it the tent reads more edge than picture.
+BLOOM_LEVEL_MIN :: 8
+// The finished picture before sharpening, unrounded so the sharpening and the dither after
+// it start from more than 8 bits.
+FINISH_MID_FORMAT :: sdl.GPUTextureFormat.R16G16B16A16_FLOAT
+// The share of the light the Bloom control's top swaps for the glow, and the spread of the
+// Aberration control's top as a share of the distance from the middle: about 9 pixels
+// between red and blue in the corner of a 1440p picture, a cheap lens's worst.
+BLOOM_MIX_MAX :: 0.3
+ABERRATION_SPREAD_MAX :: 0.006
 
 // The curve linear light is shown through. Neutral is display.slang's, the one every
 // shading path writes with; AgX is Blender's filmic one, which rolls highlights off over
@@ -41,26 +60,47 @@ Finish_Look :: struct {
 	grain:         f32, // 0 none to 1 strong
 	grain_size:    f32, // in pixels
 	seed:          u32, // the grain's pattern
+	bloom:         f32, // 0 none to 1 strong
+	bloom_size:    f32, // the scatter, 0 tight to 1 wide
+	bloom_threshold: f32, // the linear light the glow starts from: 0, all of it, as a lens scatters
+	sharpen:       f32, // 0 none to 1 strong
+	aberration:    f32, // 0 none to 1 strong
 }
 
-FINISH_NONE :: Finish_Look{contrast = 1, saturation = 1, white = {1, 1, 1}, vignette_soft = 0.6, gamma = 1, gain = 1, grain_size = 1.5}
+FINISH_NONE :: Finish_Look{contrast = 1, saturation = 1, white = {1, 1, 1}, vignette_soft = 0.6, gamma = 1, gain = 1, grain_size = 1.5, bloom_size = 0.7}
 
-// Whether `look` changes the picture at all: the softness, the grain's size and its
-// pattern change nothing on their own.
+// Whether `look` changes the picture at all: the softness, the grain's size, its pattern,
+// the bloom's size and threshold change nothing on their own.
 finish_active :: proc(look: Finish_Look) -> bool {
 	n := FINISH_NONE
 	return look.curve != n.curve || look.contrast != n.contrast || look.saturation != n.saturation || look.white != n.white ||
-		look.vignette != n.vignette || look.lift != n.lift || look.gamma != n.gamma || look.gain != n.gain || look.grain != n.grain
+		look.vignette != n.vignette || look.lift != n.lift || look.gamma != n.gamma || look.gain != n.gain || look.grain != n.grain ||
+		look.bloom != n.bloom || look.sharpen != n.sharpen || look.aberration != n.aberration
 }
 
 Finish :: struct {
 	pipeline:      ^sdl.GPUGraphicsPipeline,
-	sampler:       ^sdl.GPUSampler,
+	sampler:       ^sdl.GPUSampler, // bilinear: the aberration's taps and the bloom read between pixels
 	shown:         ^sdl.GPUTexture, // the finished picture
 	width, height: u32, // of shown
 	key:           u64, // what shown was made from (finish_key); 0 when it holds nothing
 	failed:        bool, // the device refused part of it; the unfinished picture shows
 	passes:        int, // finishing passes run, for the exit stats
+	bloomed:       int, // of them, those with the bloom chain
+	sharpened:     int, // and those sharpened
+	// Sharpening's: the finish pass into the unrounded picture, and the pass from it.
+	mid_pipeline:     ^sdl.GPUGraphicsPipeline,
+	sharpen_pipeline: ^sdl.GPUGraphicsPipeline,
+	mid:              ^sdl.GPUTexture,
+	// The bloom chain: each level half the last, down then up, made the first time it is
+	// wanted at the picture's size.
+	down_pipeline: ^sdl.GPUGraphicsPipeline,
+	up_pipeline:   ^sdl.GPUGraphicsPipeline,
+	bloom_format:  sdl.GPUTextureFormat,
+	down, up:      [BLOOM_LEVELS_MAX]^sdl.GPUTexture,
+	level_size:    [BLOOM_LEVELS_MAX][2]u32,
+	levels:        int, // 0 while there is no chain
+	bloom_for:     [2]u32, // the picture size the chain was made for
 }
 
 // Matches Finish_Uniforms in finish.frag.slang.
@@ -73,8 +113,16 @@ Finish_Uniforms :: struct {
 	vignette: [4]f32,
 	grade:    [4]f32,
 	grain:    [4]f32,
+	effects:  [4]f32,
 }
-#assert(size_of(Finish_Uniforms) == 112)
+#assert(size_of(Finish_Uniforms) == 128)
+
+// Matches the uniforms of bloom_down.frag.slang, bloom_up.frag.slang and sharpen.frag.slang.
+@(private = "file")
+Pass_Uniforms :: struct {
+	params: [4]f32,
+	size:   [4]f32,
+}
 
 // Finishes `source` (width x height) into Finish.shown with `look`. `linear` says the
 // source holds exposed linear light (render mode's) rather than Neutral display values.
@@ -90,18 +138,68 @@ finish_frame :: proc(r: ^Renderer, f: ^Finish, cmd: ^sdl.GPUCommandBuffer, sourc
 	}
 	key := finish_key(source, width, height, linear, look, version)
 	if key == f.key do return true
+	if !finish_ensure_effects(r, f, width, height, look) {
+		finish_destroy(r, f)
+		f.failed = true
+		return false
+	}
 	f.key = key
 	f.passes += 1
-	u := finish_uniforms(look, linear, f32(width) / f32(max(height, 1)))
-	target := sdl.GPUColorTargetInfo{texture = f.shown, load_op = .DONT_CARE, store_op = .STORE, cycle = true}
-	pass := gpu_begin_render_pass(cmd, &target, 1, nil)
-	gpu_bind_graphics_pipeline(pass, f.pipeline)
-	samplers := [1]sdl.GPUTextureSamplerBinding{{texture = source, sampler = f.sampler}}
-	gpu_bind_fragment_samplers(pass, 0, &samplers[0], len(samplers))
-	gpu_push_fragment_uniform_data(cmd, 0, &u, size_of(u))
+	sharpen := look.sharpen > 0
+	glow := source
+	if look.bloom > 0 {
+		glow = bloom_chain(f, cmd, source, linear, look)
+		f.bloomed += 1
+	}
+	u := finish_uniforms(look, linear, f32(width) / f32(max(height, 1)), !sharpen)
+	samplers := [2]sdl.GPUTextureSamplerBinding{{texture = source, sampler = f.sampler}, {texture = glow, sampler = f.sampler}}
+	if !sharpen {
+		finish_pass(cmd, f.shown, f.pipeline, samplers[:], &u, size_of(u))
+		return true
+	}
+	f.sharpened += 1
+	finish_pass(cmd, f.mid, f.mid_pipeline, samplers[:], &u, size_of(u))
+	su := Pass_Uniforms{params = {clamp(look.sharpen, 0, 1), clamp(look.grain, 0, 1), clamp(look.grain_size, 1, 4), transmute(f32)look.seed}}
+	finish_pass(cmd, f.shown, f.sharpen_pipeline, {{texture = f.mid, sampler = f.sampler}}, &su, size_of(su.params))
+	return true
+}
+
+// One full-screen pass of `pipeline` into `target`, reading `samplers`.
+@(private = "file")
+finish_pass :: proc(cmd: ^sdl.GPUCommandBuffer, target: ^sdl.GPUTexture, pipeline: ^sdl.GPUGraphicsPipeline, samplers: []sdl.GPUTextureSamplerBinding, uniforms: rawptr, uniform_size: int) {
+	info := sdl.GPUColorTargetInfo{texture = target, load_op = .DONT_CARE, store_op = .STORE, cycle = true}
+	pass := gpu_begin_render_pass(cmd, &info, 1, nil)
+	gpu_bind_graphics_pipeline(pass, pipeline)
+	gpu_bind_fragment_samplers(pass, 0, raw_data(samplers), u32(len(samplers)))
+	gpu_push_fragment_uniform_data(cmd, 0, uniforms, u32(uniform_size))
 	gpu_draw_primitives(pass, 3, 1, 0, 0)
 	gpu_end_render_pass(pass)
-	return true
+}
+
+// Runs the bloom chain on `source` and returns its glow: down to the smallest level, then up
+// again, each step up mixing the coarser glow into the finer level's light by the scatter.
+@(private = "file")
+bloom_chain :: proc(f: ^Finish, cmd: ^sdl.GPUCommandBuffer, source: ^sdl.GPUTexture, linear: bool, look: Finish_Look) -> ^sdl.GPUTexture {
+	threshold := max(look.bloom_threshold, 0)
+	for i in 0 ..< f.levels {
+		input := source if i == 0 else f.down[i - 1]
+		size := f.level_size[i]
+		u := Pass_Uniforms{
+			params = {1 if i == 0 else 0, 1 if linear else 0, threshold, 0},
+			size = {1 / f32(size.x), 1 / f32(size.y), 0, 0},
+		}
+		finish_pass(cmd, f.down[i], f.down_pipeline, {{texture = input, sampler = f.sampler}}, &u, size_of(u))
+	}
+	if f.levels == 1 do return f.down[0]
+	// Unity HDRP's range of scatter: never all of one size.
+	scatter := math.lerp(f32(0.05), 0.95, clamp(look.bloom_size, 0, 1))
+	for i := f.levels - 2; i >= 0; i -= 1 {
+		coarse := f.down[i + 1] if i == f.levels - 2 else f.up[i + 1]
+		size := f.level_size[i]
+		u := Pass_Uniforms{params = {scatter, 0, 0, 0}, size = {1 / f32(size.x), 1 / f32(size.y), 0, 0}}
+		finish_pass(cmd, f.up[i], f.up_pipeline, {{texture = coarse, sampler = f.sampler}, {texture = f.down[i], sampler = f.sampler}}, &u, size_of(u))
+	}
+	return f.up[0]
 }
 
 // The finished picture, or nil when there is none (finish_frame has not run since the
@@ -119,10 +217,37 @@ finish_reset :: proc(f: ^Finish) {
 finish_destroy :: proc(r: ^Renderer, f: ^Finish) {
 	if r.device == nil do return
 	_ = gpu_wait_for_idle(r.device)
-	if f.pipeline != nil do gpu_release_graphics_pipeline(r.device, f.pipeline)
+	for p in ([?]^sdl.GPUGraphicsPipeline{f.pipeline, f.mid_pipeline, f.sharpen_pipeline, f.down_pipeline, f.up_pipeline}) {
+		if p != nil do gpu_release_graphics_pipeline(r.device, p)
+	}
 	if f.sampler != nil do gpu_release_sampler(r.device, f.sampler)
 	if f.shown != nil do gpu_release_texture(r.device, f.shown)
-	f^ = {failed = f.failed, passes = f.passes}
+	if f.mid != nil do gpu_release_texture(r.device, f.mid)
+	bloom_release(r, f)
+	f^ = {failed = f.failed, passes = f.passes, bloomed = f.bloomed, sharpened = f.sharpened}
+}
+
+@(private = "file")
+bloom_release :: proc(r: ^Renderer, f: ^Finish) {
+	for i in 0 ..< BLOOM_LEVELS_MAX {
+		if f.down[i] != nil do gpu_release_texture(r.device, f.down[i])
+		if f.up[i] != nil do gpu_release_texture(r.device, f.up[i])
+	}
+	f.down, f.up, f.levels, f.bloom_for = {}, {}, 0, {}
+}
+
+// The bloom chain's level sizes for a picture of `width` x `height`: half its size, then
+// half again while the smaller side keeps BLOOM_LEVEL_MIN pixels, BLOOM_LEVELS_MAX at most;
+// one level always, however small the picture.
+bloom_levels :: proc(width, height: u32) -> (sizes: [BLOOM_LEVELS_MAX][2]u32, count: int) {
+	w, h := max(width / 2, 1), max(height / 2, 1)
+	for count < BLOOM_LEVELS_MAX {
+		sizes[count] = {w, h}
+		count += 1
+		if min(w, h) / 2 < BLOOM_LEVEL_MIN do break
+		w, h = w / 2, h / 2
+	}
+	return
 }
 
 // The white balance as a matrix on linear sRGB: von Kries scaling in Bradford's cone
@@ -189,7 +314,7 @@ tone_neutral_inverse :: proc(y: [3]f32) -> [3]f32 {
 }
 
 @(private = "file")
-finish_uniforms :: proc(look: Finish_Look, linear: bool, aspect: f32) -> (u: Finish_Uniforms) {
+finish_uniforms :: proc(look: Finish_Look, linear: bool, aspect: f32, ends: bool) -> (u: Finish_Uniforms) {
 	w := white_balance(look.white)
 	u.params = {f32(look.curve), 1 if linear else 0, max(look.contrast, 0.01), max(look.saturation, 0)}
 	u.white_x = {w[0, 0], w[1, 0], w[2, 0], 0}
@@ -198,6 +323,7 @@ finish_uniforms :: proc(look: Finish_Look, linear: bool, aspect: f32) -> (u: Fin
 	u.vignette = {clamp(look.vignette, 0, 1), clamp(look.vignette_soft, 0.05, 1), aspect, 0}
 	u.grade = {look.lift, max(look.gamma, 0.01), max(look.gain, 0), clamp(look.grain, 0, 1)}
 	u.grain = {clamp(look.grain_size, 1, 4), transmute(f32)look.seed, 0, 0}
+	u.effects = {BLOOM_MIX_MAX * clamp(look.bloom, 0, 1), ABERRATION_SPREAD_MAX * clamp(look.aberration, 0, 1), 1 if ends else 0, max(look.bloom_threshold, 0)}
 	return
 }
 
@@ -220,9 +346,9 @@ finish_key :: proc(source: ^sdl.GPUTexture, width, height: u32, linear: bool, lo
 @(private = "file")
 finish_ensure :: proc(r: ^Renderer, f: ^Finish, width, height: u32) -> bool {
 	if f.pipeline == nil {
-		f.pipeline = create_fullscreen_pipeline(r, FINISH_FRAG_SPV, VIEWPORT_COLOR_FORMAT, samplers = 1)
+		f.pipeline = create_fullscreen_pipeline(r, FINISH_FRAG_SPV, VIEWPORT_COLOR_FORMAT, samplers = 2)
 		f.sampler = gpu_create_sampler(r.device, {
-			min_filter = .NEAREST, mag_filter = .NEAREST, mipmap_mode = .NEAREST,
+			min_filter = .LINEAR, mag_filter = .LINEAR, mipmap_mode = .NEAREST,
 			address_mode_u = .CLAMP_TO_EDGE, address_mode_v = .CLAMP_TO_EDGE, address_mode_w = .CLAMP_TO_EDGE,
 		})
 		if f.pipeline == nil || f.sampler == nil {
@@ -240,6 +366,60 @@ finish_ensure :: proc(r: ^Renderer, f: ^Finish, width, height: u32) -> bool {
 	if f.shown == nil {
 		log.errorf("finishing: target creation failed (%s); the picture shows unfinished", sdl.GetError())
 		return false
+	}
+	if f.mid != nil do gpu_release_texture(r.device, f.mid)
+	f.mid = nil
+	bloom_release(r, f)
+	return true
+}
+
+// Creates what sharpening and the bloom need, the first time `look` asks for them at this size.
+@(private = "file")
+finish_ensure_effects :: proc(r: ^Renderer, f: ^Finish, width, height: u32, look: Finish_Look) -> bool {
+	if look.sharpen > 0 {
+		if f.mid_pipeline == nil do f.mid_pipeline = create_fullscreen_pipeline(r, FINISH_FRAG_SPV, FINISH_MID_FORMAT, samplers = 2)
+		if f.sharpen_pipeline == nil do f.sharpen_pipeline = create_fullscreen_pipeline(r, SHARPEN_FRAG_SPV, VIEWPORT_COLOR_FORMAT, samplers = 1)
+		if f.mid == nil {
+			f.mid = gpu_create_texture(r.device, {
+				type = .D2, format = FINISH_MID_FORMAT, usage = {.COLOR_TARGET, .SAMPLER},
+				width = width, height = height, layer_count_or_depth = 1, num_levels = 1,
+			})
+		}
+		if f.mid_pipeline == nil || f.sharpen_pipeline == nil || f.mid == nil {
+			log.errorf("finishing: sharpening setup failed (%s); the picture shows unfinished", sdl.GetError())
+			return false
+		}
+	}
+	if look.bloom > 0 {
+		if f.down_pipeline == nil {
+			// Packed floats where the device draws into them, at half half-floats' memory.
+			f.bloom_format = .R11G11B10_UFLOAT
+			if !gpu_texture_supports_format(r.device, f.bloom_format, .D2, {.COLOR_TARGET, .SAMPLER}) do f.bloom_format = .R16G16B16A16_FLOAT
+			f.down_pipeline = create_fullscreen_pipeline(r, BLOOM_DOWN_FRAG_SPV, f.bloom_format, samplers = 1)
+			f.up_pipeline = create_fullscreen_pipeline(r, BLOOM_UP_FRAG_SPV, f.bloom_format, samplers = 2)
+			if f.down_pipeline == nil || f.up_pipeline == nil {
+				log.errorf("finishing: bloom setup failed (%s); the picture shows unfinished", sdl.GetError())
+				return false
+			}
+		}
+		if f.levels == 0 || f.bloom_for != {width, height} {
+			bloom_release(r, f)
+			f.level_size, f.levels = bloom_levels(width, height)
+			f.bloom_for = {width, height}
+			for i in 0 ..< f.levels {
+				info := sdl.GPUTextureCreateInfo{
+					type = .D2, format = f.bloom_format, usage = {.COLOR_TARGET, .SAMPLER},
+					width = f.level_size[i].x, height = f.level_size[i].y, layer_count_or_depth = 1, num_levels = 1,
+				}
+				f.down[i] = gpu_create_texture(r.device, info)
+				// The finest level's upsample is the glow; the coarsest has none.
+				if i < f.levels - 1 do f.up[i] = gpu_create_texture(r.device, info)
+				if f.down[i] == nil || (i < f.levels - 1 && f.up[i] == nil) {
+					log.errorf("finishing: bloom targets failed (%s); the picture shows unfinished", sdl.GetError())
+					return false
+				}
+			}
+		}
 	}
 	return true
 }

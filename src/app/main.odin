@@ -494,6 +494,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	defer shape_pending_destroy(&app.shape_pending)
 	defer rebuild_preview_destroy(&app.rebuild)
 	defer curve_tool_destroy(&app.curve)
+	defer model_tool_free(&app.model)
 	app.hd_window_vertices = sculpt.HD_WINDOW_VERTICES
 	// Before a scene opens, which keeps the starting lights for the rest of the lights it
 	// lists; the settings file brings back what earlier runs chose further down.
@@ -905,6 +906,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		if group_pick_frame(&app, input) || eyedropper_frame(&app, input) || focus_pick_frame(&app, input) || lights_viewport_frame(&app, input) {
 			brush_stroke_finish(&app)
 		} else {
+			// A drag the tool changed under ends as it stands, one undo step.
+			if app.tool != .Model && app.model.drag.state != .None do model_drag_end(&app)
 			switch app.tool {
 			case .Brush:
 				if clip_frame(&app, input) || mask_shape_frame(&app, input) {
@@ -930,7 +933,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			case .Model:
 				replay_stop(&app)
 				brush_stroke_finish(&app)
-				model_tool_frame(&app, input)
+				if !model_tool_frame(&app, input) do return false
 			}
 		}
 		sculpted.dabs += waited_dab.dabs
@@ -1384,6 +1387,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			broken += int(!poly.check_ok(c))
 		}
 		fmt.printfln("cages=%d cage_points=%d cage_edges=%d cage_faces=%d cage_ngons=%d cage_broken=%d tool=%v", cages, points, edges, faces, ngons, broken, app.tool)
+		fmt.printfln("model_action=%v model_target=%v model_done=%d model_refused=%d", app.model.action, model_target(&app.model, app.model.action), app.model.done, app.model.refused)
 	}
 	{
 		off, ghosts := scene_view_counts(&app)
@@ -1483,7 +1487,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			fmt.printfln("live_ao=%d live_ao_full=%d live_ao_partial=%d live_ao_skipped=%d", int(app.live_ao_on), lao.full, lao.partial, lao.skipped)
 			pr := app.path
 			fmt.printfln("render_switch=%d render_quality=%s studio=%d", int(render_switch_on(&app)), "full" if app.render_quality == .Full else "preview", int(app.studio_on))
-			fmt.printfln("finish=%d finish_curve=%v finish_passes=%d finish_failed=%d", int(finish_wanted(&app)), app.finish.curve, app.finished.passes, int(app.finished.failed))
+			fmt.printfln("finish=%d finish_curve=%v finish_passes=%d finish_failed=%d finish_bloomed=%d finish_bloom_levels=%d finish_sharpened=%d thumbnail_finish_passes=%d", int(finish_wanted(&app)), app.finish.curve, app.finished.passes, int(app.finished.failed), app.finished.bloomed, app.finished.levels, app.finished.sharpened, app.thumbnail.finished.passes)
 			fmt.printfln("render=%d render_samples=%d render_ms=%.1f render_mb=%.1f render_failed=%d", int(app.render_on), pr.total_samples, pr.total_ms / f64(max(pr.total_samples, 1)), f64(pr.bytes) / (1 << 20), int(pr.failed))
 			// Depth of field, whether a point was picked to focus on and where the focus is,
 			// and whether Pick focus still waits for a press.

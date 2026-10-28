@@ -61,11 +61,13 @@ SHELF_MOVE :: [?]Bar_Slot {
 	{.Tool_Move, 0}, {.Brush, int(sculpt.Brush_Kind.Smooth)},
 }
 SHELF_CURVE :: [?]Bar_Slot{{.Tool_Curve, 0}, {.Tool_Insert, 0}, {.Brush, int(sculpt.Brush_Kind.Smooth)}}
-// Model mode: its tool, the cages to start from, and the way out to sculpting.
+// Model mode: its actions (each takes the Model tool), the cages to start from, and the
+// way out to sculpting. The cone is in the Model palette, for want of a thirteenth tile.
 SHELF_MODEL :: [?]Bar_Slot {
-	{.Tool_Model, 0}, {.Add_Cage, int(poly.Primitive.Cube)}, {.Add_Cage, int(poly.Primitive.Cylinder)},
-	{.Add_Cage, int(poly.Primitive.Sphere)}, {.Add_Cage, int(poly.Primitive.Plane)}, {.Add_Cage, int(poly.Primitive.Torus)},
-	{.Add_Cage, int(poly.Primitive.Cone)}, {.Apply_Cage, 0},
+	{.Model_Action, int(Model_Action.Extrude)}, {.Model_Action, int(Model_Action.Inset)}, {.Model_Action, int(Model_Action.Move)},
+	{.Model_Action, int(Model_Action.Delete)}, {.Model_Action, int(Model_Action.Polygroup)}, {.Model_Action, int(Model_Action.Flip)},
+	{.Add_Cage, int(poly.Primitive.Cube)}, {.Add_Cage, int(poly.Primitive.Cylinder)}, {.Add_Cage, int(poly.Primitive.Sphere)},
+	{.Add_Cage, int(poly.Primitive.Torus)}, {.Add_Cage, int(poly.Primitive.Plane)}, {.Apply_Cage, 0},
 }
 
 // The shelf's state, in Kit_State: its pages' lists, the page shown, the quick settings a
@@ -210,7 +212,10 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 	// Focused, the shelf is the brushes most reached for and All, without the page names
 	// or the tools.
 	focus := lens_focus(k)
-	m := 0 if focus else len(tools)
+	// The Model page's cage has its own tools on the page, and the mesh tools do not work
+	// on a cage, so they make room for its tiles there.
+	tools_here := !focus && sh.page != .Model
+	m := len(tools) if tools_here else 0
 	if focus do n = min(n, SHELF_FOCUS)
 	n, m = shelf_fit(n, m, room, k.bars_edit && !focus)
 
@@ -270,9 +275,9 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 	// The tools, the same on every page and kept by the workspace's layout, as Classic's
 	// bottom bar keeps them.
 	sh.tools = m
-	if m > 0 || adding do ui.divider(ctx, 32)
+	if m > 0 || (adding && tools_here) do ui.divider(ctx, 32)
 	for s, i in tools[:m] do bar_slot_button(app, .Tools, i, s, MESH_TOOL)
-	if adding do bar_add_button(app, .Tools, len(tools), MESH_TOOL)
+	if adding && tools_here do bar_add_button(app, .Tools, len(tools), MESH_TOOL)
 	ui.end(ctx)
 	// The page the slide is heading for comes in behind it from that side, as a home
 	// screen's next page does; it only shows, so it takes no press.

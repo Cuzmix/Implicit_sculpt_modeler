@@ -1294,6 +1294,37 @@ sculptor_nodes_moved :: proc(s: ^Sculptor, nodes: []u32) {
 	for leaf in s.changed do mark_shape_changed(s, s.node_of[leaf])
 }
 
+// Puts vertices `verts` at `positions` and brings the BVH and the next flush up to date,
+// for an edit made outside the brushes on a mesh it does not rebuild (Model mode moving a
+// cage's points, whose undo step the app records as a swap). Seals the history, since no
+// sculpt undo step records the move.
+sculptor_place_vertices :: proc(s: ^Sculptor, verts: []u32, positions: []Vec3) {
+	assert(len(verts) == len(positions))
+	if len(verts) == 0 do return
+	// The nodes in the order of their vertex ranges, to find each vertex's owner by halves.
+	order := make([][2]u32, len(s.nodes), context.temp_allocator)
+	for n, id in s.nodes do order[id] = {n.vert_first, u32(id)}
+	slice.sort_by(order, proc(a, b: [2]u32) -> bool {return a[0] < b[0]})
+	moved := make([]bool, len(s.nodes), context.temp_allocator)
+	for v, i in verts {
+		s.mesh.positions[v] = positions[i]
+		// The last node whose range starts at or before v.
+		lo, hi := 0, len(order)
+		for lo < hi {
+			mid := (lo + hi) / 2
+			if order[mid][0] <= v do lo = mid + 1
+			else do hi = mid
+		}
+		if lo == 0 do continue
+		id := order[lo - 1][1]
+		if n := s.nodes[id]; v < n.vert_first + n.vert_count do moved[id] = true
+	}
+	ids := make([dynamic]u32, context.temp_allocator)
+	for m, id in moved do if m do append(&ids, u32(id))
+	sculptor_nodes_moved(s, ids[:])
+	history_seal(&s.history)
+}
+
 // Recomputes every normal, bound and normal cone, for a mesh that arrived without
 // normals (a new subdivision level).
 sculptor_recompute_all :: proc(s: ^Sculptor) {
@@ -1456,6 +1487,14 @@ face_normal :: #force_inline proc(m: ^geom.Mesh, f: u32) -> Vec3 {
 sculptor_raycast :: proc(s: ^Sculptor, origin, dir: Vec3) -> (hit: Vec3, ok: bool) {
 	t: f32
 	t, _, ok = geom.bvh_raycast(&s.bvh, s.mesh^, origin, dir, sculptor_hidden_tris(s))
+	if ok do hit = origin + dir * t
+	return
+}
+
+// sculptor_raycast with the triangle hit, in the sculptor's numbering.
+sculptor_raycast_triangle :: proc(s: ^Sculptor, origin, dir: Vec3) -> (hit: Vec3, tri: u32, ok: bool) {
+	t: f32
+	t, tri, ok = geom.bvh_raycast(&s.bvh, s.mesh^, origin, dir, sculptor_hidden_tris(s))
 	if ok do hit = origin + dir * t
 	return
 }
