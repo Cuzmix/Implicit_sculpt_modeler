@@ -58,13 +58,14 @@ SHELF_MOVE :: [?]Bar_Slot {
 	{.Tool_Move, 0}, {.Brush, int(sculpt.Brush_Kind.Smooth)},
 }
 SHELF_CURVE :: [?]Bar_Slot{{.Tool_Curve, 0}, {.Tool_Insert, 0}, {.Brush, int(sculpt.Brush_Kind.Smooth)}}
-// Model mode: its actions (each takes the Model tool), the cages to start from, and the
-// way out to sculpting. The cone is in the Model palette, for want of a thirteenth tile.
+// Model mode: the actions box modelling uses most (each takes the Model tool), the cages
+// to start from, and the way out to sculpting. The other actions and primitives are in the
+// Model palette and the All picker, for want of more tiles.
 SHELF_MODEL :: [?]Bar_Slot {
 	{.Model_Action, int(Model_Action.Extrude)}, {.Model_Action, int(Model_Action.Inset)}, {.Model_Action, int(Model_Action.Move)},
-	{.Model_Action, int(Model_Action.Delete)}, {.Model_Action, int(Model_Action.Polygroup)}, {.Model_Action, int(Model_Action.Flip)},
-	{.Add_Cage, int(poly.Primitive.Cube)}, {.Add_Cage, int(poly.Primitive.Cylinder)}, {.Add_Cage, int(poly.Primitive.Sphere)},
-	{.Add_Cage, int(poly.Primitive.Torus)}, {.Add_Cage, int(poly.Primitive.Plane)}, {.Apply_Cage, 0},
+	{.Model_Action, int(Model_Action.Delete)}, {.Model_Action, int(Model_Action.Insert_Loop)}, {.Model_Action, int(Model_Action.Remove_Loop)},
+	{.Model_Action, int(Model_Action.Bridge)}, {.Model_Action, int(Model_Action.Close_Hole)}, {.Model_Action, int(Model_Action.Weld)},
+	{.Add_Cage, int(poly.Primitive.Cube)}, {.Add_Cage, int(poly.Primitive.Cylinder)}, {.Apply_Cage, 0},
 }
 
 // The shelf's state, in Kit_State: its pages' lists, the page shown, the quick settings a

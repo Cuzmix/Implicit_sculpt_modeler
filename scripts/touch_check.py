@@ -2786,7 +2786,7 @@ def lens_left_handed_mirrors_the_chrome():
 # in the brush picker the Paint page and the Draw and Inflate cards.
 LENS_SHELF = {"clay": (396, 830), "draw": (459, 830), "layer": (972, 830), "all": (1044, 830)}
 LENS_SHELF_PAGES = {"sculpt": (601, 883), "paint": (657, 883), "move": (715, 883), "curve": (776, 883), "model": (840, 883)}
-LENS_MODEL_TILES = {"extrude": (332, 830), "inset": (396, 830), "cube": (716, 830)}
+LENS_MODEL_TILES = {"extrude": (332, 830), "inset": (396, 830), "cube": (908, 830)}
 LENS_SHEET = {"paint": (839, 120), "draw": (525, 320), "inflate": (525, 440)}
 LENS_SHELF_SCULPT = "Brush:Clay,Brush:Draw,Brush:Smooth,Brush:Inflate,Brush:Pinch,Brush:Crease,Brush:Grab,Brush:Flatten,Brush:Mask,Brush:Layer"
 
@@ -2857,6 +2857,27 @@ def model_extrude_drag_pulls_a_face_out():
             return s, LENS_1440 + ["--script=add_cage cube; select 1; delete_object; frame_all; model_action extrude"], {"cage_faces": near(6), "cage_points": near(8), "model_done": near(1)}
         return s, LENS_1440 + ["--script=add_cage cube; select 1; delete_object; frame_all; model_action extrude"], {"cage_faces": near(10), "cage_points": near(12), "model_done": near(1), "model_refused": near(0), "dabs": near(0)}
     return Steps([run(False), run(True)])
+
+
+@scenario
+def model_insert_loop_tap_and_slide():
+    """Insert loop: a tap on a cage's edge puts a loop across its ring (four points, four faces more on a cube); a drag slides it, as one step either way."""
+    def run(drag):
+        s = Script()
+        path = line((700, 430), (735, 432), 5) if drag else [(700, 430)]
+        s.mouse_drag(path)
+        s.wait(10)
+        return s, LENS_1440 + ["--script=add_cage cube; select 1; delete_object; frame_all; model_action insert_loop"], {"cage_points": near(12), "cage_faces": near(10), "cage_broken": near(0), "model_done": near(1), "undo_steps": near(1), "camera_yaw": near(0.6)}
+    return Steps([run(False), run(True)])
+
+
+@scenario
+def model_weld_pair_merges_two_points():
+    """Weld: a press on a cage's corner and a lift over the next corner merges the first into the second (a cube's 8 points become 7)."""
+    s = Script()
+    s.mouse_drag(line((570, 385), (745, 420), 8))
+    s.wait(10)
+    return s, LENS_1440 + ["--script=add_cage cube; select 1; delete_object; frame_all; model_action weld"], {"cage_points": near(7), "cage_faces": near(6), "cage_broken": near(0), "model_done": near(1), "model_refused": near(0)}
 
 
 @scenario
