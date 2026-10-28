@@ -295,6 +295,7 @@ Draw_Item :: struct {
 	// the rim at the silhouette is, y how much of the ambient light reaches a surface
 	// facing straight down (1 as much as one facing up), w 1 to use them. Zero keeps the
 	// classic rim and an even ambient light, as thumbnails and the navigation head draw.
+	// z 1 draws masked parts as the rest, whatever w is (the view's Show the mask off).
 	style:     [4]f32,
 	// The pass the viewport shows it in (View_Pass): x the pass, y and z where Depth
 	// starts and ends, in view-space distance from the eye, w a wipe compare (0 for none,

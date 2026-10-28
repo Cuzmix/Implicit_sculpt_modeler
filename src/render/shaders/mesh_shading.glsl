@@ -59,7 +59,7 @@ layout(set = 3, binding = 0) uniform Material_Uniforms {
 	vec4 env_sh[9];
 	// The shading's style (render.Draw_Item.style): x the rim's strength, y how much of the
 	// ambient light reaches a surface facing straight down, w 1 to use them (0: the
-	// classic rim and an even ambient light).
+	// classic rim and an even ambient light); z 1 to draw masked parts as the rest.
 	vec4 style;
 	// The viewport's pass (render.View_Pass) in x, 0 shaded as usual; y and z where the
 	// Depth pass starts and ends, as distances from the eye; w a wipe compare (main below).
@@ -438,9 +438,10 @@ void main() {
 	}
 	mat3 rig = mat3(light_x.xyz, light_y.xyz, light_z.xyz);
 	float ambient = light_x.w;
-	// Masked areas show darker, as in ZBrush.
-	albedo *= 1.0 - 0.7 * in_mask;
-	float highlight = 1.0 - 0.5 * in_mask;
+	// Masked areas show darker, as in ZBrush, unless the view leaves the mask out (style.z).
+	float shown_mask = in_mask * (1.0 - style.z);
+	albedo *= 1.0 - 0.7 * shown_mask;
+	float highlight = 1.0 - 0.5 * shown_mask;
 
 	if (surf.w > 0.5) {
 		// The matcap's sphere where it faces the way this pixel's normal does as the eye

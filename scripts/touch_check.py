@@ -3239,6 +3239,62 @@ def lens_layers_card_records_and_picks():
     return Steps([run(False), run(True)])
 
 
+# The Lens Tools card at 1440x900 with the Brush card folded: its header, its Mask and
+# Geometry tabs, the Mask grid's Invert, Show the mask, the first level chip on Geometry
+# (with two levels), and the context bar's Extract while a mask covers the sphere.
+LENS_TOOLS = {"header": (1150, 334), "geometry": (1253, 384), "invert": (1118, 436), "show_mask": (1340, 676),
+              "level1": (1097, 642), "bar_extract": (913, 774)}
+
+
+def lens_tools_open(s, tab=None):
+    s.ftap(*LENS_CARDS["brush"])
+    s.wait(6)
+    s.ftap(*LENS_TOOLS["header"])
+    s.wait(6)
+    if tab:
+        s.ftap(*LENS_TOOLS[tab])
+        s.wait(6)
+
+
+@scenario
+def lens_tools_card_inverts_the_mask():
+    """With the sphere masked (by the start-up script, which makes no undo step), the Tools card's Invert tile unmasks it as one undo step."""
+    s = Script()
+    lens_tools_open(s)
+    s.ftap(*LENS_TOOLS["invert"])
+    s.wait(8)
+    return s, LENS_1440 + ["--script=mask fill"], camera_still({"tools_tab": is_text("mask"), "mask_mean": near(0, 1e-3), "undo_steps": near(1), "dabs": near(0)})
+
+
+@scenario
+def lens_tools_card_hides_the_mask_view():
+    """Show the mask off draws the masked sphere as the rest; the mask stays, and no undo step is made."""
+    s = Script()
+    lens_tools_open(s)
+    s.ftap(*LENS_TOOLS["show_mask"])
+    s.wait(6)
+    return s, LENS_1440 + ["--script=mask fill"], camera_still({"mask_hidden": near(1), "mask_mean": near(1, 1e-3), "undo_steps": near(0), "dabs": near(0)})
+
+
+@scenario
+def lens_tools_card_level_chip_steps_down():
+    """On Geometry, the first level chip takes a subdivided sphere down to its first level."""
+    s = Script()
+    lens_tools_open(s, "geometry")
+    s.ftap(*LENS_TOOLS["level1"])
+    s.wait(10)
+    return s, LENS_1440 + ["--script=subdivide"], camera_still({"tools_tab": is_text("geometry"), "selected_levels": near(2), "selected_level": near(0), "dabs": near(0)})
+
+
+@scenario
+def lens_context_bar_extracts_the_mask():
+    """While a mask covers the sphere, Lens's context bar offers Extract, which makes a shell of it as a new object."""
+    s = Script()
+    s.ftap(*LENS_TOOLS["bar_extract"])
+    s.wait(12)
+    return s, LENS_1440 + ["--script=mask fill"], camera_still({"objects": near(2), "dabs": near(0)})
+
+
 # Lens's brush pie at 1440x900: the dial's Pie sector opens it at the viewport's middle;
 # the top slice (Clay) and the editor's first brush slot.
 LENS_PIE = {"dial": (122, 822), "middle": (720, 450), "top": (720, 334), "crease": (800, 520), "editor_first": (764, 190), "search": (1180, 26)}

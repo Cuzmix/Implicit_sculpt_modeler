@@ -110,8 +110,10 @@ viewport_look :: proc(app: ^App) -> [4]f32 {
 // The style the viewport's objects are shaded with (render.Draw_Item.style): zero, the
 // classic rim and even ambient light, unless App.styled.
 viewport_style :: proc(app: ^App) -> [4]f32 {
-	if !app.styled do return {}
-	return {clamp(app.rim, 0, RIM_MAX), clamp(app.underside, 0, 1), 0, 1}
+	// z leaves the mask's darkening out, whichever style is drawn.
+	hide_mask: f32 = 1 if app.ui.mask_hidden else 0
+	if !app.styled do return {0, 0, hide_mask, 0}
+	return {clamp(app.rim, 0, RIM_MAX), clamp(app.underside, 0, 1), hide_mask, 1}
 }
 
 // The material `obj` is shaded with: its own, or the default (current_material) while it
