@@ -16,18 +16,22 @@ import "../render"
 // how much of each pixel the objects cover, soft at their edges with multisampling.
 // Where they cover a pixel wholly the picture takes the viewport's own colour, live
 // occlusion, studio render and all; at the edges it takes the second drawing's, whose
-// colour is not mixed with the background. The turntable (turntable.odin) reads its
-// frames back here too, with or without the background.
+// colour is not mixed with the background; while the picture is finished (finish.odin),
+// the second drawing is finished the same way, so its edges match. The turntable
+// (turntable.odin) reads its frames back here too, with or without the background.
 Capture :: struct {
 	path:        string, // the screenshot waiting to be written; "" for none
 	turntable:   bool, // a turntable frame waits instead
 	transparent: bool, // without the background, by the second drawing
 	target:      render.Viewport_Target,
+	finished:    render.Finish, // the second drawing finished, while the picture is
+	frames:      u64, // second drawings made, which name what `target` holds for `finished`
 	drawn:       bool, // this frame's commands draw what it reads back
 }
 
 capture_destroy :: proc(app: ^App) {
 	render.viewport_target_destroy(&app.renderer, &app.capture.target)
+	render.finish_destroy(&app.renderer, &app.capture.finished)
 	delete(app.capture.path)
 	app.capture = {}
 }
@@ -68,6 +72,14 @@ capture_frame :: proc(app: ^App, cmd: render.Cmd, view, proj: render.Mat4, draws
 	defer r.background, r.floor, r.lod_px, r.environment_look.background = background, floor, lod_px, environment
 	r.background, r.floor, r.lod_px, r.environment_look.background = {}, {}, 0, false
 	_ = render.render_viewport(r, cmd, &c.target, view, proj, draws, false)
+	c.frames += 1
+	if finish_wanted(app) {
+		look := finish_look(app.finish)
+		look.seed = u32(app.finish_redraws)
+		_ = render.finish_frame(r, &c.finished, cmd, c.target.color, c.target.width, c.target.height, false, look, c.frames)
+	} else {
+		render.finish_reset(&c.finished)
+	}
 	c.drawn = true
 }
 
@@ -88,7 +100,7 @@ capture_finish :: proc(app: ^App) {
 	w, h := int(app.target.width), int(app.target.height)
 	shown := render.viewport_download(&app.renderer, &app.target, context.temp_allocator, viewport_shown(app))
 	cut: []u8
-	if transparent do cut = render.viewport_download(&app.renderer, &c.target, context.temp_allocator)
+	if transparent do cut = render.viewport_download(&app.renderer, &c.target, context.temp_allocator, render.finish_texture(&c.finished))
 	if shown == nil || (transparent && cut == nil) {
 		file_note(app, true, "Could not read the viewport back: %s", sdl.GetError())
 		if turntable do turntable_stop(app, "the viewport could not be read back")

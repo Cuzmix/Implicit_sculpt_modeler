@@ -63,6 +63,8 @@ N :: offset_of(App, nav)
 K :: offset_of(App, kit)
 @(private = "file")
 U :: offset_of(App, ui)
+@(private = "file")
+F :: offset_of(App, finish)
 
 // One of a light's values that settings files and scripts name, as "light<N>_<name>"
 // (LIGHT_KEYS), with where it is in a Light, its type and its range, as Setting has them.
@@ -211,6 +213,18 @@ SETTINGS := [?]Setting {
 	{"render_half", offset_of(App, render_half), bool, 0, 0},
 	{"render_dof", offset_of(App, render_dof), bool, 0, 0},
 	{"render_blur", offset_of(App, render_blur), f32, 0, 1},
+	{"finish_curve", F + offset_of(Finish_Settings, curve), render.Tone_Curve, 0, 0},
+	{"finish_contrast", F + offset_of(Finish_Settings, contrast), f32, FINISH_CONTRAST_MIN, FINISH_CONTRAST_MAX},
+	{"finish_saturation", F + offset_of(Finish_Settings, saturation), f32, 0, 2},
+	{"finish_temperature", F + offset_of(Finish_Settings, kelvin), f32, FINISH_KELVIN_MIN, FINISH_KELVIN_MAX},
+	{"finish_tint", F + offset_of(Finish_Settings, tint), f32, -1, 1},
+	{"finish_vignette", F + offset_of(Finish_Settings, vignette), f32, 0, 1},
+	{"finish_vignette_softness", F + offset_of(Finish_Settings, vignette_soft), f32, 0.05, 1},
+	{"finish_lift", F + offset_of(Finish_Settings, lift), f32, -0.2, 0.2},
+	{"finish_gamma", F + offset_of(Finish_Settings, gamma), f32, 0.5, 2},
+	{"finish_gain", F + offset_of(Finish_Settings, gain), f32, 0.5, 2},
+	{"finish_grain", F + offset_of(Finish_Settings, grain), f32, 0, 1},
+	{"finish_grain_size", F + offset_of(Finish_Settings, grain_size), f32, 1, 4},
 	{"studio_shadow", offset_of(App, studio_shadow), f32, 0, 1},
 	{"look_chosen", offset_of(App, look_chosen), bool, 0, 0},
 	{"styled", offset_of(App, styled), bool, 0, 0},

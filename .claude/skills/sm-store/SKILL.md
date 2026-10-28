@@ -93,7 +93,8 @@ re-check the stores' pages before a first submission, because they move every ye
 - Every third-party piece we ship keeps its licence text and appears in an About > Licences screen: SDL3 (zlib),
   Inter (OFL 1.1, its licence beside the font files), Lucide (ISC), stb (public domain or MIT),
   kb_text_shape, Luau (MIT, with Lua's MIT notice; its texts in the repository's assets/licenses folder, desktop builds only; Luau asks for "Luau"
-  in user-facing docs) and anything added later. A new dependency is added there in the same change.
+  in user-facing docs), Stephen Hill's ACES fit (MIT, assets/licenses/ACES-fit-LICENSE.txt; finish.frag) and anything
+  added later. A new dependency is added there in the same change.
 
 ## Before calling a change done
 - Name in your report which of the sections above the change touches and how it keeps to them, or say "no store

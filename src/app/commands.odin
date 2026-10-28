@@ -183,6 +183,7 @@ Command_Id :: enum u8 {
 	Render_Mode,
 	Pick_Focus,
 	Focus_Pivot,
+	Finish_Reset,
 	Viewport_Look, // the argument is the Look_Preset
 	Floor_Grid,
 	Thumbnail,
@@ -1554,6 +1555,12 @@ COMMANDS := [Command_Id]Command {
 		help = "Render mode's depth of field focuses on the pivot the view turns about again, instead of a picked point.",
 		run = proc(app: ^App, _: int) {app.focus = nil},
 		enabled = proc(app: ^App, _: int) -> bool {_, picked := app.focus.?; return picked},
+	},
+	.Finish_Reset = {
+		label = "Reset finish",
+		help = "Puts every control of the finish back to none: the Neutral curve, no grade, vignette or grain.",
+		run = proc(app: ^App, _: int) {finish_reset_command(app)},
+		enabled = proc(app: ^App, _: int) -> bool {return app.finish != FINISH_DEFAULTS},
 	},
 	.Viewport_Look = {
 		label = "Look",
