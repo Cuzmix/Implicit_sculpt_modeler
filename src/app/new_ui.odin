@@ -147,6 +147,10 @@ Kit_State :: struct {
 	stats_advanced: bool, // ...showing every measurement by its exact name, not the simple view
 	settings:   bool, // the Settings panel (Menu > Settings)
 	settings_tab: Settings_Tab,
+	// Lens's sheet (lens_settings.odin): the section open and what Search settings holds.
+	settings_section: Settings_Section,
+	settings_find:    [64]u8,
+	settings_side_scroll: f32,
 	settings_scroll: f32,
 	settings_body: ui.Rect, // the scrolling body as last laid out, for Settings > Keys' popover
 	keys_query: [64]u8, // Settings > Keys' search
