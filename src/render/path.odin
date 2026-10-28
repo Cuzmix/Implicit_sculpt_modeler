@@ -26,9 +26,12 @@ import "../jobs"
 
 RENDER_TRACE_COMP_SPV :: #load("shaders/render_trace.comp.spv")
 RENDER_DISPLAY_FRAG_SPV :: #load("shaders/render_display.frag.spv")
+RENDER_DISPLAY_LINEAR_FRAG_SPV :: #load("shaders/render_display_linear.frag.spv")
 RENDER_ATROUS_FRAG_SPV :: #load("shaders/render_atrous.frag.spv")
 
 RENDER_FORMAT :: sdl.GPUTextureFormat.R32G32B32A32_FLOAT
+// The exposed light the finishing stack starts from (render_linear_texture).
+RENDER_LINEAR_FORMAT :: sdl.GPUTextureFormat.R16G16B16A16_FLOAT
 // The denoiser's guides and its passes' images.
 RENDER_GUIDE_FORMAT :: sdl.GPUTextureFormat.R16G16B16A16_FLOAT
 // The denoiser's passes while the image is noisy, its taps 1 to 16 pixels apart; from
@@ -94,6 +97,12 @@ Path_Render :: struct {
 	accum:          [2]^sdl.GPUTexture,
 	current:        int,
 	shown:          ^sdl.GPUTexture, // what the viewport panel shows
+	// While the finishing stack runs, `shown` again as exposed linear light, for it to
+	// finish (render_display_linear.frag.slang); made on first use, and its pipeline.
+	linear:         ^sdl.GPUTexture,
+	display_linear: ^sdl.GPUGraphicsPipeline,
+	linear_on:      bool, // render_frame was asked for it
+	linear_valid:   bool, // it holds what `shown` does
 	// The denoiser's guides, two pairs of the colour and the normal with distance:
 	// guides[guide_at] holds the first sample's (with depth of field, the means so far)
 	// and the kernel writes the other pair, which takes over once it has; and the
@@ -237,13 +246,15 @@ Lights_World :: struct {
 // it, after which it never tries again. `half` traces a quarter of the pixels, half the
 // viewport's size each way, and lays them out over it smoothly: what tablets take. `lens`
 // gives depth of field; changing it starts over, as nothing in the viewport changes.
-render_frame :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, view, proj: Mat4, items: []Draw_Item, changed: bool, max_samples, bounces: int, lights: Lights, softness, exposure: f32, denoise: bool, half := false, lens := Lens{}, pool: ^jobs.Pool = nil) -> bool {
+render_frame :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, view, proj: Mat4, items: []Draw_Item, changed: bool, max_samples, bounces: int, lights: Lights, softness, exposure: f32, denoise: bool, half := false, lens := Lens{}, pool: ^jobs.Pool = nil, linear := false) -> bool {
 	if pr.failed do return false
 	if !path_ensure(r, pr, vt, half) {
 		path_render_destroy(r, pr)
 		pr.failed = true
 		return false
 	}
+	pr.linear_on = linear && path_linear_ensure(r, pr)
+	if !pr.linear_on do pr.linear_valid = false
 	now := time.tick_now()
 	interval := time.tick_diff(pr.last_frame, now) if pr.last_frame != {} else 0
 	pr.last_frame = now
@@ -253,7 +264,7 @@ render_frame :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer,
 		return true
 	}
 	if pr.samples >= max_samples || pr.refused != "" {
-		if pr.samples > 0 && (exposure != pr.exposure || denoise != pr.denoised) do path_display(pr, cmd, vt, exposure, denoise)
+		if pr.samples > 0 && (exposure != pr.exposure || denoise != pr.denoised || pr.linear_on && !pr.linear_valid) do path_display(pr, cmd, vt, exposure, denoise)
 		return true
 	}
 	if !pr.built {
@@ -323,6 +334,34 @@ render_texture :: proc(pr: ^Path_Render) -> ^sdl.GPUTexture {
 	return pr.shown
 }
 
+// render_texture's image as exposed linear light, while render_frame is asked for it; nil
+// when it has none.
+render_linear_texture :: proc(pr: ^Path_Render) -> ^sdl.GPUTexture {
+	if pr.failed || pr.samples == 0 || !pr.linear_valid do return nil
+	return pr.linear
+}
+
+// Makes the linear image and its pipeline on first use, at the viewport's size; false
+// when the device refuses, and the finishing stack then reads `shown`.
+@(private = "file")
+path_linear_ensure :: proc(r: ^Renderer, pr: ^Path_Render) -> bool {
+	if pr.display_linear == nil {
+		pr.display_linear = create_fullscreen_pipeline(r, RENDER_DISPLAY_LINEAR_FRAG_SPV, RENDER_LINEAR_FORMAT, samplers = 4)
+		if pr.display_linear == nil {
+			log.warnf("render mode: no linear image for the finish (%s); it finishes the shown one", sdl.GetError())
+			return false
+		}
+	}
+	if pr.linear != nil do return true
+	pr.linear = gpu_create_texture(r.device, {
+		type = .D2, format = RENDER_LINEAR_FORMAT, usage = {.COLOR_TARGET, .SAMPLER},
+		width = pr.view_width, height = pr.view_height, layer_count_or_depth = 1, num_levels = 1,
+	})
+	pr.linear_valid = false
+	if pr.linear == nil do log.warnf("render mode: no linear image for the finish (%s); it finishes the shown one", sdl.GetError())
+	return pr.linear != nil
+}
+
 // Makes the next render_frame start over.
 path_render_reset :: proc(pr: ^Path_Render) {
 	pr.samples, pr.row, pr.current = 0, 0, 0
@@ -334,6 +373,7 @@ path_render_destroy :: proc(r: ^Renderer, pr: ^Path_Render) {
 	_ = gpu_wait_for_idle(r.device)
 	if pr.pipeline != nil do gpu_release_compute_pipeline(r.device, pr.pipeline)
 	if pr.display != nil do gpu_release_graphics_pipeline(r.device, pr.display)
+	if pr.display_linear != nil do gpu_release_graphics_pipeline(r.device, pr.display_linear)
 	if pr.atrous != nil do gpu_release_graphics_pipeline(r.device, pr.atrous)
 	if pr.sampler != nil do gpu_release_sampler(r.device, pr.sampler)
 	if pr.studio_table != nil do gpu_release_texture(r.device, pr.studio_table)
@@ -529,9 +569,9 @@ render_size :: proc(width, height: u32, half: bool) -> (u32, u32) {
 // The images the size of the traced image and of the viewport.
 @(private = "file")
 path_targets_release :: proc(r: ^Renderer, pr: ^Path_Render) {
-	targets := [11]^sdl.GPUTexture{pr.accum[0], pr.accum[1], pr.shown, pr.guides[0][0], pr.guides[0][1], pr.guides[1][0], pr.guides[1][1], pr.filtered[0], pr.filtered[1], pr.backdrop, pr.backdrop_depth}
+	targets := [12]^sdl.GPUTexture{pr.accum[0], pr.accum[1], pr.shown, pr.guides[0][0], pr.guides[0][1], pr.guides[1][0], pr.guides[1][1], pr.filtered[0], pr.filtered[1], pr.backdrop, pr.backdrop_depth, pr.linear}
 	for t in targets do if t != nil do gpu_release_texture(r.device, t)
-	pr.backdrop, pr.backdrop_depth = nil, nil
+	pr.backdrop, pr.backdrop_depth, pr.linear, pr.linear_valid = nil, nil, nil, false
 }
 
 // How many denoiser passes `samples` take, and how far, relative, light may differ before
@@ -575,6 +615,17 @@ path_display :: proc(pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport
 	gpu_push_fragment_uniform_data(cmd, 0, &params, size_of(params))
 	gpu_draw_primitives(pass, 3, 1, 0, 0)
 	gpu_end_render_pass(pass)
+	pr.linear_valid = false
+	if !pr.linear_on do return
+	// The same again as exposed linear light, for the finishing stack.
+	target = {texture = pr.linear, load_op = .DONT_CARE, store_op = .STORE, cycle = true}
+	pass = gpu_begin_render_pass(cmd, &target, 1, nil)
+	gpu_bind_graphics_pipeline(pass, pr.display_linear)
+	gpu_bind_fragment_samplers(pass, 0, &samplers[0], len(samplers))
+	gpu_push_fragment_uniform_data(cmd, 0, &params, size_of(params))
+	gpu_draw_primitives(pass, 3, 1, 0, 0)
+	gpu_end_render_pass(pass)
+	pr.linear_valid = true
 }
 
 // One traced item's place in the scene buffers.

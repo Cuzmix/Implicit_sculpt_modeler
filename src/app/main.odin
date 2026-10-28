@@ -67,7 +67,7 @@ Options :: struct {
 	bench_loops: int `usage:"Make --bench-stroke this many circles around the middle of the sphere instead of a wavy line."`,
 	density_preview: int `usage:"Show Object > Shape > Rebuild's density checkerboard on the selected object for an even remesh of this many vertices, held on as holding its Density slider shows it (for screenshots and timing)."`,
 	bench_tilt: f32 `usage:"Lean the synthetic pen of --bench-stroke this many degrees to the right (with set tilt_strength in a start-up script)."`,
-	gpu:       string `usage:"Draw with this GPU backend: sdl (SDL_GPU, the default) or vulkan (render's own Vulkan backend, which falls back to SDL_GPU where the device lacks what it needs)."`,
+	gpu:       string `usage:"Draw with this GPU backend for this run instead of the one Settings > System > Graphics chose: auto (Vulkan, or SDL_GPU on Mac and iPad), vulkan (render's own Vulkan backend, which falls back to SDL_GPU where the device lacks what it needs) or sdl (SDL_GPU)."`,
 	no_vsync:  bool `usage:"Show each frame as soon as it is ready instead of waiting for the display's refresh, so frame times are not capped at the refresh rate."`,
 	idle_sleep: bool `usage:"Rest when idle (Settings > System) in a scripted run too, which otherwise never rests: for testing it."`,
 	frame_limit: int `usage:"Draw at most N frames a second (Settings > System > Frame rate > Limit)."`,
@@ -248,6 +248,12 @@ App :: struct {
 	render_dof:     bool,
 	render_blur:    f32,
 	focus:          Maybe(Vec3),
+	// Scene > Finish (finish.odin): the camera's finishing of the picture while the Render
+	// switch is on, remembered; what it made, and how many frames redrew anything, which
+	// names what its source holds and moves the grain on.
+	finish:         Finish_Settings,
+	finished:       render.Finish,
+	finish_redraws: u64,
 	// The navigation head in the top-right corner (nav_head.odin), and the texture it was
 	// drawn into this frame, for the interface to show; nil when there is none.
 	nav_head:       render.Nav_Head,
@@ -328,6 +334,9 @@ App :: struct {
 	idle_sleep:  bool, // rest between frames while nothing changes (idle.odin)
 	idle:        Idle,
 	msaa:     Msaa, // wanted anti-aliasing, applied before the next frame sizes the viewport (msaa.odin)
+	graphics:       Graphics, // the backend Settings > System > Graphics chose, for the next start (graphics.odin)
+	graphics_start: Graphics, // the choice this run started with, by the setting or --gpu
+	graphics_loaded: Graphics, // the setting as the run read it, which a change in the menu differs from
 	time_gpu: bool, // wait for each frame's 3D work, to measure its GPU time
 	window:   ^sdl.Window, // what file dialogs belong to
 	scene_path: string, // where the scene was last saved or opened from, for Ctrl+S (owned)
@@ -402,14 +411,18 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	}
 	defer sdl.Quit()
 
-	switch opts.gpu {
-	case "", "sdl":
-	case "vulkan":
-		render.backend_select(.Vulkan)
-	case:
-		log.errorf("--gpu=%s: expected sdl or vulkan", opts.gpu)
+	// What earlier interactive runs left; a start-up script runs after it and wins over it.
+	remember := (opts.frames == 0 && opts.gpubench == "" && opts.bench_stroke == 0 && !opts.no_settings) || opts.settings_file != ""
+	settings := (opts.settings_file if opts.settings_file != "" else settings_path()) if remember else ""
+	if remember do settings = strings.clone(settings)
+	defer delete(settings)
+	// The backend is chosen before the window, which is made for it.
+	graphics, graphics_ok := graphics_choice(opts.gpu, settings)
+	if !graphics_ok {
+		log.errorf("--gpu=%s: expected auto, vulkan or sdl", opts.gpu)
 		return false
 	}
+	render.backend_select(graphics_backend(graphics))
 	window := sdl.CreateWindow("Sculpt", i32(opts.width), i32(opts.height), platform_window_flags())
 	if window == nil {
 		log.errorf("CreateWindow failed: %s", sdl.GetError())
@@ -419,6 +432,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 
 	app: App
 	app.window = window
+	app.graphics_start = graphics
 	// The script is read and checked before the scene is set up, so one with an error
 	// stops before the slow part; it runs once the frame loop has laid out the viewport.
 	// The GPU benchmark makes its own scenes, case by case, which a script would not see.
@@ -450,6 +464,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	defer render.studio_destroy(&app.renderer, &app.studio)
 	defer render.live_ao_destroy(&app.renderer, &app.live_ao)
 	defer render.path_render_destroy(&app.renderer, &app.path)
+	defer render.finish_destroy(&app.renderer, &app.finished)
 	defer render.nav_head_destroy(&app.renderer, &app.nav_head)
 	defer render.thumbs_destroy(&app.renderer, &app.thumbs)
 	defer delete(app.clipboard)
@@ -581,6 +596,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	app.render_samples, app.render_bounces, app.render_denoise = render.RENDER_SAMPLES_DEFAULT, render.RENDER_BOUNCES_DEFAULT, true
 	app.render_half = ODIN_PLATFORM_SUBTARGET == .Android
 	app.render_blur = RENDER_BLUR_DEFAULT
+	app.finish = FINISH_DEFAULTS
 	app.turntable_frames = TURNTABLE_FRAMES_DEFAULT
 	environment_settings_default(&app)
 	app.dim_others = true
@@ -592,11 +608,6 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	app.nav = NAV_DEFAULT
 	app.autosave.minutes = AUTOSAVE_DEFAULT_MINUTES
 	app.versions_kept = VERSIONS_DEFAULT
-	// What earlier interactive runs left; a start-up script runs after it and wins over it.
-	remember := (opts.frames == 0 && opts.gpubench == "" && opts.bench_stroke == 0 && !opts.no_settings) || opts.settings_file != ""
-	settings := (opts.settings_file if opts.settings_file != "" else settings_path()) if remember else ""
-	if remember do settings = strings.clone(settings)
-	defer delete(settings)
 	// The alphas come first, the library's too, so that presets and the brush in the
 	// settings find the alphas they name.
 	alphas_init(&app)
@@ -606,6 +617,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	// names, and before the renderer goes, which their textures need: keep it here.
 	defer library_destroy(&app)
 	settings_load(&app, settings)
+	app.graphics_loaded = app.graphics
 	switch opts.chrome {
 	case "":
 	case "lens":    app.kit.chrome = .Lens
@@ -1124,6 +1136,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		}
 		render_mode_frame(&app, cmd, view, proj, draws[:], changed)
 		live_ao_view_frame(&app, cmd, view, proj, draws[:], drawn)
+		finish_view_frame(&app, cmd, changed)
 		// A --dump-viewport run's last frame draws its transparent picture, when that is on.
 		if opts.dump_viewport != "" && app.screenshot_transparent && opts.frames > 0 && frame_index == opts.frames - 1 do capture_request(&app, opts.dump_viewport)
 		capture_frame(&app, cmd, view, proj, draws[:])
@@ -1470,6 +1483,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			fmt.printfln("live_ao=%d live_ao_full=%d live_ao_partial=%d live_ao_skipped=%d", int(app.live_ao_on), lao.full, lao.partial, lao.skipped)
 			pr := app.path
 			fmt.printfln("render_switch=%d render_quality=%s studio=%d", int(render_switch_on(&app)), "full" if app.render_quality == .Full else "preview", int(app.studio_on))
+			fmt.printfln("finish=%d finish_curve=%v finish_passes=%d finish_failed=%d", int(finish_wanted(&app)), app.finish.curve, app.finished.passes, int(app.finished.failed))
 			fmt.printfln("render=%d render_samples=%d render_ms=%.1f render_mb=%.1f render_failed=%d", int(app.render_on), pr.total_samples, pr.total_ms / f64(max(pr.total_samples, 1)), f64(pr.bytes) / (1 << 20), int(pr.failed))
 			// Depth of field, whether a point was picked to focus on and where the focus is,
 			// and whether Pick focus still waits for a press.
@@ -1519,6 +1533,17 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		k := &app.kit
 		fmt.printfln("palette=%d palette_runs=%d palette_last=%s settings_tab=%v settings_section=%v settings_found=%s tool=%s", int(k.palette), k.palette_runs, palette_entry_name(k.palette_last) if k.palette_ran else "none", k.settings_tab, k.settings_section, settings_found_text(k), strings.to_lower(fmt.tprint(app.tool), context.temp_allocator))
 		fmt.printfln("export_open=%d export_format=%v export_runs=%d", int(k.export.open), k.export.format, k.export.runs)
+		dial := strings.builder_make(context.temp_allocator)
+		for d, i in k.dial {
+			if i > 0 do strings.write_byte(&dial, ',')
+			switch v in d {
+			case Modifier: fmt.sbprint(&dial, v)
+			case Bar_Slot: strings.write_string(&dial, command_name(v.id, v.arg))
+			}
+		}
+		zone := "none"
+		if z, ok := k.arrange.picked.?; ok do zone = fmt.tprint(z)
+		fmt.printfln("dial_sectors=%s arrange_zone=%s arrange_resets=%d library=%d library_tab=%v", strings.to_string(dial), zone, k.arrange.resets, int(k.bars_edit && !k.arrange.library_off), k.arrange.tab)
 		groups := strings.builder_make(context.temp_allocator)
 		for g in k.palette_groups do fmt.sbprintf(&groups, "%s%v", "," if strings.builder_len(groups) > 0 else "", g)
 		locks := 0
@@ -1716,7 +1741,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	for obj in app.scene.objects do lod_pending += sculpt.sculptor_lod_pending(object_sculptor(obj))
 	fmt.printfln("simplify=%v last_frame_lod_px=%.2f last_frame_simplified=%d lod_pending=%d", app.simplify, app.renderer.lod_px, v.simplified, lod_pending)
 	if app.stats.lod_ms.count > 0 do print_stat("lod_build_ms", app.stats.lod_ms)
-	fmt.printfln("gpu_backend=%s", render.backend_name())
+	fmt.printfln("gpu_backend=%s gpu_choice=%v gpu_fallback=%v", render.backend_name(), app.graphics_start, render.backend_fallback() != "")
 	print_stat("frame_ms", app.stats.frame_ms)
 	print_stat("cpu_ms", app.stats.cpu_ms)
 	print_stat("wait_ms", app.stats.wait_ms)

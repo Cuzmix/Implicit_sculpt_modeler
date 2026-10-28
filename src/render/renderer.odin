@@ -433,10 +433,7 @@ renderer_init :: proc(r: ^Renderer, window: ^sdl.Window, debug: bool) -> bool {
 		ok: bool
 		r.device, ok = vk_create_device(debug, ODIN_PLATFORM_SUBTARGET != .Android)
 		r.anisotropy = vk_state.anisotropy
-		if !ok {
-			log.warn("Vulkan: falling back to SDL_GPU")
-			gpu_backend = .SDL_GPU
-		}
+		if !ok do gpu_backend = .SDL_GPU
 	}
 	if gpu_backend == .SDL_GPU do sdl_device_create(r, debug)
 	if r.device == nil {

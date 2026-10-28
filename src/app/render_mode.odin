@@ -62,7 +62,7 @@ render_mode_frame :: proc(app: ^App, cmd: render.Cmd, view, proj: render.Mat4, i
 	if !pass_shaded(app) do return
 	samples := int(clamp(app.render_samples, 1, render.RENDER_SAMPLES_MAX))
 	bounces := int(clamp(app.render_bounces, 1, render.RENDER_BOUNCES_MAX))
-	_ = render.render_frame(&app.renderer, &app.path, cmd, &app.target, view, proj, items, changed, samples, bounces, viewport_lights(app), app.studio_softness, app.exposure, app.render_denoise, app.render_half, render_lens(app), &app.pool)
+	_ = render.render_frame(&app.renderer, &app.path, cmd, &app.target, view, proj, items, changed, samples, bounces, viewport_lights(app), app.studio_softness, app.exposure, app.render_denoise, app.render_half, render_lens(app), &app.pool, linear = finish_wanted(app))
 }
 
 // Whether render mode still has samples to build, which keeps the frames coming.

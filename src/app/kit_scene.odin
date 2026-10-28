@@ -413,6 +413,7 @@ SCENE_SECTIONS := [?]Kit_Tab_Section {
 	{.Environment, "Environment", kit_environment, nil},
 	{.Render, "Render", kit_render, nil},
 	{.Lens, "Lens", kit_lens, nil},
+	{.Finish, "Finish", kit_finish, nil},
 	{.Camera, "Camera", kit_camera, nil},
 	{.Turntable, "Turntable", kit_turntable, nil},
 	{.Print, "3D print", kit_print, nil},

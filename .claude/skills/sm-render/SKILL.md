@@ -196,6 +196,19 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   (`guides[guide_at]` is read as samplers 3-4); with a lens every sample writes running means over hits and atrous
   (params.w) renormalizes the mean normals. The display composites over `pr.backdrop` (background + floor, drawn
   at sample 0) instead of `vt.color`, so the sharp clay never shows through blurred edges. 14 of 16 samplers used.
+- Finishing stack (`src/render/finish.odin`, `finish.frag.slang`, app `finish.odin`, Scene > Finish): one full-screen
+  pass after `live_ao_view_frame` over `viewport_unfinished`'s texture (or `vt.color`) into `Finish.shown`;
+  `viewport_shown` returns it, so every reader is finished. Runs only while the Render switch is on, the pass is
+  shaded and `render.finish_active` (any control off its none value): off stays 0 px. Input is display values:
+  `neutral_inverse` (display.slang; shoulder from the max channel, the desaturation, then the toe) gives linear light
+  back, capped at code 254.5 (`NEUTRAL_TOP`); the `residual` (shown minus tone_map of the inverse) is added after the
+  curve so non-Neutral colours (MatCaps, wires, flat backgrounds) and 8-bit losses survive and identity settings
+  stay within one code. Full feeds exact light: `render_display_linear.frag.slang` (render_display.frag.slang with LINEAR_OUT)
+  into `pr.linear` RGBA16F when `render_frame(linear = true)`. AgX is our own build of the method (inset 0.2 to the
+  mean, log2 -12.47..4.03, power-hyperbola sigmoid, outset 0.4), AgX and ACES exposure-matched to Neutral at mid grey
+  (`AGX_EXPOSURE`, `ACES_EXPOSURE`; the tests check them). The key (`finish_version`) is the redraw count, studio
+  and path samples and how they were shown, live AO runs: add whatever else changes the source without a redraw.
+  Transparent captures finish their second drawing too (`Capture.finished`). Picture panes are not finished yet.
 - Traced studio (`src/render/trace.odin`, `studio_trace.comp.slang`, `blas_refit.comp.slang`, `studio_trace_add.frag.slang`): at
   `samples == 0` `trace_prepare` decides the run (`Studio.traced`); false falls back to the gather, never half done.
   Needs `Draw_Item.source` (the CPU mesh as uploaded) and `Mesh_Buffers.storage` (positions and indices with
@@ -299,7 +312,9 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   stage, uniforms as dynamic uniform buffers of 4096 bytes from a per-command-buffer arena, default layouts per usage
   that passes leave and restore, cycling by backings, deferred destruction by refcount, a flipped viewport, dynamic
   rendering and a timeline semaphore whose serials are the fences. It needs Vulkan 1.3 with dynamicRendering,
-  synchronization2, timelineSemaphore and independentBlend, and `renderer_init` falls back to SDL_GPU otherwise.
+  synchronization2, timelineSemaphore and independentBlend, and `renderer_init` falls back to SDL_GPU otherwise,
+  keeping the reason for `render.backend_fallback`. The app picks the backend before it makes the window
+  (`src/app/graphics.odin`: Settings > System > Graphics, Automatic = Vulkan except on Darwin, `--gpu` for one run).
   A `vk_*` proc takes its struct parameters `#by_ptr` exactly as the `gpu_*` wrapper does, or the values arrive as
   garbage. Under `--gpu-debug` it runs the validation layer with synchronization validation and every message fails
   the run (`render.validation_errors`); smoke runs both backends, and a render change passes

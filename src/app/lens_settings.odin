@@ -78,7 +78,7 @@ LENS_PEN := [?]Settings_Entry{{.Pen_Empty, "ON EMPTY SPACE"}, {.Pen_Tips, "HOVER
 @(rodata)
 LENS_DIAL := [?]Settings_Entry{{.Wheel, "DIAL"}, {.Clean_Dial, ""}}
 @(rodata)
-LENS_PERFORMANCE := [?]Settings_Entry{{.Statistics, "STATISTICS"}, {.Anti_Aliasing, "DISPLAY"}}
+LENS_PERFORMANCE := [?]Settings_Entry{{.Statistics, "STATISTICS"}, {.Anti_Aliasing, "DISPLAY"}, {.Graphics, ""}}
 @(rodata)
 LENS_FRAME_RATE := [?]Settings_Entry{{.Frame_Rate, ""}}
 @(rodata)

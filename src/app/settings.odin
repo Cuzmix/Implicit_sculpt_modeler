@@ -63,6 +63,8 @@ N :: offset_of(App, nav)
 K :: offset_of(App, kit)
 @(private = "file")
 U :: offset_of(App, ui)
+@(private = "file")
+F :: offset_of(App, finish)
 
 // One of a light's values that settings files and scripts name, as "light<N>_<name>"
 // (LIGHT_KEYS), with where it is in a Light, its type and its range, as Setting has them.
@@ -211,6 +213,18 @@ SETTINGS := [?]Setting {
 	{"render_half", offset_of(App, render_half), bool, 0, 0},
 	{"render_dof", offset_of(App, render_dof), bool, 0, 0},
 	{"render_blur", offset_of(App, render_blur), f32, 0, 1},
+	{"finish_curve", F + offset_of(Finish_Settings, curve), render.Tone_Curve, 0, 0},
+	{"finish_contrast", F + offset_of(Finish_Settings, contrast), f32, FINISH_CONTRAST_MIN, FINISH_CONTRAST_MAX},
+	{"finish_saturation", F + offset_of(Finish_Settings, saturation), f32, 0, 2},
+	{"finish_temperature", F + offset_of(Finish_Settings, kelvin), f32, FINISH_KELVIN_MIN, FINISH_KELVIN_MAX},
+	{"finish_tint", F + offset_of(Finish_Settings, tint), f32, -1, 1},
+	{"finish_vignette", F + offset_of(Finish_Settings, vignette), f32, 0, 1},
+	{"finish_vignette_softness", F + offset_of(Finish_Settings, vignette_soft), f32, 0.05, 1},
+	{"finish_lift", F + offset_of(Finish_Settings, lift), f32, -0.2, 0.2},
+	{"finish_gamma", F + offset_of(Finish_Settings, gamma), f32, 0.5, 2},
+	{"finish_gain", F + offset_of(Finish_Settings, gain), f32, 0.5, 2},
+	{"finish_grain", F + offset_of(Finish_Settings, grain), f32, 0, 1},
+	{"finish_grain_size", F + offset_of(Finish_Settings, grain_size), f32, 1, 4},
 	{"studio_shadow", offset_of(App, studio_shadow), f32, 0, 1},
 	{"look_chosen", offset_of(App, look_chosen), bool, 0, 0},
 	{"styled", offset_of(App, styled), bool, 0, 0},
@@ -268,6 +282,7 @@ SETTINGS := [?]Setting {
 	{"idle_sleep", offset_of(App, idle_sleep), bool, 0, 0},
 	{"start_home", offset_of(App, start_home), bool, 0, 0},
 	{"msaa", offset_of(App, msaa), Msaa, 0, 0},
+	{"graphics", offset_of(App, graphics), Graphics, 0, 0},
 	{"autosave_minutes", offset_of(App, autosave) + offset_of(Autosave, minutes), i32, 0, 10},
 	{"versions_kept", offset_of(App, versions_kept), i32, 0, 10},
 	{"undo_steps", offset_of(App, undo_steps), i32, 0, 1000},
@@ -811,6 +826,12 @@ settings_load :: proc(app: ^App, path: string) {
 				// dock <slot> command <command name>: a command in the slot (Customise bars).
 				if id, arg, ok := command_from_name(f[3]); ok && bar_lists(id) do app.kit.dock[slot], dock_presets[slot] = {command = {id, arg}}, ""
 			}
+		case "dial_sector":
+			// dial_sector <0-3, clockwise from the top> modifier <name> | command <name>.
+			if len(f) != 4 do continue
+			i, i_ok := strconv.parse_int(f[1])
+			if !i_ok || i < 0 || i >= len(app.kit.dial) do continue
+			if s, ok := dial_sector_parse(f[2], f[3]); ok do app.kit.dial[i] = s
 		case "dock_count":
 			// dock_count <n>: how many slots the dock uses, before its dock lines.
 			if n, ok := strconv.parse_int(f[1]); ok && len(f) == 2 do app.kit.dock_count = clamp(n, 1, DOCK_SLOTS)
@@ -1046,6 +1067,8 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 		if !pie_changed(app, n) do continue
 		for s, i in app.kit.pies[n] do fmt.sbprintfln(&out, "pie %d %d %s", n, i, command_name(s.id, s.arg) if s.id != .None else "empty")
 	}
+	// The dial only when it differs from a fresh install's, written whole.
+	if !dial_is_default(&app.kit) do for s, i in app.kit.dial do fmt.sbprintfln(&out, "dial_sector %d %s", i, dial_sector_text(s))
 	for f in app.kit.favourites[:app.kit.favourite_count] do fmt.sbprintfln(&out, "favourite %s", command_name(f.id, f.arg))
 	for s, slot in app.plugins.slots do if s.key != "" do fmt.sbprintfln(&out, "plugin_slot %d %s", slot, preset_escape(s.key))
 	gestures := GESTURE_DEFAULTS

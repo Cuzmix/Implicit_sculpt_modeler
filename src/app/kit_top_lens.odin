@@ -41,14 +41,23 @@ kit_top_bar_lens :: proc(app: ^App) -> (menu_anchor, search_anchor: ui.Rect) {
 	left := 6 + 3 * t.target + file_w + 13 + 2 * 4
 	right := 2 * t.target + 12
 	middle := area.w - left - right - TOP_SEARCH_W - 8
-	pill := top_pill_width(app)
+	// Arranging, the middle holds what arranging needs in place of the pill.
+	arranging := k.bars_edit
+	pill := arrange_top_width(app) if arranging else top_pill_width(app)
 	field := middle >= pill + 24
 	if !field do middle = area.w - left - right - t.target - 8
 	// The switcher sits in the middle of the room left, laid out in the bar's row.
 	if middle >= pill + 8 {
 		pad := (middle - pill) * 0.5
 		ui.spacer(ctx, pad)
-		ui.spacer(ctx, max(middle - pad - top_workspace_pill(app), 0))
+		ui.spacer(ctx, max(middle - pad - (arrange_top_controls(app) if arranging else top_workspace_pill(app)), 0))
+	} else if arranging {
+		// Too narrow for them all: Done at least, the rest being in the Library and Search.
+		done_w: f32 = 84
+		pad := max((middle - done_w) * 0.5, 0)
+		ui.spacer(ctx, pad)
+		if ui.button(ctx, "Done##arrange narrow", .Solid, .Accent, width = done_w) do k.bars_edit = false
+		ui.spacer(ctx, max(middle - pad - done_w, 0))
 	} else if middle >= WORKSPACE_CHIP_ROOM {
 		pad := (middle - WORKSPACE_CHIP_ROOM) * 0.5
 		ui.spacer(ctx, pad)

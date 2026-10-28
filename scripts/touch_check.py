@@ -622,6 +622,20 @@ def render_switch_runs_one_quality():
 
 
 @scenario
+def finish_shows_with_the_render_and_resets():
+    """With a vignette set, the right bar's Render button finishes the picture; Reset finish from search
+    puts every control back, so the finish stops while the render goes on, and nothing is sculpted."""
+    s = Script()
+    s.ftap(*UI["studio"])
+    s.wait(8)
+    palette_run(s, "reset finish")
+    s.wait(6)
+    return s, ["--script=set finish_vignette 0.5"], camera_still({"render_switch": near(1), "finish": near(0),
+                                                                 "finish_passes": lambda v: int(v) > 0,
+                                                                 "dabs": near(0), "undo_steps": near(0)})
+
+
+@scenario
 def pick_focus_takes_the_point_from_the_model():
     """Pick focus from search waits for a finger on the model; its tap puts depth of field's focus on the
     sphere's surface, sculpting nothing and turning nothing."""
@@ -3420,6 +3434,63 @@ def lens_export_sheet_picks_a_format():
         s.press("e", ("ctrl",))
         s.wait(6)
         return s, LENS_1440, camera_still({"export_open": near(1), "export_format": is_text("STL"), "export_runs": near(0), "dabs": near(0)})
+    return Steps([run(False), run(True)])
+
+
+# Lens's Arrange at 1440x900 (--script=customise_bars): the Library's Dial tab, the Top
+# and Bottom sector selects with the Top list's last row and the Bottom list's Hide, the
+# top bar's Reset zone and Done, the Dial's and the Rail's tags, and the dial's top sector.
+LENS_ARRANGE = {"dial_tab": (432, 180), "top": (578, 260), "choose": (460, 530), "bottom": (578, 372), "hide": (460, 554),
+                "reset_zone": (601, 26), "done": (941, 26), "dial_tag": (33, 751), "rail_tag": (1404, 67), "dial_top": (78, 778)}
+
+
+@scenario
+def lens_arrange_dial_sector_runs_a_command():
+    """Library > Dial puts Frame all on the dial's top sector through Search; after Done a tap there frames the scene and latches nothing."""
+    a = LENS_ARRANGE
+    s = Script()
+    s.wait(6)
+    s.ftap(*a["dial_tab"])
+    s.wait(6)
+    s.ftap(*a["top"])
+    s.wait(6)
+    s.ftap(*a["choose"])
+    s.wait(8)
+    s.type("frame all")
+    s.wait(4)
+    s.press("Return")
+    s.wait(6)
+    s.ftap(*a["done"])
+    s.wait(8)
+    s.ftap(*a["dial_top"])
+    s.wait(30)
+    return s, LENS_1440 + ["--script=customise_bars"], {"dial_sectors": lambda v: v.startswith("Frame_All,Brush_Pie"), "rail_latched": is_text("none"),
+                                                        "bars_edit": near(0), "camera_distance": lambda v: abs(float(v) - 3.5) > 0.1, "dabs": near(0)}
+
+
+@scenario
+def lens_arrange_reset_zone():
+    """A tap on a zone's tag picks it; with Hide on the dial's bottom sector, picking the Dial and Reset zone puts the dial back as it comes."""
+    a = LENS_ARRANGE
+    def run(reset):
+        s = Script()
+        s.wait(6)
+        s.ftap(*a["rail_tag"])
+        s.wait(4)
+        if not reset:
+            return s, LENS_1440 + ["--script=customise_bars"], camera_still({"arrange_zone": is_text("Rail"), "dabs": near(0)})
+        s.ftap(*a["dial_tab"])
+        s.wait(6)
+        s.ftap(*a["bottom"])
+        s.wait(6)
+        s.ftap(*a["hide"])
+        s.wait(6)
+        s.ftap(*a["dial_tag"])
+        s.wait(4)
+        s.ftap(*a["reset_zone"])
+        s.wait(6)
+        return s, LENS_1440 + ["--script=customise_bars"], camera_still({"arrange_zone": is_text("Dial"), "arrange_resets": near(1),
+                                                                         "dial_sectors": is_text("Smooth,Brush_Pie,Invert,Mask"), "dabs": near(0)})
     return Steps([run(False), run(True)])
 
 
