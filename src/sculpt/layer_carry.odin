@@ -465,8 +465,17 @@ layer_loop_up :: proc(l: ^Levels, below, top: ^Level, layer: Sculpt_Layer) -> Sc
 		from:       Sculpt_Layer,
 		out:        [][]Vec3,
 		ids:        [dynamic]u32,
+		// Under a Catmull-Clark rule, the layer's displacement of every vertex below as
+		// one array, which frame_cc's origin carries up as it does positions: the rules
+		// are linear in the points, the weights coming from the topology and creases.
+		cc:         Loop_Base,
 	}
 	w := Work{below = below, top = top, from = layer}
+	if p := &below.polys; l.rule != .Loop && p.first != nil {
+		flat := make([]Vec3, len(below.mesh.positions), context.temp_allocator)
+		for d, id in layer.delta do if d != nil do copy(flat[below.sculptor.nodes[id].vert_first:], d)
+		w.cc = {flat, below.mesh.indices[:], below.sculptor.faces, p, p.tri_poly, &below.sharp, l.rule}
+	}
 	ts := &top.sculptor
 	out := Sculpt_Layer{name = layer.name, strength = layer.strength, visible = layer.visible}
 	out.delta = make([][]Vec3, len(ts.nodes), ts.history.allocator)
@@ -496,7 +505,9 @@ layer_loop_up :: proc(l: ^Levels, below, top: ^Level, layer: Sculpt_Layer) -> Sc
 		for u in n.vert_first ..< n.vert_first + n.vert_count {
 			par := w.top.parents[u]
 			d: Vec3
-			if par[2] == EVEN {
+			if w.cc.polys != nil {
+				d = frame_cc(&w.cc, par).origin
+			} else if par[2] == EVEN {
 				// frame_at's origin, over the displacement instead of the positions.
 				v := par[0]
 				ring: Vec3

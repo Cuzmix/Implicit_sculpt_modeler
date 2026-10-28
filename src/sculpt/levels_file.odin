@@ -43,6 +43,11 @@ LEVELS_LAYOUT :: u32(16)
 // order (files from before them have none).
 @(private = "file")
 LEVELS_SETS :: u32(32)
+// Right after the layout, the Catmull-Clark rule and the base level's polygons, their
+// triangles' polygons and its creases (levels_cc.odin), all in the base's own order, so
+// the levels above are rebuilt by the same rule (files from before them are Loop's).
+@(private = "file")
+LEVELS_CC :: u32(64)
 
 // How levels_write runs. A save from the frame loop takes the defaults. The autosave
 // thread writes serially, since the pool takes jobs from the frame loop alone, and
@@ -108,11 +113,12 @@ levels_write :: proc(l: ^Levels, out: ^[dynamic]u8, opts := Write_Options{}) -> 
 	w := Writer{out, nil if opts.serial else l.pool, opts.abort}
 	paged := levels_dynamic(l)
 	geom.byte_put(out, LEVELS_TAG)
-	geom.byte_put(out, LEVELS_DYNAMIC if paged else LEVELS_PAINT | LEVELS_LAYERS | LEVELS_QUADS | LEVELS_LAYOUT | LEVELS_SETS)
+	base := l.levels[0]
+	cc := !paged && l.rule != .Loop && base.polys.first != nil
+	geom.byte_put(out, LEVELS_DYNAMIC if paged else LEVELS_PAINT | LEVELS_LAYERS | LEVELS_QUADS | LEVELS_LAYOUT | LEVELS_SETS | (LEVELS_CC if cc else 0))
 	geom.byte_put(out, u32(len(l.levels)))
 	geom.byte_put(out, u32(l.current))
 	geom.byte_put(out, u32(l.hd.steps))
-	base := l.levels[0]
 	if paged {
 		packed, mask := compact_mesh(&base.sculptor, w.pool, false, w.abort)
 		defer geom.mesh_destroy(&packed)
@@ -123,6 +129,16 @@ levels_write :: proc(l: ^Levels, out: ^[dynamic]u8, opts := Write_Options{}) -> 
 	layout := sculptor_layout(&base.sculptor, context.temp_allocator)
 	geom.byte_put(out, u32(len(layout)))
 	if !put_checked(&w, slice.to_bytes(layout)) do return false
+	if cc {
+		p, sh := &base.polys, &base.sharp
+		geom.byte_put(out, u8(l.rule))
+		geom.byte_put(out, u32(len(p.first) - 1))
+		geom.byte_put(out, u32(len(sh.edges)))
+		geom.byte_put(out, u32(len(sh.verts)))
+		for bytes in ([][]u8{slice.to_bytes(p.first), slice.to_bytes(p.corners), slice.to_bytes(p.tri_poly), slice.to_bytes(sh.edges), slice.to_bytes(sh.edge), slice.to_bytes(sh.verts), slice.to_bytes(sh.vert)}) {
+			if !put_checked(&w, bytes) do return false
+		}
+	}
 	canon: [MAX_LEVELS][]u32 // level 0's is its own order
 	for j in 1 ..< len(l.levels) {
 		lv := l.levels[j]
@@ -365,10 +381,12 @@ levels_read :: proc(l: ^Levels, r: ^geom.Byte_Reader, pool: ^jobs.Pool, node_tri
 		geom.byte_get_slice(r, layout)
 	}
 	file_order := make([]u32, len(mesh.positions), context.temp_allocator)
-	levels_init(l, mesh, pool, node_triangles, file_order, allocator = allocator, layout = layout)
+	tri_from := make([]u32, len(mesh.indices) / 3, context.temp_allocator)
+	levels_init(l, mesh, pool, node_triangles, file_order, tri_from, allocator = allocator, layout = layout)
 	sculptor_recompute_all(&l.levels[0].sculptor)
 	ok := false
 	defer if !ok do levels_destroy(l)
+	if flags & LEVELS_CC != 0 && !read_cc(r, l, file_order, tri_from) do return false
 	// Per level: each vertex's place in the file. Kept outside the temp scratch of
 	// each level, which is given back once the level is read.
 	canon: [MAX_LEVELS][]u32
@@ -474,21 +492,43 @@ level_canon :: proc(l: ^Levels, j: int, below: []u32, pool: ^jobs.Pool, abort: ^
 		below:     []u32,
 		start:     []u32, // per place below, plus one: where its edges start
 		canon:     []u32,
+		// Under a Catmull-Clark rule, the polygons below: a vertex's neighbours are the
+		// corners after it in its polygons, and the face points come last, in polygon
+		// order, which only the topology decides too.
+		polys:     ^Polys,
+	}
+	// Calls `fn` for each neighbour w of v below: the corner after v in each of its
+	// triangles, or in each of its polygons. Each comes once on a closed mesh.
+	neighbours :: #force_inline proc(k: ^Canon, v: u32, data: ^u32, pv, pb: u32, fn: proc(k: ^Canon, w: u32, data: ^u32, pv, pb: u32)) {
+		tris := geom.vertex_faces_of(k.under.sculptor.faces, v)
+		indices := k.under.mesh.indices[:]
+		if k.polys == nil {
+			for f in tris {
+				w, _ := others(indices, f, v)
+				fn(k, w, data, pv, pb)
+			}
+			return
+		}
+		for f, i in tris {
+			g := k.polys.tri_poly[f]
+			seen := false
+			for e in tris[:i] do if k.polys.tri_poly[e] == g do seen = true
+			if seen do continue
+			corners := poly_corners(k.polys, g)
+			at, _ := slice.linear_search(corners, v)
+			fn(k, corners[(at + 1) % len(corners)], data, pv, pb)
+		}
 	}
 	lv, under := l.levels[j], l.levels[j - 1]
 	vb := len(under.mesh.positions)
-	k := Canon{lv, under, below, make([]u32, vb + 1, context.temp_allocator), make([]u32, len(lv.mesh.positions), allocator)}
+	k := Canon{lv, under, below, make([]u32, vb + 1, context.temp_allocator), make([]u32, len(lv.mesh.positions), allocator), nil}
+	if l.rule != .Loop && under.polys.first != nil do k.polys = &under.polys
 	ranged := ranges(pool, abort, vb, &k, proc(data: rawptr, lo, hi: int) {
 		k := cast(^Canon)data
-		indices := k.under.mesh.indices[:]
 		for v in u32(lo) ..< u32(hi) {
 			pv := place(k.below, v)
 			after: u32
-			// Each neighbour comes once as the corner after v, on a closed mesh.
-			for f in geom.vertex_faces_of(k.under.sculptor.faces, v) {
-				w, _ := others(indices, f, v)
-				after += u32(place(k.below, w) > pv)
-			}
+			neighbours(k, v, &after, pv, 0, proc(k: ^Canon, w: u32, after: ^u32, pv, _: u32) {after^ += u32(place(k.below, w) > pv)})
 			k.start[pv + 1] = after
 		}
 	}, geom.RANGE_GRAIN)
@@ -499,7 +539,6 @@ level_canon :: proc(l: ^Levels, j: int, below: []u32, pool: ^jobs.Pool, abort: ^
 	for p in 0 ..< vb do k.start[p + 1] += k.start[p]
 	ranged = ranges(pool, abort, len(k.canon), &k, proc(data: rawptr, lo, hi: int) {
 		k := cast(^Canon)data
-		indices := k.under.mesh.indices[:]
 		vb := u32(len(k.under.mesh.positions))
 		for u in lo ..< hi {
 			par := k.lv.parents[u]
@@ -507,15 +546,18 @@ level_canon :: proc(l: ^Levels, j: int, below: []u32, pool: ^jobs.Pool, abort: ^
 				k.canon[u] = place(k.below, par[0])
 				continue
 			}
+			if par[2] == FACE && k.polys != nil {
+				k.canon[u] = vb + k.start[vb] + par[3]
+				continue
+			}
 			a, b := par[0], par[1]
 			pa, pb := place(k.below, a), place(k.below, b)
 			if pb < pa do a, pa, pb = b, pb, pa
 			before: u32
-			for f in geom.vertex_faces_of(k.under.sculptor.faces, a) {
-				w, _ := others(indices, f, a)
+			neighbours(k, a, &before, pa, pb, proc(k: ^Canon, w: u32, before: ^u32, pa, pb: u32) {
 				pw := place(k.below, w)
-				before += u32(pw > pa && pw < pb)
-			}
+				before^ += u32(pw > pa && pw < pb)
+			})
 			k.canon[u] = vb + k.start[pa] + before
 		}
 	}, geom.RANGE_GRAIN)
@@ -665,4 +707,78 @@ read_quads :: proc(r: ^geom.Byte_Reader, l: ^Levels, file_order: []u32) -> bool 
 	uv.charts, uv.filled = charts, filled
 	levels_set_uvs(l, uv)
 	return true
+}
+
+// Reads what levels_write wrote under LEVELS_CC into a single-level `l`: the rule, then
+// the base's polygons, triangles' polygons and creases in the file's order, put in the
+// level's by `file_order` (per file vertex, the level's) and `tri_from` (per triangle,
+// its file number). False on a damaged file: counts past the bytes left, or polygons,
+// corners or creases that do not fit the base.
+@(private = "file")
+read_cc :: proc(r: ^geom.Byte_Reader, l: ^Levels, file_order, tri_from: []u32) -> bool {
+	rule := geom.byte_get(r, u8)
+	pcount := int(geom.byte_get(r, u32))
+	ecount := int(geom.byte_get(r, u32))
+	vcount := int(geom.byte_get(r, u32))
+	tcount := len(tri_from)
+	left := len(r.data) - r.at
+	if !r.ok || rule < u8(Subdivision_Rule.Smooth) || rule > u8(Subdivision_Rule.Flat) || pcount < 1 || pcount > tcount do return false
+	if ecount > left / 12 || vcount > left / 8 || (pcount + 1 + tcount) > left / 4 do return false
+	first := make([]u32, pcount + 1, l.allocator)
+	geom.byte_get_slice(r, first)
+	corners_count := int(first[pcount]) if r.ok else 0
+	if !r.ok || first[0] != 0 || corners_count > (len(r.data) - r.at) / 4 || corners_count < 3 * pcount {
+		delete(first, l.allocator)
+		return false
+	}
+	p := Polys{first = first, corners = make([]u32, corners_count, l.allocator), tri_poly = make([]u32, tcount, l.allocator)}
+	s := Sharp{make([]u64, ecount, l.allocator), make([]f32, ecount, l.allocator), make([]u32, vcount, l.allocator), make([]f32, vcount, l.allocator)}
+	saved := make([]u32, tcount, context.temp_allocator)
+	geom.byte_get_slice(r, p.corners)
+	geom.byte_get_slice(r, saved)
+	geom.byte_get_slice(r, s.edges)
+	geom.byte_get_slice(r, s.edge)
+	geom.byte_get_slice(r, s.verts)
+	geom.byte_get_slice(r, s.vert)
+	vertices := u32(len(file_order))
+	fits := r.ok
+	for i in 0 ..< pcount do fits &&= first[i] < first[i + 1]
+	for &c in p.corners {
+		fits &&= c < vertices
+		if fits do c = file_order[c]
+	}
+	for &t, i in p.tri_poly {
+		t = saved[tri_from[i]]
+		fits &&= int(t) < pcount
+	}
+	// Creases in the level's numbers, sorted again.
+	Edge :: struct {
+		key: u64,
+		c:   f32,
+	}
+	edges := make([]Edge, ecount, context.temp_allocator)
+	for key, i in s.edges {
+		a, b := u32(key >> 32), u32(key & 0xffff_ffff)
+		fits &&= a < vertices && b < vertices && a != b && s.edge[i] >= 0 && s.edge[i] <= INFINITE_SHARP // NaN too
+		if fits do edges[i] = {sharp_key(file_order[a], file_order[b]), s.edge[i]}
+	}
+	slice.sort_by(edges, proc(x, y: Edge) -> bool {return x.key < y.key})
+	for e, i in edges do s.edges[i], s.edge[i] = e.key, e.c
+	Vert :: struct {
+		v: u32,
+		c: f32,
+	}
+	verts := make([]Vert, vcount, context.temp_allocator)
+	for v, i in s.verts {
+		fits &&= v < vertices && s.vert[i] >= 0 && s.vert[i] <= INFINITE_SHARP
+		if fits do verts[i] = {file_order[v], s.vert[i]}
+	}
+	slice.sort_by(verts, proc(x, y: Vert) -> bool {return x.v < y.v})
+	for v, i in verts do s.verts[i], s.vert[i] = v.v, v.c
+	if !fits {
+		polys_destroy(&p, l.allocator)
+		sharp_destroy(&s, l.allocator)
+		return false
+	}
+	return levels_set_polys(l, p, s, Subdivision_Rule(rule))
 }

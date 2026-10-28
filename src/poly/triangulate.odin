@@ -10,7 +10,12 @@ import "../geom"
 // diagonal, which keeps a bent quad's crease where the eye expects it; a larger face by
 // ear clipping in the plane of its Newell normal, so concave polygons stay inside their
 // outline, with a fan as the fallback for a face too bent to clip.
-triangulate :: proc(m: ^Mesh, out: ^geom.Mesh, tri_face: ^[dynamic]u32) {
+//
+// With `fixed`, a quad is cut along the diagonal from its first corner instead, whatever
+// its shape: on a subdivided cage that runs from each corner's vertex point to the face
+// point, which is how the sculptor cuts its Catmull-Clark levels, so a level shows the
+// same triangles as the cage smoothed to it.
+triangulate :: proc(m: ^Mesh, out: ^geom.Mesh, tri_face: ^[dynamic]u32, fixed := false) {
 	base := u32(len(out.positions))
 	append(&out.positions, ..m.positions[:])
 	corners := make([dynamic]u32, context.temp_allocator)
@@ -18,7 +23,7 @@ triangulate :: proc(m: ^Mesh, out: ^geom.Mesh, tri_face: ^[dynamic]u32) {
 	for f in 0 ..< u32(len(m.face_he)) {
 		face_verts(m, f, &corners)
 		clear(&tris)
-		face_triangles(m, f, corners[:], &tris)
+		face_triangles(m, f, corners[:], &tris, fixed)
 		for t in tris {
 			append(&out.indices, base + corners[t[0]], base + corners[t[1]], base + corners[t[2]])
 			append(tri_face, f)
@@ -27,7 +32,7 @@ triangulate :: proc(m: ^Mesh, out: ^geom.Mesh, tri_face: ^[dynamic]u32) {
 }
 
 // The triangles of face f, whose corners are `corners`, as corner positions within it.
-face_triangles :: proc(m: ^Mesh, f: u32, corners: []u32, out: ^[dynamic][3]int) {
+face_triangles :: proc(m: ^Mesh, f: u32, corners: []u32, out: ^[dynamic][3]int, fixed := false) {
 	n := len(corners)
 	switch n {
 	case 3:
@@ -37,7 +42,7 @@ face_triangles :: proc(m: ^Mesh, f: u32, corners: []u32, out: ^[dynamic][3]int) 
 		p := m.positions
 		d02 := linalg.length2(p[corners[2]] - p[corners[0]])
 		d13 := linalg.length2(p[corners[3]] - p[corners[1]])
-		if d13 < d02 {
+		if d13 < d02 && !fixed {
 			append(out, [3]int{1, 2, 3}, [3]int{1, 3, 0})
 		} else {
 			append(out, [3]int{0, 1, 2}, [3]int{0, 2, 3})

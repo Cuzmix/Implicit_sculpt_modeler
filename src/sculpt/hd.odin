@@ -378,7 +378,7 @@ levels_hd_enter :: proc(l: ^Levels, at: Vec3, budget := HD_WINDOW_VERTICES) -> b
 	// Positions: each vertex decoded once, from its first place in storage. The border,
 	// which never moves, sits on the top level's triangles so it meets them exactly.
 	b.hd = hd
-	b.base = {r.below.positions[:], r.below.indices[:], r.below.faces}
+	b.base = {positions = r.below.positions[:], indices = r.below.indices[:], faces = r.below.faces}
 	jobs.parallel_for(l.pool, len(r.nodes), &b, proc(data: rawptr, j: int) {
 		b := cast(^Hd_Build)data
 		r := &b.hd.region
@@ -499,7 +499,7 @@ levels_hd_leave :: proc(l: ^Levels) {
 	lv := hd.window
 	if lv == nil do return
 	r := &hd.region
-	e := Hd_Leave{hd = hd, lv = lv, base = {r.below.positions[:], r.below.indices[:], r.below.faces}}
+	e := Hd_Leave{hd = hd, lv = lv, base = {positions = r.below.positions[:], indices = r.below.indices[:], faces = r.below.faces}}
 	e.changed = make([]bool, len(r.nodes), context.temp_allocator)
 	jobs.parallel_for(l.pool, len(r.nodes), &e, proc(data: rawptr, j: int) {
 		e := cast(^Hd_Leave)data
@@ -711,7 +711,7 @@ hd_patch_next :: proc(below: ^Hd_Patch, pool: ^jobs.Pool, allocator: runtime.All
 		parents:   [][4]u32,
 		positions: []Vec3,
 	}
-	x := Next{base = {below.positions[:], below.indices[:], below.faces}}
+	x := Next{base = {positions = below.positions[:], indices = below.indices[:], faces = below.faces}}
 	p.indices, x.parents = hd_loop_step(below, pool, allocator)
 	p.positions = make([dynamic]Vec3, len(x.parents), allocator)
 	x.positions = p.positions[:]
