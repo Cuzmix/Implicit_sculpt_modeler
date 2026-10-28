@@ -4,7 +4,6 @@ import "core:hash"
 import "core:math/linalg"
 import "core:mem"
 import "core:time"
-import sdl "vendor:sdl3"
 
 import "../camera"
 import "../render"
@@ -192,7 +191,7 @@ second_free :: proc(app: ^App, sv: ^Second_View) {
 // each view pane's (grid.odin).
 Picture :: struct {
 	view:  render.Thumbnail_View,
-	shown: ^sdl.GPUTexture, // what the window shows this frame, nil for nothing yet
+	shown: render.Texture, // what the window shows this frame, nil for nothing yet
 	key:   u64, // what the texture holds; 0 for nothing
 	at:    time.Tick, // when it was last drawn
 	// The camera it was drawn through, which what is drawn over it (the proportion
@@ -226,7 +225,7 @@ thumbnail_destroy :: proc(app: ^App) {
 
 // Draws the second view on `cmd` when the window is laid out and what it shows changed,
 // from the frame's `draws` (shaded, as the viewport's own pass is cleared before this).
-thumbnail_frame :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer, draws: []render.Draw_Item) {
+thumbnail_frame :: proc(app: ^App, cmd: render.Cmd, draws: []render.Draw_Item) {
 	k := &app.kit
 	size := k.thumbnail_px
 	if !k.thumbnail || k.home || size.x == 0 || size.y == 0 {
@@ -259,7 +258,7 @@ picture_key :: proc(app: ^App, sv: ^Second_View, size: [2]u32, supersample: u32)
 // goes on, at most every THUMBNAIL_EVERY seconds, and every frame while its own camera is
 // dragged. A heavy pass runs on the picture's own target after it: live occlusion once,
 // the studio a sample a frame afterwards, at rest, until it has the studio's count.
-picture_frame :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer, draws: []render.Draw_Item, sv: ^Second_View, pic: ^Picture, size: [2]u32, supersample: u32) {
+picture_frame :: proc(app: ^App, cmd: render.Cmd, draws: []render.Draw_Item, sv: ^Second_View, pic: ^Picture, size: [2]u32, supersample: u32) {
 	pic.due = false
 	// The path tracer's copy of the scene is costly to keep: a picture showing another pass
 	// gives it back.
@@ -382,7 +381,7 @@ picture_samples :: proc(app: ^App, sv: ^Second_View, pic: ^Picture) -> (have, wa
 // One step of a picture's path tracing, with Scene > Render's settings and the lens seen
 // from the picture's camera; `changed` starts it over.
 @(private = "file")
-picture_render :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer, pic: ^Picture, view, proj: render.Mat4, items: []render.Draw_Item, lights: render.Lights, orbit: camera.Orbit, changed: bool) {
+picture_render :: proc(app: ^App, cmd: render.Cmd, pic: ^Picture, view, proj: render.Mat4, items: []render.Draw_Item, lights: render.Lights, orbit: camera.Orbit, changed: bool) {
 	samples := int(clamp(app.render_samples, 1, render.RENDER_SAMPLES_MAX))
 	bounces := int(clamp(app.render_bounces, 1, render.RENDER_BOUNCES_MAX))
 	lens := render_lens(app)

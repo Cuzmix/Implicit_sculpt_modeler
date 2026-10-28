@@ -4,7 +4,6 @@ import "core:hash"
 import "core:math/linalg"
 import "core:mem"
 import "core:time"
-import sdl "vendor:sdl3"
 
 import "../camera"
 import "../geom"
@@ -97,7 +96,7 @@ thumb_for :: proc(app: ^App, obj: ^Object) -> (lo, hi: [2]f32, ok: bool) {
 
 // Draws at most one picture on `cmd` for this frame: the first cell shown this frame that
 // is out of date, once its object has settled (at once when it has no picture yet).
-thumbs_frame :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer) {
+thumbs_frame :: proc(app: ^App, cmd: render.Cmd) {
 	ts := &app.thumb_slots
 	if ts.frame == 0 do ts.frame = 1
 	defer ts.frame += 1

@@ -125,8 +125,8 @@ View_Grid :: struct {
 	// (grid_work_gpu), and what the main pane showed as it began, to keep still.
 	work_began:  bool,
 	work_ended:  int, // the view pane whose work ended this frame, 0 for none
-	work_shown:  ^sdl.GPUTexture,
-	work_live:   ^sdl.GPUTexture, // what the pane showed last as the work ended, for its picture
+	work_shown:  render.Texture,
+	work_live:   render.Texture, // what the pane showed last as the work ended, for its picture
 	last_place:  int, // where the last press went: 0 the main pane, else the view pane
 	// For the exit stats: gestures worked in a view pane, and the dabs they laid.
 	works:       int,
@@ -1093,7 +1093,7 @@ ICON_LINK :: rune(0xe108)
 
 // Draws each view pane shown whose picture is due, as the second view does (thumbnail.odin),
 // but the one worked in, where the main view is drawn.
-grid_frame :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer, draws: []render.Draw_Item) {
+grid_frame :: proc(app: ^App, cmd: render.Cmd, draws: []render.Draw_Item) {
 	k := &app.kit
 	for &pic, i in app.panes {
 		size := k.grid.px[i]

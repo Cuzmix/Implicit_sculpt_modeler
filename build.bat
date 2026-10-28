@@ -54,7 +54,8 @@ rem Library packages have no main, hence -no-entry-point; it is harmless on the 
 "%ODIN%" check "%ROOT%src\voxel" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\zip" -no-entry-point %COMMON% || exit /b 1
 python "%ROOT%scripts\agents_sync.py" --check || exit /b 1
-echo check: 14 packages type-check, agent mirror current
+python "%ROOT%scripts\boundary_check.py" || exit /b 1
+echo check: 14 packages type-check, agent mirror current, only render names the GPU API
 exit /b 0
 
 :debug

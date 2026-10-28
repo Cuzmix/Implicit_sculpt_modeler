@@ -4,7 +4,6 @@ import "core:fmt"
 import "core:log"
 import "core:math/linalg"
 import "core:time"
-import sdl "vendor:sdl3"
 
 import "../geom"
 import "../render"
@@ -235,7 +234,7 @@ boolean_live_update :: proc(app: ^App) -> bool {
 	start := time.tick_now()
 	mesh, ok := boolean_preview(app, base)
 	b.stamp, b.base = stamp, base.id
-	if b.shown do _ = sdl.WaitForGPUIdle(app.renderer.device)
+	if b.shown do render.wait_idle(&app.renderer)
 	render.mesh_buffers_destroy(&app.renderer, &b.preview)
 	geom.mesh_destroy(&b.preview_mesh)
 	b.shown = false

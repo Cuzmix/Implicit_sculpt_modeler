@@ -6,7 +6,6 @@ import "core:math/linalg"
 import "core:slice"
 import "core:strings"
 import "core:time"
-import sdl "vendor:sdl3"
 
 import "../geom"
 import "../gizmo"
@@ -207,7 +206,7 @@ Scene_Command :: struct {
 }
 
 scene_destroy :: proc(app: ^App) {
-	_ = sdl.WaitForGPUIdle(app.renderer.device)
+	render.wait_idle(&app.renderer)
 	for obj in app.scene.objects do object_free(app, obj)
 	delete(app.scene.objects)
 	folders_clear(&app.scene.folders)
@@ -297,7 +296,7 @@ object_make_primitive :: proc(app: ^App, shape: geom.Primitive, vertices: int, t
 	// A starter is a closed manifold mesh, so each level divides; the top is shown.
 	for _ in 0 ..< levels do if !sculpt.levels_subdivide(&obj.levels) do break
 	if !object_show_level(app, obj, start) {
-		_ = sdl.WaitForGPUIdle(app.renderer.device)
+		render.wait_idle(&app.renderer)
 		object_discard(app, obj)
 		return nil, false
 	}
@@ -380,7 +379,7 @@ object_remesh :: proc(app: ^App, obj: ^Object, vertices: int) -> (changed, ok: b
 		return false, true
 	}
 	remeshed := time.tick_now()
-	_ = sdl.WaitForGPUIdle(app.renderer.device)
+	render.wait_idle(&app.renderer)
 	if !object_rebuild(app, obj, mesh, remeshed, normals = false) do return true, false
 	app.stats.remesh_ms = time.duration_milliseconds(time.tick_diff(start, remeshed))
 	app.stats.remesh_setup_ms = time.duration_milliseconds(time.tick_since(remeshed))
@@ -416,7 +415,7 @@ object_decimate :: proc(app: ^App, obj: ^Object, vertices: int) -> (changed, ok:
 		return false, true
 	}
 	decimated := time.tick_now()
-	_ = sdl.WaitForGPUIdle(app.renderer.device)
+	render.wait_idle(&app.renderer)
 	if !object_rebuild(app, obj, mesh, decimated, normals = true) do return true, false
 	app.stats.decimate_ms = time.duration_milliseconds(time.tick_diff(start, decimated))
 	app.stats.decimate_error = error
@@ -450,7 +449,7 @@ object_symmetrize :: proc(app: ^App, obj: ^Object, axis: int, keep_positive: boo
 		return false, true
 	}
 	cut := time.tick_now()
-	_ = sdl.WaitForGPUIdle(app.renderer.device)
+	render.wait_idle(&app.renderer)
 	if !object_rebuild(app, obj, mesh, cut, normals = true, mirror = {active = true, axis = sculpt.Axis(axis), keep_positive = keep_positive}) do return true, false
 	log.infof("mirror and weld: %d vertices in %.0f ms", object_vertex_count(obj), time.duration_milliseconds(time.tick_diff(start, cut)))
 	return true, true
@@ -484,7 +483,7 @@ object_slice :: proc(app: ^App, obj: ^Object, point, normal: Vec3) -> (part: ^Ob
 		return nil, false, true
 	}
 	cut := time.tick_now()
-	_ = sdl.WaitForGPUIdle(app.renderer.device)
+	render.wait_idle(&app.renderer)
 	// Both parts take the layers, so the level they came from stays until the second has.
 	layered := object_take_layered(app, obj)
 	defer sculpt.layered_level_free(&layered)
@@ -536,7 +535,7 @@ object_knife :: proc(app: ^App, obj: ^Object, point, normal: Vec3) -> (changed, 
 		return false, true
 	}
 	cut := time.tick_now()
-	_ = sdl.WaitForGPUIdle(app.renderer.device)
+	render.wait_idle(&app.renderer)
 	if !object_rebuild(app, obj, back, cut, normals = true) do return true, false
 	app.stats.slice_ms = time.duration_milliseconds(time.tick_diff(start, cut))
 	app.stats.slice_setup_ms = time.duration_milliseconds(time.tick_since(cut))
@@ -579,7 +578,7 @@ scene_duplicate :: proc(app: ^App, obj: ^Object) -> bool {
 	twin, read, made := object_get(app, &r)
 	if !read do return true
 	if !made {
-		_ = sdl.WaitForGPUIdle(app.renderer.device)
+		render.wait_idle(&app.renderer)
 		object_discard(app, twin)
 		return false
 	}
@@ -610,7 +609,7 @@ scene_paste :: proc(app: ^App) -> bool {
 	twin, read, made := object_get(app, &r)
 	if !read do return true
 	if !made {
-		_ = sdl.WaitForGPUIdle(app.renderer.device)
+		render.wait_idle(&app.renderer)
 		object_discard(app, twin)
 		return false
 	}
@@ -689,7 +688,7 @@ object_set_dyntopo :: proc(app: ^App, obj: ^Object, on: bool) -> (changed, ok: b
 	object_forget_history(app, obj)
 	converted := time.tick_now()
 	// The layout changed completely: new buffers with everything in them.
-	_ = sdl.WaitForGPUIdle(app.renderer.device)
+	render.wait_idle(&app.renderer)
 	render.mesh_buffers_destroy(&app.renderer, &obj.gpu[0])
 	obj.gpu[0], ok = render.mesh_buffers_create(&app.renderer, object_mesh(obj)^, object_sculptor(obj).mask)
 	if !ok do return true, false
@@ -705,10 +704,10 @@ object_set_dyntopo :: proc(app: ^App, obj: ^Object, on: bool) -> (changed, ok: b
 // `ranges`, and the triangles dynamic topology changed). When dynamic topology has
 // outgrown the buffers, makes bigger ones with everything in them instead. Returns the
 // bytes sent, and false on a GPU failure.
-level_upload :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer, gpu: ^render.Mesh_Buffers, lv: ^sculpt.Level, ranges: []geom.Vertex_Range) -> (bytes: int, ok: bool) {
+level_upload :: proc(app: ^App, cmd: render.Cmd, gpu: ^render.Mesh_Buffers, lv: ^sculpt.Level, ranges: []geom.Vertex_Range) -> (bytes: int, ok: bool) {
 	m := lv.mesh
 	if u32(len(m.positions)) > gpu.vertex_capacity || u32(len(m.indices)) > gpu.index_count {
-		_ = sdl.WaitForGPUIdle(app.renderer.device)
+		render.wait_idle(&app.renderer)
 		render.mesh_buffers_destroy(&app.renderer, gpu)
 		gpu^ = render.mesh_buffers_create(&app.renderer, m, lv.sculptor.mask) or_return
 		render.viewport_invalidate(&app.target)
@@ -728,7 +727,7 @@ level_upload :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer, gpu: ^render.Mesh_Bu
 // are uploaded as degenerate ones, which draw nothing. A new buffer starts from the
 // mesh's own indices, so it takes every node with a hidden triangle. Returns the bytes.
 @(private = "file")
-hidden_upload :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer, gpu: ^render.Mesh_Buffers, lv: ^sculpt.Level) -> int {
+hidden_upload :: proc(app: ^App, cmd: render.Cmd, gpu: ^render.Mesh_Buffers, lv: ^sculpt.Level) -> int {
 	stamp := sculpt.sculptor_hidden_stamp(&lv.sculptor)
 	if gpu.hidden_stamp == stamp do return 0
 	indices, ranges := sculpt.sculptor_hidden_indices(&lv.sculptor, gpu.hidden_stamp)
@@ -744,7 +743,7 @@ scene_delete_selected :: proc(app: ^App, undoable := true, chain := false) {
 	if obj == nil do return
 	stroke_finish(app)
 	if undoable do history_record_swap(app, obj.id, history_snapshot(app, obj, "delete object"), chain)
-	_ = sdl.WaitForGPUIdle(app.renderer.device)
+	render.wait_idle(&app.renderer)
 	ordered_remove(&app.scene.objects, app.scene.selected)
 	object_free(app, obj)
 	app.scene.selected = min(app.scene.selected, len(app.scene.objects) - 1)
@@ -1059,7 +1058,7 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 			return object_set_level(app, obj, cmd.level)
 		case .Delete_Higher:
 			history_record_swap(app, obj.id, history_snapshot(app, obj, "delete higher levels"))
-			_ = sdl.WaitForGPUIdle(app.renderer.device)
+			render.wait_idle(&app.renderer)
 			for i in levels.current + 1 ..< len(levels.levels) do render.mesh_buffers_destroy(&app.renderer, &obj.gpu[i])
 			carried, dropped := sculpt.levels_delete_higher(levels)
 			app.layers_kept += carried
@@ -1068,7 +1067,7 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 		case .Delete_Lower:
 			k := levels.current
 			history_record_swap(app, obj.id, history_snapshot(app, obj, "delete lower levels"))
-			_ = sdl.WaitForGPUIdle(app.renderer.device)
+			render.wait_idle(&app.renderer)
 			for i in 0 ..< k do render.mesh_buffers_destroy(&app.renderer, &obj.gpu[i])
 			sculpt.levels_delete_lower(levels)
 			copy(obj.gpu[:], obj.gpu[k:])
@@ -1115,13 +1114,10 @@ object_show_level :: proc(app: ^App, obj: ^Object, start: time.Tick) -> bool {
 		return ok
 	}
 	if len(ranges) == 0 && len(sculpt.sculptor_index_ranges(&lv.sculptor)) == 0 do return true
-	cmd := sdl.AcquireGPUCommandBuffer(app.renderer.device)
-	if cmd == nil {
-		log.errorf("AcquireGPUCommandBuffer failed: %s", sdl.GetError())
-		return false
-	}
+	cmd := render.cmd_begin(&app.renderer)
+	if cmd == nil do return false
 	_, ok := level_upload(app, cmd, gpu, lv, ranges)
-	return sdl.SubmitGPUCommandBuffer(cmd) && ok
+	return render.cmd_submit(cmd) && ok
 }
 
 // Starts sculpting the object's HD level in a window around `at` (in the object's
@@ -1163,7 +1159,7 @@ object_hd_leave :: proc(app: ^App, obj: ^Object) {
 	if !object_in_hd(obj) do return
 	if app.stroke.object == obj.id do stroke_finish(app)
 	start := time.tick_now()
-	_ = sdl.WaitForGPUIdle(app.renderer.device)
+	render.wait_idle(&app.renderer)
 	render.mesh_buffers_destroy(&app.renderer, &obj.hd_gpu)
 	sculpt.levels_hd_leave(&obj.levels)
 	history_forget_level(app, obj.id, HD_LEVEL)
@@ -1251,7 +1247,7 @@ object_build_from :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, start: time.
 // the new mesh could not be uploaded.
 object_replace_mesh :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh) -> bool {
 	start := time.tick_now()
-	_ = sdl.WaitForGPUIdle(app.renderer.device)
+	render.wait_idle(&app.renderer)
 	return object_rebuild(app, obj, mesh, start, normals = true)
 }
 

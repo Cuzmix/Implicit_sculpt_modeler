@@ -47,7 +47,7 @@ capture_request :: proc(app: ^App, path: string) {
 
 // Draws the viewport again on a transparent ground, when a screenshot waits, after the
 // frame's own viewport, on the same `cmd` and from the same camera and items.
-capture_frame :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer, view, proj: render.Mat4, draws: []render.Draw_Item) {
+capture_frame :: proc(app: ^App, cmd: render.Cmd, view, proj: render.Mat4, draws: []render.Draw_Item) {
 	c := &app.capture
 	c.drawn = false
 	if c.path == "" && !c.turntable do return

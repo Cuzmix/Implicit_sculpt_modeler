@@ -4,7 +4,6 @@ import "core:fmt"
 import "core:log"
 import "core:math/linalg"
 import "core:time"
-import sdl "vendor:sdl3"
 
 import "../camera"
 import "../geom"
@@ -850,12 +849,12 @@ history_swap :: proc(app: ^App, e: History_Entry) -> bool {
 			return true
 		}
 		if !made {
-			_ = sdl.WaitForGPUIdle(app.renderer.device)
+			render.wait_idle(&app.renderer)
 			object_discard(app, restored)
 			return false
 		}
 	}
-	_ = sdl.WaitForGPUIdle(app.renderer.device)
+	render.wait_idle(&app.renderer)
 	history_forget_strokes(app, e.id)
 	scene := &app.scene
 	if obj != nil {

@@ -6,7 +6,6 @@ import "core:slice"
 import "core:strings"
 import "core:sync"
 import "core:thread"
-import sdl "vendor:sdl3"
 
 import "../render"
 
@@ -94,7 +93,7 @@ home_destroy :: proc(app: ^App) {
 	delete(h.tiles)
 	autosaves_clear(h)
 	delete(h.autosaves)
-	if app.renderer.device != nil do render.pictures_destroy(&app.renderer, &h.pictures)
+	if render.renderer_ready(&app.renderer) do render.pictures_destroy(&app.renderer, &h.pictures)
 	h^ = {}
 }
 
@@ -129,7 +128,7 @@ home_close :: proc(app: ^App) {
 		sync.unlock(&l.lock)
 	}
 	tiles_clear(h)
-	if app.renderer.device != nil do render.pictures_destroy(&app.renderer, &h.pictures)
+	if render.renderer_ready(&app.renderer) do render.pictures_destroy(&app.renderer, &h.pictures)
 }
 
 // The tile of the scene file at `path` as it is drawn this frame, made on first ask, and
@@ -161,7 +160,7 @@ home_busy :: proc(app: ^App) -> bool {
 
 // At the end of a frame Home was drawn in: what the loader read goes into the tiles,
 // and up to render.PICTURES_PER_FRAME pictures into atlas cells on `cmd`.
-home_frame :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer) {
+home_frame :: proc(app: ^App, cmd: render.Cmd) {
 	h := &app.home
 	l := h.loader
 	if !app.kit.home || l == nil do return

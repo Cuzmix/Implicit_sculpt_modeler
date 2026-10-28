@@ -67,7 +67,10 @@ skill whose description fits the request BEFORE you form a plan.
 ## 5. Hard rules
 - Odin is pinned (`scripts/versions.env`, `deps/odin`): never write from memory of older Odin; grep the install.
 - Package boundaries: `geom`, `camera`, `gizmo`, `jobs`, `zip`, `voxel` and `luau` know nothing of rendering or UI; `ui` knows nothing of SDL or `render`; only `render` and `app`
-  import `vendor:sdl3`; `bench` never imports `render` or `app`; `sdf_trial` stands alone.
+  import `vendor:sdl3`, and only `render` names the GPU API: `app` holds `render.Cmd`, `render.Texture`,
+  `render.Fence` and `render.Sample_Count` and calls render's procs (`render.wait_idle`, `cmd_begin`, `cmd_submit`,
+  `swapchain_acquire`, `ui_present`; `src/render/gpu.odin`), which `scripts/boundary_check.py` enforces in `check`;
+  `bench` never imports `render` or `app`; `sdf_trial` stands alone.
 - Determinism: serial and parallel results are bit-identical and tests compare them; no map order decides output.
 - Allocations inside jobs use `runtime.heap_allocator()` for both make and delete; only the frame loop and the setup
   paths call `free_all(context.temp_allocator)` (the autosave thread frees its own arena); nothing temp is stored.
@@ -80,7 +83,7 @@ skill whose description fits the request BEFORE you form a plan.
   file actions are requests (`file_take`), both applied at the start of the next frame.
 - The `.sculpt` scene file is versioned (`SCENE_VERSION`, `src/app/files.odin`): a change to what it stores bumps the
   version and keeps reading every older one; a damaged file is refused, never asserted on.
-- GPU: consume every `sdl.*GPU*` result; `WaitForGPUIdle` before freeing buffers; set vsync before acquiring the
+- GPU: consume every `sdl.*GPU*` result (in `render`); `render.wait_idle` before freeing buffers; set vsync before acquiring the
   swapchain; `Draw_Item.model` is a similarity: rotation, translation, uniform scale (no shear or non-uniform scale).
 - No TODO or FIXME: write it or design it. Comments are full sentences giving reasons. README is updated with any flag,
   control or panel change. No handoff, status or notes files.

@@ -164,7 +164,7 @@ view_window_close :: proc(app: ^App, i: int) {
 	if w == nil do return
 	// Its picture and interface buffers may still be read by work in flight; this wait
 	// covers the destroys below and the window's release.
-	_ = sdl.WaitForGPUIdle(app.renderer.device)
+	render.wait_idle(&app.renderer)
 	vws.draws += w.pic.draws
 	vws.presents += w.presents
 	if w.laid_out do _ = ui.frame_end(&w.ctx)
@@ -331,7 +331,7 @@ view_window_layout :: proc(app: ^App, w: ^View_Window) {
 
 // Draws each window's picture that is due, at most VIEW_WINDOW_PICTURE_MAX pixels, after the
 // view panes', sharing their one picture a frame.
-view_windows_pictures :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer, draws: []render.Draw_Item) {
+view_windows_pictures :: proc(app: ^App, cmd: render.Cmd, draws: []render.Draw_Item) {
 	for w in app.view_windows.open {
 		if w == nil || w.close || w.pixels.x <= 0 || w.pixels.y <= 0 || view_window_hidden(w) do continue
 		if app.kit.home {
@@ -368,40 +368,28 @@ view_windows_present :: proc(app: ^App) {
 
 @(private = "file")
 view_window_present :: proc(app: ^App, w: ^View_Window, dl: ^ui.Draw_List) -> bool {
-	device := app.renderer.device
-	cmd := sdl.AcquireGPUCommandBuffer(device)
+	cmd := render.cmd_begin(&app.renderer)
 	if cmd == nil {
-		log.errorf("view window %d: AcquireGPUCommandBuffer failed: %s", w.number, sdl.GetError())
+		log.errorf("view window %d: no command buffer", w.number)
 		return false
 	}
-	swapchain: ^sdl.GPUTexture
-	size: [2]u32
-	if !sdl.AcquireGPUSwapchainTexture(cmd, w.window, &swapchain, &size.x, &size.y) {
-		log.errorf("view window %d: acquire swapchain failed: %s", w.number, sdl.GetError())
-		_ = sdl.CancelGPUCommandBuffer(cmd)
+	swapchain, size, acquired := render.swapchain_acquire(cmd, w.window, wait = false)
+	if !acquired {
+		log.errorf("view window %d: no swapchain", w.number)
+		_ = render.cmd_cancel(cmd)
 		return false
 	}
 	if swapchain == nil {
 		w.stale = true
-		return sdl.CancelGPUCommandBuffer(cmd)
+		return render.cmd_cancel(cmd)
 	}
 	pixels, aw, ah, dirty, atlas_changed := ui.atlas_take(&w.ctx)
 	vertices := transmute([]render.Ui_Vertex)dl.vertices[:]
 	uploaded := render.ui_pass_upload(&app.renderer, &w.pass, cmd, vertices, dl.indices[:], pixels, {u32(aw), u32(ah)}, dirty, atlas_changed)
-	target := sdl.GPUColorTargetInfo {
-		texture     = swapchain,
-		clear_color = sdl.FColor(kit_frame_color(&app.kit)),
-		load_op     = .CLEAR,
-		store_op    = .STORE,
-	}
-	pass := sdl.BeginGPURenderPass(cmd, &target, 1, nil)
-	if uploaded {
-		format := sdl.GetGPUSwapchainTextureFormat(device, w.window)
-		render.ui_pass_draw(&app.renderer, &w.pass, cmd, pass, format, size, view_window_draws(w, dl))
-	}
-	sdl.EndGPURenderPass(pass)
-	if !sdl.SubmitGPUCommandBuffer(cmd) {
-		log.errorf("view window %d: submit failed: %s", w.number, sdl.GetError())
+	draws := view_window_draws(w, dl) if uploaded else nil
+	render.ui_present(&app.renderer, &w.pass, cmd, w.window, swapchain, size, kit_frame_color(&app.kit), draws, uploaded)
+	if !render.cmd_submit(cmd) {
+		log.errorf("view window %d: submit failed", w.number)
 		return false
 	}
 	w.version, w.stale = w.pic.version, !uploaded

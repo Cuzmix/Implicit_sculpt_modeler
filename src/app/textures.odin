@@ -8,7 +8,6 @@ import "core:path/filepath"
 import "core:strings"
 import "core:sync"
 import "core:thread"
-import sdl "vendor:sdl3"
 
 import "../geom"
 import "../render"
@@ -262,7 +261,7 @@ object_textured :: proc(app: ^App, obj: ^Object, lv: ^sculpt.Level) -> bool {
 // Starts decoding changed maps on a thread, one object at a time (each decode holds its
 // pixels until the frame loop takes them); until they are in, the object shows without
 // them. A GPU failure leaves the object as clay with a note.
-texture_preview_frame :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer, obj: ^Object, gpu: ^render.Mesh_Buffers) -> ^render.Textured_Mesh {
+texture_preview_frame :: proc(app: ^App, cmd: render.Cmd, obj: ^Object, gpu: ^render.Mesh_Buffers) -> ^render.Textured_Mesh {
 	p := &obj.preview
 	texture_decoder_poll(app, obj)
 	if p.decoder == nil && p.maps_stamp != obj.textures.stamp && app.texture_decodes == 0 do texture_decoder_start(app, obj)

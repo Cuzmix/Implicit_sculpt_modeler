@@ -1756,7 +1756,7 @@ kit_draws :: proc(app: ^App, dl: ^ui.Draw_List) -> []render.Ui_Draw {
 }
 
 // Uploads this frame's interface on `cmd`, ahead of the render pass that draws it.
-kit_upload :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer) -> bool {
+kit_upload :: proc(app: ^App, cmd: render.Cmd) -> bool {
 	k := &app.kit
 	dl := ui.frame_end(&k.ctx)
 	pixels, w, h, dirty, changed := ui.atlas_take(&k.ctx)

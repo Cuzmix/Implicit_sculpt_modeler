@@ -59,7 +59,7 @@ Scene_File_Info :: struct {
 
 scene_preview_destroy :: proc(app: ^App) {
 	p := &app.preview
-	if app.renderer.device != nil do render.readback_cancel(&app.renderer, &p.grab)
+	if render.renderer_ready(&app.renderer) do render.readback_cancel(&app.renderer, &p.grab)
 	delete(p.png)
 	p^ = {}
 }
@@ -76,7 +76,7 @@ preview_stamp :: proc(app: ^App) -> u64 {
 // the view changed since the last. Called at the end of each frame, after its submit.
 preview_frame :: proc(app: ^App) {
 	p := &app.preview
-	if app.renderer.device == nil do return
+	if !render.renderer_ready(&app.renderer) do return
 	if p.grab.transfer != nil {
 		pixels, done := render.readback_poll(&app.renderer, &p.grab, context.temp_allocator)
 		if done && pixels != nil do preview_take(app, pixels, p.grab_w, p.grab_h, p.grab_stamp)
@@ -101,7 +101,7 @@ preview_frame :: proc(app: ^App) {
 // Brings the picture up to date before a save, waiting for the GPU when it is not.
 preview_refresh :: proc(app: ^App) {
 	p := &app.preview
-	if app.renderer.device == nil || app.target.color == nil || p.background || !pass_shaded(app) do return
+	if !render.renderer_ready(&app.renderer) || app.target.color == nil || p.background || !pass_shaded(app) do return
 	stamp := preview_stamp(app)
 	if stamp == p.stamp do return
 	render.readback_cancel(&app.renderer, &p.grab)

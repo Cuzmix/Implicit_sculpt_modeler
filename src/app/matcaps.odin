@@ -8,8 +8,6 @@ import "core:mem"
 import "core:path/filepath"
 import "core:strings"
 
-import sdl "vendor:sdl3"
-
 import "../render"
 
 // MatCaps, as ZBrush's MatCap materials and Blender's MatCap shading: a picture of a lit
@@ -149,7 +147,7 @@ matcaps_destroy :: proc(app: ^App) {
 }
 
 // The texture material `m` shades with, or nil for the lights.
-material_matcap :: proc(app: ^App, m: Material) -> ^sdl.GPUTexture {
+material_matcap :: proc(app: ^App, m: Material) -> render.Texture {
 	switch {
 	case m.matcap == MATCAP_IMAGE:      return app.matcap_image
 	case m.matcap > 0 && m.matcap <= len(MATCAP_RECIPES): return app.matcaps[m.matcap - 1]
