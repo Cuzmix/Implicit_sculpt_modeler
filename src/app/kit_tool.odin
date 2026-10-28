@@ -231,9 +231,14 @@ kit_preset :: proc(app: ^App) {
 kit_stroke :: proc(app: ^App) {
 	ctx := &app.kit.ctx
 	kind := app.brush.kind
-	_ = ui.slider(ctx, "Size", &app.brush.radius_px, MIN_RADIUS_PX, MAX_RADIUS_PX, .Logarithmic, fmt.tprintf("%.0f px", app.brush.radius_px))
-	s := brush_strength(app)
-	_ = ui.slider(ctx, "Strength", s, MIN_STRENGTH, 1, .Linear, fmt.tprintf("%.2f", s^))
+	// Lens's Brush card shows Radius and Strength above its groups, and its readers know the
+	// keys from the island's tooltips.
+	stack := app.kit.in_stack
+	if !stack {
+		_ = ui.slider(ctx, "Size", &app.brush.radius_px, MIN_RADIUS_PX, MAX_RADIUS_PX, .Logarithmic, fmt.tprintf("%.0f px", app.brush.radius_px))
+		s := brush_strength(app)
+		_ = ui.slider(ctx, "Strength", s, MIN_STRENGTH, 1, .Linear, fmt.tprintf("%.2f", s^))
+	}
 	// Grab, Snake hook and Cloth move what they pick up rather than laying dabs, so a
 	// stroke mode means nothing to them.
 	if BRUSHES[kind].flags & {.Grab, .Hook, .Cloth} == {} {
@@ -268,7 +273,7 @@ kit_stroke :: proc(app: ^App) {
 		cloth, _ := strings.replace_all(string(CLOTH_MODE_HELP[app.brush.cloth_mode]), "\n", " ", context.temp_allocator)
 		ui.paragraph(ctx, cloth)
 	}
-	ui.paragraph(ctx, "S or U over the viewport sizes the brush or sets its strength there; [ and ] step the size, Shift with them the strength. Each brush keeps its own strength. Space, or a right click without dragging (a pen's side button), opens the brush pie.")
+	if !stack do ui.paragraph(ctx, "S or U over the viewport sizes the brush or sets its strength there; [ and ] step the size, Shift with them the strength. Each brush keeps its own strength. Space, or a right click without dragging (a pen's side button), opens the brush pie.")
 }
 
 // The Stroke section's More: how the stroke follows the pointer's path.

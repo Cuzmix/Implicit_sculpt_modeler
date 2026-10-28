@@ -145,6 +145,7 @@ kit_layout_text :: proc(k: ^Kit_State) -> string {
 	// says the layout holds them (one saved before it did keeps the bars as they are). The
 	// dock holds the user's brushes, which are no layout's: it stays as it is in every
 	// workspace.
+	stack_layout_save(k, &out)
 	strings.write_string(&out, "bars\n")
 	bars_save(k, &out, layout = true)
 	return strings.to_string(out)
@@ -157,6 +158,7 @@ kit_layout_put :: proc(k: ^Kit_State, text: string) {
 	for w in LAYOUT_WINDOWS do k.windows[w] = {}
 	for w in LAYOUT_PANELS do layout_open(k, w)^ = false
 	panels_default(k)
+	stack_default(k)
 	k.hidden = {}
 	// The pass is Shaded unless the layout names another; a peek ends with the layout.
 	k.passes.pass, k.passes.chip_held, k.passes.key_held = .Shaded, false, false
@@ -178,6 +180,8 @@ kit_layout_put :: proc(k: ^Kit_State, text: string) {
 			for w in LAYOUT_WINDOWS do if len(f) > 1 && strings.equal_fold(f[1], fmt.tprint(w)) do window_load_line(k, f)
 		case "column", "pinned":
 			panels_load_line(k, f)
+		case "stack":
+			stack_layout_read(k, f)
 		case "bars":
 			bar_lists_reset(k)
 		case "bar_count", "bar":

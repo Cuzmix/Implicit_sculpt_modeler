@@ -114,6 +114,7 @@ Panel_Frame :: struct {
 	// docked panel asks its column for. 0 takes the body's own.
 	want:   f32,
 	scroll: Kit_Scroll, // a docked panel's body
+	bare:   bool, // docked without a header (Lens's stack, whose cards have their own)
 	padding, gap: f32, // its box's
 	// Where its drawing starts and how opaque it ends up: faint while a stroke passes
 	// under it (panel_fade).
@@ -374,7 +375,7 @@ panel_width :: proc(app: ^App, ref: Panel_Ref) -> f32 {
 	case Kit_Section: return KIT_INSPECTOR_W
 	case Kit_Window:
 		#partial switch r {
-		case .Inspector: return tray_width(app)
+		case .Inspector: return KIT_INSPECTOR_W if app.kit.chrome == .Lens else tray_width(app)
 		case .Stats:     return KIT_STATS_W
 		case .History:   return KIT_HISTORY_MIN_W
 		case .Objects:   return KIT_INSPECTOR_W
@@ -677,7 +678,7 @@ kit_column_drop :: proc(app: ^App) {
 // as window_begin takes them; or, docked, a part of its column with a header to drag it
 // out by. `box` is its look; a docked panel takes its column's width. End it with
 // panel_end, whatever body says.
-panel_begin :: proc(app: ^App, ref: Panel_Ref, title: string, x, y: ui.Anchor, offset: [2]f32, box: ui.Box, close_keys := "", card := false) -> (p: Panel_Frame) {
+panel_begin :: proc(app: ^App, ref: Panel_Ref, title: string, x, y: ui.Anchor, offset: [2]f32, box: ui.Box, close_keys := "", card := false, bare := false) -> (p: Panel_Frame) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
@@ -717,6 +718,17 @@ panel_begin :: proc(app: ^App, ref: Panel_Ref, title: string, x, y: ui.Anchor, o
 	inner := width - 2 * box.padding
 	box.width, box.height = width, 0
 	ui.begin_anchored(ctx, name, .Start if side == .Left else .End, .Start, k.panels.at[side], box)
+	value: ^f32
+	switch r in ref {
+	case Kit_Window:  value = &k.panels.scroll[r]
+	case Kit_Section: value = &k.panels.pins[r].scroll
+	}
+	if bare {
+		p.body, p.bare = true, true
+		p.room = max(seen.allot - 2 * box.padding, PANEL_BODY_MIN)
+		p.scroll = kit_scroll_begin(ctx, "panel body", value, p.owner, inner, p.room, box.gap)
+		return
+	}
 	ui.begin(ctx, "panel head", {direction = .Row, width = inner, center = true})
 	head := ui.area(ctx, "panel title", {max(inner - 3 * t.target, t.target), t.target})
 	if head.hovered || head.held do ui.fill_rect(ctx, head.rect, t.radius_medium, t.fill_pressed if head.held else t.fill_hover)
@@ -746,11 +758,6 @@ panel_begin :: proc(app: ^App, ref: Panel_Ref, title: string, x, y: ui.Anchor, o
 	if !w.minimized {
 		p.body = true
 		p.room = max(seen.allot - (2 * box.padding + t.target + box.gap), PANEL_BODY_MIN)
-		value: ^f32
-		switch r in ref {
-		case Kit_Window:  value = &k.panels.scroll[r]
-		case Kit_Section: value = &k.panels.pins[r].scroll
-		}
 		p.scroll = kit_scroll_begin(ctx, "panel body", value, p.owner, inner, p.room, box.gap)
 	}
 	return
@@ -795,7 +802,7 @@ panel_end :: proc(app: ^App, p: ^Panel_Frame) {
 	ui.end(ctx)
 	seen.docked, seen.rect = true, ui.last_ended(ctx)
 	if side, laying := k.panels.laying.?; laying do k.panels.at[side].y += seen.rect.h + COLUMN_GAP
-	seen.want = 2 * p.padding + t.target + body
+	seen.want = 2 * p.padding + (body - p.gap if p.bare else t.target + body)
 }
 
 // Lifts docked panel `ref` out of its column under the pointer, which holds its header

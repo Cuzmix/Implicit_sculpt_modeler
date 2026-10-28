@@ -27,8 +27,7 @@ kit_scene_tab :: proc(app: ^App) {
 }
 
 // The Scene palette's Objects section: the tree of objects and folders, what acts on the
-// selection, and how long the last file took.
-@(private = "file")
+// selection, and how long the last file took (Lens's stack draws it as its Scene card).
 kit_scene_objects :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx

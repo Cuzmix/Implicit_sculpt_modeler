@@ -50,7 +50,9 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   shortens the right column above it. The shelf (`lens_shelf.odin`) is "dock" (its pages row "dock pages"); its
   pages are `Bar_Which.Shelf_*` (`BAR_LISTS` saves them, `BAR_LAYOUT` leaves them out of workspace layouts). Picker
   = `kit_brush_sheet` (Lens's `k.browser` at `.Dock`); `ui.row_room` right-aligns in a fixed-width row (spacer(0)
-  does nothing).
+  does nothing). The tray in Lens is the stack (`lens_stack.odin`, `kit_inspector`'s Lens branch, `panel_begin(bare)`):
+  cards in `k.stack`, layout line `stack`; `tray_open` calls `stack_reveal`; `k.in_stack` lets a section drop what the
+  Brush card shows above it.
 - Layout (`kit_layout`, `new_ui.odin`; the bars in `kit_bars.odin`, after ZBrush for iPad): `kit_top_bar` (a full-width
   strip, `TOP_BAR_H`: Menu, Save, Import, Export | file name | History, Edit pies, Help, Settings), `kit_points` (the
   object's readout under it, at the top left), `kit_brush_bar` (left column, top from `brush_bar_top`, which keeps

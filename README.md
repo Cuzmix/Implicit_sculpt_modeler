@@ -643,7 +643,15 @@ The interface is touch-first, designed in Figma ("Sculpt UI"), and drawn by the 
   
   A tap on a card picks it and closes the picker; a long press shows its settings. A card dragged out of the grid follows the finger, and let go over a shelf tile it takes that tile's place on the page shown (a brush or a tool; a preset stays in the picker).
 
-The rest of the window (the tray) is still laid out as Classic, described next, until the remaining parts of the mockups arrive.
+- **The panel stack** is the palette tray in Lens: Palettes on the rail shows or hides it, and it docks, floats and opens wherever the tray does. It stands down the pen side under the top bar, 312 points wide, as cards:
+  - **Brush** (the tool's name and settings with another tool): the brush's card (its stroke, name, family, "edited" once its preset has changed, and the favourite heart), Radius and Strength, then the Brush palette's sections as groups that fold, each saying how it is set while folded ("Dots · lazy 30 px", "pressure → size, strength"). Stroke, Falloff and Alpha start open, the rest folded.
+  - **Symmetry**, with X, Y and Z as chips in its header, then the axes, Local and the radial copies.
+  - **Layers** and **Scene** (the objects), as their sections.
+  - **Palettes**, which holds the whole tray (every palette and section) until later rounds give those sections panels of their own.
+  
+  Each card's header has a grip (drag it up or down the stack to move the card, or well clear of it to float the card there), the chevron and title (a tap folds or unfolds it; folded, it says what it holds), Float (Dock on a floating card, whose dots also drag it and, held, dock it) and More (Move up, Move down, Float, Fold the others, Where the stack goes). Opening a section (the object chip, Search's Show where, a bar's section) opens its card, folding Brush and Palettes for another. The order and the open cards are part of a workspace's layout (`stack Brush+ Symmetry Layers Scene Palettes`, written only once it differs from a fresh layout's); the groups' folds last for the session.
+
+The rest of the window is still laid out as Classic, described next, until the remaining parts of the mockups arrive.
 
 **Classic** is the ZBrush-iPad layout as it was before.
 

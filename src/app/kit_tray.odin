@@ -125,6 +125,7 @@ tray_open :: proc(app: ^App, sec: Kit_Section) {
 	side_panel_close(app)
 	app.kit.inspector, app.kit.list_reveal = true, 3
 	tray_pick(app, section_palette(sec), sec)
+	if app.kit.chrome == .Lens do stack_reveal(app, sec)
 }
 
 // Where each command's control is in the tray, for search's Show where: the section
