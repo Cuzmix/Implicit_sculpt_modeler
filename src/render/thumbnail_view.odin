@@ -45,6 +45,6 @@ thumbnail_view_draw :: proc(r: ^Renderer, tv: ^Thumbnail_View, cmd: ^sdl.GPUComm
 	}
 	pass := begin_mesh_pass(r, cmd, &r.single, tv.target.color, tv.target.depth, load = false, keep_depth = keep_depth, background = background)
 	draw_items(r, cmd, pass, &r.single, view, proj, whole, nil, nil)
-	sdl.EndGPURenderPass(pass)
+	gpu_end_render_pass(pass)
 	return tv.target.color
 }

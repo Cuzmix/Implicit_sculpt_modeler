@@ -32,9 +32,9 @@ Picture_Upload :: struct {
 
 pictures_destroy :: proc(r: ^Renderer, p: ^Pictures) {
 	if r.device == nil do return
-	_ = sdl.WaitForGPUIdle(r.device)
-	if p.atlas != nil do sdl.ReleaseGPUTexture(r.device, p.atlas)
-	if p.transfer != nil do sdl.ReleaseGPUTransferBuffer(r.device, p.transfer)
+	_ = gpu_wait_for_idle(r.device)
+	if p.atlas != nil do gpu_release_texture(r.device, p.atlas)
+	if p.transfer != nil do gpu_release_transfer_buffer(r.device, p.transfer)
 	p^ = {}
 }
 
@@ -46,11 +46,11 @@ pictures_upload :: proc(r: ^Renderer, p: ^Pictures, cmd: ^sdl.GPUCommandBuffer, 
 	CELL_BYTES :: PICTURE_PX * PICTURE_PX * 4
 	if p.atlas == nil {
 		SIZE :: PICTURE_PX * PICTURE_CELLS
-		p.atlas = sdl.CreateGPUTexture(r.device, {
+		p.atlas = gpu_create_texture(r.device, {
 			type = .D2, format = .R8G8B8A8_UNORM, usage = {.COLOR_TARGET, .SAMPLER},
 			width = SIZE, height = SIZE, layer_count_or_depth = 1, num_levels = 1,
 		})
-		p.transfer = sdl.CreateGPUTransferBuffer(r.device, {usage = .UPLOAD, size = CELL_BYTES * PICTURES_PER_FRAME})
+		p.transfer = gpu_create_transfer_buffer(r.device, {usage = .UPLOAD, size = CELL_BYTES * PICTURES_PER_FRAME})
 		if p.atlas == nil || p.transfer == nil {
 			log.errorf("picture textures: %s", sdl.GetError())
 			p.failed = true
@@ -58,8 +58,8 @@ pictures_upload :: proc(r: ^Renderer, p: ^Pictures, cmd: ^sdl.GPUCommandBuffer, 
 		}
 		// A new texture holds anything: every cell starts empty.
 		color := sdl.GPUColorTargetInfo{texture = p.atlas, load_op = .CLEAR, store_op = .STORE}
-		pass := sdl.BeginGPURenderPass(cmd, &color, 1, nil)
-		sdl.EndGPURenderPass(pass)
+		pass := gpu_begin_render_pass(cmd, &color, 1, nil)
+		gpu_end_render_pass(pass)
 	}
 	n := 0
 	for it in items {
@@ -67,7 +67,7 @@ pictures_upload :: proc(r: ^Renderer, p: ^Pictures, cmd: ^sdl.GPUCommandBuffer, 
 	}
 	if n == 0 do return true
 	// Cycled: the copy of an earlier frame may still be reading the buffer.
-	dst := ([^]u8)(sdl.MapGPUTransferBuffer(r.device, p.transfer, true))
+	dst := ([^]u8)(gpu_map_transfer_buffer(r.device, p.transfer, true))
 	if dst == nil {
 		log.errorf("picture map: %s", sdl.GetError())
 		return false
@@ -79,19 +79,19 @@ pictures_upload :: proc(r: ^Renderer, p: ^Pictures, cmd: ^sdl.GPUCommandBuffer, 
 		copy(dst[at * CELL_BYTES:][:it.width * it.height * 4], it.pixels)
 		at += 1
 	}
-	sdl.UnmapGPUTransferBuffer(r.device, p.transfer)
-	pass := sdl.BeginGPUCopyPass(cmd)
+	gpu_unmap_transfer_buffer(r.device, p.transfer)
+	pass := gpu_begin_copy_pass(cmd)
 	at = 0
 	for it in items {
 		if at == n do break
 		if !picture_fits(it) do continue
 		x, y := u32(it.cell % PICTURE_CELLS) * PICTURE_PX, u32(it.cell / PICTURE_CELLS) * PICTURE_PX
-		sdl.UploadToGPUTexture(pass,
+		gpu_upload_to_texture(pass,
 			{transfer_buffer = p.transfer, offset = u32(at * CELL_BYTES), pixels_per_row = u32(it.width), rows_per_layer = u32(it.height)},
 			{texture = p.atlas, x = x, y = y, w = u32(it.width), h = u32(it.height), d = 1}, false)
 		at += 1
 	}
-	sdl.EndGPUCopyPass(pass)
+	gpu_end_copy_pass(pass)
 	return true
 }
 
