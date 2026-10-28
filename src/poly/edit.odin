@@ -133,6 +133,8 @@ edit_end :: proc(m: ^Mesh, e: ^Edit, allocator := context.allocator) -> (r: Edit
 		if int(a) >= len(vert) || int(b) >= len(vert) || vert[a] == NONE || vert[b] == NONE do continue
 		if h := find_half_edge(&built, vert[a], vert[b]); h != NONE do built.crease[edge_of(h)] = c
 	}
+	// A face keeps the selection of the face it came from; new faces start unselected.
+	for f, i in e.faces do if f.from != NONE && int(f.from) < len(m.selected) do built.selected[i] = m.selected[f.from]
 	mesh_destroy(m)
 	m^ = built
 	r.vert = vert

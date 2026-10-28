@@ -2909,6 +2909,66 @@ def model_weld_pair_merges_two_points():
 
 
 @scenario
+def model_symmetric_extrude_pulls_both_sides():
+    """With Symmetry X on, an extrude drag on a cube's right face pulls its left face out too, as one undo step (8 points become 16)."""
+    s = Script()
+    s.mouse_drag(line((820, 450), (900, 440), 8))
+    s.wait(10)
+    return s, LENS_1440 + ["--script=add_cage cube; select 1; delete_object; frame_all; symmetry_x; model_action extrude"], {"cage_points": near(16), "cage_faces": near(14), "cage_broken": near(0), "model_done": near(1), "undo_steps": near(1)}
+
+
+@scenario
+def model_symmetric_insert_loop_adds_its_mirror():
+    """With Symmetry X on, an Insert loop tap a third of the way along a cube's top front edge puts in its mirror loop too (two loops, 16 points)."""
+    s = Script()
+    s.mouse_drag([(619, 400)])
+    s.wait(10)
+    return s, LENS_1440 + ["--script=add_cage cube; select 1; delete_object; frame_all; symmetry_x; model_action insert_loop"], {"cage_points": near(16), "cage_faces": near(14), "cage_broken": near(0), "model_done": near(1), "undo_steps": near(1)}
+
+
+@scenario
+def model_select_drag_paints_a_selection():
+    """Select dragged from a cube's front face over its right face selects both, as one undo step; the face actions' Selection target then works on them."""
+    s = Script()
+    s.mouse_drag(line((650, 500), (820, 450), 6))
+    s.wait(10)
+    return s, LENS_1440 + ["--script=add_cage cube; select 1; delete_object; frame_all; model_action select"], {"cage_selected": near(2), "cage_faces": near(6), "model_done": near(1), "undo_steps": near(1)}
+
+
+@scenario
+def model_select_ctrl_tap_deselects():
+    """With every face selected (Select all), a Ctrl tap with Select on the front face deselects it alone."""
+    s = Script()
+    s.mouse_drag([(650, 500)], keys=("ctrl",))
+    s.wait(10)
+    return s, LENS_1440 + ["--script=add_cage cube; select 1; delete_object; frame_all; select_cage all; model_action select"], {"cage_selected": near(5), "model_done": near(1), "undo_steps": near(1)}
+
+
+@scenario
+def model_tap_repeats_the_last_extrude():
+    """An extrude drag on a cube's front face, then a tap with Extrude on its top face: the tap extrudes the top as far as the drag went (two extrudes, two undo steps)."""
+    s = Script()
+    s.mouse_drag(line((650, 500), (640, 560), 4))
+    s.wait(3)
+    s.mouse_drag([(720, 380)])
+    s.wait(5)
+    return s, LENS_1440 + ["--script=add_cage cube; select 1; delete_object; frame_all; model_action extrude"], {"cage_points": near(16), "cage_faces": near(14), "model_done": near(2), "undo_steps": near(2)}
+
+
+@scenario
+def model_adjust_last_extrude():
+    """After an extrude drag, the action bar's Adjust and a drag on the popover's Amount set the extrude further in place: still one undo step."""
+    s = Script()
+    s.mouse_drag(line((650, 500), (640, 560), 4))
+    s.wait(3)
+    s.mouse_drag([(745, 774)])
+    s.wait(3)
+    s.mouse_drag(line((710, 704), (810, 704), 4))
+    s.wait(5)
+    return s, LENS_1440 + ["--script=add_cage cube; select 1; delete_object; frame_all; model_action extrude"], {"adjust_op": is_text("model_action"), "adjusts": near(3, 2), "adjust_pop": near(1), "undo_steps": near(1), "cage_points": near(12)}
+
+
+@scenario
 def model_delete_tap_removes_a_face():
     """With Delete picked, a tap on a cage's face removes it (a hole of four border edges), not turning the view."""
     s = Script()
