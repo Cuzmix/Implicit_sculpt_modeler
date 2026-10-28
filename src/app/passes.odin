@@ -72,6 +72,8 @@ pass_peeked :: proc(k: ^Kit_State) -> render.View_Pass {
 // peek is held, except while wiping, whose right side already shows the other pass.
 viewport_pass :: proc(k: ^Kit_State) -> render.View_Pass {
 	ps := &k.passes
+	// The pane worked in shows its own pass (grid_work).
+	if g := &k.grid; g.work != 0 do return second_view_pass(g.views[g.preset][g.work - 1].pass)
 	if (ps.chip_held || ps.key_held) && !ps.recording && !wipe_shown(k) do return pass_peeked(k)
 	return ps.pass
 }
@@ -79,7 +81,7 @@ viewport_pass :: proc(k: ^Kit_State) -> render.View_Pass {
 // Whether the wipe shows: on, and not while a time-lapse or turntable records, so every
 // frame those take is in the one pass picked.
 wipe_shown :: proc(k: ^Kit_State) -> bool {
-	return k.passes.wipe && !k.passes.recording
+	return k.passes.wipe && !k.passes.recording && k.grid.work == 0
 }
 
 // The pass right of the wipe's line: the last other one, as a peek would show.
@@ -103,7 +105,7 @@ wipe_line_px :: proc(at: f32, width: u32) -> f32 {
 // Whether the viewport shows the shaded picture whole, which the studio render, render
 // mode and the scene's preview picture need.
 pass_shaded :: proc(app: ^App) -> bool {
-	return viewport_pass(&app.kit) == .Shaded && !wipe_shown(&app.kit)
+	return viewport_pass(&app.kit) == .Shaded && !wipe_shown(&app.kit) && app.kit.grid.work == 0
 }
 
 // What the studio render's and render mode's sections say while a pass pauses them.
@@ -124,7 +126,7 @@ live_ao_wanted :: proc(app: ^App) -> bool {
 // on, not at all in the other passes or where the device cannot run it.
 live_ao_strengths :: proc(app: ^App) -> (left, right: f32) {
 	side :: proc(app: ^App, p: render.View_Pass) -> f32 {
-		if !render.live_ao_supported(&app.renderer, &app.live_ao) do return 0
+		if !render.live_ao_supported(&app.renderer, &app.live_ao) || app.kit.grid.work != 0 do return 0
 		if p == .AO do return 1
 		if p == .Shaded && app.live_ao_on do return max(app.studio_ao, 1e-3)
 		return 0

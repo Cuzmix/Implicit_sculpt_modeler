@@ -114,6 +114,64 @@ the_main_pane_moves_the_pointer_and_the_safe_zone :: proc(t: ^testing.T) {
 }
 
 @(test)
+a_lower_pane_has_no_top_bar_band :: proc(t: ^testing.T) {
+	app := new(App)
+	defer free(app)
+	app.kit.scale = 1
+	app.kit.ctx.input.window = {800, 450}
+	app.nav.edge_orbit, app.nav.edge_size = true, 20
+	// A view pane worked in at the bottom right starts its safe zone at its own top.
+	app.kit.grid.main = {400, 225, 400, 225}
+	app.ui.viewport_origin = {400, 225}
+	lo, _ := edge_inner(app)
+	testing.expect_value(t, lo, [2]f32{20, 20})
+}
+
+@(test)
+work_in_a_pane_lends_the_camera_and_gives_it_back :: proc(t: ^testing.T) {
+	app := new(App)
+	defer free(app)
+	g := &app.kit.grid
+	grid_reset(g)
+	g.preset = .Four
+	main := app.camera
+	main.yaw, main.distance = 0.6, 3.5
+	app.camera = main
+	// Working in the Front pane sees through its camera; the main camera is kept aside.
+	grid_work_begin(app, 1)
+	testing.expect_value(t, g.work, 1)
+	testing.expect(t, app.camera.ortho && app.camera != main, "the main view does not see through the Front pane's camera")
+	testing.expect(t, main_camera(app) == main, "the main camera was not kept aside")
+	// A stroke that left the camera alone leaves the pane as it was.
+	grid_work_end(app)
+	testing.expect_value(t, g.work, 0)
+	testing.expect_value(t, g.work_ended, 1)
+	testing.expect(t, app.camera == main, "the main camera did not come back bit for bit")
+	testing.expect_value(t, g.views[.Four][0].camera, Second_Camera.Front)
+	// A turn while working leaves the Front pane Free at the view it was turned to.
+	grid_work_begin(app, 1)
+	app.camera.yaw += 0.3
+	turned := app.camera
+	grid_work_end(app)
+	testing.expect_value(t, g.views[.Four][0].camera, Second_Camera.Free)
+	testing.expect(t, g.views[.Four][0].orbit == turned, "the pane did not keep its turn")
+	testing.expect(t, app.camera == main, "the main camera moved")
+	// A linked pane's turn is the main camera's; a mirrored one's is the main camera's mirrored.
+	g.views[.Four][1].camera = .Follow
+	grid_work_begin(app, 2)
+	app.camera.pitch += 0.2
+	linked := app.camera
+	grid_work_end(app)
+	testing.expect(t, app.camera == linked, "a linked pane's turn did not move the main camera")
+	g.views[.Four][2].camera = .Mirror
+	before := app.camera
+	grid_work_begin(app, 3)
+	app.camera.yaw += 0.1
+	grid_work_end(app)
+	testing.expect(t, abs(app.camera.yaw - (before.yaw - 0.1)) < 1e-5, "a mirrored pane's turn did not turn the main camera the other way")
+}
+
+@(test)
 linked_panes_share_the_main_cameras_colour :: proc(t: ^testing.T) {
 	th := ui.THEME_LENS
 	linked := Second_View{camera = .Follow}

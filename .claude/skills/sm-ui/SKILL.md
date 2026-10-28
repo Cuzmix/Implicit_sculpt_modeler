@@ -130,6 +130,12 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   pane 0 is the main view, panes 1-3 are `Second_View`s per preset drawn by `picture_frame` into `App.panes` (one
   picture a frame, `app.pictures_drawn`); `view_grid_room` is the window while `k.panes_under` (default; panels float over the panes, a head avoids columns and wraps to two rows when narrow), else spans the docked columns; `Theme.panel_shadow` lifts `.Panel`s (Lens only); a divider drag freezes the target and
   pane sizes (`g.dragged`); layout lines `grid`/`pane` only when not Single, splits in thousandths.
+  Work in any pane (`grid_work`, setting `panes_work`): a press whose `pointer_root` is a view pane's root is handed to
+  the viewport in `kit_grid` (`viewport_drag`), `app.camera` becomes the pane's and `g.main` its cell until
+  `grid_work_over`; read the main camera with `main_camera(app)` anywhere a view other than the main one is drawn or
+  the camera is stored, and gate main-only work (studio, live AO, wipe, history) on `k.grid.work == 0`.
+  `grid_work_gpu` (after `kit_frame`) copies the still picture or the pane's last live frame and resizes the target
+  at once, so no frame draws stretched.
 - Second view (`src/app/thumbnail.odin`, `k.second: Second_View`, the Thumbnail window and command): the picture is a
   `ui.area` (`second_view_input`): on a linked view (`second_linked`: Follow, Mirror) a drag turns `app.camera` itself
   (`orbit_latch` first, x reversed for Mirror, counted in `sv.linked`), on an independent one `second_free` seeds

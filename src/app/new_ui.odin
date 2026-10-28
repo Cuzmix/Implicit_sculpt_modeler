@@ -159,6 +159,7 @@ Kit_State :: struct {
 	// The view grid's panes run under the docked columns, the panels floating over them,
 	// rather than stopping beside them (Settings > Interface; grid.odin).
 	panes_under:  bool,
+	panes_work:   bool, // a press in a view pane works there (grid_work)
 	// On a window narrower than TRAY_NAV_MIN_W the columns pop over the view only while
 	// asked for, as popovers from the rails do (Settings > Interface; panels.odin).
 	column_popovers: bool,
@@ -722,6 +723,7 @@ kit_init :: proc(app: ^App) {
 	k.ui_scale = 1
 	k.surface_ring = true
 	k.panes_under = true
+	k.panes_work = true
 	k.column_popovers = true
 	k.rail_side, k.wheel_size = .Left, .Medium
 	k.action_bar = true
@@ -1602,6 +1604,10 @@ kit_draws :: proc(app: ^App, dl: ^ui.Draw_List) -> []render.Ui_Draw {
 			pic := app.panes[c.image - KIT_PANE_IMAGE].shown
 			draws[i].image, draws[i].smooth = pic, true
 			if pic == nil do draws[i].index_count = 0
+		}
+		if c.texture == .Image && c.image == KIT_WORK_STILL_IMAGE {
+			draws[i].image = app.work_still.color
+			if app.work_still.color == nil do draws[i].index_count = 0
 		}
 		if c.texture == .Image && c.image == KIT_PICTURES_IMAGE {
 			draws[i].image, draws[i].smooth = app.home.pictures.atlas, true

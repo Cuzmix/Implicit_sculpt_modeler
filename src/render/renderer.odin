@@ -798,6 +798,21 @@ viewport_target_destroy :: proc(r: ^Renderer, vt: ^Viewport_Target) {
 	vt^ = {}
 }
 
+// Copies `src`, `width` by `height` in the viewport's colour format (the target's colour,
+// or the studio's, render mode's or live occlusion's picture), into `dst`'s colour, made
+// or remade at that size first, on a command buffer of its own submitted at once: the copy
+// is queued before anything later this frame draws over `src` or releases it.
+viewport_copy :: proc(r: ^Renderer, dst: ^Viewport_Target, src: ^sdl.GPUTexture, width, height: u32) -> bool {
+	if r.device == nil || src == nil || width == 0 || height == 0 do return false
+	if !viewport_target_resize(r, dst, width, height) do return false
+	cmd := sdl.AcquireGPUCommandBuffer(r.device)
+	if cmd == nil do return false
+	pass := sdl.BeginGPUCopyPass(cmd)
+	sdl.CopyGPUTextureToTexture(pass, {texture = src}, {texture = dst.color}, width, height, 1, cycle = false)
+	sdl.EndGPUCopyPass(pass)
+	return sdl.SubmitGPUCommandBuffer(cmd)
+}
+
 // Creates the cache textures on first use, at the target's size. They are released
 // with the target, so a resize recreates them.
 @(private)

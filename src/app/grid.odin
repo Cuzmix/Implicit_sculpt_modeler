@@ -1,12 +1,15 @@
 package main
 
 import "core:fmt"
+import "core:log"
 import "core:math"
 import "core:strconv"
 import "core:strings"
+import "core:time"
 
 import sdl "vendor:sdl3"
 
+import "../camera"
 import "../render"
 import "../ui"
 
@@ -61,6 +64,22 @@ View_Grid :: struct {
 	px:        [GRID_VIEWS][2]u32,
 	dragged:   int, // the divider held (1 + its index), 0 for none, for the exit stats
 	drags:     int, // frames a divider moved, for the exit stats
+	// Work in any pane (grid_work): the view pane (1 to 3) the main view's role is lent to
+	// while a gesture that began on it lasts, 0 for none, and in which preset; never kept.
+	work:        int,
+	work_preset: Grid_Preset,
+	work_back:   camera.Orbit, // the main camera, given back when the gesture is over
+	work_from:   camera.Orbit, // the pane's camera as it began, to tell whether it moved
+	// This frame's start or end, for the copies and the resize after kit_frame
+	// (grid_work_gpu), and what the main pane showed as it began, to keep still.
+	work_began:  bool,
+	work_ended:  int, // the view pane whose work ended this frame, 0 for none
+	work_shown:  ^sdl.GPUTexture,
+	last_place:  int, // where the last press went: 0 the main pane, else the view pane
+	// For the exit stats: gestures worked in a view pane, and the dabs they laid.
+	works:       int,
+	work_dabs:   int,
+	work_dabs_from: int,
 }
 
 // How many panes a preset shows.
@@ -276,28 +295,39 @@ kit_grid :: proc(app: ^App) {
 	n := grid_count(g.preset)
 	if g.maximised >= n do g.maximised = 0
 	// Each pane on whole pixels, so the main view's input size and its target's agree
-	// exactly and its unsmoothed image never shimmers.
+	// exactly and its unsmoothed image never shimmers; a maximised pane's room too, since
+	// the main view may be drawn there while it is worked in.
 	if g.preset != .Single {
 		px := ctx.input.pixel_density
-		for &c in cells[:n] {
+		snap :: proc(c: ui.Rect, px: f32) -> ui.Rect {
 			x0, y0 := math.round(c.x * px) / px, math.round(c.y * px) / px
 			x1, y1 := math.round((c.x + c.w) * px) / px, math.round((c.y + c.h) * px) / px
-			c = {x0, y0, x1 - x0, y1 - y0}
+			return {x0, y0, x1 - x0, y1 - y0}
 		}
+		for &c in cells[:n] do c = snap(c, px)
+		room = snap(room, px)
 	}
+	grid_work(app, n)
 	g.main = cells[0]
-	ui.image(ctx, g.main, KIT_VIEWPORT_IMAGE)
+	if g.work != 0 do g.main = room if g.maximised == g.work else cells[g.work]
+	// While a view pane is worked in, the main pane holds the picture it showed as the
+	// gesture began, and the main view is drawn in the view pane (kit_view_pane).
+	if g.work == 0 do ui.image(ctx, g.main, KIT_VIEWPORT_IMAGE)
+	else do ui.image(ctx, cells[0], KIT_WORK_STILL_IMAGE)
 	// With other panes beside it, the main pane is outlined in the main camera's colour, the
 	// colour of the dots of the panes linked to it: the pane the tools act in.
 	if n > 1 && g.maximised == 0 {
-		m := g.main
+		m := cells[0]
 		ui.stroke_rect(ctx, {m.x + 1, m.y + 1, m.w - 2, m.h - 2}, 0, ctx.theme.camera[0], 2)
 	}
-	// What is drawn over the main view (overlay.odin) goes here, under the view panes.
-	k.layer = ui.layer_mark(ctx)
-	kit_wipe(app, g.main)
+	// What is drawn over the main view (overlay.odin) goes here, under the view panes; over
+	// the view pane worked in instead, which marks it after its picture.
+	if g.work == 0 {
+		k.layer = ui.layer_mark(ctx)
+		kit_wipe(app, g.main)
+	}
 	guides_frame(app)
-	kit_guides(app, g.main, app.camera, "main")
+	kit_guides(app, cells[0], main_camera(app), "main")
 	// While a divider is dragged the pictures keep their size, stretched, as the main
 	// view's does: each is drawn again at its new size once it is let go.
 	resizing := g.dragged != 0
@@ -345,11 +375,21 @@ kit_view_pane :: proc(app: ^App, i: int, r: ui.Rect) {
 	sv := &g.views[g.preset][i - 1]
 	ui.begin_at(ctx, fmt.tprintf("view pane %d", i), {r.x, r.y}, {width = r.w, height = r.h})
 	a := ui.area(ctx, "picture", {r.w, r.h})
-	ui.fill_rect(ctx, a.rect, 0, t.pane)
-	if app.panes[i - 1].shown != nil do ui.image(ctx, a.rect, KIT_PANE_IMAGE + u64(i - 1))
-	second_view_input(app, sv, a)
+	working := g.work == i
+	if working {
+		ui.image(ctx, a.rect, KIT_VIEWPORT_IMAGE)
+	} else {
+		ui.fill_rect(ctx, a.rect, 0, t.pane)
+		if app.panes[i - 1].shown != nil do ui.image(ctx, a.rect, KIT_PANE_IMAGE + u64(i - 1))
+		second_view_input(app, sv, a)
+	}
 	ui.end(ctx)
-	if app.panes[i - 1].shown != nil do kit_guides(app, r, app.panes[i - 1].orbit, fmt.tprintf("pane %d", i))
+	if working {
+		k.layer = ui.layer_mark(ctx)
+		kit_guides(app, r, app.camera, fmt.tprintf("pane %d", i))
+	} else if app.panes[i - 1].shown != nil {
+		kit_guides(app, r, app.panes[i - 1].orbit, fmt.tprintf("pane %d", i))
+	}
 	head := [2]f32{max(r.x, kit_left(app), grid_left_column_edge(app)) + 6, max(r.y, kit_top() - 8) + 6}
 	// Under the panels a docked right column may cover the pane's right part: a head too
 	// wide for the room left of it takes two rows, so Link and Maximise stay in reach.
@@ -395,7 +435,8 @@ GRID_SELECT_W :: 116
 // Lucide's link: a view's camera tied to the main one.
 ICON_LINK :: rune(0xe108)
 
-// Draws each view pane shown whose picture is due, as the second view does (thumbnail.odin).
+// Draws each view pane shown whose picture is due, as the second view does (thumbnail.odin),
+// but the one worked in, where the main view is drawn.
 grid_frame :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer, draws: []render.Draw_Item) {
 	k := &app.kit
 	for &pic, i in app.panes {
@@ -404,6 +445,7 @@ grid_frame :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer, draws: []render.Draw_I
 			pic.shown, pic.due = nil, false
 			continue
 		}
+		if k.grid.work == i + 1 do continue
 		picture_frame(app, cmd, draws, &k.grid.views[k.grid.preset][i], &pic, size, 1)
 	}
 }
@@ -416,9 +458,130 @@ grid_due :: proc(app: ^App) -> bool {
 
 grid_destroy :: proc(app: ^App) {
 	for &pic in app.panes do picture_destroy(app, &pic)
+	render.viewport_target_destroy(&app.renderer, &app.work_still)
 }
 
 // A point in window coordinates in the main pane's, as Viewport_Input has it.
 viewport_point :: proc(app: ^App, p: [2]f32) -> [2]f32 {
 	return p - app.ui.viewport_origin
+}
+
+// The image id of what the main pane showed as a view pane's work began (grid_work).
+KIT_WORK_STILL_IMAGE :: KIT_PANE_IMAGE + GRID_VIEWS
+
+// The main camera: the one the main view sees through, or while its role is lent to a view
+// pane, the one it gives back, so the other views, the scene file and the guides in the
+// main pane keep to it.
+main_camera :: proc(app: ^App) -> camera.Orbit {
+	if app.kit.grid.work != 0 do return app.kit.grid.work_back
+	return app.camera
+}
+
+// Work in any pane (Settings > Interface, on by default): a press on a view pane's picture
+// is the viewport's, as Blender's quad views each take the tools, seen through that pane's
+// camera. For as long as the gesture lasts the main view's role is lent to the pane: its
+// camera is the pane's, it is drawn there live (the one view drawn live this frame, as
+// ever) and the main pane holds the picture it showed. Once the gesture is over the pane
+// keeps what it did to its camera and the main camera comes back. Runs as the grid is
+// laid out, before the viewport reads this frame's input.
+grid_work :: proc(app: ^App, n: int) {
+	k := &app.kit
+	ctx := &k.ctx
+	g := &k.grid
+	g.work_began, g.work_ended = false, 0
+	if g.work != 0 && (g.work >= n || g.preset != g.work_preset || grid_work_over(app)) do grid_work_end(app)
+	if ctx.input.pressed == {} || ctx.active != 0 do return
+	place := 0
+	for i in 1 ..< n do if ctx.pointer_root == ui.id_of(ctx, fmt.tprintf("view pane %d", i)) do place = i
+	// A press on a panel is not the viewport's at all.
+	if place == 0 && !ctx.viewport_drag do return
+	// A double tap is two taps in one view: a tap in another forgets the one before it,
+	// whose place was in that view's coordinates.
+	if place != g.last_place do app.double_tap.valid = false
+	g.last_place = place
+	if place != 0 && g.work == 0 && k.panes_work && grid_work_may_start(app) do grid_work_begin(app, place)
+}
+
+// Whether a press may take the main view's role into a view pane: not while something
+// floats, whose closing press is swallowed, nor while the camera is moved by the app
+// itself (a turntable, the timeline, a replay), which follows the main view.
+@(private = "file")
+grid_work_may_start :: proc(app: ^App) -> bool {
+	ctx := &app.kit.ctx
+	if kit_floating(app) || ctx.popup_open_prev != 0 || ctx.swallow || app.ui.pie.swallow do return false
+	return !turntable_recording(app) && !timeline_busy(app) && !replay_busy(app)
+}
+
+// Whether the gesture worked in a view pane is over: nothing is down or held, no stroke
+// goes on, and no tool, gizmo, light, pie or brush adjust waits on the pointer. A pinch lets
+// the pointer go while its fingers still move the camera, so the fingers count too.
+grid_work_over :: proc(app: ^App) -> bool {
+	return !app.kit.ctx.viewport_drag && app.drag.owner == .None && app.touch.fingers.count == 0 && !app.stroke.active && !move_busy(app) && !app.ui.light_press.active && !app.ui.pie.open && app.ui.adjust.kind == .None
+}
+
+grid_work_begin :: proc(app: ^App, i: int) {
+	k := &app.kit
+	g := &k.grid
+	sv := &g.views[g.preset][i - 1]
+	// What the main pane shows, taken while the main view is still its own: the studio
+	// render or live occlusion pause while a view pane is worked in.
+	g.work_shown = viewport_shown(app)
+	if g.work_shown == nil do g.work_shown = app.target.color
+	g.work_back = app.camera
+	app.camera = second_orbit(app, sv)
+	g.work, g.work_preset, g.work_from = i, g.preset, app.camera
+	g.work_began = true
+	g.works += 1
+	g.work_dabs_from = app.stats.dabs_total
+	// The press is the viewport's this very frame.
+	k.ctx.viewport_drag, k.ctx.pointer_root = true, 0
+}
+
+// Gives the main view's role back: the pane keeps what the gesture did to the camera (a
+// linked pane's is the main camera, a mirrored one's the main camera mirrored, any other
+// becomes Free at the view it was left at), and the main camera comes back.
+grid_work_end :: proc(app: ^App) {
+	g := &app.kit.grid
+	if g.preset == g.work_preset && app.camera != g.work_from {
+		sv := &g.views[g.preset][g.work - 1]
+		#partial switch sv.camera {
+		case .Follow:
+			g.work_back = app.camera
+		case .Mirror:
+			g.work_back = camera.orbit_mirror_x(app.camera)
+		case:
+			sv.orbit, sv.camera = app.camera, .Free
+		}
+	}
+	g.work_dabs += app.stats.dabs_total - g.work_dabs_from
+	if g.preset == g.work_preset do g.work_ended = g.work
+	app.camera = g.work_back
+	g.work = 0
+}
+
+// After the interface on a frame a view pane's work began or ended: copies what the main
+// pane showed into the still picture it holds meanwhile, or the pane's last live picture
+// into its own picture so it is not drawn again, then sizes the viewport for where it is
+// drawn now. Each copy is queued before the target is resized, and before anything this
+// frame draws.
+grid_work_gpu :: proc(app: ^App) -> bool {
+	g := &app.kit.grid
+	if !g.work_began && g.work_ended == 0 do return true
+	w, h := app.target.width, app.target.height
+	// A work begun on the frame the last one ended (a press the very frame after a release)
+	// keeps the still picture it had: the target holds the other pane's view now.
+	if g.work_began && g.work_ended == 0 {
+		if !render.viewport_copy(&app.renderer, &app.work_still, g.work_shown, w, h) do log.warnf("work in a pane: no still picture of the main pane: %s", sdl.GetError())
+	}
+	if i := g.work_ended; i != 0 {
+		pic := &app.panes[i - 1]
+		sv := &g.views[g.preset][i - 1]
+		size := [2]u32{w, h}
+		if size == g.px[i - 1] && render.viewport_copy(&app.renderer, &pic.view.target, app.target.color, w, h) {
+			key, orbit := picture_key(app, sv, size, 1)
+			pic.shown, pic.key, pic.at, pic.orbit = pic.view.target.color, key, time.tick_now(), orbit
+		}
+	}
+	want := app.ui.viewport_request
+	return msaa_viewport_resize(app, u32(want.x), u32(want.y))
 }

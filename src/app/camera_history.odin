@@ -45,7 +45,8 @@ camera_history_frame :: proc(app: ^App) {
 	moved := v != h.seen
 	if moved do h.seen, h.moved_at = v, now
 	// Mid-turn, or the camera follows something played back: not a place it rested.
-	if app.drag.owner != .None || app.touch.fingers.count > 0 || timeline_busy(app) || replay_busy(app) do return
+	// Nor while a view pane is worked in: the camera is that pane's (grid_work).
+	if app.drag.owner != .None || app.touch.fingers.count > 0 || timeline_busy(app) || replay_busy(app) || app.kit.grid.work != 0 do return
 	// The view a scene opens with is the first, at once: a turn begun straight away
 	// must still be able to go back to it.
 	if h.count > 0 && (moved || now - h.moved_at < CAMERA_REST) do return

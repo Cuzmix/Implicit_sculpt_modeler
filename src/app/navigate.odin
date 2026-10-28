@@ -91,7 +91,7 @@ Dab_Wait :: struct {
 	brush:   Brush_Settings,
 	size:    [2]f32, // the viewport's, when tapped
 	at:      f64, // input_clock when the tap lifted
-	pos:     [2]f32,
+	pos:     [2]f32, // where it was pressed, in window coordinates, as the next finger comes
 }
 
 // Whether a tap pressed at `at` and `pos` is the second of a double tap after `first`.
@@ -451,7 +451,7 @@ pointer_route :: proc(app: ^App, input: ^Viewport_Input) {
 					w.active = false
 					double_tap_act(app, g.from, input.size)
 				} else {
-					w^ = {active = true, samples = w.samples, mods = g.mods, camera = app.camera, brush = app.brush, size = input.size, at = now, pos = g.from}
+					w^ = {active = true, samples = w.samples, mods = g.mods, camera = app.camera, brush = app.brush, size = input.size, at = now, pos = g.from + app.ui.viewport_origin}
 					clear(&w.samples)
 					append(&w.samples, ..g.held[:])
 				}
@@ -765,15 +765,18 @@ orbit_pivot :: proc(app: ^App, at, size: [2]f32) -> (pivot: Vec3, from: Pivot_So
 edge_inner :: proc(app: ^App) -> (lo, hi: [2]f32) {
 	k := &app.kit
 	area := ui.safe_area(&k.ctx)
+	// The top band starts under the top bar where the pane reaches the window's top edge,
+	// which the bar covers; a pane lower down (a view pane worked in) starts at its own top.
+	under_bar := true
 	if pane := k.grid.main; pane.w > 0 && pane.h > 0 {
+		under_bar = pane.y <= area.y
 		x0, y0 := max(area.x, pane.x), max(area.y, pane.y)
 		area = {x0, y0, min(area.x + area.w, pane.x + pane.w) - x0, min(area.y + area.h, pane.y + pane.h) - y0}
 	}
 	band := app.nav.edge_size
-	// The top band starts under the top bar, which covers the window's top edge (the main
-	// pane is always the grid's top left).
+	top := area.y + band + (TOP_BAR_H if under_bar else 0)
 	o := app.ui.viewport_origin
-	return [2]f32{area.x + band, area.y + TOP_BAR_H + band} * k.scale - o, [2]f32{area.x + area.w - band, area.y + area.h - band} * k.scale - o
+	return [2]f32{area.x + band, top} * k.scale - o, [2]f32{area.x + area.w - band, area.y + area.h - band} * k.scale - o
 }
 
 // Whether `p` (the main pane's coordinates) is in the safe zone, when it is on.
