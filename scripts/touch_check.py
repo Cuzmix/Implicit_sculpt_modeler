@@ -3091,6 +3091,17 @@ def model_loop_shapes_on_a_sphere():
     return Steps([run("circle_loop", (700, 500), 1), run("circle_loop", (720, 450), 0), run("space_loop", (700, 430), 1), run("flatten_loop", (700, 430), 1)])
 
 @scenario
+def model_apply_smooth_cage_makes_levels():
+    """Apply to sculpt on a creased cylinder cage drawn Smooth 3 makes four Catmull-Clark levels, the top one shown and closed; undo brings the cage back; Subdivide adds a fifth by the same rule; an open cage stays one level."""
+    base = "add_cage cylinder; select 1; delete_object; frame_all; crease_cage by_angle; cage_smooth 3; apply_cage"
+    s = Script()
+    s.wait(5)
+    return Steps([(s, LENS_1440 + ["--check-mesh", f"--script={base}"], {"cages": near(0), "selected_levels": near(4), "levels_rule": is_text("Smooth"), "mesh_closed": is_text("true")}),
+                  (Script(), LENS_1440 + [f"--script={base}; undo"], {"cages": near(1), "cage_smooth": near(3), "levels_rule": is_text("Loop")}),
+                  (Script(), LENS_1440 + ["--check-mesh", f"--script={base}; subdivide"], {"selected_levels": near(5), "levels_rule": is_text("Smooth"), "mesh_closed": is_text("true")}),
+                  (Script(), LENS_1440 + ["--script=add_cage plane; select 1; delete_object; frame_all; cage_smooth 2; apply_cage"], {"cages": near(0), "selected_levels": near(1), "levels_rule": is_text("Loop")})])
+
+@scenario
 def model_delete_tap_removes_a_face():
     """With Delete picked, a tap on a cage's face removes it (a hole of four border edges), not turning the view."""
     s = Script()

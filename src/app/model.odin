@@ -2,6 +2,7 @@ package main
 
 import "core:fmt"
 import "core:log"
+import "core:slice"
 import "core:strings"
 import "core:time"
 
@@ -98,7 +99,7 @@ object_build_cage :: proc(app: ^App, obj: ^Object, cage: poly.Mesh, look := Cage
 	mesh := geom.Mesh{positions = make([dynamic]Vec3), normals = make([dynamic]Vec3), indices = make([dynamic]u32)}
 	tri_face := make([dynamic]u32)
 	defer delete(tri_face)
-	poly.triangulate(drawn, &mesh, &tri_face)
+	poly.triangulate(drawn, &mesh, &tri_face, fixed = len(cp.sub.steps) > 0)
 	resize(&mesh.normals, len(mesh.positions))
 	// The triangles' groups are their faces', on the heap: building frees temp memory.
 	groups := make([]u16, len(tri_face))
@@ -211,15 +212,113 @@ scene_add_cage :: proc(app: ^App, kind: poly.Primitive, opts: poly.Primitive_Opt
 	return true
 }
 
-// Apply to sculpt: the cage goes and the object keeps its level as an ordinary mesh,
-// which every brush can then sculpt. Returns whether it had a cage to drop.
+// Apply to sculpt: the cage goes and the object becomes an ordinary mesh, which every
+// brush can then sculpt. A closed cage drawn Smooth or Flat becomes subdivision levels as
+// ZBrush's Dynamic Subdivision's Apply does: the cage's polygons cut into triangles as the
+// base, with the same number of Catmull-Clark levels above it, their creases kept, so the
+// top level shows what the cage showed, and each polygon keeps its polygroup (an all-quad
+// cage keeps its quads too, for export and UVs). An open cage, or one at Smooth 0, keeps
+// the level it was drawn with. Returns whether it had a cage to drop.
 object_apply_cage :: proc(app: ^App, obj: ^Object) -> bool {
 	if obj.cage == nil do return false
 	autosave_settle(app)
 	render.wait_idle(&app.renderer)
-	_ = render.mesh_buffers_set_edges(&app.renderer, &obj.gpu[0], nil)
-	cage_part_free(obj)
-	return true
+	cp := obj.cage
+	steps := cp.look.smooth
+	if steps == 0 || poly.mesh_check(&cp.mesh).border_edges > 0 {
+		if steps > 0 do report(app, nil, {}, "%s has open edges, so it became one level as drawn: close its holes first for subdivision levels", object_label(obj))
+		_ = render.mesh_buffers_set_edges(&app.renderer, &obj.gpu[0], nil)
+		cage_part_free(obj)
+		return true
+	}
+	start := time.tick_now()
+	// The cage outlives the object's rebuild, which frees the part, on the heap.
+	cage := cp.mesh
+	cp.mesh = {}
+	defer poly.mesh_destroy(&cage)
+	rule := sculpt.Subdivision_Rule.Flat if cp.look.flat else .Smooth
+	mesh := geom.Mesh{positions = make([dynamic]Vec3), normals = make([dynamic]Vec3), indices = make([dynamic]u32)}
+	tri_face := make([dynamic]u32)
+	defer delete(tri_face)
+	poly.triangulate(&cage, &mesh, &tri_face)
+	resize(&mesh.normals, len(mesh.positions))
+	groups := make([]u16, len(tri_face))
+	defer delete(groups)
+	for f, t in tri_face do groups[t] = cage.group[f]
+	vert_of := make([]u32, len(mesh.positions))
+	defer delete(vert_of)
+	tri_from := make([]u32, len(tri_face))
+	defer delete(tri_from)
+	object_release_mesh(app, obj, rebuild = false)
+	if !object_build_from(app, obj, mesh, start, normals = true, old_to_new = vert_of, surface = {groups = groups}, tri_from = tri_from) do return false
+	l := &obj.levels
+	if sculpt.levels_set_polys(l, cage_polys(&cage, vert_of, tri_face[:], tri_from), cage_sharp(&cage, vert_of), rule) {
+		if quads, all := cage_quads(&cage, vert_of); all {
+			sculpt.levels_set_quads(l, quads)
+		} else {
+			delete(quads)
+		}
+		for _ in 0 ..< steps do if !sculpt.levels_subdivide(l) do break
+	}
+	return object_show_level(app, obj, start)
+}
+
+// The cage's polygons as the sculptor keeps them (sculpt.Polys), in the level's vertex
+// numbers (`vert_of`, per cage point) and triangles (`tri_from`, per level triangle its
+// place in `tri_face`, each triangle's cage face). On the heap: the levels take them.
+cage_polys :: proc(cage: ^poly.Mesh, vert_of, tri_face, tri_from: []u32) -> (p: sculpt.Polys) {
+	p.first = make([]u32, len(cage.face_he) + 1)
+	corners := make([dynamic]u32, 0, 4 * len(cage.face_he))
+	verts := make([dynamic]u32, context.temp_allocator)
+	for f in 0 ..< u32(len(cage.face_he)) {
+		poly.face_verts(cage, f, &verts)
+		for v in verts do append(&corners, vert_of[v])
+		p.first[f + 1] = u32(len(corners))
+	}
+	p.corners = corners[:]
+	p.tri_poly = make([]u32, len(tri_from))
+	for old, t in tri_from do p.tri_poly[t] = tri_face[old]
+	return
+}
+
+// The cage's creases and corners as the sculptor keeps them, in the level's numbers and
+// sorted. On the heap: the levels take them.
+cage_sharp :: proc(cage: ^poly.Mesh, vert_of: []u32) -> (s: sculpt.Sharp) {
+	Edge :: struct {
+		key: u64,
+		c:   f32,
+	}
+	edges := make([dynamic]Edge, context.temp_allocator)
+	for c, e in cage.crease {
+		if c <= 0 do continue
+		a, b := poly.edge_verts(cage, u32(e))
+		append(&edges, Edge{sculpt.sharp_key(vert_of[a], vert_of[b]), c})
+	}
+	slice.sort_by(edges[:], proc(x, y: Edge) -> bool {return x.key < y.key})
+	s.edges, s.edge = make([]u64, len(edges)), make([]f32, len(edges))
+	for e, i in edges do s.edges[i], s.edge[i] = e.key, e.c
+	Vert :: struct {
+		v: u32,
+		c: f32,
+	}
+	verts := make([dynamic]Vert, context.temp_allocator)
+	for c, v in cage.corner do if c > 0 do append(&verts, Vert{vert_of[v], c})
+	slice.sort_by(verts[:], proc(x, y: Vert) -> bool {return x.v < y.v})
+	s.verts, s.vert = make([]u32, len(verts)), make([]f32, len(verts))
+	for v, i in verts do s.verts[i], s.vert[i] = v.v, v.c
+	return
+}
+
+// The cage's faces as quads in the level's numbers, and whether every face is one.
+cage_quads :: proc(cage: ^poly.Mesh, vert_of: []u32) -> (quads: [][4]u32, all: bool) {
+	quads = make([][4]u32, len(cage.face_he))
+	verts := make([dynamic]u32, context.temp_allocator)
+	for f in 0 ..< u32(len(cage.face_he)) {
+		poly.face_verts(cage, f, &verts)
+		if len(verts) != 4 do return quads, false
+		quads[f] = {vert_of[verts[0]], vert_of[verts[1]], vert_of[verts[2]], vert_of[verts[3]]}
+	}
+	return quads, true
 }
 
 // Reads the cage object_put wrote in the levels' place into `obj` and builds its level.

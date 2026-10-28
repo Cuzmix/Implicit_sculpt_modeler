@@ -41,6 +41,10 @@ Level :: struct {
 	even_of:        []u32,      // per vertex of the level below: the vertex it became here
 	deps:           Node_Lists, // per node: the nodes below whose vertices its Loop points read
 	dependents:     Node_Lists, // per node below: the nodes here whose Loop points read its vertices
+	// Under a Catmull-Clark rule, the level's own polygons and creases, which the level
+	// above is made from (levels_cc.odin).
+	polys:          Polys,
+	sharp:          Sharp,
 }
 
 Levels :: struct {
@@ -54,6 +58,7 @@ Levels :: struct {
 	residual:       [dynamic]Vec3,
 	hd:             Hd, // detail above the top level (hd.odin)
 	faces:          Quad_Faces, // the base level's quads and UVs, for a retopologized object (levels_quads.odin)
+	rule:           Subdivision_Rule, // how the levels above the base are made (levels_cc.odin)
 	sets:           [dynamic]Selection_Set, // saved masks (selection_sets.odin)
 	set_serial:     u32, // the last set id given
 }
@@ -169,6 +174,10 @@ levels_dyn_enable :: proc(l: ^Levels) -> bool {
 	lv := l.levels[0]
 	if !sculptor_dyn_enable(&lv.sculptor, l.allocator) do return false
 	levels_drop_quads(l) // its edits change the base's triangles
+	// So do its polygons: the levels made later are Loop's.
+	polys_destroy(&lv.polys, l.allocator)
+	sharp_destroy(&lv.sharp, l.allocator)
+	l.rule = .Loop
 	_ = levels_sets_clear(l)
 	delete(lv.node_of_vertex, l.allocator)
 	lv.node_of_vertex = nil
@@ -192,6 +201,9 @@ levels_subdivide_estimate :: proc(l: ^Levels) -> (vertices, triangles, bytes: in
 	top := l.levels[len(l.levels) - 1]
 	v, t := len(top.mesh.positions), len(top.mesh.indices) / 3
 	vertices, triangles = v + 3 * t / 2, 4 * t // a closed mesh has 3/2 edges per triangle
+	// Catmull-Clark: a point per edge (half a corner each) and per polygon, two
+	// triangles per corner.
+	if p := &top.polys; l.rule != .Loop && p.first != nil do vertices, triangles = v + len(p.corners) / 2 + len(p.first) - 1, 2 * len(p.corners)
 	return vertices, triangles, level_estimate_bytes(vertices, triangles, v) + 4 * sculptor_layers_bytes(&top.sculptor)
 }
 
@@ -317,7 +329,7 @@ NO_SLOT :: max(u32)
 @(private)
 push_down :: proc(l: ^Levels, j: int, changed: []u32) -> []u32 {
 	p := Push{fine = l.levels[j], coarse = l.levels[j - 1], changed = changed}
-	p.base = level_base(p.coarse)
+	p.base = level_base(p.coarse, l.rule)
 	fine_nodes := p.fine.sculptor.nodes
 	p.slot = make([]u32, len(fine_nodes), context.temp_allocator)
 	slice.fill(p.slot, NO_SLOT)
@@ -418,7 +430,7 @@ recode_level :: proc(l: ^Levels, j: int, nodes: []u32, encode: bool) {
 		nodes:  []u32,
 		encode: bool,
 	}
-	r := Recode{l.levels[j], level_base(l.levels[j - 1]), nodes, encode}
+	r := Recode{l.levels[j], level_base(l.levels[j - 1], l.rule), nodes, encode}
 	verts: u32
 	for id in nodes do verts += r.lv.sculptor.nodes[id].vert_count
 	jobs.parallel_for(l.pool if verts >= PARALLEL_MIN_VERTS else nil, len(nodes), &r, proc(data: rawptr, i: int) {
@@ -450,11 +462,18 @@ Loop_Base :: struct {
 	positions: []Vec3,
 	indices:   []u32,
 	faces:     geom.Vertex_Faces,
+	// Under a Catmull-Clark rule, the level's polygons (nil for Loop, and for HD, which
+	// stays Loop), each triangle's polygon, and its creases.
+	polys:     ^Polys,
+	tri_poly:  []u32,
+	sharp:     ^Sharp,
+	rule:      Subdivision_Rule,
 }
 
 @(private)
-level_base :: proc(lv: ^Level) -> Loop_Base {
-	return {lv.mesh.positions[:], lv.mesh.indices[:], lv.sculptor.faces}
+level_base :: proc(lv: ^Level, rule := Subdivision_Rule.Loop) -> Loop_Base {
+	if rule == .Loop || lv.polys.first == nil do return {positions = lv.mesh.positions[:], indices = lv.mesh.indices[:], faces = lv.sculptor.faces}
+	return {lv.mesh.positions[:], lv.mesh.indices[:], lv.sculptor.faces, &lv.polys, lv.polys.tri_poly, &lv.sharp, rule}
 }
 
 // Where Loop subdivision puts a vertex given its parents on the level below, with a
@@ -463,6 +482,7 @@ level_base :: proc(lv: ^Level) -> Loop_Base {
 // inputs, whatever the compiler does around the call.
 @(private)
 frame_at :: #force_no_inline proc(below: ^Loop_Base, par: [4]u32) -> Frame {
+	if below.polys != nil do return frame_cc(below, par)
 	P := below.positions
 	origin, normal, tangent: Vec3
 	if par[2] == EVEN {
@@ -485,19 +505,7 @@ frame_at :: #force_no_inline proc(below: ^Loop_Base, par: [4]u32) -> Frame {
 		normal = linalg.cross(b - a, c - d)
 		tangent = b - a
 	}
-	n := normal
-	if len2 := linalg.dot(n, n); len2 > 1e-30 {
-		n *= 1 / math.sqrt(len2)
-	} else {
-		n = {0, 0, 1}
-	}
-	t := tangent - n * linalg.dot(n, tangent)
-	if len2 := linalg.dot(t, t); len2 > 1e-30 {
-		t *= 1 / math.sqrt(len2)
-	} else {
-		t = linalg.normalize(linalg.cross(n, Vec3{1, 0, 0} if abs(n.x) < 0.9 else Vec3{0, 1, 0}))
-	}
-	return {origin, t, linalg.cross(n, t), n}
+	return frame_make(origin, normal, tangent)
 }
 
 @(private)
@@ -537,6 +545,7 @@ corner_of :: #force_inline proc(indices: []u32, f, v: u32) -> u32 {
 // oriented (an open or non-manifold mesh).
 @(private)
 level_above :: proc(l: ^Levels, below: ^Level) -> (^Level, bool) {
+	if l.rule != .Loop && below.polys.first != nil do return level_above_cc(l, below)
 	Build :: struct {
 		below:       ^Level,
 		base:        Loop_Base, // below's
@@ -696,8 +705,9 @@ link_levels :: proc(l: ^Levels, below, lv: ^Level) {
 		below, lv: ^Level,
 		lists:     [][]u32,
 		heap:      runtime.Allocator, // lists are made on worker threads
+		polys:     ^Polys, // below's, under a Catmull-Clark rule
 	}
-	k := Link{below = below, lv = lv, heap = runtime.heap_allocator()}
+	k := Link{below = below, lv = lv, heap = runtime.heap_allocator(), polys = &below.polys if l.rule != .Loop && below.polys.first != nil else nil}
 	k.lists = make([][]u32, len(lv.sculptor.nodes), context.temp_allocator)
 	jobs.parallel_for(l.pool, len(lv.sculptor.nodes), &k, proc(data: rawptr, id: int) {
 		k := cast(^Link)data
@@ -712,6 +722,22 @@ link_levels :: proc(l: ^Levels, below, lv: ^Level) {
 		}
 		for u in n.vert_first ..< n.vert_first + n.vert_count {
 			par := k.lv.parents[u]
+			// A Catmull-Clark point reads every corner of the polygons it is made from,
+			// a quad's far corner too, which is in no triangle at the vertex.
+			if p := k.polys; p != nil {
+				switch par[2] {
+				case EVEN:
+					for f in geom.vertex_faces_of(k.below.sculptor.faces, par[0]) {
+						for v in poly_corners(p, p.tri_poly[f]) do add(&found, &last, k.below.node_of_vertex[v])
+					}
+				case FACE:
+					for v in poly_corners(p, par[3]) do add(&found, &last, k.below.node_of_vertex[v])
+				case:
+					for v in poly_corners(p, par[2]) do add(&found, &last, k.below.node_of_vertex[v])
+					for v in poly_corners(p, par[3]) do add(&found, &last, k.below.node_of_vertex[v])
+				}
+				continue
+			}
 			if par[2] == EVEN {
 				for f in geom.vertex_faces_of(k.below.sculptor.faces, par[0]) {
 					for c in 0 ..< u32(3) do add(&found, &last, k.below.node_of_vertex[indices[3 * f + c]])
@@ -757,6 +783,8 @@ level_free :: proc(l: ^Levels, lv: ^Level) {
 	geom.mesh_destroy(&lv.mesh)
 	delete(lv.node_of_vertex, l.allocator)
 	level_unlink(l, lv)
+	polys_destroy(&lv.polys, l.allocator)
+	sharp_destroy(&lv.sharp, l.allocator)
 	free(lv, l.allocator)
 }
 

@@ -1409,6 +1409,11 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		}
 		fmt.printfln("cages=%d cage_points=%d cage_edges=%d cage_faces=%d cage_ngons=%d cage_broken=%d cage_selected=%d cage_smooth=%d cage_creases=%d cage_corners=%d tool=%v", cages, points, edges, faces, ngons, broken, chosen, smooth, creased, corners, app.tool)
 		fmt.printfln("model_action=%v model_target=%v model_done=%d model_refused=%d", app.model.action, model_target(&app.model, app.model.action), app.model.done, app.model.refused)
+		// How the selected object's levels above its base are made: Loop for a sculpt,
+		// Smooth or Flat for one applied from a cage.
+		if obj := selected_object(&app); obj != nil && obj.voxel == nil && len(obj.levels.levels) > 0 {
+			fmt.printfln("levels_rule=%v", obj.levels.rule)
+		}
 	}
 	{
 		off, ghosts := scene_view_counts(&app)

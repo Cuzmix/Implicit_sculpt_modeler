@@ -332,7 +332,7 @@ hd_detail_rides_on_the_top_level :: proc(t: ^testing.T) {
 	levels_hd_leave(&l)
 	height :: proc(l: ^Levels) -> (h: f32) {
 		lv := l.hd.window
-		base := Loop_Base{l.hd.region.below.positions[:], l.hd.region.below.indices[:], l.hd.region.below.faces}
+		base := Loop_Base{positions = l.hd.region.below.positions[:], indices = l.hd.region.below.indices[:], faces = l.hd.region.below.faces}
 		for p, w in lv.mesh.positions {
 			if lv.sculptor.fade[w] == 0 do continue
 			f := frame_at(&base, lv.parents[w])

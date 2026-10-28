@@ -83,7 +83,7 @@ levels_file_round_trip_keeps_every_level :: proc(t: ^testing.T) {
 	for p, u in back.levels[2].mesh.positions do twin[p] = u
 	// Every level decodes to what it shows, and nothing waits to sync.
 	for j in 1 ..< 3 {
-		lv, below := back.levels[j], level_base(back.levels[j - 1])
+		lv, below := back.levels[j], level_base(back.levels[j - 1], back.rule)
 		worst: f32
 		for p, u in lv.mesh.positions do worst = max(worst, linalg.length(p - frame_point(frame_at(&below, lv.parents[u]), lv.detail[u])))
 		testing.expectf(t, worst < 1e-6, "level %d decodes %v away", j, worst)

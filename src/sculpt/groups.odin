@@ -405,8 +405,35 @@ levels_carry_groups :: proc(l: ^Levels, from, to: int) {
 		src, dst := &l.levels[j].sculptor, &l.levels[j + step].sculptor
 		if src.groups.tris == nil && dst.groups.tris == nil do continue
 		fine := j + 1 if step > 0 else j
-		parent := level_tri_parents(l, fine)
 		if dst.groups.tris == nil do dst.groups.tris = make([]u16, len(dst.mesh.indices) / 3, dst.history.allocator)
+		// Catmull-Clark levels go by polygons: going up a triangle takes the group of the
+		// first triangle of the polygon it was cut from, and going down every triangle of
+		// a polygon takes the group of the lowest-numbered triangle cut from it.
+		if p := &l.levels[fine - 1].polys; l.rule != .Loop && p.first != nil {
+			polys := cc_tri_polys(l, fine)
+			count := len(p.first) - 1
+			switch {
+			case src.groups.tris == nil:
+				slice.zero(dst.groups.tris)
+			case step > 0:
+				first := make([]u32, count, context.temp_allocator)
+				slice.fill(first, NO_SLOT)
+				for f, t in p.tri_poly do if first[f] == NO_SLOT do first[f] = u32(t)
+				for f, t in polys do dst.groups.tris[t] = src.groups.tris[first[f]]
+			case:
+				taken := make([]bool, count, context.temp_allocator)
+				group := make([]u16, count, context.temp_allocator)
+				for f, t in polys {
+					if taken[f] do continue
+					taken[f] = true
+					group[f] = src.groups.tris[t]
+				}
+				for f, t in p.tri_poly do dst.groups.tris[t] = group[f]
+			}
+			groups_refresh(dst)
+			continue
+		}
+		parent := level_tri_parents(l, fine)
 		switch {
 		case src.groups.tris == nil:
 			slice.zero(dst.groups.tris)
