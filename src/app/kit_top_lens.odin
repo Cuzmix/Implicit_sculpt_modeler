@@ -17,6 +17,7 @@ kit_top_bar_lens :: proc(app: ^App) -> (menu_anchor, search_anchor: ui.Rect) {
 	t := ctx.theme
 	area := ui.safe_area(ctx)
 	k.passes.chip_held = false
+	if lens_focus(k) do return kit_top_islands(app)
 	ui.begin_anchored(ctx, "top bar", .Start, .Start, {0, 0}, {direction = .Row, width = area.w, height = TOP_BAR_H, padding = 2, gap = 2, center = true})
 	// See-through, as the mockups' glass bar: the picture runs on under it, the frame's
 	// colour over it at three quarters, and a faint light line along its foot.
@@ -68,6 +69,73 @@ kit_top_bar_lens :: proc(app: ^App) -> (menu_anchor, search_anchor: ui.Rect) {
 	ui.spacer(ctx, 4)
 	if ui.icon_button(ctx, "History", ui.ICON_HISTORY, selected = k.history) do k.history = !k.history
 	_ = top_command(app, .Settings, ui.ICON_SETTINGS, "Settings", k.settings)
+	ui.end(ctx)
+	return
+}
+
+// Whether the Lens layout is focused: its workspace hides the view bar, as the built-in
+// Focus does (screen focus2). The top bar is then three islands over the view, and the
+// view's chips, the rail and the shelf's page names stand aside.
+lens_focus :: proc(k: ^Kit_State) -> bool {
+	return k.chrome == .Lens && zone_hidden(k, .View_Bar)
+}
+
+// How far the islands stand in from the top of the safe area, in points.
+ISLAND_TOP :: 6
+
+// The focused top bar: Menu, Undo and Redo in an island at the off-hand corner; the
+// workspace (its chip opens the switcher's menu) and X symmetry in the middle; Search,
+// View layout, Passes and History at the pen side. Returns the menu button and Search, as
+// the bar does.
+@(private = "file")
+kit_top_islands :: proc(app: ^App) -> (menu_anchor, search_anchor: ui.Rect) {
+	k := &app.kit
+	ctx := &k.ctx
+	t := ctx.theme
+	island := ui.Box{direction = .Row, padding = 4, gap = 2, radius = t.radius_large, background = .Panel, center = true}
+	ui.begin_anchored(ctx, "top bar", .Start, .Start, {LENS_EDGE, ISLAND_TOP}, island)
+	if ui.icon_button(ctx, "Menu", ui.ICON_MENU, selected = k.menu) {
+		k.menu = !k.menu
+		k.menu_scroll = 0
+	}
+	menu_anchor = ctx.last_rect
+	undo := fmt.tprintf("Undo %s##undo", history_next_label(app.history.done[:]))
+	redo := fmt.tprintf("Redo %s##redo", history_next_label(app.history.undone[:]))
+	if ui.icon_button(ctx, undo, ui.ICON_UNDO, enabled = command_enabled(app, .Undo), keys = command_hint(app, .Undo)) do command_run(app, .Undo)
+	if ui.icon_button(ctx, redo, ui.ICON_REDO, enabled = command_enabled(app, .Redo), keys = command_hint(app, .Redo)) do command_run(app, .Redo)
+	ui.end(ctx)
+
+	ui.begin_anchored(ctx, "focus middle", .Center, .Start, {0, ISLAND_TOP}, island)
+	w := &k.workspaces
+	if a := lens_chip(ctx, "Workspace##focus", workspace_name(k, w.current), chevron = true, lit = w.menu, keys = command_hint(app, .Workspace, w.current)); a.clicked {
+		was := w.menu
+		kit_floats_close(k)
+		w.menu = !was
+	}
+	w.menu_at = ctx.last_rect
+	// The amber dot while the layout differs from the saved one, as the switcher has it.
+	if w.modified do ui.fill_circle(ctx, {w.menu_at.x + w.menu_at.w - 6, w.menu_at.y + 12}, 3, t.warning)
+	x := command_checked(app, .Symmetry_X)
+	if a := lens_chip(ctx, "Symmetry X##focus", "X", glyph = ICON_SYMMETRY, lit = x, keys = command_hint(app, .Symmetry_X)); a.clicked do command_run(app, .Symmetry_X)
+	if x do ui.stroke_rect(ctx, {ctx.last_rect.x, ctx.last_rect.y + (ctx.last_rect.h - LENS_CHIP_H) * 0.5, ctx.last_rect.w, LENS_CHIP_H}, t.radius_medium, t.accent, 1)
+	ui.end(ctx)
+
+	ui.begin_anchored(ctx, "focus tools", .End, .Start, {LENS_EDGE, ISLAND_TOP}, island)
+	if ui.icon_button(ctx, "Search commands", ui.ICON_SEARCH, selected = k.palette, keys = command_hint(app, .Command_Palette)) {
+		if k.palette do palette_close(app)
+		else do palette_open(app)
+	}
+	search_anchor = ctx.last_rect
+	// The menus these open come down from their buttons, from keys and search too.
+	layout := bar_pop_showing(app, .View_Layout)
+	if ui.icon_button(ctx, "View layout", ICON_VIEW_LAYOUT, selected = layout, keys = command_hint(app, .View_Layout_Menu)) do bar_pop_toggle(app, .View_Layout, ctx.last_rect, .Below)
+	k.bar_at[.View_Layout], k.bar_side[.View_Layout] = ctx.last_rect, .Below
+	if ui.icon_button(ctx, "Passes", ICON_PASSES, selected = k.passes.menu, keys = command_hint(app, .Pass_Menu)) {
+		k.passes.menu_at, k.passes.menu_side = ctx.last_rect, .Below
+		pass_menu_toggle(app)
+	}
+	k.passes.menu_at, k.passes.menu_side = ctx.last_rect, .Below
+	if ui.icon_button(ctx, "History", ui.ICON_HISTORY, selected = k.history) do k.history = !k.history
 	ui.end(ctx)
 	return
 }

@@ -71,6 +71,17 @@ Kit_State :: struct {
 	// work to lose (its index + 1) and when: a second tap soon after opens it.
 	versions:   bool,
 	menu_scroll: f32, // the menu's, on a window too short for all of it
+	// Lens's menu (lens_menu.odin): the submenu open and the row it opened from, the row a
+	// mouse rests on and since when, the recent scene a first tap armed (its index + 1) and
+	// when, and for the exit stats how many submenus opened and recent scenes it opened.
+	menu_sub:      Lens_Submenu,
+	menu_sub_at:   ui.Rect,
+	menu_rest_on:  Lens_Submenu,
+	menu_rest_since: f64,
+	menu_recent_armed: int,
+	menu_recent_armed_at: f64,
+	menu_subs:     int,
+	menu_recent_opens: int,
 	version_armed: int,
 	version_armed_at: f64,
 	// Where each button that opens a bar menu (Shading, Camera) was last drawn: the menu
@@ -217,6 +228,10 @@ Kit_State :: struct {
 	palette_runs:   int,
 	palette_last:   Palette_Entry,
 	palette_ran:    bool,
+	// Lens's search: the groups its results showed under last, and how many entries it put
+	// on a bar (lens_search.odin).
+	palette_groups: bit_set[Palette_Group],
+	palette_bar_puts: int,
 	// While set, the palette chooses what that gesture runs, or what that bar slot holds,
 	// rather than running anything (palette_open_for, from Settings > Touch's Any
 	// command...; bar_choose, from a bar's slot while customising).
@@ -1136,11 +1151,14 @@ kit_layout :: proc(app: ^App) {
 	// view chips for the readout, the off-hand island for the brush bar, the view rail for
 	// the view bars. Its brushes open from the dock's All, and Search from the top bar.
 	lens := k.chrome == .Lens
-	if lens do kit_view_chips(app)
-	else do kit_points(app)
+	// Focused (kit_top_lens.odin), the view's own chips stand aside, but the off-hand island
+	// stays: Size and Strength are what the other hand reaches for while sculpting.
+	focus := lens_focus(k)
+	if lens && !focus do kit_view_chips(app)
+	else if !lens do kit_points(app)
 	browser_anchor := menu_anchor
-	if zone_hidden(k, .Brush_Bar) do k.bar_scrub = {}
-	else if lens do kit_offhand(app)
+	if lens && (focus || !zone_hidden(k, .Brush_Bar)) do kit_offhand(app)
+	else if zone_hidden(k, .Brush_Bar) do k.bar_scrub = {}
 	else do browser_anchor = kit_brush_bar(app)
 	if lens && !zone_hidden(k, .Dock) && k.browser_at == .Bar do k.browser_at = .Dock
 	kit_nav_head(app)
@@ -1369,6 +1387,10 @@ kit_size_names :: proc() -> []string {
 // The menu under the menu button: files, and the app's own settings.
 @(private = "file")
 kit_menu :: proc(app: ^App, anchor: ui.Rect) {
+	if app.kit.chrome == .Lens {
+		kit_menu_lens(app, anchor)
+		return
+	}
 	k := &app.kit
 	ctx := &k.ctx
 	owner := ui.id_of(ctx, "menu")
@@ -1390,8 +1412,26 @@ kit_menu :: proc(app: ^App, anchor: ui.Rect) {
 	}
 	ui.divider(ctx, across = true)
 	ui.caption(ctx, "  NEW SCENE")
-	// Three to a row, each its shape's name; one armed by a first tap (the scene has work
-	// to lose) turns red and asks, and the menu stays open for the second tap.
+	if menu_new_scenes(app, body_w) do pick = true
+	ui.divider(ctx, across = true)
+	ui.caption(ctx, "  APP")
+	_ = command_menu_item(app, .Reduce_Motion)
+	if command_menu_item(app, .Settings) do pick = true
+	_ = command_menu_item(app, .Stats)
+	if command_menu_item(app, .Help, int(Help_Tab.Keys), "Help...") do pick = true
+	if command_menu_item(app, .Macros) do pick = true
+	if command_menu_item(app, .Library) do pick = true
+	kit_scroll_end(ctx, scroll)
+	ui.popover_end(ctx)
+	if pick do k.menu = false
+}
+
+// The starter shapes three to a row, each its shape's name, then each content pack's
+// meshes under its name: Classic's menu and Lens's New submenu. One armed by a first tap
+// (the scene has work to lose) turns red and asks, and the menu stays open for the second
+// tap. Returns whether a scene was started.
+menu_new_scenes :: proc(app: ^App, body_w: f32) -> (pick: bool) {
+	ctx := &app.kit.ctx
 	w := (body_w - 2 * 6) / 3
 	for row in 0 ..< len(NEW_SCENE_SHAPES) / 3 {
 		ui.begin(ctx, fmt.tprintf("new scene row %d", row), {direction = .Row, gap = 6})
@@ -1420,17 +1460,7 @@ kit_menu :: proc(app: ^App, anchor: ui.Rect) {
 			if n % 3 == 0 || n == pack.meshes do ui.end(ctx)
 		}
 	}
-	ui.divider(ctx, across = true)
-	ui.caption(ctx, "  APP")
-	_ = command_menu_item(app, .Reduce_Motion)
-	if command_menu_item(app, .Settings) do pick = true
-	_ = command_menu_item(app, .Stats)
-	if command_menu_item(app, .Help, int(Help_Tab.Keys), "Help...") do pick = true
-	if command_menu_item(app, .Macros) do pick = true
-	if command_menu_item(app, .Library) do pick = true
-	kit_scroll_end(ctx, scroll)
-	ui.popover_end(ctx)
-	if pick do k.menu = false
+	return
 }
 
 // The Shading menu (the right bar's Shading button): how the surface is drawn, how it is

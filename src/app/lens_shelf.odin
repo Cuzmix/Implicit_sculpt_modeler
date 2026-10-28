@@ -35,6 +35,8 @@ SHELF_PAGE_NAMES := [Shelf_Page]string {
 // before the pen hand's palm.
 SHELF_MAX :: 12
 SHELF_TABLET :: 8
+// How many tiles the focused shelf shows (screen focus2): seven brushes, then All.
+SHELF_FOCUS :: 7
 
 // A fresh install's pages: the brushes most reached for; painting and its colours; what
 // moves the surface; the curve and insert tools.
@@ -153,24 +155,12 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 		n = min(n, max(int((g.main.w - 2 * SHELF_SIDE_ROOM) / ui.BRUSH_TILE.x) - 1, 3))
 	}
 	if ctx.mirror do shift = -shift
+	// Focused, the shelf is the brushes most reached for and All, without the page names.
+	focus := lens_focus(k)
+	if focus do n = min(n, SHELF_FOCUS)
 
-	ui.begin_anchored(ctx, "dock pages", .Center, .End, {shift, max(t.edge - 10, 2)}, {direction = .Row, gap = 2, padding = 2, radius = t.radius_large, background = .Panel, center = true})
-	for p in Shelf_Page {
-		name := SHELF_PAGE_NAMES[p]
-		w := ui.text_width(ctx, name, t.small_size, .Semibold) + 26
-		a := ui.area(ctx, fmt.tprintf("%s page##shelf", name), {w, 24})
-		on := p == sh.page
-		if a.hovered && !on do ui.fill_rect(ctx, a.rect, t.radius_medium, t.fill_hover)
-		ui.fill_circle(ctx, {a.rect.x + 9, a.rect.y + a.rect.h * 0.5}, 3, t.accent if on else t.text_tertiary)
-		ui.text(ctx, name, a.rect.x + 16, a.rect.y + a.rect.h * 0.5, t.small_size, t.text if on else t.text_secondary, .Semibold if on else .Regular)
-		if a.clicked && !on {
-			sh.page, sh.quick = p, false
-			sh.turns += 1
-		}
-	}
-	ui.end(ctx)
-
-	ui.begin_anchored(ctx, "dock", .Center, .End, {shift, t.edge + 22}, {direction = .Row, gap = 0, padding = 4, radius = t.radius_large + 4, background = .Panel, center = true})
+	if !focus do lens_shelf_pages(app, shift)
+	ui.begin_anchored(ctx, "dock", .Center, .End, {shift, t.edge if focus else t.edge + 22}, {direction = .Row, gap = 0, padding = 4, radius = t.radius_large + 4, background = .Panel, center = true})
 	sh.shown = n
 	for s, i in used[:n] {
 		name := fmt.tprintf("%s##shelf %v %d", shelf_label(s), sh.page, i)
@@ -204,6 +194,30 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 	// be carried down onto any tile.
 	if strip := ui.prev_rect(ctx, "dock"); strip.w > 0 do sheet_anchor = strip
 	return
+}
+
+// The page names under the shelf, each a tap away; the shelf stands over them.
+@(private = "file")
+lens_shelf_pages :: proc(app: ^App, shift: f32) {
+	k := &app.kit
+	ctx := &k.ctx
+	t := ctx.theme
+	sh := &k.shelf
+	ui.begin_anchored(ctx, "dock pages", .Center, .End, {shift, max(t.edge - 10, 2)}, {direction = .Row, gap = 2, padding = 2, radius = t.radius_large, background = .Panel, center = true})
+	for p in Shelf_Page {
+		name := SHELF_PAGE_NAMES[p]
+		w := ui.text_width(ctx, name, t.small_size, .Semibold) + 26
+		a := ui.area(ctx, fmt.tprintf("%s page##shelf", name), {w, 24})
+		on := p == sh.page
+		if a.hovered && !on do ui.fill_rect(ctx, a.rect, t.radius_medium, t.fill_hover)
+		ui.fill_circle(ctx, {a.rect.x + 9, a.rect.y + a.rect.h * 0.5}, 3, t.accent if on else t.text_tertiary)
+		ui.text(ctx, name, a.rect.x + 16, a.rect.y + a.rect.h * 0.5, t.small_size, t.text if on else t.text_secondary, .Semibold if on else .Regular)
+		if a.clicked && !on {
+			sh.page, sh.quick = p, false
+			sh.turns += 1
+		}
+	}
+	ui.end(ctx)
 }
 
 // Opens the brush picker, or closes it: in Lens over the shelf, in Classic as the brush

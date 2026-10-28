@@ -64,6 +64,9 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   last fills a closed one's): change it only through the tree ops in grid.odin. Lens gestures (`lens_areas.odin`)
   queue a `Grid_Op` that `kit_grid` applies before layout; each op is a `Grid_Step` that `undo_run`/`redo_run`
   order against the History by `at` ticks. Pictures follow moved views in `grid_pictures_follow`.
+  Lens's menu is `kit_menu_lens` (`lens_menu.odin`; `LENS_MENU_PLACE` says where each command is, keep it in step
+  with the rows); search's Lens rows, groups and Put on a bar are `lens_search.odin` (`palette_where`); Focus is
+  `lens_focus(k)` (the view bar hidden): islands in `kit_top_islands`, no view chips, a compact shelf.
 - Layout (`kit_layout`, `new_ui.odin`; the bars in `kit_bars.odin`, after ZBrush for iPad): `kit_top_bar` (a full-width
   strip, `TOP_BAR_H`: Menu, Save, Import, Export | file name | History, Edit pies, Help, Settings), `kit_points` (the
   object's readout under it, at the top left), `kit_brush_bar` (left column, top from `brush_bar_top`, which keeps
