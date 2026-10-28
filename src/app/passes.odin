@@ -240,6 +240,10 @@ kit_pass_menu :: proc(app: ^App) {
 	ps := &k.passes
 	if !ui.popover_begin(ctx, "pass menu", &ps.menu, ps.menu_at, ps.menu_side, {direction = .Column, gap = 0, padding = 6, width = 260}) do return
 	defer ui.popover_end(ctx)
+	if k.chrome == .Lens {
+		lens_pass_menu(app)
+		return
+	}
 	ui.caption(ctx, "  PASSES")
 	picked := false
 	for p in render.View_Pass {
@@ -249,6 +253,61 @@ kit_pass_menu :: proc(app: ^App) {
 	picked ||= command_menu_item(app, .View_Pass_Last)
 	picked ||= command_menu_item(app, .View_Wipe)
 	ui.paragraph(ctx, "Hold the chip, or the ` key, to peek at the last other pass; Wipe compare shows it beside this one, split by a line you drag.")
+	if picked do ps.menu = false
+}
+
+// The icon of each pass in Lens's list.
+@(rodata)
+PASS_ICONS := [render.View_Pass]rune {
+	.Shaded     = ui.ICON_SUN,
+	.Normals    = ICON_SCAN_EYE,
+	.Depth      = ICON_OBJECTS,
+	.Curvature  = ICON_CHANNEL_SCULPT,
+	.AO         = ICON_CONTRAST,
+	.Silhouette = ui.ICON_FOCUS,
+}
+
+// The passes that check the form, as Lens's list groups them.
+@(rodata)
+DIAGNOSTIC_PASSES := [?]render.View_Pass{.Normals, .Curvature, .AO, .Depth, .Silhouette}
+
+// Lens's list (round 2's inspect2 screen): RECENT, the pass shown and the last other one,
+// to flip between; SHADING, the shaded view with the looks, Flat shading and the render
+// that change how it is shaded; DIAGNOSTICS, the passes that check the form. Each row
+// shows its keys; the one shown is highlighted.
+@(private = "file")
+lens_pass_menu :: proc(app: ^App) {
+	k := &app.kit
+	ctx := &k.ctx
+	ps := &k.passes
+	picked := false
+	row :: proc(app: ^App, p: render.View_Pass, salt: string) -> bool {
+		ps := &app.kit.passes
+		id := int(p)
+		if !ui.menu_item(&app.kit.ctx, fmt.tprintf("%s##%s", PASS_LABELS[p], salt), command_keys(app, .View_Pass, id), PASS_ICONS[p], enabled = command_enabled(app, .View_Pass, id), highlight = ps.pass == p, hint = command_hint(app, .View_Pass, id)) do return false
+		return command_run(app, .View_Pass, id)
+	}
+	toggle :: proc(app: ^App, id: Command_Id, glyph: rune, arg := 0, label := "") -> bool {
+		text := label if label != "" else command_label(id, arg)
+		if !ui.menu_item(&app.kit.ctx, fmt.tprintf("%s##pass menu", text), command_keys(app, id, arg), glyph, checked = command_checked(app, id, arg), enabled = command_enabled(app, id, arg), hint = command_hint(app, id, arg)) do return false
+		return command_run(app, id, arg)
+	}
+	if ps.last != ps.pass {
+		ui.caption(ctx, "  RECENT")
+		if row(app, ps.pass, "recent") do picked = true
+		if row(app, ps.last, "recent") do picked = true
+	}
+	ui.caption(ctx, "  SHADING")
+	if row(app, .Shaded, "shading") do picked = true
+	for look in Look_Preset do if toggle(app, .Viewport_Look, ICON_MATERIAL if look == .Sculpt_Studio else ICON_SHADING, int(look), LOOK_PRESET_NAMES[look]) do picked = true
+	if toggle(app, .Flat_Shading, ui.ICON_SHAPES) do picked = true
+	if toggle(app, .Studio_Render, ICON_SPARKLES) do picked = true
+	ui.caption(ctx, "  DIAGNOSTICS")
+	for p in DIAGNOSTIC_PASSES do if row(app, p, "diagnostic") do picked = true
+	ui.divider(ctx, across = true)
+	if command_menu_item(app, .View_Pass_Last) do picked = true
+	if command_menu_item(app, .View_Wipe) do picked = true
+	ui.paragraph(ctx, "Hold a pass chip, or the ` key, to peek at your last pass; release to come back.")
 	if picked do ps.menu = false
 }
 

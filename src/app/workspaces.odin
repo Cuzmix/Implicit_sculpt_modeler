@@ -28,7 +28,7 @@ Zone :: enum u8 {
 Built_In :: enum u8 {
 	Sculpt, // the layout as it has always been
 	Focus, // the model, the dock and the wheel: nothing else in the way
-	Inspect, // the statistics, the camera and the look, with four panes: curvature, normals and a front silhouette
+	Inspect, // four panes, the main one shaded, then curvature, normals and a front silhouette, and no panels
 	Studio, // the lights, the material and the environment, with a thumbnail view
 }
 
@@ -212,8 +212,9 @@ built_in_layout :: proc(b: Built_In) -> string {
 	case .Focus:
 		text = "hidden Brush_Bar View_Bar Action_Bar\nopen\n"
 	case .Inspect:
-		text = "hidden Brush_Bar Dock\npanes h500 v500 0 1 v500 2 3\npane 1 Follow Curvature\npane 2 Follow Normals\npane 3 Front Silhouette\nopen Stats\ncolumn left Stats\ncolumn right Inspector section:Camera section:Look\n" +
-			"pinned Camera 0 Start Start 0 0 0\npinned Look 0 Start Start 0 0 0\n"
+		// The panes get the whole window, as round 2's inspect2 screen: Statistics, Camera
+		// and Look stay a tap away on the rail and in Search.
+		text = "hidden Brush_Bar Dock\npanes h500 v500 0 1 v500 2 3\npane 1 Follow Curvature\npane 2 Follow Normals\npane 3 Front Silhouette\nopen\n"
 	case .Studio:
 		text = "open Thumbnail\ncolumn right Inspector section:Lights section:Material section:Environment\n" +
 			"pinned Lights 0 Start Start 0 0 0\npinned Material 0 Start Start 0 0 0\npinned Environment 0 Start Start 0 0 0\n"
