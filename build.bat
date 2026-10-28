@@ -49,6 +49,7 @@ rem Library packages have no main, hence -no-entry-point; it is harmless on the 
 "%ODIN%" check "%ROOT%src\jobs" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\luau" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\png_write" -no-entry-point %COMMON% || exit /b 1
+"%ODIN%" check "%ROOT%src\poly" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\render" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\sculpt" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\sdf_trial" -no-entry-point %COMMON% || exit /b 1
@@ -57,7 +58,7 @@ rem Library packages have no main, hence -no-entry-point; it is harmless on the 
 "%ODIN%" check "%ROOT%src\zip" -no-entry-point %COMMON% || exit /b 1
 python "%ROOT%scripts\agents_sync.py" --check || exit /b 1
 python "%ROOT%scripts\boundary_check.py" || exit /b 1
-echo check: 14 packages type-check, agent mirror current, only render names the GPU API
+echo check: 15 packages type-check, agent mirror current, only render names the GPU API
 exit /b 0
 
 :debug
@@ -83,6 +84,7 @@ exit /b 0
 
 :test
 "%ODIN%" test "%ROOT%src\geom" -out:"%ROOT%build\test_geom.exe" %COMMON% || exit /b 1
+"%ODIN%" test "%ROOT%src\poly" -out:"%ROOT%build\test_poly.exe" %COMMON% || exit /b 1
 "%ODIN%" test "%ROOT%src\camera" -out:"%ROOT%build\test_camera.exe" %COMMON% || exit /b 1
 "%ODIN%" test "%ROOT%src\sculpt" -out:"%ROOT%build\test_sculpt.exe" %COMMON% || exit /b 1
 "%ODIN%" test "%ROOT%src\voxel" -out:"%ROOT%build\test_voxel.exe" %COMMON% || exit /b 1

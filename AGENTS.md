@@ -30,7 +30,7 @@ skill whose description fits the request BEFORE you form a plan.
     python scripts\gate.py                          # section 6 in one command: check, test, build, smoke, touch (+ wincheck, androidcheck on Linux)
     build.bat check                                   # the gate: odin check of every package + the skill mirror check
     build.bat                                         # debug app -> build\sculpt.exe (tracking allocator: a leak exits 1)
-    build.bat test                                    # odin test on geom, camera, sculpt, jobs, gizmo, png_write, zip, voxel, ui, luau, app
+    build.bat test                                    # odin test on geom, poly, camera, sculpt, jobs, gizmo, png_write, zip, voxel, ui, luau, app
     python scripts\test_only.py sculpt 'deform_*'     # just those tests of one package, while working
     build.bat smoke                                   # 300 frames under GPU validation, SDL_ASSERT=abort
     python scripts\touch_check.py ['long_press*']    # scripted finger, pen and mouse scenarios (a desktop simulation), in parallel on Linux
@@ -50,6 +50,7 @@ skill whose description fits the request BEFORE you form a plan.
 | `src/render` | every GPU object the app creates: device, pipelines, viewport target, mesh buffers, indirect draws, partial redraw, the idle cache; the seam `hal.odin` answered by SDL_GPU or the own Vulkan backend (`vk_*.odin`, `--gpu=vulkan`); `shaders/` Slang with committed `.spv` |
 | `src/geom` | CPU geometry: `Mesh`, icosphere and geodesic fixtures, BVHs, topology, culling math, simplification, the LOD walk, `mesh_check` |
 | `src/camera`, `src/gizmo` | orbit camera math; move gizmo math (both pure, no rendering or UI) |
+| `src/poly` | Model mode's cage: half-edge polygon mesh, build and check, triangulation, targets (loops, rings, islands, paths), primitives, topology edits as polygon-list rebuilds |
 | `src/sculpt` | brushes over a `Mesh` split into nodes, dirty ranges, undo, subdivision levels, HD windows, simplified copies |
 | `src/ui` | the interface kit: immediate-mode layout, widgets, hit testing, CPU tessellation, fonts (no SDL, no render) |
 | `src/jobs` | the persistent worker pool (`parallel_for`, `parallel_ranges`) |
@@ -66,7 +67,7 @@ skill whose description fits the request BEFORE you form a plan.
 
 ## 5. Hard rules
 - Odin is pinned (`scripts/versions.env`, `deps/odin`): never write from memory of older Odin; grep the install.
-- Package boundaries: `geom`, `camera`, `gizmo`, `jobs`, `zip`, `voxel` and `luau` know nothing of rendering or UI; `ui` knows nothing of SDL or `render`; only `render` and `app`
+- Package boundaries: `geom`, `camera`, `gizmo`, `jobs`, `zip`, `voxel`, `poly` and `luau` know nothing of rendering or UI; `ui` knows nothing of SDL or `render`; only `render` and `app`
   import `vendor:sdl3`, and only `render` names the GPU API: `app` holds `render.Cmd`, `render.Texture`,
   `render.Fence` and `render.Sample_Count` and calls render's procs (`render.wait_idle`, `cmd_begin`, `cmd_submit`,
   `swapchain_acquire`, `ui_present`; `src/render/gpu.odin`), and inside render only `hal.odin` calls SDL_GPU's procs
