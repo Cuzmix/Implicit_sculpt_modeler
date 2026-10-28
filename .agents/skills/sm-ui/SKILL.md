@@ -140,6 +140,8 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   picture's own target (drawn with `keep_depth`); `picture_key` folds in the second view's own pass, since Studio
   draws as Shaded; a studio sample (`picture_gathers`) waits for a frame with no other picture but never counts as
   one; the end of work clears a heavy pane's key, since the copy brings no depth.
+  `Second_Pass.Render` keeps a `Picture.path` (`render.render_frame` on the picture's target, destroyed once the pass
+  changes); `Render_Preview` (`render_preview_toggle`, grid.odin) is its one-tap row in the Camera menu (Scene > Render holds its five controls already).
 - Second view (`src/app/thumbnail.odin`, `k.second: Second_View`, the Thumbnail window and command): the picture is a
   `ui.area` (`second_view_input`): on a linked view (`second_linked`: Follow, Mirror) a drag turns `app.camera` itself
   (`orbit_latch` first, x reversed for Mirror, counted in `sv.linked`), on an independent one `second_free` seeds

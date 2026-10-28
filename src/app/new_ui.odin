@@ -1378,6 +1378,7 @@ kit_camera_menu :: proc(app: ^App) {
 	ui.divider(ctx, across = true)
 	ui.caption(ctx, "  VIEW GRID")
 	for preset in Grid_Preset do _ = command_menu_item(app, .View_Grid, int(preset), label = GRID_NAMES[preset])
+	_ = command_menu_item(app, .Render_Preview)
 	ui.divider(ctx, across = true)
 	if ui.menu_item(ctx, "Camera settings", glyph = ui.ICON_SETTINGS) {
 		k.bar_pop.open = false

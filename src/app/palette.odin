@@ -233,6 +233,7 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.View_Wipe        = "wipe compare split pass before after normals line slider",
 	.View_Guides      = "guides proportion lines heights brow nose chin thirds likeness face",
 	.View_Guides_Reset = "guides proportion reset lines heights thirds",
+	.Render_Preview   = "render preview pane path trace rendered view beside split",
 	.Settings         = "preferences options",
 	.Reduce_Motion    = "animation accessibility",
 }
