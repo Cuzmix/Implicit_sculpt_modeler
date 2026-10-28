@@ -25,8 +25,6 @@ STACK_FLOAT_MAX :: [2]f32{640, 860}
 // The least a docked card's content is set to: a drag up past its header folds it instead.
 STACK_BODY_MIN :: 48
 STACK_SNAP :: 8
-// Two taps on the same handle closer together than this, in seconds, are a double tap.
-DOUBLE_TAP :: 0.35
 // The grip under an open card: a short bar to look at, held anywhere across the card.
 STACK_GRIP_H :: 14
 // How far the stack's edge takes presses out over the view, and in over the cards.
@@ -67,17 +65,6 @@ stack_snap :: proc(v: f32) -> f32 {
 stack_width :: proc(k: ^Kit_State) -> f32 {
 	w := k.stack.width
 	return clamp(w, STACK_W_MIN, STACK_W_MAX) if w > 0 else STACK_W
-}
-
-// Whether a tap on `id` this frame is the second of a double tap; the first is remembered.
-@(private = "file")
-stack_double_tap :: proc(ctx: ^ui.Context, s: ^Lens_Stack, id: ui.Id) -> bool {
-	if s.tapped == id && ctx.time - s.tapped_at < DOUBLE_TAP {
-		s.tapped = 0
-		return true
-	}
-	s.tapped, s.tapped_at = id, ctx.time
-	return false
 }
 
 // The sizes' line in a workspace's layout, `stack_size <width|default> <card>=<height> ...`
@@ -140,7 +127,7 @@ stack_edge :: proc(app: ^App, r: ui.Rect) {
 		if stack_width(k) != s.drag.from.w do s.resizes += 1
 		s.drag = {}
 	}
-	if a.clicked && stack_double_tap(ctx, s, a.id) {
+	if a.clicked && handle_double_tap(ctx, &s.tap, a.id) {
 		s.width = 0
 		s.resizes += 1
 	}
@@ -188,7 +175,7 @@ stack_height_grip :: proc(app: ^App, c: Stack_Card, width: f32) {
 		}
 		s.drag = {}
 	}
-	if g.clicked && !folding && stack_double_tap(ctx, s, g.id) {
+	if g.clicked && !folding && handle_double_tap(ctx, &s.tap, g.id) {
 		s.heights[c] = 0
 		s.resizes += 1
 	}
@@ -244,7 +231,7 @@ stack_float_handles :: proc(app: ^App, c: Stack_Card) {
 			if r.w != s.drag.from.w || r.h != s.drag.from.h do s.resizes += 1
 			s.drag = {}
 		}
-		if a.clicked && stack_double_tap(ctx, s, a.id) {
+		if a.clicked && handle_double_tap(ctx, &s.tap, a.id) {
 			s.sizes[c] = {}
 			s.resizes += 1
 		}

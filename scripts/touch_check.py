@@ -2911,6 +2911,78 @@ def lens_stack_floating_card_resizes_from_a_corner():
     return s, LENS_1440, camera_still({"stack_sizes": is_text("Layers+360x272"), "stack_resizes": near(1), "dabs": near(0)})
 
 
+# Lens's split views at 1440x900 in One plus two: the vertical divider, the one between the
+# two right panes, the Front pane's camera chip and Top in its list, the strip's Brush tab,
+# and in the View layout menu (the rail's first slot) the Four drawing.
+LENS_SPLIT = ["--script=view_grid one_plus_two"]
+LENS_PANES = {"divider": (862, 300), "divider_right": (1150, 451), "front_camera": (920, 89), "top": (900, 390),
+              "brush_tab": (1348, 95), "layout": (1403, 133), "four": (1230, 263)}
+
+
+@scenario
+def lens_pane_camera_chip_lists_cameras():
+    """A view pane's camera chip lists the cameras under it; Top there turns the pane to the top view."""
+    s = Script()
+    s.ftap(*LENS_PANES["front_camera"])
+    s.wait(8)
+    s.ftap(*LENS_PANES["top"])
+    s.wait(8)
+    return s, LENS_1440 + LENS_SPLIT, camera_still({"pane_camera": is_text("Top"), "pane_menu": near(0), "dabs": near(0)})
+
+
+@scenario
+def lens_divider_to_the_edge_closes_panes():
+    """The divider dragged to the right edge closes both right panes; the one between them dragged to the top closes the upper one."""
+    def run(right):
+        s = Script()
+        if right:
+            s.fdrag(line(LENS_PANES["divider"], (1425, 300), 6))
+            s.wait(8)
+            return s, LENS_1440 + LENS_SPLIT, camera_still({"grid": is_text("Single"), "grid_closes": near(1), "dabs": near(0)})
+        s.fdrag(line(LENS_PANES["divider_right"], (1150, 20), 6))
+        s.wait(8)
+        return s, LENS_1440 + LENS_SPLIT, camera_still({"grid": is_text("Side_By_Side"), "pane_camera": is_text("Right"), "grid_closes": near(1), "dabs": near(0)})
+    return Steps([run(True), run(False)])
+
+
+@scenario
+def lens_divider_double_tap_evens_it_out():
+    """A double tap on the divider gives both sides half the room."""
+    s = Script()
+    s.ftap(*LENS_PANES["divider"], gap=2)
+    s.ftap(*LENS_PANES["divider"])
+    s.wait(8)
+    return s, LENS_1440 + LENS_SPLIT, camera_still({"grid_split": lambda v: v.startswith("0.500,"), "grid_evens": near(1), "dabs": near(0)})
+
+
+@scenario
+def lens_new_panes_start_as_the_setting_says():
+    """With new panes set to start as the same camera, a layout's added panes are linked to the main one."""
+    s = Script()
+    s.wait(4)
+    return s, LENS_1440 + ["--script=set new_panes same_camera; view_grid one_plus_two"], camera_still({"pane_camera": is_text("Follow"), "new_panes": is_text("Same_Camera")})
+
+
+@scenario
+def lens_split_stack_becomes_tabs():
+    """With panes beside the main one the stack is a strip of tabs; the Brush tab opens its card over the view."""
+    s = Script()
+    s.ftap(*LENS_PANES["brush_tab"])
+    s.wait(8)
+    return s, LENS_1440 + LENS_SPLIT, camera_still({"stack_strip": near(1), "stack_tab": is_text("Brush"), "dabs": near(0)})
+
+
+@scenario
+def lens_view_layout_menu_draws_the_presets():
+    """The View layout menu's Four drawing shows four panes."""
+    s = Script()
+    s.ftap(*LENS_PANES["layout"])
+    s.wait(8)
+    s.ftap(*LENS_PANES["four"])
+    s.wait(8)
+    return s, LENS_1440, camera_still({"grid": is_text("Four"), "dabs": near(0)})
+
+
 # Lens's brush pie at 1440x900: the dial's Pie sector opens it at the viewport's middle;
 # the top slice (Clay) and the editor's first brush slot.
 LENS_PIE = {"dial": (122, 822), "middle": (720, 450), "top": (720, 334), "crease": (800, 520), "editor_first": (764, 190), "search": (1180, 26)}

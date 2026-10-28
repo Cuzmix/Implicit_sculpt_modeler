@@ -236,6 +236,7 @@ SETTINGS := [?]Setting {
 	{"panes_under_panels", K + offset_of(Kit_State, panes_under), bool, 0, 0},
 	{"clean_view_dial", K + offset_of(Kit_State, clean_dial), bool, 0, 0},
 	{"panes_work", K + offset_of(Kit_State, panes_work), bool, 0, 0},
+	{"new_panes", K + offset_of(Kit_State, new_panes), New_Panes, 0, 0},
 	{"column_popovers", K + offset_of(Kit_State, column_popovers), bool, 0, 0},
 	{"action_bar", K + offset_of(Kit_State, action_bar), bool, 0, 0},
 	{"modifier_rail", K + offset_of(Kit_State, rail_side), Rail_Side, 0, 0},

@@ -127,6 +127,10 @@ shelf_label :: proc(s: Bar_Slot) -> string {
 	return bar_label(s)
 }
 
+// How much of the main pane's width the shelf leaves each side while panes are beside it:
+// the dial's reach from the off-hand edge, and as much again on the other side.
+SHELF_SIDE_ROOM :: 170
+
 // The shelf at the bottom centre (left of it on a tablet-shaped window, clear of the palm),
 // with the page names under it. Returns where the picker opens over: the shelf.
 kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
@@ -141,6 +145,13 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 	area := ui.safe_area(ctx)
 	shift: f32 = 0
 	if lens_palm(app) > 0 do shift = -area.w * 0.09
+	// With panes beside the main one the shelf stands under the main pane, as many tiles
+	// as fit across it, as the off-hand set stays with it.
+	if g := &k.grid; grid_count(g.preset) > 1 && g.maximised == 0 && g.main.w > 0 {
+		shift = g.main.x + g.main.w * 0.5 - (area.x + area.w * 0.5)
+		// Clear of the dial and the island on the off-hand side, the same on the other.
+		n = min(n, max(int((g.main.w - 2 * SHELF_SIDE_ROOM) / ui.BRUSH_TILE.x) - 1, 3))
+	}
 	if ctx.mirror do shift = -shift
 
 	ui.begin_anchored(ctx, "dock pages", .Center, .End, {shift, max(t.edge - 10, 2)}, {direction = .Row, gap = 2, padding = 2, radius = t.radius_large, background = .Panel, center = true})

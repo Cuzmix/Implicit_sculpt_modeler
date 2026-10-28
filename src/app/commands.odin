@@ -1723,7 +1723,7 @@ COMMANDS := [Command_Id]Command {
 		help = "Splits the viewport into panes: the main view, where you sculpt, and views beside it from the front, the side or the top, each with its own camera and pass, drawn again once a stroke is over.",
 		icon = ui.ICON_GRID,
 		args = len(Grid_Preset),
-		run = proc(app: ^App, arg: int) {grid_set(&app.kit, Grid_Preset(arg))},
+		run = proc(app: ^App, arg: int) {grid_choose(app, Grid_Preset(arg))},
 		checked = proc(app: ^App, arg: int) -> bool {return app.kit.grid.preset == Grid_Preset(arg)},
 		// A recording keeps the frame it began with.
 		enabled = proc(app: ^App, _: int) -> bool {return !app.kit.passes.recording},

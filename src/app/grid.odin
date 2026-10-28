@@ -64,6 +64,14 @@ View_Grid :: struct {
 	px:        [GRID_VIEWS][2]u32,
 	dragged:   int, // the divider held (1 + its index), 0 for none, for the exit stats
 	drags:     int, // frames a divider moved, for the exit stats
+	// Lens's dividers (lens_panes.odin): the last tap on one, the divider let go at the
+	// edge would close panes beyond (1 + its index, 0 for none) and toward which edge, and
+	// for the exit stats how many closes and evens there were; never kept.
+	tap:         Handle_Tap,
+	closing:     int,
+	closing_far: bool,
+	closes:      int,
+	evens:       int,
 	// Work in any pane (grid_work): the view pane (1 to 3) the main view's role is lent to
 	// while a gesture that began on it lasts, 0 for none, and in which preset; never kept.
 	work:        int,
@@ -346,13 +354,16 @@ kit_grid :: proc(app: ^App) {
 	g.dragged = 0
 	for div, i in dividers[:count] {
 		grab := div.line
-		if div.vertical do grab.x, grab.w = grab.x + grab.w * 0.5 - GRID_GRAB * 0.5, GRID_GRAB
-		else do grab.y, grab.h = grab.y + grab.h * 0.5 - GRID_GRAB * 0.5, GRID_GRAB
+		// Lens's dividers are wider to hold, for a finger.
+		span: f32 = GRID_GRAB_LENS if k.chrome == .Lens else GRID_GRAB
+		if div.vertical do grab.x, grab.w = grab.x + grab.w * 0.5 - span * 0.5, span
+		else do grab.y, grab.h = grab.y + grab.h * 0.5 - span * 0.5, span
 		ui.begin_at(ctx, fmt.tprintf("grid divider %d", i), {grab.x, grab.y}, {width = grab.w, height = grab.h})
 		a := ui.area(ctx, "grab", {grab.w, grab.h})
 		t := ctx.theme
 		color := t.accent if a.held else t.border_strong if a.hovered else t.frame
 		ui.fill_rect(ctx, div.line, 0, color)
+		if k.chrome == .Lens do grid_divider_lens(app, i, div.line, div.vertical, div.axis, a, room, cells)
 		if a.held {
 			g.dragged = i + 1
 			s := split
@@ -393,6 +404,10 @@ kit_view_pane :: proc(app: ^App, i: int, r: ui.Rect) {
 		kit_guides(app, r, app.panes[i - 1].orbit, fmt.tprintf("pane %d", i))
 	}
 	head := [2]f32{max(r.x, kit_left(app), grid_left_column_edge(app)) + 6, max(r.y, kit_top() - 8) + 6}
+	if k.chrome == .Lens {
+		lens_pane_head(app, i, head)
+		return
+	}
 	// Under the panels a docked right column may cover the pane's right part: a head too
 	// wide for the room left of it takes two rows, so Link and Maximise stay in reach.
 	room := r.x + r.w - head.x - 6
