@@ -33,6 +33,7 @@ Fonts :: struct {
 	// The part of the atlas (x0, y0, x1, y1) that changed since the last atlas_take.
 	dirty:    [4]f32,
 	has_dirty: bool,
+	cache:    Text_Cache, // every line laid out, kept between frames (text_cache.odin)
 }
 
 fonts_init :: proc(f: ^Fonts) {
@@ -50,6 +51,7 @@ fonts_init :: proc(f: ^Fonts) {
 }
 
 fonts_destroy :: proc(f: ^Fonts) {
+	text_cache_destroy(&f.cache)
 	fs.Destroy(&f.stash)
 	f^ = {}
 }
@@ -88,6 +90,7 @@ Align :: enum u8 {
 text_width :: proc(ctx: ^Context, s: string, size: f32, font := Font.Regular) -> f32 {
 	d := px(ctx)
 	text_state(ctx, size, font)
+	if run, _ := text_run(ctx, s, font); run != nil do return run.width / d
 	return fs.TextBounds(&ctx.fonts.stash, s) / d
 }
 
@@ -97,9 +100,13 @@ text :: proc(ctx: ^Context, s: string, x, y: f32, size: f32, color: Color, font 
 	d := px(ctx)
 	stash := &ctx.fonts.stash
 	text_state(ctx, size, font)
+	baseline := f32(int(y * d + CAP_HEIGHT * size * d * 0.5 + 0.5))
+	if run, glyphs := text_run(ctx, s, font); run != nil {
+		text_run_draw(ctx, glyphs, x * d, baseline, align, color)
+		return
+	}
 	fs.SetAlignHorizontal(stash, fs.AlignHorizontal(align))
 	fs.SetAlignVertical(stash, .BASELINE)
-	baseline := f32(int(y * d + CAP_HEIGHT * size * d * 0.5 + 0.5))
 	glyphs(ctx, s, x * d, baseline, color)
 }
 
@@ -109,13 +116,18 @@ icon :: proc(ctx: ^Context, codepoint: rune, center: [2]f32, size: f32, color: C
 	d := px(ctx)
 	stash := &ctx.fonts.stash
 	text_state(ctx, size, .Icons)
-	fs.SetAlignHorizontal(stash, .LEFT)
-	fs.SetAlignVertical(stash, .BASELINE)
 	buf, n := utf8.encode_rune(codepoint)
 	s := string(buf[:n])
+	c := center * d
+	if run, glyphs := text_run(ctx, s, .Icons); run != nil {
+		b := run.bounds
+		text_run_draw(ctx, glyphs, f32(int(c.x - (b[0] + b[2]) * 0.5 + 0.5)), f32(int(c.y - (b[1] + b[3]) * 0.5 + 0.5)), .Left, color)
+		return
+	}
+	fs.SetAlignHorizontal(stash, .LEFT)
+	fs.SetAlignVertical(stash, .BASELINE)
 	bounds: [4]f32
 	fs.TextBounds(stash, s, 0, 0, &bounds)
-	c := center * d
 	x := f32(int(c.x - (bounds[0] + bounds[2]) * 0.5 + 0.5))
 	y := f32(int(c.y - (bounds[1] + bounds[3]) * 0.5 + 0.5))
 	glyphs(ctx, s, x, y, color)
@@ -128,7 +140,8 @@ text_state :: proc(ctx: ^Context, size: f32, font: Font) {
 	fs.SetSize(stash, size * px(ctx) * ctx.fonts.em_scale[font])
 }
 
-// Emits a quad per glyph. Texture coordinates go out in atlas pixels, read at the moment
+// Emits a quad per glyph, laid out by fontstash now: the path for a line the cache
+// cannot keep (text_run returns nil). Texture coordinates go out in atlas pixels, read at the moment
 // each glyph is placed, so a glyph that grows the atlas mid-frame cannot break the ones
 // before it (the shader divides by the atlas size it is drawn with).
 @(private)

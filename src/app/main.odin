@@ -1714,6 +1714,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	if app.stats.ui_ms.count > 0 {
 		print_stat("ui_ms", app.stats.ui_ms)
 		fmt.printfln("ui_vertices=%d", app.stats.ui_vertices)
+		cache := &app.kit.ctx.fonts.cache
+		fmt.printfln("ui_text_lines=%d ui_text_layouts=%d ui_text_reads=%d", len(cache.runs), cache.misses, cache.hits)
 	}
 	if app.stats.cursor_ms.count > 0 do print_stat("cursor_ms", app.stats.cursor_ms)
 	if app.stats.dabs_total > 0 {

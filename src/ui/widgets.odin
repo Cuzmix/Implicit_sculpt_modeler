@@ -1369,36 +1369,31 @@ paragraph :: proc(ctx: ^Context, s: string, width: f32 = 0, color: Color = {}) {
 	color := color if color.a > 0 else t.text_tertiary
 	size := t.small_size
 	line_h := math.ceil(size * 1.45)
+	// Where every line starts and ends, found before any is drawn to reserve their space.
+	// A line's width comes from the whole paragraph's cached layout (text_run_part_width
+	// gives what text_width would of that part), read before drawing adds to the cache.
+	text_state(ctx, size, .Regular)
+	run, glyphs := text_run(ctx, s, .Regular)
+	d := px(ctx)
+	lines := make([dynamic][2]int, 0, 8, context.temp_allocator)
 	last_space := -1
 	line_start := 0
-	lines := 0
-	// Two passes: count the lines to reserve the space, then draw them in it.
-	for pass in 0 ..< 2 {
-		r: Rect
-		if pass == 1 do r = place(ctx, {w, line_h * f32(lines)})
-		lines, line_start, last_space = 0, 0, -1
-		emit :: proc(ctx: ^Context, s: string, r: Rect, line: int, line_h, size: f32, color: Color, draw: bool) {
-			if draw do text(ctx, s, r.x, r.y + line_h * (f32(line) + 0.5), size, color)
+	for i := 0; i <= len(s); i += 1 {
+		at_end := i == len(s)
+		if !at_end && s[i] != ' ' && s[i] != '\n' do continue
+		line_w := text_run_part_width(glyphs, line_start, i) / d if run != nil else text_width(ctx, s[line_start:i], size)
+		if line_w > w && last_space > line_start {
+			append(&lines, [2]int{line_start, last_space})
+			line_start = last_space + 1
 		}
-		i := 0
-		for i <= len(s) {
-			at_end := i == len(s)
-			if at_end || s[i] == ' ' || s[i] == '\n' {
-				if text_width(ctx, s[line_start:i], size) > w && last_space > line_start {
-					emit(ctx, s[line_start:last_space], r, lines, line_h, size, color, pass == 1)
-					lines += 1
-					line_start = last_space + 1
-				}
-				if at_end || s[i] == '\n' {
-					emit(ctx, s[line_start:i], r, lines, line_h, size, color, pass == 1)
-					lines += 1
-					line_start = i + 1
-				}
-				last_space = i
-			}
-			i += 1
+		if at_end || s[i] == '\n' {
+			append(&lines, [2]int{line_start, i})
+			line_start = i + 1
 		}
+		last_space = i
 	}
+	r := place(ctx, {w, line_h * f32(len(lines))})
+	for l, i in lines do text(ctx, s[l[0]:l[1]], r.x, r.y + line_h * (f32(i) + 0.5), size, color)
 }
 
 // A slider whose track shows what each place on it gives (a colour channel): `colors`
