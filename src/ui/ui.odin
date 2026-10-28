@@ -356,6 +356,7 @@ frame_begin :: proc(ctx: ^Context, input: Input) {
 	if ctx.input.pixel_density <= 0 do ctx.input.pixel_density = 1
 	ctx.clicked_now = false
 	ctx.marked = {}
+	ctx.fonts.cache.frame += 1
 	// A frame that took long (a remesh) moves animations on by at most a tenth of a
 	// second, so a panel does not skip from start to end mid-animation.
 	before := ctx.time
