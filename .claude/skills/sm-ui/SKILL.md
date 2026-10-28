@@ -334,6 +334,14 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   direction, gap, padding, size, background, clip, scroll, inert), widgets that return what was done, `frame_end`.
   State kept between frames: the held widget, where each container ended up (`placed_prev`: anchored containers are
   placed by last frame's size; `prev_layout` reads it), the text field with the keys, tweens.
+- Text under the immediate API is cached (`src/ui/text_cache.odin`): `text`, `text_width` and `icon` look the line up by
+  font, fontstash size (tenths of a pixel) and bytes, and lay it out through fontstash only on a miss; `text_run_draw`
+  walks the kept glyphs (fontstash's rounded kerning and advance, offset, atlas rect) from the pen exactly as
+  `__getQuad` does, so cached and uncached quads are bit-identical (`text_cache_test.odin` proves it per align, size
+  and density). A glyph slice from `text_run` is valid only until the next miss appends to the pools: read it before
+  drawing (as `paragraph` does with `text_run_part_width`). Nothing draws through fontstash directly any more except
+  `glyphs`, the fallback for a line the cache refuses; never reset the atlas (`fs.ResetAtlas`), whose glyph rects
+  the cache keeps.
 - Left-handed layout: `ctx.mirror` (Settings > Interface > Screen layout, `left_handed`) swaps every default x anchor
   (`ui.mirrored`: Start and End, a Center offset negated) in `begin_anchored`, `window_begin` and `card_begin`, and
   popovers' `.Left`/`.Right`; a moved window keeps its own anchor and `kit_mirror` flips it once when the hand changes.
