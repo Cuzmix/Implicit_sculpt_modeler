@@ -64,11 +64,12 @@ scene_preview_destroy :: proc(app: ^App) {
 	p^ = {}
 }
 
-// What the picture would show: the scene as the autosave fingerprints it, and the view.
+// What the picture would show: the scene as the autosave fingerprints it, the view, and
+// the finish on it.
 preview_stamp :: proc(app: ^App) -> u64 {
 	c := app.camera
 	keyed := [7]f32{c.target.x, c.target.y, c.target.z, c.distance, c.yaw, c.pitch, c.roll}
-	parts := [2]u64{scene_fingerprint(app), hash.fnv64a(mem.slice_to_bytes(keyed[:]))}
+	parts := [3]u64{scene_fingerprint(app), hash.fnv64a(mem.slice_to_bytes(keyed[:])), finish_fingerprint(app)}
 	return max(hash.fnv64a(mem.slice_to_bytes(parts[:])), 1)
 }
 

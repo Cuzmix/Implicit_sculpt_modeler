@@ -190,6 +190,7 @@ COMMAND_HOMES := #partial [Command_Id]Maybe(Kit_Section) {
 	.Render_Mode           = .Render,
 	.Pick_Focus            = .Lens,
 	.Focus_Pivot           = .Lens,
+	.Finish_Reset          = .Finish,
 	.Viewport_Look         = .Look,
 	.Ortho_Toggle          = .Camera,
 	.View_Axis             = .Camera,

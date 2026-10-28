@@ -1,13 +1,17 @@
 package main
 
+import "core:fmt"
 import "core:math"
 import "core:math/linalg"
+import "core:reflect"
 
 import "../ui"
 
-// The modifier wheel: Smooth (top), Mask (left) and Invert (bottom) as the sectors of a
-// ring at the bottom left, for a tablet with no Shift, Ctrl or Alt, and the brush pie on
-// its right sector, as a sculpting tablet app's wheel. Smooth and Mask on together are
+// The modifier wheel (Lens's dial): Smooth (top), Mask (left) and Invert (bottom) as the
+// sectors of a ring at the bottom left, for a tablet with no Shift, Ctrl or Alt, and the
+// brush pie on its right sector, as a sculpting tablet app's wheel; each sector can be
+// any modifier or a command instead (Kit_State.dial), and a command's sector is tapped as
+// the pie's is. Smooth and Mask on together are
 // Hide, the hide gesture, as Shift and Ctrl held together are. A tap latches a sector
 // until it is tapped again; a finger held on one makes it act only while held, so the pen
 // (or another finger) sculpts with it and lifting the finger ends it. A finger on a
@@ -132,18 +136,66 @@ rail_toggle :: proc(r: ^Modifier_Rail, which: Modifier) {
 	r.latched += {which}
 }
 
-// The wheel's sectors, clockwise from the top: the modifier each is, or none for the
-// right one, the brush pie.
-@(rodata)
-WHEEL_SECTORS := [4]Maybe(Modifier){.Smooth, nil, .Invert, .Mask}
+// What a sector of the wheel (the dial) does: hold or latch a modifier, or run a command
+// on a tap, as the brush pie's sector runs Brush_Pie. Which sector does what is a setting
+// (Library > Dial while arranging), not part of a workspace, since it belongs to the hand
+// rather than the screen.
+Dial_Sector :: union {
+	Modifier,
+	Bar_Slot,
+}
 
-// Which modifier sector `p` (window coordinates) is on, if any: not the pie's, the grip
-// or the corners round the ring.
-rail_hit :: proc(r: ^Modifier_Rail, p: [2]f32) -> (which: Modifier, ok: bool) {
+// The sectors as they come, clockwise from the top: Smooth, the brush pie, Invert, Mask.
+@(rodata)
+DIAL_DEFAULT := [4]Dial_Sector{Modifier.Smooth, Bar_Slot{.Brush_Pie, 0}, Modifier.Invert, Modifier.Mask}
+
+// The sectors' places, clockwise from the top, as Library > Dial names them.
+@(rodata)
+DIAL_PLACES := [4]string{"Top", "Right", "Bottom", "Left"}
+
+// Which modifier sector of `sectors` `p` (window coordinates) is on, if any: not a
+// command's (the brush pie's among them), the grip or the corners round the ring.
+rail_hit :: proc(r: ^Modifier_Rail, sectors: [4]Dial_Sector, p: [2]f32) -> (which: Modifier, ok: bool) {
 	if r.outer <= 0 do return {}, false
 	i := ui.wheel_sector_at(r.center, p, r.outer, r.hole, r.turn)
 	if i < 0 do return {}, false
-	return WHEEL_SECTORS[i].?
+	return sectors[i].(Modifier)
+}
+
+// Whether the dial is as it comes.
+dial_is_default :: proc(k: ^Kit_State) -> bool {
+	for s, i in k.dial do if s != DIAL_DEFAULT[i] do return false
+	return true
+}
+
+// Whether some sector of the dial is `m`.
+dial_has :: proc(k: ^Kit_State, m: Modifier) -> bool {
+	for s in k.dial do if mod, ok := s.(Modifier); ok && mod == m do return true
+	return false
+}
+
+// A sector as the settings file writes it: "modifier Smooth", or "command <name>".
+dial_sector_text :: proc(s: Dial_Sector) -> string {
+	switch v in s {
+	case Modifier: return fmt.tprintf("modifier %v", v)
+	case Bar_Slot: return fmt.tprintf("command %s", command_name(v.id, v.arg))
+	}
+	return ""
+}
+
+// Reads what dial_sector_text writes, split into its kind and name; false for a name this
+// version does not know, or a command a bar may not hold.
+dial_sector_parse :: proc(kind, name: string) -> (s: Dial_Sector, ok: bool) {
+	switch kind {
+	case "modifier":
+		m := reflect.enum_from_name(Modifier, name) or_return
+		return m, true
+	case "command":
+		id, arg := command_from_name(name) or_return
+		if !bar_lists(id) do return
+		return Bar_Slot{id, arg}, true
+	}
+	return
 }
 
 // A finger came down at `p` on button `which`. A finger of the same id still held is one
@@ -505,18 +557,25 @@ kit_modifier_rail :: proc(app: ^App) {
 	size := rail_size(app)
 	held := rail_mods(r)
 	keys := keyboard_mods(app.device.shift, app.device.ctrl)
-	// Hide, latched, held or from the keys, lights both of the sectors it is made of.
+	// Hide, latched, held or from the keys, lights both of the sectors it is made of, and
+	// both of them together light Hide's.
 	lit_of :: proc(m: Modifier, set: Modifiers) -> bool {
-		return m in set || (m == .Smooth || m == .Mask) && .Hide in set
+		return m in set || (m == .Smooth || m == .Mask) && .Hide in set || m == .Hide && .Smooth in set && .Mask in set
 	}
 	sectors: [4]ui.Wheel_Sector
-	for which, i in WHEEL_SECTORS {
-		m, is_mod := which.?
-		if !is_mod {
-			sectors[i] = {name = "Brush pie", glyph = ui.ICON_PIE, caption = "Pie", keys = command_hint(app, .Brush_Pie)}
-		} else {
-			look := ui.Modifier_Look.Latched if lit_of(m, r.latched) else (.Lit if lit_of(m, held) || lit_of(m, keys) else .Off)
-			sectors[i] = {name = MODIFIER_NAMES[m], glyph = MODIFIER_ICONS[m], caption = MODIFIER_NAMES[m], look = look, keys = MODIFIER_KEYS[m]}
+	for which, i in k.dial {
+		switch v in which {
+		case Bar_Slot:
+			if v.id == .Brush_Pie {
+				sectors[i] = {name = "Brush pie", glyph = ui.ICON_PIE, caption = "Pie", keys = command_hint(app, .Brush_Pie)}
+			} else {
+				// A command's own icon and label, lit while it is on (Symmetry X, say).
+				look := ui.Modifier_Look.Lit if command_checked(app, v.id, v.arg) else .Off
+				sectors[i] = {name = bar_label(v), glyph = bar_icon(v), caption = bar_label(v), look = look, keys = command_hint(app, v.id, v.arg)}
+			}
+		case Modifier:
+			look := ui.Modifier_Look.Latched if lit_of(v, r.latched) else (.Lit if lit_of(v, held) || lit_of(v, keys) else .Off)
+			sectors[i] = {name = MODIFIER_NAMES[v], glyph = MODIFIER_ICONS[v], caption = MODIFIER_NAMES[v], look = look, keys = MODIFIER_KEYS[v]}
 		}
 		switch k.wheel_labels {
 		case .Icons:           sectors[i].caption = ""
@@ -542,8 +601,10 @@ kit_modifier_rail :: proc(app: ^App) {
 	r.center = [2]f32{b.x + b.w * 0.5, b.y + b.h * 0.5} * k.scale
 	r.outer, r.hole, r.turn = b.w * k.scale, WHEEL_HOLE[k.wheel_size] * k.scale, turn
 	if res.clicked >= 0 {
-		if m, is_mod := WHEEL_SECTORS[res.clicked].?; is_mod do rail_toggle(r, m)
-		else do command_run(app, .Brush_Pie)
+		switch v in k.dial[res.clicked] {
+		case Modifier: rail_toggle(r, v)
+		case Bar_Slot: command_run(app, v.id, v.arg)
+		}
 	}
 	if res.grabbed do k.wheel_from = k.wheel_offset
 	if res.dragging {
@@ -564,7 +625,7 @@ rail_claims :: proc(app: ^App, p: [2]f32) -> (which: Modifier, ok: bool) {
 	r := &app.rail
 	if rail_shown(k) == .Off || r.root == 0 do return
 	if k.menu || k.versions || k.browser || k.object_menu || k.ctx.select_open != 0 || k.ctx.popup_open != 0 do return
-	which = rail_hit(r, p) or_return
+	which = rail_hit(r, k.dial, p) or_return
 	return which, ui.root_at(&k.ctx, p / k.scale) == r.root
 }
 

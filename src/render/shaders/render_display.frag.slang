@@ -5,6 +5,7 @@
 // is the denoiser's light (render_atrous.frag.slang) times the colour the guides hold. Traced
 // at half size (tablets), each pixel blends the four traced pixels round it, weighed by
 // how much of each met the scene, so edges stay smooth over the viewport's own image.
+// render_display_linear.frag.slang is this with LINEAR_OUT defined, for the finishing stack.
 // SDL_GPU SPIR-V conventions: fragment samplers in set 2, uniform buffers in set 3.
 #include "common.slang"
 [[vk::binding(0, 2)]] Sampler2D view_color;
@@ -53,6 +54,15 @@ float4 main(float4 frag_coord : SV_Position) : SV_Target0 {
 		  + blended(clamp(q + int2(0, 1), int2(0), hi), (1.0 - f.x) * f.y) + blended(clamp(q + int2(1, 1), int2(0), hi), f.x * f.y);
 		if (t.a > 0.0) t.rgb /= t.a;
 	}
+#ifdef LINEAR_OUT
+	// For the finishing stack (finish.frag.slang): the exposed light itself, with the
+	// viewport's own image under it brought back to the light it shows, so the curve and
+	// the grade work on the traced light as it is.
+	float3 below = neutral_inverse(srgb_decode(under));
+	float3 shown = t.a > 0.0 ? t.rgb * exp2(params.x) : below;
+	return float4(lerp(below, shown, clamp(t.a, 0.0, 1.0)), 1.0);
+#else
 	float3 shown = t.a > 0.0 ? display_color(t.rgb, params.x) : under;
 	return float4(lerp(under, shown, clamp(t.a, 0.0, 1.0)), 1.0);
+#endif
 }
