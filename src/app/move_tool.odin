@@ -18,6 +18,7 @@ Tool :: enum u8 {
 	Brush, // sculpt the object under the cursor
 	Curve, // draw a tube, stitches or a zipper over the surface (curve_tool.odin)
 	Insert, // put a shape on the surface (curve_tool.odin)
+	Model, // edit a cage's points, edges and faces (model.odin)
 }
 
 Move_Tool :: struct {

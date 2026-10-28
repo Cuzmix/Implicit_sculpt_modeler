@@ -47,7 +47,7 @@ brush_palette_lists_categories :: proc(t: ^testing.T) {
 	app: App
 	app.tool = .Brush
 	all := brush_items_all(&app)
-	testing.expect_value(t, len(all), len(sculpt.Brush_Kind) + len(BUILT_IN_PRESETS) + 2 + len(Mask_Shape_Kind) + len(Gesture_Tool))
+	testing.expect_value(t, len(all), len(sculpt.Brush_Kind) + len(BUILT_IN_PRESETS) + 3 + len(Mask_Shape_Kind) + len(Gesture_Tool))
 	in_some := 0
 	for c in BRUSH_CATEGORY_ORDER {
 		if c == .Recent || c == .Favorites || c == .All do continue

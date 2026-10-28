@@ -312,7 +312,9 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   stage, uniforms as dynamic uniform buffers of 4096 bytes from a per-command-buffer arena, default layouts per usage
   that passes leave and restore, cycling by backings, deferred destruction by refcount, a flipped viewport, dynamic
   rendering and a timeline semaphore whose serials are the fences. It needs Vulkan 1.3 with dynamicRendering,
-  synchronization2, timelineSemaphore and independentBlend, and `renderer_init` falls back to SDL_GPU otherwise.
+  synchronization2, timelineSemaphore and independentBlend, and `renderer_init` falls back to SDL_GPU otherwise,
+  keeping the reason for `render.backend_fallback`. The app picks the backend before it makes the window
+  (`src/app/graphics.odin`: Settings > System > Graphics, Automatic = Vulkan except on Darwin, `--gpu` for one run).
   A `vk_*` proc takes its struct parameters `#by_ptr` exactly as the `gpu_*` wrapper does, or the values arrive as
   garbage. Under `--gpu-debug` it runs the validation layer with synchronization validation and every message fails
   the run (`render.validation_errors`); smoke runs both backends, and a render change passes

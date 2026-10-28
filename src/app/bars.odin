@@ -25,17 +25,18 @@ Bar_Which :: enum u8 {
 	Tools, // the bottom bar's strip
 	Dock,
 	View_Rail, // the Lens layout's view rail, down the pen side (lens_chrome.odin)
-	// The Lens shelf's four pages (lens_shelf.odin), in Shelf_Page's order.
+	// The Lens shelf's five pages (lens_shelf.odin), in Shelf_Page's order.
 	Shelf_Sculpt,
 	Shelf_Paint,
 	Shelf_Move,
 	Shelf_Curve,
+	Shelf_Model,
 	Brush_Pie, // the Lens layout's brush pie (pie.odin): eight slots, clockwise from the top
 }
 
 // The bars that keep a Bar_List: all but the dock, whose slots hold brushes of their own.
 @(rodata)
-BAR_LISTS := [?]Bar_Which{.Shortcuts, .Tools, .View_Rail, .Shelf_Sculpt, .Shelf_Paint, .Shelf_Move, .Shelf_Curve, .Brush_Pie}
+BAR_LISTS := [?]Bar_Which{.Shortcuts, .Tools, .View_Rail, .Shelf_Sculpt, .Shelf_Paint, .Shelf_Move, .Shelf_Curve, .Shelf_Model, .Brush_Pie}
 
 // The bars a workspace's layout holds: the shelf's pages and the brush pie hold the
 // person's brushes, which are no layout's, as the dock's are not.
@@ -54,6 +55,7 @@ BAR_ZONES := [Bar_Which]string {
 	.Shelf_Paint  = "shelf_paint",
 	.Shelf_Move   = "shelf_move",
 	.Shelf_Curve  = "shelf_curve",
+	.Shelf_Model  = "shelf_model",
 	.Brush_Pie    = "brush_pie",
 }
 
@@ -171,7 +173,7 @@ bar_capacity :: proc(which: Bar_Which) -> int {
 	case .Tools:     return TOOLS_MAX
 	case .Dock:      return DOCK_SLOTS
 	case .View_Rail: return VIEW_RAIL_MAX
-	case .Shelf_Sculpt, .Shelf_Paint, .Shelf_Move, .Shelf_Curve: return SHELF_MAX
+	case .Shelf_Sculpt, .Shelf_Paint, .Shelf_Move, .Shelf_Curve, .Shelf_Model: return SHELF_MAX
 	case .Brush_Pie: return PIE_SLOTS
 	}
 	return 0
@@ -267,6 +269,7 @@ bar_title :: proc(which: Bar_Which, lens := false) -> string {
 	case .Shelf_Paint:  return "The Paint shelf"
 	case .Shelf_Move:   return "The Move shelf"
 	case .Shelf_Curve:  return "The Curve shelf"
+	case .Shelf_Model:  return "The Model shelf"
 	case .Brush_Pie:    return "The brush pie"
 	}
 	return ""

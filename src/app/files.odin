@@ -18,6 +18,7 @@ import "../jobs"
 import "../png_write"
 import "../render"
 import "../sculpt"
+import "../poly"
 import "../voxel"
 
 // Files: meshes in and out as OBJ, PLY or STL (and out as glTF and USD), and whole scenes saved and opened in the
@@ -65,7 +66,7 @@ File_Request :: struct {
 // be in a console nobody watches. `at` tells a new note from the one already shown.
 // The native scene file starts with these bytes, then its version.
 SCENE_MAGIC :: "SCULPTSC"
-SCENE_VERSION :: u32(25) // 2: each object's rotation; 3: the current level's polypaint and polygroups; 4: sculpt layers, and a retopologized object's quads and UVs (sculpt.levels_write); 5: each object's boolean mode; 6: the base level's node layout (sculpt.levels_write); 7: the camera's roll; 8: each object's eye and ghost, and Solo; 9: folders, and each object's folder; 10: selection sets (sculpt.levels_write); 11: each object's polypaint shown or not (a third view bit); 12: stored visibility (V1 to V8): the slot chosen and used, and each folder's and object's eyes in them; 13: each object's kind (mesh or voxel), a voxel object's resolution and clay after its empty level (voxel.clay_write); 14: each object's material (material_put); 15: each object's polygroups with materials of their own (group_materials_put); 16: the content pack parts of the object's and its groups' materials, by name (material_refs); 17: the scene's Blender link token (link.odin); 18: each object's texture maps (textures_put); 19: the scene's lights (lights_put); 20: each light's colour temperature and name; 21: each light's size (a sun's angle, a lamp's radius); 22: the preview block after the version (scene_preview.odin); 23: the millimetres per unit a print takes (print.odin); 24: the proportion guides (guides.odin); 25: each object's lock (a fourth view bit)
+SCENE_VERSION :: u32(26) // 2: each object's rotation; 3: the current level's polypaint and polygroups; 4: sculpt layers, and a retopologized object's quads and UVs (sculpt.levels_write); 5: each object's boolean mode; 6: the base level's node layout (sculpt.levels_write); 7: the camera's roll; 8: each object's eye and ghost, and Solo; 9: folders, and each object's folder; 10: selection sets (sculpt.levels_write); 11: each object's polypaint shown or not (a third view bit); 12: stored visibility (V1 to V8): the slot chosen and used, and each folder's and object's eyes in them; 13: each object's kind (mesh or voxel), a voxel object's resolution and clay after its empty level (voxel.clay_write); 14: each object's material (material_put); 15: each object's polygroups with materials of their own (group_materials_put); 16: the content pack parts of the object's and its groups' materials, by name (material_refs); 17: the scene's Blender link token (link.odin); 18: each object's texture maps (textures_put); 19: the scene's lights (lights_put); 20: each light's colour temperature and name; 21: each light's size (a sun's angle, a lamp's radius); 22: the preview block after the version (scene_preview.odin); 23: the millimetres per unit a print takes (print.odin); 24: the proportion guides (guides.odin); 25: each object's lock (a fourth view bit); 26: Model mode cages (OBJECT_KIND_CAGE, poly.mesh_write in the levels' place)
 
 // The request waiting for the next frame, and whether a dialog is showing. Kept here
 // rather than in App because SDL may call a dialog back on another thread, even after
@@ -1245,7 +1246,7 @@ object_put_bytes :: proc(out: ^[dynamic]u8, obj: ^Object, opts := sculpt.Write_O
 	geom.byte_put(out, object_view_bits(obj)) // version 8
 	geom.byte_put(out, i32(obj.folder)) // version 9
 	geom.byte_put(out, obj.vis_off) // version 12
-	geom.byte_put(out, u8(OBJECT_KIND_VOXEL if obj.voxel != nil else OBJECT_KIND_MESH)) // version 13
+	geom.byte_put(out, u8(object_kind(obj))) // version 13, cages 26
 	material_put(out, obj.material, refs[0] if len(refs) > 0 else {}) // version 14, its references 16
 	group_materials_put(out, obj, refs[1:] if len(refs) > 0 else nil) // version 15, their references 16
 	textures_put(out, obj.textures) // version 18
@@ -1255,13 +1256,27 @@ object_put_bytes :: proc(out: ^[dynamic]u8, obj: ^Object, opts := sculpt.Write_O
 		geom.byte_put(out, i32(vp.resolution))
 		return voxel.clay_write(&vp.clay, out, opts.abort)
 	}
+	// Likewise a cage stands there: its level is cut from it again on reading.
+	if cp := obj.cage; cp != nil {
+		poly.mesh_write(&cp.mesh, out)
+		return true
+	}
 	return sculpt.levels_write(&obj.levels, out, opts)
 }
 
+// What `obj` is in the scene file.
+object_kind :: proc(obj: ^Object) -> int {
+	if obj.voxel != nil do return OBJECT_KIND_VOXEL
+	if obj.cage != nil do return OBJECT_KIND_CAGE
+	return OBJECT_KIND_MESH
+}
+
 // What an object is in the scene file, from version 13: a mesh with levels, or a voxel
-// object (its resolution and clay in the levels' place).
+// object (its resolution and clay in the levels' place); from version 26 also a Model
+// mode cage (poly.mesh_write's bytes in the levels' place).
 OBJECT_KIND_MESH :: 0
 OBJECT_KIND_VOXEL :: 1
+OBJECT_KIND_CAGE :: 2
 
 // About how many bytes object_put writes for `obj`: every level's positions and sculpt
 // layers, the base's triangles and node layout, and the shown level's mask, paint and
@@ -1282,6 +1297,8 @@ object_put_estimate :: proc(obj: ^Object) -> int {
 	// A set is written again in file order, at most a byte a vertex.
 	for set in sculpt.levels_sets(&obj.levels) do bytes += 64 + set.vertices
 	if vp := obj.voxel; vp != nil do bytes += 4 + voxel.clay_write_estimate(&vp.clay)
+	// A cage writes each point, corner and face once, with a few bytes a corner.
+	if cp := obj.cage; cp != nil do bytes += 20 * len(cp.mesh.positions) + 8 * len(cp.mesh.he_vert) + 6 * len(cp.mesh.face_he)
 	bytes += textures_bytes(obj.textures)
 	return bytes
 }
@@ -1306,9 +1323,17 @@ object_get :: proc(app: ^App, r: ^geom.Byte_Reader, version := SCENE_VERSION, mi
 	if version >= 15 do group_materials_get(r, obj, app, version, missing)
 	if version >= 18 do obj.textures = textures_get(r)
 	// A voxel object has no polygroups to shade, nor UVs to lay maps on.
-	fields_ok := r.ok && obj.transform.scale > 0 && obj.file.scale > 0 && kind <= OBJECT_KIND_VOXEL && !(kind == OBJECT_KIND_VOXEL && (len(obj.group_materials) > 0 || object_has_textures(obj)))
+	most := OBJECT_KIND_CAGE if version >= 26 else OBJECT_KIND_VOXEL
+	// Nor has a cage UVs to lay maps on, yet.
+	fields_ok := r.ok && obj.transform.scale > 0 && obj.file.scale > 0 && int(kind) <= most && !(kind == OBJECT_KIND_VOXEL && (len(obj.group_materials) > 0 || object_has_textures(obj))) && !(kind == OBJECT_KIND_CAGE && object_has_textures(obj))
 	if fields_ok && kind == OBJECT_KIND_VOXEL {
 		read, made = voxel_part_get(app, r, obj)
+		if read {
+			free_all(context.temp_allocator)
+			return obj, true, made
+		}
+	} else if fields_ok && kind == OBJECT_KIND_CAGE {
+		read, made = cage_part_get(app, r, obj)
 		if read {
 			free_all(context.temp_allocator)
 			return obj, true, made
@@ -1366,6 +1391,7 @@ object_discard :: proc(app: ^App, obj: ^Object) {
 	texture_preview_release(app, obj)
 	sculpt.levels_destroy(&obj.levels)
 	voxel_part_free(app, obj)
+	cage_part_free(obj)
 	delete(obj.name)
 	delete(obj.group_materials)
 	textures_free(&obj.textures)

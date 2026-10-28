@@ -4,16 +4,17 @@ import "core:fmt"
 import "core:math"
 import "core:strings"
 
+import "../poly"
 import "../sculpt"
 import "../ui"
 
 // The Lens shelf (round 2 of the mockups): a floating strip of brush tiles at the bottom
 // centre with All at their end, then after a divider the tool strip Classic's bottom bar
-// has (Bar_Which.Tools: Move, Remesh, Subdivide...), and under it the names of its four
-// pages (Sculpt, Paint, Move, Curve), which replace the old mode switch: each page is a bar
-// of its own (Bar_Which.Shelf_Sculpt on, bars.odin) that Arrange changes, as it does the
-// tools. A finger or a pen swiped sideways along the shelf turns its page, as the Classic
-// dock's pages turn; the wheel over it does the same for a mouse. A tap on a tile picks
+// has (Bar_Which.Tools: Move, Remesh, Subdivide...), and under it the names of its five
+// pages (Sculpt, Paint, Move, Curve, Model), which replace the old mode switch: each page is
+// a bar of its own (Bar_Which.Shelf_Sculpt on, bars.odin) that Arrange changes, as it does
+// the tools. A finger or a pen swiped sideways along the shelf turns its page, as the
+// Classic dock's pages turn; the wheel over it does the same for a mouse. A tap on a tile picks
 // it; a long press shows its quick settings above it, so the hand never covers them; All
 // (or B) opens the brush picker, a large sheet of stroke previews over the shelf, whose
 // cards can be dragged onto a tile to keep them there. The shelf is laid out as "dock",
@@ -24,6 +25,7 @@ Shelf_Page :: enum u8 {
 	Paint,
 	Move,
 	Curve,
+	Model,
 }
 
 @(rodata)
@@ -32,6 +34,7 @@ SHELF_PAGE_NAMES := [Shelf_Page]string {
 	.Paint  = "Paint",
 	.Move   = "Move",
 	.Curve  = "Curve",
+	.Model  = "Model",
 }
 
 // The most tiles a page holds, and how many a tablet-shaped window shows, so the shelf ends
@@ -58,6 +61,12 @@ SHELF_MOVE :: [?]Bar_Slot {
 	{.Tool_Move, 0}, {.Brush, int(sculpt.Brush_Kind.Smooth)},
 }
 SHELF_CURVE :: [?]Bar_Slot{{.Tool_Curve, 0}, {.Tool_Insert, 0}, {.Brush, int(sculpt.Brush_Kind.Smooth)}}
+// Model mode: its tool, the cages to start from, and the way out to sculpting.
+SHELF_MODEL :: [?]Bar_Slot {
+	{.Tool_Model, 0}, {.Add_Cage, int(poly.Primitive.Cube)}, {.Add_Cage, int(poly.Primitive.Cylinder)},
+	{.Add_Cage, int(poly.Primitive.Sphere)}, {.Add_Cage, int(poly.Primitive.Plane)}, {.Add_Cage, int(poly.Primitive.Torus)},
+	{.Add_Cage, int(poly.Primitive.Cone)}, {.Apply_Cage, 0},
+}
 
 // The shelf's state, in Kit_State: its pages' lists, the page shown, the quick settings a
 // long press opened, the picker's card being carried to a tile, and where the tiles were
@@ -108,6 +117,9 @@ shelf_fresh :: proc(p: Shelf_Page) -> Bar_List {
 		return bar_list_of(d[:])
 	case .Curve:
 		d := SHELF_CURVE
+		return bar_list_of(d[:])
+	case .Model:
+		d := SHELF_MODEL
 		return bar_list_of(d[:])
 	}
 	return {}
@@ -512,6 +524,7 @@ brush_sheet_list :: proc(app: ^App, all: []Listed_Brush) -> []Listed_Brush {
 		case .Curve_Insert, .Clip_Hide:  page = .Curve
 		case:                            page = .Sculpt
 		}
+		if l.item.what == .Tool && l.item.tool == .Model do page = .Model
 		if page == app.kit.shelf.page do append(&out, l)
 	}
 	return out[:]

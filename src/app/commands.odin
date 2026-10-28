@@ -8,6 +8,7 @@ import "../camera"
 import "../geom"
 import "../render"
 import "../gizmo"
+import "../poly"
 import "../sculpt"
 import "../ui"
 
@@ -50,6 +51,7 @@ Command_Id :: enum u8 {
 	Tool_Sculpt,
 	Tool_Curve,
 	Tool_Insert,
+	Tool_Model,
 	Gizmo, // the argument is the gizmo.Mode
 	Gizmo_Snap,
 	Gizmo_Pivot,
@@ -138,6 +140,8 @@ Command_Id :: enum u8 {
 	Convert_To_Voxels,
 	Voxel_Res_Up,
 	Voxel_Res_Down,
+	Add_Cage,
+	Apply_Cage,
 	Adjust_Last,
 	Reset_Transform,
 	// The scene
@@ -513,6 +517,30 @@ COMMANDS := [Command_Id]Command {
 		icon = ui.ICON_SHAPES,
 		run = proc(app: ^App, _: int) {app.tool = .Insert},
 		checked = proc(app: ^App, _: int) -> bool {return app.tool == .Insert},
+	},
+	.Tool_Model = {
+		label = "Model tool",
+		help = "Edits a cage's points, edges and faces, as ZBrush's ZModeler does; a tap on an object selects it.",
+		icon = ui.ICON_GRID,
+		run = proc(app: ^App, _: int) {app.tool = .Model},
+		checked = proc(app: ^App, _: int) -> bool {return app.tool == .Model},
+	},
+	.Add_Cage = {
+		label = "Add cage",
+		help = "Adds a primitive as a cage for Model mode: polygons with their edges shown, edited with the Model tool.",
+		icon = ui.ICON_PLUS,
+		args = len(poly.Primitive),
+		run = proc(app: ^App, arg: int) {
+			app.model.primitive = poly.Primitive(arg)
+			app.ui.scene_command = {kind = .Add_Cage, cage = poly.Primitive(arg), segments = model_segments(app.model)}
+		},
+	},
+	.Apply_Cage = {
+		label = "Apply to sculpt",
+		help = "Turns the selected cage into an ordinary mesh of its triangles, which every brush can sculpt; Model mode no longer edits it.",
+		icon = ui.ICON_BRUSH,
+		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Apply_Cage}},
+		enabled = proc(app: ^App, _: int) -> bool {return selected_cage(app)},
 	},
 	.Gizmo = {
 		label = "Gizmo",
@@ -2058,6 +2086,7 @@ DEFAULT_BINDINGS := [?]Binding {
 
 command_enabled :: proc(app: ^App, id: Command_Id, arg := 0) -> bool {
 	c := &COMMANDS[id]
+	if id in CAGE_REFUSED_COMMANDS && selected_cage(app) do return false
 	return c.enabled == nil || c.enabled(app, arg)
 }
 
@@ -2090,6 +2119,8 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 	#partial switch id {
 	case .New_Scene:
 		return fmt.tprintf("New scene: %s", NEW_SCENES[arg].name)
+	case .Add_Cage:
+		return fmt.tprintf("Add cage: %s", poly.PRIMITIVE_NAMES[poly.Primitive(arg)])
 	case .Brush:
 		return fmt.tprintf("%s brush", BRUSHES[sculpt.Brush_Kind(arg)].name)
 	case .View_Axis:

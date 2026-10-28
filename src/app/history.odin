@@ -106,6 +106,7 @@ History_Kind :: enum u8 {
 	Arrange, // the tree changed: folders, names or order
 	Textures, // texture maps baked, loaded or removed, or the UVs laid out again
 	Lights,   // the scene's lights changed
+	Model,    // a swap entry of Model mode: a cage edited or applied
 }
 
 // An object as object_put writes it, or that it did not exist. Undoing or redoing a swap
@@ -167,13 +168,14 @@ history_snapshot_drop :: proc(snap: ^Object_Snapshot) {snapshot_free(snap)}
 
 // Lists a change to object `id` that `before` (from history_snapshot) undoes as the
 // newest undo step, or with `chain` as part of the newest step. The object's strokes
-// from before it are dropped, since the sculptors they were made with are gone.
-history_record_swap :: proc(app: ^App, id: int, before: ^Object_Snapshot, chain := false) {
+// from before it are dropped, since the sculptors they were made with are gone. `kind`
+// colours it in the History panel's timeline.
+history_record_swap :: proc(app: ^App, id: int, before: ^Object_Snapshot, chain := false, kind := History_Kind.Rebuild) {
 	history_drop_redo(app)
 	history_forget_strokes(app, id)
 	app.history.serial += 1
 	app.history.edits += 1
-	append(&app.history.done, History_Entry{id = id, swap = before, chain = chain && len(app.history.done) > 0, kind = .Rebuild, what = before.what, at = time.tick_now()})
+	append(&app.history.done, History_Entry{id = id, swap = before, chain = chain && len(app.history.done) > 0, kind = kind, what = before.what, at = time.tick_now()})
 	app.history.swap_bytes += len(before.bytes)
 	history_trim(app)
 }
