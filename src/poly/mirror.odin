@@ -80,7 +80,6 @@ point_grid_near :: proc(g: ^Point_Grid, p: Vec3, out: ^[dynamic]u32) {
 
 // The point nearest p within `slack` (no more than the grid's cell), or NONE; the lower
 // id of two as near.
-@(private = "file")
 nearest_point :: proc(m: ^Mesh, g: ^Point_Grid, p: Vec3, slack: f32) -> u32 {
 	near := make([dynamic]u32, context.temp_allocator)
 	point_grid_near(g, p, &near)

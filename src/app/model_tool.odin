@@ -55,6 +55,10 @@ Model_Action :: enum u8 {
 	Crease,
 	Crease_Point,
 	Bevel,
+	Circle_Loop,
+	Space_Loop,
+	Flatten_Loop,
+	Knife,
 }
 
 @(rodata)
@@ -79,6 +83,10 @@ MODEL_ACTION_NAMES := [Model_Action]string {
 	.Crease         = "Crease",
 	.Crease_Point   = "Crease point",
 	.Bevel          = "Bevel",
+	.Circle_Loop    = "Circle loop",
+	.Space_Loop     = "Space loop",
+	.Flatten_Loop   = "Flatten loop",
+	.Knife          = "Knife",
 }
 
 // Each action as an undo step names it, in the History panel and the undo button's tip.
@@ -104,6 +112,10 @@ MODEL_ACTION_WHAT := [Model_Action]string {
 	.Crease         = "crease edges",
 	.Crease_Point   = "crease points",
 	.Bevel          = "bevel edges",
+	.Circle_Loop    = "circle loop",
+	.Space_Loop     = "space loop",
+	.Flatten_Loop   = "flatten loop",
+	.Knife          = "knife cut",
 }
 
 // What each action's variant does, for the palette and the label.
@@ -129,6 +141,10 @@ MODEL_ACTION_ALT := [Model_Action]string {
 	.Crease         = "removes the crease",
 	.Crease_Point   = "removes the crease",
 	.Bevel          = "",
+	.Circle_Loop    = "fits the circle inside the loop instead of through it",
+	.Space_Loop     = "",
+	.Flatten_Loop   = "",
+	.Knife          = "",
 }
 
 // What each action's help line says it does.
@@ -154,6 +170,10 @@ MODEL_ACTION_HOW := [Model_Action]string {
 	.Crease         = "Tap an edge to crease what the target reaches, so Smooth keeps it sharp; drag up or down to set how sharp, from soft to fully sharp",
 	.Crease_Point   = "Tap a point to keep it a sharp corner when smoothed; drag up or down to set how sharp",
 	.Bevel          = "Press on an edge and drag up to round what the target reaches, sideways for more or fewer segments; below where you pressed gives a flat chamfer. Shift snaps the width to steps",
+	.Circle_Loop    = "Tap an edge to round its closed loop into a circle in the loop's own plane",
+	.Space_Loop     = "Tap an edge to spread its loop's points evenly along it, the ends of an open loop staying",
+	.Flatten_Loop   = "Tap an edge to move its loop's points onto the plane the loop lies nearest",
+	.Knife          = "Draw a stroke across the cage, starting beside it if you like: each face it crosses is cut along it. Or tap edges in turn to cut a path between them; a tap off the cage ends it",
 }
 
 // What kind of element each action takes.
@@ -185,11 +205,23 @@ MODEL_ACTION_ELEMENT := [Model_Action]Model_Element {
 	.Crease         = .Edge,
 	.Crease_Point   = .Point,
 	.Bevel          = .Edge,
+	.Circle_Loop    = .Edge,
+	.Space_Loop     = .Edge,
+	.Flatten_Loop   = .Edge,
+	.Knife          = .Edge,
 }
 
 // The actions a drag drives; Insert loop also acts on a tap. The pair actions take a
 // second element where the pen lifts; the rest act on a tap.
 MODEL_DRAGS :: bit_set[Model_Action]{.Extrude, .Inset, .Move, .Insert_Loop, .Extrude_Edge, .Crease, .Crease_Point, .Bevel}
+// The loop shape each loop action gives.
+@(rodata)
+MODEL_LOOP_SHAPES := #partial [Model_Action]poly.Loop_Shape {
+	.Circle_Loop  = .Circle,
+	.Space_Loop   = .Space,
+	.Flatten_Loop = .Flatten,
+}
+
 // The actions that set sharpness: a tap creases, a drag up or down sets how much.
 MODEL_CREASES :: bit_set[Model_Action]{.Crease, .Crease_Point}
 MODEL_PAIRS :: bit_set[Model_Action]{.Bridge, .Weld, .Connect}
@@ -251,6 +283,10 @@ MODEL_ACTION_TARGETS := [Model_Action]bit_set[Model_Target] {
 	.Crease         = {.Single, .Edge_Loop, .Edge_Ring},
 	.Crease_Point   = {.Single},
 	.Bevel          = {.Single, .Edge_Loop, .Edge_Ring},
+	.Circle_Loop    = {.Edge_Loop, .Border_Loop},
+	.Space_Loop     = {.Edge_Loop, .Border_Loop},
+	.Flatten_Loop   = {.Edge_Loop, .Border_Loop},
+	.Knife          = {.Single},
 }
 
 // The target each action starts with: one face, but Flip a whole piece, since turning
@@ -277,6 +313,10 @@ MODEL_DEFAULT_TARGETS := [Model_Action]Model_Target {
 	.Crease         = .Edge_Loop,
 	.Crease_Point   = .Single,
 	.Bevel          = .Edge_Loop,
+	.Circle_Loop    = .Edge_Loop,
+	.Space_Loop     = .Edge_Loop,
+	.Flatten_Loop   = .Edge_Loop,
+	.Knife          = .Single,
 }
 
 // ZModeler's flat island tolerance.
@@ -322,6 +362,10 @@ Model_Drag :: struct {
 	amount: f32, // as last applied
 	// Insert loop's slide: the pressed edge from its first end to its other, on screen.
 	slide_from, slide_to: [2]f32,
+	// The knife's stroke on screen, from the press (heap), and whether the press was on
+	// the cage (a stroke may start beside it).
+	stroke: [dynamic][2]f32,
+	over:   bool,
 	// Bevel's cage as pressed (heap), which a change of segments bevels again, the
 	// segments it started with and those the cage now has.
 	original: poly.Mesh,
@@ -335,6 +379,7 @@ model_tool_free :: proc(m: ^Model_Tool) {
 	delete(m.hover.images)
 	delete(m.drag.items)
 	delete(m.drag.images)
+	delete(m.drag.stroke)
 	poly.drag_set_destroy(&m.drag.set)
 	poly.mesh_destroy(&m.drag.original)
 }
@@ -467,6 +512,11 @@ model_tool_frame :: proc(app: ^App, input: Viewport_Input) -> bool {
 				model_hover(app, input.mouse_pos, input.size, true)
 				return true
 			}
+			// The knife draws its stroke.
+			if d.action == .Knife {
+				if linalg.length(input.mouse_pos - d.stroke[len(d.stroke) - 1]) >= 3 do append(&d.stroke, input.mouse_pos)
+				return true
+			}
 			// Select paints: what the target reaches under the pen joins as it goes.
 			if d.action == .Select {
 				model_hover(app, input.mouse_pos, input.size, true)
@@ -486,6 +536,11 @@ model_tool_frame :: proc(app: ^App, input: Viewport_Input) -> bool {
 		if d.action in MODEL_PAIRS {
 			model_hover(app, input.mouse_pos, input.size, true)
 			return model_pair(app)
+		}
+		if d.action == .Knife {
+			append(&d.stroke, input.mouse_pos)
+			if model_stroke_reach(d.stroke[:], d.press) > app.kit.ctx.theme.slop do return model_knife(app, input.size)
+			return model_knife_tap(app, input.size)
 		}
 		if d.action == .Insert_Loop {
 			if !model_drag_begin(app, input) do return false
@@ -513,11 +568,22 @@ model_tool_frame :: proc(app: ^App, input: Viewport_Input) -> bool {
 	case .None:
 	}
 	model_hover(app, input.mouse_pos, input.size, input.hovered || input.primary)
-	if !input.primary || !input.press || m.hover.object == 0 do return true
+	if m.action != .Knife do m.knife_from = {}
+	if !input.primary || !input.press do return true
+	over := m.hover.object != 0
+	if !over {
+		// A knife stroke may start beside the cage, so it can cut clean across it: it cuts
+		// the selected cage.
+		sel := selected_object(app)
+		if m.action != .Knife || sel == nil || sel.cage == nil || sel.off do return true
+		m.hover.object = sel.id
+	}
 	obj := object_by_id(app, m.hover.object)
 	select_object(app, obj)
 	h := &m.hover
-	d^ = {state = .Pressed, object = h.object, action = m.action, press = input.mouse_pos, alt = input.invert, snap = input.smooth, face = h.face, edge = h.edge, point = h.point, at = h.at, items = d.items, images = d.images, set = d.set}
+	d^ = {state = .Pressed, object = h.object, action = m.action, press = input.mouse_pos, alt = input.invert, snap = input.smooth, face = h.face, edge = h.edge, point = h.point, at = h.at, items = d.items, images = d.images, set = d.set, stroke = d.stroke, over = over}
+	clear(&d.stroke)
+	append(&d.stroke, input.mouse_pos)
 	clear(&d.items)
 	append(&d.items, ..h.items[:])
 	clear(&d.images)
@@ -618,6 +684,21 @@ model_tap :: proc(app: ^App) -> bool {
 			history_snapshot_drop(before)
 			return true
 		}
+	case .Circle_Loop, .Space_Loop, .Flatten_Loop:
+		// The loop and its mirror image, each shaped on its own.
+		shape := MODEL_LOOP_SHAPES[d.action]
+		shaped := false
+		for loop in ([2][]u32{d.items[:], d.images[:]}) {
+			if len(loop) == 0 do continue
+			points, closed := poly.loop_points(cage, loop, context.temp_allocator)
+			if poly.shape_loop(cage, points, closed, shape, d.alt) do shaped = true
+		}
+		if !shaped {
+			history_snapshot_drop(before)
+			m.refused += 1
+			report(app, nil, {.Warning}, "%s refused: it needs %s", MODEL_ACTION_NAMES[d.action], "a closed loop of three points or more" if shape == .Circle else "a loop of three points or more")
+			return true
+		}
 	case .Remove_Loop:
 		r, err = poly.dissolve_edges(cage, model_all(d))
 	case .Collapse:
@@ -658,6 +739,154 @@ model_tap :: proc(app: ^App) -> bool {
 	}
 	poly.edit_result_destroy(&r)
 	return model_commit(app, obj, before, err)
+}
+
+// The knife's cut: where the stroke crossed the cage's edges in sight, in the order it
+// crossed them, cut as one undo step (with its mirror images under symmetry).
+@(private = "file")
+model_knife :: proc(app: ^App, size: [2]f32, ends: [2]Maybe(poly.Knife_Point) = {}) -> bool {
+	d := &app.model.drag
+	obj := object_by_id(app, d.object)
+	if obj == nil || obj.cage == nil || len(d.stroke) < 2 do return true
+	// Before anything temporary: a snapshot frees the frame's temporary memory.
+	before := history_snapshot(app, obj, MODEL_ACTION_WHAT[.Knife])
+	cp := obj.cage
+	cage := &cp.mesh
+	vp := view_proj_of(app, size)
+	t := obj.transform
+	b := poly.mesh_bounds(cage)
+	slack := linalg.length(b.hi - b.lo) * 1e-3
+	Hit :: struct {
+		along: f32, // where on the stroke: its segment and the share of it
+		point: poly.Knife_Point,
+	}
+	hits := make([dynamic]Hit, context.temp_allocator)
+	line := make([dynamic]Vec3, context.temp_allocator)
+	screen := make([dynamic][2]f32, context.temp_allocator)
+	for e in 0 ..< u32(len(cage.crease)) {
+		cage_edge_points(cp, e, &line)
+		clear(&screen)
+		seen := true
+		for q in line {
+			p, ok := gizmo.project(vp, to_world(t, q), size)
+			seen &&= ok
+			append(&screen, p)
+		}
+		if !seen do continue
+		pieces := f32(len(line) - 1)
+		for i in 0 ..< len(screen) - 1 {
+			for j in 0 ..< len(d.stroke) - 1 {
+				u, w, crossed := segments_cross(d.stroke[j], d.stroke[j + 1], screen[i], screen[i + 1])
+				if !crossed do continue
+				at := (f32(i) + w) / pieces
+				// Through a corner is no cut of the edge.
+				if at < MODEL_KNIFE_END || at > 1 - MODEL_KNIFE_END do continue
+				if !model_seen(app, obj, linalg.lerp(line[i], line[i + 1], w), size, slack) do continue
+				// The edges a tapped cut ends on are its ends already.
+				if p, ok := ends[0].?; ok && p.edge == e do continue
+				if p, ok := ends[1].?; ok && p.edge == e do continue
+				append(&hits, Hit{f32(j) + u, {e, at}})
+			}
+		}
+	}
+	extra := int(ends[0] != nil) + int(ends[1] != nil)
+	if len(hits) + extra < 2 {
+		history_snapshot_drop(before)
+		app.model.refused += 1
+		report(app, nil, {.Warning}, "Knife: draw the stroke across at least two edges of the cage")
+		return true
+	}
+	slice.sort_by(hits[:], proc(x, y: Hit) -> bool {return x.along < y.along || (x.along == y.along && x.point.edge < y.point.edge)})
+	chain := make([dynamic]poly.Knife_Point, 0, len(hits) + 2, context.temp_allocator)
+	if p, ok := ends[0].?; ok do append(&chain, p)
+	for h in hits do append(&chain, h.point)
+	if p, ok := ends[1].?; ok do append(&chain, p)
+	chains := make([dynamic][]poly.Knife_Point, context.temp_allocator)
+	append(&chains, chain[:])
+	append(&chains, ..poly.knife_images(cage, chain[:], model_axes(app), context.temp_allocator))
+	r, err := poly.knife_cut(cage, chains[:])
+	poly.edit_result_destroy(&r)
+	return model_commit(app, obj, before, err)
+}
+
+// How near an edge's end a crossing may be and still cut the edge, as a share of it.
+MODEL_KNIFE_END :: 0.02
+
+// The Knife's last tap: the edge of the cage it snapped to, and where along it.
+Model_Knife_Tap :: struct {
+	object: int,
+	edge:   u32,
+	at:     f32,
+}
+
+// How far a stroke went from the press at most, in viewport points.
+@(private = "file")
+model_stroke_reach :: proc(stroke: [][2]f32, press: [2]f32) -> (reach: f32) {
+	for p in stroke do reach = max(reach, linalg.length(p - press))
+	return
+}
+
+// Where the Knife's tap sits on screen: on its edge as drawn, at its share along it.
+model_knife_tap_at :: proc(app: ^App, tap: Model_Knife_Tap, size: [2]f32) -> (at: [2]f32, ok: bool) {
+	obj := object_by_id(app, tap.object)
+	if obj == nil || obj.cage == nil || int(tap.edge) >= len(obj.cage.mesh.crease) do return
+	line := make([dynamic]Vec3, context.temp_allocator)
+	cage_edge_points(obj.cage, tap.edge, &line)
+	pieces := f32(len(line) - 1)
+	i := min(int(tap.at * pieces), len(line) - 2)
+	p := linalg.lerp(line[i], line[i + 1], tap.at * pieces - f32(i))
+	return gizmo.project(view_proj_of(app, size), to_world(obj.transform, p), size)
+}
+
+// A tap with the Knife: on an edge it cuts from the last tap's point to this one through
+// the faces between, then waits for the next, which cuts on from the point this one made;
+// off the cage it ends the path.
+@(private = "file")
+model_knife_tap :: proc(app: ^App, size: [2]f32) -> bool {
+	m := &app.model
+	d := &m.drag
+	from := m.knife_from
+	m.knife_from = {}
+	if !d.over do return true
+	tap := Model_Knife_Tap{d.object, d.edge, d.at}
+	if from.object != tap.object {
+		m.knife_from = tap
+		return true
+	}
+	a, a_ok := model_knife_tap_at(app, from, size)
+	b, b_ok := model_knife_tap_at(app, tap, size)
+	if !a_ok || !b_ok || linalg.length(b - a) < 1 do return true
+	// The stroke stops short of both taps, whose edges are the cut's ends already.
+	short := linalg.normalize(b - a) * min(2, linalg.length(b - a) / 4)
+	clear(&d.stroke)
+	append(&d.stroke, a + short, b - short)
+	done := m.done
+	if !model_knife(app, size, {{from.edge, from.at}, {tap.edge, tap.at}}) do return false
+	if m.done == done do return true
+	// The cut renumbered the cage: the next tap cuts on from the corner made here.
+	obj := object_by_id(app, tap.object)
+	vp := view_proj_of(app, size)
+	best := f32(3)
+	for v in 0 ..< u32(len(obj.cage.mesh.positions)) {
+		q, seen := gizmo.project(vp, to_world(obj.transform, cage_point(obj.cage, v)), size)
+		if seen && linalg.length(q - b) < best {
+			best = linalg.length(q - b)
+			k := poly.knife_at_point(&obj.cage.mesh, v)
+			m.knife_from = {tap.object, k.edge, k.at}
+		}
+	}
+	return true
+}
+
+// Where segments a-b and c-d cross: the share along each, and whether they do.
+segments_cross :: proc(a, b, c, d: [2]f32) -> (u, w: f32, crossed: bool) {
+	r, s := b - a, d - c
+	den := r.x * s.y - r.y * s.x
+	if abs(den) < 1e-9 do return
+	q := c - a
+	u = (q.x * s.y - q.y * s.x) / den
+	w = (q.x * r.y - q.y * r.x) / den
+	return u, w, u >= 0 && u < 1 && w >= 0 && w <= 1
 }
 
 // Ends an action that changed the cage at once: the level made again and the undo step
@@ -1261,11 +1490,20 @@ draw_model_overlay :: proc(app: ^App, o: Overlay, input: Viewport_Input) {
 		if m.check do draw_model_check(app, o, input, obj)
 		draw_model_creases(app, o, input, obj)
 	}
+	// The Knife's last tap, and the cut the next tap would make from it.
+	if m.action == .Knife && m.knife_from.object != 0 && d.state != .Pressed {
+		if at, ok := model_knife_tap_at(app, m.knife_from, input.size); ok {
+			color := overlay_color(MODEL_ELEMENT_COLORS[.Edge])
+			overlay_line(o, at, input.mouse_pos, color, 2)
+			overlay_disc(o, at, 5, color)
+		}
+	}
 	if d.state != .Dragging {
 		if d.state == .Pressed {
 			draw_model_items(app, o, input, d.object, MODEL_ACTION_ELEMENT[d.action], d.items[:], MODEL_ELEMENT_COLORS[MODEL_ACTION_ELEMENT[d.action]])
 			draw_model_items(app, o, input, d.object, MODEL_ACTION_ELEMENT[d.action], d.images[:], MODEL_ELEMENT_COLORS[MODEL_ACTION_ELEMENT[d.action]])
 			if d.action in MODEL_PAIRS do overlay_line(o, d.press, input.mouse_pos, overlay_color(MODEL_ELEMENT_COLORS[MODEL_ACTION_ELEMENT[d.action]]), 2)
+			if d.action == .Knife && len(d.stroke) > 1 do overlay_polyline(o, d.stroke[:], overlay_color(MODEL_ELEMENT_COLORS[.Edge]), 2)
 		}
 		if d.state == .None || d.action in MODEL_PAIRS {
 			draw_model_items(app, o, input, m.hover.object, element, m.hover.items[:], MODEL_ELEMENT_COLORS[element])
