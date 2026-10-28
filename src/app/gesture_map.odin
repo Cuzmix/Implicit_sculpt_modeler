@@ -184,26 +184,34 @@ settings_gesture_map :: proc(app: ^App) {
 	t := ctx.theme
 	ui.caption(ctx, "GESTURE MAP")
 	for slot in GESTURE_SLOT_ORDER {
-		s := &app.nav.gestures[slot]
-		choices := make([dynamic]Pie_Slot, 0, len(GESTURE_CHOICES) + 2, context.temp_allocator)
-		append(&choices, Pie_Slot{})
-		append(&choices, ..GESTURE_CHOICES[:])
-		chosen := -1
-		for c, i in choices do if c == s^ {chosen = i; break}
-		if chosen < 0 {
-			append(&choices, s^)
-			chosen = len(choices) - 1
-		}
-		// Last, a row that is no command: it opens the palette to choose any.
-		names := make([]string, len(choices) + 1, context.temp_allocator)
-		for c, i in choices do names[i] = "Nothing" if c.id == .None else pie_slot_label(c)
-		names[len(choices)] = "Any command..."
 		ui.label(ctx, GESTURE_SLOT_NAMES[slot])
-		if picked := ui.select(ctx, fmt.tprintf("%s##gesture", GESTURE_SLOT_NAMES[slot]), names, chosen); picked >= 0 {
-			if picked < len(choices) do s^ = choices[picked]
-			else do palette_open_for(app, slot)
-		}
+		gesture_select(app, slot)
 	}
 	ui.paragraph(ctx, "A hold fills a ring, then runs its command; Undo and Redo go on repeating while the fingers stay still. Never while the pen is near. The one-finger tap is a tap on empty space: on the model a tap sculpts.")
 	for note in gesture_notes(app) do ui.paragraph(ctx, note, color = t.warning)
+}
+
+// The choice of what gesture `slot` runs, `width` wide (0 fills the row): nothing, the
+// usual commands, the one it runs now when it is none of those, and Any command..., which
+// opens the palette to choose one.
+gesture_select :: proc(app: ^App, slot: Gesture_Slot, width: f32 = 0) {
+	ctx := &app.kit.ctx
+	s := &app.nav.gestures[slot]
+	choices := make([dynamic]Pie_Slot, 0, len(GESTURE_CHOICES) + 2, context.temp_allocator)
+	append(&choices, Pie_Slot{})
+	append(&choices, ..GESTURE_CHOICES[:])
+	chosen := -1
+	for c, i in choices do if c == s^ {chosen = i; break}
+	if chosen < 0 {
+		append(&choices, s^)
+		chosen = len(choices) - 1
+	}
+	// Last, a row that is no command: it opens the palette to choose any.
+	names := make([]string, len(choices) + 1, context.temp_allocator)
+	for c, i in choices do names[i] = "Nothing" if c.id == .None else pie_slot_label(c)
+	names[len(choices)] = "Any command..."
+	if picked := ui.select(ctx, fmt.tprintf("%s##gesture", GESTURE_SLOT_NAMES[slot]), names, chosen, width); picked >= 0 {
+		if picked < len(choices) do s^ = choices[picked]
+		else do palette_open_for(app, slot)
+	}
 }
