@@ -251,9 +251,11 @@ Kit_State :: struct {
 	// command...; bar_choose, from a bar's slot while customising).
 	palette_for:    Palette_For,
 	// The panels as windows: where each was dragged to and whether it is folded
-	// (remembered by settings.odin), and the order they are drawn in, the last on top.
+	// (remembered by settings.odin), and the order every floating thing is drawn in, the
+	// last on top: windows, pinned sections' panels and the stack's floated cards in one
+	// order, so whichever was touched last is in front of all the others.
 	windows:    [Kit_Window]ui.Window,
-	order:      [dynamic; len(Kit_Window) + TRAY_SECTIONS]Panel_Ref,
+	order:      [dynamic; len(Kit_Window) + TRAY_SECTIONS + len(Stack_Card)]Float_Ref,
 	// Lens's panels: the two columns, the pinned sections and the panel menu (panels.odin).
 	panels:     Panels,
 	text_input: bool, // SDL's text input is on, for the text field that has the keys
@@ -379,8 +381,31 @@ side_panel_close :: proc(app: ^App) {
 	app.kit.help, app.kit.macros, app.kit.library = false, false, false
 }
 
+// Something that floats over the view and comes to the front when touched: a window, a
+// pinned section's panel, or a card floated out of Lens's stack.
+Float_Ref :: union {
+	Kit_Window,
+	Kit_Section,
+	Stack_Card,
+}
+
+// A panel as the floating order holds it.
+float_of :: proc(ref: Panel_Ref) -> Float_Ref {
+	switch r in ref {
+	case Kit_Window:  return r
+	case Kit_Section: return r
+	}
+	return nil
+}
+
 // Brings `which` (a window, or a pinned section's panel) in front of the others.
 window_raise :: proc(k: ^Kit_State, which: Panel_Ref) {
+	float_raise(k, float_of(which))
+}
+
+// Brings `which` in front of every other floating thing, the stack's cards too.
+float_raise :: proc(k: ^Kit_State, which: Float_Ref) {
+	if which == nil do return
 	for w, i in k.order {
 		if w != which do continue
 		ordered_remove(&k.order, i)
@@ -1190,8 +1215,6 @@ kit_layout :: proc(app: ^App) {
 		for kind in ([]Bar_Pop_Kind{.Shading, .Camera}) do k.bar_at[kind], k.bar_side[kind] = search_anchor, .Below
 	}
 
-	kit_modifier_rail(app)
-
 	// Bottom middle: a page of the brush dock, then the mesh tools (kit_bars.odin); in Lens
 	// the shelf and its pages (lens_shelf.odin).
 	dock_anchor := menu_anchor
@@ -1219,17 +1242,29 @@ kit_layout :: proc(app: ^App) {
 	// panels, back to front: the last drawn is hit tested first. One pressed comes to the
 	// front from the next frame on. A docked panel is its column's, shown or not.
 	kit_columns(app, panel_draw)
-	top: Maybe(Panel_Ref)
+	// A card floated out of the stack another way than by hand (a layout read, a pane
+	// closed) joins the order on top.
+	for c in k.stack.floated do if !slice.contains(k.order[:], Float_Ref(c)) do float_raise(k, c)
+	top: Float_Ref
 	order := k.order
 	for which in order {
-		if _, _, docked := panel_docked(k, which); docked do continue
-		if panel_draw(app, which) do top = which
+		switch w in which {
+		case Kit_Window:  if panel_float_draw(app, w) do top = which
+		case Kit_Section: if panel_float_draw(app, w) do top = which
+		case Stack_Card:
+			// The stack's floating cards (lens_stack.odin), among the panels.
+			if stack_float_card(app, w) do top = which
+		}
 	}
-	if which, ok := top.?; ok do window_raise(k, which)
+	float_raise(k, top)
 	// While a floating panel is dragged, where it would dock.
 	kit_column_drop(app)
-	// The stack's floating cards, over the panels (lens_stack.odin).
-	kit_stack_floating(app)
+	// The dial over every bar, panel, window and card, so a finger on it is always its
+	// (rail_claims asks for the root on top): it is where the off-hand rests, and nothing
+	// that stays on screen should cover it. What opens for a moment (a menu, a popover, a
+	// sheet) comes after it, as a press then goes to what was opened (rail_claims stands
+	// aside while one is open).
+	kit_modifier_rail(app)
 
 	// What floats over the panels comes last, so it is drawn and hit tested on top.
 	if lens && k.browser_at == .Dock do kit_brush_sheet(app, dock_anchor)
@@ -1267,6 +1302,13 @@ kit_layout :: proc(app: ^App) {
 	kit_pane_menu(app)
 	kit_divider_menu(app)
 	kit_export_sheet(app)
+}
+
+// Lays out panel `which` where it floats, if it does (a docked one is its column's).
+// Returns true when a press landed on it, to bring it to the front.
+panel_float_draw :: proc(app: ^App, which: Panel_Ref) -> bool {
+	if _, _, docked := panel_docked(&app.kit, which); docked do return false
+	return panel_draw(app, which)
 }
 
 // Lays out panel `which` by its own proc, docked or floating as it is placed. Returns
