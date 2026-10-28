@@ -218,6 +218,7 @@ overlay_viewport :: proc(app: ^App, o: Overlay, input: Viewport_Input) {
 		draw_gizmo(app, o, input)
 	case .Curve, .Insert:
 		draw_curve_overlay(app, o)
+	case .Model:
 	}
 }
 

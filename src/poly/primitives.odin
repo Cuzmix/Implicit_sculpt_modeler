@@ -26,15 +26,17 @@ PRIMITIVE_NAMES := [Primitive]string {
 	.Cone     = "Cone",
 }
 
-// The counts a primitive is made with: `around` and `along` for the round ones, `across`
-// for the grid ones; out-of-range values are clamped to PRIMITIVE_MIN..PRIMITIVE_MAX.
+// The counts a primitive is made with: `around`, `along` and `tube` for the round ones,
+// `across` for the grid ones; out-of-range values are clamped to PRIMITIVE_MIN..PRIMITIVE_MAX
+// (at least 3 round a circle, 2 across a quad sphere).
 Primitive_Options :: struct {
 	across: int, // segments along each side of a cube, plane or quad sphere
 	around: int, // segments round a cylinder, torus or cone
-	along:  int, // segments along a cylinder's axis or round a torus's tube
+	along:  int, // segments along a cylinder's axis
+	tube:   int, // segments round a torus's tube
 }
 
-PRIMITIVE_DEFAULTS := Primitive_Options{across = 1, around = 8, along = 1}
+PRIMITIVE_DEFAULTS :: Primitive_Options{across = 1, around = 8, along = 1, tube = 6}
 // A cage is for blocking out: past a few hundred segments a side the sculpting tools are
 // the better way, and a cube of 256 a side is already 393k faces.
 PRIMITIVE_MIN :: 1
@@ -45,6 +47,7 @@ primitive :: proc(kind: Primitive, opts := PRIMITIVE_DEFAULTS, allocator := cont
 	across := clamp(opts.across, PRIMITIVE_MIN, PRIMITIVE_MAX)
 	around := clamp(opts.around, 3, PRIMITIVE_MAX)
 	along := clamp(opts.along, PRIMITIVE_MIN, PRIMITIVE_MAX)
+	tube := clamp(opts.tube, 3, PRIMITIVE_MAX)
 	p: Builder
 	defer builder_destroy(&p)
 	switch kind {
@@ -52,7 +55,7 @@ primitive :: proc(kind: Primitive, opts := PRIMITIVE_DEFAULTS, allocator := cont
 	case .Sphere:   build_box(&p, max(across, 2), true)
 	case .Plane:    build_plane(&p, across)
 	case .Cylinder: build_cylinder(&p, around, along)
-	case .Torus:    build_torus(&p, around, max(along, 3))
+	case .Torus:    build_torus(&p, around, tube)
 	case .Cone:     build_cone(&p, around)
 	}
 	m, err := mesh_from_polygons(p.positions[:], p.sizes[:], p.corners[:], nil, allocator)

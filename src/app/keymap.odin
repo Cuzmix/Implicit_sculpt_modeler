@@ -9,6 +9,7 @@ import sdl "vendor:sdl3"
 import "../camera"
 import "../gizmo"
 import "../render"
+import "../poly"
 import "../sculpt"
 
 // The keys in use: DEFAULT_BINDINGS with the user's changes over them. A command the user
@@ -234,6 +235,7 @@ command_from_name :: proc(name: string) -> (id: Command_Id, arg: int, ok: bool) 
 command_arg_name :: proc(id: Command_Id, arg: int) -> string {
 	#partial switch id {
 	case .Brush:     return fmt.tprint(sculpt.Brush_Kind(arg))
+	case .Add_Cage:  return fmt.tprint(poly.Primitive(arg))
 	case .View_Axis: return fmt.tprint(camera.Axis_View(arg))
 	case .Viewport_Look: return fmt.tprint(Look_Preset(arg))
 	case .Mask:      return fmt.tprint(sculpt.Mask_Command(arg))

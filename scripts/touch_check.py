@@ -2771,7 +2771,8 @@ def lens_left_handed_mirrors_the_chrome():
 # The Lens shelf at 1440 x 900 (lens_shelf.odin): its tiles, All, the page names under it, and
 # in the brush picker the Paint page and the Draw and Inflate cards.
 LENS_SHELF = {"clay": (396, 830), "draw": (459, 830), "layer": (972, 830), "all": (1044, 830)}
-LENS_SHELF_PAGES = {"sculpt": (633, 883), "paint": (693, 883), "move": (752, 883), "curve": (813, 883)}
+LENS_SHELF_PAGES = {"sculpt": (601, 883), "paint": (657, 883), "move": (715, 883), "curve": (776, 883), "model": (840, 883)}
+LENS_MODEL_TILES = {"model": (459, 830), "cube": (522, 830)}
 LENS_SHEET = {"paint": (839, 120), "draw": (525, 320), "inflate": (525, 440)}
 LENS_SHELF_SCULPT = "Brush:Clay,Brush:Draw,Brush:Smooth,Brush:Inflate,Brush:Pinch,Brush:Crease,Brush:Grab,Brush:Flatten,Brush:Mask,Brush:Layer"
 
@@ -2802,6 +2803,28 @@ def lens_shelf_page_names_turn_the_page():
     s.wait(10)
     return s, LENS_1440, camera_still({"shelf_page": is_text("Paint"), "shelf_turns": near(1),
                                        "shelf": lambda v: v.startswith("Brush:Paint,Brush:Mask,Brush:Smooth,Colors_Card")})
+
+
+@scenario
+def lens_shelf_model_page_adds_a_cage():
+    """The Model page holds the Model tool, a tile for each cage primitive and Apply to sculpt; a tap on its Cube tile adds a cube cage."""
+    s = Script()
+    s.ftap(*LENS_SHELF_PAGES["model"])
+    s.wait(10)
+    s.ftap(*LENS_MODEL_TILES["cube"])
+    s.wait(10)
+    return s, LENS_1440, camera_still({"shelf_page": is_text("Model"), "cages": near(1), "cage_faces": near(6), "cage_broken": near(0),
+                                       "shelf": lambda v: v.startswith("Tool_Model,Add_Cage:Cube,Add_Cage:Cylinder") and v.endswith("Apply_Cage")})
+
+
+@scenario
+def model_cage_refuses_a_brush_stroke():
+    """A stroke across a cage sculpts nothing: a cage is edited in Model mode, and the stroke says so."""
+    s = Script()
+    s.mouse_drag(line((720, 450), (780, 470), 8))
+    s.wait(10)
+    return s, LENS_1440 + ["--script=add_cage cube; select 1; delete_object; frame_all"], {"dabs": near(0), "cages": near(1), "camera_yaw": near(0.6),
+                                                                                       "last_op": lambda v: "is_a_cage" in v}
 
 
 @scenario
@@ -5083,14 +5106,14 @@ def browser_heart_keeps_a_favorite():
 @scenario
 def browser_index_jumps_to_a_letter():
     """A tap on S in the brush browser's A to Z index scrolls All to the brushes starting
-    with S: as far down as the grid goes, which puts Sharp crease in the third row's first
+    with S: as far down as the grid goes, which puts Sharp crease in the third row's middle
     tile, where a tap picks it."""
     s = Script()
     s.ftap(*UI["browser"])
     s.wait(12)
     s.ftap(BROWSER_INDEX_X, BROWSER_INDEX_A + BROWSER_INDEX_STEP * (ord("S") - ord("A")))
     s.wait(16)
-    s.ftap(*browser_tile(0, 2))
+    s.ftap(*browser_tile(1, 2))
     s.wait(6)
     return s, [], camera_still({"dabs": near(0), "preset_name": is_text("Sharp_crease"), "browser": near(0)})
 

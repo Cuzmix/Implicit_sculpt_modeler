@@ -111,6 +111,9 @@ Mesh_Pipelines :: struct {
 	// The same shaders drawing triangle edges as lines, pulled toward the eye so they
 	// show over the surface they outline; nil where the device cannot draw lines.
 	wire:  ^sdl.GPUGraphicsPipeline,
+	// The same shaders drawing a line list (Mesh_Buffers.edges): a Model mode cage's
+	// edges, which every device can draw, unlike the wireframe's line fill.
+	lines: ^sdl.GPUGraphicsPipeline,
 	// Fills the target, or a scissored rectangle of it, with the background at the far plane.
 	clear: ^sdl.GPUGraphicsPipeline,
 	// The mesh shaders blending over what is behind and leaving the depth be, for items
@@ -127,12 +130,13 @@ Mesh_Pipelines :: struct {
 }
 
 // How a mesh pipeline draws its triangles: filled and opaque, as lines, or filled and
-// blended (see-through).
+// blended (see-through); or, for Lines, a list of line segments (Mesh_Buffers.edges).
 @(private)
 Mesh_Mode :: enum u8 {
 	Solid,
 	Wire,
 	See_Through,
+	Lines,
 }
 
 // The flat grey the viewport shows until the app sets Renderer.background, in display
@@ -197,6 +201,10 @@ Mesh_Buffers :: struct {
 	index_version:   u64,
 	// The traced studio render's trees over the triangles; nil until it first runs.
 	trace:           ^Trace_Mesh,
+	// Pairs of vertices drawn as lines over the surface (Draw_Item.cage_lines): a Model
+	// mode cage's edges; nil for none (mesh_buffers_set_edges).
+	edges:           ^sdl.GPUBuffer,
+	edge_indices:    u32,
 
 	// Culled drawing: one indirect draw command per visible run of chunks, rebuilt
 	// each frame the mesh is drawn. Created on first use, sized for every chunk.
@@ -283,6 +291,7 @@ Draw_Item :: struct {
 	surface:   [2]f32,
 	flat:      bool, // shade each triangle with its own normal instead of the smoothed ones
 	wireframe: bool, // draw its triangles' edges over it
+	cage_lines: bool, // draw Mesh_Buffers.edges over it as lines (a Model mode cage's edges)
 	paint:     bool, // draw its polypaint over the clay (needs Mesh_Buffers.paint)
 	groups:    bool, // draw each triangle in its polygroup's colour instead (likewise)
 	// The density preview's checker: xyz the first lattice point in mesh space, w the
@@ -600,6 +609,7 @@ mesh_pipelines_create :: proc(r: ^Renderer, samples: sdl.GPUSampleCount) -> Mesh
 	return {
 		mesh = create_mesh_pipeline(r, .Solid, samples),
 		wire = create_mesh_pipeline(r, .Wire, samples),
+		lines = create_mesh_pipeline(r, .Lines, samples),
 		clear = create_clear_pipeline(r, samples),
 		see = create_mesh_pipeline(r, .See_Through, samples),
 		floor = create_floor_pipeline(r, samples),
@@ -610,7 +620,7 @@ mesh_pipelines_create :: proc(r: ^Renderer, samples: sdl.GPUSampleCount) -> Mesh
 
 @(private)
 mesh_pipelines_destroy :: proc(r: ^Renderer, p: ^Mesh_Pipelines) {
-	for pipeline in ([7]^sdl.GPUGraphicsPipeline{p.mesh, p.wire, p.clear, p.see, p.floor, p.textured, p.textured_see}) do if pipeline != nil do gpu_release_graphics_pipeline(r.device, pipeline)
+	for pipeline in ([8]^sdl.GPUGraphicsPipeline{p.mesh, p.wire, p.lines, p.clear, p.see, p.floor, p.textured, p.textured_see}) do if pipeline != nil do gpu_release_graphics_pipeline(r.device, pipeline)
 	p^ = {}
 }
 
@@ -668,6 +678,7 @@ create_mesh_pipeline :: proc(r: ^Renderer, mode: Mesh_Mode, samples: sdl.GPUSamp
 		num_buffers, num_attributes = 1, 4
 	}
 	wire := mode == .Wire
+	lines := mode == .Lines
 	color_targets := [1]sdl.GPUColorTargetDescription{{format = VIEWPORT_COLOR_FORMAT, blend_state = BLEND_OVER if mode == .See_Through else {}}}
 
 	pipeline := gpu_create_graphics_pipeline(r.device, {
@@ -679,13 +690,15 @@ create_mesh_pipeline :: proc(r: ^Renderer, mode: Mesh_Mode, samples: sdl.GPUSamp
 			vertex_attributes = &attributes[0],
 			num_vertex_attributes = u32(num_attributes),
 		},
-		primitive_type = .TRIANGLELIST,
-		rasterizer_state = wire ? sdl.GPURasterizerState{
+		primitive_type = .LINELIST if lines else .TRIANGLELIST,
+		// Lines have no side to cull, and depth bias does not reach them: lines_pass pulls
+		// them toward the eye through the view instead.
+		rasterizer_state = lines ? sdl.GPURasterizerState{fill_mode = .FILL, cull_mode = .NONE} : wire ? sdl.GPURasterizerState{
 			fill_mode = .LINE, cull_mode = .BACK, front_face = .COUNTER_CLOCKWISE,
 			// Toward the eye, so a line wins against the triangle it borders.
 			enable_depth_bias = true, depth_bias_constant_factor = -2, depth_bias_slope_factor = -1,
 		} : sdl.GPURasterizerState{fill_mode = .FILL, cull_mode = .BACK, front_face = .COUNTER_CLOCKWISE},
-		depth_stencil_state = {compare_op = .LESS_OR_EQUAL if wire else .LESS, enable_depth_test = true, enable_depth_write = mode == .Solid},
+		depth_stencil_state = {compare_op = .LESS_OR_EQUAL if wire || lines else .LESS, enable_depth_test = true, enable_depth_write = mode == .Solid},
 		multisample_state = {sample_count = samples},
 		target_info = {
 			color_target_descriptions = &color_targets[0],
@@ -702,6 +715,8 @@ create_mesh_pipeline :: proc(r: ^Renderer, mode: Mesh_Mode, samples: sdl.GPUSamp
 		log.errorf("CreateGPUGraphicsPipeline failed: %s", sdl.GetError())
 	case mode == .See_Through:
 		log.warnf("see-through objects are drawn solid: the blended pipeline could not be made: %s", sdl.GetError())
+	case mode == .Lines:
+		log.warnf("cage edges stay hidden: the line pipeline could not be made: %s", sdl.GetError())
 	}
 	return pipeline
 }
@@ -969,6 +984,7 @@ mesh_buffers_destroy :: proc(r: ^Renderer, mb: ^Mesh_Buffers) {
 	if mb.indirect_transfer != nil do gpu_release_transfer_buffer(r.device, mb.indirect_transfer)
 	if mb.lod_indices != nil do gpu_release_buffer(r.device, mb.lod_indices)
 	if mb.paint != nil do gpu_release_buffer(r.device, mb.paint)
+	if mb.edges != nil do gpu_release_buffer(r.device, mb.edges)
 	if mb.trace != nil {
 		trace_mesh_destroy(r, mb.trace)
 		free(mb.trace)
@@ -1339,7 +1355,7 @@ frame_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lod
 		paint:    b32,
 		groups:   b32,
 		slotted:  b32, // with Material_Slots, hashed after it
-		_:        b32, // no padding: every byte is hashed
+		lines:    b32, // Draw_Item.cage_lines; the field also keeps the struct free of padding
 	}
 	#assert(size_of(Keyed) == 768)
 	Header :: struct { // no padding: every byte is hashed
@@ -1355,7 +1371,7 @@ frame_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lod
 	header := Header{view, proj, vt.width, vt.height, u32(len(items)), lod_px, floor, background, environment}
 	h := hash.fnv64a(slice.bytes_from_ptr(&header, size_of(header)))
 	for item in items {
-		k := Keyed{item.mesh, item.matcap, item.model, item.color, item.material, item.checker, item.look, item.style, item.pass, item.lights, item.surface, b32(item.wireframe), b32(item.flat), b32(item.paint), b32(item.groups), item.slots != nil, false}
+		k := Keyed{item.mesh, item.matcap, item.model, item.color, item.material, item.checker, item.look, item.style, item.pass, item.lights, item.surface, b32(item.wireframe), b32(item.flat), b32(item.paint), b32(item.groups), item.slots != nil, b32(item.cage_lines)}
 		h = hash.fnv64a(slice.bytes_from_ptr(&k, size_of(k)), h)
 		if item.slots != nil do h = hash.fnv64a(slice.bytes_from_ptr(item.slots, size_of(Material_Slots)), h)
 		h = textured_key(item, h)
@@ -1561,7 +1577,7 @@ static_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lo
 		paint:    b32,
 		groups:   b32,
 		slotted:  b32, // with Material_Slots, hashed after it
-		_:        b32, // no padding: every byte is hashed
+		lines:    b32, // Draw_Item.cage_lines; the field also keeps the struct free of padding
 	}
 	#assert(size_of(Keyed) == 776)
 	Header :: struct { // no padding: every byte is hashed
@@ -1577,7 +1593,7 @@ static_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lo
 	h := hash.fnv64a(slice.bytes_from_ptr(&header, size_of(header)))
 	for item in items {
 		if item.live do continue
-		k := Keyed{item.mesh, item.matcap, item.mesh.version, item.model, item.color, item.material, item.checker, item.look, item.style, item.pass, item.lights, item.surface, b32(item.wireframe), b32(item.flat), b32(item.paint), b32(item.groups), item.slots != nil, false}
+		k := Keyed{item.mesh, item.matcap, item.mesh.version, item.model, item.color, item.material, item.checker, item.look, item.style, item.pass, item.lights, item.surface, b32(item.wireframe), b32(item.flat), b32(item.paint), b32(item.groups), item.slots != nil, b32(item.cage_lines)}
 		h = hash.fnv64a(slice.bytes_from_ptr(&k, size_of(k)), h)
 		if item.slots != nil do h = hash.fnv64a(slice.bytes_from_ptr(item.slots, size_of(Material_Slots)), h)
 		h = textured_key(item, h)
@@ -1699,6 +1715,7 @@ draw_items :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURende
 				wire_pass(r, cmd, pass, pipes, item)
 				bound = pipes.wire
 			}
+			if lines_pass(r, cmd, pass, pipes, item, frame, view, proj) do bound = pipes.lines
 			continue
 		}
 		gpu_push_vertex_uniform_data(cmd, 0, &frame, size_of(frame))
@@ -1714,7 +1731,65 @@ draw_items :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURende
 			wire_pass(r, cmd, pass, pipes, item)
 			bound = pipes.wire
 		}
+		if lines_pass(r, cmd, pass, pipes, item, frame, view, proj) do bound = pipes.lines
 	}
+}
+
+// The item's edge pairs (Mesh_Buffers.edges) as lines in the cage colour, when it asks for
+// them and the device made the line pipeline, with the item's vertex buffers bound by the
+// caller. Returns whether it drew. The lines are pulled toward the eye so they win over
+// the faces they border: in perspective by shrinking the view about the eye, which moves
+// nothing on screen; in parallel projection by a step along the view's axis.
+@(private)
+lines_pass :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURenderPass, pipes: ^Mesh_Pipelines, item: Draw_Item, frame: Frame_Uniforms, view, proj: Mat4) -> bool {
+	mb := item.mesh
+	if !item.cage_lines || pipes.lines == nil || mb.edges == nil || mb.edge_indices == 0 do return false
+	nudge := linalg.identity(Mat4)
+	if proj[3, 3] == 0 {
+		nudge = linalg.matrix4_scale(geom.Vec3{1, 1, 1} * (1 - CAGE_LINE_PULL))
+	} else if proj[2, 2] != 0 {
+		// A step of CAGE_LINE_PULL / 4 of the depth range's units, toward the eye (+z).
+		nudge[2, 3] = CAGE_LINE_PULL / 4 / abs(proj[2, 2])
+	}
+	f := frame
+	f.view_proj = proj * nudge * view
+	f.options = {}
+	gpu_push_vertex_uniform_data(cmd, 0, &f, size_of(f))
+	lines := Material_Uniforms{base_color = CAGE_LINE_COLOR, params = {0, -1, 0, 0}}
+	gpu_push_fragment_uniform_data(cmd, 0, &lines, size_of(lines))
+	gpu_bind_graphics_pipeline(pass, pipes.lines)
+	gpu_bind_index_buffer(pass, {buffer = mb.edges}, ._32BIT)
+	gpu_draw_indexed_primitives(pass, mb.edge_indices, 1, 0, 0, 0)
+	return true
+}
+
+// How much nearer the eye cage lines are drawn than the surface: a share of the distance in
+// perspective, enough to clear the faces either side of an edge at a glancing angle.
+CAGE_LINE_PULL :: 0.002
+CAGE_LINE_COLOR :: [4]f32{0.02, 0.02, 0.025, 1}
+
+// Gives `mb` the edge pairs `pairs` (vertex indices into its positions, two a line) to
+// draw with Draw_Item.cage_lines, replacing any it had; nil or empty removes them. Waits
+// for the copy. Returns false, with no edges, on a GPU failure.
+mesh_buffers_set_edges :: proc(r: ^Renderer, mb: ^Mesh_Buffers, pairs: []u32) -> bool {
+	if mb.edges != nil {
+		_ = gpu_wait_for_idle(r.device)
+		gpu_release_buffer(r.device, mb.edges)
+		mb.edges, mb.edge_indices = nil, 0
+	}
+	r.last_version += 1
+	mb.version = r.last_version
+	if len(pairs) == 0 do return true
+	for v in pairs do assert(v < mb.vertex_capacity, "an edge names a vertex the buffers do not hold")
+	mb.edges = gpu_create_buffer(r.device, {usage = {.INDEX}, size = u32(len(pairs) * size_of(u32))})
+	if mb.edges == nil || !upload_blocking(r, mb, mb.edges, slice.to_bytes(pairs)) {
+		log.errorf("cage edge upload failed: %s", sdl.GetError())
+		if mb.edges != nil do gpu_release_buffer(r.device, mb.edges)
+		mb.edges = nil
+		return false
+	}
+	mb.edge_indices = u32(len(pairs))
+	return true
 }
 
 // The item's triangles again as lines in one flat colour (a negative specular strength

@@ -335,6 +335,7 @@ TOOL_COMMANDS := [Tool]Command_Id {
 	.Brush  = .Tool_Sculpt,
 	.Curve  = .Tool_Curve,
 	.Insert = .Tool_Insert,
+	.Model  = .Tool_Model,
 }
 
 @(rodata)
@@ -343,6 +344,7 @@ TOOL_ICONS := [Tool]rune {
 	.Brush  = ui.ICON_BRUSH,
 	.Curve  = ui.ICON_SPLINE,
 	.Insert = ui.ICON_SHAPES,
+	.Model  = ui.ICON_GRID,
 }
 
 // The slot popover, over the dock tile a long press (or a right-click) was on, or a tap
