@@ -212,6 +212,7 @@ Command_Id :: enum u8 {
 	View_Window, // view_window.odin
 	View_Windows_Close,
 	Chrome_Classic, // kit_bars.odin
+	Clean_View, // lens_view.odin
 	Settings,
 	Reduce_Motion,
 	Command_Palette,
@@ -1766,6 +1767,13 @@ COMMANDS := [Command_Id]Command {
 		help = "Lays the interface out as it was before Lens, after ZBrush for iPad: the brush bar, the modifier wheel and the dock; again, goes back to Lens (Settings > Interface > Layout).",
 		run = proc(app: ^App, _: int) {app.kit.chrome = .Lens if app.kit.chrome == .Classic else .Classic},
 		checked = proc(app: ^App, _: int) -> bool {return app.kit.chrome == .Classic},
+	},
+	.Clean_View = {
+		label = "Clean view",
+		help = "Hides every control so you can judge the form, keeping only the dial unless Settings > Interface says otherwise; again, Escape or a four-finger tap brings them back.",
+		icon = ICON_CLEAN_VIEW,
+		run = proc(app: ^App, _: int) {clean_view_set(app, !app.kit.clean)},
+		checked = proc(app: ^App, _: int) -> bool {return app.kit.clean},
 	},
 	.View_Windows_Close = {
 		label = "Close view windows",

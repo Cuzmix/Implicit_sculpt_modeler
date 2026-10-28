@@ -149,6 +149,8 @@ second_orbit :: proc(app: ^App, sv: ^Second_View) -> camera.Orbit {
 		// Never turned yet (a restart keeps no turn): it starts as the camera is.
 		if sv.orbit.distance > 0 do c = sv.orbit
 	}
+	// The main view's shift is for the room its panels leave; a second view has its own.
+	c.shift = {}
 	return c
 }
 

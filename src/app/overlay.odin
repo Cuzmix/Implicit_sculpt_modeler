@@ -152,7 +152,7 @@ draw_viewport_overlay :: proc(app: ^App, input: Viewport_Input) {
 @(private = "file")
 overlay_viewport :: proc(app: ^App, o: Overlay, input: Viewport_Input) {
 	// Where the safe zone ends, faintly, so it is clear where a press turns the view.
-	if app.nav.edge_orbit && app.nav.edge_show {
+	if app.nav.edge_orbit && app.nav.edge_show && !app.kit.clean {
 		lo, hi := edge_inner(app)
 		overlay_box(o, lo, hi, overlay_color({1, 1, 1, 0.16}), {}, 1)
 	}

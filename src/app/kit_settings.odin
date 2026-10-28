@@ -133,6 +133,7 @@ settings_reset :: proc(app: ^App, tab: Settings_Tab) {
 		k.panes_under = true
 		k.panes_work = true
 		k.column_popovers = true
+		k.clean_dial = true
 		k.action_bar = true
 		k.rail_side, k.wheel_size, k.wheel_offset = .Left, .Medium, {}
 		k.wheel_labels, k.wheel_turn = .Icons, 0
@@ -190,7 +191,9 @@ settings_interface :: proc(app: ^App) {
 	chromes := make([]string, len(Chrome), context.temp_allocator)
 	for name, c in CHROME_NAMES do chromes[c] = name
 	if picked := ui.tabs(ctx, "Layout", chromes, int(k.chrome)); picked >= 0 do k.chrome = Chrome(picked)
-	ui.paragraph(ctx, "Lens lays the interface out as the Lens mockups do: the workspaces and Search across the top, Size, Strength and the hold-to-use brushes under your off hand, the panels in a column and the brushes along a shelf. Classic is the earlier layout after ZBrush for iPad: the brush bar, the modifier wheel and the dock.")
+	ui.paragraph(ctx, "Lens lays the interface out as the Lens mockups do: the view fills the window with everything floating over it, the workspaces and Search across the top, Size, Strength and the dial under your off hand, the panels in a stack and the brushes along a shelf. Classic is the earlier layout after ZBrush for iPad: the brush bar, the modifier wheel and the dock.")
+	_ = ui.switch_row(ctx, "Keep the dial in clean view", &k.clean_dial)
+	ui.paragraph(ctx, "Clean view (Tab in Lens, or a four-finger tap) hides every control so you can judge the form; the dial stays unless this is off, so you can still smooth and mask.")
 	ui.spacer(ctx, 8)
 	ui.caption(ctx, "SCREEN LAYOUT")
 	hands := [2]string{"Right-handed", "Left-handed"}
@@ -214,9 +217,11 @@ settings_interface :: proc(app: ^App) {
 	ui.paragraph(ctx, "On a window under 1180 points wide, the docked panels show only while you ask for them: from the tab at the column's top, by opening one of them, or with Palettes; a press on the view puts them away. Off, the columns stay beside the view as on a wide window.")
 	ui.spacer(ctx, 8)
 	ui.caption(ctx, "VIEW GRID")
-	_ = ui.switch_row(ctx, "Views run under panels", &k.panes_under)
+	// In Lens the view always fills the window under the panels.
+	if k.chrome == .Classic do _ = ui.switch_row(ctx, "Views run under panels", &k.panes_under)
 	_ = ui.switch_row(ctx, "Work in any view", &k.panes_work)
-	ui.paragraph(ctx, "With the view split into panes, they fill the window and the docked panels float over them; off, the panes stop beside the panels, so none of a pane is hidden.")
+	if k.chrome == .Classic do ui.paragraph(ctx, "With the view split into panes, they fill the window and the docked panels float over them; off, the panes stop beside the panels, so none of a pane is hidden.")
+	else do ui.paragraph(ctx, "A press in any pane works there, as Blender's quad views each take the tools; off, the other panes only show.")
 	ui.spacer(ctx, 8)
 	ui.caption(ctx, "BARS")
 	_ = command_button(app, .Customise_Bars, glyph = ICON_CUSTOMISE)

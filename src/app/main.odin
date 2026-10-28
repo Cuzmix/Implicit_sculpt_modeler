@@ -138,6 +138,9 @@ App :: struct {
 	key_override_count: int,
 	bindings:           [MAX_BINDINGS]Binding,
 	binding_count:      int,
+	// The bindings were built for the Lens layout, where Tab is Clean view rather than
+	// Palettes (keymap_rebuild).
+	keymap_lens:        bool,
 	stroke_seed: u64, // the seed the next stroke takes (Stroke.seed), one more each stroke
 	// The strength scale the next stroke takes (Stroke.scale) when above 0, as a replay
 	// or a waiting tap sets it; 0 takes it from the pointer.
@@ -1571,7 +1574,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			for z in Zone do if z in k.hidden do fmt.sbprintf(&zones, "%s%s", "," if strings.builder_len(zones) > 0 else "", strings.to_lower(fmt.tprint(z), context.temp_allocator))
 			fmt.printfln("workspace=%s workspace_modified=%d workspace_count=%d workspace_menu=%d workspace_switches=%d workspace_exports=%d workspace_imports=%d arrange_drawer=%d zones_hidden=%s", preset_escape(workspace_name(k, w.current)), int(w.modified), count, int(w.menu), w.switches, w.exports, w.imports, int(k.arrange_drawer), strings.to_string(zones) if strings.builder_len(zones) > 0 else "none")
 			// The layout, and the second line of the Lens top bar's file block.
-			fmt.printfln("chrome=%s file_status=%s", strings.to_lower(CHROME_NAMES[k.chrome], context.temp_allocator), preset_escape(file_status(&app, time.now())))
+			fmt.printfln("chrome=%s file_status=%s clean_view=%d panels_faded=%d camera_shift=%.3f,%.3f", strings.to_lower(CHROME_NAMES[k.chrome], context.temp_allocator), preset_escape(file_status(&app, time.now())), int(k.clean), k.panels_faded, app.camera.shift.x, app.camera.shift.y)
 			fmt.printfln("pass=%v pass_shown=%v pass_menu=%d pass_switches=%d", k.passes.pass, viewport_pass(k), int(k.passes.menu), k.passes.switches)
 			fmt.printfln("wipe=%d wipe_at=%.3f wipe_right=%v wipe_drags=%d", int(wipe_shown(k)), k.passes.wipe_at, wipe_right(k), k.passes.wipe_drags)
 			fmt.printfln("guides=%d guide_heights=%s guide_lines=%d guide_drags=%d", int(app.scene.guides.shown), guides_heights_text(app.scene.guides), k.guide_lines, k.guide_drags)

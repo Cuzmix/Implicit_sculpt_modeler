@@ -23,6 +23,22 @@ target_projects_to_screen_centre :: proc(t: ^testing.T) {
 }
 
 @(test)
+a_shift_draws_the_target_off_centre_and_zoom_keeps_it_there :: proc(t: ^testing.T) {
+	for ortho in ([]bool{false, true}) {
+		c := orbit_default()
+		c.target, c.ortho, c.shift = {1, 2, 3}, ortho, {-0.4, 0.2}
+		aspect: f32 = 1.5
+		ndc := project(orbit_proj(c, aspect) * orbit_view(c), c.target)
+		testing.expect(t, near_eq(ndc.x, -0.4 / aspect) && near_eq(ndc.y, 0.2), "the target is not where the shift puts it")
+		// Zooming toward the shifted point leaves the target where it was drawn.
+		h: f32 = 900
+		before := c.target
+		orbit_zoom_toward(&c, 1.5, orbit_shift_px(c, h), h)
+		testing.expect(t, linalg.length(c.target - before) < 1e-4, "zooming toward the shifted point moved the target")
+	}
+}
+
+@(test)
 depth_range_is_zero_to_one :: proc(t: ^testing.T) {
 	p := perspective(math.to_radians(f32(60)), 1, 0.1, 10)
 	testing.expect(t, near_eq(project(p, {0, 0, -0.1}).z, 0), "near plane should map to 0")

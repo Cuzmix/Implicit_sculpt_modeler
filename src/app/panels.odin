@@ -64,6 +64,7 @@ Panel_Seen :: struct {
 	rect:   ui.Rect,
 	want:   f32,
 	allot:  f32,
+	faded:  bool, // a stroke passed under it (Lens): it shows faint until the stroke ends
 }
 
 // The panels' state in Kit_State.
@@ -114,6 +115,10 @@ Panel_Frame :: struct {
 	want:   f32,
 	scroll: Kit_Scroll, // a docked panel's body
 	padding, gap: f32, // its box's
+	// Where its drawing starts and how opaque it ends up: faint while a stroke passes
+	// under it (panel_fade).
+	mark:   int,
+	fade:   f32,
 }
 
 // Lays the columns out as a new user finds them: the tray on the right, every other
@@ -675,6 +680,7 @@ panel_begin :: proc(app: ^App, ref: Panel_Ref, title: string, x, y: ui.Anchor, o
 	ctx := &k.ctx
 	t := ctx.theme
 	p.ref, p.padding, p.gap = ref, box.padding, box.gap
+	p.mark, p.fade = ui.vertex_mark(ctx), panel_fade(app, panel_seen(k, ref))
 	w := panel_window(k, ref)
 	name := panel_name(ref)
 	box := box
@@ -748,6 +754,24 @@ panel_begin :: proc(app: ^App, ref: Panel_Ref, title: string, x, y: ui.Anchor, o
 	return
 }
 
+// In Lens, a panel the pointer passes over during a stroke that began on the viewport
+// fades to PANEL_FADED until the stroke ends, so the work under it shows; the stroke
+// stays the viewport's all the while. Returns how opaque the panel is now.
+panel_fade :: proc(app: ^App, seen: ^Panel_Seen) -> f32 {
+	k := &app.kit
+	ctx := &k.ctx
+	if k.chrome != .Lens || !ui.viewport_dragging(ctx) || !app.ui.viewport_stroke {
+		seen.faded = false
+	} else if !seen.faded && seen.frame >= k.frame - 1 && ui.rect_contains(seen.rect, ctx.input.mouse) {
+		seen.faded = true
+		k.panels_faded += 1
+	}
+	return ui.tween(ctx, ui.salt(ui.hash_under(0, panel_name(seen.ref)), 0x6a6465), PANEL_FADED if seen.faded else 1, ctx.theme.hover_time)
+}
+
+// How opaque a panel a stroke passes under is (the mockups' quarter).
+PANEL_FADED :: 0.25
+
 // Ends what panel_begin opened, and remembers where it went and how tall it wanted to be.
 panel_end :: proc(app: ^App, p: ^Panel_Frame) {
 	k := &app.kit
@@ -755,6 +779,7 @@ panel_end :: proc(app: ^App, p: ^Panel_Frame) {
 	t := ctx.theme
 	seen := panel_seen(k, p.ref)
 	seen.frame = k.frame
+	defer if p.fade < 1 do ui.transform_since(ctx, p.mark, p.fade)
 	if !p.docked {
 		ui.window_end(ctx)
 		seen.rect = ui.last_ended(ctx)
