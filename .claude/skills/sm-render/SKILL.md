@@ -213,6 +213,12 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   pass (`bloom_down` 13-tap with Karis on level 0, `bloom_up` tent + HDRP scatter, R11G11B10 or RGBA16F, a linear
   sampler); sharpen (CAS) is a pass after it into `shown` from an RGBA16F `mid`, and then owns grain and dither
   (`finish_grain.slang`, `effects.z`); aberration taps the source bilinearly, so read exact pixels with Load.
+- Studio carry (`studio_carry`, `studio_reproject.frag.slang`): a `changed` frame whose `studio_scene_key` (meshes,
+  versions, models, hidden, softness, `vt.epoch`) holds carries `accum` (ping-pong `accums`) to the new view by
+  `prev_depth` (R32F, the depth buffer's own values) and `view_proj`, 2x2 taps with a plane test, capped at
+  `STUDIO_CARRY_AMBIENT`/`STUDIO_CARRY_KEY`; shadows only when `studio_lights_key` (world lights) holds. `samples` is
+  since the last restart or carry (stopping), `sequence` the R2 index; `first` (no carry, no samples) clears. A still
+  view must stay 0 px against the old build: unmoved carries need `STUDIO_CARRY_AMBIENT` samples first.
 - Traced studio (`src/render/trace.odin`, `studio_trace.comp.slang`, `blas_refit.comp.slang`, `studio_trace_add.frag.slang`): at
   `samples == 0` `trace_prepare` decides the run (`Studio.traced`); false falls back to the gather, never half done.
   Needs `Draw_Item.source` (the CPU mesh as uploaded) and `Mesh_Buffers.storage` (positions and indices with

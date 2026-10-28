@@ -162,6 +162,9 @@ Viewport_Target :: struct {
 	// transform and colour (not its contents, which Draw_Item.damage accounts for).
 	// 0 when they hold nothing reusable.
 	frame_key: u64,
+	// Counts viewport_invalidate's calls: whatever made the picture start over also starts
+	// over what was built from it across frames (the studio render's carried samples).
+	epoch: u64,
 }
 
 // Colour and depth of everything that is not `live`, as last drawn. While the camera
@@ -1255,6 +1258,7 @@ render_viewport :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_
 viewport_invalidate :: proc(vt: ^Viewport_Target) {
 	vt.frame_key = 0
 	vt.cache.key = 0
+	vt.epoch += 1
 }
 
 // Pixel rectangle, top-left origin.

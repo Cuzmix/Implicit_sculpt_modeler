@@ -110,7 +110,7 @@ kit_render_preview :: proc(app: ^App) {
 	case studio_running(app) && app.studio.samples > 0 && app.studio.samples < int(app.studio_samples):
 		ui.paragraph(ctx, fmt.tprintf("Built up %d of %d samples.", app.studio.samples, app.studio_samples))
 	}
-	ui.paragraph(ctx, fmt.tprintf("Preview lays ambient occlusion and soft shadows over the viewport's own shading, MatCaps too, building them up while the view stays still; any change starts them over. It is quick, and runs on every GPU. Shadow softness is how wide a light of size 0 is. Full path traces the view instead. %s", command_keys(app, .Studio_Render)))
+	ui.paragraph(ctx, fmt.tprintf("Preview lays ambient occlusion and soft shadows over the viewport's own shading, MatCaps too, building them up while the view stays still and keeping them while it turns; a stroke or a moved object starts them over. It is quick, and runs on every GPU. Shadow softness is how wide a light of size 0 is. Full path traces the view instead. %s", command_keys(app, .Studio_Render)))
 }
 
 // Full's controls: render mode's.
