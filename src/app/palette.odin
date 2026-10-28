@@ -534,12 +534,16 @@ palette_open_for :: proc(app: ^App, slot: Gesture_Slot) {
 	app.kit.palette_for = slot
 }
 
-// What the palette chooses for while it is not running anything: a gesture, or a bar's
-// slot (Bar_Pick).
+// What the palette chooses for while it is not running anything: a gesture, a bar's
+// slot (Bar_Pick), or a sector of the dial.
 Palette_For :: union {
 	Gesture_Slot,
 	Bar_Pick,
+	Dial_Pick,
 }
+
+// A sector of the dial, clockwise from the top, for the palette to put a command on.
+Dial_Pick :: distinct int
 
 // Closes it and gives the keys back.
 palette_close :: proc(app: ^App) {
@@ -564,6 +568,12 @@ palette_run :: proc(app: ^App, e: Palette_Entry) {
 		palette_close(app)
 		if e.kind != .Command || !bar_lists(e.id) do return
 		bar_put(app, slot, {e.id, e.arg})
+		return
+	case Dial_Pick:
+		palette_close(app)
+		if e.kind != .Command || !bar_lists(e.id) do return
+		k.dial[int(slot)] = Bar_Slot{e.id, e.arg}
+		report(app, nil, {}, "The dial's %s sector now runs %s", strings.to_lower(DIAL_PLACES[int(slot)], context.temp_allocator), pie_slot_label({e.id, e.arg}))
 		return
 	}
 	palette_close(app)
@@ -628,6 +638,12 @@ kit_palette :: proc(app: ^App, anchor: ui.Rect, side: ui.Side) {
 		if bar_lists(.Command_Palette) do append(&kept, Palette_Entry{.Command, .Command_Palette, 0})
 		entries = kept[:]
 		ui.caption(ctx, fmt.tprintf("  CHOOSE A BUTTON FOR %s", BAR_NAMES[choosing_for.which]))
+	case Dial_Pick:
+		// What a bar may hold, as a sector is tapped as a bar's button is.
+		kept := make([dynamic]Palette_Entry, 0, len(entries), context.temp_allocator)
+		for e in entries do if e.kind == .Command && bar_lists(e.id) do append(&kept, e)
+		entries = kept[:]
+		ui.caption(ctx, fmt.tprintf("  CHOOSE WHAT THE DIAL'S %s SECTOR RUNS", strings.to_upper(DIAL_PLACES[int(choosing_for)], context.temp_allocator)))
 	}
 	enabled := make([]bool, len(entries), context.temp_allocator)
 	titles := make([]string, len(entries), context.temp_allocator)
