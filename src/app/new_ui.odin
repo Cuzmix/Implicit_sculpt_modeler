@@ -151,6 +151,7 @@ Kit_State :: struct {
 	settings_section: Settings_Section,
 	settings_find:    [64]u8,
 	settings_side_scroll: f32,
+	export:           Export_Sheet, // lens_export.odin
 	settings_scroll: f32,
 	settings_body: ui.Rect, // the scrolling body as last laid out, for Settings > Keys' popover
 	keys_query: [64]u8, // Settings > Keys' search
@@ -814,7 +815,7 @@ kit_floats_close :: proc(k: ^Kit_State) {
 	k.folder_menu, k.rename.open, k.macro_save.open, k.home_menu = false, false, false, false
 	k.colors.palette_menu, k.colors.swatch_menu, k.colors.pop = false, false, false
 	k.panels.menu, k.workspaces.menu, k.arrange_drawer, k.passes.menu = false, false, false, false
-	k.shelf.quick, k.stack.menu = false, false
+	k.shelf.quick, k.stack.menu, k.export.open = false, false, false
 	k.stack.tab_open, k.pane_menu.open, k.grid.areas.menu.open = false, false, false
 	k.ctx.select_open = 0
 }
@@ -824,7 +825,7 @@ kit_floats_close :: proc(k: ^Kit_State) {
 // first-run tip hides under it.
 kit_floating :: proc(app: ^App) -> bool {
 	k := &app.kit
-	return app.ui.pie.open || app.ui.adjust.kind != .None || k.action_pop || k.adjust_pop || k.menu || k.versions || k.browser || k.dock_menu || k.bind.open || k.pie_editor || k.object_menu || k.folder_menu || k.rename.open || k.macro_save.open || k.palette || k.gizmo_entry.open || k.bar_pop.open || k.bar_slot.open || k.colors.palette_menu || k.colors.swatch_menu || k.colors.pop || k.home_menu || k.panels.menu || k.workspaces.menu || k.arrange_drawer || k.passes.menu || k.shelf.quick || k.stack.menu || k.stack.tab_open || k.pane_menu.open || k.grid.areas.menu.open || k.ctx.select_open != 0
+	return app.ui.pie.open || app.ui.adjust.kind != .None || k.action_pop || k.adjust_pop || k.menu || k.versions || k.browser || k.dock_menu || k.bind.open || k.pie_editor || k.object_menu || k.folder_menu || k.rename.open || k.macro_save.open || k.palette || k.gizmo_entry.open || k.bar_pop.open || k.bar_slot.open || k.colors.palette_menu || k.colors.swatch_menu || k.colors.pop || k.home_menu || k.panels.menu || k.workspaces.menu || k.arrange_drawer || k.passes.menu || k.shelf.quick || k.stack.menu || k.stack.tab_open || k.pane_menu.open || k.grid.areas.menu.open || k.export.open || k.ctx.select_open != 0
 }
 
 kit_destroy :: proc(app: ^App) {
@@ -1261,6 +1262,7 @@ kit_layout :: proc(app: ^App) {
 	kit_stack_tab(app)
 	kit_pane_menu(app)
 	kit_divider_menu(app)
+	kit_export_sheet(app)
 }
 
 // Lays out panel `which` by its own proc, docked or floating as it is placed. Returns

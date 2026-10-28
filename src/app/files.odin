@@ -123,6 +123,36 @@ when ODIN_PLATFORM_SUBTARGET == .Android {
 	PACK_FILTERS := [?]sdl.DialogFileFilter{{"Content packs", "sculptpack;zip"}}
 }
 
+// The mesh formats an export can be limited to, by their place in EXPORT_FILTERS.
+Export_Filter :: enum u8 {
+	OBJ  = 1,
+	PLY  = 2,
+	STL  = 3,
+	GLTF = 4,
+	USD  = 5,
+}
+
+// The suffix an export in `f` takes.
+export_suffix :: proc(f: Export_Filter) -> string {
+	return EXPORT_SUFFIX[int(f)]
+}
+
+// Shows the save dialog for an export in format `f` alone (the Export sheet's), so the
+// dialog offers that format, suggests `name`'s file when there is one, and a name typed
+// without an extension takes the format's. Does nothing while another dialog is showing.
+file_dialog_export :: proc(app: ^App, f: Export_Filter, name := "") {
+	sync.lock(&pending.lock)
+	busy := pending.dialog
+	pending.dialog = true
+	sync.unlock(&pending.lock)
+	if busy do return
+	// The kind in the low byte, the filter after it, for file_dialog_done.
+	userdata := rawptr(uintptr(File_Kind.Export) | uintptr(f) << 8)
+	where_: cstring = nil
+	if name != "" do where_ = strings.clone_to_cstring(name, context.temp_allocator)
+	sdl.ShowSaveFileDialog(file_dialog_done, userdata, app.window, &EXPORT_FILTERS[int(f)], 1, where_)
+}
+
 // Shows the dialog that picks the file for `kind`; its answer becomes a request. Does
 // nothing while another dialog is showing.
 file_dialog :: proc(app: ^App, kind: File_Kind) {
@@ -175,7 +205,9 @@ file_dialog :: proc(app: ^App, kind: File_Kind) {
 file_dialog_done :: proc "c" (userdata: rawptr, filelist: [^]cstring, filter: c.int) {
 	context = runtime.default_context()
 	heap := runtime.heap_allocator()
-	kind := File_Kind(uintptr(userdata))
+	kind := File_Kind(uintptr(userdata) & 0xff)
+	// An export limited to one format (file_dialog_export) offered only its filter.
+	only := int(uintptr(userdata) >> 8)
 	sync.lock(&pending.lock)
 	defer sync.unlock(&pending.lock)
 	pending.dialog = false
@@ -190,7 +222,12 @@ file_dialog_done :: proc "c" (userdata: rawptr, filelist: [^]cstring, filter: c.
 	if filepath.ext(path) == "" {
 		#partial switch kind {
 		case .Save, .Save_Copy: suffix = ".sculpt"
-		case .Export: suffix = EXPORT_SUFFIX[filter] if filter >= 0 && int(filter) < len(EXPORT_SUFFIX) else ".obj"
+		case .Export:
+			switch {
+			case only > 0 && only < len(EXPORT_SUFFIX):     suffix = EXPORT_SUFFIX[only]
+			case filter >= 0 && int(filter) < len(EXPORT_SUFFIX): suffix = EXPORT_SUFFIX[filter]
+			case:                                            suffix = ".obj"
+			}
 		case .Export_Print: suffix = ".stl"
 		case .Screenshot: suffix = ".png"
 		case .Save_Strokes: suffix = ".strokes"

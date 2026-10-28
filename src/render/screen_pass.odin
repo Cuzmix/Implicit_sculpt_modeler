@@ -11,7 +11,7 @@ import "../geom"
 // one sample, drawn again when the viewport is multisampled, whose own depth shaders
 // cannot read.
 
-// Matches Shadow_Uniforms in shadow.vert.
+// Matches Shadow_Uniforms in shadow.vert.slang.
 @(private)
 Shadow_Uniforms :: struct {
 	light_view_proj: Mat4,
@@ -150,7 +150,7 @@ create_shadow_pipeline :: proc(r: ^Renderer, cull_back: bool) -> ^sdl.GPUGraphic
 	})
 }
 
-// A full-screen triangle at the far plane (clear.vert) that writes its depth whatever
+// A full-screen triangle at the far plane (clear.vert.slang) that writes its depth whatever
 // was there, and no colour: clears a scissored part of a depth target, which a render
 // pass can only clear whole.
 @(private)
@@ -176,7 +176,7 @@ create_depth_clear_pipeline :: proc(r: ^Renderer) -> ^sdl.GPUGraphicsPipeline {
 	})
 }
 
-// A full-screen triangle (clear.vert) through `frag_spv`, which reads `samplers` samplers
+// A full-screen triangle (clear.vert.slang) through `frag_spv`, which reads `samplers` samplers
 // and one uniform buffer, into one colour target; `additive` blends by adding.
 @(private)
 create_fullscreen_pipeline :: proc(r: ^Renderer, frag_spv: []u8, format: sdl.GPUTextureFormat, samplers: u32, additive := false) -> ^sdl.GPUGraphicsPipeline {

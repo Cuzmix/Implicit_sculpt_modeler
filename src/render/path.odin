@@ -16,11 +16,11 @@ import "../jobs"
 // view every traced item's triangles, normals, paint and chunk trees (trace.odin's,
 // brought up to date the way the traced studio does) are copied on the GPU into one set
 // of scene buffers, with a tree over every item's chunks in world space built on the CPU,
-// so one compute kernel (render_trace.comp) can follow a whole path through the scene.
+// so one compute kernel (render_trace.comp.slang) can follow a whole path through the scene.
 // Each frame it adds a band of rows of one sample to the sum, swapping between two sums
 // so a band never reads what it writes; once a sample is in, the denoiser
-// (render_atrous.frag) filters the mean along the first sample's guides and
-// render_display.frag lays it over the viewport. Any change starts over; the plain viewport (or the studio's, or live
+// (render_atrous.frag.slang) filters the mean along the first sample's guides and
+// render_display.frag.slang lays it over the viewport. Any change starts over; the plain viewport (or the studio's, or live
 // occlusion) shows until the first samples are in. See-through items are left out, as
 // the studio leaves them.
 
@@ -47,10 +47,10 @@ RENDER_SAMPLES_MAX :: 4096
 RENDER_BOUNCES_DEFAULT :: 6
 RENDER_BOUNCES_MAX :: 12
 
-// render_trace.comp's STUDIO_BLUR: how blurred the built-in studio is where paths leave.
+// render_trace.comp.slang's STUDIO_BLUR: how blurred the built-in studio is where paths leave.
 @(private = "file")
 RENDER_STUDIO_BLUR :: 0.25
-// Matches local_size in render_trace.comp.
+// Matches numthreads in render_trace.comp.slang.
 @(private = "file")
 RENDER_GROUP :: 8
 // What tablets may hold in the scene buffers all together, besides each being under
@@ -70,7 +70,7 @@ RENDER_ROWS_MIN :: 16
 @(private = "file")
 RENDER_TRANSFER_SIZE :: 4 << 20
 
-// The item flags of render_trace.comp's ITEM_ constants.
+// The item flags of render_trace.comp.slang's ITEM_ constants.
 @(private = "file")
 ITEM_PAINT :: 1
 @(private = "file")
@@ -98,7 +98,7 @@ Path_Render :: struct {
 	current:        int,
 	shown:          ^sdl.GPUTexture, // what the viewport panel shows
 	// While the finishing stack runs, `shown` again as exposed linear light, for it to
-	// finish (render_display_linear.frag); made on first use, and its pipeline.
+	// finish (render_display_linear.frag.slang); made on first use, and its pipeline.
 	linear:         ^sdl.GPUTexture,
 	display_linear: ^sdl.GPUGraphicsPipeline,
 	linear_on:      bool, // render_frame was asked for it
@@ -180,7 +180,7 @@ TEX_VIEW_SHIFT :: 4
 @(private = "file")
 TEX_MAPS_SHIFT :: 8
 
-// Matches Item in render_trace.comp (std430).
+// Matches Item in render_trace.comp.slang (std430).
 Item_Record :: struct {
 	model:        Mat4,
 	inv_model:    Mat4,
@@ -197,7 +197,7 @@ Item_Record :: struct {
 }
 #assert(size_of(Item_Record) == 768)
 
-// Matches Render_Uniforms in render_trace.comp (std140).
+// Matches Render_Uniforms in render_trace.comp.slang (std140).
 Render_Uniforms :: struct {
 	inv_view_proj: Mat4,
 	lights:        Lights_World,
@@ -223,7 +223,7 @@ Lens :: struct {
 @(private = "file")
 LENS_RADIUS_MAX :: 0.25
 
-// The lights in world space with each one's size and pick chance: render_trace.comp's
+// The lights in world space with each one's size and pick chance: render_trace.comp.slang's
 // light_pos through light_size, then rig_x, y and z.
 Lights_World :: struct {
 	pos:   [LIGHT_COUNT][4]f32,
@@ -391,7 +391,7 @@ path_render_destroy :: proc(r: ^Renderer, pr: ^Path_Render) {
 // point or spot light's radius) keeps it; one without spans a cone of half-angle
 // `softness`, as a sun, or is a sphere whose radius is that angle seen from the scene's
 // `center`. Their radiance gives the viewport's light, three times the strength where it
-// arrives (mesh_shading.glsl), as the irradiance of the cone or sphere.
+// arrives (mesh_shading.slang), as the irradiance of the cone or sphere.
 lights_to_world :: proc(lights: Lights, view: Mat4, center: [3]f32, softness: f32) -> (out: Lights_World) {
 	l := lights if lights != {} else lights_default()
 	to_world := linalg.inverse(view)

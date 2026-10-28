@@ -7,7 +7,7 @@ import "core:math/linalg"
 import sdl "vendor:sdl3"
 
 // The finishing stack: what the viewport shows, finished as a camera's picture is
-// (finish.frag), in one full-screen pass over what it would show otherwise. The vignette,
+// (finish.frag.slang), in one full-screen pass over what it would show otherwise. The vignette,
 // white balance, contrast and saturation work on linear light, as Unreal orders them, the
 // tone curve comes next, and lift, gamma, gain and grain work on the encoded values, as a
 // grading panel's do. With every control at its none value finish_active is false and
@@ -15,7 +15,7 @@ import sdl "vendor:sdl3"
 
 FINISH_FRAG_SPV :: #load("shaders/finish.frag.spv")
 
-// The curve linear light is shown through. Neutral is display.glsl's, the one every
+// The curve linear light is shown through. Neutral is display.slang's, the one every
 // shading path writes with; AgX is Blender's filmic one, which rolls highlights off over
 // more stops and keeps their hue; ACES is the film industry's, more contrast and more
 // colour in bright light.
@@ -63,7 +63,7 @@ Finish :: struct {
 	passes:        int, // finishing passes run, for the exit stats
 }
 
-// Matches Finish_Uniforms in finish.frag.
+// Matches Finish_Uniforms in finish.frag.slang.
 @(private = "file")
 Finish_Uniforms :: struct {
 	params:   [4]f32,
@@ -151,7 +151,7 @@ white_balance :: proc(white: [3]f32) -> matrix[3, 3]f32 {
 	return linalg.inverse(to_cone) * scale * to_cone
 }
 
-// PBR Neutral's curve as display.glsl's tone_map has it, for the tests.
+// PBR Neutral's curve as display.slang's tone_map has it, for the tests.
 tone_neutral :: proc(c: [3]f32) -> [3]f32 {
 	START :: 0.8 - 0.04
 	DESATURATION :: 0.15
@@ -168,7 +168,7 @@ tone_neutral :: proc(c: [3]f32) -> [3]f32 {
 	return c + (new_peak - c) * g
 }
 
-// tone_neutral undone as display.glsl's neutral_inverse does it, for the tests.
+// tone_neutral undone as display.slang's neutral_inverse does it, for the tests.
 tone_neutral_inverse :: proc(y: [3]f32) -> [3]f32 {
 	START :: 0.8 - 0.04
 	DESATURATION :: 0.15
@@ -244,7 +244,7 @@ finish_ensure :: proc(r: ^Renderer, f: ^Finish, width, height: u32) -> bool {
 	return true
 }
 
-// finish.frag's AgX sigmoid, its constants as it has them: mid grey's place in the log
+// finish.frag.slang's AgX sigmoid, its constants as it has them: mid grey's place in the log
 // encoding, the slope there, and each side's power and the scale that puts its end at
 // exactly 0 or 1 (agx_scale gives them).
 AGX_PIVOT_X :: 0.6060605707714036
@@ -261,12 +261,12 @@ agx_scale :: proc(run, reach, power: f64) -> f64 {
 	return a / math.pow(math.pow(a / reach, power) - 1, 1 / power)
 }
 
-// finish.frag's scales of the light before AgX's and ACES's curves, which show mid grey
+// finish.frag.slang's scales of the light before AgX's and ACES's curves, which show mid grey
 // as tone_neutral does.
 AGX_EXPOSURE :: 0.5942082129838109
 ACES_EXPOSURE :: 1.2159790709970744
 
-// finish.frag's agx_sigmoid, for the tests.
+// finish.frag.slang's agx_sigmoid, for the tests.
 agx_sigmoid :: proc(x: f64) -> f64 {
 	shoulder := x >= AGX_PIVOT_X
 	scale: f64 = AGX_SHOULDER_SCALE if shoulder else AGX_TOE_SCALE
@@ -275,7 +275,7 @@ agx_sigmoid :: proc(x: f64) -> f64 {
 	return 0.5 + scale * u / math.pow(1 + math.pow(abs(u), power), 1 / power)
 }
 
-// finish.frag's AgX for a grey (the inset and outset leave greys alone), for the tests.
+// finish.frag.slang's AgX for a grey (the inset and outset leave greys alone), for the tests.
 agx_grey :: proc(v: f64) -> f64 {
 	LOW :: -12.47393
 	HIGH :: 4.026069
@@ -283,7 +283,7 @@ agx_grey :: proc(v: f64) -> f64 {
 	return math.pow(clamp(agx_sigmoid(x), 0, 1), 2.2)
 }
 
-// finish.frag's ACES fit for a grey (its matrices leave greys almost alone), for the tests.
+// finish.frag.slang's ACES fit for a grey (its matrices leave greys almost alone), for the tests.
 aces_grey :: proc(v: f64) -> f64 {
 	a := v * (v + 0.0245786) - 0.000090537
 	b := v * (0.983729 * v + 0.4329510) + 0.238081

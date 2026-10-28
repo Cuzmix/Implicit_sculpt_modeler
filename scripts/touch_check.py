@@ -3149,7 +3149,7 @@ def lens_focus_draws_islands():
 # The Lens menu's button and its rows at 1600 x 900 that open submenus, and the first row
 # of the submenu Open recent opens.
 LENS_MENU = (33, 26)
-LENS_MENU_ROWS = {"new": (120, 129), "recent": (120, 217), "export": (120, 482), "more": (120, 835)}
+LENS_MENU_ROWS = {"new": (120, 129), "recent": (120, 217), "export": (120, 482), "more": (120, 703)}
 LENS_SUBMENU_FIRST = (380, 248)
 
 
@@ -3386,6 +3386,31 @@ def lens_settings_sections_and_search():
         s.add("text:autosave")
         s.wait(8)
         return s, LENS_1440, camera_still({"settings_section": is_text("Files"), "settings_found": is_text("Files"), "dabs": near(0)})
+    return Steps([run(False), run(True)])
+
+
+# The Export sheet at 1440x900: the Menu's Export... row, the STL and 3D print format rows.
+LENS_EXPORT = {"menu_row": (120, 482), "stl": (480, 268), "print": (480, 508)}
+
+
+@scenario
+def lens_export_sheet_picks_a_format():
+    """Menu > Export... opens the Export sheet on the scene; a tap on STL picks it, and Esc closes the sheet keeping the format; Ctrl+E opens it again on STL."""
+    def run(again):
+        s = Script()
+        s.ftap(*LENS_MENU)
+        s.wait(6)
+        s.ftap(*LENS_EXPORT["menu_row"])
+        s.wait(8)
+        if not again:
+            return s, LENS_1440, camera_still({"export_open": near(1), "export_format": is_text("Scene"), "dabs": near(0)})
+        s.ftap(*LENS_EXPORT["stl"])
+        s.wait(6)
+        s.press("Escape")
+        s.wait(4)
+        s.press("e", ("ctrl",))
+        s.wait(6)
+        return s, LENS_1440, camera_still({"export_open": near(1), "export_format": is_text("STL"), "export_runs": near(0), "dabs": near(0)})
     return Steps([run(False), run(True)])
 
 

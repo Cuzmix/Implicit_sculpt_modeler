@@ -10,7 +10,7 @@ import sdl "vendor:sdl3"
 // studio, and that the background can show. The panorama goes up as an RGBA16F texture
 // with a full mip chain (the source), then is prefiltered once, on the GPU, into a
 // texture half its size whose levels hold it as GGX lobes of growing roughness see it
-// (env_prefilter.frag), so a reflection at any roughness is one texture fetch. Its
+// (env_prefilter.frag.slang), so a reflection at any roughness is one texture fetch. Its
 // diffuse light comes as nine spherical harmonics the app works out on the CPU.
 
 // The prefiltered texture's levels: roughness 0, 0.2, ... 1. Fewer for a panorama too
@@ -49,7 +49,7 @@ Environment_Look :: struct {
 }
 #assert(size_of(Environment_Look) == 64)
 
-// Matches Prefilter_Uniforms in env_prefilter.frag.
+// Matches Prefilter_Uniforms in env_prefilter.frag.slang.
 @(private = "file")
 Prefilter_Uniforms :: struct {
 	params: [4]f32, // x: roughness, y: the source's width, z: its height

@@ -8,7 +8,7 @@ import "../render"
 // Neutral's inverse gives back the light behind every colour Neutral shows, up to about
 // thirteen times white, where an 8-bit picture stops telling light apart; and every 8-bit
 // colour, those Neutral never shows too (a MatCap's or a wire's, encoded without it),
-// comes back as light a number can hold. What an 8-bit step loses, finish.frag carries
+// comes back as light a number can hold. What an 8-bit step loses, finish.frag.slang carries
 // over as what Neutral gives back short of the colour shown.
 @(test)
 finish_neutral_inverse_round_trips :: proc(t: ^testing.T) {

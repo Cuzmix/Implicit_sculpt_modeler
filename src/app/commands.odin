@@ -33,6 +33,7 @@ Command_Id :: enum u8 {
 	Import_Mesh,
 	Export_Mesh,
 	Export_Print,
+	Export_Sheet, // lens_export.odin
 	Screenshot,
 	Screenshot_Transparent,
 	Record_Turntable,
@@ -418,6 +419,12 @@ COMMANDS := [Command_Id]Command {
 		icon = ui.ICON_IMPORT,
 		run = proc(app: ^App, _: int) {file_post(.Link_Get, "")},
 		enabled = proc(app: ^App, _: int) -> bool {return link_can_get(app)},
+	},
+	.Export_Sheet = {
+		label = "Export...",
+		help = "Opens one sheet for every way out of the app: the scene, OBJ, PLY, STL, glTF and USD meshes, a screenshot, a turntable and a 3D print, each with its options and the file it makes.",
+		icon = ui.ICON_EXPORT,
+		run = proc(app: ^App, _: int) {export_sheet_open(app)},
 	},
 	.Screenshot = {
 		label = "Save screenshot...",
@@ -1973,6 +1980,7 @@ DEFAULT_BINDINGS := [?]Binding {
 	{{sdl.K_S, {.Ctrl}, false}, .Save_Scene, 0},
 	{{sdl.K_S, {.Ctrl, .Shift}, false}, .Save_Scene_As, 0},
 	{{sdl.K_O, {.Ctrl}, false}, .Open_Scene, 0},
+	{{sdl.K_E, {.Ctrl}, false}, .Export_Sheet, 0},
 	{{sdl.K_F12, {}, false}, .Screenshot, 0},
 	{{sdl.K_W, {.Ctrl}, false}, .Group_Shortcut, 0},
 	{{sdl.K_W, {.Shift}, false}, .Polygroups, 0},

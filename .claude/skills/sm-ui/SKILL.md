@@ -76,6 +76,8 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   Settings rows live in `settings_block` (`settings_blocks.odin`), one case per heading; Classic's tabs and Lens's
   sections (`lens_settings.odin`) are lists of `Settings_Entry`. A new setting goes in a block, its default in
   `settings_block_reset`, and its search words in `SETTINGS_BLOCK_WORDS`.
+  The Export sheet (`lens_export.odin`) only gathers: a new way out is an `Export_Format` whose `export_command` is an
+  existing command, and a mesh format a filter of `file_dialog_export`, never a writer of its own.
 - Layout (`kit_layout`, `new_ui.odin`; the bars in `kit_bars.odin`, after ZBrush for iPad): `kit_top_bar` (a full-width
   strip, `TOP_BAR_H`: Menu, Save, Import, Export | file name | History, Edit pies, Help, Settings), `kit_points` (the
   object's readout under it, at the top left), `kit_brush_bar` (left column, top from `brush_bar_top`, which keeps
