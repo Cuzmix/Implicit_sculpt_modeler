@@ -170,13 +170,13 @@ kit_objects_card :: proc(app: ^App) -> (raised: bool) {
 			continue
 		}
 		first, end := folder_span(app, f.id)
-		card_folder_row(app, &spots, f, first, end)
+		card_folder_row(app, &spots, f, first, end, &c.rows)
 		if f.open do for j in first ..< end do card_object_row(app, &spots, j)
 		i = end
 	}
 	for &f in app.scene.folders {
 		if first, end := folder_span(app, f.id); end > first do continue
-		card_folder_row(app, &spots, &f, 0, 0)
+		card_folder_row(app, &spots, &f, 0, 0, &c.rows)
 	}
 	if len(objects) == 0 do ui.paragraph(ctx, "No objects yet: Add puts a shape in the scene.")
 	kit_tree_drags(app, spots[:], {scroll.at, &c.scroll, scroll.limit})
@@ -320,9 +320,9 @@ card_object_row :: proc(app: ^App, spots: ^[dynamic]Tree_Spot, i: int) {
 
 // A folder's row: a folder with the count of its objects in it, its name, a chevron that
 // folds it, and its eye. A tap selects its first object and a long press opens the
-// folder's menu.
-@(private = "file")
-card_folder_row :: proc(app: ^App, spots: ^[dynamic]Tree_Spot, f: ^Folder, first, end: int) {
+// folder's menu. `rows` counts the rows drawn (the card's, or Lens's Scene card's); with
+// `drags` false (a filtered list) it does not move.
+card_folder_row :: proc(app: ^App, spots: ^[dynamic]Tree_Spot, f: ^Folder, first, end: int, rows: ^int, drags := true) {
 	k := &app.kit
 	ctx := &k.ctx
 	objects := app.scene.objects[:]
@@ -333,7 +333,7 @@ card_folder_row :: proc(app: ^App, spots: ^[dynamic]Tree_Spot, f: ^Folder, first
 	selected := false
 	if sel := selected_object(app); sel != nil && !f.open do selected = sel.folder == f.id
 	dragged := k.tree_drag.active && k.tree_drag.key == -f.id
-	row := ui.thumb_row(ctx, fmt.tprintf("%s##card folder %d", folder_label(f), f.id), parts, selected, dim = dragged || f.off, all_toggles = toggles[:], drags = len(members) > 0)
+	row := ui.thumb_row(ctx, fmt.tprintf("%s##card folder %d", folder_label(f), f.id), parts, selected, dim = dragged || f.off, all_toggles = toggles[:], drags = drags && len(members) > 0)
 	spot := Tree_Spot{rect = row.rect, id = f.id, is_folder = true, folder = f.id, off = f.off, ghost = f.ghost}
 	if len(members) > 0 do spot.first = members[0].id
 	if end < len(objects) && len(members) > 0 do spot.next = objects[end].id
@@ -344,7 +344,7 @@ card_folder_row :: proc(app: ^App, spots: ^[dynamic]Tree_Spot, f: ^Folder, first
 	if !k.tree_column.active && row.toggled == 0 do app.ui.scene_command = {kind = .View, view = .Folder_Show if f.off else .Folder_Hide, id = f.id}
 	if row.clicked && len(members) > 0 do app.ui.scene_command = {kind = .View, view = .Select, id = members[0].id}
 	if row.menu do folder_menu_open(app, f.id, {ctx.input.mouse.x, ctx.input.mouse.y, 0, 0})
-	k.card.rows += 1
+	rows^ += 1
 }
 
 // Whether the object's shown level carries polypaint.

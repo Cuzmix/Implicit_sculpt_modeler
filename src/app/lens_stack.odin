@@ -278,7 +278,6 @@ stack_card :: proc(app: ^App, c: Stack_Card, width: f32, floating: bool) {
 // the strip's tab.
 stack_card_body :: proc(app: ^App, c: Stack_Card, inner: f32) {
 	k := &app.kit
-	ctx := &k.ctx
 	switch c {
 	case .Brush:
 		if app.tool == .Brush do stack_brush(app, inner)
@@ -286,12 +285,9 @@ stack_card_body :: proc(app: ^App, c: Stack_Card, inner: f32) {
 	case .Symmetry:
 		symmetry_controls(app)
 	case .Layers:
-		obj := selected_object(app)
-		_, _, draw, _ := bar_section(app, .Layers)
-		if obj == nil do ui.paragraph(ctx, "Add or select an object first.")
-		else do draw(app, obj)
+		kit_lens_layers(app)
 	case .Scene:
-		kit_scene_objects(app)
+		kit_lens_scene(app)
 	case .Palettes:
 		kit_tray_select(app)
 		k.in_tray = true
@@ -335,10 +331,8 @@ stack_head :: proc(app: ^App, c: Stack_Card, inner: f32, floating: bool) {
 	title := stack_title(app, c)
 	ui.text(ctx, title, x, y, t.text_size, t.text, .Semibold)
 	x += ui.text_width(ctx, title, t.text_size, .Semibold) + 10
-	if !open || c == .Palettes {
-		if line := stack_summary(app, c); line != "" && head.rect.x + head.rect.w - x > 24 {
-			ui.text(ctx, ui.text_fit(ctx, line, t.small_size, head.rect.x + head.rect.w - x - 6), head.rect.x + head.rect.w - 6, y, t.small_size, t.text_tertiary, align = .Right)
-		}
+	if line := stack_summary(app, c) if !open || c == .Palettes else stack_open_line(app, c); line != "" && head.rect.x + head.rect.w - x > 24 {
+		ui.text(ctx, ui.text_fit(ctx, line, t.small_size, head.rect.x + head.rect.w - x - 6), head.rect.x + head.rect.w - 6, y, t.small_size, t.text_tertiary, align = .Right)
 	}
 	if head.clicked {
 		s.open ~= {c}
@@ -402,6 +396,20 @@ stack_summary :: proc(app: ^App, c: Stack_Card) -> string {
 	case .Palettes:
 		if len(tray_sections(app, k.tab)) == 0 do return palette_name(k.tab)
 		return fmt.tprintf("%s · %s", palette_name(k.tab), tray_section_title(tray_section(app, k.tab)))
+	}
+	return ""
+}
+
+// What an open card's header says, where its body does not already: how many objects
+// the Scene card lists and whose layers the Layers card holds, as the mock's headers.
+@(private = "file")
+stack_open_line :: proc(app: ^App, c: Stack_Card) -> string {
+	#partial switch c {
+	case .Scene:
+		n := len(app.scene.objects)
+		return fmt.tprintf("%d object%s", n, "" if n == 1 else "s")
+	case .Layers:
+		if obj := selected_object(app); obj != nil do return object_label(obj)
 	}
 	return ""
 }

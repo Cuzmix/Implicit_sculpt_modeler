@@ -2877,7 +2877,7 @@ def lens_stack_float_floats_a_card():
 # where that edge is once 40 points wider, the open Symmetry card's grip with Brush folded,
 # and a floating Layers card's bottom-left corner.
 LENS_RESIZE = {"edge": (1050, 400), "wider": (1010, 400), "wider_edge": (1012, 400), "symmetry_title": (1150, 154),
-               "symmetry_grip": (1218, 416), "layers_corner": (736, 510)}
+               "symmetry_grip": (1218, 416), "layers_corner": (738, 340)}
 
 
 @scenario
@@ -2916,13 +2916,13 @@ def lens_stack_grip_sets_a_card_height():
 
 @scenario
 def lens_stack_floating_card_resizes_from_a_corner():
-    """A floating card's bottom-left corner dragged out and up makes it wider and shorter, on the 8 point grid."""
+    """A floating card's bottom-left corner dragged out and down makes it wider and taller, on the 8 point grid."""
     s = Script()
     s.ftap(*LENS_STACK["brush"])
     s.wait(6)
     s.ftap(*LENS_STACK["layers_float"])
     s.wait(8)
-    s.fdrag(line(LENS_RESIZE["layers_corner"], (690, 420), 4))
+    s.fdrag(line(LENS_RESIZE["layers_corner"], (692, 420), 4))
     s.wait(6)
     return s, LENS_1440, camera_still({"stack_sizes": is_text("Layers+360x272"), "stack_resizes": near(1), "dabs": near(0)})
 
@@ -3187,6 +3187,56 @@ def lens_search_groups_and_puts_on_a_bar():
     s.press("Return", ("ctrl",))
     s.wait(4)
     return s, LENS, camera_still({"palette": near(1), "palette_bar_puts": near(1), "palette_groups": lambda v: v.startswith("Commands"), "dabs": near(0)})
+
+
+# The Lens Scene and Layers cards at 1440x900 with the Brush card folded: their headers,
+# the first object row's lock, the Scene card's filter past ten objects, and with two
+# layers (Layer 2 picked, as New layer leaves it) Layer 1's name and record dot.
+LENS_CARDS = {"brush": (1180, 94), "layers": (1150, 214), "scene": (1150, 274), "first_lock": (1337, 330),
+              "filter": (1150, 330), "layer1_name": (1150, 372), "layer1_dot": (1343, 372)}
+
+
+def lens_card_open(s, card):
+    s.ftap(*LENS_CARDS["brush"])
+    s.wait(6)
+    s.ftap(*LENS_CARDS[card])
+    s.wait(6)
+
+
+@scenario
+def lens_scene_card_locks_an_object():
+    """The Scene card's lock locks the sphere, so a stroke over it passes it by and sculpts nothing."""
+    s = Script()
+    lens_card_open(s, "scene")
+    s.ftap(*LENS_CARDS["first_lock"])
+    s.wait(6)
+    s.fdrag(line((700, 430), (780, 470), 16))
+    s.wait(6)
+    return s, LENS_1440, {"object_locks": near(1), "dabs": near(0), "selected": near(-1)}
+
+
+@scenario
+def lens_scene_card_filters_past_ten():
+    """With twelve objects the Scene card offers a filter; typing 3 leaves only Sphere 3's row."""
+    s = Script()
+    lens_card_open(s, "scene")
+    s.ftap(*LENS_CARDS["filter"])
+    s.wait(4)
+    s.type("3")
+    s.wait(6)
+    return s, LENS_1440 + ["--script=" + "duplicate_object; " * 11], camera_still({"scene_rows": near(1), "scene_filter": near(1), "dabs": near(0)})
+
+
+@scenario
+def lens_layers_card_records_and_picks():
+    """On the Layers card a tap on Layer 1's name picks it and leaves Layer 2 recording; a tap on its dot records into it."""
+    def run(dot):
+        s = Script()
+        lens_card_open(s, "layers")
+        s.ftap(*LENS_CARDS["layer1_dot" if dot else "layer1_name"])
+        s.wait(6)
+        return s, LENS_1440 + ["--script=new_layer; new_layer"], camera_still({"layer_rows": near(2), "layer_picked": near(0), "layer_recording": near(0 if dot else 1), "dabs": near(0)})
+    return Steps([run(False), run(True)])
 
 
 # Lens's brush pie at 1440x900: the dial's Pie sector opens it at the viewport's middle;

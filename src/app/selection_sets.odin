@@ -150,7 +150,6 @@ kit_sets :: proc(app: ^App, obj: ^Object) {
 
 // How much of the object a set masks, as "34%", or "under 1%" for a small part that
 // would otherwise read as nothing.
-@(private = "file")
 set_percent :: proc(masked: f32) -> string {
 	if masked > 0 && masked < 0.005 do return "under 1%"
 	return fmt.tprintf("%.0f%%", 100 * masked)

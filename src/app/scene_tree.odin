@@ -47,6 +47,9 @@ View_Change :: enum u8 {
 	Folder_Paint_Hide, // leaves the polypaint of every object in a folder out
 	Folder_Paint_Show,
 	Visibility_Slot, // keeps the eyes in the stored visibility chosen, and brings back those of V`id`
+	Lock, // puts the object out of reach of presses in the view, drawn as it is
+	Unlock,
+	Lock_Others, // locks every other object and unlocks this one (ZBrush's Freeze others)
 }
 
 // How many visibilities Store visibility keeps.
@@ -89,22 +92,22 @@ object_shown :: proc(app: ^App, obj: ^Object) -> bool {
 	return true
 }
 
-// Whether a press in the viewport can pick `obj` (select, sculpt or pivot on it): shown
-// and not a ghost, which is there only to look at.
+// Whether a press in the viewport can pick `obj` (select, sculpt or pivot on it): shown,
+// not a ghost, which is there only to look at, and not locked.
 object_pickable :: proc(app: ^App, obj: ^Object) -> bool {
 	_, ghost := object_flags(app, obj)
-	return !ghost && object_shown(app, obj)
+	return !ghost && !obj.locked && object_shown(app, obj)
 }
 
 // Whether `obj` could be picked were Solo off.
 @(private = "file")
 object_in_reach :: proc(app: ^App, obj: ^Object) -> bool {
 	off, ghost := object_flags(app, obj)
-	return !off && !ghost
+	return !off && !ghost && !obj.locked
 }
 
 // Keeps the selection on an object a press could pick, so nothing edits what cannot be
-// seen: when the selected one was hidden or made a ghost, the next one that is neither
+// seen: when the selected one was hidden, made a ghost or locked, the next one that is none
 // takes over (as ZBrush moves to the next SubTool), Solo going with it, or nothing is
 // selected. Run after every frame's scene command, which covers undo, files and
 // adjusting the last operation too.
@@ -277,7 +280,7 @@ scene_view :: proc(app: ^App, change: View_Change, id: int) {
 		if s.solo do report(app, nil, {.Quiet}, "Solo: only %s is shown", object_label(selected_object(app)))
 	case .Select:
 		if obj == nil do return
-		obj.off, obj.ghost = false, false
+		obj.off, obj.ghost, obj.locked = false, false, false
 		if f := folder_by_id(app, obj.folder); f != nil do f.off, f.ghost = false, false
 		for o, i in s.objects do if o == obj do s.selected = i
 	case .Folder_Hide, .Folder_Show:
@@ -297,6 +300,14 @@ scene_view :: proc(app: ^App, change: View_Change, id: int) {
 		for o in s.objects do if o.folder == folder.id do o.paint_off = change == .Folder_Paint_Hide
 	case .Visibility_Slot:
 		visibility_slot(app, id)
+	case .Lock, .Unlock:
+		if obj == nil do return
+		obj.locked = change == .Lock
+		if obj.locked do report(app, nil, {.Quiet}, "Locked %s: presses in the view pass over it", object_label(obj))
+	case .Lock_Others:
+		if obj == nil do return
+		for o in s.objects do o.locked = o != obj
+		report(app, nil, {.Quiet}, "Locked every object but %s", object_label(obj))
 	}
 	app.view_edits += 1
 	scene_selection_fix(app)

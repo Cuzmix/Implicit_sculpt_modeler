@@ -737,6 +737,8 @@ Thumb_Row :: struct {
 	under:    Row_Toggle,
 	under_on: bool,
 	open:     ^bool,
+	detail:   string, // a dimmer line under the name ("3.7M tris"), when there is no switch there
+	compact:  bool, // a touch target tall with a smaller picture, as a list of many objects has it
 }
 
 // A tall row of a list of objects, as ZBrush for iPad's Subtools list has them: the
@@ -753,7 +755,7 @@ thumb_row :: proc(ctx: ^Context, s: string, parts: Thumb_Row, selected := false,
 	shown := label_text(s)
 	w := fill_width(ctx)
 	if w <= 0 do w = 300
-	cell := place(ctx, {w, THUMB_ROW_H})
+	cell := place(ctx, {w, t.target if parts.compact else THUMB_ROW_H})
 	vis := Rect{cell.x, cell.y + 2, cell.w, cell.h - 4}
 	id := id_of(ctx, s)
 	res.toggled, res.held_toggle = -1, -1
@@ -784,10 +786,11 @@ thumb_row :: proc(ctx: ^Context, s: string, parts: Thumb_Row, selected := false,
 		}
 		right = chevron.x
 	}
-	PICTURE :: 44
+	PICTURE: f32 = 34 if parts.compact else 44
 	x := cell.x + 10 + PICTURE + 12
 	has_under := parts.under.name != ""
-	name_y := mid - 9 if has_under else mid
+	has_detail := !has_under && parts.detail != ""
+	name_y := mid - 9 if has_under || has_detail else mid
 	knob := Rect{x, mid + 4, 26, 15}
 	under_hover, under_held := false, false
 	if has_under {
@@ -817,11 +820,12 @@ thumb_row :: proc(ctx: ^Context, s: string, parts: Thumb_Row, selected := false,
 	if parts.image != 0 {
 		image_part(ctx, picture, parts.image, parts.lo, parts.hi)
 	} else if parts.glyph != 0 {
-		icon(ctx, parts.glyph, {picture.x + picture.w * 0.5, mid}, 34, color_fade(t.text_secondary, fade))
+		icon(ctx, parts.glyph, {picture.x + picture.w * 0.5, mid}, PICTURE - 10, color_fade(t.text_secondary, fade))
 		if parts.count >= 0 do text(ctx, fmt.tprint(parts.count), picture.x + picture.w * 0.5, mid + 3, t.caption_size, color_fade(t.text, fade), .Semibold, .Center)
 	}
 	font := Font.Semibold if selected else .Regular
 	text(ctx, text_fit(ctx, shown, t.text_size, right - 8 - x, font), x, name_y, t.text_size, color_fade(t.text, fade), font)
+	if has_detail do text(ctx, text_fit(ctx, parts.detail, t.small_size, right - 8 - x), x, mid + 9, t.small_size, color_fade(t.text_tertiary, fade))
 	if has_under {
 		on := tween(ctx, salt(id, 2), 1 if parts.under_on else 0, t.indicator_time)
 		_ = feedback(ctx, salt(id, 97), {knob.x - 4, knob.y - 4, knob.w + 8, knob.h + 8}, t.radius_small, under_hover, under_held)

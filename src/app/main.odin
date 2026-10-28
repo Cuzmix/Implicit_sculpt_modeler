@@ -1512,6 +1512,11 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		fmt.printfln("palette=%d palette_runs=%d palette_last=%s settings_tab=%v tool=%s", int(k.palette), k.palette_runs, palette_entry_name(k.palette_last) if k.palette_ran else "none", k.settings_tab, strings.to_lower(fmt.tprint(app.tool), context.temp_allocator))
 		groups := strings.builder_make(context.temp_allocator)
 		for g in k.palette_groups do fmt.sbprintf(&groups, "%s%v", "," if strings.builder_len(groups) > 0 else "", g)
+		locks := 0
+		for obj in app.scene.objects do if obj.locked do locks += 1
+		recording := -1
+		if obj := selected_object(&app); obj != nil do recording = sculpt.sculptor_layer_recording(object_sculptor(obj))
+		fmt.printfln("scene_filter=%d scene_rows=%d object_locks=%d layer_rows=%d layer_picked=%d layer_recording=%d", int(k.scene_query), k.scene_rows, locks, k.layer_rows, app.ui.layer_selected, recording)
 		fmt.printfln("lens_focus=%d menu_sub=%v menu_subs=%d menu_recent_opens=%d palette_bar_puts=%d palette_groups=%s", int(lens_focus(k)), k.menu_sub, k.menu_subs, k.menu_recent_opens, k.palette_bar_puts, strings.to_string(groups) if strings.builder_len(groups) > 0 else "none")
 		fmt.printfln("help_open=%d help_tab=%v help_scroll=%.1f object_page=%v", int(k.help), k.help_tab, k.help_scroll, k.object_page)
 		// The inspector sections showing their More options, as Kit_Section names.
