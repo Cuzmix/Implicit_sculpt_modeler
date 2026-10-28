@@ -238,6 +238,7 @@ command_arg_name :: proc(id: Command_Id, arg: int) -> string {
 	case .Add_Cage:  return fmt.tprint(poly.Primitive(arg))
 	case .Model_Action: return fmt.tprint(Model_Action(arg))
 	case .Model_Target: return fmt.tprint(Model_Target(arg))
+	case .Tidy_Cage: return fmt.tprint(Cage_Tidy(arg))
 	case .View_Axis: return fmt.tprint(camera.Axis_View(arg))
 	case .Viewport_Look: return fmt.tprint(Look_Preset(arg))
 	case .Mask:      return fmt.tprint(sculpt.Mask_Command(arg))

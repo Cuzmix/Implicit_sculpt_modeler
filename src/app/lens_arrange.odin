@@ -96,6 +96,7 @@ arrange_zone_reset :: proc(app: ^App, z: Arrange_Zone) {
 		k.dial, k.wheel_size, k.wheel_turn, k.wheel_offset = DIAL_DEFAULT, .Medium, 0, {}
 	case .Shelf:
 		k.shelf.lists[k.shelf.page] = shelf_fresh(k.shelf.page)
+		k.tools = bar_fresh(.Tools)
 	case .Panels:
 		stack_default(k)
 	case .Rail:

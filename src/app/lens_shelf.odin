@@ -9,9 +9,12 @@ import "../sculpt"
 import "../ui"
 
 // The Lens shelf (round 2 of the mockups): a floating strip of brush tiles at the bottom
-// centre with All at its end, and under it the names of its five pages (Sculpt, Paint,
-// Move, Curve, Model), which replace the old mode switch: each page is a bar of its own
-// (Bar_Which.Shelf_Sculpt on, bars.odin) that Customise bars changes. A tap on a tile picks
+// centre with All at their end, then after a divider the tool strip Classic's bottom bar
+// has (Bar_Which.Tools: Move, Remesh, Subdivide...), and under it the names of its five
+// pages (Sculpt, Paint, Move, Curve, Model), which replace the old mode switch: each page is
+// a bar of its own (Bar_Which.Shelf_Sculpt on, bars.odin) that Arrange changes, as it does
+// the tools. A finger or a pen swiped sideways along the shelf turns its page, as the
+// Classic dock's pages turn; the wheel over it does the same for a mouse. A tap on a tile picks
 // it; a long press shows its quick settings above it, so the hand never covers them; All
 // (or B) opens the brush picker, a large sheet of stroke previews over the shelf, whose
 // cards can be dragged onto a tile to keep them there. The shelf is laid out as "dock",
@@ -58,13 +61,14 @@ SHELF_MOVE :: [?]Bar_Slot {
 	{.Tool_Move, 0}, {.Brush, int(sculpt.Brush_Kind.Smooth)},
 }
 SHELF_CURVE :: [?]Bar_Slot{{.Tool_Curve, 0}, {.Tool_Insert, 0}, {.Brush, int(sculpt.Brush_Kind.Smooth)}}
-// Model mode: its actions (each takes the Model tool), the cages to start from, and the
-// way out to sculpting. The cone is in the Model palette, for want of a thirteenth tile.
+// Model mode: the actions box modelling uses most (each takes the Model tool), the cages
+// to start from, and the way out to sculpting. The other actions and primitives are in the
+// Model palette and the All picker, for want of more tiles.
 SHELF_MODEL :: [?]Bar_Slot {
 	{.Model_Action, int(Model_Action.Extrude)}, {.Model_Action, int(Model_Action.Inset)}, {.Model_Action, int(Model_Action.Move)},
-	{.Model_Action, int(Model_Action.Delete)}, {.Model_Action, int(Model_Action.Polygroup)}, {.Model_Action, int(Model_Action.Flip)},
-	{.Add_Cage, int(poly.Primitive.Cube)}, {.Add_Cage, int(poly.Primitive.Cylinder)}, {.Add_Cage, int(poly.Primitive.Sphere)},
-	{.Add_Cage, int(poly.Primitive.Torus)}, {.Add_Cage, int(poly.Primitive.Plane)}, {.Apply_Cage, 0},
+	{.Model_Action, int(Model_Action.Delete)}, {.Model_Action, int(Model_Action.Insert_Loop)}, {.Model_Action, int(Model_Action.Remove_Loop)},
+	{.Model_Action, int(Model_Action.Bridge)}, {.Model_Action, int(Model_Action.Close_Hole)}, {.Model_Action, int(Model_Action.Weld)},
+	{.Add_Cage, int(poly.Primitive.Cube)}, {.Add_Cage, int(poly.Primitive.Cylinder)}, {.Apply_Cage, 0},
 }
 
 // The shelf's state, in Kit_State: its pages' lists, the page shown, the quick settings a
@@ -79,9 +83,15 @@ Shelf :: struct {
 	carry_at: [2]f32,
 	tiles:    [SHELF_MAX]ui.Rect,
 	shown:    int, // tiles laid out last frame
-	// For the exit stats: cards dropped on a tile, and pages turned.
+	tools:    int, // tool buttons laid out last frame
+	row:      ui.Rect, // where the brushes' row was laid out last frame
+	slide:    f32, // how far the page just turned still slides in, points (eases to 0)
+	wheel:    f32, // the mouse wheel over the shelf, until it adds up to a page
+	// For the exit stats: cards dropped on a tile, pages turned, and of those the ones a
+	// swipe or the wheel turned.
 	drops:    int,
 	turns:    int,
+	swipes:   int,
 }
 
 // The bar that holds page `p`.
@@ -143,12 +153,39 @@ shelf_label :: proc(s: Bar_Slot) -> string {
 	return bar_label(s)
 }
 
-// How much of the main pane's width the shelf leaves each side while panes are beside it:
-// the dial's reach from the off-hand edge, and as much again on the other side.
+// How much of the main pane's width the shelf leaves each side: the dial's reach from the
+// off-hand edge, and as much again on the other side.
 SHELF_SIDE_ROOM :: 170
+// The shelf's padding, round its tiles.
+SHELF_PAD :: 4
+// The fewest brushes and tools the shelf gives up the other's room for: brushes down to
+// six before tools go below three, then brushes down to three before the last tools go.
+SHELF_KEEP_BRUSHES :: 6
+SHELF_KEEP_TOOLS :: 3
+SHELF_LEAST_BRUSHES :: 3
+
+// How wide the shelf is with `brushes` tiles, All, and `tools` buttons after a divider;
+// `adding` counts the + tiles Arrange puts at the end of each.
+shelf_width :: proc(brushes, tools: int, adding := false) -> f32 {
+	w := f32(brushes + 1 + int(adding)) * ui.BRUSH_TILE.x + 2 * SHELF_PAD
+	if tools > 0 || adding do w += 9 + f32(tools + int(adding)) * MESH_TOOL
+	return w
+}
+
+// How many of the page's `brushes` and of the `tools` fit across `room` points: what does
+// not fit is still in All and in Search.
+shelf_fit :: proc(brushes, tools: int, room: f32, adding := false) -> (shown_brushes, shown_tools: int) {
+	b, t := brushes, tools
+	for b > min(brushes, SHELF_KEEP_BRUSHES) && shelf_width(b, t, adding) > room do b -= 1
+	for t > min(tools, SHELF_KEEP_TOOLS) && shelf_width(b, t, adding) > room do t -= 1
+	for b > min(brushes, SHELF_LEAST_BRUSHES) && shelf_width(b, t, adding) > room do b -= 1
+	for t > 0 && shelf_width(b, t, adding) > room do t -= 1
+	return b, t
+}
 
 // The shelf at the bottom centre (left of it on a tablet-shaped window, clear of the palm),
-// with the page names under it. Returns where the picker opens over: the shelf.
+// with the page names under it: the page's brushes, All, then the tools. Returns where the
+// picker opens over: the shelf.
 kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 	k := &app.kit
 	ctx := &k.ctx
@@ -156,25 +193,52 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 	sh := &k.shelf
 	which := shelf_which(sh.page)
 	used := bar_used(app, which)
+	tools := bar_used(app, .Tools)
 	n := len(used)
 	if lens_palm(app) > 0 do n = min(n, SHELF_TABLET)
 	area := ui.safe_area(ctx)
 	shift: f32 = 0
 	if lens_palm(app) > 0 do shift = -area.w * 0.09
-	// With panes beside the main one the shelf stands under the main pane, as many tiles
-	// as fit across it, as the off-hand set stays with it.
+	// Between the dial's reach and as much on the other side, of the window or, with panes
+	// beside the main one, of the main pane, under which the shelf then stands, as the
+	// off-hand set stays with it.
+	span := area
 	if g := &k.grid; grid_panes(g) > 1 && g.maximised == 0 && g.main.w > 0 {
+		span = g.main
 		shift = g.main.x + g.main.w * 0.5 - (area.x + area.w * 0.5)
-		// Clear of the dial and the island on the off-hand side, the same on the other.
-		n = min(n, max(int((g.main.w - 2 * SHELF_SIDE_ROOM) / ui.BRUSH_TILE.x) - 1, 3))
 	}
 	if ctx.mirror do shift = -shift
-	// Focused, the shelf is the brushes most reached for and All, without the page names.
+	centre := area.x + area.w * 0.5 + shift
+	room := 2 * max(min(centre - span.x, span.x + span.w - centre) - SHELF_SIDE_ROOM, 0)
+	// Focused, the shelf is the brushes most reached for and All, without the page names
+	// or the tools.
 	focus := lens_focus(k)
+	// The Model page's cage has its own tools on the page, and the mesh tools do not work
+	// on a cage, so they make room for its tiles there.
+	tools_here := !focus && sh.page != .Model
+	m := len(tools) if tools_here else 0
 	if focus do n = min(n, SHELF_FOCUS)
+	n, m = shelf_fit(n, m, room, k.bars_edit && !focus)
 
 	if !focus do lens_shelf_pages(app, shift)
-	ui.begin_anchored(ctx, "dock", .Center, .End, {shift, t.edge if focus else t.edge + 22}, {direction = .Row, gap = 0, padding = 4, radius = t.radius_large + 4, background = .Panel, center = true})
+	// A sideways drag that starts on any of the shelf's buttons turns the page: the shelf
+	// is drag-scrolled, so a finger or a pen pressed on a tile waits to see which way it
+	// goes (ui.swipe_update), and only the brushes, the page's own, slide.
+	shelf_id := ui.id_of(ctx, "dock")
+	shelf_at := ui.prev_rect(ctx, "dock")
+	offset, turn := ui.swipe_update(ctx, shelf_id, shelf_at)
+	shelf_wheel(app, shelf_at, &turn)
+	if turn != 0 && shelf_turn(app, turn) do sh.swipes += 1
+	// Past the first or the last page the row gives a little, as a scroll view's edge does.
+	if (offset > 0 && sh.page == min(Shelf_Page)) || (offset < 0 && sh.page == max(Shelf_Page)) do offset *= 0.3
+	slide := offset + sh.slide
+	ui.begin_anchored(ctx, "dock", .Center, .End, {shift, t.edge if focus else t.edge + 22}, {direction = .Row, gap = 0, padding = SHELF_PAD, radius = t.radius_large + 4, background = .Panel, center = true, drag_scroll = true})
+	adding := k.bars_edit && !focus
+	// Asked for in the shelf, as the row's id is the shelf's child.
+	sh.row = ui.prev_rect(ctx, "shelf brushes")
+	brushes_at := sh.row
+	ui.begin(ctx, "shelf brushes", {direction = .Row, gap = 0, width = f32(n + int(adding)) * ui.BRUSH_TILE.x, height = ui.BRUSH_TILE.y, clip = true})
+	mark := ui.vertex_mark(ctx)
 	sh.shown = n
 	for s, i in used[:n] {
 		name := fmt.tprintf("%s##shelf %v %d", shelf_label(s), sh.page, i)
@@ -199,15 +263,81 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 		// The card carried from the picker lands on the tile it is let go over.
 		if sh.carry != nil && ui.rect_contains(ctx.last_rect, sh.carry_at) do ui.stroke_rect(ctx, ctx.last_rect, t.radius_medium + 2, t.accent, 2)
 	}
-	if k.bars_edit && ui.brush_tile(ctx, "Add##shelf add", ui.ICON_PLUS, false) do bar_choose(app, {which = which, slot = len(used), add = true})
-	ui.divider(ctx, 32)
+	if adding && ui.brush_tile(ctx, "Add##shelf add", ui.ICON_PLUS, false) do bar_choose(app, {which = which, slot = len(used), add = true})
+	ui.end(ctx)
+	// After the row ends, so the highlight under the picked tile, drawn as it ends, slides
+	// with it.
+	if slide != 0 {
+		w := max(brushes_at.w, ui.BRUSH_TILE.x)
+		ui.transform_since(ctx, mark, opacity = 1 - min(abs(slide) / w, 1) * 0.7, offset = {slide, 0})
+	}
 	if ui.brush_tile(ctx, "All##shelf all", ui.ICON_GRID, k.browser, command_hint(app, .Brush_Picker)) do brush_picker_toggle(app)
 	sheet_anchor = ctx.last_rect
+	// The tools, the same on every page and kept by the workspace's layout, as Classic's
+	// bottom bar keeps them.
+	sh.tools = m
+	if m > 0 || (adding && tools_here) do ui.divider(ctx, 32)
+	for s, i in tools[:m] do bar_slot_button(app, .Tools, i, s, MESH_TOOL)
+	if adding && tools_here do bar_add_button(app, .Tools, len(tools), MESH_TOOL)
 	ui.end(ctx)
+	// The page the slide is heading for comes in behind it from that side, as a home
+	// screen's next page does; it only shows, so it takes no press.
+	if slide != 0 && brushes_at.w > 0 do shelf_peek(app, brushes_at, slide, -1 if slide > 0 else 1)
+	// The page just turned slides in the rest of the way.
+	sh.slide = 0 if ctx.reduced_motion || abs(sh.slide) < 0.5 else sh.slide * math.exp(-ctx.input.dt * DOCK_SLIDE_RATE)
 	// The picker centres over the whole shelf, which stays in sight under it, so a card can
 	// be carried down onto any tile.
 	if strip := ui.prev_rect(ctx, "dock"); strip.w > 0 do sheet_anchor = strip
 	return
+}
+
+// Turns the shelf `by` pages (on from Curve, back from Sculpt, it stays), the new page's
+// brushes sliding in from the side they come from. Returns whether it turned.
+shelf_turn :: proc(app: ^App, by: int) -> bool {
+	sh := &app.kit.shelf
+	to := Shelf_Page(clamp(int(sh.page) + by, 0, len(Shelf_Page) - 1))
+	if to == sh.page do return false
+	w := sh.row.w
+	sh.slide = (1 if to > sh.page else -1) * w * DOCK_SLIDE_FROM
+	sh.page, sh.quick = to, false
+	sh.turns += 1
+	return true
+}
+
+// The mouse wheel over the shelf turns its page: a notch, or a trackpad's swipe adding up
+// to one, a page; down or toward you is the next.
+@(private = "file")
+shelf_wheel :: proc(app: ^App, at: ui.Rect, turn: ^int) {
+	sh := &app.kit.shelf
+	in_ := app.kit.ctx.input
+	if in_.wheel == 0 || !in_.mouse_valid || !ui.rect_contains(at, in_.mouse) {
+		sh.wheel = 0
+		return
+	}
+	sh.wheel += in_.wheel
+	if abs(sh.wheel) >= 1 {
+		turn^ = 1 if sh.wheel < 0 else -1
+		sh.wheel = 0
+	}
+}
+
+// Page `page_by` from the shown one, if there is one, over the brushes' row `at`, slid
+// `slide` points and a row's width further toward where it comes in from.
+@(private = "file")
+shelf_peek :: proc(app: ^App, at: ui.Rect, slide: f32, page_by: int) {
+	k := &app.kit
+	ctx := &k.ctx
+	i := int(k.shelf.page) + page_by
+	if i < 0 || i >= len(Shelf_Page) do return
+	page := Shelf_Page(i)
+	used := bar_used(app, shelf_which(page))
+	ui.begin_at(ctx, "shelf peek", {at.x, at.y}, {direction = .Row, gap = 0, width = at.w, height = at.h, clip = true, inert = true})
+	mark := ui.vertex_mark(ctx)
+	for s, j in used[:min(len(used), int(at.w / ui.BRUSH_TILE.x) + 1)] {
+		_ = ui.brush_tile(ctx, fmt.tprintf("%s##peek %v %d", shelf_label(s), page, j), bar_icon(s), false)
+	}
+	ui.end(ctx)
+	ui.transform_since(ctx, mark, opacity = min(abs(slide) / at.w, 1), offset = {slide + f32(page_by) * at.w, 0})
 }
 
 // The page names under the shelf, each a tap away; the shelf stands over them.
@@ -226,10 +356,7 @@ lens_shelf_pages :: proc(app: ^App, shift: f32) {
 		if a.hovered && !on do ui.fill_rect(ctx, a.rect, t.radius_medium, t.fill_hover)
 		ui.fill_circle(ctx, {a.rect.x + 9, a.rect.y + a.rect.h * 0.5}, 3, t.accent if on else t.text_tertiary)
 		ui.text(ctx, name, a.rect.x + 16, a.rect.y + a.rect.h * 0.5, t.small_size, t.text if on else t.text_secondary, .Semibold if on else .Regular)
-		if a.clicked && !on {
-			sh.page, sh.quick = p, false
-			sh.turns += 1
-		}
+		if a.clicked && !on do shelf_turn(app, int(p) - int(sh.page))
 	}
 	ui.end(ctx)
 }
@@ -329,10 +456,7 @@ kit_brush_sheet :: proc(app: ^App, anchor: ui.Rect) {
 	p.search_focus = false
 	pages: [len(Shelf_Page)]string
 	for name, i in SHELF_PAGE_NAMES do pages[i] = name
-	if picked := ui.tabs(ctx, "brush sheet page", pages[:], int(sh.page), item_width = 72); picked >= 0 && Shelf_Page(picked) != sh.page {
-		sh.page = Shelf_Page(picked)
-		sh.turns += 1
-	}
+	if picked := ui.tabs(ctx, "brush sheet page", pages[:], int(sh.page), item_width = 72); picked >= 0 && Shelf_Page(picked) != sh.page do shelf_turn(app, picked - int(sh.page))
 	IMPORT_W :: 104
 	ui.spacer(ctx, ui.row_room(ctx) - 8 - IMPORT_W - 8 - t.target)
 	_ = command_button(app, .Pick_Pack, label = "Import", variant = .Bordered, width = IMPORT_W, glyph = ui.ICON_PLUS)
