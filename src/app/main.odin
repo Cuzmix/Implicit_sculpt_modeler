@@ -66,6 +66,7 @@ Options :: struct {
 	bench_loops: int `usage:"Make --bench-stroke this many circles around the middle of the sphere instead of a wavy line."`,
 	density_preview: int `usage:"Show Object > Shape > Rebuild's density checkerboard on the selected object for an even remesh of this many vertices, held on as holding its Density slider shows it (for screenshots and timing)."`,
 	bench_tilt: f32 `usage:"Lean the synthetic pen of --bench-stroke this many degrees to the right (with set tilt_strength in a start-up script)."`,
+	gpu:       string `usage:"Draw with this GPU backend: sdl (SDL_GPU, the default) or vulkan (render's own Vulkan backend, which falls back to SDL_GPU where the device lacks what it needs)."`,
 	no_vsync:  bool `usage:"Show each frame as soon as it is ready instead of waiting for the display's refresh, so frame times are not capped at the refresh rate."`,
 	idle_sleep: bool `usage:"Rest when idle (Settings > System) in a scripted run too, which otherwise never rests: for testing it."`,
 	frame_limit: int `usage:"Draw at most N frames a second (Settings > System > Frame rate > Limit)."`,
@@ -358,6 +359,10 @@ main :: proc() {
 	flags.parse_or_exit(&opts, os.args, .Unix)
 	exit_code := 0
 	ok := run(opts, &exit_code)
+	if errors := render.validation_errors(); errors > 0 {
+		log.errorf("Vulkan: %d validation errors", errors)
+		ok = false
+	}
 
 	when ODIN_DEBUG {
 		leaks := len(tracking.allocation_map)
@@ -395,6 +400,14 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	}
 	defer sdl.Quit()
 
+	switch opts.gpu {
+	case "", "sdl":
+	case "vulkan":
+		render.backend_select(.Vulkan)
+	case:
+		log.errorf("--gpu=%s: expected sdl or vulkan", opts.gpu)
+		return false
+	}
 	window := sdl.CreateWindow("Sculpt", i32(opts.width), i32(opts.height), platform_window_flags())
 	if window == nil {
 		log.errorf("CreateWindow failed: %s", sdl.GetError())
@@ -1679,6 +1692,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	for obj in app.scene.objects do lod_pending += sculpt.sculptor_lod_pending(object_sculptor(obj))
 	fmt.printfln("simplify=%v last_frame_lod_px=%.2f last_frame_simplified=%d lod_pending=%d", app.simplify, app.renderer.lod_px, v.simplified, lod_pending)
 	if app.stats.lod_ms.count > 0 do print_stat("lod_build_ms", app.stats.lod_ms)
+	fmt.printfln("gpu_backend=%s", render.backend_name())
 	print_stat("frame_ms", app.stats.frame_ms)
 	print_stat("cpu_ms", app.stats.cpu_ms)
 	print_stat("wait_ms", app.stats.wait_ms)

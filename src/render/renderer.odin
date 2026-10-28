@@ -394,9 +394,9 @@ CLEAR_FRAG_SPV :: #load("shaders/clear.frag.spv")
 FLOOR_VERT_SPV :: #load("shaders/floor.vert.spv")
 FLOOR_FRAG_SPV :: #load("shaders/floor.frag.spv")
 
-renderer_init :: proc(r: ^Renderer, window: ^sdl.Window, debug: bool) -> bool {
-	r.window = window
-	r.background = {BACKGROUND, BACKGROUND}
+// SDL_GPU's device, on its Vulkan backend (the shaders are SPIR-V only).
+@(private = "file")
+sdl_device_create :: proc(r: ^Renderer, debug: bool) {
 	when ODIN_PLATFORM_SUBTARGET == .Android {
 		// Tablet GPUs may lack Vulkan features SDL asks for by default; nothing here clips
 		// with gl_ClipDistance, samples anisotropically or starts an indirect draw past
@@ -413,6 +413,23 @@ renderer_init :: proc(r: ^Renderer, window: ^sdl.Window, debug: bool) -> bool {
 		r.device = gpu_create_device({.SPIRV}, debug, nil)
 		r.anisotropy = true
 	}
+}
+
+renderer_init :: proc(r: ^Renderer, window: ^sdl.Window, debug: bool) -> bool {
+	r.window = window
+	r.background = {BACKGROUND, BACKGROUND}
+	if gpu_backend == .Vulkan {
+		// A device that falls short of the Vulkan backend's needs leaves the run to SDL_GPU,
+		// which draws into the same Vulkan-ready windows.
+		ok: bool
+		r.device, ok = vk_create_device(debug, ODIN_PLATFORM_SUBTARGET != .Android)
+		r.anisotropy = vk_state.anisotropy
+		if !ok {
+			log.warn("Vulkan: falling back to SDL_GPU")
+			gpu_backend = .SDL_GPU
+		}
+	}
+	if gpu_backend == .SDL_GPU do sdl_device_create(r, debug)
 	if r.device == nil {
 		log.errorf("CreateGPUDevice failed: %s", sdl.GetError())
 		return false

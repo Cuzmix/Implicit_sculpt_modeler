@@ -1,7 +1,7 @@
 {
   "source": ".claude/skills",
   "files": {
-    "sm-build/SKILL.md": "a8761c94a68e7552659bbd707d2291c41f71c3c2d6a454917510ef75bccec082",
+    "sm-build/SKILL.md": "c230c2abfa52fc316ef507fb88f170c5ec8203f248e90cbb979b968c0104ff57",
     "sm-cad/SKILL.md": "34cd829bf7dd4381ad83f2318dd3dd2ca51fc377d25f13c37fc90445dbe9c4ba",
     "sm-cad/references/algorithms.md": "01d2533465f6863979662a3e062a7451fc82aec36cbd178148858991583f02b2",
     "sm-cad/references/undo-and-topology.md": "5b5ac5f6a7c802a413c9e22deea2fb31074478f02d7d3f63bce968c4fff5e249",
@@ -10,7 +10,7 @@
     "sm-lint/SKILL.md": "d7f00468f89edcd89116db3ab665a05e4ad5d15a8ff587e754865536e7ccc25a",
     "sm-odin/SKILL.md": "6c97283fcea0778f5a0cac7c4c0c41ed2ceeab956cc6a6155a197d16ec12a84f",
     "sm-perf/SKILL.md": "05f7f678c7639bc84a6ace37ef07e32e4303ab27c6071ea6e02420aec125a22f",
-    "sm-render/SKILL.md": "09f6fe79df133100d373eb14625340aeb7a3c59bde5cd0323f38cc9534abada7",
+    "sm-render/SKILL.md": "b56a31fc1df8280b100b7804c3862e4c0409d539787b7990e0f78328bf5ac097",
     "sm-sculpt/SKILL.md": "f3f4fc981e621357c2355155d31b143a9e7c9d1b6d4cf704012bc05291d554fc",
     "sm-sdf/SKILL.md": "9a59ff62c257f121451050f8bb6c5e4430ca5c42cba5ce0dbf1f09afbf177ace",
     "sm-sdf/references/implicit.md": "0242284742b5712ed46cbc3498e45c70c9768f5972cc5381b45331ad8641185f",
