@@ -20,7 +20,7 @@ CLEAN_HINT_FADE :: 0.5
 lens_view_frame :: proc(app: ^App) {
 	k := &app.kit
 	if (k.chrome == .Lens) != app.keymap_lens do keymap_rebuild(app)
-	if k.chrome != .Lens || k.grid.preset != .Single {
+	if k.chrome != .Lens || grid_panes(&k.grid) != 1 {
 		app.camera.shift = {}
 		return
 	}
@@ -62,7 +62,7 @@ lens_free_area :: proc(app: ^App) -> ui.Rect {
 view_fit_free :: proc(app: ^App, fit: bool) {
 	k := &app.kit
 	app.camera.shift = {}
-	if k.chrome != .Lens || k.grid.preset != .Single do return
+	if k.chrome != .Lens || grid_panes(&k.grid) != 1 do return
 	win := k.ctx.input.window
 	if win.x <= 0 || win.y <= 0 do return
 	free := lens_free_area(app)

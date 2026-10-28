@@ -446,15 +446,16 @@ COMMANDS := [Command_Id]Command {
 		label = "Undo",
 		help = "Takes back the last step.",
 		icon = ui.ICON_UNDO,
-		run = proc(app: ^App, _: int) {history_undo(app)},
-		enabled = proc(app: ^App, _: int) -> bool {return history_can_undo(app)},
+		// The layout's pane gestures are steps too, taken back in order with the scene's.
+		run = proc(app: ^App, _: int) {undo_run(app)},
+		enabled = proc(app: ^App, _: int) -> bool {return undo_can(app)},
 	},
 	.Redo = {
 		label = "Redo",
 		help = "Does the last undone step again.",
 		icon = ui.ICON_REDO,
-		run = proc(app: ^App, _: int) {history_redo(app)},
-		enabled = proc(app: ^App, _: int) -> bool {return history_can_redo(app)},
+		run = proc(app: ^App, _: int) {redo_run(app)},
+		enabled = proc(app: ^App, _: int) -> bool {return redo_can(app)},
 	},
 	.Delete_Older_History = {
 		label = "Delete older history",
@@ -1724,7 +1725,10 @@ COMMANDS := [Command_Id]Command {
 		icon = ui.ICON_GRID,
 		args = len(Grid_Preset),
 		run = proc(app: ^App, arg: int) {grid_choose(app, Grid_Preset(arg))},
-		checked = proc(app: ^App, arg: int) -> bool {return app.kit.grid.preset == Grid_Preset(arg)},
+		checked = proc(app: ^App, arg: int) -> bool {
+			p, ok := grid_shape(&app.kit.grid)
+			return ok && p == Grid_Preset(arg)
+		},
 		// A recording keeps the frame it began with.
 		enabled = proc(app: ^App, _: int) -> bool {return !app.kit.passes.recording},
 	},

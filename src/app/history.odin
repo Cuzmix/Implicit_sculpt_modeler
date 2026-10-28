@@ -683,6 +683,8 @@ history_drop_redo :: proc(app: ^App) {
 		entry_free(&app.history, e)
 	}
 	clear(&app.history.undone)
+	// A new step in the scene ends what Redo could do again, the layout's steps too.
+	app.kit.grid.undo.ahead_n = 0
 }
 
 history_can_undo :: proc(app: ^App) -> bool {return !history_busy(app) && len(app.history.done) > 0}

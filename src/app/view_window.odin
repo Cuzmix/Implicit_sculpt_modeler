@@ -92,7 +92,7 @@ view_window_request :: proc(app: ^App, sv: Second_View) {
 // with panes, else the main camera, shaded.
 view_window_default :: proc(app: ^App) -> Second_View {
 	g := &app.kit.grid
-	if grid_count(g.preset) > 1 do return g.views[g.preset][0]
+	if grid_panes(g) > 1 do return g.views[0]
 	return {camera = .Follow, pass = .Shaded}
 }
 
