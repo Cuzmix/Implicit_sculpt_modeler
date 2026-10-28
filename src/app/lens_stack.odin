@@ -67,6 +67,22 @@ Lens_Stack :: struct {
 	rects:   [Stack_Card]ui.Rect,
 	folds:   int,
 	moves:   int,
+	// Sizes (lens_resize.odin): the stack's width (0 for a fresh layout's), each docked
+	// card's content height (0 to fit it), each floating card's size (0 across for the
+	// stack's width, 0 down to fit), the scroll of each card shown shorter than its content,
+	// where each card's content was laid out, the resize under way, the last tap on a
+	// handle (for a double tap) and, for the exit stats, how many resizes there were; and
+	// the docked stack's panel, which a press on a card's content scrolls.
+	width:     f32,
+	heights:   [Stack_Card]f32,
+	sizes:     [Stack_Card][2]f32,
+	scrolls:   [Stack_Card]f32,
+	bodies:    [Stack_Card]ui.Rect,
+	drag:      Stack_Drag,
+	tapped:    ui.Id,
+	tapped_at: f64,
+	resizes:   int,
+	owner:     ui.Id,
 	// Whether stack_default has set it up: a Kit_State nothing has set up yet (a test's)
 	// holds a fresh layout's stack.
 	set:     bool,
@@ -79,6 +95,7 @@ stack_default :: proc(k: ^Kit_State) {
 	s.open, s.floated, s.shut = STACK_OPEN_DEFAULT, {}, STACK_SHUT_DEFAULT
 	s.windows = {}
 	s.carry, s.menu = nil, false
+	s.width, s.heights, s.sizes, s.scrolls, s.drag = 0, {}, {}, {}, {}
 	s.set = true
 }
 
@@ -148,10 +165,11 @@ stack_reveal :: proc(app: ^App, sec: Kit_Section) {
 }
 
 // The stack's docked cards in order, `width` wide, where the tray's panel is (kit_inspector
-// calls it in Lens inside the panel's body); the floating ones come later.
-kit_stack :: proc(app: ^App, width: f32) {
+// calls it in Lens inside the panel's body, `owner`); the floating ones come later.
+kit_stack :: proc(app: ^App, width: f32, owner: ui.Id) {
 	s := &app.kit.stack
 	if !s.set do stack_default(&app.kit)
+	s.owner = owner
 	for c in s.order {
 		if c in s.floated do continue
 		stack_card(app, c, width, false)
@@ -171,10 +189,15 @@ kit_stack_floating :: proc(app: ^App) {
 		if c not_in s.floated do continue
 		name := fmt.tprintf("stack card %v", c)
 		w := &s.windows[c]
-		_, dock := ui.card_begin(ctx, name, "", w, .End, .Start, {kit_right(app) + KIT_INSPECTOR_W + 12, kit_top() + 80}, {direction = .Column, gap = 6, padding = 10, width = KIT_INSPECTOR_W, radius = t.radius_large, background = .Panel})
-		stack_card(app, c, KIT_INSPECTOR_W - 20, true)
+		width := s.sizes[c].x if s.sizes[c].x > 0 else stack_width(k)
+		_, dock := ui.card_begin(ctx, name, "", w, .End, .Start, {kit_right(app) + stack_width(k) + 12, kit_top() + 80}, {direction = .Column, gap = 6, padding = 10, width = width, radius = t.radius_large, background = .Panel})
+		stack_card(app, c, width - 20, true)
 		ui.window_end(ctx)
-		if dock do stack_dock(app, c)
+		if dock {
+			stack_dock(app, c)
+			continue
+		}
+		stack_float_handles(app, c)
 	}
 }
 
@@ -182,7 +205,7 @@ kit_stack_floating :: proc(app: ^App) {
 stack_dock :: proc(app: ^App, c: Stack_Card) {
 	s := &app.kit.stack
 	s.floated -= {c}
-	s.windows[c] = {}
+	s.windows[c], s.sizes[c] = {}, {}
 	s.moves += 1
 }
 
@@ -221,7 +244,16 @@ stack_card :: proc(app: ^App, c: Stack_Card, width: f32, floating: bool) {
 	outer := width - (0 if floating else 2 * EDGE)
 	inner := outer - (0 if floating else 2 * PAD)
 	if c in s.open {
-		ui.begin(ctx, "stack body", {direction = .Column, gap = 6, padding = 0 if floating else PAD, width = outer})
+		pad: f32 = 0 if floating else PAD
+		ui.begin(ctx, "stack body", {direction = .Column, gap = 6, padding = pad, width = outer})
+		// A height set by the grip (or a floating card's size) shows that much of the content
+		// and scrolls the rest.
+		height := stack_float_body(app, c) if floating else s.heights[c]
+		scroll: Kit_Scroll
+		if height > 0 {
+			owner := ui.hash_under(0, fmt.tprintf("stack card %v", c)) if floating else s.owner
+			scroll = kit_scroll_begin(ctx, "stack scroll", &s.scrolls[c], owner, inner, height, 6)
+		}
 		switch c {
 		case .Brush:
 			if app.tool == .Brush do stack_brush(app, inner)
@@ -245,7 +277,11 @@ stack_card :: proc(app: ^App, c: Stack_Card, width: f32, floating: bool) {
 			}
 			k.in_tray = false
 		}
+		if height > 0 do kit_scroll_end(ctx, scroll)
 		ui.end(ctx)
+		r := ui.last_ended(ctx)
+		s.bodies[c] = {r.x + pad, r.y + pad, r.w - 2 * pad, r.h - 2 * pad}
+		if !floating do stack_height_grip(app, c, outer)
 	}
 	if !floating {
 		ui.end(ctx)

@@ -375,7 +375,7 @@ panel_width :: proc(app: ^App, ref: Panel_Ref) -> f32 {
 	case Kit_Section: return KIT_INSPECTOR_W
 	case Kit_Window:
 		#partial switch r {
-		case .Inspector: return KIT_INSPECTOR_W if app.kit.chrome == .Lens else tray_width(app)
+		case .Inspector: return stack_width(&app.kit) if app.kit.chrome == .Lens else tray_width(app)
 		case .Stats:     return KIT_STATS_W
 		case .History:   return KIT_HISTORY_MIN_W
 		case .Objects:   return KIT_INSPECTOR_W
