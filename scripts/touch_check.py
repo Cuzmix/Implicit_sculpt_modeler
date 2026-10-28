@@ -1228,6 +1228,19 @@ def finger_orbits_empty_space():
 
 
 @scenario
+def studio_keeps_its_samples_while_the_view_turns():
+    """With Render on at Preview, a finger turning the view after the samples built up carries them each
+    frame of the turn instead of starting over, and nothing is sculpted."""
+    s = Script()
+    s.wait(30)
+    s.fdrag(past_slop((250, 400), (450, 400), 20))
+    s.wait(4)
+    return s, ["--script=set studio_render on"], {"dabs": near(0), "studio_carried": near(1),
+                                                  "studio_carries": lambda v: int(v) >= 10,
+                                                  "studio_restarts": lambda v: int(v) <= 3}
+
+
+@scenario
 def orbit_full_turns_free():
     """Free orbit: two full turns right then two left, and a full turn down, come back to the start."""
     s = Script()
