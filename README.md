@@ -656,6 +656,13 @@ The interface is touch-first, designed in Figma ("Sculpt UI"), and drawn by the 
   - A floating card resizes from any of its eight handles (corners and edge middles, 36-point targets that reach only 8 points into the card). The size shows under it while it changes; a drag across keeps the height fitting the content.
   - The width and the docked cards' heights are part of a workspace's layout (`stack_size 340 Brush=320`), so Sculpt and Studio can keep different ones. A floating card's size lasts for the session.
   - Settings > Interface > Size scales all of the interface at once.
+- **Split views** (screen split2), the View grid (below) in Lens's chrome:
+  - Each view pane's head is a row of chips: its camera (the colour dot, the name and "ortho" for an axis view) and what it shows, each opening its list, then Link, Maximise and Open in a window.
+  - A divider has a grip in its middle and a 24 point hold for a finger. A double tap evens the split out. Dragged to the far edge, it dims the panes beyond with "Let go to close", and letting go there closes them (one plus two and four step down to two panes, two panes to Single); toward the main view it says "The main view stays", since the main view never closes.
+  - Camera > View layout draws the six presets as small pictures of their panes, then **New panes start as**: Front + Side (the default, each preset's own partners), Same camera (linked to the main camera) or Copy view (an independent camera where the main view is now); `new_panes` in the settings file. Then the proportion guides, the render preview pane and a view window.
+  - While panes show beside the main one, the stack becomes a strip of tabs, one a card, so the panes keep their room; a tap opens that card over the view (Float puts it on its own, Esc closes it).
+  - The dock's shelf stands under the main pane, with as many tiles as fit across it.
+  - Exit stats: `grid_closes= grid_evens= new_panes= pane_menu= stack_strip= stack_tab= stack_tabs=`.
 
 The rest of the window is still laid out as Classic, described next, until the remaining parts of the mockups arrive.
 
