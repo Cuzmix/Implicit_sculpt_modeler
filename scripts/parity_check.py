@@ -66,6 +66,11 @@ def run_case(exe, out, name, script, frames, want, extra) -> bool:
     args += extra
     r = subprocess.run(args, capture_output=True, text=True)
     text = r.stdout + r.stderr
+    (out / f"{name}.log").write_text(text)
+    # A run under --gpu=vulkan --gpu-debug logs every validation message; any fails the case.
+    if "Vulkan validation:" in text:
+        print(f"FAIL {name}: Vulkan validation messages (see {name}.log)")
+        return False
     if r.returncode != 0 or not view.exists() or not screen.exists() or (script and "script_failed=0" not in text) or want not in text:
         tail = text.strip().splitlines()[-5:]
         print(f"FAIL {name}: exit {r.returncode}" + (f", no {want.strip()!r} in the stats" if want not in text else ""))

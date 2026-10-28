@@ -47,7 +47,7 @@ skill whose description fits the request BEFORE you form a plan.
 | Path | What |
 |---|---|
 | `src/app` | entry point, frame loop, `Options` flags, scene of objects, the tools, the interface's panels (`new_ui.odin`, `kit_*.odin`), keys and pointer (`device.odin`), `Viewport_Input`, cross-object `History`, `--gpubench` |
-| `src/render` | every GPU object the app creates: device, pipelines, viewport target, mesh buffers, indirect draws, partial redraw, the idle cache; `shaders/` Slang with committed `.spv` |
+| `src/render` | every GPU object the app creates: device, pipelines, viewport target, mesh buffers, indirect draws, partial redraw, the idle cache; the seam `hal.odin` answered by SDL_GPU or the own Vulkan backend (`vk_*.odin`, `--gpu=vulkan`); `shaders/` Slang with committed `.spv` |
 | `src/geom` | CPU geometry: `Mesh`, icosphere and geodesic fixtures, BVHs, topology, culling math, simplification, the LOD walk, `mesh_check` |
 | `src/camera`, `src/gizmo` | orbit camera math; move gizmo math (both pure, no rendering or UI) |
 | `src/sculpt` | brushes over a `Mesh` split into nodes, dirty ranges, undo, subdivision levels, HD windows, simplified copies |
@@ -70,7 +70,7 @@ skill whose description fits the request BEFORE you form a plan.
   import `vendor:sdl3`, and only `render` names the GPU API: `app` holds `render.Cmd`, `render.Texture`,
   `render.Fence` and `render.Sample_Count` and calls render's procs (`render.wait_idle`, `cmd_begin`, `cmd_submit`,
   `swapchain_acquire`, `ui_present`; `src/render/gpu.odin`), and inside render only `hal.odin` calls SDL_GPU's procs
-  (`gpu_*`), both enforced by `scripts/boundary_check.py` in `check`;
+  (`gpu_*`, each handed to the Vulkan backend `vk_*.odin` under `--gpu=vulkan`), both enforced by `scripts/boundary_check.py` in `check`;
   `bench` never imports `render` or `app`; `sdf_trial` stands alone.
 - Determinism: serial and parallel results are bit-identical and tests compare them; no map order decides output.
 - Allocations inside jobs use `runtime.heap_allocator()` for both make and delete; only the frame loop and the setup
