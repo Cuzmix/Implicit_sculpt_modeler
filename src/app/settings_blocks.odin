@@ -54,6 +54,7 @@ Settings_Block :: enum u8 {
 	Statistics,
 	Frame_Rate,
 	Anti_Aliasing,
+	Graphics,
 	Autosave,
 	Earlier_Saves,
 	Undo_History,
@@ -108,6 +109,7 @@ SETTINGS_SYSTEM := [?]Settings_Entry {
 	{.Statistics, "STATISTICS"},
 	{.Frame_Rate, "DISPLAY"},
 	{.Anti_Aliasing, ""},
+	{.Graphics, ""},
 	{.Autosave, "AUTOSAVE"},
 	{.Earlier_Saves, "EARLIER SAVES"},
 	{.Undo_History, "UNDO HISTORY"},
@@ -166,6 +168,7 @@ SETTINGS_BLOCK_WORDS := [Settings_Block]string {
 	.Statistics       = "statistics stats simple advanced",
 	.Frame_Rate       = "frame rate fps limit unlimited match display rest when idle battery",
 	.Anti_Aliasing    = "anti-aliasing antialiasing msaa display",
+	.Graphics         = "graphics gpu backend vulkan sdl_gpu driver renderer",
 	.Autosave         = "autosave recovery copy",
 	.Earlier_Saves    = "earlier saves versions kept",
 	.Undo_History     = "undo history steps memory",
@@ -420,6 +423,8 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 		ui.label(ctx, "Anti-aliasing")
 		if picked := ui.tabs(ctx, "Anti-aliasing", MSAA_NAMES[:], int(app.msaa)); picked >= 0 do app.msaa = Msaa(picked)
 		ui.paragraph(ctx, "Smooths the stepped edges of outlines and wireframe lines by taking 2 or 4 samples a pixel. It costs GPU memory and a little time every frame; Off draws as fast as it can.")
+	case .Graphics:
+		graphics_controls(app)
 	case .Autosave:
 		a := &app.autosave
 		chosen := 0
@@ -526,6 +531,7 @@ settings_block_reset :: proc(app: ^App, b: Settings_Block) {
 		app.frame_rate, app.frame_limit = .Match_Display, FRAME_LIMIT_DEFAULT
 		app.idle_sleep = true
 	case .Anti_Aliasing:   app.msaa = MSAA_DEFAULT
+	case .Graphics:        app.graphics = .Auto
 	case .Autosave:        app.autosave.minutes = AUTOSAVE_DEFAULT_MINUTES
 	case .Earlier_Saves:   app.versions_kept = VERSIONS_DEFAULT
 	case .Undo_History:    app.undo_steps = 0

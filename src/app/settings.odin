@@ -268,6 +268,7 @@ SETTINGS := [?]Setting {
 	{"idle_sleep", offset_of(App, idle_sleep), bool, 0, 0},
 	{"start_home", offset_of(App, start_home), bool, 0, 0},
 	{"msaa", offset_of(App, msaa), Msaa, 0, 0},
+	{"graphics", offset_of(App, graphics), Graphics, 0, 0},
 	{"autosave_minutes", offset_of(App, autosave) + offset_of(Autosave, minutes), i32, 0, 10},
 	{"versions_kept", offset_of(App, versions_kept), i32, 0, 10},
 	{"undo_steps", offset_of(App, undo_steps), i32, 0, 1000},

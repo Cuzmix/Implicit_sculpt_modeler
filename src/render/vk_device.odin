@@ -75,6 +75,26 @@ validation_errors :: proc() -> int {
 	return vk_validation_errors
 }
 
+// Why the Vulkan backend asked for did not start, in words for the settings and the exit
+// stats; empty when it started or was not asked for. Kept in a buffer of its own, as the
+// reasons are formatted in temp memory the frame loop frees.
+@(private = "file")
+vk_fallback_text: [200]u8
+@(private = "file")
+vk_fallback_len: int
+
+backend_fallback :: proc() -> string {
+	return string(vk_fallback_text[:vk_fallback_len])
+}
+
+// Logs why Vulkan cannot be used and keeps the reason for backend_fallback.
+@(private = "file")
+vk_fail :: proc(format: string, args: ..any) {
+	text := fmt.tprintf(format, ..args)
+	log.warnf("Vulkan: %s; drawing with SDL_GPU", text)
+	vk_fallback_len = copy(vk_fallback_text[:], text)
+}
+
 // The device handle the app holds stands for the one Vulkan device.
 vk_device_handle :: proc() -> ^sdl.GPUDevice {
 	return (^sdl.GPUDevice)(&vk_state)
@@ -84,9 +104,10 @@ vk_device_handle :: proc() -> ^sdl.GPUDevice {
 // keeping SDL_GPU, where the platform has no Vulkan loader.
 backend_select :: proc(backend: Gpu_Backend) -> bool {
 	gpu_backend = .SDL_GPU
+	vk_fallback_len = 0
 	if backend != .Vulkan do return true
 	if !sdl.Vulkan_LoadLibrary(nil) {
-		log.warnf("Vulkan: no loader (%s); drawing with SDL_GPU", sdl.GetError())
+		vk_fail("no Vulkan loader (%s)", sdl.GetError())
 		return false
 	}
 	gpu_backend = .Vulkan
@@ -167,12 +188,12 @@ vk_unfit :: proc(physical: vk.PhysicalDevice, family: ^u32) -> string {
 	return "no queue both draws and presents"
 }
 
-// Creates the instance and the device, or returns false with the reason logged (and the
-// app then draws with SDL_GPU).
+// Creates the instance and the device, or returns false with the reason logged and kept for
+// backend_fallback (and the app then draws with SDL_GPU).
 vk_create_device :: proc(debug: bool, want_anisotropy: bool) -> (^sdl.GPUDevice, bool) {
 	vk.load_proc_addresses_global(rawptr(sdl.Vulkan_GetVkGetInstanceProcAddr()))
 	if vk.CreateInstance == nil {
-		log.error("Vulkan: the loader has no vkCreateInstance")
+		vk_fail("the loader has no vkCreateInstance")
 		return nil, false
 	}
 	count: u32
@@ -211,7 +232,7 @@ vk_create_device :: proc(debug: bool, want_anisotropy: bool) -> (^sdl.GPUDevice,
 		ppEnabledExtensionNames = raw_data(extensions),
 	}
 	if r := vk.CreateInstance(&instance_info, nil, &vk_state.instance); r != .SUCCESS {
-		log.errorf("Vulkan: vkCreateInstance failed: %v", r)
+		vk_fail("vkCreateInstance failed (%v)", r)
 		return nil, false
 	}
 	vk.load_proc_addresses_instance(vk_state.instance)
@@ -253,7 +274,7 @@ vk_create_device :: proc(debug: bool, want_anisotropy: bool) -> (^sdl.GPUDevice,
 		}
 	}
 	if vk_state.physical == nil {
-		log.errorf("Vulkan: no device qualifies (%s)", reason)
+		vk_fail("no device qualifies (%s)", reason)
 		vk_destroy_instance()
 		return nil, false
 	}
@@ -293,7 +314,7 @@ vk_create_device :: proc(debug: bool, want_anisotropy: bool) -> (^sdl.GPUDevice,
 		ppEnabledExtensionNames = raw_data(device_extensions),
 	}
 	if r := vk.CreateDevice(vk_state.physical, &device_info, nil, &vk_state.device); r != .SUCCESS {
-		log.errorf("Vulkan: vkCreateDevice failed: %v", r)
+		vk_fail("vkCreateDevice failed (%v)", r)
 		vk_destroy_instance()
 		return nil, false
 	}
@@ -310,7 +331,7 @@ vk_create_device :: proc(debug: bool, want_anisotropy: bool) -> (^sdl.GPUDevice,
 	semaphore := vk.SemaphoreCreateInfo{sType = .SEMAPHORE_CREATE_INFO, pNext = &timeline_type}
 	pool := vk.CommandPoolCreateInfo{sType = .COMMAND_POOL_CREATE_INFO, flags = {.RESET_COMMAND_BUFFER}, queueFamilyIndex = vk_state.family}
 	if vk.CreateSemaphore(vk_state.device, &semaphore, nil, &vk_state.timeline) != .SUCCESS || vk.CreateCommandPool(vk_state.device, &pool, nil, &vk_state.command_pool) != .SUCCESS {
-		log.error("Vulkan: the timeline semaphore or command pool could not be made")
+		vk_fail("the timeline semaphore or command pool could not be made")
 		vk_destroy_device(vk_device_handle())
 		return nil, false
 	}
