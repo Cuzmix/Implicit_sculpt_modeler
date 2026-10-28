@@ -228,6 +228,9 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.View_Pass        = "pass view mode normals depth curvature cavity occlusion ao silhouette shaded diagnostic check",
 	.View_Pass_Last   = "pass view back previous toggle",
 	.View_Grid        = "grid split panes quad four views side front top layout compare",
+	.View_Wipe        = "wipe compare split pass before after normals line slider",
+	.View_Guides      = "guides proportion lines heights brow nose chin thirds likeness face",
+	.View_Guides_Reset = "guides proportion reset lines heights thirds",
 	.Settings         = "preferences options",
 	.Reduce_Motion    = "animation accessibility",
 }

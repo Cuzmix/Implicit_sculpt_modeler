@@ -63,7 +63,7 @@ File_Request :: struct {
 // be in a console nobody watches. `at` tells a new note from the one already shown.
 // The native scene file starts with these bytes, then its version.
 SCENE_MAGIC :: "SCULPTSC"
-SCENE_VERSION :: u32(23) // 2: each object's rotation; 3: the current level's polypaint and polygroups; 4: sculpt layers, and a retopologized object's quads and UVs (sculpt.levels_write); 5: each object's boolean mode; 6: the base level's node layout (sculpt.levels_write); 7: the camera's roll; 8: each object's eye and ghost, and Solo; 9: folders, and each object's folder; 10: selection sets (sculpt.levels_write); 11: each object's polypaint shown or not (a third view bit); 12: stored visibility (V1 to V8): the slot chosen and used, and each folder's and object's eyes in them; 13: each object's kind (mesh or voxel), a voxel object's resolution and clay after its empty level (voxel.clay_write); 14: each object's material (material_put); 15: each object's polygroups with materials of their own (group_materials_put); 16: the content pack parts of the object's and its groups' materials, by name (material_refs); 17: the scene's Blender link token (link.odin); 18: each object's texture maps (textures_put); 19: the scene's lights (lights_put); 20: each light's colour temperature and name; 21: each light's size (a sun's angle, a lamp's radius); 22: the preview block after the version (scene_preview.odin); 23: the millimetres per unit a print takes (print.odin)
+SCENE_VERSION :: u32(24) // 2: each object's rotation; 3: the current level's polypaint and polygroups; 4: sculpt layers, and a retopologized object's quads and UVs (sculpt.levels_write); 5: each object's boolean mode; 6: the base level's node layout (sculpt.levels_write); 7: the camera's roll; 8: each object's eye and ghost, and Solo; 9: folders, and each object's folder; 10: selection sets (sculpt.levels_write); 11: each object's polypaint shown or not (a third view bit); 12: stored visibility (V1 to V8): the slot chosen and used, and each folder's and object's eyes in them; 13: each object's kind (mesh or voxel), a voxel object's resolution and clay after its empty level (voxel.clay_write); 14: each object's material (material_put); 15: each object's polygroups with materials of their own (group_materials_put); 16: the content pack parts of the object's and its groups' materials, by name (material_refs); 17: the scene's Blender link token (link.odin); 18: each object's texture maps (textures_put); 19: the scene's lights (lights_put); 20: each light's colour temperature and name; 21: each light's size (a sun's angle, a lamp's radius); 22: the preview block after the version (scene_preview.odin); 23: the millimetres per unit a print takes (print.odin); 24: the proportion guides (guides.odin)
 
 // The request waiting for the next frame, and whether a dialog is showing. Kept here
 // rather than in App because SDL may call a dialog back on another thread, even after
@@ -839,6 +839,25 @@ scene_header_put :: proc(app: ^App, out: ^[dynamic]u8) {
 	geom.byte_put(out, app.scene.link_token) // version 17
 	lights_put(out, app.scene.lights) // version 19, 20, 21
 	geom.byte_put(out, print_scale(app)) // version 23
+	guides_put(out, app.scene.guides) // version 24
+}
+
+// The proportion guides as a scene file stores them: a byte of flags (shown, seeded) and
+// the three heights.
+guides_put :: proc(out: ^[dynamic]u8, g: Guides) {
+	geom.byte_put(out, u8(g.shown) | u8(g.seeded) << 1)
+	for h in g.heights do geom.byte_put(out, h)
+}
+
+// The proportion guides from a scene file; false for flags no version wrote or a height
+// that is not a number.
+guides_get :: proc(r: ^geom.Byte_Reader) -> (g: Guides, ok: bool) {
+	flags := geom.byte_get(r, u8)
+	for &h in g.heights do h = geom.byte_get(r, f32)
+	g.shown, g.seeded = flags & 1 != 0, flags & 2 != 0
+	ok = r.ok && flags <= 3
+	for h in g.heights do ok &&= finite({h, 0, 0})
+	return
 }
 
 // The lights as a scene file stores them: how many, the ambient light, then each light.
@@ -991,7 +1010,10 @@ scene_open :: proc(app: ^App, path: string) -> (opened, ok: bool) {
 	// A scene from before prints were sized prints at a new scene's scale.
 	print_mm := f32(PRINT_MM_DEFAULT)
 	if version >= 23 do print_mm = geom.byte_get(&r, f32)
-	if !lights_ok || !folders_ok || !r.ok || !(print_mm >= PRINT_MM_MIN && print_mm <= PRINT_MM_MAX) || solo > 1 || vis_slot > VIS_SLOTS || (vis_slot > 0 && vis_used & (1 << (vis_slot - 1)) == 0) || count > len(data) || selected >= count || !finite(view.target) || !finite({view.distance, view.yaw, view.pitch}) || !finite({view.roll, 0, 0}) {
+	// A scene from before guides were kept has them off, seeded when first shown.
+	guides, guides_ok := Guides{}, true
+	if version >= 24 do guides, guides_ok = guides_get(&r)
+	if !guides_ok || !lights_ok || !folders_ok || !r.ok || !(print_mm >= PRINT_MM_MIN && print_mm <= PRINT_MM_MAX) || solo > 1 || vis_slot > VIS_SLOTS || (vis_slot > 0 && vis_used & (1 << (vis_slot - 1)) == 0) || count > len(data) || selected >= count || !finite(view.target) || !finite({view.distance, view.yaw, view.pitch}) || !finite({view.roll, 0, 0}) {
 		file_note(app, true, "Cannot open %s: it is damaged", name)
 		return false, true
 	}
@@ -1026,6 +1048,7 @@ scene_open :: proc(app: ^App, path: string) -> (opened, ok: bool) {
 	app.scene.link_token = link_token
 	app.scene.lights, app.scene.lights_own = lights, version >= 19
 	app.scene.print_mm = print_mm
+	app.scene.guides = guides
 	scene_folders_normalize(app)
 	scene_selection_fix(app)
 	autosave_scene_saved(app, path)
@@ -1067,6 +1090,8 @@ scene_replace :: proc(app: ^App, objects: []^Object, selected, next_id: int, vie
 	clear(&app.link.sent)
 	// A new scene prints at the starting scale; an opened one gets its own back.
 	app.scene.print_mm = PRINT_MM_DEFAULT
+	// A new scene has no guides until they are shown; an opened one gets its own back.
+	app.scene.guides = {}
 	// A new scene is lit by the starting lights; an opened one gets its own back. A change
 	// to the old scene's lights still under way goes with its History.
 	app.scene.lights, app.scene.lights_own = app.start_lights, false

@@ -260,7 +260,7 @@ RADIAL_COPIES = ((1351, 687), (1530, 687))
 FLOOR_BACK = (1381, 609)
 POLYFRAME_FILL = (1450, 686)
 # The Camera menu's Field of view slider, under Orthographic.
-FOV_SLIDER = (1300, 268)
+FOV_SLIDER = (1300, 224)
 
 
 @scenario
@@ -2570,8 +2570,8 @@ def arrange_drawer_docks_stats_on_the_left():
                                                          "window_stats": lambda v: v.startswith("1,")})
 
 
-# The top bar's pass chip at 1600 x 900, and the Normals row of its list.
-PASS_CHIP, PASS_NORMALS = (1340, 25), (1415, 150)
+# The top bar's pass chip at 1600 x 900, and the Normals and Wipe compare rows of its list.
+PASS_CHIP, PASS_NORMALS, PASS_MENU_WIPE = (1340, 25), (1415, 150), (1375, 415)
 
 
 @scenario
@@ -4174,9 +4174,9 @@ def knife_cuts_away_the_shaded_side():
 
 # The Assign key popover beside the Palettes button, at 1600 by 900: Use it here and Keep
 # it there on a conflict; the palette's Star, Put in a pie and Assign key with "wire"
-# typed (two rows), and its first row with nothing typed under the STARRED caption.
+# typed (three rows: Wireframe, Wipe compare, New scene: Figure), and its first row with nothing typed under the STARRED caption.
 BIND_USE_HERE, BIND_KEEP = (1343, 367), (1507, 367)
-PALETTE_STAR, PALETTE_PIE, PALETTE_ASSIGN = (1192, 384), (1328, 384), (1466, 384)
+PALETTE_STAR, PALETTE_PIE, PALETTE_ASSIGN = (1192, 430), (1328, 430), (1466, 430)
 PALETTE_FIRST_STARRED = (1195, 235)
 # The pie editor opened from the palette: Pie 1's first slot and Pie 3's.
 EDITOR_PIE1_FIRST, EDITOR_PIE3_FIRST = (1104, 296), (1104, 463)
@@ -5838,6 +5838,114 @@ def panes_run_under_the_panels_by_default():
                                                                "viewport_origin": is_text("0,0"), "pane_draws": lambda v: int(v) >= 1, "dabs": near(0)})
 
 
+# Wipe compare's knob in the middle of the main view at 1600 x 900, and where its dumped
+# viewport is sampled either side of the line, on the sphere.
+WIPE_KNOB = (800, 450)
+WIPE_LEFT, WIPE_RIGHT = (700, 450), (900, 450)
+
+
+def wipe_sides(path):
+    """A check that the dumped viewport at path shows clay left of the wipe's line and
+    the Normals pass's blue-violet right of it."""
+    def check(_):
+        from ppm import read_ppm
+        w, _h, rgb = read_ppm(path)
+        def at(p):
+            i = (p[1] * w + p[0]) * 3
+            return tuple(rgb[i:i + 3])
+        left, right = at(WIPE_LEFT), at(WIPE_RIGHT)
+        if not (left[0] > left[2] and right[2] > right[0] + 30):
+            return f"left {left}, right {right}"
+        return True
+    return check
+
+
+@scenario
+def wipe_compare_shows_two_passes_in_one_view():
+    """Wipe compare from a script shows the Shaded pass left of the line and Normals right of it in one picture of the main view; nothing is sculpted."""
+    s = Script()
+    s.wait(10)
+    path = os.path.join(ROOT, "build", "touch", "wipe_sides.ppm")
+    return s, ["--script=view_wipe", f"--dump-viewport={path}"], camera_still({"wipe": near(1), "wipe_right": is_text("Normals"), "wipe_at": near(0.5),
+                                                                          "dabs": near(0), "@sides": wipe_sides(path)})
+
+
+@scenario
+def wipe_knob_drag_moves_the_line():
+    """A finger dragging wipe compare's knob to the right moves the line with it; the camera stays still and nothing is sculpted."""
+    s = Script()
+    s.wait(4)
+    x, y = WIPE_KNOB
+    s.fdrag([(x + i * 10, y) for i in range(16)])
+    s.wait(6)
+    return s, ["--script=view_wipe"], camera_still({"wipe_at": lambda v: 0.57 < float(v) < 0.62, "wipe_drags": lambda v: int(v) > 0, "dabs": near(0)})
+
+
+@scenario
+def wipe_compare_from_the_pass_menu():
+    """Wipe compare from the pass chip's menu turns the wipe on, and a second time off."""
+    def run(taps):
+        s = Script()
+        s.wait(4)
+        for _ in range(taps):
+            s.ftap(*PASS_CHIP)
+            s.wait(8)
+            s.ftap(*PASS_MENU_WIPE)
+            s.wait(8)
+        return s, [], camera_still({"wipe": near(taps % 2), "dabs": near(0)})
+    return Steps([run(1), run(2)])
+
+
+# Proportion guides in the view grid's Four at 1600 x 900 beside the tray: the Brow tag in
+# the Front pane (top right).
+GUIDE_FRONT_BROW = (1008, 165)
+
+
+@scenario
+def guides_show_in_the_level_side_views_only():
+    """Proportion guides with the view grid's Four (perspective main view, Front, Right and Top) draw three lines in the Front pane and three in the Right one, none in Top or the main view; Shown in the main view once it looks from the front orthographic."""
+    def run(front):
+        s = Script()
+        s.wait(30)
+        script = "ortho_toggle on; view_axis front; view_guides" if front else "set panes_under_panels off; view_grid four; view_guides"
+        return s, [f"--script={script}"], {"guides": near(1), "guide_lines": near(3 if front else 6), "guide_heights": lambda v: abs(float(v.split(",")[2]) + 1) < 0.05, "dabs": near(0)}
+    return Steps([run(False), run(True)])
+
+
+@scenario
+def guide_tag_drag_moves_the_guide():
+    """A finger dragging the Brow tag down in the Front pane lowers the Brow guide (in every view that shows it); the main camera stays still and nothing is sculpted."""
+    s = Script()
+    s.wait(30)
+    x, y = GUIDE_FRONT_BROW
+    s.fdrag(line((x, y), (x, y + 60), 10))
+    s.wait(6)
+    return s, ["--script=set panes_under_panels off; view_grid four; view_guides"], camera_still({"guide_drags": lambda v: int(v) > 0, "guide_heights": lambda v: float(v.split(",")[0]) < 0.2,
+                                                                                         "guide_lines": near(6), "dabs": near(0)})
+
+
+@scenario
+def guides_are_saved_with_the_scene():
+    """Guides shown and one dragged are in the saved scene: opening it shows them at the heights they had."""
+    path = scene_file()
+    shutil.rmtree(os.path.dirname(path), ignore_errors=True)
+    os.makedirs(os.path.dirname(path))
+    first = Script()
+    first.wait(30)
+    x, y = GUIDE_FRONT_BROW
+    first.fdrag(line((x, y), (x, y + 60), 10))
+    first.wait(6)
+    moved = {}
+
+    def remember(v):
+        moved["heights"] = v
+        return float(v.split(",")[0]) < 0.2
+    opened = Script()
+    opened.wait(4)
+    return Steps([(first, ["--script=set panes_under_panels off; view_grid four; view_guides", f"--save={path}"], {"guide_heights": remember}),
+                  (opened, [f"--open={path}"], {"guides": near(1), "guide_heights": lambda v: v == moved.get("heights")})])
+
+
 @scenario
 def stroke_in_the_main_pane_beside_a_left_column():
     """With the tray docked on the left the main pane starts right of it; a stroke inside the pane sculpts where the finger is, not where the window's point would be, and the camera stays still."""
@@ -7200,7 +7308,7 @@ def adjust_retopo_and_extract():
 
 
 # Camera history (camera_history.odin): Camera menu rows at 1600x900.
-VIEW_BACK, VIEW_FORWARD = (1399, 448), (1399, 492)
+VIEW_BACK, VIEW_FORWARD = (1399, 404), (1399, 448)
 CAMERA_KEYS = ("camera_yaw", "camera_pitch", "camera_roll", "camera_distance", "camera_target")
 
 
@@ -7521,7 +7629,7 @@ def shading_and_camera_have_their_own_buttons():
 
 # The Shading menu's Wireframe row and the Camera menu's Orthographic row, at 1600x900.
 SHADING_WIREFRAME = (1399, 294)
-CAMERA_ORTHO = (1399, 200)
+CAMERA_ORTHO = (1399, 156)
 
 
 @scenario

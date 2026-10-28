@@ -297,7 +297,9 @@ Draw_Item :: struct {
 	// classic rim and an even ambient light, as thumbnails and the navigation head draw.
 	style:     [4]f32,
 	// The pass the viewport shows it in (View_Pass): x the pass, y and z where Depth
-	// starts and ends, in view-space distance from the eye. Zero shades it as usual.
+	// starts and ends, in view-space distance from the eye, w a wipe compare (0 for none,
+	// else 1 + the pass right of its line + 8 x the line's pixel column; app/passes.odin's
+	// pass_items). Zero shades it as usual.
 	pass:      [4]f32,
 	// A matcap (matcap_create) that shades the item instead of the lights, tinted by
 	// `color`; nil for none.

@@ -189,13 +189,13 @@ visibility_slots_round_trip_in_the_file :: proc(t: ^testing.T) {
 	head: [dynamic]u8
 	defer delete(head)
 	scene_header_put(&app, &head)
-	// The two bytes come before the link token's eight, the lights and the print scale's
-	// four, the header's end.
+	// The two bytes come before the link token's eight, the lights, the print scale's four
+	// and the guides, the header's end.
 	lights: [dynamic]u8
 	defer delete(lights)
 	lights_put(&lights, app.scene.lights)
-	testing.expect_value(t, head[len(head) - len(lights) - 4 - 10], 3)
-	testing.expect_value(t, head[len(head) - len(lights) - 4 - 9], 0b100)
+	testing.expect_value(t, head[len(head) - len(lights) - 4 - GUIDES_BYTES - 10], 3)
+	testing.expect_value(t, head[len(head) - len(lights) - 4 - GUIDES_BYTES - 9], 0b100)
 }
 
 // Past the swap limit the newest step stays whole however large it is, so a merge's

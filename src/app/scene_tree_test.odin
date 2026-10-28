@@ -392,17 +392,17 @@ folders_round_trip_in_the_file :: proc(t: ^testing.T) {
 	scene_header_put(&app, &head)
 	r := geom.byte_reader(head[:])
 	// The folders come before the stored visibility's two bytes, the link token's eight,
-	// the lights and the print scale's four.
+	// the lights, the print scale's four and the guides.
 	lights: [dynamic]u8
 	defer delete(lights)
 	lights_put(&lights, app.scene.lights)
-	r.at = len(head) - (4 + 4 + 4 + len("Ears") + 1 + 1 + 4 + 2 + 8 + len(lights) + 4)
+	r.at = len(head) - (4 + 4 + 4 + len("Ears") + 1 + 1 + 4 + 2 + 8 + len(lights) + 4 + GUIDES_BYTES)
 	folders, next, ok := folders_get(&r, SCENE_VERSION)
 	defer {
 		folders_clear(&folders)
 		delete(folders)
 	}
-	testing.expect(t, ok && r.ok && r.at == len(head) - 2 - 8 - len(lights) - 4)
+	testing.expect(t, ok && r.ok && r.at == len(head) - 2 - 8 - len(lights) - 4 - GUIDES_BYTES)
 	testing.expect_value(t, len(folders), 1)
 	testing.expect(t, folders[0].id == f.id && folders[0].name == "Ears" && folders[0].off && !folders[0].open && !folders[0].ghost)
 	testing.expect_value(t, next, app.scene.next_folder_id)

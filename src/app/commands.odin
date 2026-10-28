@@ -203,6 +203,9 @@ Command_Id :: enum u8 {
 	View_Pass, // the argument is the render.View_Pass (passes.odin)
 	View_Pass_Last,
 	View_Grid, // the argument is the Grid_Preset (grid.odin)
+	View_Wipe, // passes.odin
+	View_Guides, // guides.odin
+	View_Guides_Reset,
 	Settings,
 	Reduce_Motion,
 	Command_Palette,
@@ -1690,6 +1693,28 @@ COMMANDS := [Command_Id]Command {
 		checked = proc(app: ^App, arg: int) -> bool {return app.kit.grid.preset == Grid_Preset(arg)},
 		// A recording keeps the frame it began with.
 		enabled = proc(app: ^App, _: int) -> bool {return !app.kit.passes.recording},
+	},
+	.View_Wipe = {
+		label = "Wipe compare",
+		help = "Splits the main view by a line you drag: the pass picked on its left, the last other pass on its right, to compare the two on the same form.",
+		icon = ICON_WIPE,
+		run = proc(app: ^App, _: int) {wipe_toggle(&app.kit)},
+		checked = proc(app: ^App, _: int) -> bool {return app.kit.passes.wipe},
+		// A recording keeps one pass in every frame it takes.
+		enabled = proc(app: ^App, _: int) -> bool {return !app.kit.passes.recording},
+	},
+	.View_Guides = {
+		label = "Proportion guides",
+		help = "Shows dashed lines at the brow, the nose's base and the chin across every level side view; drag a line's tag in any of them to move it in all.",
+		icon = ICON_GUIDES,
+		run = proc(app: ^App, _: int) {guides_toggle(app)},
+		checked = proc(app: ^App, _: int) -> bool {return app.scene.guides.shown},
+	},
+	.View_Guides_Reset = {
+		label = "Reset guides",
+		help = "Puts the proportion guides back at the face's thirds over what is selected (or every shown object), and shows them.",
+		icon = ICON_GUIDES_RESET,
+		run = proc(app: ^App, _: int) {guides_reset(app)},
 	},
 	.Settings = {
 		label = "Settings...",
