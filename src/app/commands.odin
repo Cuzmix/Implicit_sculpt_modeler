@@ -22,7 +22,7 @@ Command_Id :: enum u8 {
 	None,
 	// File
 	Home,
-	New_Scene, // the argument is into NEW_SCENE_SHAPES
+	New_Scene, // the argument is into NEW_SCENES
 	Open_Scene,
 	Save_Scene,
 	Save_Scene_As,
@@ -335,7 +335,7 @@ COMMANDS := [Command_Id]Command {
 		label = "New scene",
 		help = "Replaces the scene with this one shape at the Scene palette's Add size; with work to lose, it goes ahead on a second run.",
 		icon = ui.ICON_SHAPES,
-		args = len(NEW_SCENE_SHAPES),
+		args = len(NEW_SCENES),
 		run = new_scene_run,
 	},
 	.Open_Scene = {
@@ -2089,7 +2089,7 @@ command_run :: proc(app: ^App, id: Command_Id, arg := 0) -> bool {
 command_label :: proc(id: Command_Id, arg := 0) -> string {
 	#partial switch id {
 	case .New_Scene:
-		return fmt.tprintf("New scene: %v", NEW_SCENE_SHAPES[arg])
+		return fmt.tprintf("New scene: %s", NEW_SCENES[arg].name)
 	case .Brush:
 		return fmt.tprintf("%s brush", BRUSHES[sculpt.Brush_Kind(arg)].name)
 	case .View_Axis:
@@ -2359,9 +2359,50 @@ brush_strength_step :: proc(app: ^App, up: bool) {
 	s^ = clamp(s^ + (0.05 if up else -0.05), MIN_STRENGTH, 1)
 }
 
-// What Menu > New scene starts from: a sphere, or a starter (geom.starter).
+// What New scene starts from: a mesh of a shape (the sphere, a primitive or a starter,
+// geom.starter), a block of voxel clay, or no object at all.
+New_Start_Kind :: enum u8 {
+	Mesh,
+	Voxels,
+	Empty,
+}
+
+New_Start :: struct {
+	kind:  New_Start_Kind,
+	shape: geom.Primitive, // a mesh's
+	name:  string,
+}
+
+// The starts in New scene's argument order: Classic's six first, as they always were, so a
+// key, a bar button or a script that names one by its number still starts it, then the
+// ones Lens's Home added after round 2's home2 screen.
 @(rodata)
-NEW_SCENE_SHAPES := [?]geom.Primitive{.Sphere, .Head, .Bust, .Figure, .Hand, .Creature}
+NEW_SCENES := [?]New_Start {
+	{.Mesh, .Sphere, "Sphere"},
+	{.Mesh, .Head, "Head"},
+	{.Mesh, .Bust, "Bust"},
+	{.Mesh, .Figure, "Figure"},
+	{.Mesh, .Hand, "Hand"},
+	{.Mesh, .Creature, "Creature"},
+	{.Mesh, .Cube, "Cube"},
+	{.Mesh, .Plane, "Plane"},
+	{.Voxels, {}, "Voxel block"},
+	{.Empty, {}, "Empty scene"},
+}
+
+// How many of NEW_SCENES Classic's Home and menu offer.
+CLASSIC_NEW_SCENES :: 6
+
+// New scene's arguments as scripts and the keys name them: a mesh's shape, Voxels or Empty.
+new_start_key :: proc(arg: int) -> string {
+	s := NEW_SCENES[arg]
+	switch s.kind {
+	case .Mesh:   return fmt.tprint(s.shape)
+	case .Voxels: return "Voxels"
+	case .Empty:  return "Empty"
+	}
+	return ""
+}
 
 // A second run within this many seconds of the first goes ahead with a New scene that
 // discards work.
@@ -2379,16 +2420,23 @@ new_scene_armed :: proc(app: ^App, arg: int) -> bool {
 	return k.new_armed == arg + 1 && k.ctx.time - k.new_armed_at < NEW_SCENE_ARM_TIME
 }
 
-// Starts a new scene of NEW_SCENE_SHAPES[arg] at the next frame. With work to lose, the
+// Starts a new scene of NEW_SCENES[arg] at the next frame. With work to lose, the
 // first run only arms it and says so, so neither a stray tap nor a palette row wipes
 // the scene; a second run of the same shape within NEW_SCENE_ARM_TIME goes ahead.
 new_scene_run :: proc(app: ^App, arg: int) {
 	k := &app.kit
 	if scene_has_work(app) && !new_scene_armed(app, arg) {
 		k.new_armed, k.new_armed_at = arg + 1, max(k.ctx.time, 1e-6)
-		report(app, nil, {.Warning}, "New scene discards this scene and its History: run New scene: %v again to go ahead", NEW_SCENE_SHAPES[arg])
+		report(app, nil, {.Warning}, "New scene discards this scene and its History: run New scene: %s again to go ahead", NEW_SCENES[arg].name)
 		return
 	}
 	k.new_armed = 0
-	app.ui.scene_command = {kind = .New, shape = NEW_SCENE_SHAPES[arg], vertices = int(SPHERE_PRESETS[k.add_size].vertices)}
+	s := NEW_SCENES[arg]
+	cmd := Scene_Command{kind = .New, shape = s.shape, vertices = int(SPHERE_PRESETS[k.add_size].vertices)}
+	switch s.kind {
+	case .Mesh:
+	case .Voxels: cmd.voxels = voxel_resolution_for(cmd.vertices)
+	case .Empty:  cmd.on = true
+	}
+	app.ui.scene_command = cmd
 }

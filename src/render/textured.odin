@@ -73,17 +73,17 @@ textured_mesh_upload :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, tm: ^Text
 		return true
 	}
 	if u32(len(vertices)) > tm.vertex_capacity || u32(len(indices)) > tm.index_capacity || vbytes + ibytes > tm.transfer_size {
-		_ = sdl.WaitForGPUIdle(r.device)
+		_ = gpu_wait_for_idle(r.device)
 		textured_buffers_release(r, tm)
 		tm.vertex_capacity = u32(1) << u32(bits.log2(uint(len(vertices))) + 1)
 		tm.index_capacity = u32(1) << u32(bits.log2(uint(len(indices))) + 1)
 		tm.transfer_size = tm.vertex_capacity * size_of(Textured_Vertex) + 2 * tm.index_capacity * size_of(u32)
-		tm.vertices = sdl.CreateGPUBuffer(r.device, {usage = {.VERTEX}, size = tm.vertex_capacity * size_of(Textured_Vertex)})
-		tm.indices = sdl.CreateGPUBuffer(r.device, {usage = {.INDEX}, size = tm.index_capacity * size_of(u32)})
+		tm.vertices = gpu_create_buffer(r.device, {usage = {.VERTEX}, size = tm.vertex_capacity * size_of(Textured_Vertex)})
+		tm.indices = gpu_create_buffer(r.device, {usage = {.INDEX}, size = tm.index_capacity * size_of(u32)})
 		// Render mode only copies it into its own buffers; storage read is a usage every
 		// device takes.
-		tm.corners = sdl.CreateGPUBuffer(r.device, {usage = {.COMPUTE_STORAGE_READ}, size = tm.index_capacity * size_of(u32)})
-		tm.transfer = sdl.CreateGPUTransferBuffer(r.device, {usage = .UPLOAD, size = tm.transfer_size})
+		tm.corners = gpu_create_buffer(r.device, {usage = {.COMPUTE_STORAGE_READ}, size = tm.index_capacity * size_of(u32)})
+		tm.transfer = gpu_create_transfer_buffer(r.device, {usage = .UPLOAD, size = tm.transfer_size})
 		if tm.vertices == nil || tm.indices == nil || tm.corners == nil || tm.transfer == nil {
 			log.errorf("textured mesh buffers: %s", sdl.GetError())
 			textured_buffers_release(r, tm)
@@ -91,7 +91,7 @@ textured_mesh_upload :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, tm: ^Text
 		}
 	}
 	// Cycled, so a frame still reading the last upload keeps its copy.
-	dst := ([^]u8)(sdl.MapGPUTransferBuffer(r.device, tm.transfer, true))
+	dst := ([^]u8)(gpu_map_transfer_buffer(r.device, tm.transfer, true))
 	if dst == nil {
 		log.errorf("textured mesh upload: %s", sdl.GetError())
 		tm.index_count, tm.corner_count = 0, 0
@@ -101,12 +101,12 @@ textured_mesh_upload :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, tm: ^Text
 	copy(dst[vbytes:][:ibytes], ([^]u8)(raw_data(indices))[:ibytes])
 	cbytes := ibytes if len(corners) == len(indices) else 0
 	if cbytes > 0 do copy(dst[vbytes + ibytes:][:cbytes], ([^]u8)(raw_data(corners))[:cbytes])
-	sdl.UnmapGPUTransferBuffer(r.device, tm.transfer)
-	pass := sdl.BeginGPUCopyPass(cmd)
-	sdl.UploadToGPUBuffer(pass, {transfer_buffer = tm.transfer}, {buffer = tm.vertices, size = vbytes}, false)
-	sdl.UploadToGPUBuffer(pass, {transfer_buffer = tm.transfer, offset = vbytes}, {buffer = tm.indices, size = ibytes}, false)
-	if cbytes > 0 do sdl.UploadToGPUBuffer(pass, {transfer_buffer = tm.transfer, offset = vbytes + ibytes}, {buffer = tm.corners, size = cbytes}, false)
-	sdl.EndGPUCopyPass(pass)
+	gpu_unmap_transfer_buffer(r.device, tm.transfer)
+	pass := gpu_begin_copy_pass(cmd)
+	gpu_upload_to_buffer(pass, {transfer_buffer = tm.transfer}, {buffer = tm.vertices, size = vbytes}, false)
+	gpu_upload_to_buffer(pass, {transfer_buffer = tm.transfer, offset = vbytes}, {buffer = tm.indices, size = ibytes}, false)
+	if cbytes > 0 do gpu_upload_to_buffer(pass, {transfer_buffer = tm.transfer, offset = vbytes + ibytes}, {buffer = tm.corners, size = cbytes}, false)
+	gpu_end_copy_pass(pass)
 	tm.index_count = u32(len(indices))
 	tm.vertex_count = u32(len(vertices))
 	tm.corner_count = cbytes / size_of(u32)
@@ -121,8 +121,8 @@ textured_mesh_upload :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, tm: ^Text
 // when the device refuses.
 textured_mesh_set_map :: proc(r: ^Renderer, tm: ^Textured_Mesh, m: Texture_Map, pixels: []u8, width, height: int) -> bool {
 	if tm.maps[m] != nil {
-		_ = sdl.WaitForGPUIdle(r.device)
-		sdl.ReleaseGPUTexture(r.device, tm.maps[m])
+		_ = gpu_wait_for_idle(r.device)
+		gpu_release_texture(r.device, tm.maps[m])
 		tm.maps[m], tm.sizes[m] = nil, {}
 	}
 	r.last_version += 1
@@ -137,18 +137,18 @@ textured_mesh_set_map :: proc(r: ^Renderer, tm: ^Textured_Mesh, m: Texture_Map, 
 // Waits for the GPU and releases everything the mesh holds.
 textured_mesh_destroy :: proc(r: ^Renderer, tm: ^Textured_Mesh) {
 	if tm.vertices == nil && tm.maps == {} do return
-	_ = sdl.WaitForGPUIdle(r.device)
+	_ = gpu_wait_for_idle(r.device)
 	textured_buffers_release(r, tm)
-	for tex in tm.maps do if tex != nil do sdl.ReleaseGPUTexture(r.device, tex)
+	for tex in tm.maps do if tex != nil do gpu_release_texture(r.device, tex)
 	tm^ = {}
 }
 
 @(private = "file")
 textured_buffers_release :: proc(r: ^Renderer, tm: ^Textured_Mesh) {
-	if tm.vertices != nil do sdl.ReleaseGPUBuffer(r.device, tm.vertices)
-	if tm.indices != nil do sdl.ReleaseGPUBuffer(r.device, tm.indices)
-	if tm.corners != nil do sdl.ReleaseGPUBuffer(r.device, tm.corners)
-	if tm.transfer != nil do sdl.ReleaseGPUTransferBuffer(r.device, tm.transfer)
+	if tm.vertices != nil do gpu_release_buffer(r.device, tm.vertices)
+	if tm.indices != nil do gpu_release_buffer(r.device, tm.indices)
+	if tm.corners != nil do gpu_release_buffer(r.device, tm.corners)
+	if tm.transfer != nil do gpu_release_transfer_buffer(r.device, tm.transfer)
 	tm.vertices, tm.indices, tm.corners, tm.transfer = nil, nil, nil, nil
 	tm.vertex_capacity, tm.index_capacity, tm.transfer_size, tm.index_count, tm.vertex_count, tm.corner_count = 0, 0, 0, 0, 0, 0
 }
@@ -167,16 +167,16 @@ draw_textured_item :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.
 	tm := item.textured
 	for m in Texture_Map do material.maps[int(m)] = 1 if tm.maps[m] != nil else 0
 	material.maps.w = f32(item.texture_view)
-	sdl.PushGPUVertexUniformData(cmd, 0, frame, size_of(Frame_Uniforms))
-	sdl.PushGPUFragmentUniformData(cmd, 0, material, size_of(Material_Uniforms))
+	gpu_push_vertex_uniform_data(cmd, 0, frame, size_of(Frame_Uniforms))
+	gpu_push_fragment_uniform_data(cmd, 0, material, size_of(Material_Uniforms))
 	defaults := [Texture_Map]^sdl.GPUTexture{.Base_Color = r.no_matcap, .Orm = r.no_matcap, .Normal = r.no_normal_map}
 	samplers := [5]sdl.GPUTextureSamplerBinding{{texture = item.matcap if item.matcap != nil else r.no_matcap, sampler = r.matcap_sampler}, environment_binding(r), {}, {}, {}}
 	for m in Texture_Map do samplers[2 + int(m)] = {texture = tm.maps[m] if tm.maps[m] != nil else defaults[m], sampler = r.texture_sampler}
-	sdl.BindGPUFragmentSamplers(pass, 0, &samplers[0], len(samplers))
+	gpu_bind_fragment_samplers(pass, 0, &samplers[0], len(samplers))
 	vbuf := sdl.GPUBufferBinding{buffer = tm.vertices}
-	sdl.BindGPUVertexBuffers(pass, 0, &vbuf, 1)
-	sdl.BindGPUIndexBuffer(pass, {buffer = tm.indices}, ._32BIT)
-	sdl.DrawGPUIndexedPrimitives(pass, tm.index_count, 1, 0, 0, 0)
+	gpu_bind_vertex_buffers(pass, 0, &vbuf, 1)
+	gpu_bind_index_buffer(pass, {buffer = tm.indices}, ._32BIT)
+	gpu_draw_indexed_primitives(pass, tm.index_count, 1, 0, 0, 0)
 	if stats == nil do return
 	stats.triangles += u64(tm.index_count / 3)
 	stats.draws += 1
@@ -189,7 +189,7 @@ draw_textured_item :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.
 texture_create :: proc(r: ^Renderer, format: sdl.GPUTextureFormat, pixels: []u8, width, height: int) -> ^sdl.GPUTexture {
 	assert(width > 0 && height > 0 && len(pixels) == width * height * 4)
 	levels := u32(bits.log2(uint(max(width, height)))) + 1
-	tex := sdl.CreateGPUTexture(r.device, {
+	tex := gpu_create_texture(r.device, {
 		type = .D2, format = format, usage = {.SAMPLER, .COLOR_TARGET},
 		width = u32(width), height = u32(height), layer_count_or_depth = 1, num_levels = levels,
 	})
@@ -198,7 +198,7 @@ texture_create :: proc(r: ^Renderer, format: sdl.GPUTextureFormat, pixels: []u8,
 		return nil
 	}
 	if !texture_upload(r, tex, pixels, width, height, mips = levels > 1) {
-		sdl.ReleaseGPUTexture(r.device, tex)
+		gpu_release_texture(r.device, tex)
 		return nil
 	}
 	return tex

@@ -288,6 +288,10 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   `cmd_begin`/`cmd_submit`/`cmd_submit_fenced`/`cmd_cancel`, `fence_finish`, `swapchain_acquire`, `ui_present`
   (each window's present pass), `renderer_ready`. `scripts/boundary_check.py` (run by `check`) fails on any
   `sdl.*GPU*` name or native GPU import outside `src/render`; a new GPU need is a render proc, never an app call.
+  Inside render, SDL_GPU's procs are called only from the seam `hal.odin` (`gpu_create_texture` for
+  `sdl.CreateGPUTexture`, same arguments), and every `gpu_*` there first hands the call to
+  the Vulkan backend when `gpu_backend == .Vulkan` (`--gpu=vulkan`); the check fails on a direct `sdl.*GPU*(` call anywhere else in render. SDL's types and info structs stay, as opaque
+  handles render never dereferences.
   `render` never reads UI state.
 - Every `sdl.*GPU*` result is consumed (sm-odin); wait for the GPU before destroying anything drawn this frame;
   `renderer_destroy` waits and releases in reverse order.
@@ -303,4 +307,14 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   unfused (`smooth_all.comp.slang`, which must equal the CPU). Commit the regenerated `.spv` with the source; never
   hand-edit `.spv`. A shader change that should not move a pixel passes `scripts/parity_check.py` (19 scenes, viewport
   and window, against a baseline drawn by the old build; `--app` picks the binary) at 0 px.
+- The Vulkan backend (`vk_device.odin`, `vk_resources.odin`, `vk_cmd.odin`, `vk_swapchain.odin`) mirrors SDL_GPU's
+  own Vulkan backend (`deps/sdl3-src/src/gpu/vulkan/SDL_gpu_vulkan.c` is the reference): the same descriptor sets per
+  stage, uniforms as dynamic uniform buffers of 4096 bytes from a per-command-buffer arena, default layouts per usage
+  that passes leave and restore, cycling by backings, deferred destruction by refcount, a flipped viewport, dynamic
+  rendering and a timeline semaphore whose serials are the fences. It needs Vulkan 1.3 with dynamicRendering,
+  synchronization2, timelineSemaphore and independentBlend, and `renderer_init` falls back to SDL_GPU otherwise.
+  A `vk_*` proc takes its struct parameters `#by_ptr` exactly as the `gpu_*` wrapper does, or the values arrive as
+  garbage. Under `--gpu-debug` it runs the validation layer with synchronization validation and every message fails
+  the run (`render.validation_errors`); smoke runs both backends, and a render change passes
+  `parity_check.py --compare <sdl run> -- --gpu=vulkan` at 0 px.
 - GPU timing (`--time-gpu`) serialises frames; leave it off except when measuring (sm-perf).

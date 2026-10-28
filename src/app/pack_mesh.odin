@@ -167,7 +167,7 @@ scene_new_pack_mesh :: proc(app: ^App, j: int) -> bool {
 }
 
 // How Kit_State.new_armed names a pack mesh's New scene: NEW_ARMED_MESH + its index,
-// apart from the shapes' 1 to len(NEW_SCENE_SHAPES).
+// apart from the shapes' 1 to len(NEW_SCENES).
 NEW_ARMED_MESH :: 1 << 16
 
 // Whether New scene from the library's mesh `j` was asked once and a second ask now

@@ -53,14 +53,17 @@ voxel_vertices_for :: proc(resolution: int) -> int {
 	return int(VOXEL_VERTICES_PER_VOXEL2 * f64(resolution) * f64(resolution))
 }
 
-// Makes the object a voxel sphere: the clay, its first surface, the empty level and the
-// GPU copy. Returns false on a GPU failure, with nothing of the object made.
-object_build_voxel :: proc(app: ^App, obj: ^Object, resolution: int) -> bool {
+// Makes the object a voxel sphere, or with `box` a block: the clay, its first surface,
+// the empty level and the GPU copy. Returns false on a GPU failure, with nothing of the
+// object made.
+object_build_voxel :: proc(app: ^App, obj: ^Object, resolution: int, box := false) -> bool {
 	start := time.tick_now()
 	vp := new(Voxel_Part)
 	vp.resolution = resolution
 	voxel.clay_init(&vp.clay, 2 / f32(resolution), {}, &app.pool)
-	voxel.clay_fill_sphere(&vp.clay, {}, 1)
+	// A box as wide as the Cube primitive, inside the sphere's two units.
+	if box do voxel.clay_fill_box(&vp.clay, {}, {0.8, 0.8, 0.8})
+	else do voxel.clay_fill_sphere(&vp.clay, {}, 1)
 	_ = voxel.clay_flush(&vp.clay)
 	return voxel_part_attach(app, obj, vp, start)
 }

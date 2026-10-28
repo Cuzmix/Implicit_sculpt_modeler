@@ -33,6 +33,7 @@ primitives_are_closed_and_outward :: proc(t: ^testing.T) {
 			case .Cylinder: exact = math.PI * 0.49 * 1.6
 			case .Cone:     exact = math.PI * 0.64 * 1.6 / 3
 			case .Torus:    exact = 2 * math.PI * math.PI * 0.75 * 0.09
+			case .Plane:    exact = 1.6 * 1.6 * 2 * PLANE_HALF_THICKNESS
 			case .Head, .Bust, .Figure, .Hand, .Creature:
 			}
 			testing.expectf(t, abs(r.volume - exact) < 0.05 * exact, "%v %d: volume %.4f, want %.4f", shape, want, r.volume, exact)

@@ -3,6 +3,8 @@ package main
 import "core:log"
 import sdl "vendor:sdl3"
 
+import "../render"
+
 // What differs when the app runs as an Android app (android/ holds the Gradle project
 // that packages it), and the SDL hints every platform shares.
 
@@ -58,7 +60,7 @@ platform_hints :: proc() {
 // The main window's flags: a tablet app fills the screen, with the system bars hidden
 // until swiped in; panels stay inside the safe area either way.
 platform_window_flags :: proc() -> sdl.WindowFlags {
-	flags := sdl.WindowFlags{.RESIZABLE, .HIGH_PIXEL_DENSITY}
+	flags := sdl.WindowFlags{.RESIZABLE, .HIGH_PIXEL_DENSITY} + render.window_flags()
 	when ODIN_PLATFORM_SUBTARGET == .Android do flags += {.FULLSCREEN}
 	return flags
 }

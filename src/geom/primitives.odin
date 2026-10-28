@@ -20,6 +20,9 @@ Primitive :: enum u8 {
 	Figure,
 	Hand,
 	Creature,
+	// A square slab, 1.6 across and 0.24 thick: ground, a relief or a tile to sculpt on,
+	// closed so that every tool that needs a volume works on it.
+	Plane,
 }
 
 // Builds `shape` with about `vertices` vertices. The cube and torus are grids, so their
@@ -46,9 +49,20 @@ primitive :: proc(shape: Primitive, vertices: int, pool: ^jobs.Pool, allocator :
 		return remesh_voxel(outline, vertices, pool, allocator)
 	case .Head, .Bust, .Figure, .Hand, .Creature:
 		return starter(shape, vertices, pool, allocator)
+	case .Plane:
+		// A box flattened to the slab and voxel remeshed to the count, so the triangles are
+		// even across the faces and the thin rim instead of stretched along the rim.
+		box := cube_grid(4, 0.8, pool, context.temp_allocator) or_return
+		for &p in box.positions do p.y *= PLANE_HALF_THICKNESS / 0.8
+		// The remesh sizes its lattice for surfaces at every angle, which cross 1.5 lattice
+		// edges where faces square to the lattice cross one, so ask for half as many again.
+		return remesh_voxel(box, vertices * 3 / 2, pool, allocator)
 	}
 	return {}, false
 }
+
+// Half the Plane's thickness.
+PLANE_HALF_THICKNESS :: 0.12
 
 // A cube from -half to half on each axis, each face an n × n grid of squares cut in two.
 cube_grid :: proc(n: int, half: f32, pool: ^jobs.Pool, allocator := context.allocator) -> (m: Mesh, ok: bool) {

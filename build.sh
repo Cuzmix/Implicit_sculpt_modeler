@@ -9,7 +9,8 @@
 #   bench   headless sculpt benchmark at 500k, 1M, 5M, 7M and 10M vertices (no display
 #           needed); extra args go to build/bench, e.g. 2000000 --threads=1
 #   smoke   debug build, then run 300 frames with GPU debug mode and a view window (a
-#           second swapchain); fails on any SDL assert, GPU error or leaked allocation
+#           second swapchain), once on SDL_GPU and once on the Vulkan backend; fails on
+#           any SDL assert, GPU error, Vulkan validation message or leaked allocation
 #           (needs a display, e.g. Xvfb)
 #   gpubench release build, then time the GPU and CPU while orbiting and sculpting a
 #           sphere at 500k, 1M, 5M, 7M and 10M vertices, with each speed setting on and
@@ -69,7 +70,11 @@ case "$mode" in
 		compile_shaders
 		"$ODIN" build "$ROOT/src/app" -out:"$ROOT/build/sculpt" -debug "${common[@]}"
 		if [ "$mode" = run ]; then exec "$ROOT/build/sculpt" "$@"; fi
-		if [ "$mode" = smoke ]; then SDL_ASSERT=abort exec "$ROOT/build/sculpt" --frames=300 --gpu-debug --view-windows=1 "$@"; fi
+		# The smoke runs once on each GPU backend; a Vulkan validation message fails it.
+		if [ "$mode" = smoke ]; then
+			SDL_ASSERT=abort "$ROOT/build/sculpt" --frames=300 --gpu-debug --view-windows=1 --gpu=sdl "$@"
+			SDL_ASSERT=abort exec "$ROOT/build/sculpt" --frames=300 --gpu-debug --view-windows=1 --gpu=vulkan "$@"
+		fi
 		;;
 	release|gpubench|computebench)
 		need_luau
@@ -85,20 +90,20 @@ case "$mode" in
 	test)
 		compile_shaders
 		need_luau
-		for pkg in geom camera sculpt jobs gizmo png_write zip voxel ui luau app; do
+		for pkg in geom poly camera sculpt jobs gizmo png_write zip voxel ui luau app; do
 			"$ODIN" test "$ROOT/src/$pkg" -out:"$ROOT/build/test_$pkg" "${common[@]}"
 		done
 		;;
 	check)
 		# Library packages have no main, hence -no-entry-point; it is harmless on the executables.
 		# odin check takes no linker flags, so this is wincheck's flag list, not common's.
-		for pkg in app bench geom camera gizmo jobs luau png_write render sculpt sdf_trial ui voxel zip; do
+		for pkg in app bench geom camera gizmo jobs luau png_write poly render sculpt sdf_trial ui voxel zip; do
 			"$ODIN" check "$ROOT/src/$pkg" -no-entry-point \
 				-collection:deps="$DEPS" -vet -strict-style -warnings-as-errors
 		done
 		python3 "$ROOT/scripts/agents_sync.py" --check
 		python3 "$ROOT/scripts/boundary_check.py"
-		echo "check: 14 packages type-check, agent mirror current, only render names the GPU API"
+		echo "check: 15 packages type-check, agent mirror current, only render names the GPU API"
 		;;
 	wincheck)
 		# Object files need no Windows SDK; the empty root only satisfies the flag.

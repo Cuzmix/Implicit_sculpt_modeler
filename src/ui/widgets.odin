@@ -1212,8 +1212,9 @@ Area :: struct {
 
 // A space `size` points (width 0 takes the column's fill width) that the caller draws
 // into and reads the pointer over: a graph with handles to drag, a bar to scrub, a
-// thumbnail to pick.
-area :: proc(ctx: ^Context, name: string, size: [2]f32) -> Area {
+// thumbnail to pick. With `drag` false it only takes taps, so a drag that starts on it
+// still scrolls the panel under it, as a tile in a scrolling page wants.
+area :: proc(ctx: ^Context, name: string, size: [2]f32, drag := true) -> Area {
 	ctx.controls += 1
 	w := size.x if size.x > 0 else fill_width(ctx)
 	if w <= 0 do w = 200
@@ -1221,7 +1222,7 @@ area :: proc(ctx: ^Context, name: string, size: [2]f32) -> Area {
 	id := id_of(ctx, name)
 	hovered, held, clicked, pressed := interact(ctx, id, r)
 	// What is drawn in it takes a drag any way it goes, so a panel never scrolls from it.
-	if pressed do _ = claim_drag(ctx, -1)
+	if pressed && drag do _ = claim_drag(ctx, -1)
 	return {id, r, hovered, held, pressed, clicked, ctx.input.mouse}
 }
 
@@ -1577,16 +1578,7 @@ picture_tile :: proc(ctx: ^Context, s: string, width: f32, pic: Picture, title, 
 	fill_rect(ctx, well, t.radius_medium, t.surface)
 	center := [2]f32{well.x + well.w * 0.5, well.y + well.h * 0.5}
 	if pic.image != 0 && pic.aspect > 0 {
-		lo, hi := pic.lo, pic.hi
-		wa := well.w / well.h
-		if pic.aspect > wa {
-			cut := (hi.x - lo.x) * (1 - wa / pic.aspect) * 0.5
-			lo.x, hi.x = lo.x + cut, hi.x - cut
-		} else {
-			cut := (hi.y - lo.y) * (1 - pic.aspect / wa) * 0.5
-			lo.y, hi.y = lo.y + cut, hi.y - cut
-		}
-		image_part(ctx, {well.x + 1, well.y + 1, well.w - 2, well.h - 2}, pic.image, lo, hi)
+		picture_cover(ctx, well, pic, inset = 1)
 	} else if pic.glyph != 0 {
 		icon(ctx, pic.glyph, center, t.icon_size + 8, t.text_tertiary)
 	}
@@ -1607,6 +1599,23 @@ picture_tile :: proc(ctx: ^Context, s: string, width: f32, pic: Picture, title, 
 	press_scale(ctx, mark, cell, scale)
 	tip(ctx, id, well, label_text(s))
 	return
+}
+
+// `pic`'s image over all of `r` (less `inset` points round it, so a hairline drawn on
+// `r` stays clear), cut to `r`'s shape rather than shrunk into it: a scene's picture on a
+// tile or a card.
+picture_cover :: proc(ctx: ^Context, r: Rect, pic: Picture, inset: f32 = 0) {
+	if pic.image == 0 || pic.aspect <= 0 || r.w <= 0 || r.h <= 0 do return
+	lo, hi := pic.lo, pic.hi
+	wa := r.w / r.h
+	if pic.aspect > wa {
+		cut := (hi.x - lo.x) * (1 - wa / pic.aspect) * 0.5
+		lo.x, hi.x = lo.x + cut, hi.x - cut
+	} else {
+		cut := (hi.y - lo.y) * (1 - pic.aspect / wa) * 0.5
+		lo.y, hi.y = lo.y + cut, hi.y - cut
+	}
+	image_part(ctx, {r.x + inset, r.y + inset, r.w - 2 * inset, r.h - 2 * inset}, pic.image, lo, hi)
 }
 
 // A ball of `color`, `radius` points across from `center`, lit from the upper left with a

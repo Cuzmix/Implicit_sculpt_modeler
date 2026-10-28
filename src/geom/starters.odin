@@ -203,7 +203,7 @@ starter :: proc(shape: Primitive, asked: int, pool: ^jobs.Pool, allocator := con
 }
 
 // Whether `shape` is a starter: a blockout to sculpt from, not a plain primitive.
-is_starter :: proc(shape: Primitive) -> bool {return shape >= .Head}
+is_starter :: proc(shape: Primitive) -> bool {return shape >= .Head && shape <= .Creature}
 
 // Fewer vertices than this and the thinnest parts (fingers, a tail) fall apart on the
 // remesh's lattice, so a starter is never built smaller.

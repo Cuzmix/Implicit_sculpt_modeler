@@ -149,7 +149,7 @@ panorama_direction :: proc(x, y, width, height: int) -> [3]f32 {
 
 // Uploads a table as an RGBA32F texture; nil, logged, when the device refuses.
 env_table_texture :: proc(r: ^Renderer, t: Env_Table) -> ^sdl.GPUTexture {
-	tex := sdl.CreateGPUTexture(r.device, {
+	tex := gpu_create_texture(r.device, {
 		type = .D2, format = ENV_TABLE_FORMAT, usage = {.SAMPLER},
 		width = u32(t.width), height = u32(t.height), layer_count_or_depth = 1, num_levels = 1,
 	})
@@ -158,7 +158,7 @@ env_table_texture :: proc(r: ^Renderer, t: Env_Table) -> ^sdl.GPUTexture {
 		return nil
 	}
 	if !texture_upload(r, tex, mem.slice_to_bytes(t.texels), t.width, t.height, mips = false) {
-		sdl.ReleaseGPUTexture(r.device, tex)
+		gpu_release_texture(r.device, tex)
 		return nil
 	}
 	return tex

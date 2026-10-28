@@ -46,7 +46,8 @@ description: Implicit and SDF modelling for this app — the src/sdf_trial spike
   smaller |d| → `SADDLE_FLIP` = +1 unit; ties to the lower z, y, x; a corner in an Inside tile makes a brick; the
   brick is `undo_record`ed when `record`, `band_mark`ed and its nodes marked); a flip only turns inside voxels
   outside, so it ends. Runs at `clay_stroke_end` over the stroke's saved bricks (a per-dab scan cost 1.2 ms a dab
-  at 1024, so between dabs a saddle may stand), and `resolve_all_saddles` after `clay_fill_sphere`, `clay_from_mesh`,
+  at 1024, so between dabs a saddle may stand), and `resolve_all_saddles` after `clay_fill_sphere` / `clay_fill_box` (both `volume_fill` of a `Fill_Shape`,
+  whose `shape_distance` must stay exact so a brick's middle bounds its voxels), `clay_from_mesh`,
   `clay_resample` and `clay_read`. `mesh_node` makes one vertex per LOOP of crossed edges in a cell (`Cell_Verts`,
   edges joined through `CELL_FACES`, `cell_edge(axis, corner)` names the edge a quad takes in each of its four
   cells); with no saddle faces every quad side is in exactly two quads and each vertex's quads form one cycle:

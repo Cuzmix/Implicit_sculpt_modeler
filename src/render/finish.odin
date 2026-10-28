@@ -94,13 +94,13 @@ finish_frame :: proc(r: ^Renderer, f: ^Finish, cmd: ^sdl.GPUCommandBuffer, sourc
 	f.passes += 1
 	u := finish_uniforms(look, linear, f32(width) / f32(max(height, 1)))
 	target := sdl.GPUColorTargetInfo{texture = f.shown, load_op = .DONT_CARE, store_op = .STORE, cycle = true}
-	pass := sdl.BeginGPURenderPass(cmd, &target, 1, nil)
-	sdl.BindGPUGraphicsPipeline(pass, f.pipeline)
+	pass := gpu_begin_render_pass(cmd, &target, 1, nil)
+	gpu_bind_graphics_pipeline(pass, f.pipeline)
 	samplers := [1]sdl.GPUTextureSamplerBinding{{texture = source, sampler = f.sampler}}
-	sdl.BindGPUFragmentSamplers(pass, 0, &samplers[0], len(samplers))
-	sdl.PushGPUFragmentUniformData(cmd, 0, &u, size_of(u))
-	sdl.DrawGPUPrimitives(pass, 3, 1, 0, 0)
-	sdl.EndGPURenderPass(pass)
+	gpu_bind_fragment_samplers(pass, 0, &samplers[0], len(samplers))
+	gpu_push_fragment_uniform_data(cmd, 0, &u, size_of(u))
+	gpu_draw_primitives(pass, 3, 1, 0, 0)
+	gpu_end_render_pass(pass)
 	return true
 }
 
@@ -118,10 +118,10 @@ finish_reset :: proc(f: ^Finish) {
 
 finish_destroy :: proc(r: ^Renderer, f: ^Finish) {
 	if r.device == nil do return
-	_ = sdl.WaitForGPUIdle(r.device)
-	if f.pipeline != nil do sdl.ReleaseGPUGraphicsPipeline(r.device, f.pipeline)
-	if f.sampler != nil do sdl.ReleaseGPUSampler(r.device, f.sampler)
-	if f.shown != nil do sdl.ReleaseGPUTexture(r.device, f.shown)
+	_ = gpu_wait_for_idle(r.device)
+	if f.pipeline != nil do gpu_release_graphics_pipeline(r.device, f.pipeline)
+	if f.sampler != nil do gpu_release_sampler(r.device, f.sampler)
+	if f.shown != nil do gpu_release_texture(r.device, f.shown)
 	f^ = {failed = f.failed, passes = f.passes}
 }
 
@@ -221,7 +221,7 @@ finish_key :: proc(source: ^sdl.GPUTexture, width, height: u32, linear: bool, lo
 finish_ensure :: proc(r: ^Renderer, f: ^Finish, width, height: u32) -> bool {
 	if f.pipeline == nil {
 		f.pipeline = create_fullscreen_pipeline(r, FINISH_FRAG_SPV, VIEWPORT_COLOR_FORMAT, samplers = 1)
-		f.sampler = sdl.CreateGPUSampler(r.device, {
+		f.sampler = gpu_create_sampler(r.device, {
 			min_filter = .NEAREST, mag_filter = .NEAREST, mipmap_mode = .NEAREST,
 			address_mode_u = .CLAMP_TO_EDGE, address_mode_v = .CLAMP_TO_EDGE, address_mode_w = .CLAMP_TO_EDGE,
 		})
@@ -231,8 +231,8 @@ finish_ensure :: proc(r: ^Renderer, f: ^Finish, width, height: u32) -> bool {
 		}
 	}
 	if f.shown != nil && f.width == width && f.height == height do return true
-	if f.shown != nil do sdl.ReleaseGPUTexture(r.device, f.shown)
-	f.shown = sdl.CreateGPUTexture(r.device, {
+	if f.shown != nil do gpu_release_texture(r.device, f.shown)
+	f.shown = gpu_create_texture(r.device, {
 		type = .D2, format = VIEWPORT_COLOR_FORMAT, usage = {.COLOR_TARGET, .SAMPLER},
 		width = width, height = height, layer_count_or_depth = 1, num_levels = 1,
 	})

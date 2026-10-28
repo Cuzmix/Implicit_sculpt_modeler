@@ -157,7 +157,7 @@ Kit_State :: struct {
 	keys_query: [64]u8, // Settings > Keys' search
 	settings_wipe: f64, // when Reset everything was first tapped: a second tap soon after resets
 	// The New scene shape armed by a first run while the scene had work to lose (its
-	// NEW_SCENE_SHAPES index + 1, 0 for none) and when: a second run soon after goes ahead.
+	// NEW_SCENES index + 1, 0 for none) and when: a second run soon after goes ahead.
 	new_armed:    int,
 	new_armed_at: f64,
 	// The Preset section's name field: what is typed, and which preset (from 1) it renames
@@ -1444,18 +1444,19 @@ kit_menu :: proc(app: ^App, anchor: ui.Rect) {
 	if pick do k.menu = false
 }
 
-// The starter shapes three to a row, each its shape's name, then each content pack's
-// meshes under its name: Classic's menu and Lens's New submenu. One armed by a first tap
+// The new scene starts three to a row, each its name (Classic's six, Lens's all), then
+// each content pack's meshes under its name: Classic's menu and Lens's New submenu. One armed by a first tap
 // (the scene has work to lose) turns red and asks, and the menu stays open for the second
 // tap. Returns whether a scene was started.
 menu_new_scenes :: proc(app: ^App, body_w: f32) -> (pick: bool) {
 	ctx := &app.kit.ctx
 	w := (body_w - 2 * 6) / 3
-	for row in 0 ..< len(NEW_SCENE_SHAPES) / 3 {
+	starts := len(NEW_SCENES) if app.kit.chrome == .Lens else CLASSIC_NEW_SCENES
+	for row in 0 ..< (starts + 2) / 3 {
 		ui.begin(ctx, fmt.tprintf("new scene row %d", row), {direction = .Row, gap = 6})
-		for i in row * 3 ..< row * 3 + 3 {
+		for i in row * 3 ..< min(row * 3 + 3, starts) {
 			armed := new_scene_armed(app, i)
-			label := "Discard?" if armed else fmt.tprint(NEW_SCENE_SHAPES[i])
+			label := "Discard?" if armed else NEW_SCENES[i].name
 			if command_button(app, .New_Scene, i, label = label, variant = .Solid if armed else .Flat, tone = .Danger if armed else .Neutral, width = w) && !new_scene_armed(app, i) do pick = true
 		}
 		ui.end(ctx)

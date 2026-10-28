@@ -59,6 +59,8 @@ description: The src/geom package — the structure-of-arrays geom.Mesh and its 
   keeps the result closed and manifold, three rounds of tangential relaxation even it out (`:11-29`); storage grows with
   the surface, not the volume; at most `REMESH_MAX_LATTICE` (4096) per axis. Tests in `remesh_test.odin`
   (`expect_closed_manifold`, Euler characteristic 2, distance to the sphere within 0.6 of the spacing).
+  Its spacing assumes surfaces at every angle (1.5 crossings per lattice edge); a shape whose faces are square to the
+  lattice gets two thirds of the target, so `primitive(.Plane)` asks for half as many again.
 - Lattice rays (`src/geom/lattice_rays.odin`): the remesh's ray casting, public so `voxel.clay_from_mesh` shares it.
   `lattice_quantize(m, origin, h, pool, allocator)` snaps vertices to `LATTICE_FIX` (2¹⁶) units of the spacing;
   `lattice_rays_cast(m, q, origin, h, n, axis, split, weight, pool, allocator) -> Lattice_Rays` casts every ray of the
