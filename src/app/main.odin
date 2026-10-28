@@ -1482,6 +1482,17 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		k := &app.kit
 		fmt.printfln("palette=%d palette_runs=%d palette_last=%s settings_tab=%v settings_section=%v settings_found=%s tool=%s", int(k.palette), k.palette_runs, palette_entry_name(k.palette_last) if k.palette_ran else "none", k.settings_tab, k.settings_section, settings_found_text(k), strings.to_lower(fmt.tprint(app.tool), context.temp_allocator))
 		fmt.printfln("export_open=%d export_format=%v export_runs=%d", int(k.export.open), k.export.format, k.export.runs)
+		dial := strings.builder_make(context.temp_allocator)
+		for d, i in k.dial {
+			if i > 0 do strings.write_byte(&dial, ',')
+			switch v in d {
+			case Modifier: fmt.sbprint(&dial, v)
+			case Bar_Slot: strings.write_string(&dial, command_name(v.id, v.arg))
+			}
+		}
+		zone := "none"
+		if z, ok := k.arrange.picked.?; ok do zone = fmt.tprint(z)
+		fmt.printfln("dial_sectors=%s arrange_zone=%s arrange_resets=%d library=%d library_tab=%v", strings.to_string(dial), zone, k.arrange.resets, int(k.bars_edit && !k.arrange.library_off), k.arrange.tab)
 		groups := strings.builder_make(context.temp_allocator)
 		for g in k.palette_groups do fmt.sbprintf(&groups, "%s%v", "," if strings.builder_len(groups) > 0 else "", g)
 		locks := 0

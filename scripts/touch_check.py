@@ -3400,6 +3400,63 @@ def lens_export_sheet_picks_a_format():
     return Steps([run(False), run(True)])
 
 
+# Lens's Arrange at 1440x900 (--script=customise_bars): the Library's Dial tab, the Top
+# and Bottom sector selects with the Top list's last row and the Bottom list's Hide, the
+# top bar's Reset zone and Done, the Dial's and the Rail's tags, and the dial's top sector.
+LENS_ARRANGE = {"dial_tab": (432, 180), "top": (578, 260), "choose": (460, 530), "bottom": (578, 372), "hide": (460, 554),
+                "reset_zone": (601, 26), "done": (941, 26), "dial_tag": (33, 751), "rail_tag": (1404, 67), "dial_top": (78, 778)}
+
+
+@scenario
+def lens_arrange_dial_sector_runs_a_command():
+    """Library > Dial puts Frame all on the dial's top sector through Search; after Done a tap there frames the scene and latches nothing."""
+    a = LENS_ARRANGE
+    s = Script()
+    s.wait(6)
+    s.ftap(*a["dial_tab"])
+    s.wait(6)
+    s.ftap(*a["top"])
+    s.wait(6)
+    s.ftap(*a["choose"])
+    s.wait(8)
+    s.type("frame all")
+    s.wait(4)
+    s.press("Return")
+    s.wait(6)
+    s.ftap(*a["done"])
+    s.wait(8)
+    s.ftap(*a["dial_top"])
+    s.wait(30)
+    return s, LENS_1440 + ["--script=customise_bars"], {"dial_sectors": lambda v: v.startswith("Frame_All,Brush_Pie"), "rail_latched": is_text("none"),
+                                                        "bars_edit": near(0), "camera_distance": lambda v: abs(float(v) - 3.5) > 0.1, "dabs": near(0)}
+
+
+@scenario
+def lens_arrange_reset_zone():
+    """A tap on a zone's tag picks it; with Hide on the dial's bottom sector, picking the Dial and Reset zone puts the dial back as it comes."""
+    a = LENS_ARRANGE
+    def run(reset):
+        s = Script()
+        s.wait(6)
+        s.ftap(*a["rail_tag"])
+        s.wait(4)
+        if not reset:
+            return s, LENS_1440 + ["--script=customise_bars"], camera_still({"arrange_zone": is_text("Rail"), "dabs": near(0)})
+        s.ftap(*a["dial_tab"])
+        s.wait(6)
+        s.ftap(*a["bottom"])
+        s.wait(6)
+        s.ftap(*a["hide"])
+        s.wait(6)
+        s.ftap(*a["dial_tag"])
+        s.wait(4)
+        s.ftap(*a["reset_zone"])
+        s.wait(6)
+        return s, LENS_1440 + ["--script=customise_bars"], camera_still({"arrange_zone": is_text("Dial"), "arrange_resets": near(1),
+                                                                         "dial_sectors": is_text("Smooth,Brush_Pie,Invert,Mask"), "dabs": near(0)})
+    return Steps([run(False), run(True)])
+
+
 # Lens's brush pie at 1440x900: the dial's Pie sector opens it at the viewport's middle;
 # the top slice (Clay) and the editor's first brush slot.
 LENS_PIE = {"dial": (122, 822), "middle": (720, 450), "top": (720, 334), "crease": (800, 520), "editor_first": (764, 190), "search": (1180, 26)}

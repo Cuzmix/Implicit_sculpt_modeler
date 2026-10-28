@@ -811,6 +811,12 @@ settings_load :: proc(app: ^App, path: string) {
 				// dock <slot> command <command name>: a command in the slot (Customise bars).
 				if id, arg, ok := command_from_name(f[3]); ok && bar_lists(id) do app.kit.dock[slot], dock_presets[slot] = {command = {id, arg}}, ""
 			}
+		case "dial_sector":
+			// dial_sector <0-3, clockwise from the top> modifier <name> | command <name>.
+			if len(f) != 4 do continue
+			i, i_ok := strconv.parse_int(f[1])
+			if !i_ok || i < 0 || i >= len(app.kit.dial) do continue
+			if s, ok := dial_sector_parse(f[2], f[3]); ok do app.kit.dial[i] = s
 		case "dock_count":
 			// dock_count <n>: how many slots the dock uses, before its dock lines.
 			if n, ok := strconv.parse_int(f[1]); ok && len(f) == 2 do app.kit.dock_count = clamp(n, 1, DOCK_SLOTS)
@@ -1046,6 +1052,8 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 		if !pie_changed(app, n) do continue
 		for s, i in app.kit.pies[n] do fmt.sbprintfln(&out, "pie %d %d %s", n, i, command_name(s.id, s.arg) if s.id != .None else "empty")
 	}
+	// The dial only when it differs from a fresh install's, written whole.
+	if !dial_is_default(&app.kit) do for s, i in app.kit.dial do fmt.sbprintfln(&out, "dial_sector %d %s", i, dial_sector_text(s))
 	for f in app.kit.favourites[:app.kit.favourite_count] do fmt.sbprintfln(&out, "favourite %s", command_name(f.id, f.arg))
 	for s, slot in app.plugins.slots do if s.key != "" do fmt.sbprintfln(&out, "plugin_slot %d %s", slot, preset_escape(s.key))
 	gestures := GESTURE_DEFAULTS

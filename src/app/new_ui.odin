@@ -120,6 +120,7 @@ Kit_State :: struct {
 	// Arrange's drawer of panels (arrange.odin): open, and its button.
 	arrange_drawer:    bool,
 	arrange_drawer_at: ui.Rect,
+	arrange:           Arrange_State, // Lens's Arrange: the zone picked, the Library (lens_arrange.odin)
 	shortcut_scroll: f32, // the shortcut column's, on a window too short for all of it
 	bar_slot:   Bar_Slot_Menu,
 	dock_page:  int, // the page the bottom bar shows
@@ -211,6 +212,7 @@ Kit_State :: struct {
 	passes:     Passes, // the pass the viewport shows (passes.odin)
 	wheel_size: Wheel_Size,
 	wheel_labels: Wheel_Labels, // what its sectors show
+	dial:       [4]Dial_Sector, // what its sectors do, clockwise from the top
 	wheel_turn: f32, // how far it is turned clockwise, in degrees, -180 to 180
 	wheel_offset: [2]f32, // how far its grip dragged it from its place, in points
 	// The hand the moved windows and the wheel's drag were placed for: ctx.mirror is the
@@ -794,6 +796,7 @@ kit_init :: proc(app: ^App) {
 	k.column_popovers = true
 	k.clean_dial = true
 	k.rail_side, k.wheel_size = .Left, .Medium
+	k.dial = DIAL_DEFAULT
 	k.action_bar = true
 	bars_reset(k)
 	grid_reset(&k.grid)
@@ -1234,6 +1237,7 @@ kit_layout :: proc(app: ^App) {
 	kit_shelf_quick(app)
 	kit_arrange_ghosts(app)
 	kit_arrange_head(app)
+	kit_arrange_lens(app)
 	kit_bar_popover(app)
 	kit_bar_scrub(app)
 	// After the bar's popover, as a colour field in its section opens this one over it.

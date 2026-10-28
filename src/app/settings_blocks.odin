@@ -272,7 +272,7 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 		labels := [len(Wheel_Labels)]string{"Icons", "Icons and names", "Names"}
 		if picked := ui.tabs(ctx, "Wheel sectors show", labels[:], int(k.wheel_labels)); picked >= 0 do k.wheel_labels = Wheel_Labels(picked)
 		if ui.slider(ctx, "Wheel turn", &k.wheel_turn, -180, 180, .Linear, fmt.tprintf("%.0f°", k.wheel_turn)) do k.wheel_turn = wheel_turn_snapped(k.wheel_turn)
-		ui.paragraph(ctx, "Smooth (top), Mask (left) and Invert (bottom) for what Shift, Ctrl and Alt do, and the brush pie on the right. Tap one to keep it on until tapped again; hold one with a finger to use it only while held, sculpting with the pen or another finger. Smooth and Mask together hide, as Shift and Ctrl do. Drag the middle to move the wheel; picking a side puts it back. Two fingers on the ring spread or pinch to resize it and twist to turn it.")
+		ui.paragraph(ctx, "As it comes: Smooth (top), Mask (left) and Invert (bottom) for what Shift, Ctrl and Alt do, and the brush pie on the right; Arrange's Library > Dial puts any of them, Hide or a command on each sector. Tap one to keep it on until tapped again; hold one with a finger to use it only while held, sculpting with the pen or another finger. Smooth and Mask together hide, as Shift and Ctrl do. Drag the middle to move the wheel; picking a side puts it back. Two fingers on the ring spread or pinch to resize it and twist to turn it.")
 	case .Inspector:
 		_ = ui.switch_row(ctx, "Show every option", &k.all_options)
 		ui.paragraph(ctx, "Each section of the tray shows its common controls and keeps the rest under More options. On, every section shows everything.")
@@ -492,6 +492,7 @@ settings_block_reset :: proc(app: ^App, b: Settings_Block) {
 	case .Wheel:
 		k.rail_side, k.wheel_size, k.wheel_offset = .Left, .Medium, {}
 		k.wheel_labels, k.wheel_turn = .Icons, 0
+		k.dial = DIAL_DEFAULT
 	case .Inspector:       k.all_options = false
 	case .Pies, .Mouse, .Blender_Link:
 	case .Panel_Places:    windows_reset(k)
