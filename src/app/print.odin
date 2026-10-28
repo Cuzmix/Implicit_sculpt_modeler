@@ -130,6 +130,12 @@ print_note :: proc(positions: []Vec3, indices: []u32) -> string {
 // Turntable): the unit, the selected object's three sides to drag, and the export. The
 // scale it sets is the scene's, which is why it lives in the Scene palette.
 kit_print :: proc(app: ^App) {
+	print_controls(app, true)
+}
+
+// The 3D print section's controls; the Export sheet draws them without the export button
+// (`button`), having one of its own.
+print_controls :: proc(app: ^App, button: bool) {
 	ctx := &app.kit.ctx
 	obj := selected_object(app)
 	if obj == nil {
@@ -151,7 +157,7 @@ kit_print :: proc(app: ^App) {
 			_ = print_set_side(app, obj, axis, v * unit)
 		}
 	}
-	_ = command_button(app, .Export_Print, variant = .Solid, tone = .Accent, width = ui.fill_width(ctx), glyph = ui.ICON_EXPORT)
+	if button do _ = command_button(app, .Export_Print, variant = .Solid, tone = .Accent, width = ui.fill_width(ctx), glyph = ui.ICON_EXPORT)
 	ui.paragraph(ctx, fmt.tprintf("Drag a side of %s and the others follow. Every object prints at one scale, 1 scene unit to %s mm, so the parts of a print fit together. The STL file is in millimetres with Z up, standing on the bed.", object_label(obj), print_number(print_scale(app))))
 }
 

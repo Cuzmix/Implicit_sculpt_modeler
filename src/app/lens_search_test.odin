@@ -18,7 +18,7 @@ palette_where_names_each_home :: proc(t: ^testing.T) {
 	testing.expect_value(t, palette_where(&a, cmd(.Floor_Grid)), "Scene palette · Floor grid")
 	testing.expect_value(t, palette_where(&a, cmd(.View_Layout_Menu)), "View rail")
 	testing.expect_value(t, palette_where(&a, cmd(.Save_Scene)), "Menu")
-	testing.expect_value(t, palette_where(&a, cmd(.Export_Mesh)), "Menu · Export")
+	testing.expect_value(t, palette_where(&a, cmd(.Export_Mesh)), "Menu · Export...")
 	testing.expect_value(t, palette_where(&a, cmd(.Undo)), "Top bar")
 	testing.expect_value(t, palette_where(&a, cmd(.Flat_Shading)), "")
 	testing.expect_value(t, palette_where(&a, {kind = .Settings_Tab, arg = int(Settings_Tab.Touch)}), "Settings")

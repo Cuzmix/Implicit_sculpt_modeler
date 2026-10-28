@@ -70,6 +70,7 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.Run_Script       = "script file run commands automate batch cmd",
 	.Library          = "library packs content assets alphas installed manage remove",
 	.Pick_Pack        = "content pack install add sculptpack zip alphas assets",
+	.Export_Sheet     = "export save out obj ply stl gltf glb usd screenshot turntable print formats sheet",
 	.Save_Pack        = "content pack make create share export sculptpack zip my alphas presets",
 	.Screenshot       = "png capture image",
 	.Coach_Tips       = "tutorial onboarding coach intro getting started hints",

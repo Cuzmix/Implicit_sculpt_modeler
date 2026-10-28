@@ -31,7 +31,7 @@ LENS_SUBMENU_NAMES := [Lens_Submenu]string {
 	.New        = "New",
 	.Recent     = "Open recent",
 	.Import     = "Import",
-	.Export     = "Export",
+	.Export     = "Export...",
 	.Workspaces = "Workspaces",
 	.More       = "More",
 }
@@ -46,9 +46,7 @@ LENS_MENU_PLACE := #partial [Command_Id]Lens_Submenu {
 	.Save_Scene_As          = .Main,
 	.Save_Scene_Copy        = .Main,
 	.Scene_Versions         = .Main,
-	.Screenshot             = .Main,
-	.Record_Turntable       = .Main,
-	.Export_Print           = .Main,
+	.Export_Sheet           = .Main,
 	.Customise_Bars         = .Main,
 	.Settings               = .Main,
 	.Help                   = .Main,
@@ -57,10 +55,14 @@ LENS_MENU_PLACE := #partial [Command_Id]Lens_Submenu {
 	.Import_Mesh            = .Import,
 	.Get_From_Blender       = .Import,
 	.Workspace_Import       = .Import,
+	// The Export sheet holds these, under Menu > Export....
 	.Export_Mesh            = .Export,
+	.Screenshot             = .Export,
 	.Screenshot_Transparent = .Export,
-	.Send_To_Blender        = .Export,
-	.Workspace_Export       = .Export,
+	.Record_Turntable       = .Export,
+	.Export_Print           = .Export,
+	.Send_To_Blender        = .More,
+	.Workspace_Export       = .Workspaces,
 	.Workspace              = .Workspaces,
 	.Stats                  = .More,
 	.Macros                 = .More,
@@ -99,10 +101,8 @@ kit_menu_lens :: proc(app: ^App, anchor: ui.Rect) {
 	}
 	ui.divider(ctx, across = true)
 	lens_sub_row(app, .Import, ui.ICON_IMPORT)
-	lens_sub_row(app, .Export, ui.ICON_EXPORT)
-	if command_menu_item(app, .Screenshot) do pick = true
-	if command_menu_item(app, .Record_Turntable, label = "Turntable video...") do pick = true
-	if command_menu_item(app, .Export_Print, label = "3D print...") do pick = true
+	// One sheet for every way out (lens_export.odin), as round 2's export2 screen.
+	if command_menu_item(app, .Export_Sheet) do pick = true
 	ui.divider(ctx, across = true)
 	lens_sub_row(app, .Workspaces, ui.ICON_PANEL)
 	if command_menu_item(app, .Customise_Bars, label = "Customise...") do pick = true
@@ -173,10 +173,7 @@ kit_submenu :: proc(app: ^App) {
 		if LINK_AVAILABLE && command_menu_item(app, .Get_From_Blender) do pick = true
 		if command_menu_item(app, .Workspace_Import) do pick = true
 	case .Export:
-		if command_menu_item(app, .Export_Mesh) do pick = true
-		if command_menu_item(app, .Screenshot_Transparent) do pick = true
-		if LINK_AVAILABLE && command_menu_item(app, .Send_To_Blender) do pick = true
-		if command_menu_item(app, .Workspace_Export) do pick = true
+		// Not a submenu: the Export sheet holds what it held.
 	case .Workspaces:
 		ui.caption(ctx, "  WORKSPACES")
 		w := &k.workspaces
@@ -185,6 +182,7 @@ kit_submenu :: proc(app: ^App) {
 			if command_menu_item(app, .Workspace, slot, label = fmt.tprintf("%s##menu workspace %d", workspace_name(k, slot), slot)) do pick = true
 		}
 		ui.divider(ctx, across = true)
+		if command_menu_item(app, .Workspace_Export) do pick = true
 		if ui.menu_item(ctx, "Workspace options...", glyph = ui.ICON_SETTINGS) {
 			// The switcher's own menu opens where the switcher is, after this one closes.
 			at := w.menu_at
@@ -195,6 +193,7 @@ kit_submenu :: proc(app: ^App) {
 			return
 		}
 	case .More:
+		if LINK_AVAILABLE && command_menu_item(app, .Send_To_Blender) do pick = true
 		// The menu stays open over the two that switch something on or off.
 		_ = command_menu_item(app, .Stats)
 		if command_menu_item(app, .Macros) do pick = true
