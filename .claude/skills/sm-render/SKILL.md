@@ -208,7 +208,11 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
   mean, log2 -12.47..4.03, power-hyperbola sigmoid, outset 0.4), AgX and ACES exposure-matched to Neutral at mid grey
   (`AGX_EXPOSURE`, `ACES_EXPOSURE`; the tests check them). The key (`finish_version`) is the redraw count, studio
   and path samples and how they were shown, live AO runs: add whatever else changes the source without a redraw.
-  Transparent captures finish their second drawing too (`Capture.finished`). Picture panes are not finished yet.
+  Transparent captures finish their second drawing too (`Capture.finished`); each `Picture` has its own `finished`
+  while it shows Studio or Render (read it through `picture_shown`, never `pic.shown`). Bloom is a chain before the
+  pass (`bloom_down` 13-tap with Karis on level 0, `bloom_up` tent + HDRP scatter, R11G11B10 or RGBA16F, a linear
+  sampler); sharpen (CAS) is a pass after it into `shown` from an RGBA16F `mid`, and then owns grain and dither
+  (`finish_grain.slang`, `effects.z`); aberration taps the source bilinearly, so read exact pixels with Load.
 - Traced studio (`src/render/trace.odin`, `studio_trace.comp.slang`, `blas_refit.comp.slang`, `studio_trace_add.frag.slang`): at
   `samples == 0` `trace_prepare` decides the run (`Studio.traced`); false falls back to the gather, never half done.
   Needs `Draw_Item.source` (the CPU mesh as uploaded) and `Mesh_Buffers.storage` (positions and indices with

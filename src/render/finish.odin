@@ -185,7 +185,7 @@ bloom_chain :: proc(f: ^Finish, cmd: ^sdl.GPUCommandBuffer, source: ^sdl.GPUText
 		input := source if i == 0 else f.down[i - 1]
 		size := f.level_size[i]
 		u := Pass_Uniforms{
-			params = {1 if i == 0 else 0, 1 if linear else 0, threshold, 0.5 * threshold},
+			params = {1 if i == 0 else 0, 1 if linear else 0, threshold, 0},
 			size = {1 / f32(size.x), 1 / f32(size.y), 0, 0},
 		}
 		finish_pass(cmd, f.down[i], f.down_pipeline, {{texture = input, sampler = f.sampler}}, &u, size_of(u))
@@ -323,7 +323,7 @@ finish_uniforms :: proc(look: Finish_Look, linear: bool, aspect: f32, ends: bool
 	u.vignette = {clamp(look.vignette, 0, 1), clamp(look.vignette_soft, 0.05, 1), aspect, 0}
 	u.grade = {look.lift, max(look.gamma, 0.01), max(look.gain, 0), clamp(look.grain, 0, 1)}
 	u.grain = {clamp(look.grain_size, 1, 4), transmute(f32)look.seed, 0, 0}
-	u.effects = {BLOOM_MIX_MAX * clamp(look.bloom, 0, 1), ABERRATION_SPREAD_MAX * clamp(look.aberration, 0, 1), 1 if ends else 0, 0}
+	u.effects = {BLOOM_MIX_MAX * clamp(look.bloom, 0, 1), ABERRATION_SPREAD_MAX * clamp(look.aberration, 0, 1), 1 if ends else 0, max(look.bloom_threshold, 0)}
 	return
 }
 

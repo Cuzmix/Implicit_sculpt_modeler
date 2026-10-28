@@ -11,31 +11,22 @@
 
 [[vk::binding(0, 3)]] cbuffer Bloom_Down_Uniforms {
 	// x: 1 for the first step, y: 1 when the source holds linear light rather than Neutral's
-	// display values, z: the threshold in linear light (0 none), w: its soft knee's width
+	// display values, z: the threshold in linear light (0 none)
 	float4 params;
 	// xy: one over the output's size in pixels
 	float4 size;
 };
 
 #include "display.slang"
+#include "bloom.slang"
 
-// The light at `uv`, in linear light on the first step.
+// The light at `uv`, in linear light on the first step, less what is under the threshold.
 float3 light(float2 uv) {
 	float3 c = input.SampleLevel(uv, 0.0).rgb;
 	if (params.x < 0.5) return c;
-	if (params.y < 0.5) c = neutral_inverse(srgb_decode(c));
+	if (params.y < 0.5) c = bloom_decode(c);
 	// Finite, and within half floats', and the packed float targets', range.
-	c = clamp(c, float3(0.0), float3(30000.0));
-	// The threshold with a soft knee (Unity's): light fades in over the knee below the
-	// threshold rather than popping on at it.
-	if (params.z > 0.0) {
-		float bright = max(c.r, max(c.g, c.b));
-		float knee = max(params.w, 1e-4);
-		float q = clamp(bright - params.z + knee, 0.0, 2.0 * knee);
-		q = q * q / (4.0 * knee);
-		c *= max(q, bright - params.z) / max(bright, 1e-4);
-	}
-	return c;
+	return above_threshold(clamp(c, float3(0.0), float3(30000.0)), params.z);
 }
 
 // The average of four reads, weighed on the first step by one over its brightness.

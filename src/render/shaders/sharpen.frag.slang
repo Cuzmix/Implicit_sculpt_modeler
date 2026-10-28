@@ -36,7 +36,11 @@ float4 main(float4 frag_coord : SV_Position) : SV_Target0 {
 	hi += max(hi, max(max(a, c), max(g, i)));
 	// How far from black and white the neighbourhood sits (0 at either, 1 in the middle).
 	float3 room = sqrt(saturate(min(lo, 2.0 - hi) / max(hi, float3(1e-5))));
-	float3 w = room * (-1.0 / lerp(8.0, 5.0, saturate(params.x)));
+	// Unlike CAS, nothing where the 3x3 spans under two 8-bit steps: that is the dither in a
+	// smooth gradient (clear.frag.slang's), which sharpened would show as a screen pattern.
+	float3 range = 0.5 * (hi - lo);
+	float3 floor = smoothstep(1.5 / 255.0, 4.0 / 255.0, range);
+	float3 w = room * floor * (-1.0 / lerp(8.0, 5.0, saturate(params.x)));
 	float3 sharp = saturate((w * (b + d + f + h) + e) / (1.0 + 4.0 * w));
 	float alpha = graded.Load(int3(p, 0)).a;
 	return float4(grain_and_dither(sharp, frag_coord.xy, params.y, params.z, asuint(params.w)), alpha);

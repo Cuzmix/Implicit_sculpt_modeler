@@ -32,11 +32,13 @@
 	float4 grain;
 	// x: the share of the light the bloom replaces (0 none), y: the chromatic aberration's
 	// spread, as a share of the distance from the middle (0 none), z: 1 when this pass ends
-	// the picture with the grain and dither, 0 when sharpening follows
+	// the picture with the grain and dither, 0 when sharpening follows, w: the bloom's
+	// threshold in linear light (0 none)
 	float4 effects;
 };
 
 #include "display.slang"
+#include "bloom.slang"
 
 // AgX's method (Troy Sobotka's, Blender's default view since 4.0), built here from its
 // published description: each colour pulled a fifth of the way toward its channels' mean
@@ -164,13 +166,14 @@ void aberrated(float2 frag, out float3 c, out float3 shown, out float3 residual)
 	residual /= total;
 }
 
-// Bloom, as light scattered in a lens and a sensor: a share of each pixel's light swapped for
-// the blurred light around it, so it brightens nothing in all and glows only where bright
-// light meets dark (Unity HDRP's and Unreal's energy-conserving mix).
+// Bloom, as light scattered in a lens and a sensor: a share of each pixel's light above the
+// threshold swapped for that light blurred around it, so it brightens nothing in all and glows
+// only where bright light meets dark (Unity HDRP's energy-conserving mix, which with no
+// threshold is a plain lerp). Light under the threshold stays where it is, unscattered.
 float3 bloomed(float3 c, float2 frag) {
 	if (effects.x <= 0.0) return c;
 	float3 b = bloom.SampleLevel(frag / float2(texture_size(source)), 0.0).rgb;
-	return lerp(c, b, effects.x);
+	return c + effects.x * (b - above_threshold(c, effects.w));
 }
 
 float4 main(float4 frag_coord : SV_Position) : SV_Target0 {
