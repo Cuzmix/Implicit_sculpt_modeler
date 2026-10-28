@@ -155,7 +155,7 @@ bake_set_occludes_and_is_the_same_on_the_pool :: proc(t: ^testing.T) {
 	}
 }
 
-// The ID map's colours are the viewport's (mesh.vert's group_color) for a few groups.
+// The ID map's colours are the viewport's (mesh.vert.slang's group_color) for a few groups.
 @(test)
 group_colors_match_the_viewport :: proc(t: ^testing.T) {
 	// Worked from the shader's formula by hand for groups 0, 1 and 2, through the sRGB curve.

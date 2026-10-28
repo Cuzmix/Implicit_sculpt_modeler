@@ -1,4 +1,3 @@
-#version 450
 // One sample of the traced studio render (render/trace.odin) for one item: from every
 // viewport pixel on a surface, a ray toward this sample's light, cast against the
 // item's own triangles through its two-level tree (a tree over its chunks, then each
@@ -15,75 +14,74 @@
 // SDL_GPU's SPIR-V layout for compute: set 0 holds the sampled textures, then the
 // read-only storage buffers; set 1 the read-write storage textures; set 2 the uniforms.
 
-layout(local_size_x = 8, local_size_y = 8) in;
-
+#include "common.slang"
 struct Node {
-	vec3 lo;
+	float3 lo;
 	uint first; // inner: the left child, the right one after it; leaf: see below
-	vec3 hi;
+	float3 hi;
 	uint count; // 0 for an inner node
 };
 
-layout(set = 0, binding = 0) uniform sampler2D view_depth;
-layout(std430, set = 0, binding = 1) readonly buffer Positions { float positions[]; }; // 3 floats a vertex
-layout(std430, set = 0, binding = 2) readonly buffer Indices { uint indices[]; };
+[[vk::binding(0, 0)]] Sampler2D view_depth;
+[[vk::binding(1, 0)]] StructuredBuffer<float> positions; // 3 floats a vertex
+[[vk::binding(2, 0)]] StructuredBuffer<uint> indices;
 // Every chunk's tree, one after another; a leaf's `first` is into its chunk's order.
-layout(std430, set = 0, binding = 3) readonly buffer Nodes { Node nodes[]; };
-layout(std430, set = 0, binding = 4) readonly buffer Order { uint order[]; }; // two 16-bit offsets a word
-layout(std430, set = 0, binding = 5) readonly buffer Chunks { uvec4 chunks[]; }; // node_off, order_off, first_tri, node_count
+[[vk::binding(3, 0)]] StructuredBuffer<Node> nodes;
+[[vk::binding(4, 0)]] StructuredBuffer<uint> order; // two 16-bit offsets a word
+[[vk::binding(5, 0)]] StructuredBuffer<uint4> chunks; // node_off, order_off, first_tri, node_count
 // The tree over the shown chunks; a leaf's `first` is a chunk.
-layout(std430, set = 0, binding = 6) readonly buffer Tlas { Node tlas[]; };
-layout(set = 1, binding = 0, r32f) uniform writeonly image2D visible;
+[[vk::binding(6, 0)]] StructuredBuffer<Node> tlas;
+[[vk::binding(0, 1)]] [[vk::image_format("r32f")]] RWTexture2D<float4> visible;
 
-layout(std140, set = 2, binding = 0) uniform Trace_Uniforms {
-	mat4 inv_view_proj; // viewport clip space back to the world
-	mat4 to_mesh;       // the world into the item's mesh space (the inverse of its model)
-	vec4 key_base;      // xyz: toward a sun (world, unit); w: 1 for a light sample
-	vec4 key_side;      // xyz: across a sun's disc; w: the disc's radius
-	vec4 key_up;        // xyz: the disc's other axis
-	vec4 params;        // xy: this sample's point of the R2 sequence; z: the least offset (world); w: 1 for a point or spot light
-	vec4 sphere;        // xyz: a point or spot light's place (world); w: its radius
+[[vk::binding(0, 2)]] cbuffer Trace_Uniforms {
+	float4x4 inv_view_proj; // viewport clip space back to the world
+	float4x4 to_mesh;       // the world into the item's mesh space (the inverse of its model)
+	float4 key_base;      // xyz: toward a sun (world, unit); w: 1 for a light sample
+	float4 key_side;      // xyz: across a sun's disc; w: the disc's radius
+	float4 key_up;        // xyz: the disc's other axis
+	float4 params;        // xy: this sample's point of the R2 sequence; z: the least offset (world); w: 1 for a point or spot light
+	float4 sphere;        // xyz: a point or spot light's place (world); w: its radius
 };
 
 // geom.CHUNK_BVH_STACK for each level: the chunk tree's entries stay below the one
 // chunk being walked.
-const int STACK = 2 * 57;
-const uint IN_CHUNK = 0x80000000u;
-const float PI = 3.14159265;
+static const int STACK = 2 * 57;
+static const uint IN_CHUNK = 0x80000000u;
+static const float PI = 3.14159265;
 
-vec3 world_at(vec2 frag, float depth, vec2 size) {
-	vec2 uv = frag / size;
-	vec4 w = inv_view_proj * vec4(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, depth, 1.0);
+float3 world_at(float2 frag, float depth, float2 size) {
+	float2 uv = frag / size;
+	float4 w = mul(float4(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, depth, 1.0), inv_view_proj);
 	return w.xyz / w.w;
 }
 
-vec3 vertex(uint v) {
-	return vec3(positions[3 * v], positions[3 * v + 1], positions[3 * v + 2]);
+float3 vertex(uint v) {
+	return float3(positions[3 * v], positions[3 * v + 1], positions[3 * v + 2]);
 }
 
 // The slab test; a box refit empty (lo above hi) is never entered.
-bool enters(Node n, vec3 o, vec3 inv, float tmax) {
+bool enters(Node n, float3 o, float3 inv, float tmax) {
 	if (n.lo.x > n.hi.x) return false;
-	vec3 t0 = (n.lo - o) * inv, t1 = (n.hi - o) * inv;
-	vec3 near = min(t0, t1), far = max(t0, t1);
+	float3 t0 = (n.lo - o) * inv, t1 = (n.hi - o) * inv;
+	float3 near = min(t0, t1), far = max(t0, t1);
 	return max(max(near.x, near.y), max(near.z, 0.0)) <= min(min(far.x, tmax), min(far.y, far.z));
 }
 
 // Möller-Trumbore, any hit in front of the origin and before `tmax`; a triangle with a repeated corner
 // (hidden, or an unused slot) never hits, nor one seen exactly edge on.
-bool hits(uint tri, vec3 o, vec3 d, float tmax) {
+bool hits(uint tri, float3 o, float3 d, float tmax) {
 	uint a = indices[3 * tri], b = indices[3 * tri + 1], c = indices[3 * tri + 2];
 	if (a == b || b == c || a == c) return false;
-	vec3 p0 = vertex(a);
-	vec3 e1 = vertex(b) - p0, e2 = vertex(c) - p0;
-	vec3 pv = cross(d, e2);
+	float3 p0 = vertex(a);
+	float3 e1 = vertex(b) - p0, e2 = vertex(c) - p0;
+	float3 pv = cross(d, e2);
 	float det = dot(e1, pv);
 	if (det == 0.0) return false;
 	float f = 1.0 / det;
-	vec3 tv = o - p0;
+	float3 tv = o - p0;
 	float u = dot(tv, pv) * f;
 	if (u < 0.0 || u > 1.0) return false;
-	vec3 qv = cross(tv, e1);
+	float3 qv = cross(tv, e1);
 	float v = dot(d, qv) * f;
 	if (v < 0.0 || u + v > 1.0) return false;
 	float t = dot(e2, qv) * f;
@@ -91,14 +89,14 @@ bool hits(uint tri, vec3 o, vec3 d, float tmax) {
 }
 
 // Whether anything lies along `d` from `o` before `tmax` times it.
-bool occluded(vec3 o, vec3 d, float tmax) {
+bool occluded(float3 o, float3 d, float tmax) {
 	// No component exactly zero, so the slab test never multiplies zero by infinity.
-	vec3 safe = mix(d, vec3(1e-20), equal(d, vec3(0.0)));
-	vec3 inv = 1.0 / safe;
+	float3 safe = select(d == float3(0.0), float3(1e-20), d);
+	float3 inv = 1.0 / safe;
 	uint stack[STACK];
 	int top = 1;
 	stack[0] = 0u;
-	uvec4 ch = uvec4(0u);
+	uint4 ch = uint4(0u);
 	while (top > 0) {
 		uint e = stack[--top];
 		if ((e & IN_CHUNK) == 0u) {
@@ -133,7 +131,7 @@ bool occluded(vec3 o, vec3 d, float tmax) {
 }
 
 // Two numbers in [0, 1) from the pixel (pcg2d, Jarzynski and Olano 2020).
-vec2 pixel_hash(uvec2 v) {
+float2 pixel_hash(uint2 v) {
 	v = v * 1664525u + 1013904223u;
 	v.x += v.y * 1664525u;
 	v.y += v.x * 1664525u;
@@ -141,44 +139,45 @@ vec2 pixel_hash(uvec2 v) {
 	v.x += v.y * 1664525u;
 	v.y += v.x * 1664525u;
 	v ^= v >> 16u;
-	return vec2(v >> 8u) / 16777216.0;
+	return float2(v >> 8u) / 16777216.0;
 }
 
-void main() {
-	vec2 size = vec2(textureSize(view_depth, 0));
-	ivec2 px = ivec2(gl_GlobalInvocationID.xy);
+[numthreads(8, 8, 1)]
+void main(uint3 group_id : SV_GroupID, uint3 local_id : SV_GroupThreadID, uint3 global_id : SV_DispatchThreadID) {
+	float2 size = float2(texture_size(view_depth));
+	int2 px = int2(global_id.xy);
 	if (px.x >= int(size.x) || px.y >= int(size.y)) return;
-	float d = texelFetch(view_depth, px, 0).r;
+	float d = view_depth.Load(int3(px, 0)).r;
 	if (d >= 1.0) return;
-	vec2 frag = vec2(px) + 0.5;
-	vec3 p = world_at(frag, d, size);
+	float2 frag = float2(px) + 0.5;
+	float3 p = world_at(frag, d, size);
 	// The surface normal from the depth of the neighbouring pixels, as studio_gather.frag.
-	ivec2 hi = ivec2(size) - 1;
-	float dl = texelFetch(view_depth, clamp(px - ivec2(1, 0), ivec2(0), hi), 0).r;
-	float dr = texelFetch(view_depth, clamp(px + ivec2(1, 0), ivec2(0), hi), 0).r;
-	float du = texelFetch(view_depth, clamp(px - ivec2(0, 1), ivec2(0), hi), 0).r;
-	float dd = texelFetch(view_depth, clamp(px + ivec2(0, 1), ivec2(0), hi), 0).r;
-	vec3 px_r = abs(dr - d) < abs(d - dl) ? world_at(frag + vec2(1, 0), dr, size) - p : p - world_at(frag - vec2(1, 0), dl, size);
-	vec3 px_d = abs(dd - d) < abs(d - du) ? world_at(frag + vec2(0, 1), dd, size) - p : p - world_at(frag - vec2(0, 1), du, size);
-	vec3 n = normalize(cross(px_d, px_r));
-	vec3 toward_eye = normalize(world_at(frag, 0.0, size) - p);
+	int2 hi = int2(size) - 1;
+	float dl = view_depth.Load(int3(clamp(px - int2(1, 0), int2(0), hi), 0)).r;
+	float dr = view_depth.Load(int3(clamp(px + int2(1, 0), int2(0), hi), 0)).r;
+	float du = view_depth.Load(int3(clamp(px - int2(0, 1), int2(0), hi), 0)).r;
+	float dd = view_depth.Load(int3(clamp(px + int2(0, 1), int2(0), hi), 0)).r;
+	float3 px_r = abs(dr - d) < abs(d - dl) ? world_at(frag + float2(1, 0), dr, size) - p : p - world_at(frag - float2(1, 0), dl, size);
+	float3 px_d = abs(dd - d) < abs(d - du) ? world_at(frag + float2(0, 1), dd, size) - p : p - world_at(frag - float2(0, 1), du, size);
+	float3 n = normalize(cross(px_d, px_r));
+	float3 toward_eye = normalize(world_at(frag, 0.0, size) - p);
 	if (dot(n, toward_eye) < 0.0) n = -n;
 
-	vec2 r2 = fract(params.xy + pixel_hash(uvec2(px)));
-	vec3 dir;
+	float2 r2 = frac(params.xy + pixel_hash(uint2(px)));
+	float3 dir;
 	// A sun's ray goes on for ever; a sphere light's stops at the light, at the far end of
 	// the unnormalised ray.
-	float tmax = uintBitsToFloat(0x7F800000u);
+	float tmax = asfloat(0x7F800000u);
 	if (key_base.w > 0.5 && params.w > 0.5) {
 		// The disc through the sphere's centre, square to the pixel, that the sphere
 		// fills the same cone of: radius r d / sqrt(d² - r²). A pixel inside the light
 		// is lit.
-		vec3 to = sphere.xyz - p;
+		float3 to = sphere.xyz - p;
 		float d2 = dot(to, to), r = sphere.w;
 		if (d2 <= r * r) return;
-		vec3 axis = to * inversesqrt(d2);
-		vec3 side = normalize(cross(axis, abs(axis.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0)));
-		vec3 up = cross(side, axis);
+		float3 axis = to * rsqrt(d2);
+		float3 side = normalize(cross(axis, abs(axis.y) < 0.99 ? float3(0.0, 1.0, 0.0) : float3(1.0, 0.0, 0.0)));
+		float3 up = cross(side, axis);
 		float a = 2.0 * PI * r2.y, rr = r * sqrt(d2 / (d2 - r * r)) * sqrt(r2.x);
 		dir = to + (side * cos(a) + up * sin(a)) * rr;
 		if (dot(n, dir) <= 0.0) return;
@@ -194,8 +193,8 @@ void main() {
 		float s = n.z >= 0.0 ? 1.0 : -1.0;
 		float a = -1.0 / (s + n.z);
 		float b = n.x * n.y * a;
-		vec3 t = vec3(1.0 + s * n.x * n.x * a, s * b, -s * n.x);
-		vec3 bt = vec3(b, s + n.y * n.y * a, -n.y);
+		float3 t = float3(1.0 + s * n.x * n.x * a, s * b, -s * n.x);
+		float3 bt = float3(b, s + n.y * n.y * a, -n.y);
 		float r = sqrt(r2.x), phi = 2.0 * PI * r2.y;
 		dir = normalize(t * (r * cos(phi)) + bt * (r * sin(phi)) + n * sqrt(max(1.0 - r2.x, 0.0)));
 	}
@@ -204,13 +203,13 @@ void main() {
 	// rounding nor the triangles' own curve between pixels shadows the pixel itself: by
 	// the least offset, plus twice the pixel's width at this depth, at most a hundred
 	// times the least so a pixel seen at a grazing distance cannot leap through a wall.
-	float footprint = length(world_at(frag + vec2(1, 0), d, size) - p);
+	float footprint = length(world_at(frag + float2(1, 0), d, size) - p);
 	float eps = params.z + min(2.0 * footprint, 100.0 * params.z);
-	vec3 o = p + (n + toward_eye) * eps;
+	float3 o = p + (n + toward_eye) * eps;
 	// Toward a sphere light the ray is aimed from the offset point, so it still ends on the
 	// light. The model is a similarity, so the ray's parameter is the same in mesh space.
 	if (tmax == 1.0) dir = p + dir - o;
-	vec3 om = (to_mesh * vec4(o, 1.0)).xyz;
-	vec3 dm = mat3(to_mesh) * dir;
-	if (occluded(om, dm, tmax)) imageStore(visible, px, vec4(0.0));
+	float3 om = (mul(float4(o, 1.0), to_mesh)).xyz;
+	float3 dm = mul(dir, (float3x3)to_mesh);
+	if (occluded(om, dm, tmax)) visible[px] = float4(0.0);
 }

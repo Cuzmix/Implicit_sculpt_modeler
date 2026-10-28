@@ -31,9 +31,10 @@ description: Build, run, test and verify the sculpt modeler through build.bat (W
   VM into `deps/luau/libluau.a` (clang++) or `deps\luau\luau.lib` (cl `/MT`, after setup_deps' vcvarsall), as
   Luau's `LUAU_EXTERN_C` build: C names, errors by longjmp. A build that links the app says "Luau missing" without
   it; bumping the tag rebuilds it on the next setup_deps.
-- Shaders: `build.bat` recompiles `src/render/shaders/*.vert|*.frag` to `.spv` only when `glslangValidator` is on PATH
-  (it is not on this machine), otherwise the committed `.spv` are used; `build.sh` calls it unconditionally under
-  `set -e`, so Linux needs `glslang-tools` (the package list at the top of `scripts/setup_deps.sh`).
+- Shaders: Slang sources (`src/render/shaders/*.slang`, sm-render) compile to the committed `.spv` with slangc:
+  `build.sh` uses `deps/slang/bin/slangc` (setup_deps takes it from the LunarG Vulkan SDK `VULKAN_SDK`, checked
+  against `VULKAN_SDK_SHA256` in `scripts/versions.env`), `build.bat` `deps\slang\bin\slangc.exe` or one on PATH (the
+  Vulkan SDK installs it); without one the committed `.spv` are used as they are.
 - VS Code: `.vscode/tasks.json` (check, builds, tests, an Odin problem matcher) and `launch.json` (cppvsdbg on the PDBs;
   the "GPU validation" configuration sets `SDL_ASSERT=break`).
 

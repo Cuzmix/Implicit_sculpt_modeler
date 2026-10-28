@@ -476,7 +476,7 @@ texel_hash :: proc(x: u32) -> u32 {
 	return h
 }
 
-// The viewport's colour for polygroup `g` (mesh.vert's group_color), as sRGB bytes: hues
+// The viewport's colour for polygroup `g` (mesh.vert.slang's group_color), as sRGB bytes: hues
 // a golden angle apart, in two lightnesses.
 group_color_srgb :: proc(g: u16) -> (out: [3]u8) {
 	h := f32(g) * 0.618034 + 0.12

@@ -24,7 +24,7 @@ Studio :: struct {
 	composite_pipeline: ^sdl.GPUGraphicsPipeline,
 	sampler:            ^sdl.GPUSampler,
 	shadow:             ^sdl.GPUTexture, // depth from the light of the current sample
-	accum:              ^sdl.GPUTexture, // summed samples: see studio_gather.frag
+	accum:              ^sdl.GPUTexture, // summed samples: see studio_gather.frag.slang
 	shown:              ^sdl.GPUTexture, // what the viewport panel shows
 	// The camera's depth at one sample, drawn when the viewport is multisampled, whose
 	// own depth shaders cannot read; nil otherwise.
@@ -65,7 +65,7 @@ SHADOW_FRAG_SPV :: #load("shaders/shadow.frag.spv")
 STUDIO_GATHER_FRAG_SPV :: #load("shaders/studio_gather.frag.spv")
 STUDIO_COMPOSITE_FRAG_SPV :: #load("shaders/studio_composite.frag.spv")
 
-// Matches Gather_Uniforms in studio_gather.frag.
+// Matches Gather_Uniforms in studio_gather.frag.slang.
 @(private = "file")
 Gather_Uniforms :: struct {
 	inv_view_proj:   Mat4,
@@ -76,7 +76,7 @@ Gather_Uniforms :: struct {
 }
 #assert(size_of(Gather_Uniforms) == 160 + size_of(Shadow_Lights))
 
-// Matches the shadow_ uniforms studio_weight.glsl reads: the lights in the world (as
+// Matches the shadow_ uniforms studio_weight.slang reads: the lights in the world (as
 // lights_to_world gives them), each one's distance, reach and spot edge with the chance
 // it is picked in shape.w, and in pick x the light this sample took and z the ambient
 // light (STUDIO_AMBIENT_SHARE of it over the lights' total brightness).

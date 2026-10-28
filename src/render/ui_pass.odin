@@ -9,7 +9,7 @@ UI_VERT_SPV :: #load("shaders/ui.vert.spv")
 UI_FRAG_SPV :: #load("shaders/ui.frag.spv")
 
 // One corner of an interface triangle, as the app's interface kit makes them (it mirrors
-// ui.Vertex; render does not import the kit). Matches ui.vert.
+// ui.Vertex; render does not import the kit). Matches ui.vert.slang.
 Ui_Vertex :: struct {
 	pos:   [2]f32, // physical pixels from the target's top-left
 	uv:    [2]f32, // atlas pixels, or 0 to 1 across an image

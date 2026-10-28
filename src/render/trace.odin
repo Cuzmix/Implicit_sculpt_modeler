@@ -15,11 +15,11 @@ import "../jobs"
 // the real triangles instead of reading shadow maps, so occlusion and the key light's
 // shadow reach detail finer than a shadow map's texel. Each mesh keeps a tree over the
 // triangles of each of its chunks (geom/chunk_bvh.odin), built on the CPU when its
-// triangles change and refit on the GPU when only its vertices moved (blas_refit.comp),
+// triangles change and refit on the GPU when only its vertices moved (blas_refit.comp.slang),
 // and a tree over its shown chunks, from the bounds the sculptor keeps. A sample clears
-// `visible` to 1, runs studio_trace.comp once per item, each storing 0 where its
+// `visible` to 1, runs studio_trace.comp.slang once per item, each storing 0 where its
 // triangles block the ray, and adds the result to the studio's accumulation target in
-// the gather's encoding (studio_trace_add.frag), so the composite reads both alike.
+// the gather's encoding (studio_trace_add.frag.slang), so the composite reads both alike.
 // Anything the device refuses, or a mesh that cannot be traced, leaves that run on the
 // shadow-map gather, which stays as it was.
 
@@ -27,7 +27,7 @@ STUDIO_TRACE_COMP_SPV :: #load("shaders/studio_trace.comp.spv")
 STUDIO_TRACE_ADD_FRAG_SPV :: #load("shaders/studio_trace_add.frag.spv")
 BLAS_REFIT_COMP_SPV :: #load("shaders/blas_refit.comp.spv")
 
-// Matches local_size in studio_trace.comp and blas_refit.comp.
+// Matches numthreads in studio_trace.comp.slang and blas_refit.comp.slang.
 @(private = "file")
 TRACE_GROUP :: 8
 @(private = "file")
@@ -92,7 +92,7 @@ Trace_Buffer :: enum {
 	Tlas,
 }
 
-// Matches Trace_Uniforms in studio_trace.comp.
+// Matches Trace_Uniforms in studio_trace.comp.slang.
 @(private = "file")
 Trace_Uniforms :: struct {
 	inv_view_proj: Mat4,
@@ -105,7 +105,7 @@ Trace_Uniforms :: struct {
 }
 #assert(size_of(Trace_Uniforms) == 208)
 
-// Matches Add_Uniforms in studio_trace_add.frag.
+// Matches Add_Uniforms in studio_trace_add.frag.slang.
 @(private = "file")
 Add_Uniforms :: struct {
 	inv_view_proj: Mat4,

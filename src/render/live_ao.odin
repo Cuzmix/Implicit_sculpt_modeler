@@ -10,7 +10,7 @@ import sdl "vendor:sdl3"
 // Live ambient occlusion (stage 4.2, notes/rendering/stage4-design.md): screen-space
 // occlusion from the camera's depth, every frame, so creases and contact darken while
 // sculpting, not only once the view is still as in the studio render. GTAO
-// (gtao.frag) finds the occlusion into `ao`, possibly at half size; ao_blur.frag
+// (gtao.frag.slang) finds the occlusion into `ao`, possibly at half size; ao_blur.frag.slang
 // averages it and darkens the viewport image with it into `shown`, which the panel then
 // shows. A partial redraw of the viewport reruns both only over the rectangle it
 // redrew, padded by how far they read, and `ao` and `shown` keep the rest, so the cost
@@ -37,17 +37,17 @@ Live_AO :: struct {
 	full, partial, skipped: int,
 }
 
-// The farthest gtao.frag searches, in viewport pixels: it bounds the cost close up, and
+// The farthest gtao.frag.slang searches, in viewport pixels: it bounds the cost close up, and
 // how far a partial redraw's rectangle is padded.
 LIVE_AO_MAX_PX :: 48
 
-// Half floats: a pixel's value may pass 1 (gtao.frag), which the blur's average needs.
+// Half floats: a pixel's value may pass 1 (gtao.frag.slang), which the blur's average needs.
 LIVE_AO_FORMAT :: sdl.GPUTextureFormat.R16_FLOAT
 
 GTAO_FRAG_SPV :: #load("shaders/gtao.frag.spv")
 AO_BLUR_FRAG_SPV :: #load("shaders/ao_blur.frag.spv")
 
-// Matches Gtao_Uniforms in gtao.frag.
+// Matches Gtao_Uniforms in gtao.frag.slang.
 @(private = "file")
 Gtao_Uniforms :: struct {
 	inv_proj: Mat4,
@@ -55,7 +55,7 @@ Gtao_Uniforms :: struct {
 	params:   [4]f32,
 }
 
-// Matches Blur_Uniforms in ao_blur.frag.
+// Matches Blur_Uniforms in ao_blur.frag.slang.
 @(private = "file")
 Blur_Uniforms :: struct {
 	inv_proj: Mat4,

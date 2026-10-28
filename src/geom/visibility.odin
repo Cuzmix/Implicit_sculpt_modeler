@@ -215,7 +215,7 @@ oct_encode :: #force_inline proc(n: Vec3) -> [2]i16 {
 // A normal and a mask value (0 to 255) in one oct_encode pair: the top 12 bits of
 // each component are the octahedral normal, the low 4 bits carry half of the mask
 // (the high nibble in x). 12 bits still place a normal within about 0.05 degrees, so
-// the GPU gets the sculpt mask with no extra memory or bandwidth. mesh.vert unpacks it.
+// the GPU gets the sculpt mask with no extra memory or bandwidth. mesh.vert.slang unpacks it.
 oct_encode_masked :: #force_inline proc(n: Vec3, mask: u8) -> [2]i16 {
 	// Rounded to a multiple of 16 and kept off -32768, which the GPU reads as -1 like
 	// -32767, which would lose the low bits.
@@ -226,7 +226,7 @@ oct_encode_masked :: #force_inline proc(n: Vec3, mask: u8) -> [2]i16 {
 	return {i16(x | i32(mask >> 4)), i16(y | i32(mask & 15))}
 }
 
-// Normal and mask from oct_encode_masked, as mesh.vert reads them from the normalised
+// Normal and mask from oct_encode_masked, as mesh.vert.slang reads them from the normalised
 // values. For tests.
 oct_masked_decode :: proc(e: [2]i16) -> (n: Vec3, mask: u8) {
 	x := i32(math.round(max(f32(e.x) / 32767, -1) * 32767))

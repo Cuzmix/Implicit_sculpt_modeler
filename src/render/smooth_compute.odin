@@ -7,7 +7,7 @@ import sdl "vendor:sdl3"
 
 import "../geom"
 
-// Whole-mesh smoothing on the GPU, as a compute shader (shaders/smooth_all.comp): the
+// Whole-mesh smoothing on the GPU, as a compute shader (shaders/smooth_all.comp.slang): the
 // trial of moving one heavy sculpt operation off the CPU. A run uploads what the shader
 // reads, dispatches one pass a step, ping-ponging between two position buffers, and
 // downloads the result, waiting for the GPU after each part so each one can be timed.
@@ -16,7 +16,7 @@ import "../geom"
 
 SMOOTH_ALL_COMP_SPV :: #load("shaders/smooth_all.comp.spv")
 
-// Threads per workgroup; matches local_size_x in smooth_all.comp.
+// Threads per workgroup; matches local_size_x in smooth_all.comp.slang.
 SMOOTH_THREADS :: 256
 
 // The widest dispatch every device must accept; larger meshes spread over rows.
