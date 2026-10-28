@@ -60,7 +60,10 @@ float4 main(float4 frag_coord : SV_Position) : SV_Target0 {
 	float footprint = length(world_at(frag_coord.xy + float2(1.0, 0.0), d, size) - p);
 	float distance = length(p - world_at(frag_coord.xy, 0.0, size));
 	float plane_tolerance = 0.5 * footprint + 0.003 * distance;
-	float reach = 3.0 * footprint + 0.003 * distance;
+	// A tap a pixel or so away lies on the surface a long way off where the surface is seen
+	// edge on, so how far it may lie is loose: the plane test does the work, and this only
+	// keeps a far surface that happens to share the plane from passing.
+	float reach = 0.1 * distance + 4.0 * footprint;
 
 	float4 c = mul(float4(p, 1.0), prev_view_proj);
 	if (c.w <= 0.0) return float4(0.0);

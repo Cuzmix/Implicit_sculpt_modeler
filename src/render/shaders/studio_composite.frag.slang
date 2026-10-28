@@ -9,7 +9,8 @@
 
 [[vk::binding(0, 3)]] cbuffer Composite_Uniforms {
 	// x: ambient occlusion strength, y: shadow strength, z: the occlusion's cosine sum at
-	// which a pixel shows its own samples alone (0: always)
+	// which a pixel shows its own samples alone (0: always), w: the shadows' weight at which
+	// they show at full strength
 	float4 params;
 };
 
@@ -19,6 +20,9 @@ float4 main(float4 frag_coord : SV_Position) : SV_Target0 {
 	float4 a = accum.Load(int3(px, 0));
 	float ao = a.g > 0.0 ? a.r / a.g : 1.0;
 	float lit = a.a > 0.0 ? a.b / a.a : 1.0;
+	// Carried, a shadow of one or two samples (lights fixed to the camera build theirs again
+	// after every turn) fades in rather than showing as speckle.
+	if (params.z > 0.0) lit = lerp(1.0, lit, saturate(a.a / params.w));
 	// Occlusion deepens toward crevices; a soft curve keeps open surfaces untouched.
 	float shade = lerp(1.0, ao * ao * (3.0 - 2.0 * ao), params.x) * lerp(1.0, lit, params.y);
 	if (params.z <= 0.0) return float4(color.rgb * shade, color.a);

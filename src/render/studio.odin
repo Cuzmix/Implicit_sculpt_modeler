@@ -82,16 +82,19 @@ STUDIO_AMBIENT_SHARE :: 0.1
 STUDIO_ACCUM_FORMAT :: sdl.GPUTextureFormat.R16G16B16A16_FLOAT
 STUDIO_PREV_DEPTH_FORMAT :: sdl.GPUTextureFormat.R32_FLOAT
 
-// What a carried pixel's history may weigh at most, in samples: sixteen ambient ones (each
-// adds about a quarter to the cosine sum) and four light ones, about a quarter of a second
-// of new samples at 60 Hz, so a turn's stale samples fade as fast as the eye follows them.
-STUDIO_CARRY_AMBIENT :: 16
+// What a carried pixel's history may weigh at most, in samples: thirty-two ambient ones (each
+// adds about a quarter to the cosine sum), about half a second of new samples at 60 Hz, so a
+// turn's stale samples fade about as fast as the eye follows them while one frame's sample
+// moves the picture too little to show as noise; and four light ones.
+STUDIO_CARRY_AMBIENT :: 32
 STUDIO_CARRY_KEY :: 4
 // The ambient cosine sum at which a carried pixel's own samples are trusted over live
-// occlusion's picture under it, about four samples: below it the two are mixed, so a
+// occlusion's picture under it, about sixteen samples: below it the two are mixed, so a
 // surface the turn uncovered shows live occlusion's smooth shading rather than one
 // sample's speckle.
-STUDIO_CARRY_SETTLED :: 1.0
+STUDIO_CARRY_SETTLED :: 4.0
+// Likewise the shadows' weight, about two light samples, eight frames.
+STUDIO_CARRY_KEY_SETTLED :: 2.0
 // Above this many triangles a moving view's frames only carry the samples and add none:
 // each new sample draws every triangle into the shadow map, too much on a tablet every
 // frame of a turn. Traced samples cost by pixels, not triangles, and always add.
@@ -158,10 +161,10 @@ studio_frame :: proc(r: ^Renderer, st: ^Studio, cmd: ^sdl.GPUCommandBuffer, vt: 
 		return false
 	}
 	soft := clamp(softness, STUDIO_SOFTNESS_MIN, STUDIO_SOFTNESS_MAX)
-	moving := false
+	moving, kept_shadows := false, true
 	if changed || !st.shown_valid || soft != st.softness {
 		carried: bool
-		carried, moving = studio_carry(r, st, cmd, vt, view, proj, items, soft, max_samples, lights)
+		carried, moving, kept_shadows = studio_carry(r, st, cmd, vt, view, proj, items, soft, max_samples, lights)
 		if !carried {
 			st.softness = soft
 			st.samples, st.sequence, st.carried, st.depth_kept = 0, 0, false, false
@@ -178,7 +181,7 @@ studio_frame :: proc(r: ^Renderer, st: ^Studio, cmd: ^sdl.GPUCommandBuffer, vt: 
 	}
 	if st.samples >= max_samples || moving && !st.traced && studio_triangles(items) > STUDIO_MOVING_TRIANGLES {
 		if st.carried && st.samples < max_samples do st.carried_bare += 1
-		if (st.samples > 0 || st.carried) && (moving || st.strengths != {ao, shadow}) do studio_composite(st, cmd, vt, ao, shadow, under)
+		if (st.samples > 0 || st.carried) && (moving || st.strengths != {ao, shadow}) do studio_composite(st, cmd, vt, ao, shadow, under, moving && !kept_shadows)
 		return true
 	}
 	center, radius, ok := scene_sphere(items)
@@ -229,7 +232,7 @@ studio_frame :: proc(r: ^Renderer, st: ^Studio, cmd: ^sdl.GPUCommandBuffer, vt: 
 		trace_sample(r, &st.trace, cmd, st.accum, view_depth, st.sampler, view, proj, items, light, TRACE_EPSILON * radius, first)
 		st.samples += 1
 		st.sequence += 1
-		studio_composite(st, cmd, vt, ao, shadow, under)
+		studio_composite(st, cmd, vt, ao, shadow, under, moving && !kept_shadows)
 		return true
 	}
 	light := light_view_proj(center, radius, dir)
@@ -280,7 +283,7 @@ studio_frame :: proc(r: ^Renderer, st: ^Studio, cmd: ^sdl.GPUCommandBuffer, vt: 
 	gpu_end_render_pass(pass)
 	st.samples += 1
 	st.sequence += 1
-	studio_composite(st, cmd, vt, ao, shadow, under)
+	studio_composite(st, cmd, vt, ao, shadow, under, moving && !kept_shadows)
 	return true
 }
 
@@ -290,7 +293,7 @@ studio_frame :: proc(r: ^Renderer, st: ^Studio, cmd: ^sdl.GPUCommandBuffer, vt: 
 // shadows only when the lights stood still in the world, as lights fixed to the scene do
 // (lights fixed to the camera turn with it, and their shadows build again from new samples).
 @(private = "file")
-studio_carry :: proc(r: ^Renderer, st: ^Studio, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, view, proj: Mat4, items: []Draw_Item, soft: f32, max_samples: int, lights: Lights) -> (carried, moving: bool) {
+studio_carry :: proc(r: ^Renderer, st: ^Studio, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, view, proj: Mat4, items: []Draw_Item, soft: f32, max_samples: int, lights: Lights) -> (carried, moving, keep_shadows: bool) {
 	if !st.shown_valid || !st.depth_kept || soft != st.softness || max_samples <= 0 do return
 	if st.samples == 0 && !st.carried do return
 	if studio_scene_key(items, soft, vt.epoch) != st.scene_key do return
@@ -299,9 +302,11 @@ studio_carry :: proc(r: ^Renderer, st: ^Studio, cmd: ^sdl.GPUCommandBuffer, vt: 
 	view_proj := proj * view
 	moving = view_proj != st.view_proj
 	lights_key := studio_lights_key(lights, view, center, soft)
-	keep_shadows := lights_key == st.lights_key
-	// Unmoved, a change of the lights is a change of what the shadow samples are of.
-	if !moving && !keep_shadows do return false, false
+	keep_shadows = lights_key == st.lights_key
+	// Unmoved, a change of the lights is a change of what the shadow samples are of; and
+	// samples fewer than a carry keeps cost nothing to start over, which leaves a view that
+	// never moves exactly as it always was.
+	if !moving && (!keep_shadows || st.samples + int(st.carried) * STUDIO_CARRY_AMBIENT < STUDIO_CARRY_AMBIENT) do return false, false, false
 
 	// The depth this frame's view is read at, drawn first with multisampling.
 	view_depth := vt.depth
@@ -331,7 +336,7 @@ studio_carry :: proc(r: ^Renderer, st: ^Studio, cmd: ^sdl.GPUCommandBuffer, vt: 
 	st.carries += 1
 	// What the next frame carries from is this one's depth, kept even when no sample is added.
 	studio_keep_depth(st, cmd, view_depth)
-	return true, moving
+	return true, moving, keep_shadows
 }
 
 // Keeps `view_depth` for the next frame's carry.
@@ -377,6 +382,8 @@ studio_scene_key :: proc(items: []Draw_Item, softness: f32, epoch: u64) -> u64 {
 studio_lights_key :: proc(lights: Lights, view: Mat4, center: [3]f32, softness: f32) -> u64 {
 	l := lights if lights != {} else lights_default()
 	world := lights_to_world(l, view, center, softness)
+	// The studio's turn is what the materials reflect, which no shadow sample reads.
+	world.rig = {}
 	// The world positions of camera-fixed lights come through a matrix inverse, whose last
 	// bits can differ for a view that only seems unchanged; a ten-thousandth is far below
 	// any visible move of a shadow.
@@ -458,16 +465,18 @@ studio_light :: proc(lights: Lights, view: Mat4, center: [3]f32, softness: f32, 
 }
 
 // The image shown: the viewport darkened by what the samples found; where carried samples
-// are too few, mixed toward `under` (nil: the viewport).
+// are too few, mixed toward `under` (nil: the viewport). `no_shadows` leaves the shadows out
+// while the view turns with lights fixed to the camera, whose shadows build again only once
+// it rests: a frame's one light sample would show as speckle.
 @(private = "file")
-studio_composite :: proc(st: ^Studio, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, ao, shadow: f32, under: ^sdl.GPUTexture = nil) {
+studio_composite :: proc(st: ^Studio, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, ao, shadow: f32, under: ^sdl.GPUTexture = nil, no_shadows := false) {
 	st.strengths = {ao, shadow}
 	target := sdl.GPUColorTargetInfo{texture = st.shown, load_op = .DONT_CARE, store_op = .STORE, cycle = true}
 	pass := gpu_begin_render_pass(cmd, &target, 1, nil)
 	gpu_bind_graphics_pipeline(pass, st.composite_pipeline)
 	samplers := [3]sdl.GPUTextureSamplerBinding{{texture = vt.color, sampler = st.sampler}, {texture = st.accum, sampler = st.sampler}, {texture = under if under != nil else vt.color, sampler = st.sampler}}
 	gpu_bind_fragment_samplers(pass, 0, &samplers[0], len(samplers))
-	params := [4]f32{clamp(ao, 0, 1), clamp(shadow, 0, 1), STUDIO_CARRY_SETTLED if st.carried else 0, 0}
+	params := [4]f32{clamp(ao, 0, 1), 0 if no_shadows else clamp(shadow, 0, 1), STUDIO_CARRY_SETTLED if st.carried else 0, STUDIO_CARRY_KEY_SETTLED}
 	gpu_push_fragment_uniform_data(cmd, 0, &params, size_of(params))
 	gpu_draw_primitives(pass, 3, 1, 0, 0)
 	gpu_end_render_pass(pass)
