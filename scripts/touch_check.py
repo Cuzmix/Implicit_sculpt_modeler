@@ -2701,11 +2701,11 @@ def lens_camera_chip_opens_the_camera_menu():
 
 @scenario
 def lens_object_chip_opens_the_scene_palette():
-    """A tap on the object chip opens the tray on the Scene palette."""
+    """A tap on the object chip opens the stack's Scene card."""
     s = Script()
     s.ftap(*LENS_CHIP_OBJECT)
     s.wait(10)
-    return s, LENS_1440, camera_still({"inspector_tab": is_text("scene"), "window_inspector": lambda v: v.startswith("1,")})
+    return s, LENS_1440, camera_still({"inspector_tab": is_text("scene"), "window_inspector": lambda v: v.startswith("1,"), "stack": lambda v: "Scene+" in v.split(",")})
 
 
 @scenario
@@ -2814,6 +2814,47 @@ def lens_picker_card_dragged_onto_a_tile_keeps_it():
     s.wait(10)
     shelf = LENS_SHELF_SCULPT.replace("Brush:Layer", "Brush:Inflate")
     return s, LENS_1440, camera_still({"shelf_drops": near(1), "shelf": is_text(shelf), "brush_sheet": near(1), "dabs": near(0)})
+
+
+# The Lens stack at 1440 x 900 (lens_stack.odin): the Brush card's header and its Stroke
+# group open; with Brush folded, the Symmetry card's grip and Layers' Float.
+LENS_STACK = {"brush": (1180, 94), "stroke": (1200, 370), "symmetry_grip": (1075, 154), "layers_float": (1300, 214)}
+
+
+@scenario
+def lens_stack_header_tap_folds_the_card():
+    """A tap on the Brush card's header folds it to its header, and a Brush group's header folds that group."""
+    def run(group):
+        s = Script()
+        s.ftap(*(LENS_STACK["stroke"] if group else LENS_STACK["brush"]))
+        s.wait(10)
+        if group:
+            return s, LENS_1440, camera_still({"stack": lambda v: v.startswith("Brush+,"), "stack_shut": lambda v: "Stroke" in v.split(","), "dabs": near(0)})
+        return s, LENS_1440, camera_still({"stack": lambda v: v.startswith("Brush,"), "stack_folds": near(1), "dabs": near(0)})
+    return Steps([run(False), run(True)])
+
+
+@scenario
+def lens_stack_grip_drag_moves_a_card():
+    """With Brush folded, Symmetry's grip dragged below Scene moves it there."""
+    s = Script()
+    s.ftap(*LENS_STACK["brush"])
+    s.wait(6)
+    grip = LENS_STACK["symmetry_grip"]
+    s.fdrag(line(grip, (grip[0], 300), 8) + [(grip[0], 300)] * 3)
+    s.wait(10)
+    return s, LENS_1440, camera_still({"stack": lambda v: v.startswith("Brush,Layers,Scene,Symmetry"), "stack_moves": near(1), "dabs": near(0)})
+
+
+@scenario
+def lens_stack_float_floats_a_card():
+    """Layers' Float takes it out of the stack as a card of its own, open."""
+    s = Script()
+    s.ftap(*LENS_STACK["brush"])
+    s.wait(6)
+    s.ftap(*LENS_STACK["layers_float"])
+    s.wait(10)
+    return s, LENS_1440, camera_still({"stack": lambda v: "Layers+^" in v.split(","), "dabs": near(0)})
 
 
 @scenario

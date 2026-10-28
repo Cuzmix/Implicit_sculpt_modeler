@@ -1583,6 +1583,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			fmt.printfln("view_rail=%s mini_swaps=%d mini_rows=%d camera_ortho=%d island=%.0f,%.0f,%.0f,%.0f chips=%.0f,%.0f nav_head=%.0f,%.0f mini=%.0f,%.0f,%.0f,%.0f", bar_names(&app, .View_Rail), k.mini_swaps, int(k.mini_rows), int(app.camera.ortho), island.x, island.y, island.w, island.h, chips.x, chips.y, head.x, head.y, mini.x, mini.y, mini.w, mini.h)
 			sh := &k.shelf
 			fmt.printfln("shelf_page=%v shelf=%s shelf_quick=%d brush_sheet=%d shelf_drops=%d shelf_turns=%d", sh.page, bar_names(&app, shelf_which(sh.page)), int(sh.quick), int(k.browser && k.chrome == .Lens), sh.drops, sh.turns)
+			fmt.printfln("stack=%s stack_shut=%s stack_menu=%d stack_folds=%d stack_moves=%d", stack_text(k), stack_shut_text(k), int(k.stack.menu), k.stack.folds, k.stack.moves)
 			fmt.printfln("pass=%v pass_shown=%v pass_menu=%d pass_switches=%d", k.passes.pass, viewport_pass(k), int(k.passes.menu), k.passes.switches)
 			fmt.printfln("wipe=%d wipe_at=%.3f wipe_right=%v wipe_drags=%d", int(wipe_shown(k)), k.passes.wipe_at, wipe_right(k), k.passes.wipe_drags)
 			fmt.printfln("guides=%d guide_heights=%s guide_lines=%d guide_drags=%d", int(app.scene.guides.shown), guides_heights_text(app.scene.guides), k.guide_lines, k.guide_drags)
