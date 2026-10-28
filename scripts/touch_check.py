@@ -607,8 +607,8 @@ def colors_eyedropper_key_picks_under_the_pointer():
 
 @scenario
 def render_switch_runs_one_quality():
-    """The right bar's Render button turns the render on at Preview; Full render from search then takes over
-    from Preview, so the one switch never runs both; the button again turns it off, keeping Full as the
+    """The right bar's Render button turns the render on at Fast; Full render from search then takes over
+    from Fast, so the one switch never runs both; the button again turns it off, keeping Full as the
     quality, and nothing is sculpted."""
     s = Script()
     s.ftap(*UI["studio"])
@@ -1229,7 +1229,7 @@ def finger_orbits_empty_space():
 
 @scenario
 def studio_keeps_its_samples_while_the_view_turns():
-    """With Render on at Preview, a finger turning the view after the samples built up carries them each
+    """With Render on at Fast, a finger turning the view after the samples built up carries them each
     frame of the turn instead of starting over, and nothing is sculpted."""
     s = Script()
     s.wait(30)

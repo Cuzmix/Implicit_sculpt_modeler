@@ -213,3 +213,26 @@ settings_take_a_real_bound_by_its_text :: proc(t: ^testing.T) {
 		testing.expect(t, ok && f32(v) == HOLD_DELAY_MAX)
 	}
 }
+
+// Render's Fast quality was once named Preview: a settings file or script naming it so still
+// gets Fast, and the file now writes the new name.
+@(test)
+settings_read_preview_as_fast :: proc(t: ^testing.T) {
+	a: App
+	found := false
+	for s in SETTINGS {
+		if s.key != "render_quality" do continue
+		found = true
+		for text in ([]string{"preview", "Preview", "fast"}) {
+			for strict in ([]bool{false, true}) {
+				v, ok := setting_parse(s, text, strict)
+				testing.expect(t, ok, text)
+				testing.expect_value(t, Render_Quality(int(v)), Render_Quality.Fast)
+			}
+		}
+		a.render_quality = .Fast
+		testing.expect_value(t, setting_text(&a, s), "Fast")
+	}
+	testing.expect(t, found)
+	free_all(context.temp_allocator)
+}
