@@ -64,10 +64,11 @@ arrange_put :: proc(app: ^App, ref: Panel_Ref, place: int) {
 	if r, ok := ref.(Kit_Window); ok && r == .Inspector do app.kit.objects_card = false
 }
 
-// While arranging: the head under the top bar.
+// While arranging: the head under the top bar (Classic; Lens has the top bar's controls
+// and the Library instead, lens_arrange.odin).
 kit_arrange_head :: proc(app: ^App) {
 	k := &app.kit
-	if !k.bars_edit do return
+	if !k.bars_edit || k.chrome == .Lens do return
 	ctx := &k.ctx
 	t := ctx.theme
 	w := &k.workspaces
@@ -94,6 +95,15 @@ kit_arrange_head :: proc(app: ^App) {
 	_ = command_button(app, .Workspace_Revert, label = "Revert", variant = .Bordered)
 	_ = command_button(app, .Workspace_Save_As, label = "Save as new", variant = .Bordered)
 	ui.end(ctx)
+	arrange_show_chips(app)
+	ui.end(ctx)
+}
+
+// The Show chips: one for each bar, lit while the workspace shows it.
+arrange_show_chips :: proc(app: ^App) {
+	k := &app.kit
+	ctx := &k.ctx
+	t := ctx.theme
 	ui.begin(ctx, "arrange zones", {direction = .Row, gap = 4, center = true})
 	ui.label(ctx, "Show", t.small_size, t.text_secondary)
 	for z in Zone {
@@ -103,7 +113,6 @@ kit_arrange_head :: proc(app: ^App) {
 			zone_toggle(k, z)
 		}
 	}
-	ui.end(ctx)
 	ui.end(ctx)
 }
 
@@ -121,9 +130,16 @@ kit_arrange_drawer :: proc(app: ^App) {
 	k := &app.kit
 	if !k.bars_edit do k.arrange_drawer = false
 	ctx := &k.ctx
-	t := ctx.theme
 	if !ui.popover_begin(ctx, "arrange panels", &k.arrange_drawer, k.arrange_drawer_at, .Below, {direction = .Column, gap = 6, padding = 10, width = 420}) do return
 	defer ui.popover_end(ctx)
+	arrange_panel_rows(app)
+}
+
+// Every panel with where it is, to be changed with a tap: the drawer's, and Lens's
+// Library > Panels.
+arrange_panel_rows :: proc(app: ^App) {
+	ctx := &app.kit.ctx
+	t := ctx.theme
 	ui.caption(ctx, "PANELS")
 	for ref in arrange_panels(app) {
 		ui.begin(ctx, fmt.tprintf("arrange %s", panel_name(ref)), {direction = .Row, gap = 8, center = true})

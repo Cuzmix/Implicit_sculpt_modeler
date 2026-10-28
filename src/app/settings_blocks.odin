@@ -54,6 +54,7 @@ Settings_Block :: enum u8 {
 	Statistics,
 	Frame_Rate,
 	Anti_Aliasing,
+	Graphics,
 	Autosave,
 	Earlier_Saves,
 	Undo_History,
@@ -108,6 +109,7 @@ SETTINGS_SYSTEM := [?]Settings_Entry {
 	{.Statistics, "STATISTICS"},
 	{.Frame_Rate, "DISPLAY"},
 	{.Anti_Aliasing, ""},
+	{.Graphics, ""},
 	{.Autosave, "AUTOSAVE"},
 	{.Earlier_Saves, "EARLIER SAVES"},
 	{.Undo_History, "UNDO HISTORY"},
@@ -166,6 +168,7 @@ SETTINGS_BLOCK_WORDS := [Settings_Block]string {
 	.Statistics       = "statistics stats simple advanced",
 	.Frame_Rate       = "frame rate fps limit unlimited match display rest when idle battery",
 	.Anti_Aliasing    = "anti-aliasing antialiasing msaa display",
+	.Graphics         = "graphics gpu backend vulkan sdl_gpu driver renderer",
 	.Autosave         = "autosave recovery copy",
 	.Earlier_Saves    = "earlier saves versions kept",
 	.Undo_History     = "undo history steps memory",
@@ -272,7 +275,7 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 		labels := [len(Wheel_Labels)]string{"Icons", "Icons and names", "Names"}
 		if picked := ui.tabs(ctx, "Wheel sectors show", labels[:], int(k.wheel_labels)); picked >= 0 do k.wheel_labels = Wheel_Labels(picked)
 		if ui.slider(ctx, "Wheel turn", &k.wheel_turn, -180, 180, .Linear, fmt.tprintf("%.0f°", k.wheel_turn)) do k.wheel_turn = wheel_turn_snapped(k.wheel_turn)
-		ui.paragraph(ctx, "Smooth (top), Mask (left) and Invert (bottom) for what Shift, Ctrl and Alt do, and the brush pie on the right. Tap one to keep it on until tapped again; hold one with a finger to use it only while held, sculpting with the pen or another finger. Smooth and Mask together hide, as Shift and Ctrl do. Drag the middle to move the wheel; picking a side puts it back. Two fingers on the ring spread or pinch to resize it and twist to turn it.")
+		ui.paragraph(ctx, "As it comes: Smooth (top), Mask (left) and Invert (bottom) for what Shift, Ctrl and Alt do, and the brush pie on the right; Arrange's Library > Dial puts any of them, Hide or a command on each sector. Tap one to keep it on until tapped again; hold one with a finger to use it only while held, sculpting with the pen or another finger. Smooth and Mask together hide, as Shift and Ctrl do. Drag the middle to move the wheel; picking a side puts it back. Two fingers on the ring spread or pinch to resize it and twist to turn it.")
 	case .Inspector:
 		_ = ui.switch_row(ctx, "Show every option", &k.all_options)
 		ui.paragraph(ctx, "Each section of the tray shows its common controls and keeps the rest under More options. On, every section shows everything.")
@@ -420,6 +423,8 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 		ui.label(ctx, "Anti-aliasing")
 		if picked := ui.tabs(ctx, "Anti-aliasing", MSAA_NAMES[:], int(app.msaa)); picked >= 0 do app.msaa = Msaa(picked)
 		ui.paragraph(ctx, "Smooths the stepped edges of outlines and wireframe lines by taking 2 or 4 samples a pixel. It costs GPU memory and a little time every frame; Off draws as fast as it can.")
+	case .Graphics:
+		graphics_controls(app)
 	case .Autosave:
 		a := &app.autosave
 		chosen := 0
@@ -492,6 +497,7 @@ settings_block_reset :: proc(app: ^App, b: Settings_Block) {
 	case .Wheel:
 		k.rail_side, k.wheel_size, k.wheel_offset = .Left, .Medium, {}
 		k.wheel_labels, k.wheel_turn = .Icons, 0
+		k.dial = DIAL_DEFAULT
 	case .Inspector:       k.all_options = false
 	case .Pies, .Mouse, .Blender_Link:
 	case .Panel_Places:    windows_reset(k)
@@ -526,6 +532,7 @@ settings_block_reset :: proc(app: ^App, b: Settings_Block) {
 		app.frame_rate, app.frame_limit = .Match_Display, FRAME_LIMIT_DEFAULT
 		app.idle_sleep = true
 	case .Anti_Aliasing:   app.msaa = MSAA_DEFAULT
+	case .Graphics:        app.graphics = .Auto
 	case .Autosave:        app.autosave.minutes = AUTOSAVE_DEFAULT_MINUTES
 	case .Earlier_Saves:   app.versions_kept = VERSIONS_DEFAULT
 	case .Undo_History:    app.undo_steps = 0
