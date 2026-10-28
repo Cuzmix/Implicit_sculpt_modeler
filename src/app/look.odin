@@ -70,7 +70,9 @@ look_apply :: proc(app: ^App, preset: Look_Preset, selected: bool) {
 	app.cavity, app.ridge = 0.7 if studio else CAVITY_DEFAULT, RIDGE_DEFAULT
 	app.styled, app.rim, app.underside = studio, RIM_DEFAULT, UNDERSIDE_DEFAULT
 	app.live_ao_on = studio
-	app.studio_on = studio
+	// The look's shadows are Preview's; a Full render running stays, its quality kept.
+	if studio && !app.render_on do render_set(app, true, .Preview)
+	else if !studio do app.studio_on = false
 	app.studio_ao = 1 if studio else STUDIO_AO_DEFAULT
 	app.studio_shadow = LOOK_STUDIO_SHADOW if studio else STUDIO_SHADOW_DEFAULT
 	app.studio_softness = LOOK_STUDIO_SOFTNESS if studio else render.STUDIO_KEY_SOFTNESS
@@ -87,7 +89,7 @@ look_first_run :: proc(app: ^App) {
 // The preset the view is in, by what tells them apart (the style and the studio render),
 // whatever has been adjusted since; nil for neither.
 look_current :: proc(app: ^App) -> Maybe(Look_Preset) {
-	if app.styled && app.studio_on do return .Sculpt_Studio
+	if app.styled && render_switch_on(app) do return .Sculpt_Studio
 	if !app.styled && !app.studio_on do return .Classic
 	return nil
 }
@@ -109,6 +111,7 @@ kit_look :: proc(app: ^App) {
 	_ = ui.slider(ctx, "Ambient", &set.ambient, 0, LIGHT_STRENGTH_MAX, .Linear, fmt.tprintf("%.2f", set.ambient))
 	_ = ui.slider(ctx, "Shadow", &app.studio_shadow, 0, 1, .Linear, fmt.tprintf("%.2f", app.studio_shadow))
 	_ = ui.slider(ctx, "Shadow softness", &app.studio_softness, render.STUDIO_SOFTNESS_MIN, render.STUDIO_SOFTNESS_MAX, .Logarithmic, fmt.tprintf("%.1f°", math.to_degrees(app.studio_softness)))
+	kit_live_ao(app)
 	if kit_more(app, .Look) {
 		_ = ui.slider(ctx, "Occlusion", &app.studio_ao, 0, 1, .Linear, fmt.tprintf("%.2f", app.studio_ao))
 		_ = ui.switch_row(ctx, "Styled shading", &app.styled)
@@ -118,7 +121,9 @@ kit_look :: proc(app: ^App) {
 		}
 		grey := app.background.top.r
 		if ui.slider(ctx, "Background", &grey, 0, 1, .Linear, fmt.tprintf("%.2f", grey)) do app.background.top = {grey, grey, min(grey * 1.03, 1)}
+		kit_live_ao_reach(app)
 		kit_more_end(app)
 	}
-	ui.paragraph(ctx, "Sculpt studio is soft grey clay under a key light from the upper left, with soft shadows, deep shade under the forms and a light rim; the shadows build up while the view is still. Classic is the look the app always had. Each slider is the control of the same name in Lights, Studio render or Background; Underside is how much light reaches surfaces facing down.")
+	ui.paragraph(ctx, "Sculpt studio is soft grey clay under a key light from the upper left, with soft shadows, deep shade under the forms and a light rim; the shadows build up while the view is still. Classic is the look the app always had. Each slider is the control of the same name in Lights, Render's Preview or Background; Underside is how much light reaches surfaces facing down.")
+	ui.paragraph(ctx, "Occlusion while working darkens creases every frame, sculpting too, with the same Occlusion strength; Reach is how far it looks, as a share of the scene's size. With Render's Preview on it shows until Preview has built up its first samples.")
 }

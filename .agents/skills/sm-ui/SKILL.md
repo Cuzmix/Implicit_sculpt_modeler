@@ -77,7 +77,7 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   arranges, `k.shortcuts` (`bars.odin`: `Bar_List` of `Bar_Slot` commands drawn by `bar_slot_button`, whose `bar_slot_run`/
   `bar_slot_more`/`bar_lit`/`bar_icon` keep each command's own tap, long press and lit state wherever it sits; a fresh
   install's `SHORTCUTS_DEFAULT`: Shading and Camera (a tap opens `Bar_Pop_Kind.Shading`/`.Camera`,
-  `kit_shading_menu`/`kit_camera_menu`, beside `k.bar_at[kind]`), Studio render, Floor grid, Symmetry, Local symmetry,
+  `kit_shading_menu`/`kit_camera_menu`, beside `k.bar_at[kind]`), Render (Studio_Render), Floor grid, Symmetry, Local symmetry,
   Focus, Wireframe, Transparency, Ghost, Solo; it scrolls in a `kit_scroll` when too tall);
   touch_check's `UI` table has each button's place, so a button added here shifts the ones under it there); bottom `kit_bottom_bar` (a page of the dock's slots,
   `dock_page_slots`/`dock_per_page`, in the clipped `drag_scroll` row "dock slots" that `ui.swipe_update` turns by a

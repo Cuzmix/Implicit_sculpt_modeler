@@ -606,6 +606,22 @@ def colors_eyedropper_key_picks_under_the_pointer():
 
 
 @scenario
+def render_switch_runs_one_quality():
+    """The right bar's Render button turns the render on at Preview; Full render from search then takes over
+    from Preview, so the one switch never runs both; the button again turns it off, keeping Full as the
+    quality, and nothing is sculpted."""
+    s = Script()
+    s.ftap(*UI["studio"])
+    s.wait(6)
+    palette_run(s, "full render")
+    s.wait(6)
+    s.ftap(*UI["studio"])
+    s.wait(6)
+    return s, [], camera_still({"render_switch": near(0), "render_quality": is_text("full"), "studio": near(0), "render": near(0),
+                                "dabs": near(0), "undo_steps": near(0)})
+
+
+@scenario
 def pick_focus_takes_the_point_from_the_model():
     """Pick focus from search waits for a finger on the model; its tap puts depth of field's focus on the
     sphere's surface, sculpting nothing and turning nothing."""

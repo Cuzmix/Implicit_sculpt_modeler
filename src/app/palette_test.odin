@@ -52,7 +52,7 @@ palette_finds_other_apps_names :: proc(t: ^testing.T) {
 	testing.expect_value(t, best("clay"), "Clay brush")
 	testing.expect_value(t, best("inv mask"), "Invert mask")
 	testing.expect_value(t, best("touch"), "Settings: Touch")
-	testing.expect_value(t, best("bpr"), "Studio render")
+	testing.expect_value(t, best("bpr"), "Render")
 	testing.expect_value(t, best("freeze"), "Mask all")
 	testing.expect_value(t, best("subtool"), "Add object")
 	testing.expect_value(t, best("qqqqq"), "")

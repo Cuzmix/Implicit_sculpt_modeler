@@ -411,7 +411,7 @@ bar_icon :: proc(s: Bar_Slot) -> rune {
 @(private = "file")
 bar_more_section :: proc(id: Command_Id) -> (Kit_Section, bool) {
 	#partial switch id {
-	case .Studio_Render:  return .Studio, true
+	case .Studio_Render:  return .Render, true
 	case .Floor_Grid:     return .Floor, true
 	case .Dyntopo_Toggle: return .Topology, true
 	case .Retopologize:   return .Retopo, true
