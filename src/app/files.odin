@@ -1040,7 +1040,7 @@ scene_open :: proc(app: ^App, path: string) -> (opened, ok: bool) {
 
 	objects := make([dynamic]^Object, 0, count)
 	defer delete(objects)
-	_ = sdl.WaitForGPUIdle(app.renderer.device)
+	render.wait_idle(&app.renderer)
 	missing := 0
 	for i in 0 ..< count {
 		obj, read, made := object_get(app, &r, version, &missing)
@@ -1093,7 +1093,7 @@ scene_replace :: proc(app: ^App, objects: []^Object, selected, next_id: int, vie
 	stroke_finish(app)
 	timelapse_stop(app, "the scene was replaced")
 	app.timeline.playing, app.timeline.seeking = false, false
-	_ = sdl.WaitForGPUIdle(app.renderer.device)
+	render.wait_idle(&app.renderer)
 	history_clear(&app.history)
 	for obj in app.scene.objects do object_free(app, obj)
 	clear(&app.scene.objects)

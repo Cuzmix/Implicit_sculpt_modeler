@@ -83,7 +83,8 @@ case "$mode" in
 				-collection:deps="$DEPS" -vet -strict-style -warnings-as-errors
 		done
 		python3 "$ROOT/scripts/agents_sync.py" --check
-		echo "check: 14 packages type-check, agent mirror current"
+		python3 "$ROOT/scripts/boundary_check.py"
+		echo "check: 14 packages type-check, agent mirror current, only render names the GPU API"
 		;;
 	wincheck)
 		# Object files need no Windows SDK; the empty root only satisfies the flag.

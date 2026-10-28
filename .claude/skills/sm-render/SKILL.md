@@ -266,11 +266,16 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines, 
 | garbage inside a rectangle | the damage box missed a moved vertex: `changed_bounds` must cover before and after (`src/sculpt/brush.odin:149-151, 457, 492`); `PAD` |
 | lighting wrong after a stroke | normals not re-uploaded: only dirty nodes' ranges are uploaded, so a node that moved must be marked stale |
 | an idle object does not update | its cache key did not change: bump `version` or `viewport_invalidate` |
-| validation errors in `smoke` | a buffer released while in flight (`WaitForGPUIdle` before every destroy: `src/app/scene.odin:94, 168, 238, 319, 325, 412`), an upload outside a copy pass, a transfer buffer mapped without `cycle` |
+| validation errors in `smoke` | a buffer released while in flight (`render.wait_idle` before every destroy, as `src/app/scene.odin` does), an upload outside a copy pass, a transfer buffer mapped without `cycle` |
 | swapchain errors after toggling VSync | `renderer_set_vsync` called after the swapchain texture was acquired |
 
 ## Rules
-- Only `render` (and `app`, for the present pass) import `vendor:sdl3`; `render` never reads UI state (`:1-3`).
+- Only `render` names the GPU API; `app` imports `vendor:sdl3` for windows, events and the pen only, and reaches
+  the GPU through `src/render/gpu.odin`: the handles `Cmd`, `Texture`, `Fence`, `Sample_Count`, and `wait_idle`,
+  `cmd_begin`/`cmd_submit`/`cmd_submit_fenced`/`cmd_cancel`, `fence_finish`, `swapchain_acquire`, `ui_present`
+  (each window's present pass), `renderer_ready`. `scripts/boundary_check.py` (run by `check`) fails on any
+  `sdl.*GPU*` name or native GPU import outside `src/render`; a new GPU need is a render proc, never an app call.
+  `render` never reads UI state.
 - Every `sdl.*GPU*` result is consumed (sm-odin); wait for the GPU before destroying anything drawn this frame;
   `renderer_destroy` waits and releases in reverse order.
 - Edit the GLSL and commit the regenerated `.spv` with it, saying which validator produced it; never hand-edit `.spv`.

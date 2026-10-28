@@ -5,7 +5,6 @@ import "core:log"
 import "core:slice"
 import "core:strings"
 import "core:time"
-import sdl "vendor:sdl3"
 
 import "../geom"
 import "../render"
@@ -140,7 +139,7 @@ object_split :: proc(app: ^App, obj: ^Object, mode: Split_Mode, keep_parts := tr
 	}
 	free_all(context.temp_allocator)
 	cut := time.tick_now()
-	_ = sdl.WaitForGPUIdle(app.renderer.device)
+	render.wait_idle(&app.renderer)
 	// Every piece takes the layers, so the level they came from stays until the last has.
 	layered := object_take_layered(app, obj)
 	defer sculpt.layered_level_free(&layered)
@@ -309,7 +308,7 @@ merge_down :: proc(app: ^App) -> bool {
 	}
 	before := history_snapshot(app, obj, "merge down")
 	start := time.tick_now()
-	_ = sdl.WaitForGPUIdle(app.renderer.device)
+	render.wait_idle(&app.renderer)
 	app.layers_lost += sculpt.levels_layer_count(&obj.levels)
 	object_release_mesh(app, obj)
 	if !object_build_from(app, obj, mesh, start, normals = true, surface = surface) {

@@ -4,7 +4,6 @@ import "core:fmt"
 import "core:log"
 import "core:math"
 import "core:time"
-import sdl "vendor:sdl3"
 
 import "../geom"
 import "../render"
@@ -135,13 +134,13 @@ voxel_surface_mask :: proc(vp: ^Voxel_Part) -> []u8 {
 // Remeshes what the frame's strokes changed and records the upload: the vertex and index
 // slots that changed, or a new GPU copy of the whole surface when its arrays grew or were
 // laid out again. Returns the bytes sent and the damage, and false on a GPU failure.
-voxel_upload :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer, obj: ^Object, vp: ^Voxel_Part) -> (bytes: int, damage: geom.Aabb, ok: bool) {
+voxel_upload :: proc(app: ^App, cmd: render.Cmd, obj: ^Object, vp: ^Voxel_Part) -> (bytes: int, damage: geom.Aabb, ok: bool) {
 	f := voxel.clay_flush(&vp.clay)
 	m := vp.clay.surface.mesh
 	mask: []u8
 	if object_has_mask(app, obj) do mask = vp.clay.surface.mask[:]
 	if f.regrow || u32(len(m.positions)) > vp.gpu.vertex_capacity || u32(len(m.indices)) > vp.gpu.index_count {
-		_ = sdl.WaitForGPUIdle(app.renderer.device)
+		render.wait_idle(&app.renderer)
 		render.mesh_buffers_destroy(&app.renderer, &vp.gpu)
 		vp.gpu = render.mesh_buffers_create(&app.renderer, m, mask) or_return
 		render.viewport_invalidate(&app.target)
@@ -244,7 +243,7 @@ object_mesh_to_voxels :: proc(app: ^App, obj: ^Object, across: int) -> (changed,
 		return false, true
 	}
 	_ = voxel.clay_flush(&vp.clay)
-	_ = sdl.WaitForGPUIdle(app.renderer.device)
+	render.wait_idle(&app.renderer)
 	// The groups go with the mesh, and their table with them: a voxel object with group
 	// materials is a scene file the app refuses (the swap step keeps the table).
 	autosave_settle(app)
@@ -291,7 +290,7 @@ object_voxel_to_mesh :: proc(app: ^App, obj: ^Object) -> bool {
 	values: []u8
 	defer delete(values)
 	mesh := voxel.clay_to_mesh(&obj.voxel.clay, mask = &values if masked else nil)
-	_ = sdl.WaitForGPUIdle(app.renderer.device)
+	render.wait_idle(&app.renderer)
 	object_release_mesh(app, obj)
 	if !object_build_from(app, obj, mesh, start, normals = true) do return false
 	if masked do _ = sculpt.sculptor_mask_values(object_sculptor(obj), values, .Replace)

@@ -2,8 +2,6 @@ package main
 
 import "core:log"
 
-import sdl "vendor:sdl3"
-
 import "../render"
 
 // Anti-aliasing: how many samples each viewport pixel takes (MSAA), which smooths the
@@ -23,7 +21,7 @@ MSAA_NAMES := [len(Msaa)]string{"Off", "2x", "4x"}
 // samples between frames (partial redraw and the idle cache load them again), so 2x there.
 MSAA_DEFAULT :: Msaa.X2 when ODIN_PLATFORM_SUBTARGET == .Android else Msaa.X4
 
-msaa_samples :: proc(m: Msaa) -> sdl.GPUSampleCount {
+msaa_samples :: proc(m: Msaa) -> render.Sample_Count {
 	switch m {
 	case .Off: return ._1
 	case .X2:  return ._2
@@ -32,7 +30,7 @@ msaa_samples :: proc(m: Msaa) -> sdl.GPUSampleCount {
 	return ._1
 }
 
-msaa_of :: proc(samples: sdl.GPUSampleCount) -> Msaa {
+msaa_of :: proc(samples: render.Sample_Count) -> Msaa {
 	#partial switch samples {
 	case ._2: return .X2
 	case ._4, ._8: return .X4

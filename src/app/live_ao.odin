@@ -1,7 +1,6 @@
 package main
 
 import "core:fmt"
-import sdl "vendor:sdl3"
 
 import "../render"
 import "../ui"
@@ -23,7 +22,7 @@ LIVE_AO_REACH_MAX :: 0.4
 // STUDIO_SHOW_MIN samples, and this shows until then, so sculpting with the studio on
 // keeps its occlusion. A still view redraws nothing, which costs it nothing. Off, it
 // makes its next run start in full.
-live_ao_view_frame :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer, view, proj: render.Mat4, items: []render.Draw_Item, drawn: render.Viewport_Stats) {
+live_ao_view_frame :: proc(app: ^App, cmd: render.Cmd, view, proj: render.Mat4, items: []render.Draw_Item, drawn: render.Viewport_Stats) {
 	if !live_ao_wanted(app) {
 		render.live_ao_reset(&app.live_ao)
 		return
@@ -41,7 +40,7 @@ live_ao_view_frame :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer, view, proj: re
 // occlusion, live occlusion's while that is on, then the studio's copy of the viewport,
 // else nil for the viewport's own colour. The panel,
 // screenshots and the time-lapse all read it, so each shows what the others do.
-viewport_shown :: proc(app: ^App) -> ^sdl.GPUTexture {
+viewport_shown :: proc(app: ^App) -> render.Texture {
 	// A view pane worked in shows the viewport as it draws, or its live occlusion when it
 	// shows AO only.
 	if app.kit.grid.work != 0 do return render.live_ao_texture(&app.live_ao) if live_ao_wanted(app) else nil

@@ -6,8 +6,6 @@ import "core:path/filepath"
 import "core:strconv"
 import "core:strings"
 
-import sdl "vendor:sdl3"
-
 import "../render"
 
 // A content pack's matcaps and materials. Matcaps are images of a lit sphere right in its
@@ -41,7 +39,7 @@ Pack_Matcap :: struct {
 	pack:    string, // the pack's id, owned
 	stem:    string, // owned
 	file:    string, // owned: the full path
-	texture: ^sdl.GPUTexture, // nil until something shows it
+	texture: render.Texture, // nil until something shows it
 	failed:  bool, // the file did not read when it was wanted, so it is not tried again
 	gone:    bool,
 }
@@ -373,7 +371,7 @@ pack_material_moved :: proc(app: ^App, m: Material) -> (Material, bool) {
 // one note and the lights, and is not tried again.
 pack_matcaps_settle :: proc(app: ^App) {
 	l := &app.library
-	if len(l.matcaps) == 0 || app.renderer.device == nil do return
+	if len(l.matcaps) == 0 || !render.renderer_ready(&app.renderer) do return
 	need := make([]bool, len(l.matcaps), context.temp_allocator)
 	mark :: proc(need: []bool, m: Material) {
 		if k := m.matcap - PACK_MATCAP; m.matcap >= PACK_MATCAP && k < len(need) do need[k] = true

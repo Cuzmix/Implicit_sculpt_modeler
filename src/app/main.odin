@@ -248,7 +248,7 @@ App :: struct {
 	// The navigation head in the top-right corner (nav_head.odin), and the texture it was
 	// drawn into this frame, for the interface to show; nil when there is none.
 	nav_head:       render.Nav_Head,
-	nav_shown:      ^sdl.GPUTexture,
+	nav_shown:      render.Texture,
 	// The Objects card's pictures of objects (object_thumbs.odin): the atlas they are drawn
 	// into and which object each of its cells shows.
 	thumbs:         render.Thumbs,
@@ -263,8 +263,8 @@ App :: struct {
 	custom:    Material, // what the Material section's sliders made
 	// The built-in matcaps' textures (nil where the device refused one), and the image
 	// loaded with Load MatCap with its path ("" for none).
-	matcaps:      [len(MATCAP_RECIPES)]^sdl.GPUTexture,
-	matcap_image: ^sdl.GPUTexture,
+	matcaps:      [len(MATCAP_RECIPES)]render.Texture,
+	matcap_image: render.Texture,
 	matcap_path:  string,
 	// The image environment the physically based materials light with (environment.odin).
 	env:       Environment_State,
@@ -658,11 +658,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	frame_index := 0
 	bench_skipped := 0 // frames --bench-after-autosave held the stroke back
 	// The previous frame's, kept while timing the GPU so the next frame can wait for it.
-	present_fence: ^sdl.GPUFence
-	defer if present_fence != nil {
-		_ = sdl.WaitForGPUFences(app.renderer.device, true, &present_fence, 1)
-		sdl.ReleaseGPUFence(app.renderer.device, present_fence)
-	}
+	present_fence: render.Fence
+	defer render.fence_finish(&app.renderer, &present_fence)
 
 	// Only a run a person drives rests when idle; a scripted one keeps every frame.
 	driven := interactive && opts.run == "" && opts.script == "" && opts.ui_events == "" && opts.load_strokes == "" && opts.timelapse == "" && !opts.orbit
@@ -750,21 +747,12 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		// the swapchain, so frame_pace runs before this frame acquires a swapchain texture.
 		wait_start := time.tick_now()
 		frame_pace(&app, window)
-		if present_fence != nil {
-			_ = sdl.WaitForGPUFences(app.renderer.device, true, &present_fence, 1)
-			sdl.ReleaseGPUFence(app.renderer.device, present_fence)
-			present_fence = nil
-		}
-		present_cmd := sdl.AcquireGPUCommandBuffer(app.renderer.device)
-		if present_cmd == nil {
-			log.errorf("AcquireGPUCommandBuffer failed: %s", sdl.GetError())
-			return false
-		}
-		swapchain: ^sdl.GPUTexture
-		swapchain_size: [2]u32
-		if !sdl.WaitAndAcquireGPUSwapchainTexture(present_cmd, window, &swapchain, &swapchain_size.x, &swapchain_size.y) {
-			log.errorf("acquire swapchain failed: %s", sdl.GetError())
-			_ = sdl.CancelGPUCommandBuffer(present_cmd)
+		render.fence_finish(&app.renderer, &present_fence)
+		present_cmd := render.cmd_begin(&app.renderer)
+		if present_cmd == nil do return false
+		swapchain, swapchain_size, acquired := render.swapchain_acquire(present_cmd, window, wait = true)
+		if !acquired {
+			_ = render.cmd_cancel(present_cmd)
 			return false
 		}
 		waited := time.tick_since(wait_start)
@@ -927,18 +915,17 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 
 		// The 3D viewport goes in its own command buffer, submitted ahead of the one that
 		// presents, so its GPU time can be measured on its own.
-		cmd := sdl.AcquireGPUCommandBuffer(app.renderer.device)
+		cmd := render.cmd_begin(&app.renderer)
 		if cmd == nil {
-			log.errorf("AcquireGPUCommandBuffer failed: %s", sdl.GetError())
-			_ = sdl.SubmitGPUCommandBuffer(present_cmd) // holds a swapchain texture: cannot be cancelled
+			_ = render.cmd_submit(present_cmd) // holds a swapchain texture: cannot be cancelled
 			return false
 		}
 		uploaded: int // bytes
 		normals_ms: f64
 		lod_ms := -1.0 // time building simplified copies; none built when negative
 		if !boolean_live_update(&app) {
-			_ = sdl.SubmitGPUCommandBuffer(cmd)
-			_ = sdl.SubmitGPUCommandBuffer(present_cmd)
+			_ = render.cmd_submit(cmd)
+			_ = render.cmd_submit(present_cmd)
 			return false
 		}
 		draws := make([dynamic]render.Draw_Item, 0, 2 * len(app.scene.objects) + 1, context.temp_allocator)
@@ -949,8 +936,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 				bytes, damage, uploaded_ok := voxel_upload(&app, cmd, obj, vp)
 				normals_ms += time.duration_milliseconds(time.tick_since(t_flush))
 				if !uploaded_ok {
-					_ = sdl.SubmitGPUCommandBuffer(cmd)
-					_ = sdl.SubmitGPUCommandBuffer(present_cmd)
+					_ = render.cmd_submit(cmd)
+					_ = render.cmd_submit(present_cmd)
 					return false
 				}
 				uploaded += bytes
@@ -987,8 +974,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 				normals_ms += time.duration_milliseconds(time.tick_since(t_flush))
 				bytes, uploaded_ok := level_upload(&app, cmd, gpu, lv, ranges)
 				if !uploaded_ok {
-					_ = sdl.SubmitGPUCommandBuffer(cmd)
-					_ = sdl.SubmitGPUCommandBuffer(present_cmd)
+					_ = render.cmd_submit(cmd)
+					_ = render.cmd_submit(present_cmd)
 					return false
 				}
 				uploaded += bytes
@@ -1135,19 +1122,16 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			// Nothing else is queued (the previous frame was waited for above), so the
 			// time from submit to the fence is the GPU time of this work.
 			submit_start := time.tick_now()
-			fence := sdl.SubmitGPUCommandBufferAndAcquireFence(cmd)
+			fence := render.cmd_submit_fenced(cmd)
 			if fence == nil {
-				log.errorf("submit failed: %s", sdl.GetError())
-				_ = sdl.SubmitGPUCommandBuffer(present_cmd)
+				_ = render.cmd_submit(present_cmd)
 				return false
 			}
-			_ = sdl.WaitForGPUFences(app.renderer.device, true, &fence, 1)
-			sdl.ReleaseGPUFence(app.renderer.device, fence)
+			render.fence_finish(&app.renderer, &fence)
 			gpu_wait = time.tick_since(submit_start)
 			ring_push(&app.stats.gpu_ms, time.duration_milliseconds(gpu_wait))
-		} else if !sdl.SubmitGPUCommandBuffer(cmd) {
-			log.errorf("submit failed: %s", sdl.GetError())
-			_ = sdl.SubmitGPUCommandBuffer(present_cmd)
+		} else if !render.cmd_submit(cmd) {
+			_ = render.cmd_submit(present_cmd)
 			return false
 		}
 
@@ -1162,18 +1146,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		// The pass clears the image even when the interface could not be uploaded, so a
 		// failed upload shows an empty frame rather than whatever the image held.
 		if swapchain != nil {
-			target := sdl.GPUColorTargetInfo {
-				texture     = swapchain,
-				clear_color = sdl.FColor(kit_frame_color(&app.kit)),
-				load_op     = .CLEAR,
-				store_op    = .STORE,
-			}
-			pass := sdl.BeginGPURenderPass(present_cmd, &target, 1, nil)
-			if kit_ready {
-				format := sdl.GetGPUSwapchainTextureFormat(app.renderer.device, window)
-				render.ui_pass_draw(&app.renderer, &app.kit.pass, present_cmd, pass, format, swapchain_size, kit_draws(&app, &app.kit.ctx.draw))
-			}
-			sdl.EndGPURenderPass(pass)
+			draws := kit_draws(&app, &app.kit.ctx.draw) if kit_ready else nil
+			render.ui_present(&app.renderer, &app.kit.pass, present_cmd, window, swapchain, swapchain_size, kit_frame_color(&app.kit), draws, kit_ready)
 		}
 		app.kit_drew = kit_ready
 		app.kit_size = swapchain_size
@@ -1182,15 +1156,12 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		present_start := time.tick_now()
 		submitted := false
 		if app.time_gpu {
-			present_fence = sdl.SubmitGPUCommandBufferAndAcquireFence(present_cmd)
+			present_fence = render.cmd_submit_fenced(present_cmd)
 			submitted = present_fence != nil
 		} else {
-			submitted = sdl.SubmitGPUCommandBuffer(present_cmd)
+			submitted = render.cmd_submit(present_cmd)
 		}
-		if !submitted {
-			log.errorf("submit failed: %s", sdl.GetError())
-			return false
-		}
+		if !submitted do return false
 
 		submitted_ns := sdl.GetTicksNS()
 		waited += time.tick_since(present_start)

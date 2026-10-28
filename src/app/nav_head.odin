@@ -2,7 +2,6 @@ package main
 
 import "core:math"
 import "core:math/linalg"
-import sdl "vendor:sdl3"
 
 import "../camera"
 import "../geom"
@@ -181,7 +180,7 @@ Nav_State :: struct {
 
 // Draws the head for this frame on `cmd`, once the kit has laid it out, making its mesh
 // the first time; the interface shows what it drew (KIT_NAV_HEAD_IMAGE).
-nav_head_frame :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer) {
+nav_head_frame :: proc(app: ^App, cmd: render.Cmd) {
 	app.nav_shown = nil
 	nh := &app.nav_head
 	size := app.kit.nav.size

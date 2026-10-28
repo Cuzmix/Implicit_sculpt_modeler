@@ -3,7 +3,6 @@ package main
 import "core:log"
 import "core:slice"
 import "core:time"
-import sdl "vendor:sdl3"
 
 import "../camera"
 import "../render"
@@ -192,7 +191,7 @@ paint_allowed :: proc(obj: ^Object) -> bool {
 // Brings the level's paint buffer up to date: everything when its colours or groups
 // changed as a whole (or the buffer is new), else the vertex `ranges` the flush reported.
 // Returns the bytes sent.
-paint_upload :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer, gpu: ^render.Mesh_Buffers, lv: ^sculpt.Level, ranges: []sculpt.Vertex_Range) -> int {
+paint_upload :: proc(app: ^App, cmd: render.Cmd, gpu: ^render.Mesh_Buffers, lv: ^sculpt.Level, ranges: []sculpt.Vertex_Range) -> int {
 	s := &lv.sculptor
 	colors, groups := s.color, sculpt.sculptor_vertex_groups(s)
 	if colors == nil && groups == nil do return 0

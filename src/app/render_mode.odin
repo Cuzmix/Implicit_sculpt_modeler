@@ -2,7 +2,6 @@ package main
 
 import "core:fmt"
 import "core:math"
-import sdl "vendor:sdl3"
 
 import "../render"
 import "../ui"
@@ -53,7 +52,7 @@ render_toggle :: proc(app: ^App) {
 // Runs this frame's render mode after render_viewport, `changed` saying whether anything
 // was redrawn. Off, it gives back what it held on the device, which is a copy of the
 // traced scene.
-render_mode_frame :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer, view, proj: render.Mat4, items: []render.Draw_Item, changed: bool) {
+render_mode_frame :: proc(app: ^App, cmd: render.Cmd, view, proj: render.Mat4, items: []render.Draw_Item, changed: bool) {
 	if !app.render_on {
 		if app.path.pipeline != nil do render.path_render_destroy(&app.renderer, &app.path)
 		return
