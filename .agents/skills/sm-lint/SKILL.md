@@ -15,8 +15,8 @@ check` and `build.bat test` again. Report the items you could not verify.
   (`src/app/main.odin`).
 
 ## 2. Boundaries (the `import` lines)
-- `geom` imports only `core:` and `../jobs`; `camera`, `gizmo` and `jobs` import nothing of ours; `zip` imports only `core:` (its tests use `../png_write` to deflate); `luau` (the Luau binding) imports only `core:` and is imported only by `app`; `sculpt` and `voxel` import `geom`
-  and `jobs`; `render` imports `geom` and is, with `app`, the only package importing `vendor:sdl3`; `bench` imports `camera`, `geom`, `jobs`, `sculpt`, `voxel` and never `render` or `app`; `sdf_trial` stands
+- `geom` imports only `core:` and `../jobs`; `camera`, `gizmo` and `jobs` import nothing of ours; `zip` imports only `core:` (its tests use `../png_write` to deflate); `luau` (the Luau binding) imports only `core:` and is imported only by `app`; `sculpt`, `voxel` and `poly` import `geom`
+  and `jobs` (`poly` never imports `sculpt`; `sculpt` may import `poly`); `render` imports `geom` and is, with `app`, the only package importing `vendor:sdl3`; `bench` imports `camera`, `geom`, `jobs`, `sculpt`, `voxel` and never `render` or `app`; `sdf_trial` stands
   alone; `ui` imports only `core:`, `vendor:fontstash` and `vendor:stb/truetype`, never SDL or `render`. No new package without a design (AGENTS.md).
 - No new package-level mutable state; no second way to do something that already has a way.
 
