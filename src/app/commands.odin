@@ -144,6 +144,7 @@ Command_Id :: enum u8 {
 	Apply_Cage,
 	Model_Action,
 	Model_Target,
+	Tidy_Cage,
 	Adjust_Last,
 	Reset_Transform,
 	// The scene
@@ -559,6 +560,15 @@ COMMANDS := [Command_Id]Command {
 		args = len(Model_Target),
 		run = proc(app: ^App, arg: int) {model_pick_target(app, Model_Target(arg))},
 		checked = proc(app: ^App, arg: int) -> bool {return model_target(&app.model, app.model.action) == Model_Target(arg)},
+		enabled = proc(app: ^App, arg: int) -> bool {return Model_Target(arg) in MODEL_ACTION_TARGETS[app.model.action]},
+	},
+	.Tidy_Cage = {
+		label = "Tidy cage",
+		help = "Cleans the selected cage up: Dissolve flat joins faces that lie flat to each other (within 5 degrees, inside one polygroup); Merge close points joins points closer than a thousandth of its size.",
+		icon = ui.ICON_WAND,
+		args = len(Cage_Tidy),
+		run = proc(app: ^App, arg: int) {app.ui.scene_command = {kind = .Tidy_Cage, tidy = Cage_Tidy(arg)}},
+		enabled = proc(app: ^App, _: int) -> bool {return selected_cage(app)},
 	},
 	.Gizmo = {
 		label = "Gizmo",
@@ -2143,6 +2153,8 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 		return fmt.tprintf("Model: %s", MODEL_ACTION_NAMES[Model_Action(arg)])
 	case .Model_Target:
 		return fmt.tprintf("Target: %s", MODEL_TARGET_NAMES[Model_Target(arg)])
+	case .Tidy_Cage:
+		return CAGE_TIDY_NAMES[Cage_Tidy(arg)]
 	case .Brush:
 		return fmt.tprintf("%s brush", BRUSHES[sculpt.Brush_Kind(arg)].name)
 	case .View_Axis:

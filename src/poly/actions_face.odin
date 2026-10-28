@@ -10,12 +10,13 @@ import "core:slice"
 
 // What a drag moves after an action: vertices that go from `base` along `dir` by the
 // drag's amount (dir already scaled so an amount is a distance where that means anything),
-// up to `limit` when it is above zero (an inset that would cross itself).
+// kept between `lo` and `hi` when hi is above lo (an inset that would cross itself, a
+// slide that would pass the end of its edge).
 Drag_Set :: struct {
-	verts: []u32,
-	base:  []Vec3,
-	dir:   []Vec3,
-	limit: f32,
+	verts:  []u32,
+	base:   []Vec3,
+	dir:    []Vec3,
+	lo, hi: f32,
 }
 
 drag_set_destroy :: proc(d: ^Drag_Set) {
@@ -25,11 +26,11 @@ drag_set_destroy :: proc(d: ^Drag_Set) {
 	d^ = {}
 }
 
-// Puts the drag's vertices `amount` along their ways, clamped to its limit, and returns
-// the amount used.
+// Puts the drag's vertices `amount` along their ways, kept in its range, and returns the
+// amount used.
 drag_apply :: proc(m: ^Mesh, d: ^Drag_Set, amount: f32) -> f32 {
 	a := amount
-	if d.limit > 0 do a = clamp(a, -d.limit, d.limit)
+	if d.hi > d.lo do a = clamp(a, d.lo, d.hi)
 	for v, i in d.verts do m.positions[v] = d.base[i] + d.dir[i] * a
 	return a
 }
@@ -236,7 +237,7 @@ inset_faces :: proc(m: ^Mesh, faces: []u32, each: bool, allocator := context.all
 		d.dir[i] = dir
 		limit = min(limit, 0.95 * linalg.length(middle[i] - p) / linalg.length(dir))
 	}
-	d.limit = limit if limit < max(f32) else 0
+	if limit < max(f32) do d.lo, d.hi = -limit, limit
 	return
 }
 
