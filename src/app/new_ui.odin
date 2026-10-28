@@ -785,7 +785,7 @@ kit_floats_close :: proc(k: ^Kit_State) {
 	k.colors.palette_menu, k.colors.swatch_menu, k.colors.pop = false, false, false
 	k.panels.menu, k.workspaces.menu, k.arrange_drawer, k.passes.menu = false, false, false, false
 	k.shelf.quick, k.stack.menu = false, false
-	k.stack.tab_open, k.pane_menu.open = false, false
+	k.stack.tab_open, k.pane_menu.open, k.grid.areas.menu.open = false, false, false
 	k.ctx.select_open = 0
 }
 
@@ -794,7 +794,7 @@ kit_floats_close :: proc(k: ^Kit_State) {
 // first-run tip hides under it.
 kit_floating :: proc(app: ^App) -> bool {
 	k := &app.kit
-	return app.ui.pie.open || app.ui.adjust.kind != .None || k.action_pop || k.adjust_pop || k.menu || k.versions || k.browser || k.dock_menu || k.bind.open || k.pie_editor || k.object_menu || k.folder_menu || k.rename.open || k.macro_save.open || k.palette || k.gizmo_entry.open || k.bar_pop.open || k.bar_slot.open || k.colors.palette_menu || k.colors.swatch_menu || k.colors.pop || k.home_menu || k.panels.menu || k.workspaces.menu || k.arrange_drawer || k.passes.menu || k.shelf.quick || k.stack.menu || k.stack.tab_open || k.pane_menu.open || k.ctx.select_open != 0
+	return app.ui.pie.open || app.ui.adjust.kind != .None || k.action_pop || k.adjust_pop || k.menu || k.versions || k.browser || k.dock_menu || k.bind.open || k.pie_editor || k.object_menu || k.folder_menu || k.rename.open || k.macro_save.open || k.palette || k.gizmo_entry.open || k.bar_pop.open || k.bar_slot.open || k.colors.palette_menu || k.colors.swatch_menu || k.colors.pop || k.home_menu || k.panels.menu || k.workspaces.menu || k.arrange_drawer || k.passes.menu || k.shelf.quick || k.stack.menu || k.stack.tab_open || k.pane_menu.open || k.grid.areas.menu.open || k.ctx.select_open != 0
 }
 
 kit_destroy :: proc(app: ^App) {
@@ -978,7 +978,7 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 	main := k.grid.main
 	pane := [2]f32{f32(size.x), f32(size.y)}
 	app.ui.viewport_origin = {}
-	if k.grid.preset == .Single {
+	if grid_panes(&k.grid) == 1 {
 		app.ui.viewport_request = {f32(max(pixels.x, 1)), f32(max(pixels.y, 1))}
 	} else {
 		d := ctx.input.pixel_density
@@ -1227,6 +1227,7 @@ kit_layout :: proc(app: ^App) {
 	kit_stack_menu(app)
 	kit_stack_tab(app)
 	kit_pane_menu(app)
+	kit_divider_menu(app)
 }
 
 // Lays out panel `which` by its own proc, docked or floating as it is placed. Returns

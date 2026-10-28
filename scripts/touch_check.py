@@ -2983,6 +2983,120 @@ def lens_view_layout_menu_draws_the_presets():
     return s, LENS_1440, camera_still({"grid": is_text("Four"), "dabs": near(0)})
 
 
+# Lens's pane gestures (lens_areas.odin) on one plus two at 1440 x 900: pane 1 is the top
+# right one, pane 2 the bottom right; the targets inside their corners clear of the dividers.
+LENS_CORNERS = {"pane1_bottom_left": (890, 420), "pane2_top_right": (1295, 478), "main_middle": (430, 450), "main_left": (120, 450)}
+
+
+@scenario
+def lens_corner_drag_splits_a_pane():
+    """A drag from a view pane's corner sideways splits it left and right: four panes, the new one copying Front."""
+    s = Script()
+    s.fdrag(line(LENS_CORNERS["pane1_bottom_left"], (1100, 420), 8))
+    s.wait(8)
+    return s, LENS_1440 + LENS_SPLIT, camera_still({"grid_panes": near(4), "grid_splits": near(1), "grid": is_text("Custom"), "grid_undo_steps": near(2), "dabs": near(0)})
+
+
+@scenario
+def lens_corner_split_refuses_a_fifth_pane():
+    """With four panes a corner drag splits nothing and says so with a shake."""
+    s = Script()
+    s.fdrag(line((745, 420), (950, 420), 8))
+    s.wait(8)
+    return s, LENS_1440 + ["--script=view_grid four"], camera_still({"grid_panes": near(4), "grid_refused": near(1), "grid_splits": near(0), "dabs": near(0)})
+
+
+@scenario
+def lens_corner_drag_into_a_neighbour_joins():
+    """From the lower right pane's top corner up into the pane above, the two join: side by side, the lower pane's Right camera kept."""
+    s = Script()
+    s.fdrag(line(LENS_CORNERS["pane2_top_right"], (1295, 250), 8))
+    s.wait(8)
+    return s, LENS_1440 + LENS_SPLIT, camera_still({"grid": is_text("Side_By_Side"), "grid_joins": near(1), "pane_camera": is_text("Right"), "dabs": near(0)})
+
+
+@scenario
+def lens_corner_drag_back_to_the_corner_cancels():
+    """Inward and back to the corner again, the drag splits nothing; nor does one a second finger joins."""
+    def run(second):
+        s = Script()
+        start = LENS_CORNERS["pane1_bottom_left"]
+        if second:
+            s.fdrag(line(start, (1100, 420), 6), lift=False)
+            s.add("fdown:1:1200,200")
+            s.wait(2)
+            s.add("fup:1")
+            s.add("fup:0")
+        else:
+            s.fdrag(line(start, (1100, 420), 6) + line((1100, 420), (start[0] - 4, start[1] + 4), 6))
+        s.wait(8)
+        return s, LENS_1440 + LENS_SPLIT, camera_still({"grid_panes": near(3), "grid_splits": near(0), "grid_cancels": near(1)})
+    return Steps([run(False), run(True)])
+
+
+@scenario
+def lens_camera_chip_drags_a_pane_to_swap_or_dock():
+    """Pane 1's camera chip dropped on the main pane's middle swaps the two; dropped on its left part, docks pane 1 on the left."""
+    def run(swap):
+        s = Script()
+        s.fdrag(past_slop(LENS_PANES["front_camera"], LENS_CORNERS["main_middle" if swap else "main_left"], 10))
+        s.wait(8)
+        if swap:
+            return s, LENS_1440 + LENS_SPLIT, camera_still({"grid_swaps": near(1), "grid_main": lambda v: float(v.split("x")[0]) < 700, "pane_menu": near(0), "grid_undo_steps": near(2)})
+        return s, LENS_1440 + LENS_SPLIT, camera_still({"grid_docks": near(1), "grid_panes": near(3), "grid": is_text("Custom"), "pane_menu": near(0)})
+    return Steps([run(True), run(False)])
+
+
+@scenario
+def lens_undo_takes_a_split_back():
+    """Ctrl+Z after a corner split puts the three panes back, and Ctrl+Shift+Z splits again."""
+    def run(redo):
+        s = Script()
+        s.fdrag(line(LENS_CORNERS["pane1_bottom_left"], (1100, 420), 8))
+        s.wait(4)
+        s.press("z", ("ctrl",))
+        if redo:
+            s.wait(2)
+            s.press("z", ("ctrl", "shift"))
+        s.wait(6)
+        return s, LENS_1440 + LENS_SPLIT, camera_still({"grid_panes": near(4 if redo else 3), "grid_undos": near(1), "grid_redos": near(1 if redo else 0)})
+    return Steps([run(False), run(True)])
+
+
+@scenario
+def lens_divider_menu_swaps_the_sides():
+    """A right click on the divider opens its menu; Swap sides puts the main view on the right, a step Ctrl+Z takes back."""
+    def run(undo):
+        s = Script()
+        s.add("move:862,300")
+        s.wait(1)
+        s.add("rdown")
+        s.wait(1)
+        s.add("rup")
+        s.wait(4)
+        s.ftap(912, 445)
+        s.wait(4)
+        if undo:
+            s.press("z", ("ctrl",))
+        s.wait(4)
+        tree = "v600,0,h500,1,2" if undo else "v400,h500,1,2,0"
+        return s, LENS_1440 + LENS_SPLIT, camera_still({"grid_tree": is_text(tree), "grid_swaps": near(1), "dabs": near(0)})
+    return Steps([run(False), run(True)])
+
+
+@scenario
+def lens_shift_moves_lined_up_dividers():
+    """In Four the two column dividers line up: dragged with Shift both move, without it only the one held."""
+    def run(shift):
+        s = Script()
+        s.mouse_drag(line((720, 300), (900, 300), 8), keys=("shift",) if shift else ())
+        s.wait(6)
+        tree = "h500,v625,0,1,v625,2,3" if shift else "h500,v625,0,1,v500,2,3"
+        return s, LENS_1440 + ["--script=view_grid four"], camera_still({"grid_tree": is_text(tree), "dabs": near(0)})
+    return Steps([run(True), run(False)])
+
+
+
 # Lens's brush pie at 1440x900: the dial's Pie sector opens it at the viewport's middle;
 # the top slice (Clay) and the editor's first brush slot.
 LENS_PIE = {"dial": (122, 822), "middle": (720, 450), "top": (720, 334), "crease": (800, 520), "editor_first": (764, 190), "search": (1180, 26)}

@@ -163,8 +163,10 @@ kit_layout_put :: proc(k: ^Kit_State, text: string) {
 	k.hidden = {}
 	// The pass is Shaded unless the layout names another; a peek ends with the layout.
 	k.passes.pass, k.passes.chip_held, k.passes.key_held = .Shaded, false, false
-	// Single unless the layout names a grid, whose panes are then read into its preset.
-	k.grid.preset, k.grid.maximised = .Single, 0
+	// One view unless the layout names a grid; the layout steps named another layout.
+	k.grid.tree, k.grid.maximised = grid_preset_tree(.Single), 0
+	k.grid.serial += 1
+	k.grid.undo = {}
 	for line in strings.split_lines(text, context.temp_allocator) {
 		f := strings.fields(line, context.temp_allocator)
 		if len(f) == 0 do continue
@@ -173,8 +175,8 @@ kit_layout_put :: proc(k: ^Kit_State, text: string) {
 			for word in f[1:] do for z in Zone do if strings.equal_fold(word, fmt.tprint(z)) do k.hidden += {z}
 		case "pass":
 			pass_layout_read(k, f)
-		case "grid", "pane":
-			grid_layout_read(k, f)
+		case "panes", "grid", "pane":
+			grid_layout_read(&k.grid, f)
 		case "open":
 			for word in f[1:] do for w in LAYOUT_PANELS do if strings.equal_fold(word, fmt.tprint(w)) do layout_open(k, w)^ = true
 		case "window":
@@ -210,7 +212,7 @@ built_in_layout :: proc(b: Built_In) -> string {
 	case .Focus:
 		text = "hidden Brush_Bar View_Bar Action_Bar\nopen\n"
 	case .Inspect:
-		text = "hidden Brush_Bar Dock\ngrid Four 500 500\npane 1 Follow Curvature\npane 2 Follow Normals\npane 3 Front Silhouette\nopen Stats\ncolumn left Stats\ncolumn right Inspector section:Camera section:Look\n" +
+		text = "hidden Brush_Bar Dock\npanes h500 v500 0 1 v500 2 3\npane 1 Follow Curvature\npane 2 Follow Normals\npane 3 Front Silhouette\nopen Stats\ncolumn left Stats\ncolumn right Inspector section:Camera section:Look\n" +
 			"pinned Camera 0 Start Start 0 0 0\npinned Look 0 Start Start 0 0 0\n"
 	case .Studio:
 		text = "open Thumbnail\ncolumn right Inspector section:Lights section:Material section:Environment\n" +
@@ -479,6 +481,12 @@ workspaces_loaded :: proc(k: ^Kit_State) {
 	if !w.loaded {
 		workspace_text_set(&w.list[int(Built_In.Sculpt)].saved, kit_layout_text(k))
 		return
+	}
+	// A layout saved before the grid was a tree names it with a grid line: written as the
+	// tree once, so it reads as unchanged.
+	for &each in w.list do if each.used {
+		if up := grid_layout_upgrade(each.saved); up != each.saved do workspace_text_set(&each.saved, up)
+		if up := grid_layout_upgrade(each.live); up != each.live do workspace_text_set(&each.live, up)
 	}
 	ws := &w.list[w.current]
 	kit_layout_put(k, ws.live if ws.live != "" else ws.saved)

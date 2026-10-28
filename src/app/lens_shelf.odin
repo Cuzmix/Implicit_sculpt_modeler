@@ -147,7 +147,7 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 	if lens_palm(app) > 0 do shift = -area.w * 0.09
 	// With panes beside the main one the shelf stands under the main pane, as many tiles
 	// as fit across it, as the off-hand set stays with it.
-	if g := &k.grid; grid_count(g.preset) > 1 && g.maximised == 0 && g.main.w > 0 {
+	if g := &k.grid; grid_panes(g) > 1 && g.maximised == 0 && g.main.w > 0 {
 		shift = g.main.x + g.main.w * 0.5 - (area.x + area.w * 0.5)
 		// Clear of the dial and the island on the off-hand side, the same on the other.
 		n = min(n, max(int((g.main.w - 2 * SHELF_SIDE_ROOM) / ui.BRUSH_TILE.x) - 1, 3))

@@ -74,7 +74,7 @@ pass_peeked :: proc(k: ^Kit_State) -> render.View_Pass {
 viewport_pass :: proc(k: ^Kit_State) -> render.View_Pass {
 	ps := &k.passes
 	// The pane worked in shows its own pass (grid_work).
-	if g := &k.grid; g.work != 0 do return second_view_pass(g.views[g.preset][g.work - 1].pass)
+	if g := &k.grid; g.work != 0 do return second_view_pass(g.views[g.work - 1].pass)
 	if (ps.chip_held || ps.key_held) && !ps.recording && !wipe_shown(k) do return pass_peeked(k)
 	return ps.pass
 }

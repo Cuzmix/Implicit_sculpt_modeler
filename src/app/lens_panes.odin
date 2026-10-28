@@ -67,10 +67,15 @@ handle_double_tap :: proc(ctx: ^ui.Context, d: ^Handle_Tap, id: ui.Id) -> bool {
 grid_choose :: proc(app: ^App, preset: Grid_Preset) {
 	k := &app.kit
 	g := &k.grid
-	had := grid_count(g.preset)
-	grid_set(k, preset)
-	for i in max(had, 1) ..< grid_count(preset) {
-		v := &g.views[preset][i - 1]
+	// Never while a view pane has the main view's role, whose pane it names.
+	if g.work != 0 do return
+	before := grid_step_now(g)
+	had, changed := grid_set(k, preset)
+	if !changed do return
+	grid_step_push(g, before)
+	k.pane_menu.open = false
+	for i in had ..< grid_count(preset) {
+		v := &g.views[i - 1]
 		switch k.new_panes {
 		case .Front_Side:
 		case .Same_Camera:
@@ -107,13 +112,14 @@ kit_view_layout_lens :: proc(app: ^App, width: f32) {
 		for col in 0 ..< 3 {
 			preset := Grid_Preset(row * 3 + col)
 			a := ui.area(ctx, fmt.tprintf("%s##layout", GRID_NAMES[preset]), {tile_w, tile_h + 22})
-			on := k.grid.preset == preset
+			shape, plain := grid_shape(&k.grid)
+			on := plain && shape == preset
 			pic := ui.Rect{a.rect.x, a.rect.y, tile_w, tile_h}
 			ui.fill_rect(ctx, pic, t.radius_medium, t.accent_soft if on else (t.fill_hover if a.hovered else t.fill))
 			ui.stroke_rect(ctx, pic, t.radius_medium, t.accent if on else t.border, 1.5 if on else 1)
 			// The preset's panes as they lie at its usual splits, with a gap between them.
-			plain: View_Grid
-			cells := grid_cells(preset, grid_split(&plain, preset), {pic.x + 7, pic.y + 7, pic.w - 14, pic.h - 14})
+			tree := grid_preset_tree(preset)
+			cells, _ := grid_tree_cells(&tree, {pic.x + 7, pic.y + 7, pic.w - 14, pic.h - 14})
 			for c in cells[:grid_count(preset)] do ui.fill_rect(ctx, {c.x + 1.5, c.y + 1.5, c.w - 3, c.h - 3}, 3, t.accent if on else t.border_strong)
 			ui.text(ctx, ui.text_fit(ctx, GRID_NAMES[preset], t.small_size, tile_w), a.rect.x, a.rect.y + tile_h + 12, t.small_size, t.accent if on else t.text_secondary)
 			ui.tip(ctx, a.id, a.rect, command_label(.View_Grid, int(preset)), command_hint(app, .View_Grid, int(preset)))
@@ -133,31 +139,58 @@ kit_view_layout_lens :: proc(app: ^App, width: f32) {
 	_ = command_menu_item(app, .View_Window)
 }
 
-// View pane `i`'s head in Lens, at `at`: the main pane's chips, one row of them over the
-// pane's corner: its camera (the dot of the camera it sees through, its name, "ortho" for
-// the six axis views; a tap lists the cameras), its pass (a tap lists them), Link,
-// Maximise or Restore, and on the desktop a window of its own.
-lens_pane_head :: proc(app: ^App, i: int, at: [2]f32) {
+// View pane `i`'s head in Lens, at `at` in pane rect `r`: the main pane's chips, one row
+// of them over the pane's corner: its camera (the dot of the camera it sees through, its
+// name, "ortho" for the six axis views; a tap lists the cameras, a drag carries the pane
+// over `cells`, lens_areas.odin), its pass (a tap lists them), Link, Maximise or Restore,
+// and on the desktop a window of its own. A narrow pane shows as many as fit, from the
+// camera on.
+lens_pane_head :: proc(app: ^App, i: int, at: [2]f32, r: ui.Rect, cells: [GRID_PANES]ui.Rect, n: int) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
 	g := &k.grid
-	sv := &g.views[g.preset][i - 1]
+	sv := &g.views[i - 1]
 	m := &k.pane_menu
-	ui.begin_at(ctx, fmt.tprintf("view pane %d head", i), at, {direction = .Row, gap = 6, center = true})
+	free := lens_free_area(app)
+	left := min(r.x + r.w, free.x + free.w) - 6 - at.x
+	GAP :: 6
+	// Once one does not fit, none after it shows, so the chips keep their order.
+	fits :: proc(left: ^f32, w: f32) -> bool {
+		if w > left^ {
+			left^ = -1
+			return false
+		}
+		left^ -= w + GAP
+		return true
+	}
+	ui.begin_at(ctx, fmt.tprintf("view pane %d head", i), at, {direction = .Row, gap = GAP, center = true})
 	dot, _ := second_color(t, sv, i)
 	ortho := sv.camera >= .Front && sv.camera <= .Bottom
-	cam := lens_chip(ctx, fmt.tprintf("Camera##pane %d", i), SECOND_CAMERA_NAMES[sv.camera], "ortho" if ortho else "", dot = dot, chevron = true, lit = m.open && m.pane == i && m.kind == .Camera)
-	if cam.clicked do pane_menu_toggle(k, i, .Camera, cam.rect)
-	pass := lens_chip(ctx, fmt.tprintf("Shows##pane %d", i), SECOND_PASS_NAMES[sv.pass], chevron = true, lit = m.open && m.pane == i && m.kind == .Pass)
-	if pass.clicked do pane_menu_toggle(k, i, .Pass, pass.rect)
-	linked := second_linked(sv)
-	link := lens_chip(ctx, fmt.tprintf("%s##pane %d", "Unlink from the main camera" if linked else "Link to the main camera", i), "", glyph = ICON_LINK, lit = linked)
-	if link.clicked do second_link_toggle(app, sv)
+	name := SECOND_CAMERA_NAMES[sv.camera]
+	sub := "ortho" if ortho else ""
+	if lens_chip_width(ctx, name, sub, dot = true, chevron = true) > left do sub = ""
+	_ = fits(&left, lens_chip_width(ctx, name, sub, dot = true, chevron = true))
+	left = max(left, 0)
+	cam := lens_chip(ctx, fmt.tprintf("Camera##pane %d", i), name, sub, dot = dot, chevron = true, lit = m.open && m.pane == i && m.kind == .Camera)
+	dragged := lens_chip_drag(app, i, cam, cells, n)
+	if cam.clicked && !dragged do pane_menu_toggle(k, i, .Camera, cam.rect)
+	icon := lens_chip_width(ctx, "", glyph = ICON_LINK)
+	if fits(&left, lens_chip_width(ctx, SECOND_PASS_NAMES[sv.pass], chevron = true)) {
+		pass := lens_chip(ctx, fmt.tprintf("Shows##pane %d", i), SECOND_PASS_NAMES[sv.pass], chevron = true, lit = m.open && m.pane == i && m.kind == .Pass)
+		if pass.clicked do pane_menu_toggle(k, i, .Pass, pass.rect)
+	}
+	if fits(&left, icon) {
+		linked := second_linked(sv)
+		link := lens_chip(ctx, fmt.tprintf("%s##pane %d", "Unlink from the main camera" if linked else "Link to the main camera", i), "", glyph = ICON_LINK, lit = linked)
+		if link.clicked do second_link_toggle(app, sv)
+	}
 	maxed := g.maximised == i
-	grow := lens_chip(ctx, fmt.tprintf("%s##pane %d", "Restore" if maxed else "Maximise", i), "", glyph = ui.ICON_MINIMISE if maxed else ui.ICON_RESTORE, lit = maxed)
-	if grow.clicked do g.maximised = 0 if maxed else i
-	if VIEW_WINDOWS_AVAILABLE {
+	if maxed || fits(&left, icon) {
+		grow := lens_chip(ctx, fmt.tprintf("%s##pane %d", "Restore" if maxed else "Maximise", i), "", glyph = ui.ICON_MINIMISE if maxed else ui.ICON_RESTORE, lit = maxed)
+		if grow.clicked do g.maximised = 0 if maxed else i
+	}
+	if VIEW_WINDOWS_AVAILABLE && fits(&left, icon) {
 		if win := lens_chip(ctx, fmt.tprintf("Open in a window##pane %d", i), "", glyph = ICON_VIEW_WINDOW); win.clicked do view_window_request(app, sv^)
 	}
 	ui.end(ctx)
@@ -182,11 +215,11 @@ kit_pane_menu :: proc(app: ^App) {
 	ctx := &k.ctx
 	m := &k.pane_menu
 	g := &k.grid
-	if m.open && (m.pane < 1 || m.pane >= grid_count(g.preset) || k.chrome != .Lens) do m.open = false
+	if m.open && (m.pane < 1 || m.pane >= grid_panes(g) || k.chrome != .Lens) do m.open = false
 	if !ui.popover_begin(ctx, "pane menu", &m.open, m.at, .Below, {direction = .Column, padding = 6, width = 200}) do return
 	defer ui.popover_end(ctx)
 	if m.pane < 1 || m.pane > GRID_VIEWS do return
-	sv := &g.views[g.preset][m.pane - 1]
+	sv := &g.views[m.pane - 1]
 	switch m.kind {
 	case .Camera:
 		ui.caption(ctx, "  CAMERA")
@@ -212,74 +245,36 @@ GRID_GRAB_LENS :: 24
 // The View layout menu's content width in Lens: three preset drawings and their gaps.
 VIEW_LAYOUT_W :: 260
 
-// How close to the room's edge a divider is let go to close the panes it squeezes there.
+// How close to its split's edge a divider is let go to close the side it squeezes there.
 GRID_CLOSE_REACH :: 36
 
-// What closing the panes beyond divider `div` of `preset` toward its far edge (`high`, the
-// right or the bottom) or its near one leaves: the preset, which old view pane each of its
-// view panes keeps (the index in the old preset's views), and which panes close. The main
-// pane never closes, so a drag that would close it is refused.
-grid_close_target :: proc(preset: Grid_Preset, div: int, high: bool) -> (to: Grid_Preset, keep: [GRID_VIEWS]int, closes: bit_set[0 ..< GRID_PANES], ok: bool) {
-	if !high do return
-	switch preset {
-	case .Single:
-		return
-	case .Side_By_Side, .Stacked:
-		return .Single, {}, {1}, true
-	case .One_Plus_Two:
-		if div == 0 do return .Single, {}, {1, 2}, true
-		return .Side_By_Side, {0, 0, 0}, {2}, true
-	case .Four:
-		if div == 0 do return .Stacked, {1, 0, 0}, {1, 3}, true
-		return .Side_By_Side, {0, 0, 0}, {2, 3}, true
-	case .Three_Across:
-		if div == 0 do return .Side_By_Side, {1, 0, 0}, {1}, true
-		return .Side_By_Side, {0, 0, 0}, {2}, true
-	}
-	return
-}
-
-// The near edge's twin of grid_close_target for the one divider whose near side holds no
-// main pane: One plus two's, between its two right panes, closes the upper one.
-@(private = "file")
-grid_close_near :: proc(preset: Grid_Preset, div: int) -> (to: Grid_Preset, keep: [GRID_VIEWS]int, closes: bit_set[0 ..< GRID_PANES], ok: bool) {
-	if preset == .One_Plus_Two && div == 1 do return .Side_By_Side, {1, 0, 0}, {1}, true
-	return
-}
-
-// Divider `div` of the grid in Lens, laid along `line` across `room` and held through `a`:
-// its grip, a double tap that evens its split out, and the drag to the edge that closes
-// the panes it squeezes there (the panes dim while it would; the main view never closes).
-grid_divider_lens :: proc(app: ^App, div: int, line: ui.Rect, vertical: bool, axis: int, a: ui.Area, room: ui.Rect, cells: [GRID_PANES]ui.Rect) {
+// Divider `div` of the grid in Lens, held through `a`: its grip, a double tap that evens
+// its split out, and the drag to its split's edge that closes the side it squeezes there
+// (the panes there dim while it would; the main view never closes).
+grid_divider_lens :: proc(app: ^App, div: Grid_Divider, a: ui.Area, cells: [GRID_PANES]ui.Rect) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
 	g := &k.grid
+	line, vertical := div.line, div.vertical
 	mid := [2]f32{line.x + line.w * 0.5, line.y + line.h * 0.5}
 	pill := ui.Rect{mid.x - 4, mid.y - 22, 8, 44} if vertical else ui.Rect{mid.x - 22, mid.y - 4, 44, 8}
 	ui.fill_rect(ctx, pill, 4, t.accent if a.held else t.surface)
 	ui.stroke_rect(ctx, pill, 4, t.border_strong if !a.held else t.accent, 1)
-	if a.clicked && handle_double_tap(ctx, &g.tap, a.id) {
-		s := grid_split(g, g.preset)
-		s[axis] = 0.5
-		if g.preset == .Three_Across do s = {1.0 / 3, 2.0 / 3}
-		g.split[g.preset] = grid_split_clamp(g.preset, s)
-		g.evens += 1
-	}
+	if a.clicked && handle_double_tap(ctx, &g.tap, a.id) do g.areas.op = {kind = .Even, node = div.node}
 	if a.held {
 		along := a.mouse.x if vertical else a.mouse.y
-		lo := room.x if vertical else room.y
-		hi := lo + (room.w if vertical else room.h)
+		lo := div.room.x if vertical else div.room.y
+		hi := lo + (div.room.w if vertical else div.room.h)
 		g.closing = 0
 		near, far := along < lo + GRID_CLOSE_REACH, along > hi - GRID_CLOSE_REACH
 		if !near && !far do return
-		closes: bit_set[0 ..< GRID_PANES]
-		ok: bool
-		if far do _, _, closes, ok = grid_close_target(g.preset, div, true)
-		else do _, _, closes, ok = grid_close_near(g.preset, div)
-		if ok {
-			g.closing, g.closing_far = div + 1, far
-			for c, i in cells do if i in closes {
+		if grid_side_closes(&g.tree, div.node, far) {
+			g.closing, g.closing_far = div.node + 1, far
+			node := g.tree.nodes[div.node]
+			side := int(node.b if far else node.a)
+			for d, j in g.tree.nodes[:g.tree.count] do if !d.split && grid_tree_holds(&g.tree, side, j) {
+				c := cells[d.pane]
 				ui.fill_rect(ctx, c, 0, ui.color_fade(t.frame, 0.7))
 				ui.text(ctx, "Let go to close", c.x + c.w * 0.5, c.y + c.h * 0.5, t.text_size, t.text, .Semibold, .Center)
 			}
@@ -288,26 +283,16 @@ grid_divider_lens :: proc(app: ^App, div: int, line: ui.Rect, vertical: bool, ax
 		}
 		return
 	}
-	if g.closing != div + 1 do return
-	to: Grid_Preset
-	keep: [GRID_VIEWS]int
-	ok: bool
-	if g.closing_far do to, keep, _, ok = grid_close_target(g.preset, div, true)
-	else do to, keep, _, ok = grid_close_near(g.preset, div)
+	if g.closing != div.node + 1 do return
 	g.closing = 0
-	if !ok do return
-	old := g.views[g.preset]
-	for j in 0 ..< grid_count(to) - 1 do g.views[to][j] = old[keep[j]]
-	g.split[to] = {}
-	grid_set(k, to)
-	g.closes += 1
+	g.areas.op = {kind = .Close, node = div.node, close_b = g.closing_far}
 }
 
 // Whether the panel stack shows as its strip of tabs: in Lens, docked, with panes beside
 // the main one.
 stack_strip_shown :: proc(app: ^App) -> bool {
 	k := &app.kit
-	if k.chrome != .Lens || grid_count(k.grid.preset) < 2 do return false
+	if k.chrome != .Lens || grid_panes(&k.grid) < 2 do return false
 	_, _, docked := panel_docked(k, Kit_Window.Inspector)
 	return docked
 }

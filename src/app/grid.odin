@@ -3,6 +3,7 @@ package main
 import "core:fmt"
 import "core:log"
 import "core:math"
+import "core:slice"
 import "core:strconv"
 import "core:strings"
 import "core:time"
@@ -14,13 +15,13 @@ import "../render"
 import "../ui"
 
 // The view grid (Camera > View grid, Lens): the viewport split into one to four panes by
-// a preset, never by free splits, so a layout cannot be broken. Pane 0 is the main view,
+// a tree of splits, as Blender's areas split, which the presets give in one tap and Lens's
+// corner drags (lens_areas.odin) split, join, swap and dock. Pane 0 is the main view,
 // where the camera, the tools and the heavy passes live; panes 1 to 3 are view panes,
 // second views (thumbnail.odin) tiled beside it, each with its own camera and cheap pass,
-// drawn only at rest so a big mesh is never drawn twice a frame while you work. The idea
-// is Blender's quad view and split areas, kept to presets as ZBrush and Nomad keep one
-// view, with a new pane starting as the partner a sculptor wants (front beside the
-// perspective, the side beside the front) as Maya's and 3ds Max's four views do.
+// drawn only at rest so a big mesh is never drawn twice a frame while you work. A new
+// preset's panes start as the partner a sculptor wants (front beside the perspective, the
+// side beside the front) as Maya's and 3ds Max's four views do.
 
 Grid_Preset :: enum u8 {
 	Single,
@@ -41,41 +42,83 @@ GRID_NAMES := [Grid_Preset]string {
 	.Three_Across = "Three across",
 }
 
-// The most panes a preset shows, and so view panes beside the main one.
+// The most panes the grid shows, and so view panes beside the main one.
 GRID_PANES :: 4
 GRID_VIEWS :: GRID_PANES - 1
+// The nodes a tree of GRID_PANES leaves takes: every split joins two.
+GRID_NODES :: 2 * GRID_PANES - 1
 
 // Points between two panes, where the frame shows through as their divider.
 GRID_GAP :: 2
-// How close a split may come to the room's edge (or, three across, to the other split).
-GRID_SPLIT_MIN :: 0.2
-GRID_THIRDS_MIN :: 0.15
+// The least part of the room a pane keeps across and down, so no split hides one.
+GRID_PANE_MIN :: 0.1
 
-// The grid's choices, kept by workspaces (workspaces.odin): the preset, each preset's
-// splits as shares of the room (zero for its default), and each preset's view panes.
+// A node of the grid's tree: a leaf showing a pane, or a split of its room in two.
+Grid_Node :: struct {
+	split:    bool,
+	vertical: bool, // a split's cut runs up and down, `a` left of `b`; else `a` is above `b`
+	share:    f32, // the part of a split's room `a` takes
+	a, b:     u8, // a split's children
+	pane:     u8, // a leaf's pane: 0 the main view, 1 to 3 the view panes
+}
+
+// The panes' layout. In its normal form (grid_tree_normal) node 0 is the root, the nodes
+// run in depth-first order, the panes shown are 0 to n-1 and the view panes are numbered
+// as they come in that order, so equal layouts are equal trees.
+Grid_Tree :: struct {
+	nodes: [GRID_NODES]Grid_Node,
+	count: int,
+}
+
+// A layout step that Undo takes back (lens_areas.odin): the tree and the panes as they
+// were, and when the step was made, which orders it among the scene's History steps.
+Grid_Step :: struct {
+	tree:  Grid_Tree,
+	views: [GRID_VIEWS]Second_View,
+	at:    time.Tick,
+}
+
+GRID_UNDO :: 16
+
+Grid_Undo :: struct {
+	back:   [GRID_UNDO]Grid_Step,
+	back_n: int,
+	ahead:   [GRID_UNDO]Grid_Step,
+	ahead_n: int,
+}
+
+// The grid's choices, kept by workspaces (workspaces.odin): the tree and its view panes.
 View_Grid :: struct {
-	preset:    Grid_Preset,
-	split:     [Grid_Preset][2]f32,
-	views:     [Grid_Preset][GRID_VIEWS]Second_View,
+	tree:      Grid_Tree,
+	views:     [GRID_VIEWS]Second_View,
 	maximised: int, // the view pane filling the grid (1 to 3), 0 for none; never kept
+	// Counts every change to the tree, so what began on one layout (work in a pane) knows
+	// it is gone; never kept.
+	serial:    int,
+	undo:      Grid_Undo, // never kept
+	// Where the view panes' views moved last (grid_tree_set), for their pictures to follow
+	// (grid_pictures_follow) before anything draws them; never kept.
+	was:       [GRID_VIEWS]int,
+	moved:     bool,
+	areas:     Grid_Areas, // Lens's pane gestures (lens_areas.odin); never kept
 	// This frame's layout, never kept: the main pane's rect in points, and each view
 	// pane's picture size in pixels (zero for one not shown).
 	main:      ui.Rect,
 	px:        [GRID_VIEWS][2]u32,
-	dragged:   int, // the divider held (1 + its index), 0 for none, for the exit stats
+	dragged:   int, // the divider held (1 + its node), 0 for none, for the exit stats
 	drags:     int, // frames a divider moved, for the exit stats
 	// Lens's dividers (lens_panes.odin): the last tap on one, the divider let go at the
-	// edge would close panes beyond (1 + its index, 0 for none) and toward which edge, and
-	// for the exit stats how many closes and evens there were; never kept.
+	// edge would close the side beyond (1 + its node, 0 for none) and which side, and for
+	// the exit stats how many closes and evens there were; never kept.
 	tap:         Handle_Tap,
 	closing:     int,
 	closing_far: bool,
 	closes:      int,
 	evens:       int,
 	// Work in any pane (grid_work): the view pane (1 to 3) the main view's role is lent to
-	// while a gesture that began on it lasts, 0 for none, and in which preset; never kept.
+	// while a gesture that began on it lasts, 0 for none, and on which layout; never kept.
 	work:        int,
-	work_preset: Grid_Preset,
+	work_serial: int,
 	work_back:   camera.Orbit, // the main camera, given back when the gesture is over
 	work_from:   camera.Orbit, // the pane's camera as it began, to tell whether it moved
 	// This frame's start or end, for the copies and the resize after kit_frame
@@ -102,59 +145,473 @@ grid_count :: proc(preset: Grid_Preset) -> int {
 	return 1
 }
 
-// A preset's splits as shares of the room: x then y, or, three across, the two x splits.
-grid_split :: proc(g: ^View_Grid, preset: Grid_Preset) -> [2]f32 {
-	s := g.split[preset]
-	def := [2]f32{0.5, 0.5}
-	if preset == .One_Plus_Two do def.x = 0.6
-	if preset == .Three_Across do def = {1.0 / 3, 2.0 / 3}
-	if s == {} do return def
-	return grid_split_clamp(preset, s)
+// How many panes the grid shows now.
+grid_panes :: proc(g: ^View_Grid) -> int {
+	return grid_tree_panes(&g.tree)
 }
 
-// Keeps splits clear of the room's edges and, three across, of each other.
-grid_split_clamp :: proc(preset: Grid_Preset, s: [2]f32) -> [2]f32 {
-	if preset == .Three_Across {
-		a := clamp(s.x, GRID_THIRDS_MIN, 1 - 2 * GRID_THIRDS_MIN)
-		return {a, clamp(s.y, a + GRID_THIRDS_MIN, 1 - GRID_THIRDS_MIN)}
-	}
-	return {clamp(s.x, GRID_SPLIT_MIN, 1 - GRID_SPLIT_MIN), clamp(s.y, GRID_SPLIT_MIN, 1 - GRID_SPLIT_MIN)}
+grid_tree_panes :: proc(t: ^Grid_Tree) -> int {
+	n := 0
+	for node in t.nodes[:t.count] do if !node.split do n += 1
+	return max(n, 1)
 }
 
-// The panes' rects in `room`, pane 0 (the main view) first, with GRID_GAP between
-// neighbours; the rest of the four are empty.
-grid_cells :: proc(preset: Grid_Preset, split: [2]f32, room: ui.Rect) -> (cells: [GRID_PANES]ui.Rect) {
-	G :: GRID_GAP
-	r := room
-	// The left (or top) part of `r` up to share `s`, and the rest past the gap.
-	cut_x :: proc(r: ui.Rect, s: f32) -> (a, b: ui.Rect) {
-		w := r.w * s - G * 0.5
-		return {r.x, r.y, w, r.h}, {r.x + w + G, r.y, r.w - w - G, r.h}
+// Adds a leaf showing `pane`, or a split of `a` and `b`, to a tree being built; the
+// tree is put in its normal form once built.
+grid_leaf :: proc(t: ^Grid_Tree, pane: int) -> u8 {
+	t.nodes[t.count] = {pane = u8(pane)}
+	t.count += 1
+	return u8(t.count - 1)
+}
+
+grid_cut :: proc(t: ^Grid_Tree, vertical: bool, share: f32, a, b: u8) -> u8 {
+	t.nodes[t.count] = {split = true, vertical = vertical, share = share, a = a, b = b}
+	t.count += 1
+	return u8(t.count - 1)
+}
+
+// `t` from node `root` in its normal form: what is no longer reached from the root goes.
+grid_tree_normal :: proc(t: Grid_Tree, root: u8) -> (out: Grid_Tree) {
+	src := t
+	walk :: proc(src: ^Grid_Tree, n: u8, out: ^Grid_Tree) -> u8 {
+		at := u8(out.count)
+		out.count += 1
+		node := src.nodes[n]
+		if node.split {
+			a := walk(src, node.a, out)
+			b := walk(src, node.b, out)
+			node.a, node.b = a, b
+		}
+		out.nodes[at] = node
+		return at
 	}
-	cut_y :: proc(r: ui.Rect, s: f32) -> (a, b: ui.Rect) {
-		h := r.h * s - G * 0.5
-		return {r.x, r.y, r.w, h}, {r.x, r.y + h + G, r.w, r.h - h - G}
+	_ = walk(&src, root, &out)
+	return
+}
+
+// After pane `closed` went, the last pane takes its number so the panes shown stay 0 to
+// n-1, and `was` says where each view pane's view came from (the view pane now numbered
+// i + 1 was `was[i]` + 1): every other pane keeps its number, its view and its colour.
+grid_tree_fill :: proc(t: ^Grid_Tree, closed: int) -> (was: [GRID_VIEWS]int) {
+	for i in 0 ..< GRID_VIEWS do was[i] = i
+	last := 0
+	for d in t.nodes[:t.count] do if !d.split do last = max(last, int(d.pane))
+	if closed <= 0 || closed >= last do return
+	if at := grid_tree_leaf(t, last); at >= 0 {
+		t.nodes[at].pane = u8(closed)
+		was[closed - 1], was[last - 1] = last - 1, closed - 1
 	}
+	return
+}
+
+// The tree a preset lays out, with its default splits.
+grid_preset_tree :: proc(preset: Grid_Preset) -> Grid_Tree {
+	t: Grid_Tree
+	root: u8
 	switch preset {
 	case .Single:
-		cells[0] = r
+		root = grid_leaf(&t, 0)
 	case .Side_By_Side:
-		cells[0], cells[1] = cut_x(r, split.x)
+		l0 := grid_leaf(&t, 0)
+		root = grid_cut(&t, true, 0.5, l0, grid_leaf(&t, 1))
 	case .Stacked:
-		cells[0], cells[1] = cut_y(r, split.y)
+		l0 := grid_leaf(&t, 0)
+		root = grid_cut(&t, false, 0.5, l0, grid_leaf(&t, 1))
 	case .One_Plus_Two:
-		right: ui.Rect
-		cells[0], right = cut_x(r, split.x)
-		cells[1], cells[2] = cut_y(right, split.y)
+		l0, l1 := grid_leaf(&t, 0), grid_leaf(&t, 1)
+		right := grid_cut(&t, false, 0.5, l1, grid_leaf(&t, 2))
+		root = grid_cut(&t, true, 0.6, l0, right)
 	case .Four:
-		top, bottom := cut_y(r, split.y)
-		cells[0], cells[1] = cut_x(top, split.x)
-		cells[2], cells[3] = cut_x(bottom, split.x)
+		l0, l1 := grid_leaf(&t, 0), grid_leaf(&t, 1)
+		top := grid_cut(&t, true, 0.5, l0, l1)
+		l2, l3 := grid_leaf(&t, 2), grid_leaf(&t, 3)
+		bottom := grid_cut(&t, true, 0.5, l2, l3)
+		root = grid_cut(&t, false, 0.5, top, bottom)
 	case .Three_Across:
-		rest: ui.Rect
-		cells[0], rest = cut_x(r, split.x)
-		// The second split is a share of the whole room, so it stays where it was put.
-		cells[1], cells[2] = cut_x(rest, (r.w * split.y - (rest.x - r.x)) / max(rest.w, 1))
+		l0, l1 := grid_leaf(&t, 0), grid_leaf(&t, 1)
+		rest := grid_cut(&t, true, 0.5, l1, grid_leaf(&t, 2))
+		root = grid_cut(&t, true, 1.0 / 3, l0, rest)
+	}
+	return grid_tree_normal(t, root)
+}
+
+// Whether two trees split the same way, whatever their shares and panes.
+grid_tree_same_shape :: proc(a, b: ^Grid_Tree) -> bool {
+	if a.count != b.count do return false
+	for i in 0 ..< a.count {
+		x, y := a.nodes[i], b.nodes[i]
+		if x.split != y.split || (x.split && (x.vertical != y.vertical || x.a != y.a || x.b != y.b)) do return false
+	}
+	return true
+}
+
+// The preset the grid's tree is laid out as, with `ok` false for a layout of its own.
+grid_shape :: proc(g: ^View_Grid) -> (preset: Grid_Preset, ok: bool) {
+	for p in Grid_Preset {
+		t := grid_preset_tree(p)
+		if grid_tree_same_shape(&g.tree, &t) do return p, true
+	}
+	return .Single, false
+}
+
+// The shape's name for menus and the exit stats: the preset's, or Custom.
+grid_shape_name :: proc(g: ^View_Grid) -> string {
+	p, ok := grid_shape(g)
+	return fmt.tprint(p) if ok else "Custom"
+}
+
+// `r` cut at share `s` with `gap` between the parts: the left (or top) part, then the rest.
+grid_cut_rect :: proc(r: ui.Rect, vertical: bool, s, gap: f32) -> (a, b: ui.Rect) {
+	if vertical {
+		w := r.w * s - gap * 0.5
+		return {r.x, r.y, w, r.h}, {r.x + w + gap, r.y, r.w - w - gap, r.h}
+	}
+	h := r.h * s - gap * 0.5
+	return {r.x, r.y, r.w, h}, {r.x, r.y + h + gap, r.w, r.h - h - gap}
+}
+
+// The panes' rects in `room` by pane, with `gap` between neighbours (the rest of the four
+// are empty), and each node's room.
+grid_tree_cells :: proc(t: ^Grid_Tree, room: ui.Rect, gap: f32 = GRID_GAP) -> (cells: [GRID_PANES]ui.Rect, rooms: [GRID_NODES]ui.Rect) {
+	lay :: proc(t: ^Grid_Tree, n: u8, r: ui.Rect, gap: f32, cells: ^[GRID_PANES]ui.Rect, rooms: ^[GRID_NODES]ui.Rect) {
+		rooms[n] = r
+		node := t.nodes[n]
+		if !node.split {
+			cells[node.pane] = r
+			return
+		}
+		a, b := grid_cut_rect(r, node.vertical, node.share, gap)
+		lay(t, node.a, a, gap, cells, rooms)
+		lay(t, node.b, b, gap, cells, rooms)
+	}
+	if t.count == 0 {
+		cells[0] = room
+		return
+	}
+	lay(t, 0, room, gap, &cells, &rooms)
+	return
+}
+
+// The panes' rects as shares of a room one by one, without gaps, where edges compare.
+grid_tree_unit :: proc(t: ^Grid_Tree) -> (cells: [GRID_PANES]ui.Rect, rooms: [GRID_NODES]ui.Rect) {
+	return grid_tree_cells(t, {0, 0, 1, 1}, 0)
+}
+
+// Where split `n`'s cut lies across a room one by one, along its axis.
+grid_tree_line :: proc(t: ^Grid_Tree, rooms: [GRID_NODES]ui.Rect, n: int) -> f32 {
+	r := rooms[n]
+	if t.nodes[n].vertical do return r.x + r.w * t.nodes[n].share
+	return r.y + r.h * t.nodes[n].share
+}
+
+// The leaf showing `pane`, or -1.
+grid_tree_leaf :: proc(t: ^Grid_Tree, pane: int) -> int {
+	for node, i in t.nodes[:t.count] do if !node.split && int(node.pane) == pane do return i
+	return -1
+}
+
+// The split whose child `n` is, or -1 for the root.
+grid_tree_parent :: proc(t: ^Grid_Tree, n: int) -> int {
+	for node, i in t.nodes[:t.count] do if node.split && (int(node.a) == n || int(node.b) == n) do return i
+	return -1
+}
+
+// Whether node `n`'s part of the tree holds node `m`.
+grid_tree_holds :: proc(t: ^Grid_Tree, n, m: int) -> bool {
+	if n == m do return true
+	node := t.nodes[n]
+	return node.split && (grid_tree_holds(t, int(node.a), m) || grid_tree_holds(t, int(node.b), m))
+}
+
+// The pane under point `p` of a room one by one, or -1.
+grid_tree_pane_at :: proc(t: ^Grid_Tree, p: [2]f32) -> int {
+	cells, _ := grid_tree_unit(t)
+	for i in 0 ..< grid_tree_panes(t) {
+		c := cells[i]
+		if p.x >= c.x && p.x <= c.x + c.w && p.y >= c.y && p.y <= c.y + c.h do return i
+	}
+	return -1
+}
+
+// Puts tree `t` in place of the grid's, the view panes moving as `was` says (from
+// grid_tree_fill; the pictures follow in grid_pictures_follow), and counts the change.
+grid_tree_set :: proc(g: ^View_Grid, t: Grid_Tree, was: [GRID_VIEWS]int = {0, 1, 2}) {
+	old := g.views
+	for i in 0 ..< GRID_VIEWS do g.views[i] = old[was[i]]
+	g.tree = t
+	g.maximised = 0
+	g.serial += 1
+	if was != {0, 1, 2} do g.was, g.moved = was, true
+}
+
+// Splits pane `pane` in two across (a cut up and down with `vertical`) at share `share`
+// of it, the new pane first (left or above) with `first`. The new pane, numbered after
+// the others, shows `view`. Returns its number, or 0 when the grid has its four panes.
+grid_split_pane :: proc(g: ^View_Grid, pane: int, vertical: bool, share: f32, first: bool, view: Second_View) -> int {
+	n := grid_panes(g)
+	at := grid_tree_leaf(&g.tree, pane)
+	if n >= GRID_PANES || at < 0 do return 0
+	t := g.tree
+	old := grid_leaf(&t, pane)
+	added := grid_leaf(&t, n)
+	a, b := old, added
+	if first do a, b = added, old
+	t.nodes[at] = {split = true, vertical = vertical, share = clamp(share, GRID_PANE_MIN, 1 - GRID_PANE_MIN), a = a, b = b}
+	g.views[n - 1] = view
+	grid_tree_set(g, grid_tree_normal(t, 0))
+	return n
+}
+
+// Joins pane `close` into pane `keep`, which grows over it, when they share a whole edge;
+// the main view never closes.
+grid_join :: proc(g: ^View_Grid, keep, close: int) -> bool {
+	if !grid_joinable(g, keep, close) do return false
+	cells, _ := grid_tree_unit(&g.tree)
+	n := grid_panes(g)
+	panes: [GRID_PANES]int
+	rects: [GRID_PANES]ui.Rect
+	m := 0
+	for i in 0 ..< n {
+		if i == close do continue
+		r := cells[i]
+		if i == keep {
+			c := cells[close]
+			x0, y0 := min(r.x, c.x), min(r.y, c.y)
+			r = {x0, y0, max(r.x + r.w, c.x + c.w) - x0, max(r.y + r.h, c.y + c.h) - y0}
+		}
+		panes[m], rects[m] = i, r
+		m += 1
+	}
+	t: Grid_Tree
+	root, ok := grid_tree_from_rects(&t, panes[:m], rects[:m])
+	if !ok do return false
+	t = grid_tree_normal(t, root)
+	grid_tree_set(g, t, grid_tree_fill(&t, close))
+	return true
+}
+
+// How near two edges, as shares of the room, count as one: wider than the thousandths a
+// layout keeps its shares in, so panes lined up stay lined up after a restart.
+GRID_EDGE_NEAR :: 2e-3
+
+// Whether pane `close` may join pane `keep`: two panes shown, not the main view closing,
+// and their union a rectangle.
+grid_joinable :: proc(g: ^View_Grid, keep, close: int) -> bool {
+	n := grid_panes(g)
+	if keep == close || close == 0 || keep < 0 || close < 0 || keep >= n || close >= n do return false
+	cells, _ := grid_tree_unit(&g.tree)
+	a, b := cells[keep], cells[close]
+	same :: proc(x, y: f32) -> bool {return abs(x - y) < GRID_EDGE_NEAR}
+	if same(a.y, b.y) && same(a.h, b.h) && (same(a.x + a.w, b.x) || same(b.x + b.w, a.x)) do return true
+	if same(a.x, b.x) && same(a.w, b.w) && (same(a.y + a.h, b.y) || same(b.y + b.h, a.y)) do return true
+	return false
+}
+
+// Builds a tree over panes laid out as `rects` (shares of a room one by one) by cutting
+// where no rect crosses, up and down first. A join leaves at most three panes, which tile
+// their room one way only, so the cut found is the only one.
+@(private = "file")
+grid_tree_from_rects :: proc(t: ^Grid_Tree, panes: []int, rects: []ui.Rect) -> (root: u8, ok: bool) {
+	if len(panes) == 1 do return grid_leaf(t, panes[0]), true
+	E :: GRID_EDGE_NEAR
+	lo, hi := [2]f32{2, 2}, [2]f32{-1, -1}
+	for r in rects {
+		lo = {min(lo.x, r.x), min(lo.y, r.y)}
+		hi = {max(hi.x, r.x + r.w), max(hi.y, r.y + r.h)}
+	}
+	for axis in 0 ..< 2 {
+		for r in rects {
+			cut := r.x + r.w if axis == 0 else r.y + r.h
+			if cut >= hi[axis] - E do continue
+			// Every rect lies wholly before or after the cut.
+			fits := true
+			for q in rects {
+				start := q.x if axis == 0 else q.y
+				end := q.x + q.w if axis == 0 else q.y + q.h
+				if end > cut + E && start < cut - E do fits = false
+			}
+			if !fits do continue
+			pa, pb: [GRID_PANES]int
+			ra, rb: [GRID_PANES]ui.Rect
+			na, nb := 0, 0
+			for q, i in rects {
+				start := q.x if axis == 0 else q.y
+				if start < cut - E {
+					pa[na], ra[na] = panes[i], q
+					na += 1
+				} else {
+					pb[nb], rb[nb] = panes[i], q
+					nb += 1
+				}
+			}
+			a := grid_tree_from_rects(t, pa[:na], ra[:na]) or_return
+			b := grid_tree_from_rects(t, pb[:nb], rb[:nb]) or_return
+			share := (cut - lo[axis]) / max(hi[axis] - lo[axis], E)
+			return grid_cut(t, axis == 0, share, a, b), true
+		}
+	}
+	return 0, false
+}
+
+// Swaps panes `p` and `q`: each, its view and its colour, shows where the other was.
+grid_swap :: proc(g: ^View_Grid, p, q: int) -> bool {
+	n := grid_panes(g)
+	if p == q || p < 0 || q < 0 || p >= n || q >= n do return false
+	t := g.tree
+	a, b := grid_tree_leaf(&t, p), grid_tree_leaf(&t, q)
+	t.nodes[a].pane, t.nodes[b].pane = u8(q), u8(p)
+	grid_tree_set(g, t)
+	return true
+}
+
+// Grid_Edge: a side of a pane another is docked against.
+Grid_Edge :: enum u8 {
+	Left,
+	Right,
+	Top,
+	Bottom,
+}
+
+// Moves pane `pane` out of where it is and docks it on `edge` of pane `target`, which
+// gives it half its room; where it was, its neighbour grows over.
+grid_dock :: proc(g: ^View_Grid, pane, target: int, edge: Grid_Edge) -> bool {
+	n := grid_panes(g)
+	if pane == target || pane < 0 || target < 0 || pane >= n || target >= n do return false
+	t := g.tree
+	at := grid_tree_leaf(&t, pane)
+	parent := grid_tree_parent(&t, at)
+	if parent < 0 do return false
+	sibling := t.nodes[parent].b if int(t.nodes[parent].a) == at else t.nodes[parent].a
+	t.nodes[parent] = t.nodes[sibling]
+	t = grid_tree_normal(t, 0)
+	into := grid_tree_leaf(&t, target)
+	moved := grid_leaf(&t, pane)
+	kept := grid_leaf(&t, target)
+	vertical := edge == .Left || edge == .Right
+	first := edge == .Left || edge == .Top
+	t.nodes[into] = {split = true, vertical = vertical, share = 0.5, a = moved if first else kept, b = kept if first else moved}
+	grid_tree_set(g, grid_tree_normal(t, 0))
+	return true
+}
+
+// Closes split `n`'s side `b` (or `a`), the other growing over it; never the main view's.
+grid_close_side :: proc(g: ^View_Grid, n: int, close_b: bool) -> bool {
+	t := g.tree
+	if n < 0 || n >= t.count || !t.nodes[n].split do return false
+	node := t.nodes[n]
+	closed, kept := node.b if close_b else node.a, node.a if close_b else node.b
+	if grid_tree_holds(&t, int(closed), grid_tree_leaf(&t, 0)) do return false
+	// The panes on the closed side go, the last ones shown taking their numbers.
+	gone: [GRID_PANES]int
+	m := 0
+	for d, i in t.nodes[:t.count] do if !d.split && grid_tree_holds(&t, int(closed), i) {
+		gone[m] = int(d.pane)
+		m += 1
+	}
+	t.nodes[n] = t.nodes[kept]
+	t = grid_tree_normal(t, 0)
+	// Highest first, so a number filled is never one still to go.
+	slice.reverse_sort(gone[:m])
+	was := [GRID_VIEWS]int{0, 1, 2}
+	for p in gone[:m] {
+		step := grid_tree_fill(&t, p)
+		was = {was[step[0]], was[step[1]], was[step[2]]}
+	}
+	grid_tree_set(g, t, was)
+	return true
+}
+
+// Whether closing split `n`'s side `b` (or `a`) would leave the main view: not when the
+// main view is on that side.
+grid_side_closes :: proc(t: ^Grid_Tree, n: int, close_b: bool) -> bool {
+	if n < 0 || n >= t.count || !t.nodes[n].split do return false
+	side := t.nodes[n].b if close_b else t.nodes[n].a
+	return !grid_tree_holds(t, int(side), grid_tree_leaf(t, 0))
+}
+
+// Split `n`'s sides trade places.
+grid_swap_sides :: proc(g: ^View_Grid, n: int) -> bool {
+	t := g.tree
+	if n < 0 || n >= t.count || !t.nodes[n].split do return false
+	node := &t.nodes[n]
+	node.a, node.b = node.b, node.a
+	node.share = 1 - node.share
+	grid_tree_set(g, grid_tree_normal(t, 0))
+	return true
+}
+
+// Evens out split `n` and the run of splits the same way inside it, so each pane along it
+// gets as much: three across goes to thirds.
+grid_even :: proc(g: ^View_Grid, n: int) {
+	t := &g.tree
+	if n < 0 || n >= t.count || !t.nodes[n].split do return
+	along :: proc(t: ^Grid_Tree, n: u8, vertical: bool) -> int {
+		node := t.nodes[n]
+		if !node.split || node.vertical != vertical do return 1
+		return along(t, node.a, vertical) + along(t, node.b, vertical)
+	}
+	even :: proc(t: ^Grid_Tree, n: u8, vertical: bool) {
+		node := &t.nodes[n]
+		if !node.split || node.vertical != vertical do return
+		a, b := along(t, node.a, vertical), along(t, node.b, vertical)
+		node.share = f32(a) / f32(a + b)
+		even(t, node.a, vertical)
+		even(t, node.b, vertical)
+	}
+	even(t, u8(n), t.nodes[n].vertical)
+	g.serial += 1
+}
+
+// How far split `n`'s cut may go across a room one by one: each pane keeps `least` of it,
+// with the cuts the same way inside it staying where they are.
+grid_divider_range :: proc(t: ^Grid_Tree, n: int, least: f32 = GRID_PANE_MIN) -> (lo, hi: f32) {
+	_, rooms := grid_tree_unit(t)
+	node := t.nodes[n]
+	r := rooms[n]
+	lo = (r.x if node.vertical else r.y) + least
+	hi = (r.x + r.w if node.vertical else r.y + r.h) - least
+	for d, i in t.nodes[:t.count] {
+		if i == n || !d.split || d.vertical != node.vertical do continue
+		line := grid_tree_line(t, rooms, i)
+		if grid_tree_holds(t, int(node.a), i) do lo = max(lo, line + least)
+		if grid_tree_holds(t, int(node.b), i) do hi = min(hi, line - least)
+	}
+	return
+}
+
+// Moves split `n`'s cut to `line` across a room one by one (within grid_divider_range),
+// keeping the cuts the same way inside it where they were.
+grid_move_divider :: proc(t: ^Grid_Tree, n: int, line: f32, least: f32 = GRID_PANE_MIN) {
+	if n < 0 || n >= t.count || !t.nodes[n].split do return
+	lo, hi := grid_divider_range(t, n, least)
+	if lo > hi do return
+	_, rooms := grid_tree_unit(t)
+	lines: [GRID_NODES]f32
+	for d, i in t.nodes[:t.count] do if d.split do lines[i] = grid_tree_line(t, rooms, i)
+	vertical := t.nodes[n].vertical
+	set :: proc(t: ^Grid_Tree, rooms: [GRID_NODES]ui.Rect, i: int, line: f32) {
+		r := rooms[i]
+		start, size := r.y, r.h
+		if t.nodes[i].vertical do start, size = r.x, r.w
+		t.nodes[i].share = clamp((line - start) / max(size, 1e-4), GRID_PANE_MIN, 1 - GRID_PANE_MIN)
+	}
+	set(t, rooms, n, clamp(line, lo, hi))
+	// The nodes run in depth-first order, so each is put back after the splits around it.
+	for i in n + 1 ..< t.count {
+		d := t.nodes[i]
+		if !d.split || d.vertical != vertical || !grid_tree_holds(t, n, i) do continue
+		_, rooms = grid_tree_unit(t)
+		set(t, rooms, i, lines[i])
+	}
+}
+
+// The splits whose cuts line up with split `n`'s, the same way and on the same line, `n`
+// among them: what Shift moves together.
+grid_lined_up :: proc(t: ^Grid_Tree, n: int) -> (out: [GRID_NODES]bool) {
+	_, rooms := grid_tree_unit(t)
+	line := grid_tree_line(t, rooms, n)
+	for d, i in t.nodes[:t.count] {
+		if d.split && d.vertical == t.nodes[n].vertical && abs(grid_tree_line(t, rooms, i) - line) < 1e-3 do out[i] = true
 	}
 	return
 }
@@ -174,63 +631,179 @@ grid_views_default :: proc(preset: Grid_Preset) -> (views: [GRID_VIEWS]Second_Vi
 	return
 }
 
-// Puts every preset's splits and view panes back as a new user finds them.
+// Puts the grid back as a new user finds it: one view.
 grid_reset :: proc(g: ^View_Grid) {
-	g.preset, g.maximised = .Single, 0
-	g.split = {}
-	for preset in Grid_Preset do g.views[preset] = grid_views_default(preset)
+	g.tree, g.maximised = grid_preset_tree(.Single), 0
+	g.views = grid_views_default(.Four)
+	g.serial += 1
 }
 
-// A layout's grid lines (workspaces.odin): none for Single, so every layout saved before
-// the grid reads as it was; else the preset and its splits, then each view pane's camera
-// and pass. A Free camera's turn is not kept, as the second view's is not.
+// A layout's grid lines (workspaces.odin): none for one pane, so every layout saved
+// before the grid reads as it was; else the tree, then each view pane's camera and pass.
+// A Free camera's turn is not kept, as the second view's is not.
 grid_layout_lines :: proc(k: ^Kit_State) -> string {
 	g := &k.grid
-	if g.preset == .Single do return ""
+	n := grid_panes(g)
+	if n == 1 do return ""
 	b := strings.builder_make(context.temp_allocator)
-	s := grid_split(g, g.preset)
-	// Splits in thousandths, which read back exactly, so the modified dot clears.
-	fmt.sbprintf(&b, "grid %v %d %d\n", g.preset, int(math.round(s.x * 1000)), int(math.round(s.y * 1000)))
-	for v, i in g.views[g.preset][:grid_count(g.preset) - 1] do fmt.sbprintf(&b, "pane %d %v %v\n", i + 1, v.camera, v.pass)
+	strings.write_string(&b, "panes ")
+	grid_tree_write(&b, &g.tree)
+	strings.write_byte(&b, '\n')
+	for v, i in g.views[:n - 1] do fmt.sbprintf(&b, "pane %d %v %v\n", i + 1, v.camera, v.pass)
 	return strings.to_string(b)
 }
 
-// Reads a layout's grid or pane line's words; a word naming nothing leaves what it named.
-grid_layout_read :: proc(k: ^Kit_State, f: []string) {
-	g := &k.grid
+// The tree in prefix order: `v` or `h` and the share in thousandths for a split (which
+// reads back exactly, so the modified dot clears), the pane's number for a leaf.
+grid_tree_write :: proc(b: ^strings.Builder, t: ^Grid_Tree) {
+	walk :: proc(b: ^strings.Builder, t: ^Grid_Tree, n: u8, first: bool) {
+		node := t.nodes[n]
+		if !first do strings.write_byte(b, ' ')
+		if !node.split {
+			fmt.sbprintf(b, "%d", node.pane)
+			return
+		}
+		fmt.sbprintf(b, "%c%d", 'v' if node.vertical else 'h', int(math.round(node.share * 1000)))
+		walk(b, t, node.a, false)
+		walk(b, t, node.b, false)
+	}
+	if t.count > 0 do walk(b, t, 0, true)
+}
+
+// Reads a tree written by grid_tree_write; `ok` false for words that are no such tree
+// (a pane twice, more than four, none the main view, a share out of range).
+grid_tree_read :: proc(words: []string) -> (t: Grid_Tree, ok: bool) {
+	at := 0
+	seen: bit_set[0 ..< GRID_PANES]
+	read :: proc(words: []string, at: ^int, t: ^Grid_Tree, seen: ^bit_set[0 ..< GRID_PANES]) -> (n: u8, ok: bool) {
+		if at^ >= len(words) || t.count >= GRID_NODES do return 0, false
+		w := words[at^]
+		at^ += 1
+		if len(w) > 1 && (w[0] == 'v' || w[0] == 'h') {
+			s := strconv.parse_int(w[1:]) or_return
+			if s <= 0 || s >= 1000 do return 0, false
+			// The split goes in before its children, as the normal form has it.
+			me := grid_cut(t, w[0] == 'v', clamp(f32(s) / 1000, GRID_PANE_MIN, 1 - GRID_PANE_MIN), 0, 0)
+			a := read(words, at, t, seen) or_return
+			b := read(words, at, t, seen) or_return
+			t.nodes[me].a, t.nodes[me].b = a, b
+			return me, true
+		}
+		p := strconv.parse_int(w) or_return
+		if p < 0 || p >= GRID_PANES || p in seen^ do return 0, false
+		seen^ += {p}
+		return grid_leaf(t, p), true
+	}
+	_ = read(words, &at, &t, &seen) or_return
+	n := card(seen)
+	if at != len(words) || 0 not_in seen do return {}, false
+	for p in 0 ..< n do if p not_in seen do return {}, false
+	return t, true
+}
+
+// The tree an old layout's `grid <preset> <x> <y>` line meant: the preset with its splits,
+// where three across's second was a share of the whole room.
+@(private = "file")
+grid_tree_of_old :: proc(preset: Grid_Preset, s: [2]f32) -> Grid_Tree {
+	t := grid_preset_tree(preset)
+	switch preset {
+	case .Single:
+	case .Side_By_Side:
+		t.nodes[0].share = s.x
+	case .Stacked:
+		t.nodes[0].share = s.y
+	case .One_Plus_Two:
+		t.nodes[0].share, t.nodes[2].share = s.x, s.y
+	case .Four:
+		t.nodes[0].share, t.nodes[1].share, t.nodes[4].share = s.y, s.x, s.x
+	case .Three_Across:
+		t.nodes[0].share = s.x
+		t.nodes[2].share = clamp((s.y - s.x) / max(1 - s.x, 1e-3), GRID_PANE_MIN, 1 - GRID_PANE_MIN)
+	}
+	return t
+}
+
+// Reads a layout's panes, grid or pane line's words; a word naming nothing leaves what it
+// named.
+grid_layout_read :: proc(g: ^View_Grid, f: []string) {
 	switch {
+	case f[0] == "panes" && len(f) >= 2:
+		t, ok := grid_tree_read(f[1:])
+		if !ok do return
+		g.tree, g.maximised = t, 0
+		g.views = grid_views_default(.Four)
+		g.serial += 1
 	case f[0] == "grid" && len(f) >= 2:
-		for p in Grid_Preset do if strings.equal_fold(fmt.tprint(p), f[1]) do g.preset = p
+		preset := Grid_Preset.Single
+		for p in Grid_Preset do if strings.equal_fold(fmt.tprint(p), f[1]) do preset = p
+		s := [2]f32{0.5, 0.5}
+		if preset == .One_Plus_Two do s.x = 0.6
+		if preset == .Three_Across do s = {1.0 / 3, 2.0 / 3}
+		if len(f) >= 4 {
+			x, okx := strconv.parse_int(f[2])
+			y, oky := strconv.parse_int(f[3])
+			if okx && oky && x > 0 && x < 1000 && y > 0 && y < 1000 do s = {clamp(f32(x) / 1000, 0.15, 0.85), clamp(f32(y) / 1000, 0.15, 0.85)}
+		}
+		g.tree, g.maximised = grid_tree_of_old(preset, s), 0
 		// Its panes start as the preset's partners; the pane lines after it say otherwise.
-		g.views[g.preset] = grid_views_default(g.preset)
-		if len(f) < 4 do return
-		x, okx := strconv.parse_int(f[2])
-		y, oky := strconv.parse_int(f[3])
-		if okx && oky && x > 0 && x < 1000 && y > 0 && y < 1000 do g.split[g.preset] = grid_split_clamp(g.preset, {f32(x), f32(y)} / 1000)
+		g.views = grid_views_default(preset)
+		g.serial += 1
 	case f[0] == "pane" && len(f) >= 4:
 		i, ok := strconv.parse_int(f[1])
 		if !ok || i < 1 || i > GRID_VIEWS do return
-		v := &g.views[g.preset][i - 1]
+		v := &g.views[i - 1]
 		for c in Second_Camera do if strings.equal_fold(fmt.tprint(c), f[2]) do v.camera = c
 		for p in Second_Pass do if strings.equal_fold(fmt.tprint(p), f[3]) do v.pass = p
 	}
 }
 
-// Shows the grid in `preset`; a pane that filled it gives the room back.
-grid_set :: proc(k: ^Kit_State, preset: Grid_Preset) {
-	k.grid.preset, k.grid.maximised = preset, 0
+// A layout's text with an old `grid` line written as the tree it reads as, a `panes`
+// line; the rest as it was.
+grid_layout_upgrade :: proc(text: string) -> string {
+	if !strings.contains(text, "grid ") do return text
+	b := strings.builder_make(context.temp_allocator)
+	lines := strings.split_lines(text, context.temp_allocator)
+	for line, i in lines {
+		f := strings.fields(line, context.temp_allocator)
+		if len(f) > 0 && f[0] == "grid" {
+			g: View_Grid
+			grid_layout_read(&g, f)
+			if grid_panes(&g) > 1 {
+				strings.write_string(&b, "panes ")
+				grid_tree_write(&b, &g.tree)
+			}
+		} else {
+			strings.write_string(&b, line)
+		}
+		if i + 1 < len(lines) do strings.write_byte(&b, '\n')
+	}
+	return strings.to_string(b)
 }
 
-// The grid's room in points: the whole window in Single, as the viewport always was, and
-// with more panes while they run under the panels (Settings > Interface, the default, and
-// always in Lens); else
-// the room between the docked columns (as last laid out), so no pane lies under one. Too
-// narrow a room between them keeps the window.
+// Shows the grid in `preset` with its default splits; panes already shown keep their
+// views and the rest start as the preset's partners. The shape already shown stays as it
+// is. A pane that filled the grid gives the room back.
+grid_set :: proc(k: ^Kit_State, preset: Grid_Preset) -> (added: int, changed: bool) {
+	g := &k.grid
+	g.maximised = 0
+	if p, ok := grid_shape(g); ok && p == preset do return 0, false
+	had := grid_panes(g)
+	g.tree = grid_preset_tree(preset)
+	g.serial += 1
+	partners := grid_views_default(preset)
+	for i in had ..< grid_count(preset) do g.views[i - 1] = partners[i - 1]
+	return had, true
+}
+
+// The grid's room in points: the whole window with one pane, as the viewport always was,
+// and with more while they run under the panels (Settings > Interface, the default, and
+// always in Lens); else the room between the docked columns (as last laid out), so no
+// pane lies under one. Too narrow a room between them keeps the window.
 view_grid_room :: proc(app: ^App) -> ui.Rect {
 	k := &app.kit
 	win := k.ctx.input.window
 	whole := ui.Rect{0, 0, win.x, win.y}
-	if k.grid.preset == .Single || k.panes_under || k.chrome == .Lens do return whole
+	if grid_panes(&k.grid) == 1 || k.panes_under || k.chrome == .Lens do return whole
 	lo, hi := f32(0), win.x
 	for side in Column_Side {
 		c := k.panels.rect[side]
@@ -259,35 +832,23 @@ GRID_COLUMN_GAP :: 8
 // The width of a divider's grab strip, in points, centred on its gap.
 GRID_GRAB :: 16
 
-// A divider: the gap it lies along, which split it moves (0 x, 1 y) and its direction.
-@(private = "file")
+// A divider: the gap it lies along, the split it moves, its direction and the split's room.
 Grid_Divider :: struct {
 	line:     ui.Rect,
-	axis:     int,
+	node:     int,
 	vertical: bool,
+	room:     ui.Rect,
 }
 
-// The dividers a preset has, along its panes' gaps.
-@(private = "file")
-grid_dividers :: proc(preset: Grid_Preset, cells: [GRID_PANES]ui.Rect, room: ui.Rect) -> (out: [2]Grid_Divider, n: int) {
-	right_of :: proc(c: ui.Rect, room: ui.Rect) -> ui.Rect {return {c.x + c.w, room.y, GRID_GAP, room.h}}
-	below :: proc(c: ui.Rect, x0, x1: f32) -> ui.Rect {return {x0, c.y + c.h, x1 - x0, GRID_GAP}}
-	end := room.x + room.w
-	switch preset {
-	case .Single:
-	case .Side_By_Side:
-		out[0], n = {right_of(cells[0], room), 0, true}, 1
-	case .Stacked:
-		out[0], n = {below(cells[0], room.x, end), 1, false}, 1
-	case .One_Plus_Two:
-		out[0] = {right_of(cells[0], room), 0, true}
-		out[1], n = {below(cells[1], cells[1].x, end), 1, false}, 2
-	case .Four:
-		out[0] = {right_of(cells[0], room), 0, true}
-		out[1], n = {below(cells[0], room.x, end), 1, false}, 2
-	case .Three_Across:
-		out[0] = {right_of(cells[0], room), 0, true}
-		out[1], n = {right_of(cells[1], room), 1, true}, 2
+// The tree's dividers, one a split, along its panes' gaps.
+grid_dividers :: proc(t: ^Grid_Tree, rooms: [GRID_NODES]ui.Rect) -> (out: [GRID_PANES - 1]Grid_Divider, n: int) {
+	for node, i in t.nodes[:t.count] {
+		if !node.split do continue
+		a, _ := grid_cut_rect(rooms[i], node.vertical, node.share, GRID_GAP)
+		r := rooms[i]
+		line := ui.Rect{a.x + a.w, r.y, GRID_GAP, r.h} if node.vertical else ui.Rect{r.x, a.y + a.h, r.w, GRID_GAP}
+		out[n] = {line, i, node.vertical, r}
+		n += 1
 	}
 	return
 }
@@ -299,15 +860,18 @@ kit_grid :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
 	g := &k.grid
+	if g.tree.count == 0 do grid_reset(g)
+	// What a gesture queued last frame, before anything is laid out from the tree.
+	grid_op_apply(app)
+	grid_pictures_follow(app)
 	room := view_grid_room(app)
-	split := grid_split(g, g.preset)
-	cells := grid_cells(g.preset, split, room)
-	n := grid_count(g.preset)
+	cells, rooms := grid_tree_cells(&g.tree, room)
+	n := grid_panes(g)
 	if g.maximised >= n do g.maximised = 0
 	// Each pane on whole pixels, so the main view's input size and its target's agree
 	// exactly and its unsmoothed image never shimmers; a maximised pane's room too, since
 	// the main view may be drawn there while it is worked in.
-	if g.preset != .Single {
+	if n > 1 {
 		px := ctx.input.pixel_density
 		snap :: proc(c: ui.Rect, px: f32) -> ui.Rect {
 			x0, y0 := math.round(c.x * px) / px, math.round(c.y * px) / px
@@ -349,10 +913,21 @@ kit_grid :: proc(app: ^App) {
 		if !resizing do g.px[i - 1] = {u32(r.w * d + 0.5), u32(r.h * d + 0.5)}
 		kit_view_pane(app, i, r)
 	}
+	// Lens's corner handles under the panes' heads, whose chips win where the two meet.
+	if k.chrome == .Lens {
+		if g.maximised == 0 do lens_pane_corners(app, cells, n)
+		for i in 1 ..< n {
+			if g.maximised != 0 && g.maximised != i do continue
+			r := room if g.maximised == i else cells[i]
+			lens_pane_head(app, i, grid_head_at(app, r), r, cells, n)
+		}
+	}
 	if g.maximised != 0 do return
-	dividers, count := grid_dividers(g.preset, cells, room)
+	dividers, count := grid_dividers(&g.tree, rooms)
+	was := g.dragged
 	g.dragged = 0
-	for div, i in dividers[:count] {
+	for div in dividers[:count] {
+		i := div.node
 		grab := div.line
 		// Lens's dividers are wider to hold, for a finger.
 		span: f32 = GRID_GRAB_LENS if k.chrome == .Lens else GRID_GRAB
@@ -360,20 +935,68 @@ kit_grid :: proc(app: ^App) {
 		else do grab.y, grab.h = grab.y + grab.h * 0.5 - span * 0.5, span
 		ui.begin_at(ctx, fmt.tprintf("grid divider %d", i), {grab.x, grab.y}, {width = grab.w, height = grab.h})
 		a := ui.area(ctx, "grab", {grab.w, grab.h})
+		if k.chrome == .Lens && ui.secondary(ctx) do divider_menu_open(app, i, a.mouse)
 		t := ctx.theme
 		color := t.accent if a.held else t.border_strong if a.hovered else t.frame
 		ui.fill_rect(ctx, div.line, 0, color)
-		if k.chrome == .Lens do grid_divider_lens(app, i, div.line, div.vertical, div.axis, a, room, cells)
-		if a.held {
-			g.dragged = i + 1
-			s := split
-			s[div.axis] = (a.mouse.x - room.x) / room.w if div.vertical else (a.mouse.y - room.y) / room.h
-			s = grid_split_clamp(g.preset, s)
-			if s != split do g.drags += 1
-			g.split[g.preset] = s
-		}
+		if k.chrome == .Lens do grid_divider_lens(app, div, a, cells)
+		if a.held do grid_divider_drag(app, div, a.mouse, room, was == i + 1)
 		ui.end(ctx)
 	}
+	// A drag let go that moved its divider is a layout step.
+	if was != 0 && g.dragged == 0 && g.areas.held {
+		g.areas.held = false
+		if g.areas.held_step.tree != g.tree do grid_step_push(g, g.areas.held_step)
+	}
+	if k.chrome == .Lens do lens_areas_overlay(app, cells, n)
+}
+
+// Divider `div` held at `m`: its cut follows, the cuts inside it staying where they are,
+// every pane keeping GRID_PANE_MIN of the room and GRID_PANE_MIN_PT. Ctrl snaps to a
+// quarter, a third or a half of the split's room; Shift moves the dividers lined up with
+// it together.
+@(private = "file")
+grid_divider_drag :: proc(app: ^App, div: Grid_Divider, m: [2]f32, room: ui.Rect, going: bool) {
+	k := &app.kit
+	ctx := &k.ctx
+	g := &k.grid
+	if !going {
+		g.areas.held, g.areas.held_step = true, grid_step_now(g)
+	}
+	g.dragged = div.node + 1
+	size := room.w if div.vertical else room.h
+	start := room.x if div.vertical else room.y
+	least := max(GRID_PANE_MIN, GRID_PANE_MIN_PT / max(size, 1))
+	line := ((m.x if div.vertical else m.y) - start) / max(size, 1)
+	if ctx.input.ctrl {
+		r := div.room
+		r0, rs := (r.x - start) / max(size, 1), r.w / max(size, 1)
+		if !div.vertical do r0, rs = (r.y - start) / max(size, 1), r.h / max(size, 1)
+		s := (line - r0) / max(rs, 1e-4)
+		best: f32 = 0.5
+		for f in ([]f32{0.25, 1.0 / 3, 0.5, 2.0 / 3, 0.75}) do if abs(f - s) < abs(best - s) do best = f
+		line = r0 + best * rs
+	}
+	before := g.tree
+	if ctx.input.shift {
+		lined := grid_lined_up(&g.tree, div.node)
+		lo, hi := f32(0), f32(1)
+		for on, j in lined do if on {
+			a, b := grid_divider_range(&g.tree, j, least)
+			lo, hi = max(lo, a), min(hi, b)
+		}
+		line = clamp(line, lo, hi)
+		for on, j in lined do if on do grid_move_divider(&g.tree, j, line, least)
+	} else {
+		grid_move_divider(&g.tree, div.node, line, least)
+	}
+	if g.tree != before do g.drags += 1
+}
+
+// Where a view pane's head stands in pane rect `r`: its top left corner, clear of the top
+// bar, the brush bar and a docked left column.
+grid_head_at :: proc(app: ^App, r: ui.Rect) -> [2]f32 {
+	return {max(r.x, kit_left(app), grid_left_column_edge(app)) + 6, max(r.y, kit_top() - 8) + 6}
 }
 
 // A view pane at `r`: its picture, which a drag turns and the wheel zooms, and over its
@@ -385,7 +1008,7 @@ kit_view_pane :: proc(app: ^App, i: int, r: ui.Rect) {
 	ctx := &k.ctx
 	t := ctx.theme
 	g := &k.grid
-	sv := &g.views[g.preset][i - 1]
+	sv := &g.views[i - 1]
 	ui.begin_at(ctx, fmt.tprintf("view pane %d", i), {r.x, r.y}, {width = r.w, height = r.h})
 	a := ui.area(ctx, "picture", {r.w, r.h})
 	working := g.work == i
@@ -403,11 +1026,9 @@ kit_view_pane :: proc(app: ^App, i: int, r: ui.Rect) {
 	} else if app.panes[i - 1].shown != nil {
 		kit_guides(app, r, app.panes[i - 1].orbit, fmt.tprintf("pane %d", i))
 	}
-	head := [2]f32{max(r.x, kit_left(app), grid_left_column_edge(app)) + 6, max(r.y, kit_top() - 8) + 6}
-	if k.chrome == .Lens {
-		lens_pane_head(app, i, head)
-		return
-	}
+	// Lens draws its heads after the corner handles (kit_grid).
+	if k.chrome == .Lens do return
+	head := grid_head_at(app, r)
 	// Under the panels a docked right column may cover the pane's right part: a head too
 	// wide for the room left of it takes two rows, so Link and Maximise stay in reach.
 	room := r.x + r.w - head.x - 6
@@ -481,7 +1102,7 @@ grid_frame :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer, draws: []render.Draw_I
 			continue
 		}
 		if k.grid.work == i + 1 do continue
-		picture_frame(app, cmd, draws, &k.grid.views[k.grid.preset][i], &pic, size, 1)
+		picture_frame(app, cmd, draws, &k.grid.views[i], &pic, size, 1)
 	}
 }
 
@@ -524,7 +1145,7 @@ grid_work :: proc(app: ^App, n: int) {
 	ctx := &k.ctx
 	g := &k.grid
 	g.work_began, g.work_ended = false, 0
-	if g.work != 0 && (g.work >= n || g.preset != g.work_preset || grid_work_over(app)) do grid_work_end(app)
+	if g.work != 0 && (g.work >= n || g.serial != g.work_serial || grid_work_over(app)) do grid_work_end(app)
 	if ctx.input.pressed == {} || ctx.active != 0 do return
 	place := 0
 	for i in 1 ..< n do if ctx.pointer_root == ui.id_of(ctx, fmt.tprintf("view pane %d", i)) do place = i
@@ -557,14 +1178,14 @@ grid_work_over :: proc(app: ^App) -> bool {
 grid_work_begin :: proc(app: ^App, i: int) {
 	k := &app.kit
 	g := &k.grid
-	sv := &g.views[g.preset][i - 1]
+	sv := &g.views[i - 1]
 	// What the main pane shows, taken while the main view is still its own: the studio
 	// render or live occlusion pause while a view pane is worked in.
 	g.work_shown = viewport_shown(app)
 	if g.work_shown == nil do g.work_shown = app.target.color
 	g.work_back = app.camera
 	app.camera = second_orbit(app, sv)
-	g.work, g.work_preset, g.work_from = i, g.preset, app.camera
+	g.work, g.work_serial, g.work_from = i, g.serial, app.camera
 	g.work_began = true
 	g.works += 1
 	g.work_dabs_from = app.stats.dabs_total
@@ -577,8 +1198,8 @@ grid_work_begin :: proc(app: ^App, i: int) {
 // becomes Free at the view it was left at), and the main camera comes back.
 grid_work_end :: proc(app: ^App) {
 	g := &app.kit.grid
-	if g.preset == g.work_preset && app.camera != g.work_from {
-		sv := &g.views[g.preset][g.work - 1]
+	if g.serial == g.work_serial && app.camera != g.work_from {
+		sv := &g.views[g.work - 1]
 		#partial switch sv.camera {
 		case .Follow:
 			g.work_back = app.camera
@@ -591,7 +1212,7 @@ grid_work_end :: proc(app: ^App) {
 	g.work_dabs += app.stats.dabs_total - g.work_dabs_from
 	g.work_live = viewport_shown(app)
 	if g.work_live == nil do g.work_live = app.target.color
-	if g.preset == g.work_preset do g.work_ended = g.work
+	if g.serial == g.work_serial do g.work_ended = g.work
 	app.camera = g.work_back
 	g.work = 0
 }
@@ -612,7 +1233,7 @@ grid_work_gpu :: proc(app: ^App) -> bool {
 	}
 	if i := g.work_ended; i != 0 {
 		pic := &app.panes[i - 1]
-		sv := &g.views[g.preset][i - 1]
+		sv := &g.views[i - 1]
 		size := [2]u32{w, h}
 		if size == g.px[i - 1] && render.viewport_copy(&app.renderer, &pic.view.target, g.work_live, w, h) {
 			key, orbit := picture_key(app, sv, size, 1)
@@ -632,7 +1253,7 @@ ICON_RENDER_PREVIEW :: rune(0xe48a)
 // The view pane (1 to 3) showing Render in the grid in use, 0 for none.
 render_preview_pane :: proc(k: ^Kit_State) -> int {
 	g := &k.grid
-	for i in 1 ..< grid_count(g.preset) do if g.views[g.preset][i - 1].pass == .Render do return i
+	for i in 1 ..< grid_panes(g) do if g.views[i - 1].pass == .Render do return i
 	return 0
 }
 
@@ -645,10 +1266,11 @@ render_preview_toggle :: proc(app: ^App) {
 	k := &app.kit
 	g := &k.grid
 	if i := render_preview_pane(k); i != 0 {
-		g.views[g.preset][i - 1].pass = .Shaded
+		g.views[i - 1].pass = .Shaded
 		return
 	}
-	if g.preset == .Single do grid_set(k, .Side_By_Side)
-	sv := &g.views[g.preset][0]
+	// From one view the grid goes Side by side first, a layout step Undo takes back.
+	if grid_panes(g) == 1 do grid_choose(app, .Side_By_Side)
+	sv := &g.views[0]
 	sv.camera, sv.pass = .Follow, .Render
 }

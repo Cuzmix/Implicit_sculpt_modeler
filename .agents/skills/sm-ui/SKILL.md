@@ -60,6 +60,10 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   (grip, `handle_double_tap` evens, edge close via `grid_close_target`, the main pane never closes), `grid_choose`
   (the View grid command; `k.new_panes`), and the stack's tab strip while `stack_strip_shown` (`kit_stack_tab` draws a
   card over the view through `stack_card_body`).
+  The grid is a split tree (`Grid_Tree`, at most four leaves; pane 0 the main view, panes keep their numbers and the
+  last fills a closed one's): change it only through the tree ops in grid.odin. Lens gestures (`lens_areas.odin`)
+  queue a `Grid_Op` that `kit_grid` applies before layout; each op is a `Grid_Step` that `undo_run`/`redo_run`
+  order against the History by `at` ticks. Pictures follow moved views in `grid_pictures_follow`.
 - Layout (`kit_layout`, `new_ui.odin`; the bars in `kit_bars.odin`, after ZBrush for iPad): `kit_top_bar` (a full-width
   strip, `TOP_BAR_H`: Menu, Save, Import, Export | file name | History, Edit pies, Help, Settings), `kit_points` (the
   object's readout under it, at the top left), `kit_brush_bar` (left column, top from `brush_bar_top`, which keeps

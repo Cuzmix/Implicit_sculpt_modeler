@@ -120,7 +120,13 @@ kit_view_chips :: proc(app: ^App) {
 	ctx := &k.ctx
 	t := ctx.theme
 	ps := &k.passes
-	ui.begin_anchored(ctx, "points", .Start, .Start, {LENS_EDGE, TOP_BAR_H + 2}, {direction = .Column})
+	at := [2]f32{LENS_EDGE, TOP_BAR_H + 2}
+	if g := &k.grid; grid_panes(g) > 1 && g.maximised == 0 && g.main.w > 0 {
+		win := ctx.input.window
+		edge := win.x - (g.main.x + g.main.w) if ctx.mirror else g.main.x
+		at = {LENS_EDGE + edge, max(TOP_BAR_H + 2, g.main.y + 8)}
+	}
+	ui.begin_anchored(ctx, "points", .Start, .Start, at, {direction = .Column})
 	ui.begin(ctx, "view chips", {direction = .Row, gap = 6})
 	c := &app.camera
 	projection := "Ortho" if c.ortho else "Persp"

@@ -600,7 +600,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	}
 	// The benchmarks measure the viewport filling the window, so their numbers stay
 	// comparable whatever grid a workspace keeps.
-	if opts.bench_stroke > 0 || opts.gpubench != "" do app.kit.grid.preset = .Single
+	if opts.bench_stroke > 0 || opts.gpubench != "" do app.kit.grid.tree = grid_preset_tree(.Single)
 	// Only for the settings of everyday use: a run with a settings file of its own (a test's)
 	// keeps the code's look unless the file says otherwise.
 	if remember && opts.settings_file == "" do look_first_run(&app)
@@ -1286,14 +1286,27 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		g := &app.kit.grid
 		draws, ms, turns, links, linked := 0, 0.0, 0, 0, 0
 		for pic in app.panes do draws, ms = draws + pic.draws, max(ms, pic.ms)
-		for &v, i in g.views[g.preset] {
+		n := grid_panes(g)
+		for &v, i in g.views {
 			turns, linked = turns + v.turns, linked + v.linked
-			if i + 1 < grid_count(g.preset) && second_linked(&v) do links += 1
+			if i + 1 < n && second_linked(&v) do links += 1
 		}
-		split := grid_split(g, g.preset)
+		// The shares of the first two splits, in the tree's order.
+		split: [2]f32
+		found := 0
+		for node in g.tree.nodes[:g.tree.count] do if node.split && found < 2 {
+			split[found] = node.share
+			found += 1
+		}
 		heavy := 0
-		for v, i in g.views[g.preset] do if i + 1 < grid_count(g.preset) && second_pass_heavy(v.pass) do heavy += 1
-		fmt.printfln("grid=%v grid_panes=%d grid_split=%.3f,%.3f grid_max=%d grid_drags=%d pane_draws=%d pane_ms=%.2f pane_px=%dx%d pane_camera=%v pane_turns=%d pane_links=%d linked_turns=%d viewport_origin=%.0f,%.0f grid_main=%.0fx%.0f pane_work=%d pane_works=%d pane_work_dabs=%d pane_samples=%d pane_heavy=%d pane_render_samples=%d", g.preset, grid_count(g.preset), split.x, split.y, g.maximised, g.drags, draws, ms, g.px[0].x, g.px[0].y, g.views[g.preset][0].camera, turns, links, linked, app.ui.viewport_origin.x, app.ui.viewport_origin.y, g.main.w, g.main.h, g.work, g.works, g.work_dabs + (app.stats.dabs_total - g.work_dabs_from if g.work != 0 else 0), app.panes[0].studio.samples, heavy, app.panes[0].path.samples)
+		for v, i in g.views do if i + 1 < n && second_pass_heavy(v.pass) do heavy += 1
+		fmt.printfln("grid=%v grid_panes=%d grid_split=%.3f,%.3f grid_max=%d grid_drags=%d pane_draws=%d pane_ms=%.2f pane_px=%dx%d pane_camera=%v pane_turns=%d pane_links=%d linked_turns=%d viewport_origin=%.0f,%.0f grid_main=%.0fx%.0f pane_work=%d pane_works=%d pane_work_dabs=%d pane_samples=%d pane_heavy=%d pane_render_samples=%d", grid_shape_name(g), n, split.x, split.y, g.maximised, g.drags, draws, ms, g.px[0].x, g.px[0].y, g.views[0].camera, turns, links, linked, app.ui.viewport_origin.x, app.ui.viewport_origin.y, g.main.w, g.main.h, g.work, g.works, g.work_dabs + (app.stats.dabs_total - g.work_dabs_from if g.work != 0 else 0), app.panes[0].studio.samples, heavy, app.panes[0].path.samples)
+		ar := &g.areas
+		tree := strings.builder_make(context.temp_allocator)
+		grid_tree_write(&tree, &g.tree)
+		// Commas for its spaces, so the stat stays one word.
+		tree_text, _ := strings.replace_all(strings.to_string(tree), " ", ",", context.temp_allocator)
+		fmt.printfln("grid_tree=%s grid_splits=%d grid_joins=%d grid_swaps=%d grid_docks=%d grid_undos=%d grid_redos=%d grid_refused=%d grid_cancels=%d grid_undo_steps=%d", tree_text if g.tree.count > 0 else "0", ar.splits, ar.joins, ar.swaps, ar.docks, ar.undos, ar.redos, ar.refused, ar.cancels, g.undo.back_n)
 		fmt.printfln("grid_closes=%d grid_evens=%d new_panes=%v pane_menu=%d stack_strip=%d stack_tab=%s stack_tabs=%d", g.closes, g.evens, app.kit.new_panes, int(app.kit.pane_menu.open), int(stack_strip_shown(&app)), fmt.tprint(app.kit.stack.tab) if app.kit.stack.tab_open else "none", app.kit.stack.tabs)
 	}
 	{
