@@ -2586,6 +2586,77 @@ def lens_menu_heads_with_home():
     return s, LENS, {"home": near(1), "menu": near(0)}
 
 
+def shift_left_of_middle(v):
+    x, y = (float(c) for c in v.split(","))
+    return x < -0.2 and abs(y) < 0.2
+
+
+@scenario
+def lens_view_starts_in_the_free_area():
+    """In Lens the model is drawn in the middle of the room the tray and bars leave: left of the window's middle, the camera itself unmoved."""
+    s = Script()
+    s.wait(10)
+    return s, LENS, camera_still({"camera_shift": shift_left_of_middle})
+
+
+@scenario
+def lens_focus_fits_the_free_area():
+    """F (Focus selected) in Lens keeps the model in the free area and backs the camera off to fit its shorter side."""
+    s = Script()
+    s.wait(6)
+    s.press("f")
+    s.wait(6)
+    return s, LENS, {"camera_shift": shift_left_of_middle, "camera_distance": lambda v: 3.6 < float(v) < 7.1}
+
+
+@scenario
+def classic_view_has_no_shift():
+    """The Classic layout draws the model in the middle of the window, as it always did."""
+    s = Script()
+    s.wait(6)
+    s.press("f")
+    s.wait(6)
+    return s, [], {"camera_shift": is_text("0.000,0.000"), "camera_distance": near(3.5)}
+
+
+@scenario
+def lens_tab_hides_the_interface():
+    """Tab in Lens is Clean view: every control goes, the dial stays."""
+    s = Script()
+    s.press("Tab")
+    s.wait(10)
+    return s, LENS, camera_still({"clean_view": near(1), "window_inspector": lambda v: v.startswith("1,")})
+
+
+@scenario
+def lens_escape_brings_the_interface_back():
+    """Escape leaves Clean view."""
+    s = Script()
+    s.press("Tab")
+    s.wait(6)
+    s.press("Escape")
+    s.wait(6)
+    return s, LENS, camera_still({"clean_view": near(0)})
+
+
+@scenario
+def four_finger_tap_hides_the_interface():
+    """A four-finger tap is Clean view, its default gesture."""
+    s = Script()
+    s.fingers([(500, 300), (560, 300), (620, 300), (680, 300)], [(0, 0)] * 4, 2)
+    s.wait(10)
+    return s, LENS, camera_still({"clean_view": near(1)})
+
+
+@scenario
+def a_stroke_under_the_tray_fades_it():
+    """A stroke that starts on the model and runs under the tray fades the tray while it lasts; the stroke goes on under it."""
+    s = Script()
+    s.fdrag(line((600, 450), (1250, 420), 30))
+    s.wait(10)
+    return s, LENS, {"panels_faded": lambda v: int(v) >= 1, "dabs": lambda v: int(v) > 0}
+
+
 @scenario
 def save_as_new_workspace_is_remembered():
     """Save as a new workspace from the switcher makes "Workspace 1", current, and the settings keep it."""
@@ -4989,14 +5060,14 @@ def gesture_any_command_from_search():
         s.add("wheel:-5")
         s.wait(2)
     s.wait(10)
-    s.ftap(1333, 562)
+    s.ftap(1333, 504)
     s.wait(12)
-    # Its list's last row is Any command...
-    for _ in range(6):
-        s.fdrag(line((1330, 480), (1330, 20), 10))
+    # Its list opens above it; the list's last row is Any command...
+    for _ in range(10):
+        s.fdrag(line((1330, 440), (1330, 20), 10))
         s.wait(4)
     s.wait(20)
-    s.ftap(1250, 512)
+    s.ftap(1250, 454)
     s.wait(14)
     s.type("wireframe")
     s.press("Return")

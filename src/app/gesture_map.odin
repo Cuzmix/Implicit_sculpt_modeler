@@ -51,7 +51,7 @@ GESTURE_SLOT_NAMES := [Gesture_Slot]string {
 GESTURE_DEFAULTS :: [Gesture_Slot]Pie_Slot {
 	.Two_Tap    = {.Undo, 0},
 	.Three_Tap  = {.Redo, 0},
-	.Four_Tap   = {},
+	.Four_Tap   = {.Clean_View, 0},
 	.Two_Hold   = {.Undo, 0},
 	.Three_Hold = {.Redo, 0},
 	.Four_Hold  = {},
@@ -66,7 +66,7 @@ GESTURE_DEFAULTS :: [Gesture_Slot]Pie_Slot {
 // too.
 @(rodata)
 GESTURE_CHOICES := [?]Pie_Slot {
-	{.Undo, 0}, {.Redo, 0}, {.Brush_Pie, 0}, {.Pie, 0}, {.Pie, 1}, {.Pie, 2}, {.Pie, 3}, {.Command_Palette, 0},
+	{.Undo, 0}, {.Redo, 0}, {.Clean_View, 0}, {.Brush_Pie, 0}, {.Pie, 0}, {.Pie, 1}, {.Pie, 2}, {.Pie, 3}, {.Command_Palette, 0},
 	{.Inspector, 0}, {.Objects_Card, 0}, {.Settings, 0}, {.Help, 0}, {.Stats, 0},
 	{.Frame_All, 0}, {.Focus_Selected, 0}, {.Reset_Camera, 0}, {.View_Back, 0}, {.View_Forward, 0}, {.Ortho_Toggle, 0},
 	{.Wireframe, 0}, {.Polygroups, 0}, {.Floor_Grid, 0}, {.Transparency, 0}, {.Flat_Shading, 0}, {.Studio_Render, 0}, {.Screenshot, 0}, {.Symmetry_X, 0}, {.Local_Symmetry, 0}, {.Radial_Symmetry, 0}, {.Brush_Subtract, 0}, {.Brush_Add, 0}, {.Paint_Channel, 0}, {.Swap_Colors, 0},

@@ -161,6 +161,13 @@ Kit_State :: struct {
 	// rather than stopping beside them (Settings > Interface; grid.odin).
 	panes_under:  bool,
 	panes_work:   bool, // a press in a view pane works there (grid_work)
+	panels_faded: int, // panels a stroke passed under (Lens), for the exit stats
+	// Clean view (Lens: Tab or a four-finger tap): every control hidden, the modifier
+	// wheel aside while `clean_dial`; `clean_at` is when it began, for its hint.
+	clean:        bool,
+	clean_dial:   bool,
+	clean_at:     f64,
+	view_started: bool, // Lens drew the model in the free area at the start (lens_view_frame)
 	// On a window narrower than TRAY_NAV_MIN_W the columns pop over the view only while
 	// asked for, as popovers from the rails do (Settings > Interface; panels.odin).
 	column_popovers: bool,
@@ -743,6 +750,7 @@ kit_init :: proc(app: ^App) {
 	k.panes_under = true
 	k.panes_work = true
 	k.column_popovers = true
+	k.clean_dial = true
 	k.rail_side, k.wheel_size = .Left, .Medium
 	k.action_bar = true
 	bars_reset(k)
@@ -1002,6 +1010,7 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 		// for the next start.
 		if k.recover_shown && quiet && !shape_waits && !side_panel_open(k) do app.autosave.offer_hidden = true
 		if k.home && quiet do home_close(app)
+		else if k.clean && quiet do clean_view_set(app, false)
 		else if k.bars_edit && quiet && !k.palette do k.bars_edit = false
 		else if shape_waits && quiet do app.shape_pending.request = .Cancel
 		else if side_panel_open(k) && quiet do side_panel_close(app)
@@ -1075,6 +1084,7 @@ kit_viewport_input :: proc(app: ^App, size: [2]f32) -> (input: Viewport_Input) {
 	pie_update(app, &input, right_tap)
 	adjust_update(app, &input)
 	app.ui.viewport_mouse, app.ui.viewport_size, app.ui.viewport_hovered = input.mouse_pos, input.size, input.hovered
+	app.ui.viewport_stroke = input.dragging && input.primary && !input.orbit_drag && !input.pan_drag && !input.zoom_drag
 	return
 }
 
@@ -1086,10 +1096,15 @@ kit_layout :: proc(app: ^App) {
 	t := ctx.theme
 	E := t.edge
 
+	lens_view_frame(app)
 	// The Home screen covers the window and stands in for every panel while it shows.
 	if k.home {
 		k.recover_shown = false
 		kit_home(app)
+		return
+	}
+	if k.clean {
+		kit_clean_view(app)
 		return
 	}
 
@@ -1231,7 +1246,7 @@ kit_inspector :: proc(app: ^App) -> (raised: bool) {
 	wide := tray_wide(app)
 
 	mark := ui.vertex_mark(ctx)
-	p := panel_begin(app, Kit_Window.Inspector, palette_title(app, k.tab), .End, .Start, {right, top}, {direction = .Column, gap = GAP, padding = PADDING, width = width, radius = t.radius_large, background = .Panel, inert = !k.inspector || side_panel_open(k)}, "Tab")
+	p := panel_begin(app, Kit_Window.Inspector, palette_title(app, k.tab), .End, .Start, {right, top}, {direction = .Column, gap = GAP, padding = PADDING, width = width, radius = t.radius_large, background = .Panel, inert = !k.inspector || side_panel_open(k)}, command_keys(app, .Inspector))
 	raised = p.raised
 	if p.closed do k.inspector = false
 	if p.body {

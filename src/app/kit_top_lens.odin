@@ -17,7 +17,12 @@ kit_top_bar_lens :: proc(app: ^App) -> (menu_anchor, search_anchor: ui.Rect) {
 	t := ctx.theme
 	area := ui.safe_area(ctx)
 	k.passes.chip_held = false
-	ui.begin_anchored(ctx, "top bar", .Start, .Start, {0, 0}, {direction = .Row, width = area.w, height = TOP_BAR_H, padding = 2, gap = 2, background = .Band, center = true})
+	ui.begin_anchored(ctx, "top bar", .Start, .Start, {0, 0}, {direction = .Row, width = area.w, height = TOP_BAR_H, padding = 2, gap = 2, center = true})
+	// See-through, as the mockups' glass bar: the picture runs on under it, the frame's
+	// colour over it at three quarters, and a faint light line along its foot.
+	bar := ui.Rect{0, 0, ctx.input.window.x, area.y + TOP_BAR_H}
+	ui.fill_rect(ctx, bar, 0, {t.frame.r, t.frame.g, t.frame.b, TOP_GLASS_ALPHA})
+	ui.fill_rect(ctx, {bar.x, bar.y + bar.h - 1, bar.w, 1}, 0, {255, 255, 255, 15})
 	ui.spacer(ctx, 6)
 	if ui.icon_button(ctx, "Menu", ui.ICON_MENU, selected = k.menu) {
 		k.menu = !k.menu
@@ -69,6 +74,8 @@ kit_top_bar_lens :: proc(app: ^App) -> (menu_anchor, search_anchor: ui.Rect) {
 
 // The Search field's width, in points.
 TOP_SEARCH_W :: 300
+// How opaque the see-through top bar is, of 255.
+TOP_GLASS_ALPHA :: 189
 
 @(private = "file")
 top_command :: proc(app: ^App, id: Command_Id, glyph: rune, name: string, selected := false) -> bool {

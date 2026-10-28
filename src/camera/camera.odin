@@ -23,6 +23,10 @@ Orbit :: struct {
 	near:     f32,
 	far:      f32,
 	ortho:    bool, // parallel projection, as wide at the target as the perspective view
+	// Where the target is drawn: half-heights of the viewport from its middle, x right and
+	// y up, so a model can sit in the middle of the room the panels leave and still turn
+	// about itself. Zero draws it in the middle.
+	shift:    Vec2,
 }
 
 // How a drag turns the view (Settings > Camera): ZBrush's kinds of rotation.
@@ -185,16 +189,17 @@ orbit_roll :: proc(c: ^Orbit, angle: f32) {
 // fingers stays under them, as Procreate turns its canvas. Only the target's plane is
 // kept exactly, as orbit_zoom_toward keeps it.
 orbit_roll_about :: proc(c: ^Orbit, angle: f32, offset: Vec2, viewport_height: f32) {
-	if viewport_height <= 0 || offset == {} {
+	from := offset - orbit_shift_px(c^, viewport_height)
+	if viewport_height <= 0 || from == {} {
 		orbit_roll(c, angle)
 		return
 	}
 	world_per_pixel := 2 * c.distance * math.tan(c.fov_y / 2) / viewport_height
 	right, up, _ := orbit_basis(c^)
-	under := c.target + (right * offset.x - up * offset.y) * world_per_pixel
+	under := c.target + (right * from.x - up * from.y) * world_per_pixel
 	orbit_roll(c, angle)
 	right, up, _ = orbit_basis(c^)
-	c.target = under - (right * offset.x - up * offset.y) * world_per_pixel
+	c.target = under - (right * from.x - up * from.y) * world_per_pixel
 }
 
 // Sets the camera's turn from a rotation matrix (columns right, up, back), as yaw, pitch
@@ -268,17 +273,18 @@ orbit_zoom_by :: proc(c: ^Orbit, factor: f32) {
 }
 
 // Zooms `factor` times closer toward the point `offset` pixels from the viewport's
-// middle (x right, y down), keeping what is under it there, as pinching two fingers
+// middle (x right, y down; measured here from where the shift draws the target), keeping what is under it there, as pinching two fingers
 // zooms toward the place between them (ZBrush's Center Navigation on Pinch). Only the
 // target's plane is kept exactly; nearer and further points drift a little, as they do
 // in ZBrush.
 orbit_zoom_toward :: proc(c: ^Orbit, factor: f32, offset: Vec2, viewport_height: f32) {
 	if factor <= 0 || viewport_height <= 0 do return
+	from := offset - orbit_shift_px(c^, viewport_height)
 	before := c.distance
 	orbit_zoom_by(c, factor)
 	right, up, _ := orbit_basis(c^)
 	per_pixel_change := 2 * (before - c.distance) * math.tan(c.fov_y / 2) / viewport_height
-	c.target += (right * offset.x - up * offset.y) * per_pixel_change
+	c.target += (right * from.x - up * from.y) * per_pixel_change
 }
 
 // The turn a leaning pen gives the brush (the direction it pushes along): `tilt` is the
@@ -313,12 +319,31 @@ orbit_view :: proc(c: Orbit) -> Mat4 {
 }
 
 orbit_proj :: proc(c: Orbit, aspect: f32) -> Mat4 {
+	p: Mat4
 	if c.ortho {
 		// Depth reaches as far behind the eye as in front of it, so zooming in (moving
 		// the eye toward the target) never cuts into what is drawn.
-		return orthographic(c.distance * math.tan(c.fov_y / 2), aspect, -c.far, c.far)
+		p = orthographic(c.distance * math.tan(c.fov_y / 2), aspect, -c.far, c.far)
+	} else {
+		p = perspective(c.fov_y, aspect, c.near, c.far)
 	}
-	return perspective(c.fov_y, aspect, c.near, c.far)
+	if c.shift == {} do return p
+	// The shift moves the whole picture across the screen: a translation in clip space by
+	// w, which keeps every depth and every line straight.
+	sx, sy := c.shift.x / max(aspect, 1e-6), c.shift.y
+	move := Mat4{
+		1, 0, 0, sx,
+		0, 1, 0, sy,
+		0, 0, 1, 0,
+		0, 0, 0, 1,
+	}
+	return move * p
+}
+
+// The shift in pixels from the viewport's middle (x right, y down), for a viewport
+// `viewport_height` pixels tall: where the target is drawn.
+orbit_shift_px :: proc(c: Orbit, viewport_height: f32) -> Vec2 {
+	return {c.shift.x, -c.shift.y} * viewport_height * 0.5
 }
 
 // World units one pixel covers at `p`, for a viewport `viewport_height` pixels tall:

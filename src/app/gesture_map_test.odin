@@ -19,7 +19,11 @@ gesture_slots_by_fingers :: proc(t: ^testing.T) {
 gesture_overlaps_are_said :: proc(t: ^testing.T) {
 	app: App
 	app.nav = NAV_DEFAULT
-	testing.expect_value(t, len(gesture_notes(&app)), 0)
+	// The four-finger tap's Clean view is the one note a fresh install has: some systems
+	// keep four fingers for themselves.
+	defaults := gesture_notes(&app)
+	testing.expect_value(t, len(defaults), 1)
+	if len(defaults) == 1 do testing.expect(t, strings.contains(defaults[0], "four-finger touches"))
 	app.nav.gestures[.Four_Tap] = {.Wireframe, 0}
 	app.nav.gestures[.Pen_Button] = {.Wireframe, 0}
 	app.nav.gestures[.Two_Hold] = {.Command_Palette, 0}

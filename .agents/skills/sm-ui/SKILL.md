@@ -39,6 +39,10 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   Classic whole. Lens top bar: `kit_top_bar_lens` (`kit_top_lens.odin`): Menu, file block (`file_status`, fixed width so
   Undo/Redo never move), Undo, Redo | workspace pill (laid inline with spacers: a `begin_at` inside the bar loses hits
   to it) | Search field, History, Settings. `touch_check` passes `--chrome=classic` unless a scenario names one.
+  Lens view (`lens_view.odin`): `camera.Orbit.shift` (half-heights, applied in `orbit_proj`) draws the target in
+  `lens_free_area`; `view_fit_free` from Frame/Focus/Reset; zeroed outside Lens+Single and in `second_orbit`. Panels
+  fade under a viewport stroke (`panel_fade` in `panel_begin`/`panel_end`). Clean view `k.clean` returns early from
+  `kit_layout`; Tab maps to it in Lens via `keymap_default` (rebuilt when the chrome changes).
 - Layout (`kit_layout`, `new_ui.odin`; the bars in `kit_bars.odin`, after ZBrush for iPad): `kit_top_bar` (a full-width
   strip, `TOP_BAR_H`: Menu, Save, Import, Export | file name | History, Edit pies, Help, Settings), `kit_points` (the
   object's readout under it, at the top left), `kit_brush_bar` (left column, top from `brush_bar_top`, which keeps

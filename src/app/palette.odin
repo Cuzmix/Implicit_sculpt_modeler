@@ -237,6 +237,7 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.View_Window      = "window monitor second screen display detach tear off pop out view",
 	.View_Windows_Close = "close view windows monitor second screen",
 	.Chrome_Classic   = "classic layout zbrush ipad old interface lens brush bar wheel dock",
+	.Clean_View       = "clean view hide interface chrome controls zen distraction free fullscreen tab",
 	.Settings         = "preferences options",
 	.Reduce_Motion    = "animation accessibility",
 }

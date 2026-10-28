@@ -26,6 +26,9 @@ Ui_State :: struct {
 	viewport_mouse:     [2]f32,
 	viewport_size:      [2]f32,
 	viewport_hovered:   bool,
+	// The viewport's drag is a stroke, with the primary button, a finger or the pen,
+	// rather than a turn or a pan: the panels it passes under fade (panel_fade).
+	viewport_stroke:    bool,
 	pie:                Pie,
 	adjust:             Brush_Adjust,
 	curve_handle:       int, // the pressure curve's control point being dragged (1 or 2), or 0
@@ -228,6 +231,7 @@ reset_camera :: proc(app: ^App) {
 	app.camera.ortho = ortho
 	camera.orbit_set_fov(&app.camera, fov)
 	app.pivot.set, app.pivot.pinned = false, false
+	view_fit_free(app, false)
 }
 
 PRESSURE_PRESETS := [?]struct {

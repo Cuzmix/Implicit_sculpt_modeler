@@ -742,7 +742,8 @@ gizmo_cycle :: proc(app: ^App) {
 	app.move.mode = gizmo.Mode((int(app.move.mode) + 1) % len(gizmo.Mode))
 }
 
-// Points the camera at the selected object.
+// Points the camera at the selected object (in Lens, in the middle of the room the
+// controls leave).
 focus_selected :: proc(app: ^App) {
 	obj := selected_object(app)
 	if obj == nil do return
@@ -750,6 +751,7 @@ focus_selected :: proc(app: ^App) {
 	app.camera.distance = clamp(3.5 * obj.transform.scale, camera.MIN_DISTANCE, camera.MAX_DISTANCE)
 	// Framed afresh, the view turns about what it framed until the next stroke.
 	app.pivot.set, app.pivot.pinned = false, false
+	view_fit_free(app, true)
 }
 
 // Points the camera at the middle of the objects in view, far enough back to see them
@@ -766,4 +768,5 @@ frame_all :: proc(app: ^App) {
 	app.camera.target = (lo + hi) / 2
 	app.camera.distance = clamp(1.75 * linalg.length(hi - lo), camera.MIN_DISTANCE, camera.MAX_DISTANCE)
 	app.pivot.set, app.pivot.pinned = false, false
+	view_fit_free(app, true)
 }

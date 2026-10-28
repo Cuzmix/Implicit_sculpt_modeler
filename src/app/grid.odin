@@ -214,14 +214,15 @@ grid_set :: proc(k: ^Kit_State, preset: Grid_Preset) {
 }
 
 // The grid's room in points: the whole window in Single, as the viewport always was, and
-// with more panes while they run under the panels (Settings > Interface, the default); else
+// with more panes while they run under the panels (Settings > Interface, the default, and
+// always in Lens); else
 // the room between the docked columns (as last laid out), so no pane lies under one. Too
 // narrow a room between them keeps the window.
 view_grid_room :: proc(app: ^App) -> ui.Rect {
 	k := &app.kit
 	win := k.ctx.input.window
 	whole := ui.Rect{0, 0, win.x, win.y}
-	if k.grid.preset == .Single || k.panes_under do return whole
+	if k.grid.preset == .Single || k.panes_under || k.chrome == .Lens do return whole
 	lo, hi := f32(0), win.x
 	for side in Column_Side {
 		c := k.panels.rect[side]
