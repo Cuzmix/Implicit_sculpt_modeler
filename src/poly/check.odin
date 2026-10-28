@@ -1,6 +1,7 @@
 package poly
 
 import "core:math"
+import "core:math/linalg"
 
 // What one pass over a cage found, as numbers, so a test or a refused action says what
 // broke. A sound cage has no broken links, no degenerate faces and no NaN (check_ok).
@@ -95,3 +96,16 @@ mesh_check :: proc(m: ^Mesh) -> (c: Check) {
 }
 
 check_ok :: proc(c: Check) -> bool {return c.broken_links == 0 && c.degenerate == 0 && c.nan_count == 0}
+
+// How far face f's corners stray from its plane: the largest distance of a corner from
+// the plane through its middle across its normal, as a share of the face's size (the
+// square root of its area). A flat face gives 0, as every triangle does.
+face_bend :: proc(m: ^Mesh, f: u32) -> f32 {
+	size := math.sqrt(face_area(m, f))
+	if size <= 0 do return 0
+	n, c := face_normal(m, f), face_center(m, f)
+	worst: f32
+	w := face_walk(m, f)
+	for h in face_walk_next(&w) do worst = max(worst, abs(linalg.dot(m.positions[m.he_vert[h]] - c, n)))
+	return worst / size
+}

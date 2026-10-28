@@ -26,10 +26,44 @@ import "../ui"
 
 Cage_Part :: struct {
 	mesh:    poly.Mesh,
-	// Per cage vertex, its vertex in the level, which the sculptor numbers in its own
-	// order; per triangle of the level, the cage face it was cut from.
+	look:    Cage_Look,
+	// The cage made finer for drawing (none at Smooth 0), whose points start with the
+	// cage's own.
+	sub:     poly.Subdivision,
+	// Per point of the drawn cage (the finest), its vertex in the level, which the
+	// sculptor numbers in its own order; per triangle of the level, the cage face it lies in.
 	vert_of: []u32,
 	face_of: []u32,
+}
+
+// How a cage is drawn, as ZBrush's Dynamic Subdivision and Blender's Subdivision Surface
+// set it: Smooth steps of Catmull-Clark (0 to poly.SUBDIVIDE_MAX), or with Flat the faces
+// only split, for hard surfaces. Saved with the cage and undone with it.
+Cage_Look :: struct {
+	smooth: int,
+	flat:   bool,
+}
+
+// The cage as drawn: the finest step, or the cage itself.
+cage_drawn :: proc(cp: ^Cage_Part) -> ^poly.Mesh {return poly.subdivision_top(&cp.sub, &cp.mesh)}
+
+// Where cage point v shows: on the drawn surface (its point there).
+cage_point :: proc(cp: ^Cage_Part, v: u32) -> Vec3 {return cage_drawn(cp).positions[v]}
+
+// Where cage face f's middle shows: its face point on the drawn surface, which every step
+// keeps, or its corners' mean on an unsmoothed cage.
+cage_face_center :: proc(cp: ^Cage_Part, f: u32) -> Vec3 {
+	if len(cp.sub.steps) == 0 do return poly.face_center(&cp.mesh, f)
+	return cage_drawn(cp).positions[len(cp.mesh.positions) + len(cp.mesh.crease) + int(f)]
+}
+
+// The points cage edge e shows along, from its first end to its other, into `out`
+// (cleared first): on the drawn surface, so a smoothed cage's edges follow its curves.
+cage_edge_points :: proc(cp: ^Cage_Part, e: u32, out: ^[dynamic]Vec3) {
+	clear(out)
+	drawn := cage_drawn(cp)
+	n := cp.sub.line_points
+	for v in cp.sub.edge_line[int(e) * n:][:n] do append(out, drawn.positions[v])
 }
 
 // Frees the object's cage, if it has one. Its GPU edges go with the level's buffers.
@@ -37,28 +71,39 @@ cage_part_free :: proc(obj: ^Object) {
 	cp := obj.cage
 	if cp == nil do return
 	poly.mesh_destroy(&cp.mesh)
+	poly.subdivision_destroy(&cp.sub)
 	delete(cp.vert_of)
 	delete(cp.face_of)
 	free(cp)
 	obj.cage = nil
 }
 
-// Makes `cage` (taken, also on failure) the object's cage: the level cut from it, its
-// polygroups on the level's triangles, the upload and the cage's edges as lines. The
-// object has no level yet. Returns false on a GPU failure, with nothing of the object made.
-object_build_cage :: proc(app: ^App, obj: ^Object, cage: poly.Mesh) -> bool {
+// Makes `cage` (taken, also on failure) the object's cage, drawn as `look` says: the
+// level cut from it (made finer first by Smooth), its polygroups on the level's
+// triangles, the upload and the cage's edges as lines. The object has no level yet.
+// Returns false on a GPU failure, with nothing of the object made.
+object_build_cage :: proc(app: ^App, obj: ^Object, cage: poly.Mesh, look := Cage_Look{}) -> bool {
 	start := time.tick_now()
 	cp := new(Cage_Part)
 	cp.mesh = cage
+	cp.look = {clamp(look.smooth, 0, poly.SUBDIVIDE_MAX), look.flat}
+	// A valid cage always subdivides; were one refused, it is drawn as it is.
+	sub, sub_err := poly.subdivide(&cp.mesh, cp.look.smooth, cp.look.flat)
+	if sub_err != .None {
+		sub, _ = poly.subdivide(&cp.mesh, 0)
+		cp.look.smooth = 0
+	}
+	cp.sub = sub
+	drawn := cage_drawn(cp)
 	mesh := geom.Mesh{positions = make([dynamic]Vec3), normals = make([dynamic]Vec3), indices = make([dynamic]u32)}
 	tri_face := make([dynamic]u32)
 	defer delete(tri_face)
-	poly.triangulate(&cp.mesh, &mesh, &tri_face)
+	poly.triangulate(drawn, &mesh, &tri_face)
 	resize(&mesh.normals, len(mesh.positions))
 	// The triangles' groups are their faces', on the heap: building frees temp memory.
 	groups := make([]u16, len(tri_face))
 	defer delete(groups)
-	for f, t in tri_face do groups[t] = cp.mesh.group[f]
+	for f, t in tri_face do groups[t] = drawn.group[f]
 	cp.vert_of = make([]u32, len(mesh.positions))
 	tri_from := make([]u32, len(tri_face))
 	defer delete(tri_from)
@@ -67,7 +112,7 @@ object_build_cage :: proc(app: ^App, obj: ^Object, cage: poly.Mesh) -> bool {
 		return false
 	}
 	cp.face_of = make([]u32, len(tri_from))
-	for old, t in tri_from do cp.face_of[t] = tri_face[old]
+	for old, t in tri_from do cp.face_of[t] = cp.sub.face_from[tri_face[old]]
 	obj.cage = cp
 	if !cage_upload_edges(app, obj) {
 		object_release_mesh(app, obj, rebuild = false)
@@ -77,31 +122,60 @@ object_build_cage :: proc(app: ^App, obj: ^Object, cage: poly.Mesh) -> bool {
 }
 
 // Sends the cage's vertices `verts` (cage ids), moved without a change of topology, to
-// the level: its positions, bounds and normals, and the GPU at the next flush.
+// the level: its positions, bounds and normals, and the GPU at the next flush. A smoothed
+// cage's finer points are worked out again and every one sent, since each cage point
+// pulls on the surface round it.
 cage_positions_moved :: proc(app: ^App, obj: ^Object, verts: []u32) {
 	cp := obj.cage
-	level := make([]u32, len(verts), context.temp_allocator)
-	positions := make([]Vec3, len(verts), context.temp_allocator)
-	for v, i in verts do level[i], positions[i] = cp.vert_of[v], cp.mesh.positions[v]
+	moved := verts
+	if len(cp.sub.steps) > 0 {
+		poly.subdivision_update(&cp.sub, &cp.mesh, cp.look.flat)
+		moved = make([]u32, len(cp.vert_of), context.temp_allocator)
+		for &v, i in moved do v = u32(i)
+	}
+	drawn := cage_drawn(cp)
+	level := make([]u32, len(moved), context.temp_allocator)
+	positions := make([]Vec3, len(moved), context.temp_allocator)
+	for v, i in moved do level[i], positions[i] = cp.vert_of[v], drawn.positions[v]
 	sculpt.sculptor_place_vertices(object_sculptor(obj), level, positions)
+}
+
+// Works the drawn surface out again after creases or corners changed, which the finer
+// cages take when they are made, and sends every point to the level. The topology is
+// the same, so the level and its edges stay.
+cage_sharpness_changed :: proc(app: ^App, obj: ^Object) {
+	cp := obj.cage
+	if len(cp.sub.steps) == 0 do return
+	sub, err := poly.subdivide(&cp.mesh, cp.look.smooth, cp.look.flat)
+	// The same cage subdivided before, so it does again.
+	if err != .None do return
+	poly.subdivision_destroy(&cp.sub)
+	cp.sub = sub
+	cage_positions_moved(app, obj, nil)
 }
 
 @(private = "file")
 cage_free_part :: proc(cp: ^Cage_Part) {
 	poly.mesh_destroy(&cp.mesh)
+	poly.subdivision_destroy(&cp.sub)
 	delete(cp.vert_of)
 	delete(cp.face_of)
 	free(cp)
 }
 
-// Sends the cage's edges, as pairs of the level's vertices, to the level's buffers.
+// Sends the cage's edges, as pairs of the level's vertices, to the level's buffers: each
+// edge along its line over the drawn surface.
 cage_upload_edges :: proc(app: ^App, obj: ^Object) -> bool {
 	cp := obj.cage
-	edges := len(cp.mesh.crease)
-	pairs := make([]u32, 2 * edges, context.temp_allocator)
-	for e in 0 ..< edges {
-		a, b := poly.edge_verts(&cp.mesh, u32(e))
-		pairs[2 * e], pairs[2 * e + 1] = cp.vert_of[a], cp.vert_of[b]
+	n := cp.sub.line_points
+	pieces := n - 1
+	pairs := make([]u32, 2 * pieces * len(cp.mesh.crease), context.temp_allocator)
+	for e in 0 ..< len(cp.mesh.crease) {
+		line := cp.sub.edge_line[e * n:][:n]
+		for i in 0 ..< pieces {
+			at := 2 * (e * pieces + i)
+			pairs[at], pairs[at + 1] = cp.vert_of[line[i]], cp.vert_of[line[i + 1]]
+		}
 	}
 	return render.mesh_buffers_set_edges(&app.renderer, &obj.gpu[0], pairs)
 }
@@ -114,11 +188,11 @@ cage_rebuild :: proc(app: ^App, obj: ^Object) -> bool {
 	assert(obj.cage != nil)
 	// The autosave thread may be writing the object out; it finishes first.
 	autosave_settle(app)
-	cage := obj.cage.mesh
+	cage, look := obj.cage.mesh, obj.cage.look
 	obj.cage.mesh = {}
 	render.wait_idle(&app.renderer)
 	object_release_mesh(app, obj, rebuild = false)
-	return object_build_cage(app, obj, cage)
+	return object_build_cage(app, obj, cage, look)
 }
 
 // Adds primitive `kind` as a new cage object, named after it, where the next object goes,
@@ -151,10 +225,35 @@ object_apply_cage :: proc(app: ^App, obj: ^Object) -> bool {
 // Reads the cage object_put wrote in the levels' place into `obj` and builds its level.
 // `read` is false when the bytes are damaged (nothing is made); `made` is false on a GPU
 // failure.
-cage_part_get :: proc(app: ^App, r: ^geom.Byte_Reader, obj: ^Object) -> (read, made: bool) {
+cage_part_get :: proc(app: ^App, r: ^geom.Byte_Reader, obj: ^Object, version := SCENE_VERSION) -> (read, made: bool) {
 	cage, ok := poly.mesh_read(r)
 	if !ok do return false, false
-	return true, object_build_cage(app, obj, cage)
+	// Smooth and Flat from version 28; an older cage is drawn as it is.
+	look: Cage_Look
+	if version >= 28 {
+		smooth := int(geom.byte_get(r, u8))
+		flat := geom.byte_get(r, u8)
+		if !r.ok || smooth > poly.SUBDIVIDE_MAX || flat > 1 {
+			poly.mesh_destroy(&cage)
+			return false, false
+		}
+		look = {smooth, flat == 1}
+	}
+	return true, object_build_cage(app, obj, cage, look)
+}
+
+// Draws `obj`'s cage as `look` says, as one undo step. Returns false only on a GPU failure.
+object_set_cage_look :: proc(app: ^App, obj: ^Object, wanted: Cage_Look) -> bool {
+	look := Cage_Look{clamp(wanted.smooth, 0, poly.SUBDIVIDE_MAX), wanted.flat}
+	if obj.cage.look == look do return true
+	before := history_snapshot(app, obj, "flat" if look.flat != obj.cage.look.flat else fmt.tprintf("smooth %d", look.smooth))
+	obj.cage.look = look
+	if !cage_rebuild(app, obj) {
+		history_snapshot_drop(before)
+		return false
+	}
+	history_record_swap(app, obj.id, before, kind = .Model)
+	return true
 }
 
 // The cage clean-ups of the Model palette: Blender's Limited dissolve and Merge by
@@ -203,6 +302,50 @@ object_tidy_cage :: proc(app: ^App, obj: ^Object, kind: Cage_Tidy) -> bool {
 		return true
 	}
 	report(app, nil, {}, "%s: %s went from %d faces and %d points to %d and %d", CAGE_TIDY_NAMES[kind], object_label(obj), faces, points, len(cage.face_he), len(cage.positions))
+	if !cage_rebuild(app, obj) {
+		history_snapshot_drop(before)
+		return false
+	}
+	history_record_swap(app, obj.id, before, kind = .Model)
+	return true
+}
+
+// The crease options of the Model palette: ZModeler's Crease by angle and Crease
+// polygroups, and taking every crease away.
+Cage_Crease :: enum u8 {
+	By_Angle,
+	Group_Borders,
+	Clear,
+}
+
+@(rodata)
+CAGE_CREASE_NAMES := [Cage_Crease]string {
+	.By_Angle      = "Crease by angle",
+	.Group_Borders = "Crease polygroup borders",
+	.Clear         = "Clear creases",
+}
+
+// How far two faces must bend from each other for Crease by angle: Blender's default for
+// sharp edges.
+CAGE_CREASE_DEGREES :: 30
+
+// Creases `obj`'s cage as `kind` says, as one undo step, saying how many edges it changed.
+// Returns false only on a GPU failure.
+object_crease_cage :: proc(app: ^App, obj: ^Object, kind: Cage_Crease) -> bool {
+	before := history_snapshot(app, obj, strings.to_lower(CAGE_CREASE_NAMES[kind], context.temp_allocator))
+	cage := &obj.cage.mesh
+	count: int
+	switch kind {
+	case .By_Angle:      count = poly.crease_by_angle(cage, CAGE_CREASE_DEGREES)
+	case .Group_Borders: count = poly.crease_group_borders(cage)
+	case .Clear:         count = poly.crease_clear(cage)
+	}
+	if count == 0 {
+		history_snapshot_drop(before)
+		report(app, nil, {}, "%s: nothing to do on %s", CAGE_CREASE_NAMES[kind], object_label(obj))
+		return true
+	}
+	report(app, nil, {}, "%s: %d %s on %s", CAGE_CREASE_NAMES[kind], count, "edges and points" if kind == .Clear else "edges", object_label(obj))
 	if !cage_rebuild(app, obj) {
 		history_snapshot_drop(before)
 		return false
@@ -276,6 +419,8 @@ Model_Tool :: struct {
 	targets:   [Model_Action]Model_Target,
 	targeted:  bit_set[Model_Action],
 	group:     u16, // the polygroup Polygroup paints
+	check:     bool, // the mesh check's colours are drawn over the shown cages
+	bevel_segments: int, // the segments the last round bevel had (0 for none yet)
 	// Per drag action, how far it went last (0 for not yet): a tap with it repeats that, as
 	// ZModeler's Extrude does.
 	last:      [Model_Action]f32,
@@ -327,6 +472,22 @@ kit_model_tab :: proc(app: ^App) {
 		g := f32(m.group)
 		if ui.slider(ctx, "Polygroup", &g, 0, 64, .Linear, fmt.tprint(m.group)) do m.group = u16(clamp(int(g + 0.5), 0, 64))
 	}
+	if obj := selected_object(app); obj != nil && obj.cage != nil {
+		// The live surface, as ZBrush's Dynamic Subdivision: steps of smoothing drawn over
+		// the cage, which keeps its edges and is what every action works on.
+		ui.caption(ctx, "SURFACE")
+		steps := [poly.SUBDIVIDE_MAX + 1]string{"Off", "1", "2", "3", "4"}
+		hints: [poly.SUBDIVIDE_MAX + 1]string
+		for &h, i in hints do h = command_hint(app, .Cage_Smooth, i)
+		if picked := ui.tabs(ctx, "cage smooth", steps[:], obj.cage.look.smooth, keys = hints[:]); picked >= 0 do command_run(app, .Cage_Smooth, picked)
+		flat := obj.cage.look.flat
+		if ui.switch_row(ctx, "Flat", &flat, keys = command_hint(app, .Cage_Flat)) do command_run(app, .Cage_Flat)
+		ui.caption(ctx, "CREASES")
+		kit_command_pair(app, .Crease_Cage, .Crease_Cage, arg_a = int(Cage_Crease.By_Angle), arg_b = int(Cage_Crease.Group_Borders), label_a = "By angle", label_b = "Polygroups")
+		_ = command_button(app, .Crease_Cage, int(Cage_Crease.Clear), "Clear creases", width = ui.fill_width(ctx))
+	}
+	check := m.check
+	if ui.switch_row(ctx, "Mesh check", &check, keys = command_hint(app, .Cage_Check)) do command_run(app, .Cage_Check)
 	ui.caption(ctx, "SELECTION")
 	kit_command_pair(app, .Select_Cage, .Select_Cage, arg_a = int(poly.Select_Op.All), arg_b = int(poly.Select_Op.None), label_a = "All", label_b = "None")
 	kit_command_pair(app, .Select_Cage, .Select_Cage, arg_a = int(poly.Select_Op.Grow), arg_b = int(poly.Select_Op.Shrink), label_a = "Grow", label_b = "Shrink")
@@ -358,5 +519,6 @@ kit_model_tab :: proc(app: ^App) {
 	obj := selected_object(app)
 	if obj == nil || obj.cage == nil do return
 	c := poly.mesh_check(&obj.cage.mesh)
-	ui.paragraph(ctx, fmt.tprintf("%s: %d points, %d edges, %d faces (%d quads, %d triangles, %d polygons)", object_label(obj), c.vertices, c.edges, c.faces, c.quads, c.triangles, c.ngons))
+	creased, corners := poly.crease_count(&obj.cage.mesh)
+	ui.paragraph(ctx, fmt.tprintf("%s: %d points, %d edges, %d faces (%d quads, %d triangles, %d polygons), %d creased edges, %d corners, %d poles, %d open edges", object_label(obj), c.vertices, c.edges, c.faces, c.quads, c.triangles, c.ngons, creased, corners, c.poles, c.border_edges))
 }

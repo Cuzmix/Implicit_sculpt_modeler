@@ -66,7 +66,7 @@ File_Request :: struct {
 // be in a console nobody watches. `at` tells a new note from the one already shown.
 // The native scene file starts with these bytes, then its version.
 SCENE_MAGIC :: "SCULPTSC"
-SCENE_VERSION :: u32(27) // 2: each object's rotation; 3: the current level's polypaint and polygroups; 4: sculpt layers, and a retopologized object's quads and UVs (sculpt.levels_write); 5: each object's boolean mode; 6: the base level's node layout (sculpt.levels_write); 7: the camera's roll; 8: each object's eye and ghost, and Solo; 9: folders, and each object's folder; 10: selection sets (sculpt.levels_write); 11: each object's polypaint shown or not (a third view bit); 12: stored visibility (V1 to V8): the slot chosen and used, and each folder's and object's eyes in them; 13: each object's kind (mesh or voxel), a voxel object's resolution and clay after its empty level (voxel.clay_write); 14: each object's material (material_put); 15: each object's polygroups with materials of their own (group_materials_put); 16: the content pack parts of the object's and its groups' materials, by name (material_refs); 17: the scene's Blender link token (link.odin); 18: each object's texture maps (textures_put); 19: the scene's lights (lights_put); 20: each light's colour temperature and name; 21: each light's size (a sun's angle, a lamp's radius); 22: the preview block after the version (scene_preview.odin); 23: the millimetres per unit a print takes (print.odin); 24: the proportion guides (guides.odin); 25: each object's lock (a fourth view bit); 26: Model mode cages (OBJECT_KIND_CAGE, poly.mesh_write in the levels' place); 27: a cage's selected faces (poly.mesh_write's own version 2)
+SCENE_VERSION :: u32(28) // 2: each object's rotation; 3: the current level's polypaint and polygroups; 4: sculpt layers, and a retopologized object's quads and UVs (sculpt.levels_write); 5: each object's boolean mode; 6: the base level's node layout (sculpt.levels_write); 7: the camera's roll; 8: each object's eye and ghost, and Solo; 9: folders, and each object's folder; 10: selection sets (sculpt.levels_write); 11: each object's polypaint shown or not (a third view bit); 12: stored visibility (V1 to V8): the slot chosen and used, and each folder's and object's eyes in them; 13: each object's kind (mesh or voxel), a voxel object's resolution and clay after its empty level (voxel.clay_write); 14: each object's material (material_put); 15: each object's polygroups with materials of their own (group_materials_put); 16: the content pack parts of the object's and its groups' materials, by name (material_refs); 17: the scene's Blender link token (link.odin); 18: each object's texture maps (textures_put); 19: the scene's lights (lights_put); 20: each light's colour temperature and name; 21: each light's size (a sun's angle, a lamp's radius); 22: the preview block after the version (scene_preview.odin); 23: the millimetres per unit a print takes (print.odin); 24: the proportion guides (guides.odin); 25: each object's lock (a fourth view bit); 26: Model mode cages (OBJECT_KIND_CAGE, poly.mesh_write in the levels' place); 27: a cage's selected faces (poly.mesh_write's own version 2); 28: a cage's Smooth steps and Flat after it (Cage_Look)
 
 // The request waiting for the next frame, and whether a dialog is showing. Kept here
 // rather than in App because SDL may call a dialog back on another thread, even after
@@ -1284,6 +1284,8 @@ object_put_bytes :: proc(out: ^[dynamic]u8, obj: ^Object, opts := sculpt.Write_O
 	// Likewise a cage stands there: its level is cut from it again on reading.
 	if cp := obj.cage; cp != nil {
 		poly.mesh_write(&cp.mesh, out)
+		geom.byte_put(out, u8(cp.look.smooth))
+		geom.byte_put(out, u8(cp.look.flat))
 		return true
 	}
 	return sculpt.levels_write(&obj.levels, out, opts)
@@ -1358,7 +1360,7 @@ object_get :: proc(app: ^App, r: ^geom.Byte_Reader, version := SCENE_VERSION, mi
 			return obj, true, made
 		}
 	} else if fields_ok && kind == OBJECT_KIND_CAGE {
-		read, made = cage_part_get(app, r, obj)
+		read, made = cage_part_get(app, r, obj, version)
 		if read {
 			free_all(context.temp_allocator)
 			return obj, true, made

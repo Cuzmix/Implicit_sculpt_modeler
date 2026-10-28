@@ -1390,7 +1390,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	}
 	{
 		// The Model mode cages: how many, what they are made of, and whether every one is sound.
-		cages, points, edges, faces, ngons, broken, chosen := 0, 0, 0, 0, 0, 0, 0
+		cages, points, edges, faces, ngons, broken, chosen, smooth, creased, corners := 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 		for obj in app.scene.objects {
 			cp := obj.cage
 			if cp == nil do continue
@@ -1402,8 +1402,12 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			ngons += c.ngons
 			broken += int(!poly.check_ok(c))
 			for x in cp.mesh.selected do chosen += int(x)
+			smooth = max(smooth, cp.look.smooth)
+			e, v := poly.crease_count(&cp.mesh)
+			creased += e
+			corners += v
 		}
-		fmt.printfln("cages=%d cage_points=%d cage_edges=%d cage_faces=%d cage_ngons=%d cage_broken=%d cage_selected=%d tool=%v", cages, points, edges, faces, ngons, broken, chosen, app.tool)
+		fmt.printfln("cages=%d cage_points=%d cage_edges=%d cage_faces=%d cage_ngons=%d cage_broken=%d cage_selected=%d cage_smooth=%d cage_creases=%d cage_corners=%d tool=%v", cages, points, edges, faces, ngons, broken, chosen, smooth, creased, corners, app.tool)
 		fmt.printfln("model_action=%v model_target=%v model_done=%d model_refused=%d", app.model.action, model_target(&app.model, app.model.action), app.model.done, app.model.refused)
 	}
 	{
