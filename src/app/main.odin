@@ -1496,6 +1496,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			strings.write_string(&pins, strings.to_lower(fmt.tprint(sec), context.temp_allocator))
 		}
 		fmt.printfln("panel_pins=%s panel_moves=%d panel_menu=%d", strings.to_string(pins) if strings.builder_len(pins) > 0 else "none", k.panels.moves, int(k.panels.menu))
+		popped := "left,right" if k.panels.popped[.Left] && k.panels.popped[.Right] else "left" if k.panels.popped[.Left] else "right" if k.panels.popped[.Right] else "none"
+		fmt.printfln("columns_narrow=%d column_popped=%s column_pops=%d", int(columns_narrow(&app)), popped, k.panels.pops)
 		// The workspace (its name escaped, as it may hold spaces), whether its layout has
 		// changes not saved, how many there are, and the zones it hides.
 		if w := &k.workspaces; len(w.list) > 0 {

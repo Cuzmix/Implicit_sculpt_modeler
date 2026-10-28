@@ -118,6 +118,10 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   pass `Picture.orbit` (the camera their picture was drawn through, which lags while working), the main view
   `app.camera`. Only the tag is a ui root, so strokes cross the line. `guides_frame` (in `kit_grid`) bumps
   `view_edits` once when the held tag lets go; never an undo step, never a Scene_Command.
+- Narrow windows (`columns_narrow`: safe width < `TRAY_NAV_MIN_W` and `k.column_popovers`): a column draws only while
+  `k.panels.popped[side]` (or arranging, or a panel drag; `column_visible`); `columns_pop_update` pops a column when a
+  panel in it opens (`panel_bit` sets, `open_last`) and puts it away on a viewport press (swallowed, as popovers do);
+  `kit_column_tab` pops it; Palettes toggles the tray's column there. Light a tray button with `tray_shown(app)`.
 - View grid (`src/app/grid.odin`, `k.grid: View_Grid`, command `View_Grid`): presets only (`grid_cells`, pixel-snapped),
   pane 0 is the main view, panes 1-3 are `Second_View`s per preset drawn by `picture_frame` into `App.panes` (one
   picture a frame, `app.pictures_drawn`); `view_grid_room` is the window while `k.panes_under` (default; panels float over the panes, a head avoids columns and wraps to two rows when narrow), else spans the docked columns; `Theme.panel_shadow` lifts `.Panel`s (Lens only); a divider drag freezes the target and

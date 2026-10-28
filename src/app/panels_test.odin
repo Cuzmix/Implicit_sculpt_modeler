@@ -126,3 +126,18 @@ a_pinned_panel_changes_sides_with_the_hand :: proc(t: ^testing.T) {
 	testing.expect_value(t, fmt.tprint(k.panels.pins[.Mask].window.offset.x), "0")
 	free_all(context.temp_allocator)
 }
+
+@(test)
+every_panel_has_its_own_bit :: proc(t: ^testing.T) {
+	seen: u64
+	for w in Kit_Window {
+		b := panel_bit(w)
+		testing.expectf(t, b != 0 && seen & b == 0, "%v shares a bit", w)
+		seen |= b
+	}
+	for s in 0 ..< TRAY_SECTIONS {
+		b := panel_bit(Kit_Section(s))
+		testing.expectf(t, b != 0 && seen & b == 0, "%v shares a bit", Kit_Section(s))
+		seen |= b
+	}
+}

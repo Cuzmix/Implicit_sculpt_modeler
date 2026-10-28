@@ -159,6 +159,9 @@ Kit_State :: struct {
 	// The view grid's panes run under the docked columns, the panels floating over them,
 	// rather than stopping beside them (Settings > Interface; grid.odin).
 	panes_under:  bool,
+	// On a window narrower than TRAY_NAV_MIN_W the columns pop over the view only while
+	// asked for, as popovers from the rails do (Settings > Interface; panels.odin).
+	column_popovers: bool,
 	// The proportion guide tag held (guides.odin), 0 for none, never kept; the guide
 	// lines drawn this frame and the frames a guide moved, for the exit stats.
 	guide_held:  ui.Id,
@@ -719,6 +722,7 @@ kit_init :: proc(app: ^App) {
 	k.ui_scale = 1
 	k.surface_ring = true
 	k.panes_under = true
+	k.column_popovers = true
 	k.rail_side, k.wheel_size = .Left, .Medium
 	k.action_bar = true
 	bars_reset(k)

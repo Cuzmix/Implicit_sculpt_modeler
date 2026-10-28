@@ -130,6 +130,7 @@ settings_reset :: proc(app: ^App, tab: Settings_Tab) {
 		app.start_home = true
 		k.surface_ring = true
 		k.panes_under = true
+		k.column_popovers = true
 		k.action_bar = true
 		k.rail_side, k.wheel_size, k.wheel_offset = .Left, .Medium, {}
 		k.wheel_labels, k.wheel_turn = .Icons, 0
@@ -199,6 +200,10 @@ settings_interface :: proc(app: ^App) {
 	ui.caption(ctx, "BRUSH RING")
 	_ = ui.switch_row(ctx, "Lay the brush ring on the surface", &k.surface_ring)
 	ui.paragraph(ctx, "Over the model the ring tilts with the surface under it, with a tick showing which way it faces, as in ZBrush; off, it stays a flat circle on the screen.")
+	ui.spacer(ctx, 8)
+	ui.caption(ctx, "PANELS")
+	_ = ui.switch_row(ctx, "Columns pop over a narrow window", &k.column_popovers)
+	ui.paragraph(ctx, "On a window under 1180 points wide, the docked panels show only while you ask for them: from the tab at the column's top, by opening one of them, or with Palettes; a press on the view puts them away. Off, the columns stay beside the view as on a wide window.")
 	ui.spacer(ctx, 8)
 	ui.caption(ctx, "VIEW GRID")
 	_ = ui.switch_row(ctx, "Views run under panels", &k.panes_under)
