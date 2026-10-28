@@ -4,6 +4,7 @@ import "core:fmt"
 import "core:strconv"
 import "core:strings"
 
+import "../poly"
 import "../sculpt"
 import "../ui"
 
@@ -374,6 +375,9 @@ bar_label :: proc(s: Bar_Slot) -> string {
 	case .Objects_Card: return "Objects"
 	case .Inspector:    return "Palettes"
 	case .Show_Section: return tray_section_title(Kit_Section(s.arg))
+	case .Add_Cage:     return poly.PRIMITIVE_NAMES[poly.Primitive(s.arg)]
+	case .Apply_Cage:   return "To sculpt"
+	case .Model_Action: return MODEL_ACTION_NAMES[Model_Action(s.arg)]
 	}
 	return command_label(s.id, s.arg)
 }
