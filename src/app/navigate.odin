@@ -592,8 +592,10 @@ drag_decide :: proc(app: ^App, input: Viewport_Input) -> (owner: Drag_Owner, emp
 	// the mask and hide shapes, as on empty space.
 	if !d.ctrl && !(shapes && press.held) && in_edge(app, mouse) do return .Orbit, false
 	// Empty space turns the view for the brushes, the Move tool and the Model tool; Ctrl
-	// keeps it for the mask and hide shapes, which start there.
-	if (app.tool == .Brush || app.tool == .Move || app.tool == .Model) && !d.ctrl && !shapes {
+	// keeps it for the mask and hide shapes, which start there, and the Knife keeps it for
+	// its stroke, which starts beside the cage to cut clean across it.
+	knife := app.tool == .Model && app.model.action == .Knife
+	if (app.tool == .Brush || app.tool == .Move || app.tool == .Model) && !d.ctrl && !shapes && !knife {
 		empty := app.nav.empty_drag[d.pointer] if d.pointer != .Finger else .Orbit
 		if empty == .Orbit {
 			origin, dir := mouse_ray(app.camera, mouse, input.size)

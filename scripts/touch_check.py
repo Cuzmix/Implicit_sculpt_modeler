@@ -3049,6 +3049,48 @@ def model_mesh_check_and_creases_by_angle():
 
 
 @scenario
+def model_knife_stroke_cuts_across_the_cage():
+    """A Knife stroke from beside the cube across two of its faces cuts both along it (three new points, two faces more), one undo step, the view not turned."""
+    s = Script()
+    s.mouse_drag([(560 + i * 30, 520 - i * 6) for i in range(13)])
+    s.wait(5)
+    return s, LENS_1440 + ["--check-mesh", "--script=add_cage cube; select 1; delete_object; frame_all; model_action knife"], {"cage_points": near(11), "cage_faces": near(8), "cage_broken": near(0), "undo_steps": near(1), "model_done": near(1), "camera_yaw": near(0.6)}
+
+
+@scenario
+def model_knife_symmetric_cut_meets_its_image():
+    """Under X symmetry the Knife cuts the mirror side too, and where the cut and its image cross a face they meet at a new point: fifteen points, eleven faces, still sound."""
+    s = Script()
+    s.mouse_drag([(560 + i * 30, 520 - i * 6) for i in range(13)])
+    s.wait(5)
+    return s, LENS_1440 + ["--check-mesh", "--script=add_cage cube; select 1; delete_object; frame_all; symmetry_x; model_action knife"], {"cage_points": near(15), "cage_faces": near(11), "cage_broken": near(0), "undo_steps": near(1)}
+
+
+@scenario
+def model_knife_taps_cut_a_path():
+    """Knife taps on three edges in turn cut a path through the faces between, each tap after the first one undo step, as Maya's Multi-Cut does."""
+    s = Script()
+    for x, y in [(566, 470), (752, 520), (866, 440)]:
+        s.mouse_drag([(x, y)])
+        s.wait(3)
+    s.wait(5)
+    return s, LENS_1440 + ["--check-mesh", "--script=add_cage cube; select 1; delete_object; frame_all; model_action knife"], {"cage_points": near(11), "cage_faces": near(8), "cage_broken": near(0), "undo_steps": near(2), "model_done": near(2)}
+
+
+@scenario
+def model_loop_shapes_on_a_sphere():
+    """Circle loop rounds a closed loop of the quad sphere and refuses an open one (it stops at a pole), saying why; Space loop and Flatten loop shape a loop each, one undo step."""
+    def run(action, at, done):
+        s = Script()
+        s.mouse_drag([at])
+        s.wait(5)
+        checks = {"cage_points": near(26), "cage_faces": near(24), "model_done": near(done), "model_refused": near(1 - done), "undo_steps": near(done)}
+        if not done:
+            checks["last_op"] = lambda v: "closed_loop" in v
+        return s, LENS_1440 + [f"--script=add_cage sphere; select 1; delete_object; frame_all; model_action {action}"], checks
+    return Steps([run("circle_loop", (700, 500), 1), run("circle_loop", (720, 450), 0), run("space_loop", (700, 430), 1), run("flatten_loop", (700, 430), 1)])
+
+@scenario
 def model_delete_tap_removes_a_face():
     """With Delete picked, a tap on a cage's face removes it (a hole of four border edges), not turning the view."""
     s = Script()
