@@ -766,28 +766,7 @@ kit_bar_popover :: proc(app: ^App) {
 	case .Symmetry:
 		if !ui.popover_begin(ctx, "bar symmetry", &p.open, p.at, p.side, {direction = .Column, gap = 4, padding = 10, width = 248}) do return
 		defer ui.popover_end(ctx)
-		ui.caption(ctx, "SYMMETRY")
-		ui.begin(ctx, "symmetry axes", {direction = .Row, gap = 4})
-		for axis in sculpt.Axis {
-			name := fmt.tprint(axis)
-			tip := fmt.tprintf("Symmetry across %s", name)
-			if ui.toggle_button(ctx, name, axis in app.brush.symmetry, 48, command_hint(app, .Symmetry_X) if axis == .X else "", tip) do app.brush.symmetry ~= {axis}
-		}
-		if ui.toggle_button(ctx, "Local", app.brush.sym_local, 64, command_hint(app, .Local_Symmetry), COMMANDS[.Local_Symmetry].help) do command_run(app, .Local_Symmetry)
-		ui.end(ctx)
-		ui.caption(ctx, "RADIAL")
-		ui.begin(ctx, "radial axes", {direction = .Row, gap = 4})
-		if ui.toggle_button(ctx, "Radial", app.brush.radial_on, 64, command_hint(app, .Radial_Symmetry), COMMANDS[.Radial_Symmetry].help) do command_run(app, .Radial_Symmetry)
-		for axis in sculpt.Axis {
-			name := fmt.tprintf("%v##radial", axis)
-			if ui.toggle_button(ctx, name, app.brush.radial_axis == axis, 48, tooltip = fmt.tprintf("Copies round the %v axis", axis)) do app.brush.radial_axis = axis
-		}
-		ui.end(ctx)
-		count := f32(app.brush.radial_count)
-		if ui.slider(ctx, "Copies", &count, RADIAL_MIN, sculpt.RADIAL_MAX, .Linear, fmt.tprintf("%d", app.brush.radial_count)) {
-			app.brush.radial_count = i32(math.round(count))
-			app.brush.radial_on = true
-		}
+		symmetry_controls(app)
 	case .Polyframe:
 		if !ui.popover_begin(ctx, "bar polyframe", &p.open, p.at, p.side, {direction = .Column, gap = 4, padding = 10, width = 220}) do return
 		defer ui.popover_end(ctx)
@@ -857,6 +836,34 @@ kit_bar_popover :: proc(app: ^App) {
 			draw(app)
 		}
 		kit_scroll_end(ctx, scroll)
+	}
+}
+
+// The symmetry axes, Local, and the radial copies: the bar's Symmetry popover and the Lens
+// stack's Symmetry panel.
+symmetry_controls :: proc(app: ^App) {
+	ctx := &app.kit.ctx
+	ui.caption(ctx, "SYMMETRY")
+	ui.begin(ctx, "symmetry axes", {direction = .Row, gap = 4})
+	for axis in sculpt.Axis {
+		name := fmt.tprint(axis)
+		tip := fmt.tprintf("Symmetry across %s", name)
+		if ui.toggle_button(ctx, name, axis in app.brush.symmetry, 48, command_hint(app, .Symmetry_X) if axis == .X else "", tip) do app.brush.symmetry ~= {axis}
+	}
+	if ui.toggle_button(ctx, "Local", app.brush.sym_local, 64, command_hint(app, .Local_Symmetry), COMMANDS[.Local_Symmetry].help) do command_run(app, .Local_Symmetry)
+	ui.end(ctx)
+	ui.caption(ctx, "RADIAL")
+	ui.begin(ctx, "radial axes", {direction = .Row, gap = 4})
+	if ui.toggle_button(ctx, "Radial", app.brush.radial_on, 64, command_hint(app, .Radial_Symmetry), COMMANDS[.Radial_Symmetry].help) do command_run(app, .Radial_Symmetry)
+	for axis in sculpt.Axis {
+		name := fmt.tprintf("%v##radial", axis)
+		if ui.toggle_button(ctx, name, app.brush.radial_axis == axis, 48, tooltip = fmt.tprintf("Copies round the %v axis", axis)) do app.brush.radial_axis = axis
+	}
+	ui.end(ctx)
+	count := f32(app.brush.radial_count)
+	if ui.slider(ctx, "Copies", &count, RADIAL_MIN, sculpt.RADIAL_MAX, .Linear, fmt.tprintf("%d", app.brush.radial_count)) {
+		app.brush.radial_count = i32(math.round(count))
+		app.brush.radial_on = true
 	}
 }
 

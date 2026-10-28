@@ -146,7 +146,7 @@ kit_layout_text :: proc(k: ^Kit_State) -> string {
 	// dock holds the user's brushes, which are no layout's: it stays as it is in every
 	// workspace.
 	strings.write_string(&out, "bars\n")
-	bars_save(k, &out)
+	bars_save(k, &out, layout = true)
 	return strings.to_string(out)
 }
 

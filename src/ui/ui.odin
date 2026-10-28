@@ -663,6 +663,17 @@ fill_width :: proc(ctx: ^Context) -> f32 {
 	return max(c.box.width - 2 * c.box.padding, 0) if c.box.width > 0 else 0
 }
 
+// The room left along a fixed-width row after what is laid out in it so far, so that a
+// spacer of it, less the width of what follows, pushes that to the row's end; 0 when the
+// row fits its content.
+row_room :: proc(ctx: ^Context) -> f32 {
+	n := len(ctx.stack)
+	if n == 0 do return 0
+	c := ctx.stack[n - 1]
+	if c.box.direction != .Row || c.box.width <= 0 do return 0
+	return max(c.rect.x + c.box.width - c.box.padding - c.cursor.x, 0)
+}
+
 // Adds empty space along the current container's main axis.
 spacer :: proc(ctx: ^Context, amount: f32) {
 	n := len(ctx.stack)

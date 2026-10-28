@@ -215,6 +215,7 @@ Command_Id :: enum u8 {
 	Clean_View, // lens_view.odin
 	View_Layout_Menu, // lens_chrome.odin
 	Pass_Menu, // passes.odin
+	Brush_Picker, // lens_shelf.odin
 	Settings,
 	Reduce_Motion,
 	Command_Palette,
@@ -1790,6 +1791,13 @@ COMMANDS := [Command_Id]Command {
 		icon = ICON_PASSES,
 		run = proc(app: ^App, _: int) {pass_menu_toggle(app)},
 		checked = proc(app: ^App, _: int) -> bool {return app.kit.passes.menu},
+	},
+	.Brush_Picker = {
+		label = "Brush picker",
+		help = "Opens every brush, tool and preset as cards showing each one's stroke, by category, with a search; a tap picks one, a drag puts it on the shelf (B in the Lens layout).",
+		icon = ui.ICON_GRID,
+		run = proc(app: ^App, _: int) {brush_picker_toggle(app)},
+		checked = proc(app: ^App, _: int) -> bool {return app.kit.browser},
 	},
 	.View_Windows_Close = {
 		label = "Close view windows",

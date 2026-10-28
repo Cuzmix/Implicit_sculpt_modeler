@@ -310,8 +310,8 @@ kit_alpha_section :: proc(app: ^App) {
 	ui.paragraph(ctx, "An alpha stamps each dab with an image (PNG, JPEG, BMP, TGA or QOI): white works fully, black not at all. Its square reaches past the circle where the image does. Load image keeps a copy in your library, so it is here at the next start; content packs (Menu > Library) add more.")
 }
 
-// One thumbnail of the Alpha section: the round brush (`i` -1) or alpha `i`, to tap.
-@(private = "file")
+// One thumbnail of the Alpha section (and the Lens shelf's quick settings): the round
+// brush (`i` -1) or alpha `i`, to tap.
 kit_alpha_cell :: proc(app: ^App, i: int, cell: f32) {
 	ctx := &app.kit.ctx
 	t := ctx.theme

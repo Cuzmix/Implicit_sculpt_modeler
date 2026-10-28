@@ -25,7 +25,21 @@ Bar_Which :: enum u8 {
 	Tools, // the bottom bar's strip
 	Dock,
 	View_Rail, // the Lens layout's view rail, down the pen side (lens_chrome.odin)
+	// The Lens shelf's four pages (lens_shelf.odin), in Shelf_Page's order.
+	Shelf_Sculpt,
+	Shelf_Paint,
+	Shelf_Move,
+	Shelf_Curve,
 }
+
+// The bars that keep a Bar_List: all but the dock, whose slots hold brushes of their own.
+@(rodata)
+BAR_LISTS := [?]Bar_Which{.Shortcuts, .Tools, .View_Rail, .Shelf_Sculpt, .Shelf_Paint, .Shelf_Move, .Shelf_Curve}
+
+// The bars a workspace's layout holds: the shelf's pages hold the person's brushes, which
+// are no layout's, as the dock's are not.
+@(rodata)
+BAR_LAYOUT := [?]Bar_Which{.Shortcuts, .Tools, .View_Rail}
 
 @(rodata)
 BAR_NAMES := [Bar_Which]string {
@@ -33,6 +47,10 @@ BAR_NAMES := [Bar_Which]string {
 	.Tools     = "THE BOTTOM BAR",
 	.Dock      = "THE DOCK",
 	.View_Rail = "THE VIEW RAIL",
+	.Shelf_Sculpt = "THE SCULPT SHELF",
+	.Shelf_Paint  = "THE PAINT SHELF",
+	.Shelf_Move   = "THE MOVE SHELF",
+	.Shelf_Curve  = "THE CURVE SHELF",
 }
 
 // Each bar's name in settings.txt: the zone of the screen it holds, so a later layout that
@@ -43,6 +61,10 @@ BAR_ZONES := [Bar_Which]string {
 	.Tools     = "bottom_tools",
 	.Dock      = "dock",
 	.View_Rail = "view_rail",
+	.Shelf_Sculpt = "shelf_sculpt",
+	.Shelf_Paint  = "shelf_paint",
+	.Shelf_Move   = "shelf_move",
+	.Shelf_Curve  = "shelf_curve",
 }
 
 // The bar a zone name names; the dock's slots keep their own dock lines.
@@ -101,16 +123,19 @@ bar_list_of :: proc(slots: []Bar_Slot) -> (l: Bar_List) {
 // Puts every bar back as a fresh install has it.
 bars_reset :: proc(k: ^Kit_State) {
 	bar_lists_reset(k)
+	shelf_reset(k)
 	dock_reset(k)
 }
 
-// Puts the column, the strip and the view rail back as a fresh install has them.
+// Puts the column, the strip and the view rail (the bars a layout holds) back as a fresh
+// install has them.
 bar_lists_reset :: proc(k: ^Kit_State) {
-	for which in ([3]Bar_Which{.Shortcuts, .Tools, .View_Rail}) do bar_list_k(k, which)^ = bar_fresh(which)
+	for which in BAR_LAYOUT do bar_list_k(k, which)^ = bar_fresh(which)
 }
 
-// A fresh install's list for the column, the strip or the view rail.
+// A fresh install's list for the column, the strip, the view rail or a shelf page.
 bar_fresh :: proc(which: Bar_Which) -> Bar_List {
+	if page, ok := shelf_page_of(which); ok do return shelf_fresh(page)
 	#partial switch which {
 	case .Shortcuts:
 		d := SHORTCUTS_DEFAULT
@@ -127,8 +152,10 @@ bar_list :: proc(app: ^App, which: Bar_Which) -> ^Bar_List {
 	return bar_list_k(&app.kit, which)
 }
 
-// The list behind the column, the strip or the view rail (the dock keeps its own slots).
+// The list behind the column, the strip, the view rail or a shelf page (the dock keeps its
+// own slots).
 bar_list_k :: proc(k: ^Kit_State, which: Bar_Which) -> ^Bar_List {
+	if page, ok := shelf_page_of(which); ok do return &k.shelf.lists[page]
 	#partial switch which {
 	case .Shortcuts: return &k.shortcuts
 	case .View_Rail: return &k.view_rail
@@ -149,6 +176,7 @@ bar_capacity :: proc(which: Bar_Which) -> int {
 	case .Tools:     return TOOLS_MAX
 	case .Dock:      return DOCK_SLOTS
 	case .View_Rail: return VIEW_RAIL_MAX
+	case .Shelf_Sculpt, .Shelf_Paint, .Shelf_Move, .Shelf_Curve: return SHELF_MAX
 	}
 	return 0
 }
@@ -172,11 +200,12 @@ bar_list_changed :: proc(k: ^Kit_State, which: Bar_Which) -> bool {
 	return l.count != fresh.count || l.slots != fresh.slots
 }
 
-// The lines of the column, the strip and the view rail, each written whole where it differs
-// from a fresh install's (`bar_count <zone> N`, then `bar <zone> <slot> <command>`): the
-// settings file's and a workspace's layout's.
-bars_save :: proc(k: ^Kit_State, out: ^strings.Builder) {
-	for which in ([3]Bar_Which{.Shortcuts, .Tools, .View_Rail}) {
+// The lines of every bar but the dock, each written whole where it differs from a fresh
+// install's (`bar_count <zone> N`, then `bar <zone> <slot> <command>`): the settings
+// file's, and with `layout` a workspace's layout's, which leaves the shelf's pages out.
+bars_save :: proc(k: ^Kit_State, out: ^strings.Builder, layout := false) {
+	for which in BAR_LISTS {
+		if _, shelf := shelf_page_of(which); shelf && layout do continue
 		if !bar_list_changed(k, which) do continue
 		l := bar_list_k(k, which)
 		used := l.slots[:clamp(l.count, 0, bar_capacity(which))]
@@ -237,6 +266,10 @@ bar_title :: proc(which: Bar_Which) -> string {
 	case .Tools:     return "The bottom bar"
 	case .Dock:      return "The dock"
 	case .View_Rail: return "The view rail"
+	case .Shelf_Sculpt: return "The Sculpt shelf"
+	case .Shelf_Paint:  return "The Paint shelf"
+	case .Shelf_Move:   return "The Move shelf"
+	case .Shelf_Curve:  return "The Curve shelf"
 	}
 	return ""
 }
