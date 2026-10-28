@@ -95,7 +95,7 @@ layer_action :: proc(app: ^App, action: Layer_Action) {
 	if done do history_record(app, obj, .Layer, LAYER_ACTION_NAMES[action])
 }
 
-@(private = "file")
+// Deletes layer `index` (or bakes it into the surface) as one History step.
 layer_remove :: proc(app: ^App, obj: ^Object, index: int, bake: bool) {
 	stroke_finish(app)
 	if sculpt.sculptor_layer_remove(object_sculptor(obj), index, bake) do history_record(app, obj, .Layer, "Bake layer" if bake else "Delete layer")

@@ -67,6 +67,8 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   Lens's menu is `kit_menu_lens` (`lens_menu.odin`; `LENS_MENU_PLACE` says where each command is, keep it in step
   with the rows); search's Lens rows, groups and Put on a bar are `lens_search.odin` (`palette_where`); Focus is
   `lens_focus(k)` (the view bar hidden): islands in `kit_top_islands`, no view chips, a compact shelf.
+  The stack's Scene and Layers cards are `kit_lens_scene` and `kit_lens_layers` (Classic keeps the tray's sections);
+  a lock (`Object.locked`) goes through `object_pickable`, never a raycast of its own.
 - Layout (`kit_layout`, `new_ui.odin`; the bars in `kit_bars.odin`, after ZBrush for iPad): `kit_top_bar` (a full-width
   strip, `TOP_BAR_H`: Menu, Save, Import, Export | file name | History, Edit pies, Help, Settings), `kit_points` (the
   object's readout under it, at the top left), `kit_brush_bar` (left column, top from `brush_bar_top`, which keeps

@@ -231,6 +231,12 @@ Kit_State :: struct {
 	// Lens's search: the groups its results showed under last, and how many entries it put
 	// on a bar (lens_search.odin).
 	palette_groups: bit_set[Palette_Group],
+	// Lens's Scene card's filter, whether it holds anything, and the rows the Scene and
+	// Layers cards drew (lens_scene.odin, lens_layers.odin).
+	scene_filter:   [48]u8,
+	scene_query:    bool,
+	scene_rows:     int,
+	layer_rows:     int,
 	palette_bar_puts: int,
 	// While set, the palette chooses what that gesture runs, or what that bar slot holds,
 	// rather than running anything (palette_open_for, from Settings > Touch's Any

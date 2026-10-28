@@ -70,6 +70,9 @@ Object :: struct {
 	// Its polypaint is left out of the drawing (the paint toggle of its row in the Objects
 	// card), as ZBrush's SubTool rows turn colour off: the colours are kept, only unseen.
 	paint_off: bool,
+	// Locked: no press in the view reaches it, as a ghost, but it is drawn solid; the
+	// Scene card's lock sets it, so a finished part is not sculpted by accident.
+	locked:    bool,
 	folder:    int, // the Folder it is in, by id; 0 for none
 	vis_off:   u8, // its eye in each stored visibility (bit k for V(k+1)): off (scene_tree.odin)
 	// A voxel object's clay (voxel_object.odin); nil for a mesh object. A voxel object's

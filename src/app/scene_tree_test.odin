@@ -147,15 +147,15 @@ solo_follows_the_selection_and_keeps_the_eyes :: proc(t: ^testing.T) {
 	testing.expect(t, !app.scene.solo)
 }
 
-// The scene file keeps each object's eye and ghost from version 8 and its polypaint left
-// out from version 11, reads older files with everything in view, and refuses flags it
-// does not know.
+// The scene file keeps each object's eye and ghost from version 8, its polypaint left
+// out from version 11 and its lock from version 25, reads older files with everything in
+// view and unlocked, and refuses flags it does not know.
 @(test)
 view_flags_round_trip_in_the_file :: proc(t: ^testing.T) {
 	app: App
 	defer tree_free(&app)
 	objs := tree_scene(&app)
-	objs[0].off, objs[1].ghost = true, true
+	objs[0].off, objs[1].ghost, objs[2].locked = true, true, true
 	for obj in objs {
 		out: [dynamic]u8
 		defer delete(out)
@@ -167,6 +167,7 @@ view_flags_round_trip_in_the_file :: proc(t: ^testing.T) {
 		testing.expect(t, r.ok)
 		testing.expect_value(t, back.off, obj.off)
 		testing.expect_value(t, back.ghost, obj.ghost)
+		testing.expect_value(t, back.locked, obj.locked)
 		testing.expect_value(t, back.transform, obj.transform)
 
 		// Version 7 had no flags byte, no folder and no stored eyes: write a 7-shaped head
@@ -197,7 +198,19 @@ view_flags_round_trip_in_the_file :: proc(t: ^testing.T) {
 		object_get_fields(&r10, &ten, 10)
 		defer delete(ten.name)
 		testing.expect(t, !r10.ok)
+		// The lock bit is known from version 25.
 		out[flags] = 8
+		locked: Object
+		rl := geom.byte_reader(out[:])
+		object_get_fields(&rl, &locked)
+		defer delete(locked.name)
+		testing.expect(t, rl.ok && locked.locked && !locked.off && !locked.ghost)
+		older: Object
+		r24 := geom.byte_reader(out[:])
+		object_get_fields(&r24, &older, 24)
+		defer delete(older.name)
+		testing.expect(t, !r24.ok)
+		out[flags] = 16
 		damaged: Object
 		rd := geom.byte_reader(out[:])
 		object_get_fields(&rd, &damaged)
