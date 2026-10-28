@@ -203,6 +203,9 @@ Picture :: struct {
 	ao:     render.Live_AO,
 	studio: render.Studio,
 	path:   render.Path_Render, // a copy of the traced scene, given back when it shows another pass
+	// Scene > Finish on the studio render or Render shown (picture_finish); picture_shown
+	// gives what the window shows.
+	finished: render.Finish,
 	// For the exit stats: how often it was drawn and how long it last took on the CPU.
 	draws: int,
 	ms:    f64,
@@ -216,7 +219,44 @@ picture_destroy :: proc(app: ^App, pic: ^Picture) {
 	render.live_ao_destroy(&app.renderer, &pic.ao)
 	render.studio_destroy(&app.renderer, &pic.studio)
 	render.path_render_destroy(&app.renderer, &pic.path)
+	render.finish_destroy(&app.renderer, &pic.finished)
 	pic^ = {}
+}
+
+// What a picture's window shows: its finished picture while Scene > Finish reaches it
+// (picture_finish), else the picture as drawn; nil for nothing yet.
+picture_shown :: proc(pic: ^Picture) -> render.Texture {
+	if pic.shown == nil do return nil
+	if t := render.finish_texture(&pic.finished); t != nil do return t
+	return pic.shown
+}
+
+// Whether second view `sv`'s picture is finished: it shows the studio render or Render, the
+// passes the main view is finished in while its Render switch is on, and a control of Scene >
+// Finish is away from its none value. The other passes are each a look at one signal, which
+// stays as it is.
+picture_finish_wanted :: proc(app: ^App, sv: ^Second_View) -> bool {
+	return (sv.pass == .Studio || sv.pass == .Render) && render.finish_active(finish_look(app.finish))
+}
+
+// Finishes a picture after it was drawn or gathered a sample, from render mode's linear light
+// once it shows, as the main view's is (finish_view_frame); a still picture with the same look
+// costs nothing. A picture copied from the main view while a pane was worked in waits, shown
+// as copied, until it is drawn again.
+@(private = "file")
+picture_finish :: proc(app: ^App, cmd: render.Cmd, sv: ^Second_View, pic: ^Picture) {
+	if !picture_finish_wanted(app, sv) || pic.shown == nil || pic.key == 0 {
+		render.finish_reset(&pic.finished)
+		return
+	}
+	source, linear := pic.shown, false
+	if sv.pass == .Render && pic.shown == render.render_texture(&pic.path) {
+		if t := render.render_linear_texture(&pic.path); t != nil do source, linear = t, true
+	}
+	look := finish_look(app.finish)
+	look.seed = u32(pic.version)
+	target := &pic.view.target
+	_ = render.finish_frame(&app.renderer, &pic.finished, cmd, source, target.width, target.height, linear, look, u64(pic.version))
 }
 
 thumbnail_destroy :: proc(app: ^App) {
@@ -260,6 +300,7 @@ picture_key :: proc(app: ^App, sv: ^Second_View, size: [2]u32, supersample: u32)
 // the studio a sample a frame afterwards, at rest, until it has the studio's count.
 picture_frame :: proc(app: ^App, cmd: render.Cmd, draws: []render.Draw_Item, sv: ^Second_View, pic: ^Picture, size: [2]u32, supersample: u32) {
 	pic.due = false
+	defer picture_finish(app, cmd, sv, pic)
 	// The path tracer's copy of the scene is costly to keep: a picture showing another pass
 	// gives it back.
 	if sv.pass != .Render && pic.path.pipeline != nil do render.path_render_destroy(&app.renderer, &pic.path)
@@ -386,7 +427,8 @@ picture_render :: proc(app: ^App, cmd: render.Cmd, pic: ^Picture, view, proj: re
 	bounces := int(clamp(app.render_bounces, 1, render.RENDER_BOUNCES_MAX))
 	lens := render_lens(app)
 	if lens.on && app.focus == nil do lens.focus = orbit.target
-	_ = render.render_frame(&app.renderer, &pic.path, cmd, &pic.view.target, view, proj, items, changed, samples, bounces, lights, app.studio_softness, app.exposure, app.render_denoise, app.render_half, lens, &app.pool)
+	linear := render.finish_active(finish_look(app.finish))
+	_ = render.render_frame(&app.renderer, &pic.path, cmd, &pic.view.target, view, proj, items, changed, samples, bounces, lights, app.studio_softness, app.exposure, app.render_denoise, app.render_half, lens, &app.pool, linear = linear)
 }
 
 // The window: the picture, then the camera and the pass, Flip, Maximise and Close under

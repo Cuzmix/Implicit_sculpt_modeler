@@ -10,8 +10,9 @@ import "../ui"
 
 // Scene > Finish: the camera's finishing of the picture while the Render switch is on
 // (render/finish.odin), as Marmoset Toolbag keeps its tone mapping, white balance,
-// vignette and grain on the camera and shows them live, and as Blender's view transform
-// and white balance do. They are remembered, as the exposure is, not saved with a scene.
+// vignette, grain, bloom, sharpening and chromatic aberration on the camera and shows them
+// live, and as Blender's view transform and white balance do. Unlike EEVEE Next, whose bloom
+// left the viewport for the compositor, the bloom shows while sculpting with Render on. They are remembered, as the exposure is, not saved with a scene.
 // With every control at its none value, the default, nothing runs and the picture is the
 // viewport's to the bit. Sculpting with Render off stays unfinished, so colours picked are
 // the colours shown and nothing comes between the form and the eye.
@@ -29,7 +30,16 @@ Finish_Settings :: struct {
 	gain:          f32,
 	grain:         f32,
 	grain_size:    f32,
+	bloom:         f32,
+	bloom_size:    f32,
+	bloom_threshold: f32,
+	sharpen:       f32,
+	aberration:    f32,
 }
+
+// The Bloom threshold's top, in linear light: twice a white surface's light under the default
+// exposure, which leaves only lights and hot highlights glowing.
+FINISH_BLOOM_THRESHOLD_MAX :: 4
 
 // Daylight, which the shading's white already is.
 FINISH_KELVIN_NONE :: 6500
@@ -42,6 +52,7 @@ FINISH_CONTRAST_MAX :: 1.5
 FINISH_DEFAULTS :: Finish_Settings{
 	curve = .Neutral, contrast = 1, saturation = 1, kelvin = FINISH_KELVIN_NONE, tint = 0,
 	vignette = 0, vignette_soft = 0.6, lift = 0, gamma = 1, gain = 1, grain = 0, grain_size = 1.5,
+	bloom = 0, bloom_size = 0.7, bloom_threshold = 0, sharpen = 0, aberration = 0,
 }
 
 // What the finishing stack does with these settings.
@@ -50,6 +61,7 @@ finish_look :: proc(f: Finish_Settings) -> render.Finish_Look {
 		curve = f.curve, contrast = f.contrast, saturation = f.saturation, white = {1, 1, 1},
 		vignette = f.vignette, vignette_soft = f.vignette_soft, lift = f.lift, gamma = f.gamma, gain = f.gain,
 		grain = f.grain, grain_size = f.grain_size,
+		bloom = f.bloom, bloom_size = f.bloom_size, bloom_threshold = f.bloom_threshold, sharpen = f.sharpen, aberration = f.aberration,
 	}
 	if f.kelvin != FINISH_KELVIN_NONE || f.tint != 0 {
 		// The light taken as white, against daylight's, so 6500 K is no change at all, its
@@ -137,9 +149,11 @@ kit_finish :: proc(app: ^App) {
 	if picked := ui.tabs(ctx, "tone curve", names[:], int(f.curve)); picked >= 0 do f.curve = render.Tone_Curve(picked)
 	_ = ui.slider(ctx, "Contrast", &f.contrast, FINISH_CONTRAST_MIN, FINISH_CONTRAST_MAX, .Linear, fmt.tprintf("%.2f", f.contrast))
 	_ = ui.slider(ctx, "Temperature", &f.kelvin, FINISH_KELVIN_MIN, FINISH_KELVIN_MAX, .Logarithmic, fmt.tprintf("%.0f K", f.kelvin))
+	_ = ui.slider(ctx, "Bloom", &f.bloom, 0, 1, .Linear, fmt.tprintf("%.2f", f.bloom))
 	_ = ui.slider(ctx, "Vignette", &f.vignette, 0, 1, .Linear, fmt.tprintf("%.2f", f.vignette))
-	_ = ui.slider(ctx, "Grain", &f.grain, 0, 1, .Linear, fmt.tprintf("%.2f", f.grain))
 	if kit_more(app, .Finish) {
+		_ = ui.slider(ctx, "Sharpen", &f.sharpen, 0, 1, .Linear, fmt.tprintf("%.2f", f.sharpen))
+		_ = ui.slider(ctx, "Grain", &f.grain, 0, 1, .Linear, fmt.tprintf("%.2f", f.grain))
 		_ = ui.slider(ctx, "Saturation", &f.saturation, 0, 2, .Linear, fmt.tprintf("%.2f", f.saturation))
 		_ = ui.slider(ctx, "Tint", &f.tint, -1, 1, .Linear, fmt.tprintf("%+.2f", f.tint))
 		_ = ui.slider(ctx, "Lift", &f.lift, -0.2, 0.2, .Linear, fmt.tprintf("%+.2f", f.lift))
@@ -147,6 +161,9 @@ kit_finish :: proc(app: ^App) {
 		_ = ui.slider(ctx, "Gain", &f.gain, 0.5, 2, .Logarithmic, fmt.tprintf("%.2f", f.gain))
 		_ = ui.slider(ctx, "Vignette softness", &f.vignette_soft, 0.05, 1, .Linear, fmt.tprintf("%.2f", f.vignette_soft))
 		_ = ui.slider(ctx, "Grain size", &f.grain_size, 1, 4, .Linear, fmt.tprintf("%.1f px", f.grain_size))
+		_ = ui.slider(ctx, "Bloom size", &f.bloom_size, 0, 1, .Linear, fmt.tprintf("%.2f", f.bloom_size))
+		_ = ui.slider(ctx, "Bloom threshold", &f.bloom_threshold, 0, FINISH_BLOOM_THRESHOLD_MAX, .Linear, fmt.tprintf("%.2f", f.bloom_threshold))
+		_ = ui.slider(ctx, "Aberration", &f.aberration, 0, 1, .Linear, fmt.tprintf("%.2f", f.aberration))
 		_ = command_button(app, .Finish_Reset, width = ui.fill_width(ctx))
 		kit_more_end(app)
 	}
@@ -156,5 +173,5 @@ kit_finish :: proc(app: ^App) {
 	case !render_switch_on(app) && render.finish_active(finish_look(app.finish)):
 		ui.paragraph(ctx, "The finish shows while Render is on.")
 	}
-	ui.paragraph(ctx, fmt.tprintf("Finishes the picture as a camera does, while Render is on: the tone curve that brings light into the display's range (Neutral keeps picked colours as they are; AgX rolls bright light off over more stops toward white, as film does; ACES gives more contrast and colour), Contrast about mid grey, white balance (Temperature and Tint: a higher temperature warms the picture), a Vignette toward the corners and film Grain. Lift, Gamma and Gain raise the blacks, the midtones and the whites. It shows in screenshots, the time-lapse and the turntable too. %s", command_keys(app, .Finish_Reset)))
+	ui.paragraph(ctx, fmt.tprintf("Finishes the picture as a camera does, while Render is on: the tone curve that brings light into the display's range (Neutral keeps picked colours as they are; AgX rolls bright light off over more stops toward white, as film does; ACES gives more contrast and colour), Contrast about mid grey, white balance (Temperature and Tint: a higher temperature warms the picture), a Vignette toward the corners, film Grain, Bloom (light scattered in the lens, a glow where bright meets dark, brightening nothing in all) and Sharpen (contrast-adaptive, so edges gain no halo). Lift, Gamma and Gain raise the blacks, the midtones and the whites; Aberration fringes colour toward the corners, as a lens does; Bloom threshold keeps the glow to light brighter than it. It shows in screenshots, the time-lapse and the turntable too. %s", command_keys(app, .Finish_Reset)))
 }
