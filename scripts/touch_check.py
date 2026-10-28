@@ -3295,6 +3295,24 @@ def lens_context_bar_extracts_the_mask():
     return s, LENS_1440 + ["--script=mask fill"], camera_still({"objects": near(2), "dabs": near(0)})
 
 
+# Lens's Inspect workspace at 1440x900: its segment in the top bar's pill, the main pane's
+# pass chip, and Curvature in the popover's DIAGNOSTICS group while nothing is recent.
+LENS_INSPECT = {"workspace": (675, 26), "pass_chip": (186, 77), "curvature": (260, 444)}
+
+
+@scenario
+def lens_pass_popover_groups_the_passes():
+    """In Inspect, which opens no panels over its four panes, the pass chip's popover picks Curvature from DIAGNOSTICS."""
+    s = Script()
+    s.ftap(*LENS_INSPECT["workspace"])
+    s.wait(12)
+    s.ftap(*LENS_INSPECT["pass_chip"])
+    s.wait(8)
+    s.ftap(*LENS_INSPECT["curvature"])
+    s.wait(8)
+    return s, LENS_1440, camera_still({"workspace": is_text("Inspect"), "pass": is_text("Curvature"), "dabs": near(0)})
+
+
 # Lens's brush pie at 1440x900: the dial's Pie sector opens it at the viewport's middle;
 # the top slice (Clay) and the editor's first brush slot.
 LENS_PIE = {"dial": (122, 822), "middle": (720, 450), "top": (720, 334), "crease": (800, 520), "editor_first": (764, 190), "search": (1180, 26)}
@@ -3377,14 +3395,14 @@ def save_as_new_workspace_is_remembered():
 
 @scenario
 def the_current_workspace_comes_back():
-    """A settings file naming Inspect as current starts in Inspect: Stats docked on the left and the view grid's four panes."""
+    """A settings file naming Inspect as current starts in Inspect: no panels over the view grid's four panes."""
     with open(settings_file(), "w") as f:
         f.write("workspace_current 2\n")
     s = Script()
     s.add("move:800,450")
     s.wait(10)
     return s, [f"--settings-file={settings_file()}"], camera_still({"dabs": near(0), "workspace": is_text("Inspect"),
-                                                                     "column_left": is_text("stats"), "zones_hidden": is_text("brush_bar,dock"),
+                                                                     "column_left": is_text("none"), "zones_hidden": is_text("brush_bar,dock"),
                                                                      "grid": is_text("Four")})
 
 
