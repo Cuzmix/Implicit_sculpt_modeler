@@ -7,7 +7,7 @@ import "../render"
 // Anti-aliasing: how many samples each viewport pixel takes (MSAA), which smooths the
 // edges of silhouettes, creases seen side on and wireframe lines for more GPU memory and
 // bandwidth. Shading inside a surface is one sample a pixel either way; the specular
-// anti-aliasing in mesh.frag looks after that.
+// anti-aliasing in mesh.frag.slang looks after that.
 Msaa :: enum u8 {
 	Off,
 	X2,

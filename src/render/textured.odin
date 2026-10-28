@@ -6,7 +6,7 @@ import sdl "vendor:sdl3"
 
 // The textured preview: a small mesh of its own for an object whose maps were baked or
 // loaded (a retopologized object's quads, split where its UVs are, research-3-pbr.md
-// section 7), drawn with textured.vert and textured.frag in place of the object's sculpt
+// section 7), drawn with textured.vert.slang and textured.frag.slang in place of the object's sculpt
 // buffers. It has no chunks, culling or simplified copies: such an object is a few
 // thousand to some hundred thousand quads, drawn whole in one call. The object's own
 // buffers stay, for its wireframe, the studio render's shadows and the damage boxes.

@@ -148,7 +148,7 @@ smooth_all_cpu :: proc(pool: ^jobs.Pool, positions: []Vec3, indices: []u32, face
 @(private = "file")
 SMOOTH_GRAIN :: 1 << 14
 
-// One vertex's step. Written out in the order smooth_all.comp computes it (the corners
+// One vertex's step. Written out in the order smooth_all.comp.slang computes it (the corners
 // summed per triangle, then the lerp as two products), so the GPU has the same
 // arithmetic to match.
 @(private = "file")

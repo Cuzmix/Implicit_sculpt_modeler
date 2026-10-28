@@ -73,7 +73,7 @@ Background :: struct {
 	top, bottom: [4]f32,
 }
 
-// Matches Clear_Uniforms in clear.frag.
+// Matches Clear_Uniforms in clear.frag.slang.
 Clear_Uniforms :: struct {
 	using background: Background,
 	extent:           [4]f32, // x: the target's height in pixels, y: its width
@@ -96,7 +96,7 @@ Floor_Grid :: struct {
 }
 #assert(size_of(Floor_Grid) == 48)
 
-// Matches Floor_Uniforms in floor.frag.
+// Matches Floor_Uniforms in floor.frag.slang.
 Floor_Uniforms :: struct {
 	inv_view_proj: Mat4,
 	view_proj:     Mat4,
@@ -223,7 +223,7 @@ Mesh_Buffers :: struct {
 }
 
 Normal_Packed :: [2]i16
-// Matches `paint` in mesh.vert: the colour's bytes red first, then the group.
+// Matches `paint` in mesh.vert.slang: the colour's bytes red first, then the group.
 Paint_Packed :: [2]u32
 VERTEX_BYTES :: size_of(geom.Vec3) + size_of(Normal_Packed)
 
@@ -234,13 +234,13 @@ pack_normal :: geom.oct_encode_masked
 // sculpting changes, even with a large brush on a 10M vertex mesh.
 TRANSFER_BUFFER_SIZE :: 16 << 20
 
-// Matches Frame_Uniforms in mesh.vert (std140: column-major mat4s). Pushed per draw.
+// Matches Frame_Uniforms in mesh_io.slang (std140: column-major mat4s). Pushed per draw.
 Frame_Uniforms :: struct {
 	view_proj: Mat4,
 	view:      Mat4,
 	model:     Mat4,
 	options:   [4]f32, // x: show the paint, y: show the polygroups, z: look up material slots
-	slot_group: [GROUP_SLOTS]u32, // Material_Slots.groups, as mesh.vert's uvec4 slot_group[4]
+	slot_group: [GROUP_SLOTS]u32, // Material_Slots.groups, as mesh_io.slang's uint4 slot_group[4]
 }
 
 // How many material slots an item has: slot 0 is its own material, the rest polygroups'.
@@ -258,7 +258,7 @@ Material_Slots :: struct {
 	uniforms: Slot_Uniforms,
 }
 
-// Matches Slot_Uniforms in mesh.frag (std140: arrays of vec4).
+// Matches Slot_Uniforms in mesh.frag.slang (std140: arrays of vec4).
 Slot_Uniforms :: struct {
 	color:   [GROUP_SLOTS][4]f32, // as Draw_Item.color
 	params:  [GROUP_SLOTS][4]f32, // as Draw_Item.material
@@ -365,7 +365,7 @@ Viewport_Stats :: struct {
 	cache_redrawn: bool, // ...which had to be redrawn first
 }
 
-// Matches Material_Uniforms in mesh.frag.
+// Matches Material_Uniforms in mesh.frag.slang.
 Material_Uniforms :: struct {
 	base_color: [4]f32,
 	params:     [4]f32, // x: ambient, y: specular strength, z: specular power, w: wrap
@@ -1735,7 +1735,7 @@ draw_scene :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURende
 }
 
 // Draws Renderer.floor's planes, each as a full-screen triangle whose pixels find where
-// their ray meets the plane (floor.frag).
+// their ray meets the plane (floor.frag.slang).
 @(private)
 draw_floor :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURenderPass, pipes: ^Mesh_Pipelines, view, proj: Mat4) {
 	f := r.floor
@@ -1767,7 +1767,7 @@ LIGHT_POINT :: 1
 LIGHT_SPOT :: 2
 
 // The lights a Draw_Item is shaded with, as Material_Uniforms carries them (light_x, y
-// and z, light_pos, light_color, light_spot and light_shape in mesh_shading.glsl), in
+// and z, light_pos, light_color, light_spot and light_shape in mesh_shading.slang), in
 // view space.
 Lights :: struct {
 	// The columns of the rotation that takes the studio the physically based materials

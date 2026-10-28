@@ -17,10 +17,12 @@ if "%MODE%"=="androidrun" goto android
 rem The app links Luau for script plugins, which setup_deps builds from source.
 if not exist "%DEPS%\luau\luau.lib" ( echo Luau missing: run scripts\setup_deps.bat, which builds deps\luau & exit /b 1 )
 
-rem Recompile shaders when glslangValidator (Vulkan SDK) is available; otherwise use the committed .spv files.
-where glslangValidator >nul 2>nul && (
-	for %%s in ("%ROOT%src\render\shaders\*.vert" "%ROOT%src\render\shaders\*.frag" "%ROOT%src\render\shaders\*.comp") do glslangValidator -V --quiet "%%s" -o "%%s.spv" || goto fail
-)
+rem Recompile the Slang shaders when slangc is in deps\slang\bin or on the PATH (the Vulkan SDK
+rem installs it); otherwise use the committed .spv files. build.sh describes the rules.
+set SLANGC=
+if exist "%DEPS%\slang\bin\slangc.exe" set SLANGC=%DEPS%\slang\bin\slangc.exe
+if not defined SLANGC for /f "delims=" %%p in ('where slangc 2^>nul') do if not defined SLANGC set SLANGC=%%p
+if defined SLANGC call :shaders || goto fail
 
 if not exist "%ROOT%build" mkdir "%ROOT%build"
 copy /y "%DEPS%\odin\vendor\sdl3\SDL3.dll" "%ROOT%build\" >nul
@@ -132,3 +134,16 @@ exit /b 1
 
 :fail
 exit /b 1
+
+:shaders
+rem Each name.stage.slang to the name.stage.spv the renderer embeds (build.sh has the rules).
+for %%s in ("%ROOT%src\render\shaders\*.vert.slang") do call :shader "%%s" vertex || exit /b 1
+for %%s in ("%ROOT%src\render\shaders\*.frag.slang") do call :shader "%%s" fragment || exit /b 1
+for %%s in ("%ROOT%src\render\shaders\*.comp.slang") do call :shader "%%s" compute || exit /b 1
+exit /b 0
+
+:shader
+set FLAGS=
+findstr /b /c:"// slangc: -fp-mode precise" %1 >nul && set FLAGS=-fp-mode precise
+"%SLANGC%" %1 -target spirv -profile spirv_1_3 -matrix-layout-row-major -O0 -stage %2 -entry main %FLAGS% -o "%~dpn1.spv"
+exit /b
