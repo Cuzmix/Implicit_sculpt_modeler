@@ -320,7 +320,7 @@ kit_stack_strip :: proc(app: ^App) {
 	ui.begin(ctx, "stack strip", {direction = .Column, gap = 2, padding = 4, width = STACK_STRIP_W, radius = ctx.theme.radius_large, background = .Panel, center = true})
 	defer ui.end(ctx)
 	for c in s.order {
-		if c in s.floated do continue
+		if c in s.floated || c in s.hidden do continue
 		on := s.tab_open && s.tab == c
 		if ui.icon_button(ctx, fmt.tprintf("%s##stack tab", stack_title(app, c)), STACK_CARD_ICONS[c] if c != .Brush else stack_brush_icon(app), selected = on) {
 			if on {

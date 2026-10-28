@@ -69,7 +69,10 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   `lens_focus(k)` (the view bar hidden): islands in `kit_top_islands`, no view chips, a compact shelf.
   The stack's Scene, Layers and Tools cards are `kit_lens_scene`, `kit_lens_layers` and `kit_lens_tools` (Classic
   keeps the tray's sections; a Tools tile is a registry command); Lens's context bar lists come from `action_list`;
-  a lock (`Object.locked`) goes through `object_pickable`, never a raycast of its own.
+  a lock (`Object.locked`) goes through `object_pickable`, never a raycast of its own. The look's cards (Lights,
+  Material, Environment: `lens_studio.odin`) start in `stack.hidden`; every stack loop skips hidden cards.
+  `built_in_layout(b, chrome)` differs by chrome only for Studio; `workspaces_chrome` swaps untouched built-ins when
+  `k.chrome` changes, so call sites pass `w.chrome`, never a bare `built_in_layout(b)`.
 - Layout (`kit_layout`, `new_ui.odin`; the bars in `kit_bars.odin`, after ZBrush for iPad): `kit_top_bar` (a full-width
   strip, `TOP_BAR_H`: Menu, Save, Import, Export | file name | History, Edit pies, Help, Settings), `kit_points` (the
   object's readout under it, at the top left), `kit_brush_bar` (left column, top from `brush_bar_top`, which keeps

@@ -18,7 +18,7 @@ stack_layout_reads_back_as_written :: proc(t: ^testing.T) {
 	strings.builder_reset(&b)
 	stack_layout_save(k, &b)
 	line := strings.to_string(b)
-	testing.expect_value(t, line, "stack Scene+ Brush Symmetry Layers+ Tools Palettes\n")
+	testing.expect_value(t, line, "stack Scene+ Brush Symmetry Layers+ Tools Palettes -Lights -Material -Environment\n")
 
 	c := new(Kit_State)
 	defer free(c)

@@ -302,6 +302,10 @@ Kit_State :: struct {
 	// picture's size in pixels as laid out this frame (zero while it is not).
 	thumbnail:        bool,
 	second:           Second_View,
+	// The layout put in place names the second view's camera and pass (a `thumbnail`
+	// line, as Studio's does in Lens), so it writes them back; other layouts leave them to
+	// the settings.
+	second_in_layout: bool,
 	grid:             View_Grid,
 	thumbnail_flip:   bool,
 	thumbnail_px:     [2]u32,
