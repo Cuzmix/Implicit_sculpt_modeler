@@ -426,3 +426,25 @@ the_mirror_sees_the_other_side :: proc(t: ^testing.T) {
 	testing.expect(t, linalg.length(mu - Vec3{-u.x, u.y, u.z}) < 1e-4, "the mirrored up is not the reflected up")
 	testing.expect_value(t, orbit_mirror_x(m), c)
 }
+
+@(test)
+a_level_plane_lands_where_the_view_projects_it :: proc(t: ^testing.T) {
+	c := Orbit{target = {0.2, 0.4, -0.1}, distance = 3, fov_y = 0.7, near = 0.01, far = 100, ortho = true}
+	orbit_axis_view(&c, .Right)
+	testing.expect(t, orbit_is_level(c), "the right view is not level")
+	// A point at height 1.1 anywhere in the view projects to the share orbit_level_frac gives.
+	y: f32 = 1.1
+	clip := project(orbit_proj(c, 1.5) * orbit_view(c), {0.2, y, 0.6})
+	frac := orbit_level_frac(c, y)
+	testing.expect(t, near_eq(frac, 0.5 - clip.y * 0.5, 1e-4), "the guide is not where the view draws its height")
+	testing.expect(t, near_eq(orbit_level_height(c, frac), y, 1e-4), "the height does not come back from its share")
+	testing.expect(t, near_eq(orbit_level_frac(c, c.target.y), 0.5), "the target's height is not the middle")
+	// A mirrored level view is level too; a tilted, rolled or perspective one is not.
+	testing.expect(t, orbit_is_level(orbit_mirror_x(c)), "the mirror of a level view is not level")
+	tilted, rolled, wide := c, c, c
+	tilted.pitch, rolled.roll, wide.ortho = 0.02, 0.02, false
+	testing.expect(t, !orbit_is_level(tilted) && !orbit_is_level(rolled) && !orbit_is_level(wide), "a tilted, rolled or perspective view counts as level")
+	top := c
+	orbit_axis_view(&top, .Top)
+	testing.expect(t, !orbit_is_level(top), "the top view counts as level")
+}

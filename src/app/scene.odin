@@ -147,6 +147,8 @@ Scene :: struct {
 	lights_own: bool,
 	// Millimetres per scene unit when printed (print.odin), saved with the scene.
 	print_mm: f32,
+	// The proportion guides (guides.odin), saved with the scene.
+	guides:   Guides,
 }
 
 // Changes to the object list or the selected object's levels requested by the UI,

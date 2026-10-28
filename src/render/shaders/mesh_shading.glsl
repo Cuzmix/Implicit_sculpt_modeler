@@ -62,7 +62,7 @@ layout(set = 3, binding = 0) uniform Material_Uniforms {
 	// classic rim and an even ambient light).
 	vec4 style;
 	// The viewport's pass (render.View_Pass) in x, 0 shaded as usual; y and z where the
-	// Depth pass starts and ends, as distances from the eye.
+	// Depth pass starts and ends, as distances from the eye; w a wipe compare (main below).
 	vec4 pass;
 };
 
@@ -357,6 +357,13 @@ void main() {
 	// A diagnostic pass shows one quantity plainly, unlit and not tone mapped, so the
 	// form reads without the lights' help; the colours are written as shown.
 	int view_pass = int(pass.x + 0.5);
+	// A wipe compare: pass.w is 0 when off, else 1 + the pass right of its line + 8 times
+	// the line's pixel column, and the pixels from that column on show that pass instead.
+	if (pass.w > 0.5) {
+		float wipe = pass.w - 1.0;
+		float line_px = floor(wipe / 8.0);
+		if (gl_FragCoord.x >= line_px) view_pass = int(wipe - line_px * 8.0 + 0.5);
+	}
 	if (view_pass != 0) {
 		vec3 shown = vec3(0.0);
 		if (view_pass == 1) {

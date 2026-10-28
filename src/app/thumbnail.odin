@@ -177,6 +177,9 @@ Picture :: struct {
 	shown: ^sdl.GPUTexture, // what the window shows this frame, nil for nothing yet
 	key:   u64, // what the texture holds; 0 for nothing
 	at:    time.Tick, // when it was last drawn
+	// The camera it was drawn through, which what is drawn over it (the proportion
+	// guides) follows, since the picture lags the camera while a stroke or turn goes on.
+	orbit: camera.Orbit,
 	due:   bool, // what it shows changed and waits for its turn
 	// For the exit stats: how often it was drawn and how long it last took on the CPU.
 	draws: int,
@@ -263,7 +266,7 @@ picture_frame :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer, draws: []render.Dra
 		ground = {pane, pane}
 	}
 	if tex := render.thumbnail_view_draw(&app.renderer, &pic.view, cmd, size, view, proj, items, ground.top, supersample); tex != nil {
-		pic.shown, pic.key, pic.at = tex, key, time.tick_now()
+		pic.shown, pic.key, pic.at, pic.orbit = tex, key, time.tick_now(), orbit
 		pic.draws += 1
 		app.pictures_drawn += 1
 		pic.ms = time.duration_milliseconds(time.tick_since(start))
@@ -316,6 +319,8 @@ kit_thumbnail :: proc(app: ^App) -> (raised: bool) {
 		if k.thumbnail_flip do lo.x, hi.x = 1, 0
 		ui.image_part(ctx, pic, KIT_THUMBNAIL_IMAGE, lo, hi)
 	}
+	// A flipped picture is mirrored left to right, which leaves level lines where they are.
+	if app.thumbnail.shown != nil do kit_guides(app, pic, app.thumbnail.orbit, "thumbnail")
 	second_view_input(app, sv, a)
 	// The camera and the pass side by side, then Flip, Maximise and Close.
 	ui.begin(ctx, "second view choices", {direction = .Row, center = true, gap = 4})

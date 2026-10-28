@@ -29,9 +29,11 @@ live_ao_view_frame :: proc(app: ^App, cmd: ^sdl.GPUCommandBuffer, view, proj: re
 		return
 	}
 	reach := clamp(app.live_ao_reach, LIVE_AO_REACH_MIN, LIVE_AO_REACH_MAX)
-	// The AO pass shows the occlusion alone, at its full strength whatever the studio's is.
-	strength := 1 if viewport_pass(&app.kit) == .AO else app.studio_ao
-	_ = render.live_ao_frame(&app.renderer, &app.live_ao, cmd, &app.target, view, proj, items, drawn, reach, strength, LIVE_AO_SCALE)
+	// The AO pass shows the occlusion alone, at its full strength whatever the studio's is;
+	// while wiping, each side of the line at its own pass's strength.
+	left, right := live_ao_strengths(app)
+	line: f32 = wipe_line_px(app.kit.passes.wipe_at, app.target.width) if wipe_shown(&app.kit) else -1
+	_ = render.live_ao_frame(&app.renderer, &app.live_ao, cmd, &app.target, view, proj, items, drawn, reach, left, LIVE_AO_SCALE, right, line)
 }
 
 // The texture the viewport shows: render mode's once it has RENDER_SHOW_MIN samples, the

@@ -66,9 +66,11 @@ Blur_Uniforms :: struct {
 // Records this frame's live occlusion after render_viewport, whose `drawn` says what it
 // redrew: `reach` is how far occluders count, as a share of the scene's radius,
 // `strength` how strongly it darkens (0 to 1), `scale` 1 for full size or 2 for half.
+// With `line_px` 0 or more (a wipe compare), pixels from that column on darken by
+// `strength_right` instead, so only the side whose pass wants occlusion shows it.
 // Leaves the result in Live_AO.shown. Returns false only when it cannot run on this
 // device, after which it never tries again.
-live_ao_frame :: proc(r: ^Renderer, lao: ^Live_AO, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, view, proj: Mat4, items: []Draw_Item, drawn: Viewport_Stats, reach, strength: f32, scale: u32) -> bool {
+live_ao_frame :: proc(r: ^Renderer, lao: ^Live_AO, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, view, proj: Mat4, items: []Draw_Item, drawn: Viewport_Stats, reach, strength: f32, scale: u32, strength_right: f32 = 0, line_px: f32 = -1) -> bool {
 	if lao.failed do return false
 	if !live_ao_ensure(r, lao, vt, max(scale, 1)) {
 		live_ao_destroy(r, lao)
@@ -81,7 +83,7 @@ live_ao_frame :: proc(r: ^Renderer, lao: ^Live_AO, cmd: ^sdl.GPUCommandBuffer, v
 	if !ok do radius = 1
 	radius = math.pow(2, math.round(math.log2(radius) * 16) / 16)
 	world_reach := max(reach, 1e-4) * radius
-	key := live_ao_key(vt^, proj, lao.scale, world_reach, strength)
+	key := live_ao_key(vt^, proj, lao.scale, world_reach, {strength, strength_right, line_px})
 	W, H := i32(vt.width), i32(vt.height)
 	whole := Rect{0, 0, W, H}
 	rect := whole
@@ -145,7 +147,7 @@ live_ao_frame :: proc(r: ^Renderer, lao: ^Live_AO, cmd: ^sdl.GPUCommandBuffer, v
 		inv_proj = inv_proj,
 		size     = g.size,
 		// Texels farther than half the reach in depth from the pixel's are another surface.
-		params   = {clamp(strength, 0, 1), world_reach * 0.5, 0, 0},
+		params   = {clamp(strength, 0, 1), world_reach * 0.5, line_px, clamp(strength_right, 0, 1)},
 	}
 	target = {texture = lao.shown, load_op = .LOAD if partial else .DONT_CARE, store_op = .STORE, cycle = !partial}
 	pass = sdl.BeginGPURenderPass(cmd, &target, 1, nil)
@@ -192,14 +194,14 @@ live_ao_destroy :: proc(r: ^Renderer, lao: ^Live_AO) {
 // Identifies what the last run's textures were made for: when any of it changes, the
 // next run covers the whole viewport.
 @(private = "file")
-live_ao_key :: proc(vt: Viewport_Target, proj: Mat4, scale: u32, reach, strength: f32) -> u64 {
+live_ao_key :: proc(vt: Viewport_Target, proj: Mat4, scale: u32, reach: f32, strength: [3]f32) -> u64 {
 	Keyed :: struct { // no padding: every byte is hashed
 		proj:          Mat4,
 		width, height: u32,
 		samples:       u32,
 		scale:         u32,
 		reach:         f32,
-		strength:      f32,
+		strength:      [3]f32, // left, right of a wipe's line, and the line
 	}
 	k := Keyed{proj, vt.width, vt.height, u32(vt.samples), scale, reach, strength}
 	return max(hash.fnv64a(slice.bytes_from_ptr(&k, size_of(k))), 1)

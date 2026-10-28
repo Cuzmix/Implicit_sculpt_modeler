@@ -295,6 +295,9 @@ kit_grid :: proc(app: ^App) {
 	}
 	// What is drawn over the main view (overlay.odin) goes here, under the view panes.
 	k.layer = ui.layer_mark(ctx)
+	kit_wipe(app, g.main)
+	guides_frame(app)
+	kit_guides(app, g.main, app.camera, "main")
 	// While a divider is dragged the pictures keep their size, stretched, as the main
 	// view's does: each is drawn again at its new size once it is let go.
 	resizing := g.dragged != 0
@@ -346,6 +349,7 @@ kit_view_pane :: proc(app: ^App, i: int, r: ui.Rect) {
 	if app.panes[i - 1].shown != nil do ui.image(ctx, a.rect, KIT_PANE_IMAGE + u64(i - 1))
 	second_view_input(app, sv, a)
 	ui.end(ctx)
+	if app.panes[i - 1].shown != nil do kit_guides(app, r, app.panes[i - 1].orbit, fmt.tprintf("pane %d", i))
 	head := [2]f32{max(r.x, kit_left(app), grid_left_column_edge(app)) + 6, max(r.y, kit_top() - 8) + 6}
 	// Under the panels a docked right column may cover the pane's right part: a head too
 	// wide for the room left of it takes two rows, so Link and Maximise stay in reach.

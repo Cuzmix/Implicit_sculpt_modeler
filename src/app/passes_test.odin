@@ -72,3 +72,39 @@ pass_items_mark_every_draw_and_shaded_clears_them :: proc(t: ^testing.T) {
 	pass_items(items, view, .Shaded)
 	testing.expect_value(t, items[0].pass, [4]f32{})
 }
+
+@(test)
+a_wipe_packs_its_line_and_right_pass_into_the_last_field :: proc(t: ^testing.T) {
+	m: render.Mesh_Buffers
+	items := []render.Draw_Item{{mesh = &m}}
+	view := render.Mat4(1)
+	// The shader takes the line as floor((w - 1) / 8) and the right pass as what is left.
+	pass_items(items, view, .Shaded, .Normals, 960)
+	w := items[0].pass.w - 1
+	line := f32(int(w / 8))
+	testing.expect_value(t, items[0].pass.x, f32(render.View_Pass.Shaded))
+	testing.expect_value(t, line, f32(960))
+	testing.expect_value(t, int(w - line * 8 + 0.5), int(render.View_Pass.Normals))
+	// Depth on the right measures the range though the left side is Shaded.
+	pass_items(items, view, .Shaded, .Depth, 0)
+	testing.expect_value(t, items[0].pass, [4]f32{f32(render.View_Pass.Shaded), 0, 1, 1 + f32(render.View_Pass.Depth)})
+	// With no wipe the last field is 0, which the shader reads as off.
+	pass_items(items, view, .Normals)
+	testing.expect_value(t, items[0].pass.w, f32(0))
+}
+
+@(test)
+the_wipe_line_stays_inside_the_view :: proc(t: ^testing.T) {
+	testing.expect_value(t, wipe_line_px(0.5, 1600), f32(800))
+	testing.expect_value(t, wipe_line_px(0, 1600), f32(80))
+	testing.expect_value(t, wipe_line_px(1, 1600), f32(1520))
+	k: Kit_State
+	wipe_toggle(&k)
+	testing.expect(t, wipe_shown(&k) && k.passes.wipe_at == 0.5, "the first wipe starts in the middle")
+	k.passes.wipe_at = 0.7
+	wipe_toggle(&k)
+	wipe_toggle(&k)
+	testing.expect_value(t, k.passes.wipe_at, f32(0.7))
+	k.passes.recording = true
+	testing.expect(t, !wipe_shown(&k), "a wipe shows while recording")
+}

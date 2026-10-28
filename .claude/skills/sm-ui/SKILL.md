@@ -106,6 +106,18 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   too) or `key_held` (backquote by keycode, intercepted in main.odin's event loop as Space is, reserved in
   `chord_reserved`), ignored while a time-lapse or turntable records (`recording`).
   Read what shows with `viewport_pass(k)`; the layout writes `pass` only when not Shaded and never a peek.
+- Wipe compare (`passes.wipe`, `wipe_at` a share of the main pane, command `View_Wipe`, `kit_wipe` after the grid's
+  layer mark): one draw, packed in `Draw_Item.pass.w` = `1 + right_pass + 8 * line_px` (0 off; the shader floors /8), so
+  every path that resets `pass` (panes, thumbnail, nav head, the final Shaded) drops it; `line_px` is `wipe_line_px` of
+  the target's width (it stays its size, stretched, during a divider drag). Live AO's blur gets the line and the right
+  side's strength in `params.zw`. A knob drag stamps `app.view_moved` (LOD treats it as the view moving). Off while
+  recording (`wipe_shown`); a peek is ignored while wiping; never saved.
+- Proportion guides (`src/app/guides.odin`, `app.scene.guides`, scene v24 `guides_put`/`guides_get`, commands
+  `View_Guides`/`View_Guides_Reset`): `kit_guides(app, rect, orbit, name)` draws only when `camera.orbit_is_level`
+  (ortho, up within 0.5° of +Y) and maps heights with `orbit_level_frac`/`orbit_level_height`; panes and the thumbnail
+  pass `Picture.orbit` (the camera their picture was drawn through, which lags while working), the main view
+  `app.camera`. Only the tag is a ui root, so strokes cross the line. `guides_frame` (in `kit_grid`) bumps
+  `view_edits` once when the held tag lets go; never an undo step, never a Scene_Command.
 - View grid (`src/app/grid.odin`, `k.grid: View_Grid`, command `View_Grid`): presets only (`grid_cells`, pixel-snapped),
   pane 0 is the main view, panes 1-3 are `Second_View`s per preset drawn by `picture_frame` into `App.panes` (one
   picture a frame, `app.pictures_drawn`); `view_grid_room` is the window while `k.panes_under` (default; panels float over the panes, a head avoids columns and wraps to two rows when narrow), else spans the docked columns; `Theme.panel_shadow` lifts `.Panel`s (Lens only); a divider drag freezes the target and

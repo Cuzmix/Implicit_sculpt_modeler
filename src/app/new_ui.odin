@@ -159,6 +159,11 @@ Kit_State :: struct {
 	// The view grid's panes run under the docked columns, the panels floating over them,
 	// rather than stopping beside them (Settings > Interface; grid.odin).
 	panes_under:  bool,
+	// The proportion guide tag held (guides.odin), 0 for none, never kept; the guide
+	// lines drawn this frame and the frames a guide moved, for the exit stats.
+	guide_held:  ui.Id,
+	guide_lines: int,
+	guide_drags: int,
 	rail_side:  Rail_Side, // where the modifier wheel sits, if anywhere (modifiers.odin)
 	// What the workspace hides, and the workspaces (workspaces.odin).
 	hidden:     bit_set[Zone],
@@ -1361,6 +1366,8 @@ kit_camera_menu :: proc(app: ^App) {
 	_ = command_menu_item(app, .View_Back)
 	_ = command_menu_item(app, .View_Forward)
 	_ = command_menu_item(app, .Thumbnail)
+	_ = command_menu_item(app, .View_Guides)
+	if app.scene.guides.shown do _ = command_menu_item(app, .View_Guides_Reset)
 	// The view grid's presets, the menu staying open to try them.
 	ui.divider(ctx, across = true)
 	ui.caption(ctx, "  VIEW GRID")

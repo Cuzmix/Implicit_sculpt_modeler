@@ -1043,7 +1043,11 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		// environment's image, and a Silhouette stands on nothing, as the thumbnail's does.
 		app.kit.passes.recording = timelapse_capturing(&app) || turntable_recording(&app)
 		shown_pass := viewport_pass(&app.kit)
-		pass_items(draws[:], view, shown_pass)
+		if wipe_shown(&app.kit) {
+			pass_items(draws[:], view, shown_pass, wipe_right(&app.kit), wipe_line_px(app.kit.passes.wipe_at, app.target.width))
+		} else {
+			pass_items(draws[:], view, shown_pass)
+		}
 		if ground, ok := pass_ground(shown_pass); ok {
 			app.renderer.background = ground
 			app.renderer.environment_look.background = false
@@ -1501,6 +1505,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			for z in Zone do if z in k.hidden do fmt.sbprintf(&zones, "%s%s", "," if strings.builder_len(zones) > 0 else "", strings.to_lower(fmt.tprint(z), context.temp_allocator))
 			fmt.printfln("workspace=%s workspace_modified=%d workspace_count=%d workspace_menu=%d workspace_switches=%d arrange_drawer=%d zones_hidden=%s", preset_escape(workspace_name(k, w.current)), int(w.modified), count, int(w.menu), w.switches, int(k.arrange_drawer), strings.to_string(zones) if strings.builder_len(zones) > 0 else "none")
 			fmt.printfln("pass=%v pass_shown=%v pass_menu=%d pass_switches=%d", k.passes.pass, viewport_pass(k), int(k.passes.menu), k.passes.switches)
+			fmt.printfln("wipe=%d wipe_at=%.3f wipe_right=%v wipe_drags=%d", int(wipe_shown(k)), k.passes.wipe_at, wipe_right(k), k.passes.wipe_drags)
+			fmt.printfln("guides=%d guide_heights=%s guide_lines=%d guide_drags=%d", int(app.scene.guides.shown), guides_heights_text(app.scene.guides), k.guide_lines, k.guide_drags)
 		}
 		// The side bars' popover: what it shows (a section by its name), or none; the look.
 		pop := "none"
