@@ -2782,9 +2782,10 @@ def lens_left_handed_mirrors_the_chrome():
     return s, LENS_1440 + ["--script=set left_handed 1"], camera_still({"island": rect_x(1360, 1376), "chips": lambda v: float(v.split(",")[0]) > 900, "camera_shift": lambda v: float(v.split(",")[0]) > 0.2})
 
 
-# The Lens shelf at 1440 x 900 (lens_shelf.odin): its tiles, All, the page names under it, and
-# in the brush picker the Paint page and the Draw and Inflate cards.
-LENS_SHELF = {"clay": (396, 830), "draw": (459, 830), "layer": (972, 830), "all": (1044, 830)}
+# The Lens shelf at 1440 x 900 (lens_shelf.odin): its tiles, All, the tools after them, the
+# page names under it, and in the brush picker the Paint page and the Draw and Inflate cards.
+LENS_SHELF = {"clay": (252, 830), "draw": (316, 830), "inflate": (444, 830), "layer": (828, 830), "all": (892, 830),
+              "move_tool": (957, 833), "curve_remesh": (780, 833)}
 LENS_SHELF_PAGES = {"sculpt": (633, 883), "paint": (693, 883), "move": (752, 883), "curve": (813, 883)}
 LENS_SHEET = {"paint": (839, 120), "draw": (525, 320), "inflate": (525, 440)}
 LENS_SHELF_SCULPT = "Brush:Clay,Brush:Draw,Brush:Smooth,Brush:Inflate,Brush:Pinch,Brush:Crease,Brush:Grab,Brush:Flatten,Brush:Mask,Brush:Layer"
@@ -2832,6 +2833,41 @@ def lens_shelf_all_opens_the_picker():
         s.ftap(*LENS_SHEET["paint"])
         s.wait(10)
         return s, LENS_1440, camera_still({"brush_sheet": near(1), "shelf_page": is_text("Paint"), "dabs": near(0)})
+    return Steps([run(False), run(True)])
+
+
+@scenario
+def lens_shelf_swipe_turns_the_page():
+    """A finger swiped left along the shelf turns it from Sculpt to Paint, and one swiped right turns it back; nothing is picked, run or sculpted."""
+    def run(back):
+        s = Script()
+        s.fdrag(line(LENS_SHELF["inflate"], (LENS_SHELF["inflate"][0] - 220, 832), 10))
+        s.wait(10)
+        if back:
+            # The Paint page is narrower, so the shelf stands further in: this is its Mask tile.
+            s.fdrag(line(LENS_SHELF["inflate"], (LENS_SHELF["inflate"][0] + 220, 832), 10))
+            s.wait(10)
+            return s, LENS_1440, camera_still({"shelf_page": is_text("Sculpt"), "shelf_swipes": near(2), "brush_kind": is_text("draw"), "dabs": near(0)})
+        return s, LENS_1440, camera_still({"shelf_page": is_text("Paint"), "shelf_turns": near(1), "shelf_swipes": near(1),
+                                           "brush_kind": is_text("draw"), "dabs": near(0)})
+    return Steps([run(False), run(True)])
+
+
+@scenario
+def lens_shelf_tools_follow_the_brushes():
+    """The tools come after the shelf's brushes and All on every page: a tap on Move picks the gizmo; on the Curve page the same buttons are there, and a long press on Remesh opens its quick menu."""
+    def run(curve):
+        s = Script()
+        if curve:
+            s.ftap(*LENS_SHELF_PAGES["curve"])
+            s.wait(10)
+            # The Curve page's three brushes leave the shelf narrower: Remesh moves in with it.
+            s.ftap(*LENS_SHELF["curve_remesh"], hold=LONG_PRESS_FRAMES)
+            s.wait(10)
+            return s, LENS_1440, camera_still({"shelf_page": is_text("Curve"), "shelf_tools": near(6), "bar_pop": is_text("remesh_quick"), "dabs": near(0)})
+        s.ftap(*LENS_SHELF["move_tool"])
+        s.wait(10)
+        return s, LENS_1440, camera_still({"tool": is_text("move"), "shelf_tools": near(6), "shelf_shown": near(10), "dabs": near(0)})
     return Steps([run(False), run(True)])
 
 

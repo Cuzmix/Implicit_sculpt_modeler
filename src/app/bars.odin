@@ -42,19 +42,6 @@ BAR_LISTS := [?]Bar_Which{.Shortcuts, .Tools, .View_Rail, .Shelf_Sculpt, .Shelf_
 @(rodata)
 BAR_LAYOUT := [?]Bar_Which{.Shortcuts, .Tools, .View_Rail}
 
-@(rodata)
-BAR_NAMES := [Bar_Which]string {
-	.Shortcuts = "THE RIGHT BAR",
-	.Tools     = "THE BOTTOM BAR",
-	.Dock      = "THE DOCK",
-	.View_Rail = "THE VIEW RAIL",
-	.Shelf_Sculpt = "THE SCULPT SHELF",
-	.Shelf_Paint  = "THE PAINT SHELF",
-	.Shelf_Move   = "THE MOVE SHELF",
-	.Shelf_Curve  = "THE CURVE SHELF",
-	.Brush_Pie    = "THE BRUSH PIE",
-}
-
 // Each bar's name in settings.txt: the zone of the screen it holds, so a later layout that
 // moves bars about keeps each one's buttons by where they are.
 @(rodata)
@@ -265,14 +252,15 @@ bar_put :: proc(app: ^App, pick: Bar_Pick, s: Bar_Slot) {
 	at := clamp(pick.slot, 0, count^ - 1)
 	if pick.which == .Dock do app.kit.dock[at] = {command = s}
 	else do bar_list(app, pick.which).slots[at] = s
-	report(app, nil, {}, "%s now has %s", bar_title(pick.which), bar_label(s))
+	report(app, nil, {}, "%s now has %s", bar_title(pick.which, app.kit.chrome == .Lens), bar_label(s))
 }
 
-// "The right bar", for notes.
-bar_title :: proc(which: Bar_Which) -> string {
+// "The right bar", for notes; the tool strip by where it is, on Classic's bottom bar or at
+// the end of Lens's shelf.
+bar_title :: proc(which: Bar_Which, lens := false) -> string {
 	switch which {
 	case .Shortcuts: return "The right bar"
-	case .Tools:     return "The bottom bar"
+	case .Tools:     return "The shelf's tools" if lens else "The bottom bar"
 	case .Dock:      return "The dock"
 	case .View_Rail: return "The view rail"
 	case .Shelf_Sculpt: return "The Sculpt shelf"
@@ -289,7 +277,7 @@ bar_title :: proc(which: Bar_Which) -> string {
 bar_insert :: proc(app: ^App, which: Bar_Which, at: int) -> bool {
 	count := bar_count(app, which)
 	if count^ >= bar_capacity(which) {
-		report(app, nil, {.Warning}, "%s holds %d buttons at most: remove one first", bar_title(which), bar_capacity(which))
+		report(app, nil, {.Warning}, "%s holds %d buttons at most: remove one first", bar_title(which, app.kit.chrome == .Lens), bar_capacity(which))
 		return false
 	}
 	i := clamp(at, 0, count^)

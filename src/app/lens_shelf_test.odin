@@ -110,3 +110,50 @@ brush_pie_is_a_bar_kept_in_settings :: proc(t: ^testing.T) {
 	kit_layout_put(&c.kit, kit_layout_text(&a.kit))
 	testing.expect(t, !bar_changed(&c, .Brush_Pie))
 }
+
+// What fits across the shelf: everything when there is room; with less, the brushes give
+// way to six, then the tools to three, then the brushes to three, then the last tools; a
+// page with fewer keeps what it has.
+@(test)
+shelf_fit_gives_brushes_way_before_tools :: proc(t: ^testing.T) {
+	b, m := shelf_fit(10, 6, 2000)
+	testing.expect(t, b == 10 && m == 6)
+	b, m = shelf_fit(10, 6, shelf_width(8, 6))
+	testing.expect(t, b == 8 && m == 6)
+	b, m = shelf_fit(10, 6, shelf_width(6, 4) + 10)
+	testing.expect(t, b == 6 && m == 4)
+	b, m = shelf_fit(10, 6, shelf_width(5, 3) + 10)
+	testing.expect(t, b == 5 && m == 3)
+	b, m = shelf_fit(10, 6, 0)
+	testing.expect(t, b == 3 && m == 0)
+	b, m = shelf_fit(3, 6, shelf_width(3, 6))
+	testing.expect(t, b == 3 && m == 6)
+	// Arrange's + tiles take room of their own.
+	testing.expect(t, shelf_width(4, 2, true) > shelf_width(4, 2))
+	b, m = shelf_fit(10, 6, shelf_width(10, 6), adding = true)
+	testing.expect(t, b < 10)
+}
+
+// A turn steps the page and stays at either end; each one counts, slides the new page in,
+// and closes the quick settings; Reset zone on the shelf puts its tools back too.
+@(test)
+shelf_turns_stop_at_the_ends :: proc(t: ^testing.T) {
+	app := new(App)
+	defer free(app)
+	defer results_destroy(app)
+	bars_reset(&app.kit)
+	sh := &app.kit.shelf
+	sh.row = {0, 0, 640, 58}
+	sh.quick = true
+	testing.expect(t, shelf_turn(app, 1) && sh.page == .Paint && sh.slide > 0 && !sh.quick)
+	testing.expect(t, shelf_turn(app, -5) && sh.page == .Sculpt && sh.slide < 0)
+	testing.expect(t, !shelf_turn(app, -1) && sh.page == .Sculpt)
+	testing.expect(t, shelf_turn(app, 3) && sh.page == .Curve)
+	testing.expect(t, !shelf_turn(app, 1) && sh.page == .Curve)
+	testing.expect_value(t, sh.turns, 3)
+
+	bar_remove(app, .Tools, 0)
+	testing.expect(t, bar_changed(app, .Tools))
+	arrange_zone_reset(app, .Shelf)
+	testing.expect(t, !bar_changed(app, .Tools))
+}
