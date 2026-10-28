@@ -204,8 +204,9 @@ adjust_model :: proc(app: ^App, amount: f32) -> bool {
 	obj := selected_object(app)
 	d := &app.model.drag
 	a.amount = poly.drag_apply(&obj.cage.mesh, &d.set, amount)
-	d.amount = a.amount
-	app.model.last[d.action] = a.amount
+	// A chamfer keeps its sign, which says it is one, for a tap to repeat.
+	d.amount = -a.amount if d.action == .Bevel && d.amount < 0 else a.amount
+	app.model.last[d.action] = d.amount
 	cage_positions_moved(app, obj, d.set.verts)
 	a.adjusts += 1
 	// The cage changed, which the autosave and the mask read; the adjust stays live.

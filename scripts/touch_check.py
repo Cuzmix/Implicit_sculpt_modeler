@@ -2969,6 +2969,86 @@ def model_adjust_last_extrude():
 
 
 @scenario
+def model_extrude_on_a_smoothed_cage():
+    """With the cube cage drawn at Smooth 2, an extrude drag on its front face picks the cage face under the pen on the smoothed surface and pulls it out (four new points, one undo step)."""
+    s = Script()
+    s.mouse_drag(line((640, 500), (630, 560), 4))
+    s.wait(5)
+    return s, LENS_1440 + ["--script=add_cage cube; select 1; delete_object; frame_all; cage_smooth 2; model_action extrude"], {"cage_smooth": near(2), "cage_points": near(12), "cage_faces": near(10), "undo_steps": near(1)}
+
+
+@scenario
+def model_crease_tap_creases_an_edge():
+    """With Crease, a tap on a smoothed cube's edge creases it fully sharp: one creased edge, one undo step."""
+    s = Script()
+    s.mouse_drag([(640, 430)])
+    s.wait(5)
+    return s, LENS_1440 + ["--script=add_cage cube; select 1; delete_object; frame_all; cage_smooth 2; model_action crease"], {"cage_creases": near(1), "undo_steps": near(1), "model_done": near(1)}
+
+
+@scenario
+def model_crease_drag_sets_how_sharp():
+    """A Crease drag upward from an edge sets its sharpness as it goes and is one undo step on lift."""
+    s = Script()
+    s.mouse_drag(line((640, 430), (640, 350), 6))
+    s.wait(5)
+    return s, LENS_1440 + ["--script=add_cage cube; select 1; delete_object; frame_all; cage_smooth 2; model_action crease"], {"cage_creases": near(1), "undo_steps": near(1), "model_done": near(1)}
+
+
+@scenario
+def model_crease_ctrl_tap_removes_a_crease():
+    """After Crease by angle creases all twelve edges of a cube, a Ctrl tap with Crease on one takes its crease away."""
+    s = Script()
+    s.mouse_drag([(640, 430)], keys=("ctrl",))
+    s.wait(5)
+    return s, LENS_1440 + ["--script=add_cage cube; select 1; delete_object; frame_all; crease_cage by_angle; cage_smooth 2; model_action crease"], {"cage_creases": near(11), "undo_steps": near(1)}
+
+
+@scenario
+def model_crease_point_tap_makes_a_corner():
+    """With Crease point, a tap on a cube's front face creases the corner nearest the pen."""
+    s = Script()
+    s.mouse_drag([(645, 440)])
+    s.wait(5)
+    return s, LENS_1440 + ["--script=add_cage cube; select 1; delete_object; frame_all; cage_smooth 2; model_action crease_point"], {"cage_corners": near(1), "undo_steps": near(1)}
+
+
+@scenario
+def model_bevel_drag_rounds_an_edge_ring():
+    """A Bevel drag up from a cube's edge with the Edge ring target rounds the four edges of the ring with three segments, one undo step; the cage stays sound."""
+    s = Script()
+    s.mouse_drag(line((640, 430), (640, 380), 5))
+    s.wait(5)
+    return s, LENS_1440 + ["--check-mesh", "--script=add_cage cube; select 1; delete_object; frame_all; model_action bevel; model_target edge_ring"], {"cage_points": near(32), "cage_faces": near(18), "cage_broken": near(0), "undo_steps": near(1), "model_done": near(1)}
+
+
+@scenario
+def model_bevel_drag_down_chamfers():
+    """A Bevel drag downward from the edge gives a flat chamfer: one segment on each of the ring's edges, an octagonal prism."""
+    s = Script()
+    s.mouse_drag(line((640, 430), (640, 490), 5))
+    s.wait(5)
+    return s, LENS_1440 + ["--script=add_cage cube; select 1; delete_object; frame_all; model_action bevel; model_target edge_ring"], {"cage_points": near(16), "cage_faces": near(10), "undo_steps": near(1)}
+
+
+@scenario
+def model_bevel_sideways_adds_segments():
+    """A Bevel drag that goes up and then 60 points right rounds with two more segments than the default three: five."""
+    s = Script()
+    s.mouse_drag(line((640, 430), (640, 380), 4) + line((645, 380), (700, 380), 4))
+    s.wait(5)
+    return s, LENS_1440 + ["--script=add_cage cube; select 1; delete_object; frame_all; model_action bevel; model_target edge_ring"], {"cage_points": near(48), "undo_steps": near(1)}
+
+
+@scenario
+def model_mesh_check_and_creases_by_angle():
+    """Crease by angle on a cone creases every edge (its sides bend 45 degrees), and Cage check turns the mesh check on, all from scripts."""
+    s = Script()
+    s.wait(5)
+    return s, LENS_1440 + ["--script=add_cage cone; select 1; delete_object; frame_all; model_action crease; cage_check; crease_cage by_angle"], {"cage_creases": near(16), "undo_steps": near(0)}
+
+
+@scenario
 def model_delete_tap_removes_a_face():
     """With Delete picked, a tap on a cage's face removes it (a hole of four border edges), not turning the view."""
     s = Script()

@@ -146,6 +146,10 @@ Command_Id :: enum u8 {
 	Model_Target,
 	Tidy_Cage,
 	Select_Cage,
+	Cage_Smooth,
+	Cage_Flat,
+	Crease_Cage,
+	Cage_Check,
 	Adjust_Last,
 	Reset_Transform,
 	// The scene
@@ -578,6 +582,48 @@ COMMANDS := [Command_Id]Command {
 		args = len(poly.Select_Op),
 		run = proc(app: ^App, arg: int) {app.ui.scene_command = {kind = .Select_Cage, select = poly.Select_Op(arg)}},
 		enabled = proc(app: ^App, _: int) -> bool {return selected_cage(app)},
+	},
+	.Cage_Smooth = {
+		label = "Cage smooth",
+		help = "Draws the selected cage smoothed by Catmull-Clark subdivision, 1 to 4 steps (each four times the faces), live as ZBrush's Dynamic Subdivision: creased edges stay sharp, the cage's edges show along the surface, and every action still works on the cage. Off draws the cage as it is. One undo step.",
+		icon = ui.ICON_GRID,
+		args = poly.SUBDIVIDE_MAX + 1,
+		run = proc(app: ^App, arg: int) {
+			if obj := selected_object(app); obj != nil && obj.cage != nil do app.ui.scene_command = {kind = .Cage_Look, look = {arg, obj.cage.look.flat}}
+		},
+		checked = proc(app: ^App, arg: int) -> bool {
+			obj := selected_object(app)
+			return obj != nil && obj.cage != nil && obj.cage.look.smooth == arg
+		},
+		enabled = proc(app: ^App, _: int) -> bool {return selected_cage(app)},
+	},
+	.Cage_Flat = {
+		label = "Cage flat",
+		help = "Splits the selected cage's smoothing steps without rounding anything, for hard surfaces that want more faces and no curves. One undo step.",
+		icon = ui.ICON_GRID,
+		run = proc(app: ^App, _: int) {
+			if obj := selected_object(app); obj != nil && obj.cage != nil do app.ui.scene_command = {kind = .Cage_Look, look = {obj.cage.look.smooth, !obj.cage.look.flat}}
+		},
+		checked = proc(app: ^App, _: int) -> bool {
+			obj := selected_object(app)
+			return obj != nil && obj.cage != nil && obj.cage.look.flat
+		},
+		enabled = proc(app: ^App, _: int) -> bool {return selected_cage(app)},
+	},
+	.Crease_Cage = {
+		label = "Crease cage",
+		help = "Creases the selected cage's edges so Smooth keeps them sharp: By angle creases every edge whose faces bend more than 30 degrees, Polygroup borders every edge between two polygroups, and Clear removes every crease and corner. One undo step.",
+		icon = ui.ICON_GRID,
+		args = len(Cage_Crease),
+		run = proc(app: ^App, arg: int) {app.ui.scene_command = {kind = .Crease_Cage, crease = Cage_Crease(arg)}},
+		enabled = proc(app: ^App, _: int) -> bool {return selected_cage(app)},
+	},
+	.Cage_Check = {
+		label = "Cage check",
+		help = "Colours what would trouble smoothing, printing or a game engine on the shown cages while the Model tool is in hand: open edges and polygons of five or more corners red, triangles yellow, faces that are not flat pink, and poles green (three edges) or magenta (five or more).",
+		icon = ui.ICON_GRID,
+		run = proc(app: ^App, _: int) {app.model.check = !app.model.check},
+		checked = proc(app: ^App, _: int) -> bool {return app.model.check},
 	},
 	.Gizmo = {
 		label = "Gizmo",
@@ -2166,6 +2212,10 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 		return CAGE_TIDY_NAMES[Cage_Tidy(arg)]
 	case .Select_Cage:
 		return CAGE_SELECT_NAMES[poly.Select_Op(arg)]
+	case .Cage_Smooth:
+		return "Cage smooth off" if arg == 0 else fmt.tprintf("Cage smooth %d", arg)
+	case .Crease_Cage:
+		return CAGE_CREASE_NAMES[Cage_Crease(arg)]
 	case .Brush:
 		return fmt.tprintf("%s brush", BRUSHES[sculpt.Brush_Kind(arg)].name)
 	case .View_Axis:

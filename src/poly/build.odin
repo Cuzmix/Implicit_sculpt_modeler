@@ -12,6 +12,7 @@ Build_Error :: enum u8 {
 	Inconsistent, // two faces run an edge the same way: one of them is turned over
 	Non_Manifold_Vertex, // the faces round a vertex form more than one fan
 	Unused_Vertex, // a vertex no face uses
+	Unsupported, // an action meets a shape it does not handle, such as a bevel at a border
 }
 
 // Builds a cage from polygons: face k has sizes[k] corners, taken in order from
