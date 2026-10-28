@@ -142,6 +142,8 @@ Command_Id :: enum u8 {
 	Voxel_Res_Down,
 	Add_Cage,
 	Apply_Cage,
+	Model_Action,
+	Model_Target,
 	Adjust_Last,
 	Reset_Transform,
 	// The scene
@@ -541,6 +543,22 @@ COMMANDS := [Command_Id]Command {
 		icon = ui.ICON_BRUSH,
 		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Apply_Cage}},
 		enabled = proc(app: ^App, _: int) -> bool {return selected_cage(app)},
+	},
+	.Model_Action = {
+		label = "Model action",
+		help = "Picks what a press on a cage does with the Model tool (Extrude, Inset, Move, Delete, Polygroup, Flip), and takes the Model tool.",
+		icon = ui.ICON_SHAPES,
+		args = len(Model_Action),
+		run = proc(app: ^App, arg: int) {model_pick_action(app, Model_Action(arg))},
+		checked = proc(app: ^App, arg: int) -> bool {return app.tool == .Model && app.model.action == Model_Action(arg)},
+	},
+	.Model_Target = {
+		label = "Model target",
+		help = "Picks which faces the Model tool's action reaches from the face under the pen: that face, its loop, its island, its flat island or its polygroup.",
+		icon = ui.ICON_FOCUS,
+		args = len(Model_Target),
+		run = proc(app: ^App, arg: int) {model_pick_target(app, Model_Target(arg))},
+		checked = proc(app: ^App, arg: int) -> bool {return model_target(&app.model, app.model.action) == Model_Target(arg)},
 	},
 	.Gizmo = {
 		label = "Gizmo",
@@ -2121,6 +2139,10 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 		return fmt.tprintf("New scene: %s", NEW_SCENES[arg].name)
 	case .Add_Cage:
 		return fmt.tprintf("Add cage: %s", poly.PRIMITIVE_NAMES[poly.Primitive(arg)])
+	case .Model_Action:
+		return fmt.tprintf("Model: %s", MODEL_ACTION_NAMES[Model_Action(arg)])
+	case .Model_Target:
+		return fmt.tprintf("Target: %s", MODEL_TARGET_NAMES[Model_Target(arg)])
 	case .Brush:
 		return fmt.tprintf("%s brush", BRUSHES[sculpt.Brush_Kind(arg)].name)
 	case .View_Axis:

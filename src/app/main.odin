@@ -494,6 +494,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	defer shape_pending_destroy(&app.shape_pending)
 	defer rebuild_preview_destroy(&app.rebuild)
 	defer curve_tool_destroy(&app.curve)
+	defer model_tool_free(&app.model)
 	app.hd_window_vertices = sculpt.HD_WINDOW_VERTICES
 	// Before a scene opens, which keeps the starting lights for the rest of the lights it
 	// lists; the settings file brings back what earlier runs chose further down.
@@ -905,6 +906,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		if group_pick_frame(&app, input) || eyedropper_frame(&app, input) || focus_pick_frame(&app, input) || lights_viewport_frame(&app, input) {
 			brush_stroke_finish(&app)
 		} else {
+			// A drag the tool changed under ends as it stands, one undo step.
+			if app.tool != .Model && app.model.drag.state != .None do model_drag_end(&app)
 			switch app.tool {
 			case .Brush:
 				if clip_frame(&app, input) || mask_shape_frame(&app, input) {
@@ -930,7 +933,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			case .Model:
 				replay_stop(&app)
 				brush_stroke_finish(&app)
-				model_tool_frame(&app, input)
+				if !model_tool_frame(&app, input) do return false
 			}
 		}
 		sculpted.dabs += waited_dab.dabs
@@ -1384,6 +1387,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			broken += int(!poly.check_ok(c))
 		}
 		fmt.printfln("cages=%d cage_points=%d cage_edges=%d cage_faces=%d cage_ngons=%d cage_broken=%d tool=%v", cages, points, edges, faces, ngons, broken, app.tool)
+		fmt.printfln("model_action=%v model_target=%v model_done=%d model_refused=%d", app.model.action, model_target(&app.model, app.model.action), app.model.done, app.model.refused)
 	}
 	{
 		off, ghosts := scene_view_counts(&app)

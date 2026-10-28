@@ -591,9 +591,9 @@ drag_decide :: proc(app: ^App, input: Viewport_Input) -> (owner: Drag_Owner, emp
 	// The safe zone turns the view whatever is under it, for every tool; Ctrl keeps it for
 	// the mask and hide shapes, as on empty space.
 	if !d.ctrl && !(shapes && press.held) && in_edge(app, mouse) do return .Orbit, false
-	// Empty space turns the view for the brushes and the Move tool; Ctrl keeps it for the
-	// mask and hide shapes, which start there.
-	if (app.tool == .Brush || app.tool == .Move) && !d.ctrl && !shapes {
+	// Empty space turns the view for the brushes, the Move tool and the Model tool; Ctrl
+	// keeps it for the mask and hide shapes, which start there.
+	if (app.tool == .Brush || app.tool == .Move || app.tool == .Model) && !d.ctrl && !shapes {
 		empty := app.nav.empty_drag[d.pointer] if d.pointer != .Finger else .Orbit
 		if empty == .Orbit {
 			origin, dir := mouse_ray(app.camera, mouse, input.size)

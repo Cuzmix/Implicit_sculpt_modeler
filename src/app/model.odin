@@ -7,6 +7,7 @@ import "core:time"
 import "../geom"
 import "../poly"
 import "../render"
+import "../sculpt"
 import "../ui"
 
 // Model mode's objects: a polygon cage (the poly package) edited with the Model tool, as
@@ -72,6 +73,16 @@ object_build_cage :: proc(app: ^App, obj: ^Object, cage: poly.Mesh) -> bool {
 		return false
 	}
 	return true
+}
+
+// Sends the cage's vertices `verts` (cage ids), moved without a change of topology, to
+// the level: its positions, bounds and normals, and the GPU at the next flush.
+cage_positions_moved :: proc(app: ^App, obj: ^Object, verts: []u32) {
+	cp := obj.cage
+	level := make([]u32, len(verts), context.temp_allocator)
+	positions := make([]Vec3, len(verts), context.temp_allocator)
+	for v, i in verts do level[i], positions[i] = cp.vert_of[v], cp.mesh.positions[v]
+	sculpt.sculptor_place_vertices(object_sculptor(obj), level, positions)
 }
 
 @(private = "file")
@@ -174,10 +185,22 @@ object_editable :: proc(app: ^App, obj: ^Object, say: bool) -> bool {
 }
 
 // The Model tool's state: the primitive and segments Add cage makes (zero segments for
-// the primitive's defaults).
+// the primitive's defaults), the action and target a press uses (model_tool.odin), and
+// what the pen is over and dragging.
 Model_Tool :: struct {
 	primitive: poly.Primitive,
 	segments:  poly.Primitive_Options,
+	action:    Model_Action,
+	// Per action, the target picked for it, for those in `targeted` (the rest use
+	// MODEL_DEFAULT_TARGETS), so each action keeps its own as ZModeler's do.
+	targets:   [Model_Action]Model_Target,
+	targeted:  bit_set[Model_Action],
+	group:     u16, // the polygroup Polygroup paints
+	hover:     Model_Hover,
+	drag:      Model_Drag,
+	// Since the start, for the exit stats: actions made, and refused.
+	done:      int,
+	refused:   int,
 }
 
 // The segments Add cage uses: the ones set, and the defaults for those never set.
@@ -194,9 +217,27 @@ model_segments :: proc(m: Model_Tool) -> poly.Primitive_Options {
 // sculpt, and what the selected cage is made of.
 kit_model_tab :: proc(app: ^App) {
 	ctx := &app.kit.ctx
-	t := ctx.theme
 	m := &app.model
-	kit_tool_head(ctx, ui.ICON_GRID, "Model", "Builds and edits cages: polygons with their edges shown, as ZBrush's ZModeler and Blender's edit mode work. Add a primitive here; Apply to sculpt turns a cage into a mesh to sculpt.")
+	kit_tool_head(ctx, ui.ICON_GRID, "Model", "Builds and edits cages: polygons with their edges shown, as ZBrush's ZModeler and Blender's edit mode work. Pick an action and a target, then press on a cage: the faces it would reach light up under the pen first. Add a primitive here; Apply to sculpt turns a cage into a mesh to sculpt.")
+	ui.caption(ctx, "ACTION")
+	actions: [len(Model_Action)]string
+	for a, i in Model_Action do actions[i] = MODEL_ACTION_NAMES[a]
+	if picked := ui.select(ctx, "model action", actions[:], int(m.action)); picked >= 0 do command_run(app, .Model_Action, picked)
+	ui.caption(ctx, "TARGET")
+	targets: [len(Model_Target)]string
+	for g, i in Model_Target do targets[i] = MODEL_TARGET_NAMES[g]
+	if picked := ui.select(ctx, "model target", targets[:], int(model_target(m, m.action))); picked >= 0 do command_run(app, .Model_Target, picked)
+	how := "Press and drag to set how far; Shift snaps to steps" if m.action in MODEL_DRAGS else "Tap a face to act"
+	if alt := MODEL_ACTION_ALT[m.action]; alt != "" {
+		ui.paragraph(ctx, fmt.tprintf("%s. Held Ctrl (the wheel's Invert): %s.", how, alt))
+	} else {
+		ui.paragraph(ctx, fmt.tprintf("%s.", how))
+	}
+	if m.action == .Polygroup {
+		g := f32(m.group)
+		if ui.slider(ctx, "Polygroup", &g, 0, 64, .Linear, fmt.tprint(m.group)) do m.group = u16(clamp(int(g + 0.5), 0, 64))
+	}
+	ui.caption(ctx, "NEW CAGE")
 	names: [len(poly.Primitive)]string
 	for p, i in poly.Primitive do names[i] = poly.PRIMITIVE_NAMES[p]
 	if picked := ui.select(ctx, "cage primitive", names[:], int(m.primitive)); picked >= 0 do m.primitive = poly.Primitive(picked)
@@ -221,13 +262,5 @@ kit_model_tab :: proc(app: ^App) {
 	obj := selected_object(app)
 	if obj == nil || obj.cage == nil do return
 	c := poly.mesh_check(&obj.cage.mesh)
-	ui.label(ctx, fmt.tprintf("%s: %d points, %d edges, %d faces (%d quads, %d triangles, %d polygons)", object_label(obj), c.vertices, c.edges, c.faces, c.quads, c.triangles, c.ngons), t.small_size)
-}
-
-// The Model tool for now: a press on an object selects it, as the Move tool's does; the
-// cage's actions come with the pen grammar.
-model_tool_frame :: proc(app: ^App, input: Viewport_Input) {
-	if !input.primary || !input.press do return
-	origin, dir := mouse_ray(app.camera, input.mouse_pos, input.size)
-	if index, _, ok := scene_raycast(app, origin, dir); ok do app.scene.selected = index
+	ui.paragraph(ctx, fmt.tprintf("%s: %d points, %d edges, %d faces (%d quads, %d triangles, %d polygons)", object_label(obj), c.vertices, c.edges, c.faces, c.quads, c.triangles, c.ngons))
 }

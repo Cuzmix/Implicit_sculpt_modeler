@@ -89,9 +89,9 @@ brush_tool :: proc(app: ^App) -> bool {return app.tool == .Brush}
 @(private = "file")
 move_tool :: proc(app: ^App) -> bool {return app.tool == .Move}
 
-// Empty space turns the view for the brushes and the Move tool (drag_decide).
+// Empty space turns the view for the brushes, the Move tool and the Model tool (drag_decide).
 @(private = "file")
-empty_turns :: proc(app: ^App) -> bool {return app.tool == .Brush || app.tool == .Move}
+empty_turns :: proc(app: ^App) -> bool {return app.tool == .Brush || app.tool == .Move || app.tool == .Model}
 
 // The keys over the viewport that are no shortcut: they act where the pointer is.
 @(rodata)

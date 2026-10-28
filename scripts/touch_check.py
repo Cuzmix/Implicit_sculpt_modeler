@@ -2786,7 +2786,7 @@ def lens_left_handed_mirrors_the_chrome():
 # in the brush picker the Paint page and the Draw and Inflate cards.
 LENS_SHELF = {"clay": (396, 830), "draw": (459, 830), "layer": (972, 830), "all": (1044, 830)}
 LENS_SHELF_PAGES = {"sculpt": (601, 883), "paint": (657, 883), "move": (715, 883), "curve": (776, 883), "model": (840, 883)}
-LENS_MODEL_TILES = {"model": (459, 830), "cube": (522, 830)}
+LENS_MODEL_TILES = {"extrude": (332, 830), "inset": (396, 830), "cube": (716, 830)}
 LENS_SHEET = {"paint": (839, 120), "draw": (525, 320), "inflate": (525, 440)}
 LENS_SHELF_SCULPT = "Brush:Clay,Brush:Draw,Brush:Smooth,Brush:Inflate,Brush:Pinch,Brush:Crease,Brush:Grab,Brush:Flatten,Brush:Mask,Brush:Layer"
 
@@ -2821,14 +2821,17 @@ def lens_shelf_page_names_turn_the_page():
 
 @scenario
 def lens_shelf_model_page_adds_a_cage():
-    """The Model page holds the Model tool, a tile for each cage primitive and Apply to sculpt; a tap on its Cube tile adds a cube cage."""
+    """The Model page holds the six actions, a tile for each cage primitive and Apply to sculpt; a tap on its Cube tile adds a cube cage, and one on Inset takes the Model tool with Inset."""
     s = Script()
     s.ftap(*LENS_SHELF_PAGES["model"])
     s.wait(10)
     s.ftap(*LENS_MODEL_TILES["cube"])
     s.wait(10)
+    s.ftap(*LENS_MODEL_TILES["inset"])
+    s.wait(10)
     return s, LENS_1440, camera_still({"shelf_page": is_text("Model"), "cages": near(1), "cage_faces": near(6), "cage_broken": near(0),
-                                       "shelf": lambda v: v.startswith("Tool_Model,Add_Cage:Cube,Add_Cage:Cylinder") and v.endswith("Apply_Cage")})
+                                       "tool": is_text("model"), "model_action": is_text("Inset"),
+                                       "shelf": lambda v: v.startswith("Model_Action:Extrude,Model_Action:Inset") and v.endswith("Apply_Cage")})
 
 
 @scenario
@@ -2839,6 +2842,30 @@ def model_cage_refuses_a_brush_stroke():
     s.wait(10)
     return s, LENS_1440 + ["--script=add_cage cube; select 1; delete_object; frame_all"], {"dabs": near(0), "cages": near(1), "camera_yaw": near(0.6),
                                                                                        "last_op": lambda v: "is_a_cage" in v}
+
+
+@scenario
+def model_extrude_drag_pulls_a_face_out():
+    """With Extrude picked, a drag from a cage's face adds a ring of four sides and pulls the face out, as one undo step that undo takes back."""
+    def run(undo):
+        s = Script()
+        s.mouse_drag(line((720, 450), (720, 380), 10))
+        s.wait(10)
+        if undo:
+            s.press("z", ("ctrl",))
+            s.wait(10)
+            return s, LENS_1440 + ["--script=add_cage cube; select 1; delete_object; frame_all; model_action extrude"], {"cage_faces": near(6), "cage_points": near(8), "model_done": near(1)}
+        return s, LENS_1440 + ["--script=add_cage cube; select 1; delete_object; frame_all; model_action extrude"], {"cage_faces": near(10), "cage_points": near(12), "model_done": near(1), "model_refused": near(0), "dabs": near(0)}
+    return Steps([run(False), run(True)])
+
+
+@scenario
+def model_delete_tap_removes_a_face():
+    """With Delete picked, a tap on a cage's face removes it (a hole of four border edges), not turning the view."""
+    s = Script()
+    s.mouse_drag([(720, 450)])
+    s.wait(10)
+    return s, LENS_1440 + ["--script=add_cage cube; select 1; delete_object; frame_all; model_action delete"], {"cage_faces": near(5), "cage_points": near(8), "model_done": near(1), "tool": is_text("model"), "camera_yaw": near(0.6)}
 
 
 @scenario
