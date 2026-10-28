@@ -622,6 +622,20 @@ def render_switch_runs_one_quality():
 
 
 @scenario
+def finish_shows_with_the_render_and_resets():
+    """With a vignette set, the right bar's Render button finishes the picture; Reset finish from search
+    puts every control back, so the finish stops while the render goes on, and nothing is sculpted."""
+    s = Script()
+    s.ftap(*UI["studio"])
+    s.wait(8)
+    palette_run(s, "reset finish")
+    s.wait(6)
+    return s, ["--script=set finish_vignette 0.5"], camera_still({"render_switch": near(1), "finish": near(0),
+                                                                 "finish_passes": lambda v: int(v) > 0,
+                                                                 "dabs": near(0), "undo_steps": near(0)})
+
+
+@scenario
 def pick_focus_takes_the_point_from_the_model():
     """Pick focus from search waits for a finger on the model; its tap puts depth of field's focus on the
     sphere's surface, sculpting nothing and turning nothing."""

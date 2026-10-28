@@ -211,6 +211,7 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.Render_Mode      = "render mode path trace tracing cycles rendered view global illumination gi bounce final full quality",
 	.Pick_Focus       = "depth of field dof focus point eyedropper lens camera blur bokeh aperture",
 	.Focus_Pivot      = "depth of field dof focus pivot reset lens camera",
+	.Finish_Reset     = "finish tone curve grade vignette grain white balance reset camera post",
 	.Viewport_Look    = "look matcap shading style preset viewport sculpt studio classic grey",
 	.View_Back        = "camera undo back history last view",
 	.View_Forward     = "camera redo forward history",

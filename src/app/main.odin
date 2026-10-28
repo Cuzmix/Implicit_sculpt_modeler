@@ -246,6 +246,12 @@ App :: struct {
 	render_dof:     bool,
 	render_blur:    f32,
 	focus:          Maybe(Vec3),
+	// Scene > Finish (finish.odin): the camera's finishing of the picture while the Render
+	// switch is on, remembered; what it made, and how many frames redrew anything, which
+	// names what its source holds and moves the grain on.
+	finish:         Finish_Settings,
+	finished:       render.Finish,
+	finish_redraws: u64,
 	// The navigation head in the top-right corner (nav_head.odin), and the texture it was
 	// drawn into this frame, for the interface to show; nil when there is none.
 	nav_head:       render.Nav_Head,
@@ -448,6 +454,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	defer render.studio_destroy(&app.renderer, &app.studio)
 	defer render.live_ao_destroy(&app.renderer, &app.live_ao)
 	defer render.path_render_destroy(&app.renderer, &app.path)
+	defer render.finish_destroy(&app.renderer, &app.finished)
 	defer render.nav_head_destroy(&app.renderer, &app.nav_head)
 	defer render.thumbs_destroy(&app.renderer, &app.thumbs)
 	defer delete(app.clipboard)
@@ -579,6 +586,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	app.render_samples, app.render_bounces, app.render_denoise = render.RENDER_SAMPLES_DEFAULT, render.RENDER_BOUNCES_DEFAULT, true
 	app.render_half = ODIN_PLATFORM_SUBTARGET == .Android
 	app.render_blur = RENDER_BLUR_DEFAULT
+	app.finish = FINISH_DEFAULTS
 	app.turntable_frames = TURNTABLE_FRAMES_DEFAULT
 	environment_settings_default(&app)
 	app.dim_others = true
@@ -1116,6 +1124,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		}
 		render_mode_frame(&app, cmd, view, proj, draws[:], changed)
 		live_ao_view_frame(&app, cmd, view, proj, draws[:], drawn)
+		finish_view_frame(&app, cmd, changed)
 		// A --dump-viewport run's last frame draws its transparent picture, when that is on.
 		if opts.dump_viewport != "" && app.screenshot_transparent && opts.frames > 0 && frame_index == opts.frames - 1 do capture_request(&app, opts.dump_viewport)
 		capture_frame(&app, cmd, view, proj, draws[:])
@@ -1446,6 +1455,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			fmt.printfln("live_ao=%d live_ao_full=%d live_ao_partial=%d live_ao_skipped=%d", int(app.live_ao_on), lao.full, lao.partial, lao.skipped)
 			pr := app.path
 			fmt.printfln("render_switch=%d render_quality=%s studio=%d", int(render_switch_on(&app)), "full" if app.render_quality == .Full else "preview", int(app.studio_on))
+			fmt.printfln("finish=%d finish_curve=%v finish_passes=%d finish_failed=%d", int(finish_wanted(&app)), app.finish.curve, app.finished.passes, int(app.finished.failed))
 			fmt.printfln("render=%d render_samples=%d render_ms=%.1f render_mb=%.1f render_failed=%d", int(app.render_on), pr.total_samples, pr.total_ms / f64(max(pr.total_samples, 1)), f64(pr.bytes) / (1 << 20), int(pr.failed))
 			// Depth of field, whether a point was picked to focus on and where the focus is,
 			// and whether Pick focus still waits for a press.

@@ -495,6 +495,7 @@ Kit_Section :: enum u8 {
 	Environment,
 	Render,
 	Lens,
+	Finish,
 	Camera,
 	Turntable,
 	Print,

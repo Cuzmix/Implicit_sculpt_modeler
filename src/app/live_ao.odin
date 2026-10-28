@@ -35,12 +35,21 @@ live_ao_view_frame :: proc(app: ^App, cmd: render.Cmd, view, proj: render.Mat4, 
 	_ = render.live_ao_frame(&app.renderer, &app.live_ao, cmd, &app.target, view, proj, items, drawn, reach, left, LIVE_AO_SCALE, right, line)
 }
 
-// The texture the viewport shows: render mode's once it has RENDER_SHOW_MIN samples, the
-// studio render's while it is on and has samples enough to look better than live
-// occlusion, live occlusion's while that is on, then the studio's copy of the viewport,
-// else nil for the viewport's own colour. The panel,
-// screenshots and the time-lapse all read it, so each shows what the others do.
+// The texture the viewport shows: the finished picture while the finishing stack runs
+// (finish.odin), else viewport_unfinished. The panel, screenshots and the time-lapse all
+// read it, so each shows what the others do.
 viewport_shown :: proc(app: ^App) -> render.Texture {
+	if finish_wanted(app) {
+		if t := render.finish_texture(&app.finished); t != nil do return t
+	}
+	return viewport_unfinished(app)
+}
+
+// What the viewport shows before it is finished: render mode's once it has
+// RENDER_SHOW_MIN samples, the studio render's while it is on and has samples enough to
+// look better than live occlusion, live occlusion's while that is on, then the studio's
+// copy of the viewport, else nil for the viewport's own colour.
+viewport_unfinished :: proc(app: ^App) -> render.Texture {
 	// A view pane worked in shows the viewport as it draws, or its live occlusion when it
 	// shows AO only.
 	if app.kit.grid.work != 0 do return render.live_ao_texture(&app.live_ao) if live_ao_wanted(app) else nil
