@@ -2513,6 +2513,79 @@ def focus_moves_undo_and_search_to_the_top_bar():
     return s, ["--script=workspace focus"], {"undo_steps": near(0), "redo_steps": near(1), "palette": near(1), "workspace": is_text("Focus")}
 
 
+# The Lens top bar at 1600 x 900 (kit_top_lens.odin): Menu, Undo and Redo at the left, the
+# workspace pill's segments and its "+" in the middle, the Search field at the right.
+LENS = ["--chrome=lens"]
+LENS_MENU, LENS_UNDO, LENS_REDO = (33, 26), (217, 26), (267, 26)
+LENS_PILL = {"sculpt": (617, 26), "focus": (684, 26), "inspect": (755, 26), "studio": (828, 26), "plus": (884, 26)}
+LENS_SEARCH = (1340, 26)
+# The Lens menu's first row, Home.
+LENS_MENU_HOME = (120, 82)
+
+
+@scenario
+def lens_pill_switches_workspace():
+    """In the Lens top bar a tap on Focus in the workspace pill switches to Focus, with no menu."""
+    s = Script()
+    s.ftap(*LENS_PILL["focus"])
+    s.wait(10)
+    return s, LENS, camera_still({"dabs": near(0), "chrome": is_text("lens"), "workspace": is_text("Focus"), "workspace_menu": near(0), "workspace_switches": near(1)})
+
+
+@scenario
+def lens_pill_current_segment_and_plus_open_the_menu():
+    """A tap on the current workspace in the pill opens the switcher's menu, a second closes it, and "+" opens it again."""
+    s = Script()
+    s.ftap(*LENS_PILL["sculpt"])
+    s.wait(10)
+    s.ftap(*LENS_PILL["sculpt"])
+    s.wait(10)
+    s.ftap(*LENS_PILL["plus"])
+    s.wait(10)
+    return s, LENS, camera_still({"dabs": near(0), "workspace": is_text("Sculpt"), "workspace_menu": near(1), "workspace_switches": near(0)})
+
+
+@scenario
+def lens_search_field_opens_the_palette():
+    """A tap on the Lens top bar's Search field opens the command palette."""
+    s = Script()
+    s.ftap(*LENS_SEARCH)
+    s.wait(10)
+    return s, LENS, camera_still({"dabs": near(0), "palette": near(1)})
+
+
+@scenario
+def lens_undo_and_redo_in_the_top_bar():
+    """A stroke, then Undo in the Lens top bar takes it back and Redo puts it back; the file block says the changes are not saved."""
+    s = Script()
+    s.fdrag(line((760, 430), (860, 470), 20))
+    s.wait(4)
+    s.ftap(*LENS_UNDO)
+    s.wait(10)
+    s.ftap(*LENS_REDO)
+    s.wait(10)
+    return s, LENS, {"undo_steps": near(1), "redo_steps": near(0), "file_status": is_text("Unsaved%20changes")}
+
+
+@scenario
+def lens_file_block_says_saved():
+    """A scene just saved and opened again, the Lens top bar's file block says "Saved just now"; a fresh scene says "Not saved"."""
+    first, args, checks = first_save()
+    return Steps([(first, args, checks), (Script(), LENS + [f"--open={scene_file()}"], {"file_status": is_text("Saved%20just%20now")}),
+                  (Script(), LENS, {"file_status": is_text("Not%20saved")})])
+
+
+@scenario
+def lens_menu_heads_with_home():
+    """The Lens menu's first row is Home, which shows the Home screen."""
+    s = Script()
+    s.ftap(*LENS_MENU)
+    s.wait(10)
+    s.ftap(*LENS_MENU_HOME)
+    s.wait(10)
+    return s, LENS, {"home": near(1), "menu": near(0)}
+
+
 @scenario
 def save_as_new_workspace_is_remembered():
     """Save as a new workspace from the switcher makes "Workspace 1", current, and the settings keep it."""
@@ -5378,6 +5451,10 @@ def run_one(name, step, screens, displays):
     # finger held N frames is a long press (or not) on every machine.
     if not any(a.startswith("--ui-dt") for a in args):
         cmd.append(f"--ui-dt={UI_DT:g}")
+    # The scenarios were written against the Classic layout and keep its coordinates; a
+    # scenario of the Lens layout says so with --chrome=lens.
+    if not any(a.startswith("--chrome") for a in args):
+        cmd.append("--chrome=classic")
     cmd += args
     if screens:
         os.makedirs(os.path.join(ROOT, "build", "touch"), exist_ok=True)

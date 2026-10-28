@@ -35,6 +35,21 @@ LOOK_NAMES := [Look]string {
 	.Graphite = "Graphite",
 }
 
+// How the interface is laid out (Settings > Interface > Layout): Lens, the layout of the
+// Sculpt Workspace Directions mockups (a workspace switcher and Search in the top bar, an
+// off-hand rail, a column of panels, a view rail and a shelf), or Classic, the layout after
+// ZBrush for iPad that came before it, kept whole.
+Chrome :: enum u8 {
+	Lens,
+	Classic,
+}
+
+@(rodata)
+CHROME_NAMES := [Chrome]string {
+	.Lens    = "Lens",
+	.Classic = "Classic",
+}
+
 // The top bar's height, and how far the side bars sit from the window's edges, in points.
 TOP_BAR_H :: 52
 BAR_EDGE :: 4
@@ -196,6 +211,7 @@ bar_command :: proc(app: ^App, id: Command_Id, glyph: rune, arg := 0, name := ""
 // scene's file name in the middle, the History, pies, Help and Settings at the right.
 // Returns the menu button, which the menu opens under.
 kit_top_bar :: proc(app: ^App) -> (menu_anchor, search_anchor: ui.Rect) {
+	if app.kit.chrome == .Lens do return kit_top_bar_lens(app)
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme

@@ -244,6 +244,7 @@ SETTINGS := [?]Setting {
 	{"wheel_x", K + offset_of(Kit_State, wheel_offset) + 0 * size_of(f32), f32, 0, 0},
 	{"wheel_y", K + offset_of(Kit_State, wheel_offset) + 1 * size_of(f32), f32, 0, 0},
 	{"look", K + offset_of(Kit_State, look), Look, 0, 0},
+	{"chrome", K + offset_of(Kit_State, chrome), Chrome, 0, 0},
 	{"colors_tab", K + offset_of(Kit_State, colors) + offset_of(Colors_Card, tab), Colors_Tab, 0, 0},
 	{"colors_harmony", K + offset_of(Kit_State, colors) + offset_of(Colors_Card, harmony), Harmony, 0, 0},
 	{"colors_value_rgb", K + offset_of(Kit_State, colors) + offset_of(Colors_Card, value_rgb), bool, 0, 0},

@@ -80,6 +80,7 @@ Kit_State :: struct {
 	bar_pop:    Bar_Pop, // the side bars' popover (kit_bars.odin)
 	bar_scrub:  Bar_Scrub, // a long press dragging a value on the brush bar (kit_bars.odin)
 	look:       Look, // the interface's colours (Settings > Interface)
+	chrome:     Chrome, // how it is laid out (Settings > Interface > Layout)
 	browser:    bool, // every brush and preset, in a popover over the dock or beside the brush bar
 	browser_at: Browser_At, // ...which of the two opened it
 	// The dock's slots (dock.odin), and the popover a long press on one opens: open, on
@@ -1311,6 +1312,8 @@ kit_menu :: proc(app: ^App, anchor: ui.Rect) {
 	body_w := 268 - 2 * 6 - (f32(10) if natural.y > room else 0)
 	scroll := kit_scroll_begin(ctx, "menu body", &k.menu_scroll, owner, body_w, room, 0)
 	pick := false
+	// The Lens top bar holds no Home or file buttons, so the menu heads with Home.
+	if k.chrome == .Lens && command_menu_item(app, .Home) do pick = true
 	ui.caption(ctx, "  FILE")
 	for id in ([?]Command_Id{.Open_Scene, .Save_Scene, .Save_Scene_As, .Save_Scene_Copy, .Scene_Versions, .Open_Last_Autosave, .Import_Mesh, .Export_Mesh, .Screenshot}) {
 		if command_menu_item(app, id) do pick = true

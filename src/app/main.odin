@@ -45,6 +45,7 @@ Options :: struct {
 	no_cull:   bool `usage:"Draw every triangle instead of skipping off-screen and back-facing chunks (for comparison)."`,
 	ui_dt:     f32 `usage:"Move the interface's clock (animations, tooltips, long presses) this many seconds a frame instead of by the time that passed, for scripted runs whose checks must not depend on how fast frames come (scripts/touch_check.py passes 1/60). A stroke then lays every dab its frame's samples ask for, up to 64, however long they take. The 90 ms a finger waits before it sculpts and the right tap that opens the pie stay on the real clock."`,
 	ui_events: string `usage:"Drive the pointer, fingers and pen as SDL events would, for tests: FRAME:move:X,Y, FRAME:down, FRAME:up, FRAME:right (a right click), FRAME:mdown, FRAME:mup, FRAME:rdown and FRAME:rup (the middle and right buttons held and let go), FRAME:wheel:N, FRAME:key:NAME (a key press: shift, ctrl, alt held until FRAME:keyup:NAME), FRAME:fdown:ID:X,Y, FRAME:fmove:ID:X,Y, FRAME:fup:ID and FRAME:fcancel:ID (finger ID on a touch screen), FRAME:pdown:X,Y, FRAME:pmove:X,Y, FRAME:pup, FRAME:pnear / FRAME:pfar, FRAME:pright (the pen, the last its side button) and FRAME:ppress:P (the pen's pressure from then on, 0 to 1; 0 until set), separated by semicolons; X and Y in window points. FRAME:winN:... sends an event to view window N (1 to 3) instead, in its points."`,
+	chrome: string `usage:"Lay the interface out as lens (the default) or classic (the earlier layout after ZBrush for iPad), whatever the settings say (Settings > Interface > Layout)."`,
 	dump_view_window: string `usage:"On exit, write view window 1 as its interface drew it (its picture and head) to this path: a PNG, or a binary PPM when it ends in .ppm."`,
 	view_windows: int `usage:"Open this many view windows (up to 3, not on Android) at the start, each showing what Camera > New view window would."`,
 	dump_screen: string `usage:"On exit, write the whole window as the interface drew it (viewport and panels) to this path: a PNG, or a binary PPM when it ends in .ppm."`,
@@ -329,6 +330,7 @@ App :: struct {
 	undo_steps:    i32, // undo steps the History keeps (history_cap), 0 for no limit but memory's
 	versions:   [dynamic]Version_Row, // the scene file's earlier saves, newest first (versions_refresh)
 	saved_fp:   u64, // scene_fingerprint when the scene last matched its file (autosave_scene_saved)
+	saved_at:   time.Time, // when its file was last written (by this save, or before it was opened); zero for no file
 	result:     Op_Result, // what the last operation did (results.odin)
 	running:  bool,
 }
@@ -585,6 +587,14 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	// names, and before the renderer goes, which their textures need: keep it here.
 	defer library_destroy(&app)
 	settings_load(&app, settings)
+	switch opts.chrome {
+	case "":
+	case "lens":    app.kit.chrome = .Lens
+	case "classic": app.kit.chrome = .Classic
+	case:
+		log.errorf("--chrome wants lens or classic, not %q", opts.chrome)
+		return false
+	}
 	// The benchmarks measure the viewport filling the window, so their numbers stay
 	// comparable whatever grid a workspace keeps.
 	if opts.bench_stroke > 0 || opts.gpubench != "" do app.kit.grid.preset = .Single
@@ -1560,6 +1570,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			zones := strings.builder_make(context.temp_allocator)
 			for z in Zone do if z in k.hidden do fmt.sbprintf(&zones, "%s%s", "," if strings.builder_len(zones) > 0 else "", strings.to_lower(fmt.tprint(z), context.temp_allocator))
 			fmt.printfln("workspace=%s workspace_modified=%d workspace_count=%d workspace_menu=%d workspace_switches=%d workspace_exports=%d workspace_imports=%d arrange_drawer=%d zones_hidden=%s", preset_escape(workspace_name(k, w.current)), int(w.modified), count, int(w.menu), w.switches, w.exports, w.imports, int(k.arrange_drawer), strings.to_string(zones) if strings.builder_len(zones) > 0 else "none")
+			// The layout, and the second line of the Lens top bar's file block.
+			fmt.printfln("chrome=%s file_status=%s", strings.to_lower(CHROME_NAMES[k.chrome], context.temp_allocator), preset_escape(file_status(&app, time.now())))
 			fmt.printfln("pass=%v pass_shown=%v pass_menu=%d pass_switches=%d", k.passes.pass, viewport_pass(k), int(k.passes.menu), k.passes.switches)
 			fmt.printfln("wipe=%d wipe_at=%.3f wipe_right=%v wipe_drags=%d", int(wipe_shown(k)), k.passes.wipe_at, wipe_right(k), k.passes.wipe_drags)
 			fmt.printfln("guides=%d guide_heights=%s guide_lines=%d guide_drags=%d", int(app.scene.guides.shown), guides_heights_text(app.scene.guides), k.guide_lines, k.guide_drags)
