@@ -145,6 +145,7 @@ Command_Id :: enum u8 {
 	Model_Action,
 	Model_Target,
 	Tidy_Cage,
+	Select_Cage,
 	Adjust_Last,
 	Reset_Transform,
 	// The scene
@@ -568,6 +569,14 @@ COMMANDS := [Command_Id]Command {
 		icon = ui.ICON_WAND,
 		args = len(Cage_Tidy),
 		run = proc(app: ^App, arg: int) {app.ui.scene_command = {kind = .Tidy_Cage, tidy = Cage_Tidy(arg)}},
+		enabled = proc(app: ^App, _: int) -> bool {return selected_cage(app)},
+	},
+	.Select_Cage = {
+		label = "Cage selection",
+		help = "Changes the selected cage's selection, the faces the Selected target works on: All, None, Invert, Grow (adds the faces beside the selection) or Shrink (drops its edge). Each is one undo step.",
+		icon = ui.ICON_GRID,
+		args = len(poly.Select_Op),
+		run = proc(app: ^App, arg: int) {app.ui.scene_command = {kind = .Select_Cage, select = poly.Select_Op(arg)}},
 		enabled = proc(app: ^App, _: int) -> bool {return selected_cage(app)},
 	},
 	.Gizmo = {
@@ -2155,6 +2164,8 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 		return fmt.tprintf("Target: %s", MODEL_TARGET_NAMES[Model_Target(arg)])
 	case .Tidy_Cage:
 		return CAGE_TIDY_NAMES[Cage_Tidy(arg)]
+	case .Select_Cage:
+		return CAGE_SELECT_NAMES[poly.Select_Op(arg)]
 	case .Brush:
 		return fmt.tprintf("%s brush", BRUSHES[sculpt.Brush_Kind(arg)].name)
 	case .View_Axis:

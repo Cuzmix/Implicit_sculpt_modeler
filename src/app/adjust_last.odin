@@ -3,6 +3,7 @@ package main
 import "core:fmt"
 import "core:math"
 
+import "../poly"
 import "../sculpt"
 import "../ui"
 
@@ -12,6 +13,10 @@ import "../ui"
 // of a remesh loses detail and Decimate to 200k after Decimate to 500k is not Decimate to
 // 200k. A re-run takes the operation's undo step back and records its own, so the History
 // holds one entry for it however many values were tried.
+//
+// A Model mode drag (Extrude, Inset, Move, Extrude edge, Insert loop's slide) is adjusted
+// in place too: the faces it moved are set to the new amount along the same way, as
+// Blender's Adjust last extrude does, on its own undo step.
 //
 // A stroke is adjusted another way, as ZBrush's Adjust Last: its amount, from nothing to
 // half as much again, is set in place on its own undo step (sculpt.sculptor_stroke_adjust),
@@ -29,6 +34,7 @@ Adjust_Op :: enum u8 {
 	Smooth_All,
 	Stroke,
 	Deformer, // a bend, twist or taper (deformers.odin)
+	Model, // a Model mode drag (model_tool.odin)
 }
 
 // The most Adjust last stroke sets a stroke to: half as much again as drawn.
@@ -45,6 +51,7 @@ ADJUST_NAMES := [Adjust_Op]string {
 	.Smooth_All = "Smooth all",
 	.Stroke     = "last stroke",
 	.Deformer   = "deformation",
+	.Model      = "model action",
 }
 
 // The inspector section whose settings each operation takes.
@@ -59,6 +66,7 @@ ADJUST_SECTIONS := [Adjust_Op]Kit_Section {
 	.Smooth_All = .Deform,
 	.Stroke     = .Stroke,
 	.Deformer   = .Deformers,
+	.Model      = .Topology,
 }
 
 // The last operation that can be adjusted and what it ran with, and what tells whether
@@ -135,6 +143,9 @@ adjust_live :: proc(app: ^App) -> bool {
 	#partial switch a.op {
 	case .Stroke:   return object_sculptor(obj) == a.sculptor && sculpt.sculptor_can_adjust(a.sculptor)
 	case .Deformer: return object_sculptor(obj) == a.sculptor && deform_allowed(app, obj)
+	case .Model:
+		d := &app.model.drag
+		return obj.cage != nil && d.state == .None && d.object == obj.id && len(d.set.verts) > 0
 	}
 	return true
 }
@@ -163,6 +174,47 @@ adjust_set_stroke :: proc(app: ^App, obj: ^Object) {
 	}
 }
 
+// Makes the Model mode drag just recorded on `obj` the one to adjust, at `amount`.
+adjust_set_model :: proc(app: ^App, obj: ^Object, amount: f32) {
+	mark, ok := undo_mark(app.history.done[:]).?
+	a := &app.adjustable
+	if !ok {
+		a.op = .None
+		return
+	}
+	a^ = {
+		op        = .Model,
+		amount    = amount,
+		source    = obj.id,
+		result    = obj.id,
+		mark      = mark,
+		serial    = app.history.serial,
+		edits     = app.scene_edits,
+		transform = obj.transform,
+		boolean   = obj.boolean,
+		adjusts   = a.adjusts,
+	}
+}
+
+// Sets the last Model mode drag to `amount` (in the cage's units, or for Insert loop a
+// share of the edges), in place on its undo step. False when it can no longer be adjusted.
+adjust_model :: proc(app: ^App, amount: f32) -> bool {
+	a := &app.adjustable
+	if !adjust_live(app) || a.op != .Model do return false
+	obj := selected_object(app)
+	d := &app.model.drag
+	a.amount = poly.drag_apply(&obj.cage.mesh, &d.set, amount)
+	d.amount = a.amount
+	app.model.last[d.action] = a.amount
+	cage_positions_moved(app, obj, d.set.verts)
+	a.adjusts += 1
+	// The cage changed, which the autosave and the mask read; the adjust stays live.
+	app.history.serial += 1
+	app.history.edits += 1
+	a.serial = app.history.serial
+	return true
+}
+
 // Sets the last stroke to `amount` of itself as drawn, in place on its undo step, and
 // notes it on the History's newest entry. False when it can no longer be adjusted.
 adjust_stroke :: proc(app: ^App, amount: f32) -> bool {
@@ -187,6 +239,7 @@ adjust_stroke :: proc(app: ^App, amount: f32) -> bool {
 // What the last operation is called: a deformer by its kind (Bend), the rest by theirs.
 adjust_name :: proc(app: ^App) -> string {
 	a := &app.adjustable
+	if a.op == .Model do return MODEL_ACTION_NAMES[app.model.drag.action]
 	return DEFORM_NAMES[a.deform.kind] if a.op == .Deformer else ADJUST_NAMES[a.op]
 }
 
@@ -283,7 +336,7 @@ adjust_post :: proc(app: ^App, vertices := 0) {
 		app.ui.scene_command = {kind = .Extract, adjust = true}
 	case .Smooth_All:
 		smooth_adjust(app)
-	case .Stroke:
+	case .Stroke, .Model:
 		// It follows the slider as it moves (kit_adjust_popover); nothing runs again.
 	case .Deformer:
 		deform_adjust(app)
@@ -313,6 +366,8 @@ kit_adjust_popover :: proc(app: ^App) {
 	// popover upward and the controls stay where the thumb is, just over the bar.
 	if a.op == .Stroke {
 		ui.paragraph(ctx, "How much of the stroke stays: 0% takes it away, 100% is as drawn. It stays one undo step.")
+	} else if a.op == .Model {
+		ui.paragraph(ctx, "How far it went: drag the value sideways. It stays one undo step, and a tap with the action repeats it.")
 	} else {
 		if r, ok := result_for(app, ADJUST_SECTIONS[a.op]); ok do ui.paragraph(ctx, fmt.tprintf("Last: %s.", r.text))
 		ui.paragraph(ctx, "A change runs it again from before it, as one undo step.")
@@ -321,6 +376,15 @@ kit_adjust_popover :: proc(app: ^App) {
 	case .None:
 	case .Stroke:
 		_ = kit_stroke_amount(app, "Amount##adjust")
+	case .Model:
+		d := &app.model.drag
+		amount := a.amount
+		lo, hi := d.set.lo, d.set.hi
+		if hi <= lo do lo, hi = -1e4, 1e4
+		// A point of drag moves it a hundredth of the action's snap step's fourfold, the mean edge.
+		per := max(d.step * 4, 1e-4) / 100 if d.action != .Insert_Loop else 0.002
+		shown := fmt.tprintf("%+.0f%%", amount * 100) if d.action == .Insert_Loop else fmt.tprintf("%+.3f", amount)
+		if ui.drag_value(ctx, "Amount##adjust", &amount, per, lo, hi, shown) do _ = adjust_model(app, amount)
 	case .Remesh, .Decimate:
 		if !is_size_preset(a.cmd.vertices) do ui.paragraph(ctx, fmt.tprintf("It ran at %s vertices.", thousands(a.cmd.vertices)))
 		names: [len(SPHERE_PRESETS)]string

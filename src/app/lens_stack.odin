@@ -218,28 +218,29 @@ kit_stack :: proc(app: ^App, width: f32, owner: ui.Id) {
 	stack_carry_update(app)
 }
 
-// The cards that float, each a card of its own over the view; their grip's long press
-// docks them back. Drawn after the panels, so they come out on top.
-kit_stack_floating :: proc(app: ^App) {
+// Floating card `c`, where it was put, if it floats now: a card of its own over the view,
+// which its grip's long press docks back. It is drawn in the floating order with the
+// panels (new_ui.odin), so the one touched last is in front. Returns true when a press
+// landed on it, to bring it to the front.
+stack_float_card :: proc(app: ^App, c: Stack_Card) -> (raised: bool) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
 	s := &k.stack
 	if !k.inspector || side_panel_open(k) || k.chrome != .Lens do return
-	for c in s.order {
-		if c not_in s.floated || c in s.hidden do continue
-		name := fmt.tprintf("stack card %v", c)
-		w := &s.windows[c]
-		width := s.sizes[c].x if s.sizes[c].x > 0 else stack_width(k)
-		_, dock := ui.card_begin(ctx, name, "", w, .End, .Start, {kit_right(app) + stack_width(k) + 12, kit_top() + 80}, {direction = .Column, gap = 6, padding = 10, width = width, radius = t.radius_large, background = .Panel})
-		stack_card(app, c, width - 20, true)
-		ui.window_end(ctx)
-		if dock {
-			stack_dock(app, c)
-			continue
-		}
-		stack_float_handles(app, c)
+	if c not_in s.floated || c in s.hidden do return
+	name := fmt.tprintf("stack card %v", c)
+	w := &s.windows[c]
+	width := s.sizes[c].x if s.sizes[c].x > 0 else stack_width(k)
+	pressed, dock := ui.card_begin(ctx, name, "", w, .End, .Start, {kit_right(app) + stack_width(k) + 12, kit_top() + 80}, {direction = .Column, gap = 6, padding = 10, width = width, radius = t.radius_large, background = .Panel})
+	stack_card(app, c, width - 20, true)
+	ui.window_end(ctx)
+	if dock {
+		stack_dock(app, c)
+		return
 	}
+	stack_float_handles(app, c)
+	return pressed
 }
 
 // Puts floating card `c` back in the stack, where it was in the order.
@@ -257,6 +258,7 @@ stack_float :: proc(app: ^App, c: Stack_Card, at: Maybe([2]f32) = nil) {
 	s.floated += {c}
 	s.open += {c}
 	s.moves += 1
+	float_raise(k, c)
 	if p, ok := at.?; ok {
 		r := s.rects[c]
 		ui.window_move(&k.ctx, &s.windows[c], p - {r.w * 0.5, 12}, {r.w, r.h}, 10)

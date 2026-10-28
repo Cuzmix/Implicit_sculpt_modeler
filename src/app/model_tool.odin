@@ -23,6 +23,14 @@ import "../sculpt"
 // the lift. Each is one undo step (History_Kind.Model). A pen that does not hover (a
 // finger, an Android pen) gets the same: the press shows the target and acts.
 //
+// Symmetry (the Symmetry panel's X, Y and Z) mirrors every action across those planes
+// through the cage's origin, as ZModeler's and Blender's mirror editing do: the hover
+// lights the images too, and the action works on both sides as one undo step.
+//
+// The selection (Select, and the palette's All, None, Invert, Grow and Shrink) is a flag
+// per cage face, shown orange; the face actions' Selected target works on it wherever
+// the press lands on that cage, as Blender's edit mode works on its selection.
+//
 // Modifiers: Ctrl (the wheel's Invert sector) gives the action's variant, ZModeler's Alt;
 // Shift (the Smooth sector) snaps the drag to steps of a quarter of the mean edge.
 
@@ -43,6 +51,7 @@ Model_Action :: enum u8 {
 	Weld,
 	Connect,
 	Dissolve_Point,
+	Select,
 }
 
 @(rodata)
@@ -63,6 +72,7 @@ MODEL_ACTION_NAMES := [Model_Action]string {
 	.Weld           = "Weld",
 	.Connect        = "Connect",
 	.Dissolve_Point = "Dissolve point",
+	.Select         = "Select",
 }
 
 // Each action as an undo step names it, in the History panel and the undo button's tip.
@@ -84,6 +94,7 @@ MODEL_ACTION_WHAT := [Model_Action]string {
 	.Weld           = "weld points",
 	.Connect        = "connect points",
 	.Dissolve_Point = "dissolve point",
+	.Select         = "select faces",
 }
 
 // What each action's variant does, for the palette and the label.
@@ -105,6 +116,7 @@ MODEL_ACTION_ALT := [Model_Action]string {
 	.Weld           = "",
 	.Connect        = "",
 	.Dissolve_Point = "",
+	.Select         = "deselects instead",
 }
 
 // What each action's help line says it does.
@@ -126,6 +138,7 @@ MODEL_ACTION_HOW := [Model_Action]string {
 	.Weld           = "Press on a point and lift over another to merge the first into the second",
 	.Connect        = "Press on a point and lift over another corner of its face to split the face between them",
 	.Dissolve_Point = "Tap a point to remove it, joining the faces round it",
+	.Select         = "Tap a face, or drag across faces, to select what the target reaches; the face actions' Selected target then works on them",
 }
 
 // What kind of element each action takes.
@@ -153,6 +166,7 @@ MODEL_ACTION_ELEMENT := [Model_Action]Model_Element {
 	.Weld           = .Point,
 	.Connect        = .Point,
 	.Dissolve_Point = .Point,
+	.Select         = .Face,
 }
 
 // The actions a drag drives; Insert loop also acts on a tap. The pair actions take a
@@ -173,6 +187,8 @@ Model_Target :: enum u8 {
 	Edge_Loop,
 	Edge_Ring,
 	Border_Loop,
+	Selection,
+	Similar,
 }
 
 @(rodata)
@@ -186,9 +202,11 @@ MODEL_TARGET_NAMES := [Model_Target]string {
 	.Edge_Loop    = "Edge loop",
 	.Edge_Ring    = "Edge ring",
 	.Border_Loop  = "Border loop",
+	.Selection    = "Selected",
+	.Similar      = "Similar",
 }
 
-FACE_TARGETS :: bit_set[Model_Target]{.Single, .Face_Loop, .Island, .Flat_Island, .Group_Island, .Group_All}
+FACE_TARGETS :: bit_set[Model_Target]{.Single, .Face_Loop, .Island, .Flat_Island, .Group_Island, .Group_All, .Similar, .Selection}
 
 // The targets each action can take; the first default is in MODEL_DEFAULT_TARGETS.
 @(rodata)
@@ -209,6 +227,7 @@ MODEL_ACTION_TARGETS := [Model_Action]bit_set[Model_Target] {
 	.Weld           = {.Single},
 	.Connect        = {.Single},
 	.Dissolve_Point = {.Single},
+	.Select         = FACE_TARGETS - {.Selection},
 }
 
 // The target each action starts with: one face, but Flip a whole piece, since turning
@@ -231,6 +250,7 @@ MODEL_DEFAULT_TARGETS := [Model_Action]Model_Target {
 	.Weld           = .Single,
 	.Connect        = .Single,
 	.Dissolve_Point = .Single,
+	.Select         = .Single,
 }
 
 // ZModeler's flat island tolerance.
@@ -246,6 +266,7 @@ Model_Hover :: struct {
 	point:  u32,
 	at:     f32, // where along the edge the pen is, from its first end (0) to its other (1)
 	items:  [dynamic]u32,
+	images: [dynamic]u32, // under symmetry, the items' mirror images not among them
 }
 
 Model_Drag_State :: enum u8 {
@@ -264,6 +285,7 @@ Model_Drag :: struct {
 	face, edge, point: u32,
 	at:     f32,
 	items:  [dynamic]u32,
+	images: [dynamic]u32,
 	before: ^Object_Snapshot,
 	set:    poly.Drag_Set,
 	// The line Extrude, Move and Extrude edge follow, in the object's space, and where
@@ -280,7 +302,9 @@ Model_Drag :: struct {
 model_tool_free :: proc(m: ^Model_Tool) {
 	if m.drag.before != nil do history_snapshot_drop(m.drag.before)
 	delete(m.hover.items)
+	delete(m.hover.images)
 	delete(m.drag.items)
+	delete(m.drag.images)
 	poly.drag_set_destroy(&m.drag.set)
 }
 
@@ -322,6 +346,11 @@ model_resolve :: proc(cage: ^poly.Mesh, element: Model_Element, target: Model_Ta
 	case .Face:
 		switch target {
 		case .Single, .Edge_Loop, .Edge_Ring, .Border_Loop: append(out, f)
+		case .Selection:
+			// The selected faces, or with none the face under the pen.
+			poly.selected_faces(cage, out)
+			if len(out) == 0 do append(out, f)
+		case .Similar:      poly.similar_faces(cage, f, out)
 		case .Face_Loop:
 			poly.face_loop(cage, e, out)
 			if len(out) == 0 do append(out, f)
@@ -400,6 +429,15 @@ model_tool_frame :: proc(app: ^App, input: Viewport_Input) -> bool {
 				model_hover(app, input.mouse_pos, input.size, true)
 				return true
 			}
+			// Select paints: what the target reaches under the pen joins as it goes.
+			if d.action == .Select {
+				model_hover(app, input.mouse_pos, input.size, true)
+				if m.hover.object == d.object {
+					for f in m.hover.items do if !slice.contains(d.items[:], f) do append(&d.items, f)
+					for f in m.hover.images do if !slice.contains(d.images[:], f) do append(&d.images, f)
+				}
+				return true
+			}
 			if d.action in MODEL_DRAGS && linalg.length(input.mouse_pos - d.press) > app.kit.ctx.theme.slop {
 				return model_drag_begin(app, input)
 			}
@@ -417,6 +455,15 @@ model_tool_frame :: proc(app: ^App, input: Viewport_Input) -> bool {
 			return true
 		}
 		if d.action not_in MODEL_DRAGS do return model_tap(app)
+		// A tap with a drag action repeats how far it went last.
+		if last := m.last[d.action]; last != 0 {
+			if !model_drag_begin(app, input) do return false
+			if d.state != .Dragging do return true
+			obj := object_by_id(app, d.object)
+			d.amount = poly.drag_apply(&obj.cage.mesh, &d.set, last)
+			cage_positions_moved(app, obj, d.set.verts)
+			model_drag_finish(app, obj)
+		}
 		return true
 	case .None:
 	}
@@ -425,9 +472,11 @@ model_tool_frame :: proc(app: ^App, input: Viewport_Input) -> bool {
 	obj := object_by_id(app, m.hover.object)
 	select_object(app, obj)
 	h := &m.hover
-	d^ = {state = .Pressed, object = h.object, action = m.action, press = input.mouse_pos, alt = input.invert, snap = input.smooth, face = h.face, edge = h.edge, point = h.point, at = h.at, items = d.items, set = d.set}
+	d^ = {state = .Pressed, object = h.object, action = m.action, press = input.mouse_pos, alt = input.invert, snap = input.smooth, face = h.face, edge = h.edge, point = h.point, at = h.at, items = d.items, images = d.images, set = d.set}
 	clear(&d.items)
 	append(&d.items, ..h.items[:])
+	clear(&d.images)
+	append(&d.images, ..h.images[:])
 	return true
 }
 
@@ -438,11 +487,44 @@ model_hover :: proc(app: ^App, pos, size: [2]f32, over: bool) {
 	h := &m.hover
 	h.object = 0
 	clear(&h.items)
+	clear(&h.images)
 	if !over do return
 	obj, face, edge, point, at, ok := model_pick(app, pos, size, m.action in MODEL_BORDER_ACTIONS)
 	if !ok do return
 	h.object, h.face, h.edge, h.point, h.at = obj.id, face, edge, point, at
 	model_resolve(&obj.cage.mesh, MODEL_ACTION_ELEMENT[m.action], model_target(m, m.action), face, edge, point, &h.items)
+	model_images(app, &obj.cage.mesh, MODEL_ACTION_ELEMENT[m.action], h.items[:], &h.images)
+}
+
+// The symmetry's planes, as the cage's mirrors name them.
+model_axes :: proc(app: ^App) -> poly.Mirror_Axes {
+	axes: poly.Mirror_Axes
+	for a in app.brush.symmetry do axes += {poly.Mirror_Axis(a)}
+	return axes
+}
+
+// The mirror images of `items` (faces, edges or points) under the symmetry, without the
+// items themselves, into `out` (cleared first).
+model_images :: proc(app: ^App, cage: ^poly.Mesh, element: Model_Element, items: []u32, out: ^[dynamic]u32) {
+	clear(out)
+	axes := model_axes(app)
+	if axes == {} || len(items) == 0 do return
+	all: []u32
+	switch element {
+	case .Face:  all = poly.mirror_faces(cage, items, axes, context.temp_allocator)
+	case .Edge:  all = poly.mirror_edges(cage, items, axes, context.temp_allocator)
+	case .Point: all = poly.mirror_points(cage, items, axes, context.temp_allocator)
+	}
+	for x in all do if !slice.contains(items, x) do append(out, x)
+}
+
+// The target and its images together.
+@(private = "file")
+model_all :: proc(d: ^Model_Drag) -> []u32 {
+	all := make([]u32, len(d.items) + len(d.images), context.temp_allocator)
+	copy(all, d.items[:])
+	copy(all[len(d.items):], d.images[:])
+	return all
 }
 
 // A tap action on the pressed target: one undo step, or a note saying why not.
@@ -456,29 +538,64 @@ model_tap :: proc(app: ^App) -> bool {
 	before := history_snapshot(app, obj, MODEL_ACTION_WHAT[d.action])
 	err := poly.Build_Error.None
 	r: poly.Edit_Result
+	kept := model_keep(cage, len(d.images) > 0)
+	defer model_restore(cage, &kept, err)
 	#partial switch d.action {
 	case .Delete:
-		if len(d.items) == len(cage.face_he) {
+		if len(model_all(d)) == len(cage.face_he) {
 			report(app, nil, {.Warning}, "Delete would leave %s with no faces: delete the object instead", object_label(obj))
 			history_snapshot_drop(before)
 			return true
 		}
-		r, err = poly.delete_or_dissolve(cage, d.items[:], d.alt)
+		r, err = poly.delete_or_dissolve(cage, model_all(d), d.alt)
 	case .Flip:
-		r, err = poly.flip_faces(cage, d.items[:])
+		r, err = poly.flip_faces(cage, model_all(d))
 	case .Polygroup:
 		group := poly.group_next(cage) if d.alt else m.group
-		poly.group_faces(cage, d.items[:], group)
+		poly.group_faces(cage, model_all(d), group)
+	case .Select:
+		// A selection that changes nothing is no undo step.
+		if !poly.select_set(cage, model_all(d), !d.alt) {
+			history_snapshot_drop(before)
+			return true
+		}
 	case .Remove_Loop:
-		r, err = poly.dissolve_edges(cage, d.items[:])
+		r, err = poly.dissolve_edges(cage, model_all(d))
 	case .Collapse:
-		r, err = poly.collapse_edges(cage, d.items[:])
-	case .Spin:
-		r, err = poly.spin_edge(cage, d.edge)
-	case .Close_Hole:
-		r, err = poly.close_hole(cage, d.edge, model_border_group(cage, d.edge))
+		r, err = poly.collapse_edges(cage, model_all(d))
+	case .Spin, .Close_Hole:
+		// One at a time, the pressed edge first; each found again by its ends.
+		ends := model_edge_ends(cage, {d.edge}, d.images[:])
+		for pair, i in ends {
+			e := model_edge_by_ends(cage, pair[0], pair[1])
+			if e == poly.NONE do continue
+			// A hole an earlier close already filled is left alone.
+			if d.action == .Close_Hole && !poly.edge_border(cage, e) do continue
+			step: poly.Edit_Result
+			if d.action == .Spin {
+				step, err = poly.spin_edge(cage, e)
+			} else {
+				step, err = poly.close_hole(cage, e, model_border_group(cage, e))
+			}
+			if err == .None do for &q in ends[i + 1:] do q = {model_remap(&step, q[0]), model_remap(&step, q[1])}
+			poly.edit_result_destroy(&step)
+			if err != .None do break
+		}
 	case .Dissolve_Point:
-		r, err = poly.dissolve_point(cage, d.point)
+		// One at a time, each found again through the new numbering.
+		points := model_all(d)
+		for i in 0 ..< len(points) {
+			v := points[i]
+			if v == poly.NONE do continue
+			step: poly.Edit_Result
+			step, err = poly.dissolve_point(cage, v)
+			if err != .None {
+				poly.edit_result_destroy(&step)
+				break
+			}
+			for &w in points[i + 1:] do w = model_remap(&step, w)
+			poly.edit_result_destroy(&step)
+		}
 	}
 	poly.edit_result_destroy(&r)
 	return model_commit(app, obj, before, err)
@@ -501,6 +618,50 @@ model_commit :: proc(app: ^App, obj: ^Object, before: ^Object_Snapshot, err: pol
 	history_record_swap(app, obj.id, before, kind = .Model)
 	m.done += 1
 	return true
+}
+
+// The ends of `first`'s edges, then of `images`', in that order.
+@(private = "file")
+model_edge_ends :: proc(cage: ^poly.Mesh, first: []u32, images: []u32) -> [][2]u32 {
+	out := make([dynamic][2]u32, context.temp_allocator)
+	for e in first {
+		a, b := poly.edge_verts(cage, e)
+		append(&out, [2]u32{a, b})
+	}
+	for e in images {
+		a, b := poly.edge_verts(cage, e)
+		append(&out, [2]u32{a, b})
+	}
+	return out[:]
+}
+
+// Where point v went in an edit: its new id, or NONE when it went (or was NONE).
+@(private = "file")
+model_remap :: proc(r: ^poly.Edit_Result, v: u32) -> u32 {
+	return poly.NONE if v == poly.NONE || int(v) >= len(r.vert) else r.vert[v]
+}
+
+// A copy of the cage before an action of several steps (symmetry's images, one at a
+// time), when `several`: a refusal part way puts it back, as a refused single step leaves
+// the cage as it was.
+@(private = "file")
+model_keep :: proc(cage: ^poly.Mesh, several: bool) -> (kept: Maybe(poly.Mesh)) {
+	if several do kept = poly.mesh_clone(cage^)
+	return
+}
+
+// Puts the kept copy back when `err` refused the action, and frees it either way.
+@(private = "file")
+model_restore :: proc(cage: ^poly.Mesh, kept: ^Maybe(poly.Mesh), err: poly.Build_Error) {
+	k, ok := kept.?
+	if !ok do return
+	if err != .None {
+		poly.mesh_destroy(cage)
+		cage^ = k
+	} else {
+		poly.mesh_destroy(&k)
+	}
+	kept^ = nil
 }
 
 // The group a face closing a hole takes: that of a face beside the hole.
@@ -528,28 +689,81 @@ model_pair :: proc(app: ^App) -> bool {
 	cage := &obj.cage.mesh
 	// The same element twice is a press that changed its mind.
 	if (d.action == .Bridge && slice.contains(d.items[:], h.edge)) || (d.action != .Bridge && h.point == d.point) do return true
+	// Before anything temporary: a snapshot frees the frame's temporary memory.
 	before := history_snapshot(app, obj, MODEL_ACTION_WHAT[d.action])
-	err := poly.Build_Error.None
-	r: poly.Edit_Result
-	#partial switch d.action {
-	case .Bridge:
-		r, err = poly.bridge_borders(cage, d.edge, h.edge)
-	case .Weld:
-		// The pressed point goes onto the one lifted over, as ZModeler's Weld points does.
-		pairs := [1][2]u32{{h.point, d.point}}
-		r, err = poly.merge_points(cage, pairs[:], keep_first = true)
-	case .Connect:
-		face, found := model_shared_face(cage, d.point, h.point)
-		if !found {
-			history_snapshot_drop(before)
-			report(app, nil, {.Warning}, "Connect needs two corners of one face")
-			m.refused += 1
-			return true
-		}
-		r, err = poly.connect_points(cage, face, d.point, h.point)
+	// The pair as the points that name it, the pressed element's then the lifted one's
+	// (edges by their two ends, points alone, NONE after), then under symmetry each image
+	// of it, found before any step renumbers the points.
+	named: [4]u32 = {d.point, poly.NONE, h.point, poly.NONE}
+	if d.action == .Bridge {
+		named[0], named[1] = poly.edge_verts(cage, d.edge)
+		named[2], named[3] = poly.edge_verts(cage, h.edge)
 	}
-	poly.edit_result_destroy(&r)
+	quads := make([dynamic][4]u32, context.temp_allocator)
+	append(&quads, named)
+	if axes := model_axes(app); axes != {} {
+		each: [4][dynamic; 8]u32
+		for v, i in named do if v != poly.NONE do each[i] = poly.mirror_point_each(cage, v, axes)
+		for k in 1 ..< len(each[0]) {
+			q := [4]u32{poly.NONE, poly.NONE, poly.NONE, poly.NONE}
+			for i in 0 ..< 4 do if named[i] != poly.NONE do q[i] = each[i][k]
+			append(&quads, q)
+		}
+	}
+	err := poly.Build_Error.None
+	kept := model_keep(cage, len(quads) > 1)
+	defer model_restore(cage, &kept, err)
+	if d.action == .Weld {
+		// The pressed point goes onto the one lifted over, as ZModeler's Weld points does;
+		// a point welded to its own image meets it halfway instead, on the plane.
+		pairs := make([dynamic][2]u32, context.temp_allocator)
+		mean := false
+		for q, i in quads {
+			if q[0] == poly.NONE || q[2] == poly.NONE do continue
+			append(&pairs, [2]u32{q[2], q[0]})
+			if i > 0 && (q[0] == d.point || q[0] == h.point) do mean = true
+		}
+		r: poly.Edit_Result
+		r, err = poly.merge_points(cage, pairs[:], keep_first = !mean)
+		poly.edit_result_destroy(&r)
+		return model_commit(app, obj, before, err)
+	}
+	// Bridge and Connect: one at a time, each image found again by its points; an image
+	// an earlier step already joined (a border bridged to its own mirror, two points
+	// connected across the plane) is left alone.
+	for i in 0 ..< len(quads) {
+		q := quads[i]
+		step: poly.Edit_Result
+		if d.action == .Bridge {
+			a, b := model_edge_by_ends(cage, q[0], q[1]), model_edge_by_ends(cage, q[2], q[3])
+			if a == poly.NONE || b == poly.NONE || !poly.edge_border(cage, a) || !poly.edge_border(cage, b) do continue
+			step, err = poly.bridge_borders(cage, a, b)
+		} else {
+			if q[0] == poly.NONE || q[2] == poly.NONE || model_edge_by_ends(cage, q[0], q[2]) != poly.NONE do continue
+			face, found := model_shared_face(cage, q[0], q[2])
+			if !found && i == 0 {
+				history_snapshot_drop(before)
+				report(app, nil, {.Warning}, "Connect needs two corners of one face")
+				m.refused += 1
+				return true
+			}
+			if !found do continue
+			step, err = poly.connect_points(cage, face, q[0], q[2])
+		}
+		if err == .None do for &rest in quads[i + 1:] do for &v in rest do v = model_remap(&step, v)
+		poly.edit_result_destroy(&step)
+		if err != .None do break
+	}
 	return model_commit(app, obj, before, err)
+}
+
+// The edge joining points a and b, either way round, or NONE.
+@(private = "file")
+model_edge_by_ends :: proc(cage: ^poly.Mesh, a, b: u32) -> u32 {
+	if a == poly.NONE || b == poly.NONE do return poly.NONE
+	h := poly.find_half_edge(cage, a, b)
+	if h == poly.NONE do h = poly.find_half_edge(cage, b, a)
+	return poly.NONE if h == poly.NONE else poly.edge_of(h)
 }
 
 // A face with corners u and v, not joined by an edge of it: the lowest such face.
@@ -624,23 +838,34 @@ model_drag_begin :: proc(app: ^App, input: Viewport_Input) -> bool {
 	ring: poly.Face_Ring
 	loop: poly.Loop_Insert
 	strip: poly.Border_Extrude
+	slide_from, slide_to: Vec3
 	rebuilt := false
 	#partial switch d.action {
 	case .Extrude:
-		ring, d.set, err = poly.extrude_faces(cage, d.items[:], false, d.alt)
+		ring, d.set, err = poly.extrude_faces(cage, model_all(d), false, d.alt)
 		rebuilt = true
 	case .Inset:
-		ring, d.set, err = poly.inset_faces(cage, d.items[:], d.alt)
+		ring, d.set, err = poly.inset_faces(cage, model_all(d), d.alt)
 		rebuilt = true
 	case .Move:
-		d.set = poly.move_faces(cage, d.items[:])
+		d.set = poly.move_faces(cage, model_all(d))
 	case .Insert_Loop:
+		kept := model_keep(cage, len(d.images) > 0)
 		loop, err = poly.insert_loop(cage, d.edge, d.at)
-		if err == .None do d.set = poly.loop_slide(cage, &loop)
+		if err == .None {
+			d.set = poly.loop_slide(cage, &loop)
+			// The slide's line on screen runs along the pressed edge, from the end a share of
+			// 0 lies on; found before any image renumbers the points.
+			ends := loop.ends[loop.pressed]
+			slide_from, slide_to = cage.positions[ends[0]], cage.positions[ends[1]]
+			err = model_mirror_loops(app, cage, &d.set, loop.pressed)
+		}
+		model_restore(cage, &kept, err)
 		rebuilt = true
 	case .Extrude_Edge:
-		for e in d.items do if !poly.edge_border(cage, e) do err = .Non_Manifold_Edge
-		if err == .None do strip, d.set, err = poly.extrude_border(cage, d.items[:], d.alt)
+		all := model_all(d)
+		for e in all do if !poly.edge_border(cage, e) do err = .Non_Manifold_Edge
+		if err == .None do strip, d.set, err = poly.extrude_border(cage, all, d.alt)
 		rebuilt = true
 	}
 	poly.face_ring_destroy(&ring)
@@ -653,21 +878,23 @@ model_drag_begin :: proc(app: ^App, input: Viewport_Input) -> bool {
 		model_refused(app, d.action, err)
 		return true
 	}
-	// An edge strip follows the mean of its points' ways out from their middle.
+	// An edge strip follows the mean of its points' ways out from their middle: the points
+	// of the pressed edges, which extrude_border lists first, so a mirrored strip, whose
+	// ways cancel these, does not turn the line.
 	if d.action == .Extrude_Edge && len(d.set.verts) > 0 {
 		c, n: Vec3
-		for v, i in d.set.verts {
-			c += cage.positions[v]
+		k := model_point_count(cage, d.items[:])
+		for i in 0 ..< k {
+			c += cage.positions[d.set.verts[i]]
 			n += d.set.dir[i]
 		}
-		d.center, d.normal = c / f32(len(d.set.verts)), linalg.normalize0(n)
+		d.center, d.normal = c / f32(k), linalg.normalize0(n)
 	}
 	if d.action == .Insert_Loop {
 		vp := view_proj_of(app, input.size)
 		t := obj.transform
-		ends := loop.ends[loop.pressed]
-		d.slide_from, _ = gizmo.project(vp, to_world(t, cage.positions[ends[0]]), input.size)
-		d.slide_to, _ = gizmo.project(vp, to_world(t, cage.positions[ends[1]]), input.size)
+		d.slide_from, _ = gizmo.project(vp, to_world(t, slide_from), input.size)
+		d.slide_to, _ = gizmo.project(vp, to_world(t, slide_to), input.size)
 	}
 	poly.loop_insert_destroy(&loop)
 	if rebuilt && !cage_rebuild(app, obj) {
@@ -679,6 +906,85 @@ model_drag_begin :: proc(app: ^App, input: Viewport_Input) -> bool {
 	d.start = model_drag_along(app, obj, d.press, input.size)
 	model_drag_follow(app, obj, input)
 	return true
+}
+
+// Under symmetry, Insert loop's images: a loop through the mirror image of the pressed
+// point on each image of the pressed edge, its slide joined to `set` so the loops slide as
+// mirror images of each other. An image that falls on a point adds no loop: the press was
+// on the plane, where one loop is its own image and stays there. `pressed` is the pressed
+// point's place in `set`.
+@(private = "file")
+model_mirror_loops :: proc(app: ^App, cage: ^poly.Mesh, set: ^poly.Drag_Set, pressed: int) -> poly.Build_Error {
+	axes := model_axes(app)
+	if axes == {} do return .None
+	p0, dir0 := cage.positions[set.verts[pressed]], set.dir[pressed]
+	slack := poly.mirror_slack(cage)
+	signs := poly.mirror_signs(axes)
+	for s in signs[1:] {
+		// Loops on either side of a plane meet on it, so the slide stops short of it; a
+		// loop on the plane stays (a range of a millionth, drag_apply's "no range" being
+		// an empty one).
+		for k in 0 ..< 3 do if s[k] < 0 && dir0[k] != 0 {
+			if abs(p0[k]) <= slack {
+				set.lo, set.hi = -1e-6, 1e-6
+				continue
+			}
+			u := -p0[k] / dir0[k]
+			if u > 0 do set.hi = min(set.hi, u * 0.98)
+			else do set.lo = max(set.lo, u * 0.98)
+		}
+		e, share, found := poly.edge_through(cage, p0 * s, dir0 * s, slack)
+		if !found do continue
+		loop, err := poly.insert_loop(cage, e, share)
+		if err != .None do return err
+		img := poly.loop_slide(cage, &loop)
+		// In the first loop's units (a share of its edges, not of the part of an edge an
+		// earlier loop left) and moving as the mirror of it.
+		way := img.dir[loop.pressed]
+		scale := linalg.length(dir0) / max(linalg.length(way), 1e-12)
+		if linalg.dot(way, dir0 * s) < 0 do scale = -scale
+		for &w in img.dir do w *= scale
+		lo, hi := img.lo / scale, img.hi / scale
+		if scale < 0 do lo, hi = hi, lo
+		model_join_slides(set, &img, &loop.edit, lo, hi)
+		poly.loop_insert_destroy(&loop)
+	}
+	return .None
+}
+
+// Joins slide `img`, which `edit` just made, to `set`, whose points `edit` renumbered;
+// the joined slide stays within both ranges.
+@(private = "file")
+model_join_slides :: proc(set, img: ^poly.Drag_Set, edit: ^poly.Edit_Result, lo, hi: f32) {
+	n, k := len(set.verts), len(img.verts)
+	joined := poly.Drag_Set {
+		verts = make([]u32, n + k),
+		base  = make([]Vec3, n + k),
+		dir   = make([]Vec3, n + k),
+		lo    = max(set.lo, lo),
+		hi    = min(set.hi, hi),
+	}
+	for v, i in set.verts do joined.verts[i] = edit.vert[v]
+	copy(joined.verts[n:], img.verts)
+	copy(joined.base, set.base)
+	copy(joined.base[n:], img.base)
+	copy(joined.dir, set.dir)
+	copy(joined.dir[n:], img.dir)
+	poly.drag_set_destroy(set)
+	poly.drag_set_destroy(img)
+	set^ = joined
+}
+
+// How many points `edges` have between them.
+@(private = "file")
+model_point_count :: proc(cage: ^poly.Mesh, edges: []u32) -> int {
+	points := make([dynamic]u32, context.temp_allocator)
+	for e in edges {
+		a, b := poly.edge_verts(cage, e)
+		if !slice.contains(points[:], a) do append(&points, a)
+		if !slice.contains(points[:], b) do append(&points, b)
+	}
+	return max(len(points), 1)
 }
 
 // Where along the drag's line viewport point `pos` lies, in the object's units: the
@@ -731,6 +1037,8 @@ model_drag_finish :: proc(app: ^App, obj: ^Object) {
 	d.before = nil
 	d.state = .None
 	app.model.done += 1
+	if d.amount != 0 do app.model.last[d.action] = d.amount
+	adjust_set_model(app, obj, d.amount)
 }
 
 // Ends a drag whose object went, or whose rebuild failed, recording nothing.
@@ -764,6 +1072,9 @@ MODEL_ELEMENT_COLORS := [Model_Element][4]f32 {
 	.Point = {0.35, 0.6, 1.0, 1},
 }
 
+// The selected faces' colour, Blender's edit mode orange.
+MODEL_SELECTION_COLOR :: [4]f32{1.0, 0.55, 0.15, 0.9}
+
 // The Model tool's hover and its label: the elements the press would reach, lit, and
 // "Action · Target" beside the pen. A pair action in hand shows its first element too,
 // and a line from it to the pen.
@@ -771,25 +1082,40 @@ draw_model_overlay :: proc(app: ^App, o: Overlay, input: Viewport_Input) {
 	m := &app.model
 	d := &m.drag
 	element := MODEL_ACTION_ELEMENT[m.action]
+	// Each shown cage's selection, under the hover.
+	picked := make([dynamic]u32, context.temp_allocator)
+	for obj in app.scene.objects {
+		if obj.cage == nil || !object_shown(app, obj) do continue
+		poly.selected_faces(&obj.cage.mesh, &picked)
+		if len(picked) > 0 do draw_model_items(app, o, input, obj.id, .Face, picked[:], MODEL_SELECTION_COLOR)
+	}
 	if d.state != .Dragging {
 		if d.state == .Pressed {
-			draw_model_items(app, o, input, d.object, MODEL_ACTION_ELEMENT[d.action], d.items[:])
+			draw_model_items(app, o, input, d.object, MODEL_ACTION_ELEMENT[d.action], d.items[:], MODEL_ELEMENT_COLORS[MODEL_ACTION_ELEMENT[d.action]])
+			draw_model_items(app, o, input, d.object, MODEL_ACTION_ELEMENT[d.action], d.images[:], MODEL_ELEMENT_COLORS[MODEL_ACTION_ELEMENT[d.action]])
 			if d.action in MODEL_PAIRS do overlay_line(o, d.press, input.mouse_pos, overlay_color(MODEL_ELEMENT_COLORS[MODEL_ACTION_ELEMENT[d.action]]), 2)
 		}
-		if d.state == .None || d.action in MODEL_PAIRS do draw_model_items(app, o, input, m.hover.object, element, m.hover.items[:])
+		if d.state == .None || d.action in MODEL_PAIRS {
+			draw_model_items(app, o, input, m.hover.object, element, m.hover.items[:], MODEL_ELEMENT_COLORS[element])
+			draw_model_items(app, o, input, m.hover.object, element, m.hover.images[:], MODEL_ELEMENT_COLORS[element])
+		}
 	}
 	label := fmt.tprintf("%s · %s", MODEL_ACTION_NAMES[m.action], MODEL_TARGET_NAMES[model_target(m, m.action)])
+	// A drag says how far it has gone, as ZModeler's floating value does.
+	if d.state == .Dragging {
+		amount := fmt.tprintf("%+.0f%%", d.amount * 100) if d.action == .Insert_Loop else fmt.tprintf("%+.3f", d.amount)
+		label = fmt.tprintf("%s  %s", label, amount)
+	}
 	overlay_label(o, label, input.mouse_pos + {0, -36})
 }
 
 @(private = "file")
-draw_model_items :: proc(app: ^App, o: Overlay, input: Viewport_Input, id: int, element: Model_Element, items: []u32) {
+draw_model_items :: proc(app: ^App, o: Overlay, input: Viewport_Input, id: int, element: Model_Element, items: []u32, color: [4]f32) {
 	obj := object_by_id(app, id)
 	if obj == nil || obj.cage == nil do return
 	cage := &obj.cage.mesh
 	vp := view_proj_of(app, input.size)
 	t := obj.transform
-	color := MODEL_ELEMENT_COLORS[element]
 	// Elements behind the surface show faintly, so a ring or loop reads whole without
 	// looking as if it were in front.
 	shown, hidden := overlay_color(color), overlay_color({color.r, color.g, color.b, 0.3})

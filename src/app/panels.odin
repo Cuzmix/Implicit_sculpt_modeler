@@ -133,7 +133,7 @@ panels_default :: proc(k: ^Kit_State) {
 	p.scroll = {}
 	p.menu, p.drag = false, nil
 	k.order = {}
-	for w in KIT_WINDOW_ORDER do append(&k.order, Panel_Ref(w))
+	for w in KIT_WINDOW_ORDER do append(&k.order, Float_Ref(w))
 }
 
 // The panel's container name at the root, as its window or card is named when it floats.

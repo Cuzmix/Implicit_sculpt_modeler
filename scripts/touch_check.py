@@ -2909,6 +2909,66 @@ def model_weld_pair_merges_two_points():
 
 
 @scenario
+def model_symmetric_extrude_pulls_both_sides():
+    """With Symmetry X on, an extrude drag on a cube's right face pulls its left face out too, as one undo step (8 points become 16)."""
+    s = Script()
+    s.mouse_drag(line((820, 450), (900, 440), 8))
+    s.wait(10)
+    return s, LENS_1440 + ["--script=add_cage cube; select 1; delete_object; frame_all; symmetry_x; model_action extrude"], {"cage_points": near(16), "cage_faces": near(14), "cage_broken": near(0), "model_done": near(1), "undo_steps": near(1)}
+
+
+@scenario
+def model_symmetric_insert_loop_adds_its_mirror():
+    """With Symmetry X on, an Insert loop tap a third of the way along a cube's top front edge puts in its mirror loop too (two loops, 16 points)."""
+    s = Script()
+    s.mouse_drag([(619, 400)])
+    s.wait(10)
+    return s, LENS_1440 + ["--script=add_cage cube; select 1; delete_object; frame_all; symmetry_x; model_action insert_loop"], {"cage_points": near(16), "cage_faces": near(14), "cage_broken": near(0), "model_done": near(1), "undo_steps": near(1)}
+
+
+@scenario
+def model_select_drag_paints_a_selection():
+    """Select dragged from a cube's front face over its right face selects both, as one undo step; the face actions' Selection target then works on them."""
+    s = Script()
+    s.mouse_drag(line((650, 500), (820, 450), 6))
+    s.wait(10)
+    return s, LENS_1440 + ["--script=add_cage cube; select 1; delete_object; frame_all; model_action select"], {"cage_selected": near(2), "cage_faces": near(6), "model_done": near(1), "undo_steps": near(1)}
+
+
+@scenario
+def model_select_ctrl_tap_deselects():
+    """With every face selected (Select all), a Ctrl tap with Select on the front face deselects it alone."""
+    s = Script()
+    s.mouse_drag([(650, 500)], keys=("ctrl",))
+    s.wait(10)
+    return s, LENS_1440 + ["--script=add_cage cube; select 1; delete_object; frame_all; select_cage all; model_action select"], {"cage_selected": near(5), "model_done": near(1), "undo_steps": near(1)}
+
+
+@scenario
+def model_tap_repeats_the_last_extrude():
+    """An extrude drag on a cube's front face, then a tap with Extrude on its top face: the tap extrudes the top as far as the drag went (two extrudes, two undo steps)."""
+    s = Script()
+    s.mouse_drag(line((650, 500), (640, 560), 4))
+    s.wait(3)
+    s.mouse_drag([(720, 380)])
+    s.wait(5)
+    return s, LENS_1440 + ["--script=add_cage cube; select 1; delete_object; frame_all; model_action extrude"], {"cage_points": near(16), "cage_faces": near(14), "model_done": near(2), "undo_steps": near(2)}
+
+
+@scenario
+def model_adjust_last_extrude():
+    """After an extrude drag, the action bar's Adjust and a drag on the popover's Amount set the extrude further in place: still one undo step."""
+    s = Script()
+    s.mouse_drag(line((650, 500), (640, 560), 4))
+    s.wait(3)
+    s.mouse_drag([(745, 774)])
+    s.wait(3)
+    s.mouse_drag(line((710, 704), (810, 704), 4))
+    s.wait(5)
+    return s, LENS_1440 + ["--script=add_cage cube; select 1; delete_object; frame_all; model_action extrude"], {"adjust_op": is_text("model_action"), "adjusts": near(3, 2), "adjust_pop": near(1), "undo_steps": near(1), "cage_points": near(12)}
+
+
+@scenario
 def model_delete_tap_removes_a_face():
     """With Delete picked, a tap on a cage's face removes it (a hole of four border edges), not turning the view."""
     s = Script()
@@ -3020,6 +3080,46 @@ def lens_stack_float_floats_a_card():
     s.ftap(*LENS_STACK["layers_float"])
     s.wait(10)
     return s, LENS_1440, camera_still({"stack": lambda v: "Layers+^" in v.split(","), "dabs": near(0)})
+
+
+# Two floating cards at 1440x900: Layers floated and its grip dragged down 200 points, then
+# Scene floated over its top; a point in Layers' padding that Scene leaves clear.
+LENS_FLOATS = {"layers_grip": (894, 166), "layers_padding": (1043, 470)}
+
+
+@scenario
+def lens_floating_card_touched_comes_to_the_front():
+    """Of two floating cards, the one floated last is in front; a touch on the other brings it in front, and runs nothing."""
+    s = Script()
+    s.ftap(*LENS_STACK["brush"])
+    s.wait(6)
+    s.ftap(*LENS_STACK["layers_float"])
+    s.wait(8)
+    grip = LENS_FLOATS["layers_grip"]
+    s.fdrag(line(grip, (grip[0], grip[1] + 200), 8))
+    s.wait(6)
+    # Scene is now where Layers was in the stack.
+    s.ftap(*LENS_STACK["layers_float"])
+    s.wait(8)
+    s.ftap(*LENS_FLOATS["layers_padding"])
+    s.wait(8)
+    return s, LENS_1440, camera_still({"stack": lambda v: "Layers+^" in v.split(",") and "Scene+^" in v.split(","),
+                                       "float_front": is_text("Layers"), "layer_rows": near(0), "dabs": near(0)})
+
+
+@scenario
+def lens_dial_stays_over_a_floating_card():
+    """A floating card dragged over the dial goes under it: a tap on the dial's top sector latches Smooth."""
+    s = Script()
+    s.ftap(*LENS_STACK["brush"])
+    s.wait(6)
+    s.ftap(*LENS_STACK["layers_float"])
+    s.wait(8)
+    s.fdrag(line(LENS_FLOATS["layers_grip"], (182, 718), 8))
+    s.wait(6)
+    s.ftap(*LENS_ARRANGE["dial_top"])
+    s.wait(8)
+    return s, LENS_1440, camera_still({"float_front": is_text("Layers"), "rail_latched": is_text("smooth"), "dabs": near(0)})
 
 
 # Resizing the Lens stack at 1440x900: its inner edge (the strip just left of the cards),
@@ -4321,14 +4421,14 @@ def rail_latched_edge_still_orbits():
 
 
 @scenario
-def rail_under_window_goes_to_window():
-    """Where a window lies over the rail, a finger there is the window's: nothing latches."""
+def rail_over_window_keeps_the_finger():
+    """Where a window lies over the rail, the rail is drawn over it and a finger there is the rail's: Invert latches, and the window stays."""
     with open(settings_file(), "w") as f:
         f.write("stats 1\nwindow Stats 1 Start Start 0 700 0\n")
     s = Script()
     rail_tap(s, "invert")
     s.wait(4)
-    return s, [f"--settings-file={settings_file()}"], {"dabs": near(0), "rail_latched": lambda v: v == "none",
+    return s, [f"--settings-file={settings_file()}"], {"dabs": near(0), "rail_latched": is_text("invert"),
                                                      "window_stats": lambda v: v.startswith("1,")}
 
 
