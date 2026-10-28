@@ -3113,6 +3113,82 @@ def lens_shift_moves_lined_up_dividers():
 
 
 
+# Focus in Lens at 1600 x 900: the middle island's workspace chip and X symmetry chip, and
+# the tools island's View layout and Passes.
+LENS_FOCUS = {"workspace": (770, 33), "symmetry": (838, 33), "layout": (1460, 33), "passes": (1510, 33)}
+
+
+@scenario
+def lens_focus_draws_islands():
+    """Focus in Lens: the top bar becomes islands, X symmetry is a chip there, and Passes opens its menu."""
+    s = Script()
+    s.ftap(*LENS_PILL["focus"])
+    s.wait(6)
+    s.ftap(*LENS_FOCUS["symmetry"])
+    s.wait(4)
+    s.ftap(*LENS_FOCUS["passes"])
+    s.wait(6)
+    return s, LENS, camera_still({"workspace": is_text("Focus"), "lens_focus": near(1), "symmetry": is_text("x"), "pass_menu": near(1), "dabs": near(0)})
+
+
+# The Lens menu's button and its rows at 1600 x 900 that open submenus, and the first row
+# of the submenu Open recent opens.
+LENS_MENU = (33, 26)
+LENS_MENU_ROWS = {"new": (120, 129), "recent": (120, 217), "export": (120, 482), "more": (120, 835)}
+LENS_SUBMENU_FIRST = (380, 248)
+
+
+@scenario
+def lens_menu_recent_opens_sideways():
+    """Open recent opens its list beside the menu on a tap, and More on a mouse resting on it; a scene gone leaves Recent."""
+    folder = os.path.join(ROOT, "build", "touch", "scenes")
+    os.makedirs(folder, exist_ok=True)
+    path = os.path.join(folder, CURRENT.name + ".sculpt")
+    if os.path.exists(path):
+        os.remove(path)
+
+    def tap(open_it):
+        s = Script()
+        s.ftap(*LENS_MENU)
+        s.wait(6)
+        s.ftap(*LENS_MENU_ROWS["recent"])
+        s.wait(8)
+        if open_it:
+            s.ftap(*LENS_SUBMENU_FIRST)
+            s.wait(8)
+        # Each run its own settings file: the first run's exit writes its own back.
+        settings = settings_file()[:-4] + ("-open.txt" if open_it else ".txt")
+        with open(settings, "w") as f:
+            f.write(f"recent_scenes {path}\n")
+        expect = {"menu_sub": is_text("Recent"), "menu_subs": near(1), "dabs": near(0)}
+        # The file is gone, so the tap takes it off Recent rather than opening it, and the
+        # list stays open to show it went.
+        if open_it:
+            expect.update({"recent_scenes": near(0), "menu_recent_opens": near(0)})
+        return s, LENS + [f"--settings-file={settings}"], camera_still(expect)
+
+    def rest():
+        s = Script()
+        s.ftap(*LENS_MENU)
+        s.wait(6)
+        s.add(f"move:{LENS_MENU_ROWS['more'][0]},{LENS_MENU_ROWS['more'][1]}")
+        s.wait(30)
+        return s, LENS, camera_still({"menu_sub": is_text("More"), "menu_subs": near(1)})
+    return Steps([tap(False), tap(True), rest()])
+
+
+@scenario
+def lens_search_groups_and_puts_on_a_bar():
+    """Lens's search groups what matches; Ctrl+Enter puts the pick on the view rail and leaves search open."""
+    s = Script()
+    s.press("k", ("ctrl",))
+    s.type("flat shading")
+    s.wait(2)
+    s.press("Return", ("ctrl",))
+    s.wait(4)
+    return s, LENS, camera_still({"palette": near(1), "palette_bar_puts": near(1), "palette_groups": lambda v: v.startswith("Commands"), "dabs": near(0)})
+
+
 # Lens's brush pie at 1440x900: the dial's Pie sector opens it at the viewport's middle;
 # the top slice (Clay) and the editor's first brush slot.
 LENS_PIE = {"dial": (122, 822), "middle": (720, 450), "top": (720, 334), "crease": (800, 520), "editor_first": (764, 190), "search": (1180, 26)}

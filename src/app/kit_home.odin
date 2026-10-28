@@ -150,8 +150,8 @@ home_grid :: proc(app: ^App, width: f32) {
 	}
 }
 
-// When a scene was saved, short enough to share a tile's line with its size.
-@(private = "file")
+// When a scene was saved, short enough to share a tile's line with its size (or a row
+// of the Lens menu's Open recent).
 home_when :: proc(at: i64) -> string {
 	s := max(unix_now() - at, 0)
 	switch {
@@ -164,7 +164,6 @@ home_when :: proc(at: i64) -> string {
 }
 
 // Whether opening another scene would lose work: the same test the top bar's star makes.
-@(private = "file")
 home_work_to_lose :: proc(app: ^App) -> bool {
 	return scene_unsaved(app) && (app.scene_path != "" || scene_has_work(app))
 }
