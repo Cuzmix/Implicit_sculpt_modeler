@@ -5825,8 +5825,17 @@ def camera_menu_splits_the_view_side_by_side():
     s.wait(8)
     s.ftap(*GRID_SIDE_BY_SIDE)
     s.wait(10)
-    return s, [], camera_still({"grid": is_text("Side_By_Side"), "grid_main": lambda v: 450 < float(v.split("x")[0]) < 560,
+    return s, ["--script=set panes_under_panels off"], camera_still({"grid": is_text("Side_By_Side"), "grid_main": lambda v: 450 < float(v.split("x")[0]) < 560,
                                 "pane_camera": is_text("Front"), "pane_draws": lambda v: int(v) >= 1, "dabs": near(0)})
+
+
+@scenario
+def panes_run_under_the_panels_by_default():
+    """By default the view grid fills the window and the docked tray floats over the right pane: Side by side halves the whole window, and the view pane still draws."""
+    s = Script()
+    s.wait(10)
+    return s, ["--script=view_grid side_by_side"], camera_still({"grid": is_text("Side_By_Side"), "grid_main": lambda v: 780 < float(v.split("x")[0]) < 820,
+                                                               "viewport_origin": is_text("0,0"), "pane_draws": lambda v: int(v) >= 1, "dabs": near(0)})
 
 
 @scenario
@@ -5839,7 +5848,7 @@ def stroke_in_the_main_pane_beside_a_left_column():
     s.wait(10)
     s.fdrag(line((940, 420), (990, 470), 16))
     s.wait(6)
-    return s, ["--script=view_grid side_by_side"], camera_still({"viewport_origin": is_text("562,0"), "dabs": lambda v: int(v) > 0,
+    return s, ["--script=set panes_under_panels off; view_grid side_by_side"], camera_still({"viewport_origin": is_text("562,0"), "dabs": lambda v: int(v) > 0,
                                                                 "undo_steps": near(1), "column_left": is_text("inspector")})
 
 
@@ -5851,7 +5860,7 @@ def view_pane_drag_turns_its_own_camera():
     x, y = GRID_PANE
     s.fdrag([(x - 40 + i * 8, y) for i in range(11)])
     s.wait(6)
-    return s, ["--script=view_grid side_by_side"], camera_still({"pane_camera": is_text("Free"), "pane_turns": lambda v: int(v) >= 5, "dabs": near(0)})
+    return s, ["--script=set panes_under_panels off; view_grid side_by_side"], camera_still({"pane_camera": is_text("Free"), "pane_turns": lambda v: int(v) >= 5, "dabs": near(0)})
 
 
 @scenario
@@ -5861,7 +5870,7 @@ def grid_divider_drag_moves_the_split():
     s.wait(4)
     s.fdrag(line(GRID_DIVIDER, (GRID_DIVIDER[0] + 120, GRID_DIVIDER[1]), 12))
     s.wait(6)
-    return s, ["--script=view_grid side_by_side"], camera_still({"grid_split": lambda v: float(v.split(",")[0]) > 0.6, "grid_drags": lambda v: int(v) > 0,
+    return s, ["--script=set panes_under_panels off; view_grid side_by_side"], camera_still({"grid_split": lambda v: float(v.split(",")[0]) > 0.6, "grid_drags": lambda v: int(v) > 0,
                                                                 "grid_main": lambda v: float(v.split("x")[0]) > 600, "dabs": near(0)})
 
 
@@ -5875,7 +5884,7 @@ def view_pane_link_turns_the_main_camera():
     x, y = GRID_PANE
     s.fdrag([(x - 40 + i * 8, y) for i in range(11)])
     s.wait(6)
-    return s, ["--script=view_grid side_by_side"], {"pane_camera": is_text("Follow"), "pane_links": near(1), "linked_turns": lambda v: int(v) >= 5,
+    return s, ["--script=set panes_under_panels off; view_grid side_by_side"], {"pane_camera": is_text("Follow"), "pane_links": near(1), "linked_turns": lambda v: int(v) >= 5,
                                                    "pane_turns": near(0), "camera_yaw": lambda v: abs(float(v) - CAMERA0["camera_yaw"]) > 0.05, "dabs": near(0)}
 
 
@@ -5893,7 +5902,7 @@ def view_pane_mirrored_turns_the_main_camera_the_other_way():
         s.fdrag([(x - 40 + i * 8, y) for i in range(11)])
         s.wait(6)
         turned = (lambda v: float(v) > CAMERA0["camera_yaw"] + 0.05) if mirrored else (lambda v: float(v) < CAMERA0["camera_yaw"] - 0.05)
-        return s, ["--script=view_grid side_by_side"], {"pane_camera": is_text("Mirror" if mirrored else "Follow"), "pane_links": near(1),
+        return s, ["--script=set panes_under_panels off; view_grid side_by_side"], {"pane_camera": is_text("Mirror" if mirrored else "Follow"), "pane_links": near(1),
                                                        "camera_yaw": turned, "dabs": near(0)}
     return Steps([run(True), run(False)])
 
@@ -5910,7 +5919,7 @@ def view_pane_maximises_and_restores():
             s.ftap(*GRID_PANE_RESTORE)
             s.wait(8)
         size = (lambda v: 450 < int(v.split("x")[0]) < 560) if restore else (lambda v: int(v.split("x")[0]) > 1000)
-        return (s, ["--script=view_grid side_by_side"], camera_still({"grid_max": near(0 if restore else 1), "pane_px": size, "dabs": near(0)}))
+        return (s, ["--script=set panes_under_panels off; view_grid side_by_side"], camera_still({"grid_max": near(0 if restore else 1), "pane_px": size, "dabs": near(0)}))
     return Steps([run(False), run(True)])
 
 

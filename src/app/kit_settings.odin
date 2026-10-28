@@ -129,6 +129,7 @@ settings_reset :: proc(app: ^App, tab: Settings_Tab) {
 		k.ctx.mirror = false
 		app.start_home = true
 		k.surface_ring = true
+		k.panes_under = true
 		k.action_bar = true
 		k.rail_side, k.wheel_size, k.wheel_offset = .Left, .Medium, {}
 		k.wheel_labels, k.wheel_turn = .Icons, 0
@@ -198,6 +199,10 @@ settings_interface :: proc(app: ^App) {
 	ui.caption(ctx, "BRUSH RING")
 	_ = ui.switch_row(ctx, "Lay the brush ring on the surface", &k.surface_ring)
 	ui.paragraph(ctx, "Over the model the ring tilts with the surface under it, with a tick showing which way it faces, as in ZBrush; off, it stays a flat circle on the screen.")
+	ui.spacer(ctx, 8)
+	ui.caption(ctx, "VIEW GRID")
+	_ = ui.switch_row(ctx, "Views run under panels", &k.panes_under)
+	ui.paragraph(ctx, "With the view split into panes, they fill the window and the docked panels float over them; off, the panes stop beside the panels, so none of a pane is hidden.")
 	ui.spacer(ctx, 8)
 	ui.caption(ctx, "BARS")
 	_ = command_button(app, .Customise_Bars, glyph = ICON_CUSTOMISE)
