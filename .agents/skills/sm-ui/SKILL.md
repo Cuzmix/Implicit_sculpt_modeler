@@ -62,6 +62,10 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   a popover's side `bar_side(app, which)`, never "the island is left, the rail right". Arrange's tags carry them
   (`arrange_carry_follow`, `bar_place_drop`, `bar_place_set` swaps two bars on one edge). Whatever keeps clear of the
   shelf at the bottom asks `shelf_bottom_size`/`shelf_bottom_span` (nothing while it floats), never "centred, last frame's size".
+  User docks (`user_docks.odin`): `Kit_State.docks[i]` is `Bar_Which.Dock_1 + i`'s list, `Place_Bar.Dock_1 + i`'s place and
+  `Arrange_Zone.Dock_1 + i`'s tag; they are layout-only (`bars_save` skips them in settings and while unused), home Float,
+  never left at Default (`user_docks_settle`). Ask `user_dock_shown`, and from inside a container find a root with
+  `ui.prev_root_rect` (plain `prev_rect` looks for a child of the current container).
   Bars (`bars.odin`): `Bar_Which` is Tools (the shelf's strip after All), View_Rail, the six `Shelf_*` pages (each space's from `shelf_pages_of`; no tool strip on Model's or Render's),
   Brush_Pie and Offhand (the island, last so zone names and `shelf_page_of` keep their meaning), each a `Bar_List` of `Bar_Slot` drawn by `bar_slot_button`, whose `bar_slot_run`/`bar_slot_more`/
   `bar_lit`/`bar_icon` keep each command's own tap, long press and lit state wherever it sits; `BAR_LAYOUT` (Tools,
@@ -83,7 +87,10 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   and popovers, so it is the top lasting root. `ui.row_room` right-aligns in a fixed-width row (spacer(0) does
   nothing). The tray is the stack (`lens_stack.odin`, `kit_inspector`, `panel_begin(bare)`): cards in `k.stack`,
   layout line `stack`; `tray_open` calls `stack_reveal`; the Palettes card holds the whole tray behind
-  `kit_tray_select`; `k.in_stack` lets a section drop what the Brush card shows above it. The brush pie is
+  `kit_tray_select`; `k.in_stack` lets a section drop what the Brush card shows above it. What a panel holds is a `Panel_Kind`
+  (`panel_kind.odin`: a `Stack_Card` or a `Kit_Section`); its content is `panel_body`, which the stack, the pane strip's tab
+  and pinned panels all call, and its title, icon, folded line and layout name (`card:Brush`, `section:Stroke`) come from
+  the `panel_kind_*` procs. The brush pie is
   `Bar_Which.Brush_Pie` (`k.brush_pie`, eight slots); `pie_slot` reads it, `lens_pie_update` adds tap-to-pick and
   the rest that opens `pie_quick`. Stack sizes live in `lens_resize.odin` (`stack_width`, which `tray_width` returns,
   `heights`, `sizes`, layout line `stack_size`); its handles are `ui.begin_at` roots drawn after what they resize.
@@ -263,7 +270,7 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   layer `kit_frame` took over the viewport image. The pie (`draw_pie`) is drawn after it, over everything. It also
   draws the safe zone's inner edge (`edge_inner`, navigate.odin), the orbit pivot's dot while an orbit moves, and the
   brush ring lying on the surface (`draw_surface_ring`, from `app.cursor`, which `cursor_update` in `cursor.odin`
-  fills each frame after the tools: a raycast and `sculpt.sculptor_area_normal`, timed as `cursor_ms`).
+  fills each frame after the tools: a raycast and `sculpt.sculptor_area_normal`, timed as `cursor_ms`), its symmetry copies (`Brush_Cursor.images`, `draw_mirror_rings`) and the symmetry line (`symmetry_lines` in `symmetry.odin`: `sculpt.sculptor_plane_section` per plane, cached by object, sculptor, history serial and symmetry; `draw_section_line` skips back faces).
 - Commands: an action button, menu row or shortcut runs a registry command (`command_run(app, .Id, arg)`, `src/app/commands.odin`), whose `enabled` also decides the button's enabled state and whose shortcut and touch gesture its tooltip shows through `command_hint` (`command_keys` joined to `command_gesture`, which follows the Settings and the tool); never type a shortcut into a label or paragraph. A panel never mutates the scene; it sets `app.ui.scene_command` and the frame loop applies it at the start
   of the next frame. Mask commands go to `mask_command`; file actions to `file_dialog`/`file_post`, applied next frame
   (`file_take`), their outcome a `file_note` that the interface shows as a toast.

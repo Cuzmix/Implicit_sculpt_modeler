@@ -1701,3 +1701,25 @@ sliders_follow_finger_pen_and_mouse_alike :: proc(t: ^testing.T) {
 	testing.expect_value(t, wide[.Finger], wide[.Mouse])
 	testing.expect_value(t, wide[.Pen], wide[.Mouse])
 }
+
+// A root's rect from last frame is found by its name from inside another container too,
+// where prev_rect looks for a child of that container.
+@(test)
+prev_root_rect_finds_a_root_from_anywhere :: proc(t: ^testing.T) {
+	ctx: Context
+	defer destroy(&ctx)
+	for _ in 0 ..< 2 {
+		frame_begin(&ctx, {window = {800, 600}, pixel_density = 1, dt = 1.0 / 60})
+		begin_at(&ctx, "first", {100, 50}, {direction = .Column, width = 40, height = 30})
+		end(&ctx)
+		begin_at(&ctx, "second", {300, 50}, {direction = .Column, width = 40, height = 30})
+		testing.expect_value(t, prev_rect(&ctx, "first"), Rect{})
+		end(&ctx)
+		frame_end(&ctx)
+	}
+	frame_begin(&ctx, {window = {800, 600}, pixel_density = 1, dt = 1.0 / 60})
+	begin_at(&ctx, "second", {300, 50}, {direction = .Column, width = 40, height = 30})
+	testing.expect_value(t, prev_root_rect(&ctx, "first"), Rect{100, 50, 40, 30})
+	end(&ctx)
+	frame_end(&ctx)
+}

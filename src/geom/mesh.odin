@@ -15,6 +15,11 @@ Mesh :: struct {
 	indices:   [dynamic]u32, // 3 per triangle, counter-clockwise when viewed from outside
 }
 
+// A vertex's colour as a file brings it: sRGB red, green and blue, and how much of it
+// covers the clay (0 for a vertex the file gives no colour), as the sculptor's polypaint
+// keeps colours.
+Vertex_Color :: [4]u8
+
 // A run of consecutive vertices, e.g. the part of a mesh that changed.
 Vertex_Range :: struct {
 	first: u32,

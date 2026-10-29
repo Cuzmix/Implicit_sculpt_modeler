@@ -576,6 +576,17 @@ prev_rect :: proc(ctx: ^Context, name: string) -> Rect {
 	return {}
 }
 
+// Where the root container `name` (begun outside every container) was last frame, asked
+// from anywhere, inside another container too, where prev_rect would look for a child of
+// that container; empty the first frame.
+prev_root_rect :: proc(ctx: ^Context, name: string) -> Rect {
+	id := hash_under(0, name)
+	for p in ctx.placed_prev {
+		if p.id == id do return p.rect
+	}
+	return {}
+}
+
 // Opens a container inside the current one, laid out like a widget. Close it with end.
 begin :: proc(ctx: ^Context, name: string, box: Box) {
 	id := id_of(ctx, name)

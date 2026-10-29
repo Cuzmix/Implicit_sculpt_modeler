@@ -7,6 +7,7 @@ import "core:time"
 import "../camera"
 import "../geom"
 import "../sculpt"
+import "../ui"
 import "../voxel"
 
 // Brush settings as the user edits them. Radius is in screen pixels, converted to
@@ -52,6 +53,10 @@ Brush_Settings :: struct {
 	grab_silhouette:   bool,
 	// Grab's falloff measured along the surface (sculpt.Brush.topological).
 	grab_topological:  bool,
+	// Grab and Elastic take hold from a press just past the model's outline too, at the
+	// nearest surface within the ring (Nomad's Move); off, a press off the model turns the
+	// view for them as for every brush, as ZBrush's Move does.
+	grab_outline:      bool,
 	// Elastic: how much of its volume the pulled solid keeps, 0 to 1 (sculpt.Brush.volume).
 	elastic_volume:    f32,
 	// Snake hook: Pinch (below 0 Magnify), Rake and the Elastic tip (sculpt.Brush.hook_*).
@@ -242,6 +247,14 @@ Stroke :: struct {
 	// past the silhouette), and the area normal there (world space, unit length or zero).
 	grab_from:   Vec3,
 	grab_normal: Vec3,
+	// Grab: the pen's roll as the stroke last saw it (degrees, from Viewport_Input.pen_roll)
+	// and how far it has turned since the press, the short way round each time
+	// (grab_twist_angle).
+	grab_roll:   f32,
+	grab_turned: f32,
+	// Grab: how far what it picked up moves for each unit the pointer goes, from the
+	// brush's Strength as the press found it (grab_gain).
+	grab_gain:   f32,
 	// The pen's pressure at the press: Grab's and Snake hook's strength keep it.
 	press_pressure: f32,
 	// The brush the stroke started with, Shift's Smooth and the rail's Mask included: kept
@@ -611,10 +624,10 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 	// A deformer's Amount held by another finger owns the object's undo until let go.
 	if app.ui.deform.drag.active do return
 	index, hit, ok := scene_raycast(app, origin, dir)
-	// Grab takes hold from just past the silhouette too, as Nomad's Move does: the nearest
-	// point of the surface within the brush ring.
+	// With Past the outline on, Grab takes hold from just past the silhouette too, as
+	// Nomad's Move does: the nearest point of the surface within the brush ring.
 	from := hit
-	if !ok && .Grab in BRUSHES[stroke_brush(app, input)].flags && s.kind == .Press {
+	if !ok && app.brush.grab_outline && .Grab in BRUSHES[stroke_brush(app, input)].flags && s.kind == .Press {
 		index, hit, ok = scene_grab_near(app, origin, dir, input.size)
 		if ok {
 			facing := camera.orbit_toward(app.camera, hit)
@@ -666,6 +679,8 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 	st.grab, st.hook, st.anchor, st.invert = .Grab in flags, .Hook in flags, hit, brush.invert
 	st.hook_dir = {}
 	st.grab_from, st.grab_normal, st.press_pressure = from, {}, s.pressure
+	st.grab_roll, st.grab_turned = input.pen_roll, 0
+	st.grab_gain = grab_gain(app, st.kind)
 	if st.grab && obj.voxel == nil {
 		t := obj.transform
 		if n, found := sculpt.sculptor_area_normal(object_sculptor(obj), local, 0.5 * brush.radius, to_local_dir(t, camera.orbit_toward(app.camera, hit))); found {
@@ -751,12 +766,47 @@ grab_follow :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, pos:
 	if abs(along) < 1e-6 do return
 	t := linalg.dot(st.anchor - origin, facing) / along
 	moved := grab_moved(app, input, origin + dir * t - st.grab_from, facing)
-	offset := to_local_dir(obj.transform, moved) / obj.transform.scale
+	offset := to_local_dir(obj.transform, moved) * (st.grab_gain / obj.transform.scale)
 	st.pos = pos
+	twist: sculpt.Grab_Twist
+	if angle := grab_twist_angle(app, input.pen_roll); angle != 0 {
+		// Clockwise seen from the pen's top turns what is held clockwise on screen: about
+		// the way the view looks at it, which a viewer looking along sees clockwise.
+		twist = {linalg.normalize0(to_local_dir(obj.transform, facing)), angle}
+	}
 	t1 := time.tick_now()
-	sculpt.sculptor_grab_move(object_sculptor(obj), offset)
+	sculpt.sculptor_grab_move(object_sculptor(obj), offset, twist)
 	res.brush_ms += time.duration_milliseconds(time.tick_since(t1))
 	res.dabs += 1
+}
+
+// The radians a Grab turns what it holds for the pen's roll `roll` (degrees, as the frame
+// reports it), as Nomad's Move turns with the Pencil Pro: the turn since the press, less
+// the first ui.ROLL_ENGAGE degrees, which a hand turns the pen by while it drags; none
+// with Settings > Pen's Roll while grabbing off. A pen that reports no roll stays at 0.
+grab_twist_angle :: proc(app: ^App, roll: f32) -> f32 {
+	st := &app.stroke
+	d := roll - st.grab_roll
+	d -= 360 * math.floor((d + 180) / 360)
+	if abs(d) <= ROLL_JUMP do st.grab_turned += d
+	st.grab_roll = roll
+	if !app.nav.grab_twist || abs(st.grab_turned) <= ui.ROLL_ENGAGE do return 0
+	return math.to_radians(st.grab_turned - math.sign(st.grab_turned) * ui.ROLL_ENGAGE)
+}
+
+// The Strength at which Grab and Elastic move what they picked up exactly as far as the
+// pointer goes: their default, so the feel they had before Strength counted is the one
+// a fresh brush has.
+GRAB_STRENGTH_EXACT :: 0.5
+
+// How far Grab or Elastic (`kind`) moves what it picked up for each unit the pointer goes,
+// from the brush's Strength, as ZBrush's Move takes its Z Intensity and Blender's Grab its
+// strength: GRAB_STRENGTH_EXACT follows the pointer, less lags behind it (a fine nudge at
+// 0.05 moves a tenth as far), more runs ahead of it, twice as far at full strength. Pen
+// pressure is left out: the press's own pressure, light as a press starts, would make
+// the whole drag weak.
+grab_gain :: proc(app: ^App, kind: sculpt.Brush_Kind) -> f32 {
+	return app.brush.strengths[kind] / GRAB_STRENGTH_EXACT
 }
 
 // How a Grab moves what it picked up for the pointer having gone `drag` (world space, on

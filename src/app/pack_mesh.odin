@@ -51,13 +51,19 @@ pack_mesh_free :: proc(m: ^Pack_Mesh) {
 // Checks one mesh of a pack on the install thread: parsed and cleaned with no pool, as
 // Import would, then dropped. "" when it reads, otherwise why not ("line 4: ...").
 pack_mesh_check :: proc(name: string, data: []u8) -> (read: Pack_Mesh_Read, failed: string) {
-	mesh, _, err, line := mesh_file_parse(data, mesh_file_kind(name, data), nil)
+	parts := make([dynamic]geom.Mesh_Part)
+	defer geom.mesh_parts_destroy(&parts)
+	_, err, line := mesh_file_parse(&parts, data, mesh_file_kind(name, data), nil)
 	if err != .None {
 		if line > 0 do return {}, fmt.tprintf("line %d: %s", line, geom.MESH_FILE_ERROR_TEXT[err])
 		return {}, geom.MESH_FILE_ERROR_TEXT[err]
 	}
-	defer geom.mesh_destroy(&mesh)
-	return {vertices = geom.mesh_vertex_count(mesh), triangles = geom.mesh_triangle_count(mesh)}, ""
+	// A mesh of several parts counts them all, as Add makes an object of each.
+	for p in parts {
+		read.vertices += geom.mesh_vertex_count(p.mesh)
+		read.triangles += geom.mesh_triangle_count(p.mesh)
+	}
+	return read, ""
 }
 
 // meshes.txt: one `mesh <stem> <file> <vertices> <triangles>` line a mesh, names
@@ -142,7 +148,8 @@ scene_add_pack_mesh :: proc(app: ^App, j: int) -> bool {
 	if !ok do return true
 	m, read := mesh_import_read(app, pm.file, fmt.tprintf("Added %s from %s", pm.stem, pack_mesh_pack_name(app, j)))
 	if !read do return true
-	if !scene_add_mesh(app, m.mesh, pm.stem, m.file, {position = next_free_position(app), scale = 1}, m.start) do return false
+	defer mesh_import_free(&m)
+	if !import_add_parts(app, &m, pm.stem, next_free_position(app), record = false) do return false
 	app.stats.file_read_ms, app.stats.file_parse_ms = m.read_ms, m.parse_ms
 	return true
 }
@@ -156,9 +163,28 @@ scene_new_pack_mesh :: proc(app: ^App, j: int) -> bool {
 	start := time.tick_now()
 	m, read := mesh_import_read(app, pm.file, fmt.tprintf("New scene: %s from %s", pm.stem, pack_mesh_pack_name(app, j)))
 	if !read do return true
-	obj := object_from_mesh(app, m.mesh, pm.stem, m.file, {scale = 1}, start) or_return
-	obj.id = app.scene.next_id + 1
-	scene_replace(app, {obj}, 0, obj.id, camera.orbit_default())
+	defer mesh_import_free(&m)
+	objs := make([dynamic]^Object, 0, len(m.parts))
+	defer delete(objs)
+	for &p, k in m.parts {
+		name := pm.stem if len(m.parts) == 1 else (strings.clone(p.name) if p.name != "" else fmt.aprintf("%s %d", pm.stem, k + 1))
+		defer if len(m.parts) > 1 do delete(name)
+		mesh := p.mesh
+		p.mesh = {}
+		obj, made := object_from_mesh(app, mesh, name, m.files[k], {position = m.middles[k], scale = 1}, start, surface = import_surface(p))
+		if !made {
+			for o in objs do object_free(app, o)
+			return false
+		}
+		obj.id = app.scene.next_id + 1 + k
+		append(&objs, obj)
+	}
+	scene_replace(app, objs[:], 0, objs[len(objs) - 1].id, camera.orbit_default())
+	if len(objs) > 1 {
+		f := folder_new(app)
+		f.name = strings.clone(pm.stem)
+		for obj in objs do obj.folder = f.id
+	}
 	scene_remember_path(app, "")
 	autosave_scene_saved(app, "")
 	// After scene_replace, which starts the stats afresh.

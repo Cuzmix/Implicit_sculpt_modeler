@@ -58,6 +58,7 @@ LENS_INTERFACE := [?]Settings_Entry {
 	{.Motion, "MOTION"},
 	{.Starting, "STARTING"},
 	{.Brush_Ring, "BRUSH RING"},
+	{.Symmetry_Line, "SYMMETRY"},
 	{.Column_Popovers, "PANELS"},
 	{.View_Grid, "VIEW GRID"},
 	{.Inspector, "INSPECTOR"},
@@ -73,7 +74,7 @@ LENS_TOUCH := [?]Settings_Entry {
 	{.Shapes, "SHAPES"},
 }
 @(rodata)
-LENS_PEN := [?]Settings_Entry{{.Pen_Empty, "ON EMPTY SPACE"}, {.Pen_Tips, "HOVER"}, {.Pen_Predict, "CURSOR"}, {.Pen_Buttons, "PENCIL AND BUTTONS"}}
+LENS_PEN := [?]Settings_Entry{{.Pen_Empty, "ON EMPTY SPACE"}, {.Pen_Tips, "HOVER"}, {.Pen_Predict, "CURSOR"}, {.Pen_Buttons, "PENCIL AND BUTTONS"}, {.Pen_Areas, "WHERE THE PEN POINTS"}}
 @(rodata)
 LENS_DIAL := [?]Settings_Entry{{.Wheel, "DIAL"}, {.Clean_Dial, ""}}
 @(rodata)
@@ -238,6 +239,7 @@ lens_gesture_list :: proc(app: ^App) {
 
 	if picked := gesture_row(ctx, "One finger on the model", {"Sculpt", "Turn the view"}, int(n.finger_model), width); picked >= 0 do n.finger_model = Finger_Model(picked)
 	pencil_only_note(app)
+	if picked := gesture_row(ctx, "One finger tap on another object", {"Switch to it", "Same as on the model"}, 0 if n.tap_switches else 1, width); picked >= 0 do n.tap_switches = picked == 0
 	gesture_row_text(ctx, "One finger on empty space", "Turns the view", width)
 	// Two fingers always move the view; what else they do is one choice of three, or the
 	// switches' own mix when the narrow panel's switches set one these name none of.

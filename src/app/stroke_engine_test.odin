@@ -246,6 +246,9 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	a.brush.grab_mode, a.brush.grab_normal = .Surface, 0.75
 	a.brush.grab_same_side, a.brush.grab_silhouette, a.brush.grab_topological = true, true, true
 	a.brush.elastic_volume = 0.3
+	// Past the outline stays off, as a fresh brush has it, so the file must say so: older
+	// files from version 17 on read as on.
+	a.brush.grab_outline = false
 	a.brush.hook_pinch, a.brush.hook_rake, a.brush.hook_elastic = -0.5, 0.25, true
 	// The brush's own pressure, which the file keeps as the one it worked with.
 	brush_pressure_own(&a.brush, a.brush.kind, true)
@@ -298,6 +301,7 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 		testing.expect(t, rb.falloffs[rb.kind].hardness == 0.4 && rb.falloffs[rb.kind].projected)
 		testing.expect(t, rb.one_way && rb.directional && rb.size_world && rb.size_ref == 0.01)
 		testing.expect(t, rb.tip_roundness == 0.5 && rb.tip_scale == 0.5 && rb.trim_angle == 90 && !rb.trim_dynamic && rb.plane_height == 0.75 && rb.plane_depth == 0.25)
+		testing.expect(t, !rb.grab_outline)
 	}
 	replay_start(&b, &b.replay.take)
 	for replay_busy(&b) do _ = replay_frame(&b, {})
@@ -311,7 +315,7 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	data, err := os.read_entire_file(path, context.allocator)
 	testing.expect(t, err == nil)
 	defer delete(data)
-	BRUSH :: 64 + 137
+	BRUSH :: 64 + 138
 	// The files from before version 13 kept no pen roll in a frame.
 	frames_before_roll :: proc(frames: []u8) -> []u8 {
 		out := make([dynamic]u8, context.temp_allocator)
@@ -331,6 +335,25 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 		}
 		return out[:]
 	}
+	// Version 28 had no Past the outline after Trim dynamic: the one brush ends 64 + 137
+	// bytes after the header's 16, and Grab took hold past the outline.
+	twentyeight := make([dynamic]u8, context.temp_allocator)
+	append(&twentyeight, ..data[:16 + 64 + 137])
+	append(&twentyeight, ..data[16 + BRUSH:])
+	twentyeight[len(STROKES_MAGIC)] = 28
+	testing.expect(t, os.write_entire_file(path, twentyeight[:]) == nil)
+	{
+		ya: App
+		defer replay_destroy(&ya.replay)
+		defer results_destroy(&ya)
+		testing.expect(t, strokes_load(&ya, path))
+		testing.expect_value(t, len(ya.replay.take.brushes), 1)
+		if len(ya.replay.take.brushes) == 1 {
+			yb := ya.replay.take.brushes[0]
+			testing.expect(t, yb.grab_outline && !yb.trim_dynamic && yb.plane_depth == 0.25)
+		}
+	}
+
 	// Version 27 had nothing of Clay strips, Trim dynamic or Flatten's reach after the
 	// size in the scene: the one brush ends 64 + 116 bytes after the header's 16, and takes
 	// a fresh brush's.
@@ -541,6 +564,7 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	if len(q.replay.take.brushes) == 1 {
 		qb := q.replay.take.brushes[0]
 		testing.expect(t, !qb.even_strength && !qb.scene_spacing && !qb.feather)
+		testing.expect(t, !qb.grab_outline)
 		testing.expect_value(t, qb.smoothing, 3)
 		testing.expect(t, qb.paint_dial)
 	}
@@ -1322,24 +1346,52 @@ even_strength_keeps_a_strokes_height_across_spacings :: proc(t: ^testing.T) {
 	testing.expect(t, rise(path[:], 0.1, false) > 2 * reference)
 }
 
-// A Grab pressed just past the sphere's edge takes hold of the nearest surface within the
-// brush ring, and holding still moves nothing (the drag counts from the press, not from
-// the surface point it took); dragging outward then pulls the edge out.
+// The first pixel past the sphere's right edge along the middle row of the test view.
+@(private = "file")
+sphere_right_edge :: proc(app: ^App) -> [2]f32 {
+	edge := [2]f32{500, 400}
+	for {
+		origin, dir := mouse_ray(app.camera, edge, STROKE_SIZE)
+		if _, _, ok := scene_raycast(app, origin, dir); !ok do return edge
+		edge.x += 1
+	}
+}
+
+// A press just past the sphere's edge starts no stroke, however far the brush ring
+// reaches over it: only the pointer itself on the model sculpts. Grab too, unless Past
+// the outline is on.
+@(test)
+press_past_the_edge_starts_no_stroke :: proc(t: ^testing.T) {
+	for kind in ([?]sculpt.Brush_Kind{.Draw, .Clay, .Smooth, .Grab, .Elastic, .Snake_Hook}) {
+		app: App
+		obj := stroke_sphere(&app)
+		app.brush.kind, app.brush.radius_px = kind, 200
+		app.brush.strengths[kind] = 1
+		press := sphere_right_edge(&app) + {15, 0}
+		before := slice.clone(object_mesh(obj).positions[:], context.temp_allocator)
+		// The drag stays off the model too: a drag that comes onto it after a press
+		// that turned the view never reaches the brush (drag_decide).
+		stroke_pressed(&app, {press, press + {20, 0}, press + {40, 0}}, {1, 1, 1}, held = true)
+		testing.expectf(t, !app.stroke.active, "%v started a stroke off the model", kind)
+		_ = sculpt_frame(&app, {size = STROKE_SIZE, mouse_pos = press, hovered = true})
+		testing.expectf(t, slice.equal(object_mesh(obj).positions[:], before), "%v moved the model", kind)
+		testing.expect_value(t, len(app.history.done), 0)
+		stroke_scene_free(&app)
+	}
+}
+
+// With Past the outline on, a Grab pressed just past the sphere's edge takes hold of the
+// nearest surface within the brush ring, and holding still moves nothing (the drag counts
+// from the press, not from the surface point it took); dragging outward then pulls the
+// edge out.
 @(test)
 grab_takes_hold_past_the_silhouette :: proc(t: ^testing.T) {
 	app: App
 	defer stroke_scene_free(&app)
 	obj := stroke_sphere(&app)
-	app.brush.kind, app.brush.radius_px = .Grab, 40
+	app.brush.kind, app.brush.radius_px, app.brush.grab_outline = .Grab, 40, true
 	app.brush.strengths[.Grab] = 1
-	// The sphere's right edge along the middle row, then a little past it.
-	edge := [2]f32{500, 400}
-	for {
-		origin, dir := mouse_ray(app.camera, edge + {1, 0}, STROKE_SIZE)
-		if _, _, ok := scene_raycast(&app, origin, dir); !ok do break
-		edge.x += 1
-	}
-	press := edge + {15, 0}
+	press := sphere_right_edge(&app) + {14, 0}
 	before := slice.clone(object_mesh(obj).positions[:], context.temp_allocator)
 	stroke_pressed(&app, {press, press}, {1, 1}, held = true)
 	testing.expect(t, app.stroke.active && app.stroke.grab)
@@ -1471,4 +1523,33 @@ detail_by_screen_or_radius_per_brush :: proc(t: ^testing.T) {
 	testing.expect_value(t, brush_detail(&b, .Clay, 100), 0.3)
 	b.dyns[.Grab].off = true
 	testing.expect_value(t, brush_detail(&b, .Grab, 100), 0)
+}
+
+// Grab's Strength sets how far it moves for the pointer's travel: at GRAB_STRENGTH_EXACT
+// the surface goes as far as at any time before, at half that half as far, and at full
+// strength twice as far.
+@(test)
+grab_strength_scales_the_drag :: proc(t: ^testing.T) {
+	moved_by :: proc(t: ^testing.T, strength: f32) -> f32 {
+		app: App
+		defer stroke_scene_free(&app)
+		obj := stroke_sphere(&app)
+		app.brush.kind, app.brush.radius_px = .Grab, 40
+		app.brush.strengths[.Grab] = strength
+		press := sphere_right_edge(&app) - {40, 0}
+		before := slice.clone(object_mesh(obj).positions[:], context.temp_allocator)
+		stroke_pressed(&app, {press, press}, {1, 1}, held = true)
+		testing.expect(t, app.stroke.active && app.stroke.grab)
+		to := press + {0, -20}
+		_ = sculpt_frame(&app, {size = STROKE_SIZE, mouse_pos = to, hovered = true, primary = true, samples = {{pos = to, pressure = 1, kind = .Move}}})
+		most: f32
+		for p, i in object_mesh(obj).positions do most = max(most, linalg.length(p - before[i]))
+		return most
+	}
+	exact := moved_by(t, GRAB_STRENGTH_EXACT)
+	half := moved_by(t, GRAB_STRENGTH_EXACT / 2)
+	full := moved_by(t, 1)
+	testing.expectf(t, exact > 0.01, "the grab moved %v", exact)
+	testing.expectf(t, abs(half - exact / 2) < 1e-4 * exact + 1e-6, "half strength moved %v of %v", half, exact)
+	testing.expectf(t, abs(full - 2 * exact) < 1e-4 * exact + 1e-6, "full strength moved %v of %v", full, exact)
 }

@@ -289,8 +289,10 @@ lens_nav_offset :: proc(app: ^App) -> f32 {
 		reach^ = max(reach^, from + 8)
 	}
 	take(ui.prev_rect(ctx, "view bar"), area, mid, near_top, ctx.mirror, &reach)
-	// The island too, where Arrange put it at the top of the pen side.
+	// The island too, and the person's docks, where Arrange put them at the top of the pen
+	// side.
 	if k.places[.Offhand].edge != .Default do take(ui.prev_rect(ctx, "brush bar"), area, mid, near_top, ctx.mirror, &reach)
+	for i in 0 ..< USER_DOCKS do if user_dock_shown(k, i) do take(ui.prev_rect(ctx, PLACE_BAR_ROOTS[user_dock_place(i)]), area, mid, near_top, ctx.mirror, &reach)
 	for c in k.panels.rect do take(c, area, mid, near_top, ctx.mirror, &reach)
 	for s in k.panels.seen do if s.frame >= k.frame - 1 do take(s.rect, area, mid, near_top, ctx.mirror, &reach)
 	return reach

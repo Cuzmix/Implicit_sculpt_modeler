@@ -423,3 +423,257 @@ endsolid square
 	testing.expect_value(t, other, Mesh_File_Error.Not_Recognised)
 	free_all(context.temp_allocator)
 }
+
+@(test)
+obj_reads_vertex_colours_and_zbrush_blocks :: proc(t: ^testing.T) {
+	// Colours on the `v` lines, 0 to 1, from the second vertex on; the first gets none.
+	text := "v 0 0 0\nv 1 0 0 1 0.5 0\nv 1 1 0 0 0 1 0.25\nv 0 1 0 0 0 0\nf 1 2 3 4\n"
+	colors := make([dynamic]Vertex_Color)
+	defer delete(colors)
+	m, err, _ := mesh_read_obj(text_bytes(text), nil, colors = &colors)
+	defer mesh_destroy(&m)
+	testing.expect_value(t, err, Mesh_File_Error.None)
+	testing.expect(t, slice.equal(colors[:], []Vertex_Color{{0, 0, 0, 0}, {255, 128, 0, 255}, {0, 0, 255, 255}, {0, 0, 0, 255}}), "v line colours")
+
+	// Numbers above 1 are 0 to 255; a lone fourth number is a weight, not a colour.
+	clear(&colors)
+	scaled, _, _ := mesh_read_obj(text_bytes("v 0 0 0 0.5\nv 1 0 0 200 100 0\nv 1 1 0\nf 1 2 3\n"), nil, colors = &colors)
+	defer mesh_destroy(&scaled)
+	testing.expect(t, slice.equal(colors[:], []Vertex_Color{{}, {200, 100, 0, 255}, {}}), "0 to 255")
+
+	// ZBrush's blocks: mask byte, then red, green and blue, in vertex order, wherever
+	// they come; a file without colours leaves the list empty.
+	clear(&colors)
+	zb, _, _ := mesh_read_obj(text_bytes("v 0 0 0\nv 1 0 0\n#MRGB ffff0000ff00ff00\n#MRGB 000000ff\nv 1 1 0\nf 1 2 3\n"), nil, colors = &colors)
+	defer mesh_destroy(&zb)
+	testing.expect(t, slice.equal(colors[:], []Vertex_Color{{255, 0, 0, 255}, {0, 255, 0, 255}, {0, 0, 255, 255}}), "#MRGB")
+	clear(&colors)
+	plain, _, _ := mesh_read_obj(text_bytes("v 0 0 0\nv 1 0 0\nv 1 1 0\nf 1 2 3\n"), nil, colors = &colors)
+	defer mesh_destroy(&plain)
+	testing.expect_value(t, len(colors), 0)
+}
+
+@(test)
+obj_colours_are_the_same_in_any_chunks_and_threads :: proc(t: ^testing.T) {
+	pool: jobs.Pool
+	jobs.pool_init(&pool, 3)
+	defer jobs.pool_destroy(&pool)
+	sphere := icosphere(3)
+	defer mesh_destroy(&sphere)
+	rgb := make([][3]u8, len(sphere.positions))
+	defer delete(rgb)
+	for &c, v in rgb do c = {u8(v), u8(v * 7), u8(v * 13)}
+	obj := make([dynamic]u8)
+	defer delete(obj)
+	mesh_write_obj(&obj, sphere.positions[:], sphere.indices[:], colors = rgb)
+	whole := make([dynamic]Vertex_Color)
+	defer delete(whole)
+	m, _, _ := mesh_read_obj(obj[:], nil, colors = &whole)
+	mesh_destroy(&m)
+	testing.expect_value(t, len(whole), len(sphere.positions))
+	for c, v in whole {
+		if c != {rgb[v].r, rgb[v].g, rgb[v].b, 255} {
+			testing.expectf(t, false, "vertex %d: %v, not %v", v, c, rgb[v])
+			break
+		}
+	}
+	for chunk in ([]int{97, 1000, 4096}) {
+		parts := make([dynamic]Vertex_Color)
+		defer delete(parts)
+		p, _, _ := mesh_read_obj(obj[:], &pool, chunk_bytes = chunk, colors = &parts)
+		mesh_destroy(&p)
+		testing.expectf(t, slice.equal(parts[:], whole[:]), "chunks of %d", chunk)
+	}
+}
+
+@(test)
+ply_reads_vertex_colours_of_any_type :: proc(t: ^testing.T) {
+	pool: jobs.Pool
+	jobs.pool_init(&pool, 3)
+	defer jobs.pool_destroy(&pool)
+	sphere := icosphere(2)
+	defer mesh_destroy(&sphere)
+	rgb := make([][3]u8, len(sphere.positions))
+	defer delete(rgb)
+	for &c, v in rgb do c = {u8(v), 255 - u8(v), u8(v * 3)}
+	ply := make([dynamic]u8)
+	defer delete(ply)
+	mesh_write_ply(&ply, sphere.positions[:], sphere.indices[:], pool = &pool, colors = rgb)
+	colors := make([dynamic]Vertex_Color)
+	defer delete(colors)
+	m, err, _ := mesh_read_ply(ply[:], &pool, &colors)
+	defer mesh_destroy(&m)
+	testing.expect_value(t, err, Mesh_File_Error.None)
+	testing.expect_value(t, len(colors), len(sphere.positions))
+	if len(colors) == len(rgb) do for c, v in colors {
+		if c != {rgb[v].r, rgb[v].g, rgb[v].b, 255} {
+			testing.expectf(t, false, "vertex %d: %v, not %v", v, c, rgb[v])
+			break
+		}
+	}
+
+	// Text, with float colours from 0 to 1 named as some scanners name them.
+	ascii := "ply\nformat ascii 1.0\nelement vertex 3\nproperty float x\nproperty float y\nproperty float z\n" +
+		"property float diffuse_red\nproperty float diffuse_green\nproperty float diffuse_blue\n" +
+		"element face 1\nproperty list uchar int vertex_indices\nend_header\n" +
+		"0 0 0 1 0 0\n1 0 0 0 1 0\n0 1 0 0 0 0.5\n3 0 1 2\n"
+	clear(&colors)
+	a, a_err, _ := mesh_read_ply(text_bytes(ascii), nil, &colors)
+	defer mesh_destroy(&a)
+	testing.expect_value(t, a_err, Mesh_File_Error.None)
+	testing.expect(t, slice.equal(colors[:], []Vertex_Color{{255, 0, 0, 255}, {0, 255, 0, 255}, {0, 0, 128, 255}}), "float colours")
+}
+
+@(test)
+clean_keeps_each_kept_vertex_its_colour :: proc(t: ^testing.T) {
+	// Two triangles sharing an edge, each with its own copies of the corners, and an
+	// unused vertex: the copies weld to the first, which keeps its colour.
+	m: Mesh
+	defer mesh_destroy(&m)
+	append(&m.positions, Vec3{0, 0, 0}, Vec3{1, 0, 0}, Vec3{0, 1, 0}, Vec3{5, 5, 5}, Vec3{1, 0, 0}, Vec3{1, 1, 0}, Vec3{0, 1, 0})
+	append(&m.indices, 0, 1, 2, 4, 5, 6)
+	resize(&m.normals, len(m.positions))
+	colors := make([dynamic]Vertex_Color)
+	defer delete(colors)
+	for v in 0 ..< len(m.positions) do append(&colors, Vertex_Color{u8(v), 0, 0, 255})
+	report, err := mesh_clean(&m, nil, &colors)
+	testing.expect_value(t, err, Mesh_File_Error.None)
+	testing.expect_value(t, report.welded, 2)
+	testing.expect_value(t, len(m.positions), 4)
+	testing.expect(t, slice.equal(colors[:], []Vertex_Color{{0, 0, 0, 255}, {1, 0, 0, 255}, {2, 0, 0, 255}, {5, 0, 0, 255}}), "colours follow")
+}
+
+@(test)
+obj_parts_follow_o_and_g_lines :: proc(t: ^testing.T) {
+	// Two objects sharing no vertices, the second named twice; groups in the first.
+	text := "o Head\nv 0 0 0 1 0 0\nv 1 0 0 1 0 0\nv 0 1 0 1 0 0\nv 1 1 0 1 0 0\n" +
+		"g skin\nf 1 2 3\ng lips\nf 2 4 3\n" +
+		"o Eye\nv 5 0 0 0 0 1\nv 6 0 0 0 0 1\nv 5 1 0 0 0 1\nf 5 6 7\n" +
+		"o Head\nv 0 0 1 1 0 0\nf 1 2 8\n"
+	parts := make([dynamic]Mesh_Part)
+	defer mesh_parts_destroy(&parts)
+	err, _ := mesh_read_obj_parts(&parts, text_bytes(text), nil)
+	testing.expect_value(t, err, Mesh_File_Error.None)
+	testing.expect_value(t, len(parts), 2)
+	if len(parts) != 2 do return
+	testing.expect_value(t, parts[0].name, "Head")
+	testing.expect_value(t, len(parts[0].mesh.positions), 5)
+	testing.expect_value(t, len(parts[0].mesh.indices), 9)
+	testing.expect(t, slice.equal(parts[0].groups[:], []u16{1, 2, 2}), "Head's groups: skin, lips, and lips still for the later face")
+	testing.expect_value(t, parts[0].colors[0], Vertex_Color{255, 0, 0, 255})
+	testing.expect_value(t, parts[1].name, "Eye")
+	testing.expect_value(t, len(parts[1].mesh.positions), 3)
+	testing.expect_value(t, len(parts[1].groups), 0)
+	testing.expect_value(t, parts[1].colors[2], Vertex_Color{0, 0, 255, 255})
+	testing.expect_value(t, parts[1].mesh.positions[0], Vec3{5, 0, 0})
+
+	// One `o` line, as Blender always writes, keeps the mesh whole and takes its name.
+	clear_parts(&parts)
+	_, _ = mesh_read_obj_parts(&parts, text_bytes("o Rock\nv 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n"), nil)
+	testing.expect_value(t, len(parts), 1)
+	if len(parts) == 1 do testing.expect_value(t, parts[0].name, "Rock")
+
+	clear_parts :: proc(parts: ^[dynamic]Mesh_Part) {
+		for &p in parts do mesh_part_destroy(&p)
+		clear(parts)
+	}
+}
+
+@(test)
+obj_parts_are_the_same_in_any_chunks_and_threads :: proc(t: ^testing.T) {
+	pool: jobs.Pool
+	jobs.pool_init(&pool, 3)
+	defer jobs.pool_destroy(&pool)
+	sphere := icosphere(3)
+	defer mesh_destroy(&sphere)
+	// The sphere's triangles in four objects and seven groups, labels mid-list.
+	text := make([dynamic]u8)
+	defer delete(text)
+	tmp: [32]u8
+	for p in sphere.positions {
+		append(&text, 'v')
+		for x in p {
+			append(&text, ' ')
+			append(&text, ..tmp[:format_f32(tmp[:], x)])
+		}
+		append(&text, '\n')
+	}
+	for tri in 0 ..< len(sphere.indices) / 3 {
+		if tri % 97 == 0 do append(&text, ..transmute([]u8)fmt_label('o', tri / 97 % 4, tmp[:]))
+		if tri % 31 == 0 do append(&text, ..transmute([]u8)fmt_label('g', tri / 31 % 7, tmp[:]))
+		append(&text, 'f')
+		for c in 0 ..< 3 {
+			append(&text, ' ')
+			append(&text, ..tmp[:format_u32(tmp[:], sphere.indices[3 * tri + c] + 1)])
+		}
+		append(&text, '\n')
+	}
+	whole := make([dynamic]Mesh_Part)
+	defer mesh_parts_destroy(&whole)
+	_, _ = mesh_read_obj_parts(&whole, text[:], nil)
+	testing.expect_value(t, len(whole), 4)
+	for chunk in ([]int{97, 1000, 4096}) {
+		parts := make([dynamic]Mesh_Part)
+		defer mesh_parts_destroy(&parts)
+		_, _ = mesh_read_obj_parts(&parts, text[:], &pool, chunk)
+		testing.expect_value(t, len(parts), len(whole))
+		if len(parts) != len(whole) do continue
+		for p, k in parts {
+			expect_same_mesh(t, whole[k].mesh, p.mesh)
+			testing.expect(t, slice.equal(whole[k].groups[:], p.groups[:]), "groups")
+			testing.expect_value(t, p.name, whole[k].name)
+		}
+	}
+
+	fmt_label :: proc(kind: u8, k: int, tmp: []u8) -> string {
+		tmp[0], tmp[1], tmp[2], tmp[3] = kind, ' ', 'n', u8('0' + k)
+		tmp[4] = '\n'
+		return string(tmp[:5])
+	}
+}
+
+@(test)
+clean_keeps_each_kept_triangle_its_group :: proc(t: ^testing.T) {
+	m: Mesh
+	defer mesh_destroy(&m)
+	append(&m.positions, Vec3{0, 0, 0}, Vec3{1, 0, 0}, Vec3{0, 1, 0}, Vec3{1, 1, 0})
+	append(&m.indices, 0, 1, 2, 1, 1, 2, 1, 3, 2)
+	resize(&m.normals, len(m.positions))
+	groups := make([dynamic]u16)
+	defer delete(groups)
+	append(&groups, 4, 5, 6)
+	_, err := mesh_clean(&m, nil, nil, &groups)
+	testing.expect_value(t, err, Mesh_File_Error.None)
+	testing.expect(t, slice.equal(groups[:], []u16{4, 6}), "the repeated corner's group goes with it")
+}
+
+@(test)
+parts_size_together_and_keep_a_shared_symmetry_plane :: proc(t: ^testing.T) {
+	// A body across x = 0 and an eye off to +x: sized as one, the body keeps x = 0 as its
+	// middle, the eye turns about its own.
+	parts := make([dynamic]Mesh_Part)
+	defer mesh_parts_destroy(&parts)
+	body, eye := icosphere(2), icosphere(1)
+	for &p in body.positions do p = p * 4 + {0, 2, 0}
+	for &p in eye.positions do p = p + {3, 6, 0}
+	append(&parts, Mesh_Part{mesh = body}, Mesh_Part{mesh = eye})
+	center, radius, middles := mesh_parts_normalize(parts[:], nil)
+	defer delete(middles)
+	testing.expect_value(t, middles[0].x, 0)
+	testing.expectf(t, abs(middles[1].x - 3 / radius) < 1e-5, "eye middle %v", middles[1])
+	// Every part goes back where its file had it.
+	back := center + radius * (middles[1] + parts[1].mesh.positions[0])
+	testing.expectf(t, linalg_length(back - (icosphere_first(1) + {3, 6, 0})) < 1e-4, "eye back at %v", back)
+
+	mesh_parts_merge(&parts)
+	testing.expect_value(t, len(parts), 1)
+	testing.expect_value(t, len(parts[0].groups), len(parts[0].mesh.indices) / 3)
+	testing.expect_value(t, parts[0].groups[len(parts[0].groups) - 1], 2)
+
+	icosphere_first :: proc(n: int) -> Vec3 {
+		m := icosphere(n)
+		defer mesh_destroy(&m)
+		return m.positions[0]
+	}
+	linalg_length :: proc(v: Vec3) -> f32 {return math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z)}
+}

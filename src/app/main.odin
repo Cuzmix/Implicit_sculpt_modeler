@@ -47,7 +47,7 @@ Options :: struct {
 	system_palms: bool `usage:"Act as an iPad does, whose system rejects a hand resting on the screen while its pen is in use: only the pen's tip, and the fifth of a second after it lifts, makes a lone finger a palm, not the pen hovering near (for testing that on a desktop)."`,
 	pen_no_leave: bool `usage:"Act as the iPad's SDL does, which never says that the pen left: the pen then counts as gone half a second after its last report while its tip is up (for testing that on a desktop)."`,
 	ui_dt:     f32 `usage:"Move the interface's clock (animations, tooltips, long presses) this many seconds a frame instead of by the time that passed, for scripted runs whose checks must not depend on how fast frames come (scripts/touch_check.py passes 1/60). A stroke then lays every dab its frame's samples ask for, up to 64, however long they take. The 90 ms a finger waits before it sculpts and the right tap that opens the pie stay on the real clock."`,
-	ui_events: string `usage:"Drive the pointer, fingers and pen as SDL events would, for tests: FRAME:move:X,Y, FRAME:down, FRAME:up, FRAME:right (a right click), FRAME:mdown, FRAME:mup, FRAME:rdown and FRAME:rup (the middle and right buttons held and let go), FRAME:wheel:N, FRAME:key:NAME (a key press: shift, ctrl, alt held until FRAME:keyup:NAME), FRAME:fdown:ID:X,Y, FRAME:fmove:ID:X,Y, FRAME:fup:ID and FRAME:fcancel:ID (finger ID on a touch screen), FRAME:pdown:X,Y, FRAME:pmove:X,Y, FRAME:pup, FRAME:pnear / FRAME:pfar, FRAME:pright (the pen, the last its side button), FRAME:pedown:X,Y (its eraser end down), FRAME:pbutton:N (barrel button N), FRAME:pdtap and FRAME:psqueeze (an Apple Pencil's double-tap and squeeze, :ACTION naming the iPad's preferred action), FRAME:ponly:1 or :0 (the iPad's Only Draw with Apple Pencil), FRAME:ptilt:X,Y and FRAME:pdist:D (the pen's lean and hover height from then on), FRAME:ppress:P (the pen's pressure from then on, 0 to 1; 0 until set) and FRAME:pcoal:X,Y or FRAME:pcoal:X,Y:P (one of the pen's samples between frames, as a tablet's bridge sends it ahead of the frame's next pmove) and FRAME:kbhide (the on-screen keyboard put away by its own key, as an iPad's SDL reports it), separated by semicolons; X and Y in window points. FRAME:winN:... sends an event to view window N (1 to 3) instead, in its points."`,
+	ui_events: string `usage:"Drive the pointer, fingers and pen as SDL events would, for tests: FRAME:move:X,Y, FRAME:down, FRAME:up, FRAME:right (a right click), FRAME:mdown, FRAME:mup, FRAME:rdown and FRAME:rup (the middle and right buttons held and let go), FRAME:wheel:N, FRAME:key:NAME (a key press: shift, ctrl, alt held until FRAME:keyup:NAME), FRAME:fdown:ID:X,Y, FRAME:fmove:ID:X,Y, FRAME:fup:ID and FRAME:fcancel:ID (finger ID on a touch screen), FRAME:pdown:X,Y, FRAME:pmove:X,Y, FRAME:pup, FRAME:pnear / FRAME:pfar, FRAME:pright (the pen, the last its side button), FRAME:pedown:X,Y (its eraser end down), FRAME:pbutton:N (barrel button N), FRAME:pdtap and FRAME:psqueeze (an Apple Pencil's double-tap and squeeze, :ACTION naming the iPad's preferred action), FRAME:ponly:1 or :0 (the iPad's Only Draw with Apple Pencil), FRAME:ptilt:X,Y and FRAME:pdist:D (the pen's lean and hover height from then on), FRAME:ppress:P (the pen's pressure from then on, 0 to 1; 0 until set) and FRAME:pcoal:X,Y or FRAME:pcoal:X,Y:P (one of the pen's samples between frames, as a tablet's bridge sends it ahead of the frame's next pmove) FRAME:kbhide (the on-screen keyboard put away by its own key, as an iPad's SDL reports it) and FRAME:drop:PATH (a file dropped on the window), separated by semicolons; X and Y in window points. FRAME:winN:... sends an event to view window N (1 to 3) instead, in its points."`,
 	dump_view_window: string `usage:"On exit, write view window 1 as its interface drew it (its picture and head) to this path: a PNG, or a binary PPM when it ends in .ppm."`,
 	view_windows: int `usage:"Open this many view windows (up to 3, desktop only) at the start, each showing what Camera > New view window would."`,
 	dump_screen: string `usage:"On exit, write the whole window as the interface drew it (viewport and panels) to this path: a PNG, or a binary PPM when it ends in .ppm."`,
@@ -80,7 +80,7 @@ Options :: struct {
 	bake_size:  int `usage:"Texels square for --bake (512, 1024, 2048 or 4096; default 2048)."`,
 	gpubench_frames: int `usage:"Measured frames per --gpubench case (default 120, at most 240)."`,
 	open:      string `usage:"Start with the scene saved in this .sculpt file instead of spheres, as Menu > Open scene... does."`,
-	import_mesh: string `args:"name=import" usage:"Start with the mesh in this .obj, .ply or .stl file instead of spheres (after any --open), as Menu > Import mesh... does."`,
+	import_mesh: string `args:"name=import" usage:"Start with the mesh in this .obj, .ply, .stl, .glb, .gltf, .usd, .usda, .usdc or .usdz file instead of spheres (after any --open), as Menu > Import mesh... does."`,
 	export:    string `usage:"On exit, write the selected object's shown level to this .obj, .ply, .stl, .glb or .usda file, as Menu > Export mesh... does."`,
 	export_workspace: string `usage:"On exit, write the current workspace's layout to this .workspace file, as the workspace menu's Export workspace... does."`,
 	import_workspace: string `usage:"Read this .workspace file as a new workspace of your own and switch to it on the first frame, as the workspace menu's Import workspace... does."`,
@@ -173,6 +173,7 @@ App :: struct {
 	// platform reports it (pen_roll_take), and the turn it last reported.
 	pen_roll: f32,
 	pen_roll_last: Maybe(f32),
+	pen_twist: Pen_Twist, // the pen's roll over the view under way (pen_roll.odin)
 	// The pen's roll that a Pen roll alpha turns by, from the frame's Viewport_Input, so a
 	// replayed stroke turns as it was drawn.
 	alpha_roll: f32,
@@ -193,6 +194,7 @@ App :: struct {
 	double_tap: Double_Tap, // the last finger tap a double tap could follow (navigate.odin)
 	one_tap:  f64, // input_clock when a one-finger tap waiting to run lifted, 0 for none (one_tap_wait)
 	one_taps: int, // one-finger taps that ran their gesture, for the exit stats
+	tap_switches: int, // finger taps that switched the selected object (tap_switch_target), for the exit stats
 	cursor:   Brush_Cursor, // the surface under the brush ring this frame (cursor.odin)
 	mask_seen: Mask_Seen, // whether the selected object has a mask, kept (history.odin)
 	sets_lost: int, // selection sets a rebuild dropped, for the note of the command that ran it (selection_sets.odin)
@@ -313,6 +315,7 @@ App :: struct {
 	// Screenshots on a see-through ground (capture.odin).
 	screenshot_transparent: bool,
 	sym_center:      Symmetry_Center, // local symmetry's middle, kept (symmetry.odin)
+	sym_lines:       Symmetry_Lines, // where the mirror planes cut the selected object, kept (symmetry.odin)
 	// Transparency: every shown object but the selected one is drawn see-through, at
 	// SEE_THROUGH_OPACITY, so the selected one shows through whatever stands before it.
 	see_through:     bool,
@@ -527,6 +530,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	defer delete(app.stroke.pending)
 	defer mask_shape_destroy(&app.mask_shape)
 	defer clip_gesture_destroy(&app.clip)
+	defer symmetry_lines_destroy(&app.sym_lines)
 	defer shape_pending_destroy(&app.shape_pending)
 	defer rebuild_preview_destroy(&app.rebuild)
 	defer curve_tool_destroy(&app.curve)
@@ -542,7 +546,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	}
 	if opts.import_mesh != "" {
 		before := len(app.scene.objects)
-		if !scene_import(&app, opts.import_mesh) || len(app.scene.objects) == before do return false
+		if !scene_import(&app, opts.import_mesh, record = false) || len(app.scene.objects) == before do return false
 	}
 	// Spheres unless a file gave the scene; then the steps below apply to its objects.
 	starting := 0 if opts.open != "" || opts.import_mesh != "" else max(opts.spheres, 1)
@@ -879,6 +883,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 				app.running = false
 			case .WINDOW_FOCUS_GAINED:
 				link_focus(&app)
+			case .DROP_FILE:
+				if e.drop.data != nil do file_drop(&app, string(e.drop.data))
 			case .SCREEN_KEYBOARD_HIDDEN:
 				app.kit.keyboard_down = true
 			case .SCREEN_KEYBOARD_SHOWN:
@@ -1429,6 +1435,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	for _, slot in app.plugins.slots do plugin_commands += int(plugin_slot_loaded(&app, slot))
 	fmt.printfln("plugins=%d plugin_commands=%d plugin_errors=%d plugin_runs=%d plugin_steps=%d", len(app.plugins.plugins) - plugins_failed(&app), plugin_commands, app.plugins.errors, app.plugins.runs, app.plugins.steps)
 	fmt.printfln("frames=%d dabs=%d objects=%d vertices=%d", frame_index, app.stats.dabs_total, len(app.scene.objects), vertices)
+	fmt.printfln("one_taps=%d tap_switches=%d", app.one_taps, app.tap_switches)
 	diag_stats(&app)
 	{
 		// The voxel objects: how many, their bricks, and what their fields, surfaces and undo
@@ -1514,6 +1521,9 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	{
 		c := app.camera
 		fmt.printfln("camera_yaw=%.4f camera_pitch=%.4f camera_roll=%.4f camera_distance=%.4f camera_target=%.4f,%.4f,%.4f", c.yaw, c.pitch, c.roll, c.distance, c.target.x, c.target.y, c.target.z)
+		tw := app.pen_twist
+		h := tw.hit.? or_else {}
+		fmt.printfln("pen_rolls=%d pen_roll_area=%s pen_roll_hit=%.4f,%.4f,%.4f", tw.rolls, strings.to_lower(fmt.tprint(tw.area), context.temp_allocator), h.x, h.y, h.z)
 		p := app.pivot.used
 		fmt.printfln("orbit_pivot=%.4f,%.4f,%.4f pivot_source=%s pinned=%d framed=%d touch_repeats=%d", p.x, p.y, p.z, strings.to_lower(fmt.tprint(app.pivot.from), context.temp_allocator), int(app.pivot.pinned), app.double_tap.framed, app.touch.hold.done)
 		last_step := "none"
@@ -1668,6 +1678,13 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		for s in Space do if !dial_is_default(k, s) do changed += 1
 		fmt.printfln("dial_spaces=%d exposure=%.1f light_place=%d", changed, app.exposure, int(app.ui.light_place))
 		fmt.printfln("bar_places=%s bar_carries=%d", bar_places_text(k), k.arrange.carries)
+		// The person's docks, and where each one shown was laid out, for touch_check.
+		fmt.printf("user_docks=%s docks_made=%d docks_deleted=%d", user_docks_text(k), k.arrange.docks_made, k.arrange.docks_deleted)
+		for i in 0 ..< USER_DOCKS do if k.docks[i].used {
+			r := ui.prev_rect(&k.ctx, PLACE_BAR_ROOTS[user_dock_place(i)])
+			fmt.printf(" layout_user_dock_%d=%.0f,%.0f,%.0f,%.0f", i + 1, r.x, r.y, r.w, r.h)
+		}
+		fmt.println()
 		fmt.printfln("dial_sectors=%s arrange_zone=%s arrange_resets=%d library=%d library_tab=%v", strings.to_string(dial), zone, k.arrange.resets, int(k.bars_edit && !k.arrange.library_off), k.arrange.tab)
 		groups := strings.builder_make(context.temp_allocator)
 		for g in k.palette_groups do fmt.sbprintf(&groups, "%s%v", "," if strings.builder_len(groups) > 0 else "", g)
