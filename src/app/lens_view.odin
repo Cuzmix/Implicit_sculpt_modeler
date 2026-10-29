@@ -41,7 +41,7 @@ lens_free_area :: proc(app: ^App) -> ui.Rect {
 	// Above the shelf, not the action bar over it: that comes and goes with what is
 	// active (an Adjust after a remesh), and the view is placed by this once, at the start.
 	below: f32 = 0
-	if dock, _ := ui.prev_layout(ctx, "dock"); dock.y > 0 do below = dock.y + dock_lift(app)
+	if dock := shelf_bottom_size(app); dock.y > 0 do below = dock.y + dock_lift(app)
 	lo := [2]f32{area.x, area.y + TOP_BAR_H}
 	hi := [2]f32{area.x + area.w, area.y + area.h - below}
 	mid := area.x + area.w * 0.5
@@ -51,7 +51,7 @@ lens_free_area :: proc(app: ^App) -> ui.Rect {
 		else do hi.x = min(hi.x, r.x - 8)
 	}
 	// A floating bar stands over the view rather than down a side.
-	for b in Place_Bar do if k.places[b].edge != .Float do side(ui.prev_rect(ctx, PLACE_BAR_ROOTS[b]), mid, &lo, &hi)
+	for b in ([]Place_Bar{.Offhand, .Rail}) do if k.places[b].edge != .Float do side(ui.prev_rect(ctx, PLACE_BAR_ROOTS[b]), mid, &lo, &hi)
 	for c in k.panels.rect do side(c, mid, &lo, &hi)
 	// A panel shown last frame and tall enough to stand down a side.
 	for s in k.panels.seen do if s.frame >= k.frame - 1 && s.rect.h > area.h * 0.3 do side(s.rect, mid, &lo, &hi)

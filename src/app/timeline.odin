@@ -284,7 +284,7 @@ kit_history_panel :: proc(app: ^App) -> (raised: bool) {
 	done, total := len(app.history.done), history_total(app)
 	recording := lapse.state != .Off
 	can := !recording && !app.stroke.active
-	dock, _ := ui.prev_layout(ctx, "dock")
+	dock := shelf_bottom_size(app)
 	// Centred over the dock, as wide as fits between the panel on the right (Settings or
 	// Help in the inspector's place, else the inspector) and the same margin on the other
 	// side, within its least and most.

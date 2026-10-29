@@ -56,11 +56,12 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   `MIDDLE` is where the sphere's middle lands at 1600x900 (the gizmo's points follow it). Panels fade under a viewport
   stroke (`panel_fade` in `panel_begin`/`panel_end`). Clean view `k.clean` returns early from `kit_layout`; Tab is
   bound to it and B to the brush picker in `DEFAULT_BINDINGS`.
-  Places (`bar_place.odin`): the island and the rail stand where `Kit_State.places[Place_Bar]` says (`Bar_Place`:
-  Default, Left/Right at `along`, Float at `at`, layout terms, a `bar_place` layout line). Default must draw as before
+  Places (`bar_place.odin`): the island, the rail and the shelf stand where `Kit_State.places[Place_Bar]` says (`Bar_Place`:
+  Default, Left/Right at `along` for the columns, Bottom at `along` for the shelf (`bar_place_edges`), Float at `at`, layout terms, a `bar_place` layout line). Default must draw as before
   (parity); anything that keeps clear of a side bar asks `kit_left`/`kit_right` (they measure the bars on each edge) and
   a popover's side `bar_side(app, which)`, never "the island is left, the rail right". Arrange's tags carry them
-  (`arrange_carry_follow`, `bar_place_drop`, `bar_place_set` swaps two bars on one edge).
+  (`arrange_carry_follow`, `bar_place_drop`, `bar_place_set` swaps two bars on one edge). Whatever keeps clear of the
+  shelf at the bottom asks `shelf_bottom_size`/`shelf_bottom_span` (nothing while it floats), never "centred, last frame's size".
   Bars (`bars.odin`): `Bar_Which` is Tools (the shelf's strip after All), View_Rail, the six `Shelf_*` pages (each space's from `shelf_pages_of`; no tool strip on Model's or Render's),
   Brush_Pie and Offhand (the island, last so zone names and `shelf_page_of` keep their meaning), each a `Bar_List` of `Bar_Slot` drawn by `bar_slot_button`, whose `bar_slot_run`/`bar_slot_more`/
   `bar_lit`/`bar_icon` keep each command's own tap, long press and lit state wherever it sits; `BAR_LAYOUT` (Tools,
