@@ -11,6 +11,8 @@ show_where_finds_every_home :: proc(t: ^testing.T) {
 	app: App
 	_ = section_scene(&app)
 	defer section_scene_free(&app)
+	// One light, so the Lights section shows a light's controls (Place highlight).
+	app.scene.lights.count, app.scene.lights.lights[0].on = 1, true
 	ctx := &app.kit.ctx
 	for home, id in COMMAND_HOMES {
 		sec, ok := home.?
