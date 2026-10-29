@@ -445,15 +445,19 @@ Kit_Scroll :: struct {
 }
 
 // Begins the scrolling body `name`, `width` wide and at most `height` tall; its content
-// follows, then kit_scroll_end.
-kit_scroll_begin :: proc(ctx: ^ui.Context, name: string, value: ^f32, owner: ui.Id, width, height, gap: f32) -> (s: Kit_Scroll) {
+// follows, then kit_scroll_end. A body whose content last fitted takes the content's
+// height, which is last frame's until it ends, so content that grew since pushes what
+// follows down for a frame; with `fixed` it is `height` tall whatever its content, for
+// a caller that measures the content itself and keeps what follows in place (the Colors
+// card's tabs).
+kit_scroll_begin :: proc(ctx: ^ui.Context, name: string, value: ^f32, owner: ui.Id, width, height, gap: f32, fixed := false) -> (s: Kit_Scroll) {
 	s = {id = ui.id_of(ctx, name), owner = owner, value = value, height = height}
 	_, natural := ui.prev_layout(ctx, name)
 	s.natural = natural.y
 	s.limit = max(natural.y - height, 0)
 	dragging := ui.scroll_update(ctx, s.id, ui.prev_rect(ctx, name), value, s.limit)
 	s.shown = ui.tween(ctx, ui.salt(s.id, 1), value^, 0 if dragging else ctx.theme.popover_time, .Out_Quart)
-	ui.begin(ctx, name, {direction = .Column, gap = gap, width = width, height = height if natural.y > height else 0, clip = true, scroll = s.shown, drag_scroll = true})
+	ui.begin(ctx, name, {direction = .Column, gap = gap, width = width, height = height if fixed || natural.y > height else 0, clip = true, scroll = s.shown, drag_scroll = true})
 	s.at = ctx.last_rect
 	return
 }

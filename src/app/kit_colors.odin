@@ -404,13 +404,18 @@ kit_colors_card :: proc(app: ^App) -> (raised: bool) {
 		kit_colors_menus(app)
 		return
 	}
-	colors_header(app)
+	colors_header(app, p.docked)
 
-	// The body scrolls when the window is too short for it, between the header and the tabs.
+	// The body scrolls when the window, or the card's share of its column, is too short
+	// for it, between the header and the tabs. Once its content has been measured, and from
+	// its first frame in a column (at the room it has there), it is as tall as it decides
+	// here while the content changes under it, a tab picked or the card docked, so the
+	// tabs never drop past the window's foot for a frame.
 	fixed := t.target + BRUSH_TILE_H + 2 * COLORS_GAP
 	room := max(p.room - fixed, 120)
 	_, natural := ui.prev_layout(ctx, "colors body")
-	body := kit_scroll_begin(ctx, "colors body", &c.scroll, id, inner, min(natural.y, room) if natural.y > 0 else room, COLORS_GAP)
+	want := colors_body_want(app, natural.y, inner)
+	body := kit_scroll_begin(ctx, "colors body", &c.scroll, id, inner, min(want, room) if want > 0 else room, COLORS_GAP, fixed = want > 0 || p.docked)
 	switch c.tab {
 	case .Disc:     colors_disc(app, inner)
 	case .Classic:  colors_classic(app, inner)
@@ -430,6 +435,12 @@ kit_colors_card :: proc(app: ^App) -> (raised: bool) {
 		}
 	}
 	ui.end(ctx)
+	// Docked, the card asks its column for its content's height, which no share of the
+	// column changes. Asking for the share it was given would hand that share back a frame
+	// late, so odd and even frames would each keep a height of their own and the card would
+	// flicker between them. Until its body has been laid out in the column, it asks for all
+	// the room it has.
+	if p.docked do p.want = (fixed + want) if want > 0 else p.room
 	panel_end(app, &p)
 	ui.transform_since(ctx, mark, shown, 1, {}, {window_slide(ctx, win^, .Start) * (1 - shown) * 16, 0})
 
@@ -479,7 +490,8 @@ kit_color_popover :: proc(app: ^App) {
 	// The body scrolls where the window is too short for it.
 	room := max(ctx.input.window.y - BRUSH_TILE_H - 2 * COLORS_PADDING - COLORS_GAP - 24, 160)
 	_, natural := ui.prev_layout(ctx, "colour popover body")
-	body := kit_scroll_begin(ctx, "colour popover body", &c.pop_scroll, owner, inner, min(natural.y, room) if natural.y > 0 else room, COLORS_GAP)
+	want := colors_body_want(app, natural.y, inner)
+	body := kit_scroll_begin(ctx, "colour popover body", &c.pop_scroll, owner, inner, min(want, room) if want > 0 else room, COLORS_GAP)
 	switch c.tab {
 	case .Disc:     colors_disc(app, inner)
 	case .Classic:  colors_classic(app, inner)
@@ -506,9 +518,10 @@ kit_color_popover :: proc(app: ^App) {
 BRUSH_TILE_H :: ui.BRUSH_TILE.y
 
 // The row under the title: the main and secondary colours (a tap edits that one, a long
-// press swaps them), Swap, Fill object, Fill gradient, Eyedropper and Close.
+// press swaps them), Swap, Fill object, Fill gradient, Eyedropper and Close; `docked`, the
+// column's header over it has Close already.
 @(private = "file")
-colors_header :: proc(app: ^App) {
+colors_header :: proc(app: ^App, docked: bool) {
 	k := &app.kit
 	ctx := &k.ctx
 	c := &k.colors
@@ -524,9 +537,35 @@ colors_header :: proc(app: ^App) {
 	_ = colors_command(app, .Paint, ICON_FILL, int(sculpt.Paint_Command.Fill))
 	_ = colors_command(app, .Paint, ICON_FILL_GRADIENT, int(sculpt.Paint_Command.Gradient))
 	_ = colors_command(app, .Eyedropper, ICON_EYEDROPPER)
-	_ = colors_command(app, .Colors_Card, ui.ICON_CLOSE, name = "Close")
+	if !docked do _ = colors_command(app, .Colors_Card, ui.ICON_CLOSE, name = "Close")
 	ui.end(ctx)
 }
+
+// How tall the card's or the colour popover's body would like to be, from its content as
+// last laid out (`natural`, 0 until it has been): all of it, but on Palettes, whose list
+// grows with every palette, no taller than the Disc, so the card keeps its size and its
+// tabs their place when Palettes is picked, and the list scrolls inside, as Procreate's
+// does, rather than taking every point down to the window's foot and the tabs with it.
+@(private = "file")
+colors_body_want :: proc(app: ^App, natural, inner: f32) -> f32 {
+	if app.kit.colors.tab != .Palettes || natural <= 0 do return natural
+	return min(natural, colors_disc_height(app, inner))
+}
+
+// The Disc's height in the body (colors_disc, then colors_history_and_default): the disc,
+// the history's head and row, and the default palette's name and rows, a gap between each.
+@(private = "file")
+colors_disc_height :: proc(app: ^App, inner: f32) -> f32 {
+	t := app.kit.ctx.theme
+	_, swatches, mine := palette_swatches(app, app.kit.colors.default_palette)
+	rows := (palette_slots(len(swatches), mine) + SWATCH_COLUMNS - 1) / SWATCH_COLUMNS
+	return inner * DISC_SHARE + t.target + SWATCH_SIDE + ui.CAPTION_H + f32(rows) * SWATCH_SIDE + f32(3 + rows) * COLORS_GAP
+}
+
+// The Disc's area is this share of the body's width tall, the ring touching its top and
+// bottom, which leaves the reticles room at the sides.
+@(private = "file")
+DISC_SHARE :: 0.82
 
 // An icon button in the card that runs command `id`, its label, shortcut and gesture in
 // its tooltip and lit while the command is on.
@@ -547,7 +586,7 @@ colors_disc :: proc(app: ^App, inner: f32) {
 	ctx := &app.kit.ctx
 	t := ctx.theme
 	c := &app.kit.colors
-	a := ui.area(ctx, "colors disc", {inner, inner * 0.82})
+	a := ui.area(ctx, "colors disc", {inner, inner * DISC_SHARE})
 	centre := [2]f32{a.rect.x + a.rect.w * 0.5, a.rect.y + a.rect.h * 0.5}
 	outer := a.rect.h * 0.5 - 4
 	RING :: 26
@@ -836,7 +875,7 @@ colors_palettes :: proc(app: ^App, inner: f32) {
 palette_grid :: proc(app: ^App, mine: int, swatches: [][3]f32, editable: bool, key: string) {
 	ctx := &app.kit.ctx
 	c := &app.kit.colors
-	slots := len(swatches) + (1 if editable && len(swatches) < PALETTE_SWATCHES else 0)
+	slots := palette_slots(len(swatches), editable)
 	for i in 0 ..< slots {
 		if i % SWATCH_COLUMNS == 0 do ui.begin(ctx, fmt.tprintf("palette %s row %d", key, i / SWATCH_COLUMNS), {direction = .Row, gap = 0})
 		if i == len(swatches) {
@@ -856,6 +895,13 @@ palette_grid :: proc(app: ^App, mine: int, swatches: [][3]f32, editable: bool, k
 		}
 		if i % SWATCH_COLUMNS == SWATCH_COLUMNS - 1 || i == slots - 1 do ui.end(ctx)
 	}
+}
+
+// The cells a palette's grid lays out: its `count` swatches and, on your palette while it
+// has room, the empty one that saves the colour there.
+@(private = "file")
+palette_slots :: proc(count: int, editable: bool) -> int {
+	return count + (1 if editable && count < PALETTE_SWATCHES else 0)
 }
 
 // The palette menu (Duplicate; on yours, Delete) and a swatch's (Set to current colour,
