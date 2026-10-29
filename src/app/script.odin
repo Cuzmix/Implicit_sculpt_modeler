@@ -730,6 +730,10 @@ script_allows :: proc(id: Command_Id) -> bool {
 		return false
 	case .Rename_Object, .Command_Palette, .Pie, .Pie_Editor, .Brush_Pie:
 		return false
+	// A value's popover opens at the pointer for a hand to set; a script sets the value
+	// itself (`set radius_px`).
+	case .Brush_Value:
+		return false
 	// The user's own workspaces are theirs to keep, name and delete; a script may switch
 	// to one, revert one or make a new one.
 	case .Workspace_Save, .Workspace_Rename, .Workspace_Delete:

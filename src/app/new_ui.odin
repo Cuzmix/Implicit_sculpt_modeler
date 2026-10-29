@@ -99,6 +99,12 @@ Kit_State :: struct {
 	view_rail:  Bar_List, // the view rail's (lens_chrome.odin)
 	shelf:      Shelf, // the shelf along the bottom (lens_shelf.odin)
 	brush_pie:  Bar_List, // the brush pie's eight slots (pie.odin)
+	offhand:    Bar_List, // the off-hand island's values and commands (lens_chrome.odin)
+	// For the exit stats: value popovers opened and value chips scrubbed, and the chip
+	// being scrubbed, so a scrub counts once (brush_values.odin).
+	value_pops:      int,
+	value_scrubs:    int,
+	value_scrubbing: ui.Id,
 	pie_quicks: int, // quick settings opened by resting on the brush pie, for the exit stats
 	stack:      Lens_Stack, // the tray, as a stack of cards (lens_stack.odin)
 	new_panes:  New_Panes, // what a pane a view layout adds starts as (lens_panes.odin)
@@ -439,15 +445,19 @@ Kit_Scroll :: struct {
 }
 
 // Begins the scrolling body `name`, `width` wide and at most `height` tall; its content
-// follows, then kit_scroll_end.
-kit_scroll_begin :: proc(ctx: ^ui.Context, name: string, value: ^f32, owner: ui.Id, width, height, gap: f32) -> (s: Kit_Scroll) {
+// follows, then kit_scroll_end. A body whose content last fitted takes the content's
+// height, which is last frame's until it ends, so content that grew since pushes what
+// follows down for a frame; with `fixed` it is `height` tall whatever its content, for
+// a caller that measures the content itself and keeps what follows in place (the Colors
+// card's tabs).
+kit_scroll_begin :: proc(ctx: ^ui.Context, name: string, value: ^f32, owner: ui.Id, width, height, gap: f32, fixed := false) -> (s: Kit_Scroll) {
 	s = {id = ui.id_of(ctx, name), owner = owner, value = value, height = height}
 	_, natural := ui.prev_layout(ctx, name)
 	s.natural = natural.y
 	s.limit = max(natural.y - height, 0)
 	dragging := ui.scroll_update(ctx, s.id, ui.prev_rect(ctx, name), value, s.limit)
 	s.shown = ui.tween(ctx, ui.salt(s.id, 1), value^, 0 if dragging else ctx.theme.popover_time, .Out_Quart)
-	ui.begin(ctx, name, {direction = .Column, gap = gap, width = width, height = height if natural.y > height else 0, clip = true, scroll = s.shown, drag_scroll = true})
+	ui.begin(ctx, name, {direction = .Column, gap = gap, width = width, height = height if fixed || natural.y > height else 0, clip = true, scroll = s.shown, drag_scroll = true})
 	s.at = ctx.last_rect
 	return
 }

@@ -9,7 +9,7 @@ import "../sculpt"
 import "../ui"
 
 // The bars the user arranges: the view rail down the pen side, the shelf's pages and its
-// tool strip after All, and the brush pie. Each is a list of registry commands (Bar_Slot,
+// tool strip after All, the brush pie, and the off-hand island. Each is a list of registry commands (Bar_Slot,
 // a pie's slot), as Nomad lets any tool be a shortcut; a button whose command does more
 // than run (a long press that opens a menu, a lit state of its own) keeps that through
 // bar_slot_button wherever it sits. Customise bars is an edit mode, as iPadOS's home
@@ -29,10 +29,14 @@ Bar_Which :: enum u8 {
 	Shelf_Curve,
 	Shelf_Model,
 	Brush_Pie, // the brush pie (pie.odin): eight slots, clockwise from the top
+	// The off-hand island (lens_chrome.odin): the brush's values and any command, down the
+	// off-hand side. Last, as settings name bars by zone and the shelf's pages count from
+	// Shelf_Sculpt.
+	Offhand,
 }
 
 // The bars a workspace's layout holds: the shelf's pages and the brush pie hold the
-// person's brushes, which are no layout's.
+// person's brushes, and the island the person's values, which are no layout's.
 @(rodata)
 BAR_LAYOUT := [?]Bar_Which{.Tools, .View_Rail}
 
@@ -50,6 +54,7 @@ BAR_ZONES := [Bar_Which]string {
 	.Shelf_Curve  = "shelf_curve",
 	.Shelf_Model  = "shelf_model",
 	.Brush_Pie    = "brush_pie",
+	.Offhand      = "offhand_island",
 }
 
 // The bar a zone name names.
@@ -60,12 +65,15 @@ bar_zone :: proc(name: string) -> (Bar_Which, bool) {
 
 TOOLS_MAX :: 8
 VIEW_RAIL_MAX :: 12
+OFFHAND_MAX :: 8
 // The most slots any bar holds: the view rail's, and a shelf page's SHELF_MAX.
 BAR_SLOTS_MAX :: 12
 
-// A bar's commands, `count` of them in use.
+// A bar's commands, `count` of them in use, and how each value item among them shows
+// (brush_values.odin; nothing for any other command).
 Bar_List :: struct {
 	slots: [BAR_SLOTS_MAX]Bar_Slot,
+	looks: [BAR_SLOTS_MAX]Value_Look,
 	count: int,
 }
 
@@ -78,6 +86,9 @@ VIEW_RAIL_DEFAULT :: [?]Bar_Slot {
 	{.View_Layout_Menu, 0}, {.Pass_Menu, 0}, {.Camera_Menu, 0}, {.Focus_Selected, 0}, {.Symmetry_X, 0}, {.Wireframe, 0},
 	{.Show_Section, int(Kit_Section.Lights)}, {.Thumbnail, 0},
 }
+
+// The island a fresh install has: Size and Strength as tall sliders.
+OFFHAND_DEFAULT :: [?]Bar_Slot{{.Brush_Value, int(Brush_Value.Size)}, {.Brush_Value, int(Brush_Value.Strength)}}
 
 // A slot the palette is choosing a command for: slot `slot` of bar `which`, or with `add`
 // set a new slot put in at `slot`.
@@ -95,9 +106,10 @@ Bar_Slot_Menu :: struct {
 	at:    ui.Rect,
 }
 
-bar_list_of :: proc(slots: []Bar_Slot) -> (l: Bar_List) {
+bar_list_of :: proc(slots: []Bar_Slot, look := Value_Look.Slider) -> (l: Bar_List) {
 	copy(l.slots[:], slots)
 	l.count = len(slots)
+	for &x in l.looks do x = look
 	return
 }
 
@@ -106,6 +118,7 @@ bars_reset :: proc(k: ^Kit_State) {
 	bar_lists_reset(k)
 	shelf_reset(k)
 	k.brush_pie = bar_fresh(.Brush_Pie)
+	k.offhand = bar_fresh(.Offhand)
 }
 
 // Puts the strip and the view rail (the bars a layout holds) back as a fresh install has
@@ -116,17 +129,23 @@ bar_lists_reset :: proc(k: ^Kit_State) {
 
 // A fresh install's list for the strip, the view rail, a shelf page or the brush pie.
 bar_fresh :: proc(which: Bar_Which) -> Bar_List {
-	if page, ok := shelf_page_of(which); ok do return shelf_fresh(page)
-	#partial switch which {
+	switch which {
+	case .Shelf_Sculpt, .Shelf_Paint, .Shelf_Move, .Shelf_Curve, .Shelf_Model:
+		page, _ := shelf_page_of(which)
+		return shelf_fresh(page)
 	case .View_Rail:
 		d := VIEW_RAIL_DEFAULT
-		return bar_list_of(d[:])
+		return bar_list_of(d[:], bar_default_look(which))
 	case .Brush_Pie:
 		d := BRUSH_PIE_DEFAULT
-		return bar_list_of(d[:])
+		return bar_list_of(d[:], bar_default_look(which))
+	case .Offhand:
+		d := OFFHAND_DEFAULT
+		return bar_list_of(d[:], bar_default_look(which))
+	case .Tools:
 	}
 	d := TOOLS_DEFAULT
-	return bar_list_of(d[:])
+	return bar_list_of(d[:], bar_default_look(which))
 }
 
 bar_list :: proc(app: ^App, which: Bar_Which) -> ^Bar_List {
@@ -135,10 +154,14 @@ bar_list :: proc(app: ^App, which: Bar_Which) -> ^Bar_List {
 
 // The list behind the strip, the view rail, a shelf page or the brush pie.
 bar_list_k :: proc(k: ^Kit_State, which: Bar_Which) -> ^Bar_List {
-	if page, ok := shelf_page_of(which); ok do return &k.shelf.lists[page]
-	#partial switch which {
+	switch which {
+	case .Shelf_Sculpt, .Shelf_Paint, .Shelf_Move, .Shelf_Curve, .Shelf_Model:
+		page, _ := shelf_page_of(which)
+		return &k.shelf.lists[page]
 	case .View_Rail: return &k.view_rail
 	case .Brush_Pie: return &k.brush_pie
+	case .Offhand:   return &k.offhand
+	case .Tools:
 	}
 	return &k.tools
 }
@@ -156,6 +179,7 @@ bar_capacity :: proc(which: Bar_Which) -> int {
 	case .View_Rail: return VIEW_RAIL_MAX
 	case .Shelf_Sculpt, .Shelf_Paint, .Shelf_Move, .Shelf_Curve, .Shelf_Model: return SHELF_MAX
 	case .Brush_Pie: return PIE_SLOTS
+	case .Offhand:   return OFFHAND_MAX
 	}
 	return 0
 }
@@ -174,19 +198,37 @@ bar_changed :: proc(app: ^App, which: Bar_Which) -> bool {
 bar_list_changed :: proc(k: ^Kit_State, which: Bar_Which) -> bool {
 	fresh := bar_fresh(which)
 	l := bar_list_k(k, which)
-	return l.count != fresh.count || l.slots != fresh.slots
+	if l.count != fresh.count || l.slots != fresh.slots do return true
+	for i in 0 ..< clamp(l.count, 0, bar_capacity(which)) {
+		if _, value := value_of(l.slots[i]); value && bar_look(k, which, i) != bar_default_look(which) do return true
+	}
+	return false
 }
 
-// The lines of every bar, each written whole where it differs from a fresh install's (`bar_count <zone> N`, then `bar <zone> <slot> <command>`): the settings
-// file's, and with `layout` a workspace's layout's, which leaves the shelf's pages out.
+// Whether a workspace's layout holds bar `which`.
+bar_in_layout :: proc(which: Bar_Which) -> bool {
+	for w in BAR_LAYOUT do if w == which do return true
+	return false
+}
+
+// The lines of every bar, each written whole where it differs from a fresh install's
+// (`bar_count <zone> N`, then `bar <zone> <slot> <command>`, and `bar_look <zone> <slot>
+// <look>` after a value item that does not show as the bar's values do at first): the
+// settings file's, and with `layout` a workspace's layout's, which holds only BAR_LAYOUT's
+// bars. An older build passes over the bar_look lines and keeps the values.
 bars_save :: proc(k: ^Kit_State, out: ^strings.Builder, layout := false) {
 	for which in Bar_Which {
-		if _, shelf := shelf_page_of(which); (shelf || which == .Brush_Pie) && layout do continue
+		if layout && !bar_in_layout(which) do continue
 		if !bar_list_changed(k, which) do continue
 		l := bar_list_k(k, which)
 		used := l.slots[:clamp(l.count, 0, bar_capacity(which))]
 		fmt.sbprintfln(out, "bar_count %s %d", BAR_ZONES[which], len(used))
-		for s, i in used do fmt.sbprintfln(out, "bar %s %d %s", BAR_ZONES[which], i, command_name(s.id, s.arg))
+		for s, i in used {
+			fmt.sbprintfln(out, "bar %s %d %s", BAR_ZONES[which], i, command_name(s.id, s.arg))
+			if _, value := value_of(s); value && bar_look(k, which, i) != bar_default_look(which) {
+				fmt.sbprintfln(out, "bar_look %s %d %v", BAR_ZONES[which], i, bar_look(k, which, i))
+			}
+		}
 	}
 }
 
@@ -205,7 +247,16 @@ bars_load_line :: proc(k: ^Kit_State, f: []string) {
 		slot, slot_ok := strconv.parse_int(f[2])
 		if !zone_ok || !slot_ok || slot < 0 || slot >= bar_capacity(which) do return
 		l := bar_list_k(k, which)
-		if id, arg, ok := command_from_name(f[3]); ok && bar_lists(id) do l.slots[slot] = {id, arg}
+		if id, arg, ok := command_from_name(f[3]); ok && bar_lists(id) {
+			l.slots[slot] = {id, arg}
+			l.looks[slot] = bar_default_look(which)
+		}
+	case "bar_look":
+		if len(f) != 4 do return
+		which, zone_ok := bar_zone(f[1])
+		slot, slot_ok := strconv.parse_int(f[2])
+		if !zone_ok || !slot_ok || slot < 0 || slot >= bar_capacity(which) do return
+		for look in Value_Look do if fmt.tprint(look) == f[3] do bar_list_k(k, which).looks[slot] = look
 	}
 }
 
@@ -231,6 +282,7 @@ bar_put :: proc(app: ^App, pick: Bar_Pick, s: Bar_Slot) {
 	}
 	at := clamp(pick.slot, 0, count^ - 1)
 	bar_list(app, pick.which).slots[at] = s
+	bar_list(app, pick.which).looks[at] = bar_default_look(pick.which)
 	report(app, nil, {}, "%s now has %s", bar_title(pick.which), bar_label(s))
 }
 
@@ -245,6 +297,7 @@ bar_title :: proc(which: Bar_Which) -> string {
 	case .Shelf_Curve:  return "The Curve shelf"
 	case .Shelf_Model:  return "The Model shelf"
 	case .Brush_Pie:    return "The brush pie"
+	case .Offhand:      return "The off-hand island"
 	}
 	return ""
 }
@@ -260,6 +313,7 @@ bar_insert :: proc(app: ^App, which: Bar_Which, at: int) -> bool {
 	i := clamp(at, 0, count^)
 	l := bar_list(app, which)
 	copy(l.slots[i + 1:count^ + 1], l.slots[i:count^])
+	copy(l.looks[i + 1:count^ + 1], l.looks[i:count^])
 	count^ += 1
 	return true
 }
@@ -270,6 +324,7 @@ bar_remove :: proc(app: ^App, which: Bar_Which, slot: int) {
 	if slot < 0 || slot >= count^ do return
 	l := bar_list(app, which)
 	copy(l.slots[slot:count^ - 1], l.slots[slot + 1:count^])
+	copy(l.looks[slot:count^ - 1], l.looks[slot + 1:count^])
 	count^ -= 1
 }
 
@@ -281,6 +336,7 @@ bar_move :: proc(app: ^App, which: Bar_Which, slot, by: int) -> int {
 	if slot < 0 || slot >= count^ || to < 0 || to >= count^ do return slot
 	l := bar_list(app, which)
 	l.slots[slot], l.slots[to] = l.slots[to], l.slots[slot]
+	l.looks[slot], l.looks[to] = l.looks[to], l.looks[slot]
 	return to
 }
 
@@ -291,7 +347,7 @@ bar_slot_actions :: proc(app: ^App, which: Bar_Which, slot: int) -> (close: bool
 	k := &app.kit
 	ctx := &k.ctx
 	count := bar_count(app, which)^
-	across := which != .View_Rail
+	across := which != .View_Rail && which != .Offhand
 	if ui.icon_button(ctx, "Move earlier", ICON_CHEVRON_LEFT if across else ui.ICON_CHEVRON_UP, enabled = slot > 0) do bar_slot_moved(app, bar_move(app, which, slot, -1))
 	if ui.icon_button(ctx, "Move later", ui.ICON_CHEVRON_RIGHT if across else ui.ICON_CHEVRON_DOWN, enabled = slot < count - 1) do bar_slot_moved(app, bar_move(app, which, slot, 1))
 	if ui.icon_button(ctx, "Remove from the bar", ui.ICON_TRASH) {
@@ -321,6 +377,7 @@ bar_label :: proc(s: Bar_Slot) -> string {
 	case .Add_Cage:     return poly.PRIMITIVE_NAMES[poly.Primitive(s.arg)]
 	case .Apply_Cage:   return "To sculpt"
 	case .Model_Action: return MODEL_ACTION_NAMES[Model_Action(s.arg)]
+	case .Brush_Value:  if v, ok := value_of(s); ok do return BRUSH_VALUE_NAMES[v]
 	}
 	return command_label(s.id, s.arg)
 }
@@ -354,6 +411,7 @@ bar_icon :: proc(s: Bar_Slot) -> rune {
 	case .View_Layout_Menu: return ICON_VIEW_LAYOUT
 	case .Pass_Menu:       return ICON_PASSES
 	case .Show_Section:    if Kit_Section(s.arg) == .Lights do return ui.ICON_SUN
+	case .Brush_Value:     if v, ok := value_of(s); ok do return BRUSH_VALUE_ICONS[v]
 	}
 	return palette_icon({.Command, s.id, s.arg})
 }
@@ -395,6 +453,7 @@ bar_lit :: proc(app: ^App, s: Bar_Slot) -> bool {
 	case .View_Layout_Menu: return bar_pop_showing(app, .View_Layout)
 	case .Pass_Menu:       return k.passes.menu
 	case .Show_Section:    return p.open && p.kind == .Section && p.section == Kit_Section(s.arg)
+	case .Brush_Value:     return p.open && p.kind == .Value && int(p.value) == s.arg
 	case .Inspector:       return tray_shown(app)
 	case .Command_Palette: return k.palette
 	}
@@ -424,6 +483,9 @@ bar_slot_run :: proc(app: ^App, s: Bar_Slot, at: ui.Rect, side: ui.Side) {
 		return
 	case .Retopologize:
 		bar_pop_toggle(app, .Section, at, side, .Retopo)
+		return
+	case .Brush_Value:
+		if v, ok := value_of(s); ok do value_pop_toggle(app, v, at, side)
 		return
 	case .Command_Palette:
 		if k.palette {
@@ -455,6 +517,12 @@ bar_slot_more :: proc(app: ^App, s: Bar_Slot, at: ui.Rect, side: ui.Side) {
 bar_slot_button :: proc(app: ^App, which: Bar_Which, slot: int, s: Bar_Slot, size: f32 = 0) {
 	k := &app.kit
 	ctx := &k.ctx
+	if v, ok := value_of(s); ok {
+		cell: [2]f32 = {size, ui.BRUSH_TILE.y - 2} if size > 0 else {}
+		if size <= 0 && which == .View_Rail do cell = {ctx.theme.target, VALUE_CHIP.y - 4}
+		value_item(app, which, slot, v, cell, column = bar_side(which) != .Above_Center)
+		return
+	}
 	side := bar_side(which)
 	more := bar_has_more(s.id)
 	name := fmt.tprintf("%s##%v %d", bar_label(s), which, slot)
@@ -472,7 +540,11 @@ bar_slot_button :: proc(app: ^App, which: Bar_Which, slot: int, s: Bar_Slot, siz
 
 // Which side of a bar's buttons its popovers open.
 bar_side :: proc(which: Bar_Which) -> ui.Side {
-	return .Left if which == .View_Rail else .Above_Center
+	#partial switch which {
+	case .View_Rail: return .Left
+	case .Offhand:   return .Right
+	}
+	return .Above_Center
 }
 
 // The ring round a slot while customising.

@@ -272,11 +272,14 @@ FOV_SLIDER = (1349, 180)
 
 @scenario
 def pen_response_page_sets_clay():
-    """The Pen section's Response page: Draw starts on the global Default response; a tap on
-    Clay gives the global pressure Blender's Clay (size by the cube of the pressure, at
-    least a fifth of the radius), and nothing is sculpted (look with --screens)."""
+    """The Pen section's Response page, reached by the island's Size menu's Brush settings:
+    Draw starts on the global Default response; a tap on Clay gives the global pressure
+    Blender's Clay (size by the cube of the pressure, at least a fifth of the radius), and
+    nothing is sculpted (look with --screens)."""
     s = Script()
     long_press(s, *UI["size"])
+    s.wait(4)
+    s.ftap(*VALUE_MENU_SETTINGS)
     s.wait(4)
     s.ftap(264, 355)
     s.wait(3)
@@ -286,30 +289,36 @@ def pen_response_page_sets_clay():
 
 
 @scenario
-def long_press_draw_size_opens_the_pen():
-    """A long press on the island's Size opens the Pen section (pressure and tilt) beside it, and moves nothing."""
+def long_press_draw_size_opens_its_menu():
+    """A long press on the island's Size opens its menu beside it and moves nothing; the menu's Brush settings opens the Pen section (pressure and tilt) in its place."""
     s = Script()
     long_press(s, *UI["size"])
     s.wait(4)
-    return s, [], camera_still({"dabs": near(0), "bar_pop": is_text("pen"), "brush_radius_px": near(60)})
+    first = (s, [], camera_still({"dabs": near(0), "bar_pop": is_text("value_menu"), "value_pop": is_text("size"), "brush_radius_px": near(60)}))
+    s = Script()
+    long_press(s, *UI["size"])
+    s.wait(4)
+    s.ftap(*VALUE_MENU_SETTINGS)
+    s.wait(4)
+    return Steps([first, (s, [], camera_still({"dabs": near(0), "bar_pop": is_text("pen"), "brush_radius_px": near(60)}))])
 
 
 @scenario
 def hold_delay_is_short_by_default():
-    """The island's Size held still 0.28 s, just past the default Hold delay of 0.25 s, is a long press: the Pen section opens, where the old 0.3 s would still have tapped."""
+    """The island's Size held still 0.28 s, just past the default Hold delay of 0.25 s, is a long press: its menu opens, where the old 0.3 s would still have tapped."""
     s = Script()
     long_press(s, *UI["size"], frames=17)
     s.wait(8)
-    return s, [], camera_still({"dabs": near(0), "bar_pop": is_text("pen"), "brush_radius_px": near(60)})
+    return s, [], camera_still({"dabs": near(0), "bar_pop": is_text("value_menu"), "brush_radius_px": near(60)})
 
 
 @scenario
 def hold_delay_setting_goes_down_to_a_tenth():
-    """With the Hold delay at its floor of 0.1 s, the island's Size held still 0.13 s is already a long press: the Pen section opens."""
+    """With the Hold delay at its floor of 0.1 s, the island's Size held still 0.13 s is already a long press: its menu opens."""
     s = Script()
     long_press(s, *UI["size"], frames=8)
     s.wait(8)
-    return s, ["--script=set hold_delay 0.1"], camera_still({"dabs": near(0), "bar_pop": is_text("pen"), "brush_radius_px": near(60)})
+    return s, ["--script=set hold_delay 0.1"], camera_still({"dabs": near(0), "bar_pop": is_text("value_menu"), "brush_radius_px": near(60)})
 
 
 @scenario
@@ -324,7 +333,7 @@ def mouse_drags_strength_at_once():
 
 @scenario
 def hold_delay_setting_keeps_a_shorter_hold_a_tap():
-    """With the Hold delay at 0.8 s, the island's Size held 0.5 s is still a tap: the Pen section stays shut and the size as it was."""
+    """With the Hold delay at 0.8 s, the island's Size held 0.5 s is still a tap: its menu stays shut and the size as it was."""
     s = Script()
     long_press(s, *UI["size"], frames=30)
     s.wait(8)
@@ -334,11 +343,117 @@ def hold_delay_setting_keeps_a_shorter_hold_a_tap():
 
 @scenario
 def hold_delay_setting_still_long_presses():
-    """With the Hold delay at 0.8 s, the island's Size held 0.9 s is a long press: the Pen section opens."""
+    """With the Hold delay at 0.8 s, the island's Size held 0.9 s is a long press: its menu opens."""
     s = Script()
     long_press(s, *UI["size"], frames=54)
     s.wait(8)
-    return s, ["--script=set hold_delay 0.8"], camera_still({"dabs": near(0), "bar_pop": is_text("pen"), "brush_radius_px": near(60)})
+    return s, ["--script=set hold_delay 0.8"], camera_still({"dabs": near(0), "bar_pop": is_text("value_menu"), "brush_radius_px": near(60)})
+
+
+# A brush value's menu beside the island's Size at 1600 x 900: its Chip row and its Brush
+# settings row.
+VALUE_MENU_CHIP = (200, 365)
+VALUE_MENU_SETTINGS = (200, 454)
+# The island holding Size, Strength and Focal shift as chips (value_bars), their centres, and
+# the Size popover's 96 step.
+VALUE_CHIPS = {"size": (44, 387), "strength": (44, 450), "focal": (44, 512)}
+VALUE_STEP_96 = (282, 508)
+# The shelf's tool strip with Strength and Pressure after Move and Remesh (value_bars), and
+# the Pressure popover's Strength switch.
+STRIP_STRENGTH, STRIP_PRESSURE = (1181, 832), (1229, 832)
+PRESSURE_STRENGTH_SWITCH = (1343, 761)
+
+
+def value_bars(island=(), strip=()):
+    """Arguments that start the run with the island holding `island` and the shelf's tools
+    `strip`, each a list of (value, look) or a command name, through the scenario's settings
+    file."""
+    lines = ["version 5"]
+    for zone, items in (("offhand_island", island), ("bottom_tools", strip)):
+        if not items:
+            continue
+        lines.append(f"bar_count {zone} {len(items)}")
+        for i, item in enumerate(items):
+            if isinstance(item, str):
+                lines.append(f"bar {zone} {i} {item}")
+                continue
+            value, look = item
+            lines.append(f"bar {zone} {i} Brush_Value:{value}")
+            lines.append(f"bar_look {zone} {i} {look}")
+    with open(settings_file(), "w") as f:
+        f.write("\n".join(lines) + "\n")
+    return [f"--settings-file={settings_file()}"]
+
+
+VALUE_CHIP_ISLAND = [("Size", "Chip"), ("Strength", "Chip"), ("Focal_Shift", "Chip")]
+
+
+@scenario
+def value_chip_tap_opens_its_steps():
+    """A tap on the island's Size chip opens its popover beside it; a tap on its 96 step sets the size, and nothing is sculpted."""
+    s = Script()
+    s.ftap(*VALUE_CHIPS["size"])
+    s.wait(6)
+    first = (s, value_bars(VALUE_CHIP_ISLAND), camera_still({"dabs": near(0), "bar_pop": is_text("value"), "value_pop": is_text("size"), "value_pops": near(1),
+                                                            "brush_radius_px": near(60)}))
+    s = Script()
+    s.ftap(*VALUE_CHIPS["size"])
+    s.wait(6)
+    s.ftap(*VALUE_STEP_96)
+    s.wait(4)
+    return Steps([first, (s, value_bars(VALUE_CHIP_ISLAND), camera_still({"dabs": near(0), "bar_pop": is_text("value"), "brush_radius_px": near(96)}))])
+
+
+@scenario
+def value_chip_scrub_sets_the_size():
+    """A finger dragged 60 points sideways from the island's Size chip makes the brush bigger as it goes, opens nothing and sculpts nothing."""
+    s = Script()
+    x, y = VALUE_CHIPS["size"]
+    s.fdrag(line((x, y), (x + 60, y), 20))
+    s.wait(4)
+    return s, value_bars(VALUE_CHIP_ISLAND), camera_still({"dabs": near(0), "bar_pop": is_text("none"), "value_scrubs": near(1),
+                                                           "brush_radius_px": lambda v: float(v) > 80})
+
+
+@scenario
+def long_press_a_value_picks_its_look():
+    """A long press on the island's Size slider opens its menu; its Chip row turns it into a chip, which the settings file keeps."""
+    s = Script()
+    long_press(s, *UI["size"])
+    s.wait(4)
+    s.ftap(*VALUE_MENU_CHIP)
+    s.wait(4)
+    return s, [f"--settings-file={settings_file()}"], camera_still({"dabs": near(0), "bar_pop": is_text("none"), "offhand_looks": is_text("Chip,Slider"),
+                                                                     "@saved": saved_line("bar_look offhand_island 0 Chip")})
+
+
+@scenario
+def strip_value_scrubs_up_and_down():
+    """Strength on the shelf's tools scrubs up and down: a finger dragged 50 points up from it raises the strength and leaves the page; a sideways swipe from it still turns the page."""
+    strip = ["Tool_Move", "Remesh", ("Strength", "Chip"), ("Pressure", "Chip")]
+    s = Script()
+    x, y = STRIP_STRENGTH
+    s.fdrag(line((x, y), (x, y - 50), 20))
+    s.wait(4)
+    first = (s, value_bars(strip=strip), camera_still({"dabs": near(0), "value_scrubs": near(1), "shelf_page": is_text("Sculpt"),
+                                                      "brush_strength": lambda v: float(v) > 0.55}))
+    s = Script()
+    s.fdrag(line((x, y), (x - 200, y), 20))
+    s.wait(10)
+    return Steps([first, (s, value_bars(strip=strip), camera_still({"dabs": near(0), "value_scrubs": near(0), "shelf_page": is_text("Paint")}))])
+
+
+@scenario
+def pressure_chip_opens_its_switches():
+    """Pressure on the shelf's tools is a tap, not a scrub: its popover's Strength switch turns pressure on the strength off."""
+    strip = ["Tool_Move", "Remesh", ("Strength", "Chip"), ("Pressure", "Chip")]
+    s = Script()
+    s.ftap(*STRIP_PRESSURE)
+    s.wait(6)
+    s.ftap(*PRESSURE_STRENGTH_SWITCH)
+    s.wait(4)
+    return s, value_bars(strip=strip), camera_still({"dabs": near(0), "bar_pop": is_text("value"), "value_pop": is_text("pressure"),
+                                                    "pressure_strength": near(0)})
 
 
 @scenario
@@ -607,6 +722,99 @@ def colors_value_hex_sets_the_colour():
     s.press("Return")
     s.wait(4)
     return s, [COLORS], {"paint_color": is_text("33AA77"), "color_history": near(1), "dabs": near(0)}
+
+
+# The floating Colors card's Panel options (the dots right of its title) and the menu's Dock rows,
+# then the Value tab where the card docked in the left column (alone) or the right one (under
+# the tray) puts it, at 1600 x 900.
+COLORS_OPTIONS, COLORS_DOCK = (396, 127), {"left": (370, 184), "right": (370, 228)}
+COLORS_DOCKED_VALUE = {"left": (320, 706), "right": (1422, 749)}
+# The card's width (COLORS_CARD_W in kit_colors.odin): seven swatches and its padding.
+COLORS_CARD_W = 7 * 48 + 2 * 12
+# The Palettes tab's list in the floating card: Skin's first swatch, and Vivid's once the list
+# is scrolled to its end.
+COLORS_PALETTES = {"skin": (102, 335), "vivid": (102, 646)}
+
+
+def ppm_region(path, rect):
+    """The pixels of rectangle (x, y, w, h) of a screen the app wrote as a binary PPM
+    (P6, its size, 255, then the bytes), row by row, cut to the picture."""
+    data = open(path, "rb").read()
+    _, size, _, pixels = data.split(b"\n", 3)
+    width, height = map(int, size.split())
+    x, y, w, h = (int(float(v)) for v in rect)
+    w, h = min(w, width - x), min(h, height - y)
+    return b"".join(pixels[((y + row) * width + x) * 3:((y + row) * width + x + w) * 3] for row in range(h))
+
+
+def colors_docked_still(side):
+    """Docks the Colors card on `side` from Panel options and taps its Value tab where the
+    column draws it, in two runs a frame apart: a card that keeps one size draws the same
+    pixels in both, from its corner (window_colors=) to the window's foot. Only the card's
+    are compared, since a desktop's own pointer resting on the window lights what it is over."""
+    shots = [os.path.join(ROOT, "build", "touch", f"{CURRENT.name}-{n}.ppm") for n in ("a", "b")]
+    for shot in shots:
+        if os.path.exists(shot):
+            os.remove(shot)
+    runs = []
+    for more in (0, 1):
+        s = Script()
+        s.wait(4)
+        s.ftap(*COLORS_OPTIONS)
+        s.wait(8)
+        s.ftap(*COLORS_DOCK[side])
+        s.wait(20)
+        s.ftap(*COLORS_DOCKED_VALUE[side])
+        s.wait(20 + more)
+        runs.append(s)
+    column = {"left": "colors", "right": "inspector,colors"}[side]
+    checks = camera_still({f"column_{side}": is_text(column), "colors_tab": is_text("value"), "dabs": near(0)})
+
+    def one_size(stats):
+        _, _, x, y = stats["window_colors"].split(",")
+        card = (x, y, COLORS_CARD_W, 900 - float(y))
+        return ppm_region(shots[0], card) == ppm_region(shots[1], card) or f"the card at {x},{y} drew other pixels a frame later"
+
+    return Steps([(runs[0], [COLORS, f"--dump-screen={shots[0]}"], checks),
+                  (runs[1], [COLORS, f"--dump-screen={shots[1]}"], dict(checks, **{"@one size": one_size}))])
+
+
+@scenario
+def colors_card_docks_left_and_holds_still():
+    """Docked on the left from Panel options, the Colors card keeps one size: two runs a
+    frame apart draw it the same (it flickered between two heights every frame, its tabs
+    cut off), and its Value tab is a tap where it is drawn."""
+    return colors_docked_still("left")
+
+
+@scenario
+def colors_card_docks_right_and_holds_still():
+    """Docked on the right under the tray, the Colors card keeps one size and the tray its
+    own, frame after frame, and its Value tab is a tap where it is drawn."""
+    return colors_docked_still("right")
+
+
+@scenario
+def colors_palettes_keep_the_cards_size():
+    """On Palettes the Colors card keeps the Disc's size: a swatch in the list is a tap, the
+    list scrolls inside the card to Vivid, the last palette, and the tabs stay where the Disc
+    had them, so a tap there picks Value (the list took the card down to the window's foot and
+    the tabs with it)."""
+    s = Script()
+    s.wait(4)
+    s.ftap(*COLORS_CARD["palettes"])
+    s.wait(8)
+    s.ftap(*COLORS_PALETTES["skin"])
+    s.wait(4)
+    s.fdrag(line((250, 600), (250, 150), 15))
+    s.wait(20)
+    s.ftap(*COLORS_PALETTES["vivid"])
+    s.wait(4)
+    s.ftap(*COLORS_CARD["value"])
+    s.wait(6)
+    return s, [COLORS], camera_still({"paint_color": is_text("E6194B"), "color_history": near(2), "colors_tab": is_text("value"),
+                                      "window_colors": lambda v: v.startswith("1,"), "dabs": near(0)})
+
 
 
 @scenario
@@ -6715,37 +6923,41 @@ def diag_hover_slider_holds_still():
     return s, ["--diag-test=hover_slider"], {"diag_auto": is_text("pass"), "diag_slider": near(50, 1e-2)}
 
 
+# The degrees a hovering pen turns on a control before its roll sets it (src/ui/widgets.odin).
+ROLL_ENGAGE = 10
+
+
 @scenario
 def diag_roll_right_raises_the_value():
-    """Barrel roll to the right: the pen hovering on the slider and turned 40 degrees clockwise raises it by 40/180 of its range, a pass."""
+    """Barrel roll to the right: the pen hovering on the slider and turned 40 degrees clockwise raises it by the 30 past the first ROLL_ENGAGE (10), 30/180 of its range, a pass."""
     s = Script()
     pen_hover(s, *DIAG["slider"], frames=4)
     for deg in (0, 10, 20, 30, 40):
         s.add(f"proll:{deg}")
         s.wait(2)
-    return s, ["--diag-test=roll_right"], {"diag_auto": is_text("pass"), "diag_slider": near(50 + 100 * 40 / 180, 0.05)}
+    return s, ["--diag-test=roll_right"], {"diag_auto": is_text("pass"), "diag_slider": near(50 + 100 * (40 - ROLL_ENGAGE) / 180, 0.05)}
 
 
 @scenario
 def diag_roll_left_lowers_the_value():
-    """Barrel roll to the left: turned 40 degrees anticlockwise, the slider goes down, a pass."""
+    """Barrel roll to the left: turned 40 degrees anticlockwise, the slider goes down by the 30 past the first ROLL_ENGAGE, a pass."""
     s = Script()
     pen_hover(s, *DIAG["slider"], frames=4)
     for deg in (0, -10, -20, -30, -40):
         s.add(f"proll:{deg}")
         s.wait(2)
-    return s, ["--diag-test=roll_left"], {"diag_auto": is_text("pass"), "diag_slider": near(50 - 100 * 40 / 180, 0.05)}
+    return s, ["--diag-test=roll_left"], {"diag_auto": is_text("pass"), "diag_slider": near(50 - 100 * (40 - ROLL_ENGAGE) / 180, 0.05)}
 
 
 @scenario
 def diag_roll_wraps_without_a_jump():
-    """Barrel roll past half a turn: the reported angle wraps from 170 to -170 and the slider moves on by the small turn, a pass."""
+    """Barrel roll past half a turn: the reported angle wraps from 170 to -170 and the slider moves on by the small turn, the 50 degrees less the first ROLL_ENGAGE, a pass."""
     s = Script()
     pen_hover(s, *DIAG["slider"], frames=4)
     for deg in (150, 160, 170, 180, -170, -160):
         s.add(f"proll:{deg}")
         s.wait(2)
-    return s, ["--diag-test=roll_wrap"], {"diag_auto": is_text("pass"), "diag_slider": near(50 + 100 * 50 / 180, 0.05)}
+    return s, ["--diag-test=roll_wrap"], {"diag_auto": is_text("pass"), "diag_slider": near(50 + 100 * (50 - ROLL_ENGAGE) / 180, 0.05)}
 
 
 @scenario
@@ -7149,7 +7361,8 @@ def run_one(name, step, screens, displays):
     if not any(a.startswith("--ui-dt") for a in args):
         cmd.append(f"--ui-dt={UI_DT:g}")
     cmd += args
-    if screens:
+    # A run that writes its screen itself (to compare two runs) keeps its own picture.
+    if screens and not any(a.startswith("--dump-screen") for a in args):
         os.makedirs(os.path.join(ROOT, "build", "touch"), exist_ok=True)
         cmd.append(f"--dump-screen={os.path.join(ROOT, 'build', 'touch', name + '.png')}")
     env = dict(os.environ, SDL_ASSERT="abort")
