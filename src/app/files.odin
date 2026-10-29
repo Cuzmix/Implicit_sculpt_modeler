@@ -631,6 +631,7 @@ Mesh_File_Info :: struct {
 	cleaned: geom.Mesh_Clean_Report, // summed over the parts
 	skipped: geom.Gltf_Skipped,
 	usd:     usd.Skipped,
+	paint:   geom.Mesh_Paint_Report, // materials and textures painted as polypaint
 	empty:   int, // parts nothing was left of once cleaned
 	merged:  int, // parts joined into one object, past MESH_PARTS_MAX
 }
@@ -640,6 +641,35 @@ Mesh_File_Info :: struct {
 // file is, for a .gltf's buffers beside it ("" for none). `line` names the line of a
 // parse error (0 for none). On a failure `parts` is left empty.
 mesh_file_parse :: proc(parts: ^[dynamic]geom.Mesh_Part, data: []u8, kind: Mesh_Kind, pool: ^jobs.Pool, path := "") -> (info: Mesh_File_Info, failed: geom.Mesh_File_Error, line: int) {
+	// The files a .gltf or an .obj names beside it: buffers, MTL files and images. A
+	// picked content:// file comes without them.
+	Beside :: struct {
+		dir:   string,
+		files: [dynamic][]u8,
+	}
+	beside: Beside
+	if path != "" && !strings.has_prefix(path, "content://") {
+		beside.dir = filepath.dir(path)
+		if beside.dir == "" do beside.dir = "."
+	}
+	defer {
+		for f in beside.files do delete(f)
+		delete(beside.files)
+	}
+	resolve :: proc(data: rawptr, uri: string) -> ([]u8, bool) {
+		b := cast(^Beside)data
+		// Only plain names and paths below the file: never a scheme or a way up.
+		if b.dir == "" || uri == "" || strings.contains(uri, "://") || strings.contains(uri, "..") || filepath.is_abs(uri) || strings.has_prefix(uri, "/") do return nil, false
+		full, _ := filepath.join({b.dir, uri}, context.temp_allocator)
+		bytes, err := file_read_any(full, context.allocator)
+		if err != nil do return nil, false
+		append(&b.files, bytes)
+		return bytes, true
+	}
+	// The materials' colours and textures, painted into the parts' vertices before
+	// they are cleaned, while their corners still have their texture coordinates.
+	look: geom.Mesh_Look
+	defer geom.mesh_look_destroy(&look)
 	switch kind {
 	case .PLY, .STL:
 		p: geom.Mesh_Part
@@ -648,36 +678,13 @@ mesh_file_parse :: proc(parts: ^[dynamic]geom.Mesh_Part, data: []u8, kind: Mesh_
 		if failed == .None do append(parts, p)
 		else do delete(p.colors)
 	case .GLTF:
-		Beside :: struct {
-			dir:   string,
-			files: [dynamic][]u8,
-		}
-		// A picked content:// file comes without the files beside it.
-		beside: Beside
-		if path != "" && !strings.has_prefix(path, "content://") {
-			beside.dir = filepath.dir(path)
-			if beside.dir == "" do beside.dir = "."
-		}
-		defer {
-			for f in beside.files do delete(f)
-			delete(beside.files)
-		}
-		resolve :: proc(data: rawptr, uri: string) -> ([]u8, bool) {
-			b := cast(^Beside)data
-			// Only plain names and paths below the file: never a scheme or a way up.
-			if b.dir == "" || strings.contains(uri, "://") || strings.contains(uri, "..") || filepath.is_abs(uri) do return nil, false
-			full, _ := filepath.join({b.dir, uri}, context.temp_allocator)
-			bytes, err := file_read_any(full, context.allocator)
-			if err != nil do return nil, false
-			append(&b.files, bytes)
-			return bytes, true
-		}
-		info.skipped, failed = geom.mesh_read_gltf(parts, data, resolve, &beside)
+		info.skipped, failed = geom.mesh_read_gltf(parts, data, resolve, &beside, &look)
 	case .USD:
 		info.usd, failed, line = usd.read(parts, data)
 	case .OBJ, .None:
-		failed, line = geom.mesh_read_obj_parts(parts, data, pool)
+		failed, line = geom.mesh_read_obj_parts(parts, data, pool, look = &look, resolve = resolve, resolve_data = &beside)
 	}
+	if failed == .None do info.paint = geom.mesh_parts_paint(parts[:], &look)
 	if failed == .None {
 		for k := 0; k < len(parts); {
 			p := &parts[k]
@@ -791,7 +798,12 @@ mesh_import_read :: proc(app: ^App, path, what: string) -> (m: Mesh_Import, ok: 
 		colored ||= len(p.colors) > 0
 		grouped ||= len(p.groups) > 0
 	}
-	if colored do strings.write_string(&note, "; its vertex colours are its polypaint")
+	switch {
+	case info.paint.textures > 0: strings.write_string(&note, "; its textures and material colours are its polypaint, sampled at its vertices")
+	case info.paint.painted: strings.write_string(&note, "; its material colours are its polypaint")
+	case colored: strings.write_string(&note, "; its vertex colours are its polypaint")
+	}
+	if info.paint.unread > 0 do strings.write_string(&note, fmt.tprintf("; %d textures missing or unreadable (PNG, JPEG, BMP, TGA and QOI read)", info.paint.unread))
 	if info.merged > 0 do strings.write_string(&note, fmt.tprintf("; its %d meshes are one object, a polygroup each", info.merged))
 	else if grouped do strings.write_string(&note, "; its groups are polygroups")
 	if info.skipped.compressed > 0 do strings.write_string(&note, fmt.tprintf("; %d compressed meshes (Draco or meshopt) left out", info.skipped.compressed))

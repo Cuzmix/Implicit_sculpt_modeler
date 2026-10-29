@@ -25,7 +25,7 @@ description: CAD-style mesh tools inside this app on geom.Mesh — primitives, b
   hands them to `object_build_from` as `Surface.color`), several meshes a file (`geom.Mesh_Part`: mesh, colours,
   groups; `mesh_read_obj_parts` splits by `o` through `mesh_split` and groups by `g`, `mesh_read_gltf` in
   `geom/gltf_read.odin` makes a part per placed mesh; `src/usd` reads `.usda` (usda.odin), the `.usdc` crate (usdc.odin: LZ4, integer coding, ValueReps) and `.usdz` into a `Stage` whose Mesh prims `stage_parts` places, no composition followed; `mesh_parts_normalize` sizes them together and centres each per
-  axis as `mesh_normalize` does; past `MESH_PARTS_MAX` `mesh_parts_merge` makes one with a group a part; the app's
+  axis as `mesh_normalize` does; materials as polypaint: readers given a `geom.Mesh_Look` (`src/geom/mesh_look.odin`: materials' linear colours, borrowed image bytes) fill each part's per-triangle `materials` and per-corner `uvs` (v down from the image's top), the OBJ reader through `obj_look`/`mtl_read` and a `Mesh_Resolve` for files beside it, and `mesh_parts_paint` bakes them into `colors` and drops them BEFORE `mesh_clean`, which knows nothing of corners; past `MESH_PARTS_MAX` `mesh_parts_merge` makes one with a group a part; the app's
   `mesh_file_parse` cleans each part and `import_add_parts` makes an object each in a folder, one undo step: chained
   swaps, then `history_record_arrange(chain = true)` with the layout taken before the folder), and the native `.sculpt` scene (`scene_save`/`scene_open`, levels through
   `sculpt.levels_write`/`levels_read`). `Object.file` keeps where an import was in its file, for export. A new
