@@ -68,6 +68,9 @@ Preset_Values :: struct {
 	stabilize:        f32,
 	sample_radius:    f32,
 	no_accumulate:    bool,
+	// The stroke's No back and forth and Directional (Brush_Settings.one_way, directional).
+	one_way:          bool,
+	directional:      bool,
 }
 
 Brush_Preset :: struct {
@@ -93,6 +96,7 @@ preset_values_of :: proc(b: ^Brush_Settings, kind: sculpt.Brush_Kind) -> Preset_
 		hook_pinch = b.hook_pinch, hook_rake = b.hook_rake, hook_elastic = b.hook_elastic,
 		smooth_stable = b.smooth_stable, smooth_mode = b.smooth_mode,
 		stabilize = b.stabilize, sample_radius = b.sample_radius, no_accumulate = b.no_accumulate[kind],
+		one_way = b.one_way, directional = b.directional,
 	}
 }
 
@@ -112,6 +116,7 @@ preset_values_put :: proc(b: ^Brush_Settings, v: Preset_Values) {
 	if v.kind == .Smooth do b.smooth_stable, b.smooth_mode = v.smooth_stable, v.smooth_mode
 	b.stabilize, b.sample_radius = v.stabilize, v.sample_radius if v.sample_radius > 0 else 1
 	if accumulate_applies(v.kind) do b.no_accumulate[v.kind] = v.no_accumulate
+	b.one_way, b.directional = v.one_way, v.directional
 }
 
 // The preset numbered `n` (PACK_PRESET), if there is one.
@@ -207,6 +212,7 @@ preset_same :: proc(app: ^App, a, b: Preset_Values) -> bool {
 	whole :: proc(x: f32) -> f32 {return x if x > 0 else 1}
 	if a.stabilize != b.stabilize || whole(a.sample_radius) != whole(b.sample_radius) do return false
 	if accumulate_applies(a.kind) && a.no_accumulate != b.no_accumulate do return false
+	if a.one_way != b.one_way || a.directional != b.directional do return false
 	if .Grab not_in flags && (round(app, a.alpha) != round(app, b.alpha) || a.alpha_mode != b.alpha_mode || a.alpha_angle != b.alpha_angle) do return false
 	if .Paint in flags && a.color != b.color do return false
 	if .Cloth in flags && a.cloth_mode != b.cloth_mode do return false
@@ -337,7 +343,8 @@ preset_ref :: proc(app: ^App, n: int) -> string {
 // `key=value`, so a value added later needs no new length and a build that does not know a
 // key skips just that value: smooth_stable=1 (Smooth's Stable), smooth_mode=Relax or Polish,
 // stabilize=, sample_radius= and accumulate=0|1 (the Samples section), hardness= and
-// shape=sphere|projected (the Falloff section's). A line without accumulate= accumulates,
+// shape=sphere|projected (the Falloff section's), one_way=1 and directional=1 (the
+// stroke's). A line without accumulate= accumulates,
 // and one without shape= takes its brush's default shape (projected_default).
 preset_parse :: proc(f: []string) -> (name: string, v: Preset_Values, alpha: string, ok: bool) {
 	if len(f) != 18 && len(f) != 19 && len(f) != 21 && len(f) != 22 && len(f) != 24 && len(f) != 26 && len(f) != 30 && len(f) != 31 && len(f) != 32 && len(f) < 35 do return
@@ -394,6 +401,8 @@ preset_parse :: proc(f: []string) -> (name: string, v: Preset_Values, alpha: str
 		case "accumulate": v.no_accumulate = value == "0"
 		case "hardness": v.falloff.hardness = clamp(number(value, 0), 0, sculpt.HARDNESS_MAX)
 		case "shape": if value == "sphere" || value == "projected" do v.falloff.projected = value == "projected"
+		case "one_way": v.one_way = value == "1"
+		case "directional": v.directional = value == "1"
 		case "smooth_mode":
 			// A mode this build does not know smooths plainly.
 			if mode, known := reflect.enum_from_name(sculpt.Smooth_Mode, value); known do v.smooth_mode = mode
@@ -417,7 +426,7 @@ preset_line :: proc(out: ^strings.Builder, name: string, v: Preset_Values, alpha
 	sampled := v.stabilize > 0 || v.sample_radius > 0 && v.sample_radius < 1
 	one_pass := accumulate_applies(v.kind) && v.no_accumulate
 	shape := v.falloff.projected != projected_default(v.kind)
-	named := stable || smooth_mode || sampled || one_pass || v.falloff.hardness > 0 || shape
+	named := stable || smooth_mode || sampled || one_pass || v.falloff.hardness > 0 || shape || v.one_way || v.directional
 	hook := v.kind == .Snake_Hook && (v.hook_pinch != 0 || v.hook_rake != 0 || v.hook_elastic) || named
 	volume := v.kind == .Elastic && v.elastic_volume != ELASTIC_VOLUME_DEFAULT || hook
 	topological := v.grab_topological || volume
@@ -438,6 +447,8 @@ preset_line :: proc(out: ^strings.Builder, name: string, v: Preset_Values, alpha
 	if one_pass do fmt.sbprintf(out, " accumulate=0")
 	if v.falloff.hardness > 0 do fmt.sbprintf(out, " hardness=%g", v.falloff.hardness)
 	if shape do fmt.sbprintf(out, " shape=%s", "projected" if v.falloff.projected else "sphere")
+	if v.one_way do fmt.sbprintf(out, " one_way=1")
+	if v.directional do fmt.sbprintf(out, " directional=1")
 	strings.write_byte(out, '\n')
 }
 
