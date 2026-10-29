@@ -7200,9 +7200,11 @@ def pen_roll_twists_the_view_about_the_point():
     """The pen hovering over the model and turned 100 degrees clockwise twists the view clockwise by the 90 past the first ROLL_ENGAGE (10), about the point under its tip, which stays where it was on screen (Nomad's twist)."""
     s = Script()
     pen_hover(s, *PEN_MODEL_POINT, frames=4)
-    pen_rolls(s, range(0, 101, 10))
+    # In 2 degree steps, a frame each, as a hand turns a pencil reporting 120 times a second.
+    pen_rolls(s, range(0, 101, 2), frames=1)
+    s.wait(2)
     hit = lambda st: tuple(float(v) for v in st["pen_roll_hit"].split(","))
-    return s, [], {"pen_rolls": near(1), "pen_roll_area": is_text("model"), "camera_roll": near(math.radians(90), 0.02), "dabs": near(0),
+    return s, [], {"pen_rolls": near(1), "pen_roll_area": is_text("model"), "camera_roll": near(math.radians(90), 0.02), "dabs": near(0), "roll_hint": is_text("Twist_90°"),
                    "@hit_on_model": lambda st: 0.9 < math.dist(hit(st), (0, 0, 0)) < 1.2,
                    "@hit_stays_put": lambda st: math.dist(on_screen(st, hit(st)), on_screen(None, hit(st))) < 2e-3}
 
@@ -7275,6 +7277,58 @@ def pen_roll_while_grabbing_twists_what_it_holds():
                                                                         "mesh_sum": lambda v: seen.setdefault("twisted", float(v)) is not None})),
         (pen_grab_with_roll(90), ["--script=brush grab; set pen_grab_twist off"], camera_still({"undo_steps": near(1),
                                                                         "mesh_sum": lambda v: abs(float(v) - seen["twisted"]) > 1e-3}))])
+
+
+# The shelf's Flatten tile (the middle of the shelf on every page), the top bar's Undo
+# and the navigation head (left of the open Brush card), at 1600 x 900.
+PEN_SHELF_TILE = (780, 833)
+PEN_UNDO = (217, 26)
+PEN_NAV_HEAD = (1185, 88)
+
+
+@scenario
+def pen_roll_over_the_shelf_turns_its_page():
+    """The pen hovering over the shelf and turned 100 degrees clockwise turns two pages on, a page for each 40 degrees past the first ROLL_ENGAGE: Sculpt to Move."""
+    s = Script()
+    pen_hover(s, *PEN_SHELF_TILE, frames=4)
+    pen_rolls(s, range(0, 101, 5), frames=1)
+    s.wait(4)
+    return s, [], camera_still({"shelf_page": is_text("Move"), "dabs": near(0), "pen_rolls": near(0), "roll_hint": is_text("Page:_Move")})
+
+
+@scenario
+def pen_roll_over_undo_scrubs_history():
+    """After three strokes, the pen hovering over Undo and turned 70 degrees anticlockwise undoes all three, a step for each 20 degrees past the first ROLL_ENGAGE, and 20 degrees back clockwise redoes one."""
+    s = Script()
+    for y in (300, 450, 600):
+        s.fdrag(line((700, y), (760, y), 10))
+        s.wait(26)
+    pen_hover(s, *PEN_UNDO, frames=4)
+    pen_rolls(s, range(0, -71, -5), frames=1)
+    pen_rolls(s, range(-65, -44, 5), frames=1)
+    s.wait(4)
+    return s, [], {"undo_steps": near(1), "redo_steps": near(2), "dabs": lambda v: int(v) > 0}
+
+
+@scenario
+def pen_roll_over_the_navigation_head_spins_the_view():
+    """The pen hovering over the navigation head and turned 100 degrees clockwise spins the view 90 degrees about the up axis, past the first ROLL_ENGAGE, and twists nothing."""
+    s = Script()
+    pen_hover(s, *PEN_NAV_HEAD, frames=4)
+    pen_rolls(s, range(0, 101, 5), frames=1)
+    s.wait(4)
+    return s, [], {"camera_yaw": near(wrap(0.6 + math.radians(90)), 2e-3), "camera_pitch": near(0.35), "camera_roll": near(0), "pen_rolls": near(0)}
+
+
+@scenario
+def pen_roll_over_settings_scrolls_it():
+    """Settings > Pen open, the pen hovering over a paragraph and turned 100 degrees clockwise scrolls the body down, as a mouse wheel does."""
+    s = Script()
+    open_settings(s, "pen")
+    pen_hover(s, 900, 480, frames=4)
+    pen_rolls(s, range(0, 101, 5), frames=1)
+    s.wait(20)
+    return s, [], camera_still({"settings_open": near(1), "settings_scroll": lambda v: float(v) > 100, "dabs": near(0)})
 
 
 def pen_away(s, frames):

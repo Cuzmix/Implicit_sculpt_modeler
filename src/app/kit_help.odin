@@ -180,6 +180,7 @@ TOUCH_HELP := [?]Help_Line {
 	{group = "SCENE PALETTE", what = "Hide or ghost a run of objects", how = "Hold an eye or ghost, then slide"},
 	{group = "ANY CONTROL", what = "Its name, or its second action", how = "Long press"},
 	{group = "ANY CONTROL", what = "Draw size, strength or focal shift", how = "Hold the pen over it and roll the pen"},
+	{group = "ANY CONTROL", what = "Step a choice, scroll a panel, turn the shelf's page, scrub History", how = "Hold the pen over it and roll the pen"},
 }
 
 // A word the app uses, the names other apps give the same thing, and what it means.

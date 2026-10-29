@@ -430,6 +430,18 @@ kit_timeline_bar :: proc(app: ^App, enabled: bool) {
 		tl.marking = false
 	}
 	if a.held && !tl.picked && linalg.length(a.mouse - ctx.press_mouse) > ctx.theme.slop do tl.scrubbing = true
+	// The pen's roll over the bar scrubs it a step for every ROLL_HISTORY_STEP degrees,
+	// clockwise on toward the latest.
+	if roll := ui.hover_roll(ctx, a.id, a.hovered); roll != 0 && enabled && total > 0 {
+		if step := ui.roll_steps(ctx, roll, ROLL_HISTORY_STEP); step != 0 {
+			heading := tl.target if tl.seeking else done
+			if to := clamp(heading + step, 0, total); to != heading {
+				timeline_seek_to(tl, to)
+				haptic(app, .Alignment)
+				ui.roll_hint(ctx, fmt.tprintf("History %d of %d", to, total))
+			}
+		}
+	}
 	if enabled && total > 0 && ((a.held && tl.scrubbing) || (a.clicked && !tl.picked)) {
 		// Where the History is heading: the target while seeking, else where it stands.
 		under := clamp(int((a.mouse.x - r.x) / r.w * f32(total) + 0.5), 0, total)
