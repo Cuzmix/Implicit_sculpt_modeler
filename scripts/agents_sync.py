@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
-"""Validate the agent files and mirror the skills for other tools.
+"""Validate the agent files and mirror the skills and agents for other tools.
 
 .claude/skills/<name>/SKILL.md and .claude/agents/<name>.md are the source. This script
 checks them against the Agent Skills spec and Claude Code's subagent fields (a misspelled
 field is otherwise ignored silently), copies every skill file byte for byte to
 .agents/skills/ and writes .agents/skills/.manifest.json with a sha256 per file, so that
 other harnesses find the same skills and a copy that drifted is caught by `build check`.
+It also writes each agent as .codex/agents/<name>.toml, Codex's custom agent file: the
+name, the description, `effort` as model_reasoning_effort and the body as the developer
+instructions, in the layout Codex's own import of .claude/agents writes. Codex has no
+counterpart to `tools`, `model` or `skills`, which the body's own words carry instead.
 
     python scripts/agents_sync.py            # validate, then write the mirror and the manifest
     python scripts/agents_sync.py --check    # validate and report drift; writes nothing
@@ -28,6 +32,7 @@ from pathlib import Path
 SKILLS_DIR = Path(".claude") / "skills"
 AGENTS_DIR = Path(".claude") / "agents"
 MIRROR_DIR = Path(".agents") / "skills"
+CODEX_DIR = Path(".codex") / "agents"
 MANIFEST = ".manifest.json"
 PREFIX = "sm"  # every skill and agent name starts with it; mentions of other such names are checked
 
@@ -175,6 +180,8 @@ def validate_agent(root, f, skill_names, known, problems, warnings):
 	check_description(meta, where, problems)
 	if body_lines(body) == 0:
 		problems.append(f"{where}: empty body")
+	if "'''" in body:
+		problems.append(f"{where}: the body contains ''', which would end its Codex copy's instructions early")
 	skills = meta.get("skills", [])
 	if isinstance(skills, str):
 		skills = [s.strip() for s in skills.split(",") if s.strip()]
@@ -292,6 +299,59 @@ def mirror(root, check):
 	return drift, written
 
 
+def codex_toml(meta, body):
+	"""An agent as Codex's custom agent file, with the string forms Codex's own import picks:
+	the description is a basic string, a literal one when it holds a double quote, and a
+	multi-line basic one when it holds an apostrophe too, where quotes need no escape but a
+	backslash and three quotes in a row do. The body is a multi-line literal string, so its
+	backslashes and quotes stay as written (validate_agent refuses a body with ''')."""
+	description = meta["description"]
+	if '"' not in description and "\\" not in description:
+		description = '"' + description + '"'
+	elif "'" not in description:
+		description = "'" + description + "'"
+	else:
+		description = '"""' + description.replace("\\", "\\\\").replace('"""', '""\\"') + '"""'
+	lines = [f'name = "{meta["name"]}"', f"description = {description}"]
+	if isinstance(meta.get("effort"), str):
+		lines.append(f'model_reasoning_effort = "{meta["effort"]}"')
+	lines.append("developer_instructions = '''\n" + body.strip("\n") + "'''")
+	return "\n".join(lines) + "\n"
+
+
+def mirror_codex(root, check):
+	"""The agents' Codex copies; returns (drift, written) as mirror does. Only *.toml under
+	.codex/agents is touched: the rest of .codex is Codex's own settings."""
+	dst = root / CODEX_DIR
+	agents_dir = root / AGENTS_DIR
+	desired = {}
+	for f in sorted(agents_dir.glob("*.md")) if agents_dir.is_dir() else []:
+		meta, body = parse_frontmatter(read_text(f))
+		desired[f.stem + ".toml"] = codex_toml(meta, body).encode("utf-8")
+	prefix = CODEX_DIR.as_posix() + "/"
+	drift = []
+	for rel, data in desired.items():
+		target = dst / rel
+		if not target.is_file() or normalized(target.read_bytes()) != data:
+			drift.append(("stale", prefix + rel))
+	existing = {p.name for p in dst.glob("*.toml")} if dst.is_dir() else set()
+	for rel in sorted(existing - set(desired)):
+		drift.append(("extra", prefix + rel))
+	if check or not drift:
+		return drift, []
+	written = []
+	for kind, path in drift:
+		target = dst / path[len(prefix) :]
+		if kind == "extra":
+			target.unlink()
+			written.append(f"removed {path}")
+			continue
+		target.parent.mkdir(parents=True, exist_ok=True)
+		target.write_bytes(desired[path[len(prefix) :]])
+		written.append(f"wrote {path}")
+	return drift, written
+
+
 def main(argv=None):
 	p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
 	p.add_argument("--check", action="store_true", help="report drift and problems without writing anything")
@@ -308,6 +368,8 @@ def main(argv=None):
 			print(f"  warning: {line}")
 		return 1
 	drift, written = mirror(root, args.check)
+	codex_drift, codex_written = mirror_codex(root, args.check)
+	drift, written = drift + codex_drift, written + codex_written
 	if args.check and drift:
 		print(f"FAIL agents: {len(drift)} file(s) out of date")
 		for kind, path in drift:

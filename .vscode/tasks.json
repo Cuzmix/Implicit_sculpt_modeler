@@ -1,12 +1,16 @@
 {
+	// Terminal > Run Task. Each task runs build.bat (Windows) or ./build.sh (Linux), or one of
+	// scripts/, so it does what the same command in a terminal does (AGENTS.md section 3);
+	// Odin's errors land in Problems. Ctrl+Shift+B is "Desktop: build debug".
 	"version": "2.0.0",
 	"tasks": [
 		{
-			"label": "build: debug",
-			"detail": "build.bat debug -> build\\sculpt.exe with debug info",
+			"label": "Desktop: build debug",
+			"detail": "build\\sculpt.exe with debug info and the leak-tracking allocator",
 			"type": "process",
-			"command": "cmd.exe",
-			"args": ["/d", "/c", "${workspaceFolder}\\build.bat", "debug"],
+			"command": "${workspaceFolder}/build.sh",
+			"args": ["debug"],
+			"windows": { "command": "cmd.exe", "args": ["/d", "/c", "${workspaceFolder}\\build.bat", "debug"] },
 			"options": { "cwd": "${workspaceFolder}" },
 			"group": { "kind": "build", "isDefault": true },
 			"problemMatcher": {
@@ -19,11 +23,12 @@
 			}
 		},
 		{
-			"label": "build: release",
-			"detail": "build.bat release -> optimized build\\sculpt.exe (no debug info)",
+			"label": "Desktop: build release",
+			"detail": "optimized build\\sculpt.exe, the only build whose timings count",
 			"type": "process",
-			"command": "cmd.exe",
-			"args": ["/d", "/c", "${workspaceFolder}\\build.bat", "release"],
+			"command": "${workspaceFolder}/build.sh",
+			"args": ["release"],
+			"windows": { "command": "cmd.exe", "args": ["/d", "/c", "${workspaceFolder}\\build.bat", "release"] },
 			"options": { "cwd": "${workspaceFolder}" },
 			"group": "build",
 			"problemMatcher": {
@@ -36,17 +41,32 @@
 			}
 		},
 		{
-			"label": "build: bench (debug)",
-			"detail": "src\\bench with debug info -> build\\bench_debug.exe",
+			"label": "Desktop: run debug",
+			"detail": "build the debug app and start it, no debugger",
 			"type": "process",
-			"command": "${workspaceFolder}\\deps\\odin\\odin.exe",
-			"args": [
-				"build", "src\\bench",
-				"-out:build\\bench_debug.exe",
-				"-debug",
-				"-collection:deps=${workspaceFolder}\\deps",
-				"-vet", "-strict-style", "-warnings-as-errors"
-			],
+			"command": "${workspaceFolder}/build.sh",
+			"args": ["run"],
+			"windows": { "command": "cmd.exe", "args": ["/d", "/c", "${workspaceFolder}\\build.bat", "run"] },
+			"options": { "cwd": "${workspaceFolder}" },
+			"problemMatcher": []
+		},
+		{
+			"label": "Desktop: run release",
+			"detail": "build the release app and start it, no debugger",
+			"type": "process",
+			"command": "${workspaceFolder}/build/sculpt",
+			"windows": { "command": "${workspaceFolder}\\build\\sculpt.exe" },
+			"options": { "cwd": "${workspaceFolder}" },
+			"dependsOn": "Desktop: build release",
+			"problemMatcher": []
+		},
+		{
+			"label": "Check",
+			"detail": "odin check of every package with the strict flags, the skill and agent mirrors, the package boundaries, the Metal shaders",
+			"type": "process",
+			"command": "${workspaceFolder}/build.sh",
+			"args": ["check"],
+			"windows": { "command": "cmd.exe", "args": ["/d", "/c", "${workspaceFolder}\\build.bat", "check"] },
 			"options": { "cwd": "${workspaceFolder}" },
 			"group": "build",
 			"problemMatcher": {
@@ -59,14 +79,30 @@
 			}
 		},
 		{
-			"label": "build: tests (debug)",
-			"detail": "every package's tests with debug info -> build\\test_<pkg>_debug.exe",
+			"label": "Test: all",
+			"detail": "every package's tests, stopping at the first failing package",
 			"type": "process",
-			"command": "cmd.exe",
-			"args": [
-				"/d", "/c",
-				"for %p in (geom camera sculpt jobs gizmo) do @(deps\\odin\\odin.exe build src\\%p -build-mode:test -out:build\\test_%p_debug.exe -debug -collection:deps=deps -vet -strict-style -warnings-as-errors || exit /b 1)"
-			],
+			"command": "${workspaceFolder}/build.sh",
+			"args": ["test"],
+			"windows": { "command": "cmd.exe", "args": ["/d", "/c", "${workspaceFolder}\\build.bat", "test"] },
+			"options": { "cwd": "${workspaceFolder}" },
+			"group": { "kind": "test", "isDefault": true },
+			"problemMatcher": {
+				"owner": "odin",
+				"fileLocation": "absolute",
+				"pattern": {
+					"regexp": "^(.+\\.odin)\\((\\d+):(\\d+)\\)\\s+(?:Syntax )?(Error|Warning):\\s*(.*)$",
+					"file": 1, "line": 2, "column": 3, "severity": 4, "message": 5
+				}
+			}
+		},
+		{
+			"label": "Test: one package",
+			"detail": "scripts/test_only.py: one package's tests, in seconds",
+			"type": "process",
+			"command": "python3",
+			"args": ["${workspaceFolder}/scripts/test_only.py", "${input:testPackage}"],
+			"windows": { "command": "python", "args": ["${workspaceFolder}\\scripts\\test_only.py", "${input:testPackage}"] },
 			"options": { "cwd": "${workspaceFolder}" },
 			"group": "test",
 			"problemMatcher": {
@@ -79,11 +115,77 @@
 			}
 		},
 		{
-			"label": "check",
-			"detail": "build.bat check: odin check of every package, then the agent-file mirror check",
+			"label": "Test: smoke",
+			"detail": "300 frames on SDL_GPU and on Vulkan under GPU validation; an assert, GPU error or leak fails it",
 			"type": "process",
-			"command": "cmd.exe",
-			"args": ["/d", "/c", "${workspaceFolder}\\build.bat", "check"],
+			"command": "${workspaceFolder}/build.sh",
+			"args": ["smoke"],
+			"windows": { "command": "cmd.exe", "args": ["/d", "/c", "${workspaceFolder}\\build.bat", "smoke"] },
+			"options": { "cwd": "${workspaceFolder}" },
+			"group": "test",
+			"problemMatcher": []
+		},
+		{
+			"label": "Test: touch scenarios",
+			"detail": "scripts/touch_check.py: scripted fingers, pen and mouse in the debug app (a desktop simulation)",
+			"type": "process",
+			"command": "python3",
+			"args": ["${workspaceFolder}/scripts/touch_check.py"],
+			"windows": { "command": "python", "args": ["${workspaceFolder}\\scripts\\touch_check.py"] },
+			"options": { "cwd": "${workspaceFolder}" },
+			"dependsOn": "Desktop: build debug",
+			"group": "test",
+			"problemMatcher": []
+		},
+		{
+			"label": "Gate: everything",
+			"detail": "scripts/gate.py: check, test, build, smoke, touch and the iPad compile check, one line a step (AGENTS.md section 6)",
+			"type": "process",
+			"command": "python3",
+			"args": ["${workspaceFolder}/scripts/gate.py"],
+			"windows": { "command": "python", "args": ["${workspaceFolder}\\scripts\\gate.py"] },
+			"options": { "cwd": "${workspaceFolder}" },
+			"group": "test",
+			"problemMatcher": []
+		},
+		{
+			"label": "Android: build APK",
+			"detail": "android\\app\\build\\outputs\\apk\\debug\\app-debug.apk through Gradle",
+			"type": "process",
+			"command": "${workspaceFolder}/build.sh",
+			"args": ["android"],
+			"windows": { "command": "cmd.exe", "args": ["/d", "/c", "${workspaceFolder}\\build.bat", "android"] },
+			"options": { "cwd": "${workspaceFolder}" },
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "Android: build, install and run",
+			"detail": "the APK on the tablet adb sees, started",
+			"type": "process",
+			"command": "${workspaceFolder}/build.sh",
+			"args": ["androidrun"],
+			"windows": { "command": "cmd.exe", "args": ["/d", "/c", "${workspaceFolder}\\build.bat", "androidrun"] },
+			"options": { "cwd": "${workspaceFolder}" },
+			"problemMatcher": []
+		},
+		{
+			"label": "Android: tablet log",
+			"detail": "adb logcat -s SDL/APP: the app's log on the tablet, until you stop the task",
+			"type": "process",
+			"command": "adb",
+			"args": ["logcat", "-s", "SDL/APP"],
+			"windows": { "command": "${env:LOCALAPPDATA}\\Android\\Sdk\\platform-tools\\adb.exe" },
+			"options": { "cwd": "${workspaceFolder}" },
+			"problemMatcher": []
+		},
+		{
+			"label": "iPad: compile check",
+			"detail": "the app compiled for the iPad to an object, without a Mac",
+			"type": "process",
+			"command": "${workspaceFolder}/build.sh",
+			"args": ["iphonecheck"],
+			"windows": { "command": "cmd.exe", "args": ["/d", "/c", "${workspaceFolder}\\build.bat", "iphonecheck"] },
 			"options": { "cwd": "${workspaceFolder}" },
 			"group": "build",
 			"problemMatcher": {
@@ -96,13 +198,34 @@
 			}
 		},
 		{
-			"label": "test: all",
-			"detail": "build.bat test",
+			"label": "iPad: build on GitHub and download",
+			"detail": "scripts/ipad_build.py: the pushed branch built on GitHub's Mac, saved as build\\ios\\Sculpt.ipa for AltStore",
 			"type": "process",
-			"command": "cmd.exe",
-			"args": ["/d", "/c", "${workspaceFolder}\\build.bat", "test"],
+			"command": "python3",
+			"args": ["${workspaceFolder}/scripts/ipad_build.py"],
+			"windows": { "command": "python", "args": ["${workspaceFolder}\\scripts\\ipad_build.py"] },
 			"options": { "cwd": "${workspaceFolder}" },
-			"group": { "kind": "test", "isDefault": true },
+			"problemMatcher": []
+		},
+		{
+			"label": "iPad: download latest build",
+			"detail": "scripts/ipad_build.py --latest: the branch's newest successful IPA, without building",
+			"type": "process",
+			"command": "python3",
+			"args": ["${workspaceFolder}/scripts/ipad_build.py", "--latest"],
+			"windows": { "command": "python", "args": ["${workspaceFolder}\\scripts\\ipad_build.py", "--latest"] },
+			"options": { "cwd": "${workspaceFolder}" },
+			"problemMatcher": []
+		},
+		{
+			"label": "Build all",
+			"detail": "check, release, debug, test, the iPad compile check and the Android APK (when its SDK is there)",
+			"type": "process",
+			"command": "${workspaceFolder}/build.sh",
+			"args": ["all"],
+			"windows": { "command": "cmd.exe", "args": ["/d", "/c", "${workspaceFolder}\\build.bat", "all"] },
+			"options": { "cwd": "${workspaceFolder}" },
+			"group": "build",
 			"problemMatcher": {
 				"owner": "odin",
 				"fileLocation": "absolute",
@@ -111,6 +234,64 @@
 					"file": 1, "line": 2, "column": 3, "severity": 4, "message": 5
 				}
 			}
+		},
+		{
+			"label": "Clean",
+			"detail": "remove build\\ and the Android build's outputs; deps\\ stays",
+			"type": "process",
+			"command": "${workspaceFolder}/build.sh",
+			"args": ["clean"],
+			"windows": { "command": "cmd.exe", "args": ["/d", "/c", "${workspaceFolder}\\build.bat", "clean"] },
+			"options": { "cwd": "${workspaceFolder}" },
+			"problemMatcher": []
+		},
+		{
+			"label": "Debugger: build bench",
+			"detail": "src\\bench with debug info -> build\\bench_debug.exe, for the Bench launch entry (build.bat bench is the release one)",
+			"type": "process",
+			"command": "${workspaceFolder}/deps/odin/odin",
+			"args": ["build", "src/bench", "-out:build/bench_debug", "-debug", "-collection:deps=${workspaceFolder}/deps", "-vet", "-strict-style", "-warnings-as-errors"],
+			"windows": {
+				"command": "${workspaceFolder}\\deps\\odin\\odin.exe",
+				"args": ["build", "src\\bench", "-out:build\\bench_debug.exe", "-debug", "-collection:deps=${workspaceFolder}\\deps", "-vet", "-strict-style", "-warnings-as-errors"]
+			},
+			"options": { "cwd": "${workspaceFolder}" },
+			"problemMatcher": {
+				"owner": "odin",
+				"fileLocation": "absolute",
+				"pattern": {
+					"regexp": "^(.+\\.odin)\\((\\d+):(\\d+)\\)\\s+(?:Syntax )?(Error|Warning):\\s*(.*)$",
+					"file": 1, "line": 2, "column": 3, "severity": 4, "message": 5
+				}
+			}
+		},
+		{
+			"label": "Debugger: build tests",
+			"detail": "every package's tests with debug info -> build\\test_<package>_debug.exe, for the Tests launch entry",
+			"type": "process",
+			"command": "cmd.exe",
+			"args": [
+				"/d", "/c",
+				"for %p in (geom poly camera sculpt voxel jobs gizmo png_write zip ui luau app) do @(deps\\odin\\odin.exe build src\\%p -build-mode:test -out:build\\test_%p_debug.exe -debug -collection:deps=deps -vet -strict-style -warnings-as-errors || exit /b 1)"
+			],
+			"options": { "cwd": "${workspaceFolder}" },
+			"problemMatcher": {
+				"owner": "odin",
+				"fileLocation": "absolute",
+				"pattern": {
+					"regexp": "^(.+\\.odin)\\((\\d+):(\\d+)\\)\\s+(?:Syntax )?(Error|Warning):\\s*(.*)$",
+					"file": 1, "line": 2, "column": 3, "severity": 4, "message": 5
+				}
+			}
+		}
+	],
+	"inputs": [
+		{
+			"id": "testPackage",
+			"type": "pickString",
+			"description": "Package to test",
+			"options": ["geom", "poly", "camera", "sculpt", "voxel", "jobs", "gizmo", "png_write", "zip", "ui", "luau", "app"],
+			"default": "sculpt"
 		}
 	]
 }

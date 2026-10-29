@@ -23,6 +23,9 @@ description: Build, run, test and verify the sculpt modeler through build.bat (W
 | `./build.sh wincheck` | Linux only: compiles app and bench for `windows_amd64` to objects, catching Windows-only errors without a Windows SDK |
 | `./build.sh androidcheck` | Linux only: compiles the app for Android arm64 to one object, as the Android build does, without the NDK; run it after any app, render or ui change, since `when ODIN_PLATFORM_SUBTARGET == .Android` code only compiles there |
 | `build.bat iphonecheck` / `./build.sh iphonecheck` | compiles the app for the iPad (arm64, iPadOS `IOS_MIN`) to one object, as `ios` does, on Windows or Linux; run it after any app, render or ui change, since `when MOBILE` and `when ODIN_PLATFORM_SUBTARGET_IOS` code only compiles for a tablet |
+| `build.bat all` / `./build.sh all` | check, release, then debug (`build\sculpt.exe` is left as the debug app), test, iphonecheck (plus wincheck and androidcheck on Linux), and the Android APK when the SDK is there; one mode per run of the script, stopping at the first failure. Smoke and touch_check need a display and stay in `gate.py` |
+| `build.bat clean` / `./build.sh clean` | removes `build\` and the Android build's outputs (`android\.gradle`, `androiduild`, `androidppuild`, `androidpp\.cxx`); never `deps\`. Runs without the toolchain |
+| `python scripts\ipad_build.py [--latest] [--branch NAME] [--no-open]` | starts `.github/workflows/ipad.yml` on the checked-out branch with `gh`, waits for the run and saves `build\ios\Sculpt.ipa`; refuses when the branch on GitHub is not the commit checked out (it never pushes); `--latest` downloads the newest successful build instead. Installing is AltServer's: Shift-click its tray icon, Sideload .ipa |
 | `./build.sh ios` | macOS with Xcode only: SDL3 static, the app's object, stb and `ios/sculpt_ios.m` linked into an unsigned `build/ios/Sculpt.ipa` for AltStore; `.github/workflows/ipad.yml` runs it on GitHub's macOS runner when started by hand |
 | `build.bat android` / `androidrun` | the Android debug APK through `android/gradlew` (needs Android Studio's SDK and NDK, and `scripts\setup_android.bat` once); `androidrun` installs it on the tablet adb sees and starts it. Its log is `adb logcat -s SDL/APP` |
 | `deps\odin\odin.exe check src\<pkg> -no-entry-point -collection:deps=deps -vet -strict-style -warnings-as-errors` | one package, no binary: what `check` runs nine times |
@@ -40,8 +43,11 @@ description: Build, run, test and verify the sculpt modeler through build.bat (W
   (`python scripts/build_shadercross.py`, which `setup_deps.sh` runs: CMake, git and a C++ compiler; three pinned builds,
   SPIRV-Cross and SDL3 static, then the tool), each new `.spv` also becomes its `.msl` (`python scripts/shaders_msl.py`;
   `--all` remakes every one). `./build.sh ios` compiles every `.msl` with `xcrun metal` before linking.
-- VS Code: `.vscode/tasks.json` (check, builds, tests, an Odin problem matcher) and `launch.json` (cppvsdbg on the PDBs;
-  the "GPU validation" configuration sets `SDL_ASSERT=break`).
+- VS Code: `.vscode/tasks.json` (one task per build mode and script, Windows and Linux, grouped Desktop, Test, Android,
+  iPad, Build all and Clean, with an Odin problem matcher; the test picker lists all twelve packages) and `launch.json`
+  (cppvsdbg on the PDBs, named by device; the build-and-run entries run build.bat or a script through cmd.exe under it;
+  "Desktop: Debug, GPU validation" sets `SDL_ASSERT=break`). A new build mode or script gets a task, and a launch entry
+  when it builds or runs for a device.
 
 ## Reading output
 - Odin diagnostics are `path(line:col) Error: message`. Fix the first error first. A "declared but not used" that

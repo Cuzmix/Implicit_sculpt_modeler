@@ -1,10 +1,12 @@
 @echo off
-rem Usage: build.bat [debug|release|test|run|smoke|bench|gpubench|computebench|check|iphonecheck|android|androidrun]   (see build.sh for what each does)
+rem Usage: build.bat [debug|release|test|run|smoke|bench|gpubench|computebench|check|iphonecheck|android|androidrun|all|clean]   (see build.sh for what each does)
 rem Run scripts\setup_deps.bat first.
 rem Modes are labels rather than if-blocks: an `exit /b 1` inside a parenthesised block
 rem returns 0 to whoever ran `cmd /c build.bat`, so a failure would pass unnoticed.
 setlocal
 set ROOT=%~dp0
+rem Cleaning needs no toolchain, so it comes before the check for one.
+if "%1"=="clean" goto clean
 set DEPS=%ROOT%deps
 set ODIN=%DEPS%\odin\odin.exe
 if not exist "%ODIN%" ( echo deps missing: run scripts\setup_deps.bat first & exit /b 1 )
@@ -14,6 +16,7 @@ set COMMON=-collection:deps="%DEPS%" -vet -strict-style -warnings-as-errors
 rem The oldest iPadOS the iPad build runs on; build.sh says why.
 set IOS_MIN=17.4
 if "%MODE%"=="check" goto check
+if "%MODE%"=="all" goto all
 if "%MODE%"=="iphonecheck" goto iphonecheck
 if "%MODE%"=="android" goto android
 if "%MODE%"=="androidrun" goto android
@@ -146,6 +149,39 @@ exit /b 0
 
 :android_fail
 popd
+exit /b 1
+
+:all
+rem Everything that builds, stopping at the first failure: check, the release app (so
+rem release-only errors show) and then the debug one, which build\sculpt.exe is left as, the
+rem tests, the iPad compile check, and the Android APK when Android Studio's SDK is there.
+rem Smoke and the touch scenarios need a display: scripts\gate.py runs them.
+call "%~f0" check || goto fail
+call "%~f0" release || goto fail
+call "%~f0" debug || goto fail
+call "%~f0" test || goto fail
+call "%~f0" iphonecheck || goto fail
+set "SDK=%ANDROID_HOME%"
+if not defined SDK set "SDK=%LOCALAPPDATA%\Android\Sdk"
+if not exist "%SDK%\platform-tools" goto all_no_android
+call "%~f0" android || goto fail
+echo all: check, release, debug, test, iphonecheck and android done; build\sculpt.exe is the debug app
+exit /b 0
+
+:all_no_android
+echo all: check, release, debug, test and iphonecheck done; no Android SDK in %SDK%, so no APK; build\sculpt.exe is the debug app
+exit /b 0
+
+:clean
+rem The builds' outputs: build\ (the apps, tests, gate logs, dumps, the iPad object) and the
+rem Android build's. deps\ stays: setup_deps made it, and it is the pinned toolchain.
+for %%d in ("%ROOT%build" "%ROOT%android\.gradle" "%ROOT%android\build" "%ROOT%android\app\build" "%ROOT%android\app\.cxx") do if exist "%%~d" rmdir /s /q "%%~d"
+for %%d in ("%ROOT%build" "%ROOT%android\.gradle" "%ROOT%android\build" "%ROOT%android\app\build" "%ROOT%android\app\.cxx") do if exist "%%~d" goto clean_busy
+echo clean: build\ and the Android build's outputs removed
+exit /b 0
+
+:clean_busy
+echo clean: a file under build\ or android\ is in use (a running app or a Gradle daemon); close it and clean again
 exit /b 1
 
 :fail
