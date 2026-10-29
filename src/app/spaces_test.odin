@@ -1,6 +1,7 @@
 package main
 
 import "core:os"
+import "core:slice"
 import "core:strings"
 import "core:testing"
 
@@ -181,4 +182,126 @@ old_workspace_names_in_a_script_still_run :: proc(t: ^testing.T) {
 	testing.expect_value(t, Space(st[3].arg), Space.Model)
 	testing.expect_value(t, st[4].command, Command_Id.Focus_Mode)
 	testing.expect_value(t, st[4].toggle, Script_Toggle.Off)
+}
+
+// Each space has its own dial: switching space switches the sectors the rail reads, a
+// latch the new dial holds no sector for is dropped, and Model names Smooth and Invert as
+// the Model tool reads them.
+@(test)
+each_space_has_its_own_dial :: proc(t: ^testing.T) {
+	a := spaces_app()
+	defer spaces_app_free(a)
+	k := &a.kit
+	k.dials = DIAL_DEFAULTS
+	for s in Space do testing.expect(t, dial_is_default(k, s))
+	testing.expect(t, dial_has(k, .Mask))
+	r := Modifier_Rail{center = {100, 100}, outer = 200, hole = 60}
+	m, ok := rail_hit(&r, dial_of(k)^, {50, 100})
+	testing.expect(t, ok && m == .Mask, "Sculpt's left sector is Mask")
+	a.rail.latched = {.Hide}
+	space_switch(a, .Model)
+	testing.expect_value(t, a.tool, Tool.Model)
+	testing.expect(t, dial_of(k) == &k.dials[.Model])
+	_, ok = rail_hit(&r, dial_of(k)^, {50, 100})
+	testing.expect(t, !ok, "Model's left sector is the Select action, a command")
+	testing.expect_value(t, a.rail.latched, Modifiers{})
+	testing.expect_value(t, modifier_name(a, .Smooth), "Snap")
+	testing.expect_value(t, modifier_name(a, .Invert), "Alt")
+	a.rail.latched = {.Invert}
+	space_switch(a, .Render)
+	testing.expect_value(t, a.rail.latched, Modifiers{})
+	_, ok = rail_hit(&r, dial_of(k)^, {100, 50})
+	testing.expect(t, !ok, "Render's top sector is Place highlight, a command")
+	space_switch(a, .Sculpt)
+	testing.expect_value(t, modifier_name(a, .Smooth), "Smooth")
+}
+
+// The dials round-trip through settings: Sculpt's as the dial_sector lines an older build
+// reads, the others' as dial_space lines; a file of this version with only Sculpt's dial
+// changed leaves the others as they come, and a file from before version 6, when one dial
+// served every space, gives its changes to all three as far as they mean something there.
+@(test)
+the_dials_read_back :: proc(t: ^testing.T) {
+	path := "build/dials_test.txt"
+	defer os.remove(path)
+	defer free_all(context.temp_allocator)
+	a := spaces_app()
+	defer spaces_app_free(a)
+	a.kit.dials = DIAL_DEFAULTS
+	a.kit.dials[.Sculpt][3] = Modifier.Hide
+	testing.expect(t, settings_save(a, path))
+	b := spaces_app()
+	defer spaces_app_free(b)
+	b.kit.dials = DIAL_DEFAULTS
+	settings_load(b, path)
+	testing.expect(t, b.kit.dials == a.kit.dials, "only Sculpt's dial changed")
+
+	a.kit.dials[.Model][0] = Bar_Slot{.Frame_All, 0}
+	a.kit.dials[.Render][2] = Modifier.Smooth
+	testing.expect(t, settings_save(a, path))
+	c := spaces_app()
+	defer spaces_app_free(c)
+	c.kit.dials = DIAL_DEFAULTS
+	settings_load(c, path)
+	testing.expect(t, c.kit.dials == a.kit.dials, "every dial read back")
+
+	old := "version 5\ndial_sector 0 command Frame_All\ndial_sector 1 command Brush_Pie\ndial_sector 2 modifier Invert\ndial_sector 3 modifier Hide\n"
+	testing.expect(t, os.write_entire_file(path, transmute([]u8)old) == nil)
+	d := spaces_app()
+	defer spaces_app_free(d)
+	d.kit.dials = DIAL_DEFAULTS
+	settings_load(d, path)
+	dk := &d.kit
+	testing.expect(t, dk.dials[.Sculpt][0] == Bar_Slot{.Frame_All, 0} && dk.dials[.Sculpt][3] == Modifier.Hide)
+	testing.expect(t, dk.dials[.Model][0] == Bar_Slot{.Frame_All, 0} && dk.dials[.Model][3] == Modifier.Hide, "Model has the changed sectors")
+	testing.expect(t, dk.dials[.Model][2] == DIAL_DEFAULTS[.Model][2], "an unchanged sector keeps Model's own")
+	testing.expect(t, dk.dials[.Render][0] == Bar_Slot{.Frame_All, 0}, "Render has the changed command")
+	testing.expect(t, dk.dials[.Render][3] == DIAL_DEFAULTS[.Render][3], "but not a modifier")
+}
+
+// Render's shelf is a page of its own, with no tool strip: a fresh one holds the renders,
+// looks and Exposure, and a changed one round-trips by its zone name.
+@(test)
+render_has_its_own_shelf_page :: proc(t: ^testing.T) {
+	path := "build/render_shelf_test.txt"
+	defer os.remove(path)
+	defer free_all(context.temp_allocator)
+	first, last := shelf_pages_of(.Render)
+	testing.expect(t, first == .Render && last == .Render)
+	testing.expect_value(t, shelf_which(.Render), Bar_Which.Shelf_Render)
+	a := spaces_app()
+	defer spaces_app_free(a)
+	used := bar_used(a, .Shelf_Render)
+	testing.expect_value(t, len(used), 12)
+	testing.expect_value(t, used[0], Bar_Slot{.Studio_Render, 0})
+	testing.expect(t, slice.contains(used, value_slot(.Exposure)))
+	space_switch(a, .Render)
+	testing.expect_value(t, a.kit.shelf.page, Shelf_Page.Render)
+	bar_remove(a, .Shelf_Render, 0)
+	testing.expect(t, bar_changed(a, .Shelf_Render))
+	testing.expect(t, settings_save(a, path))
+	b := spaces_app()
+	defer spaces_app_free(b)
+	settings_load(b, path)
+	testing.expect_value(t, bar_names(b, .Shelf_Render), bar_names(a, .Shelf_Render))
+}
+
+// Place highlight from the dial works with the Lights section closed: turning it on opens
+// the section, since a press is the lights' only while it shows, and with the switch on but
+// the section closed the command opens the section rather than switching off.
+@(test)
+place_light_opens_the_lights :: proc(t: ^testing.T) {
+	a := spaces_app()
+	defer spaces_app_free(a)
+	a.scene.lights.count = 1
+	a.kit.inspector = false
+	testing.expect(t, !lights_section_shown(a))
+	command_run(a, .Place_Light)
+	testing.expect(t, a.ui.light_place && lights_section_shown(a))
+	testing.expect(t, command_checked(a, .Place_Light, 0))
+	a.kit.inspector = false
+	command_run(a, .Place_Light)
+	testing.expect(t, a.ui.light_place && lights_section_shown(a), "the closed section opened again")
+	command_run(a, .Place_Light)
+	testing.expect(t, !a.ui.light_place)
 }

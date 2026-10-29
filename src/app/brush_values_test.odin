@@ -99,7 +99,8 @@ the_island_is_a_bar_of_values :: proc(t: ^testing.T) {
 	testing.expect_value(t, bar_names(&b, .Offhand), bar_names(&a, .Offhand))
 	testing.expect_value(t, bar_looks(&b, .Offhand), bar_looks(&a, .Offhand))
 	testing.expect_value(t, bar_look(&b.kit, .Tools, 0), Value_Look.Icon)
-	testing.expect_value(t, values_on_bars(&b), 4)
+	// The island's three, the strip's Strength, and the Render page's Exposure.
+	testing.expect_value(t, values_on_bars(&b), 5)
 
 	// The island is the person's, as the brush pie is: a workspace's layout leaves it be.
 	text := kit_layout_text(&a.kit)

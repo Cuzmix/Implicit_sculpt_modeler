@@ -107,6 +107,15 @@ MODIFIER_NAMES := [Modifier]string {
 // A modifier's name as the dial shows it: while painting, Smooth blurs the paint and
 // Invert erases it (painting), and the dial says so.
 modifier_name :: proc(app: ^App, m: Modifier) -> string {
+	// The Model tool reads Smooth as Snap and Invert as Alt (model_tool.odin), whatever
+	// brush is kept for Sculpt.
+	if app.tool == .Model {
+		#partial switch m {
+		case .Smooth: return "Snap"
+		case .Invert: return "Alt"
+		}
+		return MODIFIER_NAMES[m]
+	}
 	if painting(app) {
 		#partial switch m {
 		case .Smooth: return "Blur"
@@ -151,15 +160,23 @@ rail_toggle :: proc(r: ^Modifier_Rail, which: Modifier) {
 // What a sector of the wheel (the dial) does: hold or latch a modifier, or run a command
 // on a tap, as the brush pie's sector runs Brush_Pie. Which sector does what is a setting
 // (Library > Dial while arranging), not part of a workspace, since it belongs to the hand
-// rather than the screen.
+// rather than the screen. Each space has its own four (PR 3b), as each asks something
+// else of the off hand: Model snaps and selects, Render places light and focus.
 Dial_Sector :: union {
 	Modifier,
 	Bar_Slot,
 }
 
-// The sectors as they come, clockwise from the top: Smooth, the brush pie, Invert, Mask.
+// Each space's sectors as they come, clockwise from the top: Sculpt's Smooth, the brush
+// pie, Invert and Mask; Model's Snap and Alt (Smooth and Invert, as the Model tool reads
+// them), the pie and the Select action; Render's Place highlight, the pie, Exposure and
+// Pick focus.
 @(rodata)
-DIAL_DEFAULT := [4]Dial_Sector{Modifier.Smooth, Bar_Slot{.Brush_Pie, 0}, Modifier.Invert, Modifier.Mask}
+DIAL_DEFAULTS := [Space][4]Dial_Sector {
+	.Sculpt = {Modifier.Smooth, Bar_Slot{.Brush_Pie, 0}, Modifier.Invert, Modifier.Mask},
+	.Model  = {Modifier.Smooth, Bar_Slot{.Brush_Pie, 0}, Modifier.Invert, Bar_Slot{.Model_Action, int(Model_Action.Select)}},
+	.Render = {Bar_Slot{.Place_Light, 0}, Bar_Slot{.Brush_Pie, 0}, Bar_Slot{.Brush_Value, int(Brush_Value.Exposure)}, Bar_Slot{.Pick_Focus, 0}},
+}
 
 // The sectors' places, clockwise from the top, as Library > Dial names them.
 @(rodata)
@@ -174,16 +191,44 @@ rail_hit :: proc(r: ^Modifier_Rail, sectors: [4]Dial_Sector, p: [2]f32) -> (whic
 	return sectors[i].(Modifier)
 }
 
-// Whether the dial is as it comes.
-dial_is_default :: proc(k: ^Kit_State) -> bool {
-	for s, i in k.dial do if s != DIAL_DEFAULT[i] do return false
+// The current space's sectors.
+dial_of :: proc(k: ^Kit_State) -> ^[4]Dial_Sector {
+	return &k.dials[k.spaces.current]
+}
+
+// Whether space `s`'s dial is as it comes.
+dial_is_default :: proc(k: ^Kit_State, s: Space) -> bool {
+	for sector, i in k.dials[s] do if sector != DIAL_DEFAULTS[s][i] do return false
 	return true
 }
 
-// Whether some sector of the dial is `m`.
+// Whether some sector of the current space's dial is `m`.
 dial_has :: proc(k: ^Kit_State, m: Modifier) -> bool {
-	for s in k.dial do if mod, ok := s.(Modifier); ok && mod == m do return true
+	for s in dial_of(k) do if mod, ok := s.(Modifier); ok && mod == m do return true
 	return false
+}
+
+// Drops the latches the current space's dial holds no sector for, after a space switch:
+// a latch left from another space would act with nothing lit (Hide latched in Sculpt is
+// Snap and Alt to the Model tool). Hide stays while both its sectors are there.
+dial_latches_keep :: proc(app: ^App) {
+	r := &app.rail
+	for m in r.latched {
+		kept := dial_has(&app.kit, .Smooth) && dial_has(&app.kit, .Mask) if m == .Hide else dial_has(&app.kit, m)
+		if !kept do r.latched -= {m}
+	}
+}
+
+// Moves a dial read from a settings file before version 6, when there was one dial for
+// every space, onto each space's: the sectors that differ from Sculpt's defaults reach
+// Model too, and Render (where a modifier does nothing, as a press there turns the view)
+// the commands among them.
+dials_from_one :: proc(k: ^Kit_State) {
+	for sector, i in k.dials[.Sculpt] {
+		if sector == DIAL_DEFAULTS[.Sculpt][i] do continue
+		k.dials[.Model][i] = sector
+		if _, is_command := sector.(Bar_Slot); is_command do k.dials[.Render][i] = sector
+	}
 }
 
 // A sector as the settings file writes it: "modifier Smooth", or "command <name>".
@@ -576,7 +621,7 @@ kit_modifier_rail :: proc(app: ^App) {
 		return m in set || (m == .Smooth || m == .Mask) && .Hide in set || m == .Hide && .Smooth in set && .Mask in set
 	}
 	sectors: [4]ui.Wheel_Sector
-	for which, i in k.dial {
+	for which, i in dial_of(k) {
 		switch v in which {
 		case Bar_Slot:
 			if v.id == .Brush_Pie {
@@ -615,7 +660,7 @@ kit_modifier_rail :: proc(app: ^App) {
 	r.center = [2]f32{b.x + b.w * 0.5, b.y + b.h * 0.5} * k.scale
 	r.outer, r.hole, r.turn = b.w * k.scale, WHEEL_HOLE[k.wheel_size] * k.scale, turn
 	if res.clicked >= 0 {
-		switch v in k.dial[res.clicked] {
+		switch v in dial_of(k)[res.clicked] {
 		case Modifier: rail_toggle(r, v)
 		case Bar_Slot: command_run(app, v.id, v.arg)
 		}
@@ -639,7 +684,7 @@ rail_claims :: proc(app: ^App, p: [2]f32) -> (which: Modifier, ok: bool) {
 	r := &app.rail
 	if rail_shown(k) == .Off || r.root == 0 do return
 	if k.menu || k.versions || k.browser || k.object_menu || k.ctx.select_open != 0 || k.ctx.popup_open != 0 do return
-	which = rail_hit(r, k.dial, p) or_return
+	which = rail_hit(r, dial_of(k)^, p) or_return
 	return which, ui.root_at(&k.ctx, p / k.scale) == r.root
 }
 

@@ -11,7 +11,7 @@ import "../ui"
 // The Lens shelf (round 2 of the mockups): a floating strip of brush tiles at the bottom
 // centre with All at their end, then after a divider the tool strip
 // (Bar_Which.Tools: Move, Remesh, Subdivide...), and under it the names of its pages
-// (Sculpt, Paint, Move, Curve in Sculpt; Model in Model: shelf_pages_of), which replace
+// (Sculpt, Paint, Move, Curve in Sculpt; Model in Model; Render in Render: shelf_pages_of), which replace
 // the old mode switch: each page is
 // a bar of its own (Bar_Which.Shelf_Sculpt on, bars.odin) that Arrange changes, as it does
 // the tools. A finger or a pen swiped sideways along the shelf turns its page; the wheel over it does the same for a mouse. A tap on a tile picks
@@ -26,6 +26,7 @@ Shelf_Page :: enum u8 {
 	Move,
 	Curve,
 	Model,
+	Render,
 }
 
 @(rodata)
@@ -35,6 +36,7 @@ SHELF_PAGE_NAMES := [Shelf_Page]string {
 	.Move   = "Move",
 	.Curve  = "Curve",
 	.Model  = "Model",
+	.Render = "Render",
 }
 
 // The most tiles a page holds, and how many a tablet-shaped window shows, so the shelf ends
@@ -70,6 +72,14 @@ SHELF_MODEL :: [?]Bar_Slot {
 	{.Model_Action, int(Model_Action.Bridge)}, {.Model_Action, int(Model_Action.Close_Hole)}, {.Model_Action, int(Model_Action.Weld)},
 	{.Add_Cage, int(poly.Primitive.Cube)}, {.Add_Cage, int(poly.Primitive.Cylinder)}, {.Apply_Cage, 0},
 }
+// Render mode: the two renders, the two looks, the sections a render is set up in (each
+// opens beside its tile), the exposure to scrub, focus, and the ways a render leaves the
+// app. A brush picked from All goes back to Sculpt, as the space follows the tool.
+SHELF_RENDER :: [?]Bar_Slot {
+	{.Studio_Render, 0}, {.Render_Mode, 0}, {.Viewport_Look, int(Look_Preset.Sculpt_Studio)}, {.Viewport_Look, int(Look_Preset.Classic)},
+	{.Show_Section, int(Kit_Section.Material)}, {.Show_Section, int(Kit_Section.Lights)}, {.Show_Section, int(Kit_Section.Environment)},
+	{.Brush_Value, int(Brush_Value.Exposure)}, {.Pick_Focus, 0}, {.Screenshot, 0}, {.Record_Turntable, 0}, {.Render_Preview, 0},
+}
 
 // The shelf's state, in Kit_State: its pages' lists, the page shown, the quick settings a
 // long press opened, the picker's card being carried to a tile, and where the tiles were
@@ -94,10 +104,13 @@ Shelf :: struct {
 	swipes:   int,
 }
 
-// The pages space `s` shows, first to last: Model's own, and Sculpt's for the others
-// (Render turns the view, and a brush picked there goes back to Sculpt).
+// The pages space `s` shows, first to last: Sculpt's four, and Model's and Render's own.
 shelf_pages_of :: proc(s: Space) -> (first, last: Shelf_Page) {
-	if s == .Model do return .Model, .Model
+	switch s {
+	case .Sculpt: return .Sculpt, .Curve
+	case .Model:  return .Model, .Model
+	case .Render: return .Render, .Render
+	}
 	return .Sculpt, .Curve
 }
 
@@ -130,6 +143,9 @@ shelf_fresh :: proc(p: Shelf_Page) -> Bar_List {
 		return bar_list_of(d[:])
 	case .Model:
 		d := SHELF_MODEL
+		return bar_list_of(d[:])
+	case .Render:
+		d := SHELF_RENDER
 		return bar_list_of(d[:])
 	}
 	return {}
@@ -228,7 +244,7 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 	focus := lens_focus(k)
 	// The Model page's cage has its own tools on the page, and the mesh tools do not work
 	// on a cage, so they make room for its tiles there.
-	tools_here := !focus && sh.page != .Model
+	tools_here := !focus && sh.page != .Model && sh.page != .Render
 	m := len(tools) if tools_here else 0
 	if focus do n = min(n, SHELF_FOCUS)
 	n, m = shelf_fit(n, m, room, k.bars_edit && !focus)
@@ -540,7 +556,8 @@ brush_query :: proc(p: ^Brush_Palette) -> string {
 brush_sheet_list :: proc(app: ^App, all: []Listed_Brush) -> []Listed_Brush {
 	p := &app.kit.brushes
 	list := brush_palette_list(app, all)
-	if p.category != .All || brush_query(p) != "" do return list
+	// Render's page holds no brushes, so its picker lists them all.
+	if p.category != .All || brush_query(p) != "" || app.kit.shelf.page == .Render do return list
 	out := make([dynamic]Listed_Brush, context.temp_allocator)
 	for l in list {
 		c := brush_item_category(l.item)

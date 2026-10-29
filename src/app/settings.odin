@@ -42,8 +42,9 @@ settings_path :: proc() -> string {
 // read as far as this one knows its lines. 2: the default orbit became the turntable.
 // 3: the default look became Lens. 4: the default spacing became DAB_SPACING. 5: spaces:
 // the built-in workspaces became Sculpt, Model and Render, and Focus and Inspect views
-// (workspaces.odin).
-SETTINGS_VERSION :: 5
+// (workspaces.odin). 6: each space its own dial, `dial_sector` lines being Sculpt's and
+// `dial_space` lines Model's and Render's.
+SETTINGS_VERSION :: 6
 
 // One remembered value that is a plain field of App: its key in the file, where it is,
 // what type it is (bool, f32, i32, int or an enum) and, for numbers, the range a value read
@@ -906,11 +907,19 @@ settings_load :: proc(app: ^App, path: string) {
 				_ = bind_assign(app, id, arg, chord)
 			}
 		case "dial_sector":
-			// dial_sector <0-3, clockwise from the top> modifier <name> | command <name>.
+			// dial_sector <0-3, clockwise from the top> modifier <name> | command <name>:
+			// Sculpt's dial, which was every space's before version 6 (moved after the loop).
 			if len(f) != 4 do continue
 			i, i_ok := strconv.parse_int(f[1])
-			if !i_ok || i < 0 || i >= len(app.kit.dial) do continue
-			if s, ok := dial_sector_parse(f[2], f[3]); ok do app.kit.dial[i] = s
+			if !i_ok || i < 0 || i >= 4 do continue
+			if s, ok := dial_sector_parse(f[2], f[3]); ok do app.kit.dials[.Sculpt][i] = s
+		case "dial_space":
+			// dial_space <space> <0-3> modifier <name> | command <name>: Model's or Render's.
+			if len(f) != 5 do continue
+			space, space_ok := reflect.enum_from_name(Space, f[1])
+			i, i_ok := strconv.parse_int(f[2])
+			if !space_ok || !i_ok || i < 0 || i >= 4 do continue
+			if s, ok := dial_sector_parse(f[3], f[4]); ok do app.kit.dials[space][i] = s
 		case "bar_count", "bar", "bar_look":
 			// bar_count <zone> <n>: how many buttons a bar's zone (BAR_ZONES) has, before its
 			// bar <zone> <slot> <command name> lines; a bar that differs from a fresh
@@ -982,6 +991,9 @@ settings_load :: proc(app: ^App, path: string) {
 	// And the old default spacing, which every file before version 4 holds whether or not
 	// anyone set it: the closer default takes its place, Even strength keeping the height.
 	if version < 4 && app.brush.spacing == SPACING_REFERENCE do app.brush.spacing = DAB_SPACING
+	// One dial served every space before version 6: what was changed on it reaches the
+	// others as far as it means something there.
+	if version < 6 do dials_from_one(&app.kit)
 	// The windows and the wheel were saved where they were for the layout saved with them.
 	app.kit.placed_mirrored = app.kit.ctx.mirror
 	workspaces_loaded(&app.kit)
@@ -1131,8 +1143,15 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 		if !pie_changed(app, n) do continue
 		for s, i in app.kit.pies[n] do fmt.sbprintfln(&out, "pie %d %d %s", n, i, command_name(s.id, s.arg) if s.id != .None else "empty")
 	}
-	// The dial only when it differs from a fresh install's, written whole.
-	if !dial_is_default(&app.kit) do for s, i in app.kit.dial do fmt.sbprintfln(&out, "dial_sector %d %s", i, dial_sector_text(s))
+	// Each space's dial only when it differs from a fresh install's, written whole: Sculpt's
+	// as the lines an older build reads as its one dial.
+	for space in Space {
+		if dial_is_default(&app.kit, space) do continue
+		for s, i in app.kit.dials[space] {
+			if space == .Sculpt do fmt.sbprintfln(&out, "dial_sector %d %s", i, dial_sector_text(s))
+			else do fmt.sbprintfln(&out, "dial_space %v %d %s", space, i, dial_sector_text(s))
+		}
+	}
 	for f in app.kit.favourites[:app.kit.favourite_count] do fmt.sbprintfln(&out, "favourite %s", command_name(f.id, f.arg))
 	for s, slot in app.plugins.slots do if s.key != "" do fmt.sbprintfln(&out, "plugin_slot %d %s", slot, preset_escape(s.key))
 	gestures := GESTURE_DEFAULTS

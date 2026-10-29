@@ -153,6 +153,8 @@ space_switch :: proc(app: ^App, to: Space, restore := true) {
 		workspace_switch(k, slot)
 	}
 	s.current = to
+	// The dial is the space's too.
+	dial_latches_keep(app)
 	s.seen, s.picked = space_tool_now(app), false
 	s.switches += 1
 }

@@ -56,7 +56,7 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   `MIDDLE` is where the sphere's middle lands at 1600x900 (the gizmo's points follow it). Panels fade under a viewport
   stroke (`panel_fade` in `panel_begin`/`panel_end`). Clean view `k.clean` returns early from `kit_layout`; Tab is
   bound to it and B to the brush picker in `DEFAULT_BINDINGS`.
-  Bars (`bars.odin`): `Bar_Which` is Tools (the shelf's strip after All), View_Rail, the five `Shelf_*` pages,
+  Bars (`bars.odin`): `Bar_Which` is Tools (the shelf's strip after All), View_Rail, the six `Shelf_*` pages (each space's from `shelf_pages_of`; no tool strip on Model's or Render's),
   Brush_Pie and Offhand (the island, last so zone names and `shelf_page_of` keep their meaning), each a `Bar_List` of `Bar_Slot` drawn by `bar_slot_button`, whose `bar_slot_run`/`bar_slot_more`/
   `bar_lit`/`bar_icon` keep each command's own tap, long press and lit state wherever it sits; `BAR_LAYOUT` (Tools,
   View_Rail) go in workspace layouts, the pages, the pie and the island only in settings. Brush values
@@ -104,8 +104,10 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   existing command, and a mesh format a filter of `file_dialog_export`, never a writer of its own.
   New scene's argument indexes `NEW_SCENES` (Mesh, Voxels or Empty starts): append, never reorder, since keys, bars
   and scripts name a start by its number or `new_start_key`; the narrow Home page shows the first `NARROW_HOME_STARTS`.
-  The dial's sectors are `Kit_State.dial` (`Dial_Sector`, a Modifier or a Bar_Slot): pass them to `rail_hit`, never
-  index a fixed table; only a Modifier sector claims a finger.
+  The dial's sectors are each space's, `Kit_State.dials[Space]` (`Dial_Sector`, a Modifier or a Bar_Slot; defaults
+  `DIAL_DEFAULTS`): read the current one through `dial_of(k)`, pass it to `rail_hit`, never index a fixed table; only
+  a Modifier sector claims a finger. A space switch drops latches the new dial lacks (`dial_latches_keep`); settings
+  write Sculpt's as `dial_sector` and the others' as `dial_space` lines (v6; `dials_from_one` moves an older file).
 - The look is `Kit_State.look` (`Look`: Lens, the default, Studio or Graphite), `LOOK_THEMES` set as
   `ctx.theme` each frame in `kit_begin`; the themes share every size, so a look never moves a control. Settings
   version 3 moved Studio, the old default, to Lens once. Colours outside widgets come from the theme too: the swapchain

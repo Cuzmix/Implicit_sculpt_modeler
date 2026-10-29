@@ -84,7 +84,7 @@ kit_lights :: proc(app: ^App) {
 	}
 	light := &set.lights[app.light_pick]
 	_ = ui.slider(ctx, "Intensity", &light.strength, 0, LIGHT_STRENGTH_MAX, .Linear, fmt.tprintf("%.2f", light.strength))
-	_ = ui.switch_row(ctx, "Place highlight", &app.ui.light_place)
+	_ = ui.switch_row(ctx, "Place highlight", &app.ui.light_place, keys = command_hint(app, .Place_Light))
 	if kit_more(app, .Lights) {
 		// Its name, typed: the typing is one undo step until the field lets the keys go.
 		name_field := fmt.tprintf("name##light %d", app.light_pick + 1)

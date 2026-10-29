@@ -204,6 +204,7 @@ Command_Id :: enum u8 {
 	Live_Occlusion,
 	Render_Mode,
 	Pick_Focus,
+	Place_Light,
 	Focus_Pivot,
 	Finish_Reset,
 	Viewport_Look, // the argument is the Look_Preset
@@ -1798,14 +1799,24 @@ COMMANDS := [Command_Id]Command {
 	.Render_Mode = {
 		label = "Full render",
 		help = "Renders the view at Full quality while it is still, path traced: every light with soft shadows, the environment, and light bounced between surfaces.",
+		icon = rune(0xe417), // sparkles
 		run = proc(app: ^App, _: int) {render_set(app, !app.render_on, .Full)},
 		checked = proc(app: ^App, _: int) -> bool {return app.render_on},
 	},
 	.Pick_Focus = {
 		label = "Pick focus",
 		help = "Render mode's depth of field focuses where the next press meets the model; dragging moves the focus with the finger.",
+		icon = rune(0xe0b0), // crosshair
 		run = proc(app: ^App, _: int) {focus_pick_command(app)},
 		checked = proc(app: ^App, _: int) -> bool {return app.ui.focus_armed || app.ui.focus_held},
+	},
+	.Place_Light = {
+		label = "Place highlight",
+		help = "Switches Place highlight, as the Lights section's switch does: a press on the model moves the picked light so its highlight lands there. Turned on, it opens the Lights section, whose markers show which light moves.",
+		icon = ICON_LIGHTBULB,
+		run = proc(app: ^App, _: int) {light_place_command(app)},
+		enabled = proc(app: ^App, _: int) -> bool {return app.scene.lights.count > 0},
+		checked = proc(app: ^App, _: int) -> bool {return app.ui.light_place && lights_section_shown(app)},
 	},
 	.Focus_Pivot = {
 		label = "Focus on the pivot",
@@ -1822,6 +1833,7 @@ COMMANDS := [Command_Id]Command {
 	.Viewport_Look = {
 		label = "Look",
 		help = "Puts on a look: the material, lights, background, shading style, occlusion and the Render switch at Fast quality together.",
+		icon = rune(0xe5a4), // swatch-book
 		args = len(Look_Preset),
 		run = proc(app: ^App, arg: int) {look_apply(app, Look_Preset(arg), true)},
 		checked = proc(app: ^App, arg: int) -> bool {p, ok := look_current(app).?; return ok && int(p) == arg},
@@ -2406,6 +2418,8 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 	case .Brush:
 		return fmt.tprintf("%s brush", BRUSHES[sculpt.Brush_Kind(arg)].name)
 	case .Brush_Value:
+		// Exposure is the view's, not the brush's.
+		if Brush_Value(arg) == .Exposure do return BRUSH_VALUE_NAMES[.Exposure]
 		return fmt.tprintf("Brush %s", strings.to_lower(BRUSH_VALUE_NAMES[Brush_Value(arg)], context.temp_allocator))
 	case .View_Axis:
 		return fmt.tprintf("%v view", camera.Axis_View(arg))

@@ -172,6 +172,7 @@ COMMAND_HOMES := #partial [Command_Id]Maybe(Kit_Section) {
 	.Live_Occlusion        = .Look,
 	.Render_Mode           = .Render,
 	.Pick_Focus            = .Lens,
+	.Place_Light           = .Lights,
 	.Focus_Pivot           = .Lens,
 	.Finish_Reset          = .Finish,
 	.Viewport_Look         = .Look,

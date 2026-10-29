@@ -977,7 +977,7 @@ kit_model_tab :: proc(app: ^App) {
 	if picked := ui.select(ctx, "model target", targets[:], chosen); picked >= 0 do command_run(app, .Model_Target, int(which[picked]))
 	how := MODEL_ACTION_HOW[m.action]
 	if alt := MODEL_ACTION_ALT[m.action]; alt != "" {
-		ui.paragraph(ctx, fmt.tprintf("%s. Held Ctrl (the wheel's Invert): %s.", how, alt))
+		ui.paragraph(ctx, fmt.tprintf("%s. Held Ctrl (the dial's Alt): %s.", how, alt))
 	} else {
 		ui.paragraph(ctx, fmt.tprintf("%s.", how))
 	}
