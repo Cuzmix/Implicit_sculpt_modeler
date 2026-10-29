@@ -6,12 +6,11 @@ name: Input tests
 # own) on virtual displays, then compiles the app for the iPad, Windows and Android. Smoke
 # is left to the desktop gate: it asks for GPU validation layers, which a runner's software
 # Vulkan does not have to match, and it checks drawing rather than input. Every step's log is
-# kept as an artifact. Pushes to the long-lived branches run it; other branches run it
-# through their pull requests, so no commit pays for it twice.
+# kept as an artifact. It runs only when started by hand (Actions > Input tests > Run
+# workflow, or `gh workflow run input-tests.yml --ref BRANCH`): a run takes about half an
+# hour of the private repository's monthly Actions minutes, which a run on every pull
+# request would spend in days.
 on:
-  push:
-    branches: [master, odin-sculpt, "feature/**"]
-  pull_request:
   workflow_dispatch:
 
 permissions:
