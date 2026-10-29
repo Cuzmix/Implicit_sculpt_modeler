@@ -30,6 +30,7 @@ Stack_Target_Kind :: enum u8 {
 	Join, // tabs of `host`'s group from `slot`
 	Line, // the docked cards' slot `at`
 	Float,
+	Beside, // `host`'s second column, on its left with `left`
 }
 
 Stack_Target :: struct {
@@ -38,7 +39,14 @@ Stack_Target :: struct {
 	slot:  int,
 	at:    int,
 	strip: bool, // the line is between the strip's icons
+	left:  bool,
+	// A drop beside that has no room: a docked group's goes below it, a floating one's
+	// joins it as a tab.
+	no_room: bool,
 }
+
+// How far beyond a group's side its beside target reaches, over the view.
+STACK_BESIDE_REACH :: 96
 
 // Called before the stack and its floating cards are laid out: the targets are this
 // frame's only, so a card not drawn now (the stack shown as icons, a card left out or
@@ -100,7 +108,27 @@ stack_carry_target :: proc(app: ^App, p: [2]f32, carry: Stack_Carry) -> Stack_Ta
 		if c == src do return {}
 		return {kind = .Join, host = c, slot = stack_tab_slot(s, c, p)}
 	}
+	// Just beyond a group's side, over the view: beside it, as its second column. A docked
+	// group's is on the view's side only, as the stack grows away from its edge.
+	#reverse for ref in k.order {
+		c, card := ref.(Stack_Card)
+		if !card || c not_in s.floated || c not_in s.seen || c == src do continue
+		r := s.drop_at[c]
+		if p.y < r.y || p.y > r.y + r.h do continue
+		if p.x >= r.x - STACK_BESIDE_REACH && p.x < r.x do return stack_beside_target(app, c, true, carry)
+		if p.x > r.x + r.w && p.x <= r.x + r.w + STACK_BESIDE_REACH do return stack_beside_target(app, c, false, carry)
+	}
 	if t, ok := stack_strip_target(app, p, carry); ok do return t
+	for c in s.order {
+		if c in s.floated || c in s.hidden || c in s.joined || c not_in s.seen || c == src do continue
+		r := s.drop_at[c]
+		if p.y < r.y || p.y > r.y + r.h do continue
+		if stack_beside_left(k, c) {
+			if p.x >= r.x - STACK_BESIDE_REACH && p.x < r.x do return stack_beside_target(app, c, true, carry)
+		} else if p.x > r.x + r.w && p.x <= r.x + r.w + STACK_BESIDE_REACH {
+			return stack_beside_target(app, c, false, carry)
+		}
+	}
 	// A docked header is a band map: its top quarter (and a folded card's bottom one) is the
 	// line, so folded cards still reorder; its middle and the tab row join.
 	for c in s.order {
@@ -121,6 +149,30 @@ stack_carry_target :: proc(app: ^App, p: [2]f32, carry: Stack_Carry) -> Stack_Ta
 	if outside do return {kind = .Float}
 	if !carry.tab && src not_in s.floated && at == stack_docked_place(s, src) do return {}
 	return {kind = .Line, at = at}
+}
+
+// Beside group `c` on its left or right: its second column, or where there is no room for
+// one with 360 points of view left beside the rail, below it (docked) or a tab (floating).
+@(private = "file")
+stack_beside_target :: proc(app: ^App, c: Stack_Card, left: bool, carry: Stack_Carry) -> Stack_Target {
+	k := &app.kit
+	s := &k.stack
+	r := s.drop_at[c]
+	w := stack_beside_width(k, c) + STACK_DIVIDER
+	area := ui.safe_area(&k.ctx)
+	ROOM :: 360 + 80
+	room := r.x - w - area.x if left else area.x + area.w - (r.x + r.w + w)
+	if _, two := stack_beside_of(s, c); two || room >= ROOM do return {kind = .Beside, host = c, left = left}
+	if c in s.floated do return {kind = .Join, host = c, slot = len(stack_group(s, c)), no_room = true}
+	src := stack_host(s, carry.card)
+	at := 0
+	for x in s.order {
+		if x in s.floated || x in s.hidden || x in s.joined do continue
+		if carry.tab || x != src do at += 1
+		if x == c do break
+	}
+	if !carry.tab && src not_in s.floated && at == stack_docked_place(s, src) do return {no_room = true}
+	return {kind = .Line, at = at, no_room = true}
 }
 
 // Over the strip of icons (or near it): resting on another group's icon long enough joins
@@ -206,6 +258,8 @@ stack_carry_drop :: proc(app: ^App, carry: Stack_Carry, target: Stack_Target, p:
 		return
 	case .Join:
 		if !stack_join_at(k, carry.card, carry.tab, target.host, target.slot) do return
+	case .Beside:
+		if !stack_beside_join(k, carry.card, carry.tab, target.host, target.left) do return
 	case .Line:
 		if carry.tab do stack_take_out(k, carry.card)
 		stack_move_to(app, carry.card if carry.tab else src, target.at)
@@ -259,7 +313,20 @@ stack_carry_draw :: proc(app: ^App, carry: Stack_Carry, target: Stack_Target, p:
 		hint = fmt.tprintf("Join %s", stack_title(app, stack_shown(s, host)))
 	case .Float:
 		hint = "Float here"
+	case .Beside:
+		// The part the second column would take, beside the group.
+		r := s.drop_at[target.host]
+		w := stack_beside_width(k, target.host)
+		x := r.x - w - STACK_DIVIDER if target.left else r.x + r.w + STACK_DIVIDER
+		if _, two := stack_beside_of(s, target.host); two {
+			ui.stroke_rect(ctx, r, t.radius_large, t.accent, 2)
+		} else {
+			ui.fill_rect(ctx, {x, r.y, w, r.h}, t.radius_large, ui.color_fade(t.accent, 0.16))
+			ui.stroke_rect(ctx, {x, r.y, w, r.h}, t.radius_large, t.accent, 2)
+		}
+		hint = fmt.tprintf("Beside %s", stack_title(app, stack_shown(s, target.host)))
 	}
+	if target.no_room && target.kind != .None do hint = "No room beside: goes below" if target.kind != .Join else "No room beside: joins as a tab"
 	// Resting on another icon of the strip: the icon grows a little and the ring fills
 	// round it toward joining its group.
 	if s.dwell_on && s.dwell != src && s.dwell in s.strip_seen {

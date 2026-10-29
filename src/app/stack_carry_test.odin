@@ -1,5 +1,6 @@
 package main
 
+import "core:strings"
 import "core:testing"
 
 // The stack's rules, after any operation: the order holds every card once, the first is
@@ -21,6 +22,14 @@ stack_valid :: proc(s: ^Lens_Stack) -> bool {
 		} else if stack_host(s, stack_shown(s, c)) != c {
 			return false
 		}
+	}
+	// A second column begins at a tab, and a group has at most one.
+	if s.beside & ~s.joined != {} do return false
+	for c in s.order {
+		if c in s.joined do continue
+		n := 0
+		for x in stack_group(s, c) do if x in s.beside do n += 1
+		if n > 1 do return false
 	}
 	return true
 }
@@ -142,5 +151,87 @@ stack_strip_targets_reorder_then_join :: proc(t: ^testing.T) {
 	s.dwell_from = k.ctx.time - 0.3
 	testing.expect_value(t, stack_carry_target(app, {1348, 95}, layers).kind, Stack_Target_Kind.Line)
 	testing.expect_value(t, stack_carry_target(app, {400, 400}, layers), Stack_Target{kind = .Float})
+	free_all(context.temp_allocator)
+}
+
+// Beside: a card dropped beside a group is its second column, with its own shown tab, and
+// widens the group's card; more dropped beside join that column; taking its first card out
+// hands the column to the next, and the last out leaves one column.
+@(test)
+stack_beside_makes_a_second_column :: proc(t: ^testing.T) {
+	k := new(Kit_State)
+	defer free(k)
+	stack_default(k)
+	s := &k.stack
+	testing.expect(t, stack_beside_join(k, .Symmetry, false, .Brush, true))
+	testing.expect_value(t, stack_text(k), "Brush+,|Symmetry,Layers,Scene,Tools,Palettes")
+	testing.expect_value(t, stack_shown(s, .Brush), Stack_Card.Brush)
+	testing.expect_value(t, stack_group_extra(k, .Brush), STACK_W + STACK_DIVIDER)
+	testing.expect(t, stack_valid(s))
+	testing.expect(t, stack_beside_join(k, .Layers, false, .Brush, true))
+	testing.expect_value(t, stack_text(k), "Brush+,|Symmetry,&Layers,Scene,Tools,Palettes")
+	testing.expect_value(t, stack_shown(s, .Symmetry), Stack_Card.Layers)
+	testing.expect_value(t, stack_column_head(s, .Layers), Stack_Card.Symmetry)
+	testing.expect(t, stack_valid(s))
+	testing.expect(t, stack_take_out(k, .Symmetry))
+	testing.expect_value(t, stack_text(k), "Brush+,|Layers,Symmetry+,Scene,Tools,Palettes")
+	testing.expect(t, stack_valid(s))
+	testing.expect(t, stack_take_out(k, .Layers))
+	testing.expect_value(t, stack_text(k), "Brush+,Layers+,Symmetry+,Scene,Tools,Palettes")
+	testing.expect_value(t, stack_group_extra(k, .Brush), 0)
+	// The host out of a group whose first column is only the host: column two is the group.
+	stack_beside_join(k, .Layers, false, .Brush, true)
+	testing.expect(t, stack_take_out(k, .Brush))
+	testing.expect_value(t, stack_text(k), "Layers+,Brush+,Symmetry+,Scene,Tools,Palettes")
+	testing.expect(t, stack_valid(s))
+	free_all(context.temp_allocator)
+}
+
+// The columns are part of the layout: `|` before column two in the group's line, a `*` on
+// each column's shown tab, and the second column's width; they read back as written.
+@(test)
+stack_columns_read_back :: proc(t: ^testing.T) {
+	a: Kit_State
+	stack_default(&a)
+	stack_join(&a, .Symmetry)
+	stack_beside_join(&a, .Layers, false, .Brush, true)
+	stack_beside_join(&a, .Scene, false, .Brush, true)
+	stack_show_tab(&a.stack, .Symmetry)
+	a.stack.beside_w[.Brush] = 280
+	text := kit_layout_text(&a)
+	testing.expect(t, strings.contains(text, "stack_group card:Brush *card:Symmetry | card:Layers *card:Scene\n"), text)
+	testing.expect(t, strings.contains(text, "stack_beside Brush=280\n"), text)
+	b: Kit_State
+	kit_layout_put(&b, text)
+	testing.expect_value(t, stack_text(&b), "Brush+,&Symmetry,|Layers,&Scene,Tools,Palettes")
+	testing.expect_value(t, stack_shown(&b.stack, .Brush), Stack_Card.Symmetry)
+	testing.expect_value(t, stack_shown(&b.stack, .Layers), Stack_Card.Scene)
+	testing.expect_value(t, stack_beside_width(&b, .Brush), 280)
+	testing.expect(t, stack_valid(&b.stack))
+	free_all(context.temp_allocator)
+}
+
+// Just beyond a docked group's view side the carry goes beside it, where the window has
+// room; in a narrow window it goes below instead.
+@(test)
+stack_beside_target_needs_room :: proc(t: ^testing.T) {
+	app := new(App)
+	defer free(app)
+	k := &app.kit
+	stack_default(k)
+	s := &k.stack
+	k.ctx.input.window = {1440, 900}
+	y: f32 = 80
+	for c in s.order {
+		if c in s.hidden do continue
+		s.drop_at[c], s.head_at[c] = {1060, y, 312, 48}, {1062, y + 2, 308, 44}
+		s.seen += {c}
+		y += 56
+	}
+	scene := Stack_Carry{card = .Scene}
+	testing.expect_value(t, stack_carry_target(app, {1000, 100}, scene), Stack_Target{kind = .Beside, host = .Brush, left = true})
+	k.ctx.input.window = {800, 900}
+	for c in Stack_Card do s.drop_at[c].x -= 640
+	testing.expect_value(t, stack_carry_target(app, {360, 100}, scene), Stack_Target{kind = .Line, at = 1, no_room = true})
 	free_all(context.temp_allocator)
 }
