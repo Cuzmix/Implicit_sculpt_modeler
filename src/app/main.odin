@@ -194,6 +194,7 @@ App :: struct {
 	double_tap: Double_Tap, // the last finger tap a double tap could follow (navigate.odin)
 	one_tap:  f64, // input_clock when a one-finger tap waiting to run lifted, 0 for none (one_tap_wait)
 	one_taps: int, // one-finger taps that ran their gesture, for the exit stats
+	tap_switches: int, // finger taps that switched the selected object (tap_switch_target), for the exit stats
 	cursor:   Brush_Cursor, // the surface under the brush ring this frame (cursor.odin)
 	mask_seen: Mask_Seen, // whether the selected object has a mask, kept (history.odin)
 	sets_lost: int, // selection sets a rebuild dropped, for the note of the command that ran it (selection_sets.odin)
@@ -1434,6 +1435,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	for _, slot in app.plugins.slots do plugin_commands += int(plugin_slot_loaded(&app, slot))
 	fmt.printfln("plugins=%d plugin_commands=%d plugin_errors=%d plugin_runs=%d plugin_steps=%d", len(app.plugins.plugins) - plugins_failed(&app), plugin_commands, app.plugins.errors, app.plugins.runs, app.plugins.steps)
 	fmt.printfln("frames=%d dabs=%d objects=%d vertices=%d", frame_index, app.stats.dabs_total, len(app.scene.objects), vertices)
+	fmt.printfln("one_taps=%d tap_switches=%d", app.one_taps, app.tap_switches)
 	diag_stats(&app)
 	{
 		// The voxel objects: how many, their bricks, and what their fields, surfaces and undo

@@ -1005,7 +1005,7 @@ kit_pinned :: proc(app: ^App, sec: Kit_Section) -> (raised: bool) {
 	shown := ui.presence(ctx, panel_id(sec), pin.on, t.panel_time)
 	if shown <= 0 do return
 	PADDING :: 12
-	title, draw, obj_draw, found := bar_section(app, sec)
+	title, _, _, _ := bar_section(app, sec)
 	mark := ui.vertex_mark(ctx)
 	p := panel_begin(app, sec, title, .End, .Start, {kit_right(app), kit_top()}, {direction = .Column, gap = 6, padding = PADDING, width = KIT_INSPECTOR_W, radius = t.radius_large, background = .Panel, inert = !pin.on})
 	raised = p.raised
@@ -1014,17 +1014,7 @@ kit_pinned :: proc(app: ^App, sec: Kit_Section) -> (raised: bool) {
 		// Floating, it scrolls in its own body; docked, its column's share does.
 		s: Kit_Scroll
 		if !p.docked do s = kit_scroll_begin(ctx, "pinned body", &pin.scroll, p.owner, KIT_INSPECTOR_W - 2 * PADDING, max(p.room, PANEL_BODY_MIN), 6)
-		obj := selected_object(app)
-		switch {
-		case !found:
-			ui.paragraph(ctx, "Nothing to show here.")
-		case obj_draw != nil && obj == nil:
-			ui.paragraph(ctx, "Add or select an object first.")
-		case obj_draw != nil:
-			obj_draw(app, obj)
-		case:
-			draw(app)
-		}
+		panel_body(app, sec, KIT_INSPECTOR_W - 2 * PADDING)
 		if !p.docked do kit_scroll_end(ctx, s)
 	}
 	panel_end(app, &p)

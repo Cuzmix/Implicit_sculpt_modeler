@@ -87,7 +87,10 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   and popovers, so it is the top lasting root. `ui.row_room` right-aligns in a fixed-width row (spacer(0) does
   nothing). The tray is the stack (`lens_stack.odin`, `kit_inspector`, `panel_begin(bare)`): cards in `k.stack`,
   layout line `stack`; `tray_open` calls `stack_reveal`; the Palettes card holds the whole tray behind
-  `kit_tray_select`; `k.in_stack` lets a section drop what the Brush card shows above it. The brush pie is
+  `kit_tray_select`; `k.in_stack` lets a section drop what the Brush card shows above it. What a panel holds is a `Panel_Kind`
+  (`panel_kind.odin`: a `Stack_Card` or a `Kit_Section`); its content is `panel_body`, which the stack, the pane strip's tab
+  and pinned panels all call, and its title, icon, folded line and layout name (`card:Brush`, `section:Stroke`) come from
+  the `panel_kind_*` procs. The brush pie is
   `Bar_Which.Brush_Pie` (`k.brush_pie`, eight slots); `pie_slot` reads it, `lens_pie_update` adds tap-to-pick and
   the rest that opens `pie_quick`. Stack sizes live in `lens_resize.odin` (`stack_width`, which `tray_width` returns,
   `heights`, `sizes`, layout line `stack_size`); its handles are `ui.begin_at` roots drawn after what they resize.

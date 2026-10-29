@@ -1511,6 +1511,44 @@ def big_ring_past_the_edge_turns_the_view():
     return ring_past_the_edge("draw")
 
 
+def ipad_pencil_past_the_edge(hover, brush):
+    """An iPad's Pencil (--pen-no-leave, --system-palms) strokes the sphere, lifts, and lands
+    26 px past its right edge with a ring 200 px across, hovering there first or not."""
+    s = Script()
+    pen_stroke(s, line((700, 430), (800, 450), 10), pressure=1)
+    s.wait(40)  # long past the leave the iPad says itself (pencil_leave)
+    if hover:
+        s.add("pnear")
+        for x, y in line((900, 450), (1040, 450), 6):
+            s.wait(1)
+            s.add(f"pmove:{x:g},{y:g}")
+    s.wait(1)
+    s.add("pdown:1040,450")
+    for x, y in past_slop((1040, 450), (1160, 450), 12)[1:]:
+        s.wait(1)
+        s.add(f"pmove:{x:g},{y:g}")
+    s.wait(1)
+    s.add("pup")
+    s.wait(3)
+    return s, ["--pen-no-leave", "--system-palms", f"--script=set orbit_style turntable; brush {brush}; set radius_px 200"], {
+        "undo_steps": near(1), "camera_yaw": lambda v: abs(float(v) - 0.6) > 0.3}
+
+
+@scenario
+def ipad_pencil_lands_past_the_edge_turns_the_view():
+    """On an iPad, the Pencil landing 26 px past the sphere's edge with no hover before it
+    (most Pencils), after a stroke on the sphere, turns the view and starts no second stroke,
+    though the ring 200 px across overlaps the sphere."""
+    return ipad_pencil_past_the_edge(False, "draw")
+
+
+@scenario
+def ipad_pencil_hovers_past_the_edge_turns_the_view():
+    """On an iPad, the Pencil hovering in from the sphere to 26 px past its edge and landing
+    there turns the view: one undo step, the stroke before it. Grab too, Past the outline off."""
+    return Steps([ipad_pencil_past_the_edge(True, "clay"), ipad_pencil_past_the_edge(True, "grab")])
+
+
 @scenario
 def grab_past_the_edge_turns_the_view():
     """Grab pressed 26 px past the sphere's edge with Past the outline off (the default)
@@ -6548,6 +6586,38 @@ def single_tap_dab_lands_after_the_gap():
     return s, [], camera_still({"pinned": near(0), "undo_steps": near(1), "dabs": lambda v: int(v) >= 1})
 
 
+# The middle and right spheres of THREE on screen; the left one starts selected.
+SPHERE_2, SPHERE_3 = (647, 430), (860, 480)
+
+
+@scenario
+def tap_another_object_switches_to_it():
+    """A finger tap on an object that is not the selected one selects it and sculpts nothing; a second tap on it,
+    now selected, lays a dab; a stroke on another object still sculpts it; a double tap there pins the pivot without
+    dabs; with Tap another object to switch to it off, the tap sculpts it as before; and where one finger turns the
+    view, a tap still switches."""
+    def taps(*points, wait=24):
+        s = Script()
+        for p in points:
+            s.ftap(*p)
+            s.wait(wait)
+        return s
+    stroke = Script()
+    stroke.fdrag(line(SPHERE_3, (SPHERE_3[0] + 60, SPHERE_3[1] + 20), 12))
+    stroke.wait(4)
+    pin = Script()
+    double_tap(pin, *SPHERE_2)
+    pin.wait(24)
+    return Steps([
+        (taps(SPHERE_3), THREE, ({"selected": near(2), "tap_switches": near(1), "dabs": near(0), "undo_steps": near(0)})),
+        (taps(SPHERE_3, SPHERE_3), THREE, ({"selected": near(2), "tap_switches": near(1), "undo_steps": near(1), "dabs": lambda v: int(v) >= 1})),
+        (stroke, THREE, ({"selected": near(2), "tap_switches": near(0), "undo_steps": near(1)})),
+        (pin, THREE, ({"selected": near(1), "pinned": near(1), "dabs": near(0), "undo_steps": near(0)})),
+        (taps(SPHERE_3), THREE + ["--script=set tap_switches 0"], ({"selected": near(2), "tap_switches": near(0), "undo_steps": near(1)})),
+        (taps(SPHERE_3), THREE + ["--script=set finger_model orbit"], ({"selected": near(2), "tap_switches": near(1), "dabs": near(0)})),
+    ])
+
+
 @scenario
 def tap_dab_waits_for_nothing_else():
     """A tap's dab then an Undo tap on the panel straight after: the dab plays first, so Undo takes it back."""
@@ -6993,9 +7063,9 @@ def gesture_any_command_from_search():
     s.add("move:900,600")
     s.wait(1)
     # Down the tab to the gesture map's last row, Pen side button.
-    s.add("wheel:-5")
+    s.add("wheel:-6")
     s.wait(20)
-    s.ftap(1063, 668)
+    s.ftap(1063, 656)
     s.wait(12)
     # Its list opens above it; the list's last row is Any command...
     for _ in range(10):
@@ -7173,6 +7243,38 @@ def pencil_double_tap_over_empty_space_frames():
     model.wait(6)
     return Steps([(empty, [], {"camera_distance": lambda v: abs(float(v) - 3.5) > 1e-3, "rail_latched": is_text("none")}),
                   (model, [], camera_still({"rail_latched": is_text("smooth")}))])
+
+
+def pen_grab_with_roll(roll):
+    """The pen pressing the model with Grab, dragging 60 points right, then turning `roll`
+    degrees clockwise in steps while it holds still, and lifting."""
+    s = Script()
+    s.add("pnear")
+    s.add(f"pmove:{PEN_MODEL_POINT[0]:g},{PEN_MODEL_POINT[1]:g}")
+    s.add("proll:0")
+    s.wait(2)
+    s.add(f"pdown:{PEN_MODEL_POINT[0]:g},{PEN_MODEL_POINT[1]:g}")
+    for x, y in line(PEN_MODEL_POINT, (PEN_MODEL_POINT[0] + 60, PEN_MODEL_POINT[1]), 12)[1:]:
+        s.wait(1)
+        s.add(f"pmove:{x:g},{y:g}")
+    for deg in range(10, roll + 1, 10):
+        s.wait(1)
+        s.add(f"proll:{deg}")
+    s.wait(2)
+    s.add("pup")
+    s.wait(4)
+    return s
+
+
+@scenario
+def pen_roll_while_grabbing_twists_what_it_holds():
+    """Grab dragging with the pen turned 90 degrees clockwise twists what it holds (Nomad's Move): the surface ends elsewhere than the same drag with Roll while grabbing off, the view does not move, and the drag and its twist are one undo step."""
+    seen = {}
+    return Steps([
+        (pen_grab_with_roll(90), ["--script=brush grab"], camera_still({"undo_steps": near(1), "pen_rolls": near(0),
+                                                                        "mesh_sum": lambda v: seen.setdefault("twisted", float(v)) is not None})),
+        (pen_grab_with_roll(90), ["--script=brush grab; set pen_grab_twist off"], camera_still({"undo_steps": near(1),
+                                                                        "mesh_sum": lambda v: abs(float(v) - seen["twisted"]) > 1e-3}))])
 
 
 def pen_away(s, frames):

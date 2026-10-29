@@ -245,5 +245,7 @@ settings_pen_areas :: proc(app: ^App) {
 	ui.label(ctx, "Pencil squeeze")
 	gesture_select(app, taps[area][1])
 	ui.paragraph(ctx, "Turn the pen about its own length while it hovers, past the first 10 degrees, and it does this where it points: Twist the view keeps the point under the tip where it is and turns the picture as far as the pen turns, holding level as it passes. Over a slider the roll always sets the slider. A brush whose alpha turns with the pen keeps the roll over the model. Roll needs a pen that reports it (Apple Pencil Pro, some Windows pens).")
+	_ = ui.switch_row(ctx, "Roll while grabbing twists what you hold", &n.grab_twist)
+	ui.paragraph(ctx, "While Grab or Elastic drags, turning the pen past the first 10 degrees turns what it holds about where it took hold, as far as the pen turns, the middle fully and the brush's edge not at all; a symmetric copy turns the mirrored way.")
 	ui.paragraph(ctx, "Double-tap and squeeze come from an Apple Pencil (squeeze from the Pro), and a pencil too far away to hover does what it does over the model. Follow the Pencil setting does what the iPad's Settings > Apple Pencil asks: the palette at the tip opens the brush pie, the eraser turns Smooth on or off. Off there turns them off here too.")
 }
