@@ -1,6 +1,5 @@
 package main
 
-import "core:log"
 import "core:math"
 import "core:math/linalg"
 import "core:time"
@@ -673,8 +672,7 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 			st.grab_normal = linalg.normalize0(to_world_dir(t, n))
 		}
 	}
-	st.cloth = .Cloth in flags && !object_dynamic(obj)
-	if .Cloth in flags && !st.cloth do log.warn("cloth: not with dynamic topology on")
+	st.cloth = .Cloth in flags
 	st.start, st.at = s.pos, local
 	st.pivot_sum, st.pivot_count = local, 1
 	// A drag dot lays its dab at the press, then slides it.

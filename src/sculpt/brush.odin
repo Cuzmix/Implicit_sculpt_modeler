@@ -372,6 +372,7 @@ Sculptor :: struct {
 	locked:       Locked_Plane,
 	steady:       Locked_Plane, // Stabilize orientation's running mean, as `locked` is kept
 	trim:         Trim_State, // Trim dynamic's eased angle over the stroke
+	stretch:      Stretch, // where a Snake hook or Cloth stroke pulled, for sculptor_stretch_repair
 	connected:    Connected_State,
 	// Set while dynamic topology is on (dyntopo.odin): the mesh is laid out in pages,
 	// `faces` and the shared lists above are replaced, and there are no LOD copies.
@@ -1066,6 +1067,7 @@ dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3, img: Sym_Image, own: 
 	if brush.kind == .Snake_Hook && brush.hook_elastic do reach = ELASTIC_REACH * brush.radius
 	// Clay strips' square tip reaches its corners.
 	if brush.kind == .Clay_Strips && brush.alpha == nil do reach = math.SQRT_TWO * brush.radius
+	if brush.kind == .Snake_Hook do stretch_note(s, center, reach, brush.drag, brush.radius * brush.detail)
 	// Projected reaches a cylinder a radius round the view line and a radius deep each
 	// way, whose rim corners lie √2 radii out.
 	view: Vec3
