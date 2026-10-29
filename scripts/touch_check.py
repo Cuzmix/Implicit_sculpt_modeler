@@ -6442,6 +6442,38 @@ def single_tap_dab_lands_after_the_gap():
     return s, [], camera_still({"pinned": near(0), "undo_steps": near(1), "dabs": lambda v: int(v) >= 1})
 
 
+# The middle and right spheres of THREE on screen; the left one starts selected.
+SPHERE_2, SPHERE_3 = (647, 430), (860, 480)
+
+
+@scenario
+def tap_another_object_switches_to_it():
+    """A finger tap on an object that is not the selected one selects it and sculpts nothing; a second tap on it,
+    now selected, lays a dab; a stroke on another object still sculpts it; a double tap there pins the pivot without
+    dabs; with Tap another object to switch to it off, the tap sculpts it as before; and where one finger turns the
+    view, a tap still switches."""
+    def taps(*points, wait=24):
+        s = Script()
+        for p in points:
+            s.ftap(*p)
+            s.wait(wait)
+        return s
+    stroke = Script()
+    stroke.fdrag(line(SPHERE_3, (SPHERE_3[0] + 60, SPHERE_3[1] + 20), 12))
+    stroke.wait(4)
+    pin = Script()
+    double_tap(pin, *SPHERE_2)
+    pin.wait(24)
+    return Steps([
+        (taps(SPHERE_3), THREE, ({"selected": near(2), "tap_switches": near(1), "dabs": near(0), "undo_steps": near(0)})),
+        (taps(SPHERE_3, SPHERE_3), THREE, ({"selected": near(2), "tap_switches": near(1), "undo_steps": near(1), "dabs": lambda v: int(v) >= 1})),
+        (stroke, THREE, ({"selected": near(2), "tap_switches": near(0), "undo_steps": near(1)})),
+        (pin, THREE, ({"selected": near(1), "pinned": near(1), "dabs": near(0), "undo_steps": near(0)})),
+        (taps(SPHERE_3), THREE + ["--script=set tap_switches 0"], ({"selected": near(2), "tap_switches": near(0), "undo_steps": near(1)})),
+        (taps(SPHERE_3), THREE + ["--script=set finger_model orbit"], ({"selected": near(2), "tap_switches": near(1), "dabs": near(0)})),
+    ])
+
+
 @scenario
 def tap_dab_waits_for_nothing_else():
     """A tap's dab then an Undo tap on the panel straight after: the dab plays first, so Undo takes it back."""
@@ -6887,9 +6919,9 @@ def gesture_any_command_from_search():
     s.add("move:900,600")
     s.wait(1)
     # Down the tab to the gesture map's last row, Pen side button.
-    s.add("wheel:-5")
+    s.add("wheel:-6")
     s.wait(20)
-    s.ftap(1063, 668)
+    s.ftap(1063, 656)
     s.wait(12)
     # Its list opens above it; the list's last row is Any command...
     for _ in range(10):
