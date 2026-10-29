@@ -1,5 +1,6 @@
 package main
 
+import "core:math/linalg"
 import "core:testing"
 import sdl "vendor:sdl3"
 
@@ -71,4 +72,39 @@ pen_sample_leans_from_uikit_angles :: proc(t: ^testing.T) {
 	testing.expect(t, abs(right.x - 45) < 0.01 && abs(right.y) < 0.01)
 	down := pencil_lean_uikit(1.5707963, 0.7853982)
 	testing.expect(t, abs(down.x) < 0.01 && abs(down.y - 45) < 0.01)
+}
+
+// While a stroke draws, the brush ring leads the pointer by a frame of its motion, or by
+// the platform's predicted sample in the frame one came, never past PREDICT_MAX_PX; with
+// the setting off, before the pointer has moved, or under a trailing brush it stays put.
+@(test)
+cursor_lead_runs_ahead_of_the_pointer :: proc(t: ^testing.T) {
+	app: App
+	defer delete(app.samples)
+	app.pen_samples = {event_type = 0x9000, open = -1}
+	app.nav.predict_cursor, app.stroke.active = true, true
+	app.brush.smoothing = 1
+	press := Viewport_Input{primary = true, mouse_pos = {100, 50}}
+	cursor_predict_frame(&app, press)
+	testing.expect_value(t, cursor_lead(&app), [2]f32{})
+	press.mouse_pos = {110, 54}
+	cursor_predict_frame(&app, press)
+	testing.expect_value(t, cursor_lead(&app), [2]f32{10, 4})
+	testing.expect_value(t, ring_center(&app, press), [2]f32{120, 58})
+
+	ahead := pen_sample_event(app.pen_samples.event_type + 1, {offset = {6, 0}})
+	testing.expect(t, pen_samples_event(&app, &ahead))
+	cursor_predict_frame(&app, press)
+	testing.expect_value(t, cursor_lead(&app), [2]f32{6, 0})
+	// The next frame has none of its own, and goes back to the motion (none: it stood still).
+	cursor_predict_frame(&app, press)
+	testing.expect_value(t, cursor_lead(&app), [2]f32{})
+
+	press.mouse_pos = {210, 54}
+	cursor_predict_frame(&app, press)
+	testing.expect(t, abs(linalg.length(cursor_lead(&app)) - PREDICT_MAX_PX) < 1e-3)
+	app.brush.lazy_px = 30
+	testing.expect_value(t, cursor_lead(&app), [2]f32{})
+	app.brush.lazy_px, app.nav.predict_cursor = 0, false
+	testing.expect_value(t, cursor_lead(&app), [2]f32{})
 }

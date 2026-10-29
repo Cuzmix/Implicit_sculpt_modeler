@@ -2,6 +2,7 @@ package main
 
 import "core:fmt"
 
+import "../render"
 import "../sculpt"
 import "../ui"
 
@@ -106,6 +107,7 @@ kit_stats :: proc(app: ^App) -> (raised: bool) {
 			ui.value_row(ctx, "Pen samples recovered  samples_coalesced", fmt.tprintf("%d", p.coalesced))
 		}
 		ui.value_row(ctx, "Viewport", fmt.tprintf("%d x %d px", app.target.width, app.target.height))
+		ui.value_row(ctx, "Present mode  present_mode", fmt.tprintf("%s (offered: %s)", render.renderer_present_name(&app.renderer), present_offers(app)))
 		undo_bytes := 0
 		for obj in app.scene.objects {
 			for lv in obj.levels.levels do undo_bytes += sculpt.sculptor_undo_bytes(&lv.sculptor)

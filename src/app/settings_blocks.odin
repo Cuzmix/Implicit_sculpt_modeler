@@ -38,6 +38,7 @@ Settings_Block :: enum u8 {
 	Hold,
 	Pen_Empty,
 	Pen_Tips,
+	Pen_Predict,
 	Pen_Buttons,
 	Palm,
 	Gesture_Switches,
@@ -96,6 +97,7 @@ SETTINGS_TOUCH := [?]Settings_Entry {
 	{.Hold, "PRESS AND HOLD"},
 	{.Pen_Empty, "PEN AND MOUSE ON EMPTY SPACE"},
 	{.Pen_Tips, "PEN"},
+	{.Pen_Predict, ""},
 	{.Pen_Buttons, ""},
 	{.Palm, ""},
 	{.Gesture_Switches, "GESTURES"},
@@ -157,6 +159,7 @@ SETTINGS_BLOCK_WORDS := [Settings_Block]string {
 	.Hold             = "press and hold delay long press",
 	.Pen_Empty        = "pen mouse empty space waits for the model",
 	.Pen_Tips         = "pen hover names tooltips",
+	.Pen_Predict      = "predict the cursor brush ring ahead latency lag pen",
 	.Pen_Buttons      = "apple pencil double tap squeeze second button barrel eraser end flip",
 	.Palm             = "palm rejection ignore the hand pen near",
 	.Gesture_Switches = "gestures pinch zoom two-finger pan twist roll three fingers lift double tap",
@@ -365,6 +368,9 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 		tips := [len(Pen_Tips)]string{"Always", "With a keyboard", "Never"}
 		if picked := ui.tabs(ctx, "Pen hover names", tips[:], int(n.pen_tips)); picked >= 0 do n.pen_tips = Pen_Tips(picked)
 		ui.paragraph(ctx, "The pen held over a control without touching shows its name and shortcut, as the mouse resting on it does. With a keyboard shows them only while one is connected; a long press always shows them.")
+	case .Pen_Predict:
+		_ = ui.switch_row(ctx, "Predict the cursor", &n.predict_cursor)
+		ui.paragraph(ctx, "While a stroke draws, the brush ring runs ahead to where the pen will be when the screen shows it, so it keeps up with a fast stroke. Only the ring: the stroke goes where the pen went.")
 	case .Pen_Buttons:
 		settings_pen_buttons(app)
 	case .Palm:
@@ -508,6 +514,7 @@ settings_block_reset :: proc(app: ^App, b: Settings_Block) {
 	case .Hold:            n.hold_delay = d.hold_delay
 	case .Pen_Empty:       n.empty_drag = d.empty_drag
 	case .Pen_Tips:        n.pen_tips = d.pen_tips
+	case .Pen_Predict:     n.predict_cursor = d.predict_cursor
 	case .Pen_Buttons:
 		for slot in PENCIL_SLOTS do n.gestures[slot] = d.gestures[slot]
 		n.eraser = d.eraser

@@ -147,6 +147,7 @@ App :: struct {
 	stroke_end:  Stroke_End, // where the last stroke ended, for Join strokes
 	samples:  [dynamic]Input_Sample, // this frame's pointer samples, in window coordinates
 	pen_samples: Pen_Samples, // the pen's samples between frames, which SDL leaves out
+	predict:     Cursor_Predict, // where the pointer will be when the frame shows (cursor_lead)
 	pen_pressure: f32, // the pen's latest pressure
 	pen_tilt: [2]f32, // the pen's latest lean in degrees, x to the right and y down
 	// How far the hovering pen is above the screen, 0 touching to 1 at the edge of its
@@ -961,6 +962,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		sculpted.dabs += waited_dab.dabs
 		sculpted.raycast_ms += waited_dab.raycast_ms
 		sculpted.brush_ms += waited_dab.brush_ms
+		cursor_predict_frame(&app, input)
 		cursor_update(&app, input)
 		draw_viewport_overlay(&app, input)
 		// No pass is open yet, so a pack matcap first shown this frame can be uploaded
@@ -1264,7 +1266,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			// And a --turntable run until its last frame is written.
 			if (opts.timelapse == "" || (frame_index > opts.bench_stroke && !timeline_busy(&app))) && !replaying && !turntable_recording(&app) do app.running = false
 		}
-		if opts.gpubench != "" && gpubench_end_frame(&app, &bench, time.duration_milliseconds(gpu_wait), time.duration_milliseconds(cpu_time), sculpted.dabs) {
+		if opts.gpubench != "" && gpubench_end_frame(&app, &bench, time.duration_milliseconds(gpu_wait), time.duration_milliseconds(cpu_time), f64(submitted_ns - app.device.input_at) / 1e6, sculpted.dabs) {
 			app.running = false
 			if !gpubench_write(&app, &bench) do return false
 		}
@@ -1804,6 +1806,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	fmt.printfln("simplify=%v last_frame_lod_px=%.2f last_frame_simplified=%d lod_pending=%d", app.simplify, app.renderer.lod_px, v.simplified, lod_pending)
 	if app.stats.lod_ms.count > 0 do print_stat("lod_build_ms", app.stats.lod_ms)
 	fmt.printfln("gpu_backend=%s gpu_choice=%v gpu_fallback=%v", render.backend_name(), app.graphics_start, render.backend_fallback() != "")
+	fmt.printfln("present_mode=%s present_offers=%s", render.renderer_present_name(&app.renderer), present_offers(&app))
 	print_stat("frame_ms", app.stats.frame_ms)
 	print_stat("cpu_ms", app.stats.cpu_ms)
 	print_stat("wait_ms", app.stats.wait_ms)

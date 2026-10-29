@@ -51,8 +51,9 @@ Pen_Sample :: struct {
 // waiting means SDL's newest never came, and the oldest are dropped.
 PEN_WAITING_MAX :: 64
 
-// Registers the user event type the bridges send, and starts this platform's bridge.
-// A failure leaves the type 0, and then the pen gives one sample a frame as before.
+// Registers the two user event types the bridges send (the samples, then the predicted
+// sample), and starts this platform's bridge. A failure leaves the type 0, and then the
+// pen gives one sample a frame as before.
 pen_samples_init :: proc(app: ^App, window: ^sdl.Window = nil) {
 	p := &app.pen_samples
 	p.open = -1
@@ -95,6 +96,14 @@ pen_samples_event :: proc(app: ^App, e: ^sdl.Event) -> bool {
 		}
 		p.waiting[p.waiting_count] = s
 		p.waiting_count += 1
+		return true
+	}
+	// The second type: a platform's predicted sample (the iPad's predicted touches), its
+	// offset from the newest in data1, for the brush ring only (cursor_lead).
+	if u32(e.type) == p.event_type + 1 {
+		a := u64(uintptr(e.user.data1))
+		offset := [2]f32{transmute(f32)u32(a), transmute(f32)u32(a >> 32)}
+		if !math.is_nan(offset.x + offset.y) && !math.is_inf(offset.x + offset.y) do app.predict.platform, app.predict.platform_age = offset, 0
 		return true
 	}
 	#partial switch e.type {

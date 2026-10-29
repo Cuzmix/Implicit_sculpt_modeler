@@ -1242,6 +1242,24 @@ def x_symmetry_stroke_across_the_middle_by_pen():
 
 
 @scenario
+def predicted_ring_leads_a_fast_pen():
+    """A pen stroke at 16 px a frame, still moving when the run ends (its last moves go
+    past the frames the script waits for, into the ten the run adds): the brush ring is
+    drawn a frame's motion ahead of the pen (Predict the cursor; look with --screens),
+    while the dabs end where the pen is, still pressed."""
+    s = Script()
+    s.add("pnear")
+    s.add("ppress:1")
+    s.add("pdown:520,450")
+    for k in range(1, 15):
+        s.wait(1)
+        s.add(f"pmove:{520 + 16 * k},450")
+    for k in range(1, 11):
+        s.add(f"pmove:{744 + 16 * k},450", frame=s.frame + k)
+    return s, [], camera_still({"dabs": lambda v: int(v) > 20, "undo_steps": near(0)})
+
+
+@scenario
 def pen_samples_between_frames_follow_the_curve():
     """A fast pen circle a quarter turn a frame, with three of the pen's samples between frames each frame, as a tablet's bridge sends them (pen_samples.odin): every sample goes in, and the dabs follow the arc (79 of them at 12 px apart) rather than its chords (about 71)."""
     s = Script()

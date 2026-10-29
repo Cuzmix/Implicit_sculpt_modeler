@@ -453,6 +453,18 @@ static void samples_send(Uint32 type, CGPoint offset, float pressure, float azim
 	SDL_PushEvent(&e);
 }
 
+/* The predicted sample: its offset from the newest, packed as samples_send packs one. */
+static void predicted_send(Uint32 type, CGPoint offset)
+{
+	union { float f; Uint32 u; } x = {(float)offset.x}, y = {(float)offset.y};
+	SDL_Event e;
+	SDL_zero(e);
+	e.type = type;
+	e.user.timestamp = SDL_GetTicksNS();
+	e.user.data1 = (void *)(uintptr_t)((Uint64)x.u | (Uint64)y.u << 32);
+	SDL_PushEvent(&e);
+}
+
 /* Once every touch is up, the recogniser fails, which resets it for the next touches;
  * while another finger stays down it keeps watching the pencil. */
 static bool all_touches_over(UIEvent *event)
@@ -478,6 +490,13 @@ static bool all_touches_over(UIEvent *event)
 			CGPoint at = [c locationInView:view];
 			float pressure = c.maximumPossibleForce > 0 ? (float)(c.force / c.maximumPossibleForce) : -1.0f;
 			samples_send(self.eventType, CGPointMake(at.x - now.x, at.y - now.y), pressure, (float)[c azimuthAngleInView:view], (float)c.altitudeAngle);
+		}
+		/* UIKit's guess at where the Pencil will be by the time a frame shows: the furthest
+		 * of its predicted touches, for the brush ring only (cursor_lead in cursor.odin). */
+		UITouch *ahead = [event predictedTouchesForTouch:touch].lastObject;
+		if (ahead) {
+			CGPoint at = [ahead locationInView:view];
+			predicted_send(self.eventType + 1, CGPointMake(at.x - now.x, at.y - now.y));
 		}
 	}
 }
