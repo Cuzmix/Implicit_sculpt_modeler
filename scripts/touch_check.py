@@ -6683,37 +6683,41 @@ def diag_hover_slider_holds_still():
     return s, ["--diag-test=hover_slider"], {"diag_auto": is_text("pass"), "diag_slider": near(50, 1e-2)}
 
 
+# The degrees a hovering pen turns on a control before its roll sets it (src/ui/widgets.odin).
+ROLL_ENGAGE = 10
+
+
 @scenario
 def diag_roll_right_raises_the_value():
-    """Barrel roll to the right: the pen hovering on the slider and turned 40 degrees clockwise raises it by 40/180 of its range, a pass."""
+    """Barrel roll to the right: the pen hovering on the slider and turned 40 degrees clockwise raises it by the 30 past the first ROLL_ENGAGE (10), 30/180 of its range, a pass."""
     s = Script()
     pen_hover(s, *DIAG["slider"], frames=4)
     for deg in (0, 10, 20, 30, 40):
         s.add(f"proll:{deg}")
         s.wait(2)
-    return s, ["--diag-test=roll_right"], {"diag_auto": is_text("pass"), "diag_slider": near(50 + 100 * 40 / 180, 0.05)}
+    return s, ["--diag-test=roll_right"], {"diag_auto": is_text("pass"), "diag_slider": near(50 + 100 * (40 - ROLL_ENGAGE) / 180, 0.05)}
 
 
 @scenario
 def diag_roll_left_lowers_the_value():
-    """Barrel roll to the left: turned 40 degrees anticlockwise, the slider goes down, a pass."""
+    """Barrel roll to the left: turned 40 degrees anticlockwise, the slider goes down by the 30 past the first ROLL_ENGAGE, a pass."""
     s = Script()
     pen_hover(s, *DIAG["slider"], frames=4)
     for deg in (0, -10, -20, -30, -40):
         s.add(f"proll:{deg}")
         s.wait(2)
-    return s, ["--diag-test=roll_left"], {"diag_auto": is_text("pass"), "diag_slider": near(50 - 100 * 40 / 180, 0.05)}
+    return s, ["--diag-test=roll_left"], {"diag_auto": is_text("pass"), "diag_slider": near(50 - 100 * (40 - ROLL_ENGAGE) / 180, 0.05)}
 
 
 @scenario
 def diag_roll_wraps_without_a_jump():
-    """Barrel roll past half a turn: the reported angle wraps from 170 to -170 and the slider moves on by the small turn, a pass."""
+    """Barrel roll past half a turn: the reported angle wraps from 170 to -170 and the slider moves on by the small turn, the 50 degrees less the first ROLL_ENGAGE, a pass."""
     s = Script()
     pen_hover(s, *DIAG["slider"], frames=4)
     for deg in (150, 160, 170, 180, -170, -160):
         s.add(f"proll:{deg}")
         s.wait(2)
-    return s, ["--diag-test=roll_wrap"], {"diag_auto": is_text("pass"), "diag_slider": near(50 + 100 * 50 / 180, 0.05)}
+    return s, ["--diag-test=roll_wrap"], {"diag_auto": is_text("pass"), "diag_slider": near(50 + 100 * (50 - ROLL_ENGAGE) / 180, 0.05)}
 
 
 @scenario
