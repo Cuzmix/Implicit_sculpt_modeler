@@ -28,10 +28,17 @@ Gesture_Slot :: enum u8 {
 	Pen_Button_2,
 	Pen_Double_Tap,
 	Pen_Squeeze,
+	// The pencil's double-tap and squeeze while it points at empty space (pen_roll.odin);
+	// the two above are theirs over the model.
+	Pen_Double_Tap_Empty,
+	Pen_Squeeze_Empty,
 }
 
+// Whether the platform has the Apple Pencil's double-tap and squeeze (ios/sculpt_ios.m).
+PENCIL_GESTURES :: ODIN_PLATFORM_SUBTARGET_IOS
+
 // The slots Settings > Pen lists instead of the gesture map.
-PENCIL_SLOTS :: bit_set[Gesture_Slot]{.Pen_Button_2, .Pen_Double_Tap, .Pen_Squeeze}
+PENCIL_SLOTS :: bit_set[Gesture_Slot]{.Pen_Button_2, .Pen_Double_Tap, .Pen_Squeeze, .Pen_Double_Tap_Empty, .Pen_Squeeze_Empty}
 
 // The order Settings lists the slots in: the taps by fingers, the holds, the pen, then
 // the pen's own, which the map leaves to Settings > Pen.
@@ -48,6 +55,8 @@ GESTURE_SLOT_ORDER := [Gesture_Slot]Gesture_Slot {
 	.Pen_Button_2   = .Pen_Button_2,
 	.Pen_Double_Tap = .Pen_Double_Tap,
 	.Pen_Squeeze    = .Pen_Squeeze,
+	.Pen_Double_Tap_Empty = .Pen_Double_Tap_Empty,
+	.Pen_Squeeze_Empty    = .Pen_Squeeze_Empty,
 }
 
 GESTURE_SLOT_NAMES := [Gesture_Slot]string {
@@ -62,6 +71,8 @@ GESTURE_SLOT_NAMES := [Gesture_Slot]string {
 	.Pen_Button_2   = "Pen second button",
 	.Pen_Double_Tap = "Pencil double-tap",
 	.Pen_Squeeze    = "Pencil squeeze",
+	.Pen_Double_Tap_Empty = "Pencil double-tap on empty space",
+	.Pen_Squeeze_Empty    = "Pencil squeeze on empty space",
 }
 
 GESTURE_DEFAULTS :: [Gesture_Slot]Pie_Slot {
@@ -77,6 +88,10 @@ GESTURE_DEFAULTS :: [Gesture_Slot]Pie_Slot {
 	.Pen_Button_2   = {},
 	.Pen_Double_Tap = {.Pencil_Preferred, 0},
 	.Pen_Squeeze    = {.Pencil_Preferred, 0},
+	// Over empty space a double-tap frames the model, as a finger's double tap there does;
+	// a squeeze still does what the iPad asks.
+	.Pen_Double_Tap_Empty = {.Frame_All, 0},
+	.Pen_Squeeze_Empty    = {.Pencil_Preferred, 0},
 }
 
 // What a gesture's select lists in Settings: what a tablet without a keyboard reaches for,
@@ -156,8 +171,11 @@ gesture_text :: proc(app: ^App, id: Command_Id, arg: int) -> string {
 			fmt.sbprintf(&b, "Hold %s fingers still", count)
 		}
 	}
-	for slot in ([?]Gesture_Slot{.Pen_Button, .Pen_Button_2, .Pen_Double_Tap, .Pen_Squeeze, .One_Tap}) {
+	for slot in ([?]Gesture_Slot{.Pen_Button, .Pen_Button_2, .Pen_Double_Tap, .Pen_Squeeze, .Pen_Double_Tap_Empty, .Pen_Squeeze_Empty, .One_Tap}) {
 		if !is(app, slot, id, arg) do continue
+		// The Apple Pencil's own gestures only where one can be paired: elsewhere the
+		// default empty-space double-tap would name itself under Frame all for nothing.
+		if !PENCIL_GESTURES && (slot == .Pen_Double_Tap || slot == .Pen_Squeeze || slot == .Pen_Double_Tap_Empty || slot == .Pen_Squeeze_Empty) do continue
 		if strings.builder_len(b) > 0 do strings.write_string(&b, ", ")
 		strings.write_string(&b, "One-finger tap on empty space" if slot == .One_Tap else GESTURE_SLOT_NAMES[slot])
 	}
@@ -231,7 +249,7 @@ gesture_select :: proc(app: ^App, slot: Gesture_Slot, width: f32 = 0) {
 	s := &app.nav.gestures[slot]
 	choices := make([dynamic]Pie_Slot, 0, len(GESTURE_CHOICES) + 3, context.temp_allocator)
 	append(&choices, Pie_Slot{})
-	if slot == .Pen_Double_Tap || slot == .Pen_Squeeze do append(&choices, Pie_Slot{.Pencil_Preferred, 0})
+	if slot == .Pen_Double_Tap || slot == .Pen_Squeeze || slot == .Pen_Double_Tap_Empty || slot == .Pen_Squeeze_Empty do append(&choices, Pie_Slot{.Pencil_Preferred, 0})
 	append(&choices, ..GESTURE_CHOICES[:])
 	chosen := -1
 	for c, i in choices do if c == s^ {chosen = i; break}
