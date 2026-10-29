@@ -140,7 +140,19 @@ kit_brush_options :: proc(app: ^App) {
 	_ = ui.switch_row(ctx, "Lock plane", &b.lock_plane, locks, keys = command_hint(app, .Lock_Plane))
 	// All depth reaches past what Connected's flood keeps to, so on Grab it wins.
 	_ = ui.switch_row(ctx, "Connected only", &b.connected, .Cloth not_in flags && !(b.kind == .Grab && b.grab_depth), keys = command_hint(app, .Connected))
-	if b.kind == .Grab do _ = ui.switch_row(ctx, "All depth", &b.grab_depth)
+	if b.kind == .Grab {
+		_ = ui.switch_row(ctx, "All depth", &b.grab_depth)
+		// Which way the drag moves it: Shift mid-grab takes Along normal and Alt Along
+		// surface, whatever this says, for a pen with no keys to hand.
+		if picked := ui.tabs(ctx, "grab moves", {"Free", "Along normal", "Along surface"}, int(b.grab_mode)); picked >= 0 do b.grab_mode = Grab_Mode(picked)
+		if kit_more(app, .Options) {
+			if b.grab_mode == .Free do _ = ui.slider(ctx, "Normal weight", &b.grab_normal, 0, 1, .Linear, fmt.tprintf("%.0f%%", b.grab_normal * 100))
+			_ = ui.switch_row(ctx, "Same side", &b.grab_same_side)
+			_ = ui.switch_row(ctx, "Silhouette", &b.grab_silhouette)
+			ui.paragraph(ctx, "Free moves what Grab holds as the pointer goes; Along normal pulls it out along the surface's normal where it was pressed (Shift mid-grab), toward where that normal points on screen; Along surface slides it across the surface (Alt mid-grab). Normal weight moves a Free drag that much along the normal instead. Same side picks up only what faces the way the pressed surface does, never the far side of a thin part. Silhouette moves only what faces the way it is dragged, so pulling an edge out leaves the side behind it. Grab takes hold from just past the model's edge too, at the nearest point within the brush ring.")
+			kit_more_end(app)
+		}
+	}
 	if b.kind == .Smooth {
 		if picked := ui.tabs(ctx, "smooth only", {"All", "Valleys", "Peaks"}, int(b.smooth_only)); picked >= 0 do b.smooth_only = sculpt.Smooth_Only(picked)
 	}
