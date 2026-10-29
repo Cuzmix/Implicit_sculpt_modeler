@@ -99,7 +99,7 @@ kit_transform :: proc(app: ^App, obj: ^Object) {
 		_ = ui.drag_value(ctx, fmt.tprintf("Position %s", axis), &tr.position[i], 0.005, -1e4, 1e4, fmt.tprintf("%.3f", tr.position[i]))
 	}
 	_ = ui.drag_value(ctx, "Scale", &tr.scale, 0.005, MIN_OBJECT_SCALE, MAX_OBJECT_SCALE, fmt.tprintf("%.3f", tr.scale))
-	ui.paragraph(ctx, fmt.tprintf("Drag sideways on a value to change it, or use the Move tool's gizmo (%s steps it through move, turn and scale).", command_keys(app, .Tool_Move)))
+	ui.paragraph(ctx, fmt.tprintf("Drag sideways on a value to change it, or use the Move tool's gizmo (%s steps it through move, turn, scale and all three at once).", command_keys(app, .Tool_Move)))
 	if kit_more(app, .Transform) {
 		for axis, i in axes {
 			if ui.drag_value(ctx, fmt.tprintf("Turn about %s", axis), &tr.rotation[i], 0.5, -1e6, 1e6, fmt.tprintf("%.1f°", tr.rotation[i])) {

@@ -15,6 +15,18 @@ VIEW_RING_SCALE :: 1.25
 // The plane squares span this share of the arms, from the centre outward.
 SQUARE_FROM :: 0.28
 SQUARE_TO :: 0.48
+// The All mode, in shares of the arm: the axis rings shrink so the view ring (a quarter
+// further out) stays inside the arms, which run on to arrows past it, so no ring ever
+// hides an arrow; a scale knob sits on each arm between the plane squares and the rings,
+// far enough from both for a finger to tell them apart.
+ALL_RING :: 0.85
+ALL_ARM :: 1.35
+KNOB_AT :: 0.62
+// Half a scale knob's side, in pixels; it picks within this plus the pointer's grow.
+KNOB_PX :: 6
+// The All mode's arrowheads: their length and half their width, in pixels.
+ARROW_PX :: 12
+ARROW_HALF_PX :: 6
 
 // The turn of `degrees` about x, then y, then z, as Transform.rotation stores it.
 rotation_matrix :: proc(degrees: Vec3) -> Mat3 {

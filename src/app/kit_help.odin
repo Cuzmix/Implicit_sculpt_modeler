@@ -118,6 +118,7 @@ MOUSE_HELP := [?]Help_Line {
 	{group = "MOUSE", what = "Select an object", how = "Click it", show = move_tool},
 	{group = "MOUSE", what = "Move it", how = "Drag it, a gizmo arm or square", show = move_tool},
 	{group = "MOUSE", what = "Turn or scale it", how = "W again, then drag a ring or the middle", show = move_tool},
+	{group = "MOUSE", what = "Move, turn and scale in one gizmo", how = "W until All: arrows, rings, knobs", show = move_tool},
 	{group = "MOUSE", what = "Snap a gizmo drag", how = "Ctrl while dragging", show = move_tool},
 	{group = "MOUSE", what = "Put it back mid-drag", how = "Esc", show = move_tool},
 	{group = "MOUSE", what = "Type a handle's value", how = "Click the handle without moving", show = move_tool},

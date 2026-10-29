@@ -265,39 +265,105 @@ draw_gizmo :: proc(app: ^App, o: Overlay, input: Viewport_Input) {
 		r := f32(gizmo.CENTER_PX) * px
 		overlay_box(o, sc.center - r, sc.center + r, color_of(.View, active, {1, 1, 1, 0.85}), {}, 2 * px)
 	case .Turn:
-		// The far half of each axis ring dims, so which way it turns reads.
-		for i in 0 ..< 4 {
-			if !sc.ring_ok[i] do continue
-			h := gizmo.Handle(int(gizmo.Handle.Turn_X) + i)
-			c := colors[i] if i < 3 else [4]f32{1, 1, 1, 0.8}
-			width := (3 if h == active else 2) * px
-			for k in 0 ..< gizmo.RING_POINTS {
-				next := (k + 1) % gizmo.RING_POINTS
-				shade := c
-				if !sc.ring_front[i][k] || !sc.ring_front[i][next] do shade.a *= 0.3
-				overlay_line(o, sc.rings[i][k], sc.rings[i][next], color_of(h, active, shade), width)
-			}
-		}
-		if d := m.drag; d.live && drag_mode(d.handle) == .Turn {
-			// From the middle to the pointer: the angle the drag is turning through.
-			overlay_line(o, sc.center, input.mouse_pos, overlay_color(GIZMO_HIGHLIGHT), 1.5 * px)
-		}
+		draw_turn_rings(o, sc, active, px)
+		draw_turn_drag(app, o, sc, input, px)
 		overlay_disc(o, sc.center, 3 * px, overlay_color({1, 1, 1, 0.85}))
 	case .Scale:
 		color := color_of(.Scale, active, {1, 1, 1, 0.85})
 		overlay_circle(o, sc.center, sc.arm_px, color, 2 * px)
 		overlay_disc(o, sc.center, gizmo.SCALE_DISC_PX * px, overlay_color(GIZMO_HIGHLIGHT if active == .Scale else {1, 1, 1, 0.5}))
-		if d := m.drag; d.live && d.handle == .Scale {
-			overlay_circle(o, sc.center, linalg.length(input.mouse_pos - d.center), overlay_color({1, 0.85, 0.3, 0.6}), 1.5 * px)
+		draw_scale_drag(app, o, input, px)
+	case .All:
+		// Rings first, then the squares, arms and knobs over them, in the order they pick.
+		draw_turn_rings(o, sc, active, px)
+		draw_plane_squares(o, sc, active, px)
+		for i in 0 ..< 3 {
+			if !gizmo.all_arm_shows(sc, i) do continue
+			color := color_of(gizmo.Handle(int(gizmo.Handle.X) + i), active, colors[i])
+			overlay_line(o, sc.center, sc.ends[i], color, 3 * px)
+			draw_arrowhead(o, sc.center, sc.ends[i], color, px)
 		}
+		// The knobs all scale evenly, so they share one colour rather than their axes'.
+		knob := color_of(.Scale, active, {1, 1, 1, 0.95})
+		for i in 0 ..< 3 {
+			if !gizmo.all_arm_shows(sc, i) do continue
+			r := f32(gizmo.KNOB_PX) * px
+			overlay_box(o, sc.knobs[i] - r, sc.knobs[i] + r, overlay_color({0.1, 0.1, 0.12, 0.9}), knob, 1.5 * px)
+		}
+		r := f32(gizmo.CENTER_PX) * px
+		overlay_box(o, sc.center - r, sc.center + r, color_of(.View, active, {1, 1, 1, 0.85}), {}, 2 * px)
+		draw_turn_drag(app, o, sc, input, px)
+		draw_scale_drag(app, o, input, px)
 	}
 	draw_move_labels(app, o, input)
+}
+
+// The turn rings of a gizmo seen as `sc`, `active` lit: the far half of each axis ring
+// dims, so which way it turns reads; the view ring stays whole.
+@(private = "file")
+draw_turn_rings :: proc(o: Overlay, sc: gizmo.Screen, active: gizmo.Handle, px: f32) {
+	colors := GIZMO_AXIS_COLORS
+	for i in 0 ..< 4 {
+		if !sc.ring_ok[i] do continue
+		h := gizmo.Handle(int(gizmo.Handle.Turn_X) + i)
+		c := colors[i] if i < 3 else [4]f32{1, 1, 1, 0.8}
+		width := (3 if h == active else 2) * px
+		for k in 0 ..< gizmo.RING_POINTS {
+			next := (k + 1) % gizmo.RING_POINTS
+			shade := c
+			if !sc.ring_front[i][k] || !sc.ring_front[i][next] do shade.a *= 0.3
+			overlay_line(o, sc.rings[i][k], sc.rings[i][next], overlay_color(GIZMO_HIGHLIGHT if h == active else shade), width)
+		}
+	}
+}
+
+// While a ring is dragged, a line from the middle to the pointer: the angle the drag is
+// turning through.
+@(private = "file")
+draw_turn_drag :: proc(app: ^App, o: Overlay, sc: gizmo.Screen, input: Viewport_Input, px: f32) {
+	if d := app.move.drag; d.live && drag_mode(d.handle) == .Turn {
+		overlay_line(o, sc.center, input.mouse_pos, overlay_color(GIZMO_HIGHLIGHT), 1.5 * px)
+	}
+}
+
+// While the scale is dragged, a circle through the pointer about the middle: how far out
+// it is, which is what the factor follows.
+@(private = "file")
+draw_scale_drag :: proc(app: ^App, o: Overlay, input: Viewport_Input, px: f32) {
+	if d := app.move.drag; d.live && d.handle == .Scale {
+		overlay_circle(o, d.center, linalg.length(input.mouse_pos - d.center), overlay_color({1, 0.85, 0.3, 0.6}), 1.5 * px)
+	}
+}
+
+// An arrowhead at `tip`, pointing away from `from`, as the All mode's arms end.
+@(private = "file")
+draw_arrowhead :: proc(o: Overlay, from, tip: [2]f32, color: ui.Color, px: f32) {
+	way := linalg.normalize0(tip - from)
+	if way == {} do return
+	side := [2]f32{-way.y, way.x} * (gizmo.ARROW_HALF_PX * px)
+	base := tip - way * (gizmo.ARROW_PX * px)
+	head := [3][2]f32{tip + way * (2 * px), base + side, base - side}
+	overlay_fill(o, head[:], color)
 }
 
 // The move handles of a gizmo seen as `sc`, `active` lit: the plane squares first,
 // under the arms, each in the colour of the axis it holds still, then an arm along each
 // axis. The middle is the caller's: the Move tool's square, a light's marker.
 draw_move_handles :: proc(o: Overlay, sc: gizmo.Screen, active: gizmo.Handle, px: f32) {
+	colors := GIZMO_AXIS_COLORS
+	draw_plane_squares(o, sc, active, px)
+	for i in 0 ..< 3 {
+		if !gizmo.arm_shows(sc, i) do continue
+		color := overlay_color(GIZMO_HIGHLIGHT if gizmo.Handle(int(gizmo.Handle.X) + i) == active else colors[i])
+		overlay_line(o, sc.center, sc.tips[i], color, 3 * px)
+		overlay_disc(o, sc.tips[i], 5 * px, color)
+	}
+}
+
+// The plane squares of a gizmo seen as `sc`, each in the colour of the axis it holds
+// still, `active` lit.
+@(private = "file")
+draw_plane_squares :: proc(o: Overlay, sc: gizmo.Screen, active: gizmo.Handle, px: f32) {
 	colors := GIZMO_AXIS_COLORS
 	color_of :: proc(h, active: gizmo.Handle, c: [4]f32) -> ui.Color {
 		return overlay_color(GIZMO_HIGHLIGHT if h == active else c)
@@ -311,12 +377,6 @@ draw_move_handles :: proc(o: Overlay, sc: gizmo.Screen, active: gizmo.Handle, px
 		overlay_fill(o, q[:], color_of(h, active, c))
 		c.a = 0.9
 		overlay_polyline(o, q[:], color_of(h, active, c), 1.5 * px, closed = true)
-	}
-	for i in 0 ..< 3 {
-		if !gizmo.arm_shows(sc, i) do continue
-		color := color_of(gizmo.Handle(int(gizmo.Handle.X) + i), active, colors[i])
-		overlay_line(o, sc.center, sc.tips[i], color, 3 * px)
-		overlay_disc(o, sc.tips[i], 5 * px, color)
 	}
 }
 
