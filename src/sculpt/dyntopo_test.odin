@@ -637,3 +637,60 @@ dyn_smooth_only_collapses :: proc(t: ^testing.T) {
 	testing.expectf(t, sculptor_triangle_count(s) < fine * 3 / 4, "%d triangles after the fine Draw, %d after smoothing", fine, sculptor_triangle_count(s))
 	testing.expectf(t, euler(s) == 2, "Euler characteristic %d", euler(s))
 }
+
+// A fully masked area keeps its triangles both ways: a coarse detail that collapses short
+// edges unmasked collapses none masked, as a fine one that splits splits none.
+@(test)
+dyn_mask_keeps_the_triangles :: proc(t: ^testing.T) {
+	for masked in ([2]bool{false, true}) {
+		sp := dyn_make(t, 3)
+		defer dyn_free(sp)
+		s := &sp.sculptor
+		if masked do _ = sculptor_mask_command(s, .Fill)
+		splits0, collapses0 := sculptor_dyn_edits(s)
+		_ = apply_dab(s, {kind = .Draw, radius = 0.5, strength = 0.05, detail = 0.9, collapse = true}, {0, 0, 1})
+		_, collapses := sculptor_dyn_edits(s)
+		_ = apply_dab(s, {kind = .Draw, radius = 0.5, strength = 0.05, detail = 0.05}, {0, 0, 1})
+		splits, _ := sculptor_dyn_edits(s)
+		if masked {
+			testing.expectf(t, splits == splits0 && collapses == collapses0, "masked: %d splits, %d collapses", splits - splits0, collapses - collapses0)
+		} else {
+			testing.expectf(t, splits > splits0 && collapses > collapses0, "unmasked: %d splits, %d collapses", splits - splits0, collapses - collapses0)
+		}
+		if !expect_valid(t, s) do return
+	}
+}
+
+// Detail follows the falloff: a dab refines less with it, and what it adds lies nearer the
+// centre, where the falloff is strong, than at the rim, where it is weak.
+@(test)
+dyn_detail_follows_the_falloff :: proc(t: ^testing.T) {
+	// The triangles near the dab's centre and in its rim; new vertices go into each node's
+	// page, so the triangles are counted by where they lie rather than where they are stored.
+	rings :: proc(s: ^Sculptor) -> (centre, rim: int) {
+		idx := s.mesh.indices[:]
+		for n in s.nodes do for f in n.tri_first ..< n.tri_first + n.tri_count {
+			tri := idx[3 * f:][:3]
+			c := (s.mesh.positions[tri[0]] + s.mesh.positions[tri[1]] + s.mesh.positions[tri[2]]) / 3 - Vec3{0, 0, 1}
+			d2 := linalg.dot(c, c)
+			if d2 < 0.25 * 0.25 do centre += 1
+			else if d2 > 0.42 * 0.42 && d2 < 0.6 * 0.6 do rim += 1
+		}
+		return
+	}
+	count :: proc(t: ^testing.T, follow: bool) -> (splits, centre, rim: int) {
+		sp := dyn_make(t, 2)
+		defer dyn_free(sp)
+		s := &sp.sculptor
+		centre0, rim0 := rings(s)
+		_ = apply_dab(s, {kind = .Draw, radius = 0.6, strength = 0.05, detail = 0.06, detail_falloff = follow}, {0, 0, 1})
+		splits, _ = sculptor_dyn_edits(s)
+		centre, rim = rings(s)
+		centre, rim = centre - centre0, rim - rim0
+		testing.expect(t, expect_valid(t, s))
+		return
+	}
+	plain, plain_centre, plain_rim := count(t, false)
+	follow, follow_centre, follow_rim := count(t, true)
+	testing.expectf(t, follow > 0 && follow < plain && follow_centre > 0 && follow_rim * plain_centre < plain_rim * follow_centre, "splits %d plain (centre +%d, rim +%d), %d following the falloff (centre +%d, rim +%d)", plain, plain_centre, plain_rim, follow, follow_centre, follow_rim)
+}

@@ -116,9 +116,19 @@ Brush_Settings :: struct {
 	radial_count:      i32,
 	radial_axis:       sculpt.Axis,
 	// On objects with dynamic topology: edges under the brush longer than this many
-	// pixels on screen split, and with collapse, ones much shorter merge.
+	// pixels on screen split, and with collapse, ones much shorter merge. With
+	// detail_by_radius the length is detail_radius of the brush's radius instead (Blender's
+	// Brush detail), so a small brush adds fine triangles and a large one coarse ones
+	// at any zoom.
 	detail_px:         f32,
+	detail_by_radius:  bool,
+	detail_radius:     f32,
 	collapse:          bool,
+	// The detail eases off with the brush's falloff (sculpt.Brush.detail_falloff).
+	detail_falloff:    bool,
+	// Each brush's own dynamic topology: whether it changes triangles at all, and its own
+	// detail where it keeps one (Use global off).
+	dyns:              [sculpt.Brush_Kind]Dyn_Own,
 	alpha:             int, // index into App.alphas; -1 (or any other outside it) is the round brush
 	alpha_mode:        Alpha_Mode,
 	alpha_angle:       f32, // degrees counter-clockwise the image turns on top of what the mode gives
@@ -1226,9 +1236,10 @@ stroke_dab :: proc(app: ^App, obj: ^Object, input: Viewport_Input, inv: matrix[4
 		if st.even == 0 do st.even = spacing_strength(app, st.kind)
 		brush.strength = min(brush.strength * st.even, max(brush.strength, 1))
 	}
-	// Dynamic topology's edge length is a share of the radius: kept as set.
+	// Dynamic topology's edge length is a share of the radius: kept as set on screen, or
+	// scaled with the dab when it is measured by the radius.
 	brush.radius *= scatter.size
-	brush.detail /= scatter.size
+	if !detail_edit(&app.brush, st.kind).by_radius^ do brush.detail /= scatter.size
 	brush.strength *= scatter.strength
 	if scatter.tint != {} {
 		for k in 0 ..< 3 do brush.color[k] = u8(clamp(f32(brush.color[k]) * scatter.tint[k], 0, 255) + 0.5)
@@ -1324,7 +1335,8 @@ brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pres
 		radial   = sym.radial,
 		radial_axis = sym.radial_axis,
 		sym_center = sym.sym_center,
-		detail   = app.brush.detail_px / brush_radius_px(app, pressure, tilt),
+		detail   = brush_detail(&app.brush, kind, brush_radius_px(app, pressure, tilt)),
+		detail_falloff = app.brush.detail_falloff,
 		collapse = app.brush.collapse,
 		tilt     = turn,
 		alpha    = alpha,
@@ -1399,9 +1411,56 @@ brush_defaults :: proc() -> Brush_Settings {
 	b.tip_roundness, b.tip_scale = sculpt.CLAY_TIP_ROUNDNESS, 1
 	b.trim_angle, b.trim_dynamic = TRIM_ANGLE_DEFAULT_DEGREES, true
 	b.plane_height, b.plane_depth = 1, 1
+	b.detail_radius = DETAIL_RADIUS_DEFAULT
+	for &d in b.dyns do d.px, d.radius = b.detail_px, b.detail_radius
 	// Clay strips starts on Blender's: its size follows the pen as p^1.5, never under 0.3.
 	b.pressures[.Clay_Strips] = {own = true, pressure = {strength = true, size = true, strength_curve = geom.CURVE_LINEAR, size_curve = CURVE_POWER_1_5, size_floor = 0.3}}
 	return b
+}
+
+// Dynamic topology's Detail by radius as a fresh brush has it, and its range: a share of
+// the brush's radius.
+DETAIL_RADIUS_DEFAULT :: 0.1
+DETAIL_RADIUS_MIN :: 0.02
+DETAIL_RADIUS_MAX :: 0.5
+
+// One brush's dynamic topology (Brush_Settings.dyns): `off` keeps its triangles as they
+// are; with `own` set it uses its own detail below in place of the global one.
+Dyn_Own :: struct {
+	off:       bool,
+	own:       bool,
+	by_radius: bool,
+	px:        f32,
+	radius:    f32,
+}
+
+// Dynamic topology's detail for brush `kind` as a share of its radius (sculpt.Brush.detail),
+// radius_px across on screen: 0 where the brush keeps its triangles.
+brush_detail :: proc(b: ^Brush_Settings, kind: sculpt.Brush_Kind, radius_px: f32) -> f32 {
+	if b.dyns[kind].off do return 0
+	d := detail_edit(b, kind)
+	if d.by_radius^ do return d.radius^
+	return d.px^ / max(radius_px, 1)
+}
+
+// Where brush `kind`'s detail is edited: its own or the global one.
+Detail_Edit :: struct {
+	by_radius: ^bool,
+	px:        ^f32,
+	radius:    ^f32,
+}
+
+detail_edit :: proc(b: ^Brush_Settings, kind: sculpt.Brush_Kind) -> Detail_Edit {
+	if d := &b.dyns[kind]; d.own do return {&d.by_radius, &d.px, &d.radius}
+	return {&b.detail_by_radius, &b.detail_px, &b.detail_radius}
+}
+
+// Gives brush `kind` its own detail (a copy of the global one, which it then starts from)
+// or puts it back on the global one.
+brush_detail_own :: proc(b: ^Brush_Settings, kind: sculpt.Brush_Kind, own: bool) {
+	d := &b.dyns[kind]
+	if own && !d.own do d.by_radius, d.px, d.radius = b.detail_by_radius, b.detail_px, b.detail_radius
+	d.own = own
 }
 
 // Whether brush `kind` starts with its falloff Projected (Falloff_Setting.projected):

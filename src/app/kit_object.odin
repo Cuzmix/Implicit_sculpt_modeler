@@ -179,9 +179,28 @@ kit_dyntopo :: proc(app: ^App, obj: ^Object) {
 	can := command_enabled(app, .Dyntopo_Toggle)
 	if ui.switch_row(ctx, "Dynamic topology", &on, enabled = can, keys = command_hint(app, .Dyntopo_Toggle)) do command_run(app, .Dyntopo_Toggle)
 	if !can do ui.paragraph(ctx, "Needs a single subdivision level and no HD level.")
-	_ = ui.slider(ctx, "Detail", &app.brush.detail_px, 2, 40, .Logarithmic, fmt.tprintf("%.1f px", app.brush.detail_px))
-	_ = ui.switch_row(ctx, "Collapse short edges", &app.brush.collapse)
-	ui.paragraph(ctx, fmt.tprintf("Brushes add triangles where they go: edges under the brush longer than Detail on screen split and, with collapse, much shorter ones merge. Turning it on or off is an undo step of its own. %s", command_keys(app, .Dyntopo_Toggle)))
+	b := &app.brush
+	kind := b.kind
+	d := detail_edit(b, kind)
+	measures := [2]string{"Screen", "Radius"}
+	if picked := ui.tabs(ctx, "detail by", measures[:], int(d.by_radius^)); picked >= 0 do d.by_radius^ = picked == 1
+	if d.by_radius^ {
+		share := d.radius^ * 100
+		if ui.slider(ctx, "Detail", &share, DETAIL_RADIUS_MIN * 100, DETAIL_RADIUS_MAX * 100, .Logarithmic, fmt.tprintf("%.0f%% of the radius", share)) do d.radius^ = share / 100
+	} else {
+		_ = ui.slider(ctx, "Detail", d.px, 2, 40, .Logarithmic, fmt.tprintf("%.1f px", d.px^))
+	}
+	_ = ui.switch_row(ctx, "Collapse short edges", &b.collapse)
+	ui.paragraph(ctx, fmt.tprintf("Brushes add triangles where they go: edges under the brush longer than Detail split and, with collapse, much shorter ones merge. Screen measures Detail in pixels, so zooming in adds finer triangles; Radius as a share of the brush, so a small brush adds fine ones and a large one coarse ones at any zoom. Masked parts keep their triangles. Turning it on or off is an undo step of its own. %s", command_keys(app, .Dyntopo_Toggle)))
+	if kit_more(app, .Topology) {
+		changes := !b.dyns[kind].off
+		if ui.switch_row(ctx, fmt.tprintf("%s changes triangles", BRUSHES[kind].name), &changes) do b.dyns[kind].off = !changes
+		global := !b.dyns[kind].own
+		if ui.switch_row(ctx, "Use global detail", &global) do brush_detail_own(b, kind, !global)
+		_ = ui.switch_row(ctx, "Detail follows the falloff", &b.detail_falloff)
+		ui.paragraph(ctx, fmt.tprintf("With changes triangles off, %s moves the surface but never splits or merges, as Grab often should. With Use global detail off it keeps its own Screen or Radius and Detail. Detail follows the falloff makes the triangles finest at the middle of the brush and coarser toward its edge, so a stroke's rim blends into the surface around it.", BRUSHES[kind].name))
+		kit_more_end(app)
+	}
 	if !object_dynamic(obj) do return
 	splits, collapses := sculpt.sculptor_dyn_edits(object_sculptor(obj))
 	ui.paragraph(ctx, fmt.tprintf("%s splits, %s collapses so far; %d GPU regrows.", count_label(splits), count_label(collapses), app.stats.gpu_regrows))

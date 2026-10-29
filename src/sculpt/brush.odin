@@ -101,6 +101,9 @@ Brush :: struct {
 	// longer than this share of the radius are split first; 0 leaves the triangles be.
 	detail:   f32,
 	collapse: bool, // ...and edges much shorter than that collapse
+	// Dynamic topology's tests weighted by the brush's falloff at each edge's middle, so
+	// the rim refines less than the centre (Nomad's Use stroke falloff; edge_scale2).
+	detail_falloff: bool,
 	// Turns the direction the brush works along (the area normal: Draw's push, the
 	// plane of Clay and Flatten, Pinch's and Crease's surface) before the dab moves
 	// anything: a leaning pen's (camera.orbit_tilt). The zero matrix leaves it.
