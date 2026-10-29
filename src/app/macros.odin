@@ -84,7 +84,7 @@ macro_kind :: proc(id: Command_Id) -> Macro_Kind {
 	#partial switch id {
 	case .None, .Undo, .Redo, .Macro_Record, .Run_Macro, .Run_Plugin, .Reload_Plugins:
 		return .Skip
-	case .Inspector, .Objects_Card, .Show_Section, .Pin_Section, .Panels_Reset, .Workspace, .Workspace_Save, .Workspace_Save_As, .Workspace_Revert, .Workspace_Reset, .Workspace_Rename, .Workspace_Delete, .Workspace_Export, .Workspace_Import, .View_Pass, .View_Pass_Last, .View_Grid, .View_Wipe, .View_Guides, .View_Guides_Reset, .Render_Preview, .View_Window, .View_Windows_Close, .Settings, .Help, .Stats, .Coach_Tips, .Adjust_Last, .Reduce_Motion, .Macros, .Library:
+	case .Inspector, .Objects_Card, .Show_Section, .Pin_Section, .Panels_Reset, .Workspace, .Workspace_Save, .Workspace_Save_As, .Workspace_Revert, .Workspace_Reset, .Workspace_Rename, .Workspace_Delete, .Workspace_Export, .Workspace_Import, .View_Pass, .View_Pass_Last, .View_Grid, .View_Wipe, .View_Guides, .View_Guides_Reset, .Render_Preview, .View_Window, .View_Windows_Close, .Settings, .Help, .Stats, .Coach_Tips, .Adjust_Last, .Reduce_Motion, .Macros, .Library, .New_Dock, .Stack_Density:
 		return .Skip
 	case .View_Axis, .Focus_Selected, .Frame_All, .Reset_Camera, .View_Back, .View_Forward:
 		return .Skip

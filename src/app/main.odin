@@ -1395,7 +1395,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		// Commas for its spaces, so the stat stays one word.
 		tree_text, _ := strings.replace_all(strings.to_string(tree), " ", ",", context.temp_allocator)
 		fmt.printfln("grid_tree=%s grid_splits=%d grid_joins=%d grid_swaps=%d grid_docks=%d grid_undos=%d grid_redos=%d grid_refused=%d grid_cancels=%d grid_undo_steps=%d", tree_text if g.tree.count > 0 else "0", ar.splits, ar.joins, ar.swaps, ar.docks, ar.undos, ar.redos, ar.refused, ar.cancels, g.undo.back_n)
-		fmt.printfln("grid_closes=%d grid_evens=%d new_panes=%v pane_menu=%d stack_strip=%d stack_tab=%s stack_tabs=%d", g.closes, g.evens, app.kit.new_panes, int(app.kit.pane_menu.open), int(stack_strip_shown(&app)), fmt.tprint(app.kit.stack.tab) if app.kit.stack.tab_open else "none", app.kit.stack.tabs)
+		fmt.printfln("grid_closes=%d grid_evens=%d new_panes=%v pane_menu=%d stack_strip=%d stack_tab=%s stack_tabs=%d stack_density=%s", g.closes, g.evens, app.kit.new_panes, int(app.kit.pane_menu.open), int(stack_strip_shown(&app)), fmt.tprint(app.kit.stack.tab) if app.kit.stack.tab_open else "none", app.kit.stack.tabs, "icons" if app.kit.stack.density == .Icons else "panels")
 	}
 	{
 		vws := &app.view_windows

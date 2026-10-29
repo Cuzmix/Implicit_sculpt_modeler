@@ -197,6 +197,7 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.Reset_Camera     = "home view",
 	.Customise_Bars   = "customise customize toolbar toolbars shortcuts edit buttons arrange layout panels bars hide show dock add remove",
 	.New_Dock         = "new dock bar toolbar column island make add own custom",
+	.Stack_Density    = "palettes icons strip compact panels cards stack column density collapse",
 	.Camera_Menu      = "view lens projection fov field perspective orthographic",
 	.Shading_Menu     = "draw display render look matcap lighting textures view menu",
 	.Wireframe        = "edges polyframe",
