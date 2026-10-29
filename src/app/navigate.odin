@@ -255,6 +255,7 @@ Nav_Prefs :: struct {
 	// was sampled, while a stroke draws (cursor_lead).
 	predict_cursor: bool,
 	eraser:         Eraser_Use, // what the pen's eraser end sculpts with (pencil.odin)
+	pen_roll:       [Pen_Area]Roll_Action, // what the hovering pen's roll does where it points (pen_roll.odin)
 }
 
 // When the pen, held over a control without touching, shows its name and shortcut, as
@@ -332,6 +333,7 @@ NAV_DEFAULT :: Nav_Prefs {
 	edge_show      = true,
 	// Smooth takes a stroke back, the nearest thing sculpting has to erasing.
 	eraser         = .Smooth,
+	pen_roll       = ROLL_DEFAULTS,
 	predict_cursor = true,
 }
 
@@ -611,9 +613,11 @@ drag_decide :: proc(app: ^App, input: Viewport_Input) -> (owner: Drag_Owner, emp
 		empty := app.nav.empty_drag[d.pointer] if d.pointer != .Finger else .Orbit
 		if empty == .Orbit {
 			origin, dir := mouse_ray(app.camera, mouse, input.size)
-			// Grab takes hold from just past the outline too, so a press there is its own.
+			// Only the pointer itself over the model starts a stroke, never the ring's edge
+			// alone; Grab with Past the outline takes hold from just past it too, so a press
+			// there is its own.
 			_, _, hit := scene_raycast(app, origin, dir)
-			if !hit && app.tool == .Brush && .Grab in BRUSHES[stroke_brush(app, input)].flags do _, _, hit = scene_grab_near(app, origin, dir, input.size)
+			if !hit && app.tool == .Brush && app.brush.grab_outline && .Grab in BRUSHES[stroke_brush(app, input)].flags do _, _, hit = scene_grab_near(app, origin, dir, input.size)
 			if !hit do return .Orbit, true
 		}
 	}

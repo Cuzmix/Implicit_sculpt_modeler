@@ -122,6 +122,45 @@ bars_drop_where_they_are_let_go :: proc(t: ^testing.T) {
 	free_all(context.temp_allocator)
 }
 
+// The shelf goes along the bottom, Default near its middle, or floats anywhere in the
+// window's lower part; its place is no edge's but the bottom's, and floating it leaves the
+// bottom's keep-clear rules nothing to keep clear of.
+@(test)
+shelf_drops_along_the_bottom :: proc(t: ^testing.T) {
+	app: App
+	defer results_destroy(&app)
+	k := &app.kit
+	ctx := &k.ctx
+	ui.frame_begin(ctx, {window = {1600, 900}, pixel_density = 1, dt = 1.0 / 60})
+	ui.frame_end(ctx)
+	lo, hi := shelf_across(&app)
+	testing.expect(t, lo >= LENS_EDGE && hi <= 1600 - LENS_EDGE && lo < hi)
+	p := bar_place_drop(&app, .Shelf, {500, 820, 600, 70}, {800, 860}, 0)
+	testing.expect_value(t, p, Bar_Place{})
+	p = bar_place_drop(&app, .Shelf, {lo, 820, 600, 70}, {lo + 300, 860}, 0)
+	testing.expect_value(t, p, Bar_Place{edge = .Bottom, along = 0})
+	p = bar_place_drop(&app, .Shelf, {200.4, 400.6, 600, 70}, {500, 420}, 0)
+	testing.expect_value(t, p, Bar_Place{edge = .Float, at = {200, 401}})
+	ctx.mirror = true
+	// The screen's left end of the bottom is the layout's right end.
+	p = bar_place_drop(&app, .Shelf, {1600 - hi, 820, 600, 70}, {1600 - hi + 300, 860}, 0)
+	testing.expect_value(t, p, Bar_Place{edge = .Bottom, along = 1})
+	ctx.mirror = false
+
+	bar_place_set(&app, .Shelf, {edge = .Bottom, along = 0})
+	testing.expect_value(t, bar_place_edge(k, .Offhand), Bar_Edge.Left)
+	testing.expect_value(t, bar_place_edge(k, .Rail), Bar_Edge.Right)
+	testing.expect_value(t, bar_place_side(&app, .Shelf), ui.Side.Above_Center)
+	x, y, at, room := bar_place_anchor(&app, .Shelf, {600, 70})
+	testing.expect(t, x == .Start && y == .End && at.x == lo && room == hi - lo)
+	// Floating, its top stays in the window's lower part and the bottom keeps clear of nothing.
+	k.places[.Shelf] = {edge = .Float, at = {100, 50}}
+	x, y, at, room = bar_place_anchor(&app, .Shelf, {600, 70})
+	testing.expect(t, x == .Start && y == .Start && at.y >= 900 * SHELF_FLOAT_TOP - 1)
+	testing.expect_value(t, shelf_bottom_size(&app), [2]f32{})
+	free_all(context.temp_allocator)
+}
+
 // Places are the layout's: written as bar_place lines, read back, and a line this version
 // cannot take (another bar, an edge, a number that is not one) leaves Default; a workspace
 // built in keeps every bar at Default.
@@ -130,12 +169,14 @@ bar_places_read_back :: proc(t: ^testing.T) {
 	a: Kit_State
 	a.places[.Offhand] = {edge = .Right, along = 0.25}
 	a.places[.Rail] = {edge = .Float, at = {640, 120}}
+	a.places[.Shelf] = {edge = .Bottom, along = 0.2}
 	text := kit_layout_text(&a)
+	testing.expect(t, strings.contains(text, "bar_place shelf Bottom 0.2 0 0\n"), text)
 	testing.expect(t, strings.contains(text, "bar_place offhand Right 0.25 0 0\n"), text)
 	b: Kit_State
 	kit_layout_put(&b, text)
 	testing.expect_value(t, b.places, a.places)
-	kit_layout_put(&b, "bar_place shelf Left 0.5 0 0\nbar_place rail Top 0.5 0 0\nbar_place offhand Left NaN 0 0\nbar_place offhand Float 0 inf 0\nbar_place offhand Default 0 0 0\n")
+	kit_layout_put(&b, "bar_place shelf Left 0.5 0 0\nbar_place rail Bottom 0.5 0 0\nbar_place rail Top 0.5 0 0\nbar_place offhand Left NaN 0 0\nbar_place offhand Float 0 inf 0\nbar_place offhand Default 0 0 0\n")
 	testing.expect_value(t, b.places, [Place_Bar]Bar_Place{})
 	testing.expect(t, !strings.contains(kit_layout_text(&b), "bar_place"))
 	free_all(context.temp_allocator)

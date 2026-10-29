@@ -156,8 +156,8 @@ kit_card_place :: proc(app: ^App, most, least: f32) -> (shift, w, top: f32, fits
 side_panel_below :: proc(app: ^App, width: f32) -> f32 {
 	ctx := &app.kit.ctx
 	area := ui.safe_area(ctx)
-	dock, _ := ui.prev_layout(ctx, "dock")
-	if area.w * 0.5 + dock.x * 0.5 + 8 > area.w - kit_right(app) - width do return dock_stack(app) + 8
+	_, dock_hi := shelf_bottom_span(app)
+	if dock_hi + 8 > area.w - kit_right(app) - width do return dock_stack(app) + 8
 	return 0
 }
 

@@ -170,6 +170,7 @@ SETTINGS := [?]Setting {
 	{"grab_same_side", B + offset_of(Brush_Settings, grab_same_side), bool, 0, 0},
 	{"grab_silhouette", B + offset_of(Brush_Settings, grab_silhouette), bool, 0, 0},
 	{"grab_topological", B + offset_of(Brush_Settings, grab_topological), bool, 0, 0},
+	{"grab_outline", B + offset_of(Brush_Settings, grab_outline), bool, 0, 0},
 	{"elastic_volume", B + offset_of(Brush_Settings, elastic_volume), f32, 0, 1},
 	{"hook_pinch", B + offset_of(Brush_Settings, hook_pinch), f32, -1, 1},
 	{"hook_rake", B + offset_of(Brush_Settings, hook_rake), f32, 0, 1},
@@ -363,6 +364,8 @@ SETTINGS := [?]Setting {
 	{"pen_tips", N + offset_of(Nav_Prefs, pen_tips), Pen_Tips, 0, 0},
 	{"predict_cursor", N + offset_of(Nav_Prefs, predict_cursor), bool, 0, 0},
 	{"pen_eraser", N + offset_of(Nav_Prefs, eraser), Eraser_Use, 0, 0},
+	{"pen_roll_model", N + offset_of(Nav_Prefs, pen_roll) + 0 * size_of(Roll_Action), Roll_Action, 0, 0},
+	{"pen_roll_empty", N + offset_of(Nav_Prefs, pen_roll) + 1 * size_of(Roll_Action), Roll_Action, 0, 0},
 	// The Scene and Object palettes' choices, and the tools'.
 	{"new_shape", K + offset_of(Kit_State, add_shape), geom.Primitive, 0, 0},
 	{"new_voxels", K + offset_of(Kit_State, add_voxel), bool, 0, 0},

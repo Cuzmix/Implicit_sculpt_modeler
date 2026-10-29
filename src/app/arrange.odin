@@ -122,10 +122,13 @@ kit_arrange_ghosts :: proc(app: ^App) {
 		offset := [2]f32{t.edge, t.edge}
 		size := [2]f32{132, 132}
 		#partial switch z {
-		case .Dock:       x, y, offset, size = .Center, .End, {0, t.edge + dock_lift(app)}, {420, t.target + 16}
+		case .Dock:
+			x, y, offset, size = .Center, .End, {0, t.edge + dock_lift(app)}, {420, t.target + 16}
+			// Where Arrange put the shelf, if it moved it.
+			if k.places[.Shelf].edge != .Default do x, y, offset, _ = bar_place_anchor(app, .Shelf, size)
 		case .Action_Bar: x, y, offset, size = .Center, .End, {0, t.edge + dock_lift(app) + t.target + 32}, {300, t.target}
 		}
-		if ctx.mirror && x != .Center do x = .End if x == .Start else .Start
+		// begin_anchored mirrors the anchor for the left hand itself.
 		size = {min(size.x, area.w - 32), min(size.y, area.h - 32)}
 		ui.begin_anchored(ctx, fmt.tprintf("hidden %v", z), x, y, offset, {direction = .Column, width = size.x, height = size.y, center = true})
 		box := ui.prev_rect(ctx, fmt.tprintf("hidden %v", z))

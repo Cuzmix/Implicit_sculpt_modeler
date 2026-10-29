@@ -125,6 +125,7 @@ Kit_State :: struct {
 	// with the command a tap puts in a slot (none: it only empties), beside the control it
 	// was opened from, and its scroll.
 	pies:       [USER_PIES][PIE_SLOTS]Pie_Slot,
+	pen_area:   Pen_Area, // the place Settings > Pen's Where the pen points shows
 	favourites: [MAX_FAVOURITES]Pie_Slot,
 	favourite_count: int,
 	pie_editor: bool,
@@ -1157,6 +1158,7 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 	// that Escape is the pie's, not Settings'.
 	floating := kit_floating(app)
 	input := kit_viewport_input(app, pane)
+	pen_roll_frame(app, input)
 	if !typed do commands_handle_keys(app)
 	layer_drag_end(app)
 	deform_drag_end(app)

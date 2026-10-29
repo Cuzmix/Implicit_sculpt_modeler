@@ -173,6 +173,7 @@ App :: struct {
 	// platform reports it (pen_roll_take), and the turn it last reported.
 	pen_roll: f32,
 	pen_roll_last: Maybe(f32),
+	pen_twist: Pen_Twist, // the pen's roll over the view under way (pen_roll.odin)
 	// The pen's roll that a Pen roll alpha turns by, from the frame's Viewport_Input, so a
 	// replayed stroke turns as it was drawn.
 	alpha_roll: f32,
@@ -1516,6 +1517,9 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	{
 		c := app.camera
 		fmt.printfln("camera_yaw=%.4f camera_pitch=%.4f camera_roll=%.4f camera_distance=%.4f camera_target=%.4f,%.4f,%.4f", c.yaw, c.pitch, c.roll, c.distance, c.target.x, c.target.y, c.target.z)
+		tw := app.pen_twist
+		h := tw.hit.? or_else {}
+		fmt.printfln("pen_rolls=%d pen_roll_area=%s pen_roll_hit=%.4f,%.4f,%.4f", tw.rolls, strings.to_lower(fmt.tprint(tw.area), context.temp_allocator), h.x, h.y, h.z)
 		p := app.pivot.used
 		fmt.printfln("orbit_pivot=%.4f,%.4f,%.4f pivot_source=%s pinned=%d framed=%d touch_repeats=%d", p.x, p.y, p.z, strings.to_lower(fmt.tprint(app.pivot.from), context.temp_allocator), int(app.pivot.pinned), app.double_tap.framed, app.touch.hold.done)
 		last_step := "none"

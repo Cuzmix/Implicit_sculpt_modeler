@@ -41,6 +41,7 @@ Settings_Block :: enum u8 {
 	Pen_Tips,
 	Pen_Predict,
 	Pen_Buttons,
+	Pen_Areas,
 	Palm,
 	Gesture_Switches,
 	Shapes,
@@ -106,6 +107,7 @@ SETTINGS_TOUCH := [?]Settings_Entry {
 	{.Shapes, "SHAPES"},
 	// It draws its own caption.
 	{.Gesture_Map, ""},
+	{.Pen_Areas, "WHERE THE PEN POINTS"},
 }
 @(rodata)
 SETTINGS_KEYS := [?]Settings_Entry{{.Keys, ""}}
@@ -163,7 +165,8 @@ SETTINGS_BLOCK_WORDS := [Settings_Block]string {
 	.Pen_Empty        = "pen mouse empty space waits for the model",
 	.Pen_Tips         = "pen hover names tooltips",
 	.Pen_Predict      = "predict the cursor brush ring ahead latency lag pen",
-	.Pen_Buttons      = "apple pencil double tap squeeze second button barrel eraser end flip",
+	.Pen_Buttons      = "pen second button barrel eraser end flip",
+	.Pen_Areas        = "apple pencil pen roll barrel twist turn hover model empty space double tap squeeze where",
 	.Palm             = "palm rejection ignore the hand pen near",
 	.Gesture_Switches = "gestures pinch zoom two-finger pan twist roll three fingers lift double tap",
 	.Shapes           = "shapes mask hide clip apply",
@@ -379,6 +382,8 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 		ui.paragraph(ctx, "While a stroke draws, the brush ring runs ahead to where the pen will be when the screen shows it, so it keeps up with a fast stroke. Only the ring: the stroke goes where the pen went.")
 	case .Pen_Buttons:
 		settings_pen_buttons(app)
+	case .Pen_Areas:
+		settings_pen_areas(app)
 	case .Palm:
 		_ = ui.switch_row(ctx, "Ignore the hand while the pen is near", &n.palm_rejection)
 		ui.paragraph(ctx, "A single finger does nothing while the pen is near the screen; two fingers still move the view.")
@@ -527,8 +532,11 @@ settings_block_reset :: proc(app: ^App, b: Settings_Block) {
 	case .Pen_Tips:        n.pen_tips = d.pen_tips
 	case .Pen_Predict:     n.predict_cursor = d.predict_cursor
 	case .Pen_Buttons:
-		for slot in PENCIL_SLOTS do n.gestures[slot] = d.gestures[slot]
+		n.gestures[.Pen_Button_2] = d.gestures[.Pen_Button_2]
 		n.eraser = d.eraser
+	case .Pen_Areas:
+		n.pen_roll = d.pen_roll
+		for slot in ([?]Gesture_Slot{.Pen_Double_Tap, .Pen_Squeeze, .Pen_Double_Tap_Empty, .Pen_Squeeze_Empty}) do n.gestures[slot] = d.gestures[slot]
 	case .Palm:            n.palm_rejection = d.palm_rejection
 	case .Gesture_Switches:
 		n.pinch_zoom, n.two_finger_pan, n.zoom_toward, n.twist_roll = d.pinch_zoom, d.two_finger_pan, d.zoom_toward, d.twist_roll
