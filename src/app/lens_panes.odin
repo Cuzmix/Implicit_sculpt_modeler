@@ -362,6 +362,6 @@ kit_stack_tab :: proc(app: ^App) {
 	area := ui.safe_area(ctx)
 	room := max(area.y + area.h - s.tab_at.y - 2 * PADDING - t.target - 6 - 16, 160)
 	scroll := kit_scroll_begin(ctx, "stack tab body", &s.scrolls[c], owner, inner, room, 6)
-	stack_card_body(app, c, inner)
+	panel_body(app, c, inner)
 	kit_scroll_end(ctx, scroll)
 }

@@ -297,7 +297,7 @@ stack_card :: proc(app: ^App, c: Stack_Card, width: f32, floating: bool) {
 			owner := ui.hash_under(0, fmt.tprintf("stack card %v", c)) if floating else s.owner
 			scroll = kit_scroll_begin(ctx, "stack scroll", &s.scrolls[c], owner, inner, height, 6)
 		}
-		stack_card_body(app, c, inner)
+		panel_body(app, c, inner)
 		if height > 0 do kit_scroll_end(ctx, scroll)
 		ui.end(ctx)
 		r := ui.last_ended(ctx)
