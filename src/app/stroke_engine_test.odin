@@ -1438,3 +1438,27 @@ size_fixed_in_the_scene_keeps_the_radius :: proc(t: ^testing.T) {
 	testing.expectf(t, abs(far - near) < 1e-4 * near, "in the scene: %v near, %v far", near, far)
 	testing.expectf(t, scale > 0.4 && scale < 0.6, "the ring at twice the distance: %v of its size", scale)
 }
+
+// Dynamic topology's detail: on screen it is a share of the radius that shrinks as the
+// brush grows; by radius it is the same share at any size; a brush with its own detail
+// keeps it while the global one changes; one that changes no triangles gets 0.
+@(test)
+detail_by_screen_or_radius_per_brush :: proc(t: ^testing.T) {
+	b := brush_defaults()
+	b.detail_px = 10
+	testing.expect_value(t, brush_detail(&b, .Draw, 100), 0.1)
+	testing.expect_value(t, brush_detail(&b, .Draw, 200), 0.05)
+	b.detail_by_radius, b.detail_radius = true, 0.2
+	testing.expect_value(t, brush_detail(&b, .Draw, 100), 0.2)
+	testing.expect_value(t, brush_detail(&b, .Draw, 200), 0.2)
+	brush_detail_own(&b, .Clay, true)
+	b.detail_radius = 0.3
+	testing.expect_value(t, brush_detail(&b, .Clay, 100), 0.2)
+	testing.expect_value(t, brush_detail(&b, .Draw, 100), 0.3)
+	detail_edit(&b, .Clay).by_radius^ = false
+	testing.expect_value(t, brush_detail(&b, .Clay, 100), 0.1)
+	brush_detail_own(&b, .Clay, false)
+	testing.expect_value(t, brush_detail(&b, .Clay, 100), 0.3)
+	b.dyns[.Grab].off = true
+	testing.expect_value(t, brush_detail(&b, .Grab, 100), 0)
+}

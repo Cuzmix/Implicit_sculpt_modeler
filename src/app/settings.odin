@@ -204,6 +204,9 @@ SETTINGS := [?]Setting {
 	{"stroke_line", B + offset_of(Brush_Settings, line), bool, 0, 0},
 	{"stroke_join", B + offset_of(Brush_Settings, join), bool, 0, 0},
 	{"detail_px", B + offset_of(Brush_Settings, detail_px), f32, 2, 40},
+	{"detail_by_radius", B + offset_of(Brush_Settings, detail_by_radius), bool, 0, 0},
+	{"detail_radius", B + offset_of(Brush_Settings, detail_radius), f32, DETAIL_RADIUS_MIN, DETAIL_RADIUS_MAX},
+	{"detail_falloff", B + offset_of(Brush_Settings, detail_falloff), bool, 0, 0},
 	{"collapse", B + offset_of(Brush_Settings, collapse), bool, 0, 0},
 	{"alpha_mode", B + offset_of(Brush_Settings, alpha_mode), Alpha_Mode, 0, 0},
 	{"alpha_angle", B + offset_of(Brush_Settings, alpha_angle), f32, 0, 0},
@@ -732,6 +735,17 @@ settings_load :: proc(app: ^App, path: string) {
 					p.strength_curve, p.size_curve = curve(f[6:10], geom.CURVE_LINEAR), curve(f[10:14], geom.CURVE_LINEAR)
 				}
 			}
+		case "dyntopo":
+			// dyntopo <brush> <off 0|1> <own 0|1> <by radius 0|1> <detail px> <detail share>,
+			// for a brush that keeps its triangles or its own detail.
+			if len(f) == 7 {
+				if kind, ok := brush_by_name(f[1]); ok {
+					d := &b.dyns[kind]
+					d.off, d.own, d.by_radius = f[2] == "1", f[3] == "1", f[4] == "1"
+					d.px = clamp(number(f[5], d.px), 2, 40)
+					d.radius = clamp(number(f[6], d.radius), DETAIL_RADIUS_MIN, DETAIL_RADIUS_MAX)
+				}
+			}
 		case "material":
 			if name := strings.join(f[1:], " ", context.temp_allocator); strings.contains_rune(name, '/') {
 				if j := pack_material_by_ref(app, preset_unescape(name)); j >= 0 do app.material = PACK_MATERIAL + j
@@ -1041,6 +1055,9 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 	for p, kind in b.pressures {
 		a, z := p.strength_curve, p.size_curve
 		fmt.sbprintfln(&out, "pressure_own %v %d %d %d %g %g %g %g %g %g %g %g %g", kind, bit(p.own), bit(p.strength), bit(p.size), p.size_floor, a.c1.x, a.c1.y, a.c2.x, a.c2.y, z.c1.x, z.c1.y, z.c2.x, z.c2.y)
+	}
+	for d, kind in b.dyns {
+		if d.off || d.own do fmt.sbprintfln(&out, "dyntopo %v %d %d %d %g %g", kind, bit(d.off), bit(d.own), bit(d.by_radius), d.px, d.radius)
 	}
 	for line in SETTING_LINES do fmt.sbprintfln(&out, "%s %s", line.key, line.text(app))
 	// The starting lights, every one of them, so a light added later starts as it was set.

@@ -1324,6 +1324,34 @@ def trim_dynamic_cuts_planes():
 
 
 @scenario
+def dyntopo_detail_by_radius_follows_the_falloff():
+    """Draw on a sphere with dynamic topology, Detail by radius and Detail follows the
+    falloff: the stroke adds triangles, finest along its middle and coarser toward its
+    edges (look with --screens: in the wireframe a band of small triangles that grow
+    toward both sides and blend into the sphere's)."""
+    s = Script()
+    s.mouse_drag(line((620, 450), (940, 450), 16))
+    s.wait(2)
+    return s, ["--script=dyntopo_toggle on; brush draw; set detail_by_radius on; set detail_radius 0.04; set detail_falloff on; wireframe on"], camera_still({
+        "dabs": lambda v: int(v) > 5, "splits": lambda v: int(v) > 100, "detail_by_radius": near(1), "detail_falloff": near(1)})
+
+
+@scenario
+def grab_that_changes_no_triangles():
+    """Grab with its own dynamic topology off (Changes triangles under the section's More
+    options) drags the surface out of a sphere with dynamic topology on and splits nothing
+    at the release."""
+    os.makedirs(os.path.dirname(settings_file()), exist_ok=True)
+    with open(settings_file(), "w") as f:
+        f.write("dyntopo grab 1 0 0 10 0.1\n")
+    s = Script()
+    s.mouse_drag(line((800, 450), (1120, 450), 16))
+    s.wait(2)
+    return s, [f"--settings-file={settings_file()}", "--script=dyntopo_toggle on; brush grab"], camera_still({
+        "dabs": lambda v: int(v) > 5, "undo_steps": near(1), "grab_refine_splits": near(0), "brush_dyntopo": near(0)})
+
+
+@scenario
 def hatch_lays_one_way_grooves():
     """The library's Hatch preset (a Crease with No back and forth) scribbled in a zigzag
     is one undo step whose grooves run one way only (look with --screens: four parallel

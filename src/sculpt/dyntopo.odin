@@ -1176,7 +1176,7 @@ dyn_dab_topology :: proc(s: ^Sculptor, dab: ^Dab, pool: ^jobs.Pool) -> bool {
 		e := heap_pop(&d.long)
 		l2, ok := inside(s, dab, e.a, e.b)
 		if e.forced do l2, ok = length2(s, e.a, e.b), true
-		if !ok || l2 <= d.max2 do continue // moved by a node split
+		if !ok || l2 * edge_scale2(s, dab, e.a, e.b, true) <= d.max2 do continue // moved by a node split
 		// Longest-edge bisection (Rivara): when a triangle on either side has a longer
 		// edge, that one splits first, even outside the brush. Cutting a triangle across
 		// a shorter side would leave a sliver, and slivers of slivers.
@@ -1193,7 +1193,7 @@ dyn_dab_topology :: proc(s: ^Sculptor, dab: ^Dab, pool: ^jobs.Pool) -> bool {
 		splits += 1
 		for w in ([4]u32{e.a, e.b, c, cd}) {
 			half, in_brush := inside(s, dab, w, m)
-			if in_brush && half > d.max2 do heap_push(&d.long, Dyn_Edge{l2 = half, a = w, b = m})
+			if in_brush && half * edge_scale2(s, dab, w, m, true) > d.max2 do heap_push(&d.long, Dyn_Edge{l2 = half, a = w, b = m})
 			// A vertex across the edge right by its middle: the new edge to it is too
 			// short to keep, so it collapses below.
 			if w != e.a && w != e.b && d.collapse && length2(s, w, m) < d.min2 do append(&d.short, Dyn_Edge{l2 = length2(s, w, m), a = w, b = m})
@@ -1205,13 +1205,30 @@ dyn_dab_topology :: proc(s: ^Sculptor, dab: ^Dab, pool: ^jobs.Pool) -> bool {
 		for e in d.short {
 			if collapses >= DYN_MAX_COLLAPSES do break
 			l2, ok := inside(s, dab, e.a, e.b)
-			if !ok || l2 >= d.min2 do continue
+			if !ok || l2 >= d.min2 * edge_scale2(s, dab, e.a, e.b, false) do continue
 			if collapse_edge(s, e.a, e.b) == .Done do collapses += 1
 		}
 	}
 	if len(d.affected) == 0 do return false
 	after_edits(s)
 	return true
+}
+
+// How much edge a-b counts toward splitting (`split`) or collapsing, squared: the share of
+// it the mask and HD fade leave free (for a split, the freer end's: a fully masked edge
+// never splits; for a collapse, the less free end's: one never collapses into a masked
+// vertex), times, with Detail follows the falloff (Brush.detail_falloff), the brush's
+// falloff at its middle, so the rim refines less than the centre. 1 for a free edge
+// without the falloff, which leaves the tests as they were.
+@(private = "file")
+edge_scale2 :: #force_inline proc(s: ^Sculptor, dab: ^Dab, a, b: u32, split: bool) -> f32 {
+	sa, sb := shield(s.fade, s.mask, a), shield(s.fade, s.mask, b)
+	k := max(sa, sb) if split else min(sa, sb)
+	if dab.brush.detail_falloff {
+		mid := (s.mesh.positions[a] + s.mesh.positions[b]) * 0.5 - dab.center
+		k *= falloff(linalg.dot(mid, mid) * dab.inv_r2)
+	}
+	return k * k
 }
 
 @(private = "file")
@@ -1296,9 +1313,9 @@ job_edge_candidates :: proc(data: rawptr, i: int) {
 			l := pa - pb
 			l2 := linalg.dot(l, l)
 			if l2 > d.max2 {
-				if shield(s.fade, s.mask, a) > 0 || shield(s.fade, s.mask, b) > 0 do append(long, Dyn_Edge{l2 = l2, a = a, b = b})
+				if l2 * edge_scale2(s, dab, a, b, true) > d.max2 do append(long, Dyn_Edge{l2 = l2, a = a, b = b})
 			} else if l2 < d.min2 && d.collapse {
-				append(short, Dyn_Edge{l2 = l2, a = a, b = b})
+				if l2 < d.min2 * edge_scale2(s, dab, a, b, false) do append(short, Dyn_Edge{l2 = l2, a = a, b = b})
 			}
 		}
 	}
