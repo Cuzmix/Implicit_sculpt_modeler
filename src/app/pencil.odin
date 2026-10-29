@@ -90,6 +90,9 @@ Pencil :: struct {
 	heard:        f64,
 	heard_pen:    sdl.PenID,
 	heard_window: sdl.WindowID,
+	// The system rejects resting palms itself (SYSTEM_PALMS, or --system-palms), so only the
+	// pen's tip makes a lone finger a palm (pen_holds_hand).
+	system_palms: bool,
 }
 
 // SDL 3.4's UIKit driver never says that the pencil went: nothing there sends

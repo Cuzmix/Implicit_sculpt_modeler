@@ -231,3 +231,67 @@ colors_palettes_add_and_delete :: proc(t: ^testing.T) {
 	testing.expect_value(t, c.palette_count, USER_PALETTES)
 	testing.expect_value(t, palette_new(&c), -1)
 }
+
+// One headless frame of the columns and, while it floats, the Colors card, in a window
+// `window` points big; returns where the card was laid out.
+@(private = "file")
+colors_card_frame :: proc(app: ^App, window: [2]f32) -> ui.Rect {
+	k := &app.kit
+	ui.frame_begin(&k.ctx, {window = window, pixel_density = 1, dt = 1.0 / 60})
+	kit_columns(app, panel_draw)
+	if _, _, docked := panel_docked(k, Kit_Window.Colors); !docked do _ = kit_colors_card(app)
+	ui.frame_end(&k.ctx)
+	free_all(context.temp_allocator)
+	k.frame += 1
+	return panel_rect(app, Kit_Window.Colors)
+}
+
+// Docked in either column, the Colors card asks for its content's height and keeps one
+// size, frame after frame, inside the window, rather than asking for the share it was
+// given, which comes back a frame late and makes it flicker between two heights.
+@(test)
+colors_card_docked_holds_one_size :: proc(t: ^testing.T) {
+	app: App
+	kit_init(&app)
+	defer ui.destroy(&app.kit.ctx)
+	defer workspaces_destroy(&app.kit)
+	k := &app.kit
+	k.inspector, k.colors_card = false, true
+	for side in Column_Side {
+		panel_dock(&app, Kit_Window.Colors, side, 0)
+		rects: [12]ui.Rect
+		for &r in rects do r = colors_card_frame(&app, {1600, 900})
+		for r, i in rects[8:] do testing.expectf(t, r == rects[7], "%v column: frame %d at %v, frame 7 at %v", side, 8 + i, r, rects[7])
+		last := rects[len(rects) - 1]
+		testing.expectf(t, last.h > 0 && last.y + last.h <= 900, "%v column: the card at %v", side, last)
+	}
+}
+
+// On Palettes the card keeps the Disc's size, so its tabs stay where they were and the
+// list scrolls inside, on a window tall enough for the list to have reached its foot;
+// with a palette of your own of three rows as the default too, which makes the Disc taller.
+@(test)
+colors_palettes_keep_the_discs_size :: proc(t: ^testing.T) {
+	app: App
+	kit_init(&app)
+	defer ui.destroy(&app.kit.ctx)
+	defer workspaces_destroy(&app.kit)
+	k := &app.kit
+	c := &k.colors
+	k.inspector, k.colors_card = false, true
+	for own in ([2]bool{false, true}) {
+		if own {
+			testing.expect(t, palette_new(c) == 0)
+			// With the empty slot that saves a colour, three rows.
+			c.palettes[0].count = 2 * SWATCH_COLUMNS
+		}
+		c.tab = .Disc
+		disc: ui.Rect
+		for _ in 0 ..< 4 do disc = colors_card_frame(&app, {1600, 1100})
+		c.tab = .Palettes
+		for i in 0 ..< 4 {
+			r := colors_card_frame(&app, {1600, 1100})
+			testing.expectf(t, r == disc, "own palette %v: Palettes' frame %d at %v, the Disc at %v", own, i, r, disc)
+		}
+	}
+}
