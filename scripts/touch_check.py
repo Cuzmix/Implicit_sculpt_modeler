@@ -1288,6 +1288,17 @@ def grab_pulls_the_outline_from_outside():
 
 
 @scenario
+def smooth_stable_flattens_the_sphere():
+    """The Smooth stronger preset (full strength: four passes) with Stable on, dragged across the sphere, is
+    one undo step that flattens a band of it (look with --screens: a flat band, no
+    ridges at its edges)."""
+    s = Script()
+    s.mouse_drag(line((640, 380), (960, 470), 16))
+    s.wait(2)
+    return s, ["--script=preset Smooth stronger; set smooth_stable on"], camera_still({"dabs": lambda v: int(v) > 5, "undo_steps": near(1), "brush_kind": is_text("smooth")})
+
+
+@scenario
 def grab_under_dynamic_topology_refines_the_pull():
     """Grab on a sphere with dynamic topology, dragged from the middle out past the right
     edge: at the release the stretched triangles split down to the detail size, in the same
@@ -4231,7 +4242,8 @@ def rail_hold_smooth_with_pen():
     """A finger held on Smooth while the pen strokes the model: the stroke smooths, and lifting latches nothing."""
     s = Script()
     rail_hold(s, "smooth")
-    pen_stroke(s, line((760, 430), (860, 470), 20))
+    # Pressed as a pen is: Smooth's passes scale with the pressure, and at none it moves nothing.
+    pen_stroke(s, line((760, 430), (860, 470), 20), pressure=0.8)
     rail_lift(s)
     return s, [], camera_still({"dabs": lambda v: int(v) > 0, "undo_steps": near(1), "stroke_kind": lambda v: v == "smooth",
                                 "rail_latched": lambda v: v == "none"})
@@ -4395,6 +4407,7 @@ def rail_lift_mid_stroke_keeps_mode():
     s = Script()
     rail_hold(s, "smooth")
     s.add("pnear")
+    s.add("ppress:0.8")
     path = line((760, 430), (860, 470), 20)
     s.add(f"pdown:{path[0][0]:g},{path[0][1]:g}")
     for k, (x, y) in enumerate(path[1:]):
@@ -6079,6 +6092,7 @@ def pen_eraser_end_smooths():
     s = Script()
     path = line((760, 430), (860, 470), 20)
     s.add("pnear")
+    s.add("ppress:0.8")
     s.add(f"pedown:{path[0][0]:g},{path[0][1]:g}")
     for x, y in path[1:]:
         s.wait(1)

@@ -251,6 +251,7 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	brush_pressure_own(&a.brush, a.brush.kind, true)
 	a.brush.pressures[a.brush.kind].size, a.brush.pressures[a.brush.kind].size_curve = true, PRESSURE_PRESETS[2].curve
 	a.brush.pressures[a.brush.kind].size_floor = 0.3
+	a.brush.smooth_stable = true
 	a.stroke_seed = 41
 	a.device.pointer, a.nav.touch_strength = .Finger, 0.5
 	b.nav.touch_strength = 1
@@ -287,7 +288,7 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	testing.expect(t, b.replay.take.brushes[0].hook_elastic)
 	{
 		rb := b.replay.take.brushes[0]
-		testing.expect(t, !rb.pressures[rb.kind].own && rb.pressure_size && rb.pressure_size_curve == PRESSURE_PRESETS[2].curve && rb.pressure_curve == a.brush.pressures[rb.kind].strength_curve && rb.pressure_size_floor == 0.3)
+		testing.expect(t, !rb.pressures[rb.kind].own && rb.pressure_size && rb.pressure_size_curve == PRESSURE_PRESETS[2].curve && rb.pressure_curve == a.brush.pressures[rb.kind].strength_curve && rb.pressure_size_floor == 0.3 && rb.smooth_stable)
 	}
 	replay_start(&b, &b.replay.take)
 	for replay_busy(&b) do _ = replay_frame(&b, {})
@@ -301,7 +302,7 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	data, err := os.read_entire_file(path, context.allocator)
 	testing.expect(t, err == nil)
 	defer delete(data)
-	BRUSH :: 64 + 93
+	BRUSH :: 64 + 94
 	// The files from before version 13 kept no pen roll in a frame.
 	frames_before_roll :: proc(frames: []u8) -> []u8 {
 		out := make([dynamic]u8, context.temp_allocator)
@@ -321,6 +322,19 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 		}
 		return out[:]
 	}
+	// Version 22 had no Stable after the smallest size: the one brush ends 64 + 93 bytes
+	// after the header's 16, and smooths with the same passes at any density.
+	twentytwo := make([dynamic]u8, context.temp_allocator)
+	append(&twentytwo, ..data[:16 + 64 + 93])
+	append(&twentytwo, ..data[16 + BRUSH:])
+	twentytwo[len(STROKES_MAGIC)] = 22
+	testing.expect(t, os.write_entire_file(path, twentytwo[:]) == nil)
+	st: App
+	defer replay_destroy(&st.replay)
+	defer results_destroy(&st)
+	testing.expect(t, strokes_load(&st, path))
+	if len(st.replay.take.brushes) == 1 do testing.expect(t, !st.replay.take.brushes[0].smooth_stable && st.replay.take.brushes[0].pressure_size_floor == 0.3)
+
 	// Version 21 had no smallest size after the size's pressure curve: the one brush ends
 	// 64 + 89 bytes after the header's 16, and pressure shrinks it as far as it ever did.
 	twentyone := make([dynamic]u8, context.temp_allocator)

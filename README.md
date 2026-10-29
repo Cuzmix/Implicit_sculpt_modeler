@@ -314,7 +314,7 @@ Fifteen brushes, picked on the shelf, in the brush picker (All at the shelf's en
 | Key | Brush | What it does (Ctrl inverts) |
 | --- | --- | --- |
 | 1 | Draw | Pushes the surface out along the average normal under the brush (in). |
-| 2 | Smooth | Moves each vertex toward the average of its neighbours. Shift smooths with any brush. |
+| 2 | Smooth | Moves each vertex toward the average of its neighbours. Shift smooths with any brush. Its strength is a number of passes, as Blender's: a quarter of strength is one whole pass, so 0.5 (the default) takes two and 1 four, a part of one coming last (`sculpt.smooth_passes`). On an open border (a hole's edge) a vertex moves toward the middle of its two neighbours along the border, so the edge evens out along itself rather than shrinking into the surface. Under Options, Valleys or Peaks even out only the dents or the bumps, and Stable (`smooth_stable`) gives a mesh denser than eight edges a radius more passes and a coarser one fewer, as the square of the edges across the brush, up to eight, so a dab evens out about the same share of the brush at any density; presets and `.strokes` files (version 23) keep it. The library's Smooth stronger is strength 1: four passes. |
 | 3 | Clay | Builds up toward a plane just above the surface, moving only what lies below it, so dips fill first and strokes leave flat-topped layers (digs). |
 | 4 | Flatten | Pulls toward the plane through the area under the brush (pushes away from it). |
 | 5 | Inflate | Pushes each vertex along its own normal, so shapes swell evenly (shrinks). |

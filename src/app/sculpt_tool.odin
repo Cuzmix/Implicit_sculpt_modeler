@@ -60,6 +60,7 @@ Brush_Settings :: struct {
 	hook_rake:         f32,
 	hook_elastic:      bool,
 	smooth_only:       sculpt.Smooth_Only, // which vertices Smooth evens out: all, valleys or peaks
+	smooth_stable:     bool, // Smooth's passes follow the mesh's density (sculpt.Brush.smooth_stable)
 	stroke:            Stroke_Mode,
 	spray_spread:      f32, // Spray: how far from the path dabs scatter, in brush radii
 	// Spray: how far each dab's paint colour strays from the brush's, 0 to 1 (Colour spray).
@@ -1245,6 +1246,7 @@ brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pres
 		connected  = app.brush.connected,
 		through    = through,
 		smooth_only = app.brush.smooth_only if kind == .Smooth else .All,
+		smooth_stable = kind == .Smooth && app.brush.smooth_stable,
 		feather    = app.brush.feather,
 		same_side  = kind == .Grab && app.brush.grab_same_side,
 		silhouette = kind == .Grab && app.brush.grab_silhouette,

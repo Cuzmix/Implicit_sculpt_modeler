@@ -152,6 +152,10 @@ Brush :: struct {
 	through:    Vec3,
 	// Smooth: which vertices it evens out, all or only those in dents or on bumps.
 	smooth_only: Smooth_Only,
+	// Smooth: as many more passes as the mesh under it is denser than SMOOTH_STABLE_EDGES
+	// edges a radius, up to SMOOTH_PASSES_MAX, so a dab evens out about the same share of
+	// the brush whatever the density (smooth_passes).
+	smooth_stable: bool,
 	// Grab: pick up only what faces the same way as the surface pressed (Nomad's Same
 	// side), and move only what faces the way it is dragged out (Blender's Silhouette).
 	same_side:  bool,
@@ -828,6 +832,7 @@ Dab :: struct {
 	alpha:    ^Alpha,
 	au, av, an: Vec3,
 	connected: bool, // Connected's flood ran for this dab (connected_weight)
+	rate:     f32, // Smooth: this pass's share of the step toward the neighbours (smooth_passes)
 	normal:   Vec3, // area normal: the falloff-weighted normals inside the brush
 	plane:    Vec3, // Clay, Flatten: a point on the plane they pull toward
 	amount:   f32,  // signed: displacement at the centre (Draw, Inflate, Crease), plane
@@ -1060,7 +1065,8 @@ dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3, img: Sym_Image, own: 
 	case .Grab, .Elastic, .Mask, .Paint, .Cloth:
 		unreachable()
 	case .Smooth:
-		// Jacobi step: every target is computed from unmoved positions first.
+		// Jacobi steps: every target of a pass is computed from that pass's unmoved
+		// positions first.
 		resize(&s.offsets, len(s.hit))
 		total: u32
 		for leaf, i in s.hit {
@@ -1068,8 +1074,23 @@ dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3, img: Sym_Image, own: 
 			total += s.nodes[s.node_of[leaf]].vert_count
 		}
 		resize(&s.smooth_to, int(total))
-		jobs.parallel_for(pool, len(s.hit), &d, job_smooth_targets)
-		jobs.parallel_for(pool, len(s.hit), &d, job_smooth_apply)
+		scale: f32 = 1
+		if brush.smooth_stable {
+			jobs.parallel_for(pool, len(s.hit), &d, job_smooth_edges)
+			length, edges: f64
+			for p in s.partials {
+				length += f64(p.weight_sum)
+				edges += f64(p.moved)
+			}
+			slice.zero(s.partials[:])
+			if edges > 0 do scale = smooth_stable_scale(brush.radius, f32(length / edges))
+		}
+		rates := smooth_passes(brush.strength * scale)
+		for rate in rates {
+			d.rate = rate
+			jobs.parallel_for(pool, len(s.hit), &d, job_smooth_targets)
+			jobs.parallel_for(pool, len(s.hit), &d, job_smooth_apply)
+		}
 	}
 	return painted + finish_move(s, &d, pool)
 }
@@ -1262,6 +1283,60 @@ displace :: #force_inline proc(d: ^Dab, i: int, $K: Brush_Kind) {
 	s.partials[i].bounds = bounds
 }
 
+// How many passes a Smooth dab of `strength` takes, and each one's share of the step
+// toward the neighbours: SMOOTH_PASSES_MAX at full strength, as Blender's smooth turns its
+// strength into up to four whole passes (iteration_strengths), whole passes first and a
+// part of one last. Over 1 (Stable on a dense mesh) it takes more, up to SMOOTH_PASSES_HARD.
+smooth_passes :: proc(strength: f32) -> []f32 {
+	n := clamp(strength, 0, f32(SMOOTH_PASSES_HARD) / SMOOTH_PASSES_MAX) * SMOOTH_PASSES_MAX
+	whole := int(n)
+	out := make([dynamic]f32, 0, whole + 1, context.temp_allocator)
+	for _ in 0 ..< whole do append(&out, 1)
+	if part := n - f32(whole); part > 0 do append(&out, part)
+	return out[:]
+}
+
+// Smooth's passes at full strength, and the most Stable may take.
+SMOOTH_PASSES_MAX :: 4
+SMOOTH_PASSES_HARD :: 8
+// Stable's reference density: a dab over this many edges a radius smooths as without it.
+SMOOTH_STABLE_EDGES :: 8
+
+// How many times as many passes Stable gives a dab of `radius` over edges `edge` long on
+// average: a smoothing pass spreads a bump by about an edge, so evening out the same
+// share of the brush takes passes as the square of the edges across it.
+smooth_stable_scale :: proc(radius, edge: f32) -> f32 {
+	if edge <= 0 do return 1
+	r := radius / (edge * SMOOTH_STABLE_EDGES)
+	return r * r
+}
+
+// The edges from each vertex inside the brush to its triangles' other corners, summed
+// into the leaf's partial (weight_sum the lengths, moved the count), for Stable.
+@(private)
+job_smooth_edges :: proc(data: rawptr, i: int) {
+	d := cast(^Dab)data
+	s := d.s
+	m := s.mesh
+	first, last := owned(s, s.hit[i])
+	length: f32
+	count: u32
+	for v in first ..< last {
+		p := m.positions[v]
+		delta := p - d.center
+		if linalg.dot(delta, delta) >= d.r2 do continue
+		for f in faces_of(s, v) {
+			for k in u32(0) ..< 3 {
+				w := m.indices[3 * f + k]
+				if w == v do continue
+				length += linalg.length(m.positions[w] - p)
+				count += 1
+			}
+		}
+	}
+	s.partials[i].weight_sum, s.partials[i].moved = length, count
+}
+
 @(private)
 job_smooth_targets :: proc(data: rawptr, i: int) {
 	d := cast(^Dab)data
@@ -1272,15 +1347,58 @@ job_smooth_targets :: proc(data: rawptr, i: int) {
 	for v in first ..< last {
 		delta := m.positions[v] - d.center
 		if linalg.dot(delta, delta) >= d.r2 do continue
-		sum: Vec3
-		n: f32
-		for f in faces_of(s, v) {
-			sum += m.positions[m.indices[3 * f]] + m.positions[m.indices[3 * f + 1]] + m.positions[m.indices[3 * f + 2]]
-			n += 3
-		}
-		out[v - first] = sum / n
+		out[v - first] = smooth_target(s, v)
 	}
 	s.partials[i].touched = shared_inside(d, s.hit[i])
+}
+
+// Where Smooth moves vertex `v` toward: the middle of its triangles' corners, or on an
+// open border the middle of its neighbours along the border, as Blender and SculptGL do,
+// so a hole's edge evens out along itself instead of shrinking into the surface.
+@(private)
+smooth_target :: #force_inline proc(s: ^Sculptor, v: u32) -> Vec3 {
+	m := s.mesh
+	faces := faces_of(s, v)
+	sum: Vec3
+	n: f32
+	// Inside a closed fan every neighbour is a corner of two of its triangles, so the
+	// exclusive or of the other corners is zero; on a border the two border neighbours
+	// are corners once and leave it non-zero (or, past a rare non-manifold tie, this
+	// keeps the plain middle).
+	odd: u32
+	for f in faces {
+		for k in u32(0) ..< 3 {
+			w := m.indices[3 * f + k]
+			sum += m.positions[w]
+			if w != v do odd ~= w
+		}
+		n += 3
+	}
+	if odd == 0 || len(faces) > 32 do return sum / n
+	// The neighbours that are corners of only one of its triangles lie along the border.
+	seen: [64]u32
+	times: [64]u8
+	count := 0
+	for f in faces {
+		for k in u32(0) ..< 3 {
+			w := m.indices[3 * f + k]
+			if w == v do continue
+			j := 0
+			for j < count && seen[j] != w do j += 1
+			if j == count {
+				seen[j] = w
+				count += 1
+			}
+			times[j] += 1
+		}
+	}
+	border: Vec3
+	b: f32
+	for j in 0 ..< count do if times[j] == 1 {
+		border += m.positions[seen[j]]
+		b += 1
+	}
+	return border / b if b > 0 else sum / n
 }
 
 @(private)
@@ -1298,14 +1416,15 @@ job_smooth_apply :: proc(data: rawptr, i: int) {
 		d2 := linalg.dot(delta, delta)
 		if d2 < d.r2 {
 			if w := shield(fade, mask, v) * facing_weight(d, m.normals[:], v); w > 0 && smooth_takes(d.brush.smooth_only, targets[v - first] - m.positions[v], m.normals[v]) {
-				t := clamp(d.brush.strength * dab_weight(d, delta, d2), 0, 1) * w
+				t := clamp(d.rate * dab_weight(d, delta, d2), 0, 1) * w
 				m.positions[v] = linalg.lerp(m.positions[v], targets[v - first], t)
 				moved += 1
 			}
 		}
 		geom.aabb_grow(&bounds, m.positions[v])
 	}
-	s.partials[i].moved = moved
+	// Over several passes the leaf moved what any of them moved; the last bounds hold.
+	s.partials[i].moved = max(s.partials[i].moved, moved)
 	s.partials[i].bounds = bounds
 }
 
