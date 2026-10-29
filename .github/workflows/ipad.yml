@@ -1,10 +1,17 @@
 name: iPad build
 
-# Builds an unsigned Sculpt.ipa on GitHub's macOS runner (./build.sh ios) for AltStore to
-# sign on the iPad. It runs only when started by hand (Actions > iPad build > Run workflow),
-# so the macOS minutes a private repository pays for go only to builds someone asked for.
+# Builds Sculpt.ipa on GitHub's macOS runner (./build.sh ios): unsigned, for AltStore to sign
+# on the iPad, or with "testflight" ticked a store build signed with the distribution
+# certificate and sent to App Store Connect for TestFlight (README "iPad", the secrets it
+# names). It runs only when started by hand (Actions > iPad build > Run workflow), so the
+# macOS minutes a private repository pays for go only to builds someone asked for.
 on:
   workflow_dispatch:
+    inputs:
+      testflight:
+        description: Sign for the App Store and send to TestFlight
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -59,12 +66,58 @@ jobs:
           restore-keys: msl-ios-
 
       - name: Build Sculpt.ipa
+        if: ${{ !inputs.testflight }}
         env:
           BUILD_NUMBER: ${{ github.run_number }}
           # A developer build: Input diagnostics is reachable (README "Input diagnostics"),
           # and its reports name the commit.
           SCULPT_DIAGNOSTICS: "1"
         run: SCULPT_VERSION="g${GITHUB_SHA::7}" ./build.sh ios
+
+      # The store build: the distribution certificate goes into a keychain of the run's own,
+      # deleted with the runner, and the profile and API key into files of the run's temp
+      # folder. Every secret is the repository's (Settings > Secrets and variables > Actions).
+      - name: Signing keychain, profile and API key
+        if: ${{ inputs.testflight }}
+        env:
+          CERT_P12: ${{ secrets.IOS_DIST_CERT_P12 }}
+          CERT_PASSWORD: ${{ secrets.IOS_DIST_CERT_PASSWORD }}
+          PROFILE: ${{ secrets.IOS_APPSTORE_PROFILE }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: |
+          for name in CERT_P12 CERT_PASSWORD PROFILE ASC_KEY_ID ASC_KEY_P8; do
+            [ -n "${!name}" ] || { echo "missing secret for $name (README \"iPad\")"; exit 1; }
+          done
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          password=$(uuidgen)
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 3600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          echo "$CERT_P12" | base64 --decode > "$RUNNER_TEMP/dist.p12"
+          security import "$RUNNER_TEMP/dist.p12" -k "$keychain" -P "$CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$keychain"
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          rm "$RUNNER_TEMP/dist.p12"
+          echo "$PROFILE" | base64 --decode > "$RUNNER_TEMP/appstore.mobileprovision"
+          mkdir -p ~/.appstoreconnect/private_keys
+          echo "$ASC_KEY_P8" > ~/.appstoreconnect/private_keys/AuthKey_$ASC_KEY_ID.p8
+          identity=$(security find-identity -v -p codesigning "$keychain" | sed -n 's/.*"\(Apple Distribution[^"]*\)".*/\1/p' | head -n 1)
+          [ -n "$identity" ] || { echo "no Apple Distribution identity in the certificate"; exit 1; }
+          echo "SCULPT_SIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
+          echo "SCULPT_PROFILE=$RUNNER_TEMP/appstore.mobileprovision" >> "$GITHUB_ENV"
+
+      # TestFlight and the App Store want each upload's build number higher than the last:
+      # the run number grows with every run of this workflow.
+      - name: Build and send to TestFlight
+        if: ${{ inputs.testflight }}
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          SCULPT_VERSION="g${GITHUB_SHA::7}" ./build.sh ios
+          ./build.sh iosupload
 
       - uses: actions/upload-artifact@v4
         with:

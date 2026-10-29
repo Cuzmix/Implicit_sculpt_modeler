@@ -5,6 +5,7 @@
     python scripts/ipad_build.py --latest     # download the newest successful build of the branch
     python scripts/ipad_build.py --branch odin-sculpt --latest
     python scripts/ipad_build.py --no-open    # do not open the folder afterwards
+    python scripts/ipad_build.py --testflight # a store build, signed and sent to TestFlight
 
 The iPad build needs a Mac, so it runs on GitHub's macOS runner (.github/workflows/ipad.yml,
 ./build.sh ios). This starts that workflow for a branch with the GitHub CLI (gh, signed in),
@@ -58,10 +59,10 @@ def check_pushed(branch):
         print("ipad_build: note: uncommitted changes here are not in the build")
 
 
-def start_run(branch):
+def start_run(branch, testflight=False):
     """Starts the workflow and returns its run's id."""
     started = time.time()
-    out = run(["gh", "workflow", "run", WORKFLOW, "--ref", branch])
+    out = run(["gh", "workflow", "run", WORKFLOW, "--ref", branch, "-f", f"testflight={'true' if testflight else 'false'}"])
     match = re.search(r"/actions/runs/(\d+)", out)
     if match:
         return match.group(1)
@@ -111,6 +112,8 @@ def main(argv):
     p.add_argument("--branch", help="the branch to build or download (default: the one checked out)")
     p.add_argument("--latest", action="store_true", help="download the newest successful build instead of starting one")
     p.add_argument("--no-open", action="store_true", help="do not open the folder afterwards")
+    p.add_argument("--testflight", action="store_true",
+                   help="sign a store build and send it to TestFlight (the repository's signing secrets, README \"iPad\")")
     args = p.parse_args(argv)
     if not shutil.which("gh"):
         sys.exit("ipad_build: the GitHub CLI (gh) is not on PATH: https://cli.github.com, then gh auth login")
@@ -122,11 +125,16 @@ def main(argv):
     else:
         if branch == current_branch():
             check_pushed(branch)
-        run_id = start_run(branch)
+        run_id = start_run(branch, args.testflight)
         print(f"ipad_build: building {branch} on GitHub, run {run_id}; this takes a few minutes")
         watch = subprocess.run(["gh", "run", "watch", run_id, "--exit-status", "--interval", "20"], cwd=ROOT)
         if watch.returncode != 0:
             sys.exit(f"ipad_build: run {run_id} failed; its log: gh run view {run_id} --log-failed")
+        if args.testflight:
+            # A store build goes to App Store Connect, not AltStore: the IPA is not fetched.
+            print(f"ipad_build: run {run_id} sent its build to App Store Connect (the build number is the run's number);")
+            print("it shows in TestFlight once Apple has processed it, usually within half an hour.")
+            return 0
     download(run_id)
     print(f"ipad_build: saved {os.path.relpath(OUT, ROOT)} from run {run_id}")
     print("To install it (README \"iPad\"): with AltServer running on this PC and the iPad on the same Wi-Fi or")

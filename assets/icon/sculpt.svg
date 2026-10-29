@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+	The app icon's source: a clay bump with a brush ring around it, in graphite with the
+	interface's teal. It is drawn full bleed and square because each platform rounds the
+	corners itself. sculpt-1024.png is this picture rendered at 1024 x 1024 and flattened to
+	RGB (the App Store refuses an icon with alpha); re-render it after changing this file,
+	since `./build.sh ios` and `mac` compile the PNG into the app.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+<defs>
+<clipPath id="hill"><path d="M -10 720 C 190 700 320 650 410 540 C 465 470 575 470 630 540 C 720 650 850 700 1034 720 L 1034 1034 L -10 1034 Z"/></clipPath>
+</defs>
+<rect width="1024" height="1024" fill="#14161a"/>
+<path d="M 300 560 A 220 72 0 0 1 740 560" fill="none" stroke="#2f7a70" stroke-width="16"/>
+<g clip-path="url(#hill)">
+<rect width="1024" height="1024" fill="#4c525a"/>
+<ellipse cx="420" cy="760" rx="520" ry="330" fill="#7d848d"/>
+<ellipse cx="470" cy="560" rx="150" ry="110" fill="#aab0b8"/>
+</g>
+<path d="M 300 560 A 220 72 0 0 0 740 560" fill="none" stroke="#5ed6c4" stroke-width="16"/>
+</svg>
