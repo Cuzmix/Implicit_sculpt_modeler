@@ -232,6 +232,7 @@ Nav_Prefs :: struct {
 	hold_delay:     f32,
 	palm_rejection: bool, // a lone finger does nothing while the pen is near
 	double_tap:     bool, // a finger's double tap frames, or pins the pivot on the model
+	tap_switches:   bool, // a finger's tap on an object that is not the selected one selects it, sculpting nothing
 	lift_one_orbit: bool, // two fingers down, one lifted: the other turns the view
 	// Pointer off the model: turn about the point under the pointer as deep as the view's
 	// middle (Nomad's Allow air pivot) instead of about the last stroke.
@@ -325,6 +326,7 @@ NAV_DEFAULT :: Nav_Prefs {
 	hold_delay     = 0.25,
 	palm_rejection = true,
 	double_tap     = true,
+	tap_switches   = true,
 	lift_one_orbit = true,
 	pivot_dot      = true,
 	gestures       = GESTURE_DEFAULTS,
@@ -448,7 +450,27 @@ pointer_route :: proc(app: ^App, input: ^Viewport_Input) {
 			wait := ui.FINGER_TAP if waits_tap else time.duration_seconds(FINGER_HOLD)
 			tap := lifted && waits_tap && g.travel <= slop && now - g.at < ui.FINGER_TAP
 			w := &app.dab_wait
-			if tap && g.mask_tap && !w.active {
+			// A quick tap on another object than the selected one switches to it and sculpts
+			// nothing, unless it is the second tap of a double tap.
+			switch_to := -1
+			if lifted && !g.mask_tap && g.travel <= slop && now - g.at < ui.FINGER_TAP && !(w.active && w.second) do switch_to = tap_switch_target(app, g.from, input.size)
+			if switch_to >= 0 {
+				g.pending = false
+				clear(&g.held)
+				input.primary, input.press = false, false
+				input.samples = {}
+				app.scene.selected = switch_to
+				app.tap_switches += 1
+				// With double taps on, a second tap may still follow and pin the pivot there;
+				// the wait holds no dab, so running out plays nothing.
+				if g.defer_tap {
+					if w.active do w.play = true
+					else {
+						w^ = {active = true, samples = w.samples, size = input.size, at = now, pos = g.from + app.ui.viewport_origin}
+						clear(&w.samples)
+					}
+				}
+			} else if tap && g.mask_tap && !w.active {
 				g.pending = false
 				clear(&g.held)
 				input.primary, input.press = false, false
@@ -539,6 +561,14 @@ pointer_route :: proc(app: ^App, input: ^Viewport_Input) {
 			else do one_tap_run(app, true)
 		}
 		if g.owner == .Shape do shape_release(app, false)
+		// A finger that turns the view on the model too (One finger on the model: Turns the
+		// view) still switches objects with a quick tap.
+		if g.owner == .Orbit && !g.empty && d.pointer == .Finger && g.travel <= slop && now - g.at < ui.FINGER_TAP && !t.palm && !t.gesture && !pen_holds_hand(app, now) {
+			if to := tap_switch_target(app, g.from, input.size); to >= 0 {
+				app.scene.selected = to
+				app.tap_switches += 1
+			}
+		}
 		if g.owner == .Orbit && d.pointer == .Finger && !g.edge && app.nav.double_tap {
 			if g.travel > slop || now - g.at >= ui.FINGER_TAP {
 				app.double_tap.valid = false
@@ -624,6 +654,17 @@ drag_decide :: proc(app: ^App, input: Viewport_Input) -> (owner: Drag_Owner, emp
 		}
 	}
 	return .Tool, false
+}
+
+// The object a finger's tap at `at` switches to (Settings > Touch > Tap another object to
+// switch to it): the one under it when that is not the selected one, else -1. Not while
+// one object is shown alone, whose selection stays.
+tap_switch_target :: proc(app: ^App, at, size: [2]f32) -> int {
+	if !app.nav.tap_switches || app.scene.solo do return -1
+	origin, dir := mouse_ray(app.camera, at, size)
+	index, _, ok := scene_raycast(app, origin, dir)
+	if !ok || index == app.scene.selected do return -1
+	return index
 }
 
 // A finger's double tap at `at` (Nomad's): on the model it pins the pivot there, which
