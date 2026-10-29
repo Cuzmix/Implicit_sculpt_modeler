@@ -60,12 +60,13 @@ rem Library packages have no main, hence -no-entry-point; it is harmless on the 
 "%ODIN%" check "%ROOT%src\sculpt" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\sdf_trial" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\ui" -no-entry-point %COMMON% || exit /b 1
+"%ODIN%" check "%ROOT%src\usd" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\voxel" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\zip" -no-entry-point %COMMON% || exit /b 1
 python "%ROOT%scripts\agents_sync.py" --check || exit /b 1
 python "%ROOT%scripts\boundary_check.py" || exit /b 1
 python "%ROOT%scripts\shaders_msl.py" --check || exit /b 1
-echo check: 15 packages type-check, agent mirror current, only render names the GPU API, Metal shaders current
+echo check: 16 packages type-check, agent mirror current, only render names the GPU API, Metal shaders current
 exit /b 0
 
 :iphonecheck
@@ -109,6 +110,7 @@ exit /b 0
 "%ODIN%" test "%ROOT%src\zip" -out:"%ROOT%build\test_zip.exe" %COMMON% || exit /b 1
 "%ODIN%" test "%ROOT%src\ui" -out:"%ROOT%build\test_ui.exe" %COMMON% || exit /b 1
 "%ODIN%" test "%ROOT%src\luau" -out:"%ROOT%build\test_luau.exe" %COMMON% || exit /b 1
+"%ODIN%" test "%ROOT%src\usd" -out:"%ROOT%build\test_usd.exe" %COMMON% || exit /b 1
 "%ODIN%" test "%ROOT%src\app" -out:"%ROOT%build\test_app.exe" %COMMON% || exit /b 1
 exit /b 0
 
