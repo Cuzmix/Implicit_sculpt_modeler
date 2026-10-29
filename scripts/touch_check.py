@@ -6549,6 +6549,27 @@ def mouse_shift_turn_has_no_haptic():
 
 
 @scenario
+def pen_laid_down_grows_the_brush():
+    """With Lean grows the size full, a pen leaning 60 degrees strokes with twice the brush, so the same path lays fewer dabs, still one undo step."""
+    s = Script()
+    s.add("pnear")
+    s.add("ptilt:60,0")
+    pen_stroke(s, line((760, 430), (860, 470), 20))
+    s.wait(4)
+    return s, ["--script=set tilt_size 1"], camera_still({"dabs": lambda v: 0 < int(v) < 6, "undo_steps": near(1)})
+
+
+@scenario
+def pen_hover_distance_is_followed():
+    """The pen's hover height arrives and fades the brush ring (desktop pens report none, an iPad's Pencil does)."""
+    s = Script()
+    pen_hover(s, *MODEL, frames=4)
+    s.add("pdist:0.8")
+    s.wait(4)
+    return s, [], camera_still({"pen_distance": near(0.8, 1e-2), "dabs": near(0)})
+
+
+@scenario
 def one_finger_tap_runs_its_command():
     """With One-finger tap set to Wireframe, a tap on empty space turns wireframe on once no second tap came, and sculpts nothing."""
     s = Script()

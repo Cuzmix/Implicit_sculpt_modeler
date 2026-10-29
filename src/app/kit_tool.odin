@@ -335,6 +335,13 @@ focal_slider :: proc(app: ^App) {
 @(private = "file")
 kit_pen :: proc(app: ^App) {
 	ctx := &app.kit.ctx
+	// Two pages, so neither holds more than the section's five controls.
+	pages := [2]string{"Pressure", "Lean"}
+	if picked := ui.tabs(ctx, "pen page", pages[:], int(app.kit.pen_lean)); picked >= 0 do app.kit.pen_lean = picked == 1
+	if app.kit.pen_lean {
+		kit_tilt(app)
+		return
+	}
 	_ = ui.switch_row(ctx, "Pressure changes strength", &app.brush.pressure_strength)
 	_ = ui.switch_row(ctx, "Pressure changes size", &app.brush.pressure_size)
 	dot: Maybe([2]f32)
@@ -351,11 +358,26 @@ kit_pen :: proc(app: ^App) {
 	}
 	if picked := ui.tabs(ctx, "pressure", names[:], chosen); picked >= 0 do app.brush.pressure_curve = PRESSURE_PRESETS[picked].curve
 	ui.paragraph(ctx, "Along: how hard the pen presses. Up: what that counts as.")
-	_ = ui.slider(ctx, "Tilt", &app.brush.tilt_strength, 0, 1, .Linear, "off" if app.brush.tilt_strength <= 0 else fmt.tprintf("%.2f", app.brush.tilt_strength))
 	if app.pen_seen {
-		ui.paragraph(ctx, fmt.tprintf("Pen: pressure %.2f counts as %.2f; leaning %.0f° across, %.0f° down.", app.pen_pressure, pressure_curved(app, app.pen_pressure), app.pen_tilt.x, app.pen_tilt.y))
+		ui.paragraph(ctx, fmt.tprintf("Pen: pressure %.2f counts as %.2f.", app.pen_pressure, pressure_curved(app, app.pen_pressure)))
 	} else {
-		ui.paragraph(ctx, "No pen seen yet; a mouse always presses fully. Tilt turns the brush as the pen leans.")
+		ui.paragraph(ctx, "No pen seen yet; a mouse always presses fully.")
+	}
+}
+
+// The Pen section's Lean page: turn the brush the way the pen leans, and, laid toward the
+// screen, grow it and soften it, as a pencil's side shades wide and light.
+@(private = "file")
+kit_tilt :: proc(app: ^App) {
+	ctx := &app.kit.ctx
+	b := &app.brush
+	_ = ui.slider(ctx, "Tilt", &b.tilt_strength, 0, 1, .Linear, "off" if b.tilt_strength <= 0 else fmt.tprintf("%.2f", b.tilt_strength))
+	_ = ui.slider(ctx, "Lean grows the size", &b.tilt_size, 0, 1, .Linear, "off" if b.tilt_size <= 0 else fmt.tprintf("up to ×%.2f", 1 + b.tilt_size))
+	_ = ui.slider(ctx, "Lean softens", &b.tilt_soften, 0, 1, .Linear, "off" if b.tilt_soften <= 0 else fmt.tprintf("up to %.0f%%", 100 * b.tilt_soften))
+	if app.pen_seen {
+		ui.paragraph(ctx, fmt.tprintf("Pen: leaning %.0f° across, %.0f° down; laid %.0f%% of the way down.", app.pen_tilt.x, app.pen_tilt.y, 100 * lean_of(app.pen_tilt)))
+	} else {
+		ui.paragraph(ctx, "No pen seen yet. Tilt turns the brush as the pen leans; laid toward the screen, the pen can also grow the brush and soften it, in full from 60° off upright.")
 	}
 }
 

@@ -40,6 +40,7 @@ Kit_State :: struct {
 	tab:        Kit_Tab, // ...on this palette
 	section:    [Kit_Tab]Kit_Section, // the section each palette shows
 	object_page: Object_Page, // the page of the Object palette's section, for the exit stats
+	pen_lean:    bool, // the Brush palette's Pen section shows its Lean page, not Pressure
 	list_scroll: f32, // the tray's list of palettes and sections, scrolled
 	list_reveal: int, // ...to the section shown, for this many more frames
 	// Search's Show where (tray_show): the command whose control the tray marks, since
@@ -581,6 +582,8 @@ Kit_Event_Kind :: enum u8 {
 	Pencil_Tap,
 	Pencil_Squeeze,
 	Pencil_Only, // the iPad's Only Draw with Apple Pencil turned on (`value` 1) or off (0)
+	Pen_Distance, // how far the pen hovers from then on, 0 to 1
+	Pen_Tilt, // the pen's lean from then on, degrees across and down in `at`
 }
 
 // Reads --ui-events. Returns false, after saying why, when the list is malformed.
@@ -614,13 +617,14 @@ kit_events_parse :: proc(app: ^App, spec: string) -> bool {
 		}
 		if ok {
 			switch parts[1] {
-			case "move", "pdown", "pmove", "pedown":
+			case "move", "pdown", "pmove", "pedown", "ptilt":
 				ok = len(parts) == 3
 				if ok do ev.at, ok = point(parts[2])
 				switch parts[1] {
 				case "move":  ev.kind = .Move
 				case "pdown": ev.kind = .Pen_Down
 				case "pmove": ev.kind = .Pen_Move
+				case "ptilt": ev.kind = .Pen_Tilt
 				case:         ev.kind = .Pen_Erase_Down
 				}
 			case "pdtap", "psqueeze":
@@ -642,7 +646,7 @@ kit_events_parse :: proc(app: ^App, spec: string) -> bool {
 			case "pnear":  ev.kind = .Pen_Near
 			case "pfar":   ev.kind = .Pen_Far
 			case "pright": ev.kind = .Pen_Right
-			case "wheel", "ppress", "proll", "pbutton", "ponly":
+			case "wheel", "ppress", "proll", "pbutton", "ponly", "pdist":
 				ok = len(parts) == 3
 				if ok do ev.value, ok = strconv.parse_f32(parts[2])
 				switch parts[1] {
@@ -650,6 +654,7 @@ kit_events_parse :: proc(app: ^App, spec: string) -> bool {
 				case "ppress":  ev.kind = .Pen_Pressure
 				case "pbutton": ev.kind = .Pen_Button
 				case "ponly":   ev.kind = .Pencil_Only
+				case "pdist":   ev.kind = .Pen_Distance
 				case:           ev.kind = .Pen_Roll
 				}
 			case "text":
@@ -787,6 +792,16 @@ kit_events_push :: proc(app: ^App, window: ^sdl.Window) {
 			push(e)
 		case .Pen_Roll:
 			e.paxis = {type = .PEN_AXIS, timestamp = now, windowID = win, which = 1, x = d.mouse.x, y = d.mouse.y, axis = .ROTATION, value = clamp(ev.value, -180, 180)}
+			push(e)
+		case .Pen_Tilt:
+			// As this platform's SDL reports it: an iPad's goes through pencil_tilt_uikit.
+			for axis, i in ([2]sdl.PenAxis{.XTILT, .YTILT}) {
+				e = {}
+				e.paxis = {type = .PEN_AXIS, timestamp = now, windowID = win, which = 1, x = d.mouse.x, y = d.mouse.y, axis = axis, value = clamp(ev.at[i], -90, 90)}
+				push(e)
+			}
+		case .Pen_Distance:
+			e.paxis = {type = .PEN_AXIS, timestamp = now, windowID = win, which = 1, x = d.mouse.x, y = d.mouse.y, axis = .DISTANCE, value = clamp(ev.value, 0, 1)}
 			push(e)
 		case .Pen_Button:
 			// SDL's pen button events, then the mouse button it makes of each: the first
@@ -1179,6 +1194,7 @@ kit_viewport_input :: proc(app: ^App, size: [2]f32) -> (input: Viewport_Input) {
 	for &s in input.samples do s.pos = viewport_point(app, s.pos)
 	input.pen_tilt = app.pen_tilt
 	input.pen_roll = app.pen_roll_last.? or_else 0
+	if d.pointer == .Pen && .Left not_in d.down do input.pen_hover = app.pen_distance
 	input.mouse_delta = d.moved
 	// An orbit turns about the target unless pointer_route decided another pivot.
 	input.orbit_pivot = app.camera.target
