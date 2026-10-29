@@ -6364,7 +6364,7 @@ def pies_come_back_from_settings():
 
 # Settings > Shortcuts at 1600 by 900: its search field, and the first row under the first
 # caption (with "wire" typed, Wireframe; with nothing, Home).
-KEYS_SEARCH, KEYS_FIRST_ROW = (900, 517), (900, 593)
+KEYS_SEARCH, KEYS_FIRST_ROW = (900, 620), (900, 696)
 
 
 def mouse_scheme_settings(scheme):
@@ -11815,6 +11815,22 @@ def paint_toggle_lays_colour_as_it_sculpts():
     s.wait(6)
     strokes(s, 1)
     return s, [], {"paint_channel": is_text("both"), "painted_vertices": lambda v: int(v) > 0, "dabs": lambda v: int(v) > 0, "undo_steps": near(1)}
+
+
+# PR 10: Settings > Interface > Motion.
+
+@scenario
+def motion_levels_still_open_menus():
+    """With motion Reduced, Off, or the menus' own motion turned off, a tap on the object chip still opens its menu."""
+    def run(level, off=""):
+        s = Script()
+        if off:
+            write_settings(f"motion_off {off}\n")
+        s.ftap(*STATUS_CHIP)
+        s.wait(6)
+        args = [f"--script=set motion {level}"] + ([f"--settings-file={settings_file()}"] if off else [])
+        return s, args, camera_still({"object_menu": near(1), "motion": is_text(level), "motion_off": is_text(off or "none"), "dabs": near(0)})
+    return Steps([run("reduced"), run("off"), run("full", "Popovers")])
 
 
 def main(argv):

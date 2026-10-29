@@ -340,7 +340,7 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 	// with it.
 	if slide != 0 {
 		w := max(brushes_at.w, ui.BRUSH_TILE.x)
-		ui.transform_since(ctx, mark, opacity = 1 - min(abs(slide) / w, 1) * 0.7, offset = {slide, 0})
+		ui.transform_since(ctx, mark, opacity = 1 - min(abs(slide) / w, 1) * 0.7, offset = {slide, 0}, follows = true)
 	}
 	if ui.brush_tile(ctx, "All##shelf all", ui.ICON_GRID, k.browser, command_hint(app, .Brush_Picker)) do brush_picker_toggle(app)
 	sheet_anchor = ctx.last_rect
@@ -364,7 +364,7 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 	// screen's next page does; it only shows, so it takes no press.
 	if slide != 0 && brushes_at.w > 0 do shelf_peek(app, brushes_at, slide, -1 if slide > 0 else 1)
 	// The page just turned slides in the rest of the way.
-	sh.slide = 0 if ctx.reduced_motion || abs(sh.slide) < 0.5 else sh.slide * math.exp(-ctx.input.dt * SHELF_SLIDE_RATE)
+	sh.slide = 0 if !ui.motion_moves(ctx, motion_class(.Pages)) || abs(sh.slide) < 0.5 else sh.slide * math.exp(-ctx.input.dt * SHELF_SLIDE_RATE)
 	// The picker centres over the whole shelf, which stays in sight under it, so a card can
 	// be carried down onto any tile.
 	if strip := ui.prev_rect(ctx, "dock"); strip.w > 0 do sheet_anchor = strip
@@ -477,7 +477,7 @@ shelf_peek :: proc(app: ^App, at: ui.Rect, slide: f32, page_by: int) {
 		_ = ui.brush_tile(ctx, fmt.tprintf("%s##peek %v %d", shelf_label(s), page, j), bar_icon(s), false)
 	}
 	ui.end(ctx)
-	ui.transform_since(ctx, mark, opacity = min(abs(slide) / at.w, 1), offset = {slide + f32(page_by) * at.w, 0})
+	ui.transform_since(ctx, mark, opacity = min(abs(slide) / at.w, 1), offset = {slide + f32(page_by) * at.w, 0}, follows = true)
 }
 
 // The page names under the shelf, each a tap away; the shelf stands over them.

@@ -406,10 +406,12 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   `stroke_rect`, `fill_circle`, `stroke_circle`, `line`, `polyline`, `fill_convex`, `text`, `icon`.
 - Every pressable widget has default, hover, pressed, selected and disabled looks through `feedback`; selected tabs,
   tiles and segments use `indicator`, one sliding marker per container drawn under the content.
-- Motion (`motion.odin`): `tween(ctx, salt(id, n), target, duration, ease)`; `presence` gives a 0–1 enter/exit share;
-  animate by `transform_since`/`rotate_since` on the vertices drawn since a `vertex_mark`, never by changing the
-  layout. The clock is the sum of clamped `Input.dt`. `ctx.reduced_motion` makes every duration 0. Nothing a stroke,
-  the camera or a drag reads animates.
+- Motion (`motion.odin`): `tween(ctx, salt(id, n), target, duration, ease, class = ...)`; `presence` gives a 0–1
+  enter/exit share; animate by `transform_since`/`rotate_since` on the vertices drawn since a `vertex_mark`, never by
+  changing the layout. The clock is the sum of clamped `Input.dt`. `ctx.motion` (Full/Reduced/Off) and
+  `ctx.motion_off` (classes: the kit's MOTION_PRESS..TOOLTIPS, then the app's `Motion_Kind`, motion_prefs.odin) gate
+  durations; Reduced drops transform_since's scale and offset unless `follows = true` (a page under the finger). Give a
+  new animation a class (a new `Motion_Kind` when no kit class fits). Nothing a stroke, the camera or a drag reads animates.
 - Popovers (`popup.odin`): `popover_begin(ctx, name, open, anchor, side, box)` … `popover_end`; a press outside one
   closes it (swallowed if on the viewport); the first frame is measured invisibly. Selects draw their list in
   `frame_end`, over everything; a list taller than the room above or below its field is cut to the window and

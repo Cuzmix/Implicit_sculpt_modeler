@@ -74,8 +74,8 @@ ICON_DOTS :: rune(0xe0ed) // grip-horizontal: the handle a card is dragged by
 @(private)
 feedback :: proc(ctx: ^Context, id: Id, r: Rect, radius: f32, hovered, held: bool) -> f32 {
 	t := ctx.theme
-	h := tween(ctx, salt(id, 11), 1 if hovered || held else 0, t.hover_time)
-	p := tween(ctx, salt(id, 12), 1 if held else 0, t.press_time)
+	h := tween(ctx, salt(id, 11), 1 if hovered || held else 0, t.hover_time, class = MOTION_PRESS)
+	p := tween(ctx, salt(id, 12), 1 if held else 0, t.press_time, class = MOTION_PRESS)
 	a := f32(t.fill_hover.a) * h + (f32(t.fill_pressed.a) - f32(t.fill_hover.a)) * p
 	if a > 0.5 do fill_rect(ctx, r, radius, {t.fill_hover.r, t.fill_hover.g, t.fill_hover.b, u8(clamp(a, 0, 255))})
 	return 1 - 0.03 * p
@@ -136,10 +136,10 @@ icon_button :: proc(ctx: ^Context, name: string, glyph: rune, selected := false,
 	id := id_of(ctx, name)
 	hovered, held, clicked, _ := interact(ctx, id, cell)
 	mark := vertex_mark(ctx)
-	sel := tween(ctx, salt(id, 1), 1 if selected else 0, t.hover_time)
+	sel := tween(ctx, salt(id, 1), 1 if selected else 0, t.hover_time, class = MOTION_PRESS)
 	if sel > 0 do fill_rect(ctx, vis, t.radius_medium, color_fade(t.accent_soft, sel))
 	scale := feedback(ctx, id, vis, t.radius_medium, hovered, held)
-	h := tween(ctx, salt(id, 2), 1 if hovered else 0, t.hover_time)
+	h := tween(ctx, salt(id, 2), 1 if hovered else 0, t.hover_time, class = MOTION_PRESS)
 	color := color_mix(color_mix(t.text_secondary, t.text, h), t.accent, sel)
 	icon(ctx, glyph, mid, t.icon_size, color)
 	if corner {
@@ -274,7 +274,7 @@ toggle_button :: proc(ctx: ^Context, s: string, on: bool, width: f32, keys := ""
 	id := id_of(ctx, s)
 	hovered, held, clicked, _ := interact(ctx, id, cell)
 	mark := vertex_mark(ctx)
-	o := tween(ctx, salt(id, 1), 1 if on else 0, t.hover_time)
+	o := tween(ctx, salt(id, 1), 1 if on else 0, t.hover_time, class = MOTION_PRESS)
 	if o > 0 do fill_rect(ctx, vis, t.radius_medium, color_fade(t.accent_soft, o))
 	scale := feedback(ctx, id, vis, t.radius_medium, hovered && !on, held)
 	color := color_mix(t.text_secondary, t.accent, o)
@@ -333,7 +333,7 @@ tabs :: proc(ctx: ^Context, name: string, options: []string, chosen: int, item_w
 			if tinted do indicator(ctx, r, t.radius_small + 1, tints_soft[i], tints[i])
 			else do indicator(ctx, r, t.radius_small + 1, t.accent if accent else t.cursor, {} if accent else t.cursor_line)
 		}
-		o := tween(ctx, salt(id, 1), 1 if on else 0, t.indicator_time)
+		o := tween(ctx, salt(id, 1), 1 if on else 0, t.indicator_time, class = MOTION_TABS)
 		_ = feedback(ctx, id, r, t.radius_small + 1, hovered && !on, held && !on)
 		lit := tints[i] if tinted else (t.on_accent if accent else t.text)
 		color := color_mix(color_mix(t.text_secondary, t.text, f32(int(hovered)) * 0.6), lit, o)
@@ -374,9 +374,9 @@ switch_row :: proc(ctx: ^Context, s: string, value: ^bool, enabled := true, keys
 	clicked, held := false, false
 	if enabled do _, held, clicked, _ = interact(ctx, id, r)
 	if clicked do value^ = !value^
-	on := tween(ctx, salt(id, 1), 1 if value^ else 0, t.indicator_time, .Out_Back)
-	tint := tween(ctx, salt(id, 2), 1 if value^ else 0, t.hover_time)
-	grip := tween(ctx, salt(id, 3), 1 if held else 0, t.press_time)
+	on := tween(ctx, salt(id, 1), 1 if value^ else 0, t.indicator_time, .Out_Back, class = MOTION_TABS)
+	tint := tween(ctx, salt(id, 2), 1 if value^ else 0, t.hover_time, class = MOTION_PRESS)
+	grip := tween(ctx, salt(id, 3), 1 if held else 0, t.press_time, class = MOTION_PRESS)
 	fade: f32 = 1 if enabled else 0.4
 	text(ctx, shown, r.x, r.y + r.h * 0.5, t.text_size, color_fade(t.text_secondary, fade))
 	track := Rect{r.x + r.w - 44, r.y + (r.h - 26) * 0.5, 44, 26}
@@ -529,7 +529,7 @@ slider :: proc(ctx: ^Context, s: string, value: ^f32, lo, hi: f32, scale: Scale,
 	f := slider_fraction(value^, lo, hi, scale)
 	fill_rect(ctx, track, 2, t.track)
 	fill_rect(ctx, {track.x, track.y, track.w * f, track.h}, 2, color_fade(t.accent, fade))
-	grow := tween(ctx, salt(id, 1), 1 if held else (0.5 if hovered else 0), t.press_time)
+	grow := tween(ctx, salt(id, 1), 1 if held else (0.5 if hovered else 0), t.press_time, class = MOTION_PRESS)
 	kr: f32 = 7 + 2 * grow
 	knob := [2]f32{track.x + track.w * f, track.y + track.h * 0.5}
 	if grow > 0 do fill_circle(ctx, knob, kr + 5 * grow, color_fade(t.accent_soft, grow))
@@ -595,7 +595,7 @@ vslider :: proc(ctx: ^Context, s: string, value: ^f32, lo, hi: f32, scale: Scale
 	fill_rect(ctx, {cx - 2, top, 4, track}, 2, t.track)
 	knob_y := top + track * (1 - f)
 	fill_rect(ctx, {cx - 2, knob_y, 4, top + track - knob_y}, 2, t.accent)
-	grow := tween(ctx, salt(id, 1), 1 if held else (0.5 if hovered else 0), t.press_time)
+	grow := tween(ctx, salt(id, 1), 1 if held else (0.5 if hovered else 0), t.press_time, class = MOTION_PRESS)
 	kr: f32 = 8 + 3 * grow
 	if grow > 0 do fill_circle(ctx, {cx, knob_y}, kr + 6 * grow, color_fade(t.accent_soft, grow))
 	fill_circle(ctx, {cx, knob_y + 1}, kr, color_fade(t.shadow, 0.5))
@@ -625,7 +625,7 @@ list_row :: proc(ctx: ^Context, s: string, detail := "", selected := false, glyp
 	hovered, held, clicked, _ := interact(ctx, id, cell)
 	menu := secondary(ctx)
 	mark := vertex_mark(ctx)
-	o := tween(ctx, salt(id, 1), 1 if selected else 0, t.hover_time)
+	o := tween(ctx, salt(id, 1), 1 if selected else 0, t.hover_time, class = MOTION_PRESS)
 	if o > 0 do fill_rect(ctx, vis, t.radius_medium, color_fade(t.accent_soft, o))
 	scale := feedback(ctx, id, vis, t.radius_medium, hovered && !selected, held)
 	x := vis.x + 12
@@ -731,7 +731,7 @@ tree_row :: proc(ctx: ^Context, s: string, detail := "", selected := false, dept
 	res.menu = secondary(ctx)
 
 	mark := vertex_mark(ctx)
-	o := tween(ctx, salt(id, 1), 1 if selected else 0, t.hover_time)
+	o := tween(ctx, salt(id, 1), 1 if selected else 0, t.hover_time, class = MOTION_PRESS)
 	if o > 0 do fill_rect(ctx, vis, t.radius_medium, color_fade(t.accent_soft, o))
 	scale := feedback(ctx, id, vis, t.radius_medium, hovered && !selected, held)
 	mid := vis.y + vis.h * 0.5
@@ -882,7 +882,7 @@ thumb_row :: proc(ctx: ^Context, s: string, parts: Thumb_Row, selected := false,
 
 	mark := vertex_mark(ctx)
 	scale := feedback(ctx, id, vis, t.radius_medium, hovered && !selected, held)
-	o := tween(ctx, salt(id, 1), 1 if selected else 0, t.hover_time)
+	o := tween(ctx, salt(id, 1), 1 if selected else 0, t.hover_time, class = MOTION_PRESS)
 	if o > 0 do stroke_rect(ctx, vis, t.radius_medium, color_fade(t.accent, o), 2)
 	picture := Rect{cell.x + 10, mid - PICTURE * 0.5, PICTURE, PICTURE}
 	fade: f32 = 0.45 if dim else 1
@@ -896,7 +896,7 @@ thumb_row :: proc(ctx: ^Context, s: string, parts: Thumb_Row, selected := false,
 	text(ctx, text_fit(ctx, shown, t.text_size, right - 8 - x, font), x, name_y, t.text_size, color_fade(t.text, fade), font)
 	if has_detail do text(ctx, text_fit(ctx, parts.detail, t.small_size, right - 8 - x), x, mid + 9, t.small_size, color_fade(t.text_tertiary, fade))
 	if has_under {
-		on := tween(ctx, salt(id, 2), 1 if parts.under_on else 0, t.indicator_time)
+		on := tween(ctx, salt(id, 2), 1 if parts.under_on else 0, t.indicator_time, class = MOTION_TABS)
 		_ = feedback(ctx, salt(id, 97), {knob.x - 4, knob.y - 4, knob.w + 8, knob.h + 8}, t.radius_small, under_hover, under_held)
 		fill_rect(ctx, knob, knob.h * 0.5, color_mix(t.track, t.accent, on))
 		kx := knob.x + 2 + (knob.w - 4 - (knob.h - 4)) * on
@@ -1006,7 +1006,7 @@ section :: proc(ctx: ^Context, title: string, open: ^bool) -> bool {
 	hovered, held, clicked, _ := interact(ctx, id, hit_area(ctx, cell))
 	if clicked do open^ = !open^
 	_ = feedback(ctx, id, cell, t.radius_small, hovered, held)
-	p := tween(ctx, salt(id, 1), 1 if open^ else 0, t.panel_time, .Out_Cubic)
+	p := tween(ctx, salt(id, 1), 1 if open^ else 0, t.panel_time, .Out_Cubic, class = MOTION_PANELS)
 	text(ctx, shown, cell.x + 4, cell.y + cell.h * 0.5, t.small_size, t.text, .Semibold)
 	mark := vertex_mark(ctx)
 	chev := [2]f32{cell.x + cell.w - 14, cell.y + cell.h * 0.5}
@@ -1060,7 +1060,7 @@ more :: proc(ctx: ^Context, name: string, open: ^bool, always := false) -> bool 
 	hovered, held, clicked, _ := interact(ctx, id, hit_area(ctx, cell))
 	if clicked do open^ = !open^
 	_ = feedback(ctx, id, cell, t.radius_small, hovered, held)
-	p := tween(ctx, salt(id, 1), 1 if open^ else 0, t.panel_time, .Out_Cubic)
+	p := tween(ctx, salt(id, 1), 1 if open^ else 0, t.panel_time, .Out_Cubic, class = MOTION_PANELS)
 	tw := text_width(ctx, shown, t.small_size, .Semibold)
 	text(ctx, shown, cell.x + 4, cell.y + cell.h * 0.5, t.small_size, t.accent, .Semibold)
 	mark := vertex_mark(ctx)
@@ -1095,7 +1095,7 @@ select :: proc(ctx: ^Context, name: string, options: []string, chosen: int, widt
 	_ = feedback(ctx, id, vis, t.radius_medium, hovered, held)
 	value := options[chosen] if chosen >= 0 && chosen < len(options) else ""
 	text(ctx, label_text(value), vis.x + 12, vis.y + vis.h * 0.5, t.text_size, t.text)
-	o := tween(ctx, salt(id, 1), 1 if ctx.select_open == id else 0, t.popover_time, .Out_Cubic)
+	o := tween(ctx, salt(id, 1), 1 if ctx.select_open == id else 0, t.popover_time, .Out_Cubic, class = MOTION_POPOVERS)
 	mark := vertex_mark(ctx)
 	chev := [2]f32{vis.x + vis.w - 16, vis.y + vis.h * 0.5}
 	icon(ctx, ICON_CHEVRON_DOWN, chev, t.icon_small, t.text_tertiary)
@@ -1209,7 +1209,7 @@ brush_tile :: proc(ctx: ^Context, s: string, glyph: rune, selected: bool, keys :
 	hovered, held, clicked, _ := interact(ctx, id, cell)
 	if selected do indicator(ctx, vis, t.radius_medium + 2, t.chosen)
 	mark := vertex_mark(ctx)
-	o := tween(ctx, salt(id, 1), 1 if selected else 0, t.indicator_time)
+	o := tween(ctx, salt(id, 1), 1 if selected else 0, t.indicator_time, class = MOTION_TABS)
 	scale := feedback(ctx, id, vis, t.radius_medium + 2, hovered && !selected, held)
 	color := color_mix(color_mix(t.text_secondary, t.text, f32(int(hovered)) * 0.7), t.on_chosen, o)
 	icon(ctx, glyph, {vis.x + vis.w * 0.5, vis.y + 21}, t.icon_size + 2, color)
@@ -1244,8 +1244,8 @@ modifier_button :: proc(ctx: ^Context, name: string, glyph: rune, look: Modifier
 	vis := centered(cell, {t.target - 4, t.target})
 	id := id_of(ctx, name)
 	hovered, held, clicked, _ := interact(ctx, id, cell)
-	lit := tween(ctx, salt(id, 1), 1 if look != .Off else 0, t.hover_time)
-	full := tween(ctx, salt(id, 2), 1 if look == .Latched else 0, t.indicator_time)
+	lit := tween(ctx, salt(id, 1), 1 if look != .Off else 0, t.hover_time, class = MOTION_PRESS)
+	full := tween(ctx, salt(id, 2), 1 if look == .Latched else 0, t.indicator_time, class = MOTION_TABS)
 	mark := vertex_mark(ctx)
 	if full > 0 do fill_rect(ctx, vis, t.radius_medium, color_fade(t.accent, full))
 	if lit > 0 && full < 1 {
@@ -1408,7 +1408,7 @@ text_field :: proc(ctx: ^Context, name: string, buf: []u8, width: f32 = 0, hold 
 		if ctx.input.text_end && !hold do focused = false
 		if !focused do ctx.text_focus = 0
 	}
-	f := tween(ctx, salt(id, 1), 1 if focused else 0, t.hover_time)
+	f := tween(ctx, salt(id, 1), 1 if focused else 0, t.hover_time, class = MOTION_PRESS)
 	fill_rect(ctx, vis, t.radius_medium, t.fill)
 	_ = feedback(ctx, id, vis, t.radius_medium, hovered && !focused, held)
 	if f > 0 do stroke_rect(ctx, vis, t.radius_medium, color_fade(t.accent, f), 1.5)
@@ -1559,7 +1559,7 @@ gradient_slider :: proc(ctx: ^Context, s: string, value: ^f32, colors: []Color, 
 	f := clamp(value^, 0, 1)
 	knob := [2]f32{track.x + track.w * f, track.y + track.h * 0.5}
 	under := colors[clamp(int(math.round(f * f32(max(n - 1, 0)))), 0, max(n - 1, 0))] if n > 0 else t.knob
-	grow := tween(ctx, salt(id, 1), 1 if held else (0.5 if hovered else 0), t.press_time)
+	grow := tween(ctx, salt(id, 1), 1 if held else (0.5 if hovered else 0), t.press_time, class = MOTION_PRESS)
 	kr: f32 = 10 + 2 * grow
 	fill_circle(ctx, knob + {0, 1}, kr + 1, color_fade(t.shadow, 0.6))
 	fill_circle(ctx, knob, kr, t.knob)
@@ -1626,7 +1626,7 @@ preview_tile :: proc(ctx: ^Context, s: string, glyph: rune, ball: Color, selecte
 	res.clicked = clicked
 	res.menu = secondary(ctx)
 	mark := vertex_mark(ctx)
-	o := tween(ctx, salt(id, 1), 1 if selected else 0, t.indicator_time)
+	o := tween(ctx, salt(id, 1), 1 if selected else 0, t.indicator_time, class = MOTION_TABS)
 	pic := Rect{vis.x, vis.y, vis.w, math.round(vis.w * 0.8)}
 	res.picture = pic
 	fill_rect(ctx, pic, t.radius_medium, t.fill)

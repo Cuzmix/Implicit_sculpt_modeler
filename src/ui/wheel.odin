@@ -68,9 +68,9 @@ wheel :: proc(ctx: ^Context, name: string, outer, hole: f32, sectors: [4]Wheel_S
 		r := cell if under == i || ctx.active == id else Rect{}
 		hovered, held, clicked, _ := interact(ctx, id, r)
 		if clicked do res.clicked = i
-		lit := tween(ctx, salt(id, 1), 1 if s.look != .Off else 0, t.hover_time)
-		full := tween(ctx, salt(id, 2), 1 if s.look == .Latched else 0, t.indicator_time)
-		h := tween(ctx, salt(id, 3), 1 if hovered || held else 0, t.hover_time)
+		lit := tween(ctx, salt(id, 1), 1 if s.look != .Off else 0, t.hover_time, class = MOTION_PRESS)
+		full := tween(ctx, salt(id, 2), 1 if s.look == .Latched else 0, t.indicator_time, class = MOTION_TABS)
+		h := tween(ctx, salt(id, 3), 1 if hovered || held else 0, t.hover_time, class = MOTION_PRESS)
 		fill := color_mix(color_mix(color_mix(t.fill, t.fill_pressed if held else t.fill_hover, h * 0.6), t.accent_soft, lit * (1 - full)), t.accent, full)
 		mid := f32(i) * math.PI * 0.5 - math.PI * 0.5 + turn
 		a0, a1 := mid - math.PI * 0.25 + GAP, mid + math.PI * 0.25 - GAP
@@ -110,7 +110,7 @@ wheel :: proc(ctx: ^Context, name: string, outer, hole: f32, sectors: [4]Wheel_S
 		res.drag = ctx.input.mouse - ctx.press_mouse
 		res.dragging = linalg.length(res.drag) > t.slop
 	}
-	gh := tween(ctx, salt(grip, 1), 1 if hovered || held else 0, t.hover_time)
+	gh := tween(ctx, salt(grip, 1), 1 if hovered || held else 0, t.hover_time, class = MOTION_PRESS)
 	fill_circle(ctx, c, hole * 0.5 - 2, color_mix(t.surface, t.fill_hover, gh))
 	icon(ctx, ICON_GRIP, c, t.icon_small, t.text_tertiary)
 	tip(ctx, grip, g, "Move the wheel")

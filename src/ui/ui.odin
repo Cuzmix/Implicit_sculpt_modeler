@@ -245,7 +245,11 @@ Context :: struct {
 	time:           f64, // seconds of input dt so far: the clock every tween runs on
 	tweens:         map[Id]Tween,
 	scratch_ids:    [dynamic]Id,
-	reduced_motion: bool, // every duration 0: things still change, without moving
+	// How much the interface moves (Settings > Interface > Motion): Full, Reduced (fades
+	// stay, moves and scales go) or Off (every duration 0: things still change, without
+	// moving), and the kinds of motion turned off one by one (Motion_Class numbers).
+	motion:         Motion_Level,
+	motion_off:     bit_set[0 ..< 32; u32],
 	// The left-handed layout: everything anchored to one side of the window goes to the
 	// other, and popovers open the other way, so the tools a hand reaches for are under it.
 	// A window the user moved stays where it was put.
@@ -620,10 +624,10 @@ end :: proc(ctx: ^Context) {
 		from := len(ctx.draw.indices)
 		r := ind.rect
 		dur := ctx.theme.indicator_time
-		x := tween(ctx, salt(c.id, 1), r.x - c.rect.x, dur, .Out_Cubic)
-		y := tween(ctx, salt(c.id, 2), r.y - c.rect.y, dur, .Out_Cubic)
-		iw := tween(ctx, salt(c.id, 3), r.w, dur, .Out_Cubic)
-		ih := tween(ctx, salt(c.id, 4), r.h, dur, .Out_Cubic)
+		x := tween(ctx, salt(c.id, 1), r.x - c.rect.x, dur, .Out_Cubic, class = MOTION_TABS)
+		y := tween(ctx, salt(c.id, 2), r.y - c.rect.y, dur, .Out_Cubic, class = MOTION_TABS)
+		iw := tween(ctx, salt(c.id, 3), r.w, dur, .Out_Cubic, class = MOTION_TABS)
+		ih := tween(ctx, salt(c.id, 4), r.h, dur, .Out_Cubic, class = MOTION_TABS)
 		fill_rect(ctx, {c.rect.x + x, c.rect.y + y, iw, ih}, ind.radius, ind.color)
 		if ind.line.a > 0 do stroke_rect(ctx, {c.rect.x + x, c.rect.y + y, iw, ih}, ind.radius, ind.line, 1)
 		draw_move_under(&ctx.draw, c.index_mark, c.cmd_mark, from)

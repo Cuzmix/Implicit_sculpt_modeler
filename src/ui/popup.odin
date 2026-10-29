@@ -85,7 +85,7 @@ tooltip_draw :: proc(ctx: ^Context) {
 		return
 	}
 	waited := long || ctx.time - ctx.tip_since >= f64(t.tooltip_delay)
-	shown := presence(ctx, salt(id, 7), waited, t.tooltip_time)
+	shown := presence(ctx, salt(id, 7), waited, t.tooltip_time, class = MOTION_TOOLTIPS)
 	if shown <= 0 {
 		ctx.tip_len = 0
 		return
@@ -185,7 +185,7 @@ toasts_draw :: proc(ctx: ^Context) {
 		action := string(to.action[:to.action_len])
 		staying := ctx.time - to.born < f64(to.life)
 		// A burst of toasts comes in one after another, 40 ms apart.
-		shown := tween_from(ctx, to.id, 0, 1 if staying else 0, t.toast_time, .Out_Cubic, 0.04 * f32(n - 1 - i) if staying else 0)
+		shown := tween_from(ctx, to.id, 0, 1 if staying else 0, t.toast_time, .Out_Cubic, 0.04 * f32(n - 1 - i) if staying else 0, class = MOTION_TOASTS)
 		h: f32 = 40
 		// The action sits after a divider, in the accent colour like a text button.
 		action_w: f32 = 0
@@ -196,7 +196,7 @@ toasts_draw :: proc(ctx: ^Context) {
 		msg = text_fit(ctx, msg, t.text_size, room)
 		w := text_width(ctx, msg, t.text_size) + 16 + 12 + 10 + 16 + action_w
 		target_y := y - h
-		top := tween(ctx, salt(to.id, 1), target_y, t.toast_time, .Out_Cubic)
+		top := tween(ctx, salt(to.id, 1), target_y, t.toast_time, .Out_Cubic, class = MOTION_TOASTS)
 		r := Rect{math.round(window.x * 0.5 - w * 0.5), top, w, h}
 		mark := vertex_mark(ctx)
 		shadow_rect(ctx, r, t.radius_large, t.shadow)
@@ -297,7 +297,7 @@ popover_begin :: proc(ctx: ^Context, name: string, open: ^bool, anchor: Rect, si
 			}
 		}
 	}
-	p := presence(ctx, salt(id, 9), open^, t.popover_time)
+	p := presence(ctx, salt(id, 9), open^, t.popover_time, class = MOTION_POPOVERS)
 	if p <= 0 do return false
 	window := ctx.input.window
 	side := side

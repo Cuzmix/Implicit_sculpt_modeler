@@ -82,12 +82,12 @@ settings_keys :: proc(app: ^App) {
 		ui.label(ctx, MOUSE_ACTIONS[i], t.small_size)
 		ui.label(ctx, how, t.small_size, t.text)
 	}
-	ui.paragraph(ctx, "The wheel zooms in all three. Left drags, the edges and a right click (a tap, not a drag) stay as they are (Settings > Camera and Touch).")
+	ui.paragraph(ctx, "The wheel zooms in all three. Left drags and the edges stay as they are (Settings > Camera and Touch); a right click (a tap, not a drag) opens what is picked below.")
 	clicks: [len(Right_Click)]string
 	for c in Right_Click do clicks[int(c)] = RIGHT_CLICK_NAMES[c]
 	ui.label(ctx, "Right click opens")
 	if picked := ui.tabs(ctx, "Right click opens", clicks[:], int(n.right_click)); picked >= 0 do n.right_click = Right_Click(picked)
-	ui.label(ctx, "The object menu over an object, the scene menu over empty space; Shift with a right click opens the other." if n.right_click == .Object_Menu else "The brush pie at the pointer; Shift with a right click opens the object menu.", t.small_size)
+	ui.paragraph(ctx, "The object menu over an object, the scene menu over empty space; Shift with a right click opens the brush pie." if n.right_click == .Object_Menu else "The brush pie at the pointer; Shift with a right click opens the object or scene menu.")
 	ui.spacer(ctx, 8)
 
 	ui.caption(ctx, "KEYS")
