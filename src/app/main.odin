@@ -1412,6 +1412,10 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		}
 		fmt.printfln("cages=%d cage_points=%d cage_edges=%d cage_faces=%d cage_ngons=%d cage_broken=%d cage_selected=%d cage_smooth=%d cage_creases=%d cage_corners=%d cage_live_faces=%d tool=%v", cages, points, edges, faces, ngons, broken, chosen, smooth, creased, corners, live_faces, app.tool)
 		fmt.printfln("model_action=%v model_target=%v model_done=%d model_refused=%d", app.model.action, model_target(&app.model, app.model.action), app.model.done, app.model.refused)
+		// Where the selected object sits, which Align parts moves a whole cage to.
+		at: Vec3
+		if obj := selected_object(&app); obj != nil do at = obj.transform.position
+		fmt.printfln("selected_x=%.4f selected_y=%.4f selected_z=%.4f", at.x, at.y, at.z)
 		// How the selected object's levels above its base are made: Loop for a sculpt,
 		// Smooth or Flat for one applied from a cage.
 		if obj := selected_object(&app); obj != nil && obj.voxel == nil && len(obj.levels.levels) > 0 {
