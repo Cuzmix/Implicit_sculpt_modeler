@@ -1701,3 +1701,89 @@ sliders_follow_finger_pen_and_mouse_alike :: proc(t: ^testing.T) {
 	testing.expect_value(t, wide[.Finger], wide[.Mouse])
 	testing.expect_value(t, wide[.Pen], wide[.Mouse])
 }
+
+// A root's rect from last frame is found by its name from inside another container too,
+// where prev_rect looks for a child of that container.
+@(test)
+prev_root_rect_finds_a_root_from_anywhere :: proc(t: ^testing.T) {
+	ctx: Context
+	defer destroy(&ctx)
+	for _ in 0 ..< 2 {
+		frame_begin(&ctx, {window = {800, 600}, pixel_density = 1, dt = 1.0 / 60})
+		begin_at(&ctx, "first", {100, 50}, {direction = .Column, width = 40, height = 30})
+		end(&ctx)
+		begin_at(&ctx, "second", {300, 50}, {direction = .Column, width = 40, height = 30})
+		testing.expect_value(t, prev_rect(&ctx, "first"), Rect{})
+		end(&ctx)
+		frame_end(&ctx)
+	}
+	frame_begin(&ctx, {window = {800, 600}, pixel_density = 1, dt = 1.0 / 60})
+	begin_at(&ctx, "second", {300, 50}, {direction = .Column, width = 40, height = 30})
+	testing.expect_value(t, prev_root_rect(&ctx, "first"), Rect{100, 50, 40, 30})
+	end(&ctx)
+	frame_end(&ctx)
+}
+
+// One frame of a row of three tabs and a closed select, side by side in one container,
+// with an area round both that takes the roll where neither did: what each returned and
+// the area's roll.
+@(private = "file")
+roll_controls :: proc(ctx: ^Context, input: Input, tab, choice: int) -> (tab_pick, select_pick: int, area: f32) {
+	frame_begin(ctx, input)
+	begin_anchored(ctx, "rolls", .Start, .Start, {16, 16}, {direction = .Column, width = 300})
+	tab_pick = tabs(ctx, "Tabs", {"A", "B", "C"}, tab)
+	select_pick = select(ctx, "Select", {"One", "Two", "Three", "Other..."}, choice, roll_count = 3)
+	label(ctx, "Room for the area")
+	end(ctx)
+	area = area_roll(ctx, salt(id_of(ctx, "rolls"), 9), prev_rect(ctx, "rolls"), id_of(ctx, "rolls"))
+	frame_end(ctx)
+	return
+}
+
+// The pen's roll over a row of tabs steps it, 30 degrees an option past the first
+// ROLL_ENGAGE, clockwise rightward and no further than its ends; over a closed select it
+// steps the choice, but never onto the rows past roll_count; over neither, the area round
+// them takes it.
+@(test)
+a_hovering_pen_rolls_through_choices :: proc(t: ^testing.T) {
+	ctx: Context
+	init(&ctx)
+	defer destroy(&ctx)
+	pen := input_at({-1, -1})
+	pen.pointer = .Pen
+	for _ in 0 ..< 3 do roll_controls(&ctx, pen, 0, 0)
+	tab_at := prev_rect(&ctx, "rolls")
+	pen.mouse = {tab_at.x + 20, tab_at.y + 20}
+	roll_controls(&ctx, pen, 0, 0)
+	pen.roll = 25
+	got, _, area := roll_controls(&ctx, pen, 0, 0)
+	testing.expect_value(t, got, -1)
+	pen.roll = 15
+	got, _, area = roll_controls(&ctx, pen, 0, 0)
+	testing.expect_value(t, got, 1)
+	testing.expect_value(t, area, 0)
+	pen.roll = 90
+	got, _, _ = roll_controls(&ctx, pen, 1, 0)
+	testing.expect_value(t, got, 2)
+
+	// The select, below the tabs, a target lower.
+	pen.roll = 0
+	pen.mouse.y += ctx.theme.target + 10
+	roll_controls(&ctx, pen, 2, 1)
+	pen.roll = 40
+	_, got, _ = roll_controls(&ctx, pen, 2, 1)
+	testing.expect_value(t, got, 2)
+	pen.roll = 90
+	_, got, _ = roll_controls(&ctx, pen, 2, 2)
+	testing.expect_value(t, got, -1)
+
+	// The label under them: no control takes it, so the area does.
+	pen.roll = 0
+	pen.mouse.y = tab_at.y + tab_at.h - 4
+	roll_controls(&ctx, pen, 2, 2)
+	pen.roll = 25
+	_, _, area = roll_controls(&ctx, pen, 2, 2)
+	testing.expect_value(t, area, 15)
+	steps := roll_steps(&ctx, 50, ROLL_STEP)
+	testing.expect_value(t, steps, 1)
+}

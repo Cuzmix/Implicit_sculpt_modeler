@@ -105,9 +105,21 @@ Lens_Stack :: struct {
 	tab_open:  bool,
 	tab_at:    ui.Rect,
 	tabs:      int,
+	// How the docked stack shows (the layout's): its cards, or the strip of their icons
+	// beside the rail, each opening its card over the view (lens_panes.odin); and where
+	// each icon was laid out, for Show where to open its card from.
+	density:  Stack_Density,
+	strip_at: [Stack_Card]ui.Rect,
 	// Whether stack_default has set it up: a Kit_State nothing has set up yet (a test's)
 	// holds a fresh layout's stack.
 	set:     bool,
+}
+
+// The docked stack's density, as round 3's docks have it: Panels (the cards, open or
+// folded, down the column) or Icons (the strip, whatever panes there are).
+Stack_Density :: enum u8 {
+	Panels,
+	Icons,
 }
 
 // Puts the stack as a fresh layout has it.
@@ -118,6 +130,7 @@ stack_default :: proc(k: ^Kit_State) {
 	s.windows = {}
 	s.carry, s.menu, s.tab_open = nil, false, false
 	s.width, s.heights, s.sizes, s.scrolls, s.drag = 0, {}, {}, {}, {}
+	s.density, s.strip_at = .Panels, {}
 	s.set = true
 }
 
@@ -203,6 +216,31 @@ stack_reveal :: proc(app: ^App, sec: Kit_Section) {
 	s.hidden -= {c}
 	if c == .Brush do s.shut -= {sec}
 	k.panels.scroll[.Inspector], k.scroll = 0, 0
+	// Shown as icons, the card opens from its icon, so what is asked for is in sight.
+	if stack_strip_shown(app) && c not_in s.floated {
+		s.tab, s.tab_open, s.tab_at, s.scrolls[c] = c, true, s.strip_at[c], 0
+	}
+}
+
+// The layout's density line, `stack_density icons`, only when it is not Panels.
+stack_density_save :: proc(k: ^Kit_State, out: ^strings.Builder) {
+	if k.stack.density == .Icons do strings.write_string(out, "stack_density icons\n")
+}
+
+// Reads a `stack_density panels|icons` line; another word leaves Panels.
+stack_density_read :: proc(k: ^Kit_State, f: []string) {
+	if len(f) != 2 do return
+	if !k.stack.set do stack_default(k)
+	if f[1] == "icons" do k.stack.density = .Icons
+}
+
+// Shows the docked stack as its cards or as the strip of their icons.
+stack_density_set :: proc(app: ^App, d: Stack_Density) {
+	s := &app.kit.stack
+	if !s.set do stack_default(&app.kit)
+	if s.density == d do return
+	s.density = d
+	s.tab_open = false
 }
 
 // The stack's docked cards in order, `width` wide, where the tray's panel is (kit_inspector
@@ -297,7 +335,7 @@ stack_card :: proc(app: ^App, c: Stack_Card, width: f32, floating: bool) {
 			owner := ui.hash_under(0, fmt.tprintf("stack card %v", c)) if floating else s.owner
 			scroll = kit_scroll_begin(ctx, "stack scroll", &s.scrolls[c], owner, inner, height, 6)
 		}
-		stack_card_body(app, c, inner)
+		panel_body(app, c, inner)
 		if height > 0 do kit_scroll_end(ctx, scroll)
 		ui.end(ctx)
 		r := ui.last_ended(ctx)
@@ -719,6 +757,11 @@ kit_stack_menu :: proc(app: ^App) {
 			lens_show_section(app, sec)
 			s.menu = false
 		}
+	}
+	icons := s.density == .Icons
+	if ui.menu_item(ctx, "Show as panels" if icons else "Show as icons", glyph = ui.ICON_PANEL if icons else ui.ICON_GRID) {
+		stack_density_set(app, .Panels if icons else .Icons)
+		s.menu = false
 	}
 	if ui.menu_item(ctx, "Fold the others") {
 		s.open = {c}

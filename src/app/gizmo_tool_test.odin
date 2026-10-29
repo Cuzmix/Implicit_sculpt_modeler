@@ -1,6 +1,7 @@
 package main
 
 import "core:math"
+import "core:math/linalg"
 import "core:testing"
 import sdl "vendor:sdl3"
 
@@ -145,6 +146,8 @@ move_key_steps_the_gizmo :: proc(t: ^testing.T) {
 	testing.expect(t, command_run(&app, .Tool_Move))
 	testing.expect_value(t, app.move.mode, gizmo.Mode.Scale)
 	press(&app)
+	testing.expect_value(t, app.move.mode, gizmo.Mode.All)
+	press(&app)
 	testing.expect_value(t, app.move.mode, gizmo.Mode.Move)
 	testing.expect(t, command_run(&app, .Gizmo, int(gizmo.Mode.Turn)))
 	testing.expect(t, command_checked(&app, .Gizmo, int(gizmo.Mode.Turn)))
@@ -211,6 +214,69 @@ gizmo_drags_move_turn_and_scale :: proc(t: ^testing.T) {
 	history_undo(&app)
 	history_undo(&app)
 	testing.expect_value(t, obj.transform, Transform{scale = 1})
+}
+
+// The All gizmo with the mouse, no mode switched between: its arrow moves along x only, its
+// z ring turns about z only, a knob scales evenly, and a tap on a knob types the scale.
+// Each drag is one undo step, and the three undo back to the start.
+@(test)
+gizmo_all_moves_turns_and_scales :: proc(t: ^testing.T) {
+	app: App
+	defer gizmo_scene_free(&app)
+	obj := gizmo_object(&app, 1)
+	app.camera = camera.orbit_default()
+	app.tool = .Move
+	app.move.mode = .All
+	app.drag.moving = true
+	size := [2]f32{1000, 800}
+	drag :: proc(app: ^App, from, to, size: [2]f32) {
+		move_tool_frame(app, {size = size, mouse_pos = from, hovered = true, primary = true, press = true})
+		move_tool_frame(app, {size = size, mouse_pos = from + (to - from) * 0.5, hovered = true, primary = true})
+		move_tool_frame(app, {size = size, mouse_pos = to, hovered = true, primary = true})
+		move_tool_frame(app, {size = size, mouse_pos = to, hovered = true})
+	}
+	sc := gizmo_screen(&app, size)
+	testing.expect(t, sc.ok && gizmo.all_arm_shows(sc, 0))
+	// The arrow, out past the rings.
+	arrow := sc.center + (sc.ends[0] - sc.center) * 0.95
+	testing.expect_value(t, gizmo_pick(&app, arrow, size), gizmo.Handle.X)
+	drag(&app, arrow, arrow + {40, 4}, size)
+	p := obj.transform.position
+	testing.expectf(t, p.x > 0 && p.y == 0 && p.z == 0, "moved %v", p)
+	testing.expect_value(t, app.move.last, gizmo.Handle.X)
+
+	// The z ring faces the default camera; where an arm crosses it the arm wins, so it is
+	// taken between the x and y arms, as far from both as it goes, and dragged round.
+	sc = gizmo_screen(&app, size)
+	between: [2]f32
+	clear_of: f32
+	for q in sc.rings[2] {
+		d := min(gizmo.segment_distance(q, sc.center, sc.ends[0]), gizmo.segment_distance(q, sc.center, sc.ends[1]))
+		if q.x > sc.center.x && q.y < sc.center.y && d > clear_of do between, clear_of = q, d
+	}
+	testing.expect_value(t, gizmo_pick(&app, between, size), gizmo.Handle.Turn_Z)
+	drag(&app, between, between + {-30, -30}, size)
+	r := obj.transform.rotation
+	testing.expectf(t, r.x == 0 && r.y == 0 && r.z != 0, "turned %v", r)
+
+	// The y knob, dragged an arm's length further out, scales by e and moves nothing.
+	sc = gizmo_screen(&app, size)
+	knob := sc.knobs[1]
+	testing.expect_value(t, gizmo_pick(&app, knob, size), gizmo.Handle.Scale)
+	away := linalg.normalize(knob - sc.center) * sc.arm_px
+	before := obj.transform.position
+	drag(&app, knob, knob + away, size)
+	testing.expectf(t, abs(obj.transform.scale - math.E) < 1e-2, "scaled %v", obj.transform.scale)
+	testing.expect_value(t, obj.transform.position, before)
+	testing.expect_value(t, len(app.history.done), 3)
+	for _ in 0 ..< 3 do history_undo(&app)
+	testing.expect_value(t, obj.transform, Transform{scale = 1})
+
+	// A click on a knob that moves nothing asks for the scale.
+	sc = gizmo_screen(&app, size)
+	move_tool_frame(&app, {size = size, mouse_pos = sc.knobs[1], hovered = true, primary = true, press = true})
+	move_tool_frame(&app, {size = size, mouse_pos = sc.knobs[1], hovered = true})
+	testing.expect(t, app.kit.gizmo_entry.open && app.kit.gizmo_entry.handle == .Scale)
 }
 
 // Typed values: an arm's number sets the position and "+" adds to it, a ring's turns by

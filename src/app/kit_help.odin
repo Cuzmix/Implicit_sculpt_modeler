@@ -118,6 +118,7 @@ MOUSE_HELP := [?]Help_Line {
 	{group = "MOUSE", what = "Select an object", how = "Click it", show = move_tool},
 	{group = "MOUSE", what = "Move it", how = "Drag it, a gizmo arm or square", show = move_tool},
 	{group = "MOUSE", what = "Turn or scale it", how = "W again, then drag a ring or the middle", show = move_tool},
+	{group = "MOUSE", what = "Move, turn and scale in one gizmo", how = "W until All: arrows, rings, knobs", show = move_tool},
 	{group = "MOUSE", what = "Snap a gizmo drag", how = "Ctrl while dragging", show = move_tool},
 	{group = "MOUSE", what = "Put it back mid-drag", how = "Esc", show = move_tool},
 	{group = "MOUSE", what = "Type a handle's value", how = "Click the handle without moving", show = move_tool},
@@ -180,6 +181,7 @@ TOUCH_HELP := [?]Help_Line {
 	{group = "SCENE PALETTE", what = "Hide or ghost a run of objects", how = "Hold an eye or ghost, then slide"},
 	{group = "ANY CONTROL", what = "Its name, or its second action", how = "Long press"},
 	{group = "ANY CONTROL", what = "Draw size, strength or focal shift", how = "Hold the pen over it and roll the pen"},
+	{group = "ANY CONTROL", what = "Step a choice, scroll a panel, turn the shelf's page, scrub History", how = "Hold the pen over it and roll the pen"},
 }
 
 // A word the app uses, the names other apps give the same thing, and what it means.

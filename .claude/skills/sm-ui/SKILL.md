@@ -62,6 +62,10 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   a popover's side `bar_side(app, which)`, never "the island is left, the rail right". Arrange's tags carry them
   (`arrange_carry_follow`, `bar_place_drop`, `bar_place_set` swaps two bars on one edge). Whatever keeps clear of the
   shelf at the bottom asks `shelf_bottom_size`/`shelf_bottom_span` (nothing while it floats), never "centred, last frame's size".
+  User docks (`user_docks.odin`): `Kit_State.docks[i]` is `Bar_Which.Dock_1 + i`'s list, `Place_Bar.Dock_1 + i`'s place and
+  `Arrange_Zone.Dock_1 + i`'s tag; they are layout-only (`bars_save` skips them in settings and while unused), home Float,
+  never left at Default (`user_docks_settle`). Ask `user_dock_shown`, and from inside a container find a root with
+  `ui.prev_root_rect` (plain `prev_rect` looks for a child of the current container).
   Bars (`bars.odin`): `Bar_Which` is Tools (the shelf's strip after All), View_Rail, the six `Shelf_*` pages (each space's from `shelf_pages_of`; no tool strip on Model's or Render's),
   Brush_Pie and Offhand (the island, last so zone names and `shelf_page_of` keep their meaning), each a `Bar_List` of `Bar_Slot` drawn by `bar_slot_button`, whose `bar_slot_run`/`bar_slot_more`/
   `bar_lit`/`bar_icon` keep each command's own tap, long press and lit state wherever it sits; `BAR_LAYOUT` (Tools,
@@ -83,14 +87,18 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   and popovers, so it is the top lasting root. `ui.row_room` right-aligns in a fixed-width row (spacer(0) does
   nothing). The tray is the stack (`lens_stack.odin`, `kit_inspector`, `panel_begin(bare)`): cards in `k.stack`,
   layout line `stack`; `tray_open` calls `stack_reveal`; the Palettes card holds the whole tray behind
-  `kit_tray_select`; `k.in_stack` lets a section drop what the Brush card shows above it. The brush pie is
+  `kit_tray_select`; `k.in_stack` lets a section drop what the Brush card shows above it. What a panel holds is a `Panel_Kind`
+  (`panel_kind.odin`: a `Stack_Card` or a `Kit_Section`); its content is `panel_body`, which the stack, the pane strip's tab
+  and pinned panels all call, and its title, icon, folded line and layout name (`card:Brush`, `section:Stroke`) come from
+  the `panel_kind_*` procs. The brush pie is
   `Bar_Which.Brush_Pie` (`k.brush_pie`, eight slots); `pie_slot` reads it, `lens_pie_update` adds tap-to-pick and
   the rest that opens `pie_quick`. Stack sizes live in `lens_resize.odin` (`stack_width`, which `tray_width` returns,
   `heights`, `sizes`, layout line `stack_size`); its handles are `ui.begin_at` roots drawn after what they resize.
   Split views chrome is `lens_panes.odin`: `lens_pane_head` (chips, `k.pane_menu` lists), `grid_divider_lens`
   (grip, `handle_double_tap` evens, edge close via `grid_close_target`, the main pane never closes), `grid_choose`
-  (the View grid command; `k.new_panes`), and the stack's tab strip while `stack_strip_shown` (`kit_stack_tab` draws a
-  card over the view through `stack_card_body`); `view_grid_room` is the whole window, panes always under the panels.
+  (the View grid command; `k.new_panes`), and the stack's tab strip while `stack_strip_shown` (panes beside the main view, or the layout's
+  `k.stack.density == .Icons`; `kit_stack_tab` draws a card over the view through `stack_card_body`, and
+  `stack_reveal` opens the strip's card at `s.strip_at`); `view_grid_room` is the whole window, panes always under the panels.
   The grid is a split tree (`Grid_Tree`, at most four leaves; pane 0 the main view, panes keep their numbers and the
   last fills a closed one's): change it only through the tree ops in grid.odin. Gestures (`lens_areas.odin`) queue a
   `Grid_Op` that `kit_grid` applies before layout; each op is a `Grid_Step` that `undo_run`/`redo_run` order against

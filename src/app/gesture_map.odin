@@ -261,7 +261,7 @@ gesture_select :: proc(app: ^App, slot: Gesture_Slot, width: f32 = 0) {
 	names := make([]string, len(choices) + 1, context.temp_allocator)
 	for c, i in choices do names[i] = "Nothing" if c.id == .None else pie_slot_label(c)
 	names[len(choices)] = "Any command..."
-	if picked := ui.select(ctx, fmt.tprintf("%s##gesture", GESTURE_SLOT_NAMES[slot]), names, chosen, width); picked >= 0 {
+	if picked := ui.select(ctx, fmt.tprintf("%s##gesture", GESTURE_SLOT_NAMES[slot]), names, chosen, width, roll_count = len(choices)); picked >= 0 {
 		if picked < len(choices) do s^ = choices[picked]
 		else do palette_open_for(app, slot)
 	}

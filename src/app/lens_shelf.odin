@@ -346,6 +346,15 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 	for s, i in tools[:m] do bar_slot_button(app, .Tools, i, s, MESH_TOOL)
 	if adding && tools_here do bar_add_button(app, .Tools, len(tools), MESH_TOOL)
 	ui.end(ctx)
+	// The pen's roll over the shelf, where no value chip on it took the roll, turns its
+	// page as a swipe does: a page for every SHELF_ROLL_PAGE degrees, clockwise the next.
+	if roll := ui.area_roll(ctx, shelf_id, shelf_at, shelf_id); roll != 0 {
+		if step := ui.roll_steps(ctx, roll, SHELF_ROLL_PAGE); step != 0 && shelf_turn(app, 1 if step > 0 else -1) {
+			sh.swipes += 1
+			haptic(app, .Alignment)
+			ui.roll_hint(ctx, fmt.tprintf("Page: %s", SHELF_PAGE_NAMES[sh.page]))
+		}
+	}
 	// The page the slide is heading for comes in behind it from that side, as a home
 	// screen's next page does; it only shows, so it takes no press.
 	if slide != 0 && brushes_at.w > 0 do shelf_peek(app, brushes_at, slide, -1 if slide > 0 else 1)
@@ -423,6 +432,10 @@ shelf_turn :: proc(app: ^App, by: int) -> bool {
 	sh.turns += 1
 	return true
 }
+
+// The degrees of the pen's roll over the shelf that turn a page: more than a choice's
+// step, since a page changes every tile under the hand.
+SHELF_ROLL_PAGE :: 40
 
 // The mouse wheel over the shelf turns its page: a notch, or a trackpad's swipe adding up
 // to one, a page; down or toward you is the next.

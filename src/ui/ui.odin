@@ -265,6 +265,10 @@ Context :: struct {
 	// The tooltip the last frame drew, for scripted checks (tip_showing).
 	tip_drawn:      [160]u8,
 	tip_drawn_len:  int,
+	// What the pen's roll just did, beside the pen (roll_hint), and when it last said so.
+	roll_hint:      [64]u8,
+	roll_hint_len:  int,
+	roll_hint_at:   f64,
 	tip_rect:       Rect,
 	tip_shown:      Id,
 	tip_last:       f64, // when a tooltip last showed: the next one comes without delay
@@ -437,6 +441,7 @@ frame_end :: proc(ctx: ^Context) -> ^Draw_List {
 	toasts_draw(ctx)
 	ring := long_press_decide(ctx)
 	tooltip_draw(ctx)
+	roll_hint_draw(ctx)
 	if ring do long_press_draw(ctx)
 	if .Right not_in ctx.input.down do ctx.right_on = 0
 	if ctx.active != 0 && (!ctx.active_seen || ctx.input.down == {} || ctx.input.cancel) do ctx.active = 0
@@ -570,6 +575,17 @@ prev_layout :: proc(ctx: ^Context, name: string) -> (size, natural: [2]f32) {
 // first frame.
 prev_rect :: proc(ctx: ^Context, name: string) -> Rect {
 	id := id_of(ctx, name)
+	for p in ctx.placed_prev {
+		if p.id == id do return p.rect
+	}
+	return {}
+}
+
+// Where the root container `name` (begun outside every container) was last frame, asked
+// from anywhere, inside another container too, where prev_rect would look for a child of
+// that container; empty the first frame.
+prev_root_rect :: proc(ctx: ^Context, name: string) -> Rect {
+	id := hash_under(0, name)
 	for p in ctx.placed_prev {
 		if p.id == id do return p.rect
 	}

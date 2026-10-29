@@ -89,6 +89,7 @@ palette_where :: proc(app: ^App, e: Palette_Entry) -> string {
 	if slice.contains(bar_used(app, .View_Rail), s) do return "View rail"
 	for p in Shelf_Page do if slice.contains(bar_used(app, shelf_which(p)), s) do return fmt.tprintf("Shelf · %s", SHELF_PAGE_NAMES[p])
 	if slice.contains(bar_used(app, .Brush_Pie), s) do return "Brush pie"
+	for d, i in app.kit.docks do if d.used && slice.contains(bar_used(app, user_dock_which(i)), s) do return USER_DOCK_NAMES[i]
 	switch place := LENS_MENU_PLACE[e.id]; place {
 	case .None:
 	case .Main: return "Menu"

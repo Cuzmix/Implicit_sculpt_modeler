@@ -120,7 +120,7 @@ kit_right :: proc(app: ^App) -> f32 {
 kit_edge_width :: proc(app: ^App, edge: Bar_Edge) -> f32 {
 	k := &app.kit
 	w: f32 = 0
-	for b in Place_Bar do if bar_place_edge(k, b) == edge {
+	for b in Place_Bar do if bar_place_edge(k, b) == edge && bar_place_shown(k, b) {
 		bar, _ := ui.prev_layout(&k.ctx, PLACE_BAR_ROOTS[b])
 		w = max(w, bar.x)
 	}

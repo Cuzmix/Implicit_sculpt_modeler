@@ -157,3 +157,41 @@ rings_and_squares_pick :: proc(t: ^testing.T) {
 	testing.expect(t, !inside_quad({0, 0}, q))
 	testing.expect(t, !inside_quad({90, -90}, q))
 }
+
+// The All mode seen straight down z: the arrows run on past the rings, the knobs on the
+// arms scale, and where an edge-on ring lies along an arm the arm wins; the rings, the
+// plane square and the middle pick as in their own modes.
+@(test)
+all_mode_picks_every_handle :: proc(t: ^testing.T) {
+	vp := Mat4{
+		0.1, 0, 0, 0,
+		0, 0.1, 0, 0,
+		0, 0, 0.1, 0,
+		0, 0, 0, 1,
+	}
+	sc := screen(vp, {0, 0, 0}, 2, {0, 0, 1}, {1000, 1000}, 100, .All)
+	testing.expect(t, sc.ok)
+	testing.expect(t, abs(sc.ends[0].x - 635) < 0.01 && abs(sc.knobs[0].x - 562) < 0.01)
+	// The z ring is smaller than in the Turn mode, and the view ring a quarter outside it.
+	testing.expect(t, abs(linalg.length(sc.rings[2][0] - sc.center) - 85) < 0.01)
+	testing.expect(t, abs(linalg.length(sc.rings[3][0] - sc.center) - 106.25) < 0.01)
+	testing.expect_value(t, pick(sc, .All, {502, 498}, PICK_PX), Handle.View)
+	testing.expect_value(t, pick(sc, .All, {625, 503}, PICK_PX), Handle.X)
+	testing.expect_value(t, pick(sc, .All, {530, 501}, PICK_PX), Handle.X)
+	testing.expect_value(t, pick(sc, .All, {501, 380}, PICK_PX), Handle.Y)
+	testing.expect_value(t, pick(sc, .All, {565, 502}, PICK_PX), Handle.Scale)
+	testing.expect_value(t, pick(sc, .All, {500, 438}, PICK_PX), Handle.Scale)
+	testing.expect_value(t, pick(sc, .All, {560, 560}, PICK_PX), Handle.Turn_Z)
+	testing.expect_value(t, pick(sc, .All, {575, 575}, PICK_PX), Handle.Turn_View)
+	testing.expect_value(t, pick(sc, .All, {500, 570}, PICK_PX), Handle.Turn_X)
+	testing.expect_value(t, pick(sc, .All, {538, 462}, PICK_PX), Handle.XY)
+	testing.expect_value(t, pick(sc, .All, {680, 680}, PICK_PX), Handle.None)
+	// A finger's radius grows the knob as it grows the middle.
+	testing.expect_value(t, pick(sc, .All, {562, 517}, PICK_PX), Handle.None)
+	testing.expect_value(t, pick(sc, .All, {562, 517}, 24), Handle.Scale)
+	// The z arm points at the eye: no arrow, no knob.
+	testing.expect(t, !all_arm_shows(sc, 2))
+	// The other modes have no arrows or knobs.
+	plain := screen(vp, {0, 0, 0}, 2, {0, 0, 1}, {1000, 1000}, 100)
+	testing.expect(t, !all_arm_shows(plain, 0))
+}

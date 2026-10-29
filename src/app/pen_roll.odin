@@ -63,6 +63,37 @@ ROLL_TRAVEL :: 40
 // History: enough that each step is a turn of its own.
 ROLL_HISTORY_STEP :: 20
 
+// The points a scrolling body moves for each degree of the pen's roll over it: a quarter
+// turn is about three notches of a mouse wheel.
+ROLL_SCROLL :: 2
+
+// The pen's roll over Undo and Redo (`at`, the two together, in the container being laid
+// out) scrubs History: a step for every ROLL_HISTORY_STEP degrees, clockwise redoing, as
+// the Surface Dial steps it. One roll for the pair, so it goes on when the end of History
+// turns one of them off under the pen.
+history_roll :: proc(app: ^App, at: ui.Rect) {
+	ctx := &app.kit.ctx
+	root := ctx.stack[0].id if len(ctx.stack) > 0 else 0
+	if roll := ui.area_roll(ctx, ui.hash_under(root, "history roll"), at, root); roll != 0 do history_steps(app, ui.roll_steps(ctx, roll, ROLL_HISTORY_STEP))
+}
+
+// Redoes `steps` steps, or undoes as many when it is negative, as far as History goes, a
+// haptic for each, and says beside the pen where History stands.
+history_steps :: proc(app: ^App, steps: int) {
+	if steps == 0 do return
+	defer ui.roll_hint(&app.kit.ctx, fmt.tprintf("History %d of %d", len(app.history.done), history_total(app)))
+	for _ in 0 ..< steps {
+		if !history_can_redo(app) do return
+		history_redo(app)
+		haptic(app, .Alignment)
+	}
+	for _ in 0 ..< -steps {
+		if !history_can_undo(app) do return
+		history_undo(app)
+		haptic(app, .Alignment)
+	}
+}
+
 // A roll over the view under way: from when it passed ui.ROLL_ENGAGE until the pen
 // touches down, leaves the view or goes.
 Pen_Twist :: struct {
@@ -152,6 +183,7 @@ pen_roll_apply :: proc(app: ^App, tw: ^Pen_Twist, degrees: f32, size: [2]f32) {
 		turn := camera.wrap_angle(want - c.roll)
 		if turn == 0 do return
 		if want == 0 do haptic(app, .Alignment)
+		ui.roll_hint(&app.kit.ctx, fmt.tprintf("Twist %.0f°", math.to_degrees(want)) if want != 0 else "Level")
 		if hit, ok := tw.hit.?; ok {
 			before := c^
 			camera.orbit_roll(c, turn)
@@ -164,9 +196,11 @@ pen_roll_apply :: proc(app: ^App, tw: ^Pen_Twist, degrees: f32, size: [2]f32) {
 		before := c^
 		camera.orbit_spin(c, math.to_radians(degrees))
 		camera.orbit_turn_about(c, before, tw.hit.? or_else before.target)
+		ui.roll_hint(&app.kit.ctx, "Spin")
 	case .Zoom:
 		// Clockwise comes closer, as a screw turned in.
 		camera.orbit_zoom_toward(c, math.pow(2, degrees / 180), tw.at, size.y)
+		ui.roll_hint(&app.kit.ctx, "Zoom")
 	case .Size:
 		app.brush.radius_px = clamp(app.brush.radius_px * math.pow(2, degrees * ROLL_POINTS / ROLL_SIZE_DOUBLE), MIN_RADIUS_PX, MAX_RADIUS_PX)
 	case .Strength:
@@ -179,26 +213,13 @@ pen_roll_apply :: proc(app: ^App, tw: ^Pen_Twist, degrees: f32, size: [2]f32) {
 			value_set(app, .Focal_Shift, clamp(value_get(app, .Focal_Shift) + degrees / ui.ROLL_SWEEP * (hi - lo), lo, hi))
 		}
 	case .History:
-		// Clockwise goes forward, as a dial turned on does; each step taps the hand.
+		// Clockwise goes forward, as a dial turned on does; at either end of History the
+		// turn toward the next step starts over rather than piling up.
 		tw.steps += degrees
-		for tw.steps >= ROLL_HISTORY_STEP {
-			tw.steps -= ROLL_HISTORY_STEP
-			if !history_can_redo(app) {
-				tw.steps = 0
-				break
-			}
-			history_redo(app)
-			haptic(app, .Alignment)
-		}
-		for tw.steps <= -ROLL_HISTORY_STEP {
-			tw.steps += ROLL_HISTORY_STEP
-			if !history_can_undo(app) {
-				tw.steps = 0
-				break
-			}
-			history_undo(app)
-			haptic(app, .Alignment)
-		}
+		steps := int(tw.steps / ROLL_HISTORY_STEP)
+		tw.steps -= f32(steps) * ROLL_HISTORY_STEP
+		if (steps > 0 && !history_can_redo(app)) || (steps < 0 && !history_can_undo(app)) do tw.steps = 0
+		history_steps(app, steps)
 	}
 }
 
@@ -245,5 +266,7 @@ settings_pen_areas :: proc(app: ^App) {
 	ui.label(ctx, "Pencil squeeze")
 	gesture_select(app, taps[area][1])
 	ui.paragraph(ctx, "Turn the pen about its own length while it hovers, past the first 10 degrees, and it does this where it points: Twist the view keeps the point under the tip where it is and turns the picture as far as the pen turns, holding level as it passes. Over a slider the roll always sets the slider. A brush whose alpha turns with the pen keeps the roll over the model. Roll needs a pen that reports it (Apple Pencil Pro, some Windows pens).")
+	_ = ui.switch_row(ctx, "Roll while grabbing twists what you hold", &n.grab_twist)
+	ui.paragraph(ctx, "While Grab or Elastic drags, turning the pen past the first 10 degrees turns what it holds about where it took hold, as far as the pen turns, the middle fully and the brush's edge not at all; a symmetric copy turns the mirrored way.")
 	ui.paragraph(ctx, "Double-tap and squeeze come from an Apple Pencil (squeeze from the Pro), and a pencil too far away to hover does what it does over the model. Follow the Pencil setting does what the iPad's Settings > Apple Pencil asks: the palette at the tip opens the brush pie, the eraser turns Smooth on or off. Off there turns them off here too.")
 }

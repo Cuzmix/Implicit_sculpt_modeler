@@ -118,6 +118,8 @@ Kit_State :: struct {
 	arrange:           Arrange_State, // Lens's Arrange: the zone picked, the Library (lens_arrange.odin)
 	bar_slot:   Bar_Slot_Menu,
 	rail_scroll: f32, // the view rail's, on a window too short for all of it
+	docks:       [USER_DOCKS]User_Dock, // the person's own docks, the layout's (user_docks.odin)
+	dock_scroll: [USER_DOCKS]f32,
 	grid_scroll: f32,
 	grid_reveal: bool, // the grid scrolls to the lit tile as it opens
 	bind:       Bind_Popover, // Assign key (kit_bind.odin)
@@ -470,6 +472,9 @@ kit_scroll_begin :: proc(ctx: ^ui.Context, name: string, value: ^f32, owner: ui.
 kit_scroll_end :: proc(ctx: ^ui.Context, s: Kit_Scroll) {
 	ui.end(ctx)
 	ui.scroll_take(ctx, s.id, s.value^, s.limit, s.owner)
+	// The pen's roll over it, where no control in it took the roll, scrolls it as a
+	// mouse wheel does: clockwise on down the page.
+	if roll := ui.area_roll(ctx, s.id, s.at, s.owner); roll != 0 && s.limit > 0 do s.value^ = clamp(s.value^ + roll * ROLL_SCROLL, 0, s.limit)
 	if s.limit <= 0 do return
 	r := s.at
 	thumb := max(s.height * s.height / s.natural, 24)
@@ -1377,6 +1382,8 @@ kit_layout :: proc(app: ^App) {
 	} else {
 		for kind in ([]Bar_Pop_Kind{.Shading, .Camera}) do k.bar_at[kind], k.bar_side[kind] = search_anchor, .Below
 	}
+	// The person's own docks (user_docks.odin), where Arrange put them.
+	kit_user_docks(app)
 
 	// Bottom middle: the shelf and its pages (lens_shelf.odin).
 	dock_anchor := menu_anchor

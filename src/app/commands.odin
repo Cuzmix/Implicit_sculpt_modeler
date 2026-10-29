@@ -246,6 +246,8 @@ Command_Id :: enum u8 {
 	Reduce_Motion,
 	Command_Palette,
 	Customise_Bars,
+	New_Dock,
+	Stack_Density,
 	Help, // the argument is the Help_Tab
 	Coach_Tips,
 	Pie, // the argument is the user pie, from 0 (user_pies.odin)
@@ -750,7 +752,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Gizmo = {
 		label = "Gizmo",
-		help = "Picks the Move tool and what its gizmo's handles do: move along an arm or across a plane, turn about a ring, or scale from the middle. With a mask on the one object selected, they pose its unmasked part instead.",
+		help = "Picks the Move tool and what its gizmo's handles do: move along an arm or across a plane, turn about a ring, or scale from the middle; All shows the three at once, its arrows moving, its rings turning and its white knobs scaling. With a mask on the one object selected, they pose its unmasked part instead.",
 		icon = ui.ICON_MOVE,
 		args = len(gizmo.Mode),
 		run = proc(app: ^App, arg: int) {
@@ -2139,6 +2141,20 @@ COMMANDS := [Command_Id]Command {
 		},
 		checked = proc(app: ^App, _: int) -> bool {return app.kit.bars_edit},
 	},
+	.New_Dock = {
+		label = "New dock",
+		help = "Makes a dock of your own, a column of any commands and brush values, floating in the view, and turns on Arrange to fill it: its + adds a button, and its tag carries it to an edge.",
+		icon = ui.ICON_PLUS,
+		run = proc(app: ^App, _: int) {_ = user_dock_new(app)},
+		enabled = proc(app: ^App, _: int) -> bool {return user_docks_used(&app.kit) < USER_DOCKS},
+	},
+	.Stack_Density = {
+		label = "Palettes as icons",
+		help = "Shows the docked palettes as a strip of their icons beside the view rail, each opening its palette over the view, or again as the cards down the column. Each workspace keeps its own.",
+		icon = ui.ICON_GRID,
+		run = proc(app: ^App, _: int) {stack_density_set(app, .Panels if app.kit.stack.density == .Icons else .Icons)},
+		checked = proc(app: ^App, _: int) -> bool {return app.kit.stack.density == .Icons},
+	},
 	.Help = {
 		label = "Help",
 		help = "Lists every shortcut, the mouse and touch controls, and what the app's words mean.",
@@ -2468,6 +2484,7 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 		if b, ok := workspace_built_in(arg); ok do return fmt.tprintf("Workspace: %v", b)
 		return fmt.tprintf("Workspace: your own %d", arg - len(Built_In) + 1)
 	case .Gizmo:
+		if gizmo.Mode(arg) == .All do return "Move, turn and scale gizmo"
 		return fmt.tprintf("%v gizmo", gizmo.Mode(arg))
 	case .Pie:
 		return fmt.tprintf("Pie %d", arg + 1)

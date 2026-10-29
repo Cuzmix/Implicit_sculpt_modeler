@@ -111,6 +111,16 @@ MOVE_WHAT := [gizmo.Mode]string {
 	.Move  = "Move",
 	.Turn  = "Turn",
 	.Scale = "Scale",
+	.All   = "Transform", // never a drag's: each handle of the All mode does one of the three
+}
+
+// The modes' names on the action bar's chips and the Move tab's tabs.
+@(rodata)
+GIZMO_MODE_NAMES := [gizmo.Mode]string {
+	.Move  = "Move",
+	.Turn  = "Turn",
+	.Scale = "Scale",
+	.All   = "All",
 }
 
 // The colours of the x, y and z handles, and of the one under the pointer or dragged.
@@ -150,7 +160,7 @@ gizmo_screen :: proc(app: ^App, size: [2]f32) -> (s: gizmo.Screen) {
 	center := gizmo_center(app, obj)
 	arm_px := gizmo.ARM_PX * gizmo_scale(app)
 	arm := arm_px * camera.orbit_world_per_px(app.camera, center, size.y)
-	return gizmo.screen(view_proj, center, arm, -camera.orbit_toward(app.camera, center), size, arm_px)
+	return gizmo.screen(view_proj, center, arm, -camera.orbit_toward(app.camera, center), size, arm_px, app.move.mode)
 }
 
 // The handle under `at`, for the pointer in use.
@@ -515,6 +525,7 @@ move_readout :: proc(app: ^App) -> string {
 	case .Scale:
 		text = fmt.tprintf("Scale ×%.2f", drag.amount)
 		snap = fmt.tprintf("snap %g", gizmo.SCALE_SNAP)
+	case .All: // drag_mode never gives it: each handle does one of the three
 	}
 	if drag.posed do text = fmt.tprintf("%s: %s", "Lattice" if drag.lattice > 0 else "Pose", text)
 	if drag.snapped do return fmt.tprintf("%s (%s)", text, snap)
@@ -624,12 +635,14 @@ POSE_ENTRY_TITLES := [gizmo.Mode]string {
 	.Move  = "offset",
 	.Turn  = "turn, degrees",
 	.Scale = "scale factor",
+	.All   = "value", // never a handle's (drag_mode)
 }
 @(rodata)
 POSE_ENTRY_NOTES := [gizmo.Mode]string {
 	.Move  = "Enter moves the unmasked part that far along the arm.",
 	.Turn  = "Enter turns the unmasked part that far about the ring's axis.",
 	.Scale = "Enter scales the unmasked part by it; +0.5 adds half.",
+	.All   = "", // never a handle's (drag_mode)
 }
 
 // Places `obj` by the value typed for `handle`, as one undo step. A number sets an arm's
@@ -740,8 +753,8 @@ kit_gizmo_entry :: proc(app: ^App) {
 	if cancel do e.open = false
 }
 
-// Steps the gizmo's mode on (Move, Turn, Scale, Move): W again with the Move tool on, as
-// ZBrush's W, E and R are one key here.
+// Steps the gizmo's mode on (Move, Turn, Scale, All, Move): W again with the Move tool
+// on, as ZBrush's W, E and R are one key here.
 gizmo_cycle :: proc(app: ^App) {
 	app.move.mode = gizmo.Mode((int(app.move.mode) + 1) % len(gizmo.Mode))
 }
