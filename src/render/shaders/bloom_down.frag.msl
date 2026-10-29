@@ -1,0 +1,185 @@
+// SDL_shadercross 1ff05bec5739 from bloom_down.frag.spv sha256 0c6a396d73d52306182f7627e1d56be1719f216013f99d27b551d21626fa98f3
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct SLANG_ParameterGroup_Bloom_Down_Uniforms_std140
+{
+    float4 params;
+    float4 size;
+};
+
+struct main0_out
+{
+    float4 entryPointParam_main [[color(0)]];
+};
+
+static inline __attribute__((always_inline))
+int2 texture_size(texture2d<float> _input, sampler _inputSmplr)
+{
+    uint2 _vecSize = uint2(_input.get_width(0u), _input.get_height(0u));
+    uint w = _vecSize.x;
+    uint h = _vecSize.y;
+    uint levels = uint(_input.get_num_mip_levels());
+    return int2(int(w), int(h));
+}
+
+static inline __attribute__((always_inline))
+float3 srgb_decode(float3 c)
+{
+    return mix(c / float3(12.9200000762939453125), powr((c + float3(0.054999999701976776123046875)) / float3(1.05499994754791259765625), float3(2.400000095367431640625)), step(float3(0.040449999272823333740234375), c));
+}
+
+static inline __attribute__((always_inline))
+float3 neutral_inverse(float3 y)
+{
+    float _140 = fast::min(fast::max(y.x, fast::max(y.y, y.z)), 0.995549976825714111328125);
+    float3 c;
+    if (_140 >= 0.7599999904632568359375)
+    {
+        float peak = 0.519999980926513671875 + (0.0576000027358531951904296875 / (1.0 - _140));
+        float g = 1.0 - (1.0 / ((0.1500000059604644775390625 * (peak - _140)) + 1.0));
+        c = ((fast::min(y, float3(_140)) - float3(g * _140)) / float3(1.0 - g)) * (peak / _140);
+    }
+    else
+    {
+        c = y;
+    }
+    float _178 = fast::max(fast::min(c.x, fast::min(c.y, c.z)), 0.0);
+    float offset;
+    if (_178 < 0.039999999105930328369140625)
+    {
+        offset = (0.4000000059604644775390625 * sqrt(_178)) - _178;
+    }
+    else
+    {
+        offset = 0.039999999105930328369140625;
+    }
+    return fast::max(c + float3(offset), float3(0.0));
+}
+
+static inline __attribute__((always_inline))
+float3 tone_map(float3 c)
+{
+    float _211 = fast::min(c.x, fast::min(c.y, c.z));
+    float offset;
+    if (_211 < 0.07999999821186065673828125)
+    {
+        offset = _211 - ((6.25 * _211) * _211);
+    }
+    else
+    {
+        offset = 0.039999999105930328369140625;
+    }
+    float3 _225 = c - float3(offset);
+    float _230 = fast::max(_225.x, fast::max(_225.y, _225.z));
+    if (_230 < 0.7599999904632568359375)
+    {
+        return _225;
+    }
+    float new_peak = 1.0 - (0.0576000027358531951904296875 / ((_230 + 0.2400000095367431640625) - 0.7599999904632568359375));
+    return mix(_225 * (new_peak / _230), float3(new_peak), float3(1.0 - (1.0 / ((0.1500000059604644775390625 * (_230 - new_peak)) + 1.0))));
+}
+
+static inline __attribute__((always_inline))
+float3 bloom_decode(float3 v)
+{
+    float3 shown = srgb_decode(v);
+    float3 c = neutral_inverse(shown);
+    float3 residual = shown - tone_map(c);
+    return mix(c, (shown * dot(c, float3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875))) / float3(fast::max(dot(shown, float3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875)), 9.9999997473787516355514526367188e-05)), float3(fast::max(smoothstep(0.00999999977648258209228515625, 0.0500000007450580596923828125, fast::max(abs(residual.x), fast::max(abs(residual.y), abs(residual.z)))), smoothstep(0.85000002384185791015625, 0.9700000286102294921875, fast::max(shown.x, fast::max(shown.y, shown.z))))));
+}
+
+static inline __attribute__((always_inline))
+float3 above_threshold(float3 c, float threshold)
+{
+    if (threshold <= 0.0)
+    {
+        return c;
+    }
+    float _311 = fast::max(c.x, fast::max(c.y, c.z));
+    float knee = 0.5 * threshold;
+    float _313 = _311 - threshold;
+    float _317 = fast::clamp(_313 + knee, 0.0, 2.0 * knee);
+    return (c * fast::max((_317 * _317) / (4.0 * knee), _313)) / float3(fast::max(_311, 9.9999997473787516355514526367188e-05));
+}
+
+static inline __attribute__((always_inline))
+float3 light(float2 uv, constant SLANG_ParameterGroup_Bloom_Down_Uniforms_std140& Bloom_Down_Uniforms, texture2d<float> _input, sampler _inputSmplr)
+{
+    float4 _81 = _input.sample(_inputSmplr, uv, level(0.0));
+    if (Bloom_Down_Uniforms.params.x < 0.5)
+    {
+        return _81.xyz;
+    }
+    float3 c;
+    if (Bloom_Down_Uniforms.params.y < 0.5)
+    {
+        c = bloom_decode(_81.xyz);
+    }
+    else
+    {
+        c = _81.xyz;
+    }
+    return above_threshold(fast::clamp(c, float3(0.0), float3(30000.0)), Bloom_Down_Uniforms.params.z);
+}
+
+static inline __attribute__((always_inline))
+float3 box(float3 a, float3 b, float3 c, float3 d, thread float& weight, constant SLANG_ParameterGroup_Bloom_Down_Uniforms_std140& Bloom_Down_Uniforms)
+{
+    float3 m = (((a + b) + c) + d) * 0.25;
+    float _382;
+    if (Bloom_Down_Uniforms.params.x > 0.5)
+    {
+        _382 = 1.0 / (1.0 + dot(m, float3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875)));
+    }
+    else
+    {
+        _382 = 1.0;
+    }
+    weight = _382;
+    return m;
+}
+
+fragment main0_out main0(constant SLANG_ParameterGroup_Bloom_Down_Uniforms_std140& Bloom_Down_Uniforms [[buffer(0)]], texture2d<float> _input [[texture(0)]], sampler _inputSmplr [[sampler(0)]], float4 gl_FragCoord [[position]])
+{
+    main0_out out = {};
+    float2 uv = gl_FragCoord.xy * Bloom_Down_Uniforms.size.xy;
+    float2 t = float2(1.0) / float2(texture_size(_input, _inputSmplr));
+    float3 b = light(uv + (t * float2(0.0, -2.0)), Bloom_Down_Uniforms, _input, _inputSmplr);
+    float3 d = light(uv + (t * float2(-2.0, 0.0)), Bloom_Down_Uniforms, _input, _inputSmplr);
+    float3 e = light(uv, Bloom_Down_Uniforms, _input, _inputSmplr);
+    float3 f = light(uv + (t * float2(2.0, 0.0)), Bloom_Down_Uniforms, _input, _inputSmplr);
+    float3 h = light(uv + (t * float2(0.0, 2.0)), Bloom_Down_Uniforms, _input, _inputSmplr);
+    float w0;
+    float3 inner = box(light(uv + (t * float2(-1.0)), Bloom_Down_Uniforms, _input, _inputSmplr), light(uv + (t * float2(1.0, -1.0)), Bloom_Down_Uniforms, _input, _inputSmplr), light(uv + (t * float2(-1.0, 1.0)), Bloom_Down_Uniforms, _input, _inputSmplr), light(uv + t, Bloom_Down_Uniforms, _input, _inputSmplr), w0, Bloom_Down_Uniforms);
+    float w1;
+    float3 b1 = box(light(uv + (t * float2(-2.0)), Bloom_Down_Uniforms, _input, _inputSmplr), b, d, e, w1, Bloom_Down_Uniforms);
+    float w2;
+    float3 b2 = box(b, light(uv + (t * float2(2.0, -2.0)), Bloom_Down_Uniforms, _input, _inputSmplr), e, f, w2, Bloom_Down_Uniforms);
+    float w3;
+    float3 b3 = box(d, e, light(uv + (t * float2(-2.0, 2.0)), Bloom_Down_Uniforms, _input, _inputSmplr), h, w3, Bloom_Down_Uniforms);
+    float w4;
+    float3 b4 = box(e, f, h, light(uv + (t * float2(2.0)), Bloom_Down_Uniforms, _input, _inputSmplr), w4, Bloom_Down_Uniforms);
+    float _411 = w0;
+    float _412 = _411 * 0.5;
+    w0 = _412;
+    float _414 = w1;
+    float _415 = _414 * 0.125;
+    w1 = _415;
+    float _418 = w2;
+    float _419 = _418 * 0.125;
+    w2 = _419;
+    float _421 = w3;
+    float _422 = _421 * 0.125;
+    w3 = _422;
+    float _424 = w4;
+    float _425 = _424 * 0.125;
+    w4 = _425;
+    out.entryPointParam_main = float4((((((inner * _412) + (b1 * _415)) + (b2 * _419)) + (b3 * _422)) + (b4 * _425)) / float3((((_412 + _415) + _419) + _422) + _425), 1.0);
+    return out;
+}
+

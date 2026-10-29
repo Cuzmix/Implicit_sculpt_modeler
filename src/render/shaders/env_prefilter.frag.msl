@@ -1,0 +1,112 @@
+// SDL_shadercross 1ff05bec5739 from env_prefilter.frag.spv sha256 2008435844bb971eb3c4cbcd02ad636b00489be5981e4ceedc1012285ce90b99
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct SLANG_ParameterGroup_Prefilter_Uniforms_std140
+{
+    float4 params;
+    float4 target;
+};
+
+struct main0_out
+{
+    float4 entryPointParam_main [[color(0)]];
+};
+
+static inline __attribute__((always_inline))
+float3 panorama_dir(float2 uv)
+{
+    float theta = uv.y * 3.1415927410125732421875;
+    float phi = (uv.x - 0.5) * 6.283185482025146484375;
+    float _86 = sin(theta);
+    return float3(sin(phi) * _86, cos(theta), (-cos(phi)) * _86);
+}
+
+static inline __attribute__((always_inline))
+float2 hammersley(uint i)
+{
+    return float2(float(i) / 64.0, float(reverse_bits(i)) * 2.3283064365386962890625e-10);
+}
+
+static inline __attribute__((always_inline))
+float2 panorama_uv(float3 d)
+{
+    return float2((precise::atan2(d.x, (-d.z) - 9.9999996826552253889678874634872e-21) * 0.15915493667125701904296875) + 0.5, acos(fast::clamp(d.y, -1.0, 1.0)) * 0.31830990314483642578125);
+}
+
+fragment main0_out main0(constant SLANG_ParameterGroup_Prefilter_Uniforms_std140& Prefilter_Uniforms [[buffer(0)]], texture2d<float> source [[texture(0)]], sampler sourceSmplr [[sampler(0)]], float4 gl_FragCoord [[position]])
+{
+    main0_out out = {};
+    float2 uv = gl_FragCoord.xy / Prefilter_Uniforms.target.xy;
+    if (Prefilter_Uniforms.params.x <= 0.0)
+    {
+        float4 _65 = source.sample(sourceSmplr, uv, level(Prefilter_Uniforms.target.z));
+        out.entryPointParam_main = float4(_65.xyz, 1.0);
+        return out;
+    }
+    float3 n = panorama_dir(uv);
+    float3 up;
+    if (abs(n.y) < 0.999000012874603271484375)
+    {
+        up = float3(0.0, 1.0, 0.0);
+    }
+    else
+    {
+        up = float3(1.0, 0.0, 0.0);
+    }
+    float3 _109 = fast::normalize(cross(up, n));
+    float3 _110 = cross(n, _109);
+    float a = Prefilter_Uniforms.params.x * Prefilter_Uniforms.params.x;
+    float _112 = a * a;
+    float _118 = 12.56637096405029296875 / (Prefilter_Uniforms.params.y * Prefilter_Uniforms.params.z);
+    uint i = 0u;
+    float3 sum = float3(0.0);
+    float weight = 0.0;
+    float weight_1;
+    for (;;)
+    {
+        bool _23_ladder_break = false;
+        do
+        {
+            if (!(i < 64u))
+            {
+                _23_ladder_break = true;
+                break;
+            }
+            float2 xi = hammersley(i);
+            float phi = 6.283185482025146484375 * xi.x;
+            float _146 = xi.y;
+            float _148 = _112 - 1.0;
+            float _152 = sqrt((1.0 - _146) / (1.0 + (_148 * _146)));
+            float _153 = _152 * _152;
+            float _156 = sqrt(fast::max(1.0 - _153, 0.0));
+            float3 h = ((_109 * (_156 * cos(phi))) + (_110 * (_156 * sin(phi)))) + (n * _152);
+            float3 l = (h * (2.0 * dot(n, h))) - n;
+            float _171 = dot(n, l);
+            if (_171 <= 0.0)
+            {
+                weight_1 = weight;
+                break;
+            }
+            float d = (_153 * _148) + 1.0;
+            float4 _215 = source.sample(sourceSmplr, panorama_uv(l), level(fast::max((0.5 * log2(1.0 / ((64.0 * ((_112 / ((3.1415927410125732421875 * d) * d)) / 4.0)) * _118))) + 1.0, 0.0)));
+            sum += (_215.xyz * _171);
+            weight_1 = weight + _171;
+            break;
+        } while(false);
+        if (_23_ladder_break)
+        {
+            break;
+        }
+        i++;
+        weight = weight_1;
+        continue;
+    }
+    out.entryPointParam_main = float4(sum / float3(fast::max(weight, 9.9999999747524270787835121154785e-07)), 1.0);
+    return out;
+}
+

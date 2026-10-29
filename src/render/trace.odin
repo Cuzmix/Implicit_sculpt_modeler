@@ -23,9 +23,9 @@ import "../jobs"
 // Anything the device refuses, or a mesh that cannot be traced, leaves that run on the
 // shadow-map gather, which stays as it was.
 
-STUDIO_TRACE_COMP_SPV :: #load("shaders/studio_trace.comp.spv")
-STUDIO_TRACE_ADD_FRAG_SPV :: #load("shaders/studio_trace_add.frag.spv")
-BLAS_REFIT_COMP_SPV :: #load("shaders/blas_refit.comp.spv")
+STUDIO_TRACE_COMP_CODE :: #load("shaders/studio_trace.comp" + SHADER_EXT)
+STUDIO_TRACE_ADD_FRAG_CODE :: #load("shaders/studio_trace_add.frag" + SHADER_EXT)
+BLAS_REFIT_COMP_CODE :: #load("shaders/blas_refit.comp" + SHADER_EXT)
 
 // Matches numthreads in studio_trace.comp.slang and blas_refit.comp.slang.
 @(private = "file")
@@ -258,16 +258,16 @@ tracer_ensure :: proc(r: ^Renderer, tr: ^Tracer, vt: ^Viewport_Target) -> bool {
 			return false
 		}
 		tr.trace_pipeline = gpu_create_compute_pipeline(r.device, {
-			code_size = len(STUDIO_TRACE_COMP_SPV), code = raw_data(STUDIO_TRACE_COMP_SPV), entrypoint = "main",
-			format = {.SPIRV}, num_samplers = 1, num_readonly_storage_buffers = 6, num_readwrite_storage_textures = 1,
+			code_size = len(STUDIO_TRACE_COMP_CODE), code = raw_data(STUDIO_TRACE_COMP_CODE), entrypoint = SHADER_ENTRY,
+			format = SHADER_FORMAT, num_samplers = 1, num_readonly_storage_buffers = 6, num_readwrite_storage_textures = 1,
 			num_uniform_buffers = 1, threadcount_x = TRACE_GROUP, threadcount_y = TRACE_GROUP, threadcount_z = 1,
 		})
 		tr.refit_pipeline = gpu_create_compute_pipeline(r.device, {
-			code_size = len(BLAS_REFIT_COMP_SPV), code = raw_data(BLAS_REFIT_COMP_SPV), entrypoint = "main",
-			format = {.SPIRV}, num_readonly_storage_buffers = 4, num_readwrite_storage_buffers = 1,
+			code_size = len(BLAS_REFIT_COMP_CODE), code = raw_data(BLAS_REFIT_COMP_CODE), entrypoint = SHADER_ENTRY,
+			format = SHADER_FORMAT, num_readonly_storage_buffers = 4, num_readwrite_storage_buffers = 1,
 			num_uniform_buffers = 1, threadcount_x = REFIT_THREADS, threadcount_y = 1, threadcount_z = 1,
 		})
-		tr.add_pipeline = create_fullscreen_pipeline(r, STUDIO_TRACE_ADD_FRAG_SPV, STUDIO_ACCUM_FORMAT, samplers = 2, additive = true)
+		tr.add_pipeline = create_fullscreen_pipeline(r, STUDIO_TRACE_ADD_FRAG_CODE, STUDIO_ACCUM_FORMAT, samplers = 2, additive = true)
 		tr.transfer = gpu_create_transfer_buffer(r.device, {usage = .UPLOAD, size = TRACE_TRANSFER_SIZE})
 		if tr.trace_pipeline == nil || tr.refit_pipeline == nil || tr.add_pipeline == nil || tr.transfer == nil {
 			log.errorf("traced studio: setup failed (%s); the studio uses shadow maps", sdl.GetError())

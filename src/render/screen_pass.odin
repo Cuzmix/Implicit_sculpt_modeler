@@ -122,12 +122,12 @@ scene_sphere :: proc(items: []Draw_Item) -> (center: [3]f32, radius: f32, ok: bo
 @(private)
 create_shadow_pipeline :: proc(r: ^Renderer, cull_back: bool) -> ^sdl.GPUGraphicsPipeline {
 	vert := gpu_create_shader(r.device, {
-		code_size = len(SHADOW_VERT_SPV), code = raw_data(SHADOW_VERT_SPV), entrypoint = "main",
-		format = {.SPIRV}, stage = .VERTEX, num_uniform_buffers = 1,
+		code_size = len(SHADOW_VERT_CODE), code = raw_data(SHADOW_VERT_CODE), entrypoint = SHADER_ENTRY,
+		format = SHADER_FORMAT, stage = .VERTEX, num_uniform_buffers = 1,
 	})
 	frag := gpu_create_shader(r.device, {
-		code_size = len(SHADOW_FRAG_SPV), code = raw_data(SHADOW_FRAG_SPV), entrypoint = "main",
-		format = {.SPIRV}, stage = .FRAGMENT,
+		code_size = len(SHADOW_FRAG_CODE), code = raw_data(SHADOW_FRAG_CODE), entrypoint = SHADER_ENTRY,
+		format = SHADER_FORMAT, stage = .FRAGMENT,
 	})
 	defer if vert != nil do gpu_release_shader(r.device, vert)
 	defer if frag != nil do gpu_release_shader(r.device, frag)
@@ -156,12 +156,12 @@ create_shadow_pipeline :: proc(r: ^Renderer, cull_back: bool) -> ^sdl.GPUGraphic
 @(private)
 create_depth_clear_pipeline :: proc(r: ^Renderer) -> ^sdl.GPUGraphicsPipeline {
 	vert := gpu_create_shader(r.device, {
-		code_size = len(CLEAR_VERT_SPV), code = raw_data(CLEAR_VERT_SPV), entrypoint = "main",
-		format = {.SPIRV}, stage = .VERTEX,
+		code_size = len(CLEAR_VERT_CODE), code = raw_data(CLEAR_VERT_CODE), entrypoint = SHADER_ENTRY,
+		format = SHADER_FORMAT, stage = .VERTEX,
 	})
 	frag := gpu_create_shader(r.device, {
-		code_size = len(SHADOW_FRAG_SPV), code = raw_data(SHADOW_FRAG_SPV), entrypoint = "main",
-		format = {.SPIRV}, stage = .FRAGMENT,
+		code_size = len(SHADOW_FRAG_CODE), code = raw_data(SHADOW_FRAG_CODE), entrypoint = SHADER_ENTRY,
+		format = SHADER_FORMAT, stage = .FRAGMENT,
 	})
 	defer if vert != nil do gpu_release_shader(r.device, vert)
 	defer if frag != nil do gpu_release_shader(r.device, frag)
@@ -176,17 +176,17 @@ create_depth_clear_pipeline :: proc(r: ^Renderer) -> ^sdl.GPUGraphicsPipeline {
 	})
 }
 
-// A full-screen triangle (clear.vert.slang) through `frag_spv`, which reads `samplers` samplers
+// A full-screen triangle (clear.vert.slang) through `frag_code`, which reads `samplers` samplers
 // and one uniform buffer, into one colour target; `additive` blends by adding.
 @(private)
-create_fullscreen_pipeline :: proc(r: ^Renderer, frag_spv: []u8, format: sdl.GPUTextureFormat, samplers: u32, additive := false) -> ^sdl.GPUGraphicsPipeline {
+create_fullscreen_pipeline :: proc(r: ^Renderer, frag_code: []u8, format: sdl.GPUTextureFormat, samplers: u32, additive := false) -> ^sdl.GPUGraphicsPipeline {
 	vert := gpu_create_shader(r.device, {
-		code_size = len(CLEAR_VERT_SPV), code = raw_data(CLEAR_VERT_SPV), entrypoint = "main",
-		format = {.SPIRV}, stage = .VERTEX,
+		code_size = len(CLEAR_VERT_CODE), code = raw_data(CLEAR_VERT_CODE), entrypoint = SHADER_ENTRY,
+		format = SHADER_FORMAT, stage = .VERTEX,
 	})
 	frag := gpu_create_shader(r.device, {
-		code_size = len(frag_spv), code = raw_data(frag_spv), entrypoint = "main",
-		format = {.SPIRV}, stage = .FRAGMENT, num_samplers = samplers, num_uniform_buffers = 1,
+		code_size = len(frag_code), code = raw_data(frag_code), entrypoint = SHADER_ENTRY,
+		format = SHADER_FORMAT, stage = .FRAGMENT, num_samplers = samplers, num_uniform_buffers = 1,
 	})
 	defer if vert != nil do gpu_release_shader(r.device, vert)
 	defer if frag != nil do gpu_release_shader(r.device, frag)

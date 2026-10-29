@@ -44,8 +44,8 @@ LIVE_AO_MAX_PX :: 48
 // Half floats: a pixel's value may pass 1 (gtao.frag.slang), which the blur's average needs.
 LIVE_AO_FORMAT :: sdl.GPUTextureFormat.R16_FLOAT
 
-GTAO_FRAG_SPV :: #load("shaders/gtao.frag.spv")
-AO_BLUR_FRAG_SPV :: #load("shaders/ao_blur.frag.spv")
+GTAO_FRAG_CODE :: #load("shaders/gtao.frag" + SHADER_EXT)
+AO_BLUR_FRAG_CODE :: #load("shaders/ao_blur.frag" + SHADER_EXT)
 
 // Matches Gtao_Uniforms in gtao.frag.slang.
 @(private = "file")
@@ -216,8 +216,8 @@ live_ao_ensure :: proc(r: ^Renderer, lao: ^Live_AO, vt: ^Viewport_Target, scale:
 		return false
 	}
 	if lao.gtao_pipeline == nil {
-		lao.gtao_pipeline = create_fullscreen_pipeline(r, GTAO_FRAG_SPV, LIVE_AO_FORMAT, samplers = 1)
-		lao.blur_pipeline = create_fullscreen_pipeline(r, AO_BLUR_FRAG_SPV, VIEWPORT_COLOR_FORMAT, samplers = 3)
+		lao.gtao_pipeline = create_fullscreen_pipeline(r, GTAO_FRAG_CODE, LIVE_AO_FORMAT, samplers = 1)
+		lao.blur_pipeline = create_fullscreen_pipeline(r, AO_BLUR_FRAG_CODE, VIEWPORT_COLOR_FORMAT, samplers = 3)
 		lao.depth_pipeline = create_shadow_pipeline(r, cull_back = true)
 		lao.clear_pipeline = create_depth_clear_pipeline(r)
 		lao.sampler = gpu_create_sampler(r.device, {

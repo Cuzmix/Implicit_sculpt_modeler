@@ -1,0 +1,49 @@
+// SDL_shadercross 1ff05bec5739 from ui.frag.spv sha256 27b36442b9eb8e6ead0810a4529e9bfe0b995ed5c481cb5e7586856a36706ff2
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct SLANG_ParameterGroup_Ui_Fragment_Uniforms_std140
+{
+    float4 params;
+};
+
+struct main0_out
+{
+    float4 entryPointParam_main [[color(0)]];
+};
+
+struct main0_in
+{
+    float2 uv [[user(locn0)]];
+    float4 color [[user(locn1)]];
+};
+
+fragment main0_out main0(main0_in in [[stage_in]], constant SLANG_ParameterGroup_Ui_Fragment_Uniforms_std140& Ui_Fragment_Uniforms [[buffer(0)]], texture2d<float> tex [[texture(0)]], sampler texSmplr [[sampler(0)]])
+{
+    main0_out out = {};
+    float4 _35 = tex.sample(texSmplr, (in.uv * Ui_Fragment_Uniforms.params.xy));
+    float4 s = _35;
+    if (Ui_Fragment_Uniforms.params.w > 0.5)
+    {
+        float4 _43 = s;
+        float4 _46 = s;
+        float3 _52 = _43.xyz / float3(fast::max(_46.w, 0.0039215688593685626983642578125));
+        s.x = _52.x;
+        s.y = _52.y;
+        s.z = _52.z;
+    }
+    float4 _9;
+    if (Ui_Fragment_Uniforms.params.z > 0.5)
+    {
+        _9 = in.color * s;
+    }
+    else
+    {
+        _9 = float4(in.color.xyz, in.color.w * s.x);
+    }
+    out.entryPointParam_main = _9;
+    return out;
+}
+

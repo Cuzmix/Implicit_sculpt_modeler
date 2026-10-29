@@ -1,0 +1,188 @@
+// SDL_shadercross 1ff05bec5739 from studio_trace_add.frag.spv sha256 34d5d29fb7ec056b03d611ce41a4527c61357f997e5ae46a6ad5c80664facdc3
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct _Array_std140_vector_float_4_8
+{
+    float4 data[8];
+};
+
+struct SLANG_ParameterGroup_Add_Uniforms_std140
+{
+    float4x4 inv_view_proj;
+    float4 params;
+    _Array_std140_vector_float_4_8 shadow_pos;
+    _Array_std140_vector_float_4_8 shadow_shape;
+    _Array_std140_vector_float_4_8 shadow_spot;
+    float4 shadow_pick;
+};
+
+struct main0_out
+{
+    float4 entryPointParam_main [[color(0)]];
+};
+
+static inline __attribute__((always_inline))
+int2 texture_size(texture2d<float> view_depth, sampler view_depthSmplr)
+{
+    uint2 _vecSize = uint2(view_depth.get_width(0u), view_depth.get_height(0u));
+    uint w = _vecSize.x;
+    uint h = _vecSize.y;
+    uint levels = uint(view_depth.get_num_mip_levels());
+    return int2(int(w), int(h));
+}
+
+static inline __attribute__((always_inline))
+float3 world_at(float2 frag, float depth, float2 size, constant SLANG_ParameterGroup_Add_Uniforms_std140& Add_Uniforms)
+{
+    float2 uv = frag / size;
+    float4 _115 = Add_Uniforms.inv_view_proj * float4((uv.x * 2.0) - 1.0, 1.0 - (uv.y * 2.0), depth, 1.0);
+    return _115.xyz / float3(_115.w);
+}
+
+static inline __attribute__((always_inline))
+float3 depth_normal(int2 _126, float2 _127, float _128, float3 _129, float2 _130, texture2d<float> view_depth, sampler view_depthSmplr, constant SLANG_ParameterGroup_Add_Uniforms_std140& Add_Uniforms)
+{
+    int2 hi = int2(_130) - int2(1);
+    float4 _158 = view_depth.read(uint2(int3(clamp(_126 - int2(1, 0), int2(0), hi), 0).xy), 0);
+    float4 _167 = view_depth.read(uint2(int3(clamp(_126 + int2(1, 0), int2(0), hi), 0).xy), 0);
+    float4 _177 = view_depth.read(uint2(int3(clamp(_126 - int2(0, 1), int2(0), hi), 0).xy), 0);
+    float4 _186 = view_depth.read(uint2(int3(clamp(_126 + int2(0, 1), int2(0), hi), 0).xy), 0);
+    float3 px_r;
+    if (abs(_167.x - _128) < abs(_128 - _158.x))
+    {
+        px_r = world_at(_127 + float2(1.0, 0.0), _167.x, _130, Add_Uniforms) - _129;
+    }
+    else
+    {
+        px_r = _129 - world_at(_127 - float2(1.0, 0.0), _158.x, _130, Add_Uniforms);
+    }
+    float3 px_d;
+    if (abs(_186.x - _128) < abs(_128 - _177.x))
+    {
+        px_d = world_at(_127 + float2(0.0, 1.0), _186.x, _130, Add_Uniforms) - _129;
+    }
+    else
+    {
+        px_d = _129 - world_at(_127 - float2(0.0, 1.0), _177.x, _130, Add_Uniforms);
+    }
+    float3 _227 = fast::normalize(cross(px_d, px_r));
+    float3 n;
+    if (dot(_227, world_at(_127, 0.0, _130, Add_Uniforms) - _129) < 0.0)
+    {
+        n = -_227;
+    }
+    else
+    {
+        n = _227;
+    }
+    return n;
+}
+
+static inline __attribute__((always_inline))
+float light_window(float4 pos, float4 shape, float4 spot, float d2, float3 l)
+{
+    float k;
+    if (shape.y > 0.0)
+    {
+        float x = d2 / (shape.y * shape.y);
+        float _354 = fast::clamp(1.0 - (x * x), 0.0, 1.0);
+        k = _354 * _354;
+    }
+    else
+    {
+        k = 1.0;
+    }
+    if (pos.w > 1.5)
+    {
+        k *= smoothstep(spot.w, shape.z, dot(-l, spot.xyz));
+    }
+    return k;
+}
+
+static inline __attribute__((always_inline))
+float shadow_light(int i, float3 p, float3 n, constant SLANG_ParameterGroup_Add_Uniforms_std140& Add_Uniforms)
+{
+    if (Add_Uniforms.shadow_shape.data[i].w <= 0.0)
+    {
+        return 0.0;
+    }
+    if (Add_Uniforms.shadow_pos.data[i].w < 0.5)
+    {
+        return fast::max(dot(n, Add_Uniforms.shadow_pos.data[i].xyz), 0.0);
+    }
+    float3 to = Add_Uniforms.shadow_pos.data[i].xyz - p;
+    float _315 = fast::max(dot(to, to), 9.9999999392252902907785028219223e-09);
+    float3 l = to * rsqrt(_315);
+    return (fast::max(dot(n, l), 0.0) * ((Add_Uniforms.shadow_shape.data[i].x * Add_Uniforms.shadow_shape.data[i].x) / _315)) * light_window(Add_Uniforms.shadow_pos.data[i], Add_Uniforms.shadow_shape.data[i], Add_Uniforms.shadow_spot.data[i], _315, l);
+}
+
+static inline __attribute__((always_inline))
+float2 shadow_weight(float3 p, float3 n, constant SLANG_ParameterGroup_Add_Uniforms_std140& Add_Uniforms)
+{
+    int i = 0;
+    float total = Add_Uniforms.shadow_pick.z;
+    for (;;)
+    {
+        float total_1;
+        bool _252_ladder_break = false;
+        do
+        {
+            if (!(i < 8))
+            {
+                _252_ladder_break = true;
+                break;
+            }
+            total_1 = total + (Add_Uniforms.shadow_shape.data[i].w * shadow_light(i, p, n, Add_Uniforms));
+            break;
+        } while(false);
+        if (_252_ladder_break)
+        {
+            break;
+        }
+        i++;
+        total = total_1;
+        continue;
+    }
+    if (total <= 0.0)
+    {
+        return float2(-1.0, 0.0);
+    }
+    return float2(shadow_light(int(Add_Uniforms.shadow_pick.x), p, n, Add_Uniforms), Add_Uniforms.shadow_pick.z) / float2(total);
+}
+
+fragment main0_out main0(constant SLANG_ParameterGroup_Add_Uniforms_std140& Add_Uniforms [[buffer(0)]], texture2d<float> visible [[texture(0)]], texture2d<float> view_depth [[texture(1)]], sampler visibleSmplr [[sampler(0)]], sampler view_depthSmplr [[sampler(1)]], float4 gl_FragCoord [[position]])
+{
+    main0_out out = {};
+    int2 _20 = int2(gl_FragCoord.xy);
+    int2 _24 = int3(_20, 0).xy;
+    float4 _32 = view_depth.read(uint2(_24), 0);
+    if (_32.x >= 1.0)
+    {
+        out.entryPointParam_main = float4(0.0);
+        return out;
+    }
+    float4 _48 = visible.read(uint2(_24), 0);
+    if (Add_Uniforms.params.x < 0.5)
+    {
+        out.entryPointParam_main = float4(_48.x, 1.0, 0.0, 0.0);
+        return out;
+    }
+    float2 _92 = float2(texture_size(view_depth, view_depthSmplr));
+    float3 p = world_at(gl_FragCoord.xy, _32.x, _92, Add_Uniforms);
+    float2 weight = shadow_weight(p, depth_normal(_20, gl_FragCoord.xy, _32.x, p, _92, view_depth, view_depthSmplr, Add_Uniforms), Add_Uniforms);
+    float _406 = weight.x;
+    if (_406 < 0.0)
+    {
+        out.entryPointParam_main = float4(0.0, 0.0, 1.0, 1.0);
+        return out;
+    }
+    float _413 = weight.y;
+    out.entryPointParam_main = float4(0.0, 0.0, (_48.x * _406) + _413, _406 + _413);
+    return out;
+}
+

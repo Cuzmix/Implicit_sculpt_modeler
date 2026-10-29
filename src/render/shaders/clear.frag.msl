@@ -1,0 +1,129 @@
+// SDL_shadercross 1ff05bec5739 from clear.frag.spv sha256 7cc459a12d95caee7fadd940b75c635a402449001dffe971a49c38e08004fc0c
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+#pragma clang diagnostic ignored "-Wmissing-braces"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+template<typename T, size_t Num>
+struct spvUnsafeArray
+{
+    T elements[Num ? Num : 1];
+    
+    thread T& operator [] (size_t pos) thread
+    {
+        return elements[pos];
+    }
+    constexpr const thread T& operator [] (size_t pos) const thread
+    {
+        return elements[pos];
+    }
+    
+    device T& operator [] (size_t pos) device
+    {
+        return elements[pos];
+    }
+    constexpr const device T& operator [] (size_t pos) const device
+    {
+        return elements[pos];
+    }
+    
+    constexpr const constant T& operator [] (size_t pos) const constant
+    {
+        return elements[pos];
+    }
+    
+    threadgroup T& operator [] (size_t pos) threadgroup
+    {
+        return elements[pos];
+    }
+    constexpr const threadgroup T& operator [] (size_t pos) const threadgroup
+    {
+        return elements[pos];
+    }
+};
+
+struct SLANG_ParameterGroup_Clear_Uniforms_std140
+{
+    float4 top;
+    float4 bottom;
+    float4 extent;
+    float4 env;
+    float4x4 clip_to_env;
+};
+
+constant spvUnsafeArray<float, 16> _31 = spvUnsafeArray<float, 16>({ 0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0 });
+
+struct main0_out
+{
+    float4 entryPointParam_main [[color(0)]];
+};
+
+static inline __attribute__((always_inline))
+float2 panorama_uv(float3 d)
+{
+    return float2((precise::atan2(d.x, (-d.z) - 9.9999996826552253889678874634872e-21) * 0.15915493667125701904296875) + 0.5, acos(fast::clamp(d.y, -1.0, 1.0)) * 0.31830990314483642578125);
+}
+
+static inline __attribute__((always_inline))
+float3 tone_map(float3 c)
+{
+    float _167 = fast::min(c.x, fast::min(c.y, c.z));
+    float offset;
+    if (_167 < 0.07999999821186065673828125)
+    {
+        offset = _167 - ((6.25 * _167) * _167);
+    }
+    else
+    {
+        offset = 0.039999999105930328369140625;
+    }
+    float3 _182 = c - float3(offset);
+    float _187 = fast::max(_182.x, fast::max(_182.y, _182.z));
+    if (_187 < 0.7599999904632568359375)
+    {
+        return _182;
+    }
+    float new_peak = 1.0 - (0.0576000027358531951904296875 / ((_187 + 0.2400000095367431640625) - 0.7599999904632568359375));
+    return mix(_182 * (new_peak / _187), float3(new_peak), float3(1.0 - (1.0 / ((0.1500000059604644775390625 * (_187 - new_peak)) + 1.0))));
+}
+
+static inline __attribute__((always_inline))
+float3 srgb_encode(float3 c)
+{
+    float3 _214 = fast::clamp(c, float3(0.0), float3(1.0));
+    return mix(_214 * 12.9200000762939453125, (powr(_214, float3(0.4166666567325592041015625)) * 1.05499994754791259765625) - float3(0.054999999701976776123046875), step(float3(0.003130800090730190277099609375), _214));
+}
+
+static inline __attribute__((always_inline))
+float3 display_color(float3 c, float stops)
+{
+    return srgb_encode(tone_map(c * exp2(stops)));
+}
+
+fragment main0_out main0(constant SLANG_ParameterGroup_Clear_Uniforms_std140& Clear_Uniforms [[buffer(0)]], texture2d<float> environment_map [[texture(0)]], sampler environment_mapSmplr [[sampler(0)]], float4 gl_FragCoord [[position]])
+{
+    main0_out out = {};
+    int2 p = int2(gl_FragCoord.xy) & int2(3);
+    float dither = (((_31[(p.y * 4) + p.x] + 0.5) / 16.0) - 0.5) / 255.0;
+    if (Clear_Uniforms.env.x > 0.5)
+    {
+        float2 ndc = float2(((2.0 * gl_FragCoord.x) / Clear_Uniforms.extent.y) - 1.0, 1.0 - ((2.0 * gl_FragCoord.y) / Clear_Uniforms.extent.x));
+        float4 _91 = Clear_Uniforms.clip_to_env * float4(ndc, 0.0, 1.0);
+        float4 _94 = Clear_Uniforms.clip_to_env * float4(ndc, 1.0, 1.0);
+        float4 _137 = environment_map.sample(environment_mapSmplr, panorama_uv(fast::normalize((_94.xyz / float3(_94.w)) - (_91.xyz / float3(_91.w)))), level(Clear_Uniforms.env.z));
+        out.entryPointParam_main = float4(display_color(_137.xyz * Clear_Uniforms.env.y, Clear_Uniforms.env.w) + float3(dither), 1.0);
+        return out;
+    }
+    if (all(Clear_Uniforms.top == Clear_Uniforms.bottom))
+    {
+        out.entryPointParam_main = Clear_Uniforms.top;
+        return out;
+    }
+    float _259 = fast::clamp(gl_FragCoord.y / Clear_Uniforms.extent.x, 0.0, 1.0);
+    out.entryPointParam_main = float4(mix(Clear_Uniforms.top.xyz, Clear_Uniforms.bottom.xyz, float3(_259)) + float3(dither), mix(Clear_Uniforms.top.w, Clear_Uniforms.bottom.w, _259));
+    return out;
+}
+

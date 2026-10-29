@@ -1,0 +1,162 @@
+// SDL_shadercross 1ff05bec5739 from render_display_linear.frag.spv sha256 6f6054655839ff6f2dae82e2acb65d33bf48425e2cc27ec6dc69a72cf658ff26
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct SLANG_ParameterGroup_Display_Uniforms_std140
+{
+    float4 params;
+};
+
+struct main0_out
+{
+    float4 entryPointParam_main [[color(0)]];
+};
+
+static inline __attribute__((always_inline))
+float4 traced(int2 q, constant SLANG_ParameterGroup_Display_Uniforms_std140& Display_Uniforms, texture2d<float> accum, sampler accumSmplr, texture2d<float> guide_albedo, sampler guide_albedoSmplr, texture2d<float> denoised, sampler denoisedSmplr)
+{
+    int2 _69 = int3(q, 0).xy;
+    float4 _74 = accum.read(uint2(_69), 0);
+    float3 mean;
+    if (Display_Uniforms.params.z > 0.5)
+    {
+        float4 _96 = guide_albedo.read(uint2(_69), 0);
+        float4 _101 = denoised.read(uint2(_69), 0);
+        if (_96.w > 0.0)
+        {
+            mean = fast::max(_96.xyz, float3(0.0199999995529651641845703125));
+        }
+        else
+        {
+            mean = float3(1.0);
+        }
+        mean = _101.xyz * mean;
+    }
+    else
+    {
+        mean = _74.xyz / float3(fast::max(_74.w, 9.9999999747524270787835121154785e-07));
+    }
+    float4 _58;
+    if (_74.w > 0.0)
+    {
+        _58 = float4(mean, _74.w / fast::max(Display_Uniforms.params.y, 1.0));
+    }
+    else
+    {
+        _58 = float4(0.0);
+    }
+    return _58;
+}
+
+static inline __attribute__((always_inline))
+int2 texture_size(texture2d<float> accum, sampler accumSmplr)
+{
+    uint2 _vecSize = uint2(accum.get_width(0u), accum.get_height(0u));
+    uint w = _vecSize.x;
+    uint h = _vecSize.y;
+    uint levels = uint(accum.get_num_mip_levels());
+    return int2(int(w), int(h));
+}
+
+static inline __attribute__((always_inline))
+int2 texture_size_1(texture2d<float> view_color, sampler view_colorSmplr)
+{
+    uint2 _vecSize = uint2(view_color.get_width(0u), view_color.get_height(0u));
+    uint w = _vecSize.x;
+    uint h = _vecSize.y;
+    uint levels = uint(view_color.get_num_mip_levels());
+    return int2(int(w), int(h));
+}
+
+static inline __attribute__((always_inline))
+float4 blended(int2 q, float w, constant SLANG_ParameterGroup_Display_Uniforms_std140& Display_Uniforms, texture2d<float> accum, sampler accumSmplr, texture2d<float> guide_albedo, sampler guide_albedoSmplr, texture2d<float> denoised, sampler denoisedSmplr)
+{
+    float4 t = traced(q, Display_Uniforms, accum, accumSmplr, guide_albedo, guide_albedoSmplr, denoised, denoisedSmplr);
+    float _210 = t.w;
+    return float4(t.xyz * _210, _210) * w;
+}
+
+static inline __attribute__((always_inline))
+float3 srgb_decode(float3 c)
+{
+    return mix(c / float3(12.9200000762939453125), powr((c + float3(0.054999999701976776123046875)) / float3(1.05499994754791259765625), float3(2.400000095367431640625)), step(float3(0.040449999272823333740234375), c));
+}
+
+static inline __attribute__((always_inline))
+float3 neutral_inverse(float3 y)
+{
+    float _293 = fast::min(fast::max(y.x, fast::max(y.y, y.z)), 0.995549976825714111328125);
+    float3 c;
+    if (_293 >= 0.7599999904632568359375)
+    {
+        float peak = 0.519999980926513671875 + (0.0576000027358531951904296875 / (1.0 - _293));
+        float g = 1.0 - (1.0 / ((0.1500000059604644775390625 * (peak - _293)) + 1.0));
+        c = ((fast::min(y, float3(_293)) - float3(g * _293)) / float3(1.0 - g)) * (peak / _293);
+    }
+    else
+    {
+        c = y;
+    }
+    float _331 = fast::max(fast::min(c.x, fast::min(c.y, c.z)), 0.0);
+    float offset;
+    if (_331 < 0.039999999105930328369140625)
+    {
+        offset = (0.4000000059604644775390625 * sqrt(_331)) - _331;
+    }
+    else
+    {
+        offset = 0.039999999105930328369140625;
+    }
+    return fast::max(c + float3(offset), float3(0.0));
+}
+
+fragment main0_out main0(constant SLANG_ParameterGroup_Display_Uniforms_std140& Display_Uniforms [[buffer(0)]], texture2d<float> view_color [[texture(0)]], texture2d<float> accum [[texture(1)]], texture2d<float> denoised [[texture(2)]], texture2d<float> guide_albedo [[texture(3)]], sampler view_colorSmplr [[sampler(0)]], sampler accumSmplr [[sampler(1)]], sampler denoisedSmplr [[sampler(2)]], sampler guide_albedoSmplr [[sampler(3)]], float4 gl_FragCoord [[position]])
+{
+    main0_out out = {};
+    int2 _27 = int2(gl_FragCoord.xy);
+    float4 _39 = view_color.read(uint2(int3(_27, 0).xy), 0);
+    float4 t;
+    if (Display_Uniforms.params.w < 0.5)
+    {
+        t = traced(_27, Display_Uniforms, accum, accumSmplr, guide_albedo, guide_albedoSmplr, denoised, denoisedSmplr);
+    }
+    else
+    {
+        int2 hi = texture_size(accum, accumSmplr) - int2(1);
+        float2 at = ((gl_FragCoord.xy / float2(texture_size_1(view_color, view_colorSmplr))) * float2(hi + int2(1))) - float2(0.5);
+        int2 _192 = int2(floor(at));
+        float2 f = at - float2(_192);
+        float _197 = f.x;
+        float _198 = 1.0 - _197;
+        float _199 = f.y;
+        float _200 = 1.0 - _199;
+        float4 _232 = ((blended(clamp(_192, int2(0), hi), _198 * _200, Display_Uniforms, accum, accumSmplr, guide_albedo, guide_albedoSmplr, denoised, denoisedSmplr) + blended(clamp(_192 + int2(1, 0), int2(0), hi), _197 * _200, Display_Uniforms, accum, accumSmplr, guide_albedo, guide_albedoSmplr, denoised, denoisedSmplr)) + blended(clamp(_192 + int2(0, 1), int2(0), hi), _198 * _199, Display_Uniforms, accum, accumSmplr, guide_albedo, guide_albedoSmplr, denoised, denoisedSmplr)) + blended(clamp(_192 + int2(1), int2(0), hi), _197 * _199, Display_Uniforms, accum, accumSmplr, guide_albedo, guide_albedoSmplr, denoised, denoisedSmplr);
+        t = _232;
+        if (_232.w > 0.0)
+        {
+            float4 _237 = t;
+            float4 _239 = t;
+            float3 _242 = _237.xyz / float3(_239.w);
+            t.x = _242.x;
+            t.y = _242.y;
+            t.z = _242.z;
+        }
+    }
+    float3 below = neutral_inverse(srgb_decode(_39.xyz));
+    float3 shown;
+    if (t.w > 0.0)
+    {
+        shown = t.xyz * exp2(Display_Uniforms.params.x);
+    }
+    else
+    {
+        shown = below;
+    }
+    out.entryPointParam_main = float4(mix(below, shown, float3(fast::clamp(t.w, 0.0, 1.0))), 1.0);
+    return out;
+}
+

@@ -1,0 +1,48 @@
+// SDL_shadercross 1ff05bec5739 from bloom_up.frag.spv sha256 5c31954aaf11c958715d6f765d9e7f352093db06e81724fddecfde1bbce58263
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct SLANG_ParameterGroup_Bloom_Up_Uniforms_std140
+{
+    float4 params;
+    float4 size;
+};
+
+struct main0_out
+{
+    float4 entryPointParam_main [[color(0)]];
+};
+
+static inline __attribute__((always_inline))
+int2 texture_size(texture2d<float> coarse, sampler coarseSmplr)
+{
+    uint2 _vecSize = uint2(coarse.get_width(0u), coarse.get_height(0u));
+    uint w = _vecSize.x;
+    uint h = _vecSize.y;
+    uint levels = uint(coarse.get_num_mip_levels());
+    return int2(int(w), int(h));
+}
+
+fragment main0_out main0(constant SLANG_ParameterGroup_Bloom_Up_Uniforms_std140& Bloom_Up_Uniforms [[buffer(0)]], texture2d<float> coarse [[texture(0)]], texture2d<float> fine [[texture(1)]], sampler coarseSmplr [[sampler(0)]], sampler fineSmplr [[sampler(1)]], float4 gl_FragCoord [[position]])
+{
+    main0_out out = {};
+    float2 uv = gl_FragCoord.xy * Bloom_Up_Uniforms.size.xy;
+    float2 t = float2(1.0) / float2(texture_size(coarse, coarseSmplr));
+    float4 _58 = coarse.sample(coarseSmplr, uv, level(0.0));
+    float4 _69 = coarse.sample(coarseSmplr, (uv + (t * float2(0.0, -1.0))), level(0.0));
+    float4 _76 = coarse.sample(coarseSmplr, (uv + (t * float2(-1.0, 0.0))), level(0.0));
+    float4 _84 = coarse.sample(coarseSmplr, (uv + (t * float2(1.0, 0.0))), level(0.0));
+    float4 _92 = coarse.sample(coarseSmplr, (uv + (t * float2(0.0, 1.0))), level(0.0));
+    float4 _103 = coarse.sample(coarseSmplr, (uv + (t * float2(-1.0))), level(0.0));
+    float4 _110 = coarse.sample(coarseSmplr, (uv + (t * float2(1.0, -1.0))), level(0.0));
+    float4 _118 = coarse.sample(coarseSmplr, (uv + (t * float2(-1.0, 1.0))), level(0.0));
+    float4 _124 = coarse.sample(coarseSmplr, (uv + t), level(0.0));
+    float4 _134 = fine.sample(fineSmplr, uv, level(0.0));
+    out.entryPointParam_main = float4(mix(_134.xyz, (((_58.xyz * 4.0) + ((((_69.xyz + _76.xyz) + _84.xyz) + _92.xyz) * 2.0)) + (((_103.xyz + _110.xyz) + _118.xyz) + _124.xyz)) / float3(16.0), float3(Bloom_Up_Uniforms.params.x)), 1.0);
+    return out;
+}
+

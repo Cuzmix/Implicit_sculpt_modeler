@@ -15,10 +15,10 @@ import sdl "vendor:sdl3"
 // the grain. With every control at its none value finish_active is false and nothing runs,
 // so the picture stays the viewport's to the bit.
 
-FINISH_FRAG_SPV :: #load("shaders/finish.frag.spv")
-BLOOM_DOWN_FRAG_SPV :: #load("shaders/bloom_down.frag.spv")
-BLOOM_UP_FRAG_SPV :: #load("shaders/bloom_up.frag.spv")
-SHARPEN_FRAG_SPV :: #load("shaders/sharpen.frag.spv")
+FINISH_FRAG_CODE :: #load("shaders/finish.frag" + SHADER_EXT)
+BLOOM_DOWN_FRAG_CODE :: #load("shaders/bloom_down.frag" + SHADER_EXT)
+BLOOM_UP_FRAG_CODE :: #load("shaders/bloom_up.frag" + SHADER_EXT)
+SHARPEN_FRAG_CODE :: #load("shaders/sharpen.frag" + SHADER_EXT)
 
 // The bloom chain's sizes at most, from half the picture's down: six halvings reach 1/64 of
 // it, a glow about a fifth of a 1440p picture across at the widest scatter.
@@ -346,7 +346,7 @@ finish_key :: proc(source: ^sdl.GPUTexture, width, height: u32, linear: bool, lo
 @(private = "file")
 finish_ensure :: proc(r: ^Renderer, f: ^Finish, width, height: u32) -> bool {
 	if f.pipeline == nil {
-		f.pipeline = create_fullscreen_pipeline(r, FINISH_FRAG_SPV, VIEWPORT_COLOR_FORMAT, samplers = 2)
+		f.pipeline = create_fullscreen_pipeline(r, FINISH_FRAG_CODE, VIEWPORT_COLOR_FORMAT, samplers = 2)
 		f.sampler = gpu_create_sampler(r.device, {
 			min_filter = .LINEAR, mag_filter = .LINEAR, mipmap_mode = .NEAREST,
 			address_mode_u = .CLAMP_TO_EDGE, address_mode_v = .CLAMP_TO_EDGE, address_mode_w = .CLAMP_TO_EDGE,
@@ -377,8 +377,8 @@ finish_ensure :: proc(r: ^Renderer, f: ^Finish, width, height: u32) -> bool {
 @(private = "file")
 finish_ensure_effects :: proc(r: ^Renderer, f: ^Finish, width, height: u32, look: Finish_Look) -> bool {
 	if look.sharpen > 0 {
-		if f.mid_pipeline == nil do f.mid_pipeline = create_fullscreen_pipeline(r, FINISH_FRAG_SPV, FINISH_MID_FORMAT, samplers = 2)
-		if f.sharpen_pipeline == nil do f.sharpen_pipeline = create_fullscreen_pipeline(r, SHARPEN_FRAG_SPV, VIEWPORT_COLOR_FORMAT, samplers = 1)
+		if f.mid_pipeline == nil do f.mid_pipeline = create_fullscreen_pipeline(r, FINISH_FRAG_CODE, FINISH_MID_FORMAT, samplers = 2)
+		if f.sharpen_pipeline == nil do f.sharpen_pipeline = create_fullscreen_pipeline(r, SHARPEN_FRAG_CODE, VIEWPORT_COLOR_FORMAT, samplers = 1)
 		if f.mid == nil {
 			f.mid = gpu_create_texture(r.device, {
 				type = .D2, format = FINISH_MID_FORMAT, usage = {.COLOR_TARGET, .SAMPLER},
@@ -395,8 +395,8 @@ finish_ensure_effects :: proc(r: ^Renderer, f: ^Finish, width, height: u32, look
 			// Packed floats where the device draws into them, at half half-floats' memory.
 			f.bloom_format = .R11G11B10_UFLOAT
 			if !gpu_texture_supports_format(r.device, f.bloom_format, .D2, {.COLOR_TARGET, .SAMPLER}) do f.bloom_format = .R16G16B16A16_FLOAT
-			f.down_pipeline = create_fullscreen_pipeline(r, BLOOM_DOWN_FRAG_SPV, f.bloom_format, samplers = 1)
-			f.up_pipeline = create_fullscreen_pipeline(r, BLOOM_UP_FRAG_SPV, f.bloom_format, samplers = 2)
+			f.down_pipeline = create_fullscreen_pipeline(r, BLOOM_DOWN_FRAG_CODE, f.bloom_format, samplers = 1)
+			f.up_pipeline = create_fullscreen_pipeline(r, BLOOM_UP_FRAG_CODE, f.bloom_format, samplers = 2)
 			if f.down_pipeline == nil || f.up_pipeline == nil {
 				log.errorf("finishing: bloom setup failed (%s); the picture shows unfinished", sdl.GetError())
 				return false

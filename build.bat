@@ -61,7 +61,8 @@ rem Library packages have no main, hence -no-entry-point; it is harmless on the 
 "%ODIN%" check "%ROOT%src\zip" -no-entry-point %COMMON% || exit /b 1
 python "%ROOT%scripts\agents_sync.py" --check || exit /b 1
 python "%ROOT%scripts\boundary_check.py" || exit /b 1
-echo check: 15 packages type-check, agent mirror current, only render names the GPU API
+python "%ROOT%scripts\shaders_msl.py" --check || exit /b 1
+echo check: 15 packages type-check, agent mirror current, only render names the GPU API, Metal shaders current
 exit /b 0
 
 :iphonecheck
@@ -155,6 +156,8 @@ rem Each name.stage.slang to the name.stage.spv the renderer embeds (build.sh ha
 for %%s in ("%ROOT%src\render\shaders\*.vert.slang") do call :shader "%%s" vertex || exit /b 1
 for %%s in ("%ROOT%src\render\shaders\*.frag.slang") do call :shader "%%s" fragment || exit /b 1
 for %%s in ("%ROOT%src\render\shaders\*.comp.slang") do call :shader "%%s" compute || exit /b 1
+rem Each new .spv's Metal source for the iPad build, when SDL_shadercross is built (build.sh says more).
+if exist "%DEPS%\shadercross\shadercross.exe" python "%ROOT%scripts\shaders_msl.py" || exit /b 1
 exit /b 0
 
 :shader

@@ -1,0 +1,366 @@
+// SDL_shadercross 1ff05bec5739 from finish.frag.spv sha256 8932938b2271fc1f4e00ac594bfd937fb2aceb3c5f4bb2ae21e406f2e503ad87
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct SLANG_ParameterGroup_Finish_Uniforms_std140
+{
+    float4 params;
+    float4 white_x;
+    float4 white_y;
+    float4 white_z;
+    float4 vignette;
+    float4 grade;
+    float4 grain;
+    float4 effects;
+};
+
+struct main0_out
+{
+    float4 entryPointParam_main [[color(0)]];
+};
+
+static inline __attribute__((always_inline))
+int2 texture_size(texture2d<float> source, sampler sourceSmplr)
+{
+    uint2 _vecSize = uint2(source.get_width(0u), source.get_height(0u));
+    uint w = _vecSize.x;
+    uint h = _vecSize.y;
+    uint levels = uint(source.get_num_mip_levels());
+    return int2(int(w), int(h));
+}
+
+static inline __attribute__((always_inline))
+float3 srgb_decode(float3 c)
+{
+    return mix(c / float3(12.9200000762939453125), powr((c + float3(0.054999999701976776123046875)) / float3(1.05499994754791259765625), float3(2.400000095367431640625)), step(float3(0.040449999272823333740234375), c));
+}
+
+static inline __attribute__((always_inline))
+float3 neutral_inverse(float3 y)
+{
+    float _214 = fast::min(fast::max(y.x, fast::max(y.y, y.z)), 0.995549976825714111328125);
+    float3 c;
+    if (_214 >= 0.7599999904632568359375)
+    {
+        float peak = 0.519999980926513671875 + (0.0576000027358531951904296875 / (1.0 - _214));
+        float g = 1.0 - (1.0 / ((0.1500000059604644775390625 * (peak - _214)) + 1.0));
+        c = ((fast::min(y, float3(_214)) - float3(g * _214)) / float3(1.0 - g)) * (peak / _214);
+    }
+    else
+    {
+        c = y;
+    }
+    float _252 = fast::max(fast::min(c.x, fast::min(c.y, c.z)), 0.0);
+    float offset;
+    if (_252 < 0.039999999105930328369140625)
+    {
+        offset = (0.4000000059604644775390625 * sqrt(_252)) - _252;
+    }
+    else
+    {
+        offset = 0.039999999105930328369140625;
+    }
+    return fast::max(c + float3(offset), float3(0.0));
+}
+
+static inline __attribute__((always_inline))
+float3 tone_map(float3 c)
+{
+    float _287 = fast::min(c.x, fast::min(c.y, c.z));
+    float offset;
+    if (_287 < 0.07999999821186065673828125)
+    {
+        offset = _287 - ((6.25 * _287) * _287);
+    }
+    else
+    {
+        offset = 0.039999999105930328369140625;
+    }
+    float3 _301 = c - float3(offset);
+    float _306 = fast::max(_301.x, fast::max(_301.y, _301.z));
+    if (_306 < 0.7599999904632568359375)
+    {
+        return _301;
+    }
+    float new_peak = 1.0 - (0.0576000027358531951904296875 / ((_306 + 0.2400000095367431640625) - 0.7599999904632568359375));
+    return mix(_301 * (new_peak / _306), float3(new_peak), float3(1.0 - (1.0 / ((0.1500000059604644775390625 * (_306 - new_peak)) + 1.0))));
+}
+
+static inline __attribute__((always_inline))
+void decode(float3 v, thread float3& c, thread float3& shown, thread float3& residual, constant SLANG_ParameterGroup_Finish_Uniforms_std140& Finish_Uniforms)
+{
+    shown = float3(0.0);
+    residual = float3(0.0);
+    if (Finish_Uniforms.params.y > 0.5)
+    {
+        c = fast::max(v, float3(0.0));
+    }
+    else
+    {
+        float3 _173 = srgb_decode(v);
+        shown = _173;
+        float3 _196 = neutral_inverse(_173);
+        c = _196;
+        residual = shown - tone_map(_196);
+    }
+}
+
+static inline __attribute__((always_inline))
+void aberrated(float2 frag, thread float3& c, thread float3& shown, thread float3& residual, texture2d<float> source, sampler sourceSmplr, constant SLANG_ParameterGroup_Finish_Uniforms_std140& Finish_Uniforms)
+{
+    float2 _112 = (frag / float2(texture_size(source, sourceSmplr))) - float2(0.5);
+    c = float3(0.0);
+    shown = float3(0.0);
+    residual = float3(0.0);
+    int i = 0;
+    float3 total = float3(0.0);
+    float3 tc;
+    float3 ts;
+    float3 tr;
+    for (;;)
+    {
+        float3 total_1;
+        bool _76_ladder_break = false;
+        do
+        {
+            if (!(i < 5))
+            {
+                _76_ladder_break = true;
+                break;
+            }
+            float t = float(i) / 4.0;
+            float _127 = 2.0 * t;
+            float _133 = _127 - 1.0;
+            float3 w = float3(fast::clamp(1.0 - _127, 0.0, 1.0), 1.0 - abs(_133), fast::clamp(_133, 0.0, 1.0));
+            float4 _149 = source.sample(sourceSmplr, (float2(0.5) + (_112 * (1.0 + (Finish_Uniforms.effects.y * (t - 0.5))))), level(0.0));
+            decode(_149.xyz, tc, ts, tr, Finish_Uniforms);
+            c += (w * tc);
+            shown += (w * ts);
+            residual += (w * tr);
+            total_1 = total + w;
+            break;
+        } while(false);
+        if (_76_ladder_break)
+        {
+            break;
+        }
+        i++;
+        total = total_1;
+        continue;
+    }
+    c /= total;
+    shown /= total;
+    residual /= total;
+}
+
+static inline __attribute__((always_inline))
+float3 above_threshold(float3 c, float threshold)
+{
+    if (threshold <= 0.0)
+    {
+        return c;
+    }
+    float _417 = fast::max(c.x, fast::max(c.y, c.z));
+    float knee = 0.5 * threshold;
+    float _419 = _417 - threshold;
+    float _422 = fast::clamp(_419 + knee, 0.0, 2.0 * knee);
+    return (c * fast::max((_422 * _422) / (4.0 * knee), _419)) / float3(fast::max(_417, 9.9999997473787516355514526367188e-05));
+}
+
+static inline __attribute__((always_inline))
+float3 bloomed(float3 c, float2 frag, texture2d<float> source, sampler sourceSmplr, constant SLANG_ParameterGroup_Finish_Uniforms_std140& Finish_Uniforms, texture2d<float> bloom, sampler bloomSmplr)
+{
+    if (Finish_Uniforms.effects.x <= 0.0)
+    {
+        return c;
+    }
+    float4 _396 = bloom.sample(bloomSmplr, (frag / float2(texture_size(source, sourceSmplr))), level(0.0));
+    return c + ((_396.xyz - above_threshold(c, Finish_Uniforms.effects.w)) * Finish_Uniforms.effects.x);
+}
+
+static inline __attribute__((always_inline))
+float luminance(float3 c)
+{
+    return dot(c, float3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875));
+}
+
+static inline __attribute__((always_inline))
+float3 aces(float3 c)
+{
+    float3 _559 = float3x3(float3(0.59719002246856689453125, 0.075999997556209564208984375, 0.0284000001847743988037109375), float3(0.354579985141754150390625, 0.908339977264404296875, 0.13382999598979949951171875), float3(0.048229999840259552001953125, 0.0156599991023540496826171875, 0.837769985198974609375)) * c;
+    return fast::clamp(float3x3(float3(1.60475003719329833984375, -0.10208000242710113525390625, -0.00326999998651444911956787109375), float3(-0.5310800075531005859375, 1.108129978179931640625, -0.07276000082492828369140625), float3(-0.0736699998378753662109375, -0.00604999996721744537353515625, 1.0760200023651123046875)) * (((_559 * (_559 + float3(0.02457859925925731658935546875))) - float3(9.0537003416102379560470581054688e-05)) / ((_559 * ((_559 * 0.98372900485992431640625) + float3(0.4329510033130645751953125))) + float3(0.23808099329471588134765625))), float3(0.0), float3(1.0));
+}
+
+static inline __attribute__((always_inline))
+float agx_sigmoid(float x)
+{
+    bool shoulder = x >= 0.606060564517974853515625;
+    float scale;
+    if (shoulder)
+    {
+        scale = 0.55935227870941162109375;
+    }
+    else
+    {
+        scale = 0.5122773647308349609375;
+    }
+    float power;
+    if (shoulder)
+    {
+        power = 2.849999904632568359375;
+    }
+    else
+    {
+        power = 3.0;
+    }
+    float u = (2.0 * (x - 0.606060564517974853515625)) / scale;
+    return 0.5 + ((scale * u) / powr(1.0 + powr(abs(u), power), 1.0 / power));
+}
+
+static inline __attribute__((always_inline))
+float3 agx(float3 c)
+{
+    float3 x = (fast::clamp(log2(fast::max((c * 0.800000011920928955078125) + float3(0.20000000298023223876953125 * dot(c, float3(0.3333333432674407958984375))), float3(1.0000000133514319600180897396058e-10))), float3(-12.47393035888671875), float3(4.026069164276123046875)) - float3(-12.47393035888671875)) / float3(16.5);
+    float3 s = float3(agx_sigmoid(x.x), agx_sigmoid(x.y), agx_sigmoid(x.z));
+    return powr(fast::clamp((s - float3(0.4000000059604644775390625 * dot(s, float3(0.3333333432674407958984375)))) / float3(0.60000002384185791015625), float3(0.0), float3(1.0)), float3(2.2000000476837158203125));
+}
+
+static inline __attribute__((always_inline))
+float3 graded(float3 c, float2 frag, texture2d<float> source, sampler sourceSmplr, constant SLANG_ParameterGroup_Finish_Uniforms_std140& Finish_Uniforms)
+{
+    float3 _444;
+    if (Finish_Uniforms.vignette.x > 0.0)
+    {
+        float _479 = fast::max(Finish_Uniforms.vignette.y, 0.0500000007450580596923828125);
+        _444 = c * (1.0 - (Finish_Uniforms.vignette.x * smoothstep(0.0, 1.0, ((length(((frag / float2(texture_size(source, sourceSmplr))) - float2(0.5)) * float2(Finish_Uniforms.vignette.z, 1.0)) / length(float2(Finish_Uniforms.vignette.z, 1.0) * 0.5)) - (1.0 - _479)) / _479)));
+    }
+    else
+    {
+        _444 = c;
+    }
+    float3 _507 = _444;
+    float3 _508 = float3x3(Finish_Uniforms.white_x.xyz, Finish_Uniforms.white_y.xyz, Finish_Uniforms.white_z.xyz) * _507;
+    if (Finish_Uniforms.params.z != 1.0)
+    {
+        _444 = powr(fast::max(_508, float3(0.0)) / float3(0.180000007152557373046875), float3(Finish_Uniforms.params.z)) * 0.180000007152557373046875;
+    }
+    else
+    {
+        _444 = _508;
+    }
+    float3 _546 = fast::max(mix(float3(luminance(_444)), _444, float3(Finish_Uniforms.params.w)), float3(0.0));
+    if (Finish_Uniforms.params.x > 1.5)
+    {
+        return aces(_546 * 1.215979099273681640625);
+    }
+    if (Finish_Uniforms.params.x > 0.5)
+    {
+        return agx(_546 * 0.594208240509033203125);
+    }
+    return tone_map(_546);
+}
+
+static inline __attribute__((always_inline))
+float3 srgb_encode(float3 c)
+{
+    float3 _783 = fast::clamp(c, float3(0.0), float3(1.0));
+    return mix(_783 * 12.9200000762939453125, (powr(_783, float3(0.4166666567325592041015625)) * 1.05499994754791259765625) - float3(0.054999999701976776123046875), step(float3(0.003130800090730190277099609375), _783));
+}
+
+static inline __attribute__((always_inline))
+float lattice_noise(int2 p, uint seed)
+{
+    uint h = ((uint(p.x) * 2376512323u) ^ (uint(p.y) * 3625334849u)) ^ (seed * 3407524639u);
+    uint h_1 = (h ^ (h >> uint(15))) * 739982445u;
+    uint h_2 = (h_1 ^ (h_1 >> uint(12))) * 695872825u;
+    return (float(h_2 ^ (h_2 >> uint(15))) / 2147483648.0) - 1.0;
+}
+
+static inline __attribute__((always_inline))
+float grain_at(float2 px, float size, uint seed)
+{
+    float2 at = px / float2(size);
+    int2 _864 = int2(floor(at));
+    float2 f = at - float2(_864);
+    float2 f_1 = (f * f) * (float2(3.0) - (f * 2.0));
+    float _910 = f_1.x;
+    return mix(mix(lattice_noise(_864, seed), lattice_noise(_864 + int2(1, 0), seed), _910), mix(lattice_noise(_864 + int2(0, 1), seed), lattice_noise(_864 + int2(1), seed), _910), f_1.y);
+}
+
+static inline __attribute__((always_inline))
+float gradient_noise(float2 px)
+{
+    return fract(52.98291778564453125 * fract(dot(px, float2(0.067110560834407806396484375, 0.005837149918079376220703125))));
+}
+
+static inline __attribute__((always_inline))
+float3 grain_and_dither(float3 e, float2 px, float strength, float size, uint seed)
+{
+    float3 _839;
+    if (strength > 0.0)
+    {
+        float _847 = fast::clamp(dot(e, float3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875)), 0.0, 1.0);
+        _839 = e + float3(((((0.119999997317790985107421875 * strength) * 4.0) * _847) * (1.0 - _847)) * grain_at(px, size, seed));
+    }
+    else
+    {
+        _839 = e;
+    }
+    return _839 + float3((gradient_noise(px) - 0.5) / 255.0);
+}
+
+fragment main0_out main0(constant SLANG_ParameterGroup_Finish_Uniforms_std140& Finish_Uniforms [[buffer(0)]], texture2d<float> source [[texture(0)]], texture2d<float> bloom [[texture(1)]], sampler sourceSmplr [[sampler(0)]], sampler bloomSmplr [[sampler(1)]], float4 gl_FragCoord [[position]])
+{
+    main0_out out = {};
+    float4 _45 = source.read(uint2(int3(int2(gl_FragCoord.xy), 0).xy), 0);
+    float3 c;
+    float3 shown;
+    float3 residual;
+    if (Finish_Uniforms.effects.y > 0.0)
+    {
+        aberrated(gl_FragCoord.xy, c, shown, residual, source, sourceSmplr, Finish_Uniforms);
+    }
+    else
+    {
+        decode(_45.xyz, c, shown, residual, Finish_Uniforms);
+    }
+    float3 kept = graded(bloomed(c, gl_FragCoord.xy, source, sourceSmplr, Finish_Uniforms, bloom, bloomSmplr), gl_FragCoord.xy, source, sourceSmplr, Finish_Uniforms) + residual;
+    float3 scaled;
+    if (Finish_Uniforms.params.y < 0.5)
+    {
+        float3 grey = neutral_inverse(float3(luminance(shown)));
+        float3 grey_graded = graded(grey, gl_FragCoord.xy, source, sourceSmplr, Finish_Uniforms);
+        float3 scaled_1 = (shown * grey_graded) / fast::max(tone_map(grey), float3(9.9999997473787516355514526367188e-05));
+        if (Finish_Uniforms.effects.x > 0.0)
+        {
+            scaled = scaled_1 + (graded(bloomed(grey, gl_FragCoord.xy, source, sourceSmplr, Finish_Uniforms, bloom, bloomSmplr), gl_FragCoord.xy, source, sourceSmplr, Finish_Uniforms) - grey_graded);
+        }
+        else
+        {
+            scaled = scaled_1;
+        }
+        scaled = mix(kept, scaled, float3(fast::max(smoothstep(0.00999999977648258209228515625, 0.0500000007450580596923828125, fast::max(abs(residual.x), fast::max(abs(residual.y), abs(residual.z)))), smoothstep(0.85000002384185791015625, 0.9700000286102294921875, fast::max(shown.x, fast::max(shown.y, shown.z))))));
+    }
+    else
+    {
+        scaled = kept;
+    }
+    float3 e_1 = srgb_encode(scaled);
+    float3 _814 = powr(fast::max((e_1 + ((float3(1.0) - e_1) * Finish_Uniforms.grade.x)) * Finish_Uniforms.grade.z, float3(0.0)), float3(1.0 / Finish_Uniforms.grade.y));
+    float3 e;
+    if (Finish_Uniforms.effects.z > 0.5)
+    {
+        e = grain_and_dither(_814, gl_FragCoord.xy, Finish_Uniforms.grade.w, Finish_Uniforms.grain.x, as_type<uint>(Finish_Uniforms.grain.y));
+    }
+    else
+    {
+        e = _814;
+    }
+    out.entryPointParam_main = float4(e, _45.w);
+    return out;
+}
+

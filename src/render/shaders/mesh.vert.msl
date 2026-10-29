@@ -1,0 +1,207 @@
+// SDL_shadercross 1ff05bec5739 from mesh.vert.spv sha256 9036bd58acc93a15deb8edeafc3faf0fc4430b3f9ad8bbee3597b65d34a2673a
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct Mesh_Varyings
+{
+    float3 view_normal;
+    float3 view_pos;
+    float mask;
+    float4 paint;
+    float3 group;
+    float3 mesh_pos;
+    uint slot;
+};
+
+struct Mesh_Vertex_Out
+{
+    float4 position;
+    Mesh_Varyings v;
+};
+
+struct _Array_std140_vector_uint_4_4
+{
+    uint4 data[4];
+};
+
+struct SLANG_ParameterGroup_Frame_Uniforms_std140
+{
+    float4x4 view_proj;
+    float4x4 view;
+    float4x4 model;
+    float4 options;
+    _Array_std140_vector_uint_4_4 slot_group;
+};
+
+struct StructuredBuffer
+{
+    uint2 _member0[1];
+};
+
+struct main0_out
+{
+    float3 entryPointParam_main_v_view_normal [[user(locn0)]];
+    float3 entryPointParam_main_v_view_pos [[user(locn1)]];
+    float entryPointParam_main_v_mask [[user(locn2)]];
+    float4 entryPointParam_main_v_paint [[user(locn3)]];
+    float3 entryPointParam_main_v_group [[user(locn4)]];
+    float3 entryPointParam_main_v_mesh_pos [[user(locn5)]];
+    uint entryPointParam_main_v_slot [[user(locn6)]];
+    float4 gl_Position [[position]];
+};
+
+struct main0_in
+{
+    float3 in_position [[attribute(0)]];
+    float2 in_normal_oct [[attribute(1)]];
+};
+
+static inline __attribute__((always_inline))
+float3 oct_decode(float2 e)
+{
+    float3 _105 = float3(e, (1.0 - abs(e.x)) - abs(e.y));
+    float3 v = _105;
+    if (_105.z < 0.0)
+    {
+        float _88;
+        if (e.x >= 0.0)
+        {
+            _88 = 1.0;
+        }
+        else
+        {
+            _88 = -1.0;
+        }
+        float _89;
+        if (e.y >= 0.0)
+        {
+            _89 = 1.0;
+        }
+        else
+        {
+            _89 = -1.0;
+        }
+        float2 _130 = (float2(1.0) - abs(e.yx)) * float2(_88, _89);
+        v.x = _130.x;
+        v.y = _130.y;
+    }
+    return fast::normalize(v);
+}
+
+static inline __attribute__((always_inline))
+void decode_normal_mask(float2 normal_oct, thread float3& normal, thread float& mask)
+{
+    int2 _75 = int2(round(fast::max(normal_oct, float2(-1.0)) * 32767.0));
+    normal = oct_decode(float2(_75 & int2(-16)) / float2(32767.0));
+    mask = float(((_75.x & 15) << 4) | (_75.y & 15)) / 255.0;
+}
+
+static inline __attribute__((always_inline))
+float3 srgb_decode(float3 c)
+{
+    return mix(c / float3(12.9200000762939453125), powr((c + float3(0.054999999701976776123046875)) / float3(1.05499994754791259765625), float3(2.400000095367431640625)), step(float3(0.040449999272823333740234375), c));
+}
+
+static inline __attribute__((always_inline))
+float3 group_color(uint g)
+{
+    float light;
+    if ((g & 1u) == 0u)
+    {
+        light = 0.75;
+    }
+    else
+    {
+        light = 0.550000011920928955078125;
+    }
+    return mix(float3(1.0), fast::clamp(abs((fract(float3(fract((float(g) * 0.61803400516510009765625) + 0.119999997317790985107421875)) + (float3(0.0, 2.0, 1.0) / float3(3.0))) * 6.0) - float3(3.0)) - float3(1.0), float3(0.0), float3(1.0)), float3(0.550000011920928955078125)) * light;
+}
+
+vertex main0_out main0(main0_in in [[stage_in]], constant SLANG_ParameterGroup_Frame_Uniforms_std140& Frame_Uniforms [[buffer(0)]], const device StructuredBuffer& paint [[buffer(1)]], uint gl_VertexIndex [[vertex_id]])
+{
+    main0_out out = {};
+    Mesh_Vertex_Out o;
+    float _16 = o.v.mask;
+    float3 in_normal;
+    decode_normal_mask(in.in_normal_oct, in_normal, _16);
+    o.v.mask = _16;
+    o.v.paint = float4(0.0);
+    o.v.group = float3(-1.0);
+    o.v.slot = 0u;
+    bool _19;
+    if (Frame_Uniforms.options.x > 0.5)
+    {
+        _19 = true;
+    }
+    else
+    {
+        _19 = Frame_Uniforms.options.y > 0.5;
+    }
+    if (_19)
+    {
+        _19 = true;
+    }
+    else
+    {
+        _19 = Frame_Uniforms.options.z > 0.5;
+    }
+    if (_19)
+    {
+        uint _205 = uint(int(gl_VertexIndex));
+        uint group = paint._member0[_205].y & 65535u;
+        if (Frame_Uniforms.options.x > 0.5)
+        {
+            o.v.paint = float4(srgb_decode(unpack_unorm4x8_to_float(paint._member0[_205].x).xyz), unpack_unorm4x8_to_float(paint._member0[_205].x).w);
+        }
+        if (Frame_Uniforms.options.y > 0.5)
+        {
+            o.v.group = group_color(group);
+        }
+        if (Frame_Uniforms.options.z > 0.5)
+        {
+            uint k = 1u;
+            for (;;)
+            {
+                bool _36_ladder_break = false;
+                do
+                {
+                    if (!(k < 16u))
+                    {
+                        _36_ladder_break = true;
+                        break;
+                    }
+                    if (Frame_Uniforms.slot_group.data[k >> uint(2)][k & 3u] == group)
+                    {
+                        o.v.slot = k;
+                    }
+                    break;
+                } while(false);
+                if (_36_ladder_break)
+                {
+                    break;
+                }
+                k++;
+                continue;
+            }
+        }
+    }
+    float4 _349 = Frame_Uniforms.model * float4(in.in_position, 1.0);
+    o.position = Frame_Uniforms.view_proj * _349;
+    o.v.view_normal = (float3x3(Frame_Uniforms.view[0].xyz, Frame_Uniforms.view[1].xyz, Frame_Uniforms.view[2].xyz) * float3x3(Frame_Uniforms.model[0].xyz, Frame_Uniforms.model[1].xyz, Frame_Uniforms.model[2].xyz)) * in_normal;
+    o.v.view_pos = (Frame_Uniforms.view * _349).xyz;
+    o.v.mesh_pos = in.in_position;
+    out.gl_Position = o.position;
+    out.entryPointParam_main_v_view_normal = o.v.view_normal;
+    out.entryPointParam_main_v_view_pos = o.v.view_pos;
+    out.entryPointParam_main_v_mask = o.v.mask;
+    out.entryPointParam_main_v_paint = o.v.paint;
+    out.entryPointParam_main_v_group = o.v.group;
+    out.entryPointParam_main_v_mesh_pos = o.v.mesh_pos;
+    out.entryPointParam_main_v_slot = o.v.slot;
+    return out;
+}
+

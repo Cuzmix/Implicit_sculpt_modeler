@@ -1,0 +1,186 @@
+// SDL_shadercross 1ff05bec5739 from blas_refit.comp.spv sha256 7025cc138e90d09c7dd4b21a01acbb9d43b161987c35280d807d1d29878bedda
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct Node_std430_logical
+{
+    float3 lo;
+    uint first;
+    float3 hi;
+    uint count;
+};
+
+struct SLANG_ParameterGroup_Params_std140
+{
+    uint chunk_count;
+    uint groups_x;
+};
+
+struct StructuredBuffer
+{
+    uint4 _member0[1];
+};
+
+struct Node_std430
+{
+    packed_float3 lo;
+    uint first;
+    packed_float3 hi;
+    uint count;
+};
+
+struct RWStructuredBuffer
+{
+    Node_std430 _member0[1];
+};
+
+struct StructuredBuffer_1
+{
+    uint _member0[1];
+};
+
+struct StructuredBuffer_2
+{
+    float _member0[1];
+};
+
+static inline __attribute__((always_inline))
+float3 at(uint v, device StructuredBuffer_2& positions)
+{
+    uint _258 = 3u * v;
+    return float3(positions._member0[_258], positions._member0[_258 + 1u], positions._member0[_258 + 2u]);
+}
+
+kernel void main0(constant SLANG_ParameterGroup_Params_std140& Params [[buffer(0)]], device StructuredBuffer_2& positions [[buffer(1)]], device StructuredBuffer_1& indices [[buffer(2)]], device StructuredBuffer_1& order [[buffer(3)]], device StructuredBuffer& chunks [[buffer(4)]], device RWStructuredBuffer& nodes [[buffer(5)]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]])
+{
+    uint c = (((gl_WorkGroupID.y * Params.groups_x) + gl_WorkGroupID.x) * 64u) + gl_LocalInvocationID.x;
+    if (c >= Params.chunk_count)
+    {
+        return;
+    }
+    uint4 _98 = chunks._member0[c];
+    uint k = _98.w;
+    Node_std430_logical _12;
+    float3 lo;
+    float3 hi;
+    Node_std430_logical _16;
+    Node_std430_logical _17;
+    uint _19;
+    bool _22;
+    bool _23;
+    float3 lo_1;
+    float3 hi_1;
+    for (;;)
+    {
+        bool _30_ladder_break = false;
+        do
+        {
+            if (!(k > 0u))
+            {
+                _30_ladder_break = true;
+                break;
+            }
+            uint i = (_98.x + k) - 1u;
+            _12.lo = float3(nodes._member0[i].lo);
+            _12.first = nodes._member0[i].first;
+            _12.hi = float3(nodes._member0[i].hi);
+            _12.count = nodes._member0[i].count;
+            if (nodes._member0[i].count == 0u)
+            {
+                uint _139 = _98.x + _12.first;
+                _16.lo = float3(nodes._member0[_139].lo);
+                _16.first = nodes._member0[_139].first;
+                _16.hi = float3(nodes._member0[_139].hi);
+                _16.count = nodes._member0[_139].count;
+                uint _157 = _139 + 1u;
+                _17.lo = float3(nodes._member0[_157].lo);
+                _17.first = nodes._member0[_157].first;
+                _17.hi = float3(nodes._member0[_157].hi);
+                _17.count = nodes._member0[_157].count;
+                lo = fast::min(float3(nodes._member0[_139].lo), float3(nodes._member0[_157].lo));
+                hi = fast::max(_16.hi, _17.hi);
+            }
+            else
+            {
+                lo = float3(3.0000000054977557577780399428115e+38);
+                hi = float3(-3.0000000054977557577780399428115e+38);
+                uint j = _12.first;
+                for (;;)
+                {
+                    bool _37_ladder_break = false;
+                    do
+                    {
+                        if (!(j < (_12.first + nodes._member0[i].count)))
+                        {
+                            _37_ladder_break = true;
+                            break;
+                        }
+                        uint at_order = _98.y + j;
+                        uint _198 = at_order >> uint(1);
+                        if ((at_order & 1u) == 0u)
+                        {
+                            _19 = order._member0[_198] & 65535u;
+                        }
+                        else
+                        {
+                            _19 = order._member0[_198] >> uint(16);
+                        }
+                        uint _219 = 3u * (_98.z + _19);
+                        uint _224 = _219 + 1u;
+                        uint _227 = _219 + 2u;
+                        if (indices._member0[_219] == indices._member0[_224])
+                        {
+                            _22 = true;
+                        }
+                        else
+                        {
+                            _22 = indices._member0[_224] == indices._member0[_227];
+                        }
+                        if (_22)
+                        {
+                            _23 = true;
+                        }
+                        else
+                        {
+                            _23 = indices._member0[_219] == indices._member0[_227];
+                        }
+                        if (_23)
+                        {
+                            lo_1 = lo;
+                            hi_1 = hi;
+                            break;
+                        }
+                        float3 p0 = at(indices._member0[_219], positions);
+                        float3 p1 = at(indices._member0[_224], positions);
+                        float3 p2 = at(indices._member0[_227], positions);
+                        lo_1 = fast::min(lo, fast::min(p0, fast::min(p1, p2)));
+                        hi_1 = fast::max(hi, fast::max(p0, fast::max(p1, p2)));
+                        break;
+                    } while(false);
+                    if (_37_ladder_break)
+                    {
+                        break;
+                    }
+                    lo = lo_1;
+                    hi = hi_1;
+                    j++;
+                    continue;
+                }
+            }
+            nodes._member0[i].lo = lo;
+            nodes._member0[i].hi = hi;
+            break;
+        } while(false);
+        if (_30_ladder_break)
+        {
+            break;
+        }
+        k--;
+        continue;
+    }
+}
+

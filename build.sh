@@ -58,6 +58,13 @@ compile_shaders() {
 		if head -n 1 "$src" | grep -q '^// slangc: -fp-mode precise'; then flags=(-fp-mode precise); fi
 		"$SLANGC" "$src" -target spirv -profile spirv_1_3 -matrix-layout-row-major -O0 -stage "$stage" -entry main "${flags[@]}" -o "$name.spv"
 	done
+	# Each new .spv's Metal source for the iPad build (scripts/shaders_msl.py), when
+	# SDL_shadercross is built (scripts/build_shadercross.py); `check` fails on a stale one.
+	if [ -x "$DEPS/shadercross/shadercross" ]; then
+		python3 "$ROOT/scripts/shaders_msl.py"
+	else
+		echo "shadercross missing: the committed .msl files are kept"
+	fi
 }
 
 common=(-collection:deps="$DEPS" -vet -strict-style -warnings-as-errors
@@ -120,7 +127,8 @@ case "$mode" in
 		done
 		python3 "$ROOT/scripts/agents_sync.py" --check
 		python3 "$ROOT/scripts/boundary_check.py"
-		echo "check: 15 packages type-check, agent mirror current, only render names the GPU API"
+		python3 "$ROOT/scripts/shaders_msl.py" --check
+		echo "check: 15 packages type-check, agent mirror current, only render names the GPU API, Metal shaders current"
 		;;
 	wincheck)
 		# Object files need no Windows SDK; the empty root only satisfies the flag.
@@ -203,6 +211,13 @@ case "$mode" in
 			cmake --build "$out/sdl-build" --parallel
 			cmake --install "$out/sdl-build"
 		fi
+		# Every Metal shader through Apple's own compiler once, so a translation error stops the
+		# build here rather than on the iPad, where SDL compiles each from source when the app
+		# first makes its pipeline (scripts/shaders_msl.py made them).
+		mkdir -p "$out/msl"
+		for msl in "$ROOT"/src/render/shaders/*.msl; do
+			xcrun -sdk iphoneos metal -x metal -c "$msl" -o "$out/msl/$(basename "$msl" .msl).air"
+		done
 		ios_object
 		"${cc[@]}" -O2 -c "$DEPS/odin/vendor/stb/src/stb_truetype.c" -o "$out/stb_truetype.o"
 		"${cc[@]}" -O2 -Wall -fobjc-arc -I"$out/sdl/include" -c "$ROOT/ios/sculpt_ios.m" -o "$out/sculpt_ios.o"

@@ -14,7 +14,7 @@ import "../geom"
 // The mesh the viewport draws is not touched: the caller writes the result back to the
 // CPU mesh, which uploads its changes the usual way.
 
-SMOOTH_ALL_COMP_SPV :: #load("shaders/smooth_all.comp.spv")
+SMOOTH_ALL_COMP_CODE :: #load("shaders/smooth_all.comp" + SHADER_EXT)
 
 // Threads per workgroup; matches local_size_x in smooth_all.comp.slang.
 SMOOTH_THREADS :: 256
@@ -62,10 +62,10 @@ smooth_timing_total :: proc(t: Smooth_Timing) -> f64 {
 
 smooth_compute_init :: proc(r: ^Renderer, sc: ^Smooth_Compute) -> bool {
 	sc.pipeline = gpu_create_compute_pipeline(r.device, {
-		code_size                     = len(SMOOTH_ALL_COMP_SPV),
-		code                          = raw_data(SMOOTH_ALL_COMP_SPV),
-		entrypoint                    = "main",
-		format                        = {.SPIRV},
+		code_size                     = len(SMOOTH_ALL_COMP_CODE),
+		code                          = raw_data(SMOOTH_ALL_COMP_CODE),
+		entrypoint                    = SHADER_ENTRY,
+		format                        = SHADER_FORMAT,
 		num_readonly_storage_buffers  = 5,
 		num_readwrite_storage_buffers = 1,
 		num_uniform_buffers           = 1,

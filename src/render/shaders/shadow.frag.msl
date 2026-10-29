@@ -1,0 +1,10 @@
+// SDL_shadercross 1ff05bec5739 from shadow.frag.spv sha256 a64ba17c5c6cc597c34c55839d04afec66cc69a2cfe58cea1e62764ea83888ae
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+fragment void main0()
+{
+}
+
