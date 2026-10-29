@@ -7,8 +7,8 @@ import "core:strings"
 import "../sculpt"
 import "../ui"
 
-// The Colors card: the brush bar's Colour button opens it beside the bar, where ZBrush for
-// iPad puts its Color card, laid out and named as Procreate's Colors panel. On top, the
+// The Colors card: the Colors command opens it beside the off-hand island, where ZBrush
+// for iPad puts its Color card, laid out and named as Procreate's Colors panel. On top, the
 // main and secondary colours (a tap picks the one the pickers edit, a long press swaps
 // them), Swap, Fill object, Fill gradient (ZBrush's FillObject and FillObject Grad), the
 // Eyedropper and Close; then one of Procreate's five ways to pick, chosen by the tabs along

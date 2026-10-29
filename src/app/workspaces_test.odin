@@ -161,25 +161,25 @@ a_workspace_keeps_its_bars_but_not_the_dock :: proc(t: ^testing.T) {
 	workspaces_frame(k)
 	testing.expect(t, !w.modified, "the fresh bars read as changed")
 
-	// A shortcut taken off marks the workspace and stays with it; Focus has every one.
-	fresh := k.shortcuts.count
-	bar_remove(&a, .Shortcuts, 0)
+	// A rail button taken off marks the workspace and stays with it; Focus has every one.
+	fresh := k.view_rail.count
+	bar_remove(&a, .View_Rail, 0)
 	workspaces_frame(k)
-	testing.expect(t, w.modified, "a shortcut taken off is no change")
+	testing.expect(t, w.modified, "a rail button taken off is no change")
 	workspace_switch(k, int(Built_In.Focus))
-	testing.expect_value(t, k.shortcuts.count, fresh)
+	testing.expect_value(t, k.view_rail.count, fresh)
 	workspace_switch(k, int(Built_In.Sculpt))
-	testing.expect_value(t, k.shortcuts.count, fresh - 1)
+	testing.expect_value(t, k.view_rail.count, fresh - 1)
 
-	// The dock is the user's own set, the same in every workspace.
-	bar_remove(&a, .Dock, 0)
-	dock := k.dock
+	// The shelf's pages are the user's own brushes, the same in every workspace.
+	bar_remove(&a, .Shelf_Sculpt, 0)
+	shelf := k.shelf.lists
 	workspace_switch(k, int(Built_In.Studio))
-	testing.expect(t, k.dock == dock, "a workspace changed the dock")
+	testing.expect(t, k.shelf.lists == shelf, "a workspace changed the shelf")
 
 	// A layout written before workspaces held the bars keeps the bars as they are.
 	kit_layout_put(k, "open Inspector\n")
-	testing.expect_value(t, k.shortcuts.count, fresh)
+	testing.expect_value(t, k.view_rail.count, fresh)
 	bar_remove(&a, .Tools, 0)
 	tools := k.tools.count
 	kit_layout_put(k, "open Stats\n")

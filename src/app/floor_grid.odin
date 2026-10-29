@@ -9,7 +9,7 @@ import "../geom"
 import "../render"
 import "../sculpt"
 
-// The floor grid (the right bar's Floor grid, a long press for its settings): grid lines on
+// The floor grid (Floor grid on a bar, a long press for its settings): grid lines on
 // up to three planes square to the world's axes, round what the scene shows. The floor
 // lies under the scene and the two walls behind it as the camera sees it, so the grid never
 // stands between the eye and the model; the lines fade out a little way round the scene.

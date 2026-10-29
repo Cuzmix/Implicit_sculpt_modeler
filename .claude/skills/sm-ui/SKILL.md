@@ -1,6 +1,6 @@
 ---
 name: sm-ui
-description: The interface — the kit in src/ui (containers, widgets, hit testing, the gesture arena, scrolling, fingers, tokens, motion, popovers, layers, text fields) and its use in src/app (new_ui.odin's toolbars, dock, inspector and menus; kit_tool, kit_object, kit_scene, kit_stats, kit_settings; each feature's kit_*_section; the History panel in timeline.odin) — and the frame loop: the Device, touch and pen routing (touch.odin, navigate.odin), Viewport_Input, pen samples, the viewport overlay, the brush pie, shortcuts, Scene_Command, remembered settings. Load for ANY task that adds or changes something the user taps, reads or types, e.g. "add a section to the Object tab", "add a shortcut", "add a setting", "show X in the Stats panel", "the slider does not update", "the viewport ignores the pointer", "a finger turns the view by itself". Requires sm-odin and sm-build; testing touch is sm-touch-testing; what buttons do is sm-sculpt or sm-cad; viewport pixels are sm-render; touch targets and store rules are sm-store.
+description: The interface — the kit in src/ui (containers, widgets, hit testing, the gesture arena, scrolling, fingers, tokens, motion, popovers, layers, text fields) and its use in src/app (new_ui.odin's toolbars, shelf, inspector and menus; kit_tool, kit_object, kit_scene, kit_stats, kit_settings; each feature's kit_*_section; the History panel in timeline.odin) — and the frame loop: the Device, touch and pen routing (touch.odin, navigate.odin), Viewport_Input, pen samples, the viewport overlay, the brush pie, shortcuts, Scene_Command, remembered settings. Load for ANY task that adds or changes something the user taps, reads or types, e.g. "add a section to the Object tab", "add a shortcut", "add a setting", "show X in the Stats panel", "the slider does not update", "the viewport ignores the pointer", "a finger turns the view by itself". Requires sm-odin and sm-build; testing touch is sm-touch-testing; what buttons do is sm-sculpt or sm-cad; viewport pixels are sm-render; touch targets and store rules are sm-store.
 ---
 
 # Interface
@@ -34,93 +34,74 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   (`new_ui.odin:30`): the kit context, which tab, which sections are open (`Kit_Section`), menus, Stats (Simple or
   Advanced), Settings (open, tab, scroll) and History panels, the interface size (`ui_scale`), the tray's scroll,
   add shape and size, the overlay's `layer`, text input on or off.
-- Chrome (`k.chrome`, `Chrome {Lens, Classic}` in `kit_bars.odin`): Lens (default) is the Sculpt Workspace Directions
-  mock, built zone by zone (spec and PR order: `notes/lens/mock-layout-design.md`); each zone branches on it and leaves
-  Classic whole. Lens top bar: `kit_top_bar_lens` (`kit_top_lens.odin`): Menu, file block (`file_status`, fixed width so
-  Undo/Redo never move), Undo, Redo | workspace pill (laid inline with spacers: a `begin_at` inside the bar loses hits
-  to it) | Search field, History, Settings. `touch_check` passes `--chrome=classic` unless a scenario names one.
+- Layout: one, Lens (the Sculpt Workspace Directions mock; spec `notes/lens/mock-layout-design.md`). The Classic
+  layout (ZBrush-iPad bars, the dock, `--chrome`) is gone; never add a second chrome: `settings_load` passes over old
+  `chrome`, `panes_under_panels`, `dock*` and `right_rail` lines. `kit_layout` (`new_ui.odin`) lays out in order: top
+  bar `kit_top_bar` (`kit_top_lens.odin`): Menu, file block (`file_status`, fixed width so Undo/Redo never move),
+  Undo, Redo | workspace pill (laid inline with spacers: a `begin_at` inside the bar loses hits to it) | Search field,
+  History, Settings; `lens_focus(k)` (the View_Bar zone hidden) turns it into `kit_top_islands`, with no view chips and
+  a compact shelf. Then `kit_view_chips` ("points"), `kit_offhand` (the island, "brush bar": Size and Strength
+  `ui.vslider`s, long press = Pen section, the pen's roll sets them via `island_roll`), `kit_nav_head`, `kit_view_rail`
+  ("view bar", `Bar_Which.View_Rail`), the shelf `kit_shelf` (`lens_shelf.odin`, "dock", pages row "dock pages"),
+  the action bar, the picker `kit_brush_sheet` (`k.browser` at `.Dock`; at `.Bar`, with the shelf hidden, the
+  browser `kit_brush_browser`), Search, the menu `kit_menu_lens`. The containers keep the old bars' names so
+  `kit_left`/`kit_right`/`kit_card_place`/`side_panel_below`/`dock_stack`/`lens_free_area` and Arrange's zone tags
+  (`ui.prev_rect` of "brush bar", "dock", "view bar") keep working: renaming one moves them all. Measure the shelf with
+  `dock_stack` (it sits `DOCK_LIFT` above the edge margin). `Zone` (`.Brush_Bar`, `.View_Bar`, `.Dock`, `.Wheel`,
+  `.Action_Bar`) keeps its layout-text names; `ZONE_NAMES` are what people read.
   Lens view (`lens_view.odin`): `camera.Orbit.shift` (half-heights, applied in `orbit_proj`) draws the target in
-  `lens_free_area`; `view_fit_free` from Frame/Focus/Reset; zeroed outside Lens+Single and in `second_orbit`. Panels
-  fade under a viewport stroke (`panel_fade` in `panel_begin`/`panel_end`). Clean view `k.clean` returns early from
-  `kit_layout`; Tab maps to it in Lens via `keymap_default` (rebuilt when the chrome changes).
-  Lens chrome (`lens_chrome.odin`) lays out under the Classic names ("brush bar" = off-hand island, "points" = view
-  chips, "view bar" = view rail) so `kit_left`/`kit_right`/`lens_free_area` keep working. The rail is
-  `Bar_Which.View_Rail` (zone `view_rail`). An overlay on a panel's own area takes no hits from a `begin_at` root
-  (the mini view's chip is part of the picture's press). Thumbnail in Lens = `kit_mini_view`; `lens_mini_reach`
-  shortens the right column above it. The shelf (`lens_shelf.odin`) is "dock" (its pages row "dock pages"); its
-  pages are `Bar_Which.Shelf_*` (`BAR_LISTS` saves them, `BAR_LAYOUT` leaves them out of workspace layouts); after
-  All it shows `Bar_Which.Tools` (Classic's bottom bar strip), `shelf_fit` deciding how many of each. "dock" is
-  drag_scroll, so `ui.swipe_update` on it turns pages (`shelf_turn`); ask a child's `prev_rect` inside its parent.
-  `k.order` is `Float_Ref` (windows, pinned sections, floated `Stack_Card`s): `float_raise` on a press; the dial
-  (`kit_modifier_rail`) is laid out after the floats, before menus and popovers, so it is the top lasting root. Picker
-  = `kit_brush_sheet` (Lens's `k.browser` at `.Dock`); `ui.row_room` right-aligns in a fixed-width row (spacer(0)
-  does nothing). The tray in Lens is the stack (`lens_stack.odin`, `kit_inspector`'s Lens branch, `panel_begin(bare)`):
-  cards in `k.stack`, layout line `stack`; `tray_open` calls `stack_reveal`; `k.in_stack` lets a section drop what the
-  Brush card shows above it. Lens's brush pie is `Bar_Which.Brush_Pie` (`k.brush_pie`, eight slots, settings only,
-  never in layouts); `pie_slot` reads it, `lens_pie_update` adds tap-to-pick and the rest that opens `pie_quick`.
-  Stack sizes live in `lens_resize.odin` (`stack_width`, `heights`, `sizes`, layout line `stack_size`); its handles are
-  `ui.begin_at` roots drawn after what they resize, so they win the press.
-  Lens's split views chrome is `lens_panes.odin`: `lens_pane_head` (chips, `k.pane_menu` lists), `grid_divider_lens`
+  `lens_free_area`; `view_fit_free` from Frame/Focus/Reset; zeroed outside Single and in `second_orbit`. touch_check's
+  `MIDDLE` is where the sphere's middle lands at 1600x900 (the gizmo's points follow it). Panels fade under a viewport
+  stroke (`panel_fade` in `panel_begin`/`panel_end`). Clean view `k.clean` returns early from `kit_layout`; Tab is
+  bound to it and B to the brush picker in `DEFAULT_BINDINGS`.
+  Bars (`bars.odin`): `Bar_Which` is Tools (the shelf's strip after All), View_Rail, the five `Shelf_*` pages and
+  Brush_Pie, each a `Bar_List` of `Bar_Slot` drawn by `bar_slot_button`, whose `bar_slot_run`/`bar_slot_more`/
+  `bar_lit`/`bar_icon` keep each command's own tap, long press and lit state wherever it sits; `BAR_LAYOUT` (Tools,
+  View_Rail) go in workspace layouts, the pages and the pie only in settings. Customise bars (`k.bars_edit`) is
+  Arrange (`lens_arrange.odin`): a tap on a ringed slot opens `kit_bar_slot_menu` with `bar_slot_actions`, Search
+  chooses a command through `Palette_For`'s `Bar_Pick` (`bar_choose`, `bar_put`); the Library's Panels tab is
+  `arrange_show_chips` + `arrange_panel_rows`, `kit_arrange_ghosts` outlines a hidden shelf, wheel or action bar, and
+  `kit_column_drop` both columns. A bar button opens the one `Bar_Pop` (`bar_pop_toggle`): a tray section by
+  `Kit_Section` (any palette's, `bar_section`), the symmetry axes, the polyframe parts, the Remesh quick menu, Shading,
+  Camera or View layout. `corner = true` on `icon_button` draws the triangle that says a long press does more.
+  An overlay on a panel's own area takes no hits from a `begin_at` root (the mini view's chip is part of the picture's
+  press). Thumbnail = `kit_mini_view`; `lens_mini_reach` shortens the right column above it. The shelf's pages are
+  drag_scroll, so `ui.swipe_update` on it turns pages (`shelf_turn`); `shelf_fit` decides how many tiles and tools
+  show; ask a child's `prev_rect` inside its parent. `k.order` is `Float_Ref` (windows, pinned sections, floated
+  `Stack_Card`s): `float_raise` on a press; the dial (`kit_modifier_rail`) is laid out after the floats, before menus
+  and popovers, so it is the top lasting root. `ui.row_room` right-aligns in a fixed-width row (spacer(0) does
+  nothing). The tray is the stack (`lens_stack.odin`, `kit_inspector`, `panel_begin(bare)`): cards in `k.stack`,
+  layout line `stack`; `tray_open` calls `stack_reveal`; the Palettes card holds the whole tray behind
+  `kit_tray_select`; `k.in_stack` lets a section drop what the Brush card shows above it. The brush pie is
+  `Bar_Which.Brush_Pie` (`k.brush_pie`, eight slots); `pie_slot` reads it, `lens_pie_update` adds tap-to-pick and
+  the rest that opens `pie_quick`. Stack sizes live in `lens_resize.odin` (`stack_width`, which `tray_width` returns,
+  `heights`, `sizes`, layout line `stack_size`); its handles are `ui.begin_at` roots drawn after what they resize.
+  Split views chrome is `lens_panes.odin`: `lens_pane_head` (chips, `k.pane_menu` lists), `grid_divider_lens`
   (grip, `handle_double_tap` evens, edge close via `grid_close_target`, the main pane never closes), `grid_choose`
   (the View grid command; `k.new_panes`), and the stack's tab strip while `stack_strip_shown` (`kit_stack_tab` draws a
-  card over the view through `stack_card_body`).
+  card over the view through `stack_card_body`); `view_grid_room` is the whole window, panes always under the panels.
   The grid is a split tree (`Grid_Tree`, at most four leaves; pane 0 the main view, panes keep their numbers and the
-  last fills a closed one's): change it only through the tree ops in grid.odin. Lens gestures (`lens_areas.odin`)
-  queue a `Grid_Op` that `kit_grid` applies before layout; each op is a `Grid_Step` that `undo_run`/`redo_run`
-  order against the History by `at` ticks. Pictures follow moved views in `grid_pictures_follow`.
-  Lens's menu is `kit_menu_lens` (`lens_menu.odin`; `LENS_MENU_PLACE` says where each command is, keep it in step
-  with the rows); search's Lens rows, groups and Put on a bar are `lens_search.odin` (`palette_where`); Focus is
-  `lens_focus(k)` (the view bar hidden): islands in `kit_top_islands`, no view chips, a compact shelf.
-  The stack's Scene, Layers and Tools cards are `kit_lens_scene`, `kit_lens_layers` and `kit_lens_tools` (Classic
-  keeps the tray's sections; a Tools tile is a registry command); Lens's context bar lists come from `action_list`;
-  a lock (`Object.locked`) goes through `object_pickable`, never a raycast of its own. The look's cards (Lights,
-  Material, Environment: `lens_studio.odin`) start in `stack.hidden`; every stack loop skips hidden cards.
-  `built_in_layout(b, chrome)` differs by chrome only for Studio; `workspaces_chrome` swaps untouched built-ins when
-  `k.chrome` changes, so call sites pass `w.chrome`, never a bare `built_in_layout(b)`.
-  Settings rows live in `settings_block` (`settings_blocks.odin`), one case per heading; Classic's tabs and Lens's
-  sections (`lens_settings.odin`) are lists of `Settings_Entry`. A new setting goes in a block, its default in
-  `settings_block_reset`, and its search words in `SETTINGS_BLOCK_WORDS`.
+  last fills a closed one's): change it only through the tree ops in grid.odin. Gestures (`lens_areas.odin`) queue a
+  `Grid_Op` that `kit_grid` applies before layout; each op is a `Grid_Step` that `undo_run`/`redo_run` order against
+  the History by `at` ticks. Pictures follow moved views in `grid_pictures_follow`.
+  The menu is `kit_menu_lens` (`lens_menu.odin`; `LENS_MENU_PLACE` says where each command is, keep it in step with
+  the rows, and touch_check's `MENU_ROWS`); search's rows, groups and Put on a bar are `lens_search.odin`
+  (`palette_where`). The stack's Scene, Layers and Tools cards are `kit_lens_scene`, `kit_lens_layers` and
+  `kit_lens_tools` (the Palettes card keeps the tray's full sections; a Tools tile is a registry command); the action
+  bar's lists come from `action_list`; a lock (`Object.locked`) goes through `object_pickable`, never a raycast of its
+  own. The look's cards (Lights, Material, Environment: `lens_studio.odin`) start in `stack.hidden`; every stack loop
+  skips hidden cards. `built_in_layout(b)` gives each built-in workspace's layout.
+  Settings rows live in `settings_block` (`settings_blocks.odin`), one case per heading; the sheet's sections
+  (`lens_settings.odin`) and the narrow window's tabs (`kit_settings.odin`, under 840 points) are lists of
+  `Settings_Entry`. A new setting goes in a block, its default in `settings_block_reset`, and its search words in
+  `SETTINGS_BLOCK_WORDS`. Home is `lens_home_body` from `LENS_HOME_WIDE`, else kit_home's narrow page.
   The Export sheet (`lens_export.odin`) only gathers: a new way out is an `Export_Format` whose `export_command` is an
   existing command, and a mesh format a filter of `file_dialog_export`, never a writer of its own.
   New scene's argument indexes `NEW_SCENES` (Mesh, Voxels or Empty starts): append, never reorder, since keys, bars
-  and scripts name a start by its number or `new_start_key`; Classic shows the first `CLASSIC_NEW_SCENES`.
+  and scripts name a start by its number or `new_start_key`; the narrow Home page shows the first `NARROW_HOME_STARTS`.
   The dial's sectors are `Kit_State.dial` (`Dial_Sector`, a Modifier or a Bar_Slot): pass them to `rail_hit`, never
-  index a fixed table; only a Modifier sector claims a finger. Lens's Arrange (`lens_arrange.odin`) finds its zones by
-  `ui.prev_rect` of their containers ("brush bar", "dock", "view bar"), so renaming one moves its tag.
-- Layout (`kit_layout`, `new_ui.odin`; the bars in `kit_bars.odin`, after ZBrush for iPad): `kit_top_bar` (a full-width
-  strip, `TOP_BAR_H`: Menu, Save, Import, Export | file name | History, Edit pies, Help, Settings), `kit_points` (the
-  object's readout under it, at the top left), `kit_brush_bar` (left column, top from `brush_bar_top`, which keeps
-  it above the wheel in the corner where there is room: Brushes, Stroke, Alpha, Material, Colour (`bar_swatches`, long
-  press = `.Swap_Colors`), the paint channel (`.Paint_Channel` cycles) | Focal shift, Draw size, Strength, Add, Subtract
-  (`.Brush_Add`/`.Brush_Subtract` on `rail.latched` Invert) | Undo, Redo; those three are `bar_value_button`s: tap = tall slider, finger or pen
-  long press held = a `Bar_Scrub` that drags the value up and down with a readout (`kit_bar_scrub`), long press let go
-  without dragging or a right click = the Falloff or Pen section, a cancel restores the value), `kit_nav_head` (`nav_head.odin`: the navigation head
-  top right, `NAV_HEAD_W` x `NAV_HEAD_H`, a `ui.area` showing the renderer's picture; tap = `View_Axis` from that side,
-  drag = orbit), `kit_view_bar` (right, from `nav_head_bottom()`: Search, Palettes (the tray), Objects (the card); then the shortcut column the user
-  arranges, `k.shortcuts` (`bars.odin`: `Bar_List` of `Bar_Slot` commands drawn by `bar_slot_button`, whose `bar_slot_run`/
-  `bar_slot_more`/`bar_lit`/`bar_icon` keep each command's own tap, long press and lit state wherever it sits; a fresh
-  install's `SHORTCUTS_DEFAULT`: Shading and Camera (a tap opens `Bar_Pop_Kind.Shading`/`.Camera`,
-  `kit_shading_menu`/`kit_camera_menu`, beside `k.bar_at[kind]`), Render (Studio_Render), Floor grid, Symmetry, Local symmetry,
-  Focus, Wireframe, Transparency, Ghost, Solo; it scrolls in a `kit_scroll` when too tall);
-  touch_check's `UI` table has each button's place, so a button added here shifts the ones under it there); bottom `kit_bottom_bar` (a page of the dock's slots,
-  `dock_page_slots`/`dock_per_page`, in the clipped `drag_scroll` row "dock slots" that `ui.swipe_update` turns by a
-  sideways finger or pen drag (`dock_turn`, `k.dock_slide` easing the new page in, `dock_peek` drawing the next page
-  inert behind the slide; the wheel over it turns too), with `ui.page_dots` under it; All brushes; then the tool strip
-  `k.tools`, `TOOLS_DEFAULT` Gizmo, Remesh (long press: `Bar_Pop_Kind.Remesh_Quick`, `kit_remesh_quick` in rebuild.odin),
-  Dynamic topology, Retopologize, Subdivide, Live boolean, the others' long press their Object section above it; the
-  dock sits `DOCK_LIFT` above the edge margin, so measure it with `dock_stack`). A dock slot is a brush, a preset or a
-  command (`Dock_Slot.command`), `dock_used` of up to `DOCK_SLOTS`. Customise bars (`k.bars_edit`, `.Customise_Bars`)
-  rings every slot; a tap opens `kit_bar_slot_menu` (column, strip) or `kit_dock_menu`, both with `bar_slot_actions`,
-  and Search chooses a command through `Palette_For`'s `Bar_Pick` (`bar_choose`, `bar_put`). That mode is Arrange
-  (`src/app/arrange.odin`): `kit_arrange_head` (zone switches via `zone_toggle`, Panels, Reset bars, Revert, Save as
-  new, Done), `kit_arrange_drawer` (each panel Hidden/Left/Right/Float), `kit_arrange_ghosts` (a hidden dock, wheel
-  or action bar as an outline with Show), and `kit_column_drop` outlines both columns while it is on. Curve and Insert are tiles in
-  the brush browser; then the four windows in `k.order` (back to front) and last the popovers. Panels under the top bar
-  start at `kit_top()`, clear of the side bars at `kit_left(app)`/`kit_right(app)`; a card under the top bar uses
-  `kit_card_place`; a right-side panel keeps clear of the dock with `side_panel_below`. A bar button opens the one
-  `Bar_Pop` (`bar_pop_toggle`): a tray section by `Kit_Section` (any palette's, `bar_section`), the size or strength
-  slider, the symmetry axes or the save actions. `corner = true` on `icon_button` draws the triangle that says a long
-  press does more. The look is `Kit_State.look` (`Look`: Lens, the default, Studio or Graphite), `LOOK_THEMES` set as
+  index a fixed table; only a Modifier sector claims a finger.
+- The look is `Kit_State.look` (`Look`: Lens, the default, Studio or Graphite), `LOOK_THEMES` set as
   `ctx.theme` each frame in `kit_begin`; the themes share every size, so a look never moves a control. Settings
   version 3 moved Studio, the old default, to Lens once. Colours outside widgets come from the theme too: the swapchain
   clear and screen dumps (`kit_frame_color`), the top bar (`Background.Band`: `frame` plus `frame_line`), view pane
@@ -152,7 +133,7 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   Search/Palettes); read the wheel's side with `rail_shown(k)`, never `k.rail_side`, and the action bar with
   `action_bar_shown`. A new panel that a layout should open goes in `LAYOUT_PANELS`. Commands `Workspace` (slot arg),
   `Workspace_Save/_Save_As/_Revert/_Reset/_Rename/_Delete`. The layout holds the column and strip bars (a `bars`
-  line, then `bars_save`), never the dock, which is the user's own set; a text with no `bars` line keeps the bars.
+  line, then `bars_save`); a text with no `bars` line keeps the bars.
   Workspace files (`workspace_file.odin`, commands `Workspace_Export/_Import`): `SCULPT_WORKSPACE 1` plus escaped
   `name` and `layout` lines; an import goes through `workspace_layout_clean` (put into a fresh `Kit_State`, written
   again) and `workspace_add` (a free own slot, a unique name); a format change bumps `WORKSPACE_FILE_VERSION` and
@@ -175,13 +156,13 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   pass `Picture.orbit` (the camera their picture was drawn through, which lags while working), the main view
   `app.camera`. Only the tag is a ui root, so strokes cross the line. `guides_frame` (in `kit_grid`) bumps
   `view_edits` once when the held tag lets go; never an undo step, never a Scene_Command.
-- Narrow windows (`columns_narrow`: safe width < `TRAY_NAV_MIN_W` and `k.column_popovers`): a column draws only while
+- Narrow windows (`columns_narrow`: safe width < `COLUMNS_MIN_W` and `k.column_popovers`): a column draws only while
   `k.panels.popped[side]` (or arranging, or a panel drag; `column_visible`); `columns_pop_update` pops a column when a
   panel in it opens (`panel_bit` sets, `open_last`) and puts it away on a viewport press (swallowed, as popovers do);
   `kit_column_tab` pops it; Palettes toggles the tray's column there. Light a tray button with `tray_shown(app)`.
 - View grid (`src/app/grid.odin`, `k.grid: View_Grid`, command `View_Grid`): presets only (`grid_cells`, pixel-snapped),
   pane 0 is the main view, panes 1-3 are `Second_View`s per preset drawn by `picture_frame` into `App.panes` (one
-  picture a frame, `app.pictures_drawn`); `view_grid_room` is the window while `k.panes_under` (default; panels float over the panes, a head avoids columns and wraps to two rows when narrow), else spans the docked columns; `Theme.panel_shadow` lifts `.Panel`s (Lens only); a divider drag freezes the target and
+  picture a frame, `app.pictures_drawn`); `view_grid_room` is the window (panels float over the panes; a head avoids columns via `grid_left_column_edge` and wraps to two rows when narrow); `Theme.panel_shadow` lifts `.Panel`s; a divider drag freezes the target and
   pane sizes (`g.dragged`); layout lines `grid`/`pane` only when not Single, splits in thousandths.
   Work in any pane (`grid_work`, setting `panes_work`): a press whose `pointer_root` is a view pane's root is handed to
   the viewport in `kit_grid` (`viewport_drag`), `app.camera` becomes the pane's and `g.main` its cell until
@@ -226,8 +207,8 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   `command_button(..., icon_only = true)`: the icon alone, the label in its tooltip. Touch scenarios reach section
   bodies by header coordinates (`OBJECTS_CARD` in touch_check), which move by `CARD_ROW_H` with each row the list
   gains or loses.
-  The Colors card (`kit_colors.odin`, `Kit_Window.Colors`, `Colors_Card` command, the brush bar's Colour) is the other:
-  beside the brush bar, Procreate's tabs (`Colors_Tab`) as `brush_tile`s along its bottom over a `kit_scroll` body,
+  The Colors card (`kit_colors.odin`, `Kit_Window.Colors`, `Colors_Card` command) is the other:
+  beside the off-hand island, Procreate's tabs (`Colors_Tab`) as `brush_tile`s along its bottom over a `kit_scroll` body,
   its state in `Kit_State.colors` (`Colors_Card`: the HSV it edits, kept apart from the RGB so a grey keeps its hue,
   `colors_sync` re-reading it when the colour changed elsewhere; history; your palettes). A pick goes through
   `colors_set_hsv`/`colors_set_rgb` and joins the history when the pointer lets go; `colors_pick` for taps. The
@@ -237,9 +218,8 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   layout name): palettes `Kit_Tab` Tool (`kit_tool_tab`, `kit_tool.odin`: the brush's `BRUSH_SECTIONS`; Curve and
   Insert settings; Move help), Object (`kit_object.odin`, `OBJECT_SECTIONS`) and Scene (`kit_scene.odin`: Objects,
   the rows with eye and ghost (`scene_tree.odin`), then `SCENE_SECTIONS`), each showing ONE section,
-  `k.section[tab]` read through `tray_section` (which falls back when the brush no longer offers it). A wide safe
-  area (`tray_wide`, at least `TRAY_NAV_MIN_W`) lists palettes and sections down the tray's left (`kit_tray_list`);
-  a narrow one puts them in a select (`kit_tray_select`). Open a section with `tray_open(app, sec)`; Kit_Section
+  `k.section[tab]` read through `tray_section` (which falls back when the brush no longer offers it). The Palettes
+  card puts palettes and sections in a select (`kit_tray_select`); its width is `tray_width` (the panel stack's). Open a section with `tray_open(app, sec)`; Kit_Section
   keeps the tray's sections first (`TRAY_SECTIONS`, `section_palette`) and the Stats panel's after. A feature's
   section lives beside its code (`kit_layers_section` in `layers.odin`, …) and starts with nothing but its
   controls (the tray draws its title). The content is the clipped "inspector body", which scrolls (see Input
@@ -334,7 +314,7 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   `interact` sets, so a disabled widget never passes on its neighbour's); it fires once (or on a right press and
   release on that widget), wins the arena (`press_won`) and the release is no click. Unclaimed, a widget with a
   tooltip shows it at frame end (`.Tip`, also no click); with neither, nothing fires and the release clicks. A widget
-  that moves a value while held calls `long_cancel`; one that takes the press for a drag of its own (the brush bar's
+  that moves a value while held calls `long_cancel`; one that takes the press for a drag of its own (the island's
   values) calls `press_used`: no long press, no click, the arena won. `vslider(reset = v)` resets on a long press.
   `list_row.menu` is `secondary`. `tree_row` lays out its trailing toggles and chevron before its body, so a press on
   them never selects the row or opens its menu.
@@ -362,7 +342,7 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
 - Left-handed layout: `ctx.mirror` (Settings > Interface > Screen layout, `left_handed`) swaps every default x anchor
   (`ui.mirrored`: Start and End, a Center offset negated) in `begin_anchored`, `window_begin` and `card_begin`, and
   popovers' `.Left`/`.Right`; a moved window keeps its own anchor and `kit_mirror` flips it once when the hand changes.
-  So write offsets as "from the brush bar's side" (`kit_left`) or "from the view bar's side" (`kit_right`) and anchor
+  So write offsets as "from the island's side" (`kit_left`) or "from the view rail's side" (`kit_right`) and anchor
   with them; anything measured from a real rect's `x` must mirror itself (`kit_card_place`, the wheel's drag sign).
 - Ids hash the label into the parent container's id; text after `##` is part of the id but not shown. Two widgets with
   one label in one container are one widget: give repeated rows `##index` suffixes.
@@ -390,7 +370,7 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   closes it (swallowed if on the viewport); the first frame is measured invisibly. Selects draw their list in
   `frame_end`, over everything; a list taller than the room above or below its field is cut to the window and
   scrolls (`select_list_draw`). Popovers themselves only clamp to the window: one whose content can grow puts it in
-  a `kit_scroll_begin` body sized to the room left (the brush grid, `dock.odin`). `tip(ctx, id, rect, text, keys)` gives a tooltip; `toast(ctx, message, kind, action)` a note, with an optional action button (`toast_take_action`, `toast_drop_action`).
+  a `kit_scroll_begin` body sized to the room left (the brush picker, `kit_brushes.odin`). `tip(ctx, id, rect, text, keys)` gives a tooltip; `toast(ctx, message, kind, action)` a note, with an optional action button (`toast_take_action`, `toast_drop_action`).
 - Layers (`ui.odin:666`): `layer_mark` keeps a place in the draw order; what is drawn between `layer_begin` and
   `layer_end` goes there, under everything drawn after the mark. Draw in it with the whole window as the clip.
 - Text fields: `typing(ctx)` is true while one has the keys; the app then calls `sdl.StartTextInput` (a tablet's
@@ -418,7 +398,7 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
 | a control that drags sideways inside a scrolling panel | act only `if held && claim_drag(ctx, 0)` (a tap may still act on `clicked`), so a vertical finger drag scrolls instead |
 | a new scrolling panel | in the app, `kit_scroll_begin(ctx, name, &scroll, window_id, width, height, gap)` before the body and `kit_scroll_end(ctx, s)` after (`new_ui.odin`: wheel, drag, easing and the bar, as the inspector, Settings and Help scroll); in the kit itself, `scroll_update(ctx, id, prev_rect(ctx, name), &scroll, limit)` before, `begin` with `clip`, `scroll` and `drag_scroll = true`, `scroll_take(ctx, id, scroll, limit, root)` after, the drag followed with tween duration 0 |
 | a new floating panel | a `Kit_Window` value, a place in `KIT_WINDOW_ORDER`, its proc returning `raised` from `ui.window_begin` (default anchors as `begin_anchored`'s) with its body only while `body`, `ui.window_end`, a case in `kit_layout`'s loop and in the exit stats' `window_*` names; scroll its body as above, sized by `window_room`; one that opens on the right in the inspector's place joins `side_panel_open`/`side_panel_close` (Settings and Help) |
-| a follow-up action for something active on the object | a group or a row in `ACTION_GROUPS` (`kit_action_bar.odin`) and its state in `action_groups_now`; derived facts that cost a scan (like `object_has_mask`) are cached on `history.serial`, never computed every frame; anything at the bottom middle keeps clear of `dock_stack`, the dock plus the bar |
+| a follow-up action for something active on the object | a group or a row in `ACTION_GROUPS` (`kit_action_bar.odin`) and its state in `action_groups_now`; derived facts that cost a scan (like `object_has_mask`) are cached on `history.serial`, never computed every frame; anything at the bottom middle keeps clear of `dock_stack`, the shelf plus the action bar |
 | a long press (secondary action) on a control | `if ui.secondary(ctx) do ...` right after the widget (a value slider: `vslider(reset = v)`); add a row to README "Touch and pen" and a `long_press(s, x, y)` scenario; a control without one shows its tooltip |
 | a touch gesture | measure in `touch_route` (Viewport owner only, every finger still down: `f.count == f.most`; the one exception is `touch_lift_orbit`, the finger left of two, which runs first and keeps the touch once armed), write a `Viewport_Input` field, apply it in `camera_apply_input` (it runs with no pointer down) or the tool; a switch in Settings > Touch; a scenario in `scripts/touch_check.py`; a line in `TOUCH_HELP` (`kit_help.odin`) so Help > Gestures lists it (`help_touch_rows_hold_every_gesture` fails a `command_gesture` missing there) |
 | a command in a user pie, or starred | nothing to add: any command `pie_lists` allows can go in a pie (`user_pies.odin`) from the palette's Put in a pie, and any palette row can be starred; one that acts where the pointer is belongs out of `pie_lists` too, since the pie sits over that spot |
@@ -455,7 +435,6 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
 | the same widget twice in one container | ids come from labels: give each a `##` suffix (`"Clay##slot 3"`); the text after `##` is not shown |
 | a shortcut's text or the keys a command has | `command_keys(app, …)` / `command_chords(app, …)` / `keymap(app)` (keymap.odin), never DEFAULT_BINDINGS: the user's `key` overrides change them (Ctrl+Alt+click → Assign key, kit_bind.odin) |
 | a control that runs a command | through `command_run` during the layout: a Ctrl+Alt click there opens Assign key instead (`bind_click`, `ui.Context.clicked_rect`); an action that is no command (presets) is not bindable |
-| a dock slot | `dock.odin`: `Kit_State.dock` slots (three pages of `DOCK_PAGE`; a brush or a preset from 1), `kit_brush_grid` for every brush and preset, `dock_preset_deleted` when presets shift; the slot menu is `k.dock_menu` |
 | the brush browser | `kit_brushes.odin`: ZBrush's Brushes palette over `k.browser`; everything it lists is a `Brush_Item` (brush or preset slot, tool, mask shape, gesture) with a `brush_item_key` that Recent and Favorites keep; a new kind of item needs its name, icon, key, category, pick and settings there |
 
 ## Verify

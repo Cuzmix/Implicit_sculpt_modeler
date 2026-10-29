@@ -238,9 +238,8 @@ pack_preset_find :: proc(app: ^App, id, name: string) -> int {
 }
 
 // After a pack's presets were marked gone (removed, or replaced by a newer copy): the
-// brush and every dock slot on one move to the preset of the same pack and name now, or,
-// when there is none, the brush goes back to its plain self and the slot to its brush.
-// Returns how many of the two fell back.
+// brush on one moves to the preset of the same pack and name now, or, when there is none,
+// goes back to its plain self. Returns 1 when it fell back, else 0.
 pack_presets_retarget :: proc(app: ^App) -> (fell: int) {
 	retarget :: proc(app: ^App, n: ^int) -> bool {
 		if !preset_of_pack(n^) do return false
@@ -258,12 +257,6 @@ pack_presets_retarget :: proc(app: ^App) -> (fell: int) {
 	if retarget(app, &app.brush.preset) {
 		preset_leave(app)
 		fell += 1
-	}
-	for &s in app.kit.dock {
-		if retarget(app, &s.preset) {
-			s.preset = 0
-			fell += 1
-		}
 	}
 	return
 }

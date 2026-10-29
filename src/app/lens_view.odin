@@ -14,13 +14,11 @@ ICON_CLEAN_VIEW :: rune(0xe539)
 CLEAN_HINT_TIME :: 2.5
 CLEAN_HINT_FADE :: 0.5
 
-// Each frame before the layout: the keys follow the layout (Tab is Clean view in Lens),
-// the shift goes wherever it has no room to mean anything, and Lens draws the model in the
-// free area once the controls have been laid out at the start.
+// Each frame before the layout: the shift goes wherever it has no room to mean anything,
+// and the model is drawn in the free area once the controls have been laid out at the start.
 lens_view_frame :: proc(app: ^App) {
 	k := &app.kit
-	if (k.chrome == .Lens) != app.keymap_lens do keymap_rebuild(app)
-	if k.chrome != .Lens || grid_panes(&k.grid) != 1 {
+	if grid_panes(&k.grid) != 1 {
 		app.camera.shift = {}
 		return
 	}
@@ -40,8 +38,12 @@ lens_free_area :: proc(app: ^App) -> ui.Rect {
 	k := &app.kit
 	ctx := &k.ctx
 	area := ui.safe_area(ctx)
+	// Above the shelf, not the action bar over it: that comes and goes with what is
+	// active (an Adjust after a remesh), and the view is placed by this once, at the start.
+	below: f32 = 0
+	if dock, _ := ui.prev_layout(ctx, "dock"); dock.y > 0 do below = dock.y + dock_lift(app)
 	lo := [2]f32{area.x, area.y + TOP_BAR_H}
-	hi := [2]f32{area.x + area.w, area.y + area.h - dock_stack(app)}
+	hi := [2]f32{area.x + area.w, area.y + area.h - below}
 	mid := area.x + area.w * 0.5
 	side :: proc(r: ui.Rect, mid: f32, lo, hi: ^[2]f32) {
 		if r.w <= 0 do return
@@ -56,13 +58,13 @@ lens_free_area :: proc(app: ^App) -> ui.Rect {
 	return {lo.x, lo.y, hi.x - lo.x, hi.y - lo.y}
 }
 
-// In Lens with one view, draws the camera's target in the middle of the free area (the
+// With one view, draws the camera's target in the middle of the free area (the
 // camera's shift), and with `fit` moves it back so what Frame framed fits the free area's
 // shorter side rather than the window's. Anywhere else the shift goes.
 view_fit_free :: proc(app: ^App, fit: bool) {
 	k := &app.kit
 	app.camera.shift = {}
-	if k.chrome != .Lens || grid_panes(&k.grid) != 1 do return
+	if grid_panes(&k.grid) != 1 do return
 	win := k.ctx.input.window
 	if win.x <= 0 || win.y <= 0 do return
 	free := lens_free_area(app)

@@ -90,46 +90,28 @@ Kit_State :: struct {
 	bar_at:     [Bar_Pop_Kind]ui.Rect,
 	bar_side:   [Bar_Pop_Kind]ui.Side,
 	bar_pop:    Bar_Pop, // the side bars' popover (kit_bars.odin)
-	bar_scrub:  Bar_Scrub, // a long press dragging a value on the brush bar (kit_bars.odin)
 	look:       Look, // the interface's colours (Settings > Interface)
-	chrome:     Chrome, // how it is laid out (Settings > Interface > Layout)
-	browser:    bool, // every brush and preset, in a popover over the dock or beside the brush bar
-	browser_at: Browser_At, // ...which of the two opened it
-	// The dock's slots (dock.odin), and the popover a long press on one opens: open, on
-	// which slot, over its tile; the brush grid's scroll, in it or in the browser.
-	dock:       [DOCK_SLOTS]Dock_Slot,
-	dock_count: int, // ...of which this many are in use
-	dock_slide: f32, // how far the page just turned still slides in, points (eases to 0)
-	dock_wheel: f32, // the mouse wheel over the dock, until it adds up to a page
-	// The right bar's shortcut column and the bottom bar's tool strip (bars.odin), and
-	// Arrange (once Customise bars): on, and the slot popover a tap on a slot opens while it is.
-	shortcuts:  Bar_List,
+	browser:    bool, // every brush and preset: the picker over the shelf, or the browser under the menu
+	browser_at: Browser_At, // ...which of the two
+	// The shelf's tool strip (bars.odin), and Arrange (once Customise bars): on, and the
+	// slot popover a tap on a slot opens while it is.
 	tools:      Bar_List,
-	view_rail:  Bar_List, // the Lens layout's (lens_chrome.odin)
-	shelf:      Shelf, // the Lens layout's (lens_shelf.odin)
-	brush_pie:  Bar_List, // the Lens layout's brush pie's eight slots (pie.odin)
+	view_rail:  Bar_List, // the view rail's (lens_chrome.odin)
+	shelf:      Shelf, // the shelf along the bottom (lens_shelf.odin)
+	brush_pie:  Bar_List, // the brush pie's eight slots (pie.odin)
 	pie_quicks: int, // quick settings opened by resting on the brush pie, for the exit stats
-	stack:      Lens_Stack, // the Lens layout's tray (lens_stack.odin)
+	stack:      Lens_Stack, // the tray, as a stack of cards (lens_stack.odin)
 	new_panes:  New_Panes, // what a pane a view layout adds starts as (lens_panes.odin)
-	pane_menu:  Pane_Menu, // a view pane's camera or pass list in Lens
+	pane_menu:  Pane_Menu, // a view pane's camera or pass list
 	in_stack:   bool, // the Brush card's groups are being drawn: sections leave out what it shows above them
-	// The Lens mini view (lens_chrome.odin): its choices shown under the picture, and how
+	// The mini view (lens_chrome.odin): its choices shown under the picture, and how
 	// often a tap on it swapped it with the main view, for the exit stats.
 	mini_rows:  bool,
 	mini_swaps: int,
 	bars_edit:  bool,
-	// Arrange's drawer of panels (arrange.odin): open, and its button.
-	arrange_drawer:    bool,
-	arrange_drawer_at: ui.Rect,
 	arrange:           Arrange_State, // Lens's Arrange: the zone picked, the Library (lens_arrange.odin)
-	shortcut_scroll: f32, // the shortcut column's, on a window too short for all of it
 	bar_slot:   Bar_Slot_Menu,
-	dock_page:  int, // the page the bottom bar shows
-	dock_shown: [2]int, // ...as its first slot and how many (fewer in a narrow window)
-	dock_seen:  Dock_Slot, // the brush last frame, to bring the page holding a new one
-	dock_menu:  bool,
-	dock_slot:  int,
-	dock_at:    ui.Rect,
+	rail_scroll: f32, // the view rail's, on a window too short for all of it
 	grid_scroll: f32,
 	grid_reveal: bool, // the grid scrolls to the lit tile as it opens
 	bind:       Bind_Popover, // Assign key (kit_bind.odin)
@@ -187,9 +169,6 @@ Kit_State :: struct {
 	help_scroll: f32,
 	ui_scale:   f32, // the interface's size, times what the display asks for (Settings > Interface)
 	surface_ring: bool, // the brush ring lies on the surface rather than flat on the screen (cursor.odin)
-	// The view grid's panes run under the docked columns, the panels floating over them,
-	// rather than stopping beside them (Settings > Interface; grid.odin).
-	panes_under:  bool,
 	panes_work:   bool, // a press in a view pane works there (grid_work)
 	panels_faded: int, // panels a stroke passed under (Lens), for the exit stats
 	// Clean view (Lens: Tab or a four-finger tap): every control hidden, the modifier
@@ -198,7 +177,7 @@ Kit_State :: struct {
 	clean_dial:   bool,
 	clean_at:     f64,
 	view_started: bool, // Lens drew the model in the free area at the start (lens_view_frame)
-	// On a window narrower than TRAY_NAV_MIN_W the columns pop over the view only while
+	// On a window narrower than COLUMNS_MIN_W the columns pop over the view only while
 	// asked for, as popovers from the rails do (Settings > Interface; panels.odin).
 	column_popovers: bool,
 	// The proportion guide tag held (guides.odin), 0 for none, never kept; the guide
@@ -908,7 +887,6 @@ kit_init :: proc(app: ^App) {
 	k.add_size = 2 // 1M
 	k.ui_scale = 1
 	k.surface_ring = true
-	k.panes_under = true
 	k.panes_work = true
 	k.column_popovers = true
 	k.clean_dial = true
@@ -928,12 +906,12 @@ kit_init :: proc(app: ^App) {
 // which gives the keys back as it closes: palette_close). The one list, so that a new
 // popover added here closes whenever another opens and on Escape.
 kit_floats_close :: proc(k: ^Kit_State) {
-	k.menu, k.versions, k.browser, k.dock_menu, k.object_menu, k.action_pop = false, false, false, false, false, false
+	k.menu, k.versions, k.browser, k.object_menu, k.action_pop = false, false, false, false, false
 	k.bar_pop.open, k.bar_slot.open = false, false
 	k.bind.open, k.pie_editor, k.adjust_pop, k.gizmo_entry.open = false, false, false, false
 	k.folder_menu, k.rename.open, k.macro_save.open, k.home_menu = false, false, false, false
 	k.colors.palette_menu, k.colors.swatch_menu, k.colors.pop = false, false, false
-	k.panels.menu, k.workspaces.menu, k.arrange_drawer, k.passes.menu = false, false, false, false
+	k.panels.menu, k.workspaces.menu, k.passes.menu = false, false, false
 	k.shelf.quick, k.stack.menu, k.export.open = false, false, false
 	k.stack.tab_open, k.pane_menu.open, k.grid.areas.menu.open = false, false, false
 	k.ctx.select_open = 0
@@ -944,7 +922,7 @@ kit_floats_close :: proc(k: ^Kit_State) {
 // first-run tip hides under it.
 kit_floating :: proc(app: ^App) -> bool {
 	k := &app.kit
-	return app.ui.pie.open || app.ui.adjust.kind != .None || k.action_pop || k.adjust_pop || k.menu || k.versions || k.browser || k.dock_menu || k.bind.open || k.pie_editor || k.object_menu || k.folder_menu || k.rename.open || k.macro_save.open || k.palette || k.gizmo_entry.open || k.bar_pop.open || k.bar_slot.open || k.colors.palette_menu || k.colors.swatch_menu || k.colors.pop || k.home_menu || k.panels.menu || k.workspaces.menu || k.arrange_drawer || k.passes.menu || k.shelf.quick || k.stack.menu || k.stack.tab_open || k.pane_menu.open || k.grid.areas.menu.open || k.export.open || k.ctx.select_open != 0
+	return app.ui.pie.open || app.ui.adjust.kind != .None || k.action_pop || k.adjust_pop || k.menu || k.versions || k.browser || k.bind.open || k.pie_editor || k.object_menu || k.folder_menu || k.rename.open || k.macro_save.open || k.palette || k.gizmo_entry.open || k.bar_pop.open || k.bar_slot.open || k.colors.palette_menu || k.colors.swatch_menu || k.colors.pop || k.home_menu || k.panels.menu || k.workspaces.menu || k.passes.menu || k.shelf.quick || k.stack.menu || k.stack.tab_open || k.pane_menu.open || k.grid.areas.menu.open || k.export.open || k.ctx.select_open != 0
 }
 
 kit_destroy :: proc(app: ^App) {
@@ -1280,44 +1258,33 @@ kit_layout :: proc(app: ^App) {
 	// First, so that every panel and popover laid out after it is above it.
 	kit_shape_bar(app)
 
-	// Round the edges: the top bar, the object's readout under it, the brush bar at the
-	// left, and the navigation head and the view bars under it at the right (kit_bars.odin,
-	// nav_head.odin).
+	// Round the edges: the top bar (kit_top_lens.odin), then what stands round the view.
 	// A bar the workspace hides is not laid out (workspaces.odin): what opened from it opens
 	// from the top bar, which takes Undo, Redo, Search and the tray's button in its place.
 	workspaces_frame(k)
 	menu_anchor, search_anchor := kit_top_bar(app)
-	// Lens has its own chrome round the view in the bars' places (lens_chrome.odin): the
-	// view chips for the readout, the off-hand island for the brush bar, the view rail for
-	// the view bars. Its brushes open from the dock's All, and Search from the top bar.
-	lens := k.chrome == .Lens
+	// Round the view (lens_chrome.odin): the view chips at the top corner, the off-hand
+	// island down the off-hand side, the navigation head and the view rail down the pen
+	// side. The brushes open from the shelf's All, and Search from the top bar.
 	// Focused (kit_top_lens.odin), the view's own chips stand aside, but the off-hand island
 	// stays: Size and Strength are what the other hand reaches for while sculpting.
 	focus := lens_focus(k)
-	if lens && !focus do kit_view_chips(app)
-	else if !lens do kit_points(app)
-	browser_anchor := menu_anchor
-	if lens && (focus || !zone_hidden(k, .Brush_Bar)) do kit_offhand(app)
-	else if zone_hidden(k, .Brush_Bar) do k.bar_scrub = {}
-	else do browser_anchor = kit_brush_bar(app)
-	if lens && !zone_hidden(k, .Dock) && k.browser_at == .Bar do k.browser_at = .Dock
+	if !focus do kit_view_chips(app)
+	if focus || !zone_hidden(k, .Brush_Bar) do kit_offhand(app)
+	if !zone_hidden(k, .Dock) && k.browser_at == .Bar do k.browser_at = .Dock
 	kit_nav_head(app)
-	palette_anchor := search_anchor
 	if !zone_hidden(k, .View_Bar) {
-		if lens do kit_view_rail(app)
-		else do palette_anchor = kit_view_bar(app)
+		kit_view_rail(app)
 	} else {
 		for kind in ([]Bar_Pop_Kind{.Shading, .Camera}) do k.bar_at[kind], k.bar_side[kind] = search_anchor, .Below
 	}
 
-	// Bottom middle: a page of the brush dock, then the mesh tools (kit_bars.odin); in Lens
-	// the shelf and its pages (lens_shelf.odin).
+	// Bottom middle: the shelf and its pages (lens_shelf.odin).
 	dock_anchor := menu_anchor
 	if !zone_hidden(k, .Dock) {
-		dock_anchor = kit_shelf(app) if lens else kit_bottom_bar(app)
+		dock_anchor = kit_shelf(app)
 	} else {
 		k.shelf.carry = nil
-		k.dock_shown, k.dock_menu = {}, false
 		if k.browser_at == .Dock do k.browser_at = .Bar
 	}
 	// Over the dock, the next steps for what is active (kit_action_bar.odin); notes rise
@@ -1362,29 +1329,24 @@ kit_layout :: proc(app: ^App) {
 	kit_modifier_rail(app)
 
 	// What floats over the panels comes last, so it is drawn and hit tested on top.
-	if lens && k.browser_at == .Dock do kit_brush_sheet(app, dock_anchor)
-	else if k.browser_at == .Dock do kit_brush_browser(app, dock_anchor, .Above_Center)
-	else do kit_brush_browser(app, browser_anchor, .Right)
+	if k.browser_at == .Dock do kit_brush_sheet(app, dock_anchor)
+	else do kit_brush_browser(app, menu_anchor, .Right)
 	kit_shelf_quick(app)
 	kit_arrange_ghosts(app)
-	kit_arrange_head(app)
 	kit_arrange_lens(app)
 	kit_bar_popover(app)
-	kit_bar_scrub(app)
 	// After the bar's popover, as a colour field in its section opens this one over it.
 	kit_color_popover(app)
-	kit_dock_menu(app)
 	kit_bar_slot_menu(app)
-	kit_menu(app, menu_anchor)
+	kit_menu_lens(app, menu_anchor)
 	kit_workspace_menu(app)
-	kit_arrange_drawer(app)
 	kit_pass_menu(app)
 	kit_versions(app, menu_anchor)
 	kit_object_menu(app)
 	kit_objects_card_menus(app)
 	kit_folder_menu(app)
 	kit_rename(app)
-	kit_palette(app, palette_anchor, .Left)
+	kit_palette(app, search_anchor)
 	kit_action_popover(app)
 	kit_gizmo_entry(app)
 	kit_adjust_popover(app)
@@ -1423,19 +1385,16 @@ panel_draw :: proc(app: ^App, which: Panel_Ref) -> (raised: bool) {
 		case .Library:   return kit_library(app)
 		case .Objects:   return kit_objects_card(app)
 		case .Colors:    return kit_colors_card(app)
-		case .Thumbnail: return kit_thumbnail(app)
+		case .Thumbnail: return kit_mini_view(app)
 		}
 	}
 	return false
 }
 
-// The palette tray (kit_tray.odin): the tool's, the object's or the scene's palette, a
-// section at a time, sliding in from the right, in a window (Tab or Close hides it, the
-// Palettes button brings it back). On a wide window the list of palettes and their
-// sections runs down its left; on a narrow one a select over the content holds it. When
-// the content is taller than the room under the title bar it scrolls, with the wheel or
-// by dragging it (a finger or a pen has no wheel): from where no control is, at once, and
-// from a control once the drag goes up or down rather than sideways (ui.scroll_update).
+// The palette tray, laid out as the panel stack (lens_stack.odin): its cards down the pen
+// side under the top bar, sliding in from the right (Tab or Close hides it, the Palettes
+// button brings it back). Floating, it scrolls when its cards are taller than the room
+// under the title bar, with the wheel or by dragging it (a finger or a pen has no wheel).
 // Returns true when a press landed on it, to bring it to the front.
 @(private = "file")
 kit_inspector :: proc(app: ^App) -> (raised: bool) {
@@ -1448,92 +1407,35 @@ kit_inspector :: proc(app: ^App) -> (raised: bool) {
 	win := &k.windows[.Inspector]
 	top := kit_top()
 	right := kit_right(app)
-	width := tray_width(app)
 	PADDING :: 12
-	GAP :: 6
-	inner := f32(KIT_INSPECTOR_W - 2 * PADDING)
-	wide := tray_wide(app)
 
 	mark := ui.vertex_mark(ctx)
-	if k.chrome == .Lens {
-		// Lens draws the tray as the stack of cards (lens_stack.odin): bare in its column,
-		// each card its own surface; floating, one window round them all.
-		strip := stack_strip_shown(app)
-		stack_w := STACK_STRIP_W if strip else stack_width(k)
-		box := ui.Box{direction = .Column, gap = COLUMN_GAP, width = stack_w, inert = !k.inspector || side_panel_open(k)}
-		if _, _, docked := panel_docked(k, Kit_Window.Inspector); !docked do box.padding, box.radius, box.background = PADDING, t.radius_large, .Panel
-		p := panel_begin(app, Kit_Window.Inspector, "Panels", .End, .Start, {right, top}, box, command_keys(app, .Inspector), bare = true)
-		raised = p.raised
-		if p.closed do k.inspector = false
-		if p.body {
-			s: Kit_Scroll
-			if !p.docked do s = kit_scroll_begin(ctx, "stack body", &k.scroll, p.owner, stack_w - 2 * PADDING, max(p.room, PANEL_BODY_MIN), COLUMN_GAP)
-			if strip do kit_stack_strip(app)
-			else do kit_stack(app, stack_w - 2 * box.padding, p.owner)
-			if !p.docked do kit_scroll_end(ctx, s)
-		}
-		panel_end(app, &p)
-		if k.inspector && !side_panel_open(k) && p.body && !strip do stack_edge(app, ui.prev_rect(ctx, panel_name(Kit_Window.Inspector)))
-		ui.transform_since(ctx, mark, shown, 1, {}, {window_slide(ctx, win^, .End) * (1 - shown) * 16, 0})
-		return
-	}
-	p := panel_begin(app, Kit_Window.Inspector, palette_title(app, k.tab), .End, .Start, {right, top}, {direction = .Column, gap = GAP, padding = PADDING, width = width, radius = t.radius_large, background = .Panel, inert = !k.inspector || side_panel_open(k)}, command_keys(app, .Inspector))
+	// The tray is the stack of cards (lens_stack.odin): bare in its column, each card its
+	// own surface; floating, one window round them all.
+	strip := stack_strip_shown(app)
+	stack_w := STACK_STRIP_W if strip else stack_width(k)
+	box := ui.Box{direction = .Column, gap = COLUMN_GAP, width = stack_w, inert = !k.inspector || side_panel_open(k)}
+	if _, _, docked := panel_docked(k, Kit_Window.Inspector); !docked do box.padding, box.radius, box.background = PADDING, t.radius_large, .Panel
+	p := panel_begin(app, Kit_Window.Inspector, "Panels", .End, .Start, {right, top}, box, command_keys(app, .Inspector), bare = true)
 	raised = p.raised
 	if p.closed do k.inspector = false
 	if p.body {
-		room := p.room
-		if !win.moved && !p.docked {
-			// Where it starts, clear of what sits below it: the modifier wheel when it is on
-			// the right, and the dock when the window is narrow enough for them to meet.
-			area := ui.safe_area(ctx)
-			dock_size, _ := ui.prev_layout(ctx, "dock")
-			below: f32 = 0
-			stack_h := dock_stack(app)
-			if area.w * 0.5 + dock_size.x * 0.5 + 8 > area.w - right - width do below = max(below, stack_h + 8)
-			if reach := rail_reach(app, .Right); reach > 0 do below = max(below, reach - t.edge + 8)
-			if reach := lens_mini_reach(app); reach > 0 do below = max(below, reach - t.edge + 8)
-			room -= below
-		}
-		// The list and the section scroll apart under the title bar, in the room left.
-		body_h := max(room, 120)
-		list: f32 = 0
-		if wide {
-			ui.begin(ctx, "tray", {direction = .Row, gap = TRAY_NAV_GAP})
-			list = kit_tray_list(app, body_h, p.owner)
-		}
-		scroll := kit_scroll_begin(ctx, "inspector body", &k.scroll, p.owner, inner, body_h, GAP)
-		k.inspector_body, k.inspector_limit, k.inspector_shown = scroll.at, scroll.limit, scroll.shown
-		if !wide do kit_tray_select(app)
-		// A new section's content fades in: each change starts a tween of its own from 0.
-		content := ui.vertex_mark(ctx)
-		k.in_tray = true
-		switch k.tab {
-		case .Tool:   kit_tool_tab(app)
-		case .Object: kit_object_tab(app)
-		case .Scene:  kit_scene_tab(app)
-		}
-		k.in_tray = false
-		fade := ui.tween_from(ctx, ui.salt(panel_id(Kit_Window.Inspector), 1000 + k.tab_serial), 0, 1, t.indicator_time)
-		ui.transform_since(ctx, content, fade)
-		tray_mark_draw(app)
-		kit_scroll_end(ctx, scroll)
-		if wide do ui.end(ctx)
-		// Docked, it asks its column for all its list or its section holds.
-		p.want = max(scroll.natural, list)
+		s: Kit_Scroll
+		if !p.docked do s = kit_scroll_begin(ctx, "stack body", &k.scroll, p.owner, stack_w - 2 * PADDING, max(p.room, PANEL_BODY_MIN), COLUMN_GAP)
+		if strip do kit_stack_strip(app)
+		else do kit_stack(app, stack_w - 2 * box.padding, p.owner)
+		if !p.docked do kit_scroll_end(ctx, s)
 	}
 	panel_end(app, &p)
+	if k.inspector && !side_panel_open(k) && p.body && !strip do stack_edge(app, ui.prev_rect(ctx, panel_name(Kit_Window.Inspector)))
 	ui.transform_since(ctx, mark, shown, 1, {}, {window_slide(ctx, win^, .End) * (1 - shown) * 16, 0})
 	return
 }
 
-// Whether the tray has room for its list beside the content.
-tray_wide :: proc(app: ^App) -> bool {
-	return ui.safe_area(&app.kit.ctx).w >= TRAY_NAV_MIN_W
-}
-
-// The tray's width: the content's, and the list's beside it when there is room.
+// The tray's width, as the stack it shows is sized (lens_resize.odin), for what keeps
+// clear of it.
 tray_width :: proc(app: ^App) -> f32 {
-	return KIT_INSPECTOR_W + (TRAY_NAV_W + TRAY_NAV_GAP if tray_wide(app) else 0)
+	return stack_width(&app.kit)
 }
 
 // SPHERE_PRESETS' labels as strings, for selects.
@@ -1543,56 +1445,14 @@ kit_size_names :: proc() -> []string {
 	return names
 }
 
-// The menu under the menu button: files, and the app's own settings.
-@(private = "file")
-kit_menu :: proc(app: ^App, anchor: ui.Rect) {
-	if app.kit.chrome == .Lens {
-		kit_menu_lens(app, anchor)
-		return
-	}
-	k := &app.kit
-	ctx := &k.ctx
-	owner := ui.id_of(ctx, "menu")
-	if !ui.popover_begin(ctx, "menu", &k.menu, anchor, .Below, {direction = .Column, padding = 6, width = 268}) do return
-	// On a short window (a phone or a tablet held sideways) the menu scrolls rather than
-	// running off the bottom: it holds every file action, the starters and the app's own.
-	area := ui.safe_area(ctx)
-	room := max(area.y + area.h - (anchor.y + anchor.h + 6) - 4 - 2 * 6, 4 * ctx.theme.target)
-	// When it scrolls, its bar takes a strip inside the right edge.
-	_, natural := ui.prev_layout(ctx, "menu body")
-	body_w := 268 - 2 * 6 - (f32(10) if natural.y > room else 0)
-	scroll := kit_scroll_begin(ctx, "menu body", &k.menu_scroll, owner, body_w, room, 0)
-	pick := false
-	// The Lens top bar holds no Home or file buttons, so the menu heads with Home.
-	if k.chrome == .Lens && command_menu_item(app, .Home) do pick = true
-	ui.caption(ctx, "  FILE")
-	for id in ([?]Command_Id{.Open_Scene, .Save_Scene, .Save_Scene_As, .Save_Scene_Copy, .Scene_Versions, .Open_Last_Autosave, .Import_Mesh, .Export_Mesh, .Screenshot}) {
-		if command_menu_item(app, id) do pick = true
-	}
-	ui.divider(ctx, across = true)
-	ui.caption(ctx, "  NEW SCENE")
-	if menu_new_scenes(app, body_w) do pick = true
-	ui.divider(ctx, across = true)
-	ui.caption(ctx, "  APP")
-	_ = command_menu_item(app, .Reduce_Motion)
-	if command_menu_item(app, .Settings) do pick = true
-	_ = command_menu_item(app, .Stats)
-	if command_menu_item(app, .Help, int(Help_Tab.Keys), "Help...") do pick = true
-	if command_menu_item(app, .Macros) do pick = true
-	if command_menu_item(app, .Library) do pick = true
-	kit_scroll_end(ctx, scroll)
-	ui.popover_end(ctx)
-	if pick do k.menu = false
-}
-
-// The new scene starts three to a row, each its name (Classic's six, Lens's all), then
-// each content pack's meshes under its name: Classic's menu and Lens's New submenu. One armed by a first tap
-// (the scene has work to lose) turns red and asks, and the menu stays open for the second
-// tap. Returns whether a scene was started.
+// The new scene starts three to a row, each its name, then each content pack's meshes
+// under its name: the menu's New submenu. One armed by a first tap (the scene has work to
+// lose) turns red and asks, and the menu stays open for the second tap. Returns whether a
+// scene was started.
 menu_new_scenes :: proc(app: ^App, body_w: f32) -> (pick: bool) {
 	ctx := &app.kit.ctx
 	w := (body_w - 2 * 6) / 3
-	starts := len(NEW_SCENES) if app.kit.chrome == .Lens else CLASSIC_NEW_SCENES
+	starts := len(NEW_SCENES)
 	for row in 0 ..< (starts + 2) / 3 {
 		ui.begin(ctx, fmt.tprintf("new scene row %d", row), {direction = .Row, gap = 6})
 		for i in row * 3 ..< min(row * 3 + 3, starts) {
@@ -1679,11 +1539,6 @@ kit_field_of_view :: proc(app: ^App) {
 	degrees := math.to_degrees(app.camera.fov_y)
 	lo, hi := math.to_degrees(camera.FOV_MIN), math.to_degrees(camera.FOV_MAX)
 	if ui.slider(ctx, "Field of view", &degrees, lo, hi, .Linear, fmt.tprintf("%.0f°", degrees)) do camera.orbit_set_fov(&app.camera, math.to_radians(math.round(degrees)))
-}
-
-// A size or strength slider's tooltip: its keys, and the three-finger drag when that is on.
-slider_hint :: proc(app: ^App, keys: string, step: Command_Id) -> string {
-	return hint_join(keys, command_gesture(app, step))
 }
 
 // Picks brush `kind` and shows its settings: the tray, on the tool's palette, from the top.

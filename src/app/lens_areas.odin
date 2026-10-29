@@ -265,7 +265,7 @@ grid_pane_copy :: proc(app: ^App, pane: int) -> Second_View {
 	g := &app.kit.grid
 	if pane > 0 {
 		v := g.views[pane - 1]
-		v.max, v.dragging, v.turns, v.linked = false, false, 0, 0
+		v.dragging, v.turns, v.linked = false, 0, 0
 		return v
 	}
 	v := Second_View{camera = .Follow, pass = .Shaded}
@@ -284,7 +284,7 @@ grid_pane_name :: proc(g: ^View_Grid, pane: int) -> string {
 	return SECOND_CAMERA_NAMES[g.views[pane - 1].camera]
 }
 
-// Whether the corner handles take presses: in Lens, nothing maximised, no stroke going on
+// Whether the corner handles take presses: nothing maximised, no stroke going on
 // or just over, nothing floating whose closing press it is, and the chrome shown.
 @(private = "file")
 grid_corners_on :: proc(app: ^App) -> bool {
@@ -292,7 +292,7 @@ grid_corners_on :: proc(app: ^App) -> bool {
 	ctx := &k.ctx
 	g := &k.grid
 	if app.stroke.active do g.areas.stroke_end = ctx.time
-	if k.chrome != .Lens || g.maximised != 0 || k.clean || k.home do return false
+	if g.maximised != 0 || k.clean || k.home do return false
 	if g.areas.stroke_end > 0 && ctx.time - g.areas.stroke_end < GRID_CORNER_REST do return false
 	return !kit_floating(app) && ctx.popup_open_prev == 0 && g.areas.chip.pane == 0
 }
@@ -443,7 +443,6 @@ lens_areas_overlay :: proc(app: ^App, cells: [GRID_PANES]ui.Rect, n: int) {
 	t := ctx.theme
 	g := &k.grid
 	cd := &g.areas.corner
-	if k.chrome != .Lens do return
 	ui.begin_at(ctx, "pane gestures", {0, 0}, {width = 0, height = 0})
 	defer ui.end(ctx)
 	if cd.live && cd.mode != .Undecided {
@@ -579,7 +578,7 @@ kit_divider_menu :: proc(app: ^App) {
 	ctx := &k.ctx
 	g := &k.grid
 	m := &g.areas.menu
-	if m.open && (m.serial != g.serial || k.chrome != .Lens || m.node >= g.tree.count || !g.tree.nodes[m.node].split) do m.open = false
+	if m.open && (m.serial != g.serial || m.node >= g.tree.count || !g.tree.nodes[m.node].split) do m.open = false
 	if !ui.popover_begin(ctx, "divider menu", &m.open, m.at, .Below, {direction = .Column, padding = 6, width = 240}) do return
 	defer ui.popover_end(ctx)
 	node := g.tree.nodes[m.node]

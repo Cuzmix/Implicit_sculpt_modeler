@@ -5,11 +5,11 @@ import "core:strings"
 
 import "../ui"
 
-// Arrange in Lens (round 2 of the mockups, screen custom2): the top bar's workspace pill
+// Arrange's own controls (round 2 of the mockups, screen custom2): the top bar's workspace pill
 // gives way to what arranging needs (Reset zone, Reset workspace, Save as new, Done);
 // every zone of the layout shows its outline and a name tag, a tap on which picks it for
 // Reset zone; and the Library, a sheet over the view, holds the panels' places and the
-// bars' Show chips (Classic's head card and drawer) and the dial's sectors. The ringed
+// bars' Show chips and the dial's sectors. The ringed
 // buttons and + tiles of Customise bars still change what each bar holds.
 
 // The zones Arrange names, as their tags call them.
@@ -156,11 +156,11 @@ arrange_top_width :: proc(app: ^App) -> f32 {
 	return w
 }
 
-// While arranging in Lens: each zone's outline and name tag, then the Library. Leaving
+// While arranging: each zone's outline and name tag, then the Library. Leaving
 // Arrange forgets the zone picked and brings the Library back for the next time.
 kit_arrange_lens :: proc(app: ^App) {
 	k := &app.kit
-	if !k.bars_edit || k.chrome != .Lens {
+	if !k.bars_edit {
 		k.arrange.picked, k.arrange.library_off = nil, false
 		return
 	}

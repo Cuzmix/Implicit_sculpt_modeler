@@ -116,12 +116,6 @@ brush_strength :: proc(app: ^App) -> ^f32 {return &app.brush.strengths[app.brush
 // The focal shift of the brush in use, which each brush keeps too (Falloff_Setting).
 focal_shift :: proc(app: ^App) -> ^f32 {return &app.brush.falloffs[app.brush.kind].focal}
 
-// The focal shift controls' tooltip: the three-finger drag when that is on, there being
-// no key for it.
-focal_hint :: proc(app: ^App) -> string {
-	return "Three fingers sideways" if app.nav.three_finger else ""
-}
-
 // Takes the pointer away from the tools and the camera for this frame.
 viewport_mute :: proc(input: ^Viewport_Input) {
 	input.primary, input.press, input.smooth, input.invert = false, false, false, false

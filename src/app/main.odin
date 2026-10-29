@@ -45,8 +45,7 @@ Options :: struct {
 	no_cache:  bool `usage:"Draw every object every frame instead of caching the idle ones (for comparison)."`,
 	no_cull:   bool `usage:"Draw every triangle instead of skipping off-screen and back-facing chunks (for comparison)."`,
 	ui_dt:     f32 `usage:"Move the interface's clock (animations, tooltips, long presses) this many seconds a frame instead of by the time that passed, for scripted runs whose checks must not depend on how fast frames come (scripts/touch_check.py passes 1/60). A stroke then lays every dab its frame's samples ask for, up to 64, however long they take. The 90 ms a finger waits before it sculpts and the right tap that opens the pie stay on the real clock."`,
-	ui_events: string `usage:"Drive the pointer, fingers and pen as SDL events would, for tests: FRAME:move:X,Y, FRAME:down, FRAME:up, FRAME:right (a right click), FRAME:mdown, FRAME:mup, FRAME:rdown and FRAME:rup (the middle and right buttons held and let go), FRAME:wheel:N, FRAME:key:NAME (a key press: shift, ctrl, alt held until FRAME:keyup:NAME), FRAME:fdown:ID:X,Y, FRAME:fmove:ID:X,Y, FRAME:fup:ID and FRAME:fcancel:ID (finger ID on a touch screen), FRAME:pdown:X,Y, FRAME:pmove:X,Y, FRAME:pup, FRAME:pnear / FRAME:pfar, FRAME:pright (the pen, the last its side button), FRAME:pedown:X,Y (its eraser end down), FRAME:pbutton:N (barrel button N), FRAME:pdtap and FRAME:psqueeze (an Apple Pencil's double-tap and squeeze, :ACTION naming the iPad's preferred action), FRAME:ponly:1 or :0 (the iPad's Only Draw with Apple Pencil), FRAME:ptilt:X,Y and FRAME:pdist:D (the pen's lean and hover height from then on) FRAME:ppress:P (the pen's pressure from then on, 0 to 1; 0 until set) and FRAME:pcoal:X,Y or FRAME:pcoal:X,Y:P (one of the pen's samples between frames, as a tablet's bridge sends it ahead of the frame's next pmove), separated by semicolons; X and Y in window points. FRAME:winN:... sends an event to view window N (1 to 3) instead, in its points."`,
-	chrome: string `usage:"Lay the interface out as lens (the default) or classic (the earlier layout after ZBrush for iPad), whatever the settings say (Settings > Interface > Layout)."`,
+	ui_events: string `usage:"Drive the pointer, fingers and pen as SDL events would, for tests: FRAME:move:X,Y, FRAME:down, FRAME:up, FRAME:right (a right click), FRAME:mdown, FRAME:mup, FRAME:rdown and FRAME:rup (the middle and right buttons held and let go), FRAME:wheel:N, FRAME:key:NAME (a key press: shift, ctrl, alt held until FRAME:keyup:NAME), FRAME:fdown:ID:X,Y, FRAME:fmove:ID:X,Y, FRAME:fup:ID and FRAME:fcancel:ID (finger ID on a touch screen), FRAME:pdown:X,Y, FRAME:pmove:X,Y, FRAME:pup, FRAME:pnear / FRAME:pfar, FRAME:pright (the pen, the last its side button), FRAME:pedown:X,Y (its eraser end down), FRAME:pbutton:N (barrel button N), FRAME:pdtap and FRAME:psqueeze (an Apple Pencil's double-tap and squeeze, :ACTION naming the iPad's preferred action), FRAME:ponly:1 or :0 (the iPad's Only Draw with Apple Pencil), FRAME:ptilt:X,Y and FRAME:pdist:D (the pen's lean and hover height from then on), FRAME:ppress:P (the pen's pressure from then on, 0 to 1; 0 until set) and FRAME:pcoal:X,Y or FRAME:pcoal:X,Y:P (one of the pen's samples between frames, as a tablet's bridge sends it ahead of the frame's next pmove), separated by semicolons; X and Y in window points. FRAME:winN:... sends an event to view window N (1 to 3) instead, in its points."`,
 	dump_view_window: string `usage:"On exit, write view window 1 as its interface drew it (its picture and head) to this path: a PNG, or a binary PPM when it ends in .ppm."`,
 	view_windows: int `usage:"Open this many view windows (up to 3, desktop only) at the start, each showing what Camera > New view window would."`,
 	dump_screen: string `usage:"On exit, write the whole window as the interface drew it (viewport and panels) to this path: a PNG, or a binary PPM when it ends in .ppm."`,
@@ -141,9 +140,6 @@ App :: struct {
 	key_override_count: int,
 	bindings:           [MAX_BINDINGS]Binding,
 	binding_count:      int,
-	// The bindings were built for the Lens layout, where Tab is Clean view rather than
-	// Palettes (keymap_rebuild).
-	keymap_lens:        bool,
 	stroke_seed: u64, // the seed the next stroke takes (Stroke.seed), one more each stroke
 	// The strength scale the next stroke takes (Stroke.scale) when above 0, as a replay
 	// or a waiting tap sets it; 0 takes it from the pointer.
@@ -644,14 +640,6 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	app.graphics_loaded = app.graphics
 	pencil_init(&app, window)
 	pen_samples_init(&app, window)
-	switch opts.chrome {
-	case "":
-	case "lens":    app.kit.chrome = .Lens
-	case "classic": app.kit.chrome = .Classic
-	case:
-		log.errorf("--chrome wants lens or classic, not %q", opts.chrome)
-		return false
-	}
 	// The benchmarks measure the viewport filling the window, so their numbers stay
 	// comparable whatever grid a workspace keeps.
 	if opts.bench_stroke > 0 || opts.gpubench != "" do app.kit.grid.tree = grid_preset_tree(.Single)
@@ -1327,7 +1315,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	// milliseconds it took to shrink and encode.
 	fmt.printfln("previews=%d preview_size=%dx%d preview_kb=%.1f preview_ms=%.2f", app.preview.taken, app.preview.w, app.preview.h, f64(len(app.preview.png)) / 1024, app.preview.ms)
 	sv := app.kit.second
-	fmt.printfln("thumbnail=%d thumbnail_draws=%d thumbnail_ms=%.2f thumbnail_px=%dx%d thumbnail_flip=%d second_camera=%v second_pass=%v second_max=%d second_turns=%d second_linked=%d", int(app.kit.thumbnail), app.thumbnail.draws, app.thumbnail.ms, app.kit.thumbnail_px.x, app.kit.thumbnail_px.y, int(app.kit.thumbnail_flip), sv.camera, sv.pass, int(sv.max), sv.turns, sv.linked)
+	fmt.printfln("thumbnail=%d thumbnail_draws=%d thumbnail_ms=%.2f thumbnail_px=%dx%d thumbnail_flip=%d second_camera=%v second_pass=%v second_turns=%d second_linked=%d", int(app.kit.thumbnail), app.thumbnail.draws, app.thumbnail.ms, app.kit.thumbnail_px.x, app.kit.thumbnail_px.y, int(app.kit.thumbnail_flip), sv.camera, sv.pass, sv.turns, sv.linked)
 	{
 		g := &app.kit.grid
 		draws, ms, turns, links, linked := 0, 0.0, 0, 0, 0
@@ -1526,8 +1514,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			preset := "none"
 			if p, on := brush_preset(&app); on do preset, _ = strings.replace_all(preset_name(p), " ", "_", context.temp_allocator)
 			fmt.printfln("presets=%d preset=%d preset_name=%s preset_changed=%d", app.preset_count, app.brush.preset, preset, int(preset_changed(&app)))
-			fmt.printfln("dock=%s dock_page=%d dock_pages=%d dock_menu=%d browser=%d", dock_names(&app, app.kit.dock_shown[0], app.kit.dock_shown[1]), app.kit.dock_page, dock_pages(&app), int(app.kit.dock_menu), int(app.kit.browser))
-			fmt.printfln("dock_count=%d shortcuts=%s bar_tools=%s bars_edit=%d bar_slot_menu=%d", len(dock_used(&app)), bar_names(&app, .Shortcuts), bar_names(&app, .Tools), int(app.kit.bars_edit), int(app.kit.bar_slot.open))
+			fmt.printfln("browser=%d bar_tools=%s bars_edit=%d bar_slot_menu=%d", int(app.kit.browser), bar_names(&app, .Tools), int(app.kit.bars_edit), int(app.kit.bar_slot.open))
 			bind := &app.kit.bind
 			fmt.printfln("key_overrides=%d bind_open=%d bind_command=%s bind_state=%s", app.key_override_count, int(bind.open), command_name(bind.id, bind.arg) if bind.id != .None else "none",
 				strings.to_lower(fmt.tprint(bind.state), context.temp_allocator))
@@ -1595,7 +1582,10 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		hover_tip, _ := strings.replace_all(ui.tip_showing(&app.kit.ctx), " ", "_", context.temp_allocator)
 		fmt.printfln("tip_showing=%s", hover_tip if hover_tip != "" else "none")
 		fmt.printfln("long_tip=%s object_menu=%d inspector_tab=%s brush_kind=%s", long_tip if long_tip != "" else "none", int(app.kit.object_menu), strings.to_lower(fmt.tprint(app.kit.tab), context.temp_allocator), strings.to_lower(fmt.tprint(app.brush.kind), context.temp_allocator))
-		fmt.printfln("inspector_scroll=%.1f settings_scroll=%.1f settings_open=%d", app.kit.scroll, app.kit.settings_scroll, int(app.kit.settings))
+		// The tray scrolls in its column's body while docked and in its own while floating.
+		tray_scroll := app.kit.scroll
+		if _, _, docked := panel_docked(&app.kit, Kit_Window.Inspector); docked do tray_scroll = app.kit.panels.scroll[.Inspector]
+		fmt.printfln("inspector_scroll=%.1f settings_scroll=%.1f settings_open=%d", tray_scroll, app.kit.settings_scroll, int(app.kit.settings))
 		n := app.cursor.normal
 		fmt.printfln("cursor_hit=%d cursor_normal=%.4f,%.4f,%.4f", int(app.cursor.ok), n.x, n.y, n.z)
 		k := &app.kit
@@ -1698,17 +1688,17 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			for ws in w.list do if ws.used do count += 1
 			zones := strings.builder_make(context.temp_allocator)
 			for z in Zone do if z in k.hidden do fmt.sbprintf(&zones, "%s%s", "," if strings.builder_len(zones) > 0 else "", strings.to_lower(fmt.tprint(z), context.temp_allocator))
-			fmt.printfln("workspace=%s workspace_modified=%d workspace_count=%d workspace_menu=%d workspace_switches=%d workspace_exports=%d workspace_imports=%d arrange_drawer=%d zones_hidden=%s", preset_escape(workspace_name(k, w.current)), int(w.modified), count, int(w.menu), w.switches, w.exports, w.imports, int(k.arrange_drawer), strings.to_string(zones) if strings.builder_len(zones) > 0 else "none")
-			// The layout, and the second line of the Lens top bar's file block.
-			fmt.printfln("chrome=%s file_status=%s clean_view=%d panels_faded=%d camera_shift=%.3f,%.3f", strings.to_lower(CHROME_NAMES[k.chrome], context.temp_allocator), preset_escape(file_status(&app, time.now())), int(k.clean), k.panels_faded, app.camera.shift.x, app.camera.shift.y)
-			// The Lens chrome round the view: the view rail's slots, the mini view's swaps, the
+			fmt.printfln("workspace=%s workspace_modified=%d workspace_count=%d workspace_menu=%d workspace_switches=%d workspace_exports=%d workspace_imports=%d zones_hidden=%s", preset_escape(workspace_name(k, w.current)), int(w.modified), count, int(w.menu), w.switches, w.exports, w.imports, strings.to_string(zones) if strings.builder_len(zones) > 0 else "none")
+			// The second line of the top bar's file block.
+			fmt.printfln("file_status=%s clean_view=%d panels_faded=%d camera_shift=%.3f,%.3f", preset_escape(file_status(&app, time.now())), int(k.clean), k.panels_faded, app.camera.shift.x, app.camera.shift.y)
+			// The chrome round the view: the view rail's slots, the mini view's swaps, the
 			// main camera's projection, and where the island, the chips, the navigation head and
 			// the mini view stood last, in points.
 			island, chips, head := ui.prev_rect(&k.ctx, "brush bar"), ui.prev_rect(&k.ctx, "points"), ui.prev_rect(&k.ctx, "navigation head")
 			mini := panel_rect(&app, Kit_Window.Thumbnail)
 			fmt.printfln("view_rail=%s mini_swaps=%d mini_rows=%d camera_ortho=%d island=%.0f,%.0f,%.0f,%.0f chips=%.0f,%.0f nav_head=%.0f,%.0f mini=%.0f,%.0f,%.0f,%.0f", bar_names(&app, .View_Rail), k.mini_swaps, int(k.mini_rows), int(app.camera.ortho), island.x, island.y, island.w, island.h, chips.x, chips.y, head.x, head.y, mini.x, mini.y, mini.w, mini.h)
 			sh := &k.shelf
-			fmt.printfln("shelf_page=%v shelf=%s shelf_quick=%d brush_sheet=%d shelf_drops=%d shelf_turns=%d shelf_swipes=%d shelf_tools=%d shelf_shown=%d", sh.page, bar_names(&app, shelf_which(sh.page)), int(sh.quick), int(k.browser && k.chrome == .Lens), sh.drops, sh.turns, sh.swipes, sh.tools, sh.shown)
+			fmt.printfln("shelf_page=%v shelf=%s shelf_quick=%d brush_sheet=%d shelf_drops=%d shelf_turns=%d shelf_swipes=%d shelf_tools=%d shelf_shown=%d", sh.page, bar_names(&app, shelf_which(sh.page)), int(sh.quick), int(k.browser && k.browser_at == .Dock), sh.drops, sh.turns, sh.swipes, sh.tools, sh.shown)
 			fmt.printfln("brush_pie=%s pie_quicks=%d", bar_names(&app, .Brush_Pie), k.pie_quicks)
 			fmt.printfln("stack=%s stack_shut=%s stack_menu=%d stack_folds=%d stack_moves=%d", stack_text(k), stack_shut_text(k), int(k.stack.menu), k.stack.folds, k.stack.moves)
 			fmt.printfln("stack_width=%d stack_sizes=%s stack_resizes=%d", int(stack_width(k)), stack_sizes_text(k), k.stack.resizes)
