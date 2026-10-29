@@ -180,28 +180,6 @@ pass_ground :: proc(p: render.View_Pass) -> (ground: render.Background, ok: bool
 	return
 }
 
-// The chip's width: the widest name, so the bar does not shift as the pass changes.
-pass_chip_width :: proc(ctx: ^ui.Context) -> f32 {
-	w: f32 = 0
-	for label in PASS_LABELS do w = max(w, ui.text_width(ctx, label, ctx.theme.small_size, .Semibold))
-	return w + ui.text_width(ctx, "Pass", ctx.theme.small_size) + 34
-}
-
-// The top bar's pass chip: the pass shown, in the accent while it is not Shaded. A tap
-// opens the list under it; a hold peeks.
-kit_pass_chip :: proc(app: ^App) {
-	k := &app.kit
-	ctx := &k.ctx
-	ps := &k.passes
-	shown := viewport_pass(k)
-	// In a cell as wide as the widest name, so nothing beside it moves as the pass changes.
-	ui.begin(ctx, "pass chip cell", {direction = .Row, width = pass_chip_width(ctx)})
-	defer ui.end(ctx)
-	parts := []ui.Chip_Part{{text = "Pass"}, {text = PASS_LABELS[shown], strong = true, accent = shown != .Shaded}}
-	clicked := ui.chip(ctx, "Pass##chip", parts, command_hint(app, .View_Pass, int(ps.pass)))
-	pass_chip_follow(k, ctx.last_rect, clicked)
-}
-
 // After a pass chip at `at` (the top bar's, or Lens's over the view): a tap opens the list
 // under it or closes it, a hold peeks, and the list follows the chip unless a bar's
 // Passes button opened it beside itself.
@@ -240,20 +218,7 @@ kit_pass_menu :: proc(app: ^App) {
 	ps := &k.passes
 	if !ui.popover_begin(ctx, "pass menu", &ps.menu, ps.menu_at, ps.menu_side, {direction = .Column, gap = 0, padding = 6, width = 260}) do return
 	defer ui.popover_end(ctx)
-	if k.chrome == .Lens {
-		lens_pass_menu(app)
-		return
-	}
-	ui.caption(ctx, "  PASSES")
-	picked := false
-	for p in render.View_Pass {
-		if command_menu_item(app, .View_Pass, int(p), label = PASS_LABELS[p]) do picked = true
-	}
-	ui.divider(ctx, across = true)
-	picked ||= command_menu_item(app, .View_Pass_Last)
-	picked ||= command_menu_item(app, .View_Wipe)
-	ui.paragraph(ctx, "Hold the chip, or the ` key, to peek at the last other pass; Wipe compare shows it beside this one, split by a line you drag.")
-	if picked do ps.menu = false
+	lens_pass_menu(app)
 }
 
 // The icon of each pass in Lens's list.

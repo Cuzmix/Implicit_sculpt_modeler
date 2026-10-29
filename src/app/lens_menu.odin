@@ -11,7 +11,7 @@ import "../ui"
 // scene's file and the app, in the order a file menu has it, with the rest behind rows
 // that open a submenu beside the list. A tap on such a row opens its submenu, a second
 // tap closes it; with a mouse, resting on the row opens it too, as desktop menus do. A
-// press outside both closes both. Classic keeps its own menu (kit_menu).
+// press outside both closes both.
 
 Lens_Submenu :: enum u8 {
 	None,
@@ -84,7 +84,7 @@ kit_menu_lens :: proc(app: ^App, anchor: ui.Rect) {
 	if !k.menu do k.menu_sub = .None
 	owner := ui.id_of(ctx, "menu")
 	if !ui.popover_begin(ctx, "menu", &k.menu, anchor, .Below, {direction = .Column, padding = 6, width = LENS_MENU_W}) do return
-	// On a short window the list scrolls rather than running off the bottom, as Classic's.
+	// On a short window the list scrolls rather than running off the bottom.
 	area := ui.safe_area(ctx)
 	room := max(area.y + area.h - (anchor.y + anchor.h + 6) - 4 - 2 * 6, 4 * ctx.theme.target)
 	_, natural := ui.prev_layout(ctx, "menu body")

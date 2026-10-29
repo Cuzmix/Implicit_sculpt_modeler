@@ -9,8 +9,8 @@ import "../ui"
 // layers newest on top, each a row with its eye, its name, its strength and a dot that is
 // red while it records; the picked row is taller and holds the strength slider. Under them
 // Base, the surface the layers sit on, which says "locked" while a layer records (strokes
-// then go only into that layer), then New layer and the layer options. Classic's tray
-// keeps its section (kit_layers_section).
+// then go only into that layer), then New layer and the layer options. The Object
+// palette keeps its Layers section too (kit_layers_section).
 
 // A layer row's height, in points; the picked one is as tall as its slider makes it.
 LAYER_ROW_H :: 40

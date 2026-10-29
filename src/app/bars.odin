@@ -8,50 +8,42 @@ import "../poly"
 import "../sculpt"
 import "../ui"
 
-// The bars the user arranges: the right bar's shortcut column under Search, Palettes and
-// Objects, the bottom bar's tool strip after All brushes, and the dock's slots (dock.odin),
-// which take any command too. The column and the strip are lists of registry commands
-// (Bar_Slot, a pie's slot), as Nomad lets any tool be a shortcut; a button whose command
-// does more than run (a long press that opens a menu, a lit state of its own) keeps that
-// through bar_slot_button wherever it sits. Customise bars is an edit mode, as iPadOS's
-// home screen has: every slot it can change is ringed, a tap opens the slot's popover
-// (another command from Search, move it, remove it, add one after it), a + ends each bar,
-// and Done or Escape ends it. A long press on a dock slot reaches the same popover at any
-// time, as ZBrush for iPad's does.
+// The bars the user arranges: the view rail down the pen side, the shelf's pages and its
+// tool strip after All, and the brush pie. Each is a list of registry commands (Bar_Slot,
+// a pie's slot), as Nomad lets any tool be a shortcut; a button whose command does more
+// than run (a long press that opens a menu, a lit state of its own) keeps that through
+// bar_slot_button wherever it sits. Customise bars is an edit mode, as iPadOS's home
+// screen has: every slot it can change is ringed, a tap opens the slot's popover (another
+// command from Search, move it, remove it, add one after it), a + ends each bar, and Done
+// or Escape ends it.
 
 Bar_Slot :: Pie_Slot
 
 Bar_Which :: enum u8 {
-	Shortcuts, // the right bar's column
-	Tools, // the bottom bar's strip
-	Dock,
-	View_Rail, // the Lens layout's view rail, down the pen side (lens_chrome.odin)
-	// The Lens shelf's five pages (lens_shelf.odin), in Shelf_Page's order.
+	Tools, // the shelf's tool strip, after All (lens_shelf.odin)
+	View_Rail, // the view rail, down the pen side (lens_chrome.odin)
+	// The shelf's five pages (lens_shelf.odin), in Shelf_Page's order.
 	Shelf_Sculpt,
 	Shelf_Paint,
 	Shelf_Move,
 	Shelf_Curve,
 	Shelf_Model,
-	Brush_Pie, // the Lens layout's brush pie (pie.odin): eight slots, clockwise from the top
+	Brush_Pie, // the brush pie (pie.odin): eight slots, clockwise from the top
 }
 
-// The bars that keep a Bar_List: all but the dock, whose slots hold brushes of their own.
-@(rodata)
-BAR_LISTS := [?]Bar_Which{.Shortcuts, .Tools, .View_Rail, .Shelf_Sculpt, .Shelf_Paint, .Shelf_Move, .Shelf_Curve, .Shelf_Model, .Brush_Pie}
-
 // The bars a workspace's layout holds: the shelf's pages and the brush pie hold the
-// person's brushes, which are no layout's, as the dock's are not.
+// person's brushes, which are no layout's.
 @(rodata)
-BAR_LAYOUT := [?]Bar_Which{.Shortcuts, .Tools, .View_Rail}
+BAR_LAYOUT := [?]Bar_Which{.Tools, .View_Rail}
 
 // Each bar's name in settings.txt: the zone of the screen it holds, so a later layout that
-// moves bars about keeps each one's buttons by where they are.
+// moves bars about keeps each one's buttons by where they are. The tool strip keeps the
+// name it had when it stood on the bottom bar; the earlier right bar's `right_rail` lines
+// and the dock's `dock` lines name no bar now and are passed over.
 @(rodata)
 BAR_ZONES := [Bar_Which]string {
-	.Shortcuts = "right_rail",
-	.Tools     = "bottom_tools",
-	.Dock      = "dock",
-	.View_Rail = "view_rail",
+	.Tools        = "bottom_tools",
+	.View_Rail    = "view_rail",
 	.Shelf_Sculpt = "shelf_sculpt",
 	.Shelf_Paint  = "shelf_paint",
 	.Shelf_Move   = "shelf_move",
@@ -60,30 +52,26 @@ BAR_ZONES := [Bar_Which]string {
 	.Brush_Pie    = "brush_pie",
 }
 
-// The bar a zone name names; the dock's slots keep their own dock lines.
+// The bar a zone name names.
 bar_zone :: proc(name: string) -> (Bar_Which, bool) {
-	for zone, which in BAR_ZONES do if which != .Dock && zone == name do return which, true
+	for zone, which in BAR_ZONES do if zone == name do return which, true
 	return {}, false
 }
 
-SHORTCUTS_MAX :: 16
 TOOLS_MAX :: 8
 VIEW_RAIL_MAX :: 12
+// The most slots any bar holds: the view rail's, and a shelf page's SHELF_MAX.
+BAR_SLOTS_MAX :: 12
 
 // A bar's commands, `count` of them in use.
 Bar_List :: struct {
-	slots: [SHORTCUTS_MAX]Bar_Slot,
+	slots: [BAR_SLOTS_MAX]Bar_Slot,
 	count: int,
 }
 
-// What a fresh install has: the view's buttons down the right, the gizmo and the mesh
-// tools along the bottom.
-SHORTCUTS_DEFAULT :: [?]Bar_Slot {
-	{.Shading_Menu, 0}, {.Camera_Menu, 0}, {.Studio_Render, 0}, {.Floor_Grid, 0}, {.Symmetry_X, 0}, {.Local_Symmetry, 0},
-	{.Focus_Selected, 0}, {.Wireframe, 0}, {.Transparency, 0}, {.Ghost_Object, 0}, {.Solo_Object, 0},
-}
+// What a fresh install has: the gizmo and the mesh tools after All.
 TOOLS_DEFAULT :: [?]Bar_Slot{{.Tool_Move, 0}, {.Remesh, 0}, {.Dyntopo_Toggle, 0}, {.Retopologize, 0}, {.Subdivide, 0}, {.Live_Boolean, 0}}
-// The Lens view rail's eight one-tap view tools, as the mockups have them: the view
+// The view rail's eight one-tap view tools, as the mockups have them: the view
 // layout, the passes, the camera, framing, symmetry, the wireframe, the lights and the
 // mini view.
 VIEW_RAIL_DEFAULT :: [?]Bar_Slot {
@@ -99,7 +87,7 @@ Bar_Pick :: struct {
 	add:   bool,
 }
 
-// The popover a tap on a shortcut or tool slot opens while customising.
+// The popover a tap on a slot opens while customising.
 Bar_Slot_Menu :: struct {
 	open:  bool,
 	which: Bar_Which,
@@ -118,22 +106,18 @@ bars_reset :: proc(k: ^Kit_State) {
 	bar_lists_reset(k)
 	shelf_reset(k)
 	k.brush_pie = bar_fresh(.Brush_Pie)
-	dock_reset(k)
 }
 
-// Puts the column, the strip and the view rail (the bars a layout holds) back as a fresh
-// install has them.
+// Puts the strip and the view rail (the bars a layout holds) back as a fresh install has
+// them.
 bar_lists_reset :: proc(k: ^Kit_State) {
 	for which in BAR_LAYOUT do bar_list_k(k, which)^ = bar_fresh(which)
 }
 
-// A fresh install's list for the column, the strip, the view rail or a shelf page.
+// A fresh install's list for the strip, the view rail, a shelf page or the brush pie.
 bar_fresh :: proc(which: Bar_Which) -> Bar_List {
 	if page, ok := shelf_page_of(which); ok do return shelf_fresh(page)
 	#partial switch which {
-	case .Shortcuts:
-		d := SHORTCUTS_DEFAULT
-		return bar_list_of(d[:])
 	case .View_Rail:
 		d := VIEW_RAIL_DEFAULT
 		return bar_list_of(d[:])
@@ -149,19 +133,17 @@ bar_list :: proc(app: ^App, which: Bar_Which) -> ^Bar_List {
 	return bar_list_k(&app.kit, which)
 }
 
-// The list behind the column, the strip, the view rail or a shelf page (the dock keeps its
-// own slots).
+// The list behind the strip, the view rail, a shelf page or the brush pie.
 bar_list_k :: proc(k: ^Kit_State, which: Bar_Which) -> ^Bar_List {
 	if page, ok := shelf_page_of(which); ok do return &k.shelf.lists[page]
 	#partial switch which {
-	case .Shortcuts: return &k.shortcuts
 	case .View_Rail: return &k.view_rail
 	case .Brush_Pie: return &k.brush_pie
 	}
 	return &k.tools
 }
 
-// The commands bar `which` (the column or the strip) shows.
+// The commands bar `which` shows.
 bar_used :: proc(app: ^App, which: Bar_Which) -> []Bar_Slot {
 	l := bar_list(app, which)
 	return l.slots[:clamp(l.count, 0, bar_capacity(which))]
@@ -170,9 +152,7 @@ bar_used :: proc(app: ^App, which: Bar_Which) -> []Bar_Slot {
 // How many slots bar `which` may have, and how many it has.
 bar_capacity :: proc(which: Bar_Which) -> int {
 	switch which {
-	case .Shortcuts: return SHORTCUTS_MAX
 	case .Tools:     return TOOLS_MAX
-	case .Dock:      return DOCK_SLOTS
 	case .View_Rail: return VIEW_RAIL_MAX
 	case .Shelf_Sculpt, .Shelf_Paint, .Shelf_Move, .Shelf_Curve, .Shelf_Model: return SHELF_MAX
 	case .Brush_Pie: return PIE_SLOTS
@@ -181,17 +161,15 @@ bar_capacity :: proc(which: Bar_Which) -> int {
 }
 
 bar_count :: proc(app: ^App, which: Bar_Which) -> ^int {
-	if which == .Dock do app.kit.dock_count = len(dock_used(app))
-	return &app.kit.dock_count if which == .Dock else &bar_list(app, which).count
+	return &bar_list(app, which).count
 }
 
 // Whether bar `which` differs from a fresh install's.
 bar_changed :: proc(app: ^App, which: Bar_Which) -> bool {
-	if which == .Dock do return dock_changed(app)
 	return bar_list_changed(&app.kit, which)
 }
 
-// Whether the column's, the strip's or the view rail's list differs from a fresh install's.
+// Whether bar `which`'s list differs from a fresh install's.
 @(private = "file")
 bar_list_changed :: proc(k: ^Kit_State, which: Bar_Which) -> bool {
 	fresh := bar_fresh(which)
@@ -199,11 +177,10 @@ bar_list_changed :: proc(k: ^Kit_State, which: Bar_Which) -> bool {
 	return l.count != fresh.count || l.slots != fresh.slots
 }
 
-// The lines of every bar but the dock, each written whole where it differs from a fresh
-// install's (`bar_count <zone> N`, then `bar <zone> <slot> <command>`): the settings
+// The lines of every bar, each written whole where it differs from a fresh install's (`bar_count <zone> N`, then `bar <zone> <slot> <command>`): the settings
 // file's, and with `layout` a workspace's layout's, which leaves the shelf's pages out.
 bars_save :: proc(k: ^Kit_State, out: ^strings.Builder, layout := false) {
-	for which in BAR_LISTS {
+	for which in Bar_Which {
 		if _, shelf := shelf_page_of(which); (shelf || which == .Brush_Pie) && layout do continue
 		if !bar_list_changed(k, which) do continue
 		l := bar_list_k(k, which)
@@ -253,18 +230,14 @@ bar_put :: proc(app: ^App, pick: Bar_Pick, s: Bar_Slot) {
 		return
 	}
 	at := clamp(pick.slot, 0, count^ - 1)
-	if pick.which == .Dock do app.kit.dock[at] = {command = s}
-	else do bar_list(app, pick.which).slots[at] = s
-	report(app, nil, {}, "%s now has %s", bar_title(pick.which, app.kit.chrome == .Lens), bar_label(s))
+	bar_list(app, pick.which).slots[at] = s
+	report(app, nil, {}, "%s now has %s", bar_title(pick.which), bar_label(s))
 }
 
-// "The right bar", for notes; the tool strip by where it is, on Classic's bottom bar or at
-// the end of Lens's shelf.
-bar_title :: proc(which: Bar_Which, lens := false) -> string {
+// "The view rail", for notes.
+bar_title :: proc(which: Bar_Which) -> string {
 	switch which {
-	case .Shortcuts: return "The right bar"
-	case .Tools:     return "The shelf's tools" if lens else "The bottom bar"
-	case .Dock:      return "The dock"
+	case .Tools:     return "The shelf's tools"
 	case .View_Rail: return "The view rail"
 	case .Shelf_Sculpt: return "The Sculpt shelf"
 	case .Shelf_Paint:  return "The Paint shelf"
@@ -281,32 +254,22 @@ bar_title :: proc(which: Bar_Which, lens := false) -> string {
 bar_insert :: proc(app: ^App, which: Bar_Which, at: int) -> bool {
 	count := bar_count(app, which)
 	if count^ >= bar_capacity(which) {
-		report(app, nil, {.Warning}, "%s holds %d buttons at most: remove one first", bar_title(which, app.kit.chrome == .Lens), bar_capacity(which))
+		report(app, nil, {.Warning}, "%s holds %d buttons at most: remove one first", bar_title(which), bar_capacity(which))
 		return false
 	}
 	i := clamp(at, 0, count^)
-	if which == .Dock {
-		d := &app.kit.dock
-		copy(d[i + 1:count^ + 1], d[i:count^])
-	} else {
-		l := bar_list(app, which)
-		copy(l.slots[i + 1:count^ + 1], l.slots[i:count^])
-	}
+	l := bar_list(app, which)
+	copy(l.slots[i + 1:count^ + 1], l.slots[i:count^])
 	count^ += 1
 	return true
 }
 
-// Takes slot `slot` out of bar `which`; the dock keeps one at least.
+// Takes slot `slot` out of bar `which`.
 bar_remove :: proc(app: ^App, which: Bar_Which, slot: int) {
 	count := bar_count(app, which)
-	if slot < 0 || slot >= count^ || (which == .Dock && count^ <= 1) do return
-	if which == .Dock {
-		d := &app.kit.dock
-		copy(d[slot:count^ - 1], d[slot + 1:count^])
-	} else {
-		l := bar_list(app, which)
-		copy(l.slots[slot:count^ - 1], l.slots[slot + 1:count^])
-	}
+	if slot < 0 || slot >= count^ do return
+	l := bar_list(app, which)
+	copy(l.slots[slot:count^ - 1], l.slots[slot + 1:count^])
 	count^ -= 1
 }
 
@@ -316,27 +279,22 @@ bar_move :: proc(app: ^App, which: Bar_Which, slot, by: int) -> int {
 	count := bar_count(app, which)
 	to := slot + by
 	if slot < 0 || slot >= count^ || to < 0 || to >= count^ do return slot
-	if which == .Dock {
-		d := &app.kit.dock
-		d[slot], d[to] = d[to], d[slot]
-	} else {
-		l := bar_list(app, which)
-		l.slots[slot], l.slots[to] = l.slots[to], l.slots[slot]
-	}
+	l := bar_list(app, which)
+	l.slots[slot], l.slots[to] = l.slots[to], l.slots[slot]
 	return to
 }
 
 // A slot's Move earlier, Move later, Remove and Add after, as icon buttons in a popover's
-// head; the dock's run left and right, the column's up and down. True when the popover
+// head; a row's run left and right, the rail's up and down. True when the popover
 // should close (its slot went, or a new one is being chosen).
 bar_slot_actions :: proc(app: ^App, which: Bar_Which, slot: int) -> (close: bool) {
 	k := &app.kit
 	ctx := &k.ctx
 	count := bar_count(app, which)^
-	across := which != .Shortcuts && which != .View_Rail
-	if ui.icon_button(ctx, "Move earlier", ICON_CHEVRON_LEFT if across else ui.ICON_CHEVRON_UP, enabled = slot > 0) do bar_slot_moved(app, which, bar_move(app, which, slot, -1))
-	if ui.icon_button(ctx, "Move later", ui.ICON_CHEVRON_RIGHT if across else ui.ICON_CHEVRON_DOWN, enabled = slot < count - 1) do bar_slot_moved(app, which, bar_move(app, which, slot, 1))
-	if ui.icon_button(ctx, "Remove from the bar", ui.ICON_TRASH, enabled = which != .Dock || count > 1) {
+	across := which != .View_Rail
+	if ui.icon_button(ctx, "Move earlier", ICON_CHEVRON_LEFT if across else ui.ICON_CHEVRON_UP, enabled = slot > 0) do bar_slot_moved(app, bar_move(app, which, slot, -1))
+	if ui.icon_button(ctx, "Move later", ui.ICON_CHEVRON_RIGHT if across else ui.ICON_CHEVRON_DOWN, enabled = slot < count - 1) do bar_slot_moved(app, bar_move(app, which, slot, 1))
+	if ui.icon_button(ctx, "Remove from the bar", ui.ICON_TRASH) {
 		bar_remove(app, which, slot)
 		return true
 	}
@@ -349,10 +307,8 @@ bar_slot_actions :: proc(app: ^App, which: Bar_Which, slot: int) -> (close: bool
 
 // Keeps the open popover on the slot it moved, now at `slot`.
 @(private = "file")
-bar_slot_moved :: proc(app: ^App, which: Bar_Which, slot: int) {
-	k := &app.kit
-	if which == .Dock do k.dock_slot = slot
-	else do k.bar_slot.slot = slot
+bar_slot_moved :: proc(app: ^App, slot: int) {
+	app.kit.bar_slot.slot = slot
 }
 
 // What a slot's button is called: the command's label, or the bar's own short name.
@@ -451,8 +407,8 @@ bar_enabled :: proc(app: ^App, s: Bar_Slot) -> bool {
 }
 
 // What a tap on a slot's button does, the button at `at`, its popovers opening `side` of
-// it: Shading, Camera, View layout and Passes open their menu beside it, Retopologize (and
-// in Lens a shown section) their section; the rest run.
+// it: Shading, Camera, View layout and Passes open their menu beside it, Retopologize and a
+// shown section their section; the rest run.
 bar_slot_run :: proc(app: ^App, s: Bar_Slot, at: ui.Rect, side: ui.Side) {
 	k := &app.kit
 	#partial switch s.id {
@@ -462,12 +418,10 @@ bar_slot_run :: proc(app: ^App, s: Bar_Slot, at: ui.Rect, side: ui.Side) {
 	case .Pass_Menu:
 		k.passes.menu_at, k.passes.menu_side = at, side
 	case .Show_Section:
-		// In Lens a section on a bar opens beside its button, as the brush bar's do, rather
-		// than in the tray across the window; Classic keeps the tray.
-		if k.chrome == .Lens {
-			bar_pop_toggle(app, .Section, at, side, Kit_Section(s.arg))
-			return
-		}
+		// A section on a bar opens beside its button rather than in the tray across the
+		// window.
+		bar_pop_toggle(app, .Section, at, side, Kit_Section(s.arg))
+		return
 	case .Retopologize:
 		bar_pop_toggle(app, .Section, at, side, .Retopo)
 		return
@@ -518,7 +472,7 @@ bar_slot_button :: proc(app: ^App, which: Bar_Which, slot: int, s: Bar_Slot, siz
 
 // Which side of a bar's buttons its popovers open.
 bar_side :: proc(which: Bar_Which) -> ui.Side {
-	return .Left if which == .Shortcuts || which == .View_Rail else .Above_Center
+	return .Left if which == .View_Rail else .Above_Center
 }
 
 // The ring round a slot while customising.
@@ -536,18 +490,14 @@ bar_add_button :: proc(app: ^App, which: Bar_Which, at: int, size: f32 = 0) {
 	if ui.icon_button(ctx, fmt.tprintf("Add a button##%v", which), ui.ICON_PLUS, enabled = !full, size = size) do bar_choose(app, {which = which, slot = at, add = true})
 }
 
-// Opens the slot popover on slot `slot` of the column or the strip, over its button.
+// Opens the slot popover on slot `slot` of bar `which`, over its button.
 bar_slot_open :: proc(app: ^App, which: Bar_Which, slot: int, at: ui.Rect) {
 	k := &app.kit
-	if which == .Dock {
-		dock_menu_open(app, slot, at)
-		return
-	}
 	kit_floats_close(k)
 	k.bar_slot = {open = true, which = which, slot = slot, at = at}
 }
 
-// The slot popover of the column or the strip: the command's name, its moves, and
+// The slot popover: the command's name, its moves, and
 // Another command..., which chooses one in Search.
 kit_bar_slot_menu :: proc(app: ^App) {
 	k := &app.kit

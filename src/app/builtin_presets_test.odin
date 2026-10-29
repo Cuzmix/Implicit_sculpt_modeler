@@ -46,7 +46,7 @@ built_in_presets_are_read_only :: proc(t: ^testing.T) {
 	}
 }
 
-// settings.txt puts the brush back on a built-in and a dock slot on one, by name; a
+// settings.txt puts the brush back on a built-in by name; a
 // preset of the person's own keeps All depth and Smooth only, and its line reads in a
 // build that knows them.
 @(test)
@@ -62,10 +62,9 @@ built_in_presets_are_remembered :: proc(t: ^testing.T) {
 	preset_use(&a, built_in_preset_find("Move all depth"))
 	testing.expect(t, preset_save_new(&a))
 	preset_use(&a, built_in_preset_find("Smooth peaks"))
-	dock_put(&a, 3, .Draw, built_in_preset_find("Clay buildup"))
 	testing.expect(t, settings_save(&a, path))
 	data, _ := os.read_entire_file(path, context.temp_allocator)
-	testing.expect(t, strings.contains(string(data), "dock 3 preset Clay%20buildup"))
+	testing.expect(t, strings.contains(string(data), "brush_preset Smooth%20peaks"))
 
 	b: App
 	defer results_destroy(&b)
@@ -74,7 +73,6 @@ built_in_presets_are_remembered :: proc(t: ^testing.T) {
 	settings_load(&b, path)
 	testing.expect_value(t, b.brush.preset, built_in_preset_find("Smooth peaks"))
 	testing.expect_value(t, b.brush.smooth_only, sculpt.Smooth_Only.Peaks)
-	testing.expect_value(t, b.kit.dock[3].preset, built_in_preset_find("Clay buildup"))
 	testing.expect_value(t, b.preset_count, 1)
 	testing.expect(t, b.presets[0].values.grab_depth)
 	p, _ := preset_at(&b, built_in_preset_find("Clay buildup"))
@@ -82,7 +80,8 @@ built_in_presets_are_remembered :: proc(t: ^testing.T) {
 }
 
 // A settings file from before the built-ins with a preset of the person's own named as one
-// now is keeps it as "<name> 1", the brush and the dock slot following it there.
+// now is keeps it as "<name> 1", the brush following it there, and its old dock line
+// is passed over.
 @(test)
 own_presets_named_as_a_built_in_are_kept :: proc(t: ^testing.T) {
 	path := "build/builtin_clash_test.txt"
@@ -96,5 +95,4 @@ own_presets_named_as_a_built_in_are_kept :: proc(t: ^testing.T) {
 	testing.expect_value(t, preset_name(&a.presets[0]), "Trim 1")
 	testing.expect_value(t, a.brush.preset, 1)
 	testing.expect_value(t, a.brush.strengths[.Flatten], 0.3)
-	testing.expect_value(t, a.kit.dock[0].preset, 1)
 }

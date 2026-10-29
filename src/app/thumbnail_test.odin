@@ -48,7 +48,7 @@ second_view_is_remembered_and_reads_the_old_shaded_switch :: proc(t: ^testing.T)
 	a := new(App)
 	defer free(a)
 	defer results_destroy(a)
-	a.kit.second.camera, a.kit.second.pass, a.kit.second.max = .Left, .Curvature, true
+	a.kit.second.camera, a.kit.second.pass = .Left, .Curvature
 	testing.expect(t, settings_save(a, path))
 	b := new(App)
 	defer free(b)
@@ -56,7 +56,6 @@ second_view_is_remembered_and_reads_the_old_shaded_switch :: proc(t: ^testing.T)
 	settings_load(b, path)
 	testing.expect_value(t, b.kit.second.camera, Second_Camera.Left)
 	testing.expect_value(t, b.kit.second.pass, Second_Pass.Curvature)
-	testing.expect(t, !b.kit.second.max, "a maximised view was remembered")
 
 	// A file from before the passes said Shaded with a switch over the silhouette.
 	for test in ([?]struct {

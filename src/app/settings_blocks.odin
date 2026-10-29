@@ -7,14 +7,13 @@ import "../camera"
 import "../ui"
 
 // Settings' blocks: each caption's group of rows, drawn and put back on its own, so
-// Classic's tabs and Lens's sections (lens_settings.odin) list the same blocks in their own
+// the narrow panel's tabs and the sheet's sections (lens_settings.odin) list the same blocks in their own
 // orders, and Search settings finds a block by its caption and the words of its rows.
 
 Settings_Block :: enum u8 {
 	// Interface.
 	Look,
 	Size,
-	Layout,
 	Clean_Dial,
 	Hands,
 	Motion,
@@ -68,13 +67,13 @@ Settings_Entry :: struct {
 	caption: string,
 }
 
-// Classic's tabs, as they have always been laid out.
+// The tabs of the Settings panel, which a window too small for the sheet (lens_settings.odin)
+// shows, as they have always been laid out.
 @(rodata)
 SETTINGS_INTERFACE := [?]Settings_Entry {
 	{.Look, "LOOK"},
 	{.Size, "SIZE"},
-	{.Layout, "LAYOUT"},
-	{.Clean_Dial, ""},
+	{.Clean_Dial, "CLEAN VIEW"},
 	{.Hands, "SCREEN LAYOUT"},
 	{.Motion, "MOTION"},
 	{.Starting, "STARTING"},
@@ -118,7 +117,7 @@ SETTINGS_SYSTEM := [?]Settings_Entry {
 	{.Blender_Link, "BLENDER LINK"},
 }
 
-// Classic's tab `tab`'s blocks.
+// The blocks of the narrow panel's tab `tab`.
 settings_tab_entries :: proc(tab: Settings_Tab) -> []Settings_Entry {
 	switch tab {
 	case .Interface:   return SETTINGS_INTERFACE[:]
@@ -136,7 +135,6 @@ settings_tab_entries :: proc(tab: Settings_Tab) -> []Settings_Entry {
 SETTINGS_BLOCK_WORDS := [Settings_Block]string {
 	.Look             = "look theme colour color lens studio graphite accent dark",
 	.Size             = "size interface scale bigger text touch targets zoom",
-	.Layout           = "layout lens classic chrome zbrush ipad",
 	.Clean_Dial       = "keep the dial in clean view tab four-finger",
 	.Hands            = "left-handed right-handed hand mirror screen layout",
 	.Motion           = "reduce motion animation",
@@ -224,18 +222,13 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 		}
 		if picked := ui.select(ctx, "Interface size", names[:], chosen); picked >= 0 do k.ui_scale = UI_SCALES[picked]
 		ui.paragraph(ctx, "How big panels, text and touch targets are, on top of the size the screen asks for.")
-	case .Layout:
-		chromes := make([]string, len(Chrome), context.temp_allocator)
-		for name, c in CHROME_NAMES do chromes[c] = name
-		if picked := ui.tabs(ctx, "Layout", chromes, int(k.chrome)); picked >= 0 do k.chrome = Chrome(picked)
-		ui.paragraph(ctx, "Lens lays the interface out as the Lens mockups do: the view fills the window with everything floating over it, the workspaces and Search across the top, Size, Strength and the dial under your off hand, the panels in a stack and the brushes along a shelf. Classic is the earlier layout after ZBrush for iPad: the brush bar, the modifier wheel and the dock.")
 	case .Clean_Dial:
 		_ = ui.switch_row(ctx, "Keep the dial in clean view", &k.clean_dial)
-		ui.paragraph(ctx, "Clean view (Tab in Lens, or a four-finger tap) hides every control so you can judge the form; the dial stays unless this is off, so you can still smooth and mask.")
+		ui.paragraph(ctx, "Clean view (Tab, or a four-finger tap) hides every control so you can judge the form; the dial stays unless this is off, so you can still smooth and mask.")
 	case .Hands:
 		hands := [2]string{"Right-handed", "Left-handed"}
 		if picked := ui.tabs(ctx, "Screen layout", hands[:], int(ctx.mirror)); picked >= 0 do ctx.mirror = picked == 1
-		ui.paragraph(ctx, "Left-handed swaps the sides: the brush bar, the wheel and the readouts go to the right; the navigation, the view bar and the palettes to the left.")
+		ui.paragraph(ctx, "Left-handed swaps the sides: Size and Strength, the dial and the view chips go to the right; the navigation, the view rail and the panels to the left.")
 	case .Motion:
 		_ = ui.switch_row(ctx, "Reduce motion", &ctx.reduced_motion)
 		ui.paragraph(ctx, "Panels and menus appear and change without animating.")
@@ -249,20 +242,17 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 		_ = ui.switch_row(ctx, "Columns pop over a narrow window", &k.column_popovers)
 		ui.paragraph(ctx, "On a window under 1180 points wide, the docked panels show only while you ask for them: from the tab at the column's top, by opening one of them, or with Palettes; a press on the view puts them away. Off, the columns stay beside the view as on a wide window.")
 	case .View_Grid:
-		// In Lens the view always fills the window under the panels.
-		if k.chrome == .Classic do _ = ui.switch_row(ctx, "Views run under panels", &k.panes_under)
 		_ = ui.switch_row(ctx, "Work in any view", &k.panes_work)
-		if k.chrome == .Classic do ui.paragraph(ctx, "With the view split into panes, they fill the window and the docked panels float over them; off, the panes stop beside the panels, so none of a pane is hidden.")
-		else do ui.paragraph(ctx, "A press in any pane works there, as Blender's quad views each take the tools; off, the other panes only show.")
+		ui.paragraph(ctx, "A press in any pane works there, as Blender's quad views each take the tools; off, the other panes only show.")
 	case .Bars:
 		_ = command_button(app, .Customise_Bars, glyph = ICON_CUSTOMISE)
-		ui.paragraph(ctx, "Choose the buttons down the right bar, along the bottom bar after All brushes, and in the dock's slots: any command, in any order, the dock on up to six pages. A long press on a dock slot changes it too.")
+		ui.paragraph(ctx, "Choose the buttons down the view rail, on each of the shelf's pages and in its tools after All: any command, in any order.")
 	case .Action_Bar:
-		_ = ui.switch_row(ctx, "Show next steps over the dock", &k.action_bar)
+		_ = ui.switch_row(ctx, "Show next steps over the shelf", &k.action_bar)
 		ui.paragraph(ctx, "While the selected object has a mask, hidden parts or an HD window open, buttons over the brushes offer what usually comes next: invert or blur the mask, show everything, leave HD.")
 	case .Wheel:
 		// The tabs name the sides as they are on the screen: in the left-handed layout the
-		// wheel's place by the brush bar is on the right.
+		// wheel's place by the off-hand island is on the right.
 		sides := [len(Rail_Side)]string{"Off", "Left", "Right"}
 		on_screen :: proc(side: int, mirror: bool) -> int {
 			return 3 - side if mirror && side > 0 else side
@@ -387,7 +377,7 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 		_ = ui.switch_row(ctx, "Twist two fingers to roll", &n.twist_roll, enabled = n.orbit_style == .Free || n.orbit_style == .Turntable && n.turntable_roll)
 		if n.twist_roll && !twist_rolls(n^) do ui.paragraph(ctx, "Rolling needs the Trackball orbit style, or Twist two fingers to roll the turntable (Camera).")
 		_ = ui.switch_row(ctx, "Three fingers: size and focal shift", &n.three_finger)
-		ui.paragraph(ctx, "Drag three fingers up and down for the brush size, sideways for its focal shift. Strength, like size and focal shift, follows a drag up or down on its button on the brush bar.")
+		ui.paragraph(ctx, "Drag three fingers up and down for the brush size, sideways for its focal shift. Size and strength follow a drag up or down on the off-hand island's sliders too.")
 		_ = ui.switch_row(ctx, "Lift one of two fingers to turn", &n.lift_one_orbit)
 		ui.paragraph(ctx, "Put two fingers down, lift one, and the other turns the view: for when the model fills the screen.")
 		_ = ui.switch_row(ctx, "Double tap to frame or pin", &n.double_tap)
@@ -489,14 +479,13 @@ settings_block_reset :: proc(app: ^App, b: Settings_Block) {
 	switch b {
 	case .Look:            k.look = .Lens
 	case .Size:            k.ui_scale = 1
-	case .Layout:          k.chrome = .Lens
 	case .Clean_Dial:      k.clean_dial = true
 	case .Hands:           k.ctx.mirror = false
 	case .Motion:          k.ctx.reduced_motion = false
 	case .Starting:        app.start_home = true
 	case .Brush_Ring:      k.surface_ring = true
 	case .Column_Popovers: k.column_popovers = true
-	case .View_Grid:       k.panes_under, k.panes_work = true, true
+	case .View_Grid:       k.panes_work = true
 	case .Bars:
 		bars_reset(k)
 		k.bars_edit = false
@@ -550,8 +539,8 @@ settings_block_reset :: proc(app: ^App, b: Settings_Block) {
 	}
 }
 
-// Puts every setting back, as Reset everything (Classic) and Reset all settings (Lens)
-// do: every block, and what the command palette remembers having run.
+// Puts every setting back, as Reset everything (the narrow panel) and Reset all settings
+// (the sheet) do: every block, and what the command palette remembers having run.
 settings_reset_all :: proc(app: ^App) {
 	for b in Settings_Block do settings_block_reset(app, b)
 	app.kit.palette_recent_count = 0

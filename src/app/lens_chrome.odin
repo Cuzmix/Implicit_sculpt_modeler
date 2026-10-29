@@ -8,7 +8,7 @@ import "../ui"
 // The Lens layout's floating chrome round the full-window view (round 2 of the mockups):
 // the off-hand island of tall Size and Strength sliders above the dial, the view chips at
 // the top corner on the same side, the view rail of one-tap view tools down the pen side,
-// and the mini view under the panels. Each is laid out under the names the Classic bars
+// and the mini view under the panels. Each is laid out under the names the bars before them
 // had ("brush bar", "points", "view bar"), so whatever keeps clear of those keeps clear of
 // these. Left-handed, the kit's mirror swaps every side.
 
@@ -35,19 +35,44 @@ MINI_H :: 200
 
 // The off-hand island: Size and Strength as tall sliders that a thumb drags without
 // looking, each moving its value by how far the drag goes. A long press (or a right-click)
-// on either opens the pen's section beside it, as the brush bar's value buttons do.
+// on either opens the pen's section beside it. The pen held over either without touching
+// and turned about its own length sets it too (island_roll).
 kit_offhand :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
-	k.bar_scrub = {}
 	ui.begin_anchored(ctx, "brush bar", .Start, .Start, {LENS_EDGE, brush_bar_top(app)}, {direction = .Column, gap = 6, padding = 6, radius = t.radius_large, background = .Panel, center = true})
-	_ = ui.vslider(ctx, "Size##island", &app.brush.radius_px, MIN_RADIUS_PX, MAX_RADIUS_PX, .Logarithmic, fmt.tprintf("%.0f", app.brush.radius_px), track = OFFHAND_TRACK)
+	_ = ui.vslider(ctx, "Size##island", &app.brush.radius_px, MIN_RADIUS_PX, MAX_RADIUS_PX, .Logarithmic, fmt.tprintf("%.0f", app.brush.radius_px), keys = slider_hint(app, "S, [ ]", .Size_Up), track = OFFHAND_TRACK, roll = false)
+	if island_roll(app) do app.brush.radius_px = clamp(app.brush.radius_px * math.pow(2, app.pen_roll * ROLL_POINTS / ROLL_SIZE_DOUBLE), MIN_RADIUS_PX, MAX_RADIUS_PX)
 	if ui.secondary(ctx) do bar_pop_toggle(app, .Section, ctx.last_rect, .Right, .Pen)
 	strength := brush_strength(app)
-	_ = ui.vslider(ctx, "Strength##island", strength, MIN_STRENGTH, 1, .Linear, fmt.tprintf("%.2f", strength^), track = OFFHAND_TRACK)
+	_ = ui.vslider(ctx, "Strength##island", strength, MIN_STRENGTH, 1, .Linear, fmt.tprintf("%.2f", strength^), keys = slider_hint(app, "U, Shift+[ ]", .Strength_Up), track = OFFHAND_TRACK, roll = false)
+	if island_roll(app) do strength^ = clamp(strength^ + app.pen_roll * ROLL_POINTS / ROLL_STRENGTH_FULL, MIN_STRENGTH, 1)
 	if ui.secondary(ctx) do bar_pop_toggle(app, .Section, ctx.last_rect, .Right, .Pen)
 	ui.end(ctx)
+}
+
+// A size or strength slider's tooltip: its keys, and the three-finger drag when that is on.
+slider_hint :: proc(app: ^App, keys: string, step: Command_Id) -> string {
+	return hint_join(keys, command_gesture(app, step))
+}
+
+// Points of drag a degree of the pen's roll stands for, and the points of drag that double
+// the size and take the strength across its range: a quarter turn clockwise doubles the
+// size and half a turn takes the strength from 0 to 1, as Windows Ink and some Android pens
+// report the roll.
+ROLL_POINTS :: f32(ROLL_STRENGTH_FULL) / 180
+ROLL_SIZE_DOUBLE :: 150
+ROLL_STRENGTH_FULL :: 300
+
+// Whether the pen hovers on the slider just drawn, touching nothing, while it turned about
+// its own length this frame (App.pen_roll): the slider's value then follows the turn, by
+// these figures rather than the kit's sweep, which its sliders are told to leave alone.
+@(private = "file")
+island_roll :: proc(app: ^App) -> bool {
+	ctx := &app.kit.ctx
+	in_ := ctx.input
+	return app.pen_roll != 0 && ctx.hot == ctx.last_id && in_.pointer == .Pen && in_.down == {}
 }
 
 // A chip over the view: a see-through pill a touch target tall holding an optional
@@ -169,7 +194,7 @@ kit_view_rail :: proc(app: ^App) {
 	area := ui.safe_area(ctx)
 	room := area.y + area.h - t.edge - top - t.target - 12
 	used := bar_used(app, .View_Rail)
-	scroll := kit_scroll_begin(ctx, "view rail body", &k.shortcut_scroll, owner, t.target, max(room, t.target * 3), 0)
+	scroll := kit_scroll_begin(ctx, "view rail body", &k.rail_scroll, owner, t.target, max(room, t.target * 3), 0)
 	for s, i in used do bar_slot_button(app, .View_Rail, i, s)
 	if k.bars_edit do bar_add_button(app, .View_Rail, len(used))
 	kit_scroll_end(ctx, scroll)
@@ -185,18 +210,6 @@ bar_command_lens :: proc(app: ^App, id: Command_Id, glyph: rune, selected: bool)
 		return true
 	}
 	return false
-}
-
-// The View layout menu (the rail's first button): one view or a grid of them, the render
-// preview, a view window and the proportion guides. It stays open to try them.
-kit_view_layout_menu :: proc(app: ^App) {
-	ctx := &app.kit.ctx
-	ui.caption(ctx, "  VIEW LAYOUT")
-	for preset in Grid_Preset do _ = command_menu_item(app, .View_Grid, int(preset), label = GRID_NAMES[preset])
-	ui.divider(ctx, across = true)
-	_ = command_menu_item(app, .Render_Preview)
-	_ = command_menu_item(app, .View_Window)
-	_ = command_menu_item(app, .View_Guides)
 }
 
 // How far in from the pen side's edge the navigation head stands in Lens: left of whatever
@@ -235,7 +248,7 @@ lens_palm :: proc(app: ^App) -> f32 {
 // in Lens, for the panels' column above it to stop short of; zero when it is not there.
 lens_mini_reach :: proc(app: ^App) -> f32 {
 	k := &app.kit
-	if k.chrome != .Lens || !k.thumbnail || k.windows[.Thumbnail].moved do return 0
+	if !k.thumbnail || k.windows[.Thumbnail].moved do return 0
 	if _, _, docked := panel_docked(k, Kit_Window.Thumbnail); docked do return 0
 	r := panel_rect(app, Kit_Window.Thumbnail)
 	if r.h <= 0 do return 0
@@ -256,7 +269,6 @@ kit_mini_view :: proc(app: ^App) -> (raised: bool) {
 	k.thumbnail_px = {}
 	if shown <= 0 do return
 	win := &k.windows[.Thumbnail]
-	sv.max = false
 	PADDING :: 4
 	below := max(t.edge, lens_palm(app), side_panel_below(app, MINI_W + 2 * PADDING))
 	mark := ui.vertex_mark(ctx)

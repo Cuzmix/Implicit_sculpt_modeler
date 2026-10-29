@@ -4,15 +4,12 @@ import "core:testing"
 
 import "../sculpt"
 
-// Lens's context bar keeps its own short lists for the mask and hidden parts, with
-// Extract and Delete hidden in them; Classic keeps the full ones.
+// The context bar keeps its own short lists for the mask and hidden parts, with Extract
+// and Delete hidden in them; the other groups keep theirs whole.
 @(test)
-context_bar_lists_follow_the_layout :: proc(t: ^testing.T) {
+context_bar_lists_are_round_twos :: proc(t: ^testing.T) {
 	a: App
 	defer results_destroy(&a)
-	a.kit.chrome = .Classic
-	testing.expect_value(t, len(action_list(&a, .Mask)), len(ACTION_GROUPS[.Mask].actions))
-	a.kit.chrome = .Lens
 	mask := action_list(&a, .Mask)
 	testing.expect_value(t, mask[0], Action{.Mask, int(sculpt.Mask_Command.Invert), "Invert"})
 	testing.expect_value(t, mask[len(mask) - 1].id, Command_Id.Extract_Masked)

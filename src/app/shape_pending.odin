@@ -275,7 +275,7 @@ kit_shape_bar :: proc(app: ^App) {
 	gap := t.target * 0.5 + 8 // clear of the handles
 	pos := [2]f32{(lo.x + hi.x - size.x) * 0.5, hi.y + gap}
 	// Above the shape where under it would reach the dock.
-	if pos.y + size.y > area.y + area.h - t.edge - DOCK_LIFT - dock.y - 8 do pos.y = lo.y - gap - size.y
+	if pos.y + size.y > area.y + area.h - t.edge - dock_lift(app) - dock.y - 8 do pos.y = lo.y - gap - size.y
 	pos.x = clamp(pos.x, area.x + t.edge, max(area.x + area.w - t.edge - size.x, area.x + t.edge))
 	pos.y = clamp(pos.y, area.y + t.edge, max(area.y + area.h - t.edge - size.y, area.y + t.edge))
 	ui.begin_at(ctx, "shape bar", pos, {direction = .Row, gap = 4, padding = 4, radius = t.radius_large + 4, background = .Panel, center = true})

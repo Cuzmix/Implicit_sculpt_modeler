@@ -211,8 +211,7 @@ preset_revert :: proc(app: ^App) {
 	if p, ok := brush_preset(app); ok do preset_values_put(&app.brush, p.values)
 }
 
-// Deletes preset `i`, taking the brush off it first when it is on it, and the dock's
-// slots holding it back to its brush.
+// Deletes preset `i`, taking the brush off it first when it is on it.
 preset_delete :: proc(app: ^App, i: int) {
 	if i < 0 || i >= app.preset_count do return
 	b := &app.brush
@@ -221,7 +220,6 @@ preset_delete :: proc(app: ^App, i: int) {
 	app.preset_count -= 1
 	app.presets[app.preset_count] = {}
 	if b.preset > i + 1 && !preset_read_only(b.preset) do b.preset -= 1
-	dock_preset_deleted(app, i)
 }
 
 // The preset named `name` (ignoring case), or -1.

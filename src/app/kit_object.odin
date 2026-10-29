@@ -200,7 +200,7 @@ kit_mask :: proc(app: ^App) {
 	ui.label(ctx, "Ctrl + drag on empty space draws", t.small_size)
 	shapes := [2]string{"Rectangle", "Lasso"}
 	if picked := ui.tabs(ctx, "mask shape", shapes[:], int(app.ui.mask_shape_kind)); picked >= 0 do app.ui.mask_shape_kind = Mask_Shape_Kind(picked)
-	ui.paragraph(ctx, fmt.tprintf("Paint the mask with the Mask brush, or Ctrl + drag a shape from empty space (with Alt: unmask). Masked parts show darker and no brush moves them. Blur, Sharpen, Grow and Shrink (over the dock while something is masked, and under More options) move its edge Steps rings of triangles. %s clears, %s inverts. With Mask on and the Sculpt tool, a tap off the model inverts, one on the mask blurs it and one on an unmasked part sharpens it.", command_keys(app, .Mask, int(sculpt.Mask_Command.Clear)), command_keys(app, .Mask, int(sculpt.Mask_Command.Invert))))
+	ui.paragraph(ctx, fmt.tprintf("Paint the mask with the Mask brush, or Ctrl + drag a shape from empty space (with Alt: unmask). Masked parts show darker and no brush moves them. Blur, Sharpen, Grow and Shrink (over the shelf while something is masked, and under More options) move its edge Steps rings of triangles. %s clears, %s inverts. With Mask on and the Sculpt tool, a tap off the model inverts, one on the mask blurs it and one on an unmasked part sharpens it.", command_keys(app, .Mask, int(sculpt.Mask_Command.Clear)), command_keys(app, .Mask, int(sculpt.Mask_Command.Invert))))
 	kit_last_result(app, .Mask)
 	if kit_more(app, .Mask) {
 		kit_command_pair(app, .Mask, .Mask, int(sculpt.Mask_Command.Blur), int(sculpt.Mask_Command.Sharpen), "Blur", "Sharpen")
