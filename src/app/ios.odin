@@ -95,4 +95,11 @@ when ODIN_PLATFORM_SUBTARGET_IOS {
 		// From then on sends the pencil's coalesced samples as `event_type` (pen_samples.odin).
 		sculpt_ios_samples_start :: proc(window: ^sdl.Window, event_type: u32) ---
 	}
+
+	// ios/sculpt_ios.m: the system and its version, the model's identifier and the IPA's build
+	// number, for the Input diagnostics report (diagnostics.odin), each in `size` bytes.
+	@(default_calling_convention = "c")
+	foreign {
+		sculpt_ios_device_info :: proc(os_name, model, build: [^]u8, size: c.int) ---
+	}
 }

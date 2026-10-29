@@ -1154,7 +1154,8 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 		// search) was the field's. The recovery card, when nothing is above it, waits
 		// for the next start.
 		if k.recover_shown && quiet && !shape_waits && !side_panel_open(k) do app.autosave.offer_hidden = true
-		if k.home && quiet do home_close(app)
+		if app.diag.open && quiet do diag_close(app)
+		else if k.home && quiet do home_close(app)
 		else if k.clean && quiet do clean_view_set(app, false)
 		else if k.bars_edit && quiet && !k.palette do k.bars_edit = false
 		else if shape_waits && quiet do app.shape_pending.request = .Cancel
@@ -1245,6 +1246,12 @@ kit_layout :: proc(app: ^App) {
 
 	lens_view_frame(app)
 	// The Home screen covers the window and stands in for every panel while it shows.
+	// Input diagnostics covers the window as Home does (kit_diag.odin), and Home too: an
+	// interactive start may open Home after --input-diagnostics opened it.
+	if app.diag.open {
+		kit_diag(app)
+		return
+	}
 	if k.home {
 		k.recover_shown = false
 		kit_home(app)

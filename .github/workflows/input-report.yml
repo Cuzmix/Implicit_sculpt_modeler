@@ -1,0 +1,74 @@
+name: Input report
+
+# Analyses a report exported from Input diagnostics on a device (README "Input diagnostics"):
+# scripts/input_report.py checks it against its schema, ties its events to their tests,
+# flags missing events, odd transitions and timing, compares the runs before and after the
+# Pencil, and writes input-analysis.md and input-analysis.json, kept as an artifact and shown
+# on the run's page. Started by hand (Actions > Input report > Run workflow) with either the
+# path of a report committed on the chosen branch (under diagnostics/reports/, which git
+# ignores until a report is added there with git add -f) or an https link to the ZIP.
+on:
+  workflow_dispatch:
+    inputs:
+      report:
+        description: "Path of the report on this branch, e.g. diagnostics/reports/ipad-2026-10-29.zip"
+        required: false
+        default: ""
+      url:
+        description: "Or an https link to the report's ZIP"
+        required: false
+        default: ""
+      strict:
+        description: "Fail this run when the report has confirmed failures"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  analyse:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: The analyzer's own tests
+        run: python3 scripts/test_input_report.py
+
+      # The inputs reach the script through the environment, never pasted into the command.
+      - name: Analyse the report
+        env:
+          REPORT: ${{ inputs.report }}
+          URL: ${{ inputs.url }}
+          STRICT: ${{ inputs.strict }}
+        run: |
+          args=(--out build/input-report)
+          if [ "$STRICT" = "true" ]; then args+=(--strict); fi
+          # The path last, after --, so one starting with a dash is still a path.
+          if [ -n "$URL" ]; then
+            args+=(--url "$URL")
+          elif [ -n "$REPORT" ]; then
+            args+=(-- "$REPORT")
+          else
+            echo "Give the report's path on this branch or an https link to it."
+            exit 1
+          fi
+          python3 -I scripts/input_report.py "${args[@]}"
+
+      - name: The analysis on the run's page
+        if: always()
+        run: |
+          if [ -f build/input-report/input-analysis.md ]; then
+            cat build/input-report/input-analysis.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: input-analysis
+          path: build/input-report/
+          if-no-files-found: warn
+          retention-days: 30

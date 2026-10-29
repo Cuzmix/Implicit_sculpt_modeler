@@ -97,6 +97,9 @@ Options :: struct {
 	run:        string `usage:"Run the command script in this file once the window is up, as set-up: commands by name, settings with set, wait and select (README \"Command scripts\"). A script with an error runs none of it and exits with code 2; so does a statement that does nothing in a run with --frames. --frames and the frames of --ui-events count from where it ends."`,
 	script:     string `usage:"Run this command script, given here with ; between statements, as --run does a file's."`,
 	save_strokes: string `usage:"On exit, save the recorded strokes (or else the last stroke) to this .strokes file, as the Stroke recorder's Save strokes does."`,
+	input_diagnostics: bool `usage:"Open the Input diagnostics screen at the start, in any build (debug builds and the developer iPad build also reach it from Search and Settings > Statistics)."`,
+	diag_test: string `usage:"Open Input diagnostics at the start and run this test (finger_tap, roll_right, ...: README \"Input diagnostics\")."`,
+	diag_export: string `usage:"On exit, write the Input diagnostics report (a ZIP of diagnostic-report.md, diagnostic-events.jsonl and diagnostic-summary.json) to this path, as its Export report does."`,
 }
 
 // Everything the app owns. The interface only ever sees pointers handed to it per frame.
@@ -162,6 +165,7 @@ App :: struct {
 	// replayed stroke turns as it was drawn.
 	alpha_roll: f32,
 	pencil:   Pencil, // the pencil's double-tap and squeeze, the pen's second button and eraser end (pencil.odin)
+	diag:     Diag, // the Input diagnostics screen and its log (diagnostics.odin)
 	// The first-run tips (kit_coach.odin): whether this run shows them, and the steps
 	// done since the card last moved on.
 	coach_run:  bool,
@@ -589,6 +593,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	kit_init(&app)
 	defer kit_destroy(&app)
 	if !kit_events_parse(&app, opts.ui_events) do return false
+	defer diag_destroy(&app)
 
 	if len(app.scene.objects) > 1 do frame_all(&app)
 	app.cache_idle = !opts.no_cache
@@ -663,6 +668,18 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	app.coach_run = (remember && opts.frames == 0) || opts.coach
 	if opts.coach do app.kit.coach = 0
 	app.kit.fixed_dt = opts.ui_dt
+	// After the clock is chosen, which the session's times count on.
+	app.diag.allowed = DIAGNOSTICS || opts.input_diagnostics || opts.diag_test != "" || opts.diag_export != ""
+	if opts.input_diagnostics || opts.diag_test != "" do diag_open(&app)
+	if opts.diag_test != "" {
+		test, known := diag_test_named(opts.diag_test)
+		if !known {
+			log.errorf("--diag-test=%s: no such test (README \"Input diagnostics\" lists them)", opts.diag_test)
+			return false
+		}
+		diag_show(&app, test)
+		diag_run_start(&app, test)
+	}
 	if opts.no_vsync do app.frame_rate = .Unlimited
 	if opts.frame_limit > 0 do app.frame_rate, app.frame_limit = .Limit, i32(clamp(opts.frame_limit, FRAME_LIMIT_MIN, FRAME_LIMIT_MAX))
 	app.ui.smooth_on_gpu = opts.gpu_smooth
@@ -812,6 +829,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		for sdl.PollEvent(&e) {
 			app.idle.events += 1
 			if view_windows_event(&app, &e, main_window) do continue
+			// Before anything below takes the event for itself (Space, the backquote, the pencil).
+			diag_event(&app, &e)
 			// Space over the viewport is the brush pie's (pie.odin) rather than a key of the
 			// frame; once it went down there, its release is the pie's too.
 			if (e.type == .KEY_DOWN || e.type == .KEY_UP) && e.key.scancode == .SPACE {
@@ -1207,6 +1226,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			_ = ui.frame_end(&app.kit.ctx)
 		}
 		app.stats.ui_vertices = len(app.kit.ctx.draw.vertices)
+		// Once ui.frame_end settled the held control and the field with the keys.
+		diag_frame(&app)
 		// The pass clears the image even when the interface could not be uploaded, so a
 		// failed upload shows an empty frame rather than whatever the image held.
 		if swapchain != nil {
@@ -1307,6 +1328,9 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	if opts.save != "" && set_up && !scene_save(&app, opts.save) do return false
 	if opts.save_strokes != "" && set_up && !strokes_save(&app, opts.save_strokes) do return false
 	if opts.export_workspace != "" && set_up && !workspace_export(&app, opts.export_workspace) do return false
+	// A run still under way at exit ends here, so its verdict is in the stats and the report.
+	if app.diag.run_open do diag_run_end(&app, .End)
+	if opts.diag_export != "" && !diag_export(&app, opts.diag_export) do return false
 	save_pending(&app, true)
 	autosave_close(&app, window)
 	if as := &app.autosave; as.on {
@@ -1383,6 +1407,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	for _, slot in app.plugins.slots do plugin_commands += int(plugin_slot_loaded(&app, slot))
 	fmt.printfln("plugins=%d plugin_commands=%d plugin_errors=%d plugin_runs=%d plugin_steps=%d", len(app.plugins.plugins) - plugins_failed(&app), plugin_commands, app.plugins.errors, app.plugins.runs, app.plugins.steps)
 	fmt.printfln("frames=%d dabs=%d objects=%d vertices=%d", frame_index, app.stats.dabs_total, len(app.scene.objects), vertices)
+	diag_stats(&app)
 	{
 		// The voxel objects: how many, their bricks, and what their fields, surfaces and undo
 		// steps hold.

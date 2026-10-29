@@ -20,6 +20,8 @@
 #import <UIKit/UIGestureRecognizerSubclass.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #include <stdbool.h>
+#include <string.h>
+#include <sys/utsname.h>
 #include <SDL3/SDL.h>
 
 @interface SculptPicker : NSObject <UIDocumentPickerDelegate, UIAdaptivePresentationControllerDelegate>
@@ -525,4 +527,24 @@ void sculpt_ios_samples_start(SDL_Window *window, Uint32 event_type)
 	samples.delaysTouchesBegan = NO;
 	samples.delaysTouchesEnded = NO;
 	[view addGestureRecognizer:samples];
+}
+
+/*
+ * What the Input diagnostics report says the device is (src/app/diagnostics.odin): the system
+ * and its version ("iPadOS 26.7.2"), the model's identifier ("iPad14,8"), which UIDevice's
+ * model ("iPad") does not tell apart, and the build number the IPA was made with. Each goes
+ * into its `size` bytes, cut short if need be and always ended with a zero.
+ */
+void sculpt_ios_device_info(char *os_name, char *model, char *build, int size)
+{
+	if (!os_name || !model || !build || size <= 0) return;
+	UIDevice *device = UIDevice.currentDevice;
+	NSString *system = [NSString stringWithFormat:@"%@ %@", device.systemName, device.systemVersion];
+	struct utsname u;
+	const char *machine = uname(&u) == 0 ? u.machine : "";
+	id number = [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleVersion"];
+	const char *built = [number isKindOfClass:NSString.class] ? ((NSString *)number).UTF8String : "";
+	strlcpy(os_name, system.UTF8String ? system.UTF8String : "", (size_t)size);
+	strlcpy(model, machine, (size_t)size);
+	strlcpy(build, built ? built : "", (size_t)size);
 }
