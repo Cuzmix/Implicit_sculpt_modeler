@@ -40,7 +40,9 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   chip bar `kit_top_bar` (`kit_top_lens.odin`, root "top bar", floating `TOP_BAR_INSET` in and `TOP_BAR_TOP` down;
   `TOP_BAR_H` stays the room it takes): Menu, file block (`file_status`, fixed width so Undo/Redo never move) | Undo,
   Redo | space tabs `top_space_tabs` | the object chip `top_object_chip` (`object_chip.odin`, shrunk by
-  `object_chip_fit`) | Search field | History, Settings, all laid inline with spacers (a `begin_at` inside the bar
+  `object_chip_fit`; its tap opens `kit_object_menu`, `object_menu.odin`: rows from `OBJECT_VERBS[Object_Type][Space]`,
+  each a registry command, another space's first enabled verb tagged with `menu_item(tag =, tag_color = t.tints[space])`
+  and run after `Space_Switch`; a new verb is a table row, never a menu branch) | Search field | History, Settings, all laid inline with spacers (a `begin_at` inside the bar
   loses hits to it); its width budget counts the row's 13 gaps; `lens_focus(k)` (the View_Bar zone hidden) turns it into `kit_top_islands`, with no view chips and
   a compact shelf. Then `kit_view_chips` ("points", skipped while a pane is maximised: `view_chips=`), `kit_offhand` (the island, "brush bar": Size and Strength
   `ui.vslider`s, long press = Pen section, the pen's roll sets them via `island_roll`), `kit_nav_head`, `kit_view_rail`

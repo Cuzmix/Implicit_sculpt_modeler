@@ -1654,7 +1654,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		fmt.printfln("long_tip_keys=%s", long_tip_keys if long_tip_keys != "" else "none")
 		hover_tip, _ := strings.replace_all(ui.tip_showing(&app.kit.ctx), " ", "_", context.temp_allocator)
 		fmt.printfln("tip_showing=%s", hover_tip if hover_tip != "" else "none")
-		fmt.printfln("long_tip=%s object_menu=%d inspector_tab=%s brush_kind=%s", long_tip if long_tip != "" else "none", int(app.kit.object_menu), strings.to_lower(fmt.tprint(app.kit.tab), context.temp_allocator), strings.to_lower(fmt.tprint(app.brush.kind), context.temp_allocator))
+		fmt.printfln("long_tip=%s object_menu=%d object_menu_type=%v object_menu_rows=%d inspector_tab=%s brush_kind=%s", long_tip if long_tip != "" else "none", int(app.kit.object_menu), app.kit.object_menu_type, app.kit.object_menu_rows, strings.to_lower(fmt.tprint(app.kit.tab), context.temp_allocator), strings.to_lower(fmt.tprint(app.brush.kind), context.temp_allocator))
 		// The tray scrolls in its column's body while docked and in its own while floating.
 		tray_scroll := app.kit.scroll
 		if _, _, docked := panel_docked(&app.kit, Kit_Window.Inspector); docked do tray_scroll = app.kit.panels.scroll[.Inspector]

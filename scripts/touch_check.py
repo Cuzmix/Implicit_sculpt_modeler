@@ -11545,6 +11545,52 @@ def voxel_object_deleted_comes_back_with_undo():
     return s, ["--voxels=96"], camera_still({"voxel_objects": near(1), "objects": near(1), "dabs": lambda v: int(v) > 0, "undo_steps": near(1)})
 
 
+# The object menu's rows, under the chip at the default 1600x900 for a new cage (which
+# adding one leaves in Model space): its quick row's Lock, and the Sculpt-tagged "Make
+# sculptable" below the four Model verbs.
+CAGE_MENU_LOCK = (821, 138)
+CAGE_MENU_SCULPTABLE = (734, 361)
+
+
+def object_menu_open(s):
+    s.wait(4)
+    s.ftap(*STATUS_CHIP)
+    s.wait(8)
+
+
+@scenario
+def object_menu_lists_the_verbs_of_the_type_and_space():
+    """The object menu shows a sculpt mesh's six Sculpt verbs and a cage's four Model verbs, each with the other space's main verb, the rows every object has and Delete."""
+    def run(what):
+        s = Script()
+        object_menu_open(s)
+        if what == "mesh":
+            return s, [], camera_still({"object_menu": near(1), "object_menu_type": is_text("Sculpt_Mesh"), "object_menu_rows": near(11), "space": is_text("sculpt")})
+        return s, ["--script=add_cage cube"], camera_still({"object_menu": near(1), "object_menu_type": is_text("Cage"), "object_menu_rows": near(8), "space": is_text("model")})
+    return Steps([run("mesh"), run("cage")])
+
+
+@scenario
+def object_menu_other_space_row_switches_and_runs():
+    """A cage's Sculpt-tagged row in Model space switches to Sculpt (the second switch, after adding the cage went to Model) and makes the cage a mesh to sculpt, closing the menu."""
+    s = Script()
+    object_menu_open(s)
+    s.ftap(*CAGE_MENU_SCULPTABLE)
+    s.wait(8)
+    return s, ["--script=add_cage cube"], camera_still({"object_menu": near(0), "space": is_text("sculpt"), "space_switches": near(2),
+                                                         "object_chip": lambda v: v.startswith("Full,Sculpt_mesh")})
+
+
+@scenario
+def object_menu_quick_row_locks_the_object():
+    """The object menu's quick row locks the object and closes the menu."""
+    s = Script()
+    object_menu_open(s)
+    s.ftap(*CAGE_MENU_LOCK)
+    s.wait(6)
+    return s, ["--script=add_cage cube"], camera_still({"object_menu": near(0), "object_locks": near(1)})
+
+
 def main(argv):
     if "--list" in argv:
         for name, fn in SCENARIOS.items():
