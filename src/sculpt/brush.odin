@@ -49,6 +49,8 @@ Brush_Kind :: enum {
 	Cloth,   // the surface around the brush behaves as cloth for the stroke: sculptor_cloth_begin and _step (cloth.odin)
 	History, // bring the surface back toward how it was before an earlier step (recall.odin)
 	Elastic, // drag as an elastic solid pulled at the press would move: Grab's arrays, Kelvinlet weights (elastic.odin)
+	Clay_Strips,  // build flat-topped strips with square ends along the stroke (strips.odin; inverted digs)
+	Trim_Dynamic, // cut a ridge into two planes about the stroke, at the angle it finds (strips.odin; inverted: a valley)
 }
 
 Axis :: enum u8 {
@@ -99,6 +101,9 @@ Brush :: struct {
 	// longer than this share of the radius are split first; 0 leaves the triangles be.
 	detail:   f32,
 	collapse: bool, // ...and edges much shorter than that collapse
+	// Dynamic topology's tests weighted by the brush's falloff at each edge's middle, so
+	// the rim refines less than the centre (Nomad's Use stroke falloff; edge_scale2).
+	detail_falloff: bool,
 	// Turns the direction the brush works along (the area normal: Draw's push, the
 	// plane of Clay and Flatten, Pinch's and Crease's surface) before the dab moves
 	// anything: a leaning pen's (camera.orbit_tilt). The zero matrix leaves it.
@@ -112,8 +117,26 @@ Brush :: struct {
 	// Replaces the round falloff with this one (falloff_set_curve); nil keeps the
 	// built-in smooth one. Every brush uses it, Grab included; an alpha replaces it.
 	falloff_shape: ^Falloff,
+	// Falloff shape Projected, as Blender's: the view direction in the mesh's space, along
+	// which the falloff is measured as a circle seen down the view rather than a ball, out
+	// to a radius either side of the centre in depth (a cylinder), so the brush's footprint
+	// is the ring on screen however the surface curves away. Zero is Sphere. Grab, Elastic,
+	// Cloth and Snake hook, which drag what they pick up, and any brush with an alpha (laid
+	// on the area already), keep the ball.
+	projected: Vec3,
 	// Snake_Hook: how far this dab drags what is under it, in the mesh's space.
 	drag:     Vec3,
+	// Snake_Hook, as Blender's: Pinch draws what the hook drags in toward the line it is
+	// pulled along, a share of the step a dab (-1 to 1; below 0 it magnifies instead,
+	// fattening the tip); Rake turns what it drags by how far the hook turned since the
+	// last dab (0 to 1 of `rake_angle` about `rake_axis`, in the mesh's space), so a
+	// hook drawn round a bend twists with it instead of shearing; Elastic tip drags as
+	// the Elastic brush does (a Kelvinlet out to ELASTIC_REACH radii, by `volume`).
+	hook_pinch:   f32,
+	hook_rake:    f32,
+	rake_axis:    Vec3,
+	rake_angle:   f32,
+	hook_elastic: bool,
 	// Front faces only, as ZBrush's BackfaceMask: the way toward the viewer in the
 	// mesh's space, and vertices whose normal turns away from it are left alone (with a
 	// short fade across the edge-on ones), so a stroke on a thin part leaves its far
@@ -141,6 +164,22 @@ Brush :: struct {
 	through:    Vec3,
 	// Smooth: which vertices it evens out, all or only those in dents or on bumps.
 	smooth_only: Smooth_Only,
+	// Smooth: as many more passes as the mesh under it is denser than SMOOTH_STABLE_EDGES
+	// edges a radius, up to SMOOTH_PASSES_MAX, so a dab evens out about the same share of
+	// the brush whatever the density (smooth_passes).
+	smooth_stable: bool,
+	// ZBrush's Samples. Stabilize orientation: 0 to 0.95, how much of the stroke's mean
+	// area normal and plane each dab keeps rather than taking its own (steady_apply), for
+	// the kinds that work along the area. Sample radius: the share of the radius the area
+	// is sampled over, 0 meaning all of it. No accumulate (Accumulate off): a Draw or
+	// Inflate stroke going over itself raises each vertex only as far as one pass would
+	// (the stroke's height per vertex, as Layer keeps it).
+	stabilize:     f32,
+	sample_radius: f32,
+	no_accumulate: bool,
+	// Smooth: how it evens out (smooth_all.odin's modes): Relax only across the surface,
+	// Polish keeping the volume by the HC Laplacian (where Smooth all's Polish is Taubin's).
+	smooth_mode:   Smooth_Mode,
 	// Grab: pick up only what faces the same way as the surface pressed (Nomad's Same
 	// side), and move only what faces the way it is dragged out (Blender's Silhouette).
 	same_side:  bool,
@@ -153,6 +192,21 @@ Brush :: struct {
 	// Elastic: how much of its volume the solid keeps as it stretches, 0 to 1, Poisson's
 	// ratio over its physical limit of a half (elastic.odin).
 	volume: f32,
+	// Clay strips and Trim dynamic: the way the stroke goes, in the mesh's space (zero
+	// for its first dab), which their frame's x follows (strip_frame).
+	stroke_dir: Vec3,
+	// Clay strips' tip: how round its square's corners are, 0 (square) to 1 (round), and
+	// its length along the stroke as a share of its width, CLAY_TIP_SCALE_MIN to 1 (0 is 1).
+	tip_roundness: f32,
+	tip_scale:     f32,
+	// Trim dynamic: the angle between its planes in radians, sampled from the ground
+	// each dab unless `trim_fixed`, which keeps it as given.
+	trim_angle: f32,
+	trim_fixed: bool,
+	// Flatten (Blender's Plane height and depth): how far short of a radius it reaches
+	// above ([0]) and below ([1]) its plane, 0 to 1; 0 reaches the whole radius, 1 leaves
+	// that side alone (only below: Fill; only above: Scrape).
+	plane_short: [2]f32,
 	// Symmetry's feathering, as Blender's: where a dab and its images overlap near a plane
 	// or the radial axis, each is weakened by how much they overlap (symmetry_feather), so
 	// a stroke along the middle builds the height it builds elsewhere, not twice it.
@@ -166,6 +220,13 @@ Smooth_Only :: enum u8 {
 	Valleys,
 	Peaks,
 }
+
+// Polish's HC Laplacian weights (Vollmer, Mencl and Muller 1999), as Blender's Surface
+// Smooth's defaults: how far each step is pulled back toward where the dab began
+// (alpha) and how much of that pull is the vertex's own rather than its neighbours'
+// (beta).
+POLISH_ALPHA :: 0.5
+POLISH_BETA :: 0.5
 
 // A vertex's Layer height, and the stroke it belongs to (0: none).
 Layer_Height :: struct {
@@ -243,6 +304,12 @@ Sculptor :: struct {
 	partials:    [dynamic]Partial,
 	offsets:     [dynamic]u32, // per hit leaf: start of its slots in smooth_to
 	smooth_to:   [dynamic]Vec3,
+	// Polish: per slot, where each vertex was when the dab began and its HC push-back.
+	smooth_from: [dynamic]Vec3,
+	smooth_b:    [dynamic]Vec3,
+	// Polish: the hit leaves' owned ranges sorted by their first vertex, to find a
+	// neighbour's slot (smooth_slot).
+	smooth_ranges: [dynamic]Smooth_Range,
 	blur_to:     [dynamic][4]f32, // Paint's blur: the colour each slot mixes toward
 
 	// Nodes whose vertex normals and GPU data are stale since the last sculptor_flush,
@@ -303,6 +370,8 @@ Sculptor :: struct {
 	topo:         Topo_State,
 	// Lock plane's plane for the stroke under way, and Connected's flood (filters.odin).
 	locked:       Locked_Plane,
+	steady:       Locked_Plane, // Stabilize orientation's running mean, as `locked` is kept
+	trim:         Trim_State, // Trim dynamic's eased angle over the stroke
 	connected:    Connected_State,
 	// Set while dynamic topology is on (dyntopo.odin): the mesh is laid out in pages,
 	// `faces` and the shared lists above are replaced, and there are no LOD copies.
@@ -331,6 +400,9 @@ sculptor_init_rest :: proc(s: ^Sculptor, allocator: runtime.Allocator) {
 	s.partials = make([dynamic]Partial, 0, 256, allocator)
 	s.offsets = make([dynamic]u32, 0, 256, allocator)
 	s.smooth_to = make([dynamic]Vec3, 0, 16384, allocator)
+	s.smooth_from = make([dynamic]Vec3, 0, 0, allocator)
+	s.smooth_b = make([dynamic]Vec3, 0, 0, allocator)
+	s.smooth_ranges = make([dynamic]Smooth_Range, 0, 0, allocator)
 	s.blur_to = make([dynamic][4]f32, 0, 0, allocator)
 	s.stale = make([]Stale, len(s.nodes), allocator)
 	s.dirty_nodes = make([dynamic]u32, 0, 256, allocator)
@@ -379,6 +451,9 @@ sculptor_destroy :: proc(s: ^Sculptor) {
 	delete(s.partials)
 	delete(s.offsets)
 	delete(s.smooth_to)
+	delete(s.smooth_from)
+	delete(s.smooth_b)
+	delete(s.smooth_ranges)
 	delete(s.blur_to)
 	delete(s.stale)
 	delete(s.dirty_nodes)
@@ -696,6 +771,10 @@ falloff :: #force_inline proc(x2: f32) -> f32 {
 
 FALLOFF_STEPS :: 256
 
+// The most Hardness takes: past it the ring the falloff is squeezed into is thinner than
+// the table's cells near the rim, and the edge would step.
+HARDNESS_MAX :: 0.95
+
 // The most a straight row of dabs `spacing` radii apart piles up anywhere along its middle
 // line, with the falloff `shape` (nil: the built-in one), as Blender's
 // paint_stroke_integrate_overlap measures it: the sum of the dabs' weights at a point,
@@ -739,6 +818,16 @@ falloff_set_curve :: proc(f: ^Falloff, curve: geom.Curve) {
 FOCAL_MIN :: -100
 FOCAL_MAX :: 100
 
+// Whether a dab of `brush` measures its falloff Projected (Brush.projected): not the kinds
+// that drag what they pick up, nor with an alpha.
+projects :: #force_inline proc(brush: Brush) -> bool {
+	if brush.projected == {} || brush.alpha != nil do return false
+	#partial switch brush.kind {
+	case .Grab, .Elastic, .Cloth, .Snake_Hook, .Clay_Strips: return false
+	}
+	return true
+}
+
 // Fills the table with the falloff `curve` (nil: the built-in falloff) reshaped by `focal`
 // (FOCAL_MIN to FOCAL_MAX): the weight at distance d radii is the base's at d^p, with
 // p = 2^(-focal/50), so focal 0 is the base itself, 100 reads it at d^(1/4), a point, and
@@ -746,12 +835,19 @@ FOCAL_MAX :: 100
 // rim, and falls as d grows. A strong positive shift is steeper at the very tip than the
 // table can follow: inside its first cell (a sixteenth of the radius) the point is rounded
 // off, which a dab never shows, where more entries would only round it a little less.
-falloff_set_shaped :: proc(f: ^Falloff, curve: Maybe(geom.Curve), focal: f32) {
+// Hardness (0 to 1, Blender's) comes first: the inner `hardness` share of the radius
+// works at full strength and the shape is squeezed into the ring outside it.
+falloff_set_shaped :: proc(f: ^Falloff, curve: Maybe(geom.Curve), focal: f32, hardness: f32 = 0) {
 	p := math.pow(2, -clamp(focal, FOCAL_MIN, FOCAL_MAX) / 50)
+	hard := clamp(hardness, 0, HARDNESS_MAX)
 	for &w, i in f.table {
 		// Squared distances stay as they are where nothing reshapes them, so the built-in
 		// table matches falloff itself exactly.
 		x2 := f32(i) / FALLOFF_STEPS
+		if hard > 0 {
+			x := max(math.sqrt(x2) - hard, 0) / (1 - hard)
+			x2 = x * x
+		}
 		if focal != 0 do x2 = math.pow(x2, p)
 		if c, drawn := curve.?; drawn {
 			w = geom.curve_at(c, 1 - math.sqrt(x2))
@@ -796,8 +892,15 @@ alpha_frame :: proc(d: ^Dab) {
 @(private)
 dab_weight :: #force_inline proc(d: ^Dab, delta: Vec3, d2: f32) -> f32 {
 	if d.alpha == nil {
-		if d.brush.falloff_shape != nil do return falloff_drawn(d.brush.falloff_shape, d2 * d.inv_r2)
-		return falloff(d2 * d.inv_r2)
+		x2 := d2 * d.inv_r2
+		if d.view != {} {
+			// Projected: the distance across the view line, within a radius of depth.
+			h := linalg.dot(delta, d.view)
+			if h * h >= 1 do return 0
+			x2 -= h * h
+		}
+		if d.brush.falloff_shape != nil do return falloff_drawn(d.brush.falloff_shape, x2)
+		return falloff(x2)
 	}
 	h := linalg.dot(delta, d.an)
 	return alpha_sample(d.alpha, linalg.dot(delta, d.au), linalg.dot(delta, d.av)) * falloff(h * h)
@@ -817,10 +920,22 @@ Dab :: struct {
 	alpha:    ^Alpha,
 	au, av, an: Vec3,
 	connected: bool, // Connected's flood ran for this dab (connected_weight)
+	view:     Vec3, // Projected: the view direction over the radius, zero for Sphere (dab_weight)
+	// Clay strips and Trim dynamic: the stroke frame's x (over the radius and Tip scale)
+	// and y (over the radius) (strip_frame), and Trim's two plane normals (trim_planes).
+	sx, sy:   Vec3,
+	trim_plus, trim_minus: Vec3,
+	rate:     f32, // Smooth: this pass's share of the step toward the neighbours (smooth_passes)
+	inv_sample2: f32, // 1 / (the sample radius)²: the area is sampled inside it (job_area)
 	normal:   Vec3, // area normal: the falloff-weighted normals inside the brush
 	plane:    Vec3, // Clay, Flatten: a point on the plane they pull toward
 	amount:   f32,  // signed: displacement at the centre (Draw, Inflate, Crease), plane
 	                // side (Clay), direction (Flatten, Pinch), or mask added (Mask)
+	// Snake_Hook: its Elastic tip's constants, how much this dab pinches (Brush.hook_pinch
+	// times the step over the radius) and the way it drags (unit length).
+	kelvin:   Kelvinlet,
+	pinch:    f32,
+	drag_dir: Vec3,
 }
 
 // Applies one dab centred on `center`, and its mirror images across the brush's
@@ -898,7 +1013,12 @@ sym_brush :: proc(brush: Brush, img: Sym_Image) -> Brush {
 	if b.tilt != {} do b.tilt = m * b.tilt * linalg.transpose(m)
 	b.alpha_up = m * b.alpha_up
 	b.drag = m * b.drag
+	// A mirror turns a rotation the other way about its mirrored axis.
+	b.rake_axis = m * b.rake_axis
+	if img.flipped do b.rake_axis = -b.rake_axis
 	b.facing = m * b.facing
+	b.projected = m * b.projected
+	b.stroke_dir = m * b.stroke_dir
 	if img.flipped do b.alpha_mirror = !b.alpha_mirror
 	return b
 }
@@ -940,14 +1060,26 @@ facing_weight :: #force_inline proc(d: ^Dab, normals: []Vec3, v: u32) -> f32 {
 
 @(private)
 dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3, img: Sym_Image, own: bool) -> int {
-	// An alpha may reach past the round brush, up to its square's corners.
+	// An alpha may reach past the round brush, up to its square's corners; a Snake hook's
+	// Elastic tip reaches as the Elastic brush does.
 	reach := brush.radius * (brush.alpha.reach if brush.alpha != nil else 1)
+	if brush.kind == .Snake_Hook && brush.hook_elastic do reach = ELASTIC_REACH * brush.radius
+	// Clay strips' square tip reaches its corners.
+	if brush.kind == .Clay_Strips && brush.alpha == nil do reach = math.SQRT_TWO * brush.radius
+	// Projected reaches a cylinder a radius round the view line and a radius deep each
+	// way, whose rim corners lie √2 radii out.
+	view: Vec3
+	if projects(brush) {
+		view = linalg.normalize(brush.projected) / brush.radius
+		reach = math.SQRT_TWO * brush.radius
+	}
 	d := Dab {
 		s      = s,
 		brush  = brush,
 		center = center,
 		r2     = reach * reach,
 		inv_r2 = 1 / (brush.radius * brush.radius),
+		view   = view,
 	}
 	clear(&s.hit)
 	geom.bvh_query_leaves(&s.bvh, center, reach, &s.hit)
@@ -969,6 +1101,8 @@ dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3, img: Sym_Image, own: 
 	// The area under the brush: what most kinds work along, and the plane an alpha
 	// lies on.
 	if (brush.kind != .Smooth && brush.kind != .Mask && brush.kind != .Paint && brush.kind != .Snake_Hook && brush.kind != .Morph && brush.kind != .History) || brush.alpha != nil {
+		sample := brush.radius * (clamp(brush.sample_radius, SAMPLE_RADIUS_MIN, 1) if brush.sample_radius > 0 else 1)
+		d.inv_sample2 = 1 / (sample * sample)
 		jobs.parallel_for(pool, len(s.hit), &d, job_area)
 		weight: f32
 		for p in s.partials {
@@ -978,7 +1112,13 @@ dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3, img: Sym_Image, own: 
 		}
 		d.normal = linalg.normalize0(d.normal)
 		if weight > 0 do d.plane /= weight
-		if brush.lock_plane && brush_locks_plane(brush.kind, brush.alpha != nil) do lock_plane_apply(s, &d, img, own, weight)
+		if brush_locks_plane(brush.kind, brush.alpha != nil) {
+			if brush.lock_plane {
+				lock_plane_apply(s, &d, img, own, weight)
+			} else if brush.stabilize > 0 {
+				steady_apply(s, &d, img, own, weight, min(brush.stabilize, STABILIZE_MAX))
+			}
+		}
 		if brush.tilt != {} do d.normal = linalg.normalize0(brush.tilt * d.normal)
 		if brush.alpha != nil do alpha_frame(&d)
 	}
@@ -995,10 +1135,20 @@ dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3, img: Sym_Image, own: 
 	switch brush.kind {
 	case .Draw:
 		d.amount = sign * brush.radius * brush.strength * DRAW_HEIGHT
-		jobs.parallel_for(pool, len(s.hit), &d, job_draw)
+		if brush.no_accumulate {
+			layer_heights_fit(s)
+			jobs.parallel_for(pool, len(s.hit), &d, job_draw_once)
+		} else {
+			jobs.parallel_for(pool, len(s.hit), &d, job_draw)
+		}
 	case .Inflate:
 		d.amount = sign * brush.radius * brush.strength * DRAW_HEIGHT
-		jobs.parallel_for(pool, len(s.hit), &d, job_inflate)
+		if brush.no_accumulate {
+			layer_heights_fit(s)
+			jobs.parallel_for(pool, len(s.hit), &d, job_inflate_once)
+		} else {
+			jobs.parallel_for(pool, len(s.hit), &d, job_inflate)
+		}
 	case .Clay:
 		d.amount = sign
 		d.plane += d.normal * (sign * brush.radius * CLAY_HEIGHT)
@@ -1006,6 +1156,15 @@ dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3, img: Sym_Image, own: 
 	case .Flatten:
 		d.amount = sign
 		jobs.parallel_for(pool, len(s.hit), &d, job_flatten)
+	case .Clay_Strips:
+		d.amount = sign
+		d.plane += d.normal * (sign * brush.radius * CLAY_HEIGHT)
+		strip_frame(&d)
+		jobs.parallel_for(pool, len(s.hit), &d, job_clay_strips)
+	case .Trim_Dynamic:
+		strip_frame(&d)
+		trim_planes(s, &d, pool, own)
+		jobs.parallel_for(pool, len(s.hit), &d, job_trim)
 	case .Pinch:
 		d.amount = sign
 		jobs.parallel_for(pool, len(s.hit), &d, job_pinch)
@@ -1014,17 +1173,15 @@ dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3, img: Sym_Image, own: 
 		d.amount = -sign * brush.radius * brush.strength * DRAW_HEIGHT
 		jobs.parallel_for(pool, len(s.hit), &d, job_crease)
 	case .Layer:
-		if len(s.layer) < len(s.mesh.positions) {
-			// Dynamic topology adds vertices; the new entries belong to no stroke.
-			grown := make([]Layer_Height, len(s.mesh.positions) + len(s.mesh.positions) / 4, s.history.allocator)
-			copy(grown, s.layer)
-			delete(s.layer, s.history.allocator)
-			s.layer = grown
-		}
+		layer_heights_fit(s)
 		d.amount = sign * brush.radius * brush.strength * LAYER_HEIGHT
 		jobs.parallel_for(pool, len(s.hit), &d, job_layer)
 	case .Snake_Hook:
 		if brush.drag == {} do return painted
+		if brush.hook_elastic do d.kelvin = kelvinlet_make(brush.radius, brush.volume)
+		step := linalg.length(brush.drag)
+		d.pinch = clamp(brush.hook_pinch, -1, 1) * step / brush.radius
+		d.drag_dir = brush.drag / step
 		jobs.parallel_for(pool, len(s.hit), &d, job_snake_hook)
 	case .Morph:
 		if len(s.morph) != len(s.mesh.positions) do return painted
@@ -1035,7 +1192,8 @@ dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3, img: Sym_Image, own: 
 	case .Grab, .Elastic, .Mask, .Paint, .Cloth:
 		unreachable()
 	case .Smooth:
-		// Jacobi step: every target is computed from unmoved positions first.
+		// Jacobi steps: every target of a pass is computed from that pass's unmoved
+		// positions first.
 		resize(&s.offsets, len(s.hit))
 		total: u32
 		for leaf, i in s.hit {
@@ -1043,8 +1201,35 @@ dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3, img: Sym_Image, own: 
 			total += s.nodes[s.node_of[leaf]].vert_count
 		}
 		resize(&s.smooth_to, int(total))
-		jobs.parallel_for(pool, len(s.hit), &d, job_smooth_targets)
-		jobs.parallel_for(pool, len(s.hit), &d, job_smooth_apply)
+		scale: f32 = 1
+		if brush.smooth_stable {
+			jobs.parallel_for(pool, len(s.hit), &d, job_smooth_edges)
+			length, edges: f64
+			for p in s.partials {
+				length += f64(p.weight_sum)
+				edges += f64(p.moved)
+			}
+			slice.zero(s.partials[:])
+			if edges > 0 do scale = smooth_stable_scale(brush.radius, f32(length / edges))
+		}
+		rates := smooth_passes(brush.strength * scale)
+		if brush.smooth_mode == .Polish && len(rates) > 0 {
+			resize(&s.smooth_from, int(total))
+			resize(&s.smooth_b, int(total))
+			clear(&s.smooth_ranges)
+			for leaf, i in s.hit {
+				first, last := owned(s, leaf)
+				append(&s.smooth_ranges, Smooth_Range{first, last, s.offsets[i]})
+				copy(s.smooth_from[s.offsets[i]:][:last - first], s.mesh.positions[first:last])
+			}
+			slice.sort_by(s.smooth_ranges[:], proc(a, b: Smooth_Range) -> bool {return a.first < b.first})
+		}
+		for rate in rates {
+			d.rate = rate
+			jobs.parallel_for(pool, len(s.hit), &d, job_smooth_targets)
+			if brush.smooth_mode == .Polish do jobs.parallel_for(pool, len(s.hit), &d, job_polish_targets)
+			jobs.parallel_for(pool, len(s.hit), &d, job_smooth_apply)
+		}
 	}
 	return painted + finish_move(s, &d, pool)
 }
@@ -1154,8 +1339,8 @@ job_area :: proc(data: rawptr, i: int) {
 	for v in first ..< last {
 		delta := m.positions[v] - d.center
 		d2 := linalg.dot(delta, delta)
-		if d2 < d.r2 {
-			w := falloff(d2 * d.inv_r2) * connected_weight(d, v)
+		if d2 * d.inv_sample2 < 1 {
+			w := falloff(d2 * d.inv_sample2) * connected_weight(d, v)
 			normals += m.normals[v] * w
 			centers += m.positions[v] * w
 			weight += w
@@ -1166,21 +1351,38 @@ job_area :: proc(data: rawptr, i: int) {
 	p.touched = shared_inside(d, s.hit[i])
 }
 
-@(private) job_draw :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.Draw)}
-@(private) job_inflate :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.Inflate)}
-@(private) job_clay :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.Clay)}
-@(private) job_flatten :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.Flatten)}
-@(private) job_pinch :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.Pinch)}
-@(private) job_crease :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.Crease)}
-@(private) job_layer :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.Layer)}
-@(private) job_snake_hook :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.Snake_Hook)}
-@(private) job_morph :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.Morph)}
-@(private) job_history :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.History)}
+@(private) job_draw :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.Draw, false)}
+@(private) job_inflate :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.Inflate, false)}
+@(private) job_draw_once :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.Draw, true)}
+@(private) job_inflate_once :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.Inflate, true)}
+
+// The smallest Sample radius, and the most of the stroke's mean a dab may keep under
+// Stabilize orientation (at 1 it would be Lock plane, which has its own switch).
+SAMPLE_RADIUS_MIN :: 0.25
+STABILIZE_MAX :: 0.95
+
+// Makes the per-vertex stroke heights (Layer, and Draw and Inflate with Accumulate off)
+// cover every vertex: dynamic topology adds vertices, whose new entries belong to no stroke.
+@(private)
+layer_heights_fit :: proc(s: ^Sculptor) {
+	if len(s.layer) >= len(s.mesh.positions) do return
+	grown := make([]Layer_Height, len(s.mesh.positions) + len(s.mesh.positions) / 4, s.history.allocator)
+	copy(grown, s.layer)
+	delete(s.layer, s.history.allocator)
+	s.layer = grown
+}
+@(private) job_clay :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.Clay, false)}
+@(private) job_flatten :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.Flatten, false)}
+@(private) job_pinch :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.Pinch, false)}
+@(private) job_crease :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.Crease, false)}
+@(private) job_layer :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.Layer, false)}
+@(private) job_morph :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.Morph, false)}
+@(private) job_history :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.History, false)}
 
 // Moves the owned vertices of hit leaf i that lie inside the brush, as brush kind K
 // does; specialised per kind so each loop has no branch on the kind.
 @(private)
-displace :: #force_inline proc(d: ^Dab, i: int, $K: Brush_Kind) {
+displace :: #force_inline proc(d: ^Dab, i: int, $K: Brush_Kind, $ONCE: bool) {
 	s := d.s
 	m := s.mesh
 	first, last := owned(s, s.hit[i])
@@ -1194,7 +1396,18 @@ displace :: #force_inline proc(d: ^Dab, i: int, $K: Brush_Kind) {
 		if d2 < d.r2 {
 			w := dab_weight(d, delta, d2) * shield(fade, mask, v) * facing_weight(d, m.normals[:], v)
 			if w > 0 {
-				when K == .Draw {
+				when ONCE {
+					// Accumulate off: raise the vertex to this dab's height if it is above
+					// what the stroke has given it so far, so going over the same place
+					// again adds nothing (both signs, for Ctrl's dig).
+					l := &s.layer[v]
+					h := l.height if l.stroke == s.layer_stroke else 0
+					want := d.amount * w
+					next := max(h, want) if d.amount > 0 else min(h, want)
+					way := d.normal if K == .Draw else m.normals[v]
+					p += way * (next - h)
+					l^ = {s.layer_stroke, next}
+				} else when K == .Draw {
 					p += d.normal * (d.amount * w)
 				} else when K == .Inflate {
 					p += m.normals[v] * (d.amount * w)
@@ -1203,8 +1416,10 @@ displace :: #force_inline proc(d: ^Dab, i: int, $K: Brush_Kind) {
 					h := linalg.dot(p - d.plane, d.normal)
 					if h * d.amount < 0 do p -= d.normal * (h * min(d.brush.strength * w * PLANE_RATE, 1))
 				} else when K == .Flatten {
+					// Plane height and depth: past them on either side it leaves the surface.
 					h := linalg.dot(p - d.plane, d.normal)
-					p -= d.normal * (h * d.amount * min(d.brush.strength * w * PLANE_RATE, 1))
+					reach := d.brush.radius * (1 - clamp(d.brush.plane_short[0 if h > 0 else 1], 0, 1))
+					if abs(h) <= reach do p -= d.normal * (h * d.amount * min(d.brush.strength * w * PLANE_RATE, 1))
 				} else when K == .Pinch {
 					to := d.center - p
 					to -= d.normal * linalg.dot(to, d.normal)
@@ -1221,8 +1436,6 @@ displace :: #force_inline proc(d: ^Dab, i: int, $K: Brush_Kind) {
 					next := h + (d.amount - h) * min(w * LAYER_RATE, 1)
 					p += m.normals[v] * (next - h)
 					l^ = {s.layer_stroke, next}
-				} else when K == .Snake_Hook {
-					p += d.brush.drag * w
 				} else when K == .Morph {
 					p = linalg.lerp(p, s.morph[v], min(d.brush.strength * w * MORPH_RATE, 1))
 				} else when K == .History {
@@ -1240,6 +1453,60 @@ displace :: #force_inline proc(d: ^Dab, i: int, $K: Brush_Kind) {
 	s.partials[i].bounds = bounds
 }
 
+// How many passes a Smooth dab of `strength` takes, and each one's share of the step
+// toward the neighbours: SMOOTH_PASSES_MAX at full strength, as Blender's smooth turns its
+// strength into up to four whole passes (iteration_strengths), whole passes first and a
+// part of one last. Over 1 (Stable on a dense mesh) it takes more, up to SMOOTH_PASSES_HARD.
+smooth_passes :: proc(strength: f32) -> []f32 {
+	n := clamp(strength, 0, f32(SMOOTH_PASSES_HARD) / SMOOTH_PASSES_MAX) * SMOOTH_PASSES_MAX
+	whole := int(n)
+	out := make([dynamic]f32, 0, whole + 1, context.temp_allocator)
+	for _ in 0 ..< whole do append(&out, 1)
+	if part := n - f32(whole); part > 0 do append(&out, part)
+	return out[:]
+}
+
+// Smooth's passes at full strength, and the most Stable may take.
+SMOOTH_PASSES_MAX :: 4
+SMOOTH_PASSES_HARD :: 8
+// Stable's reference density: a dab over this many edges a radius smooths as without it.
+SMOOTH_STABLE_EDGES :: 8
+
+// How many times as many passes Stable gives a dab of `radius` over edges `edge` long on
+// average: a smoothing pass spreads a bump by about an edge, so evening out the same
+// share of the brush takes passes as the square of the edges across it.
+smooth_stable_scale :: proc(radius, edge: f32) -> f32 {
+	if edge <= 0 do return 1
+	r := radius / (edge * SMOOTH_STABLE_EDGES)
+	return r * r
+}
+
+// The edges from each vertex inside the brush to its triangles' other corners, summed
+// into the leaf's partial (weight_sum the lengths, moved the count), for Stable.
+@(private)
+job_smooth_edges :: proc(data: rawptr, i: int) {
+	d := cast(^Dab)data
+	s := d.s
+	m := s.mesh
+	first, last := owned(s, s.hit[i])
+	length: f32
+	count: u32
+	for v in first ..< last {
+		p := m.positions[v]
+		delta := p - d.center
+		if linalg.dot(delta, delta) >= d.r2 do continue
+		for f in faces_of(s, v) {
+			for k in u32(0) ..< 3 {
+				w := m.indices[3 * f + k]
+				if w == v do continue
+				length += linalg.length(m.positions[w] - p)
+				count += 1
+			}
+		}
+	}
+	s.partials[i].weight_sum, s.partials[i].moved = length, count
+}
+
 @(private)
 job_smooth_targets :: proc(data: rawptr, i: int) {
 	d := cast(^Dab)data
@@ -1247,18 +1514,121 @@ job_smooth_targets :: proc(data: rawptr, i: int) {
 	m := s.mesh
 	first, last := owned(s, s.hit[i])
 	out := s.smooth_to[s.offsets[i]:]
+	polish := d.brush.smooth_mode == .Polish
+	for v in first ..< last {
+		delta := m.positions[v] - d.center
+		if linalg.dot(delta, delta) >= d.r2 {
+			// Outside the brush a vertex stays, so it pushes nothing back.
+			if polish do s.smooth_b[s.offsets[i] + v - first] = {}
+			continue
+		}
+		q := smooth_target(s, v)
+		out[v - first] = q
+		if polish {
+			slot := s.offsets[i] + v - first
+			s.smooth_b[slot] = q - (POLISH_ALPHA * s.smooth_from[slot] + (1 - POLISH_ALPHA) * m.positions[v])
+		}
+	}
+	s.partials[i].touched = shared_inside(d, s.hit[i])
+}
+
+// A hit leaf's owned vertices and where their slots start.
+Smooth_Range :: struct {
+	first, last, offset: u32,
+}
+
+// The slot of vertex `v` among the hit leaves' owned vertices, or false when no hit leaf
+// owns it.
+@(private)
+smooth_slot :: proc(s: ^Sculptor, v: u32) -> (u32, bool) {
+	r := s.smooth_ranges[:]
+	lo, hi := 0, len(r)
+	for lo < hi {
+		mid := (lo + hi) / 2
+		if r[mid].last <= v {
+			lo = mid + 1
+		} else {
+			hi = mid
+		}
+	}
+	if lo < len(r) && r[lo].first <= v do return r[lo].offset + v - r[lo].first, true
+	return 0, false
+}
+
+// Polish's second step: each target pulled back by its own push-back and its
+// neighbours', so the surface keeps its volume (Smooth_Mode.Polish).
+@(private)
+job_polish_targets :: proc(data: rawptr, i: int) {
+	d := cast(^Dab)data
+	s := d.s
+	m := s.mesh
+	first, last := owned(s, s.hit[i])
 	for v in first ..< last {
 		delta := m.positions[v] - d.center
 		if linalg.dot(delta, delta) >= d.r2 do continue
-		sum: Vec3
+		around: Vec3
 		n: f32
 		for f in faces_of(s, v) {
-			sum += m.positions[m.indices[3 * f]] + m.positions[m.indices[3 * f + 1]] + m.positions[m.indices[3 * f + 2]]
-			n += 3
+			for k in u32(0) ..< 3 {
+				w := m.indices[3 * f + k]
+				if w == v do continue
+				if slot, ok := smooth_slot(s, w); ok do around += s.smooth_b[slot]
+				n += 1
+			}
 		}
-		out[v - first] = sum / n
+		slot := s.offsets[i] + v - first
+		if n > 0 do around /= n
+		s.smooth_to[slot] -= POLISH_BETA * s.smooth_b[slot] + (1 - POLISH_BETA) * around
 	}
-	s.partials[i].touched = shared_inside(d, s.hit[i])
+}
+
+// Where Smooth moves vertex `v` toward: the middle of its triangles' corners, or on an
+// open border the middle of its neighbours along the border, as Blender and SculptGL do,
+// so a hole's edge evens out along itself instead of shrinking into the surface.
+@(private)
+smooth_target :: #force_inline proc(s: ^Sculptor, v: u32) -> Vec3 {
+	m := s.mesh
+	faces := faces_of(s, v)
+	sum: Vec3
+	n: f32
+	// Inside a closed fan every neighbour is a corner of two of its triangles, so the
+	// exclusive or of the other corners is zero; on a border the two border neighbours
+	// are corners once and leave it non-zero (or, past a rare non-manifold tie, this
+	// keeps the plain middle).
+	odd: u32
+	for f in faces {
+		for k in u32(0) ..< 3 {
+			w := m.indices[3 * f + k]
+			sum += m.positions[w]
+			if w != v do odd ~= w
+		}
+		n += 3
+	}
+	if odd == 0 || len(faces) > 32 do return sum / n
+	// The neighbours that are corners of only one of its triangles lie along the border.
+	seen: [64]u32
+	times: [64]u8
+	count := 0
+	for f in faces {
+		for k in u32(0) ..< 3 {
+			w := m.indices[3 * f + k]
+			if w == v do continue
+			j := 0
+			for j < count && seen[j] != w do j += 1
+			if j == count {
+				seen[j] = w
+				count += 1
+			}
+			times[j] += 1
+		}
+	}
+	border: Vec3
+	b: f32
+	for j in 0 ..< count do if times[j] == 1 {
+		border += m.positions[seen[j]]
+		b += 1
+	}
+	return border / b if b > 0 else sum / n
 }
 
 @(private)
@@ -1276,14 +1646,21 @@ job_smooth_apply :: proc(data: rawptr, i: int) {
 		d2 := linalg.dot(delta, delta)
 		if d2 < d.r2 {
 			if w := shield(fade, mask, v) * facing_weight(d, m.normals[:], v); w > 0 && smooth_takes(d.brush.smooth_only, targets[v - first] - m.positions[v], m.normals[v]) {
-				t := clamp(d.brush.strength * dab_weight(d, delta, d2), 0, 1) * w
-				m.positions[v] = linalg.lerp(m.positions[v], targets[v - first], t)
+				t := clamp(d.rate * dab_weight(d, delta, d2), 0, 1) * w
+				step := targets[v - first] - m.positions[v]
+				if d.brush.smooth_mode == .Relax {
+					// Only across the surface: the part along the normal would change the shape.
+					n := linalg.normalize0(m.normals[v])
+					step -= n * linalg.dot(step, n)
+				}
+				m.positions[v] += step * t
 				moved += 1
 			}
 		}
 		geom.aabb_grow(&bounds, m.positions[v])
 	}
-	s.partials[i].moved = moved
+	// Over several passes the leaf moved what any of them moved; the last bounds hold.
+	s.partials[i].moved = max(s.partials[i].moved, moved)
 	s.partials[i].bounds = bounds
 }
 

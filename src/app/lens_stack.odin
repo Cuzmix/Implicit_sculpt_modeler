@@ -64,7 +64,7 @@ STACK_OPEN_DEFAULT :: bit_set[Stack_Card]{.Brush}
 // The cards a fresh layout leaves out of the stack: opening one of their sections, or a
 // workspace's layout naming them, puts them in.
 STACK_HIDDEN_DEFAULT :: bit_set[Stack_Card]{.Lights, .Material, .Environment}
-STACK_SHUT_DEFAULT :: bit_set[Kit_Section]{.Preset, .Paint_Color, .Pen, .Options, .Recorder}
+STACK_SHUT_DEFAULT :: bit_set[Kit_Section]{.Preset, .Paint_Color, .Samples, .Pen, .Options, .Recorder}
 
 // The stack's state, in Kit_State: the cards' order, which are open and which float (each
 // with its window), the Brush card's folded groups, the card its grip is carrying and the
@@ -547,16 +547,27 @@ stack_group_summary :: proc(app: ^App, sec: Kit_Section) -> string {
 		f := b.falloffs[b.kind]
 		line := "Drawn curve" if f.drawn else "The brush's own"
 		if f.focal != 0 do line = fmt.tprintf("%s · focal %.0f", line, f.focal)
+		if f.hardness != 0 do line = fmt.tprintf("%s · hard %.0f%%", line, f.hardness * 100)
+		if f.projected do line = fmt.tprintf("%s · projected", line)
 		return line
+	case .Samples:
+		parts := make([dynamic]string, 0, 3, context.temp_allocator)
+		if b.stabilize > 0 do append(&parts, fmt.tprintf("steady %.0f%%", b.stabilize * 100))
+		if b.sample_radius > 0 && b.sample_radius < 1 do append(&parts, fmt.tprintf("sample %.0f%%", b.sample_radius * 100))
+		if accumulate_applies(b.kind) do append(&parts, "builds up" if !b.no_accumulate[b.kind] else "one pass")
+		if len(parts) == 0 do return "as it comes"
+		return strings.join(parts[:], " · ", context.temp_allocator)
 	case .Alpha:
 		if b.alpha < 0 || b.alpha >= len(app.alphas) do return "Round"
 		return app.alphas[b.alpha].name
 	case .Pen:
 		parts := make([dynamic]string, 0, 3, context.temp_allocator)
-		if b.pressure_size do append(&parts, "size")
-		if b.pressure_strength do append(&parts, "strength")
-		if len(parts) == 0 do return "pressure off"
-		return fmt.tprintf("pressure → %s", strings.join(parts[:], ", ", context.temp_allocator))
+		p := brush_pressure(b, b.kind)
+		if p.size do append(&parts, "size")
+		if p.strength do append(&parts, "strength")
+		own := " (own)" if b.pressures[b.kind].own else ""
+		if len(parts) == 0 do return fmt.tprintf("pressure off%s", own)
+		return fmt.tprintf("pressure → %s%s", strings.join(parts[:], ", ", context.temp_allocator), own)
 	case .Options:
 		parts := make([dynamic]string, 0, 3, context.temp_allocator)
 		if b.front_only do append(&parts, "front faces")

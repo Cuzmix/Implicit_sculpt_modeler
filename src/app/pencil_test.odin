@@ -3,7 +3,9 @@ package main
 import "core:math"
 import "core:os"
 import "core:testing"
+import sdl "vendor:sdl3"
 
+import "../geom"
 import "../sculpt"
 
 // What SDL 3.4's UIKit driver makes of an azimuth and an altitude (degrees), as
@@ -193,4 +195,147 @@ pencil_tilt_from_android :: proc(t: ^testing.T) {
 	// Laid flat it stops short of 90 degrees rather than overflowing.
 	flat := pencil_tilt_android(math.PI / 2, 0)
 	testing.expect(t, flat.y < -88 && flat.y > -90)
+}
+
+// Where the platform never says that the pen left (an iPad's SDL), the pen counts as gone
+// PEN_GONE after its last report with its tip up: never while it touches, never twice, and
+// never where the platform says so itself.
+@(test)
+the_pen_leaves_where_the_platform_never_says_so :: proc(t: ^testing.T) {
+	app: App
+	app.kit.fixed_dt = 1.0 / 60
+	app.kit.ctx.time = 100
+	app.pencil.no_leave = true
+	e: sdl.Event
+	e.pmotion = {type = .PEN_MOTION, windowID = 7, which = 3}
+	pencil_heard(&app, &e)
+	testing.expect(t, app.pencil.about)
+	testing.expect_value(t, app.pencil.heard_window, sdl.WindowID(7))
+	testing.expect_value(t, app.pencil.heard_pen, sdl.PenID(3))
+	testing.expect(t, !pencil_gone(app.pencil, 100 + PEN_GONE * 0.5))
+	testing.expect(t, pencil_gone(app.pencil, 100 + PEN_GONE))
+	desktop := app.pencil
+	desktop.no_leave = false
+	testing.expect(t, !pencil_gone(desktop, 100 + 60))
+
+	app.kit.ctx.time = 101
+	e.ptouch = {type = .PEN_DOWN, windowID = 7, which = 3, down = true}
+	pencil_heard(&app, &e)
+	testing.expect(t, !pencil_gone(app.pencil, 101 + 60))
+	e.ptouch = {type = .PEN_UP, windowID = 7, which = 3}
+	pencil_heard(&app, &e)
+	testing.expect(t, !pencil_gone(app.pencil, 101 + PEN_GONE * 0.5))
+	testing.expect(t, pencil_gone(app.pencil, 101 + PEN_GONE))
+
+	// The leave said, the pen is gone until it reports again.
+	e.pproximity = {type = .PEN_PROXIMITY_OUT, windowID = 7, which = 3}
+	pencil_heard(&app, &e)
+	testing.expect(t, !pencil_gone(app.pencil, 101 + 60))
+	app.kit.ctx.time = 200
+	e.paxis = {type = .PEN_AXIS, windowID = 7, which = 3, axis = .DISTANCE, value = 0.5}
+	pencil_heard(&app, &e)
+	testing.expect(t, app.pencil.about)
+	testing.expect(t, pencil_gone(app.pencil, 200 + PEN_GONE))
+}
+
+// The pen turned to the right turns the frame's roll clockwise, the way that raises a slider
+// and grows the brush, and to the left the other way, across zero and across the half turn
+// where the numbers wrap alike. An iPad's SDL reports the turn to the right as a falling
+// angle (pencil_roll_uikit). A report further than ROLL_JUMP from the last starts afresh.
+@(test)
+the_pens_roll_turns_both_ways_and_wraps :: proc(t: ^testing.T) {
+	app: App
+	turned :: proc(app: ^App, reports: []f32, uikit := false) -> f32 {
+		app.pen_roll = 0
+		for r in reports do pen_roll_take(app, pencil_roll_uikit(r) if uikit else r)
+		return app.pen_roll
+	}
+	near :: proc(t: ^testing.T, got, want: f32, loc := #caller_location) {
+		testing.expectf(t, math.abs(got - want) < 1e-4, "turned %v, want %v", got, want, loc = loc)
+	}
+	near(t, turned(&app, {-10, 0, 10}), 20)
+	near(t, turned(&app, {0, -10}), -20)
+	// Past the half turn, from the 170 the pen came back at.
+	near(t, turned(&app, {170, -170, -150}), 40)
+	near(t, turned(&app, {-170, 170, 150}), -60)
+	// Further than a hand turns between two reports: no turn, the new start kept.
+	near(t, turned(&app, {60, 80}), 20)
+	app.pen_roll_last = nil
+	near(t, turned(&app, {20, 10, 0, -10}, uikit = true), 30)
+	app.pen_roll_last = nil
+	near(t, turned(&app, {-160, -170, 170, 160}, uikit = true), 40)
+	near(t, turned(&app, {170, -170}, uikit = true), -30)
+}
+
+// Size and strength go through curves of their own, and a brush with Use global off keeps
+// its own pressure, starting from the global one; the settings file keeps both, and one
+// from before the size had a curve gives it the strength's.
+@(test)
+pressure_curves_apart_and_per_brush :: proc(t: ^testing.T) {
+	path := "build/pressure_test.txt"
+	defer os.remove(path)
+	a: App
+	defer results_destroy(&a)
+	a.brush.kind, a.brush.radius_px = .Draw, 40
+	a.brush.pressure_strength, a.brush.pressure_size = true, true
+	a.brush.pressure_curve, a.brush.pressure_size_curve = geom.CURVE_LINEAR, PRESSURE_PRESETS[2].curve
+	firm := geom.curve_at(PRESSURE_PRESETS[2].curve, 0.5)
+	testing.expect(t, abs(brush_radius_px(&a, 0.5, {}) - 40 * firm) < 1e-3 && abs(pressure_curved(&a, 0.5) - 0.5) < 1e-3)
+	// Clay keeps its own: it starts as the global one, then its size stops following the pen.
+	brush_pressure_own(&a.brush, .Clay, true)
+	testing.expect_value(t, a.brush.pressures[.Clay].pressure, brush_pressure(&a.brush, .Draw))
+	a.brush.pressures[.Clay].size = false
+	a.brush.kind = .Clay
+	testing.expect_value(t, brush_radius_px(&a, 0.5, {}), 40)
+	a.brush.kind = .Draw
+	testing.expect(t, brush_radius_px(&a, 0.5, {}) < 40)
+
+	testing.expect(t, settings_save(&a, path))
+	b: App
+	defer results_destroy(&b)
+	settings_load(&b, path)
+	testing.expect_value(t, b.brush.pressure_size_curve, PRESSURE_PRESETS[2].curve)
+	testing.expect(t, b.brush.pressures[.Clay].own && !b.brush.pressures[.Clay].size && b.brush.pressures[.Clay].strength)
+	testing.expect_value(t, b.brush.pressures[.Clay].size_curve, PRESSURE_PRESETS[2].curve)
+	testing.expect(t, !b.brush.pressures[.Draw].own)
+
+	// A file from before: no size curve line.
+	testing.expect(t, os.write_entire_file(path, transmute([]u8)string("version 4\npressure_curve 0.1 0.6 0.4 0.95\n")) == nil)
+	c: App
+	defer results_destroy(&c)
+	settings_load(&c, path)
+	testing.expect_value(t, c.brush.pressure_size_curve, c.brush.pressure_curve)
+	testing.expect_value(t, c.brush.pressure_curve, PRESSURE_PRESETS[1].curve)
+	free_all(context.temp_allocator)
+}
+
+// A response preset sets size and strength together; Clay's keeps the brush at least a
+// fifth of its radius however light the touch, and the app starts Clay on it while the
+// other brushes use the global pressure.
+@(test)
+pressure_responses_and_the_clay_floor :: proc(t: ^testing.T) {
+	a: App
+	defer results_destroy(&a)
+	a.brush.kind, a.brush.radius_px = .Draw, 50
+	at := pressure_edit(&a.brush)
+	pressure_put(at, PRESSURE_RESPONSES[0].pressure)
+	testing.expect_value(t, pressure_response(at), 0)
+	testing.expect_value(t, brush_radius_px(&a, 0.1, {}), 50)
+	pressure_put(at, PRESSURE_RESPONSES[1].pressure)
+	testing.expect_value(t, pressure_response(at), 1)
+	// The cube of 0.1 is a thousandth: the floor holds it at a fifth.
+	testing.expect(t, abs(brush_radius_px(&a, 0.1, {}) - 10) < 1e-3)
+	// The cube of 0.8 is 0.512, above the floor.
+	testing.expect(t, abs(brush_radius_px(&a, 0.8, {}) - 50 * 0.512) < 0.05)
+	// Firm strokes is at over nine tenths of its strength from half pressure on.
+	pressure_put(at, PRESSURE_RESPONSES[2].pressure)
+	testing.expect(t, pressure_curved(&a, 0.5) > 0.9 && pressure_curved(&a, 0.1) < 0.5)
+	// A changed curve is no preset; a switched-off one does not count.
+	at.size_curve^ = PRESSURE_PRESETS[3].curve
+	testing.expect_value(t, pressure_response(at), 2)
+	at.strength_curve^ = PRESSURE_PRESETS[3].curve
+	testing.expect_value(t, pressure_response(at), -1)
+
+	b := brush_defaults()
+	testing.expect(t, b.pressures[.Clay].own && b.pressures[.Clay].pressure == PRESSURE_RESPONSES[1].pressure && !b.pressures[.Draw].own)
 }

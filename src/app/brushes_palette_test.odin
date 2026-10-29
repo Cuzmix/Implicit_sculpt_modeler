@@ -59,7 +59,7 @@ brush_palette_lists_categories :: proc(t: ^testing.T) {
 	testing.expect_value(t, in_some, len(all))
 	app.kit.brushes.category = .Smooth
 	smooth := brush_palette_list(&app, all[:])
-	testing.expect_value(t, smooth[0].name, "Flatten")
+	testing.expect_value(t, smooth[0].name, "Fill")
 
 	brush_recent_track(&app)
 	testing.expect_value(t, app.kit.brushes.recent_count, 0)

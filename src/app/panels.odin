@@ -343,7 +343,7 @@ panel_summary :: proc(app: ^App, ref: Panel_Ref) -> string {
 			if obj == nil || obj.voxel != nil do return ""
 			n := sculpt.levels_layer_count(&obj.levels)
 			return fmt.tprintf("%d layer%s", n, "" if n == 1 else "s")
-		case .Stroke, .Falloff, .Alpha, .Pen, .Options, .Preset:
+		case .Stroke, .Falloff, .Samples, .Alpha, .Pen, .Options, .Preset:
 			return BRUSHES[app.brush.kind].name
 		case .Levels:
 			if obj == nil || obj.voxel != nil do return ""

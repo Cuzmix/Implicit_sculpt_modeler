@@ -1589,8 +1589,10 @@ a_popover_over_a_popover_keeps_it_open :: proc(t: ^testing.T) {
 	testing.expect(t, !over)
 }
 
-// The pen hovering on a slider and rolled moves it, a half turn the whole range; held
-// down, or a finger, it does not.
+// The pen hovering on a slider and turned on purpose moves it, a half turn the whole range,
+// back as readily as on; the first ROLL_ENGAGE degrees it turns there (a hand's turn of the
+// pen carried over it) move nothing. Past either end it stays there. Held down, or a
+// finger, it does not move it, and the pen back on it after that starts over.
 @(test)
 a_hovering_pen_rolls_a_slider :: proc(t: ^testing.T) {
 	ctx: Context
@@ -1601,14 +1603,101 @@ a_hovering_pen_rolls_a_slider :: proc(t: ^testing.T) {
 	pen.pointer = .Pen
 	one_slider(&ctx, pen, &value)
 	one_slider(&ctx, pen, &value)
-	pen.roll = 45
+	for roll in ([?]f32{4, -3, 5, -4, 3}) {
+		pen.roll = roll
+		testing.expect(t, !one_slider(&ctx, pen, &value))
+	}
+	testing.expect_value(t, value, 0.5)
+	// Turned 14 degrees there in all: the 4 past ROLL_ENGAGE count.
+	pen.roll = 9
 	testing.expect(t, one_slider(&ctx, pen, &value))
-	testing.expect(t, math.abs(value - 0.75) < 1e-5)
+	testing.expect(t, math.abs(value - (0.5 + 4.0 / 180)) < 1e-5)
+	pen.roll = 45
+	one_slider(&ctx, pen, &value)
+	testing.expect(t, math.abs(value - (0.5 + 49.0 / 180)) < 1e-5)
+	pen.roll = -49
+	one_slider(&ctx, pen, &value)
+	testing.expect(t, math.abs(value - 0.5) < 1e-5)
 	pen.roll = -360
 	one_slider(&ctx, pen, &value)
 	testing.expect_value(t, value, 0)
+	pen.roll = 720
+	one_slider(&ctx, pen, &value)
+	testing.expect_value(t, value, 1)
 	finger := pen
-	finger.pointer, finger.roll = .Finger, 90
+	finger.pointer, finger.roll = .Finger, -90
 	testing.expect(t, !one_slider(&ctx, finger, &value))
-	testing.expect_value(t, value, 0)
+	testing.expect_value(t, value, 1)
+	held := pen
+	held.roll, held.down, held.pressed = -90, {.Left}, {.Left}
+	one_slider(&ctx, held, &value)
+	held.pressed = {}
+	one_slider(&ctx, held, &value)
+	testing.expect_value(t, value, 1)
+	one_slider(&ctx, input_at({44, 200}, released = {.Left}), &value)
+	pen.roll = -9
+	testing.expect(t, !one_slider(&ctx, pen, &value))
+	testing.expect_value(t, value, 1)
+}
+
+// The pen hovering over a slider and moving across it, turning nothing, starts no drag and
+// changes nothing: hovering is not touching.
+@(test)
+a_hovering_pen_moves_no_slider :: proc(t: ^testing.T) {
+	ctx: Context
+	init(&ctx)
+	defer destroy(&ctx)
+	value: f32 = 0.5
+	for y in ([?]f32{360, 330, 270, 200, 120, 60}) {
+		pen := input_at({44, y})
+		pen.pointer = .Pen
+		testing.expect(t, !one_slider(&ctx, pen, &value))
+		testing.expect_value(t, ctx.active, 0)
+	}
+	testing.expect_value(t, value, 0.5)
+}
+
+// One frame with a wide slider at the top left, 240 points wide.
+@(private = "file")
+one_wide_slider :: proc(ctx: ^Context, input: Input, value: ^f32) -> bool {
+	frame_begin(ctx, input)
+	begin_anchored(ctx, "sliders", .Start, .Start, {16, 16}, {width = 240})
+	changed := slider(ctx, "Strength", value, 0, 1, .Linear, "")
+	end(ctx)
+	frame_end(ctx)
+	return changed
+}
+
+// A drag moves a slider by as much whatever drags it, the finger, the pen or the mouse: the
+// tall one by how far the drag went over its track, the wide one to where the pointer is.
+@(test)
+sliders_follow_finger_pen_and_mouse_alike :: proc(t: ^testing.T) {
+	wide: [Pointer_Kind]f32
+	for kind in Pointer_Kind {
+		at := proc(p: [2]f32, kind: Pointer_Kind, down: Buttons = {}, pressed: Buttons = {}) -> Input {
+			in_ := input_at(p, down = down, pressed = pressed)
+			in_.pointer = kind
+			return in_
+		}
+		ctx: Context
+		init(&ctx)
+		defer destroy(&ctx)
+		value: f32 = 0.5
+		one_slider(&ctx, at({44, 330}, kind), &value)
+		one_slider(&ctx, at({44, 330}, kind), &value)
+		one_slider(&ctx, at({44, 330}, kind, {.Left}, {.Left}), &value)
+		one_slider(&ctx, at({44, 270}, kind, {.Left}), &value)
+		testing.expectf(t, math.abs(value - 0.7) < 1e-5, "%v drags the tall slider to %v", kind, value)
+		one_slider(&ctx, at({44, 270}, kind), &value)
+
+		value = 0.5
+		one_wide_slider(&ctx, at({60, 40}, kind), &value)
+		one_wide_slider(&ctx, at({60, 40}, kind), &value)
+		one_wide_slider(&ctx, at({60, 40}, kind, {.Left}, {.Left}), &value)
+		one_wide_slider(&ctx, at({180, 40}, kind, {.Left}), &value)
+		wide[kind] = value
+	}
+	testing.expect(t, wide[.Mouse] > 0.5)
+	testing.expect_value(t, wide[.Finger], wide[.Mouse])
+	testing.expect_value(t, wide[.Pen], wide[.Mouse])
 }

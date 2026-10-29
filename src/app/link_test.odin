@@ -1,6 +1,7 @@
 package main
 
 import "core:os"
+import "core:path/filepath"
 import "core:strings"
 import "core:testing"
 
@@ -109,8 +110,9 @@ link_manifest_round_trip :: proc(t: ^testing.T) {
 
 	for name in ([?]string{"7.ply", "blender-12.ply", "A-b-9.ply"}) do testing.expect(t, link_file_ok(name))
 	for name in ([?]string{".ply", "7.obj", "../7.ply", "a/7.ply", "a\\7.ply", "7 .ply", "C:7.ply"}) do testing.expectf(t, !link_file_ok(name), "%q", name)
-	testing.expect_value(t, link_folder("dir/settings.txt"), "dir/link")
-	testing.expect_value(t, link_folder("dir/run.txt"), "dir/run-link")
+	// The folder sits beside the settings file, joined with the platform's separator (`\` on Windows).
+	testing.expect_value(t, link_folder("dir/settings.txt"), filepath.join({"dir", "link"}, context.temp_allocator) or_else "")
+	testing.expect_value(t, link_folder("dir/run.txt"), filepath.join({"dir", "run-link"}, context.temp_allocator) or_else "")
 	testing.expect_value(t, link_folder(""), "")
 }
 

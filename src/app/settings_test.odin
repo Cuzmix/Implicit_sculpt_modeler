@@ -63,6 +63,8 @@ settings_read_back_what_they_wrote :: proc(t: ^testing.T) {
 	a.brush.strengths[.Pinch] = 0.25
 	a.brush.symmetry = {.X, .Z}
 	a.brush.color = {0.25, 0.5, 0.75}
+	a.brush.dyns[.Grab] = {off = true, px = 10, radius = 0.1}
+	a.brush.dyns[.Clay] = {own = true, by_radius = true, px = 12.5, radius = 0.25}
 	a.kit.add_size = 1
 	a.custom = MATERIALS[FIRST_MATCAP + 2]
 	a.custom.selected = {0.25, 0.75, 1, 1}
@@ -87,6 +89,7 @@ settings_read_back_what_they_wrote :: proc(t: ^testing.T) {
 	testing.expect_value(t, b.brush.strengths[.Pinch], 0.25)
 	testing.expect_value(t, b.brush.symmetry, a.brush.symmetry)
 	testing.expect_value(t, b.brush.color, a.brush.color)
+	testing.expect(t, b.brush.dyns == a.brush.dyns, "each brush's dynamic topology")
 	testing.expect_value(t, b.kit.ui_scale, a.kit.ui_scale)
 	testing.expect_value(t, b.kit.add_size, 1)
 	testing.expect_value(t, b.custom.matcap, 3)

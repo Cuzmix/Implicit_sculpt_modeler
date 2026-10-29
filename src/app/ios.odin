@@ -8,6 +8,8 @@ package main
 @(require) import "core:sync"
 @(require) import sdl "vendor:sdl3"
 
+@(require) import "../ui"
+
 // What differs when the app runs on the iPad: ios/ holds its Info.plist and the native code
 // SDL lacks there, and `./build.sh ios` packages it. The imports serve the iOS build alone.
 
@@ -94,5 +96,45 @@ when ODIN_PLATFORM_SUBTARGET_IOS {
 		sculpt_ios_haptic :: proc(kind: c.int, x, y: f32) ---
 		// From then on sends the pencil's coalesced samples as `event_type` (pen_samples.odin).
 		sculpt_ios_samples_start :: proc(window: ^sdl.Window, event_type: u32) ---
+	}
+
+	// ios/sculpt_ios.m, Scribble (the Apple Pencil's handwriting) for the kit's text fields,
+	// which UIKit cannot see since the kit draws them: the bridge learns each frame where
+	// the fields show and which has the keys, says which field the pencil began to write in,
+	// and once that one has the keys and SDL's text input is on, hands Scribble SDL's own
+	// text field to write into, whose text SDL sends as it does the keyboard's.
+	@(default_calling_convention = "c")
+	foreign {
+		sculpt_ios_scribble_start :: proc(window: ^sdl.Window) ---
+		sculpt_ios_scribble_fields :: proc(ids: [^]u64, rects: [^][4]f32, count: c.int, focused: u64, typing: bool) ---
+		sculpt_ios_scribble_wanted :: proc() -> u64 ---
+	}
+
+	// The field the pencil began to write in takes the keys, as a tap on it would, before
+	// the frame lays the fields out (kit_frame).
+	scribble_focus :: proc(app: ^App) {
+		if id := sculpt_ios_scribble_wanted(); id != 0 do app.kit.ctx.text_focus = ui.Id(id)
+	}
+
+	// Tells the bridge where this frame's fields show, in the view's points (the kit's
+	// points times `scale`), and which has the keys, once the frame laid them out and
+	// turned text input on or off.
+	scribble_frame :: proc(app: ^App) {
+		ctx := &app.kit.ctx
+		s := app.kit.scale
+		ids: [ui.MAX_TEXT_FIELDS]u64
+		rects: [ui.MAX_TEXT_FIELDS][4]f32
+		for f, i in ctx.text_fields[:ctx.text_field_count] {
+			ids[i] = u64(f.id)
+			rects[i] = {f.rect.x * s, f.rect.y * s, f.rect.w * s, f.rect.h * s}
+		}
+		sculpt_ios_scribble_fields(&ids[0], &rects[0], c.int(ctx.text_field_count), u64(ctx.text_focus), app.kit.text_input)
+	}
+
+	// ios/sculpt_ios.m: the system and its version, the model's identifier and the IPA's build
+	// number, for the Input diagnostics report (diagnostics.odin), each in `size` bytes.
+	@(default_calling_convention = "c")
+	foreign {
+		sculpt_ios_device_info :: proc(os_name, model, build: [^]u8, size: c.int) ---
 	}
 }

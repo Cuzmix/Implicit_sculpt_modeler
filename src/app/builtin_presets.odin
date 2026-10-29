@@ -24,6 +24,9 @@ Built_In_Preset :: struct {
 	grab_depth:  bool,
 	smooth_only: sculpt.Smooth_Only,
 	topological: bool, // Grab's falloff along the surface
+	one_way:     bool, // the stroke's No back and forth
+	// Flatten's plane height and depth, 0 to 1; both 0 here mean a fresh brush's 1.
+	plane:       [2]f32,
 }
 
 // Appended to only, as a dock slot read from an older settings file finds its preset by
@@ -44,6 +47,11 @@ BUILT_IN_PRESETS := [?]Built_In_Preset {
 	{name = "Smooth valleys", kind = .Smooth, strength = 0.8, smooth_only = .Valleys},
 	{name = "Smooth peaks", kind = .Smooth, strength = 0.8, smooth_only = .Peaks},
 	{name = "Move topological", kind = .Grab, strength = 0.5, topological = true},
+	// Fine parallel grooves from a zigzag, as ZBrush's No back and forth is used for.
+	{name = "Hatch", kind = .Crease, strength = 0.5, focal = 40, one_way = true},
+	// Blender's Plane brush halves: Fill only raises the dips, Scrape only cuts the bumps.
+	{name = "Fill", kind = .Flatten, strength = 0.5, plane = {0, 1}},
+	{name = "Scrape", kind = .Flatten, strength = 0.5, plane = {1, 0}},
 }
 
 // The built-in preset `j` as a preset: the table's row over a fresh brush's values. The
@@ -52,9 +60,13 @@ built_in_preset :: proc(j: int) -> Brush_Preset {
 	r := BUILT_IN_PRESETS[j]
 	p := Brush_Preset {
 		values = {
-			kind = r.kind, strength = r.strength, falloff = {focal = r.focal}, alpha = -1, stroke = .Dots,
+			kind = r.kind, strength = r.strength, falloff = {focal = r.focal, projected = projected_default(r.kind)}, alpha = -1, stroke = .Dots,
 			spread = SPRAY_DEFAULT_SPREAD, smoothing = 1, pressure_smoothing = 1, color = {1, 1, 1}, lock_plane = r.lock_plane, connected = r.connected,
 			grab_depth = r.grab_depth, smooth_only = r.smooth_only, grab_topological = r.topological, elastic_volume = ELASTIC_VOLUME_DEFAULT,
+			// As the plain brushes start: Draw does not build up over itself.
+			sample_radius = 1, no_accumulate = r.kind == .Draw, one_way = r.one_way,
+			tip_roundness = sculpt.CLAY_TIP_ROUNDNESS, tip_scale = 1, trim_angle = TRIM_ANGLE_DEFAULT_DEGREES, trim_dynamic = true,
+			plane_height = r.plane[0] if r.plane != {} else 1, plane_depth = r.plane[1] if r.plane != {} else 1,
 		},
 	}
 	if shape, ok := r.alpha.?; ok do p.values.alpha = int(shape)

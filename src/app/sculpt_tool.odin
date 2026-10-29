@@ -17,9 +17,15 @@ Brush_Settings :: struct {
 	radius_px:         f32,
 	strengths:         [sculpt.Brush_Kind]f32, // each brush's own (brush_strength)
 	falloffs:          [sculpt.Brush_Kind]Falloff_Setting, // each brush's own, too
+	// What pen pressure does, for every brush that uses the global setting (brush_pressure):
 	pressure_strength: bool, // pen pressure scales the strength
 	pressure_size:     bool, // pen pressure scales the radius
-	pressure_curve:    geom.Curve, // what each pen pressure counts as (geom.curve_at)
+	pressure_curve:    geom.Curve, // what each pen pressure counts as for the strength (geom.curve_at)
+	pressure_size_curve: geom.Curve, // and for the size
+	pressure_size_floor: f32, // the smallest share of the radius pressure shrinks it to (Pressure.size_floor)
+	// Each brush's own pressure, used in place of the global one where `own` is set (Use
+	// global off), as ZBrush and Nomad let a brush keep its own curves.
+	pressures:         [sculpt.Brush_Kind]Pressure_Own,
 	tilt_strength:     f32, // 0 to 1: how far a leaning pen turns the brush (camera.orbit_tilt)
 	// 0 to 1 each: how much a pen laid down toward the paper grows the brush (up to twice
 	// its size) and lightens it (down to nothing), as a pencil's side shades wide and soft.
@@ -49,7 +55,20 @@ Brush_Settings :: struct {
 	grab_topological:  bool,
 	// Elastic: how much of its volume the pulled solid keeps, 0 to 1 (sculpt.Brush.volume).
 	elastic_volume:    f32,
+	// Snake hook: Pinch (below 0 Magnify), Rake and the Elastic tip (sculpt.Brush.hook_*).
+	hook_pinch:        f32,
+	hook_rake:         f32,
+	hook_elastic:      bool,
 	smooth_only:       sculpt.Smooth_Only, // which vertices Smooth evens out: all, valleys or peaks
+	smooth_stable:     bool, // Smooth's passes follow the mesh's density (sculpt.Brush.smooth_stable)
+	smooth_mode:       sculpt.Smooth_Mode, // how Smooth evens out: Smooth, Relax or Polish
+	// The Samples section (sculpt.Brush.stabilize, sample_radius, no_accumulate): how
+	// much of the stroke's mean normal and plane a dab keeps, the share of the radius the
+	// area is sampled over, and per brush whether a stroke over itself builds up (false:
+	// Accumulate on, which Draw starts without).
+	stabilize:         f32,
+	sample_radius:     f32,
+	no_accumulate:     [sculpt.Brush_Kind]bool,
 	stroke:            Stroke_Mode,
 	spray_spread:      f32, // Spray: how far from the path dabs scatter, in brush radii
 	// Spray: how far each dab's paint colour strays from the brush's, 0 to 1 (Colour spray).
@@ -66,6 +85,27 @@ Brush_Settings :: struct {
 	// by (sculpt.Brush.feather).
 	feather:           bool,
 	line:              bool, // every stroke a straight line from its press (Stroke.line)
+	// Dots: No back and forth (ZBrush's), dabs only while the stroke goes the way it first
+	// went, so a zigzag lays parallel hatching; Directional, dabs only while it moves away
+	// from where it was pressed (stroke_way_allowed).
+	one_way:           bool,
+	directional:       bool,
+	// Size fixed in the scene (ZBrush's Dynamic size, Nomad's Constant): each pixel of
+	// radius_px stands for size_ref world units, taken from the view's middle when it was
+	// turned on (0 until then), so zooming in makes the brush bigger on screen and the
+	// stroke keeps the same size on the model (brush_size_scale).
+	size_world:        bool,
+	size_ref:          f32,
+	// Clay strips' tip (sculpt.Brush.tip_roundness, tip_scale), Trim dynamic's angle in
+	// degrees and whether it is sampled (sculpt.Brush.trim_angle, trim_fixed), and
+	// Flatten's reach above and below its plane, 0 to 1 of the radius
+	// (sculpt.Brush.plane_short).
+	tip_roundness:     f32,
+	tip_scale:         f32,
+	trim_angle:        f32,
+	trim_dynamic:      bool,
+	plane_height:      f32,
+	plane_depth:       f32,
 	join:              bool, // a press near where the last stroke ended carries it on (Stroke_End)
 	symmetry:          sculpt.Symmetry, // mirror strokes across these planes of the object
 	// Local symmetry: the planes (and the radial axis) pass through the object's own middle
@@ -76,9 +116,19 @@ Brush_Settings :: struct {
 	radial_count:      i32,
 	radial_axis:       sculpt.Axis,
 	// On objects with dynamic topology: edges under the brush longer than this many
-	// pixels on screen split, and with collapse, ones much shorter merge.
+	// pixels on screen split, and with collapse, ones much shorter merge. With
+	// detail_by_radius the length is detail_radius of the brush's radius instead (Blender's
+	// Brush detail), so a small brush adds fine triangles and a large one coarse ones
+	// at any zoom.
 	detail_px:         f32,
+	detail_by_radius:  bool,
+	detail_radius:     f32,
 	collapse:          bool,
+	// The detail eases off with the brush's falloff (sculpt.Brush.detail_falloff).
+	detail_falloff:    bool,
+	// Each brush's own dynamic topology: whether it changes triangles at all, and its own
+	// detail where it keeps one (Use global off).
+	dyns:              [sculpt.Brush_Kind]Dyn_Own,
 	alpha:             int, // index into App.alphas; -1 (or any other outside it) is the round brush
 	alpha_mode:        Alpha_Mode,
 	alpha_angle:       f32, // degrees counter-clockwise the image turns on top of what the mode gives
@@ -120,11 +170,14 @@ STROKE_MODE_NAMES := [Stroke_Mode]string {
 }
 
 // A brush's falloff: the built-in smooth one, or a curve the user drew (read from the
-// rim in: sculpt.falloff_set_shaped), reshaped by its focal shift.
+// rim in: sculpt.falloff_set_shaped), reshaped by its hardness and focal shift, and
+// measured round a ball or across the view (sculpt.Brush.projected).
 Falloff_Setting :: struct {
-	drawn: bool,
-	curve: geom.Curve,
-	focal: f32, // sculpt.FOCAL_MIN to FOCAL_MAX; 0 leaves the shape as it is
+	drawn:     bool,
+	curve:     geom.Curve,
+	focal:     f32, // sculpt.FOCAL_MIN to FOCAL_MAX; 0 leaves the shape as it is
+	hardness:  f32, // 0 to sculpt.HARDNESS_MAX: the share of the radius at full strength
+	projected: bool, // Falloff shape Projected rather than Sphere
 }
 
 // One pointer sample as SDL reported it. The app keeps every motion event of a frame,
@@ -155,8 +208,18 @@ Stroke :: struct {
 	// How squarely the surface under the last dab faces the view (|cos|), which Scene
 	// spacing divides by; 0 before the first dab.
 	facing:   f32,
-	// Even strength's scale for this stroke's dabs (spacing_strength); 0 until worked out.
+	// Even strength's scale for this stroke's dabs (spacing_strength), or Accumulate off's
+	// (once_strength); 0 until worked out.
 	even:     f32,
+	// Size fixed in the scene: how many screen pixels a pixel of radius_px is at the last
+	// dab (brush_size_scale); 0 before it.
+	size_scale: f32,
+	// No back and forth: the way the stroke first moved on screen, zero before it has.
+	first_dir:  [2]f32,
+	// Where the last dab was, in the object's space (last_set once there is one), which
+	// the way the stroke goes is measured from (sculpt.Brush.stroke_dir).
+	last_at:    Vec3,
+	last_set:   bool,
 	size:     [2]f32, // viewport size the positions above are in
 	pending:  [dynamic]Input_Sample, // samples left for the next frame once one reaches MAX_DABS_PER_FRAME
 	// The stabiliser's newest raw samples, newest first (`steady_count` of them), and
@@ -172,6 +235,9 @@ Stroke :: struct {
 	start:    [2]f32, // Drag rectangle: where on screen the drag began
 	at:       Vec3, // ...and where that is on the object, in its own space
 	anchor:   Vec3, // Grab: where the stroke started; Snake hook: where it has pulled to (world space)
+	// Snake hook: the way its last step went (world space, unit length; zero before the
+	// first), which Rake turns what it drags by.
+	hook_dir: Vec3,
 	// Grab: the point under the press on the plane through the anchor facing the camera,
 	// which the pointer's moves are measured from (the anchor itself, unless the press was
 	// past the silhouette), and the area normal there (world space, unit length or zero).
@@ -582,7 +648,8 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 	app.stroke_seed += 1
 	st.scale = app.stroke_scale_from if app.stroke_scale_from > 0 else (app.nav.touch_strength if app.device.pointer == .Finger else 1)
 	st.pos, st.pressure, st.tilt, st.travel, st.size = s.pos, s.pressure, s.tilt, 0, input.size
-	st.dir, st.facing, st.even = {}, 0, 0
+	st.dir, st.facing, st.even, st.size_scale, st.first_dir = {}, 0, 0, 0, {}
+	st.last_set = false
 	st.line, st.line_leaving, st.joined, st.smooth_was = false, false, false, input.smooth
 	clear(&st.pending)
 	stroke_steady_start(st, s)
@@ -598,6 +665,7 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 	local := to_local(obj.transform, hit)
 	brush := brush_at(app, input, obj.transform, local, s.pressure, s.tilt)
 	st.grab, st.hook, st.anchor, st.invert = .Grab in flags, .Hook in flags, hit, brush.invert
+	st.hook_dir = {}
 	st.grab_from, st.grab_normal, st.press_pressure = from, {}, s.pressure
 	if st.grab && obj.voxel == nil {
 		t := obj.transform
@@ -790,6 +858,16 @@ hook_follow :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: I
 	for _ in 0 ..< steps {
 		part := offset / f32(steps)
 		brush.drag = to_local_dir(t, part) / t.scale
+		// Rake: how far the hook turned since the last step, about the axis it turned on.
+		way := linalg.normalize0(part)
+		brush.rake_axis, brush.rake_angle = {}, 0
+		if st.hook_dir != {} && way != {} {
+			if axis := linalg.cross(st.hook_dir, way); linalg.length(axis) > 1e-6 {
+				brush.rake_axis = linalg.normalize(to_local_dir(t, axis))
+				brush.rake_angle = math.atan2(linalg.length(axis), linalg.dot(st.hook_dir, way))
+			}
+		}
+		if way != {} do st.hook_dir = way
 		sculpt.apply_dab(object_sculptor(obj), brush, to_local(t, st.anchor))
 		st.anchor += part
 		res.dabs += 1
@@ -883,9 +961,38 @@ stroke_walk :: proc(app: ^App, obj: ^Object, input: Viewport_Input, inv: matrix[
 			st.tilt += (tilt - st.tilt) * f
 		}
 		st.travel = 0
+		if !stroke_way_allowed(app) do continue
 		if st.mode == .Spray do spray_dab(app, obj, input, inv, st.pos, st.pressure, st.tilt, res)
 		else do stroke_dab(app, obj, input, inv, st.pos, st.pressure, st.tilt, res)
 	}
+}
+
+// Whether a dab goes where the stroke has got to, as it moves along st.dir: No back and
+// forth lays none while it goes against the way it first went, and Directional none
+// while it comes back toward its press. The spacing walks on either way, so the dabs
+// start again in step when the stroke turns back.
+@(private = "file")
+stroke_way_allowed :: proc(app: ^App) -> bool {
+	st := &app.stroke
+	if st.dir == {} do return true
+	if app.brush.one_way {
+		if st.first_dir == {} do st.first_dir = st.dir
+		if linalg.dot(st.dir, st.first_dir) <= 0 do return false
+	}
+	if app.brush.directional && linalg.dot(st.dir, st.pos - st.start) <= 0 do return false
+	return true
+}
+
+// How many screen pixels a pixel of the brush's radius_px is at a point `per_px` world
+// units a pixel away (camera.orbit_world_per_px), in a viewport `height` pixels high: 1
+// with the size on screen, and with the size fixed in the scene the world size it stands
+// for seen there. Taking size_ref when it is first wanted means turning the switch on
+// changes nothing on screen until the view zooms.
+brush_size_scale :: proc(app: ^App, per_px, height: f32) -> f32 {
+	b := &app.brush
+	if !b.size_world do return 1
+	if b.size_ref <= 0 do b.size_ref = camera.orbit_world_per_px(app.camera, app.camera.target, height)
+	return b.size_ref / max(per_px, 1e-20)
 }
 
 // Whether the stroke under way can become a straight line: one laying dabs along its
@@ -1036,6 +1143,13 @@ spacing_strength :: proc(app: ^App, kind: sculpt.Brush_Kind) -> f32 {
 	return sculpt.dab_overlap(shape, SPACING_REFERENCE) / sculpt.dab_overlap(shape, s)
 }
 
+// The scale Accumulate off gives a Dots stroke's dabs: the most its row piles up along
+// the middle, at the reference spacing under Even strength (which evens every spacing to
+// it) and at the stroke's own otherwise.
+once_strength :: proc(app: ^App, kind: sculpt.Brush_Kind) -> f32 {
+	return sculpt.dab_overlap(brush_falloff(app, kind), SPACING_REFERENCE if app.brush.even_strength else dot_spacing(app))
+}
+
 // Brush radii between Dots' dabs: the Spacing setting, or DAB_SPACING when unset.
 dot_spacing :: proc(app: ^App) -> f32 {
 	return dot_spacing_of(app.brush)
@@ -1112,13 +1226,20 @@ stroke_dab :: proc(app: ^App, obj: ^Object, input: Viewport_Input, inv: matrix[4
 	// neighbours to overlap. A stroke never gets stronger than full strength by it.
 	// Not on voxel clay, whose Add and Subtract meet their neighbours as a union and never
 	// pile up.
-	if st.mode == .Dots && app.brush.even_strength && obj.voxel == nil {
+	if st.mode == .Dots && brush.no_accumulate && obj.voxel == nil {
+		// Accumulate off caps each vertex at the height one dab gives it, so each dab is
+		// raised to what the whole row piles up along its middle: a pass stands as high as
+		// one with Accumulate on, and passing again adds nothing.
+		if st.even == 0 do st.even = once_strength(app, st.kind)
+		brush.strength *= st.even
+	} else if st.mode == .Dots && app.brush.even_strength && obj.voxel == nil {
 		if st.even == 0 do st.even = spacing_strength(app, st.kind)
 		brush.strength = min(brush.strength * st.even, max(brush.strength, 1))
 	}
-	// Dynamic topology's edge length is a share of the radius: kept as set.
+	// Dynamic topology's edge length is a share of the radius: kept as set on screen, or
+	// scaled with the dab when it is measured by the radius.
 	brush.radius *= scatter.size
-	brush.detail /= scatter.size
+	if !detail_edit(&app.brush, st.kind).by_radius^ do brush.detail /= scatter.size
 	brush.strength *= scatter.strength
 	if scatter.tint != {} {
 		for k in 0 ..< 3 do brush.color[k] = u8(clamp(f32(brush.color[k]) * scatter.tint[k], 0, 255) + 0.5)
@@ -1171,6 +1292,11 @@ held_brush :: proc(input: Viewport_Input) -> bool {
 @(private = "file")
 brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pressure: f32, tilt: [2]f32) -> sculpt.Brush {
 	world_per_px := camera.orbit_world_per_px(app.camera, to_world(t, hit), input.size.y)
+	app.stroke.size_scale = brush_size_scale(app, world_per_px, input.size.y)
+	// The way from the last dab, for the brushes that turn along the stroke.
+	stroke_dir: Vec3
+	if app.stroke.last_set do stroke_dir = hit - app.stroke.last_at
+	app.stroke.last_at, app.stroke.last_set = hit, true
 	kind := app.stroke.kind
 	// Shift smooths at the Smooth brush's strength, not the strength of the brush held, and
 	// the rail's Mask masks at the Mask brush's; while painting, Shift's blur is at Smooth's
@@ -1182,7 +1308,7 @@ brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pres
 		own = app.brush.kind
 	}
 	strength := app.brush.strengths[own]
-	if app.brush.pressure_strength do strength *= pressure_curved(app, pressure)
+	if brush_pressure(&app.brush, app.brush.kind).strength do strength *= pressure_curved(app, pressure)
 	strength *= 1 - app.brush.tilt_soften * lean_of(tilt)
 	strength *= app.stroke.scale
 	turn: matrix[3, 3]f32
@@ -1195,6 +1321,8 @@ brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pres
 	if alpha != nil do up = to_local_dir(t, alpha_world_up(app))
 	facing: Vec3
 	if app.brush.front_only do facing = to_local_dir(t, -camera.orbit_toward(app.camera, to_world(t, hit)))
+	projected: Vec3
+	if app.brush.falloffs[own].projected do projected = to_local_dir(t, camera.orbit_toward(app.camera, to_world(t, hit)))
 	through: Vec3
 	if kind == .Grab && app.brush.grab_depth do through = to_local_dir(t, camera.orbit_toward(app.camera, to_world(t, hit)))
 	sym := brush_symmetry(app, selected_object(app))
@@ -1207,12 +1335,14 @@ brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pres
 		radial   = sym.radial,
 		radial_axis = sym.radial_axis,
 		sym_center = sym.sym_center,
-		detail   = app.brush.detail_px / brush_radius_px(app, pressure, tilt),
+		detail   = brush_detail(&app.brush, kind, brush_radius_px(app, pressure, tilt)),
+		detail_falloff = app.brush.detail_falloff,
 		collapse = app.brush.collapse,
 		tilt     = turn,
 		alpha    = alpha,
 		alpha_up = up,
 		falloff_shape = brush_falloff(app, own),
+		projected = projected,
 		facing   = facing,
 		color    = brush_color_bytes(app),
 		blur     = app.stroke.blur,
@@ -1221,11 +1351,26 @@ brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pres
 		connected  = app.brush.connected,
 		through    = through,
 		smooth_only = app.brush.smooth_only if kind == .Smooth else .All,
+		smooth_stable = kind == .Smooth && app.brush.smooth_stable,
+		// Alt while smoothing polishes, as ZBrush's alternate smooth, for keys to hand.
+		smooth_mode = (.Polish if input.alt else app.brush.smooth_mode) if kind == .Smooth else .Smooth,
+		stabilize = app.brush.stabilize,
+		sample_radius = app.brush.sample_radius,
+		no_accumulate = app.brush.no_accumulate[kind] && accumulate_applies(kind),
 		feather    = app.brush.feather,
 		same_side  = kind == .Grab && app.brush.grab_same_side,
 		silhouette = kind == .Grab && app.brush.grab_silhouette,
 		topological = kind == .Grab && app.brush.grab_topological,
 		volume     = app.brush.elastic_volume,
+		hook_pinch = app.brush.hook_pinch if kind == .Snake_Hook else 0,
+		hook_rake  = app.brush.hook_rake if kind == .Snake_Hook else 0,
+		hook_elastic = kind == .Snake_Hook && app.brush.hook_elastic,
+		stroke_dir = stroke_dir,
+		tip_roundness = app.brush.tip_roundness,
+		tip_scale = app.brush.tip_scale,
+		trim_angle = math.to_radians(app.brush.trim_angle),
+		trim_fixed = !app.brush.trim_dynamic,
+		plane_short = {1 - app.brush.plane_height, 1 - app.brush.plane_depth},
 	}
 }
 
@@ -1233,21 +1378,116 @@ brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pres
 // for the built-in one unshifted, which the dabs work out themselves.
 brush_falloff :: proc(app: ^App, kind: sculpt.Brush_Kind) -> ^sculpt.Falloff {
 	f := app.brush.falloffs[kind]
-	if !f.drawn && f.focal == 0 do return nil
-	// Only what shapes the table counts: an undrawn curve is not read.
+	if !f.drawn && f.focal == 0 && f.hardness == 0 do return nil
+	// Only what shapes the table counts: an undrawn curve is not read, and the shape is
+	// the dab's to apply.
 	if !f.drawn do f.curve = {}
+	f.projected = false
 	table := &app.falloff_tables[kind]
 	if table.shape != f || !table.built {
-		sculpt.falloff_set_shaped(&table.falloff, f.curve if f.drawn else nil, f.focal)
+		sculpt.falloff_set_shaped(&table.falloff, f.curve if f.drawn else nil, f.focal, f.hardness)
 		table.shape, table.built = f, true
 	}
 	return &table.falloff
 }
 
+// The brush's radius on screen in pixels under `pressure` and `tilt`, at the stroke's last
+// dab when the size is fixed in the scene.
 brush_radius_px :: proc(app: ^App, pressure: f32, tilt: [2]f32) -> f32 {
 	r := app.brush.radius_px * (1 + app.brush.tilt_size * lean_of(tilt))
-	if !app.brush.pressure_size do return r
-	return r * max(pressure_curved(app, pressure), MIN_PRESSURE_SIZE)
+	if app.brush.size_world && app.stroke.size_scale > 0 do r *= app.stroke.size_scale
+	if !brush_pressure(&app.brush, app.brush.kind).size do return r
+	return r * max(pressure_sized(app, pressure), brush_pressure(&app.brush, app.brush.kind).size_floor, MIN_PRESSURE_SIZE)
+}
+
+// The brush as the app starts with it, before the settings file.
+brush_defaults :: proc() -> Brush_Settings {
+	b := Brush_Settings{kind = .Draw, radius_px = DEFAULT_RADIUS_PX, pressure_strength = true, pressure_curve = geom.CURVE_LINEAR, pressure_size_curve = geom.CURVE_LINEAR, detail_px = 10, collapse = true, alpha = -1, color = {0.75, 0.2, 0.15}, color2 = {0.95, 0.92, 0.85}, spray_spread = SPRAY_DEFAULT_SPREAD, spacing = DAB_SPACING, even_strength = true, feather = true, smoothing = 1, pressure_smoothing = 1, catch_up = true, radial_count = RADIAL_DEFAULT, radial_axis = .Y, paint_dial = true, elastic_volume = ELASTIC_VOLUME_DEFAULT}
+	// Clay starts on Blender's Clay response, its size following the pen (brush_pressure).
+	b.pressures[.Clay] = {own = true, pressure = PRESSURE_RESPONSES[1].pressure}
+	// Draw does not build up over itself within a stroke, as ZBrush's and Nomad's.
+	b.sample_radius, b.no_accumulate[.Draw] = 1, true
+	for kind in sculpt.Brush_Kind do b.falloffs[kind].projected = projected_default(kind)
+	b.tip_roundness, b.tip_scale = sculpt.CLAY_TIP_ROUNDNESS, 1
+	b.trim_angle, b.trim_dynamic = TRIM_ANGLE_DEFAULT_DEGREES, true
+	b.plane_height, b.plane_depth = 1, 1
+	b.detail_radius = DETAIL_RADIUS_DEFAULT
+	for &d in b.dyns do d.px, d.radius = b.detail_px, b.detail_radius
+	// Clay strips starts on Blender's: its size follows the pen as p^1.5, never under 0.3.
+	b.pressures[.Clay_Strips] = {own = true, pressure = {strength = true, size = true, strength_curve = geom.CURVE_LINEAR, size_curve = CURVE_POWER_1_5, size_floor = 0.3}}
+	return b
+}
+
+// Dynamic topology's Detail by radius as a fresh brush has it, and its range: a share of
+// the brush's radius.
+DETAIL_RADIUS_DEFAULT :: 0.1
+DETAIL_RADIUS_MIN :: 0.02
+DETAIL_RADIUS_MAX :: 0.5
+
+// One brush's dynamic topology (Brush_Settings.dyns): `off` keeps its triangles as they
+// are; with `own` set it uses its own detail below in place of the global one.
+Dyn_Own :: struct {
+	off:       bool,
+	own:       bool,
+	by_radius: bool,
+	px:        f32,
+	radius:    f32,
+}
+
+// Dynamic topology's detail for brush `kind` as a share of its radius (sculpt.Brush.detail),
+// radius_px across on screen: 0 where the brush keeps its triangles.
+brush_detail :: proc(b: ^Brush_Settings, kind: sculpt.Brush_Kind, radius_px: f32) -> f32 {
+	if b.dyns[kind].off do return 0
+	d := detail_edit(b, kind)
+	if d.by_radius^ do return d.radius^
+	return d.px^ / max(radius_px, 1)
+}
+
+// Where brush `kind`'s detail is edited: its own or the global one.
+Detail_Edit :: struct {
+	by_radius: ^bool,
+	px:        ^f32,
+	radius:    ^f32,
+}
+
+detail_edit :: proc(b: ^Brush_Settings, kind: sculpt.Brush_Kind) -> Detail_Edit {
+	if d := &b.dyns[kind]; d.own do return {&d.by_radius, &d.px, &d.radius}
+	return {&b.detail_by_radius, &b.detail_px, &b.detail_radius}
+}
+
+// Gives brush `kind` its own detail (a copy of the global one, which it then starts from)
+// or puts it back on the global one.
+brush_detail_own :: proc(b: ^Brush_Settings, kind: sculpt.Brush_Kind, own: bool) {
+	d := &b.dyns[kind]
+	if own && !d.own do d.by_radius, d.px, d.radius = b.detail_by_radius, b.detail_px, b.detail_radius
+	d.own = own
+}
+
+// Whether brush `kind` starts with its falloff Projected (Falloff_Setting.projected):
+// Clay and Flatten, whose footprint is then the ring on screen however the surface curves
+// away, as a flat stamp should be.
+projected_default :: proc(kind: sculpt.Brush_Kind) -> bool {
+	return kind == .Clay || kind == .Flatten || kind == .Trim_Dynamic
+}
+
+// Trim dynamic's fixed angle as a fresh brush has it, in degrees (sculpt.TRIM_ANGLE_DEFAULT).
+TRIM_ANGLE_DEFAULT_DEGREES :: 60
+
+// p^1.5 as a pressure curve (a cubic through (0, 0) and (1, 1)), Blender's Clay strips
+// size: within 0.002 of it across the range (fitted on a grid of control points).
+CURVE_POWER_1_5 :: geom.Curve{{0.1, 0}, {0.45, 0.175}}
+
+// Whether Accumulate does anything for brush `kind`: the kinds that push along the normal
+// (sculpt.Brush.no_accumulate). Layer never builds up past its height and the plane kinds
+// stop at their plane.
+accumulate_applies :: proc(kind: sculpt.Brush_Kind) -> bool {
+	return kind == .Draw || kind == .Inflate
+}
+
+// Whether Stabilize orientation and Sample radius do anything for brush `kind`: the kinds
+// that work along the area under the brush (sculpt.brush_locks_plane, alpha aside).
+samples_apply :: proc(kind: sculpt.Brush_Kind) -> bool {
+	return sculpt.brush_locks_plane(kind, false)
 }
 
 // How far a pen leaning `tilt` (degrees across and down, as SDL reports it) is laid
@@ -1261,9 +1501,100 @@ lean_of :: proc(tilt: [2]f32) -> f32 {
 	return clamp(off / LEAN_FULL, 0, 1)
 }
 
-// What a pen pressure counts as, through the pressure curve. A mouse's 1 stays 1.
+// What pen pressure does to a brush: whether it scales the strength and the size, and
+// the curve each goes through (geom.curve_at), kept apart so a brush can, say, grow with
+// pressure gently while its strength comes in hard.
+Pressure :: struct {
+	strength:       bool,
+	size:           bool,
+	strength_curve: geom.Curve,
+	size_curve:     geom.Curve,
+	// The smallest share of the radius pressure can shrink the brush to, as Blender's
+	// Clay keeps a fifth of it (never below MIN_PRESSURE_SIZE).
+	size_floor:     f32,
+}
+
+// Where a Pressure is kept, the brush's own or the global fields, for editing.
+Pressure_Ref :: struct {
+	strength, size:             ^bool,
+	strength_curve, size_curve: ^geom.Curve,
+	size_floor:                 ^f32,
+}
+
+// Response presets: what pen pressure does as a whole, set in one tap (the Pen section's
+// Response page).
+PRESSURE_RESPONSES := [?]struct {
+	label:    cstring,
+	pressure: Pressure,
+} {
+	// The app's own start: strength follows the pen, the size stays.
+	{"Default", {strength = true, strength_curve = geom.CURVE_LINEAR, size_curve = geom.CURVE_LINEAR}},
+	// Blender's Clay: the size follows the cube of the pressure, never under a fifth of the
+	// radius, so a light touch lays a narrow smear and a press a wide one; the strength
+	// takes a press (the Firm curve).
+	{"Clay", {strength = true, size = true, strength_curve = {{0.6, 0.05}, {0.95, 0.4}}, size_curve = {{1.0 / 3, 0}, {2.0 / 3, 0}}, size_floor = 0.2}},
+	// Steady strokes, ZBrush's lazy pressure feel: over nine tenths of the strength from
+	// half pressure on, so a stroke keeps an even height whatever the hand does, and the
+	// size stays.
+	{"Steady", {strength = true, strength_curve = {{0.15, 0.75}, {0.35, 1}}, size_curve = geom.CURVE_LINEAR}},
+	// Light touch, Nomad's light-pressure default: a light touch goes far, for size and
+	// strength alike (the Soft curve).
+	{"Light", {strength = true, size = true, strength_curve = {{0.1, 0.6}, {0.4, 0.95}}, size_curve = {{0.1, 0.6}, {0.4, 0.95}}, size_floor = 0.1}},
+}
+
+// A brush's own pressure, and whether it uses it rather than the global one.
+Pressure_Own :: struct {
+	own:            bool,
+	using pressure: Pressure,
+}
+
+// The pressure brush `kind` works with: its own when it keeps one, else the global one.
+brush_pressure :: proc(b: ^Brush_Settings, kind: sculpt.Brush_Kind) -> Pressure {
+	if b.pressures[kind].own do return b.pressures[kind].pressure
+	return {b.pressure_strength, b.pressure_size, b.pressure_curve, b.pressure_size_curve, b.pressure_size_floor}
+}
+
+// Gives brush `kind` its own pressure (own) starting from the global one, or puts it back
+// on the global one, leaving its own as it was for the next time.
+brush_pressure_own :: proc(b: ^Brush_Settings, kind: sculpt.Brush_Kind, own: bool) {
+	p := &b.pressures[kind]
+	if own && !p.own do p.pressure = brush_pressure(b, kind)
+	p.own = own
+}
+
+// Where the pressure the held brush works with is edited: its own or the global one.
+pressure_edit :: proc(b: ^Brush_Settings) -> Pressure_Ref {
+	if p := &b.pressures[b.kind]; p.own do return {&p.strength, &p.size, &p.strength_curve, &p.size_curve, &p.size_floor}
+	return {&b.pressure_strength, &b.pressure_size, &b.pressure_curve, &b.pressure_size_curve, &b.pressure_size_floor}
+}
+
+// Sets the pressure kept at `to`.
+pressure_put :: proc(to: Pressure_Ref, p: Pressure) {
+	to.strength^, to.size^, to.strength_curve^, to.size_curve^, to.size_floor^ = p.strength, p.size, p.strength_curve, p.size_curve, p.size_floor
+}
+
+// Which response preset the pressure at `at` is, or -1 for none.
+pressure_response :: proc(at: Pressure_Ref) -> int {
+	now := Pressure{at.strength^, at.size^, at.strength_curve^, at.size_curve^, at.size_floor^}
+	for r, i in PRESSURE_RESPONSES {
+		// What a switched-off curve is set to does nothing, so it does not count.
+		p := r.pressure
+		if !now.size do p.size_curve, p.size_floor = now.size_curve, now.size_floor
+		if !now.strength do p.strength_curve = now.strength_curve
+		if p == now do return i
+	}
+	return -1
+}
+
+// What a pen pressure counts as for the held brush's strength, through its curve. A
+// mouse's 1 stays 1.
 pressure_curved :: proc(app: ^App, pressure: f32) -> f32 {
-	return geom.curve_at(app.brush.pressure_curve, pressure)
+	return geom.curve_at(brush_pressure(&app.brush, app.brush.kind).strength_curve, pressure)
+}
+
+// ...and for its size.
+pressure_sized :: proc(app: ^App, pressure: f32) -> f32 {
+	return geom.curve_at(brush_pressure(&app.brush, app.brush.kind).size_curve, pressure)
 }
 
 // World-space ray through a viewport point (origin at the top-left).

@@ -418,6 +418,10 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 		detail := [2]string{"Simple", "Advanced"}
 		if picked := ui.tabs(ctx, "Statistics detail", detail[:], int(k.stats_advanced)); picked >= 0 do k.stats_advanced = picked == 1
 		ui.paragraph(ctx, "Simple shows how smooth the app runs in plain words; Advanced shows every measurement by its exact name, the drawing switches for comparing speed included. F11 shows and hides the panel.")
+		if app.diag.allowed {
+			_ = command_button(app, .Input_Diagnostics)
+			ui.paragraph(ctx, "A developer's screen of guided touch, Pencil and keyboard tests, with a report to export.")
+		}
 	case .Frame_Rate:
 		frame_rate_controls(app)
 		_ = ui.switch_row(ctx, "Rest when idle", &app.idle_sleep)

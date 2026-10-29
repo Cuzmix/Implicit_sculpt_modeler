@@ -47,29 +47,36 @@ run_brushes :: proc(target: int, pool: ^jobs.Pool) {
 		closer:   bool,
 		// Grab's falloff along the surface: the press finds the distances first.
 		topological: bool,
+		// Smooth's mode (Relax and Polish's cost), and Stable.
+		smooth_mode: sculpt.Smooth_Mode,
+		stable:      bool,
 	}
 	cases := [?]Case {
-		{"Draw", .Draw, {}, false, false, false, false, false},
-		{"Draw, spacing 0.2", .Draw, {}, false, false, false, true, false},
-		{"Draw, recording a layer", .Draw, {}, false, false, true, false, false},
-		{"Smooth", .Smooth, {}, false, false, false, false, false},
-		{"Clay", .Clay, {}, false, false, false, false, false},
-		{"Flatten", .Flatten, {}, false, false, false, false, false},
-		{"Inflate", .Inflate, {}, false, false, false, false, false},
-		{"Pinch", .Pinch, {}, false, false, false, false, false},
-		{"Crease", .Crease, {}, false, false, false, false, false},
-		{"Grab", .Grab, {}, false, false, false, false, false},
-		{"Grab, topological", .Grab, {}, false, false, false, false, true},
-		{"Elastic", .Elastic, {}, false, false, false, false, false},
-		{"Mask", .Mask, {}, false, false, false, false, false},
-		{"Layer", .Layer, {}, false, false, false, false, false},
-		{"Layer, second stroke", .Layer, {}, false, false, false, false, false},
-		{"Snake hook", .Snake_Hook, {}, false, false, false, false, false},
-		{"Morph", .Morph, {}, false, false, false, false, false},
-		{"Paint", .Paint, {}, false, false, false, false, false},
-		{"Draw, X symmetry", .Draw, {.X}, false, false, false, false, false},
-		{"Draw, half masked", .Draw, {}, true, false, false, false, false},
-		{"Draw, Noise alpha", .Draw, {}, false, true, false, false, false},
+		{"Draw", .Draw, {}, false, false, false, false, false, .Smooth, false},
+		{"Draw, spacing 0.2", .Draw, {}, false, false, false, true, false, .Smooth, false},
+		{"Draw, recording a layer", .Draw, {}, false, false, true, false, false, .Smooth, false},
+		{"Smooth", .Smooth, {}, false, false, false, false, false, .Smooth, false},
+		{name = "Smooth, polish", kind = .Smooth, smooth_mode = .Polish},
+		{name = "Smooth, stable", kind = .Smooth, stable = true},
+		{"Clay", .Clay, {}, false, false, false, false, false, .Smooth, false},
+		{"Flatten", .Flatten, {}, false, false, false, false, false, .Smooth, false},
+		{"Clay strips", .Clay_Strips, {}, false, false, false, false, false, .Smooth, false},
+		{"Trim dynamic", .Trim_Dynamic, {}, false, false, false, false, false, .Smooth, false},
+		{"Inflate", .Inflate, {}, false, false, false, false, false, .Smooth, false},
+		{"Pinch", .Pinch, {}, false, false, false, false, false, .Smooth, false},
+		{"Crease", .Crease, {}, false, false, false, false, false, .Smooth, false},
+		{"Grab", .Grab, {}, false, false, false, false, false, .Smooth, false},
+		{"Grab, topological", .Grab, {}, false, false, false, false, true, .Smooth, false},
+		{"Elastic", .Elastic, {}, false, false, false, false, false, .Smooth, false},
+		{"Mask", .Mask, {}, false, false, false, false, false, .Smooth, false},
+		{"Layer", .Layer, {}, false, false, false, false, false, .Smooth, false},
+		{"Layer, second stroke", .Layer, {}, false, false, false, false, false, .Smooth, false},
+		{"Snake hook", .Snake_Hook, {}, false, false, false, false, false, .Smooth, false},
+		{"Morph", .Morph, {}, false, false, false, false, false, .Smooth, false},
+		{"Paint", .Paint, {}, false, false, false, false, false, .Smooth, false},
+		{"Draw, X symmetry", .Draw, {.X}, false, false, false, false, false, .Smooth, false},
+		{"Draw, half masked", .Draw, {}, true, false, false, false, false, .Smooth, false},
+		{"Draw, Noise alpha", .Draw, {}, false, true, false, false, false, .Smooth, false},
 	}
 	press_ms: [2]f64
 	defer fmt.printfln("\nGrab press at %s vertices: %.2f ms, topological %.2f ms", thousands(vcount), press_ms[0], press_ms[1])
@@ -95,7 +102,7 @@ run_brushes :: proc(target: int, pool: ^jobs.Pool) {
 		if c.kind == .Morph do _ = sculpt.sculptor_morph_store(s)
 		defer if c.kind == .Morph do sculpt.sculptor_morph_clear(s)
 		// Symmetry feathers as the app's brushes do by default.
-		brush := sculpt.Brush{kind = c.kind, radius = radius, strength = 0.3, symmetry = c.symmetry, color = {200, 60, 30}, feather = c.symmetry != {}, topological = c.topological, volume = 0.8}
+		brush := sculpt.Brush{kind = c.kind, radius = radius, strength = 0.3, symmetry = c.symmetry, color = {200, 60, 30}, feather = c.symmetry != {}, topological = c.topological, volume = 0.8, smooth_mode = c.smooth_mode, smooth_stable = c.stable, stroke_dir = {1, 0, 0}, tip_roundness = sculpt.CLAY_TIP_ROUNDNESS, tip_scale = 1}
 		dabs, per_frame := DABS, DABS_PER_FRAME
 		if c.closer {
 			dabs, per_frame = DABS * 5 / 4, DABS_PER_FRAME * 5 / 4

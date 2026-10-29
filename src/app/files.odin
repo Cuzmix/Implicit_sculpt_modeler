@@ -55,6 +55,7 @@ File_Kind :: enum u8 {
 	Environment,  // a panorama lights the physically based materials (environment.odin)
 	Export_Workspace, // the current workspace goes to a .workspace file (workspace_file.odin)
 	Import_Workspace, // a .workspace file becomes a workspace of the user's own
+	Diagnostic_Report, // the Input diagnostics report goes to a ZIP file (diagnostics.odin)
 }
 
 File_Request :: struct {
@@ -111,6 +112,8 @@ when ODIN_PLATFORM_SUBTARGET == .Android {
 } else {
 	WORKSPACE_FILTERS := [?]sdl.DialogFileFilter{{"Workspaces", "workspace"}}
 }
+@(private = "file")
+DIAGNOSTIC_FILTERS := [?]sdl.DialogFileFilter{{"Diagnostic report (ZIP)", "zip"}}
 @(private = "file")
 STROKES_FILTERS := [?]sdl.DialogFileFilter{{"Recorded strokes", "strokes"}}
 @(private = "file")
@@ -209,6 +212,7 @@ file_dialog :: proc(app: ^App, kind: File_Kind) {
 	case .Make_Pack:                                             dialog_save(app, userdata, PACK_FILTERS[:])
 	case .Export_Workspace:                                      dialog_save(app, userdata, WORKSPACE_FILTERS[:])
 	case .Import_Workspace:                                      dialog_open(app, userdata, WORKSPACE_FILTERS[:])
+	case .Diagnostic_Report:                                     dialog_save(app, userdata, DIAGNOSTIC_FILTERS[:], diag_report_name(app))
 	case .Timelapse, .Turntable, .Bake:                          dialog_folder(app, userdata)
 	}
 }
@@ -247,6 +251,7 @@ file_dialog_done :: proc "c" (userdata: rawptr, filelist: [^]cstring, filter: c.
 		case .Save_Strokes: suffix = ".strokes"
 		case .Make_Pack: suffix = ".sculptpack"
 		case .Export_Workspace: suffix = WORKSPACE_FILE_SUFFIX
+		case .Diagnostic_Report: suffix = ".zip"
 		}
 	}
 	delete(pending.req.path, heap)
@@ -339,6 +344,17 @@ file_read_any :: proc(path: string, allocator := context.allocator) -> (data: []
 	return data, nil
 }
 
+// The entries of the folder at `path`, or an error when no folder is there. Every folder
+// the app lists goes through here, because something else can stand where one belongs (a
+// file named like the versions folder, say). A file is refused before core:os reads it:
+// on Windows its directory reader then closes a search handle it never opened, and
+// FindClose answers that with an access violation it absorbs itself. The app carries on,
+// but a first-chance handler (the test runner's, a debugger's) takes it for a crash.
+folder_entries :: proc(path: string, allocator := context.allocator) -> ([]os.File_Info, os.Error) {
+	if !os.is_dir(path) do return nil, .Invalid_Dir
+	return os.read_directory_by_path(path, -1, allocator)
+}
+
 // Reports a file action's outcome (results.odin), which shows as a toast.
 file_note :: proc(app: ^App, warning: bool, format: string, args: ..any) {
 	report(app, nil, {.Warning} if warning else {}, format, ..args)
@@ -420,6 +436,8 @@ file_apply :: proc(app: ^App, req: File_Request) -> bool {
 		_ = workspace_export(app, req.path)
 	case .Import_Workspace:
 		_ = workspace_import(app, req.path)
+	case .Diagnostic_Report:
+		_ = diag_export(app, req.path)
 	case .Recover:
 		return autosave_recover(app, req.path)
 	case .Discard_Autosave:

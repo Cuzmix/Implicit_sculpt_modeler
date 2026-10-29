@@ -567,3 +567,130 @@ dyn_refuses_non_manifold_edges :: proc(t: ^testing.T) {
 	testing.expect(t, !sculptor_dyn_enable(&s), "a non-manifold mesh was taken")
 	testing.expect(t, s.dyn == nil)
 }
+
+// A grab pulled far out of a dynamic sphere stretches its triangles while dragging; the
+// refinement at the release splits every edge round what it moved down to the detail
+// size, keeps the surface closed, and one undo puts back the drag and the splits.
+@(test)
+dyn_grab_refine_splits_what_the_pull_stretched :: proc(t: ^testing.T) {
+	for kind in ([]Brush_Kind{.Grab, .Elastic}) {
+		sp := dyn_make(t, 4)
+		defer dyn_free(sp)
+		s := &sp.sculptor
+		before, _ := sculptor_compact_mesh(s, context.temp_allocator)
+		was := make(map[Vec3]bool, len(before.positions), context.temp_allocator)
+		for p in before.positions do was[p] = true
+		radius: f32 = 0.4
+		detail: f32 = 0.1 // over the sphere's own edges, so only what the pull stretched splits
+		pull := Vec3{0, 0, 0.8} if kind == .Grab else Vec3{0.4, 0, 0.9}
+		sculptor_stroke_begin(s)
+		_ = sculptor_grab_begin(s, {kind = kind, radius = radius, strength = 1, detail = detail / radius, volume = 0.8}, {0, 0, 1})
+		_ = sculptor_grab_move(s, pull)
+		_ = sculptor_flush(s)
+		// The longest edge with an end that moved or is new, in the compact mesh.
+		longest :: proc(s: ^Sculptor, was: map[Vec3]bool) -> (most: f32) {
+			m, _ := sculptor_compact_mesh(s, context.temp_allocator)
+			for f in 0 ..< len(m.indices) / 3 do for k in 0 ..< 3 {
+				a, b := m.positions[m.indices[3 * f + k]], m.positions[m.indices[3 * f + (k + 1) % 3]]
+				if was[a] && was[b] do continue
+				most = max(most, linalg.length(a - b))
+			}
+			return
+		}
+		stretched := longest(s, was)
+		splits := sculptor_grab_refine(s)
+		sculptor_grab_end(s)
+		testing.expect(t, sculptor_stroke_end(s))
+		_ = sculptor_flush(s)
+		if !expect_valid(t, s) do return
+		refined := longest(s, was)
+		testing.expectf(t, stretched > 2 * detail && splits > 0 && refined <= detail * 1.0001, "%v: longest edge %.4f stretched, %.4f after %d splits (detail %.4f)", kind, stretched, refined, splits, detail)
+		testing.expectf(t, euler(s) == 2, "%v: Euler characteristic %d", kind, euler(s))
+		testing.expect(t, sculptor_undo(s))
+		_ = sculptor_flush(s)
+		if !expect_valid(t, s) do return
+		undone, _ := sculptor_compact_mesh(s, context.temp_allocator)
+		testing.expectf(t, slice.equal(undone.positions[:], before.positions[:]) && slice.equal(undone.indices[:], before.indices[:]), "%v: undo did not restore the mesh", kind)
+	}
+}
+
+// Smooth under dynamic topology splits nothing however long the edges, and with
+// Collapse on coarsens a patch a finer detail made, up to its own detail; with Collapse
+// off it leaves the triangles as they are.
+@(test)
+dyn_smooth_only_collapses :: proc(t: ^testing.T) {
+	sp := dyn_make(t, 2)
+	defer dyn_free(sp)
+	s := &sp.sculptor
+	coarse := sculptor_triangle_count(s)
+	_ = apply_dab(s, {kind = .Smooth, radius = 0.5, strength = 0.5, detail = 0.05, collapse = true}, {0, 0, 1})
+	testing.expectf(t, sculptor_triangle_count(s) <= coarse, "Smooth split: %d triangles, %d before", sculptor_triangle_count(s), coarse)
+	// A Draw dab at a fine detail, then Smooth at a coarser one.
+	_ = apply_dab(s, {kind = .Draw, radius = 0.5, strength = 0.1, detail = 0.08}, {0, 0, 1})
+	_ = sculptor_flush(s)
+	fine := sculptor_triangle_count(s)
+	_ = apply_dab(s, {kind = .Smooth, radius = 0.5, strength = 0.5, detail = 0.3}, {0, 0, 1})
+	testing.expect_value(t, sculptor_triangle_count(s), fine)
+	for _ in 0 ..< 4 do _ = apply_dab(s, {kind = .Smooth, radius = 0.5, strength = 0.5, detail = 0.3, collapse = true}, {0, 0, 1})
+	_ = sculptor_flush(s)
+	if !expect_valid(t, s) do return
+	testing.expectf(t, sculptor_triangle_count(s) < fine * 3 / 4, "%d triangles after the fine Draw, %d after smoothing", fine, sculptor_triangle_count(s))
+	testing.expectf(t, euler(s) == 2, "Euler characteristic %d", euler(s))
+}
+
+// A fully masked area keeps its triangles both ways: a coarse detail that collapses short
+// edges unmasked collapses none masked, as a fine one that splits splits none.
+@(test)
+dyn_mask_keeps_the_triangles :: proc(t: ^testing.T) {
+	for masked in ([2]bool{false, true}) {
+		sp := dyn_make(t, 3)
+		defer dyn_free(sp)
+		s := &sp.sculptor
+		if masked do _ = sculptor_mask_command(s, .Fill)
+		splits0, collapses0 := sculptor_dyn_edits(s)
+		_ = apply_dab(s, {kind = .Draw, radius = 0.5, strength = 0.05, detail = 0.9, collapse = true}, {0, 0, 1})
+		_, collapses := sculptor_dyn_edits(s)
+		_ = apply_dab(s, {kind = .Draw, radius = 0.5, strength = 0.05, detail = 0.05}, {0, 0, 1})
+		splits, _ := sculptor_dyn_edits(s)
+		if masked {
+			testing.expectf(t, splits == splits0 && collapses == collapses0, "masked: %d splits, %d collapses", splits - splits0, collapses - collapses0)
+		} else {
+			testing.expectf(t, splits > splits0 && collapses > collapses0, "unmasked: %d splits, %d collapses", splits - splits0, collapses - collapses0)
+		}
+		if !expect_valid(t, s) do return
+	}
+}
+
+// Detail follows the falloff: a dab refines less with it, and what it adds lies nearer the
+// centre, where the falloff is strong, than at the rim, where it is weak.
+@(test)
+dyn_detail_follows_the_falloff :: proc(t: ^testing.T) {
+	// The triangles near the dab's centre and in its rim; new vertices go into each node's
+	// page, so the triangles are counted by where they lie rather than where they are stored.
+	rings :: proc(s: ^Sculptor) -> (centre, rim: int) {
+		idx := s.mesh.indices[:]
+		for n in s.nodes do for f in n.tri_first ..< n.tri_first + n.tri_count {
+			tri := idx[3 * f:][:3]
+			c := (s.mesh.positions[tri[0]] + s.mesh.positions[tri[1]] + s.mesh.positions[tri[2]]) / 3 - Vec3{0, 0, 1}
+			d2 := linalg.dot(c, c)
+			if d2 < 0.25 * 0.25 do centre += 1
+			else if d2 > 0.42 * 0.42 && d2 < 0.6 * 0.6 do rim += 1
+		}
+		return
+	}
+	count :: proc(t: ^testing.T, follow: bool) -> (splits, centre, rim: int) {
+		sp := dyn_make(t, 2)
+		defer dyn_free(sp)
+		s := &sp.sculptor
+		centre0, rim0 := rings(s)
+		_ = apply_dab(s, {kind = .Draw, radius = 0.6, strength = 0.05, detail = 0.06, detail_falloff = follow}, {0, 0, 1})
+		splits, _ = sculptor_dyn_edits(s)
+		centre, rim = rings(s)
+		centre, rim = centre - centre0, rim - rim0
+		testing.expect(t, expect_valid(t, s))
+		return
+	}
+	plain, plain_centre, plain_rim := count(t, false)
+	follow, follow_centre, follow_rim := count(t, true)
+	testing.expectf(t, follow > 0 && follow < plain && follow_centre > 0 && follow_rim * plain_centre < plain_rim * follow_centre, "splits %d plain (centre +%d, rim +%d), %d following the falloff (centre +%d, rim +%d)", plain, plain_centre, plain_rim, follow, follow_centre, follow_rim)
+}

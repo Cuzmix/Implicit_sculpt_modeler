@@ -3,6 +3,7 @@
 
 Runs, in order, stopping at the first failure:
     check      odin check of every package and the skill mirror check
+    reports    scripts/test_input_report.py: the Input diagnostics report analyzer on its samples
     test       odin test on every tested package
     build      the debug app
     smoke      300 frames under GPU validation (no leaks, no asserts)
@@ -18,7 +19,7 @@ touch run under xvfb-run when it is installed.
 
 Usage:
     python scripts/gate.py                  # every step
-    python scripts/gate.py --fast           # check and test only
+    python scripts/gate.py --fast           # check, reports and test only
     python scripts/gate.py --skip android   # leave steps out (repeatable, or comma separated)
     python scripts/gate.py --only touch     # just these (comma separated)
     python scripts/gate.py --keep-going     # run every step even after a failure
@@ -34,7 +35,7 @@ import time
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WINDOWS = os.name == "nt"
 LOGS = os.path.join(ROOT, "build", "gate")
-ORDER = ["check", "test", "build", "smoke", "touch", "iphone", "wincheck", "android"]
+ORDER = ["check", "reports", "test", "build", "smoke", "touch", "iphone", "wincheck", "android"]
 # The display the scripted scenarios need: tall enough for the Settings scenarios.
 XVFB = ["xvfb-run", "-a", "-s", "-screen 0 1600x1400x24"]
 
@@ -59,6 +60,11 @@ def summary_test(log):
     return f"{sum(counts)} tests in {len(counts)} packages" if counts else ""
 
 
+def summary_unittest(log):
+    m = re.findall(r"Ran (\d+) tests?", log)
+    return f"{m[-1]} tests" if m else ""
+
+
 def summary_smoke(log):
     return "no leaks" if "no leaks" in log else ""
 
@@ -78,6 +84,7 @@ def steps(touch_args):
     python = sys.executable or "python3"
     out = [
         ("check", build_cmd("check"), summary_last),
+        ("reports", [python, os.path.join(ROOT, "scripts", "test_input_report.py")], summary_unittest),
         ("test", build_cmd("test"), summary_test),
         ("build", build_cmd("debug"), lambda log: ""),
         ("smoke", needs_display(build_cmd("smoke")), summary_smoke),
@@ -112,7 +119,7 @@ def main(argv):
     while i < len(argv):
         a = argv[i]
         if a == "--fast":
-            only += ["check", "test"]
+            only += ["check", "reports", "test"]
         elif a == "--keep-going":
             keep_going = True
         elif a in ("--skip", "--only") and i + 1 < len(argv):

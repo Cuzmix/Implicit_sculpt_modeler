@@ -59,7 +59,7 @@ command_group :: proc(id: Command_Id) -> Command_Group {
 	case .Remesh ..= .Reset_Transform:        return .Object
 	case .Add_Object ..= .Rename_Object:      return .Scene
 	case .View_Axis ..= .Transparency:        return .View
-	case .Stats ..= .Pencil_Preferred:        return .App
+	case .Stats ..= .Input_Diagnostics:       return .App
 	}
 	return .App
 }
@@ -209,6 +209,8 @@ GLOSSARY := [?]Glossary_Entry {
 	{"Silhouette", "Grab silhouette (Blender)", "Grab keeping what faces away from the drag in place, so pulling an edge out stretches the outline rather than moving the whole part (Brush palette > Options > More).", "", {}},
 	{"Topological", "Move Topological (ZBrush), geodesic falloff (Blender)", "Grab's falloff measured along the surface from the press, so it leaves a part that only lies near, such as the next finger, and bends round a fold (Brush palette > Options > More, or the Move topological preset).", "", {}},
 	{"Elastic", "Elastic Deform (Blender), Move Elastic (ZBrush)", "A brush that drags what is under it as rubber pulled at that point would stretch: the part pulled keeps its shape and the rest follows smoothly, out to three times the ring, with Volume deciding how much the sides thin (the Move category).", "", {}},
+	{"Pinch and Magnify", "Pinch and Magnify (Blender's Snake Hook)", "Snake hook drawing what it drags in toward the line it is pulled along (Pinch, a horn that thins to a point) or pushing it out (Magnify, a fattening tip) (Brush palette > Options).", "", {}},
+	{"Rake", "Rake (Blender's Snake Hook and texture rake)", "Snake hook turning what it drags as it turns, so a horn drawn round a bend twists with it instead of shearing flat (Brush palette > Options > More).", "", {}},
 	{"Knife", "KnifeCurve and KnifeRect (ZBrush), Trim (Blender)", "A line across the view that cuts the object there and throws the shaded side away, closing the cut (Ctrl + Shift + drag with Knife chosen in Hide, clip and slice, or its tile in the brush browser).", "", {}},
 	{"Drag dot", "DragDot (ZBrush)", "A stroke of one stamp at the brush's size that slides with the pointer until let go, to place a detail exactly (Brush palette > Stroke).", "", {}},
 	{"Spacing", "LazyStep (ZBrush), spacing (Blender, Nomad)", "How far apart a Dots stroke's dabs are, as a share of the brush's radius (Brush palette > Stroke > More).", "", {}},
@@ -218,6 +220,20 @@ GLOSSARY := [?]Glossary_Entry {
 	{"Smoothing", "Stabilizer (Krita, Clip Studio), Stroke smoothing (Procreate)", "The brush following the average of the pointer's last few positions, for steadier lines (Brush palette > Stroke > More).", "", {}},
 	{"Catch up on lift", "Catch up (Krita's stabiliser), finish line (Procreate)", "A stabilised stroke carried on to where the pen lifted, so it ends under the pen (Brush palette > Stroke > More).", "", {}},
 	{"Colour spray", "Color Spray (ZBrush), jitter (Blender)", "A Spray stroke's dabs each painting a slightly lighter or darker shade of the colour (Brush palette > Stroke with Spray).", "", {}},
+	{"Relax", "Relax (Nomad, Blender), tangential smoothing (3D-Coat)", "Smooth's mode that moves vertices only across the surface, evening out their spacing and keeping the shape (Brush palette > Options with Smooth).", "", {}},
+	{"Polish", "Alternate smooth on Alt (ZBrush), Surface Smooth (Blender)", "Smooth's mode that takes the roughness off and keeps the volume (the HC Laplacian); Alt held while smoothing polishes too (Brush palette > Options with Smooth).", "", {}},
+	{"Clay strips", "ClayBuildup (ZBrush), Clay Strips (Blender), Clay (Nomad, square)", "A brush laying flat-topped strips with square ends that turn along the stroke; Tip roundness and Tip scale shape the square (Brush palette > Options).", "", {}},
+	{"Trim dynamic", "TrimDynamic (ZBrush), Multiplane Scrape (Blender), Planar (Nomad)", "A brush cutting a ridge into two flat planes along the stroke, at the angle it reads from the two sides, for hard edges (Brush palette > Options).", "", {}},
+	{"Plane height and depth", "Plane Height and Depth (Blender's Plane), Fill and Scrape", "How far above and below its plane Flatten reaches: height 0 only fills dips, depth 0 only scrapes bumps (Brush palette > Options with Flatten).", "", {}},
+	{"No back and forth", "No Back & Forth (ZBrush)", "Dabs laid only while the stroke goes the way it first went, so a zigzag lays parallel hatching (Brush palette > Stroke > More, the Hatch preset).", "", {}},
+	{"Directional", "Directional (ZBrush)", "Dabs laid only while the stroke moves away from where it was pressed (Brush palette > Stroke > More).", "", {}},
+	{"Size fixed in the scene", "Dynamic draw size (ZBrush), Size: Constant (Nomad), Radius: Scene (Blender)", "The brush keeping its size on the model as the view zooms, so the ring grows as you zoom in (Brush palette > Stroke > More).", "", {}},
+	{"Detail", "Detail resolution (Blender), Detail size (ZBrush's Sculptris Pro), resolution (Nomad)", "With dynamic topology on, the edge length the brush splits down to, on screen or as a share of the brush (Object palette > Dynamic topology).", "", {}},
+	{"Hardness", "Hardness (Blender), Focal shift's flat top (ZBrush)", "The share of the brush's radius that works at full strength, the falloff squeezed into the ring outside it (Brush palette > Falloff).", "", {}},
+	{"Projected", "Falloff Shape: Projected (Blender)", "The falloff measured across the view rather than round a ball, so the brush covers the ring on screen however the surface curves away; Clay and Flatten start with it (Brush palette > Falloff).", "", {}},
+	{"Stabilize orientation", "Stabilize Orientation (ZBrush Samples), plane averaging (Blender)", "The surface direction and height the brush works from averaged along the stroke, so Clay, Flatten and Draw keep a steady plane over rough ground (Brush palette > Samples).", "", {}},
+	{"Sample radius", "Sample Radius (ZBrush Samples), Normal Radius (Blender)", "How much of the brush's radius it reads the surface's direction and height over: smaller follows a narrow ridge's top (Brush palette > Samples).", "", {}},
+	{"Accumulate", "Accumulate (Blender, Nomad), build-up", "Whether a stroke going over itself keeps building up; off, it stops at the height one pass lays, as Draw starts (Brush palette > Samples).", "", {}},
 	{"Smooth only", "Smooth Valleys and Smooth Peaks (ZBrush)", "Smooth evening out only the dents (Valleys) or only the bumps (Peaks), leaving the rest (Brush palette > Options with Smooth, or those two presets).", "", {}},
 	{"Save next", "Save Next (ZBrush for iPad), Save Incremental (Blender)", "Saving the scene as the next numbered file beside its own, dragon_002 after dragon, and saving there from then on, so each stage stays as a file (Search, or a bar button).", "increment", {.Save_Scene_Next}},
 	{"Screen layout", "Screen Layout (ZBrush for iPad), left-handed mode (Nomad)", "Right-handed or Left-handed: left-handed swaps the sides, the off-hand island and the wheel to the right, the navigation and the palettes to the left (Settings > Interface).", "", {}},

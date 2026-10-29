@@ -273,7 +273,7 @@ plugins_open_all :: proc(app: ^App) {
 	when PLUGINS_AVAILABLE {
 		ps := &app.plugins
 		if ps.folder == "" do return
-		infos, err := os.read_directory_by_path(ps.folder, -1, context.temp_allocator)
+		infos, err := folder_entries(ps.folder, context.temp_allocator)
 		if err != nil do return
 		slice.sort_by(infos, proc(a, b: os.File_Info) -> bool {return a.name < b.name})
 		for fi in infos {
