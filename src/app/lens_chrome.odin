@@ -60,11 +60,19 @@ kit_offhand :: proc(app: ^App) {
 	}
 	area := ui.safe_area(ctx)
 	room := area.h - points_bottom(app) - t.edge - dock_stack(app) - 16
+	// Moved in Arrange, it stands where its place says, with the room there.
+	x, y := ui.Anchor.Start, ui.Anchor.Start
+	offset := [2]f32{LENS_EDGE, brush_bar_top(app)}
+	if k.places[.Offhand].edge != .Default {
+		bar, _ := ui.prev_layout(ctx, "brush bar")
+		x, y, offset, room = bar_place_anchor(app, .Offhand, bar)
+		room -= 8
+	}
 	for sliders > 0 && tall > room {
 		tall -= OFFHAND_TRACK + 80 - VALUE_CHIP.y
 		sliders -= 1
 	}
-	ui.begin_anchored(ctx, "brush bar", .Start, .Start, {LENS_EDGE, brush_bar_top(app)}, {direction = .Column, gap = 6, padding = 6, radius = t.radius_large, background = .Panel, center = true})
+	ui.begin_anchored(ctx, "brush bar", x, y, offset, {direction = .Column, gap = 6, padding = 6, radius = t.radius_large, background = .Panel, center = true})
 	for s, i in used {
 		v, value := value_of(s)
 		switch {
@@ -99,7 +107,7 @@ offhand_slider :: proc(app: ^App, slot: int, v: Brush_Value) {
 		x := value_get(app, v)
 		if ui.vslider(ctx, fmt.tprintf("%s##island %d", BRUSH_VALUE_NAMES[v], slot), &x, lo, hi, scale, value_short(app, v), keys = command_hint(app, .Brush_Value, int(v)), track = OFFHAND_TRACK) && value_enabled(app, v) do value_set(app, v, x)
 	}
-	if ui.secondary(ctx) do value_menu_open(app, .Offhand, slot, v, ctx.last_rect, .Right)
+	if ui.secondary(ctx) do value_menu_open(app, .Offhand, slot, v, ctx.last_rect, bar_place_side(app, .Offhand))
 }
 
 // A size or strength slider's tooltip: its keys, and the three-finger drag when that is on.
@@ -229,13 +237,21 @@ kit_view_rail :: proc(app: ^App) {
 	t := ctx.theme
 	owner := ui.id_of(ctx, "view bar")
 	top: f32 = TOP_BAR_H + 6
-	ui.begin_anchored(ctx, "view bar", .End, .Start, {BAR_EDGE + 6, top}, {direction = .Column, padding = 3, radius = t.radius_large, background = .Panel, center = true})
+	area := ui.safe_area(ctx)
+	room := area.y + area.h - t.edge - top - t.target - 12
+	// Moved in Arrange, it stands where its place says, with the room there.
+	x, y := ui.Anchor.End, ui.Anchor.Start
+	offset := [2]f32{BAR_EDGE + 6, top}
+	if k.places[.Rail].edge != .Default {
+		bar, _ := ui.prev_layout(ctx, "view bar")
+		x, y, offset, room = bar_place_anchor(app, .Rail, bar)
+		room -= t.target + 12
+	}
+	ui.begin_anchored(ctx, "view bar", x, y, offset, {direction = .Column, padding = 3, radius = t.radius_large, background = .Panel, center = true})
 	// The panels collapse rather than close once the stack has its headers; until then the
 	// tray needs a way back.
 	_ = bar_command_lens(app, .Inspector, ui.ICON_PANEL, tray_shown(app))
 	ui.divider(ctx, 32, across = true)
-	area := ui.safe_area(ctx)
-	room := area.y + area.h - t.edge - top - t.target - 12
 	used := bar_used(app, .View_Rail)
 	scroll := kit_scroll_begin(ctx, "view rail body", &k.rail_scroll, owner, t.target, max(room, t.target * 3), 0)
 	for s, i in used do bar_slot_button(app, .View_Rail, i, s)
@@ -273,6 +289,8 @@ lens_nav_offset :: proc(app: ^App) -> f32 {
 		reach^ = max(reach^, from + 8)
 	}
 	take(ui.prev_rect(ctx, "view bar"), area, mid, near_top, ctx.mirror, &reach)
+	// The island too, where Arrange put it at the top of the pen side.
+	if k.places[.Offhand].edge != .Default do take(ui.prev_rect(ctx, "brush bar"), area, mid, near_top, ctx.mirror, &reach)
 	for c in k.panels.rect do take(c, area, mid, near_top, ctx.mirror, &reach)
 	for s in k.panels.seen do if s.frame >= k.frame - 1 do take(s.rect, area, mid, near_top, ctx.mirror, &reach)
 	return reach

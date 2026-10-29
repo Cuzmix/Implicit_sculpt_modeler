@@ -4212,6 +4212,96 @@ def lens_arrange_dial_is_the_spaces():
         "@saved": saved_line("dial_space Model 2 modifier Hide")})
 
 
+# Arrange's drops at 1440x900 (PR 3c-1): the left edge's middle, and the view right of the Library.
+ARRANGE_LEFT_MID, ARRANGE_MIDDLE = (24, 470), (900, 320)
+
+
+@scenario
+def lens_arrange_drags_the_rail_to_the_left():
+    """In Arrange a finger drags the Rail's tag to the left edge: after Done the rail stands on the left, the island swaps to the right, its tag picked nothing, and the settings file keeps the place."""
+    a = LENS_ARRANGE
+    s = Script()
+    s.wait(6)
+    s.ftap(*a["dial_tab"])
+    s.wait(4)
+    s.fdrag(line(a["rail_tag"], ARRANGE_LEFT_MID, 30))
+    s.wait(6)
+    s.ftap(*a["done"])
+    s.wait(8)
+    return s, LENS_1440 + ["--script=customise_bars", f"--settings-file={settings_file()}"], camera_still({
+        "bar_places": lambda v: v.startswith("offhand:right:") and ",rail:left:" in v, "bar_carries": near(1), "arrange_zone": is_text("none"),
+        "layout_view_bar": lambda v: float(v.split(",")[0]) < 40, "dabs": near(0)})
+
+
+@scenario
+def lens_arrange_floats_the_island():
+    """The mouse drags the Off-hand tag into the view's middle: the island floats there, and Reset zone with it picked puts it back."""
+    a = LENS_ARRANGE
+    def run(reset):
+        s = Script()
+        s.wait(6)
+        s.ftap(*a["dial_tab"])
+        s.wait(4)
+        tag = (44, 354)
+        s.mouse_drag(line(tag, ARRANGE_MIDDLE, 30))
+        s.wait(6)
+        if not reset:
+            return s, LENS_1440 + ["--script=customise_bars"], camera_still({"bar_places": lambda v: v.startswith("offhand:float:"), "dabs": near(0),
+                                                                             "layout_brush_bar": lambda v: float(v.split(",")[0]) > 700})
+        # The tag went with the island, under where the pointer let go.
+        s.ftap(*ARRANGE_MIDDLE)
+        s.wait(4)
+        s.ftap(*a["reset_zone"])
+        s.wait(6)
+        return s, LENS_1440 + ["--script=customise_bars"], camera_still({"bar_places": is_text("offhand:default,rail:default"), "arrange_resets": near(1), "dabs": near(0)})
+    return Steps([run(False), run(True)])
+
+
+@scenario
+def lens_arrange_pen_drop_left_handed():
+    """Left-handed, the pen drags the Rail's tag (on the screen's left) to the screen's right edge: the rail stands there, which is the layout's left, and the island swaps to the screen's left."""
+    a = LENS_ARRANGE
+    s = Script()
+    s.wait(6)
+    s.ftap(1440 - a["dial_tab"][0], a["dial_tab"][1])
+    s.wait(4)
+    x0, y0 = 1440 - a["rail_tag"][0], a["rail_tag"][1]
+    s.add("pnear")
+    s.add(f"pdown:{x0},{y0}")
+    for x, y in line((x0, y0), (1416, 470), 30)[1:]:
+        s.wait(1)
+        s.add(f"pmove:{x:g},{y:g}")
+    s.wait(1)
+    s.add("pup")
+    s.wait(6)
+    return s, LENS_1440 + ["--script=set left_handed 1; customise_bars"], camera_still({
+        "bar_places": lambda v: v.startswith("offhand:right:") and ",rail:left:" in v, "bar_carries": near(1), "dabs": near(0),
+        "layout_view_bar": lambda v: float(v.split(",")[0]) > 1300, "layout_brush_bar": lambda v: float(v.split(",")[0]) < 40})
+
+
+@scenario
+def lens_arrange_place_stays_with_its_space():
+    """The rail moved to the left in Sculpt stays there after a trip to Model and back, and Model's layout has its rail on the right."""
+    a = LENS_ARRANGE
+    def run(back):
+        s = Script()
+        s.wait(6)
+        s.ftap(*a["dial_tab"])
+        s.wait(4)
+        s.fdrag(line(a["rail_tag"], ARRANGE_LEFT_MID, 30))
+        s.wait(6)
+        s.ftap(*a["done"])
+        s.wait(8)
+        s.ftap(*SPACE_TABS["model"])
+        s.wait(10)
+        if not back:
+            return s, LENS_1440 + ["--script=customise_bars"], camera_still({"space": is_text("model"), "bar_places": is_text("offhand:default,rail:default"), "dabs": near(0)})
+        s.ftap(*SPACE_TABS["sculpt"])
+        s.wait(10)
+        return s, LENS_1440 + ["--script=customise_bars"], camera_still({"space": is_text("sculpt"), "bar_places": lambda v: ",rail:left:" in v, "dabs": near(0)})
+    return Steps([run(False), run(True)])
+
+
 # Lens's brush pie at 1440x900: the dial's Pie sector opens it at the viewport's middle;
 # the top slice (Clay) and the editor's first brush slot.
 LENS_PIE = {"dial": (122, 822), "middle": (720, 450), "top": (720, 334), "crease": (800, 520), "editor_first": (764, 190), "search": (1180, 26)}

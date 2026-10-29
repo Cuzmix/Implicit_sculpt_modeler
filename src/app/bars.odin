@@ -525,10 +525,10 @@ bar_slot_button :: proc(app: ^App, which: Bar_Which, slot: int, s: Bar_Slot, siz
 	if v, ok := value_of(s); ok {
 		cell: [2]f32 = {size, ui.BRUSH_TILE.y - 2} if size > 0 else {}
 		if size <= 0 && which == .View_Rail do cell = {ctx.theme.target, VALUE_CHIP.y - 4}
-		value_item(app, which, slot, v, cell, column = bar_side(which) != .Above_Center)
+		value_item(app, which, slot, v, cell, column = bar_column(which))
 		return
 	}
-	side := bar_side(which)
+	side := bar_side(app, which)
 	more := bar_has_more(s.id)
 	name := fmt.tprintf("%s##%v %d", bar_label(s), which, slot)
 	if ui.icon_button(ctx, name, bar_icon(s), bar_lit(app, s), k.bars_edit || bar_enabled(app, s), command_hint(app, s.id, s.arg), size, more && !k.bars_edit) {
@@ -543,13 +543,19 @@ bar_slot_button :: proc(app: ^App, which: Bar_Which, slot: int, s: Bar_Slot, siz
 	if more && ctx.last_id != 0 && ui.secondary(ctx) do bar_slot_more(app, s, ctx.last_rect, side)
 }
 
-// Which side of a bar's buttons its popovers open.
-bar_side :: proc(which: Bar_Which) -> ui.Side {
+// Which side of a bar's buttons its popovers open: away from the edge the rail and the
+// island stand on (bar_place_side), and above the rows.
+bar_side :: proc(app: ^App, which: Bar_Which) -> ui.Side {
 	#partial switch which {
-	case .View_Rail: return .Left
-	case .Offhand:   return .Right
+	case .View_Rail: return bar_place_side(app, .Rail)
+	case .Offhand:   return bar_place_side(app, .Offhand)
 	}
 	return .Above_Center
+}
+
+// Whether bar `which` runs down the window, a column of buttons.
+bar_column :: proc(which: Bar_Which) -> bool {
+	return which == .View_Rail || which == .Offhand
 }
 
 // The ring round a slot while customising.
@@ -583,7 +589,7 @@ kit_bar_slot_menu :: proc(app: ^App) {
 	m := &k.bar_slot
 	used := bar_used(app, m.which)
 	if m.slot >= len(used) do m.open = false
-	if !ui.popover_begin(ctx, "bar slot", &m.open, m.at, bar_side(m.which), {direction = .Column, gap = 4, padding = 10, width = 268}) do return
+	if !ui.popover_begin(ctx, "bar slot", &m.open, m.at, bar_side(app, m.which), {direction = .Column, gap = 4, padding = 10, width = 268}) do return
 	defer ui.popover_end(ctx)
 	s := used[m.slot]
 	ui.begin(ctx, "bar slot head", {direction = .Row, center = true})

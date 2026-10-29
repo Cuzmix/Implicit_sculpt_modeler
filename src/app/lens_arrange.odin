@@ -37,12 +37,28 @@ Library_Tab :: enum u8 {
 }
 
 // Arrange's own state in Kit_State: the zone picked for Reset zone, whether the Library
-// is put away, its tab, and how many resets ran (for the exit stats).
+// is put away, its tab, how many resets ran (for the exit stats), and the bar being carried
+// by its tag: its outline at the press, where the press was, and whether it went past the
+// slop (until then the press is a tap that picks the zone).
 Arrange_State :: struct {
 	picked:      Maybe(Arrange_Zone),
 	library_off: bool,
 	tab:         Library_Tab,
 	resets:      int,
+	carry:       Maybe(Place_Bar),
+	carry_from:  ui.Rect,
+	carry_press: [2]f32,
+	carrying:    bool,
+	carries:     int, // bars let go (for the exit stats)
+}
+
+// The bar a zone's tag carries, if it carries one.
+arrange_zone_bar :: proc(z: Arrange_Zone) -> (Place_Bar, bool) {
+	#partial switch z {
+	case .Offhand: return .Offhand, true
+	case .Rail:    return .Rail, true
+	}
+	return {}, false
 }
 
 // The Library's width, in points.
@@ -82,19 +98,20 @@ arrange_zone_tag :: proc(app: ^App, z: Arrange_Zone) -> string {
 	return ARRANGE_ZONE_NAMES[z]
 }
 
-// Whether Reset zone has anything to put back for `z`: the off-hand's two sliders are
-// always the same.
-arrange_zone_resettable :: proc(z: Arrange_Zone) -> bool {
-	return z != .Offhand
+// Whether Reset zone has anything to put back for `z`: the off-hand island only its
+// place, its items being the person's.
+arrange_zone_resettable :: proc(k: ^Kit_State, z: Arrange_Zone) -> bool {
+	return z != .Offhand || k.places[.Offhand].edge != .Default
 }
 
-// Puts zone `z` back as a fresh install has it: the dial's sectors, size, turn and place;
-// the shelf's page shown; the stack of cards; the rail's buttons.
+// Puts zone `z` back as a fresh install has it: the island's place; the dial's sectors,
+// size, turn and place; the shelf's page shown; the stack of cards; the rail's buttons and
+// place.
 arrange_zone_reset :: proc(app: ^App, z: Arrange_Zone) {
 	k := &app.kit
 	switch z {
 	case .Offhand:
-		return
+		k.places[.Offhand] = {}
 	case .Dial:
 		k.dials, k.wheel_size, k.wheel_turn, k.wheel_offset = DIAL_DEFAULTS, .Medium, 0, {}
 	case .Shelf:
@@ -104,6 +121,7 @@ arrange_zone_reset :: proc(app: ^App, z: Arrange_Zone) {
 		stack_default(k)
 	case .Rail:
 		bar_list_k(k, .View_Rail)^ = bar_fresh(.View_Rail)
+		k.places[.Rail] = {}
 	}
 	k.arrange.resets += 1
 	report(app, nil, {}, "%s is as it comes again", ARRANGE_ZONE_NAMES[z])
@@ -126,7 +144,7 @@ arrange_top_controls :: proc(app: ^App) -> f32 {
 	labels := ARRANGE_TOP_LABELS
 	if ui.toggle_button(ctx, "Library##arrange", !k.arrange.library_off, arrange_button_width(ctx, labels[0]), tooltip = "Panels' places, the bars to show and the dial's sectors") do k.arrange.library_off = !k.arrange.library_off
 	picked, has := k.arrange.picked.?
-	if ui.button(ctx, "Reset zone##arrange", .Bordered, width = arrange_button_width(ctx, labels[1]), enabled = has && arrange_zone_resettable(picked)) do arrange_zone_reset(app, picked)
+	if ui.button(ctx, "Reset zone##arrange", .Bordered, width = arrange_button_width(ctx, labels[1]), enabled = has && arrange_zone_resettable(k, picked)) do arrange_zone_reset(app, picked)
 	_ = command_button(app, .Workspace_Revert, label = "Reset workspace", variant = .Bordered, width = arrange_button_width(ctx, labels[2]))
 	_ = command_button(app, .Workspace_Save_As, label = "Save as new", variant = .Bordered, width = arrange_button_width(ctx, labels[3]))
 	if ui.button(ctx, "Done##arrange", .Solid, .Accent, width = arrange_button_width(ctx, labels[4])) do k.bars_edit = false
@@ -165,31 +183,97 @@ kit_arrange_lens :: proc(app: ^App) {
 	k := &app.kit
 	if !k.bars_edit {
 		k.arrange.picked, k.arrange.library_off = nil, false
+		k.arrange.carry, k.arrange.carrying = nil, false
 		return
 	}
 	ctx := &k.ctx
 	t := ctx.theme
 	top := kit_top() - 12
+	carried, carrying := k.arrange.carry.?
+	carrying &&= k.arrange.carrying
 	for z in Arrange_Zone {
 		r := arrange_zone_rect(app, z)
 		if r.w <= 0 do continue
 		picked := k.arrange.picked == z
+		bar, carries := arrange_zone_bar(z)
 		box := ui.Rect{r.x - 4, r.y - 4, r.w + 8, r.h + 8}
+		// A bar being carried shows its outline under the pointer, the bar staying put
+		// until it is let go.
+		if carrying && carries && bar == carried {
+			from := k.arrange.carry_from
+			m := ctx.input.mouse
+			box = {from.x - 4 + m.x - k.arrange.carry_press.x, from.y - 4 + m.y - k.arrange.carry_press.y, from.w + 8, from.h + 8}
+		}
 		ui.stroke_rect(ctx, box, t.radius_large + 4, t.accent if picked else ui.color_fade(t.accent, 0.5), 2 if picked else 1)
-		// The tag at the outline's top left, kept under the top bar.
+		// The tag at the outline's top left, kept under the top bar. On a bar that has a
+		// place it is the bar's grip too: a drag past the slop carries the bar.
 		tag := arrange_zone_tag(app, z)
 		tw := ui.text_width(ctx, tag, t.small_size, .Semibold) + 16
 		at := [2]f32{box.x + 6, max(box.y - 11, top)}
 		ui.begin_at(ctx, fmt.tprintf("arrange tag %v", z), at, {direction = .Row})
-		a := ui.area(ctx, fmt.tprintf("%s##arrange tag", ARRANGE_ZONE_NAMES[z]), {tw, 22}, drag = false)
+		a := ui.area(ctx, fmt.tprintf("%s##arrange tag", ARRANGE_ZONE_NAMES[z]), {tw, 22}, drag = carries)
 		ui.fill_rect(ctx, a.rect, t.radius_medium, t.accent if picked else t.surface_raised)
 		ui.stroke_rect(ctx, a.rect, t.radius_medium, ui.color_fade(t.accent, 0.7), 1)
 		ui.text(ctx, tag, a.rect.x + 8, a.rect.y + a.rect.h * 0.5, t.small_size, t.frame if picked else t.accent, .Semibold)
-		ui.tip(ctx, a.id, a.rect, fmt.tprintf("Pick %s for Reset zone", ARRANGE_ZONE_NAMES[z]))
-		if a.clicked do k.arrange.picked = nil if picked else z
+		hint := fmt.tprintf("Drag to move %s to an edge or anywhere; tap to pick it for Reset zone", ARRANGE_ZONE_NAMES[z]) if carries else fmt.tprintf("Pick %s for Reset zone", ARRANGE_ZONE_NAMES[z])
+		ui.tip(ctx, a.id, a.rect, hint)
+		was_carrying := carrying && carries && bar == carried
+		if carries do arrange_carry_follow(app, bar, r, a)
+		if a.clicked && !was_carrying do k.arrange.picked = nil if picked else z
 		ui.end(ctx)
 	}
-	kit_library(app)
+	if carrying do arrange_drop_edges(app, carried)
+	// The Library steps aside while a bar is carried, so the view under it takes the drop.
+	if !carrying do kit_library(app)
+}
+
+// Follows a press on bar `b`'s tag `a` (its outline `r`): past the slop it carries the
+// bar, and let go it puts the bar where it was dropped (bar_place_drop).
+@(private = "file")
+arrange_carry_follow :: proc(app: ^App, b: Place_Bar, r: ui.Rect, a: ui.Area) {
+	k := &app.kit
+	ctx := &k.ctx
+	s := &k.arrange
+	if a.pressed {
+		s.carry, s.carry_from, s.carry_press, s.carrying = b, r, a.mouse, false
+		return
+	}
+	carried, ok := s.carry.?
+	if !ok || carried != b do return
+	if a.held {
+		d := a.mouse - s.carry_press
+		if !s.carrying && d.x * d.x + d.y * d.y > ctx.theme.slop * ctx.theme.slop {
+			s.carrying = true
+			ui.long_cancel(ctx)
+		}
+		return
+	}
+	if s.carrying {
+		box := ui.Rect{s.carry_from.x + a.mouse.x - s.carry_press.x, s.carry_from.y + a.mouse.y - s.carry_press.y, s.carry_from.w, s.carry_from.h}
+		default_top := brush_bar_top(app) if b == .Offhand else TOP_BAR_H + 6
+		bar_place_set(app, b, bar_place_drop(app, b, box, a.mouse, default_top))
+		s.carries += 1
+	}
+	s.carry, s.carrying = nil, false
+}
+
+// While bar `b` is carried: the edges it may go on as strips down the window's sides, the
+// one the pointer is near lit.
+@(private = "file")
+arrange_drop_edges :: proc(app: ^App, b: Place_Bar) {
+	k := &app.kit
+	ctx := &k.ctx
+	t := ctx.theme
+	area := ui.safe_area(ctx)
+	m := ctx.input.mouse
+	for edge in ([]Bar_Edge{.Left, .Right}) {
+		lo, hi := bar_place_room(app, edge)
+		screen_left := (edge == .Left) != ctx.mirror
+		x := area.x + 4 if screen_left else area.x + area.w - 10
+		near := m.x < area.x + PLACE_REACH if screen_left else m.x > area.x + area.w - PLACE_REACH
+		strip := ui.Rect{x, area.y + lo, 6, hi - lo}
+		ui.fill_rect(ctx, strip, 3, t.accent if near else ui.color_fade(t.accent, 0.35))
+	}
 }
 
 // The Library: a sheet over the view, left of the middle, with Panels and Dial.
