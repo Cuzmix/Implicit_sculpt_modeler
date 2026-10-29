@@ -262,6 +262,10 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 	// on a cage, so they make room for its tiles there.
 	tools_here := !focus && sh.page != .Model && sh.page != .Render
 	m := len(tools) if tools_here else 0
+	// The Paint toggle ends the Sculpt dock (paint_toggle.odin), on the pen side beside it,
+	// within the room kept clear there to match the dial's side, so the dock neither moves
+	// nor loses a tile for it.
+	paint_here := !focus && k.spaces.current == .Sculpt && k.places[.Shelf].edge == .Default
 	if focus do n = min(n, SHELF_FOCUS)
 	n, m = shelf_fit(n, m, room, k.bars_edit && !focus)
 	// A brush picked from All, Search or the pie that is not among the tiles shown gets its
@@ -366,6 +370,7 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 	if strip := ui.prev_rect(ctx, "dock"); strip.w > 0 do sheet_anchor = strip
 	sh.active = active_on
 	if active_on do shelf_active_tile(app, active)
+	if paint_here do shelf_paint_toggle(app)
 	return
 }
 

@@ -11771,6 +11771,52 @@ def offer_line_converts_clay_for_a_mesh_brush():
     return Steps([run("crease", "Convert_To_Mesh"), run("clay", "None")])
 
 
+# PR 8b: the Paint toggle at the end of the Sculpt dock, and the colour island's Paint only,
+# at the default 1600x900.
+PAINT_TOGGLE = (1347, 832)
+ISLAND_PAINT_ONLY = (944, 764)
+
+
+@scenario
+def paint_toggle_turns_painting_on_and_off():
+    """The dock's Paint turns the brushes' painting on (Sculpt + paint) with the colour island over the dock, and off again; Paint only, picked on the island, is what it turns back on."""
+    def run(full):
+        s = Script()
+        s.ftap(*PAINT_TOGGLE)
+        s.wait(6)
+        if not full:
+            return s, [], camera_still({"paint_channel": is_text("both"), "colour_island": near(1), "dabs": near(0)})
+        s.ftap(*ISLAND_PAINT_ONLY)
+        s.wait(6)
+        s.ftap(*PAINT_TOGGLE)
+        s.wait(6)
+        s.ftap(*PAINT_TOGGLE)
+        s.wait(6)
+        return s, [], camera_still({"paint_channel": is_text("color"), "paint_on": is_text("color"), "colour_island": near(1), "dabs": near(0)})
+    return Steps([run(False), run(True)])
+
+
+@scenario
+def paint_toggle_off_hides_the_island():
+    """A second tap on Paint turns painting off and the colour island goes."""
+    s = Script()
+    s.ftap(*PAINT_TOGGLE)
+    s.wait(6)
+    s.ftap(*PAINT_TOGGLE)
+    s.wait(6)
+    return s, [], camera_still({"paint_channel": is_text("sculpt"), "paint_on": is_text("both"), "colour_island": near(0), "dabs": near(0)})
+
+
+@scenario
+def paint_toggle_lays_colour_as_it_sculpts():
+    """With Paint on, a stroke on the model sculpts and paints it in one undo step."""
+    s = Script()
+    s.ftap(*PAINT_TOGGLE)
+    s.wait(6)
+    strokes(s, 1)
+    return s, [], {"paint_channel": is_text("both"), "painted_vertices": lambda v: int(v) > 0, "dabs": lambda v: int(v) > 0, "undo_steps": near(1)}
+
+
 def main(argv):
     if "--list" in argv:
         for name, fn in SCENARIOS.items():

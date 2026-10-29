@@ -124,6 +124,7 @@ dock_stack :: proc(app: ^App) -> (h: f32) {
 	ctx := &app.kit.ctx
 	// No dock (the workspace hides it), no lift either.
 	if dock := shelf_bottom_size(app); dock.y > 0 do h = dock.y + dock_lift(app)
+	h += colour_island_lift(app)
 	if bar, _ := ui.prev_layout(ctx, "action bar"); bar.y > 0 do h += bar.y + ACTION_BAR_GAP
 	return
 }
@@ -209,7 +210,7 @@ kit_action_bar :: proc(app: ^App) {
 	}
 	dock := shelf_bottom_size(app)
 	mark := ui.vertex_mark(ctx)
-	ui.begin_anchored(ctx, "action bar", .Center, .End, {0, t.edge + dock_lift(app) + dock.y + ACTION_BAR_GAP}, {direction = .Row, gap = 4, padding = ACTION_BAR_PADDING, radius = t.radius_large + 4, background = .Panel, center = true})
+	ui.begin_anchored(ctx, "action bar", .Center, .End, {0, t.edge + dock_lift(app) + dock.y + ACTION_BAR_GAP + colour_island_lift(app)}, {direction = .Row, gap = 4, padding = ACTION_BAR_PADDING, radius = t.radius_large + 4, background = .Panel, center = true})
 	n := 0
 	for g in groups {
 		if n > 0 do ui.divider(ctx, 28)

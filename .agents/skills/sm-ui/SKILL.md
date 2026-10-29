@@ -44,7 +44,8 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   each a registry command, another space's first enabled verb tagged with `menu_item(tag =, tag_color = t.tints[space])`
   and run after `Space_Switch`; a new verb is a table row, never a menu branch; on the view `view_menu_open` serves the right
   click (`pie_update`), the `Object_Menu` command and the finger's `hold_menu_check` in `pointer_route`; `space_fit` (`offers.odin`)
-  rings it amber and `kit_offer_line` takes the action bar's place; a dimmed command passes `command_reason` as `reason`) | Search field | History, Settings, all laid inline with spacers (a `begin_at` inside the bar
+  rings it amber and `kit_offer_line` takes the action bar's place; a dimmed command passes `command_reason` as `reason`;
+  `kit_colour_island` sits under both while painting, lifting them by `colour_island_lift`) | Search field | History, Settings, all laid inline with spacers (a `begin_at` inside the bar
   loses hits to it); its width budget counts the row's 13 gaps; `lens_focus(k)` (the View_Bar zone hidden) turns it into `kit_top_islands`, with no view chips and
   a compact shelf. Then `kit_view_chips` ("points", skipped while a pane is maximised: `view_chips=`), `kit_offhand` (the island, "brush bar": Size and Strength
   `ui.vslider`s, long press = Pen section, the pen's roll sets them via `island_roll`), `kit_nav_head`, `kit_view_rail`

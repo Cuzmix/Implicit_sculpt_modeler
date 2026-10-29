@@ -98,7 +98,7 @@ kit_offer_line :: proc(app: ^App) -> bool {
 	button_w := ui.text_width(ctx, offer.label, t.text_size, .Semibold) + t.icon_small + 6 + 28
 	dock := shelf_bottom_size(app)
 	mark := ui.vertex_mark(ctx)
-	ui.begin_anchored(ctx, "action bar", .Center, .End, {0, t.edge + dock_lift(app) + dock.y + ACTION_BAR_GAP}, {direction = .Row, gap = 8, padding = ACTION_BAR_PADDING, radius = t.radius_large + 4, background = .Panel, center = true})
+	ui.begin_anchored(ctx, "action bar", .Center, .End, {0, t.edge + dock_lift(app) + dock.y + ACTION_BAR_GAP + colour_island_lift(app)}, {direction = .Row, gap = 8, padding = ACTION_BAR_PADDING, radius = t.radius_large + 4, background = .Panel, center = true})
 	obj := selected_object(app)
 	text := fmt.tprintf("%s · %s", offer.what, offer.needs)
 	text_w := min(ui.text_width(ctx, text, t.small_size), max(room - button_w - t.icon_small - 48, 0))

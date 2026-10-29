@@ -225,7 +225,6 @@ color_bytes :: proc(rgb: [3]f32) -> [3]u8 {
 }
 
 // A display colour as the kit draws it.
-@(private = "file")
 shade :: proc(rgb: [3]f32) -> ui.Color {
 	b := color_bytes(rgb)
 	return {b.r, b.g, b.b, 255}
