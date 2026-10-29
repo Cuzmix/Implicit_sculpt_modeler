@@ -3129,6 +3129,21 @@ def model_live_stack_bevels_and_thickens():
                   (Script(), LENS_1440 + ["--check-mesh", f"--script={plate}; apply_cage"], {"cages": near(0), "selected_levels": near(3), "levels_rule": is_text("Smooth"), "mesh_closed": is_text("true")})])
 
 @scenario
+def model_live_mirror_shows_both_halves():
+    """Mirror X on a cube cage draws its image across the plane; an extrude drag on the cube's right face then grows the left side too (the cage ten faces, the drawing twenty); Apply mirror makes the image part of the cage and turns the mirror off; a mirror comes back from a saved scene as it was."""
+    path = scene_file()
+    shutil.rmtree(os.path.dirname(path), ignore_errors=True)
+    os.makedirs(os.path.dirname(path))
+    base = "add_cage cube; select 1; delete_object; frame_all; cage_mirror x"
+    s = Script()
+    s.mouse_drag(line((810, 480), (874, 496), 8))
+    s.wait(10)
+    return Steps([(s, LENS_1440 + ["--check-mesh", f"--script={base}; model_action extrude", f"--save={path}"], {"cage_faces": near(10), "cage_points": near(12), "cage_live_faces": near(20), "cage_mirrored": near(1), "cage_live_broken": near(0), "model_done": near(1)}),
+                  (Script(), LENS_1440 + [f"--open={path}"], {"cages": near(1), "cage_faces": near(10), "cage_live_faces": near(20), "cage_mirrored": near(1)}),
+                  (Script(), LENS_1440 + [f"--script={base}; tidy_cage apply_mirror"], {"cage_faces": near(12), "cage_points": near(16), "cage_mirrored": near(0), "cage_live_faces": near(0), "cage_broken": near(0)}),
+                  (Script(), LENS_1440 + [f"--script={base}; tidy_cage apply_mirror; undo"], {"cage_faces": near(6), "cage_mirrored": near(1), "cage_live_faces": near(12)})])
+
+@scenario
 def model_align_sets_a_cage_on_another():
     """Align parts: a drag from one cube cage's front face lifted over another cube's top sets the first on the second, face to face, as one undo step; a tap on it then turns it a step about the join, and a Ctrl tap flips it into the other."""
     base = "add_cage cube; select 1; delete_object; add_cage cube; move 7 0 0; frame_all; model_action align"
@@ -3188,6 +3203,20 @@ def model_topo_pen_retopologises_a_sphere():
                   (delete, use, {"cage_faces": near(1), "cage_points": near(4), "undo_steps": near(3)}),
                   (relax, use, {"topo_pen_relaxes": near(1), "cage_points": near(6), "undo_steps": near(3)}),
                   (dots, use, {"topo_pen_dots": near(2), "cages": near(0), "undo_steps": near(0)})])
+
+@scenario
+def model_topo_pen_draws_strips_and_patches():
+    """Topo pen strokes on the sphere with a brush of 40 pixels: a drag draws a strip of quads as wide as the brush, a closed stroke fills its outline with a grid of quads, and Ctrl and a drag stamps a grid patch over the rectangle it spans; each is one cage, one undo step."""
+    use = LENS_1440 + ["--check-mesh", "--script=frame_all; model_action topo; set radius_px 40"]
+    def run(points, keys=()):
+        s = Script()
+        s.mouse_drag(points, keys=keys)
+        s.wait(10)
+        return s
+    ring = [(720 + 60 * math.sin(2 * math.pi * k / 32), 380 - 60 * math.cos(2 * math.pi * k / 32)) for k in range(33)]
+    return Steps([(run(line((600, 520), (840, 500), 16)), use, {"cages": near(1), "cage_faces": near(6), "cage_points": near(14), "topo_pen_sheets": near(1), "undo_steps": near(1), "cage_broken": near(0)}),
+                  (run(ring), use, {"cages": near(1), "cage_faces": near(6), "cage_points": near(12), "topo_pen_sheets": near(1), "cage_broken": near(0)}),
+                  (run(line((640, 420), (800, 520), 10), ("ctrl",)), use, {"cages": near(1), "cage_faces": near(12), "cage_points": near(20), "topo_pen_sheets": near(1), "undo_steps": near(1), "cage_broken": near(0)})])
 
 @scenario
 def model_delete_tap_removes_a_face():

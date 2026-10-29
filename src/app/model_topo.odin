@@ -61,6 +61,7 @@ Model_Topo :: struct {
 	alt:    bool,
 	start:  Topo_Point,
 	met:    [dynamic]Topo_Point, // the points met after the start, in order (heap)
+	stroke: [dynamic][2]f32, // a drag on the sculpt, on screen (heap)
 	// Relax's cage before it began (nil until the first change), and whether it moves the
 	// border points or the inner ones.
 	before: ^Object_Snapshot,
@@ -71,13 +72,14 @@ Model_Topo :: struct {
 	// is selected.
 	cage:   int,
 	// Since the start, for the exit stats.
-	faces, welds, extends, relaxes: int,
+	faces, welds, extends, relaxes, sheets: int,
 }
 
 model_topo_free :: proc(t: ^Model_Topo) {
 	if t.before != nil do history_snapshot_drop(t.before)
 	delete(t.dots)
 	delete(t.met)
+	delete(t.stroke)
 }
 
 // How near on screen the pen must come to a point to take it, and to a border edge;
@@ -239,9 +241,13 @@ model_topo_frame :: proc(app: ^App, input: Viewport_Input) -> bool {
 		topo_relax_end(app)
 		return true
 	case .Surface:
-		if input.primary do return true
+		if input.primary {
+			if linalg.length(input.mouse_pos - t.stroke[len(t.stroke) - 1]) >= 3 do append(&t.stroke, input.mouse_pos)
+			return true
+		}
 		t.kind = .None
-		if linalg.length(input.mouse_pos - t.press) > slop do return true
+		append(&t.stroke, input.mouse_pos)
+		if model_stroke_reach(t.stroke[:], t.press) > slop do return topo_sheet(app, input)
 		return topo_tap_surface(app, input)
 	}
 	// The hover: a point, else a border edge.
@@ -253,6 +259,8 @@ model_topo_frame :: proc(app: ^App, input: Viewport_Input) -> bool {
 	if !input.primary || !input.press do return true
 	t.press, t.alt, t.start = input.mouse_pos, input.invert, t.hover
 	clear(&t.met)
+	clear(&t.stroke)
+	append(&t.stroke, input.mouse_pos)
 	switch {
 	case input.smooth:
 		t.kind, t.object, t.border = .Relax, 0, false
@@ -433,10 +441,7 @@ topo_make_face :: proc(app: ^App, size: [2]f32) -> bool {
 		}
 		cage_id = p.object
 	}
-	if cage_id == 0 {
-		if sel := selected_object(app); sel != nil && sel.cage != nil && object_shown(app, sel) do cage_id = sel.id
-		else if last := object_by_id(app, t.cage); last != nil && last.cage != nil && object_shown(app, last) do cage_id = t.cage
-	}
+	if cage_id == 0 do cage_id = topo_target_cage(app)
 	// The corners in world space, and the way out of the sculpt at their middle.
 	world := make([]Vec3, len(points))
 	defer delete(world)
@@ -467,19 +472,7 @@ topo_make_face :: proc(app: ^App, size: [2]f32) -> bool {
 			report(app, nil, {.Warning}, "Topo pen: those points do not make a face")
 			return true
 		}
-		obj := new(Object)
-		obj.transform, obj.file = tr, {scale = 1}
-		if !object_build_cage(app, obj, mesh) {
-			free(obj)
-			return false
-		}
-		obj.name = fmt.aprintf("Retopo of %s", object_label(surface) if surface != nil else "the scene")
-		obj.material = current_material(app)
-		obj.material.label, obj.material.pack, obj.material.matcap = "Custom", 0, 0
-		obj.material.selected, obj.material.idle = TOPO_COLOR, TOPO_COLOR
-		scene_append(app, obj)
-		history_record_added(app)
-		t.cage = obj.id
+		if !topo_new_cage(app, surface, mesh) do return false
 	} else {
 		obj := object_by_id(app, cage_id)
 		before := history_snapshot(app, obj, "retopo face")
@@ -502,6 +495,163 @@ topo_make_face :: proc(app: ^App, size: [2]f32) -> bool {
 	t.faces += 1
 	return true
 }
+
+// Adds `mesh` (in `surface`'s space) as a new retopo cage in the sculpt's place, named
+// after it and in the Topo pen's colour, as an added object. Returns false only on a GPU
+// failure.
+@(private = "file")
+topo_new_cage :: proc(app: ^App, surface: ^Object, mesh: poly.Mesh) -> bool {
+	obj := new(Object)
+	obj.transform, obj.file = surface.transform if surface != nil else Transform{scale = 1}, {scale = 1}
+	if !object_build_cage(app, obj, mesh) {
+		free(obj)
+		return false
+	}
+	obj.name = fmt.aprintf("Retopo of %s", object_label(surface) if surface != nil else "the scene")
+	obj.material = current_material(app)
+	obj.material.label, obj.material.pack, obj.material.matcap = "Custom", 0, 0
+	obj.material.selected, obj.material.idle = TOPO_COLOR, TOPO_COLOR
+	scene_append(app, obj)
+	history_record_added(app)
+	app.model.topo.cage = obj.id
+	return true
+}
+
+// The cage new faces of dots alone go to: the selected cage, else the last the pen made
+// faces in, when shown; 0 for a new one.
+@(private = "file")
+topo_target_cage :: proc(app: ^App) -> int {
+	if sel := selected_object(app); sel != nil && sel.cage != nil && object_shown(app, sel) do return sel.id
+	if last := object_by_id(app, app.model.topo.cage); last != nil && last.cage != nil && object_shown(app, last) do return last.id
+	return 0
+}
+
+// A drag on the sculpt, let go: a strip of quads along the stroke, as wide as the brush;
+// a stroke that comes back to its start fills its outline with a grid of quads; with Ctrl,
+// a grid patch over the rectangle from the press to the lift. Each point is on the sculpt
+// under where it lies on screen, and the whole is one undo step.
+@(private = "file")
+topo_sheet :: proc(app: ^App, input: Viewport_Input) -> bool {
+	t := &app.model.topo
+	width := max(app.brush.radius_px, TOPO_SHEET_MIN)
+	screen: [][2]f32
+	sizes: []int
+	corners: []u32
+	stroke := t.stroke[:]
+	length: f32
+	for i in 1 ..< len(stroke) do length += linalg.length(stroke[i] - stroke[i - 1])
+	closed := len(stroke) > 3 && linalg.length(stroke[len(stroke) - 1] - stroke[0]) < 2 * TOPO_PICK && length > 4 * width
+	switch {
+	case t.alt:
+		a, b := t.press, input.mouse_pos
+		across := clamp(int(abs(b.x - a.x) / width + 0.5), 1, TOPO_SHEET_MAX)
+		down := clamp(int(abs(b.y - a.y) / width + 0.5), 1, TOPO_SHEET_MAX)
+		screen = make([][2]f32, (across + 1) * (down + 1), context.temp_allocator)
+		for j in 0 ..= down do for i in 0 ..= across {
+			screen[j * (across + 1) + i] = {linalg.lerp(a.x, b.x, f32(i) / f32(across)), linalg.lerp(a.y, b.y, f32(j) / f32(down))}
+		}
+		sizes, corners = poly.grid_quads(across, down, context.temp_allocator)
+	case closed:
+		// The outline at even steps, an even number of them, its sides from its sharpest
+		// turn: across and down as near equal as the count allows.
+		count := clamp(2 * int(length / (2 * width) + 0.5), 8, 4 * TOPO_SHEET_MAX)
+		outline := topo_resample(stroke, count, true)
+		sharpest, least := 0, f32(2)
+		for i in 0 ..< count {
+			into := linalg.normalize0(outline[i] - outline[(i + count - 1) % count])
+			out := linalg.normalize0(outline[(i + 1) % count] - outline[i])
+			if c := linalg.dot(into, out); c < least do sharpest, least = i, c
+		}
+		turned := make([][2]f32, count, context.temp_allocator)
+		for i in 0 ..< count do turned[i] = outline[(sharpest + i) % count]
+		across := count / 4
+		down := count / 2 - across
+		screen = poly.coons_fill(turned, across, down, context.temp_allocator)
+		sizes, corners = poly.grid_quads(across, down, context.temp_allocator)
+	case:
+		steps := clamp(int(length / width + 0.5), 1, 4 * TOPO_SHEET_MAX)
+		middle := topo_resample(stroke, steps + 1, false)
+		screen = make([][2]f32, 2 * (steps + 1), context.temp_allocator)
+		for c, k in middle {
+			ahead := middle[min(k + 1, steps)] - middle[max(k - 1, 0)]
+			side := linalg.normalize0([2]f32{-ahead.y, ahead.x}) * width / 2
+			screen[k], screen[steps + 1 + k] = c + side, c - side
+		}
+		sizes, corners = poly.grid_quads(steps, 1, context.temp_allocator)
+	}
+	// Every point onto the sculpt, or none.
+	surface: ^Object
+	world := make([]Vec3, len(screen))
+	defer delete(world)
+	for p, i in screen {
+		obj, hit, _, ok := topo_surface(app, p, input.size)
+		if !ok {
+			report(app, nil, {.Warning}, "Topo pen: part of the %s would leave the sculpt", "patch" if t.alt || closed else "strip")
+			return true
+		}
+		if surface == nil do surface = obj
+		world[i] = hit
+	}
+	// Turned to face out of the sculpt, by its first face.
+	q := corners[:4]
+	n := linalg.cross(world[q[1]] - world[q[0]], world[q[2]] - world[q[0]])
+	if linalg.dot(n, topo_outward(app, (world[q[0]] + world[q[2]]) / 2, input.size)) < 0 {
+		for k in 0 ..< len(sizes) do slice.reverse(corners[4 * k:4 * k + 4])
+	}
+	kept_sizes := slice.clone(sizes)
+	kept_corners := slice.clone(corners)
+	defer delete(kept_sizes)
+	defer delete(kept_corners)
+	cage_id := topo_target_cage(app)
+	if cage_id == 0 {
+		tr := surface.transform
+		local := make([]Vec3, len(world), context.temp_allocator)
+		for w, i in world do local[i] = to_local(tr, w)
+		mesh, err := poly.mesh_from_polygons(local, kept_sizes, kept_corners)
+		if err != .None {
+			report(app, nil, {.Warning}, "Topo pen: that %s folds over itself; draw it smoother", "patch" if t.alt || closed else "strip")
+			return true
+		}
+		if !topo_new_cage(app, surface, mesh) do return false
+	} else {
+		obj := object_by_id(app, cage_id)
+		before := history_snapshot(app, obj, "retopo strip")
+		local := make([]Vec3, len(world), context.temp_allocator)
+		for w, i in world do local[i] = to_local(obj.transform, w)
+		r, err := poly.add_polygons(&obj.cage.mesh, local, kept_sizes, kept_corners, 0)
+		poly.edit_result_destroy(&r)
+		if !topo_commit(app, obj, before, err) do return false
+	}
+	t.sheets += 1
+	return true
+}
+
+// `count` points spread evenly along a stroke (closed: round its loop, the first not
+// repeated).
+@(private = "file")
+topo_resample :: proc(stroke: [][2]f32, count: int, closed: bool) -> [][2]f32 {
+	pts := make([dynamic][2]f32, context.temp_allocator)
+	append(&pts, ..stroke)
+	if closed do append(&pts, stroke[0])
+	run := make([]f32, len(pts), context.temp_allocator)
+	for i in 1 ..< len(pts) do run[i] = run[i - 1] + linalg.length(pts[i] - pts[i - 1])
+	total := run[len(pts) - 1]
+	out := make([][2]f32, count, context.temp_allocator)
+	span := count if closed else count - 1
+	j := 0
+	for k in 0 ..< count {
+		want := total * f32(k) / f32(max(span, 1))
+		for j < len(pts) - 2 && run[j + 1] < want do j += 1
+		gap := run[j + 1] - run[j]
+		u := clamp((want - run[j]) / gap, 0, 1) if gap > 0 else 0
+		out[k] = linalg.lerp(pts[j], pts[j + 1], u)
+	}
+	return out
+}
+
+// The narrowest strip cell on screen, and the most cells a patch side or strip takes.
+TOPO_SHEET_MIN :: 12
+TOPO_SHEET_MAX :: 32
 
 // The polygroup a new face takes: that of a face beside one of its existing corners, so
 // a retopo stays one group until the user groups it.
@@ -763,5 +913,12 @@ draw_topo_overlay :: proc(app: ^App, o: Overlay, input: Viewport_Input) {
 	case .Relax:
 		overlay_circle(o, input.mouse_pos, TOPO_RELAX_RADIUS, overlay_color(MODEL_ELEMENT_COLORS[.Point]), 2)
 	case .Surface:
+		// The strip's path, or with Ctrl the patch's rectangle.
+		if t.alt {
+			a, b := t.press, input.mouse_pos
+			overlay_polyline(o, {a, {b.x, a.y}, b, {a.x, b.y}}, overlay_color(TOPO_COLOR), 2, closed = true)
+		} else if len(t.stroke) > 1 {
+			overlay_polyline(o, t.stroke[:], overlay_color(TOPO_COLOR), max(app.brush.radius_px, TOPO_SHEET_MIN), closed = false)
+		}
 	}
 }

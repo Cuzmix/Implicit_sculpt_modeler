@@ -1393,6 +1393,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	{
 		// The Model mode cages: how many, what they are made of, and whether every one is sound.
 		cages, points, edges, faces, ngons, broken, chosen, smooth, creased, corners, live_faces := 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+		mirrored, live_broken := 0, 0
 		for obj in app.scene.objects {
 			cp := obj.cage
 			if cp == nil do continue
@@ -1408,16 +1409,20 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			e, v := poly.crease_count(&cp.mesh)
 			creased += e
 			corners += v
-			if cp.live.vert_first != nil do live_faces += len(cp.live.mesh.face_he)
+			if cp.live.vert_first != nil {
+				live_faces += len(cp.live.mesh.face_he)
+				live_broken += int(!poly.check_ok(poly.mesh_check(&cp.live.mesh)))
+				mirrored += int(cp.look.live.mirror != {} && !cp.live.mirror_refused)
+			}
 		}
-		fmt.printfln("cages=%d cage_points=%d cage_edges=%d cage_faces=%d cage_ngons=%d cage_broken=%d cage_selected=%d cage_smooth=%d cage_creases=%d cage_corners=%d cage_live_faces=%d tool=%v", cages, points, edges, faces, ngons, broken, chosen, smooth, creased, corners, live_faces, app.tool)
+		fmt.printfln("cages=%d cage_points=%d cage_edges=%d cage_faces=%d cage_ngons=%d cage_broken=%d cage_selected=%d cage_smooth=%d cage_creases=%d cage_corners=%d cage_live_faces=%d cage_live_broken=%d cage_mirrored=%d tool=%v", cages, points, edges, faces, ngons, broken, chosen, smooth, creased, corners, live_faces, live_broken, mirrored, app.tool)
 		fmt.printfln("model_action=%v model_target=%v model_done=%d model_refused=%d", app.model.action, model_target(&app.model, app.model.action), app.model.done, app.model.refused)
 		// Where the selected object sits, which Align parts moves a whole cage to.
 		at: Vec3
 		if obj := selected_object(&app); obj != nil do at = obj.transform.position
 		fmt.printfln("selected_x=%.4f selected_y=%.4f selected_z=%.4f", at.x, at.y, at.z)
 		tp := &app.model.topo
-		fmt.printfln("topo_pen_dots=%d topo_pen_faces=%d topo_pen_welds=%d topo_pen_extends=%d topo_pen_relaxes=%d", len(tp.dots), tp.faces, tp.welds, tp.extends, tp.relaxes)
+		fmt.printfln("topo_pen_dots=%d topo_pen_faces=%d topo_pen_welds=%d topo_pen_extends=%d topo_pen_relaxes=%d topo_pen_sheets=%d", len(tp.dots), tp.faces, tp.welds, tp.extends, tp.relaxes, tp.sheets)
 		// How the selected object's levels above its base are made: Loop for a sculpt,
 		// Smooth or Flat for one applied from a cage.
 		if obj := selected_object(&app); obj != nil && obj.voxel == nil && len(obj.levels.levels) > 0 {

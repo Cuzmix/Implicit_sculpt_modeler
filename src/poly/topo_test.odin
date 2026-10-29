@@ -56,3 +56,33 @@ relax_keeps_a_border_a_border :: proc(t: ^testing.T) {
 	moved := relax_points(&m, {edge_point}, context.temp_allocator)
 	testing.expect(t, linalg.length(moved[0] - (ends[0] + ends[1]) / 2) < 1e-5)
 }
+
+@(test)
+grid_fills_an_outline :: proc(t: ^testing.T) {
+	// A square outline of 4 × 3 points a side (14 in all, 4 across and 3 down): the fill
+	// is the even 5 × 4 grid inside it, and its quads make a sound sheet.
+	outline := make([dynamic][2]f32, context.temp_allocator)
+	for i in 0 ..< 4 do append(&outline, [2]f32{f32(i), 0})
+	for j in 0 ..< 3 do append(&outline, [2]f32{4, f32(j)})
+	for i := 4; i > 0; i -= 1 do append(&outline, [2]f32{f32(i), 3})
+	for j := 3; j > 0; j -= 1 do append(&outline, [2]f32{0, f32(j)})
+	testing.expect_value(t, len(outline), 14)
+	grid := coons_fill(outline[:], 4, 3, context.temp_allocator)
+	testing.expect_value(t, len(grid), 20)
+	for j in 0 ..= 3 do for i in 0 ..= 4 do testing.expect(t, linalg.length(grid[j * 5 + i] - {f32(i), f32(j)}) < 1e-5)
+	sizes, corners := grid_quads(4, 3, context.temp_allocator)
+	points := make([]Vec3, len(grid), context.temp_allocator)
+	for g, i in grid do points[i] = {g.x, g.y, 0}
+	m, err := polygon_mesh({{0, 0, 5}, {1, 0, 5}, {1, 1, 5}}, 0)
+	defer mesh_destroy(&m)
+	testing.expect_value(t, err, Build_Error.None)
+	r, add_err := add_polygons(&m, points, sizes, corners, 0)
+	defer edit_result_destroy(&r)
+	testing.expect_value(t, add_err, Build_Error.None)
+	c := mesh_check(&m)
+	testing.expect(t, check_ok(c))
+	testing.expect_value(t, c.faces, 1 + 12)
+	testing.expect_value(t, c.vertices, 3 + 20)
+	// Counter-clockwise seen from +z, so facing +z.
+	testing.expect(t, face_normal(&m, 1).z > 0.99)
+}

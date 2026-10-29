@@ -30,6 +30,75 @@ add_polygon :: proc(m: ^Mesh, corners: []Topo_Corner, group: u16, allocator := c
 	return edit_end(m, &ed, allocator)
 }
 
+// Adds polygons on new points: `points` appended in order, then face k with sizes[k]
+// corners taken in order from `corners` (indices into `points`). A strip, a filled
+// outline or a patch of the Topo pen. Refused, with the cage as it was, when they would
+// not make a sound cage.
+add_polygons :: proc(m: ^Mesh, points: []Vec3, sizes: []int, corners: []u32, group: u16, allocator := context.allocator) -> (r: Edit_Result, err: Build_Error) {
+	ed := edit_begin(m, context.temp_allocator)
+	first := u32(len(ed.positions))
+	for p in points do edit_vertex(&ed, p)
+	at := 0
+	for size in sizes {
+		if size < 3 || at + size > len(corners) do return {}, .Degenerate_Face
+		verts := make([]u32, size, context.temp_allocator)
+		for c, i in corners[at:at + size] {
+			if int(c) >= len(points) do return {}, .Degenerate_Face
+			verts[i] = first + c
+		}
+		edit_face(&ed, verts, group)
+		at += size
+	}
+	return edit_end(m, &ed, allocator)
+}
+
+// The quads of a grid of (across + 1) × (down + 1) points, row by row: each cell's
+// corners counter-clockwise when the rows run across and the columns down a page seen
+// from above, as sizes and corners for add_polygons or mesh_from_polygons.
+grid_quads :: proc(across, down: int, allocator := context.allocator) -> (sizes: []int, corners: []u32) {
+	sizes = make([]int, across * down, allocator)
+	corners = make([]u32, 4 * across * down, allocator)
+	k := 0
+	for j in 0 ..< down {
+		for i in 0 ..< across {
+			a := u32(j * (across + 1) + i)
+			b := a + u32(across + 1)
+			sizes[k] = 4
+			corners[4 * k], corners[4 * k + 1], corners[4 * k + 2], corners[4 * k + 3] = a, a + 1, b + 1, b
+			k += 1
+		}
+	}
+	return
+}
+
+// The points of a Coons patch filling a closed outline of 2 × (across + down) points
+// (each once, in order, from a corner): the outline's sides run across, down, across and
+// down points, and the inside points blend them, so a drawn shape fills with a grid of
+// quads (as Blender's Grid Fill and 3D-Coat's outline fill do). Row by row, as grid_quads
+// numbers them. Works on any vector type, so the app fills a shape on screen.
+coons_fill :: proc(outline: [][2]f32, across, down: int, allocator := context.allocator) -> [][2]f32 {
+	n, m := across, down
+	count := len(outline)
+	at :: proc(o: [][2]f32, i: int) -> [2]f32 {return o[(i % len(o) + len(o)) % len(o)]}
+	bottom :: proc(o: [][2]f32, n, m, i: int) -> [2]f32 {return at(o, i)}
+	right :: proc(o: [][2]f32, n, m, j: int) -> [2]f32 {return at(o, n + j)}
+	top :: proc(o: [][2]f32, n, m, i: int) -> [2]f32 {return at(o, 2 * n + m - i)}
+	left :: proc(o: [][2]f32, n, m, j: int) -> [2]f32 {return at(o, 2 * n + 2 * m - j)}
+	out := make([][2]f32, (n + 1) * (m + 1), allocator)
+	if count != 2 * (n + m) do return out
+	c00, c10, c11, c01 := at(outline, 0), at(outline, n), at(outline, n + m), at(outline, 2 * n + m)
+	for j in 0 ..= m {
+		v := f32(j) / f32(m)
+		for i in 0 ..= n {
+			u := f32(i) / f32(n)
+			p := (1 - v) * bottom(outline, n, m, i) + v * top(outline, n, m, i) + (1 - u) * left(outline, n, m, j) + u * right(outline, n, m, j)
+			p -= (1 - u) * (1 - v) * c00 + u * (1 - v) * c10 + u * v * c11 + (1 - u) * v * c01
+			out[j * (n + 1) + i] = p
+		}
+	}
+	return out
+}
+
 // A cage of one polygon through `points` in order: where the Topo pen starts a cage.
 polygon_mesh :: proc(points: []Vec3, group: u16, allocator := context.allocator) -> (m: Mesh, err: Build_Error) {
 	corners := make([]u32, len(points), context.temp_allocator)
