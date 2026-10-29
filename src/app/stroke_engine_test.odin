@@ -242,6 +242,9 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	// Nor these a Spray stroke.
 	a.brush.even_strength, a.brush.scene_spacing, a.brush.feather = true, true, true
 	a.brush.paint_dial = true
+	// Nor Grab's modes.
+	a.brush.grab_mode, a.brush.grab_normal = .Surface, 0.75
+	a.brush.grab_same_side, a.brush.grab_silhouette = true, true
 	a.stroke_seed = 41
 	a.device.pointer, a.nav.touch_strength = .Finger, 0.5
 	b.nav.touch_strength = 1
@@ -269,6 +272,9 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	testing.expect(t, b.replay.take.brushes[0].catch_up)
 	testing.expect(t, b.replay.take.brushes[0].even_strength && b.replay.take.brushes[0].scene_spacing && b.replay.take.brushes[0].feather)
 	testing.expect(t, b.replay.take.brushes[0].paint_dial)
+	testing.expect_value(t, b.replay.take.brushes[0].grab_mode, Grab_Mode.Surface)
+	testing.expect_value(t, b.replay.take.brushes[0].grab_normal, 0.75)
+	testing.expect(t, b.replay.take.brushes[0].grab_same_side && b.replay.take.brushes[0].grab_silhouette)
 	replay_start(&b, &b.replay.take)
 	for replay_busy(&b) do _ = replay_frame(&b, {})
 	testing.expect(t, slice.equal(object_sculptor(oa).mesh.positions[:], object_sculptor(ob).mesh.positions[:]))
@@ -281,7 +287,7 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	data, err := os.read_entire_file(path, context.allocator)
 	testing.expect(t, err == nil)
 	defer delete(data)
-	BRUSH :: 64 + 52
+	BRUSH :: 64 + 59
 	// The files from before version 13 kept no pen roll in a frame.
 	frames_before_roll :: proc(frames: []u8) -> []u8 {
 		out := make([dynamic]u8, context.temp_allocator)
@@ -301,6 +307,24 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 		}
 		return out[:]
 	}
+	// Version 16 had no Grab modes after Even strength, Scene spacing and Feather: the one
+	// brush ends 64 + 52 bytes after the header's 16, and grabs freely on both sides.
+	sixteen := make([dynamic]u8, context.temp_allocator)
+	append(&sixteen, ..data[:16 + 64 + 52])
+	append(&sixteen, ..data[16 + BRUSH:])
+	sixteen[len(STROKES_MAGIC)] = 16
+	testing.expect(t, os.write_entire_file(path, sixteen[:]) == nil)
+	p: App
+	defer replay_destroy(&p.replay)
+	defer results_destroy(&p)
+	testing.expect(t, strokes_load(&p, path))
+	if len(p.replay.take.brushes) == 1 {
+		pb := p.replay.take.brushes[0]
+		testing.expect_value(t, pb.grab_mode, Grab_Mode.Free)
+		testing.expect(t, !pb.grab_same_side && !pb.grab_silhouette)
+		testing.expect(t, pb.even_strength && pb.feather)
+	}
+
 	// Version 15 had no Even strength, Scene spacing or Feather after the stabiliser: the
 	// one brush ends 64 + 49 bytes after the header's 16, and lays every dab at the
 	// brush's strength, spaced on screen.
@@ -1085,4 +1109,68 @@ even_strength_keeps_a_strokes_height_across_spacings :: proc(t: ^testing.T) {
 	}
 	// Unevened, dabs a tenth of the radius apart pile up about two and a half times as high.
 	testing.expect(t, rise(path[:], 0.1, false) > 2 * reference)
+}
+
+// A Grab pressed just past the sphere's edge takes hold of the nearest surface within the
+// brush ring, and holding still moves nothing (the drag counts from the press, not from
+// the surface point it took); dragging outward then pulls the edge out.
+@(test)
+grab_takes_hold_past_the_silhouette :: proc(t: ^testing.T) {
+	app: App
+	defer stroke_scene_free(&app)
+	obj := stroke_sphere(&app)
+	app.brush.kind, app.brush.radius_px = .Grab, 40
+	app.brush.strengths[.Grab] = 1
+	// The sphere's right edge along the middle row, then a little past it.
+	edge := [2]f32{500, 400}
+	for {
+		origin, dir := mouse_ray(app.camera, edge + {1, 0}, STROKE_SIZE)
+		if _, _, ok := scene_raycast(&app, origin, dir); !ok do break
+		edge.x += 1
+	}
+	press := edge + {15, 0}
+	before := slice.clone(object_mesh(obj).positions[:], context.temp_allocator)
+	stroke_pressed(&app, {press, press}, {1, 1}, held = true)
+	testing.expect(t, app.stroke.active && app.stroke.grab)
+	testing.expect(t, slice.equal(object_mesh(obj).positions[:], before))
+	out := press + {30, 0}
+	_ = sculpt_frame(&app, {size = STROKE_SIZE, mouse_pos = out, hovered = true, primary = true, samples = {{pos = out, pressure = 1, kind = .Move}}})
+	_ = sculpt_frame(&app, {size = STROKE_SIZE, mouse_pos = out, hovered = true})
+	far: f32
+	for p in object_mesh(obj).positions do far = max(far, linalg.length(p))
+	testing.expectf(t, far > 1.05, "the edge reached %v", far)
+	testing.expect_value(t, len(app.history.done), 1)
+}
+
+// Along normal moves a sideways drag along the pressed normal by how far the pointer went
+// toward where the normal points on screen; Along surface takes the normal part out; Free
+// keeps the drag, and its Normal weight blends toward along the normal. Shift and Alt
+// mid-grab pick the first two whatever the brush says.
+@(test)
+grab_modes_turn_the_drag :: proc(t: ^testing.T) {
+	app: App
+	app.camera = camera.orbit_default()
+	facing := camera.orbit_toward(app.camera, {})
+	// A normal half across the screen, half toward the camera.
+	view := camera.orbit_view(app.camera)
+	right := Vec3{view[0, 0], view[0, 1], view[0, 2]}
+	n := linalg.normalize(right + facing)
+	app.stroke.grab_normal = n
+	drag := right * 0.2
+	near :: proc(a, b: Vec3) -> bool {return linalg.length(a - b) < 1e-5}
+	testing.expect(t, near(grab_moved(&app, {}, drag, facing), drag))
+	app.brush.grab_mode = .Normal
+	testing.expect(t, near(grab_moved(&app, {}, drag, facing), n * 0.2))
+	app.brush.grab_mode = .Surface
+	surface := grab_moved(&app, {}, drag, facing)
+	testing.expect(t, abs(linalg.dot(surface, n)) < 1e-5)
+	app.brush.grab_mode, app.brush.grab_normal = .Free, 0.5
+	testing.expect(t, near(grab_moved(&app, {}, drag, facing), (drag + n * 0.2) * 0.5))
+	app.brush.grab_normal = 0
+	testing.expect(t, near(grab_moved(&app, {smooth = true}, drag, facing), n * 0.2))
+	testing.expect(t, abs(linalg.dot(grab_moved(&app, {alt = true}, drag, facing), n)) < 1e-5)
+	// With the normal toward the camera, up on the screen is out.
+	app.stroke.grab_normal = facing
+	up := Vec3{view[1, 0], view[1, 1], view[1, 2]}
+	testing.expect(t, near(grab_moved(&app, {smooth = true}, up * 0.1, facing), facing * 0.1))
 }

@@ -50,6 +50,11 @@ Preset_Values :: struct {
 	connected:   bool,
 	grab_depth:  bool,
 	smooth_only: sculpt.Smooth_Only,
+	// Grab's mode, Normal weight, Same side and Silhouette (Brush_Settings).
+	grab_mode:       Grab_Mode,
+	grab_normal:     f32,
+	grab_same_side:  bool,
+	grab_silhouette: bool,
 }
 
 Brush_Preset :: struct {
@@ -70,7 +75,8 @@ preset_values_of :: proc(b: ^Brush_Settings, kind: sculpt.Brush_Kind) -> Preset_
 		alpha_angle = b.alpha_angle, stroke = b.stroke, spread = b.spray_spread, lazy_px = b.lazy_px, color = b.color,
 		smoothing = b.smoothing, pressure_smoothing = b.pressure_smoothing,
 		cloth_mode = b.cloth_mode, lock_plane = b.lock_plane, connected = b.connected, grab_depth = b.grab_depth,
-		smooth_only = b.smooth_only,
+		smooth_only = b.smooth_only, grab_mode = b.grab_mode, grab_normal = b.grab_normal, grab_same_side = b.grab_same_side,
+		grab_silhouette = b.grab_silhouette,
 	}
 }
 
@@ -83,6 +89,7 @@ preset_values_put :: proc(b: ^Brush_Settings, v: Preset_Values) {
 	b.smoothing, b.pressure_smoothing = f32(steady_count(v.smoothing)), f32(steady_count(v.pressure_smoothing))
 	b.lock_plane, b.connected = v.lock_plane, v.connected
 	b.grab_depth, b.smooth_only = v.grab_depth, v.smooth_only
+	b.grab_mode, b.grab_normal, b.grab_same_side, b.grab_silhouette = v.grab_mode, v.grab_normal, v.grab_same_side, v.grab_silhouette
 }
 
 // The preset numbered `n` (PACK_PRESET), if there is one.
@@ -170,6 +177,7 @@ preset_same :: proc(app: ^App, a, b: Preset_Values) -> bool {
 	if flags & {.Grab, .Cloth} == {} && a.lock_plane != b.lock_plane do return false
 	if .Cloth not_in flags && a.connected != b.connected do return false
 	if .Grab in flags && a.grab_depth != b.grab_depth do return false
+	if a.kind == .Grab && (a.grab_mode != b.grab_mode || a.grab_normal != b.grab_normal || a.grab_same_side != b.grab_same_side || a.grab_silhouette != b.grab_silhouette) do return false
 	if a.kind == .Smooth && a.smooth_only != b.smooth_only do return false
 	if .Grab not_in flags && (round(app, a.alpha) != round(app, b.alpha) || a.alpha_mode != b.alpha_mode || a.alpha_angle != b.alpha_angle) do return false
 	if .Paint in flags && a.color != b.color do return false
@@ -288,13 +296,15 @@ preset_ref :: proc(app: ^App, n: int) -> string {
 // preset <name> <brush> <strength> <drawn 0|1> c1x c1y c2x c2y <alpha|-> <alpha mode>
 //        <alpha angle> <stroke> <lazy px> r g b <cloth mode> [<spread> [<lock plane 0|1>
 //        <connected 0|1> [<focal shift> [<all depth 0|1> <smooth only> [<smoothing>
-//        <pressure smoothing>]]]]]; names escaped
+//        <pressure smoothing> [<grab mode> <normal weight> <same side 0|1>
+//        <silhouette 0|1>]]]]]]; names escaped
 // (preset_escape). Lines from before Spray have no spread and take the default; lines
 // from before Lock plane and Connected have both off; lines from before focal shift have
 // none; lines from before All depth and Smooth only have Grab's round reach and Smooth
-// on everything; lines from before the stabiliser have it off.
+// on everything; lines from before the stabiliser have it off; lines from before Grab's
+// modes grab freely on both sides.
 preset_parse :: proc(f: []string) -> (name: string, v: Preset_Values, alpha: string, ok: bool) {
-	if len(f) != 18 && len(f) != 19 && len(f) != 21 && len(f) != 22 && len(f) != 24 && len(f) != 26 do return
+	if len(f) != 18 && len(f) != 19 && len(f) != 21 && len(f) != 22 && len(f) != 24 && len(f) != 26 && len(f) != 30 do return
 	kind, kind_ok := brush_by_name(f[2])
 	alpha_mode, mode_ok := reflect.enum_from_name(Alpha_Mode, f[10])
 	stroke, stroke_ok := reflect.enum_from_name(Stroke_Mode, f[12])
@@ -322,9 +332,15 @@ preset_parse :: proc(f: []string) -> (name: string, v: Preset_Values, alpha: str
 		v.grab_depth, v.smooth_only = f[22] == "1", only
 	}
 	v.smoothing, v.pressure_smoothing = 1, 1
-	if len(f) == 26 {
+	if len(f) >= 26 {
 		v.smoothing = f32(steady_count(number(f[24], 1)))
 		v.pressure_smoothing = f32(steady_count(number(f[25], 1)))
+	}
+	if len(f) == 30 {
+		grab, grab_ok := reflect.enum_from_name(Grab_Mode, f[26])
+		if !grab_ok do return
+		v.grab_mode, v.grab_normal = grab, clamp(number(f[27], 0), 0, 1)
+		v.grab_same_side, v.grab_silhouette = f[28] == "1", f[29] == "1"
 	}
 	for k in 0 ..< 3 do v.color[k] = clamp(number(f[14 + k], 0), 0, 1)
 	return preset_unescape(f[1]), v, preset_unescape(f[9]), true
@@ -339,11 +355,13 @@ preset_line :: proc(out: ^strings.Builder, name: string, v: Preset_Values, alpha
 	// Only a preset with a focal shift, All depth or Smooth only has the fields, so the
 	// builds from before them, which skip a line of a length they do not know, keep every
 	// other preset.
-	steady := steady_count(v.smoothing) > 1 || steady_count(v.pressure_smoothing) > 1
+	grab := v.grab_mode != .Free || v.grab_normal != 0 || v.grab_same_side || v.grab_silhouette
+	steady := steady_count(v.smoothing) > 1 || steady_count(v.pressure_smoothing) > 1 || grab
 	extra := v.grab_depth || v.smooth_only != .All || steady
 	if v.falloff.focal != 0 || extra do fmt.sbprintf(out, " %g", v.falloff.focal)
 	if extra do fmt.sbprintf(out, " %d %v", bit(v.grab_depth), v.smooth_only)
 	if steady do fmt.sbprintf(out, " %d %d", steady_count(v.smoothing), steady_count(v.pressure_smoothing))
+	if grab do fmt.sbprintf(out, " %v %g %d %d", v.grab_mode, v.grab_normal, bit(v.grab_same_side), bit(v.grab_silhouette))
 	strings.write_byte(out, '\n')
 }
 

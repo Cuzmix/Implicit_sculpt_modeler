@@ -38,6 +38,13 @@ Brush_Settings :: struct {
 	lock_plane:        bool, // keep the plane the stroke's first dab found (sculpt.Brush.lock_plane)
 	connected:         bool, // work only on what joins the dab's centre through the surface (sculpt.Brush.connected)
 	grab_depth:        bool, // Grab reaches through the whole depth under the brush (sculpt.Brush.through)
+	// Grab: which way the drag moves what it picked up (Shift mid-grab takes Along normal,
+	// Alt Along surface), how much of a Free drag goes along the normal instead (Blender's
+	// Normal weight), and Same side and Silhouette (sculpt.Brush).
+	grab_mode:         Grab_Mode,
+	grab_normal:       f32,
+	grab_same_side:    bool,
+	grab_silhouette:   bool,
 	smooth_only:       sculpt.Smooth_Only, // which vertices Smooth evens out: all, valleys or peaks
 	stroke:            Stroke_Mode,
 	spray_spread:      f32, // Spray: how far from the path dabs scatter, in brush radii
@@ -161,6 +168,13 @@ Stroke :: struct {
 	start:    [2]f32, // Drag rectangle: where on screen the drag began
 	at:       Vec3, // ...and where that is on the object, in its own space
 	anchor:   Vec3, // Grab: where the stroke started; Snake hook: where it has pulled to (world space)
+	// Grab: the point under the press on the plane through the anchor facing the camera,
+	// which the pointer's moves are measured from (the anchor itself, unless the press was
+	// past the silhouette), and the area normal there (world space, unit length or zero).
+	grab_from:   Vec3,
+	grab_normal: Vec3,
+	// The pen's pressure at the press: Grab's and Snake hook's strength keep it.
+	press_pressure: f32,
 	// The brush the stroke started with, Shift's Smooth and the rail's Mask included: kept
 	// for the whole stroke, so Shift or a brush key pressed mid-stroke changes nothing.
 	kind:     sculpt.Brush_Kind,
@@ -227,6 +241,21 @@ Stroke_End :: struct {
 // How near the last stroke's end a press joins it: about a fingertip, so a finger or
 // pen lifted and put down again on the same spot finds it.
 SNAP_PX :: 24
+
+// Which way a Grab drags what it picked up: as the pointer goes, on the plane facing the
+// camera (Free); along the surface's normal where it was pressed, toward where the normal
+// points on screen pulling out (Normal: ZBrush's Shift, Nomad's Normal, 3D-Coat's Ctrl); or
+// only across the surface, the normal part taken out (Surface: ZBrush's Alt, Blender's
+// Nudge and Thumb).
+Grab_Mode :: enum u8 {
+	Free,
+	Normal,
+	Surface,
+}
+
+// Along Normal with the normal facing the camera within this (the sine of its lean on
+// screen), the drag's up on screen is its out, as there is no way on screen to follow.
+GRAB_NORMAL_SCREEN_MIN :: 0.25
 
 Sculpt_Frame_Result :: struct {
 	dabs:       int,
@@ -510,6 +539,16 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 	// A deformer's Amount held by another finger owns the object's undo until let go.
 	if app.ui.deform.drag.active do return
 	index, hit, ok := scene_raycast(app, origin, dir)
+	// Grab takes hold from just past the silhouette too, as Nomad's Move does: the nearest
+	// point of the surface within the brush ring.
+	from := hit
+	if !ok && stroke_brush(app, input) == .Grab && s.kind == .Press {
+		index, hit, ok = scene_grab_near(app, origin, dir, input.size)
+		if ok {
+			facing := camera.orbit_toward(app.camera, hit)
+			if along := linalg.dot(dir, facing); abs(along) > 1e-6 do from = origin + dir * (linalg.dot(hit - origin, facing) / along)
+		}
+	}
 	res.raycast_ms += time.duration_milliseconds(time.tick_since(t0))
 	if !ok do return
 	app.scene.selected = index
@@ -552,6 +591,13 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 	local := to_local(obj.transform, hit)
 	brush := brush_at(app, input, obj.transform, local, s.pressure, s.tilt)
 	st.grab, st.hook, st.anchor, st.invert = .Grab in flags, .Hook in flags, hit, brush.invert
+	st.grab_from, st.grab_normal, st.press_pressure = from, {}, s.pressure
+	if st.grab && obj.voxel == nil {
+		t := obj.transform
+		if n, found := sculpt.sculptor_area_normal(object_sculptor(obj), local, 0.5 * brush.radius, to_local_dir(t, camera.orbit_toward(app.camera, hit))); found {
+			st.grab_normal = linalg.normalize0(to_world_dir(t, n))
+		}
+	}
 	st.cloth = .Cloth in flags && !object_dynamic(obj)
 	if .Cloth in flags && !st.cloth do log.warn("cloth: not with dynamic topology on")
 	st.start, st.at = s.pos, local
@@ -631,12 +677,50 @@ grab_follow :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, pos:
 	along := linalg.dot(dir, facing)
 	if abs(along) < 1e-6 do return
 	t := linalg.dot(st.anchor - origin, facing) / along
-	offset := to_local_dir(obj.transform, origin + dir * t - st.anchor) / obj.transform.scale
+	moved := grab_moved(app, input, origin + dir * t - st.grab_from, facing)
+	offset := to_local_dir(obj.transform, moved) / obj.transform.scale
 	st.pos = pos
 	t1 := time.tick_now()
 	sculpt.sculptor_grab_move(object_sculptor(obj), offset)
 	res.brush_ms += time.duration_milliseconds(time.tick_since(t1))
 	res.dabs += 1
+}
+
+// How a Grab moves what it picked up for the pointer having gone `drag` (world space, on
+// the plane facing the camera along `facing`), by the stroke's mode (Grab_Mode): Shift
+// held takes Along normal and Alt Along surface, else the brush's mode, Free blending
+// toward along the normal by the Normal weight.
+grab_moved :: proc(app: ^App, input: Viewport_Input, drag, facing: Vec3) -> Vec3 {
+	n := app.stroke.grab_normal
+	mode := app.brush.grab_mode
+	if input.alt do mode = .Surface
+	else if input.smooth do mode = .Normal
+	if n == {} do return drag
+	switch mode {
+	case .Free:
+		w := clamp(app.brush.grab_normal, 0, 1)
+		if w == 0 do return drag
+		return drag + (grab_along_normal(app, drag, n, facing) - drag) * w
+	case .Normal:
+		return grab_along_normal(app, drag, n, facing)
+	case .Surface:
+		return drag - linalg.dot(drag, n) * n
+	}
+	return drag
+}
+
+// The drag turned along the normal `n`: as far as the pointer went toward where the
+// normal points on screen, out along it (back for the other way), so a drag of so many
+// pixels moves the surface as far as a Free one would. With the normal facing the camera
+// it has no way on screen, and up on the screen is out.
+@(private = "file")
+grab_along_normal :: proc(app: ^App, drag, n, facing: Vec3) -> Vec3 {
+	on_screen := n - linalg.dot(n, facing) * facing
+	if linalg.length(on_screen) < GRAB_NORMAL_SCREEN_MIN {
+		view := camera.orbit_view(app.camera)
+		on_screen = Vec3{view[1, 0], view[1, 1], view[1, 2]}
+	}
+	return linalg.dot(drag, linalg.normalize(on_screen)) * n
 }
 
 // Steps a Cloth stroke's simulation once, with the pointer at `pos`: Drag pulls what
@@ -690,7 +774,9 @@ hook_follow :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: I
 	t := obj.transform
 	offset := origin + dir * (linalg.dot(st.anchor - origin, facing) / along) - st.anchor
 	st.pos, st.pressure, st.tilt = s.pos, s.pressure, s.tilt
-	brush := brush_at(app, input, t, to_local(t, st.anchor), s.pressure, s.tilt)
+	// The pressure of the press holds for the whole hook, as Grab's does: a pen easing
+	// off as it lifts would otherwise thin the tip it is drawing out.
+	brush := brush_at(app, input, t, to_local(t, st.anchor), st.press_pressure, s.tilt)
 	step := max(brush.radius * t.scale * SPACING_REFERENCE, 1e-6)
 	steps := min(int(math.ceil(linalg.length(offset) / step)), MAX_DABS_PER_FRAME)
 	t1 := time.tick_now()
@@ -1129,6 +1215,8 @@ brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pres
 		through    = through,
 		smooth_only = app.brush.smooth_only if kind == .Smooth else .All,
 		feather    = app.brush.feather,
+		same_side  = kind == .Grab && app.brush.grab_same_side,
+		silhouette = kind == .Grab && app.brush.grab_silhouette,
 	}
 }
 

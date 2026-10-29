@@ -7,6 +7,7 @@ import "core:slice"
 import "core:strings"
 import "core:time"
 
+import "../camera"
 import "../geom"
 import "../gizmo"
 import "../render"
@@ -1235,6 +1236,25 @@ scene_raycast :: proc(app: ^App, origin, dir: Vec3) -> (index: int, hit: Vec3, o
 		if d := linalg.length(world_hit - origin); d < best {
 			best, index, hit, ok = d, i, world_hit, true
 		}
+	}
+	return
+}
+
+// For a Grab pressed off the model: the surface point nearest the pointer's ray within the
+// brush ring, over every mesh object, the nearest on screen winning (the first object on a
+// tie). Each object's ring is its radius at the object's middle's distance.
+scene_grab_near :: proc(app: ^App, origin, dir: Vec3, size: [2]f32) -> (index: int, hit: Vec3, ok: bool) {
+	best := max(f32)
+	for obj, i in app.scene.objects {
+		if !object_pickable(app, obj) || obj.voxel != nil do continue
+		t := obj.transform
+		per_px := camera.orbit_world_per_px(app.camera, to_world(t, object_local_middle(obj)), size.y)
+		local, found := sculpt.sculptor_nearest_to_line(object_sculptor(obj), to_local(t, origin), to_local_dir(t, dir), app.brush.radius_px * per_px / t.scale)
+		if !found do continue
+		world := to_world(t, local)
+		along := linalg.dot(world - origin, dir)
+		px := linalg.length(world - origin - dir * along) / camera.orbit_world_per_px(app.camera, world, size.y)
+		if px < best do best, index, hit, ok = px, i, world, true
 	}
 	return
 }

@@ -944,3 +944,57 @@ dab_overlap_grows_as_dabs_come_closer :: proc(t: ^testing.T) {
 	falloff_set_shaped(&builtin, nil, 0)
 	testing.expectf(t, abs(dab_overlap(&builtin, 0.3) - dab_overlap(nil, 0.3)) < 1e-4, "table %v, built in %v", dab_overlap(&builtin, 0.3), dab_overlap(nil, 0.3))
 }
+
+// Same side leaves what faces away from the surface pressed: a grab reaching past the
+// sphere's middle picks up some of its back half, and with Same side none of it.
+@(test)
+grab_same_side_leaves_the_far_side :: proc(t: ^testing.T) {
+	front := Vec3{0, 0, 1}
+	held :: proc(same_side: bool, center: Vec3) -> (count, back: int) {
+		sp := sphere_make(3)
+		defer sphere_free(sp)
+		s := &sp.sculptor
+		sculptor_stroke_begin(s)
+		count = sculptor_grab_begin(s, {kind = .Grab, radius = 1.6, strength = 1, same_side = same_side}, center)
+		for v in s.grab.verts do back += int(sp.mesh.positions[v].z < -0.05)
+		sculptor_grab_end(s)
+		_ = sculptor_stroke_end(s)
+		return
+	}
+	all, all_back := held(false, front)
+	side, side_back := held(true, front)
+	testing.expectf(t, all_back > 0 && side_back == 0 && side < all, "all %d (%d behind), same side %d (%d behind)", all, all_back, side, side_back)
+}
+
+// Silhouette moves only what faces the way the drag pulls it out: a grab reaching past the
+// sphere's middle, dragged out of its front, moves the front and leaves the back half.
+@(test)
+grab_silhouette_moves_what_faces_the_drag :: proc(t: ^testing.T) {
+	sp := sphere_make(3)
+	defer sphere_free(sp)
+	s := &sp.sculptor
+	sculptor_stroke_begin(s)
+	_ = sculptor_grab_begin(s, {kind = .Grab, radius = 1.6, strength = 1, silhouette = true}, {0, 0, 1})
+	_ = sculptor_grab_move(s, {0, 0, 0.2})
+	sculptor_grab_end(s)
+	_ = sculptor_stroke_end(s)
+	moved_front, moved_back: int
+	for p, v in sp.mesh.positions {
+		if p == sp.before[v] do continue
+		if sp.before[v].z > 0.5 do moved_front += 1
+		if sp.before[v].z < -0.05 do moved_back += 1
+	}
+	testing.expectf(t, moved_front > 0 && moved_back == 0, "front %d, back %d", moved_front, moved_back)
+}
+
+// The nearest point to a line passing just off the sphere is on its silhouette, within
+// the radius asked; a line further off finds none.
+@(test)
+nearest_to_line_finds_the_silhouette :: proc(t: ^testing.T) {
+	sp := sphere_make(4)
+	defer sphere_free(sp)
+	p, ok := sculptor_nearest_to_line(&sp.sculptor, {1.05, 0, 3}, {0, 0, -1}, 0.1)
+	testing.expectf(t, ok && abs(p.x - 1) < 0.05 && abs(p.z) < 0.15, "%v %v", p, ok)
+	_, far := sculptor_nearest_to_line(&sp.sculptor, {1.3, 0, 3}, {0, 0, -1}, 0.1)
+	testing.expect(t, !far)
+}

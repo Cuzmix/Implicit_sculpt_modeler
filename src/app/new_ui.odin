@@ -1215,7 +1215,9 @@ kit_viewport_input :: proc(app: ^App, size: [2]f32) -> (input: Viewport_Input) {
 	if input.dragging {
 		// What the right and middle buttons do to the view is pointer_route's to say
 		// (mouse_button_owner), by the mouse scheme in Settings > Keys.
-		input.primary = left && (!d.alt || d.ctrl)
+		// Alt held from the press leaves the left button to the view; Alt pressed while a
+		// Grab drags moves it along the surface instead (grab_moved).
+		input.primary = left && (!d.alt || d.ctrl || (app.stroke.active && app.stroke.grab))
 		input.alt = input.primary && d.alt
 		input.press = input.primary && .Left in d.pressed
 		input.smooth = input.primary && d.shift
