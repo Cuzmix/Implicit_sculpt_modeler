@@ -6739,6 +6739,38 @@ def finger_right_after_the_pen_is_a_palm_still():
 
 
 @scenario
+def finger_orbits_while_the_pencil_hovers():
+    """Where the system rejects palms itself (--system-palms, as an iPad does), a finger turns the view a quarter of a second after a pen stroke while the pen still hovers just above the screen."""
+    s = Script()
+    pen_stroke_no_leave(s, line((760, 430), (860, 470), 10))
+    away = line((860, 470), (1000, 560), 40)
+    for k, (x, y) in enumerate(away[:15]):
+        s.wait(1)
+        s.add(f"pmove:{x:g},{y:g}")
+    for k, (x, y) in enumerate(past_slop((250, 400), (650, 400), 20)):
+        s.wait(1)
+        s.add(f"fdown:0:{x:g},{y:g}" if k == 0 else f"fmove:0:{x:g},{y:g}")
+        if 15 + k < len(away):
+            s.add(f"pmove:{away[15 + k][0]:g},{away[15 + k][1]:g}")
+    s.wait(1)
+    s.add("fup:0")
+    s.wait(3)
+    return s, ["--pen-no-leave", "--system-palms", "--script=set orbit_style turntable"], {"undo_steps": near(1), "camera_pitch": near(0.35),
+                                                                                           "camera_yaw": near(wrap(0.6 - 400 * 0.008), 2e-3)}
+
+
+@scenario
+def finger_as_the_pencil_lifts_is_a_palm():
+    """Where the system rejects palms itself (--system-palms), a lone finger landing as the pen's stroke ends, a tenth of a second after it lifts, is still the hand's palm: the view stays."""
+    s = Script()
+    pen_stroke_no_leave(s, line((760, 430), (860, 470), 10))
+    s.wait(6)
+    s.fdrag(past_slop((250, 400), (650, 400), 20))
+    s.wait(3)
+    return s, ["--pen-no-leave", "--system-palms"], camera_still({"undo_steps": near(1)})
+
+
+@scenario
 def finger_pen_finger_switching():
     """Where the platform never says the pen left (--pen-no-leave), finger, pen and finger again in turn, twice: each finger turns the view (about the centre, so the model stays off where the finger lands) and each pen stroke sculpts."""
     s = Script()

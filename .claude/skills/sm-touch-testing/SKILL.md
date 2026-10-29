@@ -79,6 +79,7 @@ on window focus or hover to decide ownership; a widget that acts on a finger pre
 | taps two or three fingers to undo and redo, on the viewport and on a panel | `tap_history`, `two_finger_tap_on_panel_does_nothing` |
 | has the touch cancelled by the system, or by the pen landing | `cancelled_stroke_is_taken_back`, `pen_landing_cancels_finger_stroke` |
 | switches between the pen and a finger where the platform never says the pen left (an iPad's SDL; `--pen-no-leave` on a desktop): a finger after the pen works once the pen stops reporting, a palm still right after it | `finger_works_after_the_pen_leaves_unsaid`, `finger_right_after_the_pen_is_a_palm_still`, `finger_pen_finger_switching` |
+| on an iPad, whose system rejects palms itself (`--system-palms`): a finger of the other hand turns the view while the pen hovers, a finger landing as the stroke ends is still a palm | `finger_orbits_while_the_pencil_hovers`, `finger_as_the_pencil_lifts_is_a_palm` |
 | types in a field, has the on-screen keyboard put away by the system (`kbhide`), and taps the field to bring it back | `keyboard_put_away_and_brought_back` |
 | uses the desktop mouse and keys | `mouse_controls`, `shift_snaps_orbit` |
 | changes and resets settings, and restarts | `settings_scroll_and_persist`, `settings_reset_everything`, `settings_reset_needs_second_tap` |

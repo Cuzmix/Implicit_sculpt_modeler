@@ -339,3 +339,24 @@ pressure_responses_and_the_clay_floor :: proc(t: ^testing.T) {
 	b := brush_defaults()
 	testing.expect(t, b.pressures[.Clay].own && b.pressures[.Clay].pressure == PRESSURE_RESPONSES[1].pressure && !b.pressures[.Draw].own)
 }
+
+// The pen holds the hand, so that a lone finger is its palm, while its tip is down; where
+// the system rejects palms itself (an iPad) also just after it lifts, but not while it only
+// hovers; elsewhere all the while it is near.
+@(test)
+the_pen_holds_the_hand_while_its_tip_is_down :: proc(t: ^testing.T) {
+	app: App
+	app.touch.pen_near = true
+	testing.expect(t, pen_holds_hand(&app, 10))
+	app.pencil.system_palms = true
+	testing.expect(t, !pen_holds_hand(&app, 10))
+	app.touch.pen_down = true
+	testing.expect(t, pen_holds_hand(&app, 10))
+	app.touch.pen_down, app.touch.pen_lifted = false, 10
+	testing.expect(t, pen_holds_hand(&app, 10 + PALM_AFTER_LIFT * 0.5))
+	testing.expect(t, !pen_holds_hand(&app, 10 + PALM_AFTER_LIFT * 1.5))
+	app.pencil.system_palms = false
+	testing.expect(t, pen_holds_hand(&app, 10 + PALM_AFTER_LIFT * 1.5))
+	app.touch.pen_near = false
+	testing.expect(t, !pen_holds_hand(&app, 10 + PALM_AFTER_LIFT * 1.5))
+}
