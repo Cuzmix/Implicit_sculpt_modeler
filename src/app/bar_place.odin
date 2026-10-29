@@ -8,10 +8,13 @@ import "core:strings"
 
 import "../ui"
 
-// Where the chrome's column bars stand (round 3's docks, PR 3c-1): the off-hand island and
-// the view rail each keep their own place, as the layout has them today (Default), or on the
-// left or right edge at a point down it, or floating where Arrange let go of them, as Maxon
-// Forger's toolbox snaps to an edge's middle and floats elsewhere. A bar's place is the
+// Where the chrome's bars stand (round 3's docks, PRs 3c-1 and 3c-2): the off-hand island
+// and the view rail each keep their own place, as the layout has them today (Default), or on
+// the left or right edge at a point down it, or floating where Arrange let go of them, as
+// Maxon Forger's toolbox snaps to an edge's middle and floats elsewhere; the shelf, a row,
+// along the bottom at a point across it, or floating in the window's lower part (what it
+// opens, its tiles' popovers and the brush picker, opens above it). The top edge is no
+// bar's: the top bar, the view chips, the navigation head and the panels' tops hold it. A bar's place is the
 // layout's, since it belongs to the screen (the dial's place, which belongs to the hand, is a
 // setting). Places are kept in layout terms, from the start side, so the kit's mirror flips
 // them for a left hand as it flips every anchor; they are written as they are.
@@ -20,6 +23,7 @@ Bar_Edge :: enum u8 {
 	Default, // the place the layout gives the bar, as before places came: first, so a fresh Kit_State has it
 	Left,
 	Right,
+	Bottom,
 	Float,
 }
 
@@ -27,12 +31,14 @@ Bar_Edge :: enum u8 {
 Place_Bar :: enum u8 {
 	Offhand,
 	Rail,
+	Shelf,
 }
 
 @(rodata)
 PLACE_BAR_NAMES := [Place_Bar]string {
 	.Offhand = "offhand",
 	.Rail    = "rail",
+	.Shelf   = "shelf",
 }
 
 // Each bar's root, which hit tests, keep-clear rules and Arrange's outline find it by.
@@ -40,6 +46,7 @@ PLACE_BAR_NAMES := [Place_Bar]string {
 PLACE_BAR_ROOTS := [Place_Bar]string {
 	.Offhand = "brush bar",
 	.Rail    = "view bar",
+	.Shelf   = "dock",
 }
 
 // The edge each bar's Default stands on, in layout terms.
@@ -47,7 +54,17 @@ PLACE_BAR_ROOTS := [Place_Bar]string {
 PLACE_BAR_HOME := [Place_Bar]Bar_Edge {
 	.Offhand = .Left,
 	.Rail    = .Right,
+	.Shelf   = .Bottom,
 }
+
+// The edges each bar may stand on: the columns down the sides, the shelf along the bottom.
+bar_place_edges :: proc(b: Place_Bar) -> bit_set[Bar_Edge] {
+	return {.Bottom} if b == .Shelf else {.Left, .Right}
+}
+
+// The highest a floating shelf's top goes, as a share of the safe area down from its top,
+// so what opens above it has room.
+SHELF_FLOAT_TOP :: 0.4
 
 // A bar's place: Default, an edge with the bar's top `along` the room down it (0 at the top,
 // 1 at the bottom, 0.5 the middle), or floating with its top-left at `at`, points from the
@@ -80,6 +97,7 @@ bar_place_shown :: proc(k: ^Kit_State, b: Place_Bar) -> bool {
 	switch b {
 	case .Offhand: return .Brush_Bar not_in k.hidden
 	case .Rail:    return .View_Bar not_in k.hidden
+	case .Shelf:   return .Dock not_in k.hidden
 	}
 	return false
 }
@@ -111,6 +129,10 @@ bar_place_anchor :: proc(app: ^App, b: Place_Bar, size: [2]f32) -> (x, y: ui.Anc
 	p := k.places[b]
 	y = .Start
 	switch p.edge {
+	case .Bottom:
+		lo, hi := shelf_across(app)
+		left := lo + clamp(p.along, 0, 1) * max(hi - lo - size.x, 0)
+		return .Start, .End, {left, ctx.theme.edge + dock_lift(app)}, hi - lo
 	case .Default, .Left, .Right:
 		edge := bar_place_edge(k, b)
 		lo, hi := bar_place_room(app, edge)
@@ -118,9 +140,51 @@ bar_place_anchor :: proc(app: ^App, b: Place_Bar, size: [2]f32) -> (x, y: ui.Anc
 		x = .Start if edge == .Left else .End
 		return x, y, {LENS_EDGE, top}, hi - top
 	case .Float:
-		at := [2]f32{clamp(p.at.x, 0, max(area.w - size.x, 0)), clamp(p.at.y, TOP_BAR_H + 6, max(area.h - size.y, TOP_BAR_H + 6))}
-		return .Start, y, at, area.h - at.y - ctx.theme.edge
+		high: f32 = TOP_BAR_H + 6
+		if b == .Shelf do high = area.h * SHELF_FLOAT_TOP
+		at := [2]f32{clamp(p.at.x, 0, max(area.w - size.x, 0)), clamp(p.at.y, high, max(area.h - size.y, high))}
+		down := area.h - at.y - ctx.theme.edge
+		if b == .Shelf do down = area.w - 2 * LENS_EDGE
+		return .Start, y, at, down
 	}
+	return
+}
+
+// How far across the bottom a shelf off its Default spot may stand, in points from the
+// start side (layout terms): clear of the dial in its corner on either side.
+shelf_across :: proc(app: ^App) -> (lo, hi: f32) {
+	k := &app.kit
+	area := ui.safe_area(&k.ctx)
+	lo, hi = LENS_EDGE, area.w - LENS_EDGE
+	if across := rail_reach_across(app); across > 0 {
+		if rail_shown(k) == .Left do lo = max(lo, across + 8)
+		else do hi = min(hi, area.w - across - 8)
+	}
+	return
+}
+
+// The shelf's size as the bottom's keep-clear rules see it (the action bar, the toasts,
+// History, the shape bar, the columns, the dial): last frame's while it stands along the
+// bottom, none while it floats.
+shelf_bottom_size :: proc(app: ^App) -> [2]f32 {
+	if app.kit.places[.Shelf].edge == .Float do return {}
+	size, _ := ui.prev_layout(&app.kit.ctx, "dock")
+	return size
+}
+
+// Where the shelf reaches across the bottom, in points from the start side (layout
+// terms): about the middle at Default, as the rules have always measured it, else where it
+// was laid out last frame; nothing while it floats.
+shelf_bottom_span :: proc(app: ^App) -> (lo, hi: f32) {
+	k := &app.kit
+	ctx := &k.ctx
+	area := ui.safe_area(ctx)
+	size := shelf_bottom_size(app)
+	if k.places[.Shelf].edge == .Default do return area.w * 0.5 - size.x * 0.5, area.w * 0.5 + size.x * 0.5
+	if size == {} do return area.w * 0.5, area.w * 0.5
+	r := ui.prev_rect(ctx, "dock")
+	lo, hi = r.x - area.x, r.x - area.x + r.w
+	if ctx.mirror do lo, hi = area.w - hi, area.w - lo
 	return
 }
 
@@ -128,9 +192,11 @@ bar_place_anchor :: proc(app: ^App, b: Place_Bar, size: [2]f32) -> (x, y: ui.Anc
 // window's middle (in layout terms, as popover_begin mirrors sides).
 bar_place_side :: proc(app: ^App, b: Place_Bar) -> ui.Side {
 	k := &app.kit
+	if b == .Shelf do return .Above_Center
 	switch bar_place_edge(k, b) {
 	case .Default, .Left: return .Right
 	case .Right:          return .Left
+	case .Bottom:         return .Above_Center
 	case .Float:
 		r := ui.prev_rect(&k.ctx, PLACE_BAR_ROOTS[b])
 		area := ui.safe_area(&k.ctx)
@@ -156,6 +222,7 @@ bar_place_drop :: proc(app: ^App, b: Place_Bar, box: ui.Rect, p: [2]f32, default
 		x = area.w - x - box.w
 		px = area.w - px
 	}
+	if b == .Shelf do return shelf_drop(app, box, x, p.y - area.y)
 	edge := Bar_Edge.Float
 	if px < PLACE_REACH do edge = .Left
 	else if px > area.w - PLACE_REACH do edge = .Right
@@ -169,6 +236,23 @@ bar_place_drop :: proc(app: ^App, b: Place_Bar, box: ui.Rect, p: [2]f32, default
 	along = math.round(along * 100) / 100
 	if edge == PLACE_BAR_HOME[b] && abs(box.y - area.y - default_top) < span * PLACE_SNAP do return {}
 	return {edge = edge, along = along}
+}
+
+// The shelf's drop: within PLACE_REACH of the bottom it stands along it where the outline
+// was across (`x`, layout terms), Default near the middle; elsewhere it floats.
+@(private = "file")
+shelf_drop :: proc(app: ^App, box: ui.Rect, x, py: f32) -> Bar_Place {
+	area := ui.safe_area(&app.kit.ctx)
+	if py < area.h - PLACE_REACH {
+		return {edge = .Float, at = {math.round(x), math.round(box.y - area.y)}}
+	}
+	lo, hi := shelf_across(app)
+	span := max(hi - lo - box.w, 1)
+	along := clamp((x - lo) / span, 0, 1)
+	// At about the middle it is where it comes, which the tablet's shift and the panes
+	// keep where they put it.
+	if abs(x + box.w * 0.5 - area.w * 0.5) < area.w * PLACE_SNAP do return {}
+	return {edge = .Bottom, along = math.round(along * 100) / 100}
 }
 
 // Puts bar `b` at `to`: a bar already on that edge takes `b`'s place before, so the two
@@ -209,7 +293,7 @@ bar_place_read :: proc(k: ^Kit_State, f: []string) {
 	for name, which in PLACE_BAR_NAMES do if name == f[1] do b, found = which, true
 	if !found do return
 	edge, ok := reflect.enum_from_name(Bar_Edge, f[2])
-	if !ok || edge == .Default do return
+	if !ok || (edge != .Float && edge not_in bar_place_edges(b)) do return
 	along, a_ok := strconv.parse_f32(f[3])
 	x, x_ok := strconv.parse_f32(f[4])
 	y, y_ok := strconv.parse_f32(f[5])
@@ -226,8 +310,8 @@ bar_places_text :: proc(k: ^Kit_State) -> string {
 		if strings.builder_len(out) > 0 do strings.write_byte(&out, ',')
 		edge := strings.to_lower(fmt.tprint(p.edge), context.temp_allocator)
 		switch p.edge {
-		case .Default:      fmt.sbprintf(&out, "%s:%s", PLACE_BAR_NAMES[b], edge)
-		case .Left, .Right: fmt.sbprintf(&out, "%s:%s:%.2f", PLACE_BAR_NAMES[b], edge, p.along)
+		case .Default:               fmt.sbprintf(&out, "%s:%s", PLACE_BAR_NAMES[b], edge)
+		case .Left, .Right, .Bottom: fmt.sbprintf(&out, "%s:%s:%.2f", PLACE_BAR_NAMES[b], edge, p.along)
 		case .Float:        fmt.sbprintf(&out, "%s:%s:%.0f,%.0f", PLACE_BAR_NAMES[b], edge, p.at.x, p.at.y)
 		}
 	}
