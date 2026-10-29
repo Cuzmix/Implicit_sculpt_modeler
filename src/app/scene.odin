@@ -213,6 +213,7 @@ Scene_Command :: struct {
 	tidy:     Cage_Tidy, // Tidy_Cage: which
 	select:   poly.Select_Op, // Select_Cage: which
 	look:     Cage_Look, // Cage_Look: how the selected cage is drawn
+	look_drag: bool, // Cage_Look: from a slider being dragged, one undo step when it lets go
 	crease:   Cage_Crease, // Crease_Cage: which
 }
 
@@ -767,6 +768,8 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 		move_end(app)
 		transform_drag_end(app, force = true)
 		inspector_drags_end(app)
+		// A look slider's own commands carry on its drag.
+		if cmd.kind != .Cage_Look || !cmd.look_drag do cage_look_drag_end(app, force = true)
 	}
 	if obj := selected_object(app); obj != nil && obj.voxel != nil && cmd.kind in MESH_ONLY_COMMANDS {
 		report(app, Kit_Section.Voxels, {.Warning}, "%v needs a mesh: convert %s to a mesh first (Object palette, Voxels)", cmd.kind, object_label(obj))
@@ -820,7 +823,7 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 	case .Select_Cage:
 		if obj := selected_object(app); obj != nil && obj.cage != nil do return object_select_cage(app, obj, cmd.select)
 	case .Cage_Look:
-		if obj := selected_object(app); obj != nil && obj.cage != nil do return object_set_cage_look(app, obj, cmd.look)
+		if obj := selected_object(app); obj != nil && obj.cage != nil do return object_set_cage_look(app, obj, cmd.look, cmd.look_drag)
 	case .Crease_Cage:
 		if obj := selected_object(app); obj != nil && obj.cage != nil do return object_crease_cage(app, obj, cmd.crease)
 	case .New:

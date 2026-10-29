@@ -492,6 +492,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	defer boolean_coarse_drop(&app)
 	defer scene_destroy(&app)
 	defer history_destroy(&app.history)
+	// A look slider still held when the app ends has its snapshot unrecorded.
+	defer if app.model.look_drag.before != nil do history_snapshot_drop(app.model.look_drag.before)
 	timeline_init(&app.timeline)
 	defer timeline_destroy(&app.timeline)
 	replay_init(&app.replay)
@@ -1390,7 +1392,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	}
 	{
 		// The Model mode cages: how many, what they are made of, and whether every one is sound.
-		cages, points, edges, faces, ngons, broken, chosen, smooth, creased, corners := 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+		cages, points, edges, faces, ngons, broken, chosen, smooth, creased, corners, live_faces := 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 		for obj in app.scene.objects {
 			cp := obj.cage
 			if cp == nil do continue
@@ -1406,8 +1408,9 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			e, v := poly.crease_count(&cp.mesh)
 			creased += e
 			corners += v
+			if cp.live.vert_first != nil do live_faces += len(cp.live.mesh.face_he)
 		}
-		fmt.printfln("cages=%d cage_points=%d cage_edges=%d cage_faces=%d cage_ngons=%d cage_broken=%d cage_selected=%d cage_smooth=%d cage_creases=%d cage_corners=%d tool=%v", cages, points, edges, faces, ngons, broken, chosen, smooth, creased, corners, app.tool)
+		fmt.printfln("cages=%d cage_points=%d cage_edges=%d cage_faces=%d cage_ngons=%d cage_broken=%d cage_selected=%d cage_smooth=%d cage_creases=%d cage_corners=%d cage_live_faces=%d tool=%v", cages, points, edges, faces, ngons, broken, chosen, smooth, creased, corners, live_faces, app.tool)
 		fmt.printfln("model_action=%v model_target=%v model_done=%d model_refused=%d", app.model.action, model_target(&app.model, app.model.action), app.model.done, app.model.refused)
 		// How the selected object's levels above its base are made: Loop for a sculpt,
 		// Smooth or Flat for one applied from a cage.

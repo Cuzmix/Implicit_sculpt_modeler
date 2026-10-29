@@ -454,6 +454,8 @@ model_pick :: proc(app: ^App, pos, size: [2]f32, border := false) -> (obj: ^Obje
 	if !tri_ok || int(tri) >= len(cp.face_of) do return
 	m := &cp.mesh
 	face = cp.face_of[tri]
+	// A corner patch of Bevel creases stands for no cage face.
+	if face == poly.NONE do return
 	vp := view_proj_of(app, size)
 	best_edge, best_point := max(f32), max(f32)
 	// Points and edges as drawn: on a smoothed cage, on its surface and along its curves.
@@ -560,7 +562,10 @@ model_tool_frame :: proc(app: ^App, input: Viewport_Input) -> bool {
 				}
 			} else {
 				d.amount = poly.drag_apply(&obj.cage.mesh, &d.set, last)
-				cage_positions_moved(app, obj, d.set.verts)
+				if !cage_positions_moved(app, obj, d.set.verts) {
+					model_drag_drop(app)
+					return false
+				}
 			}
 			model_drag_finish(app, obj)
 		}
@@ -1339,7 +1344,7 @@ model_drag_follow :: proc(app: ^App, obj: ^Object, input: Viewport_Input) {
 	if input.smooth && d.step > 0 && d.action != .Insert_Loop do amount = math.round(amount / d.step) * d.step
 	if amount == d.amount do return
 	d.amount = poly.drag_apply(&obj.cage.mesh, &d.set, amount)
-	cage_positions_moved(app, obj, d.set.verts)
+	_ = cage_positions_moved(app, obj, d.set.verts)
 }
 
 // The segments Bevel starts with, and how many pixels sideways add or take one.
@@ -1373,8 +1378,7 @@ model_bevel_to :: proc(app: ^App, obj: ^Object, amount: f32, segments: int) -> b
 	if amount >= 0 do app.model.bevel_segments = want
 	width := poly.drag_apply(&obj.cage.mesh, &d.set, abs(amount))
 	d.amount = -width if amount < 0 else width
-	cage_positions_moved(app, obj, d.set.verts)
-	return true
+	return cage_positions_moved(app, obj, d.set.verts)
 }
 
 // How many pixels of drag make one step of sharpness, and the steps up to fully sharp
@@ -1403,7 +1407,7 @@ model_crease_follow :: proc(app: ^App, obj: ^Object, input: Viewport_Input) {
 	} else {
 		poly.crease_points(cage, model_all(d), model_crease_sharpness(steps))
 	}
-	cage_sharpness_changed(app, obj)
+	_ = cage_sharpness_changed(app, obj)
 }
 
 // The pen lifted: the drag is one undo step.

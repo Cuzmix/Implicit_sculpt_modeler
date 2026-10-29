@@ -28,8 +28,13 @@ import "../ui"
 Cage_Part :: struct {
 	mesh:    poly.Mesh,
 	look:    Cage_Look,
-	// The cage made finer for drawing (none at Smooth 0), whose points start with the
-	// cage's own.
+	// The live stack's mesh, which Smooth and Flat start from in the cage's place, and how
+	// the cage maps onto it (poly.Live_Mesh); empty with the stack off. `creased` is which
+	// cage edges were creased when it was made, which Bevel creases made strips of.
+	live:    poly.Live_Mesh,
+	creased: []bool,
+	// The cage (or the live mesh) made finer for drawing (none at Smooth 0), whose points
+	// start with its own.
 	sub:     poly.Subdivision,
 	// Per point of the drawn cage (the finest), its vertex in the level, which the
 	// sculptor numbers in its own order; per triangle of the level, the cage face it lies in.
@@ -42,45 +47,89 @@ Cage_Part :: struct {
 }
 
 // How a cage is drawn, as ZBrush's Dynamic Subdivision and Blender's Subdivision Surface
-// set it: Smooth steps of Catmull-Clark (0 to poly.SUBDIVIDE_MAX), or with Flat the faces
-// only split, for hard surfaces. Saved with the cage and undone with it.
+// and modifiers set it: the live stack first (a shell's Thickness, Bevel creases), then
+// Smooth steps of Catmull-Clark (0 to poly.SUBDIVIDE_MAX), or with Flat the faces only
+// split, for hard surfaces. Saved with the cage and undone with it.
 Cage_Look :: struct {
 	smooth: int,
 	flat:   bool,
+	live:   poly.Live,
 }
 
-// The cage as drawn: the finest step, or the cage itself.
-cage_drawn :: proc(cp: ^Cage_Part) -> ^poly.Mesh {return poly.subdivision_top(&cp.sub, &cp.mesh)}
+// `look` kept to what can be drawn: steps and segments in range, widths finite and not
+// below 0.
+cage_look_clean :: proc(look: Cage_Look) -> Cage_Look {
+	l := look.live
+	size :: proc(x: f32) -> f32 {return x if x > 0 && x < 1e6 else 0}
+	return {
+		clamp(look.smooth, 0, poly.SUBDIVIDE_MAX),
+		look.flat,
+		{size(l.thickness), clamp(l.thickness_segments, 1, poly.LIVE_THICKNESS_SEGMENTS_MAX), l.side, size(l.bevel), clamp(l.bevel_segments, 1, poly.BEVEL_SEGMENTS_MAX)},
+	}
+}
 
-// Where cage point v shows: on the drawn surface (its point there).
-cage_point :: proc(cp: ^Cage_Part, v: u32) -> Vec3 {return cage_drawn(cp).positions[v]}
+// What Smooth and Flat start from: the live stack's mesh, or the cage.
+cage_base :: proc(cp: ^Cage_Part) -> ^poly.Mesh {return &cp.live.mesh if cp.live.vert_first != nil else &cp.mesh}
+
+// The cage as drawn: the finest step, or what it starts from.
+cage_drawn :: proc(cp: ^Cage_Part) -> ^poly.Mesh {return poly.subdivision_top(&cp.sub, cage_base(cp))}
+
+// Where cage point v shows: on the drawn surface (its point there). Under the live stack,
+// its live point's, or where Bevel creases replaced it, the middle of those that took its
+// place.
+cage_point :: proc(cp: ^Cage_Part, v: u32) -> Vec3 {
+	drawn := cage_drawn(cp)
+	if cp.live.vert_first == nil do return drawn.positions[v]
+	ids := cp.live.vert_ids[cp.live.vert_first[v]:cp.live.vert_first[v + 1]]
+	if len(ids) == 0 do return cp.mesh.positions[v]
+	sum: Vec3
+	for id in ids do sum += drawn.positions[id]
+	return sum / f32(len(ids))
+}
 
 // Where cage face f's middle shows: its face point on the drawn surface, which every step
-// keeps, or its corners' mean on an unsmoothed cage.
+// keeps, or its corners' mean when not smoothed. The live stack keeps the cage's faces
+// first, in order.
 cage_face_center :: proc(cp: ^Cage_Part, f: u32) -> Vec3 {
-	if len(cp.sub.steps) == 0 do return poly.face_center(&cp.mesh, f)
-	return cage_drawn(cp).positions[len(cp.mesh.positions) + len(cp.mesh.crease) + int(f)]
+	base := cage_base(cp)
+	if len(cp.sub.steps) == 0 do return poly.face_center(base, f)
+	return cage_drawn(cp).positions[len(base.positions) + len(base.crease) + int(f)]
+}
+
+// The drawn points cage edge e shows along, from its first end to its other (temp
+// memory), or false for an edge Bevel creases made a strip of.
+cage_edge_line :: proc(cp: ^Cage_Part, e: u32) -> ([]u32, bool) {
+	h := 2 * e
+	if cp.live.vert_first != nil do h = cp.live.edge[e]
+	if h == poly.NONE do return nil, false
+	n := cp.sub.line_points
+	line := cp.sub.edge_line[int(poly.edge_of(h)) * n:][:n]
+	if h & 1 == 0 do return line, true
+	back := make([]u32, n, context.temp_allocator)
+	for v, i in line do back[n - 1 - i] = v
+	return back, true
 }
 
 // The points cage edge e shows along, from its first end to its other, into `out`
-// (cleared first): on the drawn surface, so a smoothed cage's edges follow its curves.
+// (cleared first): on the drawn surface, so a smoothed cage's edges follow its curves; a
+// strip's edge straight between its ends' points.
 cage_edge_points :: proc(cp: ^Cage_Part, e: u32, out: ^[dynamic]Vec3) {
 	clear(out)
+	line, ok := cage_edge_line(cp, e)
+	if !ok {
+		a, b := poly.edge_verts(&cp.mesh, e)
+		append(out, cage_point(cp, a), cage_point(cp, b))
+		return
+	}
 	drawn := cage_drawn(cp)
-	n := cp.sub.line_points
-	for v in cp.sub.edge_line[int(e) * n:][:n] do append(out, drawn.positions[v])
+	for v in line do append(out, drawn.positions[v])
 }
 
 // Frees the object's cage, if it has one. Its GPU edges go with the level's buffers.
 cage_part_free :: proc(obj: ^Object) {
 	cp := obj.cage
 	if cp == nil do return
-	poly.mesh_destroy(&cp.mesh)
-	poly.subdivision_destroy(&cp.sub)
-	delete(cp.vert_of)
-	delete(cp.face_of)
-	delete(cp.held)
-	free(cp)
+	cage_free_part(cp)
 	obj.cage = nil
 }
 
@@ -94,11 +143,12 @@ object_build_cage :: proc(app: ^App, obj: ^Object, cage: poly.Mesh, look := Cage
 	cp := new(Cage_Part)
 	cp.mesh = cage
 	cp.held = held
-	cp.look = {clamp(look.smooth, 0, poly.SUBDIVIDE_MAX), look.flat}
+	cp.look = cage_look_clean(look)
+	cage_live_make(cp)
 	// A valid cage always subdivides; were one refused, it is drawn as it is.
-	sub, sub_err := poly.subdivide(&cp.mesh, cp.look.smooth, cp.look.flat)
+	sub, sub_err := poly.subdivide(cage_base(cp), cp.look.smooth, cp.look.flat)
 	if sub_err != .None {
-		sub, _ = poly.subdivide(&cp.mesh, 0)
+		sub, _ = poly.subdivide(cage_base(cp), 0)
 		cp.look.smooth = 0
 	}
 	cp.sub = sub
@@ -120,7 +170,10 @@ object_build_cage :: proc(app: ^App, obj: ^Object, cage: poly.Mesh, look := Cage
 		return false
 	}
 	cp.face_of = make([]u32, len(tri_from))
-	for old, t in tri_from do cp.face_of[t] = cp.sub.face_from[tri_face[old]]
+	for old, t in tri_from {
+		f := cp.sub.face_from[tri_face[old]]
+		cp.face_of[t] = cp.live.face_from[f] if cp.live.vert_first != nil else f
+	}
 	obj.cage = cp
 	if !cage_upload_edges(app, obj) {
 		object_release_mesh(app, obj, rebuild = false)
@@ -129,15 +182,38 @@ object_build_cage :: proc(app: ^App, obj: ^Object, cage: poly.Mesh, look := Cage
 	return true
 }
 
+// Makes the live stack's mesh for the cage part's look, or none with the stack off; a
+// stack that cannot be built (which a valid cage never gives) is turned off.
+@(private = "file")
+cage_live_make :: proc(cp: ^Cage_Part) {
+	poly.live_mesh_destroy(&cp.live)
+	delete(cp.creased)
+	cp.creased = nil
+	if !poly.live_on(cp.look.live) do return
+	lm, err := poly.live_build(&cp.mesh, cp.look.live)
+	if err != .None {
+		cp.look.live = {}
+		return
+	}
+	cp.live = lm
+	cp.creased = make([]bool, len(cp.mesh.crease))
+	for c, e in cp.mesh.crease do cp.creased[e] = c > 0
+}
+
 // Sends the cage's vertices `verts` (cage ids), moved without a change of topology, to
 // the level: its positions, bounds and normals, and the GPU at the next flush. A smoothed
-// cage's finer points are worked out again and every one sent, since each cage point
-// pulls on the surface round it.
-cage_positions_moved :: proc(app: ^App, obj: ^Object, verts: []u32) {
+// cage's finer points, or the live stack's, are worked out again and every one sent,
+// since each cage point pulls on the surface round it. Returns false only on a GPU
+// failure.
+cage_positions_moved :: proc(app: ^App, obj: ^Object, verts: []u32) -> bool {
 	cp := obj.cage
 	moved := verts
-	if len(cp.sub.steps) > 0 {
-		poly.subdivision_update(&cp.sub, &cp.mesh, cp.look.flat)
+	live := cp.live.vert_first != nil
+	// The stack made again matches unless the topology changed, which a move never does;
+	// were it not to, the level is made again.
+	if live && !poly.live_update(&cp.mesh, cp.look.live, &cp.live) do return cage_rebuild(app, obj)
+	if live || len(cp.sub.steps) > 0 {
+		poly.subdivision_update(&cp.sub, cage_base(cp), cp.look.flat)
 		moved = make([]u32, len(cp.vert_of), context.temp_allocator)
 		for &v, i in moved do v = u32(i)
 	}
@@ -146,25 +222,40 @@ cage_positions_moved :: proc(app: ^App, obj: ^Object, verts: []u32) {
 	positions := make([]Vec3, len(moved), context.temp_allocator)
 	for v, i in moved do level[i], positions[i] = cp.vert_of[v], drawn.positions[v]
 	sculpt.sculptor_place_vertices(object_sculptor(obj), level, positions)
+	return true
 }
 
 // Works the drawn surface out again after creases or corners changed, which the finer
-// cages take when they are made, and sends every point to the level. The topology is
-// the same, so the level and its edges stay.
-cage_sharpness_changed :: proc(app: ^App, obj: ^Object) {
+// cages and the live stack take when they are made, and sends every point to the level.
+// The topology is the same, so the level and its edges stay, unless Bevel creases has an
+// edge to round, or no longer one, when the level is made again. Returns false only on a
+// GPU failure.
+cage_sharpness_changed :: proc(app: ^App, obj: ^Object) -> bool {
 	cp := obj.cage
-	if len(cp.sub.steps) == 0 do return
-	sub, err := poly.subdivide(&cp.mesh, cp.look.smooth, cp.look.flat)
+	if cp.live.vert_first != nil {
+		if cp.look.live.bevel > 0 {
+			for c, e in cp.mesh.crease do if (c > 0) != cp.creased[e] do return cage_rebuild(app, obj)
+		}
+		lm, err := poly.live_build(&cp.mesh, cp.look.live)
+		if err != .None do return cage_rebuild(app, obj)
+		poly.live_mesh_destroy(&cp.live)
+		cp.live = lm
+	} else if len(cp.sub.steps) == 0 {
+		return true
+	}
+	sub, err := poly.subdivide(cage_base(cp), cp.look.smooth, cp.look.flat)
 	// The same cage subdivided before, so it does again.
-	if err != .None do return
+	if err != .None do return true
 	poly.subdivision_destroy(&cp.sub)
 	cp.sub = sub
-	cage_positions_moved(app, obj, nil)
+	return cage_positions_moved(app, obj, nil)
 }
 
 @(private = "file")
 cage_free_part :: proc(cp: ^Cage_Part) {
 	poly.mesh_destroy(&cp.mesh)
+	poly.live_mesh_destroy(&cp.live)
+	delete(cp.creased)
 	poly.subdivision_destroy(&cp.sub)
 	delete(cp.vert_of)
 	delete(cp.face_of)
@@ -176,17 +267,14 @@ cage_free_part :: proc(cp: ^Cage_Part) {
 // edge along its line over the drawn surface.
 cage_upload_edges :: proc(app: ^App, obj: ^Object) -> bool {
 	cp := obj.cage
-	n := cp.sub.line_points
-	pieces := n - 1
-	pairs := make([]u32, 2 * pieces * len(cp.mesh.crease), context.temp_allocator)
-	for e in 0 ..< len(cp.mesh.crease) {
-		line := cp.sub.edge_line[e * n:][:n]
-		for i in 0 ..< pieces {
-			at := 2 * (e * pieces + i)
-			pairs[at], pairs[at + 1] = cp.vert_of[line[i]], cp.vert_of[line[i + 1]]
-		}
+	pieces := cp.sub.line_points - 1
+	pairs := make([dynamic]u32, 0, 2 * pieces * len(cp.mesh.crease), context.temp_allocator)
+	for e in 0 ..< u32(len(cp.mesh.crease)) {
+		// An edge Bevel creases made a strip of shows as the strip.
+		line := cage_edge_line(cp, e) or_continue
+		for i in 0 ..< pieces do append(&pairs, cp.vert_of[line[i]], cp.vert_of[line[i + 1]])
 	}
-	return render.mesh_buffers_set_edges(&app.renderer, &obj.gpu[0], pairs)
+	return render.mesh_buffers_set_edges(&app.renderer, &obj.gpu[0], pairs[:])
 }
 
 // Builds the level again from the object's cage after an edit changed it: the strokes,
@@ -225,9 +313,11 @@ scene_add_cage :: proc(app: ^App, kind: poly.Primitive, opts: poly.Primitive_Opt
 // ZBrush's Dynamic Subdivision's Apply does: the cage's polygons cut into triangles as the
 // base, with the same number of Catmull-Clark levels above it, their creases kept, so the
 // top level shows what the cage showed, and each polygon keeps its polygroup (an all-quad
-// cage keeps its quads too, for export and UVs). A cage Edit cage took from a sculpt gets
-// that sculpt's levels back, with its detail riding on the edited cage. An open cage, or
-// one at Smooth 0, keeps the level it was drawn with. Returns whether it had a cage to drop.
+// cage keeps its quads too, for export and UVs); at Smooth 0 that is the one level, whose
+// Subdivide then makes Catmull-Clark levels. The live stack is baked in: the levels are
+// made from its mesh. A cage Edit cage took from a sculpt gets that sculpt's levels back,
+// with its detail riding on the edited cage. An open cage keeps the level it was drawn
+// with. Returns whether it had a cage to drop.
 object_apply_cage :: proc(app: ^App, obj: ^Object) -> bool {
 	if obj.cage == nil do return false
 	autosave_settle(app)
@@ -245,31 +335,19 @@ object_apply_cage :: proc(app: ^App, obj: ^Object) -> bool {
 		if have do steps = len(held.levels) - 1
 		else do report(app, nil, {.Warning}, "%s's held sculpt could not be read, so its detail is not put back", object_label(obj))
 	}
-	closed := poly.mesh_check(&cp.mesh).border_edges == 0
-	if steps == 0 || !closed {
+	// The levels are made from what Smooth starts from: the live stack's mesh (a shell, its
+	// creases bevelled), or the cage.
+	base := cage_base(cp)
+	if poly.mesh_check(base).border_edges > 0 {
 		if steps > 0 do report(app, nil, {}, "%s has open edges, so it became one level as drawn: close its holes first for subdivision levels", object_label(obj))
 		_ = render.mesh_buffers_set_edges(&app.renderer, &obj.gpu[0], nil)
-		// A closed cage at Smooth 0 keeps its polygons and creases (and its quads), so
-		// Subdivide makes Catmull-Clark levels of it and Edit cage can take it back.
-		if closed {
-			l := &obj.levels
-			whole := make([]u32, len(cp.face_of), context.temp_allocator)
-			for &t, i in whole do t = u32(i)
-			if sculpt.levels_set_polys(l, cage_polys(&cp.mesh, cp.vert_of, cp.face_of, whole), cage_sharp(&cp.mesh, cp.vert_of), rule) {
-				if quads, all := cage_quads(&cp.mesh, cp.vert_of); all {
-					sculpt.levels_set_quads(l, quads)
-				} else {
-					delete(quads)
-				}
-			}
-		}
 		cage_part_free(obj)
 		return true
 	}
 	start := time.tick_now()
-	// The cage outlives the object's rebuild, which frees the part, on the heap.
-	cage := cp.mesh
-	cp.mesh = {}
+	// It outlives the object's rebuild, which frees the part, on the heap.
+	cage := base^
+	base^ = {}
 	defer poly.mesh_destroy(&cage)
 	mesh := geom.Mesh{positions = make([dynamic]Vec3), normals = make([dynamic]Vec3), indices = make([dynamic]u32)}
 	tri_face := make([dynamic]u32)
@@ -364,7 +442,7 @@ object_edit_cage :: proc(app: ^App, obj: ^Object) -> bool {
 		if h != poly.NONE do cage.crease[poly.edge_of(h)] = base.sharp.edge[i]
 	}
 	for v, i in base.sharp.verts do cage.corner[v] = base.sharp.vert[i]
-	look := Cage_Look{min(len(l.levels) - 1, poly.SUBDIVIDE_MAX), l.rule == .Flat}
+	look := Cage_Look{min(len(l.levels) - 1, poly.SUBDIVIDE_MAX), l.rule == .Flat, {}}
 	for look.smooth > 0 && 2 * len(corners) << uint(2 * (look.smooth - 1)) > CAGE_EDIT_TRIANGLES do look.smooth -= 1
 	held: []u8
 	if len(l.levels) > 1 {
@@ -530,7 +608,24 @@ cage_part_get :: proc(app: ^App, r: ^geom.Byte_Reader, obj: ^Object, version := 
 			poly.mesh_destroy(&cage)
 			return false, false
 		}
-		look = {smooth, flat == 1}
+		look = {smooth, flat == 1, {}}
+	}
+	// The live stack from version 31; an older cage has none.
+	if version >= 31 {
+		l: poly.Live
+		l.thickness = geom.byte_get(r, f32)
+		l.thickness_segments = int(geom.byte_get(r, u8))
+		side := geom.byte_get(r, u8)
+		l.bevel = geom.byte_get(r, f32)
+		l.bevel_segments = int(geom.byte_get(r, u8))
+		l.side = poly.Thickness_Side(side)
+		sizes_ok := l.thickness >= 0 && l.thickness < 1e6 && l.bevel >= 0 && l.bevel < 1e6
+		segments_ok := l.thickness_segments <= poly.LIVE_THICKNESS_SEGMENTS_MAX && l.bevel_segments <= poly.BEVEL_SEGMENTS_MAX
+		if !r.ok || side > u8(max(poly.Thickness_Side)) || !sizes_ok || !segments_ok {
+			poly.mesh_destroy(&cage)
+			return false, false
+		}
+		look.live = l
 	}
 	// The sculpt Edit cage took it from, from version 30: read only on Apply.
 	held: []u8
@@ -546,18 +641,78 @@ cage_part_get :: proc(app: ^App, r: ^geom.Byte_Reader, obj: ^Object, version := 
 	return true, object_build_cage(app, obj, cage, look, held)
 }
 
-// Draws `obj`'s cage as `look` says, as one undo step. Returns false only on a GPU failure.
-object_set_cage_look :: proc(app: ^App, obj: ^Object, wanted: Cage_Look) -> bool {
-	look := Cage_Look{clamp(wanted.smooth, 0, poly.SUBDIVIDE_MAX), wanted.flat}
-	if obj.cage.look == look do return true
-	before := history_snapshot(app, obj, "flat" if look.flat != obj.cage.look.flat else fmt.tprintf("smooth %d", look.smooth))
+// The selected cage's look, for a command to change part of it.
+cage_look_now :: proc(app: ^App) -> (Cage_Look, bool) {
+	obj := selected_object(app)
+	if obj == nil || obj.cage == nil do return {}, false
+	return obj.cage.look, true
+}
+
+// How large a cage is (its longest side), which Thickness and Bevel creases are set as a
+// share of, so a slider means the same on a small cage and a large one.
+cage_size :: proc(cp: ^Cage_Part) -> f32 {
+	b := poly.mesh_bounds(&cp.mesh)
+	d := b.hi - b.lo
+	return max(d.x, d.y, d.z, 1e-6)
+}
+
+// The most Thickness and Bevel creases go, as a percentage of the cage's size, and the
+// bevel segments offered (of poly.BEVEL_SEGMENTS_MAX).
+CAGE_LIVE_PERCENT_MAX :: 20
+CAGE_BEVEL_SEGMENTS_SHOWN :: 6
+
+// Draws `obj`'s cage as `look` says, as one undo step; with `drag` (a slider moving), the
+// step starts at the first change and ends when the slider lets go (cage_look_drag_end).
+// A change of widths alone keeps the drawn topology, so only the points move; anything
+// else makes the level again. Returns false only on a GPU failure.
+object_set_cage_look :: proc(app: ^App, obj: ^Object, wanted: Cage_Look, drag := false) -> bool {
+	look := cage_look_clean(wanted)
+	old := obj.cage.look
+	if old == look do return true
+	what := "cage look"
+	switch {
+	case look.flat != old.flat:     what = "flat"
+	case look.smooth != old.smooth: what = fmt.tprintf("smooth %d", look.smooth)
+	case look.live.bevel != old.live.bevel || look.live.bevel_segments != old.live.bevel_segments: what = "bevel creases"
+	case: what = "thickness"
+	}
+	ld := &app.model.look_drag
+	if drag && ld.before != nil && ld.object != obj.id do cage_look_drag_end(app, force = true)
+	before: ^Object_Snapshot
+	if !drag {
+		before = history_snapshot(app, obj, what)
+	} else if ld.before == nil {
+		ld^ = {object = obj.id, before = history_snapshot(app, obj, what)}
+	}
 	obj.cage.look = look
-	if !cage_rebuild(app, obj) {
-		history_snapshot_drop(before)
+	same := old.smooth == look.smooth && old.flat == look.flat && (old.live.thickness > 0) == (look.live.thickness > 0) && (old.live.bevel > 0) == (look.live.bevel > 0) && old.live.thickness_segments == look.live.thickness_segments && old.live.bevel_segments == look.live.bevel_segments
+	ok := cage_positions_moved(app, obj, nil) if same && obj.cage.live.vert_first != nil else cage_rebuild(app, obj)
+	if !ok {
+		if before != nil do history_snapshot_drop(before)
 		return false
 	}
-	history_record_swap(app, obj.id, before, kind = .Model)
+	if before != nil do history_record_swap(app, obj.id, before, kind = .Model)
 	return true
+}
+
+// A look slider's drag in progress: the cage it changes and the snapshot from before it.
+Cage_Look_Drag :: struct {
+	object: int,
+	before: ^Object_Snapshot,
+}
+
+// Ends a look slider's drag as one undo step once the pointer is up (or now, with
+// `force`): called each frame, and with the other panel drags before a scene command.
+cage_look_drag_end :: proc(app: ^App, force := false) {
+	ld := &app.model.look_drag
+	if ld.before == nil || (!force && .Left in app.device.down) do return
+	obj := object_by_id(app, ld.object)
+	if obj != nil && obj.cage != nil {
+		history_record_swap(app, ld.object, ld.before, kind = .Model)
+	} else {
+		history_snapshot_drop(ld.before)
+	}
+	ld^ = {}
 }
 
 // The cage clean-ups of the Model palette: Blender's Limited dissolve and Merge by
@@ -733,6 +888,7 @@ Model_Tool :: struct {
 	// The Knife's last tap on an edge (object 0 for none), which the next tap cuts to, as
 	// Maya's Multi-Cut does: each tap cuts from the one before until a tap off the cage.
 	knife_from: Model_Knife_Tap,
+	look_drag: Cage_Look_Drag,
 	// Since the start, for the exit stats: actions made, and refused.
 	done:      int,
 	refused:   int,
@@ -792,6 +948,7 @@ kit_model_tab :: proc(app: ^App) {
 		ui.caption(ctx, "CREASES")
 		kit_command_pair(app, .Crease_Cage, .Crease_Cage, arg_a = int(Cage_Crease.By_Angle), arg_b = int(Cage_Crease.Group_Borders), label_a = "By angle", label_b = "Polygroups")
 		_ = command_button(app, .Crease_Cage, int(Cage_Crease.Clear), "Clear creases", width = ui.fill_width(ctx))
+		kit_cage_live(app, obj)
 	}
 	check := m.check
 	if ui.switch_row(ctx, "Mesh check", &check, keys = command_hint(app, .Cage_Check)) do command_run(app, .Cage_Check)
@@ -829,4 +986,54 @@ kit_model_tab :: proc(app: ^App) {
 	c := poly.mesh_check(&obj.cage.mesh)
 	creased, corners := poly.crease_count(&obj.cage.mesh)
 	ui.paragraph(ctx, fmt.tprintf("%s: %d points, %d edges, %d faces (%d quads, %d triangles, %d polygons), %d creased edges, %d corners, %d poles, %d open edges", object_label(obj), c.vertices, c.edges, c.faces, c.quads, c.triangles, c.ngons, creased, corners, c.poles, c.border_edges))
+}
+
+// The live stack's controls in the Model palette: Thickness and Bevel creases, each a
+// width slider (a share of the cage's size, one undo step a drag) with its segments, and
+// the shell's side.
+@(private = "file")
+kit_cage_live :: proc(app: ^App, obj: ^Object) {
+	ctx := &app.kit.ctx
+	cp := obj.cage
+	size := cage_size(cp)
+	live := cp.look.live
+	drag :: proc(app: ^App, look: Cage_Look) {app.ui.scene_command = {kind = .Cage_Look, look = look, look_drag = true}}
+	SEGMENTS :: [?]string{"1", "2", "3", "4", "5", "6"}
+	segments := SEGMENTS
+	ui.caption(ctx, "THICKNESS")
+	thick := 100 * live.thickness / size
+	if ui.slider(ctx, "Thickness", &thick, 0, CAGE_LIVE_PERCENT_MAX, .Linear, "Off" if thick <= 0 else fmt.tprintf("%.1f%%", thick)) {
+		look := cp.look
+		look.live.thickness = thick / 100 * size
+		drag(app, look)
+	}
+	if live.thickness > 0 {
+		{
+			hints: [poly.LIVE_THICKNESS_SEGMENTS_MAX]string
+			for &h, i in hints do h = command_hint(app, .Cage_Thickness_Segments, i)
+			if picked := ui.tabs(ctx, "thickness segments", segments[:poly.LIVE_THICKNESS_SEGMENTS_MAX], live.thickness_segments - 1, keys = hints[:]); picked >= 0 do command_run(app, .Cage_Thickness_Segments, picked)
+		}
+		sides := [len(poly.Thickness_Side)]string{"Out", "In", "Centre"}
+		hints: [len(poly.Thickness_Side)]string
+		for &h, i in hints do h = command_hint(app, .Cage_Thickness_Side, i)
+		if picked := ui.tabs(ctx, "thickness side", sides[:], int(live.side), keys = hints[:]); picked >= 0 do command_run(app, .Cage_Thickness_Side, picked)
+	}
+	ui.caption(ctx, "BEVEL CREASES")
+	width := 100 * live.bevel / size
+	if ui.slider(ctx, "Width", &width, 0, CAGE_LIVE_PERCENT_MAX, .Linear, "Off" if width <= 0 else fmt.tprintf("%.1f%%", width)) {
+		look := cp.look
+		look.live.bevel = width / 100 * size
+		drag(app, look)
+	}
+	if live.bevel > 0 {
+		hints: [CAGE_BEVEL_SEGMENTS_SHOWN]string
+		for &h, i in hints do h = command_hint(app, .Cage_Bevel_Segments, i)
+		if picked := ui.tabs(ctx, "bevel segments", segments[:CAGE_BEVEL_SEGMENTS_SHOWN], live.bevel_segments - 1, keys = hints[:]); picked >= 0 do command_run(app, .Cage_Bevel_Segments, picked)
+		creased, _ := poly.crease_count(&cp.mesh)
+		switch {
+		case cp.live.bevel_refused: ui.paragraph(ctx, "A creased edge reaches a point with only two edges, which cannot be rounded, so the bevel is off.")
+		// A shell's rim edges are creased by Thickness, so a plate bevels with no crease of its own.
+		case creased == 0 && live.thickness <= 0: ui.paragraph(ctx, "Crease edges (Crease, or By angle above) to bevel them.")
+		}
+	}
 }

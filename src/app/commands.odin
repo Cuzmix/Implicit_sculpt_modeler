@@ -149,6 +149,11 @@ Command_Id :: enum u8 {
 	Select_Cage,
 	Cage_Smooth,
 	Cage_Flat,
+	Cage_Thickness,
+	Cage_Thickness_Segments,
+	Cage_Thickness_Side,
+	Cage_Bevel,
+	Cage_Bevel_Segments,
 	Crease_Cage,
 	Cage_Check,
 	Adjust_Last,
@@ -597,7 +602,10 @@ COMMANDS := [Command_Id]Command {
 		icon = ui.ICON_GRID,
 		args = poly.SUBDIVIDE_MAX + 1,
 		run = proc(app: ^App, arg: int) {
-			if obj := selected_object(app); obj != nil && obj.cage != nil do app.ui.scene_command = {kind = .Cage_Look, look = {arg, obj.cage.look.flat}}
+			if look, ok := cage_look_now(app); ok {
+				look.smooth = arg
+				app.ui.scene_command = {kind = .Cage_Look, look = look}
+			}
 		},
 		checked = proc(app: ^App, arg: int) -> bool {
 			obj := selected_object(app)
@@ -610,11 +618,91 @@ COMMANDS := [Command_Id]Command {
 		help = "Splits the selected cage's smoothing steps without rounding anything, for hard surfaces that want more faces and no curves. One undo step.",
 		icon = ui.ICON_GRID,
 		run = proc(app: ^App, _: int) {
-			if obj := selected_object(app); obj != nil && obj.cage != nil do app.ui.scene_command = {kind = .Cage_Look, look = {obj.cage.look.smooth, !obj.cage.look.flat}}
+			if look, ok := cage_look_now(app); ok {
+				look.flat = !look.flat
+				app.ui.scene_command = {kind = .Cage_Look, look = look}
+			}
 		},
 		checked = proc(app: ^App, _: int) -> bool {
 			obj := selected_object(app)
 			return obj != nil && obj.cage != nil && obj.cage.look.flat
+		},
+		enabled = proc(app: ^App, _: int) -> bool {return selected_cage(app)},
+	},
+	.Cage_Thickness = {
+		label = "Cage thickness",
+		help = "Draws the selected cage as a shell this thick (a share of the cage's size, 0 for off), as Blender's Solidify does: the cage is one side of it, each border is closed by a rim whose edges are creased, and Smooth and Apply to sculpt take the shell. One undo step.",
+		icon = ui.ICON_GRID,
+		args = CAGE_LIVE_PERCENT_MAX + 1,
+		run = proc(app: ^App, arg: int) {
+			if look, ok := cage_look_now(app); ok {
+				look.live.thickness = f32(arg) / 100 * cage_size(selected_object(app).cage)
+				app.ui.scene_command = {kind = .Cage_Look, look = look}
+			}
+		},
+		enabled = proc(app: ^App, _: int) -> bool {return selected_cage(app)},
+	},
+	.Cage_Thickness_Segments = {
+		label = "Cage thickness segments",
+		help = "How many faces across the rims of the selected cage's Thickness shell, 1 to 6. One undo step.",
+		icon = ui.ICON_GRID,
+		args = poly.LIVE_THICKNESS_SEGMENTS_MAX,
+		run = proc(app: ^App, arg: int) {
+			if look, ok := cage_look_now(app); ok {
+				look.live.thickness_segments = arg + 1
+				app.ui.scene_command = {kind = .Cage_Look, look = look}
+			}
+		},
+		checked = proc(app: ^App, arg: int) -> bool {
+			look, ok := cage_look_now(app)
+			return ok && look.live.thickness_segments == arg + 1
+		},
+		enabled = proc(app: ^App, _: int) -> bool {return selected_cage(app)},
+	},
+	.Cage_Thickness_Side = {
+		label = "Cage thickness side",
+		help = "Where the selected cage's Thickness shell grows: Out along its normals, In, or Centre, half each way. One undo step.",
+		icon = ui.ICON_GRID,
+		args = len(poly.Thickness_Side),
+		run = proc(app: ^App, arg: int) {
+			if look, ok := cage_look_now(app); ok {
+				look.live.side = poly.Thickness_Side(arg)
+				app.ui.scene_command = {kind = .Cage_Look, look = look}
+			}
+		},
+		checked = proc(app: ^App, arg: int) -> bool {
+			look, ok := cage_look_now(app)
+			return ok && look.live.side == poly.Thickness_Side(arg)
+		},
+		enabled = proc(app: ^App, _: int) -> bool {return selected_cage(app)},
+	},
+	.Cage_Bevel = {
+		label = "Bevel creases",
+		help = "Draws every creased edge of the selected cage as a strip this wide (a share of the cage's size, 0 for off), as ZBrush's QGrid and Blender's Bevel modifier do, so Smooth rounds it to a tight fillet; the crease's sharpness then only says which edges are bevelled. Apply to sculpt takes the strips. One undo step.",
+		icon = ui.ICON_GRID,
+		args = CAGE_LIVE_PERCENT_MAX + 1,
+		run = proc(app: ^App, arg: int) {
+			if look, ok := cage_look_now(app); ok {
+				look.live.bevel = f32(arg) / 100 * cage_size(selected_object(app).cage)
+				app.ui.scene_command = {kind = .Cage_Look, look = look}
+			}
+		},
+		enabled = proc(app: ^App, _: int) -> bool {return selected_cage(app)},
+	},
+	.Cage_Bevel_Segments = {
+		label = "Bevel creases segments",
+		help = "How many faces across each strip of the selected cage's Bevel creases, 1 to 6. One undo step.",
+		icon = ui.ICON_GRID,
+		args = CAGE_BEVEL_SEGMENTS_SHOWN,
+		run = proc(app: ^App, arg: int) {
+			if look, ok := cage_look_now(app); ok {
+				look.live.bevel_segments = arg + 1
+				app.ui.scene_command = {kind = .Cage_Look, look = look}
+			}
+		},
+		checked = proc(app: ^App, arg: int) -> bool {
+			look, ok := cage_look_now(app)
+			return ok && look.live.bevel_segments == arg + 1
 		},
 		enabled = proc(app: ^App, _: int) -> bool {return selected_cage(app)},
 	},
@@ -2220,6 +2308,16 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 		return CAGE_TIDY_NAMES[Cage_Tidy(arg)]
 	case .Select_Cage:
 		return CAGE_SELECT_NAMES[poly.Select_Op(arg)]
+	case .Cage_Thickness:
+		return fmt.tprintf("Cage thickness %d%%", arg)
+	case .Cage_Bevel:
+		return fmt.tprintf("Bevel creases %d%%", arg)
+	case .Cage_Thickness_Segments:
+		return fmt.tprintf("Thickness segments %d", arg + 1)
+	case .Cage_Bevel_Segments:
+		return fmt.tprintf("Bevel segments %d", arg + 1)
+	case .Cage_Thickness_Side:
+		return fmt.tprintf("Thickness %v", poly.Thickness_Side(arg))
 	case .Cage_Smooth:
 		return "Cage smooth off" if arg == 0 else fmt.tprintf("Cage smooth %d", arg)
 	case .Crease_Cage:
