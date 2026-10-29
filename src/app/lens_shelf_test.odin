@@ -144,9 +144,13 @@ shelf_turns_stop_at_the_ends :: proc(t: ^testing.T) {
 	testing.expect(t, shelf_turn(app, 1) && sh.page == .Paint && sh.slide > 0 && !sh.quick)
 	testing.expect(t, shelf_turn(app, -5) && sh.page == .Sculpt && sh.slide < 0)
 	testing.expect(t, !shelf_turn(app, -1) && sh.page == .Sculpt)
-	testing.expect(t, shelf_turn(app, len(Shelf_Page)) && sh.page == max(Shelf_Page))
-	testing.expect(t, !shelf_turn(app, 1) && sh.page == max(Shelf_Page))
+	// Sculpt's pages end at Curve: Model's page is the Model space's alone.
+	testing.expect(t, shelf_turn(app, len(Shelf_Page)) && sh.page == .Curve)
+	testing.expect(t, !shelf_turn(app, 1) && sh.page == .Curve)
 	testing.expect_value(t, sh.turns, 3)
+	app.kit.spaces.current = .Model
+	_ = shelf_turn(app, -1)
+	testing.expect(t, sh.page == .Model && !shelf_turn(app, 1) && !shelf_turn(app, -1))
 
 	bar_remove(app, .Tools, 0)
 	testing.expect(t, bar_changed(app, .Tools))

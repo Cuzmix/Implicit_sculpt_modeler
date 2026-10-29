@@ -14,9 +14,12 @@ import "core:unicode/utf8"
 //
 //	SCULPT_WORKSPACE 1
 //	name Detail%20pass
+//	space Model
 //	layout open%20Inspector%0Abars%0A...
 //
 // The name and the layout are escaped as the settings file escapes them (preset_escape).
+// The space line came with spaces (spaces.odin); a file without one is Sculpt's, and a
+// version that knows no spaces skips the line, so the version stays 1.
 
 WORKSPACE_FILE_MAGIC :: "SCULPT_WORKSPACE"
 WORKSPACE_FILE_VERSION :: 1
@@ -24,14 +27,14 @@ WORKSPACE_FILE_VERSION :: 1
 WORKSPACE_FILE_MAX :: 64 * 1024
 WORKSPACE_FILE_SUFFIX :: ".workspace"
 
-// The file's text for the workspace named `name` with layout `layout`.
-workspace_file_text :: proc(name, layout: string) -> string {
-	return fmt.tprintf("%s %d\nname %s\nlayout %s\n", WORKSPACE_FILE_MAGIC, WORKSPACE_FILE_VERSION, preset_escape(name), preset_escape(layout))
+// The file's text for the workspace named `name` of `space` with layout `layout`.
+workspace_file_text :: proc(name, layout: string, space: Space) -> string {
+	return fmt.tprintf("%s %d\nname %s\nspace %v\nlayout %s\n", WORKSPACE_FILE_MAGIC, WORKSPACE_FILE_VERSION, preset_escape(name), space, preset_escape(layout))
 }
 
 // The name and layout in a workspace file's bytes (temp strings); false when it is not one,
 // is from a newer version, is too big, or holds anything but text.
-workspace_file_read :: proc(data: []u8) -> (name, layout: string, ok: bool) {
+workspace_file_read :: proc(data: []u8) -> (name, layout: string, space: Space, ok: bool) {
 	if len(data) > WORKSPACE_FILE_MAX || !utf8.valid_string(string(data)) do return
 	lines := strings.split_lines(string(data), context.temp_allocator)
 	if len(lines) < 3 do return
@@ -52,6 +55,8 @@ workspace_file_read :: proc(data: []u8) -> (name, layout: string, ok: bool) {
 			name, got_name = strings.trim_space(preset_unescape(f[1])), true
 		case "layout":
 			layout, got_layout = preset_unescape(f[1]), true
+		case "space":
+			for each in Space do if strings.equal_fold(f[1], fmt.tprint(each)) do space = each
 		}
 	}
 	// A name that cannot be shown (control characters, a name too long for the switcher)
@@ -80,7 +85,7 @@ workspace_export :: proc(app: ^App, path: string) -> bool {
 	k := &app.kit
 	if len(k.workspaces.list) == 0 do return false
 	name := workspace_name(k, k.workspaces.current)
-	text := workspace_file_text(name, kit_layout_text(k))
+	text := workspace_file_text(name, kit_layout_text(k), workspace_space(k, k.workspaces.current))
 	if why := write_durably(path, transmute([]u8)text); why != "" {
 		file_note(app, true, "Cannot export the workspace to %s: %s", filepath.base(path), why)
 		return false
@@ -99,12 +104,12 @@ workspace_import :: proc(app: ^App, path: string) -> bool {
 		file_note(app, true, "Cannot open %s: %v", filepath.base(path), err)
 		return false
 	}
-	name, layout, ok := workspace_file_read(data)
+	name, layout, space, ok := workspace_file_read(data)
 	if !ok {
 		file_note(app, true, "Cannot import %s: it is not a workspace file, or it is from a newer version", filepath.base(path))
 		return false
 	}
-	slot, added := workspace_add(k, name, workspace_layout_clean(layout))
+	slot, added := workspace_add(k, name, workspace_layout_clean(layout), space)
 	if !added {
 		file_note(app, true, "Cannot import %s: all %d workspaces of your own are in use; delete one first", filepath.base(path), WORKSPACE_OWN)
 		return false
