@@ -390,19 +390,34 @@ focal_slider :: proc(app: ^App) {
 @(private = "file")
 kit_pen :: proc(app: ^App) {
 	ctx := &app.kit.ctx
-	// Three pages, so none holds more than the section's five controls: what pressure does
-	// to the strength, to the size, and the pen's lean.
-	pages := [3]string{"Strength", "Size", "Lean"}
+	// Four pages, so none holds more than the section's five controls: what pressure does
+	// to the strength, to the size, the response as a whole with whose pressure it is,
+	// and the pen's lean.
+	pages := [4]string{"Strength", "Size", "Response", "Lean"}
 	if picked := ui.tabs(ctx, "pen page", pages[:], app.kit.pen_page); picked >= 0 do app.kit.pen_page = picked
-	if app.kit.pen_page == 2 {
+	b := &app.brush
+	at := pressure_edit(b)
+	whose := fmt.tprintf("%s keeps its own pressure (Response page).", BRUSHES[b.kind].name) if b.pressures[b.kind].own else "Every brush using the global pressure follows this (Response page)."
+	switch app.kit.pen_page {
+	case 3:
 		kit_tilt(app)
+		return
+	case 2:
+		global := !b.pressures[b.kind].own
+		if ui.switch_row(ctx, "Use global", &global) do brush_pressure_own(b, b.kind, !global)
+		names: [len(PRESSURE_RESPONSES)]string
+		for r, i in PRESSURE_RESPONSES do names[i] = string(r.label)
+		if picked := ui.tabs(ctx, "response", names[:], pressure_response(at)); picked >= 0 do pressure_put(at, PRESSURE_RESPONSES[picked].pressure)
+		floor := at.size_floor^ * 100
+		if ui.slider(ctx, "Smallest size", &floor, MIN_PRESSURE_SIZE * 100, 100, .Linear, fmt.tprintf("%.0f%%", max(floor, MIN_PRESSURE_SIZE * 100)), enabled = at.size^) {
+			at.size_floor^ = math.round(floor) / 100
+		}
+		ui.paragraph(ctx, fmt.tprintf("With Use global off, %s keeps its own switches and curves. Clay: the size follows the cube of the pressure, at least a fifth of the radius, as Blender's Clay. Steady: nearly full strength from half pressure on, so a stroke keeps an even height. Light: a light touch goes far, for size and strength.", BRUSHES[b.kind].name))
 		return
 	}
 	size := app.kit.pen_page == 1
-	b := &app.brush
-	strength_on, size_on, strength_curve, size_curve := pressure_edit(b)
-	_ = ui.switch_row(ctx, "Pressure changes size" if size else "Pressure changes strength", size_on if size else strength_on)
-	curve := size_curve if size else strength_curve
+	_ = ui.switch_row(ctx, "Pressure changes size" if size else "Pressure changes strength", at.size if size else at.strength)
+	curve := at.size_curve if size else at.strength_curve
 	counts :: proc(app: ^App, size: bool, x: f32) -> f32 {return pressure_sized(app, x) if size else pressure_curved(app, x)}
 	dot: Maybe([2]f32)
 	if app.pen_seen {
@@ -417,9 +432,7 @@ kit_pen :: proc(app: ^App) {
 		if curve^ == p.curve do chosen = i
 	}
 	if picked := ui.tabs(ctx, "pressure", names[:], chosen); picked >= 0 do curve^ = PRESSURE_PRESETS[picked].curve
-	global := !b.pressures[b.kind].own
-	if ui.switch_row(ctx, "Use global", &global) do brush_pressure_own(b, b.kind, !global)
-	ui.paragraph(ctx, fmt.tprintf("Along: how hard the pen presses. Up: what that counts as for the %s. With Use global off, %s keeps its own pressure.", "size" if size else "strength", BRUSHES[b.kind].name))
+	ui.paragraph(ctx, fmt.tprintf("Along: how hard the pen presses. Up: what that counts as for the %s. %s", "size" if size else "strength", whose))
 	if app.pen_seen {
 		ui.paragraph(ctx, fmt.tprintf("Pen: pressure %.2f counts as %.2f.", app.pen_pressure, counts(app, size, app.pen_pressure)))
 	} else {

@@ -152,6 +152,7 @@ SETTINGS := [?]Setting {
 	{"radius_px", B + offset_of(Brush_Settings, radius_px), f32, MIN_RADIUS_PX, MAX_RADIUS_PX},
 	{"pressure_strength", B + offset_of(Brush_Settings, pressure_strength), bool, 0, 0},
 	{"pressure_size", B + offset_of(Brush_Settings, pressure_size), bool, 0, 0},
+	{"pressure_size_floor", B + offset_of(Brush_Settings, pressure_size_floor), f32, 0, 1},
 	{"tilt_strength", B + offset_of(Brush_Settings, tilt_strength), f32, 0, 1},
 	{"tilt_size", B + offset_of(Brush_Settings, tilt_size), f32, 0, 1},
 	{"tilt_soften", B + offset_of(Brush_Settings, tilt_soften), f32, 0, 1},
@@ -690,13 +691,15 @@ settings_load :: proc(app: ^App, path: string) {
 				size_curve_seen = true
 			}
 		case "pressure_own":
-			// pressure_own <brush> <strength 0|1> <size 0|1> <strength curve> <size curve>,
-			// for the brushes that keep their own pressure.
-			if len(f) == 12 {
+			// pressure_own <brush> <own 0|1> <strength 0|1> <size 0|1> <smallest size>
+			// <strength curve> <size curve>, for every brush, so one that starts on its own
+			// (Clay) and was put on the global one stays there.
+			if len(f) == 14 {
 				if kind, ok := brush_by_name(f[1]); ok {
 					p := &b.pressures[kind]
-					p.own, p.strength, p.size = true, f[2] == "1", f[3] == "1"
-					p.strength_curve, p.size_curve = curve(f[4:8], geom.CURVE_LINEAR), curve(f[8:12], geom.CURVE_LINEAR)
+					p.own, p.strength, p.size = f[2] == "1", f[3] == "1", f[4] == "1"
+					p.size_floor = clamp(number(f[5], 0), 0, 1)
+					p.strength_curve, p.size_curve = curve(f[6:10], geom.CURVE_LINEAR), curve(f[10:14], geom.CURVE_LINEAR)
 				}
 			}
 		case "material":
@@ -1003,9 +1006,8 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 	c = b.pressure_size_curve
 	fmt.sbprintfln(&out, "pressure_size_curve %g %g %g %g", c.c1.x, c.c1.y, c.c2.x, c.c2.y)
 	for p, kind in b.pressures {
-		if !p.own do continue
 		a, z := p.strength_curve, p.size_curve
-		fmt.sbprintfln(&out, "pressure_own %v %d %d %g %g %g %g %g %g %g %g", kind, bit(p.strength), bit(p.size), a.c1.x, a.c1.y, a.c2.x, a.c2.y, z.c1.x, z.c1.y, z.c2.x, z.c2.y)
+		fmt.sbprintfln(&out, "pressure_own %v %d %d %d %g %g %g %g %g %g %g %g %g", kind, bit(p.own), bit(p.strength), bit(p.size), p.size_floor, a.c1.x, a.c1.y, a.c2.x, a.c2.y, z.c1.x, z.c1.y, z.c2.x, z.c2.y)
 	}
 	for line in SETTING_LINES do fmt.sbprintfln(&out, "%s %s", line.key, line.text(app))
 	// The starting lights, every one of them, so a light added later starts as it was set.

@@ -246,8 +246,9 @@ STROKES_MAGIC :: "SCSTROKE"
 // Feather after those; 17: Alt in a frame's flags, and each brush's Grab mode, Same side
 // and Silhouette, then Normal weight, after those; 18: its Grab Topological after its
 // Normal weight; 19: its Elastic Volume after that; 20: its Snake hook Pinch, Rake and
-// Elastic tip after that; 21: its size's pressure curve after those.
-STROKES_VERSION :: u32(21)
+// Elastic tip after that; 21: its size's pressure curve after those; 22: its smallest
+// size under pressure after that.
+STROKES_VERSION :: u32(22)
 
 strokes_save :: proc(app: ^App, path: string) -> bool {
 	t := replay_source(app)
@@ -302,6 +303,7 @@ strokes_save :: proc(app: ^App, path: string) -> bool {
 		geom.byte_put(&out, [2]f32{b.hook_pinch, b.hook_rake})
 		geom.byte_put(&out, u8(b.hook_elastic))
 		geom.byte_put(&out, pressure.size_curve)
+		geom.byte_put(&out, pressure.size_floor)
 	}
 	geom.byte_put(&out, u32(len(t.frames)))
 	for f in t.frames {
@@ -465,19 +467,23 @@ strokes_read :: proc(app: ^App, data: []u8, t: ^Take) -> bool {
 		// Nor, before version 21, a pressure curve for the size: it took the strength's.
 		pressure_size_curve := pressure_curve
 		if version >= 21 do pressure_size_curve = geom.byte_get(&r, geom.Curve)
+		// Nor, before version 22, a smallest size: pressure shrank it to MIN_PRESSURE_SIZE.
+		size_floor: f32
+		if version >= 22 do size_floor = geom.byte_get(&r, f32)
 		if !r.ok || int(kind) >= len(sculpt.Brush_Kind) || int(stroke) >= len(Stroke_Mode) || int(cloth) >= len(sculpt.Cloth_Mode) do return false
 		all_axes := transmute(u8)sculpt.Symmetry{.X, .Y, .Z}
 		if int(channel) >= len(sculpt.Channel) || dial > 1 || reach[0] > 1 || int(reach[1]) >= len(sculpt.Smooth_Only) do return false
 		if radial[0] > 1 || radial[1] > 1 || radial[2] < RADIAL_MIN || radial[2] > sculpt.RADIAL_MAX || int(radial[3]) >= len(sculpt.Axis) do return false
 		if symmetry & ~all_axes != 0 || drawn > 1 || pressure_strength > 1 || pressure_size > 1 || front > 1 || line > 1 || join > 1 || lock_plane > 1 || connected > 1 || catch_up > 1 || evened[0] > 1 || evened[1] > 1 || evened[2] > 1 do return false
 		if int(grabbing[0]) >= len(Grab_Mode) || grabbing[1] > 1 || grabbing[2] > 1 || topological > 1 || !finite(normal_weight, volume) || volume < 0 || volume > 1 || !finite(hooked[0], hooked[1]) || abs(hooked[0]) > 1 || hooked[1] < 0 || hooked[1] > 1 || hook_elastic > 1 || normal_weight < 0 || normal_weight > 1 do return false
-		if !finite(radius, strength, lazy, spread, color.r, color.g, color.b, focal, scale, spaced[0], spaced[1], steady[0], steady[1]) || !curve_ok(falloff) || !curve_ok(pressure_curve) || !curve_ok(pressure_size_curve) do return false
+		if !finite(radius, strength, lazy, spread, color.r, color.g, color.b, focal, scale, spaced[0], spaced[1], steady[0], steady[1]) || !curve_ok(falloff) || !curve_ok(pressure_curve) || !curve_ok(pressure_size_curve) || !finite(size_floor) || size_floor < 0 || size_floor > 1 do return false
 		if focal < sculpt.FOCAL_MIN || focal > sculpt.FOCAL_MAX || scale < TOUCH_STRENGTH_MIN || scale > 1 do return false
 		b.kind = sculpt.Brush_Kind(kind)
 		b.radius_px = clamp(radius, MIN_RADIUS_PX, MAX_RADIUS_PX)
 		b.strengths[b.kind] = clamp(strength, MIN_STRENGTH, 1)
 		b.falloffs[b.kind] = {drawn = drawn == 1, curve = falloff, focal = focal}
 		b.pressure_strength, b.pressure_size, b.pressure_curve, b.pressure_size_curve = pressure_strength == 1, pressure_size == 1, pressure_curve, pressure_size_curve
+		b.pressure_size_floor = size_floor
 		b.pressures[b.kind].own = false
 		b.lazy_px = clamp(lazy, 0, MAX_RADIUS_PX)
 		b.front_only, b.stroke, b.symmetry = front == 1, Stroke_Mode(stroke), transmute(sculpt.Symmetry)symmetry

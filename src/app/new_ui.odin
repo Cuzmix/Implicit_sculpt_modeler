@@ -40,7 +40,7 @@ Kit_State :: struct {
 	tab:        Kit_Tab, // ...on this palette
 	section:    [Kit_Tab]Kit_Section, // the section each palette shows
 	object_page: Object_Page, // the page of the Object palette's section, for the exit stats
-	pen_page:    int, // the Brush palette's Pen section's page: 0 Strength, 1 Size, 2 Lean
+	pen_page:    int, // the Brush palette's Pen section's page: 0 Strength, 1 Size, 2 Response, 3 Lean
 	list_scroll: f32, // the tray's list of palettes and sections, scrolled
 	list_reveal: int, // ...to the section shown, for this many more frames
 	// Search's Show where (tray_show): the command whose control the tray marks, since
