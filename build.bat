@@ -20,8 +20,11 @@ if "%MODE%"=="all" goto all
 if "%MODE%"=="iphonecheck" goto iphonecheck
 if "%MODE%"=="android" goto android
 if "%MODE%"=="androidrun" goto android
-rem The app links Luau for script plugins, which setup_deps builds from source.
+rem The app links Luau for script plugins and ufbx for FBX import, which setup_deps builds
+rem from source.
 if not exist "%DEPS%\luau\luau.lib" ( echo Luau missing: run scripts\setup_deps.bat, which builds deps\luau & exit /b 1 )
+rem And ufbx for FBX import, with the app's shim round it (scripts\build_ufbx.py).
+if not exist "%DEPS%\ufbx\ufbx.lib" ( echo ufbx missing: run scripts\setup_deps.bat, which builds deps\ufbx & exit /b 1 )
 
 rem Recompile the Slang shaders when slangc is in deps\slang\bin or on the PATH (the Vulkan SDK
 rem installs it); otherwise use the committed .spv files. build.sh describes the rules.
@@ -49,6 +52,7 @@ rem Type-check every package with the strict flags: no link, no shaders, no buil
 rem Library packages have no main, hence -no-entry-point; it is harmless on the executables.
 "%ODIN%" check "%ROOT%src\app" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\bench" -no-entry-point %COMMON% || exit /b 1
+"%ODIN%" check "%ROOT%src\fbx" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\geom" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\camera" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\gizmo" -no-entry-point %COMMON% || exit /b 1
@@ -66,7 +70,7 @@ rem Library packages have no main, hence -no-entry-point; it is harmless on the 
 python "%ROOT%scripts\agents_sync.py" --check || exit /b 1
 python "%ROOT%scripts\boundary_check.py" || exit /b 1
 python "%ROOT%scripts\shaders_msl.py" --check || exit /b 1
-echo check: 16 packages type-check, agent mirror current, only render names the GPU API, Metal shaders current
+echo check: 17 packages type-check, agent mirror current, only render names the GPU API, Metal shaders current
 exit /b 0
 
 :iphonecheck
@@ -111,6 +115,7 @@ exit /b 0
 "%ODIN%" test "%ROOT%src\ui" -out:"%ROOT%build\test_ui.exe" %COMMON% || exit /b 1
 "%ODIN%" test "%ROOT%src\luau" -out:"%ROOT%build\test_luau.exe" %COMMON% || exit /b 1
 "%ODIN%" test "%ROOT%src\usd" -out:"%ROOT%build\test_usd.exe" %COMMON% || exit /b 1
+"%ODIN%" test "%ROOT%src\fbx" -out:"%ROOT%build\test_fbx.exe" %COMMON% || exit /b 1
 "%ODIN%" test "%ROOT%src\app" -out:"%ROOT%build\test_app.exe" %COMMON% || exit /b 1
 exit /b 0
 
