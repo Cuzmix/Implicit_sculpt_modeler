@@ -472,6 +472,9 @@ kit_scroll_begin :: proc(ctx: ^ui.Context, name: string, value: ^f32, owner: ui.
 kit_scroll_end :: proc(ctx: ^ui.Context, s: Kit_Scroll) {
 	ui.end(ctx)
 	ui.scroll_take(ctx, s.id, s.value^, s.limit, s.owner)
+	// The pen's roll over it, where no control in it took the roll, scrolls it as a
+	// mouse wheel does: clockwise on down the page.
+	if roll := ui.area_roll(ctx, s.id, s.at, s.owner); roll != 0 && s.limit > 0 do s.value^ = clamp(s.value^ + roll * ROLL_SCROLL, 0, s.limit)
 	if s.limit <= 0 do return
 	r := s.at
 	thumb := max(s.height * s.height / s.natural, 24)

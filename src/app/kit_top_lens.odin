@@ -35,8 +35,10 @@ kit_top_bar :: proc(app: ^App) -> (menu_anchor, search_anchor: ui.Rect) {
 	redo := fmt.tprintf("Redo %s##redo", history_next_label(app.history.undone[:]))
 	if ui.icon_button(ctx, undo, ui.ICON_UNDO, enabled = command_enabled(app, .Undo), keys = command_hint(app, .Undo)) do command_run(app, .Undo)
 	if ui.secondary(ctx) do k.history = true
+	undo_at := ctx.last_rect
 	if ui.icon_button(ctx, redo, ui.ICON_REDO, enabled = command_enabled(app, .Redo), keys = command_hint(app, .Redo)) do command_run(app, .Redo)
 	if ui.secondary(ctx) do k.history = true
+	history_roll(app, ui.rect_union(undo_at, ctx.last_rect))
 	// What the ends take, the middle gets. The object chip gives up its badges, then its
 	// tag, before Search shrinks to its icon; then the chip shrinks to its icon, and last
 	// the space tabs go to the layout's chip.

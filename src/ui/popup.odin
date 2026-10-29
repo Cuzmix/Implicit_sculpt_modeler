@@ -34,6 +34,43 @@ tip :: proc(ctx: ^Context, id: Id, r: Rect, text: string, keys := "") {
 }
 
 @(private)
+// How long, in seconds, the pen's roll's hint stays after the roll last said it, the last
+// third of it fading out.
+ROLL_HINT_TIME :: 0.9
+
+// Says beside the pen what its roll just did ("Twist 30°", "Page: Paint"), where a roll
+// changes something the hand cannot see changing under it: the view's turn, a page, a
+// step of History.
+roll_hint :: proc(ctx: ^Context, text: string) {
+	ctx.roll_hint_len = copy_text(ctx.roll_hint[:], text)
+	ctx.roll_hint_at = ctx.time
+}
+
+// Draws the roll's hint above and right of the pointer, out of the hand's way, kept on
+// the window.
+@(private)
+roll_hint_draw :: proc(ctx: ^Context) {
+	if ctx.roll_hint_len == 0 do return
+	age := f32(ctx.time - ctx.roll_hint_at)
+	if age >= ROLL_HINT_TIME {
+		ctx.roll_hint_len = 0
+		return
+	}
+	t := ctx.theme
+	s := string(ctx.roll_hint[:ctx.roll_hint_len])
+	w, h := text_width(ctx, s, t.small_size) + 20, f32(28)
+	window := ctx.input.window
+	at := ctx.input.mouse + {18, -18 - h}
+	box := Rect{clamp(at.x, 4, window.x - w - 4), clamp(at.y, 4, window.y - h - 4), w, h}
+	mark := vertex_mark(ctx)
+	draw_set_state(&ctx.draw, .Atlas, 0, full_clip(ctx))
+	shadow_rect(ctx, box, t.radius_small, color_fade(t.shadow, 0.6))
+	fill_rect(ctx, box, t.radius_small, t.surface_raised)
+	stroke_rect(ctx, box, t.radius_small, t.border_strong, 1)
+	text(ctx, s, box.x + 10, box.y + h * 0.5, t.small_size, t.text)
+	transform_since(ctx, mark, min((ROLL_HINT_TIME - age) / (ROLL_HINT_TIME / 3), 1), 1, {}, {})
+}
+
 tooltip_draw :: proc(ctx: ^Context) {
 	t := ctx.theme
 	id := ctx.tip_id

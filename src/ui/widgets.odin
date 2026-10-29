@@ -295,6 +295,7 @@ tabs :: proc(ctx: ^Context, name: string, options: []string, chosen: int, item_w
 	item_h := t.control - 2 * pad
 	fill := fill_width(ctx)
 	picked := -1
+	over := false
 	// A row as tall as the touch target, the well centred in it, so the options' hit
 	// areas are full targets while the well stays slim.
 	begin(ctx, name, {direction = .Row, padding = pad, radius = t.radius_medium + pad * 0.5, background = .Track, width = fill if item_width <= 0 && fill > 0 else 0})
@@ -308,6 +309,7 @@ tabs :: proc(ctx: ^Context, name: string, options: []string, chosen: int, item_w
 		id := id_of(ctx, option)
 		hovered, held, clicked, _ := interact(ctx, id, hit_area(ctx, r))
 		if clicked do picked = i
+		over ||= hovered
 		on := i == chosen
 		tinted := i < len(tints) && i < len(tints_soft)
 		if on {
@@ -331,6 +333,13 @@ tabs :: proc(ctx: ^Context, name: string, options: []string, chosen: int, item_w
 		if keys != nil && i < len(keys) && keys[i] != "" do tip(ctx, id, r, shown, keys[i])
 	}
 	end(ctx)
+	// The pen's roll over the row steps to the next option, clockwise rightward, as
+	// Blender's wheel over a row of tabs does.
+	if roll := hover_roll(ctx, salt(id_of(ctx, name), 2), over); roll != 0 && picked < 0 {
+		if step := roll_steps(ctx, roll, ROLL_STEP); step != 0 {
+			if to := clamp(chosen + step, 0, n - 1); to != chosen do picked = to
+		}
+	}
 	return picked
 }
 
@@ -412,6 +421,7 @@ Hover_Roll :: struct {
 	turned:  f32,
 	engaged: bool,
 	seen:    bool,
+	rest:    f32, // degrees toward the next of roll_steps' steps
 }
 
 // The degrees, clockwise seen from the pen's top, that the pen's roll moves the control
@@ -421,7 +431,7 @@ Hover_Roll :: struct {
 // as well as on, until the pen leaves the control.
 hover_roll :: proc(ctx: ^Context, id: Id, hovered: bool) -> f32 {
 	in_ := ctx.input
-	if !hovered || in_.pointer != .Pen || in_.down != {} do return 0
+	if id == 0 || !hovered || in_.pointer != .Pen || in_.down != {} do return 0
 	r := &ctx.roll
 	if r.on != id do r^ = {on = id}
 	r.seen = true
@@ -431,6 +441,33 @@ hover_roll :: proc(ctx: ^Context, id: Id, hovered: bool) -> f32 {
 	r.engaged = true
 	return r.turned - math.sign(r.turned) * ROLL_ENGAGE
 }
+
+// The degrees the pen's roll turns the area `id` this frame, as hover_roll gives them: a
+// scrolling body, a strip of tiles, a ring, `rect` where it is and `root` the anchored
+// container it is in (or 0 for none), which must be the one under the pointer. Call it
+// after the area's own controls: one of them that takes the roll (a slider, a choice)
+// was hovered this frame and has it, as the innermost control takes a press.
+area_roll :: proc(ctx: ^Context, id: Id, rect: Rect, root: Id = 0) -> f32 {
+	if ctx.roll.seen && ctx.roll.on != id do return 0
+	in_ := ctx.input
+	over := in_.mouse_valid && !ctx.viewport_drag && !ctx.swallow && ctx.pointer_root == root && rect_contains(rect, in_.mouse)
+	return hover_roll(ctx, id, over)
+}
+
+// The whole steps of `per` degrees that `degrees` of the roll under way (hover_roll's or
+// area_roll's this frame) completes, clockwise positive, the rest kept toward the next,
+// for a roll that steps through something: pages, choices, History.
+roll_steps :: proc(ctx: ^Context, degrees, per: f32) -> int {
+	r := &ctx.roll
+	r.rest += degrees
+	n := int(r.rest / per)
+	r.rest -= f32(n) * per
+	return n
+}
+
+// The degrees of roll that step a choice or a row of tabs to the next: enough that each
+// step is a turn of its own, as a dial's detents are.
+ROLL_STEP :: f32(30)
 
 // The pen's roll on the slider `id` (hover_roll) moves it from fraction `f`: where it
 // moves to, and whether it moved.
@@ -1012,7 +1049,7 @@ more_end :: section_end
 // A field showing the chosen option with a chevron; pressing it opens a list of every
 // option under it, which frame_end draws over everything (from a copy of `options`).
 // Returns the option picked, or -1.
-select :: proc(ctx: ^Context, name: string, options: []string, chosen: int, width: f32 = 0) -> int {
+select :: proc(ctx: ^Context, name: string, options: []string, chosen: int, width: f32 = 0, roll_count := -1) -> int {
 	ctx.controls += 1
 	t := ctx.theme
 	w := width
@@ -1050,6 +1087,16 @@ select :: proc(ctx: ^Context, name: string, options: []string, chosen: int, widt
 	if ctx.select_pick_id == id {
 		ctx.select_pick_id = 0
 		return ctx.select_pick
+	}
+	// The pen's roll over it, closed, steps to the next choice, clockwise down the list,
+	// as Blender's Ctrl and wheel over a menu does, without opening it; only through the
+	// first `roll_count` options when given, so it never lands on a last row that opens
+	// something else ("Any command...").
+	count := len(options) if roll_count < 0 else min(roll_count, len(options))
+	if roll := hover_roll(ctx, id, hovered && ctx.select_open != id); roll != 0 && count > 0 && chosen < count {
+		if step := roll_steps(ctx, roll, ROLL_STEP); step != 0 {
+			if to := clamp(chosen + step, 0, count - 1); to != chosen do return to
+		}
 	}
 	return -1
 }
