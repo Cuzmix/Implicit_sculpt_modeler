@@ -36,12 +36,13 @@ switching_workspaces_keeps_what_was_left :: proc(t: ^testing.T) {
 	workspaces_frame(k)
 	testing.expect(t, !w.modified, "the starting layout reads as changed")
 
-	// A change lights the dot; Focus hides the bars; back on Sculpt the change is there.
+	// A change lights the dot; Render shows its thumbnail; back on Sculpt the change is there.
 	k.stats = true
 	workspaces_frame(k)
 	testing.expect(t, w.modified, "opening Stats is no change")
-	workspace_switch(k, int(Built_In.Focus))
-	testing.expect(t, .Brush_Bar in k.hidden && .View_Bar in k.hidden && !k.inspector && !k.stats, "Focus is not in place")
+	workspace_switch(k, int(Built_In.Render))
+	testing.expect(t, k.thumbnail && !k.stats, "Render is not in place")
+	testing.expect_value(t, k.spaces.current, Space.Render)
 	testing.expect_value(t, rail_shown(k), k.rail_side)
 	workspace_switch(k, int(Built_In.Sculpt))
 	workspaces_frame(k)
@@ -67,8 +68,8 @@ switching_workspaces_keeps_what_was_left :: proc(t: ^testing.T) {
 	testing.expect(t, w.list[int(Built_In.Sculpt)].live == "", "Save as new left Sculpt changed")
 	workspace_rename(k, w.current, "Detail pass")
 	testing.expect_value(t, workspace_name(k, w.current), "Detail pass")
-	workspace_rename(k, int(Built_In.Focus), "Mine")
-	testing.expect_value(t, workspace_name(k, int(Built_In.Focus)), "Focus")
+	workspace_rename(k, int(Built_In.Model), "Mine")
+	testing.expect_value(t, workspace_name(k, int(Built_In.Model)), "Model")
 
 	// Delete goes to Sculpt as saved and frees the slot, which the next Save as new takes.
 	workspace_delete(k)
@@ -104,11 +105,11 @@ workspaces_read_back_what_they_wrote :: proc(t: ^testing.T) {
 	a.kit.inspector = true
 	workspaces_init(&a.kit)
 	defer workspaces_destroy(&a.kit)
-	// An own workspace, then Studio changed and left, then the own one changed and current.
+	// An own workspace, then Render changed and left, then the own one changed and current.
 	a.kit.stats = true
 	_ = workspace_save_as(&a.kit)
 	workspace_rename(&a.kit, len(Built_In), "Two words")
-	workspace_switch(&a.kit, int(Built_In.Studio))
+	workspace_switch(&a.kit, int(Built_In.Render))
 	a.kit.thumbnail = false
 	workspace_switch(&a.kit, len(Built_In))
 	a.kit.colors_card = true
@@ -125,9 +126,10 @@ workspaces_read_back_what_they_wrote :: proc(t: ^testing.T) {
 	testing.expect(t, b.kit.stats && b.kit.colors_card, "the current layout came back without its changes")
 	workspaces_frame(&b.kit)
 	testing.expect(t, w.modified, "the current workspace's changes came back as saved")
-	workspace_switch(&b.kit, int(Built_In.Studio))
-	// In Lens, Studio's Lights are a card of the stack.
-	testing.expect(t, !b.kit.thumbnail && .Lights not_in b.kit.stack.hidden, "Studio came back without how it was left")
+	testing.expect_value(t, b.kit.spaces.layout[.Render], int(Built_In.Render))
+	workspace_switch(&b.kit, int(Built_In.Render))
+	// In Lens, Render's Lights are a card of the stack.
+	testing.expect(t, !b.kit.thumbnail && .Lights not_in b.kit.stack.hidden, "Render came back without how it was left")
 }
 
 @(test)
@@ -161,12 +163,12 @@ a_workspace_keeps_its_bars_but_not_the_dock :: proc(t: ^testing.T) {
 	workspaces_frame(k)
 	testing.expect(t, !w.modified, "the fresh bars read as changed")
 
-	// A shortcut taken off marks the workspace and stays with it; Focus has every one.
+	// A shortcut taken off marks the workspace and stays with it; Model has every one.
 	fresh := k.shortcuts.count
 	bar_remove(&a, .Shortcuts, 0)
 	workspaces_frame(k)
 	testing.expect(t, w.modified, "a shortcut taken off is no change")
-	workspace_switch(k, int(Built_In.Focus))
+	workspace_switch(k, int(Built_In.Model))
 	testing.expect_value(t, k.shortcuts.count, fresh)
 	workspace_switch(k, int(Built_In.Sculpt))
 	testing.expect_value(t, k.shortcuts.count, fresh - 1)
@@ -174,7 +176,7 @@ a_workspace_keeps_its_bars_but_not_the_dock :: proc(t: ^testing.T) {
 	// The dock is the user's own set, the same in every workspace.
 	bar_remove(&a, .Dock, 0)
 	dock := k.dock
-	workspace_switch(k, int(Built_In.Studio))
+	workspace_switch(k, int(Built_In.Render))
 	testing.expect(t, k.dock == dock, "a workspace changed the dock")
 
 	// A layout written before workspaces held the bars keeps the bars as they are.
@@ -189,25 +191,28 @@ a_workspace_keeps_its_bars_but_not_the_dock :: proc(t: ^testing.T) {
 @(test)
 a_workspace_file_reads_back_and_a_damaged_one_is_refused :: proc(t: ^testing.T) {
 	defer free_all(context.temp_allocator)
-	layout := built_in_layout(.Inspect)
-	text := workspace_file_text("Detail pass", layout)
-	name, back, ok := workspace_file_read(transmute([]u8)text)
+	layout := built_in_layout(.Render)
+	text := workspace_file_text("Detail pass", layout, .Render)
+	name, back, space, ok := workspace_file_read(transmute([]u8)text)
 	testing.expect(t, ok, "a written file was refused")
 	testing.expect_value(t, name, "Detail pass")
+	testing.expect_value(t, space, Space.Render)
 	testing.expect_value(t, back, layout)
 	testing.expect_value(t, workspace_layout_clean(back), layout)
 
 	// Not a workspace file, a newer version, binary bytes or no layout: refused.
 	for bad in ([]string{"hello\nname a\nlayout b\n", "SCULPT_WORKSPACE 2\nname a\nlayout b\n", "SCULPT_WORKSPACE 1\nname a\n\n", "SCULPT_WORKSPACE 1\nname \xff\xfe\nlayout b\n"}) {
-		_, _, bad_ok := workspace_file_read(transmute([]u8)bad)
+		_, _, _, bad_ok := workspace_file_read(transmute([]u8)bad)
 		testing.expectf(t, !bad_ok, "%q was read", bad)
 	}
 	// A name with control characters or too long is cut to what the switcher shows; none
 	// at all is "Workspace".
-	long, _, _ := workspace_file_read(transmute([]u8)string("SCULPT_WORKSPACE 1\nname %07An%20extremely%20long%20workspace%20name%20indeed\nlayout open\n"))
+	long, _, _, _ := workspace_file_read(transmute([]u8)string("SCULPT_WORKSPACE 1\nname %07An%20extremely%20long%20workspace%20name%20indeed\nlayout open\n"))
 	testing.expect(t, len(long) < WORKSPACE_NAME && long[0] == 'A', "the name was not cut")
-	unnamed, _, _ := workspace_file_read(transmute([]u8)string("SCULPT_WORKSPACE 1\nlayout open\n"))
+	// A file from before spaces has no space line: it is Sculpt's.
+	unnamed, _, older, _ := workspace_file_read(transmute([]u8)string("SCULPT_WORKSPACE 1\nlayout open\n"))
 	testing.expect_value(t, unnamed, "Workspace")
+	testing.expect_value(t, older, Space.Sculpt)
 }
 
 @(test)
@@ -218,13 +223,15 @@ an_imported_workspace_gets_a_name_of_its_own :: proc(t: ^testing.T) {
 	workspaces_init(k)
 	defer workspaces_destroy(k)
 	bars_reset(k)
-	slot, ok := workspace_add(k, "Inspect", built_in_layout(.Focus))
+	slot, ok := workspace_add(k, "Model", "hidden Brush_Bar\nopen\n", .Model)
 	testing.expect(t, ok, "the workspace was not added")
-	testing.expect_value(t, workspace_name(k, slot), "Inspect 2")
+	testing.expect_value(t, workspace_name(k, slot), "Model 2")
 	testing.expect_value(t, k.workspaces.current, slot)
+	testing.expect_value(t, k.spaces.current, Space.Model)
+	testing.expect_value(t, k.spaces.layout[.Model], slot)
 	testing.expect(t, .Brush_Bar in k.hidden, "the imported layout is not in place")
 	// The eight own slots fill, and then no more is added.
-	for _ in 1 ..< WORKSPACE_OWN do _, _ = workspace_add(k, "Mine", built_in_layout(.Sculpt))
-	_, full := workspace_add(k, "One too many", built_in_layout(.Sculpt))
+	for _ in 1 ..< WORKSPACE_OWN do _, _ = workspace_add(k, "Mine", built_in_layout(.Sculpt), .Sculpt)
+	_, full := workspace_add(k, "One too many", built_in_layout(.Sculpt), .Sculpt)
 	testing.expect(t, !full, "a ninth workspace of one's own was added")
 }

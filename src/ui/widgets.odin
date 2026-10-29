@@ -332,7 +332,9 @@ toggle_button :: proc(ctx: ^Context, s: string, on: bool, width: f32, keys := ""
 // tabs and segmented controls alike. `item_width` 0 shares the column's fill width out
 // evenly, or fits each label. `accent` fills the marker with the accent (the tool in
 // use). Returns the option chosen this frame, or -1.
-tabs :: proc(ctx: ^Context, name: string, options: []string, chosen: int, item_width: f32 = 0, accent := false, glyphs: []rune = nil, keys: []string = nil) -> int {
+// `tints`, when given, light the chosen option in its own colour (a soft fill, a line and
+// the text in the colour), as the app's working spaces are told apart.
+tabs :: proc(ctx: ^Context, name: string, options: []string, chosen: int, item_width: f32 = 0, accent := false, glyphs: []rune = nil, keys: []string = nil, tints: []Color = nil, tints_soft: []Color = nil) -> int {
 	ctx.controls += 1
 	t := ctx.theme
 	n := len(options)
@@ -355,12 +357,15 @@ tabs :: proc(ctx: ^Context, name: string, options: []string, chosen: int, item_w
 		hovered, held, clicked, _ := interact(ctx, id, hit_area(ctx, r))
 		if clicked do picked = i
 		on := i == chosen
+		tinted := i < len(tints) && i < len(tints_soft)
 		if on {
-			indicator(ctx, r, t.radius_small + 1, t.accent if accent else t.cursor, {} if accent else t.cursor_line)
+			if tinted do indicator(ctx, r, t.radius_small + 1, tints_soft[i], tints[i])
+			else do indicator(ctx, r, t.radius_small + 1, t.accent if accent else t.cursor, {} if accent else t.cursor_line)
 		}
 		o := tween(ctx, salt(id, 1), 1 if on else 0, t.indicator_time)
 		_ = feedback(ctx, id, r, t.radius_small + 1, hovered && !on, held && !on)
-		color := color_mix(color_mix(t.text_secondary, t.text, f32(int(hovered)) * 0.6), t.on_accent if accent else t.text, o)
+		lit := tints[i] if tinted else (t.on_accent if accent else t.text)
+		color := color_mix(color_mix(t.text_secondary, t.text, f32(int(hovered)) * 0.6), lit, o)
 		x := r.x + r.w * 0.5
 		if has_glyph {
 			cw := text_width(ctx, shown, t.text_size, .Semibold) + t.icon_small + 6

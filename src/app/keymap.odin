@@ -214,6 +214,15 @@ command_name :: proc(id: Command_Id, arg := 0) -> string {
 // Reads what command_name writes.
 command_from_name :: proc(name: string) -> (id: Command_Id, arg: int, ok: bool) {
 	head, _, tail := strings.partition(name, ":")
+	// The workspaces that became views or a space's layout when spaces came (settings
+	// version 4), so a bar, key, gesture or pie that named one keeps working.
+	if head == "Workspace" {
+		switch tail {
+		case "Focus":   return .Focus_Mode, 0, true
+		case "Inspect": return .Inspect_Mode, 0, true
+		case "Studio":  return .Workspace, int(Built_In.Render), true
+		}
+	}
 	id = reflect.enum_from_name(Command_Id, head) or_return
 	if id == .None do return
 	n := COMMANDS[id].args
@@ -257,6 +266,7 @@ command_arg_name :: proc(id: Command_Id, arg: int) -> string {
 	case .Show_Section, .Pin_Section: return fmt.tprint(Kit_Section(arg))
 	case .View_Pass: return fmt.tprint(render.View_Pass(arg))
 	case .View_Grid: return fmt.tprint(Grid_Preset(arg))
+	case .Space_Switch: return fmt.tprint(Space(arg))
 	case .Workspace:
 		if b, ok := workspace_built_in(arg); ok do return fmt.tprint(b)
 		return fmt.tprintf("Own%d", arg - len(Built_In) + 1)
