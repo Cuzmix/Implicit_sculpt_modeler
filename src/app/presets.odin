@@ -71,6 +71,14 @@ Preset_Values :: struct {
 	// The stroke's No back and forth and Directional (Brush_Settings.one_way, directional).
 	one_way:          bool,
 	directional:      bool,
+	// Clay strips' tip, Trim dynamic's angle (degrees) and its switch, Flatten's plane
+	// height and depth (Brush_Settings); preset_parse starts them as a fresh brush has them.
+	tip_roundness:    f32,
+	tip_scale:        f32,
+	trim_angle:       f32,
+	trim_dynamic:     bool,
+	plane_height:     f32,
+	plane_depth:      f32,
 }
 
 Brush_Preset :: struct {
@@ -97,6 +105,8 @@ preset_values_of :: proc(b: ^Brush_Settings, kind: sculpt.Brush_Kind) -> Preset_
 		smooth_stable = b.smooth_stable, smooth_mode = b.smooth_mode,
 		stabilize = b.stabilize, sample_radius = b.sample_radius, no_accumulate = b.no_accumulate[kind],
 		one_way = b.one_way, directional = b.directional,
+		tip_roundness = b.tip_roundness, tip_scale = b.tip_scale, trim_angle = b.trim_angle, trim_dynamic = b.trim_dynamic,
+		plane_height = b.plane_height, plane_depth = b.plane_depth,
 	}
 }
 
@@ -117,6 +127,12 @@ preset_values_put :: proc(b: ^Brush_Settings, v: Preset_Values) {
 	b.stabilize, b.sample_radius = v.stabilize, v.sample_radius if v.sample_radius > 0 else 1
 	if accumulate_applies(v.kind) do b.no_accumulate[v.kind] = v.no_accumulate
 	b.one_way, b.directional = v.one_way, v.directional
+	// Each brush's own values only, so a Flatten preset leaves Clay strips' tip as set.
+	#partial switch v.kind {
+	case .Clay_Strips:  b.tip_roundness, b.tip_scale = v.tip_roundness, v.tip_scale
+	case .Trim_Dynamic: b.trim_angle, b.trim_dynamic = v.trim_angle, v.trim_dynamic
+	case .Flatten:      b.plane_height, b.plane_depth = v.plane_height, v.plane_depth
+	}
 }
 
 // The preset numbered `n` (PACK_PRESET), if there is one.
@@ -213,6 +229,9 @@ preset_same :: proc(app: ^App, a, b: Preset_Values) -> bool {
 	if a.stabilize != b.stabilize || whole(a.sample_radius) != whole(b.sample_radius) do return false
 	if accumulate_applies(a.kind) && a.no_accumulate != b.no_accumulate do return false
 	if a.one_way != b.one_way || a.directional != b.directional do return false
+	if a.kind == .Clay_Strips && (a.tip_roundness != b.tip_roundness || a.tip_scale != b.tip_scale) do return false
+	if a.kind == .Trim_Dynamic && (a.trim_dynamic != b.trim_dynamic || !a.trim_dynamic && a.trim_angle != b.trim_angle) do return false
+	if a.kind == .Flatten && (a.plane_height != b.plane_height || a.plane_depth != b.plane_depth) do return false
 	if .Grab not_in flags && (round(app, a.alpha) != round(app, b.alpha) || a.alpha_mode != b.alpha_mode || a.alpha_angle != b.alpha_angle) do return false
 	if .Paint in flags && a.color != b.color do return false
 	if .Cloth in flags && a.cloth_mode != b.cloth_mode do return false
@@ -344,7 +363,9 @@ preset_ref :: proc(app: ^App, n: int) -> string {
 // key skips just that value: smooth_stable=1 (Smooth's Stable), smooth_mode=Relax or Polish,
 // stabilize=, sample_radius= and accumulate=0|1 (the Samples section), hardness= and
 // shape=sphere|projected (the Falloff section's), one_way=1 and directional=1 (the
-// stroke's). A line without accumulate= accumulates,
+// stroke's), tip_roundness= and tip_scale= (Clay strips), trim_angle= and trim_dynamic=0
+// (Trim dynamic) and plane_height= and plane_depth= (Flatten), each written only where it
+// is not as a fresh brush has it. A line without accumulate= accumulates,
 // and one without shape= takes its brush's default shape (projected_default).
 preset_parse :: proc(f: []string) -> (name: string, v: Preset_Values, alpha: string, ok: bool) {
 	if len(f) != 18 && len(f) != 19 && len(f) != 21 && len(f) != 22 && len(f) != 24 && len(f) != 26 && len(f) != 30 && len(f) != 31 && len(f) != 32 && len(f) < 35 do return
@@ -392,6 +413,9 @@ preset_parse :: proc(f: []string) -> (name: string, v: Preset_Values, alpha: str
 		v.hook_pinch, v.hook_rake = clamp(number(f[32], 0), -1, 1), clamp(number(f[33], 0), 0, 1)
 		v.hook_elastic = f[34] == "1"
 	}
+	v.tip_roundness, v.tip_scale = sculpt.CLAY_TIP_ROUNDNESS, 1
+	v.trim_angle, v.trim_dynamic = TRIM_ANGLE_DEFAULT_DEGREES, true
+	v.plane_height, v.plane_depth = 1, 1
 	for word in f[min(len(f), 35):] {
 		key, _, value := strings.partition(word, "=")
 		switch key {
@@ -402,6 +426,12 @@ preset_parse :: proc(f: []string) -> (name: string, v: Preset_Values, alpha: str
 		case "hardness": v.falloff.hardness = clamp(number(value, 0), 0, sculpt.HARDNESS_MAX)
 		case "shape": if value == "sphere" || value == "projected" do v.falloff.projected = value == "projected"
 		case "one_way": v.one_way = value == "1"
+		case "tip_roundness": v.tip_roundness = clamp(number(value, sculpt.CLAY_TIP_ROUNDNESS), 0, 1)
+		case "tip_scale": v.tip_scale = clamp(number(value, 1), sculpt.CLAY_TIP_SCALE_MIN, 1)
+		case "trim_angle": v.trim_angle = clamp(number(value, TRIM_ANGLE_DEFAULT_DEGREES), 0, 160)
+		case "trim_dynamic": v.trim_dynamic = value != "0"
+		case "plane_height": v.plane_height = clamp(number(value, 1), 0, 1)
+		case "plane_depth": v.plane_depth = clamp(number(value, 1), 0, 1)
 		case "directional": v.directional = value == "1"
 		case "smooth_mode":
 			// A mode this build does not know smooths plainly.
@@ -426,7 +456,10 @@ preset_line :: proc(out: ^strings.Builder, name: string, v: Preset_Values, alpha
 	sampled := v.stabilize > 0 || v.sample_radius > 0 && v.sample_radius < 1
 	one_pass := accumulate_applies(v.kind) && v.no_accumulate
 	shape := v.falloff.projected != projected_default(v.kind)
-	named := stable || smooth_mode || sampled || one_pass || v.falloff.hardness > 0 || shape || v.one_way || v.directional
+	tip := v.kind == .Clay_Strips && (v.tip_roundness != sculpt.CLAY_TIP_ROUNDNESS || v.tip_scale != 1)
+	trim := v.kind == .Trim_Dynamic && (!v.trim_dynamic || v.trim_angle != TRIM_ANGLE_DEFAULT_DEGREES)
+	plane := v.kind == .Flatten && (v.plane_height != 1 || v.plane_depth != 1)
+	named := stable || smooth_mode || sampled || one_pass || v.falloff.hardness > 0 || shape || v.one_way || v.directional || tip || trim || plane
 	hook := v.kind == .Snake_Hook && (v.hook_pinch != 0 || v.hook_rake != 0 || v.hook_elastic) || named
 	volume := v.kind == .Elastic && v.elastic_volume != ELASTIC_VOLUME_DEFAULT || hook
 	topological := v.grab_topological || volume
@@ -449,6 +482,9 @@ preset_line :: proc(out: ^strings.Builder, name: string, v: Preset_Values, alpha
 	if shape do fmt.sbprintf(out, " shape=%s", "projected" if v.falloff.projected else "sphere")
 	if v.one_way do fmt.sbprintf(out, " one_way=1")
 	if v.directional do fmt.sbprintf(out, " directional=1")
+	if tip do fmt.sbprintf(out, " tip_roundness=%g tip_scale=%g", v.tip_roundness, v.tip_scale)
+	if trim do fmt.sbprintf(out, " trim_angle=%g trim_dynamic=%d", v.trim_angle, bit(v.trim_dynamic))
+	if plane do fmt.sbprintf(out, " plane_height=%g plane_depth=%g", v.plane_height, v.plane_depth)
 	strings.write_byte(out, '\n')
 }
 

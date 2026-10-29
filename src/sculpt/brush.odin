@@ -49,6 +49,8 @@ Brush_Kind :: enum {
 	Cloth,   // the surface around the brush behaves as cloth for the stroke: sculptor_cloth_begin and _step (cloth.odin)
 	History, // bring the surface back toward how it was before an earlier step (recall.odin)
 	Elastic, // drag as an elastic solid pulled at the press would move: Grab's arrays, Kelvinlet weights (elastic.odin)
+	Clay_Strips,  // build flat-topped strips with square ends along the stroke (strips.odin; inverted digs)
+	Trim_Dynamic, // cut a ridge into two planes about the stroke, at the angle it finds (strips.odin; inverted: a valley)
 }
 
 Axis :: enum u8 {
@@ -187,6 +189,21 @@ Brush :: struct {
 	// Elastic: how much of its volume the solid keeps as it stretches, 0 to 1, Poisson's
 	// ratio over its physical limit of a half (elastic.odin).
 	volume: f32,
+	// Clay strips and Trim dynamic: the way the stroke goes, in the mesh's space (zero
+	// for its first dab), which their frame's x follows (strip_frame).
+	stroke_dir: Vec3,
+	// Clay strips' tip: how round its square's corners are, 0 (square) to 1 (round), and
+	// its length along the stroke as a share of its width, CLAY_TIP_SCALE_MIN to 1 (0 is 1).
+	tip_roundness: f32,
+	tip_scale:     f32,
+	// Trim dynamic: the angle between its planes in radians, sampled from the ground
+	// each dab unless `trim_fixed`, which keeps it as given.
+	trim_angle: f32,
+	trim_fixed: bool,
+	// Flatten (Blender's Plane height and depth): how far short of a radius it reaches
+	// above ([0]) and below ([1]) its plane, 0 to 1; 0 reaches the whole radius, 1 leaves
+	// that side alone (only below: Fill; only above: Scrape).
+	plane_short: [2]f32,
 	// Symmetry's feathering, as Blender's: where a dab and its images overlap near a plane
 	// or the radial axis, each is weakened by how much they overlap (symmetry_feather), so
 	// a stroke along the middle builds the height it builds elsewhere, not twice it.
@@ -351,6 +368,7 @@ Sculptor :: struct {
 	// Lock plane's plane for the stroke under way, and Connected's flood (filters.odin).
 	locked:       Locked_Plane,
 	steady:       Locked_Plane, // Stabilize orientation's running mean, as `locked` is kept
+	trim:         Trim_State, // Trim dynamic's eased angle over the stroke
 	connected:    Connected_State,
 	// Set while dynamic topology is on (dyntopo.odin): the mesh is laid out in pages,
 	// `faces` and the shared lists above are replaced, and there are no LOD copies.
@@ -802,7 +820,7 @@ FOCAL_MAX :: 100
 projects :: #force_inline proc(brush: Brush) -> bool {
 	if brush.projected == {} || brush.alpha != nil do return false
 	#partial switch brush.kind {
-	case .Grab, .Elastic, .Cloth, .Snake_Hook: return false
+	case .Grab, .Elastic, .Cloth, .Snake_Hook, .Clay_Strips: return false
 	}
 	return true
 }
@@ -900,6 +918,10 @@ Dab :: struct {
 	au, av, an: Vec3,
 	connected: bool, // Connected's flood ran for this dab (connected_weight)
 	view:     Vec3, // Projected: the view direction over the radius, zero for Sphere (dab_weight)
+	// Clay strips and Trim dynamic: the stroke frame's x (over the radius and Tip scale)
+	// and y (over the radius) (strip_frame), and Trim's two plane normals (trim_planes).
+	sx, sy:   Vec3,
+	trim_plus, trim_minus: Vec3,
 	rate:     f32, // Smooth: this pass's share of the step toward the neighbours (smooth_passes)
 	inv_sample2: f32, // 1 / (the sample radius)²: the area is sampled inside it (job_area)
 	normal:   Vec3, // area normal: the falloff-weighted normals inside the brush
@@ -993,6 +1015,7 @@ sym_brush :: proc(brush: Brush, img: Sym_Image) -> Brush {
 	if img.flipped do b.rake_axis = -b.rake_axis
 	b.facing = m * b.facing
 	b.projected = m * b.projected
+	b.stroke_dir = m * b.stroke_dir
 	if img.flipped do b.alpha_mirror = !b.alpha_mirror
 	return b
 }
@@ -1038,6 +1061,8 @@ dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3, img: Sym_Image, own: 
 	// Elastic tip reaches as the Elastic brush does.
 	reach := brush.radius * (brush.alpha.reach if brush.alpha != nil else 1)
 	if brush.kind == .Snake_Hook && brush.hook_elastic do reach = ELASTIC_REACH * brush.radius
+	// Clay strips' square tip reaches its corners.
+	if brush.kind == .Clay_Strips && brush.alpha == nil do reach = math.SQRT_TWO * brush.radius
 	// Projected reaches a cylinder a radius round the view line and a radius deep each
 	// way, whose rim corners lie √2 radii out.
 	view: Vec3
@@ -1128,6 +1153,15 @@ dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3, img: Sym_Image, own: 
 	case .Flatten:
 		d.amount = sign
 		jobs.parallel_for(pool, len(s.hit), &d, job_flatten)
+	case .Clay_Strips:
+		d.amount = sign
+		d.plane += d.normal * (sign * brush.radius * CLAY_HEIGHT)
+		strip_frame(&d)
+		jobs.parallel_for(pool, len(s.hit), &d, job_clay_strips)
+	case .Trim_Dynamic:
+		strip_frame(&d)
+		trim_planes(s, &d, pool, own)
+		jobs.parallel_for(pool, len(s.hit), &d, job_trim)
 	case .Pinch:
 		d.amount = sign
 		jobs.parallel_for(pool, len(s.hit), &d, job_pinch)
@@ -1379,8 +1413,10 @@ displace :: #force_inline proc(d: ^Dab, i: int, $K: Brush_Kind, $ONCE: bool) {
 					h := linalg.dot(p - d.plane, d.normal)
 					if h * d.amount < 0 do p -= d.normal * (h * min(d.brush.strength * w * PLANE_RATE, 1))
 				} else when K == .Flatten {
+					// Plane height and depth: past them on either side it leaves the surface.
 					h := linalg.dot(p - d.plane, d.normal)
-					p -= d.normal * (h * d.amount * min(d.brush.strength * w * PLANE_RATE, 1))
+					reach := d.brush.radius * (1 - clamp(d.brush.plane_short[0 if h > 0 else 1], 0, 1))
+					if abs(h) <= reach do p -= d.normal * (h * d.amount * min(d.brush.strength * w * PLANE_RATE, 1))
 				} else when K == .Pinch {
 					to := d.center - p
 					to -= d.normal * linalg.dot(to, d.normal)

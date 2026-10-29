@@ -96,6 +96,16 @@ Brush_Settings :: struct {
 	// stroke keeps the same size on the model (brush_size_scale).
 	size_world:        bool,
 	size_ref:          f32,
+	// Clay strips' tip (sculpt.Brush.tip_roundness, tip_scale), Trim dynamic's angle in
+	// degrees and whether it is sampled (sculpt.Brush.trim_angle, trim_fixed), and
+	// Flatten's reach above and below its plane, 0 to 1 of the radius
+	// (sculpt.Brush.plane_short).
+	tip_roundness:     f32,
+	tip_scale:         f32,
+	trim_angle:        f32,
+	trim_dynamic:      bool,
+	plane_height:      f32,
+	plane_depth:       f32,
 	join:              bool, // a press near where the last stroke ended carries it on (Stroke_End)
 	symmetry:          sculpt.Symmetry, // mirror strokes across these planes of the object
 	// Local symmetry: the planes (and the radial axis) pass through the object's own middle
@@ -196,6 +206,10 @@ Stroke :: struct {
 	size_scale: f32,
 	// No back and forth: the way the stroke first moved on screen, zero before it has.
 	first_dir:  [2]f32,
+	// Where the last dab was, in the object's space (last_set once there is one), which
+	// the way the stroke goes is measured from (sculpt.Brush.stroke_dir).
+	last_at:    Vec3,
+	last_set:   bool,
 	size:     [2]f32, // viewport size the positions above are in
 	pending:  [dynamic]Input_Sample, // samples left for the next frame once one reaches MAX_DABS_PER_FRAME
 	// The stabiliser's newest raw samples, newest first (`steady_count` of them), and
@@ -625,6 +639,7 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 	st.scale = app.stroke_scale_from if app.stroke_scale_from > 0 else (app.nav.touch_strength if app.device.pointer == .Finger else 1)
 	st.pos, st.pressure, st.tilt, st.travel, st.size = s.pos, s.pressure, s.tilt, 0, input.size
 	st.dir, st.facing, st.even, st.size_scale, st.first_dir = {}, 0, 0, 0, {}
+	st.last_set = false
 	st.line, st.line_leaving, st.joined, st.smooth_was = false, false, false, input.smooth
 	clear(&st.pending)
 	stroke_steady_start(st, s)
@@ -1267,6 +1282,10 @@ held_brush :: proc(input: Viewport_Input) -> bool {
 brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pressure: f32, tilt: [2]f32) -> sculpt.Brush {
 	world_per_px := camera.orbit_world_per_px(app.camera, to_world(t, hit), input.size.y)
 	app.stroke.size_scale = brush_size_scale(app, world_per_px, input.size.y)
+	// The way from the last dab, for the brushes that turn along the stroke.
+	stroke_dir: Vec3
+	if app.stroke.last_set do stroke_dir = hit - app.stroke.last_at
+	app.stroke.last_at, app.stroke.last_set = hit, true
 	kind := app.stroke.kind
 	// Shift smooths at the Smooth brush's strength, not the strength of the brush held, and
 	// the rail's Mask masks at the Mask brush's; while painting, Shift's blur is at Smooth's
@@ -1334,6 +1353,12 @@ brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pres
 		hook_pinch = app.brush.hook_pinch if kind == .Snake_Hook else 0,
 		hook_rake  = app.brush.hook_rake if kind == .Snake_Hook else 0,
 		hook_elastic = kind == .Snake_Hook && app.brush.hook_elastic,
+		stroke_dir = stroke_dir,
+		tip_roundness = app.brush.tip_roundness,
+		tip_scale = app.brush.tip_scale,
+		trim_angle = math.to_radians(app.brush.trim_angle),
+		trim_fixed = !app.brush.trim_dynamic,
+		plane_short = {1 - app.brush.plane_height, 1 - app.brush.plane_depth},
 	}
 }
 
@@ -1371,6 +1396,11 @@ brush_defaults :: proc() -> Brush_Settings {
 	// Draw does not build up over itself within a stroke, as ZBrush's and Nomad's.
 	b.sample_radius, b.no_accumulate[.Draw] = 1, true
 	for kind in sculpt.Brush_Kind do b.falloffs[kind].projected = projected_default(kind)
+	b.tip_roundness, b.tip_scale = sculpt.CLAY_TIP_ROUNDNESS, 1
+	b.trim_angle, b.trim_dynamic = TRIM_ANGLE_DEFAULT_DEGREES, true
+	b.plane_height, b.plane_depth = 1, 1
+	// Clay strips starts on Blender's: its size follows the pen as p^1.5, never under 0.3.
+	b.pressures[.Clay_Strips] = {own = true, pressure = {strength = true, size = true, strength_curve = geom.CURVE_LINEAR, size_curve = CURVE_POWER_1_5, size_floor = 0.3}}
 	return b
 }
 
@@ -1378,8 +1408,15 @@ brush_defaults :: proc() -> Brush_Settings {
 // Clay and Flatten, whose footprint is then the ring on screen however the surface curves
 // away, as a flat stamp should be.
 projected_default :: proc(kind: sculpt.Brush_Kind) -> bool {
-	return kind == .Clay || kind == .Flatten
+	return kind == .Clay || kind == .Flatten || kind == .Trim_Dynamic
 }
+
+// Trim dynamic's fixed angle as a fresh brush has it, in degrees (sculpt.TRIM_ANGLE_DEFAULT).
+TRIM_ANGLE_DEFAULT_DEGREES :: 60
+
+// p^1.5 as a pressure curve (a cubic through (0, 0) and (1, 1)), Blender's Clay strips
+// size: within 0.002 of it across the range (fitted on a grid of control points).
+CURVE_POWER_1_5 :: geom.Curve{{0.1, 0}, {0.45, 0.175}}
 
 // Whether Accumulate does anything for brush `kind`: the kinds that push along the normal
 // (sculpt.Brush.no_accumulate). Layer never builds up past its height and the plane kinds

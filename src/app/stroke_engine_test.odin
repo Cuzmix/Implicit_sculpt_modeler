@@ -256,6 +256,8 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	a.brush.falloffs[a.brush.kind].hardness, a.brush.falloffs[a.brush.kind].projected = 0.4, true
 	// Nor the ways and the size in the scene a Spray stroke, but they are kept.
 	a.brush.one_way, a.brush.directional, a.brush.size_world, a.brush.size_ref = true, true, true, 0.01
+	a.brush.tip_roundness, a.brush.trim_angle, a.brush.trim_dynamic, a.brush.plane_depth = 0.5, 90, false, 0.25
+	a.brush.tip_scale, a.brush.plane_height = 0.5, 0.75
 	a.stroke_seed = 41
 	a.device.pointer, a.nav.touch_strength = .Finger, 0.5
 	b.nav.touch_strength = 1
@@ -295,6 +297,7 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 		testing.expect(t, !rb.pressures[rb.kind].own && rb.pressure_size && rb.pressure_size_curve == PRESSURE_PRESETS[2].curve && rb.pressure_curve == a.brush.pressures[rb.kind].strength_curve && rb.pressure_size_floor == 0.3 && rb.smooth_stable && rb.smooth_mode == .Relax && rb.stabilize == 0.5 && rb.sample_radius == 0.75 && rb.no_accumulate[rb.kind])
 		testing.expect(t, rb.falloffs[rb.kind].hardness == 0.4 && rb.falloffs[rb.kind].projected)
 		testing.expect(t, rb.one_way && rb.directional && rb.size_world && rb.size_ref == 0.01)
+		testing.expect(t, rb.tip_roundness == 0.5 && rb.tip_scale == 0.5 && rb.trim_angle == 90 && !rb.trim_dynamic && rb.plane_height == 0.75 && rb.plane_depth == 0.25)
 	}
 	replay_start(&b, &b.replay.take)
 	for replay_busy(&b) do _ = replay_frame(&b, {})
@@ -308,7 +311,7 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	data, err := os.read_entire_file(path, context.allocator)
 	testing.expect(t, err == nil)
 	defer delete(data)
-	BRUSH :: 64 + 116
+	BRUSH :: 64 + 137
 	// The files from before version 13 kept no pen roll in a frame.
 	frames_before_roll :: proc(frames: []u8) -> []u8 {
 		out := make([dynamic]u8, context.temp_allocator)
@@ -328,6 +331,25 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 		}
 		return out[:]
 	}
+	// Version 27 had nothing of Clay strips, Trim dynamic or Flatten's reach after the
+	// size in the scene: the one brush ends 64 + 116 bytes after the header's 16, and takes
+	// a fresh brush's.
+	twentyseven := make([dynamic]u8, context.temp_allocator)
+	append(&twentyseven, ..data[:16 + 64 + 116])
+	append(&twentyseven, ..data[16 + BRUSH:])
+	twentyseven[len(STROKES_MAGIC)] = 27
+	testing.expect(t, os.write_entire_file(path, twentyseven[:]) == nil)
+	{
+		za: App
+		defer replay_destroy(&za.replay)
+		defer results_destroy(&za)
+		testing.expect(t, strokes_load(&za, path))
+		if len(za.replay.take.brushes) == 1 {
+			zb := za.replay.take.brushes[0]
+			testing.expect(t, zb.tip_roundness == sculpt.CLAY_TIP_ROUNDNESS && zb.trim_dynamic && zb.trim_angle == TRIM_ANGLE_DEFAULT_DEGREES && zb.plane_depth == 1 && zb.one_way)
+		}
+	}
+
 	// Version 26 had no ways or size in the scene after the falloff shape: the one brush
 	// ends 64 + 109 bytes after the header's 16, and its stroke goes both ways at screen size.
 	twentysix := make([dynamic]u8, context.temp_allocator)

@@ -91,6 +91,8 @@ BRUSH_CATEGORY_OF := [sculpt.Brush_Kind]Brush_Category {
 	.Cloth      = .Cloth,
 	.History    = .History,
 	.Elastic    = .Move,
+	.Clay_Strips  = .Clay,
+	.Trim_Dynamic = .Smooth,
 }
 
 // The browser's own state, in Kit_State.

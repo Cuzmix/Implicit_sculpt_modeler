@@ -245,4 +245,27 @@ presets_keep_grab_modes :: proc(t: ^testing.T) {
 	testing.expect_value(t, f[len(f) - 2], "hardness=0.5")
 	_, w, _, ok = preset_parse(f)
 	testing.expect(t, ok && !w.falloff.projected && w.falloff.hardness == 0.5)
+	// A Flatten preset keeps its plane height and depth, written only off the defaults; a
+	// line without them takes a fresh brush's.
+	v = {kind = .Flatten, strength = 0.5, falloff = {curve = FALLOFF_SMOOTH_CURVE, projected = true}, stroke = .Dots, alpha = -1, elastic_volume = ELASTIC_VOLUME_DEFAULT, plane_height = 1, plane_depth = 1, tip_roundness = sculpt.CLAY_TIP_ROUNDNESS, tip_scale = 1, trim_angle = TRIM_ANGLE_DEFAULT_DEGREES, trim_dynamic = true}
+	strings.builder_reset(&out)
+	preset_line(&out, "Level", v, "-")
+	f = strings.fields(strings.trim_space(strings.to_string(out)), context.temp_allocator)
+	testing.expect_value(t, len(f), 21)
+	_, w, _, ok = preset_parse(f)
+	testing.expect(t, ok && w.plane_height == 1 && w.plane_depth == 1 && w.trim_dynamic && w.tip_roundness == sculpt.CLAY_TIP_ROUNDNESS)
+	v.plane_height = 0
+	strings.builder_reset(&out)
+	preset_line(&out, "Level", v, "-")
+	f = strings.fields(strings.trim_space(strings.to_string(out)), context.temp_allocator)
+	testing.expect_value(t, f[len(f) - 1], "plane_depth=1")
+	_, w, _, ok = preset_parse(f)
+	testing.expect(t, ok && w.plane_height == 0 && w.plane_depth == 1)
+	// Trim dynamic with a fixed angle.
+	v.kind, v.trim_dynamic, v.trim_angle = .Trim_Dynamic, false, 90
+	strings.builder_reset(&out)
+	preset_line(&out, "Edge", v, "-")
+	f = strings.fields(strings.trim_space(strings.to_string(out)), context.temp_allocator)
+	_, w, _, ok = preset_parse(f)
+	testing.expect(t, ok && w.kind == .Trim_Dynamic && !w.trim_dynamic && w.trim_angle == 90)
 }

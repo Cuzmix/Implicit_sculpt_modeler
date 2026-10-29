@@ -1299,6 +1299,31 @@ def smooth_stable_flattens_the_sphere():
 
 
 @scenario
+def clay_strips_lay_a_flat_band():
+    """Clay strips dragged across the sphere twice is two undo steps of flat-topped
+    strips with square ends (look with --screens: a band with a flat top and crisp,
+    squared-off edges, unlike Clay's rounded one)."""
+    s = Script()
+    s.mouse_drag(line((640, 420), (920, 440), 14))
+    s.wait(2)
+    s.mouse_drag(line((650, 470), (930, 490), 14))
+    s.wait(2)
+    return s, ["--script=brush clay_strips"], camera_still({"dabs": lambda v: int(v) > 10, "undo_steps": near(2), "brush_kind": is_text("clay_strips")})
+
+
+@scenario
+def trim_dynamic_cuts_planes():
+    """Trim dynamic dragged three times along the same line of the sphere cuts it into
+    planes, one undo step a stroke (look with --screens: a flat facet along the stroke
+    with a crisp edge where the sphere meets it)."""
+    s = Script()
+    for _ in range(3):
+        s.mouse_drag(line((640, 300), (900, 560), 14))
+        s.wait(2)
+    return s, ["--script=brush trim_dynamic"], camera_still({"dabs": lambda v: int(v) > 10, "undo_steps": near(3), "brush_kind": is_text("trim_dynamic")})
+
+
+@scenario
 def hatch_lays_one_way_grooves():
     """The library's Hatch preset (a Crease with No back and forth) scribbled in a zigzag
     is one undo step whose grooves run one way only (look with --screens: four parallel
@@ -2701,7 +2726,7 @@ LENS_SHELF_PAGES = {"sculpt": (633, 883), "paint": (690, 883), "move": (748, 883
 LENS_MODEL_TAB = (447, 26)
 # The Model page shows no tools after All: its cage has its own on the page.
 LENS_MODEL_TILES = {"extrude": (336, 830), "inset": (400, 830), "cube": (912, 830)}
-LENS_SHEET = {"paint": (839, 120), "draw": (525, 320), "inflate": (721, 440)}
+LENS_SHEET = {"paint": (839, 120), "draw": (721, 320), "inflate": (1115, 440)}
 LENS_SHELF_SCULPT = "Brush:Clay,Brush:Draw,Brush:Smooth,Brush:Inflate,Brush:Pinch,Brush:Crease,Brush:Grab,Brush:Flatten,Brush:Mask,Brush:Layer"
 
 

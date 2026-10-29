@@ -60,6 +60,8 @@ run_brushes :: proc(target: int, pool: ^jobs.Pool) {
 		{name = "Smooth, stable", kind = .Smooth, stable = true},
 		{"Clay", .Clay, {}, false, false, false, false, false, .Smooth, false},
 		{"Flatten", .Flatten, {}, false, false, false, false, false, .Smooth, false},
+		{"Clay strips", .Clay_Strips, {}, false, false, false, false, false, .Smooth, false},
+		{"Trim dynamic", .Trim_Dynamic, {}, false, false, false, false, false, .Smooth, false},
 		{"Inflate", .Inflate, {}, false, false, false, false, false, .Smooth, false},
 		{"Pinch", .Pinch, {}, false, false, false, false, false, .Smooth, false},
 		{"Crease", .Crease, {}, false, false, false, false, false, .Smooth, false},
@@ -100,7 +102,7 @@ run_brushes :: proc(target: int, pool: ^jobs.Pool) {
 		if c.kind == .Morph do _ = sculpt.sculptor_morph_store(s)
 		defer if c.kind == .Morph do sculpt.sculptor_morph_clear(s)
 		// Symmetry feathers as the app's brushes do by default.
-		brush := sculpt.Brush{kind = c.kind, radius = radius, strength = 0.3, symmetry = c.symmetry, color = {200, 60, 30}, feather = c.symmetry != {}, topological = c.topological, volume = 0.8, smooth_mode = c.smooth_mode, smooth_stable = c.stable}
+		brush := sculpt.Brush{kind = c.kind, radius = radius, strength = 0.3, symmetry = c.symmetry, color = {200, 60, 30}, feather = c.symmetry != {}, topological = c.topological, volume = 0.8, smooth_mode = c.smooth_mode, smooth_stable = c.stable, stroke_dir = {1, 0, 0}, tip_roundness = sculpt.CLAY_TIP_ROUNDNESS, tip_scale = 1}
 		dabs, per_frame := DABS, DABS_PER_FRAME
 		if c.closer {
 			dabs, per_frame = DABS * 5 / 4, DABS_PER_FRAME * 5 / 4
