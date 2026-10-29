@@ -31,15 +31,15 @@ view_windows_stop_at_three :: proc(t: ^testing.T) {
 	app := new(App)
 	defer free(app)
 	defer results_destroy(app)
-	sv := Second_View{camera = .Front, pass = .Normals, max = true, turns = 4}
+	sv := Second_View{camera = .Front, pass = .Normals, turns = 4}
 	for _ in 0 ..< VIEW_WINDOWS_MAX do view_window_request(app, sv)
 	vws := &app.view_windows
 	when VIEW_WINDOWS_AVAILABLE {
 		testing.expect_value(t, len(vws.pending), VIEW_WINDOWS_MAX)
-		// A window keeps the view's camera and pass, never its maximised state or counts.
+		// A window keeps the view's camera and pass, never its counts.
 		testing.expect_value(t, vws.pending[0].camera, Second_Camera.Front)
 		testing.expect_value(t, vws.pending[0].pass, Second_Pass.Normals)
-		testing.expect(t, !vws.pending[0].max && vws.pending[0].turns == 0, "a window kept the pane's maximised state or counts")
+		testing.expect(t, vws.pending[0].turns == 0, "a window kept the pane's counts")
 		view_window_request(app, sv)
 		testing.expect_value(t, len(vws.pending), VIEW_WINDOWS_MAX)
 		testing.expect_value(t, vws.refused, 1)

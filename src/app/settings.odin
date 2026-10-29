@@ -41,7 +41,7 @@ settings_path :: proc() -> string {
 // The version settings_save writes on the first line. A file from a newer version is
 // read as far as this one knows its lines. 2: the default orbit became the turntable.
 // 3: the default look became Lens.
-SETTINGS_VERSION :: 3
+SETTINGS_VERSION :: 4
 
 // One remembered value that is a plain field of App: its key in the file, where it is,
 // what type it is (bool, f32, i32, int or an enum) and, for numbers, the range a value read
@@ -154,6 +154,9 @@ SETTINGS := [?]Setting {
 	{"tilt_size", B + offset_of(Brush_Settings, tilt_size), f32, 0, 1},
 	{"tilt_soften", B + offset_of(Brush_Settings, tilt_soften), f32, 0, 1},
 	{"lazy_px", B + offset_of(Brush_Settings, lazy_px), f32, 0, 150},
+	{"smoothing", B + offset_of(Brush_Settings, smoothing), f32, 1, STEADY_MAX},
+	{"pressure_smoothing", B + offset_of(Brush_Settings, pressure_smoothing), f32, 1, STEADY_MAX},
+	{"catch_up", B + offset_of(Brush_Settings, catch_up), bool, 0, 0},
 	{"front_only", B + offset_of(Brush_Settings, front_only), bool, 0, 0},
 	{"lock_plane", B + offset_of(Brush_Settings, lock_plane), bool, 0, 0},
 	{"connected", B + offset_of(Brush_Settings, connected), bool, 0, 0},
@@ -164,9 +167,13 @@ SETTINGS := [?]Setting {
 	{"radial_count", B + offset_of(Brush_Settings, radial_count), i32, RADIAL_MIN, sculpt.RADIAL_MAX},
 	{"radial_axis", B + offset_of(Brush_Settings, radial_axis), sculpt.Axis, 0, 0},
 	{"paint_channel", B + offset_of(Brush_Settings, channel), sculpt.Channel, 0, 0},
+	{"paint_dial", B + offset_of(Brush_Settings, paint_dial), bool, 0, 0},
 	{"stroke", B + offset_of(Brush_Settings, stroke), Stroke_Mode, 0, 0},
 	{"stroke_spread", B + offset_of(Brush_Settings, spray_spread), f32, 0, SPRAY_MAX_SPREAD},
 	{"stroke_spacing", B + offset_of(Brush_Settings, spacing), f32, MIN_SPACING, MAX_SPACING},
+	{"stroke_even", B + offset_of(Brush_Settings, even_strength), bool, 0, 0},
+	{"stroke_scene_spacing", B + offset_of(Brush_Settings, scene_spacing), bool, 0, 0},
+	{"symmetry_feather", B + offset_of(Brush_Settings, feather), bool, 0, 0},
 	{"color_spray", B + offset_of(Brush_Settings, color_spray), f32, 0, 1},
 	{"stroke_line", B + offset_of(Brush_Settings, line), bool, 0, 0},
 	{"stroke_join", B + offset_of(Brush_Settings, join), bool, 0, 0},
@@ -255,7 +262,6 @@ SETTINGS := [?]Setting {
 	{"fov", offset_of(App, camera) + offset_of(camera.Orbit, fov_y), f32, camera.FOV_MIN, camera.FOV_MAX},
 	// Settings > Interface, Camera, Touch and Performance.
 	{"surface_ring", K + offset_of(Kit_State, surface_ring), bool, 0, 0},
-	{"panes_under_panels", K + offset_of(Kit_State, panes_under), bool, 0, 0},
 	{"clean_view_dial", K + offset_of(Kit_State, clean_dial), bool, 0, 0},
 	{"panes_work", K + offset_of(Kit_State, panes_work), bool, 0, 0},
 	{"new_panes", K + offset_of(Kit_State, new_panes), New_Panes, 0, 0},
@@ -269,7 +275,6 @@ SETTINGS := [?]Setting {
 	{"wheel_y", K + offset_of(Kit_State, wheel_offset) + 1 * size_of(f32), f32, 0, 0},
 	{"look", K + offset_of(Kit_State, look), Look, 0, 0},
 	{"export_format", K + offset_of(Kit_State, export) + offset_of(Export_Sheet, format), Export_Format, 0, 0},
-	{"chrome", K + offset_of(Kit_State, chrome), Chrome, 0, 0},
 	{"colors_tab", K + offset_of(Kit_State, colors) + offset_of(Colors_Card, tab), Colors_Tab, 0, 0},
 	{"colors_harmony", K + offset_of(Kit_State, colors) + offset_of(Colors_Card, harmony), Harmony, 0, 0},
 	{"colors_value_rgb", K + offset_of(Kit_State, colors) + offset_of(Colors_Card, value_rgb), bool, 0, 0},
@@ -325,6 +330,7 @@ SETTINGS := [?]Setting {
 	{"edge_show", N + offset_of(Nav_Prefs, edge_show), bool, 0, 0},
 	{"shape_apply", N + offset_of(Nav_Prefs, shape_apply), Shape_Apply, 0, 0},
 	{"pen_tips", N + offset_of(Nav_Prefs, pen_tips), Pen_Tips, 0, 0},
+	{"predict_cursor", N + offset_of(Nav_Prefs, predict_cursor), bool, 0, 0},
 	{"pen_eraser", N + offset_of(Nav_Prefs, eraser), Eraser_Use, 0, 0},
 	// The Scene and Object palettes' choices, and the tools'.
 	{"new_shape", K + offset_of(Kit_State, add_shape), geom.Primitive, 0, 0},
@@ -596,11 +602,9 @@ settings_load :: proc(app: ^App, path: string) {
 	// The preset the brush was on, by name, put back once every line is read: the presets
 	// and the plain brushes' own values all come first.
 	on_preset := ""
-	// The dock's preset slots, by name, put in once the presets are read.
-	dock_presets: [DOCK_SLOTS]string
 	// Presets of the person's own named as a built-in one now is, from a file written
-	// before there were built-ins: each is kept as "<name> N", and the brush and the dock
-	// slots the file put on it follow it there.
+	// before there were built-ins: each is kept as "<name> N", and the brush the file put
+	// on it follows it there.
 	renamed: [dynamic][2]string
 	renamed.allocator = context.temp_allocator
 	// The plain brush's alpha, by reference, put on before the preset, which brings its own.
@@ -824,39 +828,19 @@ settings_load :: proc(app: ^App, path: string) {
 				if other, taken := chord_owner(app, chord); taken && key_override_find(app, other.command, other.arg) >= 0 do continue
 				_ = bind_assign(app, id, arg, chord)
 			}
-		case "dock":
-			// dock <slot> brush <brush> | dock <slot> preset <name, escaped>
-			slot, slot_ok := strconv.parse_int(f[1])
-			if len(f) != 4 || !slot_ok || slot < 0 || slot >= DOCK_SLOTS do continue
-			switch f[2] {
-			case "brush":
-				if kind, ok := brush_by_name(f[3]); ok do app.kit.dock[slot], dock_presets[slot] = {kind = kind}, ""
-			case "preset":
-				dock_presets[slot] = strings.clone(preset_unescape(f[3]), context.temp_allocator)
-			case "command":
-				// dock <slot> command <command name>: a command in the slot (Customise bars).
-				if id, arg, ok := command_from_name(f[3]); ok && bar_lists(id) do app.kit.dock[slot], dock_presets[slot] = {command = {id, arg}}, ""
-			}
 		case "dial_sector":
 			// dial_sector <0-3, clockwise from the top> modifier <name> | command <name>.
 			if len(f) != 4 do continue
 			i, i_ok := strconv.parse_int(f[1])
 			if !i_ok || i < 0 || i >= len(app.kit.dial) do continue
 			if s, ok := dial_sector_parse(f[2], f[3]); ok do app.kit.dial[i] = s
-		case "dock_count":
-			// dock_count <n>: how many slots the dock uses, before its dock lines.
-			if n, ok := strconv.parse_int(f[1]); ok && len(f) == 2 do app.kit.dock_count = clamp(n, 1, DOCK_SLOTS)
 		case "bar_count", "bar":
 			// bar_count <zone> <n>: how many buttons a bar's zone (BAR_ZONES) has, before its
 			// bar <zone> <slot> <command name> lines; a bar that differs from a fresh
-			// install's is written whole.
+			// install's is written whole. A file from before the Classic layout went also
+			// holds chrome, panes_under_panels, dock, dock_count and dock_pack lines and
+			// right_rail bars: nothing reads them now, so they are passed over.
 			bars_load_line(&app.kit, f)
-		case "dock_pack":
-			// dock_pack <slot> <pack id> <name, escaped>: a slot holding a content pack's
-			// preset, written after the slot's own dock line, which older versions read.
-			slot, slot_ok := strconv.parse_int(f[1])
-			if len(f) != 4 || !slot_ok || slot < 0 || slot >= DOCK_SLOTS do continue
-			dock_presets[slot] = fmt.tprintf("%s/%s", f[2], preset_unescape(f[3]))
 		case "pie":
 			// pie <pie 0-3> <slot 0-7> <command name|empty>: a pie that differs from a fresh
 			// install's is written whole, so every slot the file names is set.
@@ -908,13 +892,8 @@ settings_load :: proc(app: ^App, path: string) {
 		return name
 	}
 	on_preset = follow(renamed[:], on_preset)
-	for &name in dock_presets do name = follow(renamed[:], name)
 	if n := preset_by_ref(app, on_preset); n > 0 {
 		if p, _ := preset_at(app, n); p.values.kind == b.kind do preset_use(app, n)
-	}
-	// A slot naming a preset the file (or the library) does not have keeps what it held.
-	for name, slot in dock_presets {
-		if n := preset_by_ref(app, name); name != "" && n > 0 do dock_put(app, slot, .Draw, n)
 	}
 	// Every file saved before version 2 holds the trackball, the default then, whether
 	// or not anyone picked it, so the turntable that replaced it as the default takes
@@ -922,6 +901,9 @@ settings_load :: proc(app: ^App, path: string) {
 	if version < 2 && app.nav.orbit_style == .Free do app.nav.orbit_style = .Turntable
 	// So too Studio, the look every file before version 3 holds: Lens replaces it once.
 	if version < 3 && app.kit.look == .Studio do app.kit.look = .Lens
+	// And the old default spacing, which every file before version 4 holds whether or not
+	// anyone set it: the closer default takes its place, Even strength keeping the height.
+	if version < 4 && app.brush.spacing == SPACING_REFERENCE do app.brush.spacing = DAB_SPACING
 	// The windows and the wheel were saved where they were for the layout saved with them.
 	app.kit.placed_mirrored = app.kit.ctx.mirror
 	workspaces_loaded(&app.kit)
@@ -1053,25 +1035,6 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 	fmt.sbprintfln(&out, "brush_alpha %s", preset_escape(alpha_ref(app, app.brush.alpha)))
 	for o in app.key_overrides[:app.key_override_count] {
 		fmt.sbprintfln(&out, "key %s %s", command_name(o.command, o.arg), "none" if o.none else chord_text(o.chord))
-	}
-	if len(dock_used(app)) != DOCK_DEFAULT_COUNT do fmt.sbprintfln(&out, "dock_count %d", len(dock_used(app)))
-	for s, slot in dock_used(app) {
-		if s.command.id != .None {
-			fmt.sbprintfln(&out, "dock %d command %s", slot, command_name(s.command.id, s.command.arg))
-		} else if s.preset > 0 && s.preset <= app.preset_count {
-			fmt.sbprintfln(&out, "dock %d preset %s", slot, preset_escape(preset_name(&app.presets[s.preset - 1])))
-		} else if preset_built_in(s.preset) {
-			// Its brush first, which a build from before the built-ins keeps; then the
-			// preset by name, as the person's own are (no preset of theirs takes a
-			// built-in's name), which a later line of the same slot wins over.
-			fmt.sbprintfln(&out, "dock %d brush %v", slot, s.kind)
-			fmt.sbprintfln(&out, "dock %d preset %s", slot, preset_escape(BUILT_IN_PRESETS[s.preset - BUILT_IN_PRESET].name))
-		} else {
-			fmt.sbprintfln(&out, "dock %d brush %v", slot, s.kind)
-			if p, ok := preset_at(app, s.preset); ok && preset_of_pack(s.preset) {
-				fmt.sbprintfln(&out, "dock_pack %d %s %s", slot, app.library.presets[s.preset - PACK_PRESET].pack, preset_escape(preset_name(p)))
-			}
-		}
 	}
 	bars_save(&app.kit, &out)
 	for n in 0 ..< USER_PIES {

@@ -82,5 +82,7 @@ when ODIN_PLATFORM_SUBTARGET == .Android {
 	@(default_calling_convention = "c")
 	foreign {
 		sculpt_android_pen_lean_start :: proc(event_type: u32) ---
+		// The same, from then on, for the pen's older samples of each move (pen_samples.odin).
+		sculpt_android_samples_start :: proc(event_type: u32) ---
 	}
 }

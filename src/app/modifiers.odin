@@ -104,6 +104,18 @@ MODIFIER_NAMES := [Modifier]string {
 	.Hide   = "Hide",
 }
 
+// A modifier's name as the dial shows it: while painting, Smooth blurs the paint and
+// Invert erases it (painting), and the dial says so.
+modifier_name :: proc(app: ^App, m: Modifier) -> string {
+	if painting(app) {
+		#partial switch m {
+		case .Smooth: return "Blur"
+		case .Invert: return "Erase"
+		}
+	}
+	return MODIFIER_NAMES[m]
+}
+
 @(rodata)
 MODIFIER_ICONS := [Modifier]rune {
 	.Smooth = 0xe283, // waves
@@ -502,7 +514,7 @@ rail_lift :: proc(app: ^App) -> f32 {
 	size := rail_size(app)
 	dock, _ := ui.prev_layout(ctx, "dock")
 	lift := t.edge
-	if area.w * 0.5 - dock.x * 0.5 - 8 < rail_inset(app, lift) + size.x do lift = max(lift, t.edge + DOCK_LIFT + dock.y + 8)
+	if area.w * 0.5 - dock.x * 0.5 - 8 < rail_inset(app, lift) + size.x do lift = max(lift, t.edge + dock_lift(app) + dock.y + 8)
 	return lift
 }
 
@@ -536,16 +548,6 @@ rail_reach_across :: proc(app: ^App) -> f32 {
 	k := &app.kit
 	if rail_shown(k) == .Off || k.wheel_offset != {} do return 0
 	return rail_inset(app, rail_lift(app)) + rail_size(app).x
-}
-
-// The size and strength sliders' track, in points: the usual 260, shorter where the
-// window under the top bar has no room for it (a short window, or a large interface
-// size). Their popover stands the track and 80 points tall.
-slider_track :: proc(app: ^App) -> f32 {
-	TRACK :: 260
-	MIN_TRACK :: 100
-	area := ui.safe_area(&app.kit.ctx)
-	return clamp(area.h - kit_top() - 80 - 16, MIN_TRACK, TRACK)
 }
 
 // The wheel at the bottom left or right, or where its grip was dragged to (kept inside
@@ -586,7 +588,8 @@ kit_modifier_rail :: proc(app: ^App) {
 			}
 		case Modifier:
 			look := ui.Modifier_Look.Latched if lit_of(v, r.latched) else (.Lit if lit_of(v, held) || lit_of(v, keys) else .Off)
-			sectors[i] = {name = MODIFIER_NAMES[v], glyph = MODIFIER_ICONS[v], caption = MODIFIER_NAMES[v], look = look, keys = MODIFIER_KEYS[v]}
+			name := modifier_name(app, v)
+			sectors[i] = {name = name, glyph = MODIFIER_ICONS[v], caption = name, look = look, keys = MODIFIER_KEYS[v]}
 		}
 		switch k.wheel_labels {
 		case .Icons:           sectors[i].caption = ""

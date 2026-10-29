@@ -55,7 +55,8 @@ chords_read_as_menus_show_them :: proc(t: ^testing.T) {
 }
 
 // The shortcut texts the menus, the tool bar and the brush tiles showed before the
-// registry, which now come from the bindings.
+// registry, which now come from the bindings; Tab is clean view and B the brush picker,
+// as Lens has them.
 @(test)
 menus_show_the_same_shortcuts :: proc(t: ^testing.T) {
 	app: App
@@ -79,7 +80,9 @@ menus_show_the_same_shortcuts :: proc(t: ^testing.T) {
 		{.Delete_Object, 0, "Del"},
 		{.Undo, 0, "Ctrl+Z"},
 		{.Redo, 0, "Ctrl+Shift+Z"},
-		{.Inspector, 0, "Tab"},
+		{.Clean_View, 0, "Tab"},
+		{.Brush_Picker, 0, "B"},
+		{.Inspector, 0, ""},
 		{.Symmetry_X, 0, "X"},
 		{.Brush, int(sculpt.Brush_Kind.Draw), "1"},
 		{.Brush, int(sculpt.Brush_Kind.Layer), "0"},

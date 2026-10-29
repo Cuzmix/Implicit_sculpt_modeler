@@ -251,6 +251,9 @@ Nav_Prefs :: struct {
 	mouse_scheme:   Mouse_Scheme,
 	shape_apply:    Shape_Apply, // when a drawn mask, hide or clip shape applies (shape_pending.odin)
 	pen_tips:       Pen_Tips, // when a hovering pen shows a control's name
+	// The brush ring drawn where the pointer will be when the frame is shown, not where it
+	// was sampled, while a stroke draws (cursor_lead).
+	predict_cursor: bool,
 	eraser:         Eraser_Use, // what the pen's eraser end sculpts with (pencil.odin)
 }
 
@@ -329,6 +332,7 @@ NAV_DEFAULT :: Nav_Prefs {
 	edge_show      = true,
 	// Smooth takes a stroke back, the nearest thing sculpting has to erasing.
 	eraser         = .Smooth,
+	predict_cursor = true,
 }
 
 // The camera's turn as the settings have it.

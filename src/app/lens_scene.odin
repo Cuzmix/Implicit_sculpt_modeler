@@ -10,8 +10,8 @@ import "../ui"
 // picture of each, its name and triangles, its eye and its lock, as ZBrush's subtools
 // and Nomad's scene list; a filter once there are more than ten; then the selected
 // object's selection sets. A tap selects (Ctrl, Shift or Select several adds), a drag
-// reorders or puts a row in a folder, a long press opens the object's menu. Classic's
-// Scene palette keeps its tree (kit_scene_objects).
+// reorders or puts a row in a folder, a long press opens the object's menu. The
+// Scene palette keeps its tree too (kit_scene_objects).
 
 // How many objects the card lists before it offers a filter.
 SCENE_FILTER_AFTER :: 10

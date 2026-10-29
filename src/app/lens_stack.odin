@@ -17,7 +17,7 @@ import "../ui"
 // Strength always, then the Brush palette's sections as groups that fold, each saying how
 // it is set while folded, in place of the tray's list beside one section. The stack is
 // the tray's panel (Kit_Window.Inspector), so it docks, floats and opens wherever the tray
-// does, and Classic draws the tray as before.
+// does.
 
 Stack_Card :: enum u8 {
 	Brush,
@@ -227,7 +227,7 @@ stack_float_card :: proc(app: ^App, c: Stack_Card) -> (raised: bool) {
 	ctx := &k.ctx
 	t := ctx.theme
 	s := &k.stack
-	if !k.inspector || side_panel_open(k) || k.chrome != .Lens do return
+	if !k.inspector || side_panel_open(k) do return
 	if c not_in s.floated || c in s.hidden do return
 	name := fmt.tprintf("stack card %v", c)
 	w := &s.windows[c]
@@ -316,6 +316,10 @@ stack_card :: proc(app: ^App, c: Stack_Card, width: f32, floating: bool) {
 // the strip's tab.
 stack_card_body :: proc(app: ^App, c: Stack_Card, inner: f32) {
 	k := &app.kit
+	// Every card is part of the tray, so search's Show where can mark a control on any
+	// of them (the Layers card's New layer, say), not only on the Palettes card.
+	k.in_tray = true
+	defer k.in_tray = false
 	switch c {
 	case .Brush:
 		if app.tool == .Brush do stack_brush(app, inner)
@@ -336,13 +340,11 @@ stack_card_body :: proc(app: ^App, c: Stack_Card, inner: f32) {
 		kit_environment(app)
 	case .Palettes:
 		kit_tray_select(app)
-		k.in_tray = true
 		switch k.tab {
 		case .Tool:   kit_tool_tab(app)
 		case .Object: kit_object_tab(app)
 		case .Scene:  kit_scene_tab(app)
 		}
-		k.in_tray = false
 	}
 }
 
@@ -501,8 +503,8 @@ stack_brush :: proc(app: ^App, inner: f32) {
 	_ = ui.slider(ctx, "Radius##stack", &app.brush.radius_px, MIN_RADIUS_PX, MAX_RADIUS_PX, .Logarithmic, fmt.tprintf("%.0f px", app.brush.radius_px))
 	strength := brush_strength(app)
 	_ = ui.slider(ctx, "Strength##stack", strength, MIN_STRENGTH, 1, .Linear, fmt.tprintf("%.2f", strength^))
-	k.in_tray, k.in_stack = true, true
-	defer k.in_tray, k.in_stack = false, false
+	k.in_stack = true
+	defer k.in_stack = false
 	for sec in BRUSH_SECTIONS {
 		if sec.shown != nil && !sec.shown(app) do continue
 		open := sec.section not_in s.shut
@@ -537,6 +539,7 @@ stack_group_summary :: proc(app: ^App, sec: Kit_Section) -> string {
 	case .Stroke:
 		line := STROKE_MODE_NAMES[b.stroke]
 		if b.lazy_px >= 0.5 do line = fmt.tprintf("%s · lazy %.0f px", line, b.lazy_px)
+		if n := steady_count(b.smoothing); n > 1 do line = fmt.tprintf("%s · smoothing %d", line, n)
 		return line
 	case .Paint_Color:
 		return hex_text(b.color)

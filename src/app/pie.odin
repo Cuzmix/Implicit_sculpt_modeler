@@ -54,7 +54,7 @@ BRUSH_PIE_DEFAULT :: [?]Bar_Slot {
 	{.Brush, int(sculpt.Brush_Kind.Pinch)}, {.Brush, int(sculpt.Brush_Kind.Smooth)},
 }
 
-// Slot `i` of pie `which`: Lens's brush pie's (0), or a user pie's.
+// Slot `i` of pie `which`: the brush pie's (0), or a user pie's.
 pie_slot :: proc(app: ^App, which, i: int) -> Bar_Slot {
 	if which == 0 {
 		used := bar_used(app, .Brush_Pie)
@@ -105,9 +105,9 @@ pie_update :: proc(app: ^App, input: ^Viewport_Input, right_tap: bool) {
 	}
 	p.hover = pie_slice(input.mouse_pos - p.center, app.kit.scale, pie_slot_count(app, p.which))
 	// A lifted finger points at nothing: where it last was (the dial's Pie, say) is not a choice.
-	lens := p.which == 0 && app.kit.chrome == .Lens
-	if lens && d.pointer == .Finger && .Left not_in d.down && p.pressed_on == 0 do p.hover = -1
-	if lens && lens_pie_update(app, input) do return
+	brushes := p.which == 0
+	if brushes && d.pointer == .Finger && .Left not_in d.down && p.pressed_on == 0 do p.hover = -1
+	if brushes && lens_pie_update(app, input) do return
 	if p.which > 0 && p.opened_frame == app.kit.frame {
 		// Opened during this frame's layout: the press or release that did it is spent.
 		if .Left in d.down do p.swallow = true
@@ -150,15 +150,13 @@ pie_slice :: proc(d: [2]f32, scale: f32, n: int) -> int {
 	return min(int(a / step), n - 1)
 }
 
-// Whether a click on slice `i` of pie `which` runs something: every brush of Classic's
-// brush pie does; a slot of Lens's or of a user pie needs a command that can run now.
+// Whether a click on slice `i` of pie `which` runs something: a command that can run now.
 pie_pickable :: proc(app: ^App, which, i: int) -> bool {
-	if which == 0 && app.kit.chrome != .Lens do return true
 	s := pie_slot(app, which, i)
 	return s.id != .None && command_enabled(app, s.id, s.arg)
 }
 
-// Lens's brush pie, open: a press on a slice picks it when let go there (a flick from the
+// The brush pie, open: a press on a slice picks it when let go there (a flick from the
 // dial or Space picks on letting go as before), and resting on a slice for PIE_REST, with a
 // press, Space or the pen held over it, picks that brush and shows its quick settings
 // beside the slice instead (lens_shelf.odin). True when it took this frame's input.
@@ -191,7 +189,7 @@ lens_pie_update :: proc(app: ^App, input: ^Viewport_Input) -> bool {
 	return false
 }
 
-// Picks slice `i` of Lens's brush pie and, for a brush, shows its quick settings beside
+// Picks slice `i` of the brush pie and, for a brush, shows its quick settings beside
 // where the slice's label was.
 @(private = "file")
 pie_quick :: proc(app: ^App, i: int) {
@@ -216,10 +214,6 @@ pie_pick :: proc(app: ^App, slice: int) {
 	haptic(app, .Alignment)
 	which := app.ui.pie.which
 	app.ui.pie.open = false
-	if which == 0 && app.kit.chrome != .Lens {
-		command_run(app, .Brush, slice)
-		return
-	}
 	s := pie_slot(app, which, slice)
 	if which == 0 {
 		command_run(app, s.id, s.arg)

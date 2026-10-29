@@ -10,8 +10,7 @@ import "../ui"
 // edge closes the panes it squeezes there), the View layout menu as the six presets drawn,
 // with what new panes start as and the proportion guides, and, while there are panes
 // beside the main one, the panel stack shrunk to a strip of tabs beside the rail so it
-// covers none of them, each tab opening its card over the view. Classic keeps the grid's
-// chrome as it was.
+// covers none of them, each tab opening its card over the view.
 
 // What a pane a layout adds starts as: the partner the preset has always given it (the
 // front, the side, the top), the main camera itself (linked), or the main view as it is
@@ -225,7 +224,7 @@ kit_pane_menu :: proc(app: ^App) {
 	ctx := &k.ctx
 	m := &k.pane_menu
 	g := &k.grid
-	if m.open && (m.pane < 1 || m.pane >= grid_panes(g) || k.chrome != .Lens) do m.open = false
+	if m.open && (m.pane < 1 || m.pane >= grid_panes(g)) do m.open = false
 	if !ui.popover_begin(ctx, "pane menu", &m.open, m.at, .Below, {direction = .Column, padding = 6, width = 200}) do return
 	defer ui.popover_end(ctx)
 	if m.pane < 1 || m.pane > GRID_VIEWS do return
@@ -249,7 +248,7 @@ kit_pane_menu :: proc(app: ^App) {
 	}
 }
 
-// A Lens divider's grab strip across its gap, in points: wider than Classic's, for a finger.
+// A Lens divider's grab strip across its gap, in points: wide enough for a finger.
 GRID_GRAB_LENS :: 24
 
 // The View layout menu's content width in Lens: three preset drawings and their gaps.
@@ -302,7 +301,7 @@ grid_divider_lens :: proc(app: ^App, div: Grid_Divider, a: ui.Area, cells: [GRID
 // the main one.
 stack_strip_shown :: proc(app: ^App) -> bool {
 	k := &app.kit
-	if k.chrome != .Lens || grid_panes(&k.grid) < 2 do return false
+	if grid_panes(&k.grid) < 2 do return false
 	_, _, docked := panel_docked(k, Kit_Window.Inspector)
 	return docked
 }

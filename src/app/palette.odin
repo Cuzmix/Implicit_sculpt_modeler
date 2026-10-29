@@ -238,7 +238,6 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.Render_Preview   = "render preview pane path trace rendered view beside split",
 	.View_Window      = "window monitor second screen display detach tear off pop out view",
 	.View_Windows_Close = "close view windows monitor second screen",
-	.Chrome_Classic   = "classic layout zbrush ipad old interface lens brush bar wheel dock",
 	.Clean_View       = "clean view hide interface chrome controls zen distraction free fullscreen tab",
 	.Brush_Picker     = "brush picker browser library all brushes cards stroke preview choose shelf",
 	.View_Layout_Menu = "view layout grid split panes quad four single preset menu",
@@ -595,17 +594,14 @@ palette_run :: proc(app: ^App, e: Palette_Entry) {
 // to PALETTE_ROWS) with their shortcuts and states, the picked one's help, and how many
 // more there are. Up and Down pick (the list scrolls to keep the pick in view), Enter or
 // a tap runs, and Ctrl+K again closes. Escape and Back close it in kit_frame.
-kit_palette :: proc(app: ^App, anchor: ui.Rect, side: ui.Side) {
+kit_palette :: proc(app: ^App, search: ui.Rect) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
 	area := ui.safe_area(ctx)
-	// Lens opens it wider, centred under the top bar, its rows saying where each lives
-	// (lens_search.odin).
-	lens := k.chrome == .Lens
-	width := min(LENS_SEARCH_W if lens else 420, area.w - 2 * t.edge)
-	anchor, side := anchor, side
-	if lens do anchor, side = lens_search_anchor(app, anchor, width)
+	// Wide, centred under the top bar, its rows saying where each lives (lens_search.odin).
+	width := min(f32(LENS_SEARCH_W), area.w - 2 * t.edge)
+	anchor, side := lens_search_anchor(app, search, width)
 	rows := palette_rows(area.y + area.h - (anchor.y + anchor.h + 6) - 4, t.target)
 	was := k.palette
 	if !ui.popover_begin(ctx, "palette", &k.palette, anchor, side, {direction = .Column, gap = 2, padding = 8, width = width}) do return
@@ -638,7 +634,7 @@ kit_palette :: proc(app: ^App, anchor: ui.Rect, side: ui.Side) {
 		for e in entries do if e.kind == .Command && bar_lists(e.id) do append(&kept, e)
 		if bar_lists(.Command_Palette) do append(&kept, Palette_Entry{.Command, .Command_Palette, 0})
 		entries = kept[:]
-		ui.caption(ctx, fmt.tprintf("  CHOOSE A BUTTON FOR %s", strings.to_upper(bar_title(choosing_for.which, app.kit.chrome == .Lens), context.temp_allocator)))
+		ui.caption(ctx, fmt.tprintf("  CHOOSE A BUTTON FOR %s", strings.to_upper(bar_title(choosing_for.which), context.temp_allocator)))
 	case Dial_Pick:
 		// What a bar may hold, as a sector is tapped as a bar's button is.
 		kept := make([dynamic]Palette_Entry, 0, len(entries), context.temp_allocator)
@@ -651,12 +647,12 @@ kit_palette :: proc(app: ^App, anchor: ui.Rect, side: ui.Side) {
 	// A gesture may hold a command that cannot run now (Level up with no levels yet).
 	for e, i in entries do enabled[i], titles[i] = choosing || palette_enabled(app, e), entry_title(app, e)
 	hits := palette_rank(query, entries, k.palette_recent[:k.palette_recent_count], enabled, favourite_entries(app), titles)
-	// Lens groups what matches, each group under its caption, which take a row's room.
+	// What matches is grouped, each group under its caption, which take a row's room.
 	k.palette_groups = {}
-	if lens && query != "" && !choosing {
+	if query != "" && !choosing {
 		hits, k.palette_groups = palette_group_hits(hits, entries)
 	}
-	if lens do rows = lens_search_rows(area.y + area.h - (anchor.y + anchor.h + 6) - 4, card(k.palette_groups))
+	rows = lens_search_rows(area.y + area.h - (anchor.y + anchor.h + 6) - 4, card(k.palette_groups))
 	n := len(hits)
 	if k.palette && n > 0 {
 		if key_pressed(d, sdl.K_DOWN, repeat = true) do k.palette_pick = (k.palette_pick + 1) % n
@@ -680,71 +676,42 @@ kit_palette :: proc(app: ^App, anchor: ui.Rect, side: ui.Side) {
 	for i in k.palette_first ..< min(k.palette_first + rows, n) {
 		h := hits[i]
 		e := entries[h.entry]
-		if lens {
-			if k.palette_groups != {} {
-				if g := palette_group(e); group != g {
-					ui.caption(ctx, fmt.tprintf("  %s", PALETTE_GROUP_NAMES[g]))
-					group = g
-				}
+		if k.palette_groups != {} {
+			if g := palette_group(e); group != g {
+				ui.caption(ctx, fmt.tprintf("  %s", PALETTE_GROUP_NAMES[g]))
+				group = g
 			}
-			tapped, held, put_it := lens_palette_row(app, e, titles[h.entry], fmt.tprintf("%s##palette %d", titles[h.entry], h.entry), width - 16, h.enabled, i == k.palette_pick)
-			if tapped && h.enabled do ran = e
-			if held && (palette_home(e) != "") do shown = e
-			if put_it do put = e
-			continue
 		}
 		// A row's id comes from its entry, so it stays the same widget while the list
 		// around it changes.
-		label := fmt.tprintf("%s##palette %d", titles[h.entry], h.entry)
-		keys := command_keys(app, e.id, e.arg) if e.kind == .Command else ""
-		checked := e.kind == .Command && command_checked(app, e.id, e.arg)
-		starred := e.kind == .Command && favourite_find(app, e.id, e.arg) >= 0
-		if ui.menu_item(ctx, label, keys, palette_icon(e), checked, .Neutral, h.enabled, i == k.palette_pick, starred = starred) do ran = e
-		if ui.secondary(ctx) && palette_home(e) != "" do shown = e
+		tapped, held, put_it := lens_palette_row(app, e, titles[h.entry], fmt.tprintf("%s##palette %d", titles[h.entry], h.entry), width - 16, h.enabled, i == k.palette_pick)
+		if tapped && h.enabled do ran = e
+		if held && (palette_home(e) != "") do shown = e
+		if put_it do put = e
 	}
 	if n == 0 do ui.paragraph(ctx, "Nothing matches. Try another word, such as remesh, mask or wireframe.")
 	// The pick's help, in a fixed height so the popover does not jump as the pick moves.
 	ui.divider(ctx, across = true)
-	ui.begin(ctx, "palette help", {direction = .Column, height = 56 if lens else 74, width = width - 16 if lens else 0})
+	ui.begin(ctx, "palette help", {direction = .Column, height = 56, width = width - 16})
 	if n > 0 {
 		e := entries[hits[k.palette_pick].entry]
 		help := fmt.tprintf("Opens Settings on the %s tab.", SETTINGS_TAB_NAMES[Settings_Tab(e.arg)]) if e.kind == .Settings_Tab else COMMANDS[e.id].help
 		if e.kind == .Command {
 			if gesture := command_gesture(app, e.id, e.arg); gesture != "" do help = fmt.tprintf("%s By touch: %s%s.", help, strings.to_lower(gesture[:1], context.temp_allocator), gesture[1:])
 		}
+		// The row already says where it lives.
 		if !hits[k.palette_pick].enabled do help = fmt.tprintf("Not now: %s", help)
-		// Lens's row already says where it lives.
-		if home := palette_home(e); home != "" && !lens do help = fmt.tprintf("%s In %s: %s shows it there.", help, home, "Tab" if lens else "a long press or Shift+Enter")
 		ui.paragraph(ctx, help)
 	}
 	ui.end(ctx)
 	// What the pick can be made into, enabled or not (Ctrl+Alt+click reaches only the
-	// controls that can run now): a star, a pie's slot, a key. A Settings tab is none of
-	// these, so its row stays, empty, and the popover keeps its height.
-	if lens {
-		pick: Maybe(Palette_Entry)
-		if n > 0 do pick = entries[hits[k.palette_pick].entry]
-		lens_palette_footer(app, pick, width, anchor)
-	}
-	if !lens do ui.begin(ctx, "palette actions", {direction = .Row, gap = 8, height = t.target})
-	if !lens && n > 0 && entries[hits[k.palette_pick].entry].kind == .Command && !choosing {
-		e := entries[hits[k.palette_pick].entry]
-		third := (width - 16 - 16) / 3
-		starred := favourite_find(app, e.id, e.arg) >= 0
-		if ui.button(ctx, "Starred##palette star" if starred else "Star##palette star", .Flat if starred else .Bordered, .Accent if starred else .Neutral, third, ui.ICON_STAR) {
-			if favourite_toggle(app, e.id, e.arg) do pies_saved(app)
-		}
-		if ui.button(ctx, "Put in a pie", .Bordered, width = third, glyph = ui.ICON_PIE, enabled = pie_lists(e.id)) {
-			pie_editor_open(app, e.id, e.arg, anchor)
-		}
-		if ui.button(ctx, "Assign key", .Bordered, width = third, glyph = ui.ICON_KEYBOARD) {
-			bind_open(app, e.id, e.arg, ctx.last_rect)
-		}
-	}
-	if !lens do ui.end(ctx)
+	// controls that can run now): a star, a pie's slot, a key, a place on a bar.
+	pick: Maybe(Palette_Entry)
+	if n > 0 do pick = entries[hits[k.palette_pick].entry]
+	lens_palette_footer(app, pick, width, anchor)
 	if n > rows do ui.caption(ctx, fmt.tprintf("  %d-%d OF %d: TYPE MORE TO NARROW", k.palette_first + 1, min(k.palette_first + rows, n), n))
 	enter := key_pressed(d, sdl.K_RETURN) || key_pressed(d, sdl.K_KP_ENTER)
-	if k.palette && n > 0 && lens && key_pressed(d, sdl.K_TAB) {
+	if k.palette && n > 0 && key_pressed(d, sdl.K_TAB) {
 		e := entries[hits[k.palette_pick].entry]
 		if palette_home(e) != "" {
 			shown = e
@@ -754,7 +721,7 @@ kit_palette :: proc(app: ^App, anchor: ui.Rect, side: ui.Side) {
 	}
 	if k.palette && n > 0 && enter {
 		e := entries[hits[k.palette_pick].entry]
-		if lens && d.ctrl && !choosing {
+		if d.ctrl && !choosing {
 			put = e
 		} else if d.shift {
 			if palette_home(e) != "" do shown = e

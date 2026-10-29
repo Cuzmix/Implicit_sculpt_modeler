@@ -11,7 +11,7 @@ import "../ui"
 // them, with Reset (the section's) at the end of its blocks and Reset all settings at the
 // side's foot. Touch lists every
 // gesture as a row with what it does, so the touch model is never hidden. A window too
-// narrow for the sheet keeps Classic's panel.
+// narrow for the sheet gets the tabbed panel (kit_settings).
 
 Settings_Section :: enum u8 {
 	Interface,
@@ -40,7 +40,7 @@ SETTINGS_SECTION_NAMES := [Settings_Section]string {
 	.Shortcuts   = "Shortcuts",
 }
 
-// The section a Classic tab opens on, for settings_open.
+// The section a tab of the narrow panel opens on, for settings_open.
 @(rodata)
 SETTINGS_TAB_SECTION := [Settings_Tab]Settings_Section {
 	.Interface   = .Interface,
@@ -54,7 +54,6 @@ SETTINGS_TAB_SECTION := [Settings_Tab]Settings_Section {
 LENS_INTERFACE := [?]Settings_Entry {
 	{.Look, "LOOK"},
 	{.Size, "SIZE"},
-	{.Layout, "LAYOUT"},
 	{.Hands, "SCREEN LAYOUT"},
 	{.Motion, "MOTION"},
 	{.Starting, "STARTING"},
@@ -74,7 +73,7 @@ LENS_TOUCH := [?]Settings_Entry {
 	{.Shapes, "SHAPES"},
 }
 @(rodata)
-LENS_PEN := [?]Settings_Entry{{.Pen_Empty, "ON EMPTY SPACE"}, {.Pen_Tips, "HOVER"}, {.Pen_Buttons, "PENCIL AND BUTTONS"}}
+LENS_PEN := [?]Settings_Entry{{.Pen_Empty, "ON EMPTY SPACE"}, {.Pen_Tips, "HOVER"}, {.Pen_Predict, "CURSOR"}, {.Pen_Buttons, "PENCIL AND BUTTONS"}}
 @(rodata)
 LENS_DIAL := [?]Settings_Entry{{.Wheel, "DIAL"}, {.Clean_Dial, ""}}
 @(rodata)
@@ -241,7 +240,7 @@ lens_gesture_list :: proc(app: ^App) {
 	pencil_only_note(app)
 	gesture_row_text(ctx, "One finger on empty space", "Turns the view", width)
 	// Two fingers always move the view; what else they do is one choice of three, or the
-	// switches' own mix when Classic set one these name none of.
+	// switches' own mix when the narrow panel's switches set one these name none of.
 	two := [?]string{"Pan, zoom and roll", "Pan and zoom", "Pan only", "Zoom and roll"}
 	at := -1
 	switch {
@@ -254,7 +253,7 @@ lens_gesture_list :: proc(app: ^App) {
 	if at < 0 {
 		mixed := make([]string, len(two) + 1, context.temp_allocator)
 		copy(mixed, two[:])
-		mixed[len(two)] = "As set in Classic"
+		mixed[len(two)] = "Own mix"
 		options, at = mixed, len(two)
 	}
 	if picked := gesture_row(ctx, "Two fingers", options, at, width); picked >= 0 && picked < len(two) {

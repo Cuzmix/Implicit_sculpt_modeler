@@ -26,6 +26,14 @@ Brush_Settings :: struct {
 	tilt_size:         f32,
 	tilt_soften:       f32,
 	lazy_px:           f32,  // lazy mouse: the brush trails the cursor by this many pixels; 0 is off
+	// The stabiliser (stroke_steady): the brush follows the mean of this many of the
+	// pointer's newest positions, and of the pen's newest pressures; 1 (or less) is off.
+	// Whole numbers up to STEADY_MAX.
+	smoothing:          f32,
+	pressure_smoothing: f32,
+	// When the pen lifts, the stroke goes on to where it was lifted, past the lazy
+	// string and the smoothing's lag, so the line ends under the pen.
+	catch_up:           bool,
 	front_only:        bool, // brushes and mask shapes leave what faces away from the viewer (sculpt.Brush.facing)
 	lock_plane:        bool, // keep the plane the stroke's first dab found (sculpt.Brush.lock_plane)
 	connected:         bool, // work only on what joins the dab's centre through the surface (sculpt.Brush.connected)
@@ -37,6 +45,15 @@ Brush_Settings :: struct {
 	color_spray:       f32,
 	// Dots: brush radii between dabs on screen (the lazy step); 0 for DAB_SPACING.
 	spacing:           f32,
+	// Dots: each dab's strength scaled so a stroke builds the same height at any spacing
+	// as at SPACING_REFERENCE (spacing_strength), as Blender's Adjust strength for spacing.
+	even_strength:     bool,
+	// Dots: the spacing is measured along the surface rather than on screen, so a stroke
+	// over a part turned away keeps its dabs as far apart on the model (scene_spacing_px).
+	scene_spacing:     bool,
+	// Symmetry's images near a plane or the radial axis share the strength they overlap
+	// by (sculpt.Brush.feather).
+	feather:           bool,
 	line:              bool, // every stroke a straight line from its press (Stroke.line)
 	join:              bool, // a press near where the last stroke ended carries it on (Stroke_End)
 	symmetry:          sculpt.Symmetry, // mirror strokes across these planes of the object
@@ -61,6 +78,11 @@ Brush_Settings :: struct {
 	// What every sculpting brush changes: the surface, it and the polypaint, or only the
 	// polypaint (sculpt.Channel; the brush bar's channel button cycles them).
 	channel:           sculpt.Channel,
+	// While painting (the Paint brush, or a sculpting brush with the channel on Colour),
+	// Smooth blurs the paint and Invert takes it off, instead of smoothing the surface and
+	// digging it (painting): Paint's Blur and Erase in the dial, as Nomad and Procreate
+	// have them.
+	paint_dial:        bool,
 	cloth_mode:        sculpt.Cloth_Mode, // what the Cloth brush does
 	// The preset the brush is on (presets.odin), from 1; 0 on a plain brush. While on
 	// one, `plain` keeps the plain brush's values that leaving it puts back.
@@ -119,8 +141,19 @@ Stroke :: struct {
 	tilt:     [2]f32, // pen lean at pos
 	dir:      [2]f32, // the way the stroke last moved on screen, unit length; zero before it has
 	travel:   f32, // pixels moved since the last dab
+	// How squarely the surface under the last dab faces the view (|cos|), which Scene
+	// spacing divides by; 0 before the first dab.
+	facing:   f32,
+	// Even strength's scale for this stroke's dabs (spacing_strength); 0 until worked out.
+	even:     f32,
 	size:     [2]f32, // viewport size the positions above are in
 	pending:  [dynamic]Input_Sample, // samples left for the next frame once one reaches MAX_DABS_PER_FRAME
+	// The stabiliser's newest raw samples, newest first (`steady_count` of them), and
+	// whether pending's first was taken in already (a frame ran out partway to it).
+	steady:       [STEADY_MAX]Input_Sample,
+	steady_count: int,
+	steady_taken: bool,
+	raw:          Input_Sample, // the pointer's newest sample as it came, where catching up goes
 	grab:     bool, // a Grab stroke: drags what it picked up instead of laying dabs
 	cloth:    bool, // a Cloth stroke: simulates the region it began on every frame (sculpt.Cloth)
 	hook:     bool, // a Snake hook stroke: drags the surface along after the pointer
@@ -134,6 +167,7 @@ Stroke :: struct {
 	held:     bool, // ...and whether that is the brush held, with its alpha and stroke mode
 	mode:     Stroke_Mode, // the held brush's stroke mode as it began; Dots for any other
 	invert:   bool, // whether it started inverted, for the History panel
+	blur:     bool, // Smooth while painting: a Paint stroke that blurs the paint (painting)
 	// What its brush's strength is multiplied by: Touch strength for a finger, 1 for the
 	// pen and mouse, or what a replay recorded (App.stroke_scale_from).
 	scale:    f32,
@@ -200,7 +234,13 @@ Sculpt_Frame_Result :: struct {
 	brush_ms:   f64,
 }
 
-DAB_SPACING :: 0.25 // brush radii between dabs, measured on screen
+DAB_SPACING :: 0.2 // brush radii between dabs, measured on screen
+// The spacing every brush's strength was tuned at, the default until dabs came closer:
+// with Even strength a stroke at any spacing builds the height one at this built.
+SPACING_REFERENCE :: 0.25
+// Scene spacing measures the gap along a surface turned away from the view by dividing by
+// how far it is turned; past this share the dabs would come too close to be worth laying.
+SCENE_SPACING_MIN_FACING :: 0.25
 SPRAY_SPACING :: 0.5 // ...for Spray, whose scattered dabs need fewer to cover the path
 ROLL_SPACING :: 2 // ...for Roll: one diameter, so the alpha's images meet edge to edge
 SPRAY_MAX_SPREAD :: 1.5
@@ -217,6 +257,9 @@ MAX_DABS_PER_FRAME :: 64 // the rest of the path waits for the next frame
 // stops would depend on how busy the machine is, and the dabs after it on that.
 MAX_BRUSH_MS_PER_FRAME :: 10
 MAX_PENDING_SAMPLES :: 4096 // beyond this a lagging stroke drops its oldest samples
+// The most pointer samples the stabiliser averages: at a pen's 240 Hz, a fifteenth of a
+// second, past which the brush lags too far to steer.
+STEADY_MAX :: 16
 MIN_PRESSURE_SIZE :: 0.05 // smallest share of the radius pen pressure can shrink it to
 // The lean from upright, in degrees, at which the tilt's size and softening are full: a
 // pencil shades with its side at about this.
@@ -228,6 +271,8 @@ LEAN_FULL :: 60
 // surface, so a fast stroke follows the pointer and every dab lands on the surface.
 sculpt_frame :: proc(app: ^App, input: Viewport_Input) -> (res: Sculpt_Frame_Result) {
 	app.alpha_roll = input.pen_roll
+	// How many samples a stroke's frames bring, for the exit stats (pen_samples.odin).
+	defer if app.stroke.active do pen_samples_count(app, len(input.samples))
 	if input.size.x <= 0 || input.size.y <= 0 {
 		stroke_finish(app)
 		return
@@ -241,6 +286,7 @@ sculpt_frame :: proc(app: ^App, input: Viewport_Input) -> (res: Sculpt_Frame_Res
 		if app.stroke.active {
 			if rest := until_release(samples); len(rest) < len(samples) do stroke_follow(app, input, rest, &res)
 		}
+		stroke_catch_up(app, input, &res)
 		line_complete(app, input, &res)
 		stroke_finish(app)
 		return
@@ -253,6 +299,7 @@ sculpt_frame :: proc(app: ^App, input: Viewport_Input) -> (res: Sculpt_Frame_Res
 		if app.stroke.active {
 			// Released and pressed again within one frame: end the previous stroke first.
 			stroke_follow(app, input, until_release(samples[:press]), &res)
+			stroke_catch_up(app, input, &res)
 			line_complete(app, input, &res)
 			stroke_finish(app)
 		}
@@ -263,6 +310,7 @@ sculpt_frame :: proc(app: ^App, input: Viewport_Input) -> (res: Sculpt_Frame_Res
 	rest := until_release(samples)
 	stroke_follow(app, input, rest, &res)
 	if len(rest) < len(samples) {
+		stroke_catch_up(app, input, &res)
 		line_complete(app, input, &res)
 		stroke_finish(app)
 	}
@@ -291,6 +339,7 @@ stroke_follow :: proc(app: ^App, input: Viewport_Input, samples: []Input_Sample,
 		st.line = false
 		if len(samples) == 0 do return
 		st.pos, st.pressure, st.tilt, st.travel, st.size = samples[0].pos, samples[0].pressure, samples[0].tilt, 0, input.size
+		stroke_steady_start(st, samples[0])
 	}
 	queue := samples
 	if len(st.pending) > 0 {
@@ -347,21 +396,109 @@ stroke_follow :: proc(app: ^App, input: Viewport_Input, samples: []Input_Sample,
 			st.active = false
 			return
 		}
-		target := s.pos
-		if lazy := app.brush.lazy_px; lazy > 0 {
-			// The brush trails the cursor on a string `lazy` pixels long.
-			d := s.pos - st.pos
-			l := linalg.length(d)
-			if l <= lazy do continue
-			target = st.pos + d * (1 - lazy / l)
-		}
-		if !stroke_walk(app, obj, input, inv, target, s.pressure, s.tilt, res) {
+		if !stroke_step(app, obj, input, inv, s, res) {
 			rest := queue[i:]
-			if len(rest) > MAX_PENDING_SAMPLES do rest = rest[len(rest) - MAX_PENDING_SAMPLES:]
+			if len(rest) > MAX_PENDING_SAMPLES {
+				rest = rest[len(rest) - MAX_PENDING_SAMPLES:]
+				st.steady_taken = false
+			}
 			append(&st.pending, ..rest)
 			return
 		}
 	}
+}
+
+// Moves a stroke laying dabs on toward the pointer sample `s`: through the stabiliser,
+// then on the lazy string. Returns false, as stroke_walk does, when the frame ran out
+// partway; the same sample then comes again first next frame, and is not taken into the
+// stabiliser twice.
+@(private = "file")
+stroke_step :: proc(app: ^App, obj: ^Object, input: Viewport_Input, inv: matrix[4, 4]f32, s: Input_Sample, res: ^Sculpt_Frame_Result, bounded := true) -> bool {
+	st := &app.stroke
+	steady := stroke_steady(app, s)
+	target := steady.pos
+	if lazy := app.brush.lazy_px; lazy > 0 {
+		// The brush trails the cursor on a string `lazy` pixels long.
+		d := target - st.pos
+		l := linalg.length(d)
+		if l <= lazy do return true
+		target = st.pos + d * (1 - lazy / l)
+	}
+	if !stroke_walk(app, obj, input, inv, target, steady.pressure, steady.tilt, res, bounded) {
+		st.steady_taken = true
+		return false
+	}
+	return true
+}
+
+// Takes the raw sample `s` into the stabiliser, unless it was taken already, and gives
+// where the brush goes for it: the mean of the newest Smoothing positions and leans and
+// of the newest Pressure smoothing pressures (ZBrush's Mouse Avg and Nomad's pressure
+// smoothing; with both off, `s` itself).
+@(private = "file")
+stroke_steady :: proc(app: ^App, s: Input_Sample) -> Input_Sample {
+	st := &app.stroke
+	if st.steady_taken {
+		st.steady_taken = false
+	} else {
+		copy(st.steady[1:], st.steady[:STEADY_MAX - 1])
+		st.steady[0] = s
+		st.steady_count = min(st.steady_count + 1, STEADY_MAX)
+		st.raw = s
+	}
+	n := min(steady_count(app.brush.smoothing), st.steady_count)
+	m := min(steady_count(app.brush.pressure_smoothing), st.steady_count)
+	out := s
+	if n > 1 {
+		pos, tilt: [2]f32
+		for k in 0 ..< n {
+			pos += st.steady[k].pos
+			tilt += st.steady[k].tilt
+		}
+		out.pos, out.tilt = pos / f32(n), tilt / f32(n)
+	}
+	if m > 1 {
+		pressure: f32
+		for k in 0 ..< m do pressure += st.steady[k].pressure
+		out.pressure = pressure / f32(m)
+	}
+	return out
+}
+
+// How many samples a Smoothing or Pressure smoothing value `v` averages: 1 to STEADY_MAX.
+steady_count :: proc(v: f32) -> int {
+	return clamp(int(math.round(v)), 1, STEADY_MAX)
+}
+
+// Starts the stabiliser over at `s`, as at a press.
+@(private = "file")
+stroke_steady_start :: proc(st: ^Stroke, s: Input_Sample) {
+	st.steady[0], st.steady_count, st.steady_taken, st.raw = s, 1, false, s
+}
+
+// Whether the brush of a stroke laying dabs can trail the pointer: on the lazy string or
+// behind the smoothing's mean. The rope is drawn then, and catching up has a way to go.
+stroke_trails :: proc(app: ^App) -> bool {
+	return app.brush.lazy_px > 0 || steady_count(app.brush.smoothing) > 1
+}
+
+// The pen lifted (or the button came up): with Catch up on, a stroke laying dabs walks
+// the samples still waiting and then on to where the pointer last was, so the line ends
+// under the pen rather than a string's length or the smoothing's lag short of it (Krita's
+// finish line, Toon Boom's catch up). Off, it ends where the brush had got to, as
+// ZBrush's lazy mouse does.
+@(private = "file")
+stroke_catch_up :: proc(app: ^App, input: Viewport_Input, res: ^Sculpt_Frame_Result) {
+	st := &app.stroke
+	if !st.active || !app.brush.catch_up || !stroke_trails(app) do return
+	if st.grab || st.hook || st.cloth || st.rect || st.line || input.size.x <= 0 || input.size.y <= 0 do return
+	obj := object_by_id(app, st.object)
+	if obj == nil do return
+	inv := linalg.inverse(camera.orbit_proj(app.camera, input.size.x / input.size.y) * camera.orbit_view(app.camera))
+	for s in st.pending do _ = stroke_step(app, obj, input, inv, s, res, bounded = false)
+	clear(&st.pending)
+	st.steady_taken = false
+	_ = stroke_walk(app, obj, input, inv, st.raw.pos, st.raw.pressure, st.raw.tilt, res, bounded = false)
 }
 
 // Starts a stroke at `s` if it is over an object: that object becomes the selected
@@ -394,13 +531,15 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 	st := &app.stroke
 	st.active, st.object = true, obj.id
 	st.kind, st.held = stroke_brush(app, input), held_brush(input)
+	st.blur = input.smooth && !input.mask && painting(app)
 	st.seed, st.step, st.turn = app.stroke_seed, 0, 0
 	app.stroke_seed += 1
 	st.scale = app.stroke_scale_from if app.stroke_scale_from > 0 else (app.nav.touch_strength if app.device.pointer == .Finger else 1)
 	st.pos, st.pressure, st.tilt, st.travel, st.size = s.pos, s.pressure, s.tilt, 0, input.size
-	st.dir = {}
+	st.dir, st.facing, st.even = {}, 0, 0
 	st.line, st.line_leaving, st.joined, st.smooth_was = false, false, false, input.smooth
 	clear(&st.pending)
+	stroke_steady_start(st, s)
 	sculpt.sculptor_stroke_begin(object_sculptor(obj))
 	if vp := obj.voxel; vp != nil do voxel.clay_stroke_begin(&vp.clay)
 	// The mode before the first dab's brush, whose alpha turn reads it.
@@ -532,7 +671,8 @@ cloth_follow :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, pos
 
 // Pulls a Snake hook stroke after the pointer sample `s`: the point where the stroke
 // has got to follows the pointer on the plane through it facing the camera, and each
-// step of the way, at most DAB_SPACING radii long, drags the surface around it along,
+// step of the way, at most SPACING_REFERENCE radii long (the hook keeps the steps it was
+// tuned at, which Dots' closer spacing leaves be), drags the surface around it along,
 // as Blender's and ZBrush's snake hooks do. Nothing is raycast: the hook leaves the
 // surface it started on.
 @(private = "file")
@@ -551,7 +691,7 @@ hook_follow :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: I
 	offset := origin + dir * (linalg.dot(st.anchor - origin, facing) / along) - st.anchor
 	st.pos, st.pressure, st.tilt = s.pos, s.pressure, s.tilt
 	brush := brush_at(app, input, t, to_local(t, st.anchor), s.pressure, s.tilt)
-	step := max(brush.radius * t.scale * DAB_SPACING, 1e-6)
+	step := max(brush.radius * t.scale * SPACING_REFERENCE, 1e-6)
 	steps := min(int(math.ceil(linalg.length(offset) / step)), MAX_DABS_PER_FRAME)
 	t1 := time.tick_now()
 	for _ in 0 ..< steps {
@@ -673,6 +813,7 @@ line_begin :: proc(app: ^App) {
 	st.line, st.line_from, st.line_to, st.line_done, st.line_leaving = true, st.start, {max(f32), max(f32)}, true, false
 	st.line_aim = {pos = st.pos, pressure = st.pressure, tilt = st.tilt}
 	clear(&st.pending)
+	st.steady_taken = false
 	app.stroke_end.lines += 1
 }
 
@@ -725,6 +866,8 @@ line_lay :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, res: ^S
 	if st.line_leaving {
 		st.line, st.line_leaving = false, false
 		st.pressure, st.tilt = aim.pressure, aim.tilt
+		// Freehand again from the line's end: the stabiliser forgets the path before it.
+		stroke_steady_start(st, aim)
 	}
 	return true
 }
@@ -742,6 +885,7 @@ line_complete :: proc(app: ^App, input: Viewport_Input, res: ^Sculpt_Frame_Resul
 	if st.line do return
 	for s in st.pending do _ = stroke_walk(app, obj, input, inv, s.pos, s.pressure, s.tilt, res, bounded = false)
 	clear(&st.pending)
+	st.steady_taken = false
 }
 
 // Starts the stroke under way again at `pos`, with nothing laid yet, as stroke_start
@@ -783,7 +927,20 @@ stroke_spacing :: proc(app: ^App, mode: Stroke_Mode) -> f32 {
 	case .Spray: return SPRAY_SPACING
 	case .Roll:  return ROLL_SPACING
 	}
-	return dot_spacing(app)
+	s := dot_spacing(app)
+	// On screen a gap across a surface turned away is longer on the model by 1 / cos.
+	if app.brush.scene_spacing && app.stroke.facing > 0 do s *= max(app.stroke.facing, SCENE_SPACING_MIN_FACING)
+	return s
+}
+
+// How much Even strength scales a Dots dab of the brush `kind`: the overlap of a row of
+// dabs at SPACING_REFERENCE over that at the brush's spacing (sculpt.dab_overlap), so 1 at
+// the reference itself, less where dabs come closer and more where they are further apart.
+spacing_strength :: proc(app: ^App, kind: sculpt.Brush_Kind) -> f32 {
+	s := dot_spacing(app)
+	if s == SPACING_REFERENCE do return 1
+	shape := brush_falloff(app, kind)
+	return sculpt.dab_overlap(shape, SPACING_REFERENCE) / sculpt.dab_overlap(shape, s)
 }
 
 // Brush radii between Dots' dabs: the Spacing setting, or DAB_SPACING when unset.
@@ -848,13 +1005,24 @@ stroke_dab :: proc(app: ^App, obj: ^Object, input: Viewport_Input, inv: matrix[4
 	origin, dir := ray_through(inv, pos, input.size)
 	t := obj.transform
 	t0 := time.tick_now()
-	hit, normal, ok := object_raycast_local(obj, to_local(t, origin), to_local_dir(t, dir))
+	local_dir := to_local_dir(t, dir)
+	hit, normal, ok := object_raycast_local(obj, to_local(t, origin), local_dir)
 	res.raycast_ms += time.duration_milliseconds(time.tick_since(t0))
 	if !ok do return
-	app.stroke.pivot_sum += hit
-	app.stroke.pivot_count += 1
+	st := &app.stroke
+	st.pivot_sum += hit
+	st.pivot_count += 1
+	if l := linalg.length(normal) * linalg.length(local_dir); l > 0 do st.facing = abs(linalg.dot(normal, local_dir)) / l
 	t1 := time.tick_now()
 	brush := brush_at(app, input, t, hit, pressure, tilt)
+	// Even strength, for a row of dabs only: a single stamp or a scattered one has no
+	// neighbours to overlap. A stroke never gets stronger than full strength by it.
+	// Not on voxel clay, whose Add and Subtract meet their neighbours as a union and never
+	// pile up.
+	if st.mode == .Dots && app.brush.even_strength && obj.voxel == nil {
+		if st.even == 0 do st.even = spacing_strength(app, st.kind)
+		brush.strength = min(brush.strength * st.even, max(brush.strength, 1))
+	}
 	// Dynamic topology's edge length is a share of the radius: kept as set.
 	brush.radius *= scatter.size
 	brush.detail /= scatter.size
@@ -868,11 +1036,32 @@ stroke_dab :: proc(app: ^App, obj: ^Object, input: Viewport_Input, inv: matrix[4
 }
 
 // The brush a stroke pressed with `input` uses: Smooth for Shift (or the rail's Smooth),
-// Mask for the rail's Mask, or else the brush held.
+// Mask for the rail's Mask, or else the brush held. While painting, Smooth and Invert are
+// Paint strokes: one that blurs the paint, and one that takes it off.
 stroke_brush :: proc(app: ^App, input: Viewport_Input) -> sculpt.Brush_Kind {
 	if input.mask do return .Mask
-	if input.smooth do return .Smooth
+	if input.smooth do return .Paint if painting(app) else .Smooth
+	if input.invert && painting(app) do return .Paint
 	return app.brush.kind
+}
+
+// What the History calls a stroke: its brush, or Blur and Erase for Paint's Smooth and
+// Invert (painting).
+stroke_name :: proc(st: ^Stroke) -> string {
+	if st.kind == .Paint && st.blur do return "Blur"
+	if st.kind == .Paint && st.invert do return "Erase"
+	return BRUSHES[st.kind].name
+}
+
+// Whether the brush held paints rather than sculpts, so that Smooth blurs the paint and
+// Invert erases it (Brush_Settings.paint_dial): the Paint brush, or a sculpting brush with
+// the channel on Colour. Both sculpts as well as paints, so it keeps Smooth and Invert,
+// and so does voxel clay, which has no paint to blur.
+painting :: proc(app: ^App) -> bool {
+	b := &app.brush
+	if !b.paint_dial do return false
+	if obj := selected_object(app); obj != nil && obj.voxel != nil do return false
+	return .Paint in BRUSHES[b.kind].flags || (b.channel == .Color && channel_brush(b.kind))
 }
 
 // Whether a stroke pressed with `input` uses the brush held, and with it the brush's own
@@ -891,8 +1080,15 @@ brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pres
 	world_per_px := camera.orbit_world_per_px(app.camera, to_world(t, hit), input.size.y)
 	kind := app.stroke.kind
 	// Shift smooths at the Smooth brush's strength, not the strength of the brush held, and
-	// the rail's Mask masks at the Mask brush's.
-	strength := app.brush.strengths[kind]
+	// the rail's Mask masks at the Mask brush's; while painting, Shift's blur is at Smooth's
+	// strength too, and Invert erases at the strength and falloff of the brush held.
+	own := kind
+	if app.stroke.blur {
+		own = .Smooth
+	} else if kind == .Paint && app.stroke.held {
+		own = app.brush.kind
+	}
+	strength := app.brush.strengths[own]
 	if app.brush.pressure_strength do strength *= pressure_curved(app, pressure)
 	strength *= 1 - app.brush.tilt_soften * lean_of(tilt)
 	strength *= app.stroke.scale
@@ -923,14 +1119,16 @@ brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pres
 		tilt     = turn,
 		alpha    = alpha,
 		alpha_up = up,
-		falloff_shape = brush_falloff(app, kind),
+		falloff_shape = brush_falloff(app, own),
 		facing   = facing,
 		color    = brush_color_bytes(app),
+		blur     = app.stroke.blur,
 		channel  = brush_channel(app, selected_object(app)) if app.stroke.held else .Sculpt,
 		lock_plane = app.brush.lock_plane,
 		connected  = app.brush.connected,
 		through    = through,
 		smooth_only = app.brush.smooth_only if kind == .Smooth else .All,
+		feather    = app.brush.feather,
 	}
 }
 

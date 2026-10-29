@@ -47,7 +47,7 @@ kit_settings :: proc(app: ^App) -> (raised: bool) {
 	id := ui.id_of(ctx, "settings")
 	shown := ui.presence(ctx, id, k.settings, t.panel_time)
 	if shown <= 0 do return
-	if k.chrome == .Lens && lens_settings_fits(app) do return kit_settings_lens(app, shown)
+	if lens_settings_fits(app) do return kit_settings_lens(app, shown)
 	win := &k.windows[.Settings]
 	top := kit_top()
 	room := window_room(app, win^, top)
@@ -109,7 +109,7 @@ settings_close :: proc(app: ^App) {
 	if app.settings_file != "" do _ = settings_save(app, app.settings_file)
 }
 
-// Puts one of Classic's tabs back as a fresh install has it: each of its blocks.
+// Puts one of the narrow panel's tabs back as a fresh install has it: each of its blocks.
 settings_reset :: proc(app: ^App, tab: Settings_Tab) {
 	for e in settings_tab_entries(tab) do settings_block_reset(app, e.block)
 }

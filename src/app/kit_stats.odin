@@ -2,6 +2,7 @@ package main
 
 import "core:fmt"
 
+import "../render"
 import "../sculpt"
 import "../ui"
 
@@ -99,7 +100,14 @@ kit_stats :: proc(app: ^App) -> (raised: bool) {
 		ring(ctx, "Upload  upload_kb", s.upload_kb, "KB")
 		ring(ctx, "Input to submit  latency_ms", s.latency_ms, "ms")
 		ui.value_row(ctx, "Dabs", fmt.tprintf("%d", s.dabs_total))
+		// The pointer's samples a stroke's frame brought, and how many of them a tablet's
+		// bridge added to SDL's (pen_samples.odin): one a frame on a tablet means samples lost.
+		if p := app.pen_samples; p.frames > 0 {
+			ui.value_row(ctx, "Samples a frame  samples_frame_mean", fmt.tprintf("%.1f, most %d", f64(p.total) / f64(p.frames), p.most))
+			ui.value_row(ctx, "Pen samples recovered  samples_coalesced", fmt.tprintf("%d", p.coalesced))
+		}
 		ui.value_row(ctx, "Viewport", fmt.tprintf("%d x %d px", app.target.width, app.target.height))
+		ui.value_row(ctx, "Present mode  present_mode", fmt.tprintf("%s (offered: %s)", render.renderer_present_name(&app.renderer), present_offers(app)))
 		undo_bytes := 0
 		for obj in app.scene.objects {
 			for lv in obj.levels.levels do undo_bytes += sculpt.sculptor_undo_bytes(&lv.sculptor)

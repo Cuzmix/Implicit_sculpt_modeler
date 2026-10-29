@@ -54,7 +54,21 @@ paint_dab :: proc(s: ^Sculptor, d: ^Dab, pool: ^jobs.Pool) -> int {
 	if s.history.recording {
 		for leaf in s.hit do record_color(s, s.node_of[leaf])
 	}
-	jobs.parallel_for(pool, len(s.hit), d, job_paint)
+	if d.brush.blur && !d.brush.invert {
+		// Jacobi step, as Smooth's: every target is found from the colours as they were
+		// before the dab, so the result is the same whichever leaf runs first.
+		resize(&s.offsets, len(s.hit))
+		total: u32
+		for leaf, i in s.hit {
+			s.offsets[i] = total
+			total += s.nodes[s.node_of[leaf]].vert_count
+		}
+		resize(&s.blur_to, int(total))
+		jobs.parallel_for(pool, len(s.hit), d, job_blur_targets)
+		jobs.parallel_for(pool, len(s.hit), d, job_blur_apply)
+	} else {
+		jobs.parallel_for(pool, len(s.hit), d, job_paint)
+	}
 	painted := 0
 	for p, i in s.partials {
 		if p.moved == 0 do continue
@@ -101,25 +115,85 @@ job_paint :: proc(data: rawptr, i: int) {
 	s.partials[i].moved = painted
 }
 
+// The colour each vertex in the dab blurs toward: its neighbours' paint averaged, each
+// colour counted as far as it covers so bare clay lends no colour of its own, and the
+// coverage averaged plainly, so paint spreads thinly onto the clay around it.
+@(private)
+job_blur_targets :: proc(data: rawptr, i: int) {
+	d := cast(^Dab)data
+	s := d.s
+	m := s.mesh
+	first, last := owned(s, s.hit[i])
+	out := s.blur_to[s.offsets[i]:]
+	for v in first ..< last {
+		delta := m.positions[v] - d.center
+		if linalg.dot(delta, delta) >= d.r2 do continue
+		rgb: [3]f32
+		cover, n: f32
+		for f in faces_of(s, v) {
+			for k in 0 ..< 3 {
+				c := s.color[m.indices[3 * f + u32(k)]]
+				a := f32(c.a)
+				rgb += {f32(c.r), f32(c.g), f32(c.b)} * a
+				cover += a
+				n += 1
+			}
+		}
+		own := s.color[v]
+		target := [4]f32{f32(own.r), f32(own.g), f32(own.b), f32(own.a)}
+		if cover > 0 do target.rgb = rgb / cover
+		if n > 0 do target.a = cover / n
+		out[v - first] = target
+	}
+}
+
+@(private)
+job_blur_apply :: proc(data: rawptr, i: int) {
+	d := cast(^Dab)data
+	s := d.s
+	m := s.mesh
+	first, last := owned(s, s.hit[i])
+	targets := s.blur_to[s.offsets[i]:]
+	painted: u32
+	for v in first ..< last {
+		delta := m.positions[v] - d.center
+		d2 := linalg.dot(delta, delta)
+		if d2 >= d.r2 do continue
+		w := clamp(d.brush.strength * dab_weight(d, delta, d2), 0, 1) * facing_weight(d, m.normals[:], v) * shield(s.fade, s.mask, v)
+		if w <= 0 do continue
+		c := s.color[v]
+		target := targets[v - first]
+		next: Color
+		for k in 0 ..< 4 do next[k] = paint_toward(c[k], u8(clamp(target[k] + 0.5, 0, 255)), f32(c[k]) + (target[k] - f32(c[k])) * w)
+		if next == c do continue
+		s.color[v] = next
+		painted += 1
+	}
+	s.partials[i].moved = painted
+}
+
+// One colour value moved toward `b`, landing at `x` but at least one step on and never
+// past `b`, so a weak dab still gets there in the end.
+@(private)
+paint_toward :: #force_inline proc(a, b: u8, x: f32) -> u8 {
+	if b > a do return u8(min(f32(b), max(f32(a) + 1, x + 0.5)))
+	if b < a do return u8(max(f32(b), min(f32(a) - 1, x + 0.5)))
+	return a
+}
+
 // Paint laid over a colour with weight `w` (0 to 1), as one layer over another: the
 // coverage grows by `w` of what is left, and the colour is the mix of the new paint and
 // the old as far as each covers, so paint over bare clay is the paint colour from the
 // first touch, with no dark fringe. With `erase`, the coverage shrinks by `w` and the
-// colour stays. Each value moves at least one step toward where it is heading, so a
-// weak dab still gets there in the end.
+// colour stays. Each value moves as paint_toward does.
 @(private)
 paint_mix :: #force_inline proc(c: Color, paint: [3]u8, w: f32, erase: bool) -> Color {
-	toward :: #force_inline proc(a, b: u8, x: f32) -> u8 {
-		if b > a do return u8(min(f32(b), max(f32(a) + 1, x + 0.5)))
-		if b < a do return u8(max(f32(b), min(f32(a) - 1, x + 0.5)))
-		return a
-	}
-	if erase do return {c.r, c.g, c.b, toward(c.a, 0, f32(c.a) * (1 - w))}
+	if erase do return {c.r, c.g, c.b, paint_toward(c.a, 0, f32(c.a) * (1 - w))}
 	old := f32(c.a) * (1.0 / 255) * (1 - w)
 	cover := w + old
 	out: Color
-	for k in 0 ..< 3 do out[k] = toward(c[k], paint[k], (f32(paint[k]) * w + f32(c[k]) * old) / cover)
-	out.a = toward(c.a, 255, 255 * cover)
+	for k in 0 ..< 3 do out[k] = paint_toward(c[k], paint[k], (f32(paint[k]) * w + f32(c[k]) * old) / cover)
+	out.a = paint_toward(c.a, 255, 255 * cover)
 	return out
 }
 

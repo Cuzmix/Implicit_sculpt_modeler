@@ -245,7 +245,12 @@ eraser_mods :: proc(use: Eraser_Use) -> Modifiers {
 pencil_tilt_uikit :: proc(sdl_tilt: [2]f32) -> [2]f32 {
 	azimuth := math.to_radians(90 - sdl_tilt.x)
 	if sdl_tilt.y < 0 do azimuth = -azimuth
-	altitude := math.to_radians(90 - abs(sdl_tilt.y))
+	return pencil_lean_uikit(azimuth, math.to_radians(90 - abs(sdl_tilt.y)))
+}
+
+// The lean of an Apple Pencil from UIKit's azimuth in the view (radians clockwise from the
+// screen's right, as y grows down) and altitude (radians up from the screen).
+pencil_lean_uikit :: proc(azimuth, altitude: f32) -> [2]f32 {
 	// The pen's top, from the tip: across the screen cos(altitude) along the azimuth, and
 	// sin(altitude) out of it.
 	across := math.cos(altitude)

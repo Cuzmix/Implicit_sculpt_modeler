@@ -377,7 +377,6 @@ panel_width :: proc(app: ^App, ref: Panel_Ref) -> f32 {
 	case Kit_Window:
 		#partial switch r {
 		case .Inspector:
-			if app.kit.chrome != .Lens do return tray_width(app)
 			return STACK_STRIP_W if stack_strip_shown(app) else stack_width(&app.kit)
 		case .Stats:     return KIT_STATS_W
 		case .History:   return KIT_HISTORY_MIN_W
@@ -450,10 +449,10 @@ column_shown :: proc(app: ^App, side: Column_Side) -> []Panel_Ref {
 }
 
 // Whether the columns pop over the view rather than stand beside it: a window narrower
-// than the tray's own breakpoint, where a column would cover a third of the view for
+// than COLUMNS_MIN_W, where a column would cover a third of the view for
 // good (the Lens report's "below 1180 pt columns become popovers from the rails").
 columns_narrow :: proc(app: ^App) -> bool {
-	return app.kit.column_popovers && ui.safe_area(&app.kit.ctx).w < TRAY_NAV_MIN_W
+	return app.kit.column_popovers && ui.safe_area(&app.kit.ctx).w < COLUMNS_MIN_W
 }
 
 // Whether column `side` is drawn now: always on a wide window; on a narrow one while it is
@@ -766,13 +765,13 @@ panel_begin :: proc(app: ^App, ref: Panel_Ref, title: string, x, y: ui.Anchor, o
 	return
 }
 
-// In Lens, a panel the pointer passes over during a stroke that began on the viewport
+// A panel the pointer passes over during a stroke that began on the viewport
 // fades to PANEL_FADED until the stroke ends, so the work under it shows; the stroke
 // stays the viewport's all the while. Returns how opaque the panel is now.
 panel_fade :: proc(app: ^App, seen: ^Panel_Seen) -> f32 {
 	k := &app.kit
 	ctx := &k.ctx
-	if k.chrome != .Lens || !ui.viewport_dragging(ctx) || !app.ui.viewport_stroke {
+	if !ui.viewport_dragging(ctx) || !app.ui.viewport_stroke {
 		seen.faded = false
 	} else if !seen.faded && seen.frame >= k.frame - 1 && ui.rect_contains(seen.rect, ctx.input.mouse) {
 		seen.faded = true

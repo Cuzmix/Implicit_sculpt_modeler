@@ -25,8 +25,6 @@ import "../ui"
 THUMBNAIL_EVERY :: 0.1
 // The picture's width in points; its height follows the viewport's shape, within reason.
 THUMBNAIL_W :: 232
-// A maximised view's share of the viewport's width.
-SECOND_MAX_SHARE :: 0.6
 
 // Where the second view looks from. Linked and Mirrored are the main camera itself, so a
 // drag on either turns the main view and every linked view with it; the others are the
@@ -70,7 +68,6 @@ Second_View :: struct {
 	orbit:    camera.Orbit,
 	camera:   Second_Camera,
 	pass:     Second_Pass,
-	max:      bool, // maximised; never kept
 	from:     [2]f32, // where the drag on the picture went down, and where it was last frame
 	last:     [2]f32,
 	dragging: bool, // the drag passed the slop and turns the Free camera
@@ -211,9 +208,6 @@ Picture :: struct {
 	ms:    f64,
 }
 
-@(private = "file")
-ICON_FLIP :: rune(0xe361) // flip-horizontal
-
 picture_destroy :: proc(app: ^App, pic: ^Picture) {
 	render.thumbnail_view_destroy(&app.renderer, &pic.view)
 	render.live_ao_destroy(&app.renderer, &pic.ao)
@@ -272,7 +266,7 @@ thumbnail_frame :: proc(app: ^App, cmd: render.Cmd, draws: []render.Draw_Item) {
 		app.thumbnail.shown, app.thumbnail.due = nil, false
 		return
 	}
-	picture_frame(app, cmd, draws, &k.second, &app.thumbnail, size, 1 if k.second.max else render.THUMBNAIL_SUPERSAMPLE)
+	picture_frame(app, cmd, draws, &k.second, &app.thumbnail, size, render.THUMBNAIL_SUPERSAMPLE)
 }
 
 // What second view `sv`'s picture at `size` and `supersample` shows, as one number (never 0),
@@ -431,87 +425,6 @@ picture_render :: proc(app: ^App, cmd: render.Cmd, pic: ^Picture, view, proj: re
 	_ = render.render_frame(&app.renderer, &pic.path, cmd, &pic.view.target, view, proj, items, changed, samples, bounces, lights, app.studio_softness, app.exposure, app.render_denoise, app.render_half, lens, &app.pool, linear = linear)
 }
 
-// The window: the picture, then the camera and the pass, Flip, Maximise and Close under
-// it. A drag on the picture turns the Free camera and the wheel over it zooms that.
-// Returns true when a press landed on it, to bring it to the front.
-kit_thumbnail :: proc(app: ^App) -> (raised: bool) {
-	k := &app.kit
-	if k.chrome == .Lens do return kit_mini_view(app)
-	ctx := &k.ctx
-	t := ctx.theme
-	sv := &k.second
-	shown := ui.presence(ctx, panel_id(Kit_Window.Thumbnail), k.thumbnail, t.panel_time)
-	k.thumbnail_px = {}
-	if shown <= 0 do return
-	win := &k.windows[.Thumbnail]
-	PADDING :: 10
-	// Maximised only while it floats: a docked column is as wide as its widest panel.
-	_, _, docked := panel_docked(k, Kit_Window.Thumbnail)
-	if docked do sv.max = false
-	area := ui.safe_area(ctx)
-	width: f32 = THUMBNAIL_W
-	if sv.max do width = max(min(area.w * SECOND_MAX_SHARE, area.w - kit_left(app) - kit_right(app) - 2 * PADDING), THUMBNAIL_W)
-	mark := ui.vertex_mark(ctx)
-	p := panel_begin(app, Kit_Window.Thumbnail, "", .Start, .Start, {kit_left(app), points_bottom(app)}, {direction = .Column, gap = 8, padding = PADDING, width = width + 2 * PADDING, radius = t.radius_large, background = .Panel, inert = !k.thumbnail}, card = true)
-	raised = p.raised
-	if p.closed do k.thumbnail = false
-	// Its grip held long is Panel options: it has no title to put the button beside.
-	if p.dock do panel_menu_open(app, Kit_Window.Thumbnail)
-	if !p.body {
-		panel_end(app, &p)
-		ui.transform_since(ctx, mark, shown, 1, {}, {window_slide(ctx, win^, .Start) * (1 - shown) * 16, 0})
-		return
-	}
-	aspect := f32(1.33)
-	if app.target.height > 0 do aspect = clamp(f32(app.target.width) / f32(app.target.height), 0.6, 2)
-	// As tall as the shape asks, within the room under the window's top and its rows.
-	height := width / aspect
-	if sv.max do height = min(height, max(window_room(app, win^, points_bottom(app)) - 3 * t.target - 5 * PADDING, THUMBNAIL_W / aspect))
-	a := ui.area(ctx, "second view picture", {width, height})
-	pic := a.rect
-	d := ctx.input.pixel_density
-	k.thumbnail_px = {u32(pic.w * d + 0.5), u32(pic.h * d + 0.5)}
-	ui.fill_rect(ctx, pic, t.radius_small, t.fill)
-	if app.thumbnail.shown != nil {
-		// Mirrored by reading the texture right to left.
-		lo, hi := [2]f32{0, 0}, [2]f32{1, 1}
-		if k.thumbnail_flip do lo.x, hi.x = 1, 0
-		ui.image_part(ctx, pic, KIT_THUMBNAIL_IMAGE, lo, hi)
-	}
-	// A flipped picture is mirrored left to right, which leaves level lines where they are.
-	if app.thumbnail.shown != nil do kit_guides(app, pic, app.thumbnail.orbit, "thumbnail")
-	second_view_input(app, ctx, k.scale, sv, a)
-	// The camera and the pass side by side, then Flip, Maximise and Close.
-	ui.begin(ctx, "second view choices", {direction = .Row, center = true, gap = 4})
-	// The dot takes its place from the camera's select.
-	dot, ring := second_color(t, sv, 1)
-	camera_dot(ctx, dot, ring)
-	each := (width - 4 - 18) / 2
-	cameras := make([]string, len(Second_Camera), context.temp_allocator)
-	for name, c in SECOND_CAMERA_NAMES do cameras[c] = name
-	if picked := ui.select(ctx, "Second view camera", cameras, int(sv.camera), each); picked >= 0 && Second_Camera(picked) != sv.camera {
-		if Second_Camera(picked) == .Free do second_free(app, sv)
-		else do sv.camera = Second_Camera(picked)
-	}
-	passes := make([]string, len(Second_Pass), context.temp_allocator)
-	for name, kind in SECOND_PASS_NAMES do passes[kind] = name
-	if picked := ui.select(ctx, "Second view shows", passes, int(sv.pass), each); picked >= 0 do sv.pass = Second_Pass(picked)
-	ui.end(ctx)
-	ui.begin(ctx, "thumbnail row", {direction = .Row, center = true, gap = 4})
-	if ui.icon_button(ctx, "Flip left to right", ICON_FLIP, selected = k.thumbnail_flip) do k.thumbnail_flip = !k.thumbnail_flip
-	linked := second_linked(sv)
-	if ui.icon_button(ctx, "Unlink from the main camera" if linked else "Link to the main camera", ICON_LINK, selected = linked) do second_link_toggle(app, sv)
-	if !p.docked {
-		if ui.icon_button(ctx, "Restore" if sv.max else "Maximise", ui.ICON_MINIMISE if sv.max else ui.ICON_RESTORE, selected = sv.max) do sv.max = !sv.max
-		// Floating, Close sits here; docked, the header has it.
-		if ui.icon_button(ctx, "Close", ui.ICON_CLOSE) do k.thumbnail = false
-	}
-	ui.end(ctx)
-	panel_end(app, &p)
-	ui.transform_since(ctx, mark, shown, 1, {}, {window_slide(ctx, win^, .Start) * (1 - shown) * 16, 0})
-	return
-}
-
 // A drag on the picture turns the camera the view sees through once it passes the slop,
 // the way a drag turns the viewport's; the wheel over it zooms it. A linked view turns the
 // main camera, so the main view and the other linked views turn with it (a mirrored one
@@ -545,7 +458,9 @@ second_view_input :: proc(app: ^App, ctx: ^ui.Context, scale: f32, sv: ^Second_V
 			}
 		}
 		sv.last = a.mouse
-	} else {
+	} else if !a.clicked {
+		// The release keeps it for its own frame, so a caller that answers a tap on the
+		// picture (the mini view's swap) does not take the end of a drag for one.
 		sv.dragging = false
 	}
 	if a.hovered && ctx.input.wheel != 0 {

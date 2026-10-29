@@ -10,7 +10,7 @@ import "../sculpt"
 
 // Brush presets: named brushes the user makes, as Nomad's presets and Blender's brush
 // assets are. A preset is a base brush with its own strength, falloff, alpha, stroke kind
-// (with Spray's spread), lazy mouse, Lock plane and Connected, paint colour and cloth
+// (with Spray's spread), lazy mouse and smoothing, Lock plane and Connected, paint colour and cloth
 // mode; size, the pen settings and symmetry stay global, so switching brushes never
 // changes how big the brush is.
 // While the brush is on a preset, the brush's own slots hold the preset's values and the
@@ -40,6 +40,10 @@ Preset_Values :: struct {
 	stroke:      Stroke_Mode,
 	spread:      f32, // Spray's spread (Brush_Settings.spray_spread)
 	lazy_px:     f32,
+	// Brush_Settings.smoothing and pressure_smoothing: 1 (or 0, from a line written
+	// before them) is off.
+	smoothing:          f32,
+	pressure_smoothing: f32,
 	color:       [3]f32,
 	cloth_mode:  sculpt.Cloth_Mode,
 	lock_plane:  bool,
@@ -64,6 +68,7 @@ preset_values_of :: proc(b: ^Brush_Settings, kind: sculpt.Brush_Kind) -> Preset_
 	return {
 		kind = kind, strength = b.strengths[kind], falloff = b.falloffs[kind], alpha = b.alpha, alpha_mode = b.alpha_mode,
 		alpha_angle = b.alpha_angle, stroke = b.stroke, spread = b.spray_spread, lazy_px = b.lazy_px, color = b.color,
+		smoothing = b.smoothing, pressure_smoothing = b.pressure_smoothing,
 		cloth_mode = b.cloth_mode, lock_plane = b.lock_plane, connected = b.connected, grab_depth = b.grab_depth,
 		smooth_only = b.smooth_only,
 	}
@@ -75,6 +80,7 @@ preset_values_put :: proc(b: ^Brush_Settings, v: Preset_Values) {
 	b.strengths[v.kind], b.falloffs[v.kind] = v.strength, v.falloff
 	b.alpha, b.alpha_mode, b.alpha_angle = v.alpha, v.alpha_mode, v.alpha_angle
 	b.stroke, b.spray_spread, b.lazy_px, b.color, b.cloth_mode = v.stroke, v.spread, v.lazy_px, v.color, v.cloth_mode
+	b.smoothing, b.pressure_smoothing = f32(steady_count(v.smoothing)), f32(steady_count(v.pressure_smoothing))
 	b.lock_plane, b.connected = v.lock_plane, v.connected
 	b.grab_depth, b.smooth_only = v.grab_depth, v.smooth_only
 }
@@ -160,6 +166,7 @@ preset_same :: proc(app: ^App, a, b: Preset_Values) -> bool {
 	if a.falloff.drawn && a.falloff.curve != b.falloff.curve do return false
 	if a.falloff.focal != b.falloff.focal do return false
 	if a.stroke != b.stroke || a.lazy_px != b.lazy_px || (a.stroke == .Spray && a.spread != b.spread) do return false
+	if steady_count(a.smoothing) != steady_count(b.smoothing) || steady_count(a.pressure_smoothing) != steady_count(b.pressure_smoothing) do return false
 	if flags & {.Grab, .Cloth} == {} && a.lock_plane != b.lock_plane do return false
 	if .Cloth not_in flags && a.connected != b.connected do return false
 	if .Grab in flags && a.grab_depth != b.grab_depth do return false
@@ -211,8 +218,7 @@ preset_revert :: proc(app: ^App) {
 	if p, ok := brush_preset(app); ok do preset_values_put(&app.brush, p.values)
 }
 
-// Deletes preset `i`, taking the brush off it first when it is on it, and the dock's
-// slots holding it back to its brush.
+// Deletes preset `i`, taking the brush off it first when it is on it.
 preset_delete :: proc(app: ^App, i: int) {
 	if i < 0 || i >= app.preset_count do return
 	b := &app.brush
@@ -221,7 +227,6 @@ preset_delete :: proc(app: ^App, i: int) {
 	app.preset_count -= 1
 	app.presets[app.preset_count] = {}
 	if b.preset > i + 1 && !preset_read_only(b.preset) do b.preset -= 1
-	dock_preset_deleted(app, i)
 }
 
 // The preset named `name` (ignoring case), or -1.
@@ -282,13 +287,14 @@ preset_ref :: proc(app: ^App, n: int) -> string {
 // damaged line.
 // preset <name> <brush> <strength> <drawn 0|1> c1x c1y c2x c2y <alpha|-> <alpha mode>
 //        <alpha angle> <stroke> <lazy px> r g b <cloth mode> [<spread> [<lock plane 0|1>
-//        <connected 0|1> [<focal shift> [<all depth 0|1> <smooth only>]]]]; names escaped
+//        <connected 0|1> [<focal shift> [<all depth 0|1> <smooth only> [<smoothing>
+//        <pressure smoothing>]]]]]; names escaped
 // (preset_escape). Lines from before Spray have no spread and take the default; lines
 // from before Lock plane and Connected have both off; lines from before focal shift have
 // none; lines from before All depth and Smooth only have Grab's round reach and Smooth
-// on everything.
+// on everything; lines from before the stabiliser have it off.
 preset_parse :: proc(f: []string) -> (name: string, v: Preset_Values, alpha: string, ok: bool) {
-	if len(f) != 18 && len(f) != 19 && len(f) != 21 && len(f) != 22 && len(f) != 24 do return
+	if len(f) != 18 && len(f) != 19 && len(f) != 21 && len(f) != 22 && len(f) != 24 && len(f) != 26 do return
 	kind, kind_ok := brush_by_name(f[2])
 	alpha_mode, mode_ok := reflect.enum_from_name(Alpha_Mode, f[10])
 	stroke, stroke_ok := reflect.enum_from_name(Stroke_Mode, f[12])
@@ -310,10 +316,15 @@ preset_parse :: proc(f: []string) -> (name: string, v: Preset_Values, alpha: str
 		lock_plane = len(f) >= 21 && f[19] == "1", connected = len(f) >= 21 && f[20] == "1",
 	}
 	if len(f) >= 22 do v.falloff.focal = clamp(number(f[21], 0), sculpt.FOCAL_MIN, sculpt.FOCAL_MAX)
-	if len(f) == 24 {
+	if len(f) >= 24 {
 		only, only_ok := reflect.enum_from_name(sculpt.Smooth_Only, f[23])
 		if !only_ok do return
 		v.grab_depth, v.smooth_only = f[22] == "1", only
+	}
+	v.smoothing, v.pressure_smoothing = 1, 1
+	if len(f) == 26 {
+		v.smoothing = f32(steady_count(number(f[24], 1)))
+		v.pressure_smoothing = f32(steady_count(number(f[25], 1)))
 	}
 	for k in 0 ..< 3 do v.color[k] = clamp(number(f[14 + k], 0), 0, 1)
 	return preset_unescape(f[1]), v, preset_unescape(f[9]), true
@@ -328,9 +339,11 @@ preset_line :: proc(out: ^strings.Builder, name: string, v: Preset_Values, alpha
 	// Only a preset with a focal shift, All depth or Smooth only has the fields, so the
 	// builds from before them, which skip a line of a length they do not know, keep every
 	// other preset.
-	extra := v.grab_depth || v.smooth_only != .All
+	steady := steady_count(v.smoothing) > 1 || steady_count(v.pressure_smoothing) > 1
+	extra := v.grab_depth || v.smooth_only != .All || steady
 	if v.falloff.focal != 0 || extra do fmt.sbprintf(out, " %g", v.falloff.focal)
 	if extra do fmt.sbprintf(out, " %d %v", bit(v.grab_depth), v.smooth_only)
+	if steady do fmt.sbprintf(out, " %d %d", steady_count(v.smoothing), steady_count(v.pressure_smoothing))
 	strings.write_byte(out, '\n')
 }
 
