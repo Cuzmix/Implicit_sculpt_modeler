@@ -34,11 +34,12 @@ Touch :: struct {
 	pointer:   u64, // the finger that is the pointer: the touch's first...
 	pointing:  bool, // ...until it lifts, or the touch becomes a gesture or is cancelled
 	gesture:   bool, // two or more fingers have been down in this touch
-	palm:      bool, // the touch began with the pen near: one finger does nothing
+	palm:      bool, // the touch began with the pen holding the hand (pen_holds_hand): one finger does nothing
 	tap:       int, // fingers of a tap on the viewport made since last frame, 0 for none
 	cancelled: bool, // the system or the pen cancelled the pointer this frame
 	pen_down:  bool, // the pen's tip is on the screen
 	pen_near:  bool, // the pen is near enough for the screen to see it
+	pen_lifted: Maybe(f64), // input_clock when the pen's tip last lifted
 	// The gesture's running totals, from the touch's first finger down (touch_route).
 	twist:     f32,
 	rolling:   bool, // the twist passed TWIST_DEADZONE: the view rolls with it...
@@ -126,6 +127,7 @@ touch_event :: proc(app: ^App, e: ^sdl.Event, window: ^sdl.Window) {
 		if app.nav.palm_rejection && t.fingers.count > 0 do touch_cancel(app, false)
 	case .PEN_UP:
 		t.pen_down = false
+		t.pen_lifted = input_clock(app)
 	case .FINGER_DOWN, .FINGER_MOTION, .FINGER_UP, .FINGER_CANCELED:
 		f := e.tfinger
 		// Only fingers on a screen: a laptop's touchpad also reports fingers, at positions on
@@ -166,7 +168,7 @@ touch_event :: proc(app: ^App, e: ^sdl.Event, window: ^sdl.Window) {
 			t.focal_held = false
 			t.lift = {}
 			t.hold = {since = now, zoom = 1, done = t.hold.done, ring = -1}
-			t.palm = app.nav.palm_rejection && (t.pen_near || t.pen_down)
+			t.palm = app.nav.palm_rejection && pen_holds_hand(app, now)
 			t.pointing = !t.palm
 			t.pointer = id
 			if t.palm do return
@@ -249,6 +251,36 @@ touch_cancel :: proc(app: ^App, forget: bool) {
 // Seconds on a steady clock, for every timed gesture: taps, holds, the pie's tap. With
 // --ui-dt it is the interface's fixed clock, which moves the same amount each frame, so a
 // scripted finger held N frames is the same gesture however slowly the frames come.
+// Whether the pen is the hand's: a lone finger landing then is that hand's palm, and holds,
+// lift orbits and waiting one-finger taps give way. That is while its tip is on the screen
+// and, where the system leaves palms to the app, all the while it hovers near. iPadOS itself
+// ignores a hand resting on the screen while the Pencil is in use (SYSTEM_PALMS), so there
+// only the tip counts, and the moment after it lifts (PALM_AFTER_LIFT), when the heel of the
+// hand lands as a stroke ends: a Pencil held just above the screen leaves the other hand's
+// finger free to turn the view at once, as in other iPad apps.
+pen_holds_hand :: proc(app: ^App, now: f64) -> bool {
+	t := &app.touch
+	if t.pen_down do return true
+	if !app.pencil.system_palms do return t.pen_near
+	lifted, ok := t.pen_lifted.?
+	return ok && now - lifted < PALM_AFTER_LIFT
+}
+
+// Whether `e` is the pen hovering, as SDL's mouse, while a finger is the pointer: the other
+// hand's pen, where only its tip makes a palm (pen_holds_hand), which moves neither the
+// pointer nor the finger's stroke, so a finger turning the view keeps turning it.
+pen_hover_under_finger :: proc(app: ^App, e: ^sdl.Event) -> bool {
+	return e.type == .MOUSE_MOTION && e.motion.which == sdl.PEN_MOUSEID && app.touch.pointing && !app.touch.pen_down
+}
+
+// Where the system rejects resting palms itself while its pen is in use: an iPad.
+SYSTEM_PALMS :: ODIN_PLATFORM_SUBTARGET_IOS
+
+// Seconds after the pen lifts that a lone finger still counts as the hand's palm where the
+// system rejects palms itself: a heel lands with the stroke's end or just after, while a
+// finger of the other hand reaching to turn the view comes later than that.
+PALM_AFTER_LIFT :: 0.2
+
 input_clock :: proc(app: ^App) -> f64 {
 	if app.kit.fixed_dt > 0 do return app.kit.ctx.time
 	return f64(sdl.GetTicksNS()) / 1e9
@@ -343,11 +375,12 @@ touch_lift_orbit :: proc(app: ^App, input: ^Viewport_Input) -> bool {
 	if !l.decided {
 		l.decided = true
 		still := f.travel <= slop && t.hold.fired == 0
-		l.armed = app.nav.lift_one_orbit && still && !t.palm && !t.pen_near && !t.pen_down
+		l.armed = app.nav.lift_one_orbit && still && !t.palm && !pen_holds_hand(app, input_clock(app))
 		l.from, l.last = viewport_point(app, f.down[0].at), viewport_point(app, f.down[0].at)
 	}
-	// The pen coming near is the hand going back to work: the finger stops turning.
-	if t.pen_near || t.pen_down do l.armed = false
+	// The pen holding the hand again (pen_holds_hand) is the hand going back to work: the
+	// finger stops turning.
+	if pen_holds_hand(app, input_clock(app)) do l.armed = false
 	if !l.armed do return false
 	at := viewport_point(app, f.down[0].at)
 	if !l.moving {
@@ -378,7 +411,7 @@ touch_hold_history :: proc(app: ^App, change: ui.Finger_Change) -> bool {
 	still := f.travel <= slop && abs(math.ln(h.zoom)) < HOLD_ZOOM && abs(h.twist) < HOLD_TWIST
 	slot := gesture_slot(f.most, true)
 	s := app.nav.gestures[slot]
-	if s.id == .None || t.palm || t.pen_near || t.pen_down || h.late || !still {
+	if s.id == .None || t.palm || pen_holds_hand(app, input_clock(app)) || h.late || !still {
 		h.off = true
 		return h.fired > 0
 	}

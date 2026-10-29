@@ -917,10 +917,13 @@ menu_item :: proc(ctx: ^Context, s: string, keys := "", glyph: rune = 0, checked
 	return clicked
 }
 
+// A caption's height, in points: what a panel that sizes itself by its parts counts for one.
+CAPTION_H :: 22
+
 // A small heading over a group in a menu or panel.
 caption :: proc(ctx: ^Context, s: string) {
 	t := ctx.theme
-	r := place(ctx, {max(fill_width(ctx), text_width(ctx, s, t.caption_size, .Semibold)), 22})
+	r := place(ctx, {max(fill_width(ctx), text_width(ctx, s, t.caption_size, .Semibold)), CAPTION_H})
 	text(ctx, s, r.x + 2, r.y + r.h * 0.5 + 2, t.caption_size, t.text_tertiary, .Semibold)
 }
 

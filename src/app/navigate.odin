@@ -554,13 +554,13 @@ pointer_route :: proc(app: ^App, input: ^Viewport_Input) {
 
 // A one-finger tap on empty space waiting to see whether a second makes it a double tap
 // (App.one_tap): it runs its gesture once DOUBLE_TAP_GAP passes, and is dropped when the
-// pen comes near or lands, a palm rests on the screen or more fingers come down, the
-// usual ways a hand touches by accident.
+// pen holds the hand (pen_holds_hand), a palm rests on the screen or more fingers come down,
+// the usual ways a hand touches by accident.
 @(private = "file")
 one_tap_wait :: proc(app: ^App) {
 	if app.one_tap == 0 do return
 	t := &app.touch
-	if t.pen_near || t.pen_down || (t.fingers.count > 0 && (t.palm || t.gesture)) {
+	if pen_holds_hand(app, input_clock(app)) || (t.fingers.count > 0 && (t.palm || t.gesture)) {
 		app.one_tap = 0
 		return
 	}

@@ -234,22 +234,20 @@ case "$mode" in
 		out="$ROOT/build/ios"
 		app="$out/Payload/Sculpt.app"
 		cc=(xcrun -sdk iphoneos clang -target "arm64-apple-ios$IOS_MIN")
-		if [ ! -f "$out/sdl/lib/libSDL3.a" ]; then
-			# CMake's default generator, as SDL's own iOS builds use; an Xcode-generated build's
-			# install is not a path SDL tests.
-			cmake -S "$DEPS/sdl3-src" -B "$out/sdl-build" -DCMAKE_BUILD_TYPE=Release \
-				-DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_ARCHITECTURES=arm64 \
-				-DCMAKE_OSX_DEPLOYMENT_TARGET="$IOS_MIN" -DCMAKE_INSTALL_PREFIX="$out/sdl" \
-				-DSDL_SHARED=OFF -DSDL_STATIC=ON -DSDL_TEST_LIBRARY=OFF -DSDL_TESTS=OFF -DSDL_EXAMPLES=OFF
-			cmake --build "$out/sdl-build" --parallel
-			cmake --install "$out/sdl-build"
-		fi
-		# Every Metal shader through Apple's own compiler once, so a translation error stops the
+		[ -f "$out/sdl/lib/libSDL3.a" ] || "$ROOT/scripts/sdl_ios.sh" "$IOS_MIN" "$DEPS/sdl3-src" "$out"
+		# Every Metal shader through Apple's own compiler, so a translation error stops the
 		# build here rather than on the iPad, where SDL compiles each from source when the app
-		# first makes its pipeline (scripts/shaders_msl.py made them).
+		# first makes its pipeline (scripts/shaders_msl.py made them). A shader whose source and
+		# compiler match those it last passed with (its .sum beside its .air, which the iPad
+		# workflow keeps in its cache) is not checked again.
 		mkdir -p "$out/msl"
+		metal_version=$(xcrun -sdk iphoneos metal --version 2>&1 | head -n 1)
 		for msl in "$ROOT"/src/render/shaders/*.msl; do
-			xcrun -sdk iphoneos metal -x metal -c "$msl" -o "$out/msl/$(basename "$msl" .msl).air"
+			air="$out/msl/$(basename "$msl" .msl)"
+			sum=$({ echo "$metal_version"; cat "$msl"; } | shasum -a 256 | cut -d' ' -f1)
+			if [ -f "$air.air" ] && [ "$(cat "$air.sum" 2> /dev/null)" = "$sum" ]; then continue; fi
+			xcrun -sdk iphoneos metal -x metal -c "$msl" -o "$air.air"
+			echo "$sum" > "$air.sum"
 		done
 		ios_object
 		"${cc[@]}" -O2 -c "$DEPS/odin/vendor/stb/src/stb_truetype.c" -o "$out/stb_truetype.o"
