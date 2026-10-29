@@ -1505,6 +1505,34 @@ def pen_stroke_with_hand_resting():
     return s, [], camera_still({"dabs": lambda v: int(v) > 0, "undo_steps": near(1)})
 
 
+def circle_point(centre, radius, degrees):
+    a = math.radians(degrees)
+    return (round(centre[0] + radius * math.cos(a), 2), round(centre[1] + radius * math.sin(a), 2))
+
+
+@scenario
+def pen_samples_between_frames_follow_the_curve():
+    """A fast pen circle a quarter turn a frame, with three of the pen's samples between frames each frame, as a tablet's bridge sends them (pen_samples.odin): every sample goes in, and the dabs follow the arc (63 of them at 15 px apart) rather than its chords (about 57)."""
+    s = Script()
+    centre, radius = (800, 450), 150
+    s.add("pnear")
+    s.add("ppress:1")
+    s.add(f"pdown:{circle_point(centre, radius, 0)[0]:g},{circle_point(centre, radius, 0)[1]:g}")
+    for quarter in range(1, 5):
+        s.wait(1)
+        for k in range(1, 4):
+            x, y = circle_point(centre, radius, 90 * (quarter - 1) + 22.5 * k)
+            s.add(f"pcoal:{x:g},{y:g}:1")
+        x, y = circle_point(centre, radius, 90 * quarter)
+        s.add(f"pmove:{x:g},{y:g}")
+    s.wait(1)
+    s.add("pup")
+    s.wait(2)
+    s.add("pfar")
+    s.wait(3)
+    return s, [], camera_still({"samples_coalesced": near(12), "samples_frame_max": near(4), "dabs": lambda v: 61 <= int(v) <= 64, "undo_steps": near(1)})
+
+
 @scenario
 def pen_landing_cancels_finger_stroke():
     """A finger stroke under way when the pen lands is taken back, and the pen's own stroke is kept."""

@@ -228,6 +228,8 @@ LEAN_FULL :: 60
 // surface, so a fast stroke follows the pointer and every dab lands on the surface.
 sculpt_frame :: proc(app: ^App, input: Viewport_Input) -> (res: Sculpt_Frame_Result) {
 	app.alpha_roll = input.pen_roll
+	// How many samples a stroke's frames bring, for the exit stats (pen_samples.odin).
+	defer if app.stroke.active do pen_samples_count(app, len(input.samples))
 	if input.size.x <= 0 || input.size.y <= 0 {
 		stroke_finish(app)
 		return

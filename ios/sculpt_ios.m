@@ -10,12 +10,14 @@
  * then for the folder it goes in (starting in the app's own Documents folder, which Files
  * shows as On My iPad > Sculpt), and the app writes there itself.
  *
- * The Apple Pencil's double-tap, squeeze, Pencil-only drawing and haptics follow at the end.
+ * The Apple Pencil's double-tap, squeeze, Pencil-only drawing and haptics follow, and at the
+ * end the Pencil's samples between frames.
  *
  * Built with ARC (-fobjc-arc) by `./build.sh ios`.
  */
 
 #import <UIKit/UIKit.h>
+#import <UIKit/UIGestureRecognizerSubclass.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #include <stdbool.h>
 #include <SDL3/SDL.h>
@@ -420,4 +422,88 @@ void sculpt_ios_haptic(int kind, float x, float y)
 		if (kind == 1) [haptics pathCompletedAtLocation:at];
 		else [haptics alignmentOccurredAtLocation:at];
 	}
+}
+
+/*
+ * The Apple Pencil's samples between frames, which SDL 3.4 leaves out: UIKit gathers the
+ * Pencil's 240 Hz samples of a frame into one touch's coalesced touches, and SDL's view
+ * reads only the touch itself (the newest). A recogniser on SDL's view sees each move
+ * before the view does and sends every coalesced sample but the last, oldest first, as an
+ * SDL user event of the type the app registered (src/app/pen_samples.odin): the offset from
+ * the touch's own place in the view's points in data1, the pressure and the azimuth in the
+ * view (radians) in data2, the altitude's bits in the code. It never recognises anything,
+ * so it neither delays nor cancels a touch SDL's view is given.
+ */
+@interface SculptSamples : UIGestureRecognizer
+@property (nonatomic) Uint32 eventType;
+@end
+
+static SculptSamples *samples;
+
+static void samples_send(Uint32 type, CGPoint offset, float pressure, float azimuth, float altitude)
+{
+	union { float f; Uint32 u; } x = {(float)offset.x}, y = {(float)offset.y}, p = {pressure}, a = {azimuth}, b = {altitude};
+	SDL_Event e;
+	SDL_zero(e);
+	e.type = type;
+	e.user.timestamp = SDL_GetTicksNS();
+	e.user.data1 = (void *)(uintptr_t)((Uint64)x.u | (Uint64)y.u << 32);
+	e.user.data2 = (void *)(uintptr_t)((Uint64)p.u | (Uint64)a.u << 32);
+	e.user.code = (Sint32)b.u;
+	SDL_PushEvent(&e);
+}
+
+/* Once every touch is up, the recogniser fails, which resets it for the next touches;
+ * while another finger stays down it keeps watching the pencil. */
+static bool all_touches_over(UIEvent *event)
+{
+	for (UITouch *touch in event.allTouches) {
+		if (touch.phase != UITouchPhaseEnded && touch.phase != UITouchPhaseCancelled) return false;
+	}
+	return true;
+}
+
+@implementation SculptSamples
+
+- (void)touchesMoved:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event
+{
+	UIView *view = self.view;
+	for (UITouch *touch in touches) {
+		if (touch.type != UITouchTypePencil) continue;
+		/* Measured as SDL's view measures the touch it reports. */
+		CGPoint now = [touch locationInView:view];
+		NSArray<UITouch *> *all = [event coalescedTouchesForTouch:touch];
+		for (NSUInteger i = 0; i + 1 < all.count; i++) {
+			UITouch *c = all[i];
+			CGPoint at = [c locationInView:view];
+			float pressure = c.maximumPossibleForce > 0 ? (float)(c.force / c.maximumPossibleForce) : -1.0f;
+			samples_send(self.eventType, CGPointMake(at.x - now.x, at.y - now.y), pressure, (float)[c azimuthAngleInView:view], (float)c.altitudeAngle);
+		}
+	}
+}
+
+- (void)touchesEnded:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event
+{
+	if (all_touches_over(event)) self.state = UIGestureRecognizerStateFailed;
+}
+
+- (void)touchesCancelled:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event
+{
+	if (all_touches_over(event)) self.state = UIGestureRecognizerStateFailed;
+}
+
+@end
+
+void sculpt_ios_samples_start(SDL_Window *window, Uint32 event_type)
+{
+	SDL_PropertiesID props = SDL_GetWindowProperties(window);
+	UIWindow *uiwindow = (__bridge UIWindow *)SDL_GetPointerProperty(props, SDL_PROP_WINDOW_UIKIT_WINDOW_POINTER, NULL);
+	UIView *view = uiwindow.rootViewController.view;
+	if (!view || event_type == 0) return;
+	samples = [[SculptSamples alloc] initWithTarget:nil action:nil];
+	samples.eventType = event_type;
+	samples.cancelsTouchesInView = NO;
+	samples.delaysTouchesBegan = NO;
+	samples.delaysTouchesEnded = NO;
+	[view addGestureRecognizer:samples];
 }
