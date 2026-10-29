@@ -21,6 +21,10 @@ Brush_Settings :: struct {
 	pressure_size:     bool, // pen pressure scales the radius
 	pressure_curve:    geom.Curve, // what each pen pressure counts as (geom.curve_at)
 	tilt_strength:     f32, // 0 to 1: how far a leaning pen turns the brush (camera.orbit_tilt)
+	// 0 to 1 each: how much a pen laid down toward the paper grows the brush (up to twice
+	// its size) and lightens it (down to nothing), as a pencil's side shades wide and soft.
+	tilt_size:         f32,
+	tilt_soften:       f32,
 	lazy_px:           f32,  // lazy mouse: the brush trails the cursor by this many pixels; 0 is off
 	front_only:        bool, // brushes and mask shapes leave what faces away from the viewer (sculpt.Brush.facing)
 	lock_plane:        bool, // keep the plane the stroke's first dab found (sculpt.Brush.lock_plane)
@@ -214,6 +218,9 @@ MAX_DABS_PER_FRAME :: 64 // the rest of the path waits for the next frame
 MAX_BRUSH_MS_PER_FRAME :: 10
 MAX_PENDING_SAMPLES :: 4096 // beyond this a lagging stroke drops its oldest samples
 MIN_PRESSURE_SIZE :: 0.05 // smallest share of the radius pen pressure can shrink it to
+// The lean from upright, in degrees, at which the tilt's size and softening are full: a
+// pencil shades with its side at about this.
+LEAN_FULL :: 60
 
 // Turns this frame's pointer samples into brush dabs. A stroke sculpts the object it
 // started on, which becomes the selected object. Dabs are laid along the path the
@@ -437,7 +444,7 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 	case .Roll:
 		// The first image waits until the pointer has gone a radius, so the stroke has a
 		// direction for its top and the tape starts where the press was.
-		st.travel = brush_radius_px(app, s.pressure)
+		st.travel = brush_radius_px(app, s.pressure, s.tilt)
 		return
 	case .Spray:
 		spray_dab(app, obj, input, inv, s.pos, s.pressure, s.tilt, res)
@@ -627,7 +634,7 @@ stroke_walk :: proc(app: ^App, obj: ^Object, input: Viewport_Input, inv: matrix[
 		l := linalg.length(d)
 		// Pressure can shrink the spacing below what has been travelled already; the
 		// dab then goes where the stroke is.
-		need := max(stroke_spacing(app, st.mode) * brush_radius_px(app, st.pressure), MIN_DAB_SPACING_PX) - st.travel
+		need := max(stroke_spacing(app, st.mode) * brush_radius_px(app, st.pressure, st.tilt), MIN_DAB_SPACING_PX) - st.travel
 		if l > 0 do st.dir = d / l
 		if l < need {
 			st.travel += l
@@ -753,7 +760,7 @@ stroke_restart :: proc(app: ^App, obj: ^Object, input: Viewport_Input, inv: matr
 		return
 	}
 	switch st.mode {
-	case .Roll:  st.travel = brush_radius_px(app, pressure)
+	case .Roll:  st.travel = brush_radius_px(app, pressure, tilt)
 	case .Spray: spray_dab(app, obj, input, inv, pos, pressure, tilt, res)
 	case .Dots, .Drag_Rect, .Drag_Dot: stroke_dab(app, obj, input, inv, pos, pressure, tilt, res)
 	}
@@ -801,7 +808,7 @@ spray_dab :: proc(app: ^App, obj: ^Object, input: Viewport_Input, inv: matrix[4,
 	step := st.step
 	st.step += 1
 	// Uniform over the disc: the square root keeps the middle from crowding.
-	r := app.brush.spray_spread * brush_radius_px(app, pressure) * math.sqrt(stroke_random(st.seed, step, 0))
+	r := app.brush.spray_spread * brush_radius_px(app, pressure, tilt) * math.sqrt(stroke_random(st.seed, step, 0))
 	a := 2 * math.PI * stroke_random(st.seed, step, 1)
 	scatter := Dab_Scatter {
 		size     = 1 - (1 - SPRAY_SIZE_LOW) * stroke_random(st.seed, step, 2),
@@ -887,6 +894,7 @@ brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pres
 	// the rail's Mask masks at the Mask brush's.
 	strength := app.brush.strengths[kind]
 	if app.brush.pressure_strength do strength *= pressure_curved(app, pressure)
+	strength *= 1 - app.brush.tilt_soften * lean_of(tilt)
 	strength *= app.stroke.scale
 	turn: matrix[3, 3]f32
 	if app.brush.tilt_strength > 0 && tilt != {} {
@@ -903,14 +911,14 @@ brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pres
 	sym := brush_symmetry(app, selected_object(app))
 	return sculpt.Brush {
 		kind     = kind,
-		radius   = brush_radius_px(app, pressure) * world_per_px / t.scale,
+		radius   = brush_radius_px(app, pressure, tilt) * world_per_px / t.scale,
 		strength = strength,
 		invert   = input.invert,
 		symmetry = sym.symmetry,
 		radial   = sym.radial,
 		radial_axis = sym.radial_axis,
 		sym_center = sym.sym_center,
-		detail   = app.brush.detail_px / brush_radius_px(app, pressure),
+		detail   = app.brush.detail_px / brush_radius_px(app, pressure, tilt),
 		collapse = app.brush.collapse,
 		tilt     = turn,
 		alpha    = alpha,
@@ -941,9 +949,21 @@ brush_falloff :: proc(app: ^App, kind: sculpt.Brush_Kind) -> ^sculpt.Falloff {
 	return &table.falloff
 }
 
-brush_radius_px :: proc(app: ^App, pressure: f32) -> f32 {
-	if !app.brush.pressure_size do return app.brush.radius_px
-	return app.brush.radius_px * max(pressure_curved(app, pressure), MIN_PRESSURE_SIZE)
+brush_radius_px :: proc(app: ^App, pressure: f32, tilt: [2]f32) -> f32 {
+	r := app.brush.radius_px * (1 + app.brush.tilt_size * lean_of(tilt))
+	if !app.brush.pressure_size do return r
+	return r * max(pressure_curved(app, pressure), MIN_PRESSURE_SIZE)
+}
+
+// How far a pen leaning `tilt` (degrees across and down, as SDL reports it) is laid
+// toward the paper: 0 upright, 1 from LEAN_FULL degrees off upright on.
+lean_of :: proc(tilt: [2]f32) -> f32 {
+	if tilt == {} do return 0
+	// The pen's top, from its tip: across and down by the tangents of the two tilts, and one
+	// up; its angle from upright.
+	t := [2]f32{math.tan(math.to_radians(clamp(tilt.x, -89, 89))), math.tan(math.to_radians(clamp(tilt.y, -89, 89)))}
+	off := math.to_degrees(math.atan(linalg.length(t)))
+	return clamp(off / LEAN_FULL, 0, 1)
 }
 
 // What a pen pressure counts as, through the pressure curve. A mouse's 1 stays 1.
