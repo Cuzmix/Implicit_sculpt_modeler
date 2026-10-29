@@ -542,3 +542,138 @@ clean_keeps_each_kept_vertex_its_colour :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(m.positions), 4)
 	testing.expect(t, slice.equal(colors[:], []Vertex_Color{{0, 0, 0, 255}, {1, 0, 0, 255}, {2, 0, 0, 255}, {5, 0, 0, 255}}), "colours follow")
 }
+
+@(test)
+obj_parts_follow_o_and_g_lines :: proc(t: ^testing.T) {
+	// Two objects sharing no vertices, the second named twice; groups in the first.
+	text := "o Head\nv 0 0 0 1 0 0\nv 1 0 0 1 0 0\nv 0 1 0 1 0 0\nv 1 1 0 1 0 0\n" +
+		"g skin\nf 1 2 3\ng lips\nf 2 4 3\n" +
+		"o Eye\nv 5 0 0 0 0 1\nv 6 0 0 0 0 1\nv 5 1 0 0 0 1\nf 5 6 7\n" +
+		"o Head\nv 0 0 1 1 0 0\nf 1 2 8\n"
+	parts := make([dynamic]Mesh_Part)
+	defer mesh_parts_destroy(&parts)
+	err, _ := mesh_read_obj_parts(&parts, text_bytes(text), nil)
+	testing.expect_value(t, err, Mesh_File_Error.None)
+	testing.expect_value(t, len(parts), 2)
+	if len(parts) != 2 do return
+	testing.expect_value(t, parts[0].name, "Head")
+	testing.expect_value(t, len(parts[0].mesh.positions), 5)
+	testing.expect_value(t, len(parts[0].mesh.indices), 9)
+	testing.expect(t, slice.equal(parts[0].groups[:], []u16{1, 2, 2}), "Head's groups: skin, lips, and lips still for the later face")
+	testing.expect_value(t, parts[0].colors[0], Vertex_Color{255, 0, 0, 255})
+	testing.expect_value(t, parts[1].name, "Eye")
+	testing.expect_value(t, len(parts[1].mesh.positions), 3)
+	testing.expect_value(t, len(parts[1].groups), 0)
+	testing.expect_value(t, parts[1].colors[2], Vertex_Color{0, 0, 255, 255})
+	testing.expect_value(t, parts[1].mesh.positions[0], Vec3{5, 0, 0})
+
+	// One `o` line, as Blender always writes, keeps the mesh whole and takes its name.
+	clear_parts(&parts)
+	_, _ = mesh_read_obj_parts(&parts, text_bytes("o Rock\nv 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n"), nil)
+	testing.expect_value(t, len(parts), 1)
+	if len(parts) == 1 do testing.expect_value(t, parts[0].name, "Rock")
+
+	clear_parts :: proc(parts: ^[dynamic]Mesh_Part) {
+		for &p in parts do mesh_part_destroy(&p)
+		clear(parts)
+	}
+}
+
+@(test)
+obj_parts_are_the_same_in_any_chunks_and_threads :: proc(t: ^testing.T) {
+	pool: jobs.Pool
+	jobs.pool_init(&pool, 3)
+	defer jobs.pool_destroy(&pool)
+	sphere := icosphere(3)
+	defer mesh_destroy(&sphere)
+	// The sphere's triangles in four objects and seven groups, labels mid-list.
+	text := make([dynamic]u8)
+	defer delete(text)
+	tmp: [32]u8
+	for p in sphere.positions {
+		append(&text, 'v')
+		for x in p {
+			append(&text, ' ')
+			append(&text, ..tmp[:format_f32(tmp[:], x)])
+		}
+		append(&text, '\n')
+	}
+	for tri in 0 ..< len(sphere.indices) / 3 {
+		if tri % 97 == 0 do append(&text, ..transmute([]u8)fmt_label('o', tri / 97 % 4, tmp[:]))
+		if tri % 31 == 0 do append(&text, ..transmute([]u8)fmt_label('g', tri / 31 % 7, tmp[:]))
+		append(&text, 'f')
+		for c in 0 ..< 3 {
+			append(&text, ' ')
+			append(&text, ..tmp[:format_u32(tmp[:], sphere.indices[3 * tri + c] + 1)])
+		}
+		append(&text, '\n')
+	}
+	whole := make([dynamic]Mesh_Part)
+	defer mesh_parts_destroy(&whole)
+	_, _ = mesh_read_obj_parts(&whole, text[:], nil)
+	testing.expect_value(t, len(whole), 4)
+	for chunk in ([]int{97, 1000, 4096}) {
+		parts := make([dynamic]Mesh_Part)
+		defer mesh_parts_destroy(&parts)
+		_, _ = mesh_read_obj_parts(&parts, text[:], &pool, chunk)
+		testing.expect_value(t, len(parts), len(whole))
+		if len(parts) != len(whole) do continue
+		for p, k in parts {
+			expect_same_mesh(t, whole[k].mesh, p.mesh)
+			testing.expect(t, slice.equal(whole[k].groups[:], p.groups[:]), "groups")
+			testing.expect_value(t, p.name, whole[k].name)
+		}
+	}
+
+	fmt_label :: proc(kind: u8, k: int, tmp: []u8) -> string {
+		tmp[0], tmp[1], tmp[2], tmp[3] = kind, ' ', 'n', u8('0' + k)
+		tmp[4] = '\n'
+		return string(tmp[:5])
+	}
+}
+
+@(test)
+clean_keeps_each_kept_triangle_its_group :: proc(t: ^testing.T) {
+	m: Mesh
+	defer mesh_destroy(&m)
+	append(&m.positions, Vec3{0, 0, 0}, Vec3{1, 0, 0}, Vec3{0, 1, 0}, Vec3{1, 1, 0})
+	append(&m.indices, 0, 1, 2, 1, 1, 2, 1, 3, 2)
+	resize(&m.normals, len(m.positions))
+	groups := make([dynamic]u16)
+	defer delete(groups)
+	append(&groups, 4, 5, 6)
+	_, err := mesh_clean(&m, nil, nil, &groups)
+	testing.expect_value(t, err, Mesh_File_Error.None)
+	testing.expect(t, slice.equal(groups[:], []u16{4, 6}), "the repeated corner's group goes with it")
+}
+
+@(test)
+parts_size_together_and_keep_a_shared_symmetry_plane :: proc(t: ^testing.T) {
+	// A body across x = 0 and an eye off to +x: sized as one, the body keeps x = 0 as its
+	// middle, the eye turns about its own.
+	parts := make([dynamic]Mesh_Part)
+	defer mesh_parts_destroy(&parts)
+	body, eye := icosphere(2), icosphere(1)
+	for &p in body.positions do p = p * 4 + {0, 2, 0}
+	for &p in eye.positions do p = p + {3, 6, 0}
+	append(&parts, Mesh_Part{mesh = body}, Mesh_Part{mesh = eye})
+	center, radius, middles := mesh_parts_normalize(parts[:], nil)
+	defer delete(middles)
+	testing.expect_value(t, middles[0].x, 0)
+	testing.expectf(t, abs(middles[1].x - 3 / radius) < 1e-5, "eye middle %v", middles[1])
+	// Every part goes back where its file had it.
+	back := center + radius * (middles[1] + parts[1].mesh.positions[0])
+	testing.expectf(t, linalg_length(back - (icosphere_first(1) + {3, 6, 0})) < 1e-4, "eye back at %v", back)
+
+	mesh_parts_merge(&parts)
+	testing.expect_value(t, len(parts), 1)
+	testing.expect_value(t, len(parts[0].groups), len(parts[0].mesh.indices) / 3)
+	testing.expect_value(t, parts[0].groups[len(parts[0].groups) - 1], 2)
+
+	icosphere_first :: proc(n: int) -> Vec3 {
+		m := icosphere(n)
+		defer mesh_destroy(&m)
+		return m.positions[0]
+	}
+	linalg_length :: proc(v: Vec3) -> f32 {return math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z)}
+}

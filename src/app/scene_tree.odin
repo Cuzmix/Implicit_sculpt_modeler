@@ -548,7 +548,7 @@ layout_apply :: proc(app: ^App, l: ^Scene_Layout) {
 
 // Lists the tree's change since `before` (from layout_take) as the newest undo step, or
 // with `chain` as part of the newest; false, freeing `before`, when nothing changed.
-history_record_arrange :: proc(app: ^App, before: ^Scene_Layout, what: string) -> bool {
+history_record_arrange :: proc(app: ^App, before: ^Scene_Layout, what: string, chain := false) -> bool {
 	after := layout_take(app)
 	if layout_same(before, after) {
 		layout_free(before)
@@ -557,7 +557,7 @@ history_record_arrange :: proc(app: ^App, before: ^Scene_Layout, what: string) -
 	}
 	step := new(Arrange_Step)
 	step^ = {before, after}
-	history_push(app, History_Entry{kind = .Arrange, what = what, at = time.tick_now(), arrange = step})
+	history_push(app, History_Entry{kind = .Arrange, what = what, at = time.tick_now(), arrange = step, chain = chain && len(app.history.done) > 0})
 	return true
 }
 

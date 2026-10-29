@@ -597,6 +597,8 @@ Kit_Event_Kind :: enum u8 {
 	// The on-screen keyboard put away by the system's own key, as an iPad's SDL reports it:
 	// SDL_EVENT_SCREEN_KEYBOARD_HIDDEN, with text input left on.
 	Keyboard_Hidden,
+	// A file dropped on the window from the desktop, its path in `key`.
+	Drop_File,
 }
 
 // Reads --ui-events. Returns false, after saying why, when the list is malformed.
@@ -678,6 +680,13 @@ kit_events_parse :: proc(app: ^App, spec: string) -> bool {
 				case "pdist":   ev.kind = .Pen_Distance
 				case:           ev.kind = .Pen_Roll
 				}
+			case "drop":
+				// Everything after the kind, so a Windows path's drive colon stays.
+				raw := strings.trim_space(item)
+				rest := raw[min(len(parts[0]) + len(":drop:"), len(raw)):]
+				ok = len(parts) >= 3 && rest != ""
+				if ok do ev.key = strings.clone(rest)
+				ev.kind = .Drop_File
 			case "text":
 				// Everything after the kind, colons and spaces too (from the untrimmed item).
 				raw := strings.trim_left_space(item)
@@ -840,6 +849,10 @@ kit_events_push :: proc(app: ^App, window: ^sdl.Window) {
 			}
 		case .Keyboard_Hidden:
 			e.common = {type = .SCREEN_KEYBOARD_HIDDEN, timestamp = now}
+			push(e)
+		case .Drop_File:
+			// Read in this frame, before temp memory is freed.
+			e.drop = {type = .DROP_FILE, timestamp = now, windowID = win, x = at.x, y = at.y, data = strings.clone_to_cstring(ev.key, context.temp_allocator)}
 			push(e)
 		case .Pencil_Only:
 			// The iPad's setting as the bridge reads it, which no SDL event carries.

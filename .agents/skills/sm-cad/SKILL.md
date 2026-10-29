@@ -22,7 +22,12 @@ description: CAD-style mesh tools inside this app on geom.Mesh — primitives, b
   by the bytes for an Android content:// URI; `export_check.py FILE.stl` checks the layout and Blender's import), an
   import cleanup (`mesh_clean`, `mesh_normalize`, `mesh_edges`, `mesh_flip`), vertex colours in (`colors:
   ^[dynamic]geom.Vertex_Color` on the OBJ and PLY readers and `mesh_clean`, which carries them through the weld; the app
-  hands them to `object_build_from` as `Surface.color` via `mesh_import_surface`), and the native `.sculpt` scene (`scene_save`/`scene_open`, levels through
+  hands them to `object_build_from` as `Surface.color`), several meshes a file (`geom.Mesh_Part`: mesh, colours,
+  groups; `mesh_read_obj_parts` splits by `o` through `mesh_split` and groups by `g`, `mesh_read_gltf` in
+  `geom/gltf_read.odin` makes a part per placed mesh; `mesh_parts_normalize` sizes them together and centres each per
+  axis as `mesh_normalize` does; past `MESH_PARTS_MAX` `mesh_parts_merge` makes one with a group a part; the app's
+  `mesh_file_parse` cleans each part and `import_add_parts` makes an object each in a folder, one undo step: chained
+  swaps, then `history_record_arrange(chain = true)` with the layout taken before the folder), and the native `.sculpt` scene (`scene_save`/`scene_open`, levels through
   `sculpt.levels_write`/`levels_read`). `Object.file` keeps where an import was in its file, for export. A new
   per-object field that should survive a save goes in both `scene_save` and `scene_open` with a `SCENE_VERSION` bump,
   and `scene_open` must keep reading the older versions. Every file action ends in one `file_note`. Since v22 the
