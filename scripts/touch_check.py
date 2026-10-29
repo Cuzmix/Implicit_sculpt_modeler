@@ -7175,6 +7175,38 @@ def pencil_double_tap_over_empty_space_frames():
                   (model, [], camera_still({"rail_latched": is_text("smooth")}))])
 
 
+def pen_grab_with_roll(roll):
+    """The pen pressing the model with Grab, dragging 60 points right, then turning `roll`
+    degrees clockwise in steps while it holds still, and lifting."""
+    s = Script()
+    s.add("pnear")
+    s.add(f"pmove:{PEN_MODEL_POINT[0]:g},{PEN_MODEL_POINT[1]:g}")
+    s.add("proll:0")
+    s.wait(2)
+    s.add(f"pdown:{PEN_MODEL_POINT[0]:g},{PEN_MODEL_POINT[1]:g}")
+    for x, y in line(PEN_MODEL_POINT, (PEN_MODEL_POINT[0] + 60, PEN_MODEL_POINT[1]), 12)[1:]:
+        s.wait(1)
+        s.add(f"pmove:{x:g},{y:g}")
+    for deg in range(10, roll + 1, 10):
+        s.wait(1)
+        s.add(f"proll:{deg}")
+    s.wait(2)
+    s.add("pup")
+    s.wait(4)
+    return s
+
+
+@scenario
+def pen_roll_while_grabbing_twists_what_it_holds():
+    """Grab dragging with the pen turned 90 degrees clockwise twists what it holds (Nomad's Move): the surface ends elsewhere than the same drag with Roll while grabbing off, the view does not move, and the drag and its twist are one undo step."""
+    seen = {}
+    return Steps([
+        (pen_grab_with_roll(90), ["--script=brush grab"], camera_still({"undo_steps": near(1), "pen_rolls": near(0),
+                                                                        "mesh_sum": lambda v: seen.setdefault("twisted", float(v)) is not None})),
+        (pen_grab_with_roll(90), ["--script=brush grab; set pen_grab_twist off"], camera_still({"undo_steps": near(1),
+                                                                        "mesh_sum": lambda v: abs(float(v) - seen["twisted"]) > 1e-3}))])
+
+
 def pen_away(s, frames):
     """The pen stops reporting, as an iPad's Pencil taken away does, with no pfar."""
     s.wait(frames)

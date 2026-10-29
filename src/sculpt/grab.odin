@@ -30,6 +30,23 @@ Grab :: struct {
 	// Under dynamic topology: the detail size of the brush that pressed (Brush.detail of
 	// its radius), which sculptor_grab_refine splits what the drag stretched down to.
 	detail:     f32,
+	// For a twist (Grab_Twist), per grabbed vertex: the image of the brush that weighs on
+	// it most and that weight (a scalar, as the falloff gives it); per image: where it
+	// pressed and its turn.
+	image:      [dynamic]u16,
+	weight:     [dynamic]f32,
+	centers:    [dynamic]Vec3,
+	turns:      [dynamic]matrix[3, 3]f32,
+}
+
+// A turn of what a grab holds about the way the view looks, as Nomad's Move turns with the
+// Pencil Pro's roll: `angle` radians about `axis` (unit length, the mesh's space) through
+// where the grab pressed, carried along with the drag, each vertex turned by its weight,
+// so the middle turns fully and the edge of the brush not at all. A mirror image of the
+// brush turns its vertices the mirrored way, a radial copy its own turned way.
+Grab_Twist :: struct {
+	axis:  Vec3,
+	angle: f32,
 }
 
 @(private)
@@ -37,6 +54,10 @@ Grab_Job :: struct {
 	s:       ^Sculptor,
 	centers: [dynamic; SYM_IMAGES_MAX]Vec3,
 	turns:   [dynamic; SYM_IMAGES_MAX]matrix[3, 3]f32,
+	// A twist's axis and angle for each image (turned as the image is, the angle the other
+	// way for a mirror image); empty without one.
+	twist_axes:   [dynamic; SYM_IMAGES_MAX]Vec3,
+	twist_angles: [dynamic; SYM_IMAGES_MAX]f32,
 	r2:      f32,
 	inv_r2:  f32,
 	offset:  Vec3,
@@ -102,6 +123,10 @@ sculptor_grab_begin :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
 	}
 	slice.sort(g.leaves[:])
 	resize(&g.leaves, len(slice.unique(g.leaves[:])))
+	clear(&g.centers)
+	clear(&g.turns)
+	append(&g.centers, ..j.centers[:])
+	append(&g.turns, ..j.turns[:])
 	n := len(g.leaves)
 	resize(&g.touched, n)
 	resize(&g.first, n + 1)
@@ -132,11 +157,14 @@ sculptor_grab_begin :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
 		g := &j.s.grab
 		first, last := owned(j.s, g.leaves[i])
 		count: u32
-		for v in first ..< last do count += u32(grab_follow(j, v) != 0)
+		for v in first ..< last {
+			f, _, _ := grab_follow(j, v)
+			count += u32(f != 0)
+		}
 		g.first[i + 1] = count
 		touched := false
 		for v in shared_of(j.s, g.leaves[i]) {
-			if grab_follow(j, v) != 0 {
+			if f, _, _ := grab_follow(j, v); f != 0 {
 				touched = true
 				break
 			}
@@ -150,15 +178,18 @@ sculptor_grab_begin :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
 	resize(&g.start, total)
 	resize(&g.follow, total)
 	resize(&g.normals, total if g.silhouette else 0)
+	resize(&g.image, total)
+	resize(&g.weight, total)
 	jobs.parallel_for(pool, n, &j, proc(data: rawptr, i: int) {
 		j := cast(^Grab_Job)data
 		g := &j.s.grab
 		first, last := owned(j.s, g.leaves[i])
 		k := g.first[i]
 		for v in first ..< last {
-			f := grab_follow(j, v)
+			f, image, weight := grab_follow(j, v)
 			if f == 0 do continue
 			g.verts[k], g.start[k], g.follow[k] = v, j.s.mesh.positions[v], f
+			g.image[k], g.weight[k] = u16(image), weight
 			if g.silhouette do g.normals[k] = j.s.mesh.normals[v]
 			k += 1
 		}
@@ -167,9 +198,10 @@ sculptor_grab_begin :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
 }
 
 // Moves the grabbed vertices to where they started plus `offset` (in the mesh's
-// space) times their weight. Returns how many vertices moved. Like apply_dab, it
-// leaves positions and BVH bounds current and normals to sculptor_flush.
-sculptor_grab_move :: proc(s: ^Sculptor, offset: Vec3) -> int {
+// space) times their weight, then turns them by `twist` (none by default). Returns how
+// many vertices moved. Like apply_dab, it leaves positions and BVH bounds current and
+// normals to sculptor_flush.
+sculptor_grab_move :: proc(s: ^Sculptor, offset: Vec3, twist := Grab_Twist{}) -> int {
 	g := &s.grab
 	n := len(g.leaves)
 	if n == 0 || len(g.first) != n + 1 do return 0
@@ -178,6 +210,14 @@ sculptor_grab_move :: proc(s: ^Sculptor, offset: Vec3) -> int {
 	resize(&s.partials, n)
 	slice.zero(s.partials[:])
 	j := Grab_Job{s = s, offset = offset}
+	if twist.angle != 0 && twist.axis != {} && len(g.weight) == len(g.verts) {
+		for turn, k in g.turns {
+			// A turn conjugated by a mirror runs the other way round the mirrored axis.
+			append(&j.twist_axes, turn * twist.axis)
+			append(&j.twist_angles, twist.angle if linalg.determinant(turn) > 0 else -twist.angle)
+			append(&j.centers, g.centers[k] + turn * offset)
+		}
+	}
 	if g.silhouette {
 		// Blender's Grab silhouette: the drag's way out of the surface, so pulling an edge
 		// outward leaves the side facing back, and pushing it in the side facing out.
@@ -197,7 +237,14 @@ sculptor_grab_move :: proc(s: ^Sculptor, offset: Vec3) -> int {
 				m.positions[g.verts[k]] = g.start[k]
 				continue
 			}
-			m.positions[g.verts[k]] = g.start[k] + g.follow[k] * j.offset
+			p := g.start[k] + g.follow[k] * j.offset
+			if len(j.twist_angles) > 0 {
+				// About the image's press, carried by the drag as its middle is.
+				img := g.image[k]
+				c := j.centers[img]
+				p = c + linalg.matrix3_rotate_f32(j.twist_angles[img] * g.weight[k], j.twist_axes[img]) * (p - c)
+			}
+			m.positions[g.verts[k]] = p
 		}
 		first, last := owned(s, g.leaves[i])
 		bounds := geom.AABB_EMPTY
@@ -217,6 +264,10 @@ sculptor_grab_end :: proc(s: ^Sculptor) {
 	clear(&g.start)
 	clear(&g.follow)
 	clear(&g.normals)
+	clear(&g.image)
+	clear(&g.weight)
+	clear(&g.centers)
+	clear(&g.turns)
 	g.normal, g.silhouette, g.detail = {}, false, 0
 }
 
@@ -290,17 +341,24 @@ sculptor_nearest_to_line :: proc(s: ^Sculptor, origin, dir: Vec3, radius: f32) -
 }
 
 // How vertex v takes the offset: its weight under each image of the brush times that
-// image's turn, summed. Zero outside every image.
+// image's turn, summed. Zero outside every image. Also the image that weighs on it most
+// and that weight (shielded too), which a twist turns it by; Elastic's weight is how much
+// of the drag the Kelvinlet passes on there, a third of its trace.
 @(private)
-grab_follow :: #force_inline proc(j: ^Grab_Job, v: u32) -> (f: matrix[3, 3]f32) {
+grab_follow :: #force_inline proc(j: ^Grab_Job, v: u32) -> (f: matrix[3, 3]f32, image: int, weight: f32) {
 	p := j.s.mesh.positions[v]
 	if j.elastic {
 		for c, k in j.centers {
 			r := p - c
 			if linalg.dot(r, r) >= j.r2 do continue
-			f += kelvinlet_follow(&j.kelvin, r) * j.turns[k]
+			follow := kelvinlet_follow(&j.kelvin, r)
+			f += follow * j.turns[k]
+			if w := (follow[0, 0] + follow[1, 1] + follow[2, 2]) / 3; w > weight do image, weight = k, w
 		}
-		if f != 0 do f = mat_scaled(f, shield(j.s.fade, j.s.mask, v))
+		if f != 0 {
+			shielded := shield(j.s.fade, j.s.mask, v)
+			f, weight = mat_scaled(f, shielded), clamp(weight, 0, 1) * shielded
+		}
 		return
 	}
 	for c, k in j.centers {
@@ -320,9 +378,14 @@ grab_follow :: #force_inline proc(j: ^Grab_Job, v: u32) -> (f: matrix[3, 3]f32) 
 		// Same side: a vertex facing away from the surface pressed (the far side of a thin
 		// part) is not picked up, as Nomad's Move keeps to.
 		if len(j.sides) > 0 && linalg.dot(j.s.mesh.normals[v], j.sides[k]) <= 0 do continue
-		f += mat_scaled(j.turns[k], falloff_drawn(j.shape, d2 * j.inv_r2) if j.shape != nil else falloff(d2 * j.inv_r2))
+		w := falloff_drawn(j.shape, d2 * j.inv_r2) if j.shape != nil else falloff(d2 * j.inv_r2)
+		f += mat_scaled(j.turns[k], w)
+		if w > weight do image, weight = k, w
 	}
-	if f != 0 do f = mat_scaled(f, shield(j.s.fade, j.s.mask, v))
+	if f != 0 {
+		shielded := shield(j.s.fade, j.s.mask, v)
+		f, weight = mat_scaled(f, shielded), weight * shielded
+	}
 	return
 }
 
@@ -365,6 +428,10 @@ grab_init :: proc(g: ^Grab, allocator := context.allocator) {
 	g.start = make([dynamic]Vec3, 0, 1024, allocator)
 	g.follow = make([dynamic]matrix[3, 3]f32, 0, 1024, allocator)
 	g.normals = make([dynamic]Vec3, 0, 0, allocator)
+	g.image = make([dynamic]u16, 0, 1024, allocator)
+	g.weight = make([dynamic]f32, 0, 1024, allocator)
+	g.centers = make([dynamic]Vec3, 0, 8, allocator)
+	g.turns = make([dynamic]matrix[3, 3]f32, 0, 8, allocator)
 }
 
 @(private)
@@ -376,5 +443,9 @@ grab_destroy :: proc(g: ^Grab) {
 	delete(g.start)
 	delete(g.follow)
 	delete(g.normals)
+	delete(g.image)
+	delete(g.weight)
+	delete(g.centers)
+	delete(g.turns)
 	g^ = {}
 }
