@@ -252,7 +252,7 @@ STROKES_MAGIC :: "SCSTROKE"
 // its falloff's Hardness and shape after those; 27: its No back and forth, Directional,
 // Size fixed in the scene and the world size of a pixel after those; 28: Clay strips' tip,
 // Trim dynamic's angle and switch and Flatten's plane height and depth after those.
-STROKES_VERSION :: u32(29)
+STROKES_VERSION :: u32(30)
 
 strokes_save :: proc(app: ^App, path: string) -> bool {
 	t := replay_source(app)
@@ -571,6 +571,9 @@ strokes_read :: proc(app: ^App, data: []u8, t: ^Take) -> bool {
 		// Grab left Connected alone before version 11, so a Grab stroke recorded with it
 		// on replays as it was drawn.
 		if version < 11 && b.kind == .Grab do b.connected = false
+		// Before version 30 Grab and Elastic moved as far as the pointer whatever their
+		// Strength, so a stroke recorded then replays at the Strength that moves so.
+		if version < 30 && .Grab in BRUSHES[b.kind].flags do b.strengths[b.kind] = GRAB_STRENGTH_EXACT
 		append(&t.brushes, b)
 		append(&t.seeds, seed)
 		append(&t.scales, scale)

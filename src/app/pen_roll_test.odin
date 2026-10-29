@@ -80,7 +80,21 @@ pencil_gestures_follow_where_the_pen_points :: proc(t: ^testing.T) {
 	testing.expect_value(t, pencil_slot_here(&app, .Pen_Squeeze), Gesture_Slot.Pen_Squeeze_Empty)
 	testing.expect_value(t, pencil_slot_here(&app, .Pen_Button_2), Gesture_Slot.Pen_Button_2)
 	testing.expect_value(t, app.nav.gestures[.Pen_Double_Tap_Empty], Pie_Slot{.Frame_All, 0})
-	// A brush whose alpha turns with the pen keeps the roll over the model.
+	// With no alpha turning with the pen, the roll over the model twists the view.
 	testing.expect_value(t, pen_roll_action(&app, .Model), Roll_Action.Twist)
 	free_all(context.temp_allocator)
+}
+
+// While grabbing, the pen's roll turns what is held once it passed ui.ROLL_ENGAGE, the
+// short way round where its numbers wrap; with Roll while grabbing off it turns nothing.
+@(test)
+grab_twist_counts_past_the_engage :: proc(t: ^testing.T) {
+	app: App
+	app.nav = NAV_DEFAULT
+	app.stroke.grab_roll = 170
+	testing.expect_value(t, grab_twist_angle(&app, 178), 0)
+	got := grab_twist_angle(&app, -160)
+	testing.expectf(t, abs(got - math.to_radians(f32(20))) < 1e-5, "turned %v", got)
+	app.nav.grab_twist = false
+	testing.expect_value(t, grab_twist_angle(&app, -150), 0)
 }

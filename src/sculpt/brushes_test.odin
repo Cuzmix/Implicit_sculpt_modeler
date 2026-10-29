@@ -998,3 +998,58 @@ nearest_to_line_finds_the_silhouette :: proc(t: ^testing.T) {
 	_, far := sculptor_nearest_to_line(&sp.sculptor, {1.3, 0, 3}, {0, 0, -1}, 0.1)
 	testing.expect(t, !far)
 }
+
+// A grab's twist turns what it holds about where it took hold, by each vertex's weight:
+// the vertex at the press stays, one near it turns nearly the whole way, and with X
+// symmetry the mirror image turns the mirrored way.
+@(test)
+grab_twist_turns_the_mirrored_way :: proc(t: ^testing.T) {
+	sp := sphere_make(5)
+	defer sphere_free(sp)
+	s := &sp.sculptor
+	sculptor_stroke_begin(s)
+	center := linalg.normalize(Vec3{0.5, 0, 0.86})
+	held := sculptor_grab_begin(s, {kind = .Grab, radius = 0.4, strength = 1, symmetry = {.X}}, center)
+	testing.expect(t, held > 0, "grab held nothing")
+	_ = sculptor_grab_move(s, {}, {axis = -linalg.normalize(center), angle = math.PI / 4})
+	at := nearest(sp.before, center)
+	// The vertex nearest the press is a little off it: it moves no further than an eighth
+	// of a turn about the press would take it.
+	off := linalg.length(sp.before[at] - center)
+	testing.expectf(t, linalg.length(sp.mesh.positions[at] - sp.before[at]) <= 0.8 * off + 1e-4, "the vertex %v from the press moved %v", off, sp.mesh.positions[at] - sp.before[at])
+	side := nearest(sp.before, linalg.normalize(center + {0, 0.08, 0}))
+	mirror := nearest(sp.before, sp.before[side] * Vec3{-1, 1, 1})
+	step := sp.mesh.positions[side] - sp.before[side]
+	mstep := sp.mesh.positions[mirror] - sp.before[mirror]
+	testing.expectf(t, linalg.length(step) > 0.02, "the vertex beside the press moved only %v", step)
+	testing.expectf(t, linalg.length(mstep - step * Vec3{-1, 1, 1}) < 1e-3, "the mirror image moved %v for %v", mstep, step)
+	for p, i in sp.mesh.positions {
+		if linalg.length(sp.before[i] - center) >= 0.4 && linalg.length(sp.before[i] - center * Vec3{-1, 1, 1}) >= 0.4 do testing.expect_value(t, p, sp.before[i])
+	}
+	sculptor_grab_end(s)
+	testing.expect(t, sculptor_stroke_end(s), "the twist was not an undo step")
+	testing.expect(t, sculptor_undo(s), "undo failed")
+	for p, i in sp.mesh.positions do testing.expect_value(t, p, sp.before[i])
+}
+
+// A twisting grab gives the same mesh on worker threads as on one.
+@(test)
+grab_twist_parallel_matches_serial :: proc(t: ^testing.T) {
+	pool: jobs.Pool
+	jobs.pool_init(&pool, 3)
+	defer jobs.pool_destroy(&pool)
+	run :: proc(pool: ^jobs.Pool) -> []Vec3 {
+		sp := sphere_make(6, pool)
+		defer sphere_free(sp)
+		s := &sp.sculptor
+		sculptor_stroke_begin(s)
+		_ = sculptor_grab_begin(s, {kind = .Grab, radius = 0.6, strength = 1, symmetry = {.X}, radial = 3, radial_axis = .Y}, linalg.normalize(Vec3{0.3, 0.2, 1}))
+		for k in 1 ..= 3 do _ = sculptor_grab_move(s, {0.02, 0.05, 0} * f32(k), {axis = {0, 0, -1}, angle = 0.3 * f32(k)})
+		sculptor_grab_end(s)
+		_ = sculptor_stroke_end(s)
+		_ = sculptor_flush(s)
+		return slice.clone(sp.mesh.positions[:], context.temp_allocator)
+	}
+	serial, parallel := run(nil), run(&pool)
+	testing.expect(t, slice.equal(serial, parallel), "a parallel twist differs from a serial one")
+}
