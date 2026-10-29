@@ -1284,6 +1284,17 @@ def move_topological_preset_grabs_along_the_surface():
 
 
 @scenario
+def elastic_pulls_like_rubber():
+    """Elastic dragged up and out from the sphere's front is one undo step, the press
+    following the pointer and the surround sliding after it well past the ring (look with
+    --screens: a broad smooth shift of the surface, no edge where the ring was)."""
+    s = Script()
+    s.mouse_drag(line((800, 450), (880, 380), 8))
+    s.wait(2)
+    return s, ["--script=brush elastic"], camera_still({"dabs": lambda v: int(v) > 3, "undo_steps": near(1), "brush_kind": is_text("elastic")})
+
+
+@scenario
 def predicted_ring_leads_a_fast_pen():
     """A pen stroke at 16 px a frame, still moving when the run ends (its last moves go
     past the frames the script waits for, into the ten the run adds): the brush ring is

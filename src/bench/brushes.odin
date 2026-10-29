@@ -15,7 +15,8 @@ import "../sculpt"
 // over a half-masked sphere and Draw with the Noise alpha (whose square reaches past the
 // round brush). Grab picks up the brush area at the first point and is dragged along the rest of the
 // path, one move per frame as the app does; once more with its falloff along the surface, and a
-// line after the table gives each press's time, which finds that falloff. Each stroke is undone before the next, so
+// line after the table gives each press's time, which finds that falloff; and Elastic, dragged as
+// Grab is. Each stroke is undone before the next, so
 // they all start from the same sphere.
 brushes_header :: proc() {
 	fmt.println("| Vertices | Brush | Verts/dab | Dab ms | Normals ms/frame | Frame ms | Frame ms max | Undo MB/stroke |")
@@ -59,6 +60,7 @@ run_brushes :: proc(target: int, pool: ^jobs.Pool) {
 		{"Crease", .Crease, {}, false, false, false, false, false},
 		{"Grab", .Grab, {}, false, false, false, false, false},
 		{"Grab, topological", .Grab, {}, false, false, false, false, true},
+		{"Elastic", .Elastic, {}, false, false, false, false, false},
 		{"Mask", .Mask, {}, false, false, false, false, false},
 		{"Layer", .Layer, {}, false, false, false, false, false},
 		{"Layer, second stroke", .Layer, {}, false, false, false, false, false},
@@ -93,7 +95,7 @@ run_brushes :: proc(target: int, pool: ^jobs.Pool) {
 		if c.kind == .Morph do _ = sculpt.sculptor_morph_store(s)
 		defer if c.kind == .Morph do sculpt.sculptor_morph_clear(s)
 		// Symmetry feathers as the app's brushes do by default.
-		brush := sculpt.Brush{kind = c.kind, radius = radius, strength = 0.3, symmetry = c.symmetry, color = {200, 60, 30}, feather = c.symmetry != {}, topological = c.topological}
+		brush := sculpt.Brush{kind = c.kind, radius = radius, strength = 0.3, symmetry = c.symmetry, color = {200, 60, 30}, feather = c.symmetry != {}, topological = c.topological, volume = 0.8}
 		dabs, per_frame := DABS, DABS_PER_FRAME
 		if c.closer {
 			dabs, per_frame = DABS * 5 / 4, DABS_PER_FRAME * 5 / 4
@@ -117,12 +119,12 @@ run_brushes :: proc(target: int, pool: ^jobs.Pool) {
 			if !ok do hit = target_point
 			f := i / per_frame
 			tb := time.tick_now()
-			if c.kind == .Grab {
+			if (c.kind == .Grab || c.kind == .Elastic) {
 				// Picked up at the first point, then one move per frame to the latest point.
 				if i == 0 {
 					touched = sculpt.sculptor_grab_begin(s, brush, hit)
 					anchor = hit
-					press_ms[int(c.topological)] = time.duration_milliseconds(time.tick_since(tb))
+					if c.kind == .Grab do press_ms[int(c.topological)] = time.duration_milliseconds(time.tick_since(tb))
 				} else if i % per_frame == per_frame - 1 || i == dabs - 1 {
 					_ = sculpt.sculptor_grab_move(s, 0.3 * (target_point - anchor))
 				}
@@ -170,7 +172,7 @@ run_brushes :: proc(target: int, pool: ^jobs.Pool) {
 		}
 		dab_ms := median(dab)
 		per_dab := touched / dabs
-		if c.kind == .Grab {
+		if (c.kind == .Grab || c.kind == .Elastic) {
 			// One move a frame: report a move's time and the vertices it carries.
 			moves := make([dynamic]f64, 0, frames, context.temp_allocator)
 			for i in 1 ..< dabs do if i % per_frame == per_frame - 1 || i == dabs - 1 do append(&moves, dab[i])

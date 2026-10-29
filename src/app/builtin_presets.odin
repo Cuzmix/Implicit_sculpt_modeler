@@ -54,7 +54,7 @@ built_in_preset :: proc(j: int) -> Brush_Preset {
 		values = {
 			kind = r.kind, strength = r.strength, falloff = {focal = r.focal}, alpha = -1, stroke = .Dots,
 			spread = SPRAY_DEFAULT_SPREAD, smoothing = 1, pressure_smoothing = 1, color = {1, 1, 1}, lock_plane = r.lock_plane, connected = r.connected,
-			grab_depth = r.grab_depth, smooth_only = r.smooth_only, grab_topological = r.topological,
+			grab_depth = r.grab_depth, smooth_only = r.smooth_only, grab_topological = r.topological, elastic_volume = ELASTIC_VOLUME_DEFAULT,
 		},
 	}
 	if shape, ok := r.alpha.?; ok do p.values.alpha = int(shape)

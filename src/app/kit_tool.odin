@@ -140,7 +140,8 @@ kit_brush_options :: proc(app: ^App) {
 	_ = ui.switch_row(ctx, "Lock plane", &b.lock_plane, locks, keys = command_hint(app, .Lock_Plane))
 	// All depth reaches past what Connected's flood keeps to, so on Grab it wins; so does
 	// Topological, which reaches only what is joined anyway.
-	_ = ui.switch_row(ctx, "Connected only", &b.connected, .Cloth not_in flags && !(b.kind == .Grab && (b.grab_depth || b.grab_topological)), keys = command_hint(app, .Connected))
+	// Elastic moves the solid round the press, joined or not.
+	_ = ui.switch_row(ctx, "Connected only", &b.connected, .Cloth not_in flags && b.kind != .Elastic && !(b.kind == .Grab && (b.grab_depth || b.grab_topological)), keys = command_hint(app, .Connected))
 	if b.kind == .Grab {
 		_ = ui.switch_row(ctx, "All depth", &b.grab_depth)
 		// Which way the drag moves it: Shift mid-grab takes Along normal and Alt Along
@@ -154,6 +155,11 @@ kit_brush_options :: proc(app: ^App) {
 			ui.paragraph(ctx, "Free moves what Grab holds as the pointer goes; Along normal pulls it out along the surface's normal where it was pressed (Shift mid-grab), toward where that normal points on screen; Along surface slides it across the surface (Alt mid-grab). Normal weight moves a Free drag that much along the normal instead. Same side picks up only what faces the way the pressed surface does, never the far side of a thin part. Silhouette moves only what faces the way it is dragged, so pulling an edge out leaves the side behind it. Grab takes hold from just past the model's edge too, at the nearest point within the brush ring. Topological measures the falloff along the surface from the press, so it never reaches a part that only lies near, and bends round a fold.")
 			kit_more_end(app)
 		}
+	}
+	if b.kind == .Elastic {
+		if picked := ui.tabs(ctx, "grab moves", {"Free", "Along normal", "Along surface"}, int(b.grab_mode)); picked >= 0 do b.grab_mode = Grab_Mode(picked)
+		_ = ui.slider(ctx, "Volume", &b.elastic_volume, 0, 1, .Linear, fmt.tprintf("%.0f%%", b.elastic_volume * 100))
+		ui.paragraph(ctx, "Elastic drags what is under the brush as a block of rubber pulled at that point would move: the part pulled keeps its shape and the rest stretches after it smoothly, out to three times the brush ring. Volume is how much of its volume the rubber keeps: at 100% the sides thin as it stretches, at 0% they stay put. Shift and Alt mid-drag work as Grab's.")
 	}
 	if b.kind == .Smooth {
 		if picked := ui.tabs(ctx, "smooth only", {"All", "Valleys", "Peaks"}, int(b.smooth_only)); picked >= 0 do b.smooth_only = sculpt.Smooth_Only(picked)
@@ -334,6 +340,11 @@ kit_stabiliser :: proc(app: ^App, full: bool) {
 @(private = "file")
 kit_falloff :: proc(app: ^App) {
 	ctx := &app.kit.ctx
+	// Elastic's falloff is how the rubber stretches, which Volume shapes, not a curve.
+	if app.brush.kind == .Elastic {
+		ui.paragraph(ctx, "Elastic has no falloff curve: how far the pull reaches and how it fades is how rubber stretches, which the brush's size and Volume (under Options) decide.")
+		return
+	}
 	shape := &app.brush.falloffs[app.brush.kind]
 	smooth :: proc(x: f32) -> f32 {
 		// The built-in falloff over how far in from the rim, as the curve is read.
