@@ -598,7 +598,7 @@ lens_stroke_preview :: proc(ctx: ^ui.Context, r: ui.Rect, it: Brush_Item, app: ^
 	case .Draw, .Morph, .History: shape, width = .Arc, 0.2
 	case .Inflate:                shape, width = .Arc, 0.34
 	case .Smooth:                 shape, width = .Flat, 0.28
-	case .Flatten, .Layer:        shape, width = .Flat, 0.22
+	case .Flatten, .Layer, .Clay_Strips, .Trim_Dynamic: shape, width = .Flat, 0.22
 	case .Pinch:                  shape, width = .Vee, 0.09
 	case .Crease:                 shape, width = .Vee, 0.07
 	case .Grab, .Snake_Hook, .Elastic: shape, width = .Hook, 0.18

@@ -73,7 +73,7 @@ connected_free :: proc(s: ^Sculptor) {
 // area normal for their direction or plane. Any kind with an alpha lays the image on it.
 brush_locks_plane :: #force_inline proc(kind: Brush_Kind, alpha: bool) -> bool {
 	#partial switch kind {
-	case .Draw, .Clay, .Flatten, .Pinch, .Crease: return true
+	case .Draw, .Clay, .Flatten, .Pinch, .Crease, .Clay_Strips, .Trim_Dynamic: return true
 	}
 	return alpha
 }

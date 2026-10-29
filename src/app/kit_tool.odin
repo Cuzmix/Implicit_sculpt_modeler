@@ -172,6 +172,22 @@ kit_brush_options :: proc(app: ^App) {
 		_ = ui.slider(ctx, "Volume", &b.elastic_volume, 0, 1, .Linear, fmt.tprintf("%.0f%%", b.elastic_volume * 100))
 		ui.paragraph(ctx, "Elastic drags what is under the brush as a block of rubber pulled at that point would move: the part pulled keeps its shape and the rest stretches after it smoothly, out to three times the brush ring. Volume is how much of its volume the rubber keeps: at 100% the sides thin as it stretches, at 0% they stay put. Shift and Alt mid-drag work as Grab's.")
 	}
+	if b.kind == .Clay_Strips {
+		_ = ui.slider(ctx, "Tip roundness", &b.tip_roundness, 0, 1, .Linear, fmt.tprintf("%.0f%%", b.tip_roundness * 100))
+		_ = ui.slider(ctx, "Tip scale", &b.tip_scale, sculpt.CLAY_TIP_SCALE_MIN, 1, .Linear, fmt.tprintf("%.0f%%", b.tip_scale * 100))
+		ui.paragraph(ctx, "Clay strips lays flat-topped strips with square ends that turn along the stroke, as ZBrush's ClayBuildup. Tip roundness rounds the square's corners, from a hard square to a disc; Tip scale shortens the tip along the stroke for thinner strips.")
+	}
+	if b.kind == .Trim_Dynamic {
+		_ = ui.switch_row(ctx, "Dynamic angle", &b.trim_dynamic)
+		_ = ui.slider(ctx, "Angle", &b.trim_angle, 0, math.to_degrees(f32(sculpt.TRIM_ANGLE_MAX)), .Linear, fmt.tprintf("%.0f°", b.trim_angle), enabled = !b.trim_dynamic)
+		ui.paragraph(ctx, "Trim dynamic cuts what is under it into two flat planes meeting along the stroke, as ZBrush's TrimDynamic and Blender's Multiplane scrape: drawn along a rounded edge it makes it a crisp one. Dynamic angle reads the angle from the two sides as it goes and leaves hollows alone; off, Angle sets it. Ctrl turns the planes the other way, cutting a valley.")
+	}
+	if b.kind == .Flatten {
+		height, depth := b.plane_height * 100, b.plane_depth * 100
+		if ui.slider(ctx, "Plane height", &height, 0, 100, .Linear, fmt.tprintf("%.0f%%", height)) do b.plane_height = math.round(height) / 100
+		if ui.slider(ctx, "Plane depth", &depth, 0, 100, .Linear, fmt.tprintf("%.0f%%", depth)) do b.plane_depth = math.round(depth) / 100
+		ui.paragraph(ctx, "Plane height and depth are how far above and below its plane Flatten reaches, as a share of the radius: height 0 only fills the dips (the Fill preset), depth 0 only scrapes the bumps (the Scrape preset).")
+	}
 	if b.kind == .Smooth {
 		// In the order a person reaches for them; the enum keeps Smooth all's order.
 		modes := [3]sculpt.Smooth_Mode{.Smooth, .Relax, .Polish}
