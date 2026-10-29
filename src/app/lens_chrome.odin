@@ -33,23 +33,73 @@ LENS_CHIP_H :: 32
 MINI_W :: 168
 MINI_H :: 200
 
-// The off-hand island: Size and Strength as tall sliders that a thumb drags without
-// looking, each moving its value by how far the drag goes. A long press (or a right-click)
-// on either opens the pen's section beside it. The pen held over either without touching
-// and turned about its own length on purpose sets it too (ui.hover_roll).
+// The off-hand island: a bar of the brush's values and any command (Bar_Which.Offhand),
+// at first Size and Strength as tall sliders that a thumb drags without looking, each
+// moving its value by how far the drag goes. A long press (or a right-click) on a value
+// opens its menu (brush_values.odin). The pen held over Size or Strength without touching
+// and turned about its own length on purpose sets it too (island_roll,
+// ui.hover_roll). A window too short for every
+// slider shows the last ones as chips.
 kit_offhand :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
+	used := bar_used(app, .Offhand)
+	if len(used) == 0 && !k.bars_edit do return
+	sliders := 0
+	tall: f32 = 2 * 6
+	for s, i in used {
+		_, value := value_of(s)
+		switch {
+		case !value: tall += t.target
+		case bar_look(k, .Offhand, i) == .Slider: tall += OFFHAND_TRACK + 80; sliders += 1
+		case bar_look(k, .Offhand, i) == .Chip: tall += VALUE_CHIP.y
+		case: tall += t.target
+		}
+		tall += 6
+	}
+	area := ui.safe_area(ctx)
+	room := area.h - points_bottom(app) - t.edge - dock_stack(app) - 16
+	for sliders > 0 && tall > room {
+		tall -= OFFHAND_TRACK + 80 - VALUE_CHIP.y
+		sliders -= 1
+	}
 	ui.begin_anchored(ctx, "brush bar", .Start, .Start, {LENS_EDGE, brush_bar_top(app)}, {direction = .Column, gap = 6, padding = 6, radius = t.radius_large, background = .Panel, center = true})
-	_ = ui.vslider(ctx, "Size##island", &app.brush.radius_px, MIN_RADIUS_PX, MAX_RADIUS_PX, .Logarithmic, fmt.tprintf("%.0f", app.brush.radius_px), keys = slider_hint(app, "S, [ ]", .Size_Up), track = OFFHAND_TRACK, roll = false)
-	if roll := island_roll(ctx); roll != 0 do app.brush.radius_px = clamp(app.brush.radius_px * math.pow(2, roll * ROLL_POINTS / ROLL_SIZE_DOUBLE), MIN_RADIUS_PX, MAX_RADIUS_PX)
-	if ui.secondary(ctx) do bar_pop_toggle(app, .Section, ctx.last_rect, .Right, .Pen)
-	strength := brush_strength(app)
-	_ = ui.vslider(ctx, "Strength##island", strength, MIN_STRENGTH, 1, .Linear, fmt.tprintf("%.2f", strength^), keys = slider_hint(app, "U, Shift+[ ]", .Strength_Up), track = OFFHAND_TRACK, roll = false)
-	if roll := island_roll(ctx); roll != 0 do strength^ = clamp(strength^ + roll * ROLL_POINTS / ROLL_STRENGTH_FULL, MIN_STRENGTH, 1)
-	if ui.secondary(ctx) do bar_pop_toggle(app, .Section, ctx.last_rect, .Right, .Pen)
+	for s, i in used {
+		v, value := value_of(s)
+		switch {
+		case !value:
+			bar_slot_button(app, .Offhand, i, s)
+		case bar_look(k, .Offhand, i) == .Slider && sliders > 0 && !k.bars_edit:
+			offhand_slider(app, i, v)
+			sliders -= 1
+		case:
+			value_item(app, .Offhand, i, v)
+		}
+	}
+	if k.bars_edit do bar_add_button(app, .Offhand, len(used))
 	ui.end(ctx)
+}
+
+// Value `v` in slot `slot` of the island as a tall slider. Size and Strength keep the
+// names, keys and pen roll they always had.
+@(private = "file")
+offhand_slider :: proc(app: ^App, slot: int, v: Brush_Value) {
+	ctx := &app.kit.ctx
+	#partial switch v {
+	case .Size:
+		_ = ui.vslider(ctx, "Size##island", &app.brush.radius_px, MIN_RADIUS_PX, MAX_RADIUS_PX, .Logarithmic, fmt.tprintf("%.0f", app.brush.radius_px), keys = slider_hint(app, "S, [ ]", .Size_Up), track = OFFHAND_TRACK, roll = false)
+		if roll := island_roll(ctx); roll != 0 do app.brush.radius_px = clamp(app.brush.radius_px * math.pow(2, roll * ROLL_POINTS / ROLL_SIZE_DOUBLE), MIN_RADIUS_PX, MAX_RADIUS_PX)
+	case .Strength:
+		strength := brush_strength(app)
+		_ = ui.vslider(ctx, "Strength##island", strength, MIN_STRENGTH, 1, .Linear, fmt.tprintf("%.2f", strength^), keys = slider_hint(app, "U, Shift+[ ]", .Strength_Up), track = OFFHAND_TRACK, roll = false)
+		if roll := island_roll(ctx); roll != 0 do strength^ = clamp(strength^ + roll * ROLL_POINTS / ROLL_STRENGTH_FULL, MIN_STRENGTH, 1)
+	case:
+		lo, hi, scale := value_range(v)
+		x := value_get(app, v)
+		if ui.vslider(ctx, fmt.tprintf("%s##island %d", BRUSH_VALUE_NAMES[v], slot), &x, lo, hi, scale, value_short(app, v), keys = command_hint(app, .Brush_Value, int(v)), track = OFFHAND_TRACK) && value_enabled(app, v) do value_set(app, v, x)
+	}
+	if ui.secondary(ctx) do value_menu_open(app, .Offhand, slot, v, ctx.last_rect, .Right)
 }
 
 // A size or strength slider's tooltip: its keys, and the three-finger drag when that is on.

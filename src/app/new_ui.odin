@@ -99,6 +99,12 @@ Kit_State :: struct {
 	view_rail:  Bar_List, // the view rail's (lens_chrome.odin)
 	shelf:      Shelf, // the shelf along the bottom (lens_shelf.odin)
 	brush_pie:  Bar_List, // the brush pie's eight slots (pie.odin)
+	offhand:    Bar_List, // the off-hand island's values and commands (lens_chrome.odin)
+	// For the exit stats: value popovers opened and value chips scrubbed, and the chip
+	// being scrubbed, so a scrub counts once (brush_values.odin).
+	value_pops:      int,
+	value_scrubs:    int,
+	value_scrubbing: ui.Id,
 	pie_quicks: int, // quick settings opened by resting on the brush pie, for the exit stats
 	stack:      Lens_Stack, // the tray, as a stack of cards (lens_stack.odin)
 	new_panes:  New_Panes, // what a pane a view layout adds starts as (lens_panes.odin)
