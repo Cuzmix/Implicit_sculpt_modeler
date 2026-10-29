@@ -206,7 +206,9 @@ Tone :: enum u8 {
 // gesture) hovering it or a long press shows them in a tooltip. With `icon_only` the
 // button shows its icon alone, larger, and the label only in its tooltip, as a tile in a
 // grid of them. Returns true when clicked.
-button :: proc(ctx: ^Context, s: string, variant := Variant.Flat, tone := Tone.Neutral, width: f32 = 0, glyph: rune = 0, enabled := true, keys := "", icon_only := false) -> bool {
+// A disabled button with a `reason` still takes hovers and presses, never running, so
+// its tooltip (a long press for a finger or the pen) says why it is dimmed.
+button :: proc(ctx: ^Context, s: string, variant := Variant.Flat, tone := Tone.Neutral, width: f32 = 0, glyph: rune = 0, enabled := true, keys := "", icon_only := false, reason := "") -> bool {
 	ctx.controls += 1
 	t := ctx.theme
 	shown := label_text(s)
@@ -241,6 +243,7 @@ button :: proc(ctx: ^Context, s: string, variant := Variant.Flat, tone := Tone.N
 	id := id_of(ctx, s)
 	hovered, held, clicked := false, false, false
 	if enabled do hovered, held, clicked, _ = interact(ctx, id, cell)
+	else if reason != "" do _, _, _, _ = interact(ctx, id, cell)
 	mark := vertex_mark(ctx)
 	if bg.a > 0 do fill_rect(ctx, vis, t.radius_medium, bg)
 	if variant == .Bordered do stroke_rect(ctx, vis, t.radius_medium, t.border_strong, 1)
@@ -256,7 +259,8 @@ button :: proc(ctx: ^Context, s: string, variant := Variant.Flat, tone := Tone.N
 		text(ctx, shown, x, vis.y + vis.h * 0.5, t.text_size, fg, .Semibold)
 	}
 	press_scale(ctx, mark, vis, scale)
-	if keys != "" || icon_only do tip(ctx, id, vis, shown, keys)
+	if !enabled && reason != "" do tip(ctx, id, vis, shown, reason)
+	else if keys != "" || icon_only do tip(ctx, id, vis, shown, keys)
 	return clicked
 }
 
@@ -930,7 +934,7 @@ thumb_row :: proc(ctx: ^Context, s: string, parts: Thumb_Row, selected := false,
 // it. Returns true when picked.
 // `tag`, when given, is a small pill at the right end in `tag_color` (where the row
 // belongs, say), in place of the shortcut.
-menu_item :: proc(ctx: ^Context, s: string, keys := "", glyph: rune = 0, checked := false, tone := Tone.Neutral, enabled := true, highlight := false, hint := "", starred := false, keys_accent := false, keys_muted := false, trailing := false, tag := "", tag_color: Color = {}) -> bool {
+menu_item :: proc(ctx: ^Context, s: string, keys := "", glyph: rune = 0, checked := false, tone := Tone.Neutral, enabled := true, highlight := false, hint := "", starred := false, keys_accent := false, keys_muted := false, trailing := false, tag := "", tag_color: Color = {}, reason := "") -> bool {
 	ctx.controls += 1
 	t := ctx.theme
 	shown := label_text(s)
@@ -941,6 +945,7 @@ menu_item :: proc(ctx: ^Context, s: string, keys := "", glyph: rune = 0, checked
 	id := id_of(ctx, s)
 	hovered, held, clicked := false, false, false
 	if enabled do hovered, held, clicked, _ = interact(ctx, id, hit_area(ctx, cell))
+	else if reason != "" do _, _, _, _ = interact(ctx, id, hit_area(ctx, cell))
 	// `highlight` is the keyboard's pick (the palette's Up and Down), shown as a hover.
 	_ = feedback(ctx, id, vis, t.radius_small + 2, hovered || highlight, held)
 	fg := t.danger if tone == .Danger else t.text
@@ -971,7 +976,9 @@ menu_item :: proc(ctx: ^Context, s: string, keys := "", glyph: rune = 0, checked
 		color := t.accent if keys_accent else (color_fade(t.text_tertiary, 0.6) if keys_muted else t.text_tertiary)
 		text(ctx, keys, right, vis.y + vis.h * 0.5, t.small_size, color, .Semibold if keys_accent else .Regular, .Right)
 	}
-	if hint != "" do tip(ctx, id, vis, shown, hint)
+	// A dimmed row with a `reason` says it, as a dimmed button does.
+	if !enabled && reason != "" do tip(ctx, id, vis, shown, reason)
+	else if hint != "" do tip(ctx, id, vis, shown, hint)
 	return clicked
 }
 

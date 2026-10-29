@@ -115,6 +115,10 @@ top_object_chip :: proc(app: ^App, c: Object_Chip, fit: Object_Chip_Fit) {
 	lit := k.object_menu && obj != nil && k.object_menu_id == obj.id
 	if a.held do ui.fill_rect(ctx, pill, t.radius_medium, t.fill_pressed)
 	else if a.hovered || lit do ui.fill_rect(ctx, pill, t.radius_medium, t.fill_hover)
+	// The selection does not fit the space: the chip rings in amber, and its tooltip says
+	// what the offer line over the dock says (offers.odin).
+	fits, offer := space_fit(app)
+	if !fits do ui.stroke_rect(ctx, pill, t.radius_medium, t.warning, 1.5)
 	cy := pill.y + pill.h * 0.5
 	if fit == .Icon {
 		ui.icon(ctx, c.glyph, {pill.x + pill.w * 0.5, cy}, t.icon_small, t.text_tertiary if c.empty else t.text)
@@ -135,6 +139,7 @@ top_object_chip :: proc(app: ^App, c: Object_Chip, fit: Object_Chip_Fit) {
 		ui.icon(ctx, ui.ICON_CHEVRON_DOWN, {x + 10, cy}, t.icon_small - 2, t.text_tertiary)
 	}
 	tip := c.name if fit < .Tag || c.tag == "" else fmt.tprintf("%s · %s", c.name, c.tag)
+	if !fits do tip = fmt.tprintf("%s · %s", offer.what, offer.needs)
 	ui.tip(ctx, a.id, a.rect, tip, "")
 	k.object_chip_fit, k.object_chip_at = fit, a.rect
 	if a.clicked {

@@ -187,6 +187,11 @@ kit_action_bar :: proc(app: ^App) {
 	// Set again below while the bar shows the Adjust group; without it the adjust popover
 	// sits above the dock.
 	k.adjust_anchor = {}
+	// An offer takes the bar's place while the selection does not fit (offers.odin).
+	if kit_offer_line(app) {
+		k.action_pop = false
+		return
+	}
 	if !action_bar_shown(app) {
 		k.action_pop = false
 		return

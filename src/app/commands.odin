@@ -2406,6 +2406,9 @@ DEFAULT_BINDINGS := [?]Binding {
 command_enabled :: proc(app: ^App, id: Command_Id, arg := 0) -> bool {
 	c := &COMMANDS[id]
 	if id in CAGE_REFUSED_COMMANDS && selected_cage(app) do return false
+	if id in VOXEL_REFUSED_COMMANDS {
+		if obj := selected_object(app); obj != nil && obj.voxel != nil do return false
+	}
 	return c.enabled == nil || c.enabled(app, arg)
 }
 
@@ -2694,7 +2697,8 @@ command_menu_item :: proc(app: ^App, id: Command_Id, arg := 0, label := "", tone
 	keys := command_keys(app, id, arg)
 	// With the icon where the shortcut goes, the shortcut moves to the tooltip.
 	hint := hint_join(keys, gesture) if gesture != "" || (trailing && keys != "") else ""
-	if !ui.menu_item(&app.kit.ctx, text, keys, c.icon, command_checked(app, id, arg), tone, command_enabled(app, id, arg), hint = hint, trailing = trailing) do return false
+	can := command_enabled(app, id, arg)
+	if !ui.menu_item(&app.kit.ctx, text, keys, c.icon, command_checked(app, id, arg), tone, can, hint = hint, trailing = trailing, reason = "" if can else command_reason(app, id, arg)) do return false
 	return command_run(app, id, arg)
 }
 
@@ -2705,7 +2709,7 @@ command_menu_item :: proc(app: ^App, id: Command_Id, arg := 0, label := "", tone
 command_button :: proc(app: ^App, id: Command_Id, arg := 0, label := "", variant := ui.Variant.Flat, tone := ui.Tone.Neutral, width: f32 = 0, glyph: rune = 0, enabled := true, icon_only := false) -> bool {
 	text := label if label != "" else command_label(id, arg)
 	can := enabled && command_enabled(app, id, arg)
-	if !ui.button(&app.kit.ctx, text, variant, tone, width, glyph, can, command_hint(app, id, arg), icon_only) do return false
+	if !ui.button(&app.kit.ctx, text, variant, tone, width, glyph, can, command_hint(app, id, arg), icon_only, reason = "" if can else command_reason(app, id, arg)) do return false
 	return command_run(app, id, arg)
 }
 
