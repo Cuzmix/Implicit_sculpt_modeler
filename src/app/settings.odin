@@ -43,8 +43,9 @@ settings_path :: proc() -> string {
 // 3: the default look became Lens. 4: the default spacing became DAB_SPACING. 5: spaces:
 // the built-in workspaces became Sculpt, Model and Render, and Focus and Inspect views
 // (workspaces.odin). 6: each space its own dial, `dial_sector` lines being Sculpt's and
-// `dial_space` lines Model's and Render's.
-SETTINGS_VERSION :: 6
+// `dial_space` lines Model's and Render's. 7: Clay stopped starting on its own Clay
+// response and follows the global pressure as every other brush does.
+SETTINGS_VERSION :: 7
 
 // One remembered value that is a plain field of App: its key in the file, where it is,
 // what type it is (bool, f32, i32, int or an enum) and, for numbers, the range a value read
@@ -1000,6 +1001,11 @@ settings_load :: proc(app: ^App, path: string) {
 	// One dial served every space before version 6: what was changed on it reaches the
 	// others as far as it means something there.
 	if version < 6 do dials_from_one(&app.kit)
+	// Clay started on the Clay response before version 7, which every file then holds as
+	// Clay's own pressure whether or not anyone picked it: on a pen it shrank the brush to a
+	// fifth and its strength to almost nothing, so Clay seemed to do nothing. It goes back
+	// on the global pressure once; a response changed since stays.
+	if version < 7 && pressure_is_old_clay(b.pressures[.Clay]) do b.pressures[.Clay] = {}
 	// The windows and the wheel were saved where they were for the layout saved with them.
 	app.kit.placed_mirrored = app.kit.ctx.mirror
 	workspaces_loaded(&app.kit)

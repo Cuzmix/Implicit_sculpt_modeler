@@ -236,7 +236,13 @@ Layer_Height :: struct {
 
 // How far dabs move the surface at full strength, in brush radii.
 DRAW_HEIGHT :: 0.1
-CLAY_HEIGHT :: 0.08 // where Clay's plane sits above the surface
+// Where Clay's plane sits above the area under the brush, as Blender's Clay puts it (a
+// quarter of the radius): on a curved surface the area's average lies below the top, so a
+// plane much nearer it only levels the top off and never builds up.
+CLAY_HEIGHT :: 0.25
+// Where Clay strips' plane sits above it: its square tip reaches past the curve's top on
+// its own, so it keeps the lower plane.
+CLAY_STRIPS_HEIGHT :: 0.08
 // Share of the way to the target that Clay, Flatten and Pinch go per dab at full strength.
 PLANE_RATE :: 0.5
 PINCH_RATE :: 0.25
@@ -1160,7 +1166,7 @@ dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3, img: Sym_Image, own: 
 		jobs.parallel_for(pool, len(s.hit), &d, job_flatten)
 	case .Clay_Strips:
 		d.amount = sign
-		d.plane += d.normal * (sign * brush.radius * CLAY_HEIGHT)
+		d.plane += d.normal * (sign * brush.radius * CLAY_STRIPS_HEIGHT)
 		strip_frame(&d)
 		jobs.parallel_for(pool, len(s.hit), &d, job_clay_strips)
 	case .Trim_Dynamic:

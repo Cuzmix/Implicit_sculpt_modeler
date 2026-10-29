@@ -310,8 +310,9 @@ pressure_curves_apart_and_per_brush :: proc(t: ^testing.T) {
 }
 
 // A response preset sets size and strength together; Clay's keeps the brush at least a
-// fifth of its radius however light the touch, and the app starts Clay on it while the
-// other brushes use the global pressure.
+// fifth of its radius however light the touch. Every brush, Clay too, starts on the global
+// pressure, and a settings file from before version 7, which holds Clay on the Clay
+// response it then started on, puts it back on the global one once.
 @(test)
 pressure_responses_and_the_clay_floor :: proc(t: ^testing.T) {
 	a: App
@@ -337,7 +338,25 @@ pressure_responses_and_the_clay_floor :: proc(t: ^testing.T) {
 	testing.expect_value(t, pressure_response(at), -1)
 
 	b := brush_defaults()
-	testing.expect(t, b.pressures[.Clay].own && b.pressures[.Clay].pressure == PRESSURE_RESPONSES[1].pressure && !b.pressures[.Draw].own)
+	testing.expect(t, !b.pressures[.Clay].own && !b.pressures[.Draw].own)
+
+	// A version 6 file as the app wrote it with Clay on the Clay response, then one where
+	// Clay's own pressure had been changed since, which stays.
+	path := "build/pressure_clay_test.txt"
+	defer os.remove(path)
+	OLD_CLAY :: "version 6\npressure_own Clay 1 1 1 0.2 0.6 0.05 0.95 0.4 0.333333 0 0.666667 0\n"
+	testing.expect(t, os.write_entire_file(path, transmute([]u8)string(OLD_CLAY)) == nil)
+	c: App
+	defer results_destroy(&c)
+	settings_load(&c, path)
+	testing.expect(t, !c.brush.pressures[.Clay].own)
+	CHANGED :: "version 6\npressure_own Clay 1 1 0 0.2 0.6 0.05 0.95 0.4 0.333333 0 0.666667 0\n"
+	testing.expect(t, os.write_entire_file(path, transmute([]u8)string(CHANGED)) == nil)
+	d: App
+	defer results_destroy(&d)
+	settings_load(&d, path)
+	testing.expect(t, d.brush.pressures[.Clay].own && !d.brush.pressures[.Clay].size)
+	free_all(context.temp_allocator)
 }
 
 // The pen holds the hand, so that a lone finger is its palm, while its tip is down; where
