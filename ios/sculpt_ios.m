@@ -10,6 +10,8 @@
  * then for the folder it goes in (starting in the app's own Documents folder, which Files
  * shows as On My iPad > Sculpt), and the app writes there itself.
  *
+ * The Apple Pencil's double-tap, squeeze, Pencil-only drawing and haptics follow at the end.
+ *
  * Built with ARC (-fobjc-arc) by `./build.sh ios`.
  */
 
@@ -283,4 +285,138 @@ bool sculpt_ios_writable_beside(const char *path)
 		if (is_under(folder, root)) return true;
 	}
 	return false;
+}
+
+/*
+ * The Apple Pencil's own gestures and haptics, which SDL 3.4 leaves out: its UIKit driver
+ * reads the pencil's pressure, lean, hover and roll (src/app/pencil.odin takes those), but
+ * no UIPencilInteraction, so a double-tap or a squeeze never reaches SDL, and nothing plays
+ * the Pencil Pro's haptics. One interaction on SDL's view sends each gesture to the app as
+ * an SDL user event of the type the app registered: the code is the gesture
+ * (Pencil_Gesture: 0 double-tap, 1 to 3 a squeeze beginning, ending or cancelled), data1
+ * the iPad's preferred action for it (Pencil_Action, named one by one below, so UIKit's
+ * order never matters). The app decides what each does; this only reports.
+ */
+
+@interface SculptPencil : NSObject <UIPencilInteractionDelegate>
+@property (nonatomic) Uint32 eventType;
+@end
+
+/* Kept here, since a view holds its interactions weakly through their delegate. */
+static SculptPencil *pencil;
+static UIPencilInteraction *pencil_interaction;
+static UIView *pencil_view;
+/* UICanvasFeedbackGenerator, iPadOS 17.5 and later; nil before. */
+static id pencil_haptics;
+
+/* Pencil_Action in src/app/pencil.odin. */
+enum {
+	ACTION_IGNORE,
+	ACTION_SWITCH_ERASER,
+	ACTION_SWITCH_PREVIOUS,
+	ACTION_COLOR_PALETTE,
+	ACTION_INK_ATTRIBUTES,
+	ACTION_CONTEXTUAL_PALETTE,
+	ACTION_RUN_SHORTCUT,
+};
+
+static int pencil_action(UIPencilPreferredAction a)
+{
+	switch (a) {
+	case UIPencilPreferredActionIgnore:         return ACTION_IGNORE;
+	case UIPencilPreferredActionSwitchEraser:   return ACTION_SWITCH_ERASER;
+	case UIPencilPreferredActionSwitchPrevious: return ACTION_SWITCH_PREVIOUS;
+	case UIPencilPreferredActionShowColorPalette: return ACTION_COLOR_PALETTE;
+	default: break;
+	}
+	if (@available(iOS 17.5, *)) {
+		switch (a) {
+		case UIPencilPreferredActionShowInkAttributes:     return ACTION_INK_ATTRIBUTES;
+		case UIPencilPreferredActionShowContextualPalette: return ACTION_CONTEXTUAL_PALETTE;
+		case UIPencilPreferredActionRunSystemShortcut:     return ACTION_RUN_SHORTCUT;
+		default: break;
+		}
+	}
+	/* One a later iPadOS adds means nothing here yet. */
+	return ACTION_IGNORE;
+}
+
+static void pencil_send(int gesture, UIPencilPreferredAction preferred)
+{
+	SDL_Event e;
+	SDL_zero(e);
+	e.type = pencil.eventType;
+	e.user.timestamp = SDL_GetTicksNS();
+	e.user.code = gesture;
+	e.user.data1 = (void *)(intptr_t)pencil_action(preferred);
+	SDL_PushEvent(&e);
+}
+
+@implementation SculptPencil
+
+/* Before iPadOS 17.5; from then on the system calls didReceiveTap: instead. */
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-implementations"
+- (void)pencilInteractionDidTap:(UIPencilInteraction *)interaction
+{
+	pencil_send(0, UIPencilInteraction.preferredTapAction);
+}
+#pragma clang diagnostic pop
+
+- (void)pencilInteraction:(UIPencilInteraction *)interaction didReceiveTap:(UIPencilInteractionTap *)tap API_AVAILABLE(ios(17.5))
+{
+	pencil_send(0, UIPencilInteraction.preferredTapAction);
+}
+
+- (void)pencilInteraction:(UIPencilInteraction *)interaction didReceiveSqueeze:(UIPencilInteractionSqueeze *)squeeze API_AVAILABLE(ios(17.5))
+{
+	int gesture;
+	switch (squeeze.phase) {
+	case UIPencilInteractionPhaseBegan:     gesture = 1; break;
+	case UIPencilInteractionPhaseEnded:     gesture = 2; break;
+	case UIPencilInteractionPhaseCancelled: gesture = 3; break;
+	default: return; /* a squeeze held changes nothing the app follows */
+	}
+	pencil_send(gesture, UIPencilInteraction.preferredSqueezeAction);
+}
+
+@end
+
+void sculpt_ios_pencil_start(SDL_Window *window, Uint32 event_type)
+{
+	SDL_PropertiesID props = SDL_GetWindowProperties(window);
+	UIWindow *uiwindow = (__bridge UIWindow *)SDL_GetPointerProperty(props, SDL_PROP_WINDOW_UIKIT_WINDOW_POINTER, NULL);
+	UIView *view = uiwindow.rootViewController.view;
+	if (!view || event_type == 0) return;
+	pencil = [SculptPencil new];
+	pencil.eventType = event_type;
+	/* initWithDelegate: is iPadOS 17.5's; the delegate property works from 12.1. */
+	pencil_interaction = [UIPencilInteraction new];
+	pencil_interaction.delegate = pencil;
+	[view addInteraction:pencil_interaction];
+	pencil_view = view;
+	if (@available(iOS 17.5, *)) {
+		UICanvasFeedbackGenerator *haptics = [[UICanvasFeedbackGenerator alloc] initWithView:view];
+		pencil_haptics = haptics;
+	}
+}
+
+/* Whether the iPad's Only Draw with Apple Pencil is on, so a finger never sculpts. */
+bool sculpt_ios_pencil_only(void)
+{
+	return UIPencilInteraction.prefersPencilOnlyDrawing;
+}
+
+/* A Pencil Pro haptic at (x, y) in the view's points: 0 something snapped into place, 1 a
+ * shape completed. Nothing without a Pencil Pro, before iPadOS 17.5, or while the pencil
+ * is away, as UIKit decides. */
+void sculpt_ios_haptic(int kind, float x, float y)
+{
+	if (@available(iOS 17.5, *)) {
+		UICanvasFeedbackGenerator *haptics = pencil_haptics;
+		if (!haptics) return;
+		CGPoint at = CGPointMake(x, y);
+		if (kind == 1) [haptics pathCompletedAtLocation:at];
+		else [haptics alignmentOccurredAtLocation:at];
+	}
 }

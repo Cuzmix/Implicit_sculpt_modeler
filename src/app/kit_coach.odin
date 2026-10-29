@@ -49,12 +49,12 @@ coach_text :: proc(app: ^App, step: Coach_Step) -> (glyph: rune, text: string) {
 		case .Mouse:  text = "Left drag on the model to sculpt it."
 		case .Pen:    text = "Draw on the model with the pen to sculpt it."
 		case .Finger:
-			text = "Draw on the model with a finger to sculpt it." if nav.finger_model == .Sculpt else "Draw on the model with the pen to sculpt it; a finger on it turns the view."
+			text = "Draw on the model with a finger to sculpt it." if finger_model_now(app) == .Sculpt else "Draw on the model with the pen to sculpt it; a finger on it turns the view."
 		}
 	case .Turn:
 		glyph = ui.ICON_ROTATE_3D
 		switch {
-		case pointer == .Finger && nav.finger_model == .Orbit:
+		case pointer == .Finger && finger_model_now(app) == .Orbit:
 			text = "Drag one finger anywhere to turn the view."
 		case pointer == .Finger:
 			text = "Drag empty space with one finger to turn the view."

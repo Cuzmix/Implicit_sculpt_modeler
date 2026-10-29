@@ -36,4 +36,14 @@ when ODIN_PLATFORM_SUBTARGET_IOS {
 		sculpt_ios_open_folder_dialog :: proc(callback: sdl.DialogFileCallback, userdata: rawptr, window: ^sdl.Window) ---
 		sculpt_ios_writable_beside :: proc(path: cstring) -> bool ---
 	}
+
+	// ios/sculpt_ios.m, the Apple Pencil's pieces SDL lacks (pencil.odin): the double-tap
+	// and squeeze sent as SDL user events of `event_type`, whether the iPad's Only Draw
+	// with Apple Pencil is on, and the Pencil Pro's haptics at a point in window coordinates.
+	@(default_calling_convention = "c")
+	foreign {
+		sculpt_ios_pencil_start :: proc(window: ^sdl.Window, event_type: u32) ---
+		sculpt_ios_pencil_only :: proc() -> bool ---
+		sculpt_ios_haptic :: proc(kind: c.int, x, y: f32) ---
+	}
 }

@@ -1,5 +1,6 @@
 package main
 
+@(require) import "core:c"
 import "core:math"
 import "core:reflect"
 import "core:strings"
@@ -73,16 +74,57 @@ Pencil :: struct {
 	// What SDL reported for the pencil's lean on an iPad, before pencil_tilt_uikit turns it
 	// into the lean the other platforms report.
 	tilt_raw:   [2]f32,
+	// The iPad's Only Draw with Apple Pencil (Settings > Apple Pencil): a finger then never
+	// sculpts, whatever Settings > Touch says, as Apple asks of drawing apps.
+	only:       bool,
+	haptics:    int, // haptics asked of the pencil, for the exit stats
 }
 
-// Registers the pencil's user event type. A failure leaves it 0, and double-tap and squeeze
-// then never arrive.
-pencil_init :: proc(app: ^App) {
+// What a haptic says, as UIKit's canvas feedback has them: something snapped into place, or
+// a drawn shape was finished.
+Haptic :: enum c.int {
+	Alignment,
+	Path_Completed,
+}
+
+// Registers the pencil's user event type and, on the iPad, starts the bridge that sends
+// it on `window`. A failure leaves the type 0, and double-tap and squeeze then never arrive.
+pencil_init :: proc(app: ^App, window: ^sdl.Window = nil) {
 	p := &app.pencil
 	p.preferred = PENCIL_PREFERRED_DEFAULT
 	p.brush_now, p.brush_before = app.brush.kind, app.brush.kind
 	t := sdl.RegisterEvents(1)
 	if t != 0 do p.event_type = t
+	when ODIN_PLATFORM_SUBTARGET_IOS {
+		if window != nil do sculpt_ios_pencil_start(window, p.event_type)
+	}
+	pencil_only_read(app)
+}
+
+// Reads the iPad's Only Draw with Apple Pencil, at the start and each time the app comes
+// back to the front, since it is changed in the iPad's Settings, away from the app.
+pencil_only_read :: proc(app: ^App) {
+	when ODIN_PLATFORM_SUBTARGET_IOS do app.pencil.only = sculpt_ios_pencil_only()
+}
+
+// What one finger on the model does now: the iPad's Only Draw with Apple Pencil turns the
+// view with it, whatever Settings > Touch says.
+finger_model_now :: proc(app: ^App) -> Finger_Model {
+	return .Orbit if app.pencil.only else app.nav.finger_model
+}
+
+// Says, where the finger's choice is set, that the iPad's own setting overrides it.
+pencil_only_note :: proc(app: ^App) {
+	ctx := &app.kit.ctx
+	if app.pencil.only do ui.paragraph(ctx, "Only Draw with Apple Pencil is on in the iPad's Settings > Apple Pencil, so a finger turns the view and only the pencil sculpts.", color = ctx.theme.warning)
+}
+
+// Asks the Apple Pencil Pro for a haptic where the pen is. Only for the pen: a finger or a
+// mouse feels nothing, and UIKit plays it only for a Pencil Pro near the screen.
+haptic :: proc(app: ^App, kind: Haptic) {
+	if app.device.pointer != .Pen do return
+	app.pencil.haptics += 1
+	when ODIN_PLATFORM_SUBTARGET_IOS do sculpt_ios_haptic(c.int(kind), app.device.mouse.x, app.device.mouse.y)
 }
 
 // Folds one SDL event in, and says whether it was the pencil's alone (a gesture, or the

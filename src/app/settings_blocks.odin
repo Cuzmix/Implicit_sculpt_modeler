@@ -355,8 +355,9 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 		ui.label(ctx, "On the model")
 		if picked := ui.tabs(ctx, "Finger on the model", model[:], int(n.finger_model)); picked >= 0 do n.finger_model = Finger_Model(picked)
 		ui.paragraph(ctx, "On empty space one finger always turns the view. Turns the view leaves sculpting to the pen, as on a drawing tablet.")
+		pencil_only_note(app)
 	case .Touch_Strength:
-		_ = ui.slider(ctx, "Touch strength", &n.touch_strength, TOUCH_STRENGTH_MIN, 1, .Linear, fmt.tprintf("%.0f%%", 100 * n.touch_strength), enabled = n.finger_model == .Sculpt)
+		_ = ui.slider(ctx, "Touch strength", &n.touch_strength, TOUCH_STRENGTH_MIN, 1, .Linear, fmt.tprintf("%.0f%%", 100 * n.touch_strength), enabled = finger_model_now(app) == .Sculpt)
 		ui.paragraph(ctx, "A finger's strokes work at this much of the brush's strength, so a finger can soften what the pen builds up. The pen and the mouse always work at full strength.")
 	case .Hold:
 		// In steps of 0.05 s, so the value shown is the value used.
@@ -411,6 +412,7 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 		sculpts := n.finger_model == .Sculpt
 		if ui.switch_row(ctx, "Finger can sculpt when no pen is used", &sculpts) do n.finger_model = .Sculpt if sculpts else .Orbit
 		ui.paragraph(ctx, "With the pen near, a resting hand does nothing; two fingers still move the view. Off, only the pen sculpts and a finger turns the view, as on a drawing tablet.")
+		pencil_only_note(app)
 
 	case .Keys:
 		settings_keys(app)

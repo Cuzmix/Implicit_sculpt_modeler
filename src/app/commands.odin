@@ -2438,7 +2438,7 @@ command_gesture :: proc(app: ^App, id: Command_Id, arg := 0) -> string {
 	n := &app.nav
 	// A finger on empty space belongs to the Curve and Insert tools, so a double tap there
 	// frames only with Move or Sculpt, or when one finger always turns the view.
-	empty_taps := app.tool == .Move || app.tool == .Brush || n.finger_model == .Orbit
+	empty_taps := app.tool == .Move || app.tool == .Brush || finger_model_now(app) == .Orbit
 	// The gesture map's first: a gesture the user gave the command comes before its own.
 	mapped := gesture_text(app, id, arg)
 	builtin := ""

@@ -580,6 +580,7 @@ Kit_Event_Kind :: enum u8 {
 	// sends them, `key` naming the iPad's preferred action ("" for its default).
 	Pencil_Tap,
 	Pencil_Squeeze,
+	Pencil_Only, // the iPad's Only Draw with Apple Pencil turned on (`value` 1) or off (0)
 }
 
 // Reads --ui-events. Returns false, after saying why, when the list is malformed.
@@ -641,13 +642,14 @@ kit_events_parse :: proc(app: ^App, spec: string) -> bool {
 			case "pnear":  ev.kind = .Pen_Near
 			case "pfar":   ev.kind = .Pen_Far
 			case "pright": ev.kind = .Pen_Right
-			case "wheel", "ppress", "proll", "pbutton":
+			case "wheel", "ppress", "proll", "pbutton", "ponly":
 				ok = len(parts) == 3
 				if ok do ev.value, ok = strconv.parse_f32(parts[2])
 				switch parts[1] {
 				case "wheel":   ev.kind = .Wheel
 				case "ppress":  ev.kind = .Pen_Pressure
 				case "pbutton": ev.kind = .Pen_Button
+				case "ponly":   ev.kind = .Pencil_Only
 				case:           ev.kind = .Pen_Roll
 				}
 			case "text":
@@ -800,6 +802,9 @@ kit_events_push :: proc(app: ^App, window: ^sdl.Window) {
 				e.button = {type = .MOUSE_BUTTON_DOWN if down else .MOUSE_BUTTON_UP, timestamp = now, windowID = win, which = sdl.PEN_MOUSEID, button = mouse[button], down = down, clicks = 1, x = d.mouse.x, y = d.mouse.y}
 				push(e)
 			}
+		case .Pencil_Only:
+			// The iPad's setting as the bridge reads it, which no SDL event carries.
+			app.pencil.only = ev.value != 0
 		case .Pencil_Tap, .Pencil_Squeeze:
 			defaults := PENCIL_PREFERRED_DEFAULT
 			tap := ev.kind == .Pencil_Tap
