@@ -244,6 +244,12 @@ Kit_State :: struct {
 	// Lens's panels: the two columns, the pinned sections and the panel menu (panels.odin).
 	panels:     Panels,
 	text_input: bool, // SDL's text input is on, for the text field that has the keys
+	// The on-screen keyboard is away while text input is on (SDL_EVENT_SCREEN_KEYBOARD_HIDDEN
+	// since it was last shown), how often a tap on a field brought it back (for the exit
+	// stats), and where the field with the keys was last told to SDL (text_input_area).
+	keyboard_down:     bool,
+	keyboard_restarts: int,
+	text_area:         Text_Area,
 	// Where the viewport's overlay goes in the draw order: over the viewport image and
 	// under the panels. Set while a frame is laid out, until the overlay is drawn.
 	layer:      Maybe(ui.Layer),
@@ -575,6 +581,9 @@ Kit_Event_Kind :: enum u8 {
 	// (pen_samples.odin): at `at`, pressing `value` hard (below 0 for as the next), ahead
 	// of the frame's next pen move, which it is sent as an offset from.
 	Pen_Coalesced,
+	// The on-screen keyboard put away by the system's own key, as an iPad's SDL reports it:
+	// SDL_EVENT_SCREEN_KEYBOARD_HIDDEN, with text input left on.
+	Keyboard_Hidden,
 }
 
 // Reads --ui-events. Returns false, after saying why, when the list is malformed.
@@ -644,6 +653,7 @@ kit_events_parse :: proc(app: ^App, spec: string) -> bool {
 			case "pnear":  ev.kind = .Pen_Near
 			case "pfar":   ev.kind = .Pen_Far
 			case "pright": ev.kind = .Pen_Right
+			case "kbhide": ev.kind = .Keyboard_Hidden
 			case "wheel", "ppress", "proll", "pbutton", "ponly", "pdist":
 				ok = len(parts) == 3
 				if ok do ev.value, ok = strconv.parse_f32(parts[2])
@@ -815,6 +825,9 @@ kit_events_push :: proc(app: ^App, window: ^sdl.Window) {
 				e.button = {type = .MOUSE_BUTTON_DOWN if down else .MOUSE_BUTTON_UP, timestamp = now, windowID = win, which = sdl.PEN_MOUSEID, button = mouse[button], down = down, clicks = 1, x = d.mouse.x, y = d.mouse.y}
 				push(e)
 			}
+		case .Keyboard_Hidden:
+			e.common = {type = .SCREEN_KEYBOARD_HIDDEN, timestamp = now}
+			push(e)
 		case .Pencil_Only:
 			// The iPad's setting as the bridge reads it, which no SDL event carries.
 			app.pencil.only = ev.value != 0
@@ -1093,16 +1106,16 @@ kit_results :: proc(app: ^App) {
 kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 	start := time.tick_now()
 	k := &app.kit
-	// The system can hide the on-screen keyboard and stop text input behind the app's back
-	// (Android's Back while the keyboard is up, iPadOS's hide-keyboard key), and the Back
-	// never reaches the app. Then the field that had the keys lets them go and the palette
-	// closes, as one Back closes it when no keyboard is up; restarting text input instead
-	// would bring the keyboard straight back.
+	// The system can stop text input behind the app's back (Android's Back while the
+	// keyboard is up), and the Back never reaches the app. Then the field that had the keys
+	// lets them go and the palette closes, as one Back closes it when no keyboard is up;
+	// restarting text input instead would bring the keyboard straight back.
 	if k.text_input && !sdl.TextInputActive(window) {
 		k.text_input = false
 		k.ctx.text_focus = 0
 		if k.palette do palette_close(app)
 	}
+	when ODIN_PLATFORM_SUBTARGET_IOS do scribble_focus(app)
 	// A text field that has the keys at the start of the frame takes them all, the Enter
 	// or Escape that ends it too.
 	typed := ui.typing(&k.ctx)
@@ -1142,11 +1155,29 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 	tree_column_send(app)
 	// Text input (and with it a tablet's on-screen keyboard) is on only while a text
 	// field has the keys.
-	if wanted := ui.typing(ctx); wanted != k.text_input {
+	// Where the field is goes to SDL before text input starts, since Android's SDL reads it
+	// only then.
+	wanted := ui.typing(ctx)
+	if wanted do text_input_area(app, window)
+	if wanted != k.text_input {
 		k.text_input = wanted
+		k.keyboard_down = false
 		if wanted do text_input_start(window)
-		else do _ = sdl.StopTextInput(window)
+		else {
+			_ = sdl.StopTextInput(window)
+			k.text_area = {}
+		}
+	} else if wanted && k.keyboard_down && ctx.text_tapped {
+		// The system put the keyboard away and left text input on, with the field still
+		// holding the keys: an iPad's hide-keyboard key, its Scribble palette taking the
+		// keyboard's place once the Pencil writes, a floating keyboard, Android's own. A tap
+		// on a field brings the keyboard back, which only text input started anew does.
+		k.keyboard_down = false
+		k.keyboard_restarts += 1
+		_ = sdl.StopTextInput(window)
+		text_input_start(window)
 	}
+	when ODIN_PLATFORM_SUBTARGET_IOS do scribble_frame(app)
 	d := &app.device
 	// A shape waiting for Apply takes Enter, and Escape after what floats; neither while
 	// a field or the palette had the keys, nor over a menu.
@@ -1162,7 +1193,8 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 		// search) was the field's. The recovery card, when nothing is above it, waits
 		// for the next start.
 		if k.recover_shown && quiet && !shape_waits && !side_panel_open(k) do app.autosave.offer_hidden = true
-		if k.home && quiet do home_close(app)
+		if app.diag.open && quiet do diag_close(app)
+		else if k.home && quiet do home_close(app)
 		else if k.clean && quiet do clean_view_set(app, false)
 		else if k.bars_edit && quiet && !k.palette do k.bars_edit = false
 		else if shape_waits && quiet do app.shape_pending.request = .Cancel
@@ -1188,6 +1220,27 @@ text_input_start :: proc(window: ^sdl.Window) {
 		_ = sdl.SetBooleanProperty(props, sdl.PROP_TEXTINPUT_AUTOCORRECT_BOOLEAN, false)
 	}
 	_ = sdl.StartTextInputWithProperties(window, props)
+}
+
+// Where the field with the keys is, in window coordinates, and its caret's offset from the
+// field's left.
+Text_Area :: struct {
+	rect:  sdl.Rect,
+	caret: i32,
+}
+
+// Tells SDL where the field that has the keys is, when it moved: an iPad's SDL slides the
+// view up until the field shows above the on-screen keyboard, Android's keeps it in view,
+// and a desktop's input method opens its window by the caret. The kit lays out in points,
+// `scale` window coordinates each.
+text_input_area :: proc(app: ^App, window: ^sdl.Window) {
+	k := &app.kit
+	r := k.ctx.text_rect
+	s := k.scale
+	area := Text_Area{{i32(r.x * s), i32(r.y * s), i32(math.ceil(r.w * s)), i32(math.ceil(r.h * s))}, i32(k.ctx.text_caret * s)}
+	if area == k.text_area || area.rect.w <= 0 || area.rect.h <= 0 do return
+	k.text_area = area
+	if !sdl.SetTextInputArea(window, &area.rect, area.caret) do log.warnf("SetTextInputArea failed: %s", sdl.GetError())
 }
 
 // What the viewport saw: everything the panels did not take.
@@ -1257,6 +1310,12 @@ kit_layout :: proc(app: ^App) {
 	space_follow(app)
 	lens_view_frame(app)
 	// The Home screen covers the window and stands in for every panel while it shows.
+	// Input diagnostics covers the window as Home does (kit_diag.odin), and Home too: an
+	// interactive start may open Home after --input-diagnostics opened it.
+	if app.diag.open {
+		kit_diag(app)
+		return
+	}
 	if k.home {
 		k.recover_shown = false
 		kit_home(app)

@@ -116,7 +116,7 @@ library_load :: proc(app: ^App, folder: string) {
 	}
 	first_skipped := ""
 	l.alphas = library_alphas_load(app, library_alphas_folder(app), LIBRARY_MINE, &first_skipped)
-	infos, err := os.read_directory_by_path(folder, -1, context.temp_allocator)
+	infos, err := folder_entries(folder, context.temp_allocator)
 	if err == nil {
 		slice.sort_by(infos, proc(a, b: os.File_Info) -> bool {return a.name < b.name})
 		for fi in infos {
@@ -168,7 +168,7 @@ library_load :: proc(app: ^App, folder: string) {
 // how many, counting what it skips in the library's `skipped`.
 @(private = "file")
 library_alphas_load :: proc(app: ^App, dir, prefix: string, first_skipped: ^string) -> (loaded: int) {
-	infos, err := os.read_directory_by_path(dir, -1, context.temp_allocator)
+	infos, err := folder_entries(dir, context.temp_allocator)
 	if err != nil do return
 	// By stem first, so "rock" comes before "rock-2" whatever their extensions.
 	slice.sort_by(infos, proc(a, b: os.File_Info) -> bool {
@@ -285,7 +285,7 @@ library_stem :: proc(folder, wanted, path: string, data: []u8) -> (stem, ext: st
 	base := strings.trim(strings.to_string(b), " _")
 	if base == "" || !zip.name_safe(fmt.tprintf("%s%s", base, ext)) do base = "alpha"
 	taken := make([dynamic]string, context.temp_allocator)
-	if infos, err := os.read_directory_by_path(folder, -1, context.temp_allocator); err == nil {
+	if infos, err := folder_entries(folder, context.temp_allocator); err == nil {
 		for fi in infos do append(&taken, filepath.stem(fi.name))
 	}
 	for n := 1; ; n += 1 {

@@ -1,0 +1,81 @@
+name: Input tests
+
+# The input regression gate (README "Input diagnostics"): scripts/gate.py on Linux, which
+# runs check, the report analyzer's tests, every package's tests, the debug app, and
+# touch_check's scenarios (fingers, the pen, palms, the barrel roll and Input diagnostics'
+# own) on virtual displays, then compiles the app for the iPad, Windows and Android. Smoke
+# is left to the desktop gate: it asks for GPU validation layers, which a runner's software
+# Vulkan does not have to match, and it checks drawing rather than input. Every step's log is
+# kept as an artifact. Pushes to the long-lived branches run it; other branches run it
+# through their pull requests, so no commit pays for it twice.
+on:
+  push:
+    branches: [master, odin-sculpt, "feature/**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: input-tests-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read the pins
+        run: grep -E '^(ODIN|SDL|LUAU)_TAG=' scripts/versions.env >> "$GITHUB_ENV"
+
+      # scripts/setup_deps.sh's list, with Xvfb for the scenarios and Mesa's software Vulkan.
+      - name: System packages
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends clang cmake ninja-build git python3 curl xz-utils \
+            xvfb xauth libvulkan-dev mesa-vulkan-drivers libx11-dev libxext-dev libxrandr-dev libxcursor-dev \
+            libxi-dev libxss-dev libxtst-dev libwayland-dev libxkbcommon-dev libdecor-0-dev \
+            libegl-dev libdrm-dev libgbm-dev
+
+      - name: Dependencies, cached by their pins
+        id: deps
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps/odin
+            deps/sdl3
+            deps/luau
+          key: deps-linux-${{ hashFiles('scripts/versions.env', 'scripts/build_luau.py') }}
+
+      # setup_deps.sh's Odin, stb, SDL3 and Luau; not Slang or SDL_shadercross, which only a
+      # shader author needs (the .spv and .msl files are committed).
+      - name: Odin, stb, SDL3 and Luau
+        if: steps.deps.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p deps
+          curl -fsSL -o "$RUNNER_TEMP/odin.tar.gz" \
+            "https://github.com/odin-lang/Odin/releases/download/$ODIN_TAG/odin-linux-amd64-$ODIN_TAG.tar.gz"
+          tar -xzf "$RUNNER_TEMP/odin.tar.gz" -C "$RUNNER_TEMP"
+          mv "$RUNNER_TEMP"/odin-linux-amd64-* deps/odin
+          sh deps/odin/vendor/stb/src/build_stb.sh unix
+          git clone -q --depth 1 -b "$SDL_TAG" https://github.com/libsdl-org/SDL.git deps/sdl3-src
+          cmake -S deps/sdl3-src -B deps/sdl3-src/build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DSDL_TESTS=OFF -DSDL_EXAMPLES=OFF -DCMAKE_INSTALL_PREFIX="$PWD/deps/sdl3" > /dev/null
+          ninja -C deps/sdl3-src/build install > /dev/null
+          python3 scripts/build_luau.py
+
+      - name: The gate, smoke left out
+        run: python3 scripts/gate.py --keep-going --skip smoke
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: input-tests-logs
+          path: |
+            build/gate/
+            build/touch/diag/
+          if-no-files-found: warn
+          retention-days: 14

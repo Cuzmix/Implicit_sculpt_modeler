@@ -6501,13 +6501,308 @@ def pen_hover_names_off():
 
 @scenario
 def pen_roll_sets_the_size():
-    """The pen hovering on the island's Size and turned a quarter turn clockwise, across the half turn where its numbers wrap, doubles the size."""
+    """The pen hovering on the island's Size and turned a quarter turn clockwise past the first ROLL_ENGAGE degrees, across the half turn where its numbers wrap, doubles the size."""
     s = Script()
     pen_hover(s, *UI["size"], frames=4)
-    for deg in (150, 170, -170, -150, -120):
+    for deg in (140, 150, 170, -170, -150, -120):
         s.add(f"proll:{deg}")
         s.wait(2)
     return s, [], camera_still({"brush_radius_px": near(2 * 60, 0.5), "dabs": near(0)})
+
+
+@scenario
+def pen_hover_wobble_moves_no_size():
+    """The pen hovering on the island's Size while the hand turns it a few degrees each way, as carrying it over does, leaves the size."""
+    s = Script()
+    pen_hover(s, *UI["size"], frames=4)
+    for deg in (0, 4, -2, 5, 1, -3, 6, 0):
+        s.add(f"proll:{deg}")
+        s.wait(2)
+    return s, [], camera_still({"brush_radius_px": near(60, 0.5), "dabs": near(0)})
+
+
+def pen_away(s, frames):
+    """The pen stops reporting, as an iPad's Pencil taken away does, with no pfar."""
+    s.wait(frames)
+
+
+@scenario
+def pen_back_turned_moves_no_size():
+    """Where the platform never says the pen left (--pen-no-leave, as on an iPad), the pen taken away and brought back turned to the island's Size leaves it: its roll starts afresh."""
+    s = Script()
+    pen_hover(s, *UI["size"], frames=4)
+    s.add("proll:0")
+    s.wait(4)
+    pen_away(s, 60)
+    s.add(f"pmove:{UI['size'][0]:g},{UI['size'][1] + 4:g}")
+    s.add("proll:40")
+    s.wait(10)
+    return s, ["--pen-no-leave"], camera_still({"brush_radius_px": near(60, 0.5), "dabs": near(0)})
+
+
+def pen_stroke_no_leave(s, path):
+    """The pen down along `path` and up, never saying it left."""
+    s.add("pnear")
+    s.add(f"pdown:{path[0][0]:g},{path[0][1]:g}")
+    for x, y in path[1:]:
+        s.wait(1)
+        s.add(f"pmove:{x:g},{y:g}")
+    s.wait(1)
+    s.add("pup")
+
+
+@scenario
+def finger_works_after_the_pen_leaves_unsaid():
+    """Where the platform never says the pen left (--pen-no-leave, as on an iPad), a finger a second after a pen stroke turns the view: the pen counted as gone once it stopped reporting."""
+    s = Script()
+    pen_stroke_no_leave(s, line((760, 430), (860, 470), 10))
+    pen_away(s, 60)
+    s.fdrag(past_slop((250, 400), (650, 400), 20))
+    s.wait(3)
+    return s, ["--pen-no-leave", "--script=set orbit_style turntable"], {"undo_steps": near(1), "camera_pitch": near(0.35),
+                                                                         "camera_yaw": near(wrap(0.6 - 400 * 0.008), 2e-3)}
+
+
+@scenario
+def finger_right_after_the_pen_is_a_palm_still():
+    """Where the platform never says the pen left (--pen-no-leave), a lone finger a moment after a pen stroke is still a palm: the view stays."""
+    s = Script()
+    pen_stroke_no_leave(s, line((760, 430), (860, 470), 10))
+    s.wait(6)
+    s.fdrag(past_slop((250, 400), (650, 400), 20))
+    s.wait(3)
+    return s, ["--pen-no-leave"], camera_still({"undo_steps": near(1)})
+
+
+@scenario
+def finger_pen_finger_switching():
+    """Where the platform never says the pen left (--pen-no-leave), finger, pen and finger again in turn, twice: each finger turns the view (about the centre, so the model stays off where the finger lands) and each pen stroke sculpts."""
+    s = Script()
+    for k in range(2):
+        s.fdrag(past_slop((250, 400), (450, 400), 12))
+        s.wait(4)
+        pen_stroke_no_leave(s, line((760, 430 + 20 * k), (860, 470 + 20 * k), 10))
+        pen_away(s, 45)
+    s.fdrag(past_slop((250, 400), (450, 400), 12))
+    s.wait(3)
+    return s, ["--pen-no-leave", "--script=set orbit_style turntable; set orbit_pivot centre"], {"undo_steps": near(2), "camera_pitch": near(0.35),
+                                                                         "camera_yaw": near(wrap(0.6 - 3 * 200 * 0.008), 2e-3)}
+
+
+PALETTE_FIELD = (800, 81)  # the command palette's search field, once Search opened it
+
+
+@scenario
+def keyboard_put_away_and_brought_back():
+    """Search tapped by a finger and typed in, the on-screen keyboard put away by the system (kbhide, as an iPad's SDL reports its hide-keyboard key or the Scribble palette taking the keyboard's place): the palette stays open and its field keeps what was typed; a pen tap on the field brings the keyboard back (text input started anew), the rest typed runs the command."""
+    s = Script()
+    s.ftap(*LENS_SEARCH)
+    s.wait(10)
+    s.type("wire")
+    s.add("kbhide")
+    s.wait(6)
+    s.add("pnear")
+    s.add(f"pdown:{PALETTE_FIELD[0]:g},{PALETTE_FIELD[1]:g}")
+    s.wait(2)
+    s.add("pup")
+    s.wait(10)
+    s.type("frame")
+    s.press("Return")
+    s.wait(5)
+    s.add("pfar")
+    s.wait(2)
+    return s, [], camera_still({"dabs": near(0), "palette": near(0), "palette_runs": near(1), "palette_last": is_text("Wireframe"),
+                                "keyboard_restarts": near(1), "keyboard_down": near(0)})
+
+
+# Input diagnostics (diagnostics.odin, kit_diag.odin) at 1600x900: where its controls are.
+DIAG = {"pad": (1340, 186), "size": (1536, 186), "slider": (1365, 350), "button": (1270, 396),
+        "menu": (1459, 396), "field": (1365, 450)}
+
+
+def diag_report_has(test, auto):
+    """A check that --diag-export wrote a ZIP of the report's three files, whose log starts
+    with the session and whose summary gives `test`'s run the verdict `auto`."""
+    def ok(_):
+        import json
+        import zipfile
+        path = diag_report_path()
+        with zipfile.ZipFile(path) as z:
+            names = sorted(z.namelist())
+            if names != ["diagnostic-events.jsonl", "diagnostic-report.md", "diagnostic-summary.json"]:
+                return f"entries {names}"
+            lines = z.read("diagnostic-events.jsonl").decode("utf-8").splitlines()
+            first = json.loads(lines[0])
+            if first.get("kind") != "session" or first.get("schema") != 1:
+                return f"first line {lines[0][:80]}"
+            for line in lines[1:]:
+                json.loads(line)
+            summary = json.loads(z.read("diagnostic-summary.json"))
+            runs = [t for t in summary["tests"] if t["id"] == test][0]["runs"]
+            if not runs or runs[-1]["auto"] != auto:
+                return f"{test} runs {runs}"
+        return True
+    return ok
+
+
+def diag_report_path():
+    return os.path.join(ROOT, "build", "touch", "diag", CURRENT.name + ".zip")
+
+
+def diag_pen_tap(s, x, y):
+    s.add("pnear")
+    s.add(f"pmove:{x:g},{y:g}")
+    s.wait(2)
+    s.add(f"pdown:{x:g},{y:g}")
+    s.wait(2)
+    s.add("pup")
+    s.wait(2)
+
+
+@scenario
+def diag_finger_taps_are_answered():
+    """Input diagnostics' finger taps: three taps on the pad are three downs received and three presses answered, a pass."""
+    s = Script()
+    for _ in range(3):
+        s.ftap(*DIAG["pad"])
+    s.wait(4)
+    return s, ["--diag-test=finger_tap"], {"diag_auto": is_text("pass"), "diag_finger_downs": near(3), "diag_presses": near(3), "diag_palms": near(0), "dabs": near(0)}
+
+
+@scenario
+def diag_finger_after_a_pen_that_left():
+    """The pen taps the pad and leaves (proximity out); the finger taps after it are all answered."""
+    s = Script()
+    diag_pen_tap(s, *DIAG["pad"])
+    diag_pen_tap(s, DIAG["pad"][0] + 30, DIAG["pad"][1])
+    s.add("pfar")
+    s.wait(10)
+    for _ in range(3):
+        s.ftap(*DIAG["pad"])
+    s.wait(4)
+    return s, ["--diag-test=finger_after_pencil"], {"diag_auto": is_text("pass"), "diag_palms": near(0), "diag_anomalies": is_text("none")}
+
+
+@scenario
+def diag_finger_after_a_pen_that_never_left():
+    """A pen that never says it left (as SDL's iPad driver does) keeps every finger after it a palm: the screen fails the test and names the palm and the stuck pen."""
+    s = Script()
+    diag_pen_tap(s, *DIAG["pad"])
+    s.wait(150)
+    for _ in range(3):
+        s.ftap(*DIAG["pad"])
+    s.wait(4)
+    anomalies = lambda v: all(a in v.split(",") for a in ("finger_palm", "pen_near_stuck", "received_not_responded"))
+    return s, ["--diag-test=finger_after_pencil"], {"diag_auto": is_text("fail"), "diag_palms": near(3), "diag_anomalies": anomalies}
+
+
+@scenario
+def diag_pen_that_never_leaves_is_caught():
+    """Pencil hover: the pen hovers the pad and goes quiet without a proximity out; two seconds on the screen says it is stuck near."""
+    s = Script()
+    pen_hover(s, *DIAG["pad"], frames=40)
+    s.add(f"pmove:{DIAG['pad'][0] + 40:g},{DIAG['pad'][1]:g}")
+    s.wait(150)
+    return s, ["--diag-test=pencil_hover"], {"diag_auto": is_text("fail"), "diag_anomalies": lambda v: "pen_near_stuck" in v.split(",")}
+
+
+@scenario
+def diag_pen_hover_that_leaves_passes():
+    """Pencil hover: the pen hovers the pad without a press, then leaves; a pass."""
+    s = Script()
+    pen_hover(s, *DIAG["pad"], frames=40)
+    s.add("pfar")
+    s.wait(10)
+    return s, ["--diag-test=pencil_hover"], {"diag_auto": is_text("pass"), "diag_presses": near(0)}
+
+
+@scenario
+def diag_hover_slider_holds_still():
+    """The pen hovering on the diagnostic slider and moving along it, without a turn, leaves its value alone: a pass."""
+    s = Script()
+    pen_hover(s, *DIAG["slider"], frames=70)
+    for dx in range(0, 60, 10):
+        s.add(f"pmove:{DIAG['slider'][0] + dx:g},{DIAG['slider'][1]:g}")
+        s.wait(2)
+    return s, ["--diag-test=hover_slider"], {"diag_auto": is_text("pass"), "diag_slider": near(50, 1e-2)}
+
+
+@scenario
+def diag_roll_right_raises_the_value():
+    """Barrel roll to the right: the pen hovering on the slider and turned 40 degrees clockwise raises it by 40/180 of its range, a pass."""
+    s = Script()
+    pen_hover(s, *DIAG["slider"], frames=4)
+    for deg in (0, 10, 20, 30, 40):
+        s.add(f"proll:{deg}")
+        s.wait(2)
+    return s, ["--diag-test=roll_right"], {"diag_auto": is_text("pass"), "diag_slider": near(50 + 100 * 40 / 180, 0.05)}
+
+
+@scenario
+def diag_roll_left_lowers_the_value():
+    """Barrel roll to the left: turned 40 degrees anticlockwise, the slider goes down, a pass."""
+    s = Script()
+    pen_hover(s, *DIAG["slider"], frames=4)
+    for deg in (0, -10, -20, -30, -40):
+        s.add(f"proll:{deg}")
+        s.wait(2)
+    return s, ["--diag-test=roll_left"], {"diag_auto": is_text("pass"), "diag_slider": near(50 - 100 * 40 / 180, 0.05)}
+
+
+@scenario
+def diag_roll_wraps_without_a_jump():
+    """Barrel roll past half a turn: the reported angle wraps from 170 to -170 and the slider moves on by the small turn, a pass."""
+    s = Script()
+    pen_hover(s, *DIAG["slider"], frames=4)
+    for deg in (150, 160, 170, 180, -170, -160):
+        s.add(f"proll:{deg}")
+        s.wait(2)
+    return s, ["--diag-test=roll_wrap"], {"diag_auto": is_text("pass"), "diag_slider": near(50 + 100 * 50 / 180, 0.05)}
+
+
+@scenario
+def diag_size_slider_ratio_by_finger():
+    """Size slider by finger: a 60 point drag up moves the value by 60 points of its 160 point track, a pass."""
+    s = Script()
+    x, y = DIAG["size"]
+    s.fdrag(line((x, y), (x, y - 60), 15))
+    s.wait(4)
+    return s, ["--diag-test=slider_ratio_finger"], {"diag_auto": is_text("pass"), "diag_vslider": near(50 + 100 * 60 / 160, 0.05)}
+
+
+@scenario
+def diag_text_typing_keeps_scul():
+    """Typing and Backspace: a tap on the diagnostic field, sculpt typed and two Backspaces leave scul, a pass."""
+    s = Script()
+    s.ftap(*DIAG["field"])
+    s.wait(3)
+    s.type("sculpt")
+    s.press("Backspace")
+    s.press("Backspace")
+    return s, ["--diag-test=text_typing"], {"diag_auto": is_text("pass"), "diag_field": is_text("scul")}
+
+
+@scenario
+def diag_escape_closes_the_screen():
+    """Escape closes Input diagnostics, as it closes Home."""
+    s = Script()
+    s.wait(3)
+    s.press("Escape")
+    return s, ["--input-diagnostics"], {"diag_open": near(0)}
+
+
+@scenario
+def diag_export_writes_the_report():
+    """--diag-export writes the report's three files in one ZIP: a session line first, every line JSON, the summary's verdict as the run's."""
+    s = Script()
+    for _ in range(3):
+        s.ftap(*DIAG["pad"])
+    s.wait(4)
+    path = diag_report_path()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    if os.path.exists(path):
+        os.remove(path)
+    return s, ["--diag-test=finger_tap", f"--diag-export={path}"], {"diag_exports": near(1), "@report": diag_report_has("finger_tap", "pass")}
 
 
 def camera_back(stats):
@@ -7650,16 +7945,38 @@ def view_pane_ao_only_shows():
 
 @scenario
 def render_preview_builds_beside_the_main_view():
-    """Render preview puts the grid side by side with its pane linked and on Render; the pane gathers render samples at rest, and a stroke in the main view starts them over once it is done."""
+    """Render preview puts the grid side by side with its pane linked and on Render; the pane gathers render samples at rest, and a stroke in the main view starts them over once it is done: the pane is drawn more often than at rest, and has fewer samples than frames since the finger lifted."""
+    # How often the pane was drawn in the run without the stroke.
+    rest_draws = []
+
+    def remember(stats):
+        rest_draws.append(int(stats["pane_draws"]))
+        return True
+
+    def drawn_again(stats):
+        draws = int(stats["pane_draws"])
+        return True if draws > rest_draws[0] else f"pane_draws={draws}, no more than the {rest_draws[0]} without the stroke"
+
     def run(stroke):
         s = Script()
         s.wait(240)
+        checks = {"grid": is_text("Side_By_Side"), "pane_camera": is_text("Follow"), "pane_heavy": near(1)}
         if stroke:
-            s.fdrag(line((360, 420), (420, 470), 12))
-            s.wait(20)
-        samples = (lambda v: 0 <= int(v) < 3) if stroke else (lambda v: int(v) >= 4)
-        return s, ["--script=render_preview"], {"grid": is_text("Side_By_Side"), "pane_camera": is_text("Follow"), "pane_heavy": near(1),
-                                                                            "pane_render_samples": samples, "dabs": (lambda v: int(v) > 0) if stroke else near(0)}
+            s.fdrag(line((360, 420), (420, 470), 12), lift=False)
+            lift = s.frame
+            s.add("fup:0")
+            s.wait(23)
+            # The tracer adds at most a sample a frame, from the frame after a draw starts it
+            # over, so a count started over once the stroke was done is below the frames from
+            # the lift to the end (run_one's 10 included), however fast the GPU traces. A
+            # desktop GPU traces a whole sample a frame, so one kept from before the stroke is
+            # far above it; llvmpipe takes many frames a sample, so there the pane's extra
+            # draw, which always starts its tracing over, is what shows the stroke reached it.
+            after = s.frame + 10 - lift
+            checks.update({"pane_render_samples": lambda v: 0 <= int(v) < after, "@drawn again": drawn_again, "dabs": lambda v: int(v) > 0})
+        else:
+            checks.update({"pane_render_samples": lambda v: int(v) >= 4, "@remember": remember, "dabs": near(0)})
+        return s, ["--script=render_preview"], checks
     return Steps([run(False), run(True)])
 
 

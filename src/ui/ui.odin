@@ -62,7 +62,8 @@ Input :: struct {
 	text_end:      bool,
 	pointer:       Pointer_Kind, // what pressed or moved the pointer last
 	// How far the pen turned about its own length this frame, in degrees, clockwise seen
-	// from its top; zero without a pen. A slider the pen hovers on follows it (pen_roll).
+	// from its top; zero without a pen. A slider the pen hovers on follows it, once it
+	// turned there on purpose (hover_roll).
 	roll:          f32,
 	// The system took the pointer back (a palm was recognised, the app lost the touch):
 	// what is held lets go this frame without a click.
@@ -327,6 +328,25 @@ Context :: struct {
 	// no longer drawn lets them go).
 	text_focus:       Id,
 	text_seen:        bool,
+	// Where the field that has the keys was drawn, and its caret's offset from the field's
+	// left, so a tablet's keyboard and a desktop's input method keep clear of it.
+	text_rect:        Rect,
+	text_caret:       f32,
+	text_tapped:      bool, // a text field was tapped this frame
+	// The text fields drawn this frame, as far as they show, for the iPad's Scribble to
+	// find the one the pencil writes in.
+	text_fields:      [MAX_TEXT_FIELDS]Text_Field_Drawn,
+	text_field_count: int,
+	roll:             Hover_Roll, // the pen's roll on the control it hovers (hover_roll)
+}
+
+// The most text fields a frame keeps for Scribble: a panel shows a few at once.
+MAX_TEXT_FIELDS :: 16
+
+// A text field as it showed: its id and the part of it the panel's clip let show.
+Text_Field_Drawn :: struct {
+	id:   Id,
+	rect: Rect,
 }
 
 init :: proc(ctx: ^Context, theme := THEME_DARK) {
@@ -373,6 +393,9 @@ frame_begin :: proc(ctx: ^Context, input: Input) {
 	ctx.hot = 0
 	ctx.active_seen = false
 	ctx.text_seen = false
+	ctx.text_rect, ctx.text_caret, ctx.text_tapped = {}, 0, false
+	ctx.text_field_count = 0
+	ctx.roll.seen = false
 	d := ctx.input.pixel_density
 	ctx.clip = {0, 0, input.window.x * d, input.window.y * d}
 
@@ -420,6 +443,7 @@ frame_end :: proc(ctx: ^Context) -> ^Draw_List {
 	if ctx.scrolling != 0 && ctx.active != ctx.scrolling do ctx.scrolling = 0
 	if ctx.swiping != 0 && ctx.active != ctx.swiping do ctx.swiping = 0
 	if !ctx.text_seen do ctx.text_focus = 0
+	if !ctx.roll.seen do ctx.roll = {}
 	if ctx.input.down == {} {
 		ctx.viewport_drag = false
 		ctx.swallow = false

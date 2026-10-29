@@ -124,6 +124,9 @@ gesture_repeats :: proc(s: Pie_Slot) -> bool {
 gesture_run :: proc(app: ^App, slot: Gesture_Slot) -> bool {
 	s := app.nav.gestures[slot]
 	if s.id == .None do return false
+	// Input diagnostics logs the gesture (diag_event) but runs nothing: it would act on the
+	// scene behind the screen, and a pie opened over it takes every press its tests count.
+	if app.diag.open do return false
 	// A gesture never lands mid-stroke: a stroke the touch began ends first.
 	stroke_finish(app)
 	return command_run(app, s.id, s.arg)

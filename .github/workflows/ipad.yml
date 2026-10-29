@@ -44,7 +44,10 @@ jobs:
       - name: Build Sculpt.ipa
         env:
           BUILD_NUMBER: ${{ github.run_number }}
-        run: ./build.sh ios
+          # A developer build: Input diagnostics is reachable (README "Input diagnostics"),
+          # and its reports name the commit.
+          SCULPT_DIAGNOSTICS: "1"
+        run: SCULPT_VERSION="g${GITHUB_SHA::7}" ./build.sh ios
 
       - uses: actions/upload-artifact@v4
         with:

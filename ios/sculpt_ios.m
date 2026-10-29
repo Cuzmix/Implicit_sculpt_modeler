@@ -10,8 +10,8 @@
  * then for the folder it goes in (starting in the app's own Documents folder, which Files
  * shows as On My iPad > Sculpt), and the app writes there itself.
  *
- * The Apple Pencil's double-tap, squeeze, Pencil-only drawing and haptics follow, and at the
- * end the Pencil's samples between frames.
+ * The Apple Pencil's double-tap, squeeze, Pencil-only drawing and haptics follow, then the
+ * Pencil's samples between frames, and at the end Scribble for the app's text fields.
  *
  * Built with ARC (-fobjc-arc) by `./build.sh ios`.
  */
@@ -20,6 +20,8 @@
 #import <UIKit/UIGestureRecognizerSubclass.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #include <stdbool.h>
+#include <string.h>
+#include <sys/utsname.h>
 #include <SDL3/SDL.h>
 
 @interface SculptPicker : NSObject <UIDocumentPickerDelegate, UIAdaptivePresentationControllerDelegate>
@@ -525,4 +527,164 @@ void sculpt_ios_samples_start(SDL_Window *window, Uint32 event_type)
 	samples.delaysTouchesBegan = NO;
 	samples.delaysTouchesEnded = NO;
 	[view addGestureRecognizer:samples];
+}
+
+/*
+ * Scribble, the Apple Pencil's handwriting, for the app's text fields. The interface draws
+ * its fields itself (src/ui), so UIKit cannot see them, and SDL's own text field, which its
+ * text input types into, is hidden and has no size; an indirect Scribble interaction on
+ * SDL's view asks the app instead. Each frame the app sends where its fields show, in the
+ * view's points, and which has the keys (sculpt_ios_scribble_fields). When the pencil
+ * begins to write in one, Scribble asks for it: the app gives it the keys at its next frame
+ * (sculpt_ios_scribble_wanted) and turns SDL's text input on, which makes SDL's hidden field
+ * the first responder, and that field goes to Scribble to write into. SDL sends what is
+ * written as text events, as it does the keyboard's.
+ */
+@interface SculptScribble : NSObject <UIIndirectScribbleInteractionDelegate>
+@end
+
+/* MAX_TEXT_FIELDS in src/ui/ui.odin. */
+enum { SCRIBBLE_FIELDS = 16 };
+
+static struct {
+	Uint64 id;
+	CGRect rect;
+} scribble_fields[SCRIBBLE_FIELDS];
+static int scribble_count;
+static Uint64 scribble_focused; /* the field with the keys, 0 for none */
+static bool scribble_typing;    /* SDL's text input is on */
+static Uint64 scribble_wanted;  /* asked for by Scribble, not yet taken by the app */
+static Uint64 scribble_waiting; /* asked for, whose text field Scribble waits for */
+static void (^scribble_answer)(UIResponder<UITextInput> *);
+static SculptScribble *scribble;
+static UIIndirectScribbleInteraction *scribble_interaction;
+static UIView *scribble_view;
+
+/* The view under `view` that has the keys and takes text: SDL's hidden field, while its
+ * text input is on. */
+static UIResponder<UITextInput> *text_responder(UIView *view)
+{
+	if (view.isFirstResponder && [view conformsToProtocol:@protocol(UITextInput)]) return (UIResponder<UITextInput> *)view;
+	for (UIView *sub in view.subviews) {
+		UIResponder<UITextInput> *found = text_responder(sub);
+		if (found) return found;
+	}
+	return nil;
+}
+
+static Uint64 element_id(UIScribbleElementIdentifier element)
+{
+	return [element isKindOfClass:[NSNumber class]] ? [(NSNumber *)element unsignedLongLongValue] : 0;
+}
+
+/* Answers Scribble's wait for a field with `input`, nil when the field got no keys. */
+static void scribble_answer_with(UIResponder<UITextInput> *input)
+{
+	void (^answer)(UIResponder<UITextInput> *) = scribble_answer;
+	scribble_answer = nil;
+	scribble_waiting = 0;
+	if (answer) answer(input);
+}
+
+@implementation SculptScribble
+
+- (void)indirectScribbleInteraction:(UIIndirectScribbleInteraction *)interaction requestElementsInRect:(CGRect)rect completion:(void (^)(NSArray<UIScribbleElementIdentifier> *))completion
+{
+	NSMutableArray<UIScribbleElementIdentifier> *found = [NSMutableArray array];
+	for (int i = 0; i < scribble_count; i++) {
+		if (CGRectIntersectsRect(scribble_fields[i].rect, rect)) [found addObject:@(scribble_fields[i].id)];
+	}
+	completion(found);
+}
+
+- (BOOL)indirectScribbleInteraction:(UIIndirectScribbleInteraction *)interaction isElementFocused:(UIScribbleElementIdentifier)element
+{
+	return scribble_typing && element_id(element) == scribble_focused;
+}
+
+- (CGRect)indirectScribbleInteraction:(UIIndirectScribbleInteraction *)interaction frameForElement:(UIScribbleElementIdentifier)element
+{
+	Uint64 id = element_id(element);
+	for (int i = 0; i < scribble_count; i++) {
+		if (scribble_fields[i].id == id) return scribble_fields[i].rect;
+	}
+	return CGRectNull;
+}
+
+- (void)indirectScribbleInteraction:(UIIndirectScribbleInteraction *)interaction focusElementIfNeeded:(UIScribbleElementIdentifier)element referencePoint:(CGPoint)focusReferencePoint completion:(void (^)(UIResponder<UITextInput> *))completion
+{
+	Uint64 id = element_id(element);
+	/* A field asked for earlier and not yet given gets nothing now. */
+	scribble_answer_with(nil);
+	if (id == 0) {
+		completion(nil);
+		return;
+	}
+	if (scribble_typing && id == scribble_focused) {
+		completion(text_responder(scribble_view));
+		return;
+	}
+	scribble_answer = completion;
+	scribble_wanted = id;
+	scribble_waiting = id;
+}
+
+@end
+
+void sculpt_ios_scribble_start(SDL_Window *window)
+{
+	SDL_PropertiesID props = SDL_GetWindowProperties(window);
+	UIWindow *uiwindow = (__bridge UIWindow *)SDL_GetPointerProperty(props, SDL_PROP_WINDOW_UIKIT_WINDOW_POINTER, NULL);
+	UIView *view = uiwindow.rootViewController.view;
+	if (!view) return;
+	scribble = [SculptScribble new];
+	scribble_interaction = [[UIIndirectScribbleInteraction alloc] initWithDelegate:scribble];
+	[view addInteraction:scribble_interaction];
+	scribble_view = view;
+}
+
+/* The frame's fields, `count` of them: their ids and where they show (x, y, width and height
+ * in the view's points), the field with the keys and whether SDL's text input is on. A field
+ * Scribble waits for gets SDL's text field once it has the keys, or nothing once the app
+ * gave them elsewhere. */
+void sculpt_ios_scribble_fields(const Uint64 *ids, const float (*rects)[4], int count, Uint64 focused, bool typing)
+{
+	scribble_count = count < SCRIBBLE_FIELDS ? count : SCRIBBLE_FIELDS;
+	for (int i = 0; i < scribble_count; i++) {
+		scribble_fields[i].id = ids[i];
+		scribble_fields[i].rect = CGRectMake(rects[i][0], rects[i][1], rects[i][2], rects[i][3]);
+	}
+	scribble_focused = focused;
+	scribble_typing = typing;
+	if (scribble_waiting == 0 || scribble_wanted != 0) return;
+	if (typing && focused == scribble_waiting) scribble_answer_with(text_responder(scribble_view));
+	else scribble_answer_with(nil);
+}
+
+/* The field Scribble asked for since the app last asked, 0 for none. */
+Uint64 sculpt_ios_scribble_wanted(void)
+{
+	Uint64 id = scribble_wanted;
+	scribble_wanted = 0;
+	return id;
+}
+
+/*
+ * What the Input diagnostics report says the device is (src/app/diagnostics.odin): the system
+ * and its version ("iPadOS 26.7.2"), the model's identifier ("iPad14,8"), which UIDevice's
+ * model ("iPad") does not tell apart, and the build number the IPA was made with. Each goes
+ * into its `size` bytes, cut short if need be and always ended with a zero.
+ */
+void sculpt_ios_device_info(char *os_name, char *model, char *build, int size)
+{
+	if (!os_name || !model || !build || size <= 0) return;
+	UIDevice *device = UIDevice.currentDevice;
+	NSString *system = [NSString stringWithFormat:@"%@ %@", device.systemName, device.systemVersion];
+	struct utsname u;
+	const char *machine = uname(&u) == 0 ? u.machine : "";
+	id number = [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleVersion"];
+	const char *built = [number isKindOfClass:NSString.class] ? ((NSString *)number).UTF8String : "";
+	strlcpy(os_name, system.UTF8String ? system.UTF8String : "", (size_t)size);
+	strlcpy(model, machine, (size_t)size);
+	strlcpy(build, built ? built : "", (size_t)size);
 }
