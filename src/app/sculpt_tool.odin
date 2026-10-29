@@ -7,6 +7,7 @@ import "core:time"
 import "../camera"
 import "../geom"
 import "../sculpt"
+import "../ui"
 import "../voxel"
 
 // Brush settings as the user edits them. Radius is in screen pixels, converted to
@@ -246,6 +247,11 @@ Stroke :: struct {
 	// past the silhouette), and the area normal there (world space, unit length or zero).
 	grab_from:   Vec3,
 	grab_normal: Vec3,
+	// Grab: the pen's roll as the stroke last saw it (degrees, from Viewport_Input.pen_roll)
+	// and how far it has turned since the press, the short way round each time
+	// (grab_twist_angle).
+	grab_roll:   f32,
+	grab_turned: f32,
 	// Grab: how far what it picked up moves for each unit the pointer goes, from the
 	// brush's Strength as the press found it (grab_gain).
 	grab_gain:   f32,
@@ -673,6 +679,7 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 	st.grab, st.hook, st.anchor, st.invert = .Grab in flags, .Hook in flags, hit, brush.invert
 	st.hook_dir = {}
 	st.grab_from, st.grab_normal, st.press_pressure = from, {}, s.pressure
+	st.grab_roll, st.grab_turned = input.pen_roll, 0
 	st.grab_gain = grab_gain(app, st.kind)
 	if st.grab && obj.voxel == nil {
 		t := obj.transform
@@ -761,10 +768,30 @@ grab_follow :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, pos:
 	moved := grab_moved(app, input, origin + dir * t - st.grab_from, facing)
 	offset := to_local_dir(obj.transform, moved) * (st.grab_gain / obj.transform.scale)
 	st.pos = pos
+	twist: sculpt.Grab_Twist
+	if angle := grab_twist_angle(app, input.pen_roll); angle != 0 {
+		// Clockwise seen from the pen's top turns what is held clockwise on screen: about
+		// the way the view looks at it, which a viewer looking along sees clockwise.
+		twist = {linalg.normalize0(to_local_dir(obj.transform, facing)), angle}
+	}
 	t1 := time.tick_now()
-	sculpt.sculptor_grab_move(object_sculptor(obj), offset)
+	sculpt.sculptor_grab_move(object_sculptor(obj), offset, twist)
 	res.brush_ms += time.duration_milliseconds(time.tick_since(t1))
 	res.dabs += 1
+}
+
+// The radians a Grab turns what it holds for the pen's roll `roll` (degrees, as the frame
+// reports it), as Nomad's Move turns with the Pencil Pro: the turn since the press, less
+// the first ui.ROLL_ENGAGE degrees, which a hand turns the pen by while it drags; none
+// with Settings > Pen's Roll while grabbing off. A pen that reports no roll stays at 0.
+grab_twist_angle :: proc(app: ^App, roll: f32) -> f32 {
+	st := &app.stroke
+	d := roll - st.grab_roll
+	d -= 360 * math.floor((d + 180) / 360)
+	if abs(d) <= ROLL_JUMP do st.grab_turned += d
+	st.grab_roll = roll
+	if !app.nav.grab_twist || abs(st.grab_turned) <= ui.ROLL_ENGAGE do return 0
+	return math.to_radians(st.grab_turned - math.sign(st.grab_turned) * ui.ROLL_ENGAGE)
 }
 
 // The Strength at which Grab and Elastic move what they picked up exactly as far as the
