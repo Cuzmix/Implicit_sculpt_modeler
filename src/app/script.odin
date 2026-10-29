@@ -410,6 +410,15 @@ script_statement :: proc(s: ^Script, line: int, words: []string) {
 			break
 		}
 		id := script_command(name)
+		// The workspaces that became views or a space's layout when spaces came: a script
+		// written before them keeps running, `workspace focus` turning Focus mode on.
+		if id == .Workspace && len(args) == 1 {
+			switch script_name(args[0]) {
+			case "focus":   id, args = .Focus_Mode, []string{"on"}
+			case "inspect": id, args = .Inspect_Mode, []string{"on"}
+			case "studio":  args = []string{"render"}
+			}
+		}
 		if id == .None {
 			script_error(s, line, "no command is named %q", words[0])
 			return

@@ -189,6 +189,11 @@ Kit_State :: struct {
 	// What the workspace hides, and the workspaces (workspaces.odin).
 	hidden:     bit_set[Zone],
 	workspaces: Workspaces,
+	// The working space (spaces.odin), and the view toggles Focus and Inspect, which hide
+	// bars or show the form four ways without changing the layout.
+	spaces:     Spaces,
+	focus_mode: bool,
+	inspect:    Inspect_View,
 	passes:     Passes, // the pass the viewport shows (passes.odin)
 	wheel_size: Wheel_Size,
 	wheel_labels: Wheel_Labels, // what its sectors show
@@ -247,6 +252,8 @@ Kit_State :: struct {
 	object_menu_id: int,
 	object_menu_at: ui.Rect,
 	object_menu_side: ui.Side, // at the pointer from the Scene palette, above the status chip
+	object_chip_fit:  Object_Chip_Fit, // how much of the chip bar's object chip showed last frame
+	view_chips_shown: bool, // the view chips were laid out last frame (an exit stat)
 	// A folder's menu in the Scene palette, the rename field over a row, and how many rows
 	// the tree drew last (for the exit stats).
 	folder_menu:    bool,
@@ -1246,6 +1253,8 @@ kit_layout :: proc(app: ^App) {
 	t := ctx.theme
 	E := t.edge
 
+	// The space follows a tool picked last frame, before anything is laid out for it.
+	space_follow(app)
 	lens_view_frame(app)
 	// The Home screen covers the window and stands in for every panel while it shows.
 	if k.home {

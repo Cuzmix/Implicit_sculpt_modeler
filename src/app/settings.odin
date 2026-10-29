@@ -40,8 +40,10 @@ settings_path :: proc() -> string {
 
 // The version settings_save writes on the first line. A file from a newer version is
 // read as far as this one knows its lines. 2: the default orbit became the turntable.
-// 3: the default look became Lens.
-SETTINGS_VERSION :: 4
+// 3: the default look became Lens. 4: the default spacing became DAB_SPACING. 5: spaces:
+// the built-in workspaces became Sculpt, Model and Render, and Focus and Inspect views
+// (workspaces.odin).
+SETTINGS_VERSION :: 5
 
 // One remembered value that is a plain field of App: its key in the file, where it is,
 // what type it is (bool, f32, i32, int or an enum) and, for numbers, the range a value read
@@ -789,8 +791,10 @@ settings_load :: proc(app: ^App, path: string) {
 		case "thumbnail_shaded":
 			// Before the second view had passes, Shaded was a switch over the silhouette.
 			if f[1] == "1" do app.kit.second.pass = .Shaded
-		case "workspace", "workspace_saved", "workspace_live", "workspace_current":
-			workspaces_load_line(&app.kit, f)
+		case "workspace", "workspace_saved", "workspace_live", "workspace_current", "workspace_space":
+			workspaces_load_line(&app.kit, f, version)
+		case "space_layouts":
+			spaces_load_line(&app.kit, f)
 		case "brush_recent", "brush_favorite":
 			// brush_recent <key, escaped> ..., most recent first, and brush_favorite <key,
 			// escaped> ..., in the order added: what the brush browser's Recent and
