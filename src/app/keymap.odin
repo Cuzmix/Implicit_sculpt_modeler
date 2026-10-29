@@ -28,24 +28,21 @@ Key_Override :: struct {
 	none:    bool, // the command has no key at all
 }
 
-// The bindings in effect: the defaults while nothing is changed in the Classic layout (a
-// zero App too), else as keymap_rebuild built them after the last change or the last
-// change of layout. A chord the user gave runs after the defaults in a frame where several
-// keys went down.
+// The bindings in effect: the defaults while nothing is changed (a zero App too), else as
+// keymap_rebuild built them after the last change. A chord the user gave runs after the
+// defaults in a frame where several keys went down.
 keymap :: proc(app: ^App) -> []Binding {
-	if app.key_override_count == 0 && !app.keymap_lens do return DEFAULT_BINDINGS[:]
+	if app.key_override_count == 0 do return DEFAULT_BINDINGS[:]
 	return app.bindings[:app.binding_count]
 }
 
 keymap_rebuild :: proc(app: ^App) {
 	app.binding_count = 0
-	app.keymap_lens = app.kit.chrome == .Lens
 	push :: proc(app: ^App, b: Binding) {
 		app.bindings[app.binding_count] = b
 		app.binding_count += 1
 	}
-	for d in DEFAULT_BINDINGS {
-		b := keymap_default(app, d)
+	for b in DEFAULT_BINDINGS {
 		// A command the user changed keeps only its change; a chord the user gave to
 		// another command leaves this one.
 		if key_override_find(app, b.command, b.arg) >= 0 do continue
@@ -54,16 +51,6 @@ keymap_rebuild :: proc(app: ^App) {
 		if !taken do push(app, b)
 	}
 	for o in app.key_overrides[:app.key_override_count] do if !o.none do push(app, {o.chord, o.command, o.arg})
-}
-
-// A default binding as the layout has it: in Lens, Tab hides every control (Clean view)
-// as the mockups have it, Palettes keeping its button, and B opens the brush picker, as
-// picking a brush there goes back to sculpting.
-keymap_default :: proc(app: ^App, b: Binding) -> Binding {
-	b := b
-	if app.keymap_lens && b.command == .Inspector && b.arg == 0 do b.command = .Clean_View
-	if app.keymap_lens && b.command == .Tool_Sculpt && b.arg == 0 do b.command = .Brush_Picker
-	return b
 }
 
 // Whether two chords are the same key with the same modifiers (auto-repeat aside).

@@ -4,7 +4,7 @@ import "../gizmo"
 import "../sculpt"
 import "../ui"
 
-// The contextual action bar: above the brush dock, the next steps for what is active on
+// The contextual action bar: above the shelf, the next steps for what is active on
 // the selected object, so a tablet user masks, then inverts or blurs without opening the
 // inspector, its Object palette and the Select page. It shows only while something applies: the
 // Move tool's gizmo, an HD window open, a mask, hidden parts, or an operation that can
@@ -80,13 +80,12 @@ LENS_HIDDEN_ACTIONS := [?]Action {
 	{.Delete_Hidden, 0, "Delete hidden"},
 }
 
-// A group's actions as the layout shows them.
+// A group's actions as the bar shows them: the mask's and the hidden parts' as round 2's
+// context bar lists them.
 action_list :: proc(app: ^App, g: Action_Group) -> []Action {
-	if app.kit.chrome == .Lens {
-		#partial switch g {
-		case .Mask:   return LENS_MASK_ACTIONS[:]
-		case .Hidden: return LENS_HIDDEN_ACTIONS[:]
-		}
+	#partial switch g {
+	case .Mask:   return LENS_MASK_ACTIONS[:]
+	case .Hidden: return LENS_HIDDEN_ACTIONS[:]
 	}
 	return ACTION_GROUPS[g].actions
 }
@@ -123,7 +122,7 @@ action_bar_shown :: proc(app: ^App) -> bool {
 dock_stack :: proc(app: ^App) -> (h: f32) {
 	ctx := &app.kit.ctx
 	// No dock (the workspace hides it), no lift either.
-	if dock, _ := ui.prev_layout(ctx, "dock"); dock.y > 0 do h = dock.y + DOCK_LIFT
+	if dock, _ := ui.prev_layout(ctx, "dock"); dock.y > 0 do h = dock.y + dock_lift(app)
 	if bar, _ := ui.prev_layout(ctx, "action bar"); bar.y > 0 do h += bar.y + ACTION_BAR_GAP
 	return
 }
@@ -204,7 +203,7 @@ kit_action_bar :: proc(app: ^App) {
 	}
 	dock, _ := ui.prev_layout(ctx, "dock")
 	mark := ui.vertex_mark(ctx)
-	ui.begin_anchored(ctx, "action bar", .Center, .End, {0, t.edge + DOCK_LIFT + dock.y + ACTION_BAR_GAP}, {direction = .Row, gap = 4, padding = ACTION_BAR_PADDING, radius = t.radius_large + 4, background = .Panel, center = true})
+	ui.begin_anchored(ctx, "action bar", .Center, .End, {0, t.edge + dock_lift(app) + dock.y + ACTION_BAR_GAP}, {direction = .Row, gap = 4, padding = ACTION_BAR_PADDING, radius = t.radius_large + 4, background = .Panel, center = true})
 	n := 0
 	for g in groups {
 		if n > 0 do ui.divider(ctx, 28)

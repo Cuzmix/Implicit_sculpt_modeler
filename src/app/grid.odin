@@ -795,24 +795,10 @@ grid_set :: proc(k: ^Kit_State, preset: Grid_Preset) -> (added: int, changed: bo
 	return had, true
 }
 
-// The grid's room in points: the whole window with one pane, as the viewport always was,
-// and with more while they run under the panels (Settings > Interface, the default, and
-// always in Lens); else the room between the docked columns (as last laid out), so no
-// pane lies under one. Too narrow a room between them keeps the window.
+// The grid's room in points: the whole window, the panes running under the panels.
 view_grid_room :: proc(app: ^App) -> ui.Rect {
-	k := &app.kit
-	win := k.ctx.input.window
-	whole := ui.Rect{0, 0, win.x, win.y}
-	if grid_panes(&k.grid) == 1 || k.panes_under || k.chrome == .Lens do return whole
-	lo, hi := f32(0), win.x
-	for side in Column_Side {
-		c := k.panels.rect[side]
-		if c.w <= 0 do continue
-		if c.x + c.w * 0.5 < win.x * 0.5 do lo = max(lo, c.x + c.w + GRID_COLUMN_GAP)
-		else do hi = min(hi, c.x - GRID_COLUMN_GAP)
-	}
-	if hi - lo < win.x * 0.4 do return whole
-	return {lo, 0, hi - lo, win.y}
+	win := app.kit.ctx.input.window
+	return {0, 0, win.x, win.y}
 }
 
 // Where a docked left column ends, so a pane's head that would lie under it starts right of
@@ -829,8 +815,6 @@ grid_left_column_edge :: proc(app: ^App) -> f32 {
 
 // Points between a docked column and the grid.
 GRID_COLUMN_GAP :: 8
-// The width of a divider's grab strip, in points, centred on its gap.
-GRID_GRAB :: 16
 
 // A divider: the gap it lies along, the split it moves, its direction and the split's room.
 Grid_Divider :: struct {
@@ -913,14 +897,12 @@ kit_grid :: proc(app: ^App) {
 		if !resizing do g.px[i - 1] = {u32(r.w * d + 0.5), u32(r.h * d + 0.5)}
 		kit_view_pane(app, i, r)
 	}
-	// Lens's corner handles under the panes' heads, whose chips win where the two meet.
-	if k.chrome == .Lens {
-		if g.maximised == 0 do lens_pane_corners(app, cells, n)
-		for i in 1 ..< n {
-			if g.maximised != 0 && g.maximised != i do continue
-			r := room if g.maximised == i else cells[i]
-			lens_pane_head(app, i, grid_head_at(app, r), r, cells, n)
-		}
+	// The corner handles under the panes' heads, whose chips win where the two meet.
+	if g.maximised == 0 do lens_pane_corners(app, cells, n)
+	for i in 1 ..< n {
+		if g.maximised != 0 && g.maximised != i do continue
+		r := room if g.maximised == i else cells[i]
+		lens_pane_head(app, i, grid_head_at(app, r), r, cells, n)
 	}
 	if g.maximised != 0 do return
 	dividers, count := grid_dividers(&g.tree, rooms)
@@ -929,17 +911,17 @@ kit_grid :: proc(app: ^App) {
 	for div in dividers[:count] {
 		i := div.node
 		grab := div.line
-		// Lens's dividers are wider to hold, for a finger.
-		span: f32 = GRID_GRAB_LENS if k.chrome == .Lens else GRID_GRAB
+		// The dividers are wide to hold, for a finger.
+		span: f32 = GRID_GRAB_LENS
 		if div.vertical do grab.x, grab.w = grab.x + grab.w * 0.5 - span * 0.5, span
 		else do grab.y, grab.h = grab.y + grab.h * 0.5 - span * 0.5, span
 		ui.begin_at(ctx, fmt.tprintf("grid divider %d", i), {grab.x, grab.y}, {width = grab.w, height = grab.h})
 		a := ui.area(ctx, "grab", {grab.w, grab.h})
-		if k.chrome == .Lens && ui.secondary(ctx) do divider_menu_open(app, i, a.mouse)
+		if ui.secondary(ctx) do divider_menu_open(app, i, a.mouse)
 		t := ctx.theme
 		color := t.accent if a.held else t.border_strong if a.hovered else t.frame
 		ui.fill_rect(ctx, div.line, 0, color)
-		if k.chrome == .Lens do grid_divider_lens(app, div, a, cells)
+		grid_divider_lens(app, div, a, cells)
 		if a.held do grid_divider_drag(app, div, a.mouse, room, was == i + 1)
 		ui.end(ctx)
 	}
@@ -948,7 +930,7 @@ kit_grid :: proc(app: ^App) {
 		g.areas.held = false
 		if g.areas.held_step.tree != g.tree do grid_step_push(g, g.areas.held_step)
 	}
-	if k.chrome == .Lens do lens_areas_overlay(app, cells, n)
+	lens_areas_overlay(app, cells, n)
 }
 
 // Divider `div` held at `m`: its cut follows, the cuts inside it staying where they are,
@@ -999,9 +981,7 @@ grid_head_at :: proc(app: ^App, r: ui.Rect) -> [2]f32 {
 	return {max(r.x, kit_left(app), grid_left_column_edge(app)) + 6, max(r.y, kit_top() - 8) + 6}
 }
 
-// A view pane at `r`: its picture, which a drag turns and the wheel zooms, and over its
-// top left corner (clear of the top bar and the brush bar) its camera, its pass and
-// Maximise or Restore.
+// A view pane at `r`: its picture, which a drag turns and the wheel zooms, and its guides.
 @(private = "file")
 kit_view_pane :: proc(app: ^App, i: int, r: ui.Rect) {
 	k := &app.kit
@@ -1026,38 +1006,11 @@ kit_view_pane :: proc(app: ^App, i: int, r: ui.Rect) {
 	} else if app.panes[i - 1].shown != nil {
 		kit_guides(app, r, app.panes[i - 1].orbit, fmt.tprintf("pane %d", i))
 	}
-	// Lens draws its heads after the corner handles (kit_grid).
-	if k.chrome == .Lens do return
-	head := grid_head_at(app, r)
-	// Under the panels a docked right column may cover the pane's right part: a head too
-	// wide for the room left of it takes two rows, so Link and Maximise stay in reach.
-	room := r.x + r.w - head.x - 6
-	for side in Column_Side {
-		c := k.panels.rect[side]
-		if c.w > 0 && c.x > head.x && c.x < r.x + r.w do room = min(room, c.x - GRID_COLUMN_GAP - head.x)
-	}
-	buttons := 3 if VIEW_WINDOWS_AVAILABLE else 2
-	narrow := room < 2 * 4 + 14 + 2 * GRID_SELECT_W + f32(buttons) * t.target + (2 + f32(buttons)) * 4
-	ui.begin_at(ctx, fmt.tprintf("view pane %d head", i), head, {direction = .Column, gap = 0, padding = 4, radius = t.radius_large, background = .Panel})
-	ui.begin(ctx, "first row", {direction = .Row, center = true, gap = 4})
-	view_head_camera(app, ctx, sv, i)
-	if narrow {
-		view_head_link(app, ctx, sv)
-		ui.end(ctx)
-		ui.begin(ctx, "second row", {direction = .Row, center = true, gap = 4})
-		ui.spacer(ctx, 14)
-	}
-	view_head_pass(ctx, sv)
-	if !narrow do view_head_link(app, ctx, sv)
-	maxed := g.maximised == i
-	if ui.icon_button(ctx, "Restore" if maxed else "Maximise", ui.ICON_MINIMISE if maxed else ui.ICON_RESTORE, selected = maxed) do g.maximised = 0 if maxed else i
-	if VIEW_WINDOWS_AVAILABLE && ui.icon_button(ctx, "Open in a window", ICON_VIEW_WINDOW) do view_window_request(app, sv^)
-	ui.end(ctx)
-	ui.end(ctx)
+	// Its head comes after the corner handles (kit_grid: lens_pane_head).
 }
 
-// A view's camera dot and Camera select, in a head's row: a view pane's or a view
-// window's, in the interface `ctx` it is laid out in; `index` picks its own colour.
+// A view's camera dot and Camera select, in a view window's head row, in the interface
+// `ctx` it is laid out in; `index` picks its own colour.
 view_head_camera :: proc(app: ^App, ctx: ^ui.Context, sv: ^Second_View, index: int) {
 	dot, ring := second_color(ctx.theme, sv, index)
 	camera_dot(ctx, dot, ring)

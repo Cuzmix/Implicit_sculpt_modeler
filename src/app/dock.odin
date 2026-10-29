@@ -1,46 +1,17 @@
 package main
 
-import "core:fmt"
 import "core:strings"
 
 import "../sculpt"
 import "../ui"
 
-// The brush dock at the bottom bar's left: pages of seven slots, each holding a brush, a
-// preset made from one, or any command (Customise bars), which a long press (or a
-// right-click) on the slot changes; the rest are a tap away in the brush browser beside
-// it. A finger or the pen swipes sideways over the slots to turn the page. The dock is
-// the interface's, so it lives in Kit_State and settings.txt remembers it.
-
-DOCK_PAGE :: 7
-DOCK_PAGES :: 3 // a fresh install's pages
-DOCK_PAGES_MAX :: 6
-DOCK_SLOTS :: DOCK_PAGE * DOCK_PAGES_MAX
-DOCK_DEFAULT_COUNT :: DOCK_PAGE * DOCK_PAGES
+// What the brush browser and the brush picker (kit_brushes.odin) offer as one tile: a
+// brush, a preset made from one, or a command; and the tools' and shapes' picks they share.
 
 Dock_Slot :: struct {
 	kind:    sculpt.Brush_Kind, // the brush, or the preset's own brush
 	preset:  int, // the preset, numbered as PACK_PRESET says; 0 for the plain brush
 	command: Bar_Slot, // a command in place of a brush, when its id is not .None
-}
-
-// The dock a fresh install has: the brushes most reached for, then the finer and
-// surface-moving ones, then painting and masking; the slots past them wait unused.
-DOCK_DEFAULT :: [DOCK_SLOTS]Dock_Slot {
-	0 = {kind = .Draw}, 1 = {kind = .Smooth}, 2 = {kind = .Clay}, 3 = {kind = .Flatten}, 4 = {kind = .Inflate}, 5 = {kind = .Grab}, 6 = {kind = .Mask},
-	7 = {kind = .Pinch}, 8 = {kind = .Crease}, 9 = {kind = .Layer}, 10 = {kind = .Snake_Hook}, 11 = {kind = .Cloth}, 12 = {kind = .Morph}, 13 = {kind = .History},
-	14 = {kind = .Paint}, 15 = {kind = .Mask}, 16 = {kind = .Smooth}, 17 = {kind = .Draw}, 18 = {kind = .Clay}, 19 = {kind = .Inflate}, 20 = {kind = .Flatten},
-}
-
-// Puts the dock back as a fresh install has it.
-dock_reset :: proc(k: ^Kit_State) {
-	k.dock, k.dock_count = DOCK_DEFAULT, DOCK_DEFAULT_COUNT
-}
-
-// The slots in use; a dock never set (an App made in a test) has a fresh install's count.
-dock_used :: proc(app: ^App) -> []Dock_Slot {
-	n := app.kit.dock_count if app.kit.dock_count > 0 else DOCK_DEFAULT_COUNT
-	return app.kit.dock[:clamp(n, 1, DOCK_SLOTS)]
 }
 
 // Whether two slots hold the same thing: the same preset, or the same plain brush.
@@ -82,157 +53,12 @@ dock_slot_settings :: proc(app: ^App, s: Dock_Slot) {
 	else do brush_settings_open(app, s.kind)
 }
 
-// Puts brush `kind`, or the preset numbered `preset` (PACK_PRESET) when there is one, in
-// slot `slot`.
-dock_put :: proc(app: ^App, slot: int, kind: sculpt.Brush_Kind, preset := 0) {
-	if slot < 0 || slot >= DOCK_SLOTS do return
-	s := Dock_Slot{kind = kind}
-	if p, ok := preset_at(app, preset); ok do s = {kind = p.values.kind, preset = preset}
-	app.kit.dock[slot] = s
-}
-
-// How many slots a page of the dock shows: all seven where the window has the room, fewer
-// (down to three, on more pages) where the bottom bar would otherwise reach the modifier
-// wheel. Measured on last frame's bar, less the slots it showed.
-dock_per_page :: proc(app: ^App) -> int {
-	k := &app.kit
-	ctx := &k.ctx
-	bar, _ := ui.prev_layout(ctx, "dock")
-	if bar.x <= 0 || k.dock_shown[1] == 0 do return DOCK_PAGE
-	rest := bar.x - f32(k.dock_shown[1]) * ui.BRUSH_TILE.x
-	room := ui.safe_area(ctx).w - 2 * (max(rail_reach_across(app), ctx.theme.edge) + 8)
-	return clamp(int((room - rest) / ui.BRUSH_TILE.x), 3, DOCK_PAGE)
-}
-
-// How many pages the dock has at this window's width.
-dock_pages :: proc(app: ^App) -> int {
-	n := dock_per_page(app)
-	return (len(dock_used(app)) + n - 1) / n
-}
-
-// Which slots the bottom bar shows: the dock's page as its first slot and how many. A
-// brush picked some other way (a key, the browser, a pie) brings the page that holds it,
-// unless the page shown holds it too.
-dock_page_slots :: proc(app: ^App) -> (first, count: int) {
-	k := &app.kit
-	n := dock_per_page(app)
-	used := len(dock_used(app))
-	pages := (used + n - 1) / n
-	if now, ok := brush_as_slot(app); ok {
-		if !dock_slot_same(now, k.dock_seen) && !dock_page_holds(app, k.dock_page, n, now) {
-			for s, i in dock_used(app) do if dock_slot_same(s, now) {
-				k.dock_page = i / n
-				break
-			}
-		}
-		k.dock_seen = now
-	}
-	k.dock_page = clamp(k.dock_page, 0, pages - 1)
-	first = k.dock_page * n
-	count = min(n, used - first)
-	k.dock_shown = {first, count}
-	return
-}
-
-// Whether page `page`, `n` slots to a page, holds what `s` holds.
-@(private = "file")
-dock_page_holds :: proc(app: ^App, page, n: int, s: Dock_Slot) -> bool {
-	used := len(dock_used(app))
-	first := clamp(page * n, 0, used)
-	for slot in app.kit.dock[first:min(first + n, used)] do if dock_slot_same(slot, s) do return true
-	return false
-}
-
-// Whether the brush is in a slot of the dock.
-dock_has_brush :: proc(app: ^App) -> bool {
-	for s in dock_used(app) do if s.command.id == .None && dock_slot_on(app, s) do return true
-	return false
-}
-
-// Keeps the dock's slots on their presets once the person's preset `i` (from 0) is
-// deleted: its own slots fall back to its brush, and later presets' move down one. A
-// pack's presets are numbered apart and stay.
-dock_preset_deleted :: proc(app: ^App, i: int) {
-	for &s in app.kit.dock {
-		if preset_read_only(s.preset) do continue
-		if s.preset == i + 1 do s.preset = 0
-		else if s.preset > i + 1 do s.preset -= 1
-	}
-}
-
-// Whether the dock differs from a fresh install's.
-dock_changed :: proc(app: ^App) -> bool {
-	fresh := DOCK_DEFAULT
-	if len(dock_used(app)) != DOCK_DEFAULT_COUNT do return true
-	for s, i in dock_used(app) do if !dock_slot_same(s, fresh[i]) do return true
-	return false
-}
-
-// Slots `first` on, `count` of them, for the exit stats: each slot's name, spaces as
-// underscores, comma separated.
-dock_names :: proc(app: ^App, first, count: int) -> string {
-	b := strings.builder_make(context.temp_allocator)
-	for s, i in app.kit.dock[first:][:count] {
-		if i > 0 do strings.write_byte(&b, ',')
-		name, _ := strings.replace_all(dock_slot_label(app, s), " ", "_", context.temp_allocator)
-		strings.write_string(&b, name)
-	}
-	return strings.to_string(b)
-}
-
-// Opens the slot popover on slot `slot`, over its tile `at`.
-dock_menu_open :: proc(app: ^App, slot: int, at: ui.Rect) {
-	k := &app.kit
-	k.browser = false
-	k.dock_menu, k.dock_slot, k.dock_at, k.grid_scroll, k.grid_reveal = true, slot, at, 0, true
-}
-
 // Picks the preset numbered `n` (PACK_PRESET) and shows its settings: the tray, on the
 // brush's Preset section, to rename it or save its changes.
 preset_settings_open :: proc(app: ^App, n: int) {
 	preset_use(app, n)
 	tray_open(app, .Preset)
 }
-
-// What a tap or a long press on the brush grid chose.
-Grid_Pick :: struct {
-	slot:            Dock_Slot,
-	tapped, pressed: bool, // tapped picks; pressed is the long press (or right-click)
-}
-
-// Every brush, then the built-in presets, the person's, then each content pack's under its name, as
-// tiles GRID_PER_ROW to a row in a body that scrolls when taller than `height`: the slot
-// popover's. `chosen` is lit when `lit` is set. `owner` is the popover the body is in.
-kit_brush_grid :: proc(app: ^App, owner: ui.Id, chosen: Dock_Slot, lit: bool, height: f32) -> (pick: Grid_Pick) {
-	k := &app.kit
-	ctx := &k.ctx
-	width := ui.BRUSH_TILE.x * GRID_PER_ROW
-	scroll := kit_scroll_begin(ctx, "brush grid", &k.grid_scroll, owner, width, height, 2)
-	tiles := make([dynamic]Dock_Slot, context.temp_allocator)
-	for kind in sculpt.Brush_Kind do append(&tiles, Dock_Slot{kind = kind})
-	kit_grid_rows(app, "brush row", tiles[:], chosen, lit, height, &scroll, &pick)
-	ui.caption(ctx, "LIBRARY")
-	clear(&tiles)
-	for r, j in BUILT_IN_PRESETS do append(&tiles, Dock_Slot{kind = r.kind, preset = BUILT_IN_PRESET + j})
-	kit_grid_rows(app, "built-in row", tiles[:], chosen, lit, height, &scroll, &pick)
-	ui.caption(ctx, "PRESETS")
-	clear(&tiles)
-	for p, i in app.presets[:app.preset_count] do append(&tiles, Dock_Slot{kind = p.values.kind, preset = i + 1})
-	kit_grid_rows(app, "preset row", tiles[:], chosen, lit, height, &scroll, &pick)
-	if app.preset_count == 0 do ui.paragraph(ctx, "Save a brush as a preset (Brush palette, Preset) to find it here.", width)
-	for pack, i in app.library.packs {
-		clear(&tiles)
-		for p, j in app.library.presets do if !p.gone && p.pack == pack.id do append(&tiles, Dock_Slot{kind = p.preset.values.kind, preset = PACK_PRESET + j})
-		if len(tiles) == 0 do continue
-		ui.caption(ctx, ui.text_fit(ctx, strings.to_upper(pack.name, context.temp_allocator), ctx.theme.caption_size, width - 4, .Semibold))
-		kit_grid_rows(app, fmt.tprintf("pack %d row", i), tiles[:], chosen, lit, height, &scroll, &pick)
-	}
-	kit_scroll_end(ctx, scroll)
-	if scroll.natural > 0 do k.grid_reveal = false
-	return
-}
-
-GRID_PER_ROW :: 5
 
 // Makes the mask shape or gesture `tool` the one the modifiers draw, closes the browser
 // and says how to draw it.
@@ -275,48 +101,8 @@ GESTURE_ICONS := [Gesture_Tool]rune {
 	.Knife          = 0xe2f0,
 }
 
-// `slots` as tiles GRID_PER_ROW to a row, rows named `row` and their number.
-@(private = "file")
-kit_grid_rows :: proc(app: ^App, row: string, slots: []Dock_Slot, chosen: Dock_Slot, lit: bool, height: f32, scroll: ^Kit_Scroll, pick: ^Grid_Pick) {
-	k := &app.kit
-	ctx := &k.ctx
-	for s, i in slots {
-		if i % GRID_PER_ROW == 0 do ui.begin(ctx, fmt.tprintf("%s %d", row, i / GRID_PER_ROW), {direction = .Row, gap = 0})
-		label, hint: string
-		switch {
-		case s.preset == 0:
-			label, hint = BRUSHES[s.kind].name, command_hint(app, .Brush, int(s.kind))
-		case preset_of_pack(s.preset):
-			p, _ := preset_at(app, s.preset)
-			label = fmt.tprintf("%s##pack preset %d", preset_name(p), s.preset - PACK_PRESET)
-		case preset_built_in(s.preset):
-			p, _ := preset_at(app, s.preset)
-			label = fmt.tprintf("%s##built-in preset %d", preset_name(p), s.preset - BUILT_IN_PRESET)
-		case:
-			label = fmt.tprintf("%s##preset %d", preset_name(&app.presets[s.preset - 1]), s.preset - 1)
-		}
-		on := lit && dock_slot_same(s, chosen)
-		if ui.brush_tile(ctx, label, BRUSHES[s.kind].icon, on, hint) do pick^ = {slot = s, tapped = true}
-		// Opening, the grid scrolls to the lit tile, once the body's height is known.
-		if on && k.grid_reveal && scroll.natural > 0 {
-			at := ctx.last_rect.y - scroll.at.y + scroll.shown
-			k.grid_scroll = clamp(at - (height - ui.BRUSH_TILE.y) * 0.5, 0, scroll.limit)
-		}
-		if ui.secondary(ctx) do pick^ = {slot = s, pressed = true}
-		if i % GRID_PER_ROW == GRID_PER_ROW - 1 || i == len(slots) - 1 do ui.end(ctx)
-	}
-}
-
-// The room the grid has in a popover opening above `anchor` (`popover_h` tall last
-// frame): up to the window's top, less what the popover holds besides the grid. Called
-// inside the popover.
-grid_room :: proc(ctx: ^ui.Context, popover_h: f32, anchor: ui.Rect) -> f32 {
-	body, _ := ui.prev_layout(ctx, "brush grid")
-	besides := popover_h - body.y if popover_h > 0 else 120
-	return max(anchor.y - 16 - besides, ui.BRUSH_TILE.y * 2)
-}
-
-// Which button opened the brush browser: All brushes on the dock, or Brushes on the bar.
+// Where the brushes open: the brush picker over the shelf (All, or B), or with the shelf
+// hidden the brush browser under the menu.
 Browser_At :: enum u8 {
 	Dock,
 	Bar,
@@ -345,60 +131,4 @@ TOOL_ICONS := [Tool]rune {
 	.Curve  = ui.ICON_SPLINE,
 	.Insert = ui.ICON_SHAPES,
 	.Model  = ui.ICON_GRID,
-}
-
-// The slot popover, over the dock tile a long press (or a right-click) was on, or a tap
-// while customising: that brush's or preset's settings, moving or removing the slot or
-// adding one after it, what to put in it instead (any brush or preset, or a command
-// chosen in Search), Customise bars and Reset dock.
-kit_dock_menu :: proc(app: ^App) {
-	k := &app.kit
-	ctx := &k.ctx
-	slot := clamp(k.dock_slot, 0, len(dock_used(app)) - 1)
-	s := k.dock[slot]
-	size, _ := ui.prev_layout(ctx, "dock slot")
-	owner := ui.id_of(ctx, "dock slot")
-	if !ui.popover_begin(ctx, "dock slot", &k.dock_menu, k.dock_at, .Above_Center, {direction = .Column, gap = 2, padding = 10}) do return
-	defer ui.popover_end(ctx)
-	kit_grid_head(app, "THIS SLOT", &k.dock_menu, .Dock, slot)
-	if s.command.id == .None && ui.menu_item(ctx, fmt.tprintf("%s settings", "Preset" if s.preset > 0 else "Brush"), glyph = ui.ICON_SETTINGS) {
-		dock_slot_settings(app, s)
-		k.dock_menu = false
-	}
-	if ui.menu_item(ctx, "A command instead...", glyph = ui.ICON_SEARCH) {
-		k.dock_menu = false
-		bar_choose(app, {which = .Dock, slot = slot})
-	}
-	pick := kit_brush_grid(app, owner, s, s.command.id == .None, grid_room(ctx, size.y, k.dock_at))
-	if pick.tapped {
-		dock_put(app, slot, pick.slot.kind, pick.slot.preset)
-		k.dock_menu = false
-	}
-	if pick.pressed {
-		dock_slot_settings(app, pick.slot)
-		k.dock_menu = false
-	}
-	if !k.bars_edit && ui.menu_item(ctx, "Arrange the interface", glyph = ICON_CUSTOMISE) {
-		k.dock_menu = false
-		k.bars_edit = true
-	}
-	if ui.menu_item(ctx, "Reset dock", glyph = ui.ICON_UNDO, enabled = dock_changed(app)) {
-		dock_reset(k)
-		k.dock_menu = false
-	}
-}
-
-// A grid popover's caption, then the slot's Move earlier, Move later, Remove and Add one
-// after (for slot `slot` of bar `which`), and Close at its end.
-@(private = "file")
-kit_grid_head :: proc(app: ^App, caption: string, open: ^bool, which: Bar_Which, slot: int) {
-	ctx := &app.kit.ctx
-	t := ctx.theme
-	ui.begin(ctx, "grid head", {direction = .Row, center = true})
-	ui.begin(ctx, "grid title", {direction = .Column, width = ui.BRUSH_TILE.x * 5 - 5 * t.target})
-	ui.caption(ctx, caption)
-	ui.end(ctx)
-	if bar_slot_actions(app, which, slot) do open^ = false
-	if ui.icon_button(ctx, "Close", ui.ICON_CLOSE, keys = "Esc") do open^ = false
-	ui.end(ctx)
 }

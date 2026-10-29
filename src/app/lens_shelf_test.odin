@@ -7,7 +7,7 @@ import sdl "vendor:sdl3"
 import "../sculpt"
 
 // Each shelf page is a bar of its own: a fresh install's brushes, changed by the bars'
-// procs, kept whole in settings.txt, and left out of a workspace's layout, as the dock is.
+// procs, kept whole in settings.txt, and left out of a workspace's layout.
 @(test)
 shelf_pages_are_bars_kept_in_settings_not_layouts :: proc(t: ^testing.T) {
 	path := "build/shelf_test.txt"
@@ -60,9 +60,9 @@ shelf_takes_brushes_and_tools :: proc(t: ^testing.T) {
 	testing.expect_value(t, shelf_label({.Brush, int(sculpt.Brush_Kind.Snake_Hook)}), "Snake hook")
 }
 
-// B picks the Sculpt tool in Classic and opens the brush picker in Lens.
+// B opens the brush picker over the shelf, and again closes it.
 @(test)
-b_opens_the_brush_picker_in_lens :: proc(t: ^testing.T) {
+b_opens_the_brush_picker :: proc(t: ^testing.T) {
 	app := new(App)
 	defer free(app)
 	b := Chord{key = sdl.K_B}
@@ -70,9 +70,6 @@ b_opens_the_brush_picker_in_lens :: proc(t: ^testing.T) {
 		b, _ := chord_owner(app, c)
 		return b.command
 	}
-	testing.expect_value(t, owner(app, b), Command_Id.Tool_Sculpt)
-	app.kit.chrome = .Lens
-	keymap_rebuild(app)
 	testing.expect_value(t, owner(app, b), Command_Id.Brush_Picker)
 	command_run(app, .Brush_Picker)
 	testing.expect(t, app.kit.browser && app.kit.browser_at == .Dock)
@@ -89,7 +86,6 @@ brush_pie_is_a_bar_kept_in_settings :: proc(t: ^testing.T) {
 	a: App
 	defer results_destroy(&a)
 	bars_reset(&a.kit)
-	a.kit.chrome = .Lens
 	testing.expect_value(t, bar_names(&a, .Brush_Pie), "Brush:Clay,Brush:Draw,Brush:Inflate,Brush:Crease,Brush:Grab,Brush:Flatten,Brush:Pinch,Brush:Smooth")
 	testing.expect_value(t, pie_slot_count(&a, 0), PIE_SLOTS)
 	testing.expect(t, pie_slot(&a, 0, 4) == Bar_Slot{.Brush, int(sculpt.Brush_Kind.Grab)})

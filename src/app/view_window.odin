@@ -84,7 +84,7 @@ view_window_request :: proc(app: ^App, sv: Second_View) {
 		return
 	}
 	v := sv
-	v.max, v.dragging, v.turns, v.linked = false, false, 0, 0
+	v.dragging, v.turns, v.linked = false, 0, 0
 	append(&vws.pending, v)
 }
 
