@@ -47,6 +47,8 @@ Brush_Settings :: struct {
 	grab_silhouette:   bool,
 	// Grab's falloff measured along the surface (sculpt.Brush.topological).
 	grab_topological:  bool,
+	// Elastic: how much of its volume the pulled solid keeps, 0 to 1 (sculpt.Brush.volume).
+	elastic_volume:    f32,
 	smooth_only:       sculpt.Smooth_Only, // which vertices Smooth evens out: all, valleys or peaks
 	stroke:            Stroke_Mode,
 	spray_spread:      f32, // Spray: how far from the path dabs scatter, in brush radii
@@ -254,6 +256,9 @@ Grab_Mode :: enum u8 {
 	Normal,
 	Surface,
 }
+
+// Elastic's Volume as a fresh install has it: Poisson's ratio 0.4, as Blender's default.
+ELASTIC_VOLUME_DEFAULT :: 0.8
 
 // Along Normal with the normal facing the camera within this (the sine of its lean on
 // screen), the drag's up on screen is its out, as there is no way on screen to follow.
@@ -544,7 +549,7 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 	// Grab takes hold from just past the silhouette too, as Nomad's Move does: the nearest
 	// point of the surface within the brush ring.
 	from := hit
-	if !ok && stroke_brush(app, input) == .Grab && s.kind == .Press {
+	if !ok && .Grab in BRUSHES[stroke_brush(app, input)].flags && s.kind == .Press {
 		index, hit, ok = scene_grab_near(app, origin, dir, input.size)
 		if ok {
 			facing := camera.orbit_toward(app.camera, hit)
@@ -1220,6 +1225,7 @@ brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pres
 		same_side  = kind == .Grab && app.brush.grab_same_side,
 		silhouette = kind == .Grab && app.brush.grab_silhouette,
 		topological = kind == .Grab && app.brush.grab_topological,
+		volume     = app.brush.elastic_volume,
 	}
 }
 

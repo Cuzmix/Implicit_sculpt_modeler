@@ -613,7 +613,7 @@ drag_decide :: proc(app: ^App, input: Viewport_Input) -> (owner: Drag_Owner, emp
 			origin, dir := mouse_ray(app.camera, mouse, input.size)
 			// Grab takes hold from just past the outline too, so a press there is its own.
 			_, _, hit := scene_raycast(app, origin, dir)
-			if !hit && app.tool == .Brush && stroke_brush(app, input) == .Grab do _, _, hit = scene_grab_near(app, origin, dir, input.size)
+			if !hit && app.tool == .Brush && .Grab in BRUSHES[stroke_brush(app, input)].flags do _, _, hit = scene_grab_near(app, origin, dir, input.size)
 			if !hit do return .Orbit, true
 		}
 	}

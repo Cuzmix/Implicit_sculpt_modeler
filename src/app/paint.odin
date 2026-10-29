@@ -18,9 +18,9 @@ brush_color_bytes :: proc(app: ^App) -> [3]u8 {
 }
 
 // Whether the brush `kind` takes the paint channel (Brush_Settings.channel): the
-// sculpting brushes do; Paint, Mask, Grab and Cloth keep to what they change.
+// sculpting brushes do; Paint, Mask, Grab, Elastic and Cloth keep to what they change.
 channel_brush :: proc(kind: sculpt.Brush_Kind) -> bool {
-	return kind not_in bit_set[sculpt.Brush_Kind]{.Paint, .Mask, .Grab, .Cloth}
+	return kind not_in bit_set[sculpt.Brush_Kind]{.Paint, .Mask, .Grab, .Elastic, .Cloth}
 }
 
 // The channel the held brush's dabs take on `obj`. Paint needs a level's own vertices,

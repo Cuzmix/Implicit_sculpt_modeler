@@ -54,6 +54,10 @@ Grab_Job :: struct {
 	// Silhouette: the drag's direction, flipped to point out of the surface (along the
 	// press's normal); zero leaves every vertex to move.
 	drag_out: Vec3,
+	// Elastic: the Kelvinlet's constants for the brush (elastic.odin); its reach is
+	// ELASTIC_REACH radii, which r2 holds.
+	elastic: bool,
+	kelvin:  Kelvinlet,
 }
 
 // Starts dragging the vertices within the brush around `center`. Call inside a stroke
@@ -63,6 +67,15 @@ sculptor_grab_begin :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
 	if g.leaves == nil do grab_init(g, s.history.allocator)
 	clear(&g.leaves)
 	j := Grab_Job{s = s, r2 = brush.radius * brush.radius, inv_r2 = 1 / (brush.radius * brush.radius), shape = brush.falloff_shape}
+	// Elastic moves the whole solid round the press, fading out by ELASTIC_REACH radii, and
+	// none of the surface switches below apply to it.
+	reach := brush.radius
+	brush := brush
+	if brush.kind == .Elastic {
+		reach = ELASTIC_REACH * brush.radius
+		j.elastic, j.kelvin, j.r2 = true, kelvinlet_make(brush.radius, brush.volume), reach * reach
+		brush.through, brush.connected, brush.topological, brush.same_side, brush.silhouette = {}, false, false, false, false
+	}
 	through := linalg.normalize0(brush.through)
 	g.normal, g.silhouette = {}, false
 	if brush.same_side || brush.silhouette {
@@ -80,8 +93,8 @@ sculptor_grab_begin :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
 		append(&j.centers, at)
 		append(&j.turns, img.turn)
 		append(&j.dirs, dir)
-		if dir != {} do geom.bvh_query_leaves_line(&s.bvh, at, dir, brush.radius, &g.leaves)
-		else do geom.bvh_query_leaves(&s.bvh, at, brush.radius, &g.leaves)
+		if dir != {} do geom.bvh_query_leaves_line(&s.bvh, at, dir, reach, &g.leaves)
+		else do geom.bvh_query_leaves(&s.bvh, at, reach, &g.leaves)
 	}
 	slice.sort(g.leaves[:])
 	resize(&g.leaves, len(slice.unique(g.leaves[:])))
@@ -262,6 +275,15 @@ sculptor_nearest_to_line :: proc(s: ^Sculptor, origin, dir: Vec3, radius: f32) -
 @(private)
 grab_follow :: #force_inline proc(j: ^Grab_Job, v: u32) -> (f: matrix[3, 3]f32) {
 	p := j.s.mesh.positions[v]
+	if j.elastic {
+		for c, k in j.centers {
+			r := p - c
+			if linalg.dot(r, r) >= j.r2 do continue
+			f += kelvinlet_follow(&j.kelvin, r) * j.turns[k]
+		}
+		if f != 0 do f = mat_scaled(f, shield(j.s.fade, j.s.mask, v))
+		return
+	}
 	for c, k in j.centers {
 		delta := p - c
 		// Reaching through the depth, only the distance across the line counts.
