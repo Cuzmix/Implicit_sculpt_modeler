@@ -34,12 +34,18 @@ Bar_Which :: enum u8 {
 	// off-hand side. Last, as settings name bars by zone and the shelf's pages count from
 	// Shelf_Sculpt.
 	Offhand,
+	// The person's own docks (user_docks.odin), made in Arrange: Dock_1 + i is Kit_State.docks[i]'s.
+	Dock_1,
+	Dock_2,
+	Dock_3,
+	Dock_4,
 }
 
 // The bars a workspace's layout holds: the shelf's pages and the brush pie hold the
-// person's brushes, and the island the person's values, which are no layout's.
+// person's brushes, and the island the person's values, which are no layout's; the
+// person's own docks are the screen's, as the rail is.
 @(rodata)
-BAR_LAYOUT := [?]Bar_Which{.Tools, .View_Rail}
+BAR_LAYOUT := [?]Bar_Which{.Tools, .View_Rail, .Dock_1, .Dock_2, .Dock_3, .Dock_4}
 
 // Each bar's name in settings.txt: the zone of the screen it holds, so a later layout that
 // moves bars about keeps each one's buttons by where they are. The tool strip keeps the
@@ -57,6 +63,10 @@ BAR_ZONES := [Bar_Which]string {
 	.Shelf_Render = "shelf_render",
 	.Brush_Pie    = "brush_pie",
 	.Offhand      = "offhand_island",
+	.Dock_1       = "dock_1",
+	.Dock_2       = "dock_2",
+	.Dock_3       = "dock_3",
+	.Dock_4       = "dock_4",
 }
 
 // The bar a zone name names.
@@ -68,6 +78,7 @@ bar_zone :: proc(name: string) -> (Bar_Which, bool) {
 TOOLS_MAX :: 8
 VIEW_RAIL_MAX :: 12
 OFFHAND_MAX :: 8
+USER_DOCK_MAX :: 12
 // The most slots any bar holds: the view rail's, and a shelf page's SHELF_MAX.
 BAR_SLOTS_MAX :: 12
 
@@ -121,6 +132,7 @@ bars_reset :: proc(k: ^Kit_State) {
 	shelf_reset(k)
 	k.brush_pie = bar_fresh(.Brush_Pie)
 	k.offhand = bar_fresh(.Offhand)
+	user_docks_clear(k)
 }
 
 // Puts the strip and the view rail (the bars a layout holds) back as a fresh install has
@@ -144,6 +156,9 @@ bar_fresh :: proc(which: Bar_Which) -> Bar_List {
 	case .Offhand:
 		d := OFFHAND_DEFAULT
 		return bar_list_of(d[:], bar_default_look(which))
+	case .Dock_1, .Dock_2, .Dock_3, .Dock_4:
+		// A new dock is empty but for its +.
+		return bar_list_of({}, bar_default_look(which))
 	case .Tools:
 	}
 	d := TOOLS_DEFAULT
@@ -163,6 +178,9 @@ bar_list_k :: proc(k: ^Kit_State, which: Bar_Which) -> ^Bar_List {
 	case .View_Rail: return &k.view_rail
 	case .Brush_Pie: return &k.brush_pie
 	case .Offhand:   return &k.offhand
+	case .Dock_1, .Dock_2, .Dock_3, .Dock_4:
+		i, _ := user_dock_of(which)
+		return &k.docks[i].list
 	case .Tools:
 	}
 	return &k.tools
@@ -182,6 +200,7 @@ bar_capacity :: proc(which: Bar_Which) -> int {
 	case .Shelf_Sculpt, .Shelf_Paint, .Shelf_Move, .Shelf_Curve, .Shelf_Model, .Shelf_Render: return SHELF_MAX
 	case .Brush_Pie: return PIE_SLOTS
 	case .Offhand:   return OFFHAND_MAX
+	case .Dock_1, .Dock_2, .Dock_3, .Dock_4: return USER_DOCK_MAX
 	}
 	return 0
 }
@@ -221,6 +240,8 @@ bar_in_layout :: proc(which: Bar_Which) -> bool {
 bars_save :: proc(k: ^Kit_State, out: ^strings.Builder, layout := false) {
 	for which in Bar_Which {
 		if layout && !bar_in_layout(which) do continue
+		// A dock is the layout's alone, and only while it is in use.
+		if i, dock := user_dock_of(which); dock && (!layout || !k.docks[i].used) do continue
 		if !bar_list_changed(k, which) do continue
 		l := bar_list_k(k, which)
 		used := l.slots[:clamp(l.count, 0, bar_capacity(which))]
@@ -301,6 +322,9 @@ bar_title :: proc(which: Bar_Which) -> string {
 	case .Shelf_Render: return "The Render shelf"
 	case .Brush_Pie:    return "The brush pie"
 	case .Offhand:      return "The off-hand island"
+	case .Dock_1, .Dock_2, .Dock_3, .Dock_4:
+		i, _ := user_dock_of(which)
+		return USER_DOCK_NAMES[i]
 	}
 	return ""
 }
@@ -350,7 +374,7 @@ bar_slot_actions :: proc(app: ^App, which: Bar_Which, slot: int) -> (close: bool
 	k := &app.kit
 	ctx := &k.ctx
 	count := bar_count(app, which)^
-	across := which != .View_Rail && which != .Offhand
+	across := !bar_column(which)
 	if ui.icon_button(ctx, "Move earlier", ICON_CHEVRON_LEFT if across else ui.ICON_CHEVRON_UP, enabled = slot > 0) do bar_slot_moved(app, bar_move(app, which, slot, -1))
 	if ui.icon_button(ctx, "Move later", ui.ICON_CHEVRON_RIGHT if across else ui.ICON_CHEVRON_DOWN, enabled = slot < count - 1) do bar_slot_moved(app, bar_move(app, which, slot, 1))
 	if ui.icon_button(ctx, "Remove from the bar", ui.ICON_TRASH) {
@@ -519,19 +543,22 @@ bar_slot_more :: proc(app: ^App, s: Bar_Slot, at: ui.Rect, side: ui.Side) {
 // Slot `slot` of bar `which` as its button, `size` points (0 for the kit's): a tap runs
 // it (bar_slot_run) and a long press does its more (bar_slot_more), or while customising a
 // tap opens the slot's popover and the button is ringed.
-bar_slot_button :: proc(app: ^App, which: Bar_Which, slot: int, s: Bar_Slot, size: f32 = 0) {
+bar_slot_button :: proc(app: ^App, which: Bar_Which, slot: int, s: Bar_Slot, size: f32 = 0, tile := false) {
 	k := &app.kit
 	ctx := &k.ctx
 	if v, ok := value_of(s); ok {
 		cell: [2]f32 = {size, ui.BRUSH_TILE.y - 2} if size > 0 else {}
-		if size <= 0 && which == .View_Rail do cell = {ctx.theme.target, VALUE_CHIP.y - 4}
+		if size <= 0 && which != .Offhand && bar_column(which) do cell = {ui.BRUSH_TILE.x if tile else ctx.theme.target, VALUE_CHIP.y - 4}
 		value_item(app, which, slot, v, cell, column = bar_column(which))
 		return
 	}
 	side := bar_side(app, which)
 	more := bar_has_more(s.id)
 	name := fmt.tprintf("%s##%v %d", bar_label(s), which, slot)
-	if ui.icon_button(ctx, name, bar_icon(s), bar_lit(app, s), k.bars_edit || bar_enabled(app, s), command_hint(app, s.id, s.arg), size, more && !k.bars_edit) {
+	// A dock of Tiles shows each command's name under its icon, as the shelf's brushes do.
+	enabled := k.bars_edit || bar_enabled(app, s)
+	pressed := ui.brush_tile(ctx, name, bar_icon(s), bar_lit(app, s), command_hint(app, s.id, s.arg), enabled, more && !k.bars_edit) if tile else ui.icon_button(ctx, name, bar_icon(s), bar_lit(app, s), enabled, command_hint(app, s.id, s.arg), size, more && !k.bars_edit)
+	if pressed {
 		if k.bars_edit do bar_slot_open(app, which, slot, ctx.last_rect)
 		else do bar_slot_run(app, s, ctx.last_rect, side)
 	}
@@ -550,12 +577,14 @@ bar_side :: proc(app: ^App, which: Bar_Which) -> ui.Side {
 	case .View_Rail: return bar_place_side(app, .Rail)
 	case .Offhand:   return bar_place_side(app, .Offhand)
 	}
+	if i, dock := user_dock_of(which); dock do return bar_place_side(app, user_dock_place(i))
 	return .Above_Center
 }
 
 // Whether bar `which` runs down the window, a column of buttons.
 bar_column :: proc(which: Bar_Which) -> bool {
-	return which == .View_Rail || which == .Offhand
+	_, dock := user_dock_of(which)
+	return which == .View_Rail || which == .Offhand || dock
 }
 
 // The ring round a slot while customising.
