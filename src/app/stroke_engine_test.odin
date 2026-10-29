@@ -75,6 +75,46 @@ stroke_keeps_the_brush_its_press_chose :: proc(t: ^testing.T) {
 	testing.expect(t, !slice.equal(pa, pc))
 }
 
+// While painting (the channel on Colour), Shift blurs the paint and Invert takes it off,
+// moving nothing; with the paint dial off, Shift smooths the surface as it always has.
+@(test)
+painting_blurs_with_smooth_and_erases_with_invert :: proc(t: ^testing.T) {
+	path := [?][2]f32{{440, 380}, {470, 390}, {500, 400}, {530, 410}, {560, 420}}
+	run :: proc(app: ^App, path: [][2]f32, smooth, invert, dial: bool) -> (moved, erased, blurred: bool) {
+		obj := stroke_sphere(app)
+		app.brush.channel, app.brush.paint_dial = .Color, dial
+		s := object_sculptor(obj)
+		_ = sculpt.sculptor_paint_command(s, .Gradient, {200, 30, 30}, {to = {30, 30, 200}, axis = {1, 0, 0}})
+		before := slice.clone(s.mesh.positions[:], context.temp_allocator)
+		colors := slice.clone(s.color, context.temp_allocator)
+		for p, i in path {
+			samples := []Input_Sample{{pos = p, pressure = 1, kind = .Press if i == 0 else .Move}}
+			_ = sculpt_frame(app, {size = STROKE_SIZE, mouse_pos = p, hovered = true, primary = true, press = i == 0, smooth = smooth, invert = invert, samples = samples})
+		}
+		_ = sculpt_frame(app, {size = STROKE_SIZE, mouse_pos = path[len(path) - 1], hovered = true})
+		moved = !slice.equal(before, s.mesh.positions[:])
+		for c, v in s.color {
+			if c.a < 255 do erased = true
+			if c.rgb != colors[v].rgb do blurred = true
+		}
+		return
+	}
+	blur, erase, smooth: App
+	defer stroke_scene_free(&blur)
+	defer stroke_scene_free(&erase)
+	defer stroke_scene_free(&smooth)
+	moved, erased, blurred := run(&blur, path[:], true, false, true)
+	testing.expect(t, !moved && !erased && blurred, "Shift while painting did not only blur")
+	testing.expect_value(t, len(blur.history.done), 1)
+	if len(blur.history.done) == 1 do testing.expect_value(t, blur.history.done[0].what, "Blur")
+	moved, erased, blurred = run(&erase, path[:], false, true, true)
+	testing.expect(t, !moved && erased && !blurred, "Invert while painting did not only erase")
+	if len(erase.history.done) == 1 do testing.expect_value(t, erase.history.done[0].what, "Erase")
+	moved, _, _ = run(&smooth, path[:], true, false, false)
+	testing.expect(t, moved, "with the paint dial off, Shift did not smooth the surface")
+	testing.expect_value(t, smooth.history.done[len(smooth.history.done) - 1].what, "Smooth")
+}
+
 // A stroke along `path` as stroke_along lays it, kept by the recorder as a drawn one is;
 // returns the dabs each frame laid.
 @(private = "file")
@@ -198,6 +238,7 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	// Neither changes a Draw stroke, but both are kept with it.
 	a.brush.grab_depth, a.brush.smooth_only = true, .Peaks
 	a.brush.spacing, a.brush.color_spray = 0.6, 0.4
+	a.brush.paint_dial = true
 	a.stroke_seed = 41
 	a.device.pointer, a.nav.touch_strength = .Finger, 0.5
 	b.nav.touch_strength = 1
@@ -220,6 +261,7 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	testing.expect_value(t, b.replay.take.brushes[0].smooth_only, sculpt.Smooth_Only.Peaks)
 	testing.expect_value(t, b.replay.take.brushes[0].spacing, 0.6)
 	testing.expect_value(t, b.replay.take.brushes[0].color_spray, 0.4)
+	testing.expect(t, b.replay.take.brushes[0].paint_dial)
 	replay_start(&b, &b.replay.take)
 	for replay_busy(&b) do _ = replay_frame(&b, {})
 	testing.expect(t, slice.equal(object_sculptor(oa).mesh.positions[:], object_sculptor(ob).mesh.positions[:]))
@@ -232,7 +274,7 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	data, err := os.read_entire_file(path, context.allocator)
 	testing.expect(t, err == nil)
 	defer delete(data)
-	BRUSH :: 64 + 39
+	BRUSH :: 64 + 40
 	// The files from before version 13 kept no pen roll in a frame.
 	frames_before_roll :: proc(frames: []u8) -> []u8 {
 		out := make([dynamic]u8, context.temp_allocator)
@@ -252,6 +294,23 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 		}
 		return out[:]
 	}
+	// Version 13 had no paint dial after the colour spray: the one brush ends 64 + 39 bytes
+	// after the header's 16, and Smooth and Invert sculpted whatever the brush painted.
+	thirteen := make([dynamic]u8, context.temp_allocator)
+	append(&thirteen, ..data[:16 + 64 + 39])
+	append(&thirteen, ..data[16 + BRUSH:])
+	thirteen[len(STROKES_MAGIC)] = 13
+	testing.expect(t, os.write_entire_file(path, thirteen[:]) == nil)
+	q: App
+	defer replay_destroy(&q.replay)
+	defer results_destroy(&q)
+	testing.expect(t, strokes_load(&q, path))
+	testing.expect_value(t, len(q.replay.take.brushes), 1)
+	if len(q.replay.take.brushes) == 1 {
+		testing.expect(t, !q.replay.take.brushes[0].paint_dial)
+		testing.expect_value(t, q.replay.take.brushes[0].color_spray, 0.4)
+	}
+
 	eleven := make([dynamic]u8, context.temp_allocator)
 	append(&eleven, ..data[:16 + 64 + 31])
 	append(&eleven, ..frames_before_roll(data[16 + BRUSH:]))

@@ -475,6 +475,23 @@ def channel_button_paints_with_draw():
 
 
 @scenario
+def shift_blurs_and_ctrl_erases_while_painting():
+    """With the brushes on the Paint channel, a Draw stroke paints, Shift's stroke over it
+    blurs the paint and Ctrl's takes it off: three undo steps, the last two named Blur and
+    Erase, and none of them a Smooth."""
+    def run(keys, last):
+        s = Script()
+        s.wait(3)
+        s.mouse_drag(line((700, 380), (820, 430), 12))
+        s.wait(4)
+        s.mouse_drag(line((690, 400), (830, 410), 12), keys=keys)
+        s.wait(4)
+        return s, LENS + ["--script=set paint_channel color"], {"undo_steps": near(2, 0), "last_step": is_text(last),
+                                                                  "paint_dial": is_text("1"), "painted_vertices": lambda v: int(v) > 0}
+    return Steps([run(("shift",), "Blur"), run(("ctrl",), "Erase")])
+
+
+@scenario
 def colour_long_press_swaps_colours():
     """A long press on the brush bar's Colour swaps the main and secondary colours and opens
     nothing; two taps on the channel make the brushes only paint, so a Draw stroke paints

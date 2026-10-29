@@ -104,6 +104,18 @@ MODIFIER_NAMES := [Modifier]string {
 	.Hide   = "Hide",
 }
 
+// A modifier's name as the dial shows it: while painting, Smooth blurs the paint and
+// Invert erases it (painting), and the dial says so.
+modifier_name :: proc(app: ^App, m: Modifier) -> string {
+	if painting(app) {
+		#partial switch m {
+		case .Smooth: return "Blur"
+		case .Invert: return "Erase"
+		}
+	}
+	return MODIFIER_NAMES[m]
+}
+
 @(rodata)
 MODIFIER_ICONS := [Modifier]rune {
 	.Smooth = 0xe283, // waves
@@ -586,7 +598,8 @@ kit_modifier_rail :: proc(app: ^App) {
 			}
 		case Modifier:
 			look := ui.Modifier_Look.Latched if lit_of(v, r.latched) else (.Lit if lit_of(v, held) || lit_of(v, keys) else .Off)
-			sectors[i] = {name = MODIFIER_NAMES[v], glyph = MODIFIER_ICONS[v], caption = MODIFIER_NAMES[v], look = look, keys = MODIFIER_KEYS[v]}
+			name := modifier_name(app, v)
+			sectors[i] = {name = name, glyph = MODIFIER_ICONS[v], caption = name, look = look, keys = MODIFIER_KEYS[v]}
 		}
 		switch k.wheel_labels {
 		case .Icons:           sectors[i].caption = ""

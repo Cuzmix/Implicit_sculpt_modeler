@@ -333,7 +333,7 @@ brush_stroke_finish :: proc(app: ^App) {
 		// The clay's stroke: its band is repaired and its step kept when it changed anything.
 		if voxel.clay_stroke_end(&vp.clay) {
 			voxel_part_edited(vp)
-			history_record(app, obj, .Mask if .Mask in BRUSHES[app.stroke.kind].flags else .Stroke, BRUSHES[app.stroke.kind].name)
+			history_record(app, obj, .Mask if .Mask in BRUSHES[app.stroke.kind].flags else .Stroke, stroke_name(&app.stroke))
 		}
 		return
 	}
@@ -343,7 +343,7 @@ brush_stroke_finish :: proc(app: ^App) {
 	sculpt.sculptor_grab_end(object_sculptor(obj))
 	sculpt.sculptor_cloth_end(object_sculptor(obj))
 	if sculpt.sculptor_stroke_end(object_sculptor(obj)) {
-		history_record(app, obj, .Mask if .Mask in BRUSHES[app.stroke.kind].flags else .Stroke, BRUSHES[app.stroke.kind].name)
+		history_record(app, obj, .Mask if .Mask in BRUSHES[app.stroke.kind].flags else .Stroke, stroke_name(&app.stroke))
 		adjust_set_stroke(app, obj)
 	}
 }

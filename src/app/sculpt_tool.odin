@@ -57,6 +57,11 @@ Brush_Settings :: struct {
 	// What every sculpting brush changes: the surface, it and the polypaint, or only the
 	// polypaint (sculpt.Channel; the brush bar's channel button cycles them).
 	channel:           sculpt.Channel,
+	// While painting (the Paint brush, or a sculpting brush with the channel on Colour),
+	// Smooth blurs the paint and Invert takes it off, instead of smoothing the surface and
+	// digging it (painting): Paint's Blur and Erase in the dial, as Nomad and Procreate
+	// have them.
+	paint_dial:        bool,
 	cloth_mode:        sculpt.Cloth_Mode, // what the Cloth brush does
 	// The preset the brush is on (presets.odin), from 1; 0 on a plain brush. While on
 	// one, `plain` keeps the plain brush's values that leaving it puts back.
@@ -130,6 +135,7 @@ Stroke :: struct {
 	held:     bool, // ...and whether that is the brush held, with its alpha and stroke mode
 	mode:     Stroke_Mode, // the held brush's stroke mode as it began; Dots for any other
 	invert:   bool, // whether it started inverted, for the History panel
+	blur:     bool, // Smooth while painting: a Paint stroke that blurs the paint (painting)
 	// What its brush's strength is multiplied by: Touch strength for a finger, 1 for the
 	// pen and mouse, or what a replay recorded (App.stroke_scale_from).
 	scale:    f32,
@@ -387,6 +393,7 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 	st := &app.stroke
 	st.active, st.object = true, obj.id
 	st.kind, st.held = stroke_brush(app, input), held_brush(input)
+	st.blur = input.smooth && !input.mask && painting(app)
 	st.seed, st.step, st.turn = app.stroke_seed, 0, 0
 	app.stroke_seed += 1
 	st.scale = app.stroke_scale_from if app.stroke_scale_from > 0 else (app.nav.touch_strength if app.device.pointer == .Finger else 1)
@@ -861,11 +868,32 @@ stroke_dab :: proc(app: ^App, obj: ^Object, input: Viewport_Input, inv: matrix[4
 }
 
 // The brush a stroke pressed with `input` uses: Smooth for Shift (or the rail's Smooth),
-// Mask for the rail's Mask, or else the brush held.
+// Mask for the rail's Mask, or else the brush held. While painting, Smooth and Invert are
+// Paint strokes: one that blurs the paint, and one that takes it off.
 stroke_brush :: proc(app: ^App, input: Viewport_Input) -> sculpt.Brush_Kind {
 	if input.mask do return .Mask
-	if input.smooth do return .Smooth
+	if input.smooth do return .Paint if painting(app) else .Smooth
+	if input.invert && painting(app) do return .Paint
 	return app.brush.kind
+}
+
+// What the History calls a stroke: its brush, or Blur and Erase for Paint's Smooth and
+// Invert (painting).
+stroke_name :: proc(st: ^Stroke) -> string {
+	if st.kind == .Paint && st.blur do return "Blur"
+	if st.kind == .Paint && st.invert do return "Erase"
+	return BRUSHES[st.kind].name
+}
+
+// Whether the brush held paints rather than sculpts, so that Smooth blurs the paint and
+// Invert erases it (Brush_Settings.paint_dial): the Paint brush, or a sculpting brush with
+// the channel on Colour. Both sculpts as well as paints, so it keeps Smooth and Invert,
+// and so does voxel clay, which has no paint to blur.
+painting :: proc(app: ^App) -> bool {
+	b := &app.brush
+	if !b.paint_dial do return false
+	if obj := selected_object(app); obj != nil && obj.voxel != nil do return false
+	return .Paint in BRUSHES[b.kind].flags || (b.channel == .Color && channel_brush(b.kind))
 }
 
 // Whether a stroke pressed with `input` uses the brush held, and with it the brush's own
@@ -884,8 +912,15 @@ brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pres
 	world_per_px := camera.orbit_world_per_px(app.camera, to_world(t, hit), input.size.y)
 	kind := app.stroke.kind
 	// Shift smooths at the Smooth brush's strength, not the strength of the brush held, and
-	// the rail's Mask masks at the Mask brush's.
-	strength := app.brush.strengths[kind]
+	// the rail's Mask masks at the Mask brush's; while painting, Shift's blur is at Smooth's
+	// strength too, and Invert erases at the strength and falloff of the brush held.
+	own := kind
+	if app.stroke.blur {
+		own = .Smooth
+	} else if kind == .Paint && app.stroke.held {
+		own = app.brush.kind
+	}
+	strength := app.brush.strengths[own]
 	if app.brush.pressure_strength do strength *= pressure_curved(app, pressure)
 	strength *= app.stroke.scale
 	turn: matrix[3, 3]f32
@@ -915,9 +950,10 @@ brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pres
 		tilt     = turn,
 		alpha    = alpha,
 		alpha_up = up,
-		falloff_shape = brush_falloff(app, kind),
+		falloff_shape = brush_falloff(app, own),
 		facing   = facing,
 		color    = brush_color_bytes(app),
+		blur     = app.stroke.blur,
 		channel  = brush_channel(app, selected_object(app)) if app.stroke.held else .Sculpt,
 		lock_plane = app.brush.lock_plane,
 		connected  = app.brush.connected,

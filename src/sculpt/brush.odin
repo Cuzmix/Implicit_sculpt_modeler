@@ -120,6 +120,10 @@ Brush :: struct {
 	facing:   Vec3,
 	// Paint: the colour it paints, sRGB; any other brush paints it too when `channel` says.
 	color:    [3]u8,
+	// Paint: even the colours out instead of laying `color`, as Smooth evens the surface:
+	// each vertex mixes toward the average of its neighbours' paint (the inverted brush
+	// still takes paint off). Paint's Smooth in the dial, as ZBrush's and Nomad's do.
+	blur:     bool,
 	// What a sculpting dab changes: the surface, as it always has; the surface and the
 	// polypaint, painting `color` under the same falloff; or only the polypaint, moving
 	// nothing (paint_channel_dab). Paint, Mask, Grab and Cloth keep to their own channel.
@@ -222,6 +226,7 @@ Sculptor :: struct {
 	partials:    [dynamic]Partial,
 	offsets:     [dynamic]u32, // per hit leaf: start of its slots in smooth_to
 	smooth_to:   [dynamic]Vec3,
+	blur_to:     [dynamic][4]f32, // Paint's blur: the colour each slot mixes toward
 
 	// Nodes whose vertex normals and GPU data are stale since the last sculptor_flush,
 	// and how stale each node is.
@@ -309,6 +314,7 @@ sculptor_init_rest :: proc(s: ^Sculptor, allocator: runtime.Allocator) {
 	s.partials = make([dynamic]Partial, 0, 256, allocator)
 	s.offsets = make([dynamic]u32, 0, 256, allocator)
 	s.smooth_to = make([dynamic]Vec3, 0, 16384, allocator)
+	s.blur_to = make([dynamic][4]f32, 0, 0, allocator)
 	s.stale = make([]Stale, len(s.nodes), allocator)
 	s.dirty_nodes = make([dynamic]u32, 0, 256, allocator)
 	s.cone_waiting = make([]bool, len(s.nodes), allocator)
@@ -356,6 +362,7 @@ sculptor_destroy :: proc(s: ^Sculptor) {
 	delete(s.partials)
 	delete(s.offsets)
 	delete(s.smooth_to)
+	delete(s.blur_to)
 	delete(s.stale)
 	delete(s.dirty_nodes)
 	delete(s.cone_waiting)

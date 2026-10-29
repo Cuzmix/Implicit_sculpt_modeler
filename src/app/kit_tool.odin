@@ -98,7 +98,7 @@ kit_brush_colors :: proc(app: ^App) {
 	ctx := &app.kit.ctx
 	b := &app.brush
 	if .Paint in BRUSHES[b.kind].flags {
-		ui.paragraph(ctx, "Paint lays the main colour; Ctrl, or Subtract, takes paint off.")
+		ui.paragraph(ctx, "Paint lays the main colour; Ctrl, or Subtract, takes paint off, and with the switch below Shift, or Smooth, blurs it." if b.paint_dial else "Paint lays the main colour; Ctrl, or Subtract, takes paint off.")
 	} else if channel_brush(b.kind) {
 		names := [sculpt.Channel]string{.Sculpt = "Sculpt", .Both = "Both", .Color = "Paint"}
 		options: [len(sculpt.Channel)]string
@@ -108,6 +108,7 @@ kit_brush_colors :: proc(app: ^App) {
 	} else {
 		ui.paragraph(ctx, fmt.tprintf("%s keeps to what it changes; Sculpt, Both and Paint are for the sculpting brushes.", BRUSHES[b.kind].name))
 	}
+	_ = ui.switch_row(ctx, "Smooth blurs, Invert erases", &b.paint_dial, .Paint in BRUSHES[b.kind].flags || channel_brush(b.kind))
 	_ = kit_color(app, "brush colour", &b.color)
 	_ = command_button(app, .Colors_Card, label = "Open Colors", glyph = ICON_COLOUR, width = ui.fill_width(ctx))
 	if kit_more(app, .Paint_Color) {

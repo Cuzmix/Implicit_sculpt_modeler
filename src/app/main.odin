@@ -623,7 +623,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	app.time_gpu = opts.time_gpu || opts.gpubench != ""
 	app.ui = ui_state_default()
 	app.curve, app.insert = CURVE_DEFAULTS, INSERT_DEFAULTS
-	app.brush = {kind = .Draw, radius_px = DEFAULT_RADIUS_PX, pressure_strength = true, pressure_curve = geom.CURVE_LINEAR, detail_px = 10, collapse = true, alpha = -1, color = {0.75, 0.2, 0.15}, color2 = {0.95, 0.92, 0.85}, spray_spread = SPRAY_DEFAULT_SPREAD, spacing = DAB_SPACING, radial_count = RADIAL_DEFAULT, radial_axis = .Y}
+	app.brush = {kind = .Draw, radius_px = DEFAULT_RADIUS_PX, pressure_strength = true, pressure_curve = geom.CURVE_LINEAR, detail_px = 10, collapse = true, alpha = -1, color = {0.75, 0.2, 0.15}, color2 = {0.95, 0.92, 0.85}, spray_spread = SPRAY_DEFAULT_SPREAD, spacing = DAB_SPACING, radial_count = RADIAL_DEFAULT, radial_axis = .Y, paint_dial = true}
 	for &s, kind in app.brush.strengths do s = BRUSHES[kind].strength
 	app.nav = NAV_DEFAULT
 	app.autosave.minutes = AUTOSAVE_DEFAULT_MINUTES
@@ -1466,7 +1466,9 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		fmt.printfln("camera_yaw=%.4f camera_pitch=%.4f camera_roll=%.4f camera_distance=%.4f camera_target=%.4f,%.4f,%.4f", c.yaw, c.pitch, c.roll, c.distance, c.target.x, c.target.y, c.target.z)
 		p := app.pivot.used
 		fmt.printfln("orbit_pivot=%.4f,%.4f,%.4f pivot_source=%s pinned=%d framed=%d touch_repeats=%d", p.x, p.y, p.z, strings.to_lower(fmt.tprint(app.pivot.from), context.temp_allocator), int(app.pivot.pinned), app.double_tap.framed, app.touch.hold.done)
-		fmt.printfln("undo_steps=%d redo_steps=%d brush_radius_px=%.2f brush_strength=%.3f brush_focal=%.0f selected=%d", len(app.history.done), len(app.history.undone), app.brush.radius_px, brush_strength(&app)^, focal_shift(&app)^, app.scene.selected)
+		last_step := "none"
+		if n := len(app.history.done); n > 0 do last_step, _ = strings.replace_all(app.history.done[n - 1].what, " ", "_", context.temp_allocator)
+		fmt.printfln("undo_steps=%d redo_steps=%d brush_radius_px=%.2f brush_strength=%.3f brush_focal=%.0f selected=%d last_step=%s", len(app.history.done), len(app.history.undone), app.brush.radius_px, brush_strength(&app)^, focal_shift(&app)^, app.scene.selected, last_step)
 		{
 			m := app.move
 			tr: Transform
@@ -1721,7 +1723,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		main_hex, second_hex: [8]u8
 		color_hex_format(app.brush.color, main_hex[:])
 		color_hex_format(app.brush.color2, second_hex[:])
-		fmt.printfln("paint_channel=%s paint_color=%s paint_color2=%s brush_subtract=%d painted_vertices=%d", strings.to_lower(fmt.tprint(app.brush.channel), context.temp_allocator), string(main_hex[1:7]), string(second_hex[1:7]), int(.Invert in app.rail.latched), painted)
+		fmt.printfln("paint_channel=%s paint_color=%s paint_color2=%s brush_subtract=%d painted_vertices=%d paint_dial=%d", strings.to_lower(fmt.tprint(app.brush.channel), context.temp_allocator), string(main_hex[1:7]), string(second_hex[1:7]), int(.Invert in app.rail.latched), painted, int(app.brush.paint_dial))
 		// The Colors card's tab, how many colours its history and your palettes hold, and
 		// whether the eyedropper still waits for a press and the colour popover is open.
 		fmt.printfln("colors_tab=%s color_history=%d color_palettes=%d eyedropper=%d color_popover=%d", strings.to_lower(fmt.tprint(k.colors.tab), context.temp_allocator), k.colors.history_count, k.colors.palette_count, int(app.ui.eyedrop_armed), int(k.colors.pop))
