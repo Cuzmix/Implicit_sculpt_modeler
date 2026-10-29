@@ -609,6 +609,99 @@ def colors_value_hex_sets_the_colour():
     return s, [COLORS], {"paint_color": is_text("33AA77"), "color_history": near(1), "dabs": near(0)}
 
 
+# The floating Colors card's Panel options (the dots right of its title) and the menu's Dock rows,
+# then the Value tab where the card docked in the left column (alone) or the right one (under
+# the tray) puts it, at 1600 x 900.
+COLORS_OPTIONS, COLORS_DOCK = (396, 127), {"left": (370, 184), "right": (370, 228)}
+COLORS_DOCKED_VALUE = {"left": (320, 706), "right": (1422, 749)}
+# The card's width (COLORS_CARD_W in kit_colors.odin): seven swatches and its padding.
+COLORS_CARD_W = 7 * 48 + 2 * 12
+# The Palettes tab's list in the floating card: Skin's first swatch, and Vivid's once the list
+# is scrolled to its end.
+COLORS_PALETTES = {"skin": (102, 335), "vivid": (102, 646)}
+
+
+def ppm_region(path, rect):
+    """The pixels of rectangle (x, y, w, h) of a screen the app wrote as a binary PPM
+    (P6, its size, 255, then the bytes), row by row, cut to the picture."""
+    data = open(path, "rb").read()
+    _, size, _, pixels = data.split(b"\n", 3)
+    width, height = map(int, size.split())
+    x, y, w, h = (int(float(v)) for v in rect)
+    w, h = min(w, width - x), min(h, height - y)
+    return b"".join(pixels[((y + row) * width + x) * 3:((y + row) * width + x + w) * 3] for row in range(h))
+
+
+def colors_docked_still(side):
+    """Docks the Colors card on `side` from Panel options and taps its Value tab where the
+    column draws it, in two runs a frame apart: a card that keeps one size draws the same
+    pixels in both, from its corner (window_colors=) to the window's foot. Only the card's
+    are compared, since a desktop's own pointer resting on the window lights what it is over."""
+    shots = [os.path.join(ROOT, "build", "touch", f"{CURRENT.name}-{n}.ppm") for n in ("a", "b")]
+    for shot in shots:
+        if os.path.exists(shot):
+            os.remove(shot)
+    runs = []
+    for more in (0, 1):
+        s = Script()
+        s.wait(4)
+        s.ftap(*COLORS_OPTIONS)
+        s.wait(8)
+        s.ftap(*COLORS_DOCK[side])
+        s.wait(20)
+        s.ftap(*COLORS_DOCKED_VALUE[side])
+        s.wait(20 + more)
+        runs.append(s)
+    column = {"left": "colors", "right": "inspector,colors"}[side]
+    checks = camera_still({f"column_{side}": is_text(column), "colors_tab": is_text("value"), "dabs": near(0)})
+
+    def one_size(stats):
+        _, _, x, y = stats["window_colors"].split(",")
+        card = (x, y, COLORS_CARD_W, 900 - float(y))
+        return ppm_region(shots[0], card) == ppm_region(shots[1], card) or f"the card at {x},{y} drew other pixels a frame later"
+
+    return Steps([(runs[0], [COLORS, f"--dump-screen={shots[0]}"], checks),
+                  (runs[1], [COLORS, f"--dump-screen={shots[1]}"], dict(checks, **{"@one size": one_size}))])
+
+
+@scenario
+def colors_card_docks_left_and_holds_still():
+    """Docked on the left from Panel options, the Colors card keeps one size: two runs a
+    frame apart draw it the same (it flickered between two heights every frame, its tabs
+    cut off), and its Value tab is a tap where it is drawn."""
+    return colors_docked_still("left")
+
+
+@scenario
+def colors_card_docks_right_and_holds_still():
+    """Docked on the right under the tray, the Colors card keeps one size and the tray its
+    own, frame after frame, and its Value tab is a tap where it is drawn."""
+    return colors_docked_still("right")
+
+
+@scenario
+def colors_palettes_keep_the_cards_size():
+    """On Palettes the Colors card keeps the Disc's size: a swatch in the list is a tap, the
+    list scrolls inside the card to Vivid, the last palette, and the tabs stay where the Disc
+    had them, so a tap there picks Value (the list took the card down to the window's foot and
+    the tabs with it)."""
+    s = Script()
+    s.wait(4)
+    s.ftap(*COLORS_CARD["palettes"])
+    s.wait(8)
+    s.ftap(*COLORS_PALETTES["skin"])
+    s.wait(4)
+    s.fdrag(line((250, 600), (250, 150), 15))
+    s.wait(20)
+    s.ftap(*COLORS_PALETTES["vivid"])
+    s.wait(4)
+    s.ftap(*COLORS_CARD["value"])
+    s.wait(6)
+    return s, [COLORS], camera_still({"paint_color": is_text("E6194B"), "color_history": near(2), "colors_tab": is_text("value"),
+                                      "window_colors": lambda v: v.startswith("1,"), "dabs": near(0)})
+
+
+
 @scenario
 def polyframe_long_press_picks_fill():
     """A long press on Wireframe opens what the polyframe shows; Fill adds the polygroups'
@@ -7117,7 +7210,8 @@ def run_one(name, step, screens, displays):
     if not any(a.startswith("--ui-dt") for a in args):
         cmd.append(f"--ui-dt={UI_DT:g}")
     cmd += args
-    if screens:
+    # A run that writes its screen itself (to compare two runs) keeps its own picture.
+    if screens and not any(a.startswith("--dump-screen") for a in args):
         os.makedirs(os.path.join(ROOT, "build", "touch"), exist_ok=True)
         cmd.append(f"--dump-screen={os.path.join(ROOT, 'build', 'touch', name + '.png')}")
     env = dict(os.environ, SDL_ASSERT="abort")
