@@ -57,6 +57,10 @@ Preset_Values :: struct {
 	grab_silhouette: bool,
 	grab_topological: bool,
 	elastic_volume:   f32, // Elastic's Volume (Brush_Settings.elastic_volume)
+	// Snake hook's Pinch, Rake and Elastic tip (Brush_Settings.hook_*).
+	hook_pinch:       f32,
+	hook_rake:        f32,
+	hook_elastic:     bool,
 }
 
 Brush_Preset :: struct {
@@ -79,6 +83,7 @@ preset_values_of :: proc(b: ^Brush_Settings, kind: sculpt.Brush_Kind) -> Preset_
 		cloth_mode = b.cloth_mode, lock_plane = b.lock_plane, connected = b.connected, grab_depth = b.grab_depth,
 		smooth_only = b.smooth_only, grab_mode = b.grab_mode, grab_normal = b.grab_normal, grab_same_side = b.grab_same_side,
 		grab_silhouette = b.grab_silhouette, grab_topological = b.grab_topological, elastic_volume = b.elastic_volume,
+		hook_pinch = b.hook_pinch, hook_rake = b.hook_rake, hook_elastic = b.hook_elastic,
 	}
 }
 
@@ -94,6 +99,7 @@ preset_values_put :: proc(b: ^Brush_Settings, v: Preset_Values) {
 	b.grab_mode, b.grab_normal, b.grab_same_side, b.grab_silhouette = v.grab_mode, v.grab_normal, v.grab_same_side, v.grab_silhouette
 	b.grab_topological = v.grab_topological
 	if v.kind == .Elastic do b.elastic_volume = v.elastic_volume
+	if v.kind == .Snake_Hook do b.hook_pinch, b.hook_rake, b.hook_elastic = v.hook_pinch, v.hook_rake, v.hook_elastic
 }
 
 // The preset numbered `n` (PACK_PRESET), if there is one.
@@ -183,6 +189,7 @@ preset_same :: proc(app: ^App, a, b: Preset_Values) -> bool {
 	if .Grab in flags && a.grab_depth != b.grab_depth do return false
 	if a.kind == .Grab && (a.grab_mode != b.grab_mode || a.grab_normal != b.grab_normal || a.grab_same_side != b.grab_same_side || a.grab_silhouette != b.grab_silhouette || a.grab_topological != b.grab_topological) do return false
 	if a.kind == .Elastic && (a.grab_mode != b.grab_mode || a.elastic_volume != b.elastic_volume) do return false
+	if a.kind == .Snake_Hook && (a.hook_pinch != b.hook_pinch || a.hook_rake != b.hook_rake || a.hook_elastic != b.hook_elastic) do return false
 	if a.kind == .Smooth && a.smooth_only != b.smooth_only do return false
 	if .Grab not_in flags && (round(app, a.alpha) != round(app, b.alpha) || a.alpha_mode != b.alpha_mode || a.alpha_angle != b.alpha_angle) do return false
 	if .Paint in flags && a.color != b.color do return false
@@ -302,15 +309,17 @@ preset_ref :: proc(app: ^App, n: int) -> string {
 //        <alpha angle> <stroke> <lazy px> r g b <cloth mode> [<spread> [<lock plane 0|1>
 //        <connected 0|1> [<focal shift> [<all depth 0|1> <smooth only> [<smoothing>
 //        <pressure smoothing> [<grab mode> <normal weight> <same side 0|1>
-//        <silhouette 0|1> [<topological 0|1> [<elastic volume>]]]]]]]]; names escaped
+//        <silhouette 0|1> [<topological 0|1> [<elastic volume> [<hook pinch> <hook rake>
+//        <hook elastic 0|1>]]]]]]]]]; names escaped
 // (preset_escape). Lines from before Spray have no spread and take the default; lines
 // from before Lock plane and Connected have both off; lines from before focal shift have
 // none; lines from before All depth and Smooth only have Grab's round reach and Smooth
 // on everything; lines from before the stabiliser have it off; lines from before Grab's
 // modes grab freely on both sides; lines from before Topological weigh straight distance;
-// lines from before Elastic's Volume take the default.
+// lines from before Elastic's Volume take the default; lines from before Snake hook's
+// Pinch, Rake and Elastic tip have none of them.
 preset_parse :: proc(f: []string) -> (name: string, v: Preset_Values, alpha: string, ok: bool) {
-	if len(f) != 18 && len(f) != 19 && len(f) != 21 && len(f) != 22 && len(f) != 24 && len(f) != 26 && len(f) != 30 && len(f) != 31 && len(f) != 32 do return
+	if len(f) != 18 && len(f) != 19 && len(f) != 21 && len(f) != 22 && len(f) != 24 && len(f) != 26 && len(f) != 30 && len(f) != 31 && len(f) != 32 && len(f) != 35 do return
 	kind, kind_ok := brush_by_name(f[2])
 	alpha_mode, mode_ok := reflect.enum_from_name(Alpha_Mode, f[10])
 	stroke, stroke_ok := reflect.enum_from_name(Stroke_Mode, f[12])
@@ -350,7 +359,11 @@ preset_parse :: proc(f: []string) -> (name: string, v: Preset_Values, alpha: str
 	}
 	v.elastic_volume = ELASTIC_VOLUME_DEFAULT
 	if len(f) >= 31 do v.grab_topological = f[30] == "1"
-	if len(f) == 32 do v.elastic_volume = clamp(number(f[31], ELASTIC_VOLUME_DEFAULT), 0, 1)
+	if len(f) >= 32 do v.elastic_volume = clamp(number(f[31], ELASTIC_VOLUME_DEFAULT), 0, 1)
+	if len(f) == 35 {
+		v.hook_pinch, v.hook_rake = clamp(number(f[32], 0), -1, 1), clamp(number(f[33], 0), 0, 1)
+		v.hook_elastic = f[34] == "1"
+	}
 	for k in 0 ..< 3 do v.color[k] = clamp(number(f[14 + k], 0), 0, 1)
 	return preset_unescape(f[1]), v, preset_unescape(f[9]), true
 }
@@ -364,7 +377,8 @@ preset_line :: proc(out: ^strings.Builder, name: string, v: Preset_Values, alpha
 	// Only a preset with a focal shift, All depth or Smooth only has the fields, so the
 	// builds from before them, which skip a line of a length they do not know, keep every
 	// other preset.
-	volume := v.kind == .Elastic && v.elastic_volume != ELASTIC_VOLUME_DEFAULT
+	hook := v.kind == .Snake_Hook && (v.hook_pinch != 0 || v.hook_rake != 0 || v.hook_elastic)
+	volume := v.kind == .Elastic && v.elastic_volume != ELASTIC_VOLUME_DEFAULT || hook
 	topological := v.grab_topological || volume
 	grab := v.grab_mode != .Free || v.grab_normal != 0 || v.grab_same_side || v.grab_silhouette || topological
 	steady := steady_count(v.smoothing) > 1 || steady_count(v.pressure_smoothing) > 1 || grab
@@ -375,6 +389,7 @@ preset_line :: proc(out: ^strings.Builder, name: string, v: Preset_Values, alpha
 	if grab do fmt.sbprintf(out, " %v %g %d %d", v.grab_mode, v.grab_normal, bit(v.grab_same_side), bit(v.grab_silhouette))
 	if topological do fmt.sbprintf(out, " %d", bit(v.grab_topological))
 	if volume do fmt.sbprintf(out, " %g", v.elastic_volume)
+	if hook do fmt.sbprintf(out, " %g %g %d", v.hook_pinch, v.hook_rake, bit(v.hook_elastic))
 	strings.write_byte(out, '\n')
 }
 

@@ -245,8 +245,9 @@ STROKES_MAGIC :: "SCSTROKE"
 // smoothing and catch up after that; 16: its Even strength, Scene spacing and symmetry
 // Feather after those; 17: Alt in a frame's flags, and each brush's Grab mode, Same side
 // and Silhouette, then Normal weight, after those; 18: its Grab Topological after its
-// Normal weight; 19: its Elastic Volume after that.
-STROKES_VERSION :: u32(19)
+// Normal weight; 19: its Elastic Volume after that; 20: its Snake hook Pinch, Rake and
+// Elastic tip after that.
+STROKES_VERSION :: u32(20)
 
 strokes_save :: proc(app: ^App, path: string) -> bool {
 	t := replay_source(app)
@@ -294,6 +295,8 @@ strokes_save :: proc(app: ^App, path: string) -> bool {
 		geom.byte_put(&out, b.grab_normal)
 		geom.byte_put(&out, u8(b.grab_topological))
 		geom.byte_put(&out, b.elastic_volume)
+		geom.byte_put(&out, [2]f32{b.hook_pinch, b.hook_rake})
+		geom.byte_put(&out, u8(b.hook_elastic))
 	}
 	geom.byte_put(&out, u32(len(t.frames)))
 	for f in t.frames {
@@ -447,12 +450,19 @@ strokes_read :: proc(app: ^App, data: []u8, t: ^Take) -> bool {
 		// Nor, before version 19, Elastic (or its Volume).
 		volume: f32 = ELASTIC_VOLUME_DEFAULT
 		if version >= 19 do volume = geom.byte_get(&r, f32)
+		// Nor, before version 20, Snake hook's Pinch, Rake or Elastic tip.
+		hooked: [2]f32
+		hook_elastic: u8
+		if version >= 20 {
+			hooked = geom.byte_get(&r, [2]f32)
+			hook_elastic = geom.byte_get(&r, u8)
+		}
 		if !r.ok || int(kind) >= len(sculpt.Brush_Kind) || int(stroke) >= len(Stroke_Mode) || int(cloth) >= len(sculpt.Cloth_Mode) do return false
 		all_axes := transmute(u8)sculpt.Symmetry{.X, .Y, .Z}
 		if int(channel) >= len(sculpt.Channel) || dial > 1 || reach[0] > 1 || int(reach[1]) >= len(sculpt.Smooth_Only) do return false
 		if radial[0] > 1 || radial[1] > 1 || radial[2] < RADIAL_MIN || radial[2] > sculpt.RADIAL_MAX || int(radial[3]) >= len(sculpt.Axis) do return false
 		if symmetry & ~all_axes != 0 || drawn > 1 || pressure_strength > 1 || pressure_size > 1 || front > 1 || line > 1 || join > 1 || lock_plane > 1 || connected > 1 || catch_up > 1 || evened[0] > 1 || evened[1] > 1 || evened[2] > 1 do return false
-		if int(grabbing[0]) >= len(Grab_Mode) || grabbing[1] > 1 || grabbing[2] > 1 || topological > 1 || !finite(normal_weight, volume) || volume < 0 || volume > 1 || normal_weight < 0 || normal_weight > 1 do return false
+		if int(grabbing[0]) >= len(Grab_Mode) || grabbing[1] > 1 || grabbing[2] > 1 || topological > 1 || !finite(normal_weight, volume) || volume < 0 || volume > 1 || !finite(hooked[0], hooked[1]) || abs(hooked[0]) > 1 || hooked[1] < 0 || hooked[1] > 1 || hook_elastic > 1 || normal_weight < 0 || normal_weight > 1 do return false
 		if !finite(radius, strength, lazy, spread, color.r, color.g, color.b, focal, scale, spaced[0], spaced[1], steady[0], steady[1]) || !curve_ok(falloff) || !curve_ok(pressure_curve) do return false
 		if focal < sculpt.FOCAL_MIN || focal > sculpt.FOCAL_MAX || scale < TOUCH_STRENGTH_MIN || scale > 1 do return false
 		b.kind = sculpt.Brush_Kind(kind)
@@ -477,6 +487,7 @@ strokes_read :: proc(app: ^App, data: []u8, t: ^Take) -> bool {
 		b.grab_mode, b.grab_same_side, b.grab_silhouette, b.grab_normal = Grab_Mode(grabbing[0]), grabbing[1] == 1, grabbing[2] == 1, normal_weight
 		b.grab_topological = topological == 1
 		b.elastic_volume = volume
+		b.hook_pinch, b.hook_rake, b.hook_elastic = hooked[0], hooked[1], hook_elastic == 1
 		// Grab left Connected alone before version 11, so a Grab stroke recorded with it
 		// on replays as it was drawn.
 		if version < 11 && b.kind == .Grab do b.connected = false

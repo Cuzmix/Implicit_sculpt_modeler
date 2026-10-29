@@ -49,6 +49,10 @@ Brush_Settings :: struct {
 	grab_topological:  bool,
 	// Elastic: how much of its volume the pulled solid keeps, 0 to 1 (sculpt.Brush.volume).
 	elastic_volume:    f32,
+	// Snake hook: Pinch (below 0 Magnify), Rake and the Elastic tip (sculpt.Brush.hook_*).
+	hook_pinch:        f32,
+	hook_rake:         f32,
+	hook_elastic:      bool,
 	smooth_only:       sculpt.Smooth_Only, // which vertices Smooth evens out: all, valleys or peaks
 	stroke:            Stroke_Mode,
 	spray_spread:      f32, // Spray: how far from the path dabs scatter, in brush radii
@@ -172,6 +176,9 @@ Stroke :: struct {
 	start:    [2]f32, // Drag rectangle: where on screen the drag began
 	at:       Vec3, // ...and where that is on the object, in its own space
 	anchor:   Vec3, // Grab: where the stroke started; Snake hook: where it has pulled to (world space)
+	// Snake hook: the way its last step went (world space, unit length; zero before the
+	// first), which Rake turns what it drags by.
+	hook_dir: Vec3,
 	// Grab: the point under the press on the plane through the anchor facing the camera,
 	// which the pointer's moves are measured from (the anchor itself, unless the press was
 	// past the silhouette), and the area normal there (world space, unit length or zero).
@@ -598,6 +605,7 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 	local := to_local(obj.transform, hit)
 	brush := brush_at(app, input, obj.transform, local, s.pressure, s.tilt)
 	st.grab, st.hook, st.anchor, st.invert = .Grab in flags, .Hook in flags, hit, brush.invert
+	st.hook_dir = {}
 	st.grab_from, st.grab_normal, st.press_pressure = from, {}, s.pressure
 	if st.grab && obj.voxel == nil {
 		t := obj.transform
@@ -790,6 +798,16 @@ hook_follow :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: I
 	for _ in 0 ..< steps {
 		part := offset / f32(steps)
 		brush.drag = to_local_dir(t, part) / t.scale
+		// Rake: how far the hook turned since the last step, about the axis it turned on.
+		way := linalg.normalize0(part)
+		brush.rake_axis, brush.rake_angle = {}, 0
+		if st.hook_dir != {} && way != {} {
+			if axis := linalg.cross(st.hook_dir, way); linalg.length(axis) > 1e-6 {
+				brush.rake_axis = linalg.normalize(to_local_dir(t, axis))
+				brush.rake_angle = math.atan2(linalg.length(axis), linalg.dot(st.hook_dir, way))
+			}
+		}
+		if way != {} do st.hook_dir = way
 		sculpt.apply_dab(object_sculptor(obj), brush, to_local(t, st.anchor))
 		st.anchor += part
 		res.dabs += 1
@@ -1226,6 +1244,9 @@ brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pres
 		silhouette = kind == .Grab && app.brush.grab_silhouette,
 		topological = kind == .Grab && app.brush.grab_topological,
 		volume     = app.brush.elastic_volume,
+		hook_pinch = app.brush.hook_pinch if kind == .Snake_Hook else 0,
+		hook_rake  = app.brush.hook_rake if kind == .Snake_Hook else 0,
+		hook_elastic = kind == .Snake_Hook && app.brush.hook_elastic,
 	}
 }
 
