@@ -140,6 +140,10 @@ Brush :: struct {
 	through:    Vec3,
 	// Smooth: which vertices it evens out, all or only those in dents or on bumps.
 	smooth_only: Smooth_Only,
+	// Symmetry's feathering, as Blender's: where a dab and its images overlap near a plane
+	// or the radial axis, each is weakened by how much they overlap (symmetry_feather), so
+	// a stroke along the middle builds the height it builds elsewhere, not twice it.
+	feather: bool,
 }
 
 // Which vertices the Smooth brush moves: a vertex lies in a valley when the average of
@@ -679,6 +683,30 @@ falloff :: #force_inline proc(x2: f32) -> f32 {
 
 FALLOFF_STEPS :: 256
 
+// The most a straight row of dabs `spacing` radii apart piles up anywhere along its middle
+// line, with the falloff `shape` (nil: the built-in one), as Blender's
+// paint_stroke_integrate_overlap measures it: the sum of the dabs' weights at a point,
+// taken at OVERLAP_PHASES points between two dabs, and the largest kept. A stroke's
+// strength over the overlap at its spacing builds the same height at every spacing.
+dab_overlap :: proc(shape: ^Falloff, spacing: f32) -> f32 {
+	s := max(spacing, 0.01)
+	reach := int(math.ceil(1 / s))
+	top: f32
+	for phase in 0 ..< OVERLAP_PHASES {
+		x := s * f32(phase) / OVERLAP_PHASES
+		sum: f32
+		for k in -reach ..= reach {
+			d := x + f32(k) * s
+			x2 := d * d
+			sum += falloff_drawn(shape, x2) if shape != nil else falloff(x2)
+		}
+		top = max(top, sum)
+	}
+	return top
+}
+
+OVERLAP_PHASES :: 16
+
 // A brush falloff drawn by the user: the weight at squared distances 0, 1/256, ... 1 in
 // radii², read between the entries linearly. Indexing by the squared distance spares a
 // square root per vertex, as falloff does.
@@ -790,10 +818,27 @@ apply_dab :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
 	if brush.kind == .Grab || brush.kind == .Cloth do return 0
 	moved := 0
 	images := symmetry_images(brush)
+	b := brush
+	b.strength /= symmetry_feather(brush, images[:], center)
 	for img, i in images {
-		moved += dab_once(s, sym_brush(brush, img), sym_point(img, brush.sym_center, center), img, i == 0)
+		moved += dab_once(s, sym_brush(b, img), sym_point(img, b.sym_center, center), img, i == 0)
 	}
 	return moved
+}
+
+// How much a dab at `center` and its images `images` (the dab itself first) overlap, by
+// Blender's measure: 1 for the dab, and for each image whose centre is within two radii
+// of the dab's, how far within as a share of two radii. A dab's strength is divided by it
+// when the brush feathers, and it is 1 where no image comes near, or without feathering.
+symmetry_feather :: proc(brush: Brush, images: []Sym_Image, center: Vec3) -> f32 {
+	if !brush.feather || len(images) < 2 || brush.radius <= 0 do return 1
+	overlap: f32 = 1
+	reach := 2 * brush.radius
+	for img in images[1:] {
+		d := linalg.length(sym_point(img, brush.sym_center, center) - center)
+		if d < reach do overlap += (reach - d) / reach
+	}
+	return overlap
 }
 
 // The images of a dab under the brush's symmetry, the dab itself first: each mirror image

@@ -553,6 +553,22 @@ renderer_set_vsync :: proc(r: ^Renderer, vsync: bool) -> bool {
 	return true
 }
 
+// Which present modes besides vsync the main window offers: what Unlimited and Limit can
+// use there, which the exit stats report so a run on a tablet shows its driver's.
+renderer_present_offers :: proc(r: ^Renderer) -> (mailbox, immediate: bool) {
+	return gpu_window_supports_present_mode(r.device, r.window, .MAILBOX), gpu_window_supports_present_mode(r.device, r.window, .IMMEDIATE)
+}
+
+// The present mode in use, as the exit stats and the Stats panel name it.
+renderer_present_name :: proc(r: ^Renderer) -> string {
+	switch r.present_mode {
+	case .VSYNC:     return "vsync"
+	case .MAILBOX:   return "mailbox"
+	case .IMMEDIATE: return "immediate"
+	}
+	return "unknown"
+}
+
 // Waits for the GPU, then releases everything the renderer created, in reverse order.
 renderer_destroy :: proc(r: ^Renderer) {
 	if r.device == nil do return

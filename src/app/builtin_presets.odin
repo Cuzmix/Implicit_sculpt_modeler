@@ -51,7 +51,7 @@ built_in_preset :: proc(j: int) -> Brush_Preset {
 	p := Brush_Preset {
 		values = {
 			kind = r.kind, strength = r.strength, falloff = {focal = r.focal}, alpha = -1, stroke = .Dots,
-			spread = SPRAY_DEFAULT_SPREAD, color = {1, 1, 1}, lock_plane = r.lock_plane, connected = r.connected,
+			spread = SPRAY_DEFAULT_SPREAD, smoothing = 1, pressure_smoothing = 1, color = {1, 1, 1}, lock_plane = r.lock_plane, connected = r.connected,
 			grab_depth = r.grab_depth, smooth_only = r.smooth_only,
 		},
 	}

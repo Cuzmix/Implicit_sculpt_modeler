@@ -45,5 +45,7 @@ when ODIN_PLATFORM_SUBTARGET_IOS {
 		sculpt_ios_pencil_start :: proc(window: ^sdl.Window, event_type: u32) ---
 		sculpt_ios_pencil_only :: proc() -> bool ---
 		sculpt_ios_haptic :: proc(kind: c.int, x, y: f32) ---
+		// From then on sends the pencil's coalesced samples as `event_type` (pen_samples.odin).
+		sculpt_ios_samples_start :: proc(window: ^sdl.Window, event_type: u32) ---
 	}
 }

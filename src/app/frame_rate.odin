@@ -42,6 +42,8 @@ Frame_Pacer :: struct {
 	voted_window: rawptr,
 	voted_rate:   f32,
 	top_rate:     f32, // the highest rate the screen offers, as Android reports it (0: not known)
+	// The present modes the window offers besides vsync, as last applied (present_offers).
+	offers_mailbox, offers_immediate: bool,
 }
 
 // Applies the frame rate choice before the frame acquires its swapchain texture: the
@@ -55,6 +57,8 @@ frame_pace :: proc(app: ^App, window: ^sdl.Window) {
 		// Where the screen offers only vsync (many Android drivers), Limit still limits
 		// and Unlimited runs at the refresh rate; the panel says which mode is in use.
 		_ = render.renderer_set_vsync(&app.renderer, app.frame_rate == .Match_Display)
+		p.offers_mailbox, p.offers_immediate = render.renderer_present_offers(&app.renderer)
+		log.infof("present mode: %s; offered besides vsync: %s", render.renderer_present_name(&app.renderer), present_offers(app))
 	}
 	frame_rate_vote(app, window)
 	if app.frame_rate != .Limit {
@@ -104,6 +108,17 @@ frame_rate_controls :: proc(app: ^App, explain := true) {
 		if explain do ui.paragraph(ctx, "As many frames as the computer can draw, for measuring speed. Most are never seen, and the battery and fans pay for them.")
 	}
 	ui.paragraph(ctx, frame_rate_status(app), color = ctx.theme.text_secondary)
+}
+
+// The modes the window offers besides vsync, as "mailbox,immediate" or "none". Temp-allocated.
+present_offers :: proc(app: ^App) -> string {
+	p := app.pacer
+	switch {
+	case p.offers_mailbox && p.offers_immediate: return "mailbox,immediate"
+	case p.offers_mailbox:                       return "mailbox"
+	case p.offers_immediate:                     return "immediate"
+	}
+	return "none"
 }
 
 // What the screen runs at and how frames reach it, in plain words. Temp-allocated.

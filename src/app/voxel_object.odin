@@ -200,6 +200,8 @@ object_dab :: proc(app: ^App, obj: ^Object, brush: sculpt.Brush, at, normal: Vec
 	}
 	vb, ok := voxel_brush_of(brush, normal)
 	if !ok do return
+	// Not feathered (sculpt.symmetry_feather): clay's dabs meet their images as a union or
+	// a difference, which never stacks where they overlap.
 	for img in sculpt.symmetry_images(brush) {
 		vb.normal = img.turn * normal
 		_ = voxel.clay_dab(&vp.clay, vb, sculpt.sym_point(img, brush.sym_center, at))

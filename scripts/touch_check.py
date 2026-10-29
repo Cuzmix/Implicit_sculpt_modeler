@@ -1216,6 +1216,89 @@ def pen_stroke_with_hand_resting():
     return s, [], camera_still({"dabs": lambda v: int(v) > 0, "undo_steps": near(1)})
 
 
+def circle_point(centre, radius, degrees):
+    a = math.radians(degrees)
+    return (round(centre[0] + radius * math.cos(a), 2), round(centre[1] + radius * math.sin(a), 2))
+
+
+def jagged_pen_stroke(s):
+    """A pen stroke across the model that zigzags 12 px either side of its line every
+    sample, as a shaky hand or a noisy tablet draws it, at full pressure."""
+    path = [(x, y + (12 if k % 2 else -12)) for k, (x, y) in enumerate(line((640, 450), (960, 450), 32))]
+    pen_stroke(s, path, pressure=1)
+
+
+@scenario
+def smoothing_steadies_a_shaky_pen_stroke():
+    """Smoothing 8 averages a zigzag pen stroke into a steady line, and Catch up on lift
+    carries it on to where the pen lifted: about 28 dabs along the 320 px line, where the
+    zigzag itself, 830 px long, takes about 70."""
+    s = Script()
+    jagged_pen_stroke(s)
+    return s, ["--script=set smoothing 8"], camera_still({"dabs": lambda v: 27 <= int(v) <= 29, "undo_steps": near(1)})
+
+
+@scenario
+def smoothing_without_catch_up_ends_short():
+    """Without Catch up on lift the same smoothed stroke ends where the averaged brush was
+    when the pen lifted, half the eight samples (about 40 px) short of the pen: three dabs
+    fewer."""
+    s = Script()
+    jagged_pen_stroke(s)
+    return s, ["--script=set smoothing 8; set catch_up off"], camera_still({"dabs": lambda v: 24 <= int(v) <= 26, "undo_steps": near(1)})
+
+
+@scenario
+def x_symmetry_stroke_across_the_middle_by_pen():
+    """A pen stroke with X symmetry crossing the X plane, where it meets its own mirror
+    image: feathered by default, so the crossing rises no higher than the rest of it (look
+    with --screens beside the same stroke with symmetry_feather off)."""
+    s = Script()
+    pen_stroke(s, line((560, 470), (900, 420), 34), pressure=1)
+    return s, ["--script=set symmetry x"], camera_still({"symmetry": is_text("x"), "dabs": lambda v: int(v) > 20, "undo_steps": near(1)})
+
+
+@scenario
+def predicted_ring_leads_a_fast_pen():
+    """A pen stroke at 16 px a frame, still moving when the run ends (its last moves go
+    past the frames the script waits for, into the ten the run adds): the brush ring is
+    drawn a frame's motion ahead of the pen (Predict the cursor; look with --screens),
+    while the dabs end where the pen is, still pressed."""
+    s = Script()
+    s.add("pnear")
+    s.add("ppress:1")
+    s.add("pdown:520,450")
+    for k in range(1, 15):
+        s.wait(1)
+        s.add(f"pmove:{520 + 16 * k},450")
+    for k in range(1, 11):
+        s.add(f"pmove:{744 + 16 * k},450", frame=s.frame + k)
+    return s, [], camera_still({"dabs": lambda v: int(v) > 20, "undo_steps": near(0)})
+
+
+@scenario
+def pen_samples_between_frames_follow_the_curve():
+    """A fast pen circle a quarter turn a frame, with three of the pen's samples between frames each frame, as a tablet's bridge sends them (pen_samples.odin): every sample goes in, and the dabs follow the arc (79 of them at 12 px apart) rather than its chords (about 71)."""
+    s = Script()
+    centre, radius = (800, 450), 150
+    s.add("pnear")
+    s.add("ppress:1")
+    s.add(f"pdown:{circle_point(centre, radius, 0)[0]:g},{circle_point(centre, radius, 0)[1]:g}")
+    for quarter in range(1, 5):
+        s.wait(1)
+        for k in range(1, 4):
+            x, y = circle_point(centre, radius, 90 * (quarter - 1) + 22.5 * k)
+            s.add(f"pcoal:{x:g},{y:g}:1")
+        x, y = circle_point(centre, radius, 90 * quarter)
+        s.add(f"pmove:{x:g},{y:g}")
+    s.wait(1)
+    s.add("pup")
+    s.wait(2)
+    s.add("pfar")
+    s.wait(3)
+    return s, [], camera_still({"samples_coalesced": near(12), "samples_frame_max": near(4), "dabs": lambda v: 77 <= int(v) <= 80, "undo_steps": near(1)})
+
+
 @scenario
 def pen_landing_cancels_finger_stroke():
     """A finger stroke under way when the pen lands is taken back, and the pen's own stroke is kept."""
@@ -3022,7 +3105,7 @@ def lens_dial_stays_over_a_floating_card():
 # where that edge is once 40 points wider, the open Symmetry card's grip with Brush folded,
 # and a floating Layers card's bottom-left corner.
 LENS_RESIZE = {"edge": (1050, 400), "wider": (1010, 400), "wider_edge": (1012, 400), "symmetry_title": (1150, 154),
-               "symmetry_grip": (1218, 416), "layers_corner": (738, 340)}
+               "symmetry_grip": (1218, 470), "layers_corner": (738, 340)}
 
 
 @scenario

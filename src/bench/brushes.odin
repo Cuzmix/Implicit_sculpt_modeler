@@ -11,9 +11,9 @@ import "../jobs"
 import "../sculpt"
 
 // --brushes: at each size, the same stroke as the main table with the large brush, once
-// per brush kind, plus Draw with X symmetry, Draw over a half-masked sphere and Draw
-// with the Noise alpha (whose square reaches past the round brush). Grab
-// picks up the brush area at the first point and is dragged along the rest of the
+// per brush kind, plus Draw at the app's spacing, Draw with X symmetry (feathered), Draw
+// over a half-masked sphere and Draw with the Noise alpha (whose square reaches past the
+// round brush). Grab picks up the brush area at the first point and is dragged along the rest of the
 // path, one move per frame as the app does. Each stroke is undone before the next, so
 // they all start from the same sphere.
 brushes_header :: proc() {
@@ -39,26 +39,31 @@ run_brushes :: proc(target: int, pool: ^jobs.Pool) {
 		masked:   bool,
 		alpha:    bool,
 		layer:    bool, // record the stroke into a new sculpt layer
+		// The same path at the app's default spacing, a fifth of the radius rather than the
+		// quarter the rest are laid at: a quarter more dabs a frame, each at Even
+		// strength's 0.8 of the strength (sculpt.dab_overlap at 0.25 over 0.2).
+		closer:   bool,
 	}
 	cases := [?]Case {
-		{"Draw", .Draw, {}, false, false, false},
-		{"Draw, recording a layer", .Draw, {}, false, false, true},
-		{"Smooth", .Smooth, {}, false, false, false},
-		{"Clay", .Clay, {}, false, false, false},
-		{"Flatten", .Flatten, {}, false, false, false},
-		{"Inflate", .Inflate, {}, false, false, false},
-		{"Pinch", .Pinch, {}, false, false, false},
-		{"Crease", .Crease, {}, false, false, false},
-		{"Grab", .Grab, {}, false, false, false},
-		{"Mask", .Mask, {}, false, false, false},
-		{"Layer", .Layer, {}, false, false, false},
-		{"Layer, second stroke", .Layer, {}, false, false, false},
-		{"Snake hook", .Snake_Hook, {}, false, false, false},
-		{"Morph", .Morph, {}, false, false, false},
-		{"Paint", .Paint, {}, false, false, false},
-		{"Draw, X symmetry", .Draw, {.X}, false, false, false},
-		{"Draw, half masked", .Draw, {}, true, false, false},
-		{"Draw, Noise alpha", .Draw, {}, false, true, false},
+		{"Draw", .Draw, {}, false, false, false, false},
+		{"Draw, spacing 0.2", .Draw, {}, false, false, false, true},
+		{"Draw, recording a layer", .Draw, {}, false, false, true, false},
+		{"Smooth", .Smooth, {}, false, false, false, false},
+		{"Clay", .Clay, {}, false, false, false, false},
+		{"Flatten", .Flatten, {}, false, false, false, false},
+		{"Inflate", .Inflate, {}, false, false, false, false},
+		{"Pinch", .Pinch, {}, false, false, false, false},
+		{"Crease", .Crease, {}, false, false, false, false},
+		{"Grab", .Grab, {}, false, false, false, false},
+		{"Mask", .Mask, {}, false, false, false, false},
+		{"Layer", .Layer, {}, false, false, false, false},
+		{"Layer, second stroke", .Layer, {}, false, false, false, false},
+		{"Snake hook", .Snake_Hook, {}, false, false, false, false},
+		{"Morph", .Morph, {}, false, false, false, false},
+		{"Paint", .Paint, {}, false, false, false, false},
+		{"Draw, X symmetry", .Draw, {.X}, false, false, false, false},
+		{"Draw, half masked", .Draw, {}, true, false, false, false},
+		{"Draw, Noise alpha", .Draw, {}, false, true, false, false},
 	}
 	layer_line: string
 	defer if layer_line != "" {
@@ -81,10 +86,16 @@ run_brushes :: proc(target: int, pool: ^jobs.Pool) {
 		// Morph toward the surface as it is, which costs what any target does.
 		if c.kind == .Morph do _ = sculpt.sculptor_morph_store(s)
 		defer if c.kind == .Morph do sculpt.sculptor_morph_clear(s)
-		brush := sculpt.Brush{kind = c.kind, radius = radius, strength = 0.3, symmetry = c.symmetry, color = {200, 60, 30}}
+		// Symmetry feathers as the app's brushes do by default.
+		brush := sculpt.Brush{kind = c.kind, radius = radius, strength = 0.3, symmetry = c.symmetry, color = {200, 60, 30}, feather = c.symmetry != {}}
+		dabs, per_frame := DABS, DABS_PER_FRAME
+		if c.closer {
+			dabs, per_frame = DABS * 5 / 4, DABS_PER_FRAME * 5 / 4
+			brush.strength *= sculpt.dab_overlap(nil, 0.25) / sculpt.dab_overlap(nil, 0.2)
+		}
 		if c.alpha do brush.alpha, brush.alpha_up = &noise, {0, 1, 0}
-		frames := (DABS + DABS_PER_FRAME - 1) / DABS_PER_FRAME
-		dab := make([]f64, DABS)
+		frames := (dabs + per_frame - 1) / per_frame
+		dab := make([]f64, dabs)
 		flush, frame := make([]f64, frames), make([]f64, frames)
 		defer delete(dab)
 		defer delete(flush)
@@ -93,19 +104,19 @@ run_brushes :: proc(target: int, pool: ^jobs.Pool) {
 		anchor: Vec3
 		if c.layer do _ = sculpt.sculptor_layer_add(s)
 		sculpt.sculptor_stroke_begin(s)
-		for i in 0 ..< DABS {
-			k := f32(i) / (DABS - 1)
+		for i in 0 ..< dabs {
+			k := f32(i) / f32(dabs - 1)
 			target_point := linalg.normalize(Vec3{-0.6 + 1.2 * k, 0.3 * math.sin(k * 4 * math.PI), 1})
 			hit, ok := sculpt.sculptor_raycast(s, eye, linalg.normalize(target_point - eye))
 			if !ok do hit = target_point
-			f := i / DABS_PER_FRAME
+			f := i / per_frame
 			tb := time.tick_now()
 			if c.kind == .Grab {
 				// Picked up at the first point, then one move per frame to the latest point.
 				if i == 0 {
 					touched = sculpt.sculptor_grab_begin(s, brush, hit)
 					anchor = hit
-				} else if i % DABS_PER_FRAME == DABS_PER_FRAME - 1 || i == DABS - 1 {
+				} else if i % per_frame == per_frame - 1 || i == dabs - 1 {
 					_ = sculpt.sculptor_grab_move(s, 0.3 * (target_point - anchor))
 				}
 			} else {
@@ -115,7 +126,7 @@ run_brushes :: proc(target: int, pool: ^jobs.Pool) {
 			}
 			dab[i] = time.duration_milliseconds(time.tick_since(tb))
 			frame[f] += dab[i]
-			if i % DABS_PER_FRAME == DABS_PER_FRAME - 1 || i == DABS - 1 {
+			if i % per_frame == per_frame - 1 || i == dabs - 1 {
 				tc := time.tick_now()
 				_ = sculpt.sculptor_flush(s)
 				flush[f] = time.duration_milliseconds(time.tick_since(tc))
@@ -151,11 +162,11 @@ run_brushes :: proc(target: int, pool: ^jobs.Pool) {
 			_ = sculpt.sculptor_flush(s)
 		}
 		dab_ms := median(dab)
-		per_dab := touched / DABS
+		per_dab := touched / dabs
 		if c.kind == .Grab {
 			// One move a frame: report a move's time and the vertices it carries.
 			moves := make([dynamic]f64, 0, frames, context.temp_allocator)
-			for i in 1 ..< DABS do if i % DABS_PER_FRAME == DABS_PER_FRAME - 1 || i == DABS - 1 do append(&moves, dab[i])
+			for i in 1 ..< dabs do if i % per_frame == per_frame - 1 || i == dabs - 1 do append(&moves, dab[i])
 			dab_ms = median(moves[:])
 			per_dab = touched
 		}
