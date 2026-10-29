@@ -103,7 +103,8 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   scroll, `s.shown[host]` (read through `stack_shown`) the tab drawn. Iterate hosts only (skip `s.joined`), move runs
   (`stack_move_to_k`), and read `stack_group` lines after the whole layout (`kit_layout_put`). Carrying is
   `stack_carry.odin`: sources set `s.carry` (the grip; `ui.tabs(dragged = &i)`), `stack_carry_update` runs once after
-  the floats (new_ui.odin) and targets only this frame's `s.seen` rects, cleared by `stack_frame_begin`; `view_grid_room` is the whole window, panes always under the panels.
+  the floats (new_ui.odin) and targets only this frame's `s.seen` and `s.strip_seen` rects, cleared by `stack_frame_begin`; a strip icon
+  joins after `stack_dwell` reaches 1 (twice `long_press`, drawn with `ui.hold_ring`); `view_grid_room` is the whole window, panes always under the panels.
   The grid is a split tree (`Grid_Tree`, at most four leaves; pane 0 the main view, panes keep their numbers and the
   last fills a closed one's): change it only through the tree ops in grid.odin. Gestures (`lens_areas.odin`) queue a
   `Grid_Op` that `kit_grid` applies before layout; each op is a `Grid_Step` that `undo_run`/`redo_run` order against

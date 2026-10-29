@@ -130,6 +130,13 @@ Lens_Stack :: struct {
 	// A carry put down with Escape stays down until the press that began it ends, as the
 	// grip or tab still held would start it again.
 	carry_off: bool,
+	// The strip's icons laid out this frame, and the icon a carry rests on: since when and
+	// where, so resting there long enough joins its group (stack_carry.odin).
+	strip_seen: bit_set[Stack_Card],
+	dwell:      Stack_Card,
+	dwell_on:   bool,
+	dwell_from: f64,
+	dwell_at:   [2]f32,
 	// Whether stack_default has set it up: a Kit_State nothing has set up yet (a test's)
 	// holds a fresh layout's stack.
 	set:     bool,
