@@ -80,7 +80,7 @@ Options :: struct {
 	bake_size:  int `usage:"Texels square for --bake (512, 1024, 2048 or 4096; default 2048)."`,
 	gpubench_frames: int `usage:"Measured frames per --gpubench case (default 120, at most 240)."`,
 	open:      string `usage:"Start with the scene saved in this .sculpt file instead of spheres, as Menu > Open scene... does."`,
-	import_mesh: string `args:"name=import" usage:"Start with the mesh in this .obj, .ply, .stl, .glb or .gltf file instead of spheres (after any --open), as Menu > Import mesh... does."`,
+	import_mesh: string `args:"name=import" usage:"Start with the mesh in this .obj, .ply, .stl, .glb, .gltf, .usd, .usda, .usdc or .usdz file instead of spheres (after any --open), as Menu > Import mesh... does."`,
 	export:    string `usage:"On exit, write the selected object's shown level to this .obj, .ply, .stl, .glb or .usda file, as Menu > Export mesh... does."`,
 	export_workspace: string `usage:"On exit, write the current workspace's layout to this .workspace file, as the workspace menu's Export workspace... does."`,
 	import_workspace: string `usage:"Read this .workspace file as a new workspace of your own and switch to it on the first frame, as the workspace menu's Import workspace... does."`,
