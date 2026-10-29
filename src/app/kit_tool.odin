@@ -171,8 +171,12 @@ kit_brush_options :: proc(app: ^App) {
 	if b.kind == .Elastic {
 		if picked := ui.tabs(ctx, "grab moves", {"Free", "Along normal", "Along surface"}, int(b.grab_mode)); picked >= 0 do b.grab_mode = Grab_Mode(picked)
 		_ = ui.slider(ctx, "Volume", &b.elastic_volume, 0, 1, .Linear, fmt.tprintf("%.0f%%", b.elastic_volume * 100))
-		_ = ui.switch_row(ctx, "Past the outline", &b.grab_outline)
-		ui.paragraph(ctx, "Elastic drags what is under the brush as a block of rubber pulled at that point would move: the part pulled keeps its shape and the rest stretches after it smoothly, out to three times the brush ring. Volume is how much of its volume the rubber keeps: at 100% the sides thin as it stretches, at 0% they stay put. Shift and Alt mid-drag and Past the outline work as Grab's.")
+		ui.paragraph(ctx, "Elastic drags what is under the brush as a block of rubber pulled at that point would move: the part pulled keeps its shape and the rest stretches after it smoothly, out to three times the brush ring. Volume is how much of its volume the rubber keeps: at 100% the sides thin as it stretches, at 0% they stay put. Shift and Alt mid-drag work as Grab's.")
+		if kit_more(app, .Options) {
+			_ = ui.switch_row(ctx, "Past the outline", &b.grab_outline)
+			ui.paragraph(ctx, "Past the outline takes hold from a press just off the model's edge too, at the nearest point within the brush ring, as on Grab; off, a press off the model turns the view.")
+			kit_more_end(app)
+		}
 	}
 	if b.kind == .Clay_Strips {
 		_ = ui.slider(ctx, "Tip roundness", &b.tip_roundness, 0, 1, .Linear, fmt.tprintf("%.0f%%", b.tip_roundness * 100))
