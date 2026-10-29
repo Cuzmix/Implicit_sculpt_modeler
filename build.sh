@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Usage: ./build.sh [debug|release|test|run|smoke|bench|gpubench|computebench|wincheck|androidcheck|iphonecheck|check|android|androidrun|ios] [-- app args]
+# Usage: ./build.sh [debug|release|test|run|smoke|bench|gpubench|computebench|wincheck|androidcheck|iphonecheck|check|android|androidrun|ios|all|clean] [-- app args]
 #   check   odin check with the strict flags on every package (no link, no shaders), then
 #           python3 scripts/agents_sync.py --check (the skill mirror under .agents/ is current)
 #   debug   (default) debug build with allocation tracking -> build/sculpt
@@ -31,8 +31,19 @@
 #   ios     macOS with Xcode only: build the iPad app (ios/, README.md "iPad") into an
 #           unsigned build/ios/Sculpt.ipa, which AltStore signs on the iPad
 #           (.github/workflows/ipad.yml runs it on GitHub's macOS runner)
+#   all     everything that builds, stopping at the first failure: check, release, then
+#           debug (build/sculpt is left as the debug app), test, iphonecheck, wincheck,
+#           androidcheck, and the Android APK when the Android SDK is there; smoke and the
+#           touch scenarios need a display, so scripts/gate.py runs them
+#   clean   remove build/ and the Android build's outputs; deps/ stays
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
+# Cleaning needs no toolchain, so it comes before the check for one.
+if [ "${1:-}" = clean ]; then
+	rm -rf "$ROOT/build" "$ROOT/android/.gradle" "$ROOT/android/build" "$ROOT/android/app/build" "$ROOT/android/app/.cxx"
+	echo "clean: build/ and the Android build's outputs removed"
+	exit 0
+fi
 DEPS="$ROOT/deps"
 ODIN="$DEPS/odin/odin"
 [ -x "$ODIN" ] || { echo "deps missing: run scripts/setup_deps.sh first"; exit 1; }
@@ -185,6 +196,18 @@ case "$mode" in
 		else
 			(cd "$ROOT/android" && ./gradlew installDebug)
 			"$ANDROID_HOME/platform-tools/adb" shell am start -n io.github.cuzmix.sculpt/org.libsdl.app.SDLActivity
+		fi
+		;;
+	all)
+		# One mode per run of this script, as a person would run them, so each keeps its own setup.
+		for step in check release debug test iphonecheck wincheck androidcheck; do
+			"$ROOT/build.sh" "$step"
+		done
+		if [ -d "${ANDROID_HOME:-$HOME/Android/Sdk}/platform-tools" ]; then
+			"$ROOT/build.sh" android
+			echo "all: check, release, debug, test, iphonecheck, wincheck, androidcheck and android done; build/sculpt is the debug app"
+		else
+			echo "all: check, release, debug, test, iphonecheck, wincheck and androidcheck done; no Android SDK, so no APK; build/sculpt is the debug app"
 		fi
 		;;
 	iphonecheck)

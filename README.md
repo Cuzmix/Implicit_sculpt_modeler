@@ -45,6 +45,8 @@ See `scripts/versions.env`: Odin `dev-2026-10`, SDL `3.4.18` (Linux; Windows use
 ./build.sh computebench # Smooth all on the CPU against a GPU compute shader, same sizes
 ./build.sh wincheck   # compile app and bench for Windows x64 (no link) to catch Windows-only errors
 ./build.sh iphonecheck # compile the app for the iPad (no link) to catch iOS-only errors (see iPad)
+./build.sh all       # check, release, debug, test, iphonecheck, wincheck, androidcheck, and the APK when the Android SDK is there
+./build.sh clean     # remove build/ and the Android build's outputs (deps/ stays)
 ```
 
 Headless (CI or containers): run under `Xvfb` with Mesa's llvmpipe Vulkan driver (`mesa-vulkan-drivers`).
@@ -55,8 +57,12 @@ With Visual Studio's "Desktop development with C++" workload installed (Odin lin
 
 ```bat
 scripts\setup_deps.bat
-build.bat            :: or: build.bat release | test | run | smoke | bench | gpubench | computebench | check | iphonecheck
+build.bat            :: or: build.bat release | test | run | smoke | bench | gpubench | computebench | check | iphonecheck | all | clean
 ```
+
+`build.bat all` builds everything that builds, stopping at the first failure: check, the release app, then the debug one (which `build\sculpt.exe` is left as), the tests, the iPad compile check, and the Android APK when Android Studio's SDK is installed; smoke and the touch scenarios need a display, so `python scripts/gate.py` runs them. `build.bat clean` removes `build\` and the Android build's outputs; `deps\` stays.
+
+In VS Code, Terminal > Run Task lists every build, check, device and clean step (`.vscode/tasks.json`; Ctrl+Shift+B is the debug build), and Run and Debug lists, by device, the debugger entries (Desktop, Bench, Tests) and the build-and-run ones (Desktop, Android, iPad, Build all, Clean) (`.vscode/launch.json`).
 
 Shaders are written in [Slang](https://shader-slang.org) (`src/render/shaders/*.slang`), one source that compiles to SPIR-V for Vulkan and, through it, to Metal for Apple's platforms (WGSL later). The build recompiles them to the committed `.spv` files when slangc is there (`deps/slang`, which `scripts/setup_deps.sh` takes from the pinned LunarG Vulkan SDK, or on PATH on Windows, where the Vulkan SDK installs it); otherwise the committed `.spv` files are used. Each new `.spv` then becomes the committed `.msl` beside it (`scripts/shaders_msl.py`, through SDL_shadercross, which puts every resource in the Metal slot SDL_GPU binds); its first line records the `.spv` it was made from, and `check` fails on a missing or stale one. Each build embeds only its own kind (`src/render/shaders.odin`): Metal on Apple's platforms, SPIR-V elsewhere. `python scripts/parity_check.py` draws 19 scenes (passes, materials, live AO, studio and render mode) and compares them pixel for pixel with a baseline drawn by another build.
 
@@ -85,7 +91,7 @@ On the tablet the app is full screen, with the system bars a swipe away, and lay
 
 `ios/` holds the iPad app's own pieces: its `Info.plist` and `sculpt_ios.m`, the file dialogs SDL lacks on iOS. `./build.sh ios` (macOS with Xcode) builds SDL from `deps/sdl3-src` as a static library for iPadOS, compiles `src/app` with Odin to one arm64 object (`-target:darwin_arm64 -subtarget:iphone -build-mode:obj`), links them with stb_truetype and `sculpt_ios.m` into `Sculpt.app`, and zips it unsigned as `build/ios/Sculpt.ipa`. It needs iPadOS 17.4 or newer (`IOS_MIN` in `build.sh`): below that, Odin's thread waits would use a private call that App Review refuses. UIKit owns an iPad app's main thread from launch, so there `main` hands it to SDL (`SDL_RunApp`), which calls the app back once it has launched (`src/app/ios.odin`).
 
-Without a Mac, `.github/workflows/ipad.yml` runs `./build.sh ios` on GitHub's macOS runner when started by hand (Actions > iPad build > Run workflow) and keeps the IPA as the run's `Sculpt-ipa` artifact for 14 days. AltStore Classic installs it with a free Apple Account: in AltStore, My Apps > + > `Sculpt.ipa`, with AltServer running on the PC on the same Wi-Fi. Free signing lasts seven days, and AltStore renews it while AltServer is reachable. `build.bat iphonecheck` (`./build.sh iphonecheck`) compiles the Odin side for the iPad on Windows or Linux, and `python scripts/gate.py` runs it.
+Without a Mac, `.github/workflows/ipad.yml` runs `./build.sh ios` on GitHub's macOS runner when started by hand (Actions > iPad build > Run workflow) and keeps the IPA as the run's `Sculpt-ipa` artifact for 14 days. AltStore Classic installs it with a free Apple Account: in AltStore, My Apps > + > `Sculpt.ipa`, with AltServer running on the PC on the same Wi-Fi. Free signing lasts seven days, and AltStore renews it while AltServer is reachable. `build.bat iphonecheck` (`./build.sh iphonecheck`) compiles the Odin side for the iPad on Windows or Linux, and `python scripts/gate.py` runs it. `python scripts/ipad_build.py` does the GitHub part from the PC: it starts the workflow on the checked-out branch, waits for the run and saves its IPA as `build/ios/Sculpt.ipa` (the branch must be pushed; it never pushes, and it needs the GitHub CLI, `gh`, signed in); `--latest` downloads the branch's newest successful build instead, `--branch NAME` picks another branch. AltServer then installs that file: hold Shift and click its tray icon, Sideload .ipa, the iPad, `Sculpt.ipa`.
 
 On a Mac, before `./build.sh ios`: put the pinned macOS Odin release in `deps/odin` and clone `SDL_TAG` into `deps/sdl3-src`, as the workflow does (`scripts/setup_deps.sh` fetches Linux's Odin); `pkg-config` comes from Homebrew (`brew install pkgconf`) if the Mac lacks it.
 
