@@ -1,0 +1,273 @@
+// SDL_shadercross 1ff05bec5739 from studio_gather.frag.spv sha256 84d5b9d9987a8c595725c711f90c7d335774510e27e8081abfacb31865f118cc
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct _Array_std140_vector_float_4_8
+{
+    float4 data[8];
+};
+
+struct SLANG_ParameterGroup_Gather_Uniforms_std140
+{
+    float4x4 inv_view_proj;
+    float4x4 light_view_proj;
+    float4 light_dir;
+    float4 params;
+    _Array_std140_vector_float_4_8 shadow_pos;
+    _Array_std140_vector_float_4_8 shadow_shape;
+    _Array_std140_vector_float_4_8 shadow_spot;
+    float4 shadow_pick;
+};
+
+struct main0_out
+{
+    float4 entryPointParam_main [[color(0)]];
+};
+
+static inline __attribute__((always_inline))
+int2 texture_size(texture2d<float> view_depth, sampler view_depthSmplr)
+{
+    uint2 _vecSize = uint2(view_depth.get_width(0u), view_depth.get_height(0u));
+    uint w = _vecSize.x;
+    uint h = _vecSize.y;
+    uint levels = uint(view_depth.get_num_mip_levels());
+    return int2(int(w), int(h));
+}
+
+static inline __attribute__((always_inline))
+float3 world_at(float2 frag, float depth, float2 size, constant SLANG_ParameterGroup_Gather_Uniforms_std140& Gather_Uniforms)
+{
+    float2 uv = frag / size;
+    float4 _140 = Gather_Uniforms.inv_view_proj * float4((uv.x * 2.0) - 1.0, 1.0 - (uv.y * 2.0), depth, 1.0);
+    return _140.xyz / float3(_140.w);
+}
+
+static inline __attribute__((always_inline))
+float3 depth_normal(int2 _151, float2 _152, float _153, float3 _154, float2 _155, texture2d<float> view_depth, sampler view_depthSmplr, constant SLANG_ParameterGroup_Gather_Uniforms_std140& Gather_Uniforms)
+{
+    int2 hi = int2(_155) - int2(1);
+    float4 _184 = view_depth.read(uint2(int3(clamp(_151 - int2(1, 0), int2(0), hi), 0).xy), 0);
+    float4 _193 = view_depth.read(uint2(int3(clamp(_151 + int2(1, 0), int2(0), hi), 0).xy), 0);
+    float4 _203 = view_depth.read(uint2(int3(clamp(_151 - int2(0, 1), int2(0), hi), 0).xy), 0);
+    float4 _212 = view_depth.read(uint2(int3(clamp(_151 + int2(0, 1), int2(0), hi), 0).xy), 0);
+    float3 px_r;
+    if (abs(_193.x - _153) < abs(_153 - _184.x))
+    {
+        px_r = world_at(_152 + float2(1.0, 0.0), _193.x, _155, Gather_Uniforms) - _154;
+    }
+    else
+    {
+        px_r = _154 - world_at(_152 - float2(1.0, 0.0), _184.x, _155, Gather_Uniforms);
+    }
+    float3 px_d;
+    if (abs(_212.x - _153) < abs(_153 - _203.x))
+    {
+        px_d = world_at(_152 + float2(0.0, 1.0), _212.x, _155, Gather_Uniforms) - _154;
+    }
+    else
+    {
+        px_d = _154 - world_at(_152 - float2(0.0, 1.0), _203.x, _155, Gather_Uniforms);
+    }
+    float3 _253 = fast::normalize(cross(px_d, px_r));
+    float3 n;
+    if (dot(_253, world_at(_152, 0.0, _155, Gather_Uniforms) - _154) < 0.0)
+    {
+        n = -_253;
+    }
+    else
+    {
+        n = _253;
+    }
+    return n;
+}
+
+static inline __attribute__((always_inline))
+float light_window(float4 pos, float4 shape, float4 spot, float d2, float3 l)
+{
+    float k;
+    if (shape.y > 0.0)
+    {
+        float x = d2 / (shape.y * shape.y);
+        float _389 = fast::clamp(1.0 - (x * x), 0.0, 1.0);
+        k = _389 * _389;
+    }
+    else
+    {
+        k = 1.0;
+    }
+    if (pos.w > 1.5)
+    {
+        k *= smoothstep(spot.w, shape.z, dot(-l, spot.xyz));
+    }
+    return k;
+}
+
+static inline __attribute__((always_inline))
+float shadow_light(int i, float3 p, float3 n, constant SLANG_ParameterGroup_Gather_Uniforms_std140& Gather_Uniforms)
+{
+    if (Gather_Uniforms.shadow_shape.data[i].w <= 0.0)
+    {
+        return 0.0;
+    }
+    if (Gather_Uniforms.shadow_pos.data[i].w < 0.5)
+    {
+        return fast::max(dot(n, Gather_Uniforms.shadow_pos.data[i].xyz), 0.0);
+    }
+    float3 to = Gather_Uniforms.shadow_pos.data[i].xyz - p;
+    float _350 = fast::max(dot(to, to), 9.9999999392252902907785028219223e-09);
+    float3 l = to * rsqrt(_350);
+    return (fast::max(dot(n, l), 0.0) * ((Gather_Uniforms.shadow_shape.data[i].x * Gather_Uniforms.shadow_shape.data[i].x) / _350)) * light_window(Gather_Uniforms.shadow_pos.data[i], Gather_Uniforms.shadow_shape.data[i], Gather_Uniforms.shadow_spot.data[i], _350, l);
+}
+
+static inline __attribute__((always_inline))
+float2 shadow_weight(float3 p, float3 n, constant SLANG_ParameterGroup_Gather_Uniforms_std140& Gather_Uniforms)
+{
+    int i = 0;
+    float total = Gather_Uniforms.shadow_pick.z;
+    for (;;)
+    {
+        float total_1;
+        bool _287_ladder_break = false;
+        do
+        {
+            if (!(i < 8))
+            {
+                _287_ladder_break = true;
+                break;
+            }
+            total_1 = total + (Gather_Uniforms.shadow_shape.data[i].w * shadow_light(i, p, n, Gather_Uniforms));
+            break;
+        } while(false);
+        if (_287_ladder_break)
+        {
+            break;
+        }
+        i++;
+        total = total_1;
+        continue;
+    }
+    if (total <= 0.0)
+    {
+        return float2(-1.0, 0.0);
+    }
+    return float2(shadow_light(int(Gather_Uniforms.shadow_pick.x), p, n, Gather_Uniforms), Gather_Uniforms.shadow_pick.z) / float2(total);
+}
+
+fragment main0_out main0(constant SLANG_ParameterGroup_Gather_Uniforms_std140& Gather_Uniforms [[buffer(0)]], texture2d<float> view_depth [[texture(0)]], texture2d<float> shadow_depth [[texture(1)]], sampler view_depthSmplr [[sampler(0)]], sampler shadow_depthSmplr [[sampler(1)]], float4 gl_FragCoord [[position]])
+{
+    main0_out out = {};
+    float2 _86 = float2(texture_size(view_depth, view_depthSmplr));
+    int2 _91 = int2(gl_FragCoord.xy);
+    float4 _99 = view_depth.read(uint2(int3(_91, 0).xy), 0);
+    if (_99.x >= 1.0)
+    {
+        out.entryPointParam_main = float4(0.0);
+        return out;
+    }
+    float3 p = world_at(gl_FragCoord.xy, _99.x, _86, Gather_Uniforms);
+    float3 _148 = depth_normal(_91, gl_FragCoord.xy, _99.x, p, _86, view_depth, view_depthSmplr, Gather_Uniforms);
+    float _271 = dot(_148, Gather_Uniforms.light_dir.xyz);
+    bool key = Gather_Uniforms.light_dir.w > 0.5;
+    float2 weight;
+    if (key)
+    {
+        float2 weight_1 = shadow_weight(p, _148, Gather_Uniforms);
+        if (weight_1.x < 0.0)
+        {
+            out.entryPointParam_main = float4(0.0, 0.0, 1.0, 1.0);
+            return out;
+        }
+        weight = weight_1;
+    }
+    else
+    {
+        weight = float2(0.0);
+    }
+    float4 _11;
+    if (_271 <= 0.0)
+    {
+        if (key)
+        {
+            _11 = float4(0.0, 0.0, 1.0, 1.0) * (weight.x + weight.y);
+        }
+        else
+        {
+            _11 = float4(0.0);
+        }
+        out.entryPointParam_main = _11;
+        return out;
+    }
+    float4 _479 = Gather_Uniforms.light_view_proj * float4(p + (_148 * Gather_Uniforms.params.y), 1.0);
+    float3 s = _479.xyz / float3(_479.w);
+    float2 _490 = float2((s.x * 0.5) + 0.5, 0.5 - (s.y * 0.5));
+    int y = -1;
+    float lit = 0.0;
+    float _18;
+    for (;;)
+    {
+        bool _33_ladder_break = false;
+        do
+        {
+            if (!(y <= 1))
+            {
+                _33_ladder_break = true;
+                break;
+            }
+            int x = -1;
+            for (;;)
+            {
+                float lit_1;
+                bool _38_ladder_break = false;
+                do
+                {
+                    if (!(x <= 1))
+                    {
+                        _38_ladder_break = true;
+                        break;
+                    }
+                    float4 _513 = shadow_depth.sample(shadow_depthSmplr, (_490 + (float2(float(x), float(y)) * Gather_Uniforms.params.z)));
+                    if ((s.z - Gather_Uniforms.params.x) <= _513.x)
+                    {
+                        _18 = 1.0;
+                    }
+                    else
+                    {
+                        _18 = 0.0;
+                    }
+                    lit_1 = lit + _18;
+                    break;
+                } while(false);
+                if (_38_ladder_break)
+                {
+                    break;
+                }
+                x++;
+                lit = lit_1;
+                continue;
+            }
+            break;
+        } while(false);
+        if (_33_ladder_break)
+        {
+            break;
+        }
+        y++;
+        continue;
+    }
+    float lit_2 = lit / 9.0;
+    if (key)
+    {
+        _11 = float4(0.0, 0.0, (lit_2 * weight.x) + weight.y, weight.x + weight.y);
+    }
+    else
+    {
+        _11 = float4(lit_2 * _271, _271, 0.0, 0.0);
+    }
+    out.entryPointParam_main = _11;
+    return out;
+}
+

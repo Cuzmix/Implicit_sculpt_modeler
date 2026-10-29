@@ -1,0 +1,106 @@
+// SDL_shadercross 1ff05bec5739 from smooth_all.comp.spv sha256 5b053976a10cbb7699d06d98698f7e1577599bda5da5246fe9e2b8ab1871f7bc
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+template<typename T>
+[[clang::optnone]] T spvFAdd(T l, T r)
+{
+    return fma(T(1), l, r);
+}
+
+template<typename T>
+[[clang::optnone]] T spvFSub(T l, T r)
+{
+    return fma(T(-1), r, l);
+}
+
+struct SLANG_ParameterGroup_Params_std140
+{
+    uint vertex_count;
+    uint groups_x;
+};
+
+struct StructuredBuffer
+{
+    float _member0[1];
+};
+
+struct StructuredBuffer_1
+{
+    uint _member0[1];
+};
+
+struct RWStructuredBuffer
+{
+    float _member0[1];
+};
+
+static inline __attribute__((always_inline))
+float3 at(uint v, device StructuredBuffer& src)
+{
+    uint _67 = 3u * v;
+    return float3(src._member0[_67], src._member0[_67 + 1u], src._member0[_67 + 2u]);
+}
+
+kernel void main0(constant SLANG_ParameterGroup_Params_std140& Params [[buffer(0)]], device StructuredBuffer_1& indices [[buffer(1)]], device StructuredBuffer_1& offsets [[buffer(2)]], device StructuredBuffer_1& tris [[buffer(3)]], device StructuredBuffer& weights [[buffer(4)]], device StructuredBuffer& src [[buffer(5)]], device RWStructuredBuffer& dst [[buffer(6)]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]])
+{
+    uint v = (((gl_WorkGroupID.y * Params.groups_x) + gl_WorkGroupID.x) * 256u) + gl_LocalInvocationID.x;
+    if (v >= Params.vertex_count)
+    {
+        return;
+    }
+    float3 p = at(v, src);
+    uint _95 = v + 1u;
+    bool _7;
+    if (weights._member0[v] > 0.0)
+    {
+        _7 = offsets._member0[_95] > offsets._member0[v];
+    }
+    else
+    {
+        _7 = false;
+    }
+    float3 sum;
+    if (_7)
+    {
+        uint k = offsets._member0[v];
+        sum = float3(0.0);
+        for (;;)
+        {
+            float3 sum_1;
+            bool _23_ladder_break = false;
+            do
+            {
+                if (!(k < offsets._member0[_95]))
+                {
+                    _23_ladder_break = true;
+                    break;
+                }
+                uint _119 = 3u * tris._member0[k];
+                sum_1 = spvFAdd(sum, spvFAdd(spvFAdd(at(indices._member0[_119], src), at(indices._member0[_119 + 1u], src)), at(indices._member0[_119 + 2u], src)));
+                break;
+            } while(false);
+            if (_23_ladder_break)
+            {
+                break;
+            }
+            k++;
+            sum = sum_1;
+            continue;
+        }
+        sum = spvFAdd(p * spvFSub(1.0, weights._member0[v]), (sum / float3(float(3u * (offsets._member0[_95] - offsets._member0[v])))) * weights._member0[v]);
+    }
+    else
+    {
+        sum = p;
+    }
+    uint _159 = 3u * v;
+    dst._member0[_159] = sum.x;
+    dst._member0[_159 + 1u] = sum.y;
+    dst._member0[_159 + 2u] = sum.z;
+}
+

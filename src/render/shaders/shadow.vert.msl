@@ -1,0 +1,29 @@
+// SDL_shadercross 1ff05bec5739 from shadow.vert.spv sha256 67f5bdaedd655f3d3d4645c816d7fa3c342198996e711c1d978a355b70564690
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct SLANG_ParameterGroup_Shadow_Uniforms_std140
+{
+    float4x4 light_view_proj;
+    float4x4 model;
+};
+
+struct main0_out
+{
+    float4 gl_Position [[position]];
+};
+
+struct main0_in
+{
+    float3 position [[attribute(0)]];
+};
+
+vertex main0_out main0(main0_in in [[stage_in]], constant SLANG_ParameterGroup_Shadow_Uniforms_std140& Shadow_Uniforms [[buffer(0)]])
+{
+    main0_out out = {};
+    out.gl_Position = (Shadow_Uniforms.light_view_proj * Shadow_Uniforms.model) * float4(in.position, 1.0);
+    return out;
+}
+

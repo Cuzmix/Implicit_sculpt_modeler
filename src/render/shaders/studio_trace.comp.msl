@@ -1,0 +1,474 @@
+// SDL_shadercross 1ff05bec5739 from studio_trace.comp.spv sha256 01c0be6d1e268688eb222b306753773626b0d1d05ef6ff3227d26533aa965c5b
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+#pragma clang diagnostic ignored "-Wmissing-braces"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+template<typename T, size_t Num>
+struct spvUnsafeArray
+{
+    T elements[Num ? Num : 1];
+    
+    thread T& operator [] (size_t pos) thread
+    {
+        return elements[pos];
+    }
+    constexpr const thread T& operator [] (size_t pos) const thread
+    {
+        return elements[pos];
+    }
+    
+    device T& operator [] (size_t pos) device
+    {
+        return elements[pos];
+    }
+    constexpr const device T& operator [] (size_t pos) const device
+    {
+        return elements[pos];
+    }
+    
+    constexpr const constant T& operator [] (size_t pos) const constant
+    {
+        return elements[pos];
+    }
+    
+    threadgroup T& operator [] (size_t pos) threadgroup
+    {
+        return elements[pos];
+    }
+    constexpr const threadgroup T& operator [] (size_t pos) const threadgroup
+    {
+        return elements[pos];
+    }
+};
+
+struct SLANG_ParameterGroup_Trace_Uniforms_std140
+{
+    float4x4 inv_view_proj;
+    float4x4 to_mesh;
+    float4 key_base;
+    float4 key_side;
+    float4 key_up;
+    float4 params;
+    float4 sphere;
+};
+
+struct Node_std430_logical
+{
+    float3 lo;
+    uint first;
+    float3 hi;
+    uint count;
+};
+
+struct Node_std430
+{
+    packed_float3 lo;
+    uint first;
+    packed_float3 hi;
+    uint count;
+};
+
+struct StructuredBuffer
+{
+    Node_std430 _member0[1];
+};
+
+struct StructuredBuffer_1
+{
+    uint4 _member0[1];
+};
+
+struct StructuredBuffer_2
+{
+    uint _member0[1];
+};
+
+struct StructuredBuffer_3
+{
+    float _member0[1];
+};
+
+static inline __attribute__((always_inline))
+int2 texture_size(texture2d<float> view_depth, sampler view_depthSmplr)
+{
+    uint2 _vecSize = uint2(view_depth.get_width(0u), view_depth.get_height(0u));
+    uint w = _vecSize.x;
+    uint h = _vecSize.y;
+    uint levels = uint(view_depth.get_num_mip_levels());
+    return int2(int(w), int(h));
+}
+
+static inline __attribute__((always_inline))
+float3 world_at(float2 frag, float depth, float2 size, constant SLANG_ParameterGroup_Trace_Uniforms_std140& Trace_Uniforms)
+{
+    float2 uv = frag / size;
+    float4 _154 = Trace_Uniforms.inv_view_proj * float4((uv.x * 2.0) - 1.0, 1.0 - (uv.y * 2.0), depth, 1.0);
+    return _154.xyz / float3(_154.w);
+}
+
+static inline __attribute__((always_inline))
+float2 pixel_hash(uint2 v)
+{
+    uint2 _274 = (v * uint2(1664525u)) + uint2(1013904223u);
+    uint2 _268 = _274;
+    _268.x += (_274.y * 1664525u);
+    _268.y += (_268.x * 1664525u);
+    uint2 _289 = _268;
+    uint2 _293 = _268;
+    uint2 _294 = _293 ^ (_289 >> uint2(16u));
+    _268 = _294;
+    _268.x += (_294.y * 1664525u);
+    _268.y += (_268.x * 1664525u);
+    uint2 _307 = _268;
+    uint2 _310 = _268;
+    uint2 _311 = _310 ^ (_307 >> uint2(16u));
+    _268 = _311;
+    return float2(_311 >> uint2(8u)) / float2(16777216.0);
+}
+
+static inline __attribute__((always_inline))
+bool enters(thread const Node_std430_logical& n, float3 o, float3 inv, float tmax)
+{
+    if (n.lo.x > n.hi.x)
+    {
+        return false;
+    }
+    float3 t0 = (n.lo - o) * inv;
+    float3 t1 = (n.hi - o) * inv;
+    float3 _657 = fast::min(t0, t1);
+    float3 _658 = fast::max(t0, t1);
+    return fast::max(fast::max(_657.x, _657.y), fast::max(_657.z, 0.0)) <= fast::min(fast::min(_658.x, tmax), fast::min(_658.y, _658.z));
+}
+
+static inline __attribute__((always_inline))
+float3 vertex0(uint v, const device StructuredBuffer_3& positions)
+{
+    uint _844 = 3u * v;
+    return float3(positions._member0[_844], positions._member0[_844 + 1u], positions._member0[_844 + 2u]);
+}
+
+static inline __attribute__((always_inline))
+bool hits(uint tri, float3 o, float3 d, float tmax, const device StructuredBuffer_2& indices, const device StructuredBuffer_3& positions)
+{
+    uint _810 = 3u * tri;
+    uint _815 = _810 + 1u;
+    uint _818 = _810 + 2u;
+    bool _786;
+    if (indices._member0[_810] == indices._member0[_815])
+    {
+        _786 = true;
+    }
+    else
+    {
+        _786 = indices._member0[_815] == indices._member0[_818];
+    }
+    if (_786)
+    {
+        _786 = true;
+    }
+    else
+    {
+        _786 = indices._member0[_810] == indices._member0[_818];
+    }
+    if (_786)
+    {
+        return false;
+    }
+    float3 p0 = vertex0(indices._member0[_810], positions);
+    float3 e1 = vertex0(indices._member0[_815], positions) - p0;
+    float3 e2 = vertex0(indices._member0[_818], positions) - p0;
+    float3 _864 = cross(d, e2);
+    float _865 = dot(e1, _864);
+    if (_865 == 0.0)
+    {
+        return false;
+    }
+    float f = 1.0 / _865;
+    float3 tv = o - p0;
+    float u = dot(tv, _864) * f;
+    if (u < 0.0)
+    {
+        _786 = true;
+    }
+    else
+    {
+        _786 = u > 1.0;
+    }
+    if (_786)
+    {
+        return false;
+    }
+    float3 _883 = cross(tv, e1);
+    float v = dot(d, _883) * f;
+    if (v < 0.0)
+    {
+        _786 = true;
+    }
+    else
+    {
+        _786 = (u + v) > 1.0;
+    }
+    if (_786)
+    {
+        return false;
+    }
+    float t = dot(e2, _883) * f;
+    if (t > 0.0)
+    {
+        _786 = t < tmax;
+    }
+    else
+    {
+        _786 = false;
+    }
+    return _786;
+}
+
+static inline __attribute__((always_inline))
+bool occluded(float3 o, float3 d, float tmax, const device StructuredBuffer& tlas, const device StructuredBuffer_1& chunks, const device StructuredBuffer& nodes, const device StructuredBuffer_2& order, const device StructuredBuffer_2& indices, const device StructuredBuffer_3& positions)
+{
+    float3 _592 = float3(1.0) / select(d, float3(9.9999996826552253889678874634872e-21), d == float3(0.0));
+    spvUnsafeArray<uint, 114> stack;
+    stack[0] = 0u;
+    uint4 ch = uint4(0u);
+    int top = 1;
+    Node_std430_logical _549;
+    Node_std430_logical _550;
+    uint _552;
+    for (;;)
+    {
+        if (!(top > 0))
+        {
+            break;
+        }
+        int _601 = top;
+        int top_1 = _601 - 1;
+        uint e = stack[top_1];
+        if ((e & 2147483648u) == 0u)
+        {
+            _549.lo = float3(tlas._member0[e].lo);
+            _549.first = tlas._member0[e].first;
+            _549.hi = float3(tlas._member0[e].hi);
+            _549.count = tlas._member0[e].count;
+            if (!enters(_549, o, _592, tmax))
+            {
+                top = top_1;
+                continue;
+            }
+            if (_549.count == 0u)
+            {
+                int top_2 = top_1 + 1;
+                stack[top_1] = _549.first;
+                stack[top_2] = _549.first + 1u;
+                top = top_2 + 1;
+            }
+            else
+            {
+                stack[top_1] = 2147483648u;
+                ch = chunks._member0[_549.first];
+                top = top_1 + 1;
+            }
+            continue;
+        }
+        uint _708 = ch.x + (e & 2147483647u);
+        _550.lo = float3(nodes._member0[_708].lo);
+        _550.first = nodes._member0[_708].first;
+        _550.hi = float3(nodes._member0[_708].hi);
+        _550.count = nodes._member0[_708].count;
+        if (!enters(_550, o, _592, tmax))
+        {
+            top = top_1;
+            continue;
+        }
+        if (_550.count == 0u)
+        {
+            int top_3 = top_1 + 1;
+            stack[top_1] = 2147483648u | _550.first;
+            stack[top_3] = 2147483648u | (_550.first + 1u);
+            top = top_3 + 1;
+            continue;
+        }
+        uint j = _550.first;
+        for (;;)
+        {
+            bool _569_ladder_break = false;
+            do
+            {
+                if (!(j < (_550.first + _550.count)))
+                {
+                    _569_ladder_break = true;
+                    break;
+                }
+                uint at = ch.y + j;
+                uint _756 = at >> uint(1);
+                if ((at & 1u) == 0u)
+                {
+                    _552 = order._member0[_756] & 65535u;
+                }
+                else
+                {
+                    _552 = order._member0[_756] >> uint(16);
+                }
+                if (hits(ch.z + _552, o, d, tmax, indices, positions))
+                {
+                    return true;
+                }
+                break;
+            } while(false);
+            if (_569_ladder_break)
+            {
+                break;
+            }
+            j++;
+            continue;
+        }
+        top = top_1;
+        continue;
+    }
+    return false;
+}
+
+kernel void main0(constant SLANG_ParameterGroup_Trace_Uniforms_std140& Trace_Uniforms [[buffer(0)]], const device StructuredBuffer_3& positions [[buffer(1)]], const device StructuredBuffer_2& indices [[buffer(2)]], const device StructuredBuffer& nodes [[buffer(3)]], const device StructuredBuffer_2& order [[buffer(4)]], const device StructuredBuffer_1& chunks [[buffer(5)]], const device StructuredBuffer& tlas [[buffer(6)]], texture2d<float> view_depth [[texture(0)]], texture2d<float, access::write> visible [[texture(1)]], sampler view_depthSmplr [[sampler(0)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
+{
+    float2 _89 = float2(texture_size(view_depth, view_depthSmplr));
+    int2 _95 = int2(gl_GlobalInvocationID.xy);
+    bool _7;
+    if (_95.x >= int(_89.x))
+    {
+        _7 = true;
+    }
+    else
+    {
+        _7 = _95.y >= int(_89.y);
+    }
+    if (_7)
+    {
+        return;
+    }
+    float4 _121 = view_depth.read(uint2(int3(_95, 0).xy), 0);
+    if (_121.x >= 1.0)
+    {
+        return;
+    }
+    float2 frag = float2(_95) + float2(0.5);
+    float3 p = world_at(frag, _121.x, _89, Trace_Uniforms);
+    int2 hi = int2(_89) - int2(1);
+    float4 _174 = view_depth.read(uint2(int3(clamp(_95 - int2(1, 0), int2(0), hi), 0).xy), 0);
+    float4 _183 = view_depth.read(uint2(int3(clamp(_95 + int2(1, 0), int2(0), hi), 0).xy), 0);
+    float4 _193 = view_depth.read(uint2(int3(clamp(_95 - int2(0, 1), int2(0), hi), 0).xy), 0);
+    float4 _202 = view_depth.read(uint2(int3(clamp(_95 + int2(0, 1), int2(0), hi), 0).xy), 0);
+    float3 px_r;
+    if (abs(_183.x - _121.x) < abs(_121.x - _174.x))
+    {
+        px_r = world_at(frag + float2(1.0, 0.0), _183.x, _89, Trace_Uniforms) - p;
+    }
+    else
+    {
+        px_r = p - world_at(frag - float2(1.0, 0.0), _174.x, _89, Trace_Uniforms);
+    }
+    float3 px_d;
+    if (abs(_202.x - _121.x) < abs(_121.x - _193.x))
+    {
+        px_d = world_at(frag + float2(0.0, 1.0), _202.x, _89, Trace_Uniforms) - p;
+    }
+    else
+    {
+        px_d = p - world_at(frag - float2(0.0, 1.0), _193.x, _89, Trace_Uniforms);
+    }
+    float3 _244 = fast::normalize(cross(px_d, px_r));
+    float3 _247 = fast::normalize(world_at(frag, 0.0, _89, Trace_Uniforms) - p);
+    float3 n;
+    if (dot(_244, _247) < 0.0)
+    {
+        n = -_244;
+    }
+    else
+    {
+        n = _244;
+    }
+    uint2 _261 = uint2(_95);
+    float2 _322 = fract(Trace_Uniforms.params.xy + pixel_hash(_261));
+    if (Trace_Uniforms.key_base.w > 0.5)
+    {
+        _7 = Trace_Uniforms.params.w > 0.5;
+    }
+    else
+    {
+        _7 = false;
+    }
+    float3 dir;
+    float s;
+    if (_7)
+    {
+        float3 to = Trace_Uniforms.sphere.xyz - p;
+        float _346 = dot(to, to);
+        float _349 = Trace_Uniforms.sphere.w * Trace_Uniforms.sphere.w;
+        if (_346 <= _349)
+        {
+            return;
+        }
+        float3 axis = to * rsqrt(_346);
+        if (abs(axis.y) < 0.9900000095367431640625)
+        {
+            px_r = float3(0.0, 1.0, 0.0);
+        }
+        else
+        {
+            px_r = float3(1.0, 0.0, 0.0);
+        }
+        float3 _368 = fast::normalize(cross(axis, px_r));
+        float a = 6.283185482025146484375 * _322.y;
+        float3 dir_1 = to + (((_368 * cos(a)) + (cross(_368, axis) * sin(a))) * ((Trace_Uniforms.sphere.w * sqrt(_346 / (_346 - _349))) * sqrt(_322.x)));
+        if (dot(n, dir_1) <= 0.0)
+        {
+            return;
+        }
+        s = 1.0;
+        dir = dir_1;
+    }
+    else
+    {
+        if (Trace_Uniforms.key_base.w > 0.5)
+        {
+            float a_1 = 6.283185482025146484375 * _322.y;
+            float3 _423 = fast::normalize(Trace_Uniforms.key_base.xyz + (((Trace_Uniforms.key_side.xyz * cos(a_1)) + (Trace_Uniforms.key_up.xyz * sin(a_1))) * (Trace_Uniforms.key_side.w * sqrt(_322.x))));
+            if (dot(n, _423) <= 0.0)
+            {
+                return;
+            }
+            dir = _423;
+        }
+        else
+        {
+            if (n.z >= 0.0)
+            {
+                s = 1.0;
+            }
+            else
+            {
+                s = -1.0;
+            }
+            float a_2 = (-1.0) / (s + n.z);
+            float b = (n.x * n.y) * a_2;
+            float _466 = _322.x;
+            float _467 = sqrt(_466);
+            float phi = 6.283185482025146484375 * _322.y;
+            dir = fast::normalize(((float3(1.0 + (((s * n.x) * n.x) * a_2), s * b, (-s) * n.x) * (_467 * cos(phi))) + (float3(b, s + ((n.y * n.y) * a_2), -n.y) * (_467 * sin(phi)))) + (n * sqrt(fast::max(1.0 - _466, 0.0))));
+        }
+        s = as_type<float>(2139095040u);
+    }
+    float3 o = p + ((n + _247) * (Trace_Uniforms.params.z + fast::min(2.0 * length(world_at(frag + float2(1.0, 0.0), _121.x, _89, Trace_Uniforms) - p), 100.0 * Trace_Uniforms.params.z)));
+    if (s == 1.0)
+    {
+        dir = (p + dir) - o;
+    }
+    if (occluded((Trace_Uniforms.to_mesh * float4(o, 1.0)).xyz, float3x3(Trace_Uniforms.to_mesh[0].xyz, Trace_Uniforms.to_mesh[1].xyz, Trace_Uniforms.to_mesh[2].xyz) * dir, s, tlas, chunks, nodes, order, indices, positions))
+    {
+        visible.write(float4(0.0), uint2(_261));
+    }
+}
+

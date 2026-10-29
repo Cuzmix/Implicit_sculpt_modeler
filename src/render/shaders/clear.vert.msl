@@ -1,0 +1,19 @@
+// SDL_shadercross 1ff05bec5739 from clear.vert.spv sha256 68a8f109a83f930712bb14f07ade79583d5e556bd943527c9219bb7205f7c58d
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct main0_out
+{
+    float4 gl_Position [[position]];
+};
+
+vertex main0_out main0(uint gl_VertexIndex [[vertex_id]])
+{
+    main0_out out = {};
+    int i = int(uint(int(gl_VertexIndex)));
+    out.gl_Position = float4((float2(float((i << 1) & 2), float(i & 2)) * 2.0) - float2(1.0), 1.0, 1.0);
+    return out;
+}
+

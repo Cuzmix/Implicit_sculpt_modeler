@@ -24,10 +24,10 @@ import "../jobs"
 // occlusion) shows until the first samples are in. See-through items are left out, as
 // the studio leaves them.
 
-RENDER_TRACE_COMP_SPV :: #load("shaders/render_trace.comp.spv")
-RENDER_DISPLAY_FRAG_SPV :: #load("shaders/render_display.frag.spv")
-RENDER_DISPLAY_LINEAR_FRAG_SPV :: #load("shaders/render_display_linear.frag.spv")
-RENDER_ATROUS_FRAG_SPV :: #load("shaders/render_atrous.frag.spv")
+RENDER_TRACE_COMP_CODE :: #load("shaders/render_trace.comp" + SHADER_EXT)
+RENDER_DISPLAY_FRAG_CODE :: #load("shaders/render_display.frag" + SHADER_EXT)
+RENDER_DISPLAY_LINEAR_FRAG_CODE :: #load("shaders/render_display_linear.frag" + SHADER_EXT)
+RENDER_ATROUS_FRAG_CODE :: #load("shaders/render_atrous.frag" + SHADER_EXT)
 
 RENDER_FORMAT :: sdl.GPUTextureFormat.R32G32B32A32_FLOAT
 // The exposed light the finishing stack starts from (render_linear_texture).
@@ -346,7 +346,7 @@ render_linear_texture :: proc(pr: ^Path_Render) -> ^sdl.GPUTexture {
 @(private = "file")
 path_linear_ensure :: proc(r: ^Renderer, pr: ^Path_Render) -> bool {
 	if pr.display_linear == nil {
-		pr.display_linear = create_fullscreen_pipeline(r, RENDER_DISPLAY_LINEAR_FRAG_SPV, RENDER_LINEAR_FORMAT, samplers = 4)
+		pr.display_linear = create_fullscreen_pipeline(r, RENDER_DISPLAY_LINEAR_FRAG_CODE, RENDER_LINEAR_FORMAT, samplers = 4)
 		if pr.display_linear == nil {
 			log.warnf("render mode: no linear image for the finish (%s); it finishes the shown one", sdl.GetError())
 			return false
@@ -476,12 +476,12 @@ path_ensure :: proc(r: ^Renderer, pr: ^Path_Render, vt: ^Viewport_Target, half: 
 			return false
 		}
 		pr.pipeline = gpu_create_compute_pipeline(r.device, {
-			code_size = len(RENDER_TRACE_COMP_SPV), code = raw_data(RENDER_TRACE_COMP_SPV), entrypoint = "main",
-			format = {.SPIRV}, num_samplers = RENDER_SAMPLERS, num_readonly_storage_buffers = len(Scene_Buffer), num_readwrite_storage_textures = 3,
+			code_size = len(RENDER_TRACE_COMP_CODE), code = raw_data(RENDER_TRACE_COMP_CODE), entrypoint = SHADER_ENTRY,
+			format = SHADER_FORMAT, num_samplers = RENDER_SAMPLERS, num_readonly_storage_buffers = len(Scene_Buffer), num_readwrite_storage_textures = 3,
 			num_uniform_buffers = 1, threadcount_x = RENDER_GROUP, threadcount_y = RENDER_GROUP, threadcount_z = 1,
 		})
-		pr.display = create_fullscreen_pipeline(r, RENDER_DISPLAY_FRAG_SPV, VIEWPORT_COLOR_FORMAT, samplers = 4)
-		pr.atrous = create_fullscreen_pipeline(r, RENDER_ATROUS_FRAG_SPV, RENDER_GUIDE_FORMAT, samplers = 3)
+		pr.display = create_fullscreen_pipeline(r, RENDER_DISPLAY_FRAG_CODE, VIEWPORT_COLOR_FORMAT, samplers = 4)
+		pr.atrous = create_fullscreen_pipeline(r, RENDER_ATROUS_FRAG_CODE, RENDER_GUIDE_FORMAT, samplers = 3)
 		pr.sampler = gpu_create_sampler(r.device, {
 			min_filter = .NEAREST, mag_filter = .NEAREST, mipmap_mode = .NEAREST,
 			address_mode_u = .CLAMP_TO_EDGE, address_mode_v = .CLAMP_TO_EDGE, address_mode_w = .CLAMP_TO_EDGE,

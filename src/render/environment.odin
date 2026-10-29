@@ -56,7 +56,7 @@ Prefilter_Uniforms :: struct {
 	target: [4]f32, // xy: the level's size, z: the source mip a mirror reads
 }
 
-ENV_PREFILTER_FRAG_SPV :: #load("shaders/env_prefilter.frag.spv")
+ENV_PREFILTER_FRAG_CODE :: #load("shaders/env_prefilter.frag" + SHADER_EXT)
 
 // Makes an environment from `pixels`, linear RGB rows top (straight up) to bottom,
 // `width` by `height` (2:1, at least 64 wide), and its harmonics `sh`: uploads it,
@@ -191,12 +191,12 @@ environment_keyed :: proc(r: ^Renderer) -> Environment_Keyed {
 @(private = "file")
 create_prefilter_pipeline :: proc(r: ^Renderer) -> ^sdl.GPUGraphicsPipeline {
 	vert := gpu_create_shader(r.device, {
-		code_size = len(CLEAR_VERT_SPV), code = raw_data(CLEAR_VERT_SPV), entrypoint = "main",
-		format = {.SPIRV}, stage = .VERTEX,
+		code_size = len(CLEAR_VERT_CODE), code = raw_data(CLEAR_VERT_CODE), entrypoint = SHADER_ENTRY,
+		format = SHADER_FORMAT, stage = .VERTEX,
 	})
 	frag := gpu_create_shader(r.device, {
-		code_size = len(ENV_PREFILTER_FRAG_SPV), code = raw_data(ENV_PREFILTER_FRAG_SPV), entrypoint = "main",
-		format = {.SPIRV}, stage = .FRAGMENT, num_samplers = 1, num_uniform_buffers = 1,
+		code_size = len(ENV_PREFILTER_FRAG_CODE), code = raw_data(ENV_PREFILTER_FRAG_CODE), entrypoint = SHADER_ENTRY,
+		format = SHADER_FORMAT, stage = .FRAGMENT, num_samplers = 1, num_uniform_buffers = 1,
 	})
 	defer if vert != nil do gpu_release_shader(r.device, vert)
 	defer if frag != nil do gpu_release_shader(r.device, frag)

@@ -1,0 +1,31 @@
+// SDL_shadercross 1ff05bec5739 from floor.vert.spv sha256 aacdd9ba553dbbdaa5f6e58f759b2dd54dd5f5f1ec54e9d6e8d7f793d8c07c4a
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct Vertex_Out
+{
+    float4 position;
+    float2 ndc;
+};
+
+struct main0_out
+{
+    float2 entryPointParam_main_ndc [[user(locn0)]];
+    float4 gl_Position [[position]];
+};
+
+vertex main0_out main0(uint gl_VertexIndex [[vertex_id]])
+{
+    main0_out out = {};
+    int i = int(uint(int(gl_VertexIndex)));
+    float2 p = (float2(float((i << 1) & 2), float(i & 2)) * 2.0) - float2(1.0);
+    Vertex_Out o;
+    o.ndc = p;
+    o.position = float4(p, 1.0, 1.0);
+    out.gl_Position = o.position;
+    out.entryPointParam_main_ndc = o.ndc;
+    return out;
+}
+
