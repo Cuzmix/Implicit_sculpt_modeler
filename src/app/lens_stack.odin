@@ -110,6 +110,12 @@ Lens_Stack :: struct {
 	// each icon was laid out, for Show where to open its card from.
 	density:  Stack_Density,
 	strip_at: [Stack_Card]ui.Rect,
+	// Palette groups (stack_groups.odin): the cards that are tabs of the card before them
+	// (never the first), the tab each group's host shows, and for the exit stats, how many
+	// joins and takes out there were.
+	joined: bit_set[Stack_Card],
+	shown:  [Stack_Card]Stack_Card,
+	joins:  int,
 	// Whether stack_default has set it up: a Kit_State nothing has set up yet (a test's)
 	// holds a fresh layout's stack.
 	set:     bool,
@@ -131,6 +137,8 @@ stack_default :: proc(k: ^Kit_State) {
 	s.carry, s.menu, s.tab_open = nil, false, false
 	s.width, s.heights, s.sizes, s.scrolls, s.drag = 0, {}, {}, {}, {}
 	s.density, s.strip_at = .Panels, {}
+	s.joined = {}
+	for c in Stack_Card do s.shown[c] = c
 	s.set = true
 }
 
@@ -211,14 +219,17 @@ stack_reveal :: proc(app: ^App, sec: Kit_Section) {
 	s := &k.stack
 	if !s.set do stack_default(k)
 	c := stack_card_of(app, sec)
-	s.open -= {.Brush, .Palettes} - {c}
-	s.open += {c}
-	s.hidden -= {c}
+	// In a group, the group opens on the card's tab.
+	host := stack_host(s, c)
+	s.open -= {stack_host(s, .Brush), stack_host(s, .Palettes)} - {host}
+	s.open += {host}
+	for x in stack_group(s, host) do s.hidden -= {x}
+	stack_show_tab(s, c)
 	if c == .Brush do s.shut -= {sec}
 	k.panels.scroll[.Inspector], k.scroll = 0, 0
 	// Shown as icons, the card opens from its icon, so what is asked for is in sight.
-	if stack_strip_shown(app) && c not_in s.floated {
-		s.tab, s.tab_open, s.tab_at, s.scrolls[c] = c, true, s.strip_at[c], 0
+	if stack_strip_shown(app) && host not_in s.floated {
+		s.tab, s.tab_open, s.tab_at, s.scrolls[host] = host, true, s.strip_at[host], 0
 	}
 }
 
@@ -250,7 +261,7 @@ kit_stack :: proc(app: ^App, width: f32, owner: ui.Id) {
 	if !s.set do stack_default(&app.kit)
 	s.owner = owner
 	for c in s.order {
-		if c in s.floated || c in s.hidden do continue
+		if c in s.floated || c in s.hidden || c in s.joined do continue
 		stack_card(app, c, width, false)
 	}
 	stack_carry_update(app)
@@ -290,9 +301,11 @@ stack_dock :: proc(app: ^App, c: Stack_Card) {
 }
 
 // Floats card `c` beside the stack, or at `at` when it was carried there.
-stack_float :: proc(app: ^App, c: Stack_Card, at: Maybe([2]f32) = nil) {
+stack_float :: proc(app: ^App, card: Stack_Card, at: Maybe([2]f32) = nil) {
 	k := &app.kit
 	s := &k.stack
+	// A tab floats its whole group.
+	c := stack_host(s, card)
 	s.floated += {c}
 	s.open += {c}
 	s.moves += 1
@@ -324,6 +337,7 @@ stack_card :: proc(app: ^App, c: Stack_Card, width: f32, floating: bool) {
 	}
 	outer := width - (0 if floating else 2 * EDGE)
 	inner := outer - (0 if floating else 2 * PAD)
+	if c in s.open do stack_tab_row(app, c, outer)
 	if c in s.open {
 		pad: f32 = 0 if floating else PAD
 		ui.begin(ctx, "stack body", {direction = .Column, gap = 6, padding = pad, width = outer})
@@ -335,7 +349,7 @@ stack_card :: proc(app: ^App, c: Stack_Card, width: f32, floating: bool) {
 			owner := ui.hash_under(0, fmt.tprintf("stack card %v", c)) if floating else s.owner
 			scroll = kit_scroll_begin(ctx, "stack scroll", &s.scrolls[c], owner, inner, height, 6)
 		}
-		panel_body(app, c, inner)
+		panel_body(app, stack_shown(s, c), inner)
 		if height > 0 do kit_scroll_end(ctx, scroll)
 		ui.end(ctx)
 		r := ui.last_ended(ctx)
@@ -395,10 +409,12 @@ stack_head :: proc(app: ^App, c: Stack_Card, inner: f32, floating: bool) {
 	t := ctx.theme
 	s := &k.stack
 	open := c in s.open
+	// A group's header is its shown tab's: its icon, title and line, and Symmetry's axes.
+	v := stack_shown(s, c)
 	ui.begin(ctx, "stack head", {direction = .Row, width = inner, center = true})
 	CHIP :: 26
 	extras: f32 = 2 * t.target
-	if c == .Symmetry do extras += 3 * CHIP + 4
+	if v == .Symmetry do extras += 3 * CHIP + 4
 	if !floating {
 		g := ui.area(ctx, "stack grip", {18, t.target})
 		ui.icon(ctx, ui.ICON_GRIP, {g.rect.x + 9, g.rect.y + g.rect.h * 0.5}, t.icon_small, t.accent if g.held else (t.text if g.hovered else t.text_tertiary))
@@ -412,21 +428,21 @@ stack_head :: proc(app: ^App, c: Stack_Card, inner: f32, floating: bool) {
 	x := head.rect.x + 9
 	ui.icon(ctx, ui.ICON_CHEVRON_DOWN if open else ui.ICON_CHEVRON_RIGHT, {x, y}, t.icon_small - 2, t.text_secondary)
 	x += 22
-	ui.icon(ctx, STACK_CARD_ICONS[c] if c != .Brush else stack_brush_icon(app), {x, y}, t.icon_small, t.text_secondary)
+	ui.icon(ctx, panel_kind_icon(app, v), {x, y}, t.icon_small, t.text_secondary)
 	x += 16
-	title := stack_title(app, c)
+	title := stack_title(app, v)
 	ui.text(ctx, title, x, y, t.text_size, t.text, .Semibold)
 	x += ui.text_width(ctx, title, t.text_size, .Semibold) + 10
-	if line := stack_summary(app, c) if !open || c == .Palettes else stack_open_line(app, c); line != "" && head.rect.x + head.rect.w - x > 24 {
+	if line := stack_summary(app, v) if !open || v == .Palettes else stack_open_line(app, v); line != "" && head.rect.x + head.rect.w - x > 24 {
 		ui.text(ctx, ui.text_fit(ctx, line, t.small_size, head.rect.x + head.rect.w - x - 6), head.rect.x + head.rect.w - 6, y, t.small_size, t.text_tertiary, align = .Right)
 	}
 	if head.clicked {
 		s.open ~= {c}
 		s.folds += 1
 	}
-	if ui.secondary(ctx) do stack_menu_open(app, c, head.rect)
+	if ui.secondary(ctx) do stack_menu_open(app, v, head.rect)
 	ui.tip(ctx, head.id, head.rect, "Fold" if open else "Unfold")
-	if c == .Symmetry {
+	if v == .Symmetry {
 		// The axes as small chips, as the mockups' header has them: a full target tall to
 		// press, a letter on a lit square while on.
 		for axis in sculpt.Axis {
@@ -445,7 +461,7 @@ stack_head :: proc(app: ^App, c: Stack_Card, inner: f32, floating: bool) {
 		if floating do stack_dock(app, c)
 		else do stack_float(app, c)
 	}
-	if ui.icon_button(ctx, "Panel options", ui.ICON_MORE) do stack_menu_open(app, c, ctx.last_rect)
+	if ui.icon_button(ctx, "Panel options", ui.ICON_MORE) do stack_menu_open(app, v, ctx.last_rect)
 	ui.end(ctx)
 }
 
@@ -657,7 +673,7 @@ stack_drop_at :: proc(app: ^App, p: [2]f32, carried: Stack_Card) -> (at: int, ou
 	lo, hi: [2]f32
 	first := true
 	for c in s.order {
-		if c in s.floated || c in s.hidden do continue
+		if c in s.floated || c in s.hidden || c in s.joined do continue
 		r := s.rects[c]
 		if r.w <= 0 do continue
 		if c != carried && p.y > r.y + r.h * 0.5 do at += 1
@@ -677,7 +693,7 @@ stack_drop_y :: proc(app: ^App, at: int, carried: Stack_Card) -> f32 {
 	i := 0
 	last: f32 = 0
 	for c in s.order {
-		if c in s.floated || c in s.hidden || c == carried do continue
+		if c in s.floated || c in s.hidden || c in s.joined || c == carried do continue
 		r := s.rects[c]
 		if i == at do return r.y - COLUMN_GAP * 0.5
 		last = r.y + r.h + COLUMN_GAP * 0.5
@@ -692,18 +708,28 @@ stack_move_to :: proc(app: ^App, c: Stack_Card, at: int) {
 	stack_move_to_k(&app.kit, c, at)
 }
 
-stack_move_to_k :: proc(k: ^Kit_State, c: Stack_Card, at: int) {
+stack_move_to_k :: proc(k: ^Kit_State, card: Stack_Card, at: int) {
 	s := &k.stack
-	docked := make([dynamic]Stack_Card, 0, len(Stack_Card), context.temp_allocator)
-	// Floating and hidden cards keep their places in the order; the docked ones move.
-	for x in s.order do if x != c && x not_in s.floated && x not_in s.hidden do append(&docked, x)
-	inject_at(&docked, clamp(at, 0, len(docked)), c)
+	// The order is a list of runs, each a group (a card on its own is a group of one), so
+	// a group moves as one. Floating and hidden groups keep their places in the order; the
+	// docked ones move.
+	c := stack_host(s, card)
+	runs := make([dynamic][]Stack_Card, 0, len(Stack_Card), context.temp_allocator)
+	for x in s.order do if x not_in s.joined do append(&runs, stack_group(s, x))
+	docked := make([dynamic][]Stack_Card, 0, len(Stack_Card), context.temp_allocator)
+	for r in runs do if r[0] != c && r[0] not_in s.floated && r[0] not_in s.hidden do append(&docked, r)
+	inject_at_elem(&docked, clamp(at, 0, len(docked)), stack_group(s, c))
+	order: [dynamic; len(Stack_Card)]Stack_Card
 	i := 0
-	for &x in s.order {
-		if x != c && (x in s.floated || x in s.hidden) do continue
-		x = docked[i]
+	for r in runs {
+		if r[0] != c && (r[0] in s.floated || r[0] in s.hidden) {
+			append(&order, ..r)
+			continue
+		}
+		append(&order, ..docked[i])
 		i += 1
 	}
+	for x, j in order do s.order[j] = x
 	s.moves += 1
 }
 
@@ -722,14 +748,17 @@ kit_stack_menu :: proc(app: ^App) {
 	s := &k.stack
 	if !ui.popover_begin(ctx, "stack menu", &s.menu, s.menu_at, .Below, {direction = .Column, padding = 6, width = 240}) do return
 	defer ui.popover_end(ctx)
-	c := s.menu_of
+	// The menu is the shown tab's; what it does as a card of the stack, its group does.
+	tab := s.menu_of
+	c := stack_host(s, tab)
+	group := stack_group(s, c)
 	place := 0
 	for x in s.order {
 		if x == c do break
-		if x not_in s.floated && x not_in s.hidden do place += 1
+		if x not_in s.floated && x not_in s.hidden && x not_in s.joined do place += 1
 	}
 	count := 0
-	for x in s.order do if x not_in s.floated && x not_in s.hidden do count += 1
+	for x in s.order do if x not_in s.floated && x not_in s.hidden && x not_in s.joined do count += 1
 	floated := c in s.floated
 	if ui.menu_item(ctx, "Move up", glyph = ui.ICON_CHEVRON_UP, enabled = !floated && place > 0) {
 		stack_move_to(app, c, place - 1)
@@ -745,15 +774,26 @@ kit_stack_menu :: proc(app: ^App) {
 		s.menu = false
 	}
 	if ui.menu_item(ctx, "Leave out of the stack", glyph = ui.ICON_EYE_OFF, enabled = count > 1 || floated) {
-		s.hidden += {c}
+		for x in group do s.hidden += {x}
 		s.floated -= {c}
 		s.moves += 1
 		s.menu = false
 	}
+	// Groups: the card (with its group's tabs) joins the docked card above as its tabs;
+	// a tab comes out as a card of its own.
+	_, can_join := stack_join_target(s, c)
+	if ui.menu_item(ctx, "Join the card above", glyph = ICON_MERGE, enabled = can_join) {
+		stack_join(k, c)
+		s.menu = false
+	}
+	if len(group) > 1 && ui.menu_item(ctx, "Take out of the group", glyph = ICON_SPLIT) {
+		stack_take_out(k, tab)
+		s.menu = false
+	}
 	// The look's cards hold the settings used most; the rest are their tray sections'.
-	if c == .Lights || c == .Material {
-		sec := Kit_Section.Lights if c == .Lights else Kit_Section.Material
-		if ui.menu_item(ctx, "All light settings" if c == .Lights else "All material settings", glyph = ui.ICON_SETTINGS) {
+	if tab == .Lights || tab == .Material {
+		sec := Kit_Section.Lights if tab == .Lights else Kit_Section.Material
+		if ui.menu_item(ctx, "All light settings" if tab == .Lights else "All material settings", glyph = ui.ICON_SETTINGS) {
 			lens_show_section(app, sec)
 			s.menu = false
 		}
@@ -774,15 +814,15 @@ kit_stack_menu :: proc(app: ^App) {
 	}
 }
 
-// The stack for the exit stats: its cards in order, + on the open ones, ^ on floating ones;
-// the cards left out are not named.
+// The stack for the exit stats: its cards in order, + on the open ones, ^ on floating ones,
+// & before a group's tab; the cards left out are not named.
 stack_text :: proc(k: ^Kit_State) -> string {
 	s := &k.stack
 	b := strings.builder_make(context.temp_allocator)
 	for c in s.order {
 		if c in s.hidden do continue
 		if strings.builder_len(b) > 0 do strings.write_byte(&b, ',')
-		fmt.sbprintf(&b, "%v%s%s", c, "+" if c in s.open else "", "^" if c in s.floated else "")
+		fmt.sbprintf(&b, "%s%v%s%s", "&" if c in s.joined else "", c, "+" if c in s.open else "", "^" if c in s.floated else "")
 	}
 	return strings.to_string(b)
 }

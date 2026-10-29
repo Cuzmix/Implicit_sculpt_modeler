@@ -98,7 +98,10 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   (grip, `handle_double_tap` evens, edge close via `grid_close_target`, the main pane never closes), `grid_choose`
   (the View grid command; `k.new_panes`), and the stack's tab strip while `stack_strip_shown` (panes beside the main view, or the layout's
   `k.stack.density == .Icons`; `kit_stack_tab` draws a card over the view through `stack_card_body`, and
-  `stack_reveal` opens the strip's card at `s.strip_at`); `view_grid_room` is the whole window, panes always under the panels.
+  `stack_reveal` opens the strip's card at `s.strip_at`). Palette groups (`stack_groups.odin`) are runs in
+  `s.order`: a host then the cards in `s.joined`; the host carries open, floated, hidden, window, height, size and
+  scroll, `s.shown[host]` (read through `stack_shown`) the tab drawn. Iterate hosts only (skip `s.joined`), move runs
+  (`stack_move_to_k`), and read `stack_group` lines after the whole layout (`kit_layout_put`); `view_grid_room` is the whole window, panes always under the panels.
   The grid is a split tree (`Grid_Tree`, at most four leaves; pane 0 the main view, panes keep their numbers and the
   last fills a closed one's): change it only through the tree ops in grid.odin. Gestures (`lens_areas.odin`) queue a
   `Grid_Op` that `kit_grid` applies before layout; each op is a `Grid_Step` that `undo_run`/`redo_run` order against

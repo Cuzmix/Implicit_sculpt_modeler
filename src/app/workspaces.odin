@@ -163,6 +163,7 @@ kit_layout_text :: proc(k: ^Kit_State) -> string {
 	stack_layout_save(k, &out)
 	stack_sizes_save(k, &out)
 	stack_density_save(k, &out)
+	stack_groups_save(k, &out)
 	user_docks_save(k, &out)
 	bar_places_save(k, &out)
 	strings.write_string(&out, "bars\n")
@@ -190,6 +191,7 @@ kit_layout_put :: proc(k: ^Kit_State, text: string) {
 	k.grid.serial += 1
 	k.grid.undo = {}
 	k.second_in_layout = false
+	groups := make([dynamic][]string, 0, 4, context.temp_allocator)
 	for line in strings.split_lines(text, context.temp_allocator) {
 		f := strings.fields(line, context.temp_allocator)
 		if len(f) == 0 do continue
@@ -221,6 +223,9 @@ kit_layout_put :: proc(k: ^Kit_State, text: string) {
 			stack_sizes_read(k, f)
 		case "stack_density":
 			stack_density_read(k, f)
+		case "stack_group":
+			// Read once the whole layout is in place, as a group needs the stack's order.
+			append(&groups, f)
 		case "bars":
 			bar_lists_reset(k)
 		case "bar_count", "bar", "bar_look":
@@ -231,6 +236,7 @@ kit_layout_put :: proc(k: ^Kit_State, text: string) {
 		for w in LAYOUT_WINDOWS do window_mirror(&k.windows[w])
 		for &p in k.panels.pins do window_mirror(&p.window)
 	}
+	for f in groups do stack_group_read(k, f)
 	user_docks_settle(k)
 	// The tray and the Objects card share a place: the card wins, as opening it does.
 	if k.objects_card do k.inspector = false

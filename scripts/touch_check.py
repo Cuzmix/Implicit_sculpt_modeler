@@ -9356,6 +9356,79 @@ def stack_icons_show_where_opens_the_card():
     return s, LENS_1440, camera_still({"stack_tab": is_text("Palettes"), "tray_section": is_text("Mask"), "tray_marked": near(1), "palette_runs": near(1), "dabs": near(0)})
 
 
+# Palette groups at 1440x900 (stack_groups.odin), with Brush folded: Symmetry's and
+# Brush's Panel options, the menu's Join the card above, and once Symmetry has joined
+# Brush, the group's Brush tab and the menu's Take out of the group.
+STACK_GROUP = {"symmetry_more": (1348, 154), "brush_more": (1348, 94), "join": (1300, 388), "brush_tab": (1150, 142),
+               "take_out": (1300, 372)}
+
+
+def stack_group_join(s, pen=False, mirror=False):
+    """Folds Brush and joins Symmetry to it, by finger or by pen; left-handed the stack
+    stands 994 points further left, its cards laid out as on the right."""
+    def tap(at):
+        x, y = (at[0] - 994, at[1]) if mirror else at
+        if pen:
+            s.add(f"pdown:{x},{y}")
+            s.wait(2)
+            s.add("pup")
+        else:
+            s.ftap(x, y)
+        s.wait(8)
+    if pen:
+        s.add("pnear")
+    for at in [LENS_STACK["brush"], STACK_GROUP["symmetry_more"]]:
+        tap(at)
+    # Left-handed the menu opens right of its button, where the window has room.
+    tap((430 + 994, 388) if mirror else STACK_GROUP["join"])
+    return tap
+
+
+@scenario
+def stack_join_makes_a_group_of_tabs():
+    """Symmetry's Panel options > Join the card above makes it a tab of Brush, shown, with the axes on the header; a tap on the Brush tab shows Brush."""
+    def run(back):
+        s = Script()
+        tap = stack_group_join(s)
+        if not back:
+            return s, LENS_1440, camera_still({"stack": lambda v: v.startswith("Brush+,&Symmetry,Layers"), "stack_joins": near(1), "stack_shown": is_text("Brush=Symmetry"), "dabs": near(0)})
+        tap(STACK_GROUP["brush_tab"])
+        return s, LENS_1440, camera_still({"stack": lambda v: v.startswith("Brush+,&Symmetry,"), "stack_shown": is_text("none"), "dabs": near(0)})
+    return Steps([run(False), run(True)])
+
+
+@scenario
+def stack_take_out_of_a_group():
+    """The group's Panel options > Take out of the group puts Symmetry back after Brush as a card of its own, open."""
+    s = Script()
+    tap = stack_group_join(s)
+    tap(STACK_GROUP["brush_more"])
+    tap(STACK_GROUP["take_out"])
+    return s, LENS_1440, camera_still({"stack": lambda v: v.startswith("Brush+,Symmetry+,Layers"), "stack_joins": near(2), "stack_shown": is_text("none"), "dabs": near(0)})
+
+
+@scenario
+def stack_group_as_icons_opens_on_its_tab():
+    """With Symmetry joined to Brush and the palettes as icons, the pen taps the group's icon: the group opens over the view on its Symmetry tab."""
+    s = Script()
+    stack_group_join(s)
+    palette_run(s, "palettes as icons")
+    s.add("pnear")
+    s.add("pdown:{},{}".format(*LENS_PANES["brush_tab"]))
+    s.wait(2)
+    s.add("pup")
+    s.wait(8)
+    return s, LENS_1440, camera_still({"stack_density": is_text("icons"), "stack_tab": is_text("Brush"), "stack_shown": is_text("Brush=Symmetry"), "dabs": near(0)})
+
+
+@scenario
+def stack_join_left_handed_by_pen():
+    """Left-handed, the pen joins Symmetry to Brush from its Panel options on the mirrored stack."""
+    s = Script()
+    stack_group_join(s, pen=True, mirror=True)
+    return s, LENS_1440 + ["--script=set left_handed 1"], camera_still({"stack": lambda v: v.startswith("Brush+,&Symmetry,"), "stack_joins": near(1), "dabs": near(0)})
+
+
 ADJUST_STEPS_LEFT = (662, 644)  # the Steps slider's left end: 1 step
 ADJUST_ONE_SLIDER = {"left": (662, 702), "middle": (800, 702)}  # Retopology's Quads, Extract's Thickness
 
@@ -11269,3 +11342,4 @@ def main(argv):
 
 if __name__ == "__main__":
     sys.exit(main(sys.argv[1:]))
+

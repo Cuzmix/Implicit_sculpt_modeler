@@ -278,7 +278,7 @@ stack_float_resize :: proc(app: ^App, c: Stack_Card, d: [2]f32) {
 stack_float_body :: proc(app: ^App, c: Stack_Card) -> f32 {
 	h := app.kit.stack.sizes[c].y
 	if h <= 0 do return 0
-	return max(h - (2 * 10 + 18 + 6 + app.kit.ctx.theme.target + 6), 40)
+	return max(h - (2 * 10 + 18 + 6 + app.kit.ctx.theme.target + 6) - stack_tab_row_h(app, c), 40)
 }
 
 // The heights set on docked cards and the sizes on floating ones, for the exit stats:
