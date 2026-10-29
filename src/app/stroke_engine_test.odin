@@ -250,6 +250,7 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	// The brush's own pressure, which the file keeps as the one it worked with.
 	brush_pressure_own(&a.brush, a.brush.kind, true)
 	a.brush.pressures[a.brush.kind].size, a.brush.pressures[a.brush.kind].size_curve = true, PRESSURE_PRESETS[2].curve
+	a.brush.pressures[a.brush.kind].size_floor = 0.3
 	a.stroke_seed = 41
 	a.device.pointer, a.nav.touch_strength = .Finger, 0.5
 	b.nav.touch_strength = 1
@@ -286,7 +287,7 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	testing.expect(t, b.replay.take.brushes[0].hook_elastic)
 	{
 		rb := b.replay.take.brushes[0]
-		testing.expect(t, !rb.pressures[rb.kind].own && rb.pressure_size && rb.pressure_size_curve == PRESSURE_PRESETS[2].curve && rb.pressure_curve == a.brush.pressures[rb.kind].strength_curve)
+		testing.expect(t, !rb.pressures[rb.kind].own && rb.pressure_size && rb.pressure_size_curve == PRESSURE_PRESETS[2].curve && rb.pressure_curve == a.brush.pressures[rb.kind].strength_curve && rb.pressure_size_floor == 0.3)
 	}
 	replay_start(&b, &b.replay.take)
 	for replay_busy(&b) do _ = replay_frame(&b, {})
@@ -300,7 +301,7 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	data, err := os.read_entire_file(path, context.allocator)
 	testing.expect(t, err == nil)
 	defer delete(data)
-	BRUSH :: 64 + 89
+	BRUSH :: 64 + 93
 	// The files from before version 13 kept no pen roll in a frame.
 	frames_before_roll :: proc(frames: []u8) -> []u8 {
 		out := make([dynamic]u8, context.temp_allocator)
@@ -320,6 +321,22 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 		}
 		return out[:]
 	}
+	// Version 21 had no smallest size after the size's pressure curve: the one brush ends
+	// 64 + 89 bytes after the header's 16, and pressure shrinks it as far as it ever did.
+	twentyone := make([dynamic]u8, context.temp_allocator)
+	append(&twentyone, ..data[:16 + 64 + 89])
+	append(&twentyone, ..data[16 + BRUSH:])
+	twentyone[len(STROKES_MAGIC)] = 21
+	testing.expect(t, os.write_entire_file(path, twentyone[:]) == nil)
+	sf: App
+	defer replay_destroy(&sf.replay)
+	defer results_destroy(&sf)
+	testing.expect(t, strokes_load(&sf, path))
+	if len(sf.replay.take.brushes) == 1 {
+		sb := sf.replay.take.brushes[0]
+		testing.expect(t, sb.pressure_size_floor == 0 && sb.pressure_size_curve == PRESSURE_PRESETS[2].curve)
+	}
+
 	// Version 20 had no size pressure curve after the Elastic tip: the one brush ends
 	// 64 + 73 bytes after the header's 16, and its size takes the strength's curve.
 	twenty := make([dynamic]u8, context.temp_allocator)

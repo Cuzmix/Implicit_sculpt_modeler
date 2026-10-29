@@ -237,3 +237,34 @@ pressure_curves_apart_and_per_brush :: proc(t: ^testing.T) {
 	testing.expect_value(t, c.brush.pressure_curve, PRESSURE_PRESETS[1].curve)
 	free_all(context.temp_allocator)
 }
+
+// A response preset sets size and strength together; Clay's keeps the brush at least a
+// fifth of its radius however light the touch, and the app starts Clay on it while the
+// other brushes use the global pressure.
+@(test)
+pressure_responses_and_the_clay_floor :: proc(t: ^testing.T) {
+	a: App
+	defer results_destroy(&a)
+	a.brush.kind, a.brush.radius_px = .Draw, 50
+	at := pressure_edit(&a.brush)
+	pressure_put(at, PRESSURE_RESPONSES[0].pressure)
+	testing.expect_value(t, pressure_response(at), 0)
+	testing.expect_value(t, brush_radius_px(&a, 0.1, {}), 50)
+	pressure_put(at, PRESSURE_RESPONSES[1].pressure)
+	testing.expect_value(t, pressure_response(at), 1)
+	// The cube of 0.1 is a thousandth: the floor holds it at a fifth.
+	testing.expect(t, abs(brush_radius_px(&a, 0.1, {}) - 10) < 1e-3)
+	// The cube of 0.8 is 0.512, above the floor.
+	testing.expect(t, abs(brush_radius_px(&a, 0.8, {}) - 50 * 0.512) < 0.05)
+	// Firm strokes is at over nine tenths of its strength from half pressure on.
+	pressure_put(at, PRESSURE_RESPONSES[2].pressure)
+	testing.expect(t, pressure_curved(&a, 0.5) > 0.9 && pressure_curved(&a, 0.1) < 0.5)
+	// A changed curve is no preset; a switched-off one does not count.
+	at.size_curve^ = PRESSURE_PRESETS[3].curve
+	testing.expect_value(t, pressure_response(at), 2)
+	at.strength_curve^ = PRESSURE_PRESETS[3].curve
+	testing.expect_value(t, pressure_response(at), -1)
+
+	b := brush_defaults()
+	testing.expect(t, b.pressures[.Clay].own && b.pressures[.Clay].pressure == PRESSURE_RESPONSES[1].pressure && !b.pressures[.Draw].own)
+}

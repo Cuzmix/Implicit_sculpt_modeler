@@ -48,6 +48,8 @@ CAMERA0 = {"camera_yaw": 0.6, "camera_pitch": 0.35, "camera_roll": 0.0, "camera_
 MIDDLE = (647, 432)
 MODEL = (800, 450)
 EMPTY = (250, 150)  # viewport with nothing on it
+PEN_RESPONSE_CLAY = (193, 451)  # the Pen section's Response page, its Clay tab
+
 UI = {
     # The top bar (kit_top_lens.odin): Menu, Undo and Redo at the left, History and
     # Settings at the right, the Search field before them.
@@ -266,6 +268,21 @@ RADIAL_COPIES = ((1345, 504), (1524, 504))
 POLYFRAME_FILL = (1471, 410)
 # The Camera menu's Field of view slider's knob, under Orthographic.
 FOV_SLIDER = (1349, 180)
+
+
+@scenario
+def pen_response_page_sets_clay():
+    """The Pen section's Response page: Draw starts on the global Default response; a tap on
+    Clay gives the global pressure Blender's Clay (size by the cube of the pressure, at
+    least a fifth of the radius), and nothing is sculpted (look with --screens)."""
+    s = Script()
+    long_press(s, *UI["size"])
+    s.wait(4)
+    s.ftap(264, 355)
+    s.wait(3)
+    s.ftap(PEN_RESPONSE_CLAY[0], PEN_RESPONSE_CLAY[1])
+    s.wait(3)
+    return s, [], camera_still({"dabs": near(0), "pressure_response": near(1), "pressure_own": near(0)})
 
 
 @scenario

@@ -22,6 +22,7 @@ Brush_Settings :: struct {
 	pressure_size:     bool, // pen pressure scales the radius
 	pressure_curve:    geom.Curve, // what each pen pressure counts as for the strength (geom.curve_at)
 	pressure_size_curve: geom.Curve, // and for the size
+	pressure_size_floor: f32, // the smallest share of the radius pressure shrinks it to (Pressure.size_floor)
 	// Each brush's own pressure, used in place of the global one where `own` is set (Use
 	// global off), as ZBrush and Nomad let a brush keep its own curves.
 	pressures:         [sculpt.Brush_Kind]Pressure_Own,
@@ -1273,7 +1274,15 @@ brush_falloff :: proc(app: ^App, kind: sculpt.Brush_Kind) -> ^sculpt.Falloff {
 brush_radius_px :: proc(app: ^App, pressure: f32, tilt: [2]f32) -> f32 {
 	r := app.brush.radius_px * (1 + app.brush.tilt_size * lean_of(tilt))
 	if !brush_pressure(&app.brush, app.brush.kind).size do return r
-	return r * max(pressure_sized(app, pressure), MIN_PRESSURE_SIZE)
+	return r * max(pressure_sized(app, pressure), brush_pressure(&app.brush, app.brush.kind).size_floor, MIN_PRESSURE_SIZE)
+}
+
+// The brush as the app starts with it, before the settings file.
+brush_defaults :: proc() -> Brush_Settings {
+	b := Brush_Settings{kind = .Draw, radius_px = DEFAULT_RADIUS_PX, pressure_strength = true, pressure_curve = geom.CURVE_LINEAR, pressure_size_curve = geom.CURVE_LINEAR, detail_px = 10, collapse = true, alpha = -1, color = {0.75, 0.2, 0.15}, color2 = {0.95, 0.92, 0.85}, spray_spread = SPRAY_DEFAULT_SPREAD, spacing = DAB_SPACING, even_strength = true, feather = true, smoothing = 1, pressure_smoothing = 1, catch_up = true, radial_count = RADIAL_DEFAULT, radial_axis = .Y, paint_dial = true, elastic_volume = ELASTIC_VOLUME_DEFAULT}
+	// Clay starts on Blender's Clay response, its size following the pen (brush_pressure).
+	b.pressures[.Clay] = {own = true, pressure = PRESSURE_RESPONSES[1].pressure}
+	return b
 }
 
 // How far a pen leaning `tilt` (degrees across and down, as SDL reports it) is laid
@@ -1295,6 +1304,37 @@ Pressure :: struct {
 	size:           bool,
 	strength_curve: geom.Curve,
 	size_curve:     geom.Curve,
+	// The smallest share of the radius pressure can shrink the brush to, as Blender's
+	// Clay keeps a fifth of it (never below MIN_PRESSURE_SIZE).
+	size_floor:     f32,
+}
+
+// Where a Pressure is kept, the brush's own or the global fields, for editing.
+Pressure_Ref :: struct {
+	strength, size:             ^bool,
+	strength_curve, size_curve: ^geom.Curve,
+	size_floor:                 ^f32,
+}
+
+// Response presets: what pen pressure does as a whole, set in one tap (the Pen section's
+// Response page).
+PRESSURE_RESPONSES := [?]struct {
+	label:    cstring,
+	pressure: Pressure,
+} {
+	// The app's own start: strength follows the pen, the size stays.
+	{"Default", {strength = true, strength_curve = geom.CURVE_LINEAR, size_curve = geom.CURVE_LINEAR}},
+	// Blender's Clay: the size follows the cube of the pressure, never under a fifth of the
+	// radius, so a light touch lays a narrow smear and a press a wide one; the strength
+	// takes a press (the Firm curve).
+	{"Clay", {strength = true, size = true, strength_curve = {{0.6, 0.05}, {0.95, 0.4}}, size_curve = {{1.0 / 3, 0}, {2.0 / 3, 0}}, size_floor = 0.2}},
+	// Steady strokes, ZBrush's lazy pressure feel: over nine tenths of the strength from
+	// half pressure on, so a stroke keeps an even height whatever the hand does, and the
+	// size stays.
+	{"Steady", {strength = true, strength_curve = {{0.15, 0.75}, {0.35, 1}}, size_curve = geom.CURVE_LINEAR}},
+	// Light touch, Nomad's light-pressure default: a light touch goes far, for size and
+	// strength alike (the Soft curve).
+	{"Light", {strength = true, size = true, strength_curve = {{0.1, 0.6}, {0.4, 0.95}}, size_curve = {{0.1, 0.6}, {0.4, 0.95}}, size_floor = 0.1}},
 }
 
 // A brush's own pressure, and whether it uses it rather than the global one.
@@ -1306,7 +1346,7 @@ Pressure_Own :: struct {
 // The pressure brush `kind` works with: its own when it keeps one, else the global one.
 brush_pressure :: proc(b: ^Brush_Settings, kind: sculpt.Brush_Kind) -> Pressure {
 	if b.pressures[kind].own do return b.pressures[kind].pressure
-	return {b.pressure_strength, b.pressure_size, b.pressure_curve, b.pressure_size_curve}
+	return {b.pressure_strength, b.pressure_size, b.pressure_curve, b.pressure_size_curve, b.pressure_size_floor}
 }
 
 // Gives brush `kind` its own pressure (own) starting from the global one, or puts it back
@@ -1318,9 +1358,27 @@ brush_pressure_own :: proc(b: ^Brush_Settings, kind: sculpt.Brush_Kind, own: boo
 }
 
 // Where the pressure the held brush works with is edited: its own or the global one.
-pressure_edit :: proc(b: ^Brush_Settings) -> (strength, size: ^bool, strength_curve, size_curve: ^geom.Curve) {
-	if p := &b.pressures[b.kind]; p.own do return &p.strength, &p.size, &p.strength_curve, &p.size_curve
-	return &b.pressure_strength, &b.pressure_size, &b.pressure_curve, &b.pressure_size_curve
+pressure_edit :: proc(b: ^Brush_Settings) -> Pressure_Ref {
+	if p := &b.pressures[b.kind]; p.own do return {&p.strength, &p.size, &p.strength_curve, &p.size_curve, &p.size_floor}
+	return {&b.pressure_strength, &b.pressure_size, &b.pressure_curve, &b.pressure_size_curve, &b.pressure_size_floor}
+}
+
+// Sets the pressure kept at `to`.
+pressure_put :: proc(to: Pressure_Ref, p: Pressure) {
+	to.strength^, to.size^, to.strength_curve^, to.size_curve^, to.size_floor^ = p.strength, p.size, p.strength_curve, p.size_curve, p.size_floor
+}
+
+// Which response preset the pressure at `at` is, or -1 for none.
+pressure_response :: proc(at: Pressure_Ref) -> int {
+	now := Pressure{at.strength^, at.size^, at.strength_curve^, at.size_curve^, at.size_floor^}
+	for r, i in PRESSURE_RESPONSES {
+		// What a switched-off curve is set to does nothing, so it does not count.
+		p := r.pressure
+		if !now.size do p.size_curve, p.size_floor = now.size_curve, now.size_floor
+		if !now.strength do p.strength_curve = now.strength_curve
+		if p == now do return i
+	}
+	return -1
 }
 
 // What a pen pressure counts as for the held brush's strength, through its curve. A
