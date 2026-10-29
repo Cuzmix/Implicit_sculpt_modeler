@@ -162,6 +162,7 @@ kit_layout_text :: proc(k: ^Kit_State) -> string {
 	// workspace.
 	stack_layout_save(k, &out)
 	stack_sizes_save(k, &out)
+	stack_density_save(k, &out)
 	user_docks_save(k, &out)
 	bar_places_save(k, &out)
 	strings.write_string(&out, "bars\n")
@@ -218,6 +219,8 @@ kit_layout_put :: proc(k: ^Kit_State, text: string) {
 			stack_layout_read(k, f)
 		case "stack_size":
 			stack_sizes_read(k, f)
+		case "stack_density":
+			stack_density_read(k, f)
 		case "bars":
 			bar_lists_reset(k)
 		case "bar_count", "bar", "bar_look":

@@ -9197,6 +9197,39 @@ def save_with_versions_off_keeps_none():
 ADJUST_BUTTON = (826, 786)
 ADJUST_SIZES = {"41k": (686, 722), "500k": (731, 722), "1M": (777, 722)}
 ADJUST_AXES = {"X": (709, 680), "Y": (800, 680), "Z": (891, 680)}
+@scenario
+def stack_as_icons_opens_a_palette():
+    """Search's "palettes as icons" shows the docked palettes as the strip without any panes: the pen taps the Brush icon and its card opens over the view; Escape puts it away."""
+    def run(close):
+        s = Script()
+        s.wait(4)
+        palette_run(s, "palettes as icons")
+        s.add("pnear")
+        s.add("pdown:{},{}".format(*LENS_PANES["brush_tab"]))
+        s.wait(2)
+        s.add("pup")
+        s.wait(8)
+        if not close:
+            return s, LENS_1440, camera_still({"stack_density": is_text("icons"), "stack_strip": near(1), "stack_tab": is_text("Brush"), "dabs": near(0)})
+        s.press("Escape")
+        s.wait(6)
+        return s, LENS_1440, camera_still({"stack_density": is_text("icons"), "stack_tab": is_text("none"), "dabs": near(0)})
+    return Steps([run(False), run(True)])
+
+
+@scenario
+def stack_icons_show_where_opens_the_card():
+    """With the palettes as icons, Search's Shift+Enter on Blur mask opens the Palettes card from its icon on the Mask section and marks the Blur button."""
+    s = Script()
+    s.wait(4)
+    palette_run(s, "palettes as icons")
+    s.press("k", ("ctrl",))
+    s.type("blur mask")
+    s.press("Return", ("shift",))
+    s.wait(10)
+    return s, LENS_1440, camera_still({"stack_tab": is_text("Palettes"), "tray_section": is_text("Mask"), "tray_marked": near(1), "palette_runs": near(1), "dabs": near(0)})
+
+
 ADJUST_STEPS_LEFT = (662, 644)  # the Steps slider's left end: 1 step
 ADJUST_ONE_SLIDER = {"left": (662, 702), "middle": (800, 702)}  # Retopology's Quads, Extract's Thickness
 

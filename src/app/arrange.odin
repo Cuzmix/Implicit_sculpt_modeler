@@ -104,6 +104,13 @@ arrange_panel_rows :: proc(app: ^App) {
 		ui.end(ctx)
 	}
 	ui.paragraph(ctx, "A section of the tray becomes a panel of its own with Pin as a panel, on its bar button's popover or in Search.")
+	// How the docked palettes show: their cards, or a strip of icons that open them.
+	ui.begin(ctx, "arrange palettes density", {direction = .Row, gap = 8, center = true})
+	r := ui.place(ctx, {120, t.target})
+	ui.text(ctx, "Palettes show", r.x, r.y + r.h * 0.5, t.text_size, t.text)
+	names := [len(Stack_Density)]string{"Panels", "Icons"}
+	if to := ui.tabs(ctx, "Palettes show##arrange", names[:], int(app.kit.stack.density), 100); to >= 0 do stack_density_set(app, Stack_Density(to))
+	ui.end(ctx)
 }
 
 // While arranging: each hidden bar as an outline where it would be, with Show.

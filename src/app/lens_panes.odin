@@ -301,7 +301,7 @@ grid_divider_lens :: proc(app: ^App, div: Grid_Divider, a: ui.Area, cells: [GRID
 // the main one.
 stack_strip_shown :: proc(app: ^App) -> bool {
 	k := &app.kit
-	if grid_panes(&k.grid) < 2 do return false
+	if grid_panes(&k.grid) < 2 && k.stack.density != .Icons do return false
 	_, _, docked := panel_docked(k, Kit_Window.Inspector)
 	return docked
 }
@@ -321,7 +321,9 @@ kit_stack_strip :: proc(app: ^App) {
 	for c in s.order {
 		if c in s.floated || c in s.hidden do continue
 		on := s.tab_open && s.tab == c
-		if ui.icon_button(ctx, fmt.tprintf("%s##stack tab", stack_title(app, c)), STACK_CARD_ICONS[c] if c != .Brush else stack_brush_icon(app), selected = on) {
+		pressed := ui.icon_button(ctx, fmt.tprintf("%s##stack tab", stack_title(app, c)), STACK_CARD_ICONS[c] if c != .Brush else stack_brush_icon(app), selected = on)
+		s.strip_at[c] = ctx.last_rect
+		if pressed {
 			if on {
 				s.tab_open = false
 			} else {

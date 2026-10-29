@@ -247,6 +247,7 @@ Command_Id :: enum u8 {
 	Command_Palette,
 	Customise_Bars,
 	New_Dock,
+	Stack_Density,
 	Help, // the argument is the Help_Tab
 	Coach_Tips,
 	Pie, // the argument is the user pie, from 0 (user_pies.odin)
@@ -2146,6 +2147,13 @@ COMMANDS := [Command_Id]Command {
 		icon = ui.ICON_PLUS,
 		run = proc(app: ^App, _: int) {_ = user_dock_new(app)},
 		enabled = proc(app: ^App, _: int) -> bool {return user_docks_used(&app.kit) < USER_DOCKS},
+	},
+	.Stack_Density = {
+		label = "Palettes as icons",
+		help = "Shows the docked palettes as a strip of their icons beside the view rail, each opening its palette over the view, or again as the cards down the column. Each workspace keeps its own.",
+		icon = ui.ICON_GRID,
+		run = proc(app: ^App, _: int) {stack_density_set(app, .Panels if app.kit.stack.density == .Icons else .Icons)},
+		checked = proc(app: ^App, _: int) -> bool {return app.kit.stack.density == .Icons},
 	},
 	.Help = {
 		label = "Help",
