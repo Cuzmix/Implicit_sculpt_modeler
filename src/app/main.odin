@@ -1788,7 +1788,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			fmt.printfln("shelf_page=%v shelf=%s shelf_quick=%d brush_sheet=%d shelf_drops=%d shelf_turns=%d shelf_swipes=%d shelf_tools=%d shelf_shown=%d brush_grid_scroll=%.0f shelf_active=%d", sh.page, bar_names(&app, shelf_which(sh.page)), int(sh.quick), int(k.browser && k.browser_at == .Dock), sh.drops, sh.turns, sh.swipes, sh.tools, sh.shown, k.grid_scroll, int(sh.active))
 			fmt.printfln("brush_pie=%s pie_quicks=%d", bar_names(&app, .Brush_Pie), k.pie_quicks)
 			fmt.printfln("stack=%s stack_shut=%s stack_menu=%d stack_folds=%d stack_moves=%d stack_joins=%d stack_shown=%s stack_drops=%d stack_carry=%s stack_target=%v", stack_text(k), stack_shut_text(k), int(k.stack.menu), k.stack.folds, k.stack.moves, k.stack.joins, stack_shown_text(k), k.stack.drops, stack_carry_text(k), k.stack.target.kind)
-			fmt.printfln("stack_width=%d stack_sizes=%s stack_resizes=%d", int(stack_width(k)), stack_sizes_text(k), k.stack.resizes)
+			fmt.printfln("stack_width=%d stack_sizes=%s stack_resizes=%d stack_columns=%s tray_width=%d", int(stack_width(k)), stack_sizes_text(k), k.stack.resizes, stack_columns_text(k), int(tray_width(&app)))
 			// What floats in front of everything else, as the floating order ends.
 			front := "none"
 			if n := len(k.order); n > 0 do front = fmt.tprint(k.order[n - 1])

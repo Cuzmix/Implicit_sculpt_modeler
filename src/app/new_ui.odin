@@ -1526,7 +1526,7 @@ kit_inspector :: proc(app: ^App) -> (raised: bool) {
 	// The tray is the stack of cards (lens_stack.odin): bare in its column, each card its
 	// own surface; floating, one window round them all.
 	strip := stack_strip_shown(app)
-	stack_w := STACK_STRIP_W if strip else stack_width(k)
+	stack_w := STACK_STRIP_W if strip else stack_width(k) + stack_docked_extra(k)
 	box := ui.Box{direction = .Column, gap = COLUMN_GAP, width = stack_w, inert = !k.inspector || side_panel_open(k)}
 	if _, _, docked := panel_docked(k, Kit_Window.Inspector); !docked do box.padding, box.radius, box.background = PADDING, t.radius_large, .Panel
 	p := panel_begin(app, Kit_Window.Inspector, "Panels", .End, .Start, {right, top}, box, command_keys(app, .Inspector), bare = true)
@@ -1548,7 +1548,7 @@ kit_inspector :: proc(app: ^App) -> (raised: bool) {
 // The tray's width, as the stack it shows is sized (lens_resize.odin), for what keeps
 // clear of it.
 tray_width :: proc(app: ^App) -> f32 {
-	return stack_width(&app.kit)
+	return stack_width(&app.kit) + stack_docked_extra(&app.kit)
 }
 
 // SPHERE_PRESETS' labels as strings, for selects.

@@ -9613,6 +9613,74 @@ def stack_icon_carried_clear_floats():
     return s, LENS_1440, camera_still({"stack": lambda v: "Layers+^" in v.split(","), "stack_density": is_text("icons"), "stack_drops": near(1), "dabs": near(0)})
 
 
+# Columns at 1440x900 (5b-2), Brush folded: just left of Brush's card (beside it, over the
+# view), and once Symmetry stands as its second column the divider between the columns.
+STACK_BESIDE = {"brush_left": (1000, 94), "divider": (1057, 400)}
+
+
+def stack_beside_drop(s, grip=None, to=None):
+    """Folds Brush and carries Symmetry's grip (or `grip`) to just left of Brush's card."""
+    s.ftap(*LENS_STACK["brush"])
+    s.wait(6)
+    grip, to = grip or STACK_CARRY["symmetry_grip"], to or STACK_BESIDE["brush_left"]
+    s.fdrag(line(grip, to, 8) + [to] * 3)
+    s.wait(10)
+
+
+@scenario
+def stack_grip_dropped_beside_makes_two_columns():
+    """Symmetry's grip let go just beyond Brush's view side makes it Brush's second column: the stack widens by its width toward the view."""
+    s = Script()
+    stack_beside_drop(s)
+    return s, LENS_1440, camera_still({"stack": lambda v: v.startswith("Brush+,|Symmetry,Layers"), "stack_columns": is_text("Brush=Symmetry:312"),
+                                       "tray_width": near(312 + 312 + 12), "stack_drops": near(1), "dabs": near(0)})
+
+
+@scenario
+def stack_column_divider_sets_the_width():
+    """The divider between a group's columns dragged 40 points toward the view makes column two 352 wide; a double tap puts 312 back."""
+    def run(reset):
+        s = Script()
+        stack_beside_drop(s)
+        d = STACK_BESIDE["divider"]
+        s.fdrag(line(d, (d[0] - 40, d[1]), 4) + [(d[0] - 40, d[1])] * 2)
+        s.wait(6)
+        if not reset:
+            return s, LENS_1440, camera_still({"stack_columns": is_text("Brush=Symmetry:352"), "stack_resizes": near(1), "dabs": near(0)})
+        # Column two grows toward the view, so the divider stays where it was.
+        s.ftap(*d, gap=2)
+        s.ftap(*d)
+        s.wait(6)
+        return s, LENS_1440, camera_still({"stack_columns": is_text("Brush=Symmetry:312"), "stack_resizes": near(2), "dabs": near(0)})
+    return Steps([run(False), run(True)])
+
+
+@scenario
+def stack_beside_without_room_goes_below():
+    """In a window 1100 wide a second column would leave too little view: Layers let go beside Brush goes below Brush instead, as the hint says."""
+    s = Script()
+    s.wait(4)
+    s.ftap(1010, 92)
+    s.wait(10)
+    s.ftap(840, 94)
+    s.wait(6)
+    s.fdrag(line((735, 214), (682, 94), 8) + [(682, 94)] * 3)
+    s.wait(10)
+    return s, ["--width=1100", "--height=900"], camera_still({"stack": lambda v: v.startswith("Brush,Layers,Symmetry"), "stack_columns": is_text("none"), "stack_drops": near(1), "dabs": near(0)})
+
+
+@scenario
+def stack_beside_left_handed_grows_right():
+    """Left-handed, the stack stands on the left: Symmetry let go just right of Brush's card is its second column, on the view's side."""
+    s = Script()
+    s.ftap(LENS_STACK["brush"][0] - 994, LENS_STACK["brush"][1])
+    s.wait(6)
+    grip, to = (STACK_CARRY["symmetry_grip"][0] - 994, STACK_CARRY["symmetry_grip"][1]), (420, 94)
+    s.fdrag(line(grip, to, 8) + [to] * 3)
+    s.wait(10)
+    return s, LENS_1440 + ["--script=set left_handed 1"], camera_still({"stack": lambda v: v.startswith("Brush+,|Symmetry,"), "stack_columns": is_text("Brush=Symmetry:312"), "dabs": near(0)})
+
+
 ADJUST_STEPS_LEFT = (662, 644)  # the Steps slider's left end: 1 step
 ADJUST_ONE_SLIDER = {"left": (662, 702), "middle": (800, 702)}  # Retopology's Quads, Extract's Thickness
 

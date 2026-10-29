@@ -43,6 +43,7 @@ Stack_Drag_Kind :: enum u8 {
 	Width, // the stack's inner edge
 	Height, // an open card's bottom grip
 	Float, // a floating card's edge or corner
+	Beside, // the divider between a group's two columns
 }
 
 // A resize under way: what it resizes, from which edges, and the rectangle, pointer and
@@ -119,12 +120,13 @@ stack_edge :: proc(app: ^App, r: ui.Rect) {
 	a := ui.area(ctx, "stack edge strip", {STACK_EDGE_OUT + STACK_EDGE_IN, r.h})
 	ui.end(ctx)
 	ui.tip(ctx, a.id, a.rect, "Drag to make the panels wider or narrower; double tap for the usual width")
-	if a.pressed do s.drag = {kind = .Width, from = r, press = a.mouse}
+	// The width set is the stack's own: a group's second column widens the panel beyond it.
+	if a.pressed do s.drag = {kind = .Width, from = r, press = a.mouse, before = stack_width(k)}
 	moving := s.drag.kind == .Width && a.held
 	if moving {
-		s.width = clamp(stack_snap(s.drag.from.w + (a.mouse.x - s.drag.press.x) * inward), STACK_W_MIN, STACK_W_MAX)
+		s.width = clamp(stack_snap(s.drag.before + (a.mouse.x - s.drag.press.x) * inward), STACK_W_MIN, STACK_W_MAX)
 	} else if s.drag.kind == .Width {
-		if stack_width(k) != s.drag.from.w do s.resizes += 1
+		if stack_width(k) != s.drag.before do s.resizes += 1
 		s.drag = {}
 	}
 	if a.clicked && handle_double_tap(ctx, &s.tap, a.id) {

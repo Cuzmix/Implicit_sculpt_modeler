@@ -377,7 +377,7 @@ panel_width :: proc(app: ^App, ref: Panel_Ref) -> f32 {
 	case Kit_Window:
 		#partial switch r {
 		case .Inspector:
-			return STACK_STRIP_W if stack_strip_shown(app) else stack_width(&app.kit)
+			return STACK_STRIP_W if stack_strip_shown(app) else stack_width(&app.kit) + stack_docked_extra(&app.kit)
 		case .Stats:     return KIT_STATS_W
 		case .History:   return KIT_HISTORY_MIN_W
 		case .Objects:   return KIT_INSPECTOR_W

@@ -386,5 +386,10 @@ kit_stack_tab :: proc(app: ^App) {
 	room := max(area.y + area.h - s.tab_at.y - 2 * PADDING - t.target - 6 - 16 - stack_tab_row_h(app, c), 160)
 	scroll := kit_scroll_begin(ctx, "stack tab body", &s.scrolls[c], owner, inner, room, 6)
 	panel_body(app, v, inner)
+	// Over the view there is room for one column: a group's second one follows its first.
+	if b, two := stack_beside_of(s, c); two {
+		stack_tab_row(app, b, inner, always = true)
+		panel_body(app, stack_shown(s, b), inner)
+	}
 	kit_scroll_end(ctx, scroll)
 }

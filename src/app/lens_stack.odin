@@ -116,6 +116,12 @@ Lens_Stack :: struct {
 	joined: bit_set[Stack_Card],
 	shown:  [Stack_Card]Stack_Card,
 	joins:  int,
+	// Columns (stack_groups.odin): the tabs that begin their group's second column, each
+	// host's second column width (0 for the usual) and the floating groups whose second
+	// column stands on their left.
+	beside:      bit_set[Stack_Card],
+	beside_w:    [Stack_Card]f32,
+	beside_left: bit_set[Stack_Card],
 	// Drop targets (stack_carry.odin), this frame's only: the cards laid out, each one's
 	// rect as the panel shows it (clipped where the column scrolls), its header, its tab
 	// row and each tab; the target under a carry and, for the exit stats, the drops that
@@ -158,7 +164,7 @@ stack_default :: proc(k: ^Kit_State) {
 	s.carry, s.menu, s.tab_open = nil, false, false
 	s.width, s.heights, s.sizes, s.scrolls, s.drag = 0, {}, {}, {}, {}
 	s.density, s.strip_at = .Panels, {}
-	s.joined = {}
+	s.joined, s.beside, s.beside_left, s.beside_w = {}, {}, {}, {}
 	for c in Stack_Card do s.shown[c] = c
 	s.set = true
 }
@@ -278,13 +284,39 @@ stack_density_set :: proc(app: ^App, d: Stack_Density) {
 // The stack's docked cards in order, `width` wide, where the tray's panel is (kit_inspector
 // calls it in Lens inside the panel's body, `owner`); the floating ones come later.
 kit_stack :: proc(app: ^App, width: f32, owner: ui.Id) {
-	s := &app.kit.stack
-	if !s.set do stack_default(&app.kit)
+	k := &app.kit
+	ctx := &k.ctx
+	s := &k.stack
+	if !s.set do stack_default(k)
 	s.owner = owner
+	// While a group shows two columns the stack is wider by its second column; the other
+	// cards keep the stack's width against the edge it is docked on.
+	base := width - stack_docked_extra(k)
+	right := stack_docked_right(k)
 	for c in s.order {
 		if c in s.floated || c in s.hidden || c in s.joined do continue
-		stack_card(app, c, width, false)
+		w := base + stack_group_extra(k, c)
+		if w >= width {
+			stack_card(app, c, width, false)
+			continue
+		}
+		ui.begin(ctx, fmt.tprintf("stack row %v", c), {direction = .Row, width = width})
+		if right do ui.spacer(ctx, width - w)
+		stack_card(app, c, w, false)
+		ui.end(ctx)
 	}
+}
+
+// How much wider than its width the docked stack stands: the widest second column of an
+// open docked group, or nothing (and nothing while it shows as the strip).
+stack_docked_extra :: proc(k: ^Kit_State) -> f32 {
+	s := &k.stack
+	extra: f32 = 0
+	for c in s.order {
+		if c in s.floated || c in s.hidden || c in s.joined do continue
+		extra = max(extra, stack_group_extra(k, c))
+	}
+	return extra
 }
 
 // Floating card `c`, where it was put, if it floats now: a card of its own over the view,
@@ -300,7 +332,7 @@ stack_float_card :: proc(app: ^App, c: Stack_Card) -> (raised: bool) {
 	if c not_in s.floated || c in s.hidden do return
 	name := fmt.tprintf("stack card %v", c)
 	w := &s.windows[c]
-	width := s.sizes[c].x if s.sizes[c].x > 0 else stack_width(k)
+	width := s.sizes[c].x if s.sizes[c].x > 0 else stack_width(k) + stack_group_extra(k, c)
 	pressed, dock := ui.card_begin(ctx, name, "", w, .End, .Start, {kit_right(app) + stack_width(k) + 12, kit_top() + 80}, {direction = .Column, gap = 6, padding = 10, width = width, radius = t.radius_large, background = .Panel})
 	stack_card(app, c, width - 20, true)
 	ui.window_end(ctx)
@@ -357,7 +389,9 @@ stack_card :: proc(app: ^App, c: Stack_Card, width: f32, floating: bool) {
 	}
 	outer := width - (0 if floating else 2 * EDGE)
 	inner := outer - (0 if floating else 2 * PAD)
-	if c in s.open do stack_tab_row(app, c, outer)
+	_, two := stack_beside_of(s, c)
+	if c in s.open && two do stack_columns_tabs(app, c, outer)
+	else if c in s.open do stack_tab_row(app, c, outer)
 	if c in s.open {
 		pad: f32 = 0 if floating else PAD
 		ui.begin(ctx, "stack body", {direction = .Column, gap = 6, padding = pad, width = outer})
@@ -369,7 +403,8 @@ stack_card :: proc(app: ^App, c: Stack_Card, width: f32, floating: bool) {
 			owner := ui.hash_under(0, fmt.tprintf("stack card %v", c)) if floating else s.owner
 			scroll = kit_scroll_begin(ctx, "stack scroll", &s.scrolls[c], owner, inner, height, 6)
 		}
-		panel_body(app, stack_shown(s, c), inner)
+		if two do stack_columns_bodies(app, c, inner)
+		else do panel_body(app, stack_shown(s, c), inner)
 		if height > 0 do kit_scroll_end(ctx, scroll)
 		ui.end(ctx)
 		r := ui.last_ended(ctx)
@@ -774,14 +809,16 @@ kit_stack_menu :: proc(app: ^App) {
 }
 
 // The stack for the exit stats: its cards in order, + on the open ones, ^ on floating ones,
-// & before a group's tab; the cards left out are not named.
+// & before a group's tab and | before the one beginning its second column; the cards left
+// out are not named.
 stack_text :: proc(k: ^Kit_State) -> string {
 	s := &k.stack
 	b := strings.builder_make(context.temp_allocator)
 	for c in s.order {
 		if c in s.hidden do continue
 		if strings.builder_len(b) > 0 do strings.write_byte(&b, ',')
-		fmt.sbprintf(&b, "%s%v%s%s", "&" if c in s.joined else "", c, "+" if c in s.open else "", "^" if c in s.floated else "")
+		mark := "|" if c in s.beside else ("&" if c in s.joined else "")
+		fmt.sbprintf(&b, "%s%v%s%s", mark, c, "+" if c in s.open else "", "^" if c in s.floated else "")
 	}
 	return strings.to_string(b)
 }

@@ -164,6 +164,7 @@ kit_layout_text :: proc(k: ^Kit_State) -> string {
 	stack_sizes_save(k, &out)
 	stack_density_save(k, &out)
 	stack_groups_save(k, &out)
+	stack_beside_save(k, &out)
 	user_docks_save(k, &out)
 	bar_places_save(k, &out)
 	strings.write_string(&out, "bars\n")
@@ -223,6 +224,8 @@ kit_layout_put :: proc(k: ^Kit_State, text: string) {
 			stack_sizes_read(k, f)
 		case "stack_density":
 			stack_density_read(k, f)
+		case "stack_beside":
+			stack_beside_read(k, f)
 		case "stack_group":
 			// Read once the whole layout is in place, as a group needs the stack's order.
 			append(&groups, f)
