@@ -67,7 +67,7 @@ version_name_matches :: proc(name, stem: string) -> bool {
 // The versions of `path` on the disk, newest first (by their stamps, then their
 // numbers, so that "-10" comes after "-9"): full paths in `allocator`.
 versions_found :: proc(path: string, allocator := context.temp_allocator) -> []string {
-	infos, err := os.read_directory_by_path(versions_folder(path), -1, context.temp_allocator)
+	infos, err := folder_entries(versions_folder(path), context.temp_allocator)
 	if err != nil do return nil
 	stem := filepath.stem(path)
 	Found :: struct {

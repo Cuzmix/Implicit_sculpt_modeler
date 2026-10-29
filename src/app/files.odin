@@ -339,6 +339,17 @@ file_read_any :: proc(path: string, allocator := context.allocator) -> (data: []
 	return data, nil
 }
 
+// The entries of the folder at `path`, or an error when no folder is there. Every folder
+// the app lists goes through here, because something else can stand where one belongs (a
+// file named like the versions folder, say). A file is refused before core:os reads it:
+// on Windows its directory reader then closes a search handle it never opened, and
+// FindClose answers that with an access violation it absorbs itself. The app carries on,
+// but a first-chance handler (the test runner's, a debugger's) takes it for a crash.
+folder_entries :: proc(path: string, allocator := context.allocator) -> ([]os.File_Info, os.Error) {
+	if !os.is_dir(path) do return nil, .Invalid_Dir
+	return os.read_directory_by_path(path, -1, allocator)
+}
+
 // Reports a file action's outcome (results.odin), which shows as a toast.
 file_note :: proc(app: ^App, warning: bool, format: string, args: ..any) {
 	report(app, nil, {.Warning} if warning else {}, format, ..args)

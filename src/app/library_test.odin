@@ -1,6 +1,7 @@
 package main
 
 import "core:os"
+import "core:path/filepath"
 import "core:strings"
 import "core:testing"
 
@@ -48,8 +49,9 @@ library_keeps_loaded_alphas :: proc(t: ^testing.T) {
 	rock, other := FOLDER + "picked/Rock face!.png", FOLDER + "picked/other/Rock face!.png"
 	testing.expect(t, os.write_entire_file(rock, test_png(0)) == nil)
 	testing.expect(t, os.write_entire_file(other, test_png(1)) == nil)
-	testing.expect_value(t, library_folder(settings), FOLDER + "run-library")
-	testing.expect_value(t, library_folder("dir/settings.txt"), "dir/library")
+	// The folder sits beside the settings file, joined with the platform's separator (`\` on Windows).
+	testing.expect_value(t, library_folder(settings), filepath.join({FOLDER, "run-library"}, context.temp_allocator) or_else "")
+	testing.expect_value(t, library_folder("dir/settings.txt"), filepath.join({"dir", "library"}, context.temp_allocator) or_else "")
 
 	a: App
 	defer library_app_free(&a)

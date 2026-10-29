@@ -697,7 +697,7 @@ Found_Slot :: struct {
 @(private = "file")
 sessions_found :: proc(app: ^App) -> []Found_Session {
 	a := &app.autosave
-	infos, err := os.read_directory_by_path(a.folder, -1, context.temp_allocator)
+	infos, err := folder_entries(a.folder, context.temp_allocator)
 	if err != nil do return nil
 	found := make([dynamic]Found_Session, context.temp_allocator)
 	find :: proc(found: ^[dynamic]Found_Session, name: string) -> ^Found_Session {
@@ -792,7 +792,7 @@ session_delete :: proc(folder: string, f: Found_Session) {
 @(private = "file")
 autosave_prune :: proc(app: ^App) {
 	a := &app.autosave
-	if infos, err := os.read_directory_by_path(a.folder, -1, context.temp_allocator); err == nil {
+	if infos, err := folder_entries(a.folder, context.temp_allocator); err == nil {
 		for fi in infos do if strings.has_suffix(fi.name, ".partial") do _ = os.remove(fi.fullpath)
 	}
 	now := unix_now()
