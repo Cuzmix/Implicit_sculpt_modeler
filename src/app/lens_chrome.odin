@@ -138,13 +138,17 @@ lens_focal_mm :: proc(fov_y: f32) -> f32 {
 
 // The view chips at the top corner on the off-hand side: the camera (its dot, Persp or
 // Ortho and its lens; a tap opens the Camera menu), the pass (a tap opens the list, a hold
-// peeks at the last other one), Clean view, and under them the selected object with its
-// counts (a tap opens the tray's Scene palette, a long press the object's menu).
+// peeks at the last other one) and Clean view. They are the main view's, so they stand
+// aside while another pane is maximised over it: that pane's head has its own. The
+// selected object is the chip bar's (object_chip.odin).
 kit_view_chips :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
 	ps := &k.passes
+	k.view_chips_shown = false
+	if k.grid.maximised != 0 && grid_panes(&k.grid) > 1 do return
+	k.view_chips_shown = true
 	at := [2]f32{LENS_EDGE, TOP_BAR_H + 2}
 	if g := &k.grid; grid_panes(g) > 1 && g.maximised == 0 && g.main.w > 0 {
 		win := ctx.input.window
@@ -165,15 +169,6 @@ kit_view_chips :: proc(app: ^App) {
 	pass_chip_follow(k, pass.rect, pass.clicked)
 	if a := lens_chip(ctx, "Clean view##chip", "", glyph = ICON_CLEAN_VIEW, keys = command_hint(app, .Clean_View)); a.clicked do clean_view_set(app, true)
 	ui.end(ctx)
-	if obj := selected_object(app); obj != nil {
-		counts := fmt.tprintf("%s tris · %s verts", count_label(object_triangle_count(obj)), count_label(object_vertex_count(obj)))
-		if n := len(obj.levels.levels); n > 1 do counts = fmt.tprintf("%s · Level %d of %d", counts, obj.levels.current + 1, n)
-		if object_dynamic(obj) do counts = fmt.tprintf("%s · Dynamic", counts)
-		if object_in_hd(obj) do counts = fmt.tprintf("%s · HD", counts)
-		a := lens_chip(ctx, "Object##chip", object_label(obj), counts, glyph = ICON_OBJECT_BOX, chevron = true)
-		if a.clicked do tray_open(app, tray_section(app, .Scene))
-		if ui.secondary(ctx) do object_menu_open(app, obj.id, a.rect, .Below)
-	}
 	ui.end(ctx)
 }
 
