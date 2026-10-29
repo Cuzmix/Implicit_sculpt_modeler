@@ -396,7 +396,8 @@ void sculpt_ios_pencil_start(SDL_Window *window, Uint32 event_type)
 	[view addInteraction:pencil_interaction];
 	pencil_view = view;
 	if (@available(iOS 17.5, *)) {
-		UICanvasFeedbackGenerator *haptics = [[UICanvasFeedbackGenerator alloc] initWithView:view];
+		/* A feedback generator belongs to a view from iPadOS 17.5, made by the class. */
+		UICanvasFeedbackGenerator *haptics = [UICanvasFeedbackGenerator feedbackGeneratorForView:view];
 		pencil_haptics = haptics;
 	}
 }
