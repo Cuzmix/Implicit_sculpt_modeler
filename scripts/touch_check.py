@@ -4273,6 +4273,67 @@ def lens_arrange_drags_the_rail_to_the_left():
         "layout_view_bar": lambda v: float(v.split(",")[0]) < 40, "dabs": near(0)})
 
 
+SHELF_TAG = (230, 796)
+
+
+def dock_centre_x(v):
+    x, _, w, _ = (float(n) for n in v.split(","))
+    return x + w / 2
+
+
+@scenario
+def lens_arrange_slides_the_shelf_along_the_bottom():
+    """A finger drags the Shelf tag toward the bottom-left: after Done the shelf stands at the bottom's start, clear of the dial, its page names under its middle, and the settings file keeps the place."""
+    a = LENS_ARRANGE
+    s = Script()
+    s.wait(6)
+    s.ftap(*a["dial_tab"])
+    s.wait(4)
+    s.fdrag(line(SHELF_TAG, (80, 862), 30))
+    s.wait(6)
+    s.ftap(*a["done"])
+    s.wait(8)
+    pages = {}
+    def dock(v):
+        pages["dock"] = dock_centre_x(v)
+        x = float(v.split(",")[0])
+        return 144 < x < 190
+    return s, LENS_1440 + ["--script=customise_bars", f"--settings-file={settings_file()}"], camera_still({
+        "bar_places": is_text("offhand:default,rail:default,shelf:bottom:0.00"), "bar_carries": near(1), "arrange_zone": is_text("none"),
+        "layout_dock": dock, "layout_dock_pages": lambda v: abs(dock_centre_x(v) - pages.get("dock", -99)) < 2, "dabs": near(0)})
+
+
+@scenario
+def lens_arrange_floats_the_shelf():
+    """The mouse drags the Shelf tag up into the view: the shelf floats there, kept in the window, with its page names under it, and Reset zone with it picked brings it home."""
+    a = LENS_ARRANGE
+    def run(reset):
+        s = Script()
+        s.wait(6)
+        s.ftap(*a["dial_tab"])
+        s.wait(4)
+        s.mouse_drag(line(SHELF_TAG, (700, 700), 30))
+        s.wait(6)
+        if not reset:
+            pages = {}
+            def dock(v):
+                x, y, w, h = (float(n) for n in v.split(","))
+                pages["below"] = y + h
+                return 640 < y < 760
+            return s, LENS_1440 + ["--script=customise_bars"], camera_still({"bar_places": lambda v: v.startswith("offhand:default,rail:default,shelf:float:"),
+                                                                             "layout_dock": dock, "layout_dock_pages": lambda v: 0 <= float(v.split(",")[1]) - pages.get("below", -99) < 8,
+                                                                             "dabs": near(0)})
+        # Wider where it floats, the shelf was kept in the window, its tag with it, clear
+        # of the Library.
+        s.ftap(360, 700)
+        s.wait(4)
+        s.ftap(*a["reset_zone"])
+        s.wait(6)
+        return s, LENS_1440 + ["--script=customise_bars"], camera_still({"bar_places": is_text("offhand:default,rail:default,shelf:default"), "arrange_resets": near(1),
+                                                                         "layout_dock": lambda v: float(v.split(",")[1]) > 780, "dabs": near(0)})
+    return Steps([run(False), run(True)])
+
+
 @scenario
 def lens_arrange_floats_the_island():
     """The mouse drags the Off-hand tag into the view's middle: the island floats there, and Reset zone with it picked puts it back."""
@@ -4293,7 +4354,7 @@ def lens_arrange_floats_the_island():
         s.wait(4)
         s.ftap(*a["reset_zone"])
         s.wait(6)
-        return s, LENS_1440 + ["--script=customise_bars"], camera_still({"bar_places": is_text("offhand:default,rail:default"), "arrange_resets": near(1), "dabs": near(0)})
+        return s, LENS_1440 + ["--script=customise_bars"], camera_still({"bar_places": is_text("offhand:default,rail:default,shelf:default"), "arrange_resets": near(1), "dabs": near(0)})
     return Steps([run(False), run(True)])
 
 
@@ -4320,6 +4381,27 @@ def lens_arrange_pen_drop_left_handed():
 
 
 @scenario
+def lens_arrange_pen_slides_the_shelf_left_handed():
+    """Left-handed in portrait, the pen drags the Shelf tag to the screen's bottom right: the shelf stands at the layout's start end of the bottom, which is the screen's right, still clear of the dial in that corner."""
+    s = Script()
+    s.wait(6)
+    x0, y0 = 175, 1176
+    s.add("pnear")
+    s.add(f"pdown:{x0},{y0}")
+    for x, y in line((x0, y0), (700, 1250), 30)[1:]:
+        s.wait(1)
+        s.add(f"pmove:{x:g},{y:g}")
+    s.wait(1)
+    s.add("pup")
+    s.wait(6)
+    def dock(v):
+        x, _, w, _ = (float(n) for n in v.split(","))
+        return 560 < x + w <= 650
+    return s, ["--width=800", "--height=1280", "--script=set left_handed 1; customise_bars"], camera_still({
+        "bar_places": is_text("offhand:default,rail:default,shelf:bottom:0.00"), "bar_carries": near(1), "dabs": near(0), "layout_dock": dock})
+
+
+@scenario
 def lens_arrange_place_stays_with_its_space():
     """The rail moved to the left in Sculpt stays there after a trip to Model and back, and Model's layout has its rail on the right."""
     a = LENS_ARRANGE
@@ -4335,7 +4417,7 @@ def lens_arrange_place_stays_with_its_space():
         s.ftap(*SPACE_TABS["model"])
         s.wait(10)
         if not back:
-            return s, LENS_1440 + ["--script=customise_bars"], camera_still({"space": is_text("model"), "bar_places": is_text("offhand:default,rail:default"), "dabs": near(0)})
+            return s, LENS_1440 + ["--script=customise_bars"], camera_still({"space": is_text("model"), "bar_places": is_text("offhand:default,rail:default,shelf:default"), "dabs": near(0)})
         s.ftap(*SPACE_TABS["sculpt"])
         s.wait(10)
         return s, LENS_1440 + ["--script=customise_bars"], camera_still({"space": is_text("sculpt"), "bar_places": lambda v: ",rail:left:" in v, "dabs": near(0)})

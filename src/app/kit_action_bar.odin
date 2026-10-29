@@ -122,7 +122,7 @@ action_bar_shown :: proc(app: ^App) -> bool {
 dock_stack :: proc(app: ^App) -> (h: f32) {
 	ctx := &app.kit.ctx
 	// No dock (the workspace hides it), no lift either.
-	if dock, _ := ui.prev_layout(ctx, "dock"); dock.y > 0 do h = dock.y + dock_lift(app)
+	if dock := shelf_bottom_size(app); dock.y > 0 do h = dock.y + dock_lift(app)
 	if bar, _ := ui.prev_layout(ctx, "action bar"); bar.y > 0 do h += bar.y + ACTION_BAR_GAP
 	return
 }
@@ -140,10 +140,10 @@ action_bar_room :: proc(app: ^App) -> f32 {
 	side := kit_left(app)
 	if across := rail_reach_across(app); across > 0 do side = max(side, across + 8)
 	panel: f32 = KIT_SETTINGS_W if side_panel_open(k) else tray_width(app) if k.inspector else 0
-	dock, _ := ui.prev_layout(&k.ctx, "dock")
+	_, dock_hi := shelf_bottom_span(app)
 	// The inspector moves up above the dock and bar where the dock reaches it (kit_inspector).
 	right := kit_right(app)
-	beside := area.w * 0.5 + dock.x * 0.5 + 8 <= area.w - right - panel
+	beside := dock_hi + 8 <= area.w - right - panel
 	if panel > 0 && (beside || side_panel_open(k)) do side = max(side, right + panel + 8)
 	side = max(side, right)
 	return area.w - 2 * side
@@ -201,7 +201,7 @@ kit_action_bar :: proc(app: ^App) {
 		k.action_pop = false
 		return
 	}
-	dock, _ := ui.prev_layout(ctx, "dock")
+	dock := shelf_bottom_size(app)
 	mark := ui.vertex_mark(ctx)
 	ui.begin_anchored(ctx, "action bar", .Center, .End, {0, t.edge + dock_lift(app) + dock.y + ACTION_BAR_GAP}, {direction = .Row, gap = 4, padding = ACTION_BAR_PADDING, radius = t.radius_large + 4, background = .Panel, center = true})
 	n := 0

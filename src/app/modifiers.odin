@@ -557,9 +557,12 @@ rail_lift :: proc(app: ^App) -> f32 {
 	t := ctx.theme
 	area := ui.safe_area(ctx)
 	size := rail_size(app)
-	dock, _ := ui.prev_layout(ctx, "dock")
+	dock := shelf_bottom_size(app)
+	// How far from the wheel's side the shelf starts (the same either side at Default).
+	lo, hi := shelf_bottom_span(app)
+	beside := area.w - hi if rail_shown(k) == .Right else lo
 	lift := t.edge
-	if area.w * 0.5 - dock.x * 0.5 - 8 < rail_inset(app, lift) + size.x do lift = max(lift, t.edge + dock_lift(app) + dock.y + 8)
+	if beside - 8 < rail_inset(app, lift) + size.x do lift = max(lift, t.edge + dock_lift(app) + dock.y + 8)
 	return lift
 }
 

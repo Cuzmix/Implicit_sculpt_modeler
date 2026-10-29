@@ -239,6 +239,21 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 	if ctx.mirror do shift = -shift
 	centre := area.x + area.w * 0.5 + shift
 	room := 2 * max(min(centre - span.x, span.x + span.w - centre) - SHELF_SIDE_ROOM, 0)
+	// Moved in Arrange (bar_place.odin), it stands where its place says, with that room;
+	// its page names stay under it.
+	place_x, place_y := ui.Anchor.Center, ui.Anchor.End
+	place_at := [2]f32{shift, t.edge + dock_lift(app)}
+	pages_x, pages_y := ui.Anchor.Center, ui.Anchor.End
+	pages_at := [2]f32{shift, max(t.edge - 10, 2)}
+	if k.places[.Shelf].edge != .Default {
+		size, _ := ui.prev_layout(ctx, "dock")
+		pages, _ := ui.prev_layout(ctx, "dock pages")
+		place_x, place_y, place_at, room = bar_place_anchor(app, .Shelf, size)
+		room -= 2 * SHELF_PAD
+		pages_x = .Start
+		pages_at.x = place_at.x + size.x * 0.5 - pages.x * 0.5
+		if place_y == .Start do pages_y, pages_at.y = .Start, place_at.y + size.y + 2
+	}
 	// Focused, the shelf is the brushes most reached for and All, without the page names
 	// or the tools.
 	focus := lens_focus(k)
@@ -249,7 +264,7 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 	if focus do n = min(n, SHELF_FOCUS)
 	n, m = shelf_fit(n, m, room, k.bars_edit && !focus)
 
-	if !focus do lens_shelf_pages(app, shift)
+	if !focus do lens_shelf_pages(app, pages_x, pages_y, pages_at)
 	// A sideways drag that starts on any of the shelf's buttons turns the page: the shelf
 	// is drag-scrolled, so a finger or a pen pressed on a tile waits to see which way it
 	// goes (ui.swipe_update), and only the brushes, the page's own, slide.
@@ -261,7 +276,7 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 	// Past the first or the last page the row gives a little, as a scroll view's edge does.
 	if (offset > 0 && sh.page == first) || (offset < 0 && sh.page == last) do offset *= 0.3
 	slide := offset + sh.slide
-	ui.begin_anchored(ctx, "dock", .Center, .End, {shift, t.edge + dock_lift(app)}, {direction = .Row, gap = 0, padding = SHELF_PAD, radius = t.radius_large + 4, background = .Panel, center = true, drag_scroll = true})
+	ui.begin_anchored(ctx, "dock", place_x, place_y, place_at, {direction = .Row, gap = 0, padding = SHELF_PAD, radius = t.radius_large + 4, background = .Panel, center = true, drag_scroll = true})
 	adding := k.bars_edit && !focus
 	// Asked for in the shelf, as the row's id is the shelf's child.
 	sh.row = ui.prev_rect(ctx, "shelf brushes")
@@ -379,12 +394,12 @@ shelf_peek :: proc(app: ^App, at: ui.Rect, slide: f32, page_by: int) {
 
 // The page names under the shelf, each a tap away; the shelf stands over them.
 @(private = "file")
-lens_shelf_pages :: proc(app: ^App, shift: f32) {
+lens_shelf_pages :: proc(app: ^App, x, y: ui.Anchor, at: [2]f32) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
 	sh := &k.shelf
-	ui.begin_anchored(ctx, "dock pages", .Center, .End, {shift, max(t.edge - 10, 2)}, {direction = .Row, gap = 2, padding = 2, radius = t.radius_large, background = .Panel, center = true})
+	ui.begin_anchored(ctx, "dock pages", x, y, at, {direction = .Row, gap = 2, padding = 2, radius = t.radius_large, background = .Panel, center = true})
 	first, last := shelf_pages_of(k.spaces.current)
 	for p in first ..= last {
 		name := SHELF_PAGE_NAMES[p]

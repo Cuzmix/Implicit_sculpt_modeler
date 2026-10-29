@@ -57,6 +57,7 @@ arrange_zone_bar :: proc(z: Arrange_Zone) -> (Place_Bar, bool) {
 	#partial switch z {
 	case .Offhand: return .Offhand, true
 	case .Rail:    return .Rail, true
+	case .Shelf:   return .Shelf, true
 	}
 	return {}, false
 }
@@ -117,6 +118,7 @@ arrange_zone_reset :: proc(app: ^App, z: Arrange_Zone) {
 	case .Shelf:
 		k.shelf.lists[k.shelf.page] = shelf_fresh(k.shelf.page)
 		k.tools = bar_fresh(.Tools)
+		k.places[.Shelf] = {}
 	case .Panels:
 		stack_default(k)
 	case .Rail:
@@ -257,8 +259,8 @@ arrange_carry_follow :: proc(app: ^App, b: Place_Bar, r: ui.Rect, a: ui.Area) {
 	s.carry, s.carrying = nil, false
 }
 
-// While bar `b` is carried: the edges it may go on as strips down the window's sides, the
-// one the pointer is near lit.
+// While bar `b` is carried: the edges it may go on as strips down the window's sides (or
+// along its bottom for the shelf), the one the pointer is near lit.
 @(private = "file")
 arrange_drop_edges :: proc(app: ^App, b: Place_Bar) {
 	k := &app.kit
@@ -266,6 +268,14 @@ arrange_drop_edges :: proc(app: ^App, b: Place_Bar) {
 	t := ctx.theme
 	area := ui.safe_area(ctx)
 	m := ctx.input.mouse
+	if b == .Shelf {
+		lo, hi := shelf_across(app)
+		x0, x1 := area.x + lo, area.x + hi
+		if ctx.mirror do x0, x1 = area.x + area.w - hi, area.x + area.w - lo
+		near := m.y > area.y + area.h - PLACE_REACH
+		ui.fill_rect(ctx, {x0, area.y + area.h - 8, x1 - x0, 6}, 3, t.accent if near else ui.color_fade(t.accent, 0.35))
+		return
+	}
 	for edge in ([]Bar_Edge{.Left, .Right}) {
 		lo, hi := bar_place_room(app, edge)
 		screen_left := (edge == .Left) != ctx.mirror
