@@ -59,7 +59,7 @@ class AgentsSyncTests(unittest.TestCase):
 	def test_sync_writes_mirror_and_manifest(self):
 		code, lines = self.run_sync()
 		self.assertEqual(code, 0, lines)
-		self.assertTrue(lines[0].startswith("ok agents: 1 skill(s), 1 agent(s); 3 file(s) updated"), lines)
+		self.assertTrue(lines[0].startswith("ok agents: 1 skill(s), 1 agent(s); 4 file(s) updated"), lines)
 		self.assertEqual(self.mirror("sm-a/references/r.md").read_bytes(), b"# r\n")
 		manifest = json.loads(self.mirror(".manifest.json").read_text())
 		self.assertEqual(manifest["source"], ".claude/skills")
@@ -157,6 +157,55 @@ class AgentsSyncTests(unittest.TestCase):
 		self.assertEqual(code, 0, lines)
 		self.assertTrue(lines[0].startswith("ok agents: 0 skill(s), 0 agent(s)"), lines)
 		self.assertTrue(any("warning: no skills" in l for l in lines), lines)
+
+	def codex(self, name):
+		return self.tmp / ".codex/agents" / f"{name}.toml"
+
+	def test_sync_writes_codex_agents(self):
+		self.run_sync()
+		want = 'name = "sm-x"\ndescription = "Agent x, read-only."\ndeveloper_instructions = \'\'\'\nRead sm-a first, then act.\'\'\'\n'
+		self.assertEqual(self.codex("sm-x").read_text(encoding="utf-8"), want)
+
+	def test_codex_description_forms_and_effort(self):
+		quoted = AGENT.replace("Agent x, read-only.", 'Agent x for "this", read-only.')
+		write(self.tmp / ".claude/agents/sm-x.md", quoted.replace("model: opus", "model: opus\neffort: low"))
+		both = AGENT.replace("name: sm-x", "name: sm-y").replace("Agent x, read-only.", 'Agent y\'s "own" check.')
+		write(self.tmp / ".claude/agents/sm-y.md", both)
+		code, lines = self.run_sync()
+		self.assertEqual(code, 0, lines)
+		x = self.codex("sm-x").read_text(encoding="utf-8")
+		self.assertIn("description = 'Agent x for \"this\", read-only.'\nmodel_reasoning_effort = \"low\"\n", x)
+		self.assertIn('description = """Agent y\'s "own" check."""\n', self.codex("sm-y").read_text(encoding="utf-8"))
+
+	def test_check_reports_stale_and_extra_codex_agents(self):
+		self.run_sync()
+		with open(self.tmp / ".claude/agents/sm-x.md", "a", encoding="utf-8", newline="\n") as f:
+			f.write("\nThen report.\n")
+		write(self.codex("sm-old"), 'name = "sm-old"\n')
+		write(self.tmp / ".codex/config.toml", "model = 'x'\n")
+		code, lines = self.run_sync("--check")
+		self.assertEqual(code, 1, lines)
+		self.assertIn("  stale .codex/agents/sm-x.toml", lines)
+		self.assertIn("  extra .codex/agents/sm-old.toml", lines)
+		code, lines = self.run_sync()
+		self.assertEqual(code, 0, lines)
+		self.assertIn("  removed .codex/agents/sm-old.toml", lines)
+		self.assertTrue(self.codex("sm-x").read_text(encoding="utf-8").endswith("Then report.'''\n"))
+		self.assertTrue((self.tmp / ".codex/config.toml").exists())
+		self.assertEqual(self.run_sync("--check")[0], 0)
+
+	def test_crlf_codex_agent_still_matches(self):
+		self.run_sync()
+		p = self.codex("sm-x")
+		p.write_bytes(p.read_bytes().replace(b"\n", b"\r\n"))
+		self.assertEqual(self.run_sync("--check")[0], 0)
+
+	def test_body_with_three_quotes_is_refused(self):
+		write(self.tmp / ".claude/agents/sm-x.md", AGENT + "Say '''this'''.\n")
+		code, lines = self.run_sync()
+		self.assertEqual(code, 1, lines)
+		self.assertIn("sm-x.md: the body contains ''', which would end its Codex copy's instructions early", "\n".join(lines))
+		self.assertFalse(self.codex("sm-x").exists())
 
 
 if __name__ == "__main__":

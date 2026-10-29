@@ -1,21 +1,65 @@
 {
-	// Odin emits MSVC PDBs on Windows, so these use the C/C++ extension's Visual Studio debugger.
-	// App flags are listed under "App flags" in README.md.
+	// Run and Debug, by device. Odin emits MSVC PDBs on Windows, so the debugger entries use the
+	// C/C++ extension's Visual Studio debugger; the build and device entries run build.bat or a
+	// script through cmd.exe under it, so their output stays in the terminal and the Stop button
+	// ends them. App flags are listed under "App flags" in README.md; .vscode/tasks.json holds the
+	// same commands as tasks.
 	"version": "0.2.0",
 	"configurations": [
 		{
-			// Runs build.bat itself in the terminal, so the build's output stays visible and nothing is launched after it.
-			"name": "Build (debug)",
+			"name": "Desktop: Debug",
 			"type": "cppvsdbg",
 			"request": "launch",
-			"program": "C:\\Windows\\System32\\cmd.exe",
-			"args": ["/d", "/c", "${workspaceFolder}\\build.bat", "debug"],
+			"program": "${workspaceFolder}\\build\\sculpt.exe",
+			"args": [],
+			"cwd": "${workspaceFolder}",
+			"console": "integratedTerminal",
+			"preLaunchTask": "Desktop: build debug"
+		},
+		{
+			"name": "Desktop: Debug, GPU validation",
+			"type": "cppvsdbg",
+			"request": "launch",
+			"program": "${workspaceFolder}\\build\\sculpt.exe",
+			"args": ["--gpu-debug"],
+			"cwd": "${workspaceFolder}",
+			"environment": [{ "name": "SDL_ASSERT", "value": "break" }],
+			"console": "integratedTerminal",
+			"preLaunchTask": "Desktop: build debug"
+		},
+		{
+			"name": "Desktop: Debug, 1M vertices, 2 levels",
+			"type": "cppvsdbg",
+			"request": "launch",
+			"program": "${workspaceFolder}\\build\\sculpt.exe",
+			"args": ["--vertices=1000000", "--subdivide=2"],
+			"cwd": "${workspaceFolder}",
+			"console": "integratedTerminal",
+			"preLaunchTask": "Desktop: build debug"
+		},
+		{
+			// The app as it was last built, debug or release.
+			"name": "Desktop: Debug, no rebuild",
+			"type": "cppvsdbg",
+			"request": "launch",
+			"program": "${workspaceFolder}\\build\\sculpt.exe",
+			"args": [],
 			"cwd": "${workspaceFolder}",
 			"console": "integratedTerminal"
 		},
 		{
+			"name": "Desktop: Release, no vsync",
+			"type": "cppvsdbg",
+			"request": "launch",
+			"program": "${workspaceFolder}\\build\\sculpt.exe",
+			"args": ["--no-vsync"],
+			"cwd": "${workspaceFolder}",
+			"console": "integratedTerminal",
+			"preLaunchTask": "Desktop: build release"
+		},
+		{
 			// build.bat run builds the debug app and starts it without the debugger attached.
-			"name": "Build & Run (debug, no debugger)",
+			"name": "Desktop: Build & run, no debugger",
 			"type": "cppvsdbg",
 			"request": "launch",
 			"program": "C:\\Windows\\System32\\cmd.exe",
@@ -25,7 +69,7 @@
 		},
 		{
 			// Gradle builds the arm64 debug APK into android\app\build\outputs\apk\debug\app-debug.apk.
-			"name": "Build (Android APK)",
+			"name": "Android: Build APK",
 			"type": "cppvsdbg",
 			"request": "launch",
 			"program": "C:\\Windows\\System32\\cmd.exe",
@@ -35,7 +79,7 @@
 		},
 		{
 			// Builds the APK, installs it on the tablet adb sees and starts it there.
-			"name": "Build & Run (Android tablet)",
+			"name": "Android: Build & run on tablet",
 			"type": "cppvsdbg",
 			"request": "launch",
 			"program": "C:\\Windows\\System32\\cmd.exe",
@@ -44,74 +88,64 @@
 			"console": "integratedTerminal"
 		},
 		{
-			"name": "Sculpt (debug)",
+			// Builds the pushed branch on GitHub's Mac and saves build\ios\Sculpt.ipa for AltStore
+			// (scripts\ipad_build.py; README "iPad").
+			"name": "iPad: Build on GitHub & download",
 			"type": "cppvsdbg",
 			"request": "launch",
-			"program": "${workspaceFolder}\\build\\sculpt.exe",
-			"args": [],
-			"cwd": "${workspaceFolder}",
-			"console": "integratedTerminal",
-			"preLaunchTask": "build: debug"
-		},
-		{
-			"name": "Sculpt (debug, 1M vertices, 2 levels)",
-			"type": "cppvsdbg",
-			"request": "launch",
-			"program": "${workspaceFolder}\\build\\sculpt.exe",
-			"args": ["--vertices=1000000", "--subdivide=2"],
-			"cwd": "${workspaceFolder}",
-			"console": "integratedTerminal",
-			"preLaunchTask": "build: debug"
-		},
-		{
-			"name": "Sculpt (debug, GPU validation)",
-			"type": "cppvsdbg",
-			"request": "launch",
-			"program": "${workspaceFolder}\\build\\sculpt.exe",
-			"args": ["--gpu-debug"],
-			"cwd": "${workspaceFolder}",
-			"environment": [{ "name": "SDL_ASSERT", "value": "break" }],
-			"console": "integratedTerminal",
-			"preLaunchTask": "build: debug"
-		},
-		{
-			"name": "Sculpt (debug, no rebuild)",
-			"type": "cppvsdbg",
-			"request": "launch",
-			"program": "${workspaceFolder}\\build\\sculpt.exe",
-			"args": [],
+			"program": "C:\\Windows\\System32\\cmd.exe",
+			"args": ["/d", "/c", "python", "${workspaceFolder}\\scripts\\ipad_build.py"],
 			"cwd": "${workspaceFolder}",
 			"console": "integratedTerminal"
 		},
 		{
-			"name": "Sculpt (release, run only)",
+			"name": "iPad: Download latest build",
 			"type": "cppvsdbg",
 			"request": "launch",
-			"program": "${workspaceFolder}\\build\\sculpt.exe",
-			"args": ["--no-vsync"],
+			"program": "C:\\Windows\\System32\\cmd.exe",
+			"args": ["/d", "/c", "python", "${workspaceFolder}\\scripts\\ipad_build.py", "--latest"],
 			"cwd": "${workspaceFolder}",
-			"console": "integratedTerminal",
-			"preLaunchTask": "build: release"
+			"console": "integratedTerminal"
 		},
 		{
-			"name": "Bench (debug)",
+			// check, release, debug, test, the iPad compile check and the Android APK (build.bat all).
+			"name": "All: Build all",
+			"type": "cppvsdbg",
+			"request": "launch",
+			"program": "C:\\Windows\\System32\\cmd.exe",
+			"args": ["/d", "/c", "${workspaceFolder}\\build.bat", "all"],
+			"cwd": "${workspaceFolder}",
+			"console": "integratedTerminal"
+		},
+		{
+			"name": "All: Clean",
+			"type": "cppvsdbg",
+			"request": "launch",
+			"program": "C:\\Windows\\System32\\cmd.exe",
+			"args": ["/d", "/c", "${workspaceFolder}\\build.bat", "clean"],
+			"cwd": "${workspaceFolder}",
+			"console": "integratedTerminal"
+		},
+		{
+			"name": "Bench: Debug",
 			"type": "cppvsdbg",
 			"request": "launch",
 			"program": "${workspaceFolder}\\build\\bench_debug.exe",
 			"args": ["500000", "--threads=1"],
 			"cwd": "${workspaceFolder}",
 			"console": "integratedTerminal",
-			"preLaunchTask": "build: bench (debug)"
+			"preLaunchTask": "Debugger: build bench"
 		},
 		{
-			"name": "Tests (debug, pick package)",
+			// Builds every package's tests with debug info first, then runs the one picked.
+			"name": "Tests: Debug one package",
 			"type": "cppvsdbg",
 			"request": "launch",
 			"program": "${workspaceFolder}\\build\\test_${input:testPackage}_debug.exe",
 			"args": [],
 			"cwd": "${workspaceFolder}",
 			"console": "integratedTerminal",
-			"preLaunchTask": "build: tests (debug)"
+			"preLaunchTask": "Debugger: build tests"
 		}
 	],
 	"inputs": [
@@ -119,7 +153,7 @@
 			"id": "testPackage",
 			"type": "pickString",
 			"description": "Package to test",
-			"options": ["geom", "camera", "sculpt", "jobs", "gizmo"],
+			"options": ["geom", "poly", "camera", "sculpt", "voxel", "jobs", "gizmo", "png_write", "zip", "ui", "luau", "app"],
 			"default": "sculpt"
 		}
 	]

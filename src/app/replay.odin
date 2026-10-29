@@ -56,6 +56,7 @@ Take_Frame :: struct {
 	pen_roll:  f32, // the pen's roll, which a Pen roll alpha turns by
 	primary, smooth, invert: bool,
 	mask:      bool, // the modifier rail's Mask: the stroke painted the mask
+	alt:       bool, // Alt held mid-stroke: a Grab moved along the surface
 }
 
 replay_init :: proc(p: ^Replay) {
@@ -123,7 +124,7 @@ take_append :: proc(t: ^Take, app: ^App, input: Viewport_Input, began: bool) {
 	append(&t.frames, Take_Frame {
 		first = u32(len(t.samples)), count = u32(len(input.samples)), brush = u32(len(t.brushes) - 1),
 		camera = app.camera, size = input.size, mouse_pos = input.mouse_pos, pen_tilt = input.pen_tilt, pen_roll = input.pen_roll,
-		primary = input.primary, smooth = input.smooth, invert = input.invert, mask = input.mask,
+		primary = input.primary, smooth = input.smooth, invert = input.invert, mask = input.mask, alt = input.alt,
 	})
 	append(&t.samples, ..input.samples)
 }
@@ -192,7 +193,7 @@ replay_frame :: proc(app: ^App, now: Viewport_Input) -> (res: Sculpt_Frame_Resul
 		copy(samples, t.samples[f.first:][:f.count])
 		input := Viewport_Input {
 			size = f.size, mouse_pos = f.mouse_pos, pen_tilt = f.pen_tilt, pen_roll = f.pen_roll, hovered = true,
-			primary = f.primary, smooth = f.smooth, invert = f.invert, mask = f.mask, samples = samples,
+			primary = f.primary, smooth = f.smooth, invert = f.invert, mask = f.mask, alt = f.alt, samples = samples,
 		}
 		app.camera = f.camera
 		if p.at_pointer {
@@ -242,8 +243,9 @@ STROKES_MAGIC :: "SCSTROKE"
 // spray after those; 13: each frame's pen roll after its pen tilt; 14: each brush's Smooth
 // blurs, Invert erases switch after its colour spray; 15: its smoothing, pressure
 // smoothing and catch up after that; 16: its Even strength, Scene spacing and symmetry
-// Feather after those.
-STROKES_VERSION :: u32(16)
+// Feather after those; 17: Alt in a frame's flags, and each brush's Grab mode, Same side
+// and Silhouette, then Normal weight, after those.
+STROKES_VERSION :: u32(17)
 
 strokes_save :: proc(app: ^App, path: string) -> bool {
 	t := replay_source(app)
@@ -287,6 +289,8 @@ strokes_save :: proc(app: ^App, path: string) -> bool {
 		geom.byte_put(&out, [2]f32{f32(steady_count(b.smoothing)), f32(steady_count(b.pressure_smoothing))})
 		geom.byte_put(&out, u8(b.catch_up))
 		geom.byte_put(&out, [3]u8{u8(b.even_strength), u8(b.scene_spacing), u8(b.feather)})
+		geom.byte_put(&out, [3]u8{u8(b.grab_mode), u8(b.grab_same_side), u8(b.grab_silhouette)})
+		geom.byte_put(&out, b.grab_normal)
 	}
 	geom.byte_put(&out, u32(len(t.frames)))
 	for f in t.frames {
@@ -299,7 +303,7 @@ strokes_save :: proc(app: ^App, path: string) -> bool {
 		geom.byte_put(&out, f.pen_tilt)
 		geom.byte_put(&out, f.pen_roll)
 		geom.byte_put(&out, f.brush)
-		geom.byte_put(&out, u8(f.primary) | u8(f.smooth) << 1 | u8(f.invert) << 2 | u8(f.mask) << 3)
+		geom.byte_put(&out, u8(f.primary) | u8(f.smooth) << 1 | u8(f.invert) << 2 | u8(f.mask) << 3 | u8(f.alt) << 4)
 		geom.byte_put(&out, f.count)
 		for s in t.samples[f.first:][:f.count] {
 			geom.byte_put(&out, s.pos)
@@ -427,11 +431,19 @@ strokes_read :: proc(app: ^App, data: []u8, t: ^Take) -> bool {
 		// the brush's strength and the spacing was on screen.
 		evened: [3]u8
 		if version >= 16 do evened = geom.byte_get(&r, [3]u8)
+		// Nor, before version 17, Grab's modes: it dragged as the pointer went.
+		grabbing: [3]u8
+		normal_weight: f32
+		if version >= 17 {
+			grabbing = geom.byte_get(&r, [3]u8)
+			normal_weight = geom.byte_get(&r, f32)
+		}
 		if !r.ok || int(kind) >= len(sculpt.Brush_Kind) || int(stroke) >= len(Stroke_Mode) || int(cloth) >= len(sculpt.Cloth_Mode) do return false
 		all_axes := transmute(u8)sculpt.Symmetry{.X, .Y, .Z}
 		if int(channel) >= len(sculpt.Channel) || dial > 1 || reach[0] > 1 || int(reach[1]) >= len(sculpt.Smooth_Only) do return false
 		if radial[0] > 1 || radial[1] > 1 || radial[2] < RADIAL_MIN || radial[2] > sculpt.RADIAL_MAX || int(radial[3]) >= len(sculpt.Axis) do return false
 		if symmetry & ~all_axes != 0 || drawn > 1 || pressure_strength > 1 || pressure_size > 1 || front > 1 || line > 1 || join > 1 || lock_plane > 1 || connected > 1 || catch_up > 1 || evened[0] > 1 || evened[1] > 1 || evened[2] > 1 do return false
+		if int(grabbing[0]) >= len(Grab_Mode) || grabbing[1] > 1 || grabbing[2] > 1 || !finite(normal_weight) || normal_weight < 0 || normal_weight > 1 do return false
 		if !finite(radius, strength, lazy, spread, color.r, color.g, color.b, focal, scale, spaced[0], spaced[1], steady[0], steady[1]) || !curve_ok(falloff) || !curve_ok(pressure_curve) do return false
 		if focal < sculpt.FOCAL_MIN || focal > sculpt.FOCAL_MAX || scale < TOUCH_STRENGTH_MIN || scale > 1 do return false
 		b.kind = sculpt.Brush_Kind(kind)
@@ -453,6 +465,7 @@ strokes_read :: proc(app: ^App, data: []u8, t: ^Take) -> bool {
 		b.spacing, b.color_spray = clamp(spaced[0], MIN_SPACING, MAX_SPACING), clamp(spaced[1], 0, 1)
 		b.smoothing, b.pressure_smoothing, b.catch_up = f32(steady_count(steady[0])), f32(steady_count(steady[1])), catch_up == 1
 		b.even_strength, b.scene_spacing, b.feather = evened[0] == 1, evened[1] == 1, evened[2] == 1
+		b.grab_mode, b.grab_same_side, b.grab_silhouette, b.grab_normal = Grab_Mode(grabbing[0]), grabbing[1] == 1, grabbing[2] == 1, normal_weight
 		// Grab left Connected alone before version 11, so a Grab stroke recorded with it
 		// on replays as it was drawn.
 		if version < 11 && b.kind == .Grab do b.connected = false
@@ -483,14 +496,14 @@ strokes_read :: proc(app: ^App, data: []u8, t: ^Take) -> bool {
 		f.brush = geom.byte_get(&r, u32)
 		flags := geom.byte_get(&r, u8)
 		count := geom.byte_get(&r, u32)
-		if !r.ok || ortho > 1 || flags > (15 if version >= 3 else 7) || int(f.brush) >= brushes || int(count) > (len(data) - r.at) / 21 do return false
+		if !r.ok || ortho > 1 || flags > (31 if version >= 17 else 15 if version >= 3 else 7) || int(f.brush) >= brushes || int(count) > (len(data) - r.at) / 21 do return false
 		if !finite(c.target.x, c.target.y, c.target.z, c.distance, c.yaw, c.pitch, c.fov_y, c.near, c.far, c.roll) do return false
 		if !finite(f.size.x, f.size.y, f.mouse_pos.x, f.mouse_pos.y, f.pen_tilt.x, f.pen_tilt.y, f.pen_roll) || abs(f.pen_roll) > 180 do return false
 		if c.distance <= 0 || c.fov_y <= 0 || c.fov_y >= math.PI || c.near <= 0 || c.far <= c.near || f.size.x < 1 || f.size.y < 1 do return false
 		c.ortho = ortho == 1
 		c.yaw, c.pitch, c.roll = camera.wrap_angle(c.yaw), camera.wrap_angle(c.pitch), camera.wrap_angle(c.roll)
 		f.primary, f.smooth, f.invert = flags & 1 != 0, flags & 2 != 0, flags & 4 != 0
-		f.mask = flags & 8 != 0
+		f.mask, f.alt = flags & 8 != 0, flags & 16 != 0
 		f.first, f.count = u32(len(t.samples)), count
 		for _ in 0 ..< count {
 			s: Input_Sample

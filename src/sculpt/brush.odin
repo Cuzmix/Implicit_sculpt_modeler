@@ -140,6 +140,10 @@ Brush :: struct {
 	through:    Vec3,
 	// Smooth: which vertices it evens out, all or only those in dents or on bumps.
 	smooth_only: Smooth_Only,
+	// Grab: pick up only what faces the same way as the surface pressed (Nomad's Same
+	// side), and move only what faces the way it is dragged out (Blender's Silhouette).
+	same_side:  bool,
+	silhouette: bool,
 	// Symmetry's feathering, as Blender's: where a dab and its images overlap near a plane
 	// or the radial axis, each is weakened by how much they overlap (symmetry_feather), so
 	// a stroke along the middle builds the height it builds elsewhere, not twice it.
