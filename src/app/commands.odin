@@ -258,6 +258,7 @@ Command_Id :: enum u8 {
 	Pick_Pack,
 	Save_Pack,
 	Pencil_Preferred, // pencil.odin: only a pencil gesture's slot holds it
+	Input_Diagnostics, // diagnostics.odin
 }
 
 Command :: struct {
@@ -2212,6 +2213,17 @@ COMMANDS := [Command_Id]Command {
 		icon = ui.ICON_PENCIL,
 		run = proc(app: ^App, _: int) {pencil_preferred_run(app)},
 	},
+	.Input_Diagnostics = {
+		label = "Input diagnostics",
+		help = "Shows the developer's guided tests of fingers, the Pencil, the keyboard and system gestures, which log what the app received and what its controls did, to export as a report.",
+		icon = ui.ICON_ACTIVITY,
+		run = proc(app: ^App, _: int) {
+			if app.diag.open do diag_close(app)
+			else do diag_open(app)
+		},
+		enabled = proc(app: ^App, _: int) -> bool {return app.diag.allowed},
+		checked = proc(app: ^App, _: int) -> bool {return app.diag.open},
+	},
 	.Pie_Editor = {
 		label = "Edit pies",
 		help = "Shows the four pies' slots, to empty them or put the defaults back.",
@@ -2575,6 +2587,8 @@ commands_handle_keys :: proc(app: ^App) {
 		// Home stands in for the panels and the scene: only its own keys and opening a file
 		// reach past it.
 		if app.kit.home && b.command != .Home && b.command != .Open_Scene do continue
+		// So does Input diagnostics, whose keys are its own screen's.
+		if app.diag.open && b.command != .Input_Diagnostics do continue
 		// The Move tool's key, pressed again with it on, steps the gizmo's mode; the
 		// toolbar's button only ever picks the tool.
 		if b.command == .Tool_Move && app.tool == .Move {

@@ -91,11 +91,21 @@ need_luau() {
 IOS_MIN=17.4
 
 # The app for the iPad as one arm64 object, which `ios` links and `iphonecheck` stops at.
+# SCULPT_DIAGNOSTICS=1 makes it a developer build that reaches Input diagnostics, and
+# SCULPT_VERSION names it in the reports; .github/workflows/ipad.yml sets both for the
+# AltStore IPA. A build without them, as a store build must be, has neither (sm-store).
+# Odin reads a -define value as a literal, so a version that reads as a number (an all-digit
+# hash, 12345e6, 0b101) would not compile: give it a letter first, as ipad.yml's g<hash>.
 ios_object() {
 	mkdir -p "$ROOT/build/ios"
+	local defines=()
+	if [ "${SCULPT_DIAGNOSTICS:-}" = 1 ]; then defines+=(-define:SCULPT_DIAGNOSTICS=true); fi
+	if [ -n "${SCULPT_VERSION:-}" ]; then defines+=("-define:SCULPT_VERSION=$SCULPT_VERSION"); fi
+	# macOS's bash 3.2 calls an empty array unbound under set -u, hence the +.
 	"$ODIN" build "$ROOT/src/app" -target:darwin_arm64 -subtarget:iphone -build-mode:obj -use-single-module \
 		-minimum-os-version:"$IOS_MIN" -out:"$ROOT/build/ios/sculpt.o" \
-		-collection:deps="$DEPS" -vet -strict-style -warnings-as-errors -o:speed -no-bounds-check
+		-collection:deps="$DEPS" -vet -strict-style -warnings-as-errors -o:speed -no-bounds-check \
+		${defines[@]+"${defines[@]}"}
 }
 
 mkdir -p "$ROOT/build"

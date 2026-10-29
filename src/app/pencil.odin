@@ -1,6 +1,7 @@
 package main
 
 @(require) import "core:c"
+import "core:log"
 import "core:math"
 import "core:reflect"
 import "core:strings"
@@ -80,7 +81,105 @@ Pencil :: struct {
 	// sculpts, whatever Settings > Touch says, as Apple asks of drawing apps.
 	only:       bool,
 	haptics:    int, // haptics asked of the pencil, for the exit stats
+	// Where the platform never says that the pen left (PEN_LEAVE_SAID, or --pen-no-leave),
+	// pencil_leave says it: whether the pen is about and its tip down, and when, which pen
+	// and over which window it last reported.
+	no_leave:     bool,
+	about:        bool,
+	down:         bool,
+	heard:        f64,
+	heard_pen:    sdl.PenID,
+	heard_window: sdl.WindowID,
 }
+
+// SDL 3.4's UIKit driver never says that the pencil went: nothing there sends
+// PEN_PROXIMITY_OUT, and the end of its hover is dropped (SDL_uikitview.m). Unsaid, the
+// pencil stays near for the rest of the run, every finger after it is a palm (touch.odin),
+// and its last roll is the start of its next turn, so that coming back turned jumps the
+// value under it. SDL reports a hovering pencil whenever its place, height or angles
+// change, which a hand holding it never stops doing for long, so there, with its tip up,
+// PEN_GONE seconds without a report count as it having left.
+PEN_LEAVE_SAID :: !ODIN_PLATFORM_SUBTARGET_IOS
+
+// Half a second: many times the gap between a hovering pencil's reports (120 a second), and
+// still shorter than reaching for the screen with a finger after putting the pencil down.
+// A pencil held quite still over the screen that long counts as gone until it moves.
+PEN_GONE :: 0.5
+
+// Notes a pen event for pencil_leave: any report means the pen is about.
+pencil_heard :: proc(app: ^App, e: ^sdl.Event) {
+	p := &app.pencil
+	#partial switch e.type {
+	case .PEN_PROXIMITY_IN:
+		p.heard_pen, p.heard_window = e.pproximity.which, e.pproximity.windowID
+	case .PEN_PROXIMITY_OUT:
+		p.about, p.down = false, false
+		return
+	case .PEN_MOTION:
+		p.heard_pen, p.heard_window = e.pmotion.which, e.pmotion.windowID
+	case .PEN_AXIS:
+		p.heard_pen, p.heard_window = e.paxis.which, e.paxis.windowID
+	case .PEN_DOWN, .PEN_UP:
+		p.heard_pen, p.heard_window = e.ptouch.which, e.ptouch.windowID
+		p.down = e.type == .PEN_DOWN
+	case:
+		return
+	}
+	p.about = true
+	p.heard = input_clock(app)
+}
+
+// Whether the pen, unheard since `heard`, has left by `now` where the platform never says so.
+pencil_gone :: proc(p: Pencil, now: f64) -> bool {
+	return p.no_leave && p.about && !p.down && now - p.heard >= PEN_GONE
+}
+
+// Once the frame's events are in, says that the pen left where the platform never does:
+// as SDL's own PEN_PROXIMITY_OUT, through its queue, so that everything reading the pen
+// (touch.odin's palms, the roll, the hover height) takes it as on every other platform.
+pencil_leave :: proc(app: ^App) {
+	p := &app.pencil
+	if !pencil_gone(p^, input_clock(app)) do return
+	p.about = false
+	e: sdl.Event
+	e.pproximity = {type = .PEN_PROXIMITY_OUT, timestamp = sdl.GetTicksNS(), windowID = p.heard_window, which = p.heard_pen}
+	if !sdl.PushEvent(&e) do log.warnf("pencil_leave: PushEvent failed: %s", sdl.GetError())
+}
+
+// The pen's turn about its own length as SDL reports it on this platform, in degrees
+// clockwise seen from its top, as SDL's ROTATION axis is defined and Windows Ink reports
+// it. SDL 3.4's UIKit driver passes UIKit's rollAngle on unchanged (SDL_uikitpen.m, whose
+// note says its sign was never checked against a pencil), and that grows the other way:
+// the Pencil Pro turned to the right reports a falling angle.
+pencil_roll_degrees :: proc(value: f32) -> f32 {
+	when ODIN_PLATFORM_SUBTARGET_IOS do return pencil_roll_uikit(value)
+	else do return value
+}
+
+// An iPad's roll as SDL reports it (UIKit's rollAngle in degrees), turned to SDL's
+// clockwise: the same angle the other way round.
+pencil_roll_uikit :: proc(value: f32) -> f32 {
+	return -value
+}
+
+// Adds the pen's turn about its own length since its last report, `degrees` from -180 to
+// 180, to this frame's roll, the short way round, so turning past the half turn where the
+// numbers wrap reads as the small turn it is. A report further than ROLL_JUMP from the last
+// is no turn a hand made between two reports but a new start (the pen came back turned,
+// or its roll now comes from another source), and turns nothing.
+pen_roll_take :: proc(app: ^App, degrees: f32) {
+	if last, ok := app.pen_roll_last.?; ok {
+		d := degrees - last
+		d -= 360 * math.floor((d + 180) / 360)
+		if abs(d) <= ROLL_JUMP do app.pen_roll += d
+	}
+	app.pen_roll_last = degrees
+}
+
+// The most a pen turns about its own length between two reports: a quick flick of the
+// fingers is about four turns a second, some 12 degrees a report at the 120 a second an
+// iPad's Pencil reports hovering, and scripted reports step by up to 30.
+ROLL_JUMP :: f32(45)
 
 // What a haptic says, as UIKit's canvas feedback has them: something snapped into place, or
 // a drawn shape was finished.
@@ -99,6 +198,7 @@ pencil_init :: proc(app: ^App, window: ^sdl.Window = nil) {
 	if t != 0 do p.event_type = t
 	when ODIN_PLATFORM_SUBTARGET_IOS {
 		if window != nil do sculpt_ios_pencil_start(window, p.event_type)
+		if window != nil do sculpt_ios_scribble_start(window)
 	}
 	when ODIN_PLATFORM_SUBTARGET == .Android {
 		if t != 0 do sculpt_android_pen_lean_start(t + 1)

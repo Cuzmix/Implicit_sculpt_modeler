@@ -1,5 +1,6 @@
 package main
 
+import "core:fmt"
 import "core:math"
 import "core:math/linalg"
 import "core:os"
@@ -348,16 +349,11 @@ light_keys_name_their_fields :: proc(t: ^testing.T) {
 	testing.expect(t, !ok)
 }
 
+// The key of light `i`'s `field`, as the settings file spells it, in temporary memory: the
+// caller compares it after this procedure has returned, when a local buffer is gone.
 @(private = "file")
 fmt_light_key :: proc(i: int, field: string) -> string {
-	buf: [32]u8
-	n := copy(buf[:], "light")
-	buf[n] = u8('1' + i)
-	n += 1
-	buf[n] = '_'
-	n += 1
-	n += copy(buf[n:], field)
-	return string(buf[:n])
+	return fmt.tprintf("light%d_%s", i + 1, field)
 }
 
 // The scene file keeps the lights as they were, bit for bit, and refuses damaged ones.

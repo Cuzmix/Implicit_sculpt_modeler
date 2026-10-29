@@ -36,18 +36,18 @@ MINI_H :: 200
 // The off-hand island: Size and Strength as tall sliders that a thumb drags without
 // looking, each moving its value by how far the drag goes. A long press (or a right-click)
 // on either opens the pen's section beside it. The pen held over either without touching
-// and turned about its own length sets it too (island_roll).
+// and turned about its own length on purpose sets it too (ui.hover_roll).
 kit_offhand :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
 	ui.begin_anchored(ctx, "brush bar", .Start, .Start, {LENS_EDGE, brush_bar_top(app)}, {direction = .Column, gap = 6, padding = 6, radius = t.radius_large, background = .Panel, center = true})
 	_ = ui.vslider(ctx, "Size##island", &app.brush.radius_px, MIN_RADIUS_PX, MAX_RADIUS_PX, .Logarithmic, fmt.tprintf("%.0f", app.brush.radius_px), keys = slider_hint(app, "S, [ ]", .Size_Up), track = OFFHAND_TRACK, roll = false)
-	if island_roll(app) do app.brush.radius_px = clamp(app.brush.radius_px * math.pow(2, app.pen_roll * ROLL_POINTS / ROLL_SIZE_DOUBLE), MIN_RADIUS_PX, MAX_RADIUS_PX)
+	if roll := island_roll(ctx); roll != 0 do app.brush.radius_px = clamp(app.brush.radius_px * math.pow(2, roll * ROLL_POINTS / ROLL_SIZE_DOUBLE), MIN_RADIUS_PX, MAX_RADIUS_PX)
 	if ui.secondary(ctx) do bar_pop_toggle(app, .Section, ctx.last_rect, .Right, .Pen)
 	strength := brush_strength(app)
 	_ = ui.vslider(ctx, "Strength##island", strength, MIN_STRENGTH, 1, .Linear, fmt.tprintf("%.2f", strength^), keys = slider_hint(app, "U, Shift+[ ]", .Strength_Up), track = OFFHAND_TRACK, roll = false)
-	if island_roll(app) do strength^ = clamp(strength^ + app.pen_roll * ROLL_POINTS / ROLL_STRENGTH_FULL, MIN_STRENGTH, 1)
+	if roll := island_roll(ctx); roll != 0 do strength^ = clamp(strength^ + roll * ROLL_POINTS / ROLL_STRENGTH_FULL, MIN_STRENGTH, 1)
 	if ui.secondary(ctx) do bar_pop_toggle(app, .Section, ctx.last_rect, .Right, .Pen)
 	ui.end(ctx)
 }
@@ -65,14 +65,12 @@ ROLL_POINTS :: f32(ROLL_STRENGTH_FULL) / 180
 ROLL_SIZE_DOUBLE :: 150
 ROLL_STRENGTH_FULL :: 300
 
-// Whether the pen hovers on the slider just drawn, touching nothing, while it turned about
-// its own length this frame (App.pen_roll): the slider's value then follows the turn, by
-// these figures rather than the kit's sweep, which its sliders are told to leave alone.
+// The degrees the pen's roll moves the slider just drawn this frame (ui.hover_roll), which
+// its value follows by these figures rather than the kit's sweep, which its sliders are
+// told to leave alone.
 @(private = "file")
-island_roll :: proc(app: ^App) -> bool {
-	ctx := &app.kit.ctx
-	in_ := ctx.input
-	return app.pen_roll != 0 && ctx.hot == ctx.last_id && in_.pointer == .Pen && in_.down == {}
+island_roll :: proc(ctx: ^ui.Context) -> f32 {
+	return ui.hover_roll(ctx, ctx.last_id, ctx.hot == ctx.last_id)
 }
 
 // A chip over the view: a see-through pill a touch target tall holding an optional

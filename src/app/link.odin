@@ -338,7 +338,7 @@ link_send :: proc(app: ^App) {
 	}
 	// The objects of earlier sends that this one does not list go, so the folder holds no
 	// more than one send.
-	if infos, err := os.read_directory_by_path(l.folder, -1, context.temp_allocator); err == nil {
+	if infos, err := folder_entries(l.folder, context.temp_allocator); err == nil {
 		for fi in infos {
 			stem := strings.trim_suffix(fi.name, ".ply")
 			if stem == fi.name || len(stem) == 0 || strings.trim_left(stem, "0123456789") != "" do continue

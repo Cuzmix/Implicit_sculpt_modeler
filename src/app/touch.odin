@@ -116,8 +116,10 @@ touch_event :: proc(app: ^App, e: ^sdl.Event, window: ^sdl.Window) {
 	t := &app.touch
 	d := &app.device
 	#partial switch e.type {
-	case .PEN_PROXIMITY_IN:  t.pen_near = true
-	case .PEN_PROXIMITY_OUT: t.pen_near, t.pen_down = false, false
+	// A pen that moves is near, though no PEN_PROXIMITY_IN came: an iPad's SDL sends that
+	// only once, and after the leave pencil_leave said, the next report brings it back.
+	case .PEN_PROXIMITY_IN, .PEN_MOTION: t.pen_near = true
+	case .PEN_PROXIMITY_OUT:             t.pen_near, t.pen_down = false, false
 	case .PEN_DOWN:
 		t.pen_down, t.pen_near = true, true
 		// A hand resting on the screen before the pen came down was not meant: cancel it.

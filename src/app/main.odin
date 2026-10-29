@@ -44,8 +44,9 @@ Options :: struct {
 	hd_open:   bool `usage:"Start sculpting HD on the first sphere, in a window around the side facing the camera (needs --hd)."`,
 	no_cache:  bool `usage:"Draw every object every frame instead of caching the idle ones (for comparison)."`,
 	no_cull:   bool `usage:"Draw every triangle instead of skipping off-screen and back-facing chunks (for comparison)."`,
+	pen_no_leave: bool `usage:"Act as the iPad's SDL does, which never says that the pen left: the pen then counts as gone half a second after its last report while its tip is up (for testing that on a desktop)."`,
 	ui_dt:     f32 `usage:"Move the interface's clock (animations, tooltips, long presses) this many seconds a frame instead of by the time that passed, for scripted runs whose checks must not depend on how fast frames come (scripts/touch_check.py passes 1/60). A stroke then lays every dab its frame's samples ask for, up to 64, however long they take. The 90 ms a finger waits before it sculpts and the right tap that opens the pie stay on the real clock."`,
-	ui_events: string `usage:"Drive the pointer, fingers and pen as SDL events would, for tests: FRAME:move:X,Y, FRAME:down, FRAME:up, FRAME:right (a right click), FRAME:mdown, FRAME:mup, FRAME:rdown and FRAME:rup (the middle and right buttons held and let go), FRAME:wheel:N, FRAME:key:NAME (a key press: shift, ctrl, alt held until FRAME:keyup:NAME), FRAME:fdown:ID:X,Y, FRAME:fmove:ID:X,Y, FRAME:fup:ID and FRAME:fcancel:ID (finger ID on a touch screen), FRAME:pdown:X,Y, FRAME:pmove:X,Y, FRAME:pup, FRAME:pnear / FRAME:pfar, FRAME:pright (the pen, the last its side button), FRAME:pedown:X,Y (its eraser end down), FRAME:pbutton:N (barrel button N), FRAME:pdtap and FRAME:psqueeze (an Apple Pencil's double-tap and squeeze, :ACTION naming the iPad's preferred action), FRAME:ponly:1 or :0 (the iPad's Only Draw with Apple Pencil), FRAME:ptilt:X,Y and FRAME:pdist:D (the pen's lean and hover height from then on), FRAME:ppress:P (the pen's pressure from then on, 0 to 1; 0 until set) and FRAME:pcoal:X,Y or FRAME:pcoal:X,Y:P (one of the pen's samples between frames, as a tablet's bridge sends it ahead of the frame's next pmove), separated by semicolons; X and Y in window points. FRAME:winN:... sends an event to view window N (1 to 3) instead, in its points."`,
+	ui_events: string `usage:"Drive the pointer, fingers and pen as SDL events would, for tests: FRAME:move:X,Y, FRAME:down, FRAME:up, FRAME:right (a right click), FRAME:mdown, FRAME:mup, FRAME:rdown and FRAME:rup (the middle and right buttons held and let go), FRAME:wheel:N, FRAME:key:NAME (a key press: shift, ctrl, alt held until FRAME:keyup:NAME), FRAME:fdown:ID:X,Y, FRAME:fmove:ID:X,Y, FRAME:fup:ID and FRAME:fcancel:ID (finger ID on a touch screen), FRAME:pdown:X,Y, FRAME:pmove:X,Y, FRAME:pup, FRAME:pnear / FRAME:pfar, FRAME:pright (the pen, the last its side button), FRAME:pedown:X,Y (its eraser end down), FRAME:pbutton:N (barrel button N), FRAME:pdtap and FRAME:psqueeze (an Apple Pencil's double-tap and squeeze, :ACTION naming the iPad's preferred action), FRAME:ponly:1 or :0 (the iPad's Only Draw with Apple Pencil), FRAME:ptilt:X,Y and FRAME:pdist:D (the pen's lean and hover height from then on), FRAME:ppress:P (the pen's pressure from then on, 0 to 1; 0 until set) and FRAME:pcoal:X,Y or FRAME:pcoal:X,Y:P (one of the pen's samples between frames, as a tablet's bridge sends it ahead of the frame's next pmove) and FRAME:kbhide (the on-screen keyboard put away by its own key, as an iPad's SDL reports it), separated by semicolons; X and Y in window points. FRAME:winN:... sends an event to view window N (1 to 3) instead, in its points."`,
 	dump_view_window: string `usage:"On exit, write view window 1 as its interface drew it (its picture and head) to this path: a PNG, or a binary PPM when it ends in .ppm."`,
 	view_windows: int `usage:"Open this many view windows (up to 3, desktop only) at the start, each showing what Camera > New view window would."`,
 	dump_screen: string `usage:"On exit, write the whole window as the interface drew it (viewport and panels) to this path: a PNG, or a binary PPM when it ends in .ppm."`,
@@ -97,6 +98,9 @@ Options :: struct {
 	run:        string `usage:"Run the command script in this file once the window is up, as set-up: commands by name, settings with set, wait and select (README \"Command scripts\"). A script with an error runs none of it and exits with code 2; so does a statement that does nothing in a run with --frames. --frames and the frames of --ui-events count from where it ends."`,
 	script:     string `usage:"Run this command script, given here with ; between statements, as --run does a file's."`,
 	save_strokes: string `usage:"On exit, save the recorded strokes (or else the last stroke) to this .strokes file, as the Stroke recorder's Save strokes does."`,
+	input_diagnostics: bool `usage:"Open the Input diagnostics screen at the start, in any build (debug builds and the developer iPad build also reach it from Search and Settings > Statistics)."`,
+	diag_test: string `usage:"Open Input diagnostics at the start and run this test (finger_tap, roll_right, ...: README \"Input diagnostics\")."`,
+	diag_export: string `usage:"On exit, write the Input diagnostics report (a ZIP of diagnostic-report.md, diagnostic-events.jsonl and diagnostic-summary.json) to this path, as its Export report does."`,
 }
 
 // Everything the app owns. The interface only ever sees pointers handed to it per frame.
@@ -167,6 +171,7 @@ App :: struct {
 	// replayed stroke turns as it was drawn.
 	alpha_roll: f32,
 	pencil:   Pencil, // the pencil's double-tap and squeeze, the pen's second button and eraser end (pencil.odin)
+	diag:     Diag, // the Input diagnostics screen and its log (diagnostics.odin)
 	// The first-run tips (kit_coach.odin): whether this run shows them, and the steps
 	// done since the card last moved on.
 	coach_run:  bool,
@@ -594,6 +599,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	kit_init(&app)
 	defer kit_destroy(&app)
 	if !kit_events_parse(&app, opts.ui_events) do return false
+	defer diag_destroy(&app)
 
 	if len(app.scene.objects) > 1 do frame_all(&app)
 	app.cache_idle = !opts.no_cache
@@ -645,6 +651,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	settings_load(&app, settings)
 	app.graphics_loaded = app.graphics
 	pencil_init(&app, window)
+	app.pencil.no_leave = !PEN_LEAVE_SAID || opts.pen_no_leave
 	pen_samples_init(&app, window)
 	// The benchmarks measure the viewport filling the window, so their numbers stay
 	// comparable whatever grid a workspace keeps.
@@ -668,6 +675,18 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	app.coach_run = (remember && opts.frames == 0) || opts.coach
 	if opts.coach do app.kit.coach = 0
 	app.kit.fixed_dt = opts.ui_dt
+	// After the clock is chosen, which the session's times count on.
+	app.diag.allowed = DIAGNOSTICS || opts.input_diagnostics || opts.diag_test != "" || opts.diag_export != ""
+	if opts.input_diagnostics || opts.diag_test != "" do diag_open(&app)
+	if opts.diag_test != "" {
+		test, known := diag_test_named(opts.diag_test)
+		if !known {
+			log.errorf("--diag-test=%s: no such test (README \"Input diagnostics\" lists them)", opts.diag_test)
+			return false
+		}
+		diag_show(&app, test)
+		diag_run_start(&app, test)
+	}
 	if opts.no_vsync do app.frame_rate = .Unlimited
 	if opts.frame_limit > 0 do app.frame_rate, app.frame_limit = .Limit, i32(clamp(opts.frame_limit, FRAME_LIMIT_MIN, FRAME_LIMIT_MAX))
 	app.ui.smooth_on_gpu = opts.gpu_smooth
@@ -816,7 +835,10 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		e: sdl.Event
 		for sdl.PollEvent(&e) {
 			app.idle.events += 1
+			pencil_heard(&app, &e)
 			if view_windows_event(&app, &e, main_window) do continue
+			// Before anything below takes the event for itself (Space, the backquote, the pencil).
+			diag_event(&app, &e)
 			// Space over the viewport is the brush pie's (pie.odin) rather than a key of the
 			// frame; once it went down there, its release is the pie's too.
 			if (e.type == .KEY_DOWN || e.type == .KEY_UP) && e.key.scancode == .SPACE {
@@ -849,6 +871,10 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 				app.running = false
 			case .WINDOW_FOCUS_GAINED:
 				link_focus(&app)
+			case .SCREEN_KEYBOARD_HIDDEN:
+				app.kit.keyboard_down = true
+			case .SCREEN_KEYBOARD_SHOWN:
+				app.kit.keyboard_down = false
 			case .DID_ENTER_FOREGROUND:
 				// The window comes back with a new surface, which has to ask for its frame rate again.
 				app.pacer.voted_window = nil
@@ -878,7 +904,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 					pencil_tilt_take(&app, e.paxis.axis, e.paxis.value)
 					pen_samples_axes(&app)
 				case .ROTATION:
-					pen_roll_take(&app, e.paxis.value)
+					pen_roll_take(&app, pencil_roll_degrees(e.paxis.value))
 				case .DISTANCE:
 					app.pen_distance = clamp(e.paxis.value, 0, 1)
 				}
@@ -889,6 +915,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 				app.pen_distance = 0
 			}
 		}
+		// After the frame's events, so that a report still queued counts as the pen heard.
+		pencil_leave(&app)
 		device_frame_end(&app.device)
 		pencil_frame(&app)
 		pen_samples_frame_end(&app)
@@ -1212,6 +1240,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 			_ = ui.frame_end(&app.kit.ctx)
 		}
 		app.stats.ui_vertices = len(app.kit.ctx.draw.vertices)
+		// Once ui.frame_end settled the held control and the field with the keys.
+		diag_frame(&app)
 		// The pass clears the image even when the interface could not be uploaded, so a
 		// failed upload shows an empty frame rather than whatever the image held.
 		if swapchain != nil {
@@ -1312,6 +1342,9 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	if opts.save != "" && set_up && !scene_save(&app, opts.save) do return false
 	if opts.save_strokes != "" && set_up && !strokes_save(&app, opts.save_strokes) do return false
 	if opts.export_workspace != "" && set_up && !workspace_export(&app, opts.export_workspace) do return false
+	// A run still under way at exit ends here, so its verdict is in the stats and the report.
+	if app.diag.run_open do diag_run_end(&app, .End)
+	if opts.diag_export != "" && !diag_export(&app, opts.diag_export) do return false
 	save_pending(&app, true)
 	autosave_close(&app, window)
 	if as := &app.autosave; as.on {
@@ -1388,6 +1421,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	for _, slot in app.plugins.slots do plugin_commands += int(plugin_slot_loaded(&app, slot))
 	fmt.printfln("plugins=%d plugin_commands=%d plugin_errors=%d plugin_runs=%d plugin_steps=%d", len(app.plugins.plugins) - plugins_failed(&app), plugin_commands, app.plugins.errors, app.plugins.runs, app.plugins.steps)
 	fmt.printfln("frames=%d dabs=%d objects=%d vertices=%d", frame_index, app.stats.dabs_total, len(app.scene.objects), vertices)
+	diag_stats(&app)
 	{
 		// The voxel objects: how many, their bricks, and what their fields, surfaces and undo
 		// steps hold.
@@ -1603,6 +1637,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		n := app.cursor.normal
 		fmt.printfln("cursor_hit=%d cursor_normal=%.4f,%.4f,%.4f", int(app.cursor.ok), n.x, n.y, n.z)
 		k := &app.kit
+		fmt.printfln("keyboard_down=%d keyboard_restarts=%d", int(k.keyboard_down), k.keyboard_restarts)
 		fmt.printfln("palette=%d palette_runs=%d palette_last=%s settings_tab=%v settings_section=%v settings_found=%s tool=%s", int(k.palette), k.palette_runs, palette_entry_name(k.palette_last) if k.palette_ran else "none", k.settings_tab, k.settings_section, settings_found_text(k), strings.to_lower(fmt.tprint(app.tool), context.temp_allocator))
 		fmt.printfln("export_open=%d export_format=%v export_runs=%d", int(k.export.open), k.export.format, k.export.runs)
 		dial := strings.builder_make(context.temp_allocator)
@@ -1942,16 +1977,4 @@ write_ppm :: proc(path: string, rgba: []u8, width, height: int) -> bool {
 	append(&out, ..transmute([]u8)fmt.tprintf("P6\n%d %d\n255\n", width, height))
 	for i := 0; i < len(rgba); i += 4 do append(&out, rgba[i], rgba[i + 1], rgba[i + 2])
 	return os.write_entire_file(path, out[:]) == nil
-}
-
-// Adds the pen's turn about its own length since its last report, `degrees` from -180 to
-// 180, to this frame's roll, the short way round, so turning past the half turn where the
-// numbers wrap reads as the small turn it is.
-pen_roll_take :: proc(app: ^App, degrees: f32) {
-	if last, ok := app.pen_roll_last.?; ok {
-		d := degrees - last
-		d -= 360 * math.floor((d + 180) / 360)
-		app.pen_roll += d
-	}
-	app.pen_roll_last = degrees
 }

@@ -90,6 +90,10 @@ device_event :: proc(d: ^Device, e: ^sdl.Event) {
 		d.wheel += e.wheel.y
 	case .WINDOW_MOUSE_LEAVE:
 		d.over = false
+	case .PEN_PROXIMITY_OUT:
+		// The pen gone hovers over nothing: no tooltip or highlight stays where it left, and
+		// coming back elsewhere is no drag from there.
+		if d.pointer == .Pen do d.over = false
 	case .WINDOW_FOCUS_LOST:
 		// What is let go while another window has the focus never arrives here.
 		d.down = {}

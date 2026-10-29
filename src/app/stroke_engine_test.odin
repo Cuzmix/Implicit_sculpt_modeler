@@ -587,10 +587,13 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	append(&eleven, ..frames_before_roll(data[16 + BRUSH:]))
 	eleven[len(STROKES_MAGIC)] = 11
 	testing.expect(t, os.write_entire_file(path, eleven[:]) == nil)
-	l: App
+	// Each older file loads into an App of its own on the heap: ten Apps of about 114 KB
+	// in this frame would pass the 1 MB stack a Windows thread has (Linux gives 8 MB).
+	l := new(App)
+	defer free(l)
 	defer replay_destroy(&l.replay)
-	defer results_destroy(&l)
-	testing.expect(t, strokes_load(&l, path))
+	defer results_destroy(l)
+	testing.expect(t, strokes_load(l, path))
 	if len(l.replay.take.brushes) == 1 {
 		testing.expect_value(t, l.replay.take.brushes[0].spacing, SPACING_REFERENCE)
 		testing.expect_value(t, l.replay.take.brushes[0].color_spray, 0)
@@ -604,10 +607,11 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	append(&ten, ..frames_before_roll(data[16 + BRUSH:]))
 	ten[len(STROKES_MAGIC)] = 10
 	testing.expect(t, os.write_entire_file(path, ten[:]) == nil)
-	o: App
+	o := new(App)
+	defer free(o)
 	defer replay_destroy(&o.replay)
-	defer results_destroy(&o)
-	testing.expect(t, strokes_load(&o, path))
+	defer results_destroy(o)
+	testing.expect(t, strokes_load(o, path))
 	if len(o.replay.take.brushes) == 1 {
 		testing.expect(t, !o.replay.take.brushes[0].grab_depth)
 		testing.expect_value(t, o.replay.take.brushes[0].smooth_only, sculpt.Smooth_Only.All)
@@ -621,10 +625,11 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	append(&nine, ..frames_before_roll(data[16 + BRUSH:]))
 	nine[len(STROKES_MAGIC)] = 9
 	testing.expect(t, os.write_entire_file(path, nine[:]) == nil)
-	n: App
+	n := new(App)
+	defer free(n)
 	defer replay_destroy(&n.replay)
-	defer results_destroy(&n)
-	testing.expect(t, strokes_load(&n, path))
+	defer results_destroy(n)
+	testing.expect(t, strokes_load(n, path))
 	if len(n.replay.take.brushes) == 1 {
 		testing.expect_value(t, n.replay.take.brushes[0].channel, sculpt.Channel.Sculpt)
 		testing.expect(t, n.replay.take.brushes[0].radial_on)
@@ -637,10 +642,11 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	append(&eight, ..frames_before_roll(data[16 + BRUSH:]))
 	eight[len(STROKES_MAGIC)] = 8
 	testing.expect(t, os.write_entire_file(path, eight[:]) == nil)
-	h: App
+	h := new(App)
+	defer free(h)
 	defer replay_destroy(&h.replay)
-	defer results_destroy(&h)
-	testing.expect(t, strokes_load(&h, path))
+	defer results_destroy(h)
+	testing.expect(t, strokes_load(h, path))
 	if len(h.replay.take.brushes) == 1 {
 		testing.expect(t, !h.replay.take.brushes[0].radial_on)
 		testing.expect_value(t, h.replay.take.brushes[0].radial_count, RADIAL_DEFAULT)
@@ -654,10 +660,11 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	append(&seven, ..frames_before_roll(data[16 + BRUSH:]))
 	seven[len(STROKES_MAGIC)] = 7
 	testing.expect(t, os.write_entire_file(path, seven[:]) == nil)
-	g: App
+	g := new(App)
+	defer free(g)
 	defer replay_destroy(&g.replay)
-	defer results_destroy(&g)
-	testing.expect(t, strokes_load(&g, path))
+	defer results_destroy(g)
+	testing.expect(t, strokes_load(g, path))
 	if len(g.replay.take.brushes) == 1 {
 		testing.expect_value(t, g.replay.take.brushes[0].falloffs[a.brush.kind].focal, 30)
 		testing.expect_value(t, g.replay.take.scales[0], 1)
@@ -670,10 +677,11 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	append(&six, ..frames_before_roll(data[16 + BRUSH:]))
 	six[len(STROKES_MAGIC)] = 6
 	testing.expect(t, os.write_entire_file(path, six[:]) == nil)
-	e: App
+	e := new(App)
+	defer free(e)
 	defer replay_destroy(&e.replay)
-	defer results_destroy(&e)
-	testing.expect(t, strokes_load(&e, path))
+	defer results_destroy(e)
+	testing.expect(t, strokes_load(e, path))
 	if len(e.replay.take.brushes) == 1 {
 		testing.expect(t, e.replay.take.brushes[0].lock_plane && e.replay.take.brushes[0].connected)
 		testing.expect_value(t, e.replay.take.brushes[0].falloffs[a.brush.kind].focal, 0)
@@ -687,10 +695,11 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	append(&five, ..frames_before_roll(data[16 + BRUSH:]))
 	five[len(STROKES_MAGIC)] = 5
 	testing.expect(t, os.write_entire_file(path, five[:]) == nil)
-	d: App
+	d := new(App)
+	defer free(d)
 	defer replay_destroy(&d.replay)
-	defer results_destroy(&d)
-	testing.expect(t, strokes_load(&d, path))
+	defer results_destroy(d)
+	testing.expect(t, strokes_load(d, path))
 	if len(d.replay.take.brushes) == 1 {
 		testing.expect(t, !d.replay.take.brushes[0].lock_plane && !d.replay.take.brushes[0].connected)
 		testing.expect_value(t, d.replay.take.brushes[0].spray_spread, 0.8)
@@ -704,11 +713,12 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	append(&old, ..frames_before_roll(data[16 + BRUSH:]))
 	old[len(STROKES_MAGIC)] = 3
 	testing.expect(t, os.write_entire_file(path, old[:]) == nil)
-	c: App
+	c := new(App)
+	defer free(c)
 	defer replay_destroy(&c.replay)
-	defer results_destroy(&c)
+	defer results_destroy(c)
 	c.brush.spray_spread = 0.3
-	testing.expect(t, strokes_load(&c, path))
+	testing.expect(t, strokes_load(c, path))
 	if len(c.replay.take.brushes) == 1 {
 		testing.expect_value(t, c.replay.take.brushes[0].spray_spread, 0.3)
 		testing.expect_value(t, c.replay.take.seeds[0], 0)
