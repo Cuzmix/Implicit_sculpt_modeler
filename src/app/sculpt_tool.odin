@@ -45,6 +45,8 @@ Brush_Settings :: struct {
 	grab_normal:       f32,
 	grab_same_side:    bool,
 	grab_silhouette:   bool,
+	// Grab's falloff measured along the surface (sculpt.Brush.topological).
+	grab_topological:  bool,
 	smooth_only:       sculpt.Smooth_Only, // which vertices Smooth evens out: all, valleys or peaks
 	stroke:            Stroke_Mode,
 	spray_spread:      f32, // Spray: how far from the path dabs scatter, in brush radii
@@ -1217,6 +1219,7 @@ brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pres
 		feather    = app.brush.feather,
 		same_side  = kind == .Grab && app.brush.grab_same_side,
 		silhouette = kind == .Grab && app.brush.grab_silhouette,
+		topological = kind == .Grab && app.brush.grab_topological,
 	}
 }
 

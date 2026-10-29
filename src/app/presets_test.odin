@@ -157,8 +157,9 @@ presets_are_remembered :: proc(t: ^testing.T) {
 	testing.expect_value(t, b.brush.falloffs[.Draw].focal, -30)
 }
 
-// A Grab preset keeps its mode, Normal weight, Same side and Silhouette, written only when
-// one of them is set, so a plain preset's line stays as long as before them.
+// A Grab preset keeps its mode, Normal weight, Same side, Silhouette and Topological,
+// written only when one of them is set, so a plain preset's line stays as long as before
+// them.
 @(test)
 presets_keep_grab_modes :: proc(t: ^testing.T) {
 	v := Preset_Values{kind = .Grab, strength = 0.5, falloff = {curve = FALLOFF_SMOOTH_CURVE}, stroke = .Dots, alpha = -1}
@@ -176,7 +177,14 @@ presets_keep_grab_modes :: proc(t: ^testing.T) {
 	testing.expect_value(t, name, "Pull out")
 	testing.expect_value(t, w.grab_mode, Grab_Mode.Surface)
 	testing.expect_value(t, w.grab_normal, 0.25)
-	testing.expect(t, w.grab_same_side && w.grab_silhouette)
+	testing.expect(t, w.grab_same_side && w.grab_silhouette && !w.grab_topological)
+	v.grab_topological = true
+	strings.builder_reset(&out)
+	preset_line(&out, "Pull out", v, "-")
+	f = strings.fields(strings.trim_space(strings.to_string(out)), context.temp_allocator)
+	testing.expect_value(t, len(f), 31)
+	_, w, _, ok = preset_parse(f)
+	testing.expect(t, ok && w.grab_topological)
 	f[26] = "Sideways"
 	_, _, _, ok = preset_parse(f)
 	testing.expect(t, !ok)

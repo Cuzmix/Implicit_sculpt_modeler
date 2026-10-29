@@ -14,7 +14,8 @@ import "../sculpt"
 // per brush kind, plus Draw at the app's spacing, Draw with X symmetry (feathered), Draw
 // over a half-masked sphere and Draw with the Noise alpha (whose square reaches past the
 // round brush). Grab picks up the brush area at the first point and is dragged along the rest of the
-// path, one move per frame as the app does. Each stroke is undone before the next, so
+// path, one move per frame as the app does; once more with its falloff along the surface, and a
+// line after the table gives each press's time, which finds that falloff. Each stroke is undone before the next, so
 // they all start from the same sphere.
 brushes_header :: proc() {
 	fmt.println("| Vertices | Brush | Verts/dab | Dab ms | Normals ms/frame | Frame ms | Frame ms max | Undo MB/stroke |")
@@ -43,28 +44,33 @@ run_brushes :: proc(target: int, pool: ^jobs.Pool) {
 		// quarter the rest are laid at: a quarter more dabs a frame, each at Even
 		// strength's 0.8 of the strength (sculpt.dab_overlap at 0.25 over 0.2).
 		closer:   bool,
+		// Grab's falloff along the surface: the press finds the distances first.
+		topological: bool,
 	}
 	cases := [?]Case {
-		{"Draw", .Draw, {}, false, false, false, false},
-		{"Draw, spacing 0.2", .Draw, {}, false, false, false, true},
-		{"Draw, recording a layer", .Draw, {}, false, false, true, false},
-		{"Smooth", .Smooth, {}, false, false, false, false},
-		{"Clay", .Clay, {}, false, false, false, false},
-		{"Flatten", .Flatten, {}, false, false, false, false},
-		{"Inflate", .Inflate, {}, false, false, false, false},
-		{"Pinch", .Pinch, {}, false, false, false, false},
-		{"Crease", .Crease, {}, false, false, false, false},
-		{"Grab", .Grab, {}, false, false, false, false},
-		{"Mask", .Mask, {}, false, false, false, false},
-		{"Layer", .Layer, {}, false, false, false, false},
-		{"Layer, second stroke", .Layer, {}, false, false, false, false},
-		{"Snake hook", .Snake_Hook, {}, false, false, false, false},
-		{"Morph", .Morph, {}, false, false, false, false},
-		{"Paint", .Paint, {}, false, false, false, false},
-		{"Draw, X symmetry", .Draw, {.X}, false, false, false, false},
-		{"Draw, half masked", .Draw, {}, true, false, false, false},
-		{"Draw, Noise alpha", .Draw, {}, false, true, false, false},
+		{"Draw", .Draw, {}, false, false, false, false, false},
+		{"Draw, spacing 0.2", .Draw, {}, false, false, false, true, false},
+		{"Draw, recording a layer", .Draw, {}, false, false, true, false, false},
+		{"Smooth", .Smooth, {}, false, false, false, false, false},
+		{"Clay", .Clay, {}, false, false, false, false, false},
+		{"Flatten", .Flatten, {}, false, false, false, false, false},
+		{"Inflate", .Inflate, {}, false, false, false, false, false},
+		{"Pinch", .Pinch, {}, false, false, false, false, false},
+		{"Crease", .Crease, {}, false, false, false, false, false},
+		{"Grab", .Grab, {}, false, false, false, false, false},
+		{"Grab, topological", .Grab, {}, false, false, false, false, true},
+		{"Mask", .Mask, {}, false, false, false, false, false},
+		{"Layer", .Layer, {}, false, false, false, false, false},
+		{"Layer, second stroke", .Layer, {}, false, false, false, false, false},
+		{"Snake hook", .Snake_Hook, {}, false, false, false, false, false},
+		{"Morph", .Morph, {}, false, false, false, false, false},
+		{"Paint", .Paint, {}, false, false, false, false, false},
+		{"Draw, X symmetry", .Draw, {.X}, false, false, false, false, false},
+		{"Draw, half masked", .Draw, {}, true, false, false, false, false},
+		{"Draw, Noise alpha", .Draw, {}, false, true, false, false, false},
 	}
+	press_ms: [2]f64
+	defer fmt.printfln("\nGrab press at %s vertices: %.2f ms, topological %.2f ms", thousands(vcount), press_ms[0], press_ms[1])
 	layer_line: string
 	defer if layer_line != "" {
 		fmt.println()
@@ -87,7 +93,7 @@ run_brushes :: proc(target: int, pool: ^jobs.Pool) {
 		if c.kind == .Morph do _ = sculpt.sculptor_morph_store(s)
 		defer if c.kind == .Morph do sculpt.sculptor_morph_clear(s)
 		// Symmetry feathers as the app's brushes do by default.
-		brush := sculpt.Brush{kind = c.kind, radius = radius, strength = 0.3, symmetry = c.symmetry, color = {200, 60, 30}, feather = c.symmetry != {}}
+		brush := sculpt.Brush{kind = c.kind, radius = radius, strength = 0.3, symmetry = c.symmetry, color = {200, 60, 30}, feather = c.symmetry != {}, topological = c.topological}
 		dabs, per_frame := DABS, DABS_PER_FRAME
 		if c.closer {
 			dabs, per_frame = DABS * 5 / 4, DABS_PER_FRAME * 5 / 4
@@ -116,6 +122,7 @@ run_brushes :: proc(target: int, pool: ^jobs.Pool) {
 				if i == 0 {
 					touched = sculpt.sculptor_grab_begin(s, brush, hit)
 					anchor = hit
+					press_ms[int(c.topological)] = time.duration_milliseconds(time.tick_since(tb))
 				} else if i % per_frame == per_frame - 1 || i == dabs - 1 {
 					_ = sculpt.sculptor_grab_move(s, 0.3 * (target_point - anchor))
 				}

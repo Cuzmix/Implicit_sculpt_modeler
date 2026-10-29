@@ -44,6 +44,10 @@ Grab_Job :: struct {
 	// With Connected, per image: the vertices joined to where it presses, sorted.
 	connected: bool,
 	reach:   [dynamic; SYM_IMAGES_MAX][]u32,
+	// With Topological, per image: each vertex of `reach` its distance along the surface
+	// from where the image presses, which the falloff takes in place of the straight one.
+	topological: bool,
+	geodesic: [dynamic; SYM_IMAGES_MAX][]f32,
 	// Same side, per image: the area normal turned as the image is; a vertex facing away
 	// from its image's is left out. Empty without it.
 	sides:   [dynamic; SYM_IMAGES_MAX]Vec3,
@@ -85,8 +89,16 @@ sculptor_grab_begin :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
 	resize(&g.touched, n)
 	resize(&g.first, n + 1)
 	if n == 0 do return 0
-	// Reaching through the depth wins over Connected, whose flood keeps to the round reach.
-	if brush.connected && through == {} {
+	// Reaching through the depth wins over Connected and Topological, which keep to the
+	// round reach; Topological reaches only what joins the press, so it is Connected too.
+	if brush.topological && through == {} {
+		j.connected, j.topological = true, true
+		for k in 0 ..< len(j.centers) {
+			verts, dist := geodesic_reach(s, j.centers[k], brush.radius)
+			append(&j.reach, verts)
+			append(&j.geodesic, dist)
+		}
+	} else if brush.connected && through == {} {
 		j.connected = true
 		for k in 0 ..< len(j.centers) do append(&j.reach, grab_reach(s, j.centers[k], brush.radius))
 	}
@@ -257,7 +269,12 @@ grab_follow :: #force_inline proc(j: ^Grab_Job, v: u32) -> (f: matrix[3, 3]f32) 
 		d2 := linalg.dot(delta, delta)
 		if d2 >= j.r2 do continue
 		if j.connected {
-			if _, found := slice.binary_search(j.reach[k], v); !found do continue
+			at, found := slice.binary_search(j.reach[k], v)
+			if !found do continue
+			if j.topological {
+				d2 = j.geodesic[k][at] * j.geodesic[k][at]
+				if d2 >= j.r2 do continue
+			}
 		}
 		// Same side: a vertex facing away from the surface pressed (the far side of a thin
 		// part) is not picked up, as Nomad's Move keeps to.
