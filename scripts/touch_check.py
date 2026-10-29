@@ -9429,6 +9429,124 @@ def stack_join_left_handed_by_pen():
     return s, LENS_1440 + ["--script=set left_handed 1"], camera_still({"stack": lambda v: v.startswith("Brush+,&Symmetry,"), "stack_joins": near(1), "dabs": near(0)})
 
 
+# Carrying palettes at 1440x900 (stack_carry.odin), Brush folded: Symmetry's grip and
+# Brush's header middle; once Symmetry has joined Brush, its tab in the row, Layers'
+# header, a point clear of the stack, and Ungroup in the group's Panel options.
+STACK_CARRY = {"symmetry_grip": (1075, 154), "brush_head": (1200, 94), "symmetry_tab": (1300, 142),
+               "layers_head": (1150, 556), "clear": (400, 400), "ungroup": (1300, 416)}
+
+
+def stack_tab_carry(s, to, pen=False, offset=0):
+    """Holds the Symmetry tab past the long press, then carries it to `to` and lets go."""
+    (x, y), (tx, ty) = STACK_CARRY["symmetry_tab"], to
+    x, tx = x + offset, tx + offset
+    if pen:
+        s.add(f"pdown:{x},{y}")
+        s.wait(LONG_PRESS_FRAMES)
+        for px, py in line((x, y), (tx, ty), 10):
+            s.add(f"pmove:{px:g},{py:g}")
+            s.wait(1)
+        s.add("pup")
+        s.wait(8)
+        return
+    s.fdrag([(x, y)] * LONG_PRESS_FRAMES + line((x, y), (tx, ty), 10) + [(tx, ty)] * 3)
+    s.wait(8)
+
+
+@scenario
+def stack_grip_drag_joins_a_header():
+    """Symmetry's grip carried onto the middle of Brush's header joins it as a tab, by finger and by mouse."""
+    def run(mouse):
+        s = Script()
+        s.ftap(*LENS_STACK["brush"])
+        s.wait(6)
+        grip, head = STACK_CARRY["symmetry_grip"], STACK_CARRY["brush_head"]
+        if mouse:
+            s.mouse_drag(line(grip, head, 8) + [head] * 3)
+        else:
+            s.fdrag(line(grip, head, 8) + [head] * 3)
+        s.wait(8)
+        return s, LENS_1440, camera_still({"stack": lambda v: v.startswith("Brush+,&Symmetry,Layers"), "stack_drops": near(1), "stack_joins": near(1), "dabs": near(0)})
+    return Steps([run(False), run(True)])
+
+
+@scenario
+def stack_tab_carried_onto_a_card_joins_it():
+    """Symmetry's tab, held then carried out of Brush's group onto Layers' header, becomes a tab of Layers."""
+    s = Script()
+    stack_group_join(s)
+    stack_tab_carry(s, STACK_CARRY["layers_head"])
+    return s, LENS_1440, camera_still({"stack": lambda v: v.startswith("Brush+,Layers+,&Symmetry,"), "stack_drops": near(1), "stack_shown": is_text("Layers=Symmetry"), "dabs": near(0)})
+
+
+@scenario
+def stack_tab_carried_clear_floats():
+    """Symmetry's tab carried well clear of the stack floats there as a card of its own; Brush's group is a card again."""
+    s = Script()
+    stack_group_join(s)
+    stack_tab_carry(s, STACK_CARRY["clear"])
+    return s, LENS_1440, camera_still({"stack": lambda v: v.startswith("Brush+,Symmetry+^,Layers"), "stack_drops": near(1), "dabs": near(0)})
+
+
+@scenario
+def stack_carry_shows_where_it_goes():
+    """While Symmetry's grip is held over Brush's header the target is a join, with the group outlined and a pill saying Join Brush; over the top of Scene's header it is the line."""
+    def run(line_target):
+        s = Script()
+        s.ftap(*LENS_STACK["brush"])
+        s.wait(6)
+        to = (1200, 256) if line_target else STACK_CARRY["brush_head"]
+        s.fdrag(line(STACK_CARRY["symmetry_grip"], to, 8) + [to] * 3, lift=False)
+        s.wait(4)
+        kind = "Line" if line_target else "Join"
+        return s, LENS_1440, camera_still({"stack_carry": is_text("Symmetry"), "stack_target": is_text(kind), "stack_drops": near(0), "dabs": near(0)})
+    return Steps([run(False), run(True)])
+
+
+@scenario
+def stack_carry_escape_drops_nothing():
+    """Escape while Symmetry's grip carries it onto Brush's header drops nothing: the stack is as it was."""
+    s = Script()
+    s.ftap(*LENS_STACK["brush"])
+    s.wait(6)
+    s.fdrag(line(STACK_CARRY["symmetry_grip"], STACK_CARRY["brush_head"], 8), lift=False)
+    s.press("Escape")
+    s.wait(2)
+    s.add("fup:0")
+    s.wait(8)
+    return s, LENS_1440, camera_still({"stack": lambda v: v.startswith("Brush,Symmetry,Layers"), "stack_drops": near(0), "stack_joins": near(0), "dabs": near(0)})
+
+
+@scenario
+def stack_tab_row_swipe_carries_nothing():
+    """A quick finger swipe from the tab row, never held, carries no tab."""
+    s = Script()
+    stack_group_join(s)
+    tab = STACK_CARRY["symmetry_tab"]
+    s.fdrag(line(tab, (tab[0] - 120, tab[1] + 200), 6))
+    s.wait(8)
+    return s, LENS_1440, camera_still({"stack": lambda v: v.startswith("Brush+,&Symmetry,Layers"), "stack_drops": near(0), "stack_joins": near(1), "dabs": near(0)})
+
+
+@scenario
+def stack_ungroup_gives_the_tabs_back():
+    """The group's Panel options > Ungroup gives Symmetry back as a card of its own after Brush."""
+    s = Script()
+    tap = stack_group_join(s)
+    tap(STACK_GROUP["brush_more"])
+    tap(STACK_CARRY["ungroup"])
+    return s, LENS_1440, camera_still({"stack": lambda v: v.startswith("Brush+,Symmetry,Layers"), "stack_joins": near(2), "dabs": near(0)})
+
+
+@scenario
+def stack_tab_carried_left_handed_by_pen():
+    """Left-handed, the pen holds Symmetry's tab then carries it onto Layers' header on the mirrored stack."""
+    s = Script()
+    stack_group_join(s, pen=True, mirror=True)
+    stack_tab_carry(s, STACK_CARRY["layers_head"], pen=True, offset=-994)
+    return s, LENS_1440 + ["--script=set left_handed 1"], camera_still({"stack": lambda v: v.startswith("Brush+,Layers+,&Symmetry,"), "stack_drops": near(1), "dabs": near(0)})
+
+
 ADJUST_STEPS_LEFT = (662, 644)  # the Steps slider's left end: 1 step
 ADJUST_ONE_SLIDER = {"left": (662, 702), "middle": (800, 702)}  # Retopology's Quads, Extract's Thickness
 

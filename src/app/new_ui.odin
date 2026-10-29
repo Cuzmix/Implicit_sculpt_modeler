@@ -1413,6 +1413,7 @@ kit_layout :: proc(app: ^App) {
 	// The two columns, under the windows (panels.odin); then the windows and floating
 	// panels, back to front: the last drawn is hit tested first. One pressed comes to the
 	// front from the next frame on. A docked panel is its column's, shown or not.
+	stack_frame_begin(k)
 	kit_columns(app, panel_draw)
 	// A card floated out of the stack another way than by hand (a layout read, a pane
 	// closed) joins the order on top.
@@ -1429,8 +1430,10 @@ kit_layout :: proc(app: ^App) {
 		}
 	}
 	float_raise(k, top)
-	// While a floating panel is dragged, where it would dock.
+	// While a floating panel is dragged, where it would dock; while a palette is carried,
+	// where it would go.
 	kit_column_drop(app)
+	stack_carry_update(app)
 	// The dial over every bar, panel, window and card, so a finger on it is always its
 	// (rail_claims asks for the root on top): it is where the off-hand rests, and nothing
 	// that stays on screen should cover it. What opens for a moment (a menu, a popover, a
