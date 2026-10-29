@@ -93,9 +93,9 @@ pie_update :: proc(app: ^App, input: ^Viewport_Input, right_tap: bool) {
 		busy := app.stroke.active || (input.dragging && .Left in d.down)
 		if !busy && input.hovered && p.space_pressed {
 			p^ = {open = true, hold = true, center = input.mouse_pos, opened = input_clock(app), space_down = p.space_down}
-		} else if !busy && right_tap && d.pointer == .Pen && app.nav.gestures[.Pen_Button] != {.Brush_Pie, 0} {
-			// The pen's side button runs what the gesture map gives it instead.
-			_ = gesture_run(app, .Pen_Button)
+		} else if !busy && right_tap && d.pointer == .Pen && app.nav.gestures[pencil_slot_here(app, .Pen_Button)] != {.Brush_Pie, 0} {
+			// The pen's side button runs what the gesture map gives it where it points instead.
+			_ = gesture_run(app, pencil_slot_here(app, .Pen_Button))
 		} else if !busy && right_tap {
 			p^ = {open = true, center = input.mouse_pos, opened = input_clock(app), space_down = p.space_down}
 		}

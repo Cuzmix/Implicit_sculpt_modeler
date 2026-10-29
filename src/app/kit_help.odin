@@ -182,6 +182,7 @@ TOUCH_HELP := [?]Help_Line {
 	{group = "ANY CONTROL", what = "Its name, or its second action", how = "Long press"},
 	{group = "ANY CONTROL", what = "Draw size, strength or focal shift", how = "Hold the pen over it and roll the pen"},
 	{group = "ANY CONTROL", what = "Step a choice, scroll a panel, turn the shelf's page, scrub History", how = "Hold the pen over it and roll the pen"},
+	{group = "ANY CONTROL", what = "Its own pen buttons, double-tap and squeeze", how = "Settings > Pen > Where the pen points: the model, empty space, the shelf, panels, History, the navigation head, the colour Disc"},
 }
 
 // A word the app uses, the names other apps give the same thing, and what it means.
@@ -286,7 +287,9 @@ help_touch_rows :: proc(app: ^App) -> []Help_Row {
 	// What the gesture map runs that the table above has no line for, once a command.
 	listed: for slot in Gesture_Slot {
 		s := app.nav.gestures[slot]
-		if s.id == .None || (slot == .Pen_Button && s.id == .Brush_Pie) do continue
+		if s.id == .None || s.id == .Pen_As_Empty || ((slot == .Pen_Button || slot == .Pen_Button_Empty) && s.id == .Brush_Pie) do continue
+		// The Apple Pencil's gestures only where one can be paired, as gesture_text says them.
+		if !PENCIL_GESTURES && slot in PENCIL_GESTURE_SLOTS do continue
 		for l in TOUCH_HELP do if l.command == s.id && l.arg == s.arg do continue listed
 		for earlier in Gesture_Slot {
 			if earlier >= slot do break

@@ -44,17 +44,42 @@ Gesture_Slot :: enum u8 {
 	Pen_Squeeze_Nav_Head,
 	Pen_Double_Tap_Colors,
 	Pen_Squeeze_Colors,
+	// The pen's buttons by where it points, for pens with no roll or squeeze (Android's,
+	// Windows'): the side button over empty space (over the interface it is the controls'
+	// right click), and the second button over empty space and each place.
+	Pen_Button_Empty,
+	Pen_Button_2_Empty,
+	Pen_Button_2_Shelf,
+	Pen_Button_2_Panels,
+	Pen_Button_2_History,
+	Pen_Button_2_Nav_Head,
+	Pen_Button_2_Colors,
 }
 
 // Whether the platform has the Apple Pencil's double-tap and squeeze (ios/sculpt_ios.m).
 PENCIL_GESTURES :: ODIN_PLATFORM_SUBTARGET_IOS
 
-// The slots Settings > Pen lists instead of the gesture map.
-PENCIL_SLOTS :: bit_set[Gesture_Slot]{
-	.Pen_Button_2, .Pen_Double_Tap, .Pen_Squeeze, .Pen_Double_Tap_Empty, .Pen_Squeeze_Empty, .Pen_Double_Tap_Shelf, .Pen_Squeeze_Shelf,
+// The Apple Pencil's double-tap and squeeze, wherever the pen points.
+PENCIL_GESTURE_SLOTS :: bit_set[Gesture_Slot]{
+	.Pen_Double_Tap, .Pen_Squeeze, .Pen_Double_Tap_Empty, .Pen_Squeeze_Empty, .Pen_Double_Tap_Shelf, .Pen_Squeeze_Shelf,
 	.Pen_Double_Tap_Panels, .Pen_Squeeze_Panels, .Pen_Double_Tap_History, .Pen_Squeeze_History, .Pen_Double_Tap_Nav_Head,
 	.Pen_Squeeze_Nav_Head, .Pen_Double_Tap_Colors, .Pen_Squeeze_Colors,
 }
+
+// The second button wherever the pen points.
+PEN_BUTTON_2_SLOTS :: bit_set[Gesture_Slot]{
+	.Pen_Button_2, .Pen_Button_2_Empty, .Pen_Button_2_Shelf, .Pen_Button_2_Panels, .Pen_Button_2_History, .Pen_Button_2_Nav_Head, .Pen_Button_2_Colors,
+}
+
+// The slots over the interface's places, which may do As over empty space.
+PEN_PLACE_SLOTS :: bit_set[Gesture_Slot]{
+	.Pen_Double_Tap_Shelf, .Pen_Squeeze_Shelf, .Pen_Double_Tap_Panels, .Pen_Squeeze_Panels, .Pen_Double_Tap_History, .Pen_Squeeze_History,
+	.Pen_Double_Tap_Nav_Head, .Pen_Squeeze_Nav_Head, .Pen_Double_Tap_Colors, .Pen_Squeeze_Colors,
+	.Pen_Button_2_Shelf, .Pen_Button_2_Panels, .Pen_Button_2_History, .Pen_Button_2_Nav_Head, .Pen_Button_2_Colors,
+}
+
+// The slots Settings > Pen lists instead of the gesture map.
+PENCIL_SLOTS :: PENCIL_GESTURE_SLOTS + PEN_BUTTON_2_SLOTS + {.Pen_Button_Empty}
 
 // The order Settings lists the slots in: the taps by fingers, the holds, the pen, then
 // the pen's own, which the map leaves to Settings > Pen.
@@ -83,6 +108,13 @@ GESTURE_SLOT_ORDER := [Gesture_Slot]Gesture_Slot {
 	.Pen_Squeeze_Nav_Head    = .Pen_Squeeze_Nav_Head,
 	.Pen_Double_Tap_Colors   = .Pen_Double_Tap_Colors,
 	.Pen_Squeeze_Colors      = .Pen_Squeeze_Colors,
+	.Pen_Button_Empty        = .Pen_Button_Empty,
+	.Pen_Button_2_Empty      = .Pen_Button_2_Empty,
+	.Pen_Button_2_Shelf      = .Pen_Button_2_Shelf,
+	.Pen_Button_2_Panels     = .Pen_Button_2_Panels,
+	.Pen_Button_2_History    = .Pen_Button_2_History,
+	.Pen_Button_2_Nav_Head   = .Pen_Button_2_Nav_Head,
+	.Pen_Button_2_Colors     = .Pen_Button_2_Colors,
 }
 
 GESTURE_SLOT_NAMES := [Gesture_Slot]string {
@@ -109,6 +141,13 @@ GESTURE_SLOT_NAMES := [Gesture_Slot]string {
 	.Pen_Squeeze_Nav_Head    = "Pencil squeeze on the navigation head",
 	.Pen_Double_Tap_Colors   = "Pencil double-tap on the colour Disc",
 	.Pen_Squeeze_Colors      = "Pencil squeeze on the colour Disc",
+	.Pen_Button_Empty        = "Pen side button on empty space",
+	.Pen_Button_2_Empty      = "Pen second button on empty space",
+	.Pen_Button_2_Shelf      = "Pen second button on the shelf",
+	.Pen_Button_2_Panels     = "Pen second button on a panel",
+	.Pen_Button_2_History    = "Pen second button on Undo, Redo or History",
+	.Pen_Button_2_Nav_Head   = "Pen second button on the navigation head",
+	.Pen_Button_2_Colors     = "Pen second button on the colour Disc",
 }
 
 GESTURE_DEFAULTS :: [Gesture_Slot]Pie_Slot {
@@ -141,6 +180,15 @@ GESTURE_DEFAULTS :: [Gesture_Slot]Pie_Slot {
 	.Pen_Squeeze_Nav_Head    = {.Pen_As_Empty, 0},
 	.Pen_Double_Tap_Colors   = {.Swap_Colors, 0},
 	.Pen_Squeeze_Colors      = {.Pen_As_Empty, 0},
+	// The buttons start as they always were, the side button the brush pie and the second
+	// the middle button, everywhere.
+	.Pen_Button_Empty        = {.Brush_Pie, 0},
+	.Pen_Button_2_Empty      = {},
+	.Pen_Button_2_Shelf      = {.Pen_As_Empty, 0},
+	.Pen_Button_2_Panels     = {.Pen_As_Empty, 0},
+	.Pen_Button_2_History    = {.Pen_As_Empty, 0},
+	.Pen_Button_2_Nav_Head   = {.Pen_As_Empty, 0},
+	.Pen_Button_2_Colors     = {.Pen_As_Empty, 0},
 }
 
 // What a gesture's select lists in Settings: what a tablet without a keyboard reaches for,
@@ -199,7 +247,8 @@ gesture_run :: proc(app: ^App, slot: Gesture_Slot) -> bool {
 // The gestures that run the command, as its tooltip and Help say them: "Two-finger tap,
 // hold to repeat", "Hold three fingers still", "Pen side button"; "" for none.
 gesture_text :: proc(app: ^App, id: Command_Id, arg: int) -> string {
-	if id == .None do return ""
+	// As over empty space is no command of its own to name.
+	if id == .None || id == .Pen_As_Empty do return ""
 	is :: proc(app: ^App, slot: Gesture_Slot, id: Command_Id, arg: int) -> bool {
 		s := app.nav.gestures[slot]
 		return s.id == id && s.arg == arg
@@ -220,11 +269,16 @@ gesture_text :: proc(app: ^App, id: Command_Id, arg: int) -> string {
 			fmt.sbprintf(&b, "Hold %s fingers still", count)
 		}
 	}
-	for slot in ([?]Gesture_Slot{.Pen_Button, .Pen_Button_2, .Pen_Double_Tap, .Pen_Squeeze, .Pen_Double_Tap_Empty, .Pen_Squeeze_Empty, .Pen_Double_Tap_Shelf, .Pen_Squeeze_Shelf, .Pen_Double_Tap_Panels, .Pen_Squeeze_Panels, .Pen_Double_Tap_History, .Pen_Squeeze_History, .Pen_Double_Tap_Nav_Head, .Pen_Squeeze_Nav_Head, .Pen_Double_Tap_Colors, .Pen_Squeeze_Colors, .One_Tap}) {
+	// The pen's, in the enum's order, then the one-finger tap.
+	pens := make([dynamic]Gesture_Slot, 0, len(Gesture_Slot), context.temp_allocator)
+	append(&pens, Gesture_Slot.Pen_Button)
+	for slot in Gesture_Slot.Pen_Button_2 ..= Gesture_Slot.Pen_Button_2_Colors do append(&pens, slot)
+	append(&pens, Gesture_Slot.One_Tap)
+	for slot in pens {
 		if !is(app, slot, id, arg) do continue
 		// The Apple Pencil's own gestures only where one can be paired: elsewhere the
 		// default empty-space double-tap would name itself under Frame all for nothing.
-		if !PENCIL_GESTURES && (slot == .Pen_Double_Tap || slot == .Pen_Squeeze || slot >= .Pen_Double_Tap_Empty) do continue
+		if !PENCIL_GESTURES && slot in PENCIL_GESTURE_SLOTS do continue
 		if strings.builder_len(b) > 0 do strings.write_string(&b, ", ")
 		strings.write_string(&b, "One-finger tap on empty space" if slot == .One_Tap else GESTURE_SLOT_NAMES[slot])
 	}
@@ -241,10 +295,12 @@ gesture_notes :: proc(app: ^App) -> []string {
 	if g[.One_Tap].id != .None && app.nav.double_tap {
 		append(&out, "A one-finger tap waits 0.3 s before it runs, in case a second tap makes it a double tap (Double tap to frame, above).")
 	}
-	if g[.Pen_Button] != {.Brush_Pie, 0} {
-		append(&out, "The pen's side button no longer opens the brush pie: Space, the mouse's right click and Search still do.")
+	if g[.Pen_Button] != {.Brush_Pie, 0} || g[.Pen_Button_Empty] != {.Brush_Pie, 0} {
+		append(&out, "The pen's side button no longer opens the brush pie everywhere: Space, the mouse's right click and Search still do.")
 	}
-	if g[.Pen_Button_2].id != .None {
+	second_mapped := false
+	for slot in PEN_BUTTON_2_SLOTS do if g[slot].id != .None && g[slot].id != .Pen_As_Empty do second_mapped = true
+	if second_mapped {
 		append(&out, "The pen's second button no longer acts as the middle mouse button, which some tablets' drivers make it.")
 	}
 	for slot in ([?]Gesture_Slot{.Two_Hold, .Three_Hold, .Four_Hold}) {
@@ -262,8 +318,10 @@ gesture_notes :: proc(app: ^App) -> []string {
 			// Follow the Pencil setting reads each gesture's own preference, so it is never one
 			// command on two.
 			if b <= a || g[a].id == .None || g[a].id == .Pencil_Preferred || g[a].id == .Pen_As_Empty || g[a] != g[b] do continue
-			// A tap and its own hold running Undo or Redo is the usual pair, not news.
+			// A tap and its own hold running Undo or Redo is the usual pair, not news; nor is
+			// one pen button or Pencil gesture doing the same in two places.
 			if gesture_repeats(g[a]) && int(b) == int(a) + 3 do continue
+			if pen_input(a) >= 0 && pen_input(a) == pen_input(b) do continue
 			append(&out, fmt.tprintf("%s and %s both run %s.", GESTURE_SLOT_NAMES[a], GESTURE_SLOT_NAMES[b], pie_slot_label(g[a])))
 		}
 	}
@@ -274,6 +332,14 @@ gesture_notes :: proc(app: ^App) -> []string {
 gesture_map_reset :: proc(n: ^Nav_Prefs) {
 	defaults := GESTURE_DEFAULTS
 	for slot in Gesture_Slot do if slot not_in PENCIL_SLOTS do n.gestures[slot] = defaults[slot]
+}
+
+// Which of the pen's inputs `slot` is in some place: the double-tap, squeeze, second
+// button or side button by their column in PEN_AREA_SLOTS (3 the side button), else -1.
+pen_input :: proc(slot: Gesture_Slot) -> int {
+	if slot == .Pen_Button || slot == .Pen_Button_Empty do return 3
+	for row in PEN_AREA_SLOTS do for s, column in row do if s == slot do return column
+	return -1
 }
 
 // The map's rows in Settings > Touch, then its notes.
@@ -298,8 +364,8 @@ gesture_select :: proc(app: ^App, slot: Gesture_Slot, width: f32 = 0) {
 	s := &app.nav.gestures[slot]
 	choices := make([dynamic]Pie_Slot, 0, len(GESTURE_CHOICES) + 3, context.temp_allocator)
 	append(&choices, Pie_Slot{})
-	if slot == .Pen_Double_Tap || slot == .Pen_Squeeze || slot >= .Pen_Double_Tap_Empty do append(&choices, Pie_Slot{.Pencil_Preferred, 0})
-	if slot >= .Pen_Double_Tap_Shelf do append(&choices, Pie_Slot{.Pen_As_Empty, 0})
+	if slot in PENCIL_GESTURE_SLOTS do append(&choices, Pie_Slot{.Pencil_Preferred, 0})
+	if slot in PEN_PLACE_SLOTS do append(&choices, Pie_Slot{.Pen_As_Empty, 0})
 	append(&choices, ..GESTURE_CHOICES[:])
 	chosen := -1
 	for c, i in choices do if c == s^ {chosen = i; break}

@@ -78,7 +78,8 @@ help_touch_rows_follow_the_settings :: proc(t: ^testing.T) {
 	testing.expect_value(t, how_of(&app, "Wireframe"), "Four-finger tap")
 	app.nav.gestures[.Pen_Button] = {.Wireframe, 0}
 	testing.expect_value(t, how_of(&app, "Wireframe"), "Four-finger tap, Pen side button")
-	testing.expect_value(t, how_of(&app, "Brush pie"), "")
+	// Over empty space the side button still opens the brush pie.
+	testing.expect_value(t, how_of(&app, "Brush pie"), "Pen side button on empty space")
 	// Both size steps are one drag, listed once.
 	sizes := 0
 	for r in help_touch_rows(&app) do if r.how == "Three fingers up or down" do sizes += 1
