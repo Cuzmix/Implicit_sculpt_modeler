@@ -133,12 +133,15 @@ levels_carry_paint :: proc(l: ^Levels, to: int) {
 // Brings the top level's colours and groups up to date with edits on the current one,
 // for reading the top level (a bake) without leaving the current level. The edits stay
 // marked, so a later change of level still carries them wherever it goes.
-levels_paint_to_top :: proc(l: ^Levels) {
-	top := len(l.levels) - 1
-	if l.current == top do return
+levels_paint_to_top :: proc(l: ^Levels) {levels_paint_to(l, len(l.levels) - 1)}
+
+// levels_paint_to_top for level `to`: the base's groups, say, for the cage Edit cage
+// takes from it.
+levels_paint_to :: proc(l: ^Levels, to: int) {
+	if l.current == to do return
 	s := &l.levels[l.current].sculptor
-	if s.color_edited do levels_carry_color(l, l.current, top)
-	if s.groups.edited do levels_carry_groups(l, l.current, top)
+	if s.color_edited do levels_carry_color(l, l.current, to)
+	if s.groups.edited do levels_carry_groups(l, l.current, to)
 }
 
 // Adds a level above the top one and makes it current. Returns false, changing

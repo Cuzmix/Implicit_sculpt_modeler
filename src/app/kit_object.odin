@@ -135,6 +135,7 @@ kit_levels :: proc(app: ^App, obj: ^Object) {
 		ui.paragraph(ctx, fmt.tprintf("Adds a level of %s vertices, about %s. %s", count_label(vertices), bytes_label(bytes), command_keys(app, .Subdivide)))
 	}
 	kit_command_pair(app, .Delete_Lower_Levels, .Delete_Higher_Levels, label_a = "Delete lower", label_b = "Delete higher", tone_a = .Danger, tone_b = .Danger)
+	if object_can_edit_cage(obj) do _ = command_button(app, .Edit_Cage, width = ui.fill_width(ctx), glyph = ui.ICON_SHAPES)
 	ui.paragraph(ctx, fmt.tprintf("%s and %s go up and down. All levels use %s of memory; %s undoes a deletion.", command_keys(app, .Level_Up), command_keys(app, .Level_Down), bytes_label(sculpt.levels_bytes(levels)), command_keys(app, .Undo)))
 	if s := app.stats; s.level_sync_ms + s.level_show_ms > 0 {
 		ui.paragraph(ctx, fmt.tprintf("Last change: %.0f ms to update the levels, %.0f ms to show.", s.level_sync_ms, s.level_show_ms))
