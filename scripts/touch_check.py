@@ -1511,6 +1511,44 @@ def big_ring_past_the_edge_turns_the_view():
     return ring_past_the_edge("draw")
 
 
+def ipad_pencil_past_the_edge(hover, brush):
+    """An iPad's Pencil (--pen-no-leave, --system-palms) strokes the sphere, lifts, and lands
+    26 px past its right edge with a ring 200 px across, hovering there first or not."""
+    s = Script()
+    pen_stroke(s, line((700, 430), (800, 450), 10), pressure=1)
+    s.wait(40)  # long past the leave the iPad says itself (pencil_leave)
+    if hover:
+        s.add("pnear")
+        for x, y in line((900, 450), (1040, 450), 6):
+            s.wait(1)
+            s.add(f"pmove:{x:g},{y:g}")
+    s.wait(1)
+    s.add("pdown:1040,450")
+    for x, y in past_slop((1040, 450), (1160, 450), 12)[1:]:
+        s.wait(1)
+        s.add(f"pmove:{x:g},{y:g}")
+    s.wait(1)
+    s.add("pup")
+    s.wait(3)
+    return s, ["--pen-no-leave", "--system-palms", f"--script=set orbit_style turntable; brush {brush}; set radius_px 200"], {
+        "undo_steps": near(1), "camera_yaw": lambda v: abs(float(v) - 0.6) > 0.3}
+
+
+@scenario
+def ipad_pencil_lands_past_the_edge_turns_the_view():
+    """On an iPad, the Pencil landing 26 px past the sphere's edge with no hover before it
+    (most Pencils), after a stroke on the sphere, turns the view and starts no second stroke,
+    though the ring 200 px across overlaps the sphere."""
+    return ipad_pencil_past_the_edge(False, "draw")
+
+
+@scenario
+def ipad_pencil_hovers_past_the_edge_turns_the_view():
+    """On an iPad, the Pencil hovering in from the sphere to 26 px past its edge and landing
+    there turns the view: one undo step, the stroke before it. Grab too, Past the outline off."""
+    return Steps([ipad_pencil_past_the_edge(True, "clay"), ipad_pencil_past_the_edge(True, "grab")])
+
+
 @scenario
 def grab_past_the_edge_turns_the_view():
     """Grab pressed 26 px past the sphere's edge with Past the outline off (the default)
