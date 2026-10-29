@@ -153,7 +153,8 @@ kit_brush_options :: proc(app: ^App) {
 			if b.grab_mode == .Free do _ = ui.slider(ctx, "Normal weight", &b.grab_normal, 0, 1, .Linear, fmt.tprintf("%.0f%%", b.grab_normal * 100))
 			_ = ui.switch_row(ctx, "Same side", &b.grab_same_side)
 			_ = ui.switch_row(ctx, "Silhouette", &b.grab_silhouette)
-			ui.paragraph(ctx, "Free moves what Grab holds as the pointer goes; Along normal pulls it out along the surface's normal where it was pressed (Shift mid-grab), toward where that normal points on screen; Along surface slides it across the surface (Alt mid-grab). Normal weight moves a Free drag that much along the normal instead. Same side picks up only what faces the way the pressed surface does, never the far side of a thin part. Silhouette moves only what faces the way it is dragged, so pulling an edge out leaves the side behind it. Grab takes hold from just past the model's edge too, at the nearest point within the brush ring. Topological measures the falloff along the surface from the press, so it never reaches a part that only lies near, and bends round a fold.")
+			_ = ui.switch_row(ctx, "Past the outline", &b.grab_outline)
+			ui.paragraph(ctx, "Free moves what Grab holds as the pointer goes; Along normal pulls it out along the surface's normal where it was pressed (Shift mid-grab), toward where that normal points on screen; Along surface slides it across the surface (Alt mid-grab). Normal weight moves a Free drag that much along the normal instead. Same side picks up only what faces the way the pressed surface does, never the far side of a thin part. Silhouette moves only what faces the way it is dragged, so pulling an edge out leaves the side behind it. Past the outline takes hold from a press just off the model's edge too, at the nearest point within the brush ring; off, a press off the model turns the view. Topological measures the falloff along the surface from the press, so it never reaches a part that only lies near, and bends round a fold.")
 			kit_more_end(app)
 		}
 	}
@@ -170,7 +171,8 @@ kit_brush_options :: proc(app: ^App) {
 	if b.kind == .Elastic {
 		if picked := ui.tabs(ctx, "grab moves", {"Free", "Along normal", "Along surface"}, int(b.grab_mode)); picked >= 0 do b.grab_mode = Grab_Mode(picked)
 		_ = ui.slider(ctx, "Volume", &b.elastic_volume, 0, 1, .Linear, fmt.tprintf("%.0f%%", b.elastic_volume * 100))
-		ui.paragraph(ctx, "Elastic drags what is under the brush as a block of rubber pulled at that point would move: the part pulled keeps its shape and the rest stretches after it smoothly, out to three times the brush ring. Volume is how much of its volume the rubber keeps: at 100% the sides thin as it stretches, at 0% they stay put. Shift and Alt mid-drag work as Grab's.")
+		_ = ui.switch_row(ctx, "Past the outline", &b.grab_outline)
+		ui.paragraph(ctx, "Elastic drags what is under the brush as a block of rubber pulled at that point would move: the part pulled keeps its shape and the rest stretches after it smoothly, out to three times the brush ring. Volume is how much of its volume the rubber keeps: at 100% the sides thin as it stretches, at 0% they stay put. Shift and Alt mid-drag and Past the outline work as Grab's.")
 	}
 	if b.kind == .Clay_Strips {
 		_ = ui.slider(ctx, "Tip roundness", &b.tip_roundness, 0, 1, .Linear, fmt.tprintf("%.0f%%", b.tip_roundness * 100))

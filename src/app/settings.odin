@@ -170,6 +170,7 @@ SETTINGS := [?]Setting {
 	{"grab_same_side", B + offset_of(Brush_Settings, grab_same_side), bool, 0, 0},
 	{"grab_silhouette", B + offset_of(Brush_Settings, grab_silhouette), bool, 0, 0},
 	{"grab_topological", B + offset_of(Brush_Settings, grab_topological), bool, 0, 0},
+	{"grab_outline", B + offset_of(Brush_Settings, grab_outline), bool, 0, 0},
 	{"elastic_volume", B + offset_of(Brush_Settings, elastic_volume), f32, 0, 1},
 	{"hook_pinch", B + offset_of(Brush_Settings, hook_pinch), f32, -1, 1},
 	{"hook_rake", B + offset_of(Brush_Settings, hook_rake), f32, 0, 1},
