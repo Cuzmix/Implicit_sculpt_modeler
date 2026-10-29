@@ -418,18 +418,18 @@ column_place :: proc(app: ^App, side: Column_Side, width: f32) -> (offset, top, 
 	ctx := &k.ctx
 	t := ctx.theme
 	area := ui.safe_area(ctx)
-	dock_size, _ := ui.prev_layout(ctx, "dock")
+	dock_lo, dock_hi := shelf_bottom_span(app)
 	stack_h := dock_stack(app)
 	below: f32 = 0
 	if side == .Right {
 		offset, top = kit_right(app), kit_top()
-		if area.w * 0.5 + dock_size.x * 0.5 + 8 > area.w - offset - width do below = stack_h + 8
+		if dock_hi + 8 > area.w - offset - width do below = stack_h + 8
 		if reach := rail_reach(app, .Right); reach > 0 do below = max(below, reach - t.edge + 8)
 		// Lens's mini view sits under the panels on this side.
 		if reach := lens_mini_reach(app); reach > 0 do below = max(below, reach - t.edge + 8)
 	} else {
 		offset, top = kit_left(app), points_bottom(app)
-		if area.w * 0.5 - dock_size.x * 0.5 - 8 < offset + width do below = stack_h + 8
+		if dock_lo - 8 < offset + width do below = stack_h + 8
 		if reach := rail_reach(app, .Left); reach > 0 do below = max(below, reach - t.edge + 8)
 	}
 	room = area.h - top - t.edge - below

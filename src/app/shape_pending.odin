@@ -271,7 +271,7 @@ kit_shape_bar :: proc(app: ^App) {
 	size, _ := ui.prev_layout(ctx, "shape bar")
 	if size == {} do size = {300, t.target + 8}
 	area := ui.safe_area(ctx)
-	dock, _ := ui.prev_layout(ctx, "dock")
+	dock := shelf_bottom_size(app)
 	gap := t.target * 0.5 + 8 // clear of the handles
 	pos := [2]f32{(lo.x + hi.x - size.x) * 0.5, hi.y + gap}
 	// Above the shape where under it would reach the dock.
