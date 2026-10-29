@@ -151,6 +151,8 @@ SETTINGS := [?]Setting {
 	{"pressure_strength", B + offset_of(Brush_Settings, pressure_strength), bool, 0, 0},
 	{"pressure_size", B + offset_of(Brush_Settings, pressure_size), bool, 0, 0},
 	{"tilt_strength", B + offset_of(Brush_Settings, tilt_strength), f32, 0, 1},
+	{"tilt_size", B + offset_of(Brush_Settings, tilt_size), f32, 0, 1},
+	{"tilt_soften", B + offset_of(Brush_Settings, tilt_soften), f32, 0, 1},
 	{"lazy_px", B + offset_of(Brush_Settings, lazy_px), f32, 0, 150},
 	{"front_only", B + offset_of(Brush_Settings, front_only), bool, 0, 0},
 	{"lock_plane", B + offset_of(Brush_Settings, lock_plane), bool, 0, 0},

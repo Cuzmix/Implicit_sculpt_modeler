@@ -131,6 +131,9 @@ draw_hold_history :: proc(app: ^App, o: Overlay) {
 	}
 }
 
+// How much of the brush ring a pen at the edge of its hover range fades away.
+HOVER_FADE :: 0.7
+
 // Draws the brush circle, the move gizmo or the gesture being dragged over the viewport,
 // under the panels in the layer kit_frame kept over the viewport image, then the brush
 // pie over everything. Runs after the tools have handled this frame's input, so the
@@ -186,7 +189,9 @@ overlay_viewport :: proc(app: ^App, o: Overlay, input: Viewport_Input) {
 			break
 		}
 		if (input.hovered || input.dragging) && !app.ui.pie.open {
-			color := overlay_color(brush_ring_color(app, input.primary))
+			// A pen hovering high shows the brush faintly, and clearer as it nears the
+			// screen, as Procreate's hover preview does, so the ring says how close it is.
+			color := overlay_color(brush_ring_color(app, input.primary) * {1, 1, 1, 1 - HOVER_FADE * input.pen_hover})
 			center := input.mouse_pos
 			if app.stroke.active && app.brush.lazy_px > 0 {
 				// The brush trails the cursor: draw it where it is, on its string.
@@ -194,6 +199,7 @@ overlay_viewport :: proc(app: ^App, o: Overlay, input: Viewport_Input) {
 				overlay_line(o, center, input.mouse_pos, color, 1)
 			}
 			if brush_alpha(app) != nil && held_brush(input) {
+				app.alpha_roll = input.pen_roll
 				draw_alpha_outline(app, o, center, color)
 			} else {
 				if !draw_surface_ring(app, o, input.size, color) do overlay_circle(o, center, app.brush.radius_px, color, 1.5)

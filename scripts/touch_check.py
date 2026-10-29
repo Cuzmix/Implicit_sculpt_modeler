@@ -5899,6 +5899,84 @@ def pen_second_button_runs_its_command():
 
 
 @scenario
+def pencil_only_drawing_turns_with_a_finger():
+    """With the iPad's Only Draw with Apple Pencil on, a finger on the model turns the view though Settings > Touch lets it sculpt, and the pen still sculpts."""
+    s = Script()
+    s.add("ponly:1")
+    s.wait(1)
+    s.fdrag(past_slop((760, 430), (860, 430), 20))
+    s.add("pnear")
+    s.wait(1)
+    s.add("pdown:760,430")
+    for x, y in line((760, 430), (860, 470), 20)[1:]:
+        s.wait(1)
+        s.add(f"pmove:{x:g},{y:g}")
+    s.wait(1)
+    s.add("pup")
+    s.wait(2)
+    s.add("pfar")
+    s.wait(3)
+    return s, ["--script=set orbit_style turntable"], {"camera_yaw": near(wrap(0.6 - 100 * 0.008), 2e-3), "dabs": lambda v: int(v) > 0, "undo_steps": near(1), "pencil_only": near(1)}
+
+
+@scenario
+def pen_shift_turn_snaps_with_a_haptic():
+    """The pen turning the view with Shift held lands on a square view, and the Pencil Pro feels each view it lands on."""
+    s = Script()
+    s.add("pnear")
+    s.wait(1)
+    s.add("key:shift")
+    s.add("pdown:250,400")
+    for x, y in past_slop((250, 400), (450, 400), 20)[1:]:
+        s.wait(1)
+        s.add(f"pmove:{x:g},{y:g}")
+    s.wait(1)
+    s.add("pup")
+    s.add("keyup:shift")
+    s.wait(3)
+    return s, ["--script=set orbit_style turntable"], {"dabs": near(0), "haptics": lambda v: int(v) > 0}
+
+
+@scenario
+def mouse_shift_turn_has_no_haptic():
+    """The mouse turning the view with Shift snaps it too, but only the pen is asked for a haptic."""
+    s = Script()
+    s.add("move:250,400")
+    s.wait(1)
+    s.add("key:shift")
+    s.add("down")
+    for x, y in past_slop((250, 400), (450, 400), 20)[1:]:
+        s.wait(1)
+        s.add(f"move:{x:g},{y:g}")
+    s.wait(1)
+    s.add("up")
+    s.add("keyup:shift")
+    s.wait(3)
+    return s, ["--script=set orbit_style turntable"], {"dabs": near(0), "haptics": near(0), "camera_yaw": lambda v: abs(float(v) - 0.6) > 0.05}
+
+
+@scenario
+def pen_laid_down_grows_the_brush():
+    """With Lean grows the size full, a pen leaning 60 degrees strokes with twice the brush, so the same path lays fewer dabs, still one undo step."""
+    s = Script()
+    s.add("pnear")
+    s.add("ptilt:60,0")
+    pen_stroke(s, line((760, 430), (860, 470), 20))
+    s.wait(4)
+    return s, ["--script=set tilt_size 1"], camera_still({"dabs": lambda v: 0 < int(v) < 6, "undo_steps": near(1)})
+
+
+@scenario
+def pen_hover_distance_is_followed():
+    """The pen's hover height arrives and fades the brush ring (desktop pens report none, an iPad's Pencil does)."""
+    s = Script()
+    pen_hover(s, *MODEL, frames=4)
+    s.add("pdist:0.8")
+    s.wait(4)
+    return s, [], camera_still({"pen_distance": near(0.8, 1e-2), "dabs": near(0)})
+
+
+@scenario
 def one_finger_tap_runs_its_command():
     """With One-finger tap set to Wireframe, a tap on empty space turns wireframe on once no second tap came, and sculpts nothing."""
     s = Script()

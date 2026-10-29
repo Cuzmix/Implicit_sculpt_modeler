@@ -70,3 +70,13 @@ platform_window_flags :: proc() -> sdl.WindowFlags {
 	when MOBILE do flags += {.FULLSCREEN}
 	return flags
 }
+
+when ODIN_PLATFORM_SUBTARGET == .Android {
+	// android/app/jni/android_main.c: from then on sends the pen's lean, which
+	// SculptActivity reads from Android and SDL leaves out, as SDL user events of
+	// `event_type` (pencil.odin).
+	@(default_calling_convention = "c")
+	foreign {
+		sculpt_android_pen_lean_start :: proc(event_type: u32) ---
+	}
+}

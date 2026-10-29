@@ -10,7 +10,7 @@
 #include <stdint.h>
 #include <android/log.h>
 #include <android/native_window.h>
-#include <SDL3/SDL_system.h>
+#include <SDL3/SDL.h>
 
 extern int main(int argc, char *argv[]);
 
@@ -130,4 +130,34 @@ float sculpt_android_frame_rate(void *native_window, float rate)
 	}
 	if (err != 0) __android_log_print(ANDROID_LOG_WARN, "sculpt", "ANativeWindow_setFrameRate(%.0f) failed: %d", wanted, err);
 	return top;
+}
+
+/*
+ * The pen's lean, which SDL's Java side leaves out: SculptActivity sends a stylus's
+ * AXIS_TILT and AXIS_ORIENTATION (radians) with every pen event, before SDL sees the
+ * event, and they go on to the app as an SDL user event of the type it registered
+ * (src/app/pencil.odin), the two floats' bits in data1 and data2; the app works out the
+ * lean SDL reports elsewhere. Nothing is sent until the app gives the type.
+ */
+static SDL_AtomicU32 pen_lean_type;
+
+void sculpt_android_pen_lean_start(Uint32 event_type)
+{
+	SDL_SetAtomicU32(&pen_lean_type, event_type);
+}
+
+JNIEXPORT void JNICALL Java_io_github_cuzmix_sculpt_SculptActivity_nativePenLean(JNIEnv *env, jclass cls, jfloat tilt, jfloat orientation)
+{
+	(void)env;
+	(void)cls;
+	Uint32 type = SDL_GetAtomicU32(&pen_lean_type);
+	if (type == 0) return;
+	union { float f; Uint32 u; } t = {tilt}, o = {orientation};
+	SDL_Event e;
+	SDL_zero(e);
+	e.type = type;
+	e.user.timestamp = SDL_GetTicksNS();
+	e.user.data1 = (void *)(uintptr_t)t.u;
+	e.user.data2 = (void *)(uintptr_t)o.u;
+	SDL_PushEvent(&e);
 }

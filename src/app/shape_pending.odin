@@ -75,6 +75,8 @@ shape_finish :: proc(app: ^App, kind: Shape_Kind, points: [][2]f32, rectangle, f
 	} else {
 		append(&p.points, ..points)
 	}
+	// The shape drawn is a path completed, which a Pencil Pro feels.
+	if pointer == .Pen do haptic(app, .Path_Completed)
 	if shape_apply_now(app.nav.shape_apply, pointer) do shape_apply(app)
 }
 

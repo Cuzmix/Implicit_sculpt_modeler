@@ -390,6 +390,21 @@ slider_value :: proc(fraction, lo, hi: f32, scale: Scale) -> f32 {
 // thin track. Pressing on the track puts the value there; dragging follows the pointer
 // exactly, so nothing about it is animated but the knob's size. Returns true when the
 // value changed.
+// The degrees of the pen's roll that sweep a slider across its whole range: a half turn,
+// as the brush bar's values take, so a small twist is a fine step.
+ROLL_SWEEP :: f32(180)
+
+// The pen hovering on the slider `id` just interacted with, and turned about its own
+// length, moves it from fraction `f`, as ZBrush for iPad lets the Pencil's roll set its
+// brush values: where it moves to, and whether it moved. Nothing while a button is held.
+@(private = "file")
+pen_roll :: proc(ctx: ^Context, hovered: bool, f: f32) -> (f32, bool) {
+	in_ := ctx.input
+	if !hovered || in_.pointer != .Pen || in_.down != {} || in_.roll == 0 do return f, false
+	nf := clamp(f + in_.roll / ROLL_SWEEP, 0, 1)
+	return nf, nf != f
+}
+
 slider :: proc(ctx: ^Context, s: string, value: ^f32, lo, hi: f32, scale: Scale, shown: string, enabled := true) -> bool {
 	ctx.controls += 1
 	t := ctx.theme
@@ -415,6 +430,9 @@ slider :: proc(ctx: ^Context, s: string, value: ^f32, lo, hi: f32, scale: Scale,
 				changed = true
 				long_cancel(ctx)
 			}
+		}
+		if nf, rolled := pen_roll(ctx, hovered && !held, slider_fraction(value^, lo, hi, scale)); rolled {
+			if v := slider_value(nf, lo, hi, scale); v != value^ do value^, changed = v, true
 		}
 	}
 	f := slider_fraction(value^, lo, hi, scale)
@@ -468,6 +486,9 @@ vslider :: proc(ctx: ^Context, s: string, value: ^f32, lo, hi: f32, scale: Scale
 			}
 			f = nf
 		}
+	} else if nf, rolled := pen_roll(ctx, hovered, f); rolled {
+		if v := slider_value(nf, lo, hi, scale); v != value^ do value^, changed = v, true
+		f = slider_fraction(value^, lo, hi, scale)
 	}
 	fill_rect(ctx, r, W * 0.5, t.surface)
 	stroke_rect(ctx, r, W * 0.5, t.border, 1)
@@ -1194,6 +1215,9 @@ drag_value :: proc(ctx: ^Context, s: string, value: ^f32, per_point, lo, hi: f32
 			changed = true
 			long_cancel(ctx)
 		}
+	} else if in_ := ctx.input; hovered && in_.pointer == .Pen && in_.down == {} && in_.roll != 0 {
+		// The pen's roll drags it too, a degree for a point.
+		if v := clamp(value^ + in_.roll * per_point, lo, hi); v != value^ do value^, changed = v, true
 	}
 	fade: f32 = 1 if enabled else 0.4
 	fill_rect(ctx, vis, t.radius_medium, color_fade(t.fill, fade))
@@ -1367,6 +1391,8 @@ gradient_slider :: proc(ctx: ^Context, s: string, value: ^f32, colors: []Color, 
 			changed = true
 			long_cancel(ctx)
 		}
+	} else if v, rolled := pen_roll(ctx, hovered, value^); rolled {
+		value^, changed = v, true
 	}
 	// The track as quads between the stops, its ends rounded by caps of the end colours.
 	n := len(colors)

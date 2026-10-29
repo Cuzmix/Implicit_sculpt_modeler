@@ -1,5 +1,6 @@
 package main
 
+@(require) import "core:c"
 import "core:math"
 import "core:reflect"
 import "core:strings"
@@ -55,7 +56,9 @@ Eraser_Use :: enum u8 {
 PEN_BUTTON_SECOND :: 2
 
 Pencil :: struct {
-	event_type: u32, // the SDL user event type the pencil's gestures come as, 0 until registered
+	// The SDL user event type the pencil's gestures come as, 0 until registered; the type
+	// after it brings an Android pen's lean (android_main.c).
+	event_type: u32,
 	// The iPad's preferred double-tap and squeeze actions, as the latest gesture said.
 	preferred:  [2]Pencil_Action,
 	// The gesture slot that runs once the frame's events are in, nil for none: events are
@@ -73,16 +76,60 @@ Pencil :: struct {
 	// What SDL reported for the pencil's lean on an iPad, before pencil_tilt_uikit turns it
 	// into the lean the other platforms report.
 	tilt_raw:   [2]f32,
+	// The iPad's Only Draw with Apple Pencil (Settings > Apple Pencil): a finger then never
+	// sculpts, whatever Settings > Touch says, as Apple asks of drawing apps.
+	only:       bool,
+	haptics:    int, // haptics asked of the pencil, for the exit stats
 }
 
-// Registers the pencil's user event type. A failure leaves it 0, and double-tap and squeeze
-// then never arrive.
-pencil_init :: proc(app: ^App) {
+// What a haptic says, as UIKit's canvas feedback has them: something snapped into place, or
+// a drawn shape was finished.
+Haptic :: enum c.int {
+	Alignment,
+	Path_Completed,
+}
+
+// Registers the pencil's user event type and, on the iPad, starts the bridge that sends
+// it on `window`. A failure leaves the type 0, and double-tap and squeeze then never arrive.
+pencil_init :: proc(app: ^App, window: ^sdl.Window = nil) {
 	p := &app.pencil
 	p.preferred = PENCIL_PREFERRED_DEFAULT
 	p.brush_now, p.brush_before = app.brush.kind, app.brush.kind
-	t := sdl.RegisterEvents(1)
+	t := sdl.RegisterEvents(2)
 	if t != 0 do p.event_type = t
+	when ODIN_PLATFORM_SUBTARGET_IOS {
+		if window != nil do sculpt_ios_pencil_start(window, p.event_type)
+	}
+	when ODIN_PLATFORM_SUBTARGET == .Android {
+		if t != 0 do sculpt_android_pen_lean_start(t + 1)
+	}
+	pencil_only_read(app)
+}
+
+// Reads the iPad's Only Draw with Apple Pencil, at the start and each time the app comes
+// back to the front, since it is changed in the iPad's Settings, away from the app.
+pencil_only_read :: proc(app: ^App) {
+	when ODIN_PLATFORM_SUBTARGET_IOS do app.pencil.only = sculpt_ios_pencil_only()
+}
+
+// What one finger on the model does now: the iPad's Only Draw with Apple Pencil turns the
+// view with it, whatever Settings > Touch says.
+finger_model_now :: proc(app: ^App) -> Finger_Model {
+	return .Orbit if app.pencil.only else app.nav.finger_model
+}
+
+// Says, where the finger's choice is set, that the iPad's own setting overrides it.
+pencil_only_note :: proc(app: ^App) {
+	ctx := &app.kit.ctx
+	if app.pencil.only do ui.paragraph(ctx, "Only Draw with Apple Pencil is on in the iPad's Settings > Apple Pencil, so a finger turns the view and only the pencil sculpts.", color = ctx.theme.warning)
+}
+
+// Asks the Apple Pencil Pro for a haptic where the pen is. Only for the pen: a finger or a
+// mouse feels nothing, and UIKit plays it only for a Pencil Pro near the screen.
+haptic :: proc(app: ^App, kind: Haptic) {
+	if app.device.pointer != .Pen do return
+	app.pencil.haptics += 1
+	when ODIN_PLATFORM_SUBTARGET_IOS do sculpt_ios_haptic(c.int(kind), app.device.mouse.x, app.device.mouse.y)
 }
 
 // Folds one SDL event in, and says whether it was the pencil's alone (a gesture, or the
@@ -92,6 +139,15 @@ pencil_event :: proc(app: ^App, e: ^sdl.Event) -> bool {
 	p := &app.pencil
 	if p.event_type != 0 && u32(e.type) == p.event_type {
 		pencil_gesture(app, Pencil_Gesture(e.user.code), pencil_action_from(int(uintptr(e.user.data1))))
+		return true
+	}
+	if p.event_type != 0 && u32(e.type) == p.event_type + 1 {
+		tilt := transmute(f32)u32(uintptr(e.user.data1))
+		orientation := transmute(f32)u32(uintptr(e.user.data2))
+		if !math.is_nan(tilt) && !math.is_nan(orientation) {
+			app.pen_tilt = pencil_tilt_android(tilt, orientation)
+			app.pen_seen = true
+		}
 		return true
 	}
 	second := app.nav.gestures[.Pen_Button_2].id != .None
@@ -195,6 +251,15 @@ pencil_tilt_uikit :: proc(sdl_tilt: [2]f32) -> [2]f32 {
 	across := math.cos(altitude)
 	up := max(math.sin(altitude), 1e-6)
 	return {math.to_degrees(math.atan(across * math.cos(azimuth) / up)), math.to_degrees(math.atan(across * math.sin(azimuth) / up))}
+}
+
+// The lean an Android pen reports, from its AXIS_TILT (radians off upright) and
+// AXIS_ORIENTATION (radians clockwise from the screen's up to the way its top points), as
+// every other platform reports it: degrees toward the right (x) and toward the bottom of
+// the screen (y) of the pen's top.
+pencil_tilt_android :: proc(tilt, orientation: f32) -> [2]f32 {
+	across := math.tan(clamp(tilt, 0, math.to_radians(f32(89))))
+	return {math.to_degrees(math.atan(across * math.sin(orientation))), math.to_degrees(math.atan(-across * math.cos(orientation)))}
 }
 
 // Takes one of the pen's lean axes as SDL reports it on this platform.

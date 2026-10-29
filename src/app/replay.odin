@@ -53,6 +53,7 @@ Take_Frame :: struct {
 	size:      [2]f32,
 	mouse_pos: [2]f32,
 	pen_tilt:  [2]f32,
+	pen_roll:  f32, // the pen's roll, which a Pen roll alpha turns by
 	primary, smooth, invert: bool,
 	mask:      bool, // the modifier rail's Mask: the stroke painted the mask
 }
@@ -121,7 +122,7 @@ take_append :: proc(t: ^Take, app: ^App, input: Viewport_Input, began: bool) {
 	}
 	append(&t.frames, Take_Frame {
 		first = u32(len(t.samples)), count = u32(len(input.samples)), brush = u32(len(t.brushes) - 1),
-		camera = app.camera, size = input.size, mouse_pos = input.mouse_pos, pen_tilt = input.pen_tilt,
+		camera = app.camera, size = input.size, mouse_pos = input.mouse_pos, pen_tilt = input.pen_tilt, pen_roll = input.pen_roll,
 		primary = input.primary, smooth = input.smooth, invert = input.invert, mask = input.mask,
 	})
 	append(&t.samples, ..input.samples)
@@ -190,7 +191,7 @@ replay_frame :: proc(app: ^App, now: Viewport_Input) -> (res: Sculpt_Frame_Resul
 		samples := make([]Input_Sample, f.count, context.temp_allocator)
 		copy(samples, t.samples[f.first:][:f.count])
 		input := Viewport_Input {
-			size = f.size, mouse_pos = f.mouse_pos, pen_tilt = f.pen_tilt, hovered = true,
+			size = f.size, mouse_pos = f.mouse_pos, pen_tilt = f.pen_tilt, pen_roll = f.pen_roll, hovered = true,
 			primary = f.primary, smooth = f.smooth, invert = f.invert, mask = f.mask, samples = samples,
 		}
 		app.camera = f.camera
@@ -237,8 +238,9 @@ STROKES_MAGIC :: "SCSTROKE"
 // Lock plane and Connected switches after those; 7: its focal shift after those; 8: the
 // stroke's strength scale (Touch strength) after that; 9: local symmetry, radial symmetry
 // on, its copies and its axis after that; 10: the paint channel after those; 11: Grab's
-// All depth and Smooth's Smooth only after that.
-STROKES_VERSION :: u32(12)
+// All depth and Smooth's Smooth only after that; 12: each brush's spacing and colour
+// spray after those; 13: each frame's pen roll after its pen tilt.
+STROKES_VERSION :: u32(13)
 
 strokes_save :: proc(app: ^App, path: string) -> bool {
 	t := replay_source(app)
@@ -288,6 +290,7 @@ strokes_save :: proc(app: ^App, path: string) -> bool {
 		geom.byte_put(&out, f.size)
 		geom.byte_put(&out, f.mouse_pos)
 		geom.byte_put(&out, f.pen_tilt)
+		geom.byte_put(&out, f.pen_roll)
 		geom.byte_put(&out, f.brush)
 		geom.byte_put(&out, u8(f.primary) | u8(f.smooth) << 1 | u8(f.invert) << 2 | u8(f.mask) << 3)
 		geom.byte_put(&out, f.count)
@@ -449,12 +452,14 @@ strokes_read :: proc(app: ^App, data: []u8, t: ^Take) -> bool {
 		f.size = geom.byte_get(&r, [2]f32)
 		f.mouse_pos = geom.byte_get(&r, [2]f32)
 		f.pen_tilt = geom.byte_get(&r, [2]f32)
+		// Before version 13 a frame kept no roll: the pen faced up.
+		if version >= 13 do f.pen_roll = geom.byte_get(&r, f32)
 		f.brush = geom.byte_get(&r, u32)
 		flags := geom.byte_get(&r, u8)
 		count := geom.byte_get(&r, u32)
 		if !r.ok || ortho > 1 || flags > (15 if version >= 3 else 7) || int(f.brush) >= brushes || int(count) > (len(data) - r.at) / 21 do return false
 		if !finite(c.target.x, c.target.y, c.target.z, c.distance, c.yaw, c.pitch, c.fov_y, c.near, c.far, c.roll) do return false
-		if !finite(f.size.x, f.size.y, f.mouse_pos.x, f.mouse_pos.y, f.pen_tilt.x, f.pen_tilt.y) do return false
+		if !finite(f.size.x, f.size.y, f.mouse_pos.x, f.mouse_pos.y, f.pen_tilt.x, f.pen_tilt.y, f.pen_roll) || abs(f.pen_roll) > 180 do return false
 		if c.distance <= 0 || c.fov_y <= 0 || c.fov_y >= math.PI || c.near <= 0 || c.far <= c.near || f.size.x < 1 || f.size.y < 1 do return false
 		c.ortho = ortho == 1
 		c.yaw, c.pitch, c.roll = camera.wrap_angle(c.yaw), camera.wrap_angle(c.pitch), camera.wrap_angle(c.roll)

@@ -130,3 +130,67 @@ pencil_settings_are_remembered :: proc(t: ^testing.T) {
 	testing.expect_value(t, b.nav.gestures[.Pen_Double_Tap], Pie_Slot{.Undo, 0})
 	free_all(context.temp_allocator)
 }
+
+// The iPad's Only Draw with Apple Pencil leaves a finger only the view to turn, and a
+// haptic is asked of the pen alone.
+@(test)
+pencil_only_and_haptics :: proc(t: ^testing.T) {
+	app: App
+	app.nav = NAV_DEFAULT
+	testing.expect_value(t, finger_model_now(&app), Finger_Model.Sculpt)
+	app.pencil.only = true
+	testing.expect_value(t, finger_model_now(&app), Finger_Model.Orbit)
+	testing.expect_value(t, app.nav.finger_model, Finger_Model.Sculpt)
+
+	app.device.pointer = .Finger
+	haptic(&app, .Alignment)
+	app.device.pointer = .Mouse
+	haptic(&app, .Path_Completed)
+	testing.expect_value(t, app.pencil.haptics, 0)
+	app.device.pointer = .Pen
+	haptic(&app, .Alignment)
+	testing.expect_value(t, app.pencil.haptics, 1)
+}
+
+// A Pen roll alpha turns with the pen, clockwise as the pen turns clockwise, from its own
+// angle; the other modes take no notice of the roll.
+@(test)
+pen_roll_alpha_turns_with_the_pen :: proc(t: ^testing.T) {
+	app: App
+	app.brush.alpha_mode, app.brush.alpha_angle = .Pen_Roll, 10
+	app.alpha_roll = 90
+	testing.expect(t, abs(alpha_screen_angle(&app) - math.to_radians(f32(10 - 90))) < 1e-5)
+	app.brush.alpha_mode = .Fixed
+	testing.expect(t, abs(alpha_screen_angle(&app) - math.to_radians(f32(10))) < 1e-5)
+}
+
+// A pen laid toward the paper grows and softens the brush as far as the brush asks, full
+// from LEAN_FULL degrees off upright; upright, or with both off, it changes nothing.
+@(test)
+pen_lean_grows_and_softens :: proc(t: ^testing.T) {
+	testing.expect_value(t, lean_of({}), 0)
+	testing.expect(t, abs(lean_of({30, 0}) - 0.5) < 1e-4)
+	testing.expect_value(t, lean_of({0, -80}), 1)
+	app: App
+	app.brush.radius_px = 40
+	testing.expect_value(t, brush_radius_px(&app, 1, {60, 0}), 40)
+	app.brush.tilt_size = 1
+	testing.expect(t, abs(brush_radius_px(&app, 1, {30, 0}) - 60) < 1e-3)
+	testing.expect(t, abs(brush_radius_px(&app, 1, {0, 70}) - 80) < 1e-3)
+}
+
+
+// An Android pen's tilt and orientation come out as the lean the other platforms report:
+// its top toward the screen's top leans up, toward its right leans right.
+@(test)
+pencil_tilt_from_android :: proc(t: ^testing.T) {
+	near :: proc(a, b: [2]f32) -> bool {return abs(a.x - b.x) < 0.01 && abs(a.y - b.y) < 0.01}
+	testing.expect(t, near(pencil_tilt_android(0, 1), {0, 0}))
+	thirty := math.to_radians(f32(30))
+	testing.expect(t, near(pencil_tilt_android(thirty, 0), {0, -30}))
+	testing.expect(t, near(pencil_tilt_android(thirty, math.PI / 2), {30, 0}))
+	testing.expect(t, near(pencil_tilt_android(thirty, math.PI), {0, 30}))
+	// Laid flat it stops short of 90 degrees rather than overflowing.
+	flat := pencil_tilt_android(math.PI / 2, 0)
+	testing.expect(t, flat.y < -88 && flat.y > -90)
+}

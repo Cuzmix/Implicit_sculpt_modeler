@@ -233,9 +233,28 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	testing.expect(t, err == nil)
 	defer delete(data)
 	BRUSH :: 64 + 39
+	// The files from before version 13 kept no pen roll in a frame.
+	frames_before_roll :: proc(frames: []u8) -> []u8 {
+		out := make([dynamic]u8, context.temp_allocator)
+		r := geom.byte_reader(frames)
+		n := geom.byte_get(&r, u32)
+		append(&out, ..frames[:4])
+		// A frame's camera, size, pointer and tilt, its roll, then its brush, flags, count
+		// and samples.
+		HEAD :: 12 + 28 + 1 + 8 + 8 + 8
+		for _ in 0 ..< n {
+			at := r.at
+			append(&out, ..frames[at:][:HEAD])
+			r.at = at + HEAD + 4 + 4 + 1
+			count := geom.byte_get(&r, u32)
+			append(&out, ..frames[at + HEAD + 4:][:4 + 1 + 4 + 21 * int(count)])
+			r.at += 21 * int(count)
+		}
+		return out[:]
+	}
 	eleven := make([dynamic]u8, context.temp_allocator)
 	append(&eleven, ..data[:16 + 64 + 31])
-	append(&eleven, ..data[16 + BRUSH:])
+	append(&eleven, ..frames_before_roll(data[16 + BRUSH:]))
 	eleven[len(STROKES_MAGIC)] = 11
 	testing.expect(t, os.write_entire_file(path, eleven[:]) == nil)
 	l: App
@@ -252,7 +271,7 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	// ends 64 + 29 bytes after the header's 16, where version 11's has 2 more.
 	ten := make([dynamic]u8, context.temp_allocator)
 	append(&ten, ..data[:16 + 64 + 29])
-	append(&ten, ..data[16 + BRUSH:])
+	append(&ten, ..frames_before_roll(data[16 + BRUSH:]))
 	ten[len(STROKES_MAGIC)] = 10
 	testing.expect(t, os.write_entire_file(path, ten[:]) == nil)
 	o: App
@@ -269,7 +288,7 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	// bytes after the header's 16, and only sculpts.
 	nine := make([dynamic]u8, context.temp_allocator)
 	append(&nine, ..data[:16 + 64 + 28])
-	append(&nine, ..data[16 + BRUSH:])
+	append(&nine, ..frames_before_roll(data[16 + BRUSH:]))
 	nine[len(STROKES_MAGIC)] = 9
 	testing.expect(t, os.write_entire_file(path, nine[:]) == nil)
 	n: App
@@ -285,7 +304,7 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	// bytes after the header's 16, and reads with radial off.
 	eight := make([dynamic]u8, context.temp_allocator)
 	append(&eight, ..data[:16 + 64 + 24])
-	append(&eight, ..data[16 + BRUSH:])
+	append(&eight, ..frames_before_roll(data[16 + BRUSH:]))
 	eight[len(STROKES_MAGIC)] = 8
 	testing.expect(t, os.write_entire_file(path, eight[:]) == nil)
 	h: App
@@ -302,7 +321,7 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	// bytes after the header's 16, and replays at full strength.
 	seven := make([dynamic]u8, context.temp_allocator)
 	append(&seven, ..data[:16 + 64 + 20])
-	append(&seven, ..data[16 + BRUSH:])
+	append(&seven, ..frames_before_roll(data[16 + BRUSH:]))
 	seven[len(STROKES_MAGIC)] = 7
 	testing.expect(t, os.write_entire_file(path, seven[:]) == nil)
 	g: App
@@ -318,7 +337,7 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	// brush ends 64 + 16 bytes after the header's 16.
 	six := make([dynamic]u8, context.temp_allocator)
 	append(&six, ..data[:16 + 64 + 16])
-	append(&six, ..data[16 + BRUSH:])
+	append(&six, ..frames_before_roll(data[16 + BRUSH:]))
 	six[len(STROKES_MAGIC)] = 6
 	testing.expect(t, os.write_entire_file(path, six[:]) == nil)
 	e: App
@@ -335,7 +354,7 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	// the one brush ends 64 + 14 bytes after the header's 16.
 	five := make([dynamic]u8, context.temp_allocator)
 	append(&five, ..data[:16 + 64 + 14])
-	append(&five, ..data[16 + BRUSH:])
+	append(&five, ..frames_before_roll(data[16 + BRUSH:]))
 	five[len(STROKES_MAGIC)] = 5
 	testing.expect(t, os.write_entire_file(path, five[:]) == nil)
 	d: App
@@ -352,7 +371,7 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	// brush's cloth mode: the one brush ends 64 bytes after the header's 16.
 	old := make([dynamic]u8, context.temp_allocator)
 	append(&old, ..data[:16 + 64])
-	append(&old, ..data[16 + BRUSH:])
+	append(&old, ..frames_before_roll(data[16 + BRUSH:]))
 	old[len(STROKES_MAGIC)] = 3
 	testing.expect(t, os.write_entire_file(path, old[:]) == nil)
 	c: App

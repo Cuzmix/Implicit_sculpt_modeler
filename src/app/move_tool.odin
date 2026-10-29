@@ -255,6 +255,9 @@ move_tool_frame :: proc(app: ^App, input: Viewport_Input) {
 		return
 	}
 	drag.snapped = m.snap || app.device.ctrl
+	// Each step a snapped drag takes is felt on a Pencil Pro, as a ruler's ticks are.
+	was_amount, was_offset := drag.amount, drag.offset
+	defer if drag.snapped && (drag.amount != was_amount || drag.offset != was_offset) do haptic(app, .Alignment)
 	t := drag.start
 	origin, dir := mouse_ray(app.camera, input.mouse_pos, input.size)
 	#partial switch drag.handle {
