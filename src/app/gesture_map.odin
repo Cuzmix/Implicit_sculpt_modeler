@@ -7,7 +7,8 @@ import "../sculpt"
 import "../ui"
 
 // The gesture map (Settings > Touch): what the multi-finger taps and holds and the pen's
-// side button run, each any of the commands a hand without a keyboard reaches for, as
+// side button run (and, in Settings > Pen, the pencil's double-tap and squeeze and the
+// pen's second button: pencil.odin), each any of the commands a hand without a keyboard reaches for, as
 // Nomad's gesture settings let them be chosen. A gesture holds one command, so two never
 // collide; where one overlaps the system or another gesture, a note under the map says so.
 
@@ -20,21 +21,33 @@ Gesture_Slot :: enum u8 {
 	Four_Hold,
 	Pen_Button, // the pen's side button, which SDL sends as a right click from the pen
 	// A finger's tap on empty space (never on the model, where it sculpts, nor in the safe
-	// zone). Last, so the taps and holds above keep their places.
+	// zone). After the slots above, so they keep their places.
 	One_Tap,
+	// The pen's own (pencil.odin), listed in Settings > Pen rather than the map: its second
+	// barrel button, and an Apple Pencil's double-tap and squeeze.
+	Pen_Button_2,
+	Pen_Double_Tap,
+	Pen_Squeeze,
 }
 
-// The order Settings lists the slots in: the taps by fingers, the holds, the pen.
+// The slots Settings > Pen lists instead of the gesture map.
+PENCIL_SLOTS :: bit_set[Gesture_Slot]{.Pen_Button_2, .Pen_Double_Tap, .Pen_Squeeze}
+
+// The order Settings lists the slots in: the taps by fingers, the holds, the pen, then
+// the pen's own, which the map leaves to Settings > Pen.
 @(rodata)
 GESTURE_SLOT_ORDER := [Gesture_Slot]Gesture_Slot {
-	.Two_Tap    = .One_Tap,
-	.Three_Tap  = .Two_Tap,
-	.Four_Tap   = .Three_Tap,
-	.Two_Hold   = .Four_Tap,
-	.Three_Hold = .Two_Hold,
-	.Four_Hold  = .Three_Hold,
-	.Pen_Button = .Four_Hold,
-	.One_Tap    = .Pen_Button,
+	.Two_Tap        = .One_Tap,
+	.Three_Tap      = .Two_Tap,
+	.Four_Tap       = .Three_Tap,
+	.Two_Hold       = .Four_Tap,
+	.Three_Hold     = .Two_Hold,
+	.Four_Hold      = .Three_Hold,
+	.Pen_Button     = .Four_Hold,
+	.One_Tap        = .Pen_Button,
+	.Pen_Button_2   = .Pen_Button_2,
+	.Pen_Double_Tap = .Pen_Double_Tap,
+	.Pen_Squeeze    = .Pen_Squeeze,
 }
 
 GESTURE_SLOT_NAMES := [Gesture_Slot]string {
@@ -46,6 +59,9 @@ GESTURE_SLOT_NAMES := [Gesture_Slot]string {
 	.Four_Hold  = "Hold four fingers",
 	.Pen_Button = "Pen side button",
 	.One_Tap    = "One-finger tap",
+	.Pen_Button_2   = "Pen second button",
+	.Pen_Double_Tap = "Pencil double-tap",
+	.Pen_Squeeze    = "Pencil squeeze",
 }
 
 GESTURE_DEFAULTS :: [Gesture_Slot]Pie_Slot {
@@ -57,6 +73,10 @@ GESTURE_DEFAULTS :: [Gesture_Slot]Pie_Slot {
 	.Four_Hold  = {},
 	.Pen_Button = {.Brush_Pie, 0},
 	.One_Tap    = {},
+	// Unmapped, the second button stays SDL's middle button, which the mouse scheme drags.
+	.Pen_Button_2   = {},
+	.Pen_Double_Tap = {.Pencil_Preferred, 0},
+	.Pen_Squeeze    = {.Pencil_Preferred, 0},
 }
 
 // What a gesture's select lists in Settings: what a tablet without a keyboard reaches for,
@@ -82,7 +102,7 @@ GESTURE_CHOICES := [?]Pie_Slot {
 
 // Whether a gesture may hold `id`: any command the palette lists, and the palette itself.
 gesture_lists :: proc(id: Command_Id) -> bool {
-	return palette_lists(id) || id == .Command_Palette
+	return palette_lists(id) || id == .Command_Palette || id == .Pencil_Preferred
 }
 
 // The tap or hold slot for a gesture of `fingers` (2 or more).
@@ -133,13 +153,10 @@ gesture_text :: proc(app: ^App, id: Command_Id, arg: int) -> string {
 			fmt.sbprintf(&b, "Hold %s fingers still", count)
 		}
 	}
-	if is(app, .Pen_Button, id, arg) {
+	for slot in ([?]Gesture_Slot{.Pen_Button, .Pen_Button_2, .Pen_Double_Tap, .Pen_Squeeze, .One_Tap}) {
+		if !is(app, slot, id, arg) do continue
 		if strings.builder_len(b) > 0 do strings.write_string(&b, ", ")
-		strings.write_string(&b, "Pen side button")
-	}
-	if is(app, .One_Tap, id, arg) {
-		if strings.builder_len(b) > 0 do strings.write_string(&b, ", ")
-		strings.write_string(&b, "One-finger tap on empty space")
+		strings.write_string(&b, "One-finger tap on empty space" if slot == .One_Tap else GESTURE_SLOT_NAMES[slot])
 	}
 	return strings.to_string(b)
 }
@@ -157,6 +174,9 @@ gesture_notes :: proc(app: ^App) -> []string {
 	if g[.Pen_Button] != {.Brush_Pie, 0} {
 		append(&out, "The pen's side button no longer opens the brush pie: Space, the mouse's right click and Search still do.")
 	}
+	if g[.Pen_Button_2].id != .None {
+		append(&out, "The pen's second button no longer acts as the middle mouse button, which some tablets' drivers make it.")
+	}
 	for slot in ([?]Gesture_Slot{.Two_Hold, .Three_Hold, .Four_Hold}) {
 		s := g[slot]
 		if s.id != .None && !gesture_repeats(s) do append(&out, fmt.tprintf("%s runs %s once when its ring fills; only Undo and Redo repeat.", GESTURE_SLOT_NAMES[slot], pie_slot_label(s)))
@@ -169,7 +189,9 @@ gesture_notes :: proc(app: ^App) -> []string {
 	}
 	for a in Gesture_Slot {
 		for b in Gesture_Slot {
-			if b <= a || g[a].id == .None || g[a] != g[b] do continue
+			// Follow the Pencil setting reads each gesture's own preference, so it is never one
+			// command on two.
+			if b <= a || g[a].id == .None || g[a].id == .Pencil_Preferred || g[a] != g[b] do continue
 			// A tap and its own hold running Undo or Redo is the usual pair, not news.
 			if gesture_repeats(g[a]) && int(b) == int(a) + 3 do continue
 			append(&out, fmt.tprintf("%s and %s both run %s.", GESTURE_SLOT_NAMES[a], GESTURE_SLOT_NAMES[b], pie_slot_label(g[a])))
@@ -178,12 +200,19 @@ gesture_notes :: proc(app: ^App) -> []string {
 	return out[:]
 }
 
+// Puts the map's slots back as they come, leaving Settings > Pen's own to its reset.
+gesture_map_reset :: proc(n: ^Nav_Prefs) {
+	defaults := GESTURE_DEFAULTS
+	for slot in Gesture_Slot do if slot not_in PENCIL_SLOTS do n.gestures[slot] = defaults[slot]
+}
+
 // The map's rows in Settings > Touch, then its notes.
 settings_gesture_map :: proc(app: ^App) {
 	ctx := &app.kit.ctx
 	t := ctx.theme
 	ui.caption(ctx, "GESTURE MAP")
 	for slot in GESTURE_SLOT_ORDER {
+		if slot in PENCIL_SLOTS do continue
 		ui.label(ctx, GESTURE_SLOT_NAMES[slot])
 		gesture_select(app, slot)
 	}
@@ -197,8 +226,9 @@ settings_gesture_map :: proc(app: ^App) {
 gesture_select :: proc(app: ^App, slot: Gesture_Slot, width: f32 = 0) {
 	ctx := &app.kit.ctx
 	s := &app.nav.gestures[slot]
-	choices := make([dynamic]Pie_Slot, 0, len(GESTURE_CHOICES) + 2, context.temp_allocator)
+	choices := make([dynamic]Pie_Slot, 0, len(GESTURE_CHOICES) + 3, context.temp_allocator)
 	append(&choices, Pie_Slot{})
+	if slot == .Pen_Double_Tap || slot == .Pen_Squeeze do append(&choices, Pie_Slot{.Pencil_Preferred, 0})
 	append(&choices, ..GESTURE_CHOICES[:])
 	chosen := -1
 	for c, i in choices do if c == s^ {chosen = i; break}

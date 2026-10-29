@@ -298,12 +298,13 @@ entry_title :: proc(app: ^App, e: Palette_Entry) -> string {
 	return palette_label(e)
 }
 
-// Whether the palette lists the command: not None, not itself, and not the two that act
+// Whether the palette lists the command: not None, not itself, not the two that act
 // where the pointer is (A's HD window and R's replay), which over the palette would act
-// on the palette's spot; the Object palette and Sculpt HD cover them.
+// on the palette's spot (the Object palette and Sculpt HD cover them), and not Follow the
+// Pencil setting, which means something only from a pencil gesture.
 palette_lists :: proc(id: Command_Id) -> bool {
 	if !LINK_AVAILABLE && (id == .Send_To_Blender || id == .Get_From_Blender) do return false
-	return id != .None && id != .Command_Palette && id != .Hd_Toggle && id != .Replay_Stroke
+	return id != .None && id != .Command_Palette && id != .Hd_Toggle && id != .Replay_Stroke && id != .Pencil_Preferred
 }
 
 // Where a menu's own heading names what a label leaves out ("Delete" under the object's

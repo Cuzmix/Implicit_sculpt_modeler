@@ -318,7 +318,18 @@ rail_press :: proc(app: ^App, input: ^Viewport_Input) {
 	d := &app.device
 	if .Left in d.pressed {
 		r.press = {active = true}
-		if !d.shift && !d.ctrl && !d.alt do r.press.mods, r.press.held = rail_press_mods(r)
+		if !d.shift && !d.ctrl && !d.alt {
+			r.press.mods, r.press.held = rail_press_mods(r)
+			// The pen's eraser end presses as its sector held would (Settings > Pen).
+			if d.pointer == .Pen && app.pencil.eraser {
+				switch app.nav.eraser {
+				case .Tip:
+				case .Invert:        r.press.mods ~= {.Invert}
+				case .Smooth, .Mask: r.press.mods = eraser_mods(app.nav.eraser) + (r.press.mods & {.Invert})
+				}
+				r.press.held ||= app.nav.eraser != .Tip
+			}
+		}
 		for &f in r.fingers[:r.count] do f.used = true
 	} else if .Left not_in d.down {
 		r.press = {}

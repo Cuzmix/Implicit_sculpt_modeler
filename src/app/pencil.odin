@@ -1,0 +1,234 @@
+package main
+
+import "core:math"
+import "core:reflect"
+import "core:strings"
+import sdl "vendor:sdl3"
+
+import "../sculpt"
+import "../ui"
+
+// The pencil's own gestures and the pen's other ends: an Apple Pencil's double-tap and
+// squeeze, which SDL does not report and the iPad's bridge (ios/sculpt_ios.m) sends as
+// SDL user events of `Pencil.event_type`; a pen's second barrel button and its eraser end,
+// which SDL reports on Windows, Linux and Android. Double-tap, squeeze and the second
+// button are gesture-map slots (gesture_map.odin), as ZBrush for iPad lists its Pencil
+// double-tap and squeeze beside the finger taps; the eraser end sculpts with a modifier
+// (Settings > Pen), as flipping a pen over erases in a drawing app.
+
+// What reaches the app from the pencil, as the user event's code.
+Pencil_Gesture :: enum i32 {
+	Double_Tap,
+	Squeeze_Began,
+	Squeeze_Ended,
+	Squeeze_Cancelled,
+}
+
+// What the iPad's Settings > Apple Pencil asks a double-tap or squeeze to do (UIKit's
+// UIPencilPreferredAction, which the bridge names one by one, so their order there never
+// matters here). The app follows it while the slot holds Follow the Pencil setting.
+Pencil_Action :: enum u8 {
+	Ignore,
+	Switch_Eraser,
+	Switch_Previous,
+	Color_Palette,
+	Ink_Attributes,
+	Contextual_Palette,
+	Run_Shortcut,
+}
+
+// The iPad's own defaults, which a desktop, where no iPad setting arrives, follows too:
+// double-tap swaps to the eraser, squeeze shows the palette at the tip.
+PENCIL_PREFERRED_DEFAULT :: [2]Pencil_Action{.Switch_Eraser, .Contextual_Palette}
+
+// What the eraser end sculpts with (Settings > Pen): as the tip does, or as the tip with a
+// modifier wheel sector held.
+Eraser_Use :: enum u8 {
+	Tip,
+	Smooth,
+	Invert,
+	Mask,
+}
+
+// The second barrel button's number in SDL's pen button events (the first is SDL's right
+// click, the brush pie's side button).
+PEN_BUTTON_SECOND :: 2
+
+Pencil :: struct {
+	event_type: u32, // the SDL user event type the pencil's gestures come as, 0 until registered
+	// The iPad's preferred double-tap and squeeze actions, as the latest gesture said.
+	preferred:  [2]Pencil_Action,
+	// The gesture slot that runs once the frame's events are in, nil for none: events are
+	// read before the frame's interface exists, so a gesture's command waits for it.
+	pending:    Maybe(Gesture_Slot),
+	// Which preference Follow the Pencil setting reads: 0 double-tap, 1 squeeze.
+	running:    int,
+	// A squeeze that began while a stroke or a drag was under way does nothing when it
+	// ends: pressing the barrel mid-stroke is the hand's grip, not a gesture.
+	spoiled:    bool,
+	eraser:     bool, // the pen's last touch was with its eraser end
+	// The brush held before the one held now, for Switch to the last used.
+	brush_now:    sculpt.Brush_Kind,
+	brush_before: sculpt.Brush_Kind,
+	// What SDL reported for the pencil's lean on an iPad, before pencil_tilt_uikit turns it
+	// into the lean the other platforms report.
+	tilt_raw:   [2]f32,
+}
+
+// Registers the pencil's user event type. A failure leaves it 0, and double-tap and squeeze
+// then never arrive.
+pencil_init :: proc(app: ^App) {
+	p := &app.pencil
+	p.preferred = PENCIL_PREFERRED_DEFAULT
+	p.brush_now, p.brush_before = app.brush.kind, app.brush.kind
+	t := sdl.RegisterEvents(1)
+	if t != 0 do p.event_type = t
+}
+
+// Folds one SDL event in, and says whether it was the pencil's alone (a gesture, or the
+// mouse button SDL makes of a second barrel button that the gesture map takes), which
+// nothing else may then see.
+pencil_event :: proc(app: ^App, e: ^sdl.Event) -> bool {
+	p := &app.pencil
+	if p.event_type != 0 && u32(e.type) == p.event_type {
+		pencil_gesture(app, Pencil_Gesture(e.user.code), pencil_action_from(int(uintptr(e.user.data1))))
+		return true
+	}
+	second := app.nav.gestures[.Pen_Button_2].id != .None
+	#partial switch e.type {
+	case .PEN_DOWN:
+		p.eraser = e.ptouch.eraser
+	case .PEN_BUTTON_DOWN:
+		if second && e.pbutton.button == PEN_BUTTON_SECOND do p.pending = .Pen_Button_2
+	case .MOUSE_BUTTON_DOWN, .MOUSE_BUTTON_UP:
+		// SDL presses the middle button for the second barrel button; mapped, it is the
+		// gesture's and never the middle button's drag.
+		return second && e.button.which == sdl.PEN_MOUSEID && e.button.button == sdl.BUTTON_MIDDLE
+	}
+	return false
+}
+
+// A double-tap or squeeze arrived, with what the iPad's Settings ask of it. The system's
+// Ignore turns the gesture off here too, whatever the slot holds, as Apple asks.
+pencil_gesture :: proc(app: ^App, g: Pencil_Gesture, preferred: Pencil_Action) {
+	p := &app.pencil
+	switch g {
+	case .Double_Tap:
+		p.preferred[0] = preferred
+		if preferred != .Ignore do p.pending = .Pen_Double_Tap
+	case .Squeeze_Began:
+		p.spoiled = app.stroke.active || .Left in app.device.down
+	case .Squeeze_Ended:
+		p.preferred[1] = preferred
+		if !p.spoiled && preferred != .Ignore do p.pending = .Pen_Squeeze
+		p.spoiled = false
+	case .Squeeze_Cancelled:
+		p.spoiled = false
+	}
+}
+
+// Runs the gesture the events left waiting, and notes the brush held, once the frame's
+// events are in.
+pencil_frame :: proc(app: ^App) {
+	p := &app.pencil
+	if app.brush.kind != p.brush_now do p.brush_before, p.brush_now = p.brush_now, app.brush.kind
+	slot, ok := p.pending.?
+	p.pending = nil
+	if !ok do return
+	p.running = 1 if slot == .Pen_Squeeze else 0
+	_ = gesture_run(app, slot)
+}
+
+// Follow the Pencil setting: what the iPad's preferred action for the gesture running
+// means in sculpting. The eraser is Smooth, the sculptor's way of taking a stroke back;
+// the palette at the tip is the brush pie, where the pointer is when the pencil hovers.
+pencil_preferred_run :: proc(app: ^App) {
+	p := &app.pencil
+	switch p.preferred[clamp(p.running, 0, 1)] {
+	case .Ignore, .Run_Shortcut:
+	case .Switch_Eraser:      rail_toggle(&app.rail, .Smooth)
+	case .Switch_Previous:    _ = command_run(app, .Brush, int(p.brush_before))
+	case .Color_Palette:      _ = command_run(app, .Colors_Card)
+	case .Ink_Attributes:     _ = command_run(app, .Show_Section, int(Kit_Section.Stroke))
+	case .Contextual_Palette: _ = command_run(app, .Brush_Pie)
+	}
+}
+
+// A preferred action by the number the bridge sends; one this version does not know is
+// ignored, as a gesture with no meaning here should be.
+pencil_action_from :: proc(n: int) -> Pencil_Action {
+	if n < 0 || n >= len(Pencil_Action) do return .Ignore
+	return Pencil_Action(n)
+}
+
+// A preferred action by its name in lower case (`switch_previous`), for scripted events.
+pencil_action_named :: proc(name: string) -> (Pencil_Action, bool) {
+	for a in Pencil_Action {
+		if strings.equal_fold(reflect.enum_string(a), name) do return a, true
+	}
+	return .Ignore, false
+}
+
+// The modifiers the eraser end presses with, none when it sculpts as the tip.
+eraser_mods :: proc(use: Eraser_Use) -> Modifiers {
+	switch use {
+	case .Tip:    return {}
+	case .Smooth: return {.Smooth}
+	case .Invert: return {.Invert}
+	case .Mask:   return {.Mask}
+	}
+	return {}
+}
+
+// The lean an iPad pencil reports, from the X and Y tilts SDL makes of UIKit's azimuth and
+// altitude, as every other platform reports it: degrees toward the right (x) and toward the
+// bottom of the screen (y) of the pen's top. SDL 3.4 gives X as 90 less the azimuth's size,
+// whatever the altitude, so a pencil held upright would lean 90 degrees; its two numbers
+// still hold the azimuth (its size from X, its side from Y's sign) and the altitude (90
+// less Y's size), from which the lean follows.
+pencil_tilt_uikit :: proc(sdl_tilt: [2]f32) -> [2]f32 {
+	azimuth := math.to_radians(90 - sdl_tilt.x)
+	if sdl_tilt.y < 0 do azimuth = -azimuth
+	altitude := math.to_radians(90 - abs(sdl_tilt.y))
+	// The pen's top, from the tip: across the screen cos(altitude) along the azimuth, and
+	// sin(altitude) out of it.
+	across := math.cos(altitude)
+	up := max(math.sin(altitude), 1e-6)
+	return {math.to_degrees(math.atan(across * math.cos(azimuth) / up)), math.to_degrees(math.atan(across * math.sin(azimuth) / up))}
+}
+
+// Takes one of the pen's lean axes as SDL reports it on this platform.
+pencil_tilt_take :: proc(app: ^App, axis: sdl.PenAxis, value: f32) {
+	i := 0 if axis == .XTILT else 1
+	when ODIN_PLATFORM_SUBTARGET_IOS {
+		app.pencil.tilt_raw[i] = value
+		app.pen_tilt = pencil_tilt_uikit(app.pencil.tilt_raw)
+	} else {
+		app.pen_tilt[i] = value
+	}
+}
+
+// Settings > Pen's PENCIL AND BUTTONS: what double-tap, squeeze and the second button
+// run, and what the eraser end sculpts with.
+settings_pen_buttons :: proc(app: ^App) {
+	ctx := &app.kit.ctx
+	n := &app.nav
+	for slot in ([?]Gesture_Slot{.Pen_Double_Tap, .Pen_Squeeze, .Pen_Button_2}) {
+		ui.label(ctx, GESTURE_SLOT_NAMES[slot])
+		gesture_select(app, slot)
+	}
+	ui.paragraph(ctx, "Double-tap and squeeze come from an Apple Pencil (squeeze from the Pro). Follow the Pencil setting does what the iPad's Settings > Apple Pencil asks: the palette at the tip opens the brush pie, the eraser turns Smooth on or off. Off there turns them off here too. The second button is the barrel button nearer the top on tablets that have two.")
+	ui.label(ctx, "Eraser end")
+	uses := [len(Eraser_Use)]string{"As the tip", "Smooth", "Invert", "Mask"}
+	if picked := ui.tabs(ctx, "Eraser end", uses[:], int(n.eraser)); picked >= 0 do n.eraser = Eraser_Use(picked)
+	ui.paragraph(ctx, "Turn the pen over and its eraser end sculpts with this, as holding the modifier wheel's sector does.")
+	for note in gesture_notes(app) do if strings.contains(note, "second button") do ui.paragraph(ctx, note, color = ctx.theme.warning)
+}
+
+// Pushes a scripted double-tap or squeeze, as the iPad's bridge sends one.
+pencil_push :: proc(app: ^App, g: Pencil_Gesture, preferred: Pencil_Action) {
+	if app.pencil.event_type == 0 do return
+	e: sdl.Event
+	e.user = {type = sdl.EventType(app.pencil.event_type), timestamp = sdl.GetTicksNS(), code = i32(g), data1 = rawptr(uintptr(preferred))}
+	_ = sdl.PushEvent(&e)
+}

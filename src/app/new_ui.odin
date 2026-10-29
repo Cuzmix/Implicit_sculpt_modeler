@@ -574,6 +574,12 @@ Kit_Event_Kind :: enum u8 {
 	Pen_Right, // the pen's side button pressed and let go, hovering where the pointer is
 	Pen_Pressure, // how hard the pen presses from then on, 0 to 1
 	Pen_Roll, // the pen's turn about its own length from then on, degrees from -180 to 180
+	Pen_Erase_Down, // the pen's eraser end touching down
+	Pen_Button, // a barrel button pressed and let go, its number in `value`
+	// An Apple Pencil's double-tap, and its squeeze (begun and ended), as the iPad's bridge
+	// sends them, `key` naming the iPad's preferred action ("" for its default).
+	Pencil_Tap,
+	Pencil_Squeeze,
 }
 
 // Reads --ui-events. Returns false, after saying why, when the list is malformed.
@@ -607,10 +613,23 @@ kit_events_parse :: proc(app: ^App, spec: string) -> bool {
 		}
 		if ok {
 			switch parts[1] {
-			case "move", "pdown", "pmove":
+			case "move", "pdown", "pmove", "pedown":
 				ok = len(parts) == 3
 				if ok do ev.at, ok = point(parts[2])
-				ev.kind = .Move if parts[1] == "move" else (.Pen_Down if parts[1] == "pdown" else .Pen_Move)
+				switch parts[1] {
+				case "move":  ev.kind = .Move
+				case "pdown": ev.kind = .Pen_Down
+				case "pmove": ev.kind = .Pen_Move
+				case:         ev.kind = .Pen_Erase_Down
+				}
+			case "pdtap", "psqueeze":
+				// An optional preferred action: FRAME:pdtap:switch_previous.
+				ok = len(parts) <= 3
+				if ok && len(parts) == 3 {
+					_, ok = pencil_action_named(parts[2])
+					if ok do ev.key = strings.clone(parts[2])
+				}
+				ev.kind = .Pencil_Tap if parts[1] == "pdtap" else .Pencil_Squeeze
 			case "down":   ev.kind = .Down
 			case "up":     ev.kind = .Up
 			case "right":  ev.kind = .Right
@@ -622,13 +641,14 @@ kit_events_parse :: proc(app: ^App, spec: string) -> bool {
 			case "pnear":  ev.kind = .Pen_Near
 			case "pfar":   ev.kind = .Pen_Far
 			case "pright": ev.kind = .Pen_Right
-			case "wheel", "ppress", "proll":
+			case "wheel", "ppress", "proll", "pbutton":
 				ok = len(parts) == 3
 				if ok do ev.value, ok = strconv.parse_f32(parts[2])
 				switch parts[1] {
-				case "wheel":  ev.kind = .Wheel
-				case "ppress": ev.kind = .Pen_Pressure
-				case:          ev.kind = .Pen_Roll
+				case "wheel":   ev.kind = .Wheel
+				case "ppress":  ev.kind = .Pen_Pressure
+				case "pbutton": ev.kind = .Pen_Button
+				case:           ev.kind = .Pen_Roll
 				}
 			case "text":
 				// Everything after the kind, colons and spaces too (from the untrimmed item).
@@ -766,15 +786,40 @@ kit_events_push :: proc(app: ^App, window: ^sdl.Window) {
 		case .Pen_Roll:
 			e.paxis = {type = .PEN_AXIS, timestamp = now, windowID = win, which = 1, x = d.mouse.x, y = d.mouse.y, axis = .ROTATION, value = clamp(ev.value, -180, 180)}
 			push(e)
-		case .Pen_Down, .Pen_Move, .Pen_Up:
+		case .Pen_Button:
+			// SDL's pen button events, then the mouse button it makes of each: the first
+			// the right, the second the middle.
+			button := u8(ev.value)
+			for down in ([2]bool{true, false}) {
+				e = {}
+				e.pbutton = {type = .PEN_BUTTON_DOWN if down else .PEN_BUTTON_UP, timestamp = now, windowID = win, which = 1, x = d.mouse.x, y = d.mouse.y, button = button, down = down}
+				push(e)
+				mouse := [3]u8{u8(sdl.BUTTON_LEFT), u8(sdl.BUTTON_RIGHT), u8(sdl.BUTTON_MIDDLE)}
+				if int(button) >= len(mouse) do continue
+				e = {}
+				e.button = {type = .MOUSE_BUTTON_DOWN if down else .MOUSE_BUTTON_UP, timestamp = now, windowID = win, which = sdl.PEN_MOUSEID, button = mouse[button], down = down, clicks = 1, x = d.mouse.x, y = d.mouse.y}
+				push(e)
+			}
+		case .Pencil_Tap, .Pencil_Squeeze:
+			defaults := PENCIL_PREFERRED_DEFAULT
+			tap := ev.kind == .Pencil_Tap
+			preferred := defaults[0 if tap else 1]
+			if ev.key != "" do preferred, _ = pencil_action_named(ev.key)
+			if tap {
+				pencil_push(app, .Double_Tap, preferred)
+			} else {
+				pencil_push(app, .Squeeze_Began, preferred)
+				pencil_push(app, .Squeeze_Ended, preferred)
+			}
+		case .Pen_Down, .Pen_Move, .Pen_Up, .Pen_Erase_Down:
 			if ev.kind != .Pen_Up {
 				e.motion = {type = .MOUSE_MOTION, timestamp = now, windowID = win, which = sdl.PEN_MOUSEID, x = at.x, y = at.y}
 				push(e)
 			}
 			if ev.kind == .Pen_Move do continue
-			down := ev.kind == .Pen_Down
+			down := ev.kind != .Pen_Up
 			e = {}
-			e.ptouch = {type = .PEN_DOWN if down else .PEN_UP, timestamp = now, windowID = win, which = 1, x = at.x if down else d.mouse.x, y = at.y if down else d.mouse.y, down = down}
+			e.ptouch = {type = .PEN_DOWN if down else .PEN_UP, timestamp = now, windowID = win, which = 1, x = at.x if down else d.mouse.x, y = at.y if down else d.mouse.y, eraser = ev.kind == .Pen_Erase_Down, down = down}
 			push(e)
 			e = {}
 			e.button = {type = .MOUSE_BUTTON_DOWN if down else .MOUSE_BUTTON_UP, timestamp = now, windowID = win, which = sdl.PEN_MOUSEID, button = u8(sdl.BUTTON_LEFT), down = down, clicks = 1, x = at.x if down else d.mouse.x, y = at.y if down else d.mouse.y}

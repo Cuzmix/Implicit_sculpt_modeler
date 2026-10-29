@@ -251,6 +251,7 @@ Nav_Prefs :: struct {
 	mouse_scheme:   Mouse_Scheme,
 	shape_apply:    Shape_Apply, // when a drawn mask, hide or clip shape applies (shape_pending.odin)
 	pen_tips:       Pen_Tips, // when a hovering pen shows a control's name
+	eraser:         Eraser_Use, // what the pen's eraser end sculpts with (pencil.odin)
 }
 
 // When the pen, held over a control without touching, shows its name and shortcut, as
@@ -326,6 +327,8 @@ NAV_DEFAULT :: Nav_Prefs {
 	// A touch target and a bit, near the add-on's 75 pixels.
 	edge_size      = 64,
 	edge_show      = true,
+	// Smooth takes a stroke back, the nearest thing sculpting has to erasing.
+	eraser         = .Smooth,
 }
 
 // The camera's turn as the settings have it.
