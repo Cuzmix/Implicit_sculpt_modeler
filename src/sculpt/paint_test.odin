@@ -125,6 +125,56 @@ paint_parallel_matches_serial :: proc(t: ^testing.T) {
 	testing.expect(t, slice.equal(result[0], result[1]), "parallel painting differs from serial")
 }
 
+// Paint's blur evens the colours under it out, moving nothing, and undoes as one step;
+// in parallel it gives the same colours, bit for bit, as on one thread.
+@(test)
+paint_blur_evens_the_colours_out :: proc(t: ^testing.T) {
+	pool: jobs.Pool
+	jobs.pool_init(&pool, 3)
+	defer jobs.pool_destroy(&pool)
+	result: [2][]Color
+	for p, i in ([2]^jobs.Pool{nil, &pool}) {
+		m: geom.Mesh
+		s: Sculptor
+		paint_sphere(&s, &m, 4, p)
+		// Red on one side of the top, blue on the other, and bare clay below.
+		color_ensure(&s)
+		for pos, v in m.positions {
+			if pos.z < 0.5 do continue
+			s.color[v] = {220, 20, 20, 255} if pos.x < 0 else {20, 20, 220, 255}
+		}
+		// The sharpest step in red along an edge near the middle, where the seam runs.
+		spread :: proc(s: ^Sculptor) -> (most: f32) {
+			m := s.mesh
+			for f in 0 ..< len(m.indices) / 3 {
+				for k in 0 ..< 3 {
+					a, b := m.indices[3 * f + k], m.indices[3 * f + (k + 1) % 3]
+					if linalg.length(m.positions[a] - UP) >= 0.12 do continue
+					most = max(most, abs(f32(s.color[a].r) - f32(s.color[b].r)))
+				}
+			}
+			return
+		}
+		before := spread(&s)
+		positions := slice.clone(m.positions[:], context.temp_allocator)
+		colors := slice.clone(s.color, context.temp_allocator)
+		sculptor_stroke_begin(&s)
+		for _ in 0 ..< 8 do _ = apply_dab(&s, {kind = .Paint, radius = 0.3, strength = 0.8, blur = true}, UP)
+		testing.expect(t, sculptor_stroke_end(&s), "the blur was not a step")
+		testing.expectf(t, spread(&s) < before * 0.35, "the blur left the colours apart: %v to %v", before, spread(&s))
+		testing.expect(t, slice.equal(m.positions[:], positions), "the blur moved vertices")
+		for pos, v in m.positions {
+			if linalg.length(pos - UP) >= 0.3 do testing.expectf(t, s.color[v] == colors[v], "vertex %d outside the radius changed", v)
+		}
+		result[i] = slice.clone(s.color, context.temp_allocator)
+		testing.expect(t, sculptor_undo(&s))
+		testing.expect(t, slice.equal(s.color, colors), "undo did not bring the colours back")
+		sculptor_destroy(&s)
+		geom.mesh_destroy(&m)
+	}
+	testing.expect(t, slice.equal(result[0], result[1]), "parallel blurring differs from serial")
+}
+
 // Grouping what is shown makes one new group of it; creases split a cube into its six
 // faces; and nearly every triangle is drawn from a corner carrying its own group.
 @(test)

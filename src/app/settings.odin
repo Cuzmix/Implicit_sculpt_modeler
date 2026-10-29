@@ -167,6 +167,7 @@ SETTINGS := [?]Setting {
 	{"radial_count", B + offset_of(Brush_Settings, radial_count), i32, RADIAL_MIN, sculpt.RADIAL_MAX},
 	{"radial_axis", B + offset_of(Brush_Settings, radial_axis), sculpt.Axis, 0, 0},
 	{"paint_channel", B + offset_of(Brush_Settings, channel), sculpt.Channel, 0, 0},
+	{"paint_dial", B + offset_of(Brush_Settings, paint_dial), bool, 0, 0},
 	{"stroke", B + offset_of(Brush_Settings, stroke), Stroke_Mode, 0, 0},
 	{"stroke_spread", B + offset_of(Brush_Settings, spray_spread), f32, 0, SPRAY_MAX_SPREAD},
 	{"stroke_spacing", B + offset_of(Brush_Settings, spacing), f32, MIN_SPACING, MAX_SPACING},

@@ -239,10 +239,11 @@ STROKES_MAGIC :: "SCSTROKE"
 // stroke's strength scale (Touch strength) after that; 9: local symmetry, radial symmetry
 // on, its copies and its axis after that; 10: the paint channel after those; 11: Grab's
 // All depth and Smooth's Smooth only after that; 12: each brush's spacing and colour
-// spray after those; 13: each frame's pen roll after its pen tilt; 14: each brush's
-// smoothing, pressure smoothing and catch up after its spacing and colour spray; 15: its
-// Even strength, Scene spacing and symmetry Feather after those.
-STROKES_VERSION :: u32(15)
+// spray after those; 13: each frame's pen roll after its pen tilt; 14: each brush's Smooth
+// blurs, Invert erases switch after its colour spray; 15: its smoothing, pressure
+// smoothing and catch up after that; 16: its Even strength, Scene spacing and symmetry
+// Feather after those.
+STROKES_VERSION :: u32(16)
 
 strokes_save :: proc(app: ^App, path: string) -> bool {
 	t := replay_source(app)
@@ -282,6 +283,7 @@ strokes_save :: proc(app: ^App, path: string) -> bool {
 		geom.byte_put(&out, u8(b.channel))
 		geom.byte_put(&out, [2]u8{u8(b.grab_depth), u8(b.smooth_only)})
 		geom.byte_put(&out, [2]f32{dot_spacing_of(b), b.color_spray})
+		geom.byte_put(&out, u8(b.paint_dial))
 		geom.byte_put(&out, [2]f32{f32(steady_count(b.smoothing)), f32(steady_count(b.pressure_smoothing))})
 		geom.byte_put(&out, u8(b.catch_up))
 		geom.byte_put(&out, [3]u8{u8(b.even_strength), u8(b.scene_spacing), u8(b.feather)})
@@ -409,21 +411,25 @@ strokes_read :: proc(app: ^App, data: []u8, t: ^Take) -> bool {
 		// and every one painted the brush's colour.
 		spaced := [2]f32{SPACING_REFERENCE, 0}
 		if version >= 12 do spaced = geom.byte_get(&r, [2]f32)
-		// Nor, before version 14, the stabiliser: the brush followed the pointer as it
+		// Nor, before version 14, the paint dial: Smooth smoothed and Invert dug whatever
+		// the brush painted.
+		dial: u8
+		if version >= 14 do dial = geom.byte_get(&r, u8)
+		// Nor, before version 15, the stabiliser: the brush followed the pointer as it
 		// came and stopped where it had got to at the lift.
 		steady := [2]f32{1, 1}
 		catch_up: u8
-		if version >= 14 {
+		if version >= 15 {
 			steady = geom.byte_get(&r, [2]f32)
 			catch_up = geom.byte_get(&r, u8)
 		}
-		// Nor, before version 15, Even strength, Scene spacing or feathering: every dab had
+		// Nor, before version 16, Even strength, Scene spacing or feathering: every dab had
 		// the brush's strength and the spacing was on screen.
 		evened: [3]u8
-		if version >= 15 do evened = geom.byte_get(&r, [3]u8)
+		if version >= 16 do evened = geom.byte_get(&r, [3]u8)
 		if !r.ok || int(kind) >= len(sculpt.Brush_Kind) || int(stroke) >= len(Stroke_Mode) || int(cloth) >= len(sculpt.Cloth_Mode) do return false
 		all_axes := transmute(u8)sculpt.Symmetry{.X, .Y, .Z}
-		if int(channel) >= len(sculpt.Channel) || reach[0] > 1 || int(reach[1]) >= len(sculpt.Smooth_Only) do return false
+		if int(channel) >= len(sculpt.Channel) || dial > 1 || reach[0] > 1 || int(reach[1]) >= len(sculpt.Smooth_Only) do return false
 		if radial[0] > 1 || radial[1] > 1 || radial[2] < RADIAL_MIN || radial[2] > sculpt.RADIAL_MAX || int(radial[3]) >= len(sculpt.Axis) do return false
 		if symmetry & ~all_axes != 0 || drawn > 1 || pressure_strength > 1 || pressure_size > 1 || front > 1 || line > 1 || join > 1 || lock_plane > 1 || connected > 1 || catch_up > 1 || evened[0] > 1 || evened[1] > 1 || evened[2] > 1 do return false
 		if !finite(radius, strength, lazy, spread, color.r, color.g, color.b, focal, scale, spaced[0], spaced[1], steady[0], steady[1]) || !curve_ok(falloff) || !curve_ok(pressure_curve) do return false
@@ -442,6 +448,7 @@ strokes_read :: proc(app: ^App, data: []u8, t: ^Take) -> bool {
 		b.lock_plane, b.connected = lock_plane == 1, connected == 1
 		b.sym_local, b.radial_on, b.radial_count, b.radial_axis = radial[0] == 1, radial[1] == 1, i32(radial[2]), sculpt.Axis(radial[3])
 		b.channel = sculpt.Channel(channel)
+		b.paint_dial = dial == 1
 		b.grab_depth, b.smooth_only = reach[0] == 1, sculpt.Smooth_Only(reach[1])
 		b.spacing, b.color_spray = clamp(spaced[0], MIN_SPACING, MAX_SPACING), clamp(spaced[1], 0, 1)
 		b.smoothing, b.pressure_smoothing, b.catch_up = f32(steady_count(steady[0])), f32(steady_count(steady[1])), catch_up == 1
