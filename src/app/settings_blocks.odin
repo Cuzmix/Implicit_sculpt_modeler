@@ -159,7 +159,7 @@ SETTINGS_BLOCK_WORDS := [Settings_Block]string {
 	.Safe_Zone        = "safe zone edges edge width",
 	.Pan_Zoom         = "pan zoom speed mouse wheel pointer",
 	.Mouse            = "mouse controls",
-	.Finger_Model     = "one finger on the model sculpts turns the view",
+	.Finger_Model     = "one finger on the model sculpts turns the view tap switch object mesh select",
 	.Touch_Strength   = "touch strength finger",
 	.Hold             = "press and hold delay long press",
 	.Pen_Empty        = "pen mouse empty space waits for the model",
@@ -173,7 +173,7 @@ SETTINGS_BLOCK_WORDS := [Settings_Block]string {
 	.Gesture_Map      = "gesture map tap hold fingers pen side button undo redo",
 	.Gesture_List     = "gestures one finger empty space two fingers three fingers tap hold pen side button undo redo clean view pinch zoom pan roll",
 	.Gesture_More     = "zoom about the fingers lift one of two fingers double tap frame pin",
-	.Finger_Sculpts   = "palm pen ignore touches finger can sculpt",
+	.Finger_Sculpts   = "palm pen ignore touches finger can sculpt tap switch object mesh",
 	.Keys             = "keys shortcuts keyboard bindings mouse buttons",
 	.Statistics       = "statistics stats simple advanced",
 	.Frame_Rate       = "frame rate fps limit unlimited match display rest when idle battery",
@@ -358,6 +358,8 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 		if picked := ui.tabs(ctx, "Finger on the model", model[:], int(n.finger_model)); picked >= 0 do n.finger_model = Finger_Model(picked)
 		ui.paragraph(ctx, "On empty space one finger always turns the view. Turns the view leaves sculpting to the pen, as on a drawing tablet.")
 		pencil_only_note(app)
+		_ = ui.switch_row(ctx, "Tap another object to switch to it", &n.tap_switches)
+		ui.paragraph(ctx, "A quick finger tap on an object that is not the selected one selects it and sculpts nothing, so a finger switches meshes while the pen keeps sculpting. A tap on the selected object still lays a dab.")
 	case .Touch_Strength:
 		_ = ui.slider(ctx, "Touch strength", &n.touch_strength, TOUCH_STRENGTH_MIN, 1, .Linear, fmt.tprintf("%.0f%%", 100 * n.touch_strength), enabled = finger_model_now(app) == .Sculpt)
 		ui.paragraph(ctx, "A finger's strokes work at this much of the brush's strength, so a finger can soften what the pen builds up. The pen and the mouse always work at full strength.")
@@ -418,6 +420,7 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 		_ = ui.switch_row(ctx, "Ignore touches while the pen is near", &n.palm_rejection)
 		sculpts := n.finger_model == .Sculpt
 		if ui.switch_row(ctx, "Finger can sculpt when no pen is used", &sculpts) do n.finger_model = .Sculpt if sculpts else .Orbit
+		_ = ui.switch_row(ctx, "Tap another object to switch to it", &n.tap_switches)
 		ui.paragraph(ctx, "With the pen near, a resting hand does nothing; two fingers still move the view. Off, only the pen sculpts and a finger turns the view, as on a drawing tablet.")
 		pencil_only_note(app)
 
@@ -525,7 +528,7 @@ settings_block_reset :: proc(app: ^App, b: Settings_Block) {
 		n.pivot, n.air_pivot, n.pivot_dot = d.pivot, d.air_pivot, d.pivot_dot
 	case .Safe_Zone:       n.edge_orbit, n.edge_size, n.edge_show = d.edge_orbit, d.edge_size, d.edge_show
 	case .Pan_Zoom:        n.pan_speed, n.zoom_speed, n.invert_wheel, n.wheel_toward = d.pan_speed, d.zoom_speed, d.invert_wheel, d.wheel_toward
-	case .Finger_Model:    n.finger_model = d.finger_model
+	case .Finger_Model:    n.finger_model, n.tap_switches = d.finger_model, d.tap_switches
 	case .Touch_Strength:  n.touch_strength = d.touch_strength
 	case .Hold:            n.hold_delay = d.hold_delay
 	case .Pen_Empty:       n.empty_drag = d.empty_drag
@@ -545,10 +548,10 @@ settings_block_reset :: proc(app: ^App, b: Settings_Block) {
 	case .Gesture_Map:     gesture_map_reset(n)
 	case .Gesture_List:
 		n.finger_model, n.pinch_zoom, n.two_finger_pan, n.twist_roll = d.finger_model, d.pinch_zoom, d.two_finger_pan, d.twist_roll
-		n.three_finger = d.three_finger
+		n.three_finger, n.tap_switches = d.three_finger, d.tap_switches
 		gesture_map_reset(n)
 	case .Gesture_More:    n.zoom_toward, n.lift_one_orbit, n.double_tap = d.zoom_toward, d.lift_one_orbit, d.double_tap
-	case .Finger_Sculpts:  n.palm_rejection, n.finger_model = d.palm_rejection, d.finger_model
+	case .Finger_Sculpts:  n.palm_rejection, n.finger_model, n.tap_switches = d.palm_rejection, d.finger_model, d.tap_switches
 	case .Keys:
 		bind_reset_all(app)
 		n.mouse_scheme = d.mouse_scheme
