@@ -1416,6 +1416,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		at: Vec3
 		if obj := selected_object(&app); obj != nil do at = obj.transform.position
 		fmt.printfln("selected_x=%.4f selected_y=%.4f selected_z=%.4f", at.x, at.y, at.z)
+		tp := &app.model.topo
+		fmt.printfln("topo_pen_dots=%d topo_pen_faces=%d topo_pen_welds=%d topo_pen_extends=%d topo_pen_relaxes=%d", len(tp.dots), tp.faces, tp.welds, tp.extends, tp.relaxes)
 		// How the selected object's levels above its base are made: Loop for a sculpt,
 		// Smooth or Flat for one applied from a cage.
 		if obj := selected_object(&app); obj != nil && obj.voxel == nil && len(obj.levels.levels) > 0 {

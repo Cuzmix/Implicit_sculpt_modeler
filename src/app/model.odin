@@ -890,6 +890,8 @@ Model_Tool :: struct {
 	knife_from: Model_Knife_Tap,
 	// The last Align parts join, which a tap on the part turns or flips.
 	aligned:   Model_Aligned,
+	// The Topo pen's dots and drag (model_topo.odin).
+	topo:      Model_Topo,
 	look_drag: Cage_Look_Drag,
 	// Since the start, for the exit stats: actions made, and refused.
 	done:      int,
