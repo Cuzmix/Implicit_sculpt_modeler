@@ -156,6 +156,16 @@ kit_brush_options :: proc(app: ^App) {
 			kit_more_end(app)
 		}
 	}
+	if b.kind == .Snake_Hook {
+		label := fmt.tprintf("Magnify %.0f%%", -b.hook_pinch * 100) if b.hook_pinch < 0 else fmt.tprintf("%.0f%%", b.hook_pinch * 100)
+		_ = ui.slider(ctx, "Pinch", &b.hook_pinch, -1, 1, .Linear, label)
+		if kit_more(app, .Options) {
+			_ = ui.slider(ctx, "Rake", &b.hook_rake, 0, 1, .Linear, fmt.tprintf("%.0f%%", b.hook_rake * 100))
+			_ = ui.switch_row(ctx, "Elastic tip", &b.hook_elastic)
+			ui.paragraph(ctx, "Pinch draws what the hook pulls in toward the line it is pulled along, for a horn that thins to a point; below zero it magnifies, fattening the tip as it goes. Rake turns what the hook drags as the hook turns, so a horn drawn round a bend twists with it instead of shearing flat. Elastic tip drags as the Elastic brush does, the surround stretching after the tip out to three times the ring (by Elastic's Volume).")
+			kit_more_end(app)
+		}
+	}
 	if b.kind == .Elastic {
 		if picked := ui.tabs(ctx, "grab moves", {"Free", "Along normal", "Along surface"}, int(b.grab_mode)); picked >= 0 do b.grab_mode = Grab_Mode(picked)
 		_ = ui.slider(ctx, "Volume", &b.elastic_volume, 0, 1, .Linear, fmt.tprintf("%.0f%%", b.elastic_volume * 100))

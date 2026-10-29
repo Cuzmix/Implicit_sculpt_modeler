@@ -114,6 +114,17 @@ Brush :: struct {
 	falloff_shape: ^Falloff,
 	// Snake_Hook: how far this dab drags what is under it, in the mesh's space.
 	drag:     Vec3,
+	// Snake_Hook, as Blender's: Pinch draws what the hook drags in toward the line it is
+	// pulled along, a share of the step a dab (-1 to 1; below 0 it magnifies instead,
+	// fattening the tip); Rake turns what it drags by how far the hook turned since the
+	// last dab (0 to 1 of `rake_angle` about `rake_axis`, in the mesh's space), so a
+	// hook drawn round a bend twists with it instead of shearing; Elastic tip drags as
+	// the Elastic brush does (a Kelvinlet out to ELASTIC_REACH radii, by `volume`).
+	hook_pinch:   f32,
+	hook_rake:    f32,
+	rake_axis:    Vec3,
+	rake_angle:   f32,
+	hook_elastic: bool,
 	// Front faces only, as ZBrush's BackfaceMask: the way toward the viewer in the
 	// mesh's space, and vertices whose normal turns away from it are left alone (with a
 	// short fade across the edge-on ones), so a stroke on a thin part leaves its far
@@ -821,6 +832,11 @@ Dab :: struct {
 	plane:    Vec3, // Clay, Flatten: a point on the plane they pull toward
 	amount:   f32,  // signed: displacement at the centre (Draw, Inflate, Crease), plane
 	                // side (Clay), direction (Flatten, Pinch), or mask added (Mask)
+	// Snake_Hook: its Elastic tip's constants, how much this dab pinches (Brush.hook_pinch
+	// times the step over the radius) and the way it drags (unit length).
+	kelvin:   Kelvinlet,
+	pinch:    f32,
+	drag_dir: Vec3,
 }
 
 // Applies one dab centred on `center`, and its mirror images across the brush's
@@ -898,6 +914,9 @@ sym_brush :: proc(brush: Brush, img: Sym_Image) -> Brush {
 	if b.tilt != {} do b.tilt = m * b.tilt * linalg.transpose(m)
 	b.alpha_up = m * b.alpha_up
 	b.drag = m * b.drag
+	// A mirror turns a rotation the other way about its mirrored axis.
+	b.rake_axis = m * b.rake_axis
+	if img.flipped do b.rake_axis = -b.rake_axis
 	b.facing = m * b.facing
 	if img.flipped do b.alpha_mirror = !b.alpha_mirror
 	return b
@@ -940,8 +959,10 @@ facing_weight :: #force_inline proc(d: ^Dab, normals: []Vec3, v: u32) -> f32 {
 
 @(private)
 dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3, img: Sym_Image, own: bool) -> int {
-	// An alpha may reach past the round brush, up to its square's corners.
+	// An alpha may reach past the round brush, up to its square's corners; a Snake hook's
+	// Elastic tip reaches as the Elastic brush does.
 	reach := brush.radius * (brush.alpha.reach if brush.alpha != nil else 1)
+	if brush.kind == .Snake_Hook && brush.hook_elastic do reach = ELASTIC_REACH * brush.radius
 	d := Dab {
 		s      = s,
 		brush  = brush,
@@ -1025,6 +1046,10 @@ dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3, img: Sym_Image, own: 
 		jobs.parallel_for(pool, len(s.hit), &d, job_layer)
 	case .Snake_Hook:
 		if brush.drag == {} do return painted
+		if brush.hook_elastic do d.kelvin = kelvinlet_make(brush.radius, brush.volume)
+		step := linalg.length(brush.drag)
+		d.pinch = clamp(brush.hook_pinch, -1, 1) * step / brush.radius
+		d.drag_dir = brush.drag / step
 		jobs.parallel_for(pool, len(s.hit), &d, job_snake_hook)
 	case .Morph:
 		if len(s.morph) != len(s.mesh.positions) do return painted
@@ -1173,7 +1198,6 @@ job_area :: proc(data: rawptr, i: int) {
 @(private) job_pinch :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.Pinch)}
 @(private) job_crease :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.Crease)}
 @(private) job_layer :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.Layer)}
-@(private) job_snake_hook :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.Snake_Hook)}
 @(private) job_morph :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.Morph)}
 @(private) job_history :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.History)}
 
@@ -1221,8 +1245,6 @@ displace :: #force_inline proc(d: ^Dab, i: int, $K: Brush_Kind) {
 					next := h + (d.amount - h) * min(w * LAYER_RATE, 1)
 					p += m.normals[v] * (next - h)
 					l^ = {s.layer_stroke, next}
-				} else when K == .Snake_Hook {
-					p += d.brush.drag * w
 				} else when K == .Morph {
 					p = linalg.lerp(p, s.morph[v], min(d.brush.strength * w * MORPH_RATE, 1))
 				} else when K == .History {

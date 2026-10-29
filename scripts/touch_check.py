@@ -1295,6 +1295,17 @@ def elastic_pulls_like_rubber():
 
 
 @scenario
+def snake_hook_pinched_horn():
+    """A Snake hook stroke with Pinch 100% pulled out of the sphere's side is one undo step:
+    a horn that thins to a point (look with --screens beside the same stroke with
+    hook_pinch 0, which keeps its width)."""
+    s = Script()
+    s.mouse_drag(line((800, 450), (1000, 430), 12))
+    s.wait(2)
+    return s, ["--script=brush snake_hook; set hook_pinch 1"], camera_still({"dabs": lambda v: int(v) > 5, "undo_steps": near(1), "brush_kind": is_text("snake_hook")})
+
+
+@scenario
 def predicted_ring_leads_a_fast_pen():
     """A pen stroke at 16 px a frame, still moving when the run ends (its last moves go
     past the frames the script waits for, into the ten the run adds): the brush ring is

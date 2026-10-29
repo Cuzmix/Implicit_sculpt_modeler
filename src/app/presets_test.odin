@@ -195,6 +195,16 @@ presets_keep_grab_modes :: proc(t: ^testing.T) {
 	_, w, _, ok = preset_parse(f)
 	testing.expect(t, ok && w.kind == .Elastic && !w.grab_topological)
 	testing.expect_value(t, w.elastic_volume, 0.25)
+	// A Snake hook preset keeps its Pinch, Rake and Elastic tip.
+	v.kind, v.elastic_volume, v.hook_pinch, v.hook_rake, v.hook_elastic = .Snake_Hook, ELASTIC_VOLUME_DEFAULT, -0.5, 0.75, true
+	strings.builder_reset(&out)
+	preset_line(&out, "Horn", v, "-")
+	f = strings.fields(strings.trim_space(strings.to_string(out)), context.temp_allocator)
+	testing.expect_value(t, len(f), 35)
+	_, w, _, ok = preset_parse(f)
+	testing.expect(t, ok && w.kind == .Snake_Hook && w.hook_elastic)
+	testing.expect_value(t, w.hook_pinch, -0.5)
+	testing.expect_value(t, w.hook_rake, 0.75)
 	f[26] = "Sideways"
 	_, _, _, ok = preset_parse(f)
 	testing.expect(t, !ok)
