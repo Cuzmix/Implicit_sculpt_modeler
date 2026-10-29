@@ -143,6 +143,8 @@ Brush_Settings :: struct {
 	// What every sculpting brush changes: the surface, it and the polypaint, or only the
 	// polypaint (sculpt.Channel; the brush bar's channel button cycles them).
 	channel:           sculpt.Channel,
+	// The painting channel (Both or Color) the Paint toggle turns back on (paint_toggle.odin).
+	paint_on:          sculpt.Channel,
 	// While painting (the Paint brush, or a sculpting brush with the channel on Colour),
 	// Smooth blurs the paint and Invert takes it off, instead of smoothing the surface and
 	// digging it (painting): Paint's Blur and Erase in the dial, as Nomad and Procreate
@@ -1452,7 +1454,7 @@ brush_radius_px :: proc(app: ^App, pressure: f32, tilt: [2]f32) -> f32 {
 
 // The brush as the app starts with it, before the settings file.
 brush_defaults :: proc() -> Brush_Settings {
-	b := Brush_Settings{kind = .Draw, radius_px = DEFAULT_RADIUS_PX, pressure_strength = true, pressure_curve = geom.CURVE_LINEAR, pressure_size_curve = geom.CURVE_LINEAR, detail_px = 10, collapse = true, alpha = -1, color = {0.75, 0.2, 0.15}, color2 = {0.95, 0.92, 0.85}, spray_spread = SPRAY_DEFAULT_SPREAD, spacing = DAB_SPACING, even_strength = true, feather = true, smoothing = 1, pressure_smoothing = 1, catch_up = true, radial_count = RADIAL_DEFAULT, radial_axis = .Y, paint_dial = true, elastic_volume = ELASTIC_VOLUME_DEFAULT}
+	b := Brush_Settings{kind = .Draw, radius_px = DEFAULT_RADIUS_PX, pressure_strength = true, pressure_curve = geom.CURVE_LINEAR, pressure_size_curve = geom.CURVE_LINEAR, detail_px = 10, collapse = true, alpha = -1, color = {0.75, 0.2, 0.15}, color2 = {0.95, 0.92, 0.85}, spray_spread = SPRAY_DEFAULT_SPREAD, spacing = DAB_SPACING, even_strength = true, feather = true, smoothing = 1, pressure_smoothing = 1, catch_up = true, radial_count = RADIAL_DEFAULT, radial_axis = .Y, paint_dial = true, paint_on = .Both, elastic_volume = ELASTIC_VOLUME_DEFAULT}
 	// Draw does not build up over itself within a stroke, as ZBrush's and Nomad's.
 	b.sample_radius, b.no_accumulate[.Draw] = 1, true
 	for kind in sculpt.Brush_Kind do b.falloffs[kind].projected = projected_default(kind)

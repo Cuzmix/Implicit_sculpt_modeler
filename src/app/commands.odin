@@ -63,6 +63,7 @@ Command_Id :: enum u8 {
 	Brush_Add,
 	Brush_Subtract,
 	Paint_Channel,
+	Paint_Toggle,
 	Swap_Colors,
 	Colors_Card,
 	Eyedropper,
@@ -843,6 +844,13 @@ COMMANDS := [Command_Id]Command {
 			c := &app.brush.channel
 			c^ = sculpt.Channel((int(c^) + 1) % len(sculpt.Channel))
 		},
+		checked = proc(app: ^App, _: int) -> bool {return app.brush.channel != .Sculpt},
+	},
+	.Paint_Toggle = {
+		label = "Paint",
+		help = "Turns painting on for the sculpting brushes, laying the main colour as they sculpt (Sculpt + paint) or in place of sculpting (Paint only), as the colour island's switch says; off, they only sculpt.",
+		icon = ui.ICON_PAINTBRUSH,
+		run = proc(app: ^App, _: int) {paint_toggle(app)},
 		checked = proc(app: ^App, _: int) -> bool {return app.brush.channel != .Sculpt},
 	},
 	.Swap_Colors = {

@@ -284,6 +284,7 @@ Kit_State :: struct {
 	// The offer standing last frame (its fix, None for none) and the fixes tapped (offers.odin).
 	offer:          Command_Id,
 	offer_fixes:    int,
+	colour_island:  bool, // the colour island showed this frame (paint_toggle.odin)
 	object_chip_at: ui.Rect,
 	scene_menu:     bool,
 	scene_menu_at:  ui.Rect,
@@ -1416,6 +1417,7 @@ kit_layout :: proc(app: ^App) {
 	}
 	// Over the dock, the next steps for what is active (kit_action_bar.odin); notes rise
 	// above both.
+	kit_colour_island(app)
 	kit_action_bar(app)
 	stack_h := dock_stack(app)
 	ctx.toast_bottom = E + stack_h + 12
