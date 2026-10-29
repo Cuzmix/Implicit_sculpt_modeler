@@ -435,11 +435,13 @@ pack_meshes_install_and_list :: proc(t: ^testing.T) {
 	big := strings.builder_make(context.temp_allocator)
 	for i in 0 ..< 3000 do fmt.sbprintf(&big, "v %d %d %d\n", i % 17, i % 23, i % 31)
 	for i in 0 ..< 2990 do fmt.sbprintf(&big, "f %d %d %d\n", i + 1, i + 2, i + 3)
-	serial, _, s_err, _ := mesh_file_parse(transmute([]u8)strings.to_string(big), .OBJ, nil)
-	parallel, _, p_err, _ := mesh_file_parse(transmute([]u8)strings.to_string(big), .OBJ, &pool)
-	defer geom.mesh_destroy(&serial)
-	defer geom.mesh_destroy(&parallel)
-	testing.expect(t, s_err == p_err)
+	serial_parts, parallel_parts := make([dynamic]geom.Mesh_Part), make([dynamic]geom.Mesh_Part)
+	defer geom.mesh_parts_destroy(&serial_parts)
+	defer geom.mesh_parts_destroy(&parallel_parts)
+	_, s_err, _ := mesh_file_parse(&serial_parts, transmute([]u8)strings.to_string(big), .OBJ, nil)
+	_, p_err, _ := mesh_file_parse(&parallel_parts, transmute([]u8)strings.to_string(big), .OBJ, &pool)
+	testing.expect(t, s_err == p_err && len(serial_parts) == 1 && len(parallel_parts) == 1)
+	serial, parallel := serial_parts[0].mesh, parallel_parts[0].mesh
 	testing.expect(t, slice.equal(serial.positions[:], parallel.positions[:]) && slice.equal(serial.indices[:], parallel.indices[:]))
 	free_all(context.temp_allocator)
 }

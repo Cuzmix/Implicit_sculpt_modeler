@@ -47,7 +47,7 @@ Options :: struct {
 	system_palms: bool `usage:"Act as an iPad does, whose system rejects a hand resting on the screen while its pen is in use: only the pen's tip, and the fifth of a second after it lifts, makes a lone finger a palm, not the pen hovering near (for testing that on a desktop)."`,
 	pen_no_leave: bool `usage:"Act as the iPad's SDL does, which never says that the pen left: the pen then counts as gone half a second after its last report while its tip is up (for testing that on a desktop)."`,
 	ui_dt:     f32 `usage:"Move the interface's clock (animations, tooltips, long presses) this many seconds a frame instead of by the time that passed, for scripted runs whose checks must not depend on how fast frames come (scripts/touch_check.py passes 1/60). A stroke then lays every dab its frame's samples ask for, up to 64, however long they take. The 90 ms a finger waits before it sculpts and the right tap that opens the pie stay on the real clock."`,
-	ui_events: string `usage:"Drive the pointer, fingers and pen as SDL events would, for tests: FRAME:move:X,Y, FRAME:down, FRAME:up, FRAME:right (a right click), FRAME:mdown, FRAME:mup, FRAME:rdown and FRAME:rup (the middle and right buttons held and let go), FRAME:wheel:N, FRAME:key:NAME (a key press: shift, ctrl, alt held until FRAME:keyup:NAME), FRAME:fdown:ID:X,Y, FRAME:fmove:ID:X,Y, FRAME:fup:ID and FRAME:fcancel:ID (finger ID on a touch screen), FRAME:pdown:X,Y, FRAME:pmove:X,Y, FRAME:pup, FRAME:pnear / FRAME:pfar, FRAME:pright (the pen, the last its side button), FRAME:pedown:X,Y (its eraser end down), FRAME:pbutton:N (barrel button N), FRAME:pdtap and FRAME:psqueeze (an Apple Pencil's double-tap and squeeze, :ACTION naming the iPad's preferred action), FRAME:ponly:1 or :0 (the iPad's Only Draw with Apple Pencil), FRAME:ptilt:X,Y and FRAME:pdist:D (the pen's lean and hover height from then on), FRAME:ppress:P (the pen's pressure from then on, 0 to 1; 0 until set) and FRAME:pcoal:X,Y or FRAME:pcoal:X,Y:P (one of the pen's samples between frames, as a tablet's bridge sends it ahead of the frame's next pmove) and FRAME:kbhide (the on-screen keyboard put away by its own key, as an iPad's SDL reports it), separated by semicolons; X and Y in window points. FRAME:winN:... sends an event to view window N (1 to 3) instead, in its points."`,
+	ui_events: string `usage:"Drive the pointer, fingers and pen as SDL events would, for tests: FRAME:move:X,Y, FRAME:down, FRAME:up, FRAME:right (a right click), FRAME:mdown, FRAME:mup, FRAME:rdown and FRAME:rup (the middle and right buttons held and let go), FRAME:wheel:N, FRAME:key:NAME (a key press: shift, ctrl, alt held until FRAME:keyup:NAME), FRAME:fdown:ID:X,Y, FRAME:fmove:ID:X,Y, FRAME:fup:ID and FRAME:fcancel:ID (finger ID on a touch screen), FRAME:pdown:X,Y, FRAME:pmove:X,Y, FRAME:pup, FRAME:pnear / FRAME:pfar, FRAME:pright (the pen, the last its side button), FRAME:pedown:X,Y (its eraser end down), FRAME:pbutton:N (barrel button N), FRAME:pdtap and FRAME:psqueeze (an Apple Pencil's double-tap and squeeze, :ACTION naming the iPad's preferred action), FRAME:ponly:1 or :0 (the iPad's Only Draw with Apple Pencil), FRAME:ptilt:X,Y and FRAME:pdist:D (the pen's lean and hover height from then on), FRAME:ppress:P (the pen's pressure from then on, 0 to 1; 0 until set) and FRAME:pcoal:X,Y or FRAME:pcoal:X,Y:P (one of the pen's samples between frames, as a tablet's bridge sends it ahead of the frame's next pmove) FRAME:kbhide (the on-screen keyboard put away by its own key, as an iPad's SDL reports it) and FRAME:drop:PATH (a file dropped on the window), separated by semicolons; X and Y in window points. FRAME:winN:... sends an event to view window N (1 to 3) instead, in its points."`,
 	dump_view_window: string `usage:"On exit, write view window 1 as its interface drew it (its picture and head) to this path: a PNG, or a binary PPM when it ends in .ppm."`,
 	view_windows: int `usage:"Open this many view windows (up to 3, desktop only) at the start, each showing what Camera > New view window would."`,
 	dump_screen: string `usage:"On exit, write the whole window as the interface drew it (viewport and panels) to this path: a PNG, or a binary PPM when it ends in .ppm."`,
@@ -80,7 +80,7 @@ Options :: struct {
 	bake_size:  int `usage:"Texels square for --bake (512, 1024, 2048 or 4096; default 2048)."`,
 	gpubench_frames: int `usage:"Measured frames per --gpubench case (default 120, at most 240)."`,
 	open:      string `usage:"Start with the scene saved in this .sculpt file instead of spheres, as Menu > Open scene... does."`,
-	import_mesh: string `args:"name=import" usage:"Start with the mesh in this .obj, .ply or .stl file instead of spheres (after any --open), as Menu > Import mesh... does."`,
+	import_mesh: string `args:"name=import" usage:"Start with the mesh in this .obj, .ply, .stl, .glb or .gltf file instead of spheres (after any --open), as Menu > Import mesh... does."`,
 	export:    string `usage:"On exit, write the selected object's shown level to this .obj, .ply, .stl, .glb or .usda file, as Menu > Export mesh... does."`,
 	export_workspace: string `usage:"On exit, write the current workspace's layout to this .workspace file, as the workspace menu's Export workspace... does."`,
 	import_workspace: string `usage:"Read this .workspace file as a new workspace of your own and switch to it on the first frame, as the workspace menu's Import workspace... does."`,
@@ -542,7 +542,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	}
 	if opts.import_mesh != "" {
 		before := len(app.scene.objects)
-		if !scene_import(&app, opts.import_mesh) || len(app.scene.objects) == before do return false
+		if !scene_import(&app, opts.import_mesh, record = false) || len(app.scene.objects) == before do return false
 	}
 	// Spheres unless a file gave the scene; then the steps below apply to its objects.
 	starting := 0 if opts.open != "" || opts.import_mesh != "" else max(opts.spheres, 1)
@@ -879,6 +879,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 				app.running = false
 			case .WINDOW_FOCUS_GAINED:
 				link_focus(&app)
+			case .DROP_FILE:
+				if e.drop.data != nil do file_drop(&app, string(e.drop.data))
 			case .SCREEN_KEYBOARD_HIDDEN:
 				app.kit.keyboard_down = true
 			case .SCREEN_KEYBOARD_SHOWN:

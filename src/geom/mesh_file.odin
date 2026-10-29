@@ -28,6 +28,8 @@ Mesh_File_Error :: enum u8 {
 	Too_Large,      // more vertices than 32-bit indices reach
 	Empty,          // no triangles
 	Not_Clean,      // a triangle with a repeated corner, or a vertex no triangle uses
+	Bad_Structure,  // a glTF or USD file whose parts do not refer to each other as they must
+	Missing_File,   // a file it names (a glTF buffer) that cannot be read
 }
 
 MESH_FILE_ERROR_TEXT := [Mesh_File_Error]string {
@@ -41,6 +43,8 @@ MESH_FILE_ERROR_TEXT := [Mesh_File_Error]string {
 	.Too_Large      = "more vertices than 32-bit indices reach",
 	.Empty          = "no triangles",
 	.Not_Clean      = "a triangle with a repeated corner, or a vertex no triangle uses",
+	.Bad_Structure  = "parts of the file that do not fit together",
+	.Missing_File   = "a file it needs beside it is missing",
 }
 
 // Bytes of OBJ text one parse job takes: enough lines to be worth a job, few enough
@@ -57,8 +61,9 @@ OBJ_CHUNK :: 4 << 20
 // When `colors` is given it receives the vertex colours, one a vertex, when the file
 // has any (and is left empty otherwise): the three numbers after a `v` line's position
 // that Blender, MeshLab and most scanners write, or else ZBrush's `#MRGB` comment
-// blocks. A vertex without one gets alpha 0, so its clay shows.
-mesh_read_obj :: proc(data: []u8, pool: ^jobs.Pool, chunk_bytes := OBJ_CHUNK, colors: ^[dynamic]Vertex_Color = nil, allocator := context.allocator) -> (m: Mesh, err: Mesh_File_Error, line: int) {
+// blocks. A vertex without one gets alpha 0, so its clay shows. When `labels` is given
+// it receives what the `o` and `g` lines say of the triangles (see Obj_Labels).
+mesh_read_obj :: proc(data: []u8, pool: ^jobs.Pool, chunk_bytes := OBJ_CHUNK, colors: ^[dynamic]Vertex_Color = nil, labels: ^Obj_Labels = nil, allocator := context.allocator) -> (m: Mesh, err: Mesh_File_Error, line: int) {
 	starts := make([dynamic]int, 0, len(data) / max(chunk_bytes, 1) + 2, context.temp_allocator)
 	append(&starts, 0)
 	for {
@@ -79,6 +84,7 @@ mesh_read_obj :: proc(data: []u8, pool: ^jobs.Pool, chunk_bytes := OBJ_CHUNK, co
 		delete(c.relative)
 		delete(c.colors)
 		delete(c.mrgb)
+		delete(c.labels)
 	}
 	jobs.parallel_for(pool, len(job.chunks), &job, job_obj_chunk)
 	vertices, corners := 0, 0
@@ -132,7 +138,197 @@ mesh_read_obj :: proc(data: []u8, pool: ^jobs.Pool, chunk_bytes := OBJ_CHUNK, co
 		}
 		if !colored do mem.zero_slice(colors[at:])
 	}
+	if labels != nil do obj_labels_join(labels, job.chunks, corners / 3)
 	return m, .None, 0
+}
+
+// One mesh of a file that may hold several (OBJ objects, glTF nodes' meshes, FBX models,
+// USD Mesh prims): triangles in the file's units with the file's own transforms
+// applied, normals zero, its name, and what it brings for the surface.
+Mesh_Part :: struct {
+	name:   string, // owned; "" for none
+	mesh:   Mesh,
+	colors: [dynamic]Vertex_Color, // one a vertex, or empty
+	groups: [dynamic]u16, // one a triangle, or empty
+}
+
+mesh_part_destroy :: proc(p: ^Mesh_Part) {
+	delete(p.name)
+	mesh_destroy(&p.mesh)
+	delete(p.colors)
+	delete(p.groups)
+	p^ = {}
+}
+
+mesh_parts_destroy :: proc(parts: ^[dynamic]Mesh_Part) {
+	for &p in parts do mesh_part_destroy(&p)
+	delete(parts^)
+	parts^ = {}
+}
+
+// Appends the parts of `m` that `part` (one a triangle, below len(names)) names to
+// `parts`, in part order, each with its share of `colors` and `groups` (either may be
+// empty) and its name; a part with no triangles is left out, and so are groups when a
+// part's triangles all have the same one.
+mesh_parts_split :: proc(parts: ^[dynamic]Mesh_Part, m: Mesh, colors: []Vertex_Color, groups: []u16, part: []u32, names: []string) {
+	pieces := mesh_split(m, part, len(names))
+	defer split_parts_destroy(pieces)
+	for &piece, k in pieces {
+		if len(piece.tri_from) == 0 do continue
+		out := Mesh_Part{name = strings.clone(names[k]), mesh = piece.mesh}
+		piece.mesh = {}
+		if len(colors) > 0 {
+			out.colors = make([dynamic]Vertex_Color, len(piece.vertex_from))
+			for v, i in piece.vertex_from do out.colors[i] = colors[v]
+		}
+		if len(groups) > 0 && !slice.all_of(groups_of(groups, piece.tri_from[:]), groups[piece.tri_from[0]]) {
+			out.groups = make([dynamic]u16, len(piece.tri_from))
+			for t, i in piece.tri_from do out.groups[i] = groups[t]
+		}
+		append(parts, out)
+	}
+	groups_of :: proc(groups: []u16, tris: []u32) -> []u16 {
+		out := make([]u16, len(tris), context.temp_allocator)
+		for t, i in tris do out[i] = groups[t]
+		return out
+	}
+}
+
+// The most parts a file becomes objects as; a file of more becomes one object with a
+// polygroup a part (mesh_parts_merge), as a scan or game export cut in thousands of
+// pieces would otherwise flood the scene and the undo list.
+MESH_PARTS_MAX :: 256
+
+// Joins all the parts into the first, each part's triangles becoming a polygroup of
+// their own (numbered from 1 in part order, up to the u16 limit), the colours following
+// their vertices; the first keeps its name.
+mesh_parts_merge :: proc(parts: ^[dynamic]Mesh_Part) {
+	if len(parts) < 2 do return
+	out := &parts[0]
+	colored := false
+	for p in parts do colored ||= len(p.colors) > 0
+	if colored && len(out.colors) == 0 do resize(&out.colors, len(out.mesh.positions))
+	resize(&out.groups, len(out.mesh.indices) / 3)
+	for &g in out.groups do g = 1
+	for &p, k in parts[1:] {
+		base := u32(len(out.mesh.positions))
+		append(&out.mesh.positions, ..p.mesh.positions[:])
+		for i in p.mesh.indices do append(&out.mesh.indices, base + i)
+		if colored {
+			if len(p.colors) > 0 do append(&out.colors, ..p.colors[:])
+			else do resize(&out.colors, len(out.mesh.positions))
+		}
+		for _ in 0 ..< len(p.mesh.indices) / 3 do append(&out.groups, u16(min(k + 2, int(max(u16)))))
+		mesh_part_destroy(&p)
+	}
+	resize(&out.mesh.normals, len(out.mesh.positions))
+	resize(parts, 1)
+}
+
+// Reads an OBJ file as its parts: one for each object its `o` lines name (or one for the
+// whole file), with its colours and the groups its `g` lines give, as mesh_read_obj
+// reads them.
+mesh_read_obj_parts :: proc(parts: ^[dynamic]Mesh_Part, data: []u8, pool: ^jobs.Pool, chunk_bytes := OBJ_CHUNK) -> (err: Mesh_File_Error, line: int) {
+	colors := make([dynamic]Vertex_Color)
+	labels: Obj_Labels
+	defer obj_labels_destroy(&labels)
+	m: Mesh
+	m, err, line = mesh_read_obj(data, pool, chunk_bytes, &colors, &labels)
+	if err != .None {
+		delete(colors)
+		return
+	}
+	if len(labels.object) == 0 || slice.all_of(labels.object[:], labels.object[0]) {
+		single := Mesh_Part{mesh = m, colors = colors}
+		if len(labels.object) > 0 do single.name = strings.clone(labels.object_names[labels.object[0]])
+		if len(labels.group) > 0 && !slice.all_of(labels.group[:], labels.group[0]) {
+			single.groups = labels.group
+			labels.group = {}
+		}
+		append(parts, single)
+		return
+	}
+	defer {
+		mesh_destroy(&m)
+		delete(colors)
+	}
+	mesh_parts_split(parts, m, colors[:], labels.group[:], labels.object[:], labels.object_names[:])
+	return
+}
+
+// What an OBJ file's `o` and `g` lines say of its triangles: each triangle's object, when
+// there is more than one, and its group, when there is any. Triangles before the first
+// `o` line are in an object named "", before the first `g` line in group 0; the others
+// are numbered in the order their names first come, a name seen again taking its number.
+Obj_Labels :: struct {
+	object:       [dynamic]u32, // per triangle, or empty for one object
+	object_names: [dynamic]string, // per object, from the file's bytes (not owned)
+	group:        [dynamic]u16, // per triangle, or empty for no groups
+}
+
+obj_labels_destroy :: proc(l: ^Obj_Labels) {
+	delete(l.object)
+	delete(l.object_names)
+	delete(l.group)
+	l^ = {}
+}
+
+// An `o` or `g` line of a chunk: the name it gives and the chunk's triangle it starts at.
+@(private = "file")
+Obj_Label :: struct {
+	object:   bool,
+	name:     string,
+	triangle: int,
+}
+
+// Numbers the chunks' `o` and `g` lines in file order into per triangle objects and
+// groups; serial, as names decide numbers by when they first come.
+@(private = "file")
+obj_labels_join :: proc(l: ^Obj_Labels, chunks: []Obj_Chunk, triangles: int) {
+	objects, groups := 0, 0
+	for c in chunks do for e in c.labels {
+		if e.object do objects += 1
+		else do groups += 1
+	}
+	// Looked up, never walked, so no map order reaches the numbers.
+	named := make(map[string]int, context.temp_allocator)
+	objects_named := make(map[string]u32, context.temp_allocator)
+	objects_named[""] = 0
+	append(&l.object_names, "")
+	if objects > 0 do resize(&l.object, triangles)
+	if groups > 0 do resize(&l.group, triangles)
+	object, group := u32(0), u16(0)
+	group_count := 1
+	at := 0
+	for c in chunks {
+		first := c.first_index / 3
+		for e in c.labels {
+			// The triangles since the last label take the numbers set then.
+			upto := first + e.triangle
+			if objects > 0 do slice.fill(l.object[at:upto], object)
+			if groups > 0 do slice.fill(l.group[at:upto], group)
+			at = upto
+			if e.object {
+				k, seen := objects_named[e.name]
+				if !seen {
+					k = u32(len(l.object_names))
+					objects_named[e.name] = k
+					append(&l.object_names, e.name)
+				}
+				object = k
+			} else if e.name == "" {
+				group = 0
+			} else if k, ok := named[e.name]; ok {
+				group = u16(k)
+			} else if group_count <= int(max(u16)) {
+				named[e.name] = group_count
+				group = u16(group_count)
+				group_count += 1
+			}
+		}
+	}
+	if objects > 0 do slice.fill(l.object[at:], object)
+	if groups > 0 do slice.fill(l.group[at:], group)
 }
 
 @(private = "file")
@@ -146,6 +342,7 @@ Obj_Chunk :: struct {
 	// the colours of `#MRGB` blocks.
 	colors:       [dynamic]Vertex_Color,
 	mrgb:         [dynamic]Vertex_Color,
+	labels:       [dynamic]Obj_Label, // the `o` and `g` lines, in order
 	err:          Mesh_File_Error,
 	err_at:       int, // where in text the failing line starts
 	first_vertex: int,
@@ -178,6 +375,11 @@ job_obj_chunk :: proc(data: rawptr, i: int) {
 		if bytes.has_prefix(text[at:], transmute([]u8)string("#MRGB ")) {
 			at += 6
 			obj_mrgb(c, text, &at)
+		} else if at + 1 < n && (text[at] == 'o' || text[at] == 'g') && (is_blank(text[at + 1]) || text[at + 1] == '\n' || text[at + 1] == '\r') {
+			if c.labels == nil do c.labels = make([dynamic]Obj_Label, heap)
+			end := at + 1
+			for end < n && text[end] != '\n' && text[end] != '\r' && text[end] != '#' do end += 1
+			append(&c.labels, Obj_Label{object = text[at] == 'o', name = strings.trim_space(string(text[at + 1:end])), triangle = len(c.indices) / 3})
 		} else if at + 1 < n && is_blank(text[at + 1]) && (text[at] == 'v' || text[at] == 'f') {
 			kind := text[at]
 			at += 2
@@ -698,10 +900,12 @@ Mesh_Clean_Report :: struct {
 // corner and vertices no triangle uses, keeping the order of what stays. Refuses NaN
 // and infinite coordinates. Normals become zero, for the sculptor to compute. `colors`,
 // one a vertex when not empty, follow the vertices: a welded vertex keeps the colour of
-// the first at its place.
-mesh_clean :: proc(m: ^Mesh, pool: ^jobs.Pool, colors: ^[dynamic]Vertex_Color = nil) -> (report: Mesh_Clean_Report, err: Mesh_File_Error) {
+// the first at its place; `groups`, one a triangle when not empty, follow the triangles.
+mesh_clean :: proc(m: ^Mesh, pool: ^jobs.Pool, colors: ^[dynamic]Vertex_Color = nil, groups: ^[dynamic]u16 = nil) -> (report: Mesh_Clean_Report, err: Mesh_File_Error) {
 	colored := colors != nil && len(colors) > 0
 	assert(!colored || len(colors) == len(m.positions), "one colour a vertex")
+	grouped := groups != nil && len(groups) > 0
+	assert(!grouped || 3 * len(groups) == len(m.indices), "one group a triangle")
 	n := len(m.positions)
 	if !positions_finite(m.positions[:], pool) do return {}, .Not_Finite
 
@@ -760,10 +964,12 @@ mesh_clean :: proc(m: ^Mesh, pool: ^jobs.Pool, colors: ^[dynamic]Vertex_Color = 
 		a, b, c := m.indices[t], m.indices[t + 1], m.indices[t + 2]
 		if a == b || b == c || c == a do continue
 		m.indices[kept], m.indices[kept + 1], m.indices[kept + 2] = a, b, c
+		if grouped do groups[kept / 3] = groups[t / 3]
 		kept += 3
 	}
 	report.dropped_triangles = (len(m.indices) - kept) / 3
 	resize(&m.indices, kept)
+	if grouped do resize(groups, kept / 3)
 
 	// Drop unused vertices: number the used ones in order, then move them down.
 	new_of := w.rep // reused: no longer needed
@@ -969,6 +1175,46 @@ mesh_normalize :: proc(m: ^Mesh, pool: ^jobs.Pool) -> (center: Vec3, radius: f32
 		for &p in nm.positions[lo:hi] do p = (p - nm.center) * nm.inv
 	}, RANGE_GRAIN)
 	return nm.center, radius
+}
+
+// Sizes the parts of one file together as mesh_normalize sizes one mesh: one centre and
+// radius for them all, so they keep their sizes and places relative to each other; then
+// each part is moved to sit around its own middle, which `middles` gets (in the sized
+// space), so it turns about itself. On each axis the middle is the shared centre when
+// the part's middle half straddles it, as mesh_normalize keeps a file's origin, so a
+// part built around the model's symmetry plane keeps the plane symmetry mirrors across;
+// otherwise it is the middle of the part's bounds. A file position of part k is
+// center + radius * (middles[k] + p). A single part keeps mesh_normalize's result
+// exactly, with a middle of zero.
+mesh_parts_normalize :: proc(parts: []Mesh_Part, pool: ^jobs.Pool, allocator := context.allocator) -> (center: Vec3, radius: f32, middles: []Vec3) {
+	middles = make([]Vec3, len(parts), allocator)
+	if len(parts) == 1 {
+		center, radius = mesh_normalize(&parts[0].mesh, pool)
+		return
+	}
+	// All the parts' positions as one list, sized as one mesh, then copied back.
+	total := 0
+	for p in parts do total += len(p.mesh.positions)
+	whole: Mesh
+	whole.positions = make([dynamic]Vec3, 0, total, context.temp_allocator)
+	for p in parts do append(&whole.positions, ..p.mesh.positions[:])
+	center, radius = mesh_normalize(&whole, pool)
+	at := 0
+	for &p, k in parts {
+		n := len(p.mesh.positions)
+		copy(p.mesh.positions[:], whole.positions[at:][:n])
+		at += n
+		box := AABB_EMPTY
+		for q in p.mesh.positions do aabb_grow(&box, q)
+		if n == 0 do continue
+		for axis in 0 ..< 3 {
+			lo, hi := box.lo[axis], box.hi[axis]
+			quarter := (hi - lo) * 0.25
+			middles[k][axis] = 0 if lo + quarter <= 0 && 0 <= hi - quarter else (lo + hi) * 0.5
+		}
+		for &q in p.mesh.positions do q -= middles[k]
+	}
+	return
 }
 
 // Appends the mesh as OBJ text: a comment, a `v` line per vertex and an `f` line per

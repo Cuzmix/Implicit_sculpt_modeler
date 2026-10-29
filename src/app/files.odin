@@ -82,8 +82,13 @@ pending: struct {
 
 // What the dialogs offer. SDL reads them until the dialog calls back, so they live for
 // the whole run.
-@(private = "file")
-MESH_FILTERS := [?]sdl.DialogFileFilter{{"Meshes (OBJ, PLY, STL)", "obj;ply;stl"}, {"OBJ", "obj"}, {"PLY", "ply"}, {"STL", "stl"}}
+// On Android SDL turns an extension it knows no MIME type for into none, which would hide
+// glTF files, so there every file is offered and the bytes decide (mesh_file_kind).
+when ODIN_PLATFORM_SUBTARGET == .Android {
+	MESH_FILTERS := [?]sdl.DialogFileFilter{{"All files", "*"}}
+} else {
+	MESH_FILTERS := [?]sdl.DialogFileFilter{{"Meshes (OBJ, PLY, STL, glTF)", "obj;ply;stl;glb;gltf"}, {"OBJ", "obj"}, {"PLY", "ply"}, {"STL", "stl"}, {"glTF", "glb;gltf"}}
+}
 // Export writes two formats Import does not read, so it offers its own list; a name
 // typed without an extension takes the one of the filter chosen (EXPORT_SUFFIX).
 @(private = "file")
@@ -366,9 +371,7 @@ file_apply :: proc(app: ^App, req: File_Request) -> bool {
 	switch req.kind {
 	case .None:
 	case .Import:
-		before := len(app.scene.objects)
-		if !scene_import(app, req.path) do return false
-		if len(app.scene.objects) > before do history_record_added(app)
+		return scene_import(app, req.path)
 	case .Export, .Export_Print:
 		obj := selected_object(app)
 		if obj == nil {
@@ -459,6 +462,17 @@ file_apply :: proc(app: ^App, req: File_Request) -> bool {
 	return true
 }
 
+// A file dropped on the window from the desktop: a mesh imports as Import mesh would,
+// anything else says what a drop takes.
+file_drop :: proc(app: ^App, path: string) {
+	if mesh_file_kind(path, nil) == .None {
+		file_note(app, true, "Cannot import %s: drop .obj, .ply, .stl, .glb or .gltf files to import them", filepath.base(path))
+		return
+	}
+	// Never over a dialog's answer, which would be lost.
+	if !file_post_when_idle(.Import, path) do file_note(app, true, "Cannot import %s while a file dialog is open", filepath.base(path))
+}
+
 // Writes the viewport as the last frame drew it, without the brush outline or gizmo,
 // to a PNG file (or a binary PPM when the path ends in .ppm, for the render checks).
 screenshot_save :: proc(app: ^App, path: string) -> bool {
@@ -500,34 +514,80 @@ scene_remember_path :: proc(app: ^App, path: string) {
 	versions_refresh(app)
 }
 
-// Reads an OBJ, PLY or STL file into a new object beside the others, sized like a sphere
-// (its place in the file is kept for export: see Object.file), its vertex colours as
-// polypaint. Returns false only on a GPU failure.
-scene_import :: proc(app: ^App, path: string) -> bool {
+// Reads a mesh file (OBJ, PLY, STL or glTF) into new objects beside the others, sized
+// like a sphere together (each part's place in the file is kept for export: see
+// Object.file), with its vertex colours as polypaint and its groups as polygroups. A
+// file of several meshes makes an object of each, in a new folder named after the file.
+// All of it is one undo step unless `record` is off (a start-up flag's set-up). Returns
+// false only on a GPU failure.
+scene_import :: proc(app: ^App, path: string, record := true) -> bool {
 	m, read := mesh_import_read(app, path, fmt.tprintf("Imported %s", filepath.base(path)))
 	if !read do return true
-	defer delete(m.colors)
+	defer mesh_import_free(&m)
 	stem := filepath.stem(path)
-	if !scene_add_mesh(app, m.mesh, stem if stem != "" else "Import", m.file, {position = next_free_position(app), scale = 1}, m.start, surface = mesh_import_surface(m)) do return false
-	// After the new object's stats reset.
+	if !import_add_parts(app, &m, stem if stem != "" else "Import", next_free_position(app), record) do return false
+	// After the new objects' stats reset.
 	app.stats.file_read_ms, app.stats.file_parse_ms = m.read_ms, m.parse_ms
 	return true
 }
 
-// A mesh file read for a new object: the cleaned mesh, centred and sized like a sphere,
-// its vertex colours (one a vertex, or none; the caller deletes them once the object is
-// built), where it sat in its file, and how long reading took.
+// Makes an object of each of the import's parts (taking their meshes), at `at` plus each
+// part's middle, and puts them in a new folder named `name` when there are several; the
+// selection ends on the first. With `record` it is one undo step: each add chained to the
+// first, then the folder as an Arrange step chained after them, so undo takes the folder
+// away and then the objects. Returns false on a GPU failure (what was added stays, and
+// is recorded).
+import_add_parts :: proc(app: ^App, m: ^Mesh_Import, name: string, at: Vec3, record: bool) -> bool {
+	first := len(app.scene.objects)
+	ok := true
+	for &p, k in m.parts {
+		label := name
+		if len(m.parts) > 1 {
+			// Not temporary: building frees the temp allocator before the name is copied.
+			label = strings.clone(p.name) if p.name != "" else fmt.aprintf("%s %d", name, k + 1)
+		}
+		defer if len(m.parts) > 1 do delete(label)
+		mesh := p.mesh
+		p.mesh = {}
+		if !scene_add_mesh(app, mesh, label, m.files[k], {position = at + m.middles[k], scale = 1}, m.start, surface = import_surface(p)) {
+			ok = false
+			break
+		}
+		if record do history_record_swap(app, app.scene.objects[len(app.scene.objects) - 1].id, history_snapshot(app, nil, "import"), chain = k > 0)
+	}
+	added := app.scene.objects[first:]
+	if len(added) > 1 {
+		before := layout_take(app) if record else nil
+		f := folder_new(app)
+		f.name = strings.clone(name)
+		for obj in added do obj.folder = f.id
+		if record do _ = history_record_arrange(app, before, "import", chain = true)
+	}
+	if len(added) > 0 do app.scene.selected = first
+	return ok
+}
+
+// The polypaint and polygroups an imported part's object starts with.
+import_surface :: proc(p: geom.Mesh_Part) -> Surface {
+	return {color = p.colors[:] if len(p.colors) > 0 else nil, groups = p.groups[:] if len(p.groups) > 0 else nil}
+}
+
+// A mesh file read for new objects: its parts, cleaned, sized like a sphere together and
+// each centred on its own middle (middles[k], in that space), where each sat in its file
+// (files[k]), and how long reading took.
 Mesh_Import :: struct {
-	mesh:              geom.Mesh,
-	colors:            [dynamic]geom.Vertex_Color,
-	file:              Transform,
+	parts:             [dynamic]geom.Mesh_Part,
+	middles:           []Vec3,
+	files:             []Transform,
 	start:             time.Tick,
 	read_ms, parse_ms: f64,
 }
 
-// The polypaint an imported mesh's object starts with: its vertex colours, if any.
-mesh_import_surface :: proc(m: Mesh_Import) -> Surface {
-	return {color = m.colors[:] if len(m.colors) > 0 else nil}
+mesh_import_free :: proc(m: ^Mesh_Import) {
+	geom.mesh_parts_destroy(&m.parts)
+	delete(m.middles)
+	delete(m.files)
+	m^ = {}
 }
 
 Mesh_Kind :: enum u8 {
@@ -535,47 +595,116 @@ Mesh_Kind :: enum u8 {
 	OBJ,
 	PLY,
 	STL,
+	GLTF, // .glb, or .gltf with its buffers inside or beside it
 }
 
 // Which reader a mesh file takes: by its extension, or for a content:// URI from
 // Android's picker, which has none, by its bytes (a PLY file starts with "ply", an STL
-// file with "solid" or with a triangle count its length matches, and anything else is
-// tried as OBJ text).
+// file with "solid" or with a triangle count its length matches, a binary glTF with
+// "glTF" and a text one is JSON naming its "asset", and anything else is tried as OBJ
+// text).
 mesh_file_kind :: proc(path: string, data: []u8) -> Mesh_Kind {
 	switch strings.to_lower(filepath.ext(path), context.temp_allocator) {
 	case ".obj": return .OBJ
 	case ".ply": return .PLY
 	case ".stl": return .STL
+	case ".glb", ".gltf": return .GLTF
 	}
 	if !strings.has_prefix(path, "content://") do return .None
 	text := string(data)
 	switch {
 	case strings.has_prefix(text, "ply"): return .PLY
+	case strings.has_prefix(text, geom.GLB_MAGIC): return .GLTF
+	case strings.has_prefix(strings.trim_left_space(text[:min(len(text), 64)]), "{") && strings.contains(text[:min(len(text), 4096)], `"asset"`): return .GLTF
 	case strings.has_prefix(text, "solid"): return .STL
 	case len(data) >= geom.STL_HEADER && geom.STL_HEADER + geom.STL_ROW * int((^u32le)(&data[80])^) == len(data): return .STL
 	}
 	return .OBJ
 }
 
-// Parses and cleans a mesh file's bytes, as Import and a content pack's install both
-// do; a nil pool runs it on the calling thread. `line` names the line of a parse error
-// (0 for none). `colors`, when given, receives the vertex colours the file has (one a
-// cleaned vertex), and is left empty on a failure.
-mesh_file_parse :: proc(data: []u8, kind: Mesh_Kind, pool: ^jobs.Pool, colors: ^[dynamic]geom.Vertex_Color = nil) -> (mesh: geom.Mesh, cleaned: geom.Mesh_Clean_Report, failed: geom.Mesh_File_Error, line: int) {
+// What reading a mesh file did besides giving its parts, for the note.
+Mesh_File_Info :: struct {
+	cleaned: geom.Mesh_Clean_Report, // summed over the parts
+	skipped: geom.Gltf_Skipped,
+	empty:   int, // parts nothing was left of once cleaned
+	merged:  int, // parts joined into one object, past MESH_PARTS_MAX
+}
+
+// Parses a mesh file's bytes into `parts` and cleans each, as Import and a content
+// pack's install both do; a nil pool runs it on the calling thread. `path` is where the
+// file is, for a .gltf's buffers beside it ("" for none). `line` names the line of a
+// parse error (0 for none). On a failure `parts` is left empty.
+mesh_file_parse :: proc(parts: ^[dynamic]geom.Mesh_Part, data: []u8, kind: Mesh_Kind, pool: ^jobs.Pool, path := "") -> (info: Mesh_File_Info, failed: geom.Mesh_File_Error, line: int) {
 	switch kind {
-	case .PLY: mesh, failed, line = geom.mesh_read_ply(data, pool, colors)
-	case .STL: mesh, failed, line = geom.mesh_read_stl(data, pool)
-	case .OBJ, .None: mesh, failed, line = geom.mesh_read_obj(data, pool, colors = colors)
+	case .PLY, .STL:
+		p: geom.Mesh_Part
+		if kind == .PLY do p.mesh, failed, line = geom.mesh_read_ply(data, pool, &p.colors)
+		else do p.mesh, failed, line = geom.mesh_read_stl(data, pool)
+		if failed == .None do append(parts, p)
+		else do delete(p.colors)
+	case .GLTF:
+		Beside :: struct {
+			dir:   string,
+			files: [dynamic][]u8,
+		}
+		// A picked content:// file comes without the files beside it.
+		beside: Beside
+		if path != "" && !strings.has_prefix(path, "content://") {
+			beside.dir = filepath.dir(path)
+			if beside.dir == "" do beside.dir = "."
+		}
+		defer {
+			for f in beside.files do delete(f)
+			delete(beside.files)
+		}
+		resolve :: proc(data: rawptr, uri: string) -> ([]u8, bool) {
+			b := cast(^Beside)data
+			// Only plain names and paths below the file: never a scheme or a way up.
+			if b.dir == "" || strings.contains(uri, "://") || strings.contains(uri, "..") || filepath.is_abs(uri) do return nil, false
+			full, _ := filepath.join({b.dir, uri}, context.temp_allocator)
+			bytes, err := file_read_any(full, context.allocator)
+			if err != nil do return nil, false
+			append(&b.files, bytes)
+			return bytes, true
+		}
+		info.skipped, failed = geom.mesh_read_gltf(parts, data, resolve, &beside)
+	case .OBJ, .None:
+		failed, line = geom.mesh_read_obj_parts(parts, data, pool)
 	}
-	if failed == .None do cleaned, failed = geom.mesh_clean(&mesh, pool, colors)
+	if failed == .None {
+		for k := 0; k < len(parts); {
+			p := &parts[k]
+			cleaned, err := geom.mesh_clean(&p.mesh, pool, &p.colors, &p.groups)
+			if err == .Empty {
+				// A part of only lines or of triangles with nothing inside goes alone.
+				geom.mesh_part_destroy(p)
+				ordered_remove(parts, k)
+				info.empty += 1
+				continue
+			}
+			if err != .None {
+				failed = err
+				break
+			}
+			info.cleaned.welded += cleaned.welded
+			info.cleaned.dropped_triangles += cleaned.dropped_triangles
+			info.cleaned.dropped_vertices += cleaned.dropped_vertices
+			k += 1
+		}
+		if failed == .None && len(parts) == 0 do failed = .Empty
+		if failed == .None && len(parts) > geom.MESH_PARTS_MAX {
+			info.merged = len(parts)
+			geom.mesh_parts_merge(parts)
+		}
+	}
 	if failed != .None {
-		geom.mesh_destroy(&mesh)
-		if colors != nil do clear(colors)
+		for &p in parts do geom.mesh_part_destroy(&p)
+		clear(parts)
 	}
 	return
 }
 
-// Reads the mesh file at `path` for a new object, with a note led by `what` ("Imported
+// Reads the mesh file at `path` for new objects, with a note led by `what` ("Imported
 // rock.obj") saying what it holds; false, with a note saying why, when it cannot.
 mesh_import_read :: proc(app: ^App, path, what: string) -> (m: Mesh_Import, ok: bool) {
 	m.start = time.tick_now()
@@ -593,45 +722,74 @@ mesh_import_read :: proc(app: ^App, path, what: string) -> (m: Mesh_Import, ok: 
 	read := time.tick_now()
 	kind := mesh_file_kind(path, data)
 	if kind == .None {
-		file_note(app, true, "Cannot import %s: only .obj, .ply and .stl files import", name)
+		file_note(app, true, "Cannot import %s: only .obj, .ply, .stl, .glb and .gltf files import", name)
 		return
 	}
-	mesh, cleaned, failed, line := mesh_file_parse(data, kind, &app.pool, &m.colors)
+	info, failed, line := mesh_file_parse(&m.parts, data, kind, &app.pool, path)
 	if failed != .None {
-		delete(m.colors)
-		if line > 0 {
+		delete(m.parts)
+		switch {
+		case failed == .Missing_File && strings.has_prefix(path, "content://"):
+			file_note(app, true, "Cannot read %s: its buffers are in files beside it, which the picker does not give; export it as .glb", name)
+		case failed == .Empty && info.skipped.compressed > 0:
+			file_note(app, true, "Cannot read %s: its meshes are compressed (Draco or meshopt), which Import does not decode", name)
+		case line > 0:
 			file_note(app, true, "Cannot read %s, line %d: %s", name, line, geom.MESH_FILE_ERROR_TEXT[failed])
-		} else {
+		case:
 			file_note(app, true, "Cannot read %s: %s", name, geom.MESH_FILE_ERROR_TEXT[failed])
 		}
 		return
 	}
 	parsed := time.tick_now()
-	center, radius := geom.mesh_normalize(&mesh, &app.pool)
-	edges := geom.mesh_edges(mesh, &app.pool)
-	flipped := geom.mesh_edges_closed(edges) && edges.volume < 0
 	// A closed surface facing inward would be culled from outside, and remeshes empty.
-	if flipped do geom.mesh_flip(&mesh, &app.pool)
+	vertices, triangles, flipped := 0, 0, 0
+	open: geom.Mesh_Edges
+	for &p in m.parts {
+		edges := geom.mesh_edges(p.mesh, &app.pool)
+		if geom.mesh_edges_closed(edges) && edges.volume < 0 {
+			geom.mesh_flip(&p.mesh, &app.pool)
+			flipped += 1
+		}
+		open.border += edges.border
+		open.bad += edges.bad
+		vertices += geom.mesh_vertex_count(p.mesh)
+		triangles += geom.mesh_triangle_count(p.mesh)
+	}
+	center, radius, middles := geom.mesh_parts_normalize(m.parts[:], &app.pool)
+	m.middles = middles
+	m.files = make([]Transform, len(m.parts))
+	for c, k in middles do m.files[k] = {position = center + radius * c, scale = radius}
 	free_all(context.temp_allocator)
 	m.read_ms = time.duration_milliseconds(time.tick_diff(m.start, read))
 	m.parse_ms = time.duration_milliseconds(time.tick_diff(read, parsed))
 	// The note leads with what matters most: a surface that is not closed, then the size.
-	closed := geom.mesh_edges_closed(edges)
+	closed := geom.mesh_edges_closed(open)
 	note := strings.builder_make(context.temp_allocator)
 	strings.write_string(&note, head)
+	if len(m.parts) > 1 do strings.write_string(&note, fmt.tprintf(" as %d objects in a folder", len(m.parts)))
 	if closed {
 		strings.write_string(&note, ":")
 	} else {
-		strings.write_string(&note, fmt.tprintf(", but its surface is not closed (%d border edges, %d flipped or shared by more than two triangles): it sculpts, but subdivision, HD and remesh need a closed one.", edges.border, edges.bad))
+		strings.write_string(&note, fmt.tprintf(", but its surface is not closed (%d border edges, %d flipped or shared by more than two triangles): it sculpts, but subdivision, HD and remesh need a closed one.", open.border, open.bad))
 	}
-	strings.write_string(&note, fmt.tprintf(" %d vertices, %d triangles, read in %.0f ms and parsed in %.0f ms", geom.mesh_vertex_count(mesh), geom.mesh_triangle_count(mesh), m.read_ms, m.parse_ms))
-	// Every corner of an STL file comes on its own, so welding them is no news.
-	if kind == .STL do cleaned.dropped_vertices, cleaned.welded = cleaned.dropped_vertices - cleaned.welded, 0
+	strings.write_string(&note, fmt.tprintf(" %d vertices, %d triangles, read in %.0f ms and parsed in %.0f ms", vertices, triangles, m.read_ms, m.parse_ms))
+	cleaned := info.cleaned
+	// Every corner of an STL file comes on its own, and a glTF's primitives each bring
+	// their own vertices, so welding them is no news.
+	if kind == .STL || kind == .GLTF do cleaned.dropped_vertices, cleaned.welded = cleaned.dropped_vertices - cleaned.welded, 0
 	if cleaned != {} do strings.write_string(&note, fmt.tprintf("; %d vertices welded, %d triangles and %d vertices dropped", cleaned.welded, cleaned.dropped_triangles, cleaned.dropped_vertices))
-	if flipped do strings.write_string(&note, "; turned outward")
-	if len(m.colors) > 0 do strings.write_string(&note, "; its vertex colours are its polypaint")
+	if flipped > 0 do strings.write_string(&note, "; turned outward")
+	colored, grouped := false, false
+	for p in m.parts {
+		colored ||= len(p.colors) > 0
+		grouped ||= len(p.groups) > 0
+	}
+	if colored do strings.write_string(&note, "; its vertex colours are its polypaint")
+	if info.merged > 0 do strings.write_string(&note, fmt.tprintf("; its %d meshes are one object, a polygroup each", info.merged))
+	else if grouped do strings.write_string(&note, "; its groups are polygroups")
+	if info.skipped.compressed > 0 do strings.write_string(&note, fmt.tprintf("; %d compressed meshes (Draco or meshopt) left out", info.skipped.compressed))
+	if info.skipped.not_faces > 0 || info.empty > 0 do strings.write_string(&note, fmt.tprintf("; %d meshes of points or lines left out", info.skipped.not_faces + info.empty))
 	file_note(app, !closed, "%s", strings.to_string(note))
-	m.mesh, m.file = mesh, {position = center, scale = radius}
 	return m, true
 }
 
