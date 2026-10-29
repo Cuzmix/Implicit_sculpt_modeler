@@ -3114,6 +3114,21 @@ def model_edit_cage_takes_a_sculpt_back():
                   (Script(), ["--check-mesh", "--script=set retopo_quads 100; retopologize; edit_cage; apply_cage; subdivide"], {"cages": near(0), "selected_levels": near(2), "levels_rule": is_text("Smooth"), "mesh_closed": is_text("true")})])
 
 @scenario
+def model_live_stack_bevels_and_thickens():
+    """Bevel creases on a creased cube draws 38 faces over its six (a strip of two a crease, a patch a corner), each setting one undo step; an extrude drag on it still pulls the cube's face out, its strips following; Thickness makes a plane a closed plate that Apply to sculpt turns into three closed levels; a bevel and a thickness come back from a saved scene as they were."""
+    cube = "add_cage cube; select 1; delete_object; frame_all; crease_cage by_angle; cage_bevel 5; cage_bevel_segments 2"
+    plate = "add_cage plane; select 1; delete_object; frame_all; cage_thickness 10; cage_thickness_side centre; cage_bevel 3; cage_smooth 2"
+    s = Script()
+    s.mouse_drag(line((720, 450), (720, 380), 10))
+    s.wait(10)
+    return Steps([(Script(), LENS_1440 + ["--check-mesh", f"--script={cube}"], {"cages": near(1), "cage_faces": near(6), "cage_live_faces": near(38), "cage_broken": near(0)}),
+                  (Script(), LENS_1440 + [f"--script={cube}; undo"], {"cage_faces": near(6), "cage_live_faces": near(26)}),
+                  (Script(), LENS_1440 + [f"--script={cube}; undo; undo"], {"cage_faces": near(6), "cage_live_faces": near(0)}),
+                  (s, LENS_1440 + [f"--script={cube}; model_action extrude"], {"cage_faces": near(10), "cage_points": near(12), "model_done": near(1), "cage_live_faces": lambda v: int(v) > 38}),
+                  (Script(), LENS_1440 + [f"--script={plate}", "--check-mesh"], {"cage_faces": near(1), "cage_live_faces": lambda v: int(v) > 6, "cage_smooth": near(2)}),
+                  (Script(), LENS_1440 + ["--check-mesh", f"--script={plate}; apply_cage"], {"cages": near(0), "selected_levels": near(3), "levels_rule": is_text("Smooth"), "mesh_closed": is_text("true")})])
+
+@scenario
 def model_delete_tap_removes_a_face():
     """With Delete picked, a tap on a cage's face removes it (a hole of four border edges), not turning the view."""
     s = Script()

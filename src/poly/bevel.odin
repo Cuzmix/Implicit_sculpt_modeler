@@ -27,7 +27,10 @@ import "core:slice"
 // The most segments a bevel takes.
 BEVEL_SEGMENTS_MAX :: 12
 
-bevel_edges :: proc(m: ^Mesh, edges: []u32, segments: int, allocator := context.allocator) -> (r: Edit_Result, d: Drag_Set, err: Build_Error) {
+// With `corners`, each face corner a bevelled point had is put there (by bevel_key of the
+// old face and point) with the new points that took its place in that face, in order round
+// it, as new ids: the live stack follows the cage's points and edges through them.
+bevel_edges :: proc(m: ^Mesh, edges: []u32, segments: int, allocator := context.allocator, corners: ^map[u64][]u32 = nil) -> (r: Edit_Result, d: Drag_Set, err: Build_Error) {
 	s := clamp(segments, 1, BEVEL_SEGMENTS_MAX)
 	bevelled := make([]bool, len(m.crease), context.temp_allocator)
 	list := make([dynamic]u32, context.temp_allocator)
@@ -106,6 +109,13 @@ bevel_edges :: proc(m: ^Mesh, edges: []u32, segments: int, allocator := context.
 		d.verts[i], d.base[i], d.dir[i] = nv, m.positions[nv], b.dir[p]
 	}
 	d.lo, d.hi = 0, max(b.hi, 0)
+	if corners != nil {
+		for key, seq in b.sub {
+			ids := make([]u32, len(seq), context.temp_allocator)
+			for p, i in seq do ids[i] = r.vert[p]
+			corners[key] = ids
+		}
+	}
 	return r, d, .None
 }
 
@@ -132,7 +142,7 @@ Bevel_End :: struct {
 	group: u16,
 }
 
-@(private = "file")
+@(private)
 bevel_key :: #force_inline proc "contextless" (a, b: u32) -> u64 {return u64(a) << 32 | u64(b)}
 
 // A new point at old point v moving `dir` per unit of width.

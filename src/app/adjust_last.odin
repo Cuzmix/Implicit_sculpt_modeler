@@ -207,7 +207,7 @@ adjust_model :: proc(app: ^App, amount: f32) -> bool {
 	// A chamfer keeps its sign, which says it is one, for a tap to repeat.
 	d.amount = -a.amount if d.action == .Bevel && d.amount < 0 else a.amount
 	app.model.last[d.action] = d.amount
-	cage_positions_moved(app, obj, d.set.verts)
+	_ = cage_positions_moved(app, obj, d.set.verts)
 	a.adjusts += 1
 	// The cage changed, which the autosave and the mask read; the adjust stays live.
 	app.history.serial += 1
