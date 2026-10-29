@@ -195,6 +195,7 @@ overlay_viewport :: proc(app: ^App, o: Overlay, input: Viewport_Input) {
 				overlay_line(o, center, input.mouse_pos, color, 1)
 			}
 			if brush_alpha(app) != nil && held_brush(input) {
+				app.alpha_roll = input.pen_roll
 				draw_alpha_outline(app, o, center, color)
 			} else {
 				if !draw_surface_ring(app, o, input.size, color) do overlay_circle(o, center, app.brush.radius_px, color, 1.5)

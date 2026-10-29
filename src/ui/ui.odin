@@ -61,6 +61,9 @@ Input :: struct {
 	backspace:     int,
 	text_end:      bool,
 	pointer:       Pointer_Kind, // what pressed or moved the pointer last
+	// How far the pen turned about its own length this frame, in degrees, clockwise seen
+	// from its top; zero without a pen. A slider the pen hovers on follows it (pen_roll).
+	roll:          f32,
 	// The system took the pointer back (a palm was recognised, the app lost the touch):
 	// what is held lets go this frame without a click.
 	cancel:        bool,

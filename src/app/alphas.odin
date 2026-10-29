@@ -25,12 +25,16 @@ Alpha_Mode :: enum u8 {
 	Stroke, // along the stroke, so a pattern runs with it
 	Fixed,  // the screen's up, turned by the angle
 	Random, // a new direction every dab, for texture without a visible repeat
+	// Turned with the pen about its own length, as Procreate's barrel roll turns a brush's
+	// shape: the outline shows the image's top before the pen touches down.
+	Pen_Roll,
 }
 
 ALPHA_MODE_NAMES := [Alpha_Mode]string {
 	.Stroke = "Follow stroke",
 	.Fixed  = "Fixed",
 	.Random = "Random",
+	.Pen_Roll = "Pen roll",
 }
 
 Alpha_Entry :: struct {
@@ -228,6 +232,10 @@ alpha_screen_angle :: proc(app: ^App, for_display := false) -> f32 {
 			angle += 2 * math.PI * stroke_random(st.seed, st.step, 5)
 			st.step += 1
 		}
+	case .Pen_Roll:
+		// The roll turns clockwise as seen from the pen's top, which is the screen's
+		// clockwise; the angle counts the other way.
+		angle -= math.to_radians(app.alpha_roll)
 	}
 	return angle
 }
