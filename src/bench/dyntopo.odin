@@ -15,11 +15,13 @@ import "../sculpt"
 // detail 0, which leaves the triangles be (what the paged layout costs a plain stroke);
 // with a detail that splits every edge under the brush once (each triangle into four);
 // and that again over what is now fine enough (what checking costs). Then undo and redo
-// of the refining stroke, and turning dynamic topology off again, which packs the mesh.
+// of the refining stroke, Remove stretching over the whole object (which finds nothing
+// longer than twice the median edge there: the cost of looking), and turning dynamic
+// topology off again, which packs the mesh.
 // Upload counts the vertex ranges and the index pages the flush reports.
 dyntopo_header :: proc() {
-	fmt.println("| Vertices | Fixed frame ms | Enable ms | Plain frame ms | Refine frame ms | Refine max | Splits | Collapses | Triangles after | Upload MB/frame | Again frame ms | Undo MB | Undo ms | Redo ms | Disable ms |")
-	fmt.println("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+	fmt.println("| Vertices | Fixed frame ms | Enable ms | Plain frame ms | Refine frame ms | Refine max | Splits | Collapses | Triangles after | Upload MB/frame | Again frame ms | Undo MB | Undo ms | Redo ms | Remove stretching ms | Disable ms |")
+	fmt.println("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
 }
 
 run_dyntopo :: proc(target: int, pool: ^jobs.Pool) {
@@ -42,7 +44,7 @@ run_dyntopo :: proc(target: int, pool: ^jobs.Pool) {
 
 	t0 := time.tick_now()
 	if !sculpt.sculptor_dyn_enable(s) {
-		fmt.printfln("| %s | %.2f | refused | | | | | | | | | | | | |", thousands(vcount), fixed)
+		fmt.printfln("| %s | %.2f | refused | | | | | | | | | | | | | |", thousands(vcount), fixed)
 		return
 	}
 	enable_ms := time.duration_milliseconds(time.tick_since(t0))
@@ -70,14 +72,21 @@ run_dyntopo :: proc(target: int, pool: ^jobs.Pool) {
 	_ = sculpt.sculptor_flush(s)
 	redo_ms := time.duration_milliseconds(time.tick_since(tr))
 	free_all(context.temp_allocator)
+	ts := time.tick_now()
+	sculpt.sculptor_stroke_begin(s)
+	_, _ = sculpt.sculptor_remove_stretching(s)
+	if sculpt.sculptor_stroke_end(s) do _ = sculpt.sculptor_undo(s)
+	stretch_ms := time.duration_milliseconds(time.tick_since(ts))
+	_ = sculpt.sculptor_flush(s)
+	free_all(context.temp_allocator)
 
 	td := time.tick_now()
 	sculpt.sculptor_dyn_disable(s)
 	disable_ms := time.duration_milliseconds(time.tick_since(td))
 	free_all(context.temp_allocator)
-	fmt.printfln("| %s | %.2f | %.0f | %.2f | %.2f | %.2f | %s | %s | %s | %.2f | %.2f | %.1f | %.1f | %.1f | %.0f |",
+	fmt.printfln("| %s | %.2f | %.0f | %.2f | %.2f | %.2f | %s | %s | %s | %.2f | %.2f | %.1f | %.1f | %.1f | %.0f | %.0f |",
 		thousands(vcount), fixed, enable_ms, plain, refine, refine_max, thousands(splits1 - splits0), thousands(collapses1 - collapses0),
-		thousands(triangles), upload, again, undo_mb, undo_ms, redo_ms, disable_ms)
+		thousands(triangles), upload, again, undo_mb, undo_ms, redo_ms, stretch_ms, disable_ms)
 }
 
 // The main table's stroke, recorded for undo: DABS dabs with their raycasts,

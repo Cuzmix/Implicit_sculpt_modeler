@@ -228,89 +228,11 @@ sculptor_grab_end :: proc(s: ^Sculptor) {
 // the stroke, so one undo puts the drag and the splits back. Returns how many edges split.
 sculptor_grab_refine :: proc(s: ^Sculptor) -> int {
 	g := &s.grab
-	d := s.dyn
-	if d == nil || len(g.verts) == 0 || g.detail <= 0 do return 0
+	if s.dyn == nil || len(g.verts) == 0 || g.detail <= 0 do return 0
 	// The sphere round where the grabbed vertices are now.
 	bounds := geom.AABB_EMPTY
 	for v in g.verts do geom.aabb_grow(&bounds, s.mesh.positions[v])
-	center := (bounds.lo + bounds.hi) * 0.5
-	radius := max(linalg.length(bounds.hi - bounds.lo) * 0.5, g.detail)
-	fresh := Dyn_Fresh {
-		verts = make([dynamic]u32, context.temp_allocator),
-		at    = make(map[u32]int, allocator = context.temp_allocator),
-	}
-	d.fresh = &fresh
-	splits_before := d.splits
-	// Collapsing would remove vertices the fresh list holds, and a pull only stretches.
-	dab := Dab {
-		s      = s,
-		brush  = {radius = radius, detail = g.detail / radius},
-		center = center,
-		r2     = radius * radius,
-		inv_r2 = 1 / (radius * radius),
-	}
-	refine_rounds(s, &dab)
-	// Evening out the new vertices can stretch an edge past the detail again, which a
-	// second pass splits (those new vertices stay where the split put them).
-	d.fresh = nil
-	grab_relax_fresh(s, fresh.verts[:])
-	refine_rounds(s, &dab)
-	return d.splits - splits_before
-}
-
-// Splits in capped rounds until a round changes nothing, finding the leaves again each
-// round since splits can split nodes.
-@(private = "file")
-refine_rounds :: proc(s: ^Sculptor, dab: ^Dab) {
-	for _ in 0 ..< GRAB_REFINE_ROUNDS {
-		clear(&s.hit)
-		geom.bvh_query_leaves(&s.bvh, dab.center, dab.brush.radius, &s.hit)
-		if len(s.hit) == 0 do return
-		count: u32
-		for leaf in s.hit do count += s.nodes[s.node_of[leaf]].vert_count
-		if !dyn_dab_topology(s, dab, s.pool if count >= PARALLEL_MIN_VERTS else nil) do return
-	}
-}
-
-// How many capped rounds of splits a refinement may take (each at most DYN_MAX_SPLITS).
-GRAB_REFINE_ROUNDS :: 32
-
-// Two Jacobi steps moving each of `verts` toward the middle of its neighbours, across
-// the surface only (the normal part taken out), which spaces the new vertices evenly
-// along a stretch without flattening its shape.
-@(private = "file")
-grab_relax_fresh :: proc(s: ^Sculptor, verts: []u32) {
-	if len(verts) == 0 do return
-	d := s.dyn
-	m := s.mesh
-	to := make([]Vec3, len(verts), context.temp_allocator)
-	for v in verts do touch(s, vert_page(v))
-	for _ in 0 ..< 2 {
-		for v, i in verts {
-			p := m.positions[v]
-			sum: Vec3
-			n: f32
-			for f in dyn_faces(d, v) {
-				for k in u32(0) ..< 3 {
-					w := m.indices[3 * f + k]
-					if w == v do continue
-					sum += m.positions[w]
-					n += 1
-				}
-			}
-			to[i] = p
-			if n == 0 do continue
-			move := sum / n - p
-			normal := linalg.normalize0(m.normals[v])
-			to[i] = p + move - normal * linalg.dot(move, normal)
-		}
-		for v, i in verts do m.positions[v] = to[i]
-	}
-	for v in verts {
-		mark(s, vert_page(v), {.Shape})
-		for f in dyn_faces(d, v) do mark(s, tri_page(f), {.Shape})
-	}
-	after_edits(s)
+	return refine_region(s, bounds, g.detail, GRAB_REFINE_ROUNDS)
 }
 
 // The normal of the shown vertex nearest `center` within `radius`, the lowest index on a

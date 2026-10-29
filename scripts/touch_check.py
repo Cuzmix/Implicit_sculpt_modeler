@@ -1352,6 +1352,50 @@ def grab_that_changes_no_triangles():
 
 
 @scenario
+def snake_hook_under_dynamic_topology_repairs_its_stretch():
+    """Snake hook pulls a horn out of a sphere with dynamic topology on; at the stroke's
+    end what its last pulls stretched splits down to the detail size, in the same undo
+    step (look with --screens: a horn with even triangles up to its tip in the
+    wireframe)."""
+    s = Script()
+    s.mouse_drag(line((800, 450), (1100, 330), 16))
+    s.wait(2)
+    return s, ["--script=dyntopo_toggle on; brush snake_hook; wireframe on"], camera_still({
+        "dabs": lambda v: int(v) > 5, "undo_steps": near(1), "stretch_repair_splits": lambda v: int(v) > 0})
+
+
+@scenario
+def cloth_under_dynamic_topology():
+    """Cloth now works with dynamic topology on: a Drag stroke folds the sphere and, at its
+    end, splits what it stretched, one undo step."""
+    s = Script()
+    s.mouse_drag(line((800, 450), (980, 450), 16))
+    s.wait(2)
+    return s, ["--script=dyntopo_toggle on; brush cloth; set detail_px 4"], camera_still({
+        "undo_steps": near(1), "brush_kind": is_text("cloth"), "stretch_repair_splits": lambda v: int(v) > 0})
+
+
+@scenario
+def remove_stretching_from_the_palette():
+    """A Snake hook that changes no triangles pulls slivers out of a sphere with dynamic
+    topology on; Remove stretching from the command palette splits them, its own undo
+    step (look with --screens: the horn's long slivers cut into triangles of the
+    sphere's size)."""
+    os.makedirs(os.path.dirname(settings_file()), exist_ok=True)
+    with open(settings_file(), "w") as f:
+        f.write("dyntopo snake_hook 1 0 0 10 0.1\n")
+    s = Script()
+    s.mouse_drag(line((800, 450), (1100, 330), 16))
+    s.wait(2)
+    s.press("k", ("ctrl",))
+    s.type("remove stretching")
+    s.press("Return")
+    s.wait(4)
+    return s, [f"--settings-file={settings_file()}", "--script=dyntopo_toggle on; brush snake_hook; wireframe on"], camera_still({
+        "undo_steps": near(2), "last_step": is_text("Remove_stretching"), "stretch_repair_splits": near(0), "palette": near(0)})
+
+
+@scenario
 def hatch_lays_one_way_grooves():
     """The library's Hatch preset (a Crease with No back and forth) scribbled in a zigzag
     is one undo step whose grooves run one way only (look with --screens: four parallel

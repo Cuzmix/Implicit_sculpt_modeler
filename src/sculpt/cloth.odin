@@ -100,6 +100,7 @@ sculptor_cloth_begin :: proc(s: ^Sculptor, brush: Brush, center: Vec3, mode: Clo
 	sculptor_cloth_end(s)
 	c.mode, c.center, c.radius, c.strength = mode, center, brush.radius, brush.strength
 	reach := brush.radius * CLOTH_REACH
+	stretch_note(s, center, reach, {}, brush.radius * brush.detail)
 	geom.bvh_query_leaves(&s.bvh, center, reach, &c.leaves)
 	slice.sort(c.leaves[:])
 	resize(&c.leaves, len(slice.unique(c.leaves[:])))
@@ -193,11 +194,14 @@ sculptor_cloth_begin :: proc(s: ^Sculptor, brush: Brush, center: Vec3, mode: Clo
 	return n
 }
 
-// The other corners of the triangles around `v`, each once, at most CLOTH_MAX_LINKS.
+// The other corners of the triangles around `v`, each once, at most CLOTH_MAX_LINKS;
+// under dynamic topology from its own triangle lists, which the stroke keeps as they are
+// until the repair at its end.
 @(private = "file")
 cloth_near :: proc(s: ^Sculptor, v: u32, near: ^[dynamic; CLOTH_MAX_LINKS]u32) {
 	clear(near)
-	for tri in geom.vertex_faces_of(s.faces, v) {
+	tris := dyn_faces(s.dyn, v) if s.dyn != nil else geom.vertex_faces_of(s.faces, v)
+	for tri in tris {
 		for k in 0 ..< 3 {
 			u := s.mesh.indices[3 * tri + u32(k)]
 			if u == v || slice.contains(near[:], u) do continue

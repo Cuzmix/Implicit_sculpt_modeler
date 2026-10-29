@@ -198,6 +198,8 @@ kit_dyntopo :: proc(app: ^App, obj: ^Object) {
 		global := !b.dyns[kind].own
 		if ui.switch_row(ctx, "Use global detail", &global) do brush_detail_own(b, kind, !global)
 		_ = ui.switch_row(ctx, "Detail follows the falloff", &b.detail_falloff)
+		_ = command_button(app, .Remove_Stretching)
+		kit_last_result(app, .Topology)
 		ui.paragraph(ctx, fmt.tprintf("With changes triangles off, %s moves the surface but never splits or merges, as Grab often should. With Use global detail off it keeps its own Screen or Radius and Detail. Detail follows the falloff makes the triangles finest at the middle of the brush and coarser toward its edge, so a stroke's rim blends into the surface around it.", BRUSHES[kind].name))
 		kit_more_end(app)
 	}

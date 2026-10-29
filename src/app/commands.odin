@@ -82,6 +82,7 @@ Command_Id :: enum u8 {
 	// The selected object
 	Remesh,
 	Dyntopo_Toggle,
+	Remove_Stretching,
 	Subdivide,
 	Level_Up,
 	Level_Down,
@@ -948,6 +949,15 @@ COMMANDS := [Command_Id]Command {
 			return obj != nil && len(obj.levels.levels) == 1 && obj.levels.hd.steps == 0
 		},
 		checked = proc(app: ^App, _: int) -> bool {
+			obj := selected_object(app)
+			return obj != nil && object_dynamic(obj)
+		},
+	},
+	.Remove_Stretching = {
+		label = "Remove stretching",
+		help = "With dynamic topology on: splits every edge of the selected object longer than twice its median edge, so the slivers a pull left become triangles of the size around them; masked parts keep theirs.",
+		run = remove_stretching_command,
+		enabled = proc(app: ^App, _: int) -> bool {
 			obj := selected_object(app)
 			return obj != nil && object_dynamic(obj)
 		},
