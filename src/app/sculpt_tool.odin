@@ -45,6 +45,15 @@ Brush_Settings :: struct {
 	color_spray:       f32,
 	// Dots: brush radii between dabs on screen (the lazy step); 0 for DAB_SPACING.
 	spacing:           f32,
+	// Dots: each dab's strength scaled so a stroke builds the same height at any spacing
+	// as at SPACING_REFERENCE (spacing_strength), as Blender's Adjust strength for spacing.
+	even_strength:     bool,
+	// Dots: the spacing is measured along the surface rather than on screen, so a stroke
+	// over a part turned away keeps its dabs as far apart on the model (scene_spacing_px).
+	scene_spacing:     bool,
+	// Symmetry's images near a plane or the radial axis share the strength they overlap
+	// by (sculpt.Brush.feather).
+	feather:           bool,
 	line:              bool, // every stroke a straight line from its press (Stroke.line)
 	join:              bool, // a press near where the last stroke ended carries it on (Stroke_End)
 	symmetry:          sculpt.Symmetry, // mirror strokes across these planes of the object
@@ -127,6 +136,11 @@ Stroke :: struct {
 	tilt:     [2]f32, // pen lean at pos
 	dir:      [2]f32, // the way the stroke last moved on screen, unit length; zero before it has
 	travel:   f32, // pixels moved since the last dab
+	// How squarely the surface under the last dab faces the view (|cos|), which Scene
+	// spacing divides by; 0 before the first dab.
+	facing:   f32,
+	// Even strength's scale for this stroke's dabs (spacing_strength); 0 until worked out.
+	even:     f32,
 	size:     [2]f32, // viewport size the positions above are in
 	pending:  [dynamic]Input_Sample, // samples left for the next frame once one reaches MAX_DABS_PER_FRAME
 	// The stabiliser's newest raw samples, newest first (`steady_count` of them), and
@@ -214,7 +228,13 @@ Sculpt_Frame_Result :: struct {
 	brush_ms:   f64,
 }
 
-DAB_SPACING :: 0.25 // brush radii between dabs, measured on screen
+DAB_SPACING :: 0.2 // brush radii between dabs, measured on screen
+// The spacing every brush's strength was tuned at, the default until dabs came closer:
+// with Even strength a stroke at any spacing builds the height one at this built.
+SPACING_REFERENCE :: 0.25
+// Scene spacing measures the gap along a surface turned away from the view by dividing by
+// how far it is turned; past this share the dabs would come too close to be worth laying.
+SCENE_SPACING_MIN_FACING :: 0.25
 SPRAY_SPACING :: 0.5 // ...for Spray, whose scattered dabs need fewer to cover the path
 ROLL_SPACING :: 2 // ...for Roll: one diameter, so the alpha's images meet edge to edge
 SPRAY_MAX_SPREAD :: 1.5
@@ -509,7 +529,7 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 	app.stroke_seed += 1
 	st.scale = app.stroke_scale_from if app.stroke_scale_from > 0 else (app.nav.touch_strength if app.device.pointer == .Finger else 1)
 	st.pos, st.pressure, st.tilt, st.travel, st.size = s.pos, s.pressure, s.tilt, 0, input.size
-	st.dir = {}
+	st.dir, st.facing, st.even = {}, 0, 0
 	st.line, st.line_leaving, st.joined, st.smooth_was = false, false, false, input.smooth
 	clear(&st.pending)
 	stroke_steady_start(st, s)
@@ -644,7 +664,8 @@ cloth_follow :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, pos
 
 // Pulls a Snake hook stroke after the pointer sample `s`: the point where the stroke
 // has got to follows the pointer on the plane through it facing the camera, and each
-// step of the way, at most DAB_SPACING radii long, drags the surface around it along,
+// step of the way, at most SPACING_REFERENCE radii long (the hook keeps the steps it was
+// tuned at, which Dots' closer spacing leaves be), drags the surface around it along,
 // as Blender's and ZBrush's snake hooks do. Nothing is raycast: the hook leaves the
 // surface it started on.
 @(private = "file")
@@ -663,7 +684,7 @@ hook_follow :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: I
 	offset := origin + dir * (linalg.dot(st.anchor - origin, facing) / along) - st.anchor
 	st.pos, st.pressure, st.tilt = s.pos, s.pressure, s.tilt
 	brush := brush_at(app, input, t, to_local(t, st.anchor), s.pressure, s.tilt)
-	step := max(brush.radius * t.scale * DAB_SPACING, 1e-6)
+	step := max(brush.radius * t.scale * SPACING_REFERENCE, 1e-6)
 	steps := min(int(math.ceil(linalg.length(offset) / step)), MAX_DABS_PER_FRAME)
 	t1 := time.tick_now()
 	for _ in 0 ..< steps {
@@ -899,7 +920,20 @@ stroke_spacing :: proc(app: ^App, mode: Stroke_Mode) -> f32 {
 	case .Spray: return SPRAY_SPACING
 	case .Roll:  return ROLL_SPACING
 	}
-	return dot_spacing(app)
+	s := dot_spacing(app)
+	// On screen a gap across a surface turned away is longer on the model by 1 / cos.
+	if app.brush.scene_spacing && app.stroke.facing > 0 do s *= max(app.stroke.facing, SCENE_SPACING_MIN_FACING)
+	return s
+}
+
+// How much Even strength scales a Dots dab of the brush `kind`: the overlap of a row of
+// dabs at SPACING_REFERENCE over that at the brush's spacing (sculpt.dab_overlap), so 1 at
+// the reference itself, less where dabs come closer and more where they are further apart.
+spacing_strength :: proc(app: ^App, kind: sculpt.Brush_Kind) -> f32 {
+	s := dot_spacing(app)
+	if s == SPACING_REFERENCE do return 1
+	shape := brush_falloff(app, kind)
+	return sculpt.dab_overlap(shape, SPACING_REFERENCE) / sculpt.dab_overlap(shape, s)
 }
 
 // Brush radii between Dots' dabs: the Spacing setting, or DAB_SPACING when unset.
@@ -964,13 +998,24 @@ stroke_dab :: proc(app: ^App, obj: ^Object, input: Viewport_Input, inv: matrix[4
 	origin, dir := ray_through(inv, pos, input.size)
 	t := obj.transform
 	t0 := time.tick_now()
-	hit, normal, ok := object_raycast_local(obj, to_local(t, origin), to_local_dir(t, dir))
+	local_dir := to_local_dir(t, dir)
+	hit, normal, ok := object_raycast_local(obj, to_local(t, origin), local_dir)
 	res.raycast_ms += time.duration_milliseconds(time.tick_since(t0))
 	if !ok do return
-	app.stroke.pivot_sum += hit
-	app.stroke.pivot_count += 1
+	st := &app.stroke
+	st.pivot_sum += hit
+	st.pivot_count += 1
+	if l := linalg.length(normal) * linalg.length(local_dir); l > 0 do st.facing = abs(linalg.dot(normal, local_dir)) / l
 	t1 := time.tick_now()
 	brush := brush_at(app, input, t, hit, pressure, tilt)
+	// Even strength, for a row of dabs only: a single stamp or a scattered one has no
+	// neighbours to overlap. A stroke never gets stronger than full strength by it.
+	// Not on voxel clay, whose Add and Subtract meet their neighbours as a union and never
+	// pile up.
+	if st.mode == .Dots && app.brush.even_strength && obj.voxel == nil {
+		if st.even == 0 do st.even = spacing_strength(app, st.kind)
+		brush.strength = min(brush.strength * st.even, max(brush.strength, 1))
+	}
 	// Dynamic topology's edge length is a share of the radius: kept as set.
 	brush.radius *= scatter.size
 	brush.detail /= scatter.size
@@ -1047,6 +1092,7 @@ brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pres
 		connected  = app.brush.connected,
 		through    = through,
 		smooth_only = app.brush.smooth_only if kind == .Smooth else .All,
+		feather    = app.brush.feather,
 	}
 }
 

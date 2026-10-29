@@ -14,11 +14,11 @@ import "../ui"
 
 // A selected sphere at the world's middle with no GPU buffers, the Draw brush held.
 @(private = "file")
-stroke_sphere :: proc(app: ^App) -> ^Object {
+stroke_sphere :: proc(app: ^App, subdivisions := 4) -> ^Object {
 	obj := new(Object)
 	obj.id = 1
 	obj.transform = {scale = 1}
-	sculpt.levels_init(&obj.levels, geom.icosphere(4), nil, 64)
+	sculpt.levels_init(&obj.levels, geom.icosphere(subdivisions), nil, 64)
 	append(&app.scene.objects, obj)
 	app.scene.selected = 0
 	app.camera = camera.orbit_default()
@@ -199,6 +199,8 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	a.brush.grab_depth, a.brush.smooth_only = true, .Peaks
 	a.brush.spacing, a.brush.color_spray = 0.6, 0.4
 	a.brush.smoothing, a.brush.pressure_smoothing, a.brush.catch_up = 3, 5, true
+	// Nor these a Spray stroke.
+	a.brush.even_strength, a.brush.scene_spacing, a.brush.feather = true, true, true
 	a.stroke_seed = 41
 	a.device.pointer, a.nav.touch_strength = .Finger, 0.5
 	b.nav.touch_strength = 1
@@ -224,6 +226,7 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	testing.expect_value(t, b.replay.take.brushes[0].smoothing, 3)
 	testing.expect_value(t, b.replay.take.brushes[0].pressure_smoothing, 5)
 	testing.expect(t, b.replay.take.brushes[0].catch_up)
+	testing.expect(t, b.replay.take.brushes[0].even_strength && b.replay.take.brushes[0].scene_spacing && b.replay.take.brushes[0].feather)
 	replay_start(&b, &b.replay.take)
 	for replay_busy(&b) do _ = replay_frame(&b, {})
 	testing.expect(t, slice.equal(object_sculptor(oa).mesh.positions[:], object_sculptor(ob).mesh.positions[:]))
@@ -236,7 +239,7 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	data, err := os.read_entire_file(path, context.allocator)
 	testing.expect(t, err == nil)
 	defer delete(data)
-	BRUSH :: 64 + 48
+	BRUSH :: 64 + 51
 	// The files from before version 13 kept no pen roll in a frame.
 	frames_before_roll :: proc(frames: []u8) -> []u8 {
 		out := make([dynamic]u8, context.temp_allocator)
@@ -256,6 +259,24 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 		}
 		return out[:]
 	}
+	// Version 14 had no Even strength, Scene spacing or Feather after the stabiliser: the
+	// one brush ends 64 + 48 bytes after the header's 16, and lays every dab at the
+	// brush's strength, spaced on screen.
+	fourteen := make([dynamic]u8, context.temp_allocator)
+	append(&fourteen, ..data[:16 + 64 + 48])
+	append(&fourteen, ..data[16 + BRUSH:])
+	fourteen[len(STROKES_MAGIC)] = 14
+	testing.expect(t, os.write_entire_file(path, fourteen[:]) == nil)
+	q: App
+	defer replay_destroy(&q.replay)
+	defer results_destroy(&q)
+	testing.expect(t, strokes_load(&q, path))
+	if len(q.replay.take.brushes) == 1 {
+		qb := q.replay.take.brushes[0]
+		testing.expect(t, !qb.even_strength && !qb.scene_spacing && !qb.feather)
+		testing.expect_value(t, qb.smoothing, 3)
+	}
+
 	// Version 13 had no stabiliser after the spacing and colour spray: the one brush ends
 	// 64 + 39 bytes after the header's 16, and follows the pointer as it came.
 	thirteen := make([dynamic]u8, context.temp_allocator)
@@ -284,7 +305,7 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	defer results_destroy(&l)
 	testing.expect(t, strokes_load(&l, path))
 	if len(l.replay.take.brushes) == 1 {
-		testing.expect_value(t, l.replay.take.brushes[0].spacing, DAB_SPACING)
+		testing.expect_value(t, l.replay.take.brushes[0].spacing, SPACING_REFERENCE)
 		testing.expect_value(t, l.replay.take.brushes[0].color_spray, 0)
 		testing.expect_value(t, l.replay.take.brushes[0].smooth_only, sculpt.Smooth_Only.Peaks)
 	}
@@ -969,4 +990,37 @@ smoothing_follows_the_mean_of_the_last_samples :: proc(t: ^testing.T) {
 	stroke_pressed(&app, path[:], pressures[:], held = true)
 	testing.expect_value(t, app.stroke.pos, path[len(path) - 1])
 	testing.expect_value(t, app.stroke.pressure, 0.2)
+}
+
+// With Even strength a straight Draw stroke rises as high at any spacing from a tenth to
+// half the radius as at the old default's quarter (within 2%), where without it the
+// height follows how closely the dabs pile up. Y symmetry's feathering leaves the stroke,
+// which runs well above the plane, as high as without symmetry.
+@(test)
+even_strength_keeps_a_strokes_height_across_spacings :: proc(t: ^testing.T) {
+	path := make([dynamic][2]f32, context.temp_allocator)
+	for x := f32(430); x <= 570; x += 4 do append(&path, [2]f32{x, 400})
+	rise :: proc(path: [][2]f32, spacing: f32, even: bool, symmetry := sculpt.Symmetry{.Y}) -> f32 {
+		app := new(App)
+		defer free(app)
+		defer stroke_scene_free(app)
+		obj := stroke_sphere(app, 6)
+		app.brush.radius_px, app.brush.spacing, app.brush.even_strength = 40, spacing, even
+		app.brush.strengths[.Draw] = 0.05
+		app.brush.feather, app.brush.symmetry = true, symmetry
+		before := slice.clone(object_mesh(obj).positions[:], context.temp_allocator)
+		stroke_pressed(app, path, slice.repeat([]f32{1}, len(path), context.temp_allocator))
+		top: f32
+		for p, i in object_mesh(obj).positions do top = max(top, linalg.length(p) - linalg.length(before[i]))
+		return top
+	}
+	reference := rise(path[:], SPACING_REFERENCE, true)
+	alone := rise(path[:], SPACING_REFERENCE, true, {})
+	testing.expectf(t, reference > 0 && reference == alone, "with symmetry %v, without %v", reference, alone)
+	for spacing in ([?]f32{0.1, 0.15, 0.2, 0.3, 0.4, 0.5}) {
+		h := rise(path[:], spacing, true)
+		testing.expectf(t, abs(h / reference - 1) < 0.02, "spacing %v: height %v, at the reference %v", spacing, h, reference)
+	}
+	// Unevened, dabs a tenth of the radius apart pile up about two and a half times as high.
+	testing.expect(t, rise(path[:], 0.1, false) > 2 * reference)
 }

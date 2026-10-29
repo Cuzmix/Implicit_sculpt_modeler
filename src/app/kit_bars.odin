@@ -283,6 +283,7 @@ symmetry_controls :: proc(app: ^App) {
 		app.brush.radial_count = i32(math.round(count))
 		app.brush.radial_on = true
 	}
+	_ = ui.switch_row(ctx, "Feather", &app.brush.feather)
 }
 
 // Section `sec` of the tray, wherever its palette lists it: its title and what draws it

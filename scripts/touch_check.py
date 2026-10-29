@@ -1214,11 +1214,11 @@ def jagged_pen_stroke(s):
 @scenario
 def smoothing_steadies_a_shaky_pen_stroke():
     """Smoothing 8 averages a zigzag pen stroke into a steady line, and Catch up on lift
-    carries it on to where the pen lifted: about 23 dabs along the 320 px line, where the
-    zigzag itself, 830 px long, takes 56."""
+    carries it on to where the pen lifted: about 28 dabs along the 320 px line, where the
+    zigzag itself, 830 px long, takes about 70."""
     s = Script()
     jagged_pen_stroke(s)
-    return s, ["--script=set smoothing 8"], camera_still({"dabs": lambda v: 22 <= int(v) <= 24, "undo_steps": near(1)})
+    return s, ["--script=set smoothing 8"], camera_still({"dabs": lambda v: 27 <= int(v) <= 29, "undo_steps": near(1)})
 
 
 @scenario
@@ -1228,12 +1228,22 @@ def smoothing_without_catch_up_ends_short():
     fewer."""
     s = Script()
     jagged_pen_stroke(s)
-    return s, ["--script=set smoothing 8; set catch_up off"], camera_still({"dabs": lambda v: 19 <= int(v) <= 21, "undo_steps": near(1)})
+    return s, ["--script=set smoothing 8; set catch_up off"], camera_still({"dabs": lambda v: 24 <= int(v) <= 26, "undo_steps": near(1)})
+
+
+@scenario
+def x_symmetry_stroke_across_the_middle_by_pen():
+    """A pen stroke with X symmetry crossing the X plane, where it meets its own mirror
+    image: feathered by default, so the crossing rises no higher than the rest of it (look
+    with --screens beside the same stroke with symmetry_feather off)."""
+    s = Script()
+    pen_stroke(s, line((560, 470), (900, 420), 34), pressure=1)
+    return s, ["--script=set symmetry x"], camera_still({"symmetry": is_text("x"), "dabs": lambda v: int(v) > 20, "undo_steps": near(1)})
 
 
 @scenario
 def pen_samples_between_frames_follow_the_curve():
-    """A fast pen circle a quarter turn a frame, with three of the pen's samples between frames each frame, as a tablet's bridge sends them (pen_samples.odin): every sample goes in, and the dabs follow the arc (63 of them at 15 px apart) rather than its chords (about 57)."""
+    """A fast pen circle a quarter turn a frame, with three of the pen's samples between frames each frame, as a tablet's bridge sends them (pen_samples.odin): every sample goes in, and the dabs follow the arc (79 of them at 12 px apart) rather than its chords (about 71)."""
     s = Script()
     centre, radius = (800, 450), 150
     s.add("pnear")
@@ -1251,7 +1261,7 @@ def pen_samples_between_frames_follow_the_curve():
     s.wait(2)
     s.add("pfar")
     s.wait(3)
-    return s, [], camera_still({"samples_coalesced": near(12), "samples_frame_max": near(4), "dabs": lambda v: 61 <= int(v) <= 64, "undo_steps": near(1)})
+    return s, [], camera_still({"samples_coalesced": near(12), "samples_frame_max": near(4), "dabs": lambda v: 77 <= int(v) <= 80, "undo_steps": near(1)})
 
 
 @scenario

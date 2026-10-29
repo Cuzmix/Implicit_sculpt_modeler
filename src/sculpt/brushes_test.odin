@@ -909,3 +909,38 @@ grab_follows_radial_turns :: proc(t: ^testing.T) {
 	testing.expectf(t, linalg.length(step - Vec3{-offset.x, offset.y, -offset.z}) < 0.02, "the half-turned copy moved %v", step)
 	sculptor_stroke_end(s)
 }
+
+// A dab on the X plane with feathering moves the surface there as far as one dab without
+// symmetry, where its mirror image would otherwise double it; away from the plane a
+// feathered dab is the same as an unfeathered one.
+@(test)
+feathered_symmetry_does_not_double_on_the_plane :: proc(t: ^testing.T) {
+	on_plane := linalg.normalize(Vec3{0, 0.3, 0.9})
+	away := linalg.normalize(Vec3{0.7, 0.3, 0.6})
+	rise :: proc(center: Vec3, symmetry: Symmetry, feather: bool) -> f32 {
+		sp := sphere_make(4)
+		defer sphere_free(sp)
+		_ = apply_dab(&sp.sculptor, {kind = .Draw, radius = 0.3, strength = 0.2, symmetry = symmetry, feather = feather}, center)
+		near := nearest(sp.before, center)
+		return linalg.length(sp.mesh.positions[near]) - linalg.length(sp.before[near])
+	}
+	single, doubled, feathered := rise(on_plane, {}, false), rise(on_plane, {.X}, false), rise(on_plane, {.X}, true)
+	testing.expectf(t, abs(doubled - 2 * single) < 0.1 * single, "unfeathered %v, one dab %v", doubled, single)
+	testing.expectf(t, abs(feathered - single) < 1e-3 * single, "feathered %v, one dab %v", feathered, single)
+	testing.expect_value(t, rise(away, {.X}, true), rise(away, {.X}, false))
+	images := symmetry_images({symmetry = {.X}})
+	testing.expect_value(t, symmetry_feather({radius = 0.3, feather = true}, images[:], away), 1)
+}
+
+// A row of dabs piles up more the closer they are, about as the inverse of the spacing,
+// and a drawn falloff counts as the built-in one does when it is the same shape.
+@(test)
+dab_overlap_grows_as_dabs_come_closer :: proc(t: ^testing.T) {
+	a, b := dab_overlap(nil, 0.25), dab_overlap(nil, 0.125)
+	testing.expectf(t, abs(b / a - 2) < 0.02, "overlap %v at 0.25, %v at 0.125", a, b)
+	// The built-in falloff's integral across a radius is 16/15.
+	testing.expectf(t, abs(a * 0.25 - 16.0 / 15) < 0.01, "overlap %v", a)
+	builtin: Falloff
+	falloff_set_shaped(&builtin, nil, 0)
+	testing.expectf(t, abs(dab_overlap(&builtin, 0.3) - dab_overlap(nil, 0.3)) < 1e-4, "table %v, built in %v", dab_overlap(&builtin, 0.3), dab_overlap(nil, 0.3))
+}

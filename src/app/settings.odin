@@ -41,7 +41,7 @@ settings_path :: proc() -> string {
 // The version settings_save writes on the first line. A file from a newer version is
 // read as far as this one knows its lines. 2: the default orbit became the turntable.
 // 3: the default look became Lens.
-SETTINGS_VERSION :: 3
+SETTINGS_VERSION :: 4
 
 // One remembered value that is a plain field of App: its key in the file, where it is,
 // what type it is (bool, f32, i32, int or an enum) and, for numbers, the range a value read
@@ -170,6 +170,9 @@ SETTINGS := [?]Setting {
 	{"stroke", B + offset_of(Brush_Settings, stroke), Stroke_Mode, 0, 0},
 	{"stroke_spread", B + offset_of(Brush_Settings, spray_spread), f32, 0, SPRAY_MAX_SPREAD},
 	{"stroke_spacing", B + offset_of(Brush_Settings, spacing), f32, MIN_SPACING, MAX_SPACING},
+	{"stroke_even", B + offset_of(Brush_Settings, even_strength), bool, 0, 0},
+	{"stroke_scene_spacing", B + offset_of(Brush_Settings, scene_spacing), bool, 0, 0},
+	{"symmetry_feather", B + offset_of(Brush_Settings, feather), bool, 0, 0},
 	{"color_spray", B + offset_of(Brush_Settings, color_spray), f32, 0, 1},
 	{"stroke_line", B + offset_of(Brush_Settings, line), bool, 0, 0},
 	{"stroke_join", B + offset_of(Brush_Settings, join), bool, 0, 0},
@@ -896,6 +899,9 @@ settings_load :: proc(app: ^App, path: string) {
 	if version < 2 && app.nav.orbit_style == .Free do app.nav.orbit_style = .Turntable
 	// So too Studio, the look every file before version 3 holds: Lens replaces it once.
 	if version < 3 && app.kit.look == .Studio do app.kit.look = .Lens
+	// And the old default spacing, which every file before version 4 holds whether or not
+	// anyone set it: the closer default takes its place, Even strength keeping the height.
+	if version < 4 && app.brush.spacing == SPACING_REFERENCE do app.brush.spacing = DAB_SPACING
 	// The windows and the wheel were saved where they were for the layout saved with them.
 	app.kit.placed_mirrored = app.kit.ctx.mirror
 	workspaces_loaded(&app.kit)

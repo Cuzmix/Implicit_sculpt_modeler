@@ -27,9 +27,10 @@ Gpubench_Case :: struct {
 	simplify: bool,
 }
 
-// How far the stroke moves each frame, as a share of the brush radius: two dabs a
-// frame at the usual spacing, like a fast real stroke.
-GPUBENCH_STROKE_STEP :: 2 * DAB_SPACING
+// How far the stroke moves each frame, as a share of the brush radius: two and a half dabs
+// a frame at the usual spacing, like a fast real stroke, and the same distance as before
+// the spacing came down, so tables from before compare.
+GPUBENCH_STROKE_STEP :: 2 * SPACING_REFERENCE
 
 @(rodata)
 gpubench_cases := [?]Gpubench_Case {
