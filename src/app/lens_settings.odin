@@ -238,6 +238,7 @@ lens_gesture_list :: proc(app: ^App) {
 	width := ui.fill_width(ctx)
 
 	if picked := gesture_row(ctx, "One finger on the model", {"Sculpt", "Turn the view"}, int(n.finger_model), width); picked >= 0 do n.finger_model = Finger_Model(picked)
+	pencil_only_note(app)
 	gesture_row_text(ctx, "One finger on empty space", "Turns the view", width)
 	// Two fingers always move the view; what else they do is one choice of three, or the
 	// switches' own mix when Classic set one these name none of.

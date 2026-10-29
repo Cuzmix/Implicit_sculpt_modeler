@@ -130,3 +130,24 @@ pencil_settings_are_remembered :: proc(t: ^testing.T) {
 	testing.expect_value(t, b.nav.gestures[.Pen_Double_Tap], Pie_Slot{.Undo, 0})
 	free_all(context.temp_allocator)
 }
+
+// The iPad's Only Draw with Apple Pencil leaves a finger only the view to turn, and a
+// haptic is asked of the pen alone.
+@(test)
+pencil_only_and_haptics :: proc(t: ^testing.T) {
+	app: App
+	app.nav = NAV_DEFAULT
+	testing.expect_value(t, finger_model_now(&app), Finger_Model.Sculpt)
+	app.pencil.only = true
+	testing.expect_value(t, finger_model_now(&app), Finger_Model.Orbit)
+	testing.expect_value(t, app.nav.finger_model, Finger_Model.Sculpt)
+
+	app.device.pointer = .Finger
+	haptic(&app, .Alignment)
+	app.device.pointer = .Mouse
+	haptic(&app, .Path_Completed)
+	testing.expect_value(t, app.pencil.haptics, 0)
+	app.device.pointer = .Pen
+	haptic(&app, .Alignment)
+	testing.expect_value(t, app.pencil.haptics, 1)
+}

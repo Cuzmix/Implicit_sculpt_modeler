@@ -213,6 +213,7 @@ pie_quick :: proc(app: ^App, i: int) {
 // palette, a popover, another pie) is not closed by the pie closing.
 @(private = "file")
 pie_pick :: proc(app: ^App, slice: int) {
+	haptic(app, .Alignment)
 	which := app.ui.pie.which
 	app.ui.pie.open = false
 	if which == 0 && app.kit.chrome != .Lens {

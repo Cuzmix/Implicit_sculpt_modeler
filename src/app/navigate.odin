@@ -494,6 +494,8 @@ pointer_route :: proc(app: ^App, input: ^Viewport_Input) {
 			snapped := g.free
 			camera.orbit_snap(&snapped)
 			before := app.camera
+			// Landing on another square view is a snap the Pencil Pro feels.
+			if snapped.yaw != before.yaw || snapped.pitch != before.pitch || snapped.roll != before.roll do haptic(app, .Alignment)
 			app.camera.yaw, app.camera.pitch, app.camera.roll = snapped.yaw, snapped.pitch, snapped.roll
 			camera.orbit_turn_about(&app.camera, before, g.pivot)
 		} else {
@@ -585,7 +587,7 @@ drag_decide :: proc(app: ^App, input: Viewport_Input) -> (owner: Drag_Owner, emp
 	if app.tool == .Move && lattice_pick(app, mouse, input.size) > 0 do return .Tool, false
 	// And a light's marker, while the Lights section shows them, for any tool.
 	if light_marker_pressed(app, mouse, input.size) do return .Tool, false
-	if d.pointer == .Finger && app.nav.finger_model == .Orbit do return .Orbit, false
+	if d.pointer == .Finger && finger_model_now(app) == .Orbit do return .Orbit, false
 	// The rail's Mask or Hide, for the brushes, keeps empty space for their shapes as Ctrl
 	// does; only held there by a finger does it take the safe zone too, so a view filled
 	// by the model still turns from its edge while one is latched (modifiers.odin).
