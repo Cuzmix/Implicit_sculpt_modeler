@@ -7379,16 +7379,38 @@ def view_pane_ao_only_shows():
 
 @scenario
 def render_preview_builds_beside_the_main_view():
-    """Render preview puts the grid side by side with its pane linked and on Render; the pane gathers render samples at rest, and a stroke in the main view starts them over once it is done."""
+    """Render preview puts the grid side by side with its pane linked and on Render; the pane gathers render samples at rest, and a stroke in the main view starts them over once it is done: the pane is drawn more often than at rest, and has fewer samples than frames since the finger lifted."""
+    # How often the pane was drawn in the run without the stroke.
+    rest_draws = []
+
+    def remember(stats):
+        rest_draws.append(int(stats["pane_draws"]))
+        return True
+
+    def drawn_again(stats):
+        draws = int(stats["pane_draws"])
+        return True if draws > rest_draws[0] else f"pane_draws={draws}, no more than the {rest_draws[0]} without the stroke"
+
     def run(stroke):
         s = Script()
         s.wait(240)
+        checks = {"grid": is_text("Side_By_Side"), "pane_camera": is_text("Follow"), "pane_heavy": near(1)}
         if stroke:
-            s.fdrag(line((360, 420), (420, 470), 12))
-            s.wait(20)
-        samples = (lambda v: 0 <= int(v) < 3) if stroke else (lambda v: int(v) >= 4)
-        return s, ["--script=render_preview"], {"grid": is_text("Side_By_Side"), "pane_camera": is_text("Follow"), "pane_heavy": near(1),
-                                                                            "pane_render_samples": samples, "dabs": (lambda v: int(v) > 0) if stroke else near(0)}
+            s.fdrag(line((360, 420), (420, 470), 12), lift=False)
+            lift = s.frame
+            s.add("fup:0")
+            s.wait(23)
+            # The tracer adds at most a sample a frame, from the frame after a draw starts it
+            # over, so a count started over once the stroke was done is below the frames from
+            # the lift to the end (run_one's 10 included), however fast the GPU traces. A
+            # desktop GPU traces a whole sample a frame, so one kept from before the stroke is
+            # far above it; llvmpipe takes many frames a sample, so there the pane's extra
+            # draw, which always starts its tracing over, is what shows the stroke reached it.
+            after = s.frame + 10 - lift
+            checks.update({"pane_render_samples": lambda v: 0 <= int(v) < after, "@drawn again": drawn_again, "dabs": lambda v: int(v) > 0})
+        else:
+            checks.update({"pane_render_samples": lambda v: int(v) >= 4, "@remember": remember, "dabs": near(0)})
+        return s, ["--script=render_preview"], checks
     return Steps([run(False), run(True)])
 
 
