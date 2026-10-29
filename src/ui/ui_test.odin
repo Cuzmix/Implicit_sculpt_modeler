@@ -307,7 +307,7 @@ reduced_motion_arrives_at_once :: proc(t: ^testing.T) {
 	ctx: Context
 	init(&ctx)
 	defer destroy(&ctx)
-	ctx.reduced_motion = true
+	ctx.motion = .Off
 	frame_begin(&ctx, input_at({-1, -1}))
 	_ = tween(&ctx, 7, 0, 0.3)
 	testing.expect_value(t, tween(&ctx, 7, 1, 0.3), 1)
@@ -685,7 +685,7 @@ a_highlighted_menu_item_looks_hovered :: proc(t: ^testing.T) {
 	ctx: Context
 	init(&ctx)
 	defer destroy(&ctx)
-	ctx.reduced_motion = true
+	ctx.motion = .Off
 	frame :: proc(ctx: ^Context, highlight: bool) -> (vertices: int, cell: Rect) {
 		frame_begin(ctx, input_at({600, 400}))
 		begin_anchored(ctx, "column", .Start, .Start, {0, 0}, {width = 200})
@@ -1786,4 +1786,34 @@ a_hovering_pen_rolls_through_choices :: proc(t: ^testing.T) {
 	testing.expect_value(t, area, 15)
 	steps := roll_steps(&ctx, 50, ROLL_STEP)
 	testing.expect_value(t, steps, 1)
+}
+
+// A kind of motion turned off arrives at once while the rest still move; Reduced keeps a
+// fade's time but leaves out the moves and scales of what it draws, except one that
+// follows the hand.
+@(test)
+motion_classes_and_reduced_motion :: proc(t: ^testing.T) {
+	ctx: Context
+	init(&ctx)
+	defer destroy(&ctx)
+	ctx.motion_off = {int(MOTION_TOOLTIPS)}
+	frame_begin(&ctx, input_at({-1, -1}))
+	_ = tween(&ctx, 7, 0, 0.3, class = MOTION_TOOLTIPS)
+	testing.expect_value(t, tween(&ctx, 7, 1, 0.3, class = MOTION_TOOLTIPS), 1)
+	_ = tween(&ctx, 8, 0, 0.3, class = MOTION_PRESS)
+	testing.expect(t, tween(&ctx, 8, 1, 0.3, class = MOTION_PRESS) < 1)
+	testing.expect(t, motion_moves(&ctx, MOTION_PRESS) && !motion_moves(&ctx, MOTION_TOOLTIPS))
+	ctx.motion = .Reduced
+	testing.expect(t, !motion_moves(&ctx))
+	_ = tween(&ctx, 9, 0, 0.3)
+	testing.expect(t, tween(&ctx, 9, 1, 0.3) < 1)
+	mark := vertex_mark(&ctx)
+	fill_rect(&ctx, {10, 10, 20, 20}, 0, {255, 255, 255, 255})
+	before := ctx.draw.vertices[mark].pos
+	transform_since(&ctx, mark, 0.5, 2, {0, 0}, {5, 0})
+	testing.expect_value(t, ctx.draw.vertices[mark].pos, before)
+	testing.expect(t, ctx.draw.vertices[mark].color.a < 255)
+	transform_since(&ctx, mark, 1, 1, {}, {5, 0}, follows = true)
+	testing.expect(t, ctx.draw.vertices[mark].pos.x > before.x)
+	frame_end(&ctx)
 }

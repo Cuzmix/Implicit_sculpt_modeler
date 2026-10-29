@@ -111,6 +111,8 @@ kit_offer_line :: proc(app: ^App) -> bool {
 	ui.end(ctx)
 	busy := app.stroke.active || app.drag.owner != .None
 	dim := ui.tween(ctx, ui.id_of(ctx, "action bar dim"), 0.35 if busy else 1, t.indicator_time)
-	ui.transform_since(ctx, mark, dim)
+	// It rises into place as it appears, as a popover does.
+	shown := ui.presence(ctx, ui.id_of(ctx, "offer line shown"), true, t.popover_time, motion_class(.Popovers))
+	ui.transform_since(ctx, mark, dim * shown, offset = {0, (1 - shown) * 8})
 	return true
 }

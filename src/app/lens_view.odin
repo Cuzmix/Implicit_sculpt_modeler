@@ -98,7 +98,7 @@ kit_clean_view :: proc(app: ^App) {
 	age := ctx.time - k.clean_at
 	if age > CLEAN_HINT_TIME + CLEAN_HINT_FADE do return
 	shown := 1 - clamp(f32(age - CLEAN_HINT_TIME) / CLEAN_HINT_FADE, 0, 1)
-	if ctx.reduced_motion do shown = 1
+	if ctx.motion == .Off do shown = 1
 	hint := "Tab or four-finger tap to bring the interface back"
 	mark := ui.vertex_mark(ctx)
 	ui.begin_anchored(ctx, "clean hint", .Center, .Start, {0, 24}, {direction = .Row})

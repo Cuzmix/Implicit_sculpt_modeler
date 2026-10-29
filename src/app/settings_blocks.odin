@@ -239,8 +239,7 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 		if picked := ui.tabs(ctx, "Screen layout", hands[:], int(ctx.mirror)); picked >= 0 do ctx.mirror = picked == 1
 		ui.paragraph(ctx, "Left-handed swaps the sides: Size and Strength, the dial and the view chips go to the right; the navigation, the view rail and the panels to the left.")
 	case .Motion:
-		_ = ui.switch_row(ctx, "Reduce motion", &ctx.reduced_motion)
-		ui.paragraph(ctx, "Panels and menus appear and change without animating.")
+		settings_motion(app)
 	case .Starting:
 		_ = ui.switch_row(ctx, "Start at Home", &app.start_home)
 		ui.paragraph(ctx, "Opens on the Home screen, with new scenes and pictures of the scenes you saved lately; off, it opens straight on a sphere. Opening a scene file with the app skips Home either way.")
@@ -505,7 +504,7 @@ settings_block_reset :: proc(app: ^App, b: Settings_Block) {
 	case .Size:            k.ui_scale = 1
 	case .Clean_Dial:      k.clean_dial = true
 	case .Hands:           k.ctx.mirror = false
-	case .Motion:          k.ctx.reduced_motion = false
+	case .Motion:          k.ctx.motion, k.ctx.motion_off = .Full, {}
 	case .Starting:        app.start_home = true
 	case .Brush_Ring:      k.surface_ring = true
 	case .Symmetry_Line:   k.symmetry_line = true

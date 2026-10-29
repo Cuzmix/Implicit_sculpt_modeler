@@ -44,6 +44,42 @@ ease :: proc(e: Ease, at: f32) -> f32 {
 	return t
 }
 
+// How much the interface moves: Full; Reduced, where fades keep their time and moves and
+// scales go (transform_since leaves them out), as the systems' reduced-motion settings
+// ask; or Off, where every duration is 0.
+Motion_Level :: enum u8 {
+	Full,
+	Reduced,
+	Off,
+}
+
+// A kind of motion that can be turned off by itself: the kit's own widgets use the first
+// numbers, and an app numbers its own kinds after them (up to 31). MOTION_ALWAYS follows
+// the level only.
+Motion_Class :: distinct u8
+MOTION_PRESS :: Motion_Class(0) // presses, hovers and switch knobs
+MOTION_POPOVERS :: Motion_Class(1) // popovers, menus and lists opening
+MOTION_PANELS :: Motion_Class(2) // sections opening, windows sliding
+MOTION_TABS :: Motion_Class(3) // the indicator under a tab or a choice sliding
+MOTION_TOASTS :: Motion_Class(4) // notes rising and stacking
+MOTION_TOOLTIPS :: Motion_Class(5) // tooltips fading in
+MOTION_KIT_CLASSES :: 6
+MOTION_ALWAYS :: Motion_Class(255)
+
+// `duration` as the motion settings let it run for `class`: 0 when motion is off, or that
+// kind of motion is.
+motion_duration :: proc(ctx: ^Context, class: Motion_Class, duration: f32) -> f32 {
+	if ctx.motion == .Off do return 0
+	if class < 32 && int(class) in ctx.motion_off do return 0
+	return duration
+}
+
+// Whether `class` may move or scale things now, not only fade them: an app's own slides
+// (a page turning) ask this before they move.
+motion_moves :: proc(ctx: ^Context, class: Motion_Class = MOTION_ALWAYS) -> bool {
+	return ctx.motion == .Full && motion_duration(ctx, class, 1) > 0
+}
+
 @(private)
 Tween :: struct {
 	from, to: f32,
@@ -59,18 +95,18 @@ Tween :: struct {
 TWEEN_KEEP :: 2.0
 
 // The value moving toward `target`; the first time `id` is seen it starts at `target`.
-tween :: proc(ctx: ^Context, id: Id, target: f32, duration: f32, e := Ease.Out_Quad, delay: f32 = 0) -> f32 {
-	return tween_from(ctx, id, target, target, duration, e, delay)
+tween :: proc(ctx: ^Context, id: Id, target: f32, duration: f32, e := Ease.Out_Quad, delay: f32 = 0, class := MOTION_ALWAYS) -> f32 {
+	return tween_from(ctx, id, target, target, duration, e, delay, class)
 }
 
 // As tween, but the first time `id` is seen it starts at `start`: for things that
 // animate in when they first appear.
-tween_from :: proc(ctx: ^Context, id: Id, start, target: f32, duration: f32, e := Ease.Out_Quad, delay: f32 = 0) -> f32 {
-	duration := 0 if ctx.reduced_motion else duration
-	delay := 0 if ctx.reduced_motion else delay
+tween_from :: proc(ctx: ^Context, id: Id, start, target: f32, duration: f32, e := Ease.Out_Quad, delay: f32 = 0, class := MOTION_ALWAYS) -> f32 {
+	run := motion_duration(ctx, class, duration)
+	wait := delay if run > 0 else 0
 	tw, found := &ctx.tweens[id]
 	if !found {
-		ctx.tweens[id] = {from = start, to = target, start = ctx.time, duration = duration, delay = delay, ease = e, seen = ctx.time}
+		ctx.tweens[id] = {from = start, to = target, start = ctx.time, duration = run, delay = wait, ease = e, seen = ctx.time}
 		tw = &ctx.tweens[id]
 	}
 	tw.seen = ctx.time
@@ -78,8 +114,8 @@ tween_from :: proc(ctx: ^Context, id: Id, start, target: f32, duration: f32, e :
 		tw.from = tween_value(ctx, tw^)
 		tw.to = target
 		tw.start = ctx.time
-		tw.duration = duration
-		tw.delay = delay
+		tw.duration = run
+		tw.delay = wait
 		tw.ease = e
 	}
 	return tween_value(ctx, tw^)
@@ -88,8 +124,8 @@ tween_from :: proc(ctx: ^Context, id: Id, start, target: f32, duration: f32, e :
 // The share (0 to 1) something that opens and closes is shown: rising while `open`,
 // falling after. It starts closed, so the first frame open animates in. Draw it while
 // this is above 0.
-presence :: proc(ctx: ^Context, id: Id, open: bool, duration: f32) -> f32 {
-	return tween_from(ctx, id, 0, 1 if open else 0, duration, .Out_Cubic)
+presence :: proc(ctx: ^Context, id: Id, open: bool, duration: f32, class := MOTION_ALWAYS) -> f32 {
+	return tween_from(ctx, id, 0, 1 if open else 0, duration, .Out_Cubic, class = class)
 }
 
 // True while some tween has not arrived: the app can keep drawing frames until then.
@@ -133,14 +169,19 @@ salt :: #force_inline proc(id: Id, s: u64) -> Id {
 
 // Changes everything drawn since vertex `mark`: its opacity multiplied by `opacity`,
 // scaled by `scale` about `origin` and moved by `offset` (points). Panels and popovers
-// use it to fade, grow and slide in and out without being laid out differently.
-transform_since :: proc(ctx: ^Context, mark: int, opacity: f32 = 1, scale: f32 = 1, origin: [2]f32 = {}, offset: [2]f32 = {}) {
+// use it to fade, grow and slide in and out without being laid out differently. With
+// motion Reduced the scale and the offset are left out, so things fade in place; one that
+// `follows` a finger or the pen (a page dragged sideways) keeps them, since it is not an
+// animation but where the hand put it.
+transform_since :: proc(ctx: ^Context, mark: int, opacity: f32 = 1, scale: f32 = 1, origin: [2]f32 = {}, offset: [2]f32 = {}, follows := false) {
+	moved, shift := scale, offset
+	if ctx.motion == .Reduced && !follows do moved, shift = 1, {}
 	d := px(ctx)
 	o := origin * d
-	off := offset * d
+	off := shift * d
 	verts := ctx.draw.vertices[mark:]
-	if scale != 1 || off != {} {
-		for &v in verts do v.pos = o + (v.pos - o) * scale + off
+	if moved != 1 || off != {} {
+		for &v in verts do v.pos = o + (v.pos - o) * moved + off
 	}
 	if opacity < 1 {
 		a := clamp(opacity, 0, 1)

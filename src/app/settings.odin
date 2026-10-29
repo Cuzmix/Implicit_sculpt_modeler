@@ -291,7 +291,7 @@ SETTINGS := [?]Setting {
 	{"environment_blur", offset_of(App, env) + offset_of(Environment_State, blur), f32, 0, 1},
 	{"dim_others", offset_of(App, dim_others), bool, 0, 0},
 	{"ridge", offset_of(App, ridge), f32, 0, 1},
-	{"reduce_motion", K + offset_of(Kit_State, ctx) + offset_of(ui.Context, reduced_motion), bool, 0, 0},
+	{"motion", K + offset_of(Kit_State, ctx) + offset_of(ui.Context, motion), ui.Motion_Level, 0, 0},
 	{"left_handed", K + offset_of(Kit_State, ctx) + offset_of(ui.Context, mirror), bool, 0, 0},
 	{"ortho", offset_of(App, camera) + offset_of(camera.Orbit, ortho), bool, 0, 0},
 	{"fov", offset_of(App, camera) + offset_of(camera.Orbit, fov_y), f32, camera.FOV_MIN, camera.FOV_MAX},
@@ -975,6 +975,11 @@ settings_load :: proc(app: ^App, path: string) {
 			// keeps, so its key stays on it however the folder changes.
 			slot, slot_ok := strconv.parse_int(f[1])
 			if len(f) == 3 && slot_ok do plugin_slot_remember(app, slot, preset_unescape(f[2]))
+		case "reduce_motion":
+			// Before Motion had three levels, Reduce motion turned every animation off.
+			if f[1] == "1" do app.kit.ctx.motion = .Off
+		case "motion_off":
+			motion_off_read(&app.kit.ctx, f[1:])
 		case "favourite":
 			// favourite <command name>, in the order they were starred.
 			id, arg, ok := command_from_name(f[1])
@@ -1179,6 +1184,7 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 		}
 	}
 	for f in app.kit.favourites[:app.kit.favourite_count] do fmt.sbprintfln(&out, "favourite %s", command_name(f.id, f.arg))
+	if off := motion_off_text(&app.kit.ctx); off != "" do fmt.sbprintfln(&out, "motion_off %s", off)
 	for s, slot in app.plugins.slots do if s.key != "" do fmt.sbprintfln(&out, "plugin_slot %d %s", slot, preset_escape(s.key))
 	gestures := GESTURE_DEFAULTS
 	for s, slot in app.nav.gestures {

@@ -57,6 +57,7 @@ kit_colour_island :: proc(app: ^App) {
 	segment_w: f32 = 260 if segment else 0
 	fixed := t.target * 2 + 8 + t.target + segment_w + 4 * ACTION_BAR_PADDING
 	history := clamp(int((room - fixed) / (SWATCH_SIDE + 2)), 0, min(ISLAND_HISTORY, c.history_count))
+	mark := ui.vertex_mark(ctx)
 	ui.begin_anchored(ctx, "colour island", .Center, .End, {0, t.edge + dock_lift(app) + dock.y + ACTION_BAR_GAP}, {direction = .Row, gap = 6, padding = ACTION_BAR_PADDING, radius = t.radius_large + 4, background = .Panel, center = true})
 	// The main colour's well, as a colour field's: the popover sets it, taken next frame.
 	well := "Main colour##colour island"
@@ -95,6 +96,9 @@ kit_colour_island :: proc(app: ^App) {
 		ui.end(ctx)
 	}
 	ui.end(ctx)
+	// It rises into place as painting turns on, as a popover does.
+	shown := ui.presence(ctx, ui.id_of(ctx, "colour island shown"), true, t.popover_time, motion_class(.Popovers))
+	if shown < 1 do ui.transform_since(ctx, mark, shown, offset = {0, (1 - shown) * 8})
 }
 
 // The Paint toggle's tile at the end of the Sculpt dock, on the pen side beside it as the

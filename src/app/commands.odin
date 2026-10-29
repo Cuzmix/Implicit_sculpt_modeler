@@ -2144,9 +2144,12 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Reduce_Motion = {
 		label = "Reduce motion",
-		help = "Turns off the interface's animations.",
-		run = proc(app: ^App, _: int) {app.kit.ctx.reduced_motion = !app.kit.ctx.reduced_motion},
-		checked = proc(app: ^App, _: int) -> bool {return app.kit.ctx.reduced_motion},
+		help = "Turns the interface's animations off, or back on in full (Settings > Interface > Motion also has Reduced, which fades in place).",
+		run = proc(app: ^App, _: int) {
+			ctx := &app.kit.ctx
+			ctx.motion = .Full if ctx.motion != .Full else .Off
+		},
+		checked = proc(app: ^App, _: int) -> bool {return app.kit.ctx.motion != .Full},
 	},
 	.Command_Palette = {
 		label = "Search commands",
