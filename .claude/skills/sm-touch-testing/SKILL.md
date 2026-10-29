@@ -58,10 +58,10 @@ on window focus or hover to decide ownership; a widget that acts on a finger pre
 | What a user does | Scenarios in `touch_check.py` |
 |---|---|
 | taps every major region: the camera does not move, nothing is sculpted | `tap_ui`, `rapid_taps` |
-| taps and long-presses the side bars and the dock's tools: popovers open beside them, nothing is sculpted | `bar_section_opens_beside_the_bar`, `long_press_draw_size_opens_the_pen`, `symmetry_tap_and_long_press`, `look_switch_is_remembered` |
-| the bottom bar: Gizmo and the browser's Curve and Insert, the dock's pages (dots, a brush key, a narrow window) and the mesh tools | `gizmo_and_browser_tools`, `browser_tap_picks_insert`, `dock_pages_by_the_dots`, `brush_key_brings_its_dock_page`, `mesh_tools_on_the_bottom_bar`, `narrow_dock_has_more_pages` |
+| taps and long-presses the view rail and the shelf's tools: popovers open beside them, nothing is sculpted | `lens_rail_opens_beside_itself`, `long_press_draw_size_opens_the_pen`, `symmetry_tap_and_long_press`, `look_switch_is_remembered` |
+| the shelf: a brush, its pages (by name and by a swipe), the tools after the brushes, All's picker and the mesh tools | `lens_shelf_tap_picks_a_brush`, `lens_shelf_page_names_turn_the_page`, `lens_shelf_swipe_turns_the_page`, `lens_shelf_tools_follow_the_brushes`, `lens_shelf_all_opens_the_picker`, `mesh_tools_on_the_shelf` |
 | touches down far from where the last finger lifted | `tap_viewport_far_apart` |
-| drags vertically through a panel from the very first touch, on a control | `first_touch_scrolls_inspector`, `inspector_tab_switch_then_scroll`, `settings_scroll_and_persist` |
+| drags vertically through a panel from the very first touch, on a control | `first_touch_scrolls_inspector`, `settings_scroll_and_persist` |
 | scrolls a panel straight after opening it; opens, scrolls, closes, repeats | `settings_scroll_right_after_opening`, `settings_open_scroll_close_repeat` |
 | drags a slider: the value changes, no orbit, no scroll | `slider_drag_sideways` |
 | sculpts on the model with a finger, the pen, the mouse | `finger_sculpts_model`, `palm_while_pen_near`, `pen_stroke_with_hand_resting`, `mouse_controls`, `mouse_click_within_one_frame` |
@@ -72,16 +72,16 @@ on window focus or hover to decide ownership; a widget that acts on a finger pre
 | orbits after sculpting off the middle: the stroke stays put on screen; or about the centre, the selected objects, the whole scene or the air under the pointer when set so; the wheel toward the pointer | `orbit_turns_about_the_last_stroke`, `orbit_about_the_centre_setting`, `orbit_about_the_selection_setting`, `orbit_about_the_whole_scene_setting`, `orbit_about_the_air_under_the_pointer`, `wheel_zooms_toward_the_pointer_setting`, `wheel_zooms_toward_the_middle_by_default` |
 | zoomed in until the model fills the screen, turns the view from the edges (the safe zone), or sculpts there with it off | `edge_orbits_over_the_model`, `edge_off_sculpts` |
 | hovers the brush over the model: the ring lies on the surface; off the model it is flat | `ring_lies_on_the_surface`, `ring_off_the_model_is_flat` |
-| folds, opens, closes, reopens and drags the panel windows, and finds them where they were after a restart | `window_minimise_folds_to_the_title_bar`, `window_tap_on_folded_title_opens_it`, `window_close_and_reopen`, `window_drag_by_title_is_remembered`, `window_position_comes_back` |
+| folds a card, closes, reopens and drags the panel windows, and finds them where they were after a restart | `lens_stack_header_tap_folds_the_card`, `window_close_and_reopen`, `window_drag_by_title_is_remembered`, `window_position_comes_back` |
 | pinches, pans and twists with two fingers | `pinch_zoom`, `two_finger_pan`, `twist_rolls_free_only`, `twist_wobble_rolls_nothing`, `twist_rolls_nothing_in_turntable` |
 | lands several fingers at once or one after another | `second_finger_on_model_sculpts_nothing`, `second_finger_soon_after_sculpts_nothing`, `three_finger_size`, `three_finger_focal_shift` |
-| long presses the brush bar's Focal shift, Draw size or Strength and drags, lets go still, or is cancelled mid-drag | `long_press_drag_draw_size`, `long_press_drag_strength_and_focal`, `long_press_focal_shift_opens_the_falloff`, `long_press_draw_size_opens_the_pen`, `cancelled_scrub_puts_the_size_back`; dragged at once with no hold: `drag_draw_size_at_once`, `mouse_drags_strength_at_once`; the Hold delay: `hold_delay_is_short_by_default`, `hold_delay_setting_goes_down_to_a_tenth`, `hold_delay_setting_keeps_a_shorter_hold_a_tap`, `hold_delay_setting_still_long_presses` |
+| drags the off-hand island's Size or Strength, long-presses Size, or is cancelled mid-drag | `lens_island_drag_raises_the_size`, `long_press_draw_size_opens_the_pen`, `cancelled_drag_puts_the_size_back`, `mouse_drags_strength_at_once`; the Hold delay: `hold_delay_is_short_by_default`, `hold_delay_setting_goes_down_to_a_tenth`, `hold_delay_setting_keeps_a_shorter_hold_a_tap`, `hold_delay_setting_still_long_presses` |
 | taps two or three fingers to undo and redo, on the viewport and on a panel | `tap_history`, `two_finger_tap_on_panel_does_nothing` |
 | has the touch cancelled by the system, or by the pen landing | `cancelled_stroke_is_taken_back`, `pen_landing_cancels_finger_stroke` |
 | uses the desktop mouse and keys | `mouse_controls`, `shift_snaps_orbit` |
 | changes and resets settings, and restarts | `settings_scroll_and_persist`, `settings_reset_everything`, `settings_reset_needs_second_tap` |
 | uses another window size | `small_window` (1280 x 800), `rail_fits_a_large_interface`, `rail_fits_portrait`, `rail_on_the_right_clears_the_panels` |
-| long-presses a control: its secondary action or its tooltip, never a tap; a press short of it still taps | `long_press_shows_the_tooltip_and_does_not_tap`, `long_press_a_scene_row_opens_its_menu`, `slow_tap_on_a_folded_title_still_opens_it`, `a_press_short_of_long_still_taps`, `long_press_undo_opens_history`, `right_click_undo_opens_history`, `long_press_dock_brush_opens_its_settings`, `long_press_size_slider_resets_it`, `size_slider_drag_still_slides`, `status_chip_tap_and_long_press` |
+| long-presses a control: its secondary action or its tooltip, never a tap; a press short of it still taps | `long_press_shows_the_tooltip_and_does_not_tap`, `long_press_a_scene_row_opens_its_menu`, `a_press_short_of_long_still_taps`, `long_press_undo_opens_history`, `right_click_undo_opens_history`, `lens_shelf_long_press_shows_quick_settings`, `status_chip_tap_and_long_press` |
 | holds or taps a modifier wheel sector with one hand while the other sculpts (Smooth and Mask together hide) | `rail_hold_smooth_with_pen`, `rail_tap_latches_invert`, `rail_mask_paints_mask`, `rail_mask_shape_from_empty_space`, `rail_hide_gesture`, `rail_lift_mid_stroke_keeps_mode`, `rail_mouse_click_latches` |
 | the wheel's brush pie sector, its grip drag (remembered) and its Large size | `wheel_pie_sector_opens_the_brush_pie`, `wheel_moves_by_its_grip` |
 | two fingers on the wheel spread to resize it and twist to turn it, holding nothing; a turned wheel's sectors are hit where they are drawn | `wheel_two_fingers_spread_resize_it`, `wheel_two_fingers_twist_turn_it`, `wheel_turned_taps_the_turned_sector` |
@@ -119,14 +119,14 @@ are on the device checklist.
   `adjust_op` (what the action bar can adjust now, `none`, `remesh`, `smooth_all`, ...), `adjusts` (re-runs), `adjust_pop`,
   `camera_views` (views kept for Previous/Next view), `camera_view` (the one shown, from 1), `camera_steps`,
   `shape_pending` (a drawn shape waiting for Apply: `mask`, `hide`, `clip`, `slice` or `none`), `shape_points`, `shape_flip`, `shape_box` (x0,y0,x1,y1),
-  `rebuild_goal` (`even`, `fewer`, `quads`), `rebuild_preview` (the density checkerboard drawn last frame), `rebuild_cell`, `rebuild_area_ms`/`rebuild_step_ms` (its measuring, in all and in the longest frame; `open_rebuild(s, goal)` folds the sections above and opens Rebuild),
+  `rebuild_goal` (`even`, `fewer`, `quads`), `rebuild_preview` (the density checkerboard drawn last frame), `rebuild_cell`, `rebuild_area_ms`/`rebuild_step_ms` (its measuring, in all and in the longest frame; `open_rebuild(s, goal)` picks the goal on the Rebuild section a run started with `palettes_only("remesh")` shows),
   `gizmo_at` (where the gizmo's centre was drawn), `gizmo_mode`, `gizmo_hover`, `gizmo_last` (the handle of the last drag that changed something), `gizmo_drags`, `gizmo_snap`, `transform` (x,y,z,turns,scale of the selected object; `transform_is(test)` reads it), `transform_undo`, `gizmo_pivot`, `gizmo_pivot_latch`, `gizmo_entry` (the `GIZMO_*` points and `gizmo_where` assume the starting sphere and camera; `type_value(s, text)` types into the field with the keys and presses Enter),
   `objects_shown`, `objects_off`, `objects_ghost`, `solo` (the Scene tab's eyes and ghosts; `THREE` starts three spheres, `SCENE_ROWS_Y`, `SCENE_EYE_X` and `SPHERES3` say where their rows and bodies are),
-  `card_rows`, `thumbs_drawn`, `card_menu`, `card_menu_full`, `clipboard_bytes`, `paint_off`, `booleans`, `window_objects` (the Objects card: `objects_card(s)` opens it from the view bar, `OBJECTS_CARD`, `CARD_ROWS_Y` and `CARD_*_X` are its dots, buttons and row parts; `scene_tab(s)` opens the tray's Scene palette on Objects),
+  `card_rows`, `thumbs_drawn`, `card_menu`, `card_menu_full`, `clipboard_bytes`, `paint_off`, `booleans`, `window_objects` (the Objects card: `objects_card(s)` opens it from search, `OBJECTS_CARD`, `CARD_ROWS_Y` and `CARD_*_X` are its dots, buttons and row parts; `scene_args()` starts three spheres on the Palettes card's Objects section, which `scene_tab(s)` shows),
   `folders`, `tree_rows` (rows the Scene tab drew), `scene_order` (object ids in list order), `scene_folders` (each one's folder id), `scene_names` (labels with spaces as `_`, then `;Folder_1:open,...`; `folder_first(s)` makes a folder of the first sphere, `FOLDER_*` are its row and menu, `SCENE_GRIP_X` a loose object row's grip for drags), `selected_count` (the primary and the rest of a multi-select; `SELECT_SEVERAL` is its switch with three spheres), `scene_positions` (each object's `x:y:z` in list order),
   `touch_repeats` (undo and redo steps taken by holding fingers), `inspector_tab` (the tray's palette), `tray_section`, `tray_marked` (Show where's ring is on a control), `brush_kind`, `tool`, `palette` (open),
   `palette_runs`, `palette_last` (the last row it ran, by its saved name: `Wireframe`, `Brush:Clay`), `settings_tab`, `layout_<name>` (x,y,w,h of the
-  modifier rail, brush bar, navigation head, view bar, top bar, dock, dock pages, points (the object's readout) and inspector), ...); `camera_still()` checks nothing moved; keys starting with `@` are checks given every stat at once or checks on
+  modifier rail, brush bar (the off-hand island), navigation head, view bar (the view rail), top bar, dock and dock pages (the shelf), points (the view chips) and inspector; Lens keeps the older names), ...); `camera_still()` checks nothing moved; keys starting with `@` are checks given every stat at once or checks on
   files, such as `saved(key="value")` and `saved_line(line)` on the settings file, or `on_screen` comparing where a
   point shows before and after an orbit. A value the scenario needs that the app does not print
   is a new key in the exit stats (`main.odin`), not a guess from a screenshot.
@@ -138,7 +138,7 @@ are on the device checklist.
   `set retopo_quads 100; retopologize`) shows it bit for bit. Scenarios set their runs up with `--script`, never
   with flags that mirror a tool (those are gone: README "Command scripts" has the script for each).
 - A value from one run that a later run must match: a check `"@remember": f` on the first step stores the stats in a
-  dict the later step's `@` check reads (`camera_back_and_forward_from_the_view_menu`).
+  dict the later step's `@` check reads (`camera_back_and_forward_from_the_camera_menu`).
 - A finger's or the pen's mask, hide or clip shape waits for Apply by default (two-phase shapes): a scenario that
   means the shape to apply presses `Return` after it (or taps the bar's Apply); a mouse's applies at once.
 - A popover whose height follows its text keeps its controls at its foot, by the anchor, so their positions hold
@@ -167,7 +167,7 @@ are on the device checklist.
 ## 6. Real-device checklist (for Bolt, or a session on the device)
 Record the device, OS version, build (commit, debug or release) and whether a finger or the pen was used. For each:
 what was done, what should happen, what happened; a screen recording when something is wrong; `adb logcat -s SDL/APP`.
-1. Tap every toolbar button, the dock, the tray's list of palettes and sections and Settings rows: the view never turns, nothing is sculpted.
+1. Tap every toolbar button, the shelf, the view rail, the panel stack's cards and Settings rows: the view never turns, nothing is sculpted.
 2. First touch on a tray slider in a section taller than the tray, drag up: the tray scrolls, the slider keeps its value; drag sideways: it sets.
 3. One finger on the model sculpts at once with no dot left by a second finger landing; on empty space it orbits.
 4. Pen on the model sculpts with pressure; a palm resting while the pen hovers does nothing; the pen landing mid-touch cancels it.
@@ -182,7 +182,7 @@ what was done, what should happen, what happened; a screen recording when someth
     (latches, filled); hold Mask and stroke with a finger. Check the OEM pen does not cancel the held finger (some
     stylus drivers cancel every touch when the pen lands), and that the bottom-left buttons are not inside the
     system's home-gesture band (a swipe up from them must not leave the app, and a tap must reach the button).
-13. Long press: hold a finger still on Undo or a dock brush: the ring fills and the tooltip shows,
+13. Long press: hold a finger still on Undo or a shelf brush: the ring fills and the tooltip shows,
     and lifting does not press it; a quick tap still presses. Long-press an object in the Scene tab: its menu opens.
     Note whether the 0.25 s Hold delay feels right (Settings > Touch changes it) and whether the ring shows round
     the fingertip.
@@ -210,4 +210,4 @@ event sequence to a scenario before fixing the code.
 | the settings file of one scenario carries to the next | each run starts with `--no-settings` unless it passes `--settings-file={settings_file()}`, a file of the scenario's own (`build/touch/settings/<name>.txt`, removed before it runs), so scenarios side by side never share one |
 | `--frames` runs at the display's rate | it runs as fast as the build and the display allow; nothing a check reads depends on real time (`input_clock`) |
 | two scenario windows can share a display | the one opening takes the focus, and `WINDOW_FOCUS_LOST` forgets the other's fingers (touch.odin): side by side runs get a private Xvfb each |
-| a new command cannot break a palette scenario | the scenarios tap rows and buttons at fixed points, so a new label that fuzzily matches what one types ("wire" in "Twist (deformer)") adds a row and moves them; `palette_wire_finds_two_rows` (app tests) pins the "wire" rows, and a new typed scenario query is worth a pin of its own |
+| a new command cannot break a palette scenario | the scenarios tap rows and buttons at fixed points, so a new label that fuzzily matches what one types ("wire" in "Twist (deformer)") adds a row and moves them; `palette_wire_finds_three_rows` (app tests) pins the "wire" rows, and a new typed scenario query is worth a pin of its own |

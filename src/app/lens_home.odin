@@ -11,9 +11,9 @@ import "../ui"
 // draws: a large Continue card for the scene most likely wanted next, the six commonest
 // starts as big tiles beside it with the rest behind More starters, then Recent and
 // Autosaves as pictures with Open and Import at their right, as a tablet sculpting app's
-// home leads with going back to work. Narrow windows keep Classic's page.
+// home leads with going back to work. Narrow windows stack the same parts (kit_home).
 
-// The width under which Lens's Home falls back to Classic's page, in points.
+// The width under which Home falls back to the narrow stacked page, in points.
 LENS_HOME_WIDE :: 760
 
 // The Start new tiles, by NEW_SCENES index, in the mock's order: Sphere, Head, Cube,

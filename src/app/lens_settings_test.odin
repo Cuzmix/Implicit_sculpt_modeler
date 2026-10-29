@@ -2,21 +2,21 @@ package main
 
 import "core:testing"
 
-// Every block shows somewhere: in one of Classic's tabs, in one of Lens's sections, or
+// Every block shows somewhere: in one of the narrow panel's tabs, in one of the sheet's sections, or
 // both; none twice in either, so a search never finds a block in two places.
 @(test)
 settings_blocks_each_have_one_place :: proc(t: ^testing.T) {
-	classic, lens: [Settings_Block]int
-	for tab in Settings_Tab do for e in settings_tab_entries(tab) do classic[e.block] += 1
+	tabs, lens: [Settings_Block]int
+	for tab in Settings_Tab do for e in settings_tab_entries(tab) do tabs[e.block] += 1
 	for s in Settings_Section do for e in settings_section_entries(s) do lens[e.block] += 1
 	for b in Settings_Block {
-		testing.expectf(t, classic[b] <= 1 && lens[b] <= 1, "%v is in two places", b)
-		testing.expectf(t, classic[b] + lens[b] > 0, "%v shows nowhere", b)
+		testing.expectf(t, tabs[b] <= 1 && lens[b] <= 1, "%v is in two places", b)
+		testing.expectf(t, tabs[b] + lens[b] > 0, "%v shows nowhere", b)
 	}
-	// Lens gives the gesture switches and the map one list, and Classic keeps its own.
+	// The sheet gives the gesture switches and the map one list, and the tabs keep their own.
 	testing.expect_value(t, lens[.Gesture_Map], 0)
-	testing.expect_value(t, classic[.Gesture_List], 0)
-	// Every Classic tab opens on a section.
+	testing.expect_value(t, tabs[.Gesture_List], 0)
+	// Every tab opens on a section.
 	for tab in Settings_Tab do testing.expect(t, len(settings_section_entries(SETTINGS_TAB_SECTION[tab])) > 0)
 }
 
@@ -33,7 +33,7 @@ settings_search_finds_the_section :: proc(t: ^testing.T) {
 	testing.expect(t, settings_section_matches(.Frame_Rate, "frame"))
 }
 
-// Reset on a section puts its settings back and leaves the others'; a Classic tab's reset
+// Reset on a section puts its settings back and leaves the others'; a tab's reset
 // is its blocks', as it always was.
 @(test)
 settings_section_reset_keeps_the_others :: proc(t: ^testing.T) {

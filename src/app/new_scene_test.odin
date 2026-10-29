@@ -50,12 +50,12 @@ new_scene_asks_before_discarding_work :: proc(t: ^testing.T) {
 	testing.expect(t, app.ui.scene_command.kind == .None && new_scene_armed(&app, 0))
 }
 
-// Classic's six starts keep their numbers, so what names one by number still starts it;
+// The six first starts keep their numbers, so what names one by number still starts it;
 // every start has a name of its own that reads back; Lens's Home shows each start once.
 @(test)
 new_scene_starts_keep_their_numbers_and_names :: proc(t: ^testing.T) {
-	classic := [CLASSIC_NEW_SCENES]geom.Primitive{.Sphere, .Head, .Bust, .Figure, .Hand, .Creature}
-	for shape, i in classic do testing.expect(t, NEW_SCENES[i].kind == .Mesh && NEW_SCENES[i].shape == shape)
+	first := [NARROW_HOME_STARTS]geom.Primitive{.Sphere, .Head, .Bust, .Figure, .Hand, .Creature}
+	for shape, i in first do testing.expect(t, NEW_SCENES[i].kind == .Mesh && NEW_SCENES[i].shape == shape)
 	for _, i in NEW_SCENES {
 		id, arg, ok := command_from_name(command_name(.New_Scene, i))
 		testing.expectf(t, ok && id == .New_Scene && arg == i, "%d: %v %d %v", i, id, arg, ok)
