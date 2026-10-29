@@ -293,6 +293,7 @@ SETTINGS := [?]Setting {
 	{"fov", offset_of(App, camera) + offset_of(camera.Orbit, fov_y), f32, camera.FOV_MIN, camera.FOV_MAX},
 	// Settings > Interface, Camera, Touch and Performance.
 	{"surface_ring", K + offset_of(Kit_State, surface_ring), bool, 0, 0},
+	{"symmetry_line", K + offset_of(Kit_State, symmetry_line), bool, 0, 0},
 	{"clean_view_dial", K + offset_of(Kit_State, clean_dial), bool, 0, 0},
 	{"panes_work", K + offset_of(Kit_State, panes_work), bool, 0, 0},
 	{"new_panes", K + offset_of(Kit_State, new_panes), New_Panes, 0, 0},

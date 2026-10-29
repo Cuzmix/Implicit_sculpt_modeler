@@ -58,6 +58,7 @@ LENS_INTERFACE := [?]Settings_Entry {
 	{.Motion, "MOTION"},
 	{.Starting, "STARTING"},
 	{.Brush_Ring, "BRUSH RING"},
+	{.Symmetry_Line, "SYMMETRY"},
 	{.Column_Popovers, "PANELS"},
 	{.View_Grid, "VIEW GRID"},
 	{.Inspector, "INSPECTOR"},
